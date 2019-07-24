@@ -21,6 +21,8 @@
 
 #define RESTART_STEP_MS		3000	/* 2 second */
 
+int snap_receiver_timeout = 60 * 1000L;
+
 typedef struct SnapRcvData
 {
 	WalRcvState		state;
@@ -124,9 +126,23 @@ DisableSnapRcvImmediateExit(void)
 	ProcessSnapRcvInterrupts();
 }
 
+static void
+SnapRcvSendHeartbeat(void)
+{
+	/* Construct a new message */
+	resetStringInfo(&reply_message);
+	appendStringInfoString(&reply_message, "HEARTBEAT");
+
+	/* Send it */
+	walrcv_send(wrconn, reply_message.data, reply_message.len);
+}
+
 void SnapReceiverMain(void)
 {
 	TimestampTz now;
+	TimestampTz last_recv_timestamp;
+	TimestampTz timeout;
+	bool		heartbeat_sent;
 
 	Assert(SnapRcv != NULL);
 
@@ -221,6 +237,9 @@ void SnapReceiverMain(void)
 
 	SnapRcvUpdateShmemConnInfo();
 
+	/* Initialize the last recv timestamp */
+	last_recv_timestamp = GetCurrentTimestamp();
+	
 	for (;;)
 	{
 		WalRcvStreamOptions options;
@@ -241,6 +260,8 @@ void SnapReceiverMain(void)
 		{
 			//walrcv_endstreaming(wrconn, &primaryTLI);
 			/* loop until end-of-streaming or error */
+			SnapRcvSendHeartbeat();
+			heartbeat_sent = true;
 			for(;;)
 			{
 				char	   *buf;
@@ -263,6 +284,8 @@ void SnapReceiverMain(void)
 					{
 						if (len > 0)
 						{
+							last_recv_timestamp = GetCurrentTimestamp();
+							heartbeat_sent = false;
 							SnapRcvProcessMessage(buf[0], &buf[1], len-1);
 						}else if(len == 0)
 						{
@@ -284,9 +307,9 @@ void SnapReceiverMain(void)
 
 				Assert(wait_fd != PGINVALID_SOCKET);
 				rc = WaitLatchOrSocket(&MyProc->procLatch,
-									   WL_POSTMASTER_DEATH | WL_SOCKET_READABLE | WL_LATCH_SET,
+									   WL_POSTMASTER_DEATH | WL_SOCKET_READABLE | WL_LATCH_SET | WL_TIMEOUT,
 									   wait_fd,
-									   -1L,
+									   snap_receiver_timeout,
 									   PG_WAIT_EXTENSION);
 				ResetLatch(&MyProc->procLatch);
 
@@ -298,6 +321,25 @@ void SnapReceiverMain(void)
 					 * postmaster children.
 					 */
 					exit(1);
+				}
+
+				if (rc & WL_TIMEOUT)
+				{
+					if (snap_receiver_timeout > 0)
+					{
+						now = GetCurrentTimestamp();
+						if (!heartbeat_sent)
+						{
+							timeout = TimestampTzPlusMilliseconds(last_recv_timestamp,
+										snap_receiver_timeout);
+
+							if (now >= timeout)
+							{
+								heartbeat_sent = true;
+								SnapRcvSendHeartbeat();
+							}
+						}
+					}
 				}
 			}
 		}else
@@ -509,6 +551,8 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 		break;
 	case 'c':
 		SnapRcvProcessComplete(buf, len);
+		break;
+	case 'h':				/* heartbeat response */
 		break;
 	default:
 		ereport(ERROR,

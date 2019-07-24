@@ -71,6 +71,7 @@ typedef struct SnapClientData
 /* GUC variables */
 extern char *AGtmHost;
 extern int snapsender_port;
+extern int snap_receiver_timeout;
 
 static volatile sig_atomic_t got_sigterm = false;
 
@@ -83,6 +84,8 @@ static WaitEventSet	   *wait_event_set = NULL;
 static WaitEvent	   *wait_event = NULL;
 static uint32			max_wait_event = 0;
 static uint32			cur_wait_event = 0;
+static int snap_send_timeout = 0;
+
 #define WAIT_EVENT_SIZE_STEP	64
 #define WAIT_EVENT_SIZE_START	128
 
@@ -106,6 +109,7 @@ static bool AppendMsgToClient(SnapClientData *client, char msgtype, const char *
 static const WaitEventData LatchSetEventData = {OnLatchSetEvent};
 static const WaitEventData PostmasterDeathEventData = {OnPostmasterDeathEvent};
 static const WaitEventData ListenEventData = {OnListenEvent};
+static void SnapSendCheckTimeoutSocket(void);
 
 /* Signal handlers */
 static void SnapSenderSigUsr1Handler(SIGNAL_ARGS);
@@ -143,6 +147,29 @@ void SnapSenderShmemInit(void)
 	}
 }
 
+static void SnapSendCheckTimeoutSocket(void)
+{
+	TimestampTz  now;
+	TimestampTz timeout;
+	slist_mutable_iter		siter;
+
+	now = GetCurrentTimestamp();
+	slist_foreach_modify(siter, &slist_all_client)
+	{
+		SnapClientData *client = slist_container(SnapClientData, snode, siter.cur);
+		if (client && client->status == CLIENT_STATUS_STREAMING)
+		{
+			timeout = TimestampTzPlusMilliseconds(client->last_msg, snap_send_timeout);
+			if (now >= timeout)
+			{
+				slist_delete_current(&siter);
+				DropClient(client, false);
+			}
+		}
+	}
+	return;
+}
+
 void SnapSenderMain(void)
 {
 	WaitEvent	   *event;
@@ -163,6 +190,7 @@ void SnapSenderMain(void)
 	SnapSender->pid = MyProc->pid;
 	SnapSender->procno = MyProc->pgprocno;
 	SpinLockRelease(&SnapSender->mutex);
+	snap_send_timeout = snap_receiver_timeout + 10000L;
 
 	on_shmem_exit(SnapSenderDie, (Datum)0);
 
@@ -239,10 +267,11 @@ void SnapSenderMain(void)
 		pq_switch_to_none();
 		wed = NULL;
 		rc = WaitEventSetWait(wait_event_set,
-							  -1L,
+							  snap_send_timeout,
 							  wait_event,
 							  cur_wait_event,
 							  PG_WAIT_CLIENT);
+
 		for(i=0;i<rc;++i)
 		{
 			event = &wait_event[i];
@@ -250,6 +279,8 @@ void SnapSenderMain(void)
 			(*wed->fun)(event);
 			pq_switch_to_none();
 		}
+
+		SnapSendCheckTimeoutSocket();
 	}
 	proc_exit(1);
 }
@@ -491,6 +522,7 @@ static bool AppendMsgToClient(SnapClientData *client, char msgtype, const char *
 							WL_SOCKET_WRITEABLE,
 							NULL);
 		}
+		client->last_msg = GetCurrentTimestamp();
 	}
 
 	return true;
@@ -617,6 +649,7 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node)
 				(errmsg("client closed stream")));
 	}
 
+	client->last_msg = GetCurrentTimestamp();
 	resetStringInfo(&input_buffer);
 	msgtype = pq_node_get_msg(&input_buffer, node);
 	switch(msgtype)
@@ -657,7 +690,20 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node)
 		if (msgtype == 'c')
 			client->status = CLIENT_STATUS_CONNECTED;
 		else
-			;
+		{
+			/* only support "HEARTBEAT" command */
+			if (strcasecmp(input_buffer.data, "HEARTBEAT") == 0)
+			{
+				/* Send a HEARTBEAT Response message */
+				resetStringInfo(&output_buffer);
+				appendStringInfoChar(&output_buffer, 'h');
+				appendStringInfoString(&output_buffer, "HEARTBEAT");
+				if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false) == false)
+				{
+					DropClient(client, true);
+				}
+			}
+		}
 		break;
 	default:
 		break;
@@ -667,7 +713,13 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node)
 static void OnClientSendMsg(SnapClientData *client, pq_comm_node *node)
 {
 	if (pq_node_flush_if_writable_sock(node) != 0)
+	{
 		client->status = CLIENT_STATUS_EXITING;
+	}
+	else
+	{
+		client->last_msg = GetCurrentTimestamp();
+	}
 }
 
 /* SIGUSR1: used by latch mechanism */
