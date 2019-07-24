@@ -49,7 +49,7 @@
 #define is_digit(c) ((unsigned)(c) - '0' <= 9)
 #define SQL_PG_HBA_FILE_RULES "select type,trim(both '{}' from database::varchar), \
 		trim(both '{}' from user_name::varchar) \
-		,address,masklen(netmask::inet) ,auth_method from pg_hba_file_rules"
+		,address,netmask,auth_method from pg_hba_file_rules"
 
 typedef enum OperateHbaType
 {
@@ -101,7 +101,81 @@ static void joint_hba_send_str(char *hbavalue, StringInfo infosendmsg);
 static void joint_hba_table_str(char *hbavalue, StringInfo infomsg);
 static bool is_digit_str(char *s_digit);
 static bool mgr_type_include(char nodetype, char type);
+static int ipv6_mask_to_int (const char *ipstr);
+static int ipv4_mask_to_int(const char *prefix);
 /*--------------------------------------------------------------------*/
+static int bit_count(uint32_t i)
+{
+	int c = 0;
+	unsigned int seen_one = 0;
+
+	while (i > 0) {
+		if (i & 1) {
+			seen_one = 1;
+			c++;
+		} else {
+			if (seen_one) {
+				return -1;
+			}
+		}
+		i >>= 1;
+	}
+
+	return c;
+}
+
+static int mask2prefix(struct in_addr mask)
+{
+	return bit_count(ntohl(mask.s_addr));
+}
+
+static
+int ipv4_mask_to_int(const char *prefix)
+{
+	int ret;
+	struct in_addr in;
+
+	ret = inet_pton(AF_INET, prefix, &in);
+	if (ret == 0)
+		return -1;
+
+	return mask2prefix(in);
+}
+
+static int
+ipv6_mask_to_int(const char *ipstr)
+{
+	int len = 0;
+	unsigned char val;
+	unsigned char *pnt;
+	struct in6_addr ip6;
+
+	if (inet_pton(AF_INET6, ipstr, &ip6) <= 0) {
+		ereport(INFO,
+			( errmsg("bad IPv6 address: %s\n", ipstr)));
+		return -1;
+	}
+
+	pnt = (unsigned char *) & ip6;
+
+	while ((*pnt == 0xff) && len < 128)
+	{
+		len += 8;
+		pnt++;
+	}
+
+	if (len < 128)
+	{
+		val = *pnt;
+		while (val)
+		{
+			len++;
+			val <<= 1;
+		}
+	}
+	return len;
+}
+
 static TupleDesc get_hba_conf_tuple_desc(void)
 {
 	if(hba_file_reules_tuple_desc == NULL)
@@ -166,7 +240,19 @@ static HeapTuple build_hba_conf_file_tuple(const Form_mgr_node mgr_node, const S
 		value = &(resultstrdata->data[position]);
 		if (*value)
 		{
-			appendStringInfo(&hbavaluedata, "%s ", value);
+			if (i == 4) /* netmask */
+			{
+				if(strstr(value, ":"))/* ipv6 */
+					appendStringInfo(&hbavaluedata, "%d ", ipv6_mask_to_int(value));
+				else
+					appendStringInfo(&hbavaluedata, "%d ", ipv4_mask_to_int(value));
+				
+			}
+			else
+			{
+				appendStringInfo(&hbavaluedata, "%s ", value);	
+			}
+			
 			position = position + strlen(value);
 		}
 		position = position + 1;
