@@ -53,7 +53,15 @@ Datum mgr_doctor_start(PG_FUNCTION_ARGS)
 				(errmsg("mgr_doctor_start: SPI_connect returned %d",
 						ret)));
 
-	SPI_execute("select adb_doctor.adb_doctor_start()", 0, 0);
+	ret = SPI_execute("select adb_doctor.adb_doctor_start()", 0, 0);
+	if (ret != SPI_OK_SELECT)
+	{
+		SPI_finish();
+		/* internal error */
+		ereport(ERROR,
+				(errmsg("mgr_doctor_start: SPI_execute returned %d",
+						ret)));
+	}
 
 	SPI_finish();
 
@@ -71,7 +79,15 @@ Datum mgr_doctor_stop(PG_FUNCTION_ARGS)
 				(errmsg("mgr_doctor_stop: SPI_connect returned %d",
 						ret)));
 
-	SPI_execute("select adb_doctor.adb_doctor_stop()", 0, 0);
+	ret = SPI_execute("select adb_doctor.adb_doctor_stop()", 0, 0);
+	if (ret != SPI_OK_SELECT)
+	{
+		SPI_finish();
+		/* internal error */
+		ereport(ERROR,
+				(errmsg("mgr_doctor_stop: SPI_execute returned %d",
+						ret)));
+	}
 
 	SPI_finish();
 
@@ -112,13 +128,22 @@ Datum mgr_doctor_param(PG_FUNCTION_ARGS)
 		v = defGetString(def);
 		if (v == NULL || strlen(v) == 0)
 		{
-			ereport(ERROR, (errmsg("Failed to set doctor parameters, nothing to set!")));
+			ereport(ERROR,
+					(errmsg("Failed to set doctor parameters, nothing to set!")));
 		}
 		resetStringInfo(&buf);
 		appendStringInfo(&buf, "select adb_doctor.adb_doctor_param('%s', '%s')",
 						 k, v);
-		SPI_execute(buf.data, false, 0);
+		ret = SPI_execute(buf.data, false, 0);
 		pfree(buf.data);
+		if (ret != SPI_OK_SELECT)
+		{
+			SPI_finish();
+			/* internal error */
+			ereport(ERROR,
+					(errmsg("mgr_doctor_param: SPI_execute returned %d",
+							ret)));
+		}
 	}
 
 	SPI_finish();
