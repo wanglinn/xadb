@@ -108,7 +108,7 @@ int SPI_selectAdbDoctorConfInt(char *key)
 	}
 }
 
-AdbDoctorConf *SPI_selectAdbDoctorConfAll(MemoryContext ctx)
+AdbDoctorConf *SPI_selectAllAdbDoctorConf(MemoryContext ctx)
 {
 	AdbDoctorConf *conf;
 	StringInfoData buf;
@@ -282,6 +282,60 @@ AdbDoctorConf *SPI_selectAdbDoctorConfAll(MemoryContext ctx)
 
 	MemoryContextSwitchTo(oldCtx);
 	return conf;
+}
+
+int SPI_selectEditableAdbDoctorConf(MemoryContext ctx, AdbDoctorConfRow **rowDataP)
+{
+	AdbDoctorConfRow *rowData;
+	StringInfoData buf;
+	int ret, j;
+	uint64 rows;
+	HeapTuple tuple;
+	TupleDesc tupdesc;
+	MemoryContext oldCtx;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "select %s,%s,%s from %s.%s where editable = %d::boolean",
+					 ADB_DOCTOR_CONF_ATTR_KEY,
+					 ADB_DOCTOR_CONF_ATTR_VALUE,
+					 ADB_DOCTOR_CONF_ATTR_DESP,
+					 ADB_DOCTOR_SCHEMA,
+					 ADB_DOCTOR_CONF_RELNAME,
+					 true);
+	ret = SPI_execute(buf.data, false, 0);
+	pfree(buf.data);
+
+	if (ret != SPI_OK_SELECT)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
+
+	oldCtx = MemoryContextSwitchTo(ctx);
+
+	rows = SPI_processed;
+	if (rows > 0 && SPI_tuptable != NULL)
+	{
+		/* do outside the spi memory context because the spi will be freed. */
+		rowData = palloc(sizeof(AdbDoctorConfRow) * rows);
+		tupdesc = SPI_tuptable->tupdesc;
+		for (j = 0; j < rows; j++)
+		{
+			tuple = SPI_tuptable->vals[j];
+			rowData[j].k = SPI_getvalue(tuple, tupdesc, 1);
+			rowData[j].v = SPI_getvalue(tuple, tupdesc, 2);
+			rowData[j].desp = SPI_getvalue(tuple, tupdesc, 3);
+		}
+	}
+	else
+	{
+		rows = 0;
+		rowData = NULL;
+	}
+
+	MemoryContextSwitchTo(oldCtx);
+	*rowDataP = rowData;
+	return rows;
 }
 
 AdbDoctorList *SPI_selectMgrNodeForMonitor(MemoryContext ctx)

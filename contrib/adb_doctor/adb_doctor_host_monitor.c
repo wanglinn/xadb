@@ -236,15 +236,14 @@ static void hostMonitorMainLoop(AdbDoctorHostData *data)
 							  occurredEvents,
 							  nOccurredEvents,
 							  PG_WAIT_CLIENT);
-		if (rc > 0)
+
+		for (i = 0; i < rc; ++i)
 		{
-			for (i = 0; i < rc; ++i)
-			{
-				event = &occurredEvents[i];
-				wed = event->user_data;
-				(*wed->fun)(event);
-			}
+			event = &occurredEvents[i];
+			wed = event->user_data;
+			(*wed->fun)(event);
 		}
+
 		/* Examine the status of all agents, determine whether it crashed.  */
 		examineAgentsStatus();
 	}
@@ -695,6 +694,7 @@ static void stopMonitorAgent(ManagerAgentWrapper *agentWrapper)
 static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper)
 {
 	int ret;
+	bool allowcure;
 	AdbMgrHostWrapper *host;
 	Oid hostOid;
 	MemoryContext oldContext;
@@ -730,6 +730,13 @@ static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper)
 						agentWrapper->hostWrapper->hostaddr,
 						hostOid)));
 	}
+	allowcure = host->fdmh.allowcure;
+	if (!allowcure)
+	{
+		ereport(ERROR,
+				(errmsg("%s, cure agent not allowed",
+						MyBgworkerEntry->bgw_name)));
+	}
 	if (!equalsAdbMgrHostWrapper(agentWrapper->hostWrapper, host))
 	{
 		ereport(ERROR,
@@ -744,7 +751,7 @@ static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper)
 
 	MemoryContextSwitchTo(oldContext);
 
-	return host->fdmh.allowcure;
+	return allowcure;
 }
 
 static bool restartAgent(ManagerAgentWrapper *agentWrapper, RestartAgentMode mode)

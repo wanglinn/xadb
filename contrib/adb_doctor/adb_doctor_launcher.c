@@ -975,7 +975,7 @@ static void queryBgworkerDataAndConf(AdbDoctorConf **confP,
 	PushActiveSnapshot(GetTransactionSnapshot());
 
 	/* query out all configuration values from table adb_doctor_conf */
-	*confP = SPI_selectAdbDoctorConfAll(oldContext);
+	*confP = SPI_selectAllAdbDoctorConf(oldContext);
 
 	/* query out all data from table mgr_node that need to be monitored */
 	nodeDataList = SPI_selectMgrNodeForMonitor(oldContext);

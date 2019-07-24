@@ -3,21 +3,32 @@
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION adb_doctor" to load this file. \quit
 
-CREATE SCHEMA IF NOT EXISTS adb_extension;
+CREATE SCHEMA IF NOT EXISTS adb_doctor;
 
+-- Start all doctor process
 CREATE OR REPLACE FUNCTION adb_doctor_start()
     RETURNS pg_catalog.void STRICT
 	AS 'MODULE_PATHNAME' LANGUAGE C;
 
+-- Stop all doctor processes
 CREATE OR REPLACE FUNCTION adb_doctor_stop()
     RETURNS pg_catalog.void STRICT
 	AS 'MODULE_PATHNAME' LANGUAGE C;
 
+-- Set configuration variables stored in table adb_doctor_conf
 CREATE OR REPLACE FUNCTION adb_doctor_param(k pg_catalog.text default '',
-					   v pg_catalog.text default '')
+											v pg_catalog.text default '')
     RETURNS pg_catalog.void STRICT
 	AS 'MODULE_PATHNAME' LANGUAGE C;
 
+-- List editable configuration variables stored in table adb_doctor_conf
+CREATE OR REPLACE FUNCTION adb_doctor_list(OUT k pg_catalog.text,
+										   OUT v pg_catalog.text,
+										   OUT desp pg_catalog.text)
+    RETURNS SETOF record STRICT
+	AS 'MODULE_PATHNAME' LANGUAGE C;
+
+-- Store the configuration variables needed
 CREATE TABLE IF NOT EXISTS adb_doctor_conf (
     k       	varchar(64) PRIMARY KEY, -- k is not case sensitive
     v       	varchar(256) NOT NULL,
@@ -25,6 +36,7 @@ CREATE TABLE IF NOT EXISTS adb_doctor_conf (
 	desp		varchar
 );
 
+-- user editable configuration variables
 INSERT INTO adb_doctor_conf VALUES (
 	'datalevel',
 	'0',
@@ -134,7 +146,6 @@ INSERT INTO adb_doctor_conf VALUES (
 	'f',
 	'node重启延迟最大毫秒数'
 );
-
 
 -- host monitor
 INSERT INTO adb_doctor_conf VALUES (

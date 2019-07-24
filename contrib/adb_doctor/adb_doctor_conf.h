@@ -20,6 +20,7 @@
 
 #define ADB_DOCTOR_CONF_SHM_MAGIC 0x79fb2449
 
+#define ADB_DOCTOR_SCHEMA "adb_doctor"
 #define ADB_DOCTOR_CONF_RELNAME "adb_doctor_conf"
 #define ADB_DOCTOR_CONF_ATTR_KEY "k"
 #define ADB_DOCTOR_CONF_ATTR_VALUE "v"
@@ -92,6 +93,14 @@ typedef struct AdbDoctorConfShm
 	AdbDoctorConf *confInShm;
 } AdbDoctorConfShm;
 
+typedef struct AdbDoctorConfRow
+{
+	char *k;
+	char *v;
+	bool editable;
+	char *desp;
+} AdbDoctorConfRow;
+
 static inline void pfreeAdbDoctorConfShm(AdbDoctorConfShm *confShm)
 {
 	if (confShm)
@@ -100,6 +109,18 @@ static inline void pfreeAdbDoctorConfShm(AdbDoctorConfShm *confShm)
 		confShm->seg = NULL;
 		pfree(confShm);
 		confShm = NULL;
+	}
+}
+
+static inline void pfreeAdbDoctorConfRow(AdbDoctorConfRow *src)
+{
+	if (src)
+	{
+		pfree(src->k);
+		pfree(src->v);
+		pfree(src->desp);
+		pfree(src);
+		src = NULL;
 	}
 }
 

@@ -15,12 +15,11 @@
 #define ADBMGR_DBNAME "postgres"
 #endif
 
-#define ADB_DOCTOR_SCHEMA "adb_doctor"
-
 /* SPI functions */
 extern int SPI_selectAdbDoctorConfInt(char *key);
 extern char *SPI_selectAdbDoctConfByKey(char *key);
-extern AdbDoctorConf *SPI_selectAdbDoctorConfAll(MemoryContext ctx);
+extern AdbDoctorConf *SPI_selectAllAdbDoctorConf(MemoryContext ctx);
+extern int SPI_selectEditableAdbDoctorConf(MemoryContext ctx, AdbDoctorConfRow **rowDataP);
 extern void SPI_updateAdbDoctorConf(char *key, char *value);
 extern AdbDoctorList *SPI_selectMgrNodeForMonitor(MemoryContext ctx);
 extern AdbDoctorList *SPI_selectMgrNodeForSwitcher(MemoryContext ctx);

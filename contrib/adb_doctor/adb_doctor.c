@@ -14,6 +14,9 @@
 #include "fmgr.h"
 #include "miscadmin.h"
 #include "pgstat.h"
+#include "funcapi.h"
+#include "access/htup_details.h"
+#include "catalog/pg_type.h"
 #include "storage/dsm.h"
 #include "storage/shm_mq.h"
 #include "storage/shm_toc.h"
@@ -33,6 +36,7 @@ PG_MODULE_MAGIC;
 PG_FUNCTION_INFO_V1(adb_doctor_start);
 PG_FUNCTION_INFO_V1(adb_doctor_stop);
 PG_FUNCTION_INFO_V1(adb_doctor_param);
+PG_FUNCTION_INFO_V1(adb_doctor_list);
 
 void _PG_init(void);
 
@@ -123,9 +127,9 @@ Datum
 	ret = SPI_connect();
 	if (ret != SPI_OK_CONNECT)
 	{
-		ereport(ERROR, (errcode(ERRCODE_CONNECTION_FAILURE),
-						(errmsg("SPI_connect failed, connect return:%d",
-								ret))));
+		ereport(ERROR,
+				(errmsg("SPI_connect failed, connect return:%d",
+						ret)));
 	}
 	SPI_updateAdbDoctorConf(k, v);
 	SPI_finish();
@@ -135,6 +139,76 @@ Datum
 	pfree(k);
 	pfree(v);
 	PG_RETURN_VOID();
+}
+
+/**
+ * List editable configuration variables stored in table adb_doctor_conf.
+ */
+Datum
+	adb_doctor_list(PG_FUNCTION_ARGS)
+{
+	TupleDesc tupdesc;
+	Datum datums[3];
+	bool nulls[3];
+	int rows, ret;
+	AdbDoctorConfRow *rowData;
+	FuncCallContext *funcctx;
+	MemoryContext multi_call_memory_ctx;
+	MemoryContext oldcontext;
+
+	if (SRF_IS_FIRSTCALL())
+	{
+		funcctx = SRF_FIRSTCALL_INIT();
+		multi_call_memory_ctx = funcctx->multi_call_memory_ctx;
+		oldcontext = MemoryContextSwitchTo(multi_call_memory_ctx);
+
+		ret = SPI_connect();
+		if (ret != SPI_OK_CONNECT)
+		{
+			ereport(ERROR,
+					(errmsg("SPI_connect failed, connect return:%d",
+							ret)));
+		}
+		rows = SPI_selectEditableAdbDoctorConf(multi_call_memory_ctx, &rowData);
+		SPI_finish();
+
+		funcctx->max_calls = rows;
+		funcctx->user_fctx = rowData;
+		tupdesc = CreateTemplateTupleDesc(3, false);
+		TupleDescInitEntry(tupdesc, (AttrNumber)1,
+						   ADB_DOCTOR_CONF_ATTR_KEY,
+						   TEXTOID, -1, 0);
+		TupleDescInitEntry(tupdesc, (AttrNumber)2,
+						   ADB_DOCTOR_CONF_ATTR_VALUE,
+						   TEXTOID, -1, 0);
+		TupleDescInitEntry(tupdesc, (AttrNumber)3,
+						   ADB_DOCTOR_CONF_ATTR_DESP,
+						   TEXTOID, -1, 0);
+		tupdesc = BlessTupleDesc(tupdesc);
+		funcctx->tuple_desc = tupdesc;
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	funcctx = SRF_PERCALL_SETUP();
+	rowData = funcctx->user_fctx;
+	tupdesc = funcctx->tuple_desc;
+	if (funcctx->call_cntr < funcctx->max_calls)
+	{
+		nulls[0] = rowData[funcctx->call_cntr].k == NULL;
+		if (!nulls[0])
+			datums[0] = CStringGetTextDatum(rowData[funcctx->call_cntr].k);
+		nulls[1] = rowData[funcctx->call_cntr].v == NULL;
+		if (!nulls[1])
+			datums[1] = CStringGetTextDatum(rowData[funcctx->call_cntr].v);
+		nulls[2] = rowData[funcctx->call_cntr].desp == NULL;
+		if (!nulls[2])
+			datums[2] = CStringGetTextDatum(rowData[funcctx->call_cntr].desp);
+		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(heap_form_tuple(tupdesc, datums, nulls)));
+	}
+	else
+	{
+		SRF_RETURN_DONE(funcctx);
+	}
 }
 
 static shm_mq *
