@@ -21,7 +21,7 @@ ADB documentation
 
   <refsynopsisdiv>
   <synopsis>
-SHOW HBA { ALL | <replaceable class="parameter">coord_name</replaceable> [, ...] }
+SHOW HBA { ALL | <replaceable class="parameter">node_name</replaceable> }
 </synopsis>
 </refsynopsisdiv>
   <refsect1>

@@ -21,7 +21,7 @@ ADB documentation
 
   <refsynopsisdiv>
   <synopsis>
-LIST HBA [ coord_name [, ...] ]
+LIST HBA [ node_name ]
 </synopsis>
 </refsynopsisdiv>
   <refsect1>
