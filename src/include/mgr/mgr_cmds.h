@@ -504,7 +504,10 @@ extern Datum mgr_cluster_pgxcnode_check(PG_FUNCTION_ARGS);
 extern Datum mgr_doctor_start(PG_FUNCTION_ARGS);
 extern Datum mgr_doctor_stop(PG_FUNCTION_ARGS);
 extern Datum mgr_doctor_param(PG_FUNCTION_ARGS);
-extern void mgr_doctor_set_param(MGRDoctorSet * node, ParamListInfo params, DestReceiver * dest);
+extern Datum mgr_doctor_list(PG_FUNCTION_ARGS);
+extern void mgr_doctor_set_param(MGRDoctorSet *node,
+								 ParamListInfo params,
+								 DestReceiver *dest);
 
 /*online expand internal function*/
 void mgr_cluster_slot_init(ClusterSlotInitStmt *node, ParamListInfo params, DestReceiver *dest, const char *query);

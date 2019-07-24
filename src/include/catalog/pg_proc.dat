@@ -11487,6 +11487,12 @@
   proargnames => '{arg1, arg2}',
   prosrc => 'mgr_doctor_param'
 },
-
+{ oid => '5023', row_macros => 'ADBMGRD', descr => 'list doctor parameters',
+  proname => 'mgr_doctor_list', procost => '10', prorows => '100',
+  proretset => 't', provolatile => 's', prorettype => 'record',
+  proargtypes => '', proallargtypes => '{text,text,text}',
+  proargmodes => '{o,o,o}',
+  proargnames => '{key,value,description}',
+  prosrc => 'mgr_doctor_list' },
 # ADB_END
 ]

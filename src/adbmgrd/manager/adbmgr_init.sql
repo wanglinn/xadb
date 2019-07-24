@@ -1254,7 +1254,8 @@ from public;
 revoke execute on function
 mgr_doctor_start(),
 mgr_doctor_stop(),
-mgr_doctor_param()
+mgr_doctor_param(),
+mgr_doctor_list()
 from public;
 
 create extension adb_doctor;

@@ -167,7 +167,7 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 				ExpandNodeStmt CheckNodeStmt ClusterSlotInitStmt
 				ClusterPgxcNodeInitStmt ClusterPgxcNodeCheckStmt
 				ImportHashMetaStmt ClusterHashMetaCheckStmt
-				 StartDoctorStmt StopDoctorStmt SetDoctorParamStmt
+				StartDoctorStmt StopDoctorStmt SetDoctorParamStmt ListDoctorParamStmt
 %type <node>	ListNodeSize
 %type <node>	opt_nodesize_with_list  opt_nodesize_with_list_items
 // %type <boolean>	opt_pretty
@@ -322,6 +322,7 @@ stmt :
 	| GetBoottimeStmt
 	/* DOCTOR BEGIN */
 	| SetDoctorParamStmt
+	| ListDoctorParamStmt
 	| StartDoctorStmt
 	| StopDoctorStmt
 /* ADB END */
@@ -3163,7 +3164,7 @@ ZoneStmt:
 			$$ = (Node*)stmt;
 		}
 	;
-	/* ADB DOCTOR BEGIN */
+/* ADB DOCTOR BEGIN */
 StartDoctorStmt: 
 		START DOCTOR 
 		{
@@ -3171,7 +3172,7 @@ StartDoctorStmt:
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_doctor_start", NULL));
 			$$ = (Node*)stmt;
-		}
+		};
 
 StopDoctorStmt:
 		STOP DOCTOR
@@ -3180,16 +3181,24 @@ StopDoctorStmt:
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_doctor_stop", NULL));
 			$$ = (Node*)stmt;
-		}
-	
+		};
+
 SetDoctorParamStmt:
 		SET DOCTOR opt_general_options
 		{
 			MGRDoctorSet *node = makeNode(MGRDoctorSet);
 			node -> options = $3;
 			$$ = (Node*)node;
-		} 
+		};
 
+ListDoctorParamStmt:
+		LIST DOCTOR opt_general_options
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_doctor_list", NULL));
+			$$ = (Node*)stmt;
+		};
 /* ADB DOCTOR END */
 
 
