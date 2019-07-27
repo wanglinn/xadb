@@ -36,7 +36,9 @@
 #include "utils/ascii.h"
 #include "utils/ps_status.h"
 #include "utils/timeout.h"
-
+#ifdef ADB
+#include "utils/dynamicreduce.h"
+#endif /* ADB */
 /*
  * The postmaster's list of registered background workers, in private memory.
  */
@@ -130,6 +132,11 @@ static const struct
 	{
 		"ApplyWorkerMain", ApplyWorkerMain
 	}
+#ifdef ADB
+	,{
+		"DynamicReduceWorkerMain", DynamicReduceWorkerMain
+	}
+#endif /* ADB */
 };
 
 /* Private functions. */

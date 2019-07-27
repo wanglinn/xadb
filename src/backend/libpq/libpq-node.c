@@ -6,6 +6,7 @@
 #include "libpq-fe.h"
 #include "libpq/pqcomm.h"
 #include "miscadmin.h"
+#include "utils/dynamicreduce.h"
 #include "utils/memutils.h"
 #include "nodes/pg_list.h"
 #include "pgxc/nodemgr.h"
@@ -723,6 +724,7 @@ void PQNReleaseAllConnect(bool request_cancel)
 		htab_oid_pgconn = NULL;
 		PoolManagerReleaseConnections(false);
 		force_release_connect = false;
+		StopDynamicReduceWorker();
 	}
 }
 

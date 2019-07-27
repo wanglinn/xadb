@@ -44,6 +44,7 @@
 #include "intercomm/inter-node.h"
 #include "pgxc/pgxcnode.h"
 #include "reduce/adb_reduce.h"
+#include "utils/dynamicreduce.h"
 #endif
 
 
@@ -1466,6 +1467,11 @@ void
 ParallelWorkerReportLastRecEnd(XLogRecPtr last_xlog_end)
 {
 	FixedParallelState *fps = MyFixedParallelState;
+#ifdef ADB
+	/* in dynamic reduce worker fps should be NULL */
+	if (IsDynamicReduceWorker())
+		return;
+#endif /* ADB */
 
 	Assert(fps != NULL);
 	SpinLockAcquire(&fps->mutex);
