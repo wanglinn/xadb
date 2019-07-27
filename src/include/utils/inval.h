@@ -69,3 +69,7 @@ extern void InvalidateRemoteNode(void);
 #endif /* ADB */
 
 #endif							/* INVAL_H */
+
+#ifdef ADBMGRD
+extern bool readonlySqlSlaveInfoRefreshFlag;
+#endif /* ADBMGR */

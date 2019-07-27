@@ -118,7 +118,9 @@
 #include "libpq/libpq-node.h"
 #endif /* ADB */
 
-
+#ifdef ADBMGRD
+#include "mgr/mgr_cmds.h"
+#endif /* ADBMGR */
 /*
  * To minimize palloc traffic, we keep pending requests in successively-
  * larger chunks (a slightly more sophisticated version of an expansible
@@ -1227,6 +1229,16 @@ CacheInvalidateHeapTuple(Relation relation,
 		return;
 	}
 #endif /* ADB */
+#ifdef ADBMGRD
+	/* If the mgr_node table is modified, 
+	* you need to refresh the slave node information 
+	* about the read-only sql in the pgxc_node table. 
+	*/
+	else if (tupleRelId == NodeRelationId)
+	{
+		readonlySqlSlaveInfoRefreshFlag = true;
+	}
+#endif /* ADBMGR */
 	else
 		return;
 

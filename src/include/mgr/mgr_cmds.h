@@ -531,5 +531,6 @@ extern HeapTuple mgr_get_nodetuple_by_name_zone(Relation rel, char *nodename, ch
 extern Datum mgr_zone_clear(PG_FUNCTION_ARGS);
 extern bool mgr_node_has_slave_inzone(Relation rel, char *zone, Oid mastertupleoid);
 extern bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync);
+extern void mgr_clean_cn_pgxcnode_readonlysql_slave(void);
 
 #endif /* MGR_CMDS_H */

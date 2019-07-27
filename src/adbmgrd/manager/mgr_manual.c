@@ -1525,6 +1525,10 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	Datum datumPath;
 	Relation rel_updateparm;
 
+	/* Clear the slave node information about the read-only query in the pgxc_node table,
+	 * avoid repeating node names and causing subsequent work to fail */
+	mgr_clean_cn_pgxcnode_readonlysql_slave();
+
 	mgr_make_sure_all_running(GTM_TYPE_GTM_MASTER);
 	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 
@@ -2218,6 +2222,8 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	ereport(LOG, (errmsg("the command of switchover result : status = %s , description is : %s", rest == true ? "true":"false", strerr.data)));
 	tupResult = build_common_command_tuple(&nodeNameData, rest, strerr.data);
 	pfree(strerr.data);
+	/* Refresh slave node information about read-only query in pgxc_node table */ 
+	mgr_update_cn_pgxcnode_readonlysql_slave(NULL, NULL);
 	return HeapTupleGetDatum(tupResult);
 }
 

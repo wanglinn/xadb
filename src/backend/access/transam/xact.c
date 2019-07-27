@@ -81,6 +81,9 @@
 #include "reduce/adb_reduce.h"
 #include "replication/snapsender.h"
 #endif
+#ifdef ADBMGRD
+extern bool readonlySqlSlaveInfoRefreshFlag;
+#endif /* ADBMGR */
 
 /*
  *	User-tweakable parameters
@@ -3512,6 +3515,19 @@ CommitTransactionCommand(void)
 		case TBLOCK_STARTED:
 			CommitTransaction();
 			s->blockState = TBLOCK_DEFAULT;
+#ifdef ADBMGRD
+			/* If you need to refresh the slave node information 
+			 * about read-only sql in the pgxc_node table, 
+			 * and in the state of non-sub-transactions
+			 */
+			if(readonlySqlSlaveInfoRefreshFlag && s->parent == NULL)
+			{
+				readonlySqlSlaveInfoRefreshFlag = false;
+				StartTransactionCommand();
+				mgr_update_cn_pgxcnode_readonlysql_slave(NULL, NULL);
+				CommitTransactionCommand();
+			}
+#endif /* ADBMGR */
 			break;
 
 			/*

@@ -290,7 +290,7 @@ static void mgr_add_givenname_updateparm(MGRUpdateparm *parm_node, Name nodename
 			if (!mgr_update_cn_pgxcnode_readonlysql_slave(key.data, isSlaveSync))
 			{
 				pfree(enumvalue.data);
-				ereport(ERROR, (errmsg("Adding read-only standby node information to coord failed")));
+				ereport(WARNING, (errmsg("Adding read-only standby node information to coord failed.")));
 			}
 		}
 
