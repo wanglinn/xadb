@@ -1,0 +1,51 @@
+<!--
+doc/src/sgml/ref/mgr_flush_readonly_slave.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-FLUSHREADONLYSLAVE"> mgrFlushReadonlySlave FLUSHREADONLYSLAVE
+  <refmeta>
+    <refentrytitle>FLUSH READONLY SLAVE</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>FLUSH READONLY SLAVE</refname>
+    <refpurpose> Manually refresh the information about the read-only slave node in the pgxc_node table of the coordinate node.</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-mgrFlushReadonlySlave">
+    <primary>FLUSH READONLY SLAVE</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+<synopsis>
+FLUSH READONLY SLAVE
+</synopsis>
+  </refsynopsisdiv>
+  <refsect1>
+    <title>Description</title>
+    <para>
+    <command>FLUSH READONLY SLAVE</command> Manually refresh the information about the read-only slave node in the pgxc_node table of the coordinate node.
+    </para>
+  </refsect1>
+
+  <refsect1>
+  <title>Examples</title>
+ <para>
+ Manually refresh read-only slave node information:
+<programlisting>
+FLUSH READONLY SLAVE;
+</programlisting>
+</para>
+  </refsect1>
+      <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+      <member><xref linkend="mgr-mgrFlushReadonlySlave"></member>
+    </simplelist>
+  </refsect1>
+
+</refentry>

@@ -208,5 +208,10 @@ typedef struct MGRFlushParam
 	NodeTag type;
 }MGRFlushParam;
 
+typedef struct MGRFlushReadonlySlave
+{
+	NodeTag type;
+}MGRFlushReadonlySlave;
+
 #endif
 #endif /* MGR_NODE_H */

@@ -200,7 +200,7 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 %token<keyword>	ADD_P DEPLOY DROP ALTER LIST CREATE ACL CLUSTER
 %token<keyword>	IF_P EXISTS NOT FOR IN_P MINVALUE MAXVALUE
 %token<keyword>	FALSE_P TRUE_P
-%token<keyword>	HOST MONITOR PARAM HBA HA BOOTTIME
+%token<keyword>	HOST MONITOR PARAM HBA HA BOOTTIME READONLY
 %token<keyword>	INIT GTM MASTER SLAVE ALL NODE COORDINATOR DATANODE
 %token<keyword>	PRETTY SIZE WITH SLINK
 %token<keyword> PASSWORD CLEAN RESET WHERE ROW_ID
@@ -2871,6 +2871,11 @@ FlushStmt:
 		MGRFlushParam *node = makeNode(MGRFlushParam);
 		$$ = (Node*)node;
 	}
+	| FLUSH READONLY SLAVE
+	{
+		MGRFlushReadonlySlave *node = makeNode(MGRFlushReadonlySlave);
+		$$ = (Node*)node;
+	}
 	;
 AddJobitemStmt:
 	ADD_P ITEM Ident opt_general_options
@@ -3322,6 +3327,7 @@ unreserved_keyword:
 	| PASSWORD
 	| PROMOTE
 	| PRETTY
+	| READONLY
 	| REMOVE
 	| RESET
 	| REVOKE

@@ -86,6 +86,9 @@ const char *mgr_CreateCommandTag(Node *parsetree)
 	case T_MGRFlushParam:
 		tag = "FLUSH PARAM";
 		break;
+	case T_MGRFlushReadonlySlave:
+		tag = "FLUSH READONLY SLAVE";
+		break;
 	default:
 		ereport(WARNING, (errmsg("unrecognized node type: %d", (int)nodeTag(parsetree))));
 		tag = "???";
@@ -172,6 +175,9 @@ void mgr_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 		break;
 	case T_MGRFlushParam:
 		mgr_flushparam((MGRFlushParam*)parsetree, params, dest);
+		break;
+	case T_MGRFlushReadonlySlave:
+		mgr_update_cn_pgxcnode_readonlysql_slave(NULL, NULL);
 		break;
 	default:
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
