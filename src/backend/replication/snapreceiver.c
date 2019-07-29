@@ -131,7 +131,7 @@ SnapRcvSendHeartbeat(void)
 {
 	/* Construct a new message */
 	resetStringInfo(&reply_message);
-	appendStringInfoString(&reply_message, "HEARTBEAT");
+	pq_sendbyte(&reply_message, 'h');
 
 	/* Send it */
 	walrcv_send(wrconn, reply_message.data, reply_message.len);
@@ -659,6 +659,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	StringInfoData	msg;
 	TransactionId	txid;
 	uint32			i,count;
+	StringInfoData xidmsg;
 
 	if ((len % sizeof(txid)) != 0 ||
 		len == 0)
@@ -669,6 +670,9 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	msg.data = buf;
 	msg.len = msg.maxlen = len;
 	msg.cursor = 0;
+
+	initStringInfo(&xidmsg);
+	pq_sendbyte(&xidmsg, 'f');
 
 	LOCK_SNAP_RCV();
 	count = SnapRcv->xcnt;
@@ -696,10 +700,15 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 		}
 		--count;
 		WakeupTransaction(txid);
+		pq_sendint32(&xidmsg, txid);
 	}
+	
 	SnapRcv->xcnt = count;
 
 	UNLOCK_SNAP_RCV();
+
+	walrcv_send(wrconn, xidmsg.data, xidmsg.len);
+	pfree(xidmsg.data);
 }
 
 /*
