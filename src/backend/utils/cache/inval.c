@@ -633,6 +633,7 @@ LocalExecuteInvalidationMessage(SharedInvalidationMessage *msg)
 #ifdef ADB
 	else if (msg->id == SHAREDINVALNODE_ID)
 	{
+		RelationCacheInvalidate();
 		PQNForceReleaseWhenTransactionFinish();
 	}
 #endif /* ADB */
