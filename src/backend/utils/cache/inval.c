@@ -1237,6 +1237,7 @@ CacheInvalidateHeapTuple(Relation relation,
 	else if (tupleRelId == NodeRelationId)
 	{
 		readonlySqlSlaveInfoRefreshFlag = true;
+		return;
 	}
 #endif /* ADBMGR */
 	else

@@ -13268,6 +13268,7 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 	initStringInfo(&execSql);
 	foreach (cell, datanode_list)
 	{
+		initStringInfo(&checkSql);
 		mgr_datanode_info = (MgrDatanodeInfo *) lfirst(cell);
 		if (mgr_datanode_info->slaveNode == NULL)
 		{	
@@ -13279,7 +13280,6 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 		}
 		else
 		{
-			initStringInfo(&checkSql);
 			appendStringInfo(&checkSql, "select * from pgxc_node where node_master_oid = (select oid from pgxc_node where node_name = '%s');", mgr_datanode_info->masterNode->nodename.data);
 			res = PQexec(conn, checkSql.data);
 			/* query failed */
@@ -13438,7 +13438,8 @@ void mgr_clean_cn_pgxcnode_readonlysql_slave(void)
 					get_hostuser_from_hostoid(mgr_node->nodehost), 
 					get_hostaddress_from_hostoid(mgr_node->nodehost), 
 					mgr_node->nodeport, 
-					DEFAULT_DB);appendStringInfoCharMacro(&connStr, '\0');
+					DEFAULT_DB);
+		appendStringInfoCharMacro(&connStr, '\0');
 		/* get coordinate connect */
 		conn = PQconnectdb(connStr.data);
 		if (PQstatus(conn) != CONNECTION_OK)
@@ -13449,7 +13450,6 @@ void mgr_clean_cn_pgxcnode_readonlysql_slave(void)
 			{
 				PQfinish(conn);
 				pfree(connStr.data);
-				pfree(info);
 				ereport(WARNING, 
 						(errmsg("Attempt to link to the node '%s' failed, please confirm that the cluster is running. %s", 
 								mgr_node->nodename.data, 
@@ -13474,7 +13474,7 @@ void mgr_clean_cn_pgxcnode_readonlysql_slave(void)
 		}
 		else
 		{
-			ereport(WARNING, 
+			ereport(NOTICE, 
 					(errmsg("Clearing pgxc_node in '%s' successfully.", 
 							mgr_node->nodename.data)));
 		}
@@ -13483,6 +13483,7 @@ void mgr_clean_cn_pgxcnode_readonlysql_slave(void)
 		pfree(connStr.data);
 		pfree(cleanSql.data);
 	}	
+	heap_endscan(info->rel_scan);
 	heap_close(info->rel_node, AccessShareLock);	/* close table */
 	pfree(info);
 }
