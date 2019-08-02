@@ -16,7 +16,7 @@ typedef struct OidBufferData
 
 extern OidBuffer makeOidBuffer(uint32 size);
 
-#define initOidBuffer(buf) initOidBufferContext(buf, OID_BUF_DEF_SIZE, CurrentMemoryContext)
+#define initOidBuffer(buf) initOidBufferEx(buf, OID_BUF_DEF_SIZE, CurrentMemoryContext)
 
 extern OidBuffer initOidBufferEx(OidBuffer buf, uint32 size, MemoryContext context);
 
