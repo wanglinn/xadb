@@ -330,6 +330,66 @@ static int PorcessNodeEventData(DRNodeEventData *ned, WaitEvent *ev)
 	return msg_count;
 }
 
+bool DRNodeFetchTuple(DRNodeEventData *ned, int fetch_plan_id, char **data, int *len)
+{
+	StringInfoData	buf;
+	uint32			msglen;
+	int				msgtype;
+	int				plan_id;
+
+	if (ned->waiting_plan_id != INVALID_PLAN_ID &&
+		ned->waiting_plan_id != fetch_plan_id)
+	{
+		DR_NODE_DEBUG((errmsg("node %u return false for plan %d fetch, because it waiting plan %d",
+							  ned->nodeoid, fetch_plan_id, ned->waiting_plan_id)));
+		return false;	/* quick return */
+	}
+
+	if (ned->recvBuf.len - ned->recvBuf.cursor < NODE_MSG_HEAD_LEN)
+	{
+		DR_NODE_DEBUG((errmsg("node %u return false for plan %d fetch, because data less then message head",
+							  ned->nodeoid, fetch_plan_id)));
+		return false;
+	}
+
+	buf = ned->recvBuf;
+	pq_copymsgbytes(&buf, (char*)&msglen, sizeof(msglen));
+	msgtype = pq_getmsgbyte(&buf);
+	pq_copymsgbytes(&buf, (char*)&plan_id, sizeof(plan_id));
+	if (buf.len - buf.cursor < msglen)
+	{
+		DR_NODE_DEBUG((errmsg("node %u return false for plan %d fetch, because data length not enough",
+							  ned->nodeoid, fetch_plan_id)));
+		return false;
+	}
+	if (plan_id != fetch_plan_id)
+	{
+		DR_NODE_DEBUG((errmsg("node %u return false for plan %d fetch, because current message is for plan %d",
+							  ned->nodeoid, fetch_plan_id, plan_id)));
+		return false;
+	}
+
+	if (msgtype == ADB_DR_MSG_TUPLE)
+	{
+		*data = buf.data + buf.cursor;
+		*len = msglen;
+	}else if (msgtype == ADB_DR_MSG_END_OF_PLAN)
+	{
+		*data = NULL;
+		*len = 0;
+	}else
+	{
+		ned->status = DRN_WAIT_CLOSE;
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("unknown message type %d from node %u", msgtype, ned->nodeoid)));
+	}
+
+	ned->recvBuf.cursor += msglen;
+	ned->waiting_plan_id = INVALID_PLAN_ID;
+	return true;
+}
+
 static void OnNodeRecvMessage(DRNodeEventData *ned, WaitEvent *ev)
 {
 	ssize_t result;

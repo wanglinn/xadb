@@ -19,7 +19,6 @@
  */
 #define CONNECT_MSG_LENGTH	9
 
-extern Oid PGXCNodeOid;
 static int dr_listen_pos = INVALID_EVENT_SET_POS;
 static pgsocket ConnectToAddress(const struct addrinfo *addr);
 

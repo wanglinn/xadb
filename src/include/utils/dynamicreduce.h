@@ -12,7 +12,9 @@
 #ifndef DYNAMIC_REDUCE_H_
 #define DYNAMIC_REDUCE_H_
 
+#include "access/attnum.h"
 #include "lib/stringinfo.h"
+#include "storage/buffile.h"
 #include "storage/shm_mq.h"
 
 #define ADB_DYNAMIC_REDUCE_QUERY_SIZE	(64*1024)	/* 64K */
@@ -35,6 +37,16 @@ typedef struct DynamicReduceMQData
 	char	reduce_sender_mq[ADB_DYNAMIC_REDUCE_QUERY_SIZE];
 }DynamicReduceMQData,*DynamicReduceMQ;
 
+/* for SharedFileSet plan */
+typedef struct DynamicReduceSFSData
+{
+	DynamicReduceMQData	mq;
+	SharedFileSet		sfs;
+	uint32				nnode;
+	Oid					nodes[FLEXIBLE_ARRAY_MEMBER];
+}DynamicReduceSFSData, *DynamicReduceSFS;
+#define DRSFSD_SIZE(n) (offsetof(DynamicReduceSFSData, nodes) + sizeof(Oid)*(n))
+
 struct tupleDesc;
 struct TupleTableSlot;	/* avoid include tuptable.h */
 struct OidBufferData;			/* avoid include pg_list.h */
@@ -47,8 +59,16 @@ extern uint16 StartDynamicReduceWorker(void);
 extern void StopDynamicReduceWorker(void);
 extern void ResetDynamicReduceWork(void);
 extern void DynamicReduceConnectNet(const DynamicReduceNodeInfo *info, uint32 count);
+extern const Oid* DynamicReduceGetCurrentWorkingNodes(uint32 *count);
 
 extern void DynamicReduceStartNormalPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, struct tupleDesc *desc);
+extern void DynamicReduceStartMergePlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, struct tupleDesc *desc,
+										int numCols, AttrNumber *sortColIdx, Oid *sortOperators, Oid *collations, bool *nullsFirst);
+
+extern void DynamicReduceStartSharedFileSetPlan(int plan_id, struct dsm_segment *seg, DynamicReduceSFS sfs, struct tupleDesc *desc);
+extern char* DynamicReduceSFSFileName(char *name, Oid nodeoid);
+extern struct TupleTableSlot *DynamicReduceReadSFSTuple(struct TupleTableSlot *slot, BufFile *file, StringInfo buf);
+extern void DynamicReduceWriteSFSTuple(struct TupleTableSlot *slot, BufFile *file);
 
 extern bool DynamicReduceRecvTuple(shm_mq_handle *mqh, struct TupleTableSlot *slot, StringInfo buf,
 								   Oid *nodeoid, bool nowait);

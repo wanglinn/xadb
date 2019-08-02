@@ -1,6 +1,7 @@
 #include "postgres.h"
 
 #include "access/htup_details.h"
+#include "libpq/pqformat.h"
 #include "miscadmin.h"
 #include "utils/dynamicreduce.h"
 #include "utils/dr_private.h"
@@ -122,6 +123,35 @@ invalid_plan_message_:
 	return false;	/* keep compiler quiet */
 }
 
+void DRSendWorkerMsgToNode(PlanWorkerInfo *pwi, PlanInfo *pi, DRNodeEventData *ned)
+{
+	uint32			i,count;
+	if (pwi->last_msg_type == ADB_DR_MSG_INVALID)
+		return;
+
+	for (i=pwi->dest_cursor,count=pwi->dest_count; i<count; ++i)
+	{
+		if (ned == NULL ||
+			pwi->dest_oids[i] != ned->nodeoid)
+			ned = DRSearchNodeEventData(pwi->dest_oids[i], HASH_FIND, NULL);
+
+		if (ned == NULL ||
+			PutMessageToNode(ned,
+							 pwi->last_msg_type,
+							 pwi->last_data,
+							 pwi->last_size,
+							 pi->plan_id) == false)
+		{
+			pwi->dest_cursor = i;
+			pi->waiting_node = pwi->waiting_node = pwi->dest_oids[i];
+			return;
+		}
+	}
+	pwi->last_msg_type = ADB_DR_MSG_INVALID;
+	pwi->last_data = NULL;
+	pi->waiting_node = pwi->waiting_node = InvalidOid;
+}
+
 TupleTableSlot* DRStoreTypeConvertTuple(TupleTableSlot *slot, const char *data, uint32 len, HeapTuple head)
 {
 	MinimalTuple mtup;
@@ -139,6 +169,97 @@ TupleTableSlot* DRStoreTypeConvertTuple(TupleTableSlot *slot, const char *data, 
 	}
 
 	return slot;
+}
+
+void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, TupleDesc desc, StringInfo buf)
+{
+	Size		offset;
+	dsm_handle	handle;
+
+	Assert(plan_id >= 0);
+
+	handle = dsm_segment_handle(seg);
+	offset = (char*)addr - (char*)dsm_segment_address(seg);
+	Assert((char*)addr >= (char*)dsm_segment_address(seg));
+	Assert(offset + size <= dsm_segment_map_length(seg));
+
+	pq_sendbytes(buf, (char*)&plan_id, sizeof(plan_id));
+	pq_sendbytes(buf, (char*)&handle, sizeof(handle));
+	pq_sendbytes(buf, (char*)&offset, sizeof(offset));
+	SerializeTupleDesc(buf, desc);
+}
+
+PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(PlanInfo*))
+{
+	Size			offset;
+	dsm_handle		handle;
+	struct tupleDesc * volatile
+					desc = NULL;
+	PlanInfo * volatile
+					pi = NULL;
+	int				plan_id;
+	bool			found;
+
+	PG_TRY();
+	{
+		pq_copymsgbytes(buf, (char*)&plan_id, sizeof(plan_id));
+		pq_copymsgbytes(buf, (char*)&handle, sizeof(handle));
+		pq_copymsgbytes(buf, (char*)&offset, sizeof(offset));
+		desc = RestoreTupleDesc(buf);
+
+		if (plan_id < 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+					 errmsg("invalid plan ID %d", plan_id)));
+
+		pi = DRPlanSearch(plan_id, HASH_ENTER, &found);
+		if (found)
+		{
+			pi = NULL;
+			ereport(ERROR,
+					(errcode(ERRCODE_OBJECT_IN_USE),
+					 errmsg("plan ID %d is in use", plan_id)));
+		}
+		MemSet(pi, 0, sizeof(*pi));
+		pi->plan_id = plan_id;
+		pi->OnDestroy = clear;
+		pi->base_desc = desc;
+		desc = NULL;
+
+		pi->seg = dsm_attach(handle);
+		if (offset + size > dsm_segment_map_length(pi->seg))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					 errmsg("invalid shared memory offset or size of DSM")));
+		}
+		*shm = ((char*)dsm_segment_address(pi->seg)) + offset;
+
+		initOidBuffer(&pi->end_of_plan_nodes);
+	}PG_CATCH();
+	{
+		if (pi && pi->type_convert)
+			desc = NULL;
+		if (desc)
+			FreeTupleDesc(desc);
+		if (pi)
+			(*pi->OnDestroy)(pi);
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	return pi;
+}
+
+void DRSetupPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi, DynamicReduceMQ mq, int worker_id)
+{
+	pwi->worker_id = -1;
+	pwi->waiting_node = InvalidOid;
+
+	shm_mq_set_receiver((shm_mq*)mq->worker_sender_mq, MyProc);
+	shm_mq_set_sender((shm_mq*)mq->reduce_sender_mq, MyProc);
+	pwi->worker_sender = shm_mq_attach((shm_mq*)mq->worker_sender_mq, pi->seg, NULL);
+	pwi->reduce_sender = shm_mq_attach((shm_mq*)mq->reduce_sender_mq, pi->seg, NULL);
+	initStringInfo(&pwi->sendBuffer);
 }
 
 /* active waiting plan */
@@ -224,4 +345,51 @@ bool DRPlanSeqInit(HASH_SEQ_STATUS *seq)
 		return true;
 	}
 	return false;
+}
+
+void DRClearPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi)
+{
+	if (pwi == NULL)
+		return;
+	if (pwi->sendBuffer.data)
+		pfree(pwi->sendBuffer.data);
+	if (pwi->reduce_sender)
+		shm_mq_detach(pwi->reduce_sender);
+	if (pwi->worker_sender)
+		shm_mq_detach(pwi->worker_sender);
+	if (pwi->slot_node_dest)
+		ExecDropSingleTupleTableSlot(pwi->slot_node_dest);
+	if (pwi->slot_node_src)
+		ExecDropSingleTupleTableSlot(pwi->slot_node_src);
+	if (pwi->slot_plan_dest)
+		ExecDropSingleTupleTableSlot(pwi->slot_plan_dest);
+	if (pwi->slot_plan_src)
+		ExecDropSingleTupleTableSlot(pwi->slot_plan_src);
+}
+
+void DRClearPlanInfo(PlanInfo *pi)
+{
+	if (pi == NULL)
+		return;
+
+	if (pi->sort_context)
+		MemoryContextDelete(pi->sort_context);
+	if (pi->type_convert)
+	{
+		free_type_convert(pi->type_convert);
+		pi->type_convert = NULL;
+	}
+	if (pi->convert_context)
+	{
+		MemoryContextDelete(pi->convert_context);
+		pi->convert_context = NULL;
+	}
+	if (pi->base_desc)
+		FreeTupleDesc(pi->base_desc);
+	if (pi->seg)
+	{
+		dsm_detach(pi->seg);
+		pi->seg = NULL;
+	}
+	
 }

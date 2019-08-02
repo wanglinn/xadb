@@ -454,6 +454,14 @@ static void TryBackendMessage(WaitEvent *ev)
 	{
 		DRStartNormalPlanMessage(&buf);
 		DRSendConfirmToBackend(false);
+	}else if (msgtype == ADB_DR_MQ_MSG_START_PLAN_MERGE)
+	{
+		DRStartMergePlanMessage(&buf);
+		DRSendConfirmToBackend(false);
+	}else if (msgtype == ADB_DR_MQ_MSG_START_PLAN_SFS)
+	{
+		DRStartSFSPlanMessage(&buf);
+		DRSendConfirmToBackend(false);
 	}else
 	{
 		ereport(ERROR,

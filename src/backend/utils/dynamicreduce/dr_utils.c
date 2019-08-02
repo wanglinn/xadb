@@ -11,6 +11,7 @@
 #include "storage/shm_toc.h"
 #include "utils/builtins.h"
 #include "utils/combocid.h"
+#include "utils/memutils.h"
 #include "utils/guc.h"
 #include "utils/inval.h"
 #include "utils/snapmgr.h"
@@ -41,6 +42,7 @@ typedef struct DRFixedState
 }DRFixedState;
 
 static dsm_segment *seg_utils = NULL;
+static OidBuffer	cur_working_nodes = NULL;
 static bool			session_attached = false;
 static bool			in_parallel_transaction = false;
 
@@ -171,6 +173,7 @@ void DynamicReduceConnectNet(const DynamicReduceNodeInfo *info, uint32 count)
 	Snapshot			transaction_snapshot = GetTransactionSnapshot();
 	Snapshot			active_snapshot = GetActiveSnapshot();
 	StringInfoData		buf;
+	uint32				i;
 
 	DRCheckStarted();
 
@@ -278,6 +281,16 @@ void DynamicReduceConnectNet(const DynamicReduceNodeInfo *info, uint32 count)
 	pq_sendbytes(&buf, (char*)&dsm_seg, sizeof(dsm_seg));
 	DRSendMsgToReduce(buf.data, buf.len, false);
 	pfree(buf.data);
+
+	if (cur_working_nodes == NULL)
+	{
+		MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+		cur_working_nodes = makeOidBuffer(OID_BUF_DEF_SIZE);
+		MemoryContextSwitchTo(oldcontext);
+	}
+	resetOidBuffer(cur_working_nodes);
+	for (i=0;i<count;++i)
+		appendOidBufferOid(cur_working_nodes, info[i].node_oid);
 
 	DRRecvConfirmFromReduce(false);
 	dsm_detach(seg);
@@ -395,6 +408,20 @@ void DRConnectNetMsg(StringInfo msg)
 	ConnectToAllNode(info, (uint32)*(Size*)ptr);
 }
 
+const Oid* DynamicReduceGetCurrentWorkingNodes(uint32 *count)
+{
+	if (cur_working_nodes == NULL)
+	{
+		if (count)
+			*count = 0;
+		return NULL;
+	}
+
+	if (count)
+		*count = cur_working_nodes->len;
+	return cur_working_nodes->oids;
+}
+
 void DRUtilsReset(void)
 {
 	InitializingParallelWorker = false;
@@ -422,6 +449,9 @@ void DRUtilsReset(void)
 		dsm_detach(seg_utils);
 		seg_utils = NULL;
 	}
+
+	if (cur_working_nodes)
+		resetOidBuffer(cur_working_nodes);
 }
 
 void DRUtilsAbort(void)

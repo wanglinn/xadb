@@ -35,6 +35,8 @@
 #define ADB_DR_MQ_MSG_STARTUP			'\x11'
 #define ADB_DR_MQ_MSG_CONNECT			'\x12'
 #define ADB_DR_MQ_MSG_START_PLAN_NORMAL	'\x13'
+#define ADB_DR_MQ_MSG_START_PLAN_MERGE	'\x14'
+#define ADB_DR_MQ_MSG_START_PLAN_SFS	'\x15'
 
 #define ADB_DR_MSG_INVALID				'\x00'
 #define ADB_DR_MSG_NODEOID				'\x01'
@@ -169,6 +171,7 @@ typedef struct PlanWorkerInfo
 	char			last_msg_type;		/* last message type for waiting send */
 	bool			end_of_plan_recv;
 	bool			end_of_plan_send;
+	void		   *private;			/* private data for special plan */
 }PlanWorkerInfo;
 
 typedef struct PlanInfo PlanInfo;
@@ -190,13 +193,22 @@ struct PlanInfo
 	void (*OnDestroy)(PlanInfo *pi);
 	void (*OnPreWait)(PlanInfo *pi);
 
+	TupleDesc			base_desc;
 	TupleTypeConvert   *type_convert;
 	MemoryContext		convert_context;
 
 	dsm_segment		   *seg;
 	OidBufferData		end_of_plan_nodes;
 	PlanWorkerInfo	   *pwi;
+
+	/* for merge */
+	int					nsort_keys;
+	struct SortSupportData
+					   *sort_keys;
+	MemoryContext		sort_context;
 };
+
+extern Oid					PGXCNodeOid;	/* avoid include pgxc.h */
 
 /* public variables */
 extern struct WaitEventSet *dr_wait_event_set;
@@ -218,18 +230,30 @@ void DRGetEndOfPlanMessage(PlanWorkerInfo *pwi);
 /* public plan functions in plan_public.c */
 bool DRSendPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi);
 bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi);
+void DRSendWorkerMsgToNode(PlanWorkerInfo *pwi, PlanInfo *pi, DRNodeEventData *ned);
 void ActiveWaitingPlan(DRNodeEventData *ned);
 void DRSetupPlanTypeConvert(PlanInfo *pi, TupleDesc desc);
 void DRSetupPlanWorkTypeConvert(PlanInfo *pi, PlanWorkerInfo *pwi);
 TupleTableSlot* DRStoreTypeConvertTuple(TupleTableSlot *slot, const char *data, uint32 len, HeapTuple head);
+void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, TupleDesc desc, StringInfo buf);
+PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(PlanInfo*));
+void DRSetupPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi, DynamicReduceMQ mq, int worker_id);
 void DRInitPlanSearch(void);
 PlanInfo* DRPlanSearch(int planid, HASHACTION action, bool *found);
 bool DRPlanSeqInit(HASH_SEQ_STATUS *seq);
+
+void DRClearPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi);
+void DRClearPlanInfo(PlanInfo *pi);
 
 
 /* normal plan functions in plan_normal.c */
 void DRStartNormalPlanMessage(StringInfo msg);
 
+/* merge plan functions in plan_merge.c */
+void DRStartMergePlanMessage(StringInfo msg);
+
+/* SharedFileSet plan functions in plan_sfs.c */
+void DRStartSFSPlanMessage(StringInfo msg);
 
 /* connect functions in dr_connect.c */
 void FreeNodeEventInfo(DRNodeEventData *ned);
@@ -240,6 +264,7 @@ DRListenEventData* GetListenEventData(void);
 void DROnNodeConectSuccess(DRNodeEventData *ned, WaitEvent *ev);
 bool PutMessageToNode(DRNodeEventData *ned, char msg_type, const char *data, uint32 len, int plan_id);
 ssize_t RecvMessageFromNode(DRNodeEventData *ned, WaitEvent *ev);
+bool DRNodeFetchTuple(DRNodeEventData *ned, int fetch_plan_id, char **data, int *len);
 void DRNodeReset(DRNodeEventData *ned);
 void DRActiveNode(int planid);
 void DRInitNodeSearch(void);
