@@ -2306,27 +2306,9 @@ typedef ReduceEntryData *ReduceEntry;
 typedef struct ClusterReduceState
 {
 	PlanState		ps;
-	struct ReduceExprState *reduceState;
-	struct RdcPort *port;			/* RdcPort for current ClusterReduce plan node */
-	List		   *closed_remote;	/* list of remote reduce which tell MSG_PLAN_CLOSE */
-	bool			eof_underlying; /* reached end of underlying plan? */
-	bool			eof_network;	/* reached end of network? */
-	bool			started;		/* set true while ExecClusterReduce */
-	int				nrdcs;			/* number of reduce group */
-	int				neofs;			/* number of EOF messages */
-	HTAB		   *rdc_htab;
-	ReduceEntry	   *rdc_entrys;		/* array of length nrdcs */
-	struct TupleTypeConvert *convert;
-	TupleTableSlot *convert_slot;
-
+	void		   *private_state;
 	int				eflags;			/* capability flags to pass to tuplestore */
-	Tuplestorestate*tuplestorestate;
-
-	/* used for merge reduce as below */
-	int				nkeys;
-	SortSupport 	sortkeys;	/* array of length nkeys */
-	struct binaryheap  *binheap; 	/* binary heap of slot indices */
-	bool			initialized;/* are subplans started? */
+	uint8			reduce_method;
 } ClusterReduceState;
 
 typedef struct ReduceScanState

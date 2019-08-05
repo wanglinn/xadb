@@ -30,6 +30,7 @@
 #include "storage/lmgr.h"
 #include "storage/mem_toc.h"
 #include "tcop/dest.h"
+#include "utils/builtins.h"
 #include "utils/combocid.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
@@ -43,7 +44,7 @@
 #include "libpq/libpq-fe.h"
 #include "pgxc/redistrib.h"
 
-#include "reduce/adb_reduce.h"
+#include "utils/dynamicreduce.h"
 #include "pgxc/slot.h"
 
 
@@ -97,8 +98,8 @@ typedef struct ClusterCoordInfo
 
 typedef struct GetRDCListenPortHook
 {
-	PQNHookFunctions	pub;
-	RdcMask			   *rdc_mark;
+	PQNHookFunctions		pub;
+	DynamicReduceNodeInfo  *rdc_info;
 }GetRDCListenPortHook;
 
 extern bool enable_cluster_plan;
@@ -125,7 +126,7 @@ static ClusterCoordInfo* RestoreCoordinatorInfo(StringInfo buf);
 static void send_rdc_listend_port(int port);
 static void wait_rdc_group_message(void);
 static bool get_rdc_listen_port_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
-static void StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt);
+static void StartRemoteReduceGroup(List *conns, DynamicReduceNodeInfo *rdc_info, uint32 rdc_cnt);
 static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context, bool start_trans);
 static bool InstrumentEndLoop_walker(PlanState *ps, Bitmapset **called);
 static void InstrumentEndLoop_cluster(PlanState *ps);
@@ -151,8 +152,8 @@ static const ClusterCustomExecInfo cluster_custom_execute[] =
 
 static void set_cluster_display(const char *activity, bool force, ClusterCoordInfo *info);
 
-static RdcMask *CnRdcMasks = NULL;
-static int		CnRdcCnt = 0;
+static DynamicReduceNodeInfo   *CnRdcInfo = NULL;
+static uint32					CnRdcCnt = 0;
 
 Oid
 GetCurrentCnRdcID(const char *rdc_name)
@@ -161,8 +162,9 @@ GetCurrentCnRdcID(const char *rdc_name)
 
 	for (i = 0; i < CnRdcCnt; i++)
 	{
-		if (pg_strcasecmp(CnRdcMasks[i].rdc_name, rdc_name) == 0)
-			return (Oid) CnRdcMasks[i].rdc_rpid;
+		DynamicReduceNodeInfo *info = &CnRdcInfo[i];
+		if (pg_strcasecmp(NameStr(info->name), rdc_name) == 0)
+			return info->node_oid;
 	}
 
 	return InvalidOid;
@@ -204,11 +206,11 @@ void exec_cluster_plan(const void *splan, int length)
 	if ((tmp=mem_toc_lookup(&msg, REMOTE_KEY_REDUCE_INFO, NULL)) != NULL)
 	{
 		/* need reduce */
-		int rdc_listen_port;
+		uint32 rdc_listen_port;
 
 		/* Start self Reduce with rdc_id */
 		set_cluster_display("<cluster start self reduce>", false, info);
-		rdc_listen_port = StartSelfReduceLauncher(PGXCNodeOid, tmp[0] ? true:false);
+		rdc_listen_port = StartDynamicReduceWorker();
 
 		/* Tell coordinator self own listen port */
 		send_rdc_listend_port(rdc_listen_port);
@@ -1146,7 +1148,6 @@ static void send_rdc_listend_port(int port)
 
 static void wait_rdc_group_message(void)
 {
-	int				i;
 	int				type;
 	StringInfoData	buf;
 	StringInfoData	msg;
@@ -1186,31 +1187,21 @@ static void wait_rdc_group_message(void)
 	buf.cursor = 0;
 	buf.maxlen = buf.len;
 
-	pq_copymsgbytes(&buf, (char *) &CnRdcCnt, sizeof(CnRdcCnt));
-	Assert(CnRdcCnt > 0);
-	/* pfree old CnRdcMasks */
-	if (CnRdcMasks != NULL)
+	/* pfree old CnRdcInfo */
+	if (CnRdcInfo != NULL)
 	{
-		pfree(CnRdcMasks);
-		CnRdcMasks = NULL;
+		pfree(CnRdcInfo);
+		CnRdcInfo = NULL;
+		CnRdcCnt = 0;
 	}
+
 	oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-	CnRdcMasks = (RdcMask *) palloc0(CnRdcCnt * sizeof(RdcMask));
-	for (i = 0; i < CnRdcCnt; i++)
-	{
-		CnRdcMasks[i].rdc_host = (char *) pq_getmsgrawstring(&buf);
-		StrNCpy(CnRdcMasks[i].rdc_name, (char *) pq_getmsgrawstring(&buf), NAMEDATALEN);
-		pq_copymsgbytes(&buf, (char *) &(CnRdcMasks[i].rdc_port),
-						sizeof(CnRdcMasks[i].rdc_port));
-		pq_copymsgbytes(&buf, (char *) &(CnRdcMasks[i].rdc_rpid),
-						sizeof(CnRdcMasks[i].rdc_rpid));
-	}
+	CnRdcCnt = RestoreDynamicReduceNodeInfo(&buf, &CnRdcInfo);
+	Assert(CnRdcCnt > 0);
 	(void) MemoryContextSwitchTo(oldcontext);
 	/*pq_getmsgend(&buf);*/
 
-	StartSelfReduceGroup(CnRdcMasks, CnRdcCnt);
-
-	EndSelfReduceGroup();
+	DynamicReduceConnectNet(CnRdcInfo, CnRdcCnt);
 
 	pfree(msg.data);
 }
@@ -1218,51 +1209,27 @@ static void wait_rdc_group_message(void)
 static bool
 get_rdc_listen_port_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
 {
-	RdcMask *rdc_mask = ((GetRDCListenPortHook*)pub)->rdc_mark;
+	DynamicReduceNodeInfo *info = ((GetRDCListenPortHook*)pub)->rdc_info;
 
-	if(clusterRecvRdcListenPort(conn, buf, len, &(rdc_mask->rdc_port)))
+	if(clusterRecvRdcListenPort(conn, buf, len, &(info->port)))
 		return true;
 
 	return false;
 }
 
 static void
-StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt)
+StartRemoteReduceGroup(List *conns, DynamicReduceNodeInfo *rdc_info, uint32 rdc_cnt)
 {
 	StringInfoData	msg;
-	int				i;
 	ListCell	   *lc;
 	PGconn		   *conn;
-	char		   *host;
-	char		   *name;
-	int				port;
-	RdcPortId		rpid;
-	int				len;
 
-	AssertArg(conns && rdc_masks);
+	AssertArg(conns && rdc_info);
 	AssertArg(rdc_cnt > 0);
 
 	initStringInfo(&msg);
 	begin_mem_toc_insert(&msg, REMOTE_KEY_REDUCE_GROUP);
-	appendBinaryStringInfo(&msg, (char *) &rdc_cnt, sizeof(rdc_cnt));
-	for (i = 0; i < rdc_cnt; i++)
-	{
-		host = rdc_masks[i].rdc_host;
-		name = rdc_masks[i].rdc_name;
-		port = rdc_masks[i].rdc_port;
-		rpid = rdc_masks[i].rdc_rpid;
-		Assert(host && host[0]);
-
-		/* including the terminating null byte ('\0') */
-		len = strlen(host) + 1;
-		appendBinaryStringInfo(&msg, host, len);
-		len = strlen(name) + 1;
-		appendBinaryStringInfo(&msg, name, len);
-		len = sizeof(port);
-		appendBinaryStringInfo(&msg, (char *) &port, len);
-		len = sizeof(rpid);
-		appendBinaryStringInfo(&msg, (char *) &rpid, len);
-	}
+	SerializeDynamicReduceNodeInfo(&msg, rdc_info, rdc_cnt);
 	end_mem_toc_insert(&msg, REMOTE_KEY_REDUCE_GROUP);
 
 	foreach (lc, conns)
@@ -1283,16 +1250,11 @@ StartRemoteReduceGroup(List *conns, RdcMask *rdc_masks, int rdc_cnt)
 }
 
 static void
-PrepareRdcMask(RdcMask *rdc_mask, Oid nodeid)
+PrepareReduceInfo(DynamicReduceNodeInfo *info, Oid nodeid)
 {
-	char *nodename;
-
-	Assert(rdc_mask);
-	rdc_mask->rdc_rpid = nodeid;
-	rdc_mask->rdc_port = 0;	/* fill later */
-	rdc_mask->rdc_host = get_pgxc_nodehost(nodeid);
-	nodename = get_pgxc_nodename(nodeid);
-	StrNCpy(rdc_mask->rdc_name, nodename, NAMEDATALEN);
+	info->node_oid = nodeid;
+	info->port = 0;
+	get_pgxc_node_name_and_host(nodeid, &info->name, &info->host);
 }
 
 static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *context, bool start_trans)
@@ -1303,12 +1265,13 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 	PGresult * volatile res;
 	int save_len;
 
-	int				rdc_id;
-	int				rdc_cnt;
-	RdcMask		   *rdc_masks = NULL;
-	ErrorContextCallback error_context_hook;
-	InterXactState	state;
-	NodeHandle	   *handle;
+	uint32					rdc_id;
+	uint32					rdc_cnt;
+	DynamicReduceNodeInfo  *rdc_info = NULL;
+
+	ErrorContextCallback	error_context_hook;
+	InterXactState			state;
+	NodeHandle			   *handle;
 
 	Assert(rnodes);
 	/* try to start transaction */
@@ -1328,10 +1291,10 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 	if (context->have_reduce)
 	{
 		rdc_cnt = list_length(rnodes) + (context->start_self_reduce ? 1 : 0);
-		rdc_masks = (RdcMask *) palloc0(rdc_cnt * sizeof(RdcMask));
+		rdc_info = (DynamicReduceNodeInfo *) palloc0(rdc_cnt * sizeof(DynamicReduceNodeInfo));
 		if (context->start_self_reduce)
 		{
-			PrepareRdcMask(&rdc_masks[rdc_id], PGXCNodeOid);
+			PrepareReduceInfo(&rdc_info[rdc_id], PGXCNodeOid);
 			rdc_id++;
 		}
 	}
@@ -1350,7 +1313,7 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 		/* send reduce group map and reduce ID to remote */
 		if (context->have_reduce)
 		{
-			PrepareRdcMask(&rdc_masks[rdc_id], handle->node_id);
+			PrepareReduceInfo(&rdc_info[rdc_id], handle->node_id);
 			rdc_id++;
 		}
 
@@ -1359,10 +1322,11 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 		if(PQsendPlan(conn, msg->data, msg->len) == false)
 		{
 			const char *node_name = PQNConnectName(conn);
-			safe_pfree(rdc_masks);
-			ereport(ERROR, (errcode(ERRCODE_CONNECTION_FAILURE),
-				errmsg("%s", PQerrorMessage(conn)),
-				node_name ? errnode(node_name) : 0));
+			safe_pfree(rdc_info);
+			ereport(ERROR,
+					(errcode(ERRCODE_CONNECTION_FAILURE),
+					 errmsg("%s", PQerrorMessage(conn)),
+					 node_name ? errnode(node_name) : 0));
 		}
 	}
 	msg->len = save_len;
@@ -1376,7 +1340,8 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 		/* start self reduce */
 		if (context->have_reduce && context->start_self_reduce)
 		{
-			rdc_masks[rdc_id].rdc_port = StartSelfReduceLauncher(PGXCNodeOid, false);
+			rdc_info[rdc_id].port = StartDynamicReduceWorker();
+			rdc_info[rdc_id].pid = MyProcPid;
 			rdc_id++;
 		}
 
@@ -1397,9 +1362,10 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 				PQNReportResultError(res, conn, ERROR, false);
 				break;
 			default:
-				ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg("%s", "remote status error, expect COPY BOTH"),
-					errhint("%s %s", "remote result is", PQresStatus(PQresultStatus(res)))));
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("%s", "remote status error, expect COPY BOTH"),
+						 errhint("%s %s", "remote result is", PQresStatus(PQresultStatus(res)))));
 				break;
 			}
 			PQclear(res);
@@ -1409,7 +1375,7 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 	{
 		if(res)
 			PQclear(res);
-		safe_pfree(rdc_masks);
+		safe_pfree(rdc_info);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
@@ -1422,24 +1388,19 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 		foreach(lc, list_conn)
 		{
 			conn = lfirst(lc);
-			hook->rdc_mark = &rdc_masks[rdc_id];
+			hook->rdc_info = &rdc_info[rdc_id];
+			hook->rdc_info->pid = PQbackendPID(conn);
 			PQNOneExecFinish(conn, &hook->pub, true);
 			rdc_id++;
 		}
 
-		/* have already got all listen port of other reduces */
-		if (context->start_self_reduce)
-			StartSelfReduceGroup(rdc_masks, rdc_id);
-
 		/* tell other reduce infomation about reduce group */
-		StartRemoteReduceGroup(list_conn, rdc_masks, rdc_id);
-
-		/* wait for self reduce start reduce group OK */
+		StartRemoteReduceGroup(list_conn, rdc_info, rdc_id);
 		if (context->start_self_reduce)
-			EndSelfReduceGroup();
+			DynamicReduceConnectNet(rdc_info, rdc_id);
 
 		pfree(hook);
-		safe_pfree(rdc_masks);
+		safe_pfree(rdc_info);
 	}
 
 	error_context_stack = error_context_hook.previous;

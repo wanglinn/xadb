@@ -2,104 +2,393 @@
 #include "postgres.h"
 #include "miscadmin.h"
 
-#include "access/tuptypeconvert.h"
 #include "executor/executor.h"
 #include "executor/nodeClusterReduce.h"
 #include "executor/nodeCtescan.h"
 #include "executor/nodeMaterial.h"
 #include "executor/tuptable.h"
 #include "lib/binaryheap.h"
+#include "lib/oidbuffer.h"
 #include "nodes/execnodes.h"
 #include "nodes/nodeFuncs.h"
 #include "pgxc/pgxc.h"
-#include "reduce/adb_reduce.h"
+#include "storage/buffile.h"
+#include "storage/shm_mq.h"
+#include "utils/dynamicreduce.h"
 #include "utils/hsearch.h"
 
+typedef enum ReduceType
+{
+	RT_NORMAL = 1,
+	RT_MERGE
+}ReduceType;
+
+typedef struct NormalReduceState
+{
+	dsm_segment	   *dsm_seg;
+	DynamicReduceIOBuffer
+					drio;
+}NormalReduceState;
+
+typedef struct MergeNodeInfo
+{
+	TupleTableSlot	   *slot;
+	BufFile			   *file;
+	StringInfoData		read_buf;
+	Oid					nodeoid;
+}MergeNodeInfo;
+
+typedef struct MergeReduceState
+{
+	NormalReduceState	normal;
+	MergeNodeInfo	   *nodes;
+	binaryheap		   *binheap;
+	SortSupport			sortkeys;
+	uint32				nkeys;
+	uint32				nnodes;
+}MergeReduceState;
+
 extern bool enable_cluster_plan;
-extern bool print_reduce_debug_log;
 
-#define PlanGetTargetNodes(plan)	\
-	((ClusterReduce *) (plan))->reduce_oids
-
-#define PlanStateGetTargetNodes(state) \
-	PlanGetTargetNodes(((ClusterReduceState *) (state))->ps.plan)
-
-static void ExecInitClusterReduceStateExtra(ClusterReduceState *crstate);
-static void PrepareForReScanClusterReduce(ClusterReduceState *node);
-static bool ExecConnectReduceWalker(PlanState *node, EState *estate);
-static int32 cmr_heap_compare_slots(Datum a, Datum b, void *arg);
-static TupleTableSlot *ExecClusterReduce(PlanState *pstate);
-static TupleTableSlot *GetSlotFromOuter(ClusterReduceState *node);
-static TupleTableSlot *GetMergeSlotFromOuter(ClusterReduceState *node, ReduceEntry entry);
-static TupleTableSlot *GetMergeSlotFromRemote(ClusterReduceState *node, ReduceEntry entry);
-static TupleTableSlot *ExecClusterMergeReduce(ClusterReduceState *node);
-static void ClusterReducePortCleanupCallback(void *arg);
-static void ExecDisconnectClusterReduce(ClusterReduceState *node, bool noerror);
+static int cmr_heap_compare_slots(Datum a, Datum b, void *arg);
 static bool DriveClusterReduceState(ClusterReduceState *node);
 static bool DriveCteScanState(PlanState *node);
 static bool DriveMaterialState(PlanState *node);
 static bool DriveClusterReduceWalker(PlanState *node);
 static bool IsThereClusterReduce(PlanState *node);
 
-static void
-ExecInitClusterReduceStateExtra(ClusterReduceState *crstate)
+/* ======================= normal reduce ========================== */
+static TupleTableSlot* ExecNormalReduce(PlanState *pstate)
 {
-	ClusterReduce  *plan;
-	List		   *nodesReduceFrom;
-	ListCell	   *lc;
-	ReduceEntry		entry;
-	int				i;
-	HASHCTL			hctl;
-	Oid				rdc_oid;
-	bool			is_tgt_node;
+	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
+	NormalReduceState  *normal = node->private_state;
+	Assert(normal != NULL && node->reduce_method == RT_NORMAL);
 
-	AssertArg(crstate);
-	AssertArg(crstate->port == NULL);
-	plan = (ClusterReduce *) crstate->ps.plan;
+	return DynamicReduceFetchSlot(&normal->drio);
+}
 
-	crstate->port = ConnectSelfReduce(TYPE_PLAN, PlanNodeID(plan), MyProcPid, NULL);
-	if (IsRdcPortError(crstate->port))
-		ereport(ERROR,
-				(errmsg("[PLAN %d] fail to connect self reduce subprocess", PlanNodeID(plan)),
-				 errdetail("%s", RdcError(crstate->port))));
-	RdcFlags(crstate->port) = RDC_FLAG_VALID;
+static TupleTableSlot* ExecReduceFetchLocal(void *pstate, ExprContext *econtext)
+{
+	TupleTableSlot *slot = ExecProcNode(pstate);
+	econtext->ecxt_outertuple = slot;
+	return slot;
+}
 
-	nodesReduceFrom = GetReduceGroup();
-	crstate->nrdcs = list_length(nodesReduceFrom);
-	crstate->neofs = 0;
+static void InitNormalReduceState(NormalReduceState *normal, Size shm_size, ClusterReduceState *crstate)
+{
+	DynamicReduceMQ		drmq;
+	Expr			   *expr;
+	ClusterReduce	   *plan;
 
-	hctl.keysize = sizeof(Oid);
-	hctl.entrysize = sizeof(ReduceEntryData);
-	hctl.hcxt = CurrentMemoryContext;
-	crstate->rdc_htab = hash_create("reduce group",
-									32,
-									&hctl,	/* magic number here FIXME */
-									HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
+	normal->dsm_seg = dsm_create(shm_size, 0);
+	drmq = dsm_segment_address(normal->dsm_seg);
 
-	crstate->rdc_entrys = (ReduceEntry *) palloc0(sizeof(ReduceEntry) * crstate->nrdcs);
-	for (lc = list_head(nodesReduceFrom), i = 0; lc != NULL; lc = lnext(lc), i++)
+	DynamicReduceInitFetch(&normal->drio,
+						   normal->dsm_seg,
+						   crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
+						   drmq->worker_sender_mq, sizeof(drmq->worker_sender_mq),
+						   drmq->reduce_sender_mq, sizeof(drmq->reduce_sender_mq));
+	normal->drio.econtext = crstate->ps.ps_ExprContext;
+	normal->drio.FetchLocal = ExecReduceFetchLocal;
+	normal->drio.user_data = outerPlanState(crstate);
+
+	/* init reduce expr */
+	plan = castNode(ClusterReduce, crstate->ps.plan);
+	if(plan->special_node == PGXCNodeOid)
 	{
-		rdc_oid = lfirst_oid(lc);
-		entry = hash_search(crstate->rdc_htab, &rdc_oid, HASH_ENTER, NULL);
-		entry->re_eof = false;
-		entry->re_slot = NULL;
-		entry->re_store = NULL;
-		crstate->rdc_entrys[i] = entry;
+		Assert(plan->special_reduce != NULL);
+		expr = plan->special_reduce;
+	}else
+	{
+		expr = plan->reduce;
 	}
+	Assert(expr != NULL);
+	normal->drio.expr_state = ExecInitReduceExpr(expr);
+}
+static void InitNormalReduce(ClusterReduceState *crstate)
+{
+	MemoryContext		oldcontext;
+	NormalReduceState  *normal;
+	Assert(crstate->private_state == NULL);
 
-	is_tgt_node = list_member_oid(PlanGetTargetNodes(plan), PGXCNodeOid);
-	if (plan->numCols > 0 && is_tgt_node)
+	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
+	normal = palloc0(sizeof(NormalReduceState));
+	InitNormalReduceState(normal, sizeof(DynamicReduceMQData), crstate);
+	crstate->private_state = normal;
+	ExecSetExecProcNode(&crstate->ps, ExecNormalReduce);
+	DynamicReduceStartNormalPlan(crstate->ps.plan->plan_node_id, 
+								 normal->dsm_seg,
+								 dsm_segment_address(normal->dsm_seg),
+								 crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor);
+	MemoryContextSwitchTo(oldcontext);
+}
+static void EndNormalReduce(NormalReduceState *normal)
+{
+	DynamicReduceClearFetch(&normal->drio);
+	dsm_detach(normal->dsm_seg);
+}
+static void DriveNormalReduce(ClusterReduceState *node)
+{
+	TupleTableSlot	   *slot;
+	NormalReduceState  *normal = node->private_state;
+
+	if (normal->drio.eof_local == false ||
+		normal->drio.eof_remote == false ||
+		normal->drio.send_buf.len > 0)
 	{
-		TupleTableSlot *slot = crstate->ps.ps_ResultTupleSlot;
-		for (i = 0; i < crstate->nrdcs; i++)
+		do
 		{
-			entry = crstate->rdc_entrys[i];
-			entry->re_slot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor);
-			entry->re_store = tuplestore_begin_heap(true, false, work_mem);
-		}
-		crstate->binheap = binaryheap_allocate(crstate->nrdcs, cmr_heap_compare_slots, crstate);
-		crstate->initialized = false;
+			slot = DynamicReduceFetchSlot(&normal->drio);
+		}while(!TupIsNull(slot));
 	}
+}
+
+/* ========================= merge reduce =========================== */
+static inline TupleTableSlot* GetMergeReduceResult(MergeReduceState *merge, ClusterReduceState *node)
+{
+	if (binaryheap_empty(merge->binheap))
+		return ExecClearTuple(node->ps.ps_ResultTupleSlot);
+
+	return merge->nodes[DatumGetUInt32(binaryheap_first(merge->binheap))].slot;
+}
+
+static TupleTableSlot* ExecMergeReduce(PlanState *pstate)
+{
+	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
+	MergeReduceState   *merge = node->private_state;
+	MergeNodeInfo	   *info;
+	uint32				i;
+
+	i = DatumGetUInt32(binaryheap_first(merge->binheap));
+	info = &merge->nodes[i];
+	DynamicReduceReadSFSTuple(info->slot, info->file, &info->read_buf);
+	if (TupIsNull(info->slot))
+		binaryheap_remove_first(merge->binheap);
+	else
+		binaryheap_replace_first(merge->binheap, UInt32GetDatum(i));
+
+	return GetMergeReduceResult(merge, node);
+}
+
+static BufFile* GetMergeBufFile(MergeReduceState *merge, Oid nodeoid)
+{
+	uint32	i,count;
+
+	for (i=0,count=merge->nnodes;i<count;++i)
+	{
+		if (merge->nodes[i].nodeoid == nodeoid)
+			return merge->nodes[i].file;
+	}
+
+	return NULL;
+}
+
+static void OpenMergeBufFiles(MergeReduceState *merge)
+{
+	MemoryContext		oldcontext;
+	MergeNodeInfo	   *info;
+	DynamicReduceSFS	sfs;
+	uint32				i;
+	char				name[MAXPGPATH];
+
+	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(merge));
+	sfs = dsm_segment_address(merge->normal.dsm_seg);
+	for(i=0;i<merge->nnodes;++i)
+	{
+		info = &merge->nodes[i];
+		if (info->file == NULL)
+		{
+			info->file = BufFileOpenShared(&sfs->sfs,
+										   DynamicReduceSFSFileName(name, info->nodeoid));
+		}
+		if (BufFileSeek(info->file, 0, 0, SEEK_SET) != 0)
+		{
+			ereport(ERROR,
+					(errcode_for_file_access(),
+					 errmsg("can not seek SFS file to head")));
+		}
+	}
+	MemoryContextSwitchTo(oldcontext);
+}
+
+static void BuildMergeBinaryHeap(MergeReduceState *merge)
+{
+	MergeNodeInfo  *info;
+	uint32			i,count;
+
+	for(i=0,count=merge->nnodes;i<count;++i)
+	{
+		info = &merge->nodes[i];
+		DynamicReduceReadSFSTuple(info->slot, info->file, &info->read_buf);
+		if (!TupIsNull(info->slot))
+			binaryheap_add_unordered(merge->binheap, UInt32GetDatum(i));
+	}
+	binaryheap_build(merge->binheap);
+}
+
+static TupleTableSlot* ExecMergeReduceFirst(PlanState *pstate)
+{
+	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
+	MergeReduceState   *merge = node->private_state;
+	BufFile			   *file;
+	TupleTableSlot	   *slot;
+
+	/* find local MergeNodeInfo */
+	file = GetMergeBufFile(merge, PGXCNodeOid);
+	Assert(file != NULL);
+
+	while(merge->normal.drio.eof_local == false)
+	{
+		slot = DynamicReduceFetchLocal(&merge->normal.drio);
+		if (merge->normal.drio.send_buf.len > 0)
+		{
+			DynamicReduceSendMessage(merge->normal.drio.mqh_sender,
+									 merge->normal.drio.send_buf.len,
+									 merge->normal.drio.send_buf.data,
+									 false);
+			merge->normal.drio.send_buf.len = 0;
+		}
+		if (!TupIsNull(slot))
+			DynamicReduceWriteSFSTuple(slot, file);
+	}
+
+	/* wait dynamic reduce end of plan */
+	DynamicReduceRecvTuple(merge->normal.drio.mqh_receiver,
+						   pstate->ps_ResultTupleSlot,
+						   &merge->normal.drio.recv_buf,
+						   NULL,
+						   false);
+	Assert(TupIsNull(pstate->ps_ResultTupleSlot));
+	merge->normal.drio.eof_remote = true;
+
+	ExecSetExecProcNode(pstate, ExecMergeReduce);
+
+	OpenMergeBufFiles(merge);
+	BuildMergeBinaryHeap(merge);
+	return GetMergeReduceResult(merge, node);
+}
+
+static void InitMergeReduceState(ClusterReduceState *state, MergeReduceState *merge)
+{
+	TupleDesc		desc = state->ps.ps_ResultTupleSlot->tts_tupleDescriptor;
+	ClusterReduce  *plan = castNode(ClusterReduce, state->ps.plan);
+	DynamicReduceSFS sfs;
+	const Oid	   *nodes;
+	uint32 i,count;
+	Assert(plan->numCols > 0);
+
+	nodes = DynamicReduceGetCurrentWorkingNodes(&count);
+	if (count == 0)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Can not find working nodes")));
+	}
+	InitNormalReduceState(&merge->normal, DRSFSD_SIZE(count), state);
+	sfs = dsm_segment_address(merge->normal.dsm_seg);
+	SharedFileSetInit(&sfs->sfs, merge->normal.dsm_seg);
+	sfs->nnode = count;
+	memcpy(sfs->nodes, nodes, sizeof(nodes[0])*count);
+
+	merge->nodes = palloc0(sizeof(merge->nodes[0]) * count);
+	merge->nnodes = count;
+	for (i=0;i<count;++i)
+	{
+		MergeNodeInfo *info = &merge->nodes[i];
+		info->slot = ExecInitExtraTupleSlot(state->ps.state, desc);
+		initStringInfo(&info->read_buf);
+		info->nodeoid = nodes[i];
+		if (info->nodeoid == PGXCNodeOid)
+		{
+			char name[MAXPGPATH];
+			info->file = BufFileCreateShared(&sfs->sfs,
+											 DynamicReduceSFSFileName(name, info->nodeoid));
+		}
+	}
+
+	merge->binheap = binaryheap_allocate(count, cmr_heap_compare_slots, merge);
+	merge->sortkeys = palloc0(sizeof(merge->sortkeys[0]) * plan->numCols);
+	merge->nkeys = plan->numCols;
+	for (i=0;i<merge->nkeys;++i)
+	{
+		SortSupport sort = &merge->sortkeys[i];
+		sort->ssup_cxt = CurrentMemoryContext;
+		sort->ssup_collation = plan->collations[i];
+		sort->ssup_nulls_first = plan->nullsFirst[i];
+		sort->ssup_attno = plan->sortColIdx[i];
+
+		sort->abbreviate = false;
+
+		PrepareSortSupportFromOrderingOp(plan->sortOperators[i], sort);
+	}
+}
+static void InitMergeReduce(ClusterReduceState *crstate)
+{
+	MemoryContext		oldcontext;
+	MergeReduceState   *merge;
+	Assert(crstate->private_state == NULL);
+
+	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
+	merge = palloc0(sizeof(MergeReduceState));
+	InitMergeReduceState(crstate, merge);
+	crstate->private_state = merge;
+	ExecSetExecProcNode(&crstate->ps, ExecMergeReduceFirst);
+
+	DynamicReduceStartSharedFileSetPlan(crstate->ps.plan->plan_node_id,
+										merge->normal.dsm_seg,
+										dsm_segment_address(merge->normal.dsm_seg),
+										crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor);
+
+	MemoryContextSwitchTo(oldcontext);
+}
+static void EndMergeReduce(MergeReduceState *merge)
+{
+	uint32				i,count;
+	MergeNodeInfo	   *info;
+	DynamicReduceSFS	sfs = dsm_segment_address(merge->normal.dsm_seg);
+	char				name[MAXPGPATH];
+
+	for (i=0,count=merge->nnodes;i<count;++i)
+	{
+		info = &merge->nodes[i];
+		if(info->file)
+			BufFileClose(info->file);
+		BufFileDeleteShared(&sfs->sfs, DynamicReduceSFSFileName(name, info->nodeoid));
+	}
+	EndNormalReduce(&merge->normal);
+	pfree(merge->sortkeys);
+}
+#define DriveMergeReduce(node) DriveNormalReduce(node)
+
+/* ======================================================== */
+static void InitReduceMethod(ClusterReduceState *crstate)
+{
+	Assert(crstate->private_state == NULL);
+	switch(crstate->reduce_method)
+	{
+	case RT_NORMAL:
+		InitNormalReduce(crstate);
+		break;
+	case RT_MERGE:
+		InitMergeReduce(crstate);
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknown reduce method %u", crstate->reduce_method)));
+		break;
+	}
+	Assert(crstate->private_state != NULL);
+}
+static TupleTableSlot* ExecDefaultClusterReduce(PlanState *pstate)
+{
+	ClusterReduceState *crstate = castNode(ClusterReduceState, pstate);
+	if (crstate->private_state != NULL)
+		return pstate->ExecProcNodeReal(pstate);
+
+	InitReduceMethod(crstate);
+
+	return pstate->ExecProcNodeReal(pstate);
 }
 
 ClusterReduceState *
@@ -107,7 +396,6 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 {
 	ClusterReduceState *crstate;
 	Plan			   *outerPlan;
-	Expr			   *expr;
 	TupleDesc			tupDesc;
 
 	Assert(outerPlan(node) != NULL);
@@ -119,7 +407,11 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	crstate = makeNode(ClusterReduceState);
 	crstate->ps.plan = (Plan*)node;
 	crstate->ps.state = estate;
-	crstate->ps.ExecProcNode = ExecClusterReduce;
+	crstate->ps.ExecProcNode = ExecDefaultClusterReduce;
+	if (node->numCols > 0)
+		crstate->reduce_method = (uint8)RT_MERGE;
+	else
+		crstate->reduce_method = (uint8)RT_NORMAL;
 
 	/*
 	 * We must have a tuplestore buffering the subplan output to do backward
@@ -141,13 +433,6 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	if (eflags & EXEC_FLAG_BACKWARD)
 		crstate->eflags |= EXEC_FLAG_REWIND;
 
-	crstate->port = NULL;
-	crstate->closed_remote = NIL;
-	crstate->eof_underlying = false;
-	crstate->eof_network = false;
-	crstate->started = false;
-	crstate->tuplestorestate = NULL;
-
 	/*
 	 * Miscellaneous initialization
 	 *
@@ -157,48 +442,10 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 
 	Assert(OidIsValid(PGXCNodeOid));
 
-	/* Need ClusterReduce to merge sort */
-	if (list_member_oid(PlanGetTargetNodes(node), PGXCNodeOid))
-	{
-		if (node->numCols > 0)
-		{
-			int i;
-			crstate->nkeys = node->numCols;
-			crstate->sortkeys = palloc0(sizeof(SortSupportData) * node->numCols);
-			for (i = 0; i < node->numCols; i++)
-			{
-				SortSupport sortKey = crstate->sortkeys + i;
-
-				sortKey->ssup_cxt = CurrentMemoryContext;
-				sortKey->ssup_collation = node->collations[i];
-				sortKey->ssup_nulls_first = node->nullsFirst[i];
-				sortKey->ssup_attno = node->sortColIdx[i];
-
-				/*
-				 * It isn't feasible to perform abbreviated key conversion, since
-				 * tuples are pulled into mergestate's binary heap as needed.  It
-				 * would likely be counter-productive to convert tuples into an
-				 * abbreviated representation as they're pulled up, so opt out of that
-				 * additional optimization entirely.
-				 */
-				sortKey->abbreviate = false;
-
-				PrepareSortSupportFromOrderingOp(node->sortOperators[i], sortKey);
-			}
-		}
-	} else
-		crstate->eof_network = true;
-
 	/*
 	 * Initialize result slot, type and projection.
 	 */
 	ExecInitResultTupleSlotTL(estate, &crstate->ps);
-
-	/*
-	 * Do not connect Reduce subprocess at this time.
-	 */
-	if (!(eflags & (EXEC_FLAG_EXPLAIN_ONLY | EXEC_FLAG_IN_SUBPLAN)))
-		ExecInitClusterReduceStateExtra(crstate);
 
 	/*
 	 * initialize child nodes
@@ -212,486 +459,29 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	outerPlanState(crstate) = ExecInitNode(outerPlan, estate, eflags);
 	tupDesc = ExecGetResultType(outerPlanState(crstate));
 
-	/* init reduce expr */
-	if(node->special_node == PGXCNodeOid)
-	{
-		Assert(node->special_reduce != NULL);
-		expr = node->special_reduce;
-	}else
-	{
-		expr = node->reduce;
-	}
-	Assert(expr != NULL);
-	crstate->reduceState = ExecInitReduceExpr(expr);
-
 	estate->es_reduce_plan_inited = true;
 
-	crstate->convert = create_type_convert(crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor, true, true);
-	if(crstate->convert)
-		crstate->convert_slot = MakeSingleTupleTableSlot(crstate->convert->out_desc);
-
-	RegisterReduceCleanup(ClusterReducePortCleanupCallback, crstate);
-
 	return crstate;
-}
-
-static TupleTableSlot *
-GetSlotFromOuter(ClusterReduceState *node)
-{
-	TupleTableSlot *slot;
-	ExprContext	   *econtext;
-	RdcPort		   *port;
-	ExprDoneCond	done;
-	bool			isNull;
-	Oid				oid;
-	TupleTableSlot *outerslot;
-	PlanState	   *outerNode;
-	bool			outerValid;
-	List		   *destOids = NIL;
-
-	Assert(node && node->port);
-	port = node->port;
-	slot = node->ps.ps_ResultTupleSlot;
-	while (!node->eof_underlying)
-	{
-		outerValid = false;
-		outerNode = outerPlanState(node);
-		outerslot = ExecProcNode(outerNode);
-		if (!TupIsNull(outerslot))
-		{
-			econtext = node->ps.ps_ExprContext;
-			econtext->ecxt_outertuple = outerslot;
-			for(;;)
-			{
-				Datum datum = ExecEvalReduceExpr(node->reduceState, econtext, &isNull, &done);
-				if(done == ExprEndResult)
-				{
-					break;
-				}else if(isNull)
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_INTERNAL_ERROR),
-							 errmsg("reduce expression for plan %d returned a null value", node->ps.plan->plan_node_id)));
-				}else
-				{
-					oid = DatumGetObjectId(datum);
-					if(oid == PGXCNodeOid)
-					{
-						outerValid = true;
-					}else if(!OidIsValid(oid))
-					{
-						ereport(ERROR,
-								(errcode(ERRCODE_INTERNAL_ERROR),
-								 errmsg("reduce expression for plan %d returned an invalid OID", node->ps.plan->plan_node_id)));
-					}else
-					{
-						/* This tuple should be sent to remote nodes */
-						if (!list_member_oid(node->closed_remote, oid))
-							destOids = lappend_oid(destOids, oid);
-					}
-
-					if(done == ExprSingleResult)
-						break;
-				}
-			}
-
-			/* Here we truly send tuple to remote plan nodes */
-			if(destOids != NIL)
-			{
-				if(node->convert)
-				{
-					do_type_convert_slot_out(node->convert,
-											 outerslot,
-											 node->convert_slot,
-											 false);
-					SendSlotToRemote(port, destOids, node->convert_slot);
-				}else
-				{
-					SendSlotToRemote(port, destOids, outerslot);
-				}
-				list_free(destOids);
-				destOids = NIL;
-			}
-
-			if (outerValid)
-				return outerslot;
-		} else
-		{
-			/* Here we send eof to remote plan nodes */
-			SendEofToRemote(port, PlanStateGetTargetNodes(node));
-
-			node->eof_underlying = true;
-		}
-	}
-
-	return ExecClearTuple(slot);
-}
-
-TupleTableSlot *
-ExecClusterReduce(PlanState *pstate)
-{
-	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
-	TupleTableSlot *slot;
-	RdcPort		   *port;
-	ReduceEntry		entry;
-	bool			found;
-	Oid				eof_oid;
-	EState		   *estate;
-	Tuplestorestate*tuplestorestate;
-	ScanDirection	dir;
-	bool			forward;
-	bool			eof_tuplestore;
-
-	port = node->port;
-	estate = node->ps.state;
-	dir = estate->es_direction;
-	forward = ScanDirectionIsForward(dir);
-	tuplestorestate = node->tuplestorestate;
-	node->started = true;
-	Assert(port);
-
-	/*
-	 * If first time through, and we need a tuplestore, initialize it.
-	 */
-	if (tuplestorestate == NULL && node->eflags != 0)
-	{
-		tuplestorestate = tuplestore_begin_heap(true, false, work_mem);
-		tuplestore_set_eflags(tuplestorestate, node->eflags);
-		if (node->eflags & EXEC_FLAG_MARK)
-		{
-			/*
-			 * Allocate a second read pointer to serve as the mark. We know it
-			 * must have index 1, so needn't store that.
-			 */
-			int ptrno	PG_USED_FOR_ASSERTS_ONLY;
-
-			ptrno = tuplestore_alloc_read_pointer(tuplestorestate,
-												  node->eflags);
-			Assert(ptrno == 1);
-		}
-		node->tuplestorestate = tuplestorestate;
-	}
-
-	/*
-	 * If we are not at the end of the tuplestore, or are going backwards, try
-	 * to fetch a tuple from tuplestore.
-	 */
-	eof_tuplestore = (tuplestorestate == NULL) ||
-		tuplestore_ateof(tuplestorestate);
-
-	if (!forward && eof_tuplestore)
-	{
-		if (!node->eof_underlying)
-		{
-			/*
-			 * When reversing direction at tuplestore EOF, the first
-			 * gettupleslot call will fetch the last-added tuple; but we want
-			 * to return the one before that, if possible. So do an extra
-			 * fetch.
-			 */
-			if (!tuplestore_advance(tuplestorestate, forward))
-				return NULL;	/* the tuplestore must be empty */
-		}
-		eof_tuplestore = false;
-	}
-
-	slot = node->ps.ps_ResultTupleSlot;
-	if (!eof_tuplestore)
-	{
-		if (tuplestore_gettupleslot(tuplestorestate, forward, false, slot))
-			return slot;
-		if (forward)
-			eof_tuplestore = true;
-	}
-
-	if (eof_tuplestore)
-	{
-		TupleTableSlot *outerslot = NULL;
-
-		/* ClusterReduce need to sort keys */
-		if (node->nkeys > 0)
-			outerslot = ExecClusterMergeReduce(node);
-		else
-		{
-			while (!node->eof_underlying || !node->eof_network)
-			{
-				/* fetch tuple from outer node */
-				if (!node->eof_underlying)
-				{
-					outerslot = GetSlotFromOuter(node);
-					if (!TupIsNull(outerslot))
-						break;
-				}
-
-				/* fetch tuple from network */
-				if (!node->eof_network)
-				{
-					ExecClearTuple(slot);
-					eof_oid = InvalidOid;
-					if (node->eof_underlying)
-						rdc_set_block(port);
-					else
-						(void) rdc_try_read_some(port);
-
-					if(node->convert)
-					{
-						GetSlotFromRemote(port, node->convert_slot, NULL, &eof_oid, &node->closed_remote);
-						outerslot = do_type_convert_slot_in(node->convert, node->convert_slot, slot, false);
-					}else
-					{
-						outerslot = GetSlotFromRemote(port, slot, NULL, &eof_oid, &node->closed_remote);
-					}
-
-					if (OidIsValid(eof_oid))
-					{
-						found = false;
-						entry = hash_search(node->rdc_htab, &eof_oid, HASH_FIND, &found);
-						Assert(found);
-						if (!entry->re_eof)
-						{
-							entry->re_eof = true;
-							node->neofs++;
-						}
-						node->eof_network = (node->neofs == node->nrdcs - 1);
-					} else if (!TupIsNull(outerslot))
-						break;
-				}
-			}
-		}
-
-		/*
-		 * Append a copy of the returned tuple to tuplestore.  NOTE: because
-		 * the tuplestore is certainly in EOF state, its read position will
-		 * move forward over the added tuple.  This is what we want.
-		 */
-		if (!TupIsNull(outerslot) && tuplestorestate)
-			tuplestore_puttupleslot(tuplestorestate, outerslot);
-
-		/*
-		 * We can just return the subplan's returned tuple, without copying.
-		 */
-		return outerslot;
-	}
-
-	/*
-	 * Nothing left ...
-	 */
-	return ExecClearTuple(slot);
-}
-
-static TupleTableSlot *
-GetMergeSlotFromOuter(ClusterReduceState *node, ReduceEntry entry)
-{
-	TupleTableSlot	   *outerslot;
-	TupleTableSlot	   *cur_slot;
-	Tuplestorestate	   *cur_store;
-
-	Assert(node && node->port && entry);
-	Assert(entry->re_key == PGXCNodeOid);
-
-	cur_store = entry->re_store;
-	cur_slot = entry->re_slot;
-
-	/*
-	 * traversal scan local outer node, keep the slots belong to myself in
-	 * the Tuplestorestate and send out the slots that don't belong to myself.
-	 */
-	while (!node->eof_underlying)
-	{
-		outerslot = GetSlotFromOuter(node);
-		if (TupIsNull(outerslot))
-			break;
-		if (tuplestore_ateof(cur_store))
-			tuplestore_clear(cur_store);
-		tuplestore_puttupleslot(cur_store, outerslot);
-	}
-	Assert(node->eof_underlying);
-
-	/* record the EOF of local outer node */
-	entry->re_eof = true;
-
-	/*
-	 * try to get from its Tuplestorestate
-	 */
-	if (!tuplestore_ateof(cur_store))
-	{
-		if (tuplestore_gettupleslot(cur_store, true, true, cur_slot))
-			return cur_slot;
-	}
-
-	return ExecClearTuple(cur_slot);
-}
-
-static TupleTableSlot *
-GetMergeSlotFromRemote(ClusterReduceState *node, ReduceEntry entry)
-{
-	TupleTableSlot	   *outerslot;
-	TupleTableSlot	   *cur_slot;
-	Tuplestorestate	   *cur_store;
-	RdcPort			   *port;
-	ReduceEntry			othr_entry;
-	Oid					cur_oid;
-	Oid					slot_oid;
-	Oid					eof_oid;
-	bool				found;
-
-	Assert(node && node->port && node->nkeys > 0);
-
-	cur_oid = entry->re_key;
-	cur_slot = entry->re_slot;
-	cur_store = entry->re_store;
-
-	/*
-	 * try to get from its Tuplestorestate
-	 */
-	if (!tuplestore_ateof(cur_store))
-	{
-		if (tuplestore_gettupleslot(cur_store, true, true, cur_slot))
-			return cur_slot;
-	}
-
-	/*
-	 * already receive EOF message, so
-	 * return NULL slot.
-	 */
-	if (entry->re_eof)
-		return ExecClearTuple(cur_slot);
-
-	port = node->port;
-	while (!entry->re_eof)
-	{
-		ExecClearTuple(cur_slot);
-		slot_oid = InvalidOid;
-		eof_oid = InvalidOid;
-		if (node->eof_underlying)
-			rdc_set_block(port);
-		else
-			(void) rdc_try_read_some(port);
-
-		if(node->convert)
-		{
-			GetSlotFromRemote(port, node->convert_slot, &slot_oid, &eof_oid, &(node->closed_remote));
-			outerslot = do_type_convert_slot_in(node->convert, node->convert_slot, cur_slot, true);
-		}else
-		{
-			outerslot = GetSlotFromRemote(port, cur_slot, &slot_oid, &eof_oid, &(node->closed_remote));
-		}
-
-		if (OidIsValid(eof_oid))
-		{
-			if (eof_oid == cur_oid)
-			{
-				entry->re_eof = true;
-				node->neofs++;
-				node->eof_network = (node->neofs == node->nrdcs - 1);
-				return ExecClearTuple(cur_slot);
-			} else
-			{
-				found = false;
-				othr_entry = hash_search(node->rdc_htab, &eof_oid, HASH_FIND, &found);
-				Assert(found);
-				if (!othr_entry->re_eof)
-				{
-					othr_entry->re_eof = true;
-					node->neofs++;
-					node->eof_network = (node->neofs == node->nrdcs - 1);
-				}
-			}
-		} else if (!TupIsNull(outerslot))
-		{
-			Assert(OidIsValid(slot_oid));
-			if (slot_oid == cur_oid)
-				return outerslot;
-
-			found = false;
-			othr_entry = hash_search(node->rdc_htab, &slot_oid, HASH_FIND, &found);
-			Assert(found && !othr_entry->re_eof);
-			cur_store = othr_entry->re_store;
-			if (tuplestore_ateof(cur_store))
-				tuplestore_clear(cur_store);
-			tuplestore_puttupleslot(cur_store, outerslot);
-		}
-	}
-
-	return ExecClearTuple(cur_slot);
-}
-
-static TupleTableSlot *
-ExecClusterMergeReduce(ClusterReduceState *node)
-{
-	TupleTableSlot	   *result;
-	ReduceEntry			entry;
-	bool				found;
-	int					i;
-
-	Assert(node && node->nkeys > 0);
-	if (!node->initialized)
-	{
-		/* initialize local slot */
-		found = false;
-		entry = hash_search(node->rdc_htab, &PGXCNodeOid, HASH_FIND, &found);
-		Assert(found && !entry->re_eof);
-		entry->re_slot = GetMergeSlotFromOuter(node, entry);
-		if (!TupIsNull(entry->re_slot))
-			binaryheap_add_unordered(node->binheap, PointerGetDatum(entry));
-
-		/* iniialize remote slot */
-		for (i = 0; i < node->nrdcs; i++)
-		{
-			entry = node->rdc_entrys[i];
-			if (entry->re_key == PGXCNodeOid)
-				continue;
-			entry->re_slot = GetMergeSlotFromRemote(node, entry);
-			if (!TupIsNull(entry->re_slot))
-				binaryheap_add_unordered(node->binheap, PointerGetDatum(entry));
-		}
-		binaryheap_build(node->binheap);
-		node->initialized = true;
-	} else
-	{
-		entry = (ReduceEntry) DatumGetPointer(binaryheap_first(node->binheap));
-		if (entry->re_key == PGXCNodeOid)
-			entry->re_slot = GetMergeSlotFromOuter(node, entry);
-		else
-			entry->re_slot = GetMergeSlotFromRemote(node, entry);
-
-		if (!TupIsNull(entry->re_slot))
-			binaryheap_replace_first(node->binheap, PointerGetDatum(entry));
-		else
-			(void) binaryheap_remove_first(node->binheap);
-	}
-
-	if (binaryheap_empty(node->binheap))
-	{
-		result = ExecClearTuple(node->ps.ps_ResultTupleSlot);
-	} else
-	{
-		entry = (ReduceEntry) DatumGetPointer(binaryheap_first(node->binheap));
-		result = entry->re_slot;
-	}
-
-	return result;
 }
 
 /*
  * Compare the tuples in the two given slots.
  */
-static int32
+static int
 cmr_heap_compare_slots(Datum a, Datum b, void *arg)
 {
-	ClusterReduceState *node = (ClusterReduceState *) arg;
-	ReduceEntry			re1 = (ReduceEntry) PointerGetDatum(a);
-	ReduceEntry			re2 = (ReduceEntry) PointerGetDatum(b);
-	TupleTableSlot	   *s1 = re1->re_slot;
-	TupleTableSlot	   *s2 = re2->re_slot;
-	int			nkey;
+	MergeReduceState   *merge = (MergeReduceState*)arg;
+	TupleTableSlot	   *s1 = merge->nodes[DatumGetUInt32(a)].slot;
+	TupleTableSlot	   *s2 = merge->nodes[DatumGetUInt32(b)].slot;
+	uint32				nkeys = merge->nkeys;
+	uint32				nkey;
 
 	Assert(!TupIsNull(s1));
 	Assert(!TupIsNull(s2));
 
-	for (nkey = 0; nkey < node->nkeys; nkey++)
+	for (nkey = 0; nkey < nkeys; nkey++)
 	{
-		SortSupport sortKey = node->sortkeys + nkey;
+		SortSupport sortKey = &merge->sortkeys[nkey];
 		AttrNumber	attno = sortKey->ssup_attno;
 		Datum		datum1,
 					datum2;
@@ -708,85 +498,33 @@ cmr_heap_compare_slots(Datum a, Datum b, void *arg)
 		if (compare != 0)
 			return -compare;
 	}
+
 	return 0;
-}
-
-static void
-ClusterReducePortCleanupCallback(void *arg)
-{
-	ClusterReduceState *node = (ClusterReduceState *) arg;
-
-	ExecDisconnectClusterReduce(node, true);
-}
-
-static void
-ExecDisconnectClusterReduce(ClusterReduceState *node, bool noerorr)
-{
-	if (node && node->port)
-	{
-		List *dest_nodes = NIL;
-
-		/*
-		 * if either of these(node->eof_underlying and node->eof_network)
-		 * is false, it means local backend doesn't fetch all tuple (include
-		 * tuple from other backend and from the outer node).
-		 *
-		 * Here we should tell other backend that the local cluster reduce
-		 * will be closed and no more data is needed.
-		 *
-		 * If we have already sent EOF message of current plan node, it is
-		 * no need to broadcast CLOSE message to other reduce.
-		 */
-		if (!RdcSendEOF(node->port))
-			dest_nodes = PlanStateGetTargetNodes(node);
-		DisConnectSelfReduce(node->port, dest_nodes, noerorr);
-		node->port = NULL;
-	}
 }
 
 void
 ExecEndClusterReduce(ClusterReduceState *node)
 {
-	ExecDisconnectClusterReduce(node, false);
-	list_free(node->closed_remote);
-	node->closed_remote = NIL;
-	if (node->rdc_entrys)
+	if ((node->eflags & EXEC_FLAG_EXPLAIN_ONLY) != 0)
+		DriveClusterReduceState(node);
+
+	if (node->private_state)
 	{
-		TupleTableSlot	   *re_slot;
-		Tuplestorestate	   *re_store;
-		int					i;
-		for (i = 0; i < node->nrdcs; i++)
+		switch(node->reduce_method)
 		{
-			re_slot = node->rdc_entrys[i]->re_slot;
-			re_store = node->rdc_entrys[i]->re_store;
-			if (re_slot)
-				ExecDropSingleTupleTableSlot(re_slot);
-			if (re_store)
-				tuplestore_end(re_store);
-			node->rdc_entrys[i]->re_slot = NULL;
-			node->rdc_entrys[i]->re_store = NULL;
+		case RT_NORMAL:
+			EndNormalReduce(node->private_state);
+			break;
+		case RT_MERGE:
+			EndMergeReduce(node->private_state);
+			break;
+		default:
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("unknown reduce method %u", node->reduce_method)));
+			break;
 		}
-		pfree(node->rdc_entrys);
-		node->rdc_entrys = NULL;
-	}
-	if (node->rdc_htab)
-	{
-		hash_destroy(node->rdc_htab);
-		node->rdc_htab = NULL;
-	}
-
-	/*
-	 * Release tuplestore resources
-	 */
-	if (node->tuplestorestate != NULL)
-		tuplestore_end(node->tuplestorestate);
-	node->tuplestorestate = NULL;
-
-	/* release convert */
-	if(node->convert)
-	{
-		ExecDropSingleTupleTableSlot(node->convert_slot);
-		free_type_convert(node->convert);
+		pfree(node->private_state);
 	}
 
 	ExecEndNode(outerPlanState(node));
@@ -801,23 +539,9 @@ ExecEndClusterReduce(ClusterReduceState *node)
 void
 ExecClusterReduceMarkPos(ClusterReduceState *node)
 {
-	Assert(node->eflags & EXEC_FLAG_MARK);
-
-	/*
-	 * if we haven't materialized yet, just return.
-	 */
-	if (!node->tuplestorestate)
-		return;
-
-	/*
-	 * copy the active read pointer to the mark.
-	 */
-	tuplestore_copy_read_pointer(node->tuplestorestate, 0, 1);
-
-	/*
-	 * since we may have advanced the mark, try to truncate the tuplestore.
-	 */
-	tuplestore_trim(node->tuplestorestate);
+	ereport(ERROR,
+			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			 errmsg("cluster reduce not support mark pos")));
 }
 
 /* ----------------------------------------------------------------
@@ -829,153 +553,43 @@ ExecClusterReduceMarkPos(ClusterReduceState *node)
 void
 ExecClusterReduceRestrPos(ClusterReduceState *node)
 {
-	Assert(node->eflags & EXEC_FLAG_MARK);
-
-	/*
-	 * if we haven't materialized yet, just return.
-	 */
-	if (!node->tuplestorestate)
-		return;
-
-	/*
-	 * copy the mark to the active read pointer.
-	 */
-	tuplestore_copy_read_pointer(node->tuplestorestate, 1, 0);
+	ereport(ERROR,
+			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			 errmsg("cluster reduce not support restr pos")));
 }
 
 void
 ExecReScanClusterReduce(ClusterReduceState *node)
 {
-	PlanState  *outerPlan = outerPlanState(node);
-
-	/* Just return if not start ExecClusterReduce */
-	if (!node->started)
+	/* Just return if not start yet! */
+	if (node->private_state == NULL)
 		return;
 
-	ExecClearTuple(node->ps.ps_ResultTupleSlot);
-
-	if (node->eflags != 0)
-	{
-		/*
-		 * If we haven't materialized yet, just return. If outerplan's
-		 * chgParam is not NULL then it will be re-scanned by ExecProcNode,
-		 * else no reason to re-scan it at all.
-		 */
-		if (!node->tuplestorestate)
-			return;
-
-		/*
-		 * If subnode is to be rescanned then we forget previous stored
-		 * results; we have to re-read the subplan and re-store.  Also, if we
-		 * told tuplestore it needn't support rescan, we lose and must
-		 * re-read.  (This last should not happen in common cases; else our
-		 * caller lied by not passing EXEC_FLAG_REWIND to us.)
-		 *
-		 * Otherwise we can just rewind and rescan the stored output. The
-		 * state of the subnode does not change.
-		 */
-		if (outerPlan->chgParam != NULL ||
-			(node->eflags & EXEC_FLAG_REWIND) == 0)
-		{
-			tuplestore_end(node->tuplestorestate);
-			node->tuplestorestate = NULL;
-			if (outerPlan->chgParam == NULL)
-				ExecReScan(outerPlan);
-			node->eof_underlying = false;
-
-			PrepareForReScanClusterReduce(node);
-		}
-		else
-			tuplestore_rescan(node->tuplestorestate);
-	}
-	else
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("ClusterReduce not support rescan without EXEC_FLAG_REWIND flag")));
-	}
-}
-
-static void
-PrepareForReScanClusterReduce(ClusterReduceState *node)
-{
-	if (node->rdc_entrys)
-	{
-		TupleTableSlot	   *re_slot;
-		Tuplestorestate	   *re_store;
-		int					i;
-
-		for (i = 0; i < node->nrdcs; i++)
-		{
-			re_slot = node->rdc_entrys[i]->re_slot;
-			re_store = node->rdc_entrys[i]->re_store;
-			if (re_slot)
-				ExecClearTuple(re_slot);
-			if (re_store)
-				tuplestore_clear(re_store);
-			node->rdc_entrys[i]->re_eof = false;
-		}
-	}
-
-	if (node->nkeys > 0)
-	{
-		binaryheap_reset(node->binheap);
-		node->initialized = false;
-	}
-
-	list_free(node->closed_remote);
-	node->closed_remote = NIL;
-
-	node->eof_network = false;
-	node->neofs = 0;
-}
-
-static bool
-ExecConnectReduceWalker(PlanState *node, EState *estate)
-{
-	if(node == NULL)
-		return false;
-
-	if (IsA(node, ClusterReduceState))
-	{
-		ClusterReduceState *crstate = (ClusterReduceState *) node;
-		if (crstate->port == NULL)
-			ExecInitClusterReduceStateExtra(crstate);
-	}
-
-	return planstate_tree_walker(node, ExecConnectReduceWalker, estate);
-}
-
-void
-ExecConnectReduce(PlanState *node)
-{
-	if (node == NULL)
-		return;
-	Assert((node->state->es_top_eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0);
-	ExecConnectReduceWalker(node, node->state);
+	ereport(ERROR,
+			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			 errmsg("cluster reduce not support rescan")));
 }
 
 static bool
 DriveClusterReduceState(ClusterReduceState *node)
 {
-	Assert(node && IsA(node, ClusterReduceState));
-	if (!node->eof_network &&
-		!RdcSendEOF(node->port) &&
-		!RdcSendCLOSE(node->port))
+	if (node->private_state == NULL)
+		InitReduceMethod(node);
+
+	switch(node->reduce_method)
 	{
-		int i;
-
-		/* reject to get slot from remote, tell them */
-		if (list_member_oid(PlanStateGetTargetNodes(node), PGXCNodeOid))
-			SendRejectToRemote(node->port, PlanStateGetTargetNodes(node));
-
-		for (i = 0; i < node->nrdcs; i++)
-			node->rdc_entrys[i]->re_eof = true;
-		node->eof_network = true;
+	case RT_NORMAL:
+		DriveNormalReduce(node);
+		break;
+	case RT_MERGE:
+		DriveMergeReduce(node);
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknown reduce method %u", node->reduce_method)));
+		break;
 	}
-
-	while (!node->eof_underlying)
-		(void) GetSlotFromOuter(node);
 
 	return false;
 }
@@ -1087,18 +701,11 @@ DriveClusterReduceWalker(PlanState *node)
 
 	if (IsA(node, ClusterReduceState))
 	{
-		ClusterReduceState *crs = (ClusterReduceState *) node;
-		Assert(crs->port);
-
-		if (!crs->eof_network || !crs->eof_underlying)
-			adb_elog(print_reduce_debug_log, LOG,
-				"Drive ClusterReduce(%d) to send EOF message", planid);
-
 		/*
 		 * Drive all ClusterReduce to send slot, discard slot
 		 * used for local.
 		 */
-		res = DriveClusterReduceState(crs);
+		res = DriveClusterReduceState((ClusterReduceState *) node);
 	} else
 	if (IsA(node, CteScanState))
 	{

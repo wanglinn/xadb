@@ -67,7 +67,6 @@
 #ifdef ADB
 #include "commands/copy.h"
 #include "executor/execCluster.h"
-#include "executor/nodeClusterReduce.h"
 #include "executor/nodeReduceScan.h"
 #include "nodes/nodeFuncs.h"
 #include "pgxc/pgxc.h"
@@ -1113,13 +1112,6 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 	 * processing tuples.
 	 */
 	planstate = ExecInitNode(plan, estate, eflags);
-#ifdef ADB
-	if((eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
-	{
-		foreach(l, estate->es_subplanstates)
-			ExecConnectReduce(lfirst(l));
-	}
-#endif /* ADB */
 
 	/*
 	 * Get the tuple descriptor describing the type of tuples to return.

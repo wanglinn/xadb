@@ -33,11 +33,11 @@ extern ClusterRecvState *createClusterRecvStateFromSlot(TupleTableSlot *slot, bo
 extern void freeClusterRecvState(ClusterRecvState *state);
 extern bool clusterRecvSetCheckEndMsg(DestReceiver *r, bool check);
 extern void clusterRecvSetTopPlanState(DestReceiver *r, PlanState *ps);
-extern bool clusterRecvRdcListenPort(struct pg_conn *conn, const char *msg, int len, int *port);
+extern bool clusterRecvRdcListenPort(struct pg_conn *conn, const char *msg, int len, uint16 *port);
 extern bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len,
 							 PlanState *ps, struct pg_conn *conn);
 extern bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struct pg_conn *conn);
-extern void serialize_rdc_listen_port_message(StringInfo buf, int port);
+extern void serialize_rdc_listen_port_message(StringInfo buf, uint16 port);
 extern void serialize_instrument_message(PlanState *ps, StringInfo buf);
 #define serialize_slot_head_message(buf, desc) serialize_tuple_desc(buf, desc, CLUSTER_MSG_TUPLE_DESC)
 #define serialize_slot_convert_head(buf, desc) serialize_tuple_desc(buf, desc, CLUSTER_MSG_CONVERT_DESC)

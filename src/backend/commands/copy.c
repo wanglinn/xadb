@@ -59,15 +59,16 @@
 #include "executor/clusterReceiver.h"
 #include "executor/execCluster.h"
 #include "intercomm/inter-comm.h"
+#include "lib/oidbuffer.h"
 #include "libpq/libpq-fe.h"
 #include "optimizer/plancat.h"
 #include "optimizer/reduceinfo.h"
 #include "parser/analyze.h"
 #include "pgxc/pgxc.h"
-#include "reduce/adb_reduce.h"
 #include "storage/buffile.h"
 #include "storage/bufmgr.h"
 #include "storage/mem_toc.h"
+#include "utils/dynamicreduce.h"
 #endif
 
 #define ISOCTAL(c) (((c) >= '0') && ((c) <= '7'))
@@ -100,18 +101,12 @@ typedef enum EolType
 
 typedef struct CopyFromReduceState
 {
-	ExprContext			   *econtext;
-	ReduceExprState		   *reduce;
-	TupleTableSlot		   *base_slot;
-	TupleTableSlot		   *convert_slot;
-	TupleTypeConvert	   *convert_state;
+	DynamicReduceIOBuffer	drio;
 	CustomNextRowFunction	NextRow;
 	void				   *func_data;
-	RdcPort				   *rdc_port;
-	List				   *all_nodes_oid;
-	List				   *working_nodes_oid;
+	CopyState				cstate;
+	dsm_segment			   *dsm_seg;
 	int						plan_id;
-	bool					eof_local;
 }CopyFromReduceState;
 
 typedef struct TidBufFileScanState
@@ -6229,33 +6224,38 @@ static void ApplyCopyToAuxiliary(CopyState parent, List *rnodes)
 	MemoryContextDelete(aux_context);
 }
 
+static TupleTableSlot* CallNextRow(void *data, ExprContext *econtext)
+{
+	CopyFromReduceState	   *state = data;
+	TupleTableSlot		   *slot;
+	slot = (*state->NextRow)(state->cstate, state->drio.econtext, state->func_data);
+	econtext->ecxt_scantuple = slot;
+	return slot;
+}
 static void InitCopyFromReduce(CopyFromReduceState *state, TupleDesc desc, Expr *reduce,
 							   List *rnodes, int id, CustomNextRowFunction fun, void *func_data)
 {
-	ListCell *lc;
+	DynamicReduceMQ drmq;
 	AssertArg(IsA(rnodes, OidList));
 
 	MemSet(state, 0, sizeof(*state));
-	state->econtext = CreateStandaloneExprContext();
-	state->reduce = ExecInitReduceExpr(reduce);
-	state->base_slot = MakeSingleTupleTableSlot(desc);
-	state->convert_state = create_type_convert(desc, true, true);
-	if (state->convert_state)
-		state->convert_slot = MakeSingleTupleTableSlot(state->convert_state->out_desc);
 
-	state->rdc_port = ConnectSelfReduce(TYPE_PLAN,
-										id,
-										MyProcPid,
-										NULL);
-
-	state->all_nodes_oid = rnodes;
-	foreach(lc, rnodes)
-	{
-		if (lfirst_oid(lc) != PGXCNodeOid)
-			state->working_nodes_oid = lappend_oid(state->working_nodes_oid, lfirst_oid(lc));
-	}
-
+	state->dsm_seg = dsm_create(sizeof(*drmq), 0);
+	drmq = dsm_segment_address(state->dsm_seg);
+	DynamicReduceInitFetch(&state->drio,
+						   state->dsm_seg,
+						   desc,
+						   drmq->worker_sender_mq, sizeof(drmq->worker_sender_mq),
+						   drmq->reduce_sender_mq, sizeof(drmq->reduce_sender_mq));
+	state->drio.expr_state = ExecInitReduceExpr(reduce);
+	state->drio.FetchLocal = CallNextRow;
+	state->drio.user_data = state;
 	state->plan_id = id;
+
+	DynamicReduceStartNormalPlan(id,
+								 state->dsm_seg,
+								 drmq,
+								 desc);
 
 	state->NextRow = fun;
 	state->func_data = func_data;
@@ -6263,16 +6263,9 @@ static void InitCopyFromReduce(CopyFromReduceState *state, TupleDesc desc, Expr 
 
 static void CleanCopyFromReduce(CopyFromReduceState *state)
 {
-	list_free(state->working_nodes_oid);
-	FreeExprContext(state->econtext, true);
-	ExecDropSingleTupleTableSlot(state->base_slot);
-	if (state->convert_state)
-	{
-		ExecDropSingleTupleTableSlot(state->convert_slot);
-		free_type_convert(state->convert_state);
-	}
+	DynamicReduceClearFetch(&state->drio);
 
-	DisConnectSelfReduce(state->rdc_port, NIL, false);
+	dsm_detach(state->dsm_seg);
 }
 
 void ClusterCopyFromReduce(Relation rel, Expr *reduce, List *rnodes, int id, bool freeze, CustomNextRowFunction func, void *data)
@@ -6306,16 +6299,7 @@ void ClusterCopyFromReduce(Relation rel, Expr *reduce, List *rnodes, int id, boo
 	cstate->NextRowFrom = NextRowFromReduce;
 	cstate->func_data = &rstate;
 
-	PG_TRY();
-	{
-		CopyFrom(cstate);
-	}PG_CATCH();
-	{
-		DisConnectSelfReduce(rstate.rdc_port,
-							 RdcSendEOF(rstate.rdc_port) ? NIL:rstate.all_nodes_oid,
-							 true);
-		PG_RE_THROW();
-	}PG_END_TRY();
+	CopyFrom(cstate);
 
 	CleanCopyFromReduce(&rstate);
 	MemoryContextSwitchTo(oldcontext);
@@ -6333,22 +6317,13 @@ void ClusterDummyCopyFromReduce(List *target, Expr *reduce, List *rnodes, int id
 	TupleTableSlot *slot;
 	InitCopyFromReduce(&rstate, desc, reduce, rnodes, id, fun, data);
 
-	PG_TRY();
+	slot = NextRowFromReduce(NULL, rstate.drio.econtext, &rstate);
+	if (!TupIsNull(slot))
 	{
-		slot = NextRowFromReduce(NULL, rstate.econtext, &rstate);
-		if (!TupIsNull(slot))
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg("dummy rel got a tuple from reduce")));
-		}
-	}PG_CATCH();
-	{
-		DisConnectSelfReduce(rstate.rdc_port,
-							 RdcSendEOF(rstate.rdc_port) ? NIL:rstate.all_nodes_oid,
-							 true);
-		PG_RE_THROW();
-	}PG_END_TRY();
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				errmsg("dummy rel got a tuple from reduce")));
+	}
 
 	CleanCopyFromReduce(&rstate);
 	FreeTupleDesc(desc);
@@ -6359,120 +6334,10 @@ void ClusterDummyCopyFromReduce(List *target, Expr *reduce, List *rnodes, int id
 static TupleTableSlot* NextRowFromReduce(CopyState cstate, ExprContext *econtext, void *data)
 {
 	CopyFromReduceState	   *state = data;
-	TupleTableSlot		   *slot;
-	List				   *rnodes;
-	Datum					datum;
-	ExprDoneCond			done;
-	Oid						nodeoid;
-	bool					isNull;
 
-	rdc_set_noblock(state->rdc_port);
-
-	for(;;)
-	{
-		CHECK_FOR_INTERRUPTS();
-
-		if (state->working_nodes_oid != NIL)
-		{
-			/* first try from remote, first time it is noblock mode */
-			slot = state->convert_state ? state->convert_slot : state->base_slot;
-			nodeoid = InvalidOid;
-			slot = GetSlotFromRemote(state->rdc_port,
-									 state->convert_state ? state->convert_slot : state->base_slot,
-									 NULL,
-									 &nodeoid,
-									 NULL);
-			if (OidIsValid(nodeoid))
-			{
-				state->working_nodes_oid = list_delete_oid(state->working_nodes_oid, nodeoid);
-				continue;
-			}else if (!TupIsNull(slot))
-			{
-				if (state->convert_state)
-				{
-					Assert(slot == state->convert_slot);
-					slot = do_type_convert_slot_in(state->convert_state,
-												   slot,
-												   state->base_slot,
-												   false);
-				}
-				return slot;
-			}
-		}
-
-		if (state->eof_local == false)
-		{
-			/* try from local */
-			slot = (*state->NextRow)(cstate, econtext, state->func_data);
-			if (!TupIsNull(slot))
-			{
-				bool need_return = false;
-				econtext->ecxt_scantuple = slot;
-				econtext->ecxt_outertuple = econtext->ecxt_innertuple = NULL;
-				rnodes = NIL;
-				for(;;)
-				{
-					datum = ExecEvalReduceExpr(state->reduce, econtext, &isNull, &done);
-					if (done == ExprEndResult)
-					{
-						break;
-					}else if (isNull)
-					{
-						ereport(ERROR,
-								(errcode(ERRCODE_INTERNAL_ERROR),
-								 errmsg("ReduceExpr return a null value")));
-					}else
-					{
-						nodeoid = DatumGetObjectId(datum);
-						if (nodeoid == PGXCNodeOid)
-							need_return = true;
-						else
-							rnodes = list_append_unique_oid(rnodes, nodeoid);
-						if (done == ExprSingleResult)
-							break;
-					}
-				}
-
-				/* Here we truly send tuple to remote plan nodes */
-				if (rnodes != NIL)
-				{
-					if (state->convert_state)
-					{
-						do_type_convert_slot_out(state->convert_state,
-												 slot,
-												 state->convert_slot,
-												 false);
-						SendSlotToRemote(state->rdc_port, rnodes, state->convert_slot);
-					}else
-					{
-						SendSlotToRemote(state->rdc_port, rnodes, slot);
-					}
-					list_free(rnodes);
-				}
-
-				if (need_return)
-					return slot;
-
-				continue;	/* loop to get data */
-			}else
-			{
-				state->eof_local = true;
-				SendEofToRemote(state->rdc_port, state->all_nodes_oid);
-			}
-		}
-
-		if (state->working_nodes_oid != NIL)
-		{
-			/* set to block mode and try it again */
-			if (state->eof_local)
-				rdc_set_block(state->rdc_port);
-		}else if(state->eof_local)
-		{
-			break;
-		}
-	}
-
-	return NULL;
+	state->cstate = cstate;
+	state->drio.econtext = econtext;
+	return DynamicReduceFetchSlot(&state->drio);
 }
 
 static TupleTableSlot* NextRowFromTidBufFile(CopyState cstate, ExprContext *context, void *data)

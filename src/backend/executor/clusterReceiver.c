@@ -54,14 +54,14 @@ static void restore_instrument_message(PlanState *ps, const char *msg, int len, 
 static bool restore_instrument_walker(PlanState *ps, RestoreInstrumentContext *context);
 static void process_transaction_message(const char *msg, int len, struct pg_conn *conn);
 
-void serialize_rdc_listen_port_message(StringInfo buf, int port)
+void serialize_rdc_listen_port_message(StringInfo buf, uint16 port)
 {
 	initStringInfo(buf);
 	appendStringInfoChar(buf, CLUSTER_MSG_RDC_PORT);
 	appendBinaryStringInfo(buf, (char *) &port, sizeof(port));
 }
 
-bool clusterRecvRdcListenPort(struct pg_conn *conn, const char *msg, int len, int *port)
+bool clusterRecvRdcListenPort(struct pg_conn *conn, const char *msg, int len, uint16 *port)
 {
 	const char *nodename;
 	if (*msg == CLUSTER_MSG_RDC_PORT)
