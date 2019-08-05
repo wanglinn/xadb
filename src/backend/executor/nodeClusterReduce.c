@@ -126,7 +126,8 @@ static void InitNormalReduce(ClusterReduceState *crstate)
 	DynamicReduceStartNormalPlan(crstate->ps.plan->plan_node_id, 
 								 normal->dsm_seg,
 								 dsm_segment_address(normal->dsm_seg),
-								 crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor);
+								 crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
+								 castNode(ClusterReduce, crstate->ps.plan)->reduce_oids);
 	MemoryContextSwitchTo(oldcontext);
 }
 static void EndNormalReduce(NormalReduceState *normal)
@@ -291,11 +292,9 @@ static void InitMergeReduceState(ClusterReduceState *state, MergeReduceState *me
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("Can not find working nodes")));
 	}
-	InitNormalReduceState(&merge->normal, DRSFSD_SIZE(count), state);
+	InitNormalReduceState(&merge->normal, sizeof(*sfs), state);
 	sfs = dsm_segment_address(merge->normal.dsm_seg);
 	SharedFileSetInit(&sfs->sfs, merge->normal.dsm_seg);
-	sfs->nnode = count;
-	memcpy(sfs->nodes, nodes, sizeof(nodes[0])*count);
 
 	merge->nodes = palloc0(sizeof(merge->nodes[0]) * count);
 	merge->nnodes = count;
@@ -344,7 +343,8 @@ static void InitMergeReduce(ClusterReduceState *crstate)
 	DynamicReduceStartSharedFileSetPlan(crstate->ps.plan->plan_node_id,
 										merge->normal.dsm_seg,
 										dsm_segment_address(merge->normal.dsm_seg),
-										crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor);
+										crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
+										castNode(ClusterReduce, crstate->ps.plan)->reduce_oids);
 
 	MemoryContextSwitchTo(oldcontext);
 }

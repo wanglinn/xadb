@@ -59,7 +59,7 @@ static void OnNormalPlanLatch(PlanInfo *pi)
 		if (msg_type == ADB_DR_MSG_END_OF_PLAN)
 		{
 			pwi->end_of_plan_recv = true;
-			DRGetEndOfPlanMessage(pwi);
+			DRGetEndOfPlanMessage(pi, pwi);
 		}else
 		{
 			Assert(msg_type == ADB_DR_MSG_TUPLE);
@@ -130,10 +130,10 @@ static bool OnNormalPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
 
 	DR_PLAN_DEBUG_EOF((errmsg("normal plan %d(%p) got end of plan message from node %u",
 							  pi->plan_id, pi, nodeoid)));
-	Assert(oidBufferMember(&dr_latch_data->work_oid_buf, nodeoid, NULL));
+	Assert(oidBufferMember(&pi->working_nodes, nodeoid, NULL));
 	appendOidBufferUniqueOid(&pi->end_of_plan_nodes, nodeoid);
 
-	if (pi->end_of_plan_nodes.len == dr_latch_data->work_oid_buf.len)
+	if (pi->end_of_plan_nodes.len == pi->working_nodes.len)
 	{
 		DR_PLAN_DEBUG_EOF((errmsg("normal plan %d(%p) sending end of plan message", pi->plan_id, pi)));
 		appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_END_OF_PLAN);
@@ -193,7 +193,7 @@ void DRStartNormalPlanMessage(StringInfo msg)
 	DRActiveNode(pi->plan_id);
 }
 
-void DynamicReduceStartNormalPlan(int plan_id, dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc)
+void DynamicReduceStartNormalPlan(int plan_id, dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes)
 {
 	StringInfoData	buf;
 	Assert(plan_id >= 0);
@@ -203,7 +203,7 @@ void DynamicReduceStartNormalPlan(int plan_id, dsm_segment *seg, DynamicReduceMQ
 	initStringInfo(&buf);
 	pq_sendbyte(&buf, ADB_DR_MQ_MSG_START_PLAN_NORMAL);
 
-	DRSerializePlanInfo(plan_id, seg, mq, sizeof(*mq), desc, &buf);
+	DRSerializePlanInfo(plan_id, seg, mq, sizeof(*mq), desc, work_nodes, &buf);
 
 	DRSendMsgToReduce(buf.data, buf.len, false);
 	pfree(buf.data);

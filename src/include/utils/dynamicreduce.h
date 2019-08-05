@@ -44,8 +44,6 @@ typedef struct DynamicReduceSFSData
 {
 	DynamicReduceMQData	mq;
 	SharedFileSet		sfs;
-	uint32				nnode;
-	Oid					nodes[FLEXIBLE_ARRAY_MEMBER];
 }DynamicReduceSFSData, *DynamicReduceSFS;
 #define DRSFSD_SIZE(n) (offsetof(DynamicReduceSFSData, nodes) + sizeof(Oid)*(n))
 
@@ -76,11 +74,11 @@ extern void ResetDynamicReduceWork(void);
 extern void DynamicReduceConnectNet(const DynamicReduceNodeInfo *info, uint32 count);
 extern const Oid* DynamicReduceGetCurrentWorkingNodes(uint32 *count);
 
-extern void DynamicReduceStartNormalPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc);
-extern void DynamicReduceStartMergePlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc,
+extern void DynamicReduceStartNormalPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes);
+extern void DynamicReduceStartMergePlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes,
 										int numCols, AttrNumber *sortColIdx, Oid *sortOperators, Oid *collations, bool *nullsFirst);
 
-extern void DynamicReduceStartSharedFileSetPlan(int plan_id, struct dsm_segment *seg, DynamicReduceSFS sfs, TupleDesc desc);
+extern void DynamicReduceStartSharedFileSetPlan(int plan_id, struct dsm_segment *seg, DynamicReduceSFS sfs, TupleDesc desc, List *work_nodes);
 extern char* DynamicReduceSFSFileName(char *name, Oid nodeoid);
 extern TupleTableSlot *DynamicReduceReadSFSTuple(TupleTableSlot *slot, BufFile *file, StringInfo buf);
 extern void DynamicReduceWriteSFSTuple(TupleTableSlot *slot, BufFile *file);

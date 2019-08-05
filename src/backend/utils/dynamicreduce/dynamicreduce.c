@@ -480,13 +480,13 @@ void DREnlargeWaitEventSet(void)
 	}
 }
 
-void DRGetEndOfPlanMessage(PlanWorkerInfo *pwi)
+void DRGetEndOfPlanMessage(PlanInfo *pi, PlanWorkerInfo *pwi)
 {
 	pwi->last_msg_type = ADB_DR_MSG_END_OF_PLAN;
 	pwi->last_size = 0;
 	pwi->last_data = NULL;
-	pwi->dest_oids = dr_latch_data->work_oid_buf.oids;
-	pwi->dest_count = dr_latch_data->work_oid_buf.len;
+	pwi->dest_oids = pi->working_nodes.oids;
+	pwi->dest_count = pi->working_nodes.len;
 	pwi->dest_cursor = 0;
 }
 

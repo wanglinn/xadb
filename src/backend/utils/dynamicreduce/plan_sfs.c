@@ -23,7 +23,7 @@ static void OnSFSPlanIdleNode(PlanInfo *pi, WaitEvent *we, DRNodeEventData *ned)
 static bool OnSFSPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid);
 static void OnSFSPlanPreWait(PlanInfo *pi);
 static void OnSFSPlanLatch(PlanInfo *pi);
-static void CreateOidBufFiles(void **ptr, DynamicReduceSFS sfs);
+static void CreateOidBufFiles(PlanInfo *pi, DynamicReduceSFS sfs);
 static void DestroyOidBufFiles(void *ptr);
 static BufFile *GetNodeBufFile(void *ptr, Oid nodeoid, int plan_id);
 static void ExportNodeBufFile(void *ptr);
@@ -126,10 +126,10 @@ static bool OnSFSPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
 
 	DR_PLAN_DEBUG_EOF((errmsg("SFS plan %d(%p) got end of plan message from node %u",
 							  pi->plan_id, pi, nodeoid)));
-	Assert(oidBufferMember(&dr_latch_data->work_oid_buf, nodeoid, NULL));
+	Assert(oidBufferMember(&pi->working_nodes, nodeoid, NULL));
 	appendOidBufferUniqueOid(&pi->end_of_plan_nodes, nodeoid);
 
-	if (pi->end_of_plan_nodes.len == dr_latch_data->work_oid_buf.len)
+	if (pi->end_of_plan_nodes.len == pi->working_nodes.len)
 	{
 		DR_PLAN_DEBUG_EOF((errmsg("SFS plan %d(%p) sending end of plan message", pi->plan_id, pi)));
 		ExportNodeBufFile(pwi->private);
@@ -174,7 +174,7 @@ static void OnSFSPlanLatch(PlanInfo *pi)
 		if (msg_type == ADB_DR_MSG_END_OF_PLAN)
 		{
 			pwi->end_of_plan_recv = true;
-			DRGetEndOfPlanMessage(pwi);
+			DRGetEndOfPlanMessage(pi, pwi);
 		}else
 		{
 			Assert(msg_type == ADB_DR_MSG_TUPLE);
@@ -207,12 +207,6 @@ void DRStartSFSPlanMessage(StringInfo msg)
 		CurrentResourceOwner = NULL;
 
 		pi = DRRestorePlanInfo(msg, (void**)&sfs, sizeof(*sfs), ClearSFSPlanInfo);
-		if ((char*)sfs + DRSFSD_SIZE(sfs->nnode) > (char*)dsm_segment_address(pi->seg) + dsm_segment_map_length(pi->seg))
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("invalid DSM length or SFS parameter")));
-		}
 		Assert(DRPlanSearch(pi->plan_id, HASH_FIND, NULL) == pi);
 		pq_getmsgend(msg);
 
@@ -221,7 +215,7 @@ void DRStartSFSPlanMessage(StringInfo msg)
 		SharedFileSetAttach(&sfs->sfs, pi->seg);
 
 		CurrentResourceOwner = oldowner;
-		CreateOidBufFiles(&pwi->private, sfs);
+		CreateOidBufFiles(pi, sfs);
 		DRSetupPlanWorkTypeConvert(pi, pwi);
 
 		pi->OnNodeRecvedData = pi->type_convert ? OnSFSPlanConvertMessage:OnSFSPlanMessage;
@@ -243,23 +237,17 @@ void DRStartSFSPlanMessage(StringInfo msg)
 	DRActiveNode(pi->plan_id);
 }
 
-void DynamicReduceStartSharedFileSetPlan(int plan_id, struct dsm_segment *seg, DynamicReduceSFS sfs, struct tupleDesc *desc)
+void DynamicReduceStartSharedFileSetPlan(int plan_id, struct dsm_segment *seg, DynamicReduceSFS sfs, struct tupleDesc *desc, List *work_nodes)
 {
 	StringInfoData	buf;
 	Assert(plan_id >= 0);
 
 	DRCheckStarted();
-	if (sfs->nnode == 0)
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid remote node length for dynamic reduce SFS plan")));
-	}
 
 	initStringInfo(&buf);
 	pq_sendbyte(&buf, ADB_DR_MQ_MSG_START_PLAN_SFS);
 
-	DRSerializePlanInfo(plan_id, seg, sfs, DRSFSD_SIZE(sfs->nnode), desc, &buf);
+	DRSerializePlanInfo(plan_id, seg, sfs, sizeof(*sfs), desc, work_nodes, &buf);
 
 	DRSendMsgToReduce(buf.data, buf.len, false);
 	pfree(buf.data);
@@ -289,7 +277,7 @@ static void ClearSFSPlanInfo(PlanInfo *pi)
 	DRClearPlanInfo(pi);
 }
 
-static void CreateOidBufFiles(void **ptr, DynamicReduceSFS sfs)
+static void CreateOidBufFiles(PlanInfo *pi, DynamicReduceSFS sfs)
 {
 	HTAB	   *htab;
 	OidBufFile *buf;
@@ -298,45 +286,33 @@ static void CreateOidBufFiles(void **ptr, DynamicReduceSFS sfs)
 	char		name[MAXPGPATH];
 	bool		found;
 
-	if (sfs->nnode != dr_latch_data->work_oid_buf.len+1)
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("remote node count not equal working count for SFS plan"),
-				 errdetail("working count is %u, plan count is %u",
-				 		   dr_latch_data->work_oid_buf.len, sfs->nnode)));
-	}
-
 	MemSet(&ctl, 0, sizeof(ctl));
 	ctl.keysize = sizeof(Oid);
 	ctl.entrysize = sizeof(OidBufFile);
 	ctl.hash = oid_hash;
 	ctl.hcxt = TopMemoryContext;
-	*ptr = htab = hash_create("Dynamic reduce SFS buffer file",
-							  DR_HTAB_DEFAULT_SIZE,
-							  &ctl,
-							  HASH_ELEM|HASH_CONTEXT|HASH_FUNCTION);
+	htab = hash_create("Dynamic reduce SFS buffer file",
+					   DR_HTAB_DEFAULT_SIZE,
+					   &ctl,
+					   HASH_ELEM|HASH_CONTEXT|HASH_FUNCTION);
+	pi->pwi->private = htab;
 	
-	for (i=0;i<sfs->nnode;++i)
+	for (i=0;i<pi->working_nodes.len;++i)
 	{
-		if (sfs->nodes[i] == PGXCNodeOid)
+		Oid oid = pi->working_nodes.oids[i];
+		if (oid == PGXCNodeOid)
 			continue;
 
-		if (oidBufferMember(&dr_latch_data->work_oid_buf, sfs->nodes[i], NULL) == false)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("remote node oid %u not in dynamic reduce working", sfs->nodes[i])));
-		}
-		buf = hash_search(htab, &sfs->nodes[i], HASH_ENTER, &found);
+		buf = hash_search(htab, &oid, HASH_ENTER, &found);
 		if (found)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_DUPLICATE_OBJECT),
-					 errmsg("duplicate remote node oid %u for dynamic reduce SFS plan", sfs->nodes[i])));
+					 errmsg("duplicate remote node oid %u for dynamic reduce SFS plan",
+							oid)));
 		}
-		Assert(buf->oid == sfs->nodes[i]);
-		buf->buffile = BufFileCreateShared(&sfs->sfs, DynamicReduceSFSFileName(name, sfs->nodes[i]));
+		Assert(buf->oid == oid);
+		buf->buffile = BufFileCreateShared(&sfs->sfs, DynamicReduceSFSFileName(name, oid));
 	}
 }
 

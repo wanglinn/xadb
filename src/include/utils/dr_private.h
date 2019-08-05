@@ -57,7 +57,7 @@
 #define DR_PLAN_DEBUG(rest)	((void*)0)
 #endif
 
-#define DRD_PLAN_EOF 1
+/* #define DRD_PLAN_EOF 1 */
 #ifdef DRD_PLAN_EOF
 #define DR_PLAN_DEBUG_EOF(rest) ereport_domain(LOG_SERVER_ONLY, PG_TEXTDOMAIN("DynamicReduce"), rest)
 #else
@@ -199,6 +199,7 @@ struct PlanInfo
 
 	dsm_segment		   *seg;
 	OidBufferData		end_of_plan_nodes;
+	OidBufferData		working_nodes;		/* not include PGXCNodeOid */
 	PlanWorkerInfo	   *pwi;
 
 	/* for merge */
@@ -225,7 +226,7 @@ extern shm_mq_handle	   *dr_mq_worker_sender;
 /* public function */
 void DRCheckStarted(void);
 void DREnlargeWaitEventSet(void);
-void DRGetEndOfPlanMessage(PlanWorkerInfo *pwi);
+void DRGetEndOfPlanMessage(PlanInfo *pi, PlanWorkerInfo *pwi);
 
 /* public plan functions in plan_public.c */
 bool DRSendPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi);
@@ -235,7 +236,7 @@ void ActiveWaitingPlan(DRNodeEventData *ned);
 void DRSetupPlanTypeConvert(PlanInfo *pi, TupleDesc desc);
 void DRSetupPlanWorkTypeConvert(PlanInfo *pi, PlanWorkerInfo *pwi);
 TupleTableSlot* DRStoreTypeConvertTuple(TupleTableSlot *slot, const char *data, uint32 len, HeapTuple head);
-void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, TupleDesc desc, StringInfo buf);
+void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, TupleDesc desc, List *work_nodes, StringInfo buf);
 PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(PlanInfo*));
 void DRSetupPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi, DynamicReduceMQ mq, int worker_id);
 void DRInitPlanSearch(void);

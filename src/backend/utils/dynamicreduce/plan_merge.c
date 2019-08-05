@@ -184,7 +184,7 @@ void DRStartMergePlanMessage(StringInfo msg)
 	}PG_END_TRY();
 }
 
-void DynamicReduceStartMergePlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc,
+void DynamicReduceStartMergePlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes,
 								 int numCols, AttrNumber *sortColIdx, Oid *sortOperators, Oid *collations, bool *nullsFirst)
 {
 	StringInfoData		buf;
@@ -195,7 +195,7 @@ void DynamicReduceStartMergePlan(int plan_id, struct dsm_segment *seg, DynamicRe
 	initStringInfoExtend(&buf, 128);
 	appendStringInfoChar(&buf, ADB_DR_MQ_MSG_START_PLAN_MERGE);
 
-	DRSerializePlanInfo(plan_id, seg, mq, sizeof(*mq), desc, &buf);
+	DRSerializePlanInfo(plan_id, seg, mq, sizeof(*mq), desc, work_nodes, &buf);
 
 	DRSerializeMergeInfo(numCols, sortColIdx, sortOperators, collations, nullsFirst, &buf);
 
@@ -208,7 +208,7 @@ void DynamicReduceStartMergePlan(int plan_id, struct dsm_segment *seg, DynamicRe
 static MergeInput* DRCreateMergeInput(PlanInfo *pi)
 {
 	MergeInput *minput;
-	uint32		max_item = dr_latch_data->work_oid_buf.len;
+	uint32		max_item = pi->working_nodes.len;
 	uint32		i;
 
 	minput = palloc0(offsetof(MergeInput, items) + sizeof(minput->items[0])*max_item);
@@ -293,7 +293,7 @@ static inline void ProcessBackendMergePlanMessage(PlanWorkerInfo *pwi, PlanInfo 
 		if (msg_type == ADB_DR_MSG_END_OF_PLAN)
 		{
 			pwi->end_of_plan_recv = true;
-			DRGetEndOfPlanMessage(pwi);
+			DRGetEndOfPlanMessage(pi, pwi);
 		}else
 		{
 			Assert(msg_type == ADB_DR_MSG_TUPLE);
@@ -396,7 +396,7 @@ static void OnMergePlanLatch(PlanInfo *pi)
 		pwi->sendBuffer.len == 0 &&
 		pwi->end_of_plan_send == false)
 	{
-		Assert(pi->end_of_plan_nodes.len == dr_latch_data->work_oid_buf.len);
+		Assert(pi->end_of_plan_nodes.len == pi->working_nodes.len);
 		pwi->end_of_plan_send = true;
 		DR_PLAN_DEBUG_EOF((errmsg("merge plan %d(%p) sending end of plan message", pi->plan_id, pi)));
 		appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_END_OF_PLAN);
@@ -409,8 +409,8 @@ static void OnMergePlanLatch(PlanInfo *pi)
 static void OnMergePlanLatchInitialize(PlanInfo *pi)
 {
 	uint32				i,
-						count = dr_latch_data->work_oid_buf.len;
-	Oid				   *oids = dr_latch_data->work_oid_buf.oids;
+						count = pi->working_nodes.len;
+	Oid				   *oids = pi->working_nodes.oids;
 	PlanWorkerInfo	   *pwi = pi->pwi;
 	MergeInput		   *minput = pwi->private;
 	MergeInputItem	   *mitem;
@@ -457,7 +457,7 @@ static void OnMergePlanLatchInitialize(PlanInfo *pi)
 		binaryheap_build(minput->binheap);
 		if (binaryheap_empty(minput->binheap))
 		{
-			Assert(pi->end_of_plan_nodes.len == dr_latch_data->work_oid_buf.len);
+			Assert(pi->end_of_plan_nodes.len == pi->working_nodes.len);
 			pwi->end_of_plan_send = true;
 		}else
 		{

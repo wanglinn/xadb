@@ -171,12 +171,21 @@ TupleTableSlot* DRStoreTypeConvertTuple(TupleTableSlot *slot, const char *data, 
 	return slot;
 }
 
-void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, TupleDesc desc, StringInfo buf)
+void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, TupleDesc desc, List *work_nodes, StringInfo buf)
 {
 	Size		offset;
+	ListCell   *lc;
 	dsm_handle	handle;
+	uint32		length;
 
 	Assert(plan_id >= 0);
+	if ((length=list_length(work_nodes)) == 0)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("invalid work nodes fro dynamic reduce plan %d", plan_id)));
+	}
+	Assert(IsA(work_nodes, OidList));
 
 	handle = dsm_segment_handle(seg);
 	offset = (char*)addr - (char*)dsm_segment_address(seg);
@@ -187,6 +196,9 @@ void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, T
 	pq_sendbytes(buf, (char*)&handle, sizeof(handle));
 	pq_sendbytes(buf, (char*)&offset, sizeof(offset));
 	SerializeTupleDesc(buf, desc);
+	pq_sendbytes(buf, (char*)&length, sizeof(length));
+	foreach(lc, work_nodes)
+		pq_sendbytes(buf, (char*)&lfirst_oid(lc), sizeof(Oid));
 }
 
 PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(PlanInfo*))
@@ -198,6 +210,8 @@ PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(
 	PlanInfo * volatile
 					pi = NULL;
 	int				plan_id;
+	uint32			node_count;
+	Oid				oid;
 	bool			found;
 
 	PG_TRY();
@@ -236,6 +250,48 @@ PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(
 		*shm = ((char*)dsm_segment_address(pi->seg)) + offset;
 
 		initOidBuffer(&pi->end_of_plan_nodes);
+		pq_copymsgbytes(buf, (char*)&node_count, sizeof(node_count));
+		if (node_count == 0 ||
+			node_count > dr_latch_data->work_oid_buf.len+1)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					 errmsg("invalid work node length %u", node_count)));
+		}
+		initOidBufferEx(&pi->working_nodes, node_count, CurrentMemoryContext);
+		found = false;
+		while (node_count > 0)
+		{
+			--node_count;
+			pq_copymsgbytes(buf, (char*)&oid, sizeof(Oid));
+			if (oid == PGXCNodeOid)
+			{
+				found = true;
+				continue;
+			}
+
+			if (oidBufferMember(&pi->working_nodes, oid, NULL))
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("replicate node %u for plan %d", oid, plan_id)));
+			}
+			if (oidBufferMember(&dr_latch_data->work_oid_buf, oid, NULL) == false)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("node %u not in dynamic reduce work", oid)));
+			}
+
+			appendOidBufferOid(&pi->working_nodes, oid);
+		}
+		if (found == false)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					 errmsg("our node %u not found in plan %d for dynamic reduce",
+							PGXCNodeOid, plan_id)));
+		}
 	}PG_CATCH();
 	{
 		if (pi && pi->type_convert)
@@ -386,6 +442,16 @@ void DRClearPlanInfo(PlanInfo *pi)
 	}
 	if (pi->base_desc)
 		FreeTupleDesc(pi->base_desc);
+	if (pi->end_of_plan_nodes.oids)
+	{
+		pfree(pi->end_of_plan_nodes.oids);
+		pi->end_of_plan_nodes.oids = NULL;
+	}
+	if (pi->working_nodes.oids)
+	{
+		pfree(pi->working_nodes.oids);
+		pi->working_nodes.oids = NULL;
+	}
 	if (pi->seg)
 	{
 		dsm_detach(pi->seg);
