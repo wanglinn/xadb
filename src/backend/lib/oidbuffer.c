@@ -9,7 +9,7 @@ OidBuffer makeOidBuffer(uint32 size)
 
 OidBuffer initOidBufferEx(OidBuffer buf, uint32 size, MemoryContext context)
 {
-	buf->oids = MemoryContextAlloc(context, size);
+	buf->oids = MemoryContextAlloc(context, sizeof(Oid)*size);
 	buf->step = buf->maxlen = size;
 	resetOidBuffer(buf);
 
