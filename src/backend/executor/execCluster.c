@@ -495,36 +495,11 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 }
 
 /************************************************************************/
-static bool
-ReducePlanWalker(Node *node, PlannedStmt *stmt)
-{
-	if (node == NULL)
-		return false;
-
-	if (IsA(node, ClusterReduce))
-	{
-		return true;
-	}else if(IsA(node, SubPlan))
-	{
-		SubPlan *subPlan = (SubPlan*)node;
-		return ReducePlanWalker(list_nth(stmt->subplans, subPlan->plan_id-1), stmt);
-	}else if(IsA(node, CteScan))
-	{
-		CteScan *cte = (CteScan*)node;
-		if(ReducePlanWalker(list_nth(stmt->subplans, cte->ctePlanId-1), stmt))
-			return true;
-	}
-
-	return node_tree_walker(node, ReducePlanWalker, stmt);
-}
-
 PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rnodes)
 {
 	PlannedStmt *stmt;
 	StringInfoData msg;
 	ClusterPlanContext context;
-	bool have_reduce;
-	bool start_self_reduce;
 
 	AssertArg(plan);
 	AssertArg(rnodes != NIL);
@@ -554,11 +529,8 @@ PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rn
 		end_mem_toc_insert(&msg, REMOTE_KEY_ES_INSTRUMENT);
 	}
 
-	/* TODO: judge whether start self reduce or not */
-	start_self_reduce = true;
-	have_reduce = ReducePlanWalker((Node *) plan, stmt);
 	pfree(stmt);
-	if (have_reduce)
+	if (context.have_reduce)
 	{
 		begin_mem_toc_insert(&msg, REMOTE_KEY_REDUCE_INFO);
 		appendStringInfoChar(&msg, (char)false);	/* not memory module */
@@ -566,9 +538,6 @@ PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rn
 	}
 
 	SerializeCoordinatorInfo(&msg);
-
-	context.have_reduce = have_reduce;
-	context.start_self_reduce = start_self_reduce;
 
 	StartRemotePlan(&msg, rnodes, &context, true);
 	pfree(msg.data);
@@ -743,6 +712,8 @@ static void SerializePlanInfo(StringInfo msg, PlannedStmt *stmt,
 	{
 		context->have_temp = false;
 		context->transaction_read_only = true;
+		context->have_reduce = false;
+		context->start_self_reduce = false;
 	}
 
 	/* modify range table if relation is in coordinator only */
@@ -950,6 +921,17 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("Invalid plan tree, because have one more cluster gather")));
 		break;	/* keep compiler quiet */
+	case T_ClusterReduce:
+		if (context)
+		{
+			ClusterPlanContext *cpc = (ClusterPlanContext*)context;
+			cpc->have_reduce = true;
+			if (cpc->start_self_reduce == false &&
+				list_member_oid(((ClusterReduce*)node)->reduce_oids, PGXCNodeOid))
+			{
+				cpc->start_self_reduce = true;
+			}
+		}
 	default:
 		break;
 	}

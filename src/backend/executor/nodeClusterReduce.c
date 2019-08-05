@@ -19,7 +19,8 @@
 
 typedef enum ReduceType
 {
-	RT_NORMAL = 1,
+	RT_NOTHING = 1,
+	RT_NORMAL,
 	RT_MERGE
 }ReduceType;
 
@@ -56,6 +57,12 @@ static bool DriveCteScanState(PlanState *node);
 static bool DriveMaterialState(PlanState *node);
 static bool DriveClusterReduceWalker(PlanState *node);
 static bool IsThereClusterReduce(PlanState *node);
+
+/* ======================= nothing reduce========================== */
+static TupleTableSlot* ExecNothingReduce(PlanState *pstate)
+{
+	return ExecClearTuple(pstate->ps_ResultTupleSlot);
+}
 
 /* ======================= normal reduce ========================== */
 static TupleTableSlot* ExecNormalReduce(PlanState *pstate)
@@ -366,6 +373,9 @@ static void InitReduceMethod(ClusterReduceState *crstate)
 	Assert(crstate->private_state == NULL);
 	switch(crstate->reduce_method)
 	{
+	case RT_NOTHING:
+		ExecSetExecProcNode(&crstate->ps, ExecNothingReduce);
+		break;
 	case RT_NORMAL:
 		InitNormalReduce(crstate);
 		break;
@@ -378,7 +388,8 @@ static void InitReduceMethod(ClusterReduceState *crstate)
 				 errmsg("unknown reduce method %u", crstate->reduce_method)));
 		break;
 	}
-	Assert(crstate->private_state != NULL);
+	Assert(crstate->private_state != NULL ||
+		   crstate->reduce_method == RT_NOTHING);
 }
 static TupleTableSlot* ExecDefaultClusterReduce(PlanState *pstate)
 {
@@ -408,7 +419,9 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	crstate->ps.plan = (Plan*)node;
 	crstate->ps.state = estate;
 	crstate->ps.ExecProcNode = ExecDefaultClusterReduce;
-	if (node->numCols > 0)
+	if (list_member_oid(node->reduce_oids, PGXCNodeOid) == false)
+		crstate->reduce_method = (uint8)RT_NOTHING;
+	else if (node->numCols > 0)
 		crstate->reduce_method = (uint8)RT_MERGE;
 	else
 		crstate->reduce_method = (uint8)RT_NORMAL;
@@ -578,6 +591,8 @@ DriveClusterReduceState(ClusterReduceState *node)
 
 	switch(node->reduce_method)
 	{
+	case RT_NOTHING:
+		break;
 	case RT_NORMAL:
 		DriveNormalReduce(node);
 		break;
