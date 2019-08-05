@@ -7369,12 +7369,13 @@ List *get_reduce_info_list(Path *path)
 
 static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *path, int flags)
 {
-	Plan *subplan;
-	ReduceInfo *to;
-	ClusterReduce *plan;
-	List *reduce_list;
-	ListCell *lc;
-	ReduceInfo *info;
+	Plan		   *subplan;
+	ReduceInfo	   *to;
+	ClusterReduce  *plan;
+	List		   *reduce_list;
+	ListCell	   *lc;
+	ReduceInfo	   *info;
+	List		   *from_oids;
 
 	Assert(list_length(path->path.reduce_info_list) == 1);
 	Assert(!IsA(path->subpath, ClusterReducePath));
@@ -7391,6 +7392,10 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 	outerPlan(plan) = subplan = create_plan_recurse(root, path->subpath, flags);
 	plan->reduce = CreateExprUsingReduceInfo(to);
 	plan->reduce_oids = list_copy(to->storage_nodes);
+	from_oids = ReduceInfoListGetExecuteOidList(reduce_list);
+	foreach(lc, from_oids)
+		plan->reduce_oids = list_append_unique_oid(plan->reduce_oids, lfirst_oid(lc));
+	list_free(from_oids);
 	copy_generic_path_info((Plan*)plan, (Path*)path);
 	plan->plan.targetlist = subplan->targetlist;
 
