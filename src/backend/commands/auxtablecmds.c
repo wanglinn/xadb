@@ -544,7 +544,6 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 			mnodes = lappend_oid(mnodes, PGXCNodeOid);
 		saveNode(&buf, (const Node *) mnodes);
 		end_mem_toc_insert(&buf, AUX_REL_MAIN_NODES);
-		list_free(mnodes);
 
 		rconns = ExecStartClusterAuxPadding(rnodes,
 											(Node *) stmt,
@@ -562,7 +561,7 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 
 				DoPaddingDataForAuxRel(master,
 									   auxrel,
-									   rnodes,
+									   mnodes,
 									   auxcopy);
 
 				heap_close(auxrel, NoLock);
@@ -570,6 +569,7 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 			list_free(auxrellist);
 			list_free(auxcopylist);
 		}
+		list_free(mnodes);
 
 		heap_close(master, NoLock);
 
