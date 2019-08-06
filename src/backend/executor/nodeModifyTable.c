@@ -2949,6 +2949,9 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	{
 		TupleTableSlot *slot;
 		ExprContext *econtext;
+#ifdef ADB
+		List *saved_targetlist = node->plan.targetlist;
+#endif /* ADB */
 
 		/*
 		 * Initialize result tuple slot and assign its rowtype using the first
@@ -2986,6 +2989,9 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 										resultRelInfo->ri_RelationDesc->rd_att);
 			resultRelInfo++;
 		}
+#ifdef ADB
+		node->plan.targetlist = saved_targetlist;
+#endif /* ADB */
 	}
 	else
 	{
