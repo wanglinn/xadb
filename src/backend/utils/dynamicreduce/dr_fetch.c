@@ -79,7 +79,7 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 				DynamicReduceSendMessage(io->mqh_sender,
 										 io->send_buf.len,
 										 io->send_buf.data,
-										 io->eof_local ? false:true))
+										 io->eof_remote ? false:true))
 			{
 				io->send_buf.len = 0;
 			}
