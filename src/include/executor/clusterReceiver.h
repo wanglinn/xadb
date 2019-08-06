@@ -51,5 +51,6 @@ extern TupleTableSlot* restore_slot_message(const char *msg, int len, TupleTable
 extern void serialize_processed_message(StringInfo buf, uint64 processed);
 extern uint64 restore_processed_message(const char *msg, int len);
 extern void put_executor_end_msg(bool flush);
+extern void wait_executor_end_msg(struct pg_conn *conn);
 
 #endif /* CLUSTER_RECEIVER_H */

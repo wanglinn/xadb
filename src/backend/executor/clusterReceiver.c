@@ -827,3 +827,25 @@ void put_executor_end_msg(bool flush)
 	if (flush)
 		pq_flush();
 }
+
+static bool wait_exec_end_msg_call_back(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
+{
+	if (*buf == CLUSTER_MSG_EXECUTOR_RUN_END)
+	{
+		return true;
+	}else if (clusterRecvTuple(NULL, buf, len, NULL, conn))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("invalid message type %d from %s, except %d",
+				 		*buf, PQNConnectName(conn), CLUSTER_MSG_EXECUTOR_RUN_END)));
+	}
+	return false;
+}
+
+void wait_executor_end_msg(struct pg_conn *conn)
+{
+	PQNHookFunctions funcs = PQNDefaultHookFunctions;
+	funcs.HookCopyOut = wait_exec_end_msg_call_back;
+	PQNOneExecFinish(conn, &funcs, true);
+}
