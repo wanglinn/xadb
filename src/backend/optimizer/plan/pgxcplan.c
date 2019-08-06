@@ -19,6 +19,7 @@
 #include "catalog/pg_inherits.h"
 #include "catalog/indexing.h"
 #include "catalog/pgxc_node.h"
+#include "commands/defrem.h"
 #include "commands/prepare.h"
 #include "commands/tablecmds.h"
 #include "commands/trigger.h"
@@ -35,6 +36,7 @@
 #include "optimizer/tlist.h"
 #include "optimizer/var.h"
 #include "optimizer/pathnode.h"
+#include "optimizer/plancat.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_relation.h"
 #include "parser/parse_oper.h"
@@ -2727,10 +2729,24 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 	PlannerInfo		*root;
 	ExecNodes		*exec_nodes;
 	Plan			*top_plan;
+	ListCell		*lc;
+	RangeTblEntry	*rte;
 
 	/* Try by-passing standard planner, if fast query shipping is enabled */
 	if (!enable_fast_query_shipping)
 		return NULL;
+
+	/* don't create FQS when using */
+	if (use_aux_type != USE_AUX_OFF)
+	{
+		foreach (lc, query->rtable)
+		{
+			rte = lfirst_node(RangeTblEntry, lc);
+			if (rte->rtekind == RTE_RELATION &&
+				HasAuxRelation(rte->relid))
+				return NULL;
+		}
+	}
 
 	/* Cursor options may come from caller or from DECLARE CURSOR stmt */
 	if (query->utilityStmt &&
@@ -2739,8 +2755,6 @@ pgxc_FQS_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 
 	if (query->commandType == CMD_INSERT)
 	{
-		ListCell *lc;
-		RangeTblEntry *rte;
 		/* test has volatile expr */
 		if (list_length(query->rtable) == 1 && /* only insert target, it is "insert into target VALUES(...)" */
 			contain_volatile_functions((Node*)query->targetList))
