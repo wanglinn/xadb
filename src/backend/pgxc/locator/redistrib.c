@@ -121,6 +121,7 @@ static int process_distrib_cmd(void *context, const char *data, int len);
 static AuxiliaryRelCopy *MakeShadowRelCopyInfoFromMaster(Relation masterRel, RelationLocInfo *newLocInfo, int shadowId);
 static bool distrib_local_node_need_reduce(char masterLocatorType, char shadowLocatorType
 				, Oid preferred, Oid PGXCNodeOid);
+static void WaitExecutorEndMessage(List *remotes);
 #endif
 
 /*
@@ -1067,13 +1068,14 @@ distrib_build_shadow_relation(RedistribState *distribState
 		appendBinaryStringInfo(&msg, (char *)&reltablespace, sizeof(reltablespace));
 		appendBinaryStringInfo(&msg, (char *)&relpersistence, sizeof(relpersistence));
 		PQNputCopyData(remoteList, msg.data, msg.len);
+		WaitExecutorEndMessage(remoteList);
 
 		GetCurrentCommandId(true);
 		CommandCounterIncrement();
 
 		ereport(DEBUG1,
-			(errmsg("reduce source relation \"%s.%s\" data to shadow relation"
-				, childNspname, childRelname)));
+				(errmsg("reduce source relation \"%s.%s\" data to shadow relation",
+						childNspname, childRelname)));
 
 		resetStringInfo(&msg);
 		masterLocatorType = distribState->oldLocInfo->locatorType;
@@ -1091,6 +1093,7 @@ distrib_build_shadow_relation(RedistribState *distribState
 		appendBinaryStringInfo(&msg, (char *)&preferred, sizeof(preferred));
 		SerializeAuxRelCopyInfo(&msg, redistcopylist);
 		PQNputCopyData(remoteList, msg.data, msg.len);
+		WaitExecutorEndMessage(remoteList);
 
 		heap_close(childRel, NoLock);
 
@@ -1322,6 +1325,7 @@ void distrib_rewrite_catalog_swap_file(RedistribState *distribState
 				save_node_string(&msg, childNspname);
 				saveNode(&msg, (Node *)cmd);
 				PQNputCopyData(remoteList, msg.data, msg.len);
+				WaitExecutorEndMessage(remoteList);
 
 				GetCurrentCommandId(true);
 				CommandCounterIncrement();
@@ -1382,6 +1386,7 @@ void distrib_rewrite_catalog_swap_file(RedistribState *distribState
 		appendBinaryStringInfo(&msg, (char *)&reltablespace, sizeof(reltablespace));
 		appendBinaryStringInfo(&msg, (char *)&relpersistence, sizeof(relpersistence));
 		PQNputCopyData(remoteList, msg.data, msg.len);
+		WaitExecutorEndMessage(remoteList);
 
 		heap_close(childRel, NoLock);
 		pfree(childRelname);
@@ -1537,7 +1542,6 @@ static int process_distrib_cmd(void *context, const char *data, int len)
 			Assert((relpersistence != RELPERSISTENCE_TEMP));
 			OIDNewHeap = make_new_heap(masterRelid, reltablespace
 										, relpersistence, AccessExclusiveLock);
-			put_executor_end_msg(true);
 
 			relRelation = heap_open(RelationRelationId, RowExclusiveLock);
 			shadowTuple = SearchSysCacheCopy1(RELOID, ObjectIdGetDatum(OIDNewHeap));
@@ -1589,7 +1593,6 @@ static int process_distrib_cmd(void *context, const char *data, int len)
 
 			heap_close(masterRel, AccessExclusiveLock);
 			heap_close(shadowRel, AccessExclusiveLock);
-			put_executor_end_msg(true);
 			break;
 		case REMOTE_KEY_SWAP_SHADOW_SOURCE_TABLE:
 			/* swap shadow relation file with source relation file */
@@ -1613,7 +1616,6 @@ static int process_distrib_cmd(void *context, const char *data, int len)
 			finish_heap_swap(masterRelid, shadowRelid, is_system_catalog,
 							swap_toast_by_content, false, true,
 							RecentXmin, ReadNextMultiXactId(), relpersistence);
-			put_executor_end_msg(true);
 			break;
 		case REMOTE_KEY_REWRITE_CATALOG_TABLE:
 			/* rewrite the table catalog */
@@ -1638,6 +1640,7 @@ static int process_distrib_cmd(void *context, const char *data, int len)
 	}
 	GetCurrentCommandId(true);
 	CommandCounterIncrement();
+	put_executor_end_msg(true);
 
 	return 0;
 }
@@ -1652,5 +1655,13 @@ distrib_local_node_need_reduce(char masterLocatorType, char shadowLocatorType
 		return true;
 
 	return false;
+}
+
+static void WaitExecutorEndMessage(List *remotes)
+{
+	ListCell *lc;
+	PQNFlush(remotes, true);
+	foreach (lc, remotes)
+		wait_executor_end_msg(lfirst(lc));
 }
 #endif /* ADB*/
