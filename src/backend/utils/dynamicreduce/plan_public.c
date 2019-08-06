@@ -112,6 +112,8 @@ bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
 		return true;
 	}else if(msg_type == ADB_DR_MSG_END_OF_PLAN)
 	{
+		DR_PLAN_DEBUG_EOF((errmsg("plan %d worker %d got end of plan message from backend",
+								  pi->plan_id, pwi->worker_id)));
 		pwi->last_msg_type = ADB_DR_MSG_END_OF_PLAN;
 		return true;
 	}
