@@ -247,10 +247,6 @@ extern int errnode(const char *node);
  *----------
  */
 #ifdef HAVE__VA_ARGS
-#if defined(ADB) || defined(ADBMGRD)
-#	define elog(elevel, ...)		\
-		ereport(elevel, (errmsg(__VA_ARGS__)))
-#else /* defined(ADB) || defined(ADBMGRD) */
 /*
  * If we have variadic macros, we can give the compiler a hint about the
  * call not returning when elevel >= ERROR.  See comments for ereport().
@@ -277,7 +273,6 @@ extern int errnode(const char *node);
 		} \
 	} while(0)
 #endif							/* HAVE__BUILTIN_CONSTANT_P */
-#endif							/* defined(ADB) || defined(ADBMGRD) */
 #else							/* !HAVE__VA_ARGS */
 #define elog  \
 	elog_start(__FILE__, __LINE__, PG_FUNCNAME_MACRO), \
