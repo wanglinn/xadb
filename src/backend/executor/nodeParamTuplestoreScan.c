@@ -157,6 +157,9 @@ ExecInitParamTuplestoreScan(ParamTuplestoreScan *node, EState *estate, int eflag
 	 */
 	ExecAssignExprContext(estate, &scanstate->ss.ps);
 
+	/* and create slot with the appropriate rowtype */
+	ExecInitScanTupleSlot(estate, &scanstate->ss, scanstate->tupdesc);
+
 	/*
 	 * initialize child expressions
 	 */
@@ -167,7 +170,7 @@ ExecInitParamTuplestoreScan(ParamTuplestoreScan *node, EState *estate, int eflag
 	 * The scan tuple type is specified for the tuplestore.
 	 */
 	ExecInitResultTupleSlotTL(estate, &scanstate->ss.ps);
-	ExecConditionalAssignProjectionInfo(&scanstate->ss.ps, scanstate->tupdesc, OUTER_VAR);
+	ExecConditionalAssignProjectionInfo(&scanstate->ss.ps, scanstate->tupdesc, node->scan.scanrelid);
 
 	return scanstate;
 }
