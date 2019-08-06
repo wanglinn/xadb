@@ -9161,18 +9161,43 @@ static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subp
 		contain_volatile_functions((Node*)subpath->pathtarget->exprs))
 		return NULL;
 
-	if (IsA(subpath, ResultPath))
+	if (IsA(subpath, ResultPath) ||
+		IsA(subpath, ProjectionPath))
 	{
+		List *exprs = NIL;
+		List *quals;
+
 		if (((ResultPath*)subpath)->subpath == NULL &&
 			((ResultPath*)subpath)->quals == NIL &&
 			not_only_const((Node*)subpath->pathtarget->exprs) == false)
+		{
+			exprs = subpath->pathtarget->exprs;
+		}
+		if (IsA(subpath, ProjectionPath) &&
+			((ProjectionPath*)subpath)->dummypp &&
+			IsA(((ProjectionPath*)subpath)->subpath, ResultPath) &&
+			((ProjectionPath*)subpath)->subpath->pathtarget->exprs == NIL &&
+			not_only_const((Node*)subpath->pathtarget->exprs) == false)
+		{
+			exprs = subpath->pathtarget->exprs;
+		}
+
+		if (exprs != NIL)
 		{
 			/* OK, it is a simple row insert */
 			rte = planner_rt_fetch(relid, root);
 			loc_info = get_relid_location_info(root, relid);
 			if (IsRelationReplicated(loc_info))
 			{
-				((ResultPath*)subpath)->quals = list_make1(CreateNodeOidNotEqualOid(PGXCNodeOid));
+				quals = list_make1(CreateNodeOidNotEqualOid(PGXCNodeOid));
+				if (IsA(subpath, ResultPath))
+					((ResultPath*)subpath)->quals = quals;
+				else
+					subpath = (Path*)create_filter_path(root,
+														subpath->parent,
+														subpath,
+														subpath->pathtarget,
+														quals);
 				*exec_nodes = list_copy(loc_info->nodeids);
 				return subpath;
 			}
@@ -9184,7 +9209,7 @@ static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subp
 			slot = MakeSingleTupleTableSlot(RelationGetDescr(rel));
 
 			i=0;
-			foreach(lc, subpath->pathtarget->exprs)
+			foreach(lc, exprs)
 			{
 				Const *c = lfirst_node(Const, lc);
 				slot->tts_values[i] = c->constvalue;
@@ -9219,7 +9244,15 @@ static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subp
 			RelationClose(rel);
 
 			*exec_nodes = storage_nodes;
-			((ResultPath*)subpath)->quals = list_make1(CreateNodeOidNotEqualOid(PGXCNodeOid));
+			quals = list_make1(CreateNodeOidNotEqualOid(PGXCNodeOid));
+			if (IsA(subpath, ResultPath))
+				((ResultPath*)subpath)->quals = quals;
+			else
+				subpath = (Path*)create_filter_path(root,
+													subpath->parent,
+													subpath,
+													subpath->pathtarget,
+													quals);
 			return subpath;
 		}
 	}else if(subpath->pathtype == T_ValuesScan)
