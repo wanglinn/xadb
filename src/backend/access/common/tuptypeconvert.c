@@ -122,10 +122,9 @@ TupleTypeConvert* create_type_convert(TupleDesc base_desc, bool need_out, bool n
 	for(i=natts=0;i<base_desc->natts;++i)
 	{
 		attr = TupleDescAttr(base_desc, i);
-		if (attr->attisdropped)
-			continue;
 
-		if (setup_convert_io(&tmp_io, attr->atttypid, need_out, need_in))
+		if (attr->attisdropped == false &&
+			setup_convert_io(&tmp_io, attr->atttypid, need_out, need_in))
 		{
 			io = palloc(sizeof(*io));
 			memcpy(io, &tmp_io, sizeof(*io));
@@ -157,12 +156,12 @@ TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlo
 	ListCell *lc;
 	ConvertIO *io;
 	StringInfoData buf;
-	int s,d,natts;
+	int i,natts;
 
 	AssertArg(list_length(convert->io_state) == src->tts_tupleDescriptor->natts);
 	AssertArg(convert_equal_tuple_desc(src->tts_tupleDescriptor, convert->out_desc));
 	AssertArg(convert_equal_tuple_desc(dest->tts_tupleDescriptor, convert->base_desc));
-	AssertArg(dest->tts_tupleDescriptor->natts >= src->tts_tupleDescriptor->natts);
+	AssertArg(dest->tts_tupleDescriptor->natts == src->tts_tupleDescriptor->natts);
 
 	ExecClearTuple(dest);
 	if(TupIsNull(src))
@@ -173,39 +172,35 @@ TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlo
 	PG_TRY();
 	{
 		natts = dest->tts_tupleDescriptor->natts;
-		for(s=d=0,lc=list_head(convert->io_state);d<natts;++d)
+		for(i=0,lc=list_head(convert->io_state);i<natts;++i)
 		{
-			if (TupleDescAttr(dest->tts_tupleDescriptor, d)->attisdropped)
-				continue;
-
-			if((dest->tts_isnull[d] = src->tts_isnull[s]) == false)
+			if((dest->tts_isnull[i] = src->tts_isnull[i]) == false)
 			{
 				io = lfirst(lc);
 				if(io == NULL)
 				{
-					Form_pg_attribute attr = TupleDescAttr(src->tts_tupleDescriptor, s);
-					Assert(attr->atttypid == TupleDescAttr(dest->tts_tupleDescriptor, d)->atttypid);
+					Form_pg_attribute attr = TupleDescAttr(src->tts_tupleDescriptor, i);
+					Assert(attr->atttypid == TupleDescAttr(dest->tts_tupleDescriptor, i)->atttypid);
 
 					if (need_copy && !attr->attbyval)
-						dest->tts_values[d] = datumCopy(src->tts_values[s], false, attr->attlen);
+						dest->tts_values[i] = datumCopy(src->tts_values[i], false, attr->attlen);
 					else
-						dest->tts_values[d] = src->tts_values[s];
+						dest->tts_values[i] = src->tts_values[i];
 				}else
 				{
 					if(io->bin_type)
 					{
-						bytea *p = DatumGetByteaP(src->tts_values[s]);
+						bytea *p = DatumGetByteaP(src->tts_values[i]);
 						buf.data = VARDATA_ANY(p);
 						buf.len = buf.maxlen = VARSIZE_ANY_EXHDR(p);
 						buf.cursor = 0;
-						dest->tts_values[d] = ReceiveFunctionCall(&io->in_func, &buf, io->io_param, -1);
+						dest->tts_values[i] = ReceiveFunctionCall(&io->in_func, &buf, io->io_param, -1);
 					}else
 					{
-						dest->tts_values[d] = InputFunctionCall(&io->in_func, DatumGetPointer(src->tts_values[s]), io->io_param, -1);
+						dest->tts_values[i] = InputFunctionCall(&io->in_func, DatumGetPointer(src->tts_values[i]), io->io_param, -1);
 					}
 				}
 			}
-			++s;
 			lc = lnext(lc);
 		}
 	}PG_CATCH();
@@ -223,12 +218,12 @@ TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSl
 {
 	ListCell *lc;
 	ConvertIO *io;
-	int s,d,natts;
+	int i,natts;
 
 	AssertArg(list_length(convert->io_state) == dest->tts_tupleDescriptor->natts);
 	AssertArg(convert_equal_tuple_desc(src->tts_tupleDescriptor, convert->base_desc));
 	AssertArg(convert_equal_tuple_desc(dest->tts_tupleDescriptor, convert->out_desc));
-	AssertArg(dest->tts_tupleDescriptor->natts <= src->tts_tupleDescriptor->natts);
+	AssertArg(dest->tts_tupleDescriptor->natts == src->tts_tupleDescriptor->natts);
 
 	ExecClearTuple(dest);
 	if(TupIsNull(src))
@@ -236,37 +231,33 @@ TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSl
 	slot_getallattrs(src);
 
 	natts = src->tts_tupleDescriptor->natts;
-	for(s=d=0,lc=list_head(convert->io_state);s<natts;++s)
+	for(i=0,lc=list_head(convert->io_state);i<natts;++i)
 	{
-		if (TupleDescAttr(src->tts_tupleDescriptor, s)->attisdropped)
-			continue;
-
-		if ((dest->tts_isnull[d]=src->tts_isnull[s]) == false)
+		if ((dest->tts_isnull[i]=src->tts_isnull[i]) == false)
 		{
 			io = lfirst(lc);
 			if(io == NULL)
 			{
-				Form_pg_attribute attr = TupleDescAttr(src->tts_tupleDescriptor, s);
-				Assert(attr->atttypid == TupleDescAttr(dest->tts_tupleDescriptor, d)->atttypid);
+				Form_pg_attribute attr = TupleDescAttr(src->tts_tupleDescriptor, i);
+				Assert(attr->atttypid == TupleDescAttr(dest->tts_tupleDescriptor, i)->atttypid);
 
 				if (need_copy && !attr->attbyval)
-					dest->tts_values[d] = datumCopy(src->tts_values[s], false, attr->attlen);
+					dest->tts_values[i] = datumCopy(src->tts_values[i], false, attr->attlen);
 				else
-					dest->tts_values[d] = src->tts_values[s];
+					dest->tts_values[i] = src->tts_values[i];
 			}else
 			{
 				if(io->bin_type)
 				{
-					bytea *p = SendFunctionCall(&io->out_func, src->tts_values[s]);
-					dest->tts_values[d] = PointerGetDatum(p);
+					bytea *p = SendFunctionCall(&io->out_func, src->tts_values[i]);
+					dest->tts_values[i] = PointerGetDatum(p);
 				}else
 				{
-					char *str = OutputFunctionCall(&io->out_func, src->tts_values[s]);
-					dest->tts_values[d] = CStringGetDatum(str);
+					char *str = OutputFunctionCall(&io->out_func, src->tts_values[i]);
+					dest->tts_values[i] = CStringGetDatum(str);
 				}
 			}
 		}
-		++d;
 		lc = lnext(lc);
 	}
 
@@ -413,44 +404,48 @@ static TupleDesc create_convert_desc_if_need(TupleDesc indesc)
 	ConvertIO io;
 	int i;
 	Oid type;
-	AttrNumber natts;
 	bool need_convert;
 
-	for(i=natts=0,need_convert=false;i<indesc->natts;++i)
+	for(i=0,need_convert=false;i<indesc->natts;++i)
 	{
 		attr = TupleDescAttr(indesc, i);
-		if (attr->attisdropped)
-		{
-			/* when has droped attribute, we need convert */
-			need_convert = true;
-			continue;
-		}
 
-		++natts;
-		if (need_convert == false &&
+		if (attr->attisdropped == false &&
 			setup_convert_io(NULL, attr->atttypid, false, false))
 		{
 			need_convert = true;
+			break;
 		}
 	}
 	if(need_convert == false)
 		return NULL;	/* don't need convert */
 
-	outdesc = CreateTemplateTupleDesc(natts, indesc->tdhasoid);
-	for(i=natts=0;i<indesc->natts;++i)
+	outdesc = CreateTemplateTupleDesc(indesc->natts, indesc->tdhasoid);
+	for(i=0;i<indesc->natts;++i)
 	{
 		attr = TupleDescAttr(indesc, i);
+		
 		if (attr->attisdropped)
+		{
+			/* like function RemoveAttributeById */
+			attr = TupleDescAttr(outdesc, i);
+			attr->attisdropped = true;
+			attr->atttypid = InvalidOid;
+			attr->attnotnull = false;
+			attr->attstattarget = 0;
+			attr->atthasmissing = false;
 			continue;
-
-		if (setup_convert_io(&io, attr->atttypid, true, true))
+		}else if (setup_convert_io(&io, attr->atttypid, true, true))
+		{
 			type = io.bin_type ? BYTEAOID:UNKNOWNOID;
-		else
+		}else
+		{
 			type = attr->atttypid;
+		}
 
 		TupleDescInitEntry(outdesc,
-						   ++natts,
-						   NULL,
+						   i+1,
+						   NameStr(attr->attname),
 						   type,
 						   -1,
 						   0);
@@ -1320,6 +1315,8 @@ static bool convert_equal_tuple_desc(TupleDesc desc1, TupleDesc desc2)
 		Form_pg_attribute attr1 = TupleDescAttr(desc1,i);
 		Form_pg_attribute attr2 = TupleDescAttr(desc2,i);
 
+		if (attr1->attisdropped != attr2->attisdropped)
+			return false;
 		if (attr1->atttypid != attr2->atttypid)
 			return false;
 		if (attr1->attlen != attr2->attlen)

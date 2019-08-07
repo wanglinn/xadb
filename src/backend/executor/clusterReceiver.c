@@ -441,7 +441,6 @@ uint64 restore_processed_message(const char *msg, int len)
 
 void serialize_tuple_desc(StringInfo buf, TupleDesc desc, char msg_type)
 {
-	char *attname;
 	int32 atttypmod;
 	int32 attndims;
 	int i,natts;
@@ -449,38 +448,37 @@ void serialize_tuple_desc(StringInfo buf, TupleDesc desc, char msg_type)
 	AssertArg(buf && desc);
 
 	natts = desc->natts;
-	for(i=0;i<desc->natts;++i)
-	{
-		if (TupleDescAttr(desc, i)->attisdropped)
-			--natts;
-	}
 	appendStringInfoChar(buf, msg_type);
 	appendStringInfoChar(buf, desc->tdhasoid);
-	appendBinaryStringInfo(buf, (char*)&natts, sizeof(natts));
-	for(i=0;i<desc->natts;++i)
+	appendBinaryStringInfo(buf, (char*)&desc->natts, sizeof(desc->natts));
+	for(i=0;i<natts;++i)
 	{
 		if (TupleDescAttr(desc, i)->attisdropped)
-			continue;
-
-		/* attname */
-		attname = NameStr(TupleDescAttr(desc, i)->attname);
-		save_node_string(buf, attname);
-		/* atttypmod */
-		atttypmod = TupleDescAttr(desc, i)->atttypmod;
-		appendBinaryStringInfo(buf, (const char *) &atttypmod, sizeof(atttypmod));
-		/* attndims */
-		attndims = TupleDescAttr(desc, i)->attndims;
-		appendBinaryStringInfo(buf, (const char *) &attndims, sizeof(attndims));
-		/* save oid type */
-		save_oid_type(buf, TupleDescAttr(desc, i)->atttypid);
+		{
+			appendStringInfoChar(buf, true);
+		}else
+		{
+			appendStringInfoChar(buf, false);
+			/* attname */
+			save_node_string(buf, NameStr(TupleDescAttr(desc, i)->attname));
+			/* atttypmod */
+			atttypmod = TupleDescAttr(desc, i)->atttypmod;
+			appendBinaryStringInfo(buf, (const char *)&atttypmod, sizeof(atttypmod));
+			/* attndims */
+			attndims = TupleDescAttr(desc, i)->attndims;
+			appendBinaryStringInfo(buf, (const char *) &attndims, sizeof(attndims));
+			/* save oid type */
+			save_oid_type(buf, TupleDescAttr(desc, i)->atttypid);
+		}
 	}
 }
 
 void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 {
 	StringInfoData buf;
-	int i,j,nattr;
+	int i,nattr;
 	Oid oid;
+	bool isdropped;
 
 	if(len < (sizeof(bool) + sizeof(int)))
 	{
@@ -498,49 +496,46 @@ void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 	}
 
 	memcpy(&nattr, msg+1, sizeof(nattr));
-
-	buf.data = (char*)msg;
-	buf.maxlen = buf.len = len;
-	buf.cursor = (sizeof(bool)+sizeof(int));
-	if (desc->natts <= 0)
-		return;		/* zero of attributes in the tuple */
-	for(i=j=0;i<desc->natts;++i)
-	{
-		if (TupleDescAttr(desc, i)->attisdropped)
-			continue;
-
-		if (j>=nattr)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg("diffent TupleDesc of number attribute"),
-					 errdetail("local is %d, remote is %d", desc->natts, nattr)));
-		}
-
-		/* attname ignore */
-		(void) load_node_string(&buf, false);
-		/* atttypmod ignore */
-		buf.cursor += sizeof(int32);
-		/* attndims */
-		buf.cursor += sizeof(int32);
-		/* load oid type */
-		oid = load_oid_type(&buf);
-		if(oid != TupleDescAttr(desc, i)->atttypid)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg("diffent TupleDesc of attribute[%d]", i),
-					 errdetail("local is %u, remote is %u", TupleDescAttr(desc, i)->atttypid, oid)));
-		}
-		++j;
-	}
-
-	if (j<nattr)
+	if (desc->natts != nattr)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_CORRUPTED),
 				 errmsg("diffent TupleDesc of number attribute"),
 				 errdetail("local is %d, remote is %d", desc->natts, nattr)));
+	}
+
+	buf.data = (char*)msg;
+	buf.maxlen = buf.len = len;
+	buf.cursor = (sizeof(bool)+sizeof(int));
+	for(i=0;i<desc->natts;++i)
+	{
+		isdropped = (bool)pq_getmsgbyte(&buf);
+		if (TupleDescAttr(desc,i)->attisdropped != isdropped)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_DATA_CORRUPTED),
+					 errmsg("diffent TupleDesc attribute isdropped of number %d", i+1),
+					 errdetail("local is %d, remote is %d", TupleDescAttr(desc,i)->attisdropped, isdropped)));
+		}
+
+		if (isdropped == false)
+		{
+			/* attname ignore */
+			(void) load_node_string(&buf, false);
+			/* atttypmod ignore */
+			buf.cursor += sizeof(int32);
+			/* attndims */
+			buf.cursor += sizeof(int32);
+			/* load oid type */
+			oid = load_oid_type(&buf);
+			if(oid != TupleDescAttr(desc, i)->atttypid)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_DATA_CORRUPTED),
+						 errmsg("diffent TupleDesc of attribute[%d]", i),
+						 errdetail("local is %u, remote is %u", TupleDescAttr(desc, i)->atttypid, oid)));
+			}
+		}
 	}
 }
 
@@ -561,29 +556,43 @@ TupleDesc restore_slot_head_message_str(StringInfo buf)
 	const char *attributeName;
 	int32 typmod;
 	int attdim;
-	bool hasoid;
+	bool bval;
 
-	hasoid = (bool)pq_getmsgbyte(buf);
+	bval = (bool)pq_getmsgbyte(buf);
 	pq_copymsgbytes(buf, (char*)&i, sizeof(i));
 
-	desc = CreateTemplateTupleDesc(i, hasoid);
+	desc = CreateTemplateTupleDesc(i, bval);
 
 	for(i=1;i<=desc->natts;++i)
 	{
-		/* attname ignore */
-		attributeName = load_node_string(buf, false);
-		/* atttypmod ignore */
-		pq_copymsgbytes(buf, (char *) &typmod, sizeof(typmod));
-		/* attndims */
-		pq_copymsgbytes(buf, (char *) &attdim, sizeof(attdim));
-		/* load oid type */
-		oid = load_oid_type(buf);
-		TupleDescInitEntry(desc,
-						   i,
-						   attributeName,
-						   oid,
-						   typmod,
-						   attdim);
+		bval = (bool)pq_getmsgbyte(buf);
+
+		if (bval)
+		{
+			/* like function RemoveAttributeById */
+			Form_pg_attribute attr = TupleDescAttr(desc, i-1);
+			attr->attisdropped = true;
+			attr->atttypid = InvalidOid;
+			attr->attnotnull = false;
+			attr->attstattarget = 0;
+			attr->atthasmissing = false;
+		}else
+		{
+			/* attname ignore */
+			attributeName = load_node_string(buf, false);
+			/* atttypmod ignore */
+			pq_copymsgbytes(buf, (char *) &typmod, sizeof(typmod));
+			/* attndims */
+			pq_copymsgbytes(buf, (char *) &attdim, sizeof(attdim));
+			/* load oid type */
+			oid = load_oid_type(buf);
+			TupleDescInitEntry(desc,
+							   i,
+							   attributeName,
+							   oid,
+							   typmod,
+							   attdim);
+		}
 	}
 	return desc;
 }
@@ -602,11 +611,6 @@ MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup)
 	for(i=desc->natts;(--i)>=0;)
 	{
 		Form_pg_attribute attr=TupleDescAttr(desc, i);
-		/*
-		 * must have no droped attribute.
-		 * if have, use TupleConversionMap convert is first
-		 */
-		Assert(!attr->attisdropped);
 
 		if (slot->tts_isnull[i] == false &&
 			attr->attlen == -1 &&
