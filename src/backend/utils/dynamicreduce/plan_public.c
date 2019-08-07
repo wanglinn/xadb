@@ -342,33 +342,21 @@ void ActiveWaitingPlan(DRNodeEventData *ned)
 		SetLatch(MyLatch);
 }
 
-void DRSetupPlanTypeConvert(PlanInfo *pi, TupleDesc desc)
+void DRSetupPlanWorkTypeConvert(PlanInfo *pi, PlanWorkerInfo *pwi)
 {
-	MemoryContext	oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-	pi->type_convert = create_type_convert(desc, true, true);
+	MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+
+	pi->type_convert = create_type_convert(pi->base_desc, true, true);
 	if (pi->type_convert)
 	{
 		pi->convert_context = AllocSetContextCreate(TopMemoryContext,
 													"plan tuple convert",
 													ALLOCSET_DEFAULT_SIZES);
-	}else
-	{
-		pi->convert_context = NULL;
+		pwi->slot_plan_src = MakeSingleTupleTableSlot(pi->type_convert->base_desc);
+		pwi->slot_plan_dest = MakeSingleTupleTableSlot(pi->type_convert->out_desc);
+		pwi->slot_node_src = MakeSingleTupleTableSlot(pi->type_convert->out_desc);
+		pwi->slot_node_dest = MakeSingleTupleTableSlot(pi->type_convert->base_desc);
 	}
-	MemoryContextSwitchTo(oldcontext);
-}
-
-void DRSetupPlanWorkTypeConvert(PlanInfo *pi, PlanWorkerInfo *pwi)
-{
-	MemoryContext oldcontext;
-	if (pi->type_convert == NULL)
-		return;
-	
-	oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-	pwi->slot_plan_src = MakeSingleTupleTableSlot(pi->type_convert->base_desc);
-	pwi->slot_plan_dest = MakeSingleTupleTableSlot(pi->type_convert->out_desc);
-	pwi->slot_node_src = MakeSingleTupleTableSlot(pi->type_convert->out_desc);
-	pwi->slot_node_dest = MakeSingleTupleTableSlot(pi->type_convert->base_desc);
 
 	MemoryContextSwitchTo(oldcontext);
 }
@@ -459,5 +447,4 @@ void DRClearPlanInfo(PlanInfo *pi)
 		dsm_detach(pi->seg);
 		pi->seg = NULL;
 	}
-	
 }

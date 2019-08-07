@@ -233,7 +233,6 @@ bool DRSendPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi);
 bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi);
 void DRSendWorkerMsgToNode(PlanWorkerInfo *pwi, PlanInfo *pi, DRNodeEventData *ned);
 void ActiveWaitingPlan(DRNodeEventData *ned);
-void DRSetupPlanTypeConvert(PlanInfo *pi, TupleDesc desc);
 void DRSetupPlanWorkTypeConvert(PlanInfo *pi, PlanWorkerInfo *pwi);
 TupleTableSlot* DRStoreTypeConvertTuple(TupleTableSlot *slot, const char *data, uint32 len, HeapTuple head);
 void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, TupleDesc desc, List *work_nodes, StringInfo buf);
