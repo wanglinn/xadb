@@ -407,6 +407,8 @@ typedef enum
 	RemoteXactMgrProcess,
 	SnapSenderProcess,
 	SnapReceiverProcess,
+	GxidSenderProcess,
+	GxidReceiverProcess,
 #endif
 	NUM_AUXPROCTYPES			/* Must be last! */
 } AuxProcType;

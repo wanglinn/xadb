@@ -722,6 +722,8 @@ typedef enum BackendType
 	,B_ADB_RXACT
 	,B_ADB_SNAP_SENDER
 	,B_ADB_SNAP_RECEIVER
+	,B_ADB_GXID_SENDER
+	,B_ADB_GXID_RECEIVER
 #endif /* ADB */
 } BackendType;
 

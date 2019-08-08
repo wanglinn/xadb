@@ -52,6 +52,8 @@
 #include "pgxc/pgxc.h"
 #include "replication/snapreceiver.h"
 #include "replication/snapsender.h"
+#include "replication/gxidsender.h"
+#include "replication/gxidreceiver.h"
 #include "pgxc/slot.h"
 
 #endif
@@ -163,7 +165,10 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		size = add_size(size, BackendRandomShmemSize());
 #ifdef ADB
 		if (IsGTMNode())
+		{
 			size = add_size(size, SnapSenderShmemSize());
+			size = add_size(size, GxidSenderShmemSize());
+		}	
 		else
 			size = add_size(size, SnapRcvShmemSize());
 		if (IS_PGXC_COORDINATOR)
@@ -291,9 +296,16 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 
 #ifdef ADB
 	if (IsGTMNode())
+	{
 		SnapSenderShmemInit();
+		GxidSenderShmemInit();
+	}
 	else
+	{
 		SnapRcvShmemInit();
+		GxidRcvShmemInit();
+	}
+	
 	if (IS_PGXC_COORDINATOR)
 		ClusterLockShmemInit();
 

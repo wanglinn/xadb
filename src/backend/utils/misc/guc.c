@@ -587,6 +587,7 @@ char	   *adb_ha_param_delimiter;
 char	   *AGtmHost;
 int			AGtmPort;
 int			snapsender_port;
+int			gxidsender_port;
 int			pool_time_out;
 int			pool_release_to_idle_timeout;
 bool		enable_truncate_ident;
@@ -3168,7 +3169,7 @@ static struct config_int ConfigureNamesInt[] =
 #elif defined(ADB)
 		108, 0, MAX_BACKENDS,
 #else
-		8, 0, MAX_BACKENDS,
+		9, 0, MAX_BACKENDS,
 #endif
 		check_max_worker_processes, NULL, NULL
 	},
@@ -3670,6 +3671,16 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&snapsender_port,
 		6667, 1, 65535,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"gxidsender_port", PGC_SIGHUP, GTM,
+			gettext_noop("Port of GTM gxid sender."),
+			NULL
+		},
+		&gxidsender_port,
+		6668, 1, 65535,
 		NULL, NULL, NULL
 	},
 

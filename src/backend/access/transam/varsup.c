@@ -34,6 +34,7 @@
 #include "executor/execCluster.h"		/* for in_cluster_mode */
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
+#include "replication/gxidreceiver.h"
 
 /*
  * Parameters as below are used only in Datanode or NoMaster-Coordinator.
@@ -225,7 +226,8 @@ ObtainGlobalTransactionId(bool isSubXact)
 		ForceObtainXidFromAGTM == true ||
 		IsAnyAutoVacuumProcess())
 	{
-		gxid = agtm_GetGlobalTransactionId(isSubXact);
+		/* gxid = agtm_GetGlobalTransactionId(isSubXact);*/
+		gxid =  GixRcvGetGlobalTransactionId(isSubXact);
 		return gxid;
 	}
 
@@ -519,6 +521,12 @@ GetNewGlobalTransactionId(int level)
 TransactionId
 GetNewTransactionId(bool isSubXact)
 {
+#ifdef ADB_EXT
+	return GetNewTransactionIdExt(isSubXact, true);
+}
+int GetNewTransactionIdExt(bool isSubXact, bool isInsertXact)
+{
+#endif
 	TransactionId xid;
 
 	/*
@@ -695,7 +703,14 @@ GetNewTransactionId(bool isSubXact)
 		volatile PGXACT *mypgxact = MyPgXact;
 
 		if (!isSubXact)
+		{
+#ifdef ADB_EXT
+			if (isInsertXact)
+				mypgxact->xid = xid;
+#else
 			mypgxact->xid = xid;
+#endif	
+		}
 		else
 		{
 			int			nxids = mypgxact->nxids;

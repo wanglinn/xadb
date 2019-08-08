@@ -215,6 +215,9 @@ struct PGPROC
 	 */
 	TransactionId waitGlobalTransaction;
 	proclist_head GTMWaitLink;
+
+	TransactionId getGlobalTransaction;
+	proclist_head GxidWaitLink;
 #endif /* ADB */
 };
 

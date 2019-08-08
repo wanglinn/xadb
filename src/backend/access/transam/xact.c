@@ -678,7 +678,7 @@ AssignTransactionId(TransactionState s)
 	 */
 	if (try_agtm)
 	{
-		agtm_BeginTransaction();
+		//agtm_BeginTransaction();
 		s->transactionId = GetNewGlobalTransactionId(s->nestingLevel);
 	} else
 #endif

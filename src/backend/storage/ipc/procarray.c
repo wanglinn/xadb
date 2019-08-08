@@ -92,6 +92,7 @@
 #include "pgxc/pgxc.h"
 #include "postmaster/autovacuum.h"
 #include "replication/snapsender.h"
+#include "replication/gxidreceiver.h"
 #include "storage/ipc.h"
 #include "utils/tqual.h"
 #endif
@@ -407,9 +408,21 @@ ProcArrayRemove(PGPROC *proc, TransactionId latestXid)
 			arrayP->numProcs--;
 			LWLockRelease(ProcArrayLock);
 #ifdef ADB
-			if (TransactionIdIsValid(latestXid) &&
-				IsGTMNode())
-				SnapSendTransactionFinish(latestXid);
+			if (TransactionIdIsValid(latestXid))
+			{
+				if (IsGTMNode())
+					SnapSendTransactionFinish(latestXid);
+				else
+				{
+					if (TransactionIdIsValid(proc->getGlobalTransaction))
+					{
+						Assert(TransactionIdEquals(proc->getGlobalTransaction, latestXid));
+						GixRcvCommitTransactionId(latestXid);
+						proc->getGlobalTransaction = InvalidTransactionId;
+					}
+					
+				}
+			}
 #endif /* ADB */
 			return;
 		}
@@ -419,9 +432,21 @@ ProcArrayRemove(PGPROC *proc, TransactionId latestXid)
 	LWLockRelease(ProcArrayLock);
 
 #ifdef ADB
-	if (TransactionIdIsValid(latestXid) &&
-		IsGTMNode())
-		SnapSendTransactionFinish(latestXid);
+	if (TransactionIdIsValid(latestXid))
+	{
+		if (IsGTMNode())
+			SnapSendTransactionFinish(latestXid);
+		else
+		{
+			if (TransactionIdIsValid(proc->getGlobalTransaction))
+			{
+				Assert(TransactionIdEquals(proc->getGlobalTransaction, latestXid));
+				GixRcvCommitTransactionId(latestXid);
+				proc->getGlobalTransaction = InvalidTransactionId;
+			}
+		}
+		
+	}
 #endif /* ADB */
 
 	elog(LOG, "failed to find proc %p in ProcArray", proc);
@@ -478,6 +503,14 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid)
 		}
 		else
 			ProcArrayGroupClearXid(proc, latestXid);
+#ifdef ADB
+		if (!IsGTMNode() && TransactionIdIsValid(proc->getGlobalTransaction))
+		{
+			Assert(TransactionIdEquals(proc->getGlobalTransaction, latestXid));
+			GixRcvCommitTransactionId(latestXid);
+			proc->getGlobalTransaction = InvalidTransactionId;
+		}
+#endif
 	}
 	else
 	{

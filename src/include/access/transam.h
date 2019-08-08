@@ -188,6 +188,11 @@ extern void SetForceObtainXidFromAGTM(bool val);
 extern TransactionId GetNewGlobalTransactionId(int level);
 extern int TransactionLogFetch(TransactionId transactionId);
 #endif
+
+#ifdef ADB_EXT
+extern int GetNewTransactionIdExt(bool isSubXact, bool isInsertXact);
+#endif
+
 extern TransactionId GetNewTransactionId(bool isSubXact);
 extern TransactionId ReadNewTransactionId(void);
 extern void SetTransactionIdLimit(TransactionId oldest_datfrozenxid,

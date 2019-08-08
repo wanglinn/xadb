@@ -2920,6 +2920,12 @@ pgstat_bestart(void)
 			case SnapReceiverProcess:
 				beentry->st_backendType = B_ADB_SNAP_RECEIVER;
 				break;
+			case GxidSenderProcess:
+				beentry->st_backendType = B_ADB_GXID_SENDER;
+				break;
+			case GxidReceiverProcess:
+				beentry->st_backendType = B_ADB_GXID_RECEIVER;
+				break;
 #endif /* ADB */
 			default:
 				elog(FATAL, "unrecognized process type: %d",
@@ -4195,6 +4201,12 @@ pgstat_get_backend_desc(BackendType backendType)
 			break;
 		case B_ADB_SNAP_RECEIVER:
 			backendDesc = "snapshot receiver process";
+			break;
+		case B_ADB_GXID_SENDER:
+			backendDesc = "gxid sender process";
+			break;
+		case B_ADB_GXID_RECEIVER:
+			backendDesc = "gxid receiver process";
 			break;
 #endif /* ADB */
 	}

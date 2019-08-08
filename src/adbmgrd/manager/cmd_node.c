@@ -226,7 +226,7 @@ static bool mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_maste
 
 static bool get_local_ip(Name local_ip);
 extern HeapTuple build_list_nodesize_tuple(const Name nodename, char nodetype, int32 nodeport, const char *nodepath, int64 nodesize);
-static void mgr_get_gtm_host_snapsender_port(StringInfo infosendmsg);
+static void mgr_get_gtm_host_snapsender_gxidsender_port(StringInfo infosendmsg);
 
 #if (Natts_mgr_node != 13)
 #error "need change code"
@@ -1721,8 +1721,8 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			break;
 		case AGT_CMD_CN_START:
 		case AGT_CMD_CN_START_BACKEND:
-			cmdmode = "start";
-			zmode = "gtm_coord";
+				cmdmode = "start";
+				zmode = "gtm_coord";
 			break;
 		case AGT_CMD_CN_STOP:
 		case AGT_CMD_CN_STOP_BACKEND:
@@ -3787,7 +3787,7 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 		mgr_add_parm(appendnodeinfo.nodename, CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", appendnodeinfo.nodeport, &infosendmsg);
 		/* add for 4.1 no gtm. */
-		mgr_get_gtm_host_snapsender_port(&infosendmsg);
+		mgr_get_gtm_host_snapsender_gxidsender_port(&infosendmsg);
 
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF,
 								appendnodeinfo.nodepath,
@@ -4033,7 +4033,7 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 		mgr_append_pgconf_paras_str_str("hot_standby", "on", &infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", appendnodeinfo.nodeport, &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("pgxc_node_name", appendnodeinfo.nodename, &infosendmsg);
-		mgr_get_gtm_host_snapsender_port(&infosendmsg);
+		mgr_get_gtm_host_snapsender_gxidsender_port(&infosendmsg);
 
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF,
 								appendnodeinfo.nodepath,
@@ -6841,7 +6841,7 @@ void mgr_add_parameters_pgsqlconf(Oid tupleOid, char nodetype, int cndnport, Str
 		|| nodetype == CNDN_TYPE_DATANODE_SLAVE
 		|| nodetype == CNDN_TYPE_COORDINATOR_MASTER)
 	{
-		mgr_get_gtm_host_snapsender_port(infosendparamsg);
+		mgr_get_gtm_host_snapsender_gxidsender_port(infosendparamsg);
 	}
 }
 
@@ -12983,7 +12983,7 @@ bool get_active_node_info(const char node_type, const char *node_name, AppendNod
 * ,use '\0' to interval
 */
 static void
-mgr_get_gtm_host_snapsender_port(StringInfo infosendmsg)
+mgr_get_gtm_host_snapsender_gxidsender_port(StringInfo infosendmsg)
 {
 	char *gtm_host = NULL;
 	Relation rel_node;
@@ -12992,6 +12992,7 @@ mgr_get_gtm_host_snapsender_port(StringInfo infosendmsg)
 	ScanKeyData key[2];
 	HeapTuple tuple;
 	Oid snapsender_port;
+	Oid gxidsender_port;
 
 	/*get the gtm_port, gtm_host*/
 	ScanKeyInit(&key[0]
@@ -13012,6 +13013,7 @@ mgr_get_gtm_host_snapsender_port(StringInfo infosendmsg)
 		Assert(mgr_node);
 		gtm_host = get_hostaddress_from_hostoid(mgr_node->nodehost);
 		snapsender_port = mgr_node->nodeport+1;
+		gxidsender_port = mgr_node->nodeport+2;
 		break;
 	}
 	heap_endscan(rel_scan);
@@ -13022,6 +13024,7 @@ mgr_get_gtm_host_snapsender_port(StringInfo infosendmsg)
 
 	mgr_append_pgconf_paras_str_quotastr("agtm_host", gtm_host, infosendmsg);
 	mgr_append_pgconf_paras_str_int("snapsender_port", snapsender_port, infosendmsg);
+	mgr_append_pgconf_paras_str_int("gxidsender_port", gxidsender_port, infosendmsg);
 	pfree(gtm_host);
 }
 

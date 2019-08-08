@@ -275,6 +275,8 @@ static pid_t StartupPID = 0,
 			RemoteXactMgrPID = 0,
 			SnapSenderPID = 0,
 			SnapReceiverPID = 0,
+			GxidSenderPID = 0,
+			GxidReceiverPID = 0,
 #endif
 #if defined(ADBMGRD)
 			AdbMntPID = 0,
@@ -635,6 +637,8 @@ Datum xc_lockForBackupKey2;
 #define StartRemoteXactMgr()	StartChildProcess(RemoteXactMgrProcess)
 #define StartSnapSender()		StartChildProcess(SnapSenderProcess)
 #define StartSnapReceiver()		StartChildProcess(SnapReceiverProcess)
+#define StartGxidSender()		StartChildProcess(GxidSenderProcess)
+#define StartGxidReceiver()		StartChildProcess(GxidReceiverProcess)
 #endif /* ADB */
 
 #define StartupDataBase()		StartChildProcess(StartupProcess)
@@ -1540,9 +1544,15 @@ PostmasterMain(int argc, char *argv[])
 	}
 
 	if (IsGTMNode())
+	{
 		SnapSenderPID = StartSnapSender();
+		GxidSenderPID = StartGxidSender();
+	}
 	else
+	{
 		SnapReceiverPID = StartSnapReceiver();
+		GxidReceiverPID = StartGxidReceiver();
+	}
 #endif
 
 	/* Some workers may be scheduled to start now */
@@ -1946,15 +1956,22 @@ ServerLoop(void)
 		if (IS_PGXC_COORDINATOR && RemoteXactMgrPID == 0 && pmState == PM_RUN)
 			RemoteXactMgrPID = StartRemoteXactMgr();
 
-		if (IsGTMNode() &&
-			SnapSenderPID == 0 &&
-			pmState == PM_RUN)
-			SnapSenderPID = StartSnapSender();
+		if (IsGTMNode() && pmState == PM_RUN)
+		{
+			if (SnapSenderPID == 0)
+				SnapSenderPID = StartSnapSender();
+			if (GxidSenderPID == 0)
+				GxidSenderPID = StartGxidSender();
+		}
 
-		if (!IsGTMNode() &&
-			SnapReceiverPID == 0 &&
-			pmState == PM_RUN)
-			SnapReceiverPID = StartSnapReceiver();
+		if (!IsGTMNode() && pmState == PM_RUN)
+		{
+			if (SnapReceiverPID == 0)
+				SnapReceiverPID = StartSnapReceiver();
+			if (GxidReceiverPID == 0)
+				GxidReceiverPID = StartGxidReceiver();
+		}
+			
 #endif
 
 #if defined(ADBMGRD)
@@ -2774,6 +2791,12 @@ SIGHUP_handler(SIGNAL_ARGS)
 
 		if (SnapReceiverPID != 0)
 			signal_child(SnapReceiverPID, SIGHUP);
+		
+		if (GxidSenderPID != 0)
+			signal_child(GxidSenderPID, SIGHUP);
+
+		if (GxidReceiverPID != 0)
+			signal_child(GxidReceiverPID, SIGHUP);
 #endif
 		if (BgWriterPID != 0)
 			signal_child(BgWriterPID, SIGHUP);
@@ -3165,6 +3188,10 @@ reaper(SIGNAL_ARGS)
 				SnapSenderPID = StartSnapSender();
 			if (!IsGTMNode() && SnapReceiverPID == 0)
 				SnapReceiverPID = StartSnapReceiver();
+			if (IsGTMNode() && GxidSenderPID == 0)
+				GxidSenderPID = StartGxidSender();
+			if (!IsGTMNode() && GxidReceiverPID == 0)
+				GxidReceiverPID = StartGxidReceiver();
 #endif
 #if defined(ADBMGRD)
 			if (AdbMonitoringActive() && AdbMntPID == 0)
@@ -3416,6 +3443,23 @@ reaper(SIGNAL_ARGS)
 			continue;
 		}
 
+		if (IsGTMNode() && pid == GxidSenderPID)
+		{
+			GxidSenderPID = 0;
+			if (EXIT_STATUS_0(exitstatus) ||
+				EXIT_STATUS_1(exitstatus))
+			{
+				LogChildExit(LOG,
+							 pgstat_get_backend_desc(B_ADB_GXID_SENDER), pid, exitstatus);
+				GxidSenderPID = StartGxidSender();
+			}else
+			{
+				HandleChildCrash(pid, exitstatus,
+								 pgstat_get_backend_desc(B_ADB_GXID_SENDER));
+			}
+			continue;
+		}
+
 		if (!IsGTMNode() && pid == SnapReceiverPID)
 		{
 			SnapReceiverPID = 0;
@@ -3429,6 +3473,23 @@ reaper(SIGNAL_ARGS)
 			{
 				HandleChildCrash(pid, exitstatus,
 								 pgstat_get_backend_desc(B_ADB_SNAP_RECEIVER));
+			}
+			continue;
+		}
+
+		if (!IsGTMNode() && pid == GxidReceiverPID)
+		{
+			GxidReceiverPID = 0;
+			if (EXIT_STATUS_0(exitstatus) ||
+				EXIT_STATUS_1(exitstatus))
+			{
+				LogChildExit(LOG,
+							 pgstat_get_backend_desc(B_ADB_GXID_RECEIVER), pid, exitstatus);
+				GxidReceiverPID = StartGxidReceiver();
+			}else
+			{
+				HandleChildCrash(pid, exitstatus,
+								 pgstat_get_backend_desc(B_ADB_GXID_RECEIVER));
 			}
 			continue;
 		}
@@ -3911,6 +3972,18 @@ HandleChildCrash(int pid, int exitstatus, const char *procname)
 									 (int)SnapSenderPID)));
 			signal_child(SnapSenderPID, (SendStop ? SIGSTOP : SIGQUIT));
 		}
+
+		if (pid == GxidSenderPID)
+		{
+			GxidSenderPID = 0;
+		}else if (GxidSenderPID != 0 && !FatalError)
+		{
+			ereport(DEBUG2,
+					(errmsg_internal("sending %s to process %d",
+									 (SendStop ? "SIGSTOP" : "SIGQUIT"),
+									 (int)GxidSenderPID)));
+			signal_child(GxidSenderPID, (SendStop ? SIGSTOP : SIGQUIT));
+		}
 	}else /* if (!IsGTMNode()) */
 	{
 		if (pid == SnapReceiverPID)
@@ -3923,6 +3996,18 @@ HandleChildCrash(int pid, int exitstatus, const char *procname)
 									 (SendStop ? "SIGSTOP" : "SIGQUIT"),
 									 (int)SnapReceiverPID)));
 			signal_child(SnapReceiverPID, (SendStop ? SIGSTOP : SIGQUIT));
+		}
+
+		if (pid == GxidReceiverPID)
+		{
+			GxidReceiverPID = 0;
+		}else if (GxidReceiverPID != 0 && !FatalError)
+		{
+			ereport(DEBUG2,
+					(errmsg_internal("sending %s to process %d",
+									 (SendStop ? "SIGSTOP" : "SIGQUIT"),
+									 (int)GxidReceiverPID)));
+			signal_child(GxidReceiverPID, (SendStop ? SIGSTOP : SIGQUIT));
 		}
 	}
 #endif
@@ -5821,7 +5906,6 @@ StartChildProcess(AuxProcType type)
 #ifdef ADB
 		PGXC_StartChildProcess();
 #endif
-
 		AuxiliaryProcessMain(ac, av);
 		ExitPostmaster(0);
 	}
@@ -5851,6 +5935,10 @@ StartChildProcess(AuxProcType type)
 			case SnapReceiverProcess:
 				ereport(LOG,
 						(errmsg("could not fork snapshot receiver process: %m")));
+				break;
+			case GxidSenderProcess:
+				ereport(LOG,
+						(errmsg("could not fork transaction sender process: %m")));
 				break;
 #endif
 			case StartupProcess:

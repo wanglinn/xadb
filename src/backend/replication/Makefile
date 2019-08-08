@@ -18,7 +18,7 @@ OBJS = walsender.o walreceiverfuncs.o walreceiver.o basebackup.o \
 	repl_gram.o slot.o slotfuncs.o syncrep.o syncrep_gram.o
 
 ifeq ($(enable_cluster),yes)
-  OBJS += snapreceiver.o snapsender.o
+  OBJS += snapreceiver.o snapsender.o gxidsender.o gxidreceiver.o
 endif
 
 SUBDIRS = logical
