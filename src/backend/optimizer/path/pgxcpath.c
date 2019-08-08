@@ -100,6 +100,7 @@ create_remotequery_path(PlannerInfo *root, RelOptInfo *rel, ExecNodes *exec_node
 		break;
 
 		case RELOPT_JOINREL:
+		case RELOPT_OTHER_JOINREL:
 		{
 			rqpath->rqhas_temp_rel = leftpath->rqhas_temp_rel ||
 									rightpath->rqhas_temp_rel;
