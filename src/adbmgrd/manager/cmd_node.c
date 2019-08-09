@@ -190,7 +190,6 @@ static void mgr_manage_append(char command_type, char *user_list_str);
 static void mgr_manage_failover(char command_type, char *user_list_str);
 static void mgr_manage_clean(char command_type, char *user_list_str);
 static void mgr_manage_list(char command_type, char *user_list_str);
-static void mgr_manage_boottime(char command_type, char *user_list_str);
 static void mgr_check_username_valid(List *username_list);
 static void mgr_check_command_valid(List *command_list);
 static List *get_username_list(void);
@@ -211,7 +210,6 @@ static bool mgr_acl_append(char *username);
 static bool mgr_acl_failover(char *username);
 static bool mgr_acl_clean(char *username);
 static bool mgr_acl_init(char *username);
-static bool mgr_acl_boottime(char *username);
 static bool mgr_has_table_priv(char *rolename, char *tablename, char *priv_type);
 static bool mgr_has_func_priv(char *rolename, char *funcname, char *priv_type);
 static List *get_username_list(void);
@@ -9556,8 +9554,6 @@ Datum mgr_priv_list_to_all(PG_FUNCTION_ARGS)
 			mgr_manage_init(command_type, username_list_str);
 		else if (strcmp(strVal(command), "list") == 0)
 			mgr_manage_list(command_type, username_list_str);
-		else if (strcmp(strVal(command), "boottime") == 0)
-			mgr_manage_boottime(command_type, username_list_str);
 		else if (strcmp(strVal(command), "monitor") == 0)
 			mgr_manage_monitor(command_type, username_list_str);
 		else if (strcmp(strVal(command), "reset") == 0)
@@ -9615,7 +9611,6 @@ static void mgr_priv_all(char command_type, char *username_list_str)
 	mgr_manage_flush(command_type, username_list_str);
 	mgr_manage_init(command_type, username_list_str);
 	mgr_manage_list(command_type, username_list_str);
-	mgr_manage_boottime(command_type, username_list_str);
 	mgr_manage_monitor(command_type, username_list_str);
 	mgr_manage_reset(command_type, username_list_str);
 	mgr_manage_set(command_type, username_list_str);
@@ -9677,8 +9672,6 @@ Datum mgr_priv_manage(PG_FUNCTION_ARGS)
 			mgr_manage_init(command_type, username_list_str);
 		else if (strcmp(strVal(command), "list") == 0)
 			mgr_manage_list(command_type, username_list_str);
-		else if (strcmp(strVal(command), "boottime") == 0)
-			mgr_manage_boottime(command_type, username_list_str);
 		else if (strcmp(strVal(command), "monitor") == 0)
 			mgr_manage_monitor(command_type, username_list_str);
 		else if (strcmp(strVal(command), "reset") == 0)
@@ -10120,6 +10113,16 @@ static void mgr_manage_show(char command_type, char *user_list_str)
 		appendStringInfoString(&commandsql, "GRANT EXECUTE ON FUNCTION ");
 		appendStringInfoString(&commandsql, "mgr_show_var_param(\"any\"), ");
 		appendStringInfoString(&commandsql, "mgr_show_hba_all(\"any\") ");
+		appendStringInfoString(&commandsql, "mgr_boottime_gtm_all(), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_datanode_all(), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_coordinator_all(), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_nodetype_namelist(bigint, \"any\"), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_nodetype_all(bigint) ");
+		appendStringInfoString(&commandsql, "TO ");
+		appendStringInfoString(&commandsql, user_list_str);
+		appendStringInfoString(&commandsql, ";");
+		appendStringInfoString(&commandsql, "GRANT select ON ");
+		appendStringInfoString(&commandsql, "adbmgr.boottime_all ");
 		appendStringInfoString(&commandsql, "TO ");
 	}else if (command_type == PRIV_REVOKE)
 	{
@@ -10127,6 +10130,16 @@ static void mgr_manage_show(char command_type, char *user_list_str)
 		appendStringInfoString(&commandsql, "REVOKE EXECUTE ON FUNCTION ");
 		appendStringInfoString(&commandsql, "mgr_show_var_param(\"any\"), ");
 		appendStringInfoString(&commandsql, "mgr_show_hba_all(\"any\") ");
+		appendStringInfoString(&commandsql, "mgr_boottime_gtm_all(), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_datanode_all(), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_coordinator_all(), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_nodetype_namelist(bigint, \"any\"), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_nodetype_all(bigint) ");
+		appendStringInfoString(&commandsql, "FROM ");
+		appendStringInfoString(&commandsql, user_list_str);
+		appendStringInfoString(&commandsql, ";");
+		appendStringInfoString(&commandsql, "REVOKE select ON ");
+		appendStringInfoString(&commandsql, "adbmgr.boottime_all ");
 		appendStringInfoString(&commandsql, "FROM ");
 	}
 	else
@@ -10187,62 +10200,6 @@ static void mgr_manage_monitor(char command_type, char *user_list_str)
 		appendStringInfoString(&commandsql, ";");
 		appendStringInfoString(&commandsql, "REVOKE select ON ");
 		appendStringInfoString(&commandsql, "adbmgr.monitor_all ");
-		appendStringInfoString(&commandsql, "FROM ");
-	}
-	else
-		ereport(ERROR, (errmsg("command type is wrong: %c", command_type)));
-
-	appendStringInfoString(&commandsql, user_list_str);
-
-	if ((ret = SPI_connect()) < 0)
-		ereport(ERROR, (errmsg("grant/revoke: SPI_connect failed: error code %d", ret)));
-
-	exec_ret = SPI_execute(commandsql.data, false, 0);
-	if (exec_ret != SPI_OK_UTILITY)
-		ereport(ERROR, (errmsg("grant/revoke: SPI_execute failed: error code %d", exec_ret)));
-
-	SPI_finish();
-	return;
-}
-
-static void mgr_manage_boottime(char command_type, char *user_list_str)
-{
-    StringInfoData commandsql;
-	int exec_ret;
-	int ret;
-	initStringInfo(&commandsql);
-
-	if (command_type == PRIV_GRANT)
-	{
-		// grant execute on function func_name [, ...] to user_name [, ...];
-		// grant select on schema.view [, ...] to user [, ...]
-		appendStringInfoString(&commandsql, "GRANT EXECUTE ON FUNCTION ");
-		appendStringInfoString(&commandsql, "mgr_boottime_gtm_all(), ");
-		appendStringInfoString(&commandsql, "mgr_boottime_datanode_all(), ");
-		appendStringInfoString(&commandsql, "mgr_boottime_coordinator_all(), ");
-		appendStringInfoString(&commandsql, "mgr_boottime_nodetype_namelist(bigint, \"any\"), ");
-		appendStringInfoString(&commandsql, "mgr_boottime_nodetype_all(bigint) ");
-		appendStringInfoString(&commandsql, "TO ");
-		appendStringInfoString(&commandsql, user_list_str);
-		appendStringInfoString(&commandsql, ";");
-		appendStringInfoString(&commandsql, "GRANT select ON ");
-		appendStringInfoString(&commandsql, "adbmgr.boottime_all ");
-		appendStringInfoString(&commandsql, "TO ");
-	}else if (command_type == PRIV_REVOKE)
-	{
-		// revoke execute on function func_name [, ...] from user_name [, ...];
-		// revoke select on schema.view [, ...] from user [, ...]
-		appendStringInfoString(&commandsql, "REVOKE EXECUTE ON FUNCTION ");
-		appendStringInfoString(&commandsql, "mgr_boottime_gtm_all(), ");
-		appendStringInfoString(&commandsql, "mgr_boottime_datanode_all(), ");
-		appendStringInfoString(&commandsql, "mgr_boottime_coordinator_all(), ");
-		appendStringInfoString(&commandsql, "mgr_boottime_nodetype_namelist(bigint, \"any\"), ");
-		appendStringInfoString(&commandsql, "mgr_boottime_nodetype_all(bigint) ");
-		appendStringInfoString(&commandsql, "FROM ");
-		appendStringInfoString(&commandsql, user_list_str);
-		appendStringInfoString(&commandsql, ";");
-		appendStringInfoString(&commandsql, "REVOKE select ON ");
-		appendStringInfoString(&commandsql, "adbmgr.boottime_all ");
 		appendStringInfoString(&commandsql, "FROM ");
 	}
 	else
@@ -10775,9 +10732,6 @@ static void mgr_get_acl_by_username(char *username, StringInfo acl)
 	if (mgr_acl_init(username))
 		appendStringInfo(acl, "init ");
 
-	if (mgr_acl_boottime(username))
-		appendStringInfo(acl, "boottime ");
-
 	if (mgr_acl_list(username))
 		appendStringInfo(acl, "list ");
 
@@ -10948,22 +10902,6 @@ static bool mgr_acl_add(char *username)
 	return (f1 && f2 && f3);
 }
 
-static bool mgr_acl_boottime(char *username)
-{
-    bool f1, f2, f3, f4, f5;
-	bool t1;
-
-	f1 = mgr_has_func_priv(username, "mgr_boottime_nodetype_all(bigint)", "execute");
-	f2 = mgr_has_func_priv(username, "mgr_boottime_nodetype_namelist(bigint, \"any\")", "execute");
-	f3 = mgr_has_func_priv(username, "mgr_boottime_gtm_all()", "execute");
-	f4 = mgr_has_func_priv(username, "mgr_boottime_datanode_all()", "execute");
-	f5 = mgr_has_func_priv(username, "mgr_boottime_coordinator_all()", "execute");
-	
-	t1 = mgr_has_table_priv(username, "adbmgr.boottime_all", "select");
-
-	return (f1 && f2 && f3 && f4 && f5 && t1);
-}
-
 static bool mgr_acl_start(char *username)
 {
 	bool f1, f2, f3, f4, f5, f6, f7;
@@ -10986,10 +10924,20 @@ static bool mgr_acl_start(char *username)
 
 static bool mgr_acl_show(char *username)
 {
-	bool f1, f2;
+	bool f1, f2, f3, f4, f5, f6, f7;
+	bool t1;
+
 	f1 = mgr_has_func_priv(username, "mgr_show_var_param(\"any\")", "execute");
 	f2 = mgr_has_func_priv(username, "mgr_show_hba_all(\"any\")", "execute");
-	return (f1 && f2);
+
+	f3 = mgr_has_func_priv(username, "mgr_boottime_nodetype_all(bigint)", "execute");
+	f4 = mgr_has_func_priv(username, "mgr_boottime_nodetype_namelist(bigint, \"any\")", "execute");
+	f5 = mgr_has_func_priv(username, "mgr_boottime_gtm_all()", "execute");
+	f6 = mgr_has_func_priv(username, "mgr_boottime_datanode_all()", "execute");
+	f7 = mgr_has_func_priv(username, "mgr_boottime_coordinator_all()", "execute");
+	
+	t1 = mgr_has_table_priv(username, "adbmgr.boottime_all", "select");
+	return (f1 && f2 && f3 && f4 && f5 && f6 && f7 && t1);
 }
 
 static bool mgr_acl_monitor(char *username)

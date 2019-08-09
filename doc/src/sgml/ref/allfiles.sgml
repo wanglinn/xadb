@@ -272,6 +272,7 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY mgrMonitorCoordinator SYSTEM "mgr_monitor_coordinator.sgml">
 <!ENTITY mgrMonitorDatanode SYSTEM "mgr_monitor_datanode.sgml">
 <!ENTITY mgrMonitorGtm      SYSTEM "mgr_monitor_gtm.sgml">
+<!ENTITY mgrShwoBoottime     SYSTEM "mgr_show_boottime.sgml">
 <!ENTITY mgrMonitorHa       SYSTEM "mgr_monitor_ha.sgml">
 <!ENTITY mgrPromoteDatanode SYSTEM "mgr_promote_datanode.sgml">
 <!ENTITY mgrPromoteGtm      SYSTEM "mgr_promote_gtm.sgml">

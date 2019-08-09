@@ -3209,7 +3209,7 @@ ListDoctorParamStmt:
 
 
 GetBoottimeStmt:
-		BOOTTIME opt_general_all
+		SHOW BOOTTIME opt_general_all
 		{
 			SelectStmt *stmt;
 			check_node_incluster();
@@ -3218,39 +3218,39 @@ GetBoottimeStmt:
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("boottime_all"), -1));
 			$$ = (Node*)stmt;
 		}
-		| 	BOOTTIME GTM opt_general_all
+		| 	SHOW BOOTTIME GTM opt_general_all
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_boottime_gtm_all", NULL));
 			$$ = (Node*)stmt;
 		}
-		| 	BOOTTIME DATANODE opt_general_all
+		| 	SHOW BOOTTIME DATANODE opt_general_all
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_boottime_datanode_all", NULL));
 			$$ = (Node*)stmt;
 		}
-		| 	BOOTTIME COORDINATOR opt_general_all
+		| 	SHOW BOOTTIME COORDINATOR opt_general_all
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_boottime_coordinator_all", NULL));
 			$$ = (Node*)stmt;
 		}
-		| 	BOOTTIME node_type NodeConstList
+		| 	SHOW BOOTTIME node_type NodeConstList
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
-			List *args = lcons(makeIntConst($2, @2), $3);
+			List *args = lcons(makeIntConst($3, @3), $4);
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_boottime_nodetype_namelist", args));
 			$$ = (Node*)stmt;
 		}
-		|   BOOTTIME node_type opt_general_all
+		|   SHOW BOOTTIME node_type opt_general_all
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
-			List *arg = list_make1(makeIntConst($2,-1));
+			List *arg = list_make1(makeIntConst($3,-1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_boottime_nodetype_all", arg));
 			$$ = (Node*)stmt;

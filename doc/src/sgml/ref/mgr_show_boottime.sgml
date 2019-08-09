@@ -1,0 +1,137 @@
+<!--
+doc/src/sgml/ref/mgr_show_boottime.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-SHOW-BOOTTIME">
+  <refmeta>
+    <refentrytitle>SHOW BOOTTIME</refentrytitle>mgr_show_boottime.sgml
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>SHOW BOOTTIME</refname>
+    <refpurpose>show the boot time of the node</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-show-boottime">
+    <primary>SHOW BOOTTIME</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+  <synopsis>
+SHOW BOOTTIME { ALL | COORDINATOR { ALL | { MASTER | SLAVE } {node_name | ALL} }| DATANODE { ALL | { MASTER | SLAVE } {node_name | ALL} } | GTM { ALL | { MASTER | SLAVE } {node_name | ALL} }}
+</synopsis>
+</refsynopsisdiv>
+  <refsect1>
+    <title>Description</title>
+    <para>
+   <command>SHOW BOOTTIME</command> show the boot time of the node.
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>Examples</title>
+  <para>
+   Show boot time of the all node:
+<programlisting>
+SHOW BOOTTIME ALL;
+</programlisting>
+  </para>
+
+  <para>
+   Show the boottime for all COORDINATOR:
+<programlisting>
+SHOW BOOTTIME COORDINATOR all;
+</programlisting>
+  </para>
+
+  <para>
+   Show the boottime for all master COORDINATOR:
+<programlisting>
+SHOW BOOTTIME COORDINATOR MASTER ALL;
+</programlisting>
+  </para>
+
+  <para>
+   Show the boottime for all slave COORDINATOR:
+<programlisting>
+SHOW BOOTTIME COORDINATOR SLAVE ALL;
+</programlisting>
+  </para>
+
+  <para>
+   Show the boottime for coor_name:
+<programlisting>
+SHOW BOOTTIME COORDINATOR { MASTER | SLAVE } coor_name;
+</programlisting>
+  </para>
+
+  <para>
+   Show the boottime for all DATANODE:
+<programlisting>
+SHOW BOOTTIME DATANODE all;
+</programlisting>
+  </para>
+
+  <para>
+   Show the boottime for all master DATANODE:
+<programlisting>
+SHOW BOOTTIME DATANODE MASTER ALL;
+</programlisting>
+  </para>
+
+  <para>
+   Show the boottime for all slave DATANODE:
+<programlisting>
+SHOW BOOTTIME DATANODE SLAVE ALL;
+</programlisting>
+  </para>
+
+  <para>
+   Show the boottime for datanode_name:
+<programlisting>
+SHOW BOOTTIME DATANODE { MASTER | SLAVE } coor_name;
+</programlisting>
+  </para>
+
+  <para>
+   Show the boottime for all GTM:
+<programlisting>
+SHOW BOOTTIME GTM all;
+</programlisting>
+  </para>
+
+  <para>
+   Show the boottime for all master GTM:
+<programlisting>
+SHOW BOOTTIME GTM MASTER ALL;
+</programlisting>
+  </para>
+
+  <para>
+   Show the boottime for all slave GTM:
+<programlisting>
+SHOW BOOTTIME GTM SLAVE ALL;
+</programlisting>
+  </para>
+
+  <para>
+   Show the boottime for gtm_name:
+<programlisting>
+SHOW BOOTTIME GTM { MASTER | SLAVE } gtm_name;
+</programlisting>
+  </para>
+
+  </refsect1>
+      <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+      <member><xref linkend="mgr-show-boottime"></member>
+      <member><xref linkend="mgr-show-boottime"></member>
+    </simplelist>
+  </refsect1>
+
+</refentry>
