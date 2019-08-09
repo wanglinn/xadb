@@ -10,6 +10,7 @@
 #include "access/genam.h"
 #include "access/heapam.h"
 #include "access/htup_details.h"
+#include "catalog/catalog.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/mgr_host.h"
@@ -1912,7 +1913,18 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	if (-1 != cmdtype_s)
 		execRes= mgr_ma_send_cmd(cmdtype_s, infosendmsg.data, hostOid, &(getAgentCmdRst->description));
 	else
+	{
+		if (AGT_CMD_CLEAN_NODE == cmdtype)
+		{
+			StringInfoData	cleanSlinksendmsg;
+			initStringInfo(&cleanSlinksendmsg);
+			/* parameters are used to delete the tablespace folder */
+			appendStringInfo(&cleanSlinksendmsg, "%s/pg_tblspc|%s_%s", cndnPath, TABLESPACE_VERSION_DIRECTORY, cndnname);
+			/* clean tablespace dir*/
+			execRes= mgr_ma_send_cmd(cmdtype, cleanSlinksendmsg.data, hostOid, &(getAgentCmdRst->description));
+		}
 		execRes= mgr_ma_send_cmd(cmdtype, infosendmsg.data, hostOid, &(getAgentCmdRst->description));
+	}
 	}PG_CATCH();
 	{
 		if (AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTM_SLAVE_FAILOVER == cmdtype)
@@ -7935,16 +7947,23 @@ Datum mgr_clean_node(PG_FUNCTION_ARGS)
 static void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, GetAgentCmdRst *getAgentCmdRst)
 {
 	StringInfoData infosendmsg;
+	StringInfoData clean_tablespace_sendmsg;
 	bool res = false;
 
 	Assert(strcasecmp(nodepath, "/") != 0);
 
 	getAgentCmdRst->ret = false;
-	initStringInfo(&infosendmsg);
 	initStringInfo(&(getAgentCmdRst->description));
-	appendStringInfo(&infosendmsg, "rm -rf %s; mkdir -p %s; chmod 0700 %s", nodepath, nodepath, nodepath);
+	/* clean tablespace dir*/
+	initStringInfo(&clean_tablespace_sendmsg);
+	appendStringInfo(&clean_tablespace_sendmsg, "%s/pg_tblspc|%s", nodepath, "*");
+	res = mgr_ma_send_cmd(cmdtype, clean_tablespace_sendmsg.data, hostoid, &(getAgentCmdRst->description));
 
+	/* clean nodepath dir*/
+	initStringInfo(&infosendmsg);
+	appendStringInfo(&infosendmsg, "rm -rf %s; mkdir -p %s; chmod 0700 %s", nodepath, nodepath, nodepath);
 	res = mgr_ma_send_cmd(cmdtype, infosendmsg.data, hostoid, &(getAgentCmdRst->description));
+
 	getAgentCmdRst->ret = res;
 	if (!getAgentCmdRst->ret)
 		ereport(WARNING, (errmsg("clean folder \"%s\" fail %s", nodepath, (getAgentCmdRst->description).data)));

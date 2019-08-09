@@ -100,6 +100,8 @@ static void cmd_get_batch_job_result(int cmd_type, StringInfo buf);
 static bool cmd_get_node_folder_size(const char *basePath, bool checkSoftLink, unsigned long long *folderSize, long *pathDepth);
 static void check_stack_depth(void);
 static bool stack_is_too_deep(void);
+static bool delete_tablespace_file(char *path, char *nodename);
+static bool clean_node_folder_for_tablespace(char *buf);
 /* max_stack_depth converted to bytes for speed of checking */
 static long max_stack_depth_bytes = 100 * 1024L;
 
@@ -1352,6 +1354,18 @@ void cmd_clean_node_folder(StringInfo buf)
 	rec_msg_string = agt_getmsgstring(buf);
 	appendStringInfo(&exstrinfo, "%s", rec_msg_string);
 
+	if(*(exstrinfo.data) == '/')
+	{
+		if(!clean_node_folder_for_tablespace(exstrinfo.data))
+			ereport(WARNING,
+					(errmsg("WARNING: Failed to clean the tablespace directory, or the tablespace directory does not exist."))); 
+		pfree(exstrinfo.data);
+		agt_put_msg(AGT_MSG_RESULT, output.data, output.len);
+		agt_flush();
+		pfree(output.data);
+		return;
+	}
+
 	if(exec_shell(exstrinfo.data, &output) != 0)
 		ereport(ERROR, (errmsg("%s", output.data)));
 	else
@@ -1939,5 +1953,112 @@ stack_is_too_deep(void)
 		return true;
 #endif   /* IA64 */
 
+	return false;
+}
+
+/* Used to delete node files and delete tablespace directory */
+static bool
+clean_node_folder_for_tablespace(char *buf)
+{
+	StringInfoData	path_slink;
+	DIR				*dir;
+	struct dirent	*ptr;
+	struct stat		statbuff;   //file struct
+	char			path[1024];
+	char			directory_name[1024];
+	int				locator = 0;
+	int				buf_len = strlen(buf);
+	bool			is_success = true;
+
+	while (*(buf + locator) != '|' && locator < buf_len)
+	{
+		locator ++;
+	}
+	if (locator >= buf_len)
+		return false;
+	memset(path,'\0',sizeof(path));
+	strncpy(path, buf, locator);
+	memset(directory_name,'\0',sizeof(directory_name));
+	strncpy(directory_name, buf + locator + 1, strlen(buf));
+
+	if ((dir=opendir(path)) == NULL)
+	{
+		ereport(WARNING, (errmsg("WARNING: Open dir error. current path: %s", path)));
+		return false;
+	}
+	
+	initStringInfo(&path_slink);
+	while ((ptr=readdir(dir)) != NULL)
+	{
+		if(strcmp(ptr->d_name,".")==0 || strcmp(ptr->d_name,"..")==0)	/*current dir OR parrent dir*/
+			continue;
+
+		appendStringInfoString(&path_slink, path);
+		appendStringInfo(&path_slink, "/%s", ptr->d_name);
+		/*get file info*/
+		if(lstat(path_slink.data, &statbuff) < 0)
+		{
+			ereport(WARNING, (errmsg("WARNING: Open file error. current file:%s", path_slink.data)));
+			is_success = false;
+			resetStringInfo(&path_slink);
+			continue;
+		}
+		if(S_ISLNK(statbuff.st_mode))	/*linke*/
+		{
+			char buf[1024];
+			ssize_t len;
+			if ((len = readlink(path_slink.data, buf, 1024 - 1)) != -1) 	/*get target file path*/
+			{
+				buf[len] = '\0';
+				if (!delete_tablespace_file(buf, directory_name))
+					is_success = false;
+			}
+			else
+			{
+				ereport(WARNING, (errmsg("WARNING: read link file fail. current link file:%s", path_slink.data)));
+				is_success = false;
+			}
+		}
+		resetStringInfo(&path_slink);
+	}
+	pfree(path_slink.data);
+	return is_success;
+}
+
+/* Match tablespace directory name and delete directory */ 
+static bool
+delete_tablespace_file(char *path, char *directory_name)
+{
+	StringInfoData	buf;
+	DIR				*dir;
+    struct			dirent *ptr;
+	char			delfilename[1024];
+
+	if ((dir=opendir(path)) == NULL)
+		return false;
+	initStringInfo(&buf);
+	while ((ptr=readdir(dir)) != NULL)
+	{
+		if(strcmp(ptr->d_name,".") == 0 || strcmp(ptr->d_name,"..") == 0)	/*current dir OR parrent dir*/
+			continue;
+		/* compare file name */
+		if(strcmp(ptr->d_name, directory_name) == 0 || strcmp(directory_name, "*") == 0)
+		{
+			/* delete file */
+			memset(delfilename,'\0',sizeof(delfilename));
+			strcat(delfilename, "rm -rf ");
+			strcat(delfilename, path);
+			strcat(delfilename, "/");
+			strcat(delfilename, ptr->d_name);
+
+			if (exec_shell(delfilename, &buf) == 0)
+			{
+				pfree(buf.data);
+				return true;
+			}
+			resetStringInfo(&buf);
+		}
+	}
+	pfree(buf.data);
 	return false;
 }
