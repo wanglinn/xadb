@@ -22,6 +22,7 @@
 #define RESTART_STEP_MS		3000	/* 2 second */
 
 int snap_receiver_timeout = 60 * 1000L;
+int snap_sender_connect_timeout = 500L;
 
 typedef struct SnapRcvData
 {
@@ -846,6 +847,8 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap)
 {
 	TransactionId	xid,xmax,xmin;
 	uint32			i,count,xcnt;
+	bool			is_wait_ok;
+	TimestampTz end;
 
 	if (snap->xip == NULL)
 		EnlargeSnapshotXip(snap, GetMaxSnapshotXidCount());
@@ -856,7 +859,14 @@ re_lock_:
 	{
 		/* InvalidTransactionId for wait streaming */
 		MyProc->waitGlobalTransaction = InvalidTransactionId;
-		WaitSnapRcvEvent(-1, WaitSnapRcvCondStreaming, NULL);
+		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snap_sender_connect_timeout);
+		is_wait_ok = WaitSnapRcvEvent(end, WaitSnapRcvCondStreaming, NULL);
+
+		if (!is_wait_ok)
+		{
+			ereport(ERROR,
+				(errmsg("cannot connect to GTM")));
+		}
 	}
 
 	Assert(SnapRcv->state == WALRCV_STREAMING);
