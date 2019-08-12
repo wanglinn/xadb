@@ -1601,9 +1601,9 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 		appendStringInfo(&infosendmsg, " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres'"
 			, slave_nodeinfo.nodepath, master_nodeinfo.nodeaddr, master_nodeinfo.nodeport, AGTM_USER);
 	else
-		appendStringInfo(&infosendmsg, " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres' -N %s"
+		appendStringInfo(&infosendmsg, " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres' -T %s -S %s"
 				, slave_nodeinfo.nodepath, master_nodeinfo.nodeaddr
-				, master_nodeinfo.nodeport, slave_nodeinfo.nodeusername, nodename);
+				, master_nodeinfo.nodeport, slave_nodeinfo.nodeusername, nodename, master_nodeinfo.nodename);
 
 	res = mgr_ma_send_cmd_get_original_result(cmdtype, infosendmsg.data, slave_nodeinfo.nodehost, strinfo, AGENT_RESULT_LOG);
 	pfree(restmsg.data);

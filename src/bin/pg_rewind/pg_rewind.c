@@ -48,7 +48,11 @@ const char *progname;
 int			WalSegSz;
 
 #ifdef ADB
-const char *nodename;
+/* target node name */
+const char	*nodename;
+#define target_nodename	nodename
+/* source node name */
+const char	*source_nodename;
 #endif
 
 /* Configuration options */
@@ -74,7 +78,8 @@ usage(const char *progname)
 	printf(_("      --source-pgdata=DIRECTORY  source data directory to synchronize with\n"));
 	printf(_("      --source-server=CONNSTR    source server to synchronize with\n"));
 #ifdef ADB
-	printf(_("  -N, --nodename=NODE            set current node's name for ADB\n"));
+	printf(_("  -T, --target-nodename=NODE     set current node's name for ADB\n"));
+	printf(_("  -S, --source-nodename=NODE     set source node's name for ADB\n"));
 #endif
 	printf(_("  -n, --dry-run                  stop before modifying anything\n"));
 	printf(_("  -P, --progress                 write progress messages\n"));
@@ -94,7 +99,8 @@ main(int argc, char **argv)
 		{"source-pgdata", required_argument, NULL, 1},
 		{"source-server", required_argument, NULL, 2},
 #ifdef ADB
-		{"nodename", required_argument, NULL, 'N'},
+		{"target-nodename", required_argument, NULL, 'T'},
+		{"source-nodename", required_argument, NULL, 'S'},
 #endif
 		{"version", no_argument, NULL, 'V'},
 		{"dry-run", no_argument, NULL, 'n'},
@@ -139,7 +145,7 @@ main(int argc, char **argv)
 	}
 
 #ifdef ADB
-	while ((c = getopt_long(argc, argv, "D:N:nP", long_options, &option_index)) != -1)
+	while ((c = getopt_long(argc, argv, "D:T:S:nP", long_options, &option_index)) != -1)
 #else
 	while ((c = getopt_long(argc, argv, "D:nP", long_options, &option_index)) != -1)
 #endif
@@ -155,11 +161,19 @@ main(int argc, char **argv)
 				break;
 
 #ifdef ADB
-			case 'N':
+			case 'T':
 				nodename = pg_strdup(optarg);
 				if (strlen(nodename) > NAMEDATALEN)
 				{
 					fprintf(stderr, _("Invalid node name \"%s\""), nodename);
+					exit(1);
+				}
+				break;
+			case 'S':				/* --source-nodename */
+				source_nodename = pg_strdup(optarg);
+				if (strlen(source_nodename) > NAMEDATALEN)
+				{
+					fprintf(stderr, _("Invalid source node name \"%s\""), source_nodename);
 					exit(1);
 				}
 				break;
@@ -190,6 +204,12 @@ main(int argc, char **argv)
 	if (nodename == NULL)
 	{
 		fprintf(stderr, _("%s: need a valid node name\n"), progname);
+		fprintf(stderr, _("Try \"%s --help\" for more information.\n"), progname);
+		exit(1);
+	}
+	if (source_nodename == NULL)
+	{
+		fprintf(stderr, _("%s: need a valid source node name\n"), progname);
 		fprintf(stderr, _("Try \"%s --help\" for more information.\n"), progname);
 		exit(1);
 	}
@@ -255,7 +275,9 @@ main(int argc, char **argv)
 	/* Connect to remote server */
 	if (connstr_source)
 		libpqConnect(connstr_source);
-
+#ifdef ADB
+	init_tblspc_directory_name();
+#endif
 	/*
 	 * Ok, we have all the options and we're ready to start. Read in all the
 	 * information we need from both clusters.

@@ -26,6 +26,13 @@ static void recurse_dir(const char *datadir, const char *path,
 
 static void execute_pagemap(datapagemap_t *pagemap, const char *path);
 
+#ifdef ADB
+extern const char *nodename;
+#define target_nodename nodename
+extern const char *source_nodename;
+static bool is_target_other_node_tablespace_directory(const char *directory_name);
+#endif
+
 /*
  * Traverse through all files in a data directory, calling 'callback'
  * for each file.
@@ -97,7 +104,12 @@ recurse_dir(const char *datadir, const char *parentpath,
 
 		if (S_ISREG(fst.st_mode))
 			callback(path, FILE_TYPE_REGULAR, fst.st_size, NULL);
+#ifdef ADB
+		/* Filter other node tablespace files, avoid accidental deletion of files.*/
+		else if (S_ISDIR(fst.st_mode) && !is_target_other_node_tablespace_directory(xlde->d_name))
+#else
 		else if (S_ISDIR(fst.st_mode))
+#endif
 		{
 			callback(path, FILE_TYPE_DIRECTORY, 0, NULL);
 			/* recurse to handle subdirectories */
@@ -228,6 +240,7 @@ copy_executeFileMap(filemap_t *map)
 				break;
 
 			case FILE_ACTION_COPY_TAIL:
+				pg_log(PG_WARNING, "--->FILE_ACTION_COPY_TAIL: %s \toldsize:%d \tnewsize:%d", entry->path, (int)entry->oldsize, (int)entry->newsize);
 				rewind_copy_file_range(entry->path, entry->oldsize,
 									   entry->newsize, false);
 				break;
@@ -261,3 +274,30 @@ execute_pagemap(datapagemap_t *pagemap, const char *path)
 	}
 	pg_free(iter);
 }
+
+#ifdef ADB
+/* Analyze the directory in pg_tblspc related to source-server. 
+ * If it is not relevant, skip it to avoid incorrect cleanup operation. */
+static bool
+is_target_other_node_tablespace_directory(const char *directory_name)
+{
+	char	include_path[strlen(TABLESPACE_VERSION_DIRECTORY)];
+	char	include_nodename[1024];
+
+	if (strlen(directory_name) <= strlen(TABLESPACE_VERSION_DIRECTORY))
+		return false;
+
+	/* Get the version information contained in the directory name */
+	strncpy(include_path, directory_name, strlen(TABLESPACE_VERSION_DIRECTORY));
+	memset(include_nodename,'\0',sizeof(include_nodename));
+	/* Get the node name contained in the directory name */
+	strncpy(include_nodename, directory_name + strlen(TABLESPACE_VERSION_DIRECTORY) + 1, strlen(directory_name));
+
+	if (strcmp(include_path, TABLESPACE_VERSION_DIRECTORY) == 0
+		&& strcmp(include_nodename, target_nodename) != 0)
+	{
+		return true;
+	}
+	return false;
+}
+#endif

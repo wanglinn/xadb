@@ -35,15 +35,28 @@ static void remove_target_dir(const char *path);
 static void create_target_symlink(const char *path, const char *link);
 static void remove_target_symlink(const char *path);
 
+#ifdef ADB
+extern const char *target_nodename;
+extern const char *source_nodename;
+#endif
 /*
  * Open a target file for writing. If 'trunc' is true and the file already
  * exists, it will be truncated.
  */
 void
+#ifdef ADB
+open_target_file(const char *adbpath, bool trunc)
+#else
 open_target_file(const char *path, bool trunc)
+#endif
 {
 	int			mode;
-
+#ifdef ADB
+	char		path[MAXPGPATH];
+	snprintf(path, sizeof(path), "%s", adbpath);
+	/* Replace the tablespce directory name to avoid target (local) open failure. */
+	replace_tblspc_directory_name(path, source_tblspc_directory, target_tblspc_directory);
+#endif
 	if (dry_run)
 		return;
 

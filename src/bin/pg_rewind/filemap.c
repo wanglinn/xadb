@@ -108,6 +108,12 @@ static const char *excludeFiles[] =
 	NULL
 };
 
+#ifdef ADB
+extern const char *nodename;
+#define target_nodename nodename
+extern const char *source_nodename;
+static bool is_source_other_node_tablespace_files(const char *path);
+#endif	
 /*
  * Create a new file map (stored in the global pointer "filemap").
  */
@@ -177,6 +183,11 @@ process_source_file(const char *path, file_type_t type, size_t newsize,
 		pg_fatal("data file \"%s\" in source is not a regular file\n", path);
 
 	snprintf(localpath, sizeof(localpath), "%s/%s", datadir_target, path);
+
+#ifdef ADB
+	/* Replace the tablespce directory name to avoid target (local) open failure. */
+	replace_tblspc_directory_name(localpath, source_nodename, target_nodename);
+#endif
 
 	/* Does the corresponding file exist in the target data dir? */
 	if (lstat(localpath, &statbuf) < 0)
@@ -295,9 +306,25 @@ process_source_file(const char *path, file_type_t type, size_t newsize,
 	entry = pg_malloc(sizeof(file_entry_t));
 	entry->path = pg_strdup(path);
 	entry->type = type;
+#ifdef ADB
+	/* (source side)Filter other node tablespace files, avoid accidental deletion of files.*/
+	if (is_source_other_node_tablespace_files(path))
+	{
+		entry->action = FILE_ACTION_NONE;
+		entry->oldsize = newsize;
+		entry->newsize = newsize;
+	}
+	else
+	{
+		entry->action = action;
+		entry->oldsize = oldsize;
+		entry->newsize = newsize;
+	}
+#else
 	entry->action = action;
 	entry->oldsize = oldsize;
 	entry->newsize = newsize;
+#endif
 	entry->link_target = link_target ? pg_strdup(link_target) : NULL;
 	entry->next = NULL;
 	entry->pagemap.bitmap = NULL;
@@ -341,6 +368,9 @@ process_target_file(const char *path, file_type_t type, size_t oldsize,
 	if (check_file_excluded(path, "target"))
 		return;
 
+#ifdef ADB
+	char		adbpath[MAXPGPATH];
+#endif
 	snprintf(localpath, sizeof(localpath), "%s/%s", datadir_target, path);
 	if (lstat(localpath, &statbuf) < 0)
 	{
@@ -372,13 +402,18 @@ process_target_file(const char *path, file_type_t type, size_t oldsize,
 	 */
 	if (strcmp(path, "pg_wal") == 0 && type == FILE_TYPE_SYMLINK)
 		type = FILE_TYPE_DIRECTORY;
-
+#ifdef ADB
+	snprintf(adbpath, sizeof(adbpath), "%s", path);
+	replace_tblspc_directory_name(adbpath, target_nodename, source_nodename);
+	key.path = adbpath;
+#else
 	key.path = (char *) path;
+#endif
 	key_ptr = &key;
 	exists = (bsearch(&key_ptr, map->array, map->narray, sizeof(file_entry_t *),
 					  path_cmp) != NULL);
 
-	/* Remove any file or folder that doesn't exist in the source system. */
+	/* Remove any file or folder that doesn't exist in the source directory. */
 	if (!exists)
 	{
 		entry = pg_malloc(sizeof(file_entry_t));
@@ -722,9 +757,20 @@ isRelDataFile(const char *path)
 		}
 		else
 		{
+#ifdef ADB
+			/* Compatible with the difference between antdb and postgres
+			 * in the tblspc directory name.
+			 * eg:
+			 * "PG_10_201707211_datanode" and "PG_10_201707211"
+			 */
+			char	tmpfmt[1024];
+			snprintf(tmpfmt, sizeof(tmpfmt), "%s%s%s", "pg_tblspc/%u/", source_tblspc_directory, "/%u/%u.%u");
+			nmatch = sscanf(path, tmpfmt, &rnode.spcNode, &rnode.dbNode, &rnode.relNode, &segNo);
+#else
 			nmatch = sscanf(path, "pg_tblspc/%u/" TABLESPACE_VERSION_DIRECTORY "/%u/%u.%u",
 							&rnode.spcNode, &rnode.dbNode, &rnode.relNode,
 							&segNo);
+#endif
 			if (nmatch == 3 || nmatch == 4)
 				matched = true;
 		}
@@ -739,7 +785,9 @@ isRelDataFile(const char *path)
 	if (matched)
 	{
 		char	   *check_path = datasegpath(rnode, MAIN_FORKNUM, segNo);
-
+#ifdef ADB
+		replace_tblspc_directory_name(check_path, target_tblspc_directory, source_tblspc_directory);
+#endif
 		if (strcmp(check_path, path) != 0)
 			matched = false;
 
@@ -806,3 +854,76 @@ final_filemap_cmp(const void *a, const void *b)
 	else
 		return strcmp(fa->path, fb->path);
 }
+
+#ifdef ADB
+/* Analyze the directory in pg_tblspc related to source-server. 
+ * If it is not relevant, skip it to avoid incorrect cleanup operation. */
+static bool
+is_source_other_node_tablespace_files(const char *path)
+{
+	char	path_bak[strlen(path)];
+	char	*buf;
+	char	*tblspc = "pg_tblspc";
+	char	*token;
+	bool	flag = false;
+
+
+	strcpy(path_bak, path);
+	buf = path_bak;
+	while((token = strsep(&buf,"/")) != NULL)
+	{
+		if (strcmp(token, tblspc) == 0)
+			flag = true;
+		if (flag)
+		{
+			if (strcmp(token, source_tblspc_directory) == 0)
+			{
+				return false;
+			}
+		}
+	}
+	return flag;
+}
+
+
+void replace_tblspc_directory_name(char *path, const char *old_str, const char *new_str)
+{
+	int		old_str_len = 0;
+	int		new_str_len = 0;
+	char	later[MAXPGPATH];
+	int		later_len = 0;
+	char	*tmp = NULL;
+
+	old_str_len = strlen(old_str);
+	new_str_len = strlen(new_str);
+
+	if (path && (tmp = strstr(path, old_str)) != NULL)
+	{
+		if (strlen(tmp) <= new_str_len)
+		{
+			strcpy(tmp, new_str);
+			memset(tmp + new_str_len + 1, '\0', 1);
+		}
+		else
+		{
+			memset(later,'\0',sizeof(later));
+			strncpy(later, tmp + old_str_len, strlen(tmp));
+			later_len = strlen(later);
+						
+			strcpy(tmp, new_str);
+			strcpy(tmp + new_str_len, later);
+			memset(tmp + new_str_len + later_len, '\0', 1);
+		}
+	}
+}
+
+/* Initialize the antdb tablespace directory name */
+void init_tblspc_directory_name()
+{
+	char	tmp[MAXPGPATH];
+	snprintf(tmp, sizeof(tmp), "%s_%s", TABLESPACE_VERSION_DIRECTORY, target_nodename);
+	target_tblspc_directory = pg_strdup(tmp);
+	snprintf(tmp, sizeof(tmp), "%s_%s", TABLESPACE_VERSION_DIRECTORY, source_nodename);
+	source_tblspc_directory = pg_strdup(tmp);
+}
+#endif
