@@ -468,7 +468,7 @@ AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt)
 	if (create_stmt->distributeby == NULL)
 	{
 		create_stmt->distributeby = makeNode(DistributeBy);
-		create_stmt->distributeby->disttype = DISTTYPE_HASH;
+		create_stmt->distributeby->disttype = LOCATOR_TYPE_HASH;
 		create_stmt->distributeby->colname = pstrdup(NameStr(auxattform->attname));
 	}
 

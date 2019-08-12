@@ -1142,8 +1142,8 @@ void transformDistributeBy(DistributeBy *dbstmt, core_yyscan_t yyscanner)
 	List *funcargs;
 
 	if (dbstmt == NULL ||
-		/* must be replication or roundrobin */
-		dbstmt->disttype != DISTTYPE_USER_DEFINED)
+		/* must be replication or random */
+		dbstmt->disttype != LOCATOR_TYPE_USER_DEFINED)
 		return ;
 
 	Assert(dbstmt->func);
@@ -1172,7 +1172,7 @@ void transformDistributeBy(DistributeBy *dbstmt, core_yyscan_t yyscanner)
 						 errhint("Valid syntax input: HASH(column)"),
 						 scanner_errposition(func->location, yyscanner)));
 
-			dbstmt->disttype = DISTTYPE_HASH;
+			dbstmt->disttype = LOCATOR_TYPE_HASH;
 			dbstmt->colname = strVal(linitial(((ColumnRef *)argnode)->fields));
 		} else if (strcasecmp(fname, "MODULO") == 0)
 		{
@@ -1185,7 +1185,7 @@ void transformDistributeBy(DistributeBy *dbstmt, core_yyscan_t yyscanner)
 					errhint("Valid syntax input: MODULO(column)"),
 					scanner_errposition(func->location, yyscanner)));
 
-			dbstmt->disttype = DISTTYPE_MODULO;
+			dbstmt->disttype = LOCATOR_TYPE_MODULO;
 			dbstmt->colname = strVal(linitial(((ColumnRef *)argnode)->fields));
 		} else if (strcasecmp(fname, "HASHMAP") == 0)
 		{
@@ -1198,7 +1198,7 @@ void transformDistributeBy(DistributeBy *dbstmt, core_yyscan_t yyscanner)
 						 errhint("Valid syntax input: HASH(column)"),
 						 scanner_errposition(func->location, yyscanner)));
 
-			dbstmt->disttype = DISTTYPE_HASHMAP;
+			dbstmt->disttype = LOCATOR_TYPE_HASHMAP;
 			dbstmt->colname = strVal(linitial(((ColumnRef *)argnode)->fields));
 		}
 		else

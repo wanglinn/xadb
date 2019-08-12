@@ -1536,22 +1536,6 @@ typedef struct OnConflictExpr
 
 #ifdef ADB
 /*----------
- * DistributionType - how to distribute the data
- *
- *----------
- */
-typedef enum DistributionType
-{
-	DISTTYPE_REPLICATION,		/* Replicated */
-	DISTTYPE_HASH,				/* Hash partitioned */
-	DISTTYPE_RANDOM,			/* Random partitioned */
-	DISTTYPE_MODULO,			/* Modulo partitioned */
-	DISTTYPE_USER_DEFINED,		/* User-defined function partitioned */
-	DISTTYPE_HASHMAP		/* Hashmap partitioned*/
-
-} DistributionType;
-
-/*----------
  * DistributeBy - represents a DISTRIBUTE BY clause in a CREATE TABLE statement
  *
  *----------
@@ -1559,7 +1543,7 @@ typedef enum DistributionType
 typedef struct DistributeBy
 {
 	NodeTag		type;
-	DistributionType disttype;	/* Distribution type */
+	char		disttype;		/* Distribution type, see LOCATOR_TYPE_XXX */
 	char	   *colname;		/* Distribution column name */
 	struct FuncCall *func;		/* User-defined distribute function */
 } DistributeBy;

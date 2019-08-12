@@ -204,21 +204,11 @@ addDefaultDistributeBy(CreateStmt *stmt)
 	switch (relloc->locatorType)
 	{
 		case LOCATOR_TYPE_REPLICATED:
-			distby->disttype = DISTTYPE_REPLICATION;
+		case LOCATOR_TYPE_RANDOM:
 			break;
 		case LOCATOR_TYPE_HASH:
-			distby->disttype = DISTTYPE_HASH;
-			distby->colname = get_attname(relloc->relid, relloc->partAttrNum, false);
-			break;
-		case LOCATOR_TYPE_RANDOM:
-			distby->disttype = DISTTYPE_RANDOM;
-			break;
 		case LOCATOR_TYPE_HASHMAP:
-			distby->disttype = DISTTYPE_HASHMAP;
-			distby->colname = get_attname(relloc->relid, relloc->partAttrNum, false);
-			break;
 		case LOCATOR_TYPE_MODULO:
-			distby->disttype = DISTTYPE_MODULO;
 			distby->colname = get_attname(relloc->relid, relloc->partAttrNum, false);
 			break;
 		case LOCATOR_TYPE_USER_DEFINED:
@@ -256,7 +246,6 @@ addDefaultDistributeBy(CreateStmt *stmt)
 					funcargs = lappend(funcargs, c);
 				}
 
-				distby->disttype = DISTTYPE_USER_DEFINED;
 				distby->func = makeFuncCall(funcname, funcargs, -1);
 			}
 			break;
@@ -270,6 +259,7 @@ addDefaultDistributeBy(CreateStmt *stmt)
 					 errmsg("not supported locator type %d", relloc->locatorType)));
 			break;
 	}
+	distby->disttype = relloc->locatorType;
 
 	stmt->distributeby = distby;
 	heap_close(parent, ShareUpdateExclusiveLock);
@@ -520,9 +510,9 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	{
 		stmt->distributeby = makeNode(DistributeBy);
 		if(hash_distribute_by_hashmap_default)
-			stmt->distributeby->disttype = DISTTYPE_HASHMAP;
+			stmt->distributeby->disttype = LOCATOR_TYPE_HASHMAP;
 		else
-			stmt->distributeby->disttype = DISTTYPE_HASH;
+			stmt->distributeby->disttype = LOCATOR_TYPE_HASH;
 		stmt->distributeby->colname = cxt.fallback_dist_col;
 	}
 

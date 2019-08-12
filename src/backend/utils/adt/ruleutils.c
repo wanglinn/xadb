@@ -7076,29 +7076,30 @@ get_utility_query_def(Query *query, deparse_context *context)
 			/* add the on commit clauses for temporary tables */
 			switch (stmt->distributeby->disttype)
 			{
-				case DISTTYPE_REPLICATION:
+				case LOCATOR_TYPE_REPLICATED:
 					appendStringInfo(buf, " DISTRIBUTE BY REPLICATION");
 					break;
 
-				case DISTTYPE_HASH:
+				case LOCATOR_TYPE_HASH:
 					appendStringInfo(buf, " DISTRIBUTE BY HASH(%s)", stmt->distributeby->colname);
 					break;
 
-				case DISTTYPE_RANDOM:
+				case LOCATOR_TYPE_RANDOM:
 					appendStringInfo(buf, " DISTRIBUTE BY RANDOM");
 					break;
 
-				case DISTTYPE_HASHMAP:
+				case LOCATOR_TYPE_HASHMAP:
 					appendStringInfo(buf, " DISTRIBUTE BY HASHMAP(%s)", stmt->distributeby->colname);
 					break;
 
-				case DISTTYPE_MODULO:
+				case LOCATOR_TYPE_MODULO:
 					appendStringInfo(buf, " DISTRIBUTE BY MODULO(%s)", stmt->distributeby->colname);
 					break;
 
 				default:
-					ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
-								errmsg("Invalid distribution type")));
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("Invalid distribution type %d", stmt->distributeby->disttype)));
 
 			}
 		}

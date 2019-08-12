@@ -733,19 +733,6 @@ END_ENUM(BoolTestType)
 #endif /* NO_ENUM_BoolTestType */
 
 #if defined(ADB)
-#ifndef NO_ENUM_DistributionType
-BEGIN_ENUM(DistributionType)
-	ENUM_VALUE(DISTTYPE_REPLICATION)
-	ENUM_VALUE(DISTTYPE_HASH)
-	ENUM_VALUE(DISTTYPE_RANDOM)
-	ENUM_VALUE(DISTTYPE_MODULO)
-	ENUM_VALUE(DISTTYPE_USER_DEFINED)
-	ENUM_VALUE(DISTTYPE_HASHMAP)
-END_ENUM(DistributionType)
-#endif /* NO_ENUM_DistributionType */
-#endif
-
-#if defined(ADB)
 #ifndef NO_ENUM_PGXCSubClusterType
 BEGIN_ENUM(PGXCSubClusterType)
 	ENUM_VALUE(SUBCLUSTER_NONE)

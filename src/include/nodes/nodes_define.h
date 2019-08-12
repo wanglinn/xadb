@@ -1542,7 +1542,7 @@ END_NODE(IntoClause)
 
 #ifndef NO_NODE_DistributeBy
 BEGIN_NODE(DistributeBy)
-	NODE_ENUM(DistributionType,disttype)
+	NODE_SCALAR(char,disttype)
 	NODE_STRING(colname)
 	NODE_NODE(FuncCall,func)
 END_NODE(DistributeBy)

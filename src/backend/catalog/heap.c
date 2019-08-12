@@ -1053,7 +1053,7 @@ GetUserDefinedFuncArgVars(Oid relid,
 
 	Assert(OidIsValid(relid));
 	Assert(distributeby && descriptor);
-	Assert(distributeby->disttype == DISTTYPE_USER_DEFINED);
+	Assert(distributeby->disttype == LOCATOR_TYPE_USER_DEFINED);
 
 	funcargs = distributeby->func->args;
 
@@ -1348,7 +1348,7 @@ GetUserDefinedDistribution(Oid relid,
 
 	Assert(OidIsValid(relid));
 	Assert(distributeby && descriptor);
-	Assert(distributeby->disttype == DISTTYPE_USER_DEFINED);
+	Assert(distributeby->disttype == LOCATOR_TYPE_USER_DEFINED);
 	Assert(distributeby->func != NULL);
 	func = distributeby->func;
 
@@ -1419,7 +1419,7 @@ AddRelationDistribution(Oid relid,
 		nodeoids = NULL;
 	} else
 	{
-		if (((distributeby && distributeby->disttype == DISTTYPE_HASHMAP)
+		if (((distributeby && distributeby->disttype == LOCATOR_TYPE_HASHMAP)
 			 || (!distributeby && hash_distribute_by_hashmap_default ))&& subcluster)
 			ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
@@ -1562,7 +1562,7 @@ GetRelationDistributionItems(Oid relid,
 		 */
 		switch (distributeby->disttype)
 		{
-			case DISTTYPE_HASH:
+			case LOCATOR_TYPE_HASH:
 				/*
 				 * Validate user-specified hash column.
 				 * System columns cannot be used.
@@ -1582,10 +1582,9 @@ GetRelationDistributionItems(Oid relid,
 							 errmsg("Column %s is not a hash distributable data type",
 							 distributeby->colname)));
 				}
-				local_locatortype = LOCATOR_TYPE_HASH;
 				break;
 
-			case DISTTYPE_MODULO:
+			case LOCATOR_TYPE_MODULO:
 				{
 					Oid disttypid;
 
@@ -1607,21 +1606,15 @@ GetRelationDistributionItems(Oid relid,
 								(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 								 errmsg("Column \"%s\" is not modulo distributable data type",
 								 distributeby->colname)));
-					local_locatortype = LOCATOR_TYPE_MODULO;
 				}
 				break;
 
-			case DISTTYPE_REPLICATION:
-				local_locatortype = LOCATOR_TYPE_REPLICATED;
+			case LOCATOR_TYPE_REPLICATED:
+			case LOCATOR_TYPE_RANDOM:
 				break;
 
-			case DISTTYPE_RANDOM:
-				local_locatortype = LOCATOR_TYPE_RANDOM;
-				break;
-
-			case DISTTYPE_USER_DEFINED:
+			case LOCATOR_TYPE_USER_DEFINED:
 				{
-					local_locatortype = LOCATOR_TYPE_USER_DEFINED;
 					if (funcid || numatts || attnums)
 						GetUserDefinedDistribution(relid,
 												   distributeby,
@@ -1632,7 +1625,7 @@ GetRelationDistributionItems(Oid relid,
 				}
 				break;
 
-			case DISTTYPE_HASHMAP:
+			case LOCATOR_TYPE_HASHMAP:
 				/*
 				 * Validate user-specified hash column.
 				 * System columns cannot be used.
@@ -1641,20 +1634,24 @@ GetRelationDistributionItems(Oid relid,
 				if (local_attnum <= 0 && local_attnum >= -(int) lengthof(SysAtt))
 				{
 					ereport(ERROR,
-							(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+							(errcode(ERRCODE_INVALID_COLUMN_DEFINITION),
 							 errmsg("Invalid distribution column specified")));
 				}
 
 				if (!IsTypeDistributable(TupleDescAttr(descriptor, local_attnum - 1)->atttypid))
 				{
 					ereport(ERROR,
-						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 							 errmsg("Column %s is not a hash distributable data type",
 							 distributeby->colname)));
 				}
-				local_locatortype = LOCATOR_TYPE_HASHMAP;
 				break;
+			default:
+				ereport(ERROR,
+						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+						 errmsg("unknown distribute type %d", distributeby->disttype)));
 		}
+		local_locatortype = distributeby->disttype;
 	}
 
 	/* Use default hash values */

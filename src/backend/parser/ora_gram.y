@@ -1646,9 +1646,9 @@ OptDistributeByInternal:  DISTRIBUTE BY OptDistributeType
 				{
 					DistributeBy *n = makeNode(DistributeBy);
 					if (strcmp($3, "replication") == 0)
-						n->disttype = DISTTYPE_REPLICATION;
+						n->disttype = LOCATOR_TYPE_REPLICATED;
 					else if (strcmp($3, "random") == 0)
-						n->disttype = DISTTYPE_RANDOM;
+						n->disttype = LOCATOR_TYPE_RANDOM;
 					else
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
@@ -1660,7 +1660,7 @@ OptDistributeByInternal:  DISTRIBUTE BY OptDistributeType
 			| DISTRIBUTE BY func_name '(' func_arg_list ')'
 				{
 					DistributeBy *n = makeNode(DistributeBy);
-					n->disttype = DISTTYPE_USER_DEFINED;
+					n->disttype = LOCATOR_TYPE_USER_DEFINED;
 					n->func = makeFuncCall($3, $5, @3);
 					transformDistributeBy(n, yyscanner);
 					$$ = n;
