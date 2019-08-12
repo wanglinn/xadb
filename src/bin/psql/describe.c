@@ -27,12 +27,7 @@
 #include "variables.h"
 
 #ifdef ADB
-#define LOCATOR_TYPE_REPLICATED 'R'
-#define LOCATOR_TYPE_HASH 'H'
-#define LOCATOR_TYPE_RANDOM 'N'
-#define LOCATOR_TYPE_MODULO 'M'
-#define LOCATOR_TYPE_USER_DEFINED 'U'
-#define LOCATOR_TYPE_HASHMAP 'B'
+#include "catalog/pgxc_class_d.h"
 #endif
 
 
