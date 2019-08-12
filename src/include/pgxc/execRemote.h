@@ -74,6 +74,7 @@ typedef struct RemoteQueryState
 	TupleTableSlot *iterSlot;			/* used to keep slot as an iterator, see HandleCopyOutData */
 	TupleTableSlot *convertSlot;		/* used to convert scan slot if needed */
 	struct ClusterRecvState *recvState;		/* used to convert scan slot if needed */
+	struct ReduceExprState *reduce_state;
 	CombineType combine_type;			/* see CombineType enum */
 	int			command_complete_count; /* count of received CommandComplete messages */
 	int			command_error_count;	/* count of received Error messages */

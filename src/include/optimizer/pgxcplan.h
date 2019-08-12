@@ -80,12 +80,13 @@ typedef enum ExecDirectType
 typedef struct RemoteQuery
 {
 	Scan			scan;
-	ExecDirectType		exec_direct_type;	/* track if remote query is execute direct and what type it is */
-	char			*sql_statement;
+	ExecDirectType	exec_direct_type;	/* track if remote query is execute direct and what type it is */
+	char		   *sql_statement;
 #ifdef ADB
 	StringInfo		sql_node;			/* parse tree of sql_statement */
 #endif /* ifdef ADB */
 	ExecNodes		*exec_nodes;		/* List of Datanodes where to launch query */
+	Expr		   *reduce_expr;
 	CombineType		combine_type;
 	bool			read_only;		/* do not use 2PC when committing read only steps */
 	bool			force_autocommit;	/* some commands like VACUUM require autocommit mode */

@@ -330,6 +330,9 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	ExecInitResultTupleSlotTL(estate, &rqstate->ss.ps);
 	ExecAssignScanProjectionInfo(&rqstate->ss);
 
+	if (node->reduce_expr)
+		rqstate->reduce_state = ExecInitReduceExpr(node->reduce_expr);
+
 	if (node->rq_save_command_id)
 	{
 		/* Save command id to be used in some special cases */

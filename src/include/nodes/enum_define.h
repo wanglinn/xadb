@@ -535,6 +535,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_MonitorDeleteData)
 	ENUM_VALUE(T_ClusterSlotInitStmt)
 	ENUM_VALUE(T_MGRFlushParam)
+	ENUM_VALUE(T_MGRFlushReadonlySlave)
 #endif
 #ifdef ADB
 	ENUM_VALUE(T_CreateSlotStmt)

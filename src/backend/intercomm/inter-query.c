@@ -215,7 +215,34 @@ GetRemoteNodeList(RemoteQueryState *planstate, ExecNodes *exec_nodes, RemoteQuer
 {
 	List   *node_list = NIL;
 
-	if (exec_nodes)
+	if (planstate->reduce_state)
+	{
+		Datum			datum;
+		ExprDoneCond	done;
+		bool			isNull;
+
+		for(;;)
+		{
+			datum = ExecEvalReduceExpr(planstate->reduce_state,
+									   planstate->ss.ps.ps_ExprContext,
+									   &isNull,
+									   &done);
+			if (done == ExprEndResult)
+			{
+				break;
+			}else if (isNull)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("ReduceExpr return a null value")));
+			}else
+			{
+				node_list = lappend_oid(node_list, DatumGetObjectId(datum));
+				if (done == ExprSingleResult)
+					break;
+			}
+		}
+	}else if (exec_nodes)
 	{
 		if (exec_nodes->en_expr)
 			node_list = RewriteExecNodes(planstate, exec_nodes);
@@ -259,7 +286,7 @@ GetRemoteNodeList(RemoteQueryState *planstate, ExecNodes *exec_nodes, RemoteQuer
 		}
 	}
 	/* get node list by exec_type */
-	if (list_length(node_list) == 0)
+	if (node_list == NIL)
 	{
 		switch (exec_type)
 		{

@@ -742,6 +742,7 @@ BEGIN_NODE(RemoteQuery)
 	NODE_StringInfo(sql_node)
 #endif
 	NODE_NODE(ExecNodes,exec_nodes)
+	NODE_NODE(Expr,reduce_expr)
 	NODE_ENUM(CombineType,combine_type)
 	NODE_SCALAR(bool,read_only)
 	NODE_SCALAR(bool,force_autocommit)
@@ -4090,7 +4091,7 @@ END_NODE(MGRFlushHost)
 
 #ifndef NO_NODE_MGRDoctorSet
 BEGIN_NODE(MGRDoctorSet)
-	NODE_NODE(List, options)
+	NODE_NODE(List,options)
 END_NODE(MGRDoctorSet)
 #endif /* NO_NODE_MGRDoctorSet */
 
@@ -4180,6 +4181,11 @@ END_NODE(ClusterSlotInitStmt)
 BEGIN_NODE(MGRFlushParam)
 END_NODE(MGRFlushParam)
 #endif /* NO_NODE_MGRFlushParam */
+
+#ifndef NO_NODE_MGRFlushReadonlySlave
+BEGIN_NODE(MGRFlushReadonlySlave)
+END_NODE(MGRFlushReadonlySlave)
+#endif /* NO_NODE_MGRFlushReadonlySlave */
 
 #endif
 

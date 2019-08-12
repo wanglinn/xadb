@@ -32,6 +32,7 @@
 #include "optimizer/pgxcship.h"
 #include "optimizer/planmain.h"
 #include "optimizer/planner.h"
+#include "optimizer/reduceinfo.h"
 #include "optimizer/restrictinfo.h"
 #include "optimizer/tlist.h"
 #include "optimizer/var.h"
@@ -1522,6 +1523,8 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 
 		if (cmdtyp == CMD_INSERT)
 		{
+			ReduceInfo *rinfo = MakeReduceInfoFromLocInfo(rel_loc_info, NIL, res_rte->relid, resultRelationIndex);
+			fstep->reduce_expr = CreateExprUsingReduceInfo(rinfo);
 			fstep->exec_nodes = makeNode(ExecNodes);
 			fstep->exec_nodes->accesstype = accessType;
 			fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
@@ -1547,7 +1550,7 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 														resultRelationIndex);
 
 		dummy_rte = make_dummy_remote_rte(relname,
-										makeAlias("REMOTE_DML_QUERY", NIL));
+										  makeAlias("REMOTE_DML_QUERY", NIL));
 		root->parse->rtable = lappend(root->parse->rtable, dummy_rte);
 		fstep->scan.scanrelid = list_length(root->parse->rtable);
 
