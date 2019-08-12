@@ -31,7 +31,9 @@
 #include "fe_utils/connect.h"
 
 static PGconn *conn = NULL;
-
+#if defined ADB
+extern char *source_nodename;
+#endif
 /*
  * Files are fetched max CHUNKSIZE bytes at a time.
  *
@@ -64,6 +66,12 @@ libpqConnect(const char *connstr)
 				 PQresultErrorMessage(res));
 	PQclear(res);
 
+#ifdef ADB
+	str = run_simple_query("select node_name from pgxc_node");
+	if(strcmp(str, source_nodename) != 0)
+		pg_fatal("Connection server name \"%s\" is different from expected \"%s\"\n", str, source_nodename);
+	pg_free(str);
+#endif
 	/*
 	 * Check that the server is not in hot standby mode. There is no
 	 * fundamental reason that couldn't be made to work, but it doesn't
@@ -428,7 +436,9 @@ static void
 fetch_file_range(const char *path, uint64 begin, uint64 end)
 {
 	char		linebuf[MAXPGPATH + 23];
-
+#ifdef ADB
+	char		adbpath[MAXPGPATH];
+#endif
 	/* Split the range into CHUNKSIZE chunks */
 	while (end - begin > 0)
 	{
@@ -439,9 +449,13 @@ fetch_file_range(const char *path, uint64 begin, uint64 end)
 			len = CHUNKSIZE;
 		else
 			len = (unsigned int) (end - begin);
-
+#ifdef ADB
+		snprintf(adbpath, sizeof(adbpath), "%s", path);
+		replace_tblspc_directory_name(adbpath, target_tblspc_directory, source_tblspc_directory);
+		snprintf(linebuf, sizeof(linebuf), "%s\t" UINT64_FORMAT "\t%u\n", adbpath, begin, len);
+#else
 		snprintf(linebuf, sizeof(linebuf), "%s\t" UINT64_FORMAT "\t%u\n", path, begin, len);
-
+#endif
 		if (PQputCopyData(conn, linebuf, strlen(linebuf)) != 1)
 			pg_fatal("could not send COPY data: %s",
 					 PQerrorMessage(conn));
@@ -484,7 +498,10 @@ libpq_executeFileMap(filemap_t *map)
 	for (i = 0; i < map->narray; i++)
 	{
 		entry = map->array[i];
-
+#ifdef ADB
+		/* Replace the tablespce directory name to avoid target (local) open failure. */
+		replace_tblspc_directory_name(entry->path, source_tblspc_directory, target_tblspc_directory);
+#endif
 		/* If this is a relation file, copy the modified blocks */
 		execute_pagemap(&entry->pagemap, entry->path);
 
@@ -516,6 +533,10 @@ libpq_executeFileMap(filemap_t *map)
 				create_target(entry);
 				break;
 		}
+#ifdef ADB
+		/* Restore the tablespce directory name to source (remote) */
+		replace_tblspc_directory_name(entry->path, target_tblspc_directory, source_tblspc_directory);
+#endif
 	}
 
 	if (PQputCopyEnd(conn, NULL) != 1)
