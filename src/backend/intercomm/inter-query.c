@@ -215,7 +215,8 @@ GetRemoteNodeList(RemoteQueryState *planstate, ExecNodes *exec_nodes, RemoteQuer
 {
 	List   *node_list = NIL;
 
-	if (planstate->reduce_state)
+	if (planstate &&
+		planstate->reduce_state)
 	{
 		Datum			datum;
 		ExprDoneCond	done;
