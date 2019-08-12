@@ -4273,8 +4273,6 @@ OptDistributeByInternal:  DISTRIBUTE BY OptDistributeType
 						n->disttype = DISTTYPE_REPLICATION;
 					else if (strcmp($3, "random") == 0)
 						n->disttype = DISTTYPE_RANDOM;
-					else if (strcmp($3, "meta") == 0)
-						n->disttype = DISTTYPE_META;
 					else
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),

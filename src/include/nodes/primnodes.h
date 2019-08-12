@@ -1547,7 +1547,6 @@ typedef enum DistributionType
 	DISTTYPE_RANDOM,			/* Random partitioned */
 	DISTTYPE_MODULO,			/* Modulo partitioned */
 	DISTTYPE_USER_DEFINED,		/* User-defined function partitioned */
-	DISTTYPE_META,                          /* Meta table */
 	DISTTYPE_HASHMAP		/* Hashmap partitioned*/
 
 } DistributionType;

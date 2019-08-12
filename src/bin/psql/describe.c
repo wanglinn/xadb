@@ -32,7 +32,6 @@
 #define LOCATOR_TYPE_RANDOM 'N'
 #define LOCATOR_TYPE_MODULO 'M'
 #define LOCATOR_TYPE_USER_DEFINED 'U'
-#define LOCATOR_TYPE_META 'A'
 #define LOCATOR_TYPE_HASHMAP 'B'
 #endif
 
@@ -3111,8 +3110,6 @@ describeOneTableDetails(const char *schemaname,
 						"		  WHEN '%c' THEN \n"
 						"		   'HASHMAP' || '(' || a.attname || ')' \n"
 						"		  WHEN '%c' THEN \n"
-						"		   'META' \n"
-						"		  WHEN '%c' THEN \n"
 						"		   'RANDOM' \n"
 						"		  WHEN '%c' THEN \n"
 						"		   'REPLICATION' \n"
@@ -3139,8 +3136,6 @@ describeOneTableDetails(const char *schemaname,
 						"			CASE pclocatortype \n"
 						"			 WHEN '%c' THEN \n"
 						"			   'ALL DATANODES' \n"
-						"			 WHEN '%c' THEN \n"
-						"			   'ALL DATANODES' \n"
 						"			 ELSE \n"
 						"			   array_to_string(ARRAY  \n"
 						"			   (SELECT node_name \n"
@@ -3159,7 +3154,6 @@ describeOneTableDetails(const char *schemaname,
 						"	   (SELECT count(*) AS dn_cn FROM pg_catalog.pgxc_node WHERE node_type = 'D') AS nc \n"
 						" WHERE pcrelid = '%s'"
 					, LOCATOR_TYPE_HASHMAP
-					, LOCATOR_TYPE_META
 					, LOCATOR_TYPE_RANDOM
 					, LOCATOR_TYPE_REPLICATED
 					, LOCATOR_TYPE_HASH
@@ -3167,7 +3161,6 @@ describeOneTableDetails(const char *schemaname,
 					, LOCATOR_TYPE_USER_DEFINED
 					, oid
 					, oid
-					, LOCATOR_TYPE_META
 					, LOCATOR_TYPE_HASHMAP
 					, oid
 					, oid);

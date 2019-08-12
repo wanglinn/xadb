@@ -313,9 +313,6 @@ ExecNodes *MakeExecNodesByOids(RelationLocInfo *loc_info, List *oids, RelationAc
 	if (oids == NIL)
 		return NULL;
 
-	if(loc_info->locatorType == LOCATOR_TYPE_META)
-		return NULL;
-
 	exec_nodes = makeNode(ExecNodes);
 	exec_nodes->accesstype = accesstype;
 	exec_nodes->baselocatortype = loc_info->locatorType;
@@ -496,13 +493,6 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 						exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
 				}
 			}
-			break;
-
-		case LOCATOR_TYPE_META:
-			if (accessType == RELATION_ACCESS_READ)
-				return NULL;
-			else
-				ereport(ERROR, (errmsg("Error: can't use sql to modify meta table. Use command.\n")));
 			break;
 
 		case LOCATOR_TYPE_HASHMAP:

@@ -1632,9 +1632,6 @@ GetRelationDistributionItems(Oid relid,
 				}
 				break;
 
-			case DISTTYPE_META:
-				local_locatortype = LOCATOR_TYPE_META;
-				break;
 			case DISTTYPE_HASHMAP:
 				/*
 				 * Validate user-specified hash column.

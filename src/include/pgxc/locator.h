@@ -25,10 +25,7 @@
 										 * scheme, e.g. result of JOIN of
 										 * replicated and distributed table */
 #define LOCATOR_TYPE_USER_DEFINED		'U'
-
-#define LOCATOR_TYPE_META			'A'
 #define LOCATOR_TYPE_HASHMAP			'B'
-#define LOCATOR_TYPE_INVALID			'X'
 
 
 /* Maximum number of preferred Datanodes that can be defined in cluster */
@@ -51,7 +48,6 @@
 												 (x) == LOCATOR_TYPE_RANGE)
 #define IsLocatorDistributedByUserDefined(x)	((x) == LOCATOR_TYPE_USER_DEFINED)
 
-#define IsLocatorMeta(x) 						(x == LOCATOR_TYPE_META)
 #define IsLocatorHashmap(x) 					(x == LOCATOR_TYPE_HASHMAP)
 
 

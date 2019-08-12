@@ -496,9 +496,6 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 	if (!rel_loc_info)
 		return NULL;
 
-	if(rel_loc_info->locatorType == LOCATOR_TYPE_META)
-		return NULL;
-
 	/*
 	 * Find out the datanodes to execute this query on.
 	 * PGXC_FQS_TODO: for now, we apply node reduction only when there is only
