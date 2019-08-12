@@ -13,6 +13,8 @@
 #include "pgxc/pgxcnode.h"
 #include "pgxc/poolmgr.h"
 #include "utils/hsearch.h"
+#include "access/xact.h"
+#include "access/transam.h"
 
 #ifdef HAVE_POLL_H
 #include <poll.h>
@@ -55,6 +57,7 @@ static List* apply_for_node_use_oid(List *oid_list);
 static List* pg_conn_attach_socket(int *fds, Size n);
 static bool PQNExecFinish(PGconn *conn, const PQNHookFunctions *hook);
 static int PQNIsConnecting(PGconn *conn);
+static void check_is_all_socket_correct(List *oid_list);
 
 void PQNForceReleaseWhenTransactionFinish()
 {
@@ -116,6 +119,34 @@ static void init_htab_oid_pgconn(void)
 /*	pg_atexit*/
 }
 
+static void check_is_all_socket_correct(List *oid_list)
+{
+	struct pollfd *pfds;
+	ListCell *lc;
+	OidPGconn *op;
+	int i,n;
+
+	pfds = palloc(sizeof(pfds[0]) * list_length(oid_list));
+	i = 0;
+	foreach(lc, oid_list)
+	{
+		if((op=hash_search(htab_oid_pgconn, &(lfirst_oid(lc)), HASH_FIND, NULL)) != NULL)
+		{
+			pfds[i].events = POLLIN;
+			pfds[i].fd = PQsocket(op->conn);
+			i++;
+		}
+	}
+	n = poll(pfds, i, 0);
+	if(n > 0)
+	{
+		PQNForceReleaseWhenTransactionFinish();
+		PQNReleaseAllConnect(true);
+		init_htab_oid_pgconn();
+	}
+	pfree(pfds);
+	return;
+}
 /*
  * save apply for socket to result list,
  * if we has socket for node oid, save PGINVALID_SOCKET in list item
@@ -125,8 +156,15 @@ static List* apply_for_node_use_oid(List *oid_list)
 	List * volatile need_list = NIL;
 	List *result = NIL;
 	ListCell *lc, *lc2;
+	TransactionId	cureent_txid;
 	OidPGconn *op;
+	
 	const char *param_str;
+	cureent_txid = GetTopTransactionIdIfAny();
+
+	/* not in transaction, check broken connection */
+	if (!TransactionIdIsValid(cureent_txid))
+		check_is_all_socket_correct(oid_list);
 
 	foreach(lc, oid_list)
 	{

@@ -2935,10 +2935,7 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 								cinfo->slot, cinfo->slot->owner, cinfo->slot->owner ? cinfo->slot->owner->pid:0,
 								info.hostname, info.port),
 						 PMGR_BACKTRACE_DETIAL()));
-				if (cinfo->slot) {
-					destroy_slot(cinfo->slot, false);
-					cinfo->slot = NULL;
-				}
+				ereport(ERROR, (errmsg("double get node connect for %s:%d", info.hostname, info.port)));
 			}
 
 			node_pool = hash_search(agent->db_pool->htab_nodes, &info, HASH_ENTER, &found);
