@@ -100,10 +100,6 @@
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/pgxcnode.h"
-
-extern bool distribute_by_replication_default;
-extern bool hash_distribute_by_hashmap_default;
-
 #endif
 
 /* Potentially set by pg_upgrade_support functions */
@@ -1419,11 +1415,13 @@ AddRelationDistribution(Oid relid,
 		nodeoids = NULL;
 	} else
 	{
-		if (((distributeby && distributeby->disttype == LOCATOR_TYPE_HASHMAP)
-			 || (!distributeby && hash_distribute_by_hashmap_default ))&& subcluster)
+		if (subcluster &&
+			(distributeby ? distributeby->disttype:default_distribute_by) == LOCATOR_TYPE_HASHMAP)
+		{
 			ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-					errmsg("not support CREATE hashmap table TO node")));
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("not support CREATE hashmap table TO node")));
+		}
 		nodeoids = GetRelationDistributionNodes(subcluster, &numnodes);
 	}
 
@@ -1522,9 +1520,7 @@ GetRelationDistributionItems(Oid relid,
 	char local_locatortype = '\0';
 	AttrNumber local_attnum = 0;
 
-	if (!distributeby && distribute_by_replication_default)
-		local_locatortype = LOCATOR_TYPE_REPLICATED;
-	else if (!distributeby)
+	if (distributeby == NULL)
 	{
 		/*
 		 * If no distribution was specified, and we have not chosen
@@ -1533,27 +1529,43 @@ GetRelationDistributionItems(Oid relid,
 		 */
 		Form_pg_attribute attr;
 		int i;
+		bool can;
 
-		if(hash_distribute_by_hashmap_default)
-			local_locatortype = LOCATOR_TYPE_HASHMAP;
-		else
-			local_locatortype = LOCATOR_TYPE_HASH;
-
-
-		for (i = 0; i < descriptor->natts; i++)
+		switch(default_distribute_by)
 		{
-			attr = TupleDescAttr(descriptor, i);
-			if (IsTypeDistributable(attr->atttypid))
+		case LOCATOR_TYPE_HASH:
+		case LOCATOR_TYPE_HASHMAP:
+		case LOCATOR_TYPE_MODULO:
+			for (i = 0; i < descriptor->natts; i++)
 			{
-				/* distribute on this column */
-				local_attnum = i + 1;
-				break;
+				attr = TupleDescAttr(descriptor, i);
+				if (default_distribute_by == LOCATOR_TYPE_MODULO)
+					can = CanModuloType(attr->atttypid, true);
+				else
+					can = IsTypeDistributable(attr->atttypid);
+				if (can)
+				{
+					/* distribute on this column */
+					local_attnum = i + 1;
+					break;
+				}
 			}
-		}
 
-		/* If we did not find a usable type, fall back to random */
-		if (local_attnum == 0)
-			local_locatortype = LOCATOR_TYPE_RANDOM;
+			/* If we did not find a usable type, fall back to random */
+			if (local_attnum == 0)
+				local_locatortype = LOCATOR_TYPE_RANDOM;
+			else
+				local_locatortype = (char)default_distribute_by;
+			break;
+		case LOCATOR_TYPE_REPLICATED:
+		case LOCATOR_TYPE_RANDOM:
+			local_locatortype = (char)default_distribute_by;
+			break;
+		default:
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("unknown default distribute type %d", default_distribute_by)));
+		}
 	}
 	else
 	{

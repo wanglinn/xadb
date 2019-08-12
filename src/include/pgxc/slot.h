@@ -14,7 +14,6 @@
 
 extern bool adb_slot_enable_mvcc;
 extern bool adb_slot_enable_clean;
-extern bool hash_distribute_by_hashmap_default;
 
 #define HASHMAP_SLOTBEGIN	0
 #define HASHMAP_SLOTEND		(HASHMAP_SLOTSIZE-1)

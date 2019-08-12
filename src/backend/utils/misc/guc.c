@@ -461,6 +461,16 @@ static const struct config_enum_entry adb_aux_types[] = {
 	{"ctid", USE_AUX_CTID, false},
 	{NULL, 0, false}
 };
+
+static const struct config_enum_entry adb_default_locator_types[] = {
+	{"replication", LOCATOR_TYPE_REPLICATED, false},
+	{"replicated", LOCATOR_TYPE_REPLICATED, true},
+	{"hash", LOCATOR_TYPE_HASH, false},
+	{"hashmap", LOCATOR_TYPE_HASHMAP, false},
+	{"modulo", LOCATOR_TYPE_MODULO, false},
+	{"random", LOCATOR_TYPE_RANDOM, false},
+	{NULL, 0, false}
+};
 #endif /* ADB */
 
 #ifdef ADB_MULTI_GRAM
@@ -585,13 +595,12 @@ bool		enable_adb_ha_sync_select;
 bool 		debug_enable_satisfy_mvcc;
 bool		enable_pushdown_art;
 bool		enable_zero_year;
-bool		distribute_by_replication_default;
 bool		print_reduce_debug_log = false;
 bool		enable_aux_dml = false;
 bool		adb_slot_enable_mvcc;
-bool		hash_distribute_by_hashmap_default;
 extern bool auto_release_connect;	/* in libpq-node.c */
 bool		enable_coordinator_calculate = true;
+int			default_distribute_by = LOCATOR_TYPE_HASH;
 #endif
 
 #ifdef ADB_EXT
@@ -2201,16 +2210,6 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"distribute_by_replication_default", PGC_USERSET, CUSTOM_OPTIONS,
-			gettext_noop("Set distribute by replication default."),
-			NULL
-		},
-		&distribute_by_replication_default,
-		false,
-		NULL, NULL, NULL
-	},
-
-	{
 		{"require_replicated_table_pkey", PGC_USERSET, XC_HOUSEKEEPING_OPTIONS,
 			gettext_noop("When set, non-FQS UPDATEs & DELETEs to replicated tables without"
 					" primary key or a unique key are prohibited"),
@@ -2237,16 +2236,6 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&enable_pushdown_art,
-		false,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"hash_distribute_by_hashmap_default", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("hashmap is default distribution type."),
-			NULL
-		},
-		&hash_distribute_by_hashmap_default,
 		false,
 		NULL, NULL, NULL
 	},
@@ -5065,6 +5054,16 @@ static struct config_enum ConfigureNamesEnum[] =
 		},
 		&use_aux_type,
 		USE_AUX_CTID, adb_aux_types,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"default_distribute_by", PGC_USERSET, QUERY_TUNING_OTHER,
+			gettext_noop("Sets the default type of create table distribute by"),
+			NULL
+		},
+		&default_distribute_by,
+		LOCATOR_TYPE_HASH, adb_default_locator_types,
 		NULL, NULL, NULL
 	},
 #endif /* ADB */

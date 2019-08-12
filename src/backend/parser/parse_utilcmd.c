@@ -61,6 +61,7 @@
 #include "parser/parse_type.h"
 #include "parser/parse_utilcmd.h"
 #ifdef ADB
+#include "catalog/pgxc_class.h"
 #include "intercomm/inter-comm.h"
 #include "optimizer/pgxcship.h"
 #include "pgxc/locator.h"
@@ -509,7 +510,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 		cxt.fallback_dist_col)
 	{
 		stmt->distributeby = makeNode(DistributeBy);
-		if(hash_distribute_by_hashmap_default)
+		if(default_distribute_by == LOCATOR_TYPE_HASHMAP)
 			stmt->distributeby->disttype = LOCATOR_TYPE_HASHMAP;
 		else
 			stmt->distributeby->disttype = LOCATOR_TYPE_HASH;

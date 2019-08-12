@@ -90,6 +90,8 @@ typedef enum PgxcClassAlterType
 
 #endif							/* EXPOSE_TO_CLIENT_CODE */
 
+extern int default_distribute_by;
+
 extern void PgxcClassCreate(Oid pcrelid,
 							char pclocatortype,
 							int pcattnum,
