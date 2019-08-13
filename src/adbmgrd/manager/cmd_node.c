@@ -1921,7 +1921,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			/* parameters are used to delete the tablespace folder */
 			appendStringInfo(&cleanSlinksendmsg, "%s/pg_tblspc|%s_%s", cndnPath, TABLESPACE_VERSION_DIRECTORY, cndnname);
 			/* clean tablespace dir*/
-			execRes= mgr_ma_send_cmd(cmdtype, cleanSlinksendmsg.data, hostOid, &(getAgentCmdRst->description));
+			execRes= mgr_ma_send_cmd_get_original_result(cmdtype, cleanSlinksendmsg.data, hostOid, &(getAgentCmdRst->description), AGENT_RESULT_MESSAGE);
 		}
 		execRes= mgr_ma_send_cmd(cmdtype, infosendmsg.data, hostOid, &(getAgentCmdRst->description));
 	}
@@ -7957,7 +7957,7 @@ static void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, Get
 	/* clean tablespace dir*/
 	initStringInfo(&clean_tablespace_sendmsg);
 	appendStringInfo(&clean_tablespace_sendmsg, "%s/pg_tblspc|%s", nodepath, "*");
-	res = mgr_ma_send_cmd(cmdtype, clean_tablespace_sendmsg.data, hostoid, &(getAgentCmdRst->description));
+	res = mgr_ma_send_cmd_get_original_result(cmdtype, clean_tablespace_sendmsg.data, hostoid, &(getAgentCmdRst->description), AGENT_RESULT_MESSAGE);
 
 	/* clean nodepath dir*/
 	initStringInfo(&infosendmsg);
