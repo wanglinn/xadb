@@ -1354,8 +1354,8 @@ void cmd_clean_node_folder(StringInfo buf)
 	if(*(exstrinfo.data) == '/')
 	{
 		if(!clean_node_folder_for_tablespace(exstrinfo.data))
-			ereport(WARNING,
-					(errmsg("WARNING: Failed to clean the tablespace directory, or the tablespace directory does not exist."))); 
+			ereport(ERROR,
+					(errmsg("WARNING: Failed to clean the tablespace directory, or the tablespace directory does not exist.\n"))); 
 		pfree(exstrinfo.data);
 		agt_put_msg(AGT_MSG_RESULT, output.data, output.len);
 		agt_flush();
