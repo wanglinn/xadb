@@ -5,7 +5,6 @@ top_builddir = ..
 include $(top_builddir)/src/Makefile.global
 
 SUBDIRS = \
-		adb_doctor	\
 		adminpack	\
 		amcheck		\
 		auth_delay	\
@@ -85,6 +84,10 @@ ifeq ($(with_python),yes)
 SUBDIRS += hstore_plpython jsonb_plpython ltree_plpython
 else
 ALWAYS_SUBDIRS += hstore_plpython jsonb_plpython ltree_plpython
+endif
+
+ifeq ($(enable_cluster),yes)
+SUBDIRS += adb_doctor
 endif
 
 # Missing:
