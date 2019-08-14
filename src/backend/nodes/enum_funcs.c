@@ -8,8 +8,10 @@
 #include "nodes/plannodes.h"
 #include "nodes/relation.h"
 #include "nodes/replnodes.h"
+#ifdef ADB
 #include "pgxc/locator.h"
 #include "optimizer/pgxcplan.h"
+#endif /* ADB */
 #include "optimizer/planmain.h"
 
 #include "nodes/enum_funcs.h"

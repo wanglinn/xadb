@@ -7,14 +7,14 @@
 #include "nodes/pg_list.h"
 #include "nodes/plannodes.h"
 #include "nodes/primnodes.h"
-#include "optimizer/pgxcplan.h"
 #include "nodes/extensible.h"
 #include "nodes/replnodes.h"
 #include "commands/event_trigger.h"
 #include "foreign/fdwapi.h"
 #ifdef ADB
-#include "optimizer/reduceinfo.h"
+#include "optimizer/pgxcplan.h"
 #include "optimizer/planmain.h"
+#include "optimizer/reduceinfo.h"
 #endif /* ADB */
 
 /* not support Node(s) */

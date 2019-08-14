@@ -8,8 +8,9 @@
 #include "nodes/pg_list.h"
 #include "nodes/plannodes.h"
 #include "nodes/primnodes.h"
+#ifdef ADB
 #include "optimizer/pgxcplan.h"
-
+#endif /* ADB */
 #include "nodes/execnodes.h"
 #include "nodes/extensible.h"
 #include "nodes/replnodes.h"
