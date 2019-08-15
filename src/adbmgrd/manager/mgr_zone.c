@@ -730,7 +730,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 			{
 				newname = (char *)lfirst(newceil);
 				oldname = (char *)lfirst(oldceil);
-				hexp_alter_slotinfo_nodename_noflush(pgConn, oldname, newname, true);
+				hexp_alter_slotinfo_nodename_noflush(pgConn, oldname, newname, true, true);
 			}
 			hexp_pqexec_direct_execute_utility(pgConn, "flush slot;", MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 			list_free(newNameList);

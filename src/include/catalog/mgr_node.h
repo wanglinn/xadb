@@ -156,7 +156,9 @@ NameData clusterLockCoordNodeName;
 #define CURE_STATUS_CURING "curing"
 #define CURE_STATUS_WAIT_SWITCH "waitswitch"
 #define CURE_STATUS_SWITCHING "switching"
-#define CURE_STATUS_DANGER "danger"
+#define CURE_STATUS_SWITCHED "switched"
+#define CURE_STATUS_FOLLOW_FAIL "followfail"
+#define CURE_STATUS_OLD_MASTER "oldmaster"
 
 
 #endif /* MGR_CNDNNODE_H */

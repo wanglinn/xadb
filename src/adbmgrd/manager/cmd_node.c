@@ -6308,9 +6308,9 @@ static void mgr_append_init_cndnmaster(AppendNodeInfo *appendnodeinfo)
 
 /*
 * failover datanode
-*
+* this function is deprecated, please see function "mgr_failover_one_dn()"
 */
-Datum mgr_failover_one_dn(PG_FUNCTION_ARGS)
+Datum mgr_failover_one_dn_deprecated(PG_FUNCTION_ARGS)
 {
 	Relation relNode;
 	char *nodename;
@@ -11599,7 +11599,7 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 			, dnname)));
 		ereport(NOTICE, (errmsg("refresh the new datanode master \"%s\" information in adb_slot"
 			, dnname)));
-		hexp_alter_slotinfo_nodename_noflush((PGconn*)*pg_conn, NameStr(masternameData), dnname, false);
+		hexp_alter_slotinfo_nodename_noflush((PGconn*)*pg_conn, NameStr(masternameData), dnname, false, true);
 		hexp_pqexec_direct_execute_utility((PGconn*)*pg_conn, "flush slot;"
 				, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 	}
@@ -13434,4 +13434,9 @@ void mgr_clean_cn_pgxcnode_readonlysql_slave(void)
 	heap_endscan(info->rel_scan);
 	heap_close(info->rel_node, AccessShareLock);	/* close table */
 	pfree(info);
+}
+
+char *getMgrNodeSyncStateValue(sync_state state)
+{
+	return sync_state_tab[state].name;
 }

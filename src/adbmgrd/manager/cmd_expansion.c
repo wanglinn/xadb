@@ -229,7 +229,7 @@ static void hexp_check_hash_meta(void);
 static void hexp_check_hash_meta_dn(PGconn *pgconn, PGconn *pgconn_dn, char* node_name);
 
 static void hexp_init_dn_pgxcnode_addnode(Form_mgr_node mgr_node, DN_NODE* dn_node, int dn_node_index, char* cnpath);
-static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name);
+static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name, bool complain);
 static void report_slot_range_invalid(PartitionRangeDatum *prd, ParseState *parser) pg_attribute_noreturn();
 
 /*
@@ -4552,7 +4552,7 @@ Datum mgr_failover_one_dn_inner_func(char *nodename, char cmdtype, char nodetype
 	return HeapTupleGetDatum(tup_result);
 }
 
-void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name, bool startTransaction)
+void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name, bool startTransaction, bool complain)
 {
 	char sql[100];
 	PGresult* res;
@@ -4565,7 +4565,7 @@ void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, c
 		hexp_pqexec_direct_execute_utility(pgconn,SQL_BEGIN_TRANSACTION
 			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 
-	hexp_get_sourcenode_slotid(pgconn, src_node_name);
+	hexp_get_sourcenode_slotid(pgconn, src_node_name, complain);
 	for(i=0; i<SlotArrayIndex; i++)
 	{
 		slotid = SlotIdArray[i];
@@ -4578,7 +4578,7 @@ void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, c
 			case PGRES_COMMAND_OK:
 				break;
 			default:
-				ereport(ERROR, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
+				ereport(complain?ERROR:WARNING, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
 		}
 		PQclear(res);
 	}
@@ -4588,7 +4588,7 @@ void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, c
 			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 }
 
-static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name)
+static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name, bool complain)
 {
 	PGresult* res;
 	char sql[200];
@@ -4603,12 +4603,12 @@ static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name)
 		case PGRES_TUPLES_OK:
 			break;
 		default:
-			ereport(ERROR, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
+			ereport(complain?ERROR:WARNING, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
 	}
 	if (0==PQntuples(res))
 	{
 		PQclear(res);
-		ereport(ERROR, (errmsg("%s runs error. result is null.", SELECT_PGXC_NODE)));
+		ereport(complain?ERROR:WARNING, (errmsg("%s runs error. result is null.", SELECT_PGXC_NODE)));
 	}
 
 	SlotArrayIndex = 0;
