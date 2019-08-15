@@ -70,6 +70,10 @@ extern int	float8_cmp_internal(float8 a, float8 b);
 
 /* oid.c */
 extern oidvector *buildoidvector(const Oid *oids, int n);
+#ifdef ADB_EXT
+struct List;
+extern oidvector *buildoidvector_from_list(struct List *oidlist);
+#endif /* ADB_EXT */
 extern Oid	oidparse(Node *node);
 extern int	oid_cmp(const void *p1, const void *p2);
 
