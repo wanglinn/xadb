@@ -12,8 +12,8 @@
 #include "utils/formatting.h"
 
 #define SELECT_MGR_NODE_SQL "SELECT t1.*,t1.oid,t2.hostuser,t2.hostaddr \n" \
-							" FROM pg_catalog.mgr_node t1 \n"               \
-							" LEFT JOIN pg_catalog.mgr_host t2 ON t1.nodehost = t2.oid \n"
+							"FROM pg_catalog.mgr_node t1 \n"                \
+							"INNER JOIN pg_catalog.mgr_host t2 ON t1.nodehost = t2.oid \n"
 #define SELECT_MGR_HOST_SQL "select *  \n from pg_catalog.mgr_host \n"
 
 static void wrapMgrNode(HeapTuple tuple, TupleDesc tupdesc, AdbMgrNodeWrapper *wrapper);
@@ -24,6 +24,7 @@ void SPI_updateAdbDoctorConf(char *key, char *value)
 	StringInfoData buf;
 	int ret;
 	char *key_lower;
+	uint64 rows;
 	/* k is not case sensitive */
 	key_lower = asc_tolower(key, strlen(key));
 	initStringInfo(&buf);
@@ -44,12 +45,13 @@ void SPI_updateAdbDoctorConf(char *key, char *value)
 				 errmsg("SPI_execute failed: error code %d",
 						ret)));
 
-	if (SPI_processed != 1)
+	rows = SPI_processed;
+	if (rows != 1)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("SPI_execute failed: expected the number of rows:%d, but actual:%lu",
 						1,
-						SPI_processed)));
+						rows)));
 }
 
 /*
@@ -62,6 +64,7 @@ char *SPI_selectAdbDoctConfByKey(char *key)
 	StringInfoData buf;
 	int ret;
 	uint64 rows;
+	SPITupleTable *tupTable;
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf, "select %s from %s.%s where %s = '%s'",
@@ -79,9 +82,10 @@ char *SPI_selectAdbDoctConfByKey(char *key)
 				 errmsg("SPI_execute failed: error code %d",
 						ret)));
 	rows = SPI_processed;
-	if (rows == 1 && SPI_tuptable != NULL)
+	tupTable = SPI_tuptable;
+	if (rows == 1 && tupTable != NULL)
 	{
-		v = SPI_getvalue(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 1);
+		v = SPI_getvalue(tupTable->vals[0], tupTable->tupdesc, 1);
 		return v;
 	}
 	else
@@ -118,6 +122,7 @@ AdbDoctorConf *SPI_selectAllAdbDoctorConf(MemoryContext ctx)
 	TupleDesc tupdesc;
 	MemoryContext oldCtx;
 	char *keyStr, *valueStr;
+	SPITupleTable *tupTable;
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf, "select %s,%s from %s.%s",
@@ -137,15 +142,16 @@ AdbDoctorConf *SPI_selectAllAdbDoctorConf(MemoryContext ctx)
 	oldCtx = MemoryContextSwitchTo(ctx);
 
 	rows = SPI_processed;
-	if (rows > 0 && SPI_tuptable != NULL)
+	tupTable = SPI_tuptable;
+	if (rows > 0 && tupTable != NULL)
 	{
 		/* do outside the spi memory context because the spi will be freed. */
 		conf = palloc0(sizeof(AdbDoctorConf));
 
-		tupdesc = SPI_tuptable->tupdesc;
+		tupdesc = tupTable->tupdesc;
 		for (j = 0; j < rows; j++)
 		{
-			tuple = SPI_tuptable->vals[j];
+			tuple = tupTable->vals[j];
 			keyStr = SPI_getvalue(tuple, tupdesc, 1);
 			valueStr = SPI_getvalue(tuple, tupdesc, 2);
 			if (valueStr)
@@ -158,9 +164,13 @@ AdbDoctorConf *SPI_selectAllAdbDoctorConf(MemoryContext ctx)
 						(errmsg("%s, invalid value : NULL",
 								keyStr)));
 			}
-			if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_DATALEVEL) == 0)
+			if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_FORCESWITCH) == 0)
 			{
-				conf->datalevel = valueInt;
+				conf->forceswitch = valueInt;
+			}
+			if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_SWITCHINTERVAL) == 0)
+			{
+				conf->switchinterval = valueInt;
 			}
 			else if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_NODEDEADLINE) == 0)
 			{
@@ -293,12 +303,13 @@ int SPI_selectEditableAdbDoctorConf(MemoryContext ctx, AdbDoctorConfRow **rowDat
 	HeapTuple tuple;
 	TupleDesc tupdesc;
 	MemoryContext oldCtx;
+	SPITupleTable *tupTable;
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf, "select %s,%s,%s from %s.%s where editable = %d::boolean",
 					 ADB_DOCTOR_CONF_ATTR_KEY,
 					 ADB_DOCTOR_CONF_ATTR_VALUE,
-					 ADB_DOCTOR_CONF_ATTR_DESP,
+					 ADB_DOCTOR_CONF_ATTR_COMMENT,
 					 ADB_DOCTOR_SCHEMA,
 					 ADB_DOCTOR_CONF_RELNAME,
 					 true);
@@ -314,17 +325,18 @@ int SPI_selectEditableAdbDoctorConf(MemoryContext ctx, AdbDoctorConfRow **rowDat
 	oldCtx = MemoryContextSwitchTo(ctx);
 
 	rows = SPI_processed;
-	if (rows > 0 && SPI_tuptable != NULL)
+	tupTable = SPI_tuptable;
+	if (rows > 0 && tupTable != NULL)
 	{
 		/* do outside the spi memory context because the spi will be freed. */
 		rowData = palloc(sizeof(AdbDoctorConfRow) * rows);
-		tupdesc = SPI_tuptable->tupdesc;
+		tupdesc = tupTable->tupdesc;
 		for (j = 0; j < rows; j++)
 		{
-			tuple = SPI_tuptable->vals[j];
+			tuple = tupTable->vals[j];
 			rowData[j].k = SPI_getvalue(tuple, tupdesc, 1);
 			rowData[j].v = SPI_getvalue(tuple, tupdesc, 2);
-			rowData[j].desp = SPI_getvalue(tuple, tupdesc, 3);
+			rowData[j].comment = SPI_getvalue(tuple, tupdesc, 3);
 		}
 	}
 	else
@@ -350,6 +362,7 @@ AdbDoctorList *SPI_selectMgrNodeForMonitor(MemoryContext ctx)
 	TupleDesc tupdesc;
 	StringInfoData buf;
 	MemoryContext oldCtx;
+	SPITupleTable *tupTable;
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf,
@@ -357,12 +370,14 @@ AdbDoctorList *SPI_selectMgrNodeForMonitor(MemoryContext ctx)
 					 " WHERE t1.nodeinited = %d::boolean \n"
 					 " AND t1.nodeincluster = %d::boolean \n"
 					 " AND t1.allowcure = %d::boolean \n"
-					 " AND t1.curestatus in ('%s', '%s') \n",
+					 " AND t1.curestatus in ('%s', '%s', '%s', '%s') \n",
 					 true,
 					 true,
 					 true,
 					 CURE_STATUS_NORMAL,
-					 CURE_STATUS_CURING);
+					 CURE_STATUS_CURING,
+					 CURE_STATUS_SWITCHED,
+					 CURE_STATUS_FOLLOW_FAIL);
 
 	ret = SPI_execute(buf.data, false, 0);
 	pfree(buf.data);
@@ -376,15 +391,16 @@ AdbDoctorList *SPI_selectMgrNodeForMonitor(MemoryContext ctx)
 	oldCtx = MemoryContextSwitchTo(ctx);
 
 	rows = SPI_processed;
-	if (rows > 0 && SPI_tuptable != NULL)
+	tupTable = SPI_tuptable;
+	if (rows > 0 && tupTable != NULL)
 	{
 		/* must palloc here, do not palloc in spi context. */
 		list = newAdbDoctorList();
 
-		tupdesc = SPI_tuptable->tupdesc;
+		tupdesc = tupTable->tupdesc;
 		for (j = 0; j < rows; j++)
 		{
-			tuple = SPI_tuptable->vals[j];
+			tuple = tupTable->vals[j];
 
 			wrapper = palloc0(sizeof(AdbMgrNodeWrapper));
 			wrapMgrNode(tuple, tupdesc, wrapper);
@@ -408,16 +424,10 @@ AdbDoctorList *SPI_selectMgrNodeForMonitor(MemoryContext ctx)
 	return list;
 }
 
-AdbDoctorList *SPI_selectMgrNodeForSwitcher(MemoryContext ctx)
+AdbDoctorSwitcherData *SPI_selectMgrNodeForSwitcher(MemoryContext ctx)
 {
+	AdbDoctorSwitcherData *switcherData;
 	AdbDoctorList *list;
-	AdbDoctorLink *link;
-	AdbDoctorSwitcherData *data;
-	AdbMgrNodeWrapper *wrapper;
-	uint64 rows, j;
-	int ret;
-	HeapTuple tuple;
-	TupleDesc tupdesc;
 	StringInfoData buf;
 	MemoryContext oldCtx;
 
@@ -428,61 +438,37 @@ AdbDoctorList *SPI_selectMgrNodeForSwitcher(MemoryContext ctx)
 					 " AND t1.nodeincluster = %d::boolean \n"
 					 " AND t1.allowcure = %d::boolean \n"
 					 " AND t1.curestatus in ('%s', '%s') \n"
-					 " AND t1.nodetype in ('%c', '%c', '%c') \n",
+					 " AND t1.nodetype in ('%c') \n",
 					 true,
 					 true,
 					 true,
 					 CURE_STATUS_WAIT_SWITCH,
 					 CURE_STATUS_SWITCHING,
-					 CNDN_TYPE_COORDINATOR_MASTER,
-					 CNDN_TYPE_DATANODE_MASTER,
-					 GTM_TYPE_GTM_MASTER);
+					 CNDN_TYPE_DATANODE_MASTER);
 
-	ret = SPI_execute(buf.data, false, 0);
+	list = SPI_selectMgrNode(ctx, buf.data);
 	pfree(buf.data);
-
-	if (ret != SPI_OK_SELECT)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("SPI_execute failed: error code %d",
-						ret)));
 
 	oldCtx = MemoryContextSwitchTo(ctx);
 
-	rows = SPI_processed;
-	if (rows > 0 && SPI_tuptable != NULL)
+	if (list != NULL)
 	{
 		/* must palloc here, do not palloc in spi context. */
-		list = newAdbDoctorList();
-
-		tupdesc = SPI_tuptable->tupdesc;
-		for (j = 0; j < rows; j++)
-		{
-			tuple = SPI_tuptable->vals[j];
-
-			wrapper = palloc0(sizeof(AdbMgrNodeWrapper));
-			wrapMgrNode(tuple, tupdesc, wrapper);
-
-			data = palloc0(sizeof(AdbDoctorSwitcherData));
-			data->header.type = ADB_DOCTOR_BGWORKER_TYPE_SWITCHER;
-			data->wrapper = wrapper;
-
-			link = newAdbDoctorLink(data, (void (*)(void *))pfreeAdbDoctorBgworkerData);
-			dlist_push_tail(&list->head, &link->wi_links);
-			list->num++;
-		}
+		switcherData = palloc0(sizeof(AdbDoctorSwitcherData));
+		switcherData->header.type = ADB_DOCTOR_BGWORKER_TYPE_SWITCHER;
+		switcherData->list = list;
 	}
 	else
 	{
-		list = NULL;
+		switcherData = NULL;
 	}
 
 	MemoryContextSwitchTo(oldCtx);
 
-	return list;
+	return switcherData;
 }
 
-AdbMgrNodeWrapper *SPI_selectMgrNodeByOid(MemoryContext ctx, Oid oid)
+AdbMgrNodeWrapper *SPI_selectMgrNodeByOid(Oid oid, MemoryContext spiContext)
 {
 	AdbMgrNodeWrapper *wrapper;
 	StringInfoData buf;
@@ -491,6 +477,7 @@ AdbMgrNodeWrapper *SPI_selectMgrNodeByOid(MemoryContext ctx, Oid oid)
 	uint64 rows;
 	int ret;
 	MemoryContext oldCtx;
+	SPITupleTable *tupTable;
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf,
@@ -498,7 +485,10 @@ AdbMgrNodeWrapper *SPI_selectMgrNodeByOid(MemoryContext ctx, Oid oid)
 					 " WHERE t1.oid = %u",
 					 oid);
 
+	oldCtx = MemoryContextSwitchTo(spiContext);
 	ret = SPI_execute(buf.data, false, 0);
+	MemoryContextSwitchTo(oldCtx);
+
 	pfree(buf.data);
 	if (ret != SPI_OK_SELECT)
 		ereport(ERROR,
@@ -507,13 +497,11 @@ AdbMgrNodeWrapper *SPI_selectMgrNodeByOid(MemoryContext ctx, Oid oid)
 						ret)));
 
 	rows = SPI_processed;
-
-	oldCtx = MemoryContextSwitchTo(ctx);
-
-	tupdesc = SPI_tuptable->tupdesc;
-	if (rows == 1 && SPI_tuptable != NULL)
+	tupTable = SPI_tuptable;
+	tupdesc = tupTable->tupdesc;
+	if (rows == 1 && tupTable != NULL)
 	{
-		tuple = SPI_tuptable->vals[0];
+		tuple = tupTable->vals[0];
 		wrapper = palloc0(sizeof(AdbMgrNodeWrapper));
 		wrapMgrNode(tuple, tupdesc, wrapper);
 	}
@@ -521,9 +509,6 @@ AdbMgrNodeWrapper *SPI_selectMgrNodeByOid(MemoryContext ctx, Oid oid)
 	{
 		wrapper = NULL;
 	}
-
-	MemoryContextSwitchTo(oldCtx);
-
 	return wrapper;
 }
 
@@ -531,6 +516,7 @@ int SPI_updateMgrNodeCureStatus(Oid oid, char *oldValue, char *newValue)
 {
 	StringInfoData buf;
 	int ret;
+	uint64 rows;
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf,
@@ -548,8 +534,8 @@ int SPI_updateMgrNodeCureStatus(Oid oid, char *oldValue, char *newValue)
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("SPI_execute failed: error code %d",
 						ret)));
-
-	return (int)SPI_processed;
+	rows = SPI_processed;
+	return rows;
 }
 
 AdbDoctorHostData *SPI_selectMgrHostForMonitor(MemoryContext ctx)
@@ -587,7 +573,7 @@ AdbDoctorHostData *SPI_selectMgrHostForMonitor(MemoryContext ctx)
 	return hostData;
 }
 
-AdbMgrHostWrapper *SPI_selectMgrHostByOid(MemoryContext ctx, Oid oid)
+AdbMgrHostWrapper *SPI_selectMgrHostByOid(Oid oid, MemoryContext spiContext)
 {
 	AdbMgrHostWrapper *wrapper;
 	StringInfoData buf;
@@ -596,6 +582,7 @@ AdbMgrHostWrapper *SPI_selectMgrHostByOid(MemoryContext ctx, Oid oid)
 	uint64 rows;
 	int ret;
 	MemoryContext oldCtx;
+	SPITupleTable *tupTable;
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf,
@@ -603,7 +590,10 @@ AdbMgrHostWrapper *SPI_selectMgrHostByOid(MemoryContext ctx, Oid oid)
 					 "WHERE oid = %u",
 					 oid);
 
+	oldCtx = MemoryContextSwitchTo(spiContext);
 	ret = SPI_execute(buf.data, false, 0);
+	MemoryContextSwitchTo(oldCtx);
+
 	pfree(buf.data);
 	if (ret != SPI_OK_SELECT)
 		ereport(ERROR,
@@ -612,13 +602,11 @@ AdbMgrHostWrapper *SPI_selectMgrHostByOid(MemoryContext ctx, Oid oid)
 						ret)));
 
 	rows = SPI_processed;
-
-	oldCtx = MemoryContextSwitchTo(ctx);
-
-	tupdesc = SPI_tuptable->tupdesc;
-	if (rows == 1 && SPI_tuptable != NULL)
+	tupTable = SPI_tuptable;
+	tupdesc = tupTable->tupdesc;
+	if (rows == 1 && tupTable != NULL)
 	{
-		tuple = SPI_tuptable->vals[0];
+		tuple = tupTable->vals[0];
 		wrapper = palloc0(sizeof(AdbMgrHostWrapper));
 		wrapMgrHost(tuple, tupdesc, wrapper);
 	}
@@ -626,9 +614,6 @@ AdbMgrHostWrapper *SPI_selectMgrHostByOid(MemoryContext ctx, Oid oid)
 	{
 		wrapper = NULL;
 	}
-
-	MemoryContextSwitchTo(oldCtx);
-
 	return wrapper;
 }
 
@@ -647,6 +632,7 @@ AdbDoctorList *SPI_selectMgrNode(MemoryContext ctx, char *sql)
 	HeapTuple tuple;
 	TupleDesc tupdesc;
 	MemoryContext oldCtx;
+	SPITupleTable *tupTable;
 
 	ret = SPI_execute(sql, false, 0);
 	if (ret != SPI_OK_SELECT)
@@ -659,15 +645,16 @@ AdbDoctorList *SPI_selectMgrNode(MemoryContext ctx, char *sql)
 
 	oldCtx = MemoryContextSwitchTo(ctx);
 
-	if (rows > 0 && SPI_tuptable != NULL)
+	tupTable = SPI_tuptable;
+	if (rows > 0 && tupTable != NULL)
 	{
 		/* must palloc here, do not palloc in spi context. */
 		list = newAdbDoctorList();
 
-		tupdesc = SPI_tuptable->tupdesc;
+		tupdesc = tupTable->tupdesc;
 		for (j = 0; j < rows; j++)
 		{
-			tuple = SPI_tuptable->vals[j];
+			tuple = tupTable->vals[j];
 
 			wrapper = palloc0(sizeof(AdbMgrNodeWrapper));
 			wrapMgrNode(tuple, tupdesc, wrapper);
@@ -701,6 +688,7 @@ AdbDoctorList *SPI_selectMgrHost(MemoryContext ctx, char *sql)
 	HeapTuple tuple;
 	TupleDesc tupdesc;
 	MemoryContext oldCtx;
+	SPITupleTable *tupTable;
 
 	ret = SPI_execute(sql, false, 0);
 	if (ret != SPI_OK_SELECT)
@@ -710,18 +698,19 @@ AdbDoctorList *SPI_selectMgrHost(MemoryContext ctx, char *sql)
 						ret)));
 
 	rows = SPI_processed;
+	tupTable = SPI_tuptable;
 
 	oldCtx = MemoryContextSwitchTo(ctx);
 
-	if (rows > 0 && SPI_tuptable != NULL)
+	if (rows > 0 && tupTable != NULL)
 	{
 		/* must palloc here, do not palloc in spi context. */
 		list = newAdbDoctorList();
 
-		tupdesc = SPI_tuptable->tupdesc;
+		tupdesc = tupTable->tupdesc;
 		for (j = 0; j < rows; j++)
 		{
-			tuple = SPI_tuptable->vals[j];
+			tuple = tupTable->vals[j];
 
 			wrapper = palloc0(sizeof(AdbMgrHostWrapper));
 			wrapMgrHost(tuple, tupdesc, wrapper);
@@ -821,4 +810,48 @@ static void wrapMgrHost(HeapTuple tuple, TupleDesc tupdesc, AdbMgrHostWrapper *w
 		wrapper->hostadbhome = TextDatumGetCString(datum);
 	else
 		wrapper->hostadbhome = palloc0(1);
+}
+
+int SPI_countSlaveMgrNode(Oid masterOid, char nodetype)
+{
+	Datum datum;
+	bool isNull;
+	StringInfoData buf;
+	HeapTuple tuple;
+	TupleDesc tupdesc;
+	uint64 rows;
+	int ret;
+	SPITupleTable *tupTable;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf,
+					 "SELECT count(*) FROM mgr_node \n"
+					 "WHERE nodemasternameoid = %u \n"
+					 "AND nodetype = '%c';",
+					 masterOid, nodetype);
+
+	ret = SPI_execute(buf.data, false, 0);
+	pfree(buf.data);
+	if (ret != SPI_OK_SELECT)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
+
+	rows = SPI_processed;
+	tupTable = SPI_tuptable;
+	tupdesc = tupTable->tupdesc;
+	if (rows == 1 && tupTable != NULL)
+	{
+		tuple = tupTable->vals[0];
+		datum = SPI_getbinval(tuple, tupdesc, 1, &isNull);
+		if (!isNull)
+			return DatumGetInt32(datum);
+		else
+			return 0;
+	}
+	else
+	{
+		return 0;
+	}
 }

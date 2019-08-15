@@ -13,11 +13,10 @@
 
 void checkAdbDoctorConf(AdbDoctorConf *src)
 {
-	if (src->datalevel < NO_DATA_LOST_BUT_MAY_SLOW ||
-		src->datalevel > MAY_LOST_DATA_BUT_QUICK)
-	{
-		src->datalevel = NO_DATA_LOST_BUT_MAY_SLOW;
-	}
+	src->forceswitch = LIMIT_VALUE_RANGE(0, 1, src->forceswitch);
+	src->switchinterval = LIMIT_VALUE_RANGE(ADB_DOCTOR_CONF_SWITCHINTERVAL_MIN,
+											ADB_DOCTOR_CONF_SWITCHINTERVAL_MAX,
+											src->switchinterval);
 	src->nodedeadline = LIMIT_VALUE_RANGE(ADB_DOCTOR_CONF_NODEDEADLINE_MIN,
 										  ADB_DOCTOR_CONF_NODEDEADLINE_MAX,
 										  src->nodedeadline);
@@ -228,15 +227,24 @@ void validateAdbDoctorConfEditableEntry(char *k, char *v)
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("parameter v:%s must not empty", v)));
 	v_int = pg_atoi(v, sizeof(int), 0);
-	if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_DATALEVEL) == 0)
+	if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_FORCESWITCH) == 0)
 	{
-		if (v_int < NO_DATA_LOST_BUT_MAY_SLOW ||
-			v_int > MAY_LOST_DATA_BUT_QUICK)
+		if (v_int < 0 || v_int > 1)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("datalevel must between %d and %d",
-							NO_DATA_LOST_BUT_MAY_SLOW,
-							MAY_LOST_DATA_BUT_QUICK)));
+					 errmsg("forceswitch must between %d and %d",
+							0,
+							1)));
+	}
+	else if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_SWITCHINTERVAL) == 0)
+	{
+		if (v_int < ADB_DOCTOR_CONF_SWITCHINTERVAL_MIN ||
+			v_int > ADB_DOCTOR_CONF_SWITCHINTERVAL_MAX)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("switchinterval must between %d and %d",
+							ADB_DOCTOR_CONF_SWITCHINTERVAL_MIN,
+							ADB_DOCTOR_CONF_SWITCHINTERVAL_MAX)));
 	}
 	else if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_NODEDEADLINE) == 0)
 	{

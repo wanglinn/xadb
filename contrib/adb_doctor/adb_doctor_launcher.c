@@ -34,8 +34,8 @@ static void launcherLoop(AdbDoctorConf *conf);
 static void queryBgworkerDataAndConf(AdbDoctorConf **confP,
 									 AdbDoctorList **dataListP);
 
-/* give each doctor process a unique name */
-static char *getDoctorName(AdbDoctorBgworkerData *data);
+static char *getDoctorDisplayName(AdbDoctorBgworkerData *data);
+static char *getDoctorUniqueName(AdbDoctorBgworkerData *data);
 
 /* create a shm with size segsize, insert data into this shm,
  * then return these things. */
@@ -75,7 +75,7 @@ static AdbDoctorBgworkerStatus *launchDoctor(AdbDoctorBgworkerData *data);
 /* terminate functions */
 static void terminateAllDoctor(void);
 static void terminateDoctorList(AdbDoctorList *dataList);
-static void terminateDoctorByName(char *name);
+static void terminateDoctorByUniqueName(char *uniqueName);
 static void terminateDoctor(AdbDoctorBgworkerStatus *bgworkerStatus,
 							bool waitFor);
 
@@ -83,7 +83,7 @@ static void terminateDoctor(AdbDoctorBgworkerStatus *bgworkerStatus,
 static void checkDoctorRunningStatus(void);
 
 /* signal doctor process */
-static void signalDoctorByName(char *name);
+static void signalDoctorByUniqueName(char *uniqueName);
 static void signalDoctorList(AdbDoctorList *dataList);
 
 /* bgworkerStatusList saved the stale doctor data, read it out as list */
@@ -99,7 +99,8 @@ static void compareBgworkerDataList(AdbDoctorList *staleDataList,
 									AdbDoctorList **changedDataListP,
 									AdbDoctorList **identicalDataListP);
 
-/* this list link the running bgworker of doctor processed, so we can view or control doctor process as we want. */
+/* this list link the running bgworker of doctor processed, 
+ * so we can view or control doctor process as we want. */
 static dlist_head bgworkerStatusList = DLIST_STATIC_INIT(bgworkerStatusList);
 static AdbDoctorConfShm *confShm;
 
@@ -173,7 +174,8 @@ void adbDoctorLauncherMain(Datum main_arg)
 		if (segBackend != NULL)
 			dsm_detach(segBackend);
 
-		/* exits with an exit code of 0, it will be automatically unregistered by the postmaster on exit. */
+		/* exits with an exit code of 0, it will be automatically 
+		 * unregistered by the postmaster on exit. */
 		proc_exit(0);
 	}
 	PG_END_TRY();
@@ -204,7 +206,8 @@ void adbDoctorLauncherMain(Datum main_arg)
  * if conf changed, we signal all the doctor processes.
  * if add some new (mgr_node,mgr_host) data, we launche new doctor process.
  * if delete some data, we terminate corresponding doctor process.
- * if change some data's field, terminate the old process and then startup a new process.
+ * if change some data's field, terminate the old process and then startup 
+ * a new process.
  */
 static void launcherLoop(AdbDoctorConf *conf)
 {
@@ -255,7 +258,6 @@ static void launcherLoop(AdbDoctorConf *conf)
 		}
 
 		staleDataList = getStaleBgworkerDataList();
-
 		compareAndRefreshDoctor(confChanged, staleDataList, freshDataList);
 
 		staleDataList = NULL;
@@ -264,23 +266,52 @@ static void launcherLoop(AdbDoctorConf *conf)
 }
 
 /**
- * give each doctor process a unique name 
+ * give each doctor process a user friendly display name.
  */
-static char *getDoctorName(AdbDoctorBgworkerData *data)
+static char *getDoctorDisplayName(AdbDoctorBgworkerData *data)
 {
 	char *name;
 	if (data->type == ADB_DOCTOR_BGWORKER_TYPE_NODE_MONITOR)
 	{
-		name = psprintf("adb doctor node monitor %u",
+		name = psprintf("antdb doctor node monitor %s",
+						NameStr(((AdbDoctorNodeData *)data)->wrapper->fdmn.nodename));
+	}
+	else if (data->type == ADB_DOCTOR_BGWORKER_TYPE_HOST_MONITOR)
+	{
+		name = psprintf("antdb doctor host monitor");
+	}
+	else if (data->type == ADB_DOCTOR_BGWORKER_TYPE_SWITCHER)
+	{
+		name = psprintf("antdb doctor switcher");
+	}
+	else
+	{
+		name = NULL;
+		ereport(ERROR,
+				(errmsg("could not recognize type:%d",
+						data->type)));
+	}
+	return name;
+}
+
+/**
+ * give each doctor a unique name to manipulate it.
+ */
+static char *getDoctorUniqueName(AdbDoctorBgworkerData *data)
+{
+	char *name;
+	if (data->type == ADB_DOCTOR_BGWORKER_TYPE_NODE_MONITOR)
+	{
+		name = psprintf("node %u",
 						((AdbDoctorNodeData *)data)->wrapper->oid);
 	}
 	else if (data->type == ADB_DOCTOR_BGWORKER_TYPE_HOST_MONITOR)
 	{
-		name = psprintf("adb doctor host monitor");
+		name = psprintf("host");
 	}
 	else if (data->type == ADB_DOCTOR_BGWORKER_TYPE_SWITCHER)
 	{
-		name = psprintf("adb doctor switcher");
+		name = psprintf("switcher");
 	}
 	else
 	{
@@ -506,6 +537,11 @@ setupSwitcherDataShm(AdbDoctorSwitcherData *switcherData)
 {
 	AdbDoctorSwitcherData *switcherDataInShm = NULL;
 	AdbDoctorBgworkerDataShm *dataShm;
+	AdbDoctorLink *link;
+	AdbDoctorLink *linkInShm;
+	AdbMgrNodeWrapper *nodeWrapper;
+	AdbMgrNodeWrapper *nodeWrapperInShm;
+	dlist_iter iter;
 
 	Size segsize;
 	Size datasize;
@@ -521,17 +557,29 @@ setupSwitcherDataShm(AdbDoctorSwitcherData *switcherData)
 	shm_toc_estimate_chunk(&e, datasize);
 	nkeys++;
 
-	shm_toc_estimate_chunk(&e, sizeof(AdbMgrNodeWrapper));
+	shm_toc_estimate_chunk(&e, sizeof(AdbDoctorList));
 	nkeys++;
 
-	/* need the tail \0 */
-	nbytes = strlen(switcherData->wrapper->nodepath) + 1;
-	shm_toc_estimate_chunk(&e, nbytes);
-	nkeys++;
+	dlist_foreach(iter, &switcherData->list->head)
+	{
+		link = dlist_container(AdbDoctorLink, wi_links, iter.cur);
+		nodeWrapper = link->data;
 
-	nbytes = strlen(switcherData->wrapper->hostaddr) + 1;
-	shm_toc_estimate_chunk(&e, nbytes);
-	nkeys++;
+		shm_toc_estimate_chunk(&e, sizeof(AdbDoctorLink));
+		nkeys++;
+
+		shm_toc_estimate_chunk(&e, sizeof(AdbMgrNodeWrapper));
+		nkeys++;
+
+		/* need the tail \0 */
+		nbytes = strlen(nodeWrapper->nodepath) + 1;
+		shm_toc_estimate_chunk(&e, nbytes);
+		nkeys++;
+
+		nbytes = strlen(nodeWrapper->hostaddr) + 1;
+		shm_toc_estimate_chunk(&e, nbytes);
+		nkeys++;
+	}
 
 	shm_toc_estimate_keys(&e, nkeys);
 	segsize = shm_toc_estimate(&e);
@@ -544,20 +592,37 @@ setupSwitcherDataShm(AdbDoctorSwitcherData *switcherData)
 	switcherDataInShm = (AdbDoctorSwitcherData *)dataShm->dataInShm;
 	toc = dataShm->toc;
 
-	switcherDataInShm->wrapper = shm_toc_allocate(toc, sizeof(AdbMgrNodeWrapper));
-	memcpy(switcherDataInShm->wrapper, switcherData->wrapper, sizeof(AdbMgrNodeWrapper));
-	shm_toc_insert(toc, tocKey++, switcherDataInShm->wrapper);
+	switcherDataInShm->list = shm_toc_allocate(toc, sizeof(AdbDoctorList));
+	shm_toc_insert(toc, tocKey++, switcherDataInShm->list);
+	memcpy(switcherDataInShm->list, switcherData->list, sizeof(AdbDoctorList));
+	dlist_init(&switcherDataInShm->list->head);
 
-	/* need the tail \0 */
-	nbytes = strlen(switcherData->wrapper->nodepath) + 1;
-	switcherDataInShm->wrapper->nodepath = shm_toc_allocate(toc, nbytes);
-	strcpy(switcherDataInShm->wrapper->nodepath, switcherData->wrapper->nodepath);
-	shm_toc_insert(toc, tocKey++, switcherDataInShm->wrapper->nodepath);
+	dlist_foreach(iter, &switcherData->list->head)
+	{
+		link = dlist_container(AdbDoctorLink, wi_links, iter.cur);
+		nodeWrapper = link->data;
 
-	nbytes = strlen(switcherData->wrapper->hostaddr) + 1;
-	switcherDataInShm->wrapper->hostaddr = shm_toc_allocate(toc, nbytes);
-	strcpy(switcherDataInShm->wrapper->hostaddr, switcherData->wrapper->hostaddr);
-	shm_toc_insert(toc, tocKey++, switcherDataInShm->wrapper->hostaddr);
+		linkInShm = shm_toc_allocate(toc, sizeof(AdbDoctorLink));
+		shm_toc_insert(toc, tocKey++, linkInShm);
+		memcpy(linkInShm, link, sizeof(AdbDoctorLink));
+		dlist_push_tail(&switcherDataInShm->list->head, &linkInShm->wi_links);
+
+		nodeWrapperInShm = shm_toc_allocate(toc, sizeof(AdbMgrNodeWrapper));
+		shm_toc_insert(toc, tocKey++, nodeWrapperInShm);
+		memcpy(nodeWrapperInShm, nodeWrapper, sizeof(AdbMgrNodeWrapper));
+		linkInShm->data = nodeWrapperInShm;
+
+		/* need the tail \0 */
+		nbytes = strlen(nodeWrapper->nodepath) + 1;
+		nodeWrapperInShm->nodepath = shm_toc_allocate(toc, nbytes);
+		shm_toc_insert(toc, tocKey++, nodeWrapperInShm->nodepath);
+		strcpy(nodeWrapperInShm->nodepath, nodeWrapper->nodepath);
+
+		nbytes = strlen(nodeWrapper->hostaddr) + 1;
+		nodeWrapperInShm->hostaddr = shm_toc_allocate(toc, nbytes);
+		shm_toc_insert(toc, tocKey++, nodeWrapperInShm->hostaddr);
+		strcpy(nodeWrapperInShm->hostaddr, nodeWrapper->hostaddr);
+	}
 
 	return dataShm;
 }
@@ -597,9 +662,10 @@ setupDataShm(AdbDoctorBgworkerStatus *bgworkerStatus)
 }
 
 /**
- * register doctor process as Background Worker Processe
- * use the name as Unique identification
- * set bgw_start_time=BgWorkerStart_RecoveryFinished 
+ * register doctor process as Background Worker Processe,
+ * Use the uniqueName as Unique identification, and
+ * use the displayName as a user friendly display name.
+ * set bgw_start_time=BgWorkerStart_RecoveryFinished,
  * (start as soon as the system has entered normal read-write state)
  * set bgw_restart_time=BGW_NEVER_RESTART, indicating not to 
  * restart the process in case of a crash,
@@ -641,8 +707,10 @@ static void registerDoctorAsBgworker(AdbDoctorBgworkerStatus *bgworkerStatus,
 	snprintf(worker.bgw_type, BGW_MAXLEN, ADB_DOCTOR_BGW_TYPE_WORKER);
 	worker.bgw_main_arg = UInt32GetDatum(dsm_segment_handle(dataShm->seg));
 	worker.bgw_notify_pid = MyProcPid;
-	Assert(strlen(bgworkerStatus->name) > 0);
-	strncpy(worker.bgw_name, bgworkerStatus->name, BGW_MAXLEN);
+	Assert(strlen(bgworkerStatus->displayName) > 0);
+	/* bgw_name will be displayed as process name, 
+	 * see "init_ps_display(worker->bgw_name, "", "", "");" in bgwworker.c */
+	strncpy(worker.bgw_name, bgworkerStatus->displayName, BGW_MAXLEN);
 
 	if (!RegisterDynamicBackgroundWorker(&worker, &handle))
 		ereport(ERROR,
@@ -743,11 +811,10 @@ static AdbDoctorBgworkerStatus *launchDoctor(AdbDoctorBgworkerData *data)
 	/* used to store the bgwworker's infomation */
 	AdbDoctorBgworkerStatus *bgworkerStatus;
 	AdbDoctorBgworkerDataShm *dataShm;
-	char *name;
 
 	bgworkerStatus = palloc0(sizeof(AdbDoctorBgworkerStatus));
-	name = getDoctorName(data);
-	bgworkerStatus->name = name;
+	bgworkerStatus->displayName = getDoctorDisplayName(data);
+	bgworkerStatus->uniqueName = getDoctorUniqueName(data);
 	bgworkerStatus->data = data;
 
 	/* Create single data shared memory for each doctor, give data to them */
@@ -801,7 +868,7 @@ static void terminateAllDoctor(void)
 static void terminateDoctorList(AdbDoctorList *dataList)
 {
 	AdbDoctorLink *link;
-	char *name;
+	char *uniqueName;
 	dlist_iter iter;
 
 	if (dataList == NULL || dlist_is_empty(&dataList->head))
@@ -810,15 +877,15 @@ static void terminateDoctorList(AdbDoctorList *dataList)
 	dlist_foreach(iter, &dataList->head)
 	{
 		link = dlist_container(AdbDoctorLink, wi_links, iter.cur);
-		name = getDoctorName(link->data);
+		uniqueName = getDoctorUniqueName(link->data);
 
-		terminateDoctorByName(name);
+		terminateDoctorByUniqueName(uniqueName);
 
-		pfree(name);
+		pfree(uniqueName);
 	}
 }
 
-static void terminateDoctorByName(char *name)
+static void terminateDoctorByUniqueName(char *uniqueName)
 {
 	AdbDoctorBgworkerStatus *bgworkerStatus;
 	dlist_mutable_iter miter;
@@ -830,13 +897,13 @@ static void terminateDoctorByName(char *name)
 	{
 		bgworkerStatus = dlist_container(AdbDoctorBgworkerStatus,
 										 wi_links, miter.cur);
-		if (strcmp(name, bgworkerStatus->name) == 0)
+		if (strcmp(uniqueName, bgworkerStatus->uniqueName) == 0)
 		{
 			terminateDoctor(bgworkerStatus, true);
 
 			dlist_delete(miter.cur);
 			pfreeAdbDoctorBgworkerStatus(bgworkerStatus, true);
-			/* we do not break in case of duplicate name */
+			/* do not break, in case of duplicate name, although it's impossible. */
 		}
 	}
 }
@@ -901,7 +968,7 @@ static void checkDoctorRunningStatus(void)
 	}
 }
 
-static void signalDoctorByName(char *name)
+static void signalDoctorByUniqueName(char *uniqueName)
 {
 	AdbDoctorBgworkerStatus *bgworkerStatus;
 	BgwHandleStatus status;
@@ -911,7 +978,7 @@ static void signalDoctorByName(char *name)
 	{
 		bgworkerStatus = dlist_container(AdbDoctorBgworkerStatus,
 										 wi_links, iter.cur);
-		if (strcmp(bgworkerStatus->name, name) == 0)
+		if (strcmp(bgworkerStatus->uniqueName, uniqueName) == 0)
 		{
 			status = GetBackgroundWorkerPid(bgworkerStatus->handle,
 											&bgworkerStatus->pid);
@@ -927,7 +994,7 @@ static void signalDoctorByName(char *name)
 static void signalDoctorList(AdbDoctorList *dataList)
 {
 	AdbDoctorLink *link;
-	char *name;
+	char *uniqueName;
 	dlist_iter iter;
 
 	if (dlist_is_empty(&dataList->head))
@@ -937,11 +1004,11 @@ static void signalDoctorList(AdbDoctorList *dataList)
 	{
 		link = dlist_container(AdbDoctorLink, wi_links, iter.cur);
 
-		name = getDoctorName(link->data);
+		uniqueName = getDoctorUniqueName(link->data);
 		/* send signal */
-		signalDoctorByName(name);
+		signalDoctorByUniqueName(uniqueName);
 
-		pfree(name);
+		pfree(uniqueName);
 	}
 }
 
@@ -957,7 +1024,7 @@ static void queryBgworkerDataAndConf(AdbDoctorConf **confP,
 	MemoryContext oldContext;
 	AdbDoctorList *dataList;
 	AdbDoctorList *nodeDataList;
-	AdbDoctorList *switcherDataList;
+	AdbDoctorSwitcherData *switcherData;
 	AdbDoctorHostData *hostData;
 	int ret;
 
@@ -984,7 +1051,7 @@ static void queryBgworkerDataAndConf(AdbDoctorConf **confP,
 	hostData = SPI_selectMgrHostForMonitor(oldContext);
 
 	/* query out all data from table mgr_node that need to be switched */
-	switcherDataList = SPI_selectMgrNodeForSwitcher(oldContext);
+	switcherData = SPI_selectMgrNodeForSwitcher(oldContext);
 
 	SPI_finish();
 	PopActiveSnapshot();
@@ -997,7 +1064,7 @@ static void queryBgworkerDataAndConf(AdbDoctorConf **confP,
 	/* because SPI will free his memory context, so append data here. */
 	appendAdbDoctorList(dataList, nodeDataList, true);
 	appendAdbDoctorBgworkerData(dataList, (AdbDoctorBgworkerData *)hostData);
-	appendAdbDoctorList(dataList, switcherDataList, true);
+	appendAdbDoctorBgworkerData(dataList, (AdbDoctorBgworkerData *)switcherData);
 
 	*dataListP = dataList;
 }

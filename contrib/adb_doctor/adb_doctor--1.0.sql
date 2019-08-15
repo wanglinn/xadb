@@ -24,7 +24,7 @@ CREATE OR REPLACE FUNCTION adb_doctor_param(k pg_catalog.text default '',
 -- List editable configuration variables stored in table adb_doctor_conf
 CREATE OR REPLACE FUNCTION adb_doctor_list(OUT k pg_catalog.text,
 										   OUT v pg_catalog.text,
-										   OUT desp pg_catalog.text)
+										   OUT comment pg_catalog.text)
     RETURNS SETOF record STRICT
 	AS 'MODULE_PATHNAME' LANGUAGE C;
 
@@ -33,27 +33,31 @@ CREATE TABLE IF NOT EXISTS adb_doctor_conf (
     k       	varchar(64) PRIMARY KEY, -- k is not case sensitive
     v       	varchar(256) NOT NULL,
 	editable	boolean NOT NULL,
-	desp		varchar
+	comment		varchar
 );
 
 -- user editable configuration variables
 INSERT INTO adb_doctor_conf VALUES (
-	'datalevel',
+	'forceswitch',
 	'0',
 	't',
-	'useless'
+	'0:false,1:true.是否强制主/备切换，请注意强制切换可能导致数据丢失。Whether to force the master/slave switch, note that force switch may cause data loss.'
 );
-
+INSERT INTO adb_doctor_conf VALUES (
+	'switchinterval',
+	'30',
+	't',
+	'The time interval(seconds) for retrying the switch when an error occurs in the switch.'
+);
 INSERT INTO adb_doctor_conf VALUES (
 	'nodedeadline',
 	'30',
 	't',
 	'NODE死线，单位秒，判定NODE运行状态的最大忍耐时间。'
 );
-
 INSERT INTO adb_doctor_conf VALUES (
 	'agentdeadline',
-	'30',
+	'5',
 	't',
 	'AGENT死线，单位秒，判定AGENT运行状态的最大忍耐时间。'
 );
@@ -100,7 +104,7 @@ INSERT INTO adb_doctor_conf VALUES (
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_reconnect_delay_ms_min',
-	'1000',
+	'500',
 	'f',
 	'node重连延迟最小毫秒数'
 );
@@ -136,7 +140,7 @@ INSERT INTO adb_doctor_conf VALUES (
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_restart_delay_ms_min',
-	'30000',
+	'5000',
 	'f',
 	'node重启延迟最小毫秒数'
 );
@@ -168,7 +172,7 @@ INSERT INTO adb_doctor_conf VALUES (
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_reconnect_delay_ms_min',
-	'1000',
+	'500',
 	'f',
 	'agent重连延迟最小毫秒数'
 );
@@ -204,13 +208,15 @@ INSERT INTO adb_doctor_conf VALUES (
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_restart_delay_ms_min',
-	'10000',
+	'1000',
 	'f',
 	'agent重启延迟最小毫秒数'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_restart_delay_ms_max',
-	'120000',
+	'30000',
 	'f',
 	'agent重启延迟最大毫秒数'
 );
+
+-- switcher

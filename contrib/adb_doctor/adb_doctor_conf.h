@@ -13,10 +13,12 @@
 #include "utils/builtins.h"
 #include "adb_doctor_utils.h"
 
-#define ADB_DOCTOR_CONF_NODEDEADLINE_MIN 10
-#define ADB_DOCTOR_CONF_NODEDEADLINE_MAX 3600
-#define ADB_DOCTOR_CONF_AGENTDEADLINE_MIN 10
-#define ADB_DOCTOR_CONF_AGENTDEADLINE_MAX 3600
+#define ADB_DOCTOR_CONF_SWITCHINTERVAL_MIN 1
+#define ADB_DOCTOR_CONF_SWITCHINTERVAL_MAX 7200
+#define ADB_DOCTOR_CONF_NODEDEADLINE_MIN 1
+#define ADB_DOCTOR_CONF_NODEDEADLINE_MAX 7200
+#define ADB_DOCTOR_CONF_AGENTDEADLINE_MIN 1
+#define ADB_DOCTOR_CONF_AGENTDEADLINE_MAX 7200
 
 #define ADB_DOCTOR_CONF_SHM_MAGIC 0x79fb2449
 
@@ -24,8 +26,9 @@
 #define ADB_DOCTOR_CONF_RELNAME "adb_doctor_conf"
 #define ADB_DOCTOR_CONF_ATTR_KEY "k"
 #define ADB_DOCTOR_CONF_ATTR_VALUE "v"
-#define ADB_DOCTOR_CONF_ATTR_DESP "desp"
-#define ADB_DOCTOR_CONF_KEY_DATALEVEL "datalevel"
+#define ADB_DOCTOR_CONF_ATTR_COMMENT "comment"
+#define ADB_DOCTOR_CONF_KEY_FORCESWITCH "forceswitch"
+#define ADB_DOCTOR_CONF_KEY_SWITCHINTERVAL "switchinterval"
 #define ADB_DOCTOR_CONF_KEY_NODEDEADLINE "nodedeadline"
 #define ADB_DOCTOR_CONF_KEY_AGENTDEADLINE "agentdeadline"
 
@@ -43,18 +46,13 @@
 					(errmsg(#maxMember " must > " #minMember))); \
 	} while (0)
 
-typedef enum Adb_Doctor_Conf_Datalevel
-{
-	NO_DATA_LOST_BUT_MAY_SLOW,
-	MAY_LOST_DATA_BUT_QUICK
-} Adb_Doctor_Conf_Datalevel;
-
 /* AdbDoctorConf elements all in one */
 typedef struct AdbDoctorConf
 {
 	LWLock lock;
 	/* Below three elements are editable */
-	int datalevel;
+	int forceswitch;
+	int switchinterval;
 	int nodedeadline;
 	int agentdeadline;
 	/* The elements below are not editable, keep these member names 
@@ -98,7 +96,7 @@ typedef struct AdbDoctorConfRow
 	char *k;
 	char *v;
 	bool editable;
-	char *desp;
+	char *comment;
 } AdbDoctorConfRow;
 
 static inline void pfreeAdbDoctorConfShm(AdbDoctorConfShm *confShm)
@@ -118,7 +116,7 @@ static inline void pfreeAdbDoctorConfRow(AdbDoctorConfRow *src)
 	{
 		pfree(src->k);
 		pfree(src->v);
-		pfree(src->desp);
+		pfree(src->comment);
 		pfree(src);
 		src = NULL;
 	}

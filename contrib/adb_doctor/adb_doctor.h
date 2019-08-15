@@ -27,11 +27,10 @@
 
 #define ADB_DOCTOR_LAUNCHER_MAGIC 0x79fb2448
 
-#define ADB_DOCTOR_BGW_TYPE_WORKER "adb doctor worker"
-#define ADB_DOCTOR_BGW_TYPE_LAUNCHER "adb doctor launcher"
+#define ADB_DOCTOR_BGW_TYPE_WORKER "antdb doctor worker"
+#define ADB_DOCTOR_BGW_TYPE_LAUNCHER "antdb doctor launcher"
 #define ADB_DOCTOR_BGW_LIBRARY_NAME "adb_doctor"
 #define ADB_DOCTOR_FUNCTION_NAME_LAUNCHER "adbDoctorLauncherMain"
-#define ADB_DOCTOR_FUNCTION_NAME_WORKER "adbDoctorWorkerMain"
 #define ADB_DOCTOR_FUNCTION_NAME_NODE_MONITOR "adbDoctorNodeMonitorMain"
 #define ADB_DOCTOR_FUNCTION_NAME_HOST_MONITOR "adbDoctorHostMonitorMain"
 #define ADB_DOCTOR_FUNCTION_NAME_SWITCHER "adbDoctorSwitcherMain"

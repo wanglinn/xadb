@@ -13,6 +13,7 @@
 #include "postmaster/bgworker.h"
 #include "catalog/mgr_node.h"
 #include "catalog/mgr_host.h"
+#include "mgr/mgr_helper.h"
 #include "adb_doctor_list.h"
 
 #define ADB_DOCTOR_SHM_DATA_MAGIC 0x79fb2450
@@ -54,7 +55,8 @@ typedef struct AdbDoctorBgworkerData
 	Adb_Doctor_Bgworker_Type type;
 	/* the handle of a shm that all doctor attached */
 	dsm_handle commonShmHandle;
-	/* used to judge the doctor is working properly, before use it, get it's value from shm. */
+	/* used to judge the doctor is working properly, before use it, 
+	 * get it's value from shm. */
 	bool ready;
 } AdbDoctorBgworkerData;
 
@@ -83,13 +85,14 @@ typedef struct AdbDoctorHostData
 typedef struct AdbDoctorSwitcherData
 {
 	AdbDoctorBgworkerData header; /* must be the first field */
-	AdbMgrNodeWrapper *wrapper;
+	AdbDoctorList *list;		  /* linked to a list of nodes */
 } AdbDoctorSwitcherData;
 
 typedef struct AdbDoctorBgworkerStatus
 {
 	dlist_node wi_links;
-	char *name;
+	char *displayName;
+	char *uniqueName;
 	BackgroundWorkerHandle *handle;
 	pid_t pid;
 	BgwHandleStatus status;
@@ -97,31 +100,55 @@ typedef struct AdbDoctorBgworkerStatus
 } AdbDoctorBgworkerStatus;
 
 extern Size sizeofAdbDoctorBgworkerData(AdbDoctorBgworkerData *data);
-extern bool isSameAdbDoctorBgworkerData(AdbDoctorBgworkerData *data1, AdbDoctorBgworkerData *data2);
+extern bool isSameAdbDoctorBgworkerData(AdbDoctorBgworkerData *data1,
+										AdbDoctorBgworkerData *data2);
 
 /* "EQUALS" functions */
-extern bool equalsAdbMgrNodeWrapper(AdbMgrNodeWrapper *data1, AdbMgrNodeWrapper *data2);
-extern bool equalsAdbMgrHostWrapper(AdbMgrHostWrapper *data1, AdbMgrHostWrapper *data2);
-extern bool equalsAdbDoctorHostData(AdbDoctorHostData *data1, AdbDoctorHostData *data2);
-extern bool equalsAdbDoctorBgworkerData(AdbDoctorBgworkerData *data1, AdbDoctorBgworkerData *data2);
-extern bool equalsAdbDoctorNodeData(AdbDoctorNodeData *data1, AdbDoctorNodeData *data2);
-extern bool equalsAdbDoctorSwitcherData(AdbDoctorSwitcherData *data1, AdbDoctorSwitcherData *data2);
+extern bool equalsAdbMgrNodeWrapper(AdbMgrNodeWrapper *data1,
+									AdbMgrNodeWrapper *data2);
+extern bool equalsAdbMgrHostWrapper(AdbMgrHostWrapper *data1,
+									AdbMgrHostWrapper *data2);
+extern bool equalsAdbDoctorHostData(AdbDoctorHostData *data1,
+									AdbDoctorHostData *data2);
+extern bool equalsAdbDoctorBgworkerData(AdbDoctorBgworkerData *data1,
+										AdbDoctorBgworkerData *data2);
+extern bool equalsAdbDoctorNodeData(AdbDoctorNodeData *data1,
+									AdbDoctorNodeData *data2);
+extern bool equalsAdbDoctorSwitcherData(AdbDoctorSwitcherData *data1,
+										AdbDoctorSwitcherData *data2);
+
+extern bool isIdenticalMgrNode(MgrNodeWrapper *data1,
+							   MgrNodeWrapper *data2);
+extern bool isIdenticalMgrHost(MgrHostWrapper *data1,
+							   MgrHostWrapper *data2);
 
 /* "PFREE" functions */
 extern void pfreeAdbMgrHostWrapper(AdbMgrHostWrapper *src);
 extern void pfreeAdbMgrNodeWrapper(AdbMgrNodeWrapper *src);
 extern void pfreeAdbDoctorHostData(AdbDoctorHostData *src);
 extern void pfreeAdbDoctorBgworkerData(AdbDoctorBgworkerData *src);
-extern void pfreeAdbDoctorBgworkerStatus(AdbDoctorBgworkerStatus *src, bool freeData);
+extern void pfreeAdbDoctorBgworkerStatus(AdbDoctorBgworkerStatus *src,
+										 bool freeData);
 extern void pfreeAdbDoctorNodeData(AdbDoctorNodeData *src);
 extern void pfreeAdbDoctorSwitcherData(AdbDoctorSwitcherData *src);
 
-extern void appendAdbDoctorBgworkerData(AdbDoctorList *dest, AdbDoctorBgworkerData *data);
+extern void appendAdbDoctorBgworkerData(AdbDoctorList *dest,
+										AdbDoctorBgworkerData *data);
 
 /* LOG functions */
-extern void logAdbDoctorNodeData(AdbDoctorNodeData *src, char *title, int elevel);
-extern void logAdbDoctorHostData(AdbDoctorHostData *src, char *title, int elevel);
-extern void logAdbDoctorSwitcherData(AdbDoctorSwitcherData *src, char *title, int elevel);
-extern void logAdbDoctorBgworkerData(AdbDoctorBgworkerData *src, char *title, int elevel);
-extern void logAdbDoctorBgworkerDataList(AdbDoctorList *src, char *title, int elevel);
+extern void logAdbDoctorNodeData(AdbDoctorNodeData *src,
+								 char *title, int elevel);
+extern void logAdbDoctorHostData(AdbDoctorHostData *src,
+								 char *title, int elevel);
+extern void logAdbDoctorSwitcherData(AdbDoctorSwitcherData *src,
+									 char *title, int elevel);
+extern void logAdbDoctorBgworkerData(AdbDoctorBgworkerData *src,
+									 char *title, int elevel);
+extern void logAdbDoctorBgworkerDataList(AdbDoctorList *src,
+										 char *title, int elevel);
+
+extern MgrNodeWrapper *castToMgrNodeWrapper(AdbMgrNodeWrapper *adbMgrNode,
+											AdbMgrHostWrapper *adbMgrHost);
+extern void deleteCastedMgrNodeWrapper(MgrNodeWrapper *mgrNodeWrapper);
+
 #endif

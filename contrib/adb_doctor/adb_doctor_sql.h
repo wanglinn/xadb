@@ -22,12 +22,13 @@ extern AdbDoctorConf *SPI_selectAllAdbDoctorConf(MemoryContext ctx);
 extern int SPI_selectEditableAdbDoctorConf(MemoryContext ctx, AdbDoctorConfRow **rowDataP);
 extern void SPI_updateAdbDoctorConf(char *key, char *value);
 extern AdbDoctorList *SPI_selectMgrNodeForMonitor(MemoryContext ctx);
-extern AdbDoctorList *SPI_selectMgrNodeForSwitcher(MemoryContext ctx);
-extern AdbMgrNodeWrapper *SPI_selectMgrNodeByOid(MemoryContext ctx, Oid oid);
+extern AdbDoctorSwitcherData *SPI_selectMgrNodeForSwitcher(MemoryContext ctx);
+extern AdbMgrNodeWrapper *SPI_selectMgrNodeByOid(Oid oid, MemoryContext spiContext);
 extern int SPI_updateMgrNodeCureStatus(Oid oid, char *oldValue, char *newValue);
 extern AdbDoctorHostData *SPI_selectMgrHostForMonitor(MemoryContext ctx);
-extern AdbMgrHostWrapper *SPI_selectMgrHostByOid(MemoryContext ctx, Oid oid);
+extern AdbMgrHostWrapper *SPI_selectMgrHostByOid(Oid oid, MemoryContext spiContext);
 extern AdbDoctorList *SPI_selectMgrNode(MemoryContext ctx, char *sql);
 extern AdbDoctorList *SPI_selectMgrHost(MemoryContext ctx, char *sql);
+extern int SPI_countSlaveMgrNode(Oid masterOid, char nodetype);
 
 #endif

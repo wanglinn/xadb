@@ -47,8 +47,7 @@ bool isSameAdbDoctorBgworkerData(AdbDoctorBgworkerData *data1, AdbDoctorBgworker
 	}
 	else if (data1->type == ADB_DOCTOR_BGWORKER_TYPE_SWITCHER)
 	{
-		return data1->type == data2->type &&
-			   ((AdbDoctorNodeData *)data1)->wrapper->oid == ((AdbDoctorNodeData *)data2)->wrapper->oid;
+		return data1->type == data2->type;
 	}
 	else
 	{
@@ -57,7 +56,7 @@ bool isSameAdbDoctorBgworkerData(AdbDoctorBgworkerData *data1, AdbDoctorBgworker
 }
 
 /**
- * All fields equal except allowcure curestatus 
+ * All fields equal except curestatus 
  */
 bool equalsAdbMgrNodeWrapper(AdbMgrNodeWrapper *data1, AdbMgrNodeWrapper *data2)
 {
@@ -72,6 +71,7 @@ bool equalsAdbMgrNodeWrapper(AdbMgrNodeWrapper *data1, AdbMgrNodeWrapper *data2)
 		   data1->fdmn.nodeincluster == data2->fdmn.nodeincluster &&
 		   data1->fdmn.nodereadonly == data2->fdmn.nodereadonly &&
 		   strcmp(NameStr(data1->fdmn.nodezone), NameStr(data2->fdmn.nodezone)) == 0 &&
+		   data1->fdmn.allowcure == data2->fdmn.allowcure &&
 		   strcmp(data1->nodepath, data2->nodepath) == 0 &&
 		   strcmp(NameStr(data1->hostuser), NameStr(data2->hostuser)) == 0 &&
 		   strcmp(data1->hostaddr, data2->hostaddr) == 0;
@@ -123,7 +123,8 @@ bool equalsAdbDoctorHostData(AdbDoctorHostData *data1, AdbDoctorHostData *data2)
 	dlist_mutable_iter iter2;
 	AdbDoctorLink *link2;
 
-	if (dlist_is_empty(&data1->list->head) ||
+	if (data1->header.type != data2->header.type ||
+		dlist_is_empty(&data1->list->head) ||
 		dlist_is_empty(&data2->list->head) ||
 		data1->list->num != data2->list->num)
 	{
@@ -168,8 +169,82 @@ bool equalsAdbDoctorNodeData(AdbDoctorNodeData *data1, AdbDoctorNodeData *data2)
 
 bool equalsAdbDoctorSwitcherData(AdbDoctorSwitcherData *data1, AdbDoctorSwitcherData *data2)
 {
-	return data1->header.type == data2->header.type &&
-		   equalsAdbMgrNodeWrapper(data1->wrapper, data2->wrapper);
+	bool result;
+	AdbDoctorList *cloneList1;
+	AdbDoctorList *cloneList2;
+	dlist_mutable_iter iter1;
+	AdbDoctorLink *link1;
+	dlist_mutable_iter iter2;
+	AdbDoctorLink *link2;
+
+	if (data1->header.type != data2->header.type ||
+		dlist_is_empty(&data1->list->head) ||
+		dlist_is_empty(&data2->list->head) ||
+		data1->list->num != data2->list->num)
+	{
+		return false;
+	}
+
+	cloneList1 = cloneAdbDoctorList(data1->list);
+	cloneList2 = cloneAdbDoctorList(data2->list);
+
+	dlist_foreach_modify(iter1, &cloneList1->head)
+	{
+		link1 = dlist_container(AdbDoctorLink, wi_links, iter1.cur);
+		dlist_foreach_modify(iter2, &cloneList2->head)
+		{
+			link2 = dlist_container(AdbDoctorLink, wi_links, iter2.cur);
+			if (equalsAdbMgrNodeWrapper(link1->data, link2->data))
+			{
+				deleteFromAdbDoctorList(cloneList1, iter1);
+				deleteFromAdbDoctorList(cloneList2, iter2);
+				break;
+			}
+			else
+			{
+				continue;
+			}
+		}
+	}
+
+	result = dlist_is_empty(&cloneList1->head) && dlist_is_empty(&cloneList2->head);
+
+	pfreeAdbDoctorList(cloneList1, false);
+	pfreeAdbDoctorList(cloneList2, false);
+
+	return result;
+}
+
+bool isIdenticalMgrNode(MgrNodeWrapper *data1,
+						MgrNodeWrapper *data2)
+{
+	return data1->nodeOid == data2->nodeOid &&
+		   strcmp(NameStr(data1->form.nodename), NameStr(data2->form.nodename)) == 0 &&
+		   data1->form.nodehost == data2->form.nodehost &&
+		   data1->form.nodetype == data2->form.nodetype &&
+		   strcmp(NameStr(data1->form.nodesync), NameStr(data2->form.nodesync)) == 0 &&
+		   data1->form.nodeport == data2->form.nodeport &&
+		   data1->form.nodeinited == data2->form.nodeinited &&
+		   data1->form.nodemasternameoid == data2->form.nodemasternameoid &&
+		   data1->form.nodeincluster == data2->form.nodeincluster &&
+		   data1->form.nodereadonly == data2->form.nodereadonly &&
+		   strcmp(NameStr(data1->form.nodezone), NameStr(data2->form.nodezone)) == 0 &&
+		   data1->form.allowcure == data2->form.allowcure &&
+		   strcmp(data1->nodepath, data2->nodepath) == 0 &&
+		   isIdenticalMgrHost(data1->host, data2->host);
+}
+
+bool isIdenticalMgrHost(MgrHostWrapper *data1,
+						MgrHostWrapper *data2)
+{
+	return data1->hostOid == data2->hostOid &&
+		   strcmp(NameStr(data1->form.hostname), NameStr(data2->form.hostname)) == 0 &&
+		   strcmp(NameStr(data1->form.hostuser), NameStr(data2->form.hostuser)) == 0 &&
+		   data1->form.hostport == data2->form.hostport &&
+		   data1->form.hostproto == data2->form.hostproto &&
+		   data1->form.hostagentport == data2->form.hostagentport &&
+		   strcmp(data1->hostaddr, data2->hostaddr) == 0 &&
+		   strcmp(data1->hostadbhome, data2->hostadbhome) == 0;
 }
 
 void pfreeAdbMgrHostWrapper(AdbMgrHostWrapper *src)
@@ -220,7 +295,8 @@ void pfreeAdbDoctorBgworkerStatus(AdbDoctorBgworkerStatus *src, bool freeData)
 {
 	if (src == NULL)
 		return;
-	pfree(src->name);
+	pfree(src->displayName);
+	pfree(src->uniqueName);
 	pfree(src->handle);
 	if (freeData)
 		pfreeAdbDoctorBgworkerData(src->data);
@@ -241,7 +317,7 @@ void pfreeAdbDoctorSwitcherData(AdbDoctorSwitcherData *src)
 {
 	if (src == NULL)
 		return;
-	pfreeAdbMgrNodeWrapper(src->wrapper);
+	pfreeAdbDoctorList(src->list, true);
 	pfree(src);
 	src = NULL;
 }
@@ -291,18 +367,29 @@ void logAdbDoctorNodeData(AdbDoctorNodeData *src, char *title, int elevel)
 
 void logAdbDoctorSwitcherData(AdbDoctorSwitcherData *src, char *title, int elevel)
 {
-	char *rTitle = "";
+	dlist_iter iter;
+	AdbDoctorLink *link;
+	AdbMgrNodeWrapper *data;
+
 	if (title != NULL && strlen(title) > 0)
-		rTitle = title;
-	ereport(elevel,
-			(errmsg("%s oid:%d,nodename:%s,nodetype:%c,hostaddr:%s,nodeport:%d,curestatus:%s",
-					rTitle,
-					src->wrapper->oid,
-					src->wrapper->fdmn.nodename.data,
-					src->wrapper->fdmn.nodetype,
-					src->wrapper->hostaddr,
-					src->wrapper->fdmn.nodeport,
-					src->wrapper->fdmn.curestatus.data)));
+		ereport(elevel,
+				(errmsg("%s, size:%d",
+						title,
+						src->list->num)));
+
+	dlist_foreach(iter, &src->list->head)
+	{
+		link = dlist_container(AdbDoctorLink, wi_links, iter.cur);
+		data = link->data;
+		ereport(elevel,
+				(errmsg("\toid:%d,nodename:%s,nodetype:%c,hostaddr:%s,nodeport:%d,curestatus:%s",
+						data->oid,
+						data->fdmn.nodename.data,
+						data->fdmn.nodetype,
+						data->hostaddr,
+						data->fdmn.nodeport,
+						data->fdmn.curestatus.data)));
+	}
 }
 
 void logAdbDoctorBgworkerData(AdbDoctorBgworkerData *src, char *title, int elevel)
@@ -348,5 +435,34 @@ void appendAdbDoctorBgworkerData(AdbDoctorList *destList, AdbDoctorBgworkerData 
 	{
 		link = newAdbDoctorLink(data, (void (*)(void *))pfreeAdbDoctorBgworkerData);
 		pushTailAdbDoctorList(destList, link);
+	}
+}
+
+MgrNodeWrapper *castToMgrNodeWrapper(AdbMgrNodeWrapper *adbMgrNode,
+									 AdbMgrHostWrapper *adbMgrHost)
+{
+	MgrNodeWrapper *mgrNode;
+	MgrHostWrapper *mgrHost;
+
+	mgrNode = palloc0(sizeof(MgrNodeWrapper));
+	memcpy(&mgrNode->form, &adbMgrNode->fdmn, sizeof(FormData_mgr_node));
+	mgrNode->nodeOid = adbMgrNode->oid;
+	mgrNode->nodepath = adbMgrNode->nodepath;
+	mgrHost = palloc0(sizeof(MgrHostWrapper));
+	mgrNode->host = mgrHost;
+	memcpy(&mgrHost->form, &adbMgrHost->fdmh, sizeof(FormData_mgr_host));
+	mgrHost->hostOid = adbMgrHost->oid;
+	mgrHost->hostaddr = adbMgrHost->hostaddr;
+	mgrHost->hostadbhome = adbMgrHost->hostadbhome;
+	return mgrNode;
+}
+
+void deleteCastedMgrNodeWrapper(MgrNodeWrapper *mgrNodeWrapper)
+{
+	if (mgrNodeWrapper)
+	{
+		/* do't use pfreeMgrNodeWrapper() */
+		pfree(mgrNodeWrapper->host);
+		pfree(mgrNodeWrapper);
 	}
 }

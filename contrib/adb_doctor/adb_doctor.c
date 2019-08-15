@@ -182,7 +182,7 @@ Datum
 						   ADB_DOCTOR_CONF_ATTR_VALUE,
 						   TEXTOID, -1, 0);
 		TupleDescInitEntry(tupdesc, (AttrNumber)3,
-						   ADB_DOCTOR_CONF_ATTR_DESP,
+						   ADB_DOCTOR_CONF_ATTR_COMMENT,
 						   TEXTOID, -1, 0);
 		tupdesc = BlessTupleDesc(tupdesc);
 		funcctx->tuple_desc = tupdesc;
@@ -200,9 +200,9 @@ Datum
 		nulls[1] = rowData[funcctx->call_cntr].v == NULL;
 		if (!nulls[1])
 			datums[1] = CStringGetTextDatum(rowData[funcctx->call_cntr].v);
-		nulls[2] = rowData[funcctx->call_cntr].desp == NULL;
+		nulls[2] = rowData[funcctx->call_cntr].comment == NULL;
 		if (!nulls[2])
-			datums[2] = CStringGetTextDatum(rowData[funcctx->call_cntr].desp);
+			datums[2] = CStringGetTextDatum(rowData[funcctx->call_cntr].comment);
 		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(heap_form_tuple(tupdesc, datums, nulls)));
 	}
 	else

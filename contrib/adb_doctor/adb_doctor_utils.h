@@ -13,13 +13,19 @@
 /* Limit the value to the range between the minimum and maximum. */
 #define LIMIT_VALUE_RANGE(min, max, val) Min(max, Max(min, val))
 
-#define SPI_CONNECT_TRANSACTIONAL_START(res)          \
-	do                                                \
-	{                                                 \
-		SetCurrentStatementStartTimestamp();          \
-		StartTransactionCommand();                    \
-		PushActiveSnapshot(GetTransactionSnapshot()); \
-		res = SPI_connect();                          \
+#define SPI_CONNECT_TRANSACTIONAL_START(res, complain)               \
+	do                                                               \
+	{                                                                \
+		SetCurrentStatementStartTimestamp();                         \
+		StartTransactionCommand();                                   \
+		PushActiveSnapshot(GetTransactionSnapshot());                \
+		res = SPI_connect();                                         \
+		if (res != SPI_OK_CONNECT)                                   \
+		{                                                            \
+			ereport(complain ? ERROR : WARNING,                      \
+					(errmsg("SPI_connect failed, connect return:%d", \
+							res)));                                  \
+		}                                                            \
 	} while (0)
 
 #define SPI_FINISH_TRANSACTIONAL_COMMIT() \

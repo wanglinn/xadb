@@ -89,6 +89,7 @@ typedef struct ManagerAgentWrapper
 	ManagerAgent *agent;
 	AgentConnectionStatus connectionStatus;
 	AgentRunningStatus runningStatus;
+	int nMessages;
 	TimestampTz connectTime;
 	TimestampTz sendMessageTime;
 	TimestampTz activeTime;
@@ -181,10 +182,11 @@ void adbDoctorHostMonitorMain(Datum main_arg)
 	pqsignal(SIGUSR1, handleSigusr1);
 
 	BackgroundWorkerUnblockSignals();
+
+	BackgroundWorkerInitializeConnection(ADBMGR_DBNAME, NULL, 0);
+
 	PG_TRY();
 	{
-		BackgroundWorkerInitializeConnection(ADBMGR_DBNAME, NULL, 0);
-
 		attachHostDataShm(main_arg, &data);
 		notifyAdbDoctorRegistrant();
 		ereport(LOG,
@@ -292,6 +294,7 @@ static void initializeAgentsConnection(AdbDoctorList *agentList)
 		agentWrapper->agent = NULL;
 		agentWrapper->connectionStatus = AGENT_CONNNECTION_STATUS_BAD;
 		agentWrapper->runningStatus = AGENT_RUNNING_STATUS_NORMAL;
+		agentWrapper->nMessages = 0;
 		agentWrapper->connectTime = 0;
 		agentWrapper->sendMessageTime = 0;
 		agentWrapper->activeTime = 0;
@@ -415,15 +418,26 @@ static void handleConnectionStatusSucceeded(ManagerAgentWrapper *agentWrapper,
 									   currentTime,
 									   hostConfiguration->heartbeatIntervalMs))
 		{
-			/* send heartbeat to agent. */
-			if (!sendHeartbeatMessage(agentWrapper))
+			if (agentWrapper->nMessages > 30)
 			{
-				toConnectionStatusBad(agentWrapper, AGENT_ERROR_MESSAGE_FAIL);
-				handleConnectionStatusBad(agentWrapper);
+				/* the agent client may cause memory leakage */
+				agentWrapper->nMessages = 0;
+				stopMonitorAgent(agentWrapper);
+				startMonitorAgent(agentWrapper);
 			}
 			else
 			{
-				agentWrapper->sendMessageTime = GetCurrentTimestamp();
+				/* send heartbeat to agent. */
+				if (!sendHeartbeatMessage(agentWrapper))
+				{
+					toConnectionStatusBad(agentWrapper, AGENT_ERROR_MESSAGE_FAIL);
+					handleConnectionStatusBad(agentWrapper);
+				}
+				else
+				{
+					agentWrapper->nMessages++;
+					agentWrapper->sendMessageTime = GetCurrentTimestamp();
+				}
 			}
 		}
 		else
@@ -570,6 +584,7 @@ static void handleRunningStatusCrashed(ManagerAgentWrapper *agentWrapper)
 static void toRunningStatusNormal(ManagerAgentWrapper *agentWrapper)
 {
 	agentWrapper->runningStatus = AGENT_RUNNING_STATUS_NORMAL;
+	resetAdbDoctorBounceNum(agentWrapper->restartFactor);
 	ereport(LOG,
 			(errmsg("%s:%s, agent status normal",
 					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
@@ -698,6 +713,8 @@ static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper)
 	AdbMgrHostWrapper *host;
 	Oid hostOid;
 	MemoryContext oldContext;
+	MemoryContext spiContext;
+
 	/* We don't want to restart too often.  */
 	if (!beyondRestartDelay(agentWrapper))
 	{
@@ -711,17 +728,12 @@ static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper)
 	oldContext = CurrentMemoryContext;
 
 	/* Double check to ensure that the host information in the mgr database has not changed. */
-	SPI_CONNECT_TRANSACTIONAL_START(ret);
-	if (ret != SPI_OK_CONNECT)
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_CONNECTION_FAILURE),
-				 (errmsg("SPI_connect failed, connect return:%d.",
-						 ret))));
-	}
+	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(oldContext);
 
 	hostOid = agentWrapper->hostWrapper->oid;
-	host = SPI_selectMgrHostByOid(oldContext, hostOid);
+	host = SPI_selectMgrHostByOid(hostOid, spiContext);
 	if (host == NULL)
 	{
 		ereport(ERROR,
@@ -803,7 +815,8 @@ static bool restartAgentBySSH(ManagerAgentWrapper *agentWrapper)
 									 agentWrapper->hostWrapper->hostaddr,
 									 agentWrapper->hostWrapper->hostadbhome,
 									 NULL);
-	/* The previous operations will take a while, we need precise time to prevent repeated restarts. */
+	/* The previous operations will take a while, 
+	 * we need precise time to prevent repeated restarts. */
 	agentWrapper->restartTime = GetCurrentTimestamp();
 	if (cmdRst->ret == 0)
 	{
@@ -869,7 +882,6 @@ static bool sendStopAgentMessage(ManagerAgentWrapper *agentWrapper)
 	bool done;
 	StringInfoData buf;
 	initStringInfo(&buf);
-	/* send idle message, do it as heartbeat message. */
 	ma_beginmessage(&buf, AGT_MSG_COMMAND);
 	ma_sendbyte(&buf, AGT_CMD_STOP_AGENT);
 	ma_sendstring(&buf, "stop agent");
@@ -1187,7 +1199,6 @@ static HostConfiguration *newHostConfiguration(AdbDoctorConf *conf)
 {
 	HostConfiguration *hc;
 	long deadlineMs;
-	long minTimeMs;
 
 	checkAdbDoctorConf(conf);
 
@@ -1196,26 +1207,20 @@ static HostConfiguration *newHostConfiguration(AdbDoctorConf *conf)
 	deadlineMs = conf->agentdeadline * 1000L;
 	hc->agentdeadlineMs = deadlineMs;
 	hc->waitEventTimeoutMs = LIMIT_VALUE_RANGE(500, 10000, floor(deadlineMs / 30));
-	/* treat waitEventTimeoutMs as the minimum time unit, any time variable less then it is meaningless. */
-	minTimeMs = hc->waitEventTimeoutMs;
-	hc->connectTimeoutMs = LIMIT_VALUE_RANGE(Max(minTimeMs,
-												 conf->agent_connect_timeout_ms_min),
+	hc->connectTimeoutMs = LIMIT_VALUE_RANGE(conf->agent_connect_timeout_ms_min,
 											 conf->agent_connect_timeout_ms_max,
 											 floor(deadlineMs / 10));
-	hc->reconnectDelayMs = LIMIT_VALUE_RANGE(Max(minTimeMs,
-												 conf->agent_reconnect_delay_ms_min),
+	hc->reconnectDelayMs = LIMIT_VALUE_RANGE(conf->agent_reconnect_delay_ms_min,
 											 conf->agent_reconnect_delay_ms_max,
-											 floor(deadlineMs / 20));
-	hc->heartbeatTimoutMs = LIMIT_VALUE_RANGE(Max(minTimeMs,
-												  conf->agent_heartbeat_timeout_ms_min),
+											 floor(deadlineMs /
+												   conf->agent_connection_error_num_max));
+	hc->heartbeatTimoutMs = LIMIT_VALUE_RANGE(conf->agent_heartbeat_timeout_ms_min,
 											  conf->agent_heartbeat_timeout_ms_max,
 											  floor(deadlineMs / 5));
-	hc->heartbeatIntervalMs = LIMIT_VALUE_RANGE(Max(minTimeMs,
-													conf->agent_heartbeat_interval_ms_min),
+	hc->heartbeatIntervalMs = LIMIT_VALUE_RANGE(conf->agent_heartbeat_interval_ms_min,
 												conf->agent_heartbeat_interval_ms_max,
 												floor(deadlineMs / 5));
-	hc->restartDelayMs = LIMIT_VALUE_RANGE(Max(minTimeMs,
-											   conf->agent_restart_delay_ms_min),
+	hc->restartDelayMs = LIMIT_VALUE_RANGE(conf->agent_restart_delay_ms_min,
 										   conf->agent_restart_delay_ms_max,
 										   floor(deadlineMs / 2));
 	hc->connectionErrorNumMax = conf->agent_connection_error_num_max;
