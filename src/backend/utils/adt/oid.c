@@ -22,7 +22,9 @@
 #include "nodes/value.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
-
+#ifdef ADB_EXT
+#include "nodes/pg_list.h"
+#endif /* ADB_EXT */
 
 #define OidVectorSize(n)	(offsetof(oidvector, values) + (n) * sizeof(Oid))
 
@@ -186,6 +188,39 @@ buildoidvector(const Oid *oids, int n)
 
 	return result;
 }
+
+#ifdef ADB_EXT
+oidvector *
+buildoidvector_from_list(List *oidlist)
+{
+	oidvector  *result;
+	ListCell   *lc;
+	int			i,n;
+	Assert(oidlist == NIL || IsA(oidlist, OidList));
+
+	n = list_length(oidlist);
+	result = (oidvector *) palloc0(OidVectorSize(n));
+
+	i=0;
+	foreach(lc, oidlist)
+		result->values[i++] = lfirst_oid(lc);
+	Assert(i == n);
+
+	/*
+	 * Attach standard array header.  For historical reasons, we set the index
+	 * lower bound to 0 not 1.
+	 */
+	SET_VARSIZE(result, OidVectorSize(n));
+	result->ndim = 1;
+	result->dataoffset = 0;		/* never any nulls */
+	result->elemtype = OIDOID;
+	result->dim1 = n;
+	result->lbound1 = 0;
+
+	return result;
+
+}
+#endif /* ADB_EXT */
 
 /*
  *		oidvectorin			- converts "num num ..." to internal form
