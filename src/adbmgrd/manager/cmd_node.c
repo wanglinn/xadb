@@ -5585,12 +5585,14 @@ static bool mgr_drop_node_on_all_coord(char nodetype, char *nodename)
 		}
 		/*check the receive msg*/
 		execRes = mgr_recv_msg(ma, &getAgentCmdRst);
+		ma_close(ma);
 		if (!execRes)
 			ereport(WARNING, (errmsg("drop node \"%s\" on coordinators \"%s\" fail %s"
 				,nodename, NameStr(mgr_node->nodename), getAgentCmdRst.description.data)));
 
 
 		/* exec "select pgxc_pool_reload();" */
+		ma = ma_connect_hostoid(mgr_node->nodehost);
 		appendStringInfo(&psql_cmd2, " select pgxc_pool_reload();\"");
 		ma_beginmessage(&buf, AGT_MSG_COMMAND);
 		ma_sendbyte(&buf, AGT_CMD_PSQL_CMD);
