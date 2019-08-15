@@ -11492,7 +11492,7 @@
   proretset => 't', provolatile => 's', prorettype => 'record',
   proargtypes => '', proallargtypes => '{text,text,text}',
   proargmodes => '{o,o,o}',
-  proargnames => '{key,value,description}',
+  proargnames => '{key,value,comment}',
   prosrc => 'mgr_doctor_list' },
 # ADB_END
 ]

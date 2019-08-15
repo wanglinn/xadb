@@ -215,7 +215,7 @@ Datum mgr_doctor_list(PG_FUNCTION_ARGS)
 	spi_tupdesc = spi_tuptable->tupdesc;
 
 	/* The above spi query must always return three columns.
-	 * k, v, desp */
+	 * k, v, comment */
 	if (spi_tupdesc->natts != 3)
 		ereport(ERROR,
 				(errmsg("mgr_doctor_list: The provided query must return 3 columns, "
