@@ -776,11 +776,8 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		List *exec_param_clauses;
 		List *exclude = NIL;
 		RelationLocInfo *loc_info = rel->loc_info;
-		if (IsLocatorDistributedByValue(loc_info->locatorType) ||
-			loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
-		{
+		if (IsLocatorDistributedByValue(loc_info->locatorType))
 			exclude = list_difference_oid(rel->loc_info->nodeids, rel->remote_oids);
-		}
 		rinfo = MakeReduceInfoFromLocInfo(loc_info, exclude, rte->relid, rel->relid);
 		list_free(exclude);
 

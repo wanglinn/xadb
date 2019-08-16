@@ -30,9 +30,6 @@ extern bool pgxc_is_expr_shippable(Expr *node, bool *has_aggs);
 /* Determine if given function is shippable */
 extern bool pgxc_is_func_shippable(Oid funcid);
 
-extern List *pgxc_find_user_defined_equijoin_quals(ExecNodes *nodes1,
-												   ExecNodes *nodes2,
-												   Node *quals);
 /* Check equijoin conditions on given relations */
 extern Expr *pgxc_find_dist_equijoin_qual(List *dist_vars1, List *dist_vars2,
 											Node *quals);

@@ -239,13 +239,7 @@ pgxc_FQS_datanodes_for_rtr(Index varno, Shippability_context *sc_context)
 			 * map the Vars on which its distributed to the columns in the
 			 * result.
 			 */
-#ifdef ADB
-			if (exec_nodes &&
-				(IsExecNodesDistributedByValue(exec_nodes) ||
-				IsExecNodesDistributedByUserDefined(exec_nodes)))
-#else
 			if (exec_nodes && IsExecNodesDistributedByValue(exec_nodes))
-#endif
 				pgxc_replace_dist_vars_subquery(rte->subquery, exec_nodes, varno);
 			return exec_nodes;
 		}
@@ -534,12 +528,6 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 		Var	*dist_var = pgxc_get_dist_var(varno, rte, query->targetList);
 		rel_exec_nodes->en_dist_vars = list_make1(dist_var);
 	}
-#ifdef ADB
-	else if (IsExecNodesDistributedByUserDefined(rel_exec_nodes))
-	{
-		rel_exec_nodes->en_dist_vars = pgxc_get_dist_var_list(varno, rte);
-	}
-#endif
 	if (rel_access == RELATION_ACCESS_INSERT &&
 			 IsRelationDistributedByValue(rel_loc_info))
 	{
@@ -571,48 +559,13 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 		list_free(rel_exec_nodes->nodeids);
 		rel_exec_nodes->nodeids = NIL;
 #ifdef ADB
-		rel_exec_nodes->en_funcid = rel_loc_info->funcid;
 		rel_exec_nodes->en_expr = list_make1(tle->expr);
 #else
 		rel_exec_nodes->en_expr = tle->expr;
 #endif
 		rel_exec_nodes->en_relid = rel_loc_info->relid;
 	}
-#ifdef ADB
-	else if (rel_access == RELATION_ACCESS_INSERT &&
-			 IsRelationDistributedByUserDefined(rel_loc_info))
-	{
-		ListCell *lc1, *lc2;
-		TargetEntry *tle;
-		char *colname = NULL;
-		List *en_expr_list = NIL;
-		List *colname_list = NIL;
 
-		colname_list = GetRelationDistribColumnList(rel_loc_info);
-		foreach (lc1, colname_list)
-		{
-			colname = (char *)lfirst(lc1);
-			foreach(lc2, query->targetList)
-			{
-				tle = (TargetEntry *) lfirst(lc2);
-				if (tle->resjunk)
-					continue;
-				if (strcmp(colname, tle->resname) == 0)
-					break;
-			}
-			if (lc2)
-				en_expr_list = lappend(en_expr_list, tle->expr);
-			else
-				en_expr_list = lappend(en_expr_list, NULL);
-		}
-		list_free_deep(colname_list);
-		list_free(rel_exec_nodes->nodeids);
-		rel_exec_nodes->nodeids = NIL;
-		rel_exec_nodes->en_funcid = rel_loc_info->funcid;
-		rel_exec_nodes->en_expr = en_expr_list;
-		rel_exec_nodes->en_relid = rel_loc_info->relid;
-	}
-#endif
 	return rel_exec_nodes;
 }
 
@@ -1615,170 +1568,7 @@ pgxc_is_func_shippable(Oid funcid)
 {
 	return func_cluster(funcid) == PROC_CLUSTER_SAFE;
 }
-#ifdef ADB
-/*
- * pgxc_find_user_defined_equijoin_quals
- * Check equijoin conditions on given relations with distributing by user-
- * defined function.
- */
-List *
-pgxc_find_user_defined_equijoin_quals(ExecNodes *nodes1,
-									  ExecNodes *nodes2,
-									  Node *quals)
-{
-	List		*lquals, *dist_vars1, *dist_vars2;
-	ListCell	*qcell, *lc1, *lc2;
-	List		*equal_qual_list = NIL;
-	Var			*var1, *var2;
-	Var			*lvar, *rvar;
-	Expr 		*qual_expr;
-	struct EqualJoinQual
-	{
-		Var *lvar;
-		Var *rvar;
-		Expr *expr;
-	} *equal_join_quals = NULL;
-	int			idx1, idx2;
-	bool 		found;
 
-	if (!quals)
-		return NIL;
-
-	/*
-	 * Just deal with user-defined distribution relations.
-	 */
-	if (!(nodes1->baselocatortype == nodes2->baselocatortype &&
-		IsExecNodesDistributedByUserDefined(nodes1)))
-		return NIL;
-
-	/*
-	 * Just deal with the same user-defined distribute function.
-	 */
-	Assert(OidIsValid(nodes1->en_funcid));
-	Assert(OidIsValid(nodes2->en_funcid));
-	if (nodes1->en_funcid != nodes2->en_funcid)
-		return NIL;
-
-	dist_vars1 = nodes1->en_dist_vars;
-	dist_vars2 = nodes2->en_dist_vars;
-	Assert(dist_vars1 && dist_vars2);
-	Assert(list_length(dist_vars1) == list_length(dist_vars2));
-
-	if (!IsA(quals, List))
-		lquals = make_ands_implicit((Expr *)quals);
-	else
-		lquals = (List *)quals;
-
-	equal_join_quals = (struct EqualJoinQual *)palloc0(
-							sizeof(struct EqualJoinQual) * list_length(lquals));
-	idx1 = 0;
-	foreach(qcell, lquals)
-	{
-		OpExpr *op;
-		qual_expr = (Expr *)lfirst(qcell);
-
-		if (!IsA(qual_expr, OpExpr))
-			continue;
-		op = (OpExpr *)qual_expr;
-		/* If not a binary operator, it can not be '='. */
-		if (list_length(op->args) != 2)
-			continue;
-
-		/*
-		 * Check if operands are Vars or RelableType, if not check next expression */
-		if (IsA(linitial(op->args), Var))
-		{
-			lvar = (Var *)linitial(op->args);
-		}
-		else if (IsA(linitial(op->args), RelabelType) &&
-					IsA(((RelabelType *)linitial(op->args))->arg, Var))
-		{
-			lvar = (Var *)((RelabelType *)linitial(op->args))->arg;
-		}
-		else
-			continue;
-
-		if (IsA(lsecond(op->args), Var))
-		{
-			rvar = (Var *)lsecond(op->args);
-		}
-		else if (IsA(lsecond(op->args), RelabelType) &&
-				IsA(((RelabelType *)lsecond(op->args))->arg, Var))
-		{
-			rvar = (Var *)((RelabelType *)lsecond(op->args))->arg;
-		}
-		else
-			continue;
-
-		/*
-		 * If the data types of both the columns are not same, continue. Hash
-		 * and Modulo of a the same bytes will be same if the data types are
-		 * same. So, only when the data types of the columns are same, we can
-		 * ship a distributed JOIN to the Datanodes
-		 */
-		if (exprType((Node *)lvar) != exprType((Node *)rvar))
-			continue;
-
-		/* Do Vars in the equi-join represent distribution columns? */
-		if (!((pgxc_is_var_distrib_column(lvar, dist_vars1) &&
-				pgxc_is_var_distrib_column(rvar, dist_vars2)) ||
-			 (pgxc_is_var_distrib_column(lvar, dist_vars2) &&
-				pgxc_is_var_distrib_column(rvar, dist_vars1))))
-			continue;
-
-		/*
-		 * If the operator is not an assignment operator, check next
-		 * constraint. An operator is an assignment operator if it's
-		 * mergejoinable or hashjoinable. Beware that not every assignment
-		 * operator is mergejoinable or hashjoinable, so we might leave some
-		 * oportunity. But then we have to rely on the opname which may not
-		 * be something we know to be equality operator as well.
-		 */
-		if (!op_mergejoinable(op->opno, exprType((Node *)lvar)) &&
-			!op_hashjoinable(op->opno, exprType((Node *)lvar)))
-			continue;
-
-		/* Found equi-join condition on distribution columns */
-		equal_join_quals[idx1].lvar = lvar;
-		equal_join_quals[idx1].rvar = rvar;
-		equal_join_quals[idx1].expr = qual_expr;
-		idx1++;
-	}
-
-	if (!idx1)
-		return NIL;
-
-	forboth (lc1, dist_vars1, lc2, dist_vars2)
-	{
-		found = false;
-		var1 = (Var *)lfirst(lc1);
-		var2 = (Var *)lfirst(lc2);
-
-		for (idx2 = 0; idx2 < idx1; idx2++)
-		{
-			lvar = equal_join_quals[idx2].lvar;
-			rvar = equal_join_quals[idx2].rvar;
-			qual_expr = equal_join_quals[idx2].expr;
-			if ((equal(lvar, var1) && equal(rvar, var2)) ||
-				(equal(lvar, var2) && equal(rvar, var1)))
-			{
-				found = true;
-				equal_qual_list = lappend(equal_qual_list, qual_expr);
-			}
-		}
-
-		if (!found)
-		{
-			list_free(equal_qual_list);
-			return NIL;
-		}
-	}
-
-	pfree(equal_join_quals);
-
-	return equal_qual_list;
-}
-#endif
 /*
  * pgxc_find_dist_equijoin_qual
  * Check equijoin conditions on given relations
@@ -2180,35 +1970,7 @@ pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 				 * remotely as the distribution column is included in index.
 				 */
 				break;
-#ifdef ADB
-			case LOCATOR_TYPE_USER_DEFINED:
-				{
-					List *attr_diff = NIL;
 
-					/* Index contains expressions, it cannot be shipped safely */
-					if (indexExprs != NIL)
-					{
-						result = false;
-						break;
-					}
-
-					/* Nothing to do if no attributes */
-					if (indexAttrs == NIL)
-						break;
-
-					/*
-					 * Check that all distribution columns are included in the list of
-					 * index columns.
-					 */
-					attr_diff = list_difference_int(relLocInfo->funcAttrNums, indexAttrs);
-					if (attr_diff != NIL)
-					{
-						pfree(attr_diff);
-						result = false;
-					}
-				}
-				break;
-#endif
 			/* Those types are not supported yet */
 			case LOCATOR_TYPE_RANGE:
 			case LOCATOR_TYPE_NONE:
@@ -2273,7 +2035,6 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 			result = false;
 			break;
 #ifdef ADB
-		case LOCATOR_TYPE_USER_DEFINED:
 		case LOCATOR_TYPE_HASHMAP:
 #endif
 		case LOCATOR_TYPE_HASH:
@@ -2316,62 +2077,7 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 				result = false;
 				break;
 			}
-#ifdef ADB
-			if (IsRelationDistributedByUserDefined(parentLocInfo))
-			{
-				List *childRefsDiff = NIL;
-				List *parentRefsDiff = NIL;
-				ListCell *cell1 = NULL;
-				ListCell *cell2 = NULL;
-				int childAttIdx, parentAttIdx;
 
-				/* Parent and child need to have the same distribution function */
-				Assert(OidIsValid(parentLocInfo->funcid));
-				Assert(OidIsValid(childLocInfo->funcid));
-				if (parentLocInfo->funcid != childLocInfo->funcid)
-				{
-					result = false;
-					break;
-				}
-				Assert(list_length(childLocInfo->funcAttrNums) ==
-					list_length(parentLocInfo->funcAttrNums));
-
-				/* Child foreign key should contain all distribution columns. */
-				childRefsDiff = list_difference_int(childLocInfo->funcAttrNums, childRefs);
-				if (childRefsDiff != NIL)
-				{
-					pfree(childRefsDiff);
-					result = false;
-					break;
-				}
-
-				/* Parent foreign key should contain all distribution columns. */
-				parentRefsDiff = list_difference_int(parentLocInfo->funcAttrNums, parentRefs);
-				if (parentRefsDiff != NIL)
-				{
-					pfree(parentRefsDiff);
-					result = false;
-					break;
-				}
-
-				/* Parent and child distribution columns need to have the same order. */
-				forboth (cell1, childRefs, cell2, parentRefs)
-				{
-					childAttIdx = list_member_int_idx(childLocInfo->funcAttrNums,
-													  lfirst_int(cell1));
-					parentAttIdx = list_member_int_idx(parentLocInfo->funcAttrNums,
-													  lfirst_int(cell2));
-					if (childAttIdx < 0 && parentAttIdx < 0)
-						continue;
-
-					if (childAttIdx != parentAttIdx)
-					{
-						result = false;
-						break;
-					}
-				}
-			} else
-#endif
 			/*
 			 * Check that child and parents are referenced using their
 			 * distribution column.
@@ -2487,39 +2193,7 @@ pgxc_get_dist_var(Index varno, RangeTblEntry *rte, List *tlist)
 						dist_var_typmod, dist_var_collid, 0);
 	return dist_var;
 }
-#ifdef ADB
-List *
-pgxc_get_dist_var_list(Index varno, RangeTblEntry *rte)
-{
-	RelationLocInfo *rel_loc_info = GetRelationLocInfo(rte->relid);
-	ListCell		*lcell;
-	Var				*dist_var;
-	AttrNumber		attnum;
-	Oid				dist_var_type;
-	int32			dist_var_typmod;
-	Oid				dist_var_collid;
-	List			*dist_var_list;
 
-	if (!rel_loc_info || !IsRelationDistributedByUserDefined(rel_loc_info))
-		return NULL;
-
-	Assert(OidIsValid(rel_loc_info->funcid));
-	Assert(rel_loc_info->funcAttrNums);
-
-	dist_var_list = NIL;
-	foreach (lcell, rel_loc_info->funcAttrNums)
-	{
-		attnum = (AttrNumber)lfirst_int(lcell);
-		get_rte_attribute_type(rte, attnum, &dist_var_type,
-							&dist_var_typmod, &dist_var_collid);
-		dist_var = makeVar(varno, attnum, dist_var_type,
-						dist_var_typmod, dist_var_collid, 0);
-		dist_var_list = lappend(dist_var_list, dist_var);
-	}
-
-	return dist_var_list;
-}
-#endif
 /*
  * pgxc_is_join_shippable
  * The shippability of JOIN is decided in following steps
@@ -2613,20 +2287,6 @@ pgxc_is_join_shippable(ExecNodes *inner_en, ExecNodes *outer_en,
 			if (equi_join_expr && pgxc_is_expr_shippable(equi_join_expr, NULL))
 				merge_nodes = true;
 		}
-#ifdef ADB
-		else
-		if (inner_en->baselocatortype == outer_en->baselocatortype &&
-			IsExecNodesDistributedByUserDefined(inner_en))
-		{
-			List *equi_join_exprs = NIL;
-
-			equi_join_exprs = pgxc_find_user_defined_equijoin_quals(outer_en,
-																	inner_en,
-																	join_quals);
-			if (equi_join_exprs && pgxc_is_expr_shippable((Expr *)equi_join_exprs, NULL))
-				merge_nodes = true;
-		}
-#endif
 	}
 	/*
 	 * If outer side is distributed and inner side is replicated, we can ship

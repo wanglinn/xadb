@@ -8083,12 +8083,6 @@ ATAddCheckConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 	 }
 
 	 /*
-	  * See pgxc_check_fk_shippability.
-	  */
-	 if (IsRelationDistributedByUserDefined(rloc))
-		 return ;
-
-	 /*
 	  * They must have the same distribution columns if the primary key table
 	  * is not replicated.
 	  */
@@ -13629,9 +13623,6 @@ AtExecDistributeBy(Relation rel, DistributeBy *options)
 	char locatortype;
 	int hashalgorithm, hashbuckets;
 	AttrNumber attnum;
-	Oid funcid = InvalidOid;
-	int numatts = 0;
-	int16 *attnums = NULL;
 
 	if (options == NULL)
 		return;
@@ -13645,11 +13636,7 @@ AtExecDistributeBy(Relation rel, DistributeBy *options)
 								 &locatortype,
 								 &hashalgorithm,
 								 &hashbuckets,
-								 &attnum,
-								 &funcid,
-								 &numatts,
-								 &attnums
-								 );
+								 &attnum);
 
 	/*
 	 * It is not checked if the distribution type list is the same as the old one,
@@ -13664,11 +13651,7 @@ AtExecDistributeBy(Relation rel, DistributeBy *options)
 				   hashbuckets,
 				   0,
 				   NULL,
-				   PGXC_CLASS_ALTER_DISTRIBUTION,
-				   funcid,
-				   numatts,
-				   attnums
-				   );
+				   PGXC_CLASS_ALTER_DISTRIBUTION);
 
 	/* Make the additional catalog changes visible */
 	CommandCounterIncrement();
@@ -13704,11 +13687,7 @@ AtExecSubCluster(Relation rel, PGXCSubCluster *options)
 				   0,
 				   numnodes,
 				   nodeoids,
-				   PGXC_CLASS_ALTER_NODES,
-				   0,
-				   0,
-				   NULL
-				   );
+				   PGXC_CLASS_ALTER_NODES);
 
 	/* Make the additional catalog changes visible */
 	CommandCounterIncrement();
@@ -13754,11 +13733,7 @@ AtExecAddNode(Relation rel, List *options)
 				   0,
 				   old_num,
 				   old_oids,
-				   PGXC_CLASS_ALTER_NODES,
-				   0,
-				   0,
-				   NULL
-				   );
+				   PGXC_CLASS_ALTER_NODES);
 
 	/* Make the additional catalog changes visible */
 	CommandCounterIncrement();
@@ -13801,11 +13776,7 @@ AtExecDeleteNode(Relation rel, List *options)
 				   0,
 				   old_num,
 				   old_oids,
-				   PGXC_CLASS_ALTER_NODES,
-				   0,
-				   0,
-				   NULL
-				   );
+				   PGXC_CLASS_ALTER_NODES);
 
 	/* Make the additional catalog changes visible */
 	CommandCounterIncrement();
@@ -13890,10 +13861,6 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 	Oid		   *new_oid_array;	/* Modified list of Oids */
 	int			new_num, i;	/* Modified number of Oids */
 	ListCell   *item;
-	Oid			funcid = InvalidOid;
-	int			numatts = 0;
-	int			idx = 0;
-	int16	   *attnums = NULL;
 
 	/* Get necessary information about relation */
 	rel = relation_open(redistribState->relid, NoLock);
@@ -13936,21 +13903,7 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 											 &(newLocInfo->locatorType),
 											 NULL,
 											 NULL,
-											 (AttrNumber *)&(newLocInfo->partAttrNum),
-											 &funcid,
-											 &numatts,
-											 &attnums
-											 );
-
-				newLocInfo->funcid = funcid;
-				if (newLocInfo->funcAttrNums)
-				{
-					pfree(newLocInfo->funcAttrNums);
-					newLocInfo->funcAttrNums = NIL;
-				}
-				for (idx = 0; idx < numatts; idx++)
-					newLocInfo->funcAttrNums = lappend_int(newLocInfo->funcAttrNums,
-															attnums[idx]);
+											 &newLocInfo->partAttrNum);
 				break;
 			case AT_SubCluster:
 				/* Update new list of nodes */
@@ -16831,10 +16784,7 @@ void inferCreateStmtDistributeBy(CreateStmt *stmt)
 								 &inferredDisttype,
 								 NULL,
 								 NULL,
-								 &attnum,
-								 NULL,
-								 NULL,
-								 NULL);
+								 &attnum);
 	if (inferredDisttype > 0)
 	{
 		inferredDistributeBy = makeNode(DistributeBy);

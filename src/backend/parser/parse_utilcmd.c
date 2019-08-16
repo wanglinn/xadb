@@ -212,44 +212,6 @@ addDefaultDistributeByOfSingleInherit(CreateStmt *stmt)
 		case LOCATOR_TYPE_MODULO:
 			distby->colname = get_attname(relloc->relid, relloc->partAttrNum, false);
 			break;
-		case LOCATOR_TYPE_USER_DEFINED:
-			{
-				HeapTuple	proctup;
-				Form_pg_proc procform;
-				ColumnRef  *c = NULL;
-				List	   *funcname = NIL;
-				List	   *funcargs = NIL;
-				ListCell   *lc = NULL;
-				char	   *colname = NULL;
-
-				proctup = SearchSysCache1(PROCOID, ObjectIdGetDatum(relloc->funcid));
-				if (!HeapTupleIsValid(proctup))
-					elog(ERROR, "cache lookup failed for function %u", relloc->funcid);
-				procform = (Form_pg_proc) GETSTRUCT(proctup);
-
-				/* Print schema name only if it's not pg_catalog */
-				if (procform->pronamespace != PG_CATALOG_NAMESPACE)
-				{
-					char *schemaname = get_namespace_name(procform->pronamespace);
-					funcname = lappend(funcname, makeString(schemaname));
-				}
-				/* Deparse the function name */
-				funcname = lappend(funcname, makeString(pstrdup(NameStr(procform->proname))));
-				ReleaseSysCache(proctup);
-
-				foreach (lc, relloc->funcAttrNums)
-				{
-					colname = get_attname(relloc->relid, (AttrNumber) lfirst_int(lc), false);
-					c = makeNode(ColumnRef);
-					c->fields = list_make1(makeString(colname));
-					c->location = -1;
-
-					funcargs = lappend(funcargs, c);
-				}
-
-				distby->func = makeFuncCall(funcname, funcargs, -1);
-			}
-			break;
 		case LOCATOR_TYPE_RANGE:
 		case LOCATOR_TYPE_CUSTOM:
 		case LOCATOR_TYPE_NONE:

@@ -161,13 +161,6 @@ create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte,
 		exec_nodes->en_dist_vars = list_make1(dist_var);
 	}
 
-#ifdef ADB
-	else if (IsExecNodesDistributedByUserDefined(exec_nodes))
-	{
-		exec_nodes->en_dist_vars = pgxc_get_dist_var_list(rel->relid, rte);
-	}
-#endif
-
 	param_info = get_baserel_parampathinfo(root, rel, required_outer);
 
 	/* We don't have subpaths for a plain base relation */

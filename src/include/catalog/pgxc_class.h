@@ -28,17 +28,8 @@ CATALOG(pgxc_class,9020,PgxcClassRelationId) BKI_WITHOUT_OIDS
 	/* Number of buckets */
 	int16		pchashbuckets;
 
-	/* User-defined distribution function oid */
-	Oid			pcfuncid;
-
 	/* List of nodes used by table */
 	oidvector	nodeoids;
-
-#ifdef CATALOG_VARLEN
-
-	/* List of column number of distribution */
-	int2vector	pcfuncattnums;
-#endif
 } FormData_pgxc_class;
 
 typedef FormData_pgxc_class *Form_pgxc_class;
@@ -62,7 +53,6 @@ typedef enum PgxcClassAlterType
 #define LOCATOR_TYPE_DISTRIBUTED	'D'	/* for distributed table without specific
 										 * scheme, e.g. result of JOIN of
 										 * replicated and distributed table */
-#define LOCATOR_TYPE_USER_DEFINED	'U'
 #define LOCATOR_TYPE_HASHMAP		'B'
 
 
@@ -78,13 +68,11 @@ typedef enum PgxcClassAlterType
 												 (x) == LOCATOR_TYPE_RANDOM || \
 												 (x) == LOCATOR_TYPE_HASHMAP || \
 												 (x) == LOCATOR_TYPE_MODULO || \
-												 (x) == LOCATOR_TYPE_DISTRIBUTED || \
-												 (x) == LOCATOR_TYPE_USER_DEFINED)
+												 (x) == LOCATOR_TYPE_DISTRIBUTED)
 #define IsLocatorDistributedByValue(x)			((x) == LOCATOR_TYPE_HASH || \
 												 (x) == LOCATOR_TYPE_MODULO || \
 												 (x) == LOCATOR_TYPE_HASHMAP || \
 												 (x) == LOCATOR_TYPE_RANGE)
-#define IsLocatorDistributedByUserDefined(x)	((x) == LOCATOR_TYPE_USER_DEFINED)
 
 #define IsLocatorHashmap(x) 					(x == LOCATOR_TYPE_HASHMAP)
 
@@ -98,10 +86,7 @@ extern void PgxcClassCreate(Oid pcrelid,
 							int pchashalgorithm,
 							int pchashbuckets,
 							int numnodes,
-							Oid *nodes,
-							Oid pcfuncid,
-							int numatts,
-							int16 *pcfuncattnums);
+							Oid *nodes);
 extern void PgxcClassAlter(Oid pcrelid,
 						   char pclocatortype,
 						   int pcattnum,
@@ -109,13 +94,9 @@ extern void PgxcClassAlter(Oid pcrelid,
 						   int pchashbuckets,
 						   int numnodes,
 						   Oid *nodes,
-						   PgxcClassAlterType type,
-						   Oid pcfuncid,
-						   int numatts,
-						   int16 *pcfuncattnums);
+						   PgxcClassAlterType type);
 extern void RemovePgxcClass(Oid pcrelid);
 
-extern void CreatePgxcRelationFuncDepend(Oid relid, Oid funcid);
 extern void CreatePgxcRelationAttrDepend(Oid relid, AttrNumber attnum);
 
 #endif   /* PGXC_CLASS_H */

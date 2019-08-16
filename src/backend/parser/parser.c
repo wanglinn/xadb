@@ -1145,9 +1145,7 @@ void transformDistributeBy(DistributeBy *dbstmt, core_yyscan_t yyscanner)
 	List *funcname;
 	List *funcargs;
 
-	if (dbstmt == NULL ||
-		/* must be replication or random */
-		dbstmt->disttype != LOCATOR_TYPE_USER_DEFINED)
+	if (dbstmt == NULL)
 		return ;
 
 	Assert(dbstmt->func);
@@ -1207,17 +1205,17 @@ void transformDistributeBy(DistributeBy *dbstmt, core_yyscan_t yyscanner)
 		}
 		else
 		{
-			/*
-			 * Nothing changed.
-			 * Just keep compiler quiet.
-			 */
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("syntax error"),
+					 scanner_errposition(func->location, yyscanner)));
 		}
 	} else
 	{
-		/*
-		 * Nothing changed.
-		 * Just keep compiler quiet.
-		 */
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("syntax error"),
+				 scanner_errposition(exprLocation(lsecond(funcargs)), yyscanner)));
 	}
 }
 #endif /* ADB */
