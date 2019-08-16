@@ -135,8 +135,6 @@ RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes)
 	Node		   *en_expr_node;
 	List		   *result = NIL;
 	RelationLocInfo*rel_loc = NULL;
-	Oid			   *argtypes = NULL;
-	int				nargs;
 
 	if (!exec_nodes || !exec_nodes->en_expr)
 		return NIL;
@@ -157,28 +155,10 @@ RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes)
 	en_expr_nulls = (bool *) palloc0(sizeof(bool) * nelems);
 	en_expr_types = (Oid *) palloc0(sizeof(Oid) * nelems);
 
-	if (IsRelationDistributedByUserDefined(rel_loc))
-	{
-		Assert(OidIsValid(rel_loc->funcid));
-		Assert(rel_loc->funcAttrNums);
-		(void) get_func_signature(rel_loc->funcid, &argtypes, &nargs);
-		Assert(nelems == nargs);
-	}
-
 	idx = 0;
 	foreach (lc, exec_nodes->en_expr)
 	{
 		en_expr_node = (Node *)lfirst(lc);
-		if (IsRelationDistributedByUserDefined(rel_loc) && en_expr_node)
-		{
-			en_expr_node = coerce_to_target_type(NULL, en_expr_node,
-												exprType(en_expr_node),
-												argtypes[idx],
-												-1,
-												COERCION_IMPLICIT,
-												COERCE_IMPLICIT_CAST,
-												-1);
-		}
 		if (en_expr_node)
 		{
 			estate = ExecInitExpr((Expr*)en_expr_node, (PlanState *) planstate);
@@ -196,9 +176,6 @@ RewriteExecNodes(RemoteQueryState *planstate, ExecNodes *exec_nodes)
 		}
 		idx++;
 	}
-
-	if (argtypes)
-		pfree(argtypes);
 
 	result = GetInvolvedNodes(rel_loc, nelems, en_expr_values, en_expr_nulls,
 							  en_expr_types, exec_nodes->accesstype);

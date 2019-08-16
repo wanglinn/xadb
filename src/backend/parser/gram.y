@@ -4282,7 +4282,6 @@ OptDistributeByInternal:  DISTRIBUTE BY OptDistributeType
 			| DISTRIBUTE BY func_name '(' func_arg_list ')'
 				{
 					DistributeBy *n = makeNode(DistributeBy);
-					n->disttype = LOCATOR_TYPE_USER_DEFINED;
 					n->func = makeFuncCall($3, $5, @3);
 					transformDistributeBy(n, yyscanner);
 					$$ = n;

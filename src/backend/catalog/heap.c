@@ -1038,358 +1038,6 @@ cmp_nodes(const void *p1, const void *p2)
 	return 1;
 }
 
-static List *
-GetUserDefinedFuncArgVars(Oid relid,
-						  DistributeBy *distributeby,
-						  TupleDesc descriptor)
-{
-	List	   *funcargs = NIL;
-	List	   *func_var_args = NIL;
-	ListCell   *cell = NULL;
-	ColumnRef  *cref = NULL;
-	char	   *cref_nspname = NULL;
-	char	   *cref_relname = NULL;
-	char	   *cref_colname = NULL;
-	AttrNumber	local_attnum = 0;
-	Var		   *local_var = NULL;
-	bool		invalid_col = false;
-
-	Assert(OidIsValid(relid));
-	Assert(distributeby && descriptor);
-	Assert(distributeby->disttype == LOCATOR_TYPE_USER_DEFINED);
-
-	funcargs = distributeby->func->args;
-
-	foreach (cell, funcargs)
-	{
-		if (!IsA(lfirst(cell), ColumnRef))
-		{
-			ereport(ERROR,
-				(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-				errmsg("Invalid distribution column specified"),
-				errhint("Only column(s) of the relation can be specified")));
-		}
-
-		cref = (ColumnRef *)lfirst(cell);
-		switch (list_length(cref->fields))
-		{
-			case 1:
-				{
-					Node *field1 = (Node *)linitial(cref->fields);
-
-					Assert(IsA(field1, String));
-					cref_colname = strVal(field1);
-
-					local_attnum = get_attnum(relid, cref_colname);
-					if (local_attnum <= 0 && local_attnum >= -(int) lengthof(SysAtt))
-					{
-						invalid_col = true;
-						break;
-					}
-				}
-				break;
-			case 2:
-				{
-					Node *field1 = (Node *)linitial(cref->fields);
-					Node *field2 = (Node *)lsecond(cref->fields);
-
-					Assert(IsA(field1, String));
-					cref_relname = strVal(field1);
-					Assert(IsA(field2, String));
-					cref_colname = strVal(field2);
-
-					if (strcmp(get_rel_name(relid), cref_relname) != 0)
-					{
-						invalid_col = true;
-						break;
-					}
-
-					local_attnum = get_attnum(relid, cref_colname);
-					if (local_attnum <= 0 && local_attnum >= -(int) lengthof(SysAtt))
-					{
-						invalid_col = true;
-						break;
-					}
-				}
-				break;
-			case 3:
-				{
-					Node *field1 = (Node *)linitial(cref->fields);
-					Node *field2 = (Node *)lsecond(cref->fields);
-					Node *field3 = (Node *)lthird(cref->fields);
-
-					Assert(IsA(field1, String));
-					cref_nspname = strVal(field1);
-					Assert(IsA(field2, String));
-					cref_relname = strVal(field2);
-					Assert(IsA(field3, String));
-					cref_colname = strVal(field3);
-
-					if (get_rel_namespace(relid) != get_namespace_oid(cref_nspname, true) ||
-						strcmp(get_rel_name(relid), cref_relname) != 0)
-					{
-						invalid_col = true;
-						break;
-					}
-
-					local_attnum = get_attnum(relid, cref_colname);
-					if (local_attnum <= 0 && local_attnum >= -(int) lengthof(SysAtt))
-					{
-						invalid_col = true;
-						break;
-					}
-				}
-				break;
-			case 4:
-				{
-					Node *field1 = (Node *) linitial(cref->fields);
-					Node *field2 = (Node *) lsecond(cref->fields);
-					Node *field3 = (Node *) lthird(cref->fields);
-					Node *field4 = (Node *) lfourth(cref->fields);
-					char *cref_catname;
-
-					Assert(IsA(field1, String));
-					cref_catname = strVal(field1);
-					Assert(IsA(field2, String));
-					cref_nspname = strVal(field2);
-					Assert(IsA(field3, String));
-					cref_relname = strVal(field3);
-					Assert(IsA(field4, String));
-					cref_colname = strVal(field4);
-
-					if (strcmp(cref_catname, get_database_name(MyDatabaseId)) != 0 ||
-						get_rel_namespace(relid) != get_namespace_oid(cref_nspname, true) ||
-						strcmp(cref_relname, get_rel_name(relid)) != 0)
-					{
-						invalid_col = true;
-						break;
-					}
-
-					local_attnum = get_attnum(relid, cref_colname);
-					if (local_attnum <= 0 && local_attnum >= -(int) lengthof(SysAtt))
-					{
-						invalid_col = true;
-						break;
-					}
-				}
-			default:
-				invalid_col = true;
-				break;
-		}
-
-		if (invalid_col)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-					 errmsg("Invalid distribution column specified: %s", NameListToString(cref->fields)),
-					 errhint("Only column(s) of the relation can be specified"),
-					 errposition(distributeby->func->location)));
-		} else
-		{
-			local_var = makeVar(1,
-								local_attnum,
-								TupleDescAttr(descriptor, local_attnum - 1)->atttypid,
-								TupleDescAttr(descriptor, local_attnum - 1)->atttypmod,
-								TupleDescAttr(descriptor, local_attnum - 1)->attcollation,
-								0);
-			local_var->location = cref->location;
-			func_var_args = lappend(func_var_args, local_var);
-		}
-	}
-
-	return func_var_args;
-}
-
-static bool
-IsReturnTypeDistributable(Oid retype)
-{
-	bool res = false;
-
-	switch (retype)
-	{
-		case INT2OID:
-		case INT4OID:
-		case INT8OID:
-			res = true;
-			break;
-		default:
-			res = false;
-			break;
-	}
-	return res;
-}
-
-static Oid
-lookup_distribute_function(List *funcname, List *funcargs, int location)
-{
-	ListCell 	   *l;
-	ListCell 	   *nextl;
-	Oid				actual_arg_types[FUNC_MAX_ARGS] = {0};
-	Oid			   *declared_arg_types;
-	List		   *argdefaults;
-	Oid				rettype;
-	bool			retset;
-	int				nvargs;
-	int 			nargs;
-	FuncDetailCode	fdresult;
-	Oid				funcid;
-	Oid				vatype;
-
-	if (list_length(funcargs) > FUNC_MAX_ARGS)
-		ereport(ERROR,
-				(errcode(ERRCODE_TOO_MANY_ARGUMENTS),
-				 errmsg("cannot pass more than %d argument to a function: %s",
-						FUNC_MAX_ARGS, NameListToString(funcname)),
-				 errposition(location)));
-
-	/*
-	 * Extract arg type info in preparation for function lookup.
-	 */
-	nargs = 0;
-	for (l = list_head(funcargs); l != NULL; l = nextl)
-	{
-		Node	   *arg = lfirst(l);
-		Oid			argtype = exprType(arg);
-
-		nextl = lnext(l);
-
-		if (argtype == VOIDOID && IsA(arg, Param))
-		{
-			funcargs = list_delete_ptr(funcargs, arg);
-			continue;
-		}
-
-		actual_arg_types[nargs++] = argtype;
-	}
-
-	/*
-	 * Try to look up function
-	 */
-	fdresult = func_get_detail(funcname,
-							   funcargs,
-							   NIL,
-							   nargs,
-							   actual_arg_types,
-							   true,
-							   true,
-							   &funcid,
-							   &rettype,
-							   &retset,
-							   &nvargs,
-/*ADBQ: func_get_detail add new param Oid *vatype */
-							   &vatype,
-							   &declared_arg_types,
-							   &argdefaults);
-
-	if (fdresult == FUNCDETAIL_NORMAL ||
-		fdresult == FUNCDETAIL_AGGREGATE ||
-		fdresult == FUNCDETAIL_WINDOWFUNC)
-	{
-		if (!IsReturnTypeDistributable(rettype))
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-					 errmsg("Return type of user-defined partition function "
-							"must be an integer"),
-					 errposition(location)));
-		}
-		if (get_func_retset(funcid))
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("set-returning functions are not allowed in DISTRIBUTE BY expressions"),
-					 errposition(location)));
-		}
-		if (func_volatile(funcid) != PROVOLATILE_IMMUTABLE)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("not IMMUTABLE functions are not allowed in DISTRIBUTE BY expressions"),
-					 errposition(location)));
-		}
-		return funcid;
-	} else
-	if (fdresult == FUNCDETAIL_MULTIPLE)
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_AMBIGUOUS_FUNCTION),
-				 errmsg("function %s is not unique",
-						func_signature_string(funcname, nargs, NIL, actual_arg_types)),
-				 errhint("Could not choose a best candidate function. "
-						 "You might need to add explicit type casts."),
-				 errposition(location)));
-	} else
-	if (fdresult == FUNCDETAIL_NOTFOUND ||
-		fdresult == FUNCDETAIL_COERCION)
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_FUNCTION),
-				 errmsg("function %s does not exist",
-						func_signature_string(funcname, nargs, NIL, actual_arg_types)),
-				 errhint("No function matches the given name and argument types. "
-						"You might need to add explicit type casts."),
-				 errposition(location)));
-	}
-
-	return InvalidOid;
-}
-
-static void
-GetUserDefinedDistribution(Oid relid,
-						   DistributeBy *distributeby,
-						   TupleDesc descriptor,
-						   Oid *funcid,
-						   int *numatts,
-						   int16 **attnums)
-{
-	FuncCall *func;
-	List 	*funcargs;
-	Oid 	fnoid;
-	int 	nargs;
-	int		i;
-	ListCell *l;
-
-	Assert(OidIsValid(relid));
-	Assert(distributeby && descriptor);
-	Assert(distributeby->disttype == LOCATOR_TYPE_USER_DEFINED);
-	Assert(distributeby->func != NULL);
-	func = distributeby->func;
-
-	/*
-	 * Step 1:
-	 *
-	 * Parse each ColumnRef argument of the function, get a var consists of
-	 * attnum, atttypid, atttypmod and attcollation.
-	 */
-	funcargs = GetUserDefinedFuncArgVars(relid, distributeby, descriptor);
-
-	/*
-	 * Step 2:
-	 *
-	 * Analyze and get distribute function infomation.
-	 */
-	fnoid = lookup_distribute_function(func->funcname, funcargs, func->location);
-
-	/*
-	 * Step 3:
-	 *
-	 * Get column information of distribute function
-	 */
-	nargs = list_length(funcargs);
-	if (funcid)
-		*funcid = fnoid;
-	if (numatts)
-		*numatts = nargs;
-	if (attnums)
-	{
-		*attnums = (int16 *)palloc0(sizeof(int16) * nargs);
-		i = 0;
-		foreach (l, funcargs)
-			(*attnums)[i++] = ((Var *)lfirst(l))->varattno;
-	}
-	pfree(funcargs);
-}
-
 /* --------------------------------
 *	   AddRelationDistribution
 *
@@ -1411,9 +1059,6 @@ AddRelationDistribution(Oid relid,
 	ObjectAddress	myself, referenced;
 	int				numnodes = 0;
 	Oid			   *nodeoids = NULL;
-	Oid				funcid = InvalidOid;
-	int				numatts = 0;
-	int16		   *attnums = NULL;
 
 	/* Obtain details of nodes and classify them */
 	if (IsDnNode() && (!(isRestoreMode && isRestoreCoordType)))
@@ -1439,10 +1084,7 @@ AddRelationDistribution(Oid relid,
 								 &locatortype,
 								 &hashalgorithm,
 								 &hashbuckets,
-								 &attnum,
-								 &funcid,
-								 &numatts,
-								 &attnums);
+								 &attnum);
 
 	/*
 	 * 1st column of auxiliary table is default auxiliary column,
@@ -1455,11 +1097,6 @@ AddRelationDistribution(Oid relid,
 			case LOCATOR_TYPE_HASH:
 			case LOCATOR_TYPE_MODULO:
 				if (attnum != Anum_aux_table_key)
-					ereport(ERROR,
-							(errmsg("distribute column of auxiliary table should be auxiliary column")));
-				break;
-			case LOCATOR_TYPE_USER_DEFINED:
-				if (numatts != 1 || attnums[0] != Anum_aux_table_key)
 					ereport(ERROR,
 							(errmsg("distribute column of auxiliary table should be auxiliary column")));
 				break;
@@ -1484,7 +1121,7 @@ AddRelationDistribution(Oid relid,
 
 	/* Now OK to insert data in catalog */
 	PgxcClassCreate(relid, locatortype, attnum, hashalgorithm,
-					hashbuckets, numnodes, nodeoids, funcid, numatts, attnums);
+					hashbuckets, numnodes, nodeoids);
 
 	/* Make dependency entries */
 	myself.classId = PgxcClassRelationId;
@@ -1499,9 +1136,6 @@ AddRelationDistribution(Oid relid,
 
 	/* Dependency on the specific attribute */
 	CreatePgxcRelationAttrDepend(relid, attnum);
-
-	/* Dependency on the specific function */
-	CreatePgxcRelationFuncDepend(relid, funcid);
 }
 
 /*
@@ -1517,10 +1151,7 @@ GetRelationDistributionItems(Oid relid,
 							char *locatortype,
 							int *hashalgorithm,
 							int *hashbuckets,
-							AttrNumber *attnum,
-							Oid *funcid,
-							int *numatts,
-							int16 **attnums)
+							AttrNumber *attnum)
 {
 	int local_hashalgorithm = 0;
 	int local_hashbuckets = 0;
@@ -1630,18 +1261,6 @@ GetRelationDistributionItems(Oid relid,
 
 			case LOCATOR_TYPE_REPLICATED:
 			case LOCATOR_TYPE_RANDOM:
-				break;
-
-			case LOCATOR_TYPE_USER_DEFINED:
-				{
-					if (funcid || numatts || attnums)
-						GetUserDefinedDistribution(relid,
-												   distributeby,
-												   descriptor,
-												   funcid,
-												   numatts,
-												   attnums);
-				}
 				break;
 
 			case LOCATOR_TYPE_HASHMAP:

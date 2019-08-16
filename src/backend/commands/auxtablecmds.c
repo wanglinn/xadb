@@ -406,7 +406,6 @@ AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt)
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 					 errmsg("cannot build auxiliary table for roundrobin table")));
 			break;
-		case LOCATOR_TYPE_USER_DEFINED:
 		case LOCATOR_TYPE_HASH:
 		case LOCATOR_TYPE_MODULO:
 		case LOCATOR_TYPE_HASHMAP:

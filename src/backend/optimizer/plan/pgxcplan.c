@@ -1529,7 +1529,6 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 			fstep->exec_nodes->accesstype = accessType;
 			fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
 			fstep->exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
-			fstep->exec_nodes->en_funcid = rel_loc_info->funcid;
 		}
 		else
 		{
@@ -2183,31 +2182,6 @@ pgxc_set_en_expr(Oid tableoid, Index resultRelationIndex)
 		ReleaseSysCache(tp);
 
 		result = list_make1(var);
-	} else
-	if (rel_loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
-	{
-		ListCell *lc;
-		AttrNumber attnum;
-
-		Assert(rel_loc_info->funcAttrNums);
-		foreach (lc, rel_loc_info->funcAttrNums)
-		{
-			attnum = (AttrNumber)lfirst_int(lc);
-			tp = SearchSysCache(ATTNUM,
-								ObjectIdGetDatum(tableoid),
-								Int16GetDatum(attnum),
-								0, 0);
-			partAttrTup = (Form_pg_attribute) GETSTRUCT(tp);
-			var = makeVar(resultRelationIndex,
-						  attnum,
-						  partAttrTup->atttypid,
-						  partAttrTup->atttypmod,
-						  partAttrTup->attcollation,
-						  0);
-			ReleaseSysCache(tp);
-
-			result = lappend(result, var);
-		}
 	} else
 	{
 		result = NIL;
@@ -3028,8 +3002,7 @@ validate_part_col_updatable(const Query *query)
 		return;
 
 	/* Only relations distributed by value can be checked */
-	if (IsRelationDistributedByValue(rel_loc_info) ||
-		IsRelationDistributedByUserDefined(rel_loc_info))
+	if (IsRelationDistributedByValue(rel_loc_info))
 	{
 		if (query->commandType == CMD_UPDATE)
 			validate_targetlist_updatable(query->targetList,
@@ -3068,8 +3041,7 @@ static void validate_targetlist_updatable(List *tlist, RelationLocInfo *rel_loc_
 			* distributed is same means this set clause entry is updating the
 			* distribution column of the target table.
 			*/
-		if (rel_loc_info->partAttrNum == tle->resno ||
-			list_member_int(rel_loc_info->funcAttrNums, tle->resno))
+		if (rel_loc_info->partAttrNum == tle->resno)
 		{
 			/*
 			 * The TargetEntry::expr contains the RHS of the SET clause

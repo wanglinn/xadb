@@ -9481,8 +9481,7 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 		path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
 	}else if(loc_info->locatorType == LOCATOR_TYPE_HASH ||
 			 loc_info->locatorType == LOCATOR_TYPE_HASHMAP ||
-			 loc_info->locatorType == LOCATOR_TYPE_MODULO ||
-			 loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
+			 loc_info->locatorType == LOCATOR_TYPE_MODULO)
 	{
 		Expr *expr;
 		if (IsReduceInfoListReplicated(reduce_list))
@@ -9508,20 +9507,6 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 			reduce_info = MakeModuloReduceInfo(storage_nodes,
 											   NIL,
 											   expr);
-		}else if(loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
-		{
-			ListCell *lc;
-			List *params = NIL;
-			foreach(lc, loc_info->funcAttrNums)
-			{
-				expr = list_nth(path->pathtarget->exprs, lfirst_int(lc)-1);
-				params = lappend(params, expr);
-			}
-			reduce_info = MakeCustomReduceInfo(storage_nodes,
-											   NIL,
-											   params,
-											   loc_info->funcid,
-											   planner_rt_fetch(rel_id, root)->relid);
 		}
 		Assert(reduce_info);
 		path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);

@@ -39,17 +39,13 @@ PgxcClassCreate(Oid pcrelid,
 				int pchashalgorithm,
 				int pchashbuckets,
 				int numnodes,
-				Oid *nodes,
-				Oid pcfuncid,
-				int numatts,
-				int16 *pcfuncattnums)
+				Oid *nodes)
 {
 	Relation	pgxcclassrel;
 	HeapTuple	htup;
 	bool		nulls[Natts_pgxc_class];
 	Datum		values[Natts_pgxc_class];
 	oidvector  *nodes_array;
-	int2vector *attrs_array;
 
 	if (!OidIsValid(pcrelid))
 	{
@@ -76,21 +72,6 @@ PgxcClassCreate(Oid pcrelid,
 	/* Node information */
 	values[Anum_pgxc_class_nodeoids - 1] = PointerGetDatum(nodes_array);
 
-	if (pclocatortype == LOCATOR_TYPE_USER_DEFINED)
-	{
-		Assert(OidIsValid(pcfuncid));
-		Assert(numatts > 0);
-		Assert(pcfuncattnums);
-
-		attrs_array = buildint2vector(pcfuncattnums, numatts);
-		values[Anum_pgxc_class_pcfuncid - 1] = ObjectIdGetDatum(pcfuncid);
-		values[Anum_pgxc_class_pcfuncattnums - 1] = PointerGetDatum(attrs_array);
-	} else
-	{
-		values[Anum_pgxc_class_pcfuncid -1] = ObjectIdGetDatum(InvalidOid);
-		nulls[Anum_pgxc_class_pcfuncattnums - 1] = true;
-	}
-
 	/* Open the relation for insertion */
 	pgxcclassrel = heap_open(PgxcClassRelationId, RowExclusiveLock);
 
@@ -114,15 +95,11 @@ PgxcClassAlter(Oid pcrelid,
 			   int pchashbuckets,
 			   int numnodes,
 			   Oid *nodes,
-			   PgxcClassAlterType type,
-			   Oid pcfuncid,
-			   int numatts,
-			   int16 *pcfuncattnums)
+			   PgxcClassAlterType type)
 {
 	Relation	rel;
 	HeapTuple	oldtup, newtup;
 	oidvector  *nodes_array;
-	int2vector	*attrs_array = NULL;
 
 	Datum		new_record[Natts_pgxc_class];
 	bool		new_record_nulls[Natts_pgxc_class];
@@ -153,8 +130,6 @@ PgxcClassAlter(Oid pcrelid,
 			new_record_repl[Anum_pgxc_class_pcattnum - 1] = true;
 			new_record_repl[Anum_pgxc_class_pchashalgorithm - 1] = true;
 			new_record_repl[Anum_pgxc_class_pchashbuckets - 1] = true;
-			new_record_repl[Anum_pgxc_class_pcfuncid - 1] = true;
-			new_record_repl[Anum_pgxc_class_pcfuncattnums - 1] = true;
 			break;
 		case PGXC_CLASS_ALTER_NODES:
 			new_record_repl[Anum_pgxc_class_nodeoids - 1] = true;
@@ -167,8 +142,6 @@ PgxcClassAlter(Oid pcrelid,
 			new_record_repl[Anum_pgxc_class_pchashalgorithm - 1] = true;
 			new_record_repl[Anum_pgxc_class_pchashbuckets - 1] = true;
 			new_record_repl[Anum_pgxc_class_nodeoids - 1] = true;
-			new_record_repl[Anum_pgxc_class_pcfuncid - 1] = true;
-			new_record_repl[Anum_pgxc_class_pcfuncattnums - 1] = true;
 	}
 
 	/* Set up new fields */
@@ -206,38 +179,6 @@ PgxcClassAlter(Oid pcrelid,
 	if (new_record_repl[Anum_pgxc_class_nodeoids - 1])
 		new_record[Anum_pgxc_class_nodeoids - 1] = PointerGetDatum(nodes_array);
 
-	if (new_record_repl[Anum_pgxc_class_pcfuncid - 1])
-	{
-		/* remove dependency on the old function */
-		deleteDependencyRecordsForClass(PgxcClassRelationId, pcrelid,
-										ProcedureRelationId, DEPENDENCY_NORMAL);
-
-		if (IsLocatorDistributedByUserDefined(pclocatortype))
-		{
-			Assert(OidIsValid(pcfuncid));
-			new_record[Anum_pgxc_class_pcfuncid - 1] = ObjectIdGetDatum(pcfuncid);
-
-			/* then create new dependency */
-			CreatePgxcRelationFuncDepend(pcrelid, pcfuncid);
-		} else
-		{
-			new_record[Anum_pgxc_class_pcfuncid - 1] = ObjectIdGetDatum(InvalidOid);
-		}
-	}
-
-	if (new_record_repl[Anum_pgxc_class_pcfuncattnums - 1])
-	{
-		if (IsLocatorDistributedByUserDefined(pclocatortype))
-		{
-			Assert(numatts > 0 && pcfuncattnums);
-			attrs_array = buildint2vector(pcfuncattnums, numatts);
-			new_record[Anum_pgxc_class_pcfuncattnums - 1] = PointerGetDatum(attrs_array);
-		} else
-		{
-			new_record_nulls[Anum_pgxc_class_pcfuncattnums - 1] = true;
-		}
-	}
-
 	/* Update relation */
 	newtup = heap_modify_tuple(oldtup, RelationGetDescr(rel),
 							   new_record,
@@ -273,24 +214,6 @@ RemovePgxcClass(Oid pcrelid)
 	ReleaseSysCache(tup);
 
 	heap_close(relation, RowExclusiveLock);
-}
-
-void
-CreatePgxcRelationFuncDepend(Oid relid, Oid funcid)
-{
-	ObjectAddress myself, referenced;
-
-	if (!OidIsValid(relid) || !OidIsValid(funcid))
-		return ;
-
-	myself.classId = PgxcClassRelationId;
-	myself.objectId = relid;
-	myself.objectSubId = 0;
-
-	referenced.classId = ProcedureRelationId;
-	referenced.objectId = funcid;
-	referenced.objectSubId = 0;
-	recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 }
 
 void

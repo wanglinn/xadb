@@ -37,14 +37,11 @@ typedef struct RelationLocInfo
 	List	   *nodeids;				/* Node ids where data is located */
 	List	   *masternodeids;
 	List	   *slavenodeids;
-	Oid			funcid;					/* Oid of user-defined distribution function */
-	List	   *funcAttrNums;			/* Attributes indices used for user-defined function  */
 } RelationLocInfo;
 
 #define IsRelationReplicated(rel_loc)				IsLocatorReplicated((rel_loc)->locatorType)
 #define IsRelationColumnDistributed(rel_loc)		IsLocatorColumnDistributed((rel_loc)->locatorType)
 #define IsRelationDistributedByValue(rel_loc)		IsLocatorDistributedByValue((rel_loc)->locatorType)
-#define IsRelationDistributedByUserDefined(rel_loc)	IsLocatorDistributedByUserDefined((rel_loc)->locatorType)
 
 /*
  * Nodes to execute on
@@ -76,7 +73,6 @@ typedef struct ExecNodes
 #define IsExecNodesReplicated(en)				IsLocatorReplicated((en)->baselocatortype)
 #define IsExecNodesColumnDistributed(en) 		IsLocatorColumnDistributed((en)->baselocatortype)
 #define IsExecNodesDistributedByValue(en)		IsLocatorDistributedByValue((en)->baselocatortype)
-#define IsExecNodesDistributedByUserDefined(en)	IsLocatorDistributedByUserDefined((en)->baselocatortype)
 
 /* Function for RelationLocInfo building and management */
 #define RelationIdHasLocator(relid)	\
@@ -92,8 +88,6 @@ extern RelationLocInfo *GetRelationLocInfo(Oid relid);
 extern RelationLocInfo *CopyRelationLocInfo(RelationLocInfo *srcInfo);
 extern void FreeRelationLocInfo(RelationLocInfo *relationLocInfo);
 extern char *GetRelationDistribColumn(RelationLocInfo *locInfo);
-extern List *GetRelationDistribColumnList(RelationLocInfo *locInfo);
-extern Oid GetRelationDistribFunc(Oid relid);
 extern char GetLocatorType(Oid relid);
 extern List *GetPreferredRepNodeIds(List *nodeids);
 extern bool IsTableDistOnPrimary(RelationLocInfo *locInfo);
@@ -113,11 +107,6 @@ extern ExecNodes *GetRelationNodesByQuals(Oid reloid,
 										  Node *quals,
 										  RelationAccessType relaccess);
 extern ExecNodes *MakeExecNodesByOids(RelationLocInfo *loc_info, List *oids, RelationAccessType accesstype);
-extern ExecNodes *GetRelationNodesByMultQuals(RelationLocInfo *rel_loc_info,
-											  Oid reloid,
-											  Index varno,
-											  Node *quals,
-											  RelationAccessType relaccess);
 extern void CoerceUserDefinedFuncArgs(Oid funcid,
 									  int nargs,
 									  Datum *values,
@@ -130,7 +119,6 @@ extern void FreeExecNodes(ExecNodes **exec_nodes);
 extern List *GetInvolvedNodes(RelationLocInfo *rel_loc, int nelems, Datum* dist_values, bool* dist_nulls,
 							  Oid* dist_types, RelationAccessType accessType);
 extern List *GetInvolvedNodesByQuals(Oid reloid, Index varno, Node *quals, RelationAccessType relaccess);
-extern List *GetInvolvedNodesByMultQuals(RelationLocInfo *rel_loc, Index varno, Node *quals, RelationAccessType relaccess);
 extern List *adbUseDnSlaveNodeids(List *nodeids);
 extern List *adbGetRelationNodeids(Oid relid);
 #endif   /* LOCATOR_H */

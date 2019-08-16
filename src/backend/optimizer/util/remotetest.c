@@ -300,23 +300,7 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 
 	context.relid = varno;
 	null_test_list = NIL;
-	if (loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
-	{
-		if(list_length(loc_info->funcAttrNums) == 1)
-		{
-			context.varattno = linitial_int(loc_info->funcAttrNums);
-			context.var_expr = makeVarByRel(context.varattno, loc_info->relid, varno);
-			context.partition_expr = makePartitionExpr(loc_info, (Node*)context.var_expr);
-		}
-		if (func_strict(loc_info->funcid))
-		{
-			foreach(lc, loc_info->funcAttrNums)
-			{
-				null_test_list = lappend(null_test_list,
-										 makeNotNullTest((Expr*)makeVarByRel(lfirst_int(lc), loc_info->relid, varno), false));
-			}
-		}
-	}else if(IsLocatorDistributedByValue(loc_info->locatorType))
+	if(IsLocatorDistributedByValue(loc_info->locatorType))
 	{
 		context.varattno = loc_info->partAttrNum;
 		context.var_expr = makeVarByRel(context.varattno, loc_info->relid, varno);
@@ -468,43 +452,6 @@ static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node)
 											COERCION_EXPLICIT,
 											COERCE_IMPLICIT_CAST,
 											-1);
-		break;
-	case LOCATOR_TYPE_USER_DEFINED:
-		if(list_length(loc_info->funcAttrNums) != 1)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("only support one param")));
-		}else
-		{
-			List *args;
-			Oid *argTypes;
-			int narg;
-			int i;
-
-			get_func_signature(loc_info->funcid, &argTypes, &narg);
-			if(narg == 0)
-				elog(ERROR, "too many argument for user hash distribute table");
-
-			expr = (Expr*)coerce_to_target_type(NULL,
-												node,
-												exprType(node),
-												argTypes[0],
-												-1,
-												COERCION_EXPLICIT,
-												COERCE_IMPLICIT_CAST,
-												-1);
-			args = list_make1(expr);
-
-			for(i=1;i<narg;++i)
-				args = lappend(args, makeNullConst(argTypes[i], -1, InvalidOid));
-			expr = (Expr*) makeFuncExpr(loc_info->funcid,
-										get_func_rettype(loc_info->funcid),
-										args,
-										InvalidOid,
-										InvalidOid,
-										COERCE_EXPLICIT_CALL);
-		}
 		break;
 	default:
 		return NULL;
@@ -1266,10 +1213,6 @@ static void init_auxiliary_info_if_need(GatherAuxInfoContext *context)
 				}else if (loc->locatorType == LOCATOR_TYPE_RANDOM)
 				{
 					ereport(ERROR, (errmsg("auxiliary table not support distribte by roundrobin")));
-				}else if (IsRelationDistributedByUserDefined(loc) &&
-					list_length(loc->funcAttrNums) > 1)
-				{
-					ereport(ERROR, (errmsg("auxiliary table not support distribute by multi-column")));
 				}else
 				{
 					/* make reduce expr and status */

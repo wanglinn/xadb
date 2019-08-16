@@ -167,10 +167,7 @@ extern void GetRelationDistributionItems(Oid relid,
 				char *locatortype,
 				int *hashalgorithm,
 				int *hashbuckets,
-				AttrNumber *attnum,
-				Oid *funcid,
-				int *numatts,
-				int16 **attnums);
+				AttrNumber *attnum);
 
 extern Oid *GetRelationDistributionNodes(PGXCSubCluster *subcluster, int *numnodes);
 

@@ -266,14 +266,6 @@ ReduceInfo *MakeReduceInfoFromLocInfo(const RelationLocInfo *loc_info, const Lis
 			Var *var = makeVarByRel(loc_info->partAttrNum, reloid, relid);
 			rinfo = MakeHashmapReduceInfo(rnodes, exclude, (Expr*)var);
 
-		}else if(loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
-		{
-			rinfo = MakeCustomReduceInfoByRel(rnodes,
-											  exclude,
-											  loc_info->funcAttrNums,
-											  loc_info->funcid,
-											  reloid,
-											  relid);
 		}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
 		{
 			Var *var = makeVarByRel(loc_info->partAttrNum, reloid, relid);
@@ -309,18 +301,6 @@ ReduceInfo *MakeReduceInfoUsingPathTarget(const RelationLocInfo *loc_info, const
 		rinfo = MakeHashmapReduceInfo(rnodes,
 									  exclude,
 									  list_nth(target->exprs, loc_info->partAttrNum-1));
-	}else if(loc_info->locatorType == LOCATOR_TYPE_USER_DEFINED)
-	{
-		ListCell *lc;
-		List *args = NIL;
-		foreach (lc, loc_info->funcAttrNums)
-			args = lappend(args, list_nth(target->exprs, lfirst_int(lc)-1));
-
-		rinfo = MakeCustomReduceInfo(rnodes,
-									 exclude,
-									 args,
-									 loc_info->funcid,
-									 loc_info->relid);
 	}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
 	{
 		rinfo = MakeModuloReduceInfo(rnodes,

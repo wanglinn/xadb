@@ -4998,8 +4998,7 @@ static bool get_path_execute_on_walker(Path *path, PathExecuteOnContext *context
 					++(exec_info->rep_count);
 					exec_info->size += size;
 				}
-			}else if(IsRelationDistributedByValue(loc) ||
-				loc->locatorType == LOCATOR_TYPE_USER_DEFINED)
+			}else if(IsRelationDistributedByValue(loc))
 			{
 				ReduceInfo *reduceInfo;
 				Assert(list_length(path->reduce_info_list) == 1);
