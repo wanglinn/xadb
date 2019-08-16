@@ -607,6 +607,7 @@ static void ShmemBackendArrayRemove(Backend *bn);
 #endif							/* EXEC_BACKEND */
 
 #ifdef ADB
+int adb_node_type = ADB_NODE_COORDINATOR;
 bool isPGXCCoordinator = false;
 bool isPGXCDataNode = false;
 bool isAntDB_GTM = false;
@@ -920,24 +921,34 @@ PostmasterMain(int argc, char *argv[])
 					/* A Coordinator is being activated */
 					if (strcmp(name, "coordinator") == 0 &&
 						!value)
+					{
 						isPGXCCoordinator = true;
+						adb_node_type = ADB_NODE_COORDINATOR;
+					}
+						
 					/* A AntDB GTM and Coordinator is being activated */
 					else if (strcmp(name, "gtm_coord") == 0 && !value)
 					{
 						isPGXCCoordinator = true;
 						isAntDB_GTM = true;
+						adb_node_type = ADB_NODE_COORDINATOR_GTM;
 					}
 					else if (strcmp(name, "datanode") == 0 &&
 						!value)
+					{
 						isPGXCDataNode = true;
+						adb_node_type = ADB_NODE_DATANODE;
+					}	
 					else if (strcmp(name, "restoremode") == 0 && !value)
 					{
 						/*
 						 * In restore mode both coordinator and datanode
 						 * are internally treeated as datanodes
 						 */
+						
 						isRestoreMode = true;
 						isPGXCDataNode = true;
+						adb_node_type = ADB_NODE_DATANODE;
 					}
 					else /* default case */
 					{

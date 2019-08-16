@@ -1181,7 +1181,7 @@ EndRemoteXactPrepareExt(TransactionId xid, const char *gid, Oid *nodes, int coun
 		InterXactPrepare(gid, nodes, count);
 
 		/* Prepare on AGTM */
-		agtm_PrepareTransaction(gid);
+		InterXactPrepareGtm(gid, nodes, count);
 	} PG_CATCH();
 	{
 		/* Record FAILED log */

@@ -946,66 +946,71 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node)
 	}
 
 	client->last_msg = GetCurrentTimestamp();
-	resetStringInfo(&input_buffer);
-	msgtype = pq_node_get_msg(&input_buffer, node);
-	switch(msgtype)
+
+	while (1)
 	{
-	case 'Q':
-		/* only support "START_REPLICATION" command */
-		if (strcasecmp(input_buffer.data, "START_REPLICATION 0/0 TIMELINE 0") != 0)
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errposition(0),
-					 errmsg("only support \"START_REPLICATION 0/0 TIMELINE 0\" command")));
-
-		/* Send a CopyBothResponse message, and start streaming */
-		resetStringInfo(&output_buffer);
-		pq_sendbyte(&output_buffer, 0);
-		pq_sendint16(&output_buffer, 0);
-		AppendMsgToClient(client, 'W', output_buffer.data, output_buffer.len, false);
-
-		/* send snapshot */
-		resetStringInfo(&output_buffer);
-		appendStringInfoChar(&output_buffer, 's');
-		SerializeActiveTransactionIds(&output_buffer);
-		AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false);
-
-		client->status = CLIENT_STATUS_STREAMING;
-		break;
-	case 'X':
-		client->status = CLIENT_STATUS_EXITING;
-		return;
-	case 'c':
-	case 'd':
-		if (client->status != CLIENT_STATUS_STREAMING)
+		resetStringInfo(&input_buffer);
+		msgtype = pq_node_get_msg(&input_buffer, node);
+		switch(msgtype)
 		{
-			ereport(ERROR,
-					(errcode(ERRCODE_PROTOCOL_VIOLATION),
-					 errmsg("not in copy mode")));
-		}
-		if (msgtype == 'c')
-			client->status = CLIENT_STATUS_CONNECTED;
-		else
-		{
-			if (strcasecmp(input_buffer.data, "h") == 0)
+		case 'Q':
+			/* only support "START_REPLICATION" command */
+			if (strcasecmp(input_buffer.data, "START_REPLICATION 0/0 TIMELINE 0") != 0)
+				ereport(ERROR,
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						errposition(0),
+						errmsg("only support \"START_REPLICATION 0/0 TIMELINE 0\" command")));
+
+			/* Send a CopyBothResponse message, and start streaming */
+			resetStringInfo(&output_buffer);
+			pq_sendbyte(&output_buffer, 0);
+			pq_sendint16(&output_buffer, 0);
+			AppendMsgToClient(client, 'W', output_buffer.data, output_buffer.len, false);
+
+			/* send snapshot */
+			resetStringInfo(&output_buffer);
+			appendStringInfoChar(&output_buffer, 's');
+			SerializeActiveTransactionIds(&output_buffer);
+			AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false);
+
+			client->status = CLIENT_STATUS_STREAMING;
+			break;
+		case 'X':
+			client->status = CLIENT_STATUS_EXITING;
+			return;
+		case 'c':
+		case 'd':
+			if (client->status != CLIENT_STATUS_STREAMING)
 			{
-				/* Send a HEARTBEAT Response message */
-				resetStringInfo(&output_buffer);
-				appendStringInfoChar(&output_buffer, 'h');
-				if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false) == false)
+				ereport(ERROR,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						errmsg("not in copy mode")));
+			}
+			if (msgtype == 'c')
+				client->status = CLIENT_STATUS_CONNECTED;
+			else
+			{
+				if (strcasecmp(input_buffer.data, "h") == 0)
 				{
-					DropClient(client, true);
+					/* Send a HEARTBEAT Response message */
+					resetStringInfo(&output_buffer);
+					appendStringInfoChar(&output_buffer, 'h');
+					if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false) == false)
+					{
+						DropClient(client, true);
+					}
+				}
+				else if (strcasecmp(input_buffer.data, "f") == 0)
+				{
+					snapsenderProcessXidFinishAck(client, input_buffer.data, input_buffer.len);
 				}
 			}
-			else if (strcasecmp(input_buffer.data, "f") == 0)
-			{
-				snapsenderProcessXidFinishAck(client, input_buffer.data, input_buffer.len);
-			}
-			
+			break;
+		case 0:
+			return;
+		default:
+			break;
 		}
-		break;
-	default:
-		break;
 	}
 }
 

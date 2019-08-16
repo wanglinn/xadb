@@ -2359,7 +2359,7 @@ StartCommitRemoteXact(TransactionState state)
 	if (ClusterOwnerXactSectionCount > 0
 		&& IsCnMaster())
 	{
-		agtm_BeginTransaction();
+		//agtm_BeginTransaction();
 		return ;
 	}
 

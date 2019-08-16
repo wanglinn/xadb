@@ -73,6 +73,8 @@
 #include "pgxc/pgxc.h"
 #include "postmaster/autovacuum.h"
 #include "replication/snapreceiver.h"
+#include "replication/snapsender.h"
+#include "replication/gxidsender.h"
 #endif
 
 
@@ -2387,6 +2389,28 @@ CopyGlobalSnapshot(Snapshot snapshot)
 	memcpy(snapshot->subxip, GlobalSnapshot->subxip,
 		GlobalSnapshot->subxcnt * sizeof(TransactionId));
 	return snapshot;
+}
+
+/*
+ * Entry of snapshot obtention for Postgres-XC node
+ */
+Snapshot
+GetGlobalSnapshotGxid(Snapshot snapshot)
+{
+	Snapshot	snap;
+	if (IsGTMNode())
+	{
+		snap = GxidSenderGetSnapshot(snapshot);
+	} else
+	{
+		return snapshot;
+	} 
+
+#ifdef SHOW_GLOBAL_SNAPSHOT
+	OutputGlobalSnapshot(snap);
+#endif
+
+	return snap;
 }
 
 /*

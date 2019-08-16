@@ -19,6 +19,14 @@
 #include "postgres.h"
 #include "miscadmin.h"
 
+typedef enum
+{
+	ADB_NODE_COORDINATOR,
+	ADB_NODE_COORDINATOR_GTM,
+	ADB_NODE_DATANODE,
+	ADB_NODE_GTM
+} AdbNodeTypes;
+
 extern bool isPGXCCoordinator;
 extern bool isPGXCDataNode;
 extern bool isAntDB_GTM;
@@ -36,6 +44,8 @@ typedef enum
 
 /* Determine remote connection type for a PGXC backend */
 extern int		remoteConnType;
+
+extern int adb_node_type;
 
 /* Local node name and numer */
 extern char	*PGXCNodeName;

@@ -500,17 +500,17 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid)
 		{
 			ProcArrayEndTransactionInternal(proc, pgxact, latestXid);
 			LWLockRelease(ProcArrayLock);
+#ifdef ADB
+			if (!IsGTMNode() && TransactionIdIsValid(proc->getGlobalTransaction))
+			{
+				Assert(TransactionIdEquals(proc->getGlobalTransaction, latestXid));
+				GixRcvCommitTransactionId(latestXid);
+				proc->getGlobalTransaction = InvalidTransactionId;
+			}
+#endif /* ADB */
 		}
 		else
 			ProcArrayGroupClearXid(proc, latestXid);
-#ifdef ADB
-		if (!IsGTMNode() && TransactionIdIsValid(proc->getGlobalTransaction))
-		{
-			Assert(TransactionIdEquals(proc->getGlobalTransaction, latestXid));
-			GixRcvCommitTransactionId(latestXid);
-			proc->getGlobalTransaction = InvalidTransactionId;
-		}
-#endif
 	}
 	else
 	{
@@ -663,6 +663,15 @@ ProcArrayGroupClearXid(PGPROC *proc, TransactionId latestXid)
 
 	/* We're done with the lock now. */
 	LWLockRelease(ProcArrayLock);
+
+#ifdef ADB
+	if (!IsGTMNode() && TransactionIdIsValid(proc->getGlobalTransaction))
+	{
+		Assert(TransactionIdEquals(proc->getGlobalTransaction, latestXid));
+		GixRcvCommitTransactionId(latestXid);
+		proc->getGlobalTransaction = InvalidTransactionId;
+	}
+#endif /* ADB */
 
 	/*
 	 * Now that we've released the lock, go back and wake everybody up.  We
@@ -1618,6 +1627,7 @@ GetSnapshotData(Snapshot snapshot)
 #ifdef ADB
 	bool		try_agtm_snap = IsUnderAGTM() && !IsGTMNode();
 	bool		hint;
+	Snapshot 	snap PG_USED_FOR_ASSERTS_ONLY;
 #endif /* ADB */
 
 	Assert(snapshot != NULL);
@@ -1676,13 +1686,7 @@ GetSnapshotData(Snapshot snapshot)
 	 */
 	if (try_agtm_snap)
 	{
-		Snapshot snap PG_USED_FOR_ASSERTS_ONLY;
 		snap = GetGlobalSnapshot(snapshot);
-		Assert(snap == snapshot);
-		Assert(snap->xcnt <= snap->max_xcnt);
-		subcount = snapshot->subxcnt;
-		count = snapshot->xcnt;
-		suboverflowed = snapshot->suboverflowed;
 #if 0
 		LWLockAcquire(ProcArrayLock, LW_SHARED);
 		if (!TransactionIdIsValid(MyPgXact->xmin))
@@ -1696,8 +1700,17 @@ GetSnapshotData(Snapshot snapshot)
 		return snapshot;
 #endif
 	}
+	else /* for gtm_coor get snapshot from gxidsender */
+	{
+		snap = GetGlobalSnapshotGxid(snapshot);
+	}
+	Assert(snap == snapshot);
+	Assert(snap->xcnt <= snap->max_xcnt);
+	subcount = snapshot->subxcnt;
+	count = snapshot->xcnt;
+	suboverflowed = snapshot->suboverflowed;
 #endif /* ADB */
-
+	
 	/*
 	 * It is sufficient to get shared lock on ProcArrayLock, even if we are
 	 * going to set MyPgXact->xmin.
@@ -1754,9 +1767,24 @@ GetSnapshotData(Snapshot snapshot)
 		}
 
 		globalxmin = xmin = snapshot->xmin;
-	}else
-#endif /* ADB */
+	}
+	else
+	{
+		globalxmin = xmin = xmax;
+		if (TransactionIdIsNormal(snapshot->xmax))
+		{
+			if (TransactionIdPrecedesOrEquals(xmax, snapshot->xmax))
+				xmax = snapshot->xmax;
+
+			if (TransactionIdIsNormal(snapshot->xmin) && snapshot->xcnt > 0)
+				globalxmin = xmin = snapshot->xmin;
+			else
+				globalxmin = xmin = xmax;
+		}
+	}
+#else
 	globalxmin = xmin = xmax;
+#endif /* ADB */
 
 	snapshot->takenDuringRecovery = RecoveryInProgress();
 
@@ -2000,7 +2028,7 @@ GetSnapshotData(Snapshot snapshot)
 
 	snapshot->curcid = GetCurrentCommandId(false);
 
-	/*
+/*
 	 * This is a new snapshot, so set both refcounts are zero, and mark it as
 	 * not copied in persistent memory.
 	 */

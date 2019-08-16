@@ -510,6 +510,7 @@ struct pg_conn
 	const PGcustumFuns *funs;	/* custom functions */
 	bool is_attached;
 	bool close_sock_on_end;		/* attached conn, close socket when error or finish */
+	bool is_gtm;
 #endif /* ADB */
 };
 

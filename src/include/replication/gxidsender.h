@@ -8,4 +8,6 @@ extern void GxidSenderMain(void) pg_attribute_noreturn();
 extern Size GxidSenderShmemSize(void);
 extern void GxidSenderShmemInit(void);
 
+extern Snapshot GxidSenderGetSnapshot(Snapshot snap);
+
 #endif /* TRANS_SENDER_H_ */

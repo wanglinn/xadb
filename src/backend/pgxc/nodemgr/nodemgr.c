@@ -648,7 +648,7 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 	}
 	if (node_port_old != node_port_new)
 		PreventInterTransactionChain(node_oid, "ALTER NODE PORT");
-	if((isPGXCCoordinator) && (node_type_old != node_type_new))
+	if(IsCnNode() && (node_type_old != node_type_new))
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("PGXC node \"%s\": cannot alter from \"%s\" to \"%s\"",

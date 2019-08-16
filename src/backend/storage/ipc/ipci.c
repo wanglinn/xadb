@@ -168,9 +168,13 @@ CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
 		{
 			size = add_size(size, SnapSenderShmemSize());
 			size = add_size(size, GxidSenderShmemSize());
-		}	
+		}
 		else
+		{
 			size = add_size(size, SnapRcvShmemSize());
+			size = add_size(size, GxidRcvShmemSize());
+		}
+			
 		if (IS_PGXC_COORDINATOR)
 			size = add_size(size, ClusterLockShmemSize());
 

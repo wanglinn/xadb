@@ -62,6 +62,7 @@ static InterXactStateData TopInterXactStateData = {
 static void ResetInterXactState(InterXactState state);
 static const char* InterXactGetTransactionSQL(TwoPhaseState state, const char *gid, bool missing_ok, char **sql);
 static void InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, int tp_flags);
+static void InterXactTwoPhaseGtm(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, int tp_flags);
 static void InterXactTwoPhaseInternal(List *handle_list, char *command, const char *command_tag, int tp_flags);
 
 /*
@@ -605,7 +606,7 @@ InterXactUtility(InterXactState state, Snapshot snapshot,
 		need_xact_block = state->need_xact_block;
 		if (need_xact_block)
 		{
-			agtm_BeginTransaction();
+			//agtm_BeginTransaction();
 			gxid = GetCurrentTransactionId();
 		} else
 			gxid = GetCurrentTransactionIdIfAny();
@@ -671,7 +672,7 @@ InterXactBegin(InterXactState state, const List *node_list)
 	{
 		if (need_xact_block)
 		{
-			agtm_BeginTransaction();
+			//agtm_BeginTransaction();
 			gxid = GetCurrentTransactionId();
 		} else
 			gxid = GetCurrentTransactionIdIfAny();
@@ -706,6 +707,17 @@ InterXactPrepare(const char *gid, Oid *nodes, int nnodes)
 }
 
 /*
+ * InterXactPrepareGtm
+ *
+ * prepare a transaction by InterXactState
+ */
+void
+InterXactPrepareGtm(const char *gid, Oid *nodes, int nnodes)
+{
+	InterXactTwoPhaseGtm(gid, nodes, nnodes, TP_PREPARE, INTER_TWO_PHASE_SEND_RECV);
+}
+
+/*
  * InterXactCommit
  *
  * commit a transaction by InterXactState
@@ -717,6 +729,21 @@ InterXactCommit(const char *gid, Oid *nodes, int nnodes, bool missing_ok)
 	if (missing_ok)
 		flags |= INTER_TWO_PHASE_MISS_OK;
 	InterXactTwoPhase(gid, nodes, nnodes, TP_COMMIT, flags);
+}
+
+/*
+InterXactCommitGtm(const char *gid, Oid *nodes, int nnodes, bool missing_ok)
+ * InterXactCommitGtm
+ *
+ * commit a transaction by InterXactState
+ */
+void
+InterXactCommitGtm(const char *gid, Oid *nodes, int nnodes, bool missing_ok)
+{
+	int flags = INTER_TWO_PHASE_SEND_RECV;
+	if (missing_ok)
+		flags |= INTER_TWO_PHASE_MISS_OK;
+	InterXactTwoPhaseGtm(gid, nodes, nnodes, TP_COMMIT, flags);
 }
 
 void InterXactSendCommit(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool ignore_error)
@@ -754,6 +781,23 @@ InterXactAbort(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool no
 		flags |= INTER_TWO_PHASE_MISS_OK;
 
 	InterXactTwoPhase(gid, nodes, nnodes, TP_ABORT, flags);
+}
+
+/*
+ * InterXactAbort
+ *
+ * rollback a transaction by InterXactState
+ */
+void
+InterXactAbortGtm(const char *gid, Oid *nodes, int nnodes, bool missing_ok, bool normal)
+{
+	int flags = INTER_TWO_PHASE_SEND_RECV;
+	if (!normal)
+		flags |= INTER_TWO_PHASE_NO_ERROR;
+	if (missing_ok)
+		flags |= INTER_TWO_PHASE_MISS_OK;
+
+	InterXactTwoPhaseGtm(gid, nodes, nnodes, TP_ABORT, flags);
 }
 
 /*
@@ -820,16 +864,49 @@ InterXactGetTransactionSQL(TwoPhaseState state, const char *gid, bool missing_ok
  * InterXactTwoPhase
  */
 static void
+InterXactTwoPhaseGtm(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, int tp_flags)
+{
+	List * volatile handle_list;
+	char * volatile command = NULL;
+	const char	   *command_tag;
+
+	handle_list = GetGtmHandleList(nodes, nnodes, false, false, true, NULL);
+	if (!handle_list)
+		return ;
+
+	PG_TRY();
+	{
+		command_tag = InterXactGetTransactionSQL(tp_state,
+												 gid,
+												 (tp_flags & INTER_TWO_PHASE_MISS_OK) ? true:false,
+												 (char**)&command);
+		Assert(command_tag != NULL && command != NULL);
+		InterXactTwoPhaseInternal(handle_list, command, command_tag, tp_flags);
+		pfree(command);
+		list_free(handle_list);
+	} PG_CATCH();
+	{
+		safe_pfree(command);
+		HandleListGC(handle_list);
+		list_free(handle_list);
+		PG_RE_THROW();
+	} PG_END_TRY();
+}
+
+/*
+ * InterXactTwoPhase
+ */
+static void
 InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_state, int tp_flags)
 {
 	List * volatile handle_list;
 	char * volatile command = NULL;
 	const char	   *command_tag;
 
-	handle_list = GetNodeHandleList(nodes, nnodes, false, false, true, NULL);
+	handle_list = GetNodeHandleList(nodes, nnodes, false, false, true, NULL, false);
 	if (!handle_list)
 		return ;
-
+	
 	PG_TRY();
 	{
 		command_tag = InterXactGetTransactionSQL(tp_state,
@@ -903,7 +980,8 @@ RemoteXactCommit(int nnodes, Oid *nodes)
 		return ;
 
 	InterXactCommit(NULL, nodes, nnodes, false);
-	agtm_CommitTransaction(NULL, false);
+	InterXactCommitGtm(NULL, nodes, nnodes, false);
+	//agtm_CommitTransaction(NULL, false);
 }
 
 void
@@ -913,7 +991,8 @@ RemoteXactAbort(int nnodes, Oid *nodes, bool normal)
 		return ;
 
 	InterXactAbort(NULL, nodes, nnodes, false, normal);
-	agtm_AbortTransaction(NULL, false, !normal);
+	InterXactAbortGtm(NULL, nodes, nnodes, false, normal);
+	//agtm_AbortTransaction(NULL, false, !normal);
 }
 
 /*
@@ -984,7 +1063,8 @@ CommitPreparedRxact(const char *gid,
 		InterXactCommit(gid, nodes, nnodes, isMissingOK);
 
 		/* Commit prepared on AGTM */
-		agtm_CommitTransaction(gid, isMissingOK);
+		InterXactCommitGtm(gid, nodes, nnodes, isMissingOK);
+		//agtm_CommitTransaction(gid, isMissingOK);
 	} PG_CATCH_HOLD();
 	{
 		AtAbort_Twophase();

@@ -32,6 +32,7 @@ typedef struct NodeHandle
 	NodeType			node_type;
 	bool				node_primary;
 	bool				node_preferred;
+	bool				is_gtm;
 
 	/* used for hash table */
 	bool				isvalid;		/* Used to mark whether or not it is valid in the hash table */
@@ -64,7 +65,11 @@ extern void AtStart_NodeExecutor(void);
 extern NodeHandle *GetNodeHandle(Oid node_id, bool attatch, void *context);
 extern List *GetNodeHandleList(const Oid *nodes, int nnodes,
 						   bool include_self, bool noerror,
-						   bool attatch, void *context);
+						   bool attatch, void *context, bool is_include_gtm);
+extern List *
+GetGtmHandleList(const Oid *nodes, int nnodes,
+				  bool include_self, bool noerror,
+				  bool attatch, void *context);
 extern struct pg_conn *HandleGetPGconn(void *handle);
 extern CustomOption *PGconnSetCustomOption(struct pg_conn *conn, void *custom, struct PGcustumFuns *custom_funcs);
 extern void PGconnResetCustomOption(struct pg_conn *conn, CustomOption *opt);

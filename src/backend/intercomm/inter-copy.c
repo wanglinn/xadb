@@ -91,7 +91,7 @@ StartRemoteCopy(RemoteCopyState *node)
 	state->need_xact_block = is_from;
 	cur_handle = state->cur_handle;
 
-	agtm_BeginTransaction();
+	//agtm_BeginTransaction();
 	gxid = GetCurrentTransactionId();
 
 	PG_TRY();

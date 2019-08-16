@@ -471,6 +471,16 @@ static const struct config_enum_entry adb_default_locator_types[] = {
 	{"random", LOCATOR_TYPE_RANDOM, false},
 	{NULL, 0, false}
 };
+
+static const struct config_enum_entry parese_adb_node_type[] = {
+	{"coordinator", ADB_NODE_COORDINATOR, false},
+	{"gtm_coord", ADB_NODE_COORDINATOR_GTM, false},
+	{"datanode", ADB_NODE_DATANODE, false},
+	{"gtm", ADB_NODE_GTM, false},
+	{NULL, 0, false}
+};
+
+extern int adb_node_type;
 #endif /* ADB */
 
 #ifdef ADB_MULTI_GRAM
@@ -5081,6 +5091,17 @@ static struct config_enum ConfigureNamesEnum[] =
 		},
 		&default_distribute_by,
 		LOCATOR_TYPE_HASH, adb_default_locator_types,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"adb_node_type", PGC_POSTMASTER, UNGROUPED,
+			gettext_noop("Set node type"),
+			NULL,
+			GUC_REPORT|GUC_NOT_IN_SAMPLE|GUC_DISALLOW_IN_FILE
+		},
+		&adb_node_type,
+		PARSE_GRAM_POSTGRES, parese_adb_node_type,
 		NULL, NULL, NULL
 	},
 #endif /* ADB */

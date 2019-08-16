@@ -210,7 +210,8 @@ ObtainGlobalTransactionId(bool isSubXact)
 	 */
 	if (IsCnMaster())
 	{
-		gxid = agtm_GetGlobalTransactionId(isSubXact);
+		/* gxid = agtm_GetGlobalTransactionId(isSubXact);*/
+		gxid =  GixRcvGetGlobalTransactionId(isSubXact);
 		return gxid;
 	}
 
@@ -259,6 +260,7 @@ static TransactionId GetXidFromCoord(int level)
 				 errmsg("not in cluster command mode")));
 	}
 
+	//return GixRcvGetGlobalTransactionId(false);
 	initStringInfo(&buf);
 	appendStringInfoChar(&buf, CLUSTER_MSG_TRANSACTION_ID);
 	appendBinaryStringInfoNT(&buf, (char*)&level, sizeof(level));

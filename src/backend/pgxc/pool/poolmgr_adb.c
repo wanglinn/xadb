@@ -1251,12 +1251,15 @@ re_try_:
 	{
 		/* -1 for no GTM */
 		val = -1;
-	}else
+	}
+	/* no need to connect GTM 4.1 */
+	/* else
 	{
 		val = agtm_GetListenPort();
 		if(val < 1 || val > 65535)
 			ereport(ERROR, (errmsg("Invalid agtm listen port %d", val)));
-	}
+	}*/
+
 	pool_sendint(&buf, val);
 
 	send_host_info(&buf, oidlist);
@@ -1514,13 +1517,13 @@ static void agent_handle_input(PoolAgent * agent, StringInfo s)
 		case PM_MSG_GET_CONNECT:
 			{
 				agent->agtm_port = pool_getint(s);
-				if (!IsGTMCnNode() &&
+				/* if (!IsGTMCnNode() &&
 					(agent->agtm_port <= 0 || agent->agtm_port > 65535))
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_PROTOCOL_VIOLATION),
 							 errmsg("invalid agtm port number %d", agent->agtm_port)));
-				}
+				}*/
 				agent_acquire_connections(agent, s);
 				AssertState(agent->list_wait != NIL);
 			}
@@ -1653,13 +1656,13 @@ send_agtm_port_:
 					(slot->last_user_pid != agent->pid ||
 					 slot->last_agtm_port != agent->agtm_port))
 				{
-					if (agent->agtm_port <= 0 ||
+					/* if (agent->agtm_port <= 0 ||
 						agent->agtm_port > 65535)
 					{
 						ereport(FATAL,
 								(errcode(ERRCODE_INTERNAL_ERROR),
 								 errmsg("invalid agtm port %d for agent", agent->agtm_port)));
-					}
+					}*/
 					ereport(PMGRLOG,
 							(errmsg("agent %p pid %d begin send waiting slot %p state %d agtm port %d",
 									agent, agent->pid, slot, slot->slot_state, agent->agtm_port),

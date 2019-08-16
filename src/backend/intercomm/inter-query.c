@@ -366,7 +366,7 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *des
 
 	if (need_xact_block)
 	{
-		agtm_BeginTransaction();
+		//agtm_BeginTransaction();
 		gxid = GetCurrentTransactionId();
 	} else
 		gxid = GetCurrentTransactionIdIfAny();

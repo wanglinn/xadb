@@ -344,7 +344,7 @@ GetNodeHandle(Oid node_id, bool attatch, void *context)
 }
 
 List *
-GetNodeHandleList(const Oid *nodes, int nnodes,
+GetGtmHandleList(const Oid *nodes, int nnodes,
 				  bool include_self, bool noerror,
 				  bool attatch, void *context)
 {
@@ -372,6 +372,59 @@ GetNodeHandleList(const Oid *nodes, int nnodes,
 
 			elog(ERROR, "Invalid node \"%u\"", nodes[i]);
 		}
+
+		if (!handle->is_gtm)
+			continue;
+
+		handle_list = lappend(handle_list, handle);
+		if (attatch && PQstatus(handle->node_conn) != CONNECTION_OK)
+		{
+			/* detach old PGconn if exists */
+			HandleDetachPGconn(handle);
+			id_need = lappend_oid(id_need, nodes[i]);
+			handle_need = lappend(handle_need, handle);
+		}
+	}
+	GetPGconnAttatchToHandle(id_need, handle_need);
+	list_free(id_need);
+	list_free(handle_need);
+
+	return handle_list;
+}
+
+List *
+GetNodeHandleList(const Oid *nodes, int nnodes,
+				  bool include_self, bool noerror,
+				  bool attatch, void *context, bool is_include_gtm)
+{
+	NodeHandle	   *handle;
+	List		   *handle_list = NIL;
+	List		   *id_need = NIL;
+	List		   *handle_need = NIL;
+	int				i;
+
+	if (nnodes <= 0)
+		return NIL;
+
+	RebuildNodeHandleCacheHash();
+
+	Assert(OidIsValid(SelfNodeID));
+	for (i = 0; i < nnodes; i++)
+	{
+		if (!include_self && nodes[i] == SelfNodeID)
+			continue;
+		handle = GetNodeHandle(nodes[i], false, context);
+		if (!handle)
+		{
+			if (noerror)
+				continue;
+
+			elog(ERROR, "Invalid node \"%u\"", nodes[i]);
+		}
+
+		if (!is_include_gtm && handle->is_gtm)
+			continue;
+
 		handle_list = lappend(handle_list, handle);
 		if (attatch && PQstatus(handle->node_conn) != CONNECTION_OK)
 		{
@@ -467,6 +520,7 @@ PGconnResetCustomOption(PGconn *conn, CustomOption *opt)
 static void
 GetPGconnAttatchToHandle(List *node_list, List *handle_list)
 {
+	const char *param_str;
 	if (node_list)
 	{
 		List	   *conn_list = NIL;
@@ -491,6 +545,14 @@ GetPGconnAttatchToHandle(List *node_list, List *handle_list)
 			handle->node_conn = conn;
 			handle->node_conn->custom = handle;
 			handle->node_conn->funs = InterQueryCustomFuncs;
+			handle->is_gtm = false;
+			param_str = PQparameterStatus(conn, "adb_node_type");
+			if (param_str)
+			{
+				if (pg_strcasecmp(param_str, "gtm_coord") == 0
+						|| pg_strcasecmp(param_str, "gtm") == 0)
+					handle->is_gtm = true;
+			}
 		}
 		list_free(conn_list);
 		conn_list = NIL;
