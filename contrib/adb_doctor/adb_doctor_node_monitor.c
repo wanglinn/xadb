@@ -180,9 +180,9 @@ static void endCureOperation(MonitorNodeInfo *nodeInfo,
 							 MemoryContext spiContext);
 static void checkMgrNodeDataInDB(AdbMgrNodeWrapper *mgrNode,
 								 MemoryContext spiContext);
-static void updateMgrNodeCurestatus(AdbMgrNodeWrapper *mgrNode,
-									char *newCurestatus,
-									MemoryContext spiContext);
+static void checkUpdateMgrNodeCurestatus(AdbMgrNodeWrapper *mgrNode,
+										 char *newCurestatus,
+										 MemoryContext spiContext);
 static void slaveNodeFollowMaster(MonitorNodeInfo *nodeInfo);
 
 static bool isHaveSlaveNodes(AdbMgrNodeWrapper *node);
@@ -252,7 +252,7 @@ void adbDoctorNodeMonitorMain(Datum main_arg)
 			SPI_CONNECT_TRANSACTIONAL_START(ret, true);
 			spiContext = CurrentMemoryContext;
 			MemoryContextSwitchTo(oldContext);
-			updateMgrNodeCurestatus(nodeInfo->node, CURE_STATUS_NORMAL, spiContext);
+			checkUpdateMgrNodeCurestatus(nodeInfo->node, CURE_STATUS_NORMAL, spiContext);
 			SPI_FINISH_TRANSACTIONAL_COMMIT();
 		}
 		else if (pg_strcasecmp(NameStr(nodeInfo->node->fdmn.curestatus), CURE_STATUS_FOLLOW_FAIL) == 0)
@@ -1552,7 +1552,7 @@ static MemoryContext beginCureOperation(MonitorNodeInfo *nodeInfo)
 	MemoryContextSwitchTo(oldContext);
 	checkMgrNodeDataInDB(nodeInfo->node, spiContext);
 
-	updateMgrNodeCurestatus(nodeInfo->node, CURE_STATUS_CURING, spiContext);
+	checkUpdateMgrNodeCurestatus(nodeInfo->node, CURE_STATUS_CURING, spiContext);
 	// SPI_FINISH_TRANSACTIONAL_COMMIT();
 
 	// SPI_CONNECT_TRANSACTIONAL_START(ret, true);
@@ -1565,7 +1565,7 @@ static void endCureOperation(MonitorNodeInfo *nodeInfo,
 							 char *newCurestatus,
 							 MemoryContext spiContext)
 {
-	updateMgrNodeCurestatus(nodeInfo->node, newCurestatus, spiContext);
+	checkUpdateMgrNodeCurestatus(nodeInfo->node, newCurestatus, spiContext);
 	SPI_FINISH_TRANSACTIONAL_COMMIT();
 }
 
@@ -1626,9 +1626,9 @@ static void checkMgrNodeDataInDB(AdbMgrNodeWrapper *mgrNode,
 	pfreeAdbMgrNodeWrapper(nodeDataInDB);
 }
 
-static void updateMgrNodeCurestatus(AdbMgrNodeWrapper *mgrNode,
-									char *newCurestatus,
-									MemoryContext spiContext)
+static void checkUpdateMgrNodeCurestatus(AdbMgrNodeWrapper *mgrNode,
+										 char *newCurestatus,
+										 MemoryContext spiContext)
 {
 	int rows;
 	MemoryContext oldContext;

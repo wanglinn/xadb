@@ -22,8 +22,8 @@
 #include "../../src/interfaces/libpq/libpq-int.h"
 #include "catalog/pgxc_node.h"
 
-static SwitcherNodeWrapper *checkGetOldMaster(char *oldMasterNodename,
-											  MemoryContext spiContext);
+static SwitcherNodeWrapper *checkGetDatanodeOldMaster(char *oldMasterNodename,
+													  MemoryContext spiContext);
 
 static void masterNodeAcceptSlaveNodes(SwitcherNodeWrapper *masterNode,
 									   dlist_head *runningNodes,
@@ -146,8 +146,8 @@ void switchDatanodeMaster(char *oldMasterNodename,
 
 	PG_TRY();
 	{
-		oldMaster = checkGetOldMaster(oldMasterNodename,
-									  spiContext);
+		oldMaster = checkGetDatanodeOldMaster(oldMasterNodename,
+											  spiContext);
 
 		checkGetSlaveNodes(oldMaster,
 						   spiContext,
@@ -810,14 +810,15 @@ void mgrNodesToSwitcherNodes(dlist_head *mgrNodes,
 	}
 }
 
-static SwitcherNodeWrapper *checkGetOldMaster(char *oldMasterNodename,
-											  MemoryContext spiContext)
+static SwitcherNodeWrapper *checkGetDatanodeOldMaster(char *oldMasterNodename,
+													  MemoryContext spiContext)
 {
 	MgrNodeWrapper *mgrNode;
 	SwitcherNodeWrapper *oldMaster;
 
-	mgrNode = selectMgrNodeByNodename(oldMasterNodename,
-									  spiContext);
+	mgrNode = selectMgrNodeByNodenameType(oldMasterNodename,
+										  CNDN_TYPE_DATANODE_MASTER,
+										  spiContext);
 	if (!mgrNode)
 	{
 		ereport(ERROR,

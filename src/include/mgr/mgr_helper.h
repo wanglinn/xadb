@@ -275,8 +275,9 @@ extern bool isSlaveNode(char nodetype, bool complain);
 /* spi functions */
 extern MgrHostWrapper *selectMgrHostByOid(Oid oid, MemoryContext spiContext);
 extern MgrNodeWrapper *selectMgrNodeByOid(Oid oid, MemoryContext spiContext);
-extern MgrNodeWrapper *selectMgrNodeByNodename(char *nodename,
-											   MemoryContext spiContext);
+extern MgrNodeWrapper *selectMgrNodeByNodenameType(char *nodename,
+												   char nodetype,
+												   MemoryContext spiContext);
 extern void selectMgrNodes(StringInfo sql,
 						   MemoryContext spiContext,
 						   dlist_head *resultList);

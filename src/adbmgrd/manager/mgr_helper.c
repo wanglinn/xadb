@@ -196,8 +196,9 @@ MgrNodeWrapper *selectMgrNodeByOid(Oid oid, MemoryContext spiContext)
 	}
 }
 
-MgrNodeWrapper *selectMgrNodeByNodename(char *nodename,
-										MemoryContext spiContext)
+MgrNodeWrapper *selectMgrNodeByNodenameType(char *nodename,
+											char nodetype,
+											MemoryContext spiContext)
 {
 	StringInfoData sql;
 	dlist_head nodes = DLIST_STATIC_INIT(nodes);
@@ -206,8 +207,10 @@ MgrNodeWrapper *selectMgrNodeByNodename(char *nodename,
 	appendStringInfo(&sql,
 					 "SELECT * \n"
 					 "FROM pg_catalog.mgr_node \n"
-					 "WHERE nodename = '%s' \n",
-					 nodename);
+					 "WHERE nodename = '%s' \n"
+					 "AND nodetype = '%c' \n",
+					 nodename,
+					 nodetype);
 	selectMgrNodes(&sql, spiContext, &nodes);
 	if (dlist_is_empty(&nodes))
 	{
