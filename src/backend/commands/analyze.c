@@ -86,6 +86,13 @@ typedef struct AnlIndexData
 	int			attr_cnt;
 } AnlIndexData;
 
+#ifdef ADB
+typedef struct ClusterAnalyzeHookFuncs
+{
+	PQNHookFunctions pub;
+	PGconn *conn;			/* last exec end PGconn* */
+}ClusterAnalyzeHookFuncs;
+#endif
 
 /* Default statistics target (GUC parameter) */
 int			default_statistics_target = 100;
@@ -130,6 +137,7 @@ static void send_sample_rows_to_other_coord(Relation onerel, HeapTuple *rows, in
 static void send_sample_rows_to_coord(Relation onerel, HeapTuple *rows, int targrows,
 									  double totalrows, double totaldeadrows);
 static int32 acquire_relpage_num_coord_master(List *dnlist);
+static void analyze_cluster_recv_exec_end(List *conns);
 static int32 acquire_relpage_num_coord_slave(void);
 static void send_relpage_num_to_coord(int32 relpages);
 static void send_relpage_num_to_other_coord(List *conns, int32 relpage);
@@ -152,6 +160,9 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 	AcquireSampleRowsFunc acquirefunc = NULL;
 	BlockNumber relpages = 0;
 	bool		rel_lock = true;
+#ifdef ADB
+	List		*cnlist = NIL;
+#endif /* ADB*/
 
 	/* Select logging level */
 	if (options & VACOPT_VERBOSE)
@@ -413,7 +424,6 @@ end_if_:
 	{
 		/* send analyze command to other nodes */
 		List *dnlist = NIL;
-		List *cnlist = NIL;
 		List *oids;
 
 		/* find all other coordinator connection */
@@ -489,7 +499,6 @@ end_if_:
 		}
 		/* clean up */
 		list_free(dnlist);
-		list_free(cnlist);
 	}else if (acquirefunc == acquire_sample_rows_coord_slave &&
 		onerel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
 	{
@@ -523,6 +532,13 @@ end_if_:
 		do_analyze_rel(onerel, options, params, va_cols, acquirefunc, relpages,
 					   true, in_outer_xact, elevel);
 
+#ifdef ADB
+	if (cnlist)
+	{
+		analyze_cluster_recv_exec_end(cnlist);
+		list_free(cnlist);
+	}
+#endif /* ADB */
 	/*
 	 * Close source relation now, but keep lock so that no one deletes it
 	 * before we commit.  (If someone did, they'd fail to clean up the entries
@@ -3727,6 +3743,37 @@ static int32 acquire_relpage_num_coord_master(List *dnlist)
 	DestroyRecvRelNumContext(&context);
 
 	return context.relpages;
+}
+
+static bool ClusterAnalyzeExecEndHookCopyOut(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
+{
+	if (buf[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+	{
+		ClusterAnalyzeHookFuncs *context = (ClusterAnalyzeHookFuncs*)pub;
+		context->conn = conn;
+		return true;
+	}
+
+	return clusterRecvTuple(NULL, buf, len, NULL, conn);
+}
+
+static void analyze_cluster_recv_exec_end(List *conns)
+{
+	ClusterAnalyzeHookFuncs context;
+	if (conns == NIL)
+		conns = PQNGetAllConns();
+	else
+		conns = list_copy(conns);
+
+	context.pub = PQNDefaultHookFunctions;
+	context.pub.HookCopyOut = ClusterAnalyzeExecEndHookCopyOut;
+	while (conns)
+	{
+		context.conn = NULL;
+		PQNListExecFinish(conns, NULL, &context.pub, true);
+		Assert(context.conn != NULL);
+		conns = list_delete_ptr(conns, context.conn);
+	}
 }
 
 static int32 acquire_relpage_num_coord_slave(void)

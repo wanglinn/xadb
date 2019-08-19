@@ -260,7 +260,6 @@ static TransactionId GetXidFromCoord(int level)
 				 errmsg("not in cluster command mode")));
 	}
 
-	//return GixRcvGetGlobalTransactionId(false);
 	initStringInfo(&buf);
 	appendStringInfoChar(&buf, CLUSTER_MSG_TRANSACTION_ID);
 	appendBinaryStringInfoNT(&buf, (char*)&level, sizeof(level));
