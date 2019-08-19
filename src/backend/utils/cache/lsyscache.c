@@ -1176,16 +1176,53 @@ op_input_types(Oid opno, Oid *lefttype, Oid *righttype)
 
 bool op_is_equivalence(Oid opno)
 {
-	HeapTuple	tp;
-	Form_pg_operator optup;
-	bool result;
+	CatCList   *catlist;
+	int			i;
+	bool		result;
 
-	tp = SearchSysCache1(OPEROID, ObjectIdGetDatum(opno));
-	if (!HeapTupleIsValid(tp))	/* shouldn't happen */
-		elog(ERROR, "cache lookup failed for operator %u", opno);
-	optup = (Form_pg_operator) GETSTRUCT(tp);
-	result = (NameStr(optup->oprname)[0] == '=' && NameStr(optup->oprname)[1] == '\0');
-	ReleaseSysCache(tp);
+	/*
+	 * Search pg_amop to see if the target operator is registered as the "="
+	 * operator of any btree opfamily.
+	 */
+	catlist = SearchSysCacheList1(AMOPOPID, ObjectIdGetDatum(opno));
+
+	result = false;
+	for (i = 0; i < catlist->n_members; i++)
+	{
+		HeapTuple	tuple = &catlist->members[i]->tuple;
+		Form_pg_amop aform = (Form_pg_amop) GETSTRUCT(tuple);
+
+		if (aform->amopmethod == BTREE_AM_OID)
+		{
+			/* btree equality */
+			if (aform->amopstrategy == BTEqualStrategyNumber)
+			{
+				result = true;
+				break;
+			}
+		}else if(aform->amopmethod == HASH_AM_OID)
+		{
+			/* hash equality */
+			if (aform->amopstrategy == HTEqualStrategyNumber)
+			{
+				result = true;
+				break;
+			}
+		}else if(aform->amopmethod == GIST_AM_OID ||
+				 aform->amopmethod == SPGIST_AM_OID ||
+				 aform->amopmethod == BRIN_AM_OID)
+		{
+			/* GiST, SP-GiST and BRIN equality */
+			if (aform->amopstrategy == RTEqualStrategyNumber)
+			{
+				result = true;
+				break;
+			}
+		}
+	}
+
+	ReleaseSysCacheList(catlist);
+
 	return result;
 }
 
