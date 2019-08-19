@@ -28,6 +28,7 @@
 #include "parser/parse_coerce.h"
 #include "parser/parse_oper.h"
 #include "utils/builtins.h"
+#include "utils/fmgroids.h"
 #include "utils/typcache.h"
 #endif /* ADB */
 
@@ -674,7 +675,49 @@ Expr *makeHashExpr(Expr *expr)
 	return (Expr*)makeFuncExpr(typeCache->hash_proc,
 							   INT4OID,
 							   list_make1(expr),
-							   collid, collid,
+							   InvalidOid,
+							   collid,
+							   COERCE_EXPLICIT_CALL);
+}
+
+Expr *makeHashExprFamily(Expr *expr, Oid opfamily)
+{
+	Oid typoid = exprType((Node*)expr);
+	Oid collid;
+	Oid funcid;
+
+	if (type_is_enum(typoid))
+	{
+		/* convert to Name */
+		expr = (Expr*)coerce_to_target_type(NULL,
+											(Node*)expr,
+											typoid,
+											NAMEOID,
+											-1,
+											COERCION_EXPLICIT,
+											COERCE_IMPLICIT_CAST,
+											-1);
+		typoid = NAMEOID;
+		collid = InvalidOid;
+		funcid = F_HASHNAME;
+	}else
+	{
+		collid = exprCollation((Node*)expr);
+		funcid = get_opfamily_proc(opfamily, typoid, typoid, 1);
+		if (!OidIsValid(funcid))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_FUNCTION),
+					 errmsg("could not identify a hash function for type %s",
+							format_type_be(typoid))));
+		}
+	}
+
+	return (Expr*)makeFuncExpr(funcid,
+							   INT4OID,
+							   list_make1(expr),
+							   InvalidOid,
+							   collid,
 							   COERCE_EXPLICIT_CALL);
 }
 
