@@ -94,6 +94,97 @@
 #	define NODE_DATUM(t, m, o, n)
 #endif
 
+#ifndef NO_STRUCT_GenericIndexOpts
+BEGIN_STRUCT(GenericIndexOpts)
+	NODE_SCALAR(int32,vl_len_)
+	NODE_SCALAR(bool,recheck_on_update)
+END_STRUCT(GenericIndexOpts)
+#endif /* NO_STRUCT_GenericIndexOpts */
+
+#ifndef NO_STRUCT_AutoVacOpts
+BEGIN_STRUCT(AutoVacOpts)
+	NODE_SCALAR(bool,enabled)
+	NODE_SCALAR(int,vacuum_threshold)
+	NODE_SCALAR(int,analyze_threshold)
+	NODE_SCALAR(int,vacuum_cost_delay)
+	NODE_SCALAR(int,vacuum_cost_limit)
+	NODE_SCALAR(int,freeze_min_age)
+	NODE_SCALAR(int,freeze_max_age)
+	NODE_SCALAR(int,freeze_table_age)
+	NODE_SCALAR(int,multixact_freeze_min_age)
+	NODE_SCALAR(int,multixact_freeze_max_age)
+	NODE_SCALAR(int,multixact_freeze_table_age)
+	NODE_SCALAR(int,log_min_duration)
+	NODE_SCALAR(float8,vacuum_scale_factor)
+	NODE_SCALAR(float8,analyze_scale_factor)
+END_STRUCT(AutoVacOpts)
+#endif /* NO_STRUCT_AutoVacOpts */
+
+#ifndef NO_STRUCT_StdRdOptions
+BEGIN_STRUCT(StdRdOptions)
+	NODE_SCALAR(int32,vl_len_)
+	NODE_SCALAR(int,fillfactor)
+	NODE_SCALAR(float8,vacuum_cleanup_index_scale_factor)
+	NODE_SCALAR(int,toast_tuple_target)
+	NODE_STRUCT_MEB(AutoVacOpts,autovacuum)
+	NODE_SCALAR(bool,user_catalog_table)
+	NODE_SCALAR(int,parallel_workers)
+END_STRUCT(StdRdOptions)
+#endif /* NO_STRUCT_StdRdOptions */
+
+#ifndef NO_STRUCT_ViewOptions
+BEGIN_STRUCT(ViewOptions)
+	NODE_SCALAR(int32,vl_len_)
+	NODE_SCALAR(bool,security_barrier)
+	NODE_SCALAR(int,check_option_offset)
+END_STRUCT(ViewOptions)
+#endif /* NO_STRUCT_ViewOptions */
+
+#ifndef NO_STRUCT_ParamExternData
+BEGIN_STRUCT(ParamExternData)
+	NODE_DATUM(Datum,value,NODE_ARG_->ptype, NODE_ARG_->isnull)
+	NODE_SCALAR(bool,isnull)
+	NODE_SCALAR(uint16,pflags)
+	NODE_SCALAR(Oid,ptype)
+END_STRUCT(ParamExternData)
+#endif /* NO_STRUCT_ParamExternData */
+
+#ifndef NO_STRUCT_ParamListInfoData
+BEGIN_STRUCT(ParamListInfoData)
+	NODE_OTHER_POINT(ParamFetchHook,paramFetch)
+	NODE_OTHER_POINT(void,paramFetchArg)
+	NODE_OTHER_POINT(ParamCompileHook,paramCompile)
+	NODE_OTHER_POINT(void,paramCompileArg)
+	NODE_OTHER_POINT(ParserSetupHook,parserSetup)
+	NODE_OTHER_POINT(void,parserSetupArg)
+	NODE_SCALAR(int,numParams)
+	NODE_STRUCT_ARRAY(ParamExternData,params, NODE_ARG_->numParams)
+END_STRUCT(ParamListInfoData)
+#endif /* NO_STRUCT_ParamListInfoData */
+
+#ifndef NO_STRUCT_ReduceKeyInfo
+BEGIN_STRUCT(ReduceKeyInfo)
+	NODE_NODE(Expr,key)
+	NODE_SCALAR(Oid,opclass)
+	NODE_SCALAR(Oid,opfamily)
+	NODE_SCALAR(Oid,collation)
+END_STRUCT(ReduceKeyInfo)
+#endif /* NO_STRUCT_ReduceKeyInfo */
+
+#if defined(ADB)
+#ifndef NO_STRUCT_ReduceInfo
+BEGIN_STRUCT(ReduceInfo)
+	NODE_NODE(List,storage_nodes)
+	NODE_NODE(List,exclude_exec)
+	NODE_NODE(List,values)
+	NODE_RELIDS(Relids,relids)
+	NODE_SCALAR(char,type)
+	NODE_SCALAR(uint32,nkey)
+	NODE_STRUCT_ARRAY(ReduceKeyInfo, keys, NODE_ARG_->nkey)
+END_STRUCT(ReduceInfo)
+#endif /* NO_STRUCT_ReduceInfo */
+#endif
+
 #ifndef NO_STRUCT_PartitionPruneStep
 BEGIN_STRUCT(PartitionPruneStep)
 	NODE_ENUM(NodeTag,type)
@@ -365,8 +456,6 @@ BEGIN_STRUCT(RelationLocInfo)
 	NODE_NODE(List,nodeids)
 	NODE_NODE(List,masternodeids)
 	NODE_NODE(List,slavenodeids)
-	NODE_SCALAR(Oid,funcid)
-	NODE_NODE(List,funcAttrNums)
 END_STRUCT(RelationLocInfo)
 #endif /* NO_STRUCT_RelationLocInfo */
 #endif
@@ -383,84 +472,3 @@ BEGIN_STRUCT(LockInfoData)
 	NODE_STRUCT_MEB(LockRelId,lockRelId)
 END_STRUCT(LockInfoData)
 #endif /* NO_STRUCT_LockInfoData */
-
-#ifndef NO_STRUCT_GenericIndexOpts
-BEGIN_STRUCT(GenericIndexOpts)
-	NODE_SCALAR(int32,vl_len_)
-	NODE_SCALAR(bool,recheck_on_update)
-END_STRUCT(GenericIndexOpts)
-#endif /* NO_STRUCT_GenericIndexOpts */
-
-#ifndef NO_STRUCT_AutoVacOpts
-BEGIN_STRUCT(AutoVacOpts)
-	NODE_SCALAR(bool,enabled)
-	NODE_SCALAR(int,vacuum_threshold)
-	NODE_SCALAR(int,analyze_threshold)
-	NODE_SCALAR(int,vacuum_cost_delay)
-	NODE_SCALAR(int,vacuum_cost_limit)
-	NODE_SCALAR(int,freeze_min_age)
-	NODE_SCALAR(int,freeze_max_age)
-	NODE_SCALAR(int,freeze_table_age)
-	NODE_SCALAR(int,multixact_freeze_min_age)
-	NODE_SCALAR(int,multixact_freeze_max_age)
-	NODE_SCALAR(int,multixact_freeze_table_age)
-	NODE_SCALAR(int,log_min_duration)
-	NODE_SCALAR(float8,vacuum_scale_factor)
-	NODE_SCALAR(float8,analyze_scale_factor)
-END_STRUCT(AutoVacOpts)
-#endif /* NO_STRUCT_AutoVacOpts */
-
-#ifndef NO_STRUCT_StdRdOptions
-BEGIN_STRUCT(StdRdOptions)
-	NODE_SCALAR(int32,vl_len_)
-	NODE_SCALAR(int,fillfactor)
-	NODE_SCALAR(float8,vacuum_cleanup_index_scale_factor)
-	NODE_SCALAR(int,toast_tuple_target)
-	NODE_STRUCT_MEB(AutoVacOpts,autovacuum)
-	NODE_SCALAR(bool,user_catalog_table)
-	NODE_SCALAR(int,parallel_workers)
-END_STRUCT(StdRdOptions)
-#endif /* NO_STRUCT_StdRdOptions */
-
-#ifndef NO_STRUCT_ViewOptions
-BEGIN_STRUCT(ViewOptions)
-	NODE_SCALAR(int32,vl_len_)
-	NODE_SCALAR(bool,security_barrier)
-	NODE_SCALAR(int,check_option_offset)
-END_STRUCT(ViewOptions)
-#endif /* NO_STRUCT_ViewOptions */
-
-#ifndef NO_STRUCT_ParamExternData
-BEGIN_STRUCT(ParamExternData)
-	NODE_DATUM(Datum,value,NODE_ARG_->ptype, NODE_ARG_->isnull)
-	NODE_SCALAR(bool,isnull)
-	NODE_SCALAR(uint16,pflags)
-	NODE_SCALAR(Oid,ptype)
-END_STRUCT(ParamExternData)
-#endif /* NO_STRUCT_ParamExternData */
-
-#ifndef NO_STRUCT_ParamListInfoData
-BEGIN_STRUCT(ParamListInfoData)
-	NODE_OTHER_POINT(ParamFetchHook,paramFetch)
-	NODE_OTHER_POINT(void,paramFetchArg)
-	NODE_OTHER_POINT(ParamCompileHook,paramCompile)
-	NODE_OTHER_POINT(void,paramCompileArg)
-	NODE_OTHER_POINT(ParserSetupHook,parserSetup)
-	NODE_OTHER_POINT(void,parserSetupArg)
-	NODE_SCALAR(int,numParams)
-	NODE_STRUCT_ARRAY(ParamExternData,params, NODE_ARG_->numParams)
-END_STRUCT(ParamListInfoData)
-#endif /* NO_STRUCT_ParamListInfoData */
-
-#if defined(ADB)
-#ifndef NO_STRUCT_ReduceInfo
-BEGIN_STRUCT(ReduceInfo)
-	NODE_NODE(List,storage_nodes)
-	NODE_NODE(List,exclude_exec)
-	NODE_NODE(List,params)
-	NODE_NODE(Expr,expr)
-	NODE_RELIDS(Relids,relids)
-	NODE_SCALAR(char,type)
-END_STRUCT(ReduceInfo)
-#endif /* NO_STRUCT_ReduceInfo */
-#endif

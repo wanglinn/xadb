@@ -27,6 +27,7 @@
 #define NO_NODE_RestrictInfo
 #include "nodes/def_no_all_struct.h"
 #undef NO_STRUCT_QualCost
+#undef NO_STRUCT_ReduceKeyInfo
 #undef NO_STRUCT_ReduceInfo
 #undef NO_STRUCT_PartitionPruneStep
 
@@ -86,6 +87,22 @@ static type* _mutator_##type(type *dest, const type *src,		\
 #define NODE_STRUCT_MEB(t,m) _mutator_##t(&(dest->m), &(src->m), mutator, context);
 /* need copy datum ? */
 #define NODE_DATUM(t,m,o,n)
+
+#define NO_STRUCT_ReduceInfo
+BEGIN_STRUCT(ReduceInfo)
+	uint32 i;
+	uint32 nkey = src->nkey;
+	Size size = offsetof(ReduceInfo, keys) + sizeof(ReduceKeyInfo) * nkey;
+	dest = repalloc(dest, size);
+	memcpy(dest, src, size);
+	NODE_NODE(List,storage_nodes)
+	NODE_NODE(List,exclude_exec)
+	NODE_NODE(List,values)
+	NODE_BITMAPSET(Bitmapset,relids)
+	/*NODE_SCALAR(char,type)*/
+	for (i=0;i<nkey;++i)
+		_mutator_ReduceKeyInfo(&dest->keys[i], &src->keys[i], mutator, context);
+END_STRUCT(ReduceInfo)
 
 #include "nodes/nodes_define.h"
 #include "nodes/struct_define.h"

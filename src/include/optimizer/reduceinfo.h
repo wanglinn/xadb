@@ -4,48 +4,77 @@
 #define REDUCE_TYPE_NONE		'\0'
 #define REDUCE_TYPE_HASHMAP		'B'
 #define REDUCE_TYPE_HASH		'H'
-#define REDUCE_TYPE_CUSTOM		'C'
 #define REDUCE_TYPE_MODULO		'M'
+#define REDUCE_TYPE_LIST		'l'
+#define REDUCE_TYPE_RANGE		'r'
 #define REDUCE_TYPE_REPLICATED	'R'
 #define REDUCE_TYPE_RANDOM		'L'
 #define REDUCE_TYPE_COORDINATOR	'O'
 /* only using in ReducePathXXX functions */
 #define REDUCE_TYPE_IGNORE		'I'
 #define REDUCE_TYPE_GATHER		'G'
+#define IsReduceTypeByValue(t_)			\
+			((t_) == REDUCE_TYPE_HASH		|| \
+			 (t_) == REDUCE_TYPE_HASHMAP	|| \
+			 (t_) == REDUCE_TYPE_MODULO		|| \
+			 (t_) == REDUCE_TYPE_LIST		|| \
+			 (t_) == REDUCE_TYPE_RANDOM)
+#define IsReduceTypeNotByValue(t_)		\
+			((t_) == REDUCE_TYPE_REPLICATED	|| \
+			 (t_) == REDUCE_TYPE_RANDOM		|| \
+			 (t_) == REDUCE_TYPE_COORDINATOR)
 
 #define REDUCE_MARK_STORAGE		0x0001
 #define REDUCE_MARK_EXCLUDE		0x0002
-#define REDUCE_MARK_PARAMS		0x0004
-#define REDUCE_MARK_EXPR		0x0008
-#define REDUCE_MARK_RELIDS		0x0010
-#define REDUCE_MARK_TYPE		0x0020
-#define REDUCE_MARK_NO_EXCLUDE		  \
+#define REDUCE_MARK_KEY_NUM		0x0004
+#define REDUCE_MARK_KEY_EXPR	0x0008
+#define REDUCE_MARK_OPCLASS		0x0010
+#define REDUCE_MARK_COLLATION	0x0011
+#define REDUCE_MARK_VALUES		0x0012
+#define REDUCE_MARK_RELIDS		0x0014
+#define REDUCE_MARK_TYPE		0x0018
+#define REDUCE_MARK_KEY_INFO		  \
+			(REDUCE_MARK_KEY_EXPR	| \
+			 REDUCE_MARK_OPCLASS	| \
+			 REDUCE_MARK_COLLATION)
+#define REDUCE_MARK_SAME			  \
 			(REDUCE_MARK_STORAGE	| \
-			 REDUCE_MARK_PARAMS		| \
-			 REDUCE_MARK_EXPR		| \
-			 REDUCE_MARK_RELIDS		| \
-			 REDUCE_MARK_TYPE)
+			 REDUCE_MARK_TYPE		| \
+			 REDUCE_MARK_VALUES		| \
+			 REDUCE_MARK_KEY_NUM	| \
+			 REDUCE_MARK_OPCLASS	| \
+			 REDUCE_MARK_COLLATION)
+#define REDUCE_MARK_NO_EXCLUDE		  \
+			(REDUCE_MARK_SAME		| \
+			 REDUCE_MARK_KEY_INFO	| \
+			 REDUCE_MARK_RELIDS)
 #define REDUCE_MARK_ALL	(REDUCE_MARK_NO_EXCLUDE|REDUCE_MARK_EXCLUDE)
+
+typedef struct ReduceKeyInfo
+{
+	Expr		   *key;					/* distribute key */
+	Oid				opclass;				/* operator class to compare */
+	Oid				opfamily;				/* operator family from opclass */
+	Oid				collation;				/* user-specified collation */
+}ReduceKeyInfo;
 
 typedef struct ReduceInfo
 {
-	List	   *storage_nodes;			/* when not reduce by value, it's sorted */
-	List	   *exclude_exec;
-	List	   *params;
-	Expr	   *expr;					/* for custom only */
-	Relids		relids;					/* params include */
-	char		type;					/* REDUCE_TYPE_XXX */
+	List		   *storage_nodes;			/* when not reduce by value, it's sorted */
+	List		   *exclude_exec;			/* not have any row nodes */
+	List		   *values;					/* each nodes value(s) for distribute by list and range*/
+	Relids			relids;					/* params include */
+	char			type;					/* REDUCE_TYPE_XXX */
+	uint32			nkey;
+	ReduceKeyInfo	keys[FLEXIBLE_ARRAY_MEMBER];
 }ReduceInfo;
 struct RelationLocInfo;
 
 typedef int(*ReducePathCallback_function)(PlannerInfo *root, Path *path, void *context);
 
-extern ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const Expr *param);
-extern ReduceInfo *MakeHashmapReduceInfo(const List *storage, const List *exclude, const Expr *param);
-extern ReduceInfo *MakeCustomReduceInfoByRel(const List *storage, const List *exclude,
-						const List *attnums, Oid funcid, Oid reloid, Index rel_index);
-extern ReduceInfo *MakeCustomReduceInfo(const List *storage, const List *exclude, List *params, Oid funcid, Oid reloid);
-extern ReduceInfo *MakeModuloReduceInfo(const List *storage, const List *exclude, const Expr *param);
+extern ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const Expr *key);
+extern ReduceInfo *MakeHashmapReduceInfo(const List *storage, const List *exclude, const Expr *key);
+extern ReduceInfo *MakeModuloReduceInfo(const List *storage, const List *exclude, const Expr *key);
 extern ReduceInfo *MakeReplicateReduceInfo(const List *storage);
 extern ReduceInfo *MakeFinalReplicateReduceInfo(void);
 extern ReduceInfo *MakeRandomReduceInfo(const List *storage);
@@ -133,10 +162,7 @@ extern List *GetCheapestReducePathList(RelOptInfo *rel, List *pathlist, Path **c
 
 extern int ReducePathSave2List(PlannerInfo *root, Path *path, void *pplist);
 
-#define IsReduceInfoByValue(r) ((r)->type == REDUCE_TYPE_HASH || \
-								(r)->type == REDUCE_TYPE_HASHMAP || \
-								(r)->type == REDUCE_TYPE_CUSTOM || \
-								(r)->type == REDUCE_TYPE_MODULO)
+#define IsReduceInfoByValue(r) IsReduceTypeByValue((r)->type)
 extern bool IsReduceInfoListByValue(List *list);
 #define IsReduceInfoReplicated(r)	((r)->type == REDUCE_TYPE_REPLICATED)
 #define IsReduceInfoFinalReplicated(r) (IsReduceInfoReplicated(r) &&			\
@@ -177,8 +203,8 @@ extern List *ReduceInfoListConcatExtend(List *dest, List *src, int mark);
 /* compare reduce info */
 extern bool CompReduceInfo(const ReduceInfo *left, const ReduceInfo *right, int mark);
 extern bool CompReduceInfoList(List *left, List *right, int mark);
-#define IsReduceInfoSame(l,r) CompReduceInfo(l, r, REDUCE_MARK_STORAGE|REDUCE_MARK_TYPE|REDUCE_MARK_EXPR)
-#define IsReduceInfoListSame(l,r) CompReduceInfoList(l, r, REDUCE_MARK_STORAGE|REDUCE_MARK_TYPE|REDUCE_MARK_EXPR)
+#define IsReduceInfoSame(l,r) CompReduceInfo(l, r, REDUCE_MARK_SAME)
+#define IsReduceInfoListSame(l,r) CompReduceInfoList(l, r, REDUCE_MARK_SAME)
 #define IsReduceInfoEqual(l,r) CompReduceInfo(l, r, REDUCE_MARK_ALL)
 #define IsReduceInfoListEqual(l,r) CompReduceInfoList(l, r, REDUCE_MARK_ALL)
 

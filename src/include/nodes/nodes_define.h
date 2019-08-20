@@ -3456,6 +3456,7 @@ BEGIN_NODE(OraImplicitConvertStmt)
 	NODE_NODE(List,cvtto)
 	NODE_ENUM(IConvertAction,action)
 	NODE_SCALAR(bool,if_exists)
+	NODE_NODE(List,node_list)
 END_NODE(OraImplicitConvertStmt)
 #endif /* NO_NODE_OraImplicitConvertStmt */
 

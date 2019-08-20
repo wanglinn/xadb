@@ -3112,17 +3112,6 @@ describeOneTableDetails(const char *schemaname,
 						"		   'HASH' || '(' || a.attname || ')' \n"
 						"		  WHEN '%c' THEN \n"
 						"		   'MODULO' || '(' || a.attname || ')' \n"
-						"		  WHEN '%c' THEN \n"
-						"		   (SELECT proname FROM pg_catalog.pg_proc WHERE oid = pcfuncid) || '(' || \n"
-						"		   array_to_string(ARRAY \n"
-						"						   (SELECT attname \n"
-						"							  FROM pg_catalog.pg_attribute a, \n"
-						"								   (SELECT unnest(pcfuncattnums) \n"
-						"									  FROM pg_catalog.pgxc_class \n"
-						"									 WHERE pcrelid = '%s') b(pcfuncattnum) \n"
-						"							 WHERE a.attrelid = '%s' \n"
-						"							   AND a.attnum = b.pcfuncattnum), \n"
-						"						   ', ') || ')' \n"
 						"		END AS distype, \n"
 						"		CASE array_length(nodeoids, 1) \n"
 						"		  WHEN nc.dn_cn THEN \n"
@@ -3153,9 +3142,6 @@ describeOneTableDetails(const char *schemaname,
 					, LOCATOR_TYPE_REPLICATED
 					, LOCATOR_TYPE_HASH
 					, LOCATOR_TYPE_MODULO
-					, LOCATOR_TYPE_USER_DEFINED
-					, oid
-					, oid
 					, LOCATOR_TYPE_HASHMAP
 					, oid
 					, oid);
