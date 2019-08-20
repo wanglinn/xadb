@@ -784,13 +784,13 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 	}
 
 #ifdef ADB
-	/* for now we only generate "union all" paths */
+	/* first generate "union all" paths */
 	add_cluster_paths_to_append_rel(root, result_rel, rellist, NIL);
+
 	if (!op->all)
 	{
 		ListCell *lc;
 		ListCell *lc2;
-		bool isReduceInfoListIncludeExpr = false;
 		List *all_paths = result_rel->cluster_pathlist;
 		result_rel->cluster_pathlist = NIL;
 		result_rel->cluster_partial_pathlist = NIL;
@@ -800,7 +800,8 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 		{
 			Path *subpath = lfirst(lc);
 			List *reduce_info_list = get_reduce_info_list(subpath);
-			if (IsReduceInfoListInOneNode(reduce_info_list))
+			if (IsReduceInfoListInOneNode(reduce_info_list) ||
+				IsReduceInfoListReplicated(reduce_info_list))
 			{
 				Path *path = make_union_unique(op, lfirst(lc), tlist, root);
 				path->reduce_info_list = reduce_info_list;
@@ -816,13 +817,13 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 					path->reduce_info_list = reduce_info_list;
 					path->reduce_is_valid = true;
 					add_cluster_path(result_rel, path);
-					isReduceInfoListIncludeExpr = true;
 				}
 			}
 		}
-		/* There are no shard key in the expr */
-		if(!isReduceInfoListIncludeExpr)
+
+		if(result_rel->cluster_pathlist == NIL)
 		{
+			/* no path generated */
 			foreach(lc, all_paths)
 			{	
 				Path *subpath = lfirst(lc);
@@ -831,22 +832,22 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 				List *storage_list;
 
 				ReduceInfoListGetStorageAndExcludeOidList(get_reduce_info_list(subpath),
-																&storage_list,
-																NULL);
+														  &storage_list,
+														  NULL);
 				/* Create a new reduce path with exprs */
 				ReducePathByExpr((Expr*)(subpath->pathtarget->exprs),
-									root,
-									result_rel,
-									subpath,
-									storage_list,
-									NIL,
-									get_reduce_union_path,
-									(void*)&reducePath,
-									REDUCE_TYPE_HASH,
-									glob->has_hashmap_rel ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
-									glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
-									REDUCE_TYPE_NONE);
-				
+								 root,
+								 result_rel,
+								 subpath,
+								 storage_list,
+								 NIL,
+								 get_reduce_union_path,
+								 (void*)&reducePath,
+								 REDUCE_TYPE_HASH,
+								 glob->has_hashmap_rel ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
+								 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
+								 REDUCE_TYPE_NONE);
+
 				unionPath = make_union_unique(op, reducePath, tlist, root);
 				unionPath->reduce_info_list = get_reduce_info_list(reducePath);
 				unionPath->reduce_is_valid = true;
