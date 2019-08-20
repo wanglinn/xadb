@@ -52,13 +52,13 @@ static inline ReduceInfo* MakeEmptyReduceInfo(uint32 nkey)
 
 static inline void SetReduceKeyDefaultInfo(ReduceKeyInfo *key, const Expr *expr, Oid am_oid, const char *method_name)
 {
-	Assert(OidIsValid(key->opclass));
 	key->key = (Expr*)copyObject(expr);
 	key->opclass = ResolveOpClass(NIL,
 								  exprType((Node*)expr),
 								  method_name,
 								  am_oid);
 	key->opfamily = get_opclass_family(key->opclass);
+	key->collation = InvalidOid;
 }
 
 ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const Expr *key)
