@@ -668,6 +668,31 @@ numeric_out(PG_FUNCTION_ARGS)
 
 	str = get_str_from_var(&x);
 
+	/* terminal last '0' */
+	{
+		char *p = strrchr(str, '.');
+		int i;
+		if (p)
+		{
+			i = strlen(p);
+			while (i>0)
+			{
+				char c = p[--i];
+				if (c == '0')
+				{
+					p[i] = '\0';
+				}else if (c == '.')
+				{
+					p[i] = '\0';
+					break;
+				}else
+				{
+					break;
+				}
+			}
+		}
+	}
+
 	PG_RETURN_CSTRING(str);
 }
 
