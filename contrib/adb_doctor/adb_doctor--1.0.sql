@@ -7,18 +7,18 @@ CREATE SCHEMA IF NOT EXISTS adb_doctor;
 
 -- Start all doctor process
 CREATE OR REPLACE FUNCTION adb_doctor_start()
-    RETURNS pg_catalog.void STRICT
+    RETURNS pg_catalog.bool STRICT
 	AS 'MODULE_PATHNAME' LANGUAGE C;
 
 -- Stop all doctor processes
 CREATE OR REPLACE FUNCTION adb_doctor_stop()
-    RETURNS pg_catalog.void STRICT
+    RETURNS pg_catalog.bool STRICT
 	AS 'MODULE_PATHNAME' LANGUAGE C;
 
 -- Set configuration variables stored in table adb_doctor_conf
 CREATE OR REPLACE FUNCTION adb_doctor_param(k pg_catalog.text default '',
 											v pg_catalog.text default '')
-    RETURNS pg_catalog.void STRICT
+    RETURNS pg_catalog.bool STRICT
 	AS 'MODULE_PATHNAME' LANGUAGE C;
 
 -- List editable configuration variables stored in table adb_doctor_conf

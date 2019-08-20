@@ -50,8 +50,7 @@ static bool waitForLauncherOK(BackgroundWorkerHandle *launcherHandle, shm_mq_han
  * background worker. The "adb doctor launcher" will start the doctor process 
  * according to the table MGR_NODE, MGR_HOST in the MGR database.
  */
-Datum
-	adb_doctor_start(PG_FUNCTION_ARGS)
+Datum adb_doctor_start(PG_FUNCTION_ARGS)
 {
 	dsm_segment *seg;
 	shm_mq *mq;
@@ -83,7 +82,7 @@ Datum
 	{
 		cancel_on_dsm_detach(seg, cleanupAdbDoctorBgworker, PointerGetDatum(launcherHandle));
 		dsm_detach(seg);
-		PG_RETURN_VOID();
+		PG_RETURN_BOOL(true);
 	}
 	else
 	{
@@ -91,18 +90,18 @@ Datum
 		ereport(ERROR,
 				(errmsg("launch doctor worker failed"),
 				 errdetail("please view server log for detail")));
+		PG_RETURN_BOOL(false);
 	}
 }
 
 /**
  * Stop all doctor processes.
  */
-Datum
-	adb_doctor_stop(PG_FUNCTION_ARGS)
+Datum adb_doctor_stop(PG_FUNCTION_ARGS)
 {
 	adbDoctorStopLauncher(false);
 	adbDoctorStopBgworkers(false);
-	PG_RETURN_VOID();
+	PG_RETURN_BOOL(true);
 }
 
 /**
@@ -136,7 +135,7 @@ Datum adb_doctor_param(PG_FUNCTION_ARGS)
 
 	pfree(k);
 	pfree(v);
-	PG_RETURN_VOID();
+	PG_RETURN_BOOL(true);
 }
 
 /**
@@ -152,6 +151,7 @@ Datum adb_doctor_list(PG_FUNCTION_ARGS)
 	FuncCallContext *funcctx;
 	MemoryContext multi_call_memory_ctx;
 	MemoryContext oldcontext;
+	MemoryContext spiContext;
 
 	if (SRF_IS_FIRSTCALL())
 	{
@@ -166,7 +166,9 @@ Datum adb_doctor_list(PG_FUNCTION_ARGS)
 					(errmsg("SPI_connect failed, connect return:%d",
 							ret)));
 		}
-		rows = selectEditableAdbDoctorConf(multi_call_memory_ctx, &rowData);
+		spiContext = CurrentMemoryContext;
+		MemoryContextSwitchTo(multi_call_memory_ctx);
+		rows = selectEditableAdbDoctorConf(spiContext, &rowData);
 		SPI_finish();
 
 		funcctx->max_calls = rows;
