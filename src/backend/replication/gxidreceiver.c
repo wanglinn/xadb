@@ -89,7 +89,8 @@ static void GxidRcvUpdateShmemConnInfo(void);
 static void GxidRcvProcessMessage(unsigned char type, char *buf, Size len);
 static void GxidRcvProcessAssignList(void);
 static void GxidRcvProcessFinishList(void);
-static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test, void *context);
+static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test,
+			proclist_head *reters, proclist_head *geters, void *context);
 static void GxidRcvSendHeartbeat(void);
 
 /* Signal handlers */
@@ -330,22 +331,16 @@ void GxidReceiverMain(void)
 					exit(1);
 				}
 
-				if (rc & WL_TIMEOUT)
+				if ((rc & WL_TIMEOUT) && gxid_receiver_timeout > 0 && !heartbeat_sent)
 				{
-					if (gxid_receiver_timeout > 0)
-					{
-						now = GetCurrentTimestamp();
-						if (!heartbeat_sent)
-						{
-							timeout = TimestampTzPlusMilliseconds(last_recv_timestamp,
-										gxid_receiver_timeout);
+					now = GetCurrentTimestamp();
+					timeout = TimestampTzPlusMilliseconds(last_recv_timestamp,
+								gxid_receiver_timeout);
 
-							if (now >= timeout)
-							{
-								heartbeat_sent = true;
-								GxidRcvSendHeartbeat();
-							}
-						}
+					if (now >= timeout)
+					{
+						heartbeat_sent = true;
+						GxidRcvSendHeartbeat();
 					}
 				}
 			}
@@ -685,7 +680,6 @@ static bool WaitGxidRcvCommitReturn(void *context)
 	if (GxidRcv->state != WALRCV_STREAMING)
 		return true;
 
-	//txid = (TransactionId)((size_t)context);
 	proclist_foreach_modify(iter, &GxidRcv->wait_commiters, GxidWaitLink)
 	{
 		proc = GetPGProcByNumber(iter.cur);
@@ -697,99 +691,13 @@ static bool WaitGxidRcvCommitReturn(void *context)
 	return true;
 }
 
-static bool WaitGxidRcvCommitEvent(TimestampTz end, WaitGxidRcvCond test, void *context)
-{
-	Latch				   *latch = &MyProc->procLatch;
-	long					timeout;
-	proclist_mutable_iter	iter;
-	int						procno = MyProc->pgprocno;
-	int						rc;
-	int						waitEvent;
-
-	while ((*test)(context))
-	{
-		bool in_ret_list = false;
-		bool in_get_list = false;
-		proclist_foreach_modify(iter, &GxidRcv->wait_commiters, GxidWaitLink)
-		{
-			if (iter.cur == procno)
-			{
-				in_ret_list = true;
-				break;
-			}
-		}
-
-		if (!in_ret_list)
-		{
-			proclist_foreach_modify(iter, &GxidRcv->send_commiters, GxidWaitLink)
-			{
-				if (iter.cur == procno)
-				{
-					in_get_list = true;
-					break;
-				}
-			}
-			if (!in_get_list)
-			{
-				pg_write_barrier();
-				proclist_push_tail(&GxidRcv->send_commiters, procno, GxidWaitLink);
-			}
-		}
-
-		UNLOCK_GXID_RCV();
-		GXID_RCV_SET_LATCH();	
-
-		waitEvent = WL_POSTMASTER_DEATH | WL_LATCH_SET;
-		if (end > 0)
-		{
-			long secs;
-			int microsecs;
-			TimestampDifference(GetCurrentTimestamp(), end, &secs, &microsecs);
-			timeout = secs*1000 + microsecs/1000;
-			waitEvent |= WL_TIMEOUT;
-		}else if (end == 0)
-		{
-			timeout = 0;
-			waitEvent |= WL_TIMEOUT;
-		}else
-		{
-			timeout = -1;
-		}
-
-		rc = WaitLatch(latch, waitEvent, timeout, PG_WAIT_EXTENSION);
-		ResetLatch(latch);
-		if (rc & WL_POSTMASTER_DEATH)
-		{
-			exit(1);
-		}else if(rc & WL_TIMEOUT)
-		{
-			ereport(ERROR,(errmsg("GxidRcv wait xid %d finish timeout\n", MyProc->getGlobalTransaction)));
-			MyProc->getGlobalTransaction = InvalidTransactionId;
-			return false;
-		}
-
-		LOCK_GXID_RCV();
-	}
-
-	/* check if we still in waiting list, remove */
-	proclist_foreach_modify(iter, &GxidRcv->wait_commiters, GxidWaitLink)
-	{
-		if (iter.cur == procno)
-		{
-			proclist_delete(&GxidRcv->wait_commiters, procno, GxidWaitLink);
-			break;
-		}
-	}
-
-	return true;
-}
-
 /*
  * when end < 0 wait until streaming or error
  *   when end == 0 not block
  * mutex must be locked
  */
-static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test, void *context)
+static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test,
+			proclist_head *reters, proclist_head *geters, void *context)
 {
 	Latch				   *latch = &MyProc->procLatch;
 	long					timeout;
@@ -802,7 +710,7 @@ static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test, void *contex
 	{
 		bool in_ret_list = false;
 		bool in_get_list = false;
-		proclist_foreach_modify(iter, &GxidRcv->reters, GxidWaitLink)
+		proclist_foreach_modify(iter, reters, GxidWaitLink)
 		{
 			if (iter.cur == procno)
 			{
@@ -813,7 +721,7 @@ static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test, void *contex
 
 		if (!in_ret_list)
 		{
-			proclist_foreach_modify(iter, &GxidRcv->geters, GxidWaitLink)
+			proclist_foreach_modify(iter, geters, GxidWaitLink)
 			{
 				if (iter.cur == procno)
 				{
@@ -824,7 +732,7 @@ static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test, void *contex
 			if (!in_get_list)
 			{
 				pg_write_barrier();
-				proclist_push_tail(&GxidRcv->geters, procno, GxidWaitLink);
+				proclist_push_tail(geters, procno, GxidWaitLink);
 			}
 		}
 
@@ -855,6 +763,8 @@ static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test, void *contex
 			exit(1);
 		}else if(rc & WL_TIMEOUT)
 		{
+			ereport(ERROR,(errmsg("GxidRcv wait xid timeout\n")));
+			MyProc->getGlobalTransaction = InvalidTransactionId;
 			return false;
 		}
 
@@ -863,11 +773,11 @@ static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test, void *contex
 
 	
 	/* check if we still in waiting list, remove */
-	proclist_foreach_modify(iter, &GxidRcv->reters, GxidWaitLink)
+	proclist_foreach_modify(iter, reters, GxidWaitLink)
 	{
 		if (iter.cur == procno)
 		{
-			proclist_delete(&GxidRcv->reters, procno, GxidWaitLink);
+			proclist_delete(reters, procno, GxidWaitLink);
 			break;
 		}
 	}
@@ -975,14 +885,15 @@ GxidRcvProcessFinishList(void)
 
 TransactionId GixRcvGetGlobalTransactionId(bool isSubXact)
 {
+	TimestampTz		endtime;
 	if(isSubXact)
 		ereport(ERROR, (errmsg("cannot assign XIDs in child transaction")));
 
 	LOCK_GXID_RCV();
 
 	MyProc->getGlobalTransaction = InvalidTransactionId;
-
-	WaitGxidRcvEvent(-1, WaitGxidRcvCondReturn, NULL);
+	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 2000);
+	WaitGxidRcvEvent(endtime, WaitGxidRcvCondReturn, &GxidRcv->reters, &GxidRcv->geters, NULL);
 	
 	UNLOCK_GXID_RCV();
 
@@ -996,7 +907,9 @@ void GixRcvCommitTransactionId(TransactionId txid)
 
 	MyProc->getGlobalTransaction = txid;
 	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 2000);
-	WaitGxidRcvCommitEvent(endtime, WaitGxidRcvCommitReturn, (void*)((size_t)txid));
+
+	WaitGxidRcvEvent(endtime, WaitGxidRcvCommitReturn, &GxidRcv->wait_commiters,
+			&GxidRcv->send_commiters, (void*)((size_t)txid));
 	
 	UNLOCK_GXID_RCV();
 

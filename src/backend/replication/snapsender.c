@@ -140,7 +140,8 @@ static void snapsender_create_xid_htab(void);
 static void append_client_xid_to_htab(SnapClientData *client, TransactionId xid);
 static int	snapsender_match_xid(const void *key1, const void *key2, Size keysize);
 static bool SnapSenderWakeupFinishXidEvent(TransactionId txid);
-static bool SnapSenderWaitTxidFinsihEvent(TimestampTz end, TransactionId txid);
+static bool SnapSenderWaitTxidFinsihEvent(TimestampTz end, WaitSnapSenderCond test, void *context);
+static bool WaitSnapSendCondTransactionComplate(void *context);
 
 /* Signal handlers */
 static void SnapSenderSigUsr1Handler(SIGNAL_ARGS);
@@ -324,61 +325,66 @@ static void snapsenderProcessXidFinishAck(SnapClientData *client, const char* da
 	}
 }
 
-static bool SnapSenderWaitTxidFinsihEvent(TimestampTz end, TransactionId txid)
+static bool WaitSnapSendCondTransactionComplate(void *context)
+{
+	proclist_mutable_iter	iter;
+	PGPROC				   	*proc;
+	int						procno = MyProc->pgprocno;
+
+	proclist_foreach_modify(iter, &SnapSender->waiters_finish, GTMWaitLink)
+	{
+		proc = GetPGProcByNumber(iter.cur);
+		if (proc->pgprocno == procno)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static bool SnapSenderWaitTxidFinsihEvent(TimestampTz end, WaitSnapSenderCond test, void *context)
 {
 	int						rc;
 	Latch					*latch = &MyProc->procLatch;
 	long					timeout;
-	proclist_mutable_iter	iter;
-	int						procno = MyProc->pgprocno;
 	int						waitEvent;
 
-	waitEvent = WL_POSTMASTER_DEATH | WL_LATCH_SET;
-	if (end > 0)
+	while ((*test)(context))
 	{
-		long secs;
-		int microsecs;
-		TimestampDifference(GetCurrentTimestamp(), end, &secs, &microsecs);
-		timeout = secs*1000 + microsecs/1000;
-		waitEvent |= WL_TIMEOUT;
-	}else if (end == 0)
-	{
-		timeout = 0;
-		waitEvent |= WL_TIMEOUT;
-	}else
-	{
-		timeout = -1;
-	}
-	rc = WaitLatch(latch, waitEvent, timeout, PG_WAIT_EXTENSION);
-	ResetLatch(latch);
-	if (rc & WL_POSTMASTER_DEATH)
-	{
-		exit(1);
-	}else if(rc & WL_TIMEOUT)
-	{
-		MyProc->waitGlobalTransaction = InvalidTransactionId;
-		return false;
-	}
-
-	Assert(SnapSender != NULL);
-	SpinLockAcquire(&SnapSender->mutex);
-	if (SnapSender->procno == INVALID_PGPROCNO)
-	{
+		waitEvent = WL_POSTMASTER_DEATH | WL_LATCH_SET;
+		if (end > 0)
+		{
+			long secs;
+			int microsecs;
+			TimestampDifference(GetCurrentTimestamp(), end, &secs, &microsecs);
+			timeout = secs*1000 + microsecs/1000;
+			waitEvent |= WL_TIMEOUT;
+		}else if (end == 0)
+		{
+			timeout = 0;
+			waitEvent |= WL_TIMEOUT;
+		}else
+		{
+			timeout = -1;
+		}
 		SpinLockRelease(&SnapSender->mutex);
-		return false;
-	}
 
-	proclist_foreach_modify(iter, &SnapSender->waiters_finish, GTMWaitLink)
-	{
-		if (iter.cur == procno)
+		rc = WaitLatch(latch, waitEvent, timeout, PG_WAIT_EXTENSION);
+		ResetLatch(latch);
+		if (rc & WL_POSTMASTER_DEATH)
+		{
+			exit(1);
+		}else if(rc & WL_TIMEOUT)
 		{
 			MyProc->waitGlobalTransaction = InvalidTransactionId;
-			proclist_delete(&SnapSender->waiters_finish, procno, GTMWaitLink);
-			break;
+			return false;
 		}
+
+		SpinLockAcquire(&SnapSender->mutex);
 	}
 
-	SpinLockRelease(&SnapSender->mutex);
+	MyProc->waitGlobalTransaction = InvalidTransactionId;
 	return true;
 }
 
@@ -1179,9 +1185,8 @@ void SnapSendTransactionFinish(TransactionId txid)
 		pg_write_barrier();
 		proclist_push_tail(&SnapSender->waiters_finish, procno, GTMWaitLink);
 	}
-	
-	SpinLockRelease(&SnapSender->mutex);
 
 	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 2000);
-	SnapSenderWaitTxidFinsihEvent(endtime, txid);
+	SnapSenderWaitTxidFinsihEvent(endtime, WaitSnapSendCondTransactionComplate, (void*)((size_t)txid));
+	SpinLockRelease(&SnapSender->mutex);
 }

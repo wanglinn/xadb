@@ -324,22 +324,16 @@ void SnapReceiverMain(void)
 					exit(1);
 				}
 
-				if (rc & WL_TIMEOUT)
+				if ((rc & WL_TIMEOUT) && snap_receiver_timeout > 0 && !heartbeat_sent)
 				{
-					if (snap_receiver_timeout > 0)
-					{
-						now = GetCurrentTimestamp();
-						if (!heartbeat_sent)
-						{
-							timeout = TimestampTzPlusMilliseconds(last_recv_timestamp,
-										snap_receiver_timeout);
+					now = GetCurrentTimestamp();
+					timeout = TimestampTzPlusMilliseconds(last_recv_timestamp,
+								snap_receiver_timeout);
 
-							if (now >= timeout)
-							{
-								heartbeat_sent = true;
-								SnapRcvSendHeartbeat();
-							}
-						}
+					if (now >= timeout)
+					{
+						heartbeat_sent = true;
+						SnapRcvSendHeartbeat();
 					}
 				}
 			}
