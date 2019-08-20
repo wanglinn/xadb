@@ -1378,14 +1378,14 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool complain)
 	case CNDN_TYPE_COORDINATOR_MASTER:
 	case CNDN_TYPE_COORDINATOR_SLAVE:
 		appendStringInfo(&cmdMessage,
-						 " start -Z coordinator -D %s -o -i -w -c -l %s/logfile",
+						 " start -D %s -Z gtm_coord -o -i -w -c -l %s/logfile",
 						 node->nodepath,
 						 node->nodepath);
 		break;
 	case CNDN_TYPE_DATANODE_MASTER:
 	case CNDN_TYPE_DATANODE_SLAVE:
 		appendStringInfo(&cmdMessage,
-						 " start -Z datanode -D %s -o -i -w -c -l %s/logfile",
+						 " start -D %s -Z datanode -o -i -w -c -l %s/logfile",
 						 node->nodepath,
 						 node->nodepath);
 		break;

@@ -1242,7 +1242,7 @@ static void pfreeAgentsInList(dlist_head *list)
  * If the setting is too small, it may lead to the wrong AGENT status determination.
  * If the setting is too large, it may cause a delayed AGENT status determination.
  * However, we avoid setting the value of the inappropriate agentdeadline by optimizing
- * the minimum and maximum these various variables.
+ * the minimum and maximum of these various variables.
  */
 static HostConfiguration *newHostConfiguration(AdbDoctorConf *conf)
 {

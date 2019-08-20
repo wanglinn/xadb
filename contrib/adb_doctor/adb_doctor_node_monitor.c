@@ -839,7 +839,12 @@ static bool tryRestartNode(MonitorNodeInfo *nodeInfo)
 			   startupNode(nodeInfo);
 		endCureOperation(nodeInfo, CURE_STATUS_NORMAL, spiContext);
 		if (done)
+		{
+			ereport(LOG,
+					(errmsg("%s, restart node successfully",
+							MyBgworkerEntry->bgw_name)));
 			resetNodeMonitor();
+		}
 	}
 	else
 	{
@@ -862,7 +867,12 @@ static bool tryStartupNode(MonitorNodeInfo *nodeInfo)
 		done = startupNode(nodeInfo);
 		endCureOperation(nodeInfo, CURE_STATUS_NORMAL, spiContext);
 		if (done)
+		{
+			ereport(LOG,
+					(errmsg("%s, start node successfully",
+							MyBgworkerEntry->bgw_name)));
 			resetNodeMonitor();
+		}
 	}
 	else
 	{
@@ -1076,7 +1086,7 @@ static bool PQflushAction(MonitorNodeInfo *nodeInfo)
 	}
 	else if (res == 1)
 	{
-		/* If it returns 1, wait for the socket to become read or write-ready. */
+		/* If it returns 1, wait for the socket to become read-ready or write-ready. */
 		nodeInfo->waitEvents |= WL_SOCKET_READABLE;
 		nodeInfo->waitEvents |= WL_SOCKET_WRITEABLE;
 		return true;
