@@ -903,7 +903,7 @@ InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_stat
 	char * volatile command = NULL;
 	const char	   *command_tag;
 
-	handle_list = GetNodeHandleList(nodes, nnodes, false, false, true, NULL, false);
+	handle_list = GetNodeHandleList(nodes, nnodes, false, false, true, NULL, true);
 	if (!handle_list)
 		return ;
 	
@@ -980,7 +980,7 @@ RemoteXactCommit(int nnodes, Oid *nodes)
 		return ;
 
 	InterXactCommit(NULL, nodes, nnodes, false);
-	InterXactCommitGtm(NULL, nodes, nnodes, false);
+	//InterXactCommitGtm(NULL, nodes, nnodes, false);
 	//agtm_CommitTransaction(NULL, false);
 }
 
@@ -991,7 +991,7 @@ RemoteXactAbort(int nnodes, Oid *nodes, bool normal)
 		return ;
 
 	InterXactAbort(NULL, nodes, nnodes, false, normal);
-	InterXactAbortGtm(NULL, nodes, nnodes, false, normal);
+	//(NULL, nodes, nnodes, false, normal);
 	//agtm_AbortTransaction(NULL, false, !normal);
 }
 
@@ -1063,7 +1063,7 @@ CommitPreparedRxact(const char *gid,
 		InterXactCommit(gid, nodes, nnodes, isMissingOK);
 
 		/* Commit prepared on AGTM */
-		InterXactCommitGtm(gid, nodes, nnodes, isMissingOK);
+		//(gid, nodes, nnodes, isMissingOK);
 		//agtm_CommitTransaction(gid, isMissingOK);
 	} PG_CATCH_HOLD();
 	{
