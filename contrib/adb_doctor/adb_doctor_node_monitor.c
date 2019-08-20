@@ -88,7 +88,7 @@ typedef enum NodeQuerySqlType
 typedef struct MonitorNodeInfo
 {
 	PGconn *conn;
-	AdbMgrNodeWrapper *node;
+	MgrNodeWrapper *mgrNode;
 	NodeConnnectionStatus connnectionStatus;
 	NodeRunningStatus runningStatus;
 	bool (*queryHandler)(struct MonitorNodeInfo *nodeInfo,
@@ -135,16 +135,12 @@ static void handleNodeCrashed(MonitorNodeInfo *nodeInfo);
 static void nodeWaitSwitch(MonitorNodeInfo *nodeInfo);
 static bool tryRestartNode(MonitorNodeInfo *nodeInfo);
 static bool tryStartupNode(MonitorNodeInfo *nodeInfo);
-static bool startupNode(MonitorNodeInfo *nodeInfo,
-						AdbMgrHostWrapper *host);
-static bool shutdownNode(MonitorNodeInfo *nodeInfo,
-						 AdbMgrHostWrapper *host,
-						 char *shutdownMode);
+static bool startupNode(MonitorNodeInfo *nodeInfo);
+static bool shutdownNode(MonitorNodeInfo *nodeInfo, char *shutdownMode);
 
 static void startConnection(MonitorNodeInfo *nodeInfo);
 static void resetConnection(MonitorNodeInfo *nodeInfo);
-//static void closeConnection(MonitorNodeInfo *nodeInfo);
-static void resetNodeDoctor(void);
+static void resetNodeMonitor(void);
 static bool startQuery(MonitorNodeInfo *nodeInfo,
 					   NodeQuerySqlType sqlType);
 static bool cancelQuery(MonitorNodeInfo *nodeInfo);
@@ -172,110 +168,113 @@ static void occurredError(MonitorNodeInfo *nodeInfo, NodeError error);
 static bool reachedCrashedCondition(MonitorNodeInfo *nodeInfo);
 static int getLastNodeErrorno(MonitorNodeInfo *nodeInfo);
 
-static AdbMgrHostWrapper *getAdbMgrHostData(AdbMgrNodeWrapper *node,
-											MemoryContext spiContext);
 static MemoryContext beginCureOperation(MonitorNodeInfo *nodeInfo);
 static void endCureOperation(MonitorNodeInfo *nodeInfo,
 							 char *newCurestatus,
 							 MemoryContext spiContext);
-static void checkMgrNodeDataInDB(AdbMgrNodeWrapper *mgrNode,
+static void checkMgrNodeDataInDB(MgrNodeWrapper *mgrNode,
 								 MemoryContext spiContext);
-static void checkUpdateMgrNodeCurestatus(AdbMgrNodeWrapper *mgrNode,
+static void checkUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 										 char *newCurestatus,
 										 MemoryContext spiContext);
-static void slaveNodeFollowMaster(MonitorNodeInfo *nodeInfo);
+static void slaveNodeFollowMaster(MgrNodeWrapper *mgrNode);
+static MgrNodeWrapper *getCheckMgrNodeForNodeDoctor(Oid oid);
 
-static bool isHaveSlaveNodes(AdbMgrNodeWrapper *node);
+static bool isHaveSlaveNodes(MgrNodeWrapper *mgrNode);
 
-static void attachNodeDataShm(Datum main_arg,
-							  AdbDoctorNodeData **dataP);
 static void handleSigterm(SIGNAL_ARGS);
 static void handleSigusr1(SIGNAL_ARGS);
 
 static NodeConfiguration *newNodeConfiguration(AdbDoctorConf *conf);
-static MonitorNodeInfo *newMonitorNodeInfo(AdbMgrNodeWrapper *node);
-static void pfreeMonitorNodeInfo(MonitorNodeInfo *nodeInfo,
-								 bool includeMgrNode);
+static MonitorNodeInfo *newMonitorNodeInfo(MgrNodeWrapper *mgrNode);
+static void pfreeMonitorNodeInfo(MonitorNodeInfo *nodeInfo);
 
 static AdbDoctorConfShm *confShm;
 static NodeConfiguration *nodeConfiguration;
+static MgrNodeWrapper *cachedMgrNode = NULL;
+static sigjmp_buf reset_node_monitor_sigjmp_buf;
 
 static volatile sig_atomic_t gotSigterm = false;
 static volatile sig_atomic_t gotSigusr1 = false;
 
-static sigjmp_buf reset_node_doctor_sigjmp_buf;
-
 void adbDoctorNodeMonitorMain(Datum main_arg)
 {
-	AdbDoctorNodeData *data;
-	AdbMgrNodeWrapper *mgrNode;
+	ErrorData *edata = NULL;
+	AdbDoctorBgworkerData *bgworkerData;
 	AdbDoctorConf *confInLocal;
 	MonitorNodeInfo *nodeInfo = NULL;
 	int ret;
 	MemoryContext oldContext;
 	MemoryContext spiContext;
 
+	oldContext = CurrentMemoryContext;
 	pqsignal(SIGTERM, handleSigterm);
 	pqsignal(SIGUSR1, handleSigusr1);
-
 	BackgroundWorkerUnblockSignals();
-
-	BackgroundWorkerInitializeConnection(ADBMGR_DBNAME, NULL, 0);
+	BackgroundWorkerInitializeConnection(DEFAULT_DB, NULL, 0);
 
 	PG_TRY();
 	{
-		attachNodeDataShm(main_arg, &data);
-		mgrNode = data->wrapper;
-
+		bgworkerData = attachAdbDoctorBgworkerDataShm(main_arg,
+													  MyBgworkerEntry->bgw_name);
 		notifyAdbDoctorRegistrant();
 		ereport(LOG,
 				(errmsg("%s started",
 						MyBgworkerEntry->bgw_name)));
 
-		confShm = attachAdbDoctorConfShm(data->header.commonShmHandle,
+		confShm = attachAdbDoctorConfShm(bgworkerData->commonShmHandle,
 										 MyBgworkerEntry->bgw_name);
 		confInLocal = copyAdbDoctorConfFromShm(confShm);
 		nodeConfiguration = newNodeConfiguration(confInLocal);
 		pfree(confInLocal);
 
-		if (sigsetjmp(reset_node_doctor_sigjmp_buf, 1) != 0)
+		if (sigsetjmp(reset_node_monitor_sigjmp_buf, 1) != 0)
 		{
 			if (nodeInfo)
-				pfreeMonitorNodeInfo(nodeInfo, false);
+			{
+				pfreeMonitorNodeInfo(nodeInfo);
+				nodeInfo = NULL;
+			}
 		}
 
-		nodeInfo = newMonitorNodeInfo(mgrNode);
-
-		if (pg_strcasecmp(NameStr(nodeInfo->node->fdmn.curestatus), CURE_STATUS_SWITCHED) == 0)
+		cachedMgrNode = getCheckMgrNodeForNodeDoctor(bgworkerData->oid);
+		if (pg_strcasecmp(NameStr(cachedMgrNode->form.curestatus),
+						  CURE_STATUS_SWITCHED) == 0)
 		{
 			oldContext = CurrentMemoryContext;
 			SPI_CONNECT_TRANSACTIONAL_START(ret, true);
 			spiContext = CurrentMemoryContext;
 			MemoryContextSwitchTo(oldContext);
-			checkUpdateMgrNodeCurestatus(nodeInfo->node, CURE_STATUS_NORMAL, spiContext);
+			checkUpdateMgrNodeCurestatus(cachedMgrNode,
+										 CURE_STATUS_NORMAL,
+										 spiContext);
 			SPI_FINISH_TRANSACTIONAL_COMMIT();
 		}
-		else if (pg_strcasecmp(NameStr(nodeInfo->node->fdmn.curestatus), CURE_STATUS_FOLLOW_FAIL) == 0)
+		else if (pg_strcasecmp(NameStr(cachedMgrNode->form.curestatus),
+							   CURE_STATUS_FOLLOW_FAIL) == 0)
 		{
-			slaveNodeFollowMaster(nodeInfo);
+			slaveNodeFollowMaster(cachedMgrNode);
 		}
-
+		nodeInfo = newMonitorNodeInfo(cachedMgrNode);
 		/* This is the main loop */
 		nodeMonitorMainLoop(nodeInfo);
-
-		pfree(nodeConfiguration);
-		pfreeMonitorNodeInfo(nodeInfo, true);
-		pfreeAdbDoctorConfShm(confShm);
 	}
 	PG_CATCH();
 	{
-		pfree(nodeConfiguration);
-		pfreeMonitorNodeInfo(nodeInfo, true);
-		pfreeAdbDoctorConfShm(confShm);
-		PG_RE_THROW();
+		/* Save error info in our stmt_mcontext */
+		MemoryContextSwitchTo(oldContext);
+		edata = CopyErrorData();
+		FlushErrorState();
 	}
 	PG_END_TRY();
-	proc_exit(1);
+
+	pfree(nodeConfiguration);
+	pfreeMonitorNodeInfo(nodeInfo);
+	pfreeAdbDoctorConfShm(confShm);
+	if (edata)
+		ReThrowError(edata);
+	else
+		proc_exit(1);
 }
 
 static void nodeMonitorMainLoop(MonitorNodeInfo *nodeInfo)
@@ -314,6 +313,8 @@ static void nodeMonitorMainLoop(MonitorNodeInfo *nodeInfo)
 static void examineAdbDoctorConf()
 {
 	AdbDoctorConf *confInLocal;
+	MgrNodeWrapper *freshMgrNode;
+
 	if (gotSigusr1)
 	{
 		gotSigusr1 = false;
@@ -322,10 +323,20 @@ static void examineAdbDoctorConf()
 		pfree(nodeConfiguration);
 		nodeConfiguration = newNodeConfiguration(confInLocal);
 		pfree(confInLocal);
-
 		ereport(LOG,
 				(errmsg("%s, Refresh configuration completed",
 						MyBgworkerEntry->bgw_name)));
+
+		freshMgrNode = getCheckMgrNodeForNodeDoctor(cachedMgrNode->oid);
+		if (isIdenticalDoctorMgrNode(freshMgrNode, cachedMgrNode))
+		{
+			pfreeMgrNodeWrapper(freshMgrNode);
+		}
+		else
+		{
+			pfreeMgrNodeWrapper(freshMgrNode);
+			resetNodeMonitor();
+		}
 	}
 }
 
@@ -595,7 +606,7 @@ static void toConnectionStatusQuerying(MonitorNodeInfo *nodeInfo)
 
 static void toConnectionStatusBad(MonitorNodeInfo *nodeInfo)
 {
-	ereport(LOG,
+	ereport(DEBUG1,
 			(errmsg("%s, connect node bad",
 					MyBgworkerEntry->bgw_name)));
 	nodeInfo->waitEvents = 0;
@@ -751,8 +762,8 @@ static void toRunningStatusPending(MonitorNodeInfo *nodeInfo)
 
 static void handleNodeCrashed(MonitorNodeInfo *nodeInfo)
 {
-	if (nodeInfo->node->fdmn.nodetype == CNDN_TYPE_DATANODE_MASTER &&
-		isHaveSlaveNodes(nodeInfo->node))
+	if (nodeInfo->mgrNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER &&
+		isHaveSlaveNodes(nodeInfo->mgrNode))
 	{
 		/* if this datanode master node allow restart, try to startup it.
 		 * if not, set it to "wait switch" */
@@ -800,10 +811,10 @@ static void nodeWaitSwitch(MonitorNodeInfo *nodeInfo)
 {
 	MemoryContext spiContext;
 
-	if (isMasterNode(nodeInfo->node->fdmn.nodetype, true))
+	if (isMasterNode(nodeInfo->mgrNode->form.nodetype, true))
 	{
 		spiContext = beginCureOperation(nodeInfo);
-		/* the cure method is update curestate to WAIT_SWITCH */
+		/* the cure method is update curestatus to WAIT_SWITCH */
 		endCureOperation(nodeInfo, CURE_STATUS_WAIT_SWITCH, spiContext);
 		notifyAdbDoctorRegistrant();
 		/* I can't do the work of switching, I need to quit. */
@@ -821,20 +832,14 @@ static bool tryRestartNode(MonitorNodeInfo *nodeInfo)
 {
 	bool done;
 	MemoryContext spiContext;
-	AdbMgrHostWrapper *host;
-
 	if (beyondRestartDelay(nodeInfo))
 	{
 		spiContext = beginCureOperation(nodeInfo);
-		host = getAdbMgrHostData(nodeInfo->node, spiContext);
-		done = shutdownNode(nodeInfo, host, SHUTDOWN_I) &&
-			   startupNode(nodeInfo, host);
-		if (host)
-			pfreeAdbMgrHostWrapper(host);
+		done = shutdownNode(nodeInfo, SHUTDOWN_I) &&
+			   startupNode(nodeInfo);
 		endCureOperation(nodeInfo, CURE_STATUS_NORMAL, spiContext);
-
 		if (done)
-			resetNodeDoctor();
+			resetNodeMonitor();
 	}
 	else
 	{
@@ -843,7 +848,6 @@ static bool tryRestartNode(MonitorNodeInfo *nodeInfo)
 						MyBgworkerEntry->bgw_name)));
 		done = false;
 	}
-
 	return done;
 }
 
@@ -851,19 +855,14 @@ static bool tryStartupNode(MonitorNodeInfo *nodeInfo)
 {
 	bool done;
 	MemoryContext spiContext;
-	AdbMgrHostWrapper *host;
 
 	if (beyondRestartDelay(nodeInfo))
 	{
 		spiContext = beginCureOperation(nodeInfo);
-		host = getAdbMgrHostData(nodeInfo->node, spiContext);
-		done = startupNode(nodeInfo, host);
-		if (host)
-			pfreeAdbMgrHostWrapper(host);
+		done = startupNode(nodeInfo);
 		endCureOperation(nodeInfo, CURE_STATUS_NORMAL, spiContext);
-
 		if (done)
-			resetNodeDoctor();
+			resetNodeMonitor();
 	}
 	else
 	{
@@ -875,35 +874,22 @@ static bool tryStartupNode(MonitorNodeInfo *nodeInfo)
 	return done;
 }
 
-static bool startupNode(MonitorNodeInfo *nodeInfo,
-						AdbMgrHostWrapper *host)
+static bool startupNode(MonitorNodeInfo *nodeInfo)
 {
 	bool ok;
-	MgrNodeWrapper *mgrNodeWrapper;
 
 	nodeInfo->nRestarts++;
 	nodeInfo->restartTime = GetCurrentTimestamp();
 	/* Modify the value of the variable that controls the restart frequency. */
 	nextRestartFactor(nodeInfo);
-	mgrNodeWrapper = castToMgrNodeWrapper(nodeInfo->node, host);
-	ok = callAgentStartNode(mgrNodeWrapper, false);
-	deleteCastedMgrNodeWrapper(mgrNodeWrapper);
+	ok = callAgentStartNode(nodeInfo->mgrNode, false);
 	nodeInfo->restartTime = GetCurrentTimestamp();
 	return ok;
 }
 
-static bool shutdownNode(MonitorNodeInfo *nodeInfo,
-						 AdbMgrHostWrapper *host,
-						 char *shutdownMode)
+static bool shutdownNode(MonitorNodeInfo *nodeInfo, char *shutdownMode)
 {
-	bool ok;
-	MgrNodeWrapper *mgrNodeWrapper;
-
-	mgrNodeWrapper = castToMgrNodeWrapper(nodeInfo->node, host);
-	ok = callAgentStopNode(mgrNodeWrapper, shutdownMode, false);
-	deleteCastedMgrNodeWrapper(mgrNodeWrapper);
-
-	return ok;
+	return callAgentStopNode(nodeInfo->mgrNode, shutdownMode, false);
 }
 
 static void startConnection(MonitorNodeInfo *nodeInfo)
@@ -917,15 +903,15 @@ static void startConnection(MonitorNodeInfo *nodeInfo)
 		PQfinish(nodeInfo->conn);
 		nodeInfo->conn = NULL;
 	}
-	pgUser = getNodePGUser(nodeInfo->node->fdmn.nodetype,
-						   NameStr(nodeInfo->node->hostuser));
+	pgUser = getNodePGUser(nodeInfo->mgrNode->form.nodetype,
+						   NameStr(nodeInfo->mgrNode->host->form.hostuser));
 
 	initStringInfo(&conninfo);
 	appendStringInfo(&conninfo,
 					 "postgresql://%s@%s:%d/%s",
 					 pgUser,
-					 nodeInfo->node->hostaddr,
-					 nodeInfo->node->fdmn.nodeport,
+					 nodeInfo->mgrNode->host->hostaddr,
+					 nodeInfo->mgrNode->form.nodeport,
 					 DEFAULT_DB);
 	pfree(pgUser);
 
@@ -975,27 +961,12 @@ static void resetConnection(MonitorNodeInfo *nodeInfo)
 	}
 }
 
-// static void closeConnection(MonitorNodeInfo *nodeInfo)
-// {
-// 	ereport(LOG,
-// 			(errmsg("%s, close node connection",
-// 					MyBgworkerEntry->bgw_name)));
-// 	toConnectionStatusBad(nodeInfo);
-// 	PQfinish(nodeInfo->conn);
-// 	nodeInfo->conn = NULL;
-// }
-
-static void resetNodeDoctor()
+static void resetNodeMonitor()
 {
 	ereport(LOG,
-			(errmsg("%s, reset node doctor",
+			(errmsg("%s, reset node monitor",
 					MyBgworkerEntry->bgw_name)));
-
-	siglongjmp(reset_node_doctor_sigjmp_buf, 1);
-	// resetAdbDoctorErrorRecorder(nodeInfo->connectionErrors);
-	// nodeInfo->nQueryfails = 0;
-	// closeConnection(nodeInfo);
-	// startConnection(nodeInfo);
+	siglongjmp(reset_node_monitor_sigjmp_buf, 1);
 }
 
 static bool startQuery(MonitorNodeInfo *nodeInfo, NodeQuerySqlType sqlType)
@@ -1065,9 +1036,11 @@ static bool cancelQuery(MonitorNodeInfo *nodeInfo)
 	{
 		return false;
 	}
-	/* The return value is 1 if the cancel request was successfully dispatched and 0 if not.
+	/* The return value is 1 if the cancel request was successfully
+	 * dispatched and 0 if not.
 	 * If not, errbuf is filled with an explanatory error message. 
-	 * errbuf must be a char array of size errbufsize (the recommended size is 256 bytes). */
+	 * errbuf must be a char array of size errbufsize 
+	 * (the recommended size is 256 bytes). */
 	errbufsize = 256;
 	errbuf = palloc0(256);
 	ret = PQcancel(cancle, errbuf, errbufsize) == 1;
@@ -1103,7 +1076,7 @@ static bool PQflushAction(MonitorNodeInfo *nodeInfo)
 	}
 	else if (res == 1)
 	{
-		/* If it returns 1, wait for the socket to become read- or write-ready. */
+		/* If it returns 1, wait for the socket to become read or write-ready. */
 		nodeInfo->waitEvents |= WL_SOCKET_READABLE;
 		nodeInfo->waitEvents |= WL_SOCKET_WRITEABLE;
 		return true;
@@ -1154,7 +1127,7 @@ static bool pg_is_in_recovery_handler(MonitorNodeInfo *nodeInfo, PGresult *pgRes
 						pg_strcasecmp(value, "yes") == 0 ||
 						pg_strcasecmp(value, "on") == 0 ||
 						pg_strcasecmp(value, "1") == 0;
-	master = isMasterNode(nodeInfo->node->fdmn.nodetype, true);
+	master = isMasterNode(nodeInfo->mgrNode->form.nodetype, true);
 	if (master && pg_is_in_recovery)
 	{
 		ereport(WARNING,
@@ -1525,21 +1498,6 @@ static int getLastNodeErrorno(MonitorNodeInfo *nodeInfo)
 	}
 }
 
-static AdbMgrHostWrapper *getAdbMgrHostData(AdbMgrNodeWrapper *node,
-											MemoryContext spiContext)
-{
-	AdbMgrHostWrapper *host;
-
-	host = SPI_selectMgrHostByOid(node->fdmn.nodehost, spiContext);
-	if (!host)
-	{
-		ereport(ERROR,
-				(errmsg("%s get host info failed",
-						MyBgworkerEntry->bgw_name)));
-	}
-	return host;
-}
-
 static MemoryContext beginCureOperation(MonitorNodeInfo *nodeInfo)
 {
 	int ret;
@@ -1550,14 +1508,12 @@ static MemoryContext beginCureOperation(MonitorNodeInfo *nodeInfo)
 	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
 	spiContext = CurrentMemoryContext;
 	MemoryContextSwitchTo(oldContext);
-	checkMgrNodeDataInDB(nodeInfo->node, spiContext);
 
-	checkUpdateMgrNodeCurestatus(nodeInfo->node, CURE_STATUS_CURING, spiContext);
-	// SPI_FINISH_TRANSACTIONAL_COMMIT();
-
-	// SPI_CONNECT_TRANSACTIONAL_START(ret, true);
-	// spiContext = CurrentMemoryContext;
-	//checkMgrNodeDataInDB(nodeInfo->node, spiContext);
+	checkMgrNodeDataInDB(nodeInfo->mgrNode,
+						 spiContext);
+	checkUpdateMgrNodeCurestatus(nodeInfo->mgrNode,
+								 CURE_STATUS_CURING,
+								 spiContext);
 	return spiContext;
 }
 
@@ -1565,79 +1521,95 @@ static void endCureOperation(MonitorNodeInfo *nodeInfo,
 							 char *newCurestatus,
 							 MemoryContext spiContext)
 {
-	checkUpdateMgrNodeCurestatus(nodeInfo->node, newCurestatus, spiContext);
+	checkUpdateMgrNodeCurestatus(nodeInfo->mgrNode,
+								 newCurestatus,
+								 spiContext);
 	SPI_FINISH_TRANSACTIONAL_COMMIT();
 }
 
-static void checkMgrNodeDataInDB(AdbMgrNodeWrapper *mgrNode,
+static void checkMgrNodeDataInDB(MgrNodeWrapper *mgrNode,
 								 MemoryContext spiContext)
 {
-	AdbMgrNodeWrapper *nodeDataInMem;
-	AdbMgrNodeWrapper *nodeDataInDB;
-
+	MgrNodeWrapper *nodeDataInMem;
+	MgrNodeWrapper *nodeDataInDB;
+	bool needReset = false;
 	nodeDataInMem = mgrNode;
-	nodeDataInDB = SPI_selectMgrNodeByOid(nodeDataInMem->oid, spiContext);
+	nodeDataInDB = selectMgrNodeForNodeDoctor(nodeDataInMem->oid,
+											  spiContext);
 	if (!nodeDataInDB)
 	{
 		ereport(ERROR,
 				(errmsg("%s, data not exists in database",
 						MyBgworkerEntry->bgw_name)));
 	}
-	if (!nodeDataInDB->fdmn.allowcure)
+	if (!nodeDataInDB->form.allowcure)
 	{
 		ereport(ERROR,
 				(errmsg("%s, cure not allowed",
 						MyBgworkerEntry->bgw_name)));
 	}
-	if (!equalsAdbMgrNodeWrapper(nodeDataInMem, nodeDataInDB))
+	if (!isIdenticalDoctorMgrNode(nodeDataInMem, nodeDataInDB))
 	{
-		ereport(ERROR,
+		ereport(WARNING,
 				(errmsg("%s, data has changed in database",
 						MyBgworkerEntry->bgw_name)));
+		needReset = true;
 	}
-	if (pg_strcasecmp(NameStr(nodeDataInDB->fdmn.curestatus), CURE_STATUS_NORMAL) == 0 ||
-		pg_strcasecmp(NameStr(nodeDataInDB->fdmn.curestatus), CURE_STATUS_CURING) == 0)
+	if (pg_strcasecmp(NameStr(nodeDataInDB->form.curestatus),
+					  CURE_STATUS_NORMAL) == 0 ||
+		pg_strcasecmp(NameStr(nodeDataInDB->form.curestatus),
+					  CURE_STATUS_CURING) == 0)
 	{
-		if (pg_strcasecmp(NameStr(nodeDataInMem->fdmn.curestatus),
-						  NameStr(nodeDataInDB->fdmn.curestatus)) != 0)
+		if (pg_strcasecmp(NameStr(nodeDataInMem->form.curestatus),
+						  NameStr(nodeDataInDB->form.curestatus)) != 0)
 		{
-			ereport(ERROR,
-					(errmsg("%s, curestatus not matched, in memory:%s, but in database:%s",
+			ereport(WARNING,
+					(errmsg("%s, curestatus not matched, in memory:%s, "
+							"but in database:%s",
 							MyBgworkerEntry->bgw_name,
-							NameStr(nodeDataInMem->fdmn.curestatus),
-							NameStr(nodeDataInDB->fdmn.curestatus))));
+							NameStr(nodeDataInMem->form.curestatus),
+							NameStr(nodeDataInDB->form.curestatus))));
+			needReset = true;
 		}
 	}
-	else if (pg_strcasecmp(NameStr(nodeDataInDB->fdmn.curestatus), CURE_STATUS_SWITCHED) == 0 ||
-			 pg_strcasecmp(NameStr(nodeDataInDB->fdmn.curestatus), CURE_STATUS_FOLLOW_FAIL) == 0)
+	else if (pg_strcasecmp(NameStr(nodeDataInDB->form.curestatus),
+						   CURE_STATUS_SWITCHED) == 0 ||
+			 pg_strcasecmp(NameStr(nodeDataInDB->form.curestatus),
+						   CURE_STATUS_FOLLOW_FAIL) == 0)
 	{
-		namestrcpy(&nodeDataInMem->fdmn.curestatus, NameStr(nodeDataInDB->fdmn.curestatus));
-		SPI_FINISH_TRANSACTIONAL_COMMIT();
-		pfreeAdbMgrNodeWrapper(nodeDataInDB);
-		resetNodeDoctor();
+		needReset = true;
 	}
 	else
 	{
 		ereport(ERROR,
 				(errmsg("%s, node curestatus:%s, it is not my duty",
 						MyBgworkerEntry->bgw_name,
-						NameStr(nodeDataInDB->fdmn.curestatus))));
+						NameStr(nodeDataInDB->form.curestatus))));
 	}
-	pfreeAdbMgrNodeWrapper(nodeDataInDB);
+	if (needReset)
+	{
+		SPI_FINISH_TRANSACTIONAL_COMMIT();
+		pfreeMgrNodeWrapper(nodeDataInDB);
+		resetNodeMonitor();
+	}
+	else
+	{
+		namestrcpy(&nodeDataInMem->form.curestatus,
+				   NameStr(nodeDataInDB->form.curestatus));
+		pfreeMgrNodeWrapper(nodeDataInDB);
+	}
 }
 
-static void checkUpdateMgrNodeCurestatus(AdbMgrNodeWrapper *mgrNode,
+static void checkUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 										 char *newCurestatus,
 										 MemoryContext spiContext)
 {
 	int rows;
-	MemoryContext oldContext;
 
-	oldContext = MemoryContextSwitchTo(spiContext);
-	rows = SPI_updateMgrNodeCureStatus(mgrNode->oid,
-									   NameStr(mgrNode->fdmn.curestatus),
-									   newCurestatus);
-	MemoryContextSwitchTo(oldContext);
+	rows = updateMgrNodeCureStatus(mgrNode->oid,
+								   NameStr(mgrNode->form.curestatus),
+								   newCurestatus,
+								   spiContext);
 	if (rows != 1)
 	{
 		/* 
@@ -1655,11 +1627,11 @@ static void checkUpdateMgrNodeCurestatus(AdbMgrNodeWrapper *mgrNode,
 	}
 	else
 	{
-		namestrcpy(&mgrNode->fdmn.curestatus, newCurestatus);
+		namestrcpy(&mgrNode->form.curestatus, newCurestatus);
 	}
 }
 
-static void slaveNodeFollowMaster(MonitorNodeInfo *nodeInfo)
+static void slaveNodeFollowMaster(MgrNodeWrapper *mgrNode)
 {
 	ereport(LOG,
 			(errmsg("%s, slaveNodeFollowMaster BEGIN",
@@ -1678,65 +1650,75 @@ static void slaveNodeFollowMaster(MonitorNodeInfo *nodeInfo)
 					MyBgworkerEntry->bgw_name)));
 }
 
-static bool isHaveSlaveNodes(AdbMgrNodeWrapper *node)
+static MgrNodeWrapper *getCheckMgrNodeForNodeDoctor(Oid oid)
 {
-	char slaveNodetype;
-	int ret, nSlaves;
+	MgrNodeWrapper *mgrNode;
+	MemoryContext oldContext;
+	MemoryContext spiContext;
+	int ret;
 
-	slaveNodetype = getMgrSlaveNodetype(node->fdmn.nodetype);
-
+	oldContext = CurrentMemoryContext;
 	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
-	nSlaves = SPI_countSlaveMgrNode(node->oid, slaveNodetype);
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(oldContext);
+	mgrNode = selectMgrNodeForNodeDoctor(oid, spiContext);
 	SPI_FINISH_TRANSACTIONAL_COMMIT();
-
-	return nSlaves > 0;
+	if (mgrNode == NULL)
+	{
+		ereport(ERROR,
+				(errmsg("%s There is no node data to monitor",
+						MyBgworkerEntry->bgw_name)));
+	}
+	return mgrNode;
 }
 
-static void attachNodeDataShm(Datum main_arg, AdbDoctorNodeData **dataP)
+static bool isHaveSlaveNodes(MgrNodeWrapper *mgrNode)
 {
-	dsm_segment *seg;
-	shm_toc *toc;
-	AdbDoctorNodeData *dataInShm;
-	AdbDoctorNodeData *data;
-	Adb_Doctor_Bgworker_Type type;
-	uint64 tocKey = 0;
+	int nSlaves;
+	Datum datum;
+	bool isNull;
+	StringInfoData buf;
+	HeapTuple tuple;
+	TupleDesc tupdesc;
+	uint64 rows;
+	int ret;
+	SPITupleTable *tupTable;
 
-	CurrentResourceOwner = ResourceOwnerCreate(NULL, MyBgworkerEntry->bgw_name);
-	seg = dsm_attach(DatumGetUInt32(main_arg));
-	if (seg == NULL)
+	initStringInfo(&buf);
+	appendStringInfo(&buf,
+					 "SELECT count(*) FROM mgr_node \n"
+					 "WHERE nodemasternameoid = %u \n"
+					 "AND nodetype = '%c';",
+					 mgrNode->oid,
+					 getMgrSlaveNodetype(mgrNode->form.nodetype));
+
+	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
+	ret = SPI_execute(buf.data, false, 0);
+	pfree(buf.data);
+	if (ret != SPI_OK_SELECT)
 		ereport(ERROR,
-				(errmsg("unable to map individual dynamic shared memory segment")));
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
 
-	toc = shm_toc_attach(ADB_DOCTOR_SHM_DATA_MAGIC, dsm_segment_address(seg));
-	if (toc == NULL)
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("bad magic number in dynamic shared memory segment")));
-
-	dataInShm = shm_toc_lookup(toc, tocKey++, false);
-
-	SpinLockAcquire(&dataInShm->header.mutex);
-
-	type = dataInShm->header.type;
-	Assert(type == ADB_DOCTOR_BGWORKER_TYPE_NODE_MONITOR);
-
-	data = palloc0(sizeof(AdbDoctorNodeData));
-	/* this shm will be detached, copy out all the data */
-	memcpy(data, dataInShm, sizeof(AdbDoctorNodeData));
-
-	data->wrapper = palloc0(sizeof(AdbMgrNodeWrapper));
-	memcpy(data->wrapper, shm_toc_lookup(toc, tocKey++, false), sizeof(AdbMgrNodeWrapper));
-
-	data->wrapper->nodepath = pstrdup(shm_toc_lookup(toc, tocKey++, false));
-	data->wrapper->hostaddr = pstrdup(shm_toc_lookup(toc, tocKey++, false));
-
-	/* if true, launcher know this worker is ready, and then detach this shm */
-	dataInShm->header.ready = true;
-	SpinLockRelease(&dataInShm->header.mutex);
-
-	*dataP = data;
-
-	dsm_detach(seg);
+	rows = SPI_processed;
+	tupTable = SPI_tuptable;
+	tupdesc = tupTable->tupdesc;
+	if (rows == 1 && tupTable != NULL)
+	{
+		tuple = tupTable->vals[0];
+		datum = SPI_getbinval(tuple, tupdesc, 1, &isNull);
+		if (!isNull)
+			nSlaves = DatumGetInt32(datum);
+		else
+			nSlaves = 0;
+	}
+	else
+	{
+		nSlaves = 0;
+	}
+	SPI_FINISH_TRANSACTIONAL_COMMIT();
+	return nSlaves > 0;
 }
 
 /*
@@ -1827,13 +1809,13 @@ static NodeConfiguration *newNodeConfiguration(AdbDoctorConf *conf)
 	return nc;
 }
 
-static MonitorNodeInfo *newMonitorNodeInfo(AdbMgrNodeWrapper *node)
+static MonitorNodeInfo *newMonitorNodeInfo(MgrNodeWrapper *mgrNode)
 {
 	MonitorNodeInfo *nodeInfo;
 
 	nodeInfo = palloc(sizeof(MonitorNodeInfo));
 	nodeInfo->conn = NULL;
-	nodeInfo->node = node;
+	nodeInfo->mgrNode = mgrNode;
 	nodeInfo->connnectionStatus = NODE_CONNNECTION_STATUS_CONNECTING;
 	nodeInfo->runningStatus = NODE_RUNNING_STATUS_PENDING;
 	nodeInfo->queryHandler = NULL;
@@ -1853,8 +1835,7 @@ static MonitorNodeInfo *newMonitorNodeInfo(AdbMgrNodeWrapper *node)
 	return nodeInfo;
 }
 
-static void pfreeMonitorNodeInfo(MonitorNodeInfo *nodeInfo,
-								 bool includeMgrNode)
+static void pfreeMonitorNodeInfo(MonitorNodeInfo *nodeInfo)
 {
 	if (nodeInfo)
 	{
@@ -1863,12 +1844,12 @@ static void pfreeMonitorNodeInfo(MonitorNodeInfo *nodeInfo,
 			PQfinish(nodeInfo->conn);
 			nodeInfo->conn = NULL;
 		}
-		if (includeMgrNode)
-		{
-			pfreeAdbMgrNodeWrapper(nodeInfo->node);
-		}
+		pfreeMgrNodeWrapper(nodeInfo->mgrNode);
+		nodeInfo->mgrNode = NULL;
 		pfreeAdbDoctorBounceNum(nodeInfo->restartFactor);
+		nodeInfo->restartFactor = NULL;
 		pfreeAdbDoctorErrorRecorder(nodeInfo->connectionErrors);
+		nodeInfo->connectionErrors = NULL;
 		pfree(nodeInfo);
 		nodeInfo = NULL;
 	}

@@ -158,8 +158,7 @@ void switchDatanodeMaster(char *oldMasterNodename,
 										forceSwitch,
 										&failedSlaves);
 		/* The better slave node is in front of the list */
-		sortNodesByWalLsnDesc(&runningSlaves,
-							  newMaster->mgrNode->nodeOid);
+		sortNodesByWalLsnDesc(&runningSlaves);
 
 		checkGetMasterCoordinators(spiContext, &coordinators);
 
@@ -173,17 +172,6 @@ void switchDatanodeMaster(char *oldMasterNodename,
 
 		namestrcpy(newMasterNodename,
 				   NameStr(newMaster->mgrNode->form.nodename));
-
-		ereport(NOTICE,
-				(errmsg("Switch the master node from %s to %s "
-						"has been successfully completed",
-						NameStr(oldMaster->mgrNode->form.nodename),
-						NameStr(newMaster->mgrNode->form.nodename))));
-		ereport(LOG,
-				(errmsg("Switch the master node from %s to %s "
-						"has been successfully completed",
-						NameStr(oldMaster->mgrNode->form.nodename),
-						NameStr(newMaster->mgrNode->form.nodename))));
 	}
 	PG_CATCH();
 	{
@@ -274,6 +262,17 @@ void switchDataNodeOperation(SwitcherNodeWrapper *oldMaster,
 									newMaster->mgrNode, spiContext);
 
 	tryUnlockCluster(coordinators, true);
+
+	ereport(NOTICE,
+			(errmsg("Switch the master node from %s to %s "
+					"has been successfully completed",
+					NameStr(oldMaster->mgrNode->form.nodename),
+					NameStr(newMaster->mgrNode->form.nodename))));
+	ereport(LOG,
+			(errmsg("Switch the master node from %s to %s "
+					"has been successfully completed",
+					NameStr(oldMaster->mgrNode->form.nodename),
+					NameStr(newMaster->mgrNode->form.nodename))));
 }
 
 bool revertClusterSetting(dlist_head *coordinators,
@@ -347,42 +346,59 @@ SwitcherNodeWrapper *choosePromotionNode(dlist_head *slaveNodes,
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, miter.cur);
 
-		node->walLsn = getNodeWalLsn(node->pgConn, node->runningMode);
-		if (node->walLsn <= InvalidXLogRecPtr)
+		if (pg_strcasecmp(NameStr(node->mgrNode->form.curestatus),
+						  CURE_STATUS_NORMAL) != 0 &&
+			pg_strcasecmp(NameStr(node->mgrNode->form.curestatus),
+						  CURE_STATUS_SWITCHED) != 0)
 		{
 			dlist_delete(miter.cur);
 			dlist_push_tail(failedSlaves, &node->link);
 			ereport(WARNING,
-					(errmsg("%s get wal lsn failed",
-							NameStr(node->mgrNode->form.nodename))));
+					(errmsg("%s expected curestatus is %s or %s, but actually is %s",
+							NameStr(node->mgrNode->form.nodename),
+							CURE_STATUS_NORMAL,
+							CURE_STATUS_SWITCHED,
+							NameStr(node->mgrNode->form.curestatus))));
 		}
 		else
 		{
-			/* choose the biggest wal lsn */
-			if (promotionNode == NULL)
+			node->walLsn = getNodeWalLsn(node->pgConn, node->runningMode);
+			if (node->walLsn <= InvalidXLogRecPtr)
 			{
-				promotionNode = node;
+				dlist_delete(miter.cur);
+				dlist_push_tail(failedSlaves, &node->link);
+				ereport(WARNING,
+						(errmsg("%s get wal lsn failed",
+								NameStr(node->mgrNode->form.nodename))));
 			}
 			else
 			{
-				if (node->walLsn > promotionNode->walLsn)
+				/* choose the biggest wal lsn */
+				if (promotionNode == NULL)
 				{
 					promotionNode = node;
 				}
-				else if (node->walLsn == promotionNode->walLsn)
+				else
 				{
-					if (node->runningMode == NODE_RUNNING_MODE_MASTER)
+					if (node->walLsn > promotionNode->walLsn)
 					{
 						promotionNode = node;
+					}
+					else if (node->walLsn == promotionNode->walLsn)
+					{
+						if (node->runningMode == NODE_RUNNING_MODE_MASTER)
+						{
+							promotionNode = node;
+						}
+						else
+						{
+							continue;
+						}
 					}
 					else
 					{
 						continue;
 					}
-				}
-				else
-				{
-					continue;
 				}
 			}
 		}
@@ -395,6 +411,14 @@ SwitcherNodeWrapper *choosePromotionNode(dlist_head *slaveNodes,
 	}
 	if (promotionNode != NULL)
 	{
+		dlist_foreach_modify(miter, slaveNodes)
+		{
+			node = dlist_container(SwitcherNodeWrapper, link, miter.cur);
+			if (node == promotionNode)
+			{
+				dlist_delete(miter.cur);
+			}
+		}
 		ereport(NOTICE,
 				(errmsg("%s have the best wal lsn, "
 						"choose it as a candidate for promotion",
@@ -463,7 +487,6 @@ bool tryConnectNode(SwitcherNodeWrapper *node, int connectTimeout)
 		}
 		for (nTrys = 0; nTrys < 10; nTrys++)
 		{
-			CHECK_FOR_INTERRUPTS();
 			/*sleep 0.1s*/
 			pg_usleep(100000L);
 			/* ensure to close obtained connection */
@@ -646,7 +669,7 @@ void checkGetSlaveNodes(SwitcherNodeWrapper *masterNode,
 	dlist_head slaveNodes = DLIST_STATIC_INIT(slaveNodes);
 
 	slaveNodetype = getMgrSlaveNodetype(masterNode->mgrNode->form.nodetype);
-	selectMgrSlaveNodes(masterNode->mgrNode->nodeOid,
+	selectMgrSlaveNodes(masterNode->mgrNode->oid,
 						slaveNodetype, spiContext, &mgrNodes);
 	mgrNodesToSwitcherNodes(&mgrNodes, &slaveNodes);
 	checkNodesRunningStatus(&slaveNodes, failedSlaves, runningSlaves);
@@ -700,32 +723,24 @@ void checkNodesRunningStatus(dlist_head *nodes,
  * Sort new slave nodes (exclude new master node) by walReceiveLsn.
  * The larger the walReceiveLsn, the more in front of the dlist.
  */
-void sortNodesByWalLsnDesc(dlist_head *nodes,
-						   Oid deleteNodeOid)
+void sortNodesByWalLsnDesc(dlist_head *nodes)
 {
 	dlist_mutable_iter miter;
 	SwitcherNodeWrapper *node;
 	SwitcherNodeWrapper **sortItems;
 	int i, numOfNodes;
-	dlist_head tempList = DLIST_STATIC_INIT(tempList);
 
 	numOfNodes = 0;
 	/* Exclude new master node from old slave nodes */
 	dlist_foreach_modify(miter, nodes)
 	{
-		node = dlist_container(SwitcherNodeWrapper, link, miter.cur);
-		if (node->mgrNode->nodeOid != deleteNodeOid)
-		{
-			dlist_delete(miter.cur);
-			dlist_push_tail(&tempList, &node->link);
-			numOfNodes++;
-		}
+		numOfNodes++;
 	}
 	if (numOfNodes > 1)
 	{
 		sortItems = palloc(sizeof(SwitcherNodeWrapper *) * numOfNodes);
 		i = 0;
-		dlist_foreach_modify(miter, &tempList)
+		dlist_foreach_modify(miter, nodes)
 		{
 			node = dlist_container(SwitcherNodeWrapper, link, miter.cur);
 			sortItems[i] = node;
@@ -734,23 +749,15 @@ void sortNodesByWalLsnDesc(dlist_head *nodes,
 		/* order by wal lsn desc */
 		qsort(sortItems, numOfNodes, sizeof(SwitcherNodeWrapper *), walLsnDesc);
 		/* add to dlist in order */
-		dlist_init(&tempList);
+		dlist_init(nodes);
 		for (i = 0; i < numOfNodes; i++)
 		{
-			dlist_push_tail(&tempList, &sortItems[i]->link);
+			dlist_push_tail(nodes, &sortItems[i]->link);
 		}
 	}
 	else
 	{
 		/* No need to sort */
-	}
-
-	dlist_init(nodes);
-	dlist_foreach_modify(miter, &tempList)
-	{
-		node = dlist_container(SwitcherNodeWrapper, link, miter.cur);
-		dlist_delete(miter.cur);
-		dlist_push_tail(nodes, &node->link);
 	}
 }
 
@@ -794,19 +801,37 @@ void mgrNodesToSwitcherNodes(dlist_head *mgrNodes,
 {
 	SwitcherNodeWrapper *switcherNode;
 	MgrNodeWrapper *mgrNode;
-	dlist_mutable_iter miter;
+	dlist_iter iter;
 
 	if (mgrNodes == NULL || dlist_is_empty(mgrNodes))
 	{
 		return;
 	}
-	dlist_foreach_modify(miter, mgrNodes)
+	dlist_foreach(iter, mgrNodes)
 	{
-		mgrNode = dlist_container(MgrNodeWrapper, link, miter.cur);
+		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
 		switcherNode = palloc0(sizeof(SwitcherNodeWrapper));
 		switcherNode->mgrNode = mgrNode;
-		dlist_delete(miter.cur);
 		dlist_push_tail(switcherNodes, &switcherNode->link);
+	}
+}
+
+void switcherNodesToMgrNodes(dlist_head *switcherNodes,
+							 dlist_head *mgrNodes)
+{
+	SwitcherNodeWrapper *switcherNode;
+	MgrNodeWrapper *mgrNode;
+	dlist_iter iter;
+
+	if (switcherNodes == NULL || dlist_is_empty(switcherNodes))
+	{
+		return;
+	}
+	dlist_foreach(iter, switcherNodes)
+	{
+		switcherNode = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		mgrNode = switcherNode->mgrNode;
+		dlist_push_tail(mgrNodes, &mgrNode->link);
 	}
 }
 
@@ -1049,7 +1074,6 @@ static bool checkSet_pool_release_to_idle_timeout(SwitcherNodeWrapper *node)
 	{
 		for (nTrys = 0; nTrys < 10; nTrys++)
 		{
-			CHECK_FOR_INTERRUPTS();
 			/*sleep 0.1s*/
 			pg_usleep(100000L);
 			/* check the param */
@@ -1092,9 +1116,6 @@ static void waitForNodeRunningOk(SwitcherNodeWrapper *node, bool isMaster)
 		{
 			networkFailures++;
 		}
-
-		CHECK_FOR_INTERRUPTS();
-
 		fputs(_("."), stdout);
 		fflush(stdout);
 		pg_usleep(1 * 1000000L);
@@ -1169,7 +1190,7 @@ static void refreshMgrNodeAfterSwitch(SwitcherNodeWrapper *oldMaster,
 
 	namestrcpy(&oldMaster->mgrNode->form.nodesync, "");
 	/* Mark the data group to which the old master belongs */
-	oldMaster->mgrNode->form.nodemasternameoid = newMaster->mgrNode->nodeOid;
+	oldMaster->mgrNode->form.nodemasternameoid = newMaster->mgrNode->oid;
 	if (kickOutOldMaster)
 	{
 		oldMaster->mgrNode->form.nodeinited = false;
@@ -1204,7 +1225,7 @@ static void refreshMgrNodeAfterSwitch(SwitcherNodeWrapper *oldMaster,
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 		/* nodesync field was set in other function */
-		node->mgrNode->form.nodemasternameoid = newMaster->mgrNode->nodeOid;
+		node->mgrNode->form.nodemasternameoid = newMaster->mgrNode->oid;
 		/* Admit the reign of new master */
 		updateMgrNodeAfterSwitch(node->mgrNode, CURE_STATUS_SWITCHED,
 								 spiContext, true);
@@ -1213,7 +1234,7 @@ static void refreshMgrNodeAfterSwitch(SwitcherNodeWrapper *oldMaster,
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 		namestrcpy(&node->mgrNode->form.nodesync, "");
-		node->mgrNode->form.nodemasternameoid = newMaster->mgrNode->nodeOid;
+		node->mgrNode->form.nodemasternameoid = newMaster->mgrNode->oid;
 		/* Update other failure slave node follow the new master, 
 		 * Then, The node "follow the new master node" task is handed over 
 		 * to the node doctor. */
@@ -1279,7 +1300,7 @@ static bool updateMgrNodeBeforeSwitch(MgrNodeWrapper *mgrNode,
 					 "WHERE oid = %u \n"
 					 "AND curestatus = '%s' \n",
 					 newCureStatus,
-					 mgrNode->nodeOid,
+					 mgrNode->oid,
 					 NameStr(mgrNode->form.curestatus));
 	oldCtx = MemoryContextSwitchTo(spiContext);
 	spiRes = SPI_execute(sql.data, false, 0);
@@ -1333,7 +1354,7 @@ static bool updateMgrNodeAfterSwitch(MgrNodeWrapper *mgrNode,
 					 mgrNode->form.nodeincluster,
 					 mgrNode->form.allowcure,
 					 newCureStatus,
-					 mgrNode->nodeOid,
+					 mgrNode->oid,
 					 NameStr(mgrNode->form.curestatus));
 	oldCtx = MemoryContextSwitchTo(spiContext);
 	spiRes = SPI_execute(sql.data, false, 0);

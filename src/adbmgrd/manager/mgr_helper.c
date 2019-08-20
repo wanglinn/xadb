@@ -18,6 +18,41 @@
 #include "../../src/interfaces/libpq/libpq-fe.h"
 #include "../../src/interfaces/libpq/libpq-int.h"
 
+void logMgrNodeWrapper(MgrNodeWrapper *src, char *title, int elevel)
+{
+	char *rTitle = "";
+	if (title != NULL && strlen(title) > 0)
+		rTitle = title;
+	ereport(elevel,
+			(errmsg("%s oid:%u,nodename:%s,nodehost:%u,nodetype:%c,nodesync:%s,nodeport:%d,nodemasternameoid:%u,curestatus:%s",
+					rTitle,
+					src->oid,
+					NameStr(src->form.nodename),
+					src->form.nodehost,
+					src->form.nodetype,
+					NameStr(src->form.nodesync),
+					src->form.nodeport,
+					src->form.nodemasternameoid,
+					NameStr(src->form.curestatus))));
+}
+
+void logMgrHostWrapper(MgrHostWrapper *src, char *title, int elevel)
+{
+	char *rTitle = "";
+	if (title != NULL && strlen(title) > 0)
+		rTitle = title;
+	ereport(elevel,
+			(errmsg("%s oid:%u,hostname:%s,hostuser:%s,hostport:%d,hostaddr:%s,hostagentport:%d,hostadbhome:%s",
+					rTitle,
+					src->oid,
+					NameStr(src->form.hostname),
+					NameStr(src->form.hostuser),
+					src->form.hostport,
+					src->hostaddr,
+					src->form.hostagentport,
+					src->hostadbhome)));
+}
+
 char getMgrMasterNodetype(char nodetype)
 {
 	switch (nodetype)
@@ -113,64 +148,58 @@ bool isSlaveNode(char nodetype, bool complain)
 	}
 }
 
-MgrHostWrapper *selectMgrHostByOid(Oid oid, MemoryContext spiContext)
+/**
+ * the list link data type is MgrNodeWrapper
+ */
+void selectMgrNodes(char *sql,
+					MemoryContext spiContext,
+					dlist_head *resultList)
 {
-	MgrHostWrapper *host;
-	StringInfoData buf;
-	int spiRes, nHosts;
-	HeapTuple hostTuple;
-	TupleDesc hostTupdesc;
+	int spiRes, rows, i;
+	HeapTuple nodeTuple;
+	TupleDesc nodeTupdesc;
+	MgrNodeWrapper *node;
 	Datum datum;
 	bool isNull;
 	MemoryContext oldCtx;
 	SPITupleTable *tupTable;
 
-	initStringInfo(&buf);
-	appendStringInfo(&buf,
-					 "select * \n"
-					 "from pg_catalog.mgr_host \n"
-					 "WHERE oid = %u",
-					 oid);
-
 	oldCtx = MemoryContextSwitchTo(spiContext);
-	spiRes = SPI_execute(buf.data, false, 0);
+	spiRes = SPI_execute(sql, false, 0);
 	MemoryContextSwitchTo(oldCtx);
 
-	pfree(buf.data);
 	if (spiRes != SPI_OK_SELECT)
 		ereport(ERROR,
 				(errmsg("SPI_execute failed: error code %d",
 						spiRes)));
-	nHosts = SPI_processed;
+
+	rows = SPI_processed;
 	tupTable = SPI_tuptable;
-	if (nHosts == 1)
+	if (rows > 0 && tupTable != NULL)
 	{
-		hostTupdesc = tupTable->tupdesc;
-		hostTuple = tupTable->vals[0];
-		/* initialize to zero for convenience */
-		host = palloc0(sizeof(MgrHostWrapper));
-		host->hostOid = HeapTupleGetOid(hostTuple);
-		/* copy struct */
-		host->form = *((Form_mgr_host)GETSTRUCT(hostTuple));
-		datum = heap_getattr(hostTuple, Anum_mgr_host_hostaddr,
-							 hostTupdesc, &isNull);
-		if (!isNull)
-			host->hostaddr = TextDatumGetCString(datum);
-		else
-			ereport(ERROR,
-					(errmsg("mgr_host column hostaddr is null")));
-		datum = heap_getattr(hostTuple, Anum_mgr_host_hostadbhome,
-							 hostTupdesc, &isNull);
-		if (!isNull)
-			host->hostadbhome = TextDatumGetCString(datum);
-		else
-			ereport(ERROR,
-					(errmsg("mgr_host column hostadbhome is null")));
-		return host;
-	}
-	else
-	{
-		return NULL;
+		nodeTupdesc = tupTable->tupdesc;
+		for (i = 0; i < rows; i++)
+		{
+			/* initialize to zero for convenience */
+			node = palloc0(sizeof(MgrNodeWrapper));
+			dlist_push_tail(resultList, &node->link);
+
+			nodeTuple = tupTable->vals[i];
+			node->oid = HeapTupleGetOid(nodeTuple);
+			node->form = *((Form_mgr_node)GETSTRUCT(nodeTuple));
+			datum = heap_getattr(nodeTuple, Anum_mgr_node_nodepath,
+								 nodeTupdesc, &isNull);
+			if (!isNull)
+				node->nodepath = TextDatumGetCString(datum);
+			else
+				ereport(ERROR,
+						(errmsg("mgr_node column nodepath is null")));
+			node->host = selectMgrHostByOid(node->form.nodehost, spiContext);
+			if (!node->host)
+				ereport(ERROR,
+						(errmsg("The host of %s was lost",
+								NameStr(node->form.nodename))));
+		}
 	}
 }
 
@@ -185,7 +214,8 @@ MgrNodeWrapper *selectMgrNodeByOid(Oid oid, MemoryContext spiContext)
 					 "FROM pg_catalog.mgr_node \n"
 					 "WHERE oid = %u \n",
 					 oid);
-	selectMgrNodes(&sql, spiContext, &nodes);
+	selectMgrNodes(sql.data, spiContext, &nodes);
+	pfree(sql.data);
 	if (dlist_is_empty(&nodes))
 	{
 		return NULL;
@@ -211,7 +241,8 @@ MgrNodeWrapper *selectMgrNodeByNodenameType(char *nodename,
 					 "AND nodetype = '%c' \n",
 					 nodename,
 					 nodetype);
-	selectMgrNodes(&sql, spiContext, &nodes);
+	selectMgrNodes(sql.data, spiContext, &nodes);
+	pfree(sql.data);
 	if (dlist_is_empty(&nodes))
 	{
 		return NULL;
@@ -219,62 +250,6 @@ MgrNodeWrapper *selectMgrNodeByNodenameType(char *nodename,
 	else
 	{
 		return dlist_head_element(MgrNodeWrapper, link, &nodes);
-	}
-}
-
-/**
- * the list link data type is MgrNodeWrapper
- */
-void selectMgrNodes(StringInfo sql,
-					MemoryContext spiContext,
-					dlist_head *resultList)
-{
-	int spiRes, nNodes, i;
-	HeapTuple nodeTuple;
-	TupleDesc nodeTupdesc;
-	MgrNodeWrapper *node;
-	Datum datum;
-	bool isNull;
-	MemoryContext oldCtx;
-	SPITupleTable *tupTable;
-
-	oldCtx = MemoryContextSwitchTo(spiContext);
-	spiRes = SPI_execute(sql->data, false, 0);
-	MemoryContextSwitchTo(oldCtx);
-
-	pfree(sql->data);
-	if (spiRes != SPI_OK_SELECT)
-		ereport(ERROR,
-				(errmsg("SPI_execute failed: error code %d",
-						spiRes)));
-
-	nNodes = SPI_processed;
-	tupTable = SPI_tuptable;
-	if (nNodes > 0 && tupTable != NULL)
-	{
-		nodeTupdesc = tupTable->tupdesc;
-		for (i = 0; i < nNodes; i++)
-		{
-			/* initialize to zero for convenience */
-			node = palloc0(sizeof(MgrNodeWrapper));
-			dlist_push_tail(resultList, &node->link);
-
-			nodeTuple = tupTable->vals[i];
-			node->nodeOid = HeapTupleGetOid(nodeTuple);
-			node->form = *((Form_mgr_node)GETSTRUCT(nodeTuple));
-			datum = heap_getattr(nodeTuple, Anum_mgr_node_nodepath,
-								 nodeTupdesc, &isNull);
-			if (!isNull)
-				node->nodepath = TextDatumGetCString(datum);
-			else
-				ereport(ERROR,
-						(errmsg("mgr_node column nodepath is null")));
-			node->host = selectMgrHostByOid(node->form.nodehost, spiContext);
-			if (!node->host)
-				ereport(ERROR,
-						(errmsg("The host of %s was lost",
-								NameStr(node->form.nodename))));
-		}
 	}
 }
 
@@ -296,7 +271,8 @@ void selectMgrMasterCoordinators(MemoryContext spiContext,
 					 CNDN_TYPE_COORDINATOR_MASTER,
 					 true,
 					 true);
-	selectMgrNodes(&sql, spiContext, resultList);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
 }
 
 /**
@@ -321,7 +297,213 @@ void selectMgrSlaveNodes(Oid masterOid, char nodetype,
 					 true,
 					 masterOid,
 					 true);
-	selectMgrNodes(&sql, spiContext, resultList);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
+
+void selectMgrNodesForNodeDoctors(MemoryContext spiContext,
+								  dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node \n"
+					 "WHERE nodeinited = %d::boolean \n"
+					 "AND nodeincluster = %d::boolean \n"
+					 "AND allowcure = %d::boolean \n"
+					 "AND curestatus in ('%s', '%s', '%s', '%s') \n",
+					 true,
+					 true,
+					 true,
+					 CURE_STATUS_NORMAL,
+					 CURE_STATUS_CURING,
+					 CURE_STATUS_SWITCHED,
+					 CURE_STATUS_FOLLOW_FAIL);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
+
+MgrNodeWrapper *selectMgrNodeForNodeDoctor(Oid oid, MemoryContext spiContext)
+{
+	StringInfoData sql;
+	dlist_head nodes = DLIST_STATIC_INIT(nodes);
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node \n"
+					 "WHERE nodeinited = %d::boolean \n"
+					 "AND nodeincluster = %d::boolean \n"
+					 "AND allowcure = %d::boolean \n"
+					 "AND curestatus in ('%s', '%s', '%s', '%s') \n"
+					 "AND oid = %u \n",
+					 true,
+					 true,
+					 true,
+					 CURE_STATUS_NORMAL,
+					 CURE_STATUS_CURING,
+					 CURE_STATUS_SWITCHED,
+					 CURE_STATUS_FOLLOW_FAIL,
+					 oid);
+	selectMgrNodes(sql.data, spiContext, &nodes);
+	pfree(sql.data);
+	if (dlist_is_empty(&nodes))
+	{
+		return NULL;
+	}
+	else
+	{
+		return dlist_head_element(MgrNodeWrapper, link, &nodes);
+	}
+}
+
+void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
+									 dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node \n"
+					 "WHERE nodeinited = %d::boolean \n"
+					 "AND nodeincluster = %d::boolean \n"
+					 "AND allowcure = %d::boolean \n"
+					 "AND curestatus in ('%s', '%s') \n"
+					 "AND nodetype in ('%c') \n",
+					 true,
+					 true,
+					 true,
+					 CURE_STATUS_WAIT_SWITCH,
+					 CURE_STATUS_SWITCHING,
+					 CNDN_TYPE_DATANODE_MASTER);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
+
+int updateMgrNodeCureStatus(Oid oid, char *oldValue, char *newValue,
+							MemoryContext spiContext)
+{
+	StringInfoData buf;
+	int spiRes;
+	uint64 rows;
+	MemoryContext oldCtx;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf,
+					 "update pg_catalog.mgr_node  \n"
+					 "set curestatus = '%s' \n"
+					 "WHERE oid = %u \n"
+					 "and curestatus = '%s' \n",
+					 newValue,
+					 oid,
+					 oldValue);
+	oldCtx = MemoryContextSwitchTo(spiContext);
+	spiRes = SPI_execute(buf.data, false, 0);
+	MemoryContextSwitchTo(oldCtx);
+	pfree(buf.data);
+	if (spiRes != SPI_OK_UPDATE)
+		ereport(ERROR,
+				(errmsg("SPI_execute failed: error code %d",
+						spiRes)));
+	rows = SPI_processed;
+	return rows;
+}
+
+void selectMgrHosts(char *sql,
+					MemoryContext spiContext,
+					dlist_head *resultList)
+{
+	int spiRes, rows, i;
+	HeapTuple tuple;
+	TupleDesc tupdesc;
+	MgrHostWrapper *host;
+	Datum datum;
+	bool isNull;
+	MemoryContext oldCtx;
+	SPITupleTable *tupTable;
+
+	oldCtx = MemoryContextSwitchTo(spiContext);
+	spiRes = SPI_execute(sql, false, 0);
+	MemoryContextSwitchTo(oldCtx);
+
+	if (spiRes != SPI_OK_SELECT)
+		ereport(ERROR,
+				(errmsg("SPI_execute failed: error code %d",
+						spiRes)));
+
+	rows = SPI_processed;
+	tupTable = SPI_tuptable;
+	if (rows > 0 && tupTable != NULL)
+	{
+		tupdesc = tupTable->tupdesc;
+		for (i = 0; i < rows; i++)
+		{
+			/* initialize to zero for convenience */
+			host = palloc0(sizeof(MgrHostWrapper));
+			dlist_push_tail(resultList, &host->link);
+			tuple = tupTable->vals[i];
+
+			host->oid = HeapTupleGetOid(tuple);
+			/* copy struct */
+			host->form = *((Form_mgr_host)GETSTRUCT(tuple));
+
+			datum = heap_getattr(tuple, Anum_mgr_host_hostaddr,
+								 tupdesc, &isNull);
+			if (!isNull)
+				host->hostaddr = TextDatumGetCString(datum);
+			else
+				ereport(ERROR,
+						(errmsg("mgr_host column hostaddr is null")));
+			datum = heap_getattr(tuple, Anum_mgr_host_hostadbhome,
+								 tupdesc, &isNull);
+			if (!isNull)
+				host->hostadbhome = TextDatumGetCString(datum);
+			else
+				ereport(ERROR,
+						(errmsg("mgr_host column hostadbhome is null")));
+		}
+	}
+}
+
+MgrHostWrapper *selectMgrHostByOid(Oid oid, MemoryContext spiContext)
+{
+	StringInfoData sql;
+	dlist_head resultList = DLIST_STATIC_INIT(resultList);
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_host \n"
+					 "WHERE oid = %u",
+					 oid);
+	selectMgrHosts(sql.data, spiContext, &resultList);
+	pfree(sql.data);
+	if (dlist_is_empty(&resultList))
+	{
+		return NULL;
+	}
+	else
+	{
+		return dlist_head_element(MgrHostWrapper, link, &resultList);
+	}
+}
+
+void selectMgrHostsForHostDoctor(MemoryContext spiContext,
+								 dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_host \n"
+					 "WHERE allowcure = %d::boolean \n",
+					 true);
+	selectMgrHosts(sql.data, spiContext, resultList);
+	pfree(sql.data);
 }
 
 /* 

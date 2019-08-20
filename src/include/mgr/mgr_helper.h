@@ -75,19 +75,21 @@ typedef struct PGConfParameterItem
 typedef struct MgrHostWrapper
 {
 	FormData_mgr_host form;
-	Oid hostOid;
+	Oid oid;
 	char *hostaddr;
 	char *hostadbhome;
 	dlist_node link;
+	dlist_node cmpLink;
 } MgrHostWrapper;
 
 typedef struct MgrNodeWrapper
 {
 	FormData_mgr_node form;
-	Oid nodeOid;
+	Oid oid;
 	char *nodepath;
 	MgrHostWrapper *host;
 	dlist_node link;
+	dlist_node cmpLink;
 } MgrNodeWrapper;
 
 static inline PGHbaItem *newPGHbaItem(ConnectType type,
@@ -267,26 +269,76 @@ static inline void pfreeMgrNodeWrapper(MgrNodeWrapper *obj)
 	}
 }
 
+static inline void pfreeMgrHostWrapperList(dlist_head *list,
+										   MgrHostWrapper *exclude)
+{
+	dlist_mutable_iter miter;
+	MgrHostWrapper *data;
+
+	dlist_foreach_modify(miter, list)
+	{
+		data = dlist_container(MgrHostWrapper, link, miter.cur);
+		dlist_delete(miter.cur);
+		if (data != exclude)
+		{
+			pfreeMgrHostWrapper(data);
+		}
+	}
+}
+
+static inline void pfreeMgrNodeWrapperList(dlist_head *list,
+										   MgrNodeWrapper *exclude)
+{
+	dlist_mutable_iter miter;
+	MgrNodeWrapper *data;
+
+	dlist_foreach_modify(miter, list)
+	{
+		data = dlist_container(MgrNodeWrapper, link, miter.cur);
+		dlist_delete(miter.cur);
+		if (data != exclude)
+		{
+			pfreeMgrNodeWrapper(data);
+		}
+	}
+}
+
+extern void logMgrNodeWrapper(MgrNodeWrapper *src, char *title, int elevel);
+extern void logMgrHostWrapper(MgrHostWrapper *src, char *title, int elevel);
+
 extern char getMgrMasterNodetype(char slaveNodetype);
 extern char getMgrSlaveNodetype(char masterNodetype);
 extern bool isMasterNode(char nodetype, bool complain);
 extern bool isSlaveNode(char nodetype, bool complain);
 
 /* spi functions */
-extern MgrHostWrapper *selectMgrHostByOid(Oid oid, MemoryContext spiContext);
+extern void selectMgrNodes(char *sql,
+						   MemoryContext spiContext,
+						   dlist_head *resultList);
 extern MgrNodeWrapper *selectMgrNodeByOid(Oid oid, MemoryContext spiContext);
 extern MgrNodeWrapper *selectMgrNodeByNodenameType(char *nodename,
 												   char nodetype,
 												   MemoryContext spiContext);
-extern void selectMgrNodes(StringInfo sql,
-						   MemoryContext spiContext,
-						   dlist_head *resultList);
 extern void selectMgrMasterCoordinators(MemoryContext spiContext,
 										dlist_head *resultList);
 extern void selectMgrSlaveNodes(Oid masterOid,
 								char nodetype,
 								MemoryContext spiContext,
 								dlist_head *resultList);
+extern void selectMgrNodesForNodeDoctors(MemoryContext spiContext,
+										 dlist_head *resultList);
+extern MgrNodeWrapper *selectMgrNodeForNodeDoctor(Oid oid,
+												  MemoryContext spiContext);
+extern void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
+											dlist_head *resultList);
+extern int updateMgrNodeCureStatus(Oid oid, char *oldValue, char *newValue,
+								   MemoryContext spiContext);
+extern void selectMgrHosts(char *sql,
+						   MemoryContext spiContext,
+						   dlist_head *resultList);
+extern MgrHostWrapper *selectMgrHostByOid(Oid oid, MemoryContext spiContext);
+extern void selectMgrHostsForHostDoctor(MemoryContext spiContext,
+										dlist_head *resultList);
 
 /* libpq functions */
 extern char *getNodePGUser(char nodetype, char *hostuser);

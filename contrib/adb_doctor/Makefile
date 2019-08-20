@@ -1,7 +1,7 @@
 # contrib/adb_doctor/Makefile
 
 MODULE_big = adb_doctor
-OBJS = adb_doctor_list.o  adb_doctor_conf.o adb_doctor_utils.o adb_doctor_data.o  adb_doctor_sql.o adb_doctor.o adb_doctor_launcher.o adb_doctor_node_monitor.o adb_doctor_host_monitor.o adb_doctor_switcher.o $(WIN32RES)
+OBJS = adb_doctor_conf.o adb_doctor_utils.o adb_doctor_data.o adb_doctor.o adb_doctor_launcher.o adb_doctor_node_monitor.o adb_doctor_host_monitor.o adb_doctor_switcher.o $(WIN32RES)
 PGFILEDESC = "adb_doctor - cure the adb cluster automatically"
 
 EXTENSION = adb_doctor

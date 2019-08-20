@@ -27,6 +27,8 @@
 #include "mgr/mgr_agent.h"
 #include "mgr/mgr_msg_type.h"
 #include "mgr/mgr_cmds.h"
+#include "mgr/mgr_helper.h"
+#include "utils/memutils.h"
 #include "adb_doctor.h"
 
 /* 
@@ -95,17 +97,17 @@ typedef struct ManagerAgentWrapper
 	TimestampTz activeTime;
 	TimestampTz crashedTime;
 	TimestampTz restartTime;
-	AdbMgrHostWrapper *hostWrapper;
+	MgrHostWrapper *mgrHost;
 	AdbDoctorBounceNum *restartFactor;
 	AdbDoctorErrorRecorder *errors;
 } ManagerAgentWrapper;
 
-static void hostMonitorMainLoop(AdbDoctorHostData *data);
-
-static void initializeWaitEventSet(int nAgents);
-static void initializeAgentsConnection(AdbDoctorList *agentList);
+static void hostMonitorMainLoop(void);
+static void initializeWaitEventSet(void);
+static void initializeAgentsConnection(void);
 
 static void examineAgentsStatus(void);
+static void resetHostMonitor(void);
 
 static void handleConnectionStatusConnecting(ManagerAgentWrapper *agentWrapper, TimestampTz currentTime);
 static void handleConnectionStatusSucceeded(ManagerAgentWrapper *agentWrapper, TimestampTz currentTime);
@@ -144,8 +146,7 @@ static void OnAgentConnectionEvent(WaitEvent *event);
 static void OnAgentMessageEvent(WaitEvent *event);
 
 static HostConfiguration *newHostConfiguration(AdbDoctorConf *conf);
-
-static void attachHostDataShm(Datum main_arg, AdbDoctorHostData **dataP);
+static void getCheckMgrHostsForHostDoctor(dlist_head *hosts);
 
 static void handleSigterm(SIGNAL_ARGS);
 static void handleSigusr1(SIGNAL_ARGS);
@@ -156,14 +157,16 @@ static void pfreeAgentsInList(dlist_head *list);
 static volatile sig_atomic_t gotSigterm = false;
 static volatile sig_atomic_t gotSigusr1 = false;
 
+static dlist_head *cachedMgrHosts;
 static dlist_head totalAgentList = DLIST_STATIC_INIT(totalAgentList);
 
 static AdbDoctorConfShm *confShm;
+static HostConfiguration *hostConfiguration = NULL;
+static sigjmp_buf reset_host_monitor_sigjmp_buf;
 
-static WaitEventSet *agentWaitEventSet;
-static WaitEvent *occurredEvents;
-static int nOccurredEvents;
-static HostConfiguration *hostConfiguration;
+static WaitEventSet *agentWaitEventSet = NULL;
+static WaitEvent *occurredEvents = NULL;
+static int nOccurredEvents = 0;
 
 static const WaitEventData LatchSetEventData = {OnLatchSetEvent};
 static const WaitEventData PostmasterDeathEventData = {OnPostmasterDeathEvent};
@@ -175,59 +178,81 @@ static const WaitEventData PostmasterDeathEventData = {OnPostmasterDeathEvent};
  */
 void adbDoctorHostMonitorMain(Datum main_arg)
 {
-	AdbDoctorHostData *data;
+	ErrorData *edata = NULL;
+	MemoryContext oldContext;
+	AdbDoctorBgworkerData *bgworkerData;
 	AdbDoctorConf *confInLocal;
 
+	oldContext = CurrentMemoryContext;
 	pqsignal(SIGTERM, handleSigterm);
 	pqsignal(SIGUSR1, handleSigusr1);
-
 	BackgroundWorkerUnblockSignals();
-
-	BackgroundWorkerInitializeConnection(ADBMGR_DBNAME, NULL, 0);
+	BackgroundWorkerInitializeConnection(DEFAULT_DB, NULL, 0);
 
 	PG_TRY();
 	{
-		attachHostDataShm(main_arg, &data);
+		bgworkerData = attachAdbDoctorBgworkerDataShm(main_arg,
+													  MyBgworkerEntry->bgw_name);
 		notifyAdbDoctorRegistrant();
 		ereport(LOG,
 				(errmsg("%s started",
 						MyBgworkerEntry->bgw_name)));
 
-		confShm = attachAdbDoctorConfShm(data->header.commonShmHandle,
+		confShm = attachAdbDoctorConfShm(bgworkerData->commonShmHandle,
 										 MyBgworkerEntry->bgw_name);
 		confInLocal = copyAdbDoctorConfFromShm(confShm);
 		hostConfiguration = newHostConfiguration(confInLocal);
 		pfree(confInLocal);
 
-		hostMonitorMainLoop(data);
+		cachedMgrHosts = palloc0(sizeof(dlist_head));
+		if (sigsetjmp(reset_host_monitor_sigjmp_buf, 1) != 0)
+		{
+			pfreeAgentsInList(&totalAgentList);
+			dlist_init(&totalAgentList);
+			if (agentWaitEventSet)
+			{
+				FreeWaitEventSet(agentWaitEventSet);
+				agentWaitEventSet = NULL;
+			}
+		}
 
-		pfreeAgentsInList(&totalAgentList);
-		pfreeAdbDoctorConfShm(confShm);
+		dlist_init(cachedMgrHosts);
+		getCheckMgrHostsForHostDoctor(cachedMgrHosts);
+		hostMonitorMainLoop();
 	}
 	PG_CATCH();
 	{
-		pfreeAgentsInList(&totalAgentList);
-		pfreeAdbDoctorConfShm(confShm);
-		PG_RE_THROW();
+		/* Save error info in our stmt_mcontext */
+		MemoryContextSwitchTo(oldContext);
+		edata = CopyErrorData();
+		FlushErrorState();
 	}
 	PG_END_TRY();
-	proc_exit(1);
+
+	pfreeAgentsInList(&totalAgentList);
+	if (agentWaitEventSet)
+		FreeWaitEventSet(agentWaitEventSet);
+	pfreeAdbDoctorConfShm(confShm);
+	if (edata)
+		ReThrowError(edata);
+	else
+		proc_exit(1);
 }
 
 /* 
  * Connect to all of the agents, keep alive by send heartbeat message,
  * wait event of these socket, determine the status of agent.
  */
-static void hostMonitorMainLoop(AdbDoctorHostData *data)
+static void hostMonitorMainLoop()
 {
 	WaitEvent *event;
 	WaitEventData *volatile wed = NULL;
 
 	int rc, i;
 
-	initializeWaitEventSet(data->list->num);
+	initializeWaitEventSet();
 
-	initializeAgentsConnection(data->list);
+	initializeAgentsConnection();
 
 	while (!gotSigterm)
 	{
@@ -252,11 +277,18 @@ static void hostMonitorMainLoop(AdbDoctorHostData *data)
 }
 
 /* 
- * In order to quickly get events occurrex at agents you must first initialize
+ * In order to quickly get events occurred at agents you must first initialize
  * WaitEventSet, and also add events WL_LATCH_SET and WL_POSTMASTER_DEATH.
  */
-static void initializeWaitEventSet(int nAgents)
+static void initializeWaitEventSet()
 {
+	int nAgents = 0;
+	dlist_iter iter;
+
+	dlist_foreach(iter, cachedMgrHosts)
+	{
+		nAgents++;
+	}
 	nOccurredEvents = nAgents + 2;
 	agentWaitEventSet = CreateWaitEventSet(TopMemoryContext, nOccurredEvents);
 	occurredEvents = palloc0(sizeof(WaitEvent) * nOccurredEvents);
@@ -278,15 +310,15 @@ static void initializeWaitEventSet(int nAgents)
  * Each host run an agent process, connect to all of these agents,
  * link them to a list to make it easier to maintain their status later.
  */
-static void initializeAgentsConnection(AdbDoctorList *agentList)
+static void initializeAgentsConnection()
 {
 	ManagerAgentWrapper *agentWrapper;
 	dlist_iter iter;
-	AdbDoctorLink *hostlink;
+	MgrHostWrapper *mgrHost;
 
-	dlist_foreach(iter, &agentList->head)
+	dlist_foreach(iter, cachedMgrHosts)
 	{
-		hostlink = dlist_container(AdbDoctorLink, wi_links, iter.cur);
+		mgrHost = dlist_container(MgrHostWrapper, link, iter.cur);
 		/* Initialize agent to normal status. */
 		agentWrapper = palloc0(sizeof(ManagerAgentWrapper));
 		agentWrapper->wed.fun = NULL;
@@ -300,8 +332,7 @@ static void initializeAgentsConnection(AdbDoctorList *agentList)
 		agentWrapper->activeTime = 0;
 		agentWrapper->crashedTime = 0;
 		agentWrapper->restartTime = 0;
-		agentWrapper->restartFactor = 0;
-		agentWrapper->hostWrapper = hostlink->data;
+		agentWrapper->mgrHost = mgrHost;
 		agentWrapper->restartFactor = newAdbDoctorBounceNum(0, 5);
 		agentWrapper->errors = newAdbDoctorErrorRecorder(100);
 
@@ -309,9 +340,6 @@ static void initializeAgentsConnection(AdbDoctorList *agentList)
 
 		dlist_push_tail(&totalAgentList, &agentWrapper->list_node);
 	}
-	/* these hosts are already linked to the new list.
-       so pfree the old list, but do not pfree data. */
-	pfreeAdbDoctorList(agentList, false);
 }
 
 /**
@@ -375,6 +403,15 @@ static void examineAgentsStatus(void)
 							runningStatus)));
 		}
 	}
+}
+
+static void resetHostMonitor(void)
+{
+	ereport(LOG,
+			(errmsg("%s, reset host monitor",
+					MyBgworkerEntry->bgw_name)));
+
+	siglongjmp(reset_host_monitor_sigjmp_buf, 1);
 }
 
 static void handleConnectionStatusConnecting(ManagerAgentWrapper *agentWrapper,
@@ -461,8 +498,8 @@ static void handleConnectionStatusBad(ManagerAgentWrapper *agentWrapper)
 	{
 		ereport(DEBUG1,
 				(errmsg("%s:%s, connect agent too often",
-						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						agentWrapper->hostWrapper->hostaddr)));
+						NameStr(agentWrapper->mgrHost->form.hostname),
+						agentWrapper->mgrHost->hostaddr)));
 	}
 }
 
@@ -470,8 +507,8 @@ static void toConnectionStatusConnecting(ManagerAgentWrapper *agentWrapper)
 {
 	ereport(DEBUG1,
 			(errmsg("%s:%s, start connect agent",
-					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-					agentWrapper->hostWrapper->hostaddr)));
+					NameStr(agentWrapper->mgrHost->form.hostname),
+					agentWrapper->mgrHost->hostaddr)));
 	agentWrapper->connectionStatus = AGENT_CONNNECTION_STATUS_CONNECTING;
 	agentWrapper->connectTime = GetCurrentTimestamp();
 }
@@ -485,8 +522,8 @@ static void toConnectionStatusSucceeded(ManagerAgentWrapper *agentWrapper)
 	{
 		ereport(DEBUG1,
 				(errmsg("%s:%s, connection status succeeded",
-						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						agentWrapper->hostWrapper->hostaddr)));
+						NameStr(agentWrapper->mgrHost->form.hostname),
+						agentWrapper->mgrHost->hostaddr)));
 		agentWrapper->connectionStatus = AGENT_CONNNECTION_STATUS_SUCCEEDED;
 		/* clear all errors */
 		resetAdbDoctorErrorRecorder(agentWrapper->errors);
@@ -508,8 +545,8 @@ static void toConnectionStatusBad(ManagerAgentWrapper *agentWrapper, MonitorAgen
 {
 	ereport(DEBUG1,
 			(errmsg("%s:%s, error:%s",
-					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-					agentWrapper->hostWrapper->hostaddr,
+					NameStr(agentWrapper->mgrHost->form.hostname),
+					agentWrapper->mgrHost->hostaddr,
 					AGENT_ERROR_MSG[(int)error - 1])));
 	appendAdbDoctorErrorRecorder(agentWrapper->errors, (int)error);
 	agentWrapper->connectionStatus = AGENT_CONNNECTION_STATUS_BAD;
@@ -517,8 +554,8 @@ static void toConnectionStatusBad(ManagerAgentWrapper *agentWrapper, MonitorAgen
 	stopMonitorAgent(agentWrapper);
 	ereport(DEBUG1,
 			(errmsg("%s:%s, connection status bad",
-					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-					agentWrapper->hostWrapper->hostaddr)));
+					NameStr(agentWrapper->mgrHost->form.hostname),
+					agentWrapper->mgrHost->hostaddr)));
 }
 
 static void handleRunningStatusNormal(ManagerAgentWrapper *agentWrapper)
@@ -585,10 +622,11 @@ static void toRunningStatusNormal(ManagerAgentWrapper *agentWrapper)
 {
 	agentWrapper->runningStatus = AGENT_RUNNING_STATUS_NORMAL;
 	resetAdbDoctorBounceNum(agentWrapper->restartFactor);
+	agentWrapper->restartTime = 0;
 	ereport(LOG,
 			(errmsg("%s:%s, agent status normal",
-					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-					agentWrapper->hostWrapper->hostaddr)));
+					NameStr(agentWrapper->mgrHost->form.hostname),
+					agentWrapper->mgrHost->hostaddr)));
 }
 
 static void toRunningStatusCrashed(ManagerAgentWrapper *agentWrapper)
@@ -597,8 +635,8 @@ static void toRunningStatusCrashed(ManagerAgentWrapper *agentWrapper)
 	agentWrapper->crashedTime = GetCurrentTimestamp();
 	ereport(LOG,
 			(errmsg("%s:%s, agent status crashed",
-					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-					agentWrapper->hostWrapper->hostaddr)));
+					NameStr(agentWrapper->mgrHost->form.hostname),
+					agentWrapper->mgrHost->hostaddr)));
 }
 
 /**
@@ -665,8 +703,8 @@ static bool startMonitorAgent(ManagerAgentWrapper *agentWrapper)
 	ManagerAgent *agent;
 	bool connected;
 
-	agent = ma_connect_noblock(agentWrapper->hostWrapper->hostaddr,
-							   agentWrapper->hostWrapper->fdmh.hostagentport);
+	agent = ma_connect_noblock(agentWrapper->mgrHost->hostaddr,
+							   agentWrapper->mgrHost->form.hostagentport);
 	agentWrapper->agent = agent;
 	connected = ma_isconnected(agent);
 	if (connected)
@@ -710,8 +748,7 @@ static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper)
 {
 	int ret;
 	bool allowcure;
-	AdbMgrHostWrapper *host;
-	Oid hostOid;
+	MgrHostWrapper *hostDataInDB;
 	MemoryContext oldContext;
 	MemoryContext spiContext;
 
@@ -720,8 +757,8 @@ static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper)
 	{
 		ereport(DEBUG1,
 				(errmsg("%s:%s, restart agent too often",
-						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						agentWrapper->hostWrapper->hostaddr)));
+						NameStr(agentWrapper->mgrHost->form.hostname),
+						agentWrapper->mgrHost->hostaddr)));
 		return false;
 	}
 
@@ -731,38 +768,36 @@ static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper)
 	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
 	spiContext = CurrentMemoryContext;
 	MemoryContextSwitchTo(oldContext);
-
-	hostOid = agentWrapper->hostWrapper->oid;
-	host = SPI_selectMgrHostByOid(hostOid, spiContext);
-	if (host == NULL)
+	hostDataInDB = selectMgrHostByOid(agentWrapper->mgrHost->oid, spiContext);
+	SPI_FINISH_TRANSACTIONAL_COMMIT();
+	if (hostDataInDB == NULL)
 	{
 		ereport(ERROR,
 				(errmsg("%s:%s, oid:%u not exists in the table.",
-						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						agentWrapper->hostWrapper->hostaddr,
-						hostOid)));
+						NameStr(agentWrapper->mgrHost->form.hostname),
+						agentWrapper->mgrHost->hostaddr,
+						agentWrapper->mgrHost->oid)));
 	}
-	allowcure = host->fdmh.allowcure;
+	allowcure = hostDataInDB->form.allowcure;
 	if (!allowcure)
 	{
-		ereport(ERROR,
+		ereport(WARNING,
 				(errmsg("%s, cure agent not allowed",
 						MyBgworkerEntry->bgw_name)));
+		pfreeMgrHostWrapper(hostDataInDB);
+		resetHostMonitor();
 	}
-	if (!equalsAdbMgrHostWrapper(agentWrapper->hostWrapper, host))
+	if (!isIdenticalDoctorMgrHost(agentWrapper->mgrHost, hostDataInDB))
 	{
-		ereport(ERROR,
+		ereport(WARNING,
 				(errmsg("%s:%s, oid:%u has changed in the table.",
-						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						agentWrapper->hostWrapper->hostaddr,
-						hostOid)));
+						NameStr(agentWrapper->mgrHost->form.hostname),
+						agentWrapper->mgrHost->hostaddr,
+						agentWrapper->mgrHost->oid)));
+		pfreeMgrHostWrapper(hostDataInDB);
+		resetHostMonitor();
 	}
-	pfreeAdbMgrHostWrapper(host);
-
-	SPI_FINISH_TRANSACTIONAL_COMMIT();
-
-	MemoryContextSwitchTo(oldContext);
-
+	pfreeMgrHostWrapper(hostDataInDB);
 	return allowcure;
 }
 
@@ -786,8 +821,8 @@ static bool restartAgent(ManagerAgentWrapper *agentWrapper, RestartAgentMode mod
 		{
 			ereport(LOG,
 					(errmsg("%s:%s, restart forbidden, unknow restart mode:%d.",
-							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							agentWrapper->hostWrapper->hostaddr,
+							NameStr(agentWrapper->mgrHost->form.hostname),
+							agentWrapper->mgrHost->hostaddr,
 							mode)));
 			return false;
 		}
@@ -796,8 +831,8 @@ static bool restartAgent(ManagerAgentWrapper *agentWrapper, RestartAgentMode mod
 	{
 		ereport(DEBUG1,
 				(errmsg("%s:%s, restart too often, wait for a while.",
-						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						agentWrapper->hostWrapper->hostaddr)));
+						NameStr(agentWrapper->mgrHost->form.hostname),
+						agentWrapper->mgrHost->hostaddr)));
 		return false;
 	}
 }
@@ -809,11 +844,11 @@ static bool restartAgentBySSH(ManagerAgentWrapper *agentWrapper)
 
 	ereport(LOG,
 			(errmsg("%s:%s, restart agent by ssh begin.",
-					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-					agentWrapper->hostWrapper->hostaddr)));
-	cmdRst = mgr_start_agent_execute(&agentWrapper->hostWrapper->fdmh,
-									 agentWrapper->hostWrapper->hostaddr,
-									 agentWrapper->hostWrapper->hostadbhome,
+					NameStr(agentWrapper->mgrHost->form.hostname),
+					agentWrapper->mgrHost->hostaddr)));
+	cmdRst = mgr_start_agent_execute(&agentWrapper->mgrHost->form,
+									 agentWrapper->mgrHost->hostaddr,
+									 agentWrapper->mgrHost->hostadbhome,
 									 NULL);
 	/* The previous operations will take a while, 
 	 * we need precise time to prevent repeated restarts. */
@@ -823,16 +858,16 @@ static bool restartAgentBySSH(ManagerAgentWrapper *agentWrapper)
 		done = true;
 		ereport(LOG,
 				(errmsg("%s:%s, restart agent by ssh successfully.",
-						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						agentWrapper->hostWrapper->hostaddr)));
+						NameStr(agentWrapper->mgrHost->form.hostname),
+						agentWrapper->mgrHost->hostaddr)));
 	}
 	else
 	{
 		done = false;
 		ereport(LOG,
 				(errmsg("%s:%s, restart agent by ssh failed:%s.",
-						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						agentWrapper->hostWrapper->hostaddr,
+						NameStr(agentWrapper->mgrHost->form.hostname),
+						agentWrapper->mgrHost->hostaddr,
 						cmdRst->description.data)));
 	}
 	pfree(cmdRst->description.data);
@@ -864,15 +899,15 @@ static bool sendHeartbeatMessage(ManagerAgentWrapper *agentWrapper)
 	{
 		ereport(DEBUG1,
 				(errmsg("%s:%s, sent message idle",
-						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						agentWrapper->hostWrapper->hostaddr)));
+						NameStr(agentWrapper->mgrHost->form.hostname),
+						agentWrapper->mgrHost->hostaddr)));
 	}
 	else
 	{
 		ereport(LOG,
 				(errmsg("%s:%s, sent message idle failed.",
-						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						agentWrapper->hostWrapper->hostaddr)));
+						NameStr(agentWrapper->mgrHost->form.hostname),
+						agentWrapper->mgrHost->hostaddr)));
 	}
 	return done;
 }
@@ -891,15 +926,15 @@ static bool sendStopAgentMessage(ManagerAgentWrapper *agentWrapper)
 	{
 		ereport(DEBUG1,
 				(errmsg("%s:%s, sent message stop agent",
-						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						agentWrapper->hostWrapper->hostaddr)));
+						NameStr(agentWrapper->mgrHost->form.hostname),
+						agentWrapper->mgrHost->hostaddr)));
 	}
 	else
 	{
 		ereport(LOG,
 				(errmsg("%s:%s, sent message stop agent failed.",
-						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						agentWrapper->hostWrapper->hostaddr)));
+						NameStr(agentWrapper->mgrHost->form.hostname),
+						agentWrapper->mgrHost->hostaddr)));
 	}
 	return done;
 }
@@ -919,15 +954,15 @@ static bool sendResetAgentMessage(ManagerAgentWrapper *agentWrapper)
 	{
 		ereport(DEBUG1,
 				(errmsg("%s:%s, sent message reset agent",
-						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						agentWrapper->hostWrapper->hostaddr)));
+						NameStr(agentWrapper->mgrHost->form.hostname),
+						agentWrapper->mgrHost->hostaddr)));
 	}
 	else
 	{
 		ereport(LOG,
 				(errmsg("%s:%s, sent message reset agent failed.",
-						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						agentWrapper->hostWrapper->hostaddr)));
+						NameStr(agentWrapper->mgrHost->form.hostname),
+						agentWrapper->mgrHost->hostaddr)));
 	}
 	return done;
 }
@@ -1010,8 +1045,8 @@ static void ModifyAgentWaitEventSet(ManagerAgentWrapper *agentWrapper, uint32 ev
 	if (agentWrapper->event_pos < 0)
 		ereport(ERROR,
 				(errmsg("%s:%s, modify WaitEventSet error",
-						NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-						agentWrapper->hostWrapper->hostaddr)));
+						NameStr(agentWrapper->mgrHost->form.hostname),
+						agentWrapper->mgrHost->hostaddr)));
 	ModifyWaitEvent(agentWaitEventSet, agentWrapper->event_pos, events, NULL);
 }
 
@@ -1048,7 +1083,10 @@ static void removeAgentWaitEvent(ManagerAgentWrapper *agentWrapper)
 static void OnLatchSetEvent(WaitEvent *event)
 {
 	AdbDoctorConf *confInLocal;
+	dlist_head freshMgrHosts = DLIST_STATIC_INIT(freshMgrHosts);
+
 	ResetLatch(&MyProc->procLatch);
+	CHECK_FOR_INTERRUPTS();
 	if (gotSigusr1)
 	{
 		gotSigusr1 = false;
@@ -1061,6 +1099,17 @@ static void OnLatchSetEvent(WaitEvent *event)
 		ereport(LOG,
 				(errmsg("%s Refresh configuration completed",
 						MyBgworkerEntry->bgw_name)));
+
+		getCheckMgrHostsForHostDoctor(&freshMgrHosts);
+		if (isIdenticalDoctorMgrHosts(&freshMgrHosts, cachedMgrHosts))
+		{
+			pfreeMgrHostWrapperList(&freshMgrHosts, NULL);
+		}
+		else
+		{
+			pfreeMgrHostWrapperList(&freshMgrHosts, NULL);
+			resetHostMonitor();
+		}
 	}
 }
 
@@ -1075,8 +1124,8 @@ static void OnAgentConnectionEvent(WaitEvent *event)
 	agentWrapper = (ManagerAgentWrapper *)event->user_data;
 	ereport(DEBUG1,
 			(errmsg("%s:%s, agent connection event",
-					NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-					agentWrapper->hostWrapper->hostaddr)));
+					NameStr(agentWrapper->mgrHost->form.hostname),
+					agentWrapper->mgrHost->hostaddr)));
 	/* This not indicate that the agent connection is good, 
 	 * should read from socket to determine the connection status,
 	 * so listen the readable event then read from socket. */
@@ -1103,8 +1152,8 @@ static void OnAgentMessageEvent(WaitEvent *event)
 		{
 			ereport(DEBUG1,
 					(errmsg("%s:%s, receive message idle",
-							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							agentWrapper->hostWrapper->hostaddr)));
+							NameStr(agentWrapper->mgrHost->form.hostname),
+							agentWrapper->mgrHost->hostaddr)));
 			toConnectionStatusSucceeded(agentWrapper);
 			break;
 		}
@@ -1124,8 +1173,8 @@ static void OnAgentMessageEvent(WaitEvent *event)
 			/* ignore error message */
 			ereport(LOG,
 					(errmsg("%s:%s, receive error message:%s",
-							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							agentWrapper->hostWrapper->hostaddr,
+							NameStr(agentWrapper->mgrHost->form.hostname),
+							agentWrapper->mgrHost->hostaddr,
 							ma_get_err_info(&recvbuf, AGT_MSG_RESULT))));
 			break;
 		}
@@ -1137,8 +1186,8 @@ static void OnAgentMessageEvent(WaitEvent *event)
 		{
 			ereport(LOG,
 					(errmsg("%s:%s, receive message:%s",
-							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							agentWrapper->hostWrapper->hostaddr,
+							NameStr(agentWrapper->mgrHost->form.hostname),
+							agentWrapper->mgrHost->hostaddr,
 							recvbuf.data)));
 			toConnectionStatusSucceeded(agentWrapper);
 			break;
@@ -1147,8 +1196,8 @@ static void OnAgentMessageEvent(WaitEvent *event)
 		{
 			ereport(LOG,
 					(errmsg("%s:%s, receive message:%s",
-							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							agentWrapper->hostWrapper->hostaddr,
+							NameStr(agentWrapper->mgrHost->form.hostname),
+							agentWrapper->mgrHost->hostaddr,
 							recvbuf.data)));
 			toConnectionStatusSucceeded(agentWrapper);
 			break;
@@ -1157,12 +1206,12 @@ static void OnAgentMessageEvent(WaitEvent *event)
 		{
 			ereport(LOG,
 					(errmsg("%s:%s, receive message:%s",
-							NameStr(agentWrapper->hostWrapper->fdmh.hostname),
-							agentWrapper->hostWrapper->hostaddr,
+							NameStr(agentWrapper->mgrHost->form.hostname),
+							agentWrapper->mgrHost->hostaddr,
 							recvbuf.data)));
 			toConnectionStatusSucceeded(agentWrapper);
 			/* Do not close this connection.use this connection to start agent main process. */
-			restartAgentByCmdMessage(agentWrapper);
+			restartAgent(agentWrapper, RESTART_AGENT_MODE_SEND_MESSAGE);
 			break;
 		}
 	}
@@ -1238,71 +1287,24 @@ static HostConfiguration *newHostConfiguration(AdbDoctorConf *conf)
 	return hc;
 }
 
-/* 
- * Launcher process set up a necessary individual data in shared memory(shm). 
- * attach this shm to get these data, if got, detach this shm.
- */
-static void attachHostDataShm(Datum main_arg, AdbDoctorHostData **dataP)
+static void getCheckMgrHostsForHostDoctor(dlist_head *hosts)
 {
-	dsm_segment *seg;
-	shm_toc *toc;
-	AdbDoctorHostData *dataInShm;
-	AdbDoctorHostData *data;
-	AdbDoctorLink *hostLink;
-	AdbMgrHostWrapper *hostWrapper;
-	Adb_Doctor_Bgworker_Type type;
-	uint64 tocKey = 0;
-	int i;
+	MemoryContext oldContext;
+	MemoryContext spiContext;
+	int ret;
 
-	CurrentResourceOwner = ResourceOwnerCreate(NULL, MyBgworkerEntry->bgw_name);
-	seg = dsm_attach(DatumGetUInt32(main_arg));
-	if (seg == NULL)
-		ereport(ERROR,
-				(errmsg("unable to map individual dynamic shared memory segment.")));
-
-	toc = shm_toc_attach(ADB_DOCTOR_SHM_DATA_MAGIC, dsm_segment_address(seg));
-	if (toc == NULL)
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("bad magic number in dynamic shared memory segment.")));
-
-	dataInShm = shm_toc_lookup(toc, tocKey++, false);
-
-	SpinLockAcquire(&dataInShm->header.mutex);
-
-	type = dataInShm->header.type;
-	Assert(type == ADB_DOCTOR_BGWORKER_TYPE_HOST_MONITOR);
-
-	data = palloc0(sizeof(AdbDoctorHostData));
-	/* this shm will be detached, copy out all the data */
-	memcpy(data, dataInShm, sizeof(AdbDoctorHostData));
-
-	data->list = newAdbDoctorList();
-	memcpy(data->list, shm_toc_lookup(toc, tocKey++, false), sizeof(AdbDoctorList));
-	dlist_init(&data->list->head);
-
-	for (i = 0; i < data->list->num; i++)
+	oldContext = CurrentMemoryContext;
+	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(oldContext);
+	selectMgrHostsForHostDoctor(spiContext, hosts);
+	SPI_FINISH_TRANSACTIONAL_COMMIT();
+	if (dlist_is_empty(hosts))
 	{
-		hostLink = newAdbDoctorLink(NULL, NULL);
-		memcpy(hostLink, shm_toc_lookup(toc, tocKey++, false), sizeof(AdbDoctorLink));
-		dlist_push_tail(&data->list->head, &hostLink->wi_links);
-
-		hostWrapper = palloc0(sizeof(AdbMgrHostWrapper));
-		memcpy(hostWrapper, shm_toc_lookup(toc, tocKey++, false), sizeof(AdbMgrHostWrapper));
-		hostLink->data = hostWrapper;
-		hostLink->pfreeData = (void (*)(void *))pfreeAdbMgrHostWrapper;
-
-		hostWrapper->hostaddr = pstrdup(shm_toc_lookup(toc, tocKey++, false));
-		hostWrapper->hostadbhome = pstrdup(shm_toc_lookup(toc, tocKey++, false));
+		ereport(ERROR,
+				(errmsg("%s There is no host data to monitor",
+						MyBgworkerEntry->bgw_name)));
 	}
-
-	/* If true, launcher process know this worker is ready. */
-	dataInShm->header.ready = true;
-	SpinLockRelease(&dataInShm->header.mutex);
-
-	*dataP = data;
-
-	dsm_detach(seg);
 }
 
 /*
@@ -1348,9 +1350,12 @@ static void pfreeManagerAgentWrapper(ManagerAgentWrapper *agentWrapper)
 			ma_close(agentWrapper->agent);
 			agentWrapper->agent = NULL;
 		}
-		pfreeAdbMgrHostWrapper(agentWrapper->hostWrapper);
+		pfreeMgrHostWrapper(agentWrapper->mgrHost);
+		agentWrapper->mgrHost = NULL;
 		pfreeAdbDoctorBounceNum(agentWrapper->restartFactor);
+		agentWrapper->restartFactor = NULL;
 		pfreeAdbDoctorErrorRecorder(agentWrapper->errors);
+		agentWrapper->errors = NULL;
 		pfree(agentWrapper);
 		agentWrapper = NULL;
 	}

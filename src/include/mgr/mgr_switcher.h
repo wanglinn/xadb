@@ -110,10 +110,11 @@ extern void checkGetSlaveNodes(SwitcherNodeWrapper *masterNode,
 extern void checkNodesRunningStatus(dlist_head *nodes,
 									dlist_head *failedNodes,
 									dlist_head *runningNodes);
-extern void sortNodesByWalLsnDesc(dlist_head *nodes,
-								  Oid deleteNodeOid);
+extern void sortNodesByWalLsnDesc(dlist_head *nodes);
 extern void checkGetMasterCoordinators(MemoryContext spiContext,
 									   dlist_head *coordinators);
 extern void mgrNodesToSwitcherNodes(dlist_head *mgrNodes,
 									dlist_head *switcherNodes);
+extern void switcherNodesToMgrNodes(dlist_head *switcherNodes,
+									dlist_head *mgrNodes);
 #endif /* MGR_SWITCHER_H */

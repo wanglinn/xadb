@@ -15,6 +15,7 @@
 #include "utils/resowner.h"
 #include "utils/builtins.h"
 #include "utils/ps_status.h"
+#include "utils/memutils.h"
 #include "../../src/interfaces/libpq/libpq-fe.h"
 #include "../../src/interfaces/libpq/libpq-int.h"
 #include "mgr/mgr_agent.h"
@@ -44,58 +45,61 @@ static void handleOldMasterFailure(SwitcherNodeWrapper *oldMaster,
 								   dlist_head *failedSlaves,
 								   dlist_head *coordinators,
 								   MemoryContext spiContext);
-
 static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 								 MemoryContext spiContext);
 static void updateCureStatusToNormal(MgrNodeWrapper *node,
 									 MemoryContext spiContext);
-
-static void castToSwitcherNodes(AdbDoctorSwitcherData *data,
-								dlist_head *switcherNodes);
-
-static void attachSwitcherDataShm(Datum main_arg, AdbDoctorSwitcherData **dataP);
+static void getCheckMgrNodesForSwitcher(dlist_head *nodes);
 static SwitcherConfiguration *newSwitcherConfiguration(AdbDoctorConf *conf);
-static void examineAdbDoctorConf(void);
+static void examineAdbDoctorConf(dlist_head *switcherNodes);
+static void resetSwitcher(void);
 
 static void handleSigterm(SIGNAL_ARGS);
 static void handleSigusr1(SIGNAL_ARGS);
 
 static AdbDoctorConfShm *confShm;
 static SwitcherConfiguration *switcherConfiguration;
+static sigjmp_buf reset_switcher_sigjmp_buf;
 
 static volatile sig_atomic_t gotSigterm = false;
 static volatile sig_atomic_t gotSigusr1 = false;
 
 void adbDoctorSwitcherMain(Datum main_arg)
 {
-	AdbDoctorSwitcherData *data;
+	AdbDoctorBgworkerData *bgworkerData;
 	AdbDoctorConf *confInLocal;
 	dlist_head switcherNodes = DLIST_STATIC_INIT(switcherNodes);
+	dlist_head mgrNodes = DLIST_STATIC_INIT(mgrNodes);
 
 	pqsignal(SIGTERM, handleSigterm);
 	pqsignal(SIGUSR1, handleSigusr1);
-
 	BackgroundWorkerUnblockSignals();
-
-	BackgroundWorkerInitializeConnection(ADBMGR_DBNAME, NULL, 0);
+	BackgroundWorkerInitializeConnection(DEFAULT_DB, NULL, 0);
 
 	PG_TRY();
 	{
-		attachSwitcherDataShm(main_arg, &data);
+		bgworkerData = attachAdbDoctorBgworkerDataShm(main_arg,
+													  MyBgworkerEntry->bgw_name);
 		notifyAdbDoctorRegistrant();
 		ereport(LOG,
 				(errmsg("%s started",
 						MyBgworkerEntry->bgw_name)));
 
-		confShm = attachAdbDoctorConfShm(data->header.commonShmHandle,
+		confShm = attachAdbDoctorConfShm(bgworkerData->commonShmHandle,
 										 MyBgworkerEntry->bgw_name);
 		confInLocal = copyAdbDoctorConfFromShm(confShm);
 		switcherConfiguration = newSwitcherConfiguration(confInLocal);
 		pfree(confInLocal);
 
-		logAdbDoctorSwitcherData(data, "AdbDoctorSwitcherData", LOG);
-		castToSwitcherNodes(data, &switcherNodes);
+		if (sigsetjmp(reset_switcher_sigjmp_buf, 1) != 0)
+		{
+			pfreeSwitcherNodeWrapperList(&switcherNodes, NULL);
+		}
+		dlist_init(&switcherNodes);
+		dlist_init(&mgrNodes);
 
+		getCheckMgrNodesForSwitcher(&mgrNodes);
+		mgrNodesToSwitcherNodes(&mgrNodes, &switcherNodes);
 		switcherMainLoop(&switcherNodes);
 	}
 	PG_CATCH();
@@ -123,12 +127,13 @@ static void switcherMainLoop(dlist_head *switcherNodes)
 				dlist_delete(miter.cur);
 				pfreeSwitcherNodeWrapper(oldMaster);
 			}
-			else
-			{
-				pfreeSwitcherNodeWrapperPGconn(oldMaster);
-			}
 			CHECK_FOR_INTERRUPTS();
-			examineAdbDoctorConf();
+			examineAdbDoctorConf(switcherNodes);
+		}
+		if (dlist_is_empty(switcherNodes))
+		{
+			/* The switch task was completed, the process should exits */
+			break;
 		}
 		set_ps_display("sleeping", false);
 		rc = WaitLatchOrSocket(MyLatch,
@@ -145,7 +150,7 @@ static void switcherMainLoop(dlist_head *switcherNodes)
 			ResetLatch(MyLatch);
 		}
 		CHECK_FOR_INTERRUPTS();
-		examineAdbDoctorConf();
+		examineAdbDoctorConf(switcherNodes);
 	}
 }
 
@@ -176,6 +181,7 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 		if (tryConnectNode(oldMaster, 10) &&
 			checkNodeRunningMode(oldMaster->pgConn, true))
 		{
+			oldMaster->runningMode = NODE_RUNNING_MODE_MASTER;
 			handleOldMasterNormal(oldMaster,
 								  &newMaster,
 								  &runningSlaves,
@@ -205,6 +211,7 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 	}
 	PG_END_TRY();
 
+	pfreeSwitcherNodeWrapperPGconn(oldMaster);
 	pfreeSwitcherNodeWrapper(newMaster);
 	pfreeSwitcherNodeWrapperList(&failedSlaves, NULL);
 	pfreeSwitcherNodeWrapperList(&runningSlaves, NULL);
@@ -244,17 +251,17 @@ static void handleOldMasterNormal(SwitcherNodeWrapper *oldMaster,
 									failedSlaves);
 	*newMasterP = newMaster;
 	/* When a slave node is running in the master mode, it indicates that 
-	 * this node is choosed as new master in the latest switch operation, 
+	 * this node may be choosed as new master in the latest switch operation, 
 	 * but due to some exceptions, the switch operation is not completely 
 	 * successful. So when this node lsn is largger than the old master, 
 	 * we will continue to promote this node as the new master. */
 	if (newMaster != NULL &&
 		newMaster->runningMode == NODE_RUNNING_MODE_MASTER &&
-		oldMaster->walLsn >= newMaster->walLsn)
+		newMaster->walLsn >= oldMaster->walLsn &&
+		newMaster->walLsn > InvalidXLogRecPtr)
 	{
 		/* The better slave node is in front of the list */
-		sortNodesByWalLsnDesc(runningSlaves,
-							  newMaster->mgrNode->nodeOid);
+		sortNodesByWalLsnDesc(runningSlaves);
 		checkGetMasterCoordinators(spiContext, coordinators);
 
 		checkMgrNodeDataInDB(oldMaster->mgrNode, spiContext);
@@ -297,8 +304,7 @@ static void handleOldMasterFailure(SwitcherNodeWrapper *oldMaster,
 									failedSlaves);
 	*newMasterP = newMaster;
 	/* The better slave node is in front of the list */
-	sortNodesByWalLsnDesc(runningSlaves,
-						  newMaster->mgrNode->nodeOid);
+	sortNodesByWalLsnDesc(runningSlaves);
 
 	checkGetMasterCoordinators(spiContext, coordinators);
 
@@ -318,7 +324,7 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 {
 	MgrNodeWrapper *nodeDataInDB;
 
-	nodeDataInDB = selectMgrNodeByOid(nodeDataInMem->nodeOid, spiContext);
+	nodeDataInDB = selectMgrNodeByOid(nodeDataInMem->oid, spiContext);
 	if (!nodeDataInDB)
 	{
 		ereport(ERROR,
@@ -359,7 +365,7 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 						NameStr(nodeDataInMem->form.curestatus),
 						NameStr(nodeDataInDB->form.curestatus))));
 	}
-	if (!isIdenticalMgrNode(nodeDataInMem, nodeDataInDB))
+	if (!isIdenticalDoctorMgrNode(nodeDataInMem, nodeDataInDB))
 	{
 		ereport(ERROR,
 				(errmsg("%s %s, data has changed in database",
@@ -373,19 +379,16 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 static void updateCureStatusToNormal(MgrNodeWrapper *node,
 									 MemoryContext spiContext)
 {
-	int ret;
+	int rows;
 	char *newCurestatus;
-	MemoryContext oldContext;
 
 	newCurestatus = CURE_STATUS_NORMAL;
 
-	oldContext = MemoryContextSwitchTo(spiContext);
-	ret = SPI_updateMgrNodeCureStatus(node->nodeOid,
-									  NameStr(node->form.curestatus),
-									  newCurestatus);
-	MemoryContextSwitchTo(oldContext);
-
-	if (ret != 1)
+	rows = updateMgrNodeCureStatus(node->oid,
+								   NameStr(node->form.curestatus),
+								   newCurestatus,
+								   spiContext);
+	if (rows != 1)
 	{
 		ereport(ERROR,
 				(errmsg("%s, curestatus can not transit to:%s",
@@ -398,104 +401,24 @@ static void updateCureStatusToNormal(MgrNodeWrapper *node,
 	}
 }
 
-static void castToSwitcherNodes(AdbDoctorSwitcherData *data,
-								dlist_head *switcherNodes)
+static void getCheckMgrNodesForSwitcher(dlist_head *nodes)
 {
-	AdbDoctorLink *link;
-	AdbMgrNodeWrapper *adbMgrNode;
-	MgrNodeWrapper *mgrNode;
-	SwitcherNodeWrapper *switcherNode;
-	AdbMgrHostWrapper *adbMgrHost;
-	dlist_mutable_iter miter;
-	int spiRes;
-	MemoryContext spiContext, oldContext;
+	MemoryContext oldContext;
+	MemoryContext spiContext;
+	int ret;
 
 	oldContext = CurrentMemoryContext;
-	SPI_CONNECT_TRANSACTIONAL_START(spiRes, true);
+	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
 	spiContext = CurrentMemoryContext;
 	MemoryContextSwitchTo(oldContext);
-
-	dlist_foreach_modify(miter, &data->list->head)
-	{
-		link = dlist_container(AdbDoctorLink, wi_links, miter.cur);
-		adbMgrNode = link->data;
-		adbMgrHost = SPI_selectMgrHostByOid(adbMgrNode->fdmn.nodehost,
-											spiContext);
-		if (!adbMgrHost)
-		{
-			ereport(ERROR,
-					(errmsg("%s get host info failed",
-							NameStr(adbMgrNode->fdmn.nodename))));
-		}
-		mgrNode = castToMgrNodeWrapper(adbMgrNode, adbMgrHost);
-		switcherNode = palloc0(sizeof(SwitcherNodeWrapper));
-		switcherNode->mgrNode = mgrNode;
-		dlist_push_tail(switcherNodes, &switcherNode->link);
-	}
+	selectMgrNodesForSwitcherDoctor(spiContext, nodes);
 	SPI_FINISH_TRANSACTIONAL_COMMIT();
-}
-
-static void attachSwitcherDataShm(Datum main_arg, AdbDoctorSwitcherData **dataP)
-{
-	dsm_segment *seg;
-	shm_toc *toc;
-	AdbDoctorSwitcherData *dataInShm;
-	AdbDoctorSwitcherData *data;
-	AdbDoctorLink *link;
-	AdbMgrNodeWrapper *nodeWrapper;
-	Adb_Doctor_Bgworker_Type type;
-	uint64 tocKey = 0;
-	int i;
-
-	CurrentResourceOwner = ResourceOwnerCreate(NULL, MyBgworkerEntry->bgw_name);
-	seg = dsm_attach(DatumGetUInt32(main_arg));
-	if (seg == NULL)
-		ereport(ERROR,
-				(errmsg("unable to map individual dynamic shared memory segment.")));
-
-	toc = shm_toc_attach(ADB_DOCTOR_SHM_DATA_MAGIC, dsm_segment_address(seg));
-	if (toc == NULL)
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("bad magic number in dynamic shared memory segment.")));
-
-	dataInShm = shm_toc_lookup(toc, tocKey++, false);
-
-	SpinLockAcquire(&dataInShm->header.mutex);
-
-	type = dataInShm->header.type;
-	Assert(type == ADB_DOCTOR_BGWORKER_TYPE_SWITCHER);
-
-	data = palloc0(sizeof(AdbDoctorSwitcherData));
-	/* this shm will be detached, copy out all the data */
-	memcpy(data, dataInShm, sizeof(AdbDoctorSwitcherData));
-
-	data->list = newAdbDoctorList();
-	memcpy(data->list, shm_toc_lookup(toc, tocKey++, false), sizeof(AdbDoctorList));
-	dlist_init(&data->list->head);
-
-	for (i = 0; i < data->list->num; i++)
+	if (dlist_is_empty(nodes))
 	{
-		link = newAdbDoctorLink(NULL, NULL);
-		memcpy(link, shm_toc_lookup(toc, tocKey++, false), sizeof(AdbDoctorLink));
-		dlist_push_tail(&data->list->head, &link->wi_links);
-
-		nodeWrapper = palloc0(sizeof(AdbMgrNodeWrapper));
-		memcpy(nodeWrapper, shm_toc_lookup(toc, tocKey++, false), sizeof(AdbMgrNodeWrapper));
-		link->data = nodeWrapper;
-		link->pfreeData = (void (*)(void *))pfreeAdbMgrNodeWrapper;
-
-		nodeWrapper->nodepath = pstrdup(shm_toc_lookup(toc, tocKey++, false));
-		nodeWrapper->hostaddr = pstrdup(shm_toc_lookup(toc, tocKey++, false));
+		ereport(ERROR,
+				(errmsg("%s There is no node to switch",
+						MyBgworkerEntry->bgw_name)));
 	}
-
-	/* If true, launcher process know this worker is ready. */
-	dataInShm->header.ready = true;
-	SpinLockRelease(&dataInShm->header.mutex);
-
-	*dataP = data;
-
-	dsm_detach(seg);
 }
 
 static SwitcherConfiguration *newSwitcherConfiguration(AdbDoctorConf *conf)
@@ -516,9 +439,11 @@ static SwitcherConfiguration *newSwitcherConfiguration(AdbDoctorConf *conf)
 	return sc;
 }
 
-static void examineAdbDoctorConf()
+static void examineAdbDoctorConf(dlist_head *switcherNodes)
 {
 	AdbDoctorConf *confInLocal;
+	dlist_head freshMgrNodes = DLIST_STATIC_INIT(freshMgrNodes);
+	dlist_head staleMgrNodes = DLIST_STATIC_INIT(staleMgrNodes);
 	if (gotSigusr1)
 	{
 		gotSigusr1 = false;
@@ -531,7 +456,27 @@ static void examineAdbDoctorConf()
 		ereport(LOG,
 				(errmsg("%s, Refresh configuration completed",
 						MyBgworkerEntry->bgw_name)));
+
+		getCheckMgrNodesForSwitcher(&freshMgrNodes);
+		switcherNodesToMgrNodes(switcherNodes, &staleMgrNodes);
+		if (isIdenticalDoctorMgrNodes(&freshMgrNodes, &staleMgrNodes))
+		{
+			pfreeMgrNodeWrapperList(&freshMgrNodes, NULL);
+		}
+		else
+		{
+			pfreeMgrNodeWrapperList(&freshMgrNodes, NULL);
+			resetSwitcher();
+		}
 	}
+}
+
+static void resetSwitcher()
+{
+	ereport(LOG,
+			(errmsg("%s, reset switcher",
+					MyBgworkerEntry->bgw_name)));
+	siglongjmp(reset_switcher_sigjmp_buf, 1);
 }
 
 /*

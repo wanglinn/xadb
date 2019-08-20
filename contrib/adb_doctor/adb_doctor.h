@@ -23,7 +23,6 @@
 #include "access/xact.h"
 #include "adb_doctor_conf.h"
 #include "adb_doctor_data.h"
-#include "adb_doctor_sql.h"
 
 #define ADB_DOCTOR_LAUNCHER_MAGIC 0x79fb2448
 

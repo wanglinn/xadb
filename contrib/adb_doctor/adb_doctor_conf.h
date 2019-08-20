@@ -136,4 +136,11 @@ extern void refreshAdbDoctorConfInShm(AdbDoctorConf *confInLocal,
 									  AdbDoctorConfShm *shm);
 extern void validateAdbDoctorConfEditableEntry(char *k, char *v);
 
+extern int selectAdbDoctorConfInt(char *key);
+extern char *selectAdbDoctConfByKey(char *key);
+extern AdbDoctorConf *selectAllAdbDoctorConf(MemoryContext spiContext);
+extern int selectEditableAdbDoctorConf(MemoryContext spiContext,
+									   AdbDoctorConfRow **rowDataP);
+extern void updateAdbDoctorConf(char *key, char *value);
+
 #endif

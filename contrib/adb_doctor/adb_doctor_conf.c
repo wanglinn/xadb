@@ -8,8 +8,11 @@
 #include "storage/dsm.h"
 #include "storage/shm_toc.h"
 #include "utils/resowner.h"
+#include "utils/formatting.h"
 #include "storage/lwlock.h"
 #include "adb_doctor_conf.h"
+#include "access/htup_details.h"
+#include "executor/spi.h"
 
 void checkAdbDoctorConf(AdbDoctorConf *src)
 {
@@ -273,4 +276,335 @@ void validateAdbDoctorConfEditableEntry(char *k, char *v)
 				 errmsg("unrecognize adb doctor conf key:%s",
 						k)));
 	}
+}
+
+void updateAdbDoctorConf(char *key, char *value)
+{
+	StringInfoData buf;
+	int ret;
+	char *key_lower;
+	uint64 rows;
+	/* k is not case sensitive */
+	key_lower = asc_tolower(key, strlen(key));
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "update %s.%s set %s = '%s' where %s = '%s'",
+					 ADB_DOCTOR_SCHEMA,
+					 ADB_DOCTOR_CONF_RELNAME,
+					 ADB_DOCTOR_CONF_ATTR_VALUE,
+					 value,
+					 ADB_DOCTOR_CONF_ATTR_KEY,
+					 key_lower);
+	ret = SPI_execute(buf.data, false, 0);
+	pfree(buf.data);
+	pfree(key_lower);
+
+	if (ret != SPI_OK_UPDATE)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
+
+	rows = SPI_processed;
+	if (rows != 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("SPI_execute failed: expected the number of rows:%d, but actual:%lu",
+						1,
+						rows)));
+}
+
+/*
+ * The result is returned in memory allocated using palloc.
+ * You can use pfree to release the memory when you don't need it anymore.
+ */
+char *selectAdbDoctConfByKey(char *key)
+{
+	char *v;
+	StringInfoData buf;
+	int ret;
+	uint64 rows;
+	SPITupleTable *tupTable;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "select %s from %s.%s where %s = '%s'",
+					 ADB_DOCTOR_CONF_ATTR_VALUE,
+					 ADB_DOCTOR_SCHEMA,
+					 ADB_DOCTOR_CONF_RELNAME,
+					 ADB_DOCTOR_CONF_ATTR_KEY,
+					 key);
+	ret = SPI_execute(buf.data, false, 0);
+	pfree(buf.data);
+
+	if (ret != SPI_OK_SELECT)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
+	rows = SPI_processed;
+	tupTable = SPI_tuptable;
+	if (rows == 1 && tupTable != NULL)
+	{
+		v = SPI_getvalue(tupTable->vals[0], tupTable->tupdesc, 1);
+		return v;
+	}
+	else
+	{
+		return NULL;
+	}
+}
+
+int selectAdbDoctorConfInt(char *key)
+{
+	int value;
+	char *valueStr = selectAdbDoctConfByKey(key);
+	if (valueStr && strlen(valueStr) > 0)
+	{
+		value = pg_atoi(valueStr, sizeof(int), 0);
+		pfree(valueStr);
+		return value;
+	}
+	else
+	{
+		ereport(ERROR,
+				(errmsg("%s, invalid value : NULL",
+						key)));
+	}
+}
+
+AdbDoctorConf *selectAllAdbDoctorConf(MemoryContext spiContext)
+{
+	AdbDoctorConf *conf;
+	StringInfoData buf;
+	int ret, j, valueInt;
+	uint64 rows;
+	HeapTuple tuple;
+	TupleDesc tupdesc;
+	MemoryContext oldCtx;
+	char *keyStr, *valueStr;
+	SPITupleTable *tupTable;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "select %s,%s from %s.%s",
+					 ADB_DOCTOR_CONF_ATTR_KEY,
+					 ADB_DOCTOR_CONF_ATTR_VALUE,
+					 ADB_DOCTOR_SCHEMA,
+					 ADB_DOCTOR_CONF_RELNAME);
+
+	oldCtx = MemoryContextSwitchTo(spiContext);
+	ret = SPI_execute(buf.data, false, 0);
+	MemoryContextSwitchTo(oldCtx);
+
+	pfree(buf.data);
+
+	if (ret != SPI_OK_SELECT)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
+
+	rows = SPI_processed;
+	tupTable = SPI_tuptable;
+	if (rows > 0 && tupTable != NULL)
+	{
+		conf = palloc0(sizeof(AdbDoctorConf));
+		tupdesc = tupTable->tupdesc;
+		for (j = 0; j < rows; j++)
+		{
+			tuple = tupTable->vals[j];
+			keyStr = SPI_getvalue(tuple, tupdesc, 1);
+			valueStr = SPI_getvalue(tuple, tupdesc, 2);
+			if (valueStr)
+			{
+				valueInt = pg_atoi(valueStr, sizeof(int), 0);
+			}
+			else
+			{
+				ereport(ERROR,
+						(errmsg("%s, invalid value : NULL",
+								keyStr)));
+			}
+			if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_FORCESWITCH) == 0)
+			{
+				conf->forceswitch = valueInt;
+			}
+			if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_SWITCHINTERVAL) == 0)
+			{
+				conf->switchinterval = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_NODEDEADLINE) == 0)
+			{
+				conf->nodedeadline = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_AGENTDEADLINE) == 0)
+			{
+				conf->agentdeadline = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_restart_crashed_master") == 0)
+			{
+				conf->node_restart_crashed_master = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_restart_master_timeout_ms") == 0)
+			{
+				conf->node_restart_master_timeout_ms = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_shutdown_timeout_ms") == 0)
+			{
+				conf->node_shutdown_timeout_ms = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_connection_error_num_max") == 0)
+			{
+				conf->node_connection_error_num_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_connect_timeout_ms_min") == 0)
+			{
+				conf->node_connect_timeout_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_connect_timeout_ms_max") == 0)
+			{
+				conf->node_connect_timeout_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_reconnect_delay_ms_min") == 0)
+			{
+				conf->node_reconnect_delay_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_reconnect_delay_ms_max") == 0)
+			{
+				conf->node_reconnect_delay_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_query_timeout_ms_min") == 0)
+			{
+				conf->node_query_timeout_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_query_timeout_ms_max") == 0)
+			{
+				conf->node_query_timeout_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_query_interval_ms_min") == 0)
+			{
+				conf->node_query_interval_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_query_interval_ms_max") == 0)
+			{
+				conf->node_query_interval_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_restart_delay_ms_min") == 0)
+			{
+				conf->node_restart_delay_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_restart_delay_ms_max") == 0)
+			{
+				conf->node_restart_delay_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_connection_error_num_max") == 0)
+			{
+				conf->agent_connection_error_num_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_connect_timeout_ms_min") == 0)
+			{
+				conf->agent_connect_timeout_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_connect_timeout_ms_max") == 0)
+			{
+				conf->agent_connect_timeout_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_reconnect_delay_ms_min") == 0)
+			{
+				conf->agent_reconnect_delay_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_reconnect_delay_ms_max") == 0)
+			{
+				conf->agent_reconnect_delay_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_heartbeat_timeout_ms_min") == 0)
+			{
+				conf->agent_heartbeat_timeout_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_heartbeat_timeout_ms_max") == 0)
+			{
+				conf->agent_heartbeat_timeout_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_heartbeat_interval_ms_min") == 0)
+			{
+				conf->agent_heartbeat_interval_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_heartbeat_interval_ms_max") == 0)
+			{
+				conf->agent_heartbeat_interval_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_restart_delay_ms_min") == 0)
+			{
+				conf->agent_restart_delay_ms_min = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "agent_restart_delay_ms_max") == 0)
+			{
+				conf->agent_restart_delay_ms_max = valueInt;
+			}
+			pfree(keyStr);
+			pfree(valueStr);
+		}
+		checkAdbDoctorConf(conf);
+	}
+	else
+	{
+		conf = NULL;
+	}
+	return conf;
+}
+
+int selectEditableAdbDoctorConf(MemoryContext spiContext,
+								AdbDoctorConfRow **rowDataP)
+{
+	AdbDoctorConfRow *rowData;
+	StringInfoData buf;
+	int ret, j;
+	uint64 rows;
+	HeapTuple tuple;
+	TupleDesc tupdesc;
+	MemoryContext oldCtx;
+	SPITupleTable *tupTable;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf, "select %s,%s,%s from %s.%s where editable = %d::boolean",
+					 ADB_DOCTOR_CONF_ATTR_KEY,
+					 ADB_DOCTOR_CONF_ATTR_VALUE,
+					 ADB_DOCTOR_CONF_ATTR_COMMENT,
+					 ADB_DOCTOR_SCHEMA,
+					 ADB_DOCTOR_CONF_RELNAME,
+					 true);
+
+	oldCtx = MemoryContextSwitchTo(spiContext);
+	ret = SPI_execute(buf.data, false, 0);
+	MemoryContextSwitchTo(oldCtx);
+
+	pfree(buf.data);
+
+	if (ret != SPI_OK_SELECT)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("SPI_execute failed: error code %d",
+						ret)));
+
+	rows = SPI_processed;
+	tupTable = SPI_tuptable;
+	if (rows > 0 && tupTable != NULL)
+	{
+		/* do outside the spi memory context because the spi will be freed. */
+		rowData = palloc(sizeof(AdbDoctorConfRow) * rows);
+		tupdesc = tupTable->tupdesc;
+		for (j = 0; j < rows; j++)
+		{
+			tuple = tupTable->vals[j];
+			rowData[j].k = SPI_getvalue(tuple, tupdesc, 1);
+			rowData[j].v = SPI_getvalue(tuple, tupdesc, 2);
+			rowData[j].comment = SPI_getvalue(tuple, tupdesc, 3);
+		}
+	}
+	else
+	{
+		rows = 0;
+		rowData = NULL;
+	}
+
+	*rowDataP = rowData;
+	return rows;
 }

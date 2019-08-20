@@ -29,7 +29,6 @@
 #include "access/xlog.h"
 #include "postmaster/bgworker.h"
 #include "adb_doctor.h"
-#include "adb_doctor_sql.h"
 
 PG_MODULE_MAGIC;
 
@@ -110,8 +109,7 @@ Datum
  * Set configuration variables stored in table adb_doctor_conf.
  * Use like this: select adb_doctor.adb_doctor_param('name', 'value');
  */
-Datum
-	adb_doctor_param(PG_FUNCTION_ARGS)
+Datum adb_doctor_param(PG_FUNCTION_ARGS)
 {
 	text *k_txt = PG_GETARG_TEXT_PP(0);
 	text *v_txt = PG_GETARG_TEXT_PP(1);
@@ -131,7 +129,7 @@ Datum
 				(errmsg("SPI_connect failed, connect return:%d",
 						ret)));
 	}
-	SPI_updateAdbDoctorConf(k, v);
+	updateAdbDoctorConf(k, v);
 	SPI_finish();
 
 	adbDoctorSignalLauncher();
@@ -144,8 +142,7 @@ Datum
 /**
  * List editable configuration variables stored in table adb_doctor_conf.
  */
-Datum
-	adb_doctor_list(PG_FUNCTION_ARGS)
+Datum adb_doctor_list(PG_FUNCTION_ARGS)
 {
 	TupleDesc tupdesc;
 	Datum datums[3];
@@ -169,7 +166,7 @@ Datum
 					(errmsg("SPI_connect failed, connect return:%d",
 							ret)));
 		}
-		rows = SPI_selectEditableAdbDoctorConf(multi_call_memory_ctx, &rowData);
+		rows = selectEditableAdbDoctorConf(multi_call_memory_ctx, &rowData);
 		SPI_finish();
 
 		funcctx->max_calls = rows;
