@@ -46,6 +46,7 @@
 #define NO_NODE_IndexOptInfo
 #include "nodes/def_no_all_struct.h"
 #undef NO_STRUCT_QualCost
+#undef NO_STRUCT_ReduceKeyInfo
 #undef NO_STRUCT_ReduceInfo
 #undef NO_STRUCT_PartitionPruneStep
 
@@ -435,6 +436,20 @@ BEGIN_STRUCT(ParamListInfoData)
 	}while(0);
 END_STRUCT(ParamListInfoData)
 
+BEGIN_STRUCT(ReduceInfo)
+	NODE_SCALAR(uint32,nkey)
+	NODE_NODE(List,storage_nodes)
+	NODE_NODE(List,exclude_exec)
+	NODE_NODE(List,values)
+	NODE_BITMAPSET(Bitmapset,relids)
+	NODE_SCALAR(char,type)
+	do{
+		uint32 i,nkey;
+		for (i=0,nkey=node->nkey;i<nkey;++i)
+			save_ReduceKeyInfo(buf, &(node->keys[i]), hook, context);
+	}while(0);
+END_STRUCT(ReduceInfo)
+
 static void save_Integer(StringInfo buf, const Value *node)
 {
 	AssertArg(node);
@@ -523,13 +538,13 @@ END_NODE(A_Const)
 
 #define NO_NODE_A_Const
 #define NO_NODE_Const
-#define NO_NODE_OidVectorLoopExpr
+#define NO_STRUCT_ReduceInfo
 #include "nodes/nodes_define.h"
 #include "nodes/struct_define.h"
 #include "nodes/nodes_undef.h"
+#undef NO_STRUCT_ReduceInfo
 #undef NO_NODE_A_Const
 #undef NO_NODE_Const
-#undef NO_NODE_OidVectorLoopExpr
 
 void saveNode(StringInfo buf, const Node *node)
 {
@@ -989,6 +1004,21 @@ BEGIN_STRUCT(ParamListInfoData)
 	}while(0);
 END_STRUCT(ParamListInfoData)
 
+BEGIN_STRUCT(ReduceInfo)
+	NODE_SCALAR(uint32,nkey)
+	node = repalloc(node, offsetof(ReduceInfo, keys) + sizeof(ReduceKeyInfo) * node->nkey);
+	NODE_NODE(List,storage_nodes)
+	NODE_NODE(List,exclude_exec)
+	NODE_NODE(List,values)
+	NODE_BITMAPSET(Bitmapset,relids)
+	NODE_SCALAR(char,type)
+	do{
+		uint32 i,nkey;
+		for (i=0,nkey=node->nkey;i<nkey;++i)
+			load_ReduceKeyInfo(buf, &(node->keys[i]), hook, context);
+	}while(0);
+END_STRUCT(ReduceInfo)
+
 static Value* load_Integer(StringInfo buf, Value *node)
 {
 	AssertArg(node);
@@ -1081,13 +1111,13 @@ END_NODE(A_Const)
 
 #define NO_NODE_Const
 #define NO_NODE_A_Const
-#define NO_NODE_OidVectorLoopExpr
+#define NO_STRUCT_ReduceInfo
 #include "nodes/nodes_define.h"
 #include "nodes/struct_define.h"
 #include "nodes/nodes_undef.h"
+#undef NO_STRUCT_ReduceInfo
 #undef NO_NODE_Const
 #undef NO_NODE_A_Const
-#undef NO_NODE_OidVectorLoopExpr
 
 Node* loadNode(StringInfo buf)
 {

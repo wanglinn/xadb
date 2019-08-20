@@ -2,10 +2,12 @@
 
 #include "access/htup_details.h"
 #include "catalog/namespace.h"
+#include "catalog/pg_am_d.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_node.h"
+#include "commands/defrem.h"
 #include "executor/executor.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
@@ -33,167 +35,71 @@
 #include "optimizer/reduceinfo.h"
 #include "pgxc/slot.h"
 
-#define MakeEmptyReduceInfo() palloc0(sizeof(ReduceInfo))
-static Param *makeReduceParam(Oid type, int paramid, int parammod, Oid collid);
 static oidvector *makeOidVector(List *list);
 static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const, bool use_coalesce);
-static Node* ReduceParam2ExprMutator(Node *node, List *params);
 static int CompareOid(const void *a, const void *b);
 static bool reduce_info_in_one_node_can_join(ReduceInfo *outer_info,
 											 ReduceInfo *inner_info,
 											 List **new_reduce_list,
 											 JoinType jointype,
 											 bool *is_dummy);
+static inline ReduceInfo* MakeEmptyReduceInfo(uint32 nkey)
+{
+	ReduceInfo *rinfo = palloc0(offsetof(ReduceInfo, keys) + sizeof(ReduceKeyInfo)*nkey);
+	rinfo->nkey = nkey;
+	return rinfo;
+}
 
-ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const Expr *param)
+static inline void SetReduceKeyDefaultInfo(ReduceKeyInfo *key, const Expr *expr, Oid am_oid, const char *method_name)
+{
+	Assert(OidIsValid(key->opclass));
+	key->key = (Expr*)copyObject(expr);
+	key->opclass = ResolveOpClass(NIL,
+								  exprType((Node*)expr),
+								  method_name,
+								  am_oid);
+	key->opfamily = get_opclass_family(key->opclass);
+}
+
+ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const Expr *key)
 {
 	ReduceInfo *rinfo;
-	TypeCacheEntry *typeCache;
-	Oid typoid;
-	AssertArg(storage && IsA(storage, OidList) && param);
+	AssertArg(storage && IsA(storage, OidList) && key);
 	AssertArg(exclude == NIL || IsA(exclude, OidList));
 
-	typoid = exprType((Node*)param);
-	typeCache = lookup_type_cache(typoid, TYPECACHE_HASH_PROC);
-	if(!OidIsValid(typeCache->hash_proc))
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_FUNCTION),
-				 errmsg("could not identify a hash function for type %s",
-						format_type_be(typoid))));
-	}
-
-	rinfo = MakeEmptyReduceInfo();
+	rinfo = MakeEmptyReduceInfo(1);
+	SetReduceKeyDefaultInfo(&rinfo->keys[0], key, HASH_AM_OID, "hash");
 	rinfo->storage_nodes = list_copy(storage);
 	rinfo->exclude_exec = list_copy(exclude);
-	rinfo->params = list_make1((Expr*)copyObject(param));
-	rinfo->relids = pull_varnos((Node*)param);
+	rinfo->relids = pull_varnos((Node*)key);
 	rinfo->type = REDUCE_TYPE_HASH;
 
 	return rinfo;
 }
 
 
-ReduceInfo *MakeHashmapReduceInfo(const List *storage, const List *exclude, const Expr *param)
+ReduceInfo *MakeHashmapReduceInfo(const List *storage, const List *exclude, const Expr *key)
 {
-	ReduceInfo *rinfo;
-	TypeCacheEntry *typeCache;
-	Oid typoid;
-	AssertArg(storage && IsA(storage, OidList) && param);
-	AssertArg(exclude == NIL || IsA(exclude, OidList));
-	if (IsSlotNodeOidsEqualOidList(storage) == false)
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("can not make a hashmap reduce info, because storage not equal slot OIDs")));
-	}
-
-	typoid = exprType((Node*)param);
-	typeCache = lookup_type_cache(typoid, TYPECACHE_HASH_PROC);
-	if(!OidIsValid(typeCache->hash_proc))
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_FUNCTION),
-				 errmsg("could not identify a hash function for type %s",
-						format_type_be(typoid))));
-	}
-
-	rinfo = MakeEmptyReduceInfo();
-	rinfo->storage_nodes = list_copy(storage);
-	rinfo->exclude_exec = list_copy(exclude);
-	rinfo->params = list_make1((Expr*)copyObject(param));
-	rinfo->relids = pull_varnos((Node*)param);
+	ReduceInfo *rinfo = MakeHashReduceInfo(storage, exclude, key);
 	rinfo->type = REDUCE_TYPE_HASHMAP;
 
 	return rinfo;
 }
 
-ReduceInfo *MakeCustomReduceInfoByRel(const List *storage, const List *exclude,
-						const List *attnums, Oid funcid, Oid reloid, Index rel_index)
-{
-	ListCell *lc;
-	List *params = NIL;
-
-	foreach(lc, attnums)
-		params = lappend(params, makeVarByRel(lfirst_int(lc), reloid, rel_index));
-
-	return MakeCustomReduceInfo(storage, exclude, params, funcid, reloid);
-}
-
-ReduceInfo *MakeCustomReduceInfo(const List *storage, const List *exclude, List *params, Oid funcid, Oid reloid)
+ReduceInfo *MakeModuloReduceInfo(const List *storage, const List *exclude, const Expr *key)
 {
 	ReduceInfo *rinfo;
-	List *args;
-	ListCell *lc;
-	Oid *argTypes;
-	int narg;
-	int i;
-
-	get_func_signature(funcid, &argTypes, &narg);
-	if(narg < list_length(params))
-	{
-		Relation rel = RelationIdGetRelation(reloid);
-		ereport(ERROR,
-					  (errmsg("too many argument for user hash distrbute table \"%s\"",
-					   RelationGetRelationName(rel))));
-	}
-
-	i=0;
-	args = NIL;
-	rinfo = MakeEmptyReduceInfo();
-	rinfo->params = params;
-	foreach(lc, params)
-	{
-		Expr *expr = lfirst(lc);
-		Oid typid = exprType((Node*)expr);
-		expr = (Expr*)makeReduceParam(typid,
-									  i+1,
-									  exprTypmod((Node*)expr),
-									  exprCollation((Node*)expr));
-
-		expr = (Expr*)coerce_to_target_type(NULL,
-											(Node*)expr,
-											typid,
-											argTypes[i],
-											-1,
-											COERCION_EXPLICIT,
-											COERCE_IMPLICIT_CAST,
-											-1);
-		args = lappend(args, expr);
-		++i;
-	}
-	for(;i<narg;++i)
-	{
-		rinfo->params = lappend(rinfo->params,
-								makeNullConst(argTypes[i], -1, InvalidOid));
-		args = lappend(args, makeReduceParam(argTypes[i], i+1, -1, InvalidOid));
-	}
-
-	rinfo->expr = (Expr*) makeFuncExpr(funcid,
-								get_func_rettype(funcid),
-								args,
-								InvalidOid, InvalidOid,
-								COERCE_EXPLICIT_CALL);
-
-	rinfo->storage_nodes = list_copy(storage);
-	rinfo->exclude_exec = list_copy(exclude);
-	rinfo->relids = pull_varnos((Node*)rinfo->params);
-	rinfo->type = REDUCE_TYPE_CUSTOM;
-
-	return rinfo;
-}
-
-ReduceInfo *MakeModuloReduceInfo(const List *storage, const List *exclude, const Expr *param)
-{
-	ReduceInfo *rinfo;
-	AssertArg(storage != NIL && IsA(storage, OidList) && param);
+	Oid typoid;
+	AssertArg(storage != NIL && IsA(storage, OidList) && key);
 	AssertArg(exclude == NIL || IsA(exclude, OidList));
 
-	rinfo = MakeEmptyReduceInfo();
+	typoid = exprType((Node*)key);
+
+	rinfo = MakeEmptyReduceInfo(1);
+	SetReduceKeyDefaultInfo(&rinfo->keys[0], key, BTREE_AM_OID, "btree");
 	rinfo->storage_nodes = list_copy(storage);
 	rinfo->exclude_exec = list_copy(exclude);
-	rinfo->params = list_make1((Expr*)copyObject(param));
-	rinfo->relids = pull_varnos((Node*)(rinfo->params));
+	rinfo->relids = pull_varnos((Node*)key);
 	rinfo->type = REDUCE_TYPE_MODULO;
 
 	return rinfo;
@@ -204,7 +110,7 @@ ReduceInfo *MakeReplicateReduceInfo(const List *storage)
 	ReduceInfo *rinfo;
 	AssertArg(storage != NIL && IsA(storage, OidList));
 
-	rinfo = MakeEmptyReduceInfo();
+	rinfo = MakeEmptyReduceInfo(0);
 	rinfo->storage_nodes = SortOidList(list_copy(storage));
 	rinfo->type = REDUCE_TYPE_REPLICATED;
 
@@ -215,7 +121,7 @@ ReduceInfo *MakeFinalReplicateReduceInfo(void)
 {
 	ReduceInfo *rinfo;
 
-	rinfo = MakeEmptyReduceInfo();
+	rinfo = MakeEmptyReduceInfo(0);
 	rinfo->storage_nodes = list_make1_oid(InvalidOid);
 	rinfo->type = REDUCE_TYPE_REPLICATED;
 
@@ -227,7 +133,7 @@ ReduceInfo *MakeRandomReduceInfo(const List *storage)
 	ReduceInfo *rinfo;
 	AssertArg(storage != NIL && IsA(storage, OidList));
 
-	rinfo = MakeEmptyReduceInfo();
+	rinfo = MakeEmptyReduceInfo(0);
 	rinfo->storage_nodes = SortOidList(list_copy(storage));
 	rinfo->type = REDUCE_TYPE_RANDOM;
 
@@ -238,7 +144,7 @@ ReduceInfo *MakeCoordinatorReduceInfo(void)
 {
 	ReduceInfo *rinfo;
 
-	rinfo = MakeEmptyReduceInfo();
+	rinfo = MakeEmptyReduceInfo(0);
 	rinfo->storage_nodes = list_make1_oid(PGXCNodeOid);
 	rinfo->type = REDUCE_TYPE_COORDINATOR;
 
@@ -318,8 +224,22 @@ ReduceInfo *MakeReduceInfoUsingPathTarget(const RelationLocInfo *loc_info, const
 
 ReduceInfo *MakeReduceInfoAs(const ReduceInfo *reduce, List *params)
 {
-	ReduceInfo *rinfo = CopyReduceInfoExtend(reduce, REDUCE_MARK_ALL & ~REDUCE_MARK_PARAMS);
-	rinfo->params = params;
+	ReduceInfo *rinfo;
+	ListCell   *lc;
+	uint32		i;
+
+	if (list_length(params) != reduce->nkey)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("invalid number of argument for MakeReduceInfoAs")));
+	}
+
+	rinfo = CopyReduceInfoExtend(reduce, REDUCE_MARK_ALL & (~REDUCE_MARK_KEY_EXPR));
+	i = 0;
+	foreach(lc, params)
+		rinfo->keys[i++].key = lfirst(lc);
+	
 	return rinfo;
 }
 
@@ -329,16 +249,19 @@ ReduceInfo *ConvertReduceInfo(const ReduceInfo *reduce, const PathTarget *target
 
 	if (IsReduceInfoByValue(reduce))
 	{
+		List *list;
 		List *attnos = ReduceInfoFindPathTarget(reduce, target);
 		if(attnos != NIL)
 		{
-			new_reduce = MakeReduceInfoAs(reduce, MakeVarList(attnos, new_relid, target));
+			list = MakeVarList(attnos, new_relid, target);
+			new_reduce = MakeReduceInfoAs(reduce, list);
 			list_free(attnos);
 		}else
 		{
-			List *exec_nodes = list_difference_oid(reduce->storage_nodes, reduce->exclude_exec);
-			new_reduce = MakeRandomReduceInfo(exec_nodes);
+			list = list_difference_oid(reduce->storage_nodes, reduce->exclude_exec);
+			new_reduce = MakeRandomReduceInfo(list);
 		}
+		list_free(list);
 	}else
 	{
 		new_reduce = CopyReduceInfo(reduce);
@@ -384,13 +307,17 @@ List *ConvertReduceInfoList(const List *reduce_list, const PathTarget *target, I
 
 void FreeReduceInfo(ReduceInfo *reduce)
 {
+	uint32 i;
 	if(reduce)
 	{
 		list_free(reduce->storage_nodes);
 		list_free(reduce->exclude_exec);
-		list_free_deep(reduce->params);
-		if(reduce->expr)
-			pfree(reduce->expr);	/* not free all memory */
+		i = reduce->nkey;
+		while (i>0)
+		{
+			if (reduce->keys[i].key)
+				pfree(reduce->keys[i].key);
+		}
 		bms_free(reduce->relids);
 		pfree(reduce);
 	}
@@ -1330,7 +1257,7 @@ ReduceInfo *CopyReduceInfoExtend(const ReduceInfo *reduce, int mark)
 	ReduceInfo *rinfo;
 	AssertArg(mark && (mark|REDUCE_MARK_ALL) == REDUCE_MARK_ALL);
 
-	rinfo = MakeEmptyReduceInfo();
+	rinfo = MakeEmptyReduceInfo(reduce->nkey);
 
 	if(mark & REDUCE_MARK_STORAGE)
 		rinfo->storage_nodes = list_copy(reduce->storage_nodes);
@@ -1338,11 +1265,20 @@ ReduceInfo *CopyReduceInfoExtend(const ReduceInfo *reduce, int mark)
 	if((mark & REDUCE_MARK_EXCLUDE) && reduce->exclude_exec)
 		rinfo->exclude_exec = list_copy(reduce->exclude_exec);
 
-	if(mark & REDUCE_MARK_PARAMS)
-		rinfo->params = copyObject(reduce->params);
-
-	if((mark & REDUCE_MARK_EXPR) && reduce->expr)
-		rinfo->expr = copyObject(reduce->expr);
+	if(mark & REDUCE_MARK_KEY_INFO)
+	{
+		uint32 i = reduce->nkey;
+		while (i>0)
+		{
+			--i;
+			if (mark & REDUCE_MARK_KEY_EXPR)
+				rinfo->keys[i].key = copyObject(reduce->keys[i].key);
+			if (mark & REDUCE_MARK_OPCLASS)
+				rinfo->keys[i].opclass = reduce->keys[i].opclass;
+			if (mark & REDUCE_MARK_COLLATION)
+				rinfo->keys[i].collation = reduce->keys[i].collation;
+		}
+	}
 
 	if((mark & REDUCE_MARK_RELIDS) && reduce->relids)
 		rinfo->relids = bms_copy(reduce->relids);
@@ -1383,24 +1319,27 @@ bool CompReduceInfo(const ReduceInfo *left, const ReduceInfo *right, int mark)
 		equal(left->exclude_exec, right->exclude_exec) == false)
 		return false;
 
-	if ((mark & REDUCE_MARK_PARAMS) &&
-		left->params != right->params)
+	if ((mark & (REDUCE_MARK_KEY_INFO|REDUCE_MARK_KEY_NUM)) &&
+		left->nkey != right->nkey)
+		return false;
+
+	if (mark & REDUCE_MARK_KEY_INFO)
 	{
-		ListCell *lc1,*lc2;
-		if (left->params == NIL ||
-			left->params == NIL ||
-			list_length(left->params) != list_length(right->params))
-			return false;
-		forboth(lc1, left->params, lc2, right->params)
+		uint32 i = left->nkey;
+		while (i>0)
 		{
-			if(EqualReduceExpr(lfirst(lc1), lfirst(lc2)) == false)
+			--i;
+			if ((mark & REDUCE_MARK_KEY_EXPR) &&
+				equal(left->keys[i].key, right->keys[i].key) == false)
+				return false;
+			if ((mark & REDUCE_MARK_OPCLASS) &&
+				left->keys[i].opclass != right->keys[i].opclass)
+				return false;
+			if ((mark & REDUCE_MARK_COLLATION) &&
+				left->keys[i].collation != right->keys[i].collation)
 				return false;
 		}
 	}
-
-	if ((mark & REDUCE_MARK_EXPR) &&
-		equal(left->expr, right->expr) == false)
-		return false;
 
 	if ((mark & REDUCE_MARK_RELIDS) &&
 		bms_equal(left->relids, right->relids) == false)
@@ -1473,14 +1412,12 @@ List* GetPathListReduceInfoList(List *pathlist)
 
 int ReduceInfoIncludeExpr(ReduceInfo *reduce, Expr *expr)
 {
-	ListCell *lc;
-	int i = 0;
-	Assert(reduce);
-	foreach(lc, reduce->params)
+	uint32 i,nkey;
+	Assert(reduce && expr);
+	for(i=0,nkey=reduce->nkey;i<nkey;++i)
 	{
-		if(equal(lfirst(lc), (Node*)expr))
-			return i;
-		++i;
+		if (equal(reduce->keys[i].key, expr))
+			return (int)i;
 	}
 	return -1;
 }
@@ -1501,18 +1438,20 @@ bool ReduceInfoListIncludeExpr(List *reduceList, Expr *expr)
  */
 List* ReduceInfoFindPathTarget(const ReduceInfo* reduce, const PathTarget *target)
 {
-	const ListCell *lc_param;
 	const ListCell *lc_target;
 	List *result = NIL;
+	const Expr *key;
+	uint32 n,nkey;
 	AssertArg(target && reduce);
 	AssertArg(IsReduceInfoByValue(reduce));
 
-	foreach(lc_param, reduce->params)
+	for(n=0,nkey=reduce->nkey;n<nkey;++n)
 	{
 		int i = 1;
+		key = reduce->keys[n].key;
 		foreach(lc_target, target->exprs)
 		{
-			if(equal(lfirst(lc_target), lfirst(lc_param)))
+			if(equal(lfirst(lc_target), key))
 			{
 				result = lappend_int(result, i);
 				break;
@@ -1531,21 +1470,23 @@ List* ReduceInfoFindPathTarget(const ReduceInfo* reduce, const PathTarget *targe
 
 List* ReduceInfoFindTargetList(const ReduceInfo* reduce, const List *targetlist, bool skip_junk)
 {
-	const ListCell *lc_param;
 	const ListCell *lc_target;
 	TargetEntry *te;
 	List *result = NIL;
+	const Expr *key;
+	uint32 i,nkey;
 	AssertArg(targetlist && reduce);
 	AssertArg(IsReduceInfoByValue(reduce));
 
-	foreach(lc_param, reduce->params)
+	for(i=0,nkey=reduce->nkey;i<nkey;++i)
 	{
+		key = reduce->keys[i].key;
 		foreach(lc_target, targetlist)
 		{
 			te = lfirst(lc_target);
 			if (skip_junk && te->resjunk)
 				continue;
-			if(equal(te->expr, lfirst(lc_param)))
+			if(equal(te->expr, key))
 			{
 				result = lappend_int(result, te->resno);
 				break;
@@ -1628,7 +1569,7 @@ bool IsGroupingReduceExpr(PathTarget *target, ReduceInfo *info)
 		++i;
 	}
 
-	if(list_length(info->params) == bms_num_members(grouping))
+	if(info->nkey == bms_num_members(grouping))
 		result = true;
 	else
 		result = false;
@@ -1708,14 +1649,14 @@ bool IsReduceInfoCanInnerJoin(ReduceInfo *outer_rinfo, ReduceInfo *inner_rinfo, 
 	Expr *right_expr;
 	Expr *left_param;
 	Expr *right_param;
-	RestrictInfo *ri;
+	OpExpr *opexpr;
 	ListCell *lc;
+	uint32 i,nkey;
+	bool found;
 
 	AssertArg(outer_rinfo && inner_rinfo);
 
-	/* for now support only one distribute cloumn */
-	if (list_length(outer_rinfo->params) != 1 ||
-		list_length(inner_rinfo->params) != 1)
+	if (outer_rinfo->nkey != inner_rinfo->nkey )
 		return false;
 
 	if (IsReduceInfoCoordinator(outer_rinfo) &&
@@ -1726,33 +1667,46 @@ bool IsReduceInfoCanInnerJoin(ReduceInfo *outer_rinfo, ReduceInfo *inner_rinfo, 
 		!IsReduceInfoByValue(inner_rinfo))
 		return false;
 
-	Assert(list_length(outer_rinfo->params) == 1);
-	Assert(list_length(outer_rinfo->params) == list_length(inner_rinfo->params));
-	left_param = linitial(outer_rinfo->params);
-	right_param = linitial(inner_rinfo->params);
-
-	foreach(lc, restrictlist)
+	for (i=0,nkey=outer_rinfo->nkey;i<nkey;++i)
 	{
-		ri = lfirst(lc);
+		left_param = outer_rinfo->keys[i].key;
+		right_param = inner_rinfo->keys[i].key;
 
-		/* only support X=X expression */
-		if (!is_opclause(ri->clause) ||
-			!op_is_equivalence(((OpExpr *)(ri->clause))->opno))
-			continue;
-
-		left_expr = (Expr*)get_leftop(ri->clause);
-		right_expr = (Expr*)get_rightop(ri->clause);
-
-		if ((EqualReduceExpr(left_expr, left_param) &&
-				EqualReduceExpr(right_expr, right_param))
-			|| (EqualReduceExpr(left_expr, right_param) &&
-				EqualReduceExpr(right_expr, left_param)))
+		found = false;
+		foreach(lc, restrictlist)
 		{
-			return true;
+			opexpr = (OpExpr*)lfirst_node(RestrictInfo, lc)->clause;
+
+			/* only support X=X expression */
+			if (!is_opclause(opexpr) ||
+				!op_is_equivalence(opexpr->opno))
+				continue;
+
+			left_expr = (Expr*)linitial(opexpr->args);
+			right_expr = (Expr*)lsecond(opexpr->args);
+
+			if ((EqualReduceExpr(left_expr, left_param) &&
+					EqualReduceExpr(right_expr, right_param))
+				|| (EqualReduceExpr(left_expr, right_param) &&
+					EqualReduceExpr(right_expr, left_param)))
+			{
+				if (nkey == 1)
+				{
+					/* fast return */
+					return true;
+				}else
+				{
+					found = true;
+					break;
+				}
+			}
 		}
+
+		if (found == false)
+			return false;
 	}
 
-	return false;
+	return true;
 }
 
 bool
@@ -1877,7 +1831,7 @@ List *FindJoinEqualExprs(ReduceInfo *rinfo, List *restrictlist, RelOptInfo *inne
 		{
 			result = lappend(result, right_expr);
 			bms_found = bms_add_member(bms_found, nth);
-			if(bms_num_members(bms_found) == list_length(rinfo->params))
+			if(bms_num_members(bms_found) == rinfo->nkey)
 			{
 				/* all found */
 				bms_free(bms_found);
@@ -2187,24 +2141,27 @@ bool CanOnceDistinctReduceInfoList(List *distinct, List *reduce_list)
 
 bool CanOnceDistinctReduceInfo(List *distinct, ReduceInfo *reduce_info)
 {
-	ListCell *lc_distinct;
-	ListCell *lc_param;
+	ListCell   *lc;
+	Expr	   *key;
+	Expr	   *expr;
+	uint32		i,nkey;
 
 	if(IsReduceInfoByValue(reduce_info) == false)
 		return false;
 
-	Assert(reduce_info->params);
-	foreach(lc_param, reduce_info->params)
+	Assert(reduce_info->nkey > 0);
+	for(i=0,nkey=reduce_info->nkey;i<nkey;++i)
 	{
-		foreach(lc_distinct, distinct)
+		key = reduce_info->keys[i].key;
+		foreach(lc, distinct)
 		{
-			Expr *expr = lfirst(lc_distinct);
+			expr = lfirst(lc);
 			while(IsA(expr, RelabelType))
 				expr = ((RelabelType *) expr)->arg;
-			if(equal(lfirst(lc_param), expr))
+			if(equal(key, expr))
 				break;
 		}
-		if(lc_distinct == NULL)
+		if(lc == NULL)
 			return false;
 	}
 
@@ -2275,8 +2232,11 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 	switch(reduce->type)
 	{
 	case REDUCE_TYPE_HASH:
-		Assert(list_length(reduce->params) == 1);
-		result = makeHashExpr(linitial(reduce->params));
+		if (reduce->nkey != 1)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("not support multi-col for hash yet")));
+		result = makeHashExprFamily(reduce->keys[0].key, reduce->keys[0].opfamily);
 
 		result = makeModuloExpr(result, list_length(reduce->storage_nodes));
 
@@ -2290,8 +2250,11 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 		break;
 
 	case REDUCE_TYPE_HASHMAP:
-		Assert(list_length(reduce->params) == 1);
-		result = makeHashExpr(linitial(reduce->params));
+		if (reduce->nkey != 1)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("not support multi-col for hash yet")));
+		result = makeHashExprFamily(reduce->keys[0].key, reduce->keys[0].opfamily);
 
 		result = makeModuloExpr(result, HASHMAP_SLOTSIZE);
 		Assert(exprType((Node*)result) == INT4OID);
@@ -2301,36 +2264,21 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 									  InvalidOid, InvalidOid,
 									  COERCE_EXPLICIT_CALL);
 		result = (Expr*)makeFuncExpr(F_NODEID_FROM_HASHVALUE,
-			INT4OID,
-			list_make1((Expr*)result),
-			exprType((Node*)result), exprCollation((Node*)result),
-			COERCE_EXPLICIT_CALL);
-		result = (Expr*)makeRelabelType(result, OIDOID, -1, InvalidOid, COERCE_IMPLICIT_CAST);
+									 INT4OID,
+									 list_make1((Expr*)result),
+									 exprType((Node*)result),
+									 exprCollation((Node*)result),
+									 COERCE_EXPLICIT_CALL);
 		break;
-	case REDUCE_TYPE_CUSTOM:
-		Assert(list_length(reduce->params) > 0 && reduce->expr != NULL);
-		result = (Expr*)ReduceParam2ExprMutator((Node*)reduce->expr, reduce->params);
-		result = (Expr*)makeModuloExpr(result, list_length(reduce->storage_nodes));
-		result = (Expr*)coerce_to_target_type(NULL, (Node*)result,
-								exprType((Node*)result),
-								INT4OID,
-								-1,
-								COERCION_EXPLICIT,
-								COERCE_IMPLICIT_CAST,
-								-1);
-		result = (Expr*) makeFuncExpr(F_INT4ABS,
-									  INT4OID,
-									  list_make1(result),
-									  InvalidOid, InvalidOid,
-									  COERCE_EXPLICIT_CALL);
-		result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids), true);
-		break;
+
 	case REDUCE_TYPE_MODULO:
-		Assert(list_length(reduce->params) == 1);
-		result = linitial(reduce->params);
+		if (reduce->nkey != 1)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("not support multi-col for modulo")));
 		result = (Expr*)coerce_to_target_type(NULL,
-											  (Node*)result,
-											  exprType((Node*)result),
+											  (Node*)reduce->keys[0].key,
+											  exprType((Node*)reduce->keys[0].key),
 											  INT4OID,
 											  -1,
 											  COERCION_EXPLICIT,
@@ -2513,18 +2461,6 @@ bool EqualReduceExpr(Expr *left, Expr *right)
 	return false;
 }
 
-static Param *makeReduceParam(Oid type, int paramid, int parammod, Oid collid)
-{
-	Param *param = makeNode(Param);
-	param->location = -1;
-	param->paramid = paramid;
-	param->paramtype = type;
-	param->paramcollid = collid;
-	param->paramtypmod = parammod;
-	param->paramkind = PARAM_EXTERN;
-	return param;
-}
-
 static oidvector *makeOidVector(List *list)
 {
 	oidvector *oids;
@@ -2630,25 +2566,6 @@ static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const, bo
 	aref->refassgnexpr = NULL;
 
 	return (Expr*)aref;
-}
-
-static Node* ReduceParam2ExprMutator(Node *node, List *params)
-{
-	if(node == NULL)
-		return NULL;
-	if(IsA(node, Param))
-	{
-		Param *param = (Param*)node;
-		Node *new_node;
-		Assert(param->paramkind == PARAM_EXTERN);
-		Assert(param->paramid <= list_length(params));
-		new_node = list_nth(params, param->paramid-1);
-		Assert(param->paramtype == exprType(new_node));
-		Assert(param->paramtypmod == exprTypmod(new_node));
-		Assert(param->paramcollid == exprCollation(new_node));
-		return new_node;
-	}
-	return expression_tree_mutator(node, ReduceParam2ExprMutator, params);
 }
 
 static int CompareOid(const void *a, const void *b)

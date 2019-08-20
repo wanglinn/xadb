@@ -618,10 +618,6 @@ NODE_SPECIAL_MEB(ClusterReduce)
 	nullsFirst NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numCols)
 END_SPECIAL_MEB(ClusterReduce)
 
-NODE_SPECIAL_MEB(OidVectorLoopExpr)
-	vector NODE_DATUM(Datum, vector, OIDVECTOROID, false)
-END_SPECIAL_MEB(OidVectorLoopExpr)
-
 NODE_SPECIAL_MEB(RangeTblEntry)
 	relid NODE_OID(class, relid)
 	checkAsUser NODE_OID(authid,checkAsUser)
@@ -641,12 +637,18 @@ NODE_SPECIAL_MEB(NextValueExpr)
 	seqid NODE_OID(class,seqid)
 END_SPECIAL_MEB(NextValueExpr)
 
+<<<<<<< HEAD
 NODE_SPECIAL_MEB(PartitionedRelPruneInfo)
 	reloid NODE_OID(class,reloid)
 	subplan_map NODE_SCALAR_POINT(int,subplan_map,NODE_ARG_->nparts)
 	subpart_map NODE_SCALAR_POINT(int,subpart_map,NODE_ARG_->nparts)
 	hasexecparam NODE_SCALAR_POINT(bool,hasexecparam,NODE_ARG_->nexprs)
 END_SPECIAL_MEB(PartitionedRelPruneInfo)
+=======
+NODE_SPECIAL_MEB(ReduceInfo)
+	keys NODE_STRUCT_ARRAY(ReduceKeyInfo, keys, NODE_ARG_->nkey)
+END_SPECIAL_MEB(ReduceInfo)
+>>>>>>> a568939a53... ReduceInfo删除Custom类型,添加list及range类型,并且扩展为支持多列
 
 /* ADB_GRAM_ORA */
 NODE_SPECIAL_MEB(ConnectByPlan)

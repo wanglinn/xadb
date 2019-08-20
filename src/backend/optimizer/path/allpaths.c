@@ -2266,9 +2266,12 @@ re_generate_append_:
 					Assert(params != NIL);
 					parallel_workers = 0;
 
-					sub_reduce = CopyReduceInfoExtend(reduce_info,
-													  REDUCE_MARK_ALL & ~(REDUCE_MARK_PARAMS|REDUCE_MARK_EXCLUDE));
-					sub_reduce->params = params;
+					sub_reduce = MakeReduceInfoAs(reduce_info, params);
+					if (sub_reduce->exclude_exec)
+					{
+						list_free(sub_reduce->exclude_exec);
+						sub_reduce->exclude_exec = NIL;
+					}
 
 					/* combination exclude node oids */
 					if (reduce_info->exclude_exec == NIL)

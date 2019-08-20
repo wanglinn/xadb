@@ -3494,9 +3494,10 @@ static List *create_inner_reduce_info_for_join(List *outer_reduce_list, RelOptIn
 			if (jointype != JOIN_SEMI)
 				need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
 			if (!IsReduceInfoByValue(rinfo) ||
-				(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, innerrel)) == NULL)
+				(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, innerrel)) == NIL)
 				continue;
 			rinfo = MakeReduceInfoAs(rinfo, exprList);
+			list_free(exprList);
 			if(ReduceInfoListMember(need_reduce_list, rinfo))
 				FreeReduceInfo(rinfo);
 			else
@@ -3553,9 +3554,10 @@ static List *create_outer_reduce_info_for_join(List *inner_reduce_list, RelOptIn
 		case JOIN_SEMI:
 			need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
 			if (!IsReduceInfoByValue(rinfo) ||
-				(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, outerrel)) == NULL)
+				(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, outerrel)) == NIL)
 				continue;
 			rinfo = MakeReduceInfoAs(rinfo, exprList);
+			list_free(exprList);
 			if(ReduceInfoListMember(need_reduce_list, rinfo))
 				FreeReduceInfo(rinfo);
 			else

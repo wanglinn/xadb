@@ -290,7 +290,8 @@ static void outputReduceType(StringInfo str, const char *type)
 	{
 	CASE_REDUCE_TYPE(HASHMAP);
 	CASE_REDUCE_TYPE(HASH);
-	CASE_REDUCE_TYPE(CUSTOM);
+	CASE_REDUCE_TYPE(LIST);
+	CASE_REDUCE_TYPE(RANGE);
 	CASE_REDUCE_TYPE(MODULO);
 	CASE_REDUCE_TYPE(REPLICATED);
 	CASE_REDUCE_TYPE(RANDOM);
@@ -490,13 +491,19 @@ SIMPLE_OUTPUT_DECLARE(StrategyNumber, "%u");
 #define NO_NODE_IndexOptInfo
 #include "nodes/struct_define.h"
 #ifdef ADB
+BEGIN_STRUCT(ReduceKeyInfo)
+	NODE_NODE(Expr,key)
+	NODE_OID(opclass,opclass)
+	NODE_OID(opfamily,opfamily)
+	NODE_OID(collation,collation)
+END_STRUCT(ReduceKeyInfo)
 BEGIN_STRUCT(ReduceInfo)
 	NODE_NODE(List,storage_nodes)
 	NODE_NODE(List,exclude_exec)
-	NODE_NODE(List,params)
-	NODE_NODE(Expr,expr)
+	NODE_NODE(List,values)
 	NODE_RELIDS(Relids,relids)
 	NODE_SCALAR(ReduceType,type)
+	NODE_STRUCT_ARRAY(ReduceKeyInfo, keys, NODE_ARG_->nkey)
 END_STRUCT(ReduceInfo)
 #endif /* ADB */
 BEGIN_NODE(Path)
