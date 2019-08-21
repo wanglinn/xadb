@@ -669,6 +669,7 @@ numeric_out(PG_FUNCTION_ARGS)
 	str = get_str_from_var(&x);
 
 	/* terminal last '0' */
+	if (PG_NARGS() == 1 || PG_GETARG_BOOL(1) != false)
 	{
 		char *p = strrchr(str, '.');
 		int i;
