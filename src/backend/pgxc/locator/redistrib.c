@@ -52,6 +52,7 @@
 #include "utils/fmgroids.h"
 #include "utils/inval.h"
 #include "utils/memutils.h"
+#include "utils/ruleutils.h"
 #include "../../src/interfaces/libpq/libpq-fe.h"
 #include "utils/syscache.h"
 #endif
@@ -758,17 +759,17 @@ distrib_reindex(RedistribState *distribState, ExecNodes *exec_nodes)
 static void
 distrib_delete_hash(RedistribState *distribState, ExecNodes *exec_nodes)
 {
-	Relation	rel;
-	StringInfo	buf;
-	Oid			relOid = distribState->relid;
-	ListCell   *item;
+	Relation		rel;
+	ListCell	   *item;
+	StringInfoData	buf;
+	int				nodepos;
 
 	/* Nothing to do if on remote node */
 	if (!IsCnMaster())
 		return;
 
 	/* A sufficient lock level needs to be taken at a higher level */
-	rel = relation_open(relOid, NoLock);
+	rel = relation_open(distribState->relid, NoLock);
 
 	/* Inform client of operation being done */
 	ereport(DEBUG1,
@@ -777,10 +778,10 @@ distrib_delete_hash(RedistribState *distribState, ExecNodes *exec_nodes)
 					RelationGetRelationName(rel))));
 
 	/* Initialize buffer */
-	buf = makeStringInfo();
+	initStringInfo(&buf);
 
 	/* Build query to clean up table before redistribution */
-	appendStringInfo(buf, "DELETE FROM %s.%s",
+	appendStringInfo(&buf, "DELETE FROM %s.%s",
 					 get_namespace_name(RelationGetNamespace(rel)),
 					 RelationGetRelationName(rel));
 
@@ -788,105 +789,36 @@ distrib_delete_hash(RedistribState *distribState, ExecNodes *exec_nodes)
 	 * Launch the DELETE query to each node as the DELETE depends on
 	 * local conditions for each node.
 	 */
+	nodepos = 0;
 	foreach(item, exec_nodes->nodeids)
 	{
-		StringInfo	buf2;
-		char	   *hashfuncname, *colname = NULL;
-		Oid			hashtype;
-		RelationLocInfo *locinfo = RelationGetLocInfo(rel);
-		int			nodeid = lfirst_oid(item);
-		int			nodepos = 0;
-		ExecNodes  *local_exec_nodes = makeNode(ExecNodes);
-		TupleDesc	tupDesc = RelationGetDescr(rel);
-		Form_pg_attribute attr = tupDesc->attrs;
-		ListCell   *item2;
+		StringInfoData	buf2;
+		char		   *modulo;
+		int				nodeid = lfirst_oid(item);
+		ExecNodes	   *local_exec_nodes = makeNode(ExecNodes);
 
 		/* Here the query is launched to a unique node */
-		local_exec_nodes->nodeids = lappend_oid(NIL, nodeid);
+		local_exec_nodes->nodeids = list_make1_oid(nodeid);
 
-		/* Get the hash type of relation */
-		hashtype = attr[locinfo->partAttrNum - 1].atttypid;
+		modulo = deparse_to_reduce_modulo(rel, RelationGetLocInfo(rel));
 
-		/* Get function hash name */
-		if (locinfo->locatorType == LOCATOR_TYPE_HASH ||
-			locinfo->locatorType == LOCATOR_TYPE_HASHMAP)
-		{
-			hashfuncname = get_compute_hash_function(hashtype);
-		}else
-		{
-			Assert(locinfo->locatorType == LOCATOR_TYPE_MODULO);
-			hashfuncname = NULL;
-		}
-
-		/* Get distribution column name */
-		if (IsRelationDistributedByValue(locinfo))
-			colname = GetRelationDistribColumn(locinfo);
-		else
-			ereport(ERROR,
-					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					 errmsg("Incorrect redistribution operation")));
-
-		/*
-		 * Find the correct node position in node list of locator information.
-		 * So scan the node list and fetch the position of node.
-		 */
-		foreach(item2, locinfo->nodeids)
-		{
-			if (lfirst_oid(item2) == nodeid)
-				break;
-			nodepos++;
-		}
-
-		/*
-		 * Then build the WHERE clause for deletion.
-		 * The condition that allows to keep the tuples on remote nodes
-		 * is of the type "RemoteNodeNumber != abs(hash_func(dis_col)) % NumDatanodes".
-		 * the remote Datanode has no knowledge of its position in cluster so this
-		 * number needs to be compiled locally on Coordinator.
-		 * Taking the absolute value is necessary as hash may return a negative value.
-		 * For hash distributions a condition with correct hash function is used.
-		 * For modulo distribution, well we might need a hash function call but not
-		 * all the time, this is determined implicitely by get_compute_hash_function.
-		 */
-		buf2 = makeStringInfo();
-		if (hashfuncname)
-		{
-			/* Lets leave NULLs on the first node and delete from the rest */
-			if (nodepos != 0)
-				appendStringInfo(buf2, "%s WHERE %s IS NULL OR abs(%s(%s)) %% %d != %d",
-								buf->data, colname, hashfuncname, colname,
-								list_length(locinfo->nodeids), nodepos);
-			else
-				appendStringInfo(buf2, "%s WHERE abs(%s(%s)) %% %d != %d",
-								buf->data, hashfuncname, colname,
-								list_length(locinfo->nodeids), nodepos);
-		}
-		else
-		{
-			/* Lets leave NULLs on the first node and delete from the rest */
-			if (nodepos != 0)
-				appendStringInfo(buf2, "%s WHERE %s IS NULL OR abs(%s) %% %d != %d",
-								buf->data, colname, colname,
-								list_length(locinfo->nodeids), nodepos);
-			else
-				appendStringInfo(buf2, "%s WHERE abs(%s) %% %d != %d",
-								buf->data, colname,
-								list_length(locinfo->nodeids), nodepos);
-		}
+		initStringInfo(&buf2);
+		appendStringInfo(&buf2, "%s where ", buf.data);
+		appendStringInfo(&buf2, "((%s) != %d)", modulo, nodepos);
+		if (nodepos != 0)
+			appendStringInfo(&buf2, " or ((%s) is null)", modulo);
 
 		/* Then launch this single query */
-		distrib_execute_query(buf2->data, IsTempTable(relOid), local_exec_nodes);
+		distrib_execute_query(buf2.data, RelationUsesLocalBuffers(rel), local_exec_nodes);
 
 		FreeExecNodes(&local_exec_nodes);
-		pfree(buf2->data);
-		pfree(buf2);
+		pfree(buf2.data);
 	}
 
 	relation_close(rel, NoLock);
 
 	/* Clean buffers */
-	pfree(buf->data);
-	pfree(buf);
+	pfree(buf.data);
 }
 
 

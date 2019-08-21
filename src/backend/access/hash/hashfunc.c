@@ -29,11 +29,11 @@
 #include "access/hash.h"
 #include "utils/builtins.h"
 #ifdef ADB
-#include "access/htup_details.h"
-#include "catalog/pg_proc.h"
-#include "catalog/pg_type.h"
+#include "catalog/pg_type_d.h"
+#include "catalog/pgxc_class_d.h"
+#include "utils/array.h"
 #include "utils/date.h"
-#include "utils/lsyscache.h"
+#include "utils/hashutils.h"
 #include "utils/nabstime.h"
 #include "utils/syscache.h"
 #include "utils/timestamp.h"
@@ -945,45 +945,43 @@ hash_uint32_extended(uint32 k, uint64 seed)
 }
 
 #ifdef ADB
-#include "pgxc/locator.h"
-
-
-/*
- * get_compute_hash_function
- * Get hash function name depending on the hash type.
- * For some cases of hash or modulo distribution, a function might
- * be required or not.
- */
-char *
-get_compute_hash_function(Oid type)
+Datum hash_combin_mod(PG_FUNCTION_ARGS)
 {
-	TypeCacheEntry *typeCache;
-	char		   *schemaname;
-	char		   *result;
-	HeapTuple		proctup;
-	Form_pg_proc	procform;
+	uint32 hashval;
+	uint32 result;
+	int i,count;
 
-	if (type_is_enum(type))
-		type = NAMEOID;
-
-	typeCache = lookup_type_cache(type, TYPECACHE_HASH_PROC_FINFO);
-	if(!OidIsValid(typeCache->hash_proc_finfo.fn_oid))
+	if (get_fn_expr_variadic(fcinfo->flinfo))
 	{
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_FUNCTION),
-				 errmsg("could not identify a hash function for type %s",
-						format_type_be(type))));
-	}
-	proctup = SearchSysCache1(PROCOID, typeCache->hash_proc_finfo.fn_oid);
-	if (!HeapTupleIsValid(proctup))
-		elog(ERROR, "cache lookup failed for function %u",
-			 typeCache->hash_proc_finfo.fn_oid);
-	procform = (Form_pg_proc) GETSTRUCT(proctup);
+		ArrayType  *arr = PG_GETARG_ARRAYTYPE_P(1);
+		uint32	   *ptr;
+		count = ARR_DIMS(arr)[0];
 
-	schemaname = get_namespace_name(procform->pronamespace);
-	result = psprintf("%s.%s", schemaname, NameStr(procform->proname));
-	pfree(schemaname);
-	ReleaseSysCache(proctup);
-	return result;
+		if (ARR_NDIM(arr) != 1 ||
+			count < 1 ||
+			ARR_HASNULL(arr) ||
+			ARR_ELEMTYPE(arr) != INT4OID)
+		{
+			elog(ERROR, "argument is not a 1-D int4 array");
+		}
+
+		ptr = (uint32*) ARR_DATA_PTR(arr);
+
+		hashval = ptr[0];
+		for (i=1;i<count;++i)
+			hashval = hash_combine(hashval, ptr[i]);
+	}else
+	{
+		Assert(PG_NARGS() > 1);
+		count = PG_NARGS();
+
+		hashval = PG_GETARG_UINT32(1);
+		for (i=2;i<count;++i)
+			hashval = hash_combine(hashval, PG_GETARG_UINT32(i));
+	}
+
+	result = hashval % PG_GETARG_UINT32(0);
+
+	PG_RETURN_UINT32(result);
 }
 #endif

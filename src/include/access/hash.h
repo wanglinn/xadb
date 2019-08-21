@@ -482,9 +482,4 @@ extern void hashbucketcleanup(Relation rel, Bucket cur_bucket,
 				  bool bucket_has_garbage,
 				  IndexBulkDeleteCallback callback, void *callback_state);
 
-#ifdef ADB
-extern Datum compute_hash(Oid type, Datum value, char locator);
-extern char *get_compute_hash_function(Oid type);
-#endif
-
 #endif							/* HASH_H */

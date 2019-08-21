@@ -4,7 +4,7 @@
 #include "catalog/namespace.h"
 #include "catalog/pg_am_d.h"
 #include "catalog/pg_namespace.h"
-#include "catalog/pg_operator.h"
+#include "catalog/pg_operator_d.h"
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_node.h"
 #include "commands/defrem.h"
@@ -43,6 +43,38 @@ static bool reduce_info_in_one_node_can_join(ReduceInfo *outer_info,
 											 List **new_reduce_list,
 											 JoinType jointype,
 											 bool *is_dummy);
+static inline Const* MakeInt4Const(int32 value)
+{
+	return makeConst(INT4OID,
+					 -1,
+					 InvalidOid,
+					 sizeof(int32),
+					 Int32GetDatum(value),
+					 false,
+					 true);
+}
+
+static inline Const* makeOidConst(Oid oid)
+{
+	return makeConst(OIDOID,
+					 -1,
+					 InvalidOid,
+					 sizeof(Oid),
+					 ObjectIdGetDatum(oid),
+					 false,
+					 true);
+}
+
+static inline FuncExpr* makeSimpleFuncExpr(Oid funcid, Oid rettype, List *args)
+{
+	return makeFuncExpr(funcid,
+						rettype,
+						args,
+						InvalidOid,
+						InvalidOid,
+						COERCE_EXPLICIT_CALL);
+}
+
 static inline ReduceInfo* MakeEmptyReduceInfo(uint32 nkey)
 {
 	ReduceInfo *rinfo = palloc0(offsetof(ReduceInfo, keys) + sizeof(ReduceKeyInfo)*nkey);
@@ -2232,21 +2264,24 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 	switch(reduce->type)
 	{
 	case REDUCE_TYPE_HASH:
-		if (reduce->nkey != 1)
+		if (reduce->nkey < 1)
+		{
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("not support multi-col for hash yet")));
-		result = makeHashExprFamily(reduce->keys[0].key, reduce->keys[0].opfamily);
+					 errmsg("invalid argument for create reduce expr")));
+		}else
+		{
+			List *args;
+			uint32 i,nkey;
 
-		result = makeModuloExpr(result, list_length(reduce->storage_nodes));
+			/* make hash_combin_mod(node_count, hash_value1, hash_value2 ...) */
+			args = list_make1(MakeInt4Const(list_length(reduce->storage_nodes)));
+			for(i=0,nkey=reduce->nkey;i<nkey;++i)
+				args = lappend(args, makeHashExprFamily(reduce->keys[0].key, reduce->keys[0].opfamily));
+			result = (Expr*)makeSimpleFuncExpr(F_HASH_COMBIN_MOD, INT4OID, args);
 
-		Assert(exprType((Node*)result) == INT4OID);
-		result = (Expr*) makeFuncExpr(F_INT4ABS,
-									  INT4OID,
-									  list_make1(result),
-									  InvalidOid, InvalidOid,
-									  COERCE_EXPLICIT_CALL);
-		result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids), true);
+			result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids), true);
+		}
 		break;
 
 	case REDUCE_TYPE_HASHMAP:
@@ -2256,41 +2291,35 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 					 errmsg("not support multi-col for hash yet")));
 		result = makeHashExprFamily(reduce->keys[0].key, reduce->keys[0].opfamily);
 
-		result = makeModuloExpr(result, HASHMAP_SLOTSIZE);
-		Assert(exprType((Node*)result) == INT4OID);
-		result = (Expr*) makeFuncExpr(F_INT4ABS,
-									  INT4OID,
-									  list_make1(result),
-									  InvalidOid, InvalidOid,
-									  COERCE_EXPLICIT_CALL);
-		result = (Expr*)makeFuncExpr(F_NODEID_FROM_HASHVALUE,
-									 INT4OID,
-									 list_make1((Expr*)result),
-									 exprType((Node*)result),
-									 exprCollation((Node*)result),
-									 COERCE_EXPLICIT_CALL);
+		result = (Expr*) makeSimpleFuncExpr(F_HASH_COMBIN_MOD,
+											INT4OID,
+											list_make2(MakeInt4Const(HASHMAP_SLOTSIZE), result));
+		result = (Expr*) makeSimpleFuncExpr(F_NODEID_FROM_HASHVALUE,
+											INT4OID,
+											list_make1(result));
 		break;
 
 	case REDUCE_TYPE_MODULO:
 		if (reduce->nkey != 1)
+		{
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					 errmsg("not support multi-col for modulo")));
-		result = (Expr*)coerce_to_target_type(NULL,
-											  (Node*)reduce->keys[0].key,
-											  exprType((Node*)reduce->keys[0].key),
-											  INT4OID,
-											  -1,
-											  COERCION_EXPLICIT,
-											  COERCE_IMPLICIT_CAST,
-											  -1);
-		result = makeModuloExpr(result, list_length(reduce->storage_nodes));
-		result = (Expr*) makeFuncExpr(F_INT4ABS,
-									  INT4OID,
-									  list_make1(result),
-									  InvalidOid, InvalidOid,
-									  COERCE_EXPLICIT_CALL);
-		result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids), true);
+		}else
+		{
+			result = (Expr*)coerce_to_target_type(NULL,
+												  (Node*)reduce->keys[0].key,
+												  exprType((Node*)reduce->keys[0].key),
+												  INT4OID,
+												  -1,
+												  COERCION_EXPLICIT,
+												  COERCE_IMPLICIT_CAST,
+												  -1);
+			result = (Expr*)makeSimpleFuncExpr(F_HASH_COMBIN_MOD,
+											   INT4OID,
+											   list_make2(MakeInt4Const(list_length(reduce->storage_nodes)), result));
+			result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids), true);
+		}
 		break;
 	case REDUCE_TYPE_REPLICATED:
 		{
@@ -2313,12 +2342,9 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 						  PointerGetDatum(vector),
 						  false,
 						  false);
-			func = makeFuncExpr(F_ARRAY_UNNEST,
-								OIDOID,
-								list_make1(c),
-								InvalidOid,
-								InvalidOid,
-								COERCE_EXPLICIT_CALL);
+			func = makeSimpleFuncExpr(F_ARRAY_UNNEST,
+									  OIDOID,
+									  list_make1(c));
 			/* unnest(array) return set */
 			func->funcretset = true;
 			result = (Expr*)func;
@@ -2332,18 +2358,9 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 			else
 				store = reduce->storage_nodes;
 			/* result = random(list_length(store)) */
-			result = (Expr*)makeFuncExpr(F_INT4RANDOM_MAX,
-										 INT4OID,
-										 list_make1(makeConst(INT4OID,
-										 					  -1,
-															  InvalidOid,
-															  sizeof(int32),
-															  Int32GetDatum(list_length(store)),
-															  false,
-															  true)),
-										 InvalidOid,
-										 InvalidOid,
-										 COERCE_EXPLICIT_CALL);
+			result = (Expr*)makeSimpleFuncExpr(F_INT4RANDOM_MAX,
+											   INT4OID,
+											   list_make1(MakeInt4Const(list_length(store))));
 			/* result = store[result] */
 			result = makeReduceArrayRef(store, result, false, false);
 
@@ -2354,18 +2371,12 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 		break;
 	case REDUCE_TYPE_COORDINATOR:
 		Assert(IsCnMaster());
-		result = (Expr*)makeConst(OIDOID,
-								  -1,
-								  InvalidOid,
-								  sizeof(Oid),
-								  ObjectIdGetDatum(PGXCNodeOid),
-								  false,
-								  true);
+		result = (Expr*) makeOidConst(PGXCNodeOid);
 		break;
 	default:
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
-				errmsg("unknown reduce type %d", reduce->type)));
+				 errmsg("unknown reduce type %d", reduce->type)));
 		result = NULL;	/* keep quiet */
 		break;
 	}
@@ -2373,18 +2384,50 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 	return result;
 }
 
-static Const* makeOidConst(Oid oid)
+Expr *CreateReduceModuloExpr(Relation rel, const RelationLocInfo *loc, Index relid)
 {
-	return makeConst(OIDOID,
-					 -1,
-					 InvalidOid,
-					 sizeof(Oid),
-					 ObjectIdGetDatum(oid),
-					 false,
-					 true);
+	Expr *result;
+
+	if (loc->locatorType == LOCATOR_TYPE_HASH ||
+		loc->locatorType == LOCATOR_TYPE_MODULO)
+	{
+		Form_pg_attribute attr;
+		List *args;
+		Var *var;
+
+		/* make hash_combin_mod(node_count, hash(column)) */
+		attr = TupleDescAttr(RelationGetDescr(rel), loc->partAttrNum-1);
+		args = list_make1(MakeInt4Const(list_length(loc->nodeids)));
+		var = makeVar(relid, loc->partAttrNum, attr->atttypid, attr->atttypmod, attr->attcollation, 0);
+		if (loc->locatorType == LOCATOR_TYPE_HASH)
+		{
+			result = makeHashExpr((Expr*)var);
+		}else
+		{
+			result = (Expr*)coerce_to_target_type(NULL,
+												  (Node*)var,
+												  var->vartype,
+												  INT4OID,
+												  -1,
+												  COERCION_EXPLICIT,
+												  COERCE_IMPLICIT_CAST,
+												  -1);
+		}
+		args = lappend(args, result);
+		result = (Expr*)makeSimpleFuncExpr(F_HASH_COMBIN_MOD,
+										   INT4OID,
+										   args);
+	}else
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknown locator type %d", loc->locatorType)));
+		return NULL;	/* never run, keep compiler quiet */
+	}
+	return result;
 }
 
-static Expr* CreateNodeOidOperatorOid(const char *operator, Expr *expr)
+static Expr* CreateNodeOidOperatorOid(Oid opno, Expr *expr)
 {
 	OpExpr *op = makeNode(OpExpr);
 	op->args = list_make2(makeFuncExpr(F_ADB_NODE_OID,
@@ -2394,10 +2437,10 @@ static Expr* CreateNodeOidOperatorOid(const char *operator, Expr *expr)
 									   InvalidOid,
 									   COERCE_EXPLICIT_CALL),
 						  expr);
-	op->opno = get_operid(operator, OIDOID, exprType((Node*)expr), PG_CATALOG_NAMESPACE);
-	Assert(OidIsValid(op->opno));
-	op->opfuncid = get_opcode(op->opno);
-	op->opresulttype = get_op_rettype(op->opno);
+	op->opno = opno;
+	Assert(OidIsValid(opno));
+	op->opfuncid = get_opcode(opno);
+	op->opresulttype = get_op_rettype(opno);
 	op->opretset = false;
 	op->opcollid = op->inputcollid = InvalidOid;
 	op->location = -1;
@@ -2407,17 +2450,19 @@ static Expr* CreateNodeOidOperatorOid(const char *operator, Expr *expr)
 /* make (adb_node_oid() = nodeoid) expr */
 Expr *CreateNodeOidEqualOid(Oid nodeoid)
 {
-	return CreateNodeOidOperatorOid("=", (Expr*)makeOidConst(nodeoid));
+	return CreateNodeOidOperatorOid(OidEqualOperator, (Expr*)makeOidConst(nodeoid));
 }
 
+/* make (adb_node_oid() = expr) expr */
 Expr *CreateNodeOidEqualExpr(Expr *expr)
 {
-	return CreateNodeOidOperatorOid("=", expr);
+	return CreateNodeOidOperatorOid(OidEqualOperator, expr);
 }
 
+/* make (adb_node_oid() != nodeoid) expr */
 Expr *CreateNodeOidNotEqualOid(Oid nodeoid)
 {
-	return CreateNodeOidOperatorOid("<>", (Expr*)makeOidConst(nodeoid));
+	return CreateNodeOidOperatorOid(OidNotEqualOperator, (Expr*)makeOidConst(nodeoid));
 }
 
 bool EqualReduceExpr(Expr *left, Expr *right)
