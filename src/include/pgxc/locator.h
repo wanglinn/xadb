@@ -107,11 +107,6 @@ extern ExecNodes *GetRelationNodesByQuals(Oid reloid,
 										  Node *quals,
 										  RelationAccessType relaccess);
 extern ExecNodes *MakeExecNodesByOids(RelationLocInfo *loc_info, List *oids, RelationAccessType accesstype);
-extern void CoerceUserDefinedFuncArgs(Oid funcid,
-									  int nargs,
-									  Datum *values,
-									  bool *nulls,
-									  Oid *types);
 
 /* Global locator data */
 extern void FreeExecNodes(ExecNodes **exec_nodes);

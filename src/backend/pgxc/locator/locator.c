@@ -509,44 +509,6 @@ GetRelationNodesByQuals(Oid reloid, Index varno, Node *quals,
 	return exec_nodes;
 }
 
-void
-CoerceUserDefinedFuncArgs(Oid funcid,
-						  int nargs,
-						  Datum *values,
-						  bool *nulls,
-						  Oid *types)
-{
-	Oid 		*func_argstype = NULL;
-	int 		nelems, i;
-	Oid 		targetTypInput, targettypIOParam;
-	Oid 		srcTypOutput;
-	bool 		srcTypIsVarlena;
-	Datum 		srcValue;
-
-	(void)get_func_signature(funcid, &func_argstype, &nelems);
-	Assert(nargs == nelems);
-
-	for (i = 0; i < nelems; i++)
-	{
-		if (nulls[i])
-			continue;
-
-		if (func_argstype[i] == types[i])
-			continue;
-
-		srcValue = values[i];
-		getTypeOutputInfo(types[i], &srcTypOutput, &srcTypIsVarlena);
-		getTypeInputInfo(func_argstype[i], &targetTypInput, &targettypIOParam);
-		values[i] = OidInputFunctionCall(targetTypInput,
-								   OidOutputFunctionCall(srcTypOutput, srcValue),
-								   targettypIOParam,
-								   -1);
-	}
-	pfree(func_argstype);
-}
-
-
-
 /*
  * GetLocatorType
  * Returns the locator type of the table.
