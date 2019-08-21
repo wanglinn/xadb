@@ -113,7 +113,6 @@ extern void FreeExecNodes(ExecNodes **exec_nodes);
 
 extern List *GetInvolvedNodes(RelationLocInfo *rel_loc, int nelems, Datum* dist_values, bool* dist_nulls,
 							  Oid* dist_types, RelationAccessType accessType);
-extern List *GetInvolvedNodesByQuals(Oid reloid, Index varno, Node *quals, RelationAccessType relaccess);
 extern List *adbUseDnSlaveNodeids(List *nodeids);
 extern List *adbGetRelationNodeids(Oid relid);
 #endif   /* LOCATOR_H */
