@@ -41,6 +41,7 @@ extern List *deparse_context_for_plan(Node *plan, List *ancestors,
 
 extern void deparse_query(Query *query, StringInfo buf, List *parentnamespace,
 						  bool finalise_aggs, bool sortgroup_colno);
+extern char* deparse_to_reduce_modulo(Relation rel, RelationLocInfo *loc);
 #endif
 
 #endif							/* RULEUTILS_H */

@@ -77,6 +77,7 @@
 #include "catalog/adb_proc.h"
 #include "nodes/execnodes.h"
 #include "optimizer/pgxcplan.h"
+#include "optimizer/reduceinfo.h"
 #include "parser/parse_type.h"
 #include "pgxc/pgxc.h"
 #include "utils/memutils.h"
@@ -5329,6 +5330,22 @@ deparse_query(Query *query, StringInfo buf, List *parentnamespace,
 				  0, finalise_aggs, sortgroup_colno);
 
 	PopOverrideSearchPath();
+}
+
+char* deparse_to_reduce_modulo(Relation rel, RelationLocInfo *loc)
+{
+	MemoryContext mem_context = AllocSetContextCreate(CurrentMemoryContext,
+													  "deparse reduce modulo",
+													  ALLOCSET_DEFAULT_SIZES);
+	MemoryContext old_mem = MemoryContextSwitchTo(mem_context);
+	Expr *expr = CreateReduceModuloExpr(rel, loc, 1);
+	List *context = deparse_context_for(RelationGetRelationName(rel), RelationGetRelid(rel));
+	char *result = deparse_expression_pretty((Node*)expr, context, false, false, 0, 0);
+	MemoryContextSwitchTo(old_mem);
+	result = pstrdup(result);
+	MemoryContextDelete(mem_context);
+
+	return result;
 }
 #endif
 
