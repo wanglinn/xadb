@@ -5736,8 +5736,9 @@ numeric_to_char(PG_FUNCTION_ARGS)
 		x = DatumGetNumeric(DirectFunctionCall2(numeric_round,
 												NumericGetDatum(val),
 												Int32GetDatum(Num.post)));
-		orgnum = DatumGetCString(DirectFunctionCall1(numeric_out,
-													 NumericGetDatum(x)));
+		orgnum = DatumGetCString(DirectFunctionCall2(numeric_out,
+													 NumericGetDatum(x),
+													 BoolGetDatum(false)));
 
 		if (*orgnum == '-')
 		{
