@@ -271,36 +271,32 @@ IsTableDistOnPrimary(RelationLocInfo *rel_loc_info)
  * Check equality of given locator information
  */
 bool
-IsLocatorInfoEqual(RelationLocInfo *locInfo1,
-				   RelationLocInfo *locInfo2)
+IsLocatorInfoEqual(const RelationLocInfo *a, const RelationLocInfo *b)
 {
-	List *nodeids1, *nodeids2;
-	Assert(locInfo1 && locInfo2);
+	if (a == b)
+		return true;
 
-	nodeids1 = locInfo1->nodeids;
-	nodeids2 = locInfo2->nodeids;
-
-	/* Same relation? */
-	if (locInfo1->relid != locInfo2->relid)
+	/* tested "a == b", run to here "a != b" is true */
+	if (a == NULL || b == NULL)
 		return false;
 
-	/* Same locator type? */
-	if (locInfo1->locatorType != locInfo2->locatorType)
+	if (a->relid != b->relid ||
+		a->locatorType != b->locatorType ||
+		a->partAttrNum != b->partAttrNum ||
+		a->funcid != b->funcid ||
+		list_length(a->nodeids) != list_length(a->nodeids) ||
+		equal(a->funcAttrNums, b->funcAttrNums) == false)
 		return false;
 
-	/* Same attribute number? */
-	if (locInfo1->partAttrNum != locInfo2->partAttrNum)
+	if (IsRelationDistributedByValue(a) ||
+		IsRelationDistributedByUserDefined(a))
+	{
+		if (equal(a->nodeids, b->nodeids) == false)
+			return false;
+	}else if(list_equal_oid_without_order(a->nodeids, b->nodeids) == false)
+	{
 		return false;
-
-	/* Same node list? */
-	if (!list_equal_oid_without_order(nodeids1, nodeids2))
-		return false;
-
-	if (locInfo1->funcid != locInfo2->funcid)
-		return false;
-
-	if (!equal(locInfo1->funcAttrNums, locInfo2->funcAttrNums))
-		return false;
+	}
 
 	/* Everything is equal */
 	return true;
@@ -963,41 +959,6 @@ CopyRelationLocInfo(RelationLocInfo *srcInfo)
 
 	/* Note: for roundrobin, we use the relcache entry */
 	return destInfo;
-}
-
-bool EqualRelationLocInfo(const RelationLocInfo *a, const RelationLocInfo *b)
-{
-	if (a == b)
-		return true;
-
-	/* tested "a == b", run to here "a != b" is true */
-	if (a == NULL || b == NULL)
-		return false;
-
-	if (a->relid != b->relid ||
-		a->locatorType != b->locatorType ||
-		a->partAttrNum != b->partAttrNum ||
-		a->funcid != b->funcid ||
-		list_length(a->nodeids) != list_length(a->nodeids) ||
-		equal(a->funcAttrNums, b->funcAttrNums) == false)
-		return false;
-
-	if ((IsRelationDistributedByValue(a) ||
-		 IsRelationDistributedByUserDefined(a)) &&
-		equal(a->nodeids, b->nodeids) == false)
-	{
-		return false;
-	}else if(equal(a->nodeids, b->nodeids) == false)
-	{
-		const ListCell *lc;
-		foreach(lc, a->nodeids)
-		{
-			if (list_member_oid(b->nodeids, lfirst_oid(lc)) == false)
-				return false;
-		}
-	}
-
-	return true;
 }
 
 /*

@@ -2633,7 +2633,7 @@ RelationClearRelation(Relation relation, bool rebuild)
 			if (bms_equal(relation->rd_auxatt, newrel->rd_auxatt))
 				SWAPFIELD(Bitmapset *, rd_auxatt);
 		}
-		if (EqualRelationLocInfo(relation->rd_locator_info, newrel->rd_locator_info))
+		if (IsLocatorInfoEqual(relation->rd_locator_info, newrel->rd_locator_info))
 			SWAPFIELD(RelationLocInfo *, rd_locator_info);
 #endif /* ADB */
 

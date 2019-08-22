@@ -90,7 +90,6 @@ extern RelationLocInfo *RelationIdBuildLocator(Oid relid);
 extern void RelationBuildLocator(Relation rel);
 extern RelationLocInfo *GetRelationLocInfo(Oid relid);
 extern RelationLocInfo *CopyRelationLocInfo(RelationLocInfo *srcInfo);
-extern bool EqualRelationLocInfo(const RelationLocInfo *a, const RelationLocInfo *b);
 extern void FreeRelationLocInfo(RelationLocInfo *relationLocInfo);
 extern char *GetRelationDistribColumn(RelationLocInfo *locInfo);
 extern List *GetRelationDistribColumnList(RelationLocInfo *locInfo);
@@ -98,8 +97,7 @@ extern Oid GetRelationDistribFunc(Oid relid);
 extern char GetLocatorType(Oid relid);
 extern List *GetPreferredRepNodeIds(List *nodeids);
 extern bool IsTableDistOnPrimary(RelationLocInfo *locInfo);
-extern bool IsLocatorInfoEqual(RelationLocInfo *locInfo1,
-							   RelationLocInfo *locInfo2);
+extern bool IsLocatorInfoEqual(const RelationLocInfo *a, const RelationLocInfo *b);
 extern Oid GetRandomRelNodeId(Oid relid);
 extern bool IsTypeDistributable(Oid colType);
 extern bool IsDistribColumn(Oid relid, AttrNumber attNum);
