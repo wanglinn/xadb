@@ -111,6 +111,8 @@ bool isIdenticalDoctorMgrNode(MgrNodeWrapper *data1, MgrNodeWrapper *data2)
 		   strcmp(NameStr(data1->form.nodezone),
 				  NameStr(data2->form.nodezone)) == 0 &&
 		   data1->form.allowcure == data2->form.allowcure &&
+		   strcmp(NameStr(data1->form.curestatus),
+				  NameStr(data2->form.curestatus)) == 0 &&
 		   strcmp(data1->nodepath, data2->nodepath) == 0 &&
 		   isIdenticalDoctorMgrHost(data1->host, data2->host);
 }

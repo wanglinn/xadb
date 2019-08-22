@@ -117,7 +117,7 @@ bool isMasterNode(char nodetype, bool complain)
 	case GTM_TYPE_GTM_SLAVE:
 		return false;
 	default:
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("Unexpected nodetype:%c",
 						nodetype)));
 		return false;
@@ -141,7 +141,7 @@ bool isSlaveNode(char nodetype, bool complain)
 	case GTM_TYPE_GTM_SLAVE:
 		return true;
 	default:
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("Unexpected nodetype:%c",
 						nodetype)));
 		return false;
@@ -313,14 +313,15 @@ void selectMgrNodesForNodeDoctors(MemoryContext spiContext,
 					 "WHERE nodeinited = %d::boolean \n"
 					 "AND nodeincluster = %d::boolean \n"
 					 "AND allowcure = %d::boolean \n"
-					 "AND curestatus in ('%s', '%s', '%s', '%s') \n",
+					 "AND curestatus in ('%s', '%s', '%s', '%s', '%s') \n",
 					 true,
 					 true,
 					 true,
 					 CURE_STATUS_NORMAL,
 					 CURE_STATUS_CURING,
 					 CURE_STATUS_SWITCHED,
-					 CURE_STATUS_FOLLOW_FAIL);
+					 CURE_STATUS_FOLLOW_FAIL,
+					 CURE_STATUS_OLD_MASTER);
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
@@ -337,7 +338,7 @@ MgrNodeWrapper *selectMgrNodeForNodeDoctor(Oid oid, MemoryContext spiContext)
 					 "WHERE nodeinited = %d::boolean \n"
 					 "AND nodeincluster = %d::boolean \n"
 					 "AND allowcure = %d::boolean \n"
-					 "AND curestatus in ('%s', '%s', '%s', '%s') \n"
+					 "AND curestatus in ('%s', '%s', '%s', '%s', '%s') \n"
 					 "AND oid = %u \n",
 					 true,
 					 true,
@@ -346,6 +347,7 @@ MgrNodeWrapper *selectMgrNodeForNodeDoctor(Oid oid, MemoryContext spiContext)
 					 CURE_STATUS_CURING,
 					 CURE_STATUS_SWITCHED,
 					 CURE_STATUS_FOLLOW_FAIL,
+					 CURE_STATUS_OLD_MASTER,
 					 oid);
 	selectMgrNodes(sql.data, spiContext, &nodes);
 	pfree(sql.data);
@@ -383,7 +385,7 @@ void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
 	pfree(sql.data);
 }
 
-int updateMgrNodeCureStatus(Oid oid, char *oldValue, char *newValue,
+int updateMgrNodeCurestatus(Oid oid, char *oldValue, char *newValue,
 							MemoryContext spiContext)
 {
 	StringInfoData buf;
@@ -400,6 +402,39 @@ int updateMgrNodeCureStatus(Oid oid, char *oldValue, char *newValue,
 					 newValue,
 					 oid,
 					 oldValue);
+	oldCtx = MemoryContextSwitchTo(spiContext);
+	spiRes = SPI_execute(buf.data, false, 0);
+	MemoryContextSwitchTo(oldCtx);
+	pfree(buf.data);
+	if (spiRes != SPI_OK_UPDATE)
+		ereport(ERROR,
+				(errmsg("SPI_execute failed: error code %d",
+						spiRes)));
+	rows = SPI_processed;
+	return rows;
+}
+
+int updateMgrNodeAfterFollowMaster(Oid oid, char *oldCurestatus,
+								   char *newCurestatus,
+								   char *newNodesync,
+								   MemoryContext spiContext)
+{
+	StringInfoData buf;
+	int spiRes;
+	uint64 rows;
+	MemoryContext oldCtx;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf,
+					 "update pg_catalog.mgr_node  \n"
+					 "set curestatus = '%s', \n"
+					 "nodesync = '%s' \n"
+					 "WHERE oid = %u \n"
+					 "and curestatus = '%s' \n",
+					 newCurestatus,
+					 newNodesync,
+					 oid,
+					 oldCurestatus);
 	oldCtx = MemoryContextSwitchTo(spiContext);
 	spiRes = SPI_execute(buf.data, false, 0);
 	MemoryContextSwitchTo(oldCtx);
@@ -555,7 +590,7 @@ NodeConnectionStatus connectNodeDefaultDB(MgrNodeWrapper *node,
 	}
 	else
 	{
-		ereport(WARNING,
+		ereport(LOG,
 				(errmsg("connect node %s error, %s",
 						NameStr(node->form.nodename),
 						PQerrorMessage(conn))));
@@ -576,6 +611,90 @@ NodeConnectionStatus connectNodeDefaultDB(MgrNodeWrapper *node,
 	}
 	*pgConn = conn;
 	return connStatus;
+}
+
+/**
+ * If get connection successfully, the PGconn is saved in *pgConnP.
+ * If not, will try to set target db's pg_hba.conf trust me, 
+ * and then try to get connection again.
+ */
+PGconn *getNodeDefaultDBConnection(MgrNodeWrapper *mgrNode,
+								   int connectTimeout)
+{
+	PGconn *pgConn = NULL;
+	bool gotConn;
+	NodeConnectionStatus connStatus;
+	NameData myAddress;
+	int nTrys;
+
+	connStatus = connectNodeDefaultDB(mgrNode, 10, &pgConn);
+	if (connStatus == NODE_CONNECTION_STATUS_SUCCESS)
+	{
+		gotConn = true;
+	}
+	else if (connStatus == NODE_CONNECTION_STATUS_BUSY ||
+			 connStatus == NODE_CONNECTION_STATUS_STARTING_UP)
+	{
+		gotConn = false;
+	}
+	else
+	{
+		gotConn = false;
+		/* may be is the reason of hba, try to get myself 
+		 * addreess and refresh node's pg_hba.conf */
+		memset(myAddress.data, 0, NAMEDATALEN);
+
+		if (!mgr_get_self_address(mgrNode->host->hostaddr,
+								  mgrNode->form.nodeport,
+								  &myAddress))
+		{
+			ereport(LOG,
+					(errmsg("on ADB Manager get local address fail, "
+							"this may be caused by cannot get the "
+							"connection to node %s",
+							NameStr(mgrNode->form.nodename))));
+			goto end;
+		}
+		if (!setPGHbaTrustAddress(mgrNode, NameStr(myAddress)))
+		{
+			ereport(LOG,
+					(errmsg("set node %s trust me failed, "
+							"this may be caused by network error",
+							NameStr(mgrNode->form.nodename))));
+			goto end;
+		}
+		for (nTrys = 0; nTrys < 10; nTrys++)
+		{
+			if (pgConn)
+				PQfinish(pgConn);
+			pgConn = NULL;
+			/*sleep 0.1s*/
+			pg_usleep(100000L);
+			connStatus = connectNodeDefaultDB(mgrNode, 10, &pgConn);
+			if (connStatus == NODE_CONNECTION_STATUS_SUCCESS)
+			{
+				gotConn = true;
+				break;
+			}
+			else
+			{
+				gotConn = false;
+				continue;
+			}
+		}
+	}
+end:
+	if (gotConn)
+	{
+		return pgConn;
+	}
+	else
+	{
+		if (pgConn)
+			PQfinish(pgConn);
+		pgConn = NULL;
+		return pgConn;
+	}
 }
 
 XLogRecPtr getNodeLastWalReceiveLsn(PGconn *pgConn)
@@ -759,7 +878,7 @@ bool PQexecCommandSql(PGconn *pgConn, char *sql, bool complain)
 	else
 	{
 		execOk = false;
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("execute %s failed:%s",
 						sql,
 						PQerrorMessage(pgConn))));
@@ -779,7 +898,7 @@ int PQexecCountSql(PGconn *pgConn, char *sql, bool complain)
 	{
 		if (0 == PQntuples(pgResult))
 		{
-			ereport(complain ? ERROR : WARNING,
+			ereport(complain ? ERROR : LOG,
 					(errmsg("execute %s failed:%s",
 							sql,
 							PQerrorMessage(pgConn))));
@@ -794,7 +913,7 @@ int PQexecCountSql(PGconn *pgConn, char *sql, bool complain)
 	}
 	else
 	{
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("execute %s failed:%s",
 						sql,
 						PQerrorMessage(pgConn))));
@@ -828,7 +947,7 @@ bool PQexecBoolQuery(PGconn *pgConn, char *sql,
 		}
 		else
 		{
-			ereport(complain ? ERROR : WARNING,
+			ereport(complain ? ERROR : LOG,
 					(errmsg("execute %s failed, Illegal result value:%s",
 							sql,
 							value)));
@@ -837,7 +956,7 @@ bool PQexecBoolQuery(PGconn *pgConn, char *sql,
 	}
 	else
 	{
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("execute %s failed:%s",
 						sql,
 						PQerrorMessage(pgConn))));
@@ -965,7 +1084,7 @@ end:
 	}
 	else
 	{
-		ereport(WARNING,
+		ereport(LOG,
 				(errmsg("agent %s execute cmd %d %s failed, %s",
 						hostaddr,
 						cmd,
@@ -1048,7 +1167,7 @@ bool callAgentDeletePGHbaConf(MgrNodeWrapper *node,
 	}
 	else
 	{
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("delete %s pg_hba.conf %s failed:%s",
 						NameStr(node->form.nodename),
 						toStringPGHbaItem(items),
@@ -1082,7 +1201,7 @@ bool callAgentRefreshPGHbaConf(MgrNodeWrapper *node,
 	}
 	else
 	{
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("refresh %s pg_hba.conf %s failed:%s",
 						NameStr(node->form.nodename),
 						toStringPGHbaItem(items),
@@ -1115,7 +1234,7 @@ bool callAgentReloadNode(MgrNodeWrapper *node, bool complain)
 	}
 	else
 	{
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("reload %s %s failed:%s",
 						NameStr(node->form.nodename),
 						node->nodepath,
@@ -1149,7 +1268,7 @@ bool callAgentRefreshPGSqlConfReload(MgrNodeWrapper *node,
 	}
 	else
 	{
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("refresh %s postgresql.conf %s failed:%s",
 						NameStr(node->form.nodename),
 						toStringPGConfParameterItem(items),
@@ -1183,7 +1302,7 @@ bool callAgentRefreshRecoveryConf(MgrNodeWrapper *node,
 	}
 	else
 	{
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("refresh %s %s recovery.conf failed:%s",
 						NameStr(node->form.nodename),
 						node->nodepath,
@@ -1217,7 +1336,7 @@ bool callAgentPromoteNode(MgrNodeWrapper *node, bool complain)
 	}
 	else
 	{
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("promote %s %s failed:%s",
 						NameStr(node->form.nodename),
 						node->nodepath,
@@ -1274,7 +1393,7 @@ PingNodeResult callAgentPingNode(MgrNodeWrapper *node)
 		}
 		else
 		{
-			ereport(WARNING,
+			ereport(LOG,
 					(errmsg("call agent %s error:%s.",
 							node->host->hostaddr,
 							res.message.data)));
@@ -1283,7 +1402,7 @@ PingNodeResult callAgentPingNode(MgrNodeWrapper *node)
 	}
 	else
 	{
-		ereport(WARNING,
+		ereport(LOG,
 				(errmsg("call agent %s error:%s.",
 						node->host->hostaddr,
 						res.message.data)));
@@ -1326,7 +1445,7 @@ bool callAgentStopNode(MgrNodeWrapper *node,
 		break;
 	default:
 		pfree(cmdMessage.data);
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("unexpect nodetype \"%c\"",
 						node->form.nodetype)));
 		return false;
@@ -1355,7 +1474,7 @@ bool callAgentStopNode(MgrNodeWrapper *node,
 	}
 	else
 	{
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("stop %s %s failed:%s",
 						NameStr(node->form.nodename),
 						node->nodepath,
@@ -1398,7 +1517,7 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool complain)
 		break;
 	default:
 		pfree(cmdMessage.data);
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("unexpect nodetype \"%c\"",
 						node->form.nodetype)));
 		return false;
@@ -1426,7 +1545,7 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool complain)
 	}
 	else
 	{
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("start %s %s failed:%s",
 						NameStr(node->form.nodename),
 						node->nodepath,
@@ -1476,7 +1595,7 @@ bool callAgentRestartNode(MgrNodeWrapper *node,
 		break;
 	default:
 		pfree(cmdMessage.data);
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("unexpect nodetype \"%c\"",
 						node->form.nodetype)));
 		return false;
@@ -1495,7 +1614,7 @@ bool callAgentRestartNode(MgrNodeWrapper *node,
 	}
 	else
 	{
-		ereport(complain ? ERROR : WARNING,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("restart %s %s failed:%s",
 						NameStr(node->form.nodename),
 						node->nodepath,
@@ -1574,7 +1693,7 @@ NodeRecoveryStatus callAgentGet_pg_is_in_recovery(MgrNodeWrapper *node)
 	}
 	if (!recoveryStatus.queryOk)
 	{
-		ereport(WARNING,
+		ereport(LOG,
 				(errmsg("call agent %s error, %s",
 						node->host->hostaddr,
 						res.message.data)));
@@ -1621,4 +1740,127 @@ XLogRecPtr callAgentGet_pg_last_wal_receive_lsn(MgrNodeWrapper *node)
 	}
 	pfree(res.message.data);
 	return ptr;
+}
+
+void callAgentPingAndStopNode(MgrNodeWrapper *node, char *shutdownMode)
+{
+	PingNodeResult pingNodeResult;
+	pingNodeResult = callAgentPingNode(node);
+	if (pingNodeResult.agentRes)
+	{
+		if (pingNodeResult.pgPing == PQPING_OK ||
+			pingNodeResult.pgPing == PQPING_REJECT)
+		{
+			callAgentStopNode(node, shutdownMode, true);
+		}
+		else
+		{
+			callAgentStopNode(node, shutdownMode, false);
+		}
+	}
+	else
+	{
+		callAgentStopNode(node, shutdownMode, false);
+	}
+}
+
+bool setPGHbaTrustAddress(MgrNodeWrapper *mgrNode, char *address)
+{
+	PGHbaItem *hbaItems;
+	bool execOk;
+
+	hbaItems = newPGHbaItem(CONNECT_HOST, DEFAULT_DB,
+							NameStr(mgrNode->host->form.hostuser),
+							address, 32, "trust");
+
+	execOk = callAgentRefreshPGHbaConf(mgrNode, hbaItems, false);
+	pfreePGHbaItem(hbaItems);
+	if (!execOk)
+		return execOk;
+	execOk = callAgentReloadNode(mgrNode, false);
+	return execOk;
+}
+
+void setPGHbaTrustSlaveReplication(MgrNodeWrapper *masterNode,
+								   MgrNodeWrapper *slaveNode)
+{
+	PGHbaItem *hbaItems;
+
+	hbaItems = newPGHbaItem(CONNECT_HOST, "replication",
+							NameStr(slaveNode->host->form.hostuser),
+							slaveNode->host->hostaddr,
+							32, "trust");
+	callAgentRefreshPGHbaConf(masterNode, hbaItems, true);
+	callAgentReloadNode(masterNode, true);
+	pfreePGHbaItem(hbaItems);
+}
+
+void setSynchronousStandbyNames(MgrNodeWrapper *mgrNode, char *value)
+{
+	PGConfParameterItem *syncStandbys;
+
+	syncStandbys = newPGConfParameterItem("synchronous_standby_names",
+										  value, true);
+	callAgentRefreshPGSqlConfReload(mgrNode,
+									syncStandbys,
+									true);
+	pfreePGConfParameterItem(syncStandbys);
+}
+
+void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
+									 PGconn *pgConn,
+									 char *value, int checkTrys)
+{
+	int nTrys;
+	bool execOk = false;
+
+	setSynchronousStandbyNames(mgrNode, value);
+
+	for (nTrys = 0; nTrys < checkTrys; nTrys++)
+	{
+		/* check the param */
+		if (equalsNodeParameter(pgConn,
+								"synchronous_standby_names",
+								value))
+		{
+			execOk = true;
+			break;
+		}
+		else
+		{
+			pg_usleep(1000000L);
+		}
+	}
+	if (!execOk)
+	{
+		ereport(ERROR,
+				(errmsg("%s set synchronous_standby_names failed",
+						NameStr(mgrNode->form.nodename))));
+	}
+}
+
+void setSlaveNodeRecoveryConf(MgrNodeWrapper *masterNode,
+							  MgrNodeWrapper *slaveNode)
+{
+	PGConfParameterItem *items;
+	char *primary_conninfo_value;
+	char *slavePGUser;
+
+	items = newPGConfParameterItem("recovery_target_timeline", "latest", false);
+	items->next = newPGConfParameterItem("standby_mode", "on", false);
+
+	slavePGUser = getNodePGUser(slaveNode->form.nodetype,
+								NameStr(slaveNode->host->form.hostuser));
+	primary_conninfo_value = psprintf("host=%s port=%d user=%s application_name=%s",
+									  masterNode->host->hostaddr,
+									  masterNode->form.nodeport,
+									  slavePGUser,
+									  NameStr(slaveNode->form.nodename));
+	items->next->next = newPGConfParameterItem("primary_conninfo",
+											   primary_conninfo_value, true);
+	pfree(slavePGUser);
+	pfree(primary_conninfo_value);
+
+	callAgentRefreshRecoveryConf(slaveNode, items, true);
+	pfreePGConfParameterItem(items);
 }

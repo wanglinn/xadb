@@ -47,7 +47,7 @@ static void handleOldMasterFailure(SwitcherNodeWrapper *oldMaster,
 								   MemoryContext spiContext);
 static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 								 MemoryContext spiContext);
-static void updateCureStatusToNormal(MgrNodeWrapper *node,
+static void updateCurestatusToNormal(MgrNodeWrapper *node,
 									 MemoryContext spiContext);
 static void getCheckMgrNodesForSwitcher(dlist_head *nodes);
 static SwitcherConfiguration *newSwitcherConfiguration(AdbDoctorConf *conf);
@@ -178,7 +178,8 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 
 	PG_TRY();
 	{
-		if (tryConnectNode(oldMaster, 10) &&
+		oldMaster->pgConn = getNodeDefaultDBConnection(oldMaster->mgrNode, 10);
+		if (oldMaster->pgConn &&
 			checkNodeRunningMode(oldMaster->pgConn, true))
 		{
 			oldMaster->runningMode = NODE_RUNNING_MODE_MASTER;
@@ -246,7 +247,8 @@ static void handleOldMasterNormal(SwitcherNodeWrapper *oldMaster,
 	checkGetSlaveNodes(oldMaster, spiContext,
 					   switcherConfiguration->forceSwitch,
 					   failedSlaves, runningSlaves);
-	newMaster = choosePromotionNode(runningSlaves,
+	newMaster = choosePromotionNode(oldMaster,
+									runningSlaves,
 									switcherConfiguration->forceSwitch,
 									failedSlaves);
 	*newMasterP = newMaster;
@@ -276,12 +278,13 @@ static void handleOldMasterNormal(SwitcherNodeWrapper *oldMaster,
 	}
 	else
 	{
+		callAgentStartNode(oldMaster->mgrNode, false);
 		ereport(LOG,
 				(errmsg("%s %s old master back to normal, abort switch",
 						MyBgworkerEntry->bgw_name,
 						NameStr(oldMaster->mgrNode->form.nodename))));
 		checkMgrNodeDataInDB(oldMaster->mgrNode, spiContext);
-		updateCureStatusToNormal(oldMaster->mgrNode, spiContext);
+		updateCurestatusToNormal(oldMaster->mgrNode, spiContext);
 	}
 }
 
@@ -299,7 +302,8 @@ static void handleOldMasterFailure(SwitcherNodeWrapper *oldMaster,
 					   switcherConfiguration->forceSwitch,
 					   failedSlaves,
 					   runningSlaves);
-	newMaster = choosePromotionNode(runningSlaves,
+	newMaster = choosePromotionNode(oldMaster,
+									runningSlaves,
 									switcherConfiguration->forceSwitch,
 									failedSlaves);
 	*newMasterP = newMaster;
@@ -376,7 +380,7 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 	nodeDataInDB = NULL;
 }
 
-static void updateCureStatusToNormal(MgrNodeWrapper *node,
+static void updateCurestatusToNormal(MgrNodeWrapper *node,
 									 MemoryContext spiContext)
 {
 	int rows;
@@ -384,7 +388,7 @@ static void updateCureStatusToNormal(MgrNodeWrapper *node,
 
 	newCurestatus = CURE_STATUS_NORMAL;
 
-	rows = updateMgrNodeCureStatus(node->oid,
+	rows = updateMgrNodeCurestatus(node->oid,
 								   NameStr(node->form.curestatus),
 								   newCurestatus,
 								   spiContext);

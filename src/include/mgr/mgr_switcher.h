@@ -20,6 +20,7 @@ typedef struct SwitcherNodeWrapper
 	PGconn *pgConn;
 	XLogRecPtr walLsn;
 	NodeRunningMode runningMode;
+	NameData oldCurestatus;
 	PGHbaItem *temporaryHbaItems;
 	PGConfParameterItem *originalParameterItems;
 	bool coordinatorPgxcNodeChanged;
@@ -93,10 +94,10 @@ extern bool revertClusterSetting(dlist_head *coordinators,
 								 SwitcherNodeWrapper *oldMaster,
 								 SwitcherNodeWrapper *newMaster,
 								 bool complain);
-extern SwitcherNodeWrapper *choosePromotionNode(dlist_head *slaveNodes,
+extern SwitcherNodeWrapper *choosePromotionNode(SwitcherNodeWrapper *oldMaster,
+												dlist_head *slaveNodes,
 												bool allowFailed,
 												dlist_head *failedSlaves);
-extern bool tryConnectNode(SwitcherNodeWrapper *node, int connectTimeout);
 extern bool tryLockCluster(dlist_head *coordinators, bool complain);
 extern bool lockCoordinator(SwitcherNodeWrapper *coordinator, bool complain);
 extern bool tryUnlockCluster(dlist_head *coordinators, bool complain);
@@ -106,10 +107,6 @@ extern void checkGetSlaveNodes(SwitcherNodeWrapper *masterNode,
 							   bool allowFailed,
 							   dlist_head *failedSlaves,
 							   dlist_head *runningSlaves);
-
-extern void checkNodesRunningStatus(dlist_head *nodes,
-									dlist_head *failedNodes,
-									dlist_head *runningNodes);
 extern void sortNodesByWalLsnDesc(dlist_head *nodes);
 extern void checkGetMasterCoordinators(MemoryContext spiContext,
 									   dlist_head *coordinators);
@@ -117,4 +114,7 @@ extern void mgrNodesToSwitcherNodes(dlist_head *mgrNodes,
 									dlist_head *switcherNodes);
 extern void switcherNodesToMgrNodes(dlist_head *switcherNodes,
 									dlist_head *mgrNodes);
+extern void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
+										MgrNodeWrapper *slaveNode,
+										PGconn *masterPGconn);
 #endif /* MGR_SWITCHER_H */

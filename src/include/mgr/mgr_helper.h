@@ -331,8 +331,11 @@ extern MgrNodeWrapper *selectMgrNodeForNodeDoctor(Oid oid,
 												  MemoryContext spiContext);
 extern void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
 											dlist_head *resultList);
-extern int updateMgrNodeCureStatus(Oid oid, char *oldValue, char *newValue,
+extern int updateMgrNodeCurestatus(Oid oid, char *oldValue, char *newValue,
 								   MemoryContext spiContext);
+extern int updateMgrNodeAfterFollowMaster(Oid oid, char *oldValue, char *newValue,
+										  char *newNodesync,
+										  MemoryContext spiContext);
 extern void selectMgrHosts(char *sql,
 						   MemoryContext spiContext,
 						   dlist_head *resultList);
@@ -345,6 +348,8 @@ extern char *getNodePGUser(char nodetype, char *hostuser);
 extern NodeConnectionStatus connectNodeDefaultDB(MgrNodeWrapper *node,
 												 int connectTimeout,
 												 PGconn **pgConn);
+extern PGconn *getNodeDefaultDBConnection(MgrNodeWrapper *mgrNode,
+										  int connectTimeout);
 extern XLogRecPtr getNodeLastWalReceiveLsn(PGconn *pgConn);
 extern XLogRecPtr getNodeCurrentWalLsn(PGconn *pgConn);
 extern XLogRecPtr getNodeWalLsn(PGconn *pgConn, NodeRunningMode runningMode);
@@ -400,5 +405,17 @@ extern CallAgentResult callAgentExecuteSql(MgrNodeWrapper *node, char *sql);
 extern NodeRecoveryStatus callAgentGet_pg_is_in_recovery(MgrNodeWrapper *node);
 extern XLogRecPtr parseLsnToXLogRecPtr(const char *str);
 extern XLogRecPtr callAgentGet_pg_last_wal_receive_lsn(MgrNodeWrapper *node);
+extern void callAgentPingAndStopNode(MgrNodeWrapper *node, char *shutdownMode);
+
+extern bool setPGHbaTrustAddress(MgrNodeWrapper *mgrNode, char *address);
+extern void setPGHbaTrustSlaveReplication(MgrNodeWrapper *masterNode,
+										  MgrNodeWrapper *slaveNode);
+extern void setSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
+									   char *value);
+extern void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
+											PGconn *pgConn,
+											char *value, int checkTrys);
+extern void setSlaveNodeRecoveryConf(MgrNodeWrapper *masterNode,
+									 MgrNodeWrapper *slaveNode);
 
 #endif /* MGR_HELPER_H */
