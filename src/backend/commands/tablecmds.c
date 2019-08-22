@@ -16734,140 +16734,28 @@ ATPaddingAuxData(void *arg)
 bool
 checkTwoTblDistributebyType(Relation destRel, Relation sourceRel, bool checkByColName, bool no_error)
 {
-	char *destColName;
-	char *destRelName;
-	char *sourceColName;
-	char *sourceRelName;
-	int destAttno;
-	int sourceAttno;
-	ListCell *attachCeil;
-	ListCell *relCeil;
-	TupleDesc destRelTupleDesc;
-	TupleDesc sourceRelTupleDesc;
+	RelationLocInfo	tmp;
 
 	Assert(RelationIsValid(destRel));
 	Assert(RelationIsValid(sourceRel));
+	Assert(RelationGetLocInfo(destRel)->relid == RelationGetRelid(destRel));
+	Assert(RelationGetLocInfo(sourceRel)->relid == RelationGetRelid(sourceRel));
 
-	if (!destRel->rd_locator_info || !sourceRel->rd_locator_info)
-		return false;
+	if (RelationGetLocInfo(destRel) == NULL &&
+		RelationGetLocInfo(sourceRel) == NULL)
+		return true;
 
-	destRelName = RelationGetRelationName(destRel);
-	sourceRelName = RelationGetRelationName(sourceRel);
-
-	/* Check distributeby type */
-	if (destRel->rd_locator_info->locatorType != sourceRel->rd_locator_info->locatorType)
+	/* copy RelationLocInfo, don't compare relid */
+	memcpy(&tmp, RelationGetLocInfo(sourceRel), sizeof(tmp));
+	tmp.relid = RelationGetRelid(destRel);
+	if (IsLocatorInfoEqual(RelationGetLocInfo(destRel), &tmp) == false)
 	{
 		if (no_error)
 			return false;
 		ereport(ERROR,
-			(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-				errmsg("table \"%s\" hash different distributeby type with table \"%s\"",
-					destRelName, sourceRelName)));
-	}
-	else if (!list_equal_oid_without_order(destRel->rd_locator_info->nodeids
-				, sourceRel->rd_locator_info->nodeids))
-	{
-		if (no_error)
-			return false;
-		ereport(ERROR,
-			(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-				errmsg("table \"%s\" has different data store nodes with table \"%s\"",
-					destRelName, sourceRelName)));
-	}
-	else if (IsRelationDistributedByValue(destRel->rd_locator_info))
-	{
-		destAttno = destRel->rd_locator_info->partAttrNum;
-		sourceAttno = sourceRel->rd_locator_info->partAttrNum;
-		if (!checkByColName)
-		{
-			if (destAttno != sourceAttno)
-			{
-				if (no_error)
-					return false;
-				ereport(ERROR,
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					errmsg("table \"%s\" has different distributeby column localtion number with "
-						"table \"%s\"", destRelName, sourceRelName)));
-			}
-		}
-		else
-		{
-			destColName = NameStr(TupleDescAttr(RelationGetDescr(destRel), destAttno - 1)->attname);
-			sourceColName = NameStr(TupleDescAttr(RelationGetDescr(sourceRel), sourceAttno - 1)->attname);
-			if (strcmp(destColName, sourceColName) != 0)
-			{
-				if (no_error)
-					return false;
-				ereport(ERROR,
-					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-						errmsg("table \"%s\" has different distributeby column name with table \"%s\"",
-							destRelName, sourceRelName)));
-			}
-		}
-	}
-	else if (IsRelationDistributedByUserDefined(destRel->rd_locator_info))
-	{
-		if (destRel->rd_locator_info->funcid != sourceRel->rd_locator_info->funcid)
-		{
-			if (no_error)
-				return false;
-			ereport(ERROR,
-				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					errmsg("table \"%s\" has different distributeby user defined function with "
-						"table \"%s\"", destRelName, sourceRelName)));
-		}
-		else if (list_length(destRel->rd_locator_info->funcAttrNums) \
-			!= list_length(sourceRel->rd_locator_info->funcAttrNums))
-		{
-			if (no_error)
-				return false;
-			ereport(ERROR,
-				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-					errmsg("table \"%s\" has different input parameters number in distributeby user "
-						"defined function with table \"%s\"",
-						destRelName, sourceRelName)));
-		}
-		else
-		{
-			/* Check the dest relation and source relation have the same input parameters order in
-			 * distributeby user defined function
-			 */
-			destRelTupleDesc = RelationGetDescr(destRel);
-			sourceRelTupleDesc = RelationGetDescr(sourceRel);
-
-			forboth(attachCeil, destRel->rd_locator_info->funcAttrNums \
-				, relCeil, sourceRel->rd_locator_info->funcAttrNums)
-			{
-				destAttno = lfirst_int(attachCeil);
-				sourceAttno = lfirst_int(relCeil);
-				if (!checkByColName)
-				{
-					if (destAttno != sourceAttno)
-					{
-						if (no_error)
-							return false;
-						ereport(ERROR,
-							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-								errmsg("table \"%s\" has different distributeby column localtion "
-									"number with table \"%s\"", destRelName, sourceRelName)));
-					}
-				}
-				else
-				{
-					destColName = NameStr(TupleDescAttr(destRelTupleDesc, destAttno - 1)->attname);
-					sourceColName = NameStr(TupleDescAttr(sourceRelTupleDesc, sourceAttno - 1)->attname);
-					if (strcmp(destColName, sourceColName) != 0)
-					{
-						if (no_error)
-							return false;
-						ereport(ERROR,
-							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-								errmsg("table \"%s\" has different distributeby column names order with "
-									"table \"%s\"", destRelName, sourceRelName)));
-					}
-				}
-			}
-		}
+				 errmsg("relation \"%s\" has different distribute by with table \"%s\"",
+						RelationGetRelationName(sourceRel), RelationGetRelationName(destRel))));
 	}
 
 	return true;
