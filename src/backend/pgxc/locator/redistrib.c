@@ -526,17 +526,18 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 	RemoteCopyOptions  *options;
 	RemoteCopyState	   *copyState;
 	bool				contains_tuple = true;
-	TupleDesc			tupdesc;
-	Form_pg_attribute	attr;
 	TupleTableSlot	   *slot;
-	Datum			   *dist_col_values;
-	bool			   *dist_col_is_nulls;
-	Oid 			   *dist_col_types;
-	int 				nelems;
-	AttrNumber			attnum;
-	bool				need_free;
 	List			   *nodes;
 	StringInfoData		line_buf;
+	ReduceInfo		   *rinfo;
+	Expr			   *reduce_expr;
+	ReduceExprState	   *reduce_state;
+	ExprContext		   *econtext;
+	MemoryContext		old_context;
+	ExprDoneCond		done;
+	Datum				datum;
+	Oid					nodeoid;
+	bool				isnull;
 
 	/* Nothing to do if on remote node */
 	if (!IsCnMaster())
@@ -568,10 +569,13 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 		copyState->rel_loc->nodeids = list_copy(exec_nodes->nodeids);
 	}
 
-	tupdesc = RelationGetDescr(rel);
-	attr = tupdesc->attrs;
+	rinfo = MakeReduceInfoFromLocInfo(copyState->rel_loc, NIL, RelationGetRelid(rel), 1);
+	reduce_expr = CreateExprUsingReduceInfo(rinfo);
+	reduce_state = ExecInitReduceExpr(reduce_expr);
+	econtext = CreateStandaloneExprContext();
+
 	/* Build table slot for this relation */
-	slot = MakeSingleTupleTableSlot(tupdesc);
+	slot = MakeSingleTupleTableSlot(RelationGetDescr(rel));
 	/* initinalize line buffer for each slot */
 	initStringInfo(&line_buf);
 
@@ -584,6 +588,7 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 	/* Begin redistribution on remote nodes */
 	StartRemoteCopy(copyState);
 
+	econtext->ecxt_scantuple = slot;
 	/* Transform each tuple stored into a COPY message and send it to remote nodes */
 	while (contains_tuple)
 	{
@@ -598,72 +603,51 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 		slot_getallattrs(slot);
 
 		/* Build message to be sent to Datanodes */
-		CopyOps_BuildOneRowTo(tupdesc, slot->tts_values, slot->tts_isnull, &line_buf);
+		CopyOps_BuildOneRowTo(slot->tts_tupleDescriptor, slot->tts_values, slot->tts_isnull, &line_buf);
 
-		/* Build relation node list */
-		if (IsRelationDistributedByValue(copyState->rel_loc))
+		nodes = NIL;
+		old_context = MemoryContextSwitchTo(econtext->ecxt_per_tuple_memory);
+		MemoryContextReset(CurrentMemoryContext);
+		for(;;)
 		{
-			nelems = 1;
-			need_free = false;
-			attnum = copyState->rel_loc->partAttrNum;
-			dist_col_values = &slot->tts_values[attnum - 1];
-			dist_col_is_nulls = &slot->tts_isnull[attnum - 1];
-			dist_col_types = &attr[attnum - 1].atttypid;
-		} else
-		if (IsRelationDistributedByUserDefined(copyState->rel_loc))
-		{
-			ListCell   *lc = NULL;
-			int			idx = 0;
-
-			Assert(OidIsValid(copyState->rel_loc->funcid));
-			Assert(copyState->rel_loc->funcAttrNums);
-			nelems = list_length(copyState->rel_loc->funcAttrNums);
-			dist_col_values = (Datum *) palloc0(sizeof(Datum) * nelems);
-			dist_col_is_nulls = (bool *) palloc0(sizeof(bool) * nelems);
-			dist_col_types = (Oid *) palloc0(sizeof(Oid) * nelems);
-			need_free = true;
-			foreach (lc, copyState->rel_loc->funcAttrNums)
+			datum = ExecEvalReduceExpr(reduce_state, econtext, &isnull, &done);
+			if (done == ExprEndResult)
 			{
-				attnum = (AttrNumber) lfirst_int(lc);
-				dist_col_values[idx] = slot->tts_values[attnum - 1];
-				dist_col_is_nulls[idx] = slot->tts_isnull[attnum - 1];
-				dist_col_types[idx] = attr[attnum - 1].atttypid;
-				idx++;
+				break;
+			}else if(isnull)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("ReduceExpr return a null value")));
+			}else
+			{
+				nodeoid = DatumGetObjectId(datum);
+				if (nodeoid == PGXCNodeOid)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("ReduceExpr return a myself Oid")));
+				}else
+				{
+					nodes = lappend_oid(nodes, nodeoid);
+				}
 			}
-		} else
-		{
-			Datum	dist_col_value = (Datum) 0;
-			bool	dist_col_is_null = true;
-			Oid		dist_col_type = UNKNOWNOID;
-
-			nelems = 1;
-			need_free = false;
-			dist_col_values = &dist_col_value;
-			dist_col_is_nulls = &dist_col_is_null;
-			dist_col_types = &dist_col_type;
 		}
-
-		nodes = GetInvolvedNodes(copyState->rel_loc, nelems,
-								 dist_col_values,
-								 dist_col_is_nulls,
-								 dist_col_types,
-								 RELATION_ACCESS_INSERT);
-		if (need_free)
+		MemoryContextSwitchTo(old_context);
+		if (nodes == NIL)
 		{
-			pfree(dist_col_values);
-			pfree(dist_col_is_nulls);
-			pfree(dist_col_types);
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("ReduceExpr return an empty Oid list")));
 		}
 
 		/* Process data to Datanodes */
 		DoRemoteCopyFrom(copyState, &line_buf, nodes);
-
-		/* Clean up */
-		list_free(nodes);
 	}
 
 	pfree(line_buf.data);
 	ExecDropSingleTupleTableSlot(slot);
+	FreeExprContext(econtext, true);
 
 	/* Finish the redistribution process */
 	EndRemoteCopy(copyState);
