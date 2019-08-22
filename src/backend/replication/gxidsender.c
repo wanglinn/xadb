@@ -1,6 +1,7 @@
 #include "postgres.h"
 
 #include "access/transam.h"
+#include "access/twophase.h"
 #include "pgstat.h"
 #include "lib/ilist.h"
 #include "libpq/libpq.h"
@@ -51,7 +52,7 @@ typedef enum GixdClientStatus
 /* item in  slist_client */
 typedef struct ClientHashItemInfo
 {
-	pgsocket		cleint_sockid;
+	char			client_name[NAMEDATALEN];
 	slist_head		gxid_assgin_xid_list;
 }ClientHashItemInfo;
 
@@ -73,6 +74,7 @@ typedef struct GxidClientData
 	TimestampTz			last_msg;	/* last time of received message from client */
 	GixdClientStatus	status;
 	int					event_pos;
+	char				client_name[NAMEDATALEN];
 }GxidClientData;
 
 /* GUC variables */
@@ -114,10 +116,11 @@ static bool GxidSenderAppendMsgToClient(GxidClientData *client, char msgtype, co
 static void GxidProcessFinishGxid(GxidClientData *client);
 static void GxidProcessAssignGxid(GxidClientData *client);
 static void GxidSendCheckTimeoutSocket(void);
+static void GxidSenderClearOldXid(GxidClientData *client);
+static void GxidDropXidList(slist_head* head);
+static void GxidDropXidItem(TransactionId xid);
 
-static int gxidsender_match_xid(const void *key1, const void *key2, Size keysize);
 static void gxidsender_create_xid_htab(void);
-
 typedef bool (*WaitGxidSenderCond)(void *context);
 static const GxidWaitEventData GxidSenderLatchSetEventData = {GxidSenderOnLatchSetEvent};
 static const GxidWaitEventData GxidSenderPostmasterDeathEventData = {GxidSenderOnPostmasterDeathEvent};
@@ -142,32 +145,14 @@ Size GxidSenderShmemSize(void)
 	return sizeof(GxidSenderData);
 }
 
-static int gxidsender_match_xid(const void *key1, const void *key2, Size keysize)
-{
-	pgsocket l,r;
-	AssertArg(keysize == sizeof(Oid));
-
-	l = *(pgsocket*)key1;
-	r = *(pgsocket*)key2;
-	if(l<r)
-		return -1;
-	else if(l > r)
-		return 1;
-	return 0;
-}
-
 static void gxidsender_create_xid_htab(void)
 {
-	HASHCTL hctl;
+	HASHCTL		hctl;
 
-	memset(&hctl, 0, sizeof(hctl));
-	hctl.keysize = sizeof(pgsocket);
+	hctl.keysize = NAMEDATALEN;
 	hctl.entrysize = sizeof(ClientHashItemInfo);
-	hctl.hash = oid_hash;
-	hctl.match = gxidsender_match_xid;
-	hctl.hcxt = TopMemoryContext;
-	gxidsender_xid_htab = hash_create("hash GxidsenderXid", 100,
-			&hctl, HASH_ELEM|HASH_FUNCTION|HASH_COMPARE|HASH_CONTEXT);
+
+	gxidsender_xid_htab = hash_create("hash GxidsenderXid", 128, &hctl, HASH_ELEM);
 }
 
 void GxidSenderShmemInit(void)
@@ -443,13 +428,54 @@ static void GxidSenderOnLatchSetEvent(WaitEvent *event)
 	ResetLatch(&MyProc->procLatch);
 }
 
+static void GxidDropXidList(slist_head* head)
+{
+	slist_mutable_iter		xid_siter;
+	ClientXidItemInfo		*xiditem;
+	bool					found;
+
+	SpinLockAcquire(&GxidSender->mutex);
+	slist_foreach_modify(xid_siter, head)
+	{
+		xiditem = slist_container(ClientXidItemInfo, snode, xid_siter.cur);
+		GxidDropXidItem(xiditem->xid);
+		found = IsXidInPreparedState(xiditem->xid);
+		if (!found)
+			SnapSendTransactionFinish(xiditem->xid);
+		slist_delete(head, &xiditem->snode);
+		pfree(xiditem);
+	}
+	SpinLockRelease(&GxidSender->mutex);
+}
+
+/* must have lock already */
+static void GxidDropXidItem(TransactionId xid)
+{
+	int count;
+	int i;
+
+	count = GxidSender->xcnt;
+	for (i=0;i<count;++i)
+	{
+		if (GxidSender->xip[i] == xid)
+		{
+			memmove(&GxidSender->xip[i],
+					&GxidSender->xip[i+1],
+					(count-i-1) * sizeof(xid));
+			if (TransactionIdPrecedes(GxidSender->latestCompletedXid, xid))
+				GxidSender->latestCompletedXid = xid;
+			--count;
+			break;
+		}
+	}
+	GxidSender->xcnt = count;
+}
+
 static void GxidSenderDropClient(GxidClientData *client, bool drop_in_slist)
 {
 	slist_iter 				siter;
 	ClientHashItemInfo		*clientitem;
-	ClientXidItemInfo		*xiditem;
 	bool					found;
-	slist_mutable_iter		xid_siter;
 
 	pgsocket socket_fd = socket_pq_node(client->node);
 	int pos = client->event_pos;
@@ -466,16 +492,10 @@ static void GxidSenderDropClient(GxidClientData *client, bool drop_in_slist)
 	if (socket_fd != PGINVALID_SOCKET)
 		StreamClose(socket_fd);
 
-	clientitem = hash_search(gxidsender_xid_htab, &socket_fd, HASH_REMOVE, &found);
+	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_REMOVE, &found);
 	if(found)
 	{
-		slist_foreach_modify(xid_siter, &clientitem->gxid_assgin_xid_list)
-		{
-			xiditem = slist_container(ClientXidItemInfo, snode, xid_siter.cur);
-			SnapSendTransactionFinish(xiditem->xid);
-			slist_delete(&clientitem->gxid_assgin_xid_list, &xiditem->snode);
-			pfree(xiditem);
-		}
+		GxidDropXidList(&clientitem->gxid_assgin_xid_list);
 	}
 
 	slist_foreach(siter, &gxid_send_all_client)
@@ -623,6 +643,24 @@ static void GxidSenderOnClientMsgEvent(WaitEvent *event)
 	}PG_END_TRY();
 }
 
+static void GxidSenderClearOldXid(GxidClientData *client)
+{
+	ClientHashItemInfo			*clientitem;
+	bool						found;
+	int 						sscan_ret;
+
+	sscan_ret = sscanf(gxid_send_input_buffer.data, "%*s %*s \"%[^\" ]\" %*s", client->client_name);
+
+	if (sscan_ret <= 0)
+		return;
+
+	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_ENTER, &found);
+	if(found == false)
+		return;
+	
+	GxidDropXidList(&clientitem->gxid_assgin_xid_list);
+}
+
 static void GxidProcessAssignGxid(GxidClientData *client)
 {
 	int							procno;
@@ -633,14 +671,11 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 	bool						found;
 	slist_head					xid_slist =  SLIST_STATIC_INIT(xid_slist);
 
-	pgsocket socket_fd = socket_pq_node(client->node);
-	gxid_send_input_buffer.cursor = 1;
-
-	clientitem = hash_search(gxidsender_xid_htab, &socket_fd, HASH_ENTER, &found);
+	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_ENTER, &found);
 	if(found == false)
 	{
 		MemSet(clientitem, 0, sizeof(*clientitem));
-		clientitem->cleint_sockid = socket_fd;
+		memcpy(clientitem->client_name, client->client_name, NAMEDATALEN);
 		slist_init(&(clientitem->gxid_assgin_xid_list));
 	}
 
@@ -691,18 +726,13 @@ static void GxidProcessFinishGxid(GxidClientData *client)
 	ClientHashItemInfo			*clientitem;
 	ClientXidItemInfo			*xiditem;
 	bool						found;
-	uint32						i,count;
 	slist_head					xid_slist =  SLIST_STATIC_INIT(xid_slist);
 
-	pgsocket socket_fd = socket_pq_node(client->node);
-	clientitem = hash_search(gxidsender_xid_htab, &socket_fd, HASH_FIND, &found);
+	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_FIND, &found);
 	Assert(found);
-
-	gxid_send_input_buffer.cursor = 1;
 
 	resetStringInfo(&gxid_send_output_buffer);
 	pq_sendbyte(&gxid_send_output_buffer, 'f');
-
 	while(gxid_send_input_buffer.cursor < gxid_send_input_buffer.len)
 	{
 		procno = pq_getmsgint(&gxid_send_input_buffer, sizeof(procno));
@@ -739,23 +769,13 @@ static void GxidProcessFinishGxid(GxidClientData *client)
 		slist_foreach_modify(siter, &xid_slist)
 		{
 			xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
-			SnapSendTransactionFinish(xiditem->xid);
-			count = GxidSender->xcnt;
-			for (i=0;i<count;++i)
-			{
-				if (GxidSender->xip[i] == xiditem->xid)
-				{
-					memmove(&GxidSender->xip[i],
-							&GxidSender->xip[i+1],
-							(count-i-1) * sizeof(xiditem->xid));
-					if (TransactionIdPrecedes(GxidSender->latestCompletedXid, xiditem->xid))
-						GxidSender->latestCompletedXid = xiditem->xid;
-					--count;
-					break;
-				}
-			}
-			GxidSender->xcnt = count;
+			found = IsXidInPreparedState(xiditem->xid);
 
+			/* comman commite, xid should not left in Prepared*/
+			Assert(!found);
+			SnapSendTransactionFinish(xiditem->xid);
+
+			GxidDropXidItem(xiditem->xid);
 			slist_delete(&xid_slist, &xiditem->snode);
 			pfree(xiditem);
 		}
@@ -766,6 +786,8 @@ static void GxidProcessFinishGxid(GxidClientData *client)
 static void GxidSenderOnClientRecvMsg(GxidClientData *client, pq_comm_node *node)
 {
 	int msgtype;
+	int cmdtype;
+	const char* client_name;
 
 	if (pq_node_recvbuf(node) != 0)
 	{
@@ -782,17 +804,19 @@ static void GxidSenderOnClientRecvMsg(GxidClientData *client, pq_comm_node *node
 		{
 		case 'Q':
 			/* only support "START_REPLICATION" command */
-			if (strcasecmp(gxid_send_input_buffer.data, "START_REPLICATION 0/0 TIMELINE 0") != 0)
+			if (strncasecmp(gxid_send_input_buffer.data, "START_REPLICATION", strlen("START_REPLICATION")) != 0)
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						errposition(0),
-						errmsg("only support \"START_REPLICATION 0/0 TIMELINE 0\" command")));
-			
+						errmsg("only support \"START_REPLICATION SLOT slot_name 0/0 TIMELINE 0\" command")));
+
 			/* Send a CopyBothResponse message, and start streaming */
 			resetStringInfo(&gxid_send_output_buffer);
 			pq_sendbyte(&gxid_send_output_buffer, 0);
 			pq_sendint16(&gxid_send_output_buffer, 0);
 			GxidSenderAppendMsgToClient(client, 'W', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false);
+
+			GxidSenderClearOldXid(client);
 
 			/* send streaming start */
 			resetStringInfo(&gxid_send_output_buffer);
@@ -815,15 +839,20 @@ static void GxidSenderOnClientRecvMsg(GxidClientData *client, pq_comm_node *node
 				client->status = GXID_CLIENT_STATUS_CONNECTED;
 			else
 			{
-				if (strcasecmp(gxid_send_input_buffer.data, "g") == 0)
+				cmdtype = pq_getmsgbyte(&gxid_send_input_buffer);
+				if (cmdtype == 'g')
 				{
+					client_name = pq_getmsgstring(&gxid_send_input_buffer);
+					memcpy(client->client_name, client_name, NAMEDATALEN);
 					GxidProcessAssignGxid(client);
 				}
-				else if (strcasecmp(gxid_send_input_buffer.data, "c") == 0)
+				else if (cmdtype == 'c')
 				{
+					client_name = pq_getmsgstring(&gxid_send_input_buffer);
+					memcpy(client->client_name, client_name, NAMEDATALEN);
 					GxidProcessFinishGxid(client);
 				}
-				else if (strcasecmp(gxid_send_input_buffer.data, "h") == 0)
+				else if (cmdtype == 'h')
 				{
 					/* Send a HEARTBEAT Response message */
 					resetStringInfo(&gxid_send_output_buffer);
@@ -834,9 +863,7 @@ static void GxidSenderOnClientRecvMsg(GxidClientData *client, pq_comm_node *node
 					}
 				}
 				else
-				{
-					ereport(LOG,(errmsg("GxidSend recv unknow data %s\n", gxid_send_input_buffer.data)));
-				}
+					ereport(LOG,(errmsg("GxidSend recv unknow data %s\n", gxid_send_input_buffer.data)));;
 			}
 			break;
 		case 0:

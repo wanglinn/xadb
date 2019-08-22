@@ -50,6 +50,7 @@ typedef struct GxidRcvData
 
 /* GUC variables */
 extern char *AGtmHost;
+extern char *PGXCNodeName;
 extern int gxidsender_port;
 
 /* libpqwalreceiver connection */
@@ -258,7 +259,7 @@ void GxidReceiverMain(void)
 		/* options startpoint must be InvalidXLogRecPtr and timeline be 0 */
 		options.logical = false;
 		options.startpoint = InvalidXLogRecPtr;
-		options.slotname = NULL;
+		options.slotname = PGXCNodeName;
 		options.proto.physical.startpointTLI = 0;
 
 		if (walrcv_startstreaming(wrconn, &options))
@@ -800,6 +801,7 @@ GxidRcvProcessAssignList(void)
 
 	resetStringInfo(&reply_message);
 	pq_sendbyte(&reply_message, 'g');
+	pq_sendstring(&reply_message, PGXCNodeName);
 
 	proclist_foreach_modify(iter_gets, &GxidRcv->geters, GxidWaitLink)
 	{
@@ -848,6 +850,8 @@ GxidRcvProcessFinishList(void)
 	
 	resetStringInfo(&reply_message);
 	pq_sendbyte(&reply_message, 'c');
+	pq_sendstring(&reply_message, PGXCNodeName);
+
 	proclist_foreach_modify(iter_gets, &GxidRcv->send_commiters, GxidWaitLink)
 	{
 		proc = GetPGProcByNumber(iter_gets.cur);

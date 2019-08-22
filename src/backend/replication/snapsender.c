@@ -1,6 +1,7 @@
 #include "postgres.h"
 
 #include "access/transam.h"
+#include "access/twophase.h"
 #include "pgstat.h"
 #include "lib/ilist.h"
 #include "libpq/libpq.h"
@@ -118,6 +119,7 @@ static HTAB *snapsender_xid_htab;
 static pgsocket			SnapSenderListenSocket[SNAP_SENDER_MAX_LISTEN];
 
 static void SnapSenderStartup(void);
+static void SnapSenderCheckXactPrepareList(void);
 
 /* event handlers */
 static void OnLatchSetEvent(WaitEvent *event);
@@ -448,6 +450,7 @@ void SnapSenderMain(void)
 	PG_SETMASK(&UnBlockSig);
 
 	SnapSenderStartup();
+	SnapSenderCheckXactPrepareList();
 	Assert(SnapSenderListenSocket[0] != PGINVALID_SOCKET);
 	Assert(wait_event_set != NULL);
 
@@ -1112,6 +1115,32 @@ static void WaitSnapSendShmemSpace(volatile slock_t *mutex,
 			break;
 		}
 	}
+}
+
+static void SnapSenderCheckXactPrepareList(void)
+{
+	List			*xid_list;
+	ListCell		*lc;
+	TransactionId	xid;
+
+	xid_list = GetPreparedXidList();
+
+	SpinLockAcquire(&SnapSender->mutex);
+	foreach (lc, xid_list)
+	{
+		if(SnapSender->cur_cnt_assign == MAX_CNT_SHMEM_XID_BUF)
+		WaitSnapSendShmemSpace(&SnapSender->mutex,
+							   &SnapSender->cur_cnt_assign,
+							   &SnapSender->waiters_assign);
+		Assert(SnapSender->cur_cnt_assign < MAX_CNT_SHMEM_XID_BUF);
+		xid = lfirst_int(lc);
+		ereport(DEBUG2,(errmsg("SnapSend restart get 2pc left xid %d\n",
+			 			xid)));
+		SnapSender->xid_assign[SnapSender->cur_cnt_assign++] = xid;
+	}
+	SpinLockRelease(&SnapSender->mutex);
+	list_free(xid_list);
+	return;
 }
 
 void SnapSendTransactionAssign(TransactionId txid, TransactionId parent)

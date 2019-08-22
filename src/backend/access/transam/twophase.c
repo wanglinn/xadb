@@ -815,6 +815,50 @@ typedef struct
 	int			currIdx;
 } Working_State;
 
+#ifdef ADB
+bool IsXidInPreparedState(TransactionId xid)
+{
+	int					num;
+	int					i;
+	GlobalTransaction 	gxact;
+
+	LWLockAcquire(TwoPhaseStateLock, LW_SHARED);
+	num = TwoPhaseState->numPrepXacts;
+	for (i = 0; i < num; i++)
+	{
+		gxact = TwoPhaseState->prepXacts[i];
+		if (gxact->valid && gxact->xid == xid)
+		{
+			LWLockRelease(TwoPhaseStateLock);
+			return true;
+		}
+	}
+	LWLockRelease(TwoPhaseStateLock);
+
+	return false;
+}
+
+List *GetPreparedXidList(void)
+{
+	int					num;
+	int					i;
+	GlobalTransaction 	gxact;
+	List				*xid_list = NIL;
+
+	LWLockAcquire(TwoPhaseStateLock, LW_SHARED);
+	num = TwoPhaseState->numPrepXacts;
+	for (i = 0; i < num; i++)
+	{
+		gxact = TwoPhaseState->prepXacts[i];
+		if (gxact->valid)
+			xid_list = lappend_int(xid_list, gxact->xid);
+	}
+	LWLockRelease(TwoPhaseStateLock);
+
+	return xid_list;
+}
+#endif /* ADB */
+
 /*
  * pg_prepared_xact
  *		Produce a view with one row per prepared transaction.
