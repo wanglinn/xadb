@@ -232,6 +232,11 @@ pull_up_sublinks_jointree_recurse(PlannerInfo *root, Node *jtnode,
 		 */
 		*relids = frelids;
 		jtnode = jtlink;
+#ifdef ADB_GRAM_ORA
+		/* for connect by */
+		if (f == root->original_join_tree)
+			root->original_join_tree = newf;
+#endif /* ADB_GRAM_ORA */
 	}
 	else if (IsA(jtnode, JoinExpr))
 	{

@@ -825,9 +825,6 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	bool		hasOuterJoins;
 	RelOptInfo *final_rel;
 	ListCell   *l;
-#ifdef ADB_GRAM_ORA
-	FromExpr   *root_from = castNode(FromExpr, parse->jointree);
-#endif
 
 	/* Create a PlannerInfo data structure for this subquery */
 	root = makeNode(PlannerInfo);
@@ -861,6 +858,9 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 		root->wt_param_id = -1;
 	root->non_recursive_path = NULL;
 	root->partColsUpdated = false;
+#ifdef ADB_GRAM_ORA
+	root->original_join_tree = parse->jointree;
+#endif /* ADB_GRAM_ORA */
 
 	/*
 	 * If there is a WITH list, process each WITH query and build an initplan
@@ -1206,10 +1206,11 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 		reduce_outer_joins(root);
 
 #ifdef ADB_GRAM_ORA
-	if (root_from &&
+	if (root->original_join_tree &&
 		parse->connect_by)
 	{
-		List *quals;// = castNode(List, root_from->quals);
+		List *quals;
+		FromExpr *root_from = root->original_join_tree;
 		RelOptInfo *rel = fetch_upper_rel(root, UPPERREL_CONNECT_BY, NULL);
 		OracleConnectBy *connect_by = parse->connect_by;
 		connect_by->start_with = preprocess_expression(root,

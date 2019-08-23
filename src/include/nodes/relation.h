@@ -372,6 +372,10 @@ typedef struct PlannerInfo
 
 	/* Does this query modify any partition key columns? */
 	bool		partColsUpdated;
+#ifdef ADB_GRAM_ORA
+	/* for connect by */
+	struct FromExpr *original_join_tree;
+#endif /* ADB_GRAM_ORA */
 } PlannerInfo;
 
 
