@@ -402,6 +402,7 @@ extern void getCallAgentSqlString(MgrNodeWrapper *node,
 								  char *sql, StringInfo cmdMessage);
 extern PingNodeResult callAgentPingNode(MgrNodeWrapper *node);
 extern CallAgentResult callAgentExecuteSql(MgrNodeWrapper *node, char *sql);
+extern CallAgentResult callAgentExecuteSqlCommand(MgrNodeWrapper *node, char *sql);
 extern NodeRecoveryStatus callAgentGet_pg_is_in_recovery(MgrNodeWrapper *node);
 extern XLogRecPtr parseLsnToXLogRecPtr(const char *str);
 extern XLogRecPtr callAgentGet_pg_last_wal_receive_lsn(MgrNodeWrapper *node);

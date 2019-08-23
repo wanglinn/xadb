@@ -1391,6 +1391,7 @@ PingNodeResult callAgentPingNode(MgrNodeWrapper *node)
 			case PQPING_NO_ATTEMPT:
 			case PQPING_NO_RESPONSE:
 				pingRes.pgPing = (PGPing)ping_status;
+				break;
 			default:
 				pingRes.pgPing = PQPING_NO_RESPONSE;
 			}
@@ -1666,6 +1667,21 @@ CallAgentResult callAgentExecuteSql(MgrNodeWrapper *node,
 	return res;
 }
 
+CallAgentResult callAgentExecuteSqlCommand(MgrNodeWrapper *node, char *sql)
+{
+	CallAgentResult res;
+	StringInfoData cmdMessage;
+
+	initStringInfo(&cmdMessage);
+	getCallAgentSqlString(node, sql, &cmdMessage);
+	res = callAgentSendCmd(AGT_CMD_GET_SQL_STRINGVALUES_COMMAND,
+						   &cmdMessage,
+						   node->host->hostaddr,
+						   node->host->form.hostagentport);
+	pfree(cmdMessage.data);
+	return res;
+}
+
 NodeRecoveryStatus callAgentGet_pg_is_in_recovery(MgrNodeWrapper *node)
 {
 	CallAgentResult res;
@@ -1772,11 +1788,14 @@ bool setPGHbaTrustAddress(MgrNodeWrapper *mgrNode, char *address)
 {
 	PGHbaItem *hbaItems;
 	bool execOk;
+	char *pgUser;
 
+	pgUser = getNodePGUser(mgrNode->form.nodetype,
+						   NameStr(mgrNode->host->form.hostuser));
 	hbaItems = newPGHbaItem(CONNECT_HOST, DEFAULT_DB,
-							NameStr(mgrNode->host->form.hostuser),
+							pgUser,
 							address, 32, "trust");
-
+	pfree(pgUser);
 	execOk = callAgentRefreshPGHbaConf(mgrNode, hbaItems, false);
 	pfreePGHbaItem(hbaItems);
 	if (!execOk)
@@ -1789,11 +1808,15 @@ void setPGHbaTrustSlaveReplication(MgrNodeWrapper *masterNode,
 								   MgrNodeWrapper *slaveNode)
 {
 	PGHbaItem *hbaItems;
+	char *pgUser;
 
+	pgUser = getNodePGUser(slaveNode->form.nodetype,
+						   NameStr(slaveNode->host->form.hostuser));
 	hbaItems = newPGHbaItem(CONNECT_HOST, "replication",
-							NameStr(slaveNode->host->form.hostuser),
+							pgUser,
 							slaveNode->host->hostaddr,
 							32, "trust");
+	pfree(pgUser);
 	callAgentRefreshPGHbaConf(masterNode, hbaItems, true);
 	callAgentReloadNode(masterNode, true);
 	pfreePGHbaItem(hbaItems);
