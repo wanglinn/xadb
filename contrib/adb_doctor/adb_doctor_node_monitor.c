@@ -1143,7 +1143,6 @@ static bool pg_is_in_recovery_handler(MonitorNodeInfo *nodeInfo, PGresult *pgRes
 	bool pg_is_in_recovery;
 	char *value;
 	bool master;
-	//MemoryContext spiContext;
 
 	value = PQgetvalue(pgResult, 0, 0);
 	/* Boolean accepts these string representations for the “true” state:true,yes,on,1
@@ -1877,7 +1876,6 @@ static MgrNodeWrapper *getCheckMgrNodeForNodeDoctor(Oid oid)
 	SPI_FINISH_TRANSACTIONAL_COMMIT();
 	if (mgrNode == NULL)
 	{
-		pg_usleep(30L * 1000000L);
 		ereport(ERROR,
 				(errmsg("%s There is no node data to monitor",
 						MyBgworkerEntry->bgw_name)));

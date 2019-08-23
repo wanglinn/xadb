@@ -627,7 +627,7 @@ PGconn *getNodeDefaultDBConnection(MgrNodeWrapper *mgrNode,
 	NameData myAddress;
 	int nTrys;
 
-	connStatus = connectNodeDefaultDB(mgrNode, 10, &pgConn);
+	connStatus = connectNodeDefaultDB(mgrNode, connectTimeout, &pgConn);
 	if (connStatus == NODE_CONNECTION_STATUS_SUCCESS)
 	{
 		gotConn = true;
@@ -670,7 +670,7 @@ PGconn *getNodeDefaultDBConnection(MgrNodeWrapper *mgrNode,
 			pgConn = NULL;
 			/*sleep 0.1s*/
 			pg_usleep(100000L);
-			connStatus = connectNodeDefaultDB(mgrNode, 10, &pgConn);
+			connStatus = connectNodeDefaultDB(mgrNode, connectTimeout, &pgConn);
 			if (connStatus == NODE_CONNECTION_STATUS_SUCCESS)
 			{
 				gotConn = true;
@@ -799,6 +799,10 @@ NodeRunningMode getNodeRunningMode(PGconn *pgConn)
 	}
 	else
 	{
+		ereport(LOG,
+				(errmsg("execute %s failed:%s",
+						sql,
+						PQerrorMessage(pgConn))));
 		res = NODE_RUNNING_MODE_UNKNOW;
 	}
 	if (pgResult)
@@ -1863,4 +1867,26 @@ void setSlaveNodeRecoveryConf(MgrNodeWrapper *masterNode,
 
 	callAgentRefreshRecoveryConf(slaveNode, items, true);
 	pfreePGConfParameterItem(items);
+}
+
+char *trimString(char *str)
+{
+	Datum datum;
+	char *trimStr;
+
+	datum = DirectFunctionCall2(btrim,
+								CStringGetTextDatum(str),
+								CStringGetTextDatum(" \t"));
+	trimStr = TextDatumGetCString(datum);
+	return trimStr;
+}
+
+bool equalsAfterTrim(char *str1, char *str2)
+{
+	char *trimStr1;
+	char *trimStr2;
+
+	trimStr1 = trimString(str1);
+	trimStr2 = trimString(str2);
+	return strcmp(trimStr1, trimStr2) == 0;
 }

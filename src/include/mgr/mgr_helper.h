@@ -418,4 +418,7 @@ extern void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 extern void setSlaveNodeRecoveryConf(MgrNodeWrapper *masterNode,
 									 MgrNodeWrapper *slaveNode);
 
+extern char *trimString(char *str);
+extern bool equalsAfterTrim(char *str1, char *str2);
+
 #endif /* MGR_HELPER_H */

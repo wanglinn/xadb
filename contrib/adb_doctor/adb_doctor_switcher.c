@@ -178,6 +178,16 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 
 	PG_TRY();
 	{
+		checkGetSlaveNodesRunningStatus(oldMaster,
+										spiContext,
+										switcherConfiguration->forceSwitch,
+										&failedSlaves,
+										&runningSlaves);
+		precheckPromotionNode(&runningSlaves,
+							  switcherConfiguration->forceSwitch);
+
+		checkGetMasterCoordinators(spiContext, &coordinators);
+
 		oldMaster->pgConn = getNodeDefaultDBConnection(oldMaster->mgrNode, 10);
 		if (oldMaster->pgConn &&
 			checkNodeRunningMode(oldMaster->pgConn, true))
@@ -244,11 +254,12 @@ static void handleOldMasterNormal(SwitcherNodeWrapper *oldMaster,
 
 	oldMaster->walLsn = getNodeWalLsn(oldMaster->pgConn,
 									  oldMaster->runningMode);
-	checkGetSlaveNodes(oldMaster, spiContext,
-					   switcherConfiguration->forceSwitch,
-					   failedSlaves, runningSlaves);
-	newMaster = choosePromotionNode(oldMaster,
-									runningSlaves,
+	/* Prevent other doctor processe from manipulating this node simultaneously */
+	refreshOldMasterBeforeSwitch(oldMaster, spiContext);
+
+	callAgentStopNode(oldMaster->mgrNode, SHUTDOWN_I, true);
+
+	newMaster = choosePromotionNode(runningSlaves,
 									switcherConfiguration->forceSwitch,
 									failedSlaves);
 	*newMasterP = newMaster;
@@ -262,19 +273,15 @@ static void handleOldMasterNormal(SwitcherNodeWrapper *oldMaster,
 		newMaster->walLsn >= oldMaster->walLsn &&
 		newMaster->walLsn > InvalidXLogRecPtr)
 	{
-		/* The better slave node is in front of the list */
-		sortNodesByWalLsnDesc(runningSlaves);
-		checkGetMasterCoordinators(spiContext, coordinators);
-
-		checkMgrNodeDataInDB(oldMaster->mgrNode, spiContext);
-
-		switchDataNodeOperation(oldMaster,
-								newMaster,
-								runningSlaves,
-								failedSlaves,
-								coordinators,
-								spiContext,
-								false);
+		checkMgrNodeDataInDB(oldMaster->mgrNode,
+							 spiContext);
+		switchToDataNodeNewMaster(oldMaster,
+								  newMaster,
+								  runningSlaves,
+								  failedSlaves,
+								  coordinators,
+								  spiContext,
+								  false);
 	}
 	else
 	{
@@ -295,31 +302,14 @@ static void handleOldMasterFailure(SwitcherNodeWrapper *oldMaster,
 								   dlist_head *coordinators,
 								   MemoryContext spiContext)
 {
-	SwitcherNodeWrapper *newMaster;
-
-	checkGetSlaveNodes(oldMaster,
-					   spiContext,
-					   switcherConfiguration->forceSwitch,
-					   failedSlaves,
-					   runningSlaves);
-	newMaster = choosePromotionNode(oldMaster,
-									runningSlaves,
-									switcherConfiguration->forceSwitch,
-									failedSlaves);
-	*newMasterP = newMaster;
-	/* The better slave node is in front of the list */
-	sortNodesByWalLsnDesc(runningSlaves);
-
-	checkGetMasterCoordinators(spiContext, coordinators);
-
 	checkMgrNodeDataInDB(oldMaster->mgrNode, spiContext);
-
 	switchDataNodeOperation(oldMaster,
-							newMaster,
+							newMasterP,
 							runningSlaves,
 							failedSlaves,
 							coordinators,
 							spiContext,
+							switcherConfiguration->forceSwitch,
 							false);
 }
 

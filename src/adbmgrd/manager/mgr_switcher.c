@@ -27,10 +27,7 @@
 static SwitcherNodeWrapper *checkGetDatanodeOldMaster(char *oldMasterNodename,
 													  MemoryContext spiContext);
 static bool tryConnectNode(SwitcherNodeWrapper *node, int connectTimeout);
-// static void masterNodeAcceptSlaveNodes(SwitcherNodeWrapper *masterNode,
-// 									   dlist_head *runningNodes,
-// 									   dlist_head *failedSlaves);
-static void checkSlavesRunningStatus(dlist_head *nodes,
+static void checkSlavesRunningStatus(dlist_head *slaveNodes,
 									 dlist_head *failedSlaves,
 									 dlist_head *runningSlaves);
 static void runningSlavesFollowMaster(SwitcherNodeWrapper *masterNode,
@@ -44,11 +41,10 @@ static void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
 								 bool isMaster,
 								 PGconn **pgConnP,
 								 NodeRunningMode *runningModeP);
-static void refreshMgrNodeBeforeSwitch(SwitcherNodeWrapper *oldMaster,
-									   SwitcherNodeWrapper *newMaster,
-									   dlist_head *runningSlaves,
-									   dlist_head *failedSlaves,
-									   MemoryContext spiContext);
+static void refreshSlaveNodesBeforeSwitch(SwitcherNodeWrapper *newMaster,
+										  dlist_head *runningSlaves,
+										  dlist_head *failedSlaves,
+										  MemoryContext spiContext);
 static void refreshMgrNodeAfterSwitch(SwitcherNodeWrapper *oldMaster,
 									  SwitcherNodeWrapper *newMaster,
 									  dlist_head *runningSlaves,
@@ -148,26 +144,23 @@ void switchDatanodeMaster(char *oldMasterNodename,
 		oldMaster = checkGetDatanodeOldMaster(oldMasterNodename,
 											  spiContext);
 
-		checkGetSlaveNodes(oldMaster,
-						   spiContext,
-						   forceSwitch,
-						   &failedSlaves,
-						   &runningSlaves);
-		newMaster = choosePromotionNode(oldMaster,
-										&runningSlaves,
+		checkGetSlaveNodesRunningStatus(oldMaster,
+										spiContext,
 										forceSwitch,
-										&failedSlaves);
-		/* The better slave node is in front of the list */
-		sortNodesByWalLsnDesc(&runningSlaves);
+										&failedSlaves,
+										&runningSlaves);
+
+		precheckPromotionNode(&runningSlaves, forceSwitch);
 
 		checkGetMasterCoordinators(spiContext, &coordinators);
 
 		switchDataNodeOperation(oldMaster,
-								newMaster,
+								&newMaster,
 								&runningSlaves,
 								&failedSlaves,
 								&coordinators,
 								spiContext,
+								forceSwitch,
 								kickOutOldMaster);
 
 		namestrcpy(newMasterNodename,
@@ -204,14 +197,48 @@ void switchDatanodeMaster(char *oldMasterNodename,
  * Switch oldMaster to the standby and switch newMaster to the master, 
  * other running slaves follow this newMaster.
  * If any error happened, will complain.
+ * If all operations successfully completed, return the newMaster.
  */
 void switchDataNodeOperation(SwitcherNodeWrapper *oldMaster,
-							 SwitcherNodeWrapper *newMaster,
+							 SwitcherNodeWrapper **newMasterP,
 							 dlist_head *runningSlaves,
 							 dlist_head *failedSlaves,
 							 dlist_head *coordinators,
 							 MemoryContext spiContext,
+							 bool forceSwitch,
 							 bool kickOutOldMaster)
+{
+	SwitcherNodeWrapper *newMaster = NULL;
+
+	/* Prevent other doctor processe from manipulating this node simultaneously */
+	refreshOldMasterBeforeSwitch(oldMaster,
+								 spiContext);
+
+	/* Sentinel, ensure to shut down old master */
+	callAgentPingAndStopNode(oldMaster->mgrNode,
+							 SHUTDOWN_I);
+
+	newMaster = choosePromotionNode(runningSlaves,
+									forceSwitch,
+									failedSlaves);
+	*newMasterP = newMaster;
+
+	switchToDataNodeNewMaster(oldMaster,
+							  newMaster,
+							  runningSlaves,
+							  failedSlaves,
+							  coordinators,
+							  spiContext,
+							  kickOutOldMaster);
+}
+
+void switchToDataNodeNewMaster(SwitcherNodeWrapper *oldMaster,
+							   SwitcherNodeWrapper *newMaster,
+							   dlist_head *runningSlaves,
+							   dlist_head *failedSlaves,
+							   dlist_head *coordinators,
+							   MemoryContext spiContext,
+							   bool kickOutOldMaster)
 {
 	if (!dlist_is_empty(failedSlaves))
 	{
@@ -221,11 +248,14 @@ void switchDataNodeOperation(SwitcherNodeWrapper *oldMaster,
 	}
 
 	/* Prevent other doctor processes from manipulating these nodes simultaneously */
-	refreshMgrNodeBeforeSwitch(oldMaster, newMaster, runningSlaves,
-							   failedSlaves, spiContext);
-	/* Sentinel, ensure to shut down old master */
-	callAgentPingAndStopNode(oldMaster->mgrNode, SHUTDOWN_I);
-	//callAgentStopNode(oldMaster->mgrNode, SHUTDOWN_I, false);
+	refreshSlaveNodesBeforeSwitch(newMaster,
+								  runningSlaves,
+								  failedSlaves,
+								  spiContext);
+
+	/* The better slave node is in front of the list */
+	sortNodesByWalLsnDesc(runningSlaves);
+
 	/* Ready to start switching, during the switching process, 
 	 * failure is not allowed. If there it is, complain it. */
 	tryLockCluster(coordinators, true);
@@ -251,9 +281,6 @@ void switchDataNodeOperation(SwitcherNodeWrapper *oldMaster,
 
 	setCheckSynchronousStandbyNames(newMaster->mgrNode,
 									newMaster->pgConn, "", 10);
-	//setSynchronousStandbyNames(newMaster->mgrNode, "");
-
-	//masterNodeAcceptSlaveNodes(newMaster, runningSlaves, failedSlaves);
 
 	runningSlavesFollowMaster(newMaster, runningSlaves);
 
@@ -338,26 +365,65 @@ bool revertClusterSetting(dlist_head *coordinators,
 	return execOk;
 }
 
-SwitcherNodeWrapper *choosePromotionNode(SwitcherNodeWrapper *oldMaster,
-										 dlist_head *slaveNodes,
-										 bool allowFailed,
+void precheckPromotionNode(dlist_head *runningSlaves, bool forceSwitch)
+{
+	SwitcherNodeWrapper *node = NULL;
+	SwitcherNodeWrapper *syncNode = NULL;
+	dlist_mutable_iter miter;
+
+	if (dlist_is_empty(runningSlaves))
+	{
+		ereport(ERROR,
+				(errmsg("Can't find any slave node that can be promoted")));
+	}
+	if (!forceSwitch)
+	{
+		/* check sync slave node */
+		dlist_foreach_modify(miter, runningSlaves)
+		{
+			node = dlist_container(SwitcherNodeWrapper, link, miter.cur);
+			if (strcmp(NameStr(node->mgrNode->form.nodesync),
+					   getMgrNodeSyncStateValue(SYNC_STATE_SYNC)) == 0)
+			{
+				syncNode = node;
+				break;
+			}
+			else
+			{
+				continue;
+			}
+		}
+		if (syncNode == NULL)
+		{
+			ereport(ERROR,
+					(errmsg("Can't find a Synchronous standby node, "
+							"Abort switching to avoid data loss")));
+		}
+	}
+}
+
+/**
+ * Before using this function, it is recommended to shutdown the old master 
+ * first, so as to prevent disturb the determination of wal lsn. 
+ * If a node is choosed as a candidate for promotion, this node will also 
+ * be deleted in runningSlaves. In subsequent operations, the remaining nodes 
+ * in runningSlaves should follow the candidate node.
+ */
+SwitcherNodeWrapper *choosePromotionNode(dlist_head *runningSlaves,
+										 bool forceSwitch,
 										 dlist_head *failedSlaves)
 {
 	SwitcherNodeWrapper *node;
 	SwitcherNodeWrapper *promotionNode = NULL;
 	dlist_mutable_iter miter;
 
-	if (dlist_is_empty(slaveNodes))
+	if (dlist_is_empty(runningSlaves))
 	{
 		ereport(ERROR,
-				(errmsg("Can't find any slave node")));
+				(errmsg("Can't find any slave node that can be promoted")));
 	}
 
-// 	TODO
-	/* Avoid being disturbed by the oldmaster, stop it first */
-	callAgentPingAndStopNode(oldMaster->mgrNode, SHUTDOWN_I);
-
-	dlist_foreach_modify(miter, slaveNodes)
+	dlist_foreach_modify(miter, runningSlaves)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, miter.cur);
 
@@ -401,13 +467,13 @@ SwitcherNodeWrapper *choosePromotionNode(SwitcherNodeWrapper *oldMaster,
 			}
 		}
 	}
-	if (!allowFailed && !dlist_is_empty(failedSlaves))
+	if (!forceSwitch && !dlist_is_empty(failedSlaves))
 	{
 		ereport(ERROR,
 				(errmsg("There are some slave nodes failed, "
 						"Abort switching to avoid data loss")));
 	}
-	if (!allowFailed && (strcmp(NameStr(promotionNode->mgrNode->form.nodesync),
+	if (!forceSwitch && (strcmp(NameStr(promotionNode->mgrNode->form.nodesync),
 								getMgrNodeSyncStateValue(SYNC_STATE_SYNC)) != 0))
 	{
 		ereport(ERROR,
@@ -417,7 +483,7 @@ SwitcherNodeWrapper *choosePromotionNode(SwitcherNodeWrapper *oldMaster,
 	}
 	if (promotionNode != NULL)
 	{
-		dlist_foreach_modify(miter, slaveNodes)
+		dlist_foreach_modify(miter, runningSlaves)
 		{
 			node = dlist_container(SwitcherNodeWrapper, link, miter.cur);
 			if (node == promotionNode)
@@ -606,11 +672,11 @@ bool unlockCoordinator(SwitcherNodeWrapper *coordinator, bool complain)
 	return execOk;
 }
 
-void checkGetSlaveNodes(SwitcherNodeWrapper *masterNode,
-						MemoryContext spiContext,
-						bool allowFailed,
-						dlist_head *failedSlaves,
-						dlist_head *runningSlaves)
+void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
+									 MemoryContext spiContext,
+									 bool forceSwitch,
+									 dlist_head *failedSlaves,
+									 dlist_head *runningSlaves)
 {
 	char slaveNodetype;
 	dlist_head mgrNodes = DLIST_STATIC_INIT(mgrNodes);
@@ -621,7 +687,7 @@ void checkGetSlaveNodes(SwitcherNodeWrapper *masterNode,
 						slaveNodetype, spiContext, &mgrNodes);
 	mgrNodesToSwitcherNodes(&mgrNodes, &slaveNodes);
 	checkSlavesRunningStatus(&slaveNodes, failedSlaves, runningSlaves);
-	if (!allowFailed && !dlist_is_empty(failedSlaves))
+	if (!forceSwitch && !dlist_is_empty(failedSlaves))
 	{
 		ereport(ERROR,
 				(errmsg("There are some slave nodes failed, "
@@ -629,14 +695,14 @@ void checkGetSlaveNodes(SwitcherNodeWrapper *masterNode,
 	}
 }
 
-static void checkSlavesRunningStatus(dlist_head *nodes,
+static void checkSlavesRunningStatus(dlist_head *slaveNodes,
 									 dlist_head *failedSlaves,
 									 dlist_head *runningSlaves)
 {
 	SwitcherNodeWrapper *node;
 	dlist_mutable_iter miter;
 
-	dlist_foreach_modify(miter, nodes)
+	dlist_foreach_modify(miter, slaveNodes)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, miter.cur);
 		if (pg_strcasecmp(NameStr(node->mgrNode->form.curestatus),
@@ -809,10 +875,6 @@ void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 	setSlaveNodeRecoveryConf(masterNode, slaveNode);
 
 	callAgentPingAndStopNode(slaveNode, SHUTDOWN_I);
-	// if (isSlaveRunning)
-	// 	callAgentStopNode(slaveNode, SHUTDOWN_I, true);
-	// else
-	// 	callAgentStopNode(slaveNode, SHUTDOWN_I, false);
 
 	callAgentStartNode(slaveNode, true);
 
@@ -864,64 +926,6 @@ static SwitcherNodeWrapper *checkGetDatanodeOldMaster(char *oldMasterNodename,
 	return oldMaster;
 }
 
-// /**
-//  * return the sync slave datanode name
-//  */
-// static void masterNodeAcceptSlaveNodes(SwitcherNodeWrapper *masterNode,
-// 									   dlist_head *runningNodes,
-// 									   dlist_head *failedSlaves)
-// {
-// 	dlist_iter iter;
-// 	SwitcherNodeWrapper *slaveNode;
-// 	StringInfoData syncNodenames;
-// 	char *syncValue;
-// 	int nRunningSlaves = 0;
-
-// 	initStringInfo(&syncNodenames);
-// 	dlist_foreach(iter, runningNodes)
-// 	{
-// 		nRunningSlaves++;
-// 		slaveNode = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-// 		if (syncNodenames.len == 0)
-// 		{
-// 			appendStringInfo(&syncNodenames, "%s",
-// 							 NameStr(slaveNode->mgrNode->form.nodename));
-// 		}
-// 		else
-// 		{
-// 			appendStringInfo(&syncNodenames, ",%s",
-// 							 NameStr(slaveNode->mgrNode->form.nodename));
-// 		}
-// 		/* config master pg_hba.conf to trust slave */
-// 		setPGHbaTrustSlaveReplication(masterNode->mgrNode, slaveNode->mgrNode);
-// 		/* prepare data to update mgr_node */
-// 		if (nRunningSlaves == 1)
-// 		{
-// 			namestrcpy(&slaveNode->mgrNode->form.nodesync,
-// 					   getMgrNodeSyncStateValue(SYNC_STATE_SYNC));
-// 		}
-// 		else
-// 		{
-// 			namestrcpy(&slaveNode->mgrNode->form.nodesync,
-// 					   getMgrNodeSyncStateValue(SYNC_STATE_POTENTIAL));
-// 		}
-// 	}
-// 	dlist_foreach(iter, failedSlaves)
-// 	{
-// 		slaveNode = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-// 		/* config master pg_hba.conf to trust slave */
-// 		setPGHbaTrustSlaveReplication(masterNode->mgrNode, slaveNode->mgrNode);
-// 	}
-// 	if (nRunningSlaves > 0)
-// 	{
-// 		/* config master allow synchronous streaming replication */
-// 		syncValue = psprintf("FIRST %d (%s)", 1, syncNodenames.data);
-// 		setSynchronousStandbyNames(masterNode->mgrNode, syncValue);
-// 		pfree(syncValue);
-// 	}
-// 	pfree(syncNodenames.data);
-// }
-
 static void runningSlavesFollowMaster(SwitcherNodeWrapper *masterNode,
 									  dlist_head *runningSlaves)
 {
@@ -937,46 +941,7 @@ static void runningSlavesFollowMaster(SwitcherNodeWrapper *masterNode,
 		appendSlaveNodeFollowMaster(masterNode->mgrNode,
 									slaveNode->mgrNode,
 									masterNode->pgConn);
-		// setSynchronousStandbyNames(slaveNode->mgrNode, "");
-		// setSlaveNodeRecoveryConf(masterNode->mgrNode, slaveNode->mgrNode);
-		// /* ensure to close obtained connection */
-		// pfreeSwitcherNodeWrapperPGconn(slaveNode);
-		// callAgentStopNode(slaveNode->mgrNode, SHUTDOWN_I, true);
-		// callAgentStartNode(slaveNode->mgrNode, true);
 	}
-	// dlist_foreach(iter, slaveNodes)
-	// {
-	// 	/* config and restart slave node */
-	// 	slaveNode = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-	// 	waitForNodeRunningOk(slaveNode, false,
-	// 						 &slaveNode->pgConn, slaveNode->runningMode);
-	// 	ereport(LOG,
-	// 			(errmsg("%s has followed new master %s",
-	// 					NameStr(slaveNode->mgrNode->form.nodename),
-	// 					NameStr(masterNode->mgrNode->form.nodename))));
-	// }
-}
-
-static char *trimString(char *str)
-{
-	Datum datum;
-	char *trimStr;
-
-	datum = DirectFunctionCall2(btrim,
-								CStringGetTextDatum(str),
-								CStringGetTextDatum(" \t"));
-	trimStr = TextDatumGetCString(datum);
-	return trimStr;
-}
-
-static bool equalsAfterTrim(char *str1, char *str2)
-{
-	char *trimStr1;
-	char *trimStr2;
-
-	trimStr1 = trimString(str1);
-	trimStr2 = trimString(str2);
-	return strcmp(trimStr1, trimStr2) == 0;
 }
 
 static void appendSyncStandbyNames(MgrNodeWrapper *masterNode,
@@ -1143,26 +1108,28 @@ static void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
 {
 	NodeConnectionStatus connStatus;
 	NodeRunningMode runningMode;
+	NodeRunningMode expectedRunningMode;
 	PGconn *pgConn = NULL;
-	int networkFailures;
+	int networkFailures = 0;
 	int maxNetworkFailures = 60;
+	int runningModeFailures = 0;
+	int maxRunningModeFailures = 60;
 
 	ereport(NOTICE,
 			(errmsg("waiting for %s can accept connections...",
 					NameStr(mgrNode->form.nodename))));
 
-	networkFailures = 0;
 	while (networkFailures < maxNetworkFailures)
 	{
 		connStatus = connectNodeDefaultDB(mgrNode, 10, &pgConn);
 		if (connStatus == NODE_CONNECTION_STATUS_SUCCESS)
 		{
-			networkFailures = 0;
 			break;
 		}
 		else if (connStatus == NODE_CONNECTION_STATUS_BUSY ||
 				 connStatus == NODE_CONNECTION_STATUS_STARTING_UP)
 		{
+			/* wait for start up */
 			networkFailures = 0;
 		}
 		else
@@ -1181,7 +1148,29 @@ static void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
 	}
 
 	pg_usleep(100000L);
-	runningMode = getNodeRunningMode(pgConn);
+
+	expectedRunningMode = getExpectedNodeRunningMode(isMaster);
+	while (runningModeFailures < maxRunningModeFailures)
+	{
+		runningMode = getNodeRunningMode(pgConn);
+		if (runningMode == expectedRunningMode)
+		{
+			runningModeFailures = 0;
+			break;
+		}
+		else if (runningMode == NODE_RUNNING_MODE_UNKNOW)
+		{
+			runningModeFailures++;
+		}
+		else
+		{
+			break;
+		}
+		fputs(_("."), stdout);
+		fflush(stdout);
+		pg_usleep(1 * 1000000L);
+	}
+
 	if (pgConnP)
 	{
 		if (*pgConnP)
@@ -1203,10 +1192,10 @@ static void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
 	{
 		*runningModeP = runningMode;
 	}
-	if (runningMode == getExpectedNodeRunningMode(isMaster))
+	if (runningMode == expectedRunningMode)
 	{
 		ereport(LOG,
-				(errmsg("%s running in normal state",
+				(errmsg("%s running on correct status",
 						NameStr(mgrNode->form.nodename))));
 	}
 	else
@@ -1217,14 +1206,9 @@ static void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
 	}
 }
 
-static void refreshMgrNodeBeforeSwitch(SwitcherNodeWrapper *oldMaster,
-									   SwitcherNodeWrapper *newMaster,
-									   dlist_head *runningSlaves,
-									   dlist_head *failedSlaves,
-									   MemoryContext spiContext)
+void refreshOldMasterBeforeSwitch(SwitcherNodeWrapper *oldMaster,
+								  MemoryContext spiContext)
 {
-	dlist_iter iter;
-	SwitcherNodeWrapper *node;
 	char *newCurestatus;
 	/* Use CURE_STATUS_SWITCHING as a tag to prevent the node doctor from 
 	 * operating on this node simultaneously. */
@@ -1233,8 +1217,22 @@ static void refreshMgrNodeBeforeSwitch(SwitcherNodeWrapper *oldMaster,
 	/* backup curestatus */
 	memcpy(&oldMaster->oldCurestatus,
 		   &oldMaster->mgrNode->form.curestatus, sizeof(NameData));
-	updateMgrNodeBeforeSwitch(oldMaster->mgrNode, newCurestatus,
+	updateMgrNodeBeforeSwitch(oldMaster->mgrNode,
+							  newCurestatus,
 							  spiContext);
+}
+
+static void refreshSlaveNodesBeforeSwitch(SwitcherNodeWrapper *newMaster,
+										  dlist_head *runningSlaves,
+										  dlist_head *failedSlaves,
+										  MemoryContext spiContext)
+{
+	dlist_iter iter;
+	SwitcherNodeWrapper *node;
+	char *newCurestatus;
+	/* Use CURE_STATUS_SWITCHING as a tag to prevent the node doctor from 
+	 * operating on this node simultaneously. */
+	newCurestatus = CURE_STATUS_SWITCHING;
 
 	memcpy(&newMaster->oldCurestatus,
 		   &newMaster->mgrNode->form.curestatus, sizeof(NameData));
@@ -1387,10 +1385,12 @@ static void updateMgrNodeBeforeSwitch(MgrNodeWrapper *mgrNode,
 					 "UPDATE pg_catalog.mgr_node \n"
 					 "SET curestatus = '%s' \n"
 					 "WHERE oid = %u \n"
-					 "AND curestatus = '%s' \n",
+					 "AND curestatus = '%s' \n"
+					 "AND nodetype = '%c' \n",
 					 newCurestatus,
 					 mgrNode->oid,
-					 NameStr(mgrNode->form.curestatus));
+					 NameStr(mgrNode->form.curestatus),
+					 mgrNode->form.nodetype);
 	oldCtx = MemoryContextSwitchTo(spiContext);
 	spiRes = SPI_execute(sql.data, false, 0);
 	MemoryContextSwitchTo(oldCtx);

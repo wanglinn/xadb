@@ -84,29 +84,38 @@ extern void switchDatanodeMaster(char *oldMasterNodename,
 								 bool kickOutOldMaster,
 								 Name newMasterNodename);
 extern void switchDataNodeOperation(SwitcherNodeWrapper *oldMaster,
-									SwitcherNodeWrapper *newMaster,
+									SwitcherNodeWrapper **newMasterP,
 									dlist_head *runningSlaves,
 									dlist_head *failedSlaves,
 									dlist_head *coordinators,
 									MemoryContext spiContext,
+									bool forceSwitch,
 									bool kickOutOldMaster);
+extern void switchToDataNodeNewMaster(SwitcherNodeWrapper *oldMaster,
+									  SwitcherNodeWrapper *newMaster,
+									  dlist_head *runningSlaves,
+									  dlist_head *failedSlaves,
+									  dlist_head *coordinators,
+									  MemoryContext spiContext,
+									  bool kickOutOldMaster);
 extern bool revertClusterSetting(dlist_head *coordinators,
 								 SwitcherNodeWrapper *oldMaster,
 								 SwitcherNodeWrapper *newMaster,
 								 bool complain);
-extern SwitcherNodeWrapper *choosePromotionNode(SwitcherNodeWrapper *oldMaster,
-												dlist_head *slaveNodes,
-												bool allowFailed,
+extern void precheckPromotionNode(dlist_head *runningSlaves,
+								  bool forceSwitch);
+extern SwitcherNodeWrapper *choosePromotionNode(dlist_head *runningSlaves,
+												bool forceSwitch,
 												dlist_head *failedSlaves);
 extern bool tryLockCluster(dlist_head *coordinators, bool complain);
 extern bool lockCoordinator(SwitcherNodeWrapper *coordinator, bool complain);
 extern bool tryUnlockCluster(dlist_head *coordinators, bool complain);
 extern bool unlockCoordinator(SwitcherNodeWrapper *coordinator, bool complain);
-extern void checkGetSlaveNodes(SwitcherNodeWrapper *masterNode,
-							   MemoryContext spiContext,
-							   bool allowFailed,
-							   dlist_head *failedSlaves,
-							   dlist_head *runningSlaves);
+extern void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
+											MemoryContext spiContext,
+											bool forceSwitch,
+											dlist_head *failedSlaves,
+											dlist_head *runningSlaves);
 extern void sortNodesByWalLsnDesc(dlist_head *nodes);
 extern void checkGetMasterCoordinators(MemoryContext spiContext,
 									   dlist_head *coordinators);
@@ -117,4 +126,7 @@ extern void switcherNodesToMgrNodes(dlist_head *switcherNodes,
 extern void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 										MgrNodeWrapper *slaveNode,
 										PGconn *masterPGconn);
+extern void refreshOldMasterBeforeSwitch(SwitcherNodeWrapper *oldMaster,
+										 MemoryContext spiContext);
+
 #endif /* MGR_SWITCHER_H */
