@@ -30,9 +30,11 @@
 #include "access/transam.h"
 #include "catalog/namespace.h"
 #include "catalog/indexing.h"
+#include "catalog/pg_am_d.h"
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
+#include "commands/defrem.h"
 #include "executor/executor.h"
 #include "intercomm/inter-node.h"
 #include "nodes/execnodes.h"
@@ -51,6 +53,7 @@
 #include "utils/tqual.h"
 #include "optimizer/clauses.h"
 #include "optimizer/paths.h"
+#include "optimizer/var.h"
 #include "parser/parse_coerce.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/locator.h"
@@ -142,43 +145,92 @@ get_nodeid_from_modulo(int modulo, List *nodeids)
 /*
  * GetRelationDistribColumn
  * Return hash column name for relation or NULL if relation is not distributed.
+ * TODO: drop this function when FQS droped
  */
 char *
 GetRelationDistribColumn(RelationLocInfo *locInfo)
 {
+	LocatorKeyInfo *key;
 	/* No relation, so simply leave */
 	if (!locInfo)
 		return NULL;
 
 	/* No distribution column if relation is not distributed with a key */
-	if (!IsRelationDistributedByValue(locInfo))
+	if (!IsRelationDistributedByValue(locInfo) ||
+		list_length(locInfo->keys) != 1)
+		return NULL;
+
+	key = FirstLocKeyInfo(locInfo);
+	if (key->attno == InvalidAttrNumber)
 		return NULL;
 
 	/* Return column name */
-	return get_attname(locInfo->relid, locInfo->partAttrNum, false);
+	return get_attname(locInfo->relid, key->attno, false);
 }
 
 /*
- * IsDistribColumn
- * Return whether column for relation is used for distribution or not.
+ * IsDistribOnlyOneColumn
+ * Return whether column for relation is used only attNum for distribution or not.
  */
 bool
-IsDistribColumn(Oid relid, AttrNumber attNum)
+IsDistribOnlyOneColumn(Oid relid, AttrNumber attNum)
 {
 	RelationLocInfo *locInfo = GetRelationLocInfo(relid);
+	bool result;
 
 	/* No locator info, so leave */
 	if (!locInfo)
 		return false;
 
-	if (IsRelationDistributedByValue(locInfo))
+	result = false;
+	if (IsRelationDistributedByValue(locInfo) &&
+		list_length(locInfo->keys) == 1)
 	{
-		return locInfo->partAttrNum == attNum;
+		result = (FirstLocKeyInfo(locInfo)->attno == attNum);
 	}
+	FreeRelationLocInfo(locInfo);
 
 	return false;
 }
 
+bool LocatorIncludeColumn(RelationLocInfo *loc, AttrNumber attno, bool include_expr)
+{
+	return LocatorKeyIncludeColumn(loc->keys, attno, include_expr);
+}
+
+bool LocatorKeyIncludeColumn(List *keys, AttrNumber attno, bool include_expr)
+{
+	ListCell	   *lc;
+	LocatorKeyInfo *key;
+	bool			has_expr = false;
+
+	foreach(lc, keys)
+	{
+		key = lfirst(lc);
+		if (key->attno == attno)
+			return true;
+		if (key->key != NULL)
+			has_expr = true;
+	}
+
+	if (include_expr && has_expr)
+	{
+		Bitmapset  *bms = NULL;
+		bool		result;
+		foreach(lc, keys)
+		{
+			key = lfirst(lc);
+			if (key->key)
+				pull_varattnos((Node*)key->key, 1, &bms);
+		}
+
+		result = bms_is_member(attno-FirstLowInvalidHeapAttributeNumber, bms);
+		bms_free(bms);
+		return result;
+	}
+
+	return false;
+}
 
 /*
  * IsTypeDistributable
@@ -231,6 +283,8 @@ IsTableDistOnPrimary(RelationLocInfo *rel_loc_info)
 bool
 IsLocatorInfoEqual(const RelationLocInfo *a, const RelationLocInfo *b)
 {
+	ListCell *lc1,*lc2;
+
 	if (a == b)
 		return true;
 
@@ -240,7 +294,7 @@ IsLocatorInfoEqual(const RelationLocInfo *a, const RelationLocInfo *b)
 
 	if (a->relid != b->relid ||
 		a->locatorType != b->locatorType ||
-		a->partAttrNum != b->partAttrNum ||
+		list_length(a->keys) != list_length(b->keys) ||
 		list_length(a->nodeids) != list_length(a->nodeids))
 		return false;
 
@@ -252,6 +306,21 @@ IsLocatorInfoEqual(const RelationLocInfo *a, const RelationLocInfo *b)
 	{
 		return false;
 	}
+
+	forboth(lc1, a->keys, lc2, b->keys)
+	{
+		LocatorKeyInfo *l = lfirst(lc1);
+		LocatorKeyInfo *r = lfirst(lc2);
+		if (l->opclass != r->opclass ||
+			l->opfamily != r->opfamily ||
+			l->collation != r->collation)
+			return false;
+		if (equal(l->key, r->key) == false)
+			return false;
+	}
+
+	if (equal(a->values, b->values) == false)
+		return false;
 
 	/* Everything is equal */
 	return true;
@@ -457,10 +526,15 @@ GetRelationNodesByQuals(Oid reloid, Index varno, Node *quals,
 	 */
 	if (IsRelationDistributedByValue(rel_loc_info))
 	{
-		Oid		disttype = get_atttype(reloid, rel_loc_info->partAttrNum);
-		int32	disttypmod = get_atttypmod(reloid, rel_loc_info->partAttrNum);
-		distcol_expr = pgxc_find_distcol_expr(varno, rel_loc_info->partAttrNum,
-													quals);
+		Oid				disttype;
+		int32			disttypmod;
+		AttrNumber		attno;
+
+		attno = GetFirstLocAttNumIfOnlyOne(rel_loc_info);
+		disttype = get_atttype(reloid, attno);
+		disttypmod = get_atttypmod(reloid, attno);
+		distcol_expr = pgxc_find_distcol_expr(varno, attno, quals);
+
 		/*
 		 * If the type of expression used to find the Datanode, is not same as
 		 * the distribution column type, try casting it. This is same as what
@@ -572,6 +646,8 @@ RelationIdBuildLocator(Oid relid)
 	HeapTuple		htup;
 	Form_pgxc_class pgxc_class;
 	RelationLocInfo*relationLocInfo;
+	LocatorKeyInfo *key;
+	Oid				typid;
 	int				j;
 
 	ScanKeyInit(&skey,
@@ -590,10 +666,43 @@ RelationIdBuildLocator(Oid relid)
 	}
 
 	pgxc_class = (Form_pgxc_class) GETSTRUCT(htup);
-	relationLocInfo = (RelationLocInfo *) palloc(sizeof(RelationLocInfo));
+	relationLocInfo = (RelationLocInfo *) palloc0(sizeof(RelationLocInfo));
 	relationLocInfo->relid = relid;
 	relationLocInfo->locatorType = pgxc_class->pclocatortype;
-	relationLocInfo->partAttrNum = pgxc_class->pcattnum;
+	switch(relationLocInfo->locatorType)
+	{
+	case LOCATOR_TYPE_HASH:
+	case LOCATOR_TYPE_HASHMAP:
+	case LOCATOR_TYPE_LIST:
+	case LOCATOR_TYPE_RANGE:
+	case LOCATOR_TYPE_MODULO:
+		key = palloc0(sizeof(*key));
+		key->attno = pgxc_class->pcattnum;
+		if (relationLocInfo->locatorType != LOCATOR_TYPE_MODULO)
+		{
+			typid = get_atttype(relid, key->attno);
+			if (!OidIsValid(typid))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+						 errmsg("invalid distribute column %d for relation %u", key->attno, relid)));
+			if (relationLocInfo->locatorType == LOCATOR_TYPE_HASH ||
+				relationLocInfo->locatorType == LOCATOR_TYPE_HASHMAP)
+				key->opclass = ResolveOpClass(NIL, typid, "hash", HASH_AM_OID);
+			else
+				key->opclass = ResolveOpClass(NIL, typid, "btree", BTREE_AM_OID);
+			key->opfamily = get_opclass_family(key->opclass);
+		}
+		key->collation = InvalidOid;
+		relationLocInfo->keys = list_make1(key);
+		break;
+	case LOCATOR_TYPE_REPLICATED:
+	case LOCATOR_TYPE_RANDOM:
+		break;	/* nothing todo */
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("invalid distribute type %d", relationLocInfo->locatorType)));
+	}
 	relationLocInfo->nodeids = NIL;
 	relationLocInfo->masternodeids = NIL;
 	relationLocInfo->slavenodeids = NIL;
@@ -621,6 +730,14 @@ RelationIdBuildLocator(Oid relid)
 			relationLocInfo->masternodeids = relationLocInfo->nodeids;
 			relationLocInfo->slavenodeids = adbUseDnSlaveNodeids(relationLocInfo->nodeids);
 		}
+	}
+
+	if (relationLocInfo->locatorType == LOCATOR_TYPE_LIST ||
+		relationLocInfo->locatorType == LOCATOR_TYPE_RANGE)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("need add values for locator info")));
 	}
 
 	systable_endscan(pcscan);
@@ -673,14 +790,25 @@ RelationLocInfo *
 CopyRelationLocInfo(RelationLocInfo *srcInfo)
 {
 	RelationLocInfo *destInfo;
+	ListCell	   *lc;
+	LocatorKeyInfo *key;
 
 	Assert(srcInfo);
 	destInfo = (RelationLocInfo *) palloc0(sizeof(RelationLocInfo));
 
 	destInfo->relid = srcInfo->relid;
 	destInfo->locatorType = srcInfo->locatorType;
-	destInfo->partAttrNum = srcInfo->partAttrNum;
+	foreach(lc, srcInfo->keys)
+	{
+		key = palloc(sizeof(*key));
+		memcpy(key, lfirst(lc), sizeof(*key));
+		key->key = copyObject(((LocatorKeyInfo*)lfirst(lc))->key);
+		destInfo->keys = lappend(destInfo->keys, key);
+	}
 	destInfo->nodeids = list_copy(srcInfo->nodeids);
+	destInfo->values = copyObject(srcInfo->values);
+	destInfo->masternodeids = list_copy(srcInfo->masternodeids);
+	destInfo->slavenodeids = list_copy(srcInfo->slavenodeids);
 
 	/* Note: for roundrobin, we use the relcache entry */
 	return destInfo;
@@ -695,6 +823,7 @@ FreeRelationLocInfo(RelationLocInfo *relationLocInfo)
 {
 	if (relationLocInfo)
 	{
+		ListCell *lc;
 		if(relationLocInfo->masternodeids == NIL && relationLocInfo->slavenodeids == NIL)
 		{
 			list_free(relationLocInfo->nodeids);
@@ -707,6 +836,15 @@ FreeRelationLocInfo(RelationLocInfo *relationLocInfo)
 			list_free(relationLocInfo->slavenodeids);
 		}
 		pfree(relationLocInfo);
+		foreach(lc, relationLocInfo->keys)
+		{
+			LocatorKeyInfo *key = lfirst(lc);
+			if (key->key)
+				pfree(key->key);
+			pfree(key);
+		}
+		list_free(relationLocInfo->keys);
+		list_free(relationLocInfo->values);
 	}
 }
 
@@ -848,7 +986,7 @@ GetInvolvedNodes(RelationLocInfo *rel_loc,
 
 	if (rel_loc == NULL)
 		return NIL;
-
+#warning change code
 	switch (rel_loc->locatorType)
 	{
 		case LOCATOR_TYPE_REPLICATED:
@@ -1067,4 +1205,24 @@ adbGetRelationNodeids(Oid relid)
 	heap_close(pcrel, AccessShareLock);
 
 	return nodeids;
+}
+
+/* this is an transition function */
+AttrNumber GetFirstLocAttNumIfOnlyOne(RelationLocInfo *loc)
+{
+	LocatorKeyInfo *key;
+	if (list_length(loc->keys) != 1)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("not distribute by only one expression not support yet")));
+	}
+	key = FirstLocKeyInfo(loc);
+	if (key->attno == InvalidAttrNumber)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("distribute by expression not support yet!")));
+	}
+	return key->attno;
 }

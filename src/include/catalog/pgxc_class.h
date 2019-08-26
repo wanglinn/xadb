@@ -43,12 +43,13 @@ typedef enum PgxcClassAlterType
 	PGXC_CLASS_ALTER_ALL
 } PgxcClassAlterType;
 
+#define LOCATOR_TYPE_INVALID		'\0'
 #define LOCATOR_TYPE_REPLICATED		'R'
 #define LOCATOR_TYPE_HASH			'H'
 #define LOCATOR_TYPE_RANGE			'G'
-#define LOCATOR_TYPE_RANDOM			'N'
-#define LOCATOR_TYPE_CUSTOM			'C'
+#define LOCATOR_TYPE_LIST			'L'
 #define LOCATOR_TYPE_MODULO			'M'
+#define LOCATOR_TYPE_RANDOM			'N'
 #define LOCATOR_TYPE_NONE			'O'
 #define LOCATOR_TYPE_DISTRIBUTED	'D'	/* for distributed table without specific
 										 * scheme, e.g. result of JOIN of
@@ -68,10 +69,13 @@ typedef enum PgxcClassAlterType
 												 (x) == LOCATOR_TYPE_RANDOM || \
 												 (x) == LOCATOR_TYPE_HASHMAP || \
 												 (x) == LOCATOR_TYPE_MODULO || \
+												 (x) == LOCATOR_TYPE_LIST || \
+												 (x) == LOCATOR_TYPE_RANGE || \
 												 (x) == LOCATOR_TYPE_DISTRIBUTED)
 #define IsLocatorDistributedByValue(x)			((x) == LOCATOR_TYPE_HASH || \
 												 (x) == LOCATOR_TYPE_MODULO || \
 												 (x) == LOCATOR_TYPE_HASHMAP || \
+												 (x) == LOCATOR_TYPE_LIST || \
 												 (x) == LOCATOR_TYPE_RANGE)
 
 #define IsLocatorHashmap(x) 					(x == LOCATOR_TYPE_HASHMAP)
@@ -82,16 +86,14 @@ extern int default_distribute_by;
 
 extern void PgxcClassCreate(Oid pcrelid,
 							char pclocatortype,
-							int pcattnum,
-							int pchashalgorithm,
-							int pchashbuckets,
+							List *keys,
+							List *values,
 							int numnodes,
 							Oid *nodes);
 extern void PgxcClassAlter(Oid pcrelid,
 						   char pclocatortype,
-						   int pcattnum,
-						   int pchashalgorithm,
-						   int pchashbuckets,
+						   List *keys,
+						   List *values,
 						   int numnodes,
 						   Oid *nodes,
 						   PgxcClassAlterType type);

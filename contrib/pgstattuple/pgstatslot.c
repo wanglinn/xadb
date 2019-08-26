@@ -580,15 +580,12 @@ pgvalueslot(PG_FUNCTION_ARGS)
 	relrv = makeRangeVarFromNameList(textToQualifiedNameList(tablename));
 	rel = relation_openrv(relrv, NoLock);
 
-	if(IS_PGXC_REAL_DATANODE)
+	if (IS_PGXC_REAL_DATANODE ||
+		IS_PGXC_COORDINATOR)
 	{
-		attrnum = rel->rd_locator_info->partAttrNum;
-		locatorType = rel->rd_locator_info->locatorType;
-	}
-	else if(IS_PGXC_COORDINATOR)
-	{
-		attrnum = rel->rd_locator_info->partAttrNum;
-		locatorType = rel->rd_locator_info->locatorType;
+		RelationLocInfo *loc_info = rel->rd_locator_info;
+		attrnum = GetFirstLocAttNumIfOnlyOne(loc_info);
+		locatorType = loc_info->locatorType;
 	}
 	else
 		elog(ERROR, "this command cann't be executed on restore mode.");

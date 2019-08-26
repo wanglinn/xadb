@@ -86,10 +86,12 @@
 
 #ifdef ADB
 #include "catalog/namespace.h"
+#include "catalog/pg_am_d.h"
 #include "catalog/pg_aux_class.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
+#include "commands/defrem.h"
 #include "commands/dbcommands.h"
 #include "intercomm/inter-node.h"
 #include "nodes/makefuncs.h"
@@ -1044,13 +1046,11 @@ AddRelationDistribution(Oid relid,
 						List *parentOids,
 						TupleDesc descriptor)
 {
-	char			locatortype = '\0';
-	int				hashalgorithm = 0;
-	int				hashbuckets = 0;
-	AttrNumber		attnum = 0;
+	Oid			   *nodeoids = NULL;
+	List		   *keys;
 	ObjectAddress	myself, referenced;
 	int				numnodes = 0;
-	Oid			   *nodeoids = NULL;
+	char			locatortype;
 
 	/* Obtain details of nodes and classify them */
 	if (IsDnNode() && (!(isRestoreMode && isRestoreCoordType)))
@@ -1070,13 +1070,10 @@ AddRelationDistribution(Oid relid,
 	}
 
 	/* Obtain details of distribution information */
-	GetRelationDistributionItems(relid,
-								 distributeby,
-								 descriptor,
-								 &locatortype,
-								 &hashalgorithm,
-								 &hashbuckets,
-								 &attnum);
+	locatortype = GetRelationDistributionItems(relid,
+											   distributeby,
+											   descriptor,
+											   &keys);
 
 	/*
 	 * 1st column of auxiliary table is default auxiliary column,
@@ -1084,11 +1081,20 @@ AddRelationDistribution(Oid relid,
 	 */
 	if (auxiliary)
 	{
+		LocatorKeyInfo *key;
 		switch (locatortype)
 		{
 			case LOCATOR_TYPE_HASH:
 			case LOCATOR_TYPE_MODULO:
-				if (attnum != Anum_aux_table_key)
+			case LOCATOR_TYPE_HASHMAP:
+			case LOCATOR_TYPE_RANGE:
+			case LOCATOR_TYPE_LIST:
+				if (list_length(keys) != 1)
+					ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							 errmsg("auxiliary table not support distribute by multi-expression")));
+				key = linitial(keys);
+				if (key->attno != Anum_aux_table_key)
 					ereport(ERROR,
 							(errmsg("distribute column of auxiliary table should be auxiliary column")));
 				break;
@@ -1099,21 +1105,18 @@ AddRelationDistribution(Oid relid,
 			case LOCATOR_TYPE_REPLICATED:
 				/* It is OK */
 				break;
-			case LOCATOR_TYPE_RANGE:
-			case LOCATOR_TYPE_CUSTOM:
-				/* Not support yet */
-				break;
-			case LOCATOR_TYPE_NONE:
-			case LOCATOR_TYPE_DISTRIBUTED:
 			default:
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("unknown distribute type %d for auxiliary table", locatortype)));
 				Assert(false);
 				break;
 		}
 	}
 
 	/* Now OK to insert data in catalog */
-	PgxcClassCreate(relid, locatortype, attnum, hashalgorithm,
-					hashbuckets, numnodes, nodeoids);
+	PgxcClassCreate(relid, locatortype, keys, NIL,
+					numnodes, nodeoids);
 
 	/* Make dependency entries */
 	myself.classId = PgxcClassRelationId;
@@ -1127,7 +1130,16 @@ AddRelationDistribution(Oid relid,
 	recordDependencyOn(&myself, &referenced, DEPENDENCY_INTERNAL);
 
 	/* Dependency on the specific attribute */
-	CreatePgxcRelationAttrDepend(relid, attnum);
+	if (keys != NIL)
+	{
+		int attno;
+		int count = descriptor->natts;
+		for (attno=1;attno<=count;++attno)
+		{
+			if (LocatorKeyIncludeColumn(keys, (AttrNumber)attno, true))
+				CreatePgxcRelationAttrDepend(relid, (AttrNumber)attno);
+		}
+	}
 }
 
 /*
@@ -1135,19 +1147,17 @@ AddRelationDistribution(Oid relid,
 * Obtain distribution type and related items based on deparsed information
 * of clause DISTRIBUTE BY.
 * Depending on the column types given a fallback to a safe distribution can be done.
+* return list of LocatorKeyInfo
 */
-void
+char
 GetRelationDistributionItems(Oid relid,
-							DistributeBy *distributeby,
-							TupleDesc descriptor,
-							char *locatortype,
-							int *hashalgorithm,
-							int *hashbuckets,
-							AttrNumber *attnum)
+							 DistributeBy *distributeby,
+							 TupleDesc descriptor,
+							 List **keys)
 {
-	int local_hashalgorithm = 0;
-	int local_hashbuckets = 0;
-	char local_locatortype = '\0';
+	LocatorKeyInfo *key;
+	List *key_list = NIL;
+	char local_locatortype = LOCATOR_TYPE_INVALID;
 	AttrNumber local_attnum = 0;
 
 	if (distributeby == NULL)
@@ -1284,23 +1294,44 @@ GetRelationDistributionItems(Oid relid,
 		local_locatortype = distributeby->disttype;
 	}
 
-	/* Use default hash values */
-	if ((local_locatortype == LOCATOR_TYPE_HASH)
-		|| (local_locatortype == LOCATOR_TYPE_HASHMAP))
+	if (key_list == NIL &&
+		keys != NULL)
 	{
-		local_hashalgorithm = 1;
-		local_hashbuckets = HASH_SIZE;
+		key = NULL;
+		if (local_locatortype == LOCATOR_TYPE_HASH ||
+			local_locatortype == LOCATOR_TYPE_HASHMAP)
+		{
+			Assert(local_attnum > 0);
+
+			key = palloc0(sizeof(*key));
+			key->attno = local_attnum;
+			key->opclass = ResolveOpClass(NIL,
+										  TupleDescAttr(descriptor, key->attno-1)->atttypid,
+										  "hash",
+										  HASH_AM_OID);
+			key->opfamily = get_opclass_family(key->opclass);
+			key->collation = InvalidOid;
+		}else if(local_locatortype == LOCATOR_TYPE_MODULO)
+		{
+			Assert(local_attnum > 0);
+			key = palloc0(sizeof(*key));
+			key->attno = local_attnum;
+			key->opclass = ResolveOpClass(NIL,
+										  TupleDescAttr(descriptor, key->attno-1)->atttypid,
+										  "btree",
+										  BTREE_AM_OID);
+			key->opfamily = get_opclass_family(key->opclass);
+			key->collation = InvalidOid;
+		}
+		if (key)
+			key_list = list_make1(key);
 	}
 
 	/* Save results */
-	if (attnum)
-		*attnum = local_attnum;
-	if (hashalgorithm)
-		*hashalgorithm = local_hashalgorithm;
-	if (hashbuckets)
-		*hashbuckets = local_hashbuckets;
-	if (locatortype)
-		*locatortype = local_locatortype;
+	if (keys)
+		*keys = key_list;
+	Assert(local_locatortype != LOCATOR_TYPE_INVALID);
+	return local_locatortype;
 }
 
 /*

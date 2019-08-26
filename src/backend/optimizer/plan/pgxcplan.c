@@ -2160,9 +2160,10 @@ pgxc_set_en_expr(Oid tableoid, Index resultRelationIndex)
 		rel_loc_info->locatorType == LOCATOR_TYPE_HASHMAP ||
 		rel_loc_info->locatorType == LOCATOR_TYPE_MODULO)
 	{
+		AttrNumber attno = GetFirstLocAttNumIfOnlyOne(rel_loc_info);
 		tp = SearchSysCache(ATTNUM,
 							ObjectIdGetDatum(tableoid),
-							Int16GetDatum(rel_loc_info->partAttrNum),
+							Int16GetDatum(attno),
 							0, 0);
 		partAttrTup = (Form_pg_attribute) GETSTRUCT(tp);
 
@@ -2174,7 +2175,7 @@ pgxc_set_en_expr(Oid tableoid, Index resultRelationIndex)
 		 * the tuple returned by the current plan node
 		 */
 		var = makeVar(resultRelationIndex,
-					  rel_loc_info->partAttrNum,
+					  attno,
 					  partAttrTup->atttypid,
 					  partAttrTup->atttypmod,
 					  partAttrTup->attcollation,
@@ -3041,7 +3042,7 @@ static void validate_targetlist_updatable(List *tlist, RelationLocInfo *rel_loc_
 			* distributed is same means this set clause entry is updating the
 			* distribution column of the target table.
 			*/
-		if (rel_loc_info->partAttrNum == tle->resno)
+		if (LocatorKeyIncludeColumn(rel_loc_info->keys, tle->resno, true))
 		{
 			/*
 			 * The TargetEntry::expr contains the RHS of the SET clause

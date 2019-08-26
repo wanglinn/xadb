@@ -302,7 +302,7 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 	null_test_list = NIL;
 	if(IsLocatorDistributedByValue(loc_info->locatorType))
 	{
-		context.varattno = loc_info->partAttrNum;
+		context.varattno = GetFirstLocAttNumIfOnlyOne(loc_info);
 		context.var_expr = makeVarByRel(context.varattno, loc_info->relid, varno);
 		context.partition_expr = makePartitionExpr(loc_info, (Node*)context.var_expr);
 		null_test_list = list_make1(makeNotNullTest((Expr*)context.var_expr, false));

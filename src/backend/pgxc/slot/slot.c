@@ -544,7 +544,8 @@ int GetHeapTupleSlotId(Relation rel, HeapTuple tuple)
 	AttrNumber attrNum;
 
 	tupDesc = RelationGetDescr(rel);
-	attrNum = rel->rd_locator_info->partAttrNum;
+	attrNum = GetFirstLocAttNumIfOnlyOne(rel->rd_locator_info);
+
 	if (attrNum <= 0 ||
 		attrNum > tupDesc->natts)
 		ereport(ERROR,
