@@ -73,7 +73,6 @@ char* 	MsgSlotStatus[5] =
 	"MoveHalfWay"
 	};
 
-#define MaxDNMaster 20
 
 typedef struct DN_STATUS
 {
@@ -104,6 +103,7 @@ typedef struct DN_NODE
 } DN_NODE;
 
 #define INVALID_ID	-1
+#define VALID_ID	1
 
 /*
 ADBSQL
@@ -189,17 +189,17 @@ static void hexp_update_slot_phase1_rollback(PGconn *pgconn,char* src_node_name)
 static void hexp_check_dn_pgxcnode_info(PGconn *pg_conn, char *nodename, StringInfoData* pnode_list_exists);
 static void hexp_check_cluster_pgxcnode(void);
 static bool hexp_activate_dn_exist(char* dn_name);
-static void hexp_get_all_dn_status(DN_STATUS* pdn_status, int* pdn_status_index);
+static List *hexp_get_all_dn_status(void);
 static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* pdn_status, char* cnpath);
 static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnpath);
 static void hexp_get_dn_slot_param_status(PGconn *pgconn, DN_STATUS* pdn_status);
-static int 	hexp_find_dn_nodes(DN_NODE* dn_node, int dn_node_index, char* nodename);
-static void hexp_init_dn_nodes(PGconn *pg_conn, DN_NODE* dn_node, int* pdn_node_index);
+static int 	hexp_find_dn_nodes(List *dn_node_list, char* nodename);
+static List *hexp_init_dn_nodes(PGconn *pg_conn);
 static void hexp_init_cluster_pgxcnode(void);
 static void hexp_init_dn_pgxcnode_check(Form_mgr_node mgr_node, char* cnpath);
 
-static void hexp_check_set_all_dn_status(DN_STATUS* pdn_status, int dn_status_index, bool is_vacuum_state);
-static void hexp_check_parent_dn_status(DN_STATUS* pdn_status, int dn_status_index, int expendedid, Oid masterid);
+static void hexp_check_set_all_dn_status(List* dn_status_list, bool is_vacuum_state);
+static void hexp_check_parent_dn_status(List *dn_status_list, DN_STATUS *old_dn_status);
 
 static int 	hexp_select_result_count(PGconn *pg_conn, char* sql);
 
@@ -218,9 +218,9 @@ static void hexp_pgxc_pool_reload_on_all_node(PGconn *pg_conn);
 //static void hexp_flush_node_slot_on_itself(PGconn *pg_conn, char *dnname, Oid dnhostoid, int32 dnport);
 
 static Datum hexp_expand_check_show_status(bool check);
-static bool hexp_check_cluster_status_internal(DN_STATUS* dn_status, int* pdn_status_index , StringInfo pserialize, bool check);
-static int  hexp_dn_slot_status_from_dn_status(DN_STATUS* dn_status, int dn_status_index, char* nodename);
-static int  hexp_cluster_slot_status_from_dn_status(DN_STATUS* dn_status, int dn_status_index);
+static bool hexp_check_cluster_status_internal(List **pdn_status_list, StringInfo pserialize, bool check);
+static int  hexp_dn_slot_status_from_dn_status(List *dn_status_list, char* nodename);
+static int  hexp_cluster_slot_status_from_dn_status(List *dn_status_list);
 
 static void hexp_execute_cmd_get_reloid(PGconn *pg_conn, char *sqlstr, char* ret);
 static void hexp_import_hash_meta(PGconn *pgconn, PGconn *pgconn_dn, char* node_name);
@@ -228,7 +228,7 @@ static void hexp_import_hash_meta(PGconn *pgconn, PGconn *pgconn_dn, char* node_
 static void hexp_check_hash_meta(void);
 static void hexp_check_hash_meta_dn(PGconn *pgconn, PGconn *pgconn_dn, char* node_name);
 
-static void hexp_init_dn_pgxcnode_addnode(Form_mgr_node mgr_node, DN_NODE* dn_node, int dn_node_index, char* cnpath);
+static void hexp_init_dn_pgxcnode_addnode(Form_mgr_node mgr_node, List *dn_node_list, char* cnpath);
 static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name, bool complain);
 static void report_slot_range_invalid(PartitionRangeDatum *prd, ParseState *parser) pg_attribute_noreturn();
 
@@ -1203,8 +1203,6 @@ Datum mgr_expand_clean_init(PG_FUNCTION_ARGS)
 	StringInfoData serialize;
 	bool is_vacuum_state;
 	bool isAddHba = false;
-	DN_STATUS dn_status[MaxDNMaster];
-	int	dn_status_index = 0;
 	PGresult* res;
 	PGresult* res_pg_conn_clean;
 	char sql_pg_conn_clean[200];
@@ -1222,6 +1220,7 @@ Datum mgr_expand_clean_init(PG_FUNCTION_ARGS)
 	AppendNodeInfo coordnodeinfo;
 	Form_mgr_node mgr_node;
 	StringInfoData infosendmsg;
+	List		*dn_status_list;
 
 	strcpy(nodename.data, "---");
 	strcpy(ret_msg, "expand clean init success.");
@@ -1250,11 +1249,11 @@ Datum mgr_expand_clean_init(PG_FUNCTION_ARGS)
 		isAddHba = AddHbaIsValid(&coordnodeinfo, &infosendmsg);
 		//check get node in clean status
 		initStringInfo(&serialize);
-		is_vacuum_state = hexp_check_cluster_status_internal(dn_status, &dn_status_index , &serialize, true);
+		is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list, &serialize, true);
 		if(is_vacuum_state)
 			ereport(ERROR, (errmsg("%s exists, clean init cann't be initialized.", ADB_SLOT_CLEAN_TABLE)));
 
-		ret = hexp_cluster_slot_status_from_dn_status(dn_status, dn_status_index);
+		ret = hexp_cluster_slot_status_from_dn_status(dn_status_list);
 		if (ClusterSlotStatusClean != ret)
 		{
 			if(ClusterSlotStatusOnline==ret)
@@ -1360,8 +1359,7 @@ Datum mgr_expand_clean_start(PG_FUNCTION_ARGS)
 	bool isAddHba = false;
 
 
-	DN_STATUS dn_status[MaxDNMaster];
-	int	dn_status_index = 0;
+	List *dn_status_list = NIL;
 	StringInfoData serialize;
 
 	ExecStatusType status;
@@ -1423,11 +1421,11 @@ Datum mgr_expand_clean_start(PG_FUNCTION_ARGS)
 		isAddHba = AddHbaIsValid(&coordnodeinfo, &infosendmsg);
 
 		initStringInfo(&serialize);
-		is_vacuum_state = hexp_check_cluster_status_internal(dn_status, &dn_status_index , &serialize, true);
+		is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list , &serialize, true);
 		if(!is_vacuum_state)
 			ereport(ERROR, (errmsg("%s doesn't exist, clean start cann't be started.", ADB_SLOT_CLEAN_TABLE)));
 
-		ret = hexp_cluster_slot_status_from_dn_status(dn_status, dn_status_index);
+		ret = hexp_cluster_slot_status_from_dn_status(dn_status_list);
 		if (ClusterSlotStatusClean != ret)
 		{
 			if(ClusterSlotStatusOnline==ret)
@@ -1530,12 +1528,12 @@ Datum mgr_expand_clean_end(PG_FUNCTION_ARGS)
 	ExecStatusType status;
 	PGresult *res;
 
-	DN_STATUS dn_status[MaxDNMaster];
-	int	dn_status_index = 0;
+	List		*dn_status_list;
+	ListCell	*lc;
+	DN_STATUS	*dn_status;
 	bool sn_is_exist, sn_is_running; /*src node status */
 	AppendNodeInfo cleannodeinfo;
 	StringInfoData serialize;
-	int i;
 
 
 	strcpy(nodename.data, "---");
@@ -1549,11 +1547,11 @@ Datum mgr_expand_clean_end(PG_FUNCTION_ARGS)
 		hexp_get_coordinator_conn(&pg_conn, &cnoid);
 
 		initStringInfo(&serialize);
-		is_vacuum_state = hexp_check_cluster_status_internal(dn_status, &dn_status_index , &serialize, true);
+		is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list, &serialize, true);
 		if(!is_vacuum_state)
 			ereport(ERROR, (errmsg("%s doesn't exist, clean end cann't be started.", ADB_SLOT_CLEAN_TABLE)));
 
-		ret = hexp_cluster_slot_status_from_dn_status(dn_status, dn_status_index);
+		ret = hexp_cluster_slot_status_from_dn_status(dn_status_list);
 		if (ClusterSlotStatusClean != ret)
 		{
 			if(ClusterSlotStatusOnline==ret)
@@ -1597,13 +1595,16 @@ Datum mgr_expand_clean_end(PG_FUNCTION_ARGS)
 		pg_conn = NULL;
 
 		//set param
-		for(i=0; i<dn_status_index; i++)
-			if(SlotStatusCleanInDB == dn_status[i].node_status)
+		foreach (lc, dn_status_list)
+		{
+			dn_status = (DN_STATUS *)lfirst(lc);
+			if(SlotStatusCleanInDB == dn_status->node_status)
 			{
-				get_nodeinfo_byname(dn_status[i].nodename.data, CNDN_TYPE_DATANODE_MASTER,
+				get_nodeinfo_byname(NameStr(dn_status->nodename), CNDN_TYPE_DATANODE_MASTER,
 							&sn_is_exist, &sn_is_running, &cleannodeinfo);
 				hexp_update_conf_enable_mvcc(cleannodeinfo, false);
 			}
+		}
 		strcpy(ret_msg, "expand clean end success.");
 	}PG_CATCH();
 	{
@@ -1681,8 +1682,7 @@ Datum mgr_import_hash_meta(PG_FUNCTION_ARGS)
 	PGconn *pg_conn_dn = NULL;
 	Oid 	cnoid;
 	Oid 	cnoid_dn;
-	DN_NODE dn_node[MaxDNMaster];
-	int 	dn_node_index = 0;
+	List	*dn_node_list = NIL;
 
 	node_name = PG_GETARG_CSTRING(0);
 	Assert(node_name);
@@ -1697,8 +1697,8 @@ Datum mgr_import_hash_meta(PG_FUNCTION_ARGS)
 		hexp_get_coordinator_conn(&pg_conn, &cnoid);
 
 		//1.check dn exists
-		hexp_init_dn_nodes(pg_conn, dn_node, &dn_node_index);
-		if(INVALID_ID==hexp_find_dn_nodes(dn_node, dn_node_index, node_name))
+		dn_node_list = hexp_init_dn_nodes(pg_conn);
+		if(INVALID_ID==hexp_find_dn_nodes(dn_node_list, node_name))
 		{
 			PQfinish(pg_conn);
 			pg_conn = NULL;
@@ -1921,13 +1921,12 @@ Datum hexp_expand_check_show_status(bool check)
 	HeapTuple tup_result;
 	NameData nodename;
 	StringInfoData serialize;
-	DN_STATUS dn_status[MaxDNMaster];
-	int	dn_status_index = 0;
+	List *dn_status_list;
 
 	strcpy(nodename.data, "---");
 	initStringInfo(&serialize);
 
-	hexp_check_cluster_status_internal(dn_status, &dn_status_index , &serialize, check);
+	hexp_check_cluster_status_internal(&dn_status_list, &serialize, check);
 
 	tup_result = build_common_command_tuple(&nodename, true, serialize.data);
 	return HeapTupleGetDatum(tup_result);
@@ -2107,19 +2106,22 @@ static void hexp_check_hash_meta(void)
 	PGconn *pg_conn_dn = NULL;
 	Oid 	cnoid;
 	Oid 	cnoid_dn;
-	DN_NODE dn_node[MaxDNMaster];
-	int 	dn_node_index = 0;
-	int 	i=0;
+	DN_NODE	*dn_node;
+	List	*dn_node_list = NIL;
+	ListCell	*lc;
 
 	PG_TRY();
 	{
 		hexp_get_coordinator_conn(&pg_conn, &cnoid);
 		hexp_get_coordinator_conn(&pg_conn_dn, &cnoid_dn);
 
-		hexp_init_dn_nodes(pg_conn, dn_node, &dn_node_index);
+		dn_node_list = hexp_init_dn_nodes(pg_conn);
 
-		for(i=0; i<dn_node_index; i++)
-			hexp_check_hash_meta_dn(pg_conn, pg_conn_dn, dn_node[i].nodename.data);
+		foreach (lc, dn_node_list)
+		{
+			dn_node = (DN_NODE *)lfirst(lc);
+			hexp_check_hash_meta_dn(pg_conn, pg_conn_dn, NameStr(dn_node->nodename));
+		}
 
 		PQfinish(pg_conn_dn);
 		pg_conn_dn= NULL;
@@ -2428,163 +2430,170 @@ static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* 
 	}PG_END_TRY();
 }
 
-static void hexp_check_parent_dn_status(DN_STATUS* pdn_status, int dn_status_index, int expendedid, Oid masterid)
+static void hexp_check_parent_dn_status(List *dn_status_list, DN_STATUS *old_dn_status)
 {
+	DN_STATUS *dn_status;
+	ListCell *lc;
 	int diff;
-	int i;
 	diff = -1;
-	for(i = 0; i < dn_status_index; i++)
+
+	foreach (lc, dn_status_list)
 	{
-		if(pdn_status[i].tid == masterid)
+		dn_status = (DN_STATUS *)lfirst(lc);
+		if(dn_status->tid == old_dn_status->nodemasternameoid)
 		{
-			if(pdn_status[i].checked)
+			if(dn_status->checked)
 				ereport(ERROR, (errmsg("%s's parent is checked.parent=%s",
-					pdn_status[expendedid].nodename.data,
-					pdn_status[i].nodename.data)));
+					NameStr(old_dn_status->nodename),
+					NameStr(dn_status->nodename))));
 
-			if(0!=strcmp(pdn_status[i].nodename.data, pdn_status[expendedid].pgxc_node_name.data))
+			if(0!=strcmp(NameStr(dn_status->nodename), NameStr(old_dn_status->pgxc_node_name)))
 				ereport(ERROR, (errmsg("%s's whose pgxcnodename is %s doesn't match master name %s",
-					pdn_status[expendedid].nodename.data, pdn_status[expendedid].pgxc_node_name.data, pdn_status[i].nodename.data)));
+					NameStr(old_dn_status->nodename), NameStr(old_dn_status->pgxc_node_name), NameStr(dn_status->nodename))));
 
-			diff = pdn_status[i].move_count - pdn_status[i].online_count;
-			if((pdn_status[i].online_count != 0)
-			&&(pdn_status[i].move_count != 0)
-			&&(pdn_status[i].clean_count == 0)
+			diff = dn_status->move_count - dn_status->online_count;
+			if((dn_status->online_count != 0)
+			&&(dn_status->move_count != 0)
+			&&(dn_status->clean_count == 0)
 			&&((0==diff)||(1==diff))
-			&&(pdn_status[i].enable_mvcc == false)
-			&&(pdn_status[i].nodemasternameoid == 0)
-			&&(pdn_status[i].nodeincluster == true))
+			&&(dn_status->enable_mvcc == false)
+			&&(dn_status->nodemasternameoid == 0)
+			&&(dn_status->nodeincluster == true))
 			{
-				pdn_status[i].checked = true;
-				pdn_status[i].node_status = SlotStatusMoveInDB;
+				dn_status->checked = true;
+				dn_status->node_status = SlotStatusMoveInDB;
 				return;
 			}
 
 			ereport(ERROR, (errmsg("%s is in move state, but value is wrong.mvcc=%d-masterid=%d-incluster=%d",
-				pdn_status[i].nodename.data,
-				pdn_status[i].enable_mvcc,
-				pdn_status[i].nodemasternameoid,
-				pdn_status[i].nodeincluster)));
+				NameStr(dn_status->nodename),
+				dn_status->enable_mvcc,
+				dn_status->nodemasternameoid,
+				dn_status->nodeincluster)));
 		}
 	}
 
 	ereport(ERROR, (errmsg("%s's parent cann't be found.mvcc=%d-masterid=%d-incluster=%d",
-		pdn_status[expendedid].nodename.data,
-		pdn_status[expendedid].enable_mvcc,
-		pdn_status[expendedid].nodemasternameoid,
-		pdn_status[expendedid].nodeincluster)));
+		NameStr(old_dn_status->nodename),
+		old_dn_status->enable_mvcc,
+		old_dn_status->nodemasternameoid,
+		old_dn_status->nodeincluster)));
 
 }
 
-static void hexp_check_set_all_dn_status(DN_STATUS* pdn_status, int dn_status_index, bool is_vacuum_state)
+static void hexp_check_set_all_dn_status(List* dn_status_list, bool is_vacuum_state)
 {
-	int i;
-	for(i = 0; i < dn_status_index; i++)
+	ListCell	*lc;
+	DN_STATUS	*dn_status;
+
+	foreach (lc, dn_status_list)
 	{
-		if(pdn_status[i].checked)
+		dn_status = (DN_STATUS *)lfirst(lc);
+		if(dn_status->checked)
 			continue;
 
 		//online
-		if((pdn_status[i].online_count != 0)
-			&&(pdn_status[i].move_count == 0)
-			&&(pdn_status[i].clean_count == 0))
+		if((dn_status->online_count != 0)
+			&&(dn_status->move_count == 0)
+			&&(dn_status->clean_count == 0))
 		{
-			if((pdn_status[i].enable_mvcc == false)
-				&&(pdn_status[i].nodemasternameoid == 0)
-				&&(pdn_status[i].nodeincluster == true))
+			if((dn_status->enable_mvcc == false)
+				&&(dn_status->nodemasternameoid == 0)
+				&&(dn_status->nodeincluster == true))
 			{
-				pdn_status[i].checked = true;
-				pdn_status[i].node_status = SlotStatusOnlineInDB;
+				dn_status->checked = true;
+				dn_status->node_status = SlotStatusOnlineInDB;
 				continue;
 			}
 			ereport(ERROR, (errmsg("%s is in online state, but value is wrong.mvcc=%d-masterid=%d-incluster=%d",
-				pdn_status[i].nodename.data,
-				pdn_status[i].enable_mvcc,
-				pdn_status[i].nodemasternameoid,
-				pdn_status[i].nodeincluster)));
+				NameStr(dn_status->nodename),
+				dn_status->enable_mvcc,
+				dn_status->nodemasternameoid,
+				dn_status->nodeincluster)));
 
 		}
 		//clean
-		else if((pdn_status[i].online_count == 0)
-			&&(pdn_status[i].move_count == 0)
-			&&(pdn_status[i].clean_count != 0))
+		else if((dn_status->online_count == 0)
+			&&(dn_status->move_count == 0)
+			&&(dn_status->clean_count != 0))
 		{
-			if((pdn_status[i].enable_mvcc == true)
-				&&(pdn_status[i].nodemasternameoid == 0)
-				&&(pdn_status[i].nodeincluster == true))
+			if((dn_status->enable_mvcc == true)
+				&&(dn_status->nodemasternameoid == 0)
+				&&(dn_status->nodeincluster == true))
 			{
-				pdn_status[i].checked = true;
-				pdn_status[i].node_status = SlotStatusCleanInDB;
+				dn_status->checked = true;
+				dn_status->node_status = SlotStatusCleanInDB;
 				continue;
 			}
 			ereport(ERROR, (errmsg("%s is in online state, but value is wrong.mvcc=%d-masterid=%d-incluster=%d",
-				pdn_status[i].nodename.data,
-				pdn_status[i].enable_mvcc,
-				pdn_status[i].nodemasternameoid,
-				pdn_status[i].nodeincluster)));
+				NameStr(dn_status->nodename),
+				dn_status->enable_mvcc,
+				dn_status->nodemasternameoid,
+				dn_status->nodeincluster)));
 
 		}
 		//move
-		else if((pdn_status[i].online_count != 0)
-			&&(pdn_status[i].move_count != 0)
-			&&(pdn_status[i].clean_count == 0))
+		else if((dn_status->online_count != 0)
+			&&(dn_status->move_count != 0)
+			&&(dn_status->clean_count == 0))
 		{
 				if(is_vacuum_state)
 					ereport(ERROR, (errmsg("in vacuum state, move state node exists")));
 				//slot info is move, unsure if mgr info is set.
-				pdn_status[i].node_status = SlotStatusMoveHalfWay;
+				dn_status->node_status = SlotStatusMoveHalfWay;
 				continue;
 		}
 		//expand
-		else if((pdn_status[i].online_count == 0)
-			&&(pdn_status[i].move_count == 0)
-			&&(pdn_status[i].clean_count == 0))
+		else if((dn_status->online_count == 0)
+			&&(dn_status->move_count == 0)
+			&&(dn_status->clean_count == 0))
 		{
 			if(is_vacuum_state)
 				ereport(ERROR, (errmsg("in vacuum state, expend state node exists")));
 
-			if((pdn_status[i].enable_mvcc == false)
-				&&(pdn_status[i].nodemasternameoid != 0)
-				&&(pdn_status[i].nodeincluster == false))
+			if((dn_status->enable_mvcc == false)
+				&&(dn_status->nodemasternameoid != 0)
+				&&(dn_status->nodeincluster == false))
 			{
 				//find master
-				pdn_status[i].checked = true;
-				pdn_status[i].node_status = SlotStatusExpand;
-				hexp_check_parent_dn_status(pdn_status, dn_status_index, i, pdn_status[i].nodemasternameoid);
+				dn_status->checked = true;
+				dn_status->node_status = SlotStatusExpand;
+				hexp_check_parent_dn_status(dn_status_list, dn_status);
 				continue;
 			}
 			ereport(ERROR, (errmsg("%s is in expanded state, but value is wrong.mvcc=%d-masterid=%d-incluster=%d",
-				pdn_status[i].nodename.data,
-				pdn_status[i].enable_mvcc,
-				pdn_status[i].nodemasternameoid,
-				pdn_status[i].nodeincluster)));
+				NameStr(dn_status->nodename),
+				dn_status->enable_mvcc,
+				dn_status->nodemasternameoid,
+				dn_status->nodeincluster)));
 		}
 	}
 
 
-	for(i = 0; i < dn_status_index; i++)
+	foreach (lc, dn_status_list)
 	{
-		if(SlotStatusMoveHalfWay==pdn_status[i].node_status)
-			pdn_status[i].checked = true;
+		dn_status = (DN_STATUS *)lfirst(lc);
+		if(SlotStatusMoveHalfWay==dn_status->node_status)
+			dn_status->checked = true;
 
-		if(!pdn_status[i].checked)
+		if(!dn_status->checked)
 			ereport(ERROR, (errmsg("%s is not checked.mvcc=%d-masterid=%d-incluster=%d",
-				pdn_status[i].nodename.data,
-				pdn_status[i].enable_mvcc,
-				pdn_status[i].nodemasternameoid,
-				pdn_status[i].nodeincluster)));
+				NameStr(dn_status->nodename),
+				dn_status->enable_mvcc,
+				dn_status->nodemasternameoid,
+				dn_status->nodeincluster)));
 
-		if(SlotStatusInvalid == pdn_status[i].node_status)
+		if(SlotStatusInvalid == dn_status->node_status)
 			ereport(ERROR, (errmsg("%s is not set status.mvcc=%d-masterid=%d-incluster=%d",
-				pdn_status[i].nodename.data,
-				pdn_status[i].enable_mvcc,
-				pdn_status[i].nodemasternameoid,
-				pdn_status[i].nodeincluster)));
+				NameStr(dn_status->nodename),
+				dn_status->enable_mvcc,
+				dn_status->nodemasternameoid,
+				dn_status->nodeincluster)));
 
-		if(SlotStatusExpand != pdn_status[i].node_status)
-			if (0!=strcmp(pdn_status->nodename.data, pdn_status->pgxc_node_name.data))
+		if(SlotStatusExpand != dn_status->node_status)
+			if (0!=strcmp(NameStr(dn_status->nodename), NameStr(dn_status->pgxc_node_name)))
 			{
-				ereport(ERROR, (errmsg("mgr's node is %s. pgxc_node_name is %s.", pdn_status->nodename.data, pdn_status->pgxc_node_name.data)));
+				ereport(ERROR, (errmsg("mgr's node is %s. pgxc_node_name is %s.", NameStr(dn_status->nodename), NameStr(dn_status->pgxc_node_name))));
 			}
 
 	}
@@ -2593,20 +2602,25 @@ static void hexp_check_set_all_dn_status(DN_STATUS* pdn_status, int dn_status_in
 
 static bool hexp_activate_dn_exist(char* dn_name)
 {
-	DN_STATUS dn_status[MaxDNMaster];
-	int	dn_status_index = 0;
-	int i=0;
+	List		*dn_status_list;
+	ListCell	*lc;
+	DN_STATUS	*dn_status;
 
-	hexp_get_all_dn_status(dn_status, &dn_status_index);
+	dn_status_list = hexp_get_all_dn_status();
 
-	for(i=0; i<dn_status_index; i++)
-		if((0==strcmp(dn_status[i].nodename.data, dn_name))
-			&& (SlotStatusExpand!=dn_status[i].node_status))
+	foreach (lc, dn_status_list)
+	{
+		dn_status = (DN_STATUS *)lfirst(lc);
+		if((0==strcmp(NameStr(dn_status->nodename), dn_name))
+			&& (SlotStatusExpand!=dn_status->node_status))
 			return true;
+	}
+
 
 	return false;
 }
-static void hexp_get_all_dn_status(DN_STATUS* pdn_status, int* pdn_status_index)
+static List *
+hexp_get_all_dn_status(void)
 {
 	InitNodeInfo *info;
 	ScanKeyData key[2];
@@ -2615,6 +2629,8 @@ static void hexp_get_all_dn_status(DN_STATUS* pdn_status, int* pdn_status_index)
 	bool isNull;
 	char cnpath[1024];
 	Datum datumPath;
+	DN_STATUS *dn_status = NULL;
+	List *dn_status_list = NIL;
 
 	//select all inicialized node
 	ScanKeyInit(&key[0]
@@ -2650,16 +2666,15 @@ static void hexp_get_all_dn_status(DN_STATUS* pdn_status, int* pdn_status_index)
 		}
 		strncpy(cnpath, TextDatumGetCString(datumPath), 1024);
 
-		hexp_get_dn_status(mgr_node, HeapTupleGetOid(tuple), &pdn_status[*pdn_status_index], cnpath);
-		(*pdn_status_index)++;
-
-		if((*pdn_status_index)>MaxDNMaster)
-			ereport(ERROR, (errmsg("the number of datanode master is bigger than %d", MaxDNMaster)));
+		dn_status = (DN_STATUS *) palloc(sizeof(DN_STATUS));
+		hexp_get_dn_status(mgr_node, HeapTupleGetOid(tuple), dn_status, cnpath);
+		dn_status_list = lappend(dn_status_list, dn_status);
 	}
 
 	heap_endscan(info->rel_scan);
 	heap_close(info->rel_node, AccessShareLock);
 	pfree(info);
+	return dn_status_list;
 }
 
 
@@ -2868,10 +2883,11 @@ static void hexp_check_dn_pgxcnode_info(PGconn *pg_conn, char *nodename, StringI
 	pfree(node_list_self.data);
 }
 
-static void hexp_init_dn_pgxcnode_addnode(Form_mgr_node mgr_node, DN_NODE* dn_node, int dn_node_index, char* cnpath)
+static void hexp_init_dn_pgxcnode_addnode(Form_mgr_node mgr_node, List *dn_node_list, char* cnpath)
 {
-	int i;
-	char sql[200];
+	char	sql[200];
+	DN_NODE	*dn_node;
+	ListCell	*lc;
 
 	PGconn * dn_pg_conn = NULL;
 
@@ -2880,16 +2896,17 @@ static void hexp_init_dn_pgxcnode_addnode(Form_mgr_node mgr_node, DN_NODE* dn_no
 		hexp_get_dn_conn(&dn_pg_conn, mgr_node, cnpath);
 
 		hexp_pqexec_direct_execute_utility(dn_pg_conn, SQL_BEGIN_TRANSACTION, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		for(i=0; i<dn_node_index; i++)
+		foreach (lc, dn_node_list)
 		{
-			if(0==strcmp(dn_node[i].nodename.data, mgr_node->nodename.data))
+			dn_node = (DN_NODE *)lfirst(lc);
+			if(0==strcmp(NameStr(dn_node->nodename), NameStr(mgr_node->nodename)))
 			{
-				sprintf(sql, ALTER_PGXC_NODE_TYPE, mgr_node->nodename.data);
+				sprintf(sql, ALTER_PGXC_NODE_TYPE, NameStr(mgr_node->nodename));
 				hexp_pqexec_direct_execute_utility(dn_pg_conn, sql, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 			}
 			else
 			{
-				sprintf(sql, CREATE_PGXC_NODE, dn_node[i].nodename.data, dn_node[i].host.data, dn_node[i].port.data);
+				sprintf(sql, CREATE_PGXC_NODE, NameStr(dn_node->nodename), NameStr(dn_node->host), NameStr(dn_node->port));
 				hexp_pqexec_direct_execute_utility(dn_pg_conn, sql, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 			}
 		}
@@ -3000,7 +3017,7 @@ static void hexp_init_dn_pgxcnode_check(Form_mgr_node mgr_node, char* cnpath)
 	}PG_END_TRY();
 }
 
-static void hexp_init_dns_pgxcnode_addnode(DN_NODE* dn_node, int dn_node_index)
+static void hexp_init_dns_pgxcnode_addnode(List *dn_node_list)
 {
 	InitNodeInfo *info;
 	ScanKeyData key[2];
@@ -3049,7 +3066,7 @@ static void hexp_init_dns_pgxcnode_addnode(DN_NODE* dn_node, int dn_node_index)
 				, errmsg("column nodepath is null")));
 		}
 		strncpy(cnpath, TextDatumGetCString(datumPath), 1024);
-		hexp_init_dn_pgxcnode_addnode(mgr_node, dn_node, dn_node_index, cnpath);
+		hexp_init_dn_pgxcnode_addnode(mgr_node, dn_node_list, cnpath);
 	}
 
 	heap_endscan(info->rel_scan);
@@ -3116,19 +3133,27 @@ static void hexp_init_dns_pgxcnode_check(void)
 	pfree(info);
 }
 
-static int hexp_find_dn_nodes(DN_NODE* dn_node, int dn_node_index, char* nodename)
+static int hexp_find_dn_nodes(List *dn_node_list, char* nodename)
 {
-	int i;
-	for(i=0; i<=dn_node_index; i++)
-		if(0==strcmp(dn_node[i].nodename.data, nodename))
-			return i;
+	ListCell	*lc;
+	DN_NODE		*dn_node;
+
+	foreach (lc, dn_node_list)
+	{
+		dn_node = (DN_NODE *)lfirst(lc);
+		if(0==strcmp(NameStr(dn_node->nodename), nodename))
+			return VALID_ID;
+	}
+
 	return INVALID_ID;
 }
-static void hexp_init_dn_nodes(PGconn *pg_conn, DN_NODE* dn_node, int* pdn_node_index)
+static List *
+hexp_init_dn_nodes(PGconn *pg_conn)
 {
 	PGresult *res;
 	ExecStatusType status;
 	int i;
+	List *dn_node_list = NIL;
 
 	//get coor dn info
 	res = PQexec(pg_conn, SELECT_PGXC_NODE);
@@ -3147,22 +3172,20 @@ static void hexp_init_dn_nodes(PGconn *pg_conn, DN_NODE* dn_node, int* pdn_node_
 	}
     for (i = 0; i < PQntuples(res); i++)
     {
-		strcpy(dn_node[i].nodename.data, PQgetvalue(res, i, 0));
-		strcpy(dn_node[i].host.data, PQgetvalue(res, i, 1));
-		strcpy(dn_node[i].port.data, PQgetvalue(res, i, 2));
-		(*pdn_node_index)++;
+		DN_NODE *dn_node = (DN_NODE *) palloc(sizeof(DN_NODE));
+		strcpy(NameStr(dn_node->nodename), PQgetvalue(res, i, 0));
+		strcpy(NameStr(dn_node->host), PQgetvalue(res, i, 1));
+		strcpy(NameStr(dn_node->port), PQgetvalue(res, i, 2));
+		dn_node_list = lappend(dn_node_list, dn_node);
 	}
 	PQclear(res);
-
+	return dn_node_list;
 }
 static void hexp_init_cluster_pgxcnode(void)
 {
-	PGconn *pg_conn;
-	Oid cnoid;
-	DN_NODE dn_node[MaxDNMaster];
-	int 	dn_node_index = 0;
-	pg_conn = NULL;
-
+	PGconn	*pg_conn = NULL;
+	Oid		cnoid;
+	List	*dn_node_list = NIL;
 
 	//check if hash table meta matches in cluster.
 	hexp_check_hash_meta();
@@ -3170,9 +3193,9 @@ static void hexp_init_cluster_pgxcnode(void)
 	PG_TRY();
 	{
 		hexp_get_coordinator_conn(&pg_conn, &cnoid);
-		hexp_init_dn_nodes(pg_conn, dn_node, &dn_node_index);
+		dn_node_list = hexp_init_dn_nodes(pg_conn);
 		hexp_init_dns_pgxcnode_check();
-		hexp_init_dns_pgxcnode_addnode(dn_node, dn_node_index);
+		hexp_init_dns_pgxcnode_addnode(dn_node_list);
 
 		PQfinish(pg_conn);
 		pg_conn = NULL;
@@ -3198,11 +3221,11 @@ static void hexp_check_cluster_pgxcnode(void)
 	Oid cnoid;
 
 	StringInfoData coor_node_list;
-	int i;
 
-	DN_NODE dn_node[MaxDNMaster];
-	int 	dn_node_index = 0;
-	int 	mgr_count=0;
+	int 		mgr_count=0;
+	List		*dn_node_list = NIL;
+	ListCell	*lc;
+	DN_NODE		*dn_node;
 
 	PG_TRY();
 	{
@@ -3210,9 +3233,12 @@ static void hexp_check_cluster_pgxcnode(void)
 		//get coor dn info
 		initStringInfo(&coor_node_list);
 
-		hexp_init_dn_nodes(pg_conn, dn_node, &dn_node_index);
-	    for (i = 0; i < dn_node_index; i++)
-			appendStringInfo(&coor_node_list, "%s", dn_node[i].nodename.data);
+		dn_node_list = hexp_init_dn_nodes(pg_conn);
+		foreach (lc, dn_node_list)
+		{
+			dn_node = (DN_NODE *)lfirst(lc);
+			appendStringInfo(&coor_node_list, "%s", NameStr(dn_node->nodename));
+		}
 
 		//select all inicialized and incluster node
 		ScanKeyInit(&key[0]
@@ -3248,7 +3274,7 @@ static void hexp_check_cluster_pgxcnode(void)
 		heap_close(info->rel_node, AccessShareLock);
 		pfree(info);
 
-		if(dn_node_index != mgr_count)
+		if(dn_node_list->length != mgr_count)
 			ereport(ERROR, (errmsg("pgxc_node' count doesn't match mgr's.")));
 
 		if(pg_conn)
@@ -3314,17 +3340,16 @@ static void hexp_check_expand_backup(char* src_node_name)
 	int src_ret;
 	StringInfoData serialize;
 	bool is_vacuum_state;
-	DN_STATUS dn_status[MaxDNMaster];
-	int	dn_status_index = 0;
+	List *dn_status_list;
 
 	//check slot vacuum status
 	initStringInfo(&serialize);
-	is_vacuum_state = hexp_check_cluster_status_internal(dn_status, &dn_status_index , &serialize, true);
+	is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list, &serialize, true);
 	if(is_vacuum_state)
 		ereport(ERROR, (errmsg("%s exists, expand activate cann't be started.", ADB_SLOT_CLEAN_TABLE)));
 
 	//check src node status
-	src_ret = hexp_dn_slot_status_from_dn_status(dn_status, dn_status_index, src_node_name);
+	src_ret = hexp_dn_slot_status_from_dn_status(dn_status_list, src_node_name);
 	if (SlotStatusOnlineInDB != src_ret)
 		ereport(ERROR, (errmsg("src node %s status is %d. expand backup cann't be started.", src_node_name,src_ret)));
 
@@ -3335,27 +3360,26 @@ static void hexp_check_expand_activate(char* src_node_name, char* dst_node_name)
 	int ret, src_ret, dst_ret;
 	StringInfoData serialize;
 	bool is_vacuum_state;
-	DN_STATUS dn_status[MaxDNMaster];
-	int	dn_status_index = 0;
+	List *dn_status_list;
 
 	//check slot vacuum status
 	initStringInfo(&serialize);
-	is_vacuum_state = hexp_check_cluster_status_internal(dn_status, &dn_status_index , &serialize, true);
+	is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list, &serialize, true);
 	if(is_vacuum_state)
 		ereport(ERROR, (errmsg("%s exists, expand activate cann't be started.", ADB_SLOT_CLEAN_TABLE)));
 
 	//check cluster status
-	ret = hexp_cluster_slot_status_from_dn_status(dn_status, dn_status_index);
+	ret = hexp_cluster_slot_status_from_dn_status(dn_status_list);
 	if (ClusterSlotStatusMove != ret)
 		ereport(ERROR, (errmsg("cluster status is %d. expand activate cann't be started.", ret)));
 
 	//check src node status
-	src_ret = hexp_dn_slot_status_from_dn_status(dn_status, dn_status_index, src_node_name);
+	src_ret = hexp_dn_slot_status_from_dn_status(dn_status_list, src_node_name);
 	if (SlotStatusMoveInDB != src_ret)
 		ereport(ERROR, (errmsg("src node %s status is %d. expand activate cann't be started.", src_node_name,src_ret)));
 
 	//check dst node status
-	dst_ret = hexp_dn_slot_status_from_dn_status(dn_status, dn_status_index, dst_node_name);
+	dst_ret = hexp_dn_slot_status_from_dn_status(dn_status_list, dst_node_name);
 	if (SlotStatusExpand != dst_ret)
 		ereport(ERROR, (errmsg("dst node %s status is %d. expand activate cann't be started.", dst_node_name,src_ret)));
 }
@@ -3445,19 +3469,21 @@ static void hexp_slot_all_clean_to_online(PGconn *pgconn)
 	}
 }
 
-int  hexp_cluster_slot_status_from_dn_status(DN_STATUS* dn_status, int dn_status_index)
+int  hexp_cluster_slot_status_from_dn_status(List *dn_status_list)
 {
 	int online_count;
 	int move_count;
 	int clean_count;
-	int i;
+	ListCell	*lc;
+	DN_STATUS	*dn_status;
 	online_count = move_count = clean_count = 0;
 
-	for(i = 0; i < dn_status_index; i++)
+	foreach (lc, dn_status_list)
 	{
-		online_count += dn_status[i].online_count;
-		move_count += dn_status[i].move_count;
-		clean_count += dn_status[i].clean_count;
+		dn_status = (DN_STATUS *)lfirst(lc);
+		online_count += dn_status->online_count;
+		move_count += dn_status->move_count;
+		clean_count += dn_status->clean_count;
 	}
 
 	if (HASHMAP_SLOTSIZE!=(online_count+move_count+clean_count))
@@ -3478,28 +3504,32 @@ int  hexp_cluster_slot_status_from_dn_status(DN_STATUS* dn_status, int dn_status
 }
 
 
-int  hexp_dn_slot_status_from_dn_status(DN_STATUS* dn_status, int dn_status_index, char* nodename)
+int  hexp_dn_slot_status_from_dn_status(List *dn_status_list, char* nodename)
 {
-	int i = 0;
-	for(i = 0; i < dn_status_index; i++)
+	ListCell	*lc;
+	DN_STATUS	*dn_status;
+	foreach (lc, dn_status_list)
 	{
-		if(0==strcmp(nodename, dn_status[i].nodename.data))
+		dn_status = (DN_STATUS *)lfirst(lc);
+		if(0==strcmp(nodename, NameStr(dn_status->nodename)))
 		{
-			if(SlotStatusInvalid==dn_status[i].node_status)
+			if(SlotStatusInvalid==dn_status->node_status)
 				ereport(ERROR, (errmsg("node %s 's slot status is invalid.", nodename)));
-			return dn_status[i].node_status;
+			return dn_status->node_status;
 		}
 	}
 	ereport(ERROR, (errmsg("node %s is not found in DN_STATUS arrary.", nodename)));
 }
 
-bool hexp_check_cluster_status_internal(DN_STATUS* dn_status, int* pdn_status_index , StringInfo pserialize, bool check)
+bool hexp_check_cluster_status_internal(List **pdn_status_list, StringInfo pserialize, bool check)
 {
-	int i, ret;
+	int ret;
 	PGconn *pg_conn = NULL;
 	Oid cnoid;
 	bool is_vacuum_state;
 	char* pstatus = "NULL";
+	ListCell	*lc;
+	DN_STATUS	*dn_status;
 
 	PG_TRY();
 	{
@@ -3521,10 +3551,10 @@ bool hexp_check_cluster_status_internal(DN_STATUS* dn_status, int* pdn_status_in
 			appendStringInfo(pserialize,"cluster status is slot vacuum\n");
 
 		//get all dn info
-		hexp_get_all_dn_status(dn_status, pdn_status_index);
+		*pdn_status_list = hexp_get_all_dn_status();
 
 		//get and check cluster slot status
-		ret = hexp_cluster_slot_status_from_dn_status(dn_status, *pdn_status_index);
+		ret = hexp_cluster_slot_status_from_dn_status(*pdn_status_list);
 		if(ClusterSlotStatusOnline==ret)
 			appendStringInfo(pserialize,"cluster status is online\n");
 		else if (ClusterSlotStatusMove == ret)
@@ -3536,23 +3566,24 @@ bool hexp_check_cluster_status_internal(DN_STATUS* dn_status, int* pdn_status_in
 		if(check&&is_vacuum_state&&(ClusterSlotStatusClean != ret))
 			ereport(ERROR, (errmsg("cluster status is slot vacuum, but ClusterSlotStatus is not clean.")));
 		if(check)
-			hexp_check_set_all_dn_status(dn_status, *pdn_status_index, is_vacuum_state);
+			hexp_check_set_all_dn_status(*pdn_status_list, is_vacuum_state);
 
-		for(i=0; i<(*pdn_status_index); i++)
+		foreach (lc, *pdn_status_list)
 		{
+			dn_status = (DN_STATUS *)lfirst(lc);
 			if(check)
-				pstatus = MsgSlotStatus[dn_status[i].node_status-1];
-
+				pstatus = MsgSlotStatus[dn_status->node_status-1];
+			
 			appendStringInfo(pserialize,
 				"name=%s-status=%s-online=%d-move=%d-clean=%d-mvcc=%d-masterid=%d-incluster=%d\n"
-				,dn_status[i].nodename.data,
+				, NameStr(dn_status->nodename),
 				pstatus,
-				dn_status[i].online_count,
-				dn_status[i].move_count,
-				dn_status[i].clean_count,
-				dn_status[i].enable_mvcc,
-				dn_status[i].nodemasternameoid,
-				dn_status[i].nodeincluster);
+				dn_status->online_count,
+				dn_status->move_count,
+				dn_status->clean_count,
+				dn_status->enable_mvcc,
+				dn_status->nodemasternameoid,
+				dn_status->nodeincluster);
 		}
 		if(pg_conn)
 			PQfinish(pg_conn);
