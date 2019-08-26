@@ -27,6 +27,116 @@
 #include "pgxc/locator.h"
 #include "utils/array.h"
 
+static void SetDistributeByDatums(Datum *datums, bool *nulls, bool *replace, List *keys, char loc_type)
+{
+	int2vector *attr_array;
+	oidvector  *class_array;
+	/*oidvector  *collation_array;*/
+	List	   *exprs;
+	LocatorKeyInfo *key;
+	ListCell   *lc;
+	uint32		i;
+	uint32		nkeys;
+
+	switch(loc_type)
+	{
+	case LOCATOR_TYPE_HASH:
+	case LOCATOR_TYPE_HASHMAP:
+	case LOCATOR_TYPE_MODULO:
+		if (list_length(keys) <= 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("invalid distribute by key length %d", list_length(keys))));
+		nkeys = list_length(keys);
+		attr_array = buildint2vector(NULL, nkeys);
+		class_array = buildoidvector(NULL, nkeys);
+		exprs = NIL;
+		i = 0;
+		foreach (lc, keys)
+		{
+			key = lfirst(lc);
+			if (key->attno == InvalidAttrNumber)
+			{
+				Assert(key->key != NULL);
+				exprs = lappend(exprs, keys);
+				attr_array->values[i] = InvalidAttrNumber;
+			}else
+			{
+				Assert(key->attno > 0);
+				attr_array->values[i] = key->attno;
+			}
+			class_array->values[i] = key->opclass;
+		}
+
+		datums[Anum_pgxc_class_pcattrs - 1] = PointerGetDatum(attr_array);
+		nulls[Anum_pgxc_class_pcattrs - 1] = false;
+		datums[Anum_pgxc_class_pcclass - 1] = PointerGetDatum(class_array);
+		nulls[Anum_pgxc_class_pcclass - 1] = false;
+		if (exprs != NIL)
+		{
+			datums[Anum_pgxc_class_pcexprs - 1] = PointerGetDatum(nodeToString(exprs));
+			nulls[Anum_pgxc_class_pcexprs - 1] = false;
+		}else
+		{
+			nulls[Anum_pgxc_class_pcexprs - 1] = true;
+		}
+		if (replace)
+		{
+			replace[Anum_pgxc_class_pcattrs - 1] = true;
+			replace[Anum_pgxc_class_pcclass - 1] = true;
+			replace[Anum_pgxc_class_pcexprs - 1] = true;
+		}
+		break;
+	case LOCATOR_TYPE_LIST:
+	case LOCATOR_TYPE_RANGE:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("list and range not support for distribute by yet!")));
+	case LOCATOR_TYPE_REPLICATED:
+	case LOCATOR_TYPE_RANDOM:
+		/* nothing todo */
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("unknown distribute type %d", loc_type)));
+	}
+}
+
+static void SetDistributeToDatums(Datum *datums, bool *nulls, bool *replace, List *values, Oid *oids, int numnodes, char loc_type)
+{
+	oidvector  *nodes_array;
+
+	switch(loc_type)
+	{
+	case LOCATOR_TYPE_LIST:
+	case LOCATOR_TYPE_RANGE:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("list and range not support for distribute by yet!")));
+	default:
+		break;
+	}
+
+	nodes_array = buildoidvector(oids, numnodes);
+	datums[Anum_pgxc_class_nodeoids - 1] = PointerGetDatum(nodes_array);
+	nulls[Anum_pgxc_class_nodeoids - 1] = false;
+	if (replace)
+		replace[Anum_pgxc_class_nodeoids] = true;
+}
+
+static void SetKeysDepend(Oid reloid, List *keys)
+{
+	ListCell	   *lc;
+	LocatorKeyInfo *key;
+
+	foreach (lc, keys)
+	{
+		key = lfirst(lc);
+		if (key->attno != InvalidAttrNumber)
+			CreatePgxcRelationAttrDepend(reloid, key->attno);
+	}
+}
 
 /*
  * PgxcClassCreate
@@ -44,8 +154,6 @@ PgxcClassCreate(Oid pcrelid,
 	HeapTuple	htup;
 	bool		nulls[Natts_pgxc_class];
 	Datum		datums[Natts_pgxc_class];
-	oidvector  *nodes_array;
-	LocatorKeyInfo *key;
 
 	if (!OidIsValid(pcrelid))
 	{
@@ -53,54 +161,22 @@ PgxcClassCreate(Oid pcrelid,
 		return;
 	}
 
-	MemSet(nulls, 0, sizeof(nulls));
+	MemSet(nulls, true, sizeof(nulls));
 	MemSet(datums, 0, sizeof(datums));
 
-	/* Build array of Oids to be inserted */
-	nodes_array = buildoidvector(nodes, numnodes);
-
-	datums[Anum_pgxc_class_pcrelid - 1]   = ObjectIdGetDatum(pcrelid);
+	datums[Anum_pgxc_class_pcrelid - 1] = ObjectIdGetDatum(pcrelid);
+	nulls[Anum_pgxc_class_pcrelid - 1] = false;
 	datums[Anum_pgxc_class_pclocatortype - 1] = CharGetDatum(pclocatortype);
+	nulls[Anum_pgxc_class_pclocatortype - 1] = false;
 
-	switch(pclocatortype)
-	{
-	case LOCATOR_TYPE_HASH:
-	case LOCATOR_TYPE_HASHMAP:
-	case LOCATOR_TYPE_MODULO:
-		if (list_length(keys) != 1)
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("invalid distribute by key length %d", list_length(keys))));
-		key = linitial(keys);
-		if (key->attno == InvalidAttrNumber)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("not support expression for distribute by yet!")));
-		Assert(key->attno > 0);
-		datums[Anum_pgxc_class_pcattnum - 1] = Int16GetDatum(key->attno);
-		break;
-	case LOCATOR_TYPE_LIST:
-	case LOCATOR_TYPE_RANGE:
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("list and range not support for distribute by not support yet!")));
-	case LOCATOR_TYPE_REPLICATED:
-	case LOCATOR_TYPE_RANDOM:
-		/* nothing todo */
-		break;
-	default:
-		ereport(ERROR,
-				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-				 errmsg("unknown distribute type %d", pclocatortype)));
-	}
-
-	/* Node information */
-	datums[Anum_pgxc_class_nodeoids - 1] = PointerGetDatum(nodes_array);
+	SetDistributeByDatums(datums, nulls, NULL, keys, pclocatortype);
+	SetKeysDepend(pcrelid, keys);
+	SetDistributeToDatums(datums, nulls, NULL, values, nodes, numnodes, pclocatortype);
 
 	/* Open the relation for insertion */
 	pgxcclassrel = heap_open(PgxcClassRelationId, RowExclusiveLock);
 
-	htup = heap_form_tuple(pgxcclassrel->rd_att, datums, nulls);
+	htup = heap_form_tuple(RelationGetDescr(pgxcclassrel), datums, nulls);
 
 	CatalogTupleInsert(pgxcclassrel, htup);
 
@@ -123,7 +199,6 @@ PgxcClassAlter(Oid pcrelid,
 {
 	Relation	rel;
 	HeapTuple	oldtup, newtup;
-	oidvector  *nodes_array;
 
 	Datum		new_record[Natts_pgxc_class];
 	bool		new_record_nulls[Natts_pgxc_class];
@@ -138,34 +213,22 @@ PgxcClassAlter(Oid pcrelid,
 	if (!HeapTupleIsValid(oldtup)) /* should not happen */
 		elog(ERROR, "cache lookup failed for pgxc_class %u", pcrelid);
 
-	/* Build array of Oids to be inserted */
-	nodes_array = buildoidvector(nodes, numnodes);
-
 	/* Initialize fields */
 	MemSet(new_record, 0, sizeof(new_record));
-	MemSet(new_record_nulls, false, sizeof(new_record_nulls));
+	MemSet(new_record_nulls, true, sizeof(new_record_nulls));
 	MemSet(new_record_repl, false, sizeof(new_record_repl));
 
 	/* Fields are updated depending on operation type */
-	switch (type)
+	if (type & PGXC_CLASS_ALTER_DISTRIBUTION)
 	{
-		case PGXC_CLASS_ALTER_DISTRIBUTION:
-			new_record_repl[Anum_pgxc_class_pclocatortype - 1] = true;
-			new_record_repl[Anum_pgxc_class_pcattnum - 1] = true;
-			new_record_repl[Anum_pgxc_class_pchashalgorithm - 1] = true;
-			new_record_repl[Anum_pgxc_class_pchashbuckets - 1] = true;
-			break;
-		case PGXC_CLASS_ALTER_NODES:
-			new_record_repl[Anum_pgxc_class_nodeoids - 1] = true;
-			break;
-		case PGXC_CLASS_ALTER_ALL:
-		default:
-			new_record_repl[Anum_pgxc_class_pcrelid - 1] = true;
-			new_record_repl[Anum_pgxc_class_pclocatortype - 1] = true;
-			new_record_repl[Anum_pgxc_class_pcattnum - 1] = true;
-			new_record_repl[Anum_pgxc_class_pchashalgorithm - 1] = true;
-			new_record_repl[Anum_pgxc_class_pchashbuckets - 1] = true;
-			new_record_repl[Anum_pgxc_class_nodeoids - 1] = true;
+		new_record[Anum_pgxc_class_pclocatortype - 1] = pclocatortype;
+		new_record_nulls[Anum_pgxc_class_pclocatortype - 1] = false;
+		new_record_repl[Anum_pgxc_class_pclocatortype - 1] = true;
+		SetDistributeByDatums(new_record, new_record_nulls, new_record_repl, keys, pclocatortype);
+	}
+	if (type & PGXC_CLASS_ALTER_NODES)
+	{
+		SetDistributeToDatums(new_record, new_record_nulls, new_record_repl, values, nodes, numnodes, pclocatortype);
 	}
 
 	/* Set up new fields */
@@ -178,34 +241,16 @@ PgxcClassAlter(Oid pcrelid,
 		new_record[Anum_pgxc_class_pclocatortype - 1] = CharGetDatum(pclocatortype);
 
 	/* Attribute number of distribution column */
-	if (new_record_repl[Anum_pgxc_class_pcattnum - 1])
+	if (type & PGXC_CLASS_ALTER_DISTRIBUTION)
 	{
-		LocatorKeyInfo *key;
-		if (list_length(keys) != 1)
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("invalid distribute by key length %d", list_length(keys))));
-		key = linitial(keys);
-		if (key->attno == InvalidAttrNumber)
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("not support expression for distribute by yet!")));
-		Assert(key->attno > 0);
-
-		new_record[Anum_pgxc_class_pcattnum - 1] = Int16GetDatum(key->attno);
-
 		/* remove dependency on the old attribute */
 		deleteDependencyRecordsForClass(PgxcClassRelationId, pcrelid,
 										TypeRelationId, DEPENDENCY_NORMAL);
 		deleteDependencyRecordsForClass(PgxcClassRelationId, pcrelid,
 										CollationRelationId, DEPENDENCY_NORMAL);
-		/* then create new dependency */
-		CreatePgxcRelationAttrDepend(pcrelid, Int16GetDatum(key->attno));
-	}
 
-	/* Node information */
-	if (new_record_repl[Anum_pgxc_class_nodeoids - 1])
-		new_record[Anum_pgxc_class_nodeoids - 1] = PointerGetDatum(nodes_array);
+		SetKeysDepend(pcrelid, keys);
+	}
 
 	/* Update relation */
 	newtup = heap_modify_tuple(oldtup, RelationGetDescr(rel),
@@ -237,7 +282,7 @@ RemovePgxcClass(Oid pcrelid)
 	if (!HeapTupleIsValid(tup)) /* should not happen */
 		elog(ERROR, "cache lookup failed for pgxc_class %u", pcrelid);
 
-	simple_heap_delete(relation, &tup->t_self);
+	CatalogTupleDelete(relation, &tup->t_self);
 
 	ReleaseSysCache(tup);
 
