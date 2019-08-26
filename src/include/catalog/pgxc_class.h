@@ -19,17 +19,23 @@ CATALOG(pgxc_class,9020,PgxcClassRelationId) BKI_WITHOUT_OIDS
 	/* Type of distribution */
 	char		pclocatortype;
 
-	/* Column number of distribution */
-	int16		pcattnum;
-
-	/* Hashing algorithm */
-	int16		pchashalgorithm;
-
-	/* Number of buckets */
-	int16		pchashbuckets;
-
 	/* List of nodes used by table */
 	oidvector	nodeoids;
+
+#ifdef CATALOG_VARLEN
+	int2vector	pcattrs;	/* each member of the array is the attribute
+							 * number of a distribute key column, or 0 if
+							 * the column is actually an expression */
+
+	oidvector	pcclass;	/* operator class to compare keys */
+
+	oidvector	pccollation;/* user-specified collation for keys */
+
+	pg_node_tree pcexprs;	/* list of expression in the distribute key;
+							 * one item for each zero entry in pcattrs[] */
+
+	pg_node_tree pcvalues;	/* list of each node's list(...) or range(lower, upper) values */
+#endif
 } FormData_pgxc_class;
 
 typedef FormData_pgxc_class *Form_pgxc_class;
