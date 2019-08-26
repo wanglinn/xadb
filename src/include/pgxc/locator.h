@@ -29,19 +29,29 @@ typedef enum RelationAccessType
 	RELATION_ACCESS_INSERT				/* INSERT */
 } RelationAccessType;
 
+typedef struct LocatorKeyInfo
+{
+	Expr	   *key;				/* not NULL when attno is 0, or NULL when attno is not 0 */
+	Oid			opclass;			/* operator class for key compare */
+	Oid			opfamily;			/* operator family from operator class */
+	Oid			collation;			/* user-specified collation */
+	AttrNumber	attno;				/* attribute number if key is column, or 0 when key is a exprssion */
+}LocatorKeyInfo;
+
 typedef struct RelationLocInfo
 {
 	Oid			relid;					/* OID of relation */
 	char		locatorType;			/* locator type, see above */
-	AttrNumber	partAttrNum;			/* Distribution column attribute */
-	List	   *nodeids;				/* Node ids where data is located */
+	List	   *keys;					/* Distribution key(s) attribute, list of LocatorKeyInfo */
+	List	   *nodeids;				/* Node Oid(s) where data is located */
+	List	   *values;					/* each nodes values for distribute by list and range */
 	List	   *masternodeids;
 	List	   *slavenodeids;
 } RelationLocInfo;
 
 #define IsRelationReplicated(rel_loc)				IsLocatorReplicated((rel_loc)->locatorType)
-#define IsRelationColumnDistributed(rel_loc)		IsLocatorColumnDistributed((rel_loc)->locatorType)
 #define IsRelationDistributedByValue(rel_loc)		IsLocatorDistributedByValue((rel_loc)->locatorType)
+#define FirstLocKeyInfo(rel_loc)					((LocatorKeyInfo*)linitial(rel_loc->keys))
 
 /*
  * Nodes to execute on
@@ -94,7 +104,9 @@ extern bool IsTableDistOnPrimary(RelationLocInfo *locInfo);
 extern bool IsLocatorInfoEqual(const RelationLocInfo *a, const RelationLocInfo *b);
 extern Oid GetRandomRelNodeId(Oid relid);
 extern bool IsTypeDistributable(Oid colType);
-extern bool IsDistribColumn(Oid relid, AttrNumber attNum);
+extern bool IsDistribOnlyOneColumn(Oid relid, AttrNumber attNum);
+extern bool LocatorIncludeColumn(RelationLocInfo *loc, AttrNumber attno, bool include_expr);
+extern bool LocatorKeyIncludeColumn(List *keys, AttrNumber attno, bool include_expr);
 
 extern ExecNodes *GetRelationNodes(RelationLocInfo *rel_loc_info,
 								   int nelems,
@@ -107,6 +119,7 @@ extern ExecNodes *GetRelationNodesByQuals(Oid reloid,
 										  Node *quals,
 										  RelationAccessType relaccess);
 extern ExecNodes *MakeExecNodesByOids(RelationLocInfo *loc_info, List *oids, RelationAccessType accesstype);
+extern AttrNumber GetFirstLocAttNumIfOnlyOne(RelationLocInfo *loc);
 
 /* Global locator data */
 extern void FreeExecNodes(ExecNodes **exec_nodes);

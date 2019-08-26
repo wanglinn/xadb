@@ -25,6 +25,7 @@
 #include "parser/parse_oper.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/pgxcnode.h"
+#include "rewrite/rewriteManip.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
@@ -121,11 +122,8 @@ ReduceInfo *MakeHashmapReduceInfo(const List *storage, const List *exclude, cons
 ReduceInfo *MakeModuloReduceInfo(const List *storage, const List *exclude, const Expr *key)
 {
 	ReduceInfo *rinfo;
-	Oid typoid;
 	AssertArg(storage != NIL && IsA(storage, OidList) && key);
 	AssertArg(exclude == NIL || IsA(exclude, OidList));
-
-	typoid = exprType((Node*)key);
 
 	rinfo = MakeEmptyReduceInfo(1);
 	SetReduceKeyDefaultInfo(&rinfo->keys[0], key, BTREE_AM_OID, "btree");
@@ -195,19 +193,41 @@ ReduceInfo *MakeReduceInfoFromLocInfo(const RelationLocInfo *loc_info, const Lis
 		rinfo = MakeRandomReduceInfo(rnodes);
 	}else
 	{
+		ListCell *lc;
+		LocatorKeyInfo *key;
+		uint32 i;
+		Assert(list_length(loc_info->keys) > 0);
+		rinfo = MakeEmptyReduceInfo(list_length(loc_info->keys));
+		i=0;
+		foreach(lc, loc_info->keys)
+		{
+			key = lfirst(lc);
+			if (key->attno != InvalidAttrNumber)
+			{
+				rinfo->keys[i].key = (Expr*)makeVarByRel(key->attno, reloid, relid);
+			}else
+			{
+				rinfo->keys[i].key = copyObject(key->key);
+				if (relid != 1)
+					ChangeVarNodes((Node*)rinfo->keys[i].key, 1, relid, 0);
+			}
+			rinfo->keys[i].opclass = key->opclass;
+			rinfo->keys[i].opfamily = key->opfamily;
+			rinfo->keys[i].collation = key->collation;
+			++i;
+		}
+		rinfo->relids = bms_make_singleton(relid);
+		rinfo->storage_nodes = list_copy(rnodes);
+		rinfo->exclude_exec = list_copy(exclude);
 		if(loc_info->locatorType == LOCATOR_TYPE_HASH)
 		{
-			Var *var = makeVarByRel(loc_info->partAttrNum, reloid, relid);
-			rinfo = MakeHashReduceInfo(rnodes, exclude, (Expr*)var);
+			rinfo->type = REDUCE_TYPE_HASH;
 		}else if(loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
 		{
-			Var *var = makeVarByRel(loc_info->partAttrNum, reloid, relid);
-			rinfo = MakeHashmapReduceInfo(rnodes, exclude, (Expr*)var);
-
+			rinfo->type = REDUCE_TYPE_HASHMAP;
 		}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
 		{
-			Var *var = makeVarByRel(loc_info->partAttrNum, reloid, relid);
-			rinfo = MakeModuloReduceInfo(rnodes, exclude, (Expr*)var);
+			rinfo->type = REDUCE_TYPE_MODULO;
 		}else
 		{
 			ereport(ERROR,
@@ -222,30 +242,56 @@ ReduceInfo *MakeReduceInfoUsingPathTarget(const RelationLocInfo *loc_info, const
 {
 	ReduceInfo *rinfo;
 	List *rnodes = loc_info->nodeids;
+	LocatorKeyInfo *key;
+	ListCell *lc;
+	uint32	i;
 
-	if(IsRelationReplicated(loc_info))
+	switch(loc_info->locatorType)
 	{
+	case LOCATOR_TYPE_REPLICATED:
 		rinfo = MakeReplicateReduceInfo(rnodes);
-	}else if(loc_info->locatorType == LOCATOR_TYPE_RANDOM)
-	{
+		break;
+	case LOCATOR_TYPE_RANDOM:
 		rinfo = MakeRandomReduceInfo(rnodes);
-	}else if(loc_info->locatorType == LOCATOR_TYPE_HASH)
-	{
-		rinfo = MakeHashReduceInfo(rnodes,
-								   exclude,
-								   list_nth(target->exprs, loc_info->partAttrNum-1));
-	}else if(loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
-	{
-		rinfo = MakeHashmapReduceInfo(rnodes,
-									  exclude,
-									  list_nth(target->exprs, loc_info->partAttrNum-1));
-	}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
-	{
-		rinfo = MakeModuloReduceInfo(rnodes,
-									 exclude,
-									 list_nth(target->exprs, loc_info->partAttrNum-1));
-	}else
-	{
+		break;
+	case LOCATOR_TYPE_HASH:
+	case LOCATOR_TYPE_HASHMAP:
+	case LOCATOR_TYPE_MODULO:
+		Assert(list_length(loc_info->keys) > 0);
+		rinfo = MakeEmptyReduceInfo(list_length(loc_info->keys));
+		rinfo->storage_nodes = list_copy(rnodes);
+		rinfo->exclude_exec = list_copy(exclude);
+		i = 0;
+		foreach(lc, loc_info->keys)
+		{
+			Bitmapset *relids;
+			key = lfirst(lc);
+			if (key->attno != InvalidAttrNumber)
+			{
+				rinfo->keys[i].key = list_nth(target->exprs, key->attno-1);
+			}else
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("distribute by expression not support yet")));
+			}
+			relids = pull_varnos((Node*)rinfo->keys[i].key);
+			rinfo->relids = bms_add_members(rinfo->relids, relids);
+			bms_free(relids);
+			rinfo->keys[i].opclass = key->opclass;
+			rinfo->keys[i].opfamily = key->opfamily;
+			rinfo->keys[i].collation = key->collation;
+			++i;
+		}
+		if (loc_info->locatorType == LOCATOR_TYPE_HASH)
+			rinfo->type = REDUCE_TYPE_HASH;
+		else if (loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
+			rinfo->type = REDUCE_TYPE_HASHMAP;
+		else if (loc_info->locatorType == LOCATOR_TYPE_MODULO)
+			rinfo->type = REDUCE_TYPE_MODULO;
+		Assert(rinfo->type != '\0');
+		break;
+	default:
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				errmsg("unknown locator type %d", loc_info->locatorType)));
@@ -2391,29 +2437,47 @@ Expr *CreateReduceModuloExpr(Relation rel, const RelationLocInfo *loc, Index rel
 	if (loc->locatorType == LOCATOR_TYPE_HASH ||
 		loc->locatorType == LOCATOR_TYPE_MODULO)
 	{
-		Form_pg_attribute attr;
-		List *args;
-		Var *var;
+		Form_pg_attribute	attr;
+		List			   *args;
+		ListCell		   *lc;
+		LocatorKeyInfo	   *key;
 
-		/* make hash_combin_mod(node_count, hash(column)) */
-		attr = TupleDescAttr(RelationGetDescr(rel), loc->partAttrNum-1);
+		/* make hash_combin_mod(node_count, hash(column) [,...]) */
 		args = list_make1(MakeInt4Const(list_length(loc->nodeids)));
-		var = makeVar(relid, loc->partAttrNum, attr->atttypid, attr->atttypmod, attr->attcollation, 0);
-		if (loc->locatorType == LOCATOR_TYPE_HASH)
+
+		Assert(list_length(loc->keys) > 0);
+		foreach (lc, loc->keys)
 		{
-			result = makeHashExpr((Expr*)var);
-		}else
-		{
-			result = (Expr*)coerce_to_target_type(NULL,
-												  (Node*)var,
-												  var->vartype,
-												  INT4OID,
-												  -1,
-												  COERCION_EXPLICIT,
-												  COERCE_IMPLICIT_CAST,
-												  -1);
+			key = lfirst(lc);
+			result = NULL;
+			if (key->attno != InvalidAttrNumber)
+			{
+				attr = TupleDescAttr(RelationGetDescr(rel), key->attno-1);
+				result = (Expr*) makeVar(relid, key->attno, attr->atttypid, attr->atttypmod, attr->attcollation, 0);
+			}else
+			{
+				result = copyObject(key->key);
+				if (relid != 1)
+					ChangeVarNodes((Node*)result, 1, relid, 0);
+			}
+
+			Assert(result != NULL);
+			if (loc->locatorType == LOCATOR_TYPE_HASH)
+			{
+				result = makeHashExprFamily(result, key->opfamily);
+			}else
+			{
+				result = (Expr*)coerce_to_target_type(NULL,
+													  (Node*)result,
+													  exprType((Node*)result),
+													  INT4OID,
+													  -1,
+													  COERCION_EXPLICIT,
+													  COERCE_IMPLICIT_CAST,
+													  -1);
+			}
+			args = lappend(args, result);
 		}
-		args = lappend(args, result);
 		result = (Expr*)makeSimpleFuncExpr(F_HASH_COMBIN_MOD,
 										   INT4OID,
 										   args);

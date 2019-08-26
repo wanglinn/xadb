@@ -533,6 +533,10 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 	{
 		ListCell *lc;
 		TargetEntry *tle;
+		if (list_length(rel_loc_info->keys) != 1 ||
+			FirstLocKeyInfo(rel_loc_info)->attno == InvalidAttrNumber)
+			return NULL;
+
 		/*
 		 * If the INSERT is happening on a table distributed by value of a
 		 * column, find out the
@@ -1909,6 +1913,8 @@ pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 			case LOCATOR_TYPE_HASH:
 			case LOCATOR_TYPE_HASHMAP:
 			case LOCATOR_TYPE_MODULO:
+			case LOCATOR_TYPE_LIST:
+			case LOCATOR_TYPE_RANGE:
 				/*
 				 * Unique indexes on Hash and Modulo tables are shippable if the
 				 * index expression contains all the distribution expressions of
@@ -1955,7 +1961,7 @@ pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 				 * Check that distribution column is included in the list of
 				 * index columns.
 				 */
-				if (!list_member_int(indexAttrs, relLocInfo->partAttrNum))
+				if (!list_member_int(indexAttrs, GetFirstLocAttNumIfOnlyOne(relLocInfo)))
 				{
 					/*
 					 * Distribution column is not in index column list
@@ -1972,10 +1978,8 @@ pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 				break;
 
 			/* Those types are not supported yet */
-			case LOCATOR_TYPE_RANGE:
 			case LOCATOR_TYPE_NONE:
 			case LOCATOR_TYPE_DISTRIBUTED:
-			case LOCATOR_TYPE_CUSTOM:
 			default:
 				/* Should not come here */
 				Assert(0);
@@ -2036,6 +2040,8 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 			break;
 #ifdef ADB
 		case LOCATOR_TYPE_HASHMAP:
+		case LOCATOR_TYPE_LIST:
+		case LOCATOR_TYPE_RANGE:
 #endif
 		case LOCATOR_TYPE_HASH:
 		case LOCATOR_TYPE_MODULO:
@@ -2082,8 +2088,8 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 			 * Check that child and parents are referenced using their
 			 * distribution column.
 			 */
-			if (!list_member_int(childRefs, childLocInfo->partAttrNum) ||
-				!list_member_int(parentRefs, parentLocInfo->partAttrNum))
+			if (!list_member_int(childRefs, GetFirstLocAttNumIfOnlyOne(childLocInfo)) ||
+				!list_member_int(parentRefs, GetFirstLocAttNumIfOnlyOne(parentLocInfo)))
 			{
 				result = false;
 				break;
@@ -2092,10 +2098,8 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 			/* By being here, parent-child constraint can be shipped correctly */
 			break;
 
-		case LOCATOR_TYPE_RANGE:
 		case LOCATOR_TYPE_NONE:
 		case LOCATOR_TYPE_DISTRIBUTED:
-		case LOCATOR_TYPE_CUSTOM:
 		default:
 			/* Should not come here */
 			Assert(0);
@@ -2164,9 +2168,12 @@ pgxc_get_dist_var(Index varno, RangeTblEntry *rte, List *tlist)
 	Oid				dist_var_type;
 	int32			dist_var_typmod;
 	Oid				dist_var_collid;
+	AttrNumber		attno;
 
 	if (!rel_loc_info || !IsRelationDistributedByValue(rel_loc_info))
 		return NULL;
+
+	attno = GetFirstLocAttNumIfOnlyOne(rel_loc_info);
 
 	/* find the TLE corresponding to the distribution column it. */
 	foreach (lcell, tlist)
@@ -2179,7 +2186,7 @@ pgxc_get_dist_var(Index varno, RangeTblEntry *rte, List *tlist)
 			var = (Var *)tle;
 
 		if (var && IsA(var, Var) && (var->varno == varno) &&
-			(var->varattno == rel_loc_info->partAttrNum))
+			(var->varattno == attno))
 			return copyObject(var);
 	}
 
@@ -2187,9 +2194,9 @@ pgxc_get_dist_var(Index varno, RangeTblEntry *rte, List *tlist)
 	 * Bare distribution column is not found in the targetlist, craft a Var for
 	 * it and return.
 	 */
-	get_rte_attribute_type(rte, rel_loc_info->partAttrNum, &dist_var_type,
+	get_rte_attribute_type(rte, attno, &dist_var_type,
 							&dist_var_typmod, &dist_var_collid);
-	dist_var = makeVar(varno, rel_loc_info->partAttrNum, dist_var_type,
+	dist_var = makeVar(varno, attno, dist_var_type,
 						dist_var_typmod, dist_var_collid, 0);
 	return dist_var;
 }

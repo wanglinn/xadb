@@ -8067,15 +8067,15 @@ ATAddCheckConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 }
 
 #ifdef ADB
- /*
-  * Check foreign key constraint which will obviously lead to mistakes.
-  *
-  * Tenet:
-  * 	 Every node of the foreign key rel can reference correct tuple
-  * of the primary key rel.
-  */
- static void
- check_valid_fkconstraint(const char *constraintName,
+/*
+ * Check foreign key constraint which will obviously lead to mistakes.
+ *
+ * Tenet:
+ *  Every node of the foreign key rel can reference correct tuple
+ * of the primary key rel.
+ */
+static void
+check_valid_fkconstraint(const char *constraintName,
 						  Relation rel,
 						  Relation pkrel,
 						  const int16 *constraintKey,
@@ -8085,123 +8085,130 @@ ATAddCheckConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 						  char foreignUpdateType,
 						  char foreignDeleteType,
 						  char foreignMatchType)
- {
-	 RelationLocInfo *rloc = RelationGetLocInfo(rel);
-	 RelationLocInfo *pkrloc = RelationGetLocInfo(pkrel);
-	 List *nodes_diff;
-	 bool same_dist_col;
-	 int i;
+{
+	RelationLocInfo *rloc = RelationGetLocInfo(rel);
+	RelationLocInfo *pkrloc = RelationGetLocInfo(pkrel);
+	List *nodes_diff;
+	bool same_dist_col;
+	int i;
 
-	 Assert(rloc && pkrloc);
+	Assert(rloc && pkrloc);
 
-	 /*
-	  * Whatever distribution type, the primary key rel's node list should
-	  * totally contain the node list of the foreign key rel, otherwise it
-	  * is an invalid constraint.
-	  */
-	 nodes_diff = list_difference_oid(rloc->nodeids, pkrloc->nodeids);
-	 if (nodes_diff != NIL)
-	 {
-		 list_free(nodes_diff);
-		 ereport(ERROR,
-			 (errcode(ERRCODE_INVALID_FOREIGN_KEY),
+	/*
+	 * Whatever distribution type, the primary key rel's node list should
+	 * totally contain the node list of the foreign key rel, otherwise it
+	 * is an invalid constraint.
+	 */
+	nodes_diff = list_difference_oid(rloc->nodeids, pkrloc->nodeids);
+	if (nodes_diff != NIL)
+	{
+		list_free(nodes_diff);
+		ereport(ERROR,
+			(errcode(ERRCODE_INVALID_FOREIGN_KEY),
 			 errmsg("Cannot create foreign key \"%s\" which cannot be "
-				 "referenced in the primary key table", constraintName),
+					"referenced in the primary key table", constraintName),
 			 errhint("because of different distribution of nodes")));
-		 return ;
-	 }
+		return ;
+	}
 
-	 /*
-	  * It is a valid foreign key constraint if the primary key table is
-	  * replicated.
-	  */
-	 if (IsRelationReplicated(pkrloc))
-		 return ;
+	/*
+	 * It is a valid foreign key constraint if the primary key table is
+	 * replicated.
+	 */
+	if (IsRelationReplicated(pkrloc))
+		return ;
 
-	 /*
-	  * Can not be in the same partition with primary key rel if distribution
-	  * type of any relation is random.
-	  */
-	 if (rloc->locatorType == LOCATOR_TYPE_RANDOM||
-		 pkrloc->locatorType == LOCATOR_TYPE_RANDOM)
-	 {
-		 ereport(ERROR,
-			 (errcode(ERRCODE_INVALID_FOREIGN_KEY),
+	/*
+	 * Can not be in the same partition with primary key rel if distribution
+	 * type of any relation is random.
+	 */
+	if (rloc->locatorType == LOCATOR_TYPE_RANDOM||
+		pkrloc->locatorType == LOCATOR_TYPE_RANDOM)
+	{
+		ereport(ERROR,
+			(errcode(ERRCODE_INVALID_FOREIGN_KEY),
 			 errmsg("Cannot create foreign key \"%s\" which cannot be "
-				 "referenced in the primary key table", constraintName),
+					"referenced in the primary key table", constraintName),
 			 errhint("because of random distribution type")));
-		 return ;
-	 }
+		return ;
+	}
 
-	 /*
-	  * They must have the same distribution nodes if the primary key table
-	  * is not replicated.
-	  */
-	 nodes_diff = list_difference_oid(pkrloc->nodeids, rloc->nodeids);
-	 if (nodes_diff != NIL)
-	 {
-		 list_free(nodes_diff);
-		 ereport(ERROR,
-			 (errcode(ERRCODE_INVALID_FOREIGN_KEY),
+	/*
+	 * They must have the same distribution nodes if the primary key table
+	 * is not replicated.
+	 */
+	nodes_diff = list_difference_oid(pkrloc->nodeids, rloc->nodeids);
+	if (nodes_diff != NIL)
+	{
+		list_free(nodes_diff);
+		ereport(ERROR,
+			(errcode(ERRCODE_INVALID_FOREIGN_KEY),
 			 errmsg("Cannot create foreign key \"%s\" which cannot be "
-				 "referenced in the primary key table", constraintName),
+					"referenced in the primary key table", constraintName),
 			 errhint("because of different distribution of nodes")));
-		 return ;
-	 }
+		return ;
+	}
 
-	 /*
-	  * It is a valid constraint if table has only one node.
-	  */
-	 if (list_length(rloc->nodeids) == 1)
+	/*
+	 * It is a valid constraint if table has only one node.
+	 */
+	if (list_length(rloc->nodeids) == 1)
 		 return ;
 
-	 /*
-	  * They must have the same distribution type if the primary key table is
-	  * not replicated.
-	  */
-	 if (rloc->locatorType != pkrloc->locatorType)
-	 {
-		 ereport(ERROR,
-			 (errcode(ERRCODE_INVALID_FOREIGN_KEY),
+	/*
+	 * They must have the same distribution type if the primary key table is
+	 * not replicated.
+	 */
+	if (rloc->locatorType != pkrloc->locatorType)
+	{
+		ereport(ERROR,
+			(errcode(ERRCODE_INVALID_FOREIGN_KEY),
 			 errmsg("Cannot create foreign key \"%s\" which cannot be "
-				 "referenced in the primary key table", constraintName),
+					"referenced in the primary key table", constraintName),
 			 errhint("because of different types of distribution")));
-		 return ;
-	 }
+		return ;
+	}
 
-	 /*
-	  * They must have the same distribution columns if the primary key table
-	  * is not replicated.
-	  */
-	 if (IsRelationDistributedByValue(rloc))
-	 {
-		 same_dist_col = false;
-		 for (i = 0; i < constraintNKeys; i++)
-		 {
-			 if (constraintKey[i] == rloc->partAttrNum &&
-				 foreignKey[i] == pkrloc->partAttrNum)
-				 same_dist_col = true;
-		 }
+	/*
+	 * They must have the same distribution columns if the primary key table
+	 * is not replicated.
+	 */
+	if (IsRelationDistributedByValue(rloc))
+	{
+		same_dist_col = false;
+		if (list_length(rloc->keys) == 1 &&
+			list_length(pkrloc->keys) == 1)
+		{
+			for (i = 0; i < constraintNKeys; i++)
+			{
+				if (LocatorIncludeColumn(rloc, constraintKey[i], false) &&
+					LocatorIncludeColumn(pkrloc, foreignKey[i], false))
+				{
+					same_dist_col = true;
+					break;
+				}
+			}
+		}
 
-		 if (!same_dist_col)
+		if (!same_dist_col)
 			 ereport(ERROR,
-				 (errcode(ERRCODE_INVALID_FOREIGN_KEY),
+				(errcode(ERRCODE_INVALID_FOREIGN_KEY),
 				 errmsg("Cannot create foreign key \"%s\" which cannot be "
-					 "referenced in the primary key table", constraintName),
+						"referenced in the primary key table", constraintName),
 				 errhint("because cannot make sure foreign key table has the "
-					 "same partition with the primary key table")));
+						 "same partition with the primary key table")));
 
-		 if (foreignUpdateType == FKCONSTR_ACTION_SETNULL ||
-			 foreignUpdateType == FKCONSTR_ACTION_SETDEFAULT ||
-			 foreignDeleteType == FKCONSTR_ACTION_SETNULL ||
-			 foreignDeleteType == FKCONSTR_ACTION_SETDEFAULT)
-			 ereport(ERROR,
-				 (errcode(ERRCODE_INVALID_FOREIGN_KEY),
+		if (foreignUpdateType == FKCONSTR_ACTION_SETNULL ||
+			foreignUpdateType == FKCONSTR_ACTION_SETDEFAULT ||
+			foreignDeleteType == FKCONSTR_ACTION_SETNULL ||
+			foreignDeleteType == FKCONSTR_ACTION_SETDEFAULT)
+			ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FOREIGN_KEY),
 				 errmsg("Cannot create foreign key \"%s\" which cannot be "
-					 "referenced in the primary key table", constraintName),
+						"referenced in the primary key table", constraintName),
 				 errhint("because value which is set on delete/update exists in only one node")));
-	 }
- }
+	}
+}
 #endif
 
 /*
@@ -14286,10 +14293,9 @@ ATExecGenericOptions(Relation rel, List *options)
 void
 AtExecDistributeBy(Relation rel, DistributeBy *options)
 {
-	Oid relid;
-	char locatortype;
-	int hashalgorithm, hashbuckets;
-	AttrNumber attnum;
+	List   *keys;
+	Oid		relid;
+	char	locatortype;
 
 	if (options == NULL)
 		return;
@@ -14297,13 +14303,7 @@ AtExecDistributeBy(Relation rel, DistributeBy *options)
 	relid = RelationGetRelid(rel);
 
 	/* Get necessary distribution information */
-	GetRelationDistributionItems(relid,
-								 options,
-								 RelationGetDescr(rel),
-								 &locatortype,
-								 &hashalgorithm,
-								 &hashbuckets,
-								 &attnum);
+	locatortype = GetRelationDistributionItems(relid, options, RelationGetDescr(rel), &keys);
 
 	/*
 	 * It is not checked if the distribution type list is the same as the old one,
@@ -14313,9 +14313,8 @@ AtExecDistributeBy(Relation rel, DistributeBy *options)
 	/* Update pgxc_class entry */
 	PgxcClassAlter(relid,
 				   locatortype,
-				   (int) attnum,
-				   hashalgorithm,
-				   hashbuckets,
+				   keys,
+				   NIL,
 				   0,
 				   NULL,
 				   PGXC_CLASS_ALTER_DISTRIBUTION);
@@ -14348,10 +14347,9 @@ AtExecSubCluster(Relation rel, PGXCSubCluster *options)
 
 	/* Update pgxc_class entry */
 	PgxcClassAlter(RelationGetRelid(rel),
-				   '\0',
-				   0,
-				   0,
-				   0,
+				   LOCATOR_TYPE_INVALID,
+				   NIL,
+				   NIL,
 				   numnodes,
 				   nodeoids,
 				   PGXC_CLASS_ALTER_NODES);
@@ -14394,10 +14392,9 @@ AtExecAddNode(Relation rel, List *options)
 
 	/* Update pgxc_class entry */
 	PgxcClassAlter(RelationGetRelid(rel),
-				   '\0',
-				   0,
-				   0,
-				   0,
+				   LOCATOR_TYPE_INVALID,
+				   NIL,
+				   NIL,
 				   old_num,
 				   old_oids,
 				   PGXC_CLASS_ALTER_NODES);
@@ -14437,10 +14434,9 @@ AtExecDeleteNode(Relation rel, List *options)
 
 	/* Update pgxc_class entry */
 	PgxcClassAlter(RelationGetRelid(rel),
-				   '\0',
-				   0,
-				   0,
-				   0,
+				   LOCATOR_TYPE_INVALID,
+				   NIL,
+				   NIL,
 				   old_num,
 				   old_oids,
 				   PGXC_CLASS_ALTER_NODES);
@@ -14470,7 +14466,7 @@ ATCheckCmd(Relation rel, AlterTableCmd *cmd)
 				AttrNumber attnum = get_attnum(RelationGetRelid(rel),
 											   cmd->name);
 				/* Distribution column cannot be dropped */
-				if (IsDistribColumn(RelationGetRelid(rel), attnum))
+				if (LocatorIncludeColumn(RelationGetLocInfo(rel), attnum, true))
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("Distribution column cannot be dropped")));
@@ -14501,7 +14497,8 @@ ATCheckCmd(Relation rel, AlterTableCmd *cmd)
 				AttrNumber attnum = get_attnum(RelationGetRelid(rel), cmd->name);
 
 				/* Temporarily forbid modifying the distribution field type */
-				if (IsDistribColumn(RelationGetRelid(rel), attnum))
+				if (RelationGetLocInfo(rel) &&
+					LocatorIncludeColumn(RelationGetLocInfo(rel), attnum, true))
 					ereport(ERROR,
 							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 							errmsg("Distribution field does not support type modification.")));
@@ -14564,13 +14561,10 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 				 * Get necessary distribution information and update to new
 				 * distribution type.
 				 */
-				GetRelationDistributionItems(redistribState->relid,
-											 (DistributeBy *) cmd->def,
-											 RelationGetDescr(rel),
-											 &(newLocInfo->locatorType),
-											 NULL,
-											 NULL,
-											 &newLocInfo->partAttrNum);
+				newLocInfo->locatorType = GetRelationDistributionItems(redistribState->relid,
+																	   (DistributeBy *) cmd->def,
+																	   RelationGetDescr(rel),
+																	   &newLocInfo->keys);
 				break;
 			case AT_SubCluster:
 				/* Update new list of nodes */
@@ -17507,11 +17501,11 @@ void inferCreateStmtDistributeBy(CreateStmt *stmt)
 	TupleDesc			descriptor;
 	DistributeBy	   *inferredDistributeBy;
 	char				inferredDisttype;
-	AttrNumber			attnum = 0;
 	Form_pg_attribute	attr;
-	List				*copyOfTableElts;
-	List				*old_constraints;
-	List				*inheritOids;
+	List			   *copyOfTableElts;
+	List			   *old_constraints;
+	List			   *inheritOids;
+	List			   *keys;
 	int					parentOidCount;
 	
 	/* only coordinator master can do this */
@@ -17541,24 +17535,25 @@ void inferCreateStmtDistributeBy(CreateStmt *stmt)
 	descriptor = BuildDescForRelation(copyOfTableElts);
 
 	/* Obtain details of distribution information */
-	GetRelationDistributionItems(InvalidOid,
-								 NULL,
-								 descriptor,
-								 &inferredDisttype,
-								 NULL,
-								 NULL,
-								 &attnum);
-	if (inferredDisttype > 0)
+	inferredDisttype = GetRelationDistributionItems(InvalidOid,
+													NULL,
+													descriptor,
+													&keys);
+	Assert(inferredDisttype != LOCATOR_TYPE_INVALID);
+	inferredDistributeBy = makeNode(DistributeBy);
+	inferredDistributeBy->disttype = inferredDisttype;
+	if (list_length(keys) == 1 &&
+		linitial(keys) != NULL)
 	{
-		inferredDistributeBy = makeNode(DistributeBy);
-		inferredDistributeBy->disttype = inferredDisttype;
-		/* 0 is also a effective value */
-		if (attnum > 0)
-		{
-			attr = TupleDescAttr(descriptor, (attnum - 1));
-			inferredDistributeBy->colname = NameStr(attr->attname);
-		}
-		stmt->distributeby = inferredDistributeBy;
+		LocatorKeyInfo *key = linitial(keys);
+		attr = TupleDescAttr(descriptor, (key->attno - 1));
+		inferredDistributeBy->colname = NameStr(attr->attname);
+	}else if(IsLocatorDistributedByValue(inferredDisttype))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknown distribute type %d", inferredDisttype)));
 	}
+	stmt->distributeby = inferredDistributeBy;
 }
 #endif

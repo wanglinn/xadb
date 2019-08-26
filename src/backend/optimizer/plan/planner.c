@@ -9483,31 +9483,12 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 			 loc_info->locatorType == LOCATOR_TYPE_HASHMAP ||
 			 loc_info->locatorType == LOCATOR_TYPE_MODULO)
 	{
-		Expr *expr;
 		if (IsReduceInfoListReplicated(reduce_list))
 		{
 			path = replicate_to_one_node(root, path->parent, path, storage_nodes);
 		}
-		reduce_info = NULL;
-		if(loc_info->locatorType == LOCATOR_TYPE_HASH)
-		{
-			expr = list_nth(path->pathtarget->exprs, loc_info->partAttrNum - 1);
-			reduce_info = MakeHashReduceInfo(storage_nodes,
-											 NIL,
-											 expr);
-		}else if(loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
-		{
-			expr = list_nth(path->pathtarget->exprs, loc_info->partAttrNum - 1);
-			reduce_info = MakeHashmapReduceInfo(storage_nodes,
-											 NIL,
-											 expr);
-		}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
-		{
-			expr = list_nth(path->pathtarget->exprs, loc_info->partAttrNum - 1);
-			reduce_info = MakeModuloReduceInfo(storage_nodes,
-											   NIL,
-											   expr);
-		}
+
+		reduce_info = MakeReduceInfoUsingPathTarget(loc_info, NIL, path->pathtarget);
 		Assert(reduce_info);
 		path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
 	}else

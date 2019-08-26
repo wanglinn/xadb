@@ -107,8 +107,11 @@ RemoteCopyGetRelationLoc(RemoteCopyState *state,
 	}
 
 	state->idx_dist_by_col = -1;
-	if (state->rel_loc && state->rel_loc->partAttrNum != 0)
+	if (state->rel_loc && 
+		IsRelationDistributedByValue(state->rel_loc))
 	{
+		AttrNumber attno = GetFirstLocAttNumIfOnlyOne(state->rel_loc);
+
 		/*
 		 * Find the column used as key for data distribution.
 		 * First scan attributes of tuple descriptor with the list
@@ -123,7 +126,7 @@ RemoteCopyGetRelationLoc(RemoteCopyState *state,
 			{
 				int attnum = lfirst_int(cur);
 
-				if (state->rel_loc->partAttrNum == attnum)
+				if (attno == attnum)
 				{
 					state->idx_dist_by_col = attnum - 1;
 					break;
@@ -132,7 +135,7 @@ RemoteCopyGetRelationLoc(RemoteCopyState *state,
 		}
 		else
 		{
-			state->idx_dist_by_col = state->rel_loc->partAttrNum - 1;
+			state->idx_dist_by_col = attno - 1;
 		}
 	}
 

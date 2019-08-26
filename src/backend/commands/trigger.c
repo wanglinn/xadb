@@ -7492,12 +7492,16 @@ pgxc_check_distcol_update(HeapTuple tup1, HeapTuple tup2,
 {
 	Datum	old_distval;
 	Datum	new_distval;
+	Form_pg_attribute partAtt;
+	AttrNumber	attno;
 	bool	old_isnull;
 	bool	new_isnull;
-	Form_pg_attribute partAtt = TupleDescAttr(tupdesc, rel_locinfo->partAttrNum - 1);
 
-	old_distval = heap_getattr(tup1, rel_locinfo->partAttrNum, tupdesc, &old_isnull);
-	new_distval = heap_getattr(tup2, rel_locinfo->partAttrNum, tupdesc, &new_isnull);
+	attno = GetFirstLocAttNumIfOnlyOne(rel_locinfo);
+	partAtt = TupleDescAttr(tupdesc, attno - 1);
+
+	old_distval = heap_getattr(tup1, attno, tupdesc, &old_isnull);
+	new_distval = heap_getattr(tup2, attno, tupdesc, &new_isnull);
 
 	/*
 	 * On coordinator, the varlena types returned from datanodes should be

@@ -411,7 +411,7 @@ AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt)
 		case LOCATOR_TYPE_HASHMAP:
 			/* it is OK */
 			break;
-		case LOCATOR_TYPE_CUSTOM:
+		case LOCATOR_TYPE_LIST:
 		case LOCATOR_TYPE_RANGE:
 			/* not support yet */
 			break;
@@ -436,7 +436,7 @@ AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt)
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("auxiliary table on system column \"%s\" is not supported",
 				 auxstmt->aux_column)));
-	if (IsDistribColumn(master_relid, auxattform->attnum))
+	if (IsDistribOnlyOneColumn(master_relid, auxattform->attnum))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("no need to build auxiliary table for distribute column \"%s\"",

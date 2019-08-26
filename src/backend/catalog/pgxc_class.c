@@ -35,17 +35,17 @@
 void
 PgxcClassCreate(Oid pcrelid,
 				char pclocatortype,
-				int pcattnum,
-				int pchashalgorithm,
-				int pchashbuckets,
+				List *keys,
+				List *values,
 				int numnodes,
 				Oid *nodes)
 {
 	Relation	pgxcclassrel;
 	HeapTuple	htup;
 	bool		nulls[Natts_pgxc_class];
-	Datum		values[Natts_pgxc_class];
+	Datum		datums[Natts_pgxc_class];
 	oidvector  *nodes_array;
+	LocatorKeyInfo *key;
 
 	if (!OidIsValid(pcrelid))
 	{
@@ -54,28 +54,53 @@ PgxcClassCreate(Oid pcrelid,
 	}
 
 	MemSet(nulls, 0, sizeof(nulls));
-	MemSet(values, 0, sizeof(values));
+	MemSet(datums, 0, sizeof(datums));
 
 	/* Build array of Oids to be inserted */
 	nodes_array = buildoidvector(nodes, numnodes);
 
-	values[Anum_pgxc_class_pcrelid - 1]   = ObjectIdGetDatum(pcrelid);
-	values[Anum_pgxc_class_pclocatortype - 1] = CharGetDatum(pclocatortype);
+	datums[Anum_pgxc_class_pcrelid - 1]   = ObjectIdGetDatum(pcrelid);
+	datums[Anum_pgxc_class_pclocatortype - 1] = CharGetDatum(pclocatortype);
 
-	if (pclocatortype == LOCATOR_TYPE_HASH || pclocatortype == LOCATOR_TYPE_MODULO || pclocatortype == LOCATOR_TYPE_HASHMAP)
+	switch(pclocatortype)
 	{
-		values[Anum_pgxc_class_pcattnum - 1] = UInt16GetDatum(pcattnum);
-		values[Anum_pgxc_class_pchashalgorithm - 1] = UInt16GetDatum(pchashalgorithm);
-		values[Anum_pgxc_class_pchashbuckets - 1] = UInt16GetDatum(pchashbuckets);
+	case LOCATOR_TYPE_HASH:
+	case LOCATOR_TYPE_HASHMAP:
+	case LOCATOR_TYPE_MODULO:
+		if (list_length(keys) != 1)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("invalid distribute by key length %d", list_length(keys))));
+		key = linitial(keys);
+		if (key->attno == InvalidAttrNumber)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("not support expression for distribute by yet!")));
+		Assert(key->attno > 0);
+		datums[Anum_pgxc_class_pcattnum - 1] = Int16GetDatum(key->attno);
+		break;
+	case LOCATOR_TYPE_LIST:
+	case LOCATOR_TYPE_RANGE:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("list and range not support for distribute by not support yet!")));
+	case LOCATOR_TYPE_REPLICATED:
+	case LOCATOR_TYPE_RANDOM:
+		/* nothing todo */
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("unknown distribute type %d", pclocatortype)));
 	}
 
 	/* Node information */
-	values[Anum_pgxc_class_nodeoids - 1] = PointerGetDatum(nodes_array);
+	datums[Anum_pgxc_class_nodeoids - 1] = PointerGetDatum(nodes_array);
 
 	/* Open the relation for insertion */
 	pgxcclassrel = heap_open(PgxcClassRelationId, RowExclusiveLock);
 
-	htup = heap_form_tuple(pgxcclassrel->rd_att, values, nulls);
+	htup = heap_form_tuple(pgxcclassrel->rd_att, datums, nulls);
 
 	CatalogTupleInsert(pgxcclassrel, htup);
 
@@ -90,9 +115,8 @@ PgxcClassCreate(Oid pcrelid,
 void
 PgxcClassAlter(Oid pcrelid,
 			   char pclocatortype,
-			   int pcattnum,
-			   int pchashalgorithm,
-			   int pchashbuckets,
+			   List *keys,
+			   List *values,
 			   int numnodes,
 			   Oid *nodes,
 			   PgxcClassAlterType type)
@@ -156,7 +180,19 @@ PgxcClassAlter(Oid pcrelid,
 	/* Attribute number of distribution column */
 	if (new_record_repl[Anum_pgxc_class_pcattnum - 1])
 	{
-		new_record[Anum_pgxc_class_pcattnum - 1] = UInt16GetDatum(pcattnum);
+		LocatorKeyInfo *key;
+		if (list_length(keys) != 1)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("invalid distribute by key length %d", list_length(keys))));
+		key = linitial(keys);
+		if (key->attno == InvalidAttrNumber)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("not support expression for distribute by yet!")));
+		Assert(key->attno > 0);
+
+		new_record[Anum_pgxc_class_pcattnum - 1] = Int16GetDatum(key->attno);
 
 		/* remove dependency on the old attribute */
 		deleteDependencyRecordsForClass(PgxcClassRelationId, pcrelid,
@@ -164,16 +200,8 @@ PgxcClassAlter(Oid pcrelid,
 		deleteDependencyRecordsForClass(PgxcClassRelationId, pcrelid,
 										CollationRelationId, DEPENDENCY_NORMAL);
 		/* then create new dependency */
-		CreatePgxcRelationAttrDepend(pcrelid, pcattnum);
+		CreatePgxcRelationAttrDepend(pcrelid, Int16GetDatum(key->attno));
 	}
-
-	/* Hash algorithm type */
-	if (new_record_repl[Anum_pgxc_class_pchashalgorithm - 1])
-		new_record[Anum_pgxc_class_pchashalgorithm - 1] = UInt16GetDatum(pchashalgorithm);
-
-	/* Hash buckets */
-	if (new_record_repl[Anum_pgxc_class_pchashbuckets - 1])
-		new_record[Anum_pgxc_class_pchashbuckets - 1] = UInt16GetDatum(pchashbuckets);
 
 	/* Node information */
 	if (new_record_repl[Anum_pgxc_class_nodeoids - 1])

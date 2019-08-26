@@ -210,10 +210,10 @@ addDefaultDistributeByOfSingleInherit(CreateStmt *stmt)
 		case LOCATOR_TYPE_HASH:
 		case LOCATOR_TYPE_HASHMAP:
 		case LOCATOR_TYPE_MODULO:
-			distby->colname = get_attname(relloc->relid, relloc->partAttrNum, false);
+			distby->colname = get_attname(relloc->relid, GetFirstLocAttNumIfOnlyOne(relloc), false);
 			break;
 		case LOCATOR_TYPE_RANGE:
-		case LOCATOR_TYPE_CUSTOM:
+		case LOCATOR_TYPE_LIST:
 		case LOCATOR_TYPE_NONE:
 		case LOCATOR_TYPE_DISTRIBUTED:
 		default:
@@ -240,7 +240,9 @@ addDefaultDistributeByOfMultiInherit(CreateStmt *stmt)
 	RelationLocInfo	   *relloc;
 	DistributeBy	   *distby;
 	ListCell		   *entry;
-	char				disttype = 0;
+	AttrNumber			partAttrNum = InvalidAttrNumber;
+	char			   *distColname = NULL;
+	char				disttype = LOCATOR_TYPE_INVALID;
 	bool				isSameDistSpec = false;
 
 	/* only coordinator master can do this */
@@ -266,7 +268,7 @@ addDefaultDistributeByOfMultiInherit(CreateStmt *stmt)
 			{
 				case LOCATOR_TYPE_REPLICATED:
 				case LOCATOR_TYPE_RANDOM:
-					if (disttype == 0)
+					if (disttype == LOCATOR_TYPE_INVALID)
 					{
 						disttype = relloc->locatorType;
 						isSameDistSpec = true;
@@ -288,7 +290,7 @@ addDefaultDistributeByOfMultiInherit(CreateStmt *stmt)
 		else
 			break;
 	}
-	if (isSameDistSpec && disttype > 0)
+	if (isSameDistSpec && disttype != LOCATOR_TYPE_INVALID)
 	{
 		distby = makeNode(DistributeBy);
 		distby->disttype = disttype;
@@ -2746,7 +2748,7 @@ transformFKConstraints(CreateStmtContext *cxt,
 											   strVal(list_nth(constraint->fk_attrs, 0)));
 
 				/* Make sure key is done on a partitioned column */
-				if (IsDistribColumn(pk_rel_id, attnum))
+				if (IsDistribOnlyOneColumn(pk_rel_id, attnum))
 				{
 					/* take first column */
 #ifdef ADB
