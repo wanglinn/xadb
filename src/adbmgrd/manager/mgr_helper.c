@@ -385,7 +385,8 @@ void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
 	pfree(sql.data);
 }
 
-int updateMgrNodeCurestatus(Oid oid, char *oldValue, char *newValue,
+int updateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
+							char *newCurestatus,
 							MemoryContext spiContext)
 {
 	StringInfoData buf;
@@ -398,10 +399,12 @@ int updateMgrNodeCurestatus(Oid oid, char *oldValue, char *newValue,
 					 "update pg_catalog.mgr_node  \n"
 					 "set curestatus = '%s' \n"
 					 "WHERE oid = %u \n"
-					 "and curestatus = '%s' \n",
-					 newValue,
-					 oid,
-					 oldValue);
+					 "and curestatus = '%s' \n"
+					 "and nodetype = '%c' \n",
+					 newCurestatus,
+					 mgrNode->oid,
+					 NameStr(mgrNode->form.curestatus),
+					 mgrNode->form.nodetype);
 	oldCtx = MemoryContextSwitchTo(spiContext);
 	spiRes = SPI_execute(buf.data, false, 0);
 	MemoryContextSwitchTo(oldCtx);
@@ -414,9 +417,8 @@ int updateMgrNodeCurestatus(Oid oid, char *oldValue, char *newValue,
 	return rows;
 }
 
-int updateMgrNodeAfterFollowMaster(Oid oid, char *oldCurestatus,
+int updateMgrNodeAfterFollowMaster(MgrNodeWrapper *mgrNode,
 								   char *newCurestatus,
-								   char *newNodesync,
 								   MemoryContext spiContext)
 {
 	StringInfoData buf;
@@ -430,11 +432,13 @@ int updateMgrNodeAfterFollowMaster(Oid oid, char *oldCurestatus,
 					 "set curestatus = '%s', \n"
 					 "nodesync = '%s' \n"
 					 "WHERE oid = %u \n"
-					 "and curestatus = '%s' \n",
+					 "and curestatus = '%s' \n"
+					 "and nodetype = '%c' \n",
 					 newCurestatus,
-					 newNodesync,
-					 oid,
-					 oldCurestatus);
+					 NameStr(mgrNode->form.nodesync),
+					 mgrNode->oid,
+					 NameStr(mgrNode->form.curestatus),
+					 mgrNode->form.nodetype);
 	oldCtx = MemoryContextSwitchTo(spiContext);
 	spiRes = SPI_execute(buf.data, false, 0);
 	MemoryContextSwitchTo(oldCtx);
@@ -833,7 +837,7 @@ bool checkNodeRunningMode(PGconn *pgConn, bool isMaster)
 /*
  * Pfree the returned result when no longer needed
  */
-char *showNodeParameter(PGconn *pgConn, char *name)
+char *showNodeParameter(PGconn *pgConn, char *name, bool complain)
 {
 	PGresult *pgResult;
 	char *value;
@@ -847,7 +851,10 @@ char *showNodeParameter(PGconn *pgConn, char *name)
 	}
 	else
 	{
-		/* for convenience */
+		ereport(complain ? ERROR : LOG,
+				(errmsg("execute %s failed:%s",
+						sql,
+						PQerrorMessage(pgConn))));
 		value = palloc0(1);
 	}
 	pfree(sql);
@@ -860,7 +867,7 @@ bool equalsNodeParameter(PGconn *pgConn, char *name, char *expectValue)
 {
 	bool equal;
 	char *actualValue;
-	actualValue = showNodeParameter(pgConn, name);
+	actualValue = showNodeParameter(pgConn, name, true);
 	equal = strcmp(actualValue, expectValue) == 0;
 	pfree(actualValue);
 	return equal;
@@ -1629,6 +1636,63 @@ bool callAgentRestartNode(MgrNodeWrapper *node,
 	return res.agentRes;
 }
 
+bool callAgentRewindNode(MgrNodeWrapper *masterNode,
+						 MgrNodeWrapper *slaveNode, bool complain)
+{
+	CallAgentResult res;
+	StringInfoData cmdMessage;
+	char *pgUser;
+	AgentCommand cmd;
+	bool bGtmType;
+
+	initStringInfo(&cmdMessage);
+
+	if (GTM_TYPE_GTM_SLAVE == slaveNode->form.nodetype)
+	{
+		bGtmType = true;
+		cmd = AGT_CMD_AGTM_REWIND;
+	}
+	else
+	{
+		bGtmType = false;
+		cmd = AGT_CMD_NODE_REWIND;
+	}
+	pgUser = getNodePGUser(slaveNode->form.nodetype,
+						   NameStr(slaveNode->host->form.hostuser));
+	appendStringInfo(&cmdMessage,
+					 " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres'",
+					 slaveNode->nodepath,
+					 masterNode->host->hostaddr,
+					 masterNode->form.nodeport,
+					 pgUser);
+	pfree(pgUser);
+	if (!bGtmType)
+	{
+		appendStringInfo(&cmdMessage, " -N %s",
+						 NameStr(slaveNode->form.nodename));
+	}
+	res = callAgentSendCmd(cmd, &cmdMessage, slaveNode->host->hostaddr,
+						   slaveNode->host->form.hostagentport);
+	pfree(cmdMessage.data);
+	if (res.agentRes)
+	{
+		ereport(DEBUG1,
+				(errmsg("rewind %s from %s successfully",
+						NameStr(slaveNode->form.nodename),
+						NameStr(masterNode->form.nodename))));
+	}
+	else
+	{
+		ereport(complain ? ERROR : LOG,
+				(errmsg("rewind %s from %s failed:%s",
+						NameStr(slaveNode->form.nodename),
+						NameStr(masterNode->form.nodename),
+						res.message.data)));
+	}
+	pfree(res.message.data);
+	return res.agentRes;
+}
+
 void getCallAgentSqlString(MgrNodeWrapper *node,
 						   char *sql,
 						   StringInfo cmdMessage)
@@ -1912,4 +1976,75 @@ bool equalsAfterTrim(char *str1, char *str2)
 	trimStr1 = trimString(str1);
 	trimStr2 = trimString(str2);
 	return strcmp(trimStr1, trimStr2) == 0;
+}
+
+bool pingNodeWaitinSeconds(MgrNodeWrapper *node,
+						   PGPing expectedPGPing,
+						   int waitSeconds)
+{
+	int seconds;
+	PingNodeResult pingNodeResult;
+	for (seconds = 0; seconds < waitSeconds; seconds++)
+	{
+		pingNodeResult = callAgentPingNode(node);
+		if (pingNodeResult.agentRes &&
+			pingNodeResult.pgPing == expectedPGPing)
+		{
+			return true;
+		}
+		else
+		{
+			pg_usleep(1000000L);
+		}
+	}
+	return false;
+}
+
+bool shutdownNodeWithinSeconds(MgrNodeWrapper *mgrNode,
+							   int fastModeSeconds,
+							   int immediateModeSeconds,
+							   bool complain)
+{
+	callAgentStopNode(mgrNode, SHUTDOWN_F, false);
+	if (!pingNodeWaitinSeconds(mgrNode,
+							   PQPING_NO_RESPONSE,
+							   fastModeSeconds))
+	{
+		if (immediateModeSeconds > 0)
+		{
+			callAgentStopNode(mgrNode, SHUTDOWN_I, false);
+			if (!pingNodeWaitinSeconds(mgrNode,
+									   PQPING_NO_RESPONSE,
+									   immediateModeSeconds))
+			{
+				ereport(complain ? ERROR : LOG,
+						(errmsg("try shut down node %s failed",
+								NameStr(mgrNode->form.nodename))));
+				return false;
+			}
+		}
+		else
+		{
+			ereport(complain ? ERROR : LOG,
+					(errmsg("try shut down node %s failed",
+							NameStr(mgrNode->form.nodename))));
+			return false;
+		}
+	}
+	return true;
+}
+
+bool startupNodeWithinSeconds(MgrNodeWrapper *mgrNode,
+							  int waitSeconds,
+							  bool complain)
+{
+	callAgentStartNode(mgrNode, false);
+	if (!pingNodeWaitinSeconds(mgrNode, PQPING_OK, waitSeconds))
+	{
+		ereport(complain ? ERROR : LOG,
+				(errmsg("try start up node %s failed",
+						NameStr(mgrNode->form.nodename))));
+		return false;
+	}
+	return true;
 }

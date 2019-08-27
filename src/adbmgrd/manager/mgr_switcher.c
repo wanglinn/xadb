@@ -53,7 +53,8 @@ static void refreshMgrNodeAfterSwitch(SwitcherNodeWrapper *oldMaster,
 									  bool kickOutOldMaster);
 static void refreshMgrUpdateparmAfterSwitch(MgrNodeWrapper *oldMaster,
 											MgrNodeWrapper *newMaster,
-											MemoryContext spiContext);
+											MemoryContext spiContext,
+											bool kickOutOldMaster);
 static void refreshPgxcNodesAfterSwitch(dlist_head *coordinators,
 										MgrNodeWrapper *oldMaster,
 										MgrNodeWrapper *newMaster);
@@ -63,6 +64,9 @@ static void updateMgrNodeBeforeSwitch(MgrNodeWrapper *mgrNode,
 static void updateMgrNodeAfterSwitch(MgrNodeWrapper *mgrNode,
 									 char *newCurestatus,
 									 MemoryContext spiContext);
+static void deleteMgrUpdateparmByNodenameType(char *updateparmnodename,
+											  char updateparmnodetype,
+											  MemoryContext spiContext);
 static void updateMgrUpdateparmNodetype(char *nodename, char nodetype,
 										MemoryContext spiContext);
 static bool deletePgxcNodeDatanodeSlaves(SwitcherNodeWrapper *coordinator);
@@ -215,8 +219,9 @@ void switchDataNodeOperation(SwitcherNodeWrapper *oldMaster,
 								 spiContext);
 
 	/* Sentinel, ensure to shut down old master */
-	callAgentPingAndStopNode(oldMaster->mgrNode,
-							 SHUTDOWN_I);
+	shutdownNodeWithinSeconds(oldMaster->mgrNode, 10, 50, true);
+	// callAgentPingAndStopNode(oldMaster->mgrNode,
+	// 						 SHUTDOWN_I);
 
 	newMaster = choosePromotionNode(runningSlaves,
 									forceSwitch,
@@ -290,7 +295,9 @@ void switchToDataNodeNewMaster(SwitcherNodeWrapper *oldMaster,
 	refreshMgrNodeAfterSwitch(oldMaster, newMaster, runningSlaves,
 							  failedSlaves, spiContext, kickOutOldMaster);
 	refreshMgrUpdateparmAfterSwitch(oldMaster->mgrNode,
-									newMaster->mgrNode, spiContext);
+									newMaster->mgrNode,
+									spiContext,
+									kickOutOldMaster);
 
 	tryUnlockCluster(coordinators, true);
 
@@ -874,7 +881,8 @@ void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 
 	setSlaveNodeRecoveryConf(masterNode, slaveNode);
 
-	callAgentPingAndStopNode(slaveNode, SHUTDOWN_I);
+	shutdownNodeWithinSeconds(slaveNode, 10, 50, true);
+	//callAgentPingAndStopNode(slaveNode, SHUTDOWN_I);
 
 	callAgentStartNode(slaveNode, true);
 
@@ -883,7 +891,7 @@ void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 	appendSyncStandbyNames(masterNode, slaveNode, masterPGconn);
 
 	ereport(LOG,
-			(errmsg("%s has followed new master %s",
+			(errmsg("%s has followed master %s",
 					NameStr(slaveNode->form.nodename),
 					NameStr(masterNode->form.nodename))));
 }
@@ -944,6 +952,9 @@ static void runningSlavesFollowMaster(SwitcherNodeWrapper *masterNode,
 	}
 }
 
+/**
+ * This function will modify slaveNode's field form.nodesync.
+ */
 static void appendSyncStandbyNames(MgrNodeWrapper *masterNode,
 								   MgrNodeWrapper *slaveNode,
 								   PGconn *masterPGconn)
@@ -958,7 +969,7 @@ static void appendSyncStandbyNames(MgrNodeWrapper *masterNode,
 	int i;
 
 	temp = showNodeParameter(masterPGconn,
-							 "synchronous_standby_names");
+							 "synchronous_standby_names", true);
 	ereport(DEBUG1,
 			(errmsg("%s synchronous_standby_names is %s",
 					NameStr(masterNode->form.nodename),
@@ -1062,7 +1073,7 @@ static bool checkSet_pool_release_to_idle_timeout(SwitcherNodeWrapper *node)
 
 	parameterName = "pool_release_to_idle_timeout";
 	expectValue = "-1";
-	originalValue = showNodeParameter(node->pgConn, parameterName);
+	originalValue = showNodeParameter(node->pgConn, parameterName, true);
 	if (strcmp(originalValue, expectValue) == 0)
 	{
 		ereport(LOG, (errmsg("node %s parameter %s already is %s,"
@@ -1276,7 +1287,7 @@ static void refreshMgrNodeAfterSwitch(SwitcherNodeWrapper *oldMaster,
 		oldMaster->mgrNode->form.nodeincluster = false;
 		oldMaster->mgrNode->form.allowcure = false;
 		/* Kick the old master out of the cluster */
-		updateMgrNodeAfterSwitch(oldMaster->mgrNode, CURE_STATUS_NORMAL,
+		updateMgrNodeAfterSwitch(oldMaster->mgrNode, CURE_STATUS_OLD_MASTER,
 								 spiContext);
 	}
 	else
@@ -1335,14 +1346,27 @@ static void refreshMgrNodeAfterSwitch(SwitcherNodeWrapper *oldMaster,
 
 static void refreshMgrUpdateparmAfterSwitch(MgrNodeWrapper *oldMaster,
 											MgrNodeWrapper *newMaster,
-											MemoryContext spiContext)
+											MemoryContext spiContext,
+											bool kickOutOldMaster)
 {
-	/* old master update to slave */
-	updateMgrUpdateparmNodetype(NameStr(oldMaster->form.nodename),
-								newMaster->form.nodetype, spiContext);
+	if (kickOutOldMaster)
+	{
+		deleteMgrUpdateparmByNodenameType(NameStr(oldMaster->form.nodename),
+										  getMgrMasterNodetype(oldMaster->form.nodetype),
+										  spiContext);
+	}
+	else
+	{
+		/* old master update to slave */
+		updateMgrUpdateparmNodetype(NameStr(oldMaster->form.nodename),
+									getMgrSlaveNodetype(oldMaster->form.nodetype),
+									spiContext);
+	}
+
 	/* new master update to master */
 	updateMgrUpdateparmNodetype(NameStr(newMaster->form.nodename),
-								oldMaster->form.nodetype, spiContext);
+								getMgrMasterNodetype(newMaster->form.nodetype),
+								spiContext);
 }
 
 static void refreshPgxcNodesAfterSwitch(dlist_head *coordinators,
@@ -1460,6 +1484,34 @@ static void updateMgrNodeAfterSwitch(MgrNodeWrapper *mgrNode,
 						SPI_processed)));
 	}
 	namestrcpy(&mgrNode->form.curestatus, newCurestatus);
+}
+
+static void deleteMgrUpdateparmByNodenameType(char *updateparmnodename,
+											  char updateparmnodetype,
+											  MemoryContext spiContext)
+{
+	int spiRes;
+	MemoryContext oldCtx;
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "DELETE FROM mgr_updateparm \n"
+					 "WHERE updateparmnodename = '%s' \n"
+					 "AND updateparmnodetype = '%c' \n",
+					 updateparmnodename,
+					 updateparmnodetype);
+	oldCtx = MemoryContextSwitchTo(spiContext);
+	spiRes = SPI_execute(sql.data, false, 0);
+	MemoryContextSwitchTo(oldCtx);
+
+	pfree(sql.data);
+	if (spiRes != SPI_OK_UPDATE)
+	{
+		ereport(ERROR,
+				(errmsg("SPI_execute failed: error code %d",
+						spiRes)));
+	}
 }
 
 static void updateMgrUpdateparmNodetype(char *updateparmnodename,

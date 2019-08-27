@@ -331,10 +331,11 @@ extern MgrNodeWrapper *selectMgrNodeForNodeDoctor(Oid oid,
 												  MemoryContext spiContext);
 extern void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
 											dlist_head *resultList);
-extern int updateMgrNodeCurestatus(Oid oid, char *oldValue, char *newValue,
+extern int updateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
+								   char *newCurestatus,
 								   MemoryContext spiContext);
-extern int updateMgrNodeAfterFollowMaster(Oid oid, char *oldValue, char *newValue,
-										  char *newNodesync,
+extern int updateMgrNodeAfterFollowMaster(MgrNodeWrapper *mgrNode,
+										  char *newCurestatus,
 										  MemoryContext spiContext);
 extern void selectMgrHosts(char *sql,
 						   MemoryContext spiContext,
@@ -357,7 +358,7 @@ extern NodeRunningMode getNodeRunningMode(PGconn *pgConn);
 extern NodeRunningMode getExpectedNodeRunningMode(bool isMaster);
 extern bool checkNodeRunningMode(PGconn *pgConn, bool isMaster);
 extern bool setNodeParameter(PGconn *pgConn, char *name, char *value);
-extern char *showNodeParameter(PGconn *pgConn, char *name);
+extern char *showNodeParameter(PGconn *pgConn, char *name, bool complain);
 extern bool PQexecCommandSql(PGconn *pgConn, char *sql, bool complain);
 extern bool PQexecBoolQuery(PGconn *pgConn, char *sql, bool expectedValue, bool complain);
 extern int PQexecCountSql(PGconn *pgConn, char *sql, bool complain);
@@ -398,6 +399,8 @@ extern bool callAgentStopNode(MgrNodeWrapper *node,
 extern bool callAgentStartNode(MgrNodeWrapper *node, bool complain);
 extern bool callAgentRestartNode(MgrNodeWrapper *node,
 								 char *shutdownMode, bool complain);
+extern bool callAgentRewindNode(MgrNodeWrapper *masterNode,
+								MgrNodeWrapper *slaveNode, bool complain);
 extern void getCallAgentSqlString(MgrNodeWrapper *node,
 								  char *sql, StringInfo cmdMessage);
 extern PingNodeResult callAgentPingNode(MgrNodeWrapper *node);
@@ -422,4 +425,14 @@ extern void setSlaveNodeRecoveryConf(MgrNodeWrapper *masterNode,
 extern char *trimString(char *str);
 extern bool equalsAfterTrim(char *str1, char *str2);
 
+extern bool pingNodeWaitinSeconds(MgrNodeWrapper *node,
+								  PGPing expectedPGPing,
+								  int waitSeconds);
+extern bool shutdownNodeWithinSeconds(MgrNodeWrapper *mgrNode,
+									  int fastModeSeconds,
+									  int immediateModeSeconds,
+									  bool complain);
+extern bool startupNodeWithinSeconds(MgrNodeWrapper *mgrNode,
+									 int waitSeconds,
+									  bool complain);
 #endif /* MGR_HELPER_H */
