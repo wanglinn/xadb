@@ -52,6 +52,12 @@ void checkAdbDoctorConf(AdbDoctorConf *src)
 	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
 								  node_restart_delay_ms_min,
 								  node_restart_delay_ms_max);
+	if (src->node_retry_follow_master_interval_ms < 1)
+		ereport(ERROR,
+				(errmsg("node_retry_follow_master_interval_ms must > 0")));
+	if (src->node_retry_rewind_interval_ms < 1)
+		ereport(ERROR,
+				(errmsg("node_retry_rewind_interval_ms must > 0")));
 	if (src->agent_connection_error_num_max < 1)
 		ereport(ERROR,
 				(errmsg("agent_connection_error_num_max must > 0")));
@@ -494,6 +500,14 @@ AdbDoctorConf *selectAllAdbDoctorConf(MemoryContext spiContext)
 			else if (pg_strcasecmp(keyStr, "node_restart_delay_ms_max") == 0)
 			{
 				conf->node_restart_delay_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_retry_follow_master_interval_ms") == 0)
+			{
+				conf->node_retry_follow_master_interval_ms = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_retry_rewind_interval_ms") == 0)
+			{
+				conf->node_retry_rewind_interval_ms = valueInt;
 			}
 			else if (pg_strcasecmp(keyStr, "agent_connection_error_num_max") == 0)
 			{

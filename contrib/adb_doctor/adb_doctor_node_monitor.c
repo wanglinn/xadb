@@ -47,6 +47,8 @@ typedef struct NodeConfiguration
 	long restartMasterTimeoutMs;
 	long shutdownTimeoutMs;
 	int connectionErrorNumMax;
+	long retryFollowMasterIntervalMs;
+	long retryRewindIntervalMs;
 } NodeConfiguration;
 
 typedef enum NodeError
@@ -114,6 +116,16 @@ typedef struct MonitorNodeInfo
 	AdbDoctorErrorRecorder *connectionErrors;
 } MonitorNodeInfo;
 
+typedef struct RewindMgrNodeObject
+{
+	MgrNodeWrapper *masterNode;
+	MgrNodeWrapper *slaveNode;
+	PGconn *masterPGconn;
+	PGconn *slavePGconn;
+	NameData slaveCurestatusBackup;
+	NameData slaveNodesyncBackup;
+} RewindMgrNodeObject;
+
 static void nodeMonitorMainLoop(MonitorNodeInfo *nodeInfo);
 
 static void examineAdbDoctorConf(void);
@@ -140,7 +152,6 @@ static void nodeWaitSwitch(MonitorNodeInfo *nodeInfo);
 static bool tryRestartNode(MonitorNodeInfo *nodeInfo);
 static bool tryStartupNode(MonitorNodeInfo *nodeInfo);
 static bool startupNode(MonitorNodeInfo *nodeInfo);
-static bool shutdownNode(MonitorNodeInfo *nodeInfo, char *shutdownMode);
 
 static void startConnection(MonitorNodeInfo *nodeInfo);
 static void resetConnection(MonitorNodeInfo *nodeInfo);
@@ -176,21 +187,34 @@ static MemoryContext beginCureOperation(MgrNodeWrapper *mgrNode);
 static void endCureOperation(MgrNodeWrapper *mgrNode,
 							 char *newCurestatus,
 							 MemoryContext spiContext);
-static void endFollowMasterOperation(MgrNodeWrapper *mgrNode,
-									 char *newCurestatus,
-									 char *newNodesync,
-									 MemoryContext spiContext);
+static void refreshMgrNodeAfterFollowMaster(MgrNodeWrapper *mgrNode,
+											char *newCurestatus,
+											MemoryContext spiContext);
 static void checkMgrNodeDataInDB(MgrNodeWrapper *mgrNode,
 								 MemoryContext spiContext);
 static void checkUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 										 char *newCurestatus,
 										 MemoryContext spiContext);
+static void tryUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
+									   char *newCurestatus,
+									   MemoryContext spiContext);
+static MgrNodeWrapper *checkGetMgrNodeForNodeDoctor(Oid oid);
+static bool isHaveSlaveNodes(MgrNodeWrapper *mgrNode);
+
 static void treatFollowFailAfterSwitch(MgrNodeWrapper *followFail);
 static void treatOldMasterAfterSwitch(MgrNodeWrapper *oldMaster);
-static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode);
-static MgrNodeWrapper *getCheckMgrNodeForNodeDoctor(Oid oid);
-
-static bool isHaveSlaveNodes(MgrNodeWrapper *mgrNode);
+static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
+									   MemoryContext spiContext);
+static bool rewindSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
+										MemoryContext spiContext);
+static void prepareRewindMgrNode(RewindMgrNodeObject *rewindObject,
+								 MemoryContext spiContext);
+static void rewindMgrNodeOperation(RewindMgrNodeObject *rewindObject,
+								   MemoryContext spiContext);
+static MgrNodeWrapper *checkGetMasterNode(Oid nodemasternameoid,
+										  MemoryContext spiContext);
+static PGconn *checkMasterRunningStatus(MgrNodeWrapper *masterNode);
+static bool checkSetRewindNodeParamter(MgrNodeWrapper *mgrNode, PGconn *conn);
 
 static void handleSigterm(SIGNAL_ARGS);
 static void handleSigusr1(SIGNAL_ARGS);
@@ -247,7 +271,7 @@ void adbDoctorNodeMonitorMain(Datum main_arg)
 			}
 		}
 
-		cachedMgrNode = getCheckMgrNodeForNodeDoctor(bgworkerData->oid);
+		cachedMgrNode = checkGetMgrNodeForNodeDoctor(bgworkerData->oid);
 		if (pg_strcasecmp(NameStr(cachedMgrNode->form.curestatus),
 						  CURE_STATUS_SWITCHED) == 0)
 		{
@@ -343,7 +367,7 @@ static void examineAdbDoctorConf()
 				(errmsg("%s, Refresh configuration completed",
 						MyBgworkerEntry->bgw_name)));
 
-		freshMgrNode = getCheckMgrNodeForNodeDoctor(cachedMgrNode->oid);
+		freshMgrNode = checkGetMgrNodeForNodeDoctor(cachedMgrNode->oid);
 		if (isIdenticalDoctorMgrNode(freshMgrNode, cachedMgrNode))
 		{
 			pfreeMgrNodeWrapper(freshMgrNode);
@@ -851,7 +875,7 @@ static bool tryRestartNode(MonitorNodeInfo *nodeInfo)
 	if (beyondRestartDelay(nodeInfo))
 	{
 		spiContext = beginCureOperation(nodeInfo->mgrNode);
-		done = shutdownNode(nodeInfo, SHUTDOWN_I) &&
+		done = shutdownNodeWithinSeconds(nodeInfo->mgrNode, 10, 120, false) &&
 			   startupNode(nodeInfo);
 		endCureOperation(nodeInfo->mgrNode, CURE_STATUS_NORMAL, spiContext);
 		if (done)
@@ -911,11 +935,6 @@ static bool startupNode(MonitorNodeInfo *nodeInfo)
 	ok = callAgentStartNode(nodeInfo->mgrNode, false);
 	nodeInfo->restartTime = GetCurrentTimestamp();
 	return ok;
-}
-
-static bool shutdownNode(MonitorNodeInfo *nodeInfo, char *shutdownMode)
-{
-	return callAgentStopNode(nodeInfo->mgrNode, shutdownMode, false);
 }
 
 static void startConnection(MonitorNodeInfo *nodeInfo)
@@ -1543,18 +1562,13 @@ static void endCureOperation(MgrNodeWrapper *mgrNode,
 	SPI_FINISH_TRANSACTIONAL_COMMIT();
 }
 
-static void endFollowMasterOperation(MgrNodeWrapper *mgrNode,
-									 char *newCurestatus,
-									 char *newNodesync,
-									 MemoryContext spiContext)
+static void refreshMgrNodeAfterFollowMaster(MgrNodeWrapper *mgrNode,
+											char *newCurestatus,
+											MemoryContext spiContext)
 {
 	int rows;
 
-	rows = updateMgrNodeAfterFollowMaster(mgrNode->oid,
-										  NameStr(mgrNode->form.curestatus),
-										  newCurestatus,
-										  newNodesync,
-										  spiContext);
+	rows = updateMgrNodeAfterFollowMaster(mgrNode, newCurestatus, spiContext);
 	if (rows != 1)
 	{
 		ereport(ERROR,
@@ -1562,7 +1576,10 @@ static void endFollowMasterOperation(MgrNodeWrapper *mgrNode,
 						MyBgworkerEntry->bgw_name,
 						newCurestatus)));
 	}
-	SPI_FINISH_TRANSACTIONAL_COMMIT();
+	else
+	{
+		namestrcpy(&mgrNode->form.curestatus, newCurestatus);
+	}
 }
 
 static void checkMgrNodeDataInDB(MgrNodeWrapper *mgrNode,
@@ -1643,10 +1660,7 @@ static void checkUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 {
 	int rows;
 
-	rows = updateMgrNodeCurestatus(mgrNode->oid,
-								   NameStr(mgrNode->form.curestatus),
-								   newCurestatus,
-								   spiContext);
+	rows = updateMgrNodeCurestatus(mgrNode, newCurestatus, spiContext);
 	if (rows != 1)
 	{
 		/* 
@@ -1659,7 +1673,7 @@ static void checkUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 		checkMgrNodeDataInDB(mgrNode, spiContext);
 		ereport(ERROR,
 				(errmsg("%s, can not transit to curestatus:%s",
-						MyBgworkerEntry->bgw_name,
+						NameStr(mgrNode->form.nodename),
 						newCurestatus)));
 	}
 	else
@@ -1668,200 +1682,23 @@ static void checkUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 	}
 }
 
-static void treatFollowFailAfterSwitch(MgrNodeWrapper *followFail)
+static void tryUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
+									   char *newCurestatus,
+									   MemoryContext spiContext)
 {
-	while (true)
-	{
-		if (!isSlaveNode(followFail->form.nodetype, true))
-		{
-			ereport(ERROR,
-					(errmsg("%s expected node is slave, but it is not",
-							MyBgworkerEntry->bgw_name)));
-		}
-		if (pg_strcasecmp(NameStr(followFail->form.curestatus),
-						  CURE_STATUS_FOLLOW_FAIL) != 0)
-		{
-			ereport(ERROR,
-					(errmsg("%s expected curestatus is %s, but actually is %s",
-							MyBgworkerEntry->bgw_name,
-							CURE_STATUS_FOLLOW_FAIL,
-							NameStr(followFail->form.curestatus))));
-		}
+	int rows;
 
-		if (treatSlaveNodeFollowMaster(followFail))
-		{
-			break;
-		}
-		else
-		{
-			pg_usleep(60L * 1000000L);
-			CHECK_FOR_INTERRUPTS();
-			examineAdbDoctorConf();
-		}
-	}
-}
-
-static void treatOldMasterAfterSwitch(MgrNodeWrapper *oldMaster)
-{
-	/* TODO */
-	while (true)
-	{
-		if (!isSlaveNode(oldMaster->form.nodetype, true))
-		{
-			ereport(ERROR,
-					(errmsg("%s expected node is slave, but it is not",
-							MyBgworkerEntry->bgw_name)));
-		}
-		if (pg_strcasecmp(NameStr(oldMaster->form.curestatus),
-						  CURE_STATUS_OLD_MASTER) != 0)
-		{
-			ereport(ERROR,
-					(errmsg("%s expected curestatus is %s, but actually is %s",
-							MyBgworkerEntry->bgw_name,
-							CURE_STATUS_OLD_MASTER,
-							NameStr(oldMaster->form.curestatus))));
-		}
-
-		if (treatSlaveNodeFollowMaster(oldMaster))
-		{
-			break;
-		}
-		else
-		{
-			pg_usleep(60L * 1000000L);
-			CHECK_FOR_INTERRUPTS();
-			examineAdbDoctorConf();
-		}
-	}
-}
-
-static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode)
-{
-	MemoryContext oldContext;
-	MemoryContext workerContext;
-	MemoryContext spiContext;
-	MgrNodeWrapper *masterNode = NULL;
-	PGconn *masterPGconn = NULL;
-	PGconn *slavePGconn = NULL;
-	NodeRunningMode slaveRunningMode;
-	volatile bool done;
-	NameData oldCurestatus;
-	NameData oldNodesync;
-
-	oldContext = CurrentMemoryContext;
-	workerContext = AllocSetContextCreate(oldContext,
-										  "workerContext",
-										  ALLOCSET_DEFAULT_SIZES);
-	MemoryContextSwitchTo(workerContext);
-
-	memcpy(&oldCurestatus, &slaveNode->form.curestatus, sizeof(NameData));
-	memcpy(&oldNodesync, &slaveNode->form.nodesync, sizeof(NameData));
-
-	PG_TRY();
-	{
-		spiContext = beginCureOperation(slaveNode);
-		masterNode = selectMgrNodeByOid(slaveNode->form.nodemasternameoid,
-										spiContext);
-		if (masterNode == NULL)
-		{
-			ereport(ERROR,
-					(errmsg("%s expected master node with oid %u is not exists",
-							MyBgworkerEntry->bgw_name,
-							slaveNode->form.nodemasternameoid)));
-		}
-		if (!isMasterNode(masterNode->form.nodetype, true))
-		{
-			ereport(ERROR,
-					(errmsg("%s expected master node with oid %u is not master",
-							MyBgworkerEntry->bgw_name,
-							slaveNode->form.nodemasternameoid)));
-		}
-		masterPGconn = getNodeDefaultDBConnection(masterNode, 10);
-		if (!masterPGconn)
-		{
-			ereport(ERROR,
-					(errmsg("%s get master node %s connection failed, "
-							"suspend the operation of following master",
-							MyBgworkerEntry->bgw_name,
-							NameStr(masterNode->form.nodename))));
-		}
-		if (!checkNodeRunningMode(masterPGconn, true))
-		{
-			ereport(ERROR,
-					(errmsg("%s master node %s is not running on master mode"
-							"suspend the operation of following master",
-							MyBgworkerEntry->bgw_name,
-							NameStr(masterNode->form.nodename))));
-		}
-		ereport(LOG,
-				(errmsg("%s try to follow master %s",
-						MyBgworkerEntry->bgw_name,
-						NameStr(masterNode->form.nodename))));
-		slavePGconn = getNodeDefaultDBConnection(slaveNode, 10);
-		if (slavePGconn)
-		{
-			slaveRunningMode = getNodeRunningMode(slavePGconn);
-			if (slaveRunningMode == NODE_RUNNING_MODE_MASTER)
-			{
-				ereport(ERROR,
-						(errmsg("%s need do rewind, this feature has not been implemented yet",
-								MyBgworkerEntry->bgw_name)));
-			}
-			else
-			{
-				appendSlaveNodeFollowMaster(masterNode, slaveNode,
-											masterPGconn);
-			}
-		}
-		else
-		{
-			appendSlaveNodeFollowMaster(masterNode, slaveNode,
-										masterPGconn);
-		}
-		ereport(LOG,
-				(errmsg("%s has followed master %s",
-						MyBgworkerEntry->bgw_name,
-						NameStr(masterNode->form.nodename))));
-		done = true;
-	}
-	PG_CATCH();
-	{
-		done = false;
-		EmitErrorReport();
-		FlushErrorState();
-		ereport(LOG,
-				(errmsg("%s follow master %s failed",
-						MyBgworkerEntry->bgw_name,
-						NameStr(masterNode->form.nodename))));
-	}
-	PG_END_TRY();
-
-	if (masterNode)
-		pfreeMgrNodeWrapper(masterNode);
-	if (masterPGconn)
-		PQfinish(masterPGconn);
-	if (slavePGconn)
-		PQfinish(slavePGconn);
-
-	if (done)
-	{
-		endFollowMasterOperation(slaveNode, CURE_STATUS_NORMAL,
-								 NameStr(slaveNode->form.nodesync),
-								 spiContext);
-	}
+	rows = updateMgrNodeCurestatus(mgrNode, newCurestatus, spiContext);
+	if (rows != 1)
+		ereport(ERROR,
+				(errmsg("%s, can not transit to curestatus:%s",
+						NameStr(mgrNode->form.nodename),
+						newCurestatus)));
 	else
-	{
-		memcpy(&slaveNode->form.curestatus, &oldCurestatus, sizeof(NameData));
-		memcpy(&slaveNode->form.nodesync, &oldNodesync, sizeof(NameData));
-		SPI_FINISH_TRANSACTIONAL_ABORT();
-	}
-
-	(void)MemoryContextSwitchTo(oldContext);
-	MemoryContextDelete(workerContext);
-	return done;
+		namestrcpy(&mgrNode->form.curestatus, newCurestatus);
 }
 
-static MgrNodeWrapper *getCheckMgrNodeForNodeDoctor(Oid oid)
+static MgrNodeWrapper *checkGetMgrNodeForNodeDoctor(Oid oid)
 {
 	MgrNodeWrapper *mgrNode;
 	MemoryContext oldContext;
@@ -1930,6 +1767,562 @@ static bool isHaveSlaveNodes(MgrNodeWrapper *mgrNode)
 	}
 	SPI_FINISH_TRANSACTIONAL_COMMIT();
 	return nSlaves > 0;
+}
+
+static void treatFollowFailAfterSwitch(MgrNodeWrapper *followFail)
+{
+	MemoryContext oldContext;
+	MemoryContext workerContext;
+	MemoryContext spiContext;
+	int ret;
+	bool done;
+
+	/* Wait for a while, let the cluster fully return to normal */
+	pg_usleep(10L * 1000000L);
+
+	while (true)
+	{
+		if (!isSlaveNode(followFail->form.nodetype, true))
+		{
+			ereport(ERROR,
+					(errmsg("%s expected node is slave, but it is not",
+							MyBgworkerEntry->bgw_name)));
+		}
+		if (pg_strcasecmp(NameStr(followFail->form.curestatus),
+						  CURE_STATUS_FOLLOW_FAIL) != 0)
+		{
+			ereport(ERROR,
+					(errmsg("%s expected curestatus is %s, but actually is %s",
+							MyBgworkerEntry->bgw_name,
+							CURE_STATUS_FOLLOW_FAIL,
+							NameStr(followFail->form.curestatus))));
+		}
+
+		oldContext = CurrentMemoryContext;
+		workerContext = AllocSetContextCreate(oldContext,
+											  "workerContext",
+											  ALLOCSET_DEFAULT_SIZES);
+		SPI_CONNECT_TRANSACTIONAL_START(ret, true);
+		spiContext = CurrentMemoryContext;
+		MemoryContextSwitchTo(workerContext);
+
+		done = treatSlaveNodeFollowMaster(followFail, spiContext);
+
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(workerContext);
+
+		if (done)
+		{
+			SPI_FINISH_TRANSACTIONAL_COMMIT();
+			break;
+		}
+		else
+		{
+			SPI_FINISH_TRANSACTIONAL_ABORT();
+			pg_usleep(nodeConfiguration->retryFollowMasterIntervalMs * 1000L);
+			CHECK_FOR_INTERRUPTS();
+			examineAdbDoctorConf();
+		}
+	}
+}
+
+static void treatOldMasterAfterSwitch(MgrNodeWrapper *oldMaster)
+{
+	MemoryContext oldContext;
+	MemoryContext workerContext;
+	MemoryContext spiContext;
+	int ret;
+	bool done;
+
+	/* Wait for a while, let the cluster fully return to normal */
+	pg_usleep(10L * 1000000L);
+
+	while (true)
+	{
+		if (!isSlaveNode(oldMaster->form.nodetype, true))
+		{
+			ereport(ERROR,
+					(errmsg("%s expected node is slave, but it is not",
+							MyBgworkerEntry->bgw_name)));
+		}
+		if (pg_strcasecmp(NameStr(oldMaster->form.curestatus),
+						  CURE_STATUS_OLD_MASTER) != 0)
+		{
+			ereport(ERROR,
+					(errmsg("%s expected curestatus is %s, but actually is %s",
+							MyBgworkerEntry->bgw_name,
+							CURE_STATUS_OLD_MASTER,
+							NameStr(oldMaster->form.curestatus))));
+		}
+
+		oldContext = CurrentMemoryContext;
+		workerContext = AllocSetContextCreate(oldContext,
+											  "workerContext",
+											  ALLOCSET_DEFAULT_SIZES);
+		SPI_CONNECT_TRANSACTIONAL_START(ret, true);
+		spiContext = CurrentMemoryContext;
+		MemoryContextSwitchTo(workerContext);
+
+		done = rewindSlaveNodeFollowMaster(oldMaster, spiContext);
+
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(workerContext);
+
+		if (done)
+		{
+			SPI_FINISH_TRANSACTIONAL_COMMIT();
+			break;
+		}
+		else
+		{
+			SPI_FINISH_TRANSACTIONAL_ABORT();
+			pg_usleep(nodeConfiguration->retryRewindIntervalMs * 1000L);
+			CHECK_FOR_INTERRUPTS();
+			examineAdbDoctorConf();
+		}
+	}
+}
+
+static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
+									   MemoryContext spiContext)
+{
+
+	MgrNodeWrapper *masterNode = NULL;
+	PGconn *masterPGconn = NULL;
+	PGconn *slavePGconn = NULL;
+	NodeRunningMode slaveRunningMode;
+	volatile bool done;
+	NameData oldCurestatus;
+	NameData oldNodesync;
+
+	memcpy(&oldCurestatus, &slaveNode->form.curestatus, sizeof(NameData));
+	memcpy(&oldNodesync, &slaveNode->form.nodesync, sizeof(NameData));
+
+	ereport(LOG,
+			(errmsg("try to treat follow fail node %s to follow master",
+					NameStr(slaveNode->form.nodename))));
+	PG_TRY();
+	{
+		checkMgrNodeDataInDB(slaveNode, spiContext);
+		checkUpdateMgrNodeCurestatus(slaveNode, CURE_STATUS_CURING, spiContext);
+
+		masterNode = checkGetMasterNode(slaveNode->form.nodemasternameoid,
+										spiContext);
+		masterPGconn = checkMasterRunningStatus(masterNode);
+		ereport(LOG,
+				(errmsg("master node %s running status ok",
+						NameStr(masterNode->form.nodename))));
+
+		slavePGconn = getNodeDefaultDBConnection(slaveNode, 10);
+		if (!slavePGconn)
+		{
+			startupNodeWithinSeconds(slaveNode, 90, true);
+			slavePGconn = getNodeDefaultDBConnection(slaveNode, 10);
+			if (!slavePGconn)
+				ereport(ERROR,
+						(errmsg("get node %s connection failed",
+								NameStr(slaveNode->form.nodename))));
+		}
+
+		slaveRunningMode = getNodeRunningMode(slavePGconn);
+		if (slaveRunningMode == NODE_RUNNING_MODE_MASTER)
+		{
+			ereport(INFO,
+					(errmsg("%s was configured as slave node, "
+							"but actually running in master node, "
+							"try to rewind it to follow master %s",
+							NameStr(slaveNode->form.nodename),
+							NameStr(masterNode->form.nodename))));
+			if (rewindSlaveNodeFollowMaster(slaveNode, spiContext))
+			{
+				ereport(INFO,
+						(errmsg("rewind follow fail node %s to follow master %s successfully completed",
+								NameStr(slaveNode->form.nodename),
+								NameStr(masterNode->form.nodename))));
+			}
+			else
+			{
+				ereport(ERROR,
+						(errmsg("rewind follow fail node %s to follow master %s failed",
+								NameStr(slaveNode->form.nodename),
+								NameStr(masterNode->form.nodename))));
+			}
+		}
+		else
+		{
+			appendSlaveNodeFollowMaster(masterNode, slaveNode,
+										masterPGconn);
+		}
+		refreshMgrNodeAfterFollowMaster(slaveNode,
+										CURE_STATUS_NORMAL,
+										spiContext);
+		done = true;
+	}
+	PG_CATCH();
+	{
+		done = false;
+		EmitErrorReport();
+		FlushErrorState();
+	}
+	PG_END_TRY();
+
+	if (done)
+	{
+		ereport(LOG,
+				(errmsg("treat node %s to follow master %s successfully completed",
+						NameStr(slaveNode->form.nodename),
+						NameStr(masterNode->form.nodename))));
+	}
+	else
+	{
+		memcpy(&slaveNode->form.curestatus, &oldCurestatus, sizeof(NameData));
+		memcpy(&slaveNode->form.nodesync, &oldNodesync, sizeof(NameData));
+		ereport(LOG,
+				(errmsg("treat follow fail node %s to follow master failed",
+						NameStr(slaveNode->form.nodename))));
+	}
+
+	if (masterNode)
+		pfreeMgrNodeWrapper(masterNode);
+	if (masterPGconn)
+		PQfinish(masterPGconn);
+	if (slavePGconn)
+		PQfinish(slavePGconn);
+	return done;
+}
+
+static bool rewindSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
+										MemoryContext spiContext)
+{
+	RewindMgrNodeObject *rewindObject = NULL;
+	volatile bool done;
+	StringInfoData infosendmsg;
+	GetAgentCmdRst getAgentCmdRst;
+
+	initStringInfo(&(getAgentCmdRst.description));
+	initStringInfo(&infosendmsg);
+	rewindObject = palloc0(sizeof(RewindMgrNodeObject));
+	rewindObject->slaveNode = slaveNode;
+	memcpy(&rewindObject->slaveCurestatusBackup,
+		   &slaveNode->form.curestatus, sizeof(NameData));
+	memcpy(&rewindObject->slaveNodesyncBackup,
+		   &slaveNode->form.nodesync, sizeof(NameData));
+
+	ereport(LOG,
+			(errmsg("try to rewind node %s to follow master",
+					NameStr(slaveNode->form.nodename))));
+	PG_TRY();
+	{
+		checkMgrNodeDataInDB(slaveNode, spiContext);
+		checkUpdateMgrNodeCurestatus(slaveNode, CURE_STATUS_CURING, spiContext);
+
+		prepareRewindMgrNode(rewindObject, spiContext);
+
+		rewindMgrNodeOperation(rewindObject, spiContext);
+
+		mgr_add_parameters_pgsqlconf(slaveNode->oid,
+									 slaveNode->form.nodetype,
+									 slaveNode->form.nodeport,
+									 &infosendmsg);
+		mgr_add_parm(NameStr(slaveNode->form.nodename),
+					 slaveNode->form.nodetype,
+					 &infosendmsg);
+		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF,
+								 slaveNode->nodepath,
+								 &infosendmsg,
+								 slaveNode->form.nodehost,
+								 &getAgentCmdRst);
+		if (!getAgentCmdRst.ret)
+		{
+			ereport(ERROR,
+					(errmsg("set %s parameters failed, %s",
+							NameStr(slaveNode->form.nodename),
+							getAgentCmdRst.description.data)));
+		}
+
+		appendSlaveNodeFollowMaster(rewindObject->masterNode,
+									slaveNode,
+									rewindObject->masterPGconn);
+
+		refreshMgrNodeAfterFollowMaster(slaveNode,
+										CURE_STATUS_NORMAL,
+										spiContext);
+		done = true;
+	}
+	PG_CATCH();
+	{
+		done = false;
+		EmitErrorReport();
+		FlushErrorState();
+	}
+	PG_END_TRY();
+
+	if (done)
+	{
+		ereport(LOG,
+				(errmsg("rewind node %s to follow master %s successfully completed",
+						NameStr(slaveNode->form.nodename),
+						NameStr(rewindObject->masterNode->form.nodename))));
+	}
+	else
+	{
+		memcpy(&slaveNode->form.curestatus,
+			   &rewindObject->slaveCurestatusBackup, sizeof(NameData));
+		memcpy(&slaveNode->form.nodesync,
+			   &rewindObject->slaveNodesyncBackup, sizeof(NameData));
+		ereport(WARNING,
+				(errmsg("rewind node %s to follow master failed",
+						NameStr(slaveNode->form.nodename))));
+	}
+	pfree(getAgentCmdRst.description.data);
+	pfree(infosendmsg.data);
+	if (rewindObject)
+	{
+		if (rewindObject->masterNode)
+			pfree(rewindObject->masterNode);
+		if (rewindObject->masterPGconn)
+			PQfinish(rewindObject->masterPGconn);
+		if (rewindObject->slavePGconn)
+			PQfinish(rewindObject->slavePGconn);
+		pfree(rewindObject);
+	}
+	return done;
+}
+
+static void prepareRewindMgrNode(RewindMgrNodeObject *rewindObject,
+								 MemoryContext spiContext)
+{
+	MgrNodeWrapper *masterNode;
+	MgrNodeWrapper *slaveNode;
+	XLogRecPtr masterWalLsn = InvalidXLogRecPtr;
+	XLogRecPtr slaveWalLsn = InvalidXLogRecPtr;
+
+	/* check the slave node running status */
+	slaveNode = rewindObject->slaveNode;
+	rewindObject->slavePGconn = getNodeDefaultDBConnection(slaveNode, 10);
+	if (!rewindObject->slavePGconn)
+	{
+		startupNodeWithinSeconds(slaveNode, 90, true);
+		rewindObject->slavePGconn = getNodeDefaultDBConnection(slaveNode, 10);
+		if (!rewindObject->slavePGconn)
+			ereport(ERROR,
+					(errmsg("get node %s connection failed",
+							NameStr(slaveNode->form.nodename))));
+	}
+
+	slaveWalLsn = getNodeWalLsn(rewindObject->slavePGconn,
+								getNodeRunningMode(rewindObject->slavePGconn));
+
+	/* check the master node running status */
+	masterNode = checkGetMasterNode(slaveNode->form.nodemasternameoid,
+									spiContext);
+	rewindObject->masterNode = masterNode;
+	rewindObject->masterPGconn = checkMasterRunningStatus(masterNode);
+	masterWalLsn = getNodeWalLsn(rewindObject->masterPGconn, NODE_RUNNING_MODE_MASTER);
+	if (slaveWalLsn > masterWalLsn)
+	{
+		ereport(ERROR,
+				(errmsg("slave node %s wal lsn is bigger than master node %s",
+						NameStr(slaveNode->form.nodename),
+						NameStr(masterNode->form.nodename))));
+	}
+
+	/* set master node postgresql.conf wal_log_hints, full_page_writes if necessary */
+	if (checkSetRewindNodeParamter(masterNode, rewindObject->masterPGconn))
+	{
+		PQfinish(rewindObject->masterPGconn);
+		rewindObject->masterPGconn = NULL;
+		/* this node my be monitored by other doctor process, don't interfere with it */
+		tryUpdateMgrNodeCurestatus(masterNode, CURE_STATUS_SWITCHING, spiContext);
+		shutdownNodeWithinSeconds(masterNode, 10, 80, true);
+		startupNodeWithinSeconds(masterNode, 90, true);
+		rewindObject->masterPGconn = checkMasterRunningStatus(masterNode);
+		tryUpdateMgrNodeCurestatus(masterNode, CURE_STATUS_SWITCHED, spiContext);
+	}
+
+	/* set master node postgresql.conf wal_log_hints, full_page_writes if necessary */
+	if (checkSetRewindNodeParamter(slaveNode, rewindObject->slavePGconn))
+	{
+		PQfinish(rewindObject->slavePGconn);
+		rewindObject->slavePGconn = NULL;
+		shutdownNodeWithinSeconds(slaveNode, 90, 0, true);
+		startupNodeWithinSeconds(slaveNode, 90, true);
+	}
+}
+
+static void rewindMgrNodeOperation(RewindMgrNodeObject *rewindObject,
+								   MemoryContext spiContext)
+{
+	MgrNodeWrapper *masterNode;
+	MgrNodeWrapper *slaveNode;
+	StringInfoData restmsg;
+	StringInfoData infosendmsg;
+	bool resA;
+	bool resB;
+
+	masterNode = rewindObject->masterNode;
+	slaveNode = rewindObject->slaveNode;
+
+	shutdownNodeWithinSeconds(slaveNode, 90, 0, true);
+
+	setPGHbaTrustAddress(masterNode, slaveNode->host->hostaddr);
+
+	setPGHbaTrustSlaveReplication(masterNode, slaveNode);
+
+	PQexecCommandSql(rewindObject->masterPGconn, "checkpoint;", true);
+
+	initStringInfo(&restmsg);
+	initStringInfo(&infosendmsg);
+	appendStringInfo(&infosendmsg, "%s/bin/pg_controldata '%s' | grep 'Minimum recovery ending location:' |awk '{print $5}'",
+					 masterNode->host->hostadbhome,
+					 masterNode->nodepath);
+	resA = mgr_ma_send_cmd_get_original_result(AGT_CMD_GET_BATCH_JOB,
+											   infosendmsg.data,
+											   masterNode->form.nodehost,
+											   &restmsg,
+											   AGENT_RESULT_LOG);
+	if (resA)
+	{
+		if (restmsg.len == 0)
+			resA = false;
+		else if (strcasecmp(restmsg.data, "{\"result\":\"0/0\"}") != 0)
+			resA = false;
+	}
+
+	resetStringInfo(&restmsg);
+	resetStringInfo(&infosendmsg);
+	appendStringInfo(&infosendmsg, "%s/bin/pg_controldata '%s' |grep 'Min recovery ending loc' |awk '{print $6}'",
+					 masterNode->host->hostadbhome,
+					 masterNode->nodepath);
+	resB = mgr_ma_send_cmd_get_original_result(AGT_CMD_GET_BATCH_JOB,
+											   infosendmsg.data,
+											   masterNode->form.nodehost,
+											   &restmsg,
+											   AGENT_RESULT_LOG);
+	if (resB)
+	{
+		if (restmsg.len == 0)
+			resB = false;
+		else if (strcasecmp(restmsg.data, "{\"result\":\"0\"}") != 0)
+			resB = false;
+	}
+	pfree(restmsg.data);
+	pfree(infosendmsg.data);
+
+	if (!resA || !resB)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_IN_USE),
+				 errmsg("on the master \"%s\" execute \"pg_controldata %s\" to get the expect value fail",
+						NameStr(masterNode->form.nodename),
+						masterNode->nodepath),
+				 errhint("execute \"checkpoint\" on  master \"%s\", then execute  \"pg_controldata %s\" to check \"Minimum recovery \
+					ending location\" is \"0/0\" and \"Min recovery ending loc's timeline\" is \"0\" before execute the rewind command again",
+						 NameStr(masterNode->form.nodename),
+						 masterNode->nodepath)));
+	}
+
+	/*node rewind*/
+	callAgentRewindNode(masterNode, slaveNode, true);
+}
+
+/**
+ * pg_rewind requires that the target server either has the wal_log_hints 
+ * option enabled in postgresql.conf or data checksums enabled when the 
+ * cluster was initialized with initdb. Neither of these are currently 
+ * on by default. full_page_writes must also be set to on, but is enabled 
+ * by default. So we should set these values before rewind, and after rewind 
+ * restore these value to the orginal values.
+ */
+static bool checkSetRewindNodeParamter(MgrNodeWrapper *mgrNode, PGconn *conn)
+{
+	char *parameterName;
+	char *expectValue;
+	char *originalValue;
+	PGConfParameterItem *expectItem = NULL;
+	bool set = false;
+
+	parameterName = "wal_log_hints";
+	expectValue = "on";
+	originalValue = showNodeParameter(conn, parameterName, true);
+	if (strcmp(originalValue, expectValue) == 0)
+	{
+		ereport(LOG, (errmsg("node %s parameter %s is %s, no need to set",
+							 NameStr(mgrNode->form.nodename),
+							 parameterName, expectValue)));
+	}
+	else
+	{
+		expectItem = newPGConfParameterItem(parameterName,
+											expectValue, false);
+		callAgentRefreshPGSqlConfReload(mgrNode, expectItem, true);
+		pfreePGConfParameterItem(expectItem);
+		set = true;
+	}
+	pfree(originalValue);
+
+	parameterName = "full_page_writes";
+	expectValue = "on";
+	originalValue = showNodeParameter(conn, parameterName, true);
+	if (strcmp(originalValue, expectValue) == 0)
+	{
+		ereport(LOG, (errmsg("node %s parameter %s is %s, no need to set",
+							 NameStr(mgrNode->form.nodename),
+							 parameterName, expectValue)));
+	}
+	else
+	{
+		expectItem = newPGConfParameterItem(parameterName,
+											expectValue, false);
+		callAgentRefreshPGSqlConfReload(mgrNode, expectItem, true);
+		pfreePGConfParameterItem(expectItem);
+		set = true;
+	}
+	pfree(originalValue);
+	return set;
+}
+
+static MgrNodeWrapper *checkGetMasterNode(Oid nodemasternameoid,
+										  MemoryContext spiContext)
+{
+	MgrNodeWrapper *masterNode;
+
+	masterNode = selectMgrNodeByOid(nodemasternameoid, spiContext);
+	if (!masterNode)
+	{
+		ereport(ERROR,
+				(errmsg("expected master node with oid %u is not exists",
+						nodemasternameoid)));
+	}
+	if (!isMasterNode(masterNode->form.nodetype, true))
+	{
+		pfree(masterNode);
+		ereport(ERROR,
+				(errmsg("expected master node with oid %u is not master",
+						nodemasternameoid)));
+	}
+	return masterNode;
+}
+
+static PGconn *checkMasterRunningStatus(MgrNodeWrapper *masterNode)
+{
+	PGconn *conn;
+	conn = getNodeDefaultDBConnection(masterNode, 10);
+	if (!conn)
+		ereport(ERROR,
+				(errmsg("get node %s connection failed",
+						NameStr(masterNode->form.nodename))));
+
+	if (!checkNodeRunningMode(conn, true))
+	{
+		PQfinish(conn);
+		ereport(ERROR,
+				(errmsg("%s master node %s is not running on master mode"
+						"suspend the operation of following master",
+						MyBgworkerEntry->bgw_name,
+						NameStr(masterNode->form.nodename))));
+	}
+	return conn;
 }
 
 /*
@@ -2002,6 +2395,8 @@ static NodeConfiguration *newNodeConfiguration(AdbDoctorConf *conf)
 	nc->restartMasterTimeoutMs = conf->node_restart_master_timeout_ms;
 	nc->shutdownTimeoutMs = conf->node_shutdown_timeout_ms;
 	nc->connectionErrorNumMax = conf->node_connection_error_num_max;
+	nc->retryFollowMasterIntervalMs = conf->node_retry_follow_master_interval_ms;
+	nc->retryRewindIntervalMs = conf->node_retry_rewind_interval_ms;
 	ereport(LOG,
 			(errmsg("%s configuration: "
 					"deadlineMs:%ld, waitEventTimeoutMs:%ld, "
@@ -2009,14 +2404,16 @@ static NodeConfiguration *newNodeConfiguration(AdbDoctorConf *conf)
 					"queryTimoutMs:%ld, queryIntervalMs:%ld, "
 					"restartDelayMs:%ld, holdConnectionMs:%ld, "
 					"restartCrashedMaster:%d, restartMasterTimeoutMs:%ld, "
-					"shutdownTimeoutMs:%ld, connectionErrorNumMax:%d",
+					"shutdownTimeoutMs:%ld, connectionErrorNumMax:%d, "
+					"retryFollowMasterIntervalMs:%ld, retryRewindIntervalMs:%ld",
 					MyBgworkerEntry->bgw_name,
 					nc->deadlineMs, nc->waitEventTimeoutMs,
 					nc->connectTimeoutMs, nc->reconnectDelayMs,
 					nc->queryTimoutMs, nc->queryIntervalMs,
 					nc->restartDelayMs, nc->holdConnectionMs,
 					nc->restartCrashedMaster, nc->restartMasterTimeoutMs,
-					nc->shutdownTimeoutMs, nc->connectionErrorNumMax)));
+					nc->shutdownTimeoutMs, nc->connectionErrorNumMax,
+					nc->retryFollowMasterIntervalMs, nc->retryRewindIntervalMs)));
 	return nc;
 }
 

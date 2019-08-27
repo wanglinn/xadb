@@ -150,6 +150,18 @@ INSERT INTO adb_doctor_conf VALUES (
 	'f',
 	'node重启延迟最大毫秒数'
 );
+INSERT INTO adb_doctor_conf VALUES (
+	'node_retry_follow_master_interval_ms',
+	'120000',
+	'f',
+	'node跟随主节点失败后重试的时间间隔毫秒数'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'node_retry_rewind_interval_ms',
+	'120000',
+	'f',
+	'node进行rewind操作失败后重试的时间间隔毫秒数'
+);
 
 -- host monitor
 INSERT INTO adb_doctor_conf VALUES (

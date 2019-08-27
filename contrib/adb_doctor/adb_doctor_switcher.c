@@ -257,7 +257,7 @@ static void handleOldMasterNormal(SwitcherNodeWrapper *oldMaster,
 	/* Prevent other doctor processe from manipulating this node simultaneously */
 	refreshOldMasterBeforeSwitch(oldMaster, spiContext);
 
-	callAgentStopNode(oldMaster->mgrNode, SHUTDOWN_I, true);
+	shutdownNodeWithinSeconds(oldMaster->mgrNode, 10, 50, true);
 
 	newMaster = choosePromotionNode(runningSlaves,
 									switcherConfiguration->forceSwitch,
@@ -378,10 +378,7 @@ static void updateCurestatusToNormal(MgrNodeWrapper *node,
 
 	newCurestatus = CURE_STATUS_NORMAL;
 
-	rows = updateMgrNodeCurestatus(node->oid,
-								   NameStr(node->form.curestatus),
-								   newCurestatus,
-								   spiContext);
+	rows = updateMgrNodeCurestatus(node, newCurestatus, spiContext);
 	if (rows != 1)
 	{
 		ereport(ERROR,
