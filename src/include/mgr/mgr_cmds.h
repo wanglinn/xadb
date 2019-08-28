@@ -177,13 +177,13 @@ extern void mgr_alter_parm(MGRAlterParm *node, ParamListInfo params, DestReceive
 extern void mgr_reload_conf(Oid hostoid, char *nodepath);
 extern bool get_active_node_info(const char node_type, const char *node_name, AppendNodeInfo *nodeinfo);
 /*coordinator datanode parse cmd*/
-extern Datum mgr_init_gtm_master(PG_FUNCTION_ARGS);
-extern Datum mgr_start_gtm_master(PG_FUNCTION_ARGS);
+extern Datum mgr_init_gtmcoor_master(PG_FUNCTION_ARGS);
+extern Datum mgr_start_gtmcoor_master(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_one_gtm_master(PG_FUNCTION_ARGS);
-extern Datum mgr_stop_gtm_master(PG_FUNCTION_ARGS);
-extern Datum mgr_init_gtm_slave(PG_FUNCTION_ARGS);
-extern Datum mgr_start_gtm_slave(PG_FUNCTION_ARGS);
-extern Datum mgr_stop_gtm_slave(PG_FUNCTION_ARGS);
+extern Datum mgr_stop_gtmcoor_master(PG_FUNCTION_ARGS);
+extern Datum mgr_init_gtmcoor_slave(PG_FUNCTION_ARGS);
+extern Datum mgr_start_gtmcoor_slave(PG_FUNCTION_ARGS);
+extern Datum mgr_stop_gtmcoor_slave(PG_FUNCTION_ARGS);
 extern Datum mgr_failover_gtm(PG_FUNCTION_ARGS);
 extern Datum mgr_failover_one_dn(PG_FUNCTION_ARGS);
 extern void mgr_add_node(MGRAddNode *node, ParamListInfo params, DestReceiver *dest);
@@ -214,13 +214,13 @@ extern Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS);
 extern Datum mgr_runmode_cndn(char nodetype, char cmdtype, List *namelist, char *shutdown_mode, PG_FUNCTION_ARGS);
 
 extern Datum mgr_boottime_all(PG_FUNCTION_ARGS);
-extern Datum mgr_boottime_gtm_all(PG_FUNCTION_ARGS);
+extern Datum mgr_boottime_gtmcoor_all(PG_FUNCTION_ARGS);
 extern Datum mgr_boottime_datanode_all(PG_FUNCTION_ARGS);
 extern Datum mgr_boottime_coordinator_all(PG_FUNCTION_ARGS);
 
 extern Datum mgr_monitor_all(PG_FUNCTION_ARGS);
 extern Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS);
-extern Datum mgr_monitor_gtm_all(PG_FUNCTION_ARGS);
+extern Datum mgr_monitor_gtmcoor_all(PG_FUNCTION_ARGS);
 
 extern Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS);
 extern Datum mgr_boottime_nodetype_all(PG_FUNCTION_ARGS);

@@ -859,7 +859,7 @@ re_lock_:
 		if (!is_wait_ok)
 		{
 			ereport(ERROR,
-				(errmsg("cannot connect to GTM")));
+				(errmsg("cannot connect to GTMCOOR")));
 		}
 	}
 

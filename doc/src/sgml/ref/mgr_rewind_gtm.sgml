@@ -5,23 +5,23 @@ ADB documentation
 
 <refentry id="MGR-REWINDGTM">
   <refmeta>
-    <refentrytitle>REWIND GTM</refentrytitle>
+    <refentrytitle>REWIND GTMCOOR</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>REWIND GTM</refname>
-    <refpurpose>rewind gtm slave</refpurpose>
+    <refname>REWIND GTMCOOR</refname>
+    <refpurpose>rewind gtmcoor slave</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-rewindgtm">
-    <primary>REWIND GTM</primary>
+    <primary>REWIND GTMCOOR</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-REWIND GTM SLAVE { <replaceable class="parameter">node_name</replaceable> }
+REWIND GTGTMCOORM SLAVE { <replaceable class="parameter">node_name</replaceable> }
 </synopsis>
   </refsynopsisdiv>
 
@@ -29,7 +29,7 @@ REWIND GTM SLAVE { <replaceable class="parameter">node_name</replaceable> }
     <title>Description</title>
 
     <para>
-<command>REWIND GTM</command> rewind gtm slave.
+<command>REWIND GTMCOOR</command> rewind gtmcoor slave.
 </para>
   </refsect1>
   <refsect1>
@@ -52,8 +52,8 @@ REWIND GTM SLAVE { <replaceable class="parameter">node_name</replaceable> }
     <title>Examples</title>
 
     <para>
-Rewind gtm slave gtm1:
-      <programlisting>REWIND GTM SLAVE gtm1;</programlisting>
+Rewind gtmcoor slave gtm1:
+      <programlisting>REWIND GTMCOOR SLAVE gtm1;</programlisting>
     </para>
   </refsect1>
       <refsect1>

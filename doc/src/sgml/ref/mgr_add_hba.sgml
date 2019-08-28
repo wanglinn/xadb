@@ -21,7 +21,7 @@ ADB documentation
 
   <refsynopsisdiv>
   <synopsis>
-ADD HBA GTM { ALL | nodename } ( "hba_value" )
+ADD HBA GTMCOOR { ALL | nodename } ( "hba_value" )
 ADD HBA COORDINATOR { ALL | nodename } ( "hba_value" )
 ADD HBA DATANODE { ALL | nodename } ( "hba_value" )
 

@@ -5,24 +5,24 @@ ADB documentation
 
 <refentry id="MGR-SETGTM">
   <refmeta>
-    <refentrytitle>SET GTM</refentrytitle>
+    <refentrytitle>SET GTMCOOR</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>SET GTM</refname>
+    <refname>SET GTMCOOR</refname>
     <refpurpose>change the value of parameter which is belong to the view of pg_settings</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-setgtm">
-    <primary>SET GTM</primary>
+    <primary>SET GTMCOOR</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-SET GTM ALL ( { parameter = <replaceable class="parameter">value</replaceable> } [, ...] ) [ FORCE ]
-SET GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable> ( { parameter = <replaceable class="parameter">value</replaceable> } [, ...] ) [ FORCE ]
+SET GTMCOOR ALL ( { parameter = <replaceable class="parameter">value</replaceable> } [, ...] ) [ FORCE ]
+SET GTMCOOR { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable> ( { parameter = <replaceable class="parameter">value</replaceable> } [, ...] ) [ FORCE ]
 </synopsis>
   </refsynopsisdiv>
 
@@ -30,7 +30,7 @@ SET GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable
     <title>Description</title>
 
     <para>
-<command>SET GTM</command> change the the value of parameter which is belong to the view of pg_settings and update param table, it won't check the the value and name of parameter correctly if adding 'force' at the tail of command line,in addition,it will update param table.
+<command>SET GTMCOOR</command> change the the value of parameter which is belong to the view of pg_settings and update param table, it won't check the the value and name of parameter correctly if adding 'force' at the tail of command line,in addition,it will update param table.
     </para>
   </refsect1>
 
@@ -57,7 +57,7 @@ SET GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable
     <para>
       Change the the value of 'synchronous_commit' and 'max_wal_senders':
 <programlisting>
-set gtm master gtm_name1(synchronous_commit = off, max_wal_senders = 10);
+set gtmcoor master gtm_name1(synchronous_commit = off, max_wal_senders = 10);
 </programlisting>
     </para>
   </refsect1>

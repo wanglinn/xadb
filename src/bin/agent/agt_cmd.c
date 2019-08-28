@@ -123,16 +123,20 @@ void do_agent_command(StringInfo buf)
 	cmd_type = agt_getmsgbyte(buf);
 	switch(cmd_type)
 	{
-	case AGT_CMD_GTM_INIT:
-		cmd_node_init(cmd_type, buf, "initagtm", INITGTM_VERSION);
-		break;
+	case AGT_CMD_GTMCOOR_INIT:
 	case AGT_CMD_CNDN_CNDN_INIT:
 	 	cmd_node_init(cmd_type, buf, "initdb", INITDB_VERSION);
 		break;
-	case AGT_CMD_GTM_SLAVE_INIT:
+	case AGT_CMD_GTMCOOR_SLAVE_INIT:
 	case AGT_CMD_CNDN_SLAVE_INIT:
 		cmd_node_init(cmd_type, buf, "pg_basebackup", PG_BASEBACKUP_VERSION);
 		break;
+	case AGT_CMD_GTMCOOR_START_MASTER:
+	case AGT_CMD_GTMCOOR_STOP_MASTER:
+	case AGT_CMD_GTMCOOR_START_SLAVE:
+	case AGT_CMD_GTMCOOR_STOP_SLAVE:
+	case AGT_CMD_GTMCOOR_SLAVE_FAILOVER:
+	case AGT_CMD_AGTM_RESTART:
 	case AGT_CMD_CN_START:
 	case AGT_CMD_CN_STOP:
 	case AGT_CMD_DN_START:
@@ -146,14 +150,6 @@ void do_agent_command(StringInfo buf)
 		break;
 	case AGT_CMD_PGDUMPALL:
 		cmd_node_init(cmd_type, buf, "pg_dumpall", PG_DUMPALL_VERSION);
-		break;
-	case AGT_CMD_GTM_START_MASTER:
-	case AGT_CMD_GTM_STOP_MASTER:
-	case AGT_CMD_GTM_START_SLAVE:
-	case AGT_CMD_GTM_STOP_SLAVE:
-	case AGT_CMD_GTM_SLAVE_FAILOVER:
-	case AGT_CMD_AGTM_RESTART:
-		cmd_node_init(cmd_type, buf, "agtm_ctl", GTM_CTL_VERSION);
 		break;
 	case AGT_CMD_PSQL_CMD:
 		cmd_node_init(cmd_type, buf, "psql", PSQL_VERSION);
@@ -487,7 +483,7 @@ static void cmd_node_init(char cmdtype, StringInfo msg, char *cmdfile, char* VER
 	if(exec_shell(exec.data, &output) != 0)
 		ereport(ERROR, (errmsg("%s", output.data)));
 	/*for datanode failover*/
-	if (AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTM_SLAVE_FAILOVER == cmdtype || AGT_CMD_DN_MASTER_PROMOTE==cmdtype)
+	if (AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTMCOOR_SLAVE_FAILOVER == cmdtype || AGT_CMD_DN_MASTER_PROMOTE==cmdtype)
 	{
 		/*get path from msg: .... -D path ...*/
 		ppath =  strstr(msg->data, " -D ");

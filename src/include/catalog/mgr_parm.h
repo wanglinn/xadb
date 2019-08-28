@@ -46,7 +46,7 @@ typedef FormData_mgr_parm *Form_mgr_parm;
 
 #ifdef EXPOSE_TO_CLIENT_CODE
 
-#define PARM_TYPE_GTM 				'G'
+#define PARM_TYPE_GTMCOOR 			'G'
 #define PARM_TYPE_COORDINATOR		'C'
 #define PARM_TYPE_DATANODE			'D'
 

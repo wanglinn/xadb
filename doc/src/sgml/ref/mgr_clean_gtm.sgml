@@ -5,29 +5,29 @@ ADB documentation
 
 <refentry id="MGR-CLEANGTM">
   <refmeta>
-    <refentrytitle>CLEAN GTM</refentrytitle>
+    <refentrytitle>CLEAN GTMCOOR</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>CLEAN GTM</refname>
-    <refpurpose>clean all the data of the gtm which not in the cluster</refpurpose>
+    <refname>CLEAN GTMCOOR</refname>
+    <refpurpose>clean all the data of the gtmcoor which not in the cluster</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-cleangtm">
-    <primary>CLEAN GTM</primary>
+    <primary>CLEAN GTMCOOR</primary>
   </indexterm>
 
   <refsynopsisdiv>
 <synopsis>
-CLEAN GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable>
+CLEAN GTMCOOR { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
   <refsect1>
     <title>Description</title>
     <para>
-    <command>CLEAN GTM</command> clean all the data of the given name gtm in the node table which not in the cluster. If the gtm is running, it needs to be stopped first.
+    <command>CLEAN GTMCOOR</command> clean all the data of the given name gtmcoor in the node table which not in the cluster. If the gtmcoor is running, it needs to be stopped first.
     </para>
   </refsect1>
 
@@ -52,7 +52,7 @@ CLEAN GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceab
  <para>
 Clean the data of gtm_name1:
 <programlisting>
-CLEAN GTM MASTER gtm_name1;
+CLEAN GTMCOOR MASTER gtm_name1;
 </programlisting>
 </para>
   </refsect1>

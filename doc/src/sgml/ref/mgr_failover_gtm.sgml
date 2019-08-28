@@ -5,31 +5,31 @@ ADB documentation
 
 <refentry id="MGR-FAILOVERGTM">
   <refmeta>
-    <refentrytitle>FAILOVER GTM</refentrytitle>
+    <refentrytitle>FAILOVER GTMCOOR</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>FAILOVER GTM</refname>
-    <refpurpose>promote gtm slave to gtm master</refpurpose>
+    <refname>FAILOVER GTMCOOR</refname>
+    <refpurpose>promote gtmcoor slave to gtmcoor master</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-failovergtm">
-    <primary>FAILOVER GTM</primary>
+    <primary>FAILOVER GTMCOOR</primary>
   </indexterm>
 
   <refsynopsisdiv>
 <synopsis>
-FAILOVER GTM <replaceable class="parameter">node_name</replaceable> [ FORCE ]
+FAILOVER GTMCOOR <replaceable class="parameter">node_name</replaceable> [ FORCE ]
 </synopsis>
   </refsynopsisdiv>
   <refsect1>
     <title>Description</title>
 
     <para>
-   <command>FAILOVER GTM</command> promote gtm slave to gtm master, which is synchronized;
-     If the gtm slave is not synchronized, and want to promote it to gtm master, use "force" at command end; For the command "failover gtm", it choose the synchronized and running normal slave as the target slave node, which will be promote to gtm master.
+   <command>FAILOVER GTMCOOR</command> promote gtmcoor slave to gtmcoor master, which is synchronized;
+     If the gtmcoor slave is not synchronized, and want to promote it to gtmcoor master, use "force" at command end; For the command "failover gtmcoor", it choose the synchronized and running normal slave as the target slave node, which will be promote to gtmcoor master.
     </para>
   </refsect1>
   <refsect1>
@@ -40,7 +40,7 @@ FAILOVER GTM <replaceable class="parameter">node_name</replaceable> [ FORCE ]
     <term><replaceable class="parameter">node_name</replaceable></term>
     <listitem>
      <para>
-      The gtm master name.
+      The gtmcoor master name.
      </para>
     </listitem>
    </varlistentry>
@@ -51,15 +51,15 @@ FAILOVER GTM <replaceable class="parameter">node_name</replaceable> [ FORCE ]
     <title>Examples</title>
 
 <para>
-Promote one gtm slave to master, which must be synchronized:
+Promote one gtmcoor slave to master, which must be synchronized:
 <programlisting>
-FAILOVER GTM gtm_mastername;
+FAILOVER GTMCOOR gtm_mastername;
 </programlisting>
  </para>
 <para>
-promote one gtm slave to master, no matter it is synchronized or not:
+promote one gtmcoor slave to master, no matter it is synchronized or not:
 <programlisting>
-FAILOVER GTM gtm_mastername FORCE;
+FAILOVER GTMCOOR gtm_mastername FORCE;
 </programlisting>
   </para>
   </refsect1>

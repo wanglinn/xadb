@@ -123,8 +123,8 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 	namestrcpy(&masternodenamedata, masternodename);
 	pfree(masternodename);
 	mastertype = mgr_get_master_type(nodetype);
-	if (GTM_TYPE_GTM_MASTER == mastertype)
-		stop_cmdtype = AGT_CMD_GTM_STOP_MASTER;
+	if (CNDN_TYPE_GTM_COOR_MASTER == mastertype)
+		stop_cmdtype = AGT_CMD_GTMCOOR_STOP_MASTER;
 	else if (CNDN_TYPE_COORDINATOR_MASTER == mastertype)
 		stop_cmdtype = AGT_CMD_CN_STOP;
 	else if (CNDN_TYPE_DATANODE_MASTER == mastertype)
@@ -330,8 +330,8 @@ Datum mgr_failover_manual_promote_func(PG_FUNCTION_ARGS)
 	}
 	if (!slave_is_running)
 		ereport(ERROR, (errmsg("%s \"%s\" is not running normal", nodetypestr, nodenamedata.data)));
-	if (GTM_TYPE_GTM_SLAVE == nodetype)
-		cmdtype = AGT_CMD_GTM_SLAVE_FAILOVER;
+	if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
+		cmdtype = AGT_CMD_GTMCOOR_SLAVE_FAILOVER;
 	else if (CNDN_TYPE_DATANODE_SLAVE == nodetype || CNDN_TYPE_DATANODE_MASTER == nodetype)
 		cmdtype = AGT_CMD_DN_FAILOVER;
 	else
@@ -614,14 +614,14 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 	{
 		resetStringInfo(&infosendmsg);
 		resetStringInfo(&strinfo);
-		if (GTM_TYPE_GTM_SLAVE == nodetype)
+		if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
 			appendStringInfo(&infosendmsg, " start -D %s -o -i -w -c -l %s/logfile", slave_nodeinfo.nodepath, slave_nodeinfo.nodepath);
 		else
 		appendStringInfo(&infosendmsg, " start -Z datanode -D %s -o -i -w -c -l %s/logfile", slave_nodeinfo.nodepath, slave_nodeinfo.nodepath);
 
 		ereport(NOTICE, (errmsg("pg_ctl %s", infosendmsg.data)));
-		if (GTM_TYPE_GTM_SLAVE == nodetype)
-			res = mgr_ma_send_cmd(AGT_CMD_GTM_START_SLAVE, infosendmsg.data, slave_nodeinfo.nodehost, &strinfo);
+		if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
+			res = mgr_ma_send_cmd(AGT_CMD_GTMCOOR_START_SLAVE, infosendmsg.data, slave_nodeinfo.nodehost, &strinfo);
 		else
 			res = mgr_ma_send_cmd(AGT_CMD_DN_START, infosendmsg.data, slave_nodeinfo.nodehost, &strinfo);
 		if (!res)
@@ -882,7 +882,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 		resetStringInfo(&infosendmsg);
 		ereport(NOTICE, (errmsg("update pg_hba.conf of %s \"%s\"", nodetypestr, NameStr(mgr_node->nodename))));
 		pfree(nodetypestr);
-		if (mgr_node->nodetype == GTM_TYPE_GTM_MASTER || mgr_node->nodetype == GTM_TYPE_GTM_SLAVE)
+		if (mgr_node->nodetype == CNDN_TYPE_GTM_COOR_MASTER || mgr_node->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
 			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", AGTM_USER, dest_nodeinfo.nodeaddr
 				, 32, "trust", &infosendmsg);
 		else
@@ -993,7 +993,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	List *newDnList = NIL;
 
 	/*check all gtm, coordinator, datanode master running normal*/
-	mgr_make_sure_all_running(GTM_TYPE_GTM_MASTER);
+	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER);
 	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
 
@@ -1529,7 +1529,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	 * avoid repeating node names and causing subsequent work to fail */
 	mgr_clean_cn_pgxcnode_readonlysql_slave();
 
-	mgr_make_sure_all_running(GTM_TYPE_GTM_MASTER);
+	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER);
 	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 
 	/* get the input variable */
@@ -1538,13 +1538,13 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	bforce = PG_GETARG_INT32(2);
 
 	/* check the type */
-	if (CNDN_TYPE_DATANODE_MASTER == nodeType || GTM_TYPE_GTM_MASTER == nodeType)
+	if (CNDN_TYPE_DATANODE_MASTER == nodeType || CNDN_TYPE_GTM_COOR_MASTER == nodeType)
 	{
 		ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
-			,errmsg("it is the %s, no need switchover", GTM_TYPE_GTM_MASTER == nodeType ? "gtm master":"datanode master")));
+			,errmsg("it is the %s, no need switchover", CNDN_TYPE_GTM_COOR_MASTER == nodeType ? "gtm master":"datanode master")));
 	}
 
-	if (CNDN_TYPE_DATANODE_SLAVE != nodeType && GTM_TYPE_GTM_SLAVE != nodeType)
+	if (CNDN_TYPE_DATANODE_SLAVE != nodeType && CNDN_TYPE_GTM_COOR_SLAVE != nodeType)
 	{
 		ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
 			,errmsg("unknown the node type : %c", nodeType)));
@@ -1561,7 +1561,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	else
 	{
 		bgtmKind = true;
-		masterType = GTM_TYPE_GTM_MASTER;
+		masterType = CNDN_TYPE_GTM_COOR_MASTER;
 		namestrcpy(&masterTypeStrData, "gtm master");
 		namestrcpy(&nodeTypeStrData, "gtm slave");
 	}
@@ -1604,10 +1604,10 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		}
 		else
 		{
-			nodeMasterName = mgr_get_mastername_by_nodename_type(nodeNameData.data, GTM_TYPE_GTM_SLAVE);
+			nodeMasterName = mgr_get_mastername_by_nodename_type(nodeNameData.data, CNDN_TYPE_GTM_COOR_SLAVE);
 			namestrcpy(&nodeMasterNameData, nodeMasterName);
 			pfree(nodeMasterName);
-			get_nodeinfo_byname(nodeMasterNameData.data, GTM_TYPE_GTM_MASTER, &isExistM, &isRunningM, &nodeInfoM);
+			get_nodeinfo_byname(nodeMasterNameData.data, CNDN_TYPE_GTM_COOR_MASTER, &isExistM, &isRunningM, &nodeInfoM);
 		}
 
 		if (false == isExistM)
@@ -1767,7 +1767,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		if (!bgtmKind)
 			res = mgr_ma_send_cmd(AGT_CMD_DN_STOP, infosendmsg.data, nodeInfoM.nodehost, &restmsg);
 		else
-			res = mgr_ma_send_cmd(AGT_CMD_GTM_STOP_MASTER, infosendmsg.data, nodeInfoM.nodehost, &restmsg);
+			res = mgr_ma_send_cmd(AGT_CMD_GTMCOOR_STOP_MASTER, infosendmsg.data, nodeInfoM.nodehost, &restmsg);
 		if (!res)
 				ereport(ERROR, (errmsg("stop %s \"%s\" fail %s", masterTypeStrData.data, nodeNameData.data, restmsg.data)));
 
@@ -1781,7 +1781,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		if (!bgtmKind)
 			mgr_add_parm(nodeNameData.data, CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
 		else
-			mgr_add_parm(nodeNameData.data, GTM_TYPE_GTM_MASTER, &infosendmsg);
+			mgr_add_parm(nodeNameData.data, CNDN_TYPE_GTM_COOR_MASTER, &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", "", &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, nodeInfoS.nodepath, &infosendmsg
 				, nodeInfoS.nodehost, &getAgentCmdRst);
@@ -1816,7 +1816,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		if (!bgtmKind)
 			res = mgr_ma_send_cmd(AGT_CMD_DN_FAILOVER, infosendmsg.data, nodeInfoS.nodehost, &restmsg);
 		else
-			res = mgr_ma_send_cmd(AGT_CMD_GTM_SLAVE_FAILOVER, infosendmsg.data, nodeInfoS.nodehost, &restmsg);
+			res = mgr_ma_send_cmd(AGT_CMD_GTMCOOR_SLAVE_FAILOVER, infosendmsg.data, nodeInfoS.nodehost, &restmsg);
 		if (!res)
 		{
 			brestmsg = true;
@@ -1864,7 +1864,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 			if (!bgtmKind)
 				mgr_add_parm(nodeNameData.data, CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
 			else
-				mgr_add_parm(nodeNameData.data, GTM_TYPE_GTM_MASTER, &infosendmsg);
+				mgr_add_parm(nodeNameData.data, CNDN_TYPE_GTM_COOR_MASTER, &infosendmsg);
 			mgr_append_pgconf_paras_str_str("hot_standby", "on", &infosendmsg);
 			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, nodeInfoS.nodepath, &infosendmsg
 					, nodeInfoS.nodehost, &getAgentCmdRst);
@@ -1986,7 +1986,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		if (!bgtmKind)
 			mgr_add_parm(nodeNameData.data, CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
 		else
-			mgr_add_parm(nodeNameData.data, GTM_TYPE_GTM_MASTER, &infosendmsg);
+			mgr_add_parm(nodeNameData.data, CNDN_TYPE_GTM_COOR_MASTER, &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", syncStateData.data, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, nodeInfoS.nodepath, &infosendmsg
 				, nodeInfoS.nodehost, &getAgentCmdRst);
@@ -2039,7 +2039,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		if (!bgtmKind)
 			mgr_node->nodetype = CNDN_TYPE_DATANODE_MASTER;
 		else
-			mgr_node->nodetype = GTM_TYPE_GTM_MASTER;
+			mgr_node->nodetype = CNDN_TYPE_GTM_COOR_MASTER;
 		mgr_node->nodemasternameoid = 0;
 		namestrcpy(&(mgr_node->nodesync), "");
 		heap_inplace_update(nodeRel, tuple);
@@ -2119,7 +2119,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	if (!bgtmKind)
 		mgr_runmode_cndn_get_result(AGT_CMD_DN_START, &getAgentCmdRst, nodeRel, tuple, TAKEPLAPARM_N);
 	else
-		mgr_runmode_cndn_get_result(AGT_CMD_GTM_START_SLAVE, &getAgentCmdRst, nodeRel, tuple, TAKEPLAPARM_N);
+		mgr_runmode_cndn_get_result(AGT_CMD_GTMCOOR_START_SLAVE, &getAgentCmdRst, nodeRel, tuple, TAKEPLAPARM_N);
 
 	if(!getAgentCmdRst.ret)
 	{
@@ -2262,7 +2262,7 @@ static void mgr_get_hba_replication_info(Oid masterTupleOid, StringInfo infosend
 		if ((masterTupleOid != mgr_node->nodemasternameoid) && (masterTupleOid != HeapTupleGetOid(tuple)))
 			continue;
 		hostAddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
-		if (GTM_TYPE_GTM_MASTER == mgr_node->nodetype || GTM_TYPE_GTM_SLAVE == mgr_node->nodetype)
+		if (CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype || CNDN_TYPE_GTM_COOR_SLAVE == mgr_node->nodetype)
 		{
 			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", AGTM_USER, hostAddr, 32, "trust", infosendmsg);
 		}
@@ -2289,7 +2289,7 @@ static int mgr_maxtime_check_xlog_diff(const char nodeType, const char *nodeName
 	Form_mgr_host mgr_host;
 	HeapTuple hostTupleM;
 
-	Assert(CNDN_TYPE_DATANODE_SLAVE == nodeType || GTM_TYPE_GTM_SLAVE == nodeType);
+	Assert(CNDN_TYPE_DATANODE_SLAVE == nodeType || CNDN_TYPE_GTM_COOR_SLAVE == nodeType);
 	Assert(nodeName);
 	Assert(nodeInfoM);
 

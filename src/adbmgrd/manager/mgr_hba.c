@@ -219,8 +219,8 @@ static HeapTuple build_hba_conf_file_tuple(const Form_mgr_node mgr_node, const S
 		&& TupleDescAttr(desc, 1)->atttypid == NAMEOID
 		&& TupleDescAttr(desc, 2)->atttypid == TEXTOID);
 
-	if (mgr_node->nodetype == GTM_TYPE_GTM_SLAVE || mgr_node->nodetype == GTM_TYPE_GTM_MASTER)
-		namestrcpy(&name[0], "gtm");
+	if (mgr_node->nodetype == CNDN_TYPE_GTM_COOR_SLAVE || mgr_node->nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+		namestrcpy(&name[0], "gtmcoor");
 	else if (mgr_node->nodetype == CNDN_TYPE_DATANODE_SLAVE || mgr_node->nodetype == CNDN_TYPE_DATANODE_MASTER)
 		namestrcpy(&name[0], "datanode");
 	else if (mgr_node->nodetype == CNDN_TYPE_COORDINATOR_SLAVE || mgr_node->nodetype == CNDN_TYPE_COORDINATOR_MASTER)
@@ -341,8 +341,7 @@ Datum mgr_show_hba_all(PG_FUNCTION_ARGS)
 		nodetype = mgr_node->nodetype;
 		
 		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentport, SQL_PG_HBA_FILE_RULES
-			, (nodetype == GTM_TYPE_GTM_MASTER || nodetype == GTM_TYPE_GTM_SLAVE) ? AGTM_USER:user
-			, hostAddr, mgr_node->nodeport, DEFAULT_DB, &resultstrdata);
+			, user, hostAddr, mgr_node->nodeport, DEFAULT_DB, &resultstrdata);
 
 		tup_result = build_hba_conf_file_tuple(mgr_node, &resultstrdata);
 
@@ -1414,10 +1413,10 @@ static bool is_digit_str(char *s_digit)
 
 static bool mgr_type_include(char nodetype, char type)
 {
-	if (type == CNDN_TYPE_GTM)
+	if (type == CNDN_TYPE_GTMCOOR)
 	{
-		if (nodetype == GTM_TYPE_GTM_MASTER
-			|| nodetype == GTM_TYPE_GTM_SLAVE)
+		if (nodetype == CNDN_TYPE_GTM_COOR_MASTER
+			|| nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
 			return true;
 	}
 	else if (type == CNDN_TYPE_COORDINATOR)

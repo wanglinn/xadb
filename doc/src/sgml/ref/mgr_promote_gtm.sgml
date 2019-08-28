@@ -5,23 +5,23 @@ ADB documentation
 
 <refentry id="MGR-PROMOTEGTM">
   <refmeta>
-    <refentrytitle>PROMOTE GTM</refentrytitle>
+    <refentrytitle>PROMOTE GTMCOOR</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>PROMOTE GTM</refname>
-    <refpurpose>promote gtm slave to master</refpurpose>
+    <refname>PROMOTE GTMCOOR</refname>
+    <refpurpose>promote gtmcoor slave to master</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-promotegtm">
-    <primary>PROMOTE GTM</primary>
+    <primary>PROMOTE GTMCOOR</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-PROMOTE GTM { MASTER | SLAVE } { <replaceable class="parameter">node_name</replaceable> }
+PROMOTE GTMCOOR { MASTER | SLAVE } { <replaceable class="parameter">node_name</replaceable> }
 </synopsis>
   </refsynopsisdiv>
 
@@ -29,7 +29,7 @@ PROMOTE GTM { MASTER | SLAVE } { <replaceable class="parameter">node_name</repla
     <title>Description</title>
 
     <para>
-<command>PROMOTE GTM</command> promote gtm slave to master.
+<command>PROMOTE GTMCOOR</command> promote gtmcoor slave to master.
 </para>
   </refsect1>
   <refsect1>
@@ -52,8 +52,8 @@ PROMOTE GTM { MASTER | SLAVE } { <replaceable class="parameter">node_name</repla
     <title>Examples</title>
 
     <para>
-Promote gtm slave datanode1 to master:
-      <programlisting>PROMOTE GTM SLAVE gtm1;</programlisting>
+Promote gtmcoor slave datanode1 to master:
+      <programlisting>PROMOTE GTMCOOR SLAVE gtm1;</programlisting>
     </para>
   </refsect1>
       <refsect1>

@@ -66,13 +66,13 @@ typedef FormData_mgr_node *Form_mgr_node;
 #define CNDN_TYPE_DATANODE_MASTER			'd'
 #define CNDN_TYPE_DATANODE_SLAVE			'b'
 
-#define GTM_TYPE_GTM_MASTER			'g'
-#define GTM_TYPE_GTM_SLAVE			'p'
+#define CNDN_TYPE_GTM_COOR_MASTER		'g'
+#define CNDN_TYPE_GTM_COOR_SLAVE		'p'
 
 /*CNDN_TYPE_DATANODE include : datanode master,slave*/
 #define CNDN_TYPE_COORDINATOR		'C'
 #define CNDN_TYPE_DATANODE		'D'
-#define CNDN_TYPE_GTM			'G'
+#define CNDN_TYPE_GTMCOOR		'G'
 
 /* not exist node type */
 #define CNDN_TYPE_NONE			'0'

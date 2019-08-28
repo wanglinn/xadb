@@ -926,7 +926,6 @@ re_lock_:
 	if (snap->max_xcnt < GxidSender->xcnt)
 	{
 		count = GxidSender->xcnt;
-
 		/*
 		 * EnlargeSnapshotXip maybe report an error,
 		 * so release lock first
@@ -943,6 +942,7 @@ re_lock_:
 
 	if (!TransactionIdIsNormal(xmax))
 	{
+		snap->xcnt = xcnt;
 		SpinLockRelease(&GxidSender->mutex);
 		return snap;
 	}

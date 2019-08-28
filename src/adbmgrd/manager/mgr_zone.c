@@ -89,7 +89,7 @@ Datum mgr_zone_promote(PG_FUNCTION_ARGS)
 	if (strcmp(currentZone, mgr_zone) !=0)
 		ereport(ERROR, (errmsg("the given zone name \"%s\" is not the same wtih guc parameter mgr_zone \"%s\" in postgresql.conf", currentZone, mgr_zone)));
 
-	mgr_make_sure_all_running(GTM_TYPE_GTM_SLAVE);
+	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_SLAVE);
 	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_SLAVE);
 	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_SLAVE);
 
@@ -121,7 +121,7 @@ Datum mgr_zone_promote(PG_FUNCTION_ARGS)
 			/* check the node's master in the same zone */
 			if (mgr_checknode_in_currentzone(currentZone, mgr_node->nodemasternameoid))
 				continue;
-			if (mgr_node->nodetype != GTM_TYPE_GTM_SLAVE)
+			if (mgr_node->nodetype != CNDN_TYPE_GTM_COOR_SLAVE)
 				continue;
 			/* change slave type to master */
 			mgr_node->nodetype = mgr_get_master_type(mgr_node->nodetype);
@@ -175,7 +175,7 @@ Datum mgr_zone_promote(PG_FUNCTION_ARGS)
 			Assert(mgr_node);
 			if (mgr_checknode_in_currentzone(currentZone, mgr_node->nodemasternameoid))
 				continue;
-			if (mgr_node->nodetype == GTM_TYPE_GTM_MASTER)
+			if (mgr_node->nodetype == CNDN_TYPE_GTM_COOR_MASTER)
 				continue;
 			mgr_node->nodetype = mgr_get_master_type(mgr_node->nodetype);
 			heap_inplace_update(relNode, tuple);
@@ -227,7 +227,7 @@ Datum mgr_zone_promote(PG_FUNCTION_ARGS)
 			{
 				memset(nodePortBuf, 0, 10);
 				sprintf(nodePortBuf, "%d", mgr_node->nodeport);
-				if (mgr_node->nodetype != GTM_TYPE_GTM_MASTER && mgr_node->nodetype != GTM_TYPE_GTM_SLAVE)
+				if (mgr_node->nodetype != CNDN_TYPE_GTM_COOR_MASTER && mgr_node->nodetype != CNDN_TYPE_GTM_COOR_SLAVE)
 					userName = get_hostuser_from_hostoid(mgr_node->nodehost);
 				else
 					userName = NULL;
@@ -344,14 +344,14 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 
 	if (strcmp(currentZone, mgr_zone) !=0)
 		ereport(ERROR, (errmsg("the given zone name \"%s\" is not the same wtih guc parameter mgr_zone \"%s\" in postgresql.conf", currentZone, mgr_zone)));
-	if (!mgr_zone_has_node(currentZone, GTM_TYPE_GTM_MASTER))
-		ereport(ERROR, (errmsg("the zone \"%s\" has not GTM MASTER in cluster", currentZone)));
+	if (!mgr_zone_has_node(currentZone, CNDN_TYPE_GTM_COOR_MASTER))
+		ereport(ERROR, (errmsg("the zone \"%s\" has not GTMCOOR MASTER in cluster", currentZone)));
 	if (!mgr_zone_has_node(currentZone, CNDN_TYPE_COORDINATOR_MASTER))
 		ereport(ERROR, (errmsg("the zone \"%s\" has not COORDINATOR MASTER in cluster", currentZone)));
 	if (!mgr_zone_has_node(currentZone, CNDN_TYPE_DATANODE_MASTER))
 		ereport(ERROR, (errmsg("the zone \"%s\" has not DATANODE MASTER in cluster", currentZone)));
 
-	mgr_make_sure_all_running(GTM_TYPE_GTM_MASTER);
+	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER);
 	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
 
@@ -756,7 +756,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 				Assert(mgr_node);
 				if (CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype 
 					|| CNDN_TYPE_DATANODE_MASTER == mgr_node->nodetype
-					|| GTM_TYPE_GTM_MASTER == mgr_node->nodetype)
+					|| CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype)
 				{
 					namestrcpy(&(mgr_node->nodesync), "");
 					mgr_node->nodemasternameoid = 0;
@@ -887,7 +887,7 @@ static bool mgr_zone_modify_conf_agtm_host_port(const char *zone, int agtmPort, 
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
-		if (GTM_TYPE_GTM_MASTER == mgr_node->nodetype || GTM_TYPE_GTM_SLAVE == mgr_node->nodetype)
+		if (CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype || CNDN_TYPE_GTM_COOR_SLAVE == mgr_node->nodetype)
 			continue;
 		resetStringInfo(&(getAgentCmdRst.description));
 		datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(relNode), &isNull);

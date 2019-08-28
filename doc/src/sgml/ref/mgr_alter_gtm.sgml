@@ -5,23 +5,23 @@ ADB documentation
 
 <refentry id="MGR-ALTERGTM">
   <refmeta>
-    <refentrytitle>ALTER GTM</refentrytitle>
+    <refentrytitle>ALTER GTMCOOR</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>ALTER GTM</refname>
-    <refpurpose>alter the parameters of gtm node in the cluster</refpurpose>
+    <refname>ALTER GTMCOOR</refname>
+    <refpurpose>alter the parameters of gtmcoor node in the cluster</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-altergtm">
-    <primary>ALTER GTM</primary>
+    <primary>ALTER GTMCOOR</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-ALTER GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable> ( option )
+ALTER GTMCOOR { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable> ( option )
 
 <phrase>where <replaceable class="parameter">option</replaceable> can be one of:</phrase>
 
@@ -36,7 +36,7 @@ ALTER GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceab
     <title>Description</title>
 
     <para>
-<command>ALTER GTM</command> alter the parameters of gtm's node table.
+<command>ALTER GTMCOOR</command> alter the parameters of gtmcoor's node table.
     </para>
   </refsect1>
 
@@ -95,9 +95,9 @@ ALTER GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceab
     <title>Examples</title>
 
     <para>
-       Alter port of gtm slave gtm_name1:
+       Alter port of gtmcoor slave gtm_name1:
 <programlisting>
-alter gtm slave gtm_name1(port = 5445);
+alter gtmcoor slave gtm_name1(port = 5445);
 </programlisting>
     </para>
   </refsect1>

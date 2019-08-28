@@ -63,9 +63,9 @@ char getMgrMasterNodetype(char nodetype)
 	case CNDN_TYPE_DATANODE_MASTER:
 	case CNDN_TYPE_DATANODE_SLAVE:
 		return CNDN_TYPE_DATANODE_MASTER;
-	case GTM_TYPE_GTM_MASTER:
-	case GTM_TYPE_GTM_SLAVE:
-		return GTM_TYPE_GTM_MASTER;
+	case CNDN_TYPE_GTM_COOR_MASTER:
+	case CNDN_TYPE_GTM_COOR_SLAVE:
+		return CNDN_TYPE_GTM_COOR_MASTER;
 	default:
 		ereport(ERROR,
 				(errmsg("Unexpected nodetype:%c",
@@ -84,9 +84,9 @@ char getMgrSlaveNodetype(char nodetype)
 	case CNDN_TYPE_DATANODE_MASTER:
 	case CNDN_TYPE_DATANODE_SLAVE:
 		return CNDN_TYPE_DATANODE_SLAVE;
-	case GTM_TYPE_GTM_MASTER:
-	case GTM_TYPE_GTM_SLAVE:
-		return GTM_TYPE_GTM_SLAVE;
+	case CNDN_TYPE_GTM_COOR_MASTER:
+	case CNDN_TYPE_GTM_COOR_SLAVE:
+		return CNDN_TYPE_GTM_COOR_SLAVE;
 	default:
 		ereport(ERROR,
 				(errmsg("Unexpected nodetype:%c",
@@ -112,9 +112,9 @@ bool isMasterNode(char nodetype, bool complain)
 		return true;
 	case CNDN_TYPE_DATANODE_SLAVE:
 		return false;
-	case GTM_TYPE_GTM_MASTER:
+	case CNDN_TYPE_GTM_COOR_MASTER:
 		return true;
-	case GTM_TYPE_GTM_SLAVE:
+	case CNDN_TYPE_GTM_COOR_SLAVE:
 		return false;
 	default:
 		ereport(complain ? ERROR : LOG,
@@ -136,9 +136,9 @@ bool isSlaveNode(char nodetype, bool complain)
 		return false;
 	case CNDN_TYPE_DATANODE_SLAVE:
 		return true;
-	case GTM_TYPE_GTM_MASTER:
+	case CNDN_TYPE_GTM_COOR_MASTER:
 		return false;
-	case GTM_TYPE_GTM_SLAVE:
+	case CNDN_TYPE_GTM_COOR_SLAVE:
 		return true;
 	default:
 		ereport(complain ? ERROR : LOG,
@@ -547,8 +547,8 @@ void selectMgrHostsForHostDoctor(MemoryContext spiContext,
 char *getNodePGUser(char nodetype, char *hostuser)
 {
 	char *pgUser;
-	if (GTM_TYPE_GTM_MASTER == nodetype ||
-		GTM_TYPE_GTM_SLAVE == nodetype)
+	if (CNDN_TYPE_GTM_COOR_MASTER == nodetype ||
+		CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
 	{
 		pgUser = psprintf("%s", AGTM_USER);
 	}
@@ -1441,8 +1441,8 @@ bool callAgentStopNode(MgrNodeWrapper *node,
 						 node->nodepath,
 						 shutdownMode);
 		break;
-	case GTM_TYPE_GTM_MASTER:
-	case GTM_TYPE_GTM_SLAVE:
+	case CNDN_TYPE_GTM_COOR_MASTER:
+	case CNDN_TYPE_GTM_COOR_SLAVE:
 		appendStringInfo(&cmdMessage,
 						 " stop -D %s -m %s -o -i -w -c",
 						 node->nodepath,
@@ -1456,10 +1456,10 @@ bool callAgentStopNode(MgrNodeWrapper *node,
 		return false;
 	}
 
-	if (node->form.nodetype == GTM_TYPE_GTM_MASTER)
-		cmd = AGT_CMD_GTM_STOP_MASTER;
-	else if (node->form.nodetype == GTM_TYPE_GTM_SLAVE)
-		cmd = AGT_CMD_GTM_STOP_SLAVE;
+	if (node->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+		cmd = AGT_CMD_GTMCOOR_STOP_MASTER;
+	else if (node->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+		cmd = AGT_CMD_GTMCOOR_STOP_SLAVE;
 	else if (node->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER ||
 			 node->form.nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
 		cmd = AGT_CMD_CN_STOP;
@@ -1513,8 +1513,8 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool complain)
 						 node->nodepath,
 						 node->nodepath);
 		break;
-	case GTM_TYPE_GTM_MASTER:
-	case GTM_TYPE_GTM_SLAVE:
+	case CNDN_TYPE_GTM_COOR_MASTER:
+	case CNDN_TYPE_GTM_COOR_SLAVE:
 		appendStringInfo(&cmdMessage,
 						 " start -D %s -o -i -w -c -l %s/logfile",
 						 node->nodepath,
@@ -1528,9 +1528,9 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool complain)
 		return false;
 	}
 
-	if (node->form.nodetype == GTM_TYPE_GTM_MASTER ||
-		node->form.nodetype == GTM_TYPE_GTM_SLAVE)
-		cmd = AGT_CMD_GTM_START_SLAVE; /* agtm_ctl */
+	if (node->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
+		node->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+		cmd = AGT_CMD_GTMCOOR_START_SLAVE; /* agtm_ctl */
 	else if (node->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER ||
 			 node->form.nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
 		cmd = AGT_CMD_CN_START; /* pg_ctl  */
@@ -1589,8 +1589,8 @@ bool callAgentRestartNode(MgrNodeWrapper *node,
 						 shutdownMode,
 						 node->nodepath);
 		break;
-	case GTM_TYPE_GTM_MASTER:
-	case GTM_TYPE_GTM_SLAVE:
+	case CNDN_TYPE_GTM_COOR_MASTER:
+	case CNDN_TYPE_GTM_COOR_SLAVE:
 		cmd = AGT_CMD_AGTM_RESTART;
 		appendStringInfo(&cmdMessage,
 						 " restart -D %s -w -m %s -l %s/logfile",

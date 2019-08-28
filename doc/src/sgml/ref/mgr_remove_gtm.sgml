@@ -5,30 +5,30 @@ ADB documentation
 
 <refentry id="MGR-REMOVEGTM">
   <refmeta>
-    <refentrytitle>REMOVE GTM</refentrytitle>
+    <refentrytitle>REMOVE GTMCOOR</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>REMOVE GTM</refname>
-    <refpurpose>remove the gtm out of the cluster</refpurpose>
+    <refname>REMOVE GTMCOOR</refname>
+    <refpurpose>remove the gtmcoor out of the cluster</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-removegtm">
-    <primary>REMOVE GTM</primary>
+    <primary>REMOVE GTMCOOR</primary>
   </indexterm>
 
   <refsynopsisdiv>
 <synopsis>
-REMOVE GTM SLAVE <replaceable class="parameter">node_name</replaceable>
+REMOVE GTMCOOR SLAVE <replaceable class="parameter">node_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
   <refsect1>
     <title>Description</title>
     <para>
-    <command>REMOVE GTM</command> remove the given type gtm out of the cluster. If the type of gtm is running, it needs to be stopped first. The command just remove the type of gtm out of cluster, not delete the parameters information in param table. If you want to drop the type of gtm and its parameters, use "DROP GTM" to delete it.
-    It does not support "REMOVE GTM MASTER" now.
+    <command>REMOVE GTMCOOR</command> remove the given type gtmcoor out of the cluster. If the type of gtmcoor is running, it needs to be stopped first. The command just remove the type of gtmcoor out of cluster, not delete the parameters information in param table. If you want to drop the type of gtmcoor and its parameters, use "DROP GTMCOOR" to delete it.
+    It does not support "REMOVE GTMCOOR MASTER" now.
     </para>
   </refsect1>
 
@@ -51,9 +51,9 @@ REMOVE GTM SLAVE <replaceable class="parameter">node_name</replaceable>
   <refsect1>
   <title>Examples</title>
  <para>
-Remove the gtm slave gtm_name1 out of the cluster:
+Remove the gtmcoor slave gtm_name1 out of the cluster:
 <programlisting>
-REMOVE GTM SLAVE gtm_name1;
+REMOVE GTMCOOR SLAVE gtm_name1;
 </programlisting>
 </para>
   </refsect1>

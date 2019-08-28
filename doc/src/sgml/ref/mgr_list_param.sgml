@@ -27,8 +27,8 @@ LIST PARAM cluster_type ALL [ sub_like_string ]
 
 <phrase>where <replaceable class="parameter">node_type</replaceable> can be one of:</phrase>
 
-    GTM MASTER
-    GTM SLAVE
+    GTMCOOR MASTER
+    GTMCOOR SLAVE
     COORDINATOR MASTER
     COORDINATOR SLAVE
     DATANODE MASTER
@@ -36,7 +36,7 @@ LIST PARAM cluster_type ALL [ sub_like_string ]
 
 <phrase>where <replaceable class="parameter">cluster_type</replaceable> can be one of:</phrase>
 
-    GTM
+    GTMCOOR
     COORDINATOR
     DATANODE
     DATANODE MASTER

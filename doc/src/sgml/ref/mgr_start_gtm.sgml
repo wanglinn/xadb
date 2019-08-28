@@ -5,24 +5,24 @@ ADB documentation
 
 <refentry id="MGR-STARTGTM">
   <refmeta>
-    <refentrytitle>START GTM</refentrytitle>
+    <refentrytitle>START GTMCOOR</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>START GTM</refname>
-    <refpurpose>start the gtm node type on the ADB cluster</refpurpose>
+    <refname>START GTMCOOR</refname>
+    <refpurpose>start the gtmcoor node type on the ADB cluster</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-startgtm">
-    <primary>START GTM</primary>
+    <primary>START GTMCOOR</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-START GTM ALL
-START GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable>
+START GTMCOOR ALL
+START GTMCOOR { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
 
@@ -30,7 +30,7 @@ START GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceab
     <title>Description</title>
 
     <para>
-<command>START GTM</command> start the gtm node type on the ADB cluster.
+<command>START GTMCOOR</command> start the gtmcoor node type on the ADB cluster.
     </para>
   </refsect1>
 
@@ -54,8 +54,8 @@ START GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceab
     <title>Examples</title>
 
     <para>
-Start gtm master gtm_name1:
-      <programlisting>START GTM MASTER gtm_name1;</programlisting>
+Start gtmcoor master gtm_name1:
+      <programlisting>START GTMCOOR MASTER gtm_name1;</programlisting>
     </para>
   </refsect1>
 

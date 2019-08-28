@@ -1656,7 +1656,7 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 	if (!bnameNull)
 		nmasterNum = 1;
 	else
-		nmasterNum = mgr_nodeType_Num_incluster(0, relNode, GTM_TYPE_GTM_MASTER);
+		nmasterNum = mgr_nodeType_Num_incluster(0, relNode, CNDN_TYPE_GTM_COOR_MASTER);
 
 	PG_TRY();
 	{
@@ -1691,7 +1691,7 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 			,Anum_mgr_node_nodetype
 			,BTEqualStrategyNumber
 			,F_CHAREQ
-			,CharGetDatum(GTM_TYPE_GTM_MASTER));
+			,CharGetDatum(CNDN_TYPE_GTM_COOR_MASTER));
 		relScan = heap_beginscan_catalog(relNode, 3, key);
 		if((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 		{

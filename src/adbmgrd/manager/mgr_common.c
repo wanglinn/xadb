@@ -1028,10 +1028,7 @@ bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid)
 			userName = get_hostuser_from_hostoid(mgr_node->nodehost);
 			memset(portBuf, 0, 10);
 			sprintf(portBuf, "%d", mgr_node->nodeport);
-			if (GTM_TYPE_GTM_MASTER == nodetype || GTM_TYPE_GTM_SLAVE == nodetype)
-				res = pingNode_user(hostAddr, portBuf, AGTM_USER);
-			else
-				res = pingNode_user(hostAddr, portBuf, userName);
+			res = pingNode_user(hostAddr, portBuf, userName);
 			pfree(hostAddr);
 			pfree(userName);
 			if (res == 0)
@@ -1174,7 +1171,7 @@ bool mgr_promote_node(char cmdtype, Oid hostOid, char *path, StringInfo strinfo)
 	StringInfoData infosendmsg;
 
 	/*check the cmdtype*/
-	if (AGT_CMD_GTM_SLAVE_FAILOVER != cmdtype || AGT_CMD_DN_FAILOVER != cmdtype)
+	if (AGT_CMD_GTMCOOR_SLAVE_FAILOVER != cmdtype || AGT_CMD_DN_FAILOVER != cmdtype)
 	{
 		appendStringInfo(strinfo, "the cmdtype is \"%d\", not for gtm promote or datanode promote", cmdtype);
 		return false;
@@ -1218,12 +1215,11 @@ bool mgr_check_node_connect(char nodetype, Oid hostOid, int nodeport)
 	}
 	memset(nodeport_buf, 0, 10);
 	sprintf(nodeport_buf, "%d", nodeport);
-	if (nodetype != GTM_TYPE_GTM_MASTER && nodetype != GTM_TYPE_GTM_SLAVE)
-			username = get_hostuser_from_hostoid(hostOid);
+	username = get_hostuser_from_hostoid(hostOid);
 
 	while(1)
 	{
-		if (pingNode_user(hostaddr, nodeport_buf, username == NULL ? AGTM_USER : username) != 0)
+		if (pingNode_user(hostaddr, nodeport_buf, username) != 0)
 		{
 			fputs(_("."), stdout);
 			fflush(stdout);
@@ -1288,13 +1284,13 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	Datum datumPath;
 	NameData masterNameData;
 	/*check node type*/
-	if (nodetype != GTM_TYPE_GTM_SLAVE && nodetype != CNDN_TYPE_DATANODE_SLAVE)
+	if (nodetype != CNDN_TYPE_GTM_COOR_SLAVE && nodetype != CNDN_TYPE_DATANODE_SLAVE)
 	{
 		appendStringInfo(strinfo, "the nodetype is \"%d\", not for gtm rewind or datanode rewind", nodetype);
 		return false;
 	}
 
-	if (GTM_TYPE_GTM_SLAVE == nodetype)
+	if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
 	{
 		bGtmType = true;
 		cmdtype = AGT_CMD_AGTM_REWIND;
@@ -1354,10 +1350,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	iloop = iMax-3;
 	while(iloop-- >0)
 	{
-		if (bGtmType)
-			rest = pingNode_user(hostAddr, portBuf, AGTM_USER);
-		else
-			rest = pingNode_user(hostAddr, portBuf, user);
+		rest = pingNode_user(hostAddr, portBuf, user);
 		if (PQPING_OK == rest)
 			break;
 		pg_usleep(1000000L);
@@ -1377,7 +1370,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	ereport(NOTICE, (errmsg("pg_ctl stop %s \"%s\" with fast mode", nodetypestr, nodename)));
 	resetStringInfo(&(getAgentCmdRst.description));
 	if (bGtmType)
-		mgr_runmode_cndn_get_result(AGT_CMD_GTM_STOP_SLAVE, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
+		mgr_runmode_cndn_get_result(AGT_CMD_GTMCOOR_STOP_SLAVE, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
 	else
 		mgr_runmode_cndn_get_result(AGT_CMD_DN_STOP, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
 	if(!getAgentCmdRst.ret)
@@ -1452,7 +1445,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(node_tuple);
 		Assert(mgr_node);
-		if (!(GTM_TYPE_GTM_MASTER == mgr_node->nodetype || GTM_TYPE_GTM_SLAVE == mgr_node->nodetype
+		if (!(CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype || CNDN_TYPE_GTM_COOR_SLAVE == mgr_node->nodetype
 				 || HeapTupleGetOid(node_tuple) == master_nodeinfo.tupleoid || mgr_node->nodemasternameoid ==master_nodeinfo.tupleoid))
 				continue;
 		nodetypestr = mgr_nodetype_str(mgr_node->nodetype);
@@ -1460,7 +1453,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 		pfree(nodetypestr);
 		resetStringInfo(&infosendmsg);
 		resetStringInfo(&(getAgentCmdRst.description));
-		if (GTM_TYPE_GTM_MASTER == mgr_node->nodetype || GTM_TYPE_GTM_SLAVE == mgr_node->nodetype)
+		if (CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype || CNDN_TYPE_GTM_COOR_SLAVE == mgr_node->nodetype)
 		{
 			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", AGTM_USER, slave_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
 			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", AGTM_USER, slave_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
@@ -1748,11 +1741,11 @@ Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtyp
 	char *cmd_type;
 	char port_buf[10];
 
-	bstartcmd = (AGT_CMD_GTM_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTM_START_SLAVE_BACKEND == cmdtype
+	bstartcmd = (AGT_CMD_GTMCOOR_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_START_SLAVE_BACKEND == cmdtype
 								|| AGT_CMD_CN_START_BACKEND == cmdtype || AGT_CMD_DN_START_BACKEND == cmdtype);
-	bstopcmd = (AGT_CMD_GTM_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTM_STOP_SLAVE_BACKEND == cmdtype
+	bstopcmd = (AGT_CMD_GTMCOOR_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND == cmdtype
 								|| AGT_CMD_CN_STOP_BACKEND == cmdtype || AGT_CMD_DN_STOP_BACKEND == cmdtype);
-	bgtmtype = (GTM_TYPE_GTM_MASTER == nodetype || GTM_TYPE_GTM_SLAVE == nodetype);
+	bgtmtype = (CNDN_TYPE_GTM_COOR_MASTER == nodetype || CNDN_TYPE_GTM_COOR_SLAVE == nodetype);
 	/* stuff done only on the first call of the function */
 	if (SRF_IS_FIRSTCALL())
 	{
@@ -1811,10 +1804,7 @@ Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtyp
 					memset(port_buf, 0, sizeof(char)*10);
 					sprintf(port_buf, "%d", mgr_node->nodeport);
 					user = get_hostuser_from_hostoid(mgr_node->nodehost);
-					if (bgtmtype)
-						ret = pingNode_user(host_addr, port_buf, AGTM_USER);
-					else
-						ret = pingNode_user(host_addr, port_buf, user);
+					ret = pingNode_user(host_addr, port_buf, user);
 					heap_freetuple(aimtuple);
 					pfree(host_addr);
 					pfree(user);
@@ -1873,10 +1863,7 @@ Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtyp
 		user = get_hostuser_from_hostoid(mgr_node->nodehost);
 		heap_freetuple(aimtuple);
 		/* check node running normal */
-		if (bgtmtype)
-			ret = pingNode_user(host_addr, port_buf, AGTM_USER);
-		else
-			ret = pingNode_user(host_addr, port_buf, user);
+		ret = pingNode_user(host_addr, port_buf, user);
 
 		pfree(host_addr);
 		pfree(user);
@@ -1909,8 +1896,8 @@ Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtyp
 					pfree(typestr);
 				}
 				mgr_get_nodeinfo_byname_type(nodename, nodetype, false, &slave_is_exist, &slave_is_running, &node_info);
-				if (AGT_CMD_GTM_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTM_START_SLAVE_BACKEND == cmdtype)
-					appendStringInfo(&infosendmsg, " start -D %s -o -i -w -c -t 3 -l %s/logfile", node_info.nodepath, node_info.nodepath);
+				if (AGT_CMD_GTMCOOR_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_START_SLAVE_BACKEND == cmdtype)
+					appendStringInfo(&infosendmsg, " start -D %s -Z gtmcoor  -o -i -w -c -t 3 -l %s/logfile", node_info.nodepath, node_info.nodepath);
 				else if (AGT_CMD_CN_START_BACKEND == cmdtype)
 					appendStringInfo(&infosendmsg, " start -D %s -Z coordinator -o -i -w -c -t 3 -l %s/logfile"
 									, node_info.nodepath, node_info.nodepath);
@@ -1939,7 +1926,7 @@ Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtyp
 					pfree(typestr);
 				}
 				mgr_get_nodeinfo_byname_type(nodename, nodetype, false, &slave_is_exist, &slave_is_running, &node_info);
-				if (AGT_CMD_GTM_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTM_STOP_SLAVE_BACKEND == cmdtype)
+				if (AGT_CMD_GTMCOOR_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND == cmdtype)
 					appendStringInfo(&infosendmsg, " stop -D %s -m %s -o -i -w -c -t 3", node_info.nodepath, shutdown_mode);
 				else if (AGT_CMD_CN_STOP_BACKEND == cmdtype)
 					appendStringInfo(&infosendmsg, " stop -D %s -Z coordinator -m %s -o -i -w -c -t 3", node_info.nodepath, shutdown_mode);
@@ -1970,11 +1957,11 @@ char mgr_change_cmdtype_unbackend(char cmdtype)
 {
 	switch(cmdtype)
 	{
-		case	AGT_CMD_GTM_START_MASTER_BACKEND:
-			return	AGT_CMD_GTM_START_MASTER;
+		case	AGT_CMD_GTMCOOR_START_MASTER_BACKEND:
+			return	AGT_CMD_GTMCOOR_START_MASTER;
 
-		case	AGT_CMD_GTM_START_SLAVE_BACKEND:
-			return	AGT_CMD_GTM_START_SLAVE;
+		case	AGT_CMD_GTMCOOR_START_SLAVE_BACKEND:
+			return	AGT_CMD_GTMCOOR_START_SLAVE;
 
 		case	AGT_CMD_CN_START_BACKEND:
 			return	AGT_CMD_CN_START;
@@ -1982,11 +1969,14 @@ char mgr_change_cmdtype_unbackend(char cmdtype)
 		case	AGT_CMD_DN_START_BACKEND:
 			return	AGT_CMD_DN_START;
 
-		case	AGT_CMD_GTM_STOP_MASTER_BACKEND:
-			return	AGT_CMD_GTM_STOP_MASTER;
+		case	AGT_CMD_GTMCOOR_STOP_MASTER_BACKEND:
+			return	AGT_CMD_GTMCOOR_STOP_MASTER;
 
-		case	AGT_CMD_GTM_STOP_SLAVE_BACKEND:
-			return	AGT_CMD_GTM_STOP_SLAVE;
+		case 	AGT_CMD_GTMCOOR_STOP_SLAVE:
+			return	AGT_CMD_GTMCOOR_STOP_SLAVE;
+
+		case	AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND:
+			return	AGT_CMD_GTMCOOR_STOP_SLAVE;
 
 		case	AGT_CMD_CN_STOP_BACKEND:
 			return AGT_CMD_CN_STOP;
@@ -2017,10 +2007,10 @@ HeapTuple build_common_command_tuple_four_col(const Name name, char type, bool s
 
     switch(type)
     {
-        case GTM_TYPE_GTM_MASTER:
+        case CNDN_TYPE_GTM_COOR_MASTER:
                 namestrcpy(&typestr, "gtm master");
                 break;
-        case GTM_TYPE_GTM_SLAVE:
+        case CNDN_TYPE_GTM_COOR_SLAVE:
                 namestrcpy(&typestr, "gtm slave");
                 break;
         case CNDN_TYPE_COORDINATOR_MASTER:
@@ -2284,13 +2274,7 @@ int mgr_get_normal_slave_node(Relation relNode, Oid masterTupleOid, int sync_sta
 		sprintf(portBuf, "%d", mgr_node->nodeport);
 		address= get_hostaddress_from_hostoid(mgr_node->nodehost);
 		user = get_hostname_from_hostoid(mgr_node->nodehost);
-		if (GTM_TYPE_GTM_MASTER == mgr_node->nodetype || GTM_TYPE_GTM_SLAVE == mgr_node->nodetype)
-		{
-			bgtmtype = true;
-			res = pingNode_user(address, portBuf, AGTM_USER);
-		}
-		else
-			res = pingNode_user(address, portBuf, user);
+		res = pingNode_user(address, portBuf, user);
 
 		pfree(address);
 		pfree(user);
@@ -2468,7 +2452,7 @@ char *mgr_get_agtm_name(void)
 		Anum_mgr_node_nodetype
 		,BTEqualStrategyNumber
 		,F_CHAREQ
-		,CharGetDatum(GTM_TYPE_GTM_MASTER));
+		,CharGetDatum(CNDN_TYPE_GTM_COOR_MASTER));
 	ScanKeyInit(&key[1]
 		,Anum_mgr_node_nodezone
 		,BTEqualStrategyNumber
@@ -2560,7 +2544,7 @@ bool mgr_check_slave_replicate_status(const Oid masterTupleOid, const char nodet
 		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES
 								,masterAgentPort
 								,sqlstrdata.data
-								,(GTM_TYPE_GTM_SLAVE == nodetype)? AGTM_USER:NameStr(masterUser)
+								,NameStr(masterUser)
 								,NameStr(masterAddr)
 								,masterPort
 								,DEFAULT_DB
@@ -2621,7 +2605,7 @@ static XLogRecPtr mgr_get_last_wal_receive_location(const Oid hostOid, char *sql
 
 	initStringInfo(&restmsg);
 	monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, mgr_host->hostagentport, sqlString
-				,bgtmtype ? AGTM_USER: NameStr(mgr_host->hostuser), TextDatumGetCString(host_addr), nodePort, DEFAULT_DB, &restmsg);
+				,NameStr(mgr_host->hostuser), TextDatumGetCString(host_addr), nodePort, DEFAULT_DB, &restmsg);
 	if (restmsg.len != 0)
 		ptr = parse_lsn(restmsg.data);
 	pfree(restmsg.data);
@@ -4337,7 +4321,7 @@ void check_node_incluster(void)
 		,Anum_mgr_node_nodetype
 		,BTEqualStrategyNumber
 		,F_CHAREQ
-		,CharGetDatum(GTM_TYPE_GTM_MASTER));
+		,CharGetDatum(CNDN_TYPE_GTM_COOR_MASTER));
 	relNode = heap_open(NodeRelationId, AccessShareLock);
 	snapshot = RegisterSnapshot(GetLatestSnapshot());
 	scan = heap_beginscan(relNode,snapshot,1, key);
@@ -4463,18 +4447,14 @@ int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
 
 	if (is_valid)
 	{
-		if (nodetype == GTM_TYPE_GTM_MASTER || nodetype == GTM_TYPE_GTM_SLAVE)
-			ret = pingNode_user(hostAddr, nodeport_buf, AGTM_USER);
-		else
-			ret = pingNode_user(hostAddr, nodeport_buf, user);
+		ret = pingNode_user(hostAddr, nodeport_buf, user);
 		switch (ret)
 		{
 			case PQPING_OK:
 				appendStringInfoString(strinfo, "running");
 				agentport = get_agentPort_from_hostoid(hostOid);
 				monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentport, SQL_PG_IS_IN_RECOVERY
-					, (nodetype == GTM_TYPE_GTM_MASTER || nodetype == GTM_TYPE_GTM_SLAVE) ? AGTM_USER:user
-					, hostAddr, nodeport, DEFAULT_DB, &resultstrdata);
+					,user, hostAddr, nodeport, DEFAULT_DB, &resultstrdata);
 				if (resultstrdata.len != 0)
 				{
 					if (strcmp(resultstrdata.data, "f") ==0)
@@ -4491,8 +4471,7 @@ int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
                 
 				initStringInfo(&resultstrdata);
 				monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentport, SQL_PG_QUERY_STARTTIME
-					, (nodetype == GTM_TYPE_GTM_MASTER || nodetype == GTM_TYPE_GTM_SLAVE) ? AGTM_USER:user
-					, hostAddr, nodeport, DEFAULT_DB, &resultstrdata);
+					, user, hostAddr, nodeport, DEFAULT_DB, &resultstrdata);
 				if (resultstrdata.len != 0)
 				{
 				    appendStringInfoString(starttime, resultstrdata.data);

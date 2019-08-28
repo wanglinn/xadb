@@ -1554,12 +1554,12 @@ PostmasterMain(int argc, char *argv[])
 		MemoryContextSwitchTo(oldcontext);
 	}
 
-	if (IsGTMNode())
+	if (IsGTMNode() && !RecoveryInProgress())
 	{
 		SnapSenderPID = StartSnapSender();
 		GxidSenderPID = StartGxidSender();
 	}
-	else
+	else if(!IsGTMNode())
 	{
 		SnapReceiverPID = StartSnapReceiver();
 		GxidReceiverPID = StartGxidReceiver();
@@ -1967,7 +1967,7 @@ ServerLoop(void)
 		if (IS_PGXC_COORDINATOR && RemoteXactMgrPID == 0 && pmState == PM_RUN)
 			RemoteXactMgrPID = StartRemoteXactMgr();
 
-		if (IsGTMNode() && pmState == PM_RUN)
+		if (IsGTMNode() && !RecoveryInProgress() && pmState == PM_RUN)
 		{
 			if (SnapSenderPID == 0)
 				SnapSenderPID = StartSnapSender();
@@ -3195,11 +3195,11 @@ reaper(SIGNAL_ARGS)
 				PgPoolerPID = StartPoolManager();
 			if (IS_PGXC_COORDINATOR && RemoteXactMgrPID == 0)
 				RemoteXactMgrPID = StartRemoteXactMgr();
-			if (IsGTMNode() && SnapSenderPID == 0)
+			if (IsGTMNode() && !RecoveryInProgress() && SnapSenderPID == 0)
 				SnapSenderPID = StartSnapSender();
 			if (!IsGTMNode() && SnapReceiverPID == 0)
 				SnapReceiverPID = StartSnapReceiver();
-			if (IsGTMNode() && GxidSenderPID == 0)
+			if (IsGTMNode() && !RecoveryInProgress() && GxidSenderPID == 0)
 				GxidSenderPID = StartGxidSender();
 			if (!IsGTMNode() && GxidReceiverPID == 0)
 				GxidReceiverPID = StartGxidReceiver();
@@ -3437,7 +3437,7 @@ reaper(SIGNAL_ARGS)
 			continue;
 		}
 
-		if (IsGTMNode() && pid == SnapSenderPID)
+		if (IsGTMNode() && !RecoveryInProgress() && pid == SnapSenderPID)
 		{
 			SnapSenderPID = 0;
 			if (EXIT_STATUS_0(exitstatus) ||
@@ -3454,7 +3454,7 @@ reaper(SIGNAL_ARGS)
 			continue;
 		}
 
-		if (IsGTMNode() && pid == GxidSenderPID)
+		if (IsGTMNode() && !RecoveryInProgress() && pid == GxidSenderPID)
 		{
 			GxidSenderPID = 0;
 			if (EXIT_STATUS_0(exitstatus) ||

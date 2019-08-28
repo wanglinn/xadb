@@ -5,24 +5,24 @@ ADB documentation
 
 <refentry id="MGR-STOPGTM">
   <refmeta>
-    <refentrytitle>STOP GTM</refentrytitle>
+    <refentrytitle>STOP GTMCOOR</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>STOP GTM</refname>
-    <refpurpose>stop the gtm node on the ADB cluster</refpurpose>
+    <refname>STOP GTMCOOR</refname>
+    <refpurpose>stop the gtmcoor node on the ADB cluster</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-stopgtm">
-    <primary>STOP GTM</primary>
+    <primary>STOP GTMCOOR</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-STOP GTM ALL [ <replaceable class="parameter">stop_mode</replaceable> ]
-STOP GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable> [ <replaceable class="parameter">stop_mode</replaceable> ]
+STOP GTMCOOR ALL [ <replaceable class="parameter">stop_mode</replaceable> ]
+STOP GTMCOOR { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable> [ <replaceable class="parameter">stop_mode</replaceable> ]
 
 <phrase>where <replaceable class="parameter">stop_mode</replaceable> can be one of:</phrase>
 
@@ -36,7 +36,7 @@ STOP GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceabl
     <title>Description</title>
 
     <para>
-<command>STOP GTM</command> stop the gtm node on the ADB cluster.
+<command>STOP GTMCOOR</command> stop the gtmcoor node on the ADB cluster.
     </para>
   </refsect1>
 
@@ -48,7 +48,7 @@ STOP GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceabl
     <term><replaceable class="parameter">node_name</replaceable></term>
     <listitem>
      <para>
-      The gtm mater, slave name.
+      The gtmcoor mater, slave name.
      </para>
     </listitem>
    </varlistentry>
@@ -60,9 +60,9 @@ STOP GTM { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceabl
     <title>Examples</title>
 
     <para>
-Stop gtm master gtm_name1 using immediate mode:
+Stop gtmcoor master gtm_name1 using immediate mode:
 <programlisting>
-STOP GTM MASTER gtm_name1 MODE I;
+STOP GTMCOOR MASTER gtm_name1 MODE I;
 </programlisting>
     </para>
 

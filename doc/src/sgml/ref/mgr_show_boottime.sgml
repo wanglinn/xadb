@@ -21,7 +21,7 @@ ADB documentation
 
   <refsynopsisdiv>
   <synopsis>
-SHOW BOOTTIME { ALL | COORDINATOR { ALL | { MASTER | SLAVE } {node_name | ALL} }| DATANODE { ALL | { MASTER | SLAVE } {node_name | ALL} } | GTM { ALL | { MASTER | SLAVE } {node_name | ALL} }}
+SHOW BOOTTIME { ALL | COORDINATOR { ALL | { MASTER | SLAVE } {node_name | ALL} }| DATANODE { ALL | { MASTER | SLAVE } {node_name | ALL} } | GTMCOOR { ALL | { MASTER | SLAVE } {node_name | ALL} }}
 </synopsis>
 </refsynopsisdiv>
   <refsect1>
@@ -97,30 +97,30 @@ SHOW BOOTTIME DATANODE { MASTER | SLAVE } coor_name;
   </para>
 
   <para>
-   Show the boottime for all GTM:
+   Show the boottime for all GTMCOOR:
 <programlisting>
-SHOW BOOTTIME GTM all;
+SHOW BOOTTIME GTMCOOR all;
 </programlisting>
   </para>
 
   <para>
-   Show the boottime for all master GTM:
+   Show the boottime for all master GTMCOOR:
 <programlisting>
-SHOW BOOTTIME GTM MASTER ALL;
+SHOW BOOTTIME GTMCOOR MASTER ALL;
 </programlisting>
   </para>
 
   <para>
-   Show the boottime for all slave GTM:
+   Show the boottime for all slave GTMCOOR:
 <programlisting>
-SHOW BOOTTIME GTM SLAVE ALL;
+SHOW BOOTTIME GTMCOOR SLAVE ALL;
 </programlisting>
   </para>
 
   <para>
    Show the boottime for gtm_name:
 <programlisting>
-SHOW BOOTTIME GTM { MASTER | SLAVE } gtm_name;
+SHOW BOOTTIME GTMCOOR { MASTER | SLAVE } gtm_name;
 </programlisting>
   </para>
 

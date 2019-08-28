@@ -189,8 +189,8 @@ Datum mgr_add_updateparm_func(PG_FUNCTION_ARGS)
 	PG_TRY();
 	{
 		if (strcmp(nodename.data, MACRO_STAND_FOR_ALL_NODENAME) == 0 && (CNDN_TYPE_DATANODE_MASTER == nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype || CNDN_TYPE_COORDINATOR_MASTER == nodetype
-		|| CNDN_TYPE_COORDINATOR_SLAVE == nodetype || GTM_TYPE_GTM_MASTER == nodetype
-		|| GTM_TYPE_GTM_SLAVE == nodetype))
+		|| CNDN_TYPE_COORDINATOR_SLAVE == nodetype || CNDN_TYPE_GTM_COOR_MASTER == nodetype
+		|| CNDN_TYPE_GTM_COOR_SLAVE == nodetype))
 		{
 			bneednotice = true;
 			ScanKeyInit(&scankey[0]
@@ -210,7 +210,7 @@ Datum mgr_add_updateparm_func(PG_FUNCTION_ARGS)
 			}
 			heap_endscan(rel_scan);
 		}
-		/*set datanode/gtm all (key=value,...), set nodetype nodname (key=value,...)*/
+		/*set datanode/gtmcoor all (key=value,...), set nodetype nodname (key=value,...)*/
 		else
 		{
 			bneednotice = true;
@@ -443,7 +443,7 @@ static bool mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, 
 	bool isNull = false;
 
 	/*check the name of key exist in mgr_parm system table, if the key only in gtm/coordinator/datanode, the parmtype in
-	* mgr_parm is PARM_TYPE_GTM/PARM_TYPE_COORDINATOR/PARM_TYPE_DATANODE; if the key only in cn or dn, the parmtype in
+	* mgr_parm is PARM_TYPE_GTMCOOR/PARM_TYPE_COORDINATOR/PARM_TYPE_DATANODE; if the key only in cn or dn, the parmtype in
 	* mgr_parm is '#'; if the key in gtm or cn or dn, the parmtype in mgr_parm is '*';
 	* first: check the parmtype the input parameter given; second: check the parmtype '#'; third check the parmtype '*'
 	*/
@@ -470,7 +470,7 @@ static bool mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, 
 			else
 				mgr_parm = (Form_mgr_parm)GETSTRUCT(tuple);
 		}
-		else if (PARM_TYPE_GTM == parmtype)
+		else if (PARM_TYPE_GTMCOOR == parmtype)
 		{
 			/*check the parm in mgr_parm, type is '*'*/
 			tuple = SearchSysCache2(PARMTYPENAME, CharGetDatum(PARM_IN_GTM_CN_DN), NameGetDatum(key));
@@ -654,8 +654,8 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 	int delnum = 0;
 	int ret;
 
-	if (GTM_TYPE_GTM_MASTER == nodetype || GTM_TYPE_GTM_SLAVE == nodetype)
-		allnodetype = CNDN_TYPE_GTM;
+	if (CNDN_TYPE_GTM_COOR_MASTER == nodetype || CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
+		allnodetype = CNDN_TYPE_GTMCOOR;
 	else if (CNDN_TYPE_DATANODE_MASTER == nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype)
 		allnodetype = CNDN_TYPE_DATANODE;
 	else if (CNDN_TYPE_COORDINATOR_MASTER == nodetype || CNDN_TYPE_COORDINATOR_SLAVE == nodetype)
@@ -858,8 +858,8 @@ void mgr_add_parm(char *nodename, char nodetype, StringInfo infosendparamsg)
 	NameData nodenamedata;
 	NameData nodenamedatacheck;
 
-	if (GTM_TYPE_GTM_MASTER == nodetype || GTM_TYPE_GTM_SLAVE == nodetype)
-		allnodetype = CNDN_TYPE_GTM;
+	if (CNDN_TYPE_GTM_COOR_MASTER == nodetype || CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
+		allnodetype = CNDN_TYPE_GTMCOOR;
 	else if (CNDN_TYPE_DATANODE_MASTER == nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype)
 		allnodetype = CNDN_TYPE_DATANODE;
 	else
@@ -971,9 +971,9 @@ static void mgr_reload_parm(Relation noderel, char *nodename, char nodetype, Str
 			if(!mgr_node->nodeincluster)
 				continue;
 			/*all gtm type: master/slave*/
-			if (CNDN_TYPE_GTM == nodetype)
+			if (CNDN_TYPE_GTMCOOR == nodetype)
 			{
-				if (mgr_node->nodetype != GTM_TYPE_GTM_MASTER && mgr_node->nodetype != GTM_TYPE_GTM_SLAVE)
+				if (mgr_node->nodetype != CNDN_TYPE_GTM_COOR_MASTER && mgr_node->nodetype != CNDN_TYPE_GTM_COOR_SLAVE)
 					continue;
 			}
 			/*all datanode type: master/slave*/
@@ -1088,9 +1088,9 @@ static int mgr_delete_tuple_not_all(Relation noderel, char nodetype, Name key)
 		if (strcmp(NameStr(mgr_updateparm->updateparmnodename), MACRO_STAND_FOR_ALL_NODENAME) == 0)
 			continue;
 		/*all gtm type: master/slave*/
-		if (CNDN_TYPE_GTM == nodetype)
+		if (CNDN_TYPE_GTMCOOR == nodetype)
 		{
-			if (mgr_updateparm->updateparmnodetype != GTM_TYPE_GTM_MASTER && mgr_updateparm->updateparmnodetype != GTM_TYPE_GTM_SLAVE)
+			if (mgr_updateparm->updateparmnodetype != CNDN_TYPE_GTM_COOR_MASTER && mgr_updateparm->updateparmnodetype != CNDN_TYPE_GTM_COOR_SLAVE)
 				continue;
 		}
 		/*all datanode type: master/slave*/
@@ -1274,7 +1274,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 			* reset coordinator all (key=value,...)
 			* reset datanode all (key=value,...)
 			*/
-			if (strcmp(nodename.data, MACRO_STAND_FOR_ALL_NODENAME) == 0 && (CNDN_TYPE_GTM == nodetype || CNDN_TYPE_DATANODE == nodetype ||CNDN_TYPE_COORDINATOR == nodetype))
+			if (strcmp(nodename.data, MACRO_STAND_FOR_ALL_NODENAME) == 0 && (CNDN_TYPE_GTMCOOR == nodetype || CNDN_TYPE_DATANODE == nodetype ||CNDN_TYPE_COORDINATOR == nodetype))
 			{
 				ScanKeyInit(&scankey[0],
 					Anum_mgr_updateparm_updateparmkey
@@ -1287,9 +1287,9 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 					mgr_updateparm = (Form_mgr_updateparm)GETSTRUCT(looptuple);
 					Assert(mgr_updateparm);
 					nodetypetmp = mgr_updateparm->updateparmnodetype;
-					if (CNDN_TYPE_GTM == nodetype)
+					if (CNDN_TYPE_GTMCOOR == nodetype)
 					{
-						if (GTM_TYPE_GTM_MASTER != nodetypetmp && GTM_TYPE_GTM_SLAVE != nodetypetmp && CNDN_TYPE_GTM != nodetypetmp)
+						if (CNDN_TYPE_GTM_COOR_MASTER != nodetypetmp && CNDN_TYPE_GTM_COOR_SLAVE != nodetypetmp && CNDN_TYPE_GTMCOOR != nodetypetmp)
 							continue;
 					}
 					else if (CNDN_TYPE_DATANODE == nodetype)
@@ -1317,8 +1317,8 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 			else
 			{
 				/*check the MACRO_STAND_FOR_ALL_NODENAME has the same nodetype*/
-				if (GTM_TYPE_GTM_MASTER == nodetype || GTM_TYPE_GTM_SLAVE == nodetype)
-					allnodetype = CNDN_TYPE_GTM;
+				if (CNDN_TYPE_GTM_COOR_MASTER == nodetype || CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
+					allnodetype = CNDN_TYPE_GTMCOOR;
 				else if (CNDN_TYPE_DATANODE_MASTER == nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype)
 					allnodetype = CNDN_TYPE_DATANODE;
 				else
@@ -1722,10 +1722,10 @@ void mgr_parmr_delete_tuple_nodename_nodetype(Relation noderel, Name nodename, c
 	/*for nodename is MACRO_STAND_FOR_ALL_NODENAME, only when type if master then delete the tuple*/
 	if (strcmp(MACRO_STAND_FOR_ALL_NODENAME, nodename->data) == 0)
 	{
-		if (CNDN_TYPE_COORDINATOR_MASTER == nodetype || CNDN_TYPE_DATANODE_MASTER == nodetype || GTM_TYPE_GTM_MASTER == nodetype)
+		if (CNDN_TYPE_COORDINATOR_MASTER == nodetype || CNDN_TYPE_DATANODE_MASTER == nodetype || CNDN_TYPE_GTM_COOR_MASTER == nodetype)
 		{
-				if (GTM_TYPE_GTM_MASTER == nodetype || GTM_TYPE_GTM_SLAVE == nodetype)
-					nodetype = CNDN_TYPE_GTM;
+				if (CNDN_TYPE_GTM_COOR_MASTER == nodetype || CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
+					nodetype = CNDN_TYPE_GTMCOOR;
 				else if (CNDN_TYPE_DATANODE_MASTER == nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype)
 					nodetype = CNDN_TYPE_DATANODE;
 				else
@@ -1859,7 +1859,7 @@ Datum mgr_show_var_param(PG_FUNCTION_ARGS)
 	mgr_node = (Form_mgr_node)GETSTRUCT(checkTuple);
 	Assert(mgr_node);
 	checkNodeType = mgr_node->nodetype;
-	if (GTM_TYPE_GTM_MASTER == checkNodeType || CNDN_TYPE_COORDINATOR_MASTER == checkNodeType
+	if (CNDN_TYPE_GTM_COOR_MASTER == checkNodeType || CNDN_TYPE_COORDINATOR_MASTER == checkNodeType
 					|| CNDN_TYPE_DATANODE_MASTER == checkNodeType)
 		masterTupleOid = HeapTupleGetOid(checkTuple);
 	else
@@ -1907,7 +1907,7 @@ Datum mgr_show_var_param(PG_FUNCTION_ARGS)
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
 
-		if (GTM_TYPE_GTM_MASTER == checkNodeType || CNDN_TYPE_COORDINATOR_MASTER == checkNodeType
+		if (CNDN_TYPE_GTM_COOR_MASTER == checkNodeType || CNDN_TYPE_COORDINATOR_MASTER == checkNodeType
 					|| CNDN_TYPE_DATANODE_MASTER == checkNodeType)
 		{
 			if (masterTupleOid != HeapTupleGetOid(tuple) && masterTupleOid != mgr_node->nodemasternameoid)
@@ -1924,10 +1924,7 @@ Datum mgr_show_var_param(PG_FUNCTION_ARGS)
 		appendStringInfoCharMacro(&infosendmsg, '\0');
 		appendStringInfo(&infosendmsg, "%s", param.data);
 		appendStringInfoCharMacro(&infosendmsg, '\0');
-		if (GTM_TYPE_GTM_MASTER == mgr_node->nodetype || GTM_TYPE_GTM_SLAVE == mgr_node->nodetype)
-			mgr_send_show_parameters(AGT_CMD_SHOW_AGTM_PARAM, &infosendmsg, mgr_node->nodehost, &getAgentCmdRst);
-		else
-			mgr_send_show_parameters(AGT_CMD_SHOW_CNDN_PARAM, &infosendmsg, mgr_node->nodehost, &getAgentCmdRst);
+		mgr_send_show_parameters(AGT_CMD_SHOW_CNDN_PARAM, &infosendmsg, mgr_node->nodehost, &getAgentCmdRst);
 
 		nodetypestr = mgr_nodetype_str(mgr_node->nodetype);
 		initStringInfo(&nodetypemsg);
@@ -2069,7 +2066,7 @@ Datum mgr_update_param_gtm_failover(PG_FUNCTION_ARGS)
 	NameData oldmastername;
 	NameData newmastername;
 	NameData newmastertypestr;
-	char oldmastertype = GTM_TYPE_GTM_MASTER;
+	char oldmastertype = AGT_CMD_SHOW_CNDN_PARAM;
 	char newmastertype;
 
 	/*check new master  type*/
@@ -2078,7 +2075,7 @@ Datum mgr_update_param_gtm_failover(PG_FUNCTION_ARGS)
 	namestrcpy(&newmastertypestr, PG_GETARG_CSTRING(2));
 
 	if (strcmp(newmastertypestr.data, "slave") == 0)
-		newmastertype = GTM_TYPE_GTM_SLAVE;
+		newmastertype = CNDN_TYPE_GTM_COOR_SLAVE;
 	else
 		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE)
 				,errmsg("nodetype \"%s\" is not recognized", newmastertypestr.data)
@@ -2374,8 +2371,8 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 	/*check agent running normal*/
 	mgr_check_all_agent();
 	/*check all master nodes running normal*/
-	mgr_make_sure_all_running(GTM_TYPE_GTM_MASTER);
-	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
+	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER);
+	//mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 
 	/* check connect adbmgr */
 	if ((ret = SPI_connect()) < 0)
@@ -2402,7 +2399,7 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 		* guc name set '*' to '#', which in the coordinator pg_settings but not in gtm pg_settings,
 		* set 'G' which just in gtm master pg_settings.
 		*/
-		if (!mgr_get_active_node(&cnName, CNDN_TYPE_COORDINATOR_MASTER, InvalidOid))
+		if (!mgr_get_active_node(&cnName, CNDN_TYPE_GTM_COOR_MASTER, InvalidOid))
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 				,errmsg("get active coordinator fail in cluster")));
 		/* get node info */
@@ -2609,10 +2606,10 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 			kNodeType = mgr_updateparm->updateparmnodetype;
 			switch(kNodeType)
 			{
-				case GTM_TYPE_GTM_MASTER:
-				case GTM_TYPE_GTM_SLAVE:
-				case CNDN_TYPE_GTM:
-					ptype = CNDN_TYPE_GTM;
+				case CNDN_TYPE_GTM_COOR_MASTER:
+				case CNDN_TYPE_GTM_COOR_SLAVE:
+				case CNDN_TYPE_GTMCOOR:
+					ptype = CNDN_TYPE_GTMCOOR;
 					break;
 				case CNDN_TYPE_COORDINATOR_MASTER:
 				case CNDN_TYPE_COORDINATOR_SLAVE:

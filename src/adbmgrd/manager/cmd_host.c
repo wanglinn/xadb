@@ -1953,10 +1953,10 @@ bool get_node_type_str(int node_type, Name node_type_str)
 	Assert(node_type_str);
 	switch(node_type)
     {
-        case GTM_TYPE_GTM_MASTER:
+        case CNDN_TYPE_GTM_COOR_MASTER:
 			strcpy(NameStr(*node_type_str), "gtm master");
 			break;
-        case GTM_TYPE_GTM_SLAVE:
+        case CNDN_TYPE_GTM_COOR_SLAVE:
 			strcpy(NameStr(*node_type_str), "gtm slave");
 			break;
         case CNDN_TYPE_COORDINATOR_MASTER:
