@@ -1,6 +1,7 @@
 #include "postgres.h"
 
 #include "access/rmgr.h"
+#include "access/xact.h"
 #include "access/xlogrecord.h"
 #include "libpq/pqformat.h"
 #include "libpq/pqsignal.h"
@@ -40,6 +41,7 @@ typedef struct SnapRcvData
 	slock_t			mutex;
 
 	TimestampTz		next_try_time;	/* next connection GTM time */
+	TimestampTz		gtm_delta_time;
 
 	uint32			xcnt;
 	TransactionId	latestCompletedXid;
@@ -55,6 +57,8 @@ static WalReceiverConn *wrconn;
 /* in walreceiver.c */
 static StringInfoData reply_message;
 static StringInfoData incoming_message;
+
+static TimestampTz last_heat_beat_sendtime;
 
 /*
  * Flags set by interrupt handlers of walreceiver for later service in the
@@ -85,6 +89,7 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len);
 static void SnapRcvProcessSnapshot(char *buf, Size len);
 static void SnapRcvProcessAssign(char *buf, Size len);
 static void SnapRcvProcessComplete(char *buf, Size len);
+static void SnapRcvProcessHeartBeat(char *buf, Size len);
 static void WakeupTransaction(TransactionId);
 
 /* Signal handlers */
@@ -130,9 +135,11 @@ DisableSnapRcvImmediateExit(void)
 static void
 SnapRcvSendHeartbeat(void)
 {
+	last_heat_beat_sendtime = GetCurrentTimestamp();
 	/* Construct a new message */
 	resetStringInfo(&reply_message);
 	pq_sendbyte(&reply_message, 'h');
+	pq_sendint64(&reply_message, last_heat_beat_sendtime);
 
 	/* Send it */
 	walrcv_send(wrconn, reply_message.data, reply_message.len);
@@ -548,6 +555,7 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 		SnapRcvProcessComplete(buf, len);
 		break;
 	case 'h':				/* heartbeat response */
+		SnapRcvProcessHeartBeat(buf, len);
 		break;
 	default:
 		ereport(ERROR,
@@ -704,6 +712,33 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 
 	walrcv_send(wrconn, xidmsg.data, xidmsg.len);
 	pfree(xidmsg.data);
+}
+
+static void SnapRcvProcessHeartBeat(char *buf, Size len)
+{
+	StringInfoData	msg;
+	TimestampTz		t1, t2, t3, t4, cur, deltatime;
+
+	if (len != 3 * sizeof(t1))
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("invalid snapshot transaction timestamp length")));
+
+	t4 = GetCurrentTimestamp();
+	msg.data = buf;
+	msg.len = msg.maxlen = len;
+	msg.cursor = 0;
+
+	t1 = pq_getmsgint64(&msg);
+	Assert(t1 == last_heat_beat_sendtime);
+	t2 = pq_getmsgint64(&msg);
+	t3 = pq_getmsgint64(&msg);
+
+	deltatime = ((t2-t1)+(t3-t4))/2;
+
+	LOCK_SNAP_RCV();
+	SnapRcv->gtm_delta_time = deltatime;
+	UNLOCK_SNAP_RCV();
 }
 
 /*
@@ -903,6 +938,8 @@ re_lock_:
 		/* Add XID to snapshot. */
 		snap->xip[xcnt++] = xid;
 	}
+
+	SetCurrentTransactionStartTimestamp(SnapRcv->gtm_delta_time + GetCurrentTimestamp());
 	UNLOCK_SNAP_RCV();
 
 	snap->xcnt = xcnt;

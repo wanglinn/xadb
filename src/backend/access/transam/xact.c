@@ -975,11 +975,8 @@ SetCurrentTransactionStartTimestamp(TimestampTz timestamp)
 	 * Datanode or NoMaster-Coordinator get timestamp from Master-Co
 	 * ordinator.
 	 */
-	if ((IsCnMaster() && !FirstSnapshotSet) || !IsCnMaster())
-	{
-		globalXactStartTimestamp = timestamp;
-		globalDeltaTimestmap = globalXactStartTimestamp - xactStartTimestamp;
-	}
+	globalXactStartTimestamp = timestamp;
+	globalDeltaTimestmap = globalXactStartTimestamp - xactStartTimestamp;
 
 #ifdef DEBUG_ADB
 	adb_ereport(LOG,

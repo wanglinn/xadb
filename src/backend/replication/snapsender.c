@@ -327,6 +327,29 @@ static void snapsenderProcessXidFinishAck(SnapClientData *client, const char* da
 	}
 }
 
+static void snapsenderProcessHeartBeat(SnapClientData *client)
+{
+	TimestampTz t1, t2, t3;
+
+	input_buffer.cursor = 1;
+	t2 = GetCurrentTimestamp();
+	t1 = pq_getmsgint64(&input_buffer);
+	
+
+	/* Send a HEARTBEAT Response message */
+	resetStringInfo(&output_buffer);
+	pq_sendbyte(&output_buffer, 'h');
+	pq_sendint64(&output_buffer, t1);
+	pq_sendint64(&output_buffer, t2);
+
+	t3 = GetCurrentTimestamp();
+	pq_sendint64(&output_buffer, t3);
+	if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false) == false)
+	{
+		DropClient(client, true);
+	}
+}
+
 static bool WaitSnapSendCondTransactionComplate(void *context)
 {
 	proclist_mutable_iter	iter;
@@ -1001,13 +1024,7 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node)
 			{
 				if (strcasecmp(input_buffer.data, "h") == 0)
 				{
-					/* Send a HEARTBEAT Response message */
-					resetStringInfo(&output_buffer);
-					appendStringInfoChar(&output_buffer, 'h');
-					if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false) == false)
-					{
-						DropClient(client, true);
-					}
+					snapsenderProcessHeartBeat(client);
 				}
 				else if (strcasecmp(input_buffer.data, "f") == 0)
 				{
