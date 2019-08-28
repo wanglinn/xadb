@@ -434,14 +434,36 @@ static Expr* makeNotNullTest(Expr *expr, bool isrow)
 
 static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node)
 {
-	CoalesceExpr *coalesce;
-	Expr *expr;
+	CoalesceExpr  *coalesce;
+	Expr		   *expr;
+	Const		   *count;
+	LocatorKeyInfo *key;
+	uint32			n;
+
+	if (list_length(loc_info->keys) != 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("not distribute by only one expression not support yet")));
+	key = FirstLocKeyInfo(loc_info);
+
+	if (loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
+		n = HASHMAP_SLOTSIZE;
+	else
+		n = list_length(loc_info->nodeids);
+
+	count = makeConst(INT4OID,
+					  -1,
+					  InvalidOid,
+					  sizeof(n),
+					  UInt32GetDatum(n),
+					  false,
+					  true);
 
 	switch(loc_info->locatorType)
 	{
 	case LOCATOR_TYPE_HASH:
 	case LOCATOR_TYPE_HASHMAP:
-		expr = makeHashExpr((Expr*)node);
+		expr = makeHashExprFamily((Expr*)node, key->opfamily);
 		break;
 	case LOCATOR_TYPE_MODULO:
 		expr = (Expr*)coerce_to_target_type(NULL,
@@ -457,26 +479,12 @@ static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node)
 		return NULL;
 	}
 
-
-	if(LOCATOR_TYPE_HASHMAP==loc_info->locatorType)
-		expr = makeModuloExpr(expr, HASHMAP_SLOTSIZE);
-	else
-		expr = makeModuloExpr(expr, list_length(loc_info->nodeids));
-
-	expr = (Expr*)coerce_to_target_type(NULL,
-										(Node*)expr,
-										exprType((Node*)expr),
-										INT4OID,
-										-1,
-										COERCION_EXPLICIT,
-										COERCE_IMPLICIT_CAST,
-										-1);
-	expr = (Expr*)makeFuncExpr(F_INT4ABS,
-								INT4OID,
-								list_make1(expr),
-								InvalidOid,
-								InvalidOid,
-								COERCE_EXPLICIT_CALL);
+	expr = (Expr*)makeFuncExpr(F_HASH_COMBIN_MOD,
+							   INT4OID,
+							   list_make2(count, expr),
+							   InvalidOid,
+							   InvalidOid,
+							   COERCE_EXPLICIT_CALL);
 
 	coalesce = makeNode(CoalesceExpr);
 	coalesce->coalescetype = INT4OID,
@@ -485,10 +493,11 @@ static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node)
 
 	if(LOCATOR_TYPE_HASHMAP==loc_info->locatorType)
 		return (Expr*)makeFuncExpr(F_NODEID_FROM_HASHVALUE,
-					INT4OID,
-					list_make1((Expr*)coalesce),
-					exprType((Node*)coalesce), exprCollation((Node*)coalesce),
-					COERCE_EXPLICIT_CALL);
+								   INT4OID,
+								   list_make1((Expr*)coalesce),
+								   InvalidOid,
+								   InvalidOid,
+								   COERCE_EXPLICIT_CALL);
 	else
 		return (Expr*)coalesce;
 }

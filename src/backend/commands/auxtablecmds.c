@@ -466,9 +466,16 @@ AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt)
 	create_stmt->aux_attnum = auxattform->attnum;
 	if (create_stmt->distributeby == NULL)
 	{
-		create_stmt->distributeby = makeNode(DistributeBy);
-		create_stmt->distributeby->disttype = LOCATOR_TYPE_HASH;
-		create_stmt->distributeby->colname = pstrdup(NameStr(auxattform->attname));
+		PartitionSpec *spec = makeNode(PartitionSpec);
+		PartitionElem *elem = makeNode(PartitionElem);
+		elem->name = pstrdup(NameStr(auxattform->attname));
+		elem->location = -1;
+
+		spec->location = -1;
+		spec->strategy = pstrdup("hash");
+		spec->partParams = list_make1(elem);
+
+		create_stmt->distributeby = spec;
 	}
 
 	ReleaseSysCache(atttuple);

@@ -23,18 +23,18 @@ CATALOG(pgxc_class,9020,PgxcClassRelationId) BKI_WITHOUT_OIDS
 	oidvector	nodeoids;
 
 #ifdef CATALOG_VARLEN
-	int2vector	pcattrs;	/* each member of the array is the attribute
-							 * number of a distribute key column, or 0 if
-							 * the column is actually an expression */
+	int2vector	pcattrs BKI_FORCE_NULL;		/* each member of the array is the attribute
+											 * number of a distribute key column, or 0 if
+											 * the column is actually an expression */
 
-	oidvector	pcclass;	/* operator class to compare keys */
+	oidvector	pcclass BKI_FORCE_NULL;		/* operator class to compare keys */
 
-	oidvector	pccollation;/* user-specified collation for keys */
+	oidvector	pccollation BKI_FORCE_NULL;	/* user-specified collation for keys */
 
-	pg_node_tree pcexprs;	/* list of expression in the distribute key;
-							 * one item for each zero entry in pcattrs[] */
+	pg_node_tree pcexprs BKI_FORCE_NULL;	/* list of expression in the distribute key;
+											 * one item for each zero entry in pcattrs[] */
 
-	pg_node_tree pcvalues;	/* list of each node's list(...) or range(lower, upper) values */
+	pg_node_tree pcvalues BKI_FORCE_NULL;	/* list of each node's list(...) or range(lower, upper) values */
 #endif
 } FormData_pgxc_class;
 
@@ -88,6 +88,14 @@ typedef enum PgxcClassAlterType
 
 #endif							/* EXPOSE_TO_CLIENT_CODE */
 
+typedef struct DistributeNameType
+{
+	char	loc_type;
+	char	name[15];
+}DistributeNameType;
+
+extern const DistributeNameType all_distribute_name_type[];
+extern const uint32				cnt_distribute_name_type;
 extern int default_distribute_by;
 
 extern void PgxcClassCreate(Oid pcrelid,

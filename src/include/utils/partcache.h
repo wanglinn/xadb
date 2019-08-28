@@ -51,6 +51,11 @@ extern void RelationBuildPartitionDesc(Relation rel);
 extern List *RelationGetPartitionQual(Relation rel);
 extern Expr *get_partition_qual_relid(Oid relid);
 
+#ifdef ADB
+extern PartitionKey RelationGenerateDistributeKey(Relation rel, AttrNumber *attr,
+						List *exprs, Oid *opclass, Oid *collation, char strategy, int16 natts);
+#endif /* ADB */
+
 /*
  * PartitionKey inquiry functions
  */

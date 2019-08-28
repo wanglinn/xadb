@@ -115,7 +115,7 @@ typedef struct IntoClause
 	Node	   *viewQuery;		/* materialized view's SELECT query */
 	bool		skipData;		/* true for WITH NO DATA */
 #ifdef ADB
-	struct DistributeBy *distributeby;  /* distribution to use, or NULL */
+	struct PartitionSpec *distributeby;  /* distribution to use, or NULL */
 	struct PGXCSubCluster *subcluster;  /* subcluster node members */
 #endif
 } IntoClause;
@@ -1541,19 +1541,6 @@ typedef struct OnConflictExpr
 } OnConflictExpr;
 
 #ifdef ADB
-/*----------
- * DistributeBy - represents a DISTRIBUTE BY clause in a CREATE TABLE statement
- *
- *----------
- */
-typedef struct DistributeBy
-{
-	NodeTag		type;
-	char		disttype;		/* Distribution type, see LOCATOR_TYPE_XXX */
-	char	   *colname;		/* Distribution column name */
-	struct FuncCall *func;		/* User-defined distribute function */
-} DistributeBy;
-
 /*----------
  * SubClusterType - type of subcluster used
  *

@@ -230,7 +230,6 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_OnConflictExpr)
 	ENUM_VALUE(T_IntoClause)
 #ifdef ADB
-	ENUM_VALUE(T_DistributeBy)
 	ENUM_VALUE(T_PGXCSubCluster)
 #endif
 	ENUM_VALUE(T_ExprState)

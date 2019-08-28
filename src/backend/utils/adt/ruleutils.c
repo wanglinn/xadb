@@ -498,6 +498,9 @@ static char *flatten_reloptions(Oid relid);
 
 #define only_marker(rte)  ((rte)->inh ? "" : "ONLY ")
 
+#ifdef ADB
+static void deparse_namelist(StringInfo buf, List *namelist, bool quote);
+#endif /* ADB */
 
 /* ----------
  * get_ruledef			- Do it all and return a text
@@ -7071,34 +7074,46 @@ get_utility_query_def(Query *query, deparse_context *context)
 
 		if (stmt->distributeby)
 		{
-			/* add the on commit clauses for temporary tables */
-			switch (stmt->distributeby->disttype)
+			PartitionSpec *spec = stmt->distributeby;
+			appendStringInfo(buf, " DISTRIBUTE BY %s", spec->strategy);
+			if (spec->partParams != NIL)
 			{
-				case LOCATOR_TYPE_REPLICATED:
-					appendStringInfo(buf, " DISTRIBUTE BY REPLICATION");
-					break;
-
-				case LOCATOR_TYPE_HASH:
-					appendStringInfo(buf, " DISTRIBUTE BY HASH(%s)", stmt->distributeby->colname);
-					break;
-
-				case LOCATOR_TYPE_RANDOM:
-					appendStringInfo(buf, " DISTRIBUTE BY RANDOM");
-					break;
-
-				case LOCATOR_TYPE_HASHMAP:
-					appendStringInfo(buf, " DISTRIBUTE BY HASHMAP(%s)", stmt->distributeby->colname);
-					break;
-
-				case LOCATOR_TYPE_MODULO:
-					appendStringInfo(buf, " DISTRIBUTE BY MODULO(%s)", stmt->distributeby->colname);
-					break;
-
-				default:
-					ereport(ERROR,
-							(errcode(ERRCODE_SYNTAX_ERROR),
-							 errmsg("Invalid distribution type %d", stmt->distributeby->disttype)));
-
+				PartitionElem  *elem;
+				ListCell	   *lc;
+				const char	   *tmp = "(";
+				foreach (lc, spec->partParams)
+				{
+					elem = lfirst_node(PartitionElem, lc);
+					appendStringInfoString(buf, tmp);
+					if (elem->name)
+					{
+						appendStringInfoString(buf, quote_identifier(elem->name));
+					}else
+					{
+						char *str = deparse_expression_pretty(elem->expr,
+															  context->namespaces,
+															  false,
+															  false,
+															  0,
+															  0);
+						if (looks_like_function(elem->expr))
+							appendStringInfoString(buf, str);
+						else
+							appendStringInfo(buf, "(%s)", str);
+					}
+					if (elem->collation != NIL)
+					{
+						appendStringInfoString(buf, " COLLATE ");
+						deparse_namelist(buf, elem->collation, true);
+					}
+					if (elem->opclass)
+					{
+						appendStringInfoChar(buf, ' ');
+						deparse_namelist(buf, elem->opclass, true);
+					}
+					tmp = ", ";
+				}
+				appendStringInfoChar(buf, ')');
 			}
 		}
 
@@ -7115,7 +7130,21 @@ get_utility_query_def(Query *query, deparse_context *context)
 					Assert(stmt->subcluster->members);
 					foreach(cell, stmt->subcluster->members)
 					{
-						appendStringInfo(buf, " %s", strVal(lfirst(cell)));
+						DefElem *elem = lfirst_node(DefElem, cell);
+						appendStringInfoString(buf, elem->defname);
+						if (elem->arg)
+						{
+							PartitionBoundSpec *bound = castNode(PartitionBoundSpec, elem->arg);
+							appendStringInfoChar(buf, ' ');
+							if (bound->is_default)
+							{
+								appendStringInfoString(buf, "FOR NULLS");
+							}else
+							{
+								#warning maybe core
+								get_rule_expr((Node*)bound, context, false);
+							}
+						}
 						if (cell->next)
 							appendStringInfo(buf, ",");
 					}
@@ -11969,3 +11998,25 @@ get_range_partbound_string(List *bound_datums)
 
 	return buf->data;
 }
+
+#ifdef ADB
+static void deparse_namelist(StringInfo buf, List *namelist, bool quote)
+{
+	const char *str;
+	Node	   *node;
+	ListCell   *lc;
+
+	foreach (lc, namelist)
+	{
+		node = lfirst(lc);
+		str = strVal(node);
+		if (quote)
+			str = quote_identifier(str);
+		if (lc != list_head(namelist))
+			appendStringInfoChar(buf, '.');
+		appendStringInfoString(buf, str);
+		if (str != strVal(node))
+			pfree((void*)str);
+	}
+}
+#endif /* ADB */

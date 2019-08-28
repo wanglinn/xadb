@@ -211,7 +211,6 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 	RoleSpec			*rolespec;
 /* ADB_BEGIN */
 #ifdef ADB
-	DistributeBy		*distby;
 	PGXCSubCluster		*subclus;
 #endif
 /* ADB_END */
@@ -560,7 +559,8 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 %type <list>		hash_partbound
 %type <defelt>		hash_partbound_elem
 /* ADB_BEGIN */
-%type <distby>	OptDistributeBy OptDistributeByInternal
+%type <defelt>	SubClusterNodeElem
+%type <partspec>	OptDistributeBy OptDistributeByInternal
 %type <node>	AlterNodeStmt
 		BarrierStmt AlterSlotStmt CreateSlotStmt DropSlotStmt FlushSlotStmt CleanSlotStmt
 		CleanConnStmt CreateAuxStmt CreateNodeGroupStmt CreateNodeStmt
@@ -570,11 +570,11 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 
 
 %type <range>	opt_aux_name
-%type <list>	pgxcnode_list pgxcnodes
+%type <list>	pgxcnode_list pgxcnodes SubClusterNodeList
 %type <boolean> opt_force
 %type <str>		CleanConnDbName CleanConnUserName
 		DirectStmt
-		opt_barrier_id OptDistributeType
+		opt_barrier_id
 		pgxcnode_name pgxcgroup_name
 		aux_opt_index_name
 
@@ -4258,34 +4258,23 @@ OptDistributeBy: OptDistributeByInternal			{ $$ = $1; }
 			| /* EMPTY */							{ $$ = NULL; }
 		;
 
-/*
- * For the distribution type, we use IDENT to limit the impact of keywords
- * related to distribution on other commands and to allow extensibility for
- * new distributions.
- */
-OptDistributeType: IDENT							{ $$ = $1; }
-		;
-
-OptDistributeByInternal:  DISTRIBUTE BY OptDistributeType
+OptDistributeByInternal:  DISTRIBUTE BY part_strategy
 				{
-					DistributeBy *n = makeNode(DistributeBy);
-					if (strcmp($3, "replication") == 0)
-						n->disttype = LOCATOR_TYPE_REPLICATED;
-					else if (strcmp($3, "random") == 0)
-						n->disttype = LOCATOR_TYPE_RANDOM;
-					else
-						ereport(ERROR,
-								(errcode(ERRCODE_SYNTAX_ERROR),
-								 errmsg("unrecognized distribution option \"%s\"", $3),
-								 errhint("support:replication, random and hash(column)")));
-					n->colname = NULL;
+					PartitionSpec *n = makeNode(PartitionSpec);
+
+					n->strategy = $3;
+					n->location = @1;
+
 					$$ = n;
 				}
-			| DISTRIBUTE BY func_name '(' func_arg_list ')'
+			| DISTRIBUTE BY part_strategy '(' part_elem ')'
 				{
-					DistributeBy *n = makeNode(DistributeBy);
-					n->func = makeFuncCall($3, $5, @3);
-					transformDistributeBy(n, yyscanner);
+					PartitionSpec *n = makeNode(PartitionSpec);
+
+					n->strategy = $3;
+					n->partParams = list_make1($5);
+					n->location = @1;
+
 					$$ = n;
 				}
 		;
@@ -4295,11 +4284,11 @@ OptSubCluster: OptSubClusterInternal				{ $$ = $1; }
 		;
 
 OptSubClusterInternal:
-			TO NODE pgxcnodes
+			TO NODE '(' SubClusterNodeList ')'
 				{
 					PGXCSubCluster *n = makeNode(PGXCSubCluster);
 					n->clustertype = SUBCLUSTER_NODE;
-					n->members = $3;
+					n->members = $4;
 					$$ = n;
 				}
 			| TO GROUP_P pgxcgroup_name
@@ -4310,6 +4299,51 @@ OptSubClusterInternal:
 					$$ = n;
 				}
 		;
+
+SubClusterNodeElem:
+		  pgxcnode_name
+			{
+				$$ = makeDefElem($1, NULL, @1);
+			}
+		| pgxcnode_name FOR NULLS_P
+			{
+				PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
+
+				n->is_default = true;
+				n->location = @3;
+
+				$$ = makeDefElem($1, (Node*)n, @1);
+			}
+		| pgxcnode_name FOR VALUES IN_P '(' expr_list ')'
+			{
+				PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
+
+				n->strategy = PARTITION_STRATEGY_LIST;
+				n->is_default = false;
+				n->listdatums = $6;
+				n->location = @4;
+
+				$$ = makeDefElem($1, (Node*)n, @1);
+			}
+		| pgxcnode_name FOR VALUES FROM '(' a_expr ')' TO '(' a_expr ')'
+			{
+				PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
+
+				n->strategy = PARTITION_STRATEGY_RANGE;
+				n->is_default = false;
+				n->lowerdatums = list_make1($6);
+				n->upperdatums = list_make1($10);
+				n->location = @4;
+
+				$$ = makeDefElem($1, (Node*)n, @1);
+			}
+		;
+
+SubClusterNodeList:
+		  SubClusterNodeList ',' SubClusterNodeElem	{ $$ = lappend($1, $3); }
+		| SubClusterNodeElem						{ $$ = list_make1($1); }
+		;
+
 /* ADB_END */
 
 OptConsTableSpace:   USING INDEX TABLESPACE name	{ $$ = $4; }

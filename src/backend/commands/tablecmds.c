@@ -115,6 +115,7 @@
 #include "mb/pg_wchar.h"
 #include "optimizer/pgxcship.h"
 #include "optimizer/pgxcplan.h"
+#include "optimizer/reduceinfo.h" /* for CanModuloType */
 #include "pgxc/pgxc.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/redistrib.h"
@@ -519,6 +520,9 @@ static Oid *add_node_list(Oid *old_oids, int old_num, Oid *add_oids, int add_num
 static void RegisterPostAlterTableAction(post_alter_table_callback func, void *arg);
 static void CleanupPostAlterTableActions(void *arg);
 static void ATPaddingAuxData(void *arg);
+static char GetRelationDistributeKey(ParseState *pstate, Relation rel, bool auxiliary,
+									 PartitionSpec *spec, List **keys, PartitionKey *partkey);
+static void AtExecDistributeBy(Relation rel, PartitionSpec *options);
 #endif
 
 static void copy_relation_data(SMgrRelation rel, SMgrRelation dst,
@@ -530,6 +534,9 @@ static void RangeVarCallbackForDropRelation(const RangeVar *rel, Oid relOid,
 static void RangeVarCallbackForAlterRelation(const RangeVar *rv, Oid relid,
 								 Oid oldrelid, void *arg);
 static PartitionSpec *transformPartitionSpec(Relation rel, PartitionSpec *partspec, char *strategy);
+#ifdef ADB
+static PartitionSpec *transformDistributeBy(ParseState *pstate, Relation rel, PartitionSpec *partspec, char *strategy);
+#endif /* ADB */
 static void ComputePartitionAttrs(Relation rel, List *partParams, AttrNumber *partattrs,
 					  List **partexprs, Oid *partopclass, Oid *partcollation, char strategy);
 static void CreateInheritance(Relation child_rel, Relation parent_rel);
@@ -849,44 +856,6 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	CommandCounterIncrement();
 
 #ifdef ADB
-	/*
-	 * Add to pgxc_class.
-	 * we need to do this after CommandCounterIncrement
-	 * Distribution info is to be added under the following conditions:
-	 * 1. The create table command is being run on a coordinator
-	 * 2. The create table command is being run in restore mode and
-	 *	  the statement contains distribute by clause.
-	 *	  While adding a new datanode to the cluster an existing dump
-	 *	  that was taken from a datanode is used, and
-	 *	  While adding a new coordinator to the cluster an exiting dump
-	 *	  that was taken from a coordinator is used.
-	 *	  The dump taken from a datanode does NOT contain any DISTRIBUTE BY
-	 *	  clause. This fact is used here to make sure that when the
-	 *	  DISTRIBUTE BY clause is missing in the statemnet the system
-	 *	  should not try to find out the node list itself.
-	 */
-	if ((IsCnNode() || IsDnNode() || (isRestoreMode && stmt->distributeby != NULL))
-		&& (relkind == RELKIND_RELATION || relkind == RELKIND_PARTITIONED_TABLE)
-		&& stmt->relation->relpersistence != RELPERSISTENCE_TEMP)
-	{
-		DistributeBy *distributeby = stmt->distributeby;
-		if (distributeby &&
-			distributeby->func &&
-			distributeby->func->location >= 0)
-		{
-			/* change location to real location */
-			FuncCall *func = distributeby->func;
-			func->location = pg_mbstrlen_with_len(queryString, func->location) + 1;
-		}
-		AddRelationDistribution(relationId,
-								stmt->auxiliary,
-								distributeby,
-								stmt->subcluster,
-								inheritOids,
-								descriptor);
-		CommandCounterIncrement();
-	}
-
 	/* Add for pg_aux_class */
 	if (stmt->auxiliary)
 	{
@@ -907,6 +876,69 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	 * complaining about deadlock risks.
 	 */
 	rel = relation_open(relationId, AccessExclusiveLock);
+
+#ifdef ADB
+	/*
+	 * Add to pgxc_class.
+	 * we need to do this after CommandCounterIncrement
+	 * Distribution info is to be added under the following conditions:
+	 * 1. The create table command is being run on a coordinator
+	 * 2. The create table command is being run in restore mode and
+	 *	  the statement contains distribute by clause.
+	 *	  While adding a new datanode to the cluster an existing dump
+	 *	  that was taken from a datanode is used, and
+	 *	  While adding a new coordinator to the cluster an exiting dump
+	 *	  that was taken from a coordinator is used.
+	 *	  The dump taken from a datanode does NOT contain any DISTRIBUTE BY
+	 *	  clause. This fact is used here to make sure that when the
+	 *	  DISTRIBUTE BY clause is missing in the statemnet the system
+	 *	  should not try to find out the node list itself.
+	 */
+	if ((IsCnNode() || (isRestoreMode && stmt->distributeby != NULL))
+		&& (relkind == RELKIND_RELATION || relkind == RELKIND_PARTITIONED_TABLE)
+		&& stmt->relation->relpersistence != RELPERSISTENCE_TEMP
+		&& !useLocalXid)
+	{
+		List		   *loc_keys;
+		List		   *valuelist = NIL;
+		Oid			   *nodeoids;
+		ParseState	   *pstate;
+		PartitionKey	partkey = NULL;
+		int				count;
+		char			loc_type;
+
+		pstate = make_parsestate(NULL);
+		pstate->p_sourcetext = queryString;
+
+		loc_type = GetRelationDistributeKey(pstate, rel, stmt->auxiliary, stmt->distributeby,
+											&loc_keys, &partkey);
+
+		count = transformDistributeCluster(pstate,
+										   rel,
+										   partkey,
+										   stmt->distributeby,
+										   stmt->subcluster,
+										   loc_type,
+										   &valuelist,
+										   &nodeoids);
+		if (partkey)
+		{
+			MemoryContext keycontext = GetMemoryChunkContext(partkey);
+			Assert(keycontext != CurrentMemoryContext);
+			MemoryContextDelete(keycontext);
+		}
+
+		PgxcClassCreate(RelationGetRelid(rel),
+						loc_type,
+						loc_keys,
+						valuelist,
+						count,
+						nodeoids);
+
+		CacheInvalidateRelcache(rel);
+		CommandCounterIncrement();
+	}
+#endif /* ADB */
 
 	/* Process and store partition bound, if any. */
 	if (stmt->partbound)
@@ -4895,7 +4927,7 @@ ATExecCmd(List **wqueue, AlteredTableInfo *tab, Relation rel,
 			break;
 #ifdef ADB
 		case AT_DistributeBy:
-			AtExecDistributeBy(rel, (DistributeBy *) cmd->def);
+			AtExecDistributeBy(rel, castNode(PartitionSpec, cmd->def));
 			break;
 		case AT_SubCluster:
 			AtExecSubCluster(rel, (PGXCSubCluster *) cmd->def);
@@ -13624,15 +13656,15 @@ ATExecGenericOptions(Relation rel, List *options)
  * ALTER TABLE <name> DISTRIBUTE BY ...
  */
 void
-AtExecDistributeBy(Relation rel, DistributeBy *options)
+AtExecDistributeBy(Relation rel, PartitionSpec *options)
 {
-	List   *keys;
+	/*List   *keys;
 	Oid		relid;
-	char	locatortype;
+	char	locatortype;*/
 
 	if (options == NULL)
 		return;
-
+#if 0
 	relid = RelationGetRelid(rel);
 
 	/* Get necessary distribution information */
@@ -13651,11 +13683,13 @@ AtExecDistributeBy(Relation rel, DistributeBy *options)
 				   0,
 				   NULL,
 				   PGXC_CLASS_ALTER_DISTRIBUTION);
-
+#endif
+	ereport(ERROR,
+			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			 errmsg("not support yet")));
 	/* Make the additional catalog changes visible */
 	CommandCounterIncrement();
 }
-
 
 /*
  * ALTER TABLE <name> TO [ NODE nodelist | GROUP groupname ]
@@ -13852,12 +13886,15 @@ ATCheckCmd(Relation rel, AlterTableCmd *cmd)
 static RedistribState *
 BuildRedistribCommands(Oid relid, List *subCmds)
 {
-	RedistribState   *redistribState = makeRedistribState(relid);
-	RelationLocInfo *oldLocInfo, *newLocInfo; /* Former locator info */
-	Relation	rel;
-	Oid		   *new_oid_array;	/* Modified list of Oids */
-	int			new_num, i;	/* Modified number of Oids */
-	ListCell   *item;
+	RedistribState	   *redistribState = makeRedistribState(relid);
+	RelationLocInfo	   *oldLocInfo, *newLocInfo; /* Former locator info */
+	Relation			rel;
+	Oid				   *new_oid_array;	/* Modified list of Oids */
+	int					new_num, i;	/* Modified number of Oids */
+	ListCell		   *item;
+	ParseState		   *pstate;
+	PartitionKey		partkey = NULL;
+	PartitionSpec	   *spec = NULL;
 
 	/* Get necessary information about relation */
 	rel = relation_open(redistribState->relid, NoLock);
@@ -13878,6 +13915,8 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 	/* Get the list to be modified */
 	new_num = get_pgxc_classnodes(RelationGetRelid(rel), &new_oid_array);
 
+	pstate = make_parsestate(NULL);
+
 	foreach(item, subCmds)
 	{
 		AlterTableCmd *cmd = (AlterTableCmd *) lfirst(item);
@@ -13894,14 +13933,32 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 				 * Get necessary distribution information and update to new
 				 * distribution type.
 				 */
-				newLocInfo->locatorType = GetRelationDistributionItems(redistribState->relid,
-																	   (DistributeBy *) cmd->def,
-																	   RelationGetDescr(rel),
-																	   &newLocInfo->keys);
+				spec = castNode(PartitionSpec, cmd->def);
+				newLocInfo->locatorType = GetRelationDistributeKey(pstate,
+																   rel,
+																   false,
+																   spec,
+																   &newLocInfo->keys,
+																   &partkey);
 				break;
 			case AT_SubCluster:
 				/* Update new list of nodes */
-				new_oid_array = GetRelationDistributionNodes((PGXCSubCluster *) cmd->def, &new_num);
+				if (spec == NULL)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("TO NODE|GROUP must after DISTRIBUTE BY")));
+				}else
+				{
+					new_num = transformDistributeCluster(pstate,
+														 rel,
+														 partkey,
+														 spec,
+														 castNode(PGXCSubCluster, cmd->def),
+														 newLocInfo->locatorType,
+														 &newLocInfo->keys,
+														 &new_oid_array);
+				}
 				break;
 			case AT_AddNodeList:
 				{
@@ -15020,6 +15077,103 @@ transformPartitionSpec(Relation rel, PartitionSpec *partspec, char *strategy)
 
 	return newspec;
 }
+
+#ifdef ADB
+static PartitionSpec *transformDistributeBy(ParseState *pstate, Relation rel, PartitionSpec *partspec, char *strategy)
+{
+	PartitionSpec  *newspec;
+	PartitionElem  *pelem;
+	RangeTblEntry  *rte;
+	ListCell	   *lc;
+	char			loc_type;
+	uint32			i;
+
+	newspec = makeNode(PartitionSpec);
+
+	newspec->strategy = partspec->strategy;
+	newspec->partParams = NIL;
+	newspec->location = partspec->location;
+
+	/* Parse distribute strategy name */
+	loc_type = '\0';
+	for (i=0;i<cnt_distribute_name_type;++i)
+	{
+		if (pg_strcasecmp(partspec->strategy, all_distribute_name_type[i].name) == 0)
+		{
+			loc_type = all_distribute_name_type[i].loc_type;
+			break;
+		}
+	}
+	if (i >= cnt_distribute_name_type)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("unrecognized distribute type \"%s\"",
+						partspec->strategy)));
+
+	Assert(loc_type != '\0');
+	if (loc_type == LOCATOR_TYPE_REPLICATED ||
+		loc_type == LOCATOR_TYPE_RANDOM)
+	{
+		if (partspec->partParams != NIL)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+					 errmsg("can not use \"%s\" distribute type with expression",
+							partspec->strategy)));
+	}else
+	{
+		if (loc_type == LOCATOR_TYPE_LIST ||
+			loc_type == LOCATOR_TYPE_MODULO)
+		{
+			if (list_length(partspec->partParams) != 1)
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+						 errmsg("must special one expression for distribute type \"%s\"",
+								partspec->strategy)));
+		}else if(list_length(partspec->partParams) == 0)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+					 errmsg("must special least one expression for distribute type \"%s\"",
+					 		partspec->strategy)));
+		}else if(list_length(partspec->partParams) > PARTITION_MAX_KEYS)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_TOO_MANY_COLUMNS),
+					 errmsg("cannot distribute by using more than %d columns",
+							PARTITION_MAX_KEYS)));
+		}
+
+		/*
+		 * Create a dummy ParseState and insert the target relation as its sole
+		 * rangetable entry.  We need a ParseState for transformExpr.
+		 */
+		pstate = make_parsestate(NULL);
+		rte = addRangeTableEntryForRelation(pstate, rel, NULL, false, true);
+		addRTEtoQuery(pstate, rte, true, true, true);
+
+		foreach(lc, partspec->partParams)
+		{
+			pelem = lfirst_node(PartitionElem, lc);
+			if (pelem->expr)
+			{
+				/* Copy, to avoid scribbling on the input */
+				pelem = copyObject(pelem);
+
+				/* Now do parse transformation of the expression */
+				pelem->expr = transformExpr(pstate, pelem->expr,
+											EXPR_KIND_PARTITION_EXPRESSION);
+
+				/* we have to fix its collations too */
+				assign_expr_collations(pstate, pelem->expr);
+			}
+			newspec->partParams = lappend(newspec->partParams, pelem);
+		}
+	}
+
+	*strategy = loc_type;
+	return newspec;
+}
+#endif /* ADB */
 
 /*
  * Compute per-partition-column information from a list of PartitionElems.
@@ -16712,7 +16866,7 @@ DistribRewriteCatalogs(AlterTableCmd *cmd, Oid childOID, LOCKMODE lockmode)
 	switch (cmd->subtype)
 	{
 		case AT_DistributeBy:
-			AtExecDistributeBy(rel, (DistributeBy *) cmd->def);
+			AtExecDistributeBy(rel, castNode(PartitionSpec ,cmd->def));
 			break;
 		case AT_SubCluster:
 			AtExecSubCluster(rel, (PGXCSubCluster *) cmd->def);
@@ -16735,62 +16889,210 @@ DistribRewriteCatalogs(AlterTableCmd *cmd, Oid childOID, LOCKMODE lockmode)
 
 void inferCreateStmtDistributeBy(CreateStmt *stmt)
 {
-	TupleDesc			descriptor;
-	DistributeBy	   *inferredDistributeBy;
-	char				inferredDisttype;
-	Form_pg_attribute	attr;
-	List			   *copyOfTableElts;
-	List			   *old_constraints;
-	List			   *inheritOids;
-	List			   *keys;
-	int					parentOidCount;
-	
-	/* only coordinator master can do this */
-	Assert(IsCnMaster());
-	/* has no DistributeBy */
-	Assert(stmt->distributeby == NULL);
-	/* not temp table */
-	Assert(stmt->relation->relpersistence != RELPERSISTENCE_TEMP);
+#warning "TODO:get default distribute"
+}
 
-	copyOfTableElts = copyObject(stmt->tableElts);
-	/*
-	 * Look up inheritance ancestors and generate relation schema, including
-	 * inherited attributes.  (Note that copyOfTableElts is destructively
-	 * modified by MergeAttributes.)
-	 */
-	copyOfTableElts =
-		MergeAttributes(copyOfTableElts, stmt->inhRelations,
-						stmt->relation->relpersistence,
-						stmt->partbound != NULL,
-						&inheritOids, &old_constraints, &parentOidCount);
+static char GetRelationDistributeKey(ParseState *pstate, Relation rel, bool auxiliary,
+									 PartitionSpec *spec, List **keys, PartitionKey *partkey)
+{
+	LocatorKeyInfo *loc_key;
+	char loc_type;
+	List *list_key = NIL;
 
-	/*
-	 * Create a tuple descriptor from the relation schema.  Note that this
-	 * deals with column names, types, and NOT NULL constraints, but not
-	 * default values or CHECK constraints; we handle those below.
-	 */
-	descriptor = BuildDescForRelation(copyOfTableElts);
-
-	/* Obtain details of distribution information */
-	inferredDisttype = GetRelationDistributionItems(InvalidOid,
-													NULL,
-													descriptor,
-													&keys);
-	Assert(inferredDisttype != LOCATOR_TYPE_INVALID);
-	inferredDistributeBy = makeNode(DistributeBy);
-	inferredDistributeBy->disttype = inferredDisttype;
-	if (list_length(keys) == 1 &&
-		linitial(keys) != NULL)
+	if (spec == NULL)
 	{
-		LocatorKeyInfo *key = linitial(keys);
-		attr = TupleDescAttr(descriptor, (key->attno - 1));
-		inferredDistributeBy->colname = NameStr(attr->attname);
-	}else if(IsLocatorDistributedByValue(inferredDisttype))
+		/*
+		 * If no distribution was specified, and we have not chosen
+		 * one based on primary key or foreign key, use first column with
+		 * a supported data type.
+		 */
+		TupleDesc			desc = RelationGetDescr(rel);
+		Form_pg_attribute	attr;
+		int					i;
+		AttrNumber			attno = InvalidAttrNumber;
+		bool				can;
+
+		switch(default_distribute_by)
+		{
+		case LOCATOR_TYPE_HASH:
+		case LOCATOR_TYPE_HASHMAP:
+		case LOCATOR_TYPE_MODULO:
+			for (i = 0; i < desc->natts; i++)
+			{
+				attr = TupleDescAttr(desc, i);
+				if (default_distribute_by == LOCATOR_TYPE_MODULO)
+					can = CanModuloType(attr->atttypid, true);
+				else
+					can = IsTypeDistributable(attr->atttypid);
+				if (can)
+				{
+					/* distribute on this column */
+					attno = i + 1;
+					break;
+				}
+			}
+
+			/* If we did not find a usable type, fall back to random */
+			if (attno == InvalidAttrNumber)
+				loc_type = LOCATOR_TYPE_RANDOM;
+			else
+				loc_type = (char)default_distribute_by;
+			break;
+		case LOCATOR_TYPE_REPLICATED:
+		case LOCATOR_TYPE_RANDOM:
+			loc_type = (char)default_distribute_by;
+			break;
+		default:
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("unknown default distribute type %d", default_distribute_by)));
+		}
+
+		if (attno != InvalidAttrNumber)
+		{
+			loc_key = NULL;
+			if (loc_type == LOCATOR_TYPE_HASH ||
+				loc_type == LOCATOR_TYPE_HASHMAP)
+			{
+				loc_key = palloc0(sizeof(*loc_key));
+				loc_key->attno = attno;
+				loc_key->opclass = ResolveOpClass(NIL,
+												  TupleDescAttr(desc, attno-1)->atttypid,
+												  "hash",
+												  HASH_AM_OID);
+			}else if(loc_type == LOCATOR_TYPE_MODULO)
+			{
+				loc_key = palloc0(sizeof(*loc_key));
+				loc_key->attno = attno;
+				loc_key->opclass = ResolveOpClass(NIL,
+												  TupleDescAttr(desc, attno-1)->atttypid,
+												  "btree",
+												  BTREE_AM_OID);
+			}else
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("unknown default distribute type %d", loc_type)));
+			}
+			if (loc_key)
+			{
+				loc_key->opfamily = get_opclass_family(loc_key->opclass);
+				loc_key->collation = InvalidOid;
+				list_key = list_make1(loc_key);
+			}
+		}
+	}else
 	{
-		ereport(ERROR,
-				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("unknown distribute type %d", inferredDisttype)));
+		List		   *partexprs = NIL;
+		AttrNumber		partattr[PARTITION_MAX_KEYS];
+		Oid				partopclass[PARTITION_MAX_KEYS];
+		Oid				partcollation[PARTITION_MAX_KEYS];
+		ListCell	   *lc;
+		int				i,count;
+		char			strategy;
+
+		spec = transformDistributeBy(pstate, rel, spec, &loc_type);
+		switch(loc_type)
+		{
+		case LOCATOR_TYPE_REPLICATED:
+		case LOCATOR_TYPE_RANDOM:
+			goto end_spec_;
+		case LOCATOR_TYPE_MODULO:
+#warning TODO test can modulo
+			goto end_spec_;
+		case LOCATOR_TYPE_HASH:
+		case LOCATOR_TYPE_HASHMAP:
+			strategy = PARTITION_STRATEGY_HASH;
+			break;
+		case LOCATOR_TYPE_LIST:
+			strategy = PARTITION_STRATEGY_LIST;
+			break;
+		case LOCATOR_TYPE_RANGE:
+			strategy = PARTITION_STRATEGY_RANGE;
+			break;
+		default:
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("unknown locator type %d", loc_type)));
+		}
+		ComputePartitionAttrs(rel,
+							  spec->partParams,
+							  partattr,
+							  &partexprs,
+							  partopclass,
+							  partcollation,
+							  strategy);
+
+		if (partkey &&
+			(loc_type == LOCATOR_TYPE_LIST ||
+			 loc_type == LOCATOR_TYPE_RANGE))
+		{
+			*partkey = RelationGenerateDistributeKey(rel,
+													 partattr,
+													 partexprs,
+													 partopclass,
+													 partcollation,
+													 strategy,
+													 list_length(spec->partParams));
+		}
+
+		lc = list_head(partexprs);
+		for(i=0,count=list_length(spec->partParams);i<count;++i)
+		{
+			loc_key = palloc0(sizeof(*loc_key));
+			loc_key->attno = partattr[i];
+			if (loc_key->attno == InvalidAttrNumber)
+			{
+				loc_key->key = lfirst(lc);
+				lc = lnext(lc);
+			}
+			loc_key->opclass = partopclass[i];
+			loc_key->opfamily = get_opclass_family(loc_key->opclass);
+			loc_key->collation = partcollation[i];
+			list_key = lappend(list_key, loc_key);
+		}
+end_spec_:
+		((void)0);
 	}
-	stmt->distributeby = inferredDistributeBy;
+
+	/*
+	 * 1st column of auxiliary table is default auxiliary column,
+	 * see MakeAuxTableColumns.
+	 */
+	if (auxiliary)
+	{
+		switch (loc_type)
+		{
+		case LOCATOR_TYPE_HASH:
+		case LOCATOR_TYPE_MODULO:
+		case LOCATOR_TYPE_HASHMAP:
+		case LOCATOR_TYPE_RANGE:
+		case LOCATOR_TYPE_LIST:
+			if (list_length(list_key) != 1)
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("auxiliary table not support distribute by multi-expression")));
+			loc_key = linitial(list_key);
+			if (loc_key->attno != Anum_aux_table_key)
+				ereport(ERROR,
+						(errmsg("distribute column of auxiliary table should be auxiliary column")));
+			break;
+		case LOCATOR_TYPE_RANDOM:
+			ereport(ERROR,
+					(errmsg("it is useless to distribute auxiliary table by random")));
+			break;
+		case LOCATOR_TYPE_REPLICATED:
+			/* It is OK */
+			break;
+		default:
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("unknown distribute type %d for auxiliary table", loc_type)));
+			break;
+		}
+	}
+
+	*keys = list_key;
+	return loc_type;
 }
 #endif

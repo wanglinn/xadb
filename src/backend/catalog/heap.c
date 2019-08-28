@@ -95,6 +95,7 @@
 #include "commands/dbcommands.h"
 #include "intercomm/inter-node.h"
 #include "nodes/makefuncs.h"
+#include "nodes/primnodes.h"
 #include "optimizer/reduceinfo.h"
 #include "parser/parse_func.h"
 #include "pgxc/locator.h"
@@ -1032,308 +1033,6 @@ cmp_nodes(const void *p1, const void *p2)
 	return 1;
 }
 
-/* --------------------------------
-*	   AddRelationDistribution
-*
-*	   Add to pgxc_class table
-* --------------------------------
-*/
-void
-AddRelationDistribution(Oid relid,
-						bool auxiliary,
-						DistributeBy *distributeby,
-						PGXCSubCluster *subcluster,
-						List *parentOids,
-						TupleDesc descriptor)
-{
-	Oid			   *nodeoids = NULL;
-	List		   *keys;
-	ObjectAddress	myself, referenced;
-	int				numnodes = 0;
-	char			locatortype;
-
-	/* Obtain details of nodes and classify them */
-	if (IsDnNode() && (!(isRestoreMode && isRestoreCoordType)))
-	{
-		numnodes = 0;
-		nodeoids = NULL;
-	} else
-	{
-		if (subcluster &&
-			(distributeby ? distributeby->disttype:default_distribute_by) == LOCATOR_TYPE_HASHMAP)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("not support CREATE hashmap table TO node")));
-		}
-		nodeoids = GetRelationDistributionNodes(subcluster, &numnodes);
-	}
-
-	/* Obtain details of distribution information */
-	locatortype = GetRelationDistributionItems(relid,
-											   distributeby,
-											   descriptor,
-											   &keys);
-
-	/*
-	 * 1st column of auxiliary table is default auxiliary column,
-	 * see MakeAuxTableColumns.
-	 */
-	if (auxiliary)
-	{
-		LocatorKeyInfo *key;
-		switch (locatortype)
-		{
-			case LOCATOR_TYPE_HASH:
-			case LOCATOR_TYPE_MODULO:
-			case LOCATOR_TYPE_HASHMAP:
-			case LOCATOR_TYPE_RANGE:
-			case LOCATOR_TYPE_LIST:
-				if (list_length(keys) != 1)
-					ereport(ERROR,
-							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							 errmsg("auxiliary table not support distribute by multi-expression")));
-				key = linitial(keys);
-				if (key->attno != Anum_aux_table_key)
-					ereport(ERROR,
-							(errmsg("distribute column of auxiliary table should be auxiliary column")));
-				break;
-			case LOCATOR_TYPE_RANDOM:
-				ereport(ERROR,
-						(errmsg("it is useless to distribute auxiliary table by roundrobin")));
-				break;
-			case LOCATOR_TYPE_REPLICATED:
-				/* It is OK */
-				break;
-			default:
-				ereport(ERROR,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("unknown distribute type %d for auxiliary table", locatortype)));
-				Assert(false);
-				break;
-		}
-	}
-
-	/* Now OK to insert data in catalog */
-	PgxcClassCreate(relid, locatortype, keys, NIL,
-					numnodes, nodeoids);
-
-	/* Make dependency entries */
-	myself.classId = PgxcClassRelationId;
-	myself.objectId = relid;
-	myself.objectSubId = 0;
-
-	/* Dependency on relation */
-	referenced.classId = RelationRelationId;
-	referenced.objectId = relid;
-	referenced.objectSubId = 0;
-	recordDependencyOn(&myself, &referenced, DEPENDENCY_INTERNAL);
-
-	/* Dependency on the specific attribute */
-	if (keys != NIL)
-	{
-		int attno;
-		int count = descriptor->natts;
-		for (attno=1;attno<=count;++attno)
-		{
-			if (LocatorKeyIncludeColumn(keys, (AttrNumber)attno, true))
-				CreatePgxcRelationAttrDepend(relid, (AttrNumber)attno);
-		}
-	}
-}
-
-/*
-* GetRelationDistributionItems
-* Obtain distribution type and related items based on deparsed information
-* of clause DISTRIBUTE BY.
-* Depending on the column types given a fallback to a safe distribution can be done.
-* return list of LocatorKeyInfo
-*/
-char
-GetRelationDistributionItems(Oid relid,
-							 DistributeBy *distributeby,
-							 TupleDesc descriptor,
-							 List **keys)
-{
-	LocatorKeyInfo *key;
-	List *key_list = NIL;
-	char local_locatortype = LOCATOR_TYPE_INVALID;
-	AttrNumber local_attnum = 0;
-
-	if (distributeby == NULL)
-	{
-		/*
-		 * If no distribution was specified, and we have not chosen
-		 * one based on primary key or foreign key, use first column with
-		 * a supported data type.
-		 */
-		Form_pg_attribute attr;
-		int i;
-		bool can;
-
-		switch(default_distribute_by)
-		{
-		case LOCATOR_TYPE_HASH:
-		case LOCATOR_TYPE_HASHMAP:
-		case LOCATOR_TYPE_MODULO:
-			for (i = 0; i < descriptor->natts; i++)
-			{
-				attr = TupleDescAttr(descriptor, i);
-				if (default_distribute_by == LOCATOR_TYPE_MODULO)
-					can = CanModuloType(attr->atttypid, true);
-				else
-					can = IsTypeDistributable(attr->atttypid);
-				if (can)
-				{
-					/* distribute on this column */
-					local_attnum = i + 1;
-					break;
-				}
-			}
-
-			/* If we did not find a usable type, fall back to random */
-			if (local_attnum == 0)
-				local_locatortype = LOCATOR_TYPE_RANDOM;
-			else
-				local_locatortype = (char)default_distribute_by;
-			break;
-		case LOCATOR_TYPE_REPLICATED:
-		case LOCATOR_TYPE_RANDOM:
-			local_locatortype = (char)default_distribute_by;
-			break;
-		default:
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("unknown default distribute type %d", default_distribute_by)));
-		}
-	}
-	else
-	{
-		/*
-		 * User specified distribution type
-		 */
-		switch (distributeby->disttype)
-		{
-			case LOCATOR_TYPE_HASH:
-				/*
-				 * Validate user-specified hash column.
-				 * System columns cannot be used.
-				 */
-				local_attnum = get_attnum(relid, distributeby->colname);
-				if (local_attnum <= 0 && local_attnum >= -(int) lengthof(SysAtt))
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-							 errmsg("Invalid distribution column specified")));
-				}
-
-				if (!IsTypeDistributable(TupleDescAttr(descriptor, local_attnum - 1)->atttypid))
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-							 errmsg("Column %s is not a hash distributable data type",
-							 distributeby->colname)));
-				}
-				break;
-
-			case LOCATOR_TYPE_MODULO:
-				{
-					Oid disttypid;
-
-					/*
-					 * Validate user specified modulo column.
-					 * System columns cannot be used.
-					 */
-					local_attnum = get_attnum(relid, distributeby->colname);
-					if (local_attnum <= 0 && local_attnum >= -(int) lengthof(SysAtt))
-					{
-						ereport(ERROR,
-								(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-								 errmsg("Invalid distribution column specified")));
-					}
-
-					disttypid = TupleDescAttr(descriptor, local_attnum - 1)->atttypid;
-					if (!IsTypeDistributable(disttypid) || !CanModuloType(disttypid, true))
-						ereport(ERROR,
-								(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-								 errmsg("Column \"%s\" is not modulo distributable data type",
-								 distributeby->colname)));
-				}
-				break;
-
-			case LOCATOR_TYPE_REPLICATED:
-			case LOCATOR_TYPE_RANDOM:
-				break;
-
-			case LOCATOR_TYPE_HASHMAP:
-				/*
-				 * Validate user-specified hash column.
-				 * System columns cannot be used.
-				 */
-				local_attnum = get_attnum(relid, distributeby->colname);
-				if (local_attnum <= 0 && local_attnum >= -(int) lengthof(SysAtt))
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_INVALID_COLUMN_DEFINITION),
-							 errmsg("Invalid distribution column specified")));
-				}
-
-				if (!IsTypeDistributable(TupleDescAttr(descriptor, local_attnum - 1)->atttypid))
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-							 errmsg("Column %s is not a hash distributable data type",
-							 distributeby->colname)));
-				}
-				break;
-			default:
-				ereport(ERROR,
-						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-						 errmsg("unknown distribute type %d", distributeby->disttype)));
-		}
-		local_locatortype = distributeby->disttype;
-	}
-
-	if (key_list == NIL &&
-		keys != NULL)
-	{
-		key = NULL;
-		if (local_locatortype == LOCATOR_TYPE_HASH ||
-			local_locatortype == LOCATOR_TYPE_HASHMAP)
-		{
-			Assert(local_attnum > 0);
-
-			key = palloc0(sizeof(*key));
-			key->attno = local_attnum;
-			key->opclass = ResolveOpClass(NIL,
-										  TupleDescAttr(descriptor, key->attno-1)->atttypid,
-										  "hash",
-										  HASH_AM_OID);
-			key->opfamily = get_opclass_family(key->opclass);
-			key->collation = InvalidOid;
-		}else if(local_locatortype == LOCATOR_TYPE_MODULO)
-		{
-			Assert(local_attnum > 0);
-			key = palloc0(sizeof(*key));
-			key->attno = local_attnum;
-			key->opclass = ResolveOpClass(NIL,
-										  TupleDescAttr(descriptor, key->attno-1)->atttypid,
-										  "btree",
-										  BTREE_AM_OID);
-			key->opfamily = get_opclass_family(key->opclass);
-			key->collation = InvalidOid;
-		}
-		if (key)
-			key_list = list_make1(key);
-	}
-
-	/* Save results */
-	if (keys)
-		*keys = key_list;
-	Assert(local_locatortype != LOCATOR_TYPE_INVALID);
-	return local_locatortype;
-}
-
 /*
 * BuildRelationDistributionNodes
 * Build an unsorted node Oid array based on a node name list.
@@ -1353,19 +1052,10 @@ BuildRelationDistributionNodes(List *nodes, int *numnodes)
 	/* Do process for each node name */
 	foreach(item, nodes)
 	{
-		char   *node_name = strVal(lfirst(item));
-		Oid		noid = get_pgxc_nodeoid(node_name);
-
-		/* Check existence of node */
-		if (!OidIsValid(noid))
-			ereport(ERROR,
-					(errcode(ERRCODE_DUPLICATE_OBJECT),
-					 errmsg("PGXC Node \"%s\": object not defined", node_name)));
-
-		if (get_pgxc_nodetype(noid) != PGXC_NODE_DATANODE)
-			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("PGXC node \"%s\": not a Datanode", node_name)));
+		Value  *value = lfirst(item);
+		Oid		noid;
+		Assert(IsA(value, String));
+		noid = GetDatanodeOidByName(strVal(lfirst(item)), NULL, -1);
 
 		/* Can be added if necessary */
 		if (*numnodes != 0)
@@ -1397,6 +1087,26 @@ BuildRelationDistributionNodes(List *nodes, int *numnodes)
 	}
 
 	return nodeoids;
+}
+
+Oid GetDatanodeOidByName(const char *name, ParseState *pstate, int location)
+{
+	Oid		oid = get_pgxc_nodeoid(name);
+
+	/* Check existence of node */
+	if (!OidIsValid(oid))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("PGXC Node \"%s\": object not defined", name),
+				 pstate ? parser_errposition(pstate, location):0));
+
+	if (get_pgxc_nodetype(oid) != PGXC_NODE_DATANODE)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("PGXC node \"%s\": not a Datanode", name),
+				 pstate ? parser_errposition(pstate, location):0));
+
+	return oid;
 }
 
 /*

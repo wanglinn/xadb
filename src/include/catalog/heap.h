@@ -153,23 +153,10 @@ extern void StorePartitionBound(Relation rel, Relation parent,
 					PartitionBoundSpec *bound);
 
 #ifdef ADB
-struct RelationLocInfo;
-/* Functions related to distribution data of relations */
-extern void AddRelationDistribution(Oid relid,
-				bool auxiliary,
-				DistributeBy *distributeby,
-				PGXCSubCluster *subcluster,
-				List *parentOids,
-				TupleDesc descriptor);
-
-extern char GetRelationDistributionItems(Oid relid,
-										 DistributeBy *distributeby,
-										 TupleDesc descriptor,
-										 List **keys);
-
 extern Oid *GetRelationDistributionNodes(PGXCSubCluster *subcluster, int *numnodes);
 
 extern Oid *BuildRelationDistributionNodes(List *nodes, int *numnodes);
+extern Oid GetDatanodeOidByName(const char *name, ParseState *pstate, int location);
 
 extern Oid *SortRelationDistributionNodes(Oid *nodeoids, int numnodes);
 #endif

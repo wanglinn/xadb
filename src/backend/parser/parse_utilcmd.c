@@ -110,8 +110,6 @@ typedef struct
 	PartitionBoundSpec *partbound;	/* transformed FOR VALUES */
 #ifdef ADB
 	char	  *fallback_dist_col;	/* suggested column to distribute on */
-	DistributeBy	*distributeby;		/* original distribute by column of CREATE TABLE */
-	PGXCSubCluster	*subcluster;		/* original subcluster option of CREATE TABLE */
 #endif
 	bool		ofType;			/* true if statement contains OF typename */
 } CreateStmtContext;
@@ -159,13 +157,16 @@ static void transformColumnType(CreateStmtContext *cxt, ColumnDef *column);
 static void setSchemaName(char *context_schema, char **stmt_schema_name);
 static void transformPartitionCmd(CreateStmtContext *cxt, PartitionCmd *cmd);
 static List *transformPartitionRangeBounds(ParseState *pstate, List *blist,
-							  Relation parent);
+							  Relation parent ADB_ONLY_COMMA_ARG(PartitionKey key));
 static void validateInfiniteBounds(ParseState *pstate, List *blist);
 static Const *transformPartitionBoundValue(ParseState *pstate, Node *con,
 							 const char *colName, Oid colType, int32 colTypmod,
 							 Oid partCollation);
 
 #ifdef ADB
+static PartitionBoundSpec *
+transformPartitionBoundForKey(ParseState *pstate, Relation parent,
+							  PartitionBoundSpec *spec, PartitionKey key);
 /*
  * addDefaultDistributeByOfSingleInherit
  *
@@ -181,6 +182,9 @@ static Const *transformPartitionBoundValue(ParseState *pstate, Node *con,
 static void
 addDefaultDistributeByOfSingleInherit(CreateStmt *stmt)
 {
+#if 1
+#warning TODO function addDefaultDistributeBy
+#else
 	Relation			parent;
 	RelationLocInfo	   *relloc;
 	DistributeBy	   *distby;
@@ -226,6 +230,7 @@ addDefaultDistributeByOfSingleInherit(CreateStmt *stmt)
 
 	stmt->distributeby = distby;
 	heap_close(parent, ShareUpdateExclusiveLock);
+#endif
 }
 
 /* 
@@ -238,9 +243,7 @@ addDefaultDistributeByOfMultiInherit(CreateStmt *stmt)
 {
 	Relation			parent;
 	RelationLocInfo	   *relloc;
-	DistributeBy	   *distby;
 	ListCell		   *entry;
-	AttrNumber			partAttrNum = InvalidAttrNumber;
 	char			   *distColname = NULL;
 	char				disttype = LOCATOR_TYPE_INVALID;
 	bool				isSameDistSpec = false;
@@ -292,10 +295,19 @@ addDefaultDistributeByOfMultiInherit(CreateStmt *stmt)
 	}
 	if (isSameDistSpec && disttype != LOCATOR_TYPE_INVALID)
 	{
-		distby = makeNode(DistributeBy);
-		distby->disttype = disttype;
-		distby->colname = NULL;
-		stmt->distributeby = distby;
+		uint32	i;
+		Assert(!IsLocatorDistributedByValue(disttype));
+		for (i=0;i<cnt_distribute_name_type;++i)
+		{
+			if (all_distribute_name_type[i].loc_type == disttype)
+			{
+				PartitionSpec *spec = makeNode(PartitionSpec);
+				spec->strategy = pstrdup(all_distribute_name_type[i].name);
+				spec->location = -1;
+				stmt->distributeby = spec;
+				break;
+			}
+		}
 	}
 }
 
@@ -431,7 +443,6 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	cxt.ofType = (stmt->ofTypename != NULL);
 #ifdef ADB
 	cxt.fallback_dist_col = NULL;
-	cxt.distributeby = stmt->distributeby;
 #endif
 
 	/*
@@ -558,12 +569,19 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 		stmt->relation->relpersistence != RELPERSISTENCE_TEMP &&
 		cxt.fallback_dist_col)
 	{
-		stmt->distributeby = makeNode(DistributeBy);
+		PartitionElem *elem = makeNode(PartitionElem);
+		PartitionSpec *spec = makeNode(PartitionSpec);
+
+		elem->name = cxt.fallback_dist_col;
+		elem->location = -1;
+
 		if(default_distribute_by == LOCATOR_TYPE_HASHMAP)
-			stmt->distributeby->disttype = LOCATOR_TYPE_HASHMAP;
+			spec->strategy = pstrdup("hashmap");
 		else
-			stmt->distributeby->disttype = LOCATOR_TYPE_HASH;
-		stmt->distributeby->colname = cxt.fallback_dist_col;
+			spec->strategy = pstrdup("hash");
+		spec->partParams = list_make1(elem);
+		spec->location = -1;
+		stmt->distributeby = spec;
 	}
 
 	/*
@@ -581,12 +599,12 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 			if (list_length(stmt->inhRelations) > 0)
 			{
 				addDefaultDistributeByOfInherit(stmt);
-				orgstmt->distributeby = (DistributeBy *) copyObject(stmt->distributeby);
+				orgstmt->distributeby = copyObject(stmt->distributeby);
 			}
 			if(stmt->distributeby == NULL)
 			{
 				inferCreateStmtDistributeBy(stmt);
-				orgstmt->distributeby = (DistributeBy *) copyObject(stmt->distributeby);
+				orgstmt->distributeby = copyObject(stmt->distributeby);
 			}
 		}
 	}
@@ -3310,8 +3328,6 @@ transformAlterTableStmt(Oid relid, AlterTableStmt *stmt,
 	cxt.partbound = NULL;
 #ifdef ADB
 	cxt.fallback_dist_col = NULL;
-	cxt.distributeby = NULL;
-	cxt.subcluster = NULL;
 #endif
 	cxt.ofType = false;
 
@@ -3948,8 +3964,16 @@ PartitionBoundSpec *
 transformPartitionBound(ParseState *pstate, Relation parent,
 						PartitionBoundSpec *spec)
 {
-	PartitionBoundSpec *result_spec;
 	PartitionKey key = RelationGetPartitionKey(parent);
+#ifdef ADB
+	return transformPartitionBoundForKey(pstate, parent, spec, key);
+}
+static PartitionBoundSpec *
+transformPartitionBoundForKey(ParseState *pstate, Relation parent,
+							  PartitionBoundSpec *spec, PartitionKey key)
+{
+#endif /* ADB */
+	PartitionBoundSpec *result_spec;
 	char		strategy = get_partition_strategy(key);
 	int			partnatts = get_partition_natts(key);
 	List	   *partexprs = get_partition_exprs(key);
@@ -4076,10 +4100,10 @@ transformPartitionBound(ParseState *pstate, Relation parent,
 		 */
 		result_spec->lowerdatums =
 					transformPartitionRangeBounds(pstate, spec->lowerdatums,
-												  parent);
+												  parent ADB_ONLY_COMMA_ARG(key));
 		result_spec->upperdatums =
 					transformPartitionRangeBounds(pstate, spec->upperdatums,
-												  parent);
+												  parent ADB_ONLY_COMMA_ARG(key));
 	}
 	else
 		elog(ERROR, "unexpected partition strategy: %d", (int) strategy);
@@ -4094,10 +4118,12 @@ transformPartitionBound(ParseState *pstate, Relation parent,
  */
 static List *
 transformPartitionRangeBounds(ParseState *pstate, List *blist,
-							  Relation parent)
+							  Relation parent ADB_ONLY_COMMA_ARG(PartitionKey key))
 {
 	List	   *result = NIL;
+#ifndef ADB
 	PartitionKey key = RelationGetPartitionKey(parent);
+#endif /* ADB */
 	List	   *partexprs = get_partition_exprs(key);
 	ListCell   *lc;
 	int			i,
@@ -4304,3 +4330,224 @@ transformPartitionBoundValue(ParseState *pstate, Node *val,
 
 	return (Const *) value;
 }
+
+#ifdef ADB
+typedef struct SortNodeInfo
+{
+	char   *nodename;
+	void   *value;
+	Oid		nodeoid;
+}SortNodeInfo;
+
+static int cmp_node_info(const void *p1, const void *p2)
+{
+	return strcmp(((SortNodeInfo*)p1)->nodename, ((SortNodeInfo*)p2)->nodename);
+}
+
+/*
+ * sort nodeoids and values(if it's not NIL) using node's name
+ * and return an Oid array
+ */
+static Oid* sortDistributeCluster(List *nodeoids, List *values)
+{
+	ListCell	   *lc,*lc_val;
+	SortNodeInfo   *info,*tmp;
+	Oid			   *result;
+	size_t			i;
+	size_t 			count = list_length(nodeoids);
+	Assert(count > 0);
+	Assert(values == NIL || list_length(values) == count);
+
+	info = palloc(sizeof(SortNodeInfo)*count);
+
+	i = 0;
+	lc_val = list_head(values);
+	foreach(lc, nodeoids)
+	{
+		tmp = &info[i++];
+		tmp->nodeoid = lfirst_oid(lc);
+		tmp->nodename = get_pgxc_nodename(lfirst_oid(lc));
+		if (lc_val)
+		{
+			tmp->value = lfirst(lc_val);
+			lc_val = lnext(lc_val);
+		}else
+		{
+			tmp->value = NULL;
+		}
+	}
+
+	qsort(info, count, sizeof(SortNodeInfo), cmp_node_info);
+
+	result = palloc(sizeof(Oid)*count);
+	i = 0;
+	lc_val = list_head(values);
+	foreach(lc, nodeoids)
+	{
+		tmp = &info[i];
+		result[i] = tmp->nodeoid;
+		if (lc_val)
+		{
+			lfirst(lc_val) = tmp->value;
+			lc_val = lnext(lc_val);
+		}
+		pfree(tmp->nodename);
+		++i;
+	}
+
+	pfree(info);
+	return result;
+}
+
+int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey key,
+							   PartitionSpec *spec, PGXCSubCluster *cluster, char loc_type,
+							   List **values, Oid **nodeoids)
+{
+	List			   *oidlist = NIL;
+	List			   *valuelist = NIL;	/* for LOCATOR_TYPE_LIST and LOCATOR_TYPE_RANGE */
+	ListCell		   *lc;
+	DefElem			   *def;
+	PartitionBoundSpec *bound;
+	Oid					oid;
+	int					count;
+
+	if (cluster == NULL)
+	{
+		if (loc_type == LOCATOR_TYPE_LIST ||
+			loc_type == LOCATOR_TYPE_RANGE)
+		{
+			goto leak_node_info_;
+		}
+		oidlist = GetAllDnIDL(true);
+		if (oidlist == NIL)
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("No datanode defined in cluster")));
+	}else if(cluster->clustertype == SUBCLUSTER_GROUP)
+	{
+		Oid	   *arr_nodeoids = NULL;
+		int		cnt_arr_oids;
+		Oid		groupoid;
+		if (loc_type == LOCATOR_TYPE_LIST ||
+			loc_type == LOCATOR_TYPE_RANGE)
+		{
+			goto leak_node_info_;
+		}
+		Assert(list_length(cluster->members) == 1);
+		def = linitial_node(DefElem, cluster->members);
+		groupoid = get_pgxc_groupoid(def->defname);
+		if (!OidIsValid(groupoid))
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("PGXC Group %s: group not defined", def->defname),
+					 parser_errposition(pstate, def->location)));
+
+		cnt_arr_oids = get_pgxc_groupmembers(groupoid, &arr_nodeoids);
+		if (cnt_arr_oids == 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_OBJECT),
+					 errmsg("No datanode defined in group %s", def->defname)));
+
+		while(cnt_arr_oids > 0)
+		{
+			--cnt_arr_oids;
+			oidlist = lappend_oid(oidlist, arr_nodeoids[cnt_arr_oids]);
+		}
+		pfree(arr_nodeoids);
+	}else
+	{
+		Assert(cluster->clustertype == SUBCLUSTER_NODE);
+		Assert(list_length(cluster->members) > 0);
+		foreach (lc, cluster->members)
+		{
+			def = lfirst_node(DefElem, lc);
+			if (def->arg)
+			{
+				bound = castNode(PartitionBoundSpec, def->arg);
+				if (bound->is_default)
+					elog(ERROR, "not support default yet");
+			}else
+			{
+				bound = NULL;
+			}
+
+			oid = GetDatanodeOidByName(def->defname, pstate, def->location);
+			if (list_member_oid(oidlist, oid))
+				goto dup_node_;
+			oidlist = lappend_oid(oidlist, oid);
+
+			if (loc_type == LOCATOR_TYPE_LIST)
+			{
+				if (bound == NULL)
+					goto leak_node_bound_;
+				Assert(key != NULL);
+				Assert(key->strategy == PARTITION_STRATEGY_LIST);
+				bound = transformPartitionBoundForKey(pstate, rel, bound, key);
+				valuelist = lappend(valuelist, bound->listdatums);
+			}else if (loc_type == LOCATOR_TYPE_RANGE)
+			{
+				if (bound == NULL)
+					goto leak_node_bound_;
+				Assert(key != NULL);
+				Assert(key->strategy == PARTITION_STRATEGY_RANGE);
+				bound = transformPartitionBoundForKey(pstate, rel, bound, key);
+				valuelist = lappend(valuelist, list_make2(bound->lowerdatums, bound->upperdatums));
+			}else if (loc_type == LOCATOR_TYPE_REPLICATED ||
+					  loc_type == LOCATOR_TYPE_RANDOM ||
+					  loc_type == LOCATOR_TYPE_HASH ||
+					  loc_type == LOCATOR_TYPE_HASHMAP)
+			{
+				if (bound)
+					goto excess_node_bound_;
+			}else
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("unknown distribute type %d", loc_type)));
+			}
+		}
+#warning TODO check bound and sort list/range
+	}
+
+	*nodeoids = sortDistributeCluster(oidlist, valuelist);
+	count = list_length(oidlist);
+	list_free(oidlist);
+	if (values)
+		*values = valuelist;
+
+	return count;
+
+leak_node_info_:
+	if (spec)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("distribute by %s must special node info", spec->strategy),
+				 parser_errposition(pstate, spec->location)));
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("must special node info")));
+	return 0;	/* never run, keep compiler quiet */
+
+leak_node_bound_:
+	ereport(ERROR,
+			(errcode(ERRCODE_SYNTAX_ERROR),
+			 errmsg("must special bound values"),
+			 parser_errposition(pstate, def->location)));
+	return 0;	/* never run, keep compiler quiet */
+
+excess_node_bound_:
+	ereport(ERROR,
+			(errcode(ERRCODE_SYNTAX_ERROR),
+			 errmsg("syntax error"),
+			 parser_errposition(pstate, bound->location)));
+	return 0;	/* never run, keep compiler quiet */
+
+dup_node_:
+	ereport(ERROR,
+			(errcode(ERRCODE_DUPLICATE_OBJECT),
+			 errmsg("duplicate node \"%s\"", def->defname),
+			 parser_errposition(pstate, def->location)));
+	return 0;	/* never run, keep compiler quiet */
+}
+#endif /* ADB */

@@ -2201,7 +2201,7 @@ typedef struct CreateStmt
 	bool		auxiliary;		/* auxiliary table? */
 	RangeVar   *master_relation;/* set valid Oid if auxiliary is true */
 	AttrNumber	aux_attnum;		/* set valid column number if auxiliary is true */
-	DistributeBy *distributeby;	/* distribution to use, or NULL */
+	PartitionSpec *distributeby;	/* distribution to use, or NULL */
 	PGXCSubCluster *subcluster;	/* subcluster of table */
 #endif
 #if defined(ADB_GRAM_ORA) || defined(ADB_GRAM_DB2)

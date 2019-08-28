@@ -1566,21 +1566,13 @@ BEGIN_NODE(IntoClause)
 	NODE_NODE(Node,viewQuery)
 	NODE_SCALAR(bool,skipData)
 #ifdef ADB
-	NODE_NODE(DistributeBy,distributeby)
+	NODE_NODE(PartitionSpec,distributeby)
 	NODE_NODE(PGXCSubCluster,subcluster)
 #endif
 END_NODE(IntoClause)
 #endif /* NO_NODE_IntoClause */
 
 #ifdef ADB
-
-#ifndef NO_NODE_DistributeBy
-BEGIN_NODE(DistributeBy)
-	NODE_SCALAR(char,disttype)
-	NODE_STRING(colname)
-	NODE_NODE(FuncCall,func)
-END_NODE(DistributeBy)
-#endif /* NO_NODE_DistributeBy */
 
 #ifndef NO_NODE_PGXCSubCluster
 BEGIN_NODE(PGXCSubCluster)
@@ -2514,7 +2506,7 @@ BEGIN_NODE(CreateStmt)
 	NODE_SCALAR(bool,auxiliary)
 	NODE_NODE(RangeVar,master_relation)
 	NODE_SCALAR(AttrNumber,aux_attnum)
-	NODE_NODE(DistributeBy,distributeby)
+	NODE_NODE(PartitionSpec,distributeby)
 	NODE_NODE(PGXCSubCluster,subcluster)
 #endif
 #if defined(ADB_GRAM_ORA) || defined(ADB_GRAM_DB2)

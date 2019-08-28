@@ -248,7 +248,6 @@ typedef enum NodeTag
 	T_OnConflictExpr,
 	T_IntoClause,
 #ifdef ADB
-	T_DistributeBy,
 	T_PGXCSubCluster,
 #endif
 

@@ -17,6 +17,7 @@
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_collation.h"
+#include "catalog/pg_opclass_d.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_class.h"
@@ -27,11 +28,22 @@
 #include "pgxc/locator.h"
 #include "utils/array.h"
 
+const DistributeNameType all_distribute_name_type[] = {
+	{LOCATOR_TYPE_HASH,			"hash"},
+	{LOCATOR_TYPE_REPLICATED,	"replication"},
+	{LOCATOR_TYPE_LIST,			"list"},
+	{LOCATOR_TYPE_MODULO,		"modulo"},
+	{LOCATOR_TYPE_RANDOM,		"random"},
+	{LOCATOR_TYPE_RANGE,		"range"},
+	{LOCATOR_TYPE_HASHMAP,		"hashmap"}
+};
+const uint32 cnt_distribute_name_type = lengthof(all_distribute_name_type);
+
 static void SetDistributeByDatums(Datum *datums, bool *nulls, bool *replace, List *keys, char loc_type)
 {
 	int2vector *attr_array;
 	oidvector  *class_array;
-	/*oidvector  *collation_array;*/
+	oidvector  *collation_array;
 	List	   *exprs;
 	LocatorKeyInfo *key;
 	ListCell   *lc;
@@ -43,6 +55,8 @@ static void SetDistributeByDatums(Datum *datums, bool *nulls, bool *replace, Lis
 	case LOCATOR_TYPE_HASH:
 	case LOCATOR_TYPE_HASHMAP:
 	case LOCATOR_TYPE_MODULO:
+	case LOCATOR_TYPE_LIST:
+	case LOCATOR_TYPE_RANGE:
 		if (list_length(keys) <= 0)
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
@@ -50,6 +64,9 @@ static void SetDistributeByDatums(Datum *datums, bool *nulls, bool *replace, Lis
 		nkeys = list_length(keys);
 		attr_array = buildint2vector(NULL, nkeys);
 		class_array = buildoidvector(NULL, nkeys);
+		if (loc_type == LOCATOR_TYPE_LIST ||
+			loc_type == LOCATOR_TYPE_RANGE)
+			collation_array = buildoidvector(NULL, nkeys);
 		exprs = NIL;
 		i = 0;
 		foreach (lc, keys)
@@ -66,6 +83,8 @@ static void SetDistributeByDatums(Datum *datums, bool *nulls, bool *replace, Lis
 				attr_array->values[i] = key->attno;
 			}
 			class_array->values[i] = key->opclass;
+			if (collation_array)
+				collation_array->values[i] = key->collation;
 		}
 
 		datums[Anum_pgxc_class_pcattrs - 1] = PointerGetDatum(attr_array);
@@ -74,24 +93,22 @@ static void SetDistributeByDatums(Datum *datums, bool *nulls, bool *replace, Lis
 		nulls[Anum_pgxc_class_pcclass - 1] = false;
 		if (exprs != NIL)
 		{
-			datums[Anum_pgxc_class_pcexprs - 1] = PointerGetDatum(nodeToString(exprs));
+			char *str = nodeToString(exprs);
+			datums[Anum_pgxc_class_pcexprs - 1] = CStringGetTextDatum(str);
 			nulls[Anum_pgxc_class_pcexprs - 1] = false;
 		}else
 		{
 			nulls[Anum_pgxc_class_pcexprs - 1] = true;
 		}
-		if (replace)
+		if (collation_array)
 		{
-			replace[Anum_pgxc_class_pcattrs - 1] = true;
-			replace[Anum_pgxc_class_pcclass - 1] = true;
-			replace[Anum_pgxc_class_pcexprs - 1] = true;
+			datums[Anum_pgxc_class_pccollation - 1] = PointerGetDatum(collation_array);
+			nulls[Anum_pgxc_class_pccollation - 1] = false;
+		}else
+		{
+			nulls[Anum_pgxc_class_pccollation - 1] = true;
 		}
 		break;
-	case LOCATOR_TYPE_LIST:
-	case LOCATOR_TYPE_RANGE:
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("list and range not support for distribute by yet!")));
 	case LOCATOR_TYPE_REPLICATED:
 	case LOCATOR_TYPE_RANDOM:
 		/* nothing todo */
@@ -100,6 +117,13 @@ static void SetDistributeByDatums(Datum *datums, bool *nulls, bool *replace, Lis
 		ereport(ERROR,
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 				 errmsg("unknown distribute type %d", loc_type)));
+	}
+	if (replace)
+	{
+		replace[Anum_pgxc_class_pcattrs - 1] = true;
+		replace[Anum_pgxc_class_pcclass - 1] = true;
+		replace[Anum_pgxc_class_pcexprs - 1] = true;
+		replace[Anum_pgxc_class_pccollation - 1] = true;
 	}
 }
 
@@ -111,10 +135,15 @@ static void SetDistributeToDatums(Datum *datums, bool *nulls, bool *replace, Lis
 	{
 	case LOCATOR_TYPE_LIST:
 	case LOCATOR_TYPE_RANGE:
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("list and range not support for distribute by yet!")));
+		if (list_length(values) != numnodes)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+					 errmsg("values count not same node count")));
+		datums[Anum_pgxc_class_pcvalues - 1] = CStringGetTextDatum(nodeToString(values));
+		nulls[Anum_pgxc_class_pcvalues - 1] = false;
+		break;
 	default:
+		nulls[Anum_pgxc_class_pcvalues - 1] = true;
 		break;
 	}
 
@@ -122,19 +151,48 @@ static void SetDistributeToDatums(Datum *datums, bool *nulls, bool *replace, Lis
 	datums[Anum_pgxc_class_nodeoids - 1] = PointerGetDatum(nodes_array);
 	nulls[Anum_pgxc_class_nodeoids - 1] = false;
 	if (replace)
-		replace[Anum_pgxc_class_nodeoids] = true;
+	{
+		replace[Anum_pgxc_class_nodeoids - 1] = true;
+		replace[Anum_pgxc_class_pcvalues - 1] = true;
+	}
 }
 
 static void SetKeysDepend(Oid reloid, List *keys)
 {
 	ListCell	   *lc;
 	LocatorKeyInfo *key;
+	ObjectAddress	myself;
+	ObjectAddress	referenced;
+
+	myself.classId = RelationRelationId;
+	myself.objectId = reloid;
+	myself.objectSubId = 0;
 
 	foreach (lc, keys)
 	{
 		key = lfirst(lc);
-		if (key->attno != InvalidAttrNumber)
-			CreatePgxcRelationAttrDepend(reloid, key->attno);
+		if (OidIsValid(key->opclass))
+		{
+			referenced.classId = OperatorClassRelationId;
+			referenced.objectId = key->opclass;
+			referenced.objectSubId = 0;
+			recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+		}
+		if (OidIsValid(key->collation) &&
+			key->collation != DEFAULT_COLLATION_OID)
+		{
+			referenced.classId = CollationRelationId;
+			referenced.objectId = key->collation;
+			referenced.objectSubId = 0;
+			recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+		}
+		if (key->key != NULL)
+			recordDependencyOnSingleRelExpr(&myself,
+											(Node*)key->key,
+											reloid,
+											DEPENDENCY_NORMAL,
+											DEPENDENCY_AUTO,
+											true);
 	}
 }
 
