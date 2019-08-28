@@ -184,7 +184,6 @@ typedef struct OraclePartitionSpec
 	RoleSpec			*rolespec;
 /* ADB_BEGIN */
 #ifdef ADB
-	DistributeBy		*distby;
 	PGXCSubCluster		*subclus;
 #endif
 /* ADB_END */

@@ -2349,7 +2349,11 @@ RelationDestroyRelation(Relation relation, bool remember_tupdesc)
 		pfree(relation->rd_fdwroutine);
 #ifdef ADB
 	if (relation->rd_locator_info)
-		FreeRelationLocInfo(relation->rd_locator_info);
+	{
+		MemoryContext context = GetMemoryChunkContext(relation->rd_locator_info);
+		Assert(context != CacheMemoryContext);
+		MemoryContextDelete(context);
+	}
 #endif
 	pfree(relation);
 }

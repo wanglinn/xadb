@@ -1002,3 +1002,130 @@ qsort_partition_rbound_cmp(const void *a, const void *b, void *arg)
 								key->partcollation, b1->datums, b1->kind,
 								b1->lower, b2);
 }
+
+#ifdef ADB
+PartitionKey RelationGenerateDistributeKey(Relation rel, AttrNumber *attno,
+						List *exprs, Oid *opclass, Oid *collation, char strategy, int16 natts)
+{
+	PartitionKey	key;
+	MemoryContext	partkeycxt,
+					oldcxt;
+	int16			procnum;
+
+	HeapTuple		opclasstup;
+	Form_pg_opclass	opclassform;
+	Oid				funcid;
+	ListCell	   *lc;
+	uint16			i;
+
+	partkeycxt = AllocSetContextCreate(CurrentMemoryContext,
+									   "disttribute key",
+									   ALLOCSET_SMALL_SIZES);
+	MemoryContextCopyAndSetIdentifier(partkeycxt,
+									  RelationGetRelationName(rel));
+
+	key = (PartitionKey) MemoryContextAllocZero(partkeycxt,
+												sizeof(PartitionKeyData));
+
+	key->strategy = strategy;
+	key->partnatts = natts;
+
+	if (exprs)
+	{
+		exprs = (List*)eval_const_expressions(NULL, (Node*)exprs);
+		fix_opfuncids(exprs);
+
+		oldcxt = MemoryContextSwitchTo(partkeycxt);
+		key->partexprs = (List *) copyObject(exprs);
+		MemoryContextSwitchTo(oldcxt);
+	}
+
+	oldcxt = MemoryContextSwitchTo(partkeycxt);
+	key->partattrs = (AttrNumber *) palloc0(natts * sizeof(AttrNumber));
+	key->partopfamily = (Oid *) palloc0(natts * sizeof(Oid));
+	key->partopcintype = (Oid *) palloc0(natts * sizeof(Oid));
+	key->partsupfunc = (FmgrInfo *) palloc0(natts * sizeof(FmgrInfo));
+
+	key->partcollation = (Oid *) palloc0(natts * sizeof(Oid));
+
+	/* Gather type and collation info as well */
+	key->parttypid = (Oid *) palloc0(natts * sizeof(Oid));
+	key->parttypmod = (int32 *) palloc0(natts * sizeof(int32));
+	key->parttyplen = (int16 *) palloc0(natts * sizeof(int16));
+	key->parttypbyval = (bool *) palloc0(natts * sizeof(bool));
+	key->parttypalign = (char *) palloc0(natts * sizeof(char));
+	key->parttypcoll = (Oid *) palloc0(natts * sizeof(Oid));
+	MemoryContextSwitchTo(oldcxt);
+
+	/* determine support function number to search for */
+	procnum = (strategy == PARTITION_STRATEGY_HASH) ?
+		HASHEXTENDED_PROC : BTORDER_PROC;
+
+	/* Copy partattrs and fill other per-attribute info */
+	memcpy(key->partattrs, attno, natts * sizeof(int16));
+	lc = list_head(key->partexprs);
+
+	for (i=0; i<natts; ++i)
+	{
+		/* Collect opfamily information */
+		opclasstup = SearchSysCache1(CLAOID, ObjectIdGetDatum(opclass[i]));
+		if (!HeapTupleIsValid(opclasstup))
+			elog(ERROR, "cache lookup failed for opclass %u", opclass[i]);
+
+		opclassform = (Form_pg_opclass) GETSTRUCT(opclasstup);
+		key->partopfamily[i] = opclassform->opcfamily;
+		key->partopcintype[i] = opclassform->opcintype;
+
+		/* Get a support function for the specified opfamily and datatypes */
+		funcid = get_opfamily_proc(opclassform->opcfamily,
+								   opclassform->opcintype,
+								   opclassform->opcintype,
+								   procnum);
+		if (!OidIsValid(funcid))
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+					 errmsg("operator class \"%s\" of access method %s is missing support function %d for type %s",
+							NameStr(opclassform->opcname),
+							(strategy == PARTITION_STRATEGY_HASH) ? "hash" : "btree",
+							procnum,
+							format_type_be(opclassform->opcintype))));
+
+		fmgr_info_cxt(funcid, &key->partsupfunc[i], partkeycxt);
+
+		/* Collation */
+		if (collation)
+			key->partcollation[i] = collation[i];
+		else
+			key->partcollation[i] = InvalidOid;
+
+		/* Collect type information */
+		if (attno[i] != 0)
+		{
+			Form_pg_attribute att = TupleDescAttr(rel->rd_att, attno[i] - 1);
+
+			key->parttypid[i] = att->atttypid;
+			key->parttypmod[i] = att->atttypmod;
+			key->parttypcoll[i] = att->attcollation;
+		}
+		else
+		{
+			Node *node;
+			if (exprs == NIL)
+				elog(ERROR, "wrong number of distribute key expressions");
+
+			node = linitial(exprs);
+			key->parttypid[i] = exprType(node);
+			key->parttypmod[i] = exprTypmod(node);
+			key->parttypcoll[i] = exprCollation(node);
+		}
+		get_typlenbyvalalign(key->parttypid[i],
+							 &key->parttyplen[i],
+							 &key->parttypbyval[i],
+							 &key->parttypalign[i]);
+
+		ReleaseSysCache(opclasstup);
+	}
+
+	return key;
+}
+#endif /* ADB */

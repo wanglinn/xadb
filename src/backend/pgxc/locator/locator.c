@@ -702,6 +702,7 @@ RelationIdBuildLocator(Oid relid)
 			oidvector	   *class_array;
 			oidvector	   *collation_array = NULL;
 			char		   *str;
+			text		   *txt;
 
 			attr_array = GetPGXCClassAttr(htup, Anum_pgxc_class_pcattrs, RelationGetDescr(pcrel), false, relid);
 			class_array = GetPGXCClassAttr(htup, Anum_pgxc_class_pcclass, RelationGetDescr(pcrel), false, relid);
@@ -713,9 +714,10 @@ RelationIdBuildLocator(Oid relid)
 								Anum_pgxc_class_pcclass, relid)));
 			}
 
-			str = GetPGXCClassAttr(htup, Anum_pgxc_class_pcexprs, RelationGetDescr(pcrel), true, relid);
-			if (str != NULL)
+			txt = GetPGXCClassAttr(htup, Anum_pgxc_class_pcexprs, RelationGetDescr(pcrel), true, relid);
+			if (txt != NULL)
 			{
+				str = text_to_cstring(txt);
 				exprs = stringToNode(str);
 				if (!IsA(exprs, List))
 					ereport(ERROR,
@@ -723,13 +725,14 @@ RelationIdBuildLocator(Oid relid)
 							 errmsg("invalid column(%d) data for pgxc_class(%u)",
 									Anum_pgxc_class_pcexprs, relid)));
 				lc = list_head(exprs);
+				pfree(str);
 			}
 
 			if (relationLocInfo->locatorType == LOCATOR_TYPE_LIST ||
 				relationLocInfo->locatorType == LOCATOR_TYPE_RANGE)
 			{
-
-				str = GetPGXCClassAttr(htup, Anum_pgxc_class_pcvalues, RelationGetDescr(pcrel), false, relid);
+				txt = GetPGXCClassAttr(htup, Anum_pgxc_class_pcvalues, RelationGetDescr(pcrel), false, relid);
+				str = text_to_cstring(txt);
 				relationLocInfo->values = stringToNode(str);
 				if (!IsA(relationLocInfo->values, List) ||
 					list_length(relationLocInfo->values) != pgxc_class->nodeoids.dim1)
@@ -739,6 +742,7 @@ RelationIdBuildLocator(Oid relid)
 							 errmsg("invalid column(%d) data for pgxc_class(%u)",
 									Anum_pgxc_class_pcvalues, relid)));
 				}
+				pfree(str);
 
 				collation_array = GetPGXCClassAttr(htup, Anum_pgxc_class_pccollation, RelationGetDescr(pcrel), false, relid);
 				if (class_array->dim1 != attr_array->dim1)
@@ -771,6 +775,26 @@ RelationIdBuildLocator(Oid relid)
 				else
 					key->collation = InvalidOid;
 				relationLocInfo->keys = lappend(relationLocInfo->keys, key);
+			}
+
+			if (relationLocInfo->locatorType == LOCATOR_TYPE_LIST ||
+				relationLocInfo->locatorType == LOCATOR_TYPE_RANGE)
+			{
+				txt = GetPGXCClassAttr(htup,
+									   Anum_pgxc_class_pcvalues,
+									   RelationGetDescr(pcrel),
+									   false,
+									   relid);
+				str = text_to_cstring(txt);
+				relationLocInfo->values = stringToNode(str);
+				pfree(str);
+				if (!IsA(relationLocInfo->values, List))
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_DATA_CORRUPTED),
+							 errmsg("invalid column(%d) data for pgxc_class(%u)",
+									Anum_pgxc_class_pcvalues, relid)));
+				}
 			}
 		}
 		break;
@@ -814,9 +838,13 @@ RelationIdBuildLocator(Oid relid)
 	if (relationLocInfo->locatorType == LOCATOR_TYPE_LIST ||
 		relationLocInfo->locatorType == LOCATOR_TYPE_RANGE)
 	{
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("need add values for locator info")));
+		if (list_length(relationLocInfo->values) != list_length(relationLocInfo->nodeids))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_DATA_CORRUPTED),
+					 errmsg("pgxc_class(%u) attribute %d and %d element count not same",
+					 		relid, Anum_pgxc_class_nodeoids, Anum_pgxc_class_pcvalues)));
+		}
 	}
 
 	systable_endscan(pcscan);
@@ -832,11 +860,29 @@ RelationIdBuildLocator(Oid relid)
 void
 RelationBuildLocator(Relation rel)
 {
-	MemoryContext	oldContext;
+	MemoryContext volatile loc_context = AllocSetContextCreate(CacheMemoryContext,
+															   "locator info",
+															   ALLOCSET_DEFAULT_SIZES);
+	MemoryContext volatile oldContext = MemoryContextSwitchTo(loc_context);
 
-	oldContext = MemoryContextSwitchTo(CacheMemoryContext);
-	rel->rd_locator_info = RelationIdBuildLocator(RelationGetRelid(rel));
+	PG_TRY();
+	{
+		rel->rd_locator_info = RelationIdBuildLocator(RelationGetRelid(rel));
+	}PG_CATCH();
+	{
+		MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(loc_context);
+		PG_RE_THROW();
+	}PG_END_TRY();
 	MemoryContextSwitchTo(oldContext);
+	if (rel->rd_locator_info)
+	{
+		Assert(GetMemoryChunkContext(rel->rd_locator_info) == loc_context);
+		MemoryContextSetParent(loc_context, CacheMemoryContext);
+	}else
+	{
+		MemoryContextDelete(loc_context);
+	}
 }
 
 /*
@@ -914,7 +960,6 @@ FreeRelationLocInfo(RelationLocInfo *relationLocInfo)
 			list_free(relationLocInfo->masternodeids);
 			list_free(relationLocInfo->slavenodeids);
 		}
-		pfree(relationLocInfo);
 		foreach(lc, relationLocInfo->keys)
 		{
 			LocatorKeyInfo *key = lfirst(lc);
@@ -924,6 +969,7 @@ FreeRelationLocInfo(RelationLocInfo *relationLocInfo)
 		}
 		list_free(relationLocInfo->keys);
 		list_free(relationLocInfo->values);
+		pfree(relationLocInfo);
 	}
 }
 

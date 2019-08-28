@@ -447,13 +447,24 @@ BEGIN_STRUCT(MGRStopAgent)
 END_STRUCT(MGRStopAgent)
 #endif /* NO_STRUCT_MGRStopAgent */
 
+#ifndef NO_STRUCT_LocatorKeyInfo
+BEGIN_STRUCT(LocatorKeyInfo)
+	NODE_NODE(Expr,key)
+	NODE_SCALAR(Oid,opclass)
+	NODE_SCALAR(Oid,opfamily)
+	NODE_SCALAR(Oid,collation)
+	NODE_SCALAR(AttrNumber,attno)
+END_STRUCT(LocatorKeyInfo)
+#endif /* NO_STRUCT_LocatorKeyInfo */
+
 #if defined(ADB)
 #ifndef NO_STRUCT_RelationLocInfo
 BEGIN_STRUCT(RelationLocInfo)
 	NODE_SCALAR(Oid,relid)
 	NODE_SCALAR(char,locatorType)
-	NODE_SCALAR(AttrNumber,partAttrNum)
+	NODE_NODE(List,keys)
 	NODE_NODE(List,nodeids)
+	NODE_NODE(List,values)
 	NODE_NODE(List,masternodeids)
 	NODE_NODE(List,slavenodeids)
 END_STRUCT(RelationLocInfo)

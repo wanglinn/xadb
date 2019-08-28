@@ -145,12 +145,12 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	InsertStmt			*istmt;
 	VariableSetStmt		*vsetstmt;
 	PartitionElem		*partelem;
-	OraclePartitionSpec *partspec;
+	OraclePartitionSpec *orapartspec;
 	PartitionBoundSpec	*partboundspec;
 	OracleConnectBy		*connectby;
 	SelectSortClause	*select_order_by;
 /* ADB_BEGIN */
-	DistributeBy		*distby;
+	PartitionSpec		*partspec;
 	PGXCSubCluster		*subclus;
 /* ADB_END */
 /* ADB_EXT */
@@ -336,7 +336,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %type <fun_param> aggr_arg func_arg func_arg_with_default
 %type <fun_param_mode> arg_class
 
-%type <partspec>	PartitionSpec OptPartitionSpec
+%type <orapartspec>	PartitionSpec OptPartitionSpec
 %type <str>			part_strategy
 %type <partelem>	part_elem
 %type <list>		part_params
@@ -348,10 +348,10 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %type <keep>		keep_clause
 
 /* ADB_BEGIN */
-%type <distby>	OptDistributeBy
-%type <distby>	OptDistributeByInternal
-%type <list>	pgxcnodes pgxcnode_list
-%type <str>		pgxcgroup_name pgxcnode_name OptDistributeType
+%type <defelt>	SubClusterNodeElem
+%type <partspec>	OptDistributeBy OptDistributeByInternal
+%type <list>	pgxcnodes pgxcnode_list SubClusterNodeList
+%type <str>		pgxcgroup_name pgxcnode_name
 %type <subclus> OptSubCluster OptSubClusterInternal
 /* ADB_END */
 
@@ -1757,34 +1757,23 @@ opt_collate_clause:
 		;
 
 /* ADB_BEGIN */
-/*
- * For the distribution type, we use IDENT to limit the impact of keywords
- * related to distribution on other commands and to allow extensibility for
- * new distributions.
- */
-OptDistributeType: IDENT							{ $$ = $1; }
-		;
-
-OptDistributeByInternal:  DISTRIBUTE BY OptDistributeType
+OptDistributeByInternal:  DISTRIBUTE BY part_strategy
 				{
-					DistributeBy *n = makeNode(DistributeBy);
-					if (strcmp($3, "replication") == 0)
-						n->disttype = LOCATOR_TYPE_REPLICATED;
-					else if (strcmp($3, "random") == 0)
-						n->disttype = LOCATOR_TYPE_RANDOM;
-					else
-						ereport(ERROR,
-								(errcode(ERRCODE_SYNTAX_ERROR),
-								 errmsg("unrecognized distribution option \"%s\"", $3),
-								 errhint("support:replication, random and hash(column)")));
-					n->colname = NULL;
+					PartitionSpec *n = makeNode(PartitionSpec);
+
+					n->strategy = $3;
+					n->location = @1;
+
 					$$ = n;
 				}
-			| DISTRIBUTE BY func_name '(' func_arg_list ')'
+			| DISTRIBUTE BY part_strategy '(' part_elem ')'
 				{
-					DistributeBy *n = makeNode(DistributeBy);
-					n->func = makeFuncCall($3, $5, @3);
-					transformDistributeBy(n, yyscanner);
+					PartitionSpec *n = makeNode(PartitionSpec);
+
+					n->strategy = $3;
+					n->partParams = list_make1($5);
+					n->location = @1;
+
 					$$ = n;
 				}
 		;
@@ -1794,11 +1783,11 @@ OptSubCluster: OptSubClusterInternal				{ $$ = $1; }
 		;
 
 OptSubClusterInternal:
-			TO NODE pgxcnodes
+			TO NODE '(' SubClusterNodeList ')'
 				{
 					PGXCSubCluster *n = makeNode(PGXCSubCluster);
 					n->clustertype = SUBCLUSTER_NODE;
-					n->members = $3;
+					n->members = $4;
 					$$ = n;
 				}
 			| TO GROUP_P pgxcgroup_name
@@ -1808,6 +1797,50 @@ OptSubClusterInternal:
 					n->members = list_make1(makeString($3));
 					$$ = n;
 				}
+		;
+
+SubClusterNodeElem:
+		  pgxcnode_name
+			{
+				$$ = makeDefElem($1, NULL, @1);
+			}
+		| pgxcnode_name FOR NULLS_P
+			{
+				PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
+
+				n->is_default = true;
+				n->location = @3;
+
+				$$ = makeDefElem($1, (Node*)n, @1);
+			}
+		| pgxcnode_name FOR VALUES IN_P '(' expr_list ')'
+			{
+				PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
+
+				n->strategy = PARTITION_STRATEGY_LIST;
+				n->is_default = false;
+				n->listdatums = $6;
+				n->location = @4;
+
+				$$ = makeDefElem($1, (Node*)n, @1);
+			}
+		| pgxcnode_name FOR VALUES FROM '(' a_expr ')' TO '(' a_expr ')'
+			{
+				PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
+
+				n->strategy = PARTITION_STRATEGY_RANGE;
+				n->is_default = false;
+				n->lowerdatums = list_make1($6);
+				n->upperdatums = list_make1($10);
+				n->location = @4;
+
+				$$ = makeDefElem($1, (Node*)n, @1);
+			}
+		;
+
+SubClusterNodeList:
+		  SubClusterNodeList ',' SubClusterNodeElem	{ $$ = lappend($1, $3); }
+		| SubClusterNodeElem						{ $$ = list_make1($1); }
 		;
 
 pgxcnode_name:

@@ -117,7 +117,6 @@ extern bool PartConstraintImpliedByRelConstraint(Relation scanrel,
 #ifdef ADB
 extern void PostAlterTable(void);
 bool checkTwoTblDistributebyType(Relation destRel, Relation sourceRel, bool checkByColName, bool no_error);
-extern void AtExecDistributeBy(Relation rel, DistributeBy *options);
 extern void DistribRewriteCatalogs(AlterTableCmd *cmd, Oid childOID, LOCKMODE lockmode);
 extern void inferCreateStmtDistributeBy(CreateStmt *stmt);
 #endif

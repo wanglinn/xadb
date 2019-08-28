@@ -4988,18 +4988,6 @@ _copyExecNodes(const ExecNodes *from)
 	return newnode;
 }
 
-static DistributeBy *
-_copyDistributeBy(const DistributeBy *from)
-{
-	DistributeBy *newnode = makeNode(DistributeBy);
-
-	COPY_SCALAR_FIELD(disttype);
-	COPY_STRING_FIELD(colname);
-	COPY_NODE_FIELD(func);
-
-	return newnode;
-}
-
 static PGXCSubCluster *
 _copyPGXCSubCluster(const PGXCSubCluster *from)
 {
@@ -6291,9 +6279,6 @@ copyObjectImpl(const void *from)
 			break;
 		case T_ExecNodes:
 			retval = _copyExecNodes(from);
-			break;
-		case T_DistributeBy:
-			retval = _copyDistributeBy(from);
 			break;
 		case T_PGXCSubCluster:
 			retval = _copyPGXCSubCluster(from);
