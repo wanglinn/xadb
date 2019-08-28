@@ -91,7 +91,6 @@ typedef struct ManagerAgentWrapper
 	ManagerAgent *agent;
 	AgentConnectionStatus connectionStatus;
 	AgentRunningStatus runningStatus;
-	int nMessages;
 	TimestampTz connectTime;
 	TimestampTz sendMessageTime;
 	TimestampTz activeTime;
@@ -326,7 +325,6 @@ static void initializeAgentsConnection()
 		agentWrapper->agent = NULL;
 		agentWrapper->connectionStatus = AGENT_CONNNECTION_STATUS_BAD;
 		agentWrapper->runningStatus = AGENT_RUNNING_STATUS_NORMAL;
-		agentWrapper->nMessages = 0;
 		agentWrapper->connectTime = 0;
 		agentWrapper->sendMessageTime = 0;
 		agentWrapper->activeTime = 0;
@@ -455,26 +453,15 @@ static void handleConnectionStatusSucceeded(ManagerAgentWrapper *agentWrapper,
 									   currentTime,
 									   hostConfiguration->heartbeatIntervalMs))
 		{
-			if (agentWrapper->nMessages > 30)
+			/* send heartbeat to agent. */
+			if (!sendHeartbeatMessage(agentWrapper))
 			{
-				/* the agent client may cause memory leakage */
-				agentWrapper->nMessages = 0;
-				stopMonitorAgent(agentWrapper);
-				startMonitorAgent(agentWrapper);
+				toConnectionStatusBad(agentWrapper, AGENT_ERROR_MESSAGE_FAIL);
+				handleConnectionStatusBad(agentWrapper);
 			}
 			else
 			{
-				/* send heartbeat to agent. */
-				if (!sendHeartbeatMessage(agentWrapper))
-				{
-					toConnectionStatusBad(agentWrapper, AGENT_ERROR_MESSAGE_FAIL);
-					handleConnectionStatusBad(agentWrapper);
-				}
-				else
-				{
-					agentWrapper->nMessages++;
-					agentWrapper->sendMessageTime = GetCurrentTimestamp();
-				}
+				agentWrapper->sendMessageTime = GetCurrentTimestamp();
 			}
 		}
 		else
@@ -890,7 +877,6 @@ static bool sendHeartbeatMessage(ManagerAgentWrapper *agentWrapper)
 {
 	bool done;
 	StringInfoData buf;
-	initStringInfo(&buf);
 	/* send idle message, do it as heartbeat message. */
 	ma_beginmessage(&buf, AGT_MSG_IDLE);
 	ma_endmessage(&buf, agentWrapper->agent);
@@ -916,7 +902,6 @@ static bool sendStopAgentMessage(ManagerAgentWrapper *agentWrapper)
 {
 	bool done;
 	StringInfoData buf;
-	initStringInfo(&buf);
 	ma_beginmessage(&buf, AGT_MSG_COMMAND);
 	ma_sendbyte(&buf, AGT_CMD_STOP_AGENT);
 	ma_sendstring(&buf, "stop agent");
@@ -943,7 +928,6 @@ static bool sendResetAgentMessage(ManagerAgentWrapper *agentWrapper)
 {
 	bool done;
 	StringInfoData buf;
-	initStringInfo(&buf);
 	/* send idle message, do it as heartbeat message. */
 	ma_beginmessage(&buf, AGT_MSG_COMMAND);
 	ma_sendbyte(&buf, AGT_CMD_RESET_AGENT);
