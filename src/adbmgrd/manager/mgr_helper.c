@@ -1647,7 +1647,7 @@ bool callAgentRewindNode(MgrNodeWrapper *masterNode,
 
 	initStringInfo(&cmdMessage);
 
-	if (GTM_TYPE_GTM_SLAVE == slaveNode->form.nodetype)
+	if (CNDN_TYPE_GTM_COOR_SLAVE == slaveNode->form.nodetype)
 	{
 		bGtmType = true;
 		cmd = AGT_CMD_AGTM_REWIND;
