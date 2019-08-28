@@ -21,7 +21,7 @@ ADB documentation
 
   <refsynopsisdiv>
     <synopsis>
-ADBMGR PROMOTE { GTMCOOR | DATANODE } SLAVE <replaceable class="parameter">node_name</replaceable>
+ADBMGR PROMOTE { GTMCOORD | DATANODE } SLAVE <replaceable class="parameter">node_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
 

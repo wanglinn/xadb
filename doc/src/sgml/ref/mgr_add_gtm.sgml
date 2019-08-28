@@ -5,24 +5,24 @@ ADB documentation
 
 <refentry id="MGR-ADDGTM">
   <refmeta>
-    <refentrytitle>ADD GTMCOOR</refentrytitle>
+    <refentrytitle>ADD GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>ADD GTMCOOR</refname>
-    <refpurpose>add one row gtmcoor information in the node table</refpurpose>
+    <refname>ADD GTMCOORD</refname>
+    <refpurpose>add one row gtmcoord information in the node table</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-addgtm">
-    <primary>ADD GTMCOOR</primary>
+    <primary>ADD GTMCOORD</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-ADD GTMCOOR MASTER <replaceable class="parameter">master_name</replaceable> ( <replaceable class="parameter">option</replaceable> )
-ADD GTMCOOR SLAVE <replaceable class="parameter">slave_name</replaceable> FOR <replaceable class="parameter">master_name</replaceable> ( <replaceable class="parameter">option</replaceable> )
+ADD GTMCOORD MASTER <replaceable class="parameter">master_name</replaceable> ( <replaceable class="parameter">option</replaceable> )
+ADD GTMCOORD SLAVE <replaceable class="parameter">slave_name</replaceable> FOR <replaceable class="parameter">master_name</replaceable> ( <replaceable class="parameter">option</replaceable> )
 
 <phrase>where <replaceable class="parameter">option</replaceable> must be the following:</phrase>
 
@@ -38,7 +38,7 @@ ADD GTMCOOR SLAVE <replaceable class="parameter">slave_name</replaceable> FOR <r
     <title>Description</title>
 
     <para>
-<command>ADD GTMCOOR</command> add one row gtmcoor information in the node table. The slave's name must be different from master's.
+<command>ADD GTMCOORD</command> add one row gtmcoord information in the node table. The slave's name must be different from master's.
     </para>
   </refsect1>
 
@@ -52,7 +52,7 @@ ADD GTMCOOR SLAVE <replaceable class="parameter">slave_name</replaceable> FOR <r
         </term>
         <listitem>
           <para>
-    Node name, the gtmcoor master name in the node table.
+    Node name, the gtmcoord master name in the node table.
           </para>
         </listitem>
       </varlistentry>
@@ -63,7 +63,7 @@ ADD GTMCOOR SLAVE <replaceable class="parameter">slave_name</replaceable> FOR <r
         </term>
         <listitem>
           <para>
-    Node name, the gtmcoor slave name in the node table.
+    Node name, the gtmcoord slave name in the node table.
           </para>
         </listitem>
       </varlistentry>
@@ -126,9 +126,9 @@ ADD GTMCOOR SLAVE <replaceable class="parameter">slave_name</replaceable> FOR <r
   <refsect1>
     <title>Examples</title>
     <para>
-Add gtmcoor master (name is "gtm_name1") in the node table:
+Add gtmcoord master (name is "gtm_name1") in the node table:
       <programlisting>
-ADD GTMCOOR MASTER gtm_name1(HOST=localhost2, PORT=15533, PATH='/opt/ADB/gtmcoor');
+ADD GTMCOORD MASTER gtm_name1(HOST=localhost2, PORT=15533, PATH='/opt/ADB/gtmcoord');
 </programlisting>
     </para>
   </refsect1>

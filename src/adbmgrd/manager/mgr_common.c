@@ -1897,7 +1897,7 @@ Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtyp
 				}
 				mgr_get_nodeinfo_byname_type(nodename, nodetype, false, &slave_is_exist, &slave_is_running, &node_info);
 				if (AGT_CMD_GTMCOOR_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_START_SLAVE_BACKEND == cmdtype)
-					appendStringInfo(&infosendmsg, " start -D %s -Z gtmcoor  -o -i -w -c -t 3 -l %s/logfile", node_info.nodepath, node_info.nodepath);
+					appendStringInfo(&infosendmsg, " start -D %s -Z gtmcoord  -o -i -w -c -t 3 -l %s/logfile", node_info.nodepath, node_info.nodepath);
 				else if (AGT_CMD_CN_START_BACKEND == cmdtype)
 					appendStringInfo(&infosendmsg, " start -D %s -Z coordinator -o -i -w -c -t 3 -l %s/logfile"
 									, node_info.nodepath, node_info.nodepath);

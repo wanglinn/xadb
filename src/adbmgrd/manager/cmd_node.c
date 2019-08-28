@@ -1776,7 +1776,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			break;
 	}
 
-	/*init coordinator/datanode/gtmcoor*/
+	/*init coordinator/datanode/gtmcoord*/
 	if (AGT_CMD_CNDN_CNDN_INIT == cmdtype || AGT_CMD_GTMCOOR_INIT == cmdtype)
 	{
 		appendStringInfo(&infosendmsg, " -D %s", cndnPath);
@@ -1784,18 +1784,18 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			appendStringInfo(&infosendmsg, " --nodename %s -E UTF8 --locale=C -k", cndnname);
 		else
 			appendStringInfo(&infosendmsg, " --nodename %s -E UTF8 --locale=C", cndnname);
-	}  /*init gtmcoor slave*/
+	}  /*init gtmcoord slave*/
 	else if (AGT_CMD_GTMCOOR_SLAVE_INIT == cmdtype)
 	{
 		user = get_hostuser_from_hostoid(hostOid);
-		/*get gtmcoor masterport, masterhostaddress*/
+		/*get gtmcoord masterport, masterhostaddress*/
 		gtmmastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(nodemasternameoid));
 		if(!HeapTupleIsValid(gtmmastertuple))
 		{
-			appendStringInfo(&(getAgentCmdRst->description), "gtmcoor master dosen't exist");
+			appendStringInfo(&(getAgentCmdRst->description), "gtmcoord master dosen't exist");
 			getAgentCmdRst->ret = false;
 			ereport(LOG, (errcode(ERRCODE_UNDEFINED_OBJECT)
-				, errmsg("gtmcoor master does not exist")));
+				, errmsg("gtmcoord master does not exist")));
 			goto end;
 		}
 		mgr_node_gtm = (Form_mgr_node)GETSTRUCT(gtmmastertuple);
@@ -1817,9 +1817,9 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		pfree(user);
 		if(ismasterrunning != 0)
 		{
-			appendStringInfo(&(getAgentCmdRst->description), "gtmcoor master \"%s\" is not running normal", mastername);
+			appendStringInfo(&(getAgentCmdRst->description), "gtmcoord master \"%s\" is not running normal", mastername);
 			getAgentCmdRst->ret = false;
-			ereport(WARNING, (errmsg("gtmcoor master \"%s\" is not running normal", mastername)));
+			ereport(WARNING, (errmsg("gtmcoord master \"%s\" is not running normal", mastername)));
 			goto end;
 		}
 	}
@@ -2619,7 +2619,7 @@ Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS)
 }
 
 /*
- * MONITOR GTMCOOR ALL;
+ * MONITOR GTMCOORD ALL;
  */
 Datum mgr_monitor_gtmcoor_all(PG_FUNCTION_ARGS)
 {
@@ -2666,7 +2666,7 @@ Datum mgr_monitor_gtmcoor_all(PG_FUNCTION_ARGS)
 		mgr_node = (Form_mgr_node)GETSTRUCT(tup);
 		Assert(mgr_node);
 
-		/* if node type is gtmcoor master ,gtmcoor slave. */
+		/* if node type is gtmcoord master ,gtmcoord slave. */
 		if (mgr_node->nodetype == CNDN_TYPE_GTM_COOR_MASTER || mgr_node->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
 		{
 			initStringInfo(&resultstrdata);
@@ -2722,7 +2722,7 @@ Datum mgr_monitor_gtmcoor_all(PG_FUNCTION_ARGS)
 }
 
 /*
- * BOOTTIME GTMCOOR ALL;
+ * BOOTTIME GTMCOORD ALL;
  */
 Datum mgr_boottime_gtmcoor_all(PG_FUNCTION_ARGS)
 {
@@ -2769,7 +2769,7 @@ Datum mgr_boottime_gtmcoor_all(PG_FUNCTION_ARGS)
 		mgr_node = (Form_mgr_node)GETSTRUCT(tup);
 		Assert(mgr_node);
 
-		/* if node type is gtmcoor master ,gtmcoor slave. */
+		/* if node type is gtmcoord master ,gtmcoord slave. */
 		if (mgr_node->nodetype == CNDN_TYPE_GTM_COOR_MASTER || mgr_node->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
 		{
 			initStringInfo(&resultstrdata);
@@ -3284,7 +3284,7 @@ Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
 }
 
 /*
- * boottime nodetype(DATANODE MASTER/SLAVE |COORDINATOR |GTMCOOR MASTER|SLAVE) ALL
+ * boottime nodetype(DATANODE MASTER/SLAVE |COORDINATOR |GTMCOORD MASTER|SLAVE) ALL
  */
 Datum mgr_boottime_nodetype_all(PG_FUNCTION_ARGS)
 {
@@ -3391,7 +3391,7 @@ Datum mgr_boottime_nodetype_all(PG_FUNCTION_ARGS)
 
 
 /*
- * MONITOR nodetype(DATANODE MASTER/SLAVE |COORDINATOR |GTMCOOR MASTER|SLAVE) ALL
+ * MONITOR nodetype(DATANODE MASTER/SLAVE |COORDINATOR |GTMCOORD MASTER|SLAVE) ALL
  */
 Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS)
 {
@@ -3519,10 +3519,10 @@ HeapTuple build_common_command_tuple_for_boottime(const Name name, char type, bo
 	switch(type)
 	{
 		case CNDN_TYPE_GTM_COOR_MASTER:
-			namestrcpy(&typestr, "gtmcoor master");
+			namestrcpy(&typestr, "gtmcoord master");
 			break;
 		case CNDN_TYPE_GTM_COOR_SLAVE:
-			namestrcpy(&typestr, "gtmcoor slave");
+			namestrcpy(&typestr, "gtmcoord slave");
 			break;
 		case CNDN_TYPE_COORDINATOR_MASTER:
 			namestrcpy(&typestr, "coordinator master");
@@ -3574,10 +3574,10 @@ HeapTuple build_common_command_tuple_for_monitor(const Name name, char type, boo
 	switch(type)
 	{
 		case CNDN_TYPE_GTM_COOR_MASTER:
-			namestrcpy(&typestr, "gtmcoor master");
+			namestrcpy(&typestr, "gtmcoord master");
 			break;
 		case CNDN_TYPE_GTM_COOR_SLAVE:
-			namestrcpy(&typestr, "gtmcoor slave");
+			namestrcpy(&typestr, "gtmcoord slave");
 			break;
 		case CNDN_TYPE_COORDINATOR_MASTER:
 			namestrcpy(&typestr, "coordinator master");
@@ -6447,7 +6447,7 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 		/* check the number of coordinator */
 		if (mgr_get_nodetype_num(CNDN_TYPE_GTM_COOR_MASTER, false, false) < 1)
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-					, errmsg("there is not any gtmcoor in the node table")));
+					, errmsg("there is not any gtmcoord in the node table")));
 		pg_usleep(3000000L);
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
@@ -7076,12 +7076,12 @@ Datum mgr_failover_gtm(PG_FUNCTION_ARGS)
 			{} /*do nothing */
 			else if (pingres == AGENT_DOWN)
 				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-					,errmsg("some agents could not be connected and cannot find any running normal synchronous slave node for gtmcoor master \"%s\"", nodename)
+					,errmsg("some agents could not be connected and cannot find any running normal synchronous slave node for gtmcoord master \"%s\"", nodename)
 					,errhint("try \"monitor agent all;\" to check agents status")));
 			else
 				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 					,errmsg("gtm master \"%s\" does not have running normal synchronous slave node", nodename)
-					,errhint("if the master has one normal asynchronous slave node and you want to promote it to master, execute \"FAILOVER GTMCOOR %s FORCE\" to force promote the slave node to master", nodename)));
+					,errhint("if the master has one normal asynchronous slave node and you want to promote it to master, execute \"FAILOVER GTMCOORD %s FORCE\" to force promote the slave node to master", nodename)));
 		}
 		else
 		{
@@ -7864,10 +7864,10 @@ char *mgr_nodetype_str(char nodetype)
 		switch(nodetype)
 	{
 		case CNDN_TYPE_GTM_COOR_MASTER:
-			nodestring = "gtmcoor master";
+			nodestring = "gtmcoord master";
 			break;
 		case CNDN_TYPE_GTM_COOR_SLAVE:
-			nodestring = "gtmcoor slave";
+			nodestring = "gtmcoord slave";
 			break;
 		case CNDN_TYPE_COORDINATOR_MASTER:
 			nodestring = "coordinator master";
@@ -12598,7 +12598,7 @@ Datum mgr_monitor_ha(PG_FUNCTION_ARGS)
 		ReleaseSysCache(mastertuple);
 		ReleaseSysCache(hosttuple);
 		if (mgr_node->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-			namestrcpy(&name[0], "gtmcoor slave");
+			namestrcpy(&name[0], "gtmcoord slave");
 		else if (mgr_node->nodetype == CNDN_TYPE_DATANODE_SLAVE)
 			namestrcpy(&name[0], "datanode slave");
 		else if (mgr_node->nodetype == CNDN_TYPE_COORDINATOR_SLAVE)

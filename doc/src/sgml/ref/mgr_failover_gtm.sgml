@@ -5,31 +5,31 @@ ADB documentation
 
 <refentry id="MGR-FAILOVERGTM">
   <refmeta>
-    <refentrytitle>FAILOVER GTMCOOR</refentrytitle>
+    <refentrytitle>FAILOVER GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>FAILOVER GTMCOOR</refname>
-    <refpurpose>promote gtmcoor slave to gtmcoor master</refpurpose>
+    <refname>FAILOVER GTMCOORD</refname>
+    <refpurpose>promote gtmcoord slave to gtmcoord master</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-failovergtm">
-    <primary>FAILOVER GTMCOOR</primary>
+    <primary>FAILOVER GTMCOORD</primary>
   </indexterm>
 
   <refsynopsisdiv>
 <synopsis>
-FAILOVER GTMCOOR <replaceable class="parameter">node_name</replaceable> [ FORCE ]
+FAILOVER GTMCOORD <replaceable class="parameter">node_name</replaceable> [ FORCE ]
 </synopsis>
   </refsynopsisdiv>
   <refsect1>
     <title>Description</title>
 
     <para>
-   <command>FAILOVER GTMCOOR</command> promote gtmcoor slave to gtmcoor master, which is synchronized;
-     If the gtmcoor slave is not synchronized, and want to promote it to gtmcoor master, use "force" at command end; For the command "failover gtmcoor", it choose the synchronized and running normal slave as the target slave node, which will be promote to gtmcoor master.
+   <command>FAILOVER GTMCOORD</command> promote gtmcoord slave to gtmcoord master, which is synchronized;
+     If the gtmcoord slave is not synchronized, and want to promote it to gtmcoord master, use "force" at command end; For the command "failover gtmcoord", it choose the synchronized and running normal slave as the target slave node, which will be promote to gtmcoord master.
     </para>
   </refsect1>
   <refsect1>
@@ -40,7 +40,7 @@ FAILOVER GTMCOOR <replaceable class="parameter">node_name</replaceable> [ FORCE 
     <term><replaceable class="parameter">node_name</replaceable></term>
     <listitem>
      <para>
-      The gtmcoor master name.
+      The gtmcoord master name.
      </para>
     </listitem>
    </varlistentry>
@@ -51,15 +51,15 @@ FAILOVER GTMCOOR <replaceable class="parameter">node_name</replaceable> [ FORCE 
     <title>Examples</title>
 
 <para>
-Promote one gtmcoor slave to master, which must be synchronized:
+Promote one gtmcoord slave to master, which must be synchronized:
 <programlisting>
-FAILOVER GTMCOOR gtm_mastername;
+FAILOVER GTMCOORD gtm_mastername;
 </programlisting>
  </para>
 <para>
-promote one gtmcoor slave to master, no matter it is synchronized or not:
+promote one gtmcoord slave to master, no matter it is synchronized or not:
 <programlisting>
-FAILOVER GTMCOOR gtm_mastername FORCE;
+FAILOVER GTMCOORD gtm_mastername FORCE;
 </programlisting>
   </para>
   </refsect1>

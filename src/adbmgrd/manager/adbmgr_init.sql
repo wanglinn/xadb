@@ -34,9 +34,9 @@ SELECT
 		WHEN 's' THEN 'coordinator slave'::text
 		WHEN 'd' THEN 'datanode master'::text
 		WHEN 'b' THEN 'datanode slave'::text
-		WHEN 'g' THEN 'gtmcoor master'::text
-		WHEN 'p' THEN 'gtmcoor slave'::text
-		WHEN 'G' THEN 'gtmcoor master|slave'::text
+		WHEN 'g' THEN 'gtmcoord master'::text
+		WHEN 'p' THEN 'gtmcoord slave'::text
+		WHEN 'G' THEN 'gtmcoord master|slave'::text
 		WHEN 'C' THEN 'coordinator master|slave'::text
 		WHEN 'D' THEN 'datanode master|slave'::text
 	END AS nodetype,
@@ -50,8 +50,8 @@ CREATE VIEW adbmgr.node AS
     mgrnode.nodename    AS  name,
     hostname   AS  host,
     CASE mgrnode.nodetype
-      WHEN 'g' THEN 'gtmcoor master'::text
-      WHEN 'p' THEN 'gtmcoor slave'::text
+      WHEN 'g' THEN 'gtmcoord master'::text
+      WHEN 'p' THEN 'gtmcoord slave'::text
       WHEN 'c' THEN 'coordinator master'::text
       WHEN 's' THEN 'coordinator slave'::text
       WHEN 'd' THEN 'datanode master'::text
@@ -68,8 +68,8 @@ CREATE VIEW adbmgr.node AS
   FROM pg_catalog.mgr_node AS mgrnode LEFT JOIN pg_catalog.mgr_host ON mgrnode.nodehost = pg_catalog.mgr_host.oid
 		LEFT JOIN pg_catalog.mgr_node AS node_alise ON node_alise.oid = mgrnode.nodemasternameoid) AS node_tb
 		order by (case type
-			when 'gtmcoor master' then 0
-			when 'gtmcoor slave' then 1
+			when 'gtmcoord master' then 0
+			when 'gtmcoord slave' then 1
 			when 'coordinator master' then 2
 			when 'coordinator slave' then 2
 			when 'datanode master' then 3
@@ -101,8 +101,8 @@ CREATE VIEW adbmgr.ha as
 CREATE VIEW adbmgr.monitor_all AS
         select * from mgr_monitor_all() order by 1,
 			(case nodetype
-				when 'gtmcoor master' then 0
-				when 'gtmcoor slave' then 1
+				when 'gtmcoord master' then 0
+				when 'gtmcoord slave' then 1
 				when 'coordinator master' then 2
 				when 'coordinator slave' then 3
 				when 'datanode master' then 4
@@ -113,8 +113,8 @@ CREATE VIEW adbmgr.monitor_all AS
 CREATE VIEW adbmgr.boottime_all AS
         select * from mgr_boottime_all() order by 1,
 			(case nodetype
-				when 'gtmcoor master' then 0
-				when 'gtmcoor slave' then 1
+				when 'gtmcoord master' then 0
+				when 'gtmcoord slave' then 1
 				when 'coordinator master' then 2
 				when 'coordinator slave' then 3
 				when 'datanode master' then 4
@@ -124,8 +124,8 @@ CREATE VIEW adbmgr.boottime_all AS
 --list hba
 CREATE VIEW adbmgr.hba AS
     select CASE mgr_node.nodetype
-      WHEN 'g' THEN 'gtmcoor'
-      WHEN 'p' THEN 'gtmcoor'
+      WHEN 'g' THEN 'gtmcoord'
+      WHEN 'p' THEN 'gtmcoord'
       WHEN 'c' THEN 'coordinator'
       WHEN 's' THEN 'coordinator'
       WHEN 'd' THEN 'datanode'
@@ -137,13 +137,13 @@ CREATE VIEW adbmgr.hba AS
 
 --init all
 CREATE VIEW adbmgr.initall AS
-	SELECT 'init gtmcoor master' AS "operation type",* FROM mgr_init_gtmcoor_master()
+	SELECT 'init gtmcoord master' AS "operation type",* FROM mgr_init_gtmcoor_master()
 	UNION ALL
-	SELECT 'start gtmcoor master' AS "operation type", * FROM mgr_start_gtmcoor_master(NULL)
+	SELECT 'start gtmcoord master' AS "operation type", * FROM mgr_start_gtmcoor_master(NULL)
 	UNION ALL
-	SELECT 'init gtmcoor slave' AS "operation type",* FROM mgr_init_gtmcoor_slave()
+	SELECT 'init gtmcoord slave' AS "operation type",* FROM mgr_init_gtmcoor_slave()
 	UNION ALL
-	SELECT 'start gtmcoor slave' AS "operation type", * FROM mgr_start_gtmcoor_slave(NULL)
+	SELECT 'start gtmcoord slave' AS "operation type", * FROM mgr_start_gtmcoor_slave(NULL)
 	UNION ALL
 	SELECT 'init coordinator' AS "operation type",* FROM mgr_init_cn_master(NULL)
 	UNION ALL
@@ -157,28 +157,28 @@ CREATE VIEW adbmgr.initall AS
 	UNION ALL
 	SELECT 'start datanode slave' AS "operation type", * FROM mgr_start_dn_slave(NULL)
 	UNION ALL
-	SELECT 'config gtmcoor and coordinator' AS "operation type", * FROM mgr_configure_nodes_all(NULL);
+	SELECT 'config gtmcoord and coordinator' AS "operation type", * FROM mgr_configure_nodes_all(NULL);
 
---start gtmcoor all
+--start gtmcoord all
 CREATE VIEW adbmgr.start_gtmcoor_all AS
-	SELECT 'start gtmcoor master' AS "operation type", * FROM mgr_start_gtmcoor_master(NULL)
+	SELECT 'start gtmcoord master' AS "operation type", * FROM mgr_start_gtmcoor_master(NULL)
 	UNION all
-	SELECT 'start gtmcoor slave' AS "operation type", * FROM mgr_start_gtmcoor_slave(NULL);
---stop gtmcoor all
+	SELECT 'start gtmcoord slave' AS "operation type", * FROM mgr_start_gtmcoor_slave(NULL);
+--stop gtmcoord all
 CREATE VIEW adbmgr.stop_gtm_all AS
-	SELECT 'stop gtmcoor slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('smart', NULL)
+	SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('smart', NULL)
 	UNION all
-	SELECT 'stop gtmcoor master' AS "operation type", * FROM mgr_stop_gtmcoor_master('smart', NULL);
---stop gtmcoor all -m f
+	SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoor_master('smart', NULL);
+--stop gtmcoord all -m f
 CREATE VIEW adbmgr.stop_gtm_all_f AS
-	SELECT 'stop gtmcoor slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('fast', NULL)
+	SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('fast', NULL)
 	UNION all
-	SELECT 'stop gtmcoor master' AS "operation type", * FROM mgr_stop_gtmcoor_master('fast', NULL);
---stop gtmcoor all -m i
+	SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoor_master('fast', NULL);
+--stop gtmcoord all -m i
 CREATE VIEW adbmgr.stop_gtm_all_i AS
-	SELECT 'stop gtmcoor slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('immediate', NULL)
+	SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('immediate', NULL)
 	UNION all
-	SELECT 'stop gtmcoor master' AS "operation type", * FROM mgr_stop_gtmcoor_master('immediate', NULL);
+	SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoor_master('immediate', NULL);
 --init datanode all
 CREATE VIEW adbmgr.initdatanodeall AS
     SELECT 'init datanode master' AS "operation type",* FROM mgr_init_dn_master(NULL)
@@ -204,9 +204,9 @@ CREATE VIEW adbmgr.start_coordinator_all AS
 
 --start all
 CREATE VIEW adbmgr.startall AS
-    SELECT 'start gtmcoor master' AS "operation type", * FROM mgr_start_gtmcoor_master(NULL)
+    SELECT 'start gtmcoord master' AS "operation type", * FROM mgr_start_gtmcoor_master(NULL)
     UNION all
-    SELECT 'start gtmcoor slave' AS "operation type", * FROM mgr_start_gtmcoor_slave(NULL)
+    SELECT 'start gtmcoord slave' AS "operation type", * FROM mgr_start_gtmcoor_slave(NULL)
     UNION all
     SELECT 'start coordinator master' AS "operation type", * FROM mgr_start_cn_master(NULL)
     UNION all
@@ -258,9 +258,9 @@ CREATE VIEW adbmgr.stopall AS
     UNION all
     SELECT 'stop coordinator slave' AS "operation type", * FROM mgr_stop_cn_slave('smart', NULL)
     UNION all
-    SELECT 'stop gtmcoor slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('smart', NULL)
+    SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('smart', NULL)
     UNION all
-    SELECT 'stop gtmcoor master' AS "operation type", * FROM mgr_stop_gtmcoor_master('smart', NULL);
+    SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoor_master('smart', NULL);
 
 CREATE VIEW adbmgr.stopall_f AS
     SELECT 'stop datanode slave' AS "operation type", * FROM mgr_stop_dn_slave('fast', NULL)
@@ -271,9 +271,9 @@ CREATE VIEW adbmgr.stopall_f AS
     UNION all
     SELECT 'stop coordinator slave' AS "operation type", * FROM mgr_stop_cn_slave('fast', NULL)
     UNION all
-    SELECT 'stop gtmcoor slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('fast', NULL)
+    SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('fast', NULL)
     UNION all
-    SELECT 'stop gtmcoor master' AS "operation type", * FROM mgr_stop_gtmcoor_master('fast', NULL);
+    SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoor_master('fast', NULL);
 
 CREATE VIEW adbmgr.stopall_i AS
     SELECT 'stop datanode slave' AS "operation type", * FROM mgr_stop_dn_slave('immediate', NULL)
@@ -284,9 +284,9 @@ CREATE VIEW adbmgr.stopall_i AS
     UNION all
     SELECT 'stop coordinator slave' AS "operation type", * FROM mgr_stop_cn_slave('immediate', NULL)
     UNION all
-    SELECT 'stop gtmcoor slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('immediate', NULL)
+    SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('immediate', NULL)
     UNION all
-    SELECT 'stop gtmcoor master' AS "operation type", * FROM mgr_stop_gtmcoor_master('immediate', NULL);
+    SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoor_master('immediate', NULL);
 
 -- for ADB monitor host page: get all host various parameters.
 CREATE VIEW adbmgr.get_all_host_parm AS
@@ -506,8 +506,8 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_all_nodename_in_spec_host(hostname tex
     select
 	nodename,
 		case nodetype
-		when 'g' then 'gtmcoor master'
-		when 'p' then 'gtmcoor slave'
+		when 'g' then 'gtmcoord master'
+		when 'p' then 'gtmcoord slave'
 		when 'c' then 'coordinator'
 		when 'd' then 'datanode master'
 		when 'b' then 'datanode slave'

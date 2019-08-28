@@ -1752,7 +1752,7 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 	 * LockGXact returns NULL if this node does not contain given two-phase
 	 * TXN.  This can happen when COMMIT/ROLLBACK PREPARED is issued at
 	 * the originating Coordinator for cleanup.
-	 * In this case, no local handling is needed.	Only report to GTMCOOR
+	 * In this case, no local handling is needed.	Only report to GTMCOORD
 	 * is needed and this has already been handled in
 	 * FinishRemotePreparedTransaction().
 	 *

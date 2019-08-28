@@ -5,29 +5,29 @@ ADB documentation
 
 <refentry id="MGR-CLEANGTM">
   <refmeta>
-    <refentrytitle>CLEAN GTMCOOR</refentrytitle>
+    <refentrytitle>CLEAN GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>CLEAN GTMCOOR</refname>
-    <refpurpose>clean all the data of the gtmcoor which not in the cluster</refpurpose>
+    <refname>CLEAN GTMCOORD</refname>
+    <refpurpose>clean all the data of the gtmcoord which not in the cluster</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-cleangtm">
-    <primary>CLEAN GTMCOOR</primary>
+    <primary>CLEAN GTMCOORD</primary>
   </indexterm>
 
   <refsynopsisdiv>
 <synopsis>
-CLEAN GTMCOOR { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable>
+CLEAN GTMCOORD { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
   <refsect1>
     <title>Description</title>
     <para>
-    <command>CLEAN GTMCOOR</command> clean all the data of the given name gtmcoor in the node table which not in the cluster. If the gtmcoor is running, it needs to be stopped first.
+    <command>CLEAN GTMCOORD</command> clean all the data of the given name gtmcoord in the node table which not in the cluster. If the gtmcoord is running, it needs to be stopped first.
     </para>
   </refsect1>
 
@@ -52,7 +52,7 @@ CLEAN GTMCOOR { MASTER | SLAVE } <replaceable class="parameter">node_name</repla
  <para>
 Clean the data of gtm_name1:
 <programlisting>
-CLEAN GTMCOOR MASTER gtm_name1;
+CLEAN GTMCOORD MASTER gtm_name1;
 </programlisting>
 </para>
   </refsect1>

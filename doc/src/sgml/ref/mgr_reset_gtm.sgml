@@ -5,24 +5,24 @@ ADB documentation
 
 <refentry id="MGR-RESETGTM">
   <refmeta>
-    <refentrytitle>RESET GTMCOOR</refentrytitle>
+    <refentrytitle>RESET GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>RESET GTMCOOR</refname>
+    <refname>RESET GTMCOORD</refname>
     <refpurpose>reset specified parameters of pg_settings view to default</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-resetgtm">
-    <primary>RESET GTMCOOR</primary>
+    <primary>RESET GTMCOORD</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-RESET GTMCOOR ALL ( parameter [, ...] ) [ FORCE ] 
-RESET GTMCOOR { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable> ( parameter [, ...] ) [ FORCE ]
+RESET GTMCOORD ALL ( parameter [, ...] ) [ FORCE ] 
+RESET GTMCOORD { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable> ( parameter [, ...] ) [ FORCE ]
 </synopsis>
   </refsynopsisdiv>
 
@@ -30,7 +30,7 @@ RESET GTMCOOR { MASTER | SLAVE } <replaceable class="parameter">node_name</repla
     <title>Description</title>
 
     <para>
-<command>RESET GTMCOOR</command> reset the value of parameter to the default and the parameter which is own to the file of postgres.conf,it's also belong to the view of pg_settings;the operator won't check the the value and name of parameter correctly if adding 'force' at the tail of command line,in addition,it will update param table.
+<command>RESET GTMCOORD</command> reset the value of parameter to the default and the parameter which is own to the file of postgres.conf,it's also belong to the view of pg_settings;the operator won't check the the value and name of parameter correctly if adding 'force' at the tail of command line,in addition,it will update param table.
     </para>
   </refsect1>
 
@@ -57,7 +57,7 @@ RESET GTMCOOR { MASTER | SLAVE } <replaceable class="parameter">node_name</repla
     <para>
       Reset the value of 'synchronous_commit' and 'max_wal_senders' to the default:
 <programlisting>
-reset gtmcoor master gtm_master(synchronous_commit, max_wal_senders);
+reset gtmcoord master gtm_master(synchronous_commit, max_wal_senders);
 </programlisting>
     </para>
   </refsect1>

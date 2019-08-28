@@ -345,7 +345,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 	if (strcmp(currentZone, mgr_zone) !=0)
 		ereport(ERROR, (errmsg("the given zone name \"%s\" is not the same wtih guc parameter mgr_zone \"%s\" in postgresql.conf", currentZone, mgr_zone)));
 	if (!mgr_zone_has_node(currentZone, CNDN_TYPE_GTM_COOR_MASTER))
-		ereport(ERROR, (errmsg("the zone \"%s\" has not GTMCOOR MASTER in cluster", currentZone)));
+		ereport(ERROR, (errmsg("the zone \"%s\" has not GTMCOORD MASTER in cluster", currentZone)));
 	if (!mgr_zone_has_node(currentZone, CNDN_TYPE_COORDINATOR_MASTER))
 		ereport(ERROR, (errmsg("the zone \"%s\" has not COORDINATOR MASTER in cluster", currentZone)));
 	if (!mgr_zone_has_node(currentZone, CNDN_TYPE_DATANODE_MASTER))

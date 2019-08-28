@@ -5,23 +5,23 @@ ADB documentation
 
 <refentry id="MGR-DROPGTM">
   <refmeta>
-    <refentrytitle>DROP GTMCOOR</refentrytitle>
+    <refentrytitle>DROP GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>DROP GTMCOOR</refname>
-    <refpurpose>drop the specifed gtmcoor in the node table</refpurpose>
+    <refname>DROP GTMCOORD</refname>
+    <refpurpose>drop the specifed gtmcoord in the node table</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-dropgtm">
-    <primary>DROP GTMCOOR</primary>
+    <primary>DROP GTMCOORD</primary>
   </indexterm>
 
   <refsynopsisdiv>
 <synopsis>
-DROP GTMCOOR { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable>
+DROP GTMCOORD { MASTER | SLAVE } <replaceable class="parameter">node_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
 
@@ -29,7 +29,7 @@ DROP GTMCOOR { MASTER | SLAVE } <replaceable class="parameter">node_name</replac
     <title>Description</title>
 
     <para>
-   <command>DROP GTMCOOR</command> drop the specifed gtmcoor in the node table.
+   <command>DROP GTMCOORD</command> drop the specifed gtmcoord in the node table.
     </para>
   </refsect1>
 
@@ -55,9 +55,9 @@ DROP GTMCOOR { MASTER | SLAVE } <replaceable class="parameter">node_name</replac
   <refsect1>
     <title>Examples</title>
   <para>
-   Drop gtmcoor slave gtm_name in the node table:
+   Drop gtmcoord slave gtm_name in the node table:
 <programlisting>
-DROP GTMCOOR SLAVE gtm_name;
+DROP GTMCOORD SLAVE gtm_name;
 </programlisting>
   </para>
   </refsect1>

@@ -201,7 +201,7 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 %token<keyword>	IF_P EXISTS NOT FOR IN_P MINVALUE MAXVALUE
 %token<keyword>	FALSE_P TRUE_P
 %token<keyword>	HOST MONITOR PARAM HBA HA BOOTTIME READONLY
-%token<keyword>	INIT MASTER SLAVE ALL NODE COORDINATOR DATANODE GTMCOOR
+%token<keyword>	INIT MASTER SLAVE ALL NODE COORDINATOR DATANODE GTMCOORD
 %token<keyword>	PRETTY SIZE WITH SLINK
 %token<keyword> PASSWORD CLEAN RESET WHERE ROW_ID
 %token<keyword> START AGENT STOP FAILOVER
@@ -758,7 +758,7 @@ AppendNodeStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_append_coord_to_coord", args));
 			$$ = (Node*)stmt;
 		}
-		| APPEND GTMCOOR SLAVE Ident
+		| APPEND GTMCOORD SLAVE Ident
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($4, -1));
@@ -965,7 +965,7 @@ MonitorStmt:
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("monitor_all"), -1));
 			$$ = (Node*)stmt;
 		}
-		| MONITOR GTMCOOR opt_general_all
+		| MONITOR GTMCOORD opt_general_all
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
@@ -1059,8 +1059,8 @@ node_type:
 		| DATANODE SLAVE		{$$ = CNDN_TYPE_DATANODE_SLAVE;}
 		| COORDINATOR	MASTER		{$$ = CNDN_TYPE_COORDINATOR_MASTER;}
 		| COORDINATOR	SLAVE		{$$ = CNDN_TYPE_COORDINATOR_SLAVE;}
-		| GTMCOOR MASTER			{$$ = CNDN_TYPE_GTM_COOR_MASTER;}
-		| GTMCOOR SLAVE				{$$ = CNDN_TYPE_GTM_COOR_SLAVE;}
+		| GTMCOORD MASTER			{$$ = CNDN_TYPE_GTM_COOR_MASTER;}
+		| GTMCOORD SLAVE				{$$ = CNDN_TYPE_GTM_COOR_SLAVE;}
 		;
 
 opt_general_all:
@@ -1425,7 +1425,7 @@ StopAgentStmt:
 
 /* parm start*/
 AddUpdataparmStmt:
-		SET GTMCOOR opt_gtm_inner_type Ident set_parm_general_options
+		SET GTMCOORD opt_gtm_inner_type Ident set_parm_general_options
 		{
 				MGRUpdateparm *node = makeNode(MGRUpdateparm);
 				node->parmtype = PARM_TYPE_GTMCOOR;
@@ -1435,7 +1435,7 @@ AddUpdataparmStmt:
 				node->is_force = false;
 				$$ = (Node*)node;
 		}
-	|	SET GTMCOOR opt_gtm_inner_type Ident set_parm_general_options FORCE
+	|	SET GTMCOORD opt_gtm_inner_type Ident set_parm_general_options FORCE
 		{
 				MGRUpdateparm *node = makeNode(MGRUpdateparm);
 				node->parmtype = PARM_TYPE_GTMCOOR;
@@ -1445,7 +1445,7 @@ AddUpdataparmStmt:
 				node->is_force= true;
 				$$ = (Node*)node;
 		}
-	|	SET GTMCOOR opt_gtm_inner_type ALL set_parm_general_options
+	|	SET GTMCOORD opt_gtm_inner_type ALL set_parm_general_options
 		{
 				MGRUpdateparm *node = makeNode(MGRUpdateparm);
 				node->parmtype = PARM_TYPE_GTMCOOR;
@@ -1455,7 +1455,7 @@ AddUpdataparmStmt:
 				node->is_force = false;
 				$$ = (Node*)node;
 		}
-	|	SET GTMCOOR opt_gtm_inner_type ALL set_parm_general_options FORCE
+	|	SET GTMCOORD opt_gtm_inner_type ALL set_parm_general_options FORCE
 		{
 				MGRUpdateparm *node = makeNode(MGRUpdateparm);
 				node->parmtype = PARM_TYPE_GTMCOOR;
@@ -1465,7 +1465,7 @@ AddUpdataparmStmt:
 				node->is_force= true;
 				$$ = (Node*)node;
 		}
-	|	SET GTMCOOR ALL set_parm_general_options
+	|	SET GTMCOORD ALL set_parm_general_options
 		{
 				MGRUpdateparm *node = makeNode(MGRUpdateparm);
 				node->parmtype = PARM_TYPE_GTMCOOR;
@@ -1475,7 +1475,7 @@ AddUpdataparmStmt:
 				node->is_force = false;
 				$$ = (Node*)node;
 		}
-	|	SET GTMCOOR ALL set_parm_general_options FORCE
+	|	SET GTMCOORD ALL set_parm_general_options FORCE
 		{
 				MGRUpdateparm *node = makeNode(MGRUpdateparm);
 				node->parmtype = PARM_TYPE_GTMCOOR;
@@ -1572,7 +1572,7 @@ AddUpdataparmStmt:
 		}
 		;
 ResetUpdataparmStmt:
-		RESET GTMCOOR opt_gtm_inner_type Ident set_parm_general_options
+		RESET GTMCOORD opt_gtm_inner_type Ident set_parm_general_options
 		{
 				MGRUpdateparmReset *node = makeNode(MGRUpdateparmReset);
 				node->parmtype = PARM_TYPE_GTMCOOR;
@@ -1582,7 +1582,7 @@ ResetUpdataparmStmt:
 				node->is_force = false;
 				$$ = (Node*)node;
 		}
-	|	RESET GTMCOOR opt_gtm_inner_type Ident set_parm_general_options FORCE
+	|	RESET GTMCOORD opt_gtm_inner_type Ident set_parm_general_options FORCE
 		{
 				MGRUpdateparmReset *node = makeNode(MGRUpdateparmReset);
 				node->parmtype = PARM_TYPE_GTMCOOR;
@@ -1592,7 +1592,7 @@ ResetUpdataparmStmt:
 				node->is_force = true;
 				$$ = (Node*)node;
 		}
-	|	RESET GTMCOOR opt_gtm_inner_type ALL set_parm_general_options
+	|	RESET GTMCOORD opt_gtm_inner_type ALL set_parm_general_options
 		{
 				MGRUpdateparmReset *node = makeNode(MGRUpdateparmReset);
 				node->parmtype = PARM_TYPE_GTMCOOR;
@@ -1602,7 +1602,7 @@ ResetUpdataparmStmt:
 				node->is_force = false;
 				$$ = (Node*)node;
 		}
-	|	RESET GTMCOOR opt_gtm_inner_type ALL set_parm_general_options FORCE
+	|	RESET GTMCOORD opt_gtm_inner_type ALL set_parm_general_options FORCE
 		{
 				MGRUpdateparmReset *node = makeNode(MGRUpdateparmReset);
 				node->parmtype = PARM_TYPE_GTMCOOR;
@@ -1612,7 +1612,7 @@ ResetUpdataparmStmt:
 				node->is_force = true;
 				$$ = (Node*)node;
 		}
-	| RESET GTMCOOR ALL set_parm_general_options
+	| RESET GTMCOORD ALL set_parm_general_options
 		{
 				MGRUpdateparmReset *node = makeNode(MGRUpdateparmReset);
 				node->parmtype = PARM_TYPE_GTMCOOR;
@@ -1622,7 +1622,7 @@ ResetUpdataparmStmt:
 				node->is_force = false;
 				$$ = (Node*)node;
 		}
-	| RESET GTMCOOR ALL set_parm_general_options FORCE
+	| RESET GTMCOORD ALL set_parm_general_options FORCE
 		{
 				MGRUpdateparmReset *node = makeNode(MGRUpdateparmReset);
 				node->parmtype = PARM_TYPE_GTMCOOR;
@@ -1753,10 +1753,10 @@ ListParmStmt:
 						stmt->whereClause = make_whereClause_for_coord("coordinator slave", node_name, like_expr.data);
 						break;
 				case CNDN_TYPE_GTM_COOR_MASTER:
-						stmt->whereClause = make_whereClause_for_gtm("gtmcoor master", node_name, like_expr.data);
+						stmt->whereClause = make_whereClause_for_gtm("gtmcoord master", node_name, like_expr.data);
 						break;
 				case CNDN_TYPE_GTM_COOR_SLAVE:
-						stmt->whereClause = make_whereClause_for_gtm("gtmcoor slave", node_name, like_expr.data);
+						stmt->whereClause = make_whereClause_for_gtm("gtmcoord slave", node_name, like_expr.data);
 						break;
 				default:
 						break;
@@ -1785,7 +1785,7 @@ ListParmStmt:
 						(Node *)(Node *)makeAndExpr(
 							(Node *) makeSimpleA_Expr(AEXPR_OP, "~",
 									make_ColumnRef("nodetype"),
-									makeStringConst(pstrdup("gtmcoor"), -1), -1),
+									makeStringConst(pstrdup("gtmcoord"), -1), -1),
 							(Node *) makeSimpleA_Expr(AEXPR_OP, "~~",
 									make_ColumnRef("key"),
 									makeStringConst(pstrdup(like_expr.data), -1), -1),
@@ -1893,7 +1893,7 @@ CleanAllStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_clean_all", NULL));
 			$$ = (Node*)stmt;
 		}
-	| CLEAN GTMCOOR opt_gtm_inner_type Ident
+	| CLEAN GTMCOORD opt_gtm_inner_type Ident
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeIntConst($3, -1));
@@ -1930,7 +1930,7 @@ CleanAllStmt:
 /*hba start*/
 
 AddHbaStmt:
-	ADD_P HBA GTMCOOR set_ident '(' NodeConstList ')'
+	ADD_P HBA GTMCOORD set_ident '(' NodeConstList ')'
 	{
 		SelectStmt *stmt = makeNode(SelectStmt);
 		List *args = lappend($6, makeStringConst($4,@4));
@@ -1992,11 +1992,11 @@ HbaParaList:
 	;
 
 /*hba end*/
-/* gtmcoor/coordinator/datanode
+/* gtmcoord/coordinator/datanode
 */
 
 AddNodeStmt:
-	  ADD_P GTMCOOR MASTER Ident opt_general_options
+	  ADD_P GTMCOORD MASTER Ident opt_general_options
 		{
 			MGRAddNode *node = makeNode(MGRAddNode);
 			node->nodetype = CNDN_TYPE_GTM_COOR_MASTER;
@@ -2005,7 +2005,7 @@ AddNodeStmt:
 			node->options = $5;
 			$$ = (Node*)node;
 		}
-	| ADD_P GTMCOOR SLAVE Ident FOR Ident opt_general_options
+	| ADD_P GTMCOORD SLAVE Ident FOR Ident opt_general_options
 		{
 			MGRAddNode *node = makeNode(MGRAddNode);
 			node->nodetype = CNDN_TYPE_GTM_COOR_SLAVE;
@@ -2053,7 +2053,7 @@ AddNodeStmt:
 	;
 
 AlterNodeStmt:
-		ALTER GTMCOOR opt_gtm_inner_type Ident opt_general_options
+		ALTER GTMCOORD opt_gtm_inner_type Ident opt_general_options
 		{
 			MGRAlterNode *node = makeNode(MGRAlterNode);
 			node->nodetype = $3;
@@ -2079,7 +2079,7 @@ AlterNodeStmt:
 		}
 	;
 DropNodeStmt:
-	  DROP GTMCOOR opt_gtm_inner_type Ident
+	  DROP GTMCOORD opt_gtm_inner_type Ident
 		{
 			MGRDropNode *node = makeNode(MGRDropNode);
 			node->nodetype = $3;
@@ -2355,7 +2355,7 @@ INIT ALL
 	}
 	;
 StartNodeMasterStmt:
-		START GTMCOOR MASTER Ident
+		START GTMCOORD MASTER Ident
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($4, -1));
@@ -2363,7 +2363,7 @@ StartNodeMasterStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_start_gtmcoor_master", args));
 			$$ = (Node*)stmt;
 		}
-	|	START GTMCOOR SLAVE Ident
+	|	START GTMCOORD SLAVE Ident
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($4, -1));
@@ -2371,7 +2371,7 @@ StartNodeMasterStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_start_gtmcoor_slave", args));
 			$$ = (Node*)stmt;
 		}
-	| START GTMCOOR ALL
+	| START GTMCOORD ALL
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
@@ -2470,7 +2470,7 @@ StartNodeMasterStmt:
 		}
 	;
 StopNodeMasterStmt:
-		STOP GTMCOOR MASTER Ident opt_stop_mode
+		STOP GTMCOORD MASTER Ident opt_stop_mode
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($5, -1));
@@ -2479,7 +2479,7 @@ StopNodeMasterStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_stop_gtmcoor_master", args));
 			$$ = (Node*)stmt;
 		}
-	|	STOP GTMCOOR SLAVE Ident opt_stop_mode
+	|	STOP GTMCOORD SLAVE Ident opt_stop_mode
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($5, -1));
@@ -2488,7 +2488,7 @@ StopNodeMasterStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_stop_gtmcoor_slave", args));
 			$$ = (Node*)stmt;
 		}
-	| STOP GTMCOOR ALL opt_stop_mode
+	| STOP GTMCOORD ALL opt_stop_mode
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
@@ -2607,7 +2607,7 @@ FailoverStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_failover_one_dn", args));
 			$$ = (Node*)stmt;
 	}
-	| FAILOVER GTMCOOR Ident opt_general_force
+	| FAILOVER GTMCOORD Ident opt_general_force
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($3, -1));
@@ -2673,15 +2673,15 @@ opt_cn_inner_type:
 	|SLAVE { $$ = CNDN_TYPE_COORDINATOR_SLAVE; }
 	;
 opt_slave_inner_type:
-		GTMCOOR SLAVE { $$ = CNDN_TYPE_GTM_COOR_SLAVE; }
+		GTMCOORD SLAVE { $$ = CNDN_TYPE_GTM_COOR_SLAVE; }
 	|	COORDINATOR SLAVE { $$ = CNDN_TYPE_COORDINATOR_SLAVE; }
 	|	DATANODE SLAVE { $$ = CNDN_TYPE_DATANODE_SLAVE; }
 	;
 
 cluster_type:
-	GTMCOOR             {$$ = GTMCOOR_TYPE;}
-	| GTMCOOR MASTER    {$$ = CNDN_TYPE_GTM_COOR_MASTER;}
-	| GTMCOOR SLAVE    {$$ = CNDN_TYPE_GTM_COOR_SLAVE;}
+	GTMCOORD             {$$ = GTMCOOR_TYPE;}
+	| GTMCOORD MASTER    {$$ = CNDN_TYPE_GTM_COOR_MASTER;}
+	| GTMCOORD SLAVE    {$$ = CNDN_TYPE_GTM_COOR_SLAVE;}
 	| COORDINATOR    {$$ = COORDINATOR_TYPE;}
 	| COORDINATOR MASTER   {$$ = CNDN_TYPE_COORDINATOR_MASTER;}
 	| COORDINATOR SLAVE   {$$ = CNDN_TYPE_COORDINATOR_SLAVE;}
@@ -3025,7 +3025,7 @@ DropExtensionStmt:
 		}
 		;
 RemoveNodeStmt:
-		REMOVE GTMCOOR opt_gtm_inner_type ObjList
+		REMOVE GTMCOORD opt_gtm_inner_type ObjList
 		{
 			MgrRemoveNode *node = makeNode(MgrRemoveNode);
 			node->nodetype = $3;
@@ -3058,7 +3058,7 @@ FailoverManualStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_failover_manual_adbmgr_func", args));
 			$$ = (Node*)stmt;
 		}
-	|	PROMOTE GTMCOOR opt_gtm_inner_type Ident
+	|	PROMOTE GTMCOORD opt_gtm_inner_type Ident
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeIntConst($3, @3));
@@ -3097,7 +3097,7 @@ FailoverManualStmt:
 	;
 
 SwitchoverStmt:
-	SWITCHOVER GTMCOOR opt_gtm_inner_type Ident
+	SWITCHOVER GTMCOORD opt_gtm_inner_type Ident
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeIntConst($3, @3));
@@ -3108,7 +3108,7 @@ SwitchoverStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_switchover_func", args));
 			$$ = (Node*)stmt;
 		}
-	| SWITCHOVER GTMCOOR opt_gtm_inner_type Ident FORCE
+	| SWITCHOVER GTMCOORD opt_gtm_inner_type Ident FORCE
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeIntConst($3, @3));
@@ -3218,7 +3218,7 @@ GetBoottimeStmt:
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("boottime_all"), -1));
 			$$ = (Node*)stmt;
 		}
-		| 	SHOW BOOTTIME GTMCOOR opt_general_all
+		| 	SHOW BOOTTIME GTMCOORD opt_general_all
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
@@ -3307,7 +3307,7 @@ unreserved_keyword:
 	| GET_THRESHOLD_ALL_TYPE
 	| GET_THRESHOLD_TYPE
 	| GET_USER_INFO
-	| GTMCOOR
+	| GTMCOORD
 	| HBA
 	| HOST
 	| JOB
@@ -3544,7 +3544,7 @@ static Node* make_whereClause_for_gtm(char* node_type_str, List* node_name_list,
 		(Node *) makeAndExpr(
 			(Node *) makeOrExpr(
 					(Node *) makeAndExpr(
-							(Node *) makeSimpleA_Expr(AEXPR_OP, "~", make_ColumnRef("nodetype"), makeStringConst(pstrdup("^gtmcoor"), -1), -1),
+							(Node *) makeSimpleA_Expr(AEXPR_OP, "~", make_ColumnRef("nodetype"), makeStringConst(pstrdup("^gtmcoord"), -1), -1),
 							(Node *) makeSimpleA_Expr(AEXPR_OP, "=", make_ColumnRef("nodename"), makeStringConst(pstrdup("*"), -1), -1),
 							-1),
 					(Node *) makeAndExpr(
@@ -3611,10 +3611,10 @@ static void check_node_name_isvaild(char node_type, List* node_name_list)
 					ereport(ERROR, (errmsg("datanode slave \"%s\" does not exist", NameStr(name))));
 					break;
 				case CNDN_TYPE_GTM_COOR_MASTER:
-					ereport(ERROR, (errmsg("gtmcoor master \"%s\" does not exist", NameStr(name))));
+					ereport(ERROR, (errmsg("gtmcoord master \"%s\" does not exist", NameStr(name))));
 					break;
 				case CNDN_TYPE_GTM_COOR_SLAVE:
-					ereport(ERROR, (errmsg("gtmcoor slave \"%s\" does not exist", NameStr(name))));
+					ereport(ERROR, (errmsg("gtmcoord slave \"%s\" does not exist", NameStr(name))));
 					break;
 				default:
 					ereport(ERROR, (errmsg("node type \"%c\" does not exist", node_type)));

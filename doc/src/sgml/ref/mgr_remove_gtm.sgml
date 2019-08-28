@@ -5,30 +5,30 @@ ADB documentation
 
 <refentry id="MGR-REMOVEGTM">
   <refmeta>
-    <refentrytitle>REMOVE GTMCOOR</refentrytitle>
+    <refentrytitle>REMOVE GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>REMOVE GTMCOOR</refname>
-    <refpurpose>remove the gtmcoor out of the cluster</refpurpose>
+    <refname>REMOVE GTMCOORD</refname>
+    <refpurpose>remove the gtmcoord out of the cluster</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-removegtm">
-    <primary>REMOVE GTMCOOR</primary>
+    <primary>REMOVE GTMCOORD</primary>
   </indexterm>
 
   <refsynopsisdiv>
 <synopsis>
-REMOVE GTMCOOR SLAVE <replaceable class="parameter">node_name</replaceable>
+REMOVE GTMCOORD SLAVE <replaceable class="parameter">node_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
   <refsect1>
     <title>Description</title>
     <para>
-    <command>REMOVE GTMCOOR</command> remove the given type gtmcoor out of the cluster. If the type of gtmcoor is running, it needs to be stopped first. The command just remove the type of gtmcoor out of cluster, not delete the parameters information in param table. If you want to drop the type of gtmcoor and its parameters, use "DROP GTMCOOR" to delete it.
-    It does not support "REMOVE GTMCOOR MASTER" now.
+    <command>REMOVE GTMCOORD</command> remove the given type gtmcoord out of the cluster. If the type of gtmcoord is running, it needs to be stopped first. The command just remove the type of gtmcoord out of cluster, not delete the parameters information in param table. If you want to drop the type of gtmcoord and its parameters, use "DROP GTMCOORD" to delete it.
+    It does not support "REMOVE GTMCOORD MASTER" now.
     </para>
   </refsect1>
 
@@ -51,9 +51,9 @@ REMOVE GTMCOOR SLAVE <replaceable class="parameter">node_name</replaceable>
   <refsect1>
   <title>Examples</title>
  <para>
-Remove the gtmcoor slave gtm_name1 out of the cluster:
+Remove the gtmcoord slave gtm_name1 out of the cluster:
 <programlisting>
-REMOVE GTMCOOR SLAVE gtm_name1;
+REMOVE GTMCOORD SLAVE gtm_name1;
 </programlisting>
 </para>
   </refsect1>

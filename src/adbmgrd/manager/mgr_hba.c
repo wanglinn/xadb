@@ -220,7 +220,7 @@ static HeapTuple build_hba_conf_file_tuple(const Form_mgr_node mgr_node, const S
 		&& TupleDescAttr(desc, 2)->atttypid == TEXTOID);
 
 	if (mgr_node->nodetype == CNDN_TYPE_GTM_COOR_SLAVE || mgr_node->nodetype == CNDN_TYPE_GTM_COOR_MASTER)
-		namestrcpy(&name[0], "gtmcoor");
+		namestrcpy(&name[0], "gtmcoord");
 	else if (mgr_node->nodetype == CNDN_TYPE_DATANODE_SLAVE || mgr_node->nodetype == CNDN_TYPE_DATANODE_MASTER)
 		namestrcpy(&name[0], "datanode");
 	else if (mgr_node->nodetype == CNDN_TYPE_COORDINATOR_SLAVE || mgr_node->nodetype == CNDN_TYPE_COORDINATOR_MASTER)

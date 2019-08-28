@@ -210,7 +210,7 @@ Datum mgr_add_updateparm_func(PG_FUNCTION_ARGS)
 			}
 			heap_endscan(rel_scan);
 		}
-		/*set datanode/gtmcoor all (key=value,...), set nodetype nodname (key=value,...)*/
+		/*set datanode/gtmcoord all (key=value,...), set nodetype nodname (key=value,...)*/
 		else
 		{
 			bneednotice = true;

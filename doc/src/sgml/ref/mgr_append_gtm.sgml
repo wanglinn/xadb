@@ -5,23 +5,23 @@ ADB documentation
 
 <refentry id="MGR-APPENDGTM">
   <refmeta>
-    <refentrytitle>APPEND GTMCOOR</refentrytitle>
+    <refentrytitle>APPEND GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>APPEND GTMCOOR</refname>
-    <refpurpose>append a new gtmcoor to the cluster and make it run</refpurpose>
+    <refname>APPEND GTMCOORD</refname>
+    <refpurpose>append a new gtmcoord to the cluster and make it run</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-appendgtm">
-    <primary>APPEND GTMCOOR</primary>
+    <primary>APPEND GTMCOORD</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-APPEND GTMCOOR SLAVE <replaceable class="parameter">node_name</replaceable>
+APPEND GTMCOORD SLAVE <replaceable class="parameter">node_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
 
@@ -29,14 +29,14 @@ APPEND GTMCOOR SLAVE <replaceable class="parameter">node_name</replaceable>
     <title>Description</title>
 
     <para>
-<command>APPEND GTMCOOR</command> append a new gtmcoor to the cluster and make it run,it's equal to init and start,but you must make sure the gtmcoor has been add to the node table before execute the command.
+<command>APPEND GTMCOORD</command> append a new gtmcoord to the cluster and make it run,it's equal to init and start,but you must make sure the gtmcoord has been add to the node table before execute the command.
     </para>
   </refsect1>
 
   <refsect1>
     <title>Parameters</title>
      <para>
-      The name of gtmcoor which you want to append to the cluster,corresponds to the name column in the node table.
+      The name of gtmcoord which you want to append to the cluster,corresponds to the name column in the node table.
      </para>
   </refsect1>
   
@@ -44,9 +44,9 @@ APPEND GTMCOOR SLAVE <replaceable class="parameter">node_name</replaceable>
     <title>Examples</title>
 
     <para>
-      Append gtmcoor slave gtm_name:
+      Append gtmcoord slave gtm_name:
 <programlisting>
-append gtmcoor slave gtm_name;
+append gtmcoord slave gtm_name;
 </programlisting>
     </para>
   </refsect1>

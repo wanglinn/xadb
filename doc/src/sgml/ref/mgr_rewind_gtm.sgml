@@ -5,18 +5,18 @@ ADB documentation
 
 <refentry id="MGR-REWINDGTM">
   <refmeta>
-    <refentrytitle>REWIND GTMCOOR</refentrytitle>
+    <refentrytitle>REWIND GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>REWIND GTMCOOR</refname>
-    <refpurpose>rewind gtmcoor slave</refpurpose>
+    <refname>REWIND GTMCOORD</refname>
+    <refpurpose>rewind gtmcoord slave</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-rewindgtm">
-    <primary>REWIND GTMCOOR</primary>
+    <primary>REWIND GTMCOORD</primary>
   </indexterm>
 
   <refsynopsisdiv>
@@ -29,7 +29,7 @@ REWIND GTGTMCOORM SLAVE { <replaceable class="parameter">node_name</replaceable>
     <title>Description</title>
 
     <para>
-<command>REWIND GTMCOOR</command> rewind gtmcoor slave.
+<command>REWIND GTMCOORD</command> rewind gtmcoord slave.
 </para>
   </refsect1>
   <refsect1>
@@ -52,8 +52,8 @@ REWIND GTGTMCOORM SLAVE { <replaceable class="parameter">node_name</replaceable>
     <title>Examples</title>
 
     <para>
-Rewind gtmcoor slave gtm1:
-      <programlisting>REWIND GTMCOOR SLAVE gtm1;</programlisting>
+Rewind gtmcoord slave gtm1:
+      <programlisting>REWIND GTMCOORD SLAVE gtm1;</programlisting>
     </para>
   </refsect1>
       <refsect1>
