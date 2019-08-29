@@ -76,5 +76,9 @@ extern PartitionPruneInfo *make_partition_pruneinfo(PlannerInfo *root,
 extern Relids prune_append_rel_partitions(RelOptInfo *rel);
 extern Bitmapset *get_matching_partitions(PartitionPruneContext *context,
 						List *pruning_steps);
+#ifdef ADB
+extern Bitmapset *prune_distribute_rel(Index relid, List *clauses, PartitionScheme part_scheme,
+									   PartitionDesc part_desc, PartitionKey part_key);
+#endif /* ADB */
 
 #endif							/* PARTPRUNE_H */

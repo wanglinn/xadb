@@ -55,6 +55,11 @@
 #include "partitioning/partbounds.h"
 #include "rewrite/rewriteManip.h"
 #include "utils/lsyscache.h"
+#ifdef ADB
+#include "catalog/partition.h"
+#include "optimizer/plancat.h"
+#include "utils/partcache.h"
+#endif /* ADB */
 
 
 /*
@@ -3484,3 +3489,43 @@ partkey_datum_from_expr(PartitionPruneContext *context,
 		*value = ExecEvalExprSwitchContext(exprstate, ectx, isnull);
 	}
 }
+
+#ifdef ADB
+Bitmapset *prune_distribute_rel(Index relid, List *clauses, PartitionScheme part_scheme,
+								PartitionDesc part_desc, PartitionKey part_key)
+{
+	PartitionPruneContext context;
+	GeneratePruningStepsContext gcontext;
+	RelOptInfo	rel;
+
+	memset(&rel, 0, sizeof(rel));
+	NodeSetTag(&rel, T_RelOptInfo);
+	rel.part_scheme = part_scheme;
+	rel.boundinfo = part_desc->boundinfo;
+	rel.relid = relid;
+	adb_set_rel_partition_key_exprs(part_key, &rel);
+
+	gen_partprune_steps(&rel, clauses, PARTTARGET_EXEC, &gcontext);
+	if (gcontext.contradictory)
+		return NULL;
+
+	/* Set up PartitionPruneContext */
+	context.strategy = part_scheme->strategy;
+	context.partnatts = part_scheme->partnatts;
+	context.nparts = part_desc->nparts;
+	context.boundinfo = part_desc->boundinfo;
+	context.partcollation = part_scheme->partcollation;
+	context.partsupfunc = part_scheme->partsupfunc;
+	context.stepcmpfuncs = (FmgrInfo *) palloc0(sizeof(FmgrInfo) *
+												context.partnatts *
+												list_length(gcontext.steps));
+	context.ppccontext = CurrentMemoryContext;
+
+	/* These are not valid when being called from the planner */
+	context.partrel = NULL;
+	context.planstate = NULL;
+	context.exprstates = NULL;
+
+	return get_matching_partitions(&context, gcontext.steps);
+}
+#endif /* ADB */
