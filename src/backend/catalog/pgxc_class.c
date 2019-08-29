@@ -67,6 +67,8 @@ static void SetDistributeByDatums(Datum *datums, bool *nulls, bool *replace, Lis
 		if (loc_type == LOCATOR_TYPE_LIST ||
 			loc_type == LOCATOR_TYPE_RANGE)
 			collation_array = buildoidvector(NULL, nkeys);
+		else
+			collation_array = NULL;
 		exprs = NIL;
 		i = 0;
 		foreach (lc, keys)
