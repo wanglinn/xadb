@@ -36,7 +36,7 @@ static void appendSyncStandbyNames(MgrNodeWrapper *masterNode,
 								   MgrNodeWrapper *slaveNode,
 								   PGconn *masterPGconn);
 static int walLsnDesc(const void *node1, const void *node2);
-static bool checkSet_pool_release_to_idle_timeout(SwitcherNodeWrapper *node);
+static void checkSet_pool_release_to_idle_timeout(SwitcherNodeWrapper *node);
 static void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
 								 bool isMaster,
 								 PGconn **pgConnP,
@@ -69,11 +69,19 @@ static void deleteMgrUpdateparmByNodenameType(char *updateparmnodename,
 											  MemoryContext spiContext);
 static void updateMgrUpdateparmNodetype(char *nodename, char nodetype,
 										MemoryContext spiContext);
-static bool deletePgxcNodeDatanodeSlaves(SwitcherNodeWrapper *coordinator);
+static bool existsPgxcNodeDatanodeMaster(PGconn *activeCoordinatorCoon,
+										 char *coordinatorName,
+										 bool localExecute,
+										 char *datanodeName);
+static bool deletePgxcNodeDatanodeSlaves(PGconn *activeCoordinatorCoon,
+										 char *coordinatorName,
+										 bool localExecute);
 static char *getAlterNodeSql(char *coordinatorName,
 							 MgrNodeWrapper *oldNode,
 							 MgrNodeWrapper *newNode);
-static bool updatePgxcNode(SwitcherNodeWrapper *coordinator,
+static bool updatePgxcNode(PGconn *activeCoordinatorCoon,
+						   SwitcherNodeWrapper *coordinator,
+						   bool localExecute,
 						   MgrNodeWrapper *oldMaster,
 						   MgrNodeWrapper *newMaster,
 						   bool complain);
@@ -81,6 +89,10 @@ static bool updateAdbSlot(SwitcherNodeWrapper *coordinator,
 						  MgrNodeWrapper *oldMaster,
 						  MgrNodeWrapper *newMaster,
 						  bool complain);
+static bool pgxcPoolReload(PGconn *activeCoordinatorCoon,
+						   char *coordinatorName,
+						   bool localExecute,
+						   bool complain);
 
 /**
  * system function of failover datanode
@@ -177,7 +189,7 @@ void switchDatanodeMaster(char *oldMasterNodename,
 		edata = CopyErrorData();
 		FlushErrorState();
 
-		revertClusterSetting(&coordinators, oldMaster, newMaster, false);
+		revertClusterSetting(&coordinators, oldMaster, newMaster);
 	}
 	PG_END_TRY();
 
@@ -220,8 +232,6 @@ void switchDataNodeOperation(SwitcherNodeWrapper *oldMaster,
 
 	/* Sentinel, ensure to shut down old master */
 	shutdownNodeWithinSeconds(oldMaster->mgrNode, 10, 50, true);
-	// callAgentPingAndStopNode(oldMaster->mgrNode,
-	// 						 SHUTDOWN_I);
 
 	newMaster = choosePromotionNode(runningSlaves,
 									forceSwitch,
@@ -263,7 +273,7 @@ void switchToDataNodeNewMaster(SwitcherNodeWrapper *oldMaster,
 
 	/* Ready to start switching, during the switching process, 
 	 * failure is not allowed. If there it is, complain it. */
-	tryLockCluster(coordinators, true);
+	tryLockCluster(coordinators);
 	/* If the lastest switch failed, it is possible that a standby node 
 	 * has been promoted to the master, so it's not need to promote again. */
 	if (newMaster->runningMode != NODE_RUNNING_MODE_MASTER)
@@ -311,65 +321,6 @@ void switchToDataNodeNewMaster(SwitcherNodeWrapper *oldMaster,
 					"has been successfully completed",
 					NameStr(oldMaster->mgrNode->form.nodename),
 					NameStr(newMaster->mgrNode->form.nodename))));
-}
-
-bool revertClusterSetting(dlist_head *coordinators,
-						  SwitcherNodeWrapper *oldMaster,
-						  SwitcherNodeWrapper *newMaster,
-						  bool complain)
-{
-	dlist_iter iter;
-	SwitcherNodeWrapper *coordinator;
-	bool execOk = true;
-
-	dlist_foreach(iter, coordinators)
-	{
-		coordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		if (coordinator->coordinatorPgxcNodeChanged)
-		{
-			if (updatePgxcNode(coordinator, newMaster->mgrNode,
-							   oldMaster->mgrNode, complain))
-			{
-				coordinator->coordinatorPgxcNodeChanged = false;
-			}
-			else
-			{
-				execOk = false;
-			}
-		}
-		if (coordinator->adbSlotChanged)
-		{
-			if (updateAdbSlot(coordinator, newMaster->mgrNode,
-							  oldMaster->mgrNode, complain))
-			{
-				coordinator->adbSlotChanged = false;
-			}
-			else
-			{
-				execOk = false;
-			}
-		}
-		if (!unlockCoordinator(coordinator, complain))
-		{
-			execOk = false;
-		}
-		if (execOk)
-		{
-			ereport(NOTICE,
-					(errmsg("%s revert cluster setting successfully",
-							NameStr(coordinator->mgrNode->form.nodename))));
-			ereport(LOG,
-					(errmsg("%s revert cluster setting successfully",
-							NameStr(coordinator->mgrNode->form.nodename))));
-		}
-		else
-		{
-			ereport(complain ? ERROR : WARNING,
-					(errmsg("%s revert cluster setting operation failed",
-							NameStr(coordinator->mgrNode->form.nodename))));
-		}
-	}
-	return execOk;
 }
 
 void precheckPromotionNode(dlist_head *runningSlaves, bool forceSwitch)
@@ -515,81 +466,171 @@ SwitcherNodeWrapper *choosePromotionNode(dlist_head *runningSlaves,
 	return promotionNode;
 }
 
-/**
- * connectTimeout: Maximum wait for connection, in seconds 
- * (write as a decimal integer, e.g. 10). 
- * Zero, negative, or not specified means wait indefinitely. 
- * If get connection successfully, the PGconn is saved in node->pgConn.
- */
-bool tryConnectNode(SwitcherNodeWrapper *node, int connectTimeout)
-{
-	/* ensure to close obtained connection */
-	pfreeSwitcherNodeWrapperPGconn(node);
-	node->pgConn = getNodeDefaultDBConnection(node->mgrNode, connectTimeout);
-	return node->pgConn != NULL;
-}
-
-bool tryLockCluster(dlist_head *coordinators, bool complain)
+void revertClusterSetting(dlist_head *coordinators,
+						  SwitcherNodeWrapper *oldMaster,
+						  SwitcherNodeWrapper *newMaster)
 {
 	dlist_iter iter;
 	SwitcherNodeWrapper *coordinator;
+	SwitcherNodeWrapper *holdLockCoordinator = NULL;
 	bool execOk = true;
+	PGconn *activeCoordinatorCoon;
+	bool localExecute;
 
-	if (dlist_is_empty(coordinators))
+	dlist_foreach(iter, coordinators)
 	{
-		ereport(complain ? ERROR : WARNING,
-				(errmsg("There is no master coordinator, lock cluster failed")));
-		return false;
+		coordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		if (coordinator->holdClusterLock)
+		{
+			holdLockCoordinator = coordinator;
+			break;
+		}
 	}
 
 	dlist_foreach(iter, coordinators)
 	{
 		coordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		if (!lockCoordinator(coordinator, complain))
+
+		if (holdLockCoordinator == NULL)
 		{
-			execOk = false;
+			/* When cluster already unlocked, all connection become active */
+			activeCoordinatorCoon = coordinator->pgConn;
+			localExecute = true;
+		}
+		else
+		{
+			/* When cluster is locked, the connection which 
+	 		 * execute the lock command is the only active connection */
+			activeCoordinatorCoon = holdLockCoordinator->pgConn;
+			localExecute = holdLockCoordinator == coordinator;
+		}
+
+		if (coordinator->coordinatorPgxcNodeChanged)
+		{
+			if (updatePgxcNode(activeCoordinatorCoon,
+							   coordinator, localExecute,
+							   newMaster->mgrNode,
+							   oldMaster->mgrNode, false))
+			{
+				coordinator->coordinatorPgxcNodeChanged = false;
+			}
+			else
+			{
+				ereport(NOTICE,
+						(errmsg("%s revert pgxc_node failed",
+								NameStr(coordinator->mgrNode->form.nodename))));
+				ereport(LOG,
+						(errmsg("%s revert pgxc_node failed",
+								NameStr(coordinator->mgrNode->form.nodename))));
+				execOk = false;
+			}
+		}
+		if (coordinator->adbSlotChanged)
+		{
+			if (updateAdbSlot(coordinator, newMaster->mgrNode,
+							  oldMaster->mgrNode, false))
+			{
+				coordinator->adbSlotChanged = false;
+			}
+			else
+			{
+				ereport(NOTICE,
+						(errmsg("%s revert adb slot failed",
+								NameStr(coordinator->mgrNode->form.nodename))));
+				ereport(LOG,
+						(errmsg("%s revert adb slot failed",
+								NameStr(coordinator->mgrNode->form.nodename))));
+				execOk = false;
+			}
 		}
 	}
-	return execOk;
+	if (!tryUnlockCluster(coordinators, false))
+	{
+		execOk = false;
+	}
+	if (execOk)
+	{
+		ereport(LOG,
+				(errmsg("revert cluster setting successfully")));
+	}
+	else
+	{
+		ereport(WARNING,
+				(errmsg("revert cluster setting operation failed")));
+	}
 }
 
 /*
  * Executes an "pause cluster" operation on master coordinator. 
  * If any of the sub-operations fails, the execution of the remaining 
  * sub-operations is abandoned, and the function returns false. 
- * Finally, if operation failed, may should call tryUnlockCluster() to 
+ * Finally, if operation failed, may should call revertClusterSetting() to 
  * revert the settings that was changed during execution.
  */
-bool lockCoordinator(SwitcherNodeWrapper *coordinator, bool complain)
+void tryLockCluster(dlist_head *coordinators)
 {
-	bool execOk;
-	/* Execution to here, it means that connect to node successfully */
-	execOk = checkSet_pool_release_to_idle_timeout(coordinator);
-	if (!execOk)
-	{
-		goto end;
-	}
-	/* execute the pause cluster command */
-	execOk = exec_pg_pause_cluster(coordinator->pgConn, false);
-	coordinator->coordinatorPaused = execOk;
+	dlist_iter iter;
+	SwitcherNodeWrapper *coordinator;
+	SwitcherNodeWrapper *holdLockCoordinator = NULL;
 
-end:
-	if (execOk)
+	if (dlist_is_empty(coordinators))
 	{
-		ereport(NOTICE,
-				(errmsg("%s try lock cluster successfully",
-						NameStr(coordinator->mgrNode->form.nodename))));
-		ereport(LOG,
-				(errmsg("%s try lock cluster successfully",
-						NameStr(coordinator->mgrNode->form.nodename))));
+		ereport(ERROR,
+				(errmsg("There is no master coordinator, lock cluster failed")));
+	}
+
+	dlist_foreach(iter, coordinators)
+	{
+		coordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		checkSet_pool_release_to_idle_timeout(coordinator);
+		deletePgxcNodeDatanodeSlaves(coordinator->pgConn,
+									 NameStr(coordinator->mgrNode->form.nodename),
+									 true);
+	}
+
+	/* gtm_coord is the first priority */
+	dlist_foreach(iter, coordinators)
+	{
+		coordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		if (coordinator->mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+		{
+			holdLockCoordinator = coordinator;
+			break;
+		}
+	}
+	/* When cluster is locked, the connection which 
+	 * execute the lock command is the only active connection */
+	if (holdLockCoordinator)
+	{
+		holdLockCoordinator->holdClusterLock =
+			exec_pg_pause_cluster(coordinator->pgConn, false);
 	}
 	else
 	{
-		ereport(complain ? ERROR : WARNING,
-				(errmsg("%s try lock cluster failed",
-						NameStr(coordinator->mgrNode->form.nodename))));
+		dlist_foreach(iter, coordinators)
+		{
+			coordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+			coordinator->holdClusterLock =
+				exec_pg_pause_cluster(coordinator->pgConn, false);
+			holdLockCoordinator = coordinator;
+			break;
+		}
 	}
-	return execOk;
+	if (holdLockCoordinator->holdClusterLock)
+	{
+		ereport(NOTICE,
+				(errmsg("%s try lock cluster successfully",
+						NameStr(holdLockCoordinator->mgrNode->form.nodename))));
+		ereport(LOG,
+				(errmsg("%s try lock cluster successfully",
+						NameStr(holdLockCoordinator->mgrNode->form.nodename))));
+	}
+	else
+	{
+		ereport(ERROR,
+				(errmsg("%s try lock cluster failed",
+						NameStr(holdLockCoordinator->mgrNode->form.nodename))));
+	}
 }
 
 bool tryUnlockCluster(dlist_head *coordinators, bool complain)
@@ -601,23 +642,54 @@ bool tryUnlockCluster(dlist_head *coordinators, bool complain)
 	dlist_foreach(iter, coordinators)
 	{
 		coordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		if (!unlockCoordinator(coordinator, complain))
+		if (coordinator->holdClusterLock)
 		{
-			execOk = false;
+			if (exec_pg_unpause_cluster(coordinator->pgConn, complain))
+			{
+				coordinator->holdClusterLock = false;
+			}
+			else
+			{
+				execOk = false;
+			}
+			if (execOk)
+			{
+				ereport(NOTICE,
+						(errmsg("%s try unlock cluster successfully",
+								NameStr(coordinator->mgrNode->form.nodename))));
+				ereport(LOG,
+						(errmsg("%s try unlock cluster successfully",
+								NameStr(coordinator->mgrNode->form.nodename))));
+			}
+			else
+			{
+				ereport(complain ? ERROR : WARNING,
+						(errmsg("%s try unlock cluster failed",
+								NameStr(coordinator->mgrNode->form.nodename))));
+			}
+			break;
 		}
+		else
+		{
+			continue;
+		}
+	}
+
+	dlist_foreach(iter, coordinators)
+	{
+		coordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		restoreCoordinatorSetting(coordinator);
 	}
 	return execOk;
 }
 
 /*
- * Executes an "unpause cluster" operation on master coordinator.
  * If any of the sub-operations failed to execute, the funtion returns 
  * false, but ignores any execution failures and continues to execute 
  * the remaining sub-operations.
  */
-bool unlockCoordinator(SwitcherNodeWrapper *coordinator, bool complain)
+void restoreCoordinatorSetting(SwitcherNodeWrapper *coordinator)
 {
-	bool execOk = true;
 	if (coordinator->temporaryHbaItems)
 	{
 		if (callAgentDeletePGHbaConf(coordinator->mgrNode,
@@ -629,7 +701,12 @@ bool unlockCoordinator(SwitcherNodeWrapper *coordinator, bool complain)
 		}
 		else
 		{
-			execOk = false;
+			ereport(NOTICE,
+					(errmsg("%s restore pg_hba.conf failed",
+							NameStr(coordinator->mgrNode->form.nodename))));
+			ereport(LOG,
+					(errmsg("%s restore pg_hba.conf failed",
+							NameStr(coordinator->mgrNode->form.nodename))));
 		}
 	}
 	if (coordinator->originalParameterItems)
@@ -643,40 +720,26 @@ bool unlockCoordinator(SwitcherNodeWrapper *coordinator, bool complain)
 		}
 		else
 		{
-			execOk = false;
+			ereport(NOTICE,
+					(errmsg("%s restore postgresql.conf failed",
+							NameStr(coordinator->mgrNode->form.nodename))));
+			ereport(LOG,
+					(errmsg("%s restore postgresql.conf failed",
+							NameStr(coordinator->mgrNode->form.nodename))));
 		}
 	}
+
 	callAgentReloadNode(coordinator->mgrNode, false);
 
 	if (!exec_pool_close_idle_conn(coordinator->pgConn, false))
-		execOk = false;
-	if (coordinator->coordinatorPaused)
-	{
-		if (exec_pg_unpause_cluster(coordinator->pgConn, false))
-		{
-			coordinator->coordinatorPaused = false;
-		}
-		else
-		{
-			execOk = false;
-		}
-	}
-	if (execOk)
 	{
 		ereport(NOTICE,
-				(errmsg("%s try unlock cluster successfully",
+				(errmsg("%s exec pool_close_idle_conn failed",
 						NameStr(coordinator->mgrNode->form.nodename))));
 		ereport(LOG,
-				(errmsg("%s try unlock cluster successfully",
+				(errmsg("%s exec pool_close_idle_conn failed",
 						NameStr(coordinator->mgrNode->form.nodename))));
 	}
-	else
-	{
-		ereport(complain ? ERROR : WARNING,
-				(errmsg("%s try unlock cluster failed",
-						NameStr(coordinator->mgrNode->form.nodename))));
-	}
-	return execOk;
 }
 
 void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
@@ -882,7 +945,6 @@ void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 	setSlaveNodeRecoveryConf(masterNode, slaveNode);
 
 	shutdownNodeWithinSeconds(slaveNode, 10, 50, true);
-	//callAgentPingAndStopNode(slaveNode, SHUTDOWN_I);
 
 	callAgentStartNode(slaveNode, true);
 
@@ -894,6 +956,20 @@ void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 			(errmsg("%s has followed master %s",
 					NameStr(slaveNode->form.nodename),
 					NameStr(masterNode->form.nodename))));
+}
+
+/**
+ * connectTimeout: Maximum wait for connection, in seconds 
+ * (write as a decimal integer, e.g. 10). 
+ * Zero, negative, or not specified means wait indefinitely. 
+ * If get connection successfully, the PGconn is saved in node->pgConn.
+ */
+static bool tryConnectNode(SwitcherNodeWrapper *node, int connectTimeout)
+{
+	/* ensure to close obtained connection */
+	pfreeSwitcherNodeWrapperPGconn(node);
+	node->pgConn = getNodeDefaultDBConnection(node->mgrNode, connectTimeout);
+	return node->pgConn != NULL;
 }
 
 static SwitcherNodeWrapper *checkGetDatanodeOldMaster(char *oldMasterNodename,
@@ -1061,7 +1137,7 @@ static int walLsnDesc(const void *node1, const void *node2)
 		   (*(SwitcherNodeWrapper **)node1)->walLsn;
 }
 
-static bool checkSet_pool_release_to_idle_timeout(SwitcherNodeWrapper *node)
+static void checkSet_pool_release_to_idle_timeout(SwitcherNodeWrapper *node)
 {
 	char *parameterName;
 	char *expectValue;
@@ -1081,7 +1157,7 @@ static bool checkSet_pool_release_to_idle_timeout(SwitcherNodeWrapper *node)
 							 NameStr(node->mgrNode->form.nodename),
 							 parameterName, expectValue)));
 		pfree(originalValue);
-		return true;
+		return;
 	}
 
 	originalItems = newPGConfParameterItem(parameterName,
@@ -1109,7 +1185,14 @@ static bool checkSet_pool_release_to_idle_timeout(SwitcherNodeWrapper *node)
 				break;
 		}
 	}
-	return execOk;
+	if (execOk)
+		ereport(LOG, (errmsg("%s set %s = %s successful",
+							 NameStr(node->mgrNode->form.nodename),
+							 parameterName, expectValue)));
+	else
+		ereport(ERROR, (errmsg("%s set %s = %s failed",
+							   NameStr(node->mgrNode->form.nodename),
+							   parameterName, expectValue)));
 }
 
 static void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
@@ -1125,10 +1208,6 @@ static void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
 	int maxNetworkFailures = 60;
 	int runningModeFailures = 0;
 	int maxRunningModeFailures = 60;
-
-	ereport(NOTICE,
-			(errmsg("waiting for %s can accept connections...",
-					NameStr(mgrNode->form.nodename))));
 
 	while (networkFailures < maxNetworkFailures)
 	{
@@ -1157,8 +1236,6 @@ static void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
 				(errmsg("%s connection failed, may crashed",
 						NameStr(mgrNode->form.nodename))));
 	}
-
-	pg_usleep(100000L);
 
 	expectedRunningMode = getExpectedNodeRunningMode(isMaster);
 	while (runningModeFailures < maxRunningModeFailures)
@@ -1205,6 +1282,9 @@ static void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
 	}
 	if (runningMode == expectedRunningMode)
 	{
+		ereport(NOTICE,
+				(errmsg("%s running on correct status",
+						NameStr(mgrNode->form.nodename))));
 		ereport(LOG,
 				(errmsg("%s running on correct status",
 						NameStr(mgrNode->form.nodename))));
@@ -1374,22 +1454,38 @@ static void refreshPgxcNodesAfterSwitch(dlist_head *coordinators,
 										MgrNodeWrapper *newMaster)
 {
 	dlist_iter iter;
+	SwitcherNodeWrapper *holdLockCoordinator = NULL;
 	SwitcherNodeWrapper *coordinator;
-	bool slotUpdated = false;
+	bool localExecute;
 
 	dlist_foreach(iter, coordinators)
 	{
 		coordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-
-		deletePgxcNodeDatanodeSlaves(coordinator);
-		updatePgxcNode(coordinator, oldMaster, newMaster, true);
-		if (!slotUpdated)
+		if (coordinator->holdClusterLock)
 		{
-			/* Adb_slot only needs to be updated once */
-			slotUpdated = updateAdbSlot(coordinator, oldMaster,
-										newMaster, true);
+			holdLockCoordinator = coordinator;
+			break;
 		}
-		exec_pgxc_pool_reload(coordinator->pgConn, true);
+	}
+	if (!holdLockCoordinator)
+		ereport(ERROR, (errmsg("System error, can not find a coordinator "
+							   "that has executed the pg_pause_cluster function")));
+
+	/* Adb_slot only needs to be updated once */
+	updateAdbSlot(holdLockCoordinator, oldMaster, newMaster, true);
+
+	/* When cluster is locked, the connection which 
+	 * execute the lock command is the only active connection */
+	dlist_foreach(iter, coordinators)
+	{
+		coordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		localExecute = holdLockCoordinator == coordinator;
+		updatePgxcNode(holdLockCoordinator->pgConn,
+					   coordinator, localExecute,
+					   oldMaster, newMaster, true);
+		pgxcPoolReload(holdLockCoordinator->pgConn,
+					   NameStr(coordinator->mgrNode->form.nodename),
+					   localExecute, true);
 	}
 }
 
@@ -1542,19 +1638,59 @@ static void updateMgrUpdateparmNodetype(char *updateparmnodename,
 	}
 }
 
-static bool deletePgxcNodeDatanodeSlaves(SwitcherNodeWrapper *coordinator)
+static bool existsPgxcNodeDatanodeMaster(PGconn *activeCoordinatorCoon,
+										 char *coordinatorName,
+										 bool localExecute,
+										 char *datanodeName)
+{
+	char *sql;
+	bool exists;
+	if (localExecute)
+		sql = psprintf("select count(*) "
+					   "from pgxc_node "
+					   "where node_name = '%s' "
+					   "and node_type = '%c';",
+					   datanodeName,
+					   PGXC_NODE_DATANODE);
+	else
+		sql = psprintf("EXECUTE DIRECT ON (\"%s\") "
+					   "'select count(*) "
+					   "from pgxc_node "
+					   "where node_name = ''%s'' "
+					   "and node_type = ''%c'' ;'",
+					   coordinatorName,
+					   datanodeName,
+					   PGXC_NODE_DATANODE);
+	exists = PQexecCountSql(activeCoordinatorCoon, sql, true) > 0;
+	pfree(sql);
+	return exists;
+}
+
+static bool deletePgxcNodeDatanodeSlaves(PGconn *activeCoordinatorCoon,
+										 char *coordinatorName,
+										 bool localExecute)
 {
 	char *sql;
 	bool execOk;
-	sql = psprintf("delete from pgxc_node where node_type = '%c';",
-				   PGXC_NODE_DATANODESLAVE);
-	execOk = PQexecCommandSql(coordinator->pgConn, sql, false);
+	if (localExecute)
+		sql = psprintf("set FORCE_PARALLEL_MODE = off; "
+					   "delete from pgxc_node "
+					   "where node_type = '%c';",
+					   PGXC_NODE_DATANODESLAVE);
+	else
+		sql = psprintf("set FORCE_PARALLEL_MODE = off; "
+					   "EXECUTE DIRECT ON (\"%s\") "
+					   "'delete from pgxc_node "
+					   "where node_type = ''%c'' ;'",
+					   coordinatorName,
+					   PGXC_NODE_DATANODESLAVE);
+	execOk = PQexecCommandSql(activeCoordinatorCoon, sql, false);
 	pfree(sql);
 	if (!execOk)
 	{
-		ereport(WARNING,
-				(errmsg("%s delete pgxc_node datanode slaves failed",
-						NameStr(coordinator->mgrNode->form.nodename))));
+		ereport(LOG,
+				(errmsg("%s delete datanode slaves from pgxc_node failed",
+						coordinatorName)));
 	}
 	return execOk;
 }
@@ -1570,7 +1706,10 @@ static char *getAlterNodeSql(char *coordinatorName,
 					newNode->form.nodeport,
 					coordinatorName);
 }
-static bool updatePgxcNode(SwitcherNodeWrapper *coordinator,
+
+static bool updatePgxcNode(PGconn *activeCoordinatorCoon,
+						   SwitcherNodeWrapper *coordinator,
+						   bool localExecute,
 						   MgrNodeWrapper *oldMaster,
 						   MgrNodeWrapper *newMaster,
 						   bool complain)
@@ -1578,22 +1717,38 @@ static bool updatePgxcNode(SwitcherNodeWrapper *coordinator,
 	char *sql;
 	bool execOk;
 
-	sql = getAlterNodeSql(NameStr(coordinator->mgrNode->form.nodename),
-						  oldMaster,
-						  newMaster);
-	execOk = PQexecCommandSql(coordinator->pgConn, sql, false);
-	pfree(sql);
-	if (execOk)
+	if (existsPgxcNodeDatanodeMaster(activeCoordinatorCoon,
+									 NameStr(coordinator->mgrNode->form.nodename),
+									 localExecute,
+									 NameStr(newMaster->form.nodename)))
 	{
-		coordinator->coordinatorPgxcNodeChanged = true;
+		ereport(LOG,
+				(errmsg("master node %s already exists %s pgxc_node, no need to update",
+						NameStr(newMaster->form.nodename),
+						NameStr(coordinator->mgrNode->form.nodename))));
+		execOk = true;
 	}
 	else
 	{
-		ereport(complain ? ERROR : WARNING,
-				(errmsg("%s refresh pgxc_node failed",
-						NameStr(coordinator->mgrNode->form.nodename))));
+		sql = getAlterNodeSql(NameStr(coordinator->mgrNode->form.nodename),
+							  oldMaster,
+							  newMaster);
+		execOk = PQexecCommandSql(activeCoordinatorCoon, sql, false);
+		pfree(sql);
+		if (execOk)
+		{
+			ereport(LOG,
+					(errmsg("%s refresh pgxc_node succeeded",
+							NameStr(coordinator->mgrNode->form.nodename))));
+			coordinator->coordinatorPgxcNodeChanged = true;
+		}
+		else
+		{
+			ereport(complain ? ERROR : WARNING,
+					(errmsg("%s refresh pgxc_node failed",
+							NameStr(coordinator->mgrNode->form.nodename))));
+		}
 	}
-
 	return execOk;
 }
 
@@ -1611,16 +1766,16 @@ static bool updateAdbSlot(SwitcherNodeWrapper *coordinator,
 	if (numberOfSlots < 0)
 	{
 		ereport(complain ? ERROR : WARNING,
-				(errmsg("refresh the new master %s information in adb_slot failed",
+				(errmsg("refresh the node %s information in adb_slot failed",
 						NameStr(newMaster->form.nodename))));
 	}
 
 	/* update adb_slot */
 	if (numberOfSlots > 0)
 	{
-		ereport(LOG, (errmsg("refresh new master %s slot information",
+		ereport(LOG, (errmsg("refresh node %s slot information",
 							 NameStr(newMaster->form.nodename))));
-		ereport(NOTICE, (errmsg("refresh new master %s slot information",
+		ereport(NOTICE, (errmsg("refresh node %s slot information",
 								NameStr(newMaster->form.nodename))));
 		hexp_alter_slotinfo_nodename_noflush(coordinator->pgConn,
 											 NameStr(oldMaster->form.nodename),
@@ -1632,9 +1787,33 @@ static bool updateAdbSlot(SwitcherNodeWrapper *coordinator,
 		if (!PQexecCommandSql(coordinator->pgConn, "flush slot;", false))
 		{
 			ereport(complain ? ERROR : WARNING,
-					(errmsg("flush new master %s slot information failed",
+					(errmsg("flush node %s slot information failed",
 							NameStr(newMaster->form.nodename))));
 		}
 	}
 	return execOk;
+}
+
+static bool pgxcPoolReload(PGconn *activeCoordinatorCoon,
+						   char *coordinatorName,
+						   bool localExecute,
+						   bool complain)
+{
+	char *sql;
+	bool res;
+	if (localExecute)
+		sql = psprintf("set FORCE_PARALLEL_MODE = off; "
+					   "select pgxc_pool_reload();");
+	else
+		sql = psprintf("set FORCE_PARALLEL_MODE = off; "
+					   "EXECUTE DIRECT ON (\"%s\") "
+					   "'select pgxc_pool_reload();'",
+					   coordinatorName);
+	res = PQexecBoolQuery(activeCoordinatorCoon, sql, true, complain);
+	pfree(sql);
+	if (res)
+		ereport(LOG,
+				(errmsg("%s execute pgxc_pool_reload() succeeded",
+						coordinatorName)));
+	return res;
 }

@@ -186,6 +186,7 @@ extern Datum mgr_start_gtmcoor_slave(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_gtmcoor_slave(PG_FUNCTION_ARGS);
 extern Datum mgr_failover_gtm(PG_FUNCTION_ARGS);
 extern Datum mgr_failover_one_dn(PG_FUNCTION_ARGS);
+extern Datum mgr_failover_one_dn_deprecated(PG_FUNCTION_ARGS);
 extern void mgr_add_node(MGRAddNode *node, ParamListInfo params, DestReceiver *dest);
 extern void mgr_alter_node(MGRAlterNode *node, ParamListInfo params, DestReceiver *dest);
 extern void mgr_drop_node(MGRDropNode *node, ParamListInfo params, DestReceiver *dest);

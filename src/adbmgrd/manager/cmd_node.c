@@ -7379,7 +7379,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 		heap_endscan(rel_scan);
 	}PG_CATCH();
 	{
-		ErrorData  *edata;
+		//ErrorData  *edata;
 
 		getAgentCmdRst->ret = false;
 		resetStringInfo(&(getAgentCmdRst->description));
@@ -7390,7 +7390,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 		pfree(recorderr.data);
 
 		MemoryContextSwitchTo(oldcontext);
-		edata = CopyErrorData();
+		//edata = CopyErrorData();
 		FlushErrorState();
 
 		return;

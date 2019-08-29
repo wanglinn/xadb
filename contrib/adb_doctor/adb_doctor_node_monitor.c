@@ -940,7 +940,6 @@ static bool startupNode(MonitorNodeInfo *nodeInfo)
 static void startConnection(MonitorNodeInfo *nodeInfo)
 {
 	StringInfoData conninfo;
-	char *pgUser;
 
 	/* Ensure there is no connection to node. */
 	if (nodeInfo->conn)
@@ -948,17 +947,14 @@ static void startConnection(MonitorNodeInfo *nodeInfo)
 		PQfinish(nodeInfo->conn);
 		nodeInfo->conn = NULL;
 	}
-	pgUser = getNodePGUser(nodeInfo->mgrNode->form.nodetype,
-						   NameStr(nodeInfo->mgrNode->host->form.hostuser));
 
 	initStringInfo(&conninfo);
 	appendStringInfo(&conninfo,
 					 "postgresql://%s@%s:%d/%s",
-					 pgUser,
+					 NameStr(nodeInfo->mgrNode->host->form.hostuser),
 					 nodeInfo->mgrNode->host->hostaddr,
 					 nodeInfo->mgrNode->form.nodeport,
 					 DEFAULT_DB);
-	pfree(pgUser);
 
 	toConnectionStatusConnecting(nodeInfo);
 	/* Make a connection to the database server in a nonblocking manner. */
@@ -1778,7 +1774,7 @@ static void treatFollowFailAfterSwitch(MgrNodeWrapper *followFail)
 	bool done;
 
 	/* Wait for a while, let the cluster fully return to normal */
-	pg_usleep(10L * 1000000L);
+	pg_usleep(30L * 1000000L);
 
 	while (true)
 	{
@@ -1835,7 +1831,7 @@ static void treatOldMasterAfterSwitch(MgrNodeWrapper *oldMaster)
 	bool done;
 
 	/* Wait for a while, let the cluster fully return to normal */
-	pg_usleep(10L * 1000000L);
+	pg_usleep(30L * 1000000L);
 
 	while (true)
 	{
@@ -1899,7 +1895,7 @@ static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 	memcpy(&oldNodesync, &slaveNode->form.nodesync, sizeof(NameData));
 
 	ereport(LOG,
-			(errmsg("try to treat follow fail node %s to follow master",
+			(errmsg("try to treat 'follow fail' node %s to follow master",
 					NameStr(slaveNode->form.nodename))));
 	PG_TRY();
 	{
@@ -1927,7 +1923,7 @@ static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 		slaveRunningMode = getNodeRunningMode(slavePGconn);
 		if (slaveRunningMode == NODE_RUNNING_MODE_MASTER)
 		{
-			ereport(INFO,
+			ereport(LOG,
 					(errmsg("%s was configured as slave node, "
 							"but actually running in master node, "
 							"try to rewind it to follow master %s",
@@ -1935,15 +1931,15 @@ static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 							NameStr(masterNode->form.nodename))));
 			if (rewindSlaveNodeFollowMaster(slaveNode, spiContext))
 			{
-				ereport(INFO,
-						(errmsg("rewind follow fail node %s to follow master %s successfully completed",
+				ereport(LOG,
+						(errmsg("rewind 'follow fail' node %s to follow master %s successfully completed",
 								NameStr(slaveNode->form.nodename),
 								NameStr(masterNode->form.nodename))));
 			}
 			else
 			{
 				ereport(ERROR,
-						(errmsg("rewind follow fail node %s to follow master %s failed",
+						(errmsg("rewind 'follow fail' node %s to follow master %s failed",
 								NameStr(slaveNode->form.nodename),
 								NameStr(masterNode->form.nodename))));
 			}
@@ -1978,7 +1974,7 @@ static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 		memcpy(&slaveNode->form.curestatus, &oldCurestatus, sizeof(NameData));
 		memcpy(&slaveNode->form.nodesync, &oldNodesync, sizeof(NameData));
 		ereport(LOG,
-				(errmsg("treat follow fail node %s to follow master failed",
+				(errmsg("treat 'follow fail' node %s to follow master failed",
 						NameStr(slaveNode->form.nodename))));
 	}
 
@@ -2096,12 +2092,20 @@ static void prepareRewindMgrNode(RewindMgrNodeObject *rewindObject,
 	MgrNodeWrapper *slaveNode;
 	XLogRecPtr masterWalLsn = InvalidXLogRecPtr;
 	XLogRecPtr slaveWalLsn = InvalidXLogRecPtr;
+	PGConfParameterItem *portItem;
+	char portStr[12] = {0};
 
 	/* check the slave node running status */
 	slaveNode = rewindObject->slaveNode;
 	rewindObject->slavePGconn = getNodeDefaultDBConnection(slaveNode, 10);
 	if (!rewindObject->slavePGconn)
 	{
+		/* avoid error: Address already in use  */
+		pg_ltoa(slaveNode->form.nodeport, portStr);
+		portItem = newPGConfParameterItem("port", portStr, false);
+		callAgentRefreshPGSqlConf(slaveNode, portItem, false);
+		pfree(portItem);
+
 		startupNodeWithinSeconds(slaveNode, 90, true);
 		rewindObject->slavePGconn = getNodeDefaultDBConnection(slaveNode, 10);
 		if (!rewindObject->slavePGconn)

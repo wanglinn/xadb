@@ -345,7 +345,6 @@ extern void selectMgrHostsForHostDoctor(MemoryContext spiContext,
 										dlist_head *resultList);
 
 /* libpq functions */
-extern char *getNodePGUser(char nodetype, char *hostuser);
 extern NodeConnectionStatus connectNodeDefaultDB(MgrNodeWrapper *node,
 												 int connectTimeout,
 												 PGconn **pgConn);
@@ -390,6 +389,9 @@ extern bool callAgentReloadNode(MgrNodeWrapper *node, bool complain);
 extern bool callAgentRefreshPGSqlConfReload(MgrNodeWrapper *node,
 											PGConfParameterItem *items,
 											bool complain);
+extern bool callAgentRefreshPGSqlConf(MgrNodeWrapper *node,
+									  PGConfParameterItem *items,
+									  bool complain);
 extern bool callAgentRefreshRecoveryConf(MgrNodeWrapper *node,
 										 PGConfParameterItem *items,
 										 bool complain);
@@ -434,5 +436,5 @@ extern bool shutdownNodeWithinSeconds(MgrNodeWrapper *mgrNode,
 									  bool complain);
 extern bool startupNodeWithinSeconds(MgrNodeWrapper *mgrNode,
 									 int waitSeconds,
-									  bool complain);
+									 bool complain);
 #endif /* MGR_HELPER_H */

@@ -265,10 +265,11 @@ void selectMgrMasterCoordinators(MemoryContext spiContext,
 	appendStringInfo(&sql,
 					 "SELECT * \n"
 					 "FROM pg_catalog.mgr_node \n"
-					 "WHERE nodetype = '%c' \n"
+					 "WHERE nodetype in ('%c', '%c') \n"
 					 "AND nodeinited = %d::boolean \n"
 					 "AND nodeincluster = %d::boolean \n",
 					 CNDN_TYPE_COORDINATOR_MASTER,
+					 CNDN_TYPE_GTM_COOR_MASTER,
 					 true,
 					 true);
 	selectMgrNodes(sql.data, spiContext, resultList);
@@ -545,44 +546,22 @@ void selectMgrHostsForHostDoctor(MemoryContext spiContext,
 	pfree(sql.data);
 }
 
-/* 
- * pfree the returned result if you don't need it anymore.
- */
-char *getNodePGUser(char nodetype, char *hostuser)
-{
-	char *pgUser;
-	if (CNDN_TYPE_GTM_COOR_MASTER == nodetype ||
-		CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
-	{
-		pgUser = psprintf("%s", AGTM_USER);
-	}
-	else
-	{
-		pgUser = psprintf("%s", hostuser);
-	}
-	return pgUser;
-}
-
 NodeConnectionStatus connectNodeDefaultDB(MgrNodeWrapper *node,
 										  int connectTimeout,
 										  PGconn **pgConn)
 {
 	StringInfoData conninfo;
 	PGconn *conn;
-	char *pgUser;
 	NodeConnectionStatus connStatus;
 
-	pgUser = getNodePGUser(node->form.nodetype,
-						   NameStr(node->host->form.hostuser));
 	initStringInfo(&conninfo);
 	appendStringInfo(&conninfo,
 					 "postgresql://%s@%s:%d/%s?connect_timeout=%d",
-					 pgUser,
+					 NameStr(node->host->form.hostuser),
 					 node->host->hostaddr,
 					 node->form.nodeport,
 					 DEFAULT_DB,
 					 connectTimeout);
-	pfree(pgUser);
 	conn = PQconnectdb(conninfo.data);
 	pfree(conninfo.data);
 	if (PQstatus(conn) == CONNECTION_OK)
@@ -1289,6 +1268,40 @@ bool callAgentRefreshPGSqlConfReload(MgrNodeWrapper *node,
 	return res.agentRes;
 }
 
+bool callAgentRefreshPGSqlConf(MgrNodeWrapper *node,
+							   PGConfParameterItem *items,
+							   bool complain)
+{
+	StringInfoData cmdMessage;
+	CallAgentResult res;
+
+	initStringInfo(&cmdMessage);
+
+	PGConfParameterItemsToCmdMessage(node->nodepath, items, &cmdMessage);
+	res = callAgentSendCmd(AGT_CMD_CNDN_REFRESH_PGSQLCONF,
+						   &cmdMessage,
+						   node->host->hostaddr,
+						   node->host->form.hostagentport);
+	pfree(cmdMessage.data);
+	if (res.agentRes)
+	{
+		ereport(DEBUG1,
+				(errmsg("refresh %s postgresql.conf %s successfully",
+						NameStr(node->form.nodename),
+						toStringPGConfParameterItem(items))));
+	}
+	else
+	{
+		ereport(complain ? ERROR : LOG,
+				(errmsg("refresh %s postgresql.conf %s failed:%s",
+						NameStr(node->form.nodename),
+						toStringPGConfParameterItem(items),
+						res.message.data)));
+	}
+	pfree(res.message.data);
+	return res.agentRes;
+}
+
 bool callAgentRefreshRecoveryConf(MgrNodeWrapper *node,
 								  PGConfParameterItem *items,
 								  bool complain)
@@ -1362,12 +1375,9 @@ PingNodeResult callAgentPingNode(MgrNodeWrapper *node)
 	CallAgentResult res;
 	StringInfoData cmdMessage;
 	char pid_file_path[MAXPGPATH] = {0};
-	char *pgUser;
 	int ping_status;
 	PingNodeResult pingRes;
 
-	pgUser = getNodePGUser(node->form.nodetype,
-						   NameStr(node->host->form.hostuser));
 	snprintf(pid_file_path, MAXPGPATH, "%s/postmaster.pid", node->nodepath);
 
 	initStringInfo(&cmdMessage);
@@ -1375,10 +1385,9 @@ PingNodeResult callAgentPingNode(MgrNodeWrapper *node)
 	appendStringInfoChar(&cmdMessage, '\0');
 	appendStringInfo(&cmdMessage, "%d", node->form.nodeport);
 	appendStringInfoChar(&cmdMessage, '\0');
-	appendStringInfo(&cmdMessage, "%s", pgUser);
+	appendStringInfo(&cmdMessage, "%s", NameStr(node->host->form.hostuser));
 	appendStringInfoChar(&cmdMessage, '\0');
 	appendStringInfo(&cmdMessage, "%s", pid_file_path);
-	pfree(pgUser);
 
 	res = callAgentSendCmd(AGT_CMD_PING_NODE,
 						   &cmdMessage,
@@ -1451,7 +1460,7 @@ bool callAgentStopNode(MgrNodeWrapper *node,
 	case CNDN_TYPE_GTM_COOR_MASTER:
 	case CNDN_TYPE_GTM_COOR_SLAVE:
 		appendStringInfo(&cmdMessage,
-						 " stop -D %s -m %s -o -i -w -c",
+						 " stop -D %s -Z gtm_coord -m %s -o -i -w -c",
 						 node->nodepath,
 						 shutdownMode);
 		break;
@@ -1509,7 +1518,7 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool complain)
 	case CNDN_TYPE_COORDINATOR_MASTER:
 	case CNDN_TYPE_COORDINATOR_SLAVE:
 		appendStringInfo(&cmdMessage,
-						 " start -D %s -Z gtm_coord -o -i -w -c -l %s/logfile",
+						 " start -D %s -Z coordinator -o -i -w -c -l %s/logfile",
 						 node->nodepath,
 						 node->nodepath);
 		break;
@@ -1523,7 +1532,7 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool complain)
 	case CNDN_TYPE_GTM_COOR_MASTER:
 	case CNDN_TYPE_GTM_COOR_SLAVE:
 		appendStringInfo(&cmdMessage,
-						 " start -D %s -o -i -w -c -l %s/logfile",
+						 " start -D %s -Z gtm_coord -o -i -w -c -l %s/logfile",
 						 node->nodepath,
 						 node->nodepath);
 		break;
@@ -1535,8 +1544,9 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool complain)
 		return false;
 	}
 
-	if (node->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
-		node->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+	if (node->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+		cmd = AGT_CMD_GTMCOOR_START_MASTER;
+	if (node->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
 		cmd = AGT_CMD_GTMCOOR_START_SLAVE; /* agtm_ctl */
 	else if (node->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER ||
 			 node->form.nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
@@ -1600,7 +1610,7 @@ bool callAgentRestartNode(MgrNodeWrapper *node,
 	case CNDN_TYPE_GTM_COOR_SLAVE:
 		cmd = AGT_CMD_AGTM_RESTART;
 		appendStringInfo(&cmdMessage,
-						 " restart -D %s -w -m %s -l %s/logfile",
+						 " restart -D %s -Z gtm_coord -m %s -o -i -w -c -l %s/logfile",
 						 node->nodepath,
 						 shutdownMode,
 						 node->nodepath);
@@ -1641,7 +1651,6 @@ bool callAgentRewindNode(MgrNodeWrapper *masterNode,
 {
 	CallAgentResult res;
 	StringInfoData cmdMessage;
-	char *pgUser;
 	AgentCommand cmd;
 	bool bGtmType;
 
@@ -1657,15 +1666,12 @@ bool callAgentRewindNode(MgrNodeWrapper *masterNode,
 		bGtmType = false;
 		cmd = AGT_CMD_NODE_REWIND;
 	}
-	pgUser = getNodePGUser(slaveNode->form.nodetype,
-						   NameStr(slaveNode->host->form.hostuser));
 	appendStringInfo(&cmdMessage,
 					 " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres'",
 					 slaveNode->nodepath,
 					 masterNode->host->hostaddr,
 					 masterNode->form.nodeport,
-					 pgUser);
-	pfree(pgUser);
+					 NameStr(slaveNode->host->form.hostuser));
 	if (!bGtmType)
 	{
 		appendStringInfo(&cmdMessage, " -N %s",
@@ -1697,11 +1703,8 @@ void getCallAgentSqlString(MgrNodeWrapper *node,
 						   char *sql,
 						   StringInfo cmdMessage)
 {
-	char *pgUser;
-	pgUser = getNodePGUser(node->form.nodetype,
-						   NameStr(node->host->form.hostuser));
 	/*user*/
-	appendStringInfoString(cmdMessage, pgUser);
+	appendStringInfoString(cmdMessage, NameStr(node->host->form.hostuser));
 	appendStringInfoCharMacro(cmdMessage, '\0');
 	/*port*/
 	appendStringInfo(cmdMessage, "%d", node->form.nodeport);
@@ -1712,7 +1715,6 @@ void getCallAgentSqlString(MgrNodeWrapper *node,
 	/*sqlstring*/
 	appendStringInfoString(cmdMessage, sql);
 	appendStringInfoCharMacro(cmdMessage, '\0');
-	pfree(pgUser);
 }
 
 CallAgentResult callAgentExecuteSql(MgrNodeWrapper *node,
@@ -1852,14 +1854,10 @@ bool setPGHbaTrustAddress(MgrNodeWrapper *mgrNode, char *address)
 {
 	PGHbaItem *hbaItems;
 	bool execOk;
-	char *pgUser;
 
-	pgUser = getNodePGUser(mgrNode->form.nodetype,
-						   NameStr(mgrNode->host->form.hostuser));
 	hbaItems = newPGHbaItem(CONNECT_HOST, DEFAULT_DB,
-							pgUser,
+							NameStr(mgrNode->host->form.hostuser),
 							address, 32, "trust");
-	pfree(pgUser);
 	execOk = callAgentRefreshPGHbaConf(mgrNode, hbaItems, false);
 	pfreePGHbaItem(hbaItems);
 	if (!execOk)
@@ -1872,15 +1870,11 @@ void setPGHbaTrustSlaveReplication(MgrNodeWrapper *masterNode,
 								   MgrNodeWrapper *slaveNode)
 {
 	PGHbaItem *hbaItems;
-	char *pgUser;
 
-	pgUser = getNodePGUser(slaveNode->form.nodetype,
-						   NameStr(slaveNode->host->form.hostuser));
 	hbaItems = newPGHbaItem(CONNECT_HOST, "replication",
-							pgUser,
+							NameStr(slaveNode->host->form.hostuser),
 							slaveNode->host->hostaddr,
 							32, "trust");
-	pfree(pgUser);
 	callAgentRefreshPGHbaConf(masterNode, hbaItems, true);
 	callAgentReloadNode(masterNode, true);
 	pfreePGHbaItem(hbaItems);
@@ -1935,21 +1929,17 @@ void setSlaveNodeRecoveryConf(MgrNodeWrapper *masterNode,
 {
 	PGConfParameterItem *items;
 	char *primary_conninfo_value;
-	char *slavePGUser;
 
 	items = newPGConfParameterItem("recovery_target_timeline", "latest", false);
 	items->next = newPGConfParameterItem("standby_mode", "on", false);
 
-	slavePGUser = getNodePGUser(slaveNode->form.nodetype,
-								NameStr(slaveNode->host->form.hostuser));
 	primary_conninfo_value = psprintf("host=%s port=%d user=%s application_name=%s",
 									  masterNode->host->hostaddr,
 									  masterNode->form.nodeport,
-									  slavePGUser,
+									  NameStr(slaveNode->host->form.hostuser),
 									  NameStr(slaveNode->form.nodename));
 	items->next->next = newPGConfParameterItem("primary_conninfo",
 											   primary_conninfo_value, true);
-	pfree(slavePGUser);
 	pfree(primary_conninfo_value);
 
 	callAgentRefreshRecoveryConf(slaveNode, items, true);

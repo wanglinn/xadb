@@ -24,7 +24,7 @@ typedef struct SwitcherNodeWrapper
 	PGHbaItem *temporaryHbaItems;
 	PGConfParameterItem *originalParameterItems;
 	bool coordinatorPgxcNodeChanged;
-	bool coordinatorPaused;
+	bool holdClusterLock;
 	bool adbSlotChanged;
 } SwitcherNodeWrapper;
 
@@ -98,19 +98,17 @@ extern void switchToDataNodeNewMaster(SwitcherNodeWrapper *oldMaster,
 									  dlist_head *coordinators,
 									  MemoryContext spiContext,
 									  bool kickOutOldMaster);
-extern bool revertClusterSetting(dlist_head *coordinators,
-								 SwitcherNodeWrapper *oldMaster,
-								 SwitcherNodeWrapper *newMaster,
-								 bool complain);
 extern void precheckPromotionNode(dlist_head *runningSlaves,
 								  bool forceSwitch);
 extern SwitcherNodeWrapper *choosePromotionNode(dlist_head *runningSlaves,
 												bool forceSwitch,
 												dlist_head *failedSlaves);
-extern bool tryLockCluster(dlist_head *coordinators, bool complain);
-extern bool lockCoordinator(SwitcherNodeWrapper *coordinator, bool complain);
+extern void revertClusterSetting(dlist_head *coordinators,
+								 SwitcherNodeWrapper *oldMaster,
+								 SwitcherNodeWrapper *newMaster);
+extern void tryLockCluster(dlist_head *coordinators);
 extern bool tryUnlockCluster(dlist_head *coordinators, bool complain);
-extern bool unlockCoordinator(SwitcherNodeWrapper *coordinator, bool complain);
+extern void restoreCoordinatorSetting(SwitcherNodeWrapper *coordinator);
 extern void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
 											MemoryContext spiContext,
 											bool forceSwitch,

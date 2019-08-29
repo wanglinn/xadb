@@ -217,7 +217,7 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 		EmitErrorReport();
 		FlushErrorState();
 
-		revertClusterSetting(&coordinators, oldMaster, newMaster, false);
+		revertClusterSetting(&coordinators, oldMaster, newMaster);
 		/* do not throw this exception */
 	}
 	PG_END_TRY();
