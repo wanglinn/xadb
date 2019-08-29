@@ -40,6 +40,7 @@
 #include "parser/parser.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_oper.h"
+#include "partitioning/partprune.h"
 #include "pgxc/locator.h"
 #include "pgxc/nodemgr.h"
 #include "utils/array.h"
@@ -47,6 +48,7 @@
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
+#include "utils/partcache.h"
 #include "utils/rel.h"
 #include "utils/ruleutils.h"
 #include "utils/snapmgr.h"
@@ -300,6 +302,75 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 
 	context.relid = varno;
 	null_test_list = NIL;
+	if (loc_info->locatorType == LOCATOR_TYPE_LIST ||
+		loc_info->locatorType == LOCATOR_TYPE_RANGE)
+	{
+		Relation	rel;
+		ListCell   *lc;
+		PartitionKey part_key;
+		PartitionDesc part_desc;
+		PartitionScheme part_scheme;
+		List	   *exprs = NIL;
+		List	   *clauses;
+		Bitmapset  *bms;
+		Oid			opclass[PARTITION_MAX_KEYS];
+		Oid			collation[PARTITION_MAX_KEYS];
+		AttrNumber	attr[PARTITION_MAX_KEYS];
+		char		strategy;
+
+		Assert(list_length(loc_info->keys) > 0);
+		Assert(list_length(loc_info->keys) <= PARTITION_MAX_KEYS);
+
+		rel = relation_open(loc_info->relid, NoLock);
+		if (loc_info->locatorType == LOCATOR_TYPE_LIST)
+			strategy = PARTITION_STRATEGY_LIST;
+		else
+			strategy = PARTITION_STRATEGY_RANGE;
+
+		i = 0;
+		foreach(lc, loc_info->keys)
+		{
+			LocatorKeyInfo *key = lfirst(lc);
+			opclass[i] = key->opclass;
+			collation[i] = key->collation;
+			attr[i] = key->attno;
+			if (key->attno == InvalidAttrNumber)
+			{
+				Assert(key->key != NULL);
+				exprs = lappend(exprs, key->key);
+			}
+		}
+		part_key = RelationGenerateDistributeKey(rel,
+												attr,
+												exprs,
+												opclass,
+												collation,
+												strategy,
+												list_length(loc_info->keys));
+		part_scheme = build_partschema_from_partkey(part_key);
+		part_desc = DistributeRelationGenerateDesc(part_key, loc_info->nodeids, loc_info->values);
+
+		if (IsA(quals, List))
+			clauses = (List*)quals;
+		else
+			clauses = list_make1(quals);
+		bms = prune_distribute_rel(varno, clauses, part_scheme, part_desc, part_key);
+		relation_close(rel, NoLock);
+
+		result = NIL;
+		if (bms_is_empty(bms) == false)
+		{
+			i = 0;
+			MemoryContextSwitchTo(old_mctx);
+			foreach(lc, loc_info->nodeids)
+			{
+				if (bms_is_member(i, bms))
+					result = lappend_oid(result, lfirst_oid(lc));
+				++i;
+			}
+		}
+		goto end_test_;
+	}
 	if(IsLocatorDistributedByValue(loc_info->locatorType))
 	{
 		context.varattno = GetFirstLocAttNumIfOnlyOne(loc_info);
@@ -364,6 +435,7 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 		++i;
 	}
 
+end_test_:
 	MemoryContextSwitchTo(old_mctx);
 	MemoryContextDelete(main_mctx);
 	return result;
