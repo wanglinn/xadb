@@ -74,6 +74,7 @@ extern bool has_row_triggers(PlannerInfo *root, Index rti, CmdType event);
 extern bool has_any_triggers_subclass(PlannerInfo *root, Index rti, CmdType event);
 extern bool reloid_has_any_triggers_subclass(Oid reloid, CmdType event);
 extern bool reloid_list_has_any_triggers(List *list, CmdType event);
+extern PartitionScheme build_partschema_from_partkey(PartitionKey partkey);
 
 /* src/backend/optimizer/util/remotetest.c */
 typedef enum UseAuxiliaryType

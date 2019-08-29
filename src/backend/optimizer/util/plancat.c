@@ -2150,6 +2150,22 @@ find_partition_scheme(PlannerInfo *root, Relation relation)
 		return part_scheme;
 	}
 
+#ifdef ADB
+	part_scheme = build_partschema_from_partkey(partkey);
+
+	/* Add the partitioning scheme to PlannerInfo. */
+	root->part_schemes = lappend(root->part_schemes, part_scheme);
+
+	return part_scheme;
+}
+
+PartitionScheme build_partschema_from_partkey(PartitionKey partkey)
+{
+	int			partnatts = partkey->partnatts,
+				i;
+	PartitionScheme part_scheme;
+#endif /* ADB */
+
 	/*
 	 * Did not find matching partition scheme. Create one copying relevant
 	 * information from the relcache. We need to copy the contents of the
@@ -2186,8 +2202,10 @@ find_partition_scheme(PlannerInfo *root, Relation relation)
 		fmgr_info_copy(&part_scheme->partsupfunc[i], &partkey->partsupfunc[i],
 					   CurrentMemoryContext);
 
+#ifndef ADB
 	/* Add the partitioning scheme to PlannerInfo. */
 	root->part_schemes = lappend(root->part_schemes, part_scheme);
+#endif /* ADB */
 
 	return part_scheme;
 }
