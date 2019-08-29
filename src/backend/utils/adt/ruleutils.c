@@ -75,11 +75,13 @@
 #ifdef ADB
 #include "access/reloptions.h"
 #include "catalog/adb_proc.h"
+#include "catalog/pgxc_class.h"
 #include "nodes/execnodes.h"
 #include "optimizer/pgxcplan.h"
 #include "optimizer/reduceinfo.h"
 #include "parser/parse_type.h"
 #include "pgxc/pgxc.h"
+#include "utils/formatting.h"
 #include "utils/memutils.h"
 #endif
 
@@ -12093,4 +12095,235 @@ static void deparse_namelist(StringInfo buf, List *namelist, bool quote)
 			pfree((void*)str);
 	}
 }
+
+static void adb_get_distribute_def_worker(StringInfo buf, Oid relid, int prettyFlags, bool missing_ok);
+/*
+ * adb_get_distribute_def
+ * 
+ * DISTRIBUTE BY { RANGE | LIST | HASH ... } [(column opt_collation opt_class)]
+ * TO {GROUP name|NODE node[(node1 [for values ...])]}
+ */
+Datum
+adb_get_distribute_def(PG_FUNCTION_ARGS)
+{
+	StringInfoData	buf;
+	Oid				relid = PG_GETARG_OID(0);
+	text		   *txt;
+
+	initStringInfo(&buf);
+	adb_get_distribute_def_worker(&buf, relid, PRETTYFLAG_INDENT, true);
+
+	if (buf.len == 0)
+	{
+		pfree(buf.data);
+		PG_RETURN_NULL();
+	}else
+	{
+		txt = cstring_to_text_with_len(buf.data, buf.len);
+		pfree(buf.data);
+	}
+
+	PG_RETURN_TEXT_P(txt);
+}
+
+static void* GetSysCacheXCClassAttr(HeapTuple tup, AttrNumber attno, bool can_be_null, Oid relid)
+{
+	Datum datum;
+	bool isnull;
+
+	datum = SysCacheGetAttr(PGXCCLASSRELID, tup, attno, &isnull);
+
+	if (isnull)
+	{
+		if (can_be_null == false)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_DATA_CORRUPTED),
+					 errmsg("invalid column(%d) data for pgxc_class(%u)", attno, relid)));
+		}
+		return NULL;
+	}
+
+	return DatumGetPointer(datum);
+}
+
+static void adb_get_distribute_def_worker(StringInfo buf, Oid relid, int prettyFlags, bool missing_ok)
+{
+	Form_pgxc_class	form;
+	HeapTuple		tuple;
+	List		   *values;
+	ListCell	   *lc;
+	char		   *str;
+	oidvector	   *attrs;
+	text		   *txt;
+	const char	   *sep;
+	deparse_context context;
+	uint32			n;
+
+	tuple = SearchSysCache1(PGXCCLASSRELID, ObjectIdGetDatum(relid));
+	if (!HeapTupleIsValid(tuple))
+	{
+		if (missing_ok)
+			return;
+		elog(ERROR, "cache lookup failed for pgxc_class %u", relid);
+	}
+	form = (Form_pgxc_class) GETSTRUCT(tuple);
+	Assert(form->pcrelid == relid);
+
+	memset(&context, 0, sizeof(context));
+	context.buf = buf;
+
+	appendStringInfoString(buf, "DISTRIBUTE BY ");
+	for(n=0;n<cnt_distribute_name_type;++n)
+	{
+		if (all_distribute_name_type[n].loc_type == form->pclocatortype)
+		{
+			str = asc_toupper(all_distribute_name_type[n].name,
+							  strlen(all_distribute_name_type[n].name));
+			appendStringInfoString(buf, str);
+			pfree(str);
+			break;
+		}
+	}
+	if (n>=cnt_distribute_name_type)
+		elog(ERROR, "unexpected distribute type: %d", (int)form->pclocatortype);
+
+	attrs = GetSysCacheXCClassAttr(tuple, Anum_pgxc_class_pcattrs, true, relid);
+	if (attrs != NULL)
+	{
+		List	   *exprs = NIL;
+		oidvector  *attclass = GetSysCacheXCClassAttr(tuple, Anum_pgxc_class_pcclass, false, relid);
+		oidvector  *attcollation = GetSysCacheXCClassAttr(tuple, Anum_pgxc_class_pccollation, true, relid);
+		txt = GetSysCacheXCClassAttr(tuple, Anum_pgxc_class_pcexprs, true, relid);
+		if (txt)
+		{
+			str = text_to_cstring(txt);
+			exprs = stringToNode(str);
+			if (!IsA(exprs, List))
+				ereport(ERROR,
+						(errcode(ERRCODE_DATA_CORRUPTED),
+						 errmsg("invalid column(%d) data for pgxc_class(%u)",
+						 		Anum_pgxc_class_pcexprs, relid)));
+			pfree(str);
+		}
+		context.namespaces = deparse_context_for(get_relation_name(relid), relid);
+
+		sep = "(";
+		lc = list_head(exprs);
+		for(n=0;n<attrs->dim1;++n)
+		{
+			Oid			keycoltype;
+			Oid			keycolcollation;
+			Oid			partcoll;
+			appendStringInfoString(buf, sep);
+			sep = ", ";
+
+			if (attrs->values[n] != InvalidAttrNumber)
+			{
+				int32		keycoltypmod;
+
+				str = get_attname(relid, attrs->values[n], false);
+				appendStringInfoString(buf, quote_identifier(str));
+				pfree(str);
+				get_atttypetypmodcoll(relid, attrs->values[n],
+									  &keycoltype, &keycoltypmod,
+									  &keycolcollation);
+			}else
+			{
+				Node	   *key;
+				if (lc == NULL)
+					elog(ERROR, "too few entries in pcexprs list");
+				key = lfirst(lc);
+				lc = lnext(lc);
+
+				str = deparse_expression_pretty(key, context.namespaces, false, false, prettyFlags, 0);
+				if (looks_like_function(key))
+					appendStringInfoString(buf, str);
+				else
+					appendStringInfo(buf, "(%s)", str);
+				pfree(str);
+
+				keycoltype = exprType(key);
+				keycolcollation = exprCollation(key);
+			}
+
+			if (attcollation)
+				partcoll = attcollation->values[n];
+			else
+				partcoll = InvalidOid;
+			if (OidIsValid(partcoll) && partcoll != keycolcollation)
+			{
+				str = generate_collation_name(partcoll);
+				appendStringInfo(buf, " COLLATE %s", str);
+				pfree(str);
+			}
+			get_opclass_name(attclass->values[n], keycoltype, buf);
+		}
+		appendStringInfoChar(buf, ')');
+	}
+
+	txt = GetSysCacheXCClassAttr(tuple, Anum_pgxc_class_pcvalues, true, relid);
+	if (txt)
+	{
+		str = text_to_cstring(txt);
+		values = stringToNode(str);
+		pfree(str);
+		if (!IsA(values, List) ||
+			list_length(values) != form->nodeoids.dim1)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_DATA_CORRUPTED),
+					 errmsg("pgxc_class(%u) attribute %d and %d element count not same",
+					 		relid, Anum_pgxc_class_nodeoids, Anum_pgxc_class_pcvalues)));
+		}
+	}else
+	{
+		values = NIL;
+	}
+	lc = list_head(values);
+
+	appendStringInfoString(buf, " TO NODE");
+	sep = "(";
+	for (n=0;n<form->nodeoids.dim1;++n)
+	{
+		appendStringInfoString(buf, sep);
+		sep = ", ";
+
+		str = get_pgxc_nodename(form->nodeoids.values[n]);
+		appendStringInfoString(buf, str);
+		if (lc)
+		{
+			ListCell *lc2;
+			List *list2 = lfirst_node(List, lc);
+			lc = lnext(lc);
+			switch(form->pclocatortype)
+			{
+			case LOCATOR_TYPE_LIST:
+				Assert(list_length(list2) > 0);
+				appendStringInfoString(buf, " FOR VALUES IN (");
+				foreach(lc2, list2)
+				{
+					get_const_expr(lfirst_node(Const, lc2), &context, -1);
+					if (lnext(lc2))
+						appendStringInfoString(buf, ", ");
+				}
+				appendStringInfoChar(buf, ')');
+				break;
+			case LOCATOR_TYPE_RANGE:
+				Assert(list_length(list2) == 2);
+				appendStringInfoString(buf, " FOR VALUES FROM ");
+				str = get_range_partbound_string(linitial_node(List, list2));
+				appendStringInfoString(buf, str);
+				pfree(str);
+				appendStringInfoString(buf, " TO ");
+				str = get_range_partbound_string(llast_node(List, list2));
+				appendStringInfoString(buf, str);
+				pfree(str);
+				break;
+			}
+		}
+	}
+	appendStringInfoChar(buf, ')');
+}
+
 #endif /* ADB */
