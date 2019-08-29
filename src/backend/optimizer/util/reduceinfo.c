@@ -228,6 +228,16 @@ ReduceInfo *MakeReduceInfoFromLocInfo(const RelationLocInfo *loc_info, const Lis
 		}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
 		{
 			rinfo->type = REDUCE_TYPE_MODULO;
+		}else if(loc_info->locatorType == LOCATOR_TYPE_LIST)
+		{
+			rinfo->type = REDUCE_TYPE_LIST;
+			Assert(list_length(loc_info->values) == list_length(loc_info->nodeids));
+			rinfo->values = copyObject(loc_info->values);
+		}else if(loc_info->locatorType == LOCATOR_TYPE_RANGE)
+		{
+			rinfo->type = REDUCE_TYPE_RANGE;
+			Assert(list_length(loc_info->values) == list_length(loc_info->nodeids));
+			rinfo->values = copyObject(loc_info->values);
 		}else
 		{
 			ereport(ERROR,
