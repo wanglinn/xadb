@@ -996,7 +996,7 @@ PartitionKey RelationGenerateDistributeKey(Relation rel, AttrNumber *attno,
 	if (exprs)
 	{
 		exprs = (List*)eval_const_expressions(NULL, (Node*)exprs);
-		fix_opfuncids(exprs);
+		fix_opfuncids((Node*)exprs);
 
 		oldcxt = MemoryContextSwitchTo(partkeycxt);
 		key->partexprs = (List *) copyObject(exprs);
