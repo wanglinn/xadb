@@ -9200,6 +9200,10 @@ static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subp
 														quals);
 				*exec_nodes = list_copy(loc_info->nodeids);
 				return subpath;
+			}else if(loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
+			{
+				/* when no reduce, in datanode function NODEID_FROM_HASHVALUE is not work */
+				return NULL;
 			}
 			rel = relation_open(rte->relid, NoLock);
 			rinfo = MakeReduceInfoFromLocInfo(loc_info, NIL, rte->relid, relid);
@@ -9275,6 +9279,10 @@ static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subp
 				result_path->subpath = subpath;
 				*exec_nodes = list_copy(loc_info->nodeids);
 				return (Path*)result_path;
+			}else if(loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
+			{
+				/* when no reduce, in datanode function NODEID_FROM_HASHVALUE is not work */
+				return NULL;
 			}else if(loc_info->locatorType != LOCATOR_TYPE_RANDOM)
 			{
 				rinfo = MakeReduceInfoUsingPathTarget(loc_info, NIL, subpath->pathtarget);
