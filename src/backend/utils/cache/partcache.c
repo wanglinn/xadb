@@ -1058,6 +1058,7 @@ PartitionKey RelationGenerateDistributeKey(Relation rel, AttrNumber *attno,
 	MemoryContextSwitchTo(oldcxt);
 
 	/* determine support function number to search for */
+#warning do we need use HASHSTANDARD_PROC?
 	procnum = (strategy == PARTITION_STRATEGY_HASH) ?
 		HASHEXTENDED_PROC : BTORDER_PROC;
 
@@ -1110,10 +1111,11 @@ PartitionKey RelationGenerateDistributeKey(Relation rel, AttrNumber *attno,
 		else
 		{
 			Node *node;
-			if (exprs == NIL)
+			if (lc == NULL)
 				elog(ERROR, "wrong number of distribute key expressions");
 
-			node = linitial(exprs);
+			node = lfirst(lc);
+			lc = lnext(lc);
 			key->parttypid[i] = exprType(node);
 			key->parttypmod[i] = exprTypmod(node);
 			key->parttypcoll[i] = exprCollation(node);
