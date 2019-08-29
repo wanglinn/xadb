@@ -54,6 +54,7 @@ extern Expr *get_partition_qual_relid(Oid relid);
 #ifdef ADB
 extern PartitionKey RelationGenerateDistributeKey(Relation rel, AttrNumber *attr,
 						List *exprs, Oid *opclass, Oid *collation, char strategy, int16 natts);
+extern PartitionDesc DistributeRelationGenerateDesc(PartitionKey key, List *nodeoids, List *values);
 #endif /* ADB */
 
 /*

@@ -43,6 +43,7 @@ static int32 qsort_partition_list_value_cmp(const void *a, const void *b,
 							   void *arg);
 static int32 qsort_partition_rbound_cmp(const void *a, const void *b,
 						   void *arg);
+static PartitionDesc BuildPartitionDescInternal(PartitionKey key, List *boundspecs, List *partoids, MemoryContext mem_context);
 
 
 /*
@@ -268,27 +269,10 @@ RelationBuildPartitionDesc(Relation rel)
 {
 	List	   *inhoids,
 			   *partoids;
-	Oid		   *oids = NULL;
 	List	   *boundspecs = NIL;
 	ListCell   *cell;
-	int			i,
-				nparts;
+	int			i;
 	PartitionKey key = RelationGetPartitionKey(rel);
-	PartitionDesc result;
-	MemoryContext oldcxt;
-
-	int			ndatums = 0;
-	int			default_index = -1;
-
-	/* Hash partitioning specific */
-	PartitionHashBound **hbounds = NULL;
-
-	/* List partitioning specific */
-	PartitionListValue **all_values = NULL;
-	int			null_index = -1;
-
-	/* Range partitioning specific */
-	PartitionRangeBound **rbounds = NULL;
 
 	/* Get partition oids from pg_inherits */
 	inhoids = find_inheritance_children(RelationGetRelid(rel), NoLock);
@@ -334,6 +318,49 @@ RelationBuildPartitionDesc(Relation rel)
 		partoids = lappend_oid(partoids, inhrelid);
 		ReleaseSysCache(tuple);
 	}
+
+	/* Assert we aren't about to leak any old data structure */
+	Assert(rel->rd_pdcxt == NULL);
+	Assert(rel->rd_partdesc == NULL);
+
+	/*
+	 * Now build the actual relcache partition descriptor.  Note that the
+	 * order of operations here is fairly critical.  If we fail partway
+	 * through this code, we won't have leaked memory because the rd_pdcxt is
+	 * attached to the relcache entry immediately, so it'll be freed whenever
+	 * the entry is rebuilt or destroyed.  However, we don't assign to
+	 * rd_partdesc until the cached data structure is fully complete and
+	 * valid, so that no other code might try to use it.
+	 */
+	rel->rd_pdcxt = AllocSetContextCreate(CacheMemoryContext,
+										  "partition descriptor",
+										  ALLOCSET_DEFAULT_SIZES);
+	MemoryContextCopyAndSetIdentifier(rel->rd_pdcxt,
+									  RelationGetRelationName(rel));
+	rel->rd_partdesc = BuildPartitionDescInternal(key, boundspecs, partoids, rel->rd_pdcxt);
+}
+
+static PartitionDesc BuildPartitionDescInternal(PartitionKey key, List *boundspecs, List *partoids, MemoryContext mem_context)
+{
+	Oid		   *oids = NULL;
+	ListCell   *cell;
+	int			i,
+				nparts;
+	PartitionDesc result;
+	MemoryContext oldcxt;
+
+	int			ndatums = 0;
+	int			default_index = -1;
+
+	/* Hash partitioning specific */
+	PartitionHashBound **hbounds = NULL;
+
+	/* List partitioning specific */
+	PartitionListValue **all_values = NULL;
+	int			null_index = -1;
+
+	/* Range partitioning specific */
+	PartitionRangeBound **rbounds = NULL;
 
 	nparts = list_length(partoids);
 
@@ -571,26 +598,7 @@ RelationBuildPartitionDesc(Relation rel)
 				 (int) key->strategy);
 	}
 
-	/* Assert we aren't about to leak any old data structure */
-	Assert(rel->rd_pdcxt == NULL);
-	Assert(rel->rd_partdesc == NULL);
-
-	/*
-	 * Now build the actual relcache partition descriptor.  Note that the
-	 * order of operations here is fairly critical.  If we fail partway
-	 * through this code, we won't have leaked memory because the rd_pdcxt is
-	 * attached to the relcache entry immediately, so it'll be freed whenever
-	 * the entry is rebuilt or destroyed.  However, we don't assign to
-	 * rd_partdesc until the cached data structure is fully complete and
-	 * valid, so that no other code might try to use it.
-	 */
-	rel->rd_pdcxt = AllocSetContextCreate(CacheMemoryContext,
-										  "partition descriptor",
-										  ALLOCSET_SMALL_SIZES);
-	MemoryContextCopyAndSetIdentifier(rel->rd_pdcxt,
-									  RelationGetRelationName(rel));
-
-	oldcxt = MemoryContextSwitchTo(rel->rd_pdcxt);
+	oldcxt = MemoryContextSwitchTo(mem_context);
 
 	result = (PartitionDescData *) palloc0(sizeof(PartitionDescData));
 	result->nparts = nparts;
@@ -794,7 +802,7 @@ RelationBuildPartitionDesc(Relation rel)
 	}
 
 	MemoryContextSwitchTo(oldcxt);
-	rel->rd_partdesc = result;
+	return result;
 }
 
 /*
@@ -1129,5 +1137,45 @@ PartitionKey RelationGenerateDistributeKey(Relation rel, AttrNumber *attno,
 	}
 
 	return key;
+}
+
+PartitionDesc DistributeRelationGenerateDesc(PartitionKey key, List *nodeoids, List *values)
+{
+	ListCell   *lc;
+	List	   *boundspecs = NIL;
+	PartitionBoundSpec *spec;
+
+	Assert(list_length(nodeoids) == list_length(values));
+
+	if (key->strategy == PARTITION_STRATEGY_LIST)
+	{
+		foreach(lc, values)
+		{
+			spec = makeNode(PartitionBoundSpec);
+			spec->strategy = PARTITION_STRATEGY_LIST;
+			spec->listdatums = lfirst_node(List, lc);
+			boundspecs = lappend(boundspecs, spec);
+		}
+	}else if(key->strategy == PARTITION_STRATEGY_RANGE)
+	{
+		List *list2;
+		foreach(lc, values)
+		{
+			list2 = lfirst_node(List, lc);
+			Assert(list_length(list2) == 2);
+
+			spec = makeNode(PartitionBoundSpec);
+			spec->strategy = PARTITION_STRATEGY_RANGE;
+			spec->lowerdatums = linitial_node(List, list2);
+			spec->upperdatums = llast_node(List, list2);
+
+			boundspecs = lappend(boundspecs, spec);
+		}
+	}else
+	{
+		return NULL;
+	}
+
+	return BuildPartitionDescInternal(key, boundspecs, nodeoids, CurrentMemoryContext);
 }
 #endif /* ADB */
