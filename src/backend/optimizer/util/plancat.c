@@ -2163,6 +2163,12 @@ set_baserel_partition_key_exprs(Relation relation,
 								RelOptInfo *rel)
 {
 	PartitionKey partkey = RelationGetPartitionKey(relation);
+#ifdef ADB
+	return adb_set_rel_partition_key_exprs(partkey, rel);
+}
+void adb_set_rel_partition_key_exprs(PartitionKey partkey, RelOptInfo *rel)
+{
+#endif
 	int			partnatts;
 	int			cnt;
 	List	  **partexprs;
