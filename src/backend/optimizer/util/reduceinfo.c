@@ -2324,7 +2324,7 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 			list_make1((Expr*)result),
 			exprType((Node*)result), exprCollation((Node*)result),
 			COERCE_EXPLICIT_CALL);
-
+		result = (Expr*)makeRelabelType(result, OIDOID, -1, InvalidOid, COERCE_IMPLICIT_CAST);
 		break;
 	case REDUCE_TYPE_CUSTOM:
 		Assert(list_length(reduce->params) > 0 && reduce->expr != NULL);
