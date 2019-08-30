@@ -9481,7 +9481,9 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 		path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
 	}else if(loc_info->locatorType == LOCATOR_TYPE_HASH ||
 			 loc_info->locatorType == LOCATOR_TYPE_HASHMAP ||
-			 loc_info->locatorType == LOCATOR_TYPE_MODULO)
+			 loc_info->locatorType == LOCATOR_TYPE_MODULO ||
+			 loc_info->locatorType == LOCATOR_TYPE_LIST ||
+			 loc_info->locatorType == LOCATOR_TYPE_RANGE)
 	{
 		if (IsReduceInfoListReplicated(reduce_list))
 		{
