@@ -12324,6 +12324,7 @@ static void adb_get_distribute_def_worker(StringInfo buf, Oid relid, int prettyF
 		}
 	}
 	appendStringInfoChar(buf, ')');
+	ReleaseSysCache(tuple);
 }
 
 #endif /* ADB */
