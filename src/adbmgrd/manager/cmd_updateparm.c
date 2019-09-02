@@ -451,7 +451,7 @@ static bool mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, 
 	tuple = SearchSysCache2(PARMTYPENAME, CharGetDatum(parmtype), NameGetDatum(key));
 	if(!HeapTupleIsValid(tuple))
 	{
-		if (PARM_TYPE_COORDINATOR == parmtype || PARM_TYPE_DATANODE ==parmtype)
+		if (PARM_TYPE_COORDINATOR == parmtype || PARM_TYPE_DATANODE ==parmtype || PARM_TYPE_GTMCOOR == parmtype)
 		{
 			/*check the parm in mgr_parm, type is '#'*/
 			tuple = SearchSysCache2(PARMTYPENAME, CharGetDatum(PARM_IN_CN_DN), NameGetDatum(key));
@@ -469,18 +469,6 @@ static bool mgr_check_parm_in_pgconf(Relation noderel, char parmtype, Name key, 
 			}
 			else
 				mgr_parm = (Form_mgr_parm)GETSTRUCT(tuple);
-		}
-		else if (PARM_TYPE_GTMCOOR == parmtype)
-		{
-			/*check the parm in mgr_parm, type is '*'*/
-			tuple = SearchSysCache2(PARMTYPENAME, CharGetDatum(PARM_IN_GTM_CN_DN), NameGetDatum(key));
-			if(!HeapTupleIsValid(tuple))
-			{
-				ereport(elevel, (errcode(ERRCODE_UNDEFINED_OBJECT)
-					, errmsg("unrecognized configuration parameter \"%s\"", key->data)));
-				return false;
-			}
-			mgr_parm = (Form_mgr_parm)GETSTRUCT(tuple);
 		}
 		else
 		{
