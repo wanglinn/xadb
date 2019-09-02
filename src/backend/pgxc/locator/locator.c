@@ -857,19 +857,19 @@ RelationIdBuildLocator(Oid relid)
 
 		if (enable_readsql_on_slave && IsCnMaster())
 		{
-			relationLocInfo->masternodeids = list_copy(relationLocInfo->nodeids);
+			relationLocInfo->masternodeids = relationLocInfo->nodeids;
 			relationLocInfo->slavenodeids = adbUseDnSlaveNodeids(relationLocInfo->nodeids);
 		}
 
 		if (enable_readsql_on_slave && sql_readonly == SQLTYPE_READ)
-			adbUpdateListNodeids(relationLocInfo->nodeids, relationLocInfo->slavenodeids);
+			relationLocInfo->nodeids = relationLocInfo->slavenodeids;
 	}
 	else
 	{
 		relationLocInfo->nodeids = GetSlotNodeOids();
 		if (enable_readsql_on_slave && IsCnMaster())
 		{
-			relationLocInfo->masternodeids = list_copy(relationLocInfo->nodeids);
+			relationLocInfo->masternodeids = relationLocInfo->nodeids;
 			relationLocInfo->slavenodeids = adbUseDnSlaveNodeids(relationLocInfo->nodeids);
 		}
 	}
@@ -970,13 +970,18 @@ FreeRelationLocInfo(RelationLocInfo *relationLocInfo)
 {
 	if (relationLocInfo)
 	{
-		list_free(relationLocInfo->nodeids);
 		if (enable_readsql_on_slave)
 		{
+			Assert(relationLocInfo->nodeids != relationLocInfo->masternodeids);
+			relationLocInfo->nodeids = NIL;
 			if (relationLocInfo->masternodeids)
 				list_free(relationLocInfo->masternodeids);
 			if (relationLocInfo->slavenodeids)
 				list_free(relationLocInfo->slavenodeids);
+		}
+		else
+		{
+			list_free(relationLocInfo->nodeids);
 		}
 		list_free(relationLocInfo->funcAttrNums);
 		pfree(relationLocInfo);

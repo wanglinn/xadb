@@ -1924,7 +1924,6 @@ RelationIdGetRelation(Oid relationId)
 	Relation	rd;
 #ifdef ADB
 	List *masterNodeids = NIL;
-	List *slaveNodeids = NIL;
 #endif
 
 	/* Make sure we're in an xact, even if this ends up being a cache hit */
@@ -1934,45 +1933,6 @@ RelationIdGetRelation(Oid relationId)
 	 * first try to find reldesc in the cache
 	 */
 	RelationIdCacheLookup(relationId, rd);
-
-#ifdef ADB
-	if (rd && rd->rd_locator_info && rd->rd_locator_info->nodeids)
-	{
-		MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(rd));
-		if (enable_readsql_on_slave && sql_readonly == SQLTYPE_READ)
-		{
-			if (rd->rd_locator_info->slavenodeids != NIL)
-				adbUpdateListNodeids(rd->rd_locator_info->nodeids
-							, rd->rd_locator_info->slavenodeids);
-			else
-			{
-				masterNodeids = adbGetRelationNodeids(relationId);
-				slaveNodeids = adbUseDnSlaveNodeids(masterNodeids);
-				adbUpdateListNodeids(rd->rd_locator_info->nodeids, slaveNodeids);
-				if (masterNodeids)
-					list_free(masterNodeids);
-				if (slaveNodeids)
-					list_free(slaveNodeids);
-			}
-		}
-		else
-		{
-			if (rd->rd_locator_info->masternodeids)
-			{
-				adbUpdateListNodeids(rd->rd_locator_info->nodeids
-							, rd->rd_locator_info->masternodeids);
-			}
-			else
-			{
-				masterNodeids = adbGetRelationNodeids(relationId);
-				adbUpdateListNodeids(rd->rd_locator_info->nodeids, masterNodeids);
-				if (masterNodeids)
-					list_free(masterNodeids);
-			}
-		}
-		MemoryContextSwitchTo(oldcontext);
-	}
-#endif
 
 	if (RelationIsValid(rd))
 	{
@@ -2001,9 +1961,12 @@ RelationIdGetRelation(Oid relationId)
 			Assert(rd->rd_isvalid ||
 				   (rd->rd_isnailed && !criticalRelcachesBuilt));
 		}
+#ifdef ADB
+	}else{
+#else
 		return rd;
 	}
-
+#endif
 	/*
 	 * no reldesc in the cache, so have RelationBuildDesc() build one and add
 	 * it.
@@ -2011,6 +1974,39 @@ RelationIdGetRelation(Oid relationId)
 	rd = RelationBuildDesc(relationId, true);
 	if (RelationIsValid(rd))
 		RelationIncrementReferenceCount(rd);
+#ifdef ADB
+	}
+	if (rd && rd->rd_locator_info)
+	{
+		MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(rd));
+		if (enable_readsql_on_slave && sql_readonly == SQLTYPE_READ)
+		{
+			if (rd->rd_locator_info->slavenodeids != NIL)
+				rd->rd_locator_info->nodeids = rd->rd_locator_info->slavenodeids;
+			else
+			{
+				masterNodeids = adbGetRelationNodeids(relationId);
+				rd->rd_locator_info->slavenodeids = adbUseDnSlaveNodeids(masterNodeids);
+				rd->rd_locator_info->nodeids = rd->rd_locator_info->slavenodeids;
+				if (masterNodeids)
+					list_free(masterNodeids);
+			}
+		}
+		else
+		{
+			if (rd->rd_locator_info->masternodeids)
+			{
+				rd->rd_locator_info->nodeids = rd->rd_locator_info->masternodeids;
+			}
+			else
+			{
+				rd->rd_locator_info->masternodeids = adbGetRelationNodeids(relationId);
+				rd->rd_locator_info->nodeids = rd->rd_locator_info->masternodeids;
+			}
+		}
+		MemoryContextSwitchTo(oldcontext);
+	}
+#endif
 	return rd;
 }
 
