@@ -255,9 +255,10 @@ MgrNodeWrapper *selectMgrNodeByNodenameType(char *nodename,
 
 /**
  * the list link data type is MgrNodeWrapper
+ * result include gtm coordinator and ordinary coordinator
  */
-void selectMgrMasterCoordinators(MemoryContext spiContext,
-								 dlist_head *resultList)
+void selectMgrAllMasterCoordinators(MemoryContext spiContext,
+									dlist_head *resultList)
 {
 	StringInfoData sql;
 
@@ -270,6 +271,46 @@ void selectMgrMasterCoordinators(MemoryContext spiContext,
 					 "AND nodeincluster = %d::boolean \n",
 					 CNDN_TYPE_COORDINATOR_MASTER,
 					 CNDN_TYPE_GTM_COOR_MASTER,
+					 true,
+					 true);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
+
+void selectMgrNodeByNodetype(MemoryContext spiContext,
+							 char nodetype,
+							 dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node \n"
+					 "WHERE nodetype = '%c' \n"
+					 "AND nodeinited = %d::boolean \n"
+					 "AND nodeincluster = %d::boolean \n",
+					 nodetype,
+					 true,
+					 true);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
+
+void selectMgrAllDataNodes(MemoryContext spiContext,
+						   dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node \n"
+					 "WHERE nodetype in ('%c','%c') \n"
+					 "AND nodeinited = %d::boolean \n"
+					 "AND nodeincluster = %d::boolean \n",
+					 CNDN_TYPE_DATANODE_MASTER,
+					 CNDN_TYPE_DATANODE_SLAVE,
 					 true,
 					 true);
 	selectMgrNodes(sql.data, spiContext, resultList);
@@ -1340,13 +1381,32 @@ bool callAgentPromoteNode(MgrNodeWrapper *node, bool complain)
 {
 	StringInfoData cmdMessage;
 	CallAgentResult res;
+	AgentCommand cmd;
+
+	if (node->form.nodetype == CNDN_TYPE_DATANODE_MASTER ||
+		node->form.nodetype == CNDN_TYPE_DATANODE_SLAVE)
+	{
+		cmd = AGT_CMD_DN_FAILOVER;
+	}
+	else if (node->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
+			 node->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+	{
+		cmd = AGT_CMD_GTMCOOR_SLAVE_FAILOVER;
+	}
+	else
+	{
+		ereport(complain ? ERROR : LOG,
+				(errmsg("unexpect nodetype \"%c\"",
+						node->form.nodetype)));
+		return false;
+	}
 
 	initStringInfo(&cmdMessage);
 
 	appendStringInfo(&cmdMessage, " promote -w -D %s", node->nodepath);
 	appendStringInfoCharMacro(&cmdMessage, '\0');
 
-	res = callAgentSendCmd(AGT_CMD_DN_FAILOVER,
+	res = callAgentSendCmd(cmd,
 						   &cmdMessage,
 						   node->host->hostaddr,
 						   node->host->form.hostagentport);
@@ -1913,13 +1973,170 @@ void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 		}
 		else
 		{
-			pg_usleep(1000000L);
+			if (nTrys < checkTrys - 1)
+				pg_usleep(1000000L);
 		}
 	}
 	if (!execOk)
 	{
 		ereport(ERROR,
 				(errmsg("%s set synchronous_standby_names failed",
+						NameStr(mgrNode->form.nodename))));
+	}
+}
+
+void setGtmInfoInPGSqlConf(MgrNodeWrapper *mgrNode,
+						   char *agtm_host,
+						   char *snapsender_port,
+						   char *gxidsender_port,
+						   bool complain)
+{
+	PGConfParameterItem *items = NULL;
+	items = newPGConfParameterItem("agtm_host", agtm_host, true);
+	items->next = newPGConfParameterItem("snapsender_port",
+										 snapsender_port, false);
+	items->next->next = newPGConfParameterItem("gxidsender_port",
+											   gxidsender_port, false);
+	callAgentRefreshPGSqlConfReload(mgrNode, items, complain);
+	pfreePGConfParameterItem(items);
+}
+
+bool checkGtmInfoInPGSqlConf(PGconn *pgConn,
+							 char *nodename,
+							 bool localSqlCheck,
+							 char *agtm_host,
+							 char *snapsender_port,
+							 char *gxidsender_port)
+{
+	char *sql;
+	char *paramName;
+	char *paramValue;
+	PGresult *pgResult = NULL;
+	int i;
+	bool execOk;
+
+	if (localSqlCheck)
+		sql = psprintf("select name, setting from pg_settings "
+					   "where name in('agtm_host','snapsender_port','gxidsender_port');");
+	else
+		sql = psprintf("EXECUTE DIRECT ON (\"%s\") "
+					   "'select name, setting from pg_settings "
+					   "where name in(''agtm_host'',''snapsender_port'',''gxidsender_port'');'",
+					   nodename);
+	pgResult = PQexec(pgConn, sql);
+	execOk = true;
+	if (PQresultStatus(pgResult) == PGRES_TUPLES_OK)
+	{
+		for (i = 0; i < PQntuples(pgResult); i++)
+		{
+			paramName = PQgetvalue(pgResult, i, 0);
+			paramValue = PQgetvalue(pgResult, i, 1);
+			if (strcmp(paramName, "agtm_host") == 0)
+			{
+				if (!strcmp(paramValue, agtm_host) == 0)
+				{
+					execOk = false;
+				}
+			}
+			else if (strcmp(paramName, "snapsender_port") == 0)
+			{
+				if (!strcmp(paramValue, snapsender_port) == 0)
+				{
+					execOk = false;
+				}
+			}
+			else if (strcmp(paramName, "gxidsender_port") == 0)
+			{
+				if (!strcmp(paramValue, gxidsender_port) == 0)
+				{
+					execOk = false;
+				}
+			}
+			else
+			{
+				ereport(ERROR,
+						(errmsg("execute %s failed, unexpected field:%s",
+								sql,
+								paramName)));
+			}
+			if (!execOk)
+				break;
+		}
+	}
+	else
+	{
+		execOk = false;
+		ereport(LOG,
+				(errmsg("execute %s failed:%s",
+						sql,
+						PQerrorMessage(pgConn))));
+	}
+	if (pgResult)
+		PQclear(pgResult);
+	return execOk;
+}
+
+void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
+								MgrNodeWrapper *mgrNode,
+								PGconn *pgConn,
+								bool localSqlCheck,
+								int checkSeconds)
+{
+	int seconds;
+	bool execOk = false;
+	char *agtm_host;
+	char snapsender_port[12] = {0};
+	char gxidsender_port[12] = {0};
+
+	agtm_host = gtmMaster->host->hostaddr;
+	pg_ltoa(gtmMaster->form.nodeport + 1, snapsender_port);
+	pg_ltoa(gtmMaster->form.nodeport + 2, gxidsender_port);
+
+	if (checkGtmInfoInPGSqlConf(pgConn,
+								NameStr(mgrNode->form.nodename),
+								localSqlCheck,
+								agtm_host,
+								snapsender_port,
+								gxidsender_port))
+	{
+		return;
+	}
+
+	setGtmInfoInPGSqlConf(mgrNode, agtm_host,
+						  snapsender_port,
+						  gxidsender_port, true);
+
+	for (seconds = 0; seconds < checkSeconds; seconds++)
+	{
+		execOk = checkGtmInfoInPGSqlConf(pgConn,
+										 NameStr(mgrNode->form.nodename),
+										 localSqlCheck,
+										 agtm_host,
+										 snapsender_port,
+										 gxidsender_port);
+		if (execOk)
+		{
+			break;
+		}
+		else
+		{
+			if (seconds < checkSeconds - 1)
+				pg_usleep(1000000L);
+		}
+	}
+	if (execOk)
+	{
+		ereport(NOTICE,
+				(errmsg("set gtm information on %s succeeded",
+						NameStr(mgrNode->form.nodename))));
+		ereport(LOG,
+				(errmsg("set gtm information on %s succeeded",
+						NameStr(mgrNode->form.nodename))));
+	}
+	else
+	{
+		ereport(ERROR,
+				(errmsg("set gtm information on %s failed",
 						NameStr(mgrNode->form.nodename))));
 	}
 }
@@ -1984,7 +2201,8 @@ bool pingNodeWaitinSeconds(MgrNodeWrapper *node,
 		}
 		else
 		{
-			pg_usleep(1000000L);
+			if (seconds < waitSeconds - 1)
+				pg_usleep(1000000L);
 		}
 	}
 	return false;

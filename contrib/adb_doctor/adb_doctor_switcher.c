@@ -33,18 +33,21 @@ typedef struct SwitcherConfiguration
 
 static void switcherMainLoop(dlist_head *switcherNodes);
 static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster);
-static void handleOldMasterNormal(SwitcherNodeWrapper *oldMaster,
-								  SwitcherNodeWrapper **newMasterP,
-								  dlist_head *runningSlaves,
-								  dlist_head *failedSlaves,
-								  dlist_head *coordinators,
-								  MemoryContext spiContext);
-static void handleOldMasterFailure(SwitcherNodeWrapper *oldMaster,
-								   SwitcherNodeWrapper **newMasterP,
-								   dlist_head *runningSlaves,
-								   dlist_head *failedSlaves,
-								   dlist_head *coordinators,
-								   MemoryContext spiContext);
+static void checkAndSwitchDataNodeMaster(SwitcherNodeWrapper *oldMaster,
+										 SwitcherNodeWrapper **newMasterP,
+										 dlist_head *runningSlaves,
+										 dlist_head *failedSlaves,
+										 dlist_head *coordinators,
+										 MemoryContext spiContext);
+static void checkAndSwitchGtmCoordMaster(SwitcherNodeWrapper *oldMaster,
+										 SwitcherNodeWrapper **newMasterP,
+										 dlist_head *runningSlaves,
+										 dlist_head *failedSlaves,
+										 dlist_head *coordinators,
+										 dlist_head *dataNodes,
+										 MemoryContext spiContext);
+static bool isNewMasterEligible(SwitcherNodeWrapper *oldMaster,
+								SwitcherNodeWrapper *newMaster);
 static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 								 MemoryContext spiContext);
 static void updateCurestatusToNormal(MgrNodeWrapper *node,
@@ -162,6 +165,7 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 	dlist_head failedSlaves = DLIST_STATIC_INIT(failedSlaves);
 	dlist_head runningSlaves = DLIST_STATIC_INIT(runningSlaves);
 	dlist_head coordinators = DLIST_STATIC_INIT(coordinators);
+	dlist_head dataNodes = DLIST_STATIC_INIT(dataNodes);
 	MemoryContext oldContext;
 	MemoryContext switchContext;
 	MemoryContext spiContext;
@@ -178,36 +182,29 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 
 	PG_TRY();
 	{
-		checkGetSlaveNodesRunningStatus(oldMaster,
-										spiContext,
-										switcherConfiguration->forceSwitch,
-										&failedSlaves,
-										&runningSlaves);
-		precheckPromotionNode(&runningSlaves,
-							  switcherConfiguration->forceSwitch);
-
-		checkGetMasterCoordinators(spiContext, &coordinators);
-
-		oldMaster->pgConn = getNodeDefaultDBConnection(oldMaster->mgrNode, 10);
-		if (oldMaster->pgConn &&
-			checkNodeRunningMode(oldMaster->pgConn, true))
+		if (oldMaster->mgrNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER)
 		{
-			oldMaster->runningMode = NODE_RUNNING_MODE_MASTER;
-			handleOldMasterNormal(oldMaster,
-								  &newMaster,
-								  &runningSlaves,
-								  &failedSlaves,
-								  &coordinators,
-								  spiContext);
+			checkAndSwitchDataNodeMaster(oldMaster,
+										 &newMaster,
+										 &runningSlaves,
+										 &failedSlaves,
+										 &coordinators,
+										 spiContext);
+		}
+		else if (oldMaster->mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+		{
+			checkAndSwitchGtmCoordMaster(oldMaster,
+										 &newMaster,
+										 &runningSlaves,
+										 &failedSlaves,
+										 &coordinators,
+										 &dataNodes,
+										 spiContext);
 		}
 		else
 		{
-			handleOldMasterFailure(oldMaster,
-								   &newMaster,
-								   &runningSlaves,
-								   &failedSlaves,
-								   &coordinators,
-								   spiContext);
+			/* mgr_node data may be changed in database */
+			resetSwitcher();
 		}
 		done = true;
 	}
@@ -227,6 +224,7 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 	pfreeSwitcherNodeWrapperList(&failedSlaves, NULL);
 	pfreeSwitcherNodeWrapperList(&runningSlaves, NULL);
 	pfreeSwitcherNodeWrapperList(&coordinators, NULL);
+	pfreeSwitcherNodeWrapperList(&dataNodes, NULL);
 
 	(void)MemoryContextSwitchTo(oldContext);
 	MemoryContextDelete(switchContext);
@@ -243,74 +241,155 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 	return done;
 }
 
-static void handleOldMasterNormal(SwitcherNodeWrapper *oldMaster,
-								  SwitcherNodeWrapper **newMasterP,
-								  dlist_head *runningSlaves,
-								  dlist_head *failedSlaves,
-								  dlist_head *coordinators,
-								  MemoryContext spiContext)
+static void checkAndSwitchDataNodeMaster(SwitcherNodeWrapper *oldMaster,
+										 SwitcherNodeWrapper **newMasterP,
+										 dlist_head *runningSlaves,
+										 dlist_head *failedSlaves,
+										 dlist_head *coordinators,
+										 MemoryContext spiContext)
 {
-	SwitcherNodeWrapper *newMaster;
-
-	oldMaster->walLsn = getNodeWalLsn(oldMaster->pgConn,
-									  oldMaster->runningMode);
-	/* Prevent other doctor processe from manipulating this node simultaneously */
-	refreshOldMasterBeforeSwitch(oldMaster, spiContext);
-
-	shutdownNodeWithinSeconds(oldMaster->mgrNode, 10, 50, true);
-
-	newMaster = choosePromotionNode(runningSlaves,
-									switcherConfiguration->forceSwitch,
-									failedSlaves);
-	*newMasterP = newMaster;
-	/* When a slave node is running in the master mode, it indicates that 
-	 * this node may be choosed as new master in the latest switch operation, 
-	 * but due to some exceptions, the switch operation is not completely 
-	 * successful. So when this node lsn is largger than the old master, 
-	 * we will continue to promote this node as the new master. */
-	if (newMaster != NULL &&
-		newMaster->runningMode == NODE_RUNNING_MODE_MASTER &&
-		newMaster->walLsn >= oldMaster->walLsn &&
-		newMaster->walLsn > InvalidXLogRecPtr)
+	checkMgrNodeDataInDB(oldMaster->mgrNode, spiContext);
+	checkSwitchDataNodePrerequisite(oldMaster,
+									runningSlaves,
+									failedSlaves,
+									coordinators,
+									spiContext,
+									switcherConfiguration->forceSwitch);
+	oldMaster->pgConn = getNodeDefaultDBConnection(oldMaster->mgrNode, 10);
+	if (oldMaster->pgConn &&
+		checkNodeRunningMode(oldMaster->pgConn, true))
 	{
-		checkMgrNodeDataInDB(oldMaster->mgrNode,
-							 spiContext);
+		oldMaster->runningMode = NODE_RUNNING_MODE_MASTER;
+		oldMaster->walLsn = getNodeWalLsn(oldMaster->pgConn,
+										  oldMaster->runningMode);
+		chooseNewMasterNode(oldMaster,
+							newMasterP,
+							runningSlaves,
+							failedSlaves,
+							spiContext,
+							switcherConfiguration->forceSwitch);
+		if (isNewMasterEligible(oldMaster, (*newMasterP)))
+		{
+			switchToDataNodeNewMaster(oldMaster,
+									  (*newMasterP),
+									  runningSlaves,
+									  failedSlaves,
+									  coordinators,
+									  spiContext,
+									  false);
+		}
+		else
+		{
+			ereport(LOG,
+					(errmsg("%s %s old master back to normal, abort switch",
+							MyBgworkerEntry->bgw_name,
+							NameStr(oldMaster->mgrNode->form.nodename))));
+			updateCurestatusToNormal(oldMaster->mgrNode, spiContext);
+			callAgentStartNode(oldMaster->mgrNode, false);
+		}
+	}
+	else
+	{
+		chooseNewMasterNode(oldMaster,
+							newMasterP,
+							runningSlaves,
+							failedSlaves,
+							spiContext,
+							switcherConfiguration->forceSwitch);
 		switchToDataNodeNewMaster(oldMaster,
-								  newMaster,
+								  (*newMasterP),
 								  runningSlaves,
 								  failedSlaves,
 								  coordinators,
 								  spiContext,
 								  false);
 	}
-	else
-	{
-		callAgentStartNode(oldMaster->mgrNode, false);
-		ereport(LOG,
-				(errmsg("%s %s old master back to normal, abort switch",
-						MyBgworkerEntry->bgw_name,
-						NameStr(oldMaster->mgrNode->form.nodename))));
-		checkMgrNodeDataInDB(oldMaster->mgrNode, spiContext);
-		updateCurestatusToNormal(oldMaster->mgrNode, spiContext);
-	}
 }
 
-static void handleOldMasterFailure(SwitcherNodeWrapper *oldMaster,
-								   SwitcherNodeWrapper **newMasterP,
-								   dlist_head *runningSlaves,
-								   dlist_head *failedSlaves,
-								   dlist_head *coordinators,
-								   MemoryContext spiContext)
+static void checkAndSwitchGtmCoordMaster(SwitcherNodeWrapper *oldMaster,
+										 SwitcherNodeWrapper **newMasterP,
+										 dlist_head *runningSlaves,
+										 dlist_head *failedSlaves,
+										 dlist_head *coordinators,
+										 dlist_head *dataNodes,
+										 MemoryContext spiContext)
 {
 	checkMgrNodeDataInDB(oldMaster->mgrNode, spiContext);
-	switchDataNodeOperation(oldMaster,
+	checkSwitchGtmCoordPrerequisite(oldMaster,
+									runningSlaves,
+									failedSlaves,
+									coordinators,
+									dataNodes,
+									spiContext,
+									switcherConfiguration->forceSwitch);
+	oldMaster->pgConn = getNodeDefaultDBConnection(oldMaster->mgrNode, 10);
+	if (oldMaster->pgConn &&
+		checkNodeRunningMode(oldMaster->pgConn, true))
+	{
+		oldMaster->runningMode = NODE_RUNNING_MODE_MASTER;
+		oldMaster->walLsn = getNodeWalLsn(oldMaster->pgConn,
+										  oldMaster->runningMode);
+		chooseNewMasterNode(oldMaster,
 							newMasterP,
 							runningSlaves,
 							failedSlaves,
-							coordinators,
 							spiContext,
-							switcherConfiguration->forceSwitch,
-							false);
+							switcherConfiguration->forceSwitch);
+
+		if (isNewMasterEligible(oldMaster, (*newMasterP)))
+		{
+			switchToGtmCoordNewMaster(oldMaster,
+									  (*newMasterP),
+									  runningSlaves,
+									  failedSlaves,
+									  coordinators,
+									  dataNodes,
+									  spiContext,
+									  false);
+		}
+		else
+		{
+			ereport(LOG,
+					(errmsg("%s %s old master back to normal, abort switch",
+							MyBgworkerEntry->bgw_name,
+							NameStr(oldMaster->mgrNode->form.nodename))));
+			updateCurestatusToNormal(oldMaster->mgrNode, spiContext);
+			callAgentStartNode(oldMaster->mgrNode, false);
+		}
+	}
+	else
+	{
+		chooseNewMasterNode(oldMaster,
+							newMasterP,
+							runningSlaves,
+							failedSlaves,
+							spiContext,
+							switcherConfiguration->forceSwitch);
+		switchToGtmCoordNewMaster(oldMaster,
+								  (*newMasterP),
+								  runningSlaves,
+								  failedSlaves,
+								  coordinators,
+								  dataNodes,
+								  spiContext,
+								  false);
+	}
+}
+
+/*
+ * When a slave node is running in the master mode, it indicates that 
+ * this node may be choosed as new master in the latest switch operation, 
+ * but due to some exceptions, the switch operation is not completely 
+ * successful. So when this node lsn is bigger than the old master, 
+ * we will continue to promote this node as the new master. 
+ */
+static bool isNewMasterEligible(SwitcherNodeWrapper *oldMaster,
+								SwitcherNodeWrapper *newMaster)
+{
+	return newMaster != NULL &&
+		   newMaster->runningMode == NODE_RUNNING_MODE_MASTER &&
+		   newMaster->walLsn >= oldMaster->walLsn &&
+		   newMaster->walLsn > InvalidXLogRecPtr;
 }
 
 static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
@@ -328,21 +407,25 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 	}
 	if (!nodeDataInDB->form.allowcure)
 	{
+		pfreeMgrNodeWrapper(nodeDataInDB);
 		ereport(ERROR,
 				(errmsg("%s %s, cure not allowed",
 						MyBgworkerEntry->bgw_name,
 						NameStr(nodeDataInDB->form.nodename))));
 	}
-	if (nodeDataInDB->form.nodetype != CNDN_TYPE_DATANODE_MASTER)
+	if (nodeDataInDB->form.nodetype != CNDN_TYPE_DATANODE_MASTER ||
+		nodeDataInDB->form.nodetype != CNDN_TYPE_GTM_COOR_MASTER)
 	{
+		pfreeMgrNodeWrapper(nodeDataInDB);
 		ereport(ERROR,
-				(errmsg("only datanode switching is supported")));
+				(errmsg("only 'data node' or 'gtm coordinator' switching is supported")));
 	}
 	if (pg_strcasecmp(NameStr(nodeDataInDB->form.curestatus),
 					  CURE_STATUS_WAIT_SWITCH) != 0 &&
 		pg_strcasecmp(NameStr(nodeDataInDB->form.curestatus),
 					  CURE_STATUS_SWITCHING) != 0)
 	{
+		pfreeMgrNodeWrapper(nodeDataInDB);
 		ereport(ERROR,
 				(errmsg("%s %s, curestatus:%s, it is not my duty",
 						MyBgworkerEntry->bgw_name,
@@ -352,6 +435,7 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 	if (pg_strcasecmp(NameStr(nodeDataInMem->form.curestatus),
 					  NameStr(nodeDataInDB->form.curestatus)) != 0)
 	{
+		pfreeMgrNodeWrapper(nodeDataInDB);
 		ereport(ERROR,
 				(errmsg("%s %s, curestatus not matched, in memory:%s, but in database:%s",
 						MyBgworkerEntry->bgw_name,
@@ -361,6 +445,7 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 	}
 	if (!isIdenticalDoctorMgrNode(nodeDataInMem, nodeDataInDB))
 	{
+		pfreeMgrNodeWrapper(nodeDataInDB);
 		ereport(ERROR,
 				(errmsg("%s %s, data has changed in database",
 						MyBgworkerEntry->bgw_name,

@@ -319,8 +319,13 @@ extern MgrNodeWrapper *selectMgrNodeByOid(Oid oid, MemoryContext spiContext);
 extern MgrNodeWrapper *selectMgrNodeByNodenameType(char *nodename,
 												   char nodetype,
 												   MemoryContext spiContext);
-extern void selectMgrMasterCoordinators(MemoryContext spiContext,
-										dlist_head *resultList);
+extern void selectMgrAllMasterCoordinators(MemoryContext spiContext,
+										   dlist_head *resultList);
+extern void selectMgrNodeByNodetype(MemoryContext spiContext,
+									char nodetype,
+									dlist_head *resultList);
+extern void selectMgrAllDataNodes(MemoryContext spiContext,
+								  dlist_head *resultList);
 extern void selectMgrSlaveNodes(Oid masterOid,
 								char nodetype,
 								MemoryContext spiContext,
@@ -421,6 +426,22 @@ extern void setSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 extern void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 											PGconn *pgConn,
 											char *value, int checkTrys);
+extern void setGtmInfoInPGSqlConf(MgrNodeWrapper *mgrNode,
+								  char *agtm_host,
+								  char *snapsender_port,
+								  char *gxidsender_port,
+								  bool complain);
+extern bool checkGtmInfoInPGSqlConf(PGconn *pgConn,
+									char *nodename,
+									bool localSqlCheck,
+									char *agtm_host,
+									char *snapsender_port,
+									char *gxidsender_port);
+extern void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
+									   MgrNodeWrapper *mgrNode,
+									   PGconn *pgConn,
+									   bool localSqlCheck,
+									   int checkSeconds);
 extern void setSlaveNodeRecoveryConf(MgrNodeWrapper *masterNode,
 									 MgrNodeWrapper *slaveNode);
 

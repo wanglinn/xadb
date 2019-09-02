@@ -7015,7 +7015,7 @@ void mgr_mark_node_in_cluster(Relation rel)
 /*
 * gtm failover
 */
-Datum mgr_failover_gtm(PG_FUNCTION_ARGS)
+Datum mgr_failover_gtm_deprecated(PG_FUNCTION_ARGS)
 {
 	Relation relNode;
 	char *nodename;

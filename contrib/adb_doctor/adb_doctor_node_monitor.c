@@ -802,7 +802,8 @@ static void toRunningStatusPending(MonitorNodeInfo *nodeInfo)
 
 static void handleNodeCrashed(MonitorNodeInfo *nodeInfo)
 {
-	if (nodeInfo->mgrNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER &&
+	if ((nodeInfo->mgrNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER ||
+		 nodeInfo->mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER) &&
 		isHaveSlaveNodes(nodeInfo->mgrNode))
 	{
 		/* if this datanode master node allow restart, try to startup it.
@@ -1778,18 +1779,20 @@ static void treatFollowFailAfterSwitch(MgrNodeWrapper *followFail)
 
 	while (true)
 	{
-		if (!isSlaveNode(followFail->form.nodetype, true))
+		if (followFail->form.nodetype != CNDN_TYPE_DATANODE_SLAVE &&
+			followFail->form.nodetype != CNDN_TYPE_GTM_COOR_SLAVE)
 		{
 			ereport(ERROR,
-					(errmsg("%s expected node is slave, but it is not",
-							MyBgworkerEntry->bgw_name)));
+					(errmsg("%s unsupported nodetype %c",
+							NameStr(followFail->form.nodename),
+							followFail->form.nodetype)));
 		}
 		if (pg_strcasecmp(NameStr(followFail->form.curestatus),
 						  CURE_STATUS_FOLLOW_FAIL) != 0)
 		{
 			ereport(ERROR,
 					(errmsg("%s expected curestatus is %s, but actually is %s",
-							MyBgworkerEntry->bgw_name,
+							NameStr(followFail->form.nodename),
 							CURE_STATUS_FOLLOW_FAIL,
 							NameStr(followFail->form.curestatus))));
 		}
@@ -1835,18 +1838,20 @@ static void treatOldMasterAfterSwitch(MgrNodeWrapper *oldMaster)
 
 	while (true)
 	{
-		if (!isSlaveNode(oldMaster->form.nodetype, true))
+		if (oldMaster->form.nodetype != CNDN_TYPE_DATANODE_SLAVE &&
+			oldMaster->form.nodetype != CNDN_TYPE_GTM_COOR_SLAVE)
 		{
 			ereport(ERROR,
-					(errmsg("%s expected node is slave, but it is not",
-							MyBgworkerEntry->bgw_name)));
+					(errmsg("%s unsupported nodetype %c",
+							NameStr(oldMaster->form.nodename),
+							oldMaster->form.nodetype)));
 		}
 		if (pg_strcasecmp(NameStr(oldMaster->form.curestatus),
 						  CURE_STATUS_OLD_MASTER) != 0)
 		{
 			ereport(ERROR,
 					(errmsg("%s expected curestatus is %s, but actually is %s",
-							MyBgworkerEntry->bgw_name,
+							NameStr(oldMaster->form.nodename),
 							CURE_STATUS_OLD_MASTER,
 							NameStr(oldMaster->form.curestatus))));
 		}
