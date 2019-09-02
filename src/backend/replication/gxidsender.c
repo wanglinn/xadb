@@ -863,7 +863,7 @@ static void GxidSenderOnClientRecvMsg(GxidClientData *client, pq_comm_node *node
 					}
 				}
 				else
-					ereport(LOG,(errmsg("GxidSend recv unknow data %s\n", gxid_send_input_buffer.data)));;
+					ereport(LOG,(errmsg("GxidSend recv unknow data %s\n", gxid_send_input_buffer.data)));
 			}
 			break;
 		case 0:
@@ -912,7 +912,8 @@ static void GxidSenderQuickDieHander(SIGNAL_ARGS)
 	exit(2);
 }
 
-Snapshot GxidSenderGetSnapshot(Snapshot snap)
+Snapshot GxidSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, TransactionId* xmaxOld,
+			int *countOld)
 {
 	TransactionId	xid,xmax,xmin;
 	uint32			i,count,xcnt;
@@ -923,9 +924,15 @@ Snapshot GxidSenderGetSnapshot(Snapshot snap)
 re_lock_:
 	SpinLockAcquire(&GxidSender->mutex);
 
-	if (snap->max_xcnt < GxidSender->xcnt)
+	if (!TransactionIdIsNormal(GxidSender->latestCompletedXid))
 	{
-		count = GxidSender->xcnt;
+		SpinLockRelease(&GxidSender->mutex);
+		return snap;
+	}
+
+	count = GxidSender->xcnt + *countOld;
+	if (snap->max_xcnt < count)
+	{
 		/*
 		 * EnlargeSnapshotXip maybe report an error,
 		 * so release lock first
@@ -935,53 +942,37 @@ re_lock_:
 		goto re_lock_;
 	}
 
-	xcnt = 0;
-	count = GxidSender->xcnt;
 	xmax = GxidSender->latestCompletedXid;
-	
-
-	if (!TransactionIdIsNormal(xmax))
-	{
-		snap->xcnt = xcnt;
-		SpinLockRelease(&GxidSender->mutex);
-		return snap;
-	}
-
+	Assert(TransactionIdIsNormal(xmax));
 	TransactionIdAdvance(xmax);
-	xmin = xmax;
 
-	for (i=0; i<count; ++i)
+	xmin = xmax;
+	xcnt = *countOld;
+	for (i = 0; i < GxidSender->xcnt; ++i)
 	{
 		xid = GxidSender->xip[i];
 
-		/* If the XID is >= xmax, we can skip it */
-		if (!NormalTransactionIdPrecedes(xid, xmax))
-			continue;
+		if (NormalTransactionIdFollows(xid, xmax))
+			xmax = xid;
 
 		if (NormalTransactionIdPrecedes(xid, xmin))
 			xmin = xid;
-
-		/* We don't include our own XIDs (if any) in the snapshot */
-		if (xid == MyPgXact->xid)
-			continue;
-
+		
 		/* Add XID to snapshot. */
 		snap->xip[xcnt++] = xid;
 	}
 	SpinLockRelease(&GxidSender->mutex);
 
-	snap->xcnt = xcnt;
-	snap->xmax = xmax;
-	snap->xmin = xmin;
-
-	/* for not suport sub transaction */
-	snap->subxcnt = 0;
-	snap->suboverflowed = false;
+	*countOld = xcnt;
+	if (NormalTransactionIdFollows(xmax, *xmaxOld))
+		*xmaxOld = xmax;
+	if (NormalTransactionIdPrecedes(xmin, *xminOld))
+		*xminOld = xmin;
 
 #ifdef USE_ASSERT_CHECKING
 	for(i=0;i<xcnt;++i)
 	{
-		Assert(!NormalTransactionIdFollows(snap->xmin, snap->xip[i]));
+		Assert(!NormalTransactionIdFollows(*xminOld, snap->xip[i]));
 	}
 #endif /* USE_ASSERT_CHECKING */
 

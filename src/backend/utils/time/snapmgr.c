@@ -641,7 +641,12 @@ SetTransactionSnapshot(Snapshot sourcesnap, VirtualTransactionId *sourcevxid,
 	CurrentSnapshot->xmin = sourcesnap->xmin;
 	CurrentSnapshot->xmax = sourcesnap->xmax;
 	CurrentSnapshot->xcnt = sourcesnap->xcnt;
+#ifdef ADB
+	if (!IsGTMNode())
+		Assert(sourcesnap->xcnt <= GetMaxSnapshotXidCount());
+#else
 	Assert(sourcesnap->xcnt <= GetMaxSnapshotXidCount());
+#endif /* ADB */
 	memcpy(CurrentSnapshot->xip, sourcesnap->xip,
 		   sourcesnap->xcnt * sizeof(TransactionId));
 	CurrentSnapshot->subxcnt = sourcesnap->subxcnt;
@@ -2395,12 +2400,12 @@ CopyGlobalSnapshot(Snapshot snapshot)
  * Entry of snapshot obtention for Postgres-XC node
  */
 Snapshot
-GetGlobalSnapshotGxid(Snapshot snapshot)
+GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin, TransactionId* xmax, int *count)
 {
 	Snapshot	snap;
 	if (IsGTMNode())
 	{
-		snap = GxidSenderGetSnapshot(snapshot);
+		snap = GxidSenderGetSnapshot(snapshot, xmin, xmax, count);
 	} else
 	{
 		return snapshot;

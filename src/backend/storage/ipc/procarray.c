@@ -1687,6 +1687,11 @@ GetSnapshotData(Snapshot snapshot)
 	if (try_agtm_snap)
 	{
 		snap = GetGlobalSnapshot(snapshot);
+		Assert(snap == snapshot);
+		Assert(snap->xcnt <= snap->max_xcnt);
+		subcount = snapshot->subxcnt;
+		count = snapshot->xcnt;
+		suboverflowed = snapshot->suboverflowed;
 #if 0
 		LWLockAcquire(ProcArrayLock, LW_SHARED);
 		if (!TransactionIdIsValid(MyPgXact->xmin))
@@ -1700,15 +1705,6 @@ GetSnapshotData(Snapshot snapshot)
 		return snapshot;
 #endif
 	}
-	else /* for gtm_coor get snapshot from gxidsender */
-	{
-		snap = GetGlobalSnapshotGxid(snapshot);
-	}
-	Assert(snap == snapshot);
-	Assert(snap->xcnt <= snap->max_xcnt);
-	subcount = snapshot->subxcnt;
-	count = snapshot->xcnt;
-	suboverflowed = snapshot->suboverflowed;
 #endif /* ADB */
 	
 	/*
@@ -1769,22 +1765,8 @@ GetSnapshotData(Snapshot snapshot)
 		globalxmin = xmin = snapshot->xmin;
 	}
 	else
-	{
-		globalxmin = xmin = xmax;
-		if (TransactionIdIsNormal(snapshot->xmax))
-		{
-			if (TransactionIdPrecedesOrEquals(xmax, snapshot->xmax))
-				xmax = snapshot->xmax;
-
-			if (TransactionIdIsNormal(snapshot->xmin) && snapshot->xcnt > 0)
-				globalxmin = xmin = snapshot->xmin;
-			else
-				globalxmin = xmin = xmax;
-		}
-	}
-#else
-	globalxmin = xmin = xmax;
 #endif /* ADB */
+	globalxmin = xmin = xmax;
 
 	snapshot->takenDuringRecovery = RecoveryInProgress();
 
@@ -1983,6 +1965,16 @@ GetSnapshotData(Snapshot snapshot)
 	/* fetch into volatile var while ProcArrayLock is held */
 	replication_slot_xmin = procArray->replication_slot_xmin;
 	replication_slot_catalog_xmin = procArray->replication_slot_catalog_xmin;
+
+#ifdef ADB
+	if (!try_agtm_snap)
+	{
+		snap = GetGlobalSnapshotGxid(snapshot, &xmin, &xmax, &count);
+		Assert(snap == snapshot);
+		Assert(snap->xcnt <= snap->max_xcnt);
+	}
+		
+#endif /* ADB*/
 
 	if (!TransactionIdIsValid(MyPgXact->xmin))
 		MyPgXact->xmin = TransactionXmin = xmin;
