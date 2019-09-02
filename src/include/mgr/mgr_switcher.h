@@ -83,40 +83,23 @@ extern void switchDataNodeMaster(char *oldMasterName,
 								 bool forceSwitch,
 								 bool kickOutOldMaster,
 								 Name newMasterName);
+extern void switchGtmCoordMaster(char *oldMasterName,
+								 bool forceSwitch,
+								 bool kickOutOldMaster,
+								 Name newMasterName);
 extern void checkSwitchDataNodePrerequisite(SwitcherNodeWrapper *oldMaster,
 											dlist_head *runningSlaves,
 											dlist_head *failedSlaves,
 											dlist_head *coordinators,
 											MemoryContext spiContext,
 											bool forceSwitch);
-void checkSwitchGtmCoordPrerequisite(SwitcherNodeWrapper *oldMaster,
-									 dlist_head *runningSlaves,
-									 dlist_head *failedSlaves,
-									 dlist_head *coordinators,
-									 dlist_head *dataNodes,
-									 MemoryContext spiContext,
-									 bool forceSwitch);
-extern void switchGtmCoordMaster(char *oldMasterName,
-								 bool forceSwitch,
-								 bool kickOutOldMaster,
-								 Name newMasterName);
-// extern void switchDataNodeOperation(SwitcherNodeWrapper *oldMaster,
-// 									SwitcherNodeWrapper **newMasterP,
-// 									dlist_head *runningSlaves,
-// 									dlist_head *failedSlaves,
-// 									dlist_head *coordinators,
-// 									MemoryContext spiContext,
-// 									bool forceSwitch,
-// 									bool kickOutOldMaster);
-// extern void switchGtmCoordOperation(SwitcherNodeWrapper *oldMaster,
-// 									SwitcherNodeWrapper **newMasterP,
-// 									dlist_head *runningSlaves,
-// 									dlist_head *failedSlaves,
-// 									dlist_head *coordinators,
-// 									dlist_head *dataNodes,
-// 									MemoryContext spiContext,
-// 									bool forceSwitch,
-// 									bool kickOutOldMaster);
+extern void checkSwitchGtmCoordPrerequisite(SwitcherNodeWrapper *oldMaster,
+											dlist_head *runningSlaves,
+											dlist_head *failedSlaves,
+											dlist_head *coordinators,
+											dlist_head *dataNodes,
+											MemoryContext spiContext,
+											bool forceSwitch);
 extern void switchToDataNodeNewMaster(SwitcherNodeWrapper *oldMaster,
 									  SwitcherNodeWrapper *newMaster,
 									  dlist_head *runningSlaves,
@@ -132,34 +115,17 @@ extern void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 									  dlist_head *dataNodes,
 									  MemoryContext spiContext,
 									  bool kickOutOldMaster);
-extern void precheckPromotionNode(dlist_head *runningSlaves,
-								  bool forceSwitch);
 extern void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 								SwitcherNodeWrapper **newMasterP,
 								dlist_head *runningSlaves,
 								dlist_head *failedSlaves,
 								MemoryContext spiContext,
 								bool forceSwitch);
-extern SwitcherNodeWrapper *getBestWalLsnSlaveNode(dlist_head *runningSlaves,
-												   dlist_head *failedSlaves,
-												   bool forceSwitch);
 extern void revertClusterSetting(dlist_head *coordinators,
 								 SwitcherNodeWrapper *oldMaster,
 								 SwitcherNodeWrapper *newMaster);
 extern void tryLockCluster(dlist_head *coordinators);
 extern bool tryUnlockCluster(dlist_head *coordinators, bool complain);
-extern void restoreCoordinatorSetting(SwitcherNodeWrapper *coordinator);
-extern void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
-											MemoryContext spiContext,
-											bool forceSwitch,
-											dlist_head *failedSlaves,
-											dlist_head *runningSlaves);
-extern void sortNodesByWalLsnDesc(dlist_head *nodes);
-extern void checkGetMasterCoordinators(MemoryContext spiContext,
-									   dlist_head *coordinators,
-									   bool includeGtmCoord);
-extern void checkGetAllDataNodes(dlist_head *dataNodes,
-								 MemoryContext spiContext);
 extern void mgrNodesToSwitcherNodes(dlist_head *mgrNodes,
 									dlist_head *switcherNodes);
 extern void switcherNodesToMgrNodes(dlist_head *switcherNodes,
@@ -167,7 +133,5 @@ extern void switcherNodesToMgrNodes(dlist_head *switcherNodes,
 extern void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 										MgrNodeWrapper *slaveNode,
 										PGconn *masterPGconn);
-extern void refreshOldMasterBeforeSwitch(SwitcherNodeWrapper *oldMaster,
-										 MemoryContext spiContext);
 
 #endif /* MGR_SWITCHER_H */

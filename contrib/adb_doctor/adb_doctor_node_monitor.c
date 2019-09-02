@@ -211,10 +211,13 @@ static void prepareRewindMgrNode(RewindMgrNodeObject *rewindObject,
 								 MemoryContext spiContext);
 static void rewindMgrNodeOperation(RewindMgrNodeObject *rewindObject,
 								   MemoryContext spiContext);
-static MgrNodeWrapper *checkGetMasterNode(Oid nodemasternameoid,
-										  MemoryContext spiContext);
 static PGconn *checkMasterRunningStatus(MgrNodeWrapper *masterNode);
 static bool checkSetRewindNodeParamter(MgrNodeWrapper *mgrNode, PGconn *conn);
+static MgrNodeWrapper *checkGetMasterNode(Oid nodemasternameoid,
+										  MemoryContext spiContext);
+static void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
+								   PGconn *pgConn,
+								   MemoryContext spiContext);
 
 static void handleSigterm(SIGNAL_ARGS);
 static void handleSigusr1(SIGNAL_ARGS);
@@ -1925,6 +1928,8 @@ static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 								NameStr(slaveNode->form.nodename))));
 		}
 
+		checkSetMgrNodeGtmInfo(slaveNode, slavePGconn, spiContext);
+
 		slaveRunningMode = getNodeRunningMode(slavePGconn);
 		if (slaveRunningMode == NODE_RUNNING_MODE_MASTER)
 		{
@@ -1951,7 +1956,8 @@ static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 		}
 		else
 		{
-			appendSlaveNodeFollowMaster(masterNode, slaveNode,
+			appendSlaveNodeFollowMaster(masterNode,
+										slaveNode,
 										masterPGconn);
 		}
 		refreshMgrNodeAfterFollowMaster(slaveNode,
@@ -2119,6 +2125,8 @@ static void prepareRewindMgrNode(RewindMgrNodeObject *rewindObject,
 							NameStr(slaveNode->form.nodename))));
 	}
 
+	checkSetMgrNodeGtmInfo(slaveNode, rewindObject->slavePGconn, spiContext);
+
 	slaveWalLsn = getNodeWalLsn(rewindObject->slavePGconn,
 								getNodeRunningMode(rewindObject->slavePGconn));
 
@@ -2235,6 +2243,27 @@ static void rewindMgrNodeOperation(RewindMgrNodeObject *rewindObject,
 	callAgentRewindNode(masterNode, slaveNode, true);
 }
 
+static PGconn *checkMasterRunningStatus(MgrNodeWrapper *masterNode)
+{
+	PGconn *conn;
+	conn = getNodeDefaultDBConnection(masterNode, 10);
+	if (!conn)
+		ereport(ERROR,
+				(errmsg("get node %s connection failed",
+						NameStr(masterNode->form.nodename))));
+
+	if (!checkNodeRunningMode(conn, true))
+	{
+		PQfinish(conn);
+		ereport(ERROR,
+				(errmsg("%s master node %s is not running on master mode"
+						"suspend the operation of following master",
+						MyBgworkerEntry->bgw_name,
+						NameStr(masterNode->form.nodename))));
+	}
+	return conn;
+}
+
 /**
  * pg_rewind requires that the target server either has the wal_log_hints 
  * option enabled in postgresql.conf or data checksums enabled when the 
@@ -2313,25 +2342,28 @@ static MgrNodeWrapper *checkGetMasterNode(Oid nodemasternameoid,
 	return masterNode;
 }
 
-static PGconn *checkMasterRunningStatus(MgrNodeWrapper *masterNode)
+static void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
+								   PGconn *pgConn,
+								   MemoryContext spiContext)
 {
-	PGconn *conn;
-	conn = getNodeDefaultDBConnection(masterNode, 10);
-	if (!conn)
-		ereport(ERROR,
-				(errmsg("get node %s connection failed",
-						NameStr(masterNode->form.nodename))));
+	dlist_head coordinators = DLIST_STATIC_INIT(coordinators);
+	MgrNodeWrapper *gtmMaster;
 
-	if (!checkNodeRunningMode(conn, true))
+	if (mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
 	{
-		PQfinish(conn);
-		ereport(ERROR,
-				(errmsg("%s master node %s is not running on master mode"
-						"suspend the operation of following master",
-						MyBgworkerEntry->bgw_name,
-						NameStr(masterNode->form.nodename))));
+		return;
 	}
-	return conn;
+	selectMgrNodeByNodetype(spiContext,
+							CNDN_TYPE_GTM_COOR_MASTER,
+							&coordinators);
+	if (dlist_is_empty(&coordinators))
+	{
+		ereport(ERROR,
+				(errmsg("There is no GTM master node in the cluster")));
+	}
+	gtmMaster = dlist_head_element(MgrNodeWrapper, link, &coordinators);
+	setCheckGtmInfoInPGSqlConf(gtmMaster, mgrNode, pgConn, true, 10);
+	pfreeMgrNodeWrapperList(&coordinators, NULL);
 }
 
 /*

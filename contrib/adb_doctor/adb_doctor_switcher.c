@@ -219,12 +219,13 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 	}
 	PG_END_TRY();
 
-	pfreeSwitcherNodeWrapperPGconn(oldMaster);
-	pfreeSwitcherNodeWrapper(newMaster);
 	pfreeSwitcherNodeWrapperList(&failedSlaves, NULL);
 	pfreeSwitcherNodeWrapperList(&runningSlaves, NULL);
-	pfreeSwitcherNodeWrapperList(&coordinators, NULL);
+	/* When switching gtm, newMaster will be added in coordinators. */
+	pfreeSwitcherNodeWrapperList(&coordinators, newMaster);
 	pfreeSwitcherNodeWrapperList(&dataNodes, NULL);
+	pfreeSwitcherNodeWrapperPGconn(oldMaster);
+	pfreeSwitcherNodeWrapper(newMaster);
 
 	(void)MemoryContextSwitchTo(oldContext);
 	MemoryContextDelete(switchContext);
@@ -413,7 +414,7 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 						MyBgworkerEntry->bgw_name,
 						NameStr(nodeDataInDB->form.nodename))));
 	}
-	if (nodeDataInDB->form.nodetype != CNDN_TYPE_DATANODE_MASTER ||
+	if (nodeDataInDB->form.nodetype != CNDN_TYPE_DATANODE_MASTER &&
 		nodeDataInDB->form.nodetype != CNDN_TYPE_GTM_COOR_MASTER)
 	{
 		pfreeMgrNodeWrapper(nodeDataInDB);

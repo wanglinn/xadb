@@ -425,7 +425,7 @@ extern void setSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 									   char *value);
 extern void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 											PGconn *pgConn,
-											char *value, int checkTrys);
+											char *value, int checkSeconds);
 extern void setGtmInfoInPGSqlConf(MgrNodeWrapper *mgrNode,
 								  char *agtm_host,
 								  char *snapsender_port,

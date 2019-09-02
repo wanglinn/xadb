@@ -416,13 +416,14 @@ void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
 					 "AND nodeincluster = %d::boolean \n"
 					 "AND allowcure = %d::boolean \n"
 					 "AND curestatus in ('%s', '%s') \n"
-					 "AND nodetype in ('%c') \n",
+					 "AND nodetype in ('%c', '%c') \n",
 					 true,
 					 true,
 					 true,
 					 CURE_STATUS_WAIT_SWITCH,
 					 CURE_STATUS_SWITCHING,
-					 CNDN_TYPE_DATANODE_MASTER);
+					 CNDN_TYPE_DATANODE_MASTER,
+					 CNDN_TYPE_GTM_COOR_MASTER);
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
@@ -1464,8 +1465,8 @@ PingNodeResult callAgentPingNode(MgrNodeWrapper *node)
 			{
 			case PQPING_OK:
 			case PQPING_REJECT:
-			case PQPING_NO_ATTEMPT:
 			case PQPING_NO_RESPONSE:
+			case PQPING_NO_ATTEMPT:
 				pingRes.pgPing = (PGPing)ping_status;
 				break;
 			default:
@@ -1954,14 +1955,14 @@ void setSynchronousStandbyNames(MgrNodeWrapper *mgrNode, char *value)
 
 void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 									 PGconn *pgConn,
-									 char *value, int checkTrys)
+									 char *value, int checkSeconds)
 {
-	int nTrys;
+	int seconds;
 	bool execOk = false;
 
 	setSynchronousStandbyNames(mgrNode, value);
 
-	for (nTrys = 0; nTrys < checkTrys; nTrys++)
+	for (seconds = 0; seconds < checkSeconds; seconds++)
 	{
 		/* check the param */
 		if (equalsNodeParameter(pgConn,
@@ -1973,7 +1974,7 @@ void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 		}
 		else
 		{
-			if (nTrys < checkTrys - 1)
+			if (seconds < checkSeconds - 1)
 				pg_usleep(1000000L);
 		}
 	}
@@ -2127,10 +2128,10 @@ void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
 	if (execOk)
 	{
 		ereport(NOTICE,
-				(errmsg("set gtm information on %s succeeded",
+				(errmsg("set gtm information on %s successfully",
 						NameStr(mgrNode->form.nodename))));
 		ereport(LOG,
-				(errmsg("set gtm information on %s succeeded",
+				(errmsg("set gtm information on %s successfully",
 						NameStr(mgrNode->form.nodename))));
 	}
 	else
