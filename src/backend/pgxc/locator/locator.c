@@ -970,18 +970,16 @@ FreeRelationLocInfo(RelationLocInfo *relationLocInfo)
 {
 	if (relationLocInfo)
 	{
-		if (enable_readsql_on_slave)
+		if(relationLocInfo->masternodeids == NIL && relationLocInfo->slavenodeids == NIL)
 		{
-			Assert(relationLocInfo->nodeids != relationLocInfo->masternodeids);
-			relationLocInfo->nodeids = NIL;
-			if (relationLocInfo->masternodeids)
-				list_free(relationLocInfo->masternodeids);
-			if (relationLocInfo->slavenodeids)
-				list_free(relationLocInfo->slavenodeids);
+			list_free(relationLocInfo->nodeids);
 		}
 		else
 		{
-			list_free(relationLocInfo->nodeids);
+			Assert(relationLocInfo->nodeids == relationLocInfo->masternodeids || relationLocInfo->nodeids == relationLocInfo->slavenodeids);
+			relationLocInfo->nodeids = NIL;
+			list_free(relationLocInfo->masternodeids);
+			list_free(relationLocInfo->slavenodeids);
 		}
 		list_free(relationLocInfo->funcAttrNums);
 		pfree(relationLocInfo);
