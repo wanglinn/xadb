@@ -22,6 +22,158 @@
 #include "utils/memutils.h"
 #include "utils/typcache.h"
 
+/* generate value[] and key[] data */
+static List* make_list_value_key_arg(ReduceInfo *rinfo, Const **ppconst)
+{
+	List		   *args;
+	ListCell	   *lc,*lc2,*lc3;
+	List		   *list_val = NIL;
+	List		   *list_key = NIL;
+	Const		   *c;
+	oidvector	   *arr_val;
+	ArrayType	   *arr_key;
+	Datum		   *datum_key;
+	bool		   *nulls_key;
+	int				i;
+	int16			typlen;
+	bool			typbyval;
+	char			typalign;
+	int				dims[1];
+	int				lbs[1];
+	bool			has_null = false;
+
+	Assert(list_length(rinfo->values) == list_length(rinfo->storage_nodes));
+	forboth(lc, rinfo->values, lc3, rinfo->storage_nodes)
+	{
+		foreach(lc2, lfirst_node(List, lc))
+		{
+			c = lfirst_node(Const, lc2);
+			if (c->constisnull)
+			{
+				if (has_null == false)
+					has_null = true;
+				else
+					ereport(ERROR,
+							(errcode(ERRCODE_DATA_CORRUPTED),
+							 errmsg("found null more than once")));
+			}
+			list_key = lappend(list_key, c);
+			list_val = lappend_oid(list_val, lfirst_oid(lc3));
+		}
+	}
+
+	/* make value[] argument */
+	Assert(list_length(list_key) == list_length(list_val));
+	arr_val = buildoidvector(NULL, list_length(list_val));
+	i = 0;
+	foreach(lc, list_val)
+		arr_val->values[i++] = lfirst_oid(lc);
+	args = list_make1(makeConst(OIDVECTOROID,
+								-1,
+								InvalidOid,
+								-1,
+								PointerGetDatum(arr_val),
+								false,
+								false));
+
+	/* make key[] argument */
+	datum_key = palloc(sizeof(Datum)*list_length(list_key));
+	if (has_null)
+		nulls_key = palloc(sizeof(bool)*list_length(list_key));
+	else
+		nulls_key = NULL;
+	i = 0;
+	foreach(lc, list_key)
+	{
+		c = lfirst_node(Const, lc);
+		if (c->constisnull)
+		{
+			nulls_key[i] = true;
+		}else
+		{
+			datum_key[i] = c->constvalue;
+			nulls_key[i] = false;
+		}
+		++i;
+	}
+	c = linitial_node(Const, list_key);
+	Assert(c->consttype == exprType((Node*)rinfo->keys[0].key));
+	*ppconst = c;
+	get_typlenbyvalalign(c->consttype, &typlen, &typbyval, &typalign);
+	Assert(c->constlen == typlen && c->constbyval == typbyval);
+	dims[0] = list_length(list_key);
+	lbs[0] = 1;
+	arr_key = construct_md_array(datum_key,
+								 nulls_key,
+								 1,
+								 dims,
+								 lbs,
+								 c->consttype,
+								 c->constlen,
+								 c->constbyval,
+								 typalign);
+	args = lappend(args, makeConst(get_array_type(c->consttype),
+								   -1,
+								   InvalidOid,
+								   -1,
+								   PointerGetDatum(arr_key),
+								   false,
+								   false));
+
+	pfree(datum_key);
+	if (nulls_key)
+		pfree(nulls_key);
+
+	return args;
+}
+
+Expr* create_list_search_expr(ReduceInfo *rinfo, Expr *search)
+{
+	Expr		   *result;
+	List		   *args;
+	Const		   *c;
+	Oid				funcid;
+
+	args = make_list_value_key_arg(rinfo, &c);
+
+	/* make comp_fn argument */
+	funcid = get_opfamily_proc(rinfo->keys[0].opfamily,
+							   c->consttype,
+							   c->consttype,
+							   BTORDER_PROC);
+	if (!OidIsValid(funcid))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("operator class %u of access method %s is missing support function %d for type %s",
+				 		rinfo->keys[0].opclass,
+						"btree",
+						BTORDER_PROC,
+						format_type_be(c->consttype))));
+	args = lappend(args, makeConst(REGPROCOID,
+								   -1,
+								   InvalidOid,
+								   sizeof(Oid),
+								   ObjectIdGetDatum(funcid),
+								   false,
+								   true));
+	
+	/* append comp_val argument */
+	args = lappend(args, copyObject(rinfo->keys[0].key));
+
+	/* append not_found argument */
+	args = lappend(args, makeNullConst(OIDOID, -1, InvalidOid));
+
+	/* make array_bsearch(...) */
+	result = (Expr*)makeFuncExpr(F_ARRAY_BSEARCH,
+								 OIDOID,
+								 args,
+								 InvalidOid,
+								 rinfo->keys[0].collation,
+								 COERCE_EXPLICIT_CALL);
+
+	return result;
+}
+
 typedef struct ListData
 {
 	Datum key;
@@ -31,11 +183,12 @@ typedef struct CompareListData
 {
 	MemoryContext context;
 	FmgrInfo	supfunc;
+	Datum		arg[2];
 	pg_crc32c	crc_kv;
 	Oid			collation;
 	uint32		count;
-	Datum		datum_key;
-	Datum		datum_val;
+	bool		null_valid;
+	Datum		null_val;
 	ListData	data[FLEXIBLE_ARRAY_MEMBER];
 }CompareListData;
 
@@ -49,15 +202,80 @@ qsort_listdata_value_cmp(const void *a, const void *b, void *arg)
 										   ((ListData*)b)->key));
 }
 
+static CompareListData* create_list_search_extra(Datum datum_val, Datum datum_key, MemoryContext parent)
+{
+	AnyArrayType	   *arr_val = DatumGetAnyArrayP(datum_val);
+	AnyArrayType	   *arr_key = DatumGetAnyArrayP(datum_key);
+	CompareListData	   *my_extra;
+	MemoryContext		context,oldcontext;
+	uint32				i,offset,count;
+	bool				has_null;
+
+	Datum				k,v;
+	array_iter			k_iter,v_iter;
+	int16				k_len,v_len;
+	bool				k_byval,v_byval;
+	char				k_align,v_align;
+	bool				k_isnull,v_isnull;
+
+	if (AARR_NDIM(arr_val) != 1 || AARR_HASNULL(arr_val))
+		elog(ERROR, "argument val[] is not a 1-D not null array");
+	if (AARR_NDIM(arr_key) != 1)
+		elog(ERROR, "argument key[] is not a 1-D array");
+
+	count = ARR_DIMS(arr_key)[0];
+	if (count == 0)
+		elog(ERROR, "argument array element is empty");
+	if (count != ARR_DIMS(arr_val)[0])
+		elog(ERROR, "argument array element count not same");
+	has_null = AARR_HASNULL(arr_key);
+
+	context = AllocSetContextCreate(parent,
+									"array_bsearch",
+									ALLOCSET_DEFAULT_SIZES);
+	my_extra = MemoryContextAllocZero(context,
+									  offsetof(CompareListData, data) + sizeof(ListData)*count);
+	my_extra->context = context;
+	my_extra->count = (has_null ? count-1 : count);
+
+	get_typlenbyvalalign(AARR_ELEMTYPE(arr_key), &k_len, &k_byval, &k_align);
+	get_typlenbyvalalign(AARR_ELEMTYPE(arr_val), &v_len, &v_byval, &v_align);
+	array_iter_setup(&k_iter, arr_key);
+	array_iter_setup(&v_iter, arr_val);
+	for (i=offset=0;i<count;++i)
+	{
+		v = array_iter_next(&v_iter, &v_isnull, i, v_len, v_byval, v_align);
+		k = array_iter_next(&k_iter, &k_isnull, i, k_len, k_byval, k_align);
+		Assert(v_isnull == false);
+
+		oldcontext = MemoryContextSwitchTo(context);
+		if (k_isnull)
+		{
+			if (my_extra->null_valid)
+				elog(ERROR, "found null more than once");
+			my_extra->null_valid = true;
+			my_extra->null_val = datumCopy(v, v_byval, v_len);
+		}else
+		{
+			my_extra->data[offset].key = datumCopy(k, k_byval, k_len);
+			my_extra->data[offset].value = datumCopy(v, v_byval, v_len);
+			++offset;
+		}
+		MemoryContextSwitchTo(oldcontext);
+	}
+	Assert(offset == my_extra->count);
+
+	return my_extra;
+}
+
 /*
- * array_bsearch(val[], key[], comp_fn, comp_val)
+ * array_bsearch(val[], key[], comp_fn, comp_val, not_found)
  */
 Datum array_bsearch(PG_FUNCTION_ARGS)
 {
 	CompareListData *my_extra = fcinfo->flinfo->fn_extra;
-	ArrayType	   *arr_val = PG_GETARG_ARRAYTYPE_P(0);
-	ArrayType	   *arr_key = PG_GETARG_ARRAYTYPE_P(1);
-	Datum			input = PG_GETARG_DATUM(3);
+	Datum			input;
+	Oid				comp_fn = PG_GETARG_OID(2);
 	Oid				collation = PG_GET_COLLATION();
 	pg_crc32c		crc_kv;
 
@@ -65,91 +283,49 @@ Datum array_bsearch(PG_FUNCTION_ARGS)
 					hi,
 					mid;
 
+	if (PG_ARGISNULL(0) ||
+		PG_ARGISNULL(1) ||
+		PG_ARGISNULL(2))
+	{
+		if (PG_ARGISNULL(4))
+			PG_RETURN_NULL();
+		PG_RETURN_DATUM(PG_GETARG_DATUM(4));
+	}
+
 	INIT_CRC32C(crc_kv);
-	COMP_CRC32C(crc_kv, (void*)arr_val, VARSIZE_ANY(arr_val));
-	COMP_CRC32C(crc_kv, (void*)arr_key, VARSIZE_ANY(arr_key));
+	COMP_CRC32C(crc_kv, PG_GETARG_POINTER(0), VARSIZE_ANY(PG_GETARG_POINTER(0)));
+	COMP_CRC32C(crc_kv, PG_GETARG_POINTER(1), VARSIZE_ANY(PG_GETARG_POINTER(1)));
 	FIN_CRC32C(crc_kv);
 
 	if (my_extra == NULL ||
 		!EQ_CRC32C(crc_kv, my_extra->crc_kv) ||
-		my_extra->datum_val != PG_GETARG_DATUM(0) ||
-		my_extra->datum_key != PG_GETARG_DATUM(1) ||
-		my_extra->supfunc.fn_oid != PG_GETARG_OID(2) ||
-		my_extra->collation != collation)
+		my_extra->supfunc.fn_oid != comp_fn ||
+		my_extra->collation != collation ||
+		memcmp(fcinfo->arg, my_extra->arg, sizeof(my_extra->arg)) != 0)
 	{
-		uint32		count;
-		int16		elmlen;
-		bool		elmbyval;
-		char		elmalign;
-		int			num_elems;
-		Datum	   *elem_values;
-		MemoryContext context;
-		MemoryContext oldcontext;
-
-		if (ARR_NDIM(arr_val) != 1 ||
-			ARR_HASNULL(arr_val) ||
-			ARR_NDIM(arr_key) != 1 ||
-			ARR_HASNULL(arr_key))
-		{
-			elog(ERROR, "argument is not a 1-D not null array");
-		}
-		count = ARR_DIMS(arr_val)[0];
-		if (count == 0)
-			elog(ERROR, "argument array element is empty");
-		if (count != ARR_DIMS(arr_key)[0])
-			elog(ERROR, "argument array element count not same");
-
 		if (my_extra)
 			MemoryContextDelete(my_extra->context);
-		context = AllocSetContextCreate(fcinfo->flinfo->fn_mcxt,
-										"list_get_distribute_node",
-										ALLOCSET_DEFAULT_SIZES);
-		my_extra = MemoryContextAllocZero(context,
-										  offsetof(CompareListData, data) +
-										  sizeof(ListData)*count);
+		my_extra = create_list_search_extra(PG_GETARG_DATUM(0),
+											PG_GETARG_DATUM(1),
+											fcinfo->flinfo->fn_mcxt);
 		fcinfo->flinfo->fn_extra = my_extra;
-		my_extra->context = context;
-		my_extra->count = count;
 		my_extra->crc_kv = crc_kv;
-		my_extra->datum_val = PG_GETARG_DATUM(0);
-		my_extra->datum_key = PG_GETARG_DATUM(1);
 		my_extra->collation = collation;
+		memcpy(my_extra->arg, fcinfo->arg, sizeof(my_extra->arg));
 
-		oldcontext = MemoryContextSwitchTo(context);
-		get_typlenbyvalalign(ARR_ELEMTYPE(arr_key),
-							 &elmlen, &elmbyval, &elmalign);
-		deconstruct_array(arr_key,
-						  ARR_ELEMTYPE(arr_key),
-						  elmlen, elmbyval, elmalign,
-						  &elem_values, NULL, &num_elems);
-		Assert(num_elems == count);
-		while (num_elems > 0)
-		{
-			--num_elems;
-			my_extra->data[num_elems].key = datumCopy(elem_values[num_elems], elmbyval, elmlen);
-		}
-		pfree(elem_values);
+		fmgr_info_cxt(comp_fn, &my_extra->supfunc, fcinfo->flinfo->fn_mcxt);
 
-		get_typlenbyvalalign(ARR_ELEMTYPE(arr_val),
-							 &elmlen, &elmbyval, &elmalign);
-		deconstruct_array(arr_val,
-						  ARR_ELEMTYPE(arr_val),
-						  elmlen, elmbyval, elmalign,
-						  &elem_values, NULL, &num_elems);
-		Assert(num_elems == count);
-		while (num_elems > 0)
-		{
-			--num_elems;
-			my_extra->data[num_elems].value = datumCopy(elem_values[num_elems], elmbyval, elmlen);
-		}
-		pfree(elem_values);
-
-		fmgr_info_cxt(PG_GETARG_OID(2), &my_extra->supfunc, fcinfo->flinfo->fn_mcxt);
-
-		qsort_arg(my_extra->data, count, sizeof(my_extra->data[0]),
+		qsort_arg(my_extra->data, my_extra->count, sizeof(my_extra->data[0]),
 				  qsort_listdata_value_cmp, my_extra);
+	}
 
-		MemoryContextSwitchTo(oldcontext);
+	if (PG_ARGISNULL(3))
+	{
+		if (my_extra->null_valid)
+			PG_RETURN_DATUM(my_extra->null_val);
+		if (PG_ARGISNULL(4))
+			PG_RETURN_NULL();
+		PG_RETURN_DATUM(PG_GETARG_DATUM(4));
 	}
 
 	input = PG_GETARG_DATUM(3);
@@ -176,7 +352,9 @@ Datum array_bsearch(PG_FUNCTION_ARGS)
 		}
 	}
 
-	PG_RETURN_NULL();
+	if (PG_ARGISNULL(4))
+		PG_RETURN_NULL();
+	PG_RETURN_DATUM(PG_GETARG_DATUM(4));
 }
 
 #define	RANGE_DATUM_KIND_ATTNO	2
@@ -876,7 +1054,11 @@ Datum range_bsearch(PG_FUNCTION_ARGS)
 		PG_ARGISNULL(1) ||
 		PG_ARGISNULL(2) ||
 		PG_ARGISNULL(3))
-		PG_RETURN_NULL();
+	{
+		if (PG_ARGISNULL(5))
+			PG_RETURN_NULL();
+		PG_RETURN_DATUM(PG_GETARG_DATUM(5));
+	}
 
 	INIT_CRC32C(crc_args);
 	COMP_CRC32C(crc_args, PG_GETARG_POINTER(0), VARSIZE_ANY(PG_GETARG_POINTER(0)));

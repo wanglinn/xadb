@@ -1,7 +1,6 @@
 #include "postgres.h"
 
 #include "access/htup_details.h"
-#include "access/nbtree.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_am_d.h"
 #include "catalog/pg_namespace.h"
@@ -2452,124 +2451,7 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 		result = (Expr*) makeOidConst(PGXCNodeOid);
 		break;
 	case REDUCE_TYPE_LIST:
-		{
-			ListCell	   *lc,*lc2,*lc3;
-			List		   *list_val = NIL;
-			List		   *list_key = NIL;
-			List		   *args;
-			oidvector	   *arr_val;
-			ArrayType	   *arr_key;
-			Datum		   *datum_key;
-			Const		   *c;
-			Oid				null_oid = InvalidOid;
-			Oid				funcid;
-			int				i;
-			int16			typlen;
-			bool			typbyval;
-			char			typalign;
-
-			/* generate value[] and key[] data */
-			Assert(list_length(reduce->values) == list_length(reduce->storage_nodes));
-			forboth(lc, reduce->values, lc3, reduce->storage_nodes)
-			{
-				foreach(lc2, lfirst_node(List, lc))
-				{
-					c = lfirst_node(Const, lc2);
-					if (c->constisnull)
-					{
-						if (null_oid == InvalidOid)
-							null_oid = lfirst_oid(lc3);
-						else
-							ereport(ERROR,
-									(errcode(ERRCODE_DATA_CORRUPTED),
-									 errmsg("found null more than once")));
-					}else
-					{
-						list_key = lappend(list_key, c);
-						list_val = lappend_oid(list_val, lfirst_oid(lc3));
-					}
-				}
-			}
-
-			/* make value[] argument */
-			Assert(list_length(list_key) == list_length(list_val));
-			arr_val = buildoidvector(NULL, list_length(list_val));
-			i = 0;
-			foreach(lc, list_val)
-				arr_val->values[i++] = lfirst_oid(lc);
-			args = list_make1(makeConst(OIDVECTOROID,
-										-1,
-										InvalidOid,
-										-1,
-										PointerGetDatum(arr_val),
-										false,
-										false));
-
-			/* make key[] argument */
-			datum_key = palloc(sizeof(Datum)*list_length(list_key));
-			i = 0;
-			foreach(lc, list_key)
-				datum_key[i++] = lfirst_node(Const, lc)->constvalue;
-			c = linitial_node(Const, list_key);
-			Assert(c->consttype == exprType((Node*)reduce->keys[0].key));
-			get_typlenbyvalalign(c->consttype, &typlen, &typbyval, &typalign);
-			Assert(c->constlen == typlen && c->constbyval == typbyval);
-			arr_key = construct_array(datum_key,
-									  list_length(list_key),
-									  c->consttype,
-									  c->constlen,
-									  c->constbyval,
-									  typalign);
-			args = lappend(args, makeConst(get_array_type(c->consttype),
-										   -1,
-										   InvalidOid,
-										   -1,
-										   PointerGetDatum(arr_key),
-										   false,
-										   false));
-
-			/* make comp_fn argument */
-			funcid = get_opfamily_proc(reduce->keys[0].opfamily,
-									   c->consttype,
-									   c->consttype,
-									   BTORDER_PROC);
-			if (!OidIsValid(funcid))
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-						 errmsg("operator class %u of access method %s is missing support function %d for type %s",
-						 		reduce->keys[0].opclass,
-								"btree",
-								BTORDER_PROC,
-								format_type_be(c->consttype))));
-			args = lappend(args, makeConst(REGPROCOID,
-										   -1,
-										   InvalidOid,
-										   sizeof(Oid),
-										   ObjectIdGetDatum(funcid),
-										   false,
-										   true));
-			
-			/* append comp_val argument */
-			args = lappend(args, copyObject(reduce->keys[0].key));
-
-			/* make array_bsearch(...) */
-			result = (Expr*)makeFuncExpr(F_ARRAY_BSEARCH,
-										 OIDOID,
-										 args,
-										 InvalidOid,
-										 reduce->keys[0].collation,
-										 COERCE_EXPLICIT_CALL);
-
-			if (null_oid != InvalidOid)
-			{
-				CoalesceExpr *coalesce = makeNode(CoalesceExpr);
-				coalesce->coalescetype = OIDOID;
-				coalesce->coalescecollid = InvalidOid;
-				coalesce->args = list_make2(result, makeOidConst(null_oid));
-				coalesce->location = -1;
-				result = (Expr*)coalesce;
-			}
-		}
+		result = create_list_search_expr(reduce, reduce->keys[0].key);
 		break;
 	case REDUCE_TYPE_RANGE:
 		{
