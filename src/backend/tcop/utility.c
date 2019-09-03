@@ -835,8 +835,8 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 #endif
 
 #ifdef ADB
-				if (IsCnMaster() && !IsGTMNode())
-					agtms_DropSequenceByDataBase(stmt->dbname);
+				//if (IsCnMaster() && !IsGTMNode())
+					//agtms_DropSequenceByDataBase(stmt->dbname);
 				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			}
