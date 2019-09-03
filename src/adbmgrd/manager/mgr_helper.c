@@ -148,6 +148,42 @@ bool isSlaveNode(char nodetype, bool complain)
 	}
 }
 
+static MgrHostWrapper *popHeadMgrHostPfreeOthers(dlist_head *mgrHosts)
+{
+	dlist_node *ptr;
+	MgrHostWrapper *host = NULL;
+
+	if (dlist_is_empty(mgrHosts))
+	{
+		return NULL;
+	}
+	else
+	{
+		ptr = dlist_pop_head_node(mgrHosts);
+		host = dlist_container(MgrHostWrapper, link, ptr);
+		pfreeMgrHostWrapperList(mgrHosts, NULL);
+		return host;
+	}
+}
+
+static MgrNodeWrapper *popHeadMgrNodePfreeOthers(dlist_head *mgrNodes)
+{
+	dlist_node *ptr;
+	MgrNodeWrapper *node = NULL;
+
+	if (dlist_is_empty(mgrNodes))
+	{
+		return NULL;
+	}
+	else
+	{
+		ptr = dlist_pop_head_node(mgrNodes);
+		node = dlist_container(MgrNodeWrapper, link, ptr);
+		pfreeMgrNodeWrapperList(mgrNodes, NULL);
+		return node;
+	}
+}
+
 /**
  * the list link data type is MgrNodeWrapper
  */
@@ -216,14 +252,7 @@ MgrNodeWrapper *selectMgrNodeByOid(Oid oid, MemoryContext spiContext)
 					 oid);
 	selectMgrNodes(sql.data, spiContext, &nodes);
 	pfree(sql.data);
-	if (dlist_is_empty(&nodes))
-	{
-		return NULL;
-	}
-	else
-	{
-		return dlist_head_element(MgrNodeWrapper, link, &nodes);
-	}
+	return popHeadMgrNodePfreeOthers(&nodes);
 }
 
 MgrNodeWrapper *selectMgrNodeByNodenameType(char *nodename,
@@ -243,14 +272,7 @@ MgrNodeWrapper *selectMgrNodeByNodenameType(char *nodename,
 					 nodetype);
 	selectMgrNodes(sql.data, spiContext, &nodes);
 	pfree(sql.data);
-	if (dlist_is_empty(&nodes))
-	{
-		return NULL;
-	}
-	else
-	{
-		return dlist_head_element(MgrNodeWrapper, link, &nodes);
-	}
+	return popHeadMgrNodePfreeOthers(&nodes);
 }
 
 /**
@@ -393,14 +415,7 @@ MgrNodeWrapper *selectMgrNodeForNodeDoctor(Oid oid, MemoryContext spiContext)
 					 oid);
 	selectMgrNodes(sql.data, spiContext, &nodes);
 	pfree(sql.data);
-	if (dlist_is_empty(&nodes))
-	{
-		return NULL;
-	}
-	else
-	{
-		return dlist_head_element(MgrNodeWrapper, link, &nodes);
-	}
+	return popHeadMgrNodePfreeOthers(&nodes);
 }
 
 void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
@@ -426,6 +441,13 @@ void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
 					 CNDN_TYPE_GTM_COOR_MASTER);
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
+}
+
+MgrNodeWrapper *selectMgrGtmCoordNode(MemoryContext spiContext)
+{
+	dlist_head nodes = DLIST_STATIC_INIT(nodes);
+	selectMgrNodeByNodetype(spiContext, CNDN_TYPE_GTM_COOR_MASTER, &nodes);
+	return popHeadMgrNodePfreeOthers(&nodes);
 }
 
 int updateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
@@ -563,14 +585,7 @@ MgrHostWrapper *selectMgrHostByOid(Oid oid, MemoryContext spiContext)
 					 oid);
 	selectMgrHosts(sql.data, spiContext, &resultList);
 	pfree(sql.data);
-	if (dlist_is_empty(&resultList))
-	{
-		return NULL;
-	}
-	else
-	{
-		return dlist_head_element(MgrHostWrapper, link, &resultList);
-	}
+	return popHeadMgrHostPfreeOthers(&resultList);
 }
 
 void selectMgrHostsForHostDoctor(MemoryContext spiContext,
@@ -1494,8 +1509,8 @@ PingNodeResult callAgentPingNode(MgrNodeWrapper *node)
 	return pingRes;
 }
 
-bool callAgentStopNode(MgrNodeWrapper *node,
-					   char *shutdownMode, bool complain)
+bool callAgentStopNode(MgrNodeWrapper *node, char *shutdownMode,
+					   bool wait, bool complain)
 {
 	CallAgentResult res;
 	AgentCommand cmd;
@@ -1507,21 +1522,22 @@ bool callAgentStopNode(MgrNodeWrapper *node,
 	case CNDN_TYPE_COORDINATOR_MASTER:
 	case CNDN_TYPE_COORDINATOR_SLAVE:
 		appendStringInfo(&cmdMessage,
-						 " stop -D %s -Z coordinator -m %s -o -i -w -c",
+						 " stop -D %s -Z coordinator -m %s -o -i -c",
 						 node->nodepath,
 						 shutdownMode);
+
 		break;
 	case CNDN_TYPE_DATANODE_MASTER:
 	case CNDN_TYPE_DATANODE_SLAVE:
 		appendStringInfo(&cmdMessage,
-						 " stop -D %s -Z datanode -m %s -o -i -w -c",
+						 " stop -D %s -Z datanode -m %s -o -i -c",
 						 node->nodepath,
 						 shutdownMode);
 		break;
 	case CNDN_TYPE_GTM_COOR_MASTER:
 	case CNDN_TYPE_GTM_COOR_SLAVE:
 		appendStringInfo(&cmdMessage,
-						 " stop -D %s -Z gtm_coord -m %s -o -i -w -c",
+						 " stop -D %s -Z gtm_coord -m %s -o -i -c",
 						 node->nodepath,
 						 shutdownMode);
 		break;
@@ -1532,6 +1548,9 @@ bool callAgentStopNode(MgrNodeWrapper *node,
 						node->form.nodetype)));
 		return false;
 	}
+
+	wait ? appendStringInfo(&cmdMessage, " -w")
+		 : appendStringInfo(&cmdMessage, " -W");
 
 	if (node->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER)
 		cmd = AGT_CMD_GTMCOOR_STOP_MASTER;
@@ -1566,7 +1585,7 @@ bool callAgentStopNode(MgrNodeWrapper *node,
 	return res.agentRes;
 }
 
-bool callAgentStartNode(MgrNodeWrapper *node, bool complain)
+bool callAgentStartNode(MgrNodeWrapper *node, bool wait, bool complain)
 {
 	CallAgentResult res;
 	AgentCommand cmd;
@@ -1579,21 +1598,21 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool complain)
 	case CNDN_TYPE_COORDINATOR_MASTER:
 	case CNDN_TYPE_COORDINATOR_SLAVE:
 		appendStringInfo(&cmdMessage,
-						 " start -D %s -Z coordinator -o -i -w -c -l %s/logfile",
+						 " start -D %s -Z coordinator -o -i -c -l %s/logfile",
 						 node->nodepath,
 						 node->nodepath);
 		break;
 	case CNDN_TYPE_DATANODE_MASTER:
 	case CNDN_TYPE_DATANODE_SLAVE:
 		appendStringInfo(&cmdMessage,
-						 " start -D %s -Z datanode -o -i -w -c -l %s/logfile",
+						 " start -D %s -Z datanode -o -i -c -l %s/logfile",
 						 node->nodepath,
 						 node->nodepath);
 		break;
 	case CNDN_TYPE_GTM_COOR_MASTER:
 	case CNDN_TYPE_GTM_COOR_SLAVE:
 		appendStringInfo(&cmdMessage,
-						 " start -D %s -Z gtm_coord -o -i -w -c -l %s/logfile",
+						 " start -D %s -Z gtm_coord -o -i -c -l %s/logfile",
 						 node->nodepath,
 						 node->nodepath);
 		break;
@@ -1604,6 +1623,9 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool complain)
 						node->form.nodetype)));
 		return false;
 	}
+
+	wait ? appendStringInfo(&cmdMessage, " -w")
+		 : appendStringInfo(&cmdMessage, " -W");
 
 	if (node->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER)
 		cmd = AGT_CMD_GTMCOOR_START_MASTER;
@@ -1889,28 +1911,6 @@ XLogRecPtr callAgentGet_pg_last_wal_receive_lsn(MgrNodeWrapper *node)
 	return ptr;
 }
 
-void callAgentPingAndStopNode(MgrNodeWrapper *node, char *shutdownMode)
-{
-	PingNodeResult pingNodeResult;
-	pingNodeResult = callAgentPingNode(node);
-	if (pingNodeResult.agentRes)
-	{
-		if (pingNodeResult.pgPing == PQPING_OK ||
-			pingNodeResult.pgPing == PQPING_REJECT)
-		{
-			callAgentStopNode(node, shutdownMode, true);
-		}
-		else
-		{
-			callAgentStopNode(node, shutdownMode, false);
-		}
-	}
-	else
-	{
-		callAgentStopNode(node, shutdownMode, false);
-	}
-}
-
 bool setPGHbaTrustAddress(MgrNodeWrapper *mgrNode, char *address)
 {
 	PGHbaItem *hbaItems;
@@ -1986,20 +1986,71 @@ void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 	}
 }
 
-void setGtmInfoInPGSqlConf(MgrNodeWrapper *mgrNode,
+bool setGtmInfoInPGSqlConf(MgrNodeWrapper *mgrNode,
 						   char *agtm_host,
 						   char *snapsender_port,
 						   char *gxidsender_port,
 						   bool complain)
 {
+	bool done;
+
 	PGConfParameterItem *items = NULL;
 	items = newPGConfParameterItem("agtm_host", agtm_host, true);
 	items->next = newPGConfParameterItem("snapsender_port",
 										 snapsender_port, false);
 	items->next->next = newPGConfParameterItem("gxidsender_port",
 											   gxidsender_port, false);
-	callAgentRefreshPGSqlConfReload(mgrNode, items, complain);
+	done = callAgentRefreshPGSqlConfReload(mgrNode, items, complain);
 	pfreePGConfParameterItem(items);
+	return done;
+}
+
+bool checkGtmInfoInPGresult(PGresult *pgResult,
+							char *agtm_host,
+							char *snapsender_port,
+							char *gxidsender_port)
+{
+	int i;
+	bool execOk;
+	char *paramName;
+	char *paramValue;
+
+	execOk = true;
+	for (i = 0; i < PQntuples(pgResult); i++)
+	{
+		paramName = PQgetvalue(pgResult, i, 0);
+		paramValue = PQgetvalue(pgResult, i, 1);
+		if (strcmp(paramName, "agtm_host") == 0)
+		{
+			if (!strcmp(paramValue, agtm_host) == 0)
+			{
+				execOk = false;
+			}
+		}
+		else if (strcmp(paramName, "snapsender_port") == 0)
+		{
+			if (!strcmp(paramValue, snapsender_port) == 0)
+			{
+				execOk = false;
+			}
+		}
+		else if (strcmp(paramName, "gxidsender_port") == 0)
+		{
+			if (!strcmp(paramValue, gxidsender_port) == 0)
+			{
+				execOk = false;
+			}
+		}
+		else
+		{
+			ereport(DEBUG1,
+					(errmsg("unexpected field:%s",
+							paramName)));
+		}
+		if (!execOk)
+			break;
+	}
+	return execOk;
 }
 
 bool checkGtmInfoInPGSqlConf(PGconn *pgConn,
@@ -2010,59 +2061,25 @@ bool checkGtmInfoInPGSqlConf(PGconn *pgConn,
 							 char *gxidsender_port)
 {
 	char *sql;
-	char *paramName;
-	char *paramValue;
 	PGresult *pgResult = NULL;
-	int i;
 	bool execOk;
 
 	if (localSqlCheck)
 		sql = psprintf("select name, setting from pg_settings "
-					   "where name in('agtm_host','snapsender_port','gxidsender_port');");
+					   "where name in "
+					   "('agtm_host','snapsender_port','gxidsender_port');");
 	else
 		sql = psprintf("EXECUTE DIRECT ON (\"%s\") "
 					   "'select name, setting from pg_settings "
-					   "where name in(''agtm_host'',''snapsender_port'',''gxidsender_port'');'",
+					   "where name in "
+					   "(''agtm_host'',''snapsender_port'',''gxidsender_port'');'",
 					   nodename);
 	pgResult = PQexec(pgConn, sql);
 	execOk = true;
 	if (PQresultStatus(pgResult) == PGRES_TUPLES_OK)
 	{
-		for (i = 0; i < PQntuples(pgResult); i++)
-		{
-			paramName = PQgetvalue(pgResult, i, 0);
-			paramValue = PQgetvalue(pgResult, i, 1);
-			if (strcmp(paramName, "agtm_host") == 0)
-			{
-				if (!strcmp(paramValue, agtm_host) == 0)
-				{
-					execOk = false;
-				}
-			}
-			else if (strcmp(paramName, "snapsender_port") == 0)
-			{
-				if (!strcmp(paramValue, snapsender_port) == 0)
-				{
-					execOk = false;
-				}
-			}
-			else if (strcmp(paramName, "gxidsender_port") == 0)
-			{
-				if (!strcmp(paramValue, gxidsender_port) == 0)
-				{
-					execOk = false;
-				}
-			}
-			else
-			{
-				ereport(ERROR,
-						(errmsg("execute %s failed, unexpected field:%s",
-								sql,
-								paramName)));
-			}
-			if (!execOk)
-				break;
-		}
+		execOk = checkGtmInfoInPGresult(pgResult, agtm_host,
+										snapsender_port, gxidsender_port);
 	}
 	else
 	{
@@ -2074,6 +2091,7 @@ bool checkGtmInfoInPGSqlConf(PGconn *pgConn,
 	}
 	if (pgResult)
 		PQclear(pgResult);
+	pfree(sql);
 	return execOk;
 }
 
@@ -2128,16 +2146,16 @@ void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
 	if (execOk)
 	{
 		ereport(NOTICE,
-				(errmsg("set gtm information on %s successfully",
+				(errmsg("set GTM information on %s successfully",
 						NameStr(mgrNode->form.nodename))));
 		ereport(LOG,
-				(errmsg("set gtm information on %s successfully",
+				(errmsg("set GTM information on %s successfully",
 						NameStr(mgrNode->form.nodename))));
 	}
 	else
 	{
 		ereport(ERROR,
-				(errmsg("set gtm information on %s failed",
+				(errmsg("set GTM information on %s failed",
 						NameStr(mgrNode->form.nodename))));
 	}
 }
@@ -2214,14 +2232,14 @@ bool shutdownNodeWithinSeconds(MgrNodeWrapper *mgrNode,
 							   int immediateModeSeconds,
 							   bool complain)
 {
-	callAgentStopNode(mgrNode, SHUTDOWN_F, false);
+	callAgentStopNode(mgrNode, SHUTDOWN_F, false, false);
 	if (!pingNodeWaitinSeconds(mgrNode,
 							   PQPING_NO_RESPONSE,
 							   fastModeSeconds))
 	{
 		if (immediateModeSeconds > 0)
 		{
-			callAgentStopNode(mgrNode, SHUTDOWN_I, false);
+			callAgentStopNode(mgrNode, SHUTDOWN_I, false, false);
 			if (!pingNodeWaitinSeconds(mgrNode,
 									   PQPING_NO_RESPONSE,
 									   immediateModeSeconds))
@@ -2247,7 +2265,7 @@ bool startupNodeWithinSeconds(MgrNodeWrapper *mgrNode,
 							  int waitSeconds,
 							  bool complain)
 {
-	callAgentStartNode(mgrNode, false);
+	callAgentStartNode(mgrNode, false, false);
 	if (!pingNodeWaitinSeconds(mgrNode, PQPING_OK, waitSeconds))
 	{
 		ereport(complain ? ERROR : LOG,
@@ -2256,4 +2274,180 @@ bool startupNodeWithinSeconds(MgrNodeWrapper *mgrNode,
 		return false;
 	}
 	return true;
+}
+
+bool batchPingNodesWaitinSeconds(dlist_head *nodes,
+								 dlist_head *failedNodes,
+								 PGPing expectedPGPing,
+								 int waitSeconds)
+{
+	MgrNodeWrapper *node;
+	MgrNodeWrapper *copyOfNode;
+	dlist_mutable_iter iter;
+	int seconds;
+	PingNodeResult pingNodeResult;
+
+	dlist_foreach_modify(iter, nodes)
+	{
+		node = dlist_container(MgrNodeWrapper, link, iter.cur);
+		copyOfNode = palloc(sizeof(MgrNodeWrapper));
+		memcpy(copyOfNode, node, sizeof(MgrNodeWrapper));
+		dlist_push_tail(failedNodes, &copyOfNode->link);
+	}
+	for (seconds = 0; seconds < waitSeconds; seconds++)
+	{
+		dlist_foreach_modify(iter, failedNodes)
+		{
+			node = dlist_container(MgrNodeWrapper, link, iter.cur);
+			pingNodeResult = callAgentPingNode(node);
+			if (pingNodeResult.agentRes &&
+				pingNodeResult.pgPing == expectedPGPing)
+			{
+				dlist_delete(iter.cur);
+				pfree(node);
+			}
+		}
+		if (dlist_is_empty(failedNodes))
+		{
+			break;
+		}
+		else
+		{
+			if (seconds < waitSeconds - 1)
+				pg_usleep(1000000L);
+		}
+	}
+	if (dlist_is_empty(failedNodes))
+	{
+		return true;
+	}
+	else
+	{
+		dlist_foreach_modify(iter, failedNodes)
+		{
+			node = dlist_container(MgrNodeWrapper, link, iter.cur);
+			ereport(LOG,
+					(errmsg("ping %s failed within seconds %d",
+							NameStr(node->form.nodename),
+							waitSeconds)));
+		}
+		return false;
+	}
+}
+
+bool batchShutdownNodesWithinSeconds(dlist_head *nodes,
+									 int fastModeSeconds,
+									 int immediateModeSeconds,
+									 bool complain)
+{
+	MgrNodeWrapper *node;
+	dlist_head fastModeFailedNodes = DLIST_STATIC_INIT(fastModeFailedNodes);
+	dlist_head immedModeFailedNodes = DLIST_STATIC_INIT(immedModeFailedNodes);
+	dlist_mutable_iter iter;
+	bool res;
+
+	dlist_foreach_modify(iter, nodes)
+	{
+		node = dlist_container(MgrNodeWrapper, link, iter.cur);
+		/* If error occurred, do not complain */
+		callAgentStopNode(node, SHUTDOWN_F, false, false);
+	}
+	if (batchPingNodesWaitinSeconds(nodes,
+									&fastModeFailedNodes,
+									PQPING_NO_RESPONSE,
+									fastModeSeconds))
+	{
+		res = true;
+		goto end;
+	}
+	if (immediateModeSeconds <= 0)
+	{
+		dlist_foreach_modify(iter, &fastModeFailedNodes)
+		{
+			node = dlist_container(MgrNodeWrapper, link, iter.cur);
+			ereport(complain ? ERROR : LOG,
+					(errmsg("try shut down node %s failed",
+							NameStr(node->form.nodename))));
+		}
+		res = false;
+		goto end;
+	}
+	dlist_foreach_modify(iter, &fastModeFailedNodes)
+	{
+		node = dlist_container(MgrNodeWrapper, link, iter.cur);
+		callAgentStopNode(node, SHUTDOWN_I, false, false);
+	}
+	if (batchPingNodesWaitinSeconds(&fastModeFailedNodes,
+									&immedModeFailedNodes,
+									PQPING_NO_RESPONSE,
+									immediateModeSeconds))
+	{
+		res = true;
+		goto end;
+	}
+	dlist_foreach_modify(iter, &immedModeFailedNodes)
+	{
+		node = dlist_container(MgrNodeWrapper, link, iter.cur);
+		ereport(complain ? ERROR : LOG,
+				(errmsg("try shut down node %s failed",
+						NameStr(node->form.nodename))));
+	}
+	res = false;
+	goto end;
+
+end:
+	dlist_foreach_modify(iter, &fastModeFailedNodes)
+	{
+		node = dlist_container(MgrNodeWrapper, link, iter.cur);
+		dlist_delete(iter.cur);
+		pfree(node);
+	}
+	dlist_foreach_modify(iter, &immedModeFailedNodes)
+	{
+		node = dlist_container(MgrNodeWrapper, link, iter.cur);
+		dlist_delete(iter.cur);
+		pfree(node);
+	}
+	return res;
+}
+
+bool batchStartupNodesWithinSeconds(dlist_head *nodes,
+									int waitSeconds,
+									bool complain)
+{
+	MgrNodeWrapper *node;
+	dlist_head failedNodes = DLIST_STATIC_INIT(failedNodes);
+	dlist_mutable_iter iter;
+	bool res;
+
+	dlist_foreach_modify(iter, nodes)
+	{
+		node = dlist_container(MgrNodeWrapper, link, iter.cur);
+		/* If error occurred, do not complain */
+		callAgentStartNode(node, false, false);
+	}
+	if (batchPingNodesWaitinSeconds(nodes, &failedNodes,
+									PQPING_OK, waitSeconds))
+	{
+		res = true;
+		goto end;
+	}
+	dlist_foreach_modify(iter, &failedNodes)
+	{
+		node = dlist_container(MgrNodeWrapper, link, iter.cur);
+		ereport(complain ? ERROR : LOG,
+				(errmsg("try start up node %s failed",
+						NameStr(node->form.nodename))));
+	}
+	res = false;
+	goto end;
+
+end:
+	dlist_foreach_modify(iter, &failedNodes)
+	{
+		node = dlist_container(MgrNodeWrapper, link, iter.cur);
+		dlist_delete(iter.cur);
+		pfree(node);
+	}
+	return res;
 }

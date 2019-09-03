@@ -86,11 +86,6 @@ typedef enum NodeRunningStatus
 	NODE_RUNNING_STATUS_PENDING
 } NodeRunningStatus;
 
-typedef enum NodeQuerySqlType
-{
-	SQL_TYPE_PG_IS_IN_RECOVERY
-} NodeQuerySqlType;
-
 typedef struct MonitorNodeInfo
 {
 	PGconn *conn;
@@ -156,8 +151,7 @@ static bool startupNode(MonitorNodeInfo *nodeInfo);
 static void startConnection(MonitorNodeInfo *nodeInfo);
 static void resetConnection(MonitorNodeInfo *nodeInfo);
 static void resetNodeMonitor(void);
-static bool startQuery(MonitorNodeInfo *nodeInfo,
-					   NodeQuerySqlType sqlType);
+static bool startQuery(MonitorNodeInfo *nodeInfo);
 static bool cancelQuery(MonitorNodeInfo *nodeInfo);
 static bool PQflushAction(MonitorNodeInfo *nodeInfo);
 static void PQgetResultUntilNull(PGconn *conn);
@@ -218,6 +212,7 @@ static MgrNodeWrapper *checkGetMasterNode(Oid nodemasternameoid,
 static void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
 								   PGconn *pgConn,
 								   MemoryContext spiContext);
+static bool setMgrNodeGtmInfo(MgrNodeWrapper *mgrNode);
 
 static void handleSigterm(SIGNAL_ARGS);
 static void handleSigusr1(SIGNAL_ARGS);
@@ -493,7 +488,7 @@ static void handleConnectionStatusConnecting(MonitorNodeInfo *nodeInfo)
 	{
 		toConnectionStatusSucceeded(nodeInfo);
 		/* query immediately to determine the node status. */
-		startQuery(nodeInfo, SQL_TYPE_PG_IS_IN_RECOVERY);
+		startQuery(nodeInfo);
 		return;
 	}
 	else
@@ -525,7 +520,7 @@ static void handleConnectionStatusSucceeded(MonitorNodeInfo *nodeInfo)
 	}
 	else
 	{
-		startQuery(nodeInfo, SQL_TYPE_PG_IS_IN_RECOVERY);
+		startQuery(nodeInfo);
 		nodeInfo->waitEvents |= WL_SOCKET_READABLE;
 	}
 }
@@ -879,7 +874,7 @@ static bool tryRestartNode(MonitorNodeInfo *nodeInfo)
 	if (beyondRestartDelay(nodeInfo))
 	{
 		spiContext = beginCureOperation(nodeInfo->mgrNode);
-		done = shutdownNodeWithinSeconds(nodeInfo->mgrNode, 10, 120, false) &&
+		done = shutdownNodeWithinSeconds(nodeInfo->mgrNode, 5, 90, false) &&
 			   startupNode(nodeInfo);
 		endCureOperation(nodeInfo->mgrNode, CURE_STATUS_NORMAL, spiContext);
 		if (done)
@@ -936,7 +931,7 @@ static bool startupNode(MonitorNodeInfo *nodeInfo)
 	nodeInfo->restartTime = GetCurrentTimestamp();
 	/* Modify the value of the variable that controls the restart frequency. */
 	nextRestartFactor(nodeInfo);
-	ok = callAgentStartNode(nodeInfo->mgrNode, false);
+	ok = callAgentStartNode(nodeInfo->mgrNode, true, false);
 	nodeInfo->restartTime = GetCurrentTimestamp();
 	return ok;
 }
@@ -1014,7 +1009,7 @@ static void resetNodeMonitor()
 	siglongjmp(reset_node_monitor_sigjmp_buf, 1);
 }
 
-static bool startQuery(MonitorNodeInfo *nodeInfo, NodeQuerySqlType sqlType)
+static bool startQuery(MonitorNodeInfo *nodeInfo)
 {
 	int res;
 
@@ -1039,22 +1034,13 @@ static bool startQuery(MonitorNodeInfo *nodeInfo, NodeQuerySqlType sqlType)
 		occurredError(nodeInfo, NODE_ERROR_CONNECT_FAIL);
 		return false;
 	}
-	if (sqlType == SQL_TYPE_PG_IS_IN_RECOVERY)
+	nodeInfo->queryHandler = pg_is_in_recovery_handler;
+	/* Non-blocking mode query */
+	res = PQsendQuery(nodeInfo->conn, "SELECT PG_IS_IN_RECOVERY()");
+	if (res != 1)
 	{
-		nodeInfo->queryHandler = pg_is_in_recovery_handler;
-		/* Non-blocking mode query */
-		res = PQsendQuery(nodeInfo->conn, "SELECT PG_IS_IN_RECOVERY()");
-		if (res != 1)
-		{
-			occurredError(nodeInfo, NODE_ERROR_CONNECT_FAIL);
-			return false;
-		}
-	}
-	else
-	{
-		ereport(ERROR,
-				(errmsg("Unexpected NodeQuerySqlType:%d",
-						sqlType)));
+		occurredError(nodeInfo, NODE_ERROR_CONNECT_FAIL);
+		return false;
 	}
 
 	/* After sending any command or data on a nonblocking connection, call PQflush. */
@@ -1219,6 +1205,7 @@ static bool PQgetResultAction(MonitorNodeInfo *nodeInfo)
 	PGresult *pgResult;
 	char *sqlstate;
 	bool handlerRetOK;
+	char *errorMessage;
 
 	pgResult = PQgetResult(nodeInfo->conn);
 	if (pgResult == NULL)
@@ -1232,6 +1219,7 @@ static bool PQgetResultAction(MonitorNodeInfo *nodeInfo)
 			sqlstate = PQresultErrorField(pgResult, PG_DIAG_SQLSTATE);
 			if (sqlstate != NULL)
 			{
+				errorMessage = PQresultErrorMessage(pgResult);
 				/* Although the sql execution error, but still treat the node
 				 * as running normally. If there a sqlstate can determine the
 				 * node exception, handle that exception. */
@@ -1239,7 +1227,11 @@ static bool PQgetResultAction(MonitorNodeInfo *nodeInfo)
 						(errmsg("%s, sql execution error, sqlstate:%s, ErrorMessage:%s",
 								MyBgworkerEntry->bgw_name,
 								sqlstate,
-								PQresultErrorMessage(pgResult))));
+								errorMessage)));
+				if (strcasestr(errorMessage, "gtm"))
+				{
+					setMgrNodeGtmInfo(nodeInfo->mgrNode);
+				}
 				PQclear(pgResult);
 				return PQgetResultAction(nodeInfo);
 			}
@@ -2151,7 +2143,7 @@ static void prepareRewindMgrNode(RewindMgrNodeObject *rewindObject,
 		rewindObject->masterPGconn = NULL;
 		/* this node my be monitored by other doctor process, don't interfere with it */
 		tryUpdateMgrNodeCurestatus(masterNode, CURE_STATUS_SWITCHING, spiContext);
-		shutdownNodeWithinSeconds(masterNode, 10, 80, true);
+		shutdownNodeWithinSeconds(masterNode, 5, 90, true);
 		startupNodeWithinSeconds(masterNode, 90, true);
 		rewindObject->masterPGconn = checkMasterRunningStatus(masterNode);
 		tryUpdateMgrNodeCurestatus(masterNode, CURE_STATUS_SWITCHED, spiContext);
@@ -2346,24 +2338,62 @@ static void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
 								   PGconn *pgConn,
 								   MemoryContext spiContext)
 {
-	dlist_head coordinators = DLIST_STATIC_INIT(coordinators);
 	MgrNodeWrapper *gtmMaster;
 
 	if (mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
 	{
 		return;
 	}
-	selectMgrNodeByNodetype(spiContext,
-							CNDN_TYPE_GTM_COOR_MASTER,
-							&coordinators);
-	if (dlist_is_empty(&coordinators))
+	gtmMaster = selectMgrGtmCoordNode(spiContext);
+	if (!gtmMaster)
 	{
 		ereport(ERROR,
 				(errmsg("There is no GTM master node in the cluster")));
 	}
-	gtmMaster = dlist_head_element(MgrNodeWrapper, link, &coordinators);
 	setCheckGtmInfoInPGSqlConf(gtmMaster, mgrNode, pgConn, true, 10);
-	pfreeMgrNodeWrapperList(&coordinators, NULL);
+	pfreeMgrNodeWrapper(gtmMaster);
+}
+
+static bool setMgrNodeGtmInfo(MgrNodeWrapper *mgrNode)
+{
+	int ret;
+	bool done;
+	MgrNodeWrapper *gtmMaster;
+	char *agtm_host;
+	char snapsender_port[12] = {0};
+	char gxidsender_port[12] = {0};
+	MemoryContext oldContext;
+	MemoryContext spiContext;
+
+	oldContext = CurrentMemoryContext;
+	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(oldContext);
+	gtmMaster = selectMgrGtmCoordNode(spiContext);
+	SPI_FINISH_TRANSACTIONAL_COMMIT();
+	MemoryContextSwitchTo(oldContext);
+	if (!gtmMaster)
+	{
+		ereport(WARNING,
+				(errmsg("there is no GTM master node in the cluster")));
+		return true;
+	}
+
+	EXTRACT_GTM_INFOMATION(gtmMaster, agtm_host,
+						   snapsender_port, gxidsender_port);
+	ereport(LOG,
+			(errmsg("try to fix GTM information on %s",
+					NameStr(mgrNode->form.nodename))));
+
+	done = setGtmInfoInPGSqlConf(mgrNode, agtm_host,
+								 snapsender_port, gxidsender_port, false);
+
+	ereport(LOG,
+			(errmsg("fix GTM information on %s %s",
+					NameStr(mgrNode->form.nodename),
+					done ? "successfully" : "failed")));
+	pfreeMgrNodeWrapper(gtmMaster);
+	return done;
 }
 
 /*

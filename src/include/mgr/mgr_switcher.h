@@ -23,7 +23,7 @@ typedef struct SwitcherNodeWrapper
 	NameData oldCurestatus;
 	PGHbaItem *temporaryHbaItems;
 	PGConfParameterItem *originalParameterItems;
-	bool coordinatorPgxcNodeChanged;
+	bool coordPgxcNodeChanged;
 	bool holdClusterLock;
 	bool adbSlotChanged;
 } SwitcherNodeWrapper;
@@ -97,7 +97,8 @@ extern void checkSwitchGtmCoordPrerequisite(SwitcherNodeWrapper *oldMaster,
 											dlist_head *runningSlaves,
 											dlist_head *failedSlaves,
 											dlist_head *coordinators,
-											dlist_head *dataNodes,
+											dlist_head *runningDataNodes,
+											dlist_head *failedDataNodes,
 											MemoryContext spiContext,
 											bool forceSwitch);
 extern void switchToDataNodeNewMaster(SwitcherNodeWrapper *oldMaster,
@@ -112,7 +113,7 @@ extern void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 									  dlist_head *runningSlaves,
 									  dlist_head *failedSlaves,
 									  dlist_head *coordinators,
-									  dlist_head *dataNodes,
+									  dlist_head *runningDataNodes,
 									  MemoryContext spiContext,
 									  bool kickOutOldMaster);
 extern void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,

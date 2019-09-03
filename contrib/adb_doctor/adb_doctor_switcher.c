@@ -44,7 +44,8 @@ static void checkAndSwitchGtmCoordMaster(SwitcherNodeWrapper *oldMaster,
 										 dlist_head *runningSlaves,
 										 dlist_head *failedSlaves,
 										 dlist_head *coordinators,
-										 dlist_head *dataNodes,
+										 dlist_head *runningDataNodes,
+										 dlist_head *failedDataNodes,
 										 MemoryContext spiContext);
 static bool isNewMasterEligible(SwitcherNodeWrapper *oldMaster,
 								SwitcherNodeWrapper *newMaster);
@@ -165,7 +166,8 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 	dlist_head failedSlaves = DLIST_STATIC_INIT(failedSlaves);
 	dlist_head runningSlaves = DLIST_STATIC_INIT(runningSlaves);
 	dlist_head coordinators = DLIST_STATIC_INIT(coordinators);
-	dlist_head dataNodes = DLIST_STATIC_INIT(dataNodes);
+	dlist_head runningDataNodes = DLIST_STATIC_INIT(runningDataNodes);
+	dlist_head failedDataNodes = DLIST_STATIC_INIT(failedDataNodes);
 	MemoryContext oldContext;
 	MemoryContext switchContext;
 	MemoryContext spiContext;
@@ -198,7 +200,8 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 										 &runningSlaves,
 										 &failedSlaves,
 										 &coordinators,
-										 &dataNodes,
+										 &runningDataNodes,
+										 &failedDataNodes,
 										 spiContext);
 		}
 		else
@@ -223,7 +226,8 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 	pfreeSwitcherNodeWrapperList(&runningSlaves, NULL);
 	/* When switching gtm, newMaster will be added in coordinators. */
 	pfreeSwitcherNodeWrapperList(&coordinators, newMaster);
-	pfreeSwitcherNodeWrapperList(&dataNodes, NULL);
+	pfreeSwitcherNodeWrapperList(&runningDataNodes, NULL);
+	pfreeSwitcherNodeWrapperList(&failedDataNodes, NULL);
 	pfreeSwitcherNodeWrapperPGconn(oldMaster);
 	pfreeSwitcherNodeWrapper(newMaster);
 
@@ -286,7 +290,7 @@ static void checkAndSwitchDataNodeMaster(SwitcherNodeWrapper *oldMaster,
 							MyBgworkerEntry->bgw_name,
 							NameStr(oldMaster->mgrNode->form.nodename))));
 			updateCurestatusToNormal(oldMaster->mgrNode, spiContext);
-			callAgentStartNode(oldMaster->mgrNode, false);
+			callAgentStartNode(oldMaster->mgrNode, true, false);
 		}
 	}
 	else
@@ -312,7 +316,8 @@ static void checkAndSwitchGtmCoordMaster(SwitcherNodeWrapper *oldMaster,
 										 dlist_head *runningSlaves,
 										 dlist_head *failedSlaves,
 										 dlist_head *coordinators,
-										 dlist_head *dataNodes,
+										 dlist_head *runningDataNodes,
+										 dlist_head *failedDataNodes,
 										 MemoryContext spiContext)
 {
 	checkMgrNodeDataInDB(oldMaster->mgrNode, spiContext);
@@ -320,7 +325,8 @@ static void checkAndSwitchGtmCoordMaster(SwitcherNodeWrapper *oldMaster,
 									runningSlaves,
 									failedSlaves,
 									coordinators,
-									dataNodes,
+									runningDataNodes,
+									failedDataNodes,
 									spiContext,
 									switcherConfiguration->forceSwitch);
 	oldMaster->pgConn = getNodeDefaultDBConnection(oldMaster->mgrNode, 10);
@@ -344,7 +350,7 @@ static void checkAndSwitchGtmCoordMaster(SwitcherNodeWrapper *oldMaster,
 									  runningSlaves,
 									  failedSlaves,
 									  coordinators,
-									  dataNodes,
+									  runningDataNodes,
 									  spiContext,
 									  false);
 		}
@@ -355,7 +361,7 @@ static void checkAndSwitchGtmCoordMaster(SwitcherNodeWrapper *oldMaster,
 							MyBgworkerEntry->bgw_name,
 							NameStr(oldMaster->mgrNode->form.nodename))));
 			updateCurestatusToNormal(oldMaster->mgrNode, spiContext);
-			callAgentStartNode(oldMaster->mgrNode, false);
+			callAgentStartNode(oldMaster->mgrNode, true, false);
 		}
 	}
 	else
@@ -371,7 +377,7 @@ static void checkAndSwitchGtmCoordMaster(SwitcherNodeWrapper *oldMaster,
 								  runningSlaves,
 								  failedSlaves,
 								  coordinators,
-								  dataNodes,
+								  runningDataNodes,
 								  spiContext,
 								  false);
 	}

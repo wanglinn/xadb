@@ -18,6 +18,15 @@
 #include "access/xlogdefs.h"
 #include "../../interfaces/libpq/libpq-fe.h"
 
+#define EXTRACT_GTM_INFOMATION(gtmMaster, agtm_host,             \
+							   snapsender_port, gxidsender_port) \
+	do                                                           \
+	{                                                            \
+		agtm_host = gtmMaster->host->hostaddr;                   \
+		pg_ltoa(gtmMaster->form.nodeport + 1, snapsender_port);  \
+		pg_ltoa(gtmMaster->form.nodeport + 2, gxidsender_port);  \
+	} while (0)
+
 typedef enum NodeConnectionStatus
 {
 	NODE_CONNECTION_STATUS_FAIL,
@@ -336,6 +345,7 @@ extern MgrNodeWrapper *selectMgrNodeForNodeDoctor(Oid oid,
 												  MemoryContext spiContext);
 extern void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
 											dlist_head *resultList);
+extern MgrNodeWrapper *selectMgrGtmCoordNode(MemoryContext spiContext);
 extern int updateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 								   char *newCurestatus,
 								   MemoryContext spiContext);
@@ -401,9 +411,10 @@ extern bool callAgentRefreshRecoveryConf(MgrNodeWrapper *node,
 										 PGConfParameterItem *items,
 										 bool complain);
 extern bool callAgentPromoteNode(MgrNodeWrapper *node, bool complain);
-extern bool callAgentStopNode(MgrNodeWrapper *node,
-							  char *shutdownMode, bool complain);
-extern bool callAgentStartNode(MgrNodeWrapper *node, bool complain);
+extern bool callAgentStopNode(MgrNodeWrapper *node, char *shutdownMode,
+							  bool wait, bool complain);
+extern bool callAgentStartNode(MgrNodeWrapper *node,
+							   bool wait, bool complain);
 extern bool callAgentRestartNode(MgrNodeWrapper *node,
 								 char *shutdownMode, bool complain);
 extern bool callAgentRewindNode(MgrNodeWrapper *masterNode,
@@ -416,7 +427,6 @@ extern CallAgentResult callAgentExecuteSqlCommand(MgrNodeWrapper *node, char *sq
 extern NodeRecoveryStatus callAgentGet_pg_is_in_recovery(MgrNodeWrapper *node);
 extern XLogRecPtr parseLsnToXLogRecPtr(const char *str);
 extern XLogRecPtr callAgentGet_pg_last_wal_receive_lsn(MgrNodeWrapper *node);
-extern void callAgentPingAndStopNode(MgrNodeWrapper *node, char *shutdownMode);
 
 extern bool setPGHbaTrustAddress(MgrNodeWrapper *mgrNode, char *address);
 extern void setPGHbaTrustSlaveReplication(MgrNodeWrapper *masterNode,
@@ -426,11 +436,15 @@ extern void setSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 extern void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 											PGconn *pgConn,
 											char *value, int checkSeconds);
-extern void setGtmInfoInPGSqlConf(MgrNodeWrapper *mgrNode,
+extern bool setGtmInfoInPGSqlConf(MgrNodeWrapper *mgrNode,
 								  char *agtm_host,
 								  char *snapsender_port,
 								  char *gxidsender_port,
 								  bool complain);
+extern bool checkGtmInfoInPGresult(PGresult *pgResult,
+								   char *agtm_host,
+								   char *snapsender_port,
+								   char *gxidsender_port);
 extern bool checkGtmInfoInPGSqlConf(PGconn *pgConn,
 									char *nodename,
 									bool localSqlCheck,
@@ -458,4 +472,15 @@ extern bool shutdownNodeWithinSeconds(MgrNodeWrapper *mgrNode,
 extern bool startupNodeWithinSeconds(MgrNodeWrapper *mgrNode,
 									 int waitSeconds,
 									 bool complain);
+extern bool batchPingNodesWaitinSeconds(dlist_head *nodes,
+										dlist_head *failedModes,
+										PGPing expectedPGPing,
+										int waitSeconds);
+extern bool batchShutdownNodesWithinSeconds(dlist_head *nodes,
+											int fastModeSeconds,
+											int immediateModeSeconds,
+											bool complain);
+extern bool batchStartupNodesWithinSeconds(dlist_head *nodes,
+										   int waitSeconds,
+										   bool complain);
 #endif /* MGR_HELPER_H */
