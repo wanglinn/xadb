@@ -27,11 +27,6 @@
 #include "settings.h"
 #include "variables.h"
 
-#ifdef ADB
-#include "catalog/pgxc_class_d.h"
-#endif
-
-
 static bool describeOneTableDetails(const char *schemaname,
 						const char *relationname,
 						const char *oid,
@@ -3166,74 +3161,17 @@ describeOneTableDetails(const char *schemaname,
 			 tableinfo.relkind == RELKIND_PARTITIONED_TABLE))
 		{
 			printfPQExpBuffer(&buf,
-						PG_GRAM_HINT "SELECT CASE pclocatortype \n"
-						"		  WHEN '%c' THEN \n"
-						"		   'HASHMAP' || '(' || a.attname || ')' \n"
-						"		  WHEN '%c' THEN \n"
-						"		   'RANDOM' \n"
-						"		  WHEN '%c' THEN \n"
-						"		   'REPLICATION' \n"
-						"		  WHEN '%c' THEN \n"
-						"		   'HASH' || '(' || a.attname || ')' \n"
-						"		  WHEN '%c' THEN \n"
-						"		   'MODULO' || '(' || a.attname || ')' \n"
-						"		END AS distype, \n"
-						"		CASE array_length(nodeoids, 1) \n"
-						"		  WHEN nc.dn_cn THEN \n"
-						"		   'ALL DATANODES' \n"
-						"		  ELSE \n"
-						"			CASE pclocatortype \n"
-						"			 WHEN '%c' THEN \n"
-						"			   'ALL DATANODES' \n"
-						"			 ELSE \n"
-						"			   array_to_string(ARRAY  \n"
-						"			   (SELECT node_name \n"
-						"				  FROM pg_catalog.pgxc_node \n"
-						"					 WHERE oid IN (SELECT unnest(nodeoids) \n"
-						"					 FROM pg_catalog.pgxc_class \n"
-						"					WHERE pcrelid = '%s')), \n"
-						"				   ', ') \n"
-						"            END \n"
-						"		END AS loc_nodes \n"
-						"  FROM pg_catalog.pg_attribute a \n"
-						" RIGHT JOIN  \n"
-						"		pg_catalog.pgxc_class c \n"
-						"	ON a.attrelid = c.pcrelid \n"
-						"  AND a.attnum = c.pcattnum, \n"
-						"	   (SELECT count(*) AS dn_cn FROM pg_catalog.pgxc_node WHERE node_type = 'D') AS nc \n"
-						" WHERE pcrelid = '%s'"
-					, LOCATOR_TYPE_HASHMAP
-					, LOCATOR_TYPE_RANDOM
-					, LOCATOR_TYPE_REPLICATED
-					, LOCATOR_TYPE_HASH
-					, LOCATOR_TYPE_MODULO
-					, LOCATOR_TYPE_HASHMAP
-					, oid
-					, oid);
+							  PG_GRAM_HINT
+							  "SELECT adb_get_distribute_def(%s)",
+							  oid);
 			result = PSQLexec(buf.data);
 
 			if (!result)
 				goto error_return;
-			else
-				tuples = PQntuples(result);
+			else if(!PQgetisnull(result, 0, 0))
+				printTableAddFooter(&cont, PQgetvalue(result, 0, 0));
 
-			if (tuples > 0)
-			{
-				const char *dist_by = _("Distribute By");
-				const char *loc_nodes = _("Location Nodes");
-
-				/* Print distribution method */
-				printfPQExpBuffer(&buf, "%s: %s", dist_by,
-									PQgetvalue(result, 0, 0));
-				printTableAddFooter(&cont, buf.data);
-
-				/* Print location nodes info */
-				printfPQExpBuffer(&buf, "%s: %s", loc_nodes,
-									PQgetvalue(result, 0, 1));
-				printTableAddFooter(&cont, buf.data);
-
-				PQclear(result);
-			}
+			PQclear(result);
 		}
 #endif /* ADB */
 	}
