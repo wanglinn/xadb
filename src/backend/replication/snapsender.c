@@ -144,6 +144,7 @@ static int	snapsender_match_xid(const void *key1, const void *key2, Size keysize
 static bool SnapSenderWakeupFinishXidEvent(TransactionId txid);
 static bool SnapSenderWaitTxidFinsihEvent(TimestampTz end, WaitSnapSenderCond test, void *context);
 static bool WaitSnapSendCondTransactionComplate(void *context);
+static void snapsenderProcessLocalMaxXid(SnapClientData *client, const char* data, int len);
 
 /* Signal handlers */
 static void SnapSenderSigUsr1Handler(SIGNAL_ARGS);
@@ -324,6 +325,37 @@ static void snapsenderProcessXidFinishAck(SnapClientData *client, const char* da
 				hash_search(snapsender_xid_htab, &txid, HASH_REMOVE, &found);
 			}
 		}
+	}
+}
+
+static void snapsenderUpdateNextXid(TransactionId xid)
+{
+	if (!TransactionIdIsValid(xid))
+		return;
+
+	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+	if (NormalTransactionIdFollows(xid, ShmemVariableCache->nextXid))
+	{
+ 		ShmemVariableCache->nextXid = xid;
+ 		TransactionIdAdvance(ShmemVariableCache->nextXid);
+	}
+	LWLockRelease(XidGenLock);
+}
+
+static void snapsenderProcessLocalMaxXid(SnapClientData *client, const char* data, int len)
+{
+	StringInfoData	msg;
+	TransactionId	txid;
+	bool found;
+
+	msg.data = input_buffer.data;
+	msg.len = msg.maxlen = input_buffer.len;
+	msg.cursor = 1; /* skip msgtype */
+	
+	while(msg.cursor < msg.len)
+	{
+		txid = pq_getmsgint(&msg, sizeof(txid));
+		snapsenderUpdateNextXid(txid);
 	}
 }
 
@@ -1030,6 +1062,10 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node)
 				{
 					snapsenderProcessXidFinishAck(client, input_buffer.data, input_buffer.len);
 				}
+				else if (strcasecmp(input_buffer.data, "u") == 0)
+				{
+					snapsenderProcessLocalMaxXid(client, input_buffer.data, input_buffer.len);
+				}
 			}
 			break;
 		case 0:
@@ -1232,7 +1268,7 @@ void SnapSendTransactionFinish(TransactionId txid)
 		proclist_push_tail(&SnapSender->waiters_finish, procno, GTMWaitLink);
 	}
 
-	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 2000);
+	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 500);
 	SnapSenderWaitTxidFinsihEvent(endtime, WaitSnapSendCondTransactionComplate, (void*)((size_t)txid));
 	SpinLockRelease(&SnapSender->mutex);
 }

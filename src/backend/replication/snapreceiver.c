@@ -91,6 +91,8 @@ static void SnapRcvProcessAssign(char *buf, Size len);
 static void SnapRcvProcessComplete(char *buf, Size len);
 static void SnapRcvProcessHeartBeat(char *buf, Size len);
 static void WakeupTransaction(TransactionId);
+static void
+SnapRcvSendLocalNextXid(void);
 
 /* Signal handlers */
 static void SnapRcvSigHupHandler(SIGNAL_ARGS);
@@ -140,6 +142,29 @@ SnapRcvSendHeartbeat(void)
 	resetStringInfo(&reply_message);
 	pq_sendbyte(&reply_message, 'h');
 	pq_sendint64(&reply_message, last_heat_beat_sendtime);
+
+	/* Send it */
+	walrcv_send(wrconn, reply_message.data, reply_message.len);
+}
+
+static void
+SnapRcvSendLocalNextXid(void)
+{
+	TransactionId xid; 
+	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+	xid = ShmemVariableCache->nextXid;
+	LWLockRelease(XidGenLock);
+
+	if (!TransactionIdIsValid(xid))
+	{
+		SnapRcvSendHeartbeat();
+		return;
+	}
+
+	/* Construct a new message */
+	resetStringInfo(&reply_message);
+	pq_sendbyte(&reply_message, 'u');
+	pq_sendint64(&reply_message, xid);
 
 	/* Send it */
 	walrcv_send(wrconn, reply_message.data, reply_message.len);
@@ -268,7 +293,7 @@ void SnapReceiverMain(void)
 		{
 			//walrcv_endstreaming(wrconn, &primaryTLI);
 			/* loop until end-of-streaming or error */
-			SnapRcvSendHeartbeat();
+			SnapRcvSendLocalNextXid();
 			heartbeat_sent = true;
 			for(;;)
 			{
