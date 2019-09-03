@@ -36,10 +36,10 @@ typedef struct SnapSenderData
 
 	slock_t			mutex;				/* locks shared variables */
 
-	uint32			cur_cnt_assign;
+	volatile uint32			cur_cnt_assign;
 	TransactionId	xid_assign[MAX_CNT_SHMEM_XID_BUF];
 
-	uint32			cur_cnt_complete;
+	volatile uint32			cur_cnt_complete;
 	TransactionId	xid_complete[MAX_CNT_SHMEM_XID_BUF];
 }SnapSenderData;
 
@@ -129,7 +129,7 @@ static void OnClientMsgEvent(WaitEvent *event);
 static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node);
 static void OnClientSendMsg(SnapClientData *client, pq_comm_node *node);
 
-static void ProcessShmemXidMsg(slock_t *lock, proclist_head *waiters, uint32 *cursor, TransactionId *shmemxid, char msgtype);
+static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char msgtype);
 static void DropClient(SnapClientData *client, bool drop_in_slist);
 static bool AppendMsgToClient(SnapClientData *client, char msgtype, const char *data, int len, bool drop_if_failed);
 
@@ -699,94 +699,114 @@ static void SnapSenderStartup(void)
 /* event handlers */
 static void OnLatchSetEvent(WaitEvent *event)
 {
+	TransactionId			xid_assgin[MAX_CNT_SHMEM_XID_BUF];
+	TransactionId			xid_finish[MAX_CNT_SHMEM_XID_BUF];
+	uint32					assgin_cnt;
+	uint32					finish_cnt;
+	proclist_mutable_iter	proc_iter_assgin;
+	proclist_mutable_iter	proc_iter_finish;
+	slist_mutable_iter		siter;
+	PGPROC				   *proc;
+
 	ResetLatch(&MyProc->procLatch);
 
+	SpinLockAcquire(&SnapSender->mutex);
+	Assert(SnapSender->cur_cnt_assign <= MAX_CNT_SHMEM_XID_BUF);
+	Assert(SnapSender->cur_cnt_complete <= MAX_CNT_SHMEM_XID_BUF);
+
+	assgin_cnt = SnapSender->cur_cnt_assign;
+	finish_cnt = SnapSender->cur_cnt_complete;
+
+	pg_memory_barrier();
+	if (assgin_cnt > 0)
+	{
+		memcpy(xid_assgin, SnapSender->xid_assign, sizeof(TransactionId)*assgin_cnt);
+		SnapSender->cur_cnt_assign = 0;
+	}
+
+	if (finish_cnt > 0)
+	{
+		memcpy(xid_finish, SnapSender->xid_complete, sizeof(TransactionId)*finish_cnt);
+		SnapSender->cur_cnt_complete = 0;
+	}
+
+	proclist_foreach_modify(proc_iter_assgin, &SnapSender->waiters_assign, GTMWaitLink)
+	{
+		proc = GetPGProcByNumber(proc_iter_assgin.cur);
+		Assert(proc->pgprocno == proc_iter_assgin.cur);
+		proclist_delete(&SnapSender->waiters_assign, proc_iter_assgin.cur, GTMWaitLink);
+		SetLatch(&proc->procLatch);
+	}
+
+	proclist_foreach_modify(proc_iter_finish, &SnapSender->waiters_complete, GTMWaitLink)
+	{
+		proc = GetPGProcByNumber(proc_iter_finish.cur);
+		Assert(proc->pgprocno == proc_iter_finish.cur);
+		proclist_delete(&SnapSender->waiters_complete, proc_iter_finish.cur, GTMWaitLink);
+		SetLatch(&proc->procLatch);
+	}
+	SpinLockRelease(&SnapSender->mutex);
+
 	/* check assign message */
-	ProcessShmemXidMsg(&SnapSender->mutex,
-					   &SnapSender->waiters_assign,
-					   &SnapSender->cur_cnt_assign,
-					   SnapSender->xid_assign,
-					   'a');
+	if (assgin_cnt > 0)
+		ProcessShmemXidMsg(&xid_assgin, assgin_cnt, 'a');
 
 	/* check finish transaction */
-	ProcessShmemXidMsg(&SnapSender->mutex,
-					   &SnapSender->waiters_complete,
-					   &SnapSender->cur_cnt_complete,
-					   SnapSender->xid_complete,
-					  'c');
+	if (finish_cnt > 0)
+		ProcessShmemXidMsg(&xid_finish, finish_cnt, 'c');
 }
 
-static void ProcessShmemXidMsg(slock_t *lock, proclist_head *waiters, uint32 *cursor, TransactionId *shmemxid, char msgtype)
+static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char msgtype)
 {
 	proclist_mutable_iter	proc_iter;
 	slist_mutable_iter		siter;
 	SnapClientData		   *client;
 	PGPROC				   *proc;
-	TransactionId			xid[MAX_CNT_SHMEM_XID_BUF];
-	uint32					xid_cnt,i;
+	uint32					i;
 
-	/* fetch TransactionIds */
-	SpinLockAcquire(lock);
-	Assert(*cursor < MAX_CNT_SHMEM_XID_BUF);
-	xid_cnt = *cursor;
-	pg_memory_barrier();
-	if (xid_cnt > 0)
-	{
-		memcpy(xid, shmemxid, sizeof(TransactionId)*xid_cnt);
-		*cursor = 0;
-	}
-	proclist_foreach_modify(proc_iter, waiters, GTMWaitLink)
-	{
-		proc = GetPGProcByNumber(proc_iter.cur);
-		Assert(proc->pgprocno == proc_iter.cur);
-		proclist_delete(&SnapSender->waiters_assign, proc_iter.cur, GTMWaitLink);
-		SetLatch(&proc->procLatch);
-	}
-	SpinLockRelease(lock);
+	if (xid_cnt <= 0)
+		return;
 
 	/* send TransactionIds to client */
-	if (xid_cnt > 0)
+	output_buffer.cursor = false;	/* use it as bool for flag serialized message */
+
+	slist_foreach_modify(siter, &slist_all_client)
 	{
-		output_buffer.cursor = false;	/* use it as bool for flag serialized message */
+		client = slist_container(SnapClientData, snode, siter.cur);
+		Assert(GetWaitEventData(wait_event_set, client->event_pos) == client);
+		if (client->status != CLIENT_STATUS_STREAMING)
+			continue;
 
-		slist_foreach_modify(siter, &slist_all_client)
+		/* initialize message */
+		if (output_buffer.cursor == false)
 		{
-			client = slist_container(SnapClientData, snode, siter.cur);
-			Assert(GetWaitEventData(wait_event_set, client->event_pos) == client);
-			if (client->status != CLIENT_STATUS_STREAMING)
-				continue;
-
-			/* initialize message */
-			if (output_buffer.cursor == false)
+			resetStringInfo(&output_buffer);
+			appendStringInfoChar(&output_buffer, msgtype);
+			for(i=0;i<xid_cnt;++i)
 			{
-				resetStringInfo(&output_buffer);
-				appendStringInfoChar(&output_buffer, msgtype);
-				for(i=0;i<xid_cnt;++i)
-				{
-					pq_sendint32(&output_buffer, xid[i]);
-					if (msgtype == 'c')
-					{
-						append_client_xid_to_htab(client, xid[i]);
-					}
-				}
-				output_buffer.cursor = true;
-			}
-			else
-			{
+				pq_sendint32(&output_buffer, xid[i]);
 				if (msgtype == 'c')
 				{
-					for(i=0;i<xid_cnt;++i)
-					{
-						append_client_xid_to_htab(client, xid[i]);
-					}
+					//append_client_xid_to_htab(client, xid[i]);
 				}
 			}
-
-			if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false) == false)
+			output_buffer.cursor = true;
+		}
+		else
+		{
+			if (msgtype == 'c')
 			{
-				slist_delete_current(&siter);
-				DropClient(client, false);
+				for(i=0;i<xid_cnt;++i)
+				{
+					//append_client_xid_to_htab(client, xid[i]);
+				}
 			}
+		}
+
+		if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false) == false)
+		{
+			slist_delete_current(&siter);
+			DropClient(client, false);
 		}
 	}
 }
@@ -1114,7 +1134,7 @@ static void SnapSenderQuickDieHander(SIGNAL_ARGS)
 
 /* mutex must locked */
 static void WaitSnapSendShmemSpace(volatile slock_t *mutex,
-								   uint32 *cur,
+								   volatile uint32 *cur,
 								   proclist_head *waiters)
 {
 	Latch				   *latch = &MyProc->procLatch;
