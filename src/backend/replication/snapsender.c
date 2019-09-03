@@ -1253,7 +1253,7 @@ void SnapSendTransactionFinish(TransactionId txid)
 	SnapSender->xid_complete[SnapSender->cur_cnt_complete++] = txid;
 	SetLatch(&(GetPGProcByNumber(SnapSender->procno)->procLatch));
 
-	proclist_foreach_modify(iter, &SnapSender->waiters_finish, GTMWaitLink)
+	/*proclist_foreach_modify(iter, &SnapSender->waiters_finish, GTMWaitLink)
 	{
 		if (iter.cur == procno)
 		{
@@ -1269,6 +1269,6 @@ void SnapSendTransactionFinish(TransactionId txid)
 	}
 
 	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 500);
-	SnapSenderWaitTxidFinsihEvent(endtime, WaitSnapSendCondTransactionComplate, (void*)((size_t)txid));
+	SnapSenderWaitTxidFinsihEvent(endtime, WaitSnapSendCondTransactionComplate, (void*)((size_t)txid));*/
 	SpinLockRelease(&SnapSender->mutex);
 }
