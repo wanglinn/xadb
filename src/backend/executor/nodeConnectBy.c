@@ -1003,7 +1003,8 @@ static void ExecReScanTuplesortConnectBy(ConnectByState *cbstate, TuplesortConne
 			cbstate->eof_underlying = false;
 		}else
 		{
-			tuplestore_rescan(cbstate->ts);
+			if (cbstate->ts)
+				tuplestore_rescan(cbstate->ts);
 			cbstate->is_rescan = true;
 		}
 		leaf = GetConnectBySortLeaf(cbstate);
