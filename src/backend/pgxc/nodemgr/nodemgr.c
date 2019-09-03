@@ -89,7 +89,7 @@ static void initNodeOidInfo(NodeOidInfo *info)
 
 static void appendNodeOidInfo(NodeOidInfo *info, Oid oid)
 {
-	Assert(info->oid_count < info->max_count);
+	Assert(info->oid_count <= info->max_count);
 	if (info->oid_count == info->max_count)
 	{
 		info->max_count += OID_ALLOC_STEP;
