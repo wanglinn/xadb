@@ -424,6 +424,7 @@ void FreeReduceInfo(ReduceInfo *reduce)
 		i = reduce->nkey;
 		while (i>0)
 		{
+			--i;
 			if (reduce->keys[i].key)
 				pfree(reduce->keys[i].key);
 		}
