@@ -259,4 +259,7 @@ extern bool EqualReduceExpr(Expr *left, Expr *right);
 extern char *printReduceInfo(ReduceInfo *rinfo);
 extern char *printReduceInfoList(List *list);
 
+/* in leafsearch.c */
+extern Expr* create_range_bsearch_expr(ReduceInfo *rinfo, List *search);
+
 #endif /* REDUCEINFO_H */

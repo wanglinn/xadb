@@ -2570,6 +2570,16 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 			}
 		}
 		break;
+	case REDUCE_TYPE_RANGE:
+		{
+			List *args = NIL;
+			uint32 i;
+			for (i=0;i<reduce->nkey;++i)
+				args = lappend(args, reduce->keys[i].key);
+			result = create_range_bsearch_expr(reduce, args);
+			list_free(args);
+		}
+		break;
 	default:
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
