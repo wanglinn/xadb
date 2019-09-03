@@ -27,7 +27,7 @@
 #include "mgr/mgr_switcher.h"
 
 #define IS_EMPTY_STRING(str) (str == NULL || strlen(str) == 0)
-
+#define SHUTDOWN_NODE_SECONDS_ON_REWIND 90
 /* 
  * Benchmark of the time interval, The following elements 
  * based on deadlineMs, but have min and max value limit.
@@ -874,7 +874,10 @@ static bool tryRestartNode(MonitorNodeInfo *nodeInfo)
 	if (beyondRestartDelay(nodeInfo))
 	{
 		spiContext = beginCureOperation(nodeInfo->mgrNode);
-		done = shutdownNodeWithinSeconds(nodeInfo->mgrNode, 5, 90, false) &&
+		done = shutdownNodeWithinSeconds(nodeInfo->mgrNode,
+										 SHUTDOWN_NODE_FAST_SECONDS,
+										 SHUTDOWN_NODE_IMMEDIATE_SECONDS,
+										 false) &&
 			   startupNode(nodeInfo);
 		endCureOperation(nodeInfo->mgrNode, CURE_STATUS_NORMAL, spiContext);
 		if (done)
@@ -1912,7 +1915,9 @@ static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 		slavePGconn = getNodeDefaultDBConnection(slaveNode, 10);
 		if (!slavePGconn)
 		{
-			startupNodeWithinSeconds(slaveNode, 90, true);
+			startupNodeWithinSeconds(slaveNode,
+									 STARTUP_NODE_SECONDS,
+									 true);
 			slavePGconn = getNodeDefaultDBConnection(slaveNode, 10);
 			if (!slavePGconn)
 				ereport(ERROR,
@@ -2109,7 +2114,7 @@ static void prepareRewindMgrNode(RewindMgrNodeObject *rewindObject,
 		callAgentRefreshPGSqlConf(slaveNode, portItem, false);
 		pfree(portItem);
 
-		startupNodeWithinSeconds(slaveNode, 90, true);
+		startupNodeWithinSeconds(slaveNode, STARTUP_NODE_SECONDS, true);
 		rewindObject->slavePGconn = getNodeDefaultDBConnection(slaveNode, 10);
 		if (!rewindObject->slavePGconn)
 			ereport(ERROR,
@@ -2142,9 +2147,16 @@ static void prepareRewindMgrNode(RewindMgrNodeObject *rewindObject,
 		PQfinish(rewindObject->masterPGconn);
 		rewindObject->masterPGconn = NULL;
 		/* this node my be monitored by other doctor process, don't interfere with it */
-		tryUpdateMgrNodeCurestatus(masterNode, CURE_STATUS_SWITCHING, spiContext);
-		shutdownNodeWithinSeconds(masterNode, 5, 90, true);
-		startupNodeWithinSeconds(masterNode, 90, true);
+		tryUpdateMgrNodeCurestatus(masterNode,
+								   CURE_STATUS_SWITCHING,
+								   spiContext);
+		shutdownNodeWithinSeconds(masterNode,
+								  SHUTDOWN_NODE_FAST_SECONDS,
+								  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
+								  true);
+		startupNodeWithinSeconds(masterNode,
+								 STARTUP_NODE_SECONDS,
+								 true);
 		rewindObject->masterPGconn = checkMasterRunningStatus(masterNode);
 		tryUpdateMgrNodeCurestatus(masterNode, CURE_STATUS_SWITCHED, spiContext);
 	}
@@ -2154,8 +2166,12 @@ static void prepareRewindMgrNode(RewindMgrNodeObject *rewindObject,
 	{
 		PQfinish(rewindObject->slavePGconn);
 		rewindObject->slavePGconn = NULL;
-		shutdownNodeWithinSeconds(slaveNode, 90, 0, true);
-		startupNodeWithinSeconds(slaveNode, 90, true);
+		shutdownNodeWithinSeconds(slaveNode,
+								  SHUTDOWN_NODE_SECONDS_ON_REWIND,
+								  0, true);
+		startupNodeWithinSeconds(slaveNode,
+								 STARTUP_NODE_SECONDS,
+								 true);
 	}
 }
 
@@ -2172,7 +2188,9 @@ static void rewindMgrNodeOperation(RewindMgrNodeObject *rewindObject,
 	masterNode = rewindObject->masterNode;
 	slaveNode = rewindObject->slaveNode;
 
-	shutdownNodeWithinSeconds(slaveNode, 90, 0, true);
+	shutdownNodeWithinSeconds(slaveNode,
+							  SHUTDOWN_NODE_SECONDS_ON_REWIND,
+							  0, true);
 
 	setPGHbaTrustAddress(masterNode, slaveNode->host->hostaddr);
 
@@ -2356,43 +2374,38 @@ static void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
 
 static bool setMgrNodeGtmInfo(MgrNodeWrapper *mgrNode)
 {
-	int ret;
 	bool done;
 	MgrNodeWrapper *gtmMaster;
 	char *agtm_host;
 	char snapsender_port[12] = {0};
 	char gxidsender_port[12] = {0};
-	MemoryContext oldContext;
 	MemoryContext spiContext;
 
-	oldContext = CurrentMemoryContext;
-	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
-	spiContext = CurrentMemoryContext;
-	MemoryContextSwitchTo(oldContext);
+	spiContext = beginCureOperation(mgrNode);
 	gtmMaster = selectMgrGtmCoordNode(spiContext);
-	SPI_FINISH_TRANSACTIONAL_COMMIT();
-	MemoryContextSwitchTo(oldContext);
 	if (!gtmMaster)
 	{
 		ereport(WARNING,
 				(errmsg("there is no GTM master node in the cluster")));
-		return true;
+		done = true;
 	}
+	else
+	{
+		EXTRACT_GTM_INFOMATION(gtmMaster, agtm_host,
+							   snapsender_port, gxidsender_port);
+		ereport(LOG,
+				(errmsg("try to fix GTM information on %s",
+						NameStr(mgrNode->form.nodename))));
 
-	EXTRACT_GTM_INFOMATION(gtmMaster, agtm_host,
-						   snapsender_port, gxidsender_port);
-	ereport(LOG,
-			(errmsg("try to fix GTM information on %s",
-					NameStr(mgrNode->form.nodename))));
-
-	done = setGtmInfoInPGSqlConf(mgrNode, agtm_host,
-								 snapsender_port, gxidsender_port, false);
-
-	ereport(LOG,
-			(errmsg("fix GTM information on %s %s",
-					NameStr(mgrNode->form.nodename),
-					done ? "successfully" : "failed")));
-	pfreeMgrNodeWrapper(gtmMaster);
+		done = setGtmInfoInPGSqlConf(mgrNode, agtm_host,
+									 snapsender_port, gxidsender_port, false);
+		ereport(LOG,
+				(errmsg("fix GTM information on %s %s",
+						NameStr(mgrNode->form.nodename),
+						done ? "successfully" : "failed")));
+		pfreeMgrNodeWrapper(gtmMaster);
+	}
+	endCureOperation(mgrNode, CURE_STATUS_NORMAL, spiContext);
 	return done;
 }
 
@@ -2468,7 +2481,7 @@ static NodeConfiguration *newNodeConfiguration(AdbDoctorConf *conf)
 	nc->connectionErrorNumMax = conf->node_connection_error_num_max;
 	nc->retryFollowMasterIntervalMs = conf->node_retry_follow_master_interval_ms;
 	nc->retryRewindIntervalMs = conf->node_retry_rewind_interval_ms;
-	ereport(LOG,
+	ereport(DEBUG1,
 			(errmsg("%s configuration: "
 					"deadlineMs:%ld, waitEventTimeoutMs:%ld, "
 					"connectTimeoutMs:%ld, reconnectDelayMs:%ld, "

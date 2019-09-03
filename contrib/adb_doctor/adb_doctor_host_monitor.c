@@ -1257,7 +1257,7 @@ static HostConfiguration *newHostConfiguration(AdbDoctorConf *conf)
 										   conf->agent_restart_delay_ms_max,
 										   floor(deadlineMs / 2));
 	hc->connectionErrorNumMax = conf->agent_connection_error_num_max;
-	ereport(LOG,
+	ereport(DEBUG1,
 			(errmsg("%s configuration: "
 					"agentdeadlineMs:%ld, waitEventTimeoutMs:%ld, "
 					"connectTimeoutMs:%ld, reconnectDelayMs:%ld, "

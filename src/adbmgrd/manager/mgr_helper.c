@@ -18,6 +18,9 @@
 #include "../../src/interfaces/libpq/libpq-fe.h"
 #include "../../src/interfaces/libpq/libpq-int.h"
 
+static MgrHostWrapper *popHeadMgrHostPfreeOthers(dlist_head *mgrHosts);
+static MgrNodeWrapper *popHeadMgrNodePfreeOthers(dlist_head *mgrNodes);
+
 void logMgrNodeWrapper(MgrNodeWrapper *src, char *title, int elevel)
 {
 	char *rTitle = "";
@@ -1955,7 +1958,8 @@ void setSynchronousStandbyNames(MgrNodeWrapper *mgrNode, char *value)
 
 void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 									 PGconn *pgConn,
-									 char *value, int checkSeconds)
+									 char *value,
+									 int checkSeconds)
 {
 	int seconds;
 	bool execOk = false;

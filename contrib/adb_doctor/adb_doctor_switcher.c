@@ -514,7 +514,7 @@ static SwitcherConfiguration *newSwitcherConfiguration(AdbDoctorConf *conf)
 
 	sc->switchIntervalMs = conf->switchinterval * 1000L;
 	sc->forceSwitch = conf->forceswitch;
-	ereport(LOG,
+	ereport(DEBUG1,
 			(errmsg("%s configuration: "
 					"switchIntervalMs:%ld, forceSwitch:%d",
 					MyBgworkerEntry->bgw_name,

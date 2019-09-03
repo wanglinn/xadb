@@ -83,7 +83,7 @@ static void refreshPgxcNodesAfterSwitchDataNode(dlist_head *coordinators,
 												MgrNodeWrapper *newMaster);
 static void refreshPgxcNodesAfterSwitchGtmCoord(dlist_head *coordinators,
 												SwitcherNodeWrapper *newMaster);
-static void updateMgrNodeBeforeSwitch(MgrNodeWrapper *mgrNode,
+static void updateCureStatusForSwitch(MgrNodeWrapper *mgrNode,
 									  char *newCurestatus,
 									  MemoryContext spiContext);
 static void updateMgrNodeAfterSwitch(MgrNodeWrapper *mgrNode,
@@ -130,8 +130,7 @@ static void batchCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 									 int checkSeconds);
 static void batchSetCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 										dlist_head *nodes,
-										SwitcherNodeWrapper *ignoreNode,
-										int checkSeconds);
+										SwitcherNodeWrapper *ignoreNode);
 
 /**
  * system function of failover data node
@@ -456,11 +455,15 @@ void switchToDataNodeNewMaster(SwitcherNodeWrapper *oldMaster,
 			(errmsg("%s was successfully promoted to the new master",
 					NameStr(newMaster->mgrNode->form.nodename))));
 
-	waitForNodeRunningOk(newMaster->mgrNode, true,
-						 &newMaster->pgConn, &newMaster->runningMode);
+	waitForNodeRunningOk(newMaster->mgrNode,
+						 true,
+						 &newMaster->pgConn,
+						 &newMaster->runningMode);
 
 	setCheckSynchronousStandbyNames(newMaster->mgrNode,
-									newMaster->pgConn, "", 10);
+									newMaster->pgConn,
+									"",
+									CHECK_SYNC_STANDBY_NAMES_SECONDS);
 
 	/* The better slave node is in front of the list */
 	sortNodesByWalLsnDesc(runningSlaves);
@@ -471,8 +474,12 @@ void switchToDataNodeNewMaster(SwitcherNodeWrapper *oldMaster,
 										oldMaster->mgrNode,
 										newMaster->mgrNode);
 
-	refreshMgrNodeAfterSwitch(oldMaster, newMaster, runningSlaves,
-							  failedSlaves, spiContext, kickOutOldMaster);
+	refreshMgrNodeAfterSwitch(oldMaster,
+							  newMaster,
+							  runningSlaves,
+							  failedSlaves,
+							  spiContext,
+							  kickOutOldMaster);
 	refreshMgrUpdateparmAfterSwitch(oldMaster->mgrNode,
 									newMaster->mgrNode,
 									spiContext,
@@ -509,6 +516,9 @@ void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 							   MemoryContext spiContext,
 							   bool kickOutOldMaster)
 {
+	dlist_iter iter;
+	SwitcherNodeWrapper *node;
+
 	if (!dlist_is_empty(failedSlaves))
 	{
 		ereport(WARNING,
@@ -524,6 +534,21 @@ void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 								  runningSlaves,
 								  failedSlaves,
 								  spiContext);
+	dlist_foreach(iter, coordinators)
+	{
+		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		if (node != newMaster)
+			updateCureStatusForSwitch(node->mgrNode,
+									  CURE_STATUS_SWITCHING,
+									  spiContext);
+	}
+	dlist_foreach(iter, runningDataNodes)
+	{
+		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		updateCureStatusForSwitch(node->mgrNode,
+								  CURE_STATUS_SWITCHING,
+								  spiContext);
+	}
 
 	setCheckGtmInfoInPGSqlConf(newMaster->mgrNode,
 							   newMaster->mgrNode,
@@ -547,18 +572,23 @@ void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 			(errmsg("%s was successfully promoted to the new master",
 					NameStr(newMaster->mgrNode->form.nodename))));
 
-	waitForNodeRunningOk(newMaster->mgrNode, true,
-						 &newMaster->pgConn, &newMaster->runningMode);
+	waitForNodeRunningOk(newMaster->mgrNode,
+						 true,
+						 &newMaster->pgConn,
+						 &newMaster->runningMode);
 
 	setCheckSynchronousStandbyNames(newMaster->mgrNode,
-									newMaster->pgConn, "", 10);
+									newMaster->pgConn,
+									"",
+									CHECK_SYNC_STANDBY_NAMES_SECONDS);
 
 	/* The better slave node is in front of the list */
 	sortNodesByWalLsnDesc(runningSlaves);
 	runningSlavesFollowMaster(newMaster, runningSlaves, NULL);
 
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
-								coordinators, newMaster, 10);
+								coordinators,
+								newMaster);
 
 	refreshPgxcNodesAfterSwitchGtmCoord(coordinators, newMaster);
 
@@ -567,14 +597,34 @@ void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 	tryLockCluster(coordinators);
 
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
-								runningDataNodes, newMaster, 10);
+								runningDataNodes,
+								newMaster);
 
-	refreshMgrNodeAfterSwitch(oldMaster, newMaster, runningSlaves,
-							  failedSlaves, spiContext, kickOutOldMaster);
+	refreshMgrNodeAfterSwitch(oldMaster,
+							  newMaster,
+							  runningSlaves,
+							  failedSlaves,
+							  spiContext,
+							  kickOutOldMaster);
 	refreshMgrUpdateparmAfterSwitch(oldMaster->mgrNode,
 									newMaster->mgrNode,
 									spiContext,
 									kickOutOldMaster);
+	dlist_foreach(iter, coordinators)
+	{
+		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		if (node != newMaster)
+			updateCureStatusForSwitch(node->mgrNode,
+									  CURE_STATUS_SWITCHED,
+									  spiContext);
+	}
+	dlist_foreach(iter, runningDataNodes)
+	{
+		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		updateCureStatusForSwitch(node->mgrNode,
+								  CURE_STATUS_SWITCHED,
+								  spiContext);
+	}
 
 	tryUnlockCluster(coordinators, true);
 
@@ -645,7 +695,10 @@ void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 	refreshOldMasterBeforeSwitch(oldMaster, spiContext);
 
 	/* Sentinel, ensure to shut down old master */
-	shutdownNodeWithinSeconds(oldMaster->mgrNode, 5, 90, true);
+	shutdownNodeWithinSeconds(oldMaster->mgrNode,
+							  SHUTDOWN_NODE_FAST_SECONDS,
+							  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
+							  true);
 
 	newMaster = getBestWalLsnSlaveNode(runningSlaves,
 									   failedSlaves,
@@ -922,7 +975,10 @@ void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 
 	setSlaveNodeRecoveryConf(masterNode, slaveNode);
 
-	shutdownNodeWithinSeconds(slaveNode, 5, 90, true);
+	shutdownNodeWithinSeconds(slaveNode,
+							  SHUTDOWN_NODE_FAST_SECONDS,
+							  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
+							  true);
 
 	callAgentStartNode(slaveNode, true, true);
 
@@ -1422,9 +1478,14 @@ static void runningSlavesFollowMaster(SwitcherNodeWrapper *masterNode,
 
 	switcherNodesToMgrNodes(runningSlaves, &mgrNodes);
 
-	batchShutdownNodesWithinSeconds(&mgrNodes, 5, 90, true);
+	batchShutdownNodesWithinSeconds(&mgrNodes,
+									SHUTDOWN_NODE_FAST_SECONDS,
+									SHUTDOWN_NODE_IMMEDIATE_SECONDS,
+									true);
 
-	batchStartupNodesWithinSeconds(&mgrNodes, 90, true);
+	batchStartupNodesWithinSeconds(&mgrNodes,
+								   STARTUP_NODE_SECONDS,
+								   true);
 
 	dlist_foreach_modify(iter, runningSlaves)
 	{
@@ -1443,7 +1504,10 @@ static void runningSlavesFollowMaster(SwitcherNodeWrapper *masterNode,
 						NameStr(masterNode->mgrNode->form.nodename))));
 	}
 	if (gtmMaster)
-		batchCheckGtmInfoOnNodes(gtmMaster, runningSlaves, NULL, 10);
+		batchCheckGtmInfoOnNodes(gtmMaster,
+								 runningSlaves,
+								 NULL,
+								 CHECK_GTM_INFO_SECONDS);
 }
 
 /**
@@ -1542,7 +1606,9 @@ static void appendSyncStandbyNames(MgrNodeWrapper *masterNode,
 						oldSyncNames,
 						newSyncNames)));
 		setCheckSynchronousStandbyNames(masterNode,
-										masterPGconn, newSyncNames, 10);
+										masterPGconn,
+										newSyncNames,
+										CHECK_SYNC_STANDBY_NAMES_SECONDS);
 		pfree(newSyncNames);
 	}
 	if (backupSyncNodes)
@@ -1726,7 +1792,7 @@ static void refreshOldMasterBeforeSwitch(SwitcherNodeWrapper *oldMaster,
 	/* backup curestatus */
 	memcpy(&oldMaster->oldCurestatus,
 		   &oldMaster->mgrNode->form.curestatus, sizeof(NameData));
-	updateMgrNodeBeforeSwitch(oldMaster->mgrNode,
+	updateCureStatusForSwitch(oldMaster->mgrNode,
 							  newCurestatus,
 							  spiContext);
 }
@@ -1745,7 +1811,7 @@ static void refreshSlaveNodesBeforeSwitch(SwitcherNodeWrapper *newMaster,
 
 	memcpy(&newMaster->oldCurestatus,
 		   &newMaster->mgrNode->form.curestatus, sizeof(NameData));
-	updateMgrNodeBeforeSwitch(newMaster->mgrNode, newCurestatus,
+	updateCureStatusForSwitch(newMaster->mgrNode, newCurestatus,
 							  spiContext);
 
 	dlist_foreach(iter, runningSlaves)
@@ -1753,7 +1819,7 @@ static void refreshSlaveNodesBeforeSwitch(SwitcherNodeWrapper *newMaster,
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 		memcpy(&node->oldCurestatus,
 			   &node->mgrNode->form.curestatus, sizeof(NameData));
-		updateMgrNodeBeforeSwitch(node->mgrNode, newCurestatus,
+		updateCureStatusForSwitch(node->mgrNode, newCurestatus,
 								  spiContext);
 	}
 	dlist_foreach(iter, failedSlaves)
@@ -1761,7 +1827,7 @@ static void refreshSlaveNodesBeforeSwitch(SwitcherNodeWrapper *newMaster,
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 		memcpy(&node->oldCurestatus,
 			   &node->mgrNode->form.curestatus, sizeof(NameData));
-		updateMgrNodeBeforeSwitch(node->mgrNode, newCurestatus,
+		updateCureStatusForSwitch(node->mgrNode, newCurestatus,
 								  spiContext);
 	}
 }
@@ -1929,7 +1995,7 @@ static void refreshPgxcNodesAfterSwitchGtmCoord(dlist_head *coordinators,
 /**
  * update curestatus can avoid adb doctor monitor this node
  */
-static void updateMgrNodeBeforeSwitch(MgrNodeWrapper *mgrNode,
+static void updateCureStatusForSwitch(MgrNodeWrapper *mgrNode,
 									  char *newCurestatus,
 									  MemoryContext spiContext)
 {
@@ -2430,9 +2496,9 @@ static void batchCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 
 static void batchSetCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 										dlist_head *nodes,
-										SwitcherNodeWrapper *ignoreNode,
-										int checkSeconds)
+										SwitcherNodeWrapper *ignoreNode)
 {
 	batchSetGtmInfoOnNodes(gtmMaster, nodes, ignoreNode);
-	batchCheckGtmInfoOnNodes(gtmMaster, nodes, ignoreNode, 10);
+	batchCheckGtmInfoOnNodes(gtmMaster, nodes, ignoreNode,
+							 CHECK_GTM_INFO_SECONDS);
 }

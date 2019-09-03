@@ -22,6 +22,7 @@
 							   snapsender_port, gxidsender_port) \
 	do                                                           \
 	{                                                            \
+		Assert(gtmMaster != NULL);                               \
 		agtm_host = gtmMaster->host->hostaddr;                   \
 		pg_ltoa(gtmMaster->form.nodeport + 1, snapsender_port);  \
 		pg_ltoa(gtmMaster->form.nodeport + 2, gxidsender_port);  \
@@ -435,7 +436,8 @@ extern void setSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 									   char *value);
 extern void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 											PGconn *pgConn,
-											char *value, int checkSeconds);
+											char *value,
+											int checkSeconds);
 extern bool setGtmInfoInPGSqlConf(MgrNodeWrapper *mgrNode,
 								  char *agtm_host,
 								  char *snapsender_port,
