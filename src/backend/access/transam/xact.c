@@ -78,7 +78,6 @@
 #include "pgxc/pgxc.h"
 #include "pgxc/xc_maintenance_mode.h"
 #include "postmaster/autovacuum.h"
-#include "reduce/adb_reduce.h"
 #include "replication/snapsender.h"
 #endif
 #ifdef ADBMGRD
@@ -2745,10 +2744,6 @@ CommitTransaction(void)
 	s->state = TRANS_DEFAULT;
 
 	RESUME_INTERRUPTS();
-
-#ifdef ADB
-	AtEOXact_Reduce(true);
-#endif
 }
 
 
@@ -3339,10 +3334,6 @@ AbortTransaction(void)
 	 * State remains TRANS_ABORT until CleanupTransaction().
 	 */
 	RESUME_INTERRUPTS();
-
-#ifdef ADB
-	AtEOXact_Reduce(false);
-#endif
 }
 
 /*

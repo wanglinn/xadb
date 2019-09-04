@@ -24,7 +24,7 @@ SUBDIRS = access bootstrap catalog parser commands executor foreign lib libpq \
 	jit
 
 ifeq ($(enable_cluster),yes)
-  SUBDIRS += libagtm pgxc intercomm reduce
+  SUBDIRS += libagtm pgxc intercomm
 endif
 
 ifeq ($(enable_grammar_oracle), yes)

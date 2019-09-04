@@ -40,7 +40,7 @@ ALWAYS_SUBDIRS += pgevent
 endif
 
 ifeq ($(enable_cluster),yes)
-  SUBDIRS += adb_clogdump adb_reduce agent
+  SUBDIRS += adb_clogdump agent
 endif
 
 $(recurse)

@@ -32,7 +32,6 @@
 #include "storage/condition_variable.h"
 #ifdef ADB
 #include "libpq/libpq-node.h"
-#include "reduce/rdc_comm.h"
 #endif
 
 

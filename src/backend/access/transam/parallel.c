@@ -43,7 +43,6 @@
 #ifdef ADB
 #include "intercomm/inter-node.h"
 #include "pgxc/pgxcnode.h"
-#include "reduce/adb_reduce.h"
 #include "utils/dynamicreduce.h"
 #endif
 
@@ -77,8 +76,7 @@
 #define PARALLEL_KEY_SESSION_DSM			UINT64CONST(0xFFFFFFFFFFFF000A)
 #define PARALLEL_KEY_REINDEX_STATE			UINT64CONST(0xFFFFFFFFFFFF000B)
 #ifdef ADB
-#define PARALLEL_KEY_REDUCE_INFO			UINT64CONST(0xFFFFFFFFFFFF000C)
-#define PARALLEL_KEY_NODE_INFO				UINT64CONST(0xFFFFFFFFFFFF000D)
+#define PARALLEL_KEY_NODE_INFO				UINT64CONST(0xFFFFFFFFFFFF000C)
 #endif /* ADB */
 
 /* Fixed-size parallel state. */
@@ -225,7 +223,6 @@ InitializeParallelDSM(ParallelContext *pcxt)
 	Size		reindexlen = 0;
 	Size		segsize = 0;
 #ifdef ADB
-	Size		reducelen = 0;
 	Size		nodeinfolen = 0;
 #endif /* ADB */
 	int			i;
@@ -296,11 +293,6 @@ InitializeParallelDSM(ParallelContext *pcxt)
 		shm_toc_estimate_keys(&pcxt->estimator, 1);
 
 #ifdef ADB
-		/* Estimate how much we'll need for reduce process. */
-		reducelen = EstimateReduceInfoSpace();
-		shm_toc_estimate_chunk(&pcxt->estimator, reducelen);
-		shm_toc_estimate_keys(&pcxt->estimator, 1);
-
 		/* Estimate how much we'll need for node info */
 		nodeinfolen = EstimateNodeInfoSpace();
 		shm_toc_estimate_chunk(&pcxt->estimator, nodeinfolen);
@@ -448,11 +440,7 @@ InitializeParallelDSM(ParallelContext *pcxt)
 		shm_toc_insert(pcxt->toc, PARALLEL_KEY_ENTRYPOINT, entrypointstate);
 #ifdef ADB
 		{
-			char *ptr = shm_toc_allocate(pcxt->toc, reducelen);
-			SerializeReduceInfo(reducelen, ptr);
-			shm_toc_insert(pcxt->toc, PARALLEL_KEY_REDUCE_INFO, ptr);
-
-			ptr = shm_toc_allocate(pcxt->toc, nodeinfolen);
+			char *ptr = shm_toc_allocate(pcxt->toc, nodeinfolen);
 			SerializeNodeInfo(nodeinfolen, ptr);
 			shm_toc_insert(pcxt->toc, PARALLEL_KEY_NODE_INFO, ptr);
 		}
@@ -1369,7 +1357,6 @@ ParallelWorkerMain(Datum main_arg)
 	/* Initialize executor. This must be done inside a transaction block. */
 	CommitTransactionCommand();
 
-	RestoreReduceInfo(shm_toc_lookup(toc, PARALLEL_KEY_REDUCE_INFO, false));
 	RestoreNodeInfo(shm_toc_lookup(toc, PARALLEL_KEY_NODE_INFO, false));
 #endif
 

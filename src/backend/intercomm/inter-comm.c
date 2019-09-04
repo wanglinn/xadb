@@ -22,7 +22,6 @@
 #include "intercomm/inter-comm.h"
 #include "libpq-int.h"
 #include "pgxc/pgxc.h"
-#include "reduce/wait_event.h"
 #include "utils/builtins.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"

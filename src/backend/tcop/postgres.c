@@ -107,7 +107,6 @@
 #include "pgxc/pgxcnode.h"
 #include "pgxc/poolmgr.h"
 #include "pgxc/poolutils.h"
-#include "reduce/adb_reduce.h"
 #include "storage/procarray.h"
 #include "utils/dynamicreduce.h"
 #include "utils/guc.h"
@@ -4762,11 +4761,7 @@ PostgresMain(int argc, char *argv[],
 		debug_query_string = NULL;
 
 #ifdef ADB
-		/*
-		 * Make sure all ClusterReduceState will disconnect with self reduce.
-		 */
 		StopDynamicReduceWorker();
-		ReduceCleanup();
 
 		/* Mark transaction abort with error */
 		MarkCurrentTransactionErrorAborted();

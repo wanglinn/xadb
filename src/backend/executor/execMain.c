@@ -70,7 +70,6 @@
 #include "executor/nodeReduceScan.h"
 #include "nodes/nodeFuncs.h"
 #include "pgxc/pgxc.h"
-#include "reduce/adb_reduce.h"
 #endif
 
 
@@ -536,11 +535,6 @@ standard_ExecutorEnd(QueryDesc *queryDesc)
 	/* do away with our snapshots */
 	UnregisterSnapshot(estate->es_snapshot);
 	UnregisterSnapshot(estate->es_crosscheck_snapshot);
-
-#ifdef ADB
-	/* do away with our reduce cleanup */
-	UnregisterReduceCleanup();
-#endif
 
 	/* release JIT context, if allocated */
 	if (estate->es_jit)
