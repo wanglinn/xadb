@@ -717,13 +717,20 @@ static void queryBgworkerDataAndConf(AdbDoctorConf **confP,
 
 	/* query out all configuration values from table adb_doctor_conf */
 	*confP = selectAllAdbDoctorConf(spiContext);
-	/* query out all data from table mgr_node that need to be monitored */
-	selectMgrNodesForNodeDoctors(spiContext, monitorNodes);
-	/* query out all data from table mgr_node that need to be switched */
-	selectMgrNodesForSwitcherDoctor(spiContext, switchNodes);
-	/* query out all data from table mgr_host that need to be monitored */
-	selectMgrHostsForHostDoctor(spiContext, monitorHosts);
-
+	if ((*confP)->enable)
+	{
+		/* query out all data from table mgr_node that need to be monitored */
+		selectMgrNodesForNodeDoctors(spiContext, monitorNodes);
+		/* query out all data from table mgr_node that need to be switched */
+		selectMgrNodesForSwitcherDoctor(spiContext, switchNodes);
+		/* query out all data from table mgr_host that need to be monitored */
+		selectMgrHostsForHostDoctor(spiContext, monitorHosts);
+	}
+	else
+	{
+		ereport(DEBUG1,
+				(errmsg("antdb doctor was disabled")));
+	}
 	SPI_FINISH_TRANSACTIONAL_COMMIT();
 }
 

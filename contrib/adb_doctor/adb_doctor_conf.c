@@ -16,6 +16,7 @@
 
 void checkAdbDoctorConf(AdbDoctorConf *src)
 {
+	src->enable = LIMIT_VALUE_RANGE(0, 1, src->enable);
 	src->forceswitch = LIMIT_VALUE_RANGE(0, 1, src->forceswitch);
 	src->switchinterval = LIMIT_VALUE_RANGE(ADB_DOCTOR_CONF_SWITCHINTERVAL_MIN,
 											ADB_DOCTOR_CONF_SWITCHINTERVAL_MAX,
@@ -37,21 +38,21 @@ void checkAdbDoctorConf(AdbDoctorConf *src)
 	if (src->node_connection_error_num_max < 1)
 		ereport(ERROR,
 				(errmsg("node_connection_error_num_max must > 0")));
-	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
-								  node_connect_timeout_ms_min,
-								  node_connect_timeout_ms_max);
-	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
-								  node_reconnect_delay_ms_min,
-								  node_reconnect_delay_ms_max);
-	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
-								  node_query_timeout_ms_min,
-								  node_query_timeout_ms_max);
-	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
-								  node_query_interval_ms_min,
-								  node_query_interval_ms_max);
-	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
-								  node_restart_delay_ms_min,
-								  node_restart_delay_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX_MEMBER(src,
+										 node_connect_timeout_ms_min,
+										 node_connect_timeout_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX_MEMBER(src,
+										 node_reconnect_delay_ms_min,
+										 node_reconnect_delay_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX_MEMBER(src,
+										 node_query_timeout_ms_min,
+										 node_query_timeout_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX_MEMBER(src,
+										 node_query_interval_ms_min,
+										 node_query_interval_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX_MEMBER(src,
+										 node_restart_delay_ms_min,
+										 node_restart_delay_ms_max);
 	if (src->node_retry_follow_master_interval_ms < 1)
 		ereport(ERROR,
 				(errmsg("node_retry_follow_master_interval_ms must > 0")));
@@ -61,21 +62,21 @@ void checkAdbDoctorConf(AdbDoctorConf *src)
 	if (src->agent_connection_error_num_max < 1)
 		ereport(ERROR,
 				(errmsg("agent_connection_error_num_max must > 0")));
-	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
-								  agent_connect_timeout_ms_min,
-								  agent_connect_timeout_ms_max);
-	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
-								  agent_reconnect_delay_ms_min,
-								  agent_reconnect_delay_ms_max);
-	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
-								  agent_heartbeat_timeout_ms_min,
-								  agent_heartbeat_timeout_ms_max);
-	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
-								  agent_heartbeat_interval_ms_min,
-								  agent_heartbeat_interval_ms_max);
-	CHECK_ADB_DOCTOR_CONF_MIN_MAX(src,
-								  agent_restart_delay_ms_min,
-								  agent_restart_delay_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX_MEMBER(src,
+										 agent_connect_timeout_ms_min,
+										 agent_connect_timeout_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX_MEMBER(src,
+										 agent_reconnect_delay_ms_min,
+										 agent_reconnect_delay_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX_MEMBER(src,
+										 agent_heartbeat_timeout_ms_min,
+										 agent_heartbeat_timeout_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX_MEMBER(src,
+										 agent_heartbeat_interval_ms_min,
+										 agent_heartbeat_interval_ms_max);
+	CHECK_ADB_DOCTOR_CONF_MIN_MAX_MEMBER(src,
+										 agent_restart_delay_ms_min,
+										 agent_restart_delay_ms_max);
 }
 
 bool equalsAdbDoctorConfIgnoreLock(AdbDoctorConf *conf1,
@@ -236,50 +237,46 @@ void validateAdbDoctorConfEditableEntry(char *k, char *v)
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("parameter v:%s must not empty", v)));
 	v_int = pg_atoi(v, sizeof(int), 0);
-	if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_FORCESWITCH) == 0)
+	if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_ENABLE) == 0)
 	{
-		if (v_int < 0 || v_int > 1)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("forceswitch must between %d and %d",
-							0,
-							1)));
+		CHECK_ADB_DOCTOR_CONF_VALUE_RANGE(ADB_DOCTOR_CONF_KEY_ENABLE,
+										  v_int,
+										  0,
+										  1);
+	}
+	else if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_FORCESWITCH) == 0)
+	{
+		CHECK_ADB_DOCTOR_CONF_VALUE_RANGE(ADB_DOCTOR_CONF_KEY_FORCESWITCH,
+										  v_int,
+										  0,
+										  1);
 	}
 	else if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_SWITCHINTERVAL) == 0)
 	{
-		if (v_int < ADB_DOCTOR_CONF_SWITCHINTERVAL_MIN ||
-			v_int > ADB_DOCTOR_CONF_SWITCHINTERVAL_MAX)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("switchinterval must between %d and %d",
-							ADB_DOCTOR_CONF_SWITCHINTERVAL_MIN,
-							ADB_DOCTOR_CONF_SWITCHINTERVAL_MAX)));
+		CHECK_ADB_DOCTOR_CONF_VALUE_RANGE(ADB_DOCTOR_CONF_KEY_SWITCHINTERVAL,
+										  v_int,
+										  ADB_DOCTOR_CONF_SWITCHINTERVAL_MIN,
+										  ADB_DOCTOR_CONF_SWITCHINTERVAL_MAX);
 	}
 	else if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_NODEDEADLINE) == 0)
 	{
-		if (v_int < ADB_DOCTOR_CONF_NODEDEADLINE_MIN ||
-			v_int > ADB_DOCTOR_CONF_NODEDEADLINE_MAX)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("nodedeadline must between %d and %d",
-							ADB_DOCTOR_CONF_NODEDEADLINE_MIN,
-							ADB_DOCTOR_CONF_NODEDEADLINE_MAX)));
+		CHECK_ADB_DOCTOR_CONF_VALUE_RANGE(ADB_DOCTOR_CONF_KEY_NODEDEADLINE,
+										  v_int,
+										  ADB_DOCTOR_CONF_NODEDEADLINE_MIN,
+										  ADB_DOCTOR_CONF_NODEDEADLINE_MAX);
 	}
 	else if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_AGENTDEADLINE) == 0)
 	{
-		if (v_int < ADB_DOCTOR_CONF_AGENTDEADLINE_MIN ||
-			v_int > ADB_DOCTOR_CONF_AGENTDEADLINE_MAX)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("agentdeadline must between %d and %d",
-							ADB_DOCTOR_CONF_AGENTDEADLINE_MIN,
-							ADB_DOCTOR_CONF_AGENTDEADLINE_MAX)));
+		CHECK_ADB_DOCTOR_CONF_VALUE_RANGE(ADB_DOCTOR_CONF_KEY_AGENTDEADLINE,
+										  v_int,
+										  ADB_DOCTOR_CONF_AGENTDEADLINE_MIN,
+										  ADB_DOCTOR_CONF_AGENTDEADLINE_MAX);
 	}
 	else
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("unrecognize adb doctor conf key:%s",
+				 errmsg("unrecognize antdb doctor conf key:%s",
 						k)));
 	}
 }
@@ -429,11 +426,15 @@ AdbDoctorConf *selectAllAdbDoctorConf(MemoryContext spiContext)
 						(errmsg("%s, invalid value : NULL",
 								keyStr)));
 			}
-			if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_FORCESWITCH) == 0)
+			if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_ENABLE) == 0)
+			{
+				conf->enable = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_FORCESWITCH) == 0)
 			{
 				conf->forceswitch = valueInt;
 			}
-			if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_SWITCHINTERVAL) == 0)
+			else if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_SWITCHINTERVAL) == 0)
 			{
 				conf->switchinterval = valueInt;
 			}
@@ -578,7 +579,10 @@ int selectEditableAdbDoctorConf(MemoryContext spiContext,
 	SPITupleTable *tupTable;
 
 	initStringInfo(&buf);
-	appendStringInfo(&buf, "select %s,%s,%s from %s.%s where editable = %d::boolean",
+	appendStringInfo(&buf,
+					 "select %s,%s,%s from %s.%s "
+					 "where editable = %d::boolean "
+					 "order by sortnumber asc",
 					 ADB_DOCTOR_CONF_ATTR_KEY,
 					 ADB_DOCTOR_CONF_ATTR_VALUE,
 					 ADB_DOCTOR_CONF_ATTR_COMMENT,

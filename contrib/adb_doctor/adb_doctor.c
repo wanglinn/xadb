@@ -85,8 +85,8 @@ void _PG_init(void)
 
 /**
  * Start all doctor process.
- * Register an "adb doctor launcher" process with "postmaster", which runs as a 
- * background worker. The "adb doctor launcher" will start the doctor process 
+ * Register an "antdb doctor launcher" process with "postmaster", which runs as a 
+ * background worker. The "antdb doctor launcher" will start the doctor process 
  * according to the table MGR_NODE, MGR_HOST in the MGR database.
  */
 Datum adb_doctor_start(PG_FUNCTION_ARGS)
@@ -97,6 +97,7 @@ Datum adb_doctor_start(PG_FUNCTION_ARGS)
 	BackgroundWorkerHandle *launcherHandle;
 	bool masterMode;
 	bool launcherOk;
+	int ret;
 
 	masterMode = !RecoveryInProgress();
 
@@ -121,6 +122,17 @@ Datum adb_doctor_start(PG_FUNCTION_ARGS)
 	{
 		cancel_on_dsm_detach(seg, cleanupAdbDoctorBgworker, PointerGetDatum(launcherHandle));
 		dsm_detach(seg);
+
+		ret = SPI_connect();
+		if (ret != SPI_OK_CONNECT)
+		{
+			ereport(ERROR,
+					(errmsg("SPI_connect failed, connect return:%d",
+							ret)));
+		}
+		updateAdbDoctorConf(ADB_DOCTOR_CONF_KEY_ENABLE, "1");
+		SPI_finish();
+
 		PG_RETURN_BOOL(true);
 	}
 	else
@@ -138,8 +150,21 @@ Datum adb_doctor_start(PG_FUNCTION_ARGS)
  */
 Datum adb_doctor_stop(PG_FUNCTION_ARGS)
 {
+	int ret;
+
 	adbDoctorStopLauncher(false);
 	adbDoctorStopBgworkers(false);
+
+	ret = SPI_connect();
+	if (ret != SPI_OK_CONNECT)
+	{
+		ereport(ERROR,
+				(errmsg("SPI_connect failed, connect return:%d",
+						ret)));
+	}
+	updateAdbDoctorConf(ADB_DOCTOR_CONF_KEY_ENABLE, "0");
+	SPI_finish();
+
 	PG_RETURN_BOOL(true);
 }
 
@@ -300,9 +325,11 @@ static BackgroundWorkerHandle *startupLauncher(dsm_segment *seg)
 				 errmsg("could not register background process"),
 				 errhint("You may need to increase max_worker_processes.")));
 	}
-	ereport(LOG,
-			(errmsg("register adb doctor launcher success")));
-
+	else
+	{
+		ereport(LOG,
+				(errmsg("register antdb doctor launcher success")));
+	}
 	return handle;
 }
 

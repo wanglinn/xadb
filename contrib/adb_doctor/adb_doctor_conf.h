@@ -27,23 +27,36 @@
 #define ADB_DOCTOR_CONF_ATTR_KEY "k"
 #define ADB_DOCTOR_CONF_ATTR_VALUE "v"
 #define ADB_DOCTOR_CONF_ATTR_COMMENT "comment"
+#define ADB_DOCTOR_CONF_KEY_ENABLE "enable"
 #define ADB_DOCTOR_CONF_KEY_FORCESWITCH "forceswitch"
 #define ADB_DOCTOR_CONF_KEY_SWITCHINTERVAL "switchinterval"
 #define ADB_DOCTOR_CONF_KEY_NODEDEADLINE "nodedeadline"
 #define ADB_DOCTOR_CONF_KEY_AGENTDEADLINE "agentdeadline"
 
-#define CHECK_ADB_DOCTOR_CONF_MIN_MAX(ptr, minMember, maxMember) \
+#define CHECK_ADB_DOCTOR_CONF_MIN_MAX_MEMBER(ptr, minMember, maxMember) \
+	do                                                                  \
+	{                                                                   \
+		if (ptr->minMember < 1)                                         \
+			ereport(ERROR,                                              \
+					(errmsg(#minMember " must > 0")));                  \
+		if (ptr->maxMember < 1)                                         \
+			ereport(ERROR,                                              \
+					(errmsg(#maxMember " must > 0")));                  \
+		if (ptr->minMember > ptr->maxMember)                            \
+			ereport(ERROR,                                              \
+					(errmsg(#maxMember " must > " #minMember)));        \
+	} while (0)
+
+#define CHECK_ADB_DOCTOR_CONF_VALUE_RANGE(name, value, min, max) \
 	do                                                           \
 	{                                                            \
-		if (ptr->minMember < 1)                                  \
+		if (value < min || value > max)                          \
 			ereport(ERROR,                                       \
-					(errmsg(#minMember " must > 0")));           \
-		if (ptr->maxMember < 1)                                  \
-			ereport(ERROR,                                       \
-					(errmsg(#maxMember " must > 0")));           \
-		if (ptr->minMember > ptr->maxMember)                     \
-			ereport(ERROR,                                       \
-					(errmsg(#maxMember " must > " #minMember))); \
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),   \
+					 errmsg(name " must between %d and %d",      \
+							min,                                 \
+							max)));                              \
+                                                                 \
 	} while (0)
 
 /* AdbDoctorConf elements all in one */
@@ -51,6 +64,7 @@ typedef struct AdbDoctorConf
 {
 	LWLock lock;
 	/* Below three elements are editable */
+	int enable;
 	int forceswitch;
 	int switchinterval;
 	int nodedeadline;

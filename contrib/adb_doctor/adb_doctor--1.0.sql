@@ -33,33 +33,45 @@ CREATE TABLE IF NOT EXISTS adb_doctor_conf (
     k       	varchar(64) PRIMARY KEY, -- k is not case sensitive
     v       	varchar(256) NOT NULL,
 	editable	boolean NOT NULL,
+	sortnumber  int,
 	comment		varchar
 );
 
 -- user editable configuration variables
 INSERT INTO adb_doctor_conf VALUES (
+	'enable',
+	'0',
+	't',
+	1,
+	'0:false, 1:true. If true, doctor processes will be launched, or else, doctor processes exit.'
+);
+INSERT INTO adb_doctor_conf VALUES (
 	'forceswitch',
 	'0',
 	't',
-	'0:false,1:true.是否强制主/备切换，请注意强制切换可能导致数据丢失。Whether to force the master/slave switch, note that force switch may cause data loss.'
+	2,
+	'0:false, 1:true. Whether force to switch the master/slave, note that force switch may cause data loss.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'switchinterval',
 	'30',
 	't',
-	'The time interval(seconds) for retrying the switch when an error occurs in the switch.'
+	3,
+	'In seconds, The time interval for doctor retry the switching if an error occurred in the previous switching.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'nodedeadline',
 	'30',
 	't',
-	'NODE死线，单位秒，判定NODE运行状态的最大忍耐时间。'
+	4,
+	'In seconds. The maximum time for doctor tolerate a NODE running abnormally.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agentdeadline',
 	'5',
 	't',
-	'AGENT死线，单位秒，判定AGENT运行状态的最大忍耐时间。'
+	5,
+	'In seconds. The maximum time for doctor tolerate a AGENT running abnormally.'
 );
 
 
@@ -70,97 +82,113 @@ INSERT INTO adb_doctor_conf VALUES (
 	'node_restart_crashed_master',
 	'1',
 	'f',
-	'当master节点崩溃的时候，是否重启MASTER节点。1：重启master，0：不重启master而立刻进行主备切换。'
+	6,
+	'0:false, 1:true. If true, when a master node crashes, doctor will try to start it up. or else, doctor will do switching immediately.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_restart_master_timeout_ms',
 	'60000',
 	'f',
-	'当master节点崩溃的时候，重启MASTER节点超时毫秒数。'
+	7,
+	'In milliseconds.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_shutdown_timeout_ms',
 	'60000',
 	'f',
-	'node处于shutdown状态的最大毫秒数'
+	8,
+	'In milliseconds.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_connection_error_num_max',
 	'3',
 	'f',
-	'node连接错误最大个数'
+	9,
+	'If the number of connection errors on a node exceeds this value, the doctor thinks that node has crashed.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_connect_timeout_ms_min',
 	'2000',
 	'f',
-	'node连接超时最小毫秒数'
+	10,
+	'In milliseconds. The value of node_connect_timeout is calculated based on nodedeadline. In order to make this value reasonable, it needs to be limited in the range of node_connect_timeout_ms_min and node_connect_timeout_ms_max. Other similar parameters(suffixes such as _min and _max) are also this strategy.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_connect_timeout_ms_max',
 	'60000',
 	'f',
-	'node连接超时最大毫秒数'
+	11,
+	'In milliseconds. In pairs with node_connect_timeout_ms_min.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_reconnect_delay_ms_min',
 	'500',
 	'f',
-	'node重连延迟最小毫秒数'
+	12,
+	'In milliseconds. The minimum time interval to reconnect node.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_reconnect_delay_ms_max',
 	'10000',
 	'f',
-	'node重连延迟最大毫秒数'
+	13,
+	'In milliseconds. In pairs with node_reconnect_delay_ms_min.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_query_timeout_ms_min',
 	'2000',
 	'f',
-	'node查询超时最小毫秒数'
+	14,
+	'In milliseconds. The minimum time of getting query result from node.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_query_timeout_ms_max',
 	'60000',
 	'f',
-	'node查询超时最大毫秒数'
+	15,
+	'In milliseconds. In pairs with node_query_timeout_ms_min.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_query_interval_ms_min',
 	'2000',
 	'f',
-	'node查询间隔最小毫秒数'
+	16,
+	'In milliseconds. The minimum time interval of querying a node by sql.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_query_interval_ms_max',
 	'60000',
 	'f',
-	'node查询间隔最大毫秒数'
+	17,
+	'In milliseconds. In pairs with node_query_interval_ms_min.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_restart_delay_ms_min',
 	'5000',
 	'f',
-	'node重启延迟最小毫秒数'
+	18,
+	'In milliseconds. The minimum time interval to restart crashed node.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_restart_delay_ms_max',
 	'300000',
 	'f',
-	'node重启延迟最大毫秒数'
+	19,
+	'In milliseconds. In pairs with node_restart_delay_ms_min.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_retry_follow_master_interval_ms',
 	'120000',
 	'f',
-	'node跟随主节点失败后重试的时间间隔毫秒数'
+	20,
+	'In milliseconds. The time interval to retry after slave node failed to follow the master node.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_retry_rewind_interval_ms',
 	'120000',
 	'f',
-	'node进行rewind操作失败后重试的时间间隔毫秒数'
+	21,
+	'In milliseconds. The time interval to retry after slave node failed to rewind.'
 );
 
 -- host monitor
@@ -168,67 +196,76 @@ INSERT INTO adb_doctor_conf VALUES (
 	'agent_connection_error_num_max',
 	'3',
 	'f',
-	'agent连接错误最大个数'
+	22,
+	'If the number of connection errors on a agent exceeds this value, the doctor thinks that node has crashed.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_connect_timeout_ms_min',
 	'2000',
 	'f',
-	'agent连接超时最小毫秒数'
+	23,
+	'In milliseconds. The minimum time of connecting agent.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_connect_timeout_ms_max',
 	'60000',
 	'f',
-	'agent连接超时最大毫秒数'
+	24,
+	'In milliseconds. In pairs with agent_connect_timeout_ms_min.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_reconnect_delay_ms_min',
 	'500',
 	'f',
-	'agent重连延迟最小毫秒数'
+	25,
+	'In milliseconds. The minimum time interval to reconnect agent.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_reconnect_delay_ms_max',
 	'10000',
 	'f',
-	'agent重连延迟最大毫秒数'
+	26,
+	'In milliseconds. In pairs with agent_reconnect_delay_ms_min.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_heartbeat_timeout_ms_min',
 	'2000',
 	'f',
-	'agent心跳消息超时最小毫秒数'
+	27,
+	'In milliseconds. The minimum time of receiving heartbeat message from agent.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_heartbeat_timeout_ms_max',
 	'60000',
 	'f',
-	'agent心跳消息超时最大毫秒数'
+	28,
+	'In milliseconds. In pairs with agent_heartbeat_timeout_ms_min.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_heartbeat_interval_ms_min',
 	'2000',
 	'f',
-	'agent心跳消息间隔最小毫秒数'
+	29,
+	'In milliseconds. The minimum time interval of sending heartbeat message to agent.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_heartbeat_interval_ms_max',
 	'60000',
 	'f',
-	'agent心跳消息间隔最大毫秒数'
+	30,
+	'In milliseconds. In pairs with agent_heartbeat_interval_ms_min.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_restart_delay_ms_min',
 	'1000',
 	'f',
-	'agent重启延迟最小毫秒数'
+	31,
+	'In milliseconds. The minimum time interval to restart crashed agent.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_restart_delay_ms_max',
 	'30000',
 	'f',
-	'agent重启延迟最大毫秒数'
+	32,
+	'In milliseconds. In pairs with agent_restart_delay_ms_max.'
 );
-
--- switcher
