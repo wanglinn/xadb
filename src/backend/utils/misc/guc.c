@@ -4239,7 +4239,11 @@ static struct config_string ConfigureNamesString[] =
 			GUC_LIST_INPUT | GUC_LIST_QUOTE | GUC_SUPERUSER_ONLY
 		},
 		&shared_preload_libraries_string,
+#if defined(ADBMGRD)
+		"adb_doctor",
+#else
 		"",
+#endif
 		NULL, NULL, NULL
 	},
 

@@ -44,6 +44,45 @@ static BackgroundWorkerHandle *startupLauncher(dsm_segment *seg);
 static bool isLauncherOK(Size len, char *message);
 static bool waitForLauncherOK(BackgroundWorkerHandle *launcherHandle, shm_mq_handle *inqh);
 
+/*
+ * Background workers can be initialized at the time that PostgreSQL is started 
+ * by including the module name in shared_preload_libraries. A module wishing 
+ * to run a background worker can register it by calling 
+ * RegisterBackgroundWorker(BackgroundWorker *worker) from its _PG_init(). 
+ * Background workers can also be started after the system is up and running by 
+ * calling the function 
+ * RegisterDynamicBackgroundWorker(BackgroundWorker *worker, BackgroundWorkerHandle **handle). 
+ * Unlike RegisterBackgroundWorker, which can only be called from within the 
+ * postmaster, RegisterDynamicBackgroundWorker must be called from a regular 
+ * backend or another background worker.
+ */
+void _PG_init(void)
+{
+	BackgroundWorker worker;
+
+	if (!process_shared_preload_libraries_in_progress)
+	{
+		ereport(LOG,
+				(errmsg("start doctor failed, please check shared_preload_libraries")));
+		return;
+	}
+
+	/* set up common data for all our workers */
+	memset(&worker, 0, sizeof(worker));
+	worker.bgw_flags = BGWORKER_SHMEM_ACCESS |
+					   BGWORKER_BACKEND_DATABASE_CONNECTION;
+	worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
+	worker.bgw_restart_time = 30;
+	sprintf(worker.bgw_library_name, ADB_DOCTOR_BGW_LIBRARY_NAME);
+	sprintf(worker.bgw_function_name, ADB_DOCTOR_FUNCTION_NAME_LAUNCHER);
+	snprintf(worker.bgw_name, BGW_MAXLEN, ADB_DOCTOR_BGW_TYPE_LAUNCHER);
+	snprintf(worker.bgw_type, BGW_MAXLEN, ADB_DOCTOR_BGW_TYPE_LAUNCHER);
+	worker.bgw_main_arg = UInt32GetDatum(0);
+	worker.bgw_notify_pid = 0;
+
+	RegisterBackgroundWorker(&worker);
+}
+
 /**
  * Start all doctor process.
  * Register an "adb doctor launcher" process with "postmaster", which runs as a 
