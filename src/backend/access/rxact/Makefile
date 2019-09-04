@@ -17,6 +17,7 @@ OBJS = rxact_mgr.o rxact_comm.o
 include $(top_srcdir)/src/backend/common.mk
 
 CFLAGS += -I$(top_srcdir)/src/interfaces
+BITCODE_CFLAGS += -I$(top_srcdir)/src/interfaces
 
 libpg-fe.h:
 	$(LN_S) $(top_builddir)/contrib/gtm/client/libpg-fe.h $(top_srcdir)/src/include/

@@ -8,5 +8,6 @@ override CFLAGS += -DADBMGRD -I$(mgr_inc_dir) -I$(top_srcdir)/src/adbmgrd/includ
 cur_dir = $(subdir:src/adbmgrd/%=%)
 
 override VPATH = $(abs_top_srcdir)/$(subdir):$(backend_src_dir)/$(cur_dir)
+override with_llvm = no
 include $(backend_src_dir)/common.mk
 

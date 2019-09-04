@@ -25,6 +25,7 @@ OBJS = amcmds.o aggregatecmds.o alter.o analyze.o async.o cluster.o comment.o \
 ifeq ($(enable_cluster),yes)
 	OBJS += auxtablecmds.o
 	CFLAGS += -I$(top_srcdir)/src/interfaces
+	BITCODE_CFLAGS += -I$(top_srcdir)/src/interfaces
 endif
 
 include $(top_srcdir)/src/backend/common.mk

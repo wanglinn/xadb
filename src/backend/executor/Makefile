@@ -37,6 +37,7 @@ ifeq ($(enable_cluster),yes)
 		  nodeReduceScan.o nodeEmptyResult.o nodeParamTuplestoreScan.o \
 		  clusterHeapScan.o
 	CFLAGS += -I$(top_srcdir)/src/interfaces
+	BITCODE_CFLAGS += -I$(top_srcdir)/src/interfaces
 endif
 ifeq ($(enable_grammar_oracle),yes)
   OBJS += nodeConnectBy.o

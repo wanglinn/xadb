@@ -20,6 +20,7 @@ OBJS = be-fsstubs.o be-secure.o be-secure-common.o auth.o crypt.o hba.o ifaddr.o
 ifeq ($(enable_cluster),yes)
 OBJS += libpq-node.o pqnode.o pqnone.o
 libpq-node.o: CFLAGS += -I$(libpq_srcdir)
+libpq-node.bc: BITCODE_CFLAGS += -I$(libpq_srcdir)
 endif
 
 ifeq ($(with_openssl),yes)

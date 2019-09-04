@@ -18,5 +18,6 @@ subdir = contrib/adb_doctor
 top_builddir = ../..
 include $(top_builddir)/src/Makefile.global
 CFLAGS := $(patsubst -DADB,-DADBMGRD, $(CFLAGS))
+override with_llvm = no
 include $(top_srcdir)/contrib/contrib-global.mk
 endif
