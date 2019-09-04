@@ -1095,6 +1095,8 @@ rxact_agent_input(RxactAgent *agent)
 		}PG_END_TRY();
 	}
 	error_context_stack = err_calback.previous;
+	if (s.data)
+		pfree(s.data);
 }
 
 static void agent_error_hook(void *arg)
