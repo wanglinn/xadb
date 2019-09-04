@@ -92,7 +92,8 @@ static List* make_list_value_key_arg(ReduceInfo *rinfo, Const **ppconst)
 		}else
 		{
 			datum_key[i] = c->constvalue;
-			nulls_key[i] = false;
+			if (nulls_key)
+				nulls_key[i] = false;
 		}
 		++i;
 	}
