@@ -133,5 +133,4 @@ extern List *GetInvolvedNodesByQuals(Oid reloid, Index varno, Node *quals, Relat
 extern List *GetInvolvedNodesByMultQuals(RelationLocInfo *rel_loc, Index varno, Node *quals, RelationAccessType relaccess);
 extern List *adbUseDnSlaveNodeids(List *nodeids);
 extern List *adbGetRelationNodeids(Oid relid);
-extern void adbUpdateListNodeids(List *destList, List *sourceList);
 #endif   /* LOCATOR_H */

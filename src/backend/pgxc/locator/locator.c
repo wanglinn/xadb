@@ -1559,26 +1559,3 @@ adbGetRelationNodeids(Oid relid)
 
 	return nodeids;
 }
-
-void
-adbUpdateListNodeids(List *destList, List *sourceList)
-{
-	ListCell *lc1;
-	ListCell *lc2;
-
-	if (!destList || !sourceList)
-		ereport(ERROR,
-			(errcode(ERRCODE_STRING_DATA_LENGTH_MISMATCH),
-			errmsg("the list destList or sourceList is NIL")));
-
-	if (list_length(destList) != list_length(sourceList))
-		ereport(ERROR,
-			(errcode(ERRCODE_STRING_DATA_LENGTH_MISMATCH),
-			errmsg("the length of destList, sourceList is not equeal")));
-
-	forboth(lc1, destList, lc2, sourceList)
-	{
-		Assert(OidIsValid(lfirst_oid(lc2)));
-		lfirst_oid(lc1) = lfirst_oid(lc2);
-	}
-}
