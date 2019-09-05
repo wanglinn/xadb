@@ -71,6 +71,7 @@ extern void DynamicReduceWorkerMain(Datum main_arg);
 extern uint16 StartDynamicReduceWorker(void);
 extern void StopDynamicReduceWorker(void);
 extern void ResetDynamicReduceWork(void);
+extern void DynamicReduceStartParallel(void);
 extern void DynamicReduceConnectNet(const DynamicReduceNodeInfo *info, uint32 count);
 extern const Oid* DynamicReduceGetCurrentWorkingNodes(uint32 *count);
 

@@ -288,6 +288,27 @@ void StopDynamicReduceWorker(void)
 	DRDetachShmem();
 }
 
+void DynamicReduceStartParallel(void)
+{
+	Assert(IsParallelWorker());
+
+	if (dr_wait_event_set == NULL)
+	{
+		dr_wait_event_set = CreateWaitEventSet(TopMemoryContext, 2);
+		AddWaitEventToSet(dr_wait_event_set,
+						  WL_LATCH_SET,
+						  PGINVALID_SOCKET,
+						  &MyProc->procLatch,
+						  NULL);
+		AddWaitEventToSet(dr_wait_event_set,
+						  WL_POSTMASTER_DEATH,
+						  PGINVALID_SOCKET,
+						  NULL,
+						  NULL);
+	}
+
+}
+
 void DRCheckStarted(void)
 {
 	if (dr_bghandle == NULL)
