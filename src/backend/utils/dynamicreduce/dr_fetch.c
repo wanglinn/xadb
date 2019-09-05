@@ -4,17 +4,24 @@
 #include "pgxc/pgxc.h"
 
 #include "utils/dynamicreduce.h"
+#include "utils/dr_private.h"
 
 void DynamicReduceInitFetch(DynamicReduceIOBuffer *io, dsm_segment *seg, TupleDesc desc,
 							void *send_addr, Size send_size, void *recv_addr, Size recv_size)
 {
 	shm_mq	   *mq;
-	
-	mq = shm_mq_create(send_addr, send_size);
+
+	if (send_size == 0)
+		mq = (shm_mq*)send_addr;
+	else
+		mq = shm_mq_create(send_addr, send_size);
 	shm_mq_set_sender(mq, MyProc);
 	io->mqh_sender = shm_mq_attach(mq, seg, NULL);
 
-	mq = shm_mq_create(recv_addr, recv_size);
+	if (recv_size == 0)
+		mq = (shm_mq*)recv_addr;
+	else
+		mq = shm_mq_create(recv_addr, recv_size);
 	shm_mq_set_receiver(mq, MyProc);
 	io->mqh_receiver = shm_mq_attach(mq, seg, NULL);
 
@@ -32,20 +39,38 @@ void DynamicReduceClearFetch(DynamicReduceIOBuffer *io)
 	if (io == NULL)
 		return;
 
-	ExecDropSingleTupleTableSlot(io->slot_remote);
-	io->slot_remote = NULL;
+	if (io->slot_remote)
+	{
+		ExecDropSingleTupleTableSlot(io->slot_remote);
+		io->slot_remote = NULL;
+	}
 
-	pfree(io->tmp_buf.oids);
-	io->tmp_buf.oids = NULL;
-	pfree(io->recv_buf.data);
-	io->recv_buf.data = NULL;
-	pfree(io->send_buf.data);
-	io->send_buf.data = NULL;
+	if (io->tmp_buf.oids)
+	{
+		pfree(io->tmp_buf.oids);
+		io->tmp_buf.oids = NULL;
+	}
+	if (io->recv_buf.data)
+	{
+		pfree(io->recv_buf.data);
+		io->recv_buf.data = NULL;
+	}
+	if (io->send_buf.data)
+	{
+		pfree(io->send_buf.data);
+		io->send_buf.data = NULL;
+	}
 
-	shm_mq_detach(io->mqh_receiver);
-	io->mqh_receiver = NULL;
-	shm_mq_detach(io->mqh_sender);
-	io->mqh_sender = NULL;
+	if (io->mqh_receiver)
+	{
+		shm_mq_detach(io->mqh_receiver);
+		io->mqh_receiver = NULL;
+	}
+	if (io->mqh_sender)
+	{
+		shm_mq_detach(io->mqh_sender);
+		io->mqh_sender = NULL;
+	}
 }
 
 TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
