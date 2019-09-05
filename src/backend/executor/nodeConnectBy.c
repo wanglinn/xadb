@@ -998,7 +998,8 @@ static void ExecReScanTuplesortConnectBy(ConnectByState *cbstate, TuplesortConne
 	{
 		if (outerPlanState(cbstate)->chgParam != NULL)
 		{
-			tuplestore_clear(cbstate->ts);
+			if (cbstate->ts != NULL)
+				tuplestore_clear(cbstate->ts);
 			cbstate->is_rescan = false;
 			cbstate->eof_underlying = false;
 		}else
