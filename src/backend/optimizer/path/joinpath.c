@@ -2809,6 +2809,8 @@ re_reduce_join_:
 		Path *outer_path;
 		Path *inner_path;
 		List *reduce_list;
+		List *outer_pathlist;
+		List *need_reduce_list;
 		List *inner_pathlist = NIL;
 
 		/* find all parallel safe paths */
@@ -2821,6 +2823,7 @@ re_reduce_join_:
 
 		if (inner_pathlist != NIL)
 		{
+			tried_join = false;
 			foreach(lc1, outerrel->cluster_partial_pathlist)
 			{
 				outer_path = lfirst(lc1);
@@ -2830,11 +2833,45 @@ re_reduce_join_:
 				set_all_join_inner_path(&jcontext, outer_path, inner_pathlist);
 				inner_path = get_cheapest_join_path(&jcontext, outer_path, TOTAL_COST, true, &reduce_list);
 				if (inner_path)
+				{
 					try_partial_hashjoin_path(root, joinrel,
 											  outer_path, inner_path,
 											  jcontext.hashclauses, jointype,
 											  reduce_list, extra,
 											  false);
+					tried_join = true;
+				}
+			}
+
+			/* try parallel reduce outer */
+			if (tried_join == false)
+			{
+				all_inner_reduce = GetPathListReduceInfoList(inner_pathlist);
+				need_reduce_list = create_outer_reduce_info_for_join(all_inner_reduce,
+																	 outerrel,
+																	 jcontext.jointype,
+																	 extra);
+				outer_pathlist = reduce_paths_for_join(root,
+													   outerrel,
+													   outerrel->cluster_partial_pathlist,
+													   need_reduce_list);
+				foreach(lc1, outer_pathlist)
+				{
+					outer_path = lfirst(lc1);
+					if (PATH_PARAM_BY_REL(outer_path, innerrel))
+						continue;
+
+					set_all_join_inner_path(&jcontext, outer_path, inner_pathlist);
+					inner_path = get_cheapest_join_path(&jcontext, outer_path, TOTAL_COST, true, &reduce_list);
+					if (inner_path)
+						try_partial_hashjoin_path(root, joinrel,
+												  outer_path, inner_path,
+												  jcontext.hashclauses, jointype,
+												  reduce_list, extra,
+												  false);
+				}
+				list_free(need_reduce_list);
+				list_free(outer_pathlist);
 			}
 
 			list_free(inner_pathlist);
