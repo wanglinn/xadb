@@ -135,7 +135,6 @@ Datum mgr_doctor_param(PG_FUNCTION_ARGS)
 		appendStringInfo(&buf, "select adb_doctor.adb_doctor_param('%s', '%s')",
 						 k, v);
 		ret = SPI_execute(buf.data, false, 0);
-		pfree(buf.data);
 		if (ret != SPI_OK_SELECT)
 		{
 			SPI_finish();
@@ -145,6 +144,7 @@ Datum mgr_doctor_param(PG_FUNCTION_ARGS)
 							ret)));
 		}
 	}
+	pfree(buf.data);
 
 	SPI_finish();
 
