@@ -22,6 +22,9 @@ static void check_error_message_from_reduce(void)
 	void		   *data;
 	shm_mq_result	result;
 
+	if (dr_mq_worker_sender == NULL)
+		return;
+		
 re_get_:
 	result = shm_mq_receive(dr_mq_worker_sender, &size, &data, true);
 	if (result == SHM_MQ_WOULD_BLOCK)
