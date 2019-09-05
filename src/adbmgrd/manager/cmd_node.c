@@ -596,7 +596,7 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 	/* now, node is not initialized*/
 	datum[Anum_mgr_node_nodeinited-1] = BoolGetDatum(false);
 	/* by default adb doctor extension would not work on this node until it has been initiated and it is in cluster. */
-	datum[Anum_mgr_node_allowcure-1] = BoolGetDatum(true);
+	datum[Anum_mgr_node_allowcure-1] = BoolGetDatum(false);
 	namestrcpy(&curestatus, CURE_STATUS_NORMAL);
 	datum[Anum_mgr_node_curestatus-1] = NameGetDatum(&curestatus);
 
@@ -1463,15 +1463,16 @@ Datum mgr_start_gtmcoor_master(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(0))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_GTM_COOR_MASTER);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, true);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOOR_START_MASTER_BACKEND, nodenamelist, TAKEPLAPARM_N,fcinfo);
 	}
 	else
 	{
 		nodename = PG_GETARG_CSTRING(0);
 		nodenamelist = lappend(nodenamelist, nodename);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, true);
+		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOOR_START_MASTER_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
-
-	return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOOR_START_MASTER_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 }
 
 /*
@@ -1485,15 +1486,16 @@ Datum mgr_start_gtmcoor_slave(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(0))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_GTM_COOR_SLAVE);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, true);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_START_SLAVE_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 	else
 	{
 		nodename = PG_GETARG_CSTRING(0);
 		nodenamelist = lappend(nodenamelist, nodename);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, true);
+		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_START_SLAVE_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
-
-	return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_START_SLAVE_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 }
 
 /*
@@ -1509,12 +1511,15 @@ Datum mgr_start_cn_master(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(0))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_MASTER);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, true);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 	else
+	{
 		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
-
-	return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, true);
+		return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
+	}
 }
 
 /*
@@ -1530,12 +1535,15 @@ Datum mgr_start_cn_slave(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(0))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_SLAVE);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, true);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 	else
+	{
 		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
-
-	return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, true);
+		return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
+	}
 }
 
 /*
@@ -1550,13 +1558,15 @@ Datum mgr_start_dn_master(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(0))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_MASTER);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, true);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 	else
+	{
 		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
-
-	return mgr_runmode_cndn(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
-
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, true);
+		return mgr_runmode_cndn(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
+	}
 }
 
 /*
@@ -1606,12 +1616,15 @@ Datum mgr_start_dn_slave(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(0))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_SLAVE);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, true);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 	else
+	{
 		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
-
-	return mgr_runmode_cndn(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, true);
+		return mgr_runmode_cndn(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
+	}
 }
 
 void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmdRst, Relation noderel, HeapTuple aimtuple, const char *shutdown_mode)
@@ -2063,14 +2076,16 @@ Datum mgr_stop_gtmcoor_master(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(1))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_GTM_COOR_MASTER);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, false);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_CN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
 	}
 	else
 	{
 		nodename = PG_GETARG_CSTRING(1);
 		nodenamelist = lappend(nodenamelist, nodename);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, false);
+		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_CN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
 	}
-	return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_CN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
 }
 
 /*
@@ -2127,14 +2142,16 @@ Datum mgr_stop_gtmcoor_slave(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(1))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_GTM_COOR_SLAVE);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, false);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND, nodenamelist, stop_mode, fcinfo);
 	}
 	else
 	{
 		nodename = PG_GETARG_CSTRING(1);
 		nodenamelist = lappend(nodenamelist, nodename);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, false);
+		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_STOP_SLAVE, nodenamelist, stop_mode, fcinfo);
 	}
-	return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_STOP_SLAVE, nodenamelist, stop_mode, fcinfo);
 }
 
 /*
@@ -2152,12 +2169,15 @@ Datum mgr_stop_cn_master(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(1))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_MASTER);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, false);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
 	}
 	else
+	{
 		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
-
-	return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_STOP, nodenamelist, stop_mode, fcinfo);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, false);
+		return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_STOP, nodenamelist, stop_mode, fcinfo);
+	}
 }
 
 /*
@@ -2175,12 +2195,15 @@ Datum mgr_stop_cn_slave(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(1))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_SLAVE);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, false);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
 	}
 	else
+	{
 		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
-
-	return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CN_STOP, nodenamelist, stop_mode, fcinfo);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, false);
+		return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CN_STOP, nodenamelist, stop_mode, fcinfo);
+	}
 }
 
 /*
@@ -2197,12 +2220,15 @@ Datum mgr_stop_dn_master(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(1))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_MASTER);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, false);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
 	}
 	else
+	{
 		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
-
-	return mgr_runmode_cndn(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_STOP, nodenamelist, stop_mode, fcinfo);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, false);
+		return mgr_runmode_cndn(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_STOP, nodenamelist, stop_mode, fcinfo);
+	}
 }
 
 /*
@@ -2253,12 +2279,15 @@ Datum mgr_stop_dn_slave(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(1))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_SLAVE);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, false);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
 	}
 	else
+	{
 		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
-
-	return mgr_runmode_cndn(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_STOP, nodenamelist, stop_mode, fcinfo);
+		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, false);
+		return mgr_runmode_cndn(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_STOP, nodenamelist, stop_mode, fcinfo);
+	}
 }
 
 /*
@@ -13411,4 +13440,140 @@ void mgr_clean_cn_pgxcnode_readonlysql_slave(void)
 char *getMgrNodeSyncStateValue(sync_state state)
 {
 	return sync_state_tab[state].name;
+}
+
+uint64 updateAllowcureOfMgrNodes(List *nodenames, char nodetype, bool allowcure)
+{
+	int ret;
+	int i;
+	StringInfoData buf;
+	uint64 rows;
+	StringInfoData dynamic;
+	ListCell *lc;
+	char *nodename;
+
+	if ((ret = SPI_connect()) < 0)
+		ereport(ERROR, 
+				(errmsg("ADB Manager SPI_connect failed: error code %d", 
+						ret)));
+	initStringInfo(&buf);
+	appendStringInfo(&buf,
+					 "update pg_catalog.mgr_node  "
+					 "set allowcure = %d::boolean ",
+					 allowcure);
+	if(nodenames != NIL || nodetype != 0)
+	{
+		initStringInfo(&dynamic);
+		if(nodenames != NIL)
+		{
+			appendStringInfo(&dynamic," AND nodename in ( ");
+			i = 0;
+			foreach(lc, nodenames)
+			{
+				i++;
+				nodename = lfirst(lc);
+				appendStringInfo(&dynamic," '%s' ", nodename);
+				if(i < nodenames->length)
+				{
+					appendStringInfo(&dynamic,",");
+				}
+			}
+			appendStringInfo(&dynamic," ) ");
+		}
+		if(nodetype != 0)
+		{
+			appendStringInfo(&dynamic,
+					 		 " AND nodetype = '%c' ",
+					 		 nodetype);
+		}
+		appendStringInfo(&buf, 
+						 " WHERE %s", 
+						 strcasestr(dynamic.data, "AND") + 3);
+		pfree(dynamic.data);
+	}
+	ret = SPI_execute(buf.data, false, 0);
+	pfree(buf.data);
+	if (ret != SPI_OK_UPDATE)
+		ereport(ERROR, 
+				(errmsg("ADB Manager SPI_execute \"%s\"failed: error code %d", 
+						buf.data, 
+						ret)));
+	rows = SPI_processed;
+	SPI_finish();
+	return rows;
+}
+
+/**
+ * If nodename is NULL, ignore condition "and nodename=?".
+ * If nodetype is 0, ignore condition "and nodetype=?".
+ */
+uint64 updateAllowcureOfMgrNode(char *nodename, char nodetype, bool allowcure)
+{
+	uint64 rows;
+	List *nodenames = NIL;
+
+	if(nodename)
+		nodenames = lappend(nodenames, nodename);
+	rows = updateAllowcureOfMgrNodes(nodenames, nodetype, allowcure);
+	list_free(nodenames);
+	return rows;
+}
+
+uint64 updateAllowcureOfMgrHosts(List *hostnames, bool allowcure)
+{
+	int ret;
+	int i;
+	StringInfoData buf;
+	uint64 rows;
+	ListCell *lc;
+	char *hostname;
+
+	if ((ret = SPI_connect()) < 0)
+		ereport(ERROR, 
+				(errmsg("ADB Manager SPI_connect failed: error code %d", 
+						ret)));
+	initStringInfo(&buf);
+	appendStringInfo(&buf,
+					 "update pg_catalog.mgr_host  "
+					 "set allowcure = %d::boolean ",
+					 allowcure);
+	if(hostnames != NIL)
+	{
+		appendStringInfo(&buf," WHERE hostname in ( ");
+		i = 0;
+		foreach(lc, hostnames)
+		{
+			i++;
+			hostname = lfirst(lc);
+			appendStringInfo(&buf," '%s' ", hostname);
+			if(i < hostnames->length)
+				appendStringInfo(&buf,",");
+		}
+		appendStringInfo(&buf," ) ");
+	}
+	ret = SPI_execute(buf.data, false, 0);
+	pfree(buf.data);
+	if (ret != SPI_OK_UPDATE)
+		ereport(ERROR, 
+				(errmsg("ADB Manager SPI_execute \"%s\"failed: error code %d", 
+						buf.data, 
+						ret)));
+	rows = SPI_processed;
+	SPI_finish();
+	return rows;
+}
+
+/**
+ * If hostname is NULL, ignore condition "and hostname=?". 
+ */
+uint64 updateAllowcureOfMgrHost(char *hostname, bool allowcure)
+{
+	uint64 rows;
+	List *hostnames = NIL;
+
+	if(hostname)
+		hostnames = lappend(hostnames, hostname);
+	rows = updateAllowcureOfMgrHosts(hostnames, allowcure);
+	list_free(hostnames);
+	return rows;
 }

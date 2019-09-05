@@ -90,14 +90,14 @@ INSERT INTO adb_doctor_conf VALUES (
 	'60000',
 	'f',
 	7,
-	'In milliseconds.'
+	'In milliseconds. If the time to restart a master node exceeds this value, doctor will do switching immediately.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_shutdown_timeout_ms',
 	'60000',
 	'f',
 	8,
-	'In milliseconds.'
+	'In milliseconds. If the time of a node is in shutting down exceeds this value, doctor will shut down that node by Immediate Shutdown mode and then start it up.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_connection_error_num_max',

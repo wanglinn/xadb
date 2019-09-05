@@ -294,7 +294,7 @@ Datum mgr_add_host_func(PG_FUNCTION_ARGS)
 			,errmsg("address \"%s\" is already in host table", address)));
 	}
 	/* ADB DOCTOR BEGIN */
-	datum[Anum_mgr_host_allowcure-1] = BoolGetDatum(true);
+	datum[Anum_mgr_host_allowcure-1] = BoolGetDatum(false);
 	/* ADB DOCTOR END */
 	/* now, we can insert record */
 	tuple = heap_form_tuple(RelationGetDescr(rel), datum, isnull);
@@ -1211,6 +1211,7 @@ Datum mgr_start_agent_hostnamelist(PG_FUNCTION_ARGS)
 	{
 		mgr_host = (Form_mgr_host)GETSTRUCT(tup);
 		Assert(mgr_host);
+		updateAllowcureOfMgrHost(NameStr(mgr_host->hostname), true);
 
 		ma = ma_connect_hostoid(HeapTupleGetOid(tup));
 		if (ma_isconnected(ma))
@@ -1345,6 +1346,7 @@ Datum mgr_start_agent_all(PG_FUNCTION_ARGS)
 	{
 		mgr_host = (Form_mgr_host)GETSTRUCT(tup);
 		Assert(mgr_host);
+		updateAllowcureOfMgrHost(NameStr(mgr_host->hostname), true);
 
 		ma = ma_connect_hostoid(HeapTupleGetOid(tup));
 		if (ma_isconnected(ma))
@@ -1527,6 +1529,7 @@ Datum mgr_stop_agent_all(PG_FUNCTION_ARGS)
 
 	mgr_host = (Form_mgr_host)GETSTRUCT(tup);
 	Assert(mgr_host);
+	updateAllowcureOfMgrHost(NameStr(mgr_host->hostname), false);
 
 	/* test is running ? */
 	ma = ma_connect_hostoid(HeapTupleGetOid(tup));
@@ -1663,7 +1666,7 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 
 	mgr_host = (Form_mgr_host)GETSTRUCT(tup);
 	Assert(mgr_host);
-
+	updateAllowcureOfMgrHost(NameStr(mgr_host->hostname), false);
 	/* test is running ? */
 	ma = ma_connect_hostoid(HeapTupleGetOid(tup));
 	if(!ma_isconnected(ma))
