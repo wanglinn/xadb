@@ -4754,9 +4754,9 @@ create_cluster_reduce_path(PlannerInfo *root,
 	crp->path.reduce_is_valid = true;
 
 	/* cluster reduce not support parallel for now */
-	crp->path.parallel_safe = false;
+	crp->path.parallel_safe = (sub_path->parallel_workers > 0);
 	crp->path.parallel_aware = false;
-	crp->path.parallel_workers = 0;
+	crp->path.parallel_workers = sub_path->parallel_workers;
 
 	/* ClusterReducePath or "ClusterMergeReducePath" */
 	if (pathkeys_contained_in(pathkeys, sub_path->pathkeys))

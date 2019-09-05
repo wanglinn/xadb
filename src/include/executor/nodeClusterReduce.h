@@ -8,4 +8,12 @@ extern void ExecClusterReduceRestrPos(ClusterReduceState *node);
 extern void ExecReScanClusterReduce(ClusterReduceState *node);
 extern void TopDownDriveClusterReduce(PlanState *node);
 
+/* parallel scan support */
+extern void ExecClusterReduceEstimate(ClusterReduceState *node, ParallelContext *pcxt);
+extern void ExecClusterReduceInitializeDSM(ClusterReduceState *node, ParallelContext *pcxt);
+extern void ExecClusterReduceReInitializeDSM(ClusterReduceState *node, ParallelContext *pcxt);
+extern void ExecClusterReduceInitializeWorker(ClusterReduceState *node,
+											  ParallelWorkerContext *pwcxt);
+
+extern void ExecClusterReduceStartedParallel(ClusterReduceState *node, ParallelContext *pcxt);
 #endif /* NODE_CLUSTER_REDUCE_H */

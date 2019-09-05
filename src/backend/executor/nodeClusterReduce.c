@@ -2,6 +2,7 @@
 #include "postgres.h"
 #include "miscadmin.h"
 
+#include "access/parallel.h"
 #include "executor/executor.h"
 #include "executor/nodeClusterReduce.h"
 #include "executor/nodeCtescan.h"
@@ -69,9 +70,18 @@ static TupleTableSlot* ExecNormalReduce(PlanState *pstate)
 {
 	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
 	NormalReduceState  *normal = node->private_state;
+	TupleTableSlot *slot;
 	Assert(normal != NULL && node->reduce_method == RT_NORMAL);
 
-	return DynamicReduceFetchSlot(&normal->drio);
+	slot = DynamicReduceFetchSlot(&normal->drio);
+	if (TupIsNull(slot))
+	{
+		shm_mq_detach(normal->drio.mqh_receiver);
+		normal->drio.mqh_receiver = NULL;
+		shm_mq_detach(normal->drio.mqh_sender);
+		normal->drio.mqh_sender = NULL;
+	}
+	return slot;
 }
 
 static TupleTableSlot* ExecReduceFetchLocal(void *pstate, ExprContext *econtext)
@@ -81,20 +91,24 @@ static TupleTableSlot* ExecReduceFetchLocal(void *pstate, ExprContext *econtext)
 	return slot;
 }
 
+static void SetupNormalReduceState(NormalReduceState *normal, DynamicReduceMQ drmq,
+								   ClusterReduceState *crstate, bool init);
 static void InitNormalReduceState(NormalReduceState *normal, Size shm_size, ClusterReduceState *crstate)
 {
-	DynamicReduceMQ		drmq;
+	normal->dsm_seg = dsm_create(shm_size, 0);
+	SetupNormalReduceState(normal, dsm_segment_address(normal->dsm_seg), crstate, true);
+}
+static void SetupNormalReduceState(NormalReduceState *normal, DynamicReduceMQ drmq,
+								   ClusterReduceState *crstate, bool init)
+{
 	Expr			   *expr;
 	ClusterReduce	   *plan;
-
-	normal->dsm_seg = dsm_create(shm_size, 0);
-	drmq = dsm_segment_address(normal->dsm_seg);
 
 	DynamicReduceInitFetch(&normal->drio,
 						   normal->dsm_seg,
 						   crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
-						   drmq->worker_sender_mq, sizeof(drmq->worker_sender_mq),
-						   drmq->reduce_sender_mq, sizeof(drmq->reduce_sender_mq));
+						   drmq->worker_sender_mq, init ? sizeof(drmq->worker_sender_mq):0,
+						   drmq->reduce_sender_mq, init ? sizeof(drmq->reduce_sender_mq):0);
 	normal->drio.econtext = crstate->ps.ps_ExprContext;
 	normal->drio.FetchLocal = ExecReduceFetchLocal;
 	normal->drio.user_data = outerPlanState(crstate);
@@ -130,10 +144,76 @@ static void InitNormalReduce(ClusterReduceState *crstate)
 								 castNode(ClusterReduce, crstate->ps.plan)->reduce_oids);
 	MemoryContextSwitchTo(oldcontext);
 }
+static void InitParallelReduce(ClusterReduceState *crstate, ParallelContext *pcxt)
+{
+	MemoryContext		oldcontext;
+	NormalReduceState  *normal;
+	DynamicReduceMQ		drmq;
+	int					i;
+	Assert(crstate->private_state == NULL);
+
+	drmq = shm_toc_allocate(pcxt->toc, (pcxt->nworkers+1) * sizeof(DynamicReduceMQData));
+	for(i=0;i<=pcxt->nworkers;++i)
+	{
+		shm_mq_create(drmq[i].reduce_sender_mq, sizeof(drmq->reduce_sender_mq));
+		shm_mq_create(drmq[i].worker_sender_mq, sizeof(drmq->worker_sender_mq));
+	}
+	shm_toc_insert(pcxt->toc, crstate->ps.plan->plan_node_id, drmq);
+
+	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
+	normal = palloc0(sizeof(NormalReduceState));
+	SetupNormalReduceState(normal, drmq, crstate, false);
+	crstate->private_state = normal;
+	ExecSetExecProcNode(&crstate->ps, ExecNormalReduce);
+	MemoryContextSwitchTo(oldcontext);
+}
+static void StartParallelReduce(ClusterReduceState *crstate, ParallelContext *pcxt)
+{
+	DynamicReduceMQ		drmq;
+
+	drmq = shm_toc_lookup(pcxt->toc, crstate->ps.plan->plan_node_id, false);
+	if (pcxt->nworkers_launched == 0)
+		DynamicReduceStartNormalPlan(crstate->ps.plan->plan_node_id, 
+									 pcxt->seg,
+									 drmq,
+									 crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
+									 castNode(ClusterReduce, crstate->ps.plan)->reduce_oids);
+	else
+		DynamicReduceStartParallelPlan(crstate->ps.plan->plan_node_id,
+									   pcxt->seg,
+									   drmq,
+									   crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
+									   castNode(ClusterReduce, crstate->ps.plan)->reduce_oids,
+									   pcxt->nworkers_launched+1);
+}
+static void InitParallelReduceWorker(ClusterReduceState *crstate, ParallelWorkerContext *pwcxt)
+{
+	MemoryContext		oldcontext;
+	NormalReduceState  *normal;
+	DynamicReduceMQ		drmq;
+	Assert(crstate->private_state == NULL);
+
+	drmq = shm_toc_lookup(pwcxt->toc, crstate->ps.plan->plan_node_id, false);
+	drmq = &drmq[ParallelWorkerNumber+1];
+
+	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
+	normal = palloc0(sizeof(NormalReduceState));
+	SetupNormalReduceState(normal, drmq, crstate, false);
+	crstate->private_state = normal;
+	ExecSetExecProcNode(&crstate->ps, ExecNormalReduce);
+	MemoryContextSwitchTo(oldcontext);
+}
+static inline void EstimateNormalReduce(ParallelContext *pcxt)
+{
+	shm_toc_estimate_chunk(&pcxt->estimator,
+						   (pcxt->nworkers+1) * sizeof(DynamicReduceMQData));
+	shm_toc_estimate_keys(&pcxt->estimator, 1);
+}
 static void EndNormalReduce(NormalReduceState *normal)
 {
 	DynamicReduceClearFetch(&normal->drio);
-	dsm_detach(normal->dsm_seg);
+	if (normal->dsm_seg)
+		dsm_detach(normal->dsm_seg);
 }
 static void DriveNormalReduce(ClusterReduceState *node)
 {
@@ -400,6 +480,99 @@ static TupleTableSlot* ExecDefaultClusterReduce(PlanState *pstate)
 	InitReduceMethod(crstate);
 
 	return pstate->ExecProcNodeReal(pstate);
+}
+
+void ExecClusterReduceEstimate(ClusterReduceState *node, ParallelContext *pcxt)
+{
+	switch(node->reduce_method)
+	{
+	case RT_NOTHING:
+		break;
+	case RT_NORMAL:
+		EstimateNormalReduce(pcxt);
+		break;
+	case RT_MERGE:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("merge reduce not support parallel yet")));
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknown reduce method %u", node->reduce_method)));
+		break;
+	}
+}
+void ExecClusterReduceInitializeDSM(ClusterReduceState *node, ParallelContext *pcxt)
+{
+	switch(node->reduce_method)
+	{
+	case RT_NOTHING:
+		break;
+	case RT_NORMAL:
+		InitParallelReduce(node, pcxt);
+		break;
+	case RT_MERGE:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("merge reduce not support parallel yet")));
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknown reduce method %u", node->reduce_method)));
+		break;
+	}
+}
+void ExecClusterReduceReInitializeDSM(ClusterReduceState *node, ParallelContext *pcxt)
+{
+	ereport(ERROR,
+			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+			 errmsg("parallel reduce not support reinitialize dsm")));
+}
+void ExecClusterReduceInitializeWorker(ClusterReduceState *node, ParallelWorkerContext *pwcxt)
+{
+	DynamicReduceStartParallel();
+	switch(node->reduce_method)
+	{
+	case RT_NOTHING:
+		break;
+	case RT_NORMAL:
+		InitParallelReduceWorker(node, pwcxt);
+		break;
+	case RT_MERGE:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("merge reduce not support parallel yet")));
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknown reduce method %u", node->reduce_method)));
+		break;
+	}
+}
+
+void ExecClusterReduceStartedParallel(ClusterReduceState *node, ParallelContext *pcxt)
+{
+	switch(node->reduce_method)
+	{
+	case RT_NOTHING:
+		break;
+	case RT_NORMAL:
+		StartParallelReduce(node, pcxt);
+		break;
+	case RT_MERGE:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("merge reduce not support parallel yet")));
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknown reduce method %u", node->reduce_method)));
+		break;
+	}
 }
 
 ClusterReduceState *

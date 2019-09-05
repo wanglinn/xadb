@@ -48,6 +48,9 @@
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 #include "pgstat.h"
+#ifdef ADB
+#include "executor/nodeClusterReduce.h"
+#endif /* ADB */
 
 /*
  * Magic numbers for parallel executor communication.  We use constants
@@ -281,6 +284,11 @@ ExecParallelEstimate(PlanState *planstate, ExecParallelEstimateContext *e)
 			/* even when not parallel-aware, for EXPLAIN ANALYZE */
 			ExecSortEstimate((SortState *) planstate, e->pcxt);
 			break;
+#ifdef ADB
+		case T_ClusterReduceState:
+			ExecClusterReduceEstimate((ClusterReduceState*)planstate, e->pcxt);
+			break;
+#endif /* ADB */
 
 		default:
 			break;
@@ -494,6 +502,11 @@ ExecParallelInitializeDSM(PlanState *planstate,
 			/* even when not parallel-aware, for EXPLAIN ANALYZE */
 			ExecSortInitializeDSM((SortState *) planstate, d->pcxt);
 			break;
+#ifdef ADB
+		case T_ClusterReduceState:
+			ExecClusterReduceInitializeDSM((ClusterReduceState*)planstate, d->pcxt);
+			break;
+#endif /* ADB */
 
 		default:
 			break;
@@ -920,6 +933,11 @@ ExecParallelReInitializeDSM(PlanState *planstate,
 		case T_SortState:
 			/* these nodes have DSM state, but no reinitialization is required */
 			break;
+#ifdef ADB
+		case T_ClusterReduceState:
+			ExecClusterReduceReInitializeDSM((ClusterReduceState*)planstate, pcxt);
+			break;
+#endif /* ADB */
 
 		default:
 			break;
@@ -1227,6 +1245,11 @@ ExecParallelInitializeWorker(PlanState *planstate, ParallelWorkerContext *pwcxt)
 			/* even when not parallel-aware, for EXPLAIN ANALYZE */
 			ExecSortInitializeWorker((SortState *) planstate, pwcxt);
 			break;
+#ifdef ADB
+		case T_ClusterReduceState:
+			ExecClusterReduceInitializeWorker((ClusterReduceState*)planstate, pwcxt);
+			break;
+#endif /* ADB */
 
 		default:
 			break;
@@ -1338,3 +1361,27 @@ ParallelQueryMain(dsm_segment *seg, shm_toc *toc)
 	FreeQueryDesc(queryDesc);
 	receiver->rDestroy(receiver);
 }
+
+#ifdef ADB
+static bool ExecStartedParallelWorker(PlanState *planstate, ParallelContext *pcxt)
+{
+	if (planstate == NULL)
+		return false;
+	
+	switch(nodeTag(planstate))
+	{
+	case T_ClusterReduceState:
+		ExecClusterReduceStartedParallel((ClusterReduceState*)planstate, pcxt);
+		break;
+	
+	default:
+		break;
+	}
+
+	return planstate_tree_walker(planstate, ExecStartedParallelWorker, pcxt);
+}
+void ExecStartedParallel(ParallelExecutorInfo *pei)
+{
+	ExecStartedParallelWorker(pei->planstate, pei->pcxt);
+}
+#endif /* ADB */

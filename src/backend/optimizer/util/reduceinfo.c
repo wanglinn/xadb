@@ -890,7 +890,8 @@ int ReducePathUsingReduceInfo(PlannerInfo *root, RelOptInfo *rel, Path *path,
 	if(result < 0)
 		return result;
 
-	if(new_path != path && path->pathkeys != NIL)
+	if (new_path != path && path->pathkeys != NIL &&
+		path->parallel_workers == 0) /* parallel reduce not support merge yet */
 	{
 		new_path = create_cluster_reduce_path(root, path, list_make1(reduce), rel, path->pathkeys);
 		result = (*func)(root, new_path, context);
