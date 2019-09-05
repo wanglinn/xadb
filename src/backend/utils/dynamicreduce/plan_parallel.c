@@ -66,7 +66,7 @@ static void OnParallelPlanLatch(PlanInfo *pi)
 	if (need_active_node)
 		DRActiveNode(pi->plan_id);
 
-	for(count = pi->count_pwi; count>0;)
+	for(count = pi->count_pwi; count>0 && pi->waiting_node == InvalidOid;)
 	{
 		pwi = &pi->pwi[--count];
 		while (pwi->waiting_node == InvalidOid &&
