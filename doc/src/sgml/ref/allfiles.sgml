@@ -262,6 +262,7 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY mgrGrant           SYSTEM "mgr_grant_right.sgml">
 <!ENTITY mgrInitAll         SYSTEM "mgr_init_all.sgml">
 <!ENTITY mgrListAcl         SYSTEM "mgr_list_acl.sgml">
+<!ENTITY mgrListDoctor      SYSTEM "mgr_list_doctor.sgml">
 <!ENTITY mgrListHba         SYSTEM "mgr_list_hba.sgml">
 <!ENTITY mgrListHost        SYSTEM "mgr_list_host.sgml">
 <!ENTITY mgrListNode        SYSTEM "mgr_list_node.sgml">
@@ -287,6 +288,7 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY mgrRewindGtm       SYSTEM "mgr_rewind_gtm.sgml">
 <!ENTITY mgrSetCoordinator  SYSTEM "mgr_set_coordinator.sgml">
 <!ENTITY mgrSetDatanode     SYSTEM "mgr_set_datanode.sgml">
+<!ENTITY mgrSetDoctor       SYSTEM "mgr_set_doctor.sgml">
 <!ENTITY mgrSetGtm          SYSTEM "mgr_set_gtm.sgml">
 <!ENTITY mgrSetClusterInit  SYSTEM "mgr_set_cluster_init.sgml">
 <!ENTITY mgrShow            SYSTEM "mgr_show.sgml">
@@ -295,11 +297,13 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY mgrStartAll        SYSTEM "mgr_start_all.sgml">
 <!ENTITY mgrStartCoordinator SYSTEM "mgr_start_coordinator.sgml">
 <!ENTITY mgrStartDatanode   SYSTEM "mgr_start_datanode.sgml">
+<!ENTITY mgrStartDoctor     SYSTEM "mgr_start_doctor.sgml">
 <!ENTITY mgrStartGtm        SYSTEM "mgr_start_gtm.sgml">
 <!ENTITY mgrStopAgent       SYSTEM "mgr_stop_agent.sgml">
 <!ENTITY mgrStopAll         SYSTEM "mgr_stop_all.sgml">
 <!ENTITY mgrStopCoordinator SYSTEM "mgr_stop_coordinator.sgml">
 <!ENTITY mgrStopDatanode    SYSTEM "mgr_stop_datanode.sgml">
+<!ENTITY mgrStopDoctor      SYSTEM "mgr_stop_doctor.sgml">
 <!ENTITY mgrStopGtm         SYSTEM "mgr_stop_gtm.sgml">
 <!ENTITY mgrSwitchoverDatanode      SYSTEM "mgr_switchover_datanode.sgml">
 <!ENTITY mgrSwitchoverGtm   SYSTEM "mgr_switchover_gtm.sgml">

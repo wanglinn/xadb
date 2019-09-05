@@ -1,0 +1,84 @@
+<!--
+doc/src/sgml/ref/mgr_set_doctor.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-SETDOCTOR">
+
+ <refmeta>
+  <refentrytitle>SET DOCTOR</refentrytitle>
+   <manvolnum>7</manvolnum>
+   <refmiscinfo>Manage - Language Statements</refmiscinfo>
+ </refmeta>
+
+ <refnamediv>
+  <refname>SET DOCTOR</refname>
+  <refpurpose>Set the configuration of the doctor module</refpurpose>
+ </refnamediv>
+
+ <indexterm zone="mgr-setdoctor">
+  <primary>SET DOCTOR</primary>
+ </indexterm>
+
+ <refsynopsisdiv>
+  <synopsis>
+   SET DOCTOR ( { parameter = <replaceable class="parameter">value</replaceable> } [, ...] )
+   type and execute command "list doctor", you will see all parameters
+  </synopsis>
+ </refsynopsisdiv>
+
+ <refsect1>
+  <title>Description</title>
+  <para>
+   <command>SET DOCTOR</command> Set the configuration of the doctor module
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Parameters</title>
+  <variablelist>
+   <varlistentry>
+    <term>
+	 <replaceable class="parameter">Parameter</replaceable>
+	</term>
+    <listitem>
+     <para>
+      type and execute command "list doctor", you will see all parameters
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+ </refsect1>
+
+ <refsect1>
+  <title>Outputs</title>
+  <para>
+   SET DOCTOR
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Notes</title>
+  <para>
+   none
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Examples</title>
+  <para>
+   disable doctor on all nodes and hosts:
+   <programlisting>
+    set doctor (enable = 0);
+   </programlisting>
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Compatibility</title>
+  <para>
+   none
+  </para>
+ </refsect1>
+
+</refentry>

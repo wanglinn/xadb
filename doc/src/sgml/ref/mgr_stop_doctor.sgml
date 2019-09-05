@@ -1,0 +1,70 @@
+<!--
+doc/src/sgml/ref/mgr_stop_doctor.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-STOPDOCTOR">
+ <refmeta>
+  <refentrytitle>STOP DOCTOR</refentrytitle>
+  <manvolnum>7</manvolnum>
+  <refmiscinfo>Manage - Language Statements</refmiscinfo>
+ </refmeta>
+
+ <refnamediv>
+  <refname>STOP DOCTOR</refname>
+  <refpurpose>stop the doctor module, all doctor processes will exit</refpurpose>
+ </refnamediv>
+
+ <indexterm zone="mgr-stopdoctor">
+  <primary>STOP DOCTOR</primary>
+ </indexterm>
+
+ <refsynopsisdiv>
+  <synopsis>
+   STOP DOCTOR
+  </synopsis>
+ </refsynopsisdiv>
+
+ <refsect1>
+  <title>Description</title>
+  <para>
+   <command>STOP DOCTOR</command> stop the doctor module, all doctor processes will exit
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Parameters</title>
+  <para>
+   none
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Outputs</title>
+  <para>
+   doctor configuration
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Notes</title>
+  <para>
+   none
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Examples</title>
+  <para>
+   none
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Compatibility</title>
+  <para>
+   none
+  </para>
+ </refsect1>
+
+</refentry>

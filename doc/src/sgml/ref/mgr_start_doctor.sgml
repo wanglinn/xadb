@@ -1,0 +1,70 @@
+<!--
+doc/src/sgml/ref/mgr_start_doctor.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-STARTDOCTOR">
+ <refmeta>
+  <refentrytitle>START DOCTOR</refentrytitle>
+  <manvolnum>7</manvolnum>
+  <refmiscinfo>Manage - Language Statements</refmiscinfo>
+ </refmeta>
+
+ <refnamediv>
+  <refname>START DOCTOR</refname>
+  <refpurpose>start the doctor module to cure the antdb cluster automatically</refpurpose>
+ </refnamediv>
+
+ <indexterm zone="mgr-startdoctor">
+  <primary>START DOCTOR</primary>
+ </indexterm>
+
+ <refsynopsisdiv>
+  <synopsis>
+   START DOCTOR
+  </synopsis>
+ </refsynopsisdiv>
+
+ <refsect1>
+  <title>Description</title>
+  <para>
+   <command>START DOCTOR</command> start the doctor module to cure the antdb cluster automatically
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Parameters</title>
+  <para>
+   none
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Outputs</title>
+  <para>
+   doctor configuration
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Notes</title>
+  <para>
+   none
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Examples</title>
+  <para>
+   none
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Compatibility</title>
+  <para>
+   none
+  </para>
+ </refsect1>
+
+</refentry>

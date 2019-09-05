@@ -1,0 +1,70 @@
+<!--
+doc/src/sgml/ref/mgr_list_doctor.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-LISTDOCTOR">
+ <refmeta>
+  <refentrytitle>LIST DOCTOR</refentrytitle>
+  <manvolnum>7</manvolnum>
+  <refmiscinfo>Manage - Language Statements</refmiscinfo>
+ </refmeta>
+
+ <refnamediv>
+  <refname>LIST DOCTOR</refname>
+  <refpurpose>list the configuration of the doctor module</refpurpose>
+ </refnamediv>
+
+ <indexterm zone="mgr-listdoctor">
+  <primary>LIST DOCTOR</primary>
+ </indexterm>
+
+ <refsynopsisdiv>
+  <synopsis>
+   LIST DOCTOR
+  </synopsis>
+ </refsynopsisdiv>
+
+ <refsect1>
+  <title>Description</title>
+  <para>
+   <command>LIST DOCTOR</command> List the configuration of the doctor module
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Parameters</title>
+  <para>
+   none
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Outputs</title>
+  <para>
+   doctor configuration
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Notes</title>
+  <para>
+   none
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Examples</title>
+  <para>
+   none
+  </para>
+ </refsect1>
+
+ <refsect1>
+  <title>Compatibility</title>
+  <para>
+   none
+  </para>
+ </refsect1>
+
+</refentry>
