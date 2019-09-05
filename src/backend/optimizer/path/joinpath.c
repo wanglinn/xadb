@@ -2830,22 +2830,35 @@ re_reduce_join_:
 				set_all_join_inner_path(&jcontext, outer_path, inner_pathlist);
 				inner_path = get_cheapest_join_path(&jcontext, outer_path, TOTAL_COST, true, &reduce_list);
 				if (inner_path)
-				{
-					if (enable_parallel_hash)
-						try_partial_hashjoin_path(root, joinrel,
-												  outer_path, inner_path,
-												  jcontext.hashclauses, jointype,
-												  reduce_list, extra,
-												  true);
 					try_partial_hashjoin_path(root, joinrel,
 											  outer_path, inner_path,
 											  jcontext.hashclauses, jointype,
 											  reduce_list, extra,
 											  false);
-				}
 			}
 
 			list_free(inner_pathlist);
+		}
+
+		if (enable_parallel_hash &&
+			innerrel->cluster_partial_pathlist != NIL)
+		{
+			foreach(lc1, outerrel->cluster_partial_pathlist)
+			{
+				outer_path = lfirst(lc1);
+				if (PATH_PARAM_BY_REL(outer_path, innerrel))
+					continue;
+
+				set_all_join_inner_path(&jcontext, outer_path, innerrel->cluster_partial_pathlist);
+				inner_path = get_cheapest_join_path(&jcontext, outer_path, TOTAL_COST, true, &reduce_list);
+				if (inner_path)
+					try_partial_hashjoin_path(root, joinrel,
+											  outer_path, inner_path,
+											  jcontext.hashclauses, jointype,
+											  reduce_list, extra,
+											  true);
+
+			}
 		}
 	}
 }
