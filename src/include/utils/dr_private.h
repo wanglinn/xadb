@@ -37,6 +37,7 @@
 #define ADB_DR_MQ_MSG_START_PLAN_NORMAL	'\x13'
 #define ADB_DR_MQ_MSG_START_PLAN_MERGE	'\x14'
 #define ADB_DR_MQ_MSG_START_PLAN_SFS	'\x15'
+#define ADB_DR_MQ_MSG_START_PLAN_PARALLEL '\x16'
 
 #define ADB_DR_MSG_INVALID				'\x00'
 #define ADB_DR_MSG_NODEOID				'\x01'
@@ -202,11 +203,25 @@ struct PlanInfo
 	OidBufferData		working_nodes;		/* not include PGXCNodeOid */
 	PlanWorkerInfo	   *pwi;
 
-	/* for merge */
-	int					nsort_keys;
-	struct SortSupportData
-					   *sort_keys;
-	MemoryContext		sort_context;
+	union
+	{
+		/* for parallel */
+		struct
+		{
+			uint32		count_pwi;	/* for parallel */
+			uint32		end_count_pwi;		/* got end of plan message count */
+			uint32		last_pwi;			/* last put to message pwi */
+		};
+
+		/* for merge */
+		struct
+		{
+			int				nsort_keys;
+			struct SortSupportData
+						   *sort_keys;
+			MemoryContext	sort_context;
+		};
+	};
 };
 
 extern Oid					PGXCNodeOid;	/* avoid include pgxc.h */
@@ -254,6 +269,9 @@ void DRStartMergePlanMessage(StringInfo msg);
 
 /* SharedFileSet plan functions in plan_sfs.c */
 void DRStartSFSPlanMessage(StringInfo msg);
+
+/* parallel plan functions in plan_parallel.c */
+void DRStartParallelPlanMessage(StringInfo msg);
 
 /* connect functions in dr_connect.c */
 void FreeNodeEventInfo(DRNodeEventData *ned);

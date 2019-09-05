@@ -462,6 +462,10 @@ static void TryBackendMessage(WaitEvent *ev)
 	{
 		DRStartSFSPlanMessage(&buf);
 		DRSendConfirmToBackend(false);
+	}else if (msgtype == ADB_DR_MQ_MSG_START_PLAN_PARALLEL)
+	{
+		DRStartParallelPlanMessage(&buf);
+		DRSendConfirmToBackend(false);
 	}else
 	{
 		ereport(ERROR,
