@@ -390,8 +390,25 @@ void DRConnectNetMsg(StringInfo msg)
 	SetUserIdAndSecContext(fs->current_user_id, fs->sec_context);
 
 	/* Restore temp-namespace state to ensure search path matches leader's. */
-	SetTempNamespaceState(fs->temp_namespace_id,
-						  fs->temp_toast_namespace_id);
+	{
+		Oid temp_namespace_id;
+		Oid temp_toast_namespace_id;
+		GetTempNamespaceState(&temp_namespace_id, &temp_toast_namespace_id);
+		if (OidIsValid(temp_namespace_id))
+		{
+			if (temp_namespace_id != fs->temp_namespace_id ||
+				temp_toast_namespace_id == fs->temp_toast_namespace_id)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("worng temp namespace")));
+			}
+		}else
+		{
+			SetTempNamespaceState(fs->temp_namespace_id,
+								  fs->temp_toast_namespace_id);
+		}
+	}
 
 	/* Restore reindex state. */
 	RestoreReindexState(shm_toc_lookup(toc, DR_KEY_REINDEX_STATE, false));
