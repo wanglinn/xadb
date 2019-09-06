@@ -214,6 +214,7 @@ static RelOptInfo *create_connect_by_paths(PlannerInfo *root,
 										   RelOptInfo *input_rel,
 										   PathTarget *target,
 										   bool target_parallel_safe);
+static bool can_exempt_siblings_sort(PlannerInfo *root, bool first_level);
 #endif /* ADB_GRAM_ORA */
 static bool is_degenerate_grouping(PlannerInfo *root);
 static void create_degenerate_grouping_paths(PlannerInfo *root,
@@ -4624,6 +4625,14 @@ static RelOptInfo *create_connect_by_paths(PlannerInfo *root,
 	connect_rel = fetch_upper_rel(root, UPPERREL_CONNECT_BY, NULL);
 	connect_rel->reltarget = target;
 
+	/* avoid redundant sorting */
+	if (connect_by && (connect_by->sortClause != NIL || connect_by->sort_tlist != NIL) 
+			&& can_exempt_siblings_sort(root, true))
+	{
+		connect_by->sortClause = NIL;
+		connect_by->sort_tlist = NIL;
+	}
+
 	/* set is parallel safe */
 	if (input_rel->consider_parallel &&
 		target_parallel_safe &&
@@ -4649,6 +4658,40 @@ static RelOptInfo *create_connect_by_paths(PlannerInfo *root,
 	set_cheapest(connect_rel);
 	return connect_rel;
 }
+
+/* avoid meaningless sorting operations with connect by */
+static bool
+can_exempt_siblings_sort(PlannerInfo *root, bool current_level)
+{
+	SetOperationStmt* setOpStmt;
+
+	Query *query = root->parse;
+	if (query->hasAggs || query->hasWindowFuncs || query->hasDistinctOn)
+		return true;
+
+	if (!current_level)
+	{
+		/* check join */
+		if (query->jointree->fromlist != NIL)
+		{
+			List *list = query->jointree->fromlist;
+			if (list_length(list) > 1 || IsA(linitial(list), JoinExpr))
+				return true;
+		}
+		/* check union */
+		if (query->setOperations)
+		{
+			setOpStmt = (SetOperationStmt*)query->setOperations;
+			if (!setOpStmt->all && setOpStmt->op != SETOP_NONE)
+				return true;
+		}
+	}
+
+	if (root->parent_root)
+		return can_exempt_siblings_sort(root->parent_root, false);
+	return false;
+}
+
 #endif /* ADB_GRAM_ORA */
 /*
  * is_degenerate_grouping
