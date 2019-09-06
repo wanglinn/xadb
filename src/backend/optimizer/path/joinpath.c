@@ -1896,7 +1896,7 @@ consider_parallel_nestloop(PlannerInfo *root,
 {
 	JoinType	save_jointype = jointype;
 	ListCell   *lc1;
-#ifdef NOT_USED
+#ifdef ADB
 	bool		tried;
 #endif /* ADB */
 
@@ -1949,9 +1949,7 @@ consider_parallel_nestloop(PlannerInfo *root,
 		}
 	}
 #ifdef ADB
-#ifdef NOT_USED
 	tried = false;
-#endif /* NOT_USED */
 	foreach(lc1, outerrel->cluster_partial_pathlist)
 	{
 		Path	   *outerpath = (Path *) lfirst(lc1);
@@ -2006,18 +2004,15 @@ consider_parallel_nestloop(PlannerInfo *root,
 				try_cluster_partial_nestloop_path(root, joinrel, outerpath, innerpath,
 												  pathkeys, jointype, extra, new_reduce_list);
 			}
-#ifdef NOT_USED
 			tried = true;
-#endif /* NOT_USED */
 		}
 	}
-#ifdef NOT_USED
 	if(tried == false && outerrel->cluster_partial_pathlist)
 	{
 		/* reduce outer paths */
+		ClusterJoinContext jcontext;
 		Path *outerpath;
 		Path *innerpath;
-		ListCell *lc2;
 		List *pathkeys;
 		List *inner_reduce_list;
 		List *need_reduce_list;
@@ -2025,12 +2020,24 @@ consider_parallel_nestloop(PlannerInfo *root,
 		List *outer_reduce_list;
 		List *new_reduce_list;
 		List *inner_pathlist = NIL;
-		foreach(lc1, innerrel->cheapest_cluster_parameterized_paths)
+		foreach(lc1, innerrel->cluster_pathlist)
 		{
 			innerpath = lfirst(lc1);
 			if(innerpath->parallel_safe)
 				inner_pathlist = lappend(inner_pathlist, innerpath);
 		}
+		if (inner_pathlist == NIL)
+			goto end_reduce_outer_;
+
+		MemSet(&jcontext, 0, sizeof(jcontext));
+		jcontext.root = root;
+		jcontext.joinrel = joinrel;
+		jcontext.outerrel = outerrel;
+		jcontext.innerrel = innerrel;
+		jcontext.extra = extra;
+		jcontext.jointype = save_jointype;
+		jcontext.try_match = CLUSTER_TRY_NESTLOOP_JOIN;
+
 		inner_reduce_list = GetPathListReduceInfoList(inner_pathlist);
 		need_reduce_list = create_outer_reduce_info_for_join(inner_reduce_list, outerrel, jointype, extra);
 		outer_pathlist = reduce_paths_for_join(root, outerrel, outerrel->cluster_partial_pathlist, need_reduce_list);
@@ -2038,39 +2045,45 @@ consider_parallel_nestloop(PlannerInfo *root,
 		{
 			outerpath = lfirst(lc1);
 			outer_reduce_list = get_reduce_info_list(outerpath);
+
+			set_all_join_inner_path(&jcontext, outerpath, inner_pathlist);
+			innerpath = get_cheapest_join_path(&jcontext, outerpath, TOTAL_COST, false, &new_reduce_list);
+			if (innerpath == NULL)
+				continue;
+
 			pathkeys = build_join_pathkeys(root, joinrel, jointype,
 										   outerpath->pathkeys);
-			foreach(lc2, inner_pathlist)
+retry_partial_nestloop_:
+			try_cluster_partial_nestloop_path(root, joinrel, outerpath, innerpath,
+											  pathkeys, jointype, extra, new_reduce_list);
+			if (save_jointype == JOIN_UNIQUE_INNER)
 			{
-				innerpath = lfirst(lc2);
-				if (reduce_info_list_can_join(outer_reduce_list,
-											  get_reduce_info_list(innerpath),
-											  extra->restrictlist,
-											  jointype,
-											  &new_reduce_list) == false)
-					continue;
-
-				if (save_jointype == JOIN_UNIQUE_INNER)
-				{
-					innerpath = (Path *) create_cluster_unique_path(root, innerrel,
-																	innerpath,
-																	extra->sjinfo);
-					Assert(innerpath);
-				}
-
+				innerpath = (Path *) create_cluster_unique_path(root, innerrel,
+																innerpath,
+																extra->sjinfo);
+				Assert(innerpath);
+			}
+			if (enable_material &&
+				!ExecMaterializesOutput(innerpath->pathtype))
+			{
+				innerpath = (Path *) create_material_path(innerrel, innerpath);
 				try_cluster_partial_nestloop_path(root, joinrel, outerpath, innerpath,
 												  pathkeys, jointype, extra, new_reduce_list);
-				if (enable_material &&
-					!ExecMaterializesOutput(innerpath->pathtype))
-				{
-					innerpath = (Path *) create_material_path(innerrel, innerpath);
-					try_cluster_partial_nestloop_path(root, joinrel, outerpath, innerpath,
-													  pathkeys, jointype, extra, new_reduce_list);
-				}
+			}
+
+			/* try no param inner path */
+			if (!PATH_PARAM_OUTER_REL(innerpath, outerrel))
+				continue;
+			innerpath = get_cheapest_join_path(&jcontext, outerpath, TOTAL_COST, true, &new_reduce_list);
+			if (innerpath != NULL)
+			{
+				Assert(!PATH_PARAM_OUTER_REL(innerpath, outerrel));
+				goto retry_partial_nestloop_;
 			}
 		}
 	}
-#endif /* NOT_USED */
+end_reduce_outer_:
+	(void)0;
 #endif /* ADB */
 }
 
