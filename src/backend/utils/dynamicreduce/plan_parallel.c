@@ -86,6 +86,8 @@ static void OnParallelPlanLatch(PlanInfo *pi)
 				/* is all parallel got end? */
 				if (pi->end_count_pwi == pi->count_pwi)
 				{
+					DR_PLAN_DEBUG_EOF((errmsg("parall plan %d(%p) worker %d will send end of plan message to remote",
+											  pi->plan_id, pi, pwi->worker_id)));
 					DRGetEndOfPlanMessage(pi, pwi);
 				}else
 				{

@@ -310,7 +310,7 @@ PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(
 
 void DRSetupPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi, DynamicReduceMQ mq, int worker_id)
 {
-	pwi->worker_id = -1;
+	pwi->worker_id = worker_id;
 	pwi->waiting_node = InvalidOid;
 
 	shm_mq_set_receiver((shm_mq*)mq->worker_sender_mq, MyProc);
