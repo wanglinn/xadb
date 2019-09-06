@@ -338,6 +338,9 @@ static void snapsenderUpdateNextXid(TransactionId xid)
 	{
  		ShmemVariableCache->nextXid = xid;
  		TransactionIdAdvance(ShmemVariableCache->nextXid);
+
+		ShmemVariableCache->latestCompletedXid = ShmemVariableCache->nextXid;
+		TransactionIdRetreat(ShmemVariableCache->latestCompletedXid);
 	}
 	LWLockRelease(XidGenLock);
 }
