@@ -112,6 +112,7 @@ typedef struct AdbDoctorConfRow
 	char *k;
 	char *v;
 	bool editable;
+	int sortnumber;
 	char *comment;
 } AdbDoctorConfRow;
 

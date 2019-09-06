@@ -33,7 +33,6 @@
 #include "nodes/parsenodes.h"
 #include "parser/mgr_node.h"
 #include "postmaster/bgworker.h" 
-// #include "contrib/adb_doctor.h"
 
 /*
  * The YY_EXTRA data that a flex scanner allows us to pass around.  Private
@@ -3195,6 +3194,35 @@ SetDoctorParamStmt:
 			node -> options = $3;
 			$$ = (Node*)node;
 		};
+	|	SET DOCTOR NODE Ident ON
+		{
+			MGRDoctorSet *node = makeNode(MGRDoctorSet);
+			node -> nodename = $4;
+			node -> enable = true;
+			$$ = (Node*)node;
+		};
+	|	SET DOCTOR NODE Ident OFF
+		{
+			MGRDoctorSet *node = makeNode(MGRDoctorSet);
+			node -> nodename = $4;
+			node -> enable = false;
+			$$ = (Node*)node;
+		};
+	|	SET DOCTOR HOST Ident ON
+		{
+			MGRDoctorSet *node = makeNode(MGRDoctorSet);
+			node -> hostname = $4;
+			node -> enable = true;
+			$$ = (Node*)node;
+		};
+	|	SET DOCTOR HOST Ident OFF
+		{
+			MGRDoctorSet *node = makeNode(MGRDoctorSet);
+			node -> hostname = $4;
+			node -> enable = false;
+			$$ = (Node*)node;
+		};
+
 
 ListDoctorParamStmt:
 		LIST DOCTOR opt_general_options

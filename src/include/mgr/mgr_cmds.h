@@ -507,6 +507,9 @@ extern Datum mgr_doctor_start(PG_FUNCTION_ARGS);
 extern Datum mgr_doctor_stop(PG_FUNCTION_ARGS);
 extern Datum mgr_doctor_param(PG_FUNCTION_ARGS);
 extern Datum mgr_doctor_list(PG_FUNCTION_ARGS);
+extern Datum mgr_doctor_list_param(PG_FUNCTION_ARGS);
+extern Datum mgr_doctor_list_node(PG_FUNCTION_ARGS);
+extern Datum mgr_doctor_list_host(PG_FUNCTION_ARGS);
 extern void mgr_doctor_set_param(MGRDoctorSet *node,
 								 ParamListInfo params,
 								 DestReceiver *dest);

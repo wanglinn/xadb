@@ -22,8 +22,10 @@ ADB documentation
 
  <refsynopsisdiv>
   <synopsis>
-   SET DOCTOR ( { parameter = <replaceable class="parameter">value</replaceable> } [, ...] )
-   type and execute command "list doctor", you will see all parameters
+SET DOCTOR ( { parameter = <replaceable class="parameter">value</replaceable> } [, ...] )
+SET DOCTOR NODE <replaceable class="parameter">node_name</replaceable> { ON | OFF }
+SET DOCTOR HOST <replaceable class="parameter">host_name</replaceable> { ON | OFF }
+   type and execute command "list doctor", you will see all configurations
   </synopsis>
  </refsynopsisdiv>
 
