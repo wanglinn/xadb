@@ -1197,14 +1197,6 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 	/* Remove any redundant GROUP BY columns */
 	remove_useless_groupby_columns(root);
 
-	/*
-	 * If we have any outer joins, try to reduce them to plain inner joins.
-	 * This step is most easily done after we've done expression
-	 * preprocessing.
-	 */
-	if (hasOuterJoins)
-		reduce_outer_joins(root);
-
 #ifdef ADB_GRAM_ORA
 	if (root->original_join_tree &&
 		parse->connect_by)
@@ -1230,6 +1222,14 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 		root_from->quals = (Node*)deconstruct_connect_by(root, rel, quals);
 	}
 #endif
+
+	/*
+	 * If we have any outer joins, try to reduce them to plain inner joins.
+	 * This step is most easily done after we've done expression
+	 * preprocessing.
+	 */
+	if (hasOuterJoins)
+		reduce_outer_joins(root);
 
 	/*
 	 * Do the main planning.  If we have an inherited target relation, that
