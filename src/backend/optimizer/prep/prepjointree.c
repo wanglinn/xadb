@@ -217,6 +217,16 @@ pull_up_sublinks_jointree_recurse(PlannerInfo *root, Node *jtnode,
 		/* Set up a link representing the rebuilt jointree */
 		jtlink = (Node *) newf;
 		/* Now process qual --- all children are available for use */
+#ifdef ADB_GRAM_ORA
+		if (root->parse->connect_by)
+		{
+			/*
+			 * when has "CONNECT BY", the WHERE quals is using in ConnectByPlan,
+			 * *** not using in Join Tree ***
+			 */
+			newf->quals = f->quals;
+		}else
+#endif /* ADB_GRAM_ORA */
 		newf->quals = pull_up_sublinks_qual_recurse(root, f->quals,
 													&jtlink, frelids,
 													NULL, NULL);
