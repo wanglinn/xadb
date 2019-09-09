@@ -3176,7 +3176,8 @@ StartDoctorStmt:
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_doctor_start", NULL));
 			$$ = (Node*)stmt;
-		};
+		}
+	;
 
 StopDoctorStmt:
 		STOP DOCTOR
@@ -3185,7 +3186,8 @@ StopDoctorStmt:
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_doctor_stop", NULL));
 			$$ = (Node*)stmt;
-		};
+		}
+	;
 
 SetDoctorParamStmt:
 		SET DOCTOR opt_general_options
@@ -3193,36 +3195,36 @@ SetDoctorParamStmt:
 			MGRDoctorSet *node = makeNode(MGRDoctorSet);
 			node -> options = $3;
 			$$ = (Node*)node;
-		};
+		}
 	|	SET DOCTOR NODE Ident ON
 		{
 			MGRDoctorSet *node = makeNode(MGRDoctorSet);
 			node -> nodename = $4;
 			node -> enable = true;
 			$$ = (Node*)node;
-		};
+		}
 	|	SET DOCTOR NODE Ident OFF
 		{
 			MGRDoctorSet *node = makeNode(MGRDoctorSet);
 			node -> nodename = $4;
 			node -> enable = false;
 			$$ = (Node*)node;
-		};
+		}
 	|	SET DOCTOR HOST Ident ON
 		{
 			MGRDoctorSet *node = makeNode(MGRDoctorSet);
 			node -> hostname = $4;
 			node -> enable = true;
 			$$ = (Node*)node;
-		};
+		}
 	|	SET DOCTOR HOST Ident OFF
 		{
 			MGRDoctorSet *node = makeNode(MGRDoctorSet);
 			node -> hostname = $4;
 			node -> enable = false;
 			$$ = (Node*)node;
-		};
-
+		}
+	;
 
 ListDoctorParamStmt:
 		LIST DOCTOR opt_general_options
@@ -3231,10 +3233,9 @@ ListDoctorParamStmt:
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_doctor_list", NULL));
 			$$ = (Node*)stmt;
-		};
+		}
+	;
 /* ADB DOCTOR END */
-
-
 
 GetBoottimeStmt:
 		SHOW BOOTTIME opt_general_all
