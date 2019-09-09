@@ -321,6 +321,7 @@ static void GxidSenderStartup(void)
 		GxidSenderListenSocket[i-1] = PGINVALID_SOCKET;
 
 	/* create listen sockets */
+	ereport(LOG, (errmsg("GxidSender process starts to listen on port %d\n", gxidsender_port)));
 	if (AGtmHost)
 	{
 		char	   *rawstring;

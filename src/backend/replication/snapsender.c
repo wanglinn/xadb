@@ -597,6 +597,7 @@ static void SnapSenderStartup(void)
 		SnapSenderListenSocket[i-1] = PGINVALID_SOCKET;
 
 	/* create listen sockets */
+	ereport(LOG, (errmsg("SnapSender process starts to listen on port %d\n", snapsender_port)));
 	if (AGtmHost)
 	{
 		char	   *rawstring;
