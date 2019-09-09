@@ -948,26 +948,29 @@ re_lock_:
 
 	xmin = xmax;
 	xcnt = *countOld;
+	if (NormalTransactionIdFollows(xmax, *xmaxOld))
+		*xmaxOld = xmax;
+
 	for (i = 0; i < GxidSender->xcnt; ++i)
 	{
 		xid = GxidSender->xip[i];
 
-		if (NormalTransactionIdFollows(xid, xmax))
-			xmax = xid;
-
 		if (NormalTransactionIdPrecedes(xid, xmin))
 			xmin = xid;
+
+		/* if XID is >= xmax, we can skip it */
+		if (!NormalTransactionIdPrecedes(xid, *xmaxOld))
+			continue;
 		
 		/* Add XID to snapshot. */
 		snap->xip[xcnt++] = xid;
 	}
-	SpinLockRelease(&GxidSender->mutex);
 
 	*countOld = xcnt;
-	if (NormalTransactionIdFollows(xmax, *xmaxOld))
-		*xmaxOld = xmax;
-	if (NormalTransactionIdPrecedes(xmin, *xminOld))
+	if ((GxidSender->xcnt > 0 && NormalTransactionIdPrecedes(xmin, *xminOld))
+			|| (*countOld == 0 && *xmaxOld == xmax))
 		*xminOld = xmin;
+	SpinLockRelease(&GxidSender->mutex);
 
 #ifdef USE_ASSERT_CHECKING
 	for(i=0;i<xcnt;++i)
