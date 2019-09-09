@@ -422,6 +422,7 @@ extern Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS);
 extern Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS);
 extern Datum mgr_append_activate_coord(PG_FUNCTION_ARGS);
 extern Datum mgr_switchover_func(PG_FUNCTION_ARGS);
+extern Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS);
 extern bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport, Oid cnoid, StringInfo recorderr);
 
 /*expansion calls*/

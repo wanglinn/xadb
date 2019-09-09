@@ -93,6 +93,7 @@ extern void switchGtmCoordMaster(char *oldMasterName,
 								 bool forceSwitch,
 								 bool kickOutOldMaster,
 								 Name newMasterName);
+extern void switchoverDataNode(char *newMasterName, bool forceSwitch);
 extern void checkSwitchDataNodePrerequisite(SwitcherNodeWrapper *oldMaster,
 											dlist_head *runningSlaves,
 											dlist_head *failedSlaves,

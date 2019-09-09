@@ -1473,7 +1473,7 @@ bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const in
 * gtm switchover, command format: switchover gtm slave datanode_name [force]
 */
 
-Datum mgr_switchover_func(PG_FUNCTION_ARGS)
+Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 {
 	char nodeType;
 	char masterType;
