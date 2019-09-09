@@ -5087,6 +5087,35 @@ multiple_set_clause:
 
 					$$ = $2;
 				}
+			| '(' set_target_list ')' '=' select_with_parens
+				{
+					int ncolumns = list_length($2);
+					int i = 1;
+					ListCell *col_cell;
+
+					SubLink *n = makeNode(SubLink);
+					n->subLinkType = EXPR_SUBLINK;
+					n->subLinkId = 0;
+					n->testexpr = NULL;
+					n->operName = NIL;
+					n->subselect = $5;
+					n->location = @5;
+
+					/* Create a MultiAssignRef source for each target */
+					foreach(col_cell, $2)
+					{
+						ResTarget *res_col = (ResTarget *) lfirst(col_cell);
+						MultiAssignRef *r = makeNode(MultiAssignRef);
+
+						r->source = (Node *) n;
+						r->colno = i;
+						r->ncolumns = ncolumns;
+						res_col->val = (Node *) r;
+						i++;
+					}
+
+					$$ = $2;
+				}
 		;
 
 
@@ -5738,7 +5767,6 @@ set_expr_list: set_expr					{ $$ = list_make1($1); }
 	;
 
 set_expr_row: '(' set_expr_list ')'		{ $$ = $2; }
-		| '(' SELECT set_expr_list ')'	{ $$ = $3; }
 	;
 
 set_rest:
