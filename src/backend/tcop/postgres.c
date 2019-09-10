@@ -4788,6 +4788,8 @@ PostgresMain(int argc, char *argv[],
 
 		/* Make sure the old PGconn will dump the trash data */
 		PQNReleaseAllConnect(false);
+
+		ResetDynamicReduceWork();
 #endif
 
 		if (am_walsender)
@@ -4862,8 +4864,6 @@ PostgresMain(int argc, char *argv[],
 	for (;;)
 	{
 #ifdef ADB
-		ResetDynamicReduceWork();
-
 		if (!IsTransactionState())
 		{
 			/*

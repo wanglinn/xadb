@@ -388,12 +388,63 @@ bool SendRejectPlanMessageToMQ(shm_mq_handle *mqh, bool nowait)
 
 void ResetDynamicReduceWork(void)
 {
+	static Size msg_magic = 0;
 	static const char reset_msg[1] = {ADB_DR_MQ_MSG_RESET};
-	if (dr_mq_backend_sender)
+	Size			size;
+	char		   *data;
+	WaitEvent		event;
+	shm_mq_result	result;
+	shm_mq_iovec	iov[2];
+
+	if (dr_mq_backend_sender == NULL)
+		return;
+
+	msg_magic++;
+	iov[0].data = reset_msg;
+	iov[0].len = sizeof(reset_msg);
+	iov[1].data = (char*)&msg_magic;
+	iov[1].len = sizeof(msg_magic);
+	result = shm_mq_sendv(dr_mq_backend_sender, iov, lengthof(iov), true);
+	while(result != SHM_MQ_SUCCESS)
 	{
-		DRSendMsgToReduce(reset_msg, sizeof(reset_msg), false);
-		DRRecvConfirmFromReduce(false);
+		if (result == SHM_MQ_DETACHED)
+		{
+			StopDynamicReduceWorker();
+			return;
+		}
+		Assert(result == SHM_MQ_WOULD_BLOCK);
+
+		/* try error message */
+		result = shm_mq_receive(dr_mq_worker_sender, &size, (void**)&data, true);
+		if (result == SHM_MQ_DETACHED)
+		{
+			StopDynamicReduceWorker();
+			return;
+		}/*else(result == SHM_MQ_SUCCESS)
+		{
+		}*/
+
+		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_SEND);
+		ResetLatch(&MyProc->procLatch);
+		CHECK_FOR_INTERRUPTS();
+
+		result = shm_mq_sendv(dr_mq_backend_sender, iov, lengthof(iov), true);
 	}
+
+	/* wait message */
+reget_reset_msg_:
+	result = shm_mq_receive(dr_mq_worker_sender, &size, (void**)&data, true);
+	while(result != SHM_MQ_SUCCESS)
+	{
+		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_RECEIVE);
+		ResetLatch(&MyProc->procLatch);
+		CHECK_FOR_INTERRUPTS();
+
+		result = shm_mq_receive(dr_mq_worker_sender, &size, (void**)&data, true);
+	}
+	if (data[0] != ADB_DR_MQ_MSG_RESET ||
+		memcmp(&data[1], &msg_magic, sizeof(msg_magic)) != 0)
+		goto reget_reset_msg_;
 }
 
 void SerializeDynamicReducePlanData(StringInfo buf, const void *data, uint32 len, struct OidBufferData *target)

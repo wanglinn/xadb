@@ -43,6 +43,7 @@ static void OnPostmasterEvent(WaitEvent *ev);
 static void OnLatchEvent(WaitEvent *ev);
 static void OnLatchPreWait(DREventData *base, int pos);
 static void TryBackendMessage(WaitEvent *ev);
+static void DRReset(void);
 
 void DynamicReduceWorkerMain(Datum main_arg)
 {
@@ -146,6 +147,8 @@ uint16 StartDynamicReduceWorker(void)
 	uint32			i;
 	Oid				auth_user_id;
 	uint16			result;
+
+	ResetDynamicReduceWork();
 
 	if (dr_mem_seg == NULL)
 	{
@@ -415,6 +418,9 @@ static void TryBackendMessage(WaitEvent *ev)
 		Oid					auth_user_id;
 		char 				port_msg[3];
 
+		/* reset first */
+		DRReset();
+
 		oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(led));
 		pq_copymsgbytes(&buf, (char*)&PGXCNodeOid, sizeof(PGXCNodeOid));
 		pq_copymsgbytes(&buf, (char*)&PGXCNodeIdentifier, sizeof(PGXCNodeIdentifier));
@@ -452,25 +458,9 @@ static void TryBackendMessage(WaitEvent *ev)
 		DRSendConfirmToBackend(false);
 	}else if (msgtype == ADB_DR_MQ_MSG_RESET)
 	{
-		HASH_SEQ_STATUS		state;
-		Size				nevent;
-		PlanInfo		   *pi;
-		DREventData		   *base;
-
-		DRPlanSeqInit(&state);
-		while ((pi=hash_seq_search(&state)) != NULL)
-			(*pi->OnDestroy)(pi);
-		
-		for (nevent=dr_wait_count;nevent>0;)
-		{
-			--nevent;
-			base = GetWaitEventData(dr_wait_event_set, nevent);
-			if (base->type == DR_EVENT_DATA_NODE)
-				DRNodeReset((DRNodeEventData*)base);
-		}
-		DRUtilsReset();
+		DRReset();
 		dr_status = DRS_RESET;
-		DRSendConfirmToBackend(false);
+		DRSendMsgToBackend(buf.data, buf.len, false);
 	}else if (msgtype == ADB_DR_MQ_MSG_START_PLAN_NORMAL)
 	{
 		DRStartNormalPlanMessage(&buf);
@@ -493,6 +483,27 @@ static void TryBackendMessage(WaitEvent *ev)
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
 				 errmsg("unknown message type %d from backend", msgtype)));
 	}
+}
+
+static void DRReset(void)
+{
+	HASH_SEQ_STATUS		state;
+	Size				nevent;
+	PlanInfo		   *pi;
+	DREventData		   *base;
+
+	DRPlanSeqInit(&state);
+	while ((pi=hash_seq_search(&state)) != NULL)
+		(*pi->OnDestroy)(pi);
+	
+	for (nevent=dr_wait_count;nevent>0;)
+	{
+		--nevent;
+		base = GetWaitEventData(dr_wait_event_set, nevent);
+		if (base->type == DR_EVENT_DATA_NODE)
+			DRNodeReset((DRNodeEventData*)base);
+	}
+	DRUtilsReset();
 }
 
 void DREnlargeWaitEventSet(void)
