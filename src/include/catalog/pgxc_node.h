@@ -52,6 +52,7 @@ CATALOG(pgxc_node,9015,PgxcNodeRelationId) BKI_SHARED_RELATION
 	 * Is this node preferred
 	 */
 	bool		nodeis_preferred;
+	bool		nodeis_gtm;
 
 	/*
 	 * Node identifier to be used at places where a fixed length node identification is required

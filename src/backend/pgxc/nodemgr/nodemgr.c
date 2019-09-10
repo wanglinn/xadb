@@ -290,7 +290,7 @@ static void
 check_node_options(const char *node_name, List *options, char **node_host,
 			int *node_port, char *node_type,
 			bool *is_primary, bool *is_preferred,
-			char **new_node_name)
+			bool *is_gtm, char **new_node_name)
 {
 	ListCell   *option;
 
@@ -345,6 +345,10 @@ check_node_options(const char *node_name, List *options, char **node_host,
 		else if (strcmp(defel->defname, "preferred") == 0)
 		{
 			*is_preferred = defGetBoolean(defel);
+		}
+		else if (strcmp(defel->defname, "gtm") == 0)
+		{
+			*is_gtm = defGetBoolean(defel);
 		}
 		else if (new_node_name &&
 			strcmp(defel->defname, "name") == 0)
@@ -466,6 +470,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	int			node_port = 0;
 	bool		is_primary = false;
 	bool		is_preferred = false;
+	bool		is_gtm = false;
 	Datum		node_id;
 	ListCell   *option;
 
@@ -513,7 +518,8 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	/* Filter options */
 	check_node_options(node_name, stmt->options, &node_host,
 				&node_port, &node_type,
-				&is_primary, &is_preferred, NULL);
+				&is_primary, &is_preferred,
+				&is_gtm, NULL);
 
 	/* Compute node identifier */
 	node_id = generate_node_id(node_name);
@@ -569,6 +575,7 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	values[Anum_pgxc_node_node_host - 1] = DirectFunctionCall1(namein, CStringGetDatum(node_host));
 	values[Anum_pgxc_node_nodeis_primary - 1] = BoolGetDatum(is_primary);
 	values[Anum_pgxc_node_nodeis_preferred - 1] = BoolGetDatum(is_preferred);
+	values[Anum_pgxc_node_nodeis_gtm - 1] = BoolGetDatum(is_gtm);
 	values[Anum_pgxc_node_node_id - 1] = node_id;
 	values[Anum_pgxc_node_node_master_oid - 1] = ObjectIdGetDatum(node_mastername ? get_pgxc_nodeoid(node_mastername) : 0);
 
@@ -595,6 +602,7 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 	char		node_type_old, node_type_new;
 	bool		is_primary;
 	bool		is_preferred = false;
+	bool		is_gtm = false;
 	HeapTuple	oldtup, newtup;
 	Oid			node_oid;
 	Relation	rel;
@@ -636,6 +644,7 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 					   &node_type_new,
 					   &is_primary,
 					   &is_preferred,
+					   &is_gtm,
 					   &new_node_name);
 
 	if (node_host_new != NULL)
@@ -692,6 +701,8 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 	new_record_repl[Anum_pgxc_node_nodeis_primary - 1] = true;
 	new_record[Anum_pgxc_node_nodeis_preferred - 1] = BoolGetDatum(is_preferred);
 	new_record_repl[Anum_pgxc_node_nodeis_preferred - 1] = true;
+	new_record[Anum_pgxc_node_nodeis_gtm - 1] = BoolGetDatum(is_gtm);
+	new_record_repl[Anum_pgxc_node_nodeis_gtm - 1] = true;
 	new_record[Anum_pgxc_node_node_id - 1] = UInt32GetDatum(node_id);
 	new_record_repl[Anum_pgxc_node_node_id - 1] = true;
 

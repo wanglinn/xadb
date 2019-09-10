@@ -454,6 +454,7 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 	char		node_type, node_type_old;
 	bool		is_preferred;
 	bool		is_primary;
+	bool		is_gtm;
 	Oid			nodeOid;
 	Relation	rel;
 	HeapTuple	oldtup, newtup;
@@ -470,6 +471,7 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 	node_host = PG_GETARG_CSTRING(2);
 	node_port = PG_GETARG_INT32(3);
 	is_preferred = PG_GETARG_BOOL(4);
+	is_gtm = PG_GETARG_BOOL(5);
 	nodeOid = get_pgxc_nodeoid(node_name_old);
 
 	/* Only a DB administrator can alter cluster nodes */
@@ -553,6 +555,8 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 	new_record_repl[Anum_pgxc_node_nodeis_primary - 1] = true;
 	new_record[Anum_pgxc_node_nodeis_preferred - 1] = BoolGetDatum(is_preferred);
 	new_record_repl[Anum_pgxc_node_nodeis_preferred - 1] = true;
+	new_record[Anum_pgxc_node_nodeis_gtm - 1] = BoolGetDatum(is_gtm);
+	new_record_repl[Anum_pgxc_node_nodeis_gtm - 1] = true;
 	new_record[Anum_pgxc_node_node_id - 1] = UInt32GetDatum(node_id);
 	new_record_repl[Anum_pgxc_node_node_id - 1] = true;
 

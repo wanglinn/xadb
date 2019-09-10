@@ -6448,6 +6448,7 @@ static void mgr_construct_add_coornode(InitNodeInfo *info_in, const char nodetyp
 	ScanKeyData key_in[1];
 	HeapTuple tuple_in;
 	char *address = NULL;
+	bool is_gtm = false;
 	Form_mgr_node mgr_node_in;
 
 	info_in->rel_node = heap_open(NodeRelationId, AccessShareLock);
@@ -6464,20 +6465,27 @@ static void mgr_construct_add_coornode(InitNodeInfo *info_in, const char nodetyp
 		mgr_node_in = (Form_mgr_node)GETSTRUCT(tuple_in);
 		Assert(mgr_node_in);
 
+		if (mgr_node_in->nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+			is_gtm = true;
+		else
+			is_gtm = false;
+
 		address = get_hostaddress_from_hostoid(mgr_node_in->nodehost);
 		if (strcmp(NameStr(mgr_node_in->nodename), NameStr(mgr_node_out->nodename)) == 0)
 		{
-			appendStringInfo(cmdstring, "ALTER NODE \\\"%s\\\" WITH (HOST='%s', PORT=%d);"
+			appendStringInfo(cmdstring, "ALTER NODE \\\"%s\\\" WITH (HOST='%s', PORT=%d, GTM=%d);"
 							,NameStr(mgr_node_in->nodename)
 							,address
-							,mgr_node_in->nodeport);
+							,mgr_node_in->nodeport
+							,is_gtm);
 		}
 		else
 		{
-			appendStringInfo(cmdstring, " CREATE NODE \\\"%s\\\" WITH (TYPE='coordinator', HOST='%s', PORT=%d);"
+			appendStringInfo(cmdstring, " CREATE NODE \\\"%s\\\" WITH (TYPE='coordinator', HOST='%s', PORT=%d, GTM=%d);"
 							,NameStr(mgr_node_in->nodename)
 							,address
-							,mgr_node_in->nodeport);
+							,mgr_node_in->nodeport
+							,is_gtm);
 		}
 		pfree(address);
 	}
