@@ -84,6 +84,10 @@ void DynamicReduceWorkerMain(Datum main_arg)
 		/* Since not using PG_TRY, must reset error stack by hand */
 		error_context_stack = NULL;
 
+		DRPlanSeqInit(&seq_state);
+		while ((pi=hash_seq_search(&seq_state)) != NULL)
+			(*pi->OnPlanError)(pi);
+
 		/* reset hash_seq_search */
 		AtEOXact_HashTables(false);
 
@@ -99,10 +103,6 @@ void DynamicReduceWorkerMain(Datum main_arg)
 			if (base->OnError)
 				(*base->OnError)(base, (int)nevent);
 		}
-
-		DRPlanSeqInit(&seq_state);
-		while ((pi=hash_seq_search(&seq_state)) != NULL)
-			(*pi->OnPlanError)(pi);
 	}
 	/* We can now handle ereport(ERROR) */
 	PG_exception_stack = &local_sigjmp_buf;
