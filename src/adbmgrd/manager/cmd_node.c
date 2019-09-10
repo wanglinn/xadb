@@ -222,7 +222,9 @@ static bool mgr_check_node_path(Relation rel, Oid hostoid, char *path);
 static bool mgr_check_node_port(Relation rel, Oid hostoid, int port);
 static void mgr_update_one_potential_to_sync(Relation rel, Oid mastertupleoid, bool bincluster, bool excludeoid);
 static bool exec_remove_coordinator(char *nodename);
-static bool mgr_get_async_slave_info(void);
+static bool mgr_get_async_slave_readonly_state(void);
+static bool mgr_get_sync_slave_readonly_state(void);
+static bool check_all_cn_sync_slave_is_active(void);
 static bool mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List *datanode_list);
 
 static bool get_local_ip(Name local_ip);
@@ -13047,6 +13049,14 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync)
 	bool			isSlaveAsync;
 	bool			updateAll = true;
 
+	/* Check for the need for updates based on read-write separation parameters */
+	if (!mgr_get_sync_slave_readonly_state())
+		return true;
+
+	/* Check whether there is an unstarted coord synchronous standby */
+	if (!check_all_cn_sync_slave_is_active())
+		return true;
+
 	info = palloc(sizeof(*info));
 	info->rel_node = heap_open(NodeRelationId, AccessShareLock);	/* open table */
 	info->lcp = NULL;
@@ -13056,7 +13066,7 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync)
 	if (updateKey && strcmp(updateKey, "enable_readsql_on_slave_async") == 0)
 		isSlaveAsync = isSlaveSync;
 	else
-		isSlaveAsync = mgr_get_async_slave_info();
+		isSlaveAsync = mgr_get_async_slave_readonly_state();
 
 	/* get datanode master info */
 	ScanKeyInit(&ndkey[0]
@@ -13299,7 +13309,7 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 
 /* Gets whether the asynchronous slave node is available in read-write separation mode */
 static bool
-mgr_get_async_slave_info(void)
+mgr_get_async_slave_readonly_state(void)
 {
 	Relation rel_updateparm;
 	Form_mgr_updateparm mgr_updateparm;
@@ -13351,6 +13361,133 @@ mgr_get_async_slave_info(void)
 	return isAsyncInfo;
 }
 
+/* Gets whether the synchronous slave node is available in read-write separation mode */
+static bool
+mgr_get_sync_slave_readonly_state(void)
+{
+	Relation rel_updateparm;
+	Form_mgr_updateparm mgr_updateparm;
+	ScanKeyData key[1];
+	HeapScanDesc rel_scan;
+	HeapTuple tuple;
+	NameData updateparmkey;
+	char *updateParmValue = NULL;
+	bool isSync;
+
+	namestrcpy(&updateparmkey, "enable_readsql_on_slave");
+	ScanKeyInit(&key[0]
+		,Anum_mgr_updateparm_updateparmkey
+		,BTEqualStrategyNumber
+		,F_NAMEEQ
+		,NameGetDatum(&updateparmkey));
+	rel_updateparm = heap_open(UpdateparmRelationId, AccessShareLock);
+	rel_scan = heap_beginscan_catalog(rel_updateparm, 1, key);
+	tuple = heap_getnext(rel_scan, ForwardScanDirection);
+	if (tuple != NULL)
+	{
+		bool isNull = false;
+		Datum datumValue;
+
+		mgr_updateparm = (Form_mgr_updateparm)GETSTRUCT(tuple);
+		Assert(mgr_updateparm);
+		/*get key, value*/
+		datumValue = heap_getattr(tuple, Anum_mgr_updateparm_updateparmvalue, RelationGetDescr(rel_updateparm), &isNull);
+		if(isNull)
+		{
+			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+				, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_updateparm")
+				, errmsg("column value is null")));
+		}
+		updateParmValue = pstrdup(TextDatumGetCString(datumValue));
+
+		if (strcmp(updateParmValue, "on") == 0)
+			isSync = true;
+		else
+			isSync = false;
+	}
+	else
+	{
+		isSync = false;
+	}
+	heap_endscan(rel_scan);
+	heap_close(rel_updateparm, AccessShareLock);	/* close table */
+
+	return isSync;
+}
+
+/* 
+ * Check whether the coord or gtmcoord synchronous standby machine is active,
+ * avoid cluster startup failure due to synchronous standby not starting after updating pgxc_node.
+ */
+static bool
+check_all_cn_sync_slave_is_active(void)
+{
+	Relation		rel_mgr_node;
+	Form_mgr_node	mgr_node;
+	ScanKeyData		key[1];
+	HeapScanDesc	rel_scan;
+	HeapTuple		tuple;
+	NameData		nodesync;
+	PGconn			*conn = NULL;
+	StringInfoData	connStr;
+	bool			is_exist_sync = false;
+	bool			is_all_active = true;
+
+	namestrcpy(&nodesync, "sync");
+	/* get datanode master info */
+	ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodesync
+				,BTEqualStrategyNumber
+				,F_NAMEEQ
+				,NameGetDatum(&nodesync));
+	rel_mgr_node = heap_open(NodeRelationId, AccessShareLock);
+	rel_scan = heap_beginscan_catalog(rel_mgr_node, 1, key);
+	while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL && is_all_active)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		/* Check whether the standby coord or gtmcoord is synchronized */
+		if (mgr_node->nodetype == CNDN_TYPE_GTM_COOR_SLAVE || mgr_node->nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
+		{
+			is_exist_sync = true;
+			/* init coordinate connect string */
+			initStringInfo(&connStr);
+			appendStringInfo(&connStr, 
+								"postgresql://%s@%s:%d/%s", 
+								get_hostuser_from_hostoid(mgr_node->nodehost), 
+								get_hostaddress_from_hostoid(mgr_node->nodehost), 
+								mgr_node->nodeport, 
+								DEFAULT_DB);
+			appendStringInfoCharMacro(&connStr, '\0');
+			
+			/* get coordinate connect */
+			conn = PQconnectdb(connStr.data);
+			if (PQstatus(conn) != CONNECTION_OK)
+			{
+				pg_usleep(1 * 1000000L);
+				conn = PQconnectdb(connStr.data);
+				if (PQstatus(conn) != CONNECTION_OK)
+				{
+					is_all_active = false;
+					ereport(WARNING, 
+						(errmsg("There is an unstarted coordinator synchronous slave %s in the cluster, updating pgxc_node read-only standby information failed.", mgr_node->nodename.data)));
+		
+				}
+			}
+			pfree(connStr.data);
+			PQfinish(conn);
+		}
+		
+	}
+	heap_endscan(rel_scan);
+	heap_close(rel_mgr_node, AccessShareLock);	/* close table */
+
+	if ((is_exist_sync && is_all_active) || !is_exist_sync)
+		return true;
+	else
+		return false;
+	
+}
 
 /* Clear the slave node information about the read-only query in the pgxc_node table,
  * avoid repeating node names and causing subsequent work to fail */
