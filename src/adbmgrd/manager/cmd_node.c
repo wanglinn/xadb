@@ -8058,6 +8058,9 @@ Datum mgr_clean_node(PG_FUNCTION_ARGS)
 				 ,errmsg("%s \"%s\" is running, cannot be cleaned, stop it first", mgr_nodetype_str(nodetype), nodename)));
 		}
 		heap_endscan(rel_scan);
+		mgr_node->allowcure = false;
+		namestrcpy(&mgr_node->curestatus, CURE_STATUS_NORMAL);
+		heap_inplace_update(rel_node, tuple);
 	}
 	heap_close(rel_node, RowExclusiveLock);
 
@@ -8162,6 +8165,8 @@ static Datum mgr_prepare_clean_all(PG_FUNCTION_ARGS)
 	{
 		mgr_node->nodeinited = false;
 		mgr_node->nodeincluster = false;
+		mgr_node->allowcure = false;
+		namestrcpy(&mgr_node->curestatus, CURE_STATUS_NORMAL);
 		heap_inplace_update(info->rel_node, tuple);
 	}
 	tup_result = build_common_command_tuple_four_col(

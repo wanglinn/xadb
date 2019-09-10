@@ -29,7 +29,7 @@ typedef struct SwitcherNodeWrapper
 	NameData oldCurestatus;
 	PGHbaItem *temporaryHbaItems;
 	PGConfParameterItem *originalParameterItems;
-	bool coordPgxcNodeChanged;
+	bool pgxcNodeChanged;
 	bool holdClusterLock;
 	bool adbSlotChanged;
 } SwitcherNodeWrapper;

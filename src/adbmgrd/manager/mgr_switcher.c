@@ -92,8 +92,8 @@ static void refreshMgrUpdateparmAfterSwitch(MgrNodeWrapper *oldMaster,
 											MemoryContext spiContext,
 											bool kickOutOldMaster);
 static void refreshPgxcNodesAfterSwitchDataNode(dlist_head *coordinators,
-												MgrNodeWrapper *oldMaster,
-												MgrNodeWrapper *newMaster);
+												SwitcherNodeWrapper *oldMaster,
+												SwitcherNodeWrapper *newMaster);
 static void refreshPgxcNodesAfterSwitchGtmCoord(dlist_head *coordinators,
 												SwitcherNodeWrapper *newMaster);
 static void updateCureStatusForSwitch(MgrNodeWrapper *mgrNode,
@@ -108,14 +108,15 @@ static void deleteMgrUpdateparmByNodenameType(char *updateparmnodename,
 static void updateMgrUpdateparmNodetype(char *nodename, char nodetype,
 										MemoryContext spiContext);
 static bool existsPgxcNodeDataNodeMaster(PGconn *activeCoordinatorCoon,
-										 char *coordinatorName,
+										 char *executeOnNodeName,
 										 bool localExecute,
 										 char *dataNodeName);
 static bool deletePgxcNodeDataNodeSlaves(PGconn *activeCoordinatorCoon,
 										 char *coordinatorName,
-										 bool localExecute);
+										 bool localExecute,
+										 bool complain);
 static bool updatePgxcNodeAfterSwitchDataNode(PGconn *activeCoordinatorCoon,
-											  char *coordinatorName,
+											  char *executeOnNodeName,
 											  bool localExecute,
 											  MgrNodeWrapper *oldMaster,
 											  MgrNodeWrapper *newMaster,
@@ -448,6 +449,7 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 	MemoryContext spiContext;
 	ErrorData *edata = NULL;
 	SwitcherNodeWrapper *gtmMaster;
+	bool backToOldMaster = false;
 
 	oldContext = CurrentMemoryContext;
 	switchContext = AllocSetContextCreate(oldContext,
@@ -494,14 +496,15 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 
 		checkXlogDiffForSwitchover(oldMaster, newMaster);
 
-		/* Prevent other doctor processe from manipulating this node simultaneously */
+		/* Prevent doctor process from manipulating this node simultaneously. */
 		refreshOldMasterBeforeSwitch(oldMaster, spiContext);
-		/* Prevent other doctor processes from manipulating these nodes simultaneously */
+		/* Prevent doctor processes from manipulating these nodes simultaneously. */
 		refreshSlaveNodesBeforeSwitch(newMaster,
 									  &runningSlaves,
 									  &failedSlaves,
 									  spiContext);
-
+		/* If the following operation failed, may be we should switch back. */
+		backToOldMaster = true;
 		shutdownNodeWithinSeconds(oldMaster->mgrNode,
 								  SHUTDOWN_NODE_FAST_SECONDS,
 								  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
@@ -524,6 +527,11 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 			pfreeSwitcherNodeWrapperPGconn(newMaster);
 			callAgentPromoteNode(newMaster->mgrNode, true);
 		}
+		/* 
+		 * the slave has been  promoted to master, prohibit switching back to  
+		 * the oldMaster to avoid data loss. 
+		 */
+		backToOldMaster = false;
 		ereport(NOTICE,
 				(errmsg("%s was successfully promoted to the new master",
 						NameStr(newMaster->mgrNode->form.nodename))));
@@ -541,18 +549,16 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 										"",
 										CHECK_SYNC_STANDBY_NAMES_SECONDS);
 
-		/* The better slave node is in front of the list */
-		sortNodesByWalLsnDesc(&runningSlaves);
-		runningSlavesFollowMaster(newMaster, &runningSlaves,
-								  gtmMaster == NULL ? NULL : gtmMaster->mgrNode);
-
 		appendSlaveNodeFollowMaster(newMaster->mgrNode,
 									oldMaster->mgrNode,
 									newMaster->pgConn);
 
+		runningSlavesFollowMaster(newMaster, &runningSlaves,
+								  gtmMaster == NULL ? NULL : gtmMaster->mgrNode);
+
 		refreshPgxcNodesAfterSwitchDataNode(&coordinators,
-											oldMaster->mgrNode,
-											newMaster->mgrNode);
+											oldMaster,
+											newMaster);
 
 		refreshOldMasterAfterSwitchover(oldMaster,
 										newMaster,
@@ -586,6 +592,8 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 		edata = CopyErrorData();
 		FlushErrorState();
 
+		if (backToOldMaster)
+			callAgentStartNode(oldMaster->mgrNode, false, false);
 		revertClusterSetting(&coordinators, oldMaster, newMaster);
 	}
 	PG_END_TRY();
@@ -718,8 +726,8 @@ void switchToDataNodeNewMaster(SwitcherNodeWrapper *oldMaster,
 							  gtmMaster == NULL ? NULL : gtmMaster->mgrNode);
 
 	refreshPgxcNodesAfterSwitchDataNode(coordinators,
-										oldMaster->mgrNode,
-										newMaster->mgrNode);
+										oldMaster,
+										newMaster);
 
 	refreshOldMasterAfterSwitch(oldMaster,
 								newMaster,
@@ -988,7 +996,7 @@ void revertClusterSetting(dlist_head *coordinators,
 			localExecute = holdLockCoordinator == coordinator;
 		}
 
-		if (coordinator->coordPgxcNodeChanged)
+		if (coordinator->pgxcNodeChanged)
 		{
 			if (oldMaster->mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
 				oldMaster->mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
@@ -1001,7 +1009,6 @@ void revertClusterSetting(dlist_head *coordinators,
 			}
 			else
 			{
-
 				revertPgxcNode =
 					updatePgxcNodeAfterSwitchDataNode(activeCoordinatorCoon,
 													  NameStr(coordinator->mgrNode->form.nodename),
@@ -1012,7 +1019,7 @@ void revertClusterSetting(dlist_head *coordinators,
 			}
 			if (revertPgxcNode)
 			{
-				coordinator->coordPgxcNodeChanged = false;
+				coordinator->pgxcNodeChanged = false;
 			}
 			else
 			{
@@ -1044,6 +1051,40 @@ void revertClusterSetting(dlist_head *coordinators,
 			}
 		}
 	}
+	if (newMaster != NULL && newMaster->pgxcNodeChanged)
+	{
+		if (holdLockCoordinator == NULL)
+		{
+			activeCoordinatorCoon = newMaster->pgConn;
+			localExecute = true;
+		}
+		else
+		{
+			activeCoordinatorCoon = holdLockCoordinator->pgConn;
+			localExecute = false;
+		}
+		revertPgxcNode =
+			updatePgxcNodeAfterSwitchDataNode(activeCoordinatorCoon,
+											  NameStr(newMaster->mgrNode->form.nodename),
+											  localExecute,
+											  newMaster->mgrNode,
+											  oldMaster->mgrNode,
+											  false);
+		if (revertPgxcNode)
+		{
+			newMaster->pgxcNodeChanged = false;
+		}
+		else
+		{
+			ereport(NOTICE,
+					(errmsg("%s revert pgxc_node failed",
+							NameStr(newMaster->mgrNode->form.nodename))));
+			ereport(LOG,
+					(errmsg("%s revert pgxc_node failed",
+							NameStr(newMaster->mgrNode->form.nodename))));
+			execOk = false;
+		}
+	}
 	if (!tryUnlockCluster(coordinators, false))
 	{
 		execOk = false;
@@ -1051,13 +1092,18 @@ void revertClusterSetting(dlist_head *coordinators,
 	if (execOk)
 	{
 		ereport(LOG,
-				(errmsg("revert cluster setting successfully")));
+				(errmsg("revert cluster setting successfully completed")));
 	}
 	else
 	{
 		ereport(WARNING,
-				(errmsg("revert cluster setting operation failed")));
+				(errmsg("revert cluster setting, but some operations failed")));
 	}
+	ereport(WARNING,
+			(errmsg("An exception occurred during the switching operation, "
+					"It is recommended to use command such as 'monitor all', "
+					"'monitor ha' to check the failure point in the cluster "
+					"first, and then retry the switching operation!!!")));
 }
 
 /*
@@ -1085,6 +1131,7 @@ void tryLockCluster(dlist_head *coordinators)
 		checkSet_pool_release_to_idle_timeout(coordinator);
 		deletePgxcNodeDataNodeSlaves(coordinator->pgConn,
 									 NameStr(coordinator->mgrNode->form.nodename),
+									 true,
 									 true);
 	}
 
@@ -1092,22 +1139,18 @@ void tryLockCluster(dlist_head *coordinators)
 	holdLockCoordinator = getGtmCoordMaster(coordinators);
 
 	/* When cluster is locked, the connection which 
-	 * execute the lock command is the only active connection */
-	if (holdLockCoordinator)
-	{
-		holdLockCoordinator->holdClusterLock =
-			exec_pg_pause_cluster(holdLockCoordinator->pgConn, false);
-	}
-	else
+	 * executed the lock command is the only active connection */
+	if (!holdLockCoordinator)
 	{
 		dlist_foreach(iter, coordinators)
 		{
-			holdLockCoordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-			holdLockCoordinator->holdClusterLock =
-				exec_pg_pause_cluster(coordinator->pgConn, false);
+			holdLockCoordinator =
+				dlist_container(SwitcherNodeWrapper, link, iter.cur);
 			break;
 		}
 	}
+	holdLockCoordinator->holdClusterLock =
+		exec_pg_pause_cluster(holdLockCoordinator->pgConn, false);
 	if (holdLockCoordinator->holdClusterLock)
 	{
 		ereport(NOTICE,
@@ -2364,8 +2407,8 @@ static void refreshMgrUpdateparmAfterSwitch(MgrNodeWrapper *oldMaster,
 }
 
 static void refreshPgxcNodesAfterSwitchDataNode(dlist_head *coordinators,
-												MgrNodeWrapper *oldMaster,
-												MgrNodeWrapper *newMaster)
+												SwitcherNodeWrapper *oldMaster,
+												SwitcherNodeWrapper *newMaster)
 {
 	dlist_iter iter;
 	SwitcherNodeWrapper *holdLockCoordinator = NULL;
@@ -2379,7 +2422,8 @@ static void refreshPgxcNodesAfterSwitchDataNode(dlist_head *coordinators,
 							   "coordinator that hode the cluster lock")));
 
 	/* Adb_slot only needs to be updated once */
-	updateAdbSlot(holdLockCoordinator, oldMaster, newMaster, true);
+	updateAdbSlot(holdLockCoordinator,
+				  oldMaster->mgrNode, newMaster->mgrNode, true);
 
 	/* When cluster is locked, the connection which 
 	 * execute the lock command is the only active connection */
@@ -2387,17 +2431,25 @@ static void refreshPgxcNodesAfterSwitchDataNode(dlist_head *coordinators,
 	{
 		coordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 		localExecute = holdLockCoordinator == coordinator;
-		coordinator->coordPgxcNodeChanged =
+		coordinator->pgxcNodeChanged =
 			updatePgxcNodeAfterSwitchDataNode(holdLockCoordinator->pgConn,
 											  NameStr(coordinator->mgrNode->form.nodename),
 											  localExecute,
-											  oldMaster,
-											  newMaster,
+											  oldMaster->mgrNode,
+											  newMaster->mgrNode,
 											  true);
 		pgxcPoolReload(holdLockCoordinator->pgConn,
 					   NameStr(coordinator->mgrNode->form.nodename),
 					   localExecute, true);
 	}
+	/* change pgxc_node on datanode master */
+	newMaster->pgxcNodeChanged =
+		updatePgxcNodeAfterSwitchDataNode(holdLockCoordinator->pgConn,
+										  NameStr(newMaster->mgrNode->form.nodename),
+										  false,
+										  oldMaster->mgrNode,
+										  newMaster->mgrNode,
+										  false);
 }
 
 static void refreshPgxcNodesAfterSwitchGtmCoord(dlist_head *coordinators,
@@ -2411,7 +2463,7 @@ static void refreshPgxcNodesAfterSwitchGtmCoord(dlist_head *coordinators,
 	dlist_foreach(iter, coordinators)
 	{
 		coordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		coordinator->coordPgxcNodeChanged =
+		coordinator->pgxcNodeChanged =
 			updatePgxcNodeAfterSwitchGtmCoord(coordinator->pgConn,
 											  NameStr(coordinator->mgrNode->form.nodename),
 											  newMaster,
@@ -2572,7 +2624,7 @@ static void updateMgrUpdateparmNodetype(char *updateparmnodename,
 }
 
 static bool existsPgxcNodeDataNodeMaster(PGconn *activeCoordinatorCoon,
-										 char *coordinatorName,
+										 char *executeOnNodeName,
 										 bool localExecute,
 										 char *dataNodeName)
 {
@@ -2591,7 +2643,7 @@ static bool existsPgxcNodeDataNodeMaster(PGconn *activeCoordinatorCoon,
 					   "from pgxc_node "
 					   "where node_name = ''%s'' "
 					   "and node_type = ''%c'' ;'",
-					   coordinatorName,
+					   executeOnNodeName,
 					   dataNodeName,
 					   PGXC_NODE_DATANODE);
 	exists = PQexecCountSql(activeCoordinatorCoon, sql, true) > 0;
@@ -2601,7 +2653,8 @@ static bool existsPgxcNodeDataNodeMaster(PGconn *activeCoordinatorCoon,
 
 static bool deletePgxcNodeDataNodeSlaves(PGconn *activeCoordinatorCoon,
 										 char *coordinatorName,
-										 bool localExecute)
+										 bool localExecute,
+										 bool complain)
 {
 	char *sql;
 	bool execOk;
@@ -2621,7 +2674,7 @@ static bool deletePgxcNodeDataNodeSlaves(PGconn *activeCoordinatorCoon,
 	pfree(sql);
 	if (!execOk)
 	{
-		ereport(LOG,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("%s delete data node slaves from pgxc_node failed",
 						coordinatorName)));
 	}
@@ -2629,7 +2682,7 @@ static bool deletePgxcNodeDataNodeSlaves(PGconn *activeCoordinatorCoon,
 }
 
 static bool updatePgxcNodeAfterSwitchDataNode(PGconn *activeCoordinatorCoon,
-											  char *coordinatorName,
+											  char *executeOnNodeName,
 											  bool localExecute,
 											  MgrNodeWrapper *oldMaster,
 											  MgrNodeWrapper *newMaster,
@@ -2639,14 +2692,14 @@ static bool updatePgxcNodeAfterSwitchDataNode(PGconn *activeCoordinatorCoon,
 	bool execOk;
 
 	if (existsPgxcNodeDataNodeMaster(activeCoordinatorCoon,
-									 coordinatorName,
+									 executeOnNodeName,
 									 localExecute,
 									 NameStr(newMaster->form.nodename)))
 	{
 		ereport(LOG,
 				(errmsg("master node %s already exists %s pgxc_node, no need to update",
 						NameStr(newMaster->form.nodename),
-						coordinatorName)));
+						executeOnNodeName)));
 		execOk = true;
 	}
 	else
@@ -2656,20 +2709,20 @@ static bool updatePgxcNodeAfterSwitchDataNode(PGconn *activeCoordinatorCoon,
 					   NameStr(newMaster->form.nodename),
 					   newMaster->host->hostaddr,
 					   newMaster->form.nodeport,
-					   coordinatorName);
+					   executeOnNodeName);
 		execOk = PQexecCommandSql(activeCoordinatorCoon, sql, false);
 		pfree(sql);
 		if (execOk)
 		{
 			ereport(LOG,
 					(errmsg("%s refresh pgxc_node successfully",
-							coordinatorName)));
+							executeOnNodeName)));
 		}
 		else
 		{
 			ereport(complain ? ERROR : WARNING,
 					(errmsg("%s refresh pgxc_node failed",
-							coordinatorName)));
+							executeOnNodeName)));
 		}
 	}
 	return execOk;
