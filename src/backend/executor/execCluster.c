@@ -8,7 +8,6 @@
 #include "commands/matview.h"
 #include "commands/vacuum.h"
 #include "commands/cluster.h"
-#include "executor/nodeEmptyResult.h"
 #include "executor/clusterHeapScan.h"
 #include "executor/execdesc.h"
 #include "executor/executor.h"
@@ -94,6 +93,7 @@ typedef struct ClusterCoordInfo
 {
 	const char *name;
 	int			pid;
+	Oid			oid;
 }ClusterCoordInfo;
 
 typedef struct GetRDCListenPortHook
@@ -296,6 +296,13 @@ static void ExecClusterPlanStmt(StringInfo buf, ClusterCoordInfo *info)
 
 	ExecutorStart(query_desc, eflags);
 	clusterRecvSetTopPlanState(receiver, query_desc->planstate);
+
+	set_cluster_display("<advance reduce>", false, info);
+	if (query_desc->totaltime)
+		InstrStartNode(query_desc->totaltime);
+	AdvanceClusterReduce(query_desc->planstate, info->oid);
+	if (query_desc->totaltime)
+		InstrStopNode(query_desc->totaltime, 0);
 
 	set_cluster_display("<cluster query>", false, info);
 
@@ -1096,6 +1103,7 @@ static void SerializeCoordinatorInfo(StringInfo buf)
 {
 	begin_mem_toc_insert(buf, REMOTE_KEY_COORD_INFO);
 	appendBinaryStringInfo(buf, (char*)&MyProcPid, sizeof(MyProcPid));
+	appendBinaryStringInfo(buf, (char*)&PGXCNodeOid, sizeof(PGXCNodeOid));
 	appendBinaryStringInfo(buf, PGXCNodeName, strlen(PGXCNodeName)+1);
 	end_mem_toc_insert(buf, REMOTE_KEY_COORD_INFO);
 }
@@ -1113,6 +1121,7 @@ static ClusterCoordInfo* RestoreCoordinatorInfo(StringInfo buf)
 
 	info = palloc0(sizeof(*info));
 	pq_copymsgbytes(&msg, (char*)&(info->pid), sizeof(info->pid));
+	pq_copymsgbytes(&msg, (char*)&(info->oid), sizeof(info->oid));
 	info->name = pq_getmsgrawstring(&msg);
 
 	return info;

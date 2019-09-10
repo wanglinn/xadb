@@ -22,6 +22,7 @@ typedef enum ReduceType
 {
 	RT_NOTHING = 1,
 	RT_NORMAL,
+	RT_ADVANCE,
 	RT_MERGE
 }ReduceType;
 
@@ -31,6 +32,22 @@ typedef struct NormalReduceState
 	DynamicReduceIOBuffer
 					drio;
 }NormalReduceState;
+
+typedef struct AdvanceNodeInfo
+{
+	BufFile			   *file;
+	Oid					nodeoid;
+}AdvanceNodeInfo;
+
+typedef struct AdvanceReduceState
+{
+	NormalReduceState	normal;
+	StringInfoData		read_buf;
+	uint32				nnodes;
+	bool				got_remote;
+	AdvanceNodeInfo	   *cur_node;
+	AdvanceNodeInfo		nodes[FLEXIBLE_ARRAY_MEMBER];
+}AdvanceReduceState;
 
 typedef struct MergeNodeInfo
 {
@@ -229,6 +246,166 @@ static void DriveNormalReduce(ClusterReduceState *node)
 			slot = DynamicReduceFetchSlot(&normal->drio);
 		}while(!TupIsNull(slot));
 	}
+}
+
+/* ========================= advance reduce ========================= */
+static TupleTableSlot *ExecAdvanceReduce(PlanState *pstate)
+{
+	AdvanceReduceState *state = castNode(ClusterReduceState, pstate)->private_state;
+	AdvanceNodeInfo *cur_info = state->cur_node;
+	TupleTableSlot *slot;
+
+re_get_:
+	slot = DynamicReduceReadSFSTuple(pstate->ps_ResultTupleSlot, cur_info->file, &state->read_buf);
+	if (TupIsNull(slot))
+	{
+		if (cur_info->nodeoid == PGXCNodeOid &&
+			state->got_remote == false)
+		{
+			char name[MAXPGPATH];
+			MemoryContext oldcontext;
+			AdvanceNodeInfo *info;
+			DynamicReduceSFS sfs = dsm_segment_address(state->normal.dsm_seg);
+			uint32 i;
+
+			/* wait dynamic reduce end of plan */
+			DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
+								   slot,
+								   &state->normal.drio.recv_buf,
+								   NULL,
+								   false);
+			Assert(TupIsNull(slot));
+			state->got_remote = true;
+
+			/* open remote SFS files */
+			oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state));
+			for (i=0;i<state->nnodes;++i)
+			{
+				info = &state->nodes[i];
+				if (info->file == NULL)
+				{
+					info->file = BufFileOpenShared(&sfs->sfs,
+												   DynamicReduceSFSFileName(name, info->nodeoid));
+				}else
+				{
+					Assert(info->nodeoid == PGXCNodeOid);
+				}
+			}
+			MemoryContextSwitchTo(oldcontext);
+		}
+
+		/* next node */
+		cur_info = &cur_info[1];
+		if (cur_info >= &state->nodes[state->nnodes])
+			cur_info = state->nodes;
+		if (cur_info->nodeoid != PGXCNodeOid)
+			goto re_get_;
+	}
+
+	return slot;
+}
+
+static void BeginAdvanceReduce(ClusterReduceState *crstate)
+{
+	MemoryContext		oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
+	AdvanceReduceState *state;
+	DynamicReduceSFS	sfs;
+	const Oid		   *nodes;
+	AdvanceNodeInfo	   *myinfo;
+	TupleTableSlot	   *slot;
+	uint32 				i,count;
+
+	nodes = DynamicReduceGetCurrentWorkingNodes(&count);
+	if (count == 0)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("Can not find working nodes")));
+	}
+
+	state = palloc0(offsetof(AdvanceReduceState, nodes) + sizeof(state->nodes[0]) * count);
+	crstate->private_state = state;
+	crstate->reduce_method = RT_ADVANCE;
+	state->nnodes = count;
+	initStringInfo(&state->read_buf);
+	InitNormalReduceState(&state->normal, sizeof(*sfs), crstate);
+	sfs = dsm_segment_address(state->normal.dsm_seg);
+	SharedFileSetInit(&sfs->sfs, state->normal.dsm_seg);
+
+	myinfo = NULL;
+	for(i=0;i<count;++i)
+	{
+		AdvanceNodeInfo *info = &state->nodes[i];
+		info->nodeoid = nodes[i];
+		if (info->nodeoid == PGXCNodeOid)
+		{
+			char name[MAXPGPATH];
+			info->file = BufFileCreateShared(&sfs->sfs,
+											 DynamicReduceSFSFileName(name, info->nodeoid));
+			Assert(myinfo == NULL);
+			myinfo = info;
+		}
+	}
+	Assert(myinfo != NULL);
+
+	DynamicReduceStartSharedFileSetPlan(crstate->ps.plan->plan_node_id,
+										state->normal.dsm_seg,
+										dsm_segment_address(state->normal.dsm_seg),
+										crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
+										castNode(ClusterReduce, crstate->ps.plan)->reduce_oids);
+
+	while (state->normal.drio.eof_local == false)
+	{
+		slot = DynamicReduceFetchLocal(&state->normal.drio);
+		if (state->normal.drio.send_buf.len > 0)
+		{
+			DynamicReduceSendMessage(state->normal.drio.mqh_sender,
+									 state->normal.drio.send_buf.len,
+									 state->normal.drio.send_buf.data,
+									 false);
+			state->normal.drio.send_buf.len = 0;
+		}
+		if (!TupIsNull(slot))
+			DynamicReduceWriteSFSTuple(slot, myinfo->file);
+	}
+	if (BufFileSeek(myinfo->file, 0, 0, SEEK_SET) != 0)
+	{
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("can not seek SFS file to head")));
+	}
+	state->cur_node = myinfo;
+
+	ExecSetExecProcNode(&crstate->ps, ExecAdvanceReduce);
+
+	MemoryContextSwitchTo(oldcontext);
+}
+
+static void EndAdvanceReduce(AdvanceReduceState *state, ClusterReduceState *crs)
+{
+	uint32				i,count;
+	AdvanceNodeInfo	   *info;
+	DynamicReduceSFS	sfs = dsm_segment_address(state->normal.dsm_seg);
+	char				name[MAXPGPATH];
+
+	if (state->got_remote == false)
+	{
+		DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
+							   crs->ps.ps_ResultTupleSlot,
+							   &state->normal.drio.recv_buf,
+							   NULL,
+							   false);
+		Assert(TupIsNull(crs->ps.ps_ResultTupleSlot));
+	}
+
+	for (i=0,count=state->nnodes;i<count;++i)
+	{
+		info = &state->nodes[i];
+		if(info->file)
+			BufFileClose(info->file);
+		BufFileDeleteShared(&sfs->sfs, DynamicReduceSFSFileName(name, info->nodeoid));
+	}
+	EndNormalReduce(&state->normal);
 }
 
 /* ========================= merge reduce =========================== */
@@ -491,6 +668,11 @@ void ExecClusterReduceEstimate(ClusterReduceState *node, ParallelContext *pcxt)
 	case RT_NORMAL:
 		EstimateNormalReduce(pcxt);
 		break;
+	case RT_ADVANCE:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("advance reduce not support parallel yet")));
+		break;
 	case RT_MERGE:
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -701,6 +883,9 @@ ExecEndClusterReduce(ClusterReduceState *node)
 		case RT_NORMAL:
 			EndNormalReduce(node->private_state);
 			break;
+		case RT_ADVANCE:
+			EndAdvanceReduce(node->private_state, node);
+			break;
 		case RT_MERGE:
 			EndMergeReduce(node->private_state);
 			break;
@@ -765,6 +950,7 @@ DriveClusterReduceState(ClusterReduceState *node)
 	switch(node->reduce_method)
 	{
 	case RT_NOTHING:
+	case RT_ADVANCE:
 		break;
 	case RT_NORMAL:
 		DriveNormalReduce(node);
@@ -939,4 +1125,133 @@ TopDownDriveClusterReduce(PlanState *node)
 		return ;
 
 	(void) DriveClusterReduceWalker(node);
+}
+
+/* =========================================================================== */
+#define ACR_FLAG_INVALID	0x0
+#define ACR_FLAG_OUTER		0x1
+#define ACR_FLAG_INNER		0x2
+#define ACR_FLAG_APPEND		0x5
+#define ACR_FLAG_SUBQUERY	0x6
+#define ACR_MARK_SPECIAL	0xFFFF0000
+#define ACR_FLAG_SUBPLAN	0x10000
+#define ACR_FLAG_INITPLAN	0x20000
+
+
+static inline void AdvanceReduce(ClusterReduceState *crs, PlanState *parent, uint32 flags, Oid coordoid)
+{
+	ClusterReduce *plan = castNode(ClusterReduce, crs->ps.plan);
+	bool need_advance = false;
+
+	if (list_member_oid(plan->reduce_oids, coordoid))
+		need_advance = true;
+
+	if (need_advance == false)
+		return;
+	
+	switch(crs->reduce_method)
+	{
+	case RT_NOTHING:
+		return;
+	case RT_NORMAL:
+		if (plan->plan.parallel_safe)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("advance reduce not support parallel yet")));
+		}else
+		{
+			BeginAdvanceReduce(crs);
+		}
+		break;
+	case RT_MERGE:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("advance reduce not support parallel merge yet")));
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknown reduce method %u", crs->reduce_method)));
+		break;
+	}
+}
+
+#define WalkerList(list, type_)						\
+	if ((list) != NIL)								\
+	{												\
+		ListCell *lc;								\
+		foreach(lc, (list))							\
+			AdvanceClusterReduceWorker(lfirst(lc), ps, type_, coordoid); \
+	}while(false)
+
+#define WalkerMembers(State, arr, count, type_)		\
+	do{												\
+		uint32 i,n=(((State*)ps)->count);			\
+		PlanState **subs = (((State*)ps)->arr);		\
+		for(i=0;i<n;++i)							\
+			AdvanceClusterReduceWorker(subs[i], ps, type_, coordoid);	\
+	}while(false)
+
+static void AdvanceClusterReduceWorker(PlanState *ps, PlanState *pps, uint32 flags, Oid coordoid)
+{
+	if (ps == NULL)
+		return;
+
+	/* initPlan-s */
+	WalkerList(ps->initPlan, ACR_FLAG_INITPLAN);
+
+	/* outer */
+	AdvanceClusterReduceWorker(outerPlanState(ps), ps, 
+							   (flags&ACR_MARK_SPECIAL)|ACR_FLAG_OUTER, coordoid);
+
+	/* inner */
+	AdvanceClusterReduceWorker(innerPlanState(ps), ps,
+							   (flags&ACR_MARK_SPECIAL)|ACR_FLAG_INNER, coordoid);
+
+	switch(nodeTag(ps))
+	{
+	case T_ClusterReduceState:
+		Assert(flags != ACR_FLAG_INVALID);
+		AdvanceReduce((ClusterReduceState*)ps, pps, flags, coordoid);
+		break;
+	case T_ModifyTableState:
+		WalkerMembers(ModifyTableState, mt_plans, mt_nplans,
+					  (flags&ACR_MARK_SPECIAL)|ACR_FLAG_APPEND);
+		break;
+	case T_AppendState:
+		WalkerMembers(AppendState, appendplans, as_nplans,
+					  (flags&ACR_MARK_SPECIAL)|ACR_FLAG_APPEND);
+		break;
+	case T_MergeAppendState:
+		WalkerMembers(MergeAppendState, mergeplans, ms_nplans,
+					  (flags&ACR_MARK_SPECIAL)|ACR_FLAG_APPEND);
+		break;
+	case T_BitmapAndState:
+		WalkerMembers(BitmapAndState, bitmapplans, nplans,
+					  (flags&ACR_MARK_SPECIAL)|ACR_FLAG_APPEND);
+		break;
+	case T_BitmapOrState:
+		WalkerMembers(BitmapOrState, bitmapplans, nplans,
+					  (flags&ACR_MARK_SPECIAL)|ACR_FLAG_APPEND);
+		break;
+	case T_SubqueryScanState:
+		AdvanceClusterReduceWorker(((SubqueryScanState*)ps)->subplan, ps,
+								   (flags&ACR_MARK_SPECIAL)|ACR_FLAG_SUBQUERY, coordoid);
+		break;
+	case T_CustomScanState:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("cluster plan not support custom yet")));
+		break;
+	default:
+		break;
+	}
+
+	WalkerList(ps->subPlan, ACR_FLAG_SUBPLAN);
+}
+
+void AdvanceClusterReduce(PlanState *pstate, Oid coordoid)
+{
+	AdvanceClusterReduceWorker(pstate, NULL, ACR_FLAG_INVALID, coordoid);
 }

@@ -15,11 +15,14 @@
 
 #define CMG_HOOK_GET_STATE(hook_) ((ClusterMergeGatherState*)((char*)hook_ - offsetof(ClusterMergeGatherState, hook_funcs)))
 
+extern Oid PGXCNodeOid;	/* avoid include pgxc.h */
+
 static int cmg_heap_compare_slots(Datum a, Datum b, void *arg);
 static TupleTableSlot *cmg_get_remote_slot(PGconn *conn, TupleTableSlot *slot, ClusterMergeGatherState *ps);
 static bool cmg_pqexec_recv_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
 static bool cmg_pqexec_result_hook(PQNHookFunctions *pub, struct pg_conn *conn, struct pg_result *res);
 static TupleTableSlot *ExecClusterMergeGather(PlanState *pstate);
+static TupleTableSlot *ExecFirstClusterMergeGather(PlanState *pstate);
 static bool cmg_pqexec_normal_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
 
 ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, EState *estate, int eflags)
@@ -34,7 +37,7 @@ ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, ES
 
 	ps->ps.plan = (Plan*)node;
 	ps->ps.state = estate;
-	ps->ps.ExecProcNode = ExecClusterMergeGather;
+	ps->ps.ExecProcNode = ExecFirstClusterMergeGather;
 	ps->local_end = false;
 
 	/*
@@ -175,6 +178,14 @@ re_get_:
 	}
 
 	return result;
+}
+
+static TupleTableSlot *ExecFirstClusterMergeGather(PlanState *pstate)
+{
+	AdvanceClusterReduce(outerPlanState(pstate), PGXCNodeOid);
+
+	ExecSetExecProcNode(pstate, ExecClusterMergeGather);
+	return ExecClusterMergeGather(pstate);
 }
 
 void ExecFinishClusterMergeGather(ClusterMergeGatherState *node)

@@ -230,6 +230,7 @@ extern bool ExecShutdownNode(PlanState *node);
 extern void ExecSetTupleBound(int64 tuples_needed, PlanState *child_node);
 #ifdef ADB
 extern bool ExecFinishNode(PlanState *node);
+extern void AdvanceClusterReduce(PlanState *pstate, Oid coordoid);
 #endif /* ADB */
 
 
