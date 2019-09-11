@@ -1453,7 +1453,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 					}
 
 					/* execute alter sequecne (set schema)	on agtm */
-					if (stmt->objectType == OBJECT_SEQUENCE)
+					/*if (stmt->objectType == OBJECT_SEQUENCE)
 					{
 						Relation	targetrelation;
 						char		*seqName = NULL;
@@ -1470,7 +1470,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 							schemaName, stmt->newschema, T_RENAME_SCHEMA);
 
 						relation_close(targetrelation, NoLock);
-					}
+					}*/
 				}
 #endif
 

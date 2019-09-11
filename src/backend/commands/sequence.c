@@ -134,12 +134,7 @@ DefineSequence(ParseState *pstate, CreateSeqStmt *seq)
 	Datum		pgs_values[Natts_pg_sequence];
 	bool		pgs_nulls[Natts_pg_sequence];
 	int			i;
-
-#ifdef ADB
-	Oid				schemaOid;
-	bool			is_restart;
-	List			*seqOptions = seq->options;
-#endif
+	bool		is_restart;
 
 	/* Unlogged sequences are not implemented -- not clear if useful. */
 	if (seq->sequence->relpersistence == RELPERSISTENCE_UNLOGGED)
@@ -237,11 +232,6 @@ DefineSequence(ParseState *pstate, CreateSeqStmt *seq)
 	if (owned_by)
 		process_owned_by(rel, owned_by, seq->for_identity);
 
-#ifdef ADB
-	Assert(rel->rd_node.dbNode == MyDatabaseId);
-	schemaOid = RelationGetNamespace(rel);
-#endif /* ADB */
-
 	heap_close(rel, NoLock);
 
 	/* fill in pg_sequence */
@@ -265,26 +255,6 @@ DefineSequence(ParseState *pstate, CreateSeqStmt *seq)
 	heap_freetuple(tuple);
 	heap_close(rel, RowExclusiveLock);
 
-#ifdef ADB
-	/*
-	 * Remote Coordinator is in charge of creating sequence in AGTM.
-	 * If sequence is temporary, it is not necessary to create it on AGTM.
-	 */
-	if (!IsGTMNode() &&
-		IsCnMaster() &&
-		(seq->sequence->relpersistence == RELPERSISTENCE_PERMANENT ||
-		 seq->sequence->relpersistence == RELPERSISTENCE_UNLOGGED))
-	{
-		char * databaseName = NULL;
-		char * schemaName = NULL;
-
-		databaseName = get_database_name(MyDatabaseId);
-		schemaName = get_namespace_name(schemaOid);
-
-		agtm_CreateSequence(seq->sequence->relname, databaseName,
-			schemaName, seqOptions);
-	}
-#endif
 	return address;
 }
 
@@ -505,7 +475,7 @@ AlterSequence(ParseState *pstate, AlterSeqStmt *stmt)
 
 #ifdef ADB
 	bool			is_restart;
-	List			*seqOptions = stmt->options;
+	//List			*seqOptions = stmt->options;
 #endif
 
 	/* Open and lock sequence, and check for ownership along the way. */
@@ -592,7 +562,7 @@ AlterSequence(ParseState *pstate, AlterSeqStmt *stmt)
 	 * Remote Coordinator is in charge of create sequence in AGTM
 	 * If sequence is temporary, no need to go through GTM.
 	 */
-	if (IsCnMaster() &&
+	/*if (IsCnMaster() &&
 		!IsGTMNode() &&
 		!RelationUsesLocalBuffers(seqrel))
 	{
@@ -604,7 +574,7 @@ AlterSequence(ParseState *pstate, AlterSeqStmt *stmt)
 
 		agtm_AlterSequence(RelationGetRelationName(seqrel), databaseName,
 			schemaName, seqOptions);
-	}
+	}*/
 #endif
 	return address;
 }
@@ -708,7 +678,11 @@ nextval_internal(Oid relid, bool check_permissions)
 	 */
 	PreventCommandIfParallelMode("nextval()");
 
+#ifdef ADB
+	if (IsGTMNode() && elm->last != elm->cached)
+#else
 	if (elm->last != elm->cached)	/* some numbers were cached */
+#endif
 	{
 		Assert(elm->last_valid);
 		Assert(elm->increment != 0);
@@ -736,14 +710,13 @@ nextval_internal(Oid relid, bool check_permissions)
 	{
 		char * seqName = NULL;
 		char * databaseName = NULL;
-		char * schemaName = NULL;
+		//char * schemaName = NULL;
 
 		seqName = RelationGetRelationName(seqrel);
 		databaseName = get_database_name(seqrel->rd_node.dbNode);
-		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
+		//schemaName = get_namespace_name(RelationGetNamespace(seqrel));
 
-		result = agtm_GetSeqNextVal(seqName, databaseName, schemaName,
-									minv, maxv, cache, incby, cycle, &elm->cached);
+		result = get_seqnextval_from_gtmcorrd(seqName, databaseName);
 		elm->last = result;
 		elm->last_valid = true;
 		elm->increment = incby;
@@ -752,7 +725,7 @@ nextval_internal(Oid relid, bool check_permissions)
 		last_used_seq = elm;
 
 		pfree(databaseName);
-		pfree(schemaName);
+		//pfree(schemaName);
 
 		return result;
 	}
@@ -1190,7 +1163,8 @@ setval_oid(PG_FUNCTION_ARGS)
 		databaseName = get_database_name(seqrel->rd_node.dbNode);
 		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
 
-		agtm_SetSeqVal(seqName, databaseName, schemaName, next);
+		set_seqnextval_from_gtmcorrd(seqName, databaseName, next);
+		//agtm_SetSeqVal(seqName, databaseName, schemaName, next);
 		relation_close(seqrel, NoLock);
 
 		pfree(databaseName);
@@ -2142,12 +2116,12 @@ void
 ResetSequenceCaches(void)
 {
 #ifdef ADB
-	if (IsCnMaster())
+	/*if (IsCnMaster())
 		agtm_ResetSequenceCaches();
 	else
 	{
 		PreventCommandIfReadOnly("DISCARD SEQUENCES");
-	}
+	}*/
 #endif
 
 	if (seqhashtab)

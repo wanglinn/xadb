@@ -509,11 +509,11 @@ extern void performRenameSchema(const ObjectAddress *object,
 						 &depRel);
 
 	/* Check Objects one by one to see if some of them have to be renamed on GTM */
-	for (i = 0; i < targetObjects->numrefs; i++)
+	/*for (i = 0; i < targetObjects->numrefs; i++)
 	{
 		ObjectAddress *thisobj = targetObjects->refs + i;
 		doRename(thisobj, oldname, newname);
-	}
+	}*/
 
 	/* And clean up */
 	free_object_addresses(targetObjects);
@@ -1241,6 +1241,8 @@ doDeletion(const ObjectAddress *object, int flags)
 				if (relKind == RELKIND_SEQUENCE)
 					DeleteSequenceTuple(object->objectId);
 #ifdef ADB
+			if (0)
+			{
 				/*
 				 * Do not do extra process if this session is connected to a remote
 				 * Coordinator.
@@ -1292,6 +1294,7 @@ doDeletion(const ObjectAddress *object, int flags)
 					default:
 						break;
 				}
+			}
 #endif
 				break;
 			}

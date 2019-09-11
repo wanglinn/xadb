@@ -4590,6 +4590,9 @@ PostgresMain(int argc, char *argv[],
 	if(IsUnderPostmaster)
 		start_agtm_listen();
 #endif /* AGTM */
+#ifdef ADB
+	on_proc_exit(disconnect_gtmcoord, 0);
+#endif /* ADB */
 	BeginReportingGUCOptions();
 
 	/*

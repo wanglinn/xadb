@@ -742,7 +742,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 static void SnapRcvProcessHeartBeat(char *buf, Size len)
 {
 	StringInfoData	msg;
-	TimestampTz		t1, t2, t3, t4, cur, deltatime;
+	TimestampTz		t1, t2, t3, t4, deltatime;
 
 	if (len != 3 * sizeof(t1))
 		ereport(ERROR,

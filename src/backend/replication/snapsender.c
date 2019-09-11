@@ -139,11 +139,11 @@ static const WaitEventData PostmasterDeathEventData = {OnPostmasterDeathEvent};
 static const WaitEventData ListenEventData = {OnListenEvent};
 static void SnapSendCheckTimeoutSocket(void);
 static void snapsender_create_xid_htab(void);
-static void append_client_xid_to_htab(SnapClientData *client, TransactionId xid);
+//static void append_client_xid_to_htab(SnapClientData *client, TransactionId xid);
 static int	snapsender_match_xid(const void *key1, const void *key2, Size keysize);
 static bool SnapSenderWakeupFinishXidEvent(TransactionId txid);
-static bool SnapSenderWaitTxidFinsihEvent(TimestampTz end, WaitSnapSenderCond test, void *context);
-static bool WaitSnapSendCondTransactionComplate(void *context);
+//static bool SnapSenderWaitTxidFinsihEvent(TimestampTz end, WaitSnapSenderCond test, void *context);
+//static bool WaitSnapSendCondTransactionComplate(void *context);
 static void snapsenderProcessLocalMaxXid(SnapClientData *client, const char* data, int len);
 
 /* Signal handlers */
@@ -211,7 +211,7 @@ static void snapsender_create_xid_htab(void)
 			&hctl, HASH_ELEM|HASH_FUNCTION|HASH_COMPARE|HASH_CONTEXT);
 }
 
-static void append_client_xid_to_htab(SnapClientData *client, TransactionId xid)
+/*static void append_client_xid_to_htab(SnapClientData *client, TransactionId xid)
 {
 	XidClientHashItemInfo *info;
 	SnapSendXidListItem* xiditem;
@@ -243,7 +243,7 @@ static void append_client_xid_to_htab(SnapClientData *client, TransactionId xid)
 	clientitem = palloc0(sizeof(*clientitem));
 	clientitem->cleint_sockid = socket_pq_node(client->node);
 	slist_push_head(&info->slist_client, &clientitem->snode);
-}
+}*/
 
 static bool SnapSenderWakeupFinishXidEvent(TransactionId txid)
 {
@@ -349,7 +349,6 @@ static void snapsenderProcessLocalMaxXid(SnapClientData *client, const char* dat
 {
 	StringInfoData	msg;
 	TransactionId	txid;
-	bool found;
 
 	msg.data = input_buffer.data;
 	msg.len = msg.maxlen = input_buffer.len;
@@ -385,6 +384,7 @@ static void snapsenderProcessHeartBeat(SnapClientData *client)
 	}
 }
 
+/*
 static bool WaitSnapSendCondTransactionComplate(void *context)
 {
 	proclist_mutable_iter	iter;
@@ -446,7 +446,7 @@ static bool SnapSenderWaitTxidFinsihEvent(TimestampTz end, WaitSnapSenderCond te
 
 	MyProc->waitGlobalTransaction = InvalidTransactionId;
 	return true;
-}
+}*/
 
 static void SnapSendCheckTimeoutSocket(void)
 {
@@ -709,7 +709,6 @@ static void OnLatchSetEvent(WaitEvent *event)
 	uint32					finish_cnt;
 	proclist_mutable_iter	proc_iter_assgin;
 	proclist_mutable_iter	proc_iter_finish;
-	slist_mutable_iter		siter;
 	PGPROC				   *proc;
 
 	ResetLatch(&MyProc->procLatch);
@@ -753,19 +752,19 @@ static void OnLatchSetEvent(WaitEvent *event)
 
 	/* check assign message */
 	if (assgin_cnt > 0)
-		ProcessShmemXidMsg(&xid_assgin, assgin_cnt, 'a');
+		ProcessShmemXidMsg(&xid_assgin[0], assgin_cnt, 'a');
 
 	/* check finish transaction */
 	if (finish_cnt > 0)
-		ProcessShmemXidMsg(&xid_finish, finish_cnt, 'c');
+		ProcessShmemXidMsg(&xid_finish[0], finish_cnt, 'c');
 }
 
 static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char msgtype)
 {
-	proclist_mutable_iter	proc_iter;
+	//proclist_mutable_iter	proc_iter;
 	slist_mutable_iter		siter;
 	SnapClientData		   *client;
-	PGPROC				   *proc;
+	//PGPROC				   *proc;
 	uint32					i;
 
 	if (xid_cnt <= 0)
@@ -1251,10 +1250,10 @@ void SnapSendTransactionAssign(TransactionId txid, TransactionId parent)
 
 void SnapSendTransactionFinish(TransactionId txid)
 {
-	proclist_mutable_iter	iter;
-	TimestampTz				endtime;
-	bool 					in_list = false;
-	int						procno = MyProc->pgprocno;
+	//proclist_mutable_iter	iter;
+	//TimestampTz				endtime;
+	//bool 					in_list = false;
+	//int						procno = MyProc->pgprocno;
 
 	if(!TransactionIdIsValid(txid) ||
 		!IsGTMNode())

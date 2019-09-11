@@ -12,6 +12,8 @@
 #include "agtm/agtm_transaction.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_type.h"
+#include "catalog/pgxc_node.h"
+#include "catalog/indexing.h"
 #include "funcapi.h"
 #include "nodes/parsenodes.h"
 #include "libpq/libpq-fe.h"
@@ -24,12 +26,15 @@
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/snapmgr.h"
+#include "utils/fmgroids.h"
 
 static AGTM_Sequence agtm_DealSequence(const char *seqname, const char * database,
 								const char * schema, AGTM_MessageType type, AGTM_ResultType rtype);
 static PGresult* agtm_get_result(AGTM_MessageType msg_type);
 static void agtm_send_message(AGTM_MessageType msg, const char *fmt, ...)
 			__attribute__((format(PG_PRINTF_ATTRIBUTE, 2, 3)));
+
+static PGconn	*conn_gtmcoord = NULL;
 
 TransactionId
 agtm_GetGlobalTransactionId(bool isSubXact)
@@ -671,6 +676,152 @@ agtm_DealSequence(const char *seqname, const char * database,
 	agtm_use_result_end(res, &buf);
 
 	return seq;
+}
+
+static char* agtm_get_gtmcorrdmaster_connstring(const char* dbname)
+{
+	Relation		nodeRelation;
+	ScanKeyData 	skey[1];
+	HeapScanDesc 	scan;
+	HeapTuple		nodeTuple;
+	Form_pgxc_node	node_gtm;
+	char* 			user_name;
+	StringInfoData	conn_str;
+
+	user_name = GetUserNameFromId(GetUserId(), false);
+	Assert(user_name);
+
+	/* Prepare to scan pg_index for entries having indrelid = this rel. */
+	nodeRelation = heap_open(PgxcNodeRelationId, AccessShareLock);
+	ScanKeyInit(&skey[0],
+				Anum_pgxc_node_nodeis_gtm,
+				BTEqualStrategyNumber, F_BOOLEQ,
+				BoolGetDatum(true));
+
+	initStringInfo(&conn_str);
+	scan = heap_beginscan_catalog(nodeRelation, 1, skey);
+	while ((nodeTuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{
+		node_gtm = (Form_pgxc_node)GETSTRUCT(nodeTuple);
+		Assert(node_gtm);
+		Assert(node_gtm->nodeis_gtm == true);
+		appendStringInfo(&conn_str, 
+						"postgresql://%s@%s:%d/%s", 
+						user_name, NameStr(node_gtm->node_host), node_gtm->node_port, dbname);
+		appendStringInfoCharMacro(&conn_str, '\0');
+	}
+
+	heap_endscan(scan);
+	heap_close(nodeRelation, AccessShareLock);
+
+	pfree(user_name);
+	return conn_str.data;
+}
+
+static PGconn* connect_gtmcoord(const char* dbname)
+{
+	PGconn	   *conn;
+	char*		connstr = NULL;
+
+	connstr = agtm_get_gtmcorrdmaster_connstring(dbname);
+
+	Assert(connstr);
+	conn = PQconnectdb(connstr);
+	if (PQstatus(conn) == CONNECTION_BAD)
+	{
+		char	   *msg = pchomp(PQerrorMessage(conn));
+		PQfinish(conn);
+		ereport(ERROR,
+				(errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
+					errmsg("could not establish connection"),
+					errdetail_internal("%s", msg)));
+	}
+
+	pfree(connstr);
+
+	return conn;
+}
+
+AGTM_Sequence
+get_seqnextval_from_gtmcorrd(const char *seqname, const char *database)
+{
+	PGresult		*res;
+	StringInfoData	execsql;
+	int64			next_val;
+
+	Assert(seqname != NULL && database != NULL);
+	if(seqname[0] == '\0' || database[0] == '\0')
+		ereport(ERROR,
+				(errmsg("agtm_GetSeqNextVal parameter seqname is null")));
+	if(!IsUnderAGTM())
+		ereport(ERROR,
+				(errmsg("agtm_GetSeqNextVal function must under AGTM")));
+
+	if (!conn_gtmcoord)
+		conn_gtmcoord = connect_gtmcoord(database);
+
+	initStringInfo(&execsql);
+	appendStringInfo(&execsql, "select nextval('%s');", seqname);
+
+	res = PQexec(conn_gtmcoord, execsql.data);
+	if (PQresultStatus(res) != PGRES_TUPLES_OK)
+	{
+		ereport(ERROR, (errmsg("failed to query select nextval('%s') in gtmcoord.", seqname)));
+		PQfinish(conn_gtmcoord);
+		conn_gtmcoord = NULL;
+	}
+
+	Assert(1 == PQnfields(res));
+	Assert(1 == PQntuples(res));
+	next_val = pg_strtouint64(PQgetvalue(res, 0, 0), NULL, 10);
+	pfree(execsql.data);
+	PQclear(res);
+
+	return next_val;
+}
+
+AGTM_Sequence
+set_seqnextval_from_gtmcorrd(const char *seqname, const char * database, AGTM_Sequence nextval)
+{
+	PGresult		*res;
+	StringInfoData	execsql;
+	int64			next_val;
+
+	Assert(seqname != NULL && database != NULL);
+	if(seqname[0] == '\0' || database[0] == '\0')
+		ereport(ERROR,
+				(errmsg("agtm_GetSeqNextVal parameter seqname is null")));
+	if(!IsUnderAGTM())
+		ereport(ERROR,
+				(errmsg("agtm_GetSeqNextVal function must under AGTM")));
+
+	if (!conn_gtmcoord)
+		conn_gtmcoord = connect_gtmcoord(database);
+
+	initStringInfo(&execsql);
+	appendStringInfo(&execsql, "select setval('%s', %ld);", seqname, nextval);
+
+	res = PQexec(conn_gtmcoord, execsql.data);
+	if (PQresultStatus(res) != PGRES_TUPLES_OK)
+	{
+		ereport(ERROR, (errmsg("failed to set select setval('%s', %ld) in gtmcoord.", seqname, nextval)));
+		PQfinish(conn_gtmcoord);
+		conn_gtmcoord = NULL;
+	}
+
+	Assert(1 == PQnfields(res));
+	Assert(1 == PQntuples(res));
+	next_val = pg_strtouint64(PQgetvalue(res, 0, 0), NULL, 10);
+	pfree(execsql.data);
+	PQclear(res);
+
+	Assert(next_val == nextval); 
+	return next_val;
+}
+
+void disconnect_gtmcoord(int code, Datum arg)
+{
+	PQfinish(conn_gtmcoord);
 }
 
 AGTM_Sequence
