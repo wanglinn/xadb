@@ -492,9 +492,8 @@ static void BuildMergeBinaryHeap(MergeReduceState *merge)
 	binaryheap_build(merge->binheap);
 }
 
-static TupleTableSlot* ExecMergeReduceFirst(PlanState *pstate)
+static void ExecMergeReduceLocal(ClusterReduceState *node)
 {
-	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
 	MergeReduceState   *merge = node->private_state;
 	BufFile			   *file;
 	TupleTableSlot	   *slot;
@@ -517,21 +516,34 @@ static TupleTableSlot* ExecMergeReduceFirst(PlanState *pstate)
 		if (!TupIsNull(slot))
 			DynamicReduceWriteSFSTuple(slot, file);
 	}
+}
+
+static TupleTableSlot* ExecMergeReduceFinal(PlanState *pstate)
+{
+	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
+	MergeReduceState   *merge = node->private_state;
 
 	/* wait dynamic reduce end of plan */
 	DynamicReduceRecvTuple(merge->normal.drio.mqh_receiver,
-						   pstate->ps_ResultTupleSlot,
+						   node->ps.ps_ResultTupleSlot,
 						   &merge->normal.drio.recv_buf,
 						   NULL,
 						   false);
-	Assert(TupIsNull(pstate->ps_ResultTupleSlot));
+	Assert(TupIsNull(node->ps.ps_ResultTupleSlot));
 	merge->normal.drio.eof_remote = true;
 
-	ExecSetExecProcNode(pstate, ExecMergeReduce);
+	ExecSetExecProcNode(&node->ps, ExecMergeReduce);
 
 	OpenMergeBufFiles(merge);
 	BuildMergeBinaryHeap(merge);
 	return GetMergeReduceResult(merge, node);
+}
+
+static TupleTableSlot* ExecMergeReduceFirst(PlanState *pstate)
+{
+	ExecMergeReduceLocal(castNode(ClusterReduceState, pstate));
+
+	return ExecMergeReduceFinal(pstate);
 }
 
 static void InitMergeReduceState(ClusterReduceState *state, MergeReduceState *merge)
@@ -624,6 +636,18 @@ static void EndMergeReduce(MergeReduceState *merge)
 	pfree(merge->sortkeys);
 }
 #define DriveMergeReduce(node) DriveNormalReduce(node)
+
+static void BeginAdvanceMerge(ClusterReduceState *crstate)
+{
+	MemoryContext		oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
+
+	InitMergeReduce(crstate);
+	MemoryContextSwitchTo(crstate->ps.state->es_query_cxt);
+	ExecMergeReduceLocal(crstate);
+	ExecSetExecProcNode(&crstate->ps, ExecMergeReduceFinal);
+
+	MemoryContextSwitchTo(oldcontext);
+}
 
 /* ======================================================== */
 static void InitReduceMethod(ClusterReduceState *crstate)
@@ -1163,9 +1187,7 @@ static inline void AdvanceReduce(ClusterReduceState *crs, PlanState *parent, uin
 		}
 		break;
 	case RT_MERGE:
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("advance reduce not support parallel merge yet")));
+		BeginAdvanceMerge(crs);
 		break;
 	default:
 		ereport(ERROR,
