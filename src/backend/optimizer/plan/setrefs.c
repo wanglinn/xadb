@@ -2014,6 +2014,7 @@ static void set_connect_by_references(PlannerInfo *root, ConnectByPlan *plan, in
 	 * eg. last sys_connect_by_path() value
 	 */
 	fix_connect_by_exprs_walker((Node*)plan->plan.targetlist, &save_targetlist);
+	fix_connect_by_exprs_walker((Node*)plan->plan.qual, &save_targetlist);
 	plan->save_targetlist = (List*)fix_upper_expr(root,
 												  (Node*)save_targetlist,
 												  sub_itlist,
