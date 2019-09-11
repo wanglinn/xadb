@@ -193,8 +193,8 @@ static void ConnectToOneNode(const DynamicReduceNodeInfo *info, const struct add
 	}
 	ned->status = DRN_CONNECTING;
 	oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-	initStringInfo(&ned->sendBuf);
-	initStringInfo(&ned->recvBuf);
+	initStringInfoExtend(&ned->sendBuf, DR_SOCKET_BUF_SIZE_START);
+	initStringInfoExtend(&ned->recvBuf, DR_SOCKET_BUF_SIZE_START);
 	MemoryContextSwitchTo(oldcontext);
 
 	appendStringInfoChar(&ned->sendBuf, ADB_DR_MSG_NODEOID);
