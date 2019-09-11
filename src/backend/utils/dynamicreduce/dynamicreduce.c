@@ -51,6 +51,7 @@ void DynamicReduceWorkerMain(Datum main_arg)
 	DREventData *base;
 	sigjmp_buf	local_sigjmp_buf;
 	MemoryContext	loop_context;
+	bool pre_check_latch = false;
 
 	is_reduce_worker = true;
 	ParallelWorkerNumber = 0;
@@ -124,11 +125,18 @@ void DynamicReduceWorkerMain(Datum main_arg)
 
 		CHECK_FOR_INTERRUPTS();
 
+re_wait_:
+		pre_check_latch = (!pre_check_latch);
+		SetWaitPreCheckLatch(dr_wait_event_set, pre_check_latch);
+
 		nevent = WaitEventSetWait(dr_wait_event_set,
-								  -1,
+								  pre_check_latch ? -1:0,
 								  dr_wait_event,
 								  dr_wait_count,
 								  PG_WAIT_IPC);
+		if (nevent == 0)
+			goto re_wait_;
+
 		while (nevent > 0)
 		{
 			WaitEvent *we = &dr_wait_event[--nevent];

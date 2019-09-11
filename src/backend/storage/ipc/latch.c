@@ -94,6 +94,10 @@ struct WaitEventSet
 	Latch	   *latch;
 	int			latch_pos;
 
+#ifdef ADB_EXT
+	bool		pre_check_latch;
+#endif /* ADB_EXT */
+
 #if defined(WAIT_USE_EPOLL)
 	int			epoll_fd;
 	/* epoll_wait returns events in a user provided arrays, allocate once */
@@ -576,6 +580,10 @@ CreateWaitEventSet(MemoryContext context, int nevents)
 
 	set = AllocWaitEventSet(context, nevents);
 
+#ifdef ADB_EXT
+	set->pre_check_latch = true;
+#endif /* ADB_EXT */
+
 #if defined(WAIT_USE_EPOLL)
 #ifdef EPOLL_CLOEXEC
 	set->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
@@ -794,6 +802,14 @@ ModifyWaitEvent(WaitEventSet *set, int pos, uint32 events, Latch *latch)
 }
 
 #ifdef ADB_EXT
+
+bool SetWaitPreCheckLatch(WaitEventSet *set, bool enable)
+{
+	bool old = set->pre_check_latch;
+	set->pre_check_latch = enable;
+	return old;
+}
+
 void* ModifyWaitEventData(WaitEventSet *set, int pos, void *user_data)
 {
 	void	   *old;
@@ -1151,7 +1167,11 @@ int WaitEventSetWaitSignal(WaitEventSet *set, long timeout,
 		 * ordering, so that we cannot miss seeing is_set if a notification
 		 * has already been queued.
 		 */
-		if (set->latch && set->latch->is_set)
+		if (
+#ifdef ADB_EXT
+			set->pre_check_latch &&
+#endif /* ADB_EXT */
+			set->latch && set->latch->is_set)
 		{
 			occurred_events->fd = PGINVALID_SOCKET;
 			occurred_events->pos = set->latch_pos;

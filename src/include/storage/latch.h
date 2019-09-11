@@ -168,6 +168,7 @@ extern int AddWaitEventToSet(WaitEventSet *set, uint32 events, pgsocket fd,
 				  Latch *latch, void *user_data);
 extern void ModifyWaitEvent(WaitEventSet *set, int pos, uint32 events, Latch *latch);
 #ifdef ADB_EXT
+extern bool SetWaitPreCheckLatch(WaitEventSet *set, bool enable);
 extern void* ModifyWaitEventData(WaitEventSet *set, int pos, void *user_data);
 extern void RemoveWaitEvent(WaitEventSet *set, int pos);
 extern WaitEventSet* EnlargeWaitEventSet(WaitEventSet *set, int nevents);
