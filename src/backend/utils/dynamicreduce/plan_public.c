@@ -242,7 +242,8 @@ PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(
 		pi->base_desc = desc;
 		desc = NULL;
 
-		pi->seg = dsm_attach(handle);
+		if ((pi->seg = dsm_find_mapping(handle)) == NULL)
+			pi->seg = dsm_attach(handle);
 		if (offset + size > dsm_segment_map_length(pi->seg))
 		{
 			ereport(ERROR,
@@ -444,7 +445,24 @@ void DRClearPlanInfo(PlanInfo *pi)
 	}
 	if (pi->seg)
 	{
-		dsm_detach(pi->seg);
+		HASH_SEQ_STATUS seq;
+		PlanInfo *tmp;
+		bool found = false;
+
+		hash_seq_init(&seq, htab_plan_info);
+		while ((tmp=hash_seq_search(&seq)) != NULL)
+		{
+			if (tmp != pi &&
+				tmp->seg == pi->seg)
+			{
+				found = true;
+				hash_seq_term(&seq);
+				break;
+			}
+		}
+
+		if (found == false)
+			dsm_detach(pi->seg);
 		pi->seg = NULL;
 	}
 }
