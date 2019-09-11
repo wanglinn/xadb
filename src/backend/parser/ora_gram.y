@@ -4763,8 +4763,7 @@ within_group_clause:
 		;
 
 group_clause:
-		GROUP_P BY expr_list					{ $$ = $3; }
-		| GROUP_P BY group_by_list				{ $$ = $3; }
+		GROUP_P BY group_by_list				{ $$ = $3; }
 		| /*EMPTY*/								{ $$ = NIL; }
 	;
 group_by_list:
@@ -4772,10 +4771,11 @@ group_by_list:
 			| group_by_list ',' group_by_item		{ $$ = lappend($1,$3); }
 		;
 group_by_item:
-			  empty_grouping_set			{ $$ = $1; }
-			| cube_clause							{ $$ = $1; }
+			a_expr								{ $$ = $1; }
+			| empty_grouping_set				{ $$ = $1; }
+			| cube_clause						{ $$ = $1; }
 			| rollup_clause						{ $$ = $1; }
-			| grouping_sets_clause		{ $$ = $1; }
+			| grouping_sets_clause				{ $$ = $1; }
 		;
 
 empty_grouping_set:
