@@ -7376,6 +7376,7 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 	ListCell	   *lc;
 	ReduceInfo	   *info;
 	List		   *from_oids;
+	bool			include_coord = false;
 
 	Assert(list_length(path->path.reduce_info_list) == 1);
 	Assert(!IsA(path->subpath, ClusterReducePath));
@@ -7386,6 +7387,9 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 		info = lfirst(lc);
 		if(IsReduceInfoEqual(info, to))
 			return create_plan_recurse(root, path->subpath, flags);
+		if (include_coord == false &&
+			IsReduceInfoCoordinator(info))
+			include_coord = true;
 	}
 
 	plan = makeNode(ClusterReduce);
@@ -7400,7 +7404,7 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 	plan->plan.targetlist = subplan->targetlist;
 
 	if (path->path.pathkeys != NIL)
-	{
+{
 		(void) prepare_sort_from_pathkeys(&plan->plan,
 										  path->path.pathkeys,
 										  path->path.parent->relids,
@@ -7412,6 +7416,10 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 										  &plan->collations,
 										  &plan->nullsFirst);
 	}
+
+	if (include_coord == false)
+		include_coord = list_member_oid(to->storage_nodes, PGXCNodeOid);
+	plan->include_coord = include_coord;
 
 	return (Plan*) plan;
 }

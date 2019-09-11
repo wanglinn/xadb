@@ -853,6 +853,7 @@ BEGIN_NODE(ClusterReduce)
 	NODE_SCALAR_POINT(Oid,sortOperators,NODE_ARG_->numCols)
 	NODE_SCALAR_POINT(Oid,collations,NODE_ARG_->numCols)
 	NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numCols)
+	NODE_SCALAR(bool,include_coord)
 END_NODE(ClusterReduce)
 #endif /* NO_NODE_ClusterReduce */
 
@@ -4092,6 +4093,9 @@ END_NODE(MGRFlushHost)
 #ifndef NO_NODE_MGRDoctorSet
 BEGIN_NODE(MGRDoctorSet)
 	NODE_NODE(List,options)
+	NODE_STRING(nodename)
+	NODE_STRING(hostname)
+	NODE_SCALAR(bool,enable)
 END_NODE(MGRDoctorSet)
 #endif /* NO_NODE_MGRDoctorSet */
 

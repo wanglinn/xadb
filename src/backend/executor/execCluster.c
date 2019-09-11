@@ -300,7 +300,6 @@ static void ExecClusterPlanStmt(StringInfo buf, ClusterCoordInfo *info)
 	set_cluster_display("<advance reduce>", false, info);
 	if (query_desc->totaltime)
 		InstrStartNode(query_desc->totaltime);
-	AdvanceClusterReduce(query_desc->planstate, info->oid);
 	if (query_desc->totaltime)
 		InstrStopNode(query_desc->totaltime, 0);
 

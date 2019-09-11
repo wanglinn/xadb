@@ -1024,6 +1024,8 @@ typedef struct ClusterReduce
 	Oid		   *sortOperators;	/* OIDs of operators to sort them by */
 	Oid		   *collations;		/* OIDs of collations */
 	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
+
+	bool		include_coord;	/* reduce include coordinator ? */
 } ClusterReduce;
 
 typedef struct ReduceScan

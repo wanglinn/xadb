@@ -19,10 +19,7 @@
 
 #define CG_HOOK_GET_STATE(hook_) ((ClusterGatherState*)((char*)hook_ - offsetof(ClusterGatherState, hook_funcs)))
 
-extern Oid PGXCNodeOid;	/* avoid include pgxc.h */
-
 static TupleTableSlot *ExecClusterGather(PlanState *pstate);
-static TupleTableSlot *ExecFirstClusterGather(PlanState *pstate);
 static bool cg_pqexec_recv_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
 
 ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, int flags)
@@ -37,7 +34,7 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 	gatherstate = makeNode(ClusterGatherState);
 	gatherstate->ps.plan = (Plan*)node;
 	gatherstate->ps.state = estate;
-	gatherstate->ps.ExecProcNode = ExecFirstClusterGather;
+	gatherstate->ps.ExecProcNode = ExecClusterGather;
 	gatherstate->local_end = false;
 
 	ExecAssignExprContext(estate, &gatherstate->ps);
@@ -63,14 +60,6 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 	gatherstate->hook_funcs.HookCopyOut = cg_pqexec_recv_hook;
 
 	return gatherstate;
-}
-
-static TupleTableSlot *ExecFirstClusterGather(PlanState *pstate)
-{
-	AdvanceClusterReduce(outerPlanState(pstate), PGXCNodeOid);
-
-	ExecSetExecProcNode(pstate, ExecClusterGather);
-	return ExecClusterGather(pstate);
 }
 
 static TupleTableSlot *ExecClusterGather(PlanState *pstate)

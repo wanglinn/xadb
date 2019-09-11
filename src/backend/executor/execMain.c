@@ -65,10 +65,6 @@
 #include "utils/snapmgr.h"
 #include "utils/tqual.h"
 #ifdef ADB
-#include "commands/copy.h"
-#include "executor/execCluster.h"
-#include "executor/nodeReduceScan.h"
-#include "nodes/nodeFuncs.h"
 #include "pgxc/pgxc.h"
 #endif
 
@@ -107,9 +103,6 @@ static char *ExecBuildSlotValueDescription(Oid reloid,
 							  int maxfieldlen);
 static void EvalPlanQualStart(EPQState *epqstate, EState *parentestate,
 				  Plan *planTree);
-#ifdef ADB
-static bool ExecuteReduceScanOuter(ReduceScanState *node, void *none);
-#endif /* ADB */
 
 /*
  * Note that GetUpdatedColumns() also exists in commands/trigger.c.  There does
@@ -1779,7 +1772,7 @@ ExecutePlan(EState *estate,
 		EnterParallelMode();
 
 #ifdef ADB
-	ExecuteReduceScanOuter((ReduceScanState*)(planstate), NULL);
+	AdvanceClusterReduce(planstate);
 #endif /* ADB */
 
 	/*
@@ -3368,17 +3361,3 @@ EvalPlanQualEnd(EPQState *epqstate)
 	epqstate->origslot = NULL;
 }
 
-#ifdef ADB
-static bool ExecuteReduceScanOuter(ReduceScanState *node, void *none)
-{
-	if(node == NULL)
-		return false;
-
-	planstate_tree_walker((PlanState*)node, ExecuteReduceScanOuter, NULL);
-
-	if(IsA(node, ReduceScanState))
-		FetchReduceScanOuter(node);
-
-	return false;
-}
-#endif /* ADB */

@@ -7,6 +7,7 @@
 #include "executor/nodeClusterReduce.h"
 #include "executor/nodeCtescan.h"
 #include "executor/nodeMaterial.h"
+#include "executor/nodeReduceScan.h"
 #include "executor/tuptable.h"
 #include "lib/binaryheap.h"
 #include "lib/oidbuffer.h"
@@ -1138,13 +1139,10 @@ TopDownDriveClusterReduce(PlanState *node)
 #define ACR_FLAG_INITPLAN	0x20000
 
 
-static inline void AdvanceReduce(ClusterReduceState *crs, PlanState *parent, uint32 flags, Oid coordoid)
+static inline void AdvanceReduce(ClusterReduceState *crs, PlanState *parent, uint32 flags)
 {
 	ClusterReduce *plan = castNode(ClusterReduce, crs->ps.plan);
-	bool need_advance = false;
-
-	if (list_member_oid(plan->reduce_oids, coordoid))
-		need_advance = true;
+	bool need_advance = plan->include_coord;
 
 	if (need_advance == false)
 		return;
@@ -1182,7 +1180,7 @@ static inline void AdvanceReduce(ClusterReduceState *crs, PlanState *parent, uin
 	{												\
 		ListCell *lc;								\
 		foreach(lc, (list))							\
-			AdvanceClusterReduceWorker(lfirst(lc), ps, type_, coordoid); \
+			AdvanceClusterReduceWorker(lfirst_node(SubPlanState, lc)->planstate, ps, type_); \
 	}while(false)
 
 #define WalkerMembers(State, arr, count, type_)		\
@@ -1190,30 +1188,40 @@ static inline void AdvanceReduce(ClusterReduceState *crs, PlanState *parent, uin
 		uint32 i,n=(((State*)ps)->count);			\
 		PlanState **subs = (((State*)ps)->arr);		\
 		for(i=0;i<n;++i)							\
-			AdvanceClusterReduceWorker(subs[i], ps, type_, coordoid);	\
+			AdvanceClusterReduceWorker(subs[i], ps, type_);	\
 	}while(false)
 
-static void AdvanceClusterReduceWorker(PlanState *ps, PlanState *pps, uint32 flags, Oid coordoid)
+static void AdvanceClusterReduceWorker(PlanState *ps, PlanState *pps, uint32 flags)
 {
 	if (ps == NULL)
 		return;
 
+	check_stack_depth();
+
 	/* initPlan-s */
 	WalkerList(ps->initPlan, ACR_FLAG_INITPLAN);
+	if (IsA(ps, ReduceScanState))
+	{
+		FetchReduceScanOuter((ReduceScanState*)ps);
+		WalkerList(ps->subPlan, ACR_FLAG_SUBPLAN);
+		return;
+	}
 
 	/* outer */
 	AdvanceClusterReduceWorker(outerPlanState(ps), ps, 
-							   (flags&ACR_MARK_SPECIAL)|ACR_FLAG_OUTER, coordoid);
+							   (flags&ACR_MARK_SPECIAL)|ACR_FLAG_OUTER);
 
 	/* inner */
 	AdvanceClusterReduceWorker(innerPlanState(ps), ps,
-							   (flags&ACR_MARK_SPECIAL)|ACR_FLAG_INNER, coordoid);
+							   (flags&ACR_MARK_SPECIAL)|ACR_FLAG_INNER);
 
 	switch(nodeTag(ps))
 	{
 	case T_ClusterReduceState:
 		Assert(flags != ACR_FLAG_INVALID);
-		AdvanceReduce((ClusterReduceState*)ps, pps, flags, coordoid);
+		AdvanceReduce((ClusterReduceState*)ps, pps, flags);
+		break;
+	case T_ReduceScanState:
 		break;
 	case T_ModifyTableState:
 		WalkerMembers(ModifyTableState, mt_plans, mt_nplans,
@@ -1237,7 +1245,7 @@ static void AdvanceClusterReduceWorker(PlanState *ps, PlanState *pps, uint32 fla
 		break;
 	case T_SubqueryScanState:
 		AdvanceClusterReduceWorker(((SubqueryScanState*)ps)->subplan, ps,
-								   (flags&ACR_MARK_SPECIAL)|ACR_FLAG_SUBQUERY, coordoid);
+								   (flags&ACR_MARK_SPECIAL)|ACR_FLAG_SUBQUERY);
 		break;
 	case T_CustomScanState:
 		ereport(ERROR,
@@ -1251,7 +1259,7 @@ static void AdvanceClusterReduceWorker(PlanState *ps, PlanState *pps, uint32 fla
 	WalkerList(ps->subPlan, ACR_FLAG_SUBPLAN);
 }
 
-void AdvanceClusterReduce(PlanState *pstate, Oid coordoid)
+void AdvanceClusterReduce(PlanState *pstate)
 {
-	AdvanceClusterReduceWorker(pstate, NULL, ACR_FLAG_INVALID, coordoid);
+	AdvanceClusterReduceWorker(pstate, NULL, ACR_FLAG_INVALID);
 }
