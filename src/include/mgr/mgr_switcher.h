@@ -32,6 +32,7 @@ typedef struct SwitcherNodeWrapper
 	bool pgxcNodeChanged;
 	bool holdClusterLock;
 	bool adbSlotChanged;
+	bool startupAfterException;
 } SwitcherNodeWrapper;
 
 static inline void pfreeSwitcherNodeWrapperPGconn(SwitcherNodeWrapper *obj)
@@ -94,6 +95,7 @@ extern void switchGtmCoordMaster(char *oldMasterName,
 								 bool kickOutOldMaster,
 								 Name newMasterName);
 extern void switchoverDataNode(char *newMasterName, bool forceSwitch);
+extern void switchoverGtmCoord(char *newMasterName, bool forceSwitch);
 extern void checkSwitchDataNodePrerequisite(SwitcherNodeWrapper *oldMaster,
 											dlist_head *runningSlaves,
 											dlist_head *failedSlaves,
@@ -121,6 +123,7 @@ extern void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 									  dlist_head *failedSlaves,
 									  dlist_head *coordinators,
 									  dlist_head *runningDataNodes,
+									  dlist_head *failedDataNodes,
 									  MemoryContext spiContext,
 									  bool kickOutOldMaster);
 extern void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,

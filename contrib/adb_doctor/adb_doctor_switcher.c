@@ -184,6 +184,7 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 
 	PG_TRY();
 	{
+		oldMaster->startupAfterException = false;
 		if (oldMaster->mgrNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER)
 		{
 			checkAndSwitchDataNodeMaster(oldMaster,
@@ -295,6 +296,7 @@ static void checkAndSwitchDataNodeMaster(SwitcherNodeWrapper *oldMaster,
 	}
 	else
 	{
+		oldMaster->runningMode = NODE_RUNNING_MODE_UNKNOW;
 		chooseNewMasterNode(oldMaster,
 							newMasterP,
 							runningSlaves,
@@ -351,6 +353,7 @@ static void checkAndSwitchGtmCoordMaster(SwitcherNodeWrapper *oldMaster,
 									  failedSlaves,
 									  coordinators,
 									  runningDataNodes,
+									  failedDataNodes,
 									  spiContext,
 									  false);
 		}
@@ -366,6 +369,7 @@ static void checkAndSwitchGtmCoordMaster(SwitcherNodeWrapper *oldMaster,
 	}
 	else
 	{
+		oldMaster->runningMode = NODE_RUNNING_MODE_UNKNOW;
 		chooseNewMasterNode(oldMaster,
 							newMasterP,
 							runningSlaves,
@@ -378,6 +382,7 @@ static void checkAndSwitchGtmCoordMaster(SwitcherNodeWrapper *oldMaster,
 								  failedSlaves,
 								  coordinators,
 								  runningDataNodes,
+								  failedDataNodes,
 								  spiContext,
 								  false);
 	}
