@@ -2942,6 +2942,14 @@ not_cluster_insert_path_:
 
 			add_partial_path(final_rel, partial_path);
 		}
+#ifdef ADB
+		foreach(lc, current_rel->cluster_partial_pathlist)
+		{
+			Path	   *partial_path = (Path *) lfirst(lc);
+
+			add_cluster_partial_path(final_rel, partial_path);
+		}
+#endif /* ADB */
 	}
 
 	/*

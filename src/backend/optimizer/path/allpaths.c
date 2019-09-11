@@ -3043,6 +3043,31 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 													  pathkeys,
 													  required_outer));
 		}
+
+#ifdef ADB
+		/* If consider_parallel is false, there should be no partial paths. */
+		Assert(sub_final_rel->consider_parallel ||
+			   sub_final_rel->cluster_partial_pathlist == NIL);
+
+		/* Same for partial paths. */
+		foreach(lc, sub_final_rel->cluster_partial_pathlist)
+		{
+			Path	   *subpath = (Path *) lfirst(lc);
+			List	   *pathkeys;
+
+			/* Convert subpath's pathkeys to outer representation */
+			pathkeys = convert_subquery_pathkeys(root,
+												 rel,
+												 subpath->pathkeys,
+												 make_tlist_from_pathtarget(subpath->pathtarget));
+
+			/* Generate outer path using this subpath */
+			add_cluster_partial_path(rel, (Path *)
+									 create_subqueryscan_path(root, rel, subpath,
+															  pathkeys,
+															  required_outer));
+		}
+#endif /* ADB */
 	}
 
 #ifdef ADB
@@ -3056,9 +3081,9 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		pathkeys = convert_subquery_pathkeys(root,
 											 rel,
 											 subpath->pathkeys,
-							make_tlist_from_pathtarget(subpath->pathtarget));
+											 make_tlist_from_pathtarget(subpath->pathtarget));
 
-		if ((need_limit || subquery->sortClause) &&
+		if (need_limit &&
 			!IsReduceInfoListReplicated(get_reduce_info_list(subpath)) &&
 			!IsReduceInfoListInOneNode(get_reduce_info_list(subpath)))
 		{
@@ -3066,34 +3091,20 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 												 subpath,
 												 list_make1(MakeCoordinatorReduceInfo()),
 												 sub_final_rel,
-												 NIL);
-			if(subquery->sortClause)
-			{
-				/* we have no mergereduce, sort it again */
-				subpath = (Path*)
-						  create_sort_path(root,
-										   sub_final_rel,
-										   subpath,
-										   rel->subroot->sort_pathkeys,
-										   -1.0);
-			}
-			if(need_limit)
-			{
+												 subquery->sortClause);
 				/* we need limit again */
-				subpath = (Path*)
-						  create_limit_path(root,
-											rel,
-											subpath,
-											subquery->limitOffset,
-											subquery->limitCount,
-											0,0);
-			}
+			subpath = (Path*) create_limit_path(root,
+												rel,
+												subpath,
+												subquery->limitOffset,
+												subquery->limitCount,
+												0,0);
 		}
 
 		/* Generate outer path using this subpath */
 		add_cluster_path(rel, (Path *)
-				 create_subqueryscan_path(root, rel, subpath,
-										  pathkeys, required_outer));
+						 create_subqueryscan_path(root, rel, subpath,
+												  pathkeys, required_outer));
 	}
 #endif /* ADB */
 }
