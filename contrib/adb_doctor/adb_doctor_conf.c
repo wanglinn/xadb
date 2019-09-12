@@ -29,15 +29,12 @@ void checkAdbDoctorConf(AdbDoctorConf *src)
 										   src->agentdeadline);
 	src->node_restart_crashed_master = LIMIT_VALUE_RANGE(0, 1,
 														 src->node_restart_crashed_master);
-	if (src->node_restart_master_timeout_ms < 1)
-		ereport(ERROR,
-				(errmsg("node_restart_master_timeout_ms must > 0")));
-	if (src->node_shutdown_timeout_ms < 1)
-		ereport(ERROR,
-				(errmsg("node_shutdown_timeout_ms must > 0")));
-	if (src->node_connection_error_num_max < 1)
-		ereport(ERROR,
-				(errmsg("node_connection_error_num_max must > 0")));
+	src->node_restart_master_timeout_ms =
+		LIMIT_VALUE_RANGE(5000, 999999999, src->node_restart_master_timeout_ms);
+	src->node_shutdown_timeout_ms =
+		LIMIT_VALUE_RANGE(5000, 999999999, src->node_shutdown_timeout_ms);
+	src->node_connection_error_num_max =
+		LIMIT_VALUE_RANGE(1, 999999999, src->node_connection_error_num_max);
 	CHECK_ADB_DOCTOR_CONF_MIN_MAX_MEMBER(src,
 										 node_connect_timeout_ms_min,
 										 node_connect_timeout_ms_max);
@@ -53,15 +50,16 @@ void checkAdbDoctorConf(AdbDoctorConf *src)
 	CHECK_ADB_DOCTOR_CONF_MIN_MAX_MEMBER(src,
 										 node_restart_delay_ms_min,
 										 node_restart_delay_ms_max);
-	if (src->node_retry_follow_master_interval_ms < 1)
-		ereport(ERROR,
-				(errmsg("node_retry_follow_master_interval_ms must > 0")));
-	if (src->node_retry_rewind_interval_ms < 1)
-		ereport(ERROR,
-				(errmsg("node_retry_rewind_interval_ms must > 0")));
-	if (src->agent_connection_error_num_max < 1)
-		ereport(ERROR,
-				(errmsg("agent_connection_error_num_max must > 0")));
+	src->node_retry_follow_master_interval_ms =
+		LIMIT_VALUE_RANGE(1, 999999999, src->node_retry_follow_master_interval_ms);
+	src->node_retry_rewind_interval_ms =
+		LIMIT_VALUE_RANGE(1, 999999999, src->node_retry_rewind_interval_ms);
+	src->node_restart_coordinator_count =
+		LIMIT_VALUE_RANGE(0, 999999999, src->node_restart_coordinator_count);
+	src->node_restart_coordinator_interval_ms =
+		LIMIT_VALUE_RANGE(1, 999999999, src->node_restart_coordinator_interval_ms);
+	src->agent_connection_error_num_max =
+		LIMIT_VALUE_RANGE(1, 999999999, src->agent_connection_error_num_max);
 	CHECK_ADB_DOCTOR_CONF_MIN_MAX_MEMBER(src,
 										 agent_connect_timeout_ms_min,
 										 agent_connect_timeout_ms_max);
@@ -509,6 +507,14 @@ AdbDoctorConf *selectAllAdbDoctorConf(MemoryContext spiContext)
 			else if (pg_strcasecmp(keyStr, "node_retry_rewind_interval_ms") == 0)
 			{
 				conf->node_retry_rewind_interval_ms = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_restart_coordinator_count") == 0)
+			{
+				conf->node_restart_coordinator_count = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "node_restart_coordinator_interval_ms") == 0)
+			{
+				conf->node_restart_coordinator_interval_ms = valueInt;
 			}
 			else if (pg_strcasecmp(keyStr, "agent_connection_error_num_max") == 0)
 			{

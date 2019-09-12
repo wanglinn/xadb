@@ -114,19 +114,6 @@ static void deleteMgrUpdateparmByNodenameType(char *updateparmnodename,
 											  MemoryContext spiContext);
 static void updateMgrUpdateparmNodetype(char *nodename, char nodetype,
 										MemoryContext spiContext);
-static bool nodeExistsInPgxcNode(PGconn *activeCoon,
-								 char *executeOnNodeName,
-								 bool localExecute,
-								 char *dataNodeName,
-								 char pgxcNodeType);
-static bool dataNodeMasterExistsInPgxcNode(PGconn *activeCoon,
-										   char *executeOnNodeName,
-										   bool localExecute,
-										   char *nodeName);
-static bool dataNodeSlaveExistsInPgxcNode(PGconn *activeCoon,
-										  char *executeOnNodeName,
-										  bool localExecute,
-										  char *nodeName);
 static void refreshPgxcNodeBeforeSwitchDataNode(dlist_head *coordinators);
 static bool deletePgxcNodeDataNodeSlaves(SwitcherNodeWrapper *coordinator,
 										 bool complain);
@@ -179,9 +166,6 @@ static bool alterPgxcNodeForSwitch(PGconn *activeCoon,
 								   char *executeOnNodeName,
 								   char *oldNodeName, char *newNodeName,
 								   char *host, int32 port, bool complain);
-static bool dropPgxcNodeForSwitch(PGconn *activeCoon,
-								  char *executeOnNodeName,
-								  char *nodeName, bool complain);
 static char *getPgxcNodeNameForSwitch(SwitcherNodeWrapper *node, bool complain);
 
 /* It is very strange, all gtm nodes have the same pgxc_node_name value. */
@@ -2828,59 +2812,6 @@ static void updateMgrUpdateparmNodetype(char *updateparmnodename,
 	}
 }
 
-static bool nodeExistsInPgxcNode(PGconn *activeCoon,
-								 char *executeOnNodeName,
-								 bool localExecute,
-								 char *nodeName,
-								 char pgxcNodeType)
-{
-	char *sql;
-	bool exists;
-	if (localExecute)
-		sql = psprintf("select count(*) "
-					   "from pgxc_node "
-					   "where node_name = '%s' "
-					   "and node_type = '%c';",
-					   nodeName,
-					   pgxcNodeType);
-	else
-		sql = psprintf("EXECUTE DIRECT ON (\"%s\") "
-					   "'select count(*) "
-					   "from pgxc_node "
-					   "where node_name = ''%s'' "
-					   "and node_type = ''%c'' ;'",
-					   executeOnNodeName,
-					   nodeName,
-					   pgxcNodeType);
-	exists = PQexecCountSql(activeCoon, sql, true) > 0;
-	pfree(sql);
-	return exists;
-}
-
-static bool dataNodeMasterExistsInPgxcNode(PGconn *activeCoon,
-										   char *executeOnNodeName,
-										   bool localExecute,
-										   char *nodeName)
-{
-	return nodeExistsInPgxcNode(activeCoon,
-								executeOnNodeName,
-								localExecute,
-								nodeName,
-								PGXC_NODE_DATANODE);
-}
-
-static bool dataNodeSlaveExistsInPgxcNode(PGconn *activeCoon,
-										  char *executeOnNodeName,
-										  bool localExecute,
-										  char *nodeName)
-{
-	return nodeExistsInPgxcNode(activeCoon,
-								executeOnNodeName,
-								localExecute,
-								nodeName,
-								PGXC_NODE_DATANODESLAVE);
-}
-
 static void refreshPgxcNodeBeforeSwitchDataNode(dlist_head *coordinators)
 {
 	dlist_iter iter;
@@ -2939,7 +2870,8 @@ static bool updatePgxcNodeAfterSwitchDataNode(SwitcherNodeWrapper *holdLockNode,
 	if (dataNodeMasterExistsInPgxcNode(activeCoon,
 									   executeOnNodeName,
 									   localExecute,
-									   NameStr(newMgrNode->form.nodename)))
+									   NameStr(newMgrNode->form.nodename),
+									   complain))
 	{
 		ereport(LOG,
 				(errmsg("%s pgxc_node already contained %s , no need to update",
@@ -2952,12 +2884,13 @@ static bool updatePgxcNodeAfterSwitchDataNode(SwitcherNodeWrapper *holdLockNode,
 		if (dataNodeSlaveExistsInPgxcNode(activeCoon,
 										  executeOnNodeName,
 										  localExecute,
-										  NameStr(newMgrNode->form.nodename)))
+										  NameStr(newMgrNode->form.nodename),
+										  complain))
 		{
-			dropPgxcNodeForSwitch(activeCoon,
-								  executeOnNodeName,
-								  NameStr(newMgrNode->form.nodename),
-								  complain);
+			dropNodeFromPgxcNode(activeCoon,
+								 executeOnNodeName,
+								 NameStr(newMgrNode->form.nodename),
+								 complain);
 		}
 		execOk = alterPgxcNodeForSwitch(activeCoon,
 										executeOnNodeName,
@@ -3567,35 +3500,6 @@ static bool alterPgxcNodeForSwitch(PGconn *activeCoon,
 						executeOnNodeName,
 						oldNodeName,
 						newNodeName)));
-	}
-	return execOk;
-}
-
-static bool dropPgxcNodeForSwitch(PGconn *activeCoon,
-								  char *executeOnNodeName,
-								  char *nodeName, bool complain)
-{
-	char *sql;
-	bool execOk;
-
-	sql = psprintf("drop node \"%s\" on (\"%s\");",
-				   nodeName,
-				   executeOnNodeName);
-	execOk = PQexecCommandSql(activeCoon, sql, false);
-	pfree(sql);
-	if (execOk)
-	{
-		ereport(LOG,
-				(errmsg("%s drop %s from pgxc_node successfully",
-						executeOnNodeName,
-						nodeName)));
-	}
-	else
-	{
-		ereport(complain ? ERROR : WARNING,
-				(errmsg("%s drop %s from pgxc_node failed",
-						executeOnNodeName,
-						nodeName)));
 	}
 	return execOk;
 }

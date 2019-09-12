@@ -83,7 +83,7 @@ INSERT INTO adb_doctor_conf VALUES (
 	'1',
 	'f',
 	6,
-	'0:false, 1:true. If true, when a master node crashes, doctor will try to start it up. or else, doctor will do switching immediately.'
+	'0:false, 1:true. If true, when a GTM master or datanode master crashes, doctor will try to start it up. or else, doctor will do switching immediately.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_restart_master_timeout_ms',
@@ -190,82 +190,96 @@ INSERT INTO adb_doctor_conf VALUES (
 	21,
 	'In milliseconds. The time interval to retry after slave node failed to rewind.'
 );
+INSERT INTO adb_doctor_conf VALUES (
+	'node_restart_coordinator_count',
+	'3',
+	'f',
+	22,
+	'When coordinator crashed, the number of times the doctor tries to restart it.'
+);
+INSERT INTO adb_doctor_conf VALUES (
+	'node_restart_coordinator_interval_ms',
+	'30000',
+	'f',
+	23,
+	'In milliseconds. The time interval to retry after coordinator restart failed.'
+);
 
 -- host monitor
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_connection_error_num_max',
 	'3',
 	'f',
-	22,
+	24,
 	'If the number of connection errors on a agent exceeds this value, the doctor thinks that node has crashed.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_connect_timeout_ms_min',
 	'2000',
 	'f',
-	23,
+	25,
 	'In milliseconds. The minimum time of connecting agent.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_connect_timeout_ms_max',
 	'60000',
 	'f',
-	24,
+	26,
 	'In milliseconds. In pairs with agent_connect_timeout_ms_min.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_reconnect_delay_ms_min',
 	'500',
 	'f',
-	25,
+	27,
 	'In milliseconds. The minimum time interval to reconnect agent.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_reconnect_delay_ms_max',
 	'10000',
 	'f',
-	26,
+	28,
 	'In milliseconds. In pairs with agent_reconnect_delay_ms_min.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_heartbeat_timeout_ms_min',
 	'2000',
 	'f',
-	27,
+	29,
 	'In milliseconds. The minimum time of receiving heartbeat message from agent.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_heartbeat_timeout_ms_max',
 	'60000',
 	'f',
-	28,
+	30,
 	'In milliseconds. In pairs with agent_heartbeat_timeout_ms_min.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_heartbeat_interval_ms_min',
 	'2000',
 	'f',
-	29,
+	31,
 	'In milliseconds. The minimum time interval of sending heartbeat message to agent.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_heartbeat_interval_ms_max',
 	'60000',
 	'f',
-	30,
+	32,
 	'In milliseconds. In pairs with agent_heartbeat_interval_ms_min.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_restart_delay_ms_min',
 	'1000',
 	'f',
-	31,
+	33,
 	'In milliseconds. The minimum time interval to restart crashed agent.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_restart_delay_ms_max',
 	'30000',
 	'f',
-	32,
+	34,
 	'In milliseconds. In pairs with agent_restart_delay_ms_max.'
 );

@@ -485,4 +485,31 @@ extern bool batchShutdownNodesWithinSeconds(dlist_head *nodes,
 extern bool batchStartupNodesWithinSeconds(dlist_head *nodes,
 										   int waitSeconds,
 										   bool complain);
+extern bool dropNodeFromPgxcNode(PGconn *activeCoon,
+								 char *executeOnNodeName,
+								 char *nodeName, bool complain);
+extern bool createNodeOnPgxcNode(PGconn *activeCoon,
+								 char *executeOnNodeName,
+								 MgrNodeWrapper *mgrNode, bool complain);
+extern bool nodeExistsInPgxcNode(PGconn *activeCoon,
+								 char *executeOnNodeName,
+								 bool localExecute,
+								 char *dataNodeName,
+								 char pgxcNodeType,
+								 bool complain);
+extern bool dataNodeMasterExistsInPgxcNode(PGconn *activeCoon,
+										   char *executeOnNodeName,
+										   bool localExecute,
+										   char *nodeName,
+										   bool complain);
+extern bool dataNodeSlaveExistsInPgxcNode(PGconn *activeCoon,
+										  char *executeOnNodeName,
+										  bool localExecute,
+										  char *nodeName,
+										  bool complain);
+extern bool coordinatorMasterExistsInPgxcNode(PGconn *activeCoon,
+											  char *executeOnNodeName,
+											  bool localExecute,
+											  char *nodeName,
+											  bool complain);
 #endif /* MGR_HELPER_H */

@@ -87,6 +87,8 @@ typedef struct AdbDoctorConf
 	int node_restart_delay_ms_max;
 	int node_retry_follow_master_interval_ms;
 	int node_retry_rewind_interval_ms;
+	int node_restart_coordinator_count;
+	int node_restart_coordinator_interval_ms;
 	int agent_connection_error_num_max;
 	int agent_connect_timeout_ms_min;
 	int agent_connect_timeout_ms_max;

@@ -17,6 +17,7 @@
 #include "utils/builtins.h"
 #include "../../src/interfaces/libpq/libpq-fe.h"
 #include "../../src/interfaces/libpq/libpq-int.h"
+#include "catalog/pgxc_node.h"
 
 static MgrHostWrapper *popHeadMgrHostPfreeOthers(dlist_head *mgrHosts);
 static MgrNodeWrapper *popHeadMgrNodePfreeOthers(dlist_head *mgrNodes);
@@ -810,11 +811,6 @@ XLogRecPtr getNodeWalLsn(PGconn *pgConn, NodeRunningMode runningMode)
 	}
 }
 
-/**
- * Execute sql function: pg_is_in_recovery() in remote node.
- * Return true means query successfully, false means query failed.
- * The node running mode is saved in node->runningMode
- */
 NodeRunningMode getNodeRunningMode(PGconn *pgConn)
 {
 	NodeRunningMode res;
@@ -2455,4 +2451,142 @@ end:
 		pfree(node);
 	}
 	return res;
+}
+
+bool dropNodeFromPgxcNode(PGconn *activeCoon,
+						  char *executeOnNodeName,
+						  char *nodeName, bool complain)
+{
+	char *sql;
+	bool execOk;
+
+	sql = psprintf("drop node \"%s\" on (\"%s\");",
+				   nodeName,
+				   executeOnNodeName);
+	execOk = PQexecCommandSql(activeCoon, sql, false);
+	pfree(sql);
+	if (execOk)
+	{
+		ereport(LOG,
+				(errmsg("%s drop %s from pgxc_node successfully",
+						executeOnNodeName,
+						nodeName)));
+	}
+	else
+	{
+		ereport(complain ? ERROR : WARNING,
+				(errmsg("%s drop %s from pgxc_node failed",
+						executeOnNodeName,
+						nodeName)));
+	}
+	return execOk;
+}
+
+bool createNodeOnPgxcNode(PGconn *activeCoon,
+						  char *executeOnNodeName,
+						  MgrNodeWrapper *mgrNode, bool complain)
+{
+	char *sql;
+	bool execOk;
+	char *type;
+
+	if (mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+	{
+		type = "coordinator";
+	}
+	else if (mgrNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER)
+	{
+		type = "datanode";
+	}
+	else
+	{
+		ereport(complain ? ERROR : WARNING,
+				(errmsg("%s create %s on pgxc_node failed, unknow nodetype:%c",
+						executeOnNodeName,
+						NameStr(mgrNode->form.nodename),
+						mgrNode->form.nodetype)));
+		return false;
+	}
+	sql = psprintf("EXECUTE DIRECT ON (\"%s\")  "
+				   "'CREATE NODE %s WITH (TYPE=''%s'',HOST=''%s'',PORT=%d);'",
+				   executeOnNodeName,
+				   NameStr(mgrNode->form.nodename),
+				   type,
+				   mgrNode->host->hostaddr,
+				   mgrNode->form.nodeport);
+	execOk= PQexecCommandSql(activeCoon, sql, complain);
+	pfree(sql);
+	return execOk;
+}
+
+bool nodeExistsInPgxcNode(PGconn *activeCoon,
+						  char *executeOnNodeName,
+						  bool localExecute,
+						  char *nodeName,
+						  char pgxcNodeType,
+						  bool complain)
+{
+	char *sql;
+	bool exists;
+	if (localExecute)
+		sql = psprintf("select count(*) "
+					   "from pgxc_node "
+					   "where node_name = '%s' "
+					   "and node_type = '%c';",
+					   nodeName,
+					   pgxcNodeType);
+	else
+		sql = psprintf("EXECUTE DIRECT ON (\"%s\") "
+					   "'select count(*) "
+					   "from pgxc_node "
+					   "where node_name = ''%s'' "
+					   "and node_type = ''%c'' ;'",
+					   executeOnNodeName,
+					   nodeName,
+					   pgxcNodeType);
+	exists = PQexecCountSql(activeCoon, sql, complain) > 0;
+	pfree(sql);
+	return exists;
+}
+
+bool dataNodeMasterExistsInPgxcNode(PGconn *activeCoon,
+									char *executeOnNodeName,
+									bool localExecute,
+									char *nodeName,
+									bool complain)
+{
+	return nodeExistsInPgxcNode(activeCoon,
+								executeOnNodeName,
+								localExecute,
+								nodeName,
+								PGXC_NODE_DATANODE,
+								complain);
+}
+
+bool dataNodeSlaveExistsInPgxcNode(PGconn *activeCoon,
+								   char *executeOnNodeName,
+								   bool localExecute,
+								   char *nodeName,
+								   bool complain)
+{
+	return nodeExistsInPgxcNode(activeCoon,
+								executeOnNodeName,
+								localExecute,
+								nodeName,
+								PGXC_NODE_DATANODESLAVE,
+								complain);
+}
+
+bool coordinatorMasterExistsInPgxcNode(PGconn *activeCoon,
+									   char *executeOnNodeName,
+									   bool localExecute,
+									   char *nodeName,
+									   bool complain)
+{
+	return nodeExistsInPgxcNode(activeCoon,
+								executeOnNodeName,
+								localExecute,
+								nodeName,
+								PGXC_NODE_COORDINATOR,
+								complain);
 }
