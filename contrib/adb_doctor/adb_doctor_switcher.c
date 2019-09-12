@@ -171,8 +171,10 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 	MemoryContext oldContext;
 	MemoryContext switchContext;
 	MemoryContext spiContext;
+	MgrNodeWrapper mgrNodeBackup;
 
 	set_ps_display(NameStr(oldMaster->mgrNode->form.nodename), false);
+	memcpy(&mgrNodeBackup, oldMaster->mgrNode, sizeof(MgrNodeWrapper));
 
 	oldContext = CurrentMemoryContext;
 	switchContext = AllocSetContextCreate(oldContext,
@@ -241,6 +243,7 @@ static bool checkAndSwitchMaster(SwitcherNodeWrapper *oldMaster)
 	}
 	else
 	{
+		memcpy(oldMaster->mgrNode, &mgrNodeBackup, sizeof(MgrNodeWrapper));
 		SPI_FINISH_TRANSACTIONAL_ABORT();
 	}
 
@@ -419,7 +422,6 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 	}
 	if (!nodeDataInDB->form.allowcure)
 	{
-		pfreeMgrNodeWrapper(nodeDataInDB);
 		ereport(ERROR,
 				(errmsg("%s %s, cure not allowed",
 						MyBgworkerEntry->bgw_name,
@@ -428,7 +430,6 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 	if (nodeDataInDB->form.nodetype != CNDN_TYPE_DATANODE_MASTER &&
 		nodeDataInDB->form.nodetype != CNDN_TYPE_GTM_COOR_MASTER)
 	{
-		pfreeMgrNodeWrapper(nodeDataInDB);
 		ereport(ERROR,
 				(errmsg("only 'data node' or 'gtm coordinator' switching is supported")));
 	}
@@ -437,7 +438,6 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 		pg_strcasecmp(NameStr(nodeDataInDB->form.curestatus),
 					  CURE_STATUS_SWITCHING) != 0)
 	{
-		pfreeMgrNodeWrapper(nodeDataInDB);
 		ereport(ERROR,
 				(errmsg("%s %s, curestatus:%s, it is not my duty",
 						MyBgworkerEntry->bgw_name,
@@ -447,7 +447,6 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 	if (pg_strcasecmp(NameStr(nodeDataInMem->form.curestatus),
 					  NameStr(nodeDataInDB->form.curestatus)) != 0)
 	{
-		pfreeMgrNodeWrapper(nodeDataInDB);
 		ereport(ERROR,
 				(errmsg("%s %s, curestatus not matched, in memory:%s, but in database:%s",
 						MyBgworkerEntry->bgw_name,
@@ -457,7 +456,6 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 	}
 	if (!isIdenticalDoctorMgrNode(nodeDataInMem, nodeDataInDB))
 	{
-		pfreeMgrNodeWrapper(nodeDataInDB);
 		ereport(ERROR,
 				(errmsg("%s %s, data has changed in database",
 						MyBgworkerEntry->bgw_name,
