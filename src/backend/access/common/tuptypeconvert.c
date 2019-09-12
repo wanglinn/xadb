@@ -929,7 +929,8 @@ static Datum convert_array_recv(PG_FUNCTION_ARGS)
 		bool is_null = pq_getmsgbyte(buf);
 		if (is_null)
 		{
-			nullsPtr[i] = has_null = true;
+			has_null = true;
+			nullsPtr[i] = has_null;
 		}else
 		{
 			nullsPtr[i] = false;

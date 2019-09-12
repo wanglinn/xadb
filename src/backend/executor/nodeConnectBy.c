@@ -620,7 +620,7 @@ static TupleTableSlot *ExecSortConnectBy(PlanState *pstate)
 	TuplesortConnectByState *state = cbstate->private_state;
 	ExprContext *econtext = cbstate->ps.ps_ExprContext;
 	TupleTableSlot *outer_slot;
-	TupleTableSlot *inner_slot;
+	//TupleTableSlot *inner_slot;
 	TupleTableSlot *sort_slot;
 	TupleTableSlot *save_slot;
 	TupleTableSlot *result_slot;
@@ -637,7 +637,7 @@ static TupleTableSlot *ExecSortConnectBy(PlanState *pstate)
 	}
 
 	outer_slot = cbstate->outer_slot;
-	inner_slot = cbstate->inner_slot;
+	//inner_slot = cbstate->inner_slot;
 	sort_slot = state->sort_slot;
 
 re_get_tuplesort_connect_by_:

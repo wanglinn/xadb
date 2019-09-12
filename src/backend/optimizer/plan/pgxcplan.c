@@ -2868,7 +2868,7 @@ pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_di
 	List			*collected_rtable;
 	List			*tlist;
 
-	if (has_junk_tlist_entry)
+	if (has_junk_tlist_entry(query->targetList))
 		tlist = extract_nonjunk_tlist_entries(query->targetList, false);
 	else
 		tlist = query->targetList;

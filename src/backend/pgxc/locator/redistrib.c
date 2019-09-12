@@ -1114,7 +1114,7 @@ MakeMainRelTargetForShadow(Relation mainRel, Index relid, bool targetEntry)
 	List			   *result = NIL;
 	int					anum = 0;
 	int					i;
-	char			   *attname;
+	//char			   *attname;
 
 	for(i=0;i<main_desc->natts;++i)
 	{
@@ -1123,7 +1123,7 @@ MakeMainRelTargetForShadow(Relation mainRel, Index relid, bool targetEntry)
 			continue;
 
 		++anum;
-		attname = NameStr(main_attr->attname);
+		//attname = NameStr(main_attr->attname);
 
 		var = makeVar(relid, main_attr->attnum, main_attr->atttypid, main_attr->atttypmod
 						, main_attr->attcollation, 0);
@@ -1256,7 +1256,7 @@ void distrib_rewrite_catalog_swap_file(RedistribState *distribState
 	Oid relnamespace;
 	Oid reltablespace;
 	Oid childOID;
-	int flag;
+	//int flag;
 	char relpersistence = RELPERSISTENCE_TEMP;
 	char *childRelname;
 	char *childNspname;
@@ -1280,7 +1280,7 @@ void distrib_rewrite_catalog_swap_file(RedistribState *distribState
 	if (list_length(tableOIDs) > 1)
 	{
 		ClusterTocSetCustomFun(&msg, ClusterRedistributeRelation);
-		flag = EXEC_CLUSTER_FLAG_NEED_REDUCE;
+		//flag = EXEC_CLUSTER_FLAG_NEED_REDUCE;
 		remoteList = ExecClusterCustomFunction(nodeOids, &msg, 0);
 
 		foreach(lc, tableOIDs)
@@ -1335,7 +1335,7 @@ void distrib_rewrite_catalog_swap_file(RedistribState *distribState
 	/* swap source relation file with shadow relation file */
 	resetStringInfo(&msg);
 	ClusterTocSetCustomFun(&msg, ClusterRedistributeRelation);
-	flag = EXEC_CLUSTER_FLAG_NEED_REDUCE;
+	//flag = EXEC_CLUSTER_FLAG_NEED_REDUCE;
 	remoteList = ExecClusterCustomFunction(dnNodeOids, &msg, 0);
 
 	tableOIDs = find_all_inheritors(distribState->relid, AccessExclusiveLock, NULL);

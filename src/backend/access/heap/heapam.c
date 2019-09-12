@@ -81,6 +81,7 @@
 #ifdef ADB
 #include "pgxc/pgxc.h"
 #include "pgxc/slot.h"
+#include "access/hash.h"
 #endif
 
 /* GUC variable */

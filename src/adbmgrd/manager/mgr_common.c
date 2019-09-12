@@ -1731,7 +1731,7 @@ Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtyp
 	bool binit = false;
 	bool bstartcmd = false;
 	bool bstopcmd = false;
-	bool bgtmtype = false;
+	//bool bgtmtype = false;
 	int ret;
 	int iloop = 90;
 	char *host_addr;
@@ -1745,7 +1745,7 @@ Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtyp
 								|| AGT_CMD_CN_START_BACKEND == cmdtype || AGT_CMD_DN_START_BACKEND == cmdtype);
 	bstopcmd = (AGT_CMD_GTMCOOR_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND == cmdtype
 								|| AGT_CMD_CN_STOP_BACKEND == cmdtype || AGT_CMD_DN_STOP_BACKEND == cmdtype);
-	bgtmtype = (CNDN_TYPE_GTM_COOR_MASTER == nodetype || CNDN_TYPE_GTM_COOR_SLAVE == nodetype);
+	//bgtmtype = (CNDN_TYPE_GTM_COOR_MASTER == nodetype || CNDN_TYPE_GTM_COOR_SLAVE == nodetype);
 	/* stuff done only on the first call of the function */
 	if (SRF_IS_FIRSTCALL())
 	{

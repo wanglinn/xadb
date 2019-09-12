@@ -48,28 +48,28 @@
 #ifdef DRD_CONNECT
 #define DR_CONNECT_DEBUG(rest) ereport_domain(LOG_SERVER_ONLY, PG_TEXTDOMAIN("DynamicReduce"), rest)
 #else
-#define DR_CONNECT_DEBUG(rest) ((void*)0)
+#define DR_CONNECT_DEBUG(rest) ((void)true)
 #endif
 
 /* define DRD_PLAN 1 */
 #ifdef DRD_PLAN
 #define DR_PLAN_DEBUG(rest)	ereport_domain(LOG_SERVER_ONLY, PG_TEXTDOMAIN("DynamicReduce"), rest)
 #else
-#define DR_PLAN_DEBUG(rest)	((void*)0)
+#define DR_PLAN_DEBUG(rest)	((void)true)
 #endif
 
 /* #define DRD_PLAN_EOF 1 */
 #ifdef DRD_PLAN_EOF
 #define DR_PLAN_DEBUG_EOF(rest) ereport_domain(LOG_SERVER_ONLY, PG_TEXTDOMAIN("DynamicReduce"), rest)
 #else
-#define DR_PLAN_DEBUG_EOF(rest)	((void*)0)
+#define DR_PLAN_DEBUG_EOF(rest)	((void)true)
 #endif
 
 /* define DRD_NODE 1 */
 #ifdef DRD_NODE
 #define DR_NODE_DEBUG(rest)	ereport_domain(LOG_SERVER_ONLY, PG_TEXTDOMAIN("DynamicReduce"), rest)
 #else
-#define DR_NODE_DEBUG(rest)	((void*)0)
+#define DR_NODE_DEBUG(rest)	((void)true)
 #endif
 
 

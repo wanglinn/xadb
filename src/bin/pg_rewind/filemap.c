@@ -359,6 +359,9 @@ process_target_file(const char *path, file_type_t type, size_t oldsize,
 	file_entry_t *key_ptr;
 	filemap_t  *map = filemap;
 	file_entry_t *entry;
+#ifdef ADB
+	char		adbpath[MAXPGPATH];
+#endif
 
 	/*
 	 * Ignore any path matching the exclusion filters.  This is not actually
@@ -368,9 +371,6 @@ process_target_file(const char *path, file_type_t type, size_t oldsize,
 	if (check_file_excluded(path, "target"))
 		return;
 
-#ifdef ADB
-	char		adbpath[MAXPGPATH];
-#endif
 	snprintf(localpath, sizeof(localpath), "%s/%s", datadir_target, path);
 	if (lstat(localpath, &statbuf) < 0)
 	{

@@ -460,6 +460,7 @@ static void TryBackendMessage(WaitEvent *ev)
 		port_msg[0] = ADB_DR_MQ_MSG_PORT;
 		memcpy(&port_msg[1], &listen_event->port, 2);
 		DRSendMsgToBackend(port_msg, sizeof(port_msg), false);
+		MemoryContextSwitchTo(oldcontext);
 	}else if (msgtype == ADB_DR_MQ_MSG_CONNECT)
 	{
 		DRConnectNetMsg(&buf);

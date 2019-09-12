@@ -135,7 +135,7 @@ extern AGTM_Sequence agtm_SetSeqValCalled(const char *seqname, const char * data
 /*
  * agtm reset Sequence cache
  */
-extern void agtm_ResetSequenceCaches(void);
+//extern void agtm_ResetSequenceCaches(void);
 
 /*
  * get timestamp from AGTM

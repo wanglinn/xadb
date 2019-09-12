@@ -448,6 +448,7 @@ performMultipleDeletions(const ObjectAddresses *objects,
  * performRename: used to rename objects
  * on AGTM depending on another object(s)
  */
+#if 0
 static void
 doRename(const ObjectAddress *object, const char *oldname, const char *newname)
 {
@@ -482,13 +483,13 @@ doRename(const ObjectAddress *object, const char *oldname, const char *newname)
 			 break;
 	}
 }
+#endif
 
 extern void performRenameSchema(const ObjectAddress *object,
 								   const char *oldname, const char *newname)
 {
 	Relation	 depRel;
 	ObjectAddresses *targetObjects;
-	int i;
 
    /*
   	* Check the dependencies on this object

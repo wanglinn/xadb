@@ -278,7 +278,6 @@ Datum mgr_show_hba_all(PG_FUNCTION_ARGS)
 	HeapTuple tup_result;
 	HeapTuple tuple;
 	Form_mgr_node mgr_node;
-	char nodetype;
 	FuncCallContext *funcctx;
 	StringInfoData resultstrdata;
 	
@@ -338,7 +337,6 @@ Datum mgr_show_hba_all(PG_FUNCTION_ARGS)
 		hostAddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
 		user = get_hostuser_from_hostoid(mgr_node->nodehost);
 		initStringInfo(&resultstrdata);
-		nodetype = mgr_node->nodetype;
 		
 		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentport, SQL_PG_HBA_FILE_RULES
 			, user, hostAddr, mgr_node->nodeport, DEFAULT_DB, &resultstrdata);

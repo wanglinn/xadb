@@ -650,6 +650,9 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 	List	   *tlist_list;
 	List	   *tlist;
 	Path	   *path;
+#ifdef ADB
+	PlannerGlobal *glob;
+#endif /* ADB */
 
 	/*
 	 * If plain UNION, tell children to fetch all tuples.
@@ -794,7 +797,7 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 		List *all_paths = result_rel->cluster_pathlist;
 		result_rel->cluster_pathlist = NIL;
 		result_rel->cluster_partial_pathlist = NIL;
-		PlannerGlobal *glob = root->glob;
+		glob = root->glob;
 
 		foreach(lc, all_paths)
 		{

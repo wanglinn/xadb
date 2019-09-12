@@ -945,7 +945,7 @@ agtm_SetSeqValCalled(const char *seqname, const char * database,
 
 	return seq;
 }
-
+/*
 extern void
 agtm_ResetSequenceCaches(void)
 {
@@ -961,7 +961,7 @@ agtm_ResetSequenceCaches(void)
 	Assert(res);
 	agtm_use_result_type(res, &buf, AGTM_MSG_SEQUENCE_RESET_CACHE_RESULT);
 	agtm_use_result_end(res, &buf);
-}
+}*/
 
 /*
  * call pqPutMsgStart ... pqPutMsgEnd

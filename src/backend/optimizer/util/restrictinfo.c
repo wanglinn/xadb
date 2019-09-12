@@ -581,7 +581,7 @@ RestrictInfo* make_connect_by_restrictinfo(Expr *expr)
 		left_relids = left_have_prior ? pull_varnos((Node*)larg) : pull_varnos_no_prior((Node*)larg);
 
 		right_have_prior = have_prior_expr(rarg, NULL);
-		right_relids = have_prior_expr ? pull_varnos((Node*)rarg) : pull_varnos_no_prior((Node*)rarg);
+		right_relids = right_have_prior ? pull_varnos((Node*)rarg) : pull_varnos_no_prior((Node*)rarg);
 
 		ri->clause_relids = bms_union(left_relids, right_relids);
 

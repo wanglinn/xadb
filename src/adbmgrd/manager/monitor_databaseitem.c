@@ -825,7 +825,7 @@ static int64 monitor_standbydelay(char nodetype)
 	char *address;
 	char *nodetime;
 	const char *clustertime;
-	bool getnode = false;
+	//bool getnode = false;
 
 	hostrel = heap_open(HostRelationId, AccessShareLock);
 	hostrel_scan = heap_beginscan_catalog(hostrel, 0, NULL);
@@ -835,7 +835,7 @@ static int64 monitor_standbydelay(char nodetype)
 	{
 		while((hosttuple = heap_getnext(hostrel_scan, ForwardScanDirection)) != NULL)
 		{
-			getnode = false;
+			//getnode = false;
 			mgr_host = (Form_mgr_host)GETSTRUCT(hosttuple);
 			Assert(mgr_host);
 			datumaddress = heap_getattr(hosttuple, Anum_mgr_host_hostaddr, RelationGetDescr(hostrel), &isNull);

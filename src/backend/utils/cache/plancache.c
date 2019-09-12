@@ -1146,6 +1146,7 @@ static bool
 choose_custom_plan(CachedPlanSource *plansource, ParamListInfo boundParams)
 {
 	double		avg_custom_cost;
+	int 		max_custom_plan_tries;
 
 	/* One-shot plans will always be considered custom */
 	if (plansource->is_oneshot)
@@ -1165,7 +1166,7 @@ choose_custom_plan(CachedPlanSource *plansource, ParamListInfo boundParams)
 		return true;
 
 	/* Generate custom plans until we have done at least 5 (arbitrary) */
-	int max_custom_plan_tries = 5;
+	max_custom_plan_tries = 5;
 	
 #ifdef ADB_EXT
 	max_custom_plan_tries = adb_custom_plan_tries;

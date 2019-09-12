@@ -787,7 +787,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 {
 	ClusterReduceState *crstate;
 	Plan			   *outerPlan;
-	TupleDesc			tupDesc;
+	//TupleDesc			tupDesc;
 
 	Assert(outerPlan(node) != NULL);
 	Assert(innerPlan(node) == NULL);
@@ -850,7 +850,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 
 	outerPlan = outerPlan(node);
 	outerPlanState(crstate) = ExecInitNode(outerPlan, estate, eflags);
-	tupDesc = ExecGetResultType(outerPlanState(crstate));
+	//tupDesc = ExecGetResultType(outerPlanState(crstate));
 
 	estate->es_reduce_plan_inited = true;
 

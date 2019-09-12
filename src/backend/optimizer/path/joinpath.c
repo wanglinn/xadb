@@ -461,6 +461,9 @@ try_nestloop_path(PlannerInfo *root,
 	Relids		outerrelids;
 	Relids		inner_paramrels = PATH_REQ_OUTER(inner_path);
 	Relids		outer_paramrels = PATH_REQ_OUTER(outer_path);
+#ifdef ADB
+	Path 		*path;
+#endif /* ADB */
 
 	/*
 	 * Paths are parameterized by top-level parents, so run parameterization
@@ -536,7 +539,7 @@ try_nestloop_path(PlannerInfo *root,
 		}
 
 #ifdef ADB
-		Path *path = ((Path*)
+		path = ((Path*)
 #else
 		add_path(joinrel, (Path *)
 #endif /* ADB */
@@ -2017,7 +2020,7 @@ consider_parallel_nestloop(PlannerInfo *root,
 		List *inner_reduce_list;
 		List *need_reduce_list;
 		List *outer_pathlist;
-		List *outer_reduce_list;
+		//List *outer_reduce_list;
 		List *new_reduce_list;
 		List *inner_pathlist = NIL;
 		foreach(lc1, innerrel->cluster_pathlist)
@@ -2044,7 +2047,7 @@ consider_parallel_nestloop(PlannerInfo *root,
 		foreach(lc1, outer_pathlist)
 		{
 			outerpath = lfirst(lc1);
-			outer_reduce_list = get_reduce_info_list(outerpath);
+			//outer_reduce_list = get_reduce_info_list(outerpath);
 
 			set_all_join_inner_path(&jcontext, outerpath, inner_pathlist);
 			innerpath = get_cheapest_join_path(&jcontext, outerpath, TOTAL_COST, false, &new_reduce_list);
