@@ -18,8 +18,6 @@
 
 #include "lib/stringinfo.h"
 
-StringInfo ProcessNextSeqCommand(StringInfo message, StringInfo output);
-
 /*
  *  select currval('seq1') will call this fucntion.function currval('sequence') called
  *  must after nextval('sequence') called and in the same session .otherwise function

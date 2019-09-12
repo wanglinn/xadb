@@ -31,10 +31,14 @@
 static AGTM_Sequence agtm_DealSequence(const char *seqname, const char * database,
 								const char * schema, AGTM_MessageType type, AGTM_ResultType rtype);
 static PGresult* agtm_get_result(AGTM_MessageType msg_type);
+static PGresult* agtmcoord_get_result(AGTM_MessageType msg_type, const char* dbname);
 static void agtm_send_message(AGTM_MessageType msg, const char *fmt, ...)
 			__attribute__((format(PG_PRINTF_ATTRIBUTE, 2, 3)));
 
-static PGconn	*conn_gtmcoord = NULL;
+static void agtmcoord_send_message(AGTM_MessageType msg, const char* dbname, const char *fmt, ...)
+			__attribute__((format(PG_PRINTF_ATTRIBUTE, 3, 4)));
+
+static AGTM_Conn	*conn_gtmcoord = NULL;
 
 TransactionId
 agtm_GetGlobalTransactionId(bool isSubXact)
@@ -678,7 +682,94 @@ agtm_DealSequence(const char *seqname, const char * database,
 	return seq;
 }
 
-static char* agtm_get_gtmcorrdmaster_connstring(const char* dbname)
+static void agtmcoord_close(void)
+{
+	if (conn_gtmcoord)
+	{
+		if(conn_gtmcoord->pg_res)
+		{
+			PQclear(conn_gtmcoord->pg_res);
+			conn_gtmcoord->pg_res = NULL;
+		}
+
+		if (conn_gtmcoord->pg_Conn)
+		{
+			PQfinish(conn_gtmcoord->pg_Conn);
+			conn_gtmcoord->pg_Conn = NULL;
+		}
+
+		pfree(conn_gtmcoord);
+	}
+	conn_gtmcoord = NULL;
+}
+
+static void
+connect_gtmcoord_rel(const char* host, const int32 port, const char* user, const char* dbname)
+{
+	char			port_buf[10];
+	PGconn volatile	*pg_conn;
+
+	/* libpq connection keywords */
+	const char *keywords[] = {
+								"host", "port", "user",
+								"dbname", "client_encoding",
+								NULL							/* must be last */
+							 };
+
+	const char *values[]   = {
+								host, port_buf, user,
+								dbname, GetDatabaseEncodingName(),
+								NULL							/* must be last */
+							 };
+
+	snprintf(port_buf, sizeof(port_buf), "%d", port);
+	agtmcoord_close();
+
+	pg_conn = PQconnectdbParams(keywords, values, true);
+	if(pg_conn == NULL)
+		ereport(ERROR,
+			(errmsg("Fail to connect to AGTM(return NULL pointer)."),
+			 errhint("AGTM info(host=%s port=%d dbname=%s user=%s)",
+		 		host, port, dbname, user)));
+
+	PG_TRY();
+	{
+		if (PQstatus((PGconn*)pg_conn) != CONNECTION_OK)
+		{
+			ereport(ERROR,
+				(errmsg("Fail to connect to AGTM %s",
+					PQerrorMessage((PGconn*)pg_conn)),
+				 errhint("AGTM info(host=%s port=%d dbname=%s user=%s)",
+					host, port, dbname, user)));
+		}
+
+		/*
+		 * Make sure agtm_conn is null pointer.
+		 */
+		Assert(conn_gtmcoord == NULL);
+
+		if(conn_gtmcoord == NULL)
+		{
+			MemoryContext oldctx = NULL;
+
+			oldctx = MemoryContextSwitchTo(TopMemoryContext);
+			conn_gtmcoord = (AGTM_Conn *)palloc0(sizeof(AGTM_Conn));
+			conn_gtmcoord->pg_Conn = (PGconn*)pg_conn;
+			(void)MemoryContextSwitchTo(oldctx);
+		}
+	}PG_CATCH();
+	{
+		PQfinish((PGconn*)pg_conn);
+		conn_gtmcoord = NULL;
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	ereport(LOG,
+		(errmsg("Connect to AGTM(host=%s port=%d dbname=%s user=%s) successfully.",
+		host, port, dbname, user)));
+}
+
+static void get_gtmcorrdmaster_rel(const char* dbname)
 {
 	Relation		nodeRelation;
 	ScanKeyData 	skey[1];
@@ -686,7 +777,6 @@ static char* agtm_get_gtmcorrdmaster_connstring(const char* dbname)
 	HeapTuple		nodeTuple;
 	Form_pgxc_node	node_gtm;
 	char* 			user_name;
-	StringInfoData	conn_str;
 
 	user_name = GetUserNameFromId(GetUserId(), false);
 	Assert(user_name);
@@ -698,130 +788,142 @@ static char* agtm_get_gtmcorrdmaster_connstring(const char* dbname)
 				BTEqualStrategyNumber, F_BOOLEQ,
 				BoolGetDatum(true));
 
-	initStringInfo(&conn_str);
 	scan = heap_beginscan_catalog(nodeRelation, 1, skey);
-	while ((nodeTuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
-	{
-		node_gtm = (Form_pgxc_node)GETSTRUCT(nodeTuple);
-		Assert(node_gtm);
-		Assert(node_gtm->nodeis_gtm == true);
-		appendStringInfo(&conn_str, 
-						"postgresql://%s@%s:%d/%s", 
-						user_name, NameStr(node_gtm->node_host), node_gtm->node_port, dbname);
-		appendStringInfoCharMacro(&conn_str, '\0');
-	}
+	nodeTuple = heap_getnext(scan, ForwardScanDirection);
 
+	Assert(nodeTuple);
+	
+	node_gtm = (Form_pgxc_node)GETSTRUCT(nodeTuple);
+	Assert(node_gtm);
+	Assert(node_gtm->nodeis_gtm == true);
+
+	connect_gtmcoord_rel(NameStr(node_gtm->node_host), node_gtm->node_port, user_name, dbname);
+	
 	heap_endscan(scan);
 	heap_close(nodeRelation, AccessShareLock);
 
 	pfree(user_name);
-	return conn_str.data;
 }
 
-static PGconn* connect_gtmcoord(const char* dbname)
+static PGconn* get_gtmcoord_connect(const char* dbname)
 {
-	PGconn	   *conn;
-	char*		connstr = NULL;
-
-	connstr = agtm_get_gtmcorrdmaster_connstring(dbname);
-
-	Assert(connstr);
-	conn = PQconnectdb(connstr);
-	if (PQstatus(conn) == CONNECTION_BAD)
+	ConnStatusType status;
+	if (conn_gtmcoord == NULL)
 	{
-		char	   *msg = pchomp(PQerrorMessage(conn));
-		PQfinish(conn);
-		ereport(ERROR,
-				(errcode(ERRCODE_SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION),
-					errmsg("could not establish connection"),
-					errdetail_internal("%s", msg)));
+		get_gtmcorrdmaster_rel(dbname);
+
+		return conn_gtmcoord ? conn_gtmcoord->pg_Conn : NULL;
 	}
 
-	pfree(connstr);
+	status = PQstatus(conn_gtmcoord->pg_Conn);
+	if (status == CONNECTION_OK)
+		return conn_gtmcoord->pg_Conn;
 
-	return conn;
+	
+	agtmcoord_close();
+	get_gtmcorrdmaster_rel(dbname);
+
+	return conn_gtmcoord->pg_Conn;
 }
 
 AGTM_Sequence
-get_seqnextval_from_gtmcorrd(const char *seqname, const char *database)
+get_seqnextval_from_gtmcorrd(const char *seqname, const char * database,	const char * schema,
+				   int64 min, int64 max, int64 cache, int64 inc, bool cycle, int64 *cached)
 {
 	PGresult		*res;
-	StringInfoData	execsql;
-	int64			next_val;
+	AGTM_Sequence	result;
+	StringInfoData	buf;
+	int				seqNameSize;
+	int 			databaseSize;
+	int				schemaSize;
 
-	Assert(seqname != NULL && database != NULL);
-	if(seqname[0] == '\0' || database[0] == '\0')
+	Assert(seqname != NULL && database != NULL && schema != NULL);
+	if(seqname[0] == '\0' || database[0] == '\0' || schema[0] == '\0')
 		ereport(ERROR,
 				(errmsg("agtm_GetSeqNextVal parameter seqname is null")));
 	if(!IsUnderAGTM())
 		ereport(ERROR,
 				(errmsg("agtm_GetSeqNextVal function must under AGTM")));
 
-	if (!conn_gtmcoord)
-		conn_gtmcoord = connect_gtmcoord(database);
+	seqNameSize = strlen(seqname);
+	databaseSize = strlen(database);
+	schemaSize = strlen(schema);
+	agtmcoord_send_message(AGTM_MSG_SEQUENCE_GET_NEXT, database, 
+					  "%d%d %p%d %d%d %p%d %d%d %p%d" "%p%d %p%d %p%d %p%d %c",
+					  seqNameSize, 4,
+					  seqname, seqNameSize,
+					  databaseSize, 4,
+					  database, databaseSize,
+					  schemaSize, 4,
+					  schema, schemaSize,
+					  &min, (int)sizeof(min),
+					  &max, (int)sizeof(max),
+					  &cache, (int)sizeof(cache),
+					  &inc, (int)sizeof(inc),
+					  cycle);
 
-	initStringInfo(&execsql);
-	appendStringInfo(&execsql, "select nextval('%s');", seqname);
+	res = agtmcoord_get_result(AGTM_MSG_SEQUENCE_GET_NEXT, database);
+	Assert(res);
+	agtm_use_result_type(res, &buf, AGTM_SEQUENCE_GET_NEXT_RESULT);
+	
+	pq_copymsgbytes(&buf, (char*)&result, sizeof(result));
+	pq_copymsgbytes(&buf, (char*)cached, sizeof(*cached));
 
-	res = PQexec(conn_gtmcoord, execsql.data);
-	if (PQresultStatus(res) != PGRES_TUPLES_OK)
-	{
-		ereport(ERROR, (errmsg("failed to query select nextval('%s') in gtmcoord.", seqname)));
-		PQfinish(conn_gtmcoord);
-		conn_gtmcoord = NULL;
-	}
+	agtm_use_result_end(res, &buf);
 
-	Assert(1 == PQnfields(res));
-	Assert(1 == PQntuples(res));
-	next_val = pg_strtouint64(PQgetvalue(res, 0, 0), NULL, 10);
-	pfree(execsql.data);
-	PQclear(res);
-
-	return next_val;
+	return result;
 }
 
 AGTM_Sequence
-set_seqnextval_from_gtmcorrd(const char *seqname, const char * database, AGTM_Sequence nextval)
+set_seqnextval_from_gtmcorrd(const char *seqname, const char * database,
+			const char * schema, AGTM_Sequence nextval)
 {
 	PGresult		*res;
-	StringInfoData	execsql;
-	int64			next_val;
+	StringInfoData	buf;
+	AGTM_Sequence	seq;
 
-	Assert(seqname != NULL && database != NULL);
-	if(seqname[0] == '\0' || database[0] == '\0')
-		ereport(ERROR,
-				(errmsg("agtm_GetSeqNextVal parameter seqname is null")));
+	int				seqNameSize;
+	int 			databaseSize;
+	int				schemaSize;
+
+	Assert(seqname != NULL && database != NULL && schema != NULL);
+
 	if(!IsUnderAGTM())
 		ereport(ERROR,
-				(errmsg("agtm_GetSeqNextVal function must under AGTM")));
+			(errmsg("agtm_SetSeqValCalled function must under AGTM")));
 
-	if (!conn_gtmcoord)
-		conn_gtmcoord = connect_gtmcoord(database);
+	if(seqname == NULL || seqname[0] == '\0')
+		ereport(ERROR,
+			(errmsg("message type = %s, parameter seqname is null",
+			"AGTM_MSG_SEQUENCE_SET_VAL")));
 
-	initStringInfo(&execsql);
-	appendStringInfo(&execsql, "select setval('%s', %ld);", seqname, nextval);
+	seqNameSize = strlen(seqname);
+	databaseSize = strlen(database);
+	schemaSize = strlen(schema);
 
-	res = PQexec(conn_gtmcoord, execsql.data);
-	if (PQresultStatus(res) != PGRES_TUPLES_OK)
-	{
-		ereport(ERROR, (errmsg("failed to set select setval('%s', %ld) in gtmcoord.", seqname, nextval)));
-		PQfinish(conn_gtmcoord);
-		conn_gtmcoord = NULL;
-	}
+	agtmcoord_send_message(AGTM_MSG_SEQUENCE_SET_VAL, database, 
+					"%d%d %p%d %d%d %p%d %d%d %p%d" INT64_FORMAT "%c",
+					seqNameSize, 4,
+					seqname, seqNameSize,
+					databaseSize, 4,
+					database, databaseSize,
+					schemaSize, 4,
+					schema, schemaSize,
+					nextval, true);
 
-	Assert(1 == PQnfields(res));
-	Assert(1 == PQntuples(res));
-	next_val = pg_strtouint64(PQgetvalue(res, 0, 0), NULL, 10);
-	pfree(execsql.data);
-	PQclear(res);
+	res = agtmcoord_get_result(AGTM_MSG_SEQUENCE_SET_VAL, database);
+	Assert(res);
+	agtm_use_result_type(res, &buf, AGTM_SEQUENCE_SET_VAL_RESULT);
+	pq_copymsgbytes(&buf, (char*)&seq, sizeof(seq));
 
-	Assert(next_val == nextval); 
-	return next_val;
+	agtm_use_result_end(res, &buf);
+
+	return seq;
 }
 
 void disconnect_gtmcoord(int code, Datum arg)
 {
-	PQfinish(conn_gtmcoord);
+	agtmcoord_close();
 }
 
 AGTM_Sequence
@@ -963,6 +1065,132 @@ agtm_ResetSequenceCaches(void)
 	agtm_use_result_end(res, &buf);
 }*/
 
+static void agtmcoord_send_message(AGTM_MessageType msg, const char* dbname, const char *fmt, ...)
+{
+	va_list args;
+	PGconn *conn;
+	void *p;
+	int len;
+	char c;
+	AssertArg(fmt);
+
+	conn = get_gtmcoord_connect(dbname);
+
+	/* start message */
+	if(PQsendQueryStart(conn) == false
+		|| pqPutMsgStart('A', true, conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		ereport(ERROR, (errmsg("Start message for agtm failed:%s", PQerrorMessage(conn))));
+	}
+
+	va_start(args, fmt);
+	/* put AGTM message type */
+	if(pqPutInt(msg, 4, conn) < 0)
+		goto put_error_;
+
+	while(*fmt)
+	{
+		if(isspace(fmt[0]))
+		{
+			/* skip space */
+			++fmt;
+			continue;
+		}else if(fmt[0] != '%')
+		{
+			goto format_error_;
+		}
+		++fmt;
+
+		c = *fmt;
+		++fmt;
+
+		if(c == 's')
+		{
+			/* %s for string */
+			p = va_arg(args, char *);
+			len = strlen(p);
+			++len; /* include '\0' */
+			if(pqPutnchar(p, len, conn) < 0)
+				goto put_error_;
+		}else if(c == 'c')
+		{
+			/* %c for char */
+			c = (char)va_arg(args, int);
+			if(pqPutc(c, conn) < 0)
+				goto put_error_;
+		}else if(c == 'p')
+		{
+			/* %p for binary */
+			p = va_arg(args, void *);
+			/* and need other "%d" for value binary length */
+			if(fmt[0] != '%' || fmt[1] != 'd')
+				goto format_error_;
+			fmt += 2;
+			len = va_arg(args, int);
+			if(pqPutnchar(p, len, conn) < 0)
+				goto put_error_;
+		}else if(c == 'd')
+		{
+			/* %d for int */
+			int val = va_arg(args, int);
+			/* and need other "%d" for value binary length */
+			if(fmt[0] != '%' || fmt[1] != 'd')
+				goto format_error_;
+			fmt += 2;
+			len = va_arg(args, int);
+			if(pqPutInt(val, len, conn) < 0)
+				goto put_error_;
+		}else if(c == 'l')
+		{
+			if(fmt[0] == 'd')
+			{
+				long val = va_arg(args, long);
+				fmt += 1;
+				if(pqPutnchar((char*)&val, sizeof(val), conn) < 0)
+					goto put_error_;
+			}
+			else if(fmt[0] == 'l' && fmt[1] == 'd')
+			{
+				long long val = va_arg(args, long long);
+				fmt += 2;
+				if(pqPutnchar((char*)&val, sizeof(val), conn) < 0)
+					goto put_error_;
+			}
+			else
+			{
+				goto put_error_;
+			}
+		}
+		else
+		{
+			goto format_error_;
+		}
+	}
+	va_end(args);
+
+	if(pqPutMsgEnd(conn) < 0)
+	{
+		pqHandleSendFailure(conn);
+		ereport(ERROR, (errmsg("End message for agtm failed:%s", PQerrorMessage(conn))));
+	}
+
+	conn->asyncStatus = PGASYNC_BUSY;
+	return;
+
+format_error_:
+	va_end(args);
+	pqHandleSendFailure(conn);
+	ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+		, errmsg("format message error for agtm_send_message")));
+	return;
+
+put_error_:
+	va_end(args);
+	pqHandleSendFailure(conn);
+	ereport(ERROR, (errmsg("put message to AGTM error:%s", PQerrorMessage(conn))));
+	return;
+}
 /*
  * call pqPutMsgStart ... pqPutMsgEnd
  * only support:
@@ -1128,6 +1356,56 @@ agtm_PrepareResult(PGconn *conn)
 	result->attDescs[0].atttypmod = -1;
 
 	conn->result = result;
+}
+
+/*
+ * call pqFlush, pqWait, pqReadData and return agtm_GetResult
+ */
+static PGresult* agtmcoord_get_result(AGTM_MessageType msg_type, const char* dbname)
+{
+	PGconn *conn;
+	PGresult *result;
+	ExecStatusType state;
+	int res;
+
+	conn = get_gtmcoord_connect(dbname);
+	while((res=pqFlush(conn)) > 0)
+		; /* nothing todo */
+	if(res < 0)
+	{
+		pqHandleSendFailure(conn);
+		ereport(ERROR,
+			(errmsg("flush message to AGTM error:%s, message type:%s",
+			PQerrorMessage(conn), gtm_util_message_name(msg_type))));
+	}
+
+	agtm_PrepareResult(conn);
+
+	result = NULL;
+	if(pqWait(true, false, conn) != 0
+		|| pqReadData(conn) < 0
+		|| (result = PQexecFinish(conn)) == NULL)
+	{
+		PQclear(result);
+		ereport(ERROR,
+			(errmsg("read message from AGTM error:%s, message type:%s",
+			PQerrorMessage(conn), gtm_util_message_name(msg_type))));
+	}
+
+	state = PQresultStatus(result);
+	if(state == PGRES_FATAL_ERROR)
+	{
+		PQclear(result);
+		ereport(ERROR,
+				(errmsg("got error message from AGTM %s", PQresultErrorMessage(result))));
+	}else if(state != PGRES_TUPLES_OK && state != PGRES_COMMAND_OK)
+	{
+		PQclear(result);
+		ereport(ERROR,
+				(errmsg("AGTM result a \"%s\" message", PQresStatus(state))));
+	}
+
+	return result;
 }
 
 /*

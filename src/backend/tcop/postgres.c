@@ -569,10 +569,10 @@ SocketBackend(StringInfo inBuf)
 		case 'I':				/* query server info */
 			break;
 #endif /* ADB */
-#ifdef AGTM
+#ifdef ADB
 		case 'A':				/* agtm command */
 			break;
-#endif /* AGTM */
+#endif /* ADB */
 		default:
 
 			/*
@@ -5339,7 +5339,7 @@ PostgresMain(int argc, char *argv[],
 				 * is still sending data.
 				 */
 				break;
-#ifdef AGTM
+#ifdef ADB
 			case 'A':
 				{
 					/* process agtm command */

@@ -82,8 +82,8 @@ extern void seq_desc(StringInfo buf, XLogReaderState *rptr);
 extern const char *seq_identify(uint8 info);
 extern void seq_mask(char *pagedata, BlockNumber blkno);
 
-#ifdef AGTM
+#ifdef ADB
 extern int64 agtm_seq_next_value(Oid relid, int64 min, int64 max, int64 cache, int64 inc, bool cycle, int64 *cached);
-#endif /* AGTM */
+#endif /* ADB */
 
 #endif							/* SEQUENCE_H */

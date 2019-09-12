@@ -174,9 +174,11 @@ void ProcessAGtmCommand(StringInfo input_message, CommandDest dest);
 extern void parse_seqOption_to_string(List * seqOptions, StringInfo strOption);
 
 extern AGTM_Sequence
-get_seqnextval_from_gtmcorrd(const char *seqname, const char * database);
-extern AGTM_Sequence
-set_seqnextval_from_gtmcorrd(const char *seqname, const char * database, AGTM_Sequence nextval);
+get_seqnextval_from_gtmcorrd(const char *seqname, const char * database,	const char * schema,
+				   int64 min, int64 max, int64 cache, int64 inc, bool cycle, int64 *cached);
+AGTM_Sequence
+set_seqnextval_from_gtmcorrd(const char *seqname, const char * database,
+			const char * schema, AGTM_Sequence nextva);
 extern void disconnect_gtmcoord(int code, Datum arg);
 
 #endif

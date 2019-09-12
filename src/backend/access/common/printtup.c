@@ -319,7 +319,7 @@ SendRowDescriptionCols_2(StringInfo buf, TupleDesc typeinfo, List *targetlist, i
 	}
 }
 
-#ifdef AGTM
+#ifdef ADB
 static void
 printtup_prepare_info_ext(DR_printtup *myState, TupleDesc typeinfo,
 						  int numAttrs, int16 *formats);
@@ -330,6 +330,7 @@ StartupRemoteDestReceiver(DestReceiver *self, TupleDesc typeinfo, int16 *formats
 	DR_printtup *myState = (DR_printtup *) self;
 	int numAttrs = typeinfo->natts;
 
+	initStringInfo(&myState->buf);
 	myState->tmpcontext = AllocSetContextCreate(CurrentMemoryContext,
 												"printtup",
 												ALLOCSET_DEFAULT_SIZES);
@@ -345,7 +346,7 @@ static void
 printtup_prepare_info(DR_printtup *myState, TupleDesc typeinfo, int numAttrs)
 {
 	int16	   *formats = myState->portal->formats;
-#ifdef AGTM
+#ifdef ADB
 	return printtup_prepare_info_ext(myState, typeinfo, numAttrs, formats);
 }
 

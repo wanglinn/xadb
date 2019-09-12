@@ -2,333 +2,253 @@
 
 #include "access/heapam.h"
 #include "access/htup_details.h"
+#include "access/printtup.h"
 #include "catalog/agtm_sequence.h"
+#include "catalog/pg_sequence.h"
 #include "catalog/indexing.h"
+#include "catalog/namespace.h"
+#include "catalog/pg_type.h"
 #include "storage/lock.h"
+#include "agtm/agtm.h"
+#include "agtm/agtm_utils.h"
+#include "nodes/makefuncs.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
 #include "utils/tqual.h"
+#include "utils/ps_status.h"
+#include "utils/memutils.h"
+#include "libpq/pqformat.h"
 
-Oid AddAgtmSequence(const char* database,
-				const char* schema, const char* sequence)
+static	void parse_seqFullName_to_details(StringInfo message, char ** dbName, 
+							char ** schemaName, char ** sequenceName)
 {
-	Oid			oid;
-	Relation	adbSequence;
-	HeapTuple	htup;
-	Datum		values[Natts_agtm_sequence];
-	bool		nulls[Natts_agtm_sequence];
-	NameData    nameDatabase;
-	NameData    nameSchema;
-	NameData    nameSequence;
+	int	 sequenceSize = 0;
+	int  dbNameSize = 0;
+	int  schemaSize = 0;
 
-	if(database == NULL || schema == NULL || sequence == NULL)
-		ereport(ERROR,( errmsg("SequenceIsExist database schema sequence must no null")));
+	sequenceSize = pq_getmsgint(message, sizeof(sequenceSize));
+	*sequenceName = pnstrdup(pq_getmsgbytes(message, sequenceSize), sequenceSize);
+	if(sequenceSize == 0 || *sequenceName == NULL)
+		ereport(ERROR,
+			(errmsg("sequence name is null")));
 
-	MemSet(values, 0, sizeof(values));
-	MemSet(nulls, false, sizeof(nulls));
+	dbNameSize = pq_getmsgint(message, sizeof(dbNameSize));
+	*dbName = pnstrdup(pq_getmsgbytes(message, dbNameSize), dbNameSize);
+	if(dbNameSize == 0 ||  *dbName == NULL)
+		ereport(ERROR,
+			(errmsg("sequence database name is null")));
 
-	namestrcpy(&nameDatabase, database);
-	values[Anum_agtm_sequence_database - 1] = NameGetDatum(&nameDatabase);
-
-	namestrcpy(&nameSchema, schema);
-	values[Anum_agtm_sequence_schema - 1] = NameGetDatum(&nameSchema);
-
-	namestrcpy(&nameSequence, sequence);
-	values[Anum_agtm_sequence_sequence - 1] = NameGetDatum(&nameSequence);
-
-	adbSequence = heap_open(AgtmSequenceRelationId, RowExclusiveLock);
-	htup = heap_form_tuple(RelationGetDescr(adbSequence), values, nulls);
-
-	oid = CatalogTupleInsert(adbSequence, htup);
-
-	heap_close(adbSequence, RowExclusiveLock);
-
-	return oid;
+	schemaSize = pq_getmsgint(message, sizeof(schemaSize));
+	*schemaName = pnstrdup(pq_getmsgbytes(message, schemaSize), schemaSize);
+	if(schemaSize == 0 ||  *schemaName == NULL)
+		ereport(ERROR,
+			(errmsg("sequence schemaName name is null")));
 }
 
-Oid DelAgtmSequence(const char* database,
-				const char* schema, const char* sequence)
+static void
+RespondSeqToClient(int64 seq_val, AGTM_ResultType type, StringInfo output)
 {
-	Relation	adbSequence;
-	HeapTuple	htup;
-	NameData    nameDatabase;
-	NameData    nameSchema;
-	NameData    nameSequence;
-	Oid			oid;
+	pq_sendint(output, type, 4);
+	pq_sendbytes(output, (char *)&seq_val, sizeof(seq_val));
+}
 
-	if(database == NULL || schema == NULL || sequence == NULL)
-		elog(ERROR, "DelAgtmSequence database schema sequence must no null");
+static TupleTableSlot* get_agtm_command_slot(void)
+{
+	MemoryContext oldcontext;
+	static TupleTableSlot *slot = NULL;
+	static TupleDesc desc = NULL;
 
-	namestrcpy(&nameDatabase, database);
-	namestrcpy(&nameSchema, schema);
-	namestrcpy(&nameSequence, sequence);
+	if(desc == NULL)
+	{
+		TupleDesc volatile temp = NULL;
+		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+		PG_TRY();
+		{
+			temp = CreateTemplateTupleDesc(1, false);
+			TupleDescInitEntry((TupleDesc)temp, 1, "result", BYTEAOID, -1, 0);
+		}PG_CATCH();
+		{
+			if(temp)
+				FreeTupleDesc((TupleDesc)temp);
+			PG_RE_THROW();
+		}PG_END_TRY();
+		desc = (TupleDesc)temp;
+		MemoryContextSwitchTo(oldcontext);
+	}
+	if(slot == NULL)
+	{
+		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+		slot = MakeSingleTupleTableSlot(NULL);
+		ExecSetSlotDescriptor(slot, desc);
+		MemoryContextSwitchTo(oldcontext);
+	}
+	return slot;
+}
 
-	adbSequence = heap_open(AgtmSequenceRelationId, RowExclusiveLock);
+static Datum
+prase_to_agtm_sequence_name(StringInfo message)
+{
+	char* dbName = NULL;
+	char* schemaName = NULL;
+	char* sequenceName = NULL;	
+	StringInfoData	buf;
+	Oid			lineOid;
 
-	htup = SearchSysCache3(AGTMSEQUENCEFIELDS, NameGetDatum(&nameDatabase),
-		NameGetDatum(&nameSchema), NameGetDatum(&nameSequence));
+	initStringInfo(&buf);
+	parse_seqFullName_to_details(message, &dbName, &schemaName, &sequenceName);
+	lineOid = SequenceSystemClassOid(schemaName, sequenceName);
 
-	if (!HeapTupleIsValid(htup)) /* should not happen */
-		ereport(ERROR,
-			( errmsg("cache lookup failed for relation agtm_sequence, database :%s,schema :%s,sequence :%s",
-			database, schema, sequence)));
+	pfree(sequenceName);
+	pfree(dbName);
+	pfree(schemaName);
 
-	oid = HeapTupleGetOid(htup);
+	return ObjectIdGetDatum(lineOid);
+}
 
-	simple_heap_delete(adbSequence, &htup->t_self);
+static StringInfo
+ProcessNextSeqCommand(StringInfo message, StringInfo output)
+{
+	Datum	seq_name_to_oid;
+	int64	seq_val;
+	int64	min;
+	int64	max;
+	int64	cache;
+	int64	cached;
+	int64	inc;
+	bool	cycle;
 
-	ReleaseSysCache(htup);
+	seq_name_to_oid = prase_to_agtm_sequence_name(message);
+	pq_copymsgbytes(message, (char*)&min, sizeof(min));
+	pq_copymsgbytes(message, (char*)&max, sizeof(max));
+	pq_copymsgbytes(message, (char*)&cache, sizeof(cache));
+	pq_copymsgbytes(message, (char*)&inc, sizeof(inc));
+	cycle = (bool)pq_getmsgbyte(message);
+	pq_getmsgend(message);
 
-	heap_close(adbSequence, RowExclusiveLock);
+	seq_val = agtm_seq_next_value(DatumGetObjectId(seq_name_to_oid),
+								  min, max, cache, inc, cycle,
+								  &cached);
 
-	return oid;
+	/* Respond to the client */
+	RespondSeqToClient(seq_val, AGTM_SEQUENCE_GET_NEXT_RESULT, output);
+	pq_sendbytes(output, (char*)&cached, sizeof(cached));
+
+	return output;
+}
+
+static StringInfo
+ProcessSetSeqCommand(StringInfo message, StringInfo output)
+{
+	int64 seq_nextval;
+	bool  iscalled;
+	int64 seq_val;
+	Datum seq_val_datum;
+	Datum seq_name_to_oid;
+
+	seq_name_to_oid= prase_to_agtm_sequence_name(message);
+	memcpy(&seq_nextval,pq_getmsgbytes(message, sizeof(seq_nextval)),
+		sizeof (seq_nextval));	
+	iscalled = pq_getmsgbyte(message);
+	pq_getmsgend(message);
+
+	seq_val_datum = DirectFunctionCall3(setval3_oid,
+		seq_name_to_oid, seq_nextval, iscalled);
+
+	seq_val = DatumGetInt64(seq_val_datum);
+
+	/* Respond to the client */
+	RespondSeqToClient(seq_val,AGTM_SEQUENCE_SET_VAL_RESULT, output);
+
+	return output;
+}
+
+Oid SequenceSystemClassOid(char* schema, char* sequencename)
+{
+	RangeVar   *sequence;
+	Oid			relid;
+
+	sequence = makeRangeVar(schema, sequencename, -1);
+	relid = RangeVarGetRelid(sequence, NoLock, false);
+
+	return relid;
 }
 
 void
-DelAgtmSequenceByOid(Oid oid)
+ProcessAGtmCommand(StringInfo input_message, CommandDest dest)
 {
-	Relation	adbSequence;
-	HeapTuple	htup;
+	DestReceiver *receiver;
+	const char *msg_name;
+	StringInfo output;
+	AGTM_MessageType mtype;
+	StringInfoData buf;
 
-	adbSequence = heap_open(AgtmSequenceRelationId, RowExclusiveLock);
-	htup = SearchSysCache1(AGTMSEQUENCEOID,oid);
+	mtype = pq_getmsgint(input_message, sizeof (AGTM_MessageType));
+	msg_name = gtm_util_message_name(mtype);
+	set_ps_display(msg_name, true);
+	BeginCommand(msg_name, dest);
+	ereport(DEBUG1,
+		(errmsg("[ pid=%d] Process Command mtype = %s (%d).",
+		MyProcPid, msg_name, (int)mtype)));
 
-	if (!HeapTupleIsValid(htup))
-		ereport(ERROR,
-			( errmsg("cache lookup failed for relation agtm_sequence,oid :%d",oid)));
-
-	simple_heap_delete(adbSequence, &htup->t_self);
-
-	ReleaseSysCache(htup);
-	heap_close(adbSequence, RowExclusiveLock);
-}
-
-List *
-DelAgtmSequenceByDatabse(const char* database)
-{
-	Relation	adbSequence;
-	HeapTuple	htup;
-	HeapScanDesc	scan;
-	ScanKeyData key[1];
-	Oid			oid;
-	List		*list = NULL;
-
-	ScanKeyInit(&key[0]
-		,Anum_agtm_sequence_database
-		,BTEqualStrategyNumber, F_NAMEEQ
-		,CStringGetDatum(database));	/* CString compatible Name */
-
-	adbSequence = heap_open(AgtmSequenceRelationId, RowExclusiveLock);
-	scan = heap_beginscan_catalog(adbSequence, 1, key);
-
-	while ((htup = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	
+	initStringInfo(&buf);
+	buf.len = VARDATA(buf.data) - buf.data;
+	switch (mtype)
 	{
-		StringInfoData	buf;
-		initStringInfo(&buf);
-		oid = HeapTupleGetOid(htup);
-		DelAgtmSequenceByOid(oid);
-		appendStringInfo(&buf, "%s", "seq");
-		appendStringInfo(&buf, "%u", oid);
-		list = lappend(list, buf.data);
-	}
-
-	heap_endscan(scan);
-	heap_close(adbSequence, RowExclusiveLock);
-
-	return list;
-}
-
-bool SequenceIsExist(const char* database,
-				const char* schema, const char* sequence)
-{
-	NameData    nameDatabase;
-	NameData    nameSchema;
-	NameData    nameSequence;
-
-	if(database == NULL || schema == NULL || sequence == NULL)
-		ereport(ERROR,
-				( errmsg("SequenceIsExist database schema sequence must no null")));
-
-	namestrcpy(&nameDatabase, database);
-	namestrcpy(&nameSchema, schema);
-	namestrcpy(&nameSequence, sequence);
-
-	return (SearchSysCacheExists3(AGTMSEQUENCEFIELDS, NameGetDatum(&nameDatabase),
-		NameGetDatum(&nameSchema), NameGetDatum(&nameSequence)));
-}
-
-Oid SequenceSystemClassOid(const char* database,
-				const char* schema, const char* sequence)
-{
-	Oid			oid;
-	HeapTuple	htup;
-	NameData    nameDatabase;
-	NameData    nameSchema;
-	NameData    nameSequence;
-
-	if(database == NULL || schema == NULL || sequence == NULL)
-		ereport(ERROR,
-				( errmsg("SequenceIsExist database schema sequence must no null")));
-
-	namestrcpy(&nameDatabase, database);
-	namestrcpy(&nameSchema, schema);
-	namestrcpy(&nameSequence, sequence);
-
-	htup = SearchSysCache3(AGTMSEQUENCEFIELDS, NameGetDatum(&nameDatabase),
-							NameGetDatum(&nameSchema), NameGetDatum(&nameSequence));
-
-	if (!HeapTupleIsValid(htup)) /* should not happen */
-		ereport(ERROR,
-				( errmsg("cache lookup failed for relation agtm_sequence, database :%s,schema :%s,sequence :%s",
-			database, schema, sequence)));
-
-	oid = HeapTupleGetOid(htup);
-
-	ReleaseSysCache(htup);
-
-	return oid;
-}
-
-void UpdateSequenceInfo(const char* database,
-				const char* schema, const char* sequence, const char * value, AgtmNodeTag type)
-{
-	HeapTuple	htup;
-	NameData    nameDatabase;
-	NameData    nameSchema;
-	NameData    nameSequence;
-	Datum		values[Natts_agtm_sequence];
-	bool		nulls[Natts_agtm_sequence];
-	bool		doReplace[Natts_agtm_sequence];
-	Relation 	rel;
-	HeapTuple	newTuple;
-
-	if(database == NULL || schema == NULL || sequence == NULL)
-		ereport(ERROR,
-				( errmsg("SequenceIsExist database schema sequence must no null")));
-
-	MemSet(values, 0, sizeof(values));
-	MemSet(nulls, false, sizeof(nulls));
-
-	namestrcpy(&nameDatabase, database);
-	namestrcpy(&nameSchema, schema);
-	namestrcpy(&nameSequence, sequence);
-
-	htup = SearchSysCache3(AGTMSEQUENCEFIELDS, NameGetDatum(&nameDatabase),
-							NameGetDatum(&nameSchema), NameGetDatum(&nameSequence));
-
-	if (!HeapTupleIsValid(htup)) /* should not happen */
-		ereport(ERROR,
-				( errmsg("cache lookup failed for relation agtm_sequence, database :%s,schema :%s,sequence :%s",
-			database, schema, sequence)));
-
-	switch(type)
-	{
-	 	case T_AgtmSeqName:
-		{
-			namestrcpy(&nameDatabase, database);
-			values[Anum_agtm_sequence_database - 1] = NameGetDatum(&nameDatabase);
-			doReplace[Anum_agtm_sequence_database - 1] = FALSE;
-
-			namestrcpy(&nameSchema, schema);
-			values[Anum_agtm_sequence_schema - 1] = NameGetDatum(&nameSchema);
-			doReplace[Anum_agtm_sequence_schema - 1] = FALSE;
-
-			namestrcpy(&nameSequence, value);
-			values[Anum_agtm_sequence_sequence - 1] = NameGetDatum(&nameSequence);
-			doReplace[Anum_agtm_sequence_sequence - 1] = TRUE;
-
+		case AGTM_MSG_SEQUENCE_SET_VAL:
+			PG_TRY();
+			{
+				output = ProcessSetSeqCommand(input_message, &buf);
+			} PG_CATCH();
+			{
+			/*	CommitTransactionCommand();*/
+				PG_RE_THROW();
+			} PG_END_TRY();
 			break;
-	 	}
-		case T_AgtmSeqSchema:
-		{
-			namestrcpy(&nameDatabase, database);
-			values[Anum_agtm_sequence_database - 1] = NameGetDatum(&nameDatabase);
-			doReplace[Anum_agtm_sequence_database - 1] = FALSE;
 
-			namestrcpy(&nameSchema, value);
-			values[Anum_agtm_sequence_schema - 1] = NameGetDatum(&nameSchema);
-			doReplace[Anum_agtm_sequence_schema - 1] = TRUE;
-
-			namestrcpy(&nameSequence, sequence);
-			values[Anum_agtm_sequence_sequence - 1] = NameGetDatum(&nameSequence);
-			doReplace[Anum_agtm_sequence_sequence - 1] = FALSE;
-
+		case AGTM_MSG_SEQUENCE_GET_NEXT:
+			PG_TRY();
+			{
+				output = ProcessNextSeqCommand(input_message, &buf);
+			} PG_CATCH();
+			{
+			//CommitTransactionCommand();
+				PG_RE_THROW();
+			} PG_END_TRY();
 			break;
-		}
-		case T_AgtmseqDatabase:
-		{
-			namestrcpy(&nameDatabase, value);
-			values[Anum_agtm_sequence_database - 1] = NameGetDatum(&nameDatabase);
-			doReplace[Anum_agtm_sequence_database - 1] = TRUE;
 
-			namestrcpy(&nameSchema, schema);
-			values[Anum_agtm_sequence_schema - 1] = NameGetDatum(&nameSchema);
-			doReplace[Anum_agtm_sequence_schema - 1] = FALSE;
-
-			namestrcpy(&nameSequence, sequence);
-			values[Anum_agtm_sequence_sequence - 1] = NameGetDatum(&nameSequence);
-			doReplace[Anum_agtm_sequence_sequence - 1] = FALSE;
-			break;
-		}
 		default:
-		{
-			ereport(ERROR,
-				( errmsg("update sequence type error, database :%s,schema :%s,sequence :%s",
-			database, schema, sequence)));
+			ereport(FATAL,
+					(EPROTO,
+					 errmsg("[ pid=%d] invalid frontend message type %d",
+					 MyProcPid, mtype)));
 			break;
-		}
 	}
 
-	rel = heap_open(AgtmSequenceRelationId, RowExclusiveLock);
-	newTuple = heap_modify_tuple(htup, RelationGetDescr(rel), values,nulls, doReplace);
-	CatalogTupleUpdate(rel, &htup->t_self, newTuple);
-
-	ReleaseSysCache(htup);
-
-	heap_close(rel, RowExclusiveLock);
-}
-
-extern void
-UpdateSequenceDbExist(const char* oldName, const char* newName)
-{
-	Relation		adbSequence;
-	HeapTuple		htup;
-	HeapScanDesc	scan;
-	ScanKeyData 	key[1];
-
-	Assert(NULL != oldName && NULL != newName);
-
-	ScanKeyInit(&key[0],
-		Anum_agtm_sequence_database,
-		BTEqualStrategyNumber, F_NAMEEQ,
-		CStringGetDatum(oldName));	/* CString compatible Name */
-
-	adbSequence = heap_open(AgtmSequenceRelationId, RowExclusiveLock);
-	scan = heap_beginscan_catalog(adbSequence, 1, key);
-
-	while ((htup = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	if(output != NULL)
 	{
-		HeapTuple	newTuple;
-		NameData	nameDatabase;
+		TupleTableSlot *slot;
+		static int16 format = 1;
 
-		Datum		values[Natts_agtm_sequence];
-		bool		nulls[Natts_agtm_sequence];
-		bool		doReplace[Natts_agtm_sequence];
+		Assert(output->len >= VARHDRSZ);
+		SET_VARSIZE(output->data, output->len);
 
-		MemSet(values, 0, sizeof(values));
-		MemSet(nulls, 0, sizeof(nulls));
-		MemSet(doReplace, 0, sizeof(doReplace));
+		slot = ExecClearTuple(get_agtm_command_slot());
+		slot->tts_values[0] = PointerGetDatum(output->data);
+		slot->tts_isnull[0] = false;
+		ExecStoreVirtualTuple(slot);
 
-		namestrcpy(&nameDatabase, newName);
-		values[Anum_agtm_sequence_database - 1] = NameGetDatum(&nameDatabase);
-		doReplace[Anum_agtm_sequence_database - 1] = TRUE;
-
-		newTuple = heap_modify_tuple(htup, RelationGetDescr(adbSequence), values,nulls, doReplace);
-		CatalogTupleUpdate(adbSequence, &htup->t_self, newTuple);
+		receiver = CreateDestReceiver(dest);
+		if (dest == DestRemote)
+			StartupRemoteDestReceiver(receiver, slot->tts_tupleDescriptor, &format);
+		(*receiver->receiveSlot)(slot, receiver);
+		(*receiver->rShutdown)(receiver);
+		(*receiver->rDestroy)(receiver);
 	}
 
-	heap_endscan(scan);
-	heap_close(adbSequence, RowExclusiveLock);
+	EndCommand(msg_name, dest);
+
+	pfree(buf.data);
 }

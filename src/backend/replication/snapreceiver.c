@@ -23,7 +23,7 @@
 #define RESTART_STEP_MS		3000	/* 2 second */
 
 int snap_receiver_timeout = 60 * 1000L;
-int snap_sender_connect_timeout = 500L;
+int snap_sender_connect_timeout = 5000L;
 
 typedef struct SnapRcvData
 {

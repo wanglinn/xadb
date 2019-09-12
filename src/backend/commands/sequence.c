@@ -680,11 +680,7 @@ nextval_internal(Oid relid, bool check_permissions)
 	 */
 	PreventCommandIfParallelMode("nextval()");
 
-#ifdef ADB
-	if (IsGTMNode() && elm->last != elm->cached)
-#else
 	if (elm->last != elm->cached)	/* some numbers were cached */
-#endif
 	{
 		Assert(elm->last_valid);
 		Assert(elm->increment != 0);
@@ -712,13 +708,14 @@ nextval_internal(Oid relid, bool check_permissions)
 	{
 		char * seqName = NULL;
 		char * databaseName = NULL;
-		//char * schemaName = NULL;
+		char * schemaName = NULL;
 
 		seqName = RelationGetRelationName(seqrel);
 		databaseName = get_database_name(seqrel->rd_node.dbNode);
-		//schemaName = get_namespace_name(RelationGetNamespace(seqrel));
+		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
 
-		result = get_seqnextval_from_gtmcorrd(seqName, databaseName);
+		result = get_seqnextval_from_gtmcorrd(seqName, databaseName, schemaName,
+									minv, maxv, cache, incby, cycle, &elm->cached);
 		elm->last = result;
 		elm->last_valid = true;
 		elm->increment = incby;
@@ -727,7 +724,7 @@ nextval_internal(Oid relid, bool check_permissions)
 		last_used_seq = elm;
 
 		pfree(databaseName);
-		//pfree(schemaName);
+		pfree(schemaName);
 
 		return result;
 	}
@@ -916,7 +913,7 @@ nextval_internal(Oid relid, bool check_permissions)
 	return result;
 }
 
-#ifdef AGTM
+#ifdef ADB
 int64 agtm_seq_next_value(Oid relid, int64 min, int64 max, int64 cache, int64 inc, bool cycle, int64 *cached)
 {
 	HeapTuple	pgstuple;
@@ -948,7 +945,7 @@ int64 agtm_seq_next_value(Oid relid, int64 min, int64 max, int64 cache, int64 in
 
 	return result;
 }
-#endif /* AGTM */
+#endif /* ADB */
 
 Datum
 currval_oid(PG_FUNCTION_ARGS)
@@ -1165,7 +1162,7 @@ setval_oid(PG_FUNCTION_ARGS)
 		databaseName = get_database_name(seqrel->rd_node.dbNode);
 		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
 
-		set_seqnextval_from_gtmcorrd(seqName, databaseName, next);
+		set_seqnextval_from_gtmcorrd(seqName, databaseName, schemaName, next);
 		//agtm_SetSeqVal(seqName, databaseName, schemaName, next);
 		relation_close(seqrel, NoLock);
 
@@ -1191,7 +1188,7 @@ setval3_oid(PG_FUNCTION_ARGS)
 	bool		iscalled = PG_GETARG_BOOL(2);
 
 #ifdef ADB
-	if (get_rel_persistence(relid) != RELPERSISTENCE_TEMP)
+	if (get_rel_persistence(relid) != RELPERSISTENCE_TEMP && !IsGTMNode())
 	{
 		Relation	seqrel;
 		SeqTable	elm;
@@ -1207,7 +1204,8 @@ setval3_oid(PG_FUNCTION_ARGS)
 		databaseName = get_database_name(seqrel->rd_node.dbNode);
 		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
 
-		agtm_SetSeqValCalled(seqName, databaseName, schemaName, next, iscalled);
+		set_seqnextval_from_gtmcorrd(seqName, databaseName, schemaName, next);
+		//agtm_SetSeqValCalled(seqName, databaseName, schemaName, next, iscalled);
 		relation_close(seqrel, NoLock);
 
 		pfree(databaseName);

@@ -23,7 +23,7 @@ extern void SetRemoteDestReceiverParams(DestReceiver *self, Portal portal);
 extern void SendRowDescriptionMessage(StringInfo buf,
 						  TupleDesc typeinfo, List *targetlist, int16 *formats);
 
-#ifdef AGTM
+#ifdef ADB
 extern void StartupRemoteDestReceiver(DestReceiver *self, TupleDesc typeinfo,
 						  int16 *formats);
 #endif
