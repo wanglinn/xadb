@@ -447,6 +447,25 @@ void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
 	pfree(sql.data);
 }
 
+void selectMgrNodesForRepairerDoctor(MemoryContext spiContext,
+									 dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node \n"
+					 "WHERE allowcure = %d::boolean \n"
+					 "AND curestatus in ('%s') \n"
+					 "AND nodetype in ('%c') \n",
+					 true,
+					 CURE_STATUS_ISOLATED,
+					 CNDN_TYPE_COORDINATOR_MASTER);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
+
 MgrNodeWrapper *selectMgrGtmCoordNode(MemoryContext spiContext)
 {
 	dlist_head nodes = DLIST_STATIC_INIT(nodes);
@@ -2514,7 +2533,7 @@ bool createNodeOnPgxcNode(PGconn *activeCoon,
 				   type,
 				   mgrNode->host->hostaddr,
 				   mgrNode->form.nodeport);
-	execOk= PQexecCommandSql(activeCoon, sql, complain);
+	execOk = PQexecCommandSql(activeCoon, sql, complain);
 	pfree(sql);
 	return execOk;
 }

@@ -21,7 +21,8 @@ typedef enum Adb_Doctor_Type
 {
 	ADB_DOCTOR_TYPE_NODE_MONITOR = 1, /* avoid the default value 0 */
 	ADB_DOCTOR_TYPE_HOST_MONITOR,
-	ADB_DOCTOR_TYPE_SWITCHER
+	ADB_DOCTOR_TYPE_SWITCHER,
+	ADB_DOCTOR_TYPE_REPAIRER
 } Adb_Doctor_Type;
 
 typedef struct AdbDoctorBgworkerData

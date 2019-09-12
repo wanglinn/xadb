@@ -178,14 +178,14 @@ INSERT INTO adb_doctor_conf VALUES (
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_retry_follow_master_interval_ms',
-	'120000',
+	'60000',
 	'f',
 	20,
 	'In milliseconds. The time interval to retry after slave node failed to follow the master node.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_retry_rewind_interval_ms',
-	'120000',
+	'60000',
 	'f',
 	21,
 	'In milliseconds. The time interval to retry after slave node failed to rewind.'
@@ -199,7 +199,7 @@ INSERT INTO adb_doctor_conf VALUES (
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_restart_coordinator_interval_ms',
-	'30000',
+	'10000',
 	'f',
 	23,
 	'In milliseconds. The time interval to retry after coordinator restart failed.'
@@ -281,5 +281,13 @@ INSERT INTO adb_doctor_conf VALUES (
 	'30000',
 	'f',
 	34,
-	'In milliseconds. In pairs with agent_restart_delay_ms_max.'
+	'In milliseconds. In pairs with agent_restart_delay_ms_min.'
+);
+
+INSERT INTO adb_doctor_conf VALUES (
+	'retry_repair_interval_ms',
+	'30000',
+	'f',
+	35,
+	'In milliseconds. The time interval for doctor retry the repairing node if an error occurred in the previous tries.'
 );

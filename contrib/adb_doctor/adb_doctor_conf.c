@@ -75,6 +75,8 @@ void checkAdbDoctorConf(AdbDoctorConf *src)
 	CHECK_ADB_DOCTOR_CONF_MIN_MAX_MEMBER(src,
 										 agent_restart_delay_ms_min,
 										 agent_restart_delay_ms_max);
+	src->retry_repair_interval_ms =
+		LIMIT_VALUE_RANGE(1, 999999999, src->retry_repair_interval_ms);
 }
 
 bool equalsAdbDoctorConfIgnoreLock(AdbDoctorConf *conf1,
@@ -559,6 +561,10 @@ AdbDoctorConf *selectAllAdbDoctorConf(MemoryContext spiContext)
 			else if (pg_strcasecmp(keyStr, "agent_restart_delay_ms_max") == 0)
 			{
 				conf->agent_restart_delay_ms_max = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, "retry_repair_interval_ms") == 0)
+			{
+				conf->retry_repair_interval_ms = valueInt;
 			}
 			pfree(keyStr);
 			pfree(valueStr);

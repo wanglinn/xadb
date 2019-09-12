@@ -28,7 +28,8 @@ static void launcherLoop(AdbDoctorConf *conf);
 static void queryBgworkerDataAndConf(AdbDoctorConf **confP,
 									 dlist_head *monitorNodes,
 									 dlist_head *switchNodes,
-									 dlist_head *monitorHosts);
+									 dlist_head *monitorHosts,
+									 dlist_head *repairNodes);
 static char *getDoctorDisplayName(Adb_Doctor_Type type,
 								  MgrNodeWrapper *mgrNode);
 static void registerDoctorAsBgworker(AdbDoctorBgworkerStatus *bgworkerStatus,
@@ -39,6 +40,7 @@ static void launchNodeMonitorDoctors(dlist_head *monitorNodes);
 static void launchNodeMonitorDoctor(MgrNodeWrapper *mgrNode);
 static void launchSwitcherDoctor(dlist_head *nodes);
 static void launchHostMonitorDoctor(dlist_head *hosts);
+static void launchRepairerDoctor(dlist_head *nodes);
 static AdbDoctorBgworkerStatus *launchDoctor(AdbDoctorBgworkerData *bgworkerData);
 static void terminateAllDoctor(void);
 static bool equalsDoctorUniqueId(Adb_Doctor_Type type, Oid oid,
@@ -58,6 +60,9 @@ static void tryRefreshSwitcherDoctor(bool confChanged,
 static void tryRefreshHostMonitorDoctor(bool confChanged,
 										dlist_head *staleHosts,
 										dlist_head *freshHosts);
+static void tryRefreshRepairerDoctor(bool confChanged,
+									 dlist_head *staleNodes,
+									 dlist_head *freshNodes);
 
 static void handleSigterm(SIGNAL_ARGS);
 static void handleSigusr1(SIGNAL_ARGS);
@@ -69,6 +74,7 @@ static AdbDoctorConfShm *confShm;
 static dlist_head *cachedMonitorNodes;
 static dlist_head *cachedSwitchNodes;
 static dlist_head *cachedMonitorHosts;
+static dlist_head *cachedRepairNodes;
 
 static volatile sig_atomic_t gotSigterm = false;
 static volatile sig_atomic_t gotSigusr1 = false;
@@ -113,8 +119,11 @@ void adbDoctorLauncherMain(Datum main_arg)
 		dlist_init(cachedSwitchNodes);
 		cachedMonitorHosts = palloc0(sizeof(dlist_head));
 		dlist_init(cachedMonitorHosts);
+		cachedRepairNodes = palloc0(sizeof(dlist_head));
+		dlist_init(cachedRepairNodes);
 		queryBgworkerDataAndConf(&conf, cachedMonitorNodes,
-								 cachedSwitchNodes, cachedMonitorHosts);
+								 cachedSwitchNodes, cachedMonitorHosts,
+								 cachedRepairNodes);
 		if (!conf)
 			ereport(ERROR,
 					(errmsg("%s configuration failed",
@@ -132,6 +141,7 @@ void adbDoctorLauncherMain(Datum main_arg)
 		launchNodeMonitorDoctors(cachedMonitorNodes);
 		launchSwitcherDoctor(cachedSwitchNodes);
 		launchHostMonitorDoctor(cachedMonitorHosts);
+		launchRepairerDoctor(cachedRepairNodes);
 
 		/* tell backend we do it well, and cut the contact with backend */
 		if (needNotify)
@@ -200,6 +210,7 @@ static void launcherLoop(AdbDoctorConf *conf)
 	dlist_head *freshMonitorNodes;
 	dlist_head *freshSwitchNodes;
 	dlist_head *freshMonitorHosts;
+	dlist_head *freshRepairNodes;
 	while (!gotSigterm)
 	{
 		CHECK_FOR_INTERRUPTS();
@@ -231,8 +242,11 @@ static void launcherLoop(AdbDoctorConf *conf)
 		dlist_init(freshSwitchNodes);
 		freshMonitorHosts = palloc0(sizeof(dlist_head));
 		dlist_init(freshMonitorHosts);
+		freshRepairNodes = palloc0(sizeof(dlist_head));
+		dlist_init(freshRepairNodes);
 		queryBgworkerDataAndConf(&freshConf, freshMonitorNodes,
-								 freshSwitchNodes, freshMonitorHosts);
+								 freshSwitchNodes, freshMonitorHosts,
+								 freshRepairNodes);
 
 		if (equalsAdbDoctorConfIgnoreLock(conf, freshConf))
 		{
@@ -279,6 +293,13 @@ static void launcherLoop(AdbDoctorConf *conf)
 		pfreeMgrHostWrapperList(cachedMonitorHosts, NULL);
 		pfree(cachedMonitorHosts);
 		cachedMonitorHosts = freshMonitorHosts;
+
+		tryRefreshRepairerDoctor(confChanged,
+								 cachedRepairNodes,
+								 freshRepairNodes);
+		pfreeMgrNodeWrapperList(cachedRepairNodes, NULL);
+		pfree(cachedRepairNodes);
+		cachedRepairNodes = freshRepairNodes;
 	}
 }
 
@@ -301,6 +322,10 @@ static char *getDoctorDisplayName(Adb_Doctor_Type type,
 	else if (type == ADB_DOCTOR_TYPE_SWITCHER)
 	{
 		name = psprintf("antdb doctor switcher");
+	}
+	else if (type == ADB_DOCTOR_TYPE_REPAIRER)
+	{
+		name = psprintf("antdb doctor repairer");
 	}
 	else
 	{
@@ -348,6 +373,10 @@ static void registerDoctorAsBgworker(AdbDoctorBgworkerStatus *bgworkerStatus,
 	else if (type == ADB_DOCTOR_TYPE_SWITCHER)
 	{
 		sprintf(worker.bgw_function_name, ADB_DOCTOR_FUNCTION_NAME_SWITCHER);
+	}
+	else if (type == ADB_DOCTOR_TYPE_REPAIRER)
+	{
+		sprintf(worker.bgw_function_name, ADB_DOCTOR_FUNCTION_NAME_REPAIRER);
 	}
 	else
 	{
@@ -494,6 +523,25 @@ static void launchHostMonitorDoctor(dlist_head *hosts)
 	}
 }
 
+static void launchRepairerDoctor(dlist_head *nodes)
+{
+	AdbDoctorBgworkerData *bgworkerData;
+	AdbDoctorBgworkerStatus *bgworkerStatus;
+
+	if (!dlist_is_empty(nodes))
+	{
+		bgworkerData = palloc0(sizeof(AdbDoctorBgworkerData));
+		bgworkerData->type = ADB_DOCTOR_TYPE_REPAIRER;
+		bgworkerData->oid = 0;
+		bgworkerData->displayName = getDoctorDisplayName(bgworkerData->type, NULL);
+		Assert(confShm != NULL);
+		bgworkerData->commonShmHandle = dsm_segment_handle(confShm->seg);
+		bgworkerData->ready = false;
+		bgworkerStatus = launchDoctor(bgworkerData);
+		dlist_push_tail(&bgworkerStatusList, &bgworkerStatus->wi_links);
+	}
+}
+
 /**
  * the steps of launch a doctor process include:
  * setup individual bgworker data shm.
@@ -626,6 +674,11 @@ static void terminateDoctor(AdbDoctorBgworkerStatus *bgworkerStatus,
 		pfreeMgrHostWrapperList(cachedMonitorHosts, NULL);
 		dlist_init(cachedMonitorHosts);
 	}
+	else if (type == ADB_DOCTOR_TYPE_REPAIRER)
+	{
+		pfreeMgrNodeWrapperList(cachedRepairNodes, NULL);
+		dlist_init(cachedRepairNodes);
+	}
 	else
 	{
 		ereport(ERROR,
@@ -704,7 +757,8 @@ static void signalDoctorByUniqueId(Adb_Doctor_Type type,
 static void queryBgworkerDataAndConf(AdbDoctorConf **confP,
 									 dlist_head *monitorNodes,
 									 dlist_head *switchNodes,
-									 dlist_head *monitorHosts)
+									 dlist_head *monitorHosts,
+									 dlist_head *repairNodes)
 {
 	MemoryContext oldContext;
 	MemoryContext spiContext;
@@ -725,6 +779,8 @@ static void queryBgworkerDataAndConf(AdbDoctorConf **confP,
 		selectMgrNodesForSwitcherDoctor(spiContext, switchNodes);
 		/* query out all data from table mgr_host that need to be monitored */
 		selectMgrHostsForHostDoctor(spiContext, monitorHosts);
+		/* query out all data from table mgr_node that need to be repaired */
+		selectMgrNodesForRepairerDoctor(spiContext, repairNodes);
 	}
 	else
 	{
@@ -930,6 +986,38 @@ static void tryRefreshHostMonitorDoctor(bool confChanged,
 			else
 			{
 				signalDoctorByUniqueId(ADB_DOCTOR_TYPE_HOST_MONITOR,
+									   0);
+			}
+		}
+	}
+}
+
+static void tryRefreshRepairerDoctor(bool confChanged,
+									 dlist_head *staleNodes,
+									 dlist_head *freshNodes)
+{
+	if (isIdenticalDoctorMgrNodes(staleNodes, freshNodes))
+	{
+		if (confChanged)
+			signalDoctorByUniqueId(ADB_DOCTOR_TYPE_REPAIRER,
+								   0);
+	}
+	else
+	{
+		if (dlist_is_empty(freshNodes))
+		{
+			terminateDoctorByUniqueId(ADB_DOCTOR_TYPE_REPAIRER,
+									  0);
+		}
+		else
+		{
+			if (dlist_is_empty(staleNodes))
+			{
+				launchRepairerDoctor(freshNodes);
+			}
+			else
+			{
+				signalDoctorByUniqueId(ADB_DOCTOR_TYPE_REPAIRER,
 									   0);
 			}
 		}

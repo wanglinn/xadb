@@ -100,6 +100,7 @@ typedef struct AdbDoctorConf
 	int agent_heartbeat_interval_ms_max;
 	int agent_restart_delay_ms_min;
 	int agent_restart_delay_ms_max;
+	int retry_repair_interval_ms;
 } AdbDoctorConf;
 
 typedef struct AdbDoctorConfShm

@@ -33,6 +33,7 @@
 #define ADB_DOCTOR_FUNCTION_NAME_NODE_MONITOR "adbDoctorNodeMonitorMain"
 #define ADB_DOCTOR_FUNCTION_NAME_HOST_MONITOR "adbDoctorHostMonitorMain"
 #define ADB_DOCTOR_FUNCTION_NAME_SWITCHER "adbDoctorSwitcherMain"
+#define ADB_DOCTOR_FUNCTION_NAME_REPAIRER "adbDoctorRepairerMain"
 
 #define ADB_DOCTORS_LAUNCH_OK "OK"
 #define ADB_DOCTORS_LAUNCH_FAILURE "FAILURE"
@@ -45,6 +46,7 @@ extern void adbDoctorSignalLauncher(void);
 extern void adbDoctorNodeMonitorMain(Datum main_arg) pg_attribute_noreturn();
 extern void adbDoctorHostMonitorMain(Datum main_arg) pg_attribute_noreturn();
 extern void adbDoctorSwitcherMain(Datum main_arg) pg_attribute_noreturn();
+extern void adbDoctorRepairerMain(Datum main_arg) pg_attribute_noreturn();
 
 extern void cleanupAdbDoctorBgworker(dsm_segment *seg, Datum arg);
 extern void notifyAdbDoctorRegistrant(void);

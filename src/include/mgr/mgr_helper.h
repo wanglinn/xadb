@@ -346,6 +346,8 @@ extern MgrNodeWrapper *selectMgrNodeForNodeDoctor(Oid oid,
 												  MemoryContext spiContext);
 extern void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
 											dlist_head *resultList);
+extern void selectMgrNodesForRepairerDoctor(MemoryContext spiContext,
+											dlist_head *resultList);
 extern MgrNodeWrapper *selectMgrGtmCoordNode(MemoryContext spiContext);
 extern int updateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 								   char *newCurestatus,

@@ -1840,7 +1840,7 @@ static void treatFollowFailAfterSwitch(MgrNodeWrapper *followFail)
 	bool done;
 
 	/* Wait for a while, let the cluster fully return to normal */
-	pg_usleep(30L * 1000000L);
+	pg_usleep(10L * 1000000L);
 
 	while (true)
 	{
@@ -1899,7 +1899,7 @@ static void treatOldMasterAfterSwitch(MgrNodeWrapper *oldMaster)
 	bool done;
 
 	/* Wait for a while, let the cluster fully return to normal */
-	pg_usleep(30L * 1000000L);
+	pg_usleep(10L * 1000000L);
 
 	while (true)
 	{
