@@ -1195,7 +1195,10 @@ static void OnAgentMessageEvent(WaitEvent *event)
 							recvbuf.data)));
 			toConnectionStatusSucceeded(agentWrapper);
 			/* Do not close this connection.use this connection to start agent main process. */
-			restartAgent(agentWrapper, RESTART_AGENT_MODE_SEND_MESSAGE);
+			if(restartAgent(agentWrapper, RESTART_AGENT_MODE_SEND_MESSAGE))
+			{
+				resetAdbDoctorBounceNum(agentWrapper->restartFactor);
+			}
 			break;
 		}
 	}
