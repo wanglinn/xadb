@@ -90,6 +90,7 @@ static void SnapRcvProcessSnapshot(char *buf, Size len);
 static void SnapRcvProcessAssign(char *buf, Size len);
 static void SnapRcvProcessComplete(char *buf, Size len);
 static void SnapRcvProcessHeartBeat(char *buf, Size len);
+static void SnapRcvProcessUpdateXid(char *buf, Size len);
 static void WakeupTransaction(TransactionId);
 static void
 SnapRcvSendLocalNextXid(void);
@@ -582,6 +583,9 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 	case 'h':				/* heartbeat response */
 		SnapRcvProcessHeartBeat(buf, len);
 		break;
+	case 'u':				/* heartbeat response */
+		SnapRcvProcessUpdateXid(buf, len);
+		break;
 	default:
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
@@ -648,6 +652,34 @@ static void SnapRcvProcessSnapshot(char *buf, Size len)
 		pfree(xid);
 
 #undef SNAP_HDR_LEN
+}
+
+static void SnapRcvProcessUpdateXid(char *buf, Size len)
+{
+	StringInfoData	msg;
+	TransactionId	xid;
+
+	msg.data = buf;
+	msg.len = msg.maxlen = len;
+	msg.cursor = 0;
+
+	xid = pq_getmsgint64(&msg);
+	
+	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+	ereport(DEBUG2, (errmsg("SnapRcvProcessUpdateXid  %d, ShmemVariableCache->nextXid is %d\n", xid, ShmemVariableCache->nextXid)));
+	if (!NormalTransactionIdPrecedes(xid, ShmemVariableCache->nextXid))
+	{
+ 		ShmemVariableCache->nextXid = xid;
+ 		TransactionIdAdvance(ShmemVariableCache->nextXid);
+
+		ShmemVariableCache->latestCompletedXid = ShmemVariableCache->nextXid;
+		TransactionIdRetreat(ShmemVariableCache->latestCompletedXid);
+
+		LOCK_SNAP_RCV();
+		SnapRcv->latestCompletedXid = ShmemVariableCache->latestCompletedXid;
+		UNLOCK_SNAP_RCV();
+	}
+	LWLockRelease(XidGenLock);
 }
 
 static void SnapRcvProcessAssign(char *buf, Size len)

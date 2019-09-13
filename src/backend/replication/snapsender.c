@@ -145,6 +145,7 @@ static bool SnapSenderWakeupFinishXidEvent(TransactionId txid);
 //static bool SnapSenderWaitTxidFinsihEvent(TimestampTz end, WaitSnapSenderCond test, void *context);
 //static bool WaitSnapSendCondTransactionComplate(void *context);
 static void snapsenderProcessLocalMaxXid(SnapClientData *client, const char* data, int len);
+static void snapsenderUpdateNextXid(TransactionId xid, SnapClientData *exclue_client);
 
 /* Signal handlers */
 static void SnapSenderSigUsr1Handler(SIGNAL_ARGS);
@@ -328,7 +329,23 @@ static void snapsenderProcessXidFinishAck(SnapClientData *client, const char* da
 	}
 }
 
-static void snapsenderUpdateNextXid(TransactionId xid)
+static void snapsenderUpdateNextXidAllClient(TransactionId xid, SnapClientData *exclude_client)
+{
+	slist_iter siter;
+	SnapClientData *client;
+
+	slist_foreach(siter, &slist_all_client)
+	{
+		client = slist_container(SnapClientData, snode, siter.cur);
+		if (client->event_pos != exclude_client->event_pos)
+			resetStringInfo(&output_buffer);
+			pq_sendbyte(&output_buffer, 'u');
+			pq_sendint64(&output_buffer, xid);
+			AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false);
+	}
+}
+
+static void snapsenderUpdateNextXid(TransactionId xid, SnapClientData *client)
 {
 	if (!TransactionIdIsValid(xid))
 		return;
@@ -341,7 +358,18 @@ static void snapsenderUpdateNextXid(TransactionId xid)
 
 		ShmemVariableCache->latestCompletedXid = ShmemVariableCache->nextXid;
 		TransactionIdRetreat(ShmemVariableCache->latestCompletedXid);
+
+		snapsenderUpdateNextXidAllClient(xid, client);
 	}
+	/*else if (NormalTransactionIdPrecedes(xid, ShmemVariableCache->nextXid))
+	{
+		ereport(LOG, (errmsg("SnapSendersnapsenderUpdateNextXid  send  %d to client\n",  ShmemVariableCache->nextXid - 1)));
+		resetStringInfo(&output_buffer);
+		pq_sendbyte(&output_buffer, 'u');
+		pq_sendint64(&output_buffer, ShmemVariableCache->nextXid - 1);
+		AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false);
+	}*/
+	
 	LWLockRelease(XidGenLock);
 }
 
@@ -356,8 +384,8 @@ static void snapsenderProcessLocalMaxXid(SnapClientData *client, const char* dat
 	
 	while(msg.cursor < msg.len)
 	{
-		txid = pq_getmsgint(&msg, sizeof(txid));
-		snapsenderUpdateNextXid(txid);
+		txid = pq_getmsgint64(&msg);
+		snapsenderUpdateNextXid(txid, client);
 	}
 }
 
