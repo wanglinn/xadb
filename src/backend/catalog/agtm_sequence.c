@@ -11,6 +11,7 @@
 #include "storage/lock.h"
 #include "agtm/agtm.h"
 #include "agtm/agtm_utils.h"
+#include "commands/sequence.h"
 #include "nodes/makefuncs.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
