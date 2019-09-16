@@ -60,7 +60,7 @@ static NodeHandle *MakeNodeHandleEntry(Oid node_id, Name node_name,
 static NodeHandle *MakeNodeHandleEntryByTuple(HeapTuple htup);
 static void HandleAttatchPGconn(NodeHandle *handle);
 static void HandleDetachPGconn(NodeHandle *handle);
-static void GetPGconnAttatchToHandle(List *node_list, List *handle_list);
+static void GetPGconnAttatchToHandle(List *node_list, List *handle_list, bool is_report_error);
 static List *GetNodeIDList(NodeType type, bool include_self);
 static Oid *GetNodeIDArray(NodeType type, bool include_self, int *node_num);
 
@@ -385,7 +385,7 @@ GetGtmHandleList(const Oid *nodes, int nnodes,
 			handle_need = lappend(handle_need, handle);
 		}
 	}
-	GetPGconnAttatchToHandle(id_need, handle_need);
+	GetPGconnAttatchToHandle(id_need, handle_need, true);
 	list_free(id_need);
 	list_free(handle_need);
 
@@ -395,7 +395,8 @@ GetGtmHandleList(const Oid *nodes, int nnodes,
 List *
 GetNodeHandleList(const Oid *nodes, int nnodes,
 				  bool include_self, bool noerror,
-				  bool attatch, void *context, bool is_include_gtm)
+				  bool attatch, void *context,
+				  bool is_include_gtm, bool is_report_error)
 {
 	NodeHandle	   *handle;
 	List		   *handle_list = NIL;
@@ -426,7 +427,7 @@ GetNodeHandleList(const Oid *nodes, int nnodes,
 			continue;
 
 		handle_list = lappend(handle_list, handle);
-		if (attatch && PQstatus(handle->node_conn) != CONNECTION_OK)
+		if (is_report_error && attatch && PQstatus(handle->node_conn) != CONNECTION_OK)
 		{
 			/* detach old PGconn if exists */
 			HandleDetachPGconn(handle);
@@ -434,7 +435,7 @@ GetNodeHandleList(const Oid *nodes, int nnodes,
 			handle_need = lappend(handle_need, handle);
 		}
 	}
-	GetPGconnAttatchToHandle(id_need, handle_need);
+	GetPGconnAttatchToHandle(id_need, handle_need, is_report_error);
 	list_free(id_need);
 	list_free(handle_need);
 
@@ -452,7 +453,7 @@ HandleAttatchPGconn(NodeHandle *handle)
 
 		/* detach old PGconn if exists */
 		HandleDetachPGconn(handle);
-		GetPGconnAttatchToHandle(oid_list, handle_list);
+		GetPGconnAttatchToHandle(oid_list, handle_list, true);
 
 		list_free(oid_list);
 		list_free(handle_list);
@@ -518,7 +519,7 @@ PGconnResetCustomOption(PGconn *conn, CustomOption *opt)
 }
 
 static void
-GetPGconnAttatchToHandle(List *node_list, List *handle_list)
+GetPGconnAttatchToHandle(List *node_list, List *handle_list, bool is_report_error)
 {
 	const char *param_str;
 	if (node_list)
@@ -536,22 +537,31 @@ GetPGconnAttatchToHandle(List *node_list, List *handle_list)
 		{
 			handle = (NodeHandle *) lfirst(lc_handle);
 			conn = (PGconn *) lfirst(lc_conn);
+
 			if (PQstatus(conn) != CONNECTION_OK)
-				ereport(ERROR,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Fail to get connection with \"%s\"",
-						 		NameStr(handle->node_name)),
-						 errhint("%s", PQerrorMessage(conn))));
-			handle->node_conn = conn;
-			handle->node_conn->custom = handle;
-			handle->node_conn->funs = InterQueryCustomFuncs;
-			handle->is_gtm = false;
-			param_str = PQparameterStatus(conn, "adb_node_type");
-			if (param_str)
 			{
-				if (pg_strcasecmp(param_str, "gtm_coord") == 0
-						|| pg_strcasecmp(param_str, "gtm") == 0)
-					handle->is_gtm = true;
+				if (is_report_error)
+					ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+							errmsg("Fail to get connection with \"%s\"",
+								NameStr(handle->node_name)),
+							errhint("%s", PQerrorMessage(conn))));
+				list_delete(handle_list, lfirst(lc_handle));
+			}
+			
+			if (PQstatus(conn) == CONNECTION_OK)
+			{
+				handle->node_conn = conn;
+				handle->node_conn->custom = handle;
+				handle->node_conn->funs = InterQueryCustomFuncs;
+				handle->is_gtm = false;
+				param_str = PQparameterStatus(conn, "adb_node_type");
+				if (param_str)
+				{
+					if (pg_strcasecmp(param_str, "gtm_coord") == 0
+							|| pg_strcasecmp(param_str, "gtm") == 0)
+						handle->is_gtm = true;
+				}
 			}
 		}
 		list_free(conn_list);
@@ -596,7 +606,7 @@ GetMixedHandles(const List *node_list, void *context)
 			handle_need = lappend(handle_need, handle);
 		}
 	}
-	GetPGconnAttatchToHandle(id_need, handle_need);
+	GetPGconnAttatchToHandle(id_need, handle_need, true);
 	list_free(id_need);
 	list_free(handle_need);
 

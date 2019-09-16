@@ -4790,7 +4790,8 @@ PostgresMain(int argc, char *argv[],
 		ResetNodeExecutor();
 
 		/* Make sure the old PGconn will dump the trash data */
-		PQNReleaseAllConnect(false);
+		PQNForceReleaseWhenTransactionFinish();
+		PQNReleaseAllConnect(true);
 
 		ResetDynamicReduceWork();
 #endif

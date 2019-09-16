@@ -903,10 +903,10 @@ InterXactTwoPhase(const char *gid, Oid *nodes, int nnodes, TwoPhaseState tp_stat
 	char * volatile command = NULL;
 	const char	   *command_tag;
 
-	handle_list = GetNodeHandleList(nodes, nnodes, false, false, true, NULL, true);
+	handle_list = GetNodeHandleList(nodes, nnodes, false, false, true, NULL, true, tp_flags & INTER_TWO_PHASE_NO_ERROR ? false : true);
 	if (!handle_list)
-		return ;
-	
+		return;
+
 	PG_TRY();
 	{
 		command_tag = InterXactGetTransactionSQL(tp_state,

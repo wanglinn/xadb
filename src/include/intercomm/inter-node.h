@@ -65,7 +65,8 @@ extern void AtStart_NodeExecutor(void);
 extern NodeHandle *GetNodeHandle(Oid node_id, bool attatch, void *context);
 extern List *GetNodeHandleList(const Oid *nodes, int nnodes,
 						   bool include_self, bool noerror,
-						   bool attatch, void *context, bool is_include_gtm);
+						   bool attatch, void *context,
+						   bool is_include_gtm, bool is_report_error);
 extern List *
 GetGtmHandleList(const Oid *nodes, int nnodes,
 				  bool include_self, bool noerror,
