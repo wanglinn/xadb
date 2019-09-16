@@ -2600,8 +2600,6 @@ CommitTransaction(void)
 	 */
 	if (use_2pc_commit)
 		EndCommitRemoteXact(s);
-	else if(OidIsValid(generated_tx_node))
-		InterXactRecvCommit(NULL, &generated_tx_node, 1, false, false);
 #endif /* ADB */
 
 	/*
@@ -2742,6 +2740,19 @@ CommitTransaction(void)
 	 * default
 	 */
 	s->state = TRANS_DEFAULT;
+
+#ifdef ADB
+	if (use_2pc_commit == false &&
+		OidIsValid(generated_tx_node))
+	{
+		/*
+		 * this code must after "s->state = TRANS_DEFAULT"
+		 * because when we get an error, top loop will be call AbortCurrentTransaction
+		 * but we called RecordTransactionCommit(), it can not be abort, will got an FATAL message
+		 */
+		InterXactRecvCommit(NULL, &generated_tx_node, 1, false, false);
+	}
+#endif /* ADB */
 
 	RESUME_INTERRUPTS();
 }
