@@ -259,6 +259,9 @@ bool DRPlanSeqInit(HASH_SEQ_STATUS *seq);
 
 void DRClearPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi);
 void DRClearPlanInfo(PlanInfo *pi);
+void OnDefaultPlanPreWait(PlanInfo *pi);
+void OnDefaultPlanLatch(PlanInfo *pi);
+void OnDefaultPlanIdleNode(PlanInfo *pi, WaitEvent *w, DRNodeEventData *ned);
 
 
 /* normal plan functions in plan_normal.c */

@@ -466,3 +466,55 @@ void DRClearPlanInfo(PlanInfo *pi)
 		pi->seg = NULL;
 	}
 }
+
+void OnDefaultPlanPreWait(PlanInfo *pi)
+{
+	PlanWorkerInfo *pwi = pi->pwi;
+	if (pwi->end_of_plan_recv &&
+		pwi->end_of_plan_send &&
+		pwi->last_msg_type == ADB_DR_MSG_INVALID &&
+		pwi->sendBuffer.len == 0)
+		(*pi->OnDestroy)(pi);
+}
+
+void OnDefaultPlanLatch(PlanInfo *pi)
+{
+	PlanWorkerInfo *pwi;
+	uint32			msg_type;
+
+	pwi = pi->pwi;
+	if (DRSendPlanWorkerMessage(pwi, pi))
+		DRActiveNode(pi->plan_id);
+
+	while (pwi->waiting_node == InvalidOid &&
+		   pwi->end_of_plan_recv == false &&
+		   pwi->last_msg_type == ADB_DR_MSG_INVALID)
+	{
+		if (DRRecvPlanWorkerMessage(pwi, pi) == false)
+			break;
+		msg_type = pwi->last_msg_type;
+
+		if (msg_type == ADB_DR_MSG_END_OF_PLAN)
+		{
+			pwi->end_of_plan_recv = true;
+			DRGetEndOfPlanMessage(pi, pwi);
+		}else
+		{
+			Assert(msg_type == ADB_DR_MSG_TUPLE);
+		}
+
+		/* send message to remote */
+		DRSendWorkerMsgToNode(pwi, pi, NULL);
+	}
+}
+
+void OnDefaultPlanIdleNode(PlanInfo *pi, WaitEvent *w, DRNodeEventData *ned)
+{
+	PlanWorkerInfo *pwi = pi->pwi;;
+	if (pwi->last_msg_type == ADB_DR_MSG_INVALID)
+		return;
+	if (pwi->dest_oids[pwi->dest_cursor] != ned->nodeoid)
+		return;
+
+	DRSendWorkerMsgToNode(pwi, pi, ned);
+}

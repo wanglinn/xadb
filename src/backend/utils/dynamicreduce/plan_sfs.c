@@ -19,9 +19,7 @@ typedef struct OidBufFile
 static void ClearSFSPlanInfo(PlanInfo *pi);
 static bool OnSFSPlanConvertMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid);
 static bool OnSFSPlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid);
-static void OnSFSPlanIdleNode(PlanInfo *pi, WaitEvent *we, DRNodeEventData *ned);
 static bool OnSFSPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid);
-static void OnSFSPlanPreWait(PlanInfo *pi);
 static void OnSFSPlanLatch(PlanInfo *pi);
 static void CreateOidBufFiles(PlanInfo *pi, DynamicReduceSFS sfs);
 static void DestroyOidBufFiles(void *ptr);
@@ -109,17 +107,6 @@ TupleTableSlot *DynamicReduceReadSFSTuple(TupleTableSlot *slot, BufFile *file, S
 	return ExecStoreMinimalTuple(mtup, slot, false);
 }
 
-static void OnSFSPlanIdleNode(PlanInfo *pi, WaitEvent *we, DRNodeEventData *ned)
-{
-	PlanWorkerInfo *pwi = pi->pwi;;
-	if (pwi->last_msg_type == ADB_DR_MSG_INVALID)
-		return;
-	if (pwi->dest_oids[pwi->dest_cursor] != ned->nodeoid)
-		return;
-
-	DRSendWorkerMsgToNode(pwi, pi, ned);
-}
-
 static bool OnSFSPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
 {
 	PlanWorkerInfo *pwi = pi->pwi;
@@ -139,16 +126,6 @@ static bool OnSFSPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
 	}
 	return true;
 
-}
-
-static void OnSFSPlanPreWait(PlanInfo *pi)
-{
-	PlanWorkerInfo *pwi = pi->pwi;
-	if (pwi->end_of_plan_recv &&
-		pwi->end_of_plan_send &&
-		pwi->last_msg_type == ADB_DR_MSG_INVALID &&
-		pwi->sendBuffer.len == 0)
-		ClearSFSPlanInfo(pi);
 }
 
 static void OnSFSPlanLatch(PlanInfo *pi)
@@ -220,10 +197,10 @@ void DRStartSFSPlanMessage(StringInfo msg)
 
 		pi->OnNodeRecvedData = pi->type_convert ? OnSFSPlanConvertMessage:OnSFSPlanMessage;
 		pi->OnLatchSet = OnSFSPlanLatch;
-		pi->OnNodeIdle = OnSFSPlanIdleNode;
+		pi->OnNodeIdle = OnDefaultPlanIdleNode;
 		pi->OnNodeEndOfPlan = OnSFSPlanNodeEndOfPlan;
 		pi->OnPlanError = ClearSFSPlanInfo;
-		pi->OnPreWait = OnSFSPlanPreWait;
+		pi->OnPreWait = OnDefaultPlanPreWait;
 
 		MemoryContextSwitchTo(oldcontext);
 		DR_PLAN_DEBUG((errmsg("SFS plan %d(%p) stared", pi->plan_id, pi)));

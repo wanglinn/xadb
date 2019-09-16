@@ -9,9 +9,7 @@
 #include "utils/dynamicreduce.h"
 #include "utils/dr_private.h"
 
-static void OnNormalPlanLatch(PlanInfo *pi);
 static bool OnNormalPlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid);
-static void OnNormalPlanIdleNode(PlanInfo *pi, WaitEvent *we, DRNodeEventData *ned);
 static bool OnNormalPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid);
 
 static void ClearNormalPlanInfo(PlanInfo *pi)
@@ -27,47 +25,6 @@ static void ClearNormalPlanInfo(PlanInfo *pi)
 		pi->pwi = NULL;
 	}
 	DRClearPlanInfo(pi);
-}
-
-static void OnNormalPlanPreWait(PlanInfo *pi)
-{
-	PlanWorkerInfo *pwi = pi->pwi;
-	if (pwi->end_of_plan_recv &&
-		pwi->end_of_plan_send &&
-		pwi->last_msg_type == ADB_DR_MSG_INVALID &&
-		pwi->sendBuffer.len == 0)
-		ClearNormalPlanInfo(pi);
-}
-
-static void OnNormalPlanLatch(PlanInfo *pi)
-{
-	PlanWorkerInfo *pwi;
-	uint32			msg_type;
-
-	pwi = pi->pwi;
-	if (DRSendPlanWorkerMessage(pwi, pi))
-		DRActiveNode(pi->plan_id);
-
-	while (pwi->waiting_node == InvalidOid &&
-		   pwi->end_of_plan_recv == false &&
-		   pwi->last_msg_type == ADB_DR_MSG_INVALID)
-	{
-		if (DRRecvPlanWorkerMessage(pwi, pi) == false)
-			break;
-		msg_type = pwi->last_msg_type;
-
-		if (msg_type == ADB_DR_MSG_END_OF_PLAN)
-		{
-			pwi->end_of_plan_recv = true;
-			DRGetEndOfPlanMessage(pi, pwi);
-		}else
-		{
-			Assert(msg_type == ADB_DR_MSG_TUPLE);
-		}
-
-		/* send message to remote */
-		DRSendWorkerMsgToNode(pwi, pi, NULL);
-	}
 }
 
 static bool OnNormalPlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid)
@@ -109,17 +66,6 @@ static bool OnNormalPlanMessage(PlanInfo *pi, const char *data, int len, Oid nod
 	DRSendPlanWorkerMessage(pwi, pi);
 
 	return true;
-}
-
-static void OnNormalPlanIdleNode(PlanInfo *pi, WaitEvent *we, DRNodeEventData *ned)
-{
-	PlanWorkerInfo *pwi = pi->pwi;;
-	if (pwi->last_msg_type == ADB_DR_MSG_INVALID)
-		return;
-	if (pwi->dest_oids[pwi->dest_cursor] != ned->nodeoid)
-		return;
-
-	DRSendWorkerMsgToNode(pwi, pi, ned);
 }
 
 static bool OnNormalPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
@@ -174,12 +120,12 @@ void DRStartNormalPlanMessage(StringInfo msg)
 		CurrentResourceOwner = oldowner;
 		DRSetupPlanWorkTypeConvert(pi, pwi);
 
-		pi->OnLatchSet = OnNormalPlanLatch;
+		pi->OnLatchSet = OnDefaultPlanLatch;
 		pi->OnNodeRecvedData = OnNormalPlanMessage;
-		pi->OnNodeIdle = OnNormalPlanIdleNode;
+		pi->OnNodeIdle = OnDefaultPlanIdleNode;
 		pi->OnNodeEndOfPlan = OnNormalPlanNodeEndOfPlan;
 		pi->OnPlanError = ClearNormalPlanInfo;
-		pi->OnPreWait = OnNormalPlanPreWait;
+		pi->OnPreWait = OnDefaultPlanPreWait;
 
 		MemoryContextSwitchTo(oldcontext);
 		DR_PLAN_DEBUG((errmsg("normal plan %d(%p) stared", pi->plan_id, pi)));
