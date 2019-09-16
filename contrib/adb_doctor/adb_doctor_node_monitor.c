@@ -218,8 +218,6 @@ static void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
 static bool setMgrNodeGtmInfo(MgrNodeWrapper *mgrNode);
 static void coordinatorCrashed(MonitorNodeInfo *nodeInfo);
 static void isolateNode(MonitorNodeInfo *nodeInfo);
-static int updateMgrNodeToIsolate(MgrNodeWrapper *mgrNode,
-								  MemoryContext spiContext);
 
 static void handleSigterm(SIGNAL_ARGS);
 static void handleSigusr1(SIGNAL_ARGS);
@@ -2516,7 +2514,7 @@ static void isolateNode(MonitorNodeInfo *nodeInfo)
 	if (updateMgrNodeToIsolate(nodeInfo->mgrNode, spiContext) == 1)
 	{
 		ereport(LOG,
-				(errmsg("%s has been isolated",
+				(errmsg("%s curestatus has been updated to isolated",
 						NameStr(nodeInfo->mgrNode->form.nodename))));
 		SPI_FINISH_TRANSACTIONAL_COMMIT();
 		notifyAdbDoctorRegistrant();
@@ -2527,41 +2525,6 @@ static void isolateNode(MonitorNodeInfo *nodeInfo)
 		SPI_FINISH_TRANSACTIONAL_ABORT();
 		resetNodeMonitor();
 	}
-}
-
-static int updateMgrNodeToIsolate(MgrNodeWrapper *mgrNode,
-								  MemoryContext spiContext)
-{
-	StringInfoData buf;
-	int spiRes;
-	uint64 rows;
-	MemoryContext oldCtx;
-
-	initStringInfo(&buf);
-	appendStringInfo(&buf,
-					 "update pg_catalog.mgr_node  \n"
-					 "set curestatus = '%s', \n"
-					 "nodeinited = %d::boolean, \n"
-					 "nodeincluster = %d::boolean \n"
-					 "WHERE oid = %u \n"
-					 "and curestatus = '%s' \n"
-					 "and nodetype = '%c' \n",
-					 CURE_STATUS_ISOLATED,
-					 false,
-					 false,
-					 mgrNode->oid,
-					 NameStr(mgrNode->form.curestatus),
-					 mgrNode->form.nodetype);
-	oldCtx = MemoryContextSwitchTo(spiContext);
-	spiRes = SPI_execute(buf.data, false, 0);
-	MemoryContextSwitchTo(oldCtx);
-	pfree(buf.data);
-	if (spiRes != SPI_OK_UPDATE)
-		ereport(ERROR,
-				(errmsg("SPI_execute failed: error code %d",
-						spiRes)));
-	rows = SPI_processed;
-	return rows;
 }
 
 /*

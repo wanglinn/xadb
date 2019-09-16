@@ -545,4 +545,5 @@ extern uint64 updateAllowcureOfMgrNode(char *nodename, char nodetype, bool allow
 extern uint64 updateAllowcureOfMgrHosts(List *hostnames, bool allowcure);
 extern uint64 updateAllowcureOfMgrHost(char *hostname, bool allowcure);
 
+extern void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, GetAgentCmdRst *getAgentCmdRst);
 #endif /* MGR_CMDS_H */

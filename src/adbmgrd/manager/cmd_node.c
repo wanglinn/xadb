@@ -160,7 +160,6 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnname, int cndnport, char *hostaddress, Relation noderel, GetAgentCmdRst *getAgentCmdRst, HeapTuple aimtuple, char *cndnPath, char aimtuplenodetype, PGconn **pg_conn, Oid cnoid);
 static void mgr_get_parent_appendnodeinfo(Oid nodemasternameoid, AppendNodeInfo *parentnodeinfo);
 static char *get_temp_file_name(void);
-static void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, GetAgentCmdRst *getAgentCmdRst);
 static Datum mgr_prepare_clean_all(PG_FUNCTION_ARGS);
 static bool mgr_node_has_slave(Relation rel, Oid mastertupleoid);
 static void mgr_set_master_sync(void);
@@ -8078,7 +8077,7 @@ Datum mgr_clean_node(PG_FUNCTION_ARGS)
 
 }
 /*clean the node folder*/
-static void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, GetAgentCmdRst *getAgentCmdRst)
+void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, GetAgentCmdRst *getAgentCmdRst)
 {
 	StringInfoData infosendmsg;
 	StringInfoData clean_tablespace_sendmsg;

@@ -456,9 +456,13 @@ void selectMgrNodesForRepairerDoctor(MemoryContext spiContext,
 	appendStringInfo(&sql,
 					 "SELECT * \n"
 					 "FROM pg_catalog.mgr_node \n"
-					 "WHERE allowcure = %d::boolean \n"
+					 "WHERE nodeinited = %d::boolean \n"
+					 "AND nodeincluster = %d::boolean \n"
+					 "AND allowcure = %d::boolean \n"
 					 "AND curestatus in ('%s') \n"
 					 "AND nodetype in ('%c') \n",
+					 false,
+					 false,
 					 true,
 					 CURE_STATUS_ISOLATED,
 					 CNDN_TYPE_COORDINATOR_MASTER);
@@ -524,6 +528,76 @@ int updateMgrNodeAfterFollowMaster(MgrNodeWrapper *mgrNode,
 					 "and nodetype = '%c' \n",
 					 newCurestatus,
 					 NameStr(mgrNode->form.nodesync),
+					 mgrNode->oid,
+					 NameStr(mgrNode->form.curestatus),
+					 mgrNode->form.nodetype);
+	oldCtx = MemoryContextSwitchTo(spiContext);
+	spiRes = SPI_execute(buf.data, false, 0);
+	MemoryContextSwitchTo(oldCtx);
+	pfree(buf.data);
+	if (spiRes != SPI_OK_UPDATE)
+		ereport(ERROR,
+				(errmsg("SPI_execute failed: error code %d",
+						spiRes)));
+	rows = SPI_processed;
+	return rows;
+}
+
+int updateMgrNodeToIsolate(MgrNodeWrapper *mgrNode,
+						   MemoryContext spiContext)
+{
+	StringInfoData buf;
+	int spiRes;
+	uint64 rows;
+	MemoryContext oldCtx;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf,
+					 "update pg_catalog.mgr_node  \n"
+					 "set curestatus = '%s', \n"
+					 "nodeinited = %d::boolean, \n"
+					 "nodeincluster = %d::boolean \n"
+					 "WHERE oid = %u \n"
+					 "and curestatus = '%s' \n"
+					 "and nodetype = '%c' \n",
+					 CURE_STATUS_ISOLATED,
+					 false,
+					 false,
+					 mgrNode->oid,
+					 NameStr(mgrNode->form.curestatus),
+					 mgrNode->form.nodetype);
+	oldCtx = MemoryContextSwitchTo(spiContext);
+	spiRes = SPI_execute(buf.data, false, 0);
+	MemoryContextSwitchTo(oldCtx);
+	pfree(buf.data);
+	if (spiRes != SPI_OK_UPDATE)
+		ereport(ERROR,
+				(errmsg("SPI_execute failed: error code %d",
+						spiRes)));
+	rows = SPI_processed;
+	return rows;
+}
+
+int updateMgrNodeToUnIsolate(MgrNodeWrapper *mgrNode,
+							 MemoryContext spiContext)
+{
+	StringInfoData buf;
+	int spiRes;
+	uint64 rows;
+	MemoryContext oldCtx;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf,
+					 "update pg_catalog.mgr_node  \n"
+					 "set curestatus = '%s', \n"
+					 "nodeinited = %d::boolean, \n"
+					 "nodeincluster = %d::boolean \n"
+					 "WHERE oid = %u \n"
+					 "and curestatus = '%s' \n"
+					 "and nodetype = '%c' \n",
+					 CURE_STATUS_NORMAL,
+					 true,
+					 true,
 					 mgrNode->oid,
 					 NameStr(mgrNode->form.curestatus),
 					 mgrNode->form.nodetype);
@@ -2548,21 +2622,47 @@ bool nodeExistsInPgxcNode(PGconn *activeCoon,
 	char *sql;
 	bool exists;
 	if (localExecute)
-		sql = psprintf("select count(*) "
-					   "from pgxc_node "
-					   "where node_name = '%s' "
-					   "and node_type = '%c';",
-					   nodeName,
-					   pgxcNodeType);
+	{
+		if (pgxcNodeType > 0)
+		{
+			sql = psprintf("select count(*) "
+						   "from pgxc_node "
+						   "where node_name = '%s' "
+						   "and node_type = '%c';",
+						   nodeName,
+						   pgxcNodeType);
+		}
+		else
+		{
+			sql = psprintf("select count(*) "
+						   "from pgxc_node "
+						   "where node_name = '%s'; ",
+						   nodeName);
+		}
+	}
 	else
-		sql = psprintf("EXECUTE DIRECT ON (\"%s\") "
-					   "'select count(*) "
-					   "from pgxc_node "
-					   "where node_name = ''%s'' "
-					   "and node_type = ''%c'' ;'",
-					   executeOnNodeName,
-					   nodeName,
-					   pgxcNodeType);
+	{
+		if (pgxcNodeType > 0)
+		{
+			psprintf("EXECUTE DIRECT ON (\"%s\") "
+					 "'select count(*) "
+					 "from pgxc_node "
+					 "where node_name = ''%s'' "
+					 "and node_type = ''%c'' ;'",
+					 executeOnNodeName,
+					 nodeName,
+					 pgxcNodeType);
+		}
+		else
+		{
+			psprintf("EXECUTE DIRECT ON (\"%s\") "
+					 "'select count(*) "
+					 "from pgxc_node "
+					 "where node_name = ''%s'' ;'",
+					 executeOnNodeName,
+					 nodeName);
+		}
+	}
 	exists = PQexecCountSql(activeCoon, sql, complain) > 0;
 	pfree(sql);
 	return exists;
@@ -2608,4 +2708,25 @@ bool coordinatorMasterExistsInPgxcNode(PGconn *activeCoon,
 								nodeName,
 								PGXC_NODE_COORDINATOR,
 								complain);
+}
+
+char getMappedPgxcNodetype(char mgrNodetype)
+{
+	if (mgrNodetype == CNDN_TYPE_DATANODE_MASTER)
+	{
+		return PGXC_NODE_DATANODE;
+	}
+	else if (mgrNodetype == CNDN_TYPE_DATANODE_MASTER)
+	{
+		return PGXC_NODE_DATANODESLAVE;
+	}
+	else if (mgrNodetype == CNDN_TYPE_COORDINATOR_MASTER ||
+			 mgrNodetype == CNDN_TYPE_GTM_COOR_MASTER)
+	{
+		return PGXC_NODE_COORDINATOR;
+	}
+	else
+	{
+		return PGXC_NODE_NONE;
+	}
 }

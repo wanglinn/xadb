@@ -355,6 +355,10 @@ extern int updateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 extern int updateMgrNodeAfterFollowMaster(MgrNodeWrapper *mgrNode,
 										  char *newCurestatus,
 										  MemoryContext spiContext);
+extern int updateMgrNodeToIsolate(MgrNodeWrapper *mgrNode,
+								  MemoryContext spiContext);
+extern int updateMgrNodeToUnIsolate(MgrNodeWrapper *mgrNode,
+								  MemoryContext spiContext);
 extern void selectMgrHosts(char *sql,
 						   MemoryContext spiContext,
 						   dlist_head *resultList);
@@ -496,7 +500,7 @@ extern bool createNodeOnPgxcNode(PGconn *activeCoon,
 extern bool nodeExistsInPgxcNode(PGconn *activeCoon,
 								 char *executeOnNodeName,
 								 bool localExecute,
-								 char *dataNodeName,
+								 char *nodeName,
 								 char pgxcNodeType,
 								 bool complain);
 extern bool dataNodeMasterExistsInPgxcNode(PGconn *activeCoon,
@@ -514,4 +518,5 @@ extern bool coordinatorMasterExistsInPgxcNode(PGconn *activeCoon,
 											  bool localExecute,
 											  char *nodeName,
 											  bool complain);
+extern char getMappedPgxcNodetype(char mgrNodetype);
 #endif /* MGR_HELPER_H */
