@@ -4437,7 +4437,12 @@ void SerializeActiveTransactionIds(StringInfo buf)
 		TransactionId xid = (TransactionId)(*((volatile TransactionId*)&pgxact->xid));
 		if (TransactionIdIsNormal(xid))
 			xids[count++] = xid;
+		
+		ereport(LOG,(errmsg("SnapSend init sync xid %d\n",
+			 			xid)));
 	}
+	ereport(LOG,(errmsg("SnapSend init sync total %d xid\n",
+			 			count)));
 	LWLockRelease(ProcArrayLock);
 
 	pq_sendint32(buf, latestCompletedXid);

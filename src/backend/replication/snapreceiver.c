@@ -633,6 +633,14 @@ static void SnapRcvProcessSnapshot(char *buf, Size len)
 		xid = NULL;
 	}
 
+#ifdef SNAP_SYNC_DEBUG
+	for(i =0 ; i < count; i++)
+	{
+		ereport(LOG,(errmsg("snaprcv init sync get xid %d\n", xid[i])));
+	}
+	ereport(LOG,(errmsg("snaprcv init sync toal %d xid\n", count)));
+#endif
+
 	LOCK_SNAP_RCV();
 	SnapRcv->latestCompletedXid = latestCompletedXid;
 	if (count > 0)

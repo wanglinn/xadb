@@ -563,8 +563,9 @@ static void GxidRcvProcessCommit(char *buf, Size len)
 		txid = pq_getmsgint(&msg, sizeof(txid));
 
 		Assert(TransactionIdIsValid(txid));
-
-		ereport(DEBUG2,(errmsg("GxidRcv  rcv finish xid %d for %d\n", txid, procno)));
+#ifdef SNAP_SYNC_DEBUG
+		ereport(LOG,(errmsg("GxidRcv  rcv finish xid %d for %d\n", txid, procno)));
+#endif
 
 		found = false;
 		proclist_foreach_modify(iter, &GxidRcv->wait_commiters, GxidWaitLink)
@@ -604,7 +605,9 @@ static void GxidRcvProcessAssign(char *buf, Size len)
 		txid = pq_getmsgint(&msg, sizeof(txid));
 
 		Assert(TransactionIdIsValid(txid));
-		ereport(DEBUG2,(errmsg("GxidRcv  rcv assing xid %d for %d\n", txid, procno)));
+#ifdef SNAP_SYNC_DEBUG
+		ereport(LOG,(errmsg("GxidRcv  rcv assing xid %d for %d\n", txid, procno)));
+#endif
 
 		found = false;
 		proclist_foreach_modify(iter, &GxidRcv->reters, GxidWaitLink)
@@ -804,9 +807,11 @@ GxidRcvProcessAssignList(void)
 	proclist_foreach_modify(iter_gets, &GxidRcv->geters, GxidWaitLink)
 	{
 		pq_sendint32(&reply_message, iter_gets.cur);
-
-		ereport(DEBUG2,(errmsg("GxidRcv assing xid for %d\n",
+#ifdef SNAP_SYNC_DEBUG
+		ereport(LOG,(errmsg("GxidRcv assing xid for %d\n",
 			 iter_gets.cur)));
+#endif
+
 		proclist_delete(&GxidRcv->geters, iter_gets.cur, GxidWaitLink);
 
 		bool in_list = false;
@@ -858,9 +863,11 @@ GxidRcvProcessFinishList(void)
 		pq_sendint32(&reply_message, proc->getGlobalTransaction);
 		proclist_delete(&GxidRcv->send_commiters, iter_gets.cur, GxidWaitLink);
 
-		ereport(DEBUG2,(errmsg("GxidRcv send finish xid %d for %d\n",
+#ifdef SNAP_SYNC_DEBUG
+		ereport(LOG,(errmsg("GxidRcv send finish xid %d for %d\n",
 			 proc->getGlobalTransaction,
 			 proc->pgprocno)));
+#endif
 
 		bool in_list = false;
 		proclist_foreach_modify(iter_rets, &GxidRcv->wait_commiters, GxidWaitLink)

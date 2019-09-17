@@ -699,6 +699,10 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 		xiditem = palloc0(sizeof(*xiditem));
 		xiditem->xid = xid;
 		slist_push_head(&xid_slist, &xiditem->snode);
+#ifdef SNAP_SYNC_DEBUG
+		ereport(LOG,(errmsg("GxidSend assging xid %d to %d\n",
+			 			xid, procno)));
+#endif
 	}
 
 	if (GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false) == false)
@@ -758,6 +762,10 @@ static void GxidProcessFinishGxid(GxidClientData *client)
 
 		pq_sendint32(&gxid_send_output_buffer, procno);
 		pq_sendint32(&gxid_send_output_buffer, xid);
+#ifdef SNAP_SYNC_DEBUG
+		ereport(LOG,(errmsg("GxidSend finish xid %d to %d\n",
+			 			xid, procno)));
+#endif
 	}
 
 	if (GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false) == false)
