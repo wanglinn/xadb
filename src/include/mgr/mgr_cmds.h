@@ -540,8 +540,8 @@ extern bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSla
 extern void mgr_clean_cn_pgxcnode_readonlysql_slave(void);
 
 extern char *getMgrNodeSyncStateValue(sync_state state);
-extern uint64 updateAllowcureOfMgrNodes(List *nodenames, char nodetype, bool allowcure);
-extern uint64 updateAllowcureOfMgrNode(char *nodename, char nodetype, bool allowcure);
+extern uint64 updateDoctorStatusOfMgrNodes(List *nodenames, char nodetype, bool allowcure, char *curestatus);
+extern uint64 updateDoctorStatusOfMgrNode(char *nodename, char nodetype, bool allowcure, char *curestatus);
 extern uint64 updateAllowcureOfMgrHosts(List *hostnames, bool allowcure);
 extern uint64 updateAllowcureOfMgrHost(char *hostname, bool allowcure);
 

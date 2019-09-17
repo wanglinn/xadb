@@ -294,7 +294,7 @@ Datum mgr_add_host_func(PG_FUNCTION_ARGS)
 			,errmsg("address \"%s\" is already in host table", address)));
 	}
 	/* ADB DOCTOR BEGIN */
-	datum[Anum_mgr_host_allowcure-1] = BoolGetDatum(false);
+	datum[Anum_mgr_host_allowcure-1] = BoolGetDatum(true);
 	/* ADB DOCTOR END */
 	/* now, we can insert record */
 	tuple = heap_form_tuple(RelationGetDescr(rel), datum, isnull);

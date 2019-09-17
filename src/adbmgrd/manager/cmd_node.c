@@ -1464,14 +1464,14 @@ Datum mgr_start_gtmcoor_master(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(0))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_GTM_COOR_MASTER);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, true);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, true, CURE_STATUS_NORMAL);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOOR_START_MASTER_BACKEND, nodenamelist, TAKEPLAPARM_N,fcinfo);
 	}
 	else
 	{
 		nodename = PG_GETARG_CSTRING(0);
 		nodenamelist = lappend(nodenamelist, nodename);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, true);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, true, CURE_STATUS_NORMAL);
 		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOOR_START_MASTER_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 }
@@ -1487,14 +1487,14 @@ Datum mgr_start_gtmcoor_slave(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(0))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_GTM_COOR_SLAVE);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, true);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, true, CURE_STATUS_NORMAL);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_START_SLAVE_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 	else
 	{
 		nodename = PG_GETARG_CSTRING(0);
 		nodenamelist = lappend(nodenamelist, nodename);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, true);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, true, CURE_STATUS_NORMAL);
 		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_START_SLAVE_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 }
@@ -1512,13 +1512,13 @@ Datum mgr_start_cn_master(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(0))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_MASTER);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, true);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, true, CURE_STATUS_NORMAL);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 	else
 	{
 		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, true);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, true, CURE_STATUS_NORMAL);
 		return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 }
@@ -1536,13 +1536,13 @@ Datum mgr_start_cn_slave(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(0))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_SLAVE);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, true);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, true, CURE_STATUS_NORMAL);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 	else
 	{
 		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, true);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, true, CURE_STATUS_NORMAL);
 		return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 }
@@ -1559,13 +1559,13 @@ Datum mgr_start_dn_master(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(0))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_MASTER);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, true);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, true, CURE_STATUS_NORMAL);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 	else
 	{
 		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, true);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, true, CURE_STATUS_NORMAL);
 		return mgr_runmode_cndn(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 }
@@ -1617,13 +1617,13 @@ Datum mgr_start_dn_slave(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(0))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_SLAVE);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, true);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, true, CURE_STATUS_NORMAL);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 	else
 	{
 		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, true);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, true, CURE_STATUS_NORMAL);
 		return mgr_runmode_cndn(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 }
@@ -2077,14 +2077,14 @@ Datum mgr_stop_gtmcoor_master(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(1))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_GTM_COOR_MASTER);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, false);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, false, CURE_STATUS_NORMAL);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_CN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
 	}
 	else
 	{
 		nodename = PG_GETARG_CSTRING(1);
 		nodenamelist = lappend(nodenamelist, nodename);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, false);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, false, CURE_STATUS_NORMAL);
 		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_CN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
 	}
 }
@@ -2143,14 +2143,14 @@ Datum mgr_stop_gtmcoor_slave(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(1))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_GTM_COOR_SLAVE);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, false);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, false, CURE_STATUS_NORMAL);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND, nodenamelist, stop_mode, fcinfo);
 	}
 	else
 	{
 		nodename = PG_GETARG_CSTRING(1);
 		nodenamelist = lappend(nodenamelist, nodename);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, false);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, false, CURE_STATUS_NORMAL);
 		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_STOP_SLAVE, nodenamelist, stop_mode, fcinfo);
 	}
 }
@@ -2170,13 +2170,13 @@ Datum mgr_stop_cn_master(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(1))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_MASTER);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, false);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, false, CURE_STATUS_NORMAL);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
 	}
 	else
 	{
 		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, false);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, false, CURE_STATUS_NORMAL);
 		return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_STOP, nodenamelist, stop_mode, fcinfo);
 	}
 }
@@ -2196,13 +2196,13 @@ Datum mgr_stop_cn_slave(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(1))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_SLAVE);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, false);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, false, CURE_STATUS_NORMAL);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
 	}
 	else
 	{
 		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, false);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, false, CURE_STATUS_NORMAL);
 		return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CN_STOP, nodenamelist, stop_mode, fcinfo);
 	}
 }
@@ -2221,13 +2221,13 @@ Datum mgr_stop_dn_master(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(1))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_MASTER);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, false);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, false, CURE_STATUS_NORMAL);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
 	}
 	else
 	{
 		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, false);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, false, CURE_STATUS_NORMAL);
 		return mgr_runmode_cndn(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_STOP, nodenamelist, stop_mode, fcinfo);
 	}
 }
@@ -2280,13 +2280,13 @@ Datum mgr_stop_dn_slave(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(1))
 	{
 		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_SLAVE);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, false);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, false, CURE_STATUS_NORMAL);
 		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
 	}
 	else
 	{
 		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
-		updateAllowcureOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, false);
+		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, false, CURE_STATUS_NORMAL);
 		return mgr_runmode_cndn(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_STOP, nodenamelist, stop_mode, fcinfo);
 	}
 }
@@ -13591,7 +13591,7 @@ char *getMgrNodeSyncStateValue(sync_state state)
 	return sync_state_tab[state].name;
 }
 
-uint64 updateAllowcureOfMgrNodes(List *nodenames, char nodetype, bool allowcure)
+uint64 updateDoctorStatusOfMgrNodes(List *nodenames, char nodetype, bool allowcure, char *curestatus)
 {
 	int ret;
 	int i;
@@ -13610,6 +13610,12 @@ uint64 updateAllowcureOfMgrNodes(List *nodenames, char nodetype, bool allowcure)
 					 "update pg_catalog.mgr_node  "
 					 "set allowcure = %d::boolean ",
 					 allowcure);
+	if(curestatus !=NULL && strlen(curestatus) > 0)
+	{
+		appendStringInfo(&buf, 
+						", curestatus = '%s' ",
+						curestatus);
+	}
 	if(nodenames != NIL || nodetype != 0)
 	{
 		initStringInfo(&dynamic);
@@ -13656,14 +13662,14 @@ uint64 updateAllowcureOfMgrNodes(List *nodenames, char nodetype, bool allowcure)
  * If nodename is NULL, ignore condition "and nodename=?".
  * If nodetype is 0, ignore condition "and nodetype=?".
  */
-uint64 updateAllowcureOfMgrNode(char *nodename, char nodetype, bool allowcure)
+uint64 updateDoctorStatusOfMgrNode(char *nodename, char nodetype, bool allowcure, char *curestatus)
 {
 	uint64 rows;
 	List *nodenames = NIL;
 
 	if(nodename)
 		nodenames = lappend(nodenames, nodename);
-	rows = updateAllowcureOfMgrNodes(nodenames, nodetype, allowcure);
+	rows = updateDoctorStatusOfMgrNodes(nodenames, nodetype, allowcure, curestatus);
 	list_free(nodenames);
 	return rows;
 }
