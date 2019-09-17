@@ -2644,23 +2644,23 @@ bool nodeExistsInPgxcNode(PGconn *activeCoon,
 	{
 		if (pgxcNodeType > 0)
 		{
-			psprintf("EXECUTE DIRECT ON (\"%s\") "
-					 "'select count(*) "
-					 "from pgxc_node "
-					 "where node_name = ''%s'' "
-					 "and node_type = ''%c'' ;'",
-					 executeOnNodeName,
-					 nodeName,
-					 pgxcNodeType);
+			sql = psprintf("EXECUTE DIRECT ON (\"%s\") "
+						   "'select count(*) "
+						   "from pgxc_node "
+						   "where node_name = ''%s'' "
+						   "and node_type = ''%c'' ;'",
+						   executeOnNodeName,
+						   nodeName,
+						   pgxcNodeType);
 		}
 		else
 		{
-			psprintf("EXECUTE DIRECT ON (\"%s\") "
-					 "'select count(*) "
-					 "from pgxc_node "
-					 "where node_name = ''%s'' ;'",
-					 executeOnNodeName,
-					 nodeName);
+			sql = psprintf("EXECUTE DIRECT ON (\"%s\") "
+						   "'select count(*) "
+						   "from pgxc_node "
+						   "where node_name = ''%s'' ;'",
+						   executeOnNodeName,
+						   nodeName);
 		}
 	}
 	exists = PQexecCountSql(activeCoon, sql, complain) > 0;

@@ -27,10 +27,10 @@ void checkAdbDoctorConf(AdbDoctorConf *src)
 	src->agentdeadline = LIMIT_VALUE_RANGE(ADB_DOCTOR_CONF_AGENTDEADLINE_MIN,
 										   ADB_DOCTOR_CONF_AGENTDEADLINE_MAX,
 										   src->agentdeadline);
-	src->node_restart_crashed_master = LIMIT_VALUE_RANGE(0, 1,
-														 src->node_restart_crashed_master);
-	src->node_restart_master_timeout_ms =
-		LIMIT_VALUE_RANGE(5000, 999999999, src->node_restart_master_timeout_ms);
+	src->node_restart_master_count = LIMIT_VALUE_RANGE(0, 999999999,
+													   src->node_restart_master_count);
+	src->node_restart_master_interval_ms =
+		LIMIT_VALUE_RANGE(1, 999999999, src->node_restart_master_interval_ms);
 	src->node_shutdown_timeout_ms =
 		LIMIT_VALUE_RANGE(5000, 999999999, src->node_shutdown_timeout_ms);
 	src->node_connection_error_num_max =
@@ -446,13 +446,13 @@ AdbDoctorConf *selectAllAdbDoctorConf(MemoryContext spiContext)
 			{
 				conf->agentdeadline = valueInt;
 			}
-			else if (pg_strcasecmp(keyStr, "node_restart_crashed_master") == 0)
+			else if (pg_strcasecmp(keyStr, "node_restart_master_count") == 0)
 			{
-				conf->node_restart_crashed_master = valueInt;
+				conf->node_restart_master_count = valueInt;
 			}
-			else if (pg_strcasecmp(keyStr, "node_restart_master_timeout_ms") == 0)
+			else if (pg_strcasecmp(keyStr, "node_restart_master_interval_ms") == 0)
 			{
-				conf->node_restart_master_timeout_ms = valueInt;
+				conf->node_restart_master_interval_ms = valueInt;
 			}
 			else if (pg_strcasecmp(keyStr, "node_shutdown_timeout_ms") == 0)
 			{

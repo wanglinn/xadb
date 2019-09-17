@@ -79,18 +79,18 @@ INSERT INTO adb_doctor_conf VALUES (
 
 -- node monitor
 INSERT INTO adb_doctor_conf VALUES (
-	'node_restart_crashed_master',
+	'node_restart_master_count',
 	'1',
 	'f',
 	6,
-	'0:false, 1:true. If true, when a GTM master or datanode master crashes, doctor will try to start it up. or else, doctor will do switching immediately.'
+	'When a GTM master or datanode master crashed, the number of times the doctor tries to restart it. If set to 0, doctor will do switching immediately.'
 );
 INSERT INTO adb_doctor_conf VALUES (
-	'node_restart_master_timeout_ms',
-	'60000',
+	'node_restart_master_interval_ms',
+	'10000',
 	'f',
 	7,
-	'In milliseconds. If the time to restart a master node exceeds this value, doctor will do switching immediately.'
+	'In milliseconds. The time interval for the master node (GTM or datanode) to retry after a failed restart.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_shutdown_timeout_ms',
@@ -202,7 +202,7 @@ INSERT INTO adb_doctor_conf VALUES (
 	'10000',
 	'f',
 	23,
-	'In milliseconds. The time interval to retry after coordinator restart failed.'
+	'In milliseconds. The time interval for the coordinator to retry after a failed restart.'
 );
 
 -- host monitor

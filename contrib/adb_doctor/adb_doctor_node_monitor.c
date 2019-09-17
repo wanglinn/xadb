@@ -43,14 +43,15 @@ typedef struct NodeConfiguration
 	long queryIntervalMs;
 	long restartDelayMs;
 	long holdConnectionMs;
-	int restartCrashedMaster;
-	long restartMasterTimeoutMs;
+	int restartMasterCount;
+	long restartMasterIntervalMs;
 	long shutdownTimeoutMs;
 	int connectionErrorNumMax;
 	long retryFollowMasterIntervalMs;
 	long retryRewindIntervalMs;
 	int restartCoordinatorCount;
 	long restartCoordinatorIntervalMs;
+	bool forceSwitch;
 } NodeConfiguration;
 
 typedef enum NodeError
@@ -148,8 +149,10 @@ static void handleNodeCrashed(MonitorNodeInfo *nodeInfo);
 static void nodeWaitSwitch(MonitorNodeInfo *nodeInfo);
 static bool tryRestartNode(MonitorNodeInfo *nodeInfo);
 static bool tryStartupNode(MonitorNodeInfo *nodeInfo);
+static bool tryStartupMasterNode(MonitorNodeInfo *nodeInfo);
 static bool tryStartupCoordinator(MonitorNodeInfo *nodeInfo);
 static bool startupNode(MonitorNodeInfo *nodeInfo);
+static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo);
 
 static void startConnection(MonitorNodeInfo *nodeInfo);
 static void resetConnection(MonitorNodeInfo *nodeInfo);
@@ -166,7 +169,6 @@ static bool PQgetResultAction(MonitorNodeInfo *nodeInfo);
 
 static bool isConnectTimedOut(MonitorNodeInfo *nodeInfo);
 static bool isQueryTimedOut(MonitorNodeInfo *nodeInfo);
-static bool isMasterRestartTimedout(MonitorNodeInfo *nodeInfo);
 static bool isNodeRunningNormally(MonitorNodeInfo *nodeInfo);
 static bool isShutdownTimedout(MonitorNodeInfo *nodeInfo);
 static bool isShouldResetConnection(MonitorNodeInfo *nodeInfo);
@@ -196,7 +198,7 @@ static void tryUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 									   char *newCurestatus,
 									   MemoryContext spiContext);
 static MgrNodeWrapper *checkGetMgrNodeForNodeDoctor(Oid oid);
-static bool isHaveSlaveNodes(MgrNodeWrapper *mgrNode);
+static bool isHaveSlaveNodes(MgrNodeWrapper *mgrNode, char *nodesync);
 
 static void treatFollowFailAfterSwitch(MgrNodeWrapper *followFail);
 static void treatOldMasterAfterSwitch(MgrNodeWrapper *oldMaster);
@@ -216,8 +218,11 @@ static void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
 								   PGconn *pgConn,
 								   MemoryContext spiContext);
 static bool setMgrNodeGtmInfo(MgrNodeWrapper *mgrNode);
+static void masterNodeCrashed(MonitorNodeInfo *nodeInfo);
 static void coordinatorCrashed(MonitorNodeInfo *nodeInfo);
 static void isolateNode(MonitorNodeInfo *nodeInfo);
+static bool canDoSwitching(MonitorNodeInfo *nodeInfo);
+static void startupMasterNodeExceedMaxTry(MonitorNodeInfo *nodeInfo);
 
 static void handleSigterm(SIGNAL_ARGS);
 static void handleSigusr1(SIGNAL_ARGS);
@@ -819,44 +824,10 @@ static void toRunningStatusPending(MonitorNodeInfo *nodeInfo)
 
 static void handleNodeCrashed(MonitorNodeInfo *nodeInfo)
 {
-	if ((nodeInfo->mgrNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER ||
-		 nodeInfo->mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER) &&
-		isHaveSlaveNodes(nodeInfo->mgrNode))
+	if (nodeInfo->mgrNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER ||
+		nodeInfo->mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER)
 	{
-		/* if this datanode/gtm master node allow restart, try to startup it.
-		 * if not, set it to "wait switch" */
-		if (nodeConfiguration->restartCrashedMaster)
-		{
-			if (nodeInfo->nRestarts > 0)
-			{
-				if (reachedCrashedCondition(nodeInfo))
-				{
-					nodeWaitSwitch(nodeInfo);
-				}
-				else
-				{
-					if (isMasterRestartTimedout(nodeInfo))
-					{
-						nodeWaitSwitch(nodeInfo);
-					}
-					else
-					{
-						/* wait */
-					}
-				}
-			}
-			else
-			{
-				if (!tryStartupNode(nodeInfo))
-				{
-					nodeWaitSwitch(nodeInfo);
-				}
-			}
-		}
-		else
-		{
-			nodeWaitSwitch(nodeInfo);
-		}
+		masterNodeCrashed(nodeInfo);
 	}
 	else if (nodeInfo->mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER)
 	{
@@ -955,31 +926,35 @@ static bool tryStartupNode(MonitorNodeInfo *nodeInfo)
 	return done;
 }
 
+static bool tryStartupMasterNode(MonitorNodeInfo *nodeInfo)
+{
+	bool done;
+
+	if (TimestampDifferenceExceeds(nodeInfo->restartTime,
+								   GetCurrentTimestamp(),
+								   nodeConfiguration->restartMasterIntervalMs))
+	{
+		done = treatNodeByStartup(nodeInfo);
+	}
+	else
+	{
+		ereport(DEBUG1,
+				(errmsg("%s, restart node too often",
+						MyBgworkerEntry->bgw_name)));
+		done = false;
+	}
+	return done;
+}
+
 static bool tryStartupCoordinator(MonitorNodeInfo *nodeInfo)
 {
 	bool done;
-	MemoryContext spiContext;
 
 	if (TimestampDifferenceExceeds(nodeInfo->restartTime,
 								   GetCurrentTimestamp(),
 								   nodeConfiguration->restartCoordinatorIntervalMs))
 	{
-		spiContext = beginCureOperation(nodeInfo->mgrNode);
-		done = startupNode(nodeInfo);
-		endCureOperation(nodeInfo->mgrNode, CURE_STATUS_NORMAL, spiContext);
-		if (done)
-		{
-			ereport(LOG,
-					(errmsg("%s, start node successfully",
-							MyBgworkerEntry->bgw_name)));
-			resetNodeMonitor();
-		}
-		else
-		{
-			ereport(LOG,
-					(errmsg("%s, start node failed",
-							MyBgworkerEntry->bgw_name)));
-		}
+		done = treatNodeByStartup(nodeInfo);
 	}
 	else
 	{
@@ -1002,6 +977,42 @@ static bool startupNode(MonitorNodeInfo *nodeInfo)
 	ok = callAgentStartNode(nodeInfo->mgrNode, true, false);
 	nodeInfo->restartTime = GetCurrentTimestamp();
 	return ok;
+}
+
+static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo)
+{
+	bool done;
+	MemoryContext spiContext;
+
+	spiContext = beginCureOperation(nodeInfo->mgrNode);
+	done = startupNode(nodeInfo);
+	endCureOperation(nodeInfo->mgrNode, CURE_STATUS_NORMAL, spiContext);
+	if (done)
+	{
+		if (pingNodeWaitinSeconds(nodeInfo->mgrNode,
+								  PQPING_OK, STARTUP_NODE_SECONDS))
+		{
+			ereport(LOG,
+					(errmsg("%s, start node successfully",
+							MyBgworkerEntry->bgw_name)));
+			resetNodeMonitor();
+		}
+		else
+		{
+			ereport(LOG,
+					(errmsg("%s, get node running status failed",
+							MyBgworkerEntry->bgw_name)));
+			done = false;
+		}
+	}
+	else
+	{
+		ereport(LOG,
+				(errmsg("%s, start node failed",
+						MyBgworkerEntry->bgw_name)));
+		done = false;
+	}
+	return done;
 }
 
 static void startConnection(MonitorNodeInfo *nodeInfo)
@@ -1369,13 +1380,6 @@ static bool isQueryTimedOut(MonitorNodeInfo *nodeInfo)
 	return TimestampDifferenceExceeds(nodeInfo->queryTime,
 									  GetCurrentTimestamp(),
 									  nodeConfiguration->queryTimoutMs);
-}
-
-static bool isMasterRestartTimedout(MonitorNodeInfo *nodeInfo)
-{
-	return TimestampDifferenceExceeds(nodeInfo->restartTime,
-									  GetCurrentTimestamp(),
-									  nodeConfiguration->restartMasterTimeoutMs);
 }
 
 static bool isNodeRunningNormally(MonitorNodeInfo *nodeInfo)
@@ -1780,7 +1784,7 @@ static MgrNodeWrapper *checkGetMgrNodeForNodeDoctor(Oid oid)
 	return mgrNode;
 }
 
-static bool isHaveSlaveNodes(MgrNodeWrapper *mgrNode)
+static bool isHaveSlaveNodes(MgrNodeWrapper *mgrNode, char *nodesync)
 {
 	int nSlaves;
 	Datum datum;
@@ -1796,9 +1800,15 @@ static bool isHaveSlaveNodes(MgrNodeWrapper *mgrNode)
 	appendStringInfo(&buf,
 					 "SELECT count(*) FROM mgr_node \n"
 					 "WHERE nodemasternameoid = %u \n"
-					 "AND nodetype = '%c';",
+					 "AND nodetype = '%c' ",
 					 mgrNode->oid,
 					 getMgrSlaveNodetype(mgrNode->form.nodetype));
+	if (nodesync != NULL && strlen(nodesync) > 0)
+	{
+		appendStringInfo(&buf,
+						 "AND nodesync = '%s' ",
+						 nodesync);
+	}
 
 	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
 	ret = SPI_execute(buf.data, false, 0);
@@ -2473,6 +2483,32 @@ static bool setMgrNodeGtmInfo(MgrNodeWrapper *mgrNode)
 	return done;
 }
 
+static void masterNodeCrashed(MonitorNodeInfo *nodeInfo)
+{
+	if (nodeConfiguration->restartMasterCount > nodeInfo->nRestarts)
+	{
+		if (tryStartupMasterNode(nodeInfo))
+		{
+			/* wait */
+		}
+		else
+		{
+			if (nodeConfiguration->restartMasterCount <= nodeInfo->nRestarts)
+			{
+				startupMasterNodeExceedMaxTry(nodeInfo);
+			}
+			else
+			{
+				/* wait */
+			}
+		}
+	}
+	else
+	{
+		startupMasterNodeExceedMaxTry(nodeInfo);
+	}
+}
+
 static void coordinatorCrashed(MonitorNodeInfo *nodeInfo)
 {
 	if (nodeConfiguration->restartCoordinatorCount > nodeInfo->nRestarts)
@@ -2524,6 +2560,35 @@ static void isolateNode(MonitorNodeInfo *nodeInfo)
 	{
 		SPI_FINISH_TRANSACTIONAL_ABORT();
 		resetNodeMonitor();
+	}
+}
+
+static bool canDoSwitching(MonitorNodeInfo *nodeInfo)
+{
+	if (nodeConfiguration->forceSwitch)
+	{
+		return isHaveSlaveNodes(nodeInfo->mgrNode, NULL);
+	}
+	else
+	{
+		return isHaveSlaveNodes(nodeInfo->mgrNode,
+								getMgrNodeSyncStateValue(SYNC_STATE_SYNC));
+	}
+}
+
+static void startupMasterNodeExceedMaxTry(MonitorNodeInfo *nodeInfo)
+{
+	if (canDoSwitching(nodeInfo))
+	{
+		nodeWaitSwitch(nodeInfo);
+	}
+	else
+	{
+		ereport(LOG,
+				(errmsg("%s can't do switching, try to startup it",
+						NameStr(nodeInfo->mgrNode->form.nodename))));
+		/* startup this node until succeeded */
+		tryStartupNode(nodeInfo);
 	}
 }
 
@@ -2593,21 +2658,22 @@ static NodeConfiguration *newNodeConfiguration(AdbDoctorConf *conf)
 	nc->holdConnectionMs = LIMIT_VALUE_RANGE(nc->queryIntervalMs * 4,
 											 (nc->queryTimoutMs + nc->queryIntervalMs) * 4,
 											 deadlineMs);
-	nc->restartCrashedMaster = conf->node_restart_crashed_master;
-	nc->restartMasterTimeoutMs = conf->node_restart_master_timeout_ms;
+	nc->restartMasterCount = conf->node_restart_master_count;
+	nc->restartMasterIntervalMs = conf->node_restart_master_interval_ms;
 	nc->shutdownTimeoutMs = conf->node_shutdown_timeout_ms;
 	nc->connectionErrorNumMax = conf->node_connection_error_num_max;
 	nc->retryFollowMasterIntervalMs = conf->node_retry_follow_master_interval_ms;
 	nc->retryRewindIntervalMs = conf->node_retry_rewind_interval_ms;
 	nc->restartCoordinatorCount = conf->node_restart_coordinator_count;
 	nc->restartCoordinatorIntervalMs = conf->node_restart_coordinator_interval_ms;
+	nc->forceSwitch = conf->forceswitch;
 	ereport(DEBUG1,
 			(errmsg("%s configuration: "
 					"deadlineMs:%ld, waitEventTimeoutMs:%ld, "
 					"connectTimeoutMs:%ld, reconnectDelayMs:%ld, "
 					"queryTimoutMs:%ld, queryIntervalMs:%ld, "
 					"restartDelayMs:%ld, holdConnectionMs:%ld, "
-					"restartCrashedMaster:%d, restartMasterTimeoutMs:%ld, "
+					"restartMasterCount:%d, restartMasterIntervalMs:%ld, "
 					"shutdownTimeoutMs:%ld, connectionErrorNumMax:%d, "
 					"retryFollowMasterIntervalMs:%ld, retryRewindIntervalMs:%ld, "
 					"restartCoordinatorCount:%d, restartCoordinatorIntervalMs:%ld",
@@ -2616,7 +2682,7 @@ static NodeConfiguration *newNodeConfiguration(AdbDoctorConf *conf)
 					nc->connectTimeoutMs, nc->reconnectDelayMs,
 					nc->queryTimoutMs, nc->queryIntervalMs,
 					nc->restartDelayMs, nc->holdConnectionMs,
-					nc->restartCrashedMaster, nc->restartMasterTimeoutMs,
+					nc->restartMasterCount, nc->restartMasterIntervalMs,
 					nc->shutdownTimeoutMs, nc->connectionErrorNumMax,
 					nc->retryFollowMasterIntervalMs, nc->retryRewindIntervalMs,
 					nc->restartCoordinatorCount, nc->restartCoordinatorIntervalMs)));
