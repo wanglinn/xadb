@@ -337,11 +337,10 @@ static void snapsenderUpdateNextXidAllClient(TransactionId xid, SnapClientData *
 	slist_foreach(siter, &slist_all_client)
 	{
 		client = slist_container(SnapClientData, snode, siter.cur);
-		if (client->event_pos != exclude_client->event_pos)
-			resetStringInfo(&output_buffer);
-			pq_sendbyte(&output_buffer, 'u');
-			pq_sendint64(&output_buffer, xid);
-			AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false);
+		resetStringInfo(&output_buffer);
+		pq_sendbyte(&output_buffer, 'u');
+		pq_sendint64(&output_buffer, xid);
+		AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false);
 	}
 }
 
