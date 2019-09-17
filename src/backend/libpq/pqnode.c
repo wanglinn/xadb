@@ -29,7 +29,6 @@ struct pq_comm_node
 
 static void pq_node_comm_reset(void);
 static void pq_node_comm_reset_sock(pq_comm_node *node);
-static void pq_node_set_nonblocking(bool nonblocking);
 static void pq_node_set_nonblocking_sock(pq_comm_node *node, bool nonblocking);
 static int	pq_node_flush(void);
 static int	pq_node_flush_if_writable(void);
@@ -70,15 +69,6 @@ static void pq_node_comm_reset_sock(pq_comm_node *node)
 	AssertArg(node);
 	node->busy = false;
 	pq_node_endcopyout_sock(node, true);
-}
-
-static void pq_node_set_nonblocking(bool nonblocking)
-{
-	if (current_pq_node == NULL)
-		ereport(ERROR,
-				(errcode(ERRCODE_CONNECTION_DOES_NOT_EXIST),
-				 errmsg("there is no client connection")));
-	pq_node_set_nonblocking_sock(current_pq_node, nonblocking);
 }
 
 static void pq_node_set_nonblocking_sock(pq_comm_node *node, bool nonblocking)
@@ -250,7 +240,7 @@ int pq_node_flush_if_writable_sock(pq_comm_node *node)
 		return 0;
 
 	/* Temporarily put the socket into non-blocking mode */
-	pq_node_set_nonblocking(true);
+	pq_node_set_nonblocking_sock(node, true);
 
 	node->busy = true;
 	res = pq_node_internal_flush(node);
