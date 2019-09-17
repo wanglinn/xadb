@@ -43,6 +43,7 @@
 
 #define AGTM_OID			OID_MAX
 #define RETRY_TIME			1	/* 1 second */
+#define EXIT_MINIMUM_NUMBER		2	/* The minimum number of events that Rxact can exit */
 #define MAX_RXACT_BUF_SIZE	4096
 #if defined(EAGAIN) && EAGAIN != EINTR
 #define IS_ERR_INTR() (errno == EINTR || errno == EAGAIN)
@@ -104,13 +105,13 @@ typedef enum WaiteEventTag
 {
 	T_Event_Agent,
 	T_Event_Node,
-	T_Event_Socket
+	T_Event_Socket,
+	T_Event_Signal
 }WaiteEventTag;
 
 typedef struct RxactWaitEventData
 {	
 	WaiteEventTag	type;
-	pgsocket		sockt;
 	RxactAgent		*agent;
 	int				event_pos;	/* position in the event data structure */
 	void			(*fun)(WaitEvent *event);
@@ -304,6 +305,8 @@ static void RxactLoop(void)
 	}
 	/* add server soket event to eventSet */
 	AddRxactEventToSet(rxact_wait_event_set, T_Event_Socket, rxact_server_fd, WL_SOCKET_READABLE);
+	/* add POSTMASTER exit signal */
+	AddRxactEventToSet(rxact_wait_event_set, T_Event_Signal, PGINVALID_SOCKET, WL_POSTMASTER_DEATH);
 
 	if(sigsetjmp(local_sigjmp_buf, 1) != 0)
 	{
@@ -324,7 +327,7 @@ static void RxactLoop(void)
 
 		MemoryContextResetAndDeleteChildren(MessageContext);
 
-		if (!PostmasterIsAlive())
+		if (!PostmasterIsAlive() && rxact_event_cur_count <= EXIT_MINIMUM_NUMBER)
 			exit(0);
 
 		for (i = rxact_event_cur_count; i--;)
@@ -430,7 +433,8 @@ static void RxactLoop(void)
 		{	
 			waitEvent = &rxact_wait_event[i];
 			user_data = waitEvent->user_data;
-			(*user_data->fun)(waitEvent);
+			if(user_data->fun)
+				(*user_data->fun)(waitEvent);
 		}
 		if(last_flush != 0)
 			XLogFlush(last_flush);
@@ -2762,7 +2766,6 @@ void AddRxactEventToSet(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint
 		ereport(ERROR, (errmsg("No extra space to store new pgsocket.")));
 
 	rxactEventData = (RxactWaitEventData *)MemoryContextAlloc(TopMemoryContext, sizeof(RxactWaitEventData));
-	rxactEventData->sockt = fd;
 	switch(type)
 	{
 		case T_Event_Agent:
@@ -2800,6 +2803,16 @@ void AddRxactEventToSet(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint
 															NULL,
 															(void*)rxactEventData);
 			break;
+		case T_Event_Signal:
+			rxactEventData->type = T_Event_Signal;
+			rxactEventData->agent = NULL;
+			rxactEventData->fun = NULL;
+			rxactEventData->event_pos = AddWaitEventToSet(set,
+															events,
+															fd,
+															NULL,
+															(void*)rxactEventData);
+			break;
 	}
 	++rxact_event_cur_count;
 }
@@ -2811,12 +2824,10 @@ void AddRxactEventToSet(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint
 void RemoveRxactWaitEvent(WaitEventSet *set, pgsocket fd)
 {
 	int		pos;
-	RxactWaitEventData	*rxactEventData;
 
 	for(pos = 1; pos < rxact_event_cur_count; ++pos)
 	{	
-		rxactEventData = (RxactWaitEventData *)GetWaitEventData(set, pos);
-		if(rxactEventData->sockt == fd)
+		if(fd == GetWaitEventSocket(set, pos))
 			break;
 	}
 	Assert(pos <= rxact_event_cur_count);
@@ -2836,13 +2847,11 @@ void RemoveRxactWaitEvent(WaitEventSet *set, pgsocket fd)
 void ModifyRxactWaitEvent(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint32 events)
 {
 	int pos;
-	RxactWaitEventData *rxactEventData;
 
 	/* find pgsocket */
 	for(pos = 1; pos < rxact_event_cur_count; ++pos)
 	{	
-		rxactEventData = (RxactWaitEventData *)GetWaitEventData(set, pos);
-		if(rxactEventData->sockt == fd)
+		if(fd == GetWaitEventSocket(set, pos))
 		{
 			ModifyWaitEvent(set, pos, events, NULL);
 			break;
