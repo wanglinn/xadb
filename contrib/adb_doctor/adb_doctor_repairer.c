@@ -38,6 +38,10 @@ static bool cleanPgxcNodeOnCoordinators(dlist_head *activeCoordinators,
 										MgrNodeWrapper *faultNode);
 static bool cleanAndAppendNode(dlist_head *activeCoordinators,
 							   MgrNodeWrapper *faultNode);
+static void callAppendCoordinatorFor(MgrNodeWrapper *destCoordinator,
+									 MgrNodeWrapper *srcCoordinator);
+static void callAppendActivateCoordinator(MgrNodeWrapper *destCoordinator);
+static MgrNodeWrapper *getSrcCoordForAppend(dlist_head *coordinators);
 static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 								 MemoryContext spiContext);
 static void getCheckMgrNodesForRepairer(dlist_head *mgrNodes);
@@ -176,6 +180,8 @@ static void checkAndRepairNodes(dlist_head *faultNodes)
 			{
 				dlist_delete(faultNodeIter.cur);
 				pfreeMgrNodeWrapper(faultNode);
+				ereport(LOG, (errmsg("%s has been successfully repaired",
+									  NameStr(faultNode->form.nodename))));
 			}
 		}
 	}
@@ -269,17 +275,12 @@ static bool cleanAndAppendNode(dlist_head *activeCoordinators,
 							   MgrNodeWrapper *faultNode)
 {
 	int spiRes;
-	volatile bool done;
+	volatile bool done = false;
 	MemoryContext oldContext;
 	MemoryContext spiContext;
 	GetAgentCmdRst getAgentCmdRst;
-	HeapTupleHeader appendNodeTupleHeader;
-	HeapTupleData tuple;
-	TupleDesc tupdesc = NULL;
-	Datum datum;
-	bool isnull;
-	bool execOk;
 	MgrNodeWrapper mgrNodeBackup;
+	MgrNodeWrapper *srcCoordinator;
 
 	memcpy(&mgrNodeBackup, faultNode, sizeof(MgrNodeWrapper));
 
@@ -324,40 +325,12 @@ static bool cleanAndAppendNode(dlist_head *activeCoordinators,
 			ereport(ERROR,
 					(errmsg("only coordinator repairing is supported")));
 		}
-		/* append node */
-		appendNodeTupleHeader =
-			DatumGetHeapTupleHeader(
-				DirectFunctionCall1(mgr_append_coordmaster,
-									CStringGetDatum(NameStr(faultNode->form.nodename))));
-		tupdesc = lookup_rowtype_tupdesc_copy(HeapTupleHeaderGetTypeId(appendNodeTupleHeader),
-											  HeapTupleHeaderGetTypMod(appendNodeTupleHeader));
-		tuple.t_len = HeapTupleHeaderGetDatumLength(appendNodeTupleHeader);
-		ItemPointerSetInvalid(&(tuple.t_self));
-		tuple.t_tableOid = InvalidOid;
-		tuple.t_data = appendNodeTupleHeader;
-		datum = fastgetattr(&tuple, 2, tupdesc, &isnull);
-		if (isnull)
-		{
-			ereport(LOG,
-					(errmsg("try append node %s failed, null return",
-							NameStr(faultNode->form.nodename))));
-		}
-		execOk = DatumGetBool(datum);
-		if (execOk)
-		{
-			ereport(LOG,
-					(errmsg("try append node %s successed",
-							NameStr(faultNode->form.nodename))));
-		}
-		else
-		{
-			ereport(ERROR,
-					(errmsg("try append node %s failed",
-							NameStr(faultNode->form.nodename))));
-		}
+
+		srcCoordinator = getSrcCoordForAppend(activeCoordinators);
+		callAppendCoordinatorFor(srcCoordinator, faultNode);
+		callAppendActivateCoordinator(faultNode);
 
 		refreshMgrNodeAfterRepair(faultNode, spiContext);
-
 		done = true;
 	}
 	PG_CATCH();
@@ -378,6 +351,114 @@ static bool cleanAndAppendNode(dlist_head *activeCoordinators,
 		SPI_FINISH_TRANSACTIONAL_ABORT();
 	}
 	return done;
+}
+
+static void callAppendCoordinatorFor(MgrNodeWrapper *destCoordinator,
+									 MgrNodeWrapper *srcCoordinator)
+{
+	HeapTupleHeader tupleHeader;
+	HeapTupleData tuple;
+	TupleDesc tupdesc = NULL;
+	Datum datum;
+	bool isnull;
+
+	tupleHeader =
+		DatumGetHeapTupleHeader(
+			DirectFunctionCall2(mgr_append_coord_to_coord,
+								CStringGetDatum(NameStr(destCoordinator->form.nodename)),
+								CStringGetDatum(NameStr(srcCoordinator->form.nodename))));
+	tupdesc = lookup_rowtype_tupdesc_copy(HeapTupleHeaderGetTypeId(tupleHeader),
+										  HeapTupleHeaderGetTypMod(tupleHeader));
+	tuple.t_len = HeapTupleHeaderGetDatumLength(tupleHeader);
+	ItemPointerSetInvalid(&(tuple.t_self));
+	tuple.t_tableOid = InvalidOid;
+	tuple.t_data = tupleHeader;
+	datum = fastgetattr(&tuple, 2, tupdesc, &isnull);
+	if (isnull)
+	{
+		ereport(ERROR,
+				(errmsg("try append %s for %s failed, null return",
+						NameStr(destCoordinator->form.nodename),
+						NameStr(srcCoordinator->form.nodename))));
+	}
+	else
+	{
+		if (DatumGetBool(datum))
+		{
+			ereport(LOG,
+					(errmsg("try append %s for %s successed",
+							NameStr(destCoordinator->form.nodename),
+							NameStr(srcCoordinator->form.nodename))));
+		}
+		else
+		{
+			datum = fastgetattr(&tuple, 3, tupdesc, &isnull);
+			ereport(ERROR,
+					(errmsg("try append %s for %s failed, %s",
+							NameStr(destCoordinator->form.nodename),
+							NameStr(srcCoordinator->form.nodename),
+							isnull ? "unknow reason" : DatumGetCString(datum))));
+		}
+	}
+}
+
+static void callAppendActivateCoordinator(MgrNodeWrapper *destCoordinator)
+{
+	HeapTupleHeader tupleHeader;
+	HeapTupleData tuple;
+	TupleDesc tupdesc = NULL;
+	Datum datum;
+	bool isnull;
+
+	tupleHeader =
+		DatumGetHeapTupleHeader(
+			DirectFunctionCall1(mgr_append_activate_coord,
+								CStringGetDatum(NameStr(destCoordinator->form.nodename))));
+	tupdesc = lookup_rowtype_tupdesc_copy(HeapTupleHeaderGetTypeId(tupleHeader),
+										  HeapTupleHeaderGetTypMod(tupleHeader));
+	tuple.t_len = HeapTupleHeaderGetDatumLength(tupleHeader);
+	ItemPointerSetInvalid(&(tuple.t_self));
+	tuple.t_tableOid = InvalidOid;
+	tuple.t_data = tupleHeader;
+	datum = fastgetattr(&tuple, 2, tupdesc, &isnull);
+	if (isnull)
+	{
+		ereport(ERROR,
+				(errmsg("try append activate %s failed, null return",
+						NameStr(destCoordinator->form.nodename))));
+	}
+	else
+	{
+		if (DatumGetBool(datum))
+		{
+			ereport(LOG,
+					(errmsg("try append activate %s successed",
+							NameStr(destCoordinator->form.nodename))));
+		}
+		else
+		{
+			datum = fastgetattr(&tuple, 3, tupdesc, &isnull);
+			ereport(ERROR,
+					(errmsg("try append activate %s failed, %s",
+							NameStr(destCoordinator->form.nodename),
+							isnull ? "unknow reason" : DatumGetCString(datum))));
+		}
+	}
+}
+
+static MgrNodeWrapper *getSrcCoordForAppend(dlist_head *coordinators)
+{
+	dlist_iter iter;
+	SwitcherNodeWrapper *node;
+	dlist_foreach(iter, coordinators)
+	{
+		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		if (node->mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+		{
+			return node->mgrNode;
+		}
+	}
+	return NULL;
 }
 
 static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
@@ -593,10 +674,10 @@ static void dropFaultNodeFromActiveCoordinators(dlist_head *activeCoordinators,
 							NameStr(faultNode->form.nodename),
 							NameStr(coordinator->mgrNode->form.nodename))));
 		}
-		ereport(LOG,
-				(errmsg("drop %s in table pgxc_node of all coordinators successed",
-						NameStr(faultNode->form.nodename))));
 	}
+	ereport(LOG,
+			(errmsg("drop %s in table pgxc_node of all coordinators successed",
+					NameStr(faultNode->form.nodename))));
 }
 
 static RepairerConfiguration *newRepairerConfiguration(AdbDoctorConf *conf)
