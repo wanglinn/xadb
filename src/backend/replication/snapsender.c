@@ -603,9 +603,9 @@ void SnapSenderMain(void)
 							  cur_wait_event,
 							  PG_WAIT_CLIENT);
 
-		for(i=0;i<rc;++i)
+		while(rc > 0)
 		{
-			event = &wait_event[i];
+			event = &wait_event[--rc];
 			wed = event->user_data;
 			(*wed->fun)(event);
 			pq_switch_to_none();
