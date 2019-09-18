@@ -6952,30 +6952,25 @@ void mgr_add_parameters_hbaconf(Oid mastertupleoid, char nodetype, StringInfo in
 	char *cnaddress;
 	Form_mgr_node mgr_node;
 	HeapTuple tuple;
-	ScanKeyData key[2];
+	ScanKeyData key[1];
 
 	rel_node = heap_open(NodeRelationId, AccessShareLock);
 	/*get all coordinator master ip*/
 	if (CNDN_TYPE_COORDINATOR_MASTER == nodetype)
 	{
 		ScanKeyInit(&key[0]
-				,Anum_mgr_node_nodetype
-				,BTEqualStrategyNumber
-				,F_CHAREQ
-				,CharGetDatum(nodetype));
-		ScanKeyInit(&key[1]
 				,Anum_mgr_node_nodezone
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,CStringGetDatum(mgr_zone));
-		rel_scan = heap_beginscan_catalog(rel_node, 2, key);
+		rel_scan = heap_beginscan_catalog(rel_node, 1, key);
 		while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 		{
 			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 			Assert(mgr_node);
 			/*get address*/
 			cnaddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
-			if (CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype || CNDN_TYPE_GTM_COOR_MASTER == nodetype)
+			if (CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype || CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype)
 				mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", cnaddress, 32, "trust", infosendhbamsg);
 			pfree(cnaddress);
 		}
