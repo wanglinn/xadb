@@ -504,7 +504,7 @@ void SnapSenderMain(void)
 	WaitEvent	   *event;
 	WaitEventData * volatile wed = NULL;
 	sigjmp_buf		local_sigjmp_buf;
-	int				rc,i;
+	int				rc;
 
 	Assert(SnapSender != NULL);
 
