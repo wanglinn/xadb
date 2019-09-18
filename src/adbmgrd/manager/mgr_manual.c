@@ -727,6 +727,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	bool b_running_dest = false;
 	bool res = false;
 	bool isNull = false;
+	int pingNodeRet;
 
 	/* get the input variable */
 	m_coordname = PG_GETARG_CSTRING(0);
@@ -776,8 +777,8 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 
 	memset(port_buf, 0, sizeof(char)*10);
 	snprintf(port_buf, sizeof(port_buf), "%d", dest_nodeinfo.nodeport);
-	res = pingNode_user(dest_nodeinfo.nodeaddr, port_buf, dest_nodeinfo.nodeusername);
-	if (PQPING_OK == res || PQPING_REJECT == res)
+	pingNodeRet = pingNode_user(dest_nodeinfo.nodeaddr, port_buf, dest_nodeinfo.nodeusername);
+	if (PQPING_OK == pingNodeRet || PQPING_REJECT == pingNodeRet)
 		ereport(ERROR, (errmsg("%s on port %d, coordinator \"%s\" is running", dest_nodeinfo.nodeaddr, dest_nodeinfo.nodeport, s_coordname)));
 	/* check the folder of dest coordinator */
 	mgr_check_dir_exist_and_priv(dest_nodeinfo.nodehost, dest_nodeinfo.nodepath);
@@ -1455,6 +1456,49 @@ bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const in
 			rest = false;
 			ereport(WARNING, (errmsg("on coordinator \"%s\" execute \"%s\" fail, %s", NameStr(mgr_node->nodename), sql, PQerrorMessage(*pg_conn))));
 			appendStringInfo(strinfo, "on coordinator \"%s\" execute \"%s\" fail, %s\n", NameStr(mgr_node->nodename), sql, PQerrorMessage(*pg_conn));
+		}
+		PQclear(res);
+
+	}
+	heap_endscan(rel_scan);
+
+	ScanKeyInit(&key[2],
+		Anum_mgr_node_nodetype
+		,BTEqualStrategyNumber
+		,F_CHAREQ
+		,CharGetDatum(CNDN_TYPE_GTM_COOR_MASTER));
+	rel_scan = heap_beginscan_catalog(rel_node, 4, key);
+	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		resetStringInfo(&restmsg);
+
+		ereport(LOG, (errmsg("on GTM coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename), sql)));
+		ereport(NOTICE, (errmsg("on GTM coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename), sql)));
+
+		num = iloop;
+		appendStringInfo(&restmsg, "EXECUTE DIRECT ON (\"%s\") '%s'", NameStr(mgr_node->nodename), sql);
+		while (num-- > 0)
+		{
+			res = PQexec(*pg_conn, restmsg.data);
+			if (PQresultStatus(res) == res_type)
+			{
+				break;
+			}
+			if (num)
+			{
+				PQclear(res);
+				res = NULL;
+			}
+			pg_usleep(100000L);
+		}
+
+		if (PQresultStatus(res) != res_type)
+		{
+			rest = false;
+			ereport(WARNING, (errmsg("on GTM coordinator \"%s\" execute \"%s\" fail, %s", NameStr(mgr_node->nodename), sql, PQerrorMessage(*pg_conn))));
+			appendStringInfo(strinfo, "on GTM coordinator \"%s\" execute \"%s\" fail, %s\n", NameStr(mgr_node->nodename), sql, PQerrorMessage(*pg_conn));
 		}
 		PQclear(res);
 
