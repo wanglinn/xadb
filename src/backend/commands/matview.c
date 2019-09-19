@@ -864,8 +864,8 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 	resetStringInfo(&querybuf);
 #ifdef ADB
 	if (!tstore)
-		appendStringInfo(&querybuf, "CREATE TEMP TABLE %s AS ", diffname);
 #endif /* ADB */
+		appendStringInfo(&querybuf, "CREATE TEMP TABLE %s AS ", diffname);
 	appendStringInfo(&querybuf,
 					 "SELECT mv.ctid AS tid, newdata "
 					 "FROM %s mv FULL JOIN %s newdata ON (",
