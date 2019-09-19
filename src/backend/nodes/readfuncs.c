@@ -2513,6 +2513,17 @@ _readEmptyResult(void)
 #endif /* ADB */
 
 #ifdef ADB_GRAM_ORA
+static PriorExpr *
+_readPriorExpr(void)
+{
+	READ_LOCALS(PriorExpr);
+
+	READ_LOCATION_FIELD(location);
+	READ_NODE_FIELD(expr);
+
+	READ_DONE();
+}
+
 static RownumExpr *
 _readRownumExpr(void)
 {
@@ -2900,6 +2911,8 @@ parseNodeString(void)
 		return_value = _readEmptyResult();
 #endif /* ADB */
 #ifdef ADB_GRAM_ORA
+	else if (MATCH("PRIOREXPR", 9))
+		return_value = _readPriorExpr();
 	else if (MATCH("ROWNUMEXPR", 10))
 		return_value = _readRownumExpr();
 	else if (MATCH("LEVELEXPR", 9))

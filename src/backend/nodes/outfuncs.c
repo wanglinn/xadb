@@ -3851,6 +3851,15 @@ _outConnectByRootExpr(StringInfo str, const ConnectByRootExpr *node)
 	WRITE_INT_FIELD(priorAttno);
 	WRITE_LOCATION_FIELD(location);
 }
+
+static void
+_outPriorExpr(StringInfo str, const PriorExpr *node)
+{
+	WRITE_NODE_TYPE("PRIOREXPR");
+
+	WRITE_LOCATION_FIELD(location);
+	WRITE_NODE_FIELD(expr);
+}
 #endif /* ADB_GRAM_ORA */
 
 #ifdef ADB_EXT
@@ -4183,6 +4192,9 @@ outNode(StringInfo str, const void *obj)
 				_outNextValueExpr(str, obj);
 				break;
 #ifdef ADB_GRAM_ORA
+			case T_PriorExpr:
+				_outPriorExpr(str, obj);
+				break;
 			case T_RownumExpr:
 				_outRownumExpr(str, obj);
 				break;
