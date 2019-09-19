@@ -661,6 +661,11 @@ ExecIndexOnlyScanEstimate(IndexOnlyScanState *node,
 {
 	EState	   *estate = node->ss.ps.state;
 
+#ifdef ADB
+	if (node->ioss_ScanDesc)
+		return;
+#endif /* ADB */
+
 	node->ioss_PscanLen = index_parallelscan_estimate(node->ioss_RelationDesc,
 													  estate->es_snapshot);
 	shm_toc_estimate_chunk(&pcxt->estimator, node->ioss_PscanLen);
@@ -679,6 +684,14 @@ ExecIndexOnlyScanInitializeDSM(IndexOnlyScanState *node,
 {
 	EState	   *estate = node->ss.ps.state;
 	ParallelIndexScanDesc piscan;
+
+#ifdef ADB
+	if (node->ioss_ScanDesc)
+	{
+		ExecSetExecProcNode(&node->ss.ps, ExecFakeProcNode);
+		return;
+	}
+#endif /* ADB */
 
 	piscan = shm_toc_allocate(pcxt->toc, node->ioss_PscanLen);
 	index_parallelscan_initialize(node->ss.ss_currentRelation,
@@ -730,7 +743,16 @@ ExecIndexOnlyScanInitializeWorker(IndexOnlyScanState *node,
 {
 	ParallelIndexScanDesc piscan;
 
+#ifdef ADB
+	piscan = shm_toc_lookup(pwcxt->toc, node->ss.ps.plan->plan_node_id, true);
+	if (piscan == NULL)
+	{
+		ExecSetExecProcNode(&node->ss.ps, ExecFakeProcNode);
+		return;
+	}
+#else
 	piscan = shm_toc_lookup(pwcxt->toc, node->ss.ps.plan->plan_node_id, false);
+#endif /* ADB */
 	node->ioss_ScanDesc =
 		index_beginscan_parallel(node->ss.ss_currentRelation,
 								 node->ioss_RelationDesc,

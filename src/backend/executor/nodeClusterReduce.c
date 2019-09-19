@@ -11,6 +11,7 @@
 #include "executor/tuptable.h"
 #include "lib/binaryheap.h"
 #include "lib/oidbuffer.h"
+#include "nodes/enum_funcs.h"
 #include "nodes/execnodes.h"
 #include "nodes/nodeFuncs.h"
 #include "pgstat.h"
@@ -1557,4 +1558,24 @@ void AdvanceClusterReduce(PlanState *pstate)
 		return;
 
 	AdvanceClusterReduceWorker(pstate, NULL, ACR_FLAG_INVALID);
+}
+
+TupleTableSlot* ExecFakeProcNode(PlanState *pstate)
+{
+	Plan *plan = pstate->plan;
+	const char *node_str = get_enum_string_NodeTag(nodeTag(plan));
+	if (node_str == NULL)
+	{
+		node_str = "unknown";
+	}else if(node_str[0] == 'T' &&
+			 node_str[1] == '_')
+	{
+		node_str += 2;
+	}
+
+	ereport(ERROR,
+			(errcode(ERRCODE_INTERNAL_ERROR),
+			 errmsg("plan %s id %d should not be execute", node_str, plan->plan_node_id)));
+
+	return NULL;	/* keep compiler quiet */
 }
