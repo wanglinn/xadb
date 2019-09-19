@@ -1748,18 +1748,22 @@ static void checkGetMasterCoordinators(MemoryContext spiContext,
 	dlist_iter iter;
 
 	if (includeGtmCoord)
+	{
 		selectMgrAllMasterCoordinators(spiContext, &mgrNodes);
+		if (dlist_is_empty(&mgrNodes))
+		{
+			ereport(ERROR,
+					(errmsg("can't find any master coordinator")));
+		}
+	}
 	else
+	{
 		selectMgrNodeByNodetype(spiContext,
 								CNDN_TYPE_COORDINATOR_MASTER,
 								&mgrNodes);
+	}
 	mgrNodesToSwitcherNodes(&mgrNodes, coordinators);
 
-	if (dlist_is_empty(coordinators))
-	{
-		ereport(ERROR,
-				(errmsg("can't find any master coordinator")));
-	}
 	dlist_foreach(iter, coordinators)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
