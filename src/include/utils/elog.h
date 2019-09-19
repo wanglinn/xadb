@@ -168,10 +168,6 @@ extern bool errstart(int elevel, const char *filename, int lineno,
 		 const char *funcname, const char *domain);
 extern void errfinish(int dummy,...);
 
-#if defined(ADB) || defined(ADBMGRD) || defined(AGTM) || defined(ADB_MULTI_GRAM)
-extern void errdump(void);
-#endif
-
 extern int	errcode(int sqlerrcode);
 
 extern int	errcode_for_file_access(void);

@@ -171,7 +171,7 @@ ora_next_day(PG_FUNCTION_ARGS)
 
 	} PG_CATCH_HOLD();
 	{
-		errdump();
+		FlushErrorState();
 		err = true;
 	} PG_END_TRY_HOLD();
 

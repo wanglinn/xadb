@@ -1073,7 +1073,7 @@ CommitPreparedRxact(const char *gid,
 		if (RecordRemoteXactFailed(gid, RX_COMMIT, true) == false)
 			DisconnectRemoteXact();
 		/* Discard error data */
-		errdump();
+		FlushErrorState();
 		fail_to_commit = true;
 	} PG_END_TRY_HOLD();
 

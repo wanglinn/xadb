@@ -579,64 +579,6 @@ errfinish(int dummy,...)
 	CHECK_FOR_INTERRUPTS();
 }
 
-#if defined(ADB) || defined(ADBMGRD) || defined(AGTM) || defined(ADB_MULTI_GRAM)
-/*
- * errdump --- dump the latest ErrorData from error data stack.
- *
- * eg.
- *		PG_TRY();
- *		{
- *			...				-- make an error
- *		} PG_CATCH();
- *		{
- *			...				-- does not call PG_RE_THROW
- *		} PG_ENT_TRY();
- *
- * Case as above, increase the error data stack size(++errordata_stack_depth),
- * but never deal with it. At last, the error data stack will explode.
- *
- * errdump() called by caller, will dump the latest error.
- */
-void errdump(void)
-{
-	ErrorData  *edata = &errordata[errordata_stack_depth];
-	MemoryContext oldcontext;
-
-	/*
-	 * Do processing in ErrorContext, which we hope has enough reserved space
-	 * to report an error.
-	 */
-	oldcontext = MemoryContextSwitchTo(ErrorContext);
-
-	/* Now free up subsidiary data attached to stack entry, and release it */
-	if (edata->message)
-		pfree(edata->message);
-	if (edata->detail)
-		pfree(edata->detail);
-	if (edata->detail_log)
-		pfree(edata->detail_log);
-	if (edata->hint)
-		pfree(edata->hint);
-	if (edata->context)
-		pfree(edata->context);
-	if (edata->schema_name)
-		pfree(edata->schema_name);
-	if (edata->table_name)
-		pfree(edata->table_name);
-	if (edata->column_name)
-		pfree(edata->column_name);
-	if (edata->datatype_name)
-		pfree(edata->datatype_name);
-	if (edata->constraint_name)
-		pfree(edata->constraint_name);
-	if (edata->internalquery)
-		pfree(edata->internalquery);
-
-	errordata_stack_depth--;
-	/* Exit error-handling context */
-	MemoryContextSwitchTo(oldcontext);
-}
-#endif
 
 /*
  * errcode --- add SQLSTATE error code to the current error

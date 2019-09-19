@@ -194,7 +194,7 @@ trunc_text_toint2(PG_FUNCTION_ARGS)
 			result = DirectFunctionCall1(int2in, CStringGetDatum(txtstr));
 		} PG_CATCH_HOLD();
 		{
-			errdump();
+			FlushErrorState();
 			err = true;
 		} PG_END_TRY_HOLD();
 
@@ -246,7 +246,7 @@ trunc_text_toint4(PG_FUNCTION_ARGS)
 			result = DirectFunctionCall1(int4in, CStringGetDatum(txtstr));
 		} PG_CATCH_HOLD();
 		{
-			errdump();
+			FlushErrorState();
 			err = true;
 		} PG_END_TRY_HOLD();
 
@@ -298,7 +298,7 @@ trunc_text_toint8(PG_FUNCTION_ARGS)
 			result = DirectFunctionCall1(int8in, CStringGetDatum(txtstr));
 		} PG_CATCH_HOLD();
 		{
-			errdump();
+			FlushErrorState();
 			err = true;
 		} PG_END_TRY_HOLD();
 

@@ -6341,7 +6341,7 @@ ora_DCH_from_char(FormatNode *node, char *in, TmFromChar *out)
 									 MAX_MONTH_LEN, n);
 					} PG_CATCH_HOLD();
 					{
-						errdump();
+						FlushErrorState();
 						err = true;
 					} PG_END_TRY_HOLD();
 
