@@ -277,6 +277,10 @@ _readQuery(void)
 	READ_LOCATION_FIELD(stmt_location);
 	READ_LOCATION_FIELD(stmt_len);
 
+#ifdef ADB_GRAM_ORA
+	READ_NODE_FIELD(connect_by);
+#endif /* ADB_GRAM_ORA */
+
 	READ_DONE();
 }
 
@@ -2528,6 +2532,45 @@ _readLevelExpr(void)
 
 	READ_DONE();
 }
+
+static SysConnectByPathExpr *
+_readSysConnectByPathExpr(void)
+{
+	READ_LOCALS(SysConnectByPathExpr);
+
+	READ_INT_FIELD(priorAttno);
+	READ_NODE_FIELD(args);
+	READ_OID_FIELD(collation);
+	READ_LOCATION_FIELD(location);
+
+	READ_DONE();
+}
+
+static ConnectByRootExpr *
+_readConnectByRootExpr(void)
+{
+	READ_LOCALS(ConnectByRootExpr);
+
+	READ_NODE_FIELD(expr);
+	READ_INT_FIELD(priorAttno);
+	READ_LOCATION_FIELD(location);
+
+	READ_DONE();
+}
+
+static OracleConnectBy *
+_readOracleConnectBy(void)
+{
+	READ_LOCALS(OracleConnectBy);
+
+	READ_BOOL_FIELD(no_cycle);
+	READ_NODE_FIELD(start_with);
+	READ_NODE_FIELD(connect_by);
+	READ_NODE_FIELD(sortClause);
+	READ_NODE_FIELD(sort_tlist);
+
+	READ_DONE();
+}
 #endif /* ADB_GRAM_ORA */
 
 #ifdef AGTM
@@ -2861,6 +2904,12 @@ parseNodeString(void)
 		return_value = _readRownumExpr();
 	else if (MATCH("LEVELEXPR", 9))
 		return_value = _readLevelExpr();
+	else if (MATCH("SYSCONNECTBYPATHEXPR", 20))
+		return_value = _readSysConnectByPathExpr();
+	else if (MATCH("CONNECTBYROOTEXPR", 17))
+		return_value = _readConnectByRootExpr();
+	else if (MATCH("ORACLECONNECTBY", 15))
+		return_value = _readOracleConnectBy();
 #endif /* ADB_GRAM_ORA */
 #ifdef AGTM
 	else if (MATCH("TYPENAME", 8))

@@ -3126,6 +3126,10 @@ _outQuery(StringInfo str, const Query *node)
 	/* withCheckOptions intentionally omitted, see comment in parsenodes.h */
 	WRITE_LOCATION_FIELD(stmt_location);
 	WRITE_LOCATION_FIELD(stmt_len);
+
+#ifdef ADB_GRAM_ORA
+	WRITE_NODE_FIELD(connect_by);
+#endif /* ADB_GRAM_ORA */
 }
 
 static void
@@ -3826,6 +3830,27 @@ _outLevelExpr(StringInfo str, const LevelExpr *node)
 
 	WRITE_LOCATION_FIELD(location);
 }
+
+static void
+_outSysConnectByPathExpr(StringInfo str, const SysConnectByPathExpr *node)
+{
+	WRITE_NODE_TYPE("SYSCONNECTBYPATHEXPR");
+
+	WRITE_INT_FIELD(priorAttno);
+	WRITE_NODE_FIELD(args);
+	WRITE_OID_FIELD(collation);
+	WRITE_LOCATION_FIELD(location);
+}
+
+static void
+_outConnectByRootExpr(StringInfo str, const ConnectByRootExpr *node)
+{
+	WRITE_NODE_TYPE("CONNECTBYROOTEXPR");
+
+	WRITE_NODE_FIELD(expr);
+	WRITE_INT_FIELD(priorAttno);
+	WRITE_LOCATION_FIELD(location);
+}
 #endif /* ADB_GRAM_ORA */
 
 #ifdef ADB_EXT
@@ -4163,6 +4188,12 @@ outNode(StringInfo str, const void *obj)
 				break;
 			case T_LevelExpr:
 				_outLevelExpr(str, obj);
+				break;
+			case T_SysConnectByPathExpr:
+				_outSysConnectByPathExpr(str, obj);
+				break;
+			case T_ConnectByRootExpr:
+				_outConnectByRootExpr(str, obj);
 				break;
 			case T_OracleConnectBy:
 				_outOracleConnectBy(str, obj);
