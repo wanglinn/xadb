@@ -74,6 +74,9 @@ struct SharedTuplestore
 struct SharedTuplestoreAccessor
 {
 	int			participant;	/* My participant number. */
+#ifdef ADB_EXT
+	bool		is_read_only;	/* is read only attach? */
+#endif /* ADB_EXT */
 	SharedTuplestore *sts;		/* The shared state. */
 	SharedFileSet *fileset;		/* The SharedFileSet holding files. */
 	MemoryContext context;		/* Memory context for buffers. */
@@ -194,6 +197,26 @@ sts_attach(SharedTuplestore *sts,
 	return accessor;
 }
 
+#ifdef ADB_EXT
+SharedTuplestoreAccessor *sts_attach_read_only(SharedTuplestore *sts,
+		   SharedFileSet *fileset)
+{
+	SharedTuplestoreAccessor *accessor;
+
+	Assert(sts->nparticipants > 0);
+
+	accessor = palloc0(sizeof(SharedTuplestoreAccessor));
+	accessor->is_read_only = true;
+	accessor->participant = 0;
+	accessor->sts = sts;
+	accessor->fileset = fileset;
+	accessor->context = CurrentMemoryContext;
+
+	return accessor;
+
+}
+#endif /* ADB_EXT */
+
 static void
 sts_flush_chunk(SharedTuplestoreAccessor *accessor)
 {
@@ -308,6 +331,14 @@ sts_puttuple(SharedTuplestoreAccessor *accessor, void *meta_data,
 			 MinimalTuple tuple)
 {
 	size_t		size;
+
+#ifdef ADB_EXT
+	if (accessor->is_read_only)
+	{
+		ereport(ERROR,
+				(errmsg("shard tuplestore is attached read only")));
+	}
+#endif /* ADB_EXT */
 
 	/* Do we have our own file yet? */
 	if (accessor->write_file == NULL)

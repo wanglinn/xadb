@@ -58,4 +58,9 @@ extern void sts_puttuple(SharedTuplestoreAccessor *accessor,
 extern MinimalTuple sts_parallel_scan_next(SharedTuplestoreAccessor *accessor,
 					   void *meta_data);
 
+#ifdef ADB_EXT
+extern SharedTuplestoreAccessor *sts_attach_read_only(SharedTuplestore *sts,
+		   SharedFileSet *fileset);
+#endif /* ADB_EXT */
+
 #endif							/* SHAREDTUPLESTORE_H */
