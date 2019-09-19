@@ -1286,7 +1286,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	/*check node type*/
 	if (nodetype != CNDN_TYPE_GTM_COOR_SLAVE && nodetype != CNDN_TYPE_DATANODE_SLAVE)
 	{
-		appendStringInfo(strinfo, "the nodetype is \"%d\", not for gtm rewind or datanode rewind", nodetype);
+		appendStringInfo(strinfo, "the nodetype is \"%d\", not for gtmcoord rewind or datanode rewind", nodetype);
 		return false;
 	}
 
@@ -1455,8 +1455,8 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 		resetStringInfo(&(getAgentCmdRst.description));
 		if (CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype || CNDN_TYPE_GTM_COOR_SLAVE == mgr_node->nodetype)
 		{
-			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", AGTM_USER, slave_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
-			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", AGTM_USER, slave_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
+			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", slave_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
+			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", "all", slave_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
 		}
 		else
 		{
@@ -1536,8 +1536,8 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	agentPortM = mgr_host->hostagentport;
 	ReleaseSysCache(hostTupleM);
 
-	ereport(LOG, (errmsg("on %s master \"%s\" execute \"checkpoint\"", bGtmType ? "gtm":"datanode", nodename)));
-	ereport(NOTICE, (errmsg("on %s master \"%s\" execute \"checkpoint\"", bGtmType ? "gtm":"datanode", nodename)));
+	ereport(LOG, (errmsg("on %s master \"%s\" execute \"checkpoint\"", bGtmType ? "gtmcoord":"datanode", nodename)));
+	ereport(NOTICE, (errmsg("on %s master \"%s\" execute \"checkpoint\"", bGtmType ? "gtmcoord":"datanode", nodename)));
 	initStringInfo(&restmsg);
 	iloop = 10;
 	while(iloop-- > 0)
@@ -1558,6 +1558,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 
 	appendStringInfo(&infosendmsg, "%s/bin/pg_controldata '%s' | grep 'Minimum recovery ending location:' |awk '{print $5}'"
 				, adbhome, master_nodeinfo.nodepath);
+	appendStringInfoCharMacro(&infosendmsg, '\0');
 	resA = mgr_ma_send_cmd_get_original_result(AGT_CMD_GET_BATCH_JOB, infosendmsg.data, master_nodeinfo.nodehost, &restmsg, AGENT_RESULT_LOG);
 	if (resA)
 	{
@@ -1570,6 +1571,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	resetStringInfo(&restmsg);
 	resetStringInfo(&infosendmsg);
 	appendStringInfo(&infosendmsg, "%s/bin/pg_controldata '%s' |grep 'Min recovery ending loc' |awk '{print $6}'", adbhome, master_nodeinfo.nodepath);
+	appendStringInfoCharMacro(&infosendmsg, '\0');
 	resB = mgr_ma_send_cmd_get_original_result(AGT_CMD_GET_BATCH_JOB, infosendmsg.data, master_nodeinfo.nodehost, &restmsg, AGENT_RESULT_LOG);
 	if (resB)
 	{
@@ -1599,7 +1601,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	resetStringInfo(&infosendmsg);
 	if (bGtmType)
 		appendStringInfo(&infosendmsg, " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres'"
-			, slave_nodeinfo.nodepath, master_nodeinfo.nodeaddr, master_nodeinfo.nodeport, AGTM_USER);
+			, slave_nodeinfo.nodepath, master_nodeinfo.nodeaddr, master_nodeinfo.nodeport, master_nodeinfo.nodeusername);
 	else
 		appendStringInfo(&infosendmsg, " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres' -T %s -S %s"
 				, slave_nodeinfo.nodepath, master_nodeinfo.nodeaddr

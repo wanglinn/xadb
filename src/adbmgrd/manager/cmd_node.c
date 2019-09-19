@@ -1779,7 +1779,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			break;
 		case AGT_CMD_AGTM_RESTART:
 			cmdmode = "restart";
-			zmode = "node";
+			zmode = "gtm_coord";
 			break;
 		case AGT_CMD_CLEAN_NODE:
 			cmdmode = "rm -rf";
@@ -1891,11 +1891,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 
 		appendStringInfo(&infosendmsg, " %s -w -D %s", cmdmode, cndnPath);
 	}
-	else if (AGT_CMD_AGTM_RESTART == cmdtype)
-	{
-		appendStringInfo(&infosendmsg, " %s -D %s -w -m %s -l %s/logfile", cmdmode, cndnPath, shutdown_mode, cndnPath);
-	}
-	else if (AGT_CMD_DN_RESTART == cmdtype || AGT_CMD_CN_RESTART == cmdtype)
+	else if (AGT_CMD_DN_RESTART == cmdtype || AGT_CMD_CN_RESTART == cmdtype || AGT_CMD_AGTM_RESTART == cmdtype)
 	{
 		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
 		appendStringInfo(&infosendmsg, " -Z %s -m %s -o -i -w -c -l %s/logfile", zmode, shutdown_mode, cndnPath);
@@ -7593,7 +7589,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 				, errmsg("column cndnpath is null")));
 		}
 		/*get cndnPathtmp from tuple*/
-		ereport(LOG, (errmsg("refresh recovery.conf of gtm slave \"%s\"", NameStr(mgr_nodetmp->nodename))));
+		ereport(LOG, (errmsg("refresh recovery.conf of gtmcoord slave \"%s\"", NameStr(mgr_nodetmp->nodename))));
 		cndnPathtmp = TextDatumGetCString(datumPath);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, cndnPathtmp, &infosendmsg, mgr_nodetmp->nodehost, getAgentCmdRst);
 		if(!getAgentCmdRst->ret)
@@ -7601,14 +7597,14 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 			ereport(WARNING, (errmsg("refresh recovery.conf of agtm slave \"%s\" fail", NameStr(mgr_nodetmp->nodename))));
 			appendStringInfo(&recorderr, "refresh recovery.conf of agtm slave \"%s\" fail\n", NameStr(mgr_nodetmp->nodename));
 		}
-		/*restart gtm slave*/
-		ereport(LOG, (errmsg("agtm_ctl restart gtm slave \"%s\"", NameStr(mgr_nodetmp->nodename))));
+		/*restart gtmcoord slave*/
+		ereport(LOG, (errmsg("pg_ctl restart gtmcoord slave \"%s\"", NameStr(mgr_nodetmp->nodename))));
 		resetStringInfo(&(getAgentCmdRst->description));
 		mgr_runmode_cndn_get_result(AGT_CMD_AGTM_RESTART, getAgentCmdRst, noderel, tuple, SHUTDOWN_F);
 		if(!getAgentCmdRst->ret)
 		{
-			ereport(WARNING, (errmsg("agtm_ctl restart gtm slave \"%s\" fail", NameStr(mgr_nodetmp->nodename))));
-			appendStringInfo(&recorderr, "agtm_ctl restart gtm slave \"%s\" fail\n", NameStr(mgr_nodetmp->nodename));
+			ereport(WARNING, (errmsg("pg_ctl restart gtmcoord slave \"%s\" fail", NameStr(mgr_nodetmp->nodename))));
+			appendStringInfo(&recorderr, "pg_ctl restart gtmcoord slave \"%s\" fail\n", NameStr(mgr_nodetmp->nodename));
 		}
 	}
 	heap_endscan(rel_scan);
@@ -8320,8 +8316,6 @@ void mgr_get_cmd_head_word(char cmdtype, char *str)
 		case AGT_CMD_GTMCOOR_STOP_SLAVE:
 		case AGT_CMD_GTMCOOR_SLAVE_FAILOVER:
 		case AGT_CMD_AGTM_RESTART:
-			strcpy(str, "agtm_ctl");
-			break;
 		case AGT_CMD_CN_RESTART:
 		case AGT_CMD_CN_START:
 		case AGT_CMD_CN_STOP:
