@@ -419,8 +419,6 @@ void DRClearPlanInfo(PlanInfo *pi)
 	if (pi == NULL)
 		return;
 
-	if (pi->sort_context)
-		MemoryContextDelete(pi->sort_context);
 	if (pi->type_convert)
 	{
 		free_type_convert(pi->type_convert);

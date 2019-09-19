@@ -313,7 +313,7 @@ static BufFile *GetNodeBufFile(void *ptr, Oid nodeoid, int plan_id)
 	if (buf == NULL)
 	{
 		ereport(ERROR,
-				(errmsg("shared file set is exist for node %u in plan %d",
+				(errmsg("shared file set is not exist for node %u in plan %d",
 						nodeoid, plan_id)));
 	}
 	return buf->buffile;

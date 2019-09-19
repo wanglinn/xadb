@@ -98,6 +98,8 @@ static void ClearMergePlanInfo(PlanInfo *pi)
 		return;
 	DR_PLAN_DEBUG((errmsg("clean merge plan %d(%p)", pi->plan_id, pi)));
 	DRPlanSearch(pi->plan_id, HASH_REMOVE, NULL);
+	if (pi->sort_context)
+		MemoryContextDelete(pi->sort_context);
 	if (pi->pwi)
 	{
 		PlanWorkerInfo *pwi = pi->pwi;
