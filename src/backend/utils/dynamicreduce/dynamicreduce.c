@@ -94,6 +94,7 @@ void DynamicReduceWorkerMain(Datum main_arg)
 
 		/* Report the error to the server log */
 		EmitErrorReport();
+		FlushErrorState();
 
 		DRUtilsAbort();
 
