@@ -196,7 +196,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 
 %type <boolean>	opt_all opt_byte_char opt_restart_seqs opt_verbose opt_no_inherit
 				opt_unique opt_concurrently opt_with_data opt_or_replace
-				connect_by_opt_nocycle
+				connect_by_opt_nocycle opt_nowait
 
 %type <dbehavior>	opt_drop_behavior
 
@@ -205,7 +205,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 
 %type <istmt>	insert_rest insert_rest_no_cols
 
-%type <into>  into_clause create_as_target /*into_clause*/
+%type <into>  into_clause create_as_target create_mv_target /*into_clause*/
 
 %type <ival>
 	document_or_content
@@ -220,7 +220,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 				key_actions key_delete key_match key_update key_action
 				for_locking_strength
 				opt_hold opt_nulls_order opt_column opt_set_data TableLikeOptionList
-				TableLikeOption opt_nowait_or_skip
+				TableLikeOption opt_nowait_or_skip OptNoLog
 
 %type <objwithargs> aggregate_with_argtypes function_with_argtypes operator_with_argtypes
 
@@ -274,7 +274,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	alter_using
 	b_expr
 	BlockCodeStmt
-	ClosePortalStmt
+	ClosePortalStmt CreateMatViewStmt RefreshMatViewStmt
 	common_table_expr columnDef columnref CreateStmt ctext_expr columnElem
 	ColConstraint ColConstraintElem CommentStmt ConstraintAttr CreateProcedureStmt DropProcedureStmt CreateRoleStmt
 	case_default case_expr /*case_when*/ case_when_item c_expr
@@ -395,7 +395,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	OWNER OIDS OPTIONS OVER OWNED
 	PCTFREE PIPELINED PRECISION PRESERVE PRIOR PRIVILEGES PUBLIC PUBLICATION PURGE
 	PARTITION PRECEDING PROCEDURAL PROCEDURE PARTIAL PRIMARY PARSER PASSWORD PARALLEL_ENABLE POLICY
-	RANGE RAW READ REAL RECURSIVE RENAME REPLACE REPEATABLE RESET RESOURCE RESTART RESTRICT
+	RANGE RAW READ REAL RECURSIVE REFRESH RENAME REPLACE REPEATABLE RESET RESOURCE RESTART RESTRICT
 	RETURNING RETURN_P REVOKE REUSE RIGHT ROLE ROLLBACK ROLLUP ROW ROWID ROWNUM ROWS
 	REFERENCES REPLICA RULE RELATIVE_P RELEASE RESULT_CACHE
 	SCHEMA SECOND_P SELECT SERIALIZABLE SERVER SESSION SESSIONTIMEZONE SET SETS SHARE SHOW SIBLINGS SIZE SEARCH
@@ -523,6 +523,7 @@ stmt:
 	| ClosePortalStmt
 	| CommentStmt
 	| CreateAsStmt
+	| CreateMatViewStmt
 	| CreateStmt
 	| CreateSeqStmt
 	| CreateRoleStmt
@@ -535,6 +536,7 @@ stmt:
 	| FetchStmt
 	| InsertStmt
 	| IndexStmt
+	| RefreshMatViewStmt
 	| RenameStmt
 	| SelectStmt
 	| TruncateStmt
@@ -967,6 +969,24 @@ AlterObjectSchemaStmt:
 					n->missing_ok = true;
 					$$ = (Node *)n;
 				}
+			| ALTER MATERIALIZED VIEW qualified_name SET SCHEMA name
+				{
+					AlterObjectSchemaStmt *n = makeNode(AlterObjectSchemaStmt);
+					n->objectType = OBJECT_MATVIEW;
+					n->relation = $4;
+					n->newschema = $7;
+					n->missing_ok = false;
+					$$ = (Node *)n;
+				}
+			| ALTER MATERIALIZED VIEW IF_P EXISTS qualified_name SET SCHEMA name
+				{
+					AlterObjectSchemaStmt *n = makeNode(AlterObjectSchemaStmt);
+					n->objectType = OBJECT_MATVIEW;
+					n->relation = $6;
+					n->newschema = $9;
+					n->missing_ok = true;
+					$$ = (Node *)n;
+				}
 		;
 
 /*****************************************************************************
@@ -1057,6 +1077,48 @@ RenameStmt: ALTER INDEX qualified_name RENAME TO name
 					n->missing_ok = true;
 					$$ = (Node *)n;
 				}
+			| ALTER MATERIALIZED VIEW qualified_name RENAME TO name
+				{
+					RenameStmt *n = makeNode(RenameStmt);
+					n->renameType = OBJECT_MATVIEW;
+					n->relation = $4;
+					n->subname = NULL;
+					n->newname = $7;
+					n->missing_ok = false;
+					$$ = (Node *)n;
+				}
+			| ALTER MATERIALIZED VIEW IF_P EXISTS qualified_name RENAME TO name
+				{
+					RenameStmt *n = makeNode(RenameStmt);
+					n->renameType = OBJECT_MATVIEW;
+					n->relation = $6;
+					n->subname = NULL;
+					n->newname = $9;
+					n->missing_ok = true;
+					$$ = (Node *)n;
+				}
+			| ALTER MATERIALIZED VIEW qualified_name RENAME opt_column name TO name
+				{
+					RenameStmt *n = makeNode(RenameStmt);
+					n->renameType = OBJECT_COLUMN;
+					n->relationType = OBJECT_MATVIEW;
+					n->relation = $4;
+					n->subname = $7;
+					n->newname = $9;
+					n->missing_ok = false;
+					$$ = (Node *)n;
+				}
+			| ALTER MATERIALIZED VIEW IF_P EXISTS qualified_name RENAME opt_column name TO name
+				{
+					RenameStmt *n = makeNode(RenameStmt);
+					n->renameType = OBJECT_COLUMN;
+					n->relationType = OBJECT_MATVIEW;
+					n->relation = $6;
+					n->subname = $9;
+					n->newname = $11;
+					n->missing_ok = true;
+					$$ = (Node *)n;
+				}
 		;
 
 /*****************************************************************************
@@ -1106,6 +1168,52 @@ AlterTableStmt:
 					n->cmds = $6;
 					n->relkind = OBJECT_VIEW;
 					n->missing_ok = true;
+					$$ = (Node *)n;
+				}
+			|	ALTER MATERIALIZED VIEW qualified_name alter_table_cmds
+				{
+					AlterTableStmt *n = makeNode(AlterTableStmt);
+#if defined(ADB_MULTI_GRAM)
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
+					n->relation = $4;
+					n->cmds = $5;
+					n->relkind = OBJECT_MATVIEW;
+					n->missing_ok = false;
+					$$ = (Node *)n;
+				}
+			|	ALTER MATERIALIZED VIEW IF_P EXISTS qualified_name alter_table_cmds
+				{
+					AlterTableStmt *n = makeNode(AlterTableStmt);
+#if defined(ADB_MULTI_GRAM)
+					n->grammar = PARSE_GRAM_POSTGRES;
+#endif /* ADB */
+					n->relation = $6;
+					n->cmds = $7;
+					n->relkind = OBJECT_MATVIEW;
+					n->missing_ok = true;
+					$$ = (Node *)n;
+				}
+			|	ALTER MATERIALIZED VIEW ALL IN_P TABLESPACE name SET TABLESPACE name opt_nowait
+				{
+					AlterTableMoveAllStmt *n =
+						makeNode(AlterTableMoveAllStmt);
+					n->orig_tablespacename = $7;
+					n->objtype = OBJECT_MATVIEW;
+					n->roles = NIL;
+					n->new_tablespacename = $10;
+					n->nowait = $11;
+					$$ = (Node *)n;
+				}
+			|	ALTER MATERIALIZED VIEW ALL IN_P TABLESPACE name OWNED BY role_list SET TABLESPACE name opt_nowait
+				{
+					AlterTableMoveAllStmt *n =
+						makeNode(AlterTableMoveAllStmt);
+					n->orig_tablespacename = $7;
+					n->objtype = OBJECT_MATVIEW;
+					n->roles = $10;
+					n->new_tablespacename = $13;
+					n->nowait = $14;
 					$$ = (Node *)n;
 				}
 			|	ALTER TABLE relation_expr alter_table_cmds
@@ -1906,6 +2014,79 @@ opt_column: COLUMN									{ $$ = COLUMN; }
 alter_column_default:
 			SET DEFAULT a_expr			{ $$ = $3; }
 			| DROP DEFAULT				{ $$ = NULL; }
+		;
+
+/*****************************************************************************
+ *
+ *		QUERY :
+ *				CREATE MATERIALIZED VIEW relname AS SelectStmt
+ *
+ *****************************************************************************/
+
+CreateMatViewStmt:
+		CREATE OptNoLog MATERIALIZED VIEW create_mv_target AS SelectStmt opt_with_data
+				{
+					CreateTableAsStmt *ctas = makeNode(CreateTableAsStmt);
+					ctas->query = $7;
+					ctas->into = $5;
+					ctas->relkind = OBJECT_MATVIEW;
+					ctas->is_select_into = false;
+					ctas->if_not_exists = false;
+					/* cram additional flags into the IntoClause */
+					$5->rel->relpersistence = $2;
+					$5->skipData = !($8);
+					$$ = (Node *) ctas;
+				}
+		| CREATE OptNoLog MATERIALIZED VIEW IF_P NOT EXISTS create_mv_target AS SelectStmt opt_with_data
+				{
+					CreateTableAsStmt *ctas = makeNode(CreateTableAsStmt);
+					ctas->query = $10;
+					ctas->into = $8;
+					ctas->relkind = OBJECT_MATVIEW;
+					ctas->is_select_into = false;
+					ctas->if_not_exists = true;
+					/* cram additional flags into the IntoClause */
+					$8->rel->relpersistence = $2;
+					$8->skipData = !($11);
+					$$ = (Node *) ctas;
+				}
+		;
+
+create_mv_target:
+			qualified_name opt_column_list opt_reloptions OptTableSpace
+				{
+					$$ = makeNode(IntoClause);
+					$$->rel = $1;
+					$$->colNames = $2;
+					$$->options = $3;
+					$$->onCommit = ONCOMMIT_NOOP;
+					$$->tableSpaceName = $4;
+					$$->viewQuery = NULL;		/* filled at analysis time */
+					$$->skipData = false;		/* might get changed later */
+				}
+		;
+
+OptNoLog:	UNLOGGED					{ $$ = RELPERSISTENCE_UNLOGGED; }
+			| /*EMPTY*/					{ $$ = RELPERSISTENCE_PERMANENT; }
+		;
+
+
+/*****************************************************************************
+ *
+ *		QUERY :
+ *				REFRESH MATERIALIZED VIEW qualified_name
+ *
+ *****************************************************************************/
+
+RefreshMatViewStmt:
+			REFRESH MATERIALIZED VIEW opt_concurrently qualified_name opt_with_data
+				{
+					RefreshMatViewStmt *n = makeNode(RefreshMatViewStmt);
+					n->concurrent = $4;
+					n->relation = $5;
+					n->skipData = !($6);
+					$$ = (Node *) n;
+				}
 		;
 
 /*****************************************************************************
@@ -3857,6 +4038,7 @@ ExplainableStmt:
 	| InsertStmt
 	| UpdateStmt
 	| DeleteStmt
+	| CreateMatViewStmt
 	;
 
 explain_option_list:
@@ -5697,6 +5879,9 @@ opt_nowait_or_skip:
 			| /*EMPTY*/						{ $$ = LockWaitBlock; }
 		;
 
+opt_nowait:	NOWAIT							{ $$ = true; }
+			| /*EMPTY*/						{ $$ = false; }
+		;
 
 select_limit:
 			limit_clause offset_clause			{ $$ = list_make2($2, $1); }
@@ -7678,6 +7863,7 @@ unreserved_keyword:
 	| PURGE
 	| RANGE
 	| READ
+	| REFRESH
 	| RELATIVE_P
 	| RELEASE
 	| REPEATABLE
