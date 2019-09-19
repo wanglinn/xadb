@@ -38,6 +38,7 @@
 #define ADB_DR_MQ_MSG_START_PLAN_MERGE	'\x14'
 #define ADB_DR_MQ_MSG_START_PLAN_SFS	'\x15'
 #define ADB_DR_MQ_MSG_START_PLAN_PARALLEL '\x16'
+#define ADB_DR_MQ_MSG_START_PLAN_STS	'\x17'
 
 #define ADB_DR_MSG_INVALID				'\x00'
 #define ADB_DR_MSG_NODEOID				'\x01'
@@ -221,6 +222,13 @@ struct PlanInfo
 						   *sort_keys;
 			MemoryContext	sort_context;
 		};
+
+		/* for shared tuplestore */
+		struct
+		{
+			MemoryContext	sts_context;
+			StringInfoData	sts_tup_buf;
+		};
 	};
 };
 
@@ -275,6 +283,9 @@ void DRStartSFSPlanMessage(StringInfo msg);
 
 /* parallel plan functions in plan_parallel.c */
 void DRStartParallelPlanMessage(StringInfo msg);
+
+/* shared tuplestore plan functions in plan_sts.c */
+void DRStartSTSPlanMessage(StringInfo msg);
 
 /* connect functions in dr_connect.c */
 void FreeNodeEventInfo(DRNodeEventData *ned);

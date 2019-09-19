@@ -18,6 +18,7 @@
 #include "lib/stringinfo.h"
 #include "storage/buffile.h"
 #include "storage/shm_mq.h"
+#include "utils/sharedtuplestore.h"
 
 #define ADB_DYNAMIC_REDUCE_QUERY_SIZE	(64*1024)	/* 64K */
 
@@ -45,7 +46,22 @@ typedef struct DynamicReduceSFSData
 	DynamicReduceMQData	mq;
 	SharedFileSet		sfs;
 }DynamicReduceSFSData, *DynamicReduceSFS;
-#define DRSFSD_SIZE(n) (offsetof(DynamicReduceSFSData, nodes) + sizeof(Oid)*(n))
+
+typedef struct DynamicReduceSTSData
+{
+	DynamicReduceSFSData	sfs;
+	char					padding[sizeof(DynamicReduceSFSData) % MAXIMUM_ALIGNOF ?
+									MAXIMUM_ALIGNOF-sizeof(DynamicReduceSFSData)%MAXIMUM_ALIGNOF : 0];
+	/* shared tuplestore start address */
+	char					sts[FLEXIBLE_ARRAY_MEMBER];
+}DynamicReduceSTSData, *DynamicReduceSTS;
+#define DRSTSD_SIZE(npart, count)													\
+	(StaticAssertExpr(offsetof(DynamicReduceSTSData, sts) % MAXIMUM_ALIGNOF == 0,	\
+					  "sts not align to max"),										\
+	offsetof(DynamicReduceSTSData, sts) + MAXALIGN(sts_estimate(npart)) * (count))
+
+#define DRSTSD_ADDR(st, npart, offset)	\
+	(SharedTuplestore*)((char*)st + MAXALIGN(sts_estimate(npart)) * offset)
 
 typedef struct DynamicReduceIOBuffer
 {
@@ -79,7 +95,8 @@ extern void DynamicReduceStartNormalPlan(int plan_id, struct dsm_segment *seg, D
 extern void DynamicReduceStartMergePlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes,
 										int numCols, AttrNumber *sortColIdx, Oid *sortOperators, Oid *collations, bool *nullsFirst);
 extern void DynamicReduceStartParallelPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, int parallel_max);
-
+extern void DynamicReduceStartSharedTuplestorePlan(int plan_id, struct dsm_segment *seg, DynamicReduceSTS sts, TupleDesc desc,
+										List *work_nodes, int npart, int reduce_part);
 extern void DynamicReduceStartSharedFileSetPlan(int plan_id, struct dsm_segment *seg, DynamicReduceSFS sfs, TupleDesc desc, List *work_nodes);
 extern char* DynamicReduceSFSFileName(char *name, Oid nodeoid);
 extern TupleTableSlot *DynamicReduceReadSFSTuple(TupleTableSlot *slot, BufFile *file, StringInfo buf);
