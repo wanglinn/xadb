@@ -2238,6 +2238,10 @@ _copyTargetEntry(const TargetEntry *from)
 	COPY_SCALAR_FIELD(resorigcol);
 	COPY_SCALAR_FIELD(resjunk);
 
+#ifdef ADB_GRAM_ORA
+	COPY_SCALAR_FIELD(as_location);
+#endif /* ADB_GRAM_ORA */
+
 	return newnode;
 }
 

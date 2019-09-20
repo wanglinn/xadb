@@ -1846,6 +1846,9 @@ _outTargetEntry(StringInfo str, const TargetEntry *node)
 	WRITE_OID_FIELD(resorigtbl);
 	WRITE_INT_FIELD(resorigcol);
 	WRITE_BOOL_FIELD(resjunk);
+#ifdef ADB_GRAM_ORA
+	WRITE_LOCATION_FIELD(as_location);
+#endif /* ADB_GRAM_ORA */
 }
 
 static void

@@ -11700,6 +11700,9 @@ insert_column_item:
 					$$->indirection = check_indirection($2, yyscanner);
 					$$->val = NULL;
 					$$->location = @1;
+#ifdef ADB_GRAM_ORA
+					$$->as_location = -1;
+#endif /* ADB_GRAM_ORA */
 				}
 		;
 
@@ -11894,6 +11897,9 @@ set_target:
 					$$->indirection = check_indirection($2, yyscanner);
 					$$->val = NULL;	/* upper production sets this */
 					$$->location = @1;
+#ifdef ADB_GRAM_ORA
+					$$->as_location = -1;
+#endif /* ADB_GRAM_ORA */
 				}
 		;
 
@@ -12132,6 +12138,9 @@ simple_select:
 					rt->indirection = NIL;
 					rt->val = (Node *)cr;
 					rt->location = -1;
+#ifdef ADB_GRAM_ORA
+					rt->as_location = -1;
+#endif /* ADB_GRAM_ORA */
 
 					n->targetList = list_make1(rt);
 					n->fromClause = list_make1($2);
@@ -13229,6 +13238,9 @@ xml_namespace_el:
 					$$->indirection = NIL;
 					$$->val = $1;
 					$$->location = @1;
+#ifdef ADB_GRAM_ORA
+					$$->as_location = @3;
+#endif /* ADB_GRAM_ORA */
 				}
 			| DEFAULT b_expr
 				{
@@ -13237,6 +13249,9 @@ xml_namespace_el:
 					$$->indirection = NIL;
 					$$->val = $2;
 					$$->location = @1;
+#ifdef ADB_GRAM_ORA
+					$$->as_location = -1;
+#endif /* ADB_GRAM_ORA */
 				}
 		;
 
@@ -14755,6 +14770,9 @@ xml_attribute_el: a_expr AS ColLabel
 					$$->indirection = NIL;
 					$$->val = (Node *) $1;
 					$$->location = @1;
+#ifdef ADB_GRAM_ORA
+					$$->as_location = @3;
+#endif /* ADB_GRAM_ORA */
 				}
 			| a_expr
 				{
@@ -14763,6 +14781,9 @@ xml_attribute_el: a_expr AS ColLabel
 					$$->indirection = NIL;
 					$$->val = (Node *) $1;
 					$$->location = @1;
+#ifdef ADB_GRAM_ORA
+					$$->as_location = -1;
+#endif /* ADB_GRAM_ORA */
 				}
 		;
 
@@ -15455,6 +15476,9 @@ target_el:	a_expr AS ColLabel
 					$$->indirection = NIL;
 					$$->val = (Node *)$1;
 					$$->location = @1;
+#ifdef ADB_GRAM_ORA
+					$$->as_location = @3;
+#endif /* ADB_GRAM_ORA */
 				}
 			/*
 			 * We support omitting AS only for column labels that aren't
@@ -15471,6 +15495,9 @@ target_el:	a_expr AS ColLabel
 					$$->indirection = NIL;
 					$$->val = (Node *)$1;
 					$$->location = @1;
+#ifdef ADB_GRAM_ORA
+					$$->as_location = @2;
+#endif /* ADB_GRAM_ORA */
 				}
 			| a_expr
 				{
@@ -15479,6 +15506,9 @@ target_el:	a_expr AS ColLabel
 					$$->indirection = NIL;
 					$$->val = (Node *)$1;
 					$$->location = @1;
+#ifdef ADB_GRAM_ORA
+					$$->as_location = -1;
+#endif /* ADB_GRAM_ORA */
 				}
 			| '*'
 				{

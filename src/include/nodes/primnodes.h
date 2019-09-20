@@ -1424,6 +1424,9 @@ typedef struct TargetEntry
 	AttrNumber	resorigcol;		/* column's number in source table */
 	bool		resjunk;		/* set to true to eliminate the attribute from
 								 * final target list */
+#ifdef ADB_GRAM_ORA
+	int			as_location;
+#endif /* ADB_GRAM */
 } TargetEntry;
 
 

@@ -855,6 +855,9 @@ build_path_tlist(PlannerInfo *root, Path *path)
 	Index	   *sortgrouprefs = path->pathtarget->sortgrouprefs;
 	int			resno = 1;
 	ListCell   *v;
+#ifdef ADB_GRAM_ORA
+	ListCell   *lc_loc = list_head(path->pathtarget->as_loc_list);
+#endif /* ADB_GRAM_ORA */
 
 	foreach(v, path->pathtarget->exprs)
 	{
@@ -876,6 +879,16 @@ build_path_tlist(PlannerInfo *root, Path *path)
 							  false);
 		if (sortgrouprefs)
 			tle->ressortgroupref = sortgrouprefs[resno - 1];
+#ifdef ADB_GRAM_ORA
+		if (lc_loc)
+		{
+			tle->as_location = lfirst_int(lc_loc);
+			lc_loc = lnext(lc_loc);
+		}else
+		{
+			tle->as_location = -1;
+		}
+#endif /* ADB_GRAM_ORA */
 
 		tlist = lappend(tlist, tle);
 		resno++;

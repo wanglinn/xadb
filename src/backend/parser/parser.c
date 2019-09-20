@@ -1065,6 +1065,9 @@ ResTarget* make_star_target(int location)
 	target->indirection = NIL;
 	target->val = (Node *)n;
 	target->location = location;
+#ifdef ADB_GRAM_ORA
+	target->as_location = -1;
+#endif
 
 	return target;
 }

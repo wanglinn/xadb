@@ -5179,6 +5179,7 @@ insert_column_item:
 				$$->indirection = check_indirection($2, yyscanner);
 				$$->val = NULL;
 				$$->location = @1;
+				$$->as_location = -1;
 			}
 	;
 
@@ -6140,6 +6141,7 @@ set_target:
 			$$->indirection = check_indirection($2, yyscanner);
 			$$->val = NULL;	/* upper production sets this */
 			$$->location = @1;
+			$$->as_location = -1;
 		}
 	;
 
@@ -6465,6 +6467,7 @@ target_item:
 			{
 				$$ = makeNode(ResTarget);
 				$$->name = $3;
+				$$->as_location = @3;
 				$$->indirection = NIL;
 				$$->val = (Node *)$1;
 				$$->location = @1;
@@ -6473,6 +6476,7 @@ target_item:
 			{
 				$$ = makeNode(ResTarget);
 				$$->name = $2;
+				$$->as_location = @2;
 				$$->indirection = NIL;
 				$$->val = (Node *)$1;
 				$$->location = @1;
@@ -6484,6 +6488,7 @@ target_item:
 				$$->indirection = NIL;
 				$$->val = (Node *)$1;
 				$$->location = @1;
+				$$->as_location = -1;
 			}
 		| '*'
 			{
