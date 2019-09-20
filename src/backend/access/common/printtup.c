@@ -36,9 +36,17 @@ static void printtup_shutdown(DestReceiver *self);
 static void printtup_destroy(DestReceiver *self);
 
 static void SendRowDescriptionCols_2(StringInfo buf, TupleDesc typeinfo,
-						 List *targetlist, int16 *formats);
+						 List *targetlist, int16 *formats
+						 ADB_GRAM_ORA_COMMA_ARG2(const char *source_cmd, bool upper_target));
 static void SendRowDescriptionCols_3(StringInfo buf, TupleDesc typeinfo,
-						 List *targetlist, int16 *formats);
+						 List *targetlist, int16 *formats
+						 ADB_GRAM_ORA_COMMA_ARG2(const char *source_cmd, bool upper_target));
+#ifdef ADB_GRAM_ORA
+static void SendRowDescriptionMessageOracle(StringInfo buf, TupleDesc typeinfo,
+											List *targetlist, int16 *formats,
+											const char *source_cmd, bool upper_target);
+bool upper_out_oracle_target = true;
+#endif /* ADB_GRAM_ORA */
 
 /* ----------------------------------------------------------------
  *		printtup / debugtup support
@@ -168,10 +176,25 @@ printtup_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	 * descriptor of the tuples.
 	 */
 	if (myState->sendDescrip)
+	{
+#ifdef ADB_GRAM_ORA
+		if (upper_out_oracle_target &&
+			portal->sourceText != NULL &&
+			portal->grammar == PARSE_GRAM_ORACLE)
+		{
+			SendRowDescriptionMessageOracle(&myState->buf,
+											typeinfo,
+											FetchPortalTargetList(portal),
+											portal->formats,
+											portal->sourceText,
+											true);
+		}else
+#endif /* ADB_GRAM_ORA */
 		SendRowDescriptionMessage(&myState->buf,
 								  typeinfo,
 								  FetchPortalTargetList(portal),
 								  portal->formats);
+	}
 
 	/* ----------------
 	 * We could set up the derived attr info at this time, but we postpone it
@@ -200,6 +223,14 @@ void
 SendRowDescriptionMessage(StringInfo buf, TupleDesc typeinfo,
 						  List *targetlist, int16 *formats)
 {
+#ifdef ADB_GRAM_ORA
+	return SendRowDescriptionMessageOracle(buf, typeinfo, targetlist, formats, NULL, false);
+}
+static void SendRowDescriptionMessageOracle(StringInfo buf, TupleDesc typeinfo,
+											List *targetlist, int16 *formats,
+											const char *source_cmd, bool upper_target)
+{
+#endif /* ADB_GRAM_ORA */
 	int			natts = typeinfo->natts;
 	int			proto = PG_PROTOCOL_MAJOR(FrontendProtocol);
 
@@ -209,9 +240,9 @@ SendRowDescriptionMessage(StringInfo buf, TupleDesc typeinfo,
 	pq_sendint16(buf, natts);
 
 	if (proto >= 3)
-		SendRowDescriptionCols_3(buf, typeinfo, targetlist, formats);
+		SendRowDescriptionCols_3(buf, typeinfo, targetlist, formats ADB_GRAM_ORA_COMMA_ARG2(source_cmd, upper_target));
 	else
-		SendRowDescriptionCols_2(buf, typeinfo, targetlist, formats);
+		SendRowDescriptionCols_2(buf, typeinfo, targetlist, formats ADB_GRAM_ORA_COMMA_ARG2(source_cmd, upper_target));
 
 	pq_endmessage_reuse(buf);
 }
@@ -220,7 +251,8 @@ SendRowDescriptionMessage(StringInfo buf, TupleDesc typeinfo,
  * Send description for each column when using v3+ protocol
  */
 static void
-SendRowDescriptionCols_3(StringInfo buf, TupleDesc typeinfo, List *targetlist, int16 *formats)
+SendRowDescriptionCols_3(StringInfo buf, TupleDesc typeinfo, List *targetlist, int16 *formats
+						 ADB_GRAM_ORA_COMMA_ARG2(const char *source_cmd, bool upper_target))
 {
 	int			natts = typeinfo->natts;
 	int			i;
@@ -245,6 +277,7 @@ SendRowDescriptionCols_3(StringInfo buf, TupleDesc typeinfo, List *targetlist, i
 
 	for (i = 0; i < natts; ++i)
 	{
+		TargetEntry *tle = NULL;
 		Form_pg_attribute att = TupleDescAttr(typeinfo, i);
 		Oid			atttypid = att->atttypid;
 		int32		atttypmod = att->atttypmod;
@@ -264,7 +297,7 @@ SendRowDescriptionCols_3(StringInfo buf, TupleDesc typeinfo, List *targetlist, i
 			tlist_item = lnext(tlist_item);
 		if (tlist_item)
 		{
-			TargetEntry *tle = (TargetEntry *) lfirst(tlist_item);
+			tle = lfirst_node(TargetEntry, tlist_item);
 
 			resorigtbl = tle->resorigtbl;
 			resorigcol = tle->resorigcol;
@@ -282,6 +315,17 @@ SendRowDescriptionCols_3(StringInfo buf, TupleDesc typeinfo, List *targetlist, i
 		else
 			format = 0;
 
+#ifdef ADB_GRAM_ORA
+		if (upper_target && tle &&
+			(tle->as_location <= 0 ||	/* 0 is valid location, but not "AS" valid location */
+			 source_cmd[pg_mbstrlen_with_len(source_cmd, tle->as_location)] != '"'))
+		{
+			int i = buf->len;
+			pq_writestring(buf, NameStr(att->attname));
+			for(;i<buf->len;++i)
+				buf->data[i] = pg_toupper(buf->data[i]);
+		}else
+#endif /* ADB_GRAM_ORA */
 		pq_writestring(buf, NameStr(att->attname));
 		pq_writeint32(buf, resorigtbl);
 		pq_writeint16(buf, resorigcol);
@@ -296,10 +340,15 @@ SendRowDescriptionCols_3(StringInfo buf, TupleDesc typeinfo, List *targetlist, i
  * Send description for each column when using v2 protocol
  */
 static void
-SendRowDescriptionCols_2(StringInfo buf, TupleDesc typeinfo, List *targetlist, int16 *formats)
+SendRowDescriptionCols_2(StringInfo buf, TupleDesc typeinfo, List *targetlist, int16 *formats
+						 ADB_GRAM_ORA_COMMA_ARG2(const char *source_cmd, bool upper_target))
 {
 	int			natts = typeinfo->natts;
 	int			i;
+#ifdef ADB_GRAM_ORA
+	ListCell   *lc_loc = list_head(targetlist);
+	TargetEntry *tle;
+#endif /* ADB_GRAM_ORA */
 
 	for (i = 0; i < natts; ++i)
 	{
@@ -310,6 +359,25 @@ SendRowDescriptionCols_2(StringInfo buf, TupleDesc typeinfo, List *targetlist, i
 		/* If column is a domain, send the base type and typmod instead */
 		atttypid = getBaseTypeAndTypmod(atttypid, &atttypmod);
 
+#ifdef ADB_GRAM_ORA
+		if (lc_loc)
+		{
+			tle = lfirst_node(TargetEntry, lc_loc);
+			lc_loc = lnext(lc_loc);
+		}else
+		{
+			tle = NULL;
+		}
+		if (upper_target && tle &&
+			(tle->as_location <= 0 ||	/* 0 is valid location, but not "AS" valid location */
+			 source_cmd[pg_mbstrlen_with_len(source_cmd, tle->as_location)] != '"'))
+		{
+			int i = buf->len;
+			pq_sendstring(buf, NameStr(att->attname));
+			for(;i<buf->len;++i)
+				buf->data[i] = pg_toupper(buf->data[i]);
+		}else
+#endif /* ADB_GRAM_ORA */
 		pq_sendstring(buf, NameStr(att->attname));
 		/* column ID only info appears in protocol 3.0 and up */
 		pq_sendint32(buf, atttypid);

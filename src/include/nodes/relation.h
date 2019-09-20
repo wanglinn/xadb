@@ -1067,6 +1067,9 @@ typedef struct PathTarget
 	Index	   *sortgrouprefs;	/* corresponding sort/group refnos, or 0 */
 	QualCost	cost;			/* cost of evaluating the expressions */
 	int			width;			/* estimated avg width of result tuples */
+#ifdef ADB_GRAM_ORA
+	List	   *as_loc_list;
+#endif /* ADB_GRAM_ORA */
 } PathTarget;
 
 /* Convenience macro to get a sort/group refno from a PathTarget */

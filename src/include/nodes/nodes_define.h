@@ -1485,6 +1485,9 @@ BEGIN_NODE(TargetEntry)
 	NODE_OID(class,resorigtbl)
 	NODE_SCALAR(AttrNumber,resorigcol)
 	NODE_SCALAR(bool,resjunk)
+#ifdef ADB_GRAM_ORA
+	NODE_SCALAR(int,as_location)
+#endif
 END_NODE(TargetEntry)
 #endif /* NO_NODE_TargetEntry */
 
@@ -2056,6 +2059,9 @@ BEGIN_NODE(PathTarget)
 	NODE_SCALAR_POINT(Index,sortgrouprefs,list_length(NODE_ARG_->exprs))
 	NODE_STRUCT_MEB(QualCost,cost)
 	NODE_SCALAR(int,width)
+#ifdef ADB_GRAM_ORA
+	NODE_NODE(List,as_loc_list)
+#endif
 END_NODE(PathTarget)
 #endif /* NO_NODE_PathTarget */
 
@@ -3475,6 +3481,9 @@ BEGIN_NODE(ResTarget)
 	NODE_NODE(List,indirection)
 	NODE_NODE(Node,val)
 	NODE_SCALAR(int,location)
+#ifdef ADB_GRAM_ORA
+	NODE_SCALAR(int,as_location)
+#endif
 END_NODE(ResTarget)
 #endif /* NO_NODE_ResTarget */
 

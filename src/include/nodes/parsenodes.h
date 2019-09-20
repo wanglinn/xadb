@@ -523,6 +523,9 @@ typedef struct ResTarget
 	List	   *indirection;	/* subscripts, field names, and '*', or NIL */
 	Node	   *val;			/* the value expression to compute or assign */
 	int			location;		/* token location, or -1 if unknown */
+#ifdef ADB_GRAM_ORA
+	int			as_location;	/* alias location */
+#endif /* ADB_GRAM_ORA */
 } ResTarget;
 
 /*

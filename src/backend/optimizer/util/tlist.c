@@ -632,6 +632,9 @@ make_pathtarget_from_tlist(List *tlist)
 
 		target->exprs = lappend(target->exprs, tle->expr);
 		target->sortgrouprefs[i] = tle->ressortgroupref;
+#ifdef ADB_GRAM_ORA
+		target->as_loc_list = lappend_int(target->as_loc_list, tle->as_location);
+#endif
 		i++;
 	}
 
@@ -648,6 +651,9 @@ make_tlist_from_pathtarget(PathTarget *target)
 	List	   *tlist = NIL;
 	int			i;
 	ListCell   *lc;
+#ifdef ADB_GRAM_ORA
+	ListCell   *lc_loc = list_head(target->as_loc_list);
+#endif /* ADB_GRAM_ORA */
 
 	i = 0;
 	foreach(lc, target->exprs)
@@ -661,6 +667,16 @@ make_tlist_from_pathtarget(PathTarget *target)
 							  false);
 		if (target->sortgrouprefs)
 			tle->ressortgroupref = target->sortgrouprefs[i];
+#ifdef ADB_GRAM_ORA
+		if (lc_loc)
+		{
+			tle->as_location = lfirst_int(lc_loc);
+			lc_loc = lnext(lc_loc);
+		}else
+		{
+			tle->as_location = -1;
+		}
+#endif /* ADB_GRAM_ORA */
 		tlist = lappend(tlist, tle);
 		i++;
 	}
@@ -685,6 +701,9 @@ copy_pathtarget(PathTarget *src)
 	memcpy(dst, src, sizeof(PathTarget));
 	/* Shallow-copy the expression list */
 	dst->exprs = list_copy(src->exprs);
+#ifdef ADB_GRAM_ORA
+	dst->as_loc_list = list_copy(src->as_loc_list);
+#endif /* ADB_GRAM_ORA */
 	/* Duplicate sortgrouprefs if any (if not, the memcpy handled this) */
 	if (src->sortgrouprefs)
 	{

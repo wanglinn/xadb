@@ -501,6 +501,10 @@ static const struct config_enum_entry parse_grammer_options[] = {
 };
 #endif
 
+#ifdef ADB_GRAM_ORA
+extern bool upper_out_oracle_target;	/* in printtup.c */
+#endif /* ADB_GRAM_ORA */
+
 #ifdef ADBMGRD
 static const struct config_enum_entry command_mode[] = {
 	{"sql", CMD_MODE_SQL, false},
@@ -2318,6 +2322,18 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 #endif
+
+#ifdef ADB_GRAM_ORA
+	{
+		{"upper_out_oracle_target", PGC_USERSET, COMPAT_OPTIONS_CLIENT,
+			gettext_noop("upper target name to client"),
+			NULL
+		},
+		&upper_out_oracle_target,
+		true,
+		NULL, NULL, NULL
+	},
+#endif /* ADB_GRAM_ORA */
 
 #ifdef DEBUG_ADB
 	{

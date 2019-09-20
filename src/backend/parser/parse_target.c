@@ -162,10 +162,13 @@ transformTargetList(ParseState *pstate, List *targetlist,
 				if (IsA(llast(cref->fields), A_Star))
 				{
 					/* It is something.*, expand into multiple items */
-					p_target = list_concat(p_target,
-										   ExpandColumnRefStar(pstate,
-															   cref,
-															   true));
+					List *list = ExpandColumnRefStar(pstate, cref, true);
+#ifdef ADB_GRAM_ORA
+					ListCell *lc;
+					foreach (lc, list)
+						lfirst_node(TargetEntry, lc)->as_location = -1;
+#endif /* ADB_GRAM_ORA */
+					p_target = list_concat(p_target, list);
 					continue;
 				}
 			}
@@ -176,11 +179,13 @@ transformTargetList(ParseState *pstate, List *targetlist,
 				if (IsA(llast(ind->indirection), A_Star))
 				{
 					/* It is something.*, expand into multiple items */
-					p_target = list_concat(p_target,
-										   ExpandIndirectionStar(pstate,
-																 ind,
-																 true,
-																 exprKind));
+					List *list = ExpandIndirectionStar(pstate, ind, true, exprKind);
+#ifdef ADB_GRAM_ORA
+					ListCell *lc;
+					foreach (lc, list)
+						lfirst_node(TargetEntry, lc)->as_location = -1;
+#endif /* ADB_GRAM_ORA */
+					p_target = list_concat(p_target, list);
 					continue;
 				}
 			}
@@ -220,6 +225,9 @@ transformTargetList(ParseState *pstate, List *targetlist,
 												exprKind,
 												res->name,
 												false));
+#ifdef ADB_GRAM_ORA
+		llast_node(TargetEntry, p_target)->as_location = res->as_location;
+#endif /* ADB_GRAM_ORA */
 	}
 
 	/*
