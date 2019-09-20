@@ -179,8 +179,8 @@ bool TransactionIdDidCommitGTM(TransactionId transactionId, bool try_gtm)
 	if (xidstatus == TRANSACTION_STATUS_COMMITTED)
 	{
 #ifdef ADB
-		if (try_gtm &&
-			IsUnderAGTM())
+		if (try_gtm && TransactionIdIsNormal(transactionId)
+			&& IsUnderAGTM())
 		{
 			TimestampTz end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
 			if (SnapRcvWaitTopTransactionEnd(transactionId, end) == false)
