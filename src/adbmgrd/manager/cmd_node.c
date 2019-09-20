@@ -13017,7 +13017,8 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync)
 	bool			updateAll = true;
 
 	/* Check for the need for updates based on read-write separation parameters */
-	if (!mgr_get_sync_slave_readonly_state() && !(updateKey && strcmp(updateKey, "enable_readsql_on_slave") == 0))
+	if (!mgr_get_sync_slave_readonly_state() && 
+		!(updateKey && (strcmp(updateKey, "enable_readsql_on_slave") == 0 || strcmp(updateKey, "enable_readsql_on_slave_async") == 0)))
 		return true;
 
 	/* Check whether there is an unstarted coord synchronous standby */

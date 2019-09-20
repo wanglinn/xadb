@@ -1222,6 +1222,11 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 			def = lfirst(lc);
 			Assert(def && IsA(def, DefElem));
 			namestrcpy(&key, def->defname);
+			/* check reading and writing separation */
+			if (strcmp(key.data, "enable_readsql_on_slave") == 0)
+				mgr_update_cn_pgxcnode_readonlysql_slave(key.data, false);
+			if (strcmp(key.data, "enable_readsql_on_slave_async") == 0)
+				mgr_update_cn_pgxcnode_readonlysql_slave(key.data, false);
 			if (strcmp(key.data, "port") == 0 || strcmp(key.data, "synchronous_standby_names") == 0)
 			{
 				ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
