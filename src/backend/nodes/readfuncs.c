@@ -1273,7 +1273,7 @@ _readTargetEntry(void)
 	READ_INT_FIELD(resorigcol);
 	READ_BOOL_FIELD(resjunk);
 #ifdef ADB_GRAM_ORA
-	READ_LOCATION_FIELD(as_location);
+	READ_INT_FIELD(as_location);
 #endif /* ADB_GRAM_ORA */
 
 	READ_DONE();
