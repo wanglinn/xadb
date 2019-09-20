@@ -1360,7 +1360,7 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 	ismasterrunning = pingNode_user(masterhostaddress, strinfocoordport.data, user);
 	pfree(user);
 	pfree(strinfocoordport.data);
-	if(ismasterrunning != 0)
+	if(ismasterrunning != PQPING_OK && ismasterrunning != PQPING_REJECT)
 	{
 		/*it need start datanode master*/
 		DatumStartDnMaster = DirectFunctionCall1(mgr_start_one_dn_master, CStringGetDatum(mastername));
@@ -1400,7 +1400,7 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 	initdone = mgr_recv_msg(ma, getAgentCmdRst);
 	ma_close(ma);
 	/*stop datanode master if we start it*/
-	if(ismasterrunning != 0)
+	if(ismasterrunning != PQPING_OK && ismasterrunning != PQPING_REJECT)
 	{
 		/*it need start datanode master*/
 		DatumStopDnMaster = DirectFunctionCall1(mgr_stop_one_dn_master, CStringGetDatum(mastername));
