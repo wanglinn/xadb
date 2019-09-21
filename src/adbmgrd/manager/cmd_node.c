@@ -1472,7 +1472,7 @@ Datum mgr_start_gtmcoor_master(PG_FUNCTION_ARGS)
 		nodename = PG_GETARG_CSTRING(0);
 		nodenamelist = lappend(nodenamelist, nodename);
 		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, true, CURE_STATUS_NORMAL);
-		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOOR_START_MASTER_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOOR_START_MASTER, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 }
 
@@ -1495,7 +1495,7 @@ Datum mgr_start_gtmcoor_slave(PG_FUNCTION_ARGS)
 		nodename = PG_GETARG_CSTRING(0);
 		nodenamelist = lappend(nodenamelist, nodename);
 		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, true, CURE_STATUS_NORMAL);
-		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_START_SLAVE_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_START_SLAVE, nodenamelist, TAKEPLAPARM_N, fcinfo);
 	}
 }
 
@@ -1839,7 +1839,8 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		}
 	}
 	/*stop coordinator/datanode*/
-	else if(AGT_CMD_CN_STOP == cmdtype || AGT_CMD_DN_STOP == cmdtype)
+	else if(AGT_CMD_CN_STOP == cmdtype || AGT_CMD_DN_STOP == cmdtype ||
+			AGT_CMD_GTMCOOR_STOP_MASTER == cmdtype || AGT_CMD_GTMCOOR_STOP_SLAVE == cmdtype)
 	{
 		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
 		appendStringInfo(&infosendmsg, " -Z %s -m %s -o -i -w -c", zmode, shutdown_mode);
@@ -1900,27 +1901,15 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	{
 		appendStringInfo(&infosendmsg, "rm -rf %s; mkdir -p %s; chmod 0700 %s", cndnPath, cndnPath, cndnPath);
 	}
-	else if (AGT_CMD_GTMCOOR_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_START_SLAVE_BACKEND == cmdtype
-			|| AGT_CMD_GTMCOOR_START_MASTER == cmdtype || AGT_CMD_GTMCOOR_START_SLAVE == cmdtype)
-	{
-		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
-		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
-		appendStringInfo(&infosendmsg, " -Z %s -o -i -w -c -W -l %s/logfile", zmode, cndnPath);
-	}
-	else if (AGT_CMD_GTMCOOR_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND == cmdtype
-		|| AGT_CMD_GTMCOOR_STOP_MASTER == cmdtype || AGT_CMD_GTMCOOR_STOP_SLAVE == cmdtype)
+	else if(AGT_CMD_CN_STOP_BACKEND == cmdtype || AGT_CMD_DN_STOP_BACKEND == cmdtype ||
+			AGT_CMD_GTMCOOR_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND == cmdtype)
 	{
 		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
 		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
 		appendStringInfo(&infosendmsg, " -Z %s -m %s -o -i -w -c -W", zmode, shutdown_mode);
 	}
-	else if(AGT_CMD_CN_STOP_BACKEND == cmdtype || AGT_CMD_DN_STOP_BACKEND == cmdtype)
-	{
-		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
-		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
-		appendStringInfo(&infosendmsg, " -Z %s -m %s -o -i -w -c -W", zmode, shutdown_mode);
-	}
-	else if (AGT_CMD_CN_START_BACKEND == cmdtype || AGT_CMD_DN_START_BACKEND == cmdtype)
+	else if (AGT_CMD_CN_START_BACKEND == cmdtype || AGT_CMD_DN_START_BACKEND == cmdtype ||
+		AGT_CMD_GTMCOOR_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_START_SLAVE_BACKEND == cmdtype)
 	{
 		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
 		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
