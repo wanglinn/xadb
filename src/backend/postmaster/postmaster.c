@@ -2929,8 +2929,8 @@ pmdie(SIGNAL_ARGS)
 				if (IS_PGXC_COORDINATOR && PgPoolerPID != 0)
 					signal_child(PgPoolerPID, SIGTERM);
 				/* and the remote xact manager too */
-				if (IS_PGXC_COORDINATOR && RemoteXactMgrPID != 0)
-					signal_child(RemoteXactMgrPID, SIGTERM);
+				//if (IS_PGXC_COORDINATOR && RemoteXactMgrPID != 0)
+					//signal_child(RemoteXactMgrPID, SIGTERM);
 #endif
 
 				/*
@@ -3019,8 +3019,8 @@ pmdie(SIGNAL_ARGS)
 				/* and the pool manager too */
 				if (IS_PGXC_COORDINATOR && PgPoolerPID != 0)
 					signal_child(PgPoolerPID, SIGTERM);
-				if (IS_PGXC_COORDINATOR && RemoteXactMgrPID != 0)
-					signal_child(RemoteXactMgrPID, SIGTERM);
+				//if (IS_PGXC_COORDINATOR && RemoteXactMgrPID != 0)
+					//signal_child(RemoteXactMgrPID, SIGTERM);
 #endif
 				pmState = PM_WAIT_BACKENDS;
 			}
@@ -4206,7 +4206,6 @@ PostmasterStateMachine(void)
 			StartupPID == 0 &&
 #ifdef ADB
 			PgPoolerPID == 0 &&
-			RemoteXactMgrPID == 0 &&
 #endif
 #if defined(ADBMGRD)
 			AdbMntPID == 0 &&
@@ -4267,6 +4266,11 @@ PostmasterStateMachine(void)
 					if (PgStatPID != 0)
 						signal_child(PgStatPID, SIGQUIT);
 				}
+#ifdef ADB
+				sleep(2);
+				if (IS_PGXC_COORDINATOR && RemoteXactMgrPID != 0)
+					signal_child(RemoteXactMgrPID, SIGTERM);
+#endif
 			}
 		}
 	}
@@ -4310,7 +4314,7 @@ PostmasterStateMachine(void)
 			/* These other guys should be dead already */
 #ifdef ADB
 			Assert(PgPoolerPID == 0);
-			Assert(RemoteXactMgrPID == 0);
+			//Assert(RemoteXactMgrPID == 0);
 #endif
 #if defined(ADBMGRD)
 			Assert(AdbMntPID == 0);

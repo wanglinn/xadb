@@ -615,7 +615,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 		resetStringInfo(&infosendmsg);
 		resetStringInfo(&strinfo);
 		if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
-			appendStringInfo(&infosendmsg, " start -D %s -o -i -w -c -l %s/logfile", slave_nodeinfo.nodepath, slave_nodeinfo.nodepath);
+			appendStringInfo(&infosendmsg, " start -Z gtm_coord -D %s -o -i -w -c -l %s/logfile", slave_nodeinfo.nodepath, slave_nodeinfo.nodepath);
 		else
 		appendStringInfo(&infosendmsg, " start -Z datanode -D %s -o -i -w -c -l %s/logfile", slave_nodeinfo.nodepath, slave_nodeinfo.nodepath);
 
