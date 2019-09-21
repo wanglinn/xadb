@@ -2291,6 +2291,7 @@ static void rewindMgrNodeOperation(RewindMgrNodeObject *rewindObject,
 	appendStringInfo(&infosendmsg, "%s/bin/pg_controldata '%s' | grep 'Minimum recovery ending location:' |awk '{print $5}'",
 					 masterNode->host->hostadbhome,
 					 masterNode->nodepath);
+	appendStringInfoCharMacro(&infosendmsg, '\0');
 	resA = mgr_ma_send_cmd_get_original_result(AGT_CMD_GET_BATCH_JOB,
 											   infosendmsg.data,
 											   masterNode->form.nodehost,
@@ -2309,6 +2310,7 @@ static void rewindMgrNodeOperation(RewindMgrNodeObject *rewindObject,
 	appendStringInfo(&infosendmsg, "%s/bin/pg_controldata '%s' |grep 'Min recovery ending loc' |awk '{print $6}'",
 					 masterNode->host->hostadbhome,
 					 masterNode->nodepath);
+	appendStringInfoCharMacro(&infosendmsg, '\0');
 	resB = mgr_ma_send_cmd_get_original_result(AGT_CMD_GET_BATCH_JOB,
 											   infosendmsg.data,
 											   masterNode->form.nodehost,
