@@ -200,7 +200,7 @@ void GxidSenderMain(void)
 	WaitEvent	   		*event;
 	GxidWaitEventData	* volatile wed = NULL;
 	sigjmp_buf			local_sigjmp_buf;
-	int					rc,i;
+	int					rc;
 
 	Assert(GxidSender != NULL);
 
@@ -299,9 +299,9 @@ void GxidSenderMain(void)
 							  gxid_send_cur_wait_event,
 							  PG_WAIT_CLIENT);
 
-		for(i=0;i<rc;++i)
+		while(rc > 0)
 		{
-			event = &gxid_send_wait_event[i];
+			event = &gxid_send_wait_event[--rc];
 			wed = event->user_data;
 			(*wed->fun)(event);
 			pq_switch_to_none();
