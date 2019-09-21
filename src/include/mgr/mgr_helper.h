@@ -329,11 +329,14 @@ extern MgrNodeWrapper *selectMgrNodeByOid(Oid oid, MemoryContext spiContext);
 extern MgrNodeWrapper *selectMgrNodeByNodenameType(char *nodename,
 												   char nodetype,
 												   MemoryContext spiContext);
-extern void selectMgrAllMasterCoordinators(MemoryContext spiContext,
+extern void selectActiveMasterCoordinators(MemoryContext spiContext,
 										   dlist_head *resultList);
 extern void selectMgrNodeByNodetype(MemoryContext spiContext,
 									char nodetype,
 									dlist_head *resultList);
+extern void selectActiveMgrNodeByNodetype(MemoryContext spiContext,
+										  char nodetype,
+										  dlist_head *resultList);
 extern void selectMgrAllDataNodes(MemoryContext spiContext,
 								  dlist_head *resultList);
 extern void selectMgrSlaveNodes(Oid masterOid,
@@ -348,6 +351,8 @@ extern void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
 											dlist_head *resultList);
 extern void selectMgrNodesForRepairerDoctor(MemoryContext spiContext,
 											dlist_head *resultList);
+extern void selectIsolatedMgrNodes(MemoryContext spiContext,
+								   dlist_head *resultList);
 extern MgrNodeWrapper *selectMgrGtmCoordNode(MemoryContext spiContext);
 extern int updateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 								   char *newCurestatus,
@@ -358,7 +363,7 @@ extern int updateMgrNodeAfterFollowMaster(MgrNodeWrapper *mgrNode,
 extern int updateMgrNodeToIsolate(MgrNodeWrapper *mgrNode,
 								  MemoryContext spiContext);
 extern int updateMgrNodeToUnIsolate(MgrNodeWrapper *mgrNode,
-								  MemoryContext spiContext);
+									MemoryContext spiContext);
 extern void selectMgrHosts(char *sql,
 						   MemoryContext spiContext,
 						   dlist_head *resultList);
@@ -519,4 +524,10 @@ extern bool coordinatorMasterExistsInPgxcNode(PGconn *activeCoon,
 											  char *nodeName,
 											  bool complain);
 extern char getMappedPgxcNodetype(char mgrNodetype);
+extern bool isNodeInSyncStandbyNames(MgrNodeWrapper *masterNode,
+									 MgrNodeWrapper *slaveNode,
+									 PGconn *masterConn);
+extern void cleanFaultNodesOnCoordinator(dlist_head *faultNodes,
+										 MgrNodeWrapper *coordinator,
+										 PGconn *coordConn);
 #endif /* MGR_HELPER_H */

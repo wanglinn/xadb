@@ -71,8 +71,6 @@ typedef struct AdbDoctorConf
 	int agentdeadline;
 	/* The elements below are not editable, keep these member names 
 	 * the same as the k field values in the table adb_doctor_conf */
-	int node_restart_master_count;
-	int node_restart_master_interval_ms;
 	int node_shutdown_timeout_ms;
 	int node_connection_error_num_max;
 	int node_connect_timeout_ms_min;
@@ -87,6 +85,10 @@ typedef struct AdbDoctorConf
 	int node_restart_delay_ms_max;
 	int node_retry_follow_master_interval_ms;
 	int node_retry_rewind_interval_ms;
+	int node_restart_master_count;
+	int node_restart_master_interval_ms;
+	int node_restart_slave_count;
+	int node_restart_slave_interval_ms;
 	int node_restart_coordinator_count;
 	int node_restart_coordinator_interval_ms;
 	int agent_connection_error_num_max;

@@ -34,26 +34,30 @@ typedef struct RepairerConfiguration
 
 static void repairerMainLoop(dlist_head *mgrNodes);
 static void checkAndRepairNodes(dlist_head *faultNodes);
-static bool cleanPgxcNodeOnCoordinators(dlist_head *activeCoordinators,
-										MgrNodeWrapper *faultNode);
-static bool cleanAndAppendNode(dlist_head *activeCoordinators,
-							   MgrNodeWrapper *faultNode);
+static bool cleanFaultNodesOnCoordinators(dlist_head *faultNodes);
+static bool repairCoordinatorNode(MgrNodeWrapper *faultCoordinator);
+static bool repairSlaveNode(MgrNodeWrapper *faultSlaveNode);
+static bool refreshSyncStandbyNames(SwitcherNodeWrapper *masterNode,
+									MgrNodeWrapper *faultSlaveNode);
+static bool pullBackToCluster(SwitcherNodeWrapper *masterNode,
+							  MgrNodeWrapper *faultSlaveNode,
+							  bool masterNodeFailed);
 static void callAppendCoordinatorFor(MgrNodeWrapper *destCoordinator,
 									 MgrNodeWrapper *srcCoordinator);
 static void callAppendActivateCoordinator(MgrNodeWrapper *destCoordinator);
-static MgrNodeWrapper *getSrcCoordForAppend(dlist_head *coordinators);
-static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
-								 MemoryContext spiContext);
+static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem);
 static void getCheckMgrNodesForRepairer(dlist_head *mgrNodes);
 static void refreshMgrNodeBeforeRepair(MgrNodeWrapper *mgrNode,
 									   MemoryContext spiContext);
 static void refreshMgrNodeAfterRepair(MgrNodeWrapper *mgrNode,
 									  MemoryContext spiContext);
-static void selectActiveCoordinators(dlist_head *resultList);
-static void checkGetActiveCoordinators(dlist_head *coordinators);
-static void dropFaultNodeFromActiveCoordinators(dlist_head *activeCoordinators,
-												MgrNodeWrapper *faultNode,
-												bool complain);
+static void selectSiblingActiveNodes(MgrNodeWrapper *faultNode,
+									 dlist_head *resultList,
+									 MemoryContext spiContext);
+static void updateMgrNodeNodesync(MgrNodeWrapper *mgrNode,
+								  MemoryContext spiContext);
+static bool checkGetMasterNode(MgrNodeWrapper *faultSlaveNode,
+							   SwitcherNodeWrapper **masterNodeP);
 static RepairerConfiguration *newRepairerConfiguration(AdbDoctorConf *conf);
 static void examineAdbDoctorConf(dlist_head *mgrNodes);
 static void resetRepairer(void);
@@ -114,7 +118,6 @@ void adbDoctorRepairerMain(Datum main_arg)
 static void repairerMainLoop(dlist_head *mgrNodes)
 {
 	int rc;
-
 	while (!gotSigterm)
 	{
 		checkAndRepairNodes(mgrNodes);
@@ -150,7 +153,8 @@ static void checkAndRepairNodes(dlist_head *faultNodes)
 	MgrNodeWrapper *faultNode;
 	MemoryContext oldContext;
 	MemoryContext workerContext;
-	dlist_head activeCoordinators = DLIST_STATIC_INIT(activeCoordinators);
+	bool repaired = false;
+	bool pgxcNodeCleaned;
 
 	oldContext = CurrentMemoryContext;
 	workerContext = AllocSetContextCreate(oldContext,
@@ -160,119 +164,142 @@ static void checkAndRepairNodes(dlist_head *faultNodes)
 
 	PG_TRY();
 	{
-		checkGetActiveCoordinators(&activeCoordinators);
-
+		/* repaire gtmcoord first */
 		dlist_foreach_modify(faultNodeIter, faultNodes)
 		{
+			MemoryContextSwitchTo(workerContext);
+			repaired = false;
 			faultNode = dlist_container(MgrNodeWrapper, link, faultNodeIter.cur);
-			if (!cleanPgxcNodeOnCoordinators(&activeCoordinators, faultNode))
+			if (faultNode->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
 			{
-				ereport(ERROR,
-						(errmsg("clean %s in table pgxc_node of all cooridnators failed",
-								NameStr(faultNode->form.nodename))));
+				repaired = repairSlaveNode(faultNode);
+				if (repaired)
+				{
+					ereport(LOG, (errmsg("%s has been successfully repaired",
+										 NameStr(faultNode->form.nodename))));
+					dlist_delete(faultNodeIter.cur);
+					pfreeMgrNodeWrapper(faultNode);
+				}
 			}
 		}
 
+		pgxcNodeCleaned = cleanFaultNodesOnCoordinators(faultNodes);
+
 		dlist_foreach_modify(faultNodeIter, faultNodes)
 		{
+			MemoryContextSwitchTo(workerContext);
+			repaired = false;
 			faultNode = dlist_container(MgrNodeWrapper, link, faultNodeIter.cur);
-			if (cleanAndAppendNode(&activeCoordinators, faultNode))
+			if (faultNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER)
 			{
+				if (pgxcNodeCleaned)
+					repaired = repairCoordinatorNode(faultNode);
+			}
+			else if (faultNode->form.nodetype == CNDN_TYPE_DATANODE_SLAVE)
+			{
+				if (pgxcNodeCleaned)
+					repaired = repairSlaveNode(faultNode);
+			}
+			else if (faultNode->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+			{
+				/* gtmcoord do not need to clean pgxc_node */
+				repaired = repairSlaveNode(faultNode);
+			}
+			else
+			{
+				ereport(WARNING,
+						(errmsg("%s repaire failed, Unsupported nodetype %c",
+								NameStr(faultNode->form.nodename),
+								faultNode->form.nodetype)));
+			}
+			if (repaired)
+			{
+				ereport(LOG, (errmsg("%s has been successfully repaired",
+									 NameStr(faultNode->form.nodename))));
 				dlist_delete(faultNodeIter.cur);
 				pfreeMgrNodeWrapper(faultNode);
-				ereport(LOG, (errmsg("%s has been successfully repaired",
-									  NameStr(faultNode->form.nodename))));
 			}
+			CHECK_FOR_INTERRUPTS();
 		}
 	}
 	PG_CATCH();
 	{
 		EmitErrorReport();
 		FlushErrorState();
+		MemoryContextSwitchTo(oldContext);
 	}
 	PG_END_TRY();
 
-	pfreeSwitcherNodeWrapperList(&activeCoordinators, NULL);
 	(void)MemoryContextSwitchTo(oldContext);
 	MemoryContextDelete(workerContext);
 }
 
-static bool cleanPgxcNodeOnCoordinators(dlist_head *activeCoordinators,
-										MgrNodeWrapper *faultNode)
+static bool cleanFaultNodesOnCoordinators(dlist_head *faultNodes)
 {
-	int spiRes;
-	int rows;
-	volatile bool done;
+	dlist_head coordinators = DLIST_STATIC_INIT(coordinators);
+	dlist_iter iterCoord;
+	dlist_iter iterFault;
+	MgrNodeWrapper *coordinator;
+	MgrNodeWrapper *faultNode;
+	PGconn *coordConn = NULL;
+	bool allCleaned;
 	MemoryContext oldContext;
 	MemoryContext spiContext;
-	MgrNodeWrapper mgrNodeBackup;
-
-	memcpy(&mgrNodeBackup, faultNode, sizeof(MgrNodeWrapper));
+	int spiRes;
 
 	oldContext = CurrentMemoryContext;
 	SPI_CONNECT_TRANSACTIONAL_START(spiRes, true);
 	spiContext = CurrentMemoryContext;
 	MemoryContextSwitchTo(oldContext);
+	selectActiveMasterCoordinators(spiContext, &coordinators);
+	SPI_FINISH_TRANSACTIONAL_COMMIT();
 
-	PG_TRY();
+	if (dlist_is_empty(&coordinators))
 	{
-		checkMgrNodeDataInDB(faultNode, spiContext);
+		ereport(ERROR,
+				(errmsg("can't find any active coordinators")));
+	}
 
-		rows = updateMgrNodeCurestatus(faultNode, CURE_STATUS_CURING, spiContext);
-		if (rows != 1)
+	allCleaned = true;
+	dlist_foreach(iterCoord, &coordinators)
+	{
+		coordinator = dlist_container(MgrNodeWrapper, link, iterCoord.cur);
+		coordConn = getNodeDefaultDBConnection(coordinator, 10);
+		if (coordConn == NULL)
 		{
-			ereport(ERROR,
-					(errmsg("%s, can not transit to curestatus:%s",
-							NameStr(faultNode->form.nodename),
-							CURE_STATUS_CURING)));
+			allCleaned = false;
+			ereport(WARNING,
+					(errmsg("connect to coordinator %s failed",
+							NameStr(coordinator->form.nodename))));
+		}
+		else if (getNodeRunningMode(coordConn) != NODE_RUNNING_MODE_MASTER)
+		{
+			ereport(WARNING,
+					(errmsg("coordinator %s configured as master, "
+							"but actually did not running on that status",
+							NameStr(coordinator->form.nodename))));
+			allCleaned = false;
 		}
 		else
 		{
-			namestrcpy(&faultNode->form.curestatus, CURE_STATUS_CURING);
+			dlist_foreach(iterFault, faultNodes)
+			{
+				faultNode = dlist_container(MgrNodeWrapper, link, iterFault.cur);
+				checkMgrNodeDataInDB(faultNode);
+			}
+			cleanFaultNodesOnCoordinator(faultNodes, coordinator, coordConn);
 		}
-
-		dropFaultNodeFromActiveCoordinators(activeCoordinators,
-											faultNode,
-											true);
-
-		rows = updateMgrNodeCurestatus(faultNode,
-									   NameStr(mgrNodeBackup.form.curestatus),
-									   spiContext);
-		if (rows != 1)
-		{
-			ereport(ERROR,
-					(errmsg("%s, can not transit to curestatus:%s",
-							NameStr(faultNode->form.nodename),
-							NameStr(mgrNodeBackup.form.curestatus))));
-		}
-		else
-		{
-			namestrcpy(&faultNode->form.curestatus, NameStr(mgrNodeBackup.form.curestatus));
-		}
-		done = true;
+		if (coordConn)
+			PQfinish(coordConn);
+		coordConn = NULL;
 	}
-	PG_CATCH();
-	{
-		done = false;
-		EmitErrorReport();
-		FlushErrorState();
-	}
-	PG_END_TRY();
-
-	if (done)
-	{
-		SPI_FINISH_TRANSACTIONAL_COMMIT();
-	}
-	else
-	{
-		memcpy(faultNode, &mgrNodeBackup, sizeof(MgrNodeWrapper));
-		SPI_FINISH_TRANSACTIONAL_ABORT();
-	}
-	return done;
+	if (!allCleaned)
+		ereport(WARNING,
+				(errmsg("clean fault nodes in table pgxc_node of some coordinators failed")));
+	return allCleaned;
 }
 
-static bool cleanAndAppendNode(dlist_head *activeCoordinators,
-							   MgrNodeWrapper *faultNode)
+static bool repairCoordinatorNode(MgrNodeWrapper *faultCoordinator)
 {
 	int spiRes;
 	volatile bool done = false;
@@ -280,9 +307,13 @@ static bool cleanAndAppendNode(dlist_head *activeCoordinators,
 	MemoryContext spiContext;
 	GetAgentCmdRst getAgentCmdRst;
 	MgrNodeWrapper mgrNodeBackup;
-	MgrNodeWrapper *srcCoordinator;
+	MgrNodeWrapper *srcCoordinator = NULL;
+	MgrNodeWrapper *activeCoordinator;
+	dlist_head activeCoordinators = DLIST_STATIC_INIT(activeCoordinators);
+	dlist_iter iter;
+	PGconn *coordConn = NULL;
 
-	memcpy(&mgrNodeBackup, faultNode, sizeof(MgrNodeWrapper));
+	memcpy(&mgrNodeBackup, faultCoordinator, sizeof(MgrNodeWrapper));
 
 	oldContext = CurrentMemoryContext;
 	SPI_CONNECT_TRANSACTIONAL_START(spiRes, true);
@@ -291,46 +322,93 @@ static bool cleanAndAppendNode(dlist_head *activeCoordinators,
 
 	PG_TRY();
 	{
-		set_ps_display(NameStr(faultNode->form.nodename), false);
+		set_ps_display(NameStr(faultCoordinator->form.nodename), false);
 
-		refreshMgrNodeBeforeRepair(faultNode, spiContext);
+		selectActiveMasterCoordinators(spiContext, &activeCoordinators);
+
+		if (dlist_is_empty(&activeCoordinators))
+		{
+			ereport(ERROR,
+					(errmsg("can't find any active coordinators")));
+		}
+
+		dlist_foreach(iter, &activeCoordinators)
+		{
+			activeCoordinator = dlist_container(MgrNodeWrapper, link, iter.cur);
+			coordConn = getNodeDefaultDBConnection(activeCoordinator, 10);
+			if (coordConn == NULL)
+			{
+				ereport(ERROR,
+						(errmsg("connect to coordinator %s failed",
+								NameStr(activeCoordinator->form.nodename))));
+			}
+			if (getNodeRunningMode(coordConn) != NODE_RUNNING_MODE_MASTER)
+			{
+				if (coordConn)
+					PQfinish(coordConn);
+				coordConn = NULL;
+				ereport(ERROR,
+						(errmsg("coordinator %s configured as master, "
+								"but actually did not running on that status",
+								NameStr(activeCoordinator->form.nodename))));
+			}
+			if (coordConn)
+				PQfinish(coordConn);
+			coordConn = NULL;
+		}
+
+		refreshMgrNodeBeforeRepair(faultCoordinator, spiContext);
 
 		/* shutdown fault node */
-		shutdownNodeWithinSeconds(faultNode,
+		shutdownNodeWithinSeconds(faultCoordinator,
 								  SHUTDOWN_NODE_FAST_SECONDS,
 								  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
 								  true);
 		/* clean fault node */
 		mgr_clean_node_folder(AGT_CMD_CLEAN_NODE,
-							  faultNode->form.nodehost,
-							  faultNode->nodepath,
+							  faultCoordinator->form.nodehost,
+							  faultCoordinator->nodepath,
 							  &getAgentCmdRst);
 		if (true == getAgentCmdRst.ret)
 		{
 			ereport(LOG,
 					(errmsg("try clean node %s successed",
-							NameStr(faultNode->form.nodename))));
+							NameStr(faultCoordinator->form.nodename))));
 		}
 		else
 		{
 			ereport(ERROR,
 					(errmsg("try clean node %s failed, %s",
-							NameStr(faultNode->form.nodename),
+							NameStr(faultCoordinator->form.nodename),
 							getAgentCmdRst.description.data)));
 		}
 		pfree(getAgentCmdRst.description.data);
 
-		if (faultNode->form.nodetype != CNDN_TYPE_COORDINATOR_MASTER)
+		if (faultCoordinator->form.nodetype != CNDN_TYPE_COORDINATOR_MASTER)
 		{
 			ereport(ERROR,
 					(errmsg("only coordinator repairing is supported")));
 		}
 
-		srcCoordinator = getSrcCoordForAppend(activeCoordinators);
-		callAppendCoordinatorFor(srcCoordinator, faultNode);
-		callAppendActivateCoordinator(faultNode);
+		dlist_foreach(iter, &activeCoordinators)
+		{
+			activeCoordinator = dlist_container(MgrNodeWrapper, link, iter.cur);
+			if (activeCoordinator->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+			{
+				srcCoordinator = activeCoordinator;
+				break;
+			}
+		}
 
-		refreshMgrNodeAfterRepair(faultNode, spiContext);
+		if (!srcCoordinator)
+		{
+			ereport(ERROR,
+					(errmsg("can't find any source coordinator for append")));
+		}
+		callAppendCoordinatorFor(srcCoordinator, faultCoordinator);
+		callAppendActivateCoordinator(faultCoordinator);
+
+		refreshMgrNodeAfterRepair(faultCoordinator, spiContext);
 		done = true;
 	}
 	PG_CATCH();
@@ -338,6 +416,254 @@ static bool cleanAndAppendNode(dlist_head *activeCoordinators,
 		done = false;
 		EmitErrorReport();
 		FlushErrorState();
+		MemoryContextSwitchTo(oldContext);
+	}
+	PG_END_TRY();
+
+	if (coordConn)
+		PQfinish(coordConn);
+	coordConn = NULL;
+	if (done)
+	{
+		pfreeMgrNodeWrapperList(&activeCoordinators, NULL);
+		SPI_FINISH_TRANSACTIONAL_COMMIT();
+	}
+	else
+	{
+		pfreeMgrNodeWrapperList(&activeCoordinators, NULL);
+		memcpy(faultCoordinator, &mgrNodeBackup, sizeof(MgrNodeWrapper));
+		SPI_FINISH_TRANSACTIONAL_ABORT();
+	}
+
+	return done;
+}
+
+static bool repairSlaveNode(MgrNodeWrapper *faultSlaveNode)
+{
+	volatile bool done = false;
+	MgrNodeWrapper mgrNodeBackup;
+	SwitcherNodeWrapper *masterNode = NULL;
+	MemoryContext oldContext;
+
+	oldContext = CurrentMemoryContext;
+	memcpy(&mgrNodeBackup, faultSlaveNode, sizeof(MgrNodeWrapper));
+
+	PG_TRY();
+	{
+		set_ps_display(NameStr(faultSlaveNode->form.nodename), false);
+
+		if (checkGetMasterNode(faultSlaveNode, &masterNode))
+		{
+			if (!refreshSyncStandbyNames(masterNode, faultSlaveNode))
+				ereport(ERROR,
+						(errmsg("refresh master node %s synchronous_standby_names failed",
+								NameStr(masterNode->mgrNode->form.nodename))));
+			if (!pullBackToCluster(masterNode, faultSlaveNode, false))
+				ereport(ERROR,
+						(errmsg("pull %s back to cluster failed",
+								NameStr(faultSlaveNode->form.nodename))));
+		}
+		else
+		{
+			if (!pullBackToCluster(masterNode, faultSlaveNode, true))
+				ereport(ERROR,
+						(errmsg("pull %s back to cluster failed",
+								NameStr(faultSlaveNode->form.nodename))));
+		}
+		done = true;
+	}
+	PG_CATCH();
+	{
+		done = false;
+		EmitErrorReport();
+		FlushErrorState();
+		MemoryContextSwitchTo(oldContext);
+	}
+	PG_END_TRY();
+
+	pfreeSwitcherNodeWrapper(masterNode);
+	if (!done)
+	{
+		memcpy(faultSlaveNode, &mgrNodeBackup, sizeof(MgrNodeWrapper));
+	}
+	return done;
+}
+
+static bool refreshSyncStandbyNames(SwitcherNodeWrapper *masterNode,
+									MgrNodeWrapper *faultSlaveNode)
+{
+	char *temp;
+	char *oldSyncStandbyNames = NULL;
+	char *newSyncStandbyNames = NULL;
+	char *bareNodenames;
+	StringInfoData buf;
+	int i;
+	dlist_iter iter;
+	MgrNodeWrapper *node;
+	int spiRes;
+	volatile bool done = false;
+	MemoryContext oldContext;
+	MemoryContext spiContext;
+	MgrNodeWrapper mgrNodeBackup;
+	dlist_head siblingNodes = DLIST_STATIC_INIT(siblingNodes);
+
+	memcpy(&mgrNodeBackup, faultSlaveNode, sizeof(MgrNodeWrapper));
+
+	oldContext = CurrentMemoryContext;
+	SPI_CONNECT_TRANSACTIONAL_START(spiRes, true);
+	spiContext = CurrentMemoryContext;
+
+	initStringInfo(&buf);
+	PG_TRY();
+	{
+		selectSiblingActiveNodes(faultSlaveNode, &siblingNodes, spiContext);
+		oldSyncStandbyNames = showNodeParameter(masterNode->pgConn,
+												"synchronous_standby_names", true);
+		ereport(DEBUG1,
+				(errmsg("%s synchronous_standby_names is %s",
+						NameStr(masterNode->mgrNode->form.nodename),
+						oldSyncStandbyNames)));
+		oldSyncStandbyNames = trimString(oldSyncStandbyNames);
+		if (oldSyncStandbyNames == NULL || strlen(oldSyncStandbyNames) == 0)
+		{
+			done = true;
+			goto end;
+		}
+
+		temp = palloc0(strlen(oldSyncStandbyNames) + 1);
+		/* "FIRST 1 (nodename2,nodename4)" will get result nodename2,nodename4 */
+		sscanf(oldSyncStandbyNames, "%*[^(](%[^)]", temp);
+		bareNodenames = trimString(temp);
+		pfree(temp);
+		if (bareNodenames == NULL || strlen(bareNodenames) == 0)
+		{
+			done = true;
+			goto end;
+		}
+		i = 0;
+		/* function "strtok" will scribble on the input argument */
+		temp = strtok(bareNodenames, ",");
+		while (temp)
+		{
+			if (!equalsAfterTrim(temp, NameStr(faultSlaveNode->form.nodename)))
+			{
+				i++;
+				if (i == 1)
+					appendStringInfo(&buf, "%s", temp);
+				else
+					appendStringInfo(&buf, ",%s", temp);
+				dlist_foreach(iter, &siblingNodes)
+				{
+					node = dlist_container(MgrNodeWrapper, link, iter.cur);
+					if (strcmp(NameStr(node->form.nodename), temp) == 0)
+					{
+						if (i == 1)
+							namestrcpy(&node->form.nodesync,
+									   getMgrNodeSyncStateValue(SYNC_STATE_SYNC));
+						else
+							namestrcpy(&node->form.nodesync,
+									   getMgrNodeSyncStateValue(SYNC_STATE_POTENTIAL));
+					}
+				}
+			}
+			temp = strtok(NULL, ",");
+		}
+		if (buf.data == NULL || strlen(buf.data) == 0)
+		{
+			newSyncStandbyNames = palloc0(1);
+		}
+		else
+		{
+			newSyncStandbyNames = psprintf("FIRST %d (%s)", 1, buf.data);
+		}
+		if (strcmp(oldSyncStandbyNames, newSyncStandbyNames) != 0)
+		{
+			dlist_foreach(iter, &siblingNodes)
+			{
+				node = dlist_container(MgrNodeWrapper, link, iter.cur);
+				updateMgrNodeNodesync(node, spiContext);
+			}
+			namestrcpy(&faultSlaveNode->form.nodesync, "");
+			updateMgrNodeNodesync(faultSlaveNode, spiContext);
+			ereport(LOG,
+					(errmsg("%s try to change synchronous_standby_names from '%s' to '%s'",
+							NameStr(masterNode->mgrNode->form.nodename),
+							oldSyncStandbyNames,
+							newSyncStandbyNames)));
+			setCheckSynchronousStandbyNames(masterNode->mgrNode,
+											masterNode->pgConn,
+											newSyncStandbyNames,
+											CHECK_SYNC_STANDBY_NAMES_SECONDS);
+		}
+		else
+		{
+			/* Synchronous_standby_names has been set and does not need to be set repeatedly */
+		}
+		done = true;
+	}
+	PG_CATCH();
+	{
+		done = false;
+		EmitErrorReport();
+		FlushErrorState();
+		MemoryContextSwitchTo(oldContext);
+	}
+	PG_END_TRY();
+
+end:
+	if (done)
+	{
+		SPI_FINISH_TRANSACTIONAL_COMMIT();
+	}
+	else
+	{
+		memcpy(faultSlaveNode, &mgrNodeBackup, sizeof(MgrNodeWrapper));
+		SPI_FINISH_TRANSACTIONAL_ABORT();
+	}
+	return done;
+}
+
+static bool pullBackToCluster(SwitcherNodeWrapper *masterNode,
+							  MgrNodeWrapper *faultSlaveNode,
+							  bool masterNodeFailed)
+{
+	int spiRes;
+	volatile bool done = false;
+	MemoryContext spiContext;
+	MgrNodeWrapper mgrNodeBackup;
+	MemoryContext oldContext;
+
+	oldContext = CurrentMemoryContext;
+	memcpy(&mgrNodeBackup, faultSlaveNode, sizeof(MgrNodeWrapper));
+
+	SPI_CONNECT_TRANSACTIONAL_START(spiRes, true);
+	spiContext = CurrentMemoryContext;
+	PG_TRY();
+	{
+		startupNodeWithinSeconds(faultSlaveNode,
+								 STARTUP_NODE_SECONDS, true);
+		refreshMgrNodeBeforeRepair(faultSlaveNode, spiContext);
+		if (masterNodeFailed)
+		{
+			ereport(WARNING,
+					(errmsg("successfully started the standby node %s, but it's master %s failed",
+							NameStr(faultSlaveNode->form.nodename),
+							NameStr(masterNode->mgrNode->form.nodename))));
+		}
+		else
+		{
+			appendSlaveNodeFollowMaster(masterNode->mgrNode,
+										faultSlaveNode, masterNode->pgConn);
+		}
+		refreshMgrNodeAfterRepair(faultSlaveNode, spiContext);
+		done = true;
+	}
+	PG_CATCH();
+	{
+		done = false;
+		EmitErrorReport();
+		FlushErrorState();
+		MemoryContextSwitchTo(oldContext);
 	}
 	PG_END_TRY();
 
@@ -347,7 +673,7 @@ static bool cleanAndAppendNode(dlist_head *activeCoordinators,
 	}
 	else
 	{
-		memcpy(faultNode, &mgrNodeBackup, sizeof(MgrNodeWrapper));
+		memcpy(faultSlaveNode, &mgrNodeBackup, sizeof(MgrNodeWrapper));
 		SPI_FINISH_TRANSACTIONAL_ABORT();
 	}
 	return done;
@@ -446,27 +772,20 @@ static void callAppendActivateCoordinator(MgrNodeWrapper *destCoordinator)
 	}
 }
 
-static MgrNodeWrapper *getSrcCoordForAppend(dlist_head *coordinators)
+static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem)
 {
-	dlist_iter iter;
-	SwitcherNodeWrapper *node;
-	dlist_foreach(iter, coordinators)
-	{
-		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		if (node->mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER)
-		{
-			return node->mgrNode;
-		}
-	}
-	return NULL;
-}
+	MemoryContext oldContext;
+	MemoryContext spiContext;
+	int ret;
+	MgrNodeWrapper *nodeDataInDB = NULL;
 
-static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
-								 MemoryContext spiContext)
-{
-	MgrNodeWrapper *nodeDataInDB;
-
+	oldContext = CurrentMemoryContext;
+	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(oldContext);
 	nodeDataInDB = selectMgrNodeByOid(nodeDataInMem->oid, spiContext);
+	SPI_FINISH_TRANSACTIONAL_COMMIT();
+
 	if (!nodeDataInDB)
 	{
 		ereport(ERROR,
@@ -480,11 +799,6 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 				(errmsg("%s %s, cure not allowed",
 						MyBgworkerEntry->bgw_name,
 						NameStr(nodeDataInDB->form.nodename))));
-	}
-	if (nodeDataInDB->form.nodetype != CNDN_TYPE_COORDINATOR_MASTER)
-	{
-		ereport(ERROR,
-				(errmsg("only coordinator repairing is supported")));
 	}
 	if (pg_strcasecmp(NameStr(nodeDataInDB->form.curestatus),
 					  CURE_STATUS_ISOLATED) != 0)
@@ -568,116 +882,141 @@ static void refreshMgrNodeAfterRepair(MgrNodeWrapper *mgrNode,
 	}
 }
 
-static void selectActiveCoordinators(dlist_head *resultList)
+static void selectSiblingActiveNodes(MgrNodeWrapper *faultNode,
+									 dlist_head *resultList,
+									 MemoryContext spiContext)
 {
-	int spiRes;
-	MemoryContext oldContext;
-	MemoryContext spiContext;
 	StringInfoData sql;
-
-	oldContext = CurrentMemoryContext;
-	SPI_CONNECT_TRANSACTIONAL_START(spiRes, true);
-	spiContext = CurrentMemoryContext;
-	MemoryContextSwitchTo(oldContext);
 
 	initStringInfo(&sql);
 	appendStringInfo(&sql,
 					 "SELECT * \n"
 					 "FROM pg_catalog.mgr_node \n"
-					 "WHERE nodetype in ('%c', '%c') \n"
+					 "WHERE nodetype in ('%c') \n"
 					 "AND nodeinited = %d::boolean \n"
 					 "AND nodeincluster = %d::boolean \n"
-					 "AND curestatus != '%s' \n",
-					 CNDN_TYPE_COORDINATOR_MASTER,
-					 CNDN_TYPE_GTM_COOR_MASTER,
+					 "AND nodemasternameoid = %u \n"
+					 "AND curestatus != '%s' \n"
+					 "AND nodename != '%s' \n",
+					 faultNode->form.nodetype,
 					 true,
 					 true,
-					 CURE_STATUS_ISOLATED);
+					 faultNode->form.nodemasternameoid,
+					 CURE_STATUS_ISOLATED,
+					 NameStr(faultNode->form.nodename));
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
-
-	SPI_FINISH_TRANSACTIONAL_COMMIT();
 }
 
-static void checkGetActiveCoordinators(dlist_head *coordinators)
+static void updateMgrNodeNodesync(MgrNodeWrapper *mgrNode,
+								  MemoryContext spiContext)
 {
-	dlist_head mgrNodes = DLIST_STATIC_INIT(mgrNodes);
-	SwitcherNodeWrapper *node;
-	dlist_iter iter;
+	StringInfoData buf;
+	int spiRes;
+	uint64 rows;
+	MemoryContext oldCtx;
 
-	selectActiveCoordinators(&mgrNodes);
-
-	if (dlist_is_empty(&mgrNodes))
+	initStringInfo(&buf);
+	appendStringInfo(&buf,
+					 "update pg_catalog.mgr_node  \n"
+					 "set nodesync = '%s' \n"
+					 "WHERE oid = %u \n"
+					 "and nodemasternameoid = %u \n"
+					 "and curestatus = '%s' \n"
+					 "and nodetype = '%c' \n",
+					 NameStr(mgrNode->form.nodesync),
+					 mgrNode->oid,
+					 mgrNode->form.nodemasternameoid,
+					 NameStr(mgrNode->form.curestatus),
+					 mgrNode->form.nodetype);
+	oldCtx = MemoryContextSwitchTo(spiContext);
+	spiRes = SPI_execute(buf.data, false, 0);
+	MemoryContextSwitchTo(oldCtx);
+	pfree(buf.data);
+	if (spiRes != SPI_OK_UPDATE)
+		ereport(ERROR,
+				(errmsg("SPI_execute failed: error code %d",
+						spiRes)));
+	rows = SPI_processed;
+	if (rows != 1)
 	{
 		ereport(ERROR,
-				(errmsg("can't find any active coordinators")));
-	}
-	mgrNodesToSwitcherNodes(&mgrNodes, coordinators);
-
-	dlist_foreach(iter, coordinators)
-	{
-		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		node->pgConn = getNodeDefaultDBConnection(node->mgrNode, 10);
-		if (node->pgConn == NULL)
-		{
-			ereport(ERROR,
-					(errmsg("connect to coordinator %s failed",
-							NameStr(node->mgrNode->form.nodename))));
-		}
-		node->runningMode = getNodeRunningMode(node->pgConn);
-		if (node->runningMode != NODE_RUNNING_MODE_MASTER)
-		{
-			ereport(ERROR,
-					(errmsg("coordinator %s configured as master, "
-							"but actually did not running on that status",
-							NameStr(node->mgrNode->form.nodename))));
-		}
+				(errmsg("%s, update nodesync to %s failed",
+						NameStr(mgrNode->form.nodename),
+						NameStr(mgrNode->form.nodesync))));
 	}
 }
 
-static void dropFaultNodeFromActiveCoordinators(dlist_head *activeCoordinators,
-												MgrNodeWrapper *faultNode,
-												bool complain)
+static bool checkGetMasterNode(MgrNodeWrapper *faultSlaveNode,
+							   SwitcherNodeWrapper **masterNodeP)
 {
-	dlist_mutable_iter coordIter;
-	SwitcherNodeWrapper *coordinator;
+	MgrNodeWrapper *mgrNode;
+	SwitcherNodeWrapper *masterNode;
+	int ret;
+	MemoryContext oldContext;
+	MemoryContext spiContext;
 
-	dlist_foreach_modify(coordIter, activeCoordinators)
+	oldContext = CurrentMemoryContext;
+	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(oldContext);
+
+	mgrNode = selectMgrNodeByOid(faultSlaveNode->form.nodemasternameoid, spiContext);
+	SPI_FINISH_TRANSACTIONAL_COMMIT();
+
+	masterNode = palloc0(sizeof(SwitcherNodeWrapper));
+	*masterNodeP = masterNode;
+	masterNode->mgrNode = mgrNode;
+
+	if (!mgrNode)
 	{
-		coordinator = dlist_container(SwitcherNodeWrapper, link, coordIter.cur);
-		if (nodeExistsInPgxcNode(coordinator->pgConn,
-								 NameStr(coordinator->mgrNode->form.nodename),
-								 true,
-								 NameStr(faultNode->form.nodename),
-								 getMappedPgxcNodetype(coordinator->mgrNode->form.nodetype),
-								 complain))
+		ereport(LOG,
+				(errmsg("master node does not exist")));
+		return false;
+	}
+	if (mgrNode->form.nodetype != getMgrMasterNodetype(faultSlaveNode->form.nodetype))
+	{
+		ereport(LOG,
+				(errmsg("%s is not a master node",
+						NameStr(mgrNode->form.nodename))));
+		return false;
+	}
+	if (!mgrNode->form.nodeinited)
+	{
+		ereport(LOG,
+				(errmsg("%s has not be initialized",
+						NameStr(mgrNode->form.nodename))));
+		return false;
+	}
+	if (!mgrNode->form.nodeincluster)
+	{
+		ereport(LOG,
+				(errmsg("%s has been kicked out of the cluster",
+						NameStr(mgrNode->form.nodename))));
+		return false;
+	}
+
+	masterNode->pgConn = getNodeDefaultDBConnection(masterNode->mgrNode, 10);
+	if (masterNode->pgConn == NULL)
+	{
+		ereport(LOG,
+				(errmsg("%s connection failed",
+						NameStr(mgrNode->form.nodename))));
+		return false;
+	}
+	else
+	{
+		masterNode->runningMode = getNodeRunningMode(masterNode->pgConn);
+		if (masterNode->runningMode != NODE_RUNNING_MODE_MASTER)
 		{
 			ereport(LOG,
-					(errmsg("drop node %s in table pgxc_node of %s begin",
-							NameStr(faultNode->form.nodename),
-							NameStr(coordinator->mgrNode->form.nodename))));
-			dropNodeFromPgxcNode(coordinator->pgConn,
-								 NameStr(coordinator->mgrNode->form.nodename),
-								 NameStr(faultNode->form.nodename),
-								 complain);
-			exec_pgxc_pool_reload(coordinator->pgConn,
-								  complain);
-			ereport(LOG,
-					(errmsg("drop node %s in table pgxc_node of %s successed",
-							NameStr(faultNode->form.nodename),
-							NameStr(coordinator->mgrNode->form.nodename))));
-		}
-		else
-		{
-			ereport(LOG,
-					(errmsg("%s not exist in table pgxc_node of %s, skip",
-							NameStr(faultNode->form.nodename),
-							NameStr(coordinator->mgrNode->form.nodename))));
+					(errmsg("%s configured as master, "
+							"but actually did not running on that status",
+							NameStr(masterNode->mgrNode->form.nodename))));
+			return false;
 		}
 	}
-	ereport(LOG,
-			(errmsg("drop %s in table pgxc_node of all coordinators successed",
-					NameStr(faultNode->form.nodename))));
+	return true;
 }
 
 static RepairerConfiguration *newRepairerConfiguration(AdbDoctorConf *conf)

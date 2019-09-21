@@ -283,7 +283,7 @@ MgrNodeWrapper *selectMgrNodeByNodenameType(char *nodename,
  * the list link data type is MgrNodeWrapper
  * result include gtm coordinator and ordinary coordinator
  */
-void selectMgrAllMasterCoordinators(MemoryContext spiContext,
+void selectActiveMasterCoordinators(MemoryContext spiContext,
 									dlist_head *resultList)
 {
 	StringInfoData sql;
@@ -294,11 +294,13 @@ void selectMgrAllMasterCoordinators(MemoryContext spiContext,
 					 "FROM pg_catalog.mgr_node \n"
 					 "WHERE nodetype in ('%c', '%c') \n"
 					 "AND nodeinited = %d::boolean \n"
-					 "AND nodeincluster = %d::boolean \n",
+					 "AND nodeincluster = %d::boolean \n"
+					 "AND curestatus != '%s' \n",
 					 CNDN_TYPE_COORDINATOR_MASTER,
 					 CNDN_TYPE_GTM_COOR_MASTER,
 					 true,
-					 true);
+					 true,
+					 CURE_STATUS_ISOLATED);
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
@@ -319,6 +321,28 @@ void selectMgrNodeByNodetype(MemoryContext spiContext,
 					 nodetype,
 					 true,
 					 true);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
+
+void selectActiveMgrNodeByNodetype(MemoryContext spiContext,
+								   char nodetype,
+								   dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node \n"
+					 "WHERE nodetype = '%c' \n"
+					 "AND nodeinited = %d::boolean \n"
+					 "AND nodeincluster = %d::boolean \n"
+					 "AND curestatus != '%s' \n",
+					 nodetype,
+					 true,
+					 true,
+					 CURE_STATUS_ISOLATED);
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
@@ -450,22 +474,26 @@ void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
 void selectMgrNodesForRepairerDoctor(MemoryContext spiContext,
 									 dlist_head *resultList)
 {
+	selectIsolatedMgrNodes(spiContext, resultList);
+}
+
+void selectIsolatedMgrNodes(MemoryContext spiContext,
+							dlist_head *resultList)
+{
 	StringInfoData sql;
 
 	initStringInfo(&sql);
 	appendStringInfo(&sql,
 					 "SELECT * \n"
 					 "FROM pg_catalog.mgr_node \n"
-					 "WHERE nodeinited = %d::boolean \n"
-					 "AND nodeincluster = %d::boolean \n"
-					 "AND allowcure = %d::boolean \n"
+					 "WHERE allowcure = %d::boolean \n"
 					 "AND curestatus in ('%s') \n"
-					 "AND nodetype in ('%c') \n",
-					 false,
-					 false,
+					 "AND nodetype in ('%c','%c','%c') \n",
 					 true,
 					 CURE_STATUS_ISOLATED,
-					 CNDN_TYPE_COORDINATOR_MASTER);
+					 CNDN_TYPE_COORDINATOR_MASTER,
+					 CNDN_TYPE_DATANODE_SLAVE,
+					 CNDN_TYPE_GTM_COOR_SLAVE);
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
@@ -550,22 +578,41 @@ int updateMgrNodeToIsolate(MgrNodeWrapper *mgrNode,
 	int spiRes;
 	uint64 rows;
 	MemoryContext oldCtx;
+	char *newCurestatus;
 
+	newCurestatus = CURE_STATUS_ISOLATED;
 	initStringInfo(&buf);
-	appendStringInfo(&buf,
-					 "update pg_catalog.mgr_node  \n"
-					 "set curestatus = '%s', \n"
-					 "nodeinited = %d::boolean, \n"
-					 "nodeincluster = %d::boolean \n"
-					 "WHERE oid = %u \n"
-					 "and curestatus = '%s' \n"
-					 "and nodetype = '%c' \n",
-					 CURE_STATUS_ISOLATED,
-					 false,
-					 false,
-					 mgrNode->oid,
-					 NameStr(mgrNode->form.curestatus),
-					 mgrNode->form.nodetype);
+	if (mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+	{
+		appendStringInfo(&buf,
+						 "update pg_catalog.mgr_node  \n"
+						 "set curestatus = '%s', \n"
+						 "nodeinited = %d::boolean, \n"
+						 "nodeincluster = %d::boolean \n"
+						 "WHERE oid = %u \n"
+						 "and curestatus = '%s' \n"
+						 "and nodetype = '%c' \n",
+						 newCurestatus,
+						 false,
+						 false,
+						 mgrNode->oid,
+						 NameStr(mgrNode->form.curestatus),
+						 mgrNode->form.nodetype);
+	}
+	else
+	{
+		appendStringInfo(&buf,
+						 "update pg_catalog.mgr_node  \n"
+						 "set curestatus = '%s' \n"
+						 "WHERE oid = %u \n"
+						 "and curestatus = '%s' \n"
+						 "and nodetype = '%c' \n",
+						 newCurestatus,
+						 mgrNode->oid,
+						 NameStr(mgrNode->form.curestatus),
+						 mgrNode->form.nodetype);
+	}
+
 	oldCtx = MemoryContextSwitchTo(spiContext);
 	spiRes = SPI_execute(buf.data, false, 0);
 	MemoryContextSwitchTo(oldCtx);
@@ -588,16 +635,14 @@ int updateMgrNodeToUnIsolate(MgrNodeWrapper *mgrNode,
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf,
-					 "update pg_catalog.mgr_node  \n"
+					 "update pg_catalog.mgr_node \n"
 					 "set curestatus = '%s', \n"
-					 "nodeinited = %d::boolean, \n"
-					 "nodeincluster = %d::boolean \n"
+					 "nodesync = '%s' \n"
 					 "WHERE oid = %u \n"
 					 "and curestatus = '%s' \n"
 					 "and nodetype = '%c' \n",
 					 CURE_STATUS_NORMAL,
-					 true,
-					 true,
+					 NameStr(mgrNode->form.nodesync),
 					 mgrNode->oid,
 					 NameStr(mgrNode->form.curestatus),
 					 mgrNode->form.nodetype);
@@ -2729,4 +2774,107 @@ char getMappedPgxcNodetype(char mgrNodetype)
 	{
 		return PGXC_NODE_NONE;
 	}
+}
+
+bool isNodeInSyncStandbyNames(MgrNodeWrapper *masterNode,
+							  MgrNodeWrapper *slaveNode,
+							  PGconn *masterConn)
+{
+	char *oldSyncNames = NULL;
+	char *syncNodes = NULL;
+	char *buf = NULL;
+	char *temp = NULL;
+
+	temp = showNodeParameter(masterConn,
+							 "synchronous_standby_names", true);
+	ereport(DEBUG1,
+			(errmsg("%s synchronous_standby_names is %s",
+					NameStr(masterNode->form.nodename),
+					temp)));
+	oldSyncNames = trimString(temp);
+	pfree(temp);
+	temp = NULL;
+	if (oldSyncNames == NULL || strlen(oldSyncNames) == 0)
+	{
+		return false;
+	}
+	buf = palloc0(strlen(oldSyncNames) + 1);
+	/* "FIRST 1 (nodename2,nodename4)" will get result nodename2,nodename4 */
+	sscanf(oldSyncNames, "%*[^(](%[^)]", buf);
+	syncNodes = trimString(buf);
+	pfree(buf);
+	if (syncNodes == NULL || strlen(syncNodes) == 0)
+	{
+		return false;
+	}
+	temp = strtok(syncNodes, ",");
+	while (temp)
+	{
+		if (equalsAfterTrim(temp, NameStr(slaveNode->form.nodename)))
+		{
+			return true;
+		}
+		temp = strtok(NULL, ",");
+	}
+	return false;
+}
+
+void cleanFaultNodesOnCoordinator(dlist_head *faultNodes,
+								  MgrNodeWrapper *coordinator,
+								  PGconn *coordConn)
+{
+	dlist_mutable_iter iter;
+	MgrNodeWrapper *faultNode;
+	char *executeOnNodeName;
+
+	if (coordinator->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
+		coordinator->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+	{
+		executeOnNodeName = showNodeParameter(coordConn,
+											  "pgxc_node_name", true);
+	}
+	else
+	{
+		executeOnNodeName = NameStr(coordinator->form.nodename);
+	}
+
+	dlist_foreach_modify(iter, faultNodes)
+	{
+		faultNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		/* All GTM coordinator have the same pgxc_node_name, no need to clean.*/
+		if (faultNode->form.nodetype != CNDN_TYPE_GTM_COOR_SLAVE)
+		{
+			if (nodeExistsInPgxcNode(coordConn,
+									 executeOnNodeName,
+									 true,
+									 NameStr(faultNode->form.nodename),
+									 getMappedPgxcNodetype(coordinator->form.nodetype),
+									 true))
+			{
+				ereport(LOG,
+						(errmsg("clean node %s in table pgxc_node of %s begin",
+								NameStr(faultNode->form.nodename),
+								NameStr(coordinator->form.nodename))));
+				dropNodeFromPgxcNode(coordConn,
+									 executeOnNodeName,
+									 NameStr(faultNode->form.nodename),
+									 true);
+				exec_pgxc_pool_reload(coordConn, true);
+				ereport(LOG,
+						(errmsg("clean node %s in table pgxc_node of %s successed",
+								NameStr(faultNode->form.nodename),
+								NameStr(coordinator->form.nodename))));
+			}
+			else
+			{
+				ereport(LOG,
+						(errmsg("%s not exist in table pgxc_node of %s, skip",
+								NameStr(faultNode->form.nodename),
+								NameStr(coordinator->form.nodename))));
+			}
+		}
+	}
+	ereport(LOG,
+			(errmsg("clean %s in table pgxc_node of all coordinators successed",
+					NameStr(faultNode->form.nodename))));
 }

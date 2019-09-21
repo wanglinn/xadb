@@ -46,7 +46,7 @@ static void checkGetAllDataNodes(dlist_head *runningDataNodes,
 static void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
 											MemoryContext spiContext,
 											bool forceSwitch,
-											Oid excludeNodeOid,
+											Oid excludeSlaveOid,
 											dlist_head *failedSlaves,
 											dlist_head *runningSlaves);
 static void precheckPromotionNode(dlist_head *runningSlaves, bool forceSwitch);
@@ -138,7 +138,8 @@ static SwitcherNodeWrapper *getHoldLockCoordinator(dlist_head *coordinators);
 static SwitcherNodeWrapper *getGtmCoordMaster(dlist_head *coordinators);
 static void batchSetGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 								   dlist_head *nodes,
-								   SwitcherNodeWrapper *ignoreNode);
+								   SwitcherNodeWrapper *ignoreNode,
+								   bool complain);
 static void batchCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 									 dlist_head *nodes,
 									 SwitcherNodeWrapper *ignoreNode,
@@ -607,6 +608,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 	dlist_head failedSlaves = DLIST_STATIC_INIT(failedSlaves);
 	dlist_head runningDataNodes = DLIST_STATIC_INIT(runningDataNodes);
 	dlist_head failedDataNodes = DLIST_STATIC_INIT(failedDataNodes);
+	dlist_head isolatedNodes = DLIST_STATIC_INIT(isolatedNodes);
 	MemoryContext oldContext;
 	MemoryContext switchContext;
 	MemoryContext spiContext;
@@ -720,6 +722,8 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 		promoteNewMasterStartReign(oldMaster, newMaster);
 
 		/* newMaster also is a coordinator */
+		newMaster->mgrNode->form.nodetype =
+			getMgrMasterNodetype(newMaster->mgrNode->form.nodetype);
 		dlist_push_head(&coordinators, &newMaster->link);
 		refreshGtmPgxcNodeName(newMaster, true);
 
@@ -734,6 +738,12 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 									newMaster);
 		refreshPgxcNodesAfterSwitchGtmCoord(&coordinators,
 											newMaster);
+
+		/* isolated node in pgxc_node would block the cluster */
+		selectIsolatedMgrNodes(spiContext, &isolatedNodes);
+		cleanFaultNodesOnCoordinator(&isolatedNodes,
+									 newMaster->mgrNode, newMaster->pgConn);
+
 		/* 
 		 * Save the cluster status after the switch operation to the mgr_node 
 		 * table and correct the gtm information in datanodes. To ensure 
@@ -744,6 +754,10 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
 									&runningDataNodes,
 									newMaster);
+		batchSetGtmInfoOnNodes(newMaster->mgrNode,
+							   &failedDataNodes,
+							   newMaster,
+							   false);
 		refreshOldMasterAfterSwitchover(oldMaster,
 										newMaster,
 										spiContext);
@@ -817,6 +831,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 	pfreeSwitcherNodeWrapperList(&failedDataNodes, NULL);
 	pfreeSwitcherNodeWrapper(oldMaster);
 	pfreeSwitcherNodeWrapper(newMaster);
+	pfreeMgrNodeWrapperList(&isolatedNodes, NULL);
 
 	(void)MemoryContextSwitchTo(oldContext);
 	MemoryContextDelete(switchContext);
@@ -965,6 +980,7 @@ void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 {
 	dlist_iter iter;
 	SwitcherNodeWrapper *node;
+	dlist_head isolatedNodes = DLIST_STATIC_INIT(isolatedNodes);
 
 	if (!dlist_is_empty(failedSlaves))
 	{
@@ -1000,6 +1016,8 @@ void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 	promoteNewMasterStartReign(oldMaster, newMaster);
 
 	/* newMaster also is a coordinator */
+	newMaster->mgrNode->form.nodetype =
+		getMgrMasterNodetype(newMaster->mgrNode->form.nodetype);
 	dlist_push_head(coordinators, &newMaster->link);
 	refreshGtmPgxcNodeName(newMaster, true);
 
@@ -1012,6 +1030,13 @@ void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 								newMaster);
 	refreshPgxcNodesAfterSwitchGtmCoord(coordinators,
 										newMaster);
+
+	/* isolated node in pgxc_node would block the cluster */
+	selectIsolatedMgrNodes(spiContext, &isolatedNodes);
+	cleanFaultNodesOnCoordinator(&isolatedNodes,
+								 newMaster->mgrNode, newMaster->pgConn);
+	pfreeMgrNodeWrapperList(&isolatedNodes, NULL);
+
 	/* 
 	 * Save the cluster status after the switch operation to the mgr_node 
 	 * table and correct the gtm information in datanodes. To ensure 
@@ -1022,6 +1047,10 @@ void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
 								runningDataNodes,
 								newMaster);
+	batchSetGtmInfoOnNodes(newMaster->mgrNode,
+						   failedDataNodes,
+						   newMaster,
+						   false);
 	refreshOldMasterAfterSwitch(oldMaster,
 								newMaster,
 								spiContext,
@@ -1600,7 +1629,7 @@ static void restoreCoordinatorSetting(SwitcherNodeWrapper *coordinator)
 static void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
 											MemoryContext spiContext,
 											bool forceSwitch,
-											Oid excludeNodeOid,
+											Oid excludeSlaveOid,
 											dlist_head *failedSlaves,
 											dlist_head *runningSlaves)
 {
@@ -1613,12 +1642,12 @@ static void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
 	slaveNodetype = getMgrSlaveNodetype(masterNode->mgrNode->form.nodetype);
 	selectMgrSlaveNodes(masterNode->mgrNode->oid,
 						slaveNodetype, spiContext, &mgrNodes);
-	if (excludeNodeOid > 0)
+	if (excludeSlaveOid > 0)
 	{
 		dlist_foreach_modify(iter, &mgrNodes)
 		{
 			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-			if (mgrNode->oid == excludeNodeOid)
+			if (mgrNode->oid == excludeSlaveOid)
 			{
 				dlist_delete(iter.cur);
 				pfreeMgrNodeWrapper(mgrNode);
@@ -1731,6 +1760,7 @@ static void sortNodesByWalLsnDesc(dlist_head *nodes)
 		{
 			dlist_push_tail(nodes, &sortItems[i]->link);
 		}
+		pfree(sortItems);
 	}
 	else
 	{
@@ -1749,7 +1779,7 @@ static void checkGetMasterCoordinators(MemoryContext spiContext,
 
 	if (includeGtmCoord)
 	{
-		selectMgrAllMasterCoordinators(spiContext, &mgrNodes);
+		selectActiveMasterCoordinators(spiContext, &mgrNodes);
 		if (dlist_is_empty(&mgrNodes))
 		{
 			ereport(ERROR,
@@ -1758,9 +1788,9 @@ static void checkGetMasterCoordinators(MemoryContext spiContext,
 	}
 	else
 	{
-		selectMgrNodeByNodetype(spiContext,
-								CNDN_TYPE_COORDINATOR_MASTER,
-								&mgrNodes);
+		selectActiveMgrNodeByNodetype(spiContext,
+									  CNDN_TYPE_COORDINATOR_MASTER,
+									  &mgrNodes);
 	}
 	mgrNodesToSwitcherNodes(&mgrNodes, coordinators);
 
@@ -2074,7 +2104,7 @@ static void runningSlavesFollowMaster(SwitcherNodeWrapper *masterNode,
 	}
 
 	if (gtmMaster)
-		batchSetGtmInfoOnNodes(gtmMaster, runningSlaves, NULL);
+		batchSetGtmInfoOnNodes(gtmMaster, runningSlaves, NULL, true);
 
 	switcherNodesToMgrNodes(runningSlaves, &mgrNodes);
 
@@ -3037,7 +3067,8 @@ static SwitcherNodeWrapper *getGtmCoordMaster(dlist_head *coordinators)
 
 static void batchSetGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 								   dlist_head *nodes,
-								   SwitcherNodeWrapper *ignoreNode)
+								   SwitcherNodeWrapper *ignoreNode,
+								   bool complain)
 {
 	dlist_mutable_iter iter;
 	SwitcherNodeWrapper *node;
@@ -3057,7 +3088,7 @@ static void batchSetGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 								  agtm_host,
 								  snapsender_port,
 								  gxidsender_port,
-								  true);
+								  complain);
 		}
 	}
 }
@@ -3140,7 +3171,7 @@ static void batchSetCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 										dlist_head *nodes,
 										SwitcherNodeWrapper *ignoreNode)
 {
-	batchSetGtmInfoOnNodes(gtmMaster, nodes, ignoreNode);
+	batchSetGtmInfoOnNodes(gtmMaster, nodes, ignoreNode, true);
 	batchCheckGtmInfoOnNodes(gtmMaster, nodes, ignoreNode,
 							 CHECK_GTM_INFO_SECONDS);
 }
@@ -3492,18 +3523,22 @@ static bool alterPgxcNodeForSwitch(PGconn *activeCoon,
 	if (execOk)
 	{
 		ereport(LOG,
-				(errmsg("%s alter from %s to %s in pgxc_node successfully",
+				(errmsg("on %s alter node %s to newNodeName:%s host:%s port:%d in pgxc_node successfully",
 						executeOnNodeName,
 						oldNodeName,
-						newNodeName)));
+						newNodeName,
+						host,
+						port)));
 	}
 	else
 	{
 		ereport(complain ? ERROR : WARNING,
-				(errmsg("%s alter from %s to %s in pgxc_node failed",
+				(errmsg("on %s alter node %s to newNodeName:%s host:%s port:%d in pgxc_node failed",
 						executeOnNodeName,
 						oldNodeName,
-						newNodeName)));
+						newNodeName,
+						host,
+						port)));
 	}
 	return execOk;
 }

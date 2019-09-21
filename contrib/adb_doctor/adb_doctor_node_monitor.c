@@ -43,12 +43,14 @@ typedef struct NodeConfiguration
 	long queryIntervalMs;
 	long restartDelayMs;
 	long holdConnectionMs;
-	int restartMasterCount;
-	long restartMasterIntervalMs;
 	long shutdownTimeoutMs;
 	int connectionErrorNumMax;
 	long retryFollowMasterIntervalMs;
 	long retryRewindIntervalMs;
+	int restartMasterCount;
+	long restartMasterIntervalMs;
+	int restartSlaveCount;
+	long restartSlaveIntervalMs;
 	int restartCoordinatorCount;
 	long restartCoordinatorIntervalMs;
 	bool forceSwitch;
@@ -149,8 +151,7 @@ static void handleNodeCrashed(MonitorNodeInfo *nodeInfo);
 static void nodeWaitSwitch(MonitorNodeInfo *nodeInfo);
 static bool tryRestartNode(MonitorNodeInfo *nodeInfo);
 static bool tryStartupNode(MonitorNodeInfo *nodeInfo);
-static bool tryStartupMasterNode(MonitorNodeInfo *nodeInfo);
-static bool tryStartupCoordinator(MonitorNodeInfo *nodeInfo);
+static bool tryTreatNodeByStartup(MonitorNodeInfo *nodeInfo);
 static bool startupNode(MonitorNodeInfo *nodeInfo);
 static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo);
 
@@ -219,6 +220,7 @@ static void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
 								   MemoryContext spiContext);
 static bool setMgrNodeGtmInfo(MgrNodeWrapper *mgrNode);
 static void masterNodeCrashed(MonitorNodeInfo *nodeInfo);
+static void slaveNodeCrashed(MonitorNodeInfo *nodeInfo);
 static void coordinatorCrashed(MonitorNodeInfo *nodeInfo);
 static void isolateNode(MonitorNodeInfo *nodeInfo);
 static bool canDoSwitching(MonitorNodeInfo *nodeInfo);
@@ -837,8 +839,7 @@ static void handleNodeCrashed(MonitorNodeInfo *nodeInfo)
 	}
 	else
 	{
-		/* startup this node until succeeded */
-		tryStartupNode(nodeInfo);
+		slaveNodeCrashed(nodeInfo);
 	}
 }
 
@@ -852,8 +853,9 @@ static void nodeWaitSwitch(MonitorNodeInfo *nodeInfo)
 		/* the cure method is update curestatus to WAIT_SWITCH */
 		endCureOperation(nodeInfo->mgrNode, CURE_STATUS_WAIT_SWITCH, spiContext);
 		notifyAdbDoctorRegistrant();
-		/* I can't do the work of switching, I need to quit. */
-		raise(SIGTERM);
+		ereport(ERROR,
+				(errmsg("%s I can't do the work of switching, I need to quit",
+						MyBgworkerEntry->bgw_name)));
 	}
 	else
 	{
@@ -928,33 +930,36 @@ static bool tryStartupNode(MonitorNodeInfo *nodeInfo)
 	return done;
 }
 
-static bool tryStartupMasterNode(MonitorNodeInfo *nodeInfo)
+static bool tryTreatNodeByStartup(MonitorNodeInfo *nodeInfo)
 {
+	char nodetype;
+	long restartIntervalMs;
 	bool done;
 
-	if (TimestampDifferenceExceeds(nodeInfo->restartTime,
-								   GetCurrentTimestamp(),
-								   nodeConfiguration->restartMasterIntervalMs))
+	nodetype = nodeInfo->mgrNode->form.nodetype;
+	if (nodetype == CNDN_TYPE_DATANODE_MASTER ||
+		nodetype == CNDN_TYPE_GTM_COOR_MASTER)
 	{
-		done = treatNodeByStartup(nodeInfo);
+		restartIntervalMs = nodeConfiguration->restartMasterIntervalMs;
+	}
+	else if (nodetype == CNDN_TYPE_DATANODE_SLAVE ||
+			 nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+	{
+		restartIntervalMs = nodeConfiguration->restartSlaveIntervalMs;
+	}
+	else if (nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+	{
+		restartIntervalMs = nodeConfiguration->restartCoordinatorIntervalMs;
 	}
 	else
 	{
-		ereport(DEBUG1,
-				(errmsg("%s, restart node too often",
-						MyBgworkerEntry->bgw_name)));
-		done = false;
+		ereport(ERROR, (errmsg("%s unknow nodetype %c",
+							   MyBgworkerEntry->bgw_name,
+							   nodetype)));
 	}
-	return done;
-}
-
-static bool tryStartupCoordinator(MonitorNodeInfo *nodeInfo)
-{
-	bool done;
-
 	if (TimestampDifferenceExceeds(nodeInfo->restartTime,
 								   GetCurrentTimestamp(),
-								   nodeConfiguration->restartCoordinatorIntervalMs))
+								   restartIntervalMs))
 	{
 		done = treatNodeByStartup(nodeInfo);
 	}
@@ -987,6 +992,9 @@ static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo)
 	MemoryContext spiContext;
 
 	spiContext = beginCureOperation(nodeInfo->mgrNode);
+	ereport(LOG,
+			(errmsg("%s, try to startup node",
+					MyBgworkerEntry->bgw_name)));
 	done = startupNode(nodeInfo);
 	endCureOperation(nodeInfo->mgrNode, CURE_STATUS_NORMAL, spiContext);
 	if (done)
@@ -995,7 +1003,7 @@ static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo)
 								  PQPING_OK, STARTUP_NODE_SECONDS))
 		{
 			ereport(LOG,
-					(errmsg("%s, start node successfully",
+					(errmsg("%s, startup node successfully",
 							MyBgworkerEntry->bgw_name)));
 			resetNodeMonitor();
 		}
@@ -1010,7 +1018,7 @@ static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo)
 	else
 	{
 		ereport(LOG,
-				(errmsg("%s, start node failed",
+				(errmsg("%s, startup node failed",
 						MyBgworkerEntry->bgw_name)));
 		done = false;
 	}
@@ -2473,13 +2481,13 @@ static bool setMgrNodeGtmInfo(MgrNodeWrapper *mgrNode)
 	{
 		EXTRACT_GTM_INFOMATION(gtmMaster, agtm_host,
 							   snapsender_port, gxidsender_port);
-		ereport(LOG,
+		ereport(DEBUG1,
 				(errmsg("try to fix GTM information on %s",
 						NameStr(mgrNode->form.nodename))));
 
 		done = setGtmInfoInPGSqlConf(mgrNode, agtm_host,
 									 snapsender_port, gxidsender_port, false);
-		ereport(LOG,
+		ereport(DEBUG1,
 				(errmsg("fix GTM information on %s %s",
 						NameStr(mgrNode->form.nodename),
 						done ? "successfully" : "failed")));
@@ -2493,7 +2501,7 @@ static void masterNodeCrashed(MonitorNodeInfo *nodeInfo)
 {
 	if (nodeConfiguration->restartMasterCount > nodeInfo->nRestarts)
 	{
-		if (tryStartupMasterNode(nodeInfo))
+		if (tryTreatNodeByStartup(nodeInfo))
 		{
 			/* wait */
 		}
@@ -2515,11 +2523,37 @@ static void masterNodeCrashed(MonitorNodeInfo *nodeInfo)
 	}
 }
 
+static void slaveNodeCrashed(MonitorNodeInfo *nodeInfo)
+{
+	if (nodeConfiguration->restartSlaveCount > nodeInfo->nRestarts)
+	{
+		if (tryTreatNodeByStartup(nodeInfo))
+		{
+			/* wait */
+		}
+		else
+		{
+			if (nodeConfiguration->restartSlaveCount <= nodeInfo->nRestarts)
+			{
+				isolateNode(nodeInfo);
+			}
+			else
+			{
+				/* wait */
+			}
+		}
+	}
+	else
+	{
+		isolateNode(nodeInfo);
+	}
+}
+
 static void coordinatorCrashed(MonitorNodeInfo *nodeInfo)
 {
 	if (nodeConfiguration->restartCoordinatorCount > nodeInfo->nRestarts)
 	{
-		if (tryStartupCoordinator(nodeInfo))
+		if (tryTreatNodeByStartup(nodeInfo))
 		{
 			/* wait */
 		}
@@ -2560,7 +2594,9 @@ static void isolateNode(MonitorNodeInfo *nodeInfo)
 						NameStr(nodeInfo->mgrNode->form.nodename))));
 		SPI_FINISH_TRANSACTIONAL_COMMIT();
 		notifyAdbDoctorRegistrant();
-		raise(SIGTERM);
+		ereport(ERROR,
+				(errmsg("%s I can't do the work of repairing, I need to quit",
+						MyBgworkerEntry->bgw_name)));
 	}
 	else
 	{
@@ -2732,12 +2768,14 @@ static NodeConfiguration *newNodeConfiguration(AdbDoctorConf *conf)
 	nc->holdConnectionMs = LIMIT_VALUE_RANGE(nc->queryIntervalMs * 4,
 											 (nc->queryTimoutMs + nc->queryIntervalMs) * 4,
 											 deadlineMs);
-	nc->restartMasterCount = conf->node_restart_master_count;
-	nc->restartMasterIntervalMs = conf->node_restart_master_interval_ms;
 	nc->shutdownTimeoutMs = conf->node_shutdown_timeout_ms;
 	nc->connectionErrorNumMax = conf->node_connection_error_num_max;
 	nc->retryFollowMasterIntervalMs = conf->node_retry_follow_master_interval_ms;
 	nc->retryRewindIntervalMs = conf->node_retry_rewind_interval_ms;
+	nc->restartMasterCount = conf->node_restart_master_count;
+	nc->restartMasterIntervalMs = conf->node_restart_master_interval_ms;
+	nc->restartSlaveCount = conf->node_restart_slave_count;
+	nc->restartSlaveIntervalMs = conf->node_restart_slave_interval_ms;
 	nc->restartCoordinatorCount = conf->node_restart_coordinator_count;
 	nc->restartCoordinatorIntervalMs = conf->node_restart_coordinator_interval_ms;
 	nc->forceSwitch = conf->forceswitch;
@@ -2747,18 +2785,18 @@ static NodeConfiguration *newNodeConfiguration(AdbDoctorConf *conf)
 					"connectTimeoutMs:%ld, reconnectDelayMs:%ld, "
 					"queryTimoutMs:%ld, queryIntervalMs:%ld, "
 					"restartDelayMs:%ld, holdConnectionMs:%ld, "
-					"restartMasterCount:%d, restartMasterIntervalMs:%ld, "
 					"shutdownTimeoutMs:%ld, connectionErrorNumMax:%d, "
 					"retryFollowMasterIntervalMs:%ld, retryRewindIntervalMs:%ld, "
+					"restartMasterCount:%d, restartMasterIntervalMs:%ld, "
 					"restartCoordinatorCount:%d, restartCoordinatorIntervalMs:%ld",
 					MyBgworkerEntry->bgw_name,
 					nc->deadlineMs, nc->waitEventTimeoutMs,
 					nc->connectTimeoutMs, nc->reconnectDelayMs,
 					nc->queryTimoutMs, nc->queryIntervalMs,
 					nc->restartDelayMs, nc->holdConnectionMs,
-					nc->restartMasterCount, nc->restartMasterIntervalMs,
 					nc->shutdownTimeoutMs, nc->connectionErrorNumMax,
 					nc->retryFollowMasterIntervalMs, nc->retryRewindIntervalMs,
+					nc->restartMasterCount, nc->restartMasterIntervalMs,
 					nc->restartCoordinatorCount, nc->restartCoordinatorIntervalMs)));
 	return nc;
 }
