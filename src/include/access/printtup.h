@@ -22,6 +22,11 @@ extern void SetRemoteDestReceiverParams(DestReceiver *self, Portal portal);
 
 extern void SendRowDescriptionMessage(StringInfo buf,
 						  TupleDesc typeinfo, List *targetlist, int16 *formats);
+#ifdef ADB_GRAM_ORA
+extern void SendRowDescriptionMessageUpperAttributeName(StringInfo buf,
+						  TupleDesc typeinfo, List *targetlist, int16 *formats,
+						  const char *source_cmd, bool upper_target);
+#endif /* ADB_GRAM_ORA */
 
 #ifdef ADB
 extern void StartupRemoteDestReceiver(DestReceiver *self, TupleDesc typeinfo,

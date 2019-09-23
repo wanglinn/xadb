@@ -42,9 +42,6 @@ static void SendRowDescriptionCols_3(StringInfo buf, TupleDesc typeinfo,
 						 List *targetlist, int16 *formats
 						 ADB_GRAM_ORA_COMMA_ARG2(const char *source_cmd, bool upper_target));
 #ifdef ADB_GRAM_ORA
-static void SendRowDescriptionMessageOracle(StringInfo buf, TupleDesc typeinfo,
-											List *targetlist, int16 *formats,
-											const char *source_cmd, bool upper_target);
 bool upper_out_oracle_target = true;
 #endif /* ADB_GRAM_ORA */
 
@@ -182,12 +179,12 @@ printtup_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 			portal->sourceText != NULL &&
 			portal->grammar == PARSE_GRAM_ORACLE)
 		{
-			SendRowDescriptionMessageOracle(&myState->buf,
-											typeinfo,
-											FetchPortalTargetList(portal),
-											portal->formats,
-											portal->sourceText,
-											true);
+			SendRowDescriptionMessageUpperAttributeName(&myState->buf,
+														typeinfo,
+														FetchPortalTargetList(portal),
+														portal->formats,
+														portal->sourceText,
+														true);
 		}else
 #endif /* ADB_GRAM_ORA */
 		SendRowDescriptionMessage(&myState->buf,
@@ -224,9 +221,9 @@ SendRowDescriptionMessage(StringInfo buf, TupleDesc typeinfo,
 						  List *targetlist, int16 *formats)
 {
 #ifdef ADB_GRAM_ORA
-	return SendRowDescriptionMessageOracle(buf, typeinfo, targetlist, formats, NULL, false);
+	return SendRowDescriptionMessageUpperAttributeName(buf, typeinfo, targetlist, formats, NULL, false);
 }
-static void SendRowDescriptionMessageOracle(StringInfo buf, TupleDesc typeinfo,
+void SendRowDescriptionMessageUpperAttributeName(StringInfo buf, TupleDesc typeinfo,
 											List *targetlist, int16 *formats,
 											const char *source_cmd, bool upper_target)
 {
