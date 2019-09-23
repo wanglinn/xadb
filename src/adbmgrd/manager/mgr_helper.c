@@ -1872,18 +1872,18 @@ bool callAgentRewindNode(MgrNodeWrapper *masterNode,
 	CallAgentResult res;
 	StringInfoData cmdMessage;
 	AgentCommand cmd;
-	// bool bGtmType;
+	bool bGtmType;
 
-	// if (CNDN_TYPE_GTM_COOR_SLAVE == slaveNode->form.nodetype)
-	// {
-	// 	bGtmType = true;
-	// 	cmd = AGT_CMD_AGTM_REWIND;
-	// }
-	// else
-	// {
-	// 	bGtmType = false;
-	// 	cmd = AGT_CMD_NODE_REWIND;
-	// }
+	if (CNDN_TYPE_GTM_COOR_SLAVE == slaveNode->form.nodetype)
+	{
+		bGtmType = true;
+		cmd = AGT_CMD_AGTM_REWIND;
+	}
+	else
+	{
+		bGtmType = false;
+		cmd = AGT_CMD_NODE_REWIND;
+	}
 	initStringInfo(&cmdMessage);
 	appendStringInfo(&cmdMessage,
 					 " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres'",
@@ -1891,13 +1891,12 @@ bool callAgentRewindNode(MgrNodeWrapper *masterNode,
 					 masterNode->host->hostaddr,
 					 masterNode->form.nodeport,
 					 NameStr(slaveNode->host->form.hostuser));
-	// if (!bGtmType)
-	// {
-	appendStringInfo(&cmdMessage, " --target-nodename %s --source-nodename %s",
-					 NameStr(slaveNode->form.nodename),
-					 NameStr(masterNode->form.nodename));
-	// }
-	cmd = AGT_CMD_NODE_REWIND;
+	if (!bGtmType)
+	{
+		appendStringInfo(&cmdMessage, " --target-nodename %s --source-nodename %s",
+						 NameStr(slaveNode->form.nodename),
+						 NameStr(masterNode->form.nodename));
+	}
 	res = callAgentSendCmd(cmd, &cmdMessage, slaveNode->host->hostaddr,
 						   slaveNode->host->form.hostagentport);
 	pfree(cmdMessage.data);
