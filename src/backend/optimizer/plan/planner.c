@@ -8811,8 +8811,14 @@ apply_scanjoin_target_to_paths(PlannerInfo *root,
 		Assert(subpath->param_info == NULL);
 
 		if (tlist_same_exprs)
+		{
 			subpath->pathtarget->sortgrouprefs =
 				scanjoin_target->sortgrouprefs;
+#ifdef ADB_GRAM_ORA
+			subpath->pathtarget->as_loc_list =
+				scanjoin_target->as_loc_list;
+#endif /* ADB_GRAM_ORA */
+		}
 		else
 		{
 			Path	   *newpath;
