@@ -1228,9 +1228,98 @@ ExecReScanClusterReduce(ClusterReduceState *node)
 	if (node->private_state == NULL)
 		return;
 
-	ereport(ERROR,
-			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			 errmsg("cluster reduce not support rescan")));
+	if (outerPlanState(node)->chgParam != NULL)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("cluster reduce not support sub plan change param")));
+	}
+
+	switch(node->reduce_method)
+	{
+	case RT_NOTHING:
+		break;
+	case RT_NORMAL:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("normal cluster reduce not support rescan")));
+		break;
+	case RT_ADVANCE:
+		{
+			AdvanceReduceState *state = node->private_state;
+			AdvanceNodeInfo	   *info;
+			uint32				i;
+
+			state->cur_node = NULL;
+			for (i=0;i<state->nnodes;++i)
+			{
+				info = &state->nodes[i];
+				if (info->file != NULL &&
+					BufFileSeek(info->file, 0, 0, SEEK_SET) != 0)
+				{
+					ereport(ERROR,
+							(errcode_for_file_access(),
+							 errmsg("can not seek buffer file to head")));
+				}
+				if (info->nodeoid == PGXCNodeOid)
+					state->cur_node = info;
+			}
+			Assert(state->cur_node != NULL);
+			Assert(state->cur_node->nodeoid == PGXCNodeOid);
+		}
+		break;
+	case RT_ADVANCE_PARALLEL:
+		{
+			AdvanceParallelState   *state = node->private_state;
+			AdvanceParallelNode	   *node;
+			uint32					i;
+
+			state->cur_node = NULL;
+			sts_end_parallel_scan(state->cur_node->accessor);
+			for (i=0;i<state->nnodes;++i)
+			{
+				node = &state->nodes[i];
+				if (node->nodeoid == PGXCNodeOid)
+				{
+					state->cur_node = node;
+					break;
+				}
+			}
+			Assert(state->cur_node != NULL);
+			Assert(state->cur_node->nodeoid == PGXCNodeOid);
+			sts_begin_parallel_scan(state->cur_node->accessor);
+		}
+		break;
+	case RT_MERGE:
+		{
+			MergeReduceState   *state = node->private_state;
+			MergeNodeInfo	   *node;
+			uint32				i;
+			if (state->normal.drio.eof_remote == true)
+			{
+				binaryheap_reset(state->binheap);
+				for (i=0;i<state->nnodes;++i)
+				{
+					node = &state->nodes[i];
+					ExecClearTuple(node->slot);
+					resetStringInfo(&node->read_buf);
+					if (BufFileSeek(node->file, 0, 0, SEEK_SET) != 0)
+					{
+						ereport(ERROR,
+								(errcode_for_file_access(),
+								 errmsg("can not seek SFS file to head")));
+					}
+				}
+				BuildMergeBinaryHeap(state);
+			}
+		}
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknown cluster reduce method %u", node->reduce_method)));
+		break;
+	}
 }
 
 static bool
