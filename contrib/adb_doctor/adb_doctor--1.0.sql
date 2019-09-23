@@ -192,7 +192,7 @@ INSERT INTO adb_doctor_conf VALUES (
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_restart_slave_count',
-	'1',
+	'2',
 	'f',
 	22,
 	'The number of times the doctor tries to restart a crashed slave (GTM or datanode) node. If it finally restart failed, doctor will kick it out of cluster.'

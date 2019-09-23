@@ -247,7 +247,7 @@ static void hostMonitorMainLoop()
 	WaitEvent *event;
 	WaitEventData *volatile wed = NULL;
 
-	int rc, i;
+	int rc;
 
 	initializeWaitEventSet();
 
@@ -263,9 +263,9 @@ static void hostMonitorMainLoop()
 							  nOccurredEvents,
 							  PG_WAIT_CLIENT);
 
-		for (i = 0; i < rc; ++i)
+		while (rc > 0)
 		{
-			event = &occurredEvents[i];
+			event = &occurredEvents[--rc];
 			wed = event->user_data;
 			(*wed->fun)(event);
 		}
@@ -1099,7 +1099,9 @@ static void OnLatchSetEvent(WaitEvent *event)
 
 static void OnPostmasterDeathEvent(WaitEvent *event)
 {
-	exit(1);
+	ereport(ERROR,
+			(errmsg("%s my postmaster dead, i need to exit",
+					MyBgworkerEntry->bgw_name)));
 }
 
 static void OnAgentConnectionEvent(WaitEvent *event)
@@ -1195,7 +1197,7 @@ static void OnAgentMessageEvent(WaitEvent *event)
 							recvbuf.data)));
 			toConnectionStatusSucceeded(agentWrapper);
 			/* Do not close this connection.use this connection to start agent main process. */
-			if(restartAgent(agentWrapper, RESTART_AGENT_MODE_SEND_MESSAGE))
+			if (restartAgent(agentWrapper, RESTART_AGENT_MODE_SEND_MESSAGE))
 			{
 				resetAdbDoctorBounceNum(agentWrapper->restartFactor);
 			}

@@ -222,7 +222,11 @@ static void launcherLoop(AdbDoctorConf *conf)
 							   PG_WAIT_EXTENSION);
 		/* Reset the latch, bail out if postmaster died. */
 		if (rc & WL_POSTMASTER_DEATH)
-			proc_exit(1);
+		{
+			ereport(ERROR,
+					(errmsg("%s my postmaster dead, i need to exit",
+							MyBgworkerEntry->bgw_name)));
+		}
 		/* Interrupted? */
 		if (rc & WL_LATCH_SET)
 		{

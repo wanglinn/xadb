@@ -360,7 +360,12 @@ static void nodeMonitorMainLoop(MonitorNodeInfo *nodeInfo)
 							   PG_WAIT_CLIENT);
 		/* Reset the latch, bail out if postmaster died. */
 		if (rc & WL_POSTMASTER_DEATH)
-			proc_exit(1);
+		{
+			ereport(ERROR,
+					(errmsg("%s my postmaster dead, i need to exit",
+							MyBgworkerEntry->bgw_name)));
+		}
+
 		/* Interrupted? */
 		if (rc & WL_LATCH_SET)
 		{
@@ -854,7 +859,7 @@ static void nodeWaitSwitch(MonitorNodeInfo *nodeInfo)
 		endCureOperation(nodeInfo->mgrNode, CURE_STATUS_WAIT_SWITCH, spiContext);
 		notifyAdbDoctorRegistrant();
 		ereport(ERROR,
-				(errmsg("%s I can't do the work of switching, I need to quit",
+				(errmsg("%s I can't do the work of switching, I need to exit",
 						MyBgworkerEntry->bgw_name)));
 	}
 	else
@@ -2597,7 +2602,7 @@ static void isolateNode(MonitorNodeInfo *nodeInfo)
 		SPI_FINISH_TRANSACTIONAL_COMMIT();
 		notifyAdbDoctorRegistrant();
 		ereport(ERROR,
-				(errmsg("%s I can't do the work of repairing, I need to quit",
+				(errmsg("%s I can't do the work of repairing, I need to exit",
 						MyBgworkerEntry->bgw_name)));
 	}
 	else

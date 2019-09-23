@@ -181,6 +181,7 @@ static void checkAndRepairNodes(dlist_head *faultNodes)
 					pfreeMgrNodeWrapper(faultNode);
 				}
 			}
+			CHECK_FOR_INTERRUPTS();
 		}
 
 		pgxcNodeCleaned = cleanFaultNodesOnCoordinators(faultNodes);
