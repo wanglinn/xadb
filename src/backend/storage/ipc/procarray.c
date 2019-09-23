@@ -583,7 +583,17 @@ ProcArrayGroupClearXid(PGPROC *proc, TransactionId latestXid)
 	uint32		wakeidx;
 
 	/* We should definitely have an XID to clear. */
+#ifdef ADB
+	/*
+	* Remove this assertion. We have seen this failing because a ROLLBACK
+	* statement may get canceled by a Coordinator, leading to recursive
+	* abort of a transaction. This must be a PostgreSQL issue, highlighted
+	* by XC. See thread on hackers with subject "Canceling ROLLBACK
+	* statement"
+	*/
+#else
 	Assert(TransactionIdIsValid(allPgXact[proc->pgprocno].xid));
+#endif
 
 	/* Add ourselves to the list of processes needing a group XID clear. */
 	proc->procArrayGroupMember = true;
