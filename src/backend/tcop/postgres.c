@@ -226,6 +226,9 @@ static StringInfoData row_description_buf;
 int parse_grammar = PARSE_GRAM_POSTGRES;
 int current_grammar = PARSE_GRAM_POSTGRES;
 #endif
+#ifdef ADB_GRAM_ORA
+extern bool upper_out_oracle_target;
+#endif /* ADB_GRAM_ORA */
 #ifdef ADBMGRD
 int mgr_cmd_mode = CMD_MODE_MGR;
 #endif
@@ -3161,10 +3164,25 @@ exec_describe_portal_message(const char *portal_name)
 		return;					/* can't actually do anything... */
 
 	if (portal->tupDesc)
+	{
+#ifdef ADB_GRAM_ORA
+		if (upper_out_oracle_target &&
+			portal->sourceText != NULL &&
+			portal->grammar == PARSE_GRAM_ORACLE)
+		{
+			SendRowDescriptionMessageUpperAttributeName(&row_description_buf,
+														portal->tupDesc,
+														FetchPortalTargetList(portal),
+														portal->formats,
+														portal->sourceText,
+														true);
+		}else
+#endif /* ADB_GRAM_ORA */
 		SendRowDescriptionMessage(&row_description_buf,
 								  portal->tupDesc,
 								  FetchPortalTargetList(portal),
 								  portal->formats);
+	}
 	else
 		pq_putemptymessage('n');	/* NoData */
 }
