@@ -967,6 +967,7 @@ re_connect_by_:
 		{
 			Datum *save_siblings = NULL;
 			ArrayType *arr_siblings = NULL;
+			int64 *pcur_num = NULL;
 			int num_sibling;
 			CHECK_FOR_INTERRUPTS();
 			ExecHashJoinReadTuple(file, &hashvalue, outer_slot);
@@ -1018,18 +1019,22 @@ re_connect_by_:
 									  &save_siblings,
 									  NULL,
 									  &num_sibling);
-					Assert(num_sibling == (cbstate->level-1) * 2);
-					save_siblings = repalloc(save_siblings, sizeof(Datum)*(num_sibling + 2));
-					save_siblings[num_sibling] = Int64GetDatum(cbstate->level);
-					save_siblings[num_sibling+1] = outer_slot->tts_values[state->save_prior_num];
+					Assert(num_sibling == (cbstate->level-1));
+					save_siblings = repalloc(save_siblings, sizeof(Datum)*(num_sibling + 1));
+					save_siblings[num_sibling] = (Datum)0;	/* change it later */
 					arr_siblings = construct_array(save_siblings,
-												   num_sibling+2,
+												   num_sibling+1,
 												   INT8OID,
 												   sizeof(int64),
 												   FLOAT8PASSBYVAL,
 												   'd');
 					MemoryContextSwitchTo(oldcontext);
+
+					pcur_num = (int64*)ARR_DATA_PTR(arr_siblings);
+					pcur_num += num_sibling;
 				}
+
+				*pcur_num = state->cur_num;
 
 				if (pstate->qual == NULL ||
 					ExecQualAndReset(pstate->qual, econtext))
@@ -1801,7 +1806,7 @@ static TupleTableSlot *InsertRootSortHashValue(ConnectByState *cbstate, TupleTab
 	SortHashConnectByState *state = cbstate->private_state;
 	TupleTableSlot *save_slot;
 	TupleTableSlot *sort_slot;
-	Datum			datum[2];
+	Datum			datum[1];
 	ExprContext	   *econtext;
 	HashJoinTable	hjt;
 	uint32			hashvalue;
@@ -1830,10 +1835,9 @@ static TupleTableSlot *InsertRootSortHashValue(ConnectByState *cbstate, TupleTab
 		econtext->ecxt_outertuple = ExecClearTuple(cbstate->outer_slot);
 		save_slot = ExecProject(cbstate->pj_save_targetlist);
 		slot_getallattrs(save_slot);
-		datum[0] = Int64GetDatum(1);	/* level */
-		datum[1] = Int64GetDatum(state->cur_num);
+		datum[0] = Int64GetDatumFast(state->cur_num);
 		save_slot->tts_values[state->save_siblings] = 
-			PointerGetDatum(construct_array(datum, 2, INT8OID, sizeof(int64), FLOAT8PASSBYVAL, 'd'));
+			PointerGetDatum(construct_array(datum, lengthof(datum), INT8OID, sizeof(int64), FLOAT8PASSBYVAL, 'd'));
 		save_slot->tts_isnull[state->save_siblings] = false;
 		save_slot->tts_values[state->save_prior_num] = Int64GetDatum(0);
 		save_slot->tts_isnull[state->save_prior_num] = false;
