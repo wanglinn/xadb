@@ -40,9 +40,7 @@ static void checkGetMasterCoordinators(MemoryContext spiContext,
 									   dlist_head *coordinators,
 									   bool includeGtmCoord,
 									   bool checkRunningMode);
-static void checkGetAllDataNodes(dlist_head *runningDataNodes,
-								 dlist_head *failedDataNodes,
-								 MemoryContext spiContext);
+static void checkGetAllDataNodes(dlist_head *dataNodes, MemoryContext spiContext);
 static void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
 											MemoryContext spiContext,
 											bool forceSwitch,
@@ -75,8 +73,8 @@ static void promoteNewMasterStartReign(SwitcherNodeWrapper *oldMaster,
 									   SwitcherNodeWrapper *newMaster);
 static void refreshMgrNodeBeforeSwitch(SwitcherNodeWrapper *node,
 									   MemoryContext spiContext);
-static void revertCurestatusAfterSwitchGtmCoord(SwitcherNodeWrapper *node,
-												MemoryContext spiContext);
+// static void revertCurestatusAfterSwitchGtmCoord(SwitcherNodeWrapper *node,
+// 												MemoryContext spiContext);
 static void refreshOldMasterBeforeSwitch(SwitcherNodeWrapper *oldMaster,
 										 MemoryContext spiContext);
 static void refreshSlaveNodesBeforeSwitch(SwitcherNodeWrapper *newMaster,
@@ -366,8 +364,7 @@ void switchGtmCoordMaster(char *oldMasterName,
 	dlist_head coordinators = DLIST_STATIC_INIT(coordinators);
 	dlist_head runningSlaves = DLIST_STATIC_INIT(runningSlaves);
 	dlist_head failedSlaves = DLIST_STATIC_INIT(failedSlaves);
-	dlist_head runningDataNodes = DLIST_STATIC_INIT(runningDataNodes);
-	dlist_head failedDataNodes = DLIST_STATIC_INIT(failedDataNodes);
+	dlist_head dataNodes = DLIST_STATIC_INIT(dataNodes);
 	MemoryContext oldContext;
 	MemoryContext switchContext;
 	MemoryContext spiContext;
@@ -396,8 +393,7 @@ void switchGtmCoordMaster(char *oldMasterName,
 										&runningSlaves,
 										&failedSlaves,
 										&coordinators,
-										&runningDataNodes,
-										&failedDataNodes,
+										&dataNodes,
 										spiContext,
 										forceSwitch);
 		chooseNewMasterNode(oldMaster,
@@ -411,8 +407,7 @@ void switchGtmCoordMaster(char *oldMasterName,
 								  &runningSlaves,
 								  &failedSlaves,
 								  &coordinators,
-								  &runningDataNodes,
-								  &failedDataNodes,
+								  &dataNodes,
 								  spiContext,
 								  kickOutOldMaster);
 		namestrcpy(newMasterName,
@@ -434,8 +429,7 @@ void switchGtmCoordMaster(char *oldMasterName,
 	pfreeSwitcherNodeWrapperList(&runningSlaves, NULL);
 	/* newMaster may be added in coordinators */
 	pfreeSwitcherNodeWrapperList(&coordinators, newMaster);
-	pfreeSwitcherNodeWrapperList(&runningDataNodes, NULL);
-	pfreeSwitcherNodeWrapperList(&failedDataNodes, NULL);
+	pfreeSwitcherNodeWrapperList(&dataNodes, NULL);
 	pfreeSwitcherNodeWrapper(oldMaster);
 	pfreeSwitcherNodeWrapper(newMaster);
 
@@ -606,8 +600,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 	dlist_head coordinators = DLIST_STATIC_INIT(coordinators);
 	dlist_head runningSlaves = DLIST_STATIC_INIT(runningSlaves);
 	dlist_head failedSlaves = DLIST_STATIC_INIT(failedSlaves);
-	dlist_head runningDataNodes = DLIST_STATIC_INIT(runningDataNodes);
-	dlist_head failedDataNodes = DLIST_STATIC_INIT(failedDataNodes);
+	dlist_head dataNodes = DLIST_STATIC_INIT(dataNodes);
 	dlist_head isolatedNodes = DLIST_STATIC_INIT(isolatedNodes);
 	MemoryContext oldContext;
 	MemoryContext switchContext;
@@ -650,9 +643,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 		checkGetMasterCoordinators(spiContext,
 								   &coordinators,
 								   false, false);
-		checkGetAllDataNodes(&runningDataNodes,
-							 &failedDataNodes,
-							 spiContext);
+		checkGetAllDataNodes(&dataNodes, spiContext);
 		checkTrackActivitiesForSwitchover(&coordinators,
 										  oldMaster);
 		/* oldMaster also is a coordinator */
@@ -684,12 +675,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 			if (node != oldMaster)
 				refreshMgrNodeBeforeSwitch(node, spiContext);
 		}
-		dlist_foreach(iter, &runningDataNodes)
-		{
-			node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-			refreshMgrNodeBeforeSwitch(node, spiContext);
-		}
-		dlist_foreach(iter, &failedDataNodes)
+		dlist_foreach(iter, &dataNodes)
 		{
 			node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 			refreshMgrNodeBeforeSwitch(node, spiContext);
@@ -751,11 +737,8 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 		 */
 		tryLockCluster(&coordinators);
 
-		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
-									&runningDataNodes,
-									newMaster);
 		batchSetGtmInfoOnNodes(newMaster->mgrNode,
-							   &failedDataNodes,
+							   &dataNodes,
 							   newMaster,
 							   false);
 		refreshOldMasterAfterSwitchover(oldMaster,
@@ -777,17 +760,12 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 										  CURE_STATUS_SWITCHED,
 										  spiContext);
 		}
-		dlist_foreach(iter, &runningDataNodes)
+		dlist_foreach(iter, &dataNodes)
 		{
 			node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 			updateCureStatusForSwitch(node->mgrNode,
 									  CURE_STATUS_SWITCHED,
 									  spiContext);
-		}
-		dlist_foreach(iter, &failedDataNodes)
-		{
-			node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-			revertCurestatusAfterSwitchGtmCoord(node, spiContext);
 		}
 
 		tryUnlockCluster(&coordinators, true);
@@ -827,8 +805,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 			pfreeSwitcherNodeWrapper(node);
 		}
 	}
-	pfreeSwitcherNodeWrapperList(&runningDataNodes, NULL);
-	pfreeSwitcherNodeWrapperList(&failedDataNodes, NULL);
+	pfreeSwitcherNodeWrapperList(&dataNodes, NULL);
 	pfreeSwitcherNodeWrapper(oldMaster);
 	pfreeSwitcherNodeWrapper(newMaster);
 	pfreeMgrNodeWrapperList(&isolatedNodes, NULL);
@@ -863,8 +840,7 @@ void checkSwitchGtmCoordPrerequisite(SwitcherNodeWrapper *oldMaster,
 									 dlist_head *runningSlaves,
 									 dlist_head *failedSlaves,
 									 dlist_head *coordinators,
-									 dlist_head *runningDataNodes,
-									 dlist_head *failedDataNodes,
+									 dlist_head *dataNodes,
 									 MemoryContext spiContext,
 									 bool forceSwitch)
 {
@@ -876,7 +852,7 @@ void checkSwitchGtmCoordPrerequisite(SwitcherNodeWrapper *oldMaster,
 									runningSlaves);
 	precheckPromotionNode(runningSlaves, forceSwitch);
 	checkGetMasterCoordinators(spiContext, coordinators, false, false);
-	checkGetAllDataNodes(runningDataNodes, failedDataNodes, spiContext);
+	checkGetAllDataNodes(dataNodes, spiContext);
 }
 
 /**
@@ -973,8 +949,7 @@ void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 							   dlist_head *runningSlaves,
 							   dlist_head *failedSlaves,
 							   dlist_head *coordinators,
-							   dlist_head *runningDataNodes,
-							   dlist_head *failedDataNodes,
+							   dlist_head *dataNodes,
 							   MemoryContext spiContext,
 							   bool kickOutOldMaster)
 {
@@ -998,12 +973,7 @@ void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 		refreshMgrNodeBeforeSwitch(node, spiContext);
 	}
-	dlist_foreach(iter, runningDataNodes)
-	{
-		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		refreshMgrNodeBeforeSwitch(node, spiContext);
-	}
-	dlist_foreach(iter, failedDataNodes)
+	dlist_foreach(iter, dataNodes)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 		refreshMgrNodeBeforeSwitch(node, spiContext);
@@ -1044,11 +1014,8 @@ void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 	 */
 	tryLockCluster(coordinators);
 
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
-								runningDataNodes,
-								newMaster);
 	batchSetGtmInfoOnNodes(newMaster->mgrNode,
-						   failedDataNodes,
+						   dataNodes,
 						   newMaster,
 						   false);
 	refreshOldMasterAfterSwitch(oldMaster,
@@ -1071,17 +1038,12 @@ void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 									  CURE_STATUS_SWITCHED,
 									  spiContext);
 	}
-	dlist_foreach(iter, runningDataNodes)
+	dlist_foreach(iter, dataNodes)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 		updateCureStatusForSwitch(node->mgrNode,
 								  CURE_STATUS_SWITCHED,
 								  spiContext);
-	}
-	dlist_foreach(iter, failedDataNodes)
-	{
-		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		revertCurestatusAfterSwitchGtmCoord(node, spiContext);
 	}
 
 	tryUnlockCluster(coordinators, true);
@@ -1821,22 +1783,18 @@ static void checkGetMasterCoordinators(MemoryContext spiContext,
 	}
 }
 
-static void checkGetAllDataNodes(dlist_head *runningDataNodes,
-								 dlist_head *failedDataNodes,
-								 MemoryContext spiContext)
+static void checkGetAllDataNodes(dlist_head *dataNodes, MemoryContext spiContext)
 {
 	dlist_head mgrNodes = DLIST_STATIC_INIT(mgrNodes);
-	dlist_head allDataNodes = DLIST_STATIC_INIT(allDataNodes);
 
 	selectMgrAllDataNodes(spiContext, &mgrNodes);
-	mgrNodesToSwitcherNodes(&mgrNodes, &allDataNodes);
+	mgrNodesToSwitcherNodes(&mgrNodes, dataNodes);
 
-	if (dlist_is_empty(&allDataNodes))
+	if (dlist_is_empty(dataNodes))
 	{
 		ereport(LOG,
 				(errmsg("can't find any datanode")));
 	}
-	classifyNodesForSwitch(&allDataNodes, runningDataNodes, failedDataNodes);
 }
 
 /**
@@ -2464,12 +2422,12 @@ static void refreshMgrNodeBeforeSwitch(SwitcherNodeWrapper *node,
 							  spiContext);
 }
 
-static void revertCurestatusAfterSwitchGtmCoord(SwitcherNodeWrapper *node,
-												MemoryContext spiContext)
-{
-	updateCureStatusForSwitch(node->mgrNode,
-							  NameStr(node->oldCurestatus), spiContext);
-}
+// static void revertCurestatusAfterSwitchGtmCoord(SwitcherNodeWrapper *node,
+// 												MemoryContext spiContext)
+// {
+// 	updateCureStatusForSwitch(node->mgrNode,
+// 							  NameStr(node->oldCurestatus), spiContext);
+// }
 
 static void refreshOldMasterBeforeSwitch(SwitcherNodeWrapper *oldMaster,
 										 MemoryContext spiContext)
@@ -3075,6 +3033,7 @@ static void batchSetGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 	char *agtm_host;
 	char snapsender_port[12] = {0};
 	char gxidsender_port[12] = {0};
+	bool setSucc;
 
 	EXTRACT_GTM_INFOMATION(gtmMaster, agtm_host,
 						   snapsender_port, gxidsender_port);
@@ -3084,11 +3043,19 @@ static void batchSetGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 		if (node != ignoreNode)
 		{
-			setGtmInfoInPGSqlConf(node->mgrNode,
-								  agtm_host,
-								  snapsender_port,
-								  gxidsender_port,
-								  complain);
+			setSucc = setGtmInfoInPGSqlConf(node->mgrNode,
+											agtm_host,
+											snapsender_port,
+											gxidsender_port,
+											complain);
+			ereport(NOTICE,
+					(errmsg("set GTM information on %s %s",
+							NameStr(node->mgrNode->form.nodename),
+							setSucc ? "successfully" : "failed")));
+			ereport(LOG,
+					(errmsg("set GTM information on %s %s",
+							NameStr(node->mgrNode->form.nodename),
+							setSucc ? "successfully" : "failed")));
 		}
 	}
 }
