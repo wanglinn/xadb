@@ -1113,6 +1113,32 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 		}
 	}
 
+#ifdef ADB_GRAM_ORA
+	if (root->original_join_tree &&
+		parse->connect_by)
+	{
+		List *quals;
+		FromExpr *root_from = root->original_join_tree;
+		RelOptInfo *rel = fetch_upper_rel(root, UPPERREL_CONNECT_BY, NULL);
+		OracleConnectBy *connect_by = parse->connect_by;
+		connect_by->start_with = preprocess_expression(root,
+													   connect_by->start_with,
+													   EXPRKIND_QUAL);
+		connect_by->connect_by = preprocess_expression(root,
+													   connect_by->connect_by,
+													   EXPRKIND_QUAL);
+		if (root_from->quals == NULL ||
+			IsA(root_from->quals, List))
+		{
+			quals = (List*)root_from->quals;
+		}else
+		{
+			quals = (List*)preprocess_expression(root, root_from->quals, EXPRKIND_QUAL);
+		}
+		root_from->quals = (Node*)deconstruct_connect_by(root, rel, quals);
+	}
+#endif
+
 	/*
 	 * Now that we are done preprocessing expressions, and in particular done
 	 * flattening join alias variables, get rid of the joinaliasvars lists.
@@ -1197,32 +1223,6 @@ subquery_planner(PlannerGlobal *glob, Query *parse,
 
 	/* Remove any redundant GROUP BY columns */
 	remove_useless_groupby_columns(root);
-
-#ifdef ADB_GRAM_ORA
-	if (root->original_join_tree &&
-		parse->connect_by)
-	{
-		List *quals;
-		FromExpr *root_from = root->original_join_tree;
-		RelOptInfo *rel = fetch_upper_rel(root, UPPERREL_CONNECT_BY, NULL);
-		OracleConnectBy *connect_by = parse->connect_by;
-		connect_by->start_with = preprocess_expression(root,
-													   connect_by->start_with,
-													   EXPRKIND_QUAL);
-		connect_by->connect_by = preprocess_expression(root,
-													   connect_by->connect_by,
-													   EXPRKIND_QUAL);
-		if (root_from->quals == NULL ||
-			IsA(root_from->quals, List))
-		{
-			quals = (List*)root_from->quals;
-		}else
-		{
-			quals = (List*)preprocess_expression(root, root_from->quals, EXPRKIND_QUAL);
-		}
-		root_from->quals = (Node*)deconstruct_connect_by(root, rel, quals);
-	}
-#endif
 
 	/*
 	 * If we have any outer joins, try to reduce them to plain inner joins.
