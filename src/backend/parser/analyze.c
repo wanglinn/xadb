@@ -1479,7 +1479,7 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 		new_->sortClause = transformSortClause(pstate,
 											   old->sortClause,
 											   &new_->sort_tlist,
-											   EXPR_KIND_ORDER_BY,
+											   EXPR_KIND_ORDER_SIBLINGS_BY,
 											   true);
 		qry->connect_by = new_;
 		pstate->p_next_resno = save_next_resno;

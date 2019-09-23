@@ -557,6 +557,11 @@ check_agglevels_and_constraints(ParseState *pstate, Node *expr)
 			else
 				err = _("grouping operations are not allowed in connect by expression");
 			break;
+		case EXPR_KIND_ORDER_SIBLINGS_BY:
+			if (isAgg)
+				err = _("aggregate functions are not allowed in order siblings by expression");
+			else
+				err = _("grouping operations are not allowed in order siblings by expression");
 #endif /* ADB_GRAM_ORA */
 
 			/*
@@ -947,6 +952,9 @@ transformWindowFuncCall(ParseState *pstate, WindowFunc *wfunc,
 			break;
 		case EXPR_KIND_CONNECT_BY:
 			err = _("window functions are not allowed in connect by expression");
+			break;
+		case EXPR_KIND_ORDER_SIBLINGS_BY:
+			err = _("window functions are not allowed in order siblings by expression");
 			break;
 #endif /* ADB_GRAM_ORA */
 

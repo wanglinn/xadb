@@ -2491,6 +2491,7 @@ transformSubLink(ParseState *pstate, SubLink *sublink)
 #ifdef ADB_GRAM_ORA
 		case EXPR_KIND_START_WITH:
 		case EXPR_KIND_CONNECT_BY:
+		case EXPR_KIND_ORDER_SIBLINGS_BY:
 			break; /* okay */
 #endif /* ADB_GRAM_ORA */
 
@@ -4250,6 +4251,8 @@ ParseExprKindName(ParseExprKind exprKind)
 			return "START WITH";
 		case EXPR_KIND_CONNECT_BY:
 			return "CONNECT BY";
+		case EXPR_KIND_ORDER_SIBLINGS_BY:
+			return "ORDER SIBLINGS BY";
 #endif /* ADB_GRAM_ORA */
 
 			/*

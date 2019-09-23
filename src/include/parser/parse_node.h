@@ -74,6 +74,7 @@ typedef enum ParseExprKind
 #ifdef ADB_GRAM_ORA
 	,EXPR_KIND_CONNECT_BY			/* CONNECT BY expression */
 	,EXPR_KIND_START_WITH			/* START WITH expression */
+	,EXPR_KIND_ORDER_SIBLINGS_BY	/* ORDER SIBLINGS BY expression */
 #endif /* ADB_GRAM_ORA */
 } ParseExprKind;
 

@@ -2500,6 +2500,9 @@ check_srf_call_placement(ParseState *pstate, Node *last_srf, int location)
 		case EXPR_KIND_CONNECT_BY:
 			err = _("set-returning functions are not allowed in connect by expressions");
 			break;
+		case EXPR_KIND_ORDER_SIBLINGS_BY:
+			err = _("set-returning functions are not allowed in order siblings by expressions");
+			break;
 #endif /* ADB_GRAM_ORA */
 
 			/*
