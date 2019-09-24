@@ -129,6 +129,8 @@
 #ifdef ADB
 #define GUC_AGTM_HOST "agtm_host"
 #define GUC_AGTM_PORT "agtm_port"
+extern int reduce_scan_bucket_size;
+extern int reduce_scan_max_buckets;
 #endif
 
 /*
@@ -3758,6 +3760,27 @@ static struct config_int ConfigureNamesInt[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"reduce_scan_bucket_size", PGC_SUSET, RESOURCES_DISK,
+			gettext_noop("reduce scan hash bucket size"),
+			NULL,
+			GUC_UNIT_MS
+		},
+		&reduce_scan_bucket_size,
+		1024, BLCKSZ/1024*4, MAX_KILOBYTES,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"reduce_scan_max_buckets", PGC_SUSET, RESOURCES_DISK,
+			gettext_noop("reduce scan max hash bucket count"),
+			NULL,
+			0
+		},
+		&reduce_scan_max_buckets,
+		2048, 2, 16384,
+		NULL, NULL, NULL
+	},
 #endif /* ADB */
 
 #if defined(ADB) || defined(AGTM)

@@ -2313,15 +2313,18 @@ typedef struct ClusterReduceState
 typedef struct ReduceScanState
 {
 	ScanState			ss;
-	Tuplestorestate	   *buffer_nulls;
-	struct Hashstorestate *buffer_hash;
 	List			   *param_hash_exprs;
 	List			   *scan_hash_exprs;
 	FmgrInfo		   *param_hash_funs;
 	FmgrInfo		   *scan_hash_funs;
-	int					nbuckets;
+	struct dsm_segment *dsm_seg;
+	struct SharedTuplestoreAccessor
+					  **batchs,
+					   *cur_batch;
+	uint32				cur_hashval;
+	int					nbatchs;
 	int					ncols_hash;
-	int					cur_reader;		/* for read hashstore */
+	bool				cur_hash_is_null;
 } ReduceScanState;
 
 typedef struct EmptyResultState

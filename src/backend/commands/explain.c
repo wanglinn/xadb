@@ -1889,6 +1889,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			break;
 		case T_ReduceScan:
 			show_scan_qual(plan->qual, "Filter", planstate, ancestors, es);
+			if (es->verbose &&
+				((ReduceScanState*)planstate)->nbatchs > 1)
+				ExplainPropertyInteger("Hash Buckets", NULL, ((ReduceScanState*)planstate)->nbatchs, es);
 			break;
 #endif /* ADB */
 #ifdef ADB_GRAM_ORA
