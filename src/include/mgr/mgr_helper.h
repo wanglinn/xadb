@@ -339,10 +339,10 @@ extern void selectActiveMgrNodeByNodetype(MemoryContext spiContext,
 										  dlist_head *resultList);
 extern void selectMgrAllDataNodes(MemoryContext spiContext,
 								  dlist_head *resultList);
-extern void selectMgrSlaveNodes(Oid masterOid,
-								char nodetype,
-								MemoryContext spiContext,
-								dlist_head *resultList);
+extern void selectAllMgrSlaveNodes(Oid masterOid,
+								   char nodetype,
+								   MemoryContext spiContext,
+								   dlist_head *resultList);
 extern void selectMgrNodesForNodeDoctors(MemoryContext spiContext,
 										 dlist_head *resultList);
 extern MgrNodeWrapper *selectMgrNodeForNodeDoctor(Oid oid,
@@ -502,32 +502,28 @@ extern bool dropNodeFromPgxcNode(PGconn *activeCoon,
 extern bool createNodeOnPgxcNode(PGconn *activeCoon,
 								 char *executeOnNodeName,
 								 MgrNodeWrapper *mgrNode, bool complain);
-extern bool nodeExistsInPgxcNode(PGconn *activeCoon,
-								 char *executeOnNodeName,
-								 bool localExecute,
-								 char *nodeName,
-								 char pgxcNodeType,
-								 bool complain);
-extern bool dataNodeMasterExistsInPgxcNode(PGconn *activeCoon,
-										   char *executeOnNodeName,
-										   bool localExecute,
-										   char *nodeName,
-										   bool complain);
-extern bool dataNodeSlaveExistsInPgxcNode(PGconn *activeCoon,
-										  char *executeOnNodeName,
-										  bool localExecute,
-										  char *nodeName,
-										  bool complain);
-extern bool coordinatorMasterExistsInPgxcNode(PGconn *activeCoon,
-											  char *executeOnNodeName,
-											  bool localExecute,
-											  char *nodeName,
-											  bool complain);
+extern bool nodenameExistsInPgxcNode(PGconn *activeCoon,
+									 char *executeOnNodeName,
+									 bool localExecute,
+									 char *nodeName,
+									 char pgxcNodeType,
+									 bool complain);
+bool isMgrModeExistsInCoordinator(MgrNodeWrapper *coordinator,
+								  PGconn *coordConn,
+								  bool localExecute,
+								  MgrNodeWrapper *mgrNode,
+								  bool complain);
 extern char getMappedPgxcNodetype(char mgrNodetype);
 extern bool isNodeInSyncStandbyNames(MgrNodeWrapper *masterNode,
 									 MgrNodeWrapper *slaveNode,
 									 PGconn *masterConn);
-extern void cleanFaultNodesOnCoordinator(dlist_head *faultNodes,
-										 MgrNodeWrapper *coordinator,
-										 PGconn *coordConn);
+extern void cleanMgrNodesOnCoordinator(dlist_head *mgrNodes,
+									   MgrNodeWrapper *coordinator,
+									   PGconn *coordConn);
+extern char *getMgrNodePgxcNodeName(MgrNodeWrapper *mgrNode,
+									PGconn *nodeConn, bool complain);
+extern bool isGtmCoordMgrNode(char nodetype);
+extern bool isDataNodeMgrNode(char nodetype);
+extern bool isCoordinatorMgrNode(char nodetype);
+
 #endif /* MGR_HELPER_H */

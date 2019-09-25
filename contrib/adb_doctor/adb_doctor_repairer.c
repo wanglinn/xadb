@@ -118,6 +118,7 @@ void adbDoctorRepairerMain(Datum main_arg)
 static void repairerMainLoop(dlist_head *mgrNodes)
 {
 	int rc;
+
 	while (!gotSigterm)
 	{
 		checkAndRepairNodes(mgrNodes);
@@ -164,7 +165,7 @@ static void checkAndRepairNodes(dlist_head *faultNodes)
 
 	PG_TRY();
 	{
-		/* repaire gtmcoord first */
+		/* repaire gtmcoord slave first */
 		dlist_foreach_modify(faultNodeIter, faultNodes)
 		{
 			MemoryContextSwitchTo(workerContext);
@@ -185,6 +186,7 @@ static void checkAndRepairNodes(dlist_head *faultNodes)
 		}
 
 		pgxcNodeCleaned = cleanFaultNodesOnCoordinators(faultNodes);
+		CHECK_FOR_INTERRUPTS();
 
 		dlist_foreach_modify(faultNodeIter, faultNodes)
 		{
@@ -239,10 +241,12 @@ static bool cleanFaultNodesOnCoordinators(dlist_head *faultNodes)
 {
 	dlist_head coordinators = DLIST_STATIC_INIT(coordinators);
 	dlist_iter iterCoord;
-	dlist_iter iterFault;
+	dlist_mutable_iter iterFault;
 	MgrNodeWrapper *coordinator;
 	MgrNodeWrapper *faultNode;
+	MgrNodeWrapper *needCleanNode;
 	PGconn *coordConn = NULL;
+	dlist_head needCleanNodes = DLIST_STATIC_INIT(needCleanNodes);
 	bool allCleaned;
 	MemoryContext oldContext;
 	MemoryContext spiContext;
@@ -261,38 +265,74 @@ static bool cleanFaultNodesOnCoordinators(dlist_head *faultNodes)
 				(errmsg("can't find any active coordinators")));
 	}
 
-	allCleaned = true;
-	dlist_foreach(iterCoord, &coordinators)
+	dlist_foreach_modify(iterFault, faultNodes)
 	{
-		coordinator = dlist_container(MgrNodeWrapper, link, iterCoord.cur);
-		coordConn = getNodeDefaultDBConnection(coordinator, 10);
-		if (coordConn == NULL)
+		faultNode = dlist_container(MgrNodeWrapper, link, iterFault.cur);
+		if (isGtmCoordMgrNode(faultNode->form.nodetype))
 		{
-			allCleaned = false;
-			ereport(WARNING,
-					(errmsg("connect to coordinator %s failed",
-							NameStr(coordinator->form.nodename))));
+			ereport(LOG,
+					(errmsg("%s is a gtm coordinator type node, no need to clean pgxc_node",
+							NameStr(faultNode->form.nodename))));
 		}
-		else if (getNodeRunningMode(coordConn) != NODE_RUNNING_MODE_MASTER)
+		else if (isDataNodeMgrNode(faultNode->form.nodetype))
 		{
-			ereport(WARNING,
-					(errmsg("coordinator %s configured as master, "
-							"but actually did not running on that status",
-							NameStr(coordinator->form.nodename))));
-			allCleaned = false;
+			needCleanNode = palloc0(sizeof(MgrNodeWrapper));
+			memcpy(needCleanNode, faultNode, sizeof(MgrNodeWrapper));
+			dlist_push_tail(&needCleanNodes, &needCleanNode->link);
 		}
 		else
 		{
-			dlist_foreach(iterFault, faultNodes)
-			{
-				faultNode = dlist_container(MgrNodeWrapper, link, iterFault.cur);
-				checkMgrNodeDataInDB(faultNode);
-			}
-			cleanFaultNodesOnCoordinator(faultNodes, coordinator, coordConn);
+			ereport(ERROR,
+					(errmsg("unsupported node %s with nodetype %c",
+							NameStr(faultNode->form.nodename),
+							faultNode->form.nodetype)));
 		}
-		if (coordConn)
-			PQfinish(coordConn);
-		coordConn = NULL;
+	}
+
+	allCleaned = true;
+	if (dlist_is_empty(&needCleanNodes))
+	{
+		dlist_foreach(iterCoord, &coordinators)
+		{
+			coordinator = dlist_container(MgrNodeWrapper, link, iterCoord.cur);
+			coordConn = getNodeDefaultDBConnection(coordinator, 10);
+			if (coordConn == NULL)
+			{
+				allCleaned = false;
+				ereport(WARNING,
+						(errmsg("connect to coordinator %s failed",
+								NameStr(coordinator->form.nodename))));
+			}
+			else if (getNodeRunningMode(coordConn) != NODE_RUNNING_MODE_MASTER)
+			{
+				ereport(WARNING,
+						(errmsg("coordinator %s configured as master, "
+								"but actually did not running on that status",
+								NameStr(coordinator->form.nodename))));
+				allCleaned = false;
+			}
+			else
+			{
+				dlist_foreach_modify(iterFault, &needCleanNodes)
+				{
+					needCleanNode = dlist_container(MgrNodeWrapper, link, iterFault.cur);
+					checkMgrNodeDataInDB(needCleanNode);
+				}
+				cleanMgrNodesOnCoordinator(&needCleanNodes,
+										   coordinator,
+										   coordConn);
+			}
+			if (coordConn)
+				PQfinish(coordConn);
+			coordConn = NULL;
+		}
+	}
+
+	dlist_foreach_modify(iterFault, &needCleanNodes)
+	{
+		needCleanNode = dlist_container(MgrNodeWrapper, link, iterFault.cur);
+		dlist_delete(iterFault.cur);
+		pfree(needCleanNode);
 	}
 	if (!allCleaned)
 		ereport(WARNING,
@@ -466,6 +506,11 @@ static bool repairSlaveNode(MgrNodeWrapper *faultSlaveNode)
 		}
 		else
 		{
+			/* 
+			 * The old master node is invalid. You need to try to pull this  
+			 * node directly back to the cluster. If you don't do this, the 
+			 * master/slave switching may not succeed. 
+			 */
 			if (!pullBackToCluster(masterNode, faultSlaveNode, true))
 				ereport(ERROR,
 						(errmsg("pull %s back to cluster failed",
@@ -528,79 +573,82 @@ static bool refreshSyncStandbyNames(SwitcherNodeWrapper *masterNode,
 		if (oldSyncStandbyNames == NULL || strlen(oldSyncStandbyNames) == 0)
 		{
 			done = true;
-			goto end;
 		}
-
-		temp = palloc0(strlen(oldSyncStandbyNames) + 1);
-		/* "FIRST 1 (nodename2,nodename4)" will get result nodename2,nodename4 */
-		sscanf(oldSyncStandbyNames, "%*[^(](%[^)]", temp);
-		bareNodenames = trimString(temp);
-		pfree(temp);
-		if (bareNodenames == NULL || strlen(bareNodenames) == 0)
+		else
 		{
-			done = true;
-			goto end;
-		}
-		i = 0;
-		/* function "strtok" will scribble on the input argument */
-		temp = strtok(bareNodenames, ",");
-		while (temp)
-		{
-			if (!equalsAfterTrim(temp, NameStr(faultSlaveNode->form.nodename)))
+			temp = palloc0(strlen(oldSyncStandbyNames) + 1);
+			/* "FIRST 1 (nodename2,nodename4)" will get result nodename2,nodename4 */
+			sscanf(oldSyncStandbyNames, "%*[^(](%[^)]", temp);
+			bareNodenames = trimString(temp);
+			pfree(temp);
+			if (bareNodenames == NULL || strlen(bareNodenames) == 0)
 			{
-				i++;
-				if (i == 1)
-					appendStringInfo(&buf, "%s", temp);
-				else
-					appendStringInfo(&buf, ",%s", temp);
-				dlist_foreach(iter, &siblingNodes)
+				done = true;
+			}
+			else
+			{
+				i = 0;
+				/* function "strtok" will scribble on the input argument */
+				temp = strtok(bareNodenames, ",");
+				while (temp)
 				{
-					node = dlist_container(MgrNodeWrapper, link, iter.cur);
-					if (strcmp(NameStr(node->form.nodename), temp) == 0)
+					if (!equalsAfterTrim(temp, NameStr(faultSlaveNode->form.nodename)))
 					{
+						i++;
 						if (i == 1)
-							namestrcpy(&node->form.nodesync,
-									   getMgrNodeSyncStateValue(SYNC_STATE_SYNC));
+							appendStringInfo(&buf, "%s", temp);
 						else
-							namestrcpy(&node->form.nodesync,
-									   getMgrNodeSyncStateValue(SYNC_STATE_POTENTIAL));
+							appendStringInfo(&buf, ",%s", temp);
+						dlist_foreach(iter, &siblingNodes)
+						{
+							node = dlist_container(MgrNodeWrapper, link, iter.cur);
+							if (strcmp(NameStr(node->form.nodename), temp) == 0)
+							{
+								if (i == 1)
+									namestrcpy(&node->form.nodesync,
+											   getMgrNodeSyncStateValue(SYNC_STATE_SYNC));
+								else
+									namestrcpy(&node->form.nodesync,
+											   getMgrNodeSyncStateValue(SYNC_STATE_POTENTIAL));
+							}
+						}
 					}
+					temp = strtok(NULL, ",");
 				}
+				if (buf.data == NULL || strlen(buf.data) == 0)
+				{
+					newSyncStandbyNames = palloc0(1);
+				}
+				else
+				{
+					newSyncStandbyNames = psprintf("FIRST %d (%s)", 1, buf.data);
+				}
+				if (strcmp(oldSyncStandbyNames, newSyncStandbyNames) != 0)
+				{
+					dlist_foreach(iter, &siblingNodes)
+					{
+						node = dlist_container(MgrNodeWrapper, link, iter.cur);
+						updateMgrNodeNodesync(node, spiContext);
+					}
+					namestrcpy(&faultSlaveNode->form.nodesync, "");
+					updateMgrNodeNodesync(faultSlaveNode, spiContext);
+					ereport(LOG,
+							(errmsg("%s try to change synchronous_standby_names from '%s' to '%s'",
+									NameStr(masterNode->mgrNode->form.nodename),
+									oldSyncStandbyNames,
+									newSyncStandbyNames)));
+					setCheckSynchronousStandbyNames(masterNode->mgrNode,
+													masterNode->pgConn,
+													newSyncStandbyNames,
+													CHECK_SYNC_STANDBY_NAMES_SECONDS);
+				}
+				else
+				{
+					/* Synchronous_standby_names has been set and does not need to be set repeatedly */
+				}
+				done = true;
 			}
-			temp = strtok(NULL, ",");
 		}
-		if (buf.data == NULL || strlen(buf.data) == 0)
-		{
-			newSyncStandbyNames = palloc0(1);
-		}
-		else
-		{
-			newSyncStandbyNames = psprintf("FIRST %d (%s)", 1, buf.data);
-		}
-		if (strcmp(oldSyncStandbyNames, newSyncStandbyNames) != 0)
-		{
-			dlist_foreach(iter, &siblingNodes)
-			{
-				node = dlist_container(MgrNodeWrapper, link, iter.cur);
-				updateMgrNodeNodesync(node, spiContext);
-			}
-			namestrcpy(&faultSlaveNode->form.nodesync, "");
-			updateMgrNodeNodesync(faultSlaveNode, spiContext);
-			ereport(LOG,
-					(errmsg("%s try to change synchronous_standby_names from '%s' to '%s'",
-							NameStr(masterNode->mgrNode->form.nodename),
-							oldSyncStandbyNames,
-							newSyncStandbyNames)));
-			setCheckSynchronousStandbyNames(masterNode->mgrNode,
-											masterNode->pgConn,
-											newSyncStandbyNames,
-											CHECK_SYNC_STANDBY_NAMES_SECONDS);
-		}
-		else
-		{
-			/* Synchronous_standby_names has been set and does not need to be set repeatedly */
-		}
-		done = true;
 	}
 	PG_CATCH();
 	{
@@ -611,7 +659,6 @@ static bool refreshSyncStandbyNames(SwitcherNodeWrapper *masterNode,
 	}
 	PG_END_TRY();
 
-end:
 	if (done)
 	{
 		SPI_FINISH_TRANSACTIONAL_COMMIT();
@@ -641,9 +688,10 @@ static bool pullBackToCluster(SwitcherNodeWrapper *masterNode,
 	spiContext = CurrentMemoryContext;
 	PG_TRY();
 	{
+		refreshMgrNodeBeforeRepair(faultSlaveNode, spiContext);
+
 		startupNodeWithinSeconds(faultSlaveNode,
 								 STARTUP_NODE_SECONDS, true);
-		refreshMgrNodeBeforeRepair(faultSlaveNode, spiContext);
 		if (masterNodeFailed)
 		{
 			ereport(WARNING,

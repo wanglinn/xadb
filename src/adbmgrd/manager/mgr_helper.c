@@ -370,9 +370,9 @@ void selectMgrAllDataNodes(MemoryContext spiContext,
 /**
  * the list link data type is MgrNodeWrapper
  */
-void selectMgrSlaveNodes(Oid masterOid, char nodetype,
-						 MemoryContext spiContext,
-						 dlist_head *resultList)
+void selectAllMgrSlaveNodes(Oid masterOid, char nodetype,
+							MemoryContext spiContext,
+							dlist_head *resultList)
 {
 	StringInfoData sql;
 
@@ -1705,7 +1705,7 @@ bool callAgentStopNode(MgrNodeWrapper *node, char *shutdownMode,
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
-		ereport(DEBUG1,
+		ereport(LOG,
 				(errmsg("stop %s %s successfully",
 						NameStr(node->form.nodename),
 						node->nodepath)));
@@ -1780,7 +1780,7 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool wait, bool complain)
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
-		ereport(DEBUG1,
+		ereport(LOG,
 				(errmsg("start %s %s successfully",
 						NameStr(node->form.nodename),
 						node->nodepath)));
@@ -1849,7 +1849,7 @@ bool callAgentRestartNode(MgrNodeWrapper *node,
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
-		ereport(DEBUG1,
+		ereport(LOG,
 				(errmsg("restart %s %s successfully",
 						NameStr(node->form.nodename),
 						node->nodepath)));
@@ -1902,7 +1902,7 @@ bool callAgentRewindNode(MgrNodeWrapper *masterNode,
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
-		ereport(DEBUG1,
+		ereport(LOG,
 				(errmsg("rewind %s from %s successfully",
 						NameStr(slaveNode->form.nodename),
 						NameStr(masterNode->form.nodename))));
@@ -2100,7 +2100,7 @@ void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 
 	setSynchronousStandbyNames(mgrNode, value);
 
-	for (seconds = 0; seconds < checkSeconds; seconds++)
+	for (seconds = 0; seconds <= checkSeconds; seconds++)
 	{
 		/* check the param */
 		if (equalsNodeParameter(pgConn,
@@ -2112,7 +2112,7 @@ void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 		}
 		else
 		{
-			if (seconds < checkSeconds - 1)
+			if (seconds < checkSeconds)
 				pg_usleep(1000000L);
 		}
 	}
@@ -2263,7 +2263,7 @@ void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
 						  snapsender_port,
 						  gxidsender_port, true);
 
-	for (seconds = 0; seconds < checkSeconds; seconds++)
+	for (seconds = 0; seconds <= checkSeconds; seconds++)
 	{
 		execOk = checkGtmInfoInPGSqlConf(pgConn,
 										 NameStr(mgrNode->form.nodename),
@@ -2277,7 +2277,7 @@ void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
 		}
 		else
 		{
-			if (seconds < checkSeconds - 1)
+			if (seconds < checkSeconds)
 				pg_usleep(1000000L);
 		}
 	}
@@ -2348,7 +2348,7 @@ bool pingNodeWaitinSeconds(MgrNodeWrapper *node,
 {
 	int seconds;
 	PingNodeResult pingNodeResult;
-	for (seconds = 0; seconds < waitSeconds; seconds++)
+	for (seconds = 0; seconds <= waitSeconds; seconds++)
 	{
 		pingNodeResult = callAgentPingNode(node);
 		if (pingNodeResult.agentRes &&
@@ -2358,7 +2358,7 @@ bool pingNodeWaitinSeconds(MgrNodeWrapper *node,
 		}
 		else
 		{
-			if (seconds < waitSeconds - 1)
+			if (seconds < waitSeconds)
 				pg_usleep(1000000L);
 		}
 	}
@@ -2403,15 +2403,34 @@ bool startupNodeWithinSeconds(MgrNodeWrapper *mgrNode,
 							  int waitSeconds,
 							  bool complain)
 {
-	callAgentStartNode(mgrNode, false, false);
-	if (!pingNodeWaitinSeconds(mgrNode, PQPING_OK, waitSeconds))
+	if (callAgentStartNode(mgrNode, true, false))
 	{
-		ereport(complain ? ERROR : LOG,
-				(errmsg("try start up node %s failed",
-						NameStr(mgrNode->form.nodename))));
-		return false;
+		if (pingNodeWaitinSeconds(mgrNode, PQPING_OK, waitSeconds))
+		{
+			return true;
+		}
+		else
+		{
+			ereport(complain ? ERROR : LOG,
+					(errmsg("try start up node %s failed, ping failed, it may be dead",
+							NameStr(mgrNode->form.nodename))));
+			return false;
+		}
 	}
-	return true;
+	else
+	{
+		if (pingNodeWaitinSeconds(mgrNode, PQPING_OK, 0))
+		{
+			return true;
+		}
+		else
+		{
+			ereport(complain ? ERROR : LOG,
+					(errmsg("try start up node %s failed",
+							NameStr(mgrNode->form.nodename))));
+			return false;
+		}
+	}
 }
 
 bool batchPingNodesWaitinSeconds(dlist_head *nodes,
@@ -2432,7 +2451,7 @@ bool batchPingNodesWaitinSeconds(dlist_head *nodes,
 		memcpy(copyOfNode, node, sizeof(MgrNodeWrapper));
 		dlist_push_tail(failedNodes, &copyOfNode->link);
 	}
-	for (seconds = 0; seconds < waitSeconds; seconds++)
+	for (seconds = 0; seconds <= waitSeconds; seconds++)
 	{
 		dlist_foreach_modify(iter, failedNodes)
 		{
@@ -2451,7 +2470,7 @@ bool batchPingNodesWaitinSeconds(dlist_head *nodes,
 		}
 		else
 		{
-			if (seconds < waitSeconds - 1)
+			if (seconds < waitSeconds)
 				pg_usleep(1000000L);
 		}
 	}
@@ -2656,102 +2675,122 @@ bool createNodeOnPgxcNode(PGconn *activeCoon,
 	return execOk;
 }
 
-bool nodeExistsInPgxcNode(PGconn *activeCoon,
-						  char *executeOnNodeName,
-						  bool localExecute,
-						  char *nodeName,
-						  char pgxcNodeType,
-						  bool complain)
+bool nodenameExistsInPgxcNode(PGconn *activeCoon,
+							  char *executeOnNodeName,
+							  bool localExecute,
+							  char *nodeName,
+							  char pgxcNodeType,
+							  bool complain)
 {
-	char *sql;
+	StringInfoData sql;
 	bool exists;
+
+	initStringInfo(&sql);
 	if (localExecute)
 	{
-		if (pgxcNodeType > 0)
+		appendStringInfo(&sql,
+						 "select count(*) from pgxc_node "
+						 "where node_name = '%s' ",
+						 nodeName);
+		if (pgxcNodeType > 0 && PGXC_NODE_NONE != PGXC_NODE_NONE)
 		{
-			sql = psprintf("select count(*) "
-						   "from pgxc_node "
-						   "where node_name = '%s' "
-						   "and node_type = '%c';",
-						   nodeName,
-						   pgxcNodeType);
-		}
-		else
-		{
-			sql = psprintf("select count(*) "
-						   "from pgxc_node "
-						   "where node_name = '%s'; ",
-						   nodeName);
+			appendStringInfo(&sql,
+							 "and node_type = '%c' ",
+							 pgxcNodeType);
 		}
 	}
 	else
 	{
-		if (pgxcNodeType > 0)
+		appendStringInfo(&sql,
+						 "EXECUTE DIRECT ON (\"%s\") "
+						 "'select count(*) from pgxc_node "
+						 "where node_name = ''%s'' ",
+						 executeOnNodeName,
+						 nodeName);
+		if (pgxcNodeType > 0 && PGXC_NODE_NONE != PGXC_NODE_NONE)
 		{
-			sql = psprintf("EXECUTE DIRECT ON (\"%s\") "
-						   "'select count(*) "
-						   "from pgxc_node "
-						   "where node_name = ''%s'' "
-						   "and node_type = ''%c'' ;'",
-						   executeOnNodeName,
-						   nodeName,
-						   pgxcNodeType);
+			appendStringInfo(&sql,
+							 "and node_type = ''%c'' ",
+							 pgxcNodeType);
 		}
-		else
-		{
-			sql = psprintf("EXECUTE DIRECT ON (\"%s\") "
-						   "'select count(*) "
-						   "from pgxc_node "
-						   "where node_name = ''%s'' ;'",
-						   executeOnNodeName,
-						   nodeName);
-		}
+		appendStringInfo(&sql, " ;'");
 	}
-	exists = PQexecCountSql(activeCoon, sql, complain) > 0;
-	pfree(sql);
+	exists = PQexecCountSql(activeCoon, sql.data, complain) > 0;
+	pfree(sql.data);
 	return exists;
 }
 
-bool dataNodeMasterExistsInPgxcNode(PGconn *activeCoon,
-									char *executeOnNodeName,
-									bool localExecute,
-									char *nodeName,
-									bool complain)
+bool isMgrModeExistsInCoordinator(MgrNodeWrapper *coordinator,
+								  PGconn *coordConn,
+								  bool localExecute,
+								  MgrNodeWrapper *mgrNode,
+								  bool complain)
 {
-	return nodeExistsInPgxcNode(activeCoon,
-								executeOnNodeName,
-								localExecute,
-								nodeName,
-								PGXC_NODE_DATANODE,
-								complain);
-}
+	StringInfoData sql;
+	bool exists;
+	char pgxcNodeType;
+	char *executeOnNodeName = NULL;
 
-bool dataNodeSlaveExistsInPgxcNode(PGconn *activeCoon,
-								   char *executeOnNodeName,
-								   bool localExecute,
-								   char *nodeName,
-								   bool complain)
-{
-	return nodeExistsInPgxcNode(activeCoon,
-								executeOnNodeName,
-								localExecute,
-								nodeName,
-								PGXC_NODE_DATANODESLAVE,
-								complain);
-}
-
-bool coordinatorMasterExistsInPgxcNode(PGconn *activeCoon,
-									   char *executeOnNodeName,
-									   bool localExecute,
-									   char *nodeName,
-									   bool complain)
-{
-	return nodeExistsInPgxcNode(activeCoon,
-								executeOnNodeName,
-								localExecute,
-								nodeName,
-								PGXC_NODE_COORDINATOR,
-								complain);
+	initStringInfo(&sql);
+	pgxcNodeType = getMappedPgxcNodetype(mgrNode->form.nodetype);
+	if (localExecute)
+	{
+		appendStringInfo(&sql,
+						 "select count(*) from pgxc_node "
+						 "where node_port = %d ",
+						 mgrNode->form.nodeport);
+		appendStringInfo(&sql,
+						 "and node_host = '%s' ",
+						 mgrNode->host->hostaddr);
+		/* all gtmcoord have the same name */
+		if (!isGtmCoordMgrNode(mgrNode->form.nodetype))
+		{
+			appendStringInfo(&sql,
+							 "and node_name = '%s' ",
+							 NameStr(mgrNode->form.nodename));
+		}
+		if (pgxcNodeType > 0 && PGXC_NODE_NONE != PGXC_NODE_NONE)
+		{
+			appendStringInfo(&sql,
+							 "and node_type = '%c' ",
+							 pgxcNodeType);
+		}
+		appendStringInfo(&sql, ";");
+	}
+	else
+	{
+		executeOnNodeName = getMgrNodePgxcNodeName(coordinator,
+												   coordConn,
+												   complain);
+		appendStringInfo(&sql,
+						 "EXECUTE DIRECT ON (\"%s\") "
+						 "'select count(*) from pgxc_node "
+						 "where node_port = %d ",
+						 executeOnNodeName,
+						 mgrNode->form.nodeport);
+		appendStringInfo(&sql,
+						 "and node_host = ''%s''",
+						 mgrNode->host->hostaddr);
+		/* all gtmcoord have the same name */
+		if (!isGtmCoordMgrNode(mgrNode->form.nodetype))
+		{
+			appendStringInfo(&sql,
+							 "and node_name = ''%s'' ",
+							 NameStr(mgrNode->form.nodename));
+		}
+		if (pgxcNodeType > 0 && PGXC_NODE_NONE != PGXC_NODE_NONE)
+		{
+			appendStringInfo(&sql,
+							 "and node_type = ''%c'' ",
+							 pgxcNodeType);
+		}
+		appendStringInfo(&sql, " ;'");
+	}
+	exists = PQexecCountSql(coordConn, sql.data, complain) > 0;
+	if (executeOnNodeName)
+		pfree(executeOnNodeName);
+	pfree(sql.data);
+	return exists;
 }
 
 char getMappedPgxcNodetype(char mgrNodetype)
@@ -2760,7 +2799,7 @@ char getMappedPgxcNodetype(char mgrNodetype)
 	{
 		return PGXC_NODE_DATANODE;
 	}
-	else if (mgrNodetype == CNDN_TYPE_DATANODE_MASTER)
+	else if (mgrNodetype == CNDN_TYPE_DATANODE_SLAVE)
 	{
 		return PGXC_NODE_DATANODESLAVE;
 	}
@@ -2818,62 +2857,98 @@ bool isNodeInSyncStandbyNames(MgrNodeWrapper *masterNode,
 	return false;
 }
 
-void cleanFaultNodesOnCoordinator(dlist_head *faultNodes,
-								  MgrNodeWrapper *coordinator,
-								  PGconn *coordConn)
+void cleanMgrNodesOnCoordinator(dlist_head *mgrNodes,
+								MgrNodeWrapper *coordinator,
+								PGconn *coordConn)
 {
 	dlist_mutable_iter iter;
-	MgrNodeWrapper *faultNode;
-	char *executeOnNodeName;
+	MgrNodeWrapper *mgrNode;
+	char *executeOnNodeName = NULL;
 
-	if (coordinator->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
-		coordinator->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-	{
-		executeOnNodeName = showNodeParameter(coordConn,
-											  "pgxc_node_name", true);
-	}
-	else
-	{
-		executeOnNodeName = NameStr(coordinator->form.nodename);
-	}
+	executeOnNodeName = getMgrNodePgxcNodeName(coordinator, coordConn, true);
 
-	dlist_foreach_modify(iter, faultNodes)
+	dlist_foreach_modify(iter, mgrNodes)
 	{
-		faultNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-		/* All GTM coordinator have the same pgxc_node_name, no need to clean.*/
-		if (faultNode->form.nodetype != CNDN_TYPE_GTM_COOR_SLAVE)
+		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		if (isGtmCoordMgrNode(mgrNode->form.nodetype))
 		{
-			if (nodeExistsInPgxcNode(coordConn,
-									 executeOnNodeName,
-									 true,
-									 NameStr(faultNode->form.nodename),
-									 getMappedPgxcNodetype(coordinator->form.nodetype),
-									 true))
+			ereport(LOG,
+					(errmsg("all gtm coordinator have the same pgxc_node_name, no need to clean")));
+		}
+		else
+		{
+			if (nodenameExistsInPgxcNode(coordConn,
+										 executeOnNodeName,
+										 true,
+										 NameStr(mgrNode->form.nodename),
+										 getMappedPgxcNodetype(mgrNode->form.nodetype),
+										 true))
 			{
 				ereport(LOG,
 						(errmsg("clean node %s in table pgxc_node of %s begin",
-								NameStr(faultNode->form.nodename),
+								NameStr(mgrNode->form.nodename),
 								NameStr(coordinator->form.nodename))));
 				dropNodeFromPgxcNode(coordConn,
 									 executeOnNodeName,
-									 NameStr(faultNode->form.nodename),
+									 NameStr(mgrNode->form.nodename),
 									 true);
 				exec_pgxc_pool_reload(coordConn, true);
 				ereport(LOG,
 						(errmsg("clean node %s in table pgxc_node of %s successed",
-								NameStr(faultNode->form.nodename),
+								NameStr(mgrNode->form.nodename),
 								NameStr(coordinator->form.nodename))));
 			}
 			else
 			{
 				ereport(LOG,
 						(errmsg("%s not exist in table pgxc_node of %s, skip",
-								NameStr(faultNode->form.nodename),
+								NameStr(mgrNode->form.nodename),
 								NameStr(coordinator->form.nodename))));
 			}
+			ereport(LOG,
+					(errmsg("clean %s in table pgxc_node of all coordinators successed",
+							NameStr(mgrNode->form.nodename))));
 		}
 	}
-	ereport(LOG,
-			(errmsg("clean %s in table pgxc_node of all coordinators successed",
-					NameStr(faultNode->form.nodename))));
+	if (executeOnNodeName)
+		pfree(executeOnNodeName);
+}
+
+/*
+ * Pfree the returned result when no longer needed
+ */
+char *getMgrNodePgxcNodeName(MgrNodeWrapper *mgrNode,
+							 PGconn *nodeConn, bool complain)
+{
+	char *pgxcNodeName;
+
+	if (isGtmCoordMgrNode(mgrNode->form.nodetype))
+	{
+		pgxcNodeName = showNodeParameter(nodeConn,
+										 "pgxc_node_name", complain);
+	}
+	else
+	{
+		pgxcNodeName = palloc(NAMEDATALEN);
+		memcpy(pgxcNodeName, NameStr(mgrNode->form.nodename), NAMEDATALEN);
+	}
+	return pgxcNodeName;
+}
+
+bool isGtmCoordMgrNode(char nodetype)
+{
+	return nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
+		   nodetype == CNDN_TYPE_GTM_COOR_SLAVE;
+}
+
+bool isDataNodeMgrNode(char nodetype)
+{
+	return nodetype == CNDN_TYPE_DATANODE_MASTER ||
+		   nodetype == CNDN_TYPE_DATANODE_SLAVE;
+}
+
+bool isCoordinatorMgrNode(char nodetype)
+{
+	return nodetype == CNDN_TYPE_COORDINATOR_MASTER ||
+		   nodetype == CNDN_TYPE_COORDINATOR_SLAVE;
 }

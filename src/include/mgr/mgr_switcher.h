@@ -33,6 +33,7 @@ typedef struct SwitcherNodeWrapper
 	bool holdClusterLock;
 	bool adbSlotChanged;
 	bool startupAfterException;
+	char *pgxcNodeName;
 } SwitcherNodeWrapper;
 
 static inline void pfreeSwitcherNodeWrapperPGconn(SwitcherNodeWrapper *obj)
@@ -62,6 +63,11 @@ static inline void pfreeSwitcherNodeWrapper(SwitcherNodeWrapper *obj)
 		{
 			pfreePGConfParameterItem(obj->originalParameterItems);
 			obj->originalParameterItems = NULL;
+		}
+		if (obj->pgxcNodeName)
+		{
+			pfree(obj->pgxcNodeName);
+			obj->pgxcNodeName = NULL;
 		}
 		pfreeSwitcherNodeWrapperPGconn(obj);
 		pfree(obj);
