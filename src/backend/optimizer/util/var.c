@@ -675,10 +675,15 @@ pull_var_clause_walker(Node *node, pull_var_clause_context *context)
 #ifdef ADB_GRAM_ORA
 	else if (context->flags & PVC_INCLUDE_CONNECT_BY_EXPRS)
 	{
-		if (IsA(node, LevelExpr))
+		switch(nodeTag(node))
 		{
+		case T_LevelExpr:
+		case T_SysConnectByPathExpr:
+		case T_ConnectByRootExpr:
 			context->varlist = lappend(context->varlist, node);
 			return false;
+		default:
+			break;
 		}
 	}
 #endif /* ADB_GRAM_ORA */
