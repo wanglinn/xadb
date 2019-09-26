@@ -142,6 +142,7 @@ static PLpgSQL_var* plora_ns_lookup_var(PLpgSQL_expr *expr, const char *name, PL
 static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a);
 static Node* plora_pre_parse_func(ParseState *pstate, FuncCall *func);
 static Node* plora_pre_parse_expr(ParseState *pstate, Node *expr);
+static PLpgSQL_type *plpgsql_find_wordtype_ns(PLpgSQL_nsitem *ns_top, const char *ident, PLpgSQL_datum **datums);
 #endif /* ADB_GRAM_ORA */
 
 /* ----------
@@ -1656,11 +1657,11 @@ plpgsql_parse_tripword(char *word1, char *word2, char *word3,
 PLpgSQL_type *
 plpgsql_find_wordtype(const char *ident)
 {
-	return plpgsql_find_wordtype_ns(plpgsql_ns_top(), ident);
+	return plpgsql_find_wordtype_ns(plpgsql_ns_top(), ident, plpgsql_Datums);
 }
 
-PLpgSQL_type *
-plpgsql_find_wordtype_ns(PLpgSQL_nsitem *ns_top, const char *ident)
+static PLpgSQL_type *
+plpgsql_find_wordtype_ns(PLpgSQL_nsitem *ns_top, const char *ident, PLpgSQL_datum **datums)
 {
 	PLpgSQL_nsitem *ns_cur;
 
@@ -1671,7 +1672,7 @@ plpgsql_find_wordtype_ns(PLpgSQL_nsitem *ns_top, const char *ident)
 		if (ns_cur->itemtype == PLPGSQL_NSTYPE_TYPE &&
 			strcmp(ns_cur->name, ident) == 0)
 		{
-			PLpgSQL_datum *datum = plpgsql_Datums[ns_cur->itemno];
+			PLpgSQL_datum *datum = datums[ns_cur->itemno];
 			Assert(datum->dtype == PLPGSQL_DTYPE_TYPE);
 			Assert(datum->dno == ns_cur->itemno);
 			return ((PLoraSQL_type*)datum)->type;
@@ -2797,7 +2798,7 @@ static Node* plora_pre_parse_func(ParseState *pstate, FuncCall *func)
 			return transformExpr(pstate, (Node*)arr, pstate->p_expr_kind);
 		}
 
-		type = plpgsql_find_wordtype_ns(expr->ns, name);
+		type = plpgsql_find_wordtype_ns(expr->ns, name, expr->func->datums);
 		if (type && type->typisarray)
 		{
 			/* convert "name(arg[,arg...])" to "{arg[,arg...]}::name[] */
