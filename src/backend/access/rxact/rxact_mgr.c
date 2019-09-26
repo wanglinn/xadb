@@ -12,6 +12,7 @@
 #include "catalog/pgxc_node.h"
 #include "lib/stringinfo.h"
 #include "libpq/libpq-fe.h"
+#include "libpq/libpq-int.h"
 #include "libpq/pqformat.h"
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
@@ -41,7 +42,9 @@
 #include <sys/select.h>
 #endif
 
+#ifdef USE_AGTM
 #define AGTM_OID			OID_MAX
+#endif	/* USE_AGTM */
 #define RETRY_TIME			1	/* 1 second */
 #define EXIT_MINIMUM_NUMBER		2	/* The minimum number of events that Rxact can exit */
 #define MAX_RXACT_BUF_SIZE	4096
@@ -99,6 +102,7 @@ typedef struct NodeConn
 	PostgresPollingStatusType
 			status;
 	char doing_gid[NAMEDATALEN];
+	char clean_gid[NAMEDATALEN];
 }NodeConn;
 
 typedef enum WaiteEventTag
@@ -113,6 +117,8 @@ typedef struct RxactWaitEventData
 {	
 	WaiteEventTag	type;
 	RxactAgent		*agent;
+	NodeConn		*pconn;
+	pgsocket		pconn_fd_dup;
 	int				event_pos;	/* position in the event data structure */
 	void			(*fun)(WaitEvent *event);
 }RxactWaitEventData;
@@ -128,12 +134,12 @@ static Size rxact_event_max_count = 32;
 static Size rxact_event_cur_count = 0;
 #define RXACT_WAIT_EVENT_ENLARGE_STEP	32
 
-static void AddRxactEventToSet(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint32 events);
-static void ModifyRxactWaitEvent(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint32 events);
-static void RemoveRxactWaitEvent(WaitEventSet *set, pgsocket fd);
+static void AddRxactEventToSet(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint32 events, NodeConn *pconn);
+static void RemoveRxactWaitEvent(WaitEventSet *set, RxactAgent *agent, NodeConn *pconn);
 static void OnListenServerSocketConnEvent(WaitEvent *event);
 static void OnListenAgentConnEvent(WaitEvent *event);
 static void OnListenNodeConnEvent(WaitEvent *event);
+static int getNodeConnPos(NodeConn *checkCoon);
 
 static XLogRecPtr last_flush = 0;
 static XLogRecPtr need_flush = 0;
@@ -304,15 +310,16 @@ static void RxactLoop(void)
 		rxact_wait_event = palloc(rxact_event_max_count * sizeof(WaitEvent));
 	}
 	/* add server soket event to eventSet */
-	AddRxactEventToSet(rxact_wait_event_set, T_Event_Socket, rxact_server_fd, WL_SOCKET_READABLE);
+	AddRxactEventToSet(rxact_wait_event_set, T_Event_Socket, rxact_server_fd, WL_SOCKET_READABLE, NULL);
 	/* add POSTMASTER exit signal */
-	AddRxactEventToSet(rxact_wait_event_set, T_Event_Signal, PGINVALID_SOCKET, WL_POSTMASTER_DEATH);
+	AddRxactEventToSet(rxact_wait_event_set, T_Event_Signal, PGINVALID_SOCKET, WL_POSTMASTER_DEATH, NULL);
 
 	if(sigsetjmp(local_sigjmp_buf, 1) != 0)
 	{
 		/* Cleanup something */
 		EmitErrorReport();
 		FlushErrorState();
+		AtEOXact_HashTables(false);
 		error_context_stack = NULL;
 	}
 	PG_exception_stack = &local_sigjmp_buf;
@@ -322,6 +329,7 @@ static void RxactLoop(void)
 	while(rxact_need_exit == false)
 	{
 		int					nevents, i;
+		int					skip_pos = -1;
 		WaitEvent			*waitEvent;
 		RxactWaitEventData	*user_data;
 
@@ -334,34 +342,48 @@ static void RxactLoop(void)
 		{
 			user_data = (RxactWaitEventData *)GetWaitEventData(rxact_wait_event_set, i);
 			if(user_data->type == T_Event_Agent)
+			{
 				agent = user_data->agent;
-			else
-				continue;
-
-			if(agent->waiting_gid)
-			{
-				Assert(agent->last_gid[0] != '\0');
-				if(hash_search(htab_rxid, agent->last_gid, HASH_FIND, NULL) == NULL)
+				
+				Assert(agent->sock != PGINVALID_SOCKET);
+				if(agent->waiting_gid)
 				{
-					agent->waiting_gid = false;
-					agent->last_gid[0] = '\0';
-					rxact_agent_simple_msg(agent, RXACT_MSG_OK);
-					if(agent->sock == PGINVALID_SOCKET)
-						continue;
+					Assert(agent->last_gid[0] != '\0');
+					if(hash_search(htab_rxid, agent->last_gid, HASH_FIND, NULL) == NULL)
+					{
+						agent->waiting_gid = false;
+						agent->last_gid[0] = '\0';
+						rxact_agent_simple_msg(agent, RXACT_MSG_OK);
+						RemoveWaitEvent(rxact_wait_event_set, i);
+						--rxact_event_cur_count;
+						if(agent->sock == PGINVALID_SOCKET)
+							continue;
+					}
 				}
-			}
-			/* Check and modify wait events */
-			if(agent->out_buf.len > agent->out_buf.cursor)
+				/* Check and modify wait events */
+				if(agent->out_buf.len > agent->out_buf.cursor)
+					ModifyWaitEvent(rxact_wait_event_set, i, WL_SOCKET_WRITEABLE, NULL);
+				else if(agent->waiting_gid == false)
+					ModifyWaitEvent(rxact_wait_event_set, i, WL_SOCKET_READABLE, NULL);
+				else
+					ModifyWaitEvent(rxact_wait_event_set, i, 0, NULL);
+
+			}else if (user_data->type == T_Event_Node)
 			{
-				ModifyRxactWaitEvent(rxact_wait_event_set, T_Event_Agent, agent->sock, WL_SOCKET_WRITEABLE);
-			}
-			else if(agent->waiting_gid == false)
-			{
-				ModifyRxactWaitEvent(rxact_wait_event_set, T_Event_Agent, agent->sock, WL_SOCKET_READABLE);
-			}	
-			else
-			{
-				ModifyRxactWaitEvent(rxact_wait_event_set, T_Event_Agent, agent->sock, WL_LATCH_SET);
+				pconn = NULL;
+				hash_seq_init(&seq_status, htab_node_conn);
+				while((pconn = hash_seq_search(&seq_status)) != NULL)
+				{
+					if (pconn == user_data->pconn)
+						break;
+				}
+				if (pconn == NULL || PQstatus(user_data->pconn->conn) == CONNECTION_BAD || 
+				 	user_data->pconn->status == PGRES_POLLING_FAILED ||
+				 	user_data->pconn->status == PGRES_POLLING_ACTIVE)
+				{
+					RemoveWaitEvent(rxact_wait_event_set, i);
+					--rxact_event_cur_count;
+				}
 			}
 		}
 
@@ -370,10 +392,13 @@ static void RxactLoop(void)
 		while((pconn = hash_seq_search(&seq_status)) != NULL)
 		{
 			bool wait_write;
+			int pos = 0;
+
 			if(pconn->conn == NULL)
 				continue;
 			if(PQstatus(pconn->conn) == CONNECTION_BAD)
 			{
+				RemoveRxactWaitEvent(rxact_wait_event_set, NULL, pconn);
 				rxact_finish_node_conn(pconn);
 				continue;
 			}
@@ -382,11 +407,15 @@ static void RxactLoop(void)
 			{
 			case PGRES_POLLING_ACTIVE:
 			case PGRES_POLLING_FAILED:
+				RemoveRxactWaitEvent(rxact_wait_event_set, NULL, pconn);
 				rxact_finish_node_conn(pconn);
 				continue;
 			case PGRES_POLLING_OK:
 				if(pconn->doing_gid[0] == '\0')
+				{
+					RemoveRxactWaitEvent(rxact_wait_event_set, NULL, pconn);
 					continue;
+				}
 				wait_write = false;
 				break;
 			case PGRES_POLLING_WRITING:
@@ -398,10 +427,23 @@ static void RxactLoop(void)
 			default:
 				Assert(0);
 			}
-			/* change node evnet */
-			ModifyRxactWaitEvent(rxact_wait_event_set, T_Event_Node, PQsocket(pconn->conn), wait_write ? WL_SOCKET_WRITEABLE:WL_SOCKET_READABLE);
+			
+			pos = getNodeConnPos(pconn);
+			if(pos > 0)
+			{
+				RxactWaitEventData *rxactEventData;
+				rxactEventData = (RxactWaitEventData *)GetWaitEventData(rxact_wait_event_set, pos);
+
+				Assert(rxactEventData->type == T_Event_Node);
+				/* change node evnet */
+				ModifyWaitEvent(rxact_wait_event_set, pos, wait_write ? WL_SOCKET_WRITEABLE:WL_SOCKET_READABLE, NULL);
+				rxactEventData = (RxactWaitEventData *)GetWaitEventData(rxact_wait_event_set, pos);
+				Assert(rxactEventData->type>=0 && rxactEventData->type<4);
+			}else
+				AddRxactEventToSet(rxact_wait_event_set, T_Event_Node, PQsocket(pconn->conn), wait_write ? WL_SOCKET_WRITEABLE:WL_SOCKET_READABLE, pconn);
 		}
 
+#ifdef USE_AGTM
 		if(got_SIGHUP)
 		{
 			DbAndNodeOid key;
@@ -420,7 +462,8 @@ static void RxactLoop(void)
 				continue;
 			}
 		}
-		
+#endif	/* USE_AGTM */
+
 		/* wait event  nevents */
 		nevents = WaitEventSetWaitSignal(rxact_wait_event_set,
 								   -1L, //-1L or 1000,
@@ -431,6 +474,19 @@ static void RxactLoop(void)
 		CHECK_FOR_INTERRUPTS();
 		for(i=0; i<nevents; ++i)
 		{	
+			waitEvent = &rxact_wait_event[i];
+			user_data = waitEvent->user_data;
+			if (user_data->type == T_Event_Socket)
+			{
+				(*user_data->fun)(waitEvent);
+				skip_pos = i;
+				break;
+			}
+		} 
+		for(i=0; i<nevents; ++i)
+		{	
+			if (skip_pos == i)
+				continue;
 			waitEvent = &rxact_wait_event[i];
 			user_data = waitEvent->user_data;
 			if(user_data->fun)
@@ -519,8 +575,10 @@ static void RemoteXactMgrInit(void)
 static void RemoteXactHtabInit(void)
 {
 	HASHCTL hctl;
+#ifdef USE_AGTM
 	DbAndNodeOid key;
 	NodeConn *pconn;
+#endif	/* USE_AGTM */
 
 	/* create HTAB for RemoteNode */
 	Assert(htab_remote_node == NULL);
@@ -554,6 +612,8 @@ static void RemoteXactHtabInit(void)
 	htab_node_conn = hash_create("DatabaseNode"
 		, 64
 		, &hctl, HASH_ELEM | HASH_FUNCTION | HASH_COMPARE | HASH_CONTEXT);
+
+#ifdef USE_AGTM
 	/* insert AGTM node */
 	key.db_oid = InvalidOid;
 	key.node_oid = AGTM_OID;
@@ -562,6 +622,7 @@ static void RemoteXactHtabInit(void)
 	pconn->conn = NULL;
 	pconn->status = PGRES_POLLING_FAILED;
 	pconn->doing_gid[0] = '\0';
+#endif	/* USE_AGTM */
 
 	/* create HTAB for RxactTransactionInfo */
 	Assert(htab_rxid == NULL);
@@ -772,11 +833,17 @@ static void RxactSaveLog(bool flush)
 	{
 		rxact_log_write_string(rlog, rinfo->gid);
 		rxact_log_write_bytes(rlog, &(rinfo->db_oid), sizeof(rinfo->db_oid));
+#ifdef USE_AGTM
 		/* don't need save AGTM OID */
 		rxact_log_write_int(rlog, rinfo->count_nodes-1);
 		Assert(rinfo->remote_nodes[rinfo->count_nodes-1] == AGTM_OID);
 		rxact_log_write_bytes(rlog, rinfo->remote_nodes
 			, sizeof(rinfo->remote_nodes[0]) * (rinfo->count_nodes-1));
+#else
+		rxact_log_write_int(rlog, rinfo->count_nodes);
+		rxact_log_write_bytes(rlog, rinfo->remote_nodes
+			, sizeof(rinfo->remote_nodes[0]) * (rinfo->count_nodes));
+#endif	/* USE_AGTM */
 		rxact_log_write_byte(rlog, (char)(rinfo->type));
 		if(rinfo->type == RX_AUTO)
 			rxact_log_write_bytes(rlog, &rinfo->auto_tid, sizeof(rinfo->auto_tid));
@@ -841,7 +908,7 @@ rxact_agent_destroy(RxactAgent *agent)
 {
 	
 	/* remove agent wait event */
-	RemoveRxactWaitEvent(rxact_wait_event_set, agent->sock);
+	RemoveRxactWaitEvent(rxact_wait_event_set, agent, NULL);
 	/* Destroy agent */
 	closesocket(agent->sock);
 	agent->sock = PGINVALID_SOCKET;
@@ -1339,6 +1406,7 @@ static void rxact_agent_get_running(RxactAgent *agent)
 	{
 		rxact_put_string(&buf, info->gid, false);
 		rxact_put_int(&buf, info->count_nodes, false);
+#ifdef USE_AGTM
 		Assert(info->remote_nodes[info->count_nodes-1] == AGTM_OID);
 		if(info->count_nodes > 1)
 		{
@@ -1346,6 +1414,14 @@ static void rxact_agent_get_running(RxactAgent *agent)
 			rxact_put_bytes(&buf, info->remote_nodes
 				, sizeof(info->remote_nodes[0]) * (info->count_nodes-1), false);
 		}
+#else
+		if(info->count_nodes > 0)
+		{
+			StaticAssertStmt(sizeof(oid) == sizeof(info->remote_nodes[0]), "change oid type");
+			rxact_put_bytes(&buf, info->remote_nodes
+				, sizeof(info->remote_nodes[0]) * (info->count_nodes), false);
+		}
+#endif	/* USE_AGTM */
 		rxact_put_bytes(&buf, &oid, sizeof(oid), false);
 		rxact_put_bytes(&buf, info->remote_success
 			, sizeof(info->remote_success[0]) * info->count_nodes, false);
@@ -1534,10 +1610,14 @@ rxact_insert_gid(const char *gid, const Oid *oids, int count, RemoteXactType typ
 				, (sizeof(Oid)+sizeof(bool))*(count+1));
 		if(count > 0)
 			memcpy(rinfo->remote_nodes, oids, sizeof(Oid)*(count));
+#ifdef USE_AGTM
 		rinfo->remote_nodes[count] = AGTM_OID;
-
 		rinfo->remote_success = (bool*)(&rinfo->remote_nodes[count+1]);
 		rinfo->count_nodes = count+1;
+#else
+		rinfo->remote_success = (bool*)(&rinfo->remote_nodes[count]);
+		rinfo->count_nodes = count;
+#endif	/* USE_AGTM */
 
 		rinfo->type = type;
 		rinfo->failed = is_redo;
@@ -1660,7 +1740,9 @@ static void rxact_2pc_do(void)
 	StringInfoData buf;
 	int i;
 	bool cmd_is_ok;
+#ifdef USE_AGTM
 	bool node_is_ok;	/* except AGTM nodes is ok? */
+#endif	/* USE_AGTM */
 
 	hash_seq_init(&hstatus, htab_rxid);
 	buf.data = NULL;
@@ -1671,6 +1753,7 @@ static void rxact_2pc_do(void)
 		if(rinfo->failed == false)
 			continue;
 
+#ifdef USE_AGTM
 		node_is_ok = true;
 		for(i=0;i<rinfo->count_nodes;++i)
 		{
@@ -1681,6 +1764,7 @@ static void rxact_2pc_do(void)
 				break;
 			}
 		}
+#endif	/* USE_AGTM */
 
 		cmd_is_ok = false;
 		for(i=0;i<rinfo->count_nodes;++i)
@@ -1689,9 +1773,11 @@ static void rxact_2pc_do(void)
 			if(rinfo->remote_success[i])
 				continue;
 
+#ifdef USE_AGTM
 			/* we first finish except AGTM nodes */
 			if(rinfo->remote_nodes[i] == AGTM_OID && node_is_ok == false)
 				continue;
+#endif	/* USE_AGTM */
 
 			/* get node connection, skip if not connectiond */
 			node_conn = rxact_get_node_conn(rinfo->db_oid, rinfo->remote_nodes[i], time(NULL));
@@ -1757,8 +1843,11 @@ static void rxact_2pc_result(NodeConn *conn)
 				, "success")));
 	rinfo = hash_search(htab_rxid, gid, HASH_FIND, NULL);
 	Assert(rinfo != NULL && rinfo->failed == true);
+#ifdef USE_AGTM
 	Assert(conn->oids.node_oid == AGTM_OID || conn->oids.db_oid == rinfo->db_oid);
-
+#else
+	Assert(conn->oids.db_oid == rinfo->db_oid);
+#endif	/* USE_AGTM */
 	finish = true;
 	for(i=0;i<rinfo->count_nodes;++i)
 	{
@@ -1799,22 +1888,30 @@ static NodeConn* rxact_get_node_conn(Oid db_oid, Oid node_oid, time_t cur_time)
 	bool found;
 
 	key.node_oid = node_oid;
+#ifdef USE_AGTM
 	if(node_oid == AGTM_OID)
 		key.db_oid = InvalidOid;
 	else
+#endif	/* USE_AGTM */
 		key.db_oid = db_oid;
 
 	conn = hash_search(htab_node_conn, &key, HASH_ENTER, &found);
 	if(!found)
 	{
+#ifdef USE_AGTM		
 		Assert(node_oid != AGTM_OID);
+#endif	/* USE_AGTM */
 		conn->conn = NULL;
 		conn->last_use = 0;
 		conn->status = PGRES_POLLING_FAILED;
 		conn->doing_gid[0] = '\0';
 	}
 	Assert(conn && conn->oids.node_oid == node_oid);
+#ifdef USE_AGTM	
 	Assert(conn->oids.db_oid == db_oid || (conn->oids.db_oid == InvalidOid && node_oid == AGTM_OID));
+#else
+	Assert(conn->oids.db_oid == db_oid);
+#endif	/* USE_AGTM */
 
 	if(conn->conn != NULL && PQstatus(conn->conn) == CONNECTION_BAD)
 		rxact_finish_node_conn(conn);
@@ -1826,6 +1923,7 @@ static NodeConn* rxact_get_node_conn(Oid db_oid, Oid node_oid, time_t cur_time)
 		StringInfoData buf;
 		buf.data = NULL;
 		/* connection to remote node */
+#ifdef USE_AGTM			
 		if(node_oid == AGTM_OID)
 		{
 			initStringInfo(&buf);
@@ -1833,6 +1931,7 @@ static NodeConn* rxact_get_node_conn(Oid db_oid, Oid node_oid, time_t cur_time)
 			appendStringInfoString(&buf, " user='" AGTM_USER "'"
 									" dbname='" AGTM_DBNAME "'");
 		}else
+#endif	/* USE_AGTM */
 		{
 			RemoteNode *rnode;
 			DatabaseNode *dnode;
@@ -1898,8 +1997,6 @@ re_poll_conn_:
 
 static void rxact_finish_node_conn(NodeConn *conn)
 {
-	if(rxact_wait_event_set)
-		RemoveRxactWaitEvent(rxact_wait_event_set, PQsocket(conn->conn));
 	AssertArg(conn);
 	if(conn->conn != NULL)
 	{
@@ -1962,7 +2059,10 @@ static void rxact_close_timeout_remote_conn(time_t cur_time)
 		}
 		if(hint == false
 			&& node_conn->conn == NULL
-			&& node_conn->oids.node_oid != AGTM_OID)
+#ifdef USE_AGTM
+			&& node_conn->oids.node_oid != AGTM_OID
+#endif	/* USE_AGTM */
+			)
 		{
 			key = node_conn->oids;
 			hint = true;
@@ -1970,7 +2070,9 @@ static void rxact_close_timeout_remote_conn(time_t cur_time)
 	}
 	if(hint)
 	{
+#ifdef USE_AGTM
 		Assert(key.node_oid != AGTM_OID);
+#endif	/* USE_AGTM */
 		hash_search(htab_node_conn, &key, HASH_REMOVE, NULL);
 	}
 }
@@ -2002,7 +2104,7 @@ static void rxact_xlog_insert(char *data, int len, uint8 info)
 	Assert(xptr > last_flush);
 	/* Last position */
 	last_flush = xptr;	
-	Assert(need_flush == 0);
+	//Assert(need_flush == 0);
 	if(!need_flush)
 		need_flush = xptr;
 }
@@ -2665,7 +2767,7 @@ static void RxactHupHandler(SIGNAL_ARGS)
 void OnListenServerSocketConnEvent(WaitEvent *event)
 {	
 	pgsocket	agent_fd;
-	
+
 	for(;;)
 	{
 		agent_fd = accept(rxact_server_fd, NULL, NULL);
@@ -2676,36 +2778,35 @@ void OnListenServerSocketConnEvent(WaitEvent *event)
 					,errmsg("RXACT accept new connect failed:%m")));
 			break;
 		}
-		AddRxactEventToSet(rxact_wait_event_set, T_Event_Agent, agent_fd, WL_SOCKET_READABLE);
+		AddRxactEventToSet(rxact_wait_event_set, T_Event_Agent, agent_fd, WL_SOCKET_READABLE, NULL);
 	}
 }
 
 /** Description: 
  * 	Callback function for node connection.
  */
-void OnListenNodeConnEvent(WaitEvent *event)
+static void
+OnListenNodeConnEvent(WaitEvent *event)
 {
-	HASH_SEQ_STATUS		seq_status;
 	NodeConn			*pconn;
+	RxactWaitEventData	*user_data;
 
-	if(event->events == WL_LATCH_SET)
+	if(event->events == 0)
 		return;
 
-	hash_seq_init(&seq_status, htab_node_conn);
-	while((pconn = hash_seq_search(&seq_status)) != NULL)
-	{
-		if(event->fd != PQsocket(pconn->conn))
-			continue;
-
-		hash_seq_term(&seq_status);
-		break;
-	}
+	user_data = event->user_data;
+	pconn = user_data->pconn;
 	Assert(pconn != NULL);
 	if(pconn->status != PGRES_POLLING_OK)
 	{
 		pconn->status = PQconnectPoll(pconn->conn);
 		if(pconn->status == PGRES_POLLING_FAILED)
 			rxact_finish_node_conn(pconn);
+		if(pconn->status == PGRES_POLLING_OK && pconn->doing_gid[0] == '\0')
+		{
+			RemoveWaitEvent(rxact_wait_event_set, getNodeConnPos(pconn));
+			--rxact_event_cur_count;
+		}
 	}else
 	{
 		Assert(pconn->doing_gid[0] != '\0');
@@ -2716,7 +2817,8 @@ void OnListenNodeConnEvent(WaitEvent *event)
 /** Description: 
  * 	Agent connection callback function.
  */
-void OnListenAgentConnEvent(WaitEvent *event)
+static void
+OnListenAgentConnEvent(WaitEvent *event)
 {	
 	RxactWaitEventData	*user_data;
 	RxactAgent			*agent;
@@ -2727,7 +2829,7 @@ void OnListenAgentConnEvent(WaitEvent *event)
 	{
 		Assert(agent->out_buf.len > agent->out_buf.cursor);
 		rxact_agent_output(agent);
-	}else if(event->events & (WL_SOCKET_READABLE | WL_LATCH_SET))
+	}else if(event->events & (WL_SOCKET_READABLE | 0))
 	{	
 		if(agent->waiting_gid)
 		{	
@@ -2747,7 +2849,8 @@ void OnListenAgentConnEvent(WaitEvent *event)
  * 	fd:		connection of interest
  * 	events:	events of interest
  */
-void AddRxactEventToSet(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint32 events)
+static void
+AddRxactEventToSet(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint32 events, NodeConn *pconn)
 {	
 	RxactWaitEventData *rxactEventData;
 	RxactAgent			*agent;
@@ -2774,6 +2877,8 @@ void AddRxactEventToSet(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint
 			{
 				rxactEventData->type = T_Event_Agent;
 				rxactEventData->agent = agent;
+				rxactEventData->pconn = NULL;
+				rxactEventData->pconn_fd_dup = PGINVALID_SOCKET;
 				rxactEventData->fun = &OnListenAgentConnEvent;
 				/* add wait event */
 				rxactEventData->event_pos = AddWaitEventToSet(set,
@@ -2786,16 +2891,21 @@ void AddRxactEventToSet(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint
 		case T_Event_Node:
 			rxactEventData->type = T_Event_Node;
 			rxactEventData->agent = NULL;
+			rxactEventData->pconn = pconn;
+			rxactEventData->pconn_fd_dup = dup(fd);
 			rxactEventData->fun = &OnListenNodeConnEvent;
 			rxactEventData->event_pos = AddWaitEventToSet(set,
 															events,
-															fd,
+															rxactEventData->pconn_fd_dup,
 															NULL,
 															(void*)rxactEventData);
+			pconn->clean_gid[0] = '\0';
 			break;
 		case T_Event_Socket:
 			rxactEventData->type = T_Event_Socket;
 			rxactEventData->agent = NULL;
+			rxactEventData->pconn = NULL;
+			rxactEventData->pconn_fd_dup = PGINVALID_SOCKET;
 			rxactEventData->fun = &OnListenServerSocketConnEvent;
 			rxactEventData->event_pos = AddWaitEventToSet(set,
 															events,
@@ -2806,6 +2916,8 @@ void AddRxactEventToSet(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint
 		case T_Event_Signal:
 			rxactEventData->type = T_Event_Signal;
 			rxactEventData->agent = NULL;
+			rxactEventData->pconn = NULL;
+			rxactEventData->pconn_fd_dup = PGINVALID_SOCKET;
 			rxactEventData->fun = NULL;
 			rxactEventData->event_pos = AddWaitEventToSet(set,
 															events,
@@ -2821,15 +2933,20 @@ void AddRxactEventToSet(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint
  * 	set:	event collection
  * 	fd:		deleted connection
  */
-void RemoveRxactWaitEvent(WaitEventSet *set, pgsocket fd)
+void RemoveRxactWaitEvent(WaitEventSet *set, RxactAgent *agent, NodeConn *pconn)
 {
 	int		pos;
+	RxactWaitEventData	*rxactEventData;
 
+	Assert(agent || pconn);
 	for(pos = 1; pos < rxact_event_cur_count; ++pos)
 	{	
-		if(fd == GetWaitEventSocket(set, pos))
+		rxactEventData = (RxactWaitEventData *)GetWaitEventData(set, pos);
+		if((agent && agent->sock == GetWaitEventSocket(set, pos)) || 
+		   (pconn && pconn == rxactEventData->pconn))
 			break;
 	}
+	
 	Assert(pos <= rxact_event_cur_count);
 	if(pos < rxact_event_cur_count)
 	{
@@ -2838,26 +2955,21 @@ void RemoveRxactWaitEvent(WaitEventSet *set, pgsocket fd)
 	}
 }
 
-/** Description: modify the connected events of interest in the event collection.
- * 	set:	event collection
- * 	type:	the corresponding callback function type
- * 	fd:		connection of interest
- * 	events:	events of interest
- */
-void ModifyRxactWaitEvent(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint32 events)
+
+static int
+getNodeConnPos(NodeConn *checkConn)
 {
 	int pos;
+	RxactWaitEventData	*rxactEventData;
 
 	/* find pgsocket */
-	for(pos = 1; pos < rxact_event_cur_count; ++pos)
-	{	
-		if(fd == GetWaitEventSocket(set, pos))
-		{
-			ModifyWaitEvent(set, pos, events, NULL);
-			break;
-		}
+	for(pos = EXIT_MINIMUM_NUMBER -1; pos < rxact_event_cur_count; ++pos)
+	{
+		rxactEventData = (RxactWaitEventData *)GetWaitEventData(rxact_wait_event_set, pos);
+		if(rxactEventData->pconn == checkConn &&
+			rxactEventData->pconn_fd_dup == GetWaitEventSocket(rxact_wait_event_set, pos))
+			return pos;
 	}
-	/* Add if not found fd */
-	if(pos == rxact_event_cur_count)
-		AddRxactEventToSet(set, type, fd, events);
+
+	return 0;
 }
