@@ -854,8 +854,6 @@ static void GxidProcessUpdateMaxXid(GxidClientData *client)
 		clientitem->xcnt = 0;
 	}
 
-	resetStringInfo(&gxid_send_output_buffer);
-	pq_sendbyte(&gxid_send_output_buffer, 'u');
 	while(gxid_send_input_buffer.cursor < gxid_send_input_buffer.len)
 	{
 		xid = pq_getmsgint(&gxid_send_input_buffer, sizeof(xid));
