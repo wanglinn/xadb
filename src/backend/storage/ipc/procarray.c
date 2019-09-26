@@ -418,7 +418,6 @@ ProcArrayRemove(PGPROC *proc, TransactionId latestXid)
 					{
 						Assert(TransactionIdEquals(proc->getGlobalTransaction, latestXid));
 						GixRcvCommitTransactionId(latestXid);
-						proc->getGlobalTransaction = InvalidTransactionId;
 					}
 					
 				}
@@ -442,7 +441,6 @@ ProcArrayRemove(PGPROC *proc, TransactionId latestXid)
 			{
 				Assert(TransactionIdEquals(proc->getGlobalTransaction, latestXid));
 				GixRcvCommitTransactionId(latestXid);
-				proc->getGlobalTransaction = InvalidTransactionId;
 			}
 		}
 		
@@ -500,17 +498,17 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid)
 		{
 			ProcArrayEndTransactionInternal(proc, pgxact, latestXid);
 			LWLockRelease(ProcArrayLock);
-#ifdef ADB
-			if (!IsGTMNode() && TransactionIdIsValid(proc->getGlobalTransaction))
-			{
-				Assert(TransactionIdEquals(proc->getGlobalTransaction, latestXid));
-				GixRcvCommitTransactionId(latestXid);
-				proc->getGlobalTransaction = InvalidTransactionId;
-			}
-#endif /* ADB */
 		}
 		else
 			ProcArrayGroupClearXid(proc, latestXid);
+
+#ifdef ADB
+		if (!IsGTMNode() && TransactionIdIsValid(proc->getGlobalTransaction))
+		{
+			Assert(TransactionIdEquals(proc->getGlobalTransaction, latestXid));
+			GixRcvCommitTransactionId(latestXid);
+		}
+#endif /* ADB */
 	}
 	else
 	{
@@ -666,22 +664,12 @@ ProcArrayGroupClearXid(PGPROC *proc, TransactionId latestXid)
 		PGXACT	   *pgxact = &allPgXact[nextidx];
 
 		ProcArrayEndTransactionInternal(proc, pgxact, proc->procArrayGroupMemberXid);
-
 		/* Move to next proc in list. */
 		nextidx = pg_atomic_read_u32(&proc->procArrayGroupNext);
 	}
 
 	/* We're done with the lock now. */
 	LWLockRelease(ProcArrayLock);
-
-#ifdef ADB
-	if (!IsGTMNode() && TransactionIdIsValid(proc->getGlobalTransaction))
-	{
-		Assert(TransactionIdEquals(proc->getGlobalTransaction, latestXid));
-		GixRcvCommitTransactionId(latestXid);
-		proc->getGlobalTransaction = InvalidTransactionId;
-	}
-#endif /* ADB */
 
 	/*
 	 * Now that we've released the lock, go back and wake everybody up.  We
@@ -4448,7 +4436,8 @@ void SerializeActiveTransactionIds(StringInfo buf)
 		if (TransactionIdIsNormal(xid))
 			xids[count++] = xid;
 #ifdef SNAP_SYNC_DEBUG	
-		ereport(LOG,(errmsg("SnapSend init sync xid %d\n",
+		if (TransactionIdIsNormal(xid))
+			ereport(LOG,(errmsg("SnapSend init sync xid %d\n",
 			 			xid)));
 #endif
 	}

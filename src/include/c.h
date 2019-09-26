@@ -86,6 +86,8 @@
 /* This macro just to mark which code is ADB extension feature */
 #define ADB_EXT 1
 
+//#define SNAP_SYNC_DEBUG 1
+
 /* ----------------------------------------------------------------
  *				Section 1: compiler characteristics
  *

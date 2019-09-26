@@ -13,6 +13,7 @@
 #include "miscadmin.h"
 #include "pgxc/pgxc.h"
 #include "replication/snapsender.h"
+#include "replication/gxidsender.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
 #include "storage/procarray.h"
@@ -1106,6 +1107,7 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node)
 			resetStringInfo(&output_buffer);
 			appendStringInfoChar(&output_buffer, 's');
 			SerializeActiveTransactionIds(&output_buffer);
+			SerializeFullAssignXid(&output_buffer);
 			AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false);
 
 			client->status = CLIENT_STATUS_STREAMING;
@@ -1297,6 +1299,48 @@ void SnapSendTransactionAssign(TransactionId txid, TransactionId parent)
 							   &SnapSender->waiters_assign);
 	Assert(SnapSender->cur_cnt_assign < MAX_CNT_SHMEM_XID_BUF);
 	SnapSender->xid_assign[SnapSender->cur_cnt_assign++] = txid;
+	SetLatch(&(GetPGProcByNumber(SnapSender->procno)->procLatch));
+	SpinLockRelease(&SnapSender->mutex);
+}
+
+void SnapSendTransactionAssignArray(TransactionId* xids, int xid_num, TransactionId parent)
+{
+	TransactionId 	txid;
+	int				i;
+
+	if (!IsGTMNode())
+		return;
+	
+	Assert(SnapSender != NULL);
+	if (TransactionIdIsValid(parent))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("snapshot sender not support sub transaction yet!")));
+
+	SpinLockAcquire(&SnapSender->mutex);
+	if (SnapSender->procno == INVALID_PGPROCNO)
+	{
+		SpinLockRelease(&SnapSender->mutex);
+		return;
+	}
+
+	for (i = 0; i < xid_num; i++)
+	{
+		txid = xids[i];
+		Assert(TransactionIdIsValid(txid));
+		Assert(TransactionIdIsNormal(txid));
+
+#ifdef SNAP_SYNC_DEBUG
+		ereport(LOG,(errmsg("Call SnapSend assging xid %d\n",
+			 			txid)));
+#endif
+		if(SnapSender->cur_cnt_assign == MAX_CNT_SHMEM_XID_BUF)
+			WaitSnapSendShmemSpace(&SnapSender->mutex,
+								&SnapSender->cur_cnt_assign,
+								&SnapSender->waiters_assign);
+		Assert(SnapSender->cur_cnt_assign < MAX_CNT_SHMEM_XID_BUF);
+		SnapSender->xid_assign[SnapSender->cur_cnt_assign++] = txid;
+	}
 	SetLatch(&(GetPGProcByNumber(SnapSender->procno)->procLatch));
 	SpinLockRelease(&SnapSender->mutex);
 }

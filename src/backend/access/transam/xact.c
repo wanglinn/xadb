@@ -2605,14 +2605,7 @@ CommitTransaction(void)
 	 * and release locks, if at after then other session(backend) maybe use old system info
 	 */
 	if (use_2pc_commit)
-	{
 		EndCommitRemoteXact(s);
-		if (IsCnMaster() && !IsGTMNode() && TransactionIdIsValid(MyProc->getGlobalTransaction))
-		{
-			GixRcvCommitTransactionId(MyProc->getGlobalTransaction);
-			MyProc->getGlobalTransaction = InvalidTransactionId;
-		}
-	}
 #endif /* ADB */
 
 	/*

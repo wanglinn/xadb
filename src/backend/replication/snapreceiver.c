@@ -708,6 +708,9 @@ static void SnapRcvProcessAssign(char *buf, Size len)
 	while(msg.cursor < msg.len)
 	{
 		txid = pq_getmsgint(&msg, sizeof(txid));
+#ifdef SNAP_SYNC_DEBUG
+	ereport(LOG,(errmsg("SanpRcv recv assging xid %d\n", txid)));
+#endif
 		if (SnapRcv->xcnt < MAX_BACKENDS)
 		{
 			SnapRcv->xip[SnapRcv->xcnt++] = txid;
@@ -751,6 +754,9 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 		{
 			if (SnapRcv->xip[i] == txid)
 			{
+#ifdef SNAP_SYNC_DEBUG
+				ereport(LOG,(errmsg("SanpRcv recv finish xid %d\n", txid)));
+#endif
 				memmove(&SnapRcv->xip[i],
 						&SnapRcv->xip[i+1],
 						(count-i-1) * sizeof(txid));
@@ -774,7 +780,9 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	SnapRcv->xcnt = count;
 
 	UNLOCK_SNAP_RCV();
-
+#ifdef SNAP_SYNC_DEBUG
+	ereport(LOG,(errmsg("SanpRcv xcnt now is %d\n", count)));
+#endif
 	walrcv_send(wrconn, xidmsg.data, xidmsg.len);
 	pfree(xidmsg.data);
 }
@@ -958,6 +966,7 @@ re_lock_:
 
 		if (!is_wait_ok)
 		{
+			UNLOCK_SNAP_RCV();
 			ereport(ERROR,
 				(errmsg("cannot connect to GTMCOORD")));
 		}

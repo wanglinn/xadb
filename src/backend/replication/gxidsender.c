@@ -53,7 +53,8 @@ typedef enum GixdClientStatus
 typedef struct ClientHashItemInfo
 {
 	char			client_name[NAMEDATALEN];
-	slist_head		gxid_assgin_xid_list;
+	int				xcnt;
+	slist_head		gxid_assgin_xid_list; 		/* xiditem list */
 }ClientHashItemInfo;
 
 /* item in  slist_client */
@@ -81,6 +82,7 @@ typedef struct GxidClientData
 extern char *AGtmHost;
 extern int gxidsender_port;
 extern int gxid_receiver_timeout;
+extern int max_pre_alloc_xid_size;
 
 static volatile sig_atomic_t gxid_send_got_sigterm = false;
 
@@ -115,10 +117,11 @@ static void GxidSenderDropClient(GxidClientData *client, bool drop_in_slist);
 static bool GxidSenderAppendMsgToClient(GxidClientData *client, char msgtype, const char *data, int len, bool drop_if_failed);
 static void GxidProcessFinishGxid(GxidClientData *client);
 static void GxidProcessAssignGxid(GxidClientData *client);
+static void GxidProcessPreAssignGxidArray(GxidClientData *client);
 static void GxidSendCheckTimeoutSocket(void);
 static void GxidSenderClearOldXid(GxidClientData *client);
-static void GxidDropXidList(slist_head* head);
 static void GxidDropXidItem(TransactionId xid);
+static void GxidDropXidList(ClientHashItemInfo	*clientitem);
 
 static void gxidsender_create_xid_htab(void);
 typedef bool (*WaitGxidSenderCond)(void *context);
@@ -429,26 +432,6 @@ static void GxidSenderOnLatchSetEvent(WaitEvent *event)
 	ResetLatch(&MyProc->procLatch);
 }
 
-static void GxidDropXidList(slist_head* head)
-{
-	slist_mutable_iter		xid_siter;
-	ClientXidItemInfo		*xiditem;
-	bool					found;
-
-	SpinLockAcquire(&GxidSender->mutex);
-	slist_foreach_modify(xid_siter, head)
-	{
-		xiditem = slist_container(ClientXidItemInfo, snode, xid_siter.cur);
-		GxidDropXidItem(xiditem->xid);
-		found = IsXidInPreparedState(xiditem->xid);
-		if (!found)
-			SnapSendTransactionFinish(xiditem->xid);
-		slist_delete(head, &xiditem->snode);
-		pfree(xiditem);
-	}
-	SpinLockRelease(&GxidSender->mutex);
-}
-
 /* must have lock already */
 static void GxidDropXidItem(TransactionId xid)
 {
@@ -470,6 +453,44 @@ static void GxidDropXidItem(TransactionId xid)
 		}
 	}
 	GxidSender->xcnt = count;
+}
+
+static void GxidDropXidList(ClientHashItemInfo	*clientitem)
+{
+	slist_mutable_iter	siter;
+	ClientXidItemInfo	*xiditem;
+
+	slist_foreach_modify(siter, &clientitem->gxid_assgin_xid_list)
+	{
+		xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
+		clientitem->xcnt--;
+		SnapSendTransactionFinish(xiditem->xid);
+		slist_delete(&clientitem->gxid_assgin_xid_list, &xiditem->snode);
+		pfree(xiditem);
+	}
+	Assert(clientitem->xcnt == 0);
+}
+
+/* must have lock already */
+static void GxidDropXidClientItem(TransactionId xid, ClientHashItemInfo	*clientitem)
+{
+	slist_mutable_iter	siter;
+	ClientXidItemInfo	*xiditem;
+	bool found = false;
+
+	slist_foreach_modify(siter, &clientitem->gxid_assgin_xid_list)
+	{
+		xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
+		if (xiditem->xid == xid)
+		{
+			found = true;
+			clientitem->xcnt--;
+			slist_delete(&clientitem->gxid_assgin_xid_list, &xiditem->snode);
+			pfree(xiditem);
+		}
+	}
+	Assert(found);
+	Assert(clientitem->xcnt >= 0);
 }
 
 static void GxidSenderDropClient(GxidClientData *client, bool drop_in_slist)
@@ -495,9 +516,7 @@ static void GxidSenderDropClient(GxidClientData *client, bool drop_in_slist)
 
 	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_REMOVE, &found);
 	if(found)
-	{
-		GxidDropXidList(&clientitem->gxid_assgin_xid_list);
-	}
+		GxidDropXidList(clientitem);
 
 	slist_foreach(siter, &gxid_send_all_client)
 	{
@@ -658,8 +677,8 @@ static void GxidSenderClearOldXid(GxidClientData *client)
 	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_ENTER, &found);
 	if(found == false)
 		return;
-	
-	GxidDropXidList(&clientitem->gxid_assgin_xid_list);
+
+	GxidDropXidList(clientitem);
 }
 
 static void GxidProcessAssignGxid(GxidClientData *client)
@@ -678,6 +697,7 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 		MemSet(clientitem, 0, sizeof(*clientitem));
 		memcpy(clientitem->client_name, client->client_name, NAMEDATALEN);
 		slist_init(&(clientitem->gxid_assgin_xid_list));
+		clientitem->xcnt = 0;
 	}
 
 	resetStringInfo(&gxid_send_output_buffer);
@@ -692,6 +712,8 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 		xiditem->procno = procno;
 		xiditem->xid = xid;
 		slist_push_head(&clientitem->gxid_assgin_xid_list, &xiditem->snode);
+		clientitem->xcnt++;
+
 		SnapSendTransactionAssign(xid, InvalidTransactionId);
 		pq_sendint32(&gxid_send_output_buffer, procno);
 		pq_sendint32(&gxid_send_output_buffer, xid);
@@ -723,6 +745,129 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 	}
 }
 
+static void GxidProcessPreAssignGxidArray(GxidClientData *client)
+{
+	TransactionId				xid;
+	TransactionId				*xids;
+	ClientHashItemInfo			*clientitem;
+	ClientXidItemInfo			*xiditem;
+	bool						found;
+	int							i, xid_num;
+
+	xid_num = pq_getmsgint(&gxid_send_input_buffer, sizeof(xid_num));
+	Assert(xid_num > 0 && xid_num <= max_pre_alloc_xid_size);
+
+	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_ENTER, &found);
+	if(found == false)
+	{
+		MemSet(clientitem, 0, sizeof(*clientitem));
+		memcpy(clientitem->client_name, client->client_name, NAMEDATALEN);
+		clientitem->xcnt = 0;
+		slist_init(&clientitem->gxid_assgin_xid_list);
+	}
+
+	resetStringInfo(&gxid_send_output_buffer);
+	pq_sendbyte(&gxid_send_output_buffer, 'q');
+	pq_sendint32(&gxid_send_output_buffer, xid_num);
+
+#ifdef SNAP_SYNC_DEBUG
+	ereport(LOG,(errmsg("GxidSend assging xid for %s\n", client->client_name)));
+#endif
+
+	xids = GetNewTransactionIdArrayExt(false, false, xid_num);
+
+	SpinLockAcquire(&GxidSender->mutex);
+	for (i = 0; i < xid_num; i++)
+	{
+		xid = xids[i];
+#ifdef SNAP_SYNC_DEBUG
+		if (i == 0)
+			ereport(LOG,(errmsg(" %d --\n", xid)));
+		else if (i == xid_num-1)
+			ereport(LOG,(errmsg(" %d\n", xid)));
+#endif
+		xiditem = palloc0(sizeof(*xiditem));
+		xiditem->xid = xid;
+		xiditem->procno = 0;
+		slist_push_head(&clientitem->gxid_assgin_xid_list, &xiditem->snode);
+		clientitem->xcnt++;
+		pq_sendint32(&gxid_send_output_buffer, xid);
+
+		GxidSender->xip[GxidSender->xcnt++] = xid;
+	}
+
+	SnapSendTransactionAssignArray(xids, xid_num, InvalidTransactionId);
+	SpinLockRelease(&GxidSender->mutex);
+
+	if (GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false) == false)
+	{
+		GxidSenderDropClient(client, true);
+	}
+
+	pfree(xids);
+}
+
+/*static void GxidSenderUpdateNextXidAllClient(TransactionId xid, GxidClientData *exclude_client)
+{
+	slist_iter siter;
+	GxidClientData *client;
+
+	slist_foreach(siter, &gxid_send_all_client)
+	{
+		client = slist_container(GxidClientData, snode, siter.cur);
+		resetStringInfo(&gxid_send_output_buffer);
+		pq_sendbyte(&gxid_send_output_buffer, 'u');
+		pq_sendint64(&gxid_send_output_buffer, xid);
+		GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false);
+	}
+}*/
+
+static void GxidsenderUpdateNextXid(TransactionId xid, GxidClientData *client)
+{
+	if (!TransactionIdIsValid(xid))
+		return;
+
+	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+	if (NormalTransactionIdFollows(xid, ShmemVariableCache->nextXid))
+	{
+ 		ShmemVariableCache->nextXid = xid;
+ 		TransactionIdAdvance(ShmemVariableCache->nextXid);
+
+		ShmemVariableCache->latestCompletedXid = ShmemVariableCache->nextXid;
+		TransactionIdRetreat(ShmemVariableCache->latestCompletedXid);
+	}
+	LWLockRelease(XidGenLock);
+}
+
+static void GxidProcessUpdateMaxXid(GxidClientData *client)
+{
+	TransactionId				xid; 
+	ClientHashItemInfo			*clientitem;
+	bool						found;
+
+	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_FIND, &found);
+	if(found == false)
+	{
+		MemSet(clientitem, 0, sizeof(*clientitem));
+		memcpy(clientitem->client_name, client->client_name, NAMEDATALEN);
+		slist_init(&(clientitem->gxid_assgin_xid_list));
+		clientitem->xcnt = 0;
+	}
+
+	resetStringInfo(&gxid_send_output_buffer);
+	pq_sendbyte(&gxid_send_output_buffer, 'u');
+	while(gxid_send_input_buffer.cursor < gxid_send_input_buffer.len)
+	{
+		xid = pq_getmsgint(&gxid_send_input_buffer, sizeof(xid));
+		GxidsenderUpdateNextXid(xid, client);
+
+#ifdef SNAP_SYNC_DEBUG
+		ereport(LOG,(errmsg("GxidSend finish xid %d for client %s\n",
+			 			xid, clientitem->client_name)));
+#endif
+	}
+}
+
 static void GxidProcessFinishGxid(GxidClientData *client)
 {
 	int							procno;
@@ -743,35 +888,22 @@ static void GxidProcessFinishGxid(GxidClientData *client)
 		procno = pq_getmsgint(&gxid_send_input_buffer, sizeof(procno));
 		xid = pq_getmsgint(&gxid_send_input_buffer, sizeof(xid));
 
-		slist_foreach_modify(siter, &clientitem->gxid_assgin_xid_list)
-		{
-			xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
-			if (xid == xiditem->xid && procno == xiditem->procno)
-			{
-				slist_delete(&clientitem->gxid_assgin_xid_list, &xiditem->snode);
-				pfree(xiditem);
-				found = true;
-				break;
-			}
-		}
-		Assert(found);
+		pq_sendint32(&gxid_send_output_buffer, procno);
+		pq_sendint32(&gxid_send_output_buffer, xid);
 
 		xiditem = palloc0(sizeof(*xiditem));
 		xiditem->xid = xid;
 		slist_push_head(&xid_slist, &xiditem->snode);
-
-		pq_sendint32(&gxid_send_output_buffer, procno);
-		pq_sendint32(&gxid_send_output_buffer, xid);
 #ifdef SNAP_SYNC_DEBUG
-		ereport(LOG,(errmsg("GxidSend finish xid %d to %d\n",
-			 			xid, procno)));
+		ereport(LOG,(errmsg("GxidSend finish xid %d for client %s\n",
+			 			xid, clientitem->client_name)));
 #endif
 	}
 
 	if (GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false) == false)
 	{
 		GxidSenderDropClient(client, true);
-	}                                                  
+	}
 	else
 	{
 		SpinLockAcquire(&GxidSender->mutex);
@@ -784,12 +916,13 @@ static void GxidProcessFinishGxid(GxidClientData *client)
 			Assert(!found);
 			SnapSendTransactionFinish(xiditem->xid);
 
+			GxidDropXidClientItem(xiditem->xid, clientitem);
 			GxidDropXidItem(xiditem->xid);
 			slist_delete(&xid_slist, &xiditem->snode);
 			pfree(xiditem);
 		}
 		SpinLockRelease(&GxidSender->mutex);
-	}
+	}  
 }
 
 static void GxidSenderOnClientRecvMsg(GxidClientData *client, pq_comm_node *node)
@@ -849,17 +982,29 @@ static void GxidSenderOnClientRecvMsg(GxidClientData *client, pq_comm_node *node
 			else
 			{
 				cmdtype = pq_getmsgbyte(&gxid_send_input_buffer);
-				if (cmdtype == 'g')
+				if (cmdtype == 'g') /* assing one xid */
 				{
 					client_name = pq_getmsgstring(&gxid_send_input_buffer);
 					memcpy(client->client_name, client_name, NAMEDATALEN);
 					GxidProcessAssignGxid(client);
+				}
+				else if (cmdtype == 'p') /* pre-alloc xid array */
+				{
+					client_name = pq_getmsgstring(&gxid_send_input_buffer);
+					memcpy(client->client_name, client_name, NAMEDATALEN);
+					GxidProcessPreAssignGxidArray(client);
 				}
 				else if (cmdtype == 'c')
 				{
 					client_name = pq_getmsgstring(&gxid_send_input_buffer);
 					memcpy(client->client_name, client_name, NAMEDATALEN);
 					GxidProcessFinishGxid(client);
+				}
+				else if (cmdtype == 'u')
+				{
+					client_name = pq_getmsgstring(&gxid_send_input_buffer);
+					memcpy(client->client_name, client_name, NAMEDATALEN);
+					GxidProcessUpdateMaxXid(client);
 				}
 				else if (cmdtype == 'h')
 				{
@@ -989,4 +1134,35 @@ re_lock_:
 #endif /* USE_ASSERT_CHECKING */
 
 	return snap;
+}
+
+/* like GetSnapshotData, but serialize all active transaction IDs */
+void SerializeFullAssignXid(StringInfo buf)
+{
+	TransactionId   *xids;
+	TransactionId	xid;
+	int				index;
+	uint32			i,count;
+
+	SpinLockAcquire(&GxidSender->mutex);
+	xids = palloc(GxidSender->xcnt * sizeof(TransactionId));
+	count = 0;
+
+	/* get all Transaction IDs */
+	for (index = 0; index < GxidSender->xcnt; ++index)
+	{
+		xid = GxidSender->xip[index];
+		Assert(TransactionIdIsNormal(xid));
+		xids[count++] = xid;
+#ifdef SNAP_SYNC_DEBUG	
+		ereport(LOG,(errmsg("SnapSend init sync xid %d\n",
+					xid)));
+#endif
+	}
+	SpinLockRelease(&GxidSender->mutex);
+
+	for(i=0;i<count;++i)
+		pq_sendint32(buf, xids[i]);
+
+	pfree(xids);
 }

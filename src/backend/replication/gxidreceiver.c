@@ -18,11 +18,15 @@
 #include "storage/shmem.h"
 #include "utils/guc.h"
 #include "utils/resowner.h"
+#include "pgxc/pgxc.h"
 
 #define RESTART_STEP_MS		3000	/* 2 second */
+
+#define MAX_XID_PRE_ASSGIN_NUM 50
 /* like WalRcvImmediateInterruptOK */
 static volatile bool GxidRcvImmediateInterruptOK = false;
 int gxid_receiver_timeout = 60 * 1000L;
+int max_pre_alloc_xid_size = MAX_XID_PRE_ASSGIN_NUM;
 
 typedef struct GxidRcvData
 {
@@ -35,8 +39,8 @@ typedef struct GxidRcvData
 	char			sender_host[NI_MAXHOST];
 	int				sender_port;
 
-	proclist_head	geters;		/* list of getting gxid event */
-	proclist_head	reters;		/* list of return gxid event */
+	proclist_head	geters;				/* list of getting gxid event */
+	proclist_head	reters;				/* list of return gxid event */
 
 	proclist_head	send_commiters;		/* list of commit gxid */
 	proclist_head	wait_commiters;		/* list of commit gxid */
@@ -45,8 +49,29 @@ typedef struct GxidRcvData
 
 	TimestampTz		next_try_time;	/* next connection GTM time */
 
-	uint32			xcnt;
+	uint32			cur_pre_alloc;
+	TransactionId	xid_alloc[MAX_XID_PRE_ASSGIN_NUM];
+
+	uint32			wait_finish_cnt;
+	TransactionId	wait_xid_finish[MAX_BACKENDS];
+
+	uint32			is_send_realloc_num;  /* is need realloc from gc*/ 
 }GxidRcvData;
+
+/* item in  slist_client */
+typedef struct GxiRcvAssginXidClientInfo
+{
+	slist_node		snode;
+	int				procno;
+	slist_head		slist_xid; 		/* xiditem list */
+}GxiRcvAssginXidClientInfo;
+
+/* item in  slist_client */
+typedef struct GxiRcvAssginXidItemInfo
+{
+	slist_node		snode;
+	TransactionId	xid;
+}GxiRcvAssginXidItemInfo;
 
 /* GUC variables */
 extern char *AGtmHost;
@@ -75,9 +100,9 @@ static GxidRcvData *GxidRcv = NULL;
 
 /* like WalRcvImmediateInterruptOK */
 static volatile bool TransRcvImmediateInterruptOK = false;
+static slist_head	slist_all_proc = SLIST_STATIC_INIT(slist_all_proc);
 
-
-typedef bool (*WaitGxidRcvCond)(void *context);
+typedef bool (*WaitGxidRcvCond)(void *context, proclist_head *reters);
 
 /* Prototypes for private functions */
 static TimestampTz GxidRecvWaitUntilStartTime(void);
@@ -88,11 +113,22 @@ static void GxidRcvDie(int code, Datum arg);
 static void GxidRcvConnectTransSender(void);
 static void GxidRcvUpdateShmemConnInfo(void);
 static void GxidRcvProcessMessage(unsigned char type, char *buf, Size len);
+static void GxidRcvMainProcess(void);
 static void GxidRcvProcessAssignList(void);
 static void GxidRcvProcessFinishList(void);
+static void GxidRcvCheckPreAssignArray(void);
+static void GxidRcvProcessEmptyProcList(void);
 static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test,
 			proclist_head *reters, proclist_head *geters, void *context);
 static void GxidRcvSendHeartbeat(void);
+static void GxidRcvSendLocalNextXid(void);
+static void GxidRcvSendPreAssginXid(int xid_num);
+static void GxidRcvProcessPreAssign(char *buf, Size len);
+static void GxidRcvProcessAssign(char *buf, Size len);
+static void GxidRcvClaerAllClientInfo(void);
+static bool GxidRcvFoundWaitFinishList(TransactionId xid);
+static void GxidRcvRemoveWaitFinishList(TransactionId xid, bool is_miss_ok);
+static void GxidRcvDeleteProcList(proclist_head *reters, int procno);
 
 /* Signal handlers */
 static void GxidRcvSigHupHandler(SIGNAL_ARGS);
@@ -100,8 +136,9 @@ static void GxidRcvSigUsr1Handler(SIGNAL_ARGS);
 static void GxidRcvShutdownHandler(SIGNAL_ARGS);
 static void GxidRcvQuickDieHandler(SIGNAL_ARGS);
 
-typedef bool (*WaitTransRcvCond)(void *context);
-static bool WaitGxidRcvCondReturn(void *context);
+typedef bool (*WaitTransRcvCond)(void *context, proclist_head *reters);
+static bool WaitGxidRcvCondReturn(void *context, proclist_head *reters);
+static bool WaitGxidRcvCommitReturn(void *context, proclist_head *wait_commiters);
 
 static void
 ProcessGxidRcvInterrupts(void)
@@ -138,6 +175,22 @@ GxidRcvSendHeartbeat(void)
 	/* Construct a new message */
 	resetStringInfo(&reply_message);
 	pq_sendbyte(&reply_message, 'h');
+
+	/* Send it */
+	walrcv_send(wrconn, reply_message.data, reply_message.len);
+}
+
+static void
+GxidRcvSendPreAssginXid(int xid_num)
+{
+	if (!IS_PGXC_COORDINATOR)
+		return;
+
+	/* Construct a new message */
+	resetStringInfo(&reply_message);
+	pq_sendbyte(&reply_message, 'p');
+	pq_sendstring(&reply_message, PGXCNodeName);
+	pq_sendint32(&reply_message, xid_num);
 
 	/* Send it */
 	walrcv_send(wrconn, reply_message.data, reply_message.len);
@@ -266,7 +319,12 @@ void GxidReceiverMain(void)
 		{
 			//walrcv_endstreaming(wrconn, &primaryTLI);
 			/* loop until end-of-streaming or error */
-			GxidRcvSendHeartbeat();
+			GxidRcvSendLocalNextXid();
+			GxidRcvClaerAllClientInfo();
+			GxidRcv->cur_pre_alloc = 0;
+			GxidRcv->wait_finish_cnt = 0;
+			GxidRcv->is_send_realloc_num = 0;
+			GxidRcvCheckPreAssignArray();
 			heartbeat_sent = true;
 			for(;;)
 			{
@@ -319,9 +377,8 @@ void GxidReceiverMain(void)
 									   PG_WAIT_EXTENSION);
 
 				ResetLatch(&MyProc->procLatch);
-				GxidRcvProcessFinishList();
-				GxidRcvProcessAssignList();
-
+				GxidRcvMainProcess();
+				
 				if (rc & WL_POSTMASTER_DEATH)
 				{
 					/*
@@ -377,6 +434,9 @@ void GxidRcvShmemInit(void)
 		proclist_init(&GxidRcv->send_commiters);
 		proclist_init(&GxidRcv->wait_commiters);
 		GxidRcv->procno = INVALID_PGPROCNO;
+		GxidRcv->cur_pre_alloc = 0;
+		GxidRcv->wait_finish_cnt = 0;
+		GxidRcv->is_send_realloc_num = 0;
 		SpinLockInit(&GxidRcv->mutex);
 	}
 }
@@ -428,7 +488,7 @@ static void GxidRcvDie(int code, Datum arg)
 	GxidRcv->state = WALRCV_STOPPED;
 	GxidRcv->pid = 0;
 	GxidRcv->procno = INVALID_PGPROCNO;
-	GxidRcv->xcnt = 0;
+	//GxidRcv->xcnt = 0;
 	GxidRcv->next_try_time = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), RESTART_STEP_MS);	/* 3 seconds */
 	UNLOCK_GXID_RCV();
 
@@ -543,14 +603,92 @@ void GxidRcvUpdateShmemConnInfo(void)
 		pfree(sender_host);
 }
 
+static void GxidRcvFinishLocalXid(TransactionId	txid, int procno)
+{
+	slist_mutable_iter			siter;
+	bool						found_proc;
+	GxiRcvAssginXidItemInfo		*xidinfo;
+	GxiRcvAssginXidClientInfo	*client;
+
+	found_proc = false;
+	slist_foreach_modify(siter, &slist_all_proc)
+	{
+		client = slist_container(GxiRcvAssginXidClientInfo, snode, siter.cur);
+		if (client->procno == procno)
+		{
+			found_proc = true;
+			break;
+		}
+	}
+
+	if (!found_proc)
+		return;
+
+	slist_foreach_modify(siter, &client->slist_xid)
+	{
+		xidinfo = slist_container(GxiRcvAssginXidItemInfo, snode, siter.cur);
+		if (xidinfo->xid == txid)
+		{
+			slist_delete(&client->slist_xid, &xidinfo->snode);
+			break;
+		}
+	}
+}
+
+static void GxidRcvSendLocalNextXid(void)
+{
+	TransactionId xid; 
+	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+	xid = ShmemVariableCache->nextXid;
+	LWLockRelease(XidGenLock);
+
+	if (!TransactionIdIsValid(xid))
+	{
+		GxidRcvSendHeartbeat();
+		return;
+	}
+
+	/* Construct a new message */
+	resetStringInfo(&reply_message);
+	pq_sendbyte(&reply_message, 'u');
+	pq_sendstring(&reply_message, PGXCNodeName);
+	pq_sendint64(&reply_message, xid);
+
+	/* Send it */
+	walrcv_send(wrconn, reply_message.data, reply_message.len);
+}
+
+static void GxidRcvClaerAllClientInfo(void)
+{
+	slist_mutable_iter			siter;
+	slist_mutable_iter			siter_xid;
+	GxiRcvAssginXidItemInfo		*xidinfo;
+	GxiRcvAssginXidClientInfo	*client;
+
+	LOCK_GXID_RCV();
+	slist_foreach_modify(siter, &slist_all_proc)
+	{
+		client = slist_container(GxiRcvAssginXidClientInfo, snode, siter.cur);
+		slist_foreach_modify(siter_xid, &client->slist_xid)
+		{
+			xidinfo = slist_container(GxiRcvAssginXidItemInfo, snode, siter_xid.cur);
+			slist_delete(&client->slist_xid, &xidinfo->snode);
+			pfree(xidinfo);
+		}
+		slist_delete(&slist_all_proc, &client->snode);
+		pfree(client);
+	}
+	UNLOCK_GXID_RCV();
+}
+
 static void GxidRcvProcessCommit(char *buf, Size len)
 {
-	StringInfoData			msg;
-	TransactionId			txid;
-	int						procno;
-	PGPROC					*proc;				
-	proclist_mutable_iter	iter;
-	bool					found;
+	StringInfoData				msg;
+	TransactionId				txid;
+	int							procno;
+	PGPROC						*proc;				
+	proclist_mutable_iter		iter;
+	bool						found;
 
 	msg.data = buf;
 	msg.len = msg.maxlen = len;
@@ -562,10 +700,12 @@ static void GxidRcvProcessCommit(char *buf, Size len)
 		procno = pq_getmsgint(&msg, sizeof(procno));
 		txid = pq_getmsgint(&msg, sizeof(txid));
 
-		Assert(TransactionIdIsValid(txid));
 #ifdef SNAP_SYNC_DEBUG
 		ereport(LOG,(errmsg("GxidRcv  rcv finish xid %d for %d\n", txid, procno)));
 #endif
+		GxidRcvFinishLocalXid(txid, procno);
+		GxidRcvRemoveWaitFinishList(txid, false);
+		Assert(TransactionIdIsValid(txid));
 
 		found = false;
 		proclist_foreach_modify(iter, &GxidRcv->wait_commiters, GxidWaitLink)
@@ -582,6 +722,31 @@ static void GxidRcvProcessCommit(char *buf, Size len)
 		Assert(found);
 	}
 	UNLOCK_GXID_RCV();
+}
+
+static void GxidRcvProcessUpdateXid(char *buf, Size len)
+{
+	StringInfoData			msg;
+	TransactionId			txid;
+
+	msg.data = buf;
+
+	msg.len = msg.maxlen = len;
+	msg.cursor = 0;
+
+	txid = pq_getmsgint(&msg, sizeof(txid));
+
+	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+	ereport(DEBUG2, (errmsg("GxidRcvProcessUpdateXid  %d, ShmemVariableCache->nextXid is %d\n", txid, ShmemVariableCache->nextXid)));
+	if (!NormalTransactionIdPrecedes(txid, ShmemVariableCache->nextXid))
+	{
+ 		ShmemVariableCache->nextXid = txid;
+ 		TransactionIdAdvance(ShmemVariableCache->nextXid);
+
+		ShmemVariableCache->latestCompletedXid = ShmemVariableCache->nextXid;
+		TransactionIdRetreat(ShmemVariableCache->latestCompletedXid);
+	}
+	LWLockRelease(XidGenLock);
 }
 
 static void GxidRcvProcessAssign(char *buf, Size len)
@@ -626,6 +791,46 @@ static void GxidRcvProcessAssign(char *buf, Size len)
 	UNLOCK_GXID_RCV();
 }
 
+static void GxidRcvProcessPreAssign(char *buf, Size len)
+{
+	StringInfoData			msg;
+	TransactionId			txid;
+	int						num, start_index;
+			
+	msg.data = buf;
+	msg.len = msg.maxlen = len;
+	msg.cursor = 0;
+
+#ifdef SNAP_SYNC_DEBUG
+	ereport(LOG,(errmsg("GxidRcv rcv pre assing: ")));
+#endif
+
+	num = pq_getmsgint(&msg, sizeof(num));
+	Assert(num > 0 && num <= max_pre_alloc_xid_size);
+	
+	LOCK_GXID_RCV();
+	Assert((GxidRcv->cur_pre_alloc + num) <= max_pre_alloc_xid_size);
+	start_index = GxidRcv->cur_pre_alloc;
+	while(msg.cursor < msg.len)
+	{
+		txid = pq_getmsgint(&msg, sizeof(txid));
+
+		Assert(TransactionIdIsValid(txid));
+
+#ifdef SNAP_SYNC_DEBUG
+		ereport(LOG,(errmsg(" %d\n", txid)));
+#endif
+		num--;
+		GxidRcv->xid_alloc[start_index + num] = txid;
+		GxidRcv->cur_pre_alloc++;
+	}
+	GxidRcv->is_send_realloc_num = 0;
+	Assert(GxidRcv->cur_pre_alloc <= max_pre_alloc_xid_size);
+	UNLOCK_GXID_RCV();
+
+	Assert(num == 0);	
+}
+
 static void GxidRcvProcessMessage(unsigned char type, char *buf, Size len)
 {
 	resetStringInfo(&incoming_message);
@@ -638,11 +843,17 @@ static void GxidRcvProcessMessage(unsigned char type, char *buf, Size len)
 			GxidRcv->state = WALRCV_STREAMING;
 		UNLOCK_GXID_RCV();
 		break;
+	case 'q':
+		GxidRcvProcessPreAssign(buf, len);
+		break;
 	case 'a':
 		GxidRcvProcessAssign(buf, len);
 		break;
 	case 'f':
 		GxidRcvProcessCommit(buf, len);
+		break;
+	case 'u':
+		GxidRcvProcessUpdateXid(buf, len);
 		break;
 	case 'h':				/* heart beat msg */
 		break;
@@ -654,7 +865,7 @@ static void GxidRcvProcessMessage(unsigned char type, char *buf, Size len)
 	}
 }
 
-static bool WaitGxidRcvCondReturn(void *context)
+static bool WaitGxidRcvCondReturn(void *context, proclist_head *reters)
 {
 	proclist_mutable_iter	iter;
 	PGPROC					*proc;	
@@ -663,7 +874,7 @@ static bool WaitGxidRcvCondReturn(void *context)
 	if (GxidRcv->state != WALRCV_STREAMING)
 		return true;
 
-	proclist_foreach_modify(iter, &GxidRcv->reters, GxidWaitLink)
+	proclist_foreach_modify(iter, reters, GxidWaitLink)
 	{
 		proc = GetPGProcByNumber(iter.cur);
 		if (proc->pgprocno == procno && TransactionIdIsValid(proc->getGlobalTransaction))
@@ -674,7 +885,7 @@ static bool WaitGxidRcvCondReturn(void *context)
 	return true;
 }
 
-static bool WaitGxidRcvCommitReturn(void *context)
+static bool WaitGxidRcvCommitReturn(void *context, proclist_head *wait_commiters)
 {
 	proclist_mutable_iter	iter;
 	PGPROC					*proc;
@@ -684,7 +895,7 @@ static bool WaitGxidRcvCommitReturn(void *context)
 	if (GxidRcv->state != WALRCV_STREAMING)
 		return true;
 
-	proclist_foreach_modify(iter, &GxidRcv->wait_commiters, GxidWaitLink)
+	proclist_foreach_modify(iter, wait_commiters, GxidWaitLink)
 	{
 		proc = GetPGProcByNumber(iter.cur);
 		if (proc->pgprocno == procno && !TransactionIdIsValid(proc->getGlobalTransaction))
@@ -710,7 +921,7 @@ static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test,
 	int						rc;
 	int						waitEvent;
 
-	while ((*test)(context))
+	while ((*test)(context, reters))
 	{
 		bool in_ret_list = false;
 		bool in_get_list = false;
@@ -740,8 +951,8 @@ static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test,
 			}
 		}
 
+		GXID_RCV_SET_LATCH();
 		UNLOCK_GXID_RCV();
-		GXID_RCV_SET_LATCH();	
 
 		waitEvent = WL_POSTMASTER_DEATH | WL_LATCH_SET;
 		if (end > 0)
@@ -837,6 +1048,14 @@ GxidRcvProcessAssignList(void)
 	walrcv_send(wrconn, reply_message.data, reply_message.len);
 }
 
+static void GxidRcvMainProcess(void)
+{
+	GxidRcvCheckPreAssignArray();
+	GxidRcvProcessFinishList();
+	GxidRcvProcessAssignList();
+	GxidRcvProcessEmptyProcList();
+}
+
 static void
 GxidRcvProcessFinishList(void)
 {
@@ -850,7 +1069,6 @@ GxidRcvProcessFinishList(void)
 		UNLOCK_GXID_RCV();
 		return;
 	}
-	
 	resetStringInfo(&reply_message);
 	pq_sendbyte(&reply_message, 'c');
 	pq_sendstring(&reply_message, PGXCNodeName);
@@ -858,7 +1076,6 @@ GxidRcvProcessFinishList(void)
 	proclist_foreach_modify(iter_gets, &GxidRcv->send_commiters, GxidWaitLink)
 	{
 		proc = GetPGProcByNumber(iter_gets.cur);
-
 		pq_sendint32(&reply_message, proc->pgprocno);
 		pq_sendint32(&reply_message, proc->getGlobalTransaction);
 		proclist_delete(&GxidRcv->send_commiters, iter_gets.cur, GxidWaitLink);
@@ -892,42 +1109,214 @@ GxidRcvProcessFinishList(void)
 	walrcv_send(wrconn, reply_message.data, reply_message.len);
 }
 
+static void GxidRcvCheckPreAssignArray(void)
+{
+	int req_num;
+
+	if (!IS_PGXC_COORDINATOR)
+		return;
+
+	LOCK_GXID_RCV();
+	if (GxidRcv->cur_pre_alloc <= (max_pre_alloc_xid_size/2) && GxidRcv->is_send_realloc_num == 0)
+	{
+		if (GxidRcv->cur_pre_alloc == 0)
+			req_num = max_pre_alloc_xid_size;
+		else
+			req_num = max_pre_alloc_xid_size/2;
+
+		GxidRcvSendPreAssginXid(req_num);
+		GxidRcv->is_send_realloc_num = 1;
+	}
+	UNLOCK_GXID_RCV();
+}
+
+static void GxidRcvProcessEmptyProcList(void)
+{			
+	slist_mutable_iter			siter;
+	GxiRcvAssginXidClientInfo	*client;
+
+	LOCK_GXID_RCV();
+	slist_foreach_modify(siter, &slist_all_proc)
+	{
+		client = slist_container(GxiRcvAssginXidClientInfo, snode, siter.cur);
+		if (slist_is_empty(&client->slist_xid))
+		{
+			slist_delete(&slist_all_proc, &client->snode);
+			pfree(client);
+		}
+	}
+	UNLOCK_GXID_RCV();
+}
+
+/* must has get the gxidrcv lock */
+static void GxidRcvRemoveWaitFinishList(TransactionId xid, bool is_miss_ok)
+{
+	int i, count;
+	bool found;
+
+	found = false;
+	count = GxidRcv->wait_finish_cnt;
+
+	Assert(count > 0);
+	for (i = 0; i < count; i++)
+	{
+		if (GxidRcv->wait_xid_finish[i] == xid)
+		{
+#ifdef SNAP_SYNC_DEBUG
+			ereport(LOG,(errmsg("Remove finish wait xid %d from wait_xid_finish\n", xid)));
+#endif
+			found = true;
+			memmove(&GxidRcv->wait_xid_finish[i],
+						&GxidRcv->wait_xid_finish[i+1],
+						(count-i-1) * sizeof(xid));
+			GxidRcv->wait_finish_cnt--;
+			break;
+		}
+	}
+
+	if (!is_miss_ok)
+		Assert(found);
+}
+
+/* must has get the gxidrcv lock */
+static bool GxidRcvFoundWaitFinishList(TransactionId xid)
+{
+	int i, count;
+	bool found;
+
+	found = false;
+	count = GxidRcv->wait_finish_cnt;
+
+	for (i = 0; i < count; i++)
+	{
+		if (GxidRcv->wait_xid_finish[i] == xid)
+		{
+			found = true;
+			break;
+		}
+	}
+
+	return found;
+}
+
+static void GxidRcvDeleteProcList(proclist_head *reters, int procno)
+{
+	proclist_mutable_iter	iter;
+	PGPROC					*proc;
+
+	proclist_foreach_modify(iter, reters, GxidWaitLink)
+	{
+		proc = GetPGProcByNumber(iter.cur);
+		if (proc->pgprocno == procno)
+			proclist_delete(reters, procno, GxidWaitLink);
+	}
+}
+
 TransactionId GixRcvGetGlobalTransactionId(bool isSubXact)
 {
-	TimestampTz		endtime;
+	TimestampTz				endtime;
+
 	if(isSubXact)
 		ereport(ERROR, (errmsg("cannot assign XIDs in child transaction")));
 
+	MyProc->getGlobalTransaction = InvalidTransactionId;
 	LOCK_GXID_RCV();
 
-	MyProc->getGlobalTransaction = InvalidTransactionId;
+	if (GxidRcv->state != WALRCV_STREAMING)
+	{
+		UNLOCK_GXID_RCV();
+		ereport(ERROR, (errmsg("cannot connect to GTMCOORD")));
+	}
+
+	if (GxidRcv->cur_pre_alloc > 0)
+	{
+		MyProc->getGlobalTransaction = GxidRcv->xid_alloc[GxidRcv->cur_pre_alloc - 1];
+		GxidRcv->cur_pre_alloc--;
+		Assert(TransactionIdIsValid(MyProc->getGlobalTransaction));
+
+		GxidRcv->wait_xid_finish[GxidRcv->wait_finish_cnt++] = MyProc->getGlobalTransaction;
+		UNLOCK_GXID_RCV();
+
+		GXID_RCV_SET_LATCH();
+#ifdef SNAP_SYNC_DEBUG
+		ereport(LOG,(errmsg("Proce %d get xid %d from GxidRcv DIRECT\n",
+				MyProc->pgprocno, MyProc->getGlobalTransaction)));
+#endif
+		return MyProc->getGlobalTransaction;
+	}
+
 	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 2000);
 	WaitGxidRcvEvent(endtime, WaitGxidRcvCondReturn, &GxidRcv->reters, &GxidRcv->geters, NULL);
-	
+
+	if (!TransactionIdIsValid(MyProc->getGlobalTransaction))
+	{
+		GxidRcvDeleteProcList(&GxidRcv->geters, MyProc->pgprocno);
+		GxidRcvDeleteProcList(&GxidRcv->reters, MyProc->pgprocno);
+
+		UNLOCK_GXID_RCV();
+		ereport(ERROR,(errmsg("Cannot get xid from GTMCOORD, please check GTMCOORD status\n")));
+	}
+	else
+		GxidRcv->wait_xid_finish[GxidRcv->wait_finish_cnt++] = MyProc->getGlobalTransaction;
+
 	UNLOCK_GXID_RCV();
+
+#ifdef SNAP_SYNC_DEBUG
+	ereport(LOG,(errmsg("Proce %d get xid %d from GxidRcv\n",
+			MyProc->pgprocno, MyProc->getGlobalTransaction)));
+#endif
 
 	return MyProc->getGlobalTransaction;
 }
 
 void GixRcvCommitTransactionId(TransactionId txid)
 {
-	TimestampTz		endtime;
-	bool			ret;
+	TimestampTz				endtime;
+	bool					ret;
+
+#ifdef SNAP_SYNC_DEBUG
+	ereport(LOG,(errmsg("Proce %d finish xid %d\n",
+			MyProc->pgprocno, MyProc->getGlobalTransaction)));
+#endif
 
 	LOCK_GXID_RCV();
 
+	if (GxidRcv->state != WALRCV_STREAMING)
+	{
+		UNLOCK_GXID_RCV();
+		MyProc->getGlobalTransaction = InvalidTransactionId;
+		ereport(WARNING, (errmsg("cannot connect to GTMCOORD, commit xid %d ignore", txid)));
+		return;
+	}
+
+	ret = GxidRcvFoundWaitFinishList(txid);
+	if (!ret)
+	{
+		UNLOCK_GXID_RCV();
+		MyProc->getGlobalTransaction = InvalidTransactionId;
+		ereport(WARNING,(errmsg("xid %d is gone, maybe gtmcoord restart\n", txid)));
+		return;
+	}
+
 	MyProc->getGlobalTransaction = txid;
-	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 500);
+	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 2000);
 	ret = WaitGxidRcvEvent(endtime, WaitGxidRcvCommitReturn, &GxidRcv->wait_commiters,
 			&GxidRcv->send_commiters, (void*)((size_t)txid));
-	
-	UNLOCK_GXID_RCV();
 
 	if (!ret)
 	{
-		ereport(ERROR,(errmsg("GxidRcv wait xid timeout\n")));
+		GxidRcvRemoveWaitFinishList(txid, true);
+
+		GxidRcvDeleteProcList(&GxidRcv->send_commiters, MyProc->pgprocno);
+		GxidRcvDeleteProcList(&GxidRcv->wait_commiters, MyProc->pgprocno);
+		UNLOCK_GXID_RCV();
 		MyProc->getGlobalTransaction = InvalidTransactionId;
-	}
+		ereport(WARNING,(errmsg("GxidRcv wait xid timeout, which version is %d\n", txid)));
+		return;
+	}	
+
+	UNLOCK_GXID_RCV();
+	MyProc->getGlobalTransaction = InvalidTransactionId;
 
 	return;
 }
