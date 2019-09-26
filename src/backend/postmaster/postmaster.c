@@ -4146,6 +4146,14 @@ LogChildExit(int lev, const char *procname, int pid, int exitstatus)
 				 activity ? errdetail("Failed process was running: %s", activity) : 0));
 }
 
+#ifdef ADB
+void ShutDownRxactMgr(void)
+{
+	if (IS_PGXC_COORDINATOR && RemoteXactMgrPID != 0)
+		signal_child(RemoteXactMgrPID, SIGTERM);
+}
+#endif /* ADB */
+
 /*
  * Advance the postmaster's state machine and take actions as appropriate
  *
@@ -4258,6 +4266,10 @@ PostmasterStateMachine(void)
 					 */
 					FatalError = true;
 					pmState = PM_WAIT_DEAD_END;
+#ifdef ADB
+					if (IS_PGXC_COORDINATOR && RemoteXactMgrPID != 0)
+						signal_child(RemoteXactMgrPID, SIGTERM);
+#endif
 
 					/* Kill the walsenders, archiver and stats collector too */
 					SignalChildren(SIGQUIT);
@@ -4266,11 +4278,7 @@ PostmasterStateMachine(void)
 					if (PgStatPID != 0)
 						signal_child(PgStatPID, SIGQUIT);
 				}
-#ifdef ADB
-				sleep(2);
-				if (IS_PGXC_COORDINATOR && RemoteXactMgrPID != 0)
-					signal_child(RemoteXactMgrPID, SIGTERM);
-#endif
+
 			}
 		}
 	}

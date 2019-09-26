@@ -61,6 +61,10 @@
 #include "utils/memutils.h"
 #include "utils/resowner.h"
 
+#ifdef ADB
+#include "postmaster/postmaster.h"
+#endif /* ADB */
+
 
 /*----------
  * Shared memory area for communication between checkpointer and backends
@@ -397,6 +401,9 @@ CheckpointerMain(void)
 			ExitOnAnyError = true;
 			/* Close down the database */
 			ShutdownXLOG(0, 0);
+#ifdef ADB
+			ShutDownRxactMgr();
+#endif /* ADB */
 			/* Normal exit from the checkpointer is here */
 			proc_exit(0);		/* done */
 		}
