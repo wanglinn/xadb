@@ -2429,7 +2429,7 @@ query_tree_walker(Query *query,
 			return true;
 		if (walker(connect_by->sortClause, context))
 			return true;
-		if (walker(connect_by->sort_tlist, connect))
+		if (walker(connect_by->sort_tlist, context))
 			return true;
 	}
 #endif /* ADB_GRAM_ORA */
