@@ -859,7 +859,7 @@ compute_function_attributes(ParseState *pstate,
 #ifdef ADB
 	if (cluster_item)
 		*cluster_p = interpret_func_cluster(cluster_item);
-	if (slave_item)
+	if (slave_item && *cluster_p ==  PROPARALLEL_SAFE)
 		*slave_p = interpret_func_cluster(slave_item);
 #endif /* ADB */
 }
