@@ -66,6 +66,8 @@ hot_expansion changes below functions:
 
 extern char	*MGRDatabaseName;
 
+NameData GTM_COORD_PGXC_NODE_NAME = {{0}};
+
 static PGconn *
 ExpPQsetdbLogin(const char *pghost, const char *pgport, const char *pgoptions,
 			 const char *pgtty, const char *login, const char *pwd);
@@ -11289,6 +11291,219 @@ bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
 	return ret;
 }
 
+bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
+{
+	Oid coordhostoid = InvalidOid;
+	int32 coordport = -1;
+	int iloop = 0;
+	int max = 3;
+	char *coordhost = NULL;
+	char coordport_buf[10];
+	char *connect_user = NULL;
+	char cnpath[1024];
+	int try = 0;
+	const int maxnum = 3;
+	NameData self_address;
+	NameData nodename;
+	GetAgentCmdRst getAgentCmdRst;
+	StringInfoData infosendmsg;
+	Datum datumPath;
+	Relation rel_node;
+	HeapTuple tuple = NULL;
+	Form_mgr_node mgr_node;
+	bool isNull;
+	bool breload = false;
+	bool bgetAddress = true;
+	bool ret = true;
+	PGresult *res;
+
+	rel_node = heap_open(NodeRelationId, AccessShareLock);
+
+	ereport(LOG, (errmsg("get active coordinator to connect start")));
+
+	for (iloop = 0; iloop < max; iloop++)
+	{
+		/*get active coordinator to connect*/
+		if (!mgr_get_active_node(&nodename, CNDN_TYPE_GTM_COOR_MASTER, specHostOid))
+		{
+			if (iloop == max-1)
+			{
+				heap_close(rel_node, AccessShareLock);
+				ereport(ERROR, (errmsg("can not get active coordinator in cluster %d", iloop)));
+			}
+			else
+			{
+				ereport(WARNING, (errmsg("can not get active coordinator in cluster %d", iloop)));
+			}
+		}
+		else
+		{
+			tuple = mgr_get_tuple_node_from_name_type(rel_node, nodename.data);
+			if(!(HeapTupleIsValid(tuple)))
+			{
+				heap_close(rel_node, AccessShareLock);
+				ereport(ERROR, (errmsg("coordinator \"%s\" does not exist", nodename.data)
+					, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
+					, errcode(ERRCODE_UNDEFINED_OBJECT)));
+			}
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			coordhostoid = mgr_node->nodehost;
+			coordport = mgr_node->nodeport;
+			coordhost = get_hostaddress_from_hostoid(coordhostoid);
+			connect_user = get_hostuser_from_hostoid(coordhostoid);
+			*cnoid = HeapTupleGetOid(tuple);
+			clusterLockCoordNodeOid = *cnoid;
+			namestrcpy(&clusterLockCoordNodeName, NameStr(mgr_node->nodename));
+			/*get the adbmanager ip*/
+			memset(self_address.data, 0, NAMEDATALEN);
+			bgetAddress = mgr_get_self_address(coordhost, coordport, &self_address);
+			if (bgetAddress)
+				break;
+			else
+			{
+				heap_freetuple(tuple);
+				pfree(coordhost);
+				pfree(connect_user);
+			}
+		}
+	}
+
+	if (!bgetAddress)
+	{
+		heap_close(rel_node, AccessShareLock);
+		ereport(ERROR, (errmsg("on ADB Manager get local address fail, so cannot do \"FAILOVER\" command")));
+	}
+
+	/*set adbmanager ip to the coordinator if need*/
+	datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(rel_node), &isNull);
+	if (isNull)
+	{
+		heap_freetuple(tuple);
+		heap_close(rel_node, AccessShareLock);
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
+			, errmsg("column nodepath is null")));
+	}
+	strncpy(cnpath, TextDatumGetCString(datumPath), 1024);
+	heap_freetuple(tuple);
+	heap_close(rel_node, AccessShareLock);
+	initStringInfo(&(getAgentCmdRst.description));
+	initStringInfo(&infosendmsg);
+
+	sprintf(coordport_buf, "%d", coordport);
+	for (try = 0; try < 2; try++)
+	{
+		*pg_conn = ExpPQsetdbLogin(coordhost
+								,coordport_buf
+								,NULL, NULL
+								,connect_user
+								,NULL);
+		if (try != 0)
+			break;
+		if (PQstatus((PGconn*)*pg_conn) != CONNECTION_OK)
+		{
+			breload = true;
+			PQfinish(*pg_conn);
+			resetStringInfo(&infosendmsg);
+			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, DEFAULT_DB, connect_user, self_address.data, 31, "trust", &infosendmsg);
+			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cnpath, &infosendmsg, coordhostoid, &getAgentCmdRst);
+			mgr_reload_conf(coordhostoid, cnpath);
+			if (!getAgentCmdRst.ret)
+			{
+				pfree(infosendmsg.data);
+				ereport(ERROR, (errmsg("set ADB Manager ip \"%s\" to %s coordinator %s/pg_hba,conf fail %s"
+					, self_address.data, coordhost, cnpath, getAgentCmdRst.description.data)));
+			}
+		}
+		else
+			break;
+	}
+
+	try = 0;
+	if (*pg_conn == NULL || PQstatus((PGconn*)*pg_conn) != CONNECTION_OK)
+	{
+		pfree(infosendmsg.data);
+		pfree(getAgentCmdRst.description.data);
+		ereport(ERROR,
+			(errmsg("Fail to connect to coordinator %s", PQerrorMessage((PGconn*)*pg_conn)),
+			errhint("coordinator info(host=%s port=%d dbname=%s user=%s)",
+				coordhost, coordport, DEFAULT_DB, connect_user)));
+	}
+
+	
+	ereport(LOG, (errmsg("get active coordinator to connect end")));
+
+	if(mgr_node->nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+	{
+		res = PQexec(*pg_conn, "show pgxc_node_name");
+		if (PQresultStatus(res) == PGRES_TUPLES_OK)
+		{
+			namestrcpy(&GTM_COORD_PGXC_NODE_NAME, PQgetvalue(res, 0, 0));
+		}
+		PQclear(res);
+		res = NULL;
+	}
+
+	/* get the value of pool_release_to_idle_timeout to record */
+	try = 0;
+	namestrcpy(&paramV, "-1");
+	while(try++ < maxnum)
+	{
+		res = PQexec(*pg_conn, "show pool_release_to_idle_timeout");
+		if (PQresultStatus(res) == PGRES_TUPLES_OK)
+		{
+			namestrcpy(&paramV, PQgetvalue(res, 0, 0));
+			PQclear(res);
+			break;
+		}
+		PQclear(res);
+	}
+	if (strcmp(paramV.data, "-1") != 0)
+	{
+		ereport(LOG, (errmsg("set pool_release_to_idle_timeout = -1 start")));
+		ereport(NOTICE, (errmsg("set all coordinators pool_release_to_idle_timeout = -1, original value is '%s'", paramV.data)));
+		ereport(LOG, (errmsg("set all coordinators pool_release_to_idle_timeout = -1, original value is '%s'", paramV.data)));
+		/* set all coordinators pool_release_to_idle_timeout = -1 */
+		mgr_set_all_nodetype_param(CNDN_TYPE_COORDINATOR_MASTER, "pool_release_to_idle_timeout", "-1");
+		pg_usleep(300000L);
+		ereport(LOG, (errmsg("set pool_release_to_idle_timeout = -1 end")));
+	}
+
+	/*lock cluster*/
+	ereport(NOTICE, (errmsg("lock cluster on coordinator %s : set FORCE_PARALLEL_MODE = off; SELECT PG_PAUSE_CLUSTER();"
+	  , clusterLockCoordNodeName.data)));
+	ereport(LOG, (errmsg("lock cluster on coordinator %s : set FORCE_PARALLEL_MODE = off; SELECT PG_PAUSE_CLUSTER();"
+	  , clusterLockCoordNodeName.data)));
+	try = mgr_pqexec_boolsql_try_maxnum(pg_conn, "set FORCE_PARALLEL_MODE = off; \
+				SELECT PG_PAUSE_CLUSTER();", maxnum, CMD_SELECT);
+	if (try < 0)
+	{
+		ret = false;
+		ereport(WARNING,
+			(errmsg("sql error:  %s\n", PQerrorMessage((PGconn*)*pg_conn)),
+			errhint("execute command failed: \"set FORCE_PARALLEL_MODE = off; SELECT PG_PAUSE_CLUSTER()\".")));
+	}
+	/*remove the add line from coordinator pg_hba.conf*/
+	if (breload)
+	{
+		resetStringInfo(&(getAgentCmdRst.description));
+		mgr_send_conf_parameters(AGT_CMD_CNDN_DELETE_PGHBACONF
+								,cnpath
+								,&infosendmsg
+								,coordhostoid
+								,&getAgentCmdRst);
+		if (!getAgentCmdRst.ret)
+			ereport(WARNING, (errmsg("remove ADB Manager ip \"%s\" from %s coordinator %s/pg_hba,conf fail %s", self_address.data, coordhost, cnpath, getAgentCmdRst.description.data)));
+		mgr_reload_conf(coordhostoid, cnpath);
+	}
+	pfree(coordhost);
+	pfree(connect_user);
+	pfree(infosendmsg.data);
+	pfree(getAgentCmdRst.description.data);
+
+	return ret;
+}
+
 void mgr_unlock_cluster(PGconn **pg_conn)
 {
 	int try = 0;
@@ -11375,6 +11590,120 @@ void mgr_unlock_cluster(PGconn **pg_conn)
 
 	PQfinish(*pg_conn);
 	*pg_conn = NULL;
+}
+
+void mgr_unlock_cluster_involve_gtm_coord(PGconn **pg_conn)
+{
+	int try = 0;
+	const int maxnum = 3;
+	Relation relNode = NULL;
+	HeapScanDesc rel_scan = NULL;
+	HeapTuple tuple = NULL;
+	Form_mgr_node mgr_node;
+	StringInfoData cmdstring;
+	ScanKeyData key[3];
+	char *sqlstr = "set FORCE_PARALLEL_MODE = off; SELECT PG_UNPAUSE_CLUSTER();";
+
+	if (!*pg_conn)
+		return;
+	ereport(NOTICE, (errmsg("on coordinator \"%s\" : unlock cluster: %s", clusterLockCoordNodeName.data, sqlstr)));
+	ereport(LOG, (errmsg("on coordinator \"%s\" : unlock cluster: %s", clusterLockCoordNodeName.data, sqlstr)));
+	try = mgr_pqexec_boolsql_try_maxnum(pg_conn, sqlstr, maxnum, CMD_SELECT);
+	if (try<0)
+	{
+		ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
+			,errmsg("execute \"%s\" fail %s", sqlstr, PQerrorMessage((PGconn*)*pg_conn))));
+	}
+
+	if (strcmp(paramV.data, "-1") != 0)
+	{
+		/* set all coordinators pool_release_to_idle_timeout to record value */
+		ereport(NOTICE, (errmsg("set all coordinators pool_release_to_idle_timeout = '%s'", paramV.data)));
+		ereport(LOG, (errmsg("set all coordinators pool_release_to_idle_timeout = '%s'", paramV.data)));
+		mgr_set_all_nodetype_param(CNDN_TYPE_COORDINATOR_MASTER, "pool_release_to_idle_timeout", paramV.data);
+	}
+
+	initStringInfo(&cmdstring);
+	/* close idle process */
+	relNode = heap_open(NodeRelationId, AccessShareLock);
+	ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodetype
+				,BTEqualStrategyNumber
+				,F_CHAREQ
+				,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
+	ScanKeyInit(&key[1]
+				,Anum_mgr_node_nodeinited
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
+	ScanKeyInit(&key[2]
+				,Anum_mgr_node_nodeincluster
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
+	rel_scan = heap_beginscan_catalog(relNode, 3, key);
+	while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+	{
+		if (clusterLockCoordNodeOid == HeapTupleGetOid(tuple))
+			continue;
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		resetStringInfo(&cmdstring);
+		appendStringInfo(&cmdstring, "set FORCE_PARALLEL_MODE = off; EXECUTE DIRECT ON (\"%s\") 'select pool_close_idle_conn();'"
+			, NameStr(mgr_node->nodename));
+		ereport(NOTICE, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
+		ereport(LOG, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
+		try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
+		if (try<0)
+		{
+			ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
+				,errmsg("execute \"%s\" fail %s", cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
+		}
+
+	}
+
+	ScanKeyInit(&key[0]
+		,Anum_mgr_node_nodetype
+		,BTEqualStrategyNumber
+		,F_CHAREQ
+		,CharGetDatum(CNDN_TYPE_GTM_COOR_MASTER));
+	rel_scan = heap_beginscan_catalog(relNode, 3, key);
+	while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+	{
+		if (clusterLockCoordNodeOid == HeapTupleGetOid(tuple))
+			continue;
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		resetStringInfo(&cmdstring);
+		appendStringInfo(&cmdstring, "set FORCE_PARALLEL_MODE = off; EXECUTE DIRECT ON (\"%s\") 'select pool_close_idle_conn();'"
+			, strlen(NameStr(GTM_COORD_PGXC_NODE_NAME)) ==0 ? NameStr(mgr_node->nodename) : NameStr(GTM_COORD_PGXC_NODE_NAME));
+		ereport(NOTICE, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
+		ereport(LOG, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
+		try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
+		if (try<0)
+		{
+			ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
+				,errmsg("execute \"%s\" fail %s", cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
+		}
+
+	}
+
+	resetStringInfo(&cmdstring);
+	appendStringInfo(&cmdstring, "set FORCE_PARALLEL_MODE = off; select pool_close_idle_conn();");
+	ereport(NOTICE, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
+	ereport(LOG, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
+	try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
+	if (try<0)
+	{
+		ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
+			,errmsg("execute \"%s\" fail %s", cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
+	}
+
+	heap_endscan(rel_scan);
+	heap_close(relNode, AccessShareLock);
+
+	PQfinish(*pg_conn);
+	*pg_conn = NULL;	
 }
 
 bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *dnname

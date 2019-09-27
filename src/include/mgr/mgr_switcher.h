@@ -148,5 +148,10 @@ extern void switcherNodesToMgrNodes(dlist_head *switcherNodes,
 extern void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 										MgrNodeWrapper *slaveNode,
 										PGconn *masterPGconn);
+extern void checkGetMasterCoordinators(MemoryContext spiContext,
+									   dlist_head *coordinators,
+									   bool includeGtmCoord,
+									   bool checkRunningMode);
+extern SwitcherNodeWrapper *getHoldLockCoordinator(dlist_head *coordinators);
 
 #endif /* MGR_SWITCHER_H */

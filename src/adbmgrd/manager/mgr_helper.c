@@ -370,25 +370,51 @@ void selectMgrAllDataNodes(MemoryContext spiContext,
 /**
  * the list link data type is MgrNodeWrapper
  */
-void selectAllMgrSlaveNodes(Oid masterOid, char nodetype,
-							MemoryContext spiContext,
-							dlist_head *resultList)
+void selectActiveMgrSlaveNodes(Oid masterOid, char nodetype,
+							   MemoryContext spiContext,
+							   dlist_head *resultList)
 {
 	StringInfoData sql;
 
 	initStringInfo(&sql);
-
 	appendStringInfo(&sql,
-					 "SELECT * \n"
-					 "FROM pg_catalog.mgr_node \n"
-					 "WHERE nodetype = '%c' \n"
-					 "AND nodeinited = %d::boolean \n"
-					 "AND nodemasternameoid = %u \n"
-					 "AND nodeincluster = %d::boolean \n",
+					 "SELECT * "
+					 "FROM pg_catalog.mgr_node "
+					 "WHERE nodetype = '%c' "
+					 "AND nodeinited = %d::boolean "
+					 "AND nodemasternameoid = %u "
+					 "AND nodeincluster = %d::boolean "
+					 "AND curestatus != '%s' ",
 					 nodetype,
 					 true,
 					 masterOid,
-					 true);
+					 true,
+					 CURE_STATUS_ISOLATED);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
+
+void selectIsolatedMgrSlaveNodes(Oid masterOid,
+								 char nodetype,
+								 MemoryContext spiContext,
+								 dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node "
+					 "WHERE nodetype = '%c' "
+					 "AND nodeinited = %d::boolean "
+					 "AND nodemasternameoid = %u "
+					 "AND nodeincluster = %d::boolean "
+					 "AND curestatus = '%s' ",
+					 nodetype,
+					 false,
+					 masterOid,
+					 false,
+					 CURE_STATUS_ISOLATED);
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
@@ -582,37 +608,20 @@ int updateMgrNodeToIsolate(MgrNodeWrapper *mgrNode,
 
 	newCurestatus = CURE_STATUS_ISOLATED;
 	initStringInfo(&buf);
-	if (mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER)
-	{
-		appendStringInfo(&buf,
-						 "update pg_catalog.mgr_node  \n"
-						 "set curestatus = '%s', \n"
-						 "nodeinited = %d::boolean, \n"
-						 "nodeincluster = %d::boolean \n"
-						 "WHERE oid = %u \n"
-						 "and curestatus = '%s' \n"
-						 "and nodetype = '%c' \n",
-						 newCurestatus,
-						 false,
-						 false,
-						 mgrNode->oid,
-						 NameStr(mgrNode->form.curestatus),
-						 mgrNode->form.nodetype);
-	}
-	else
-	{
-		appendStringInfo(&buf,
-						 "update pg_catalog.mgr_node  \n"
-						 "set curestatus = '%s' \n"
-						 "WHERE oid = %u \n"
-						 "and curestatus = '%s' \n"
-						 "and nodetype = '%c' \n",
-						 newCurestatus,
-						 mgrNode->oid,
-						 NameStr(mgrNode->form.curestatus),
-						 mgrNode->form.nodetype);
-	}
-
+	appendStringInfo(&buf,
+					 "update pg_catalog.mgr_node "
+					 "set curestatus = '%s', "
+					 "nodeinited = %d::boolean, "
+					 "nodeincluster = %d::boolean "
+					 "WHERE oid = %u "
+					 "and curestatus = '%s' "
+					 "and nodetype = '%c' ",
+					 newCurestatus,
+					 false,
+					 false,
+					 mgrNode->oid,
+					 NameStr(mgrNode->form.curestatus),
+					 mgrNode->form.nodetype);
 	oldCtx = MemoryContextSwitchTo(spiContext);
 	spiRes = SPI_execute(buf.data, false, 0);
 	MemoryContextSwitchTo(oldCtx);
@@ -635,13 +644,17 @@ int updateMgrNodeToUnIsolate(MgrNodeWrapper *mgrNode,
 
 	initStringInfo(&buf);
 	appendStringInfo(&buf,
-					 "update pg_catalog.mgr_node \n"
-					 "set curestatus = '%s', \n"
-					 "nodesync = '%s' \n"
-					 "WHERE oid = %u \n"
-					 "and curestatus = '%s' \n"
-					 "and nodetype = '%c' \n",
+					 "update pg_catalog.mgr_node "
+					 "set curestatus = '%s', "
+					 "nodeinited = %d::boolean, "
+					 "nodeincluster = %d::boolean, "
+					 "nodesync = '%s' "
+					 "WHERE oid = %u "
+					 "and curestatus = '%s' "
+					 "and nodetype = '%c' ",
 					 CURE_STATUS_NORMAL,
+					 true,
+					 true,
 					 NameStr(mgrNode->form.nodesync),
 					 mgrNode->oid,
 					 NameStr(mgrNode->form.curestatus),
@@ -650,6 +663,22 @@ int updateMgrNodeToUnIsolate(MgrNodeWrapper *mgrNode,
 	spiRes = SPI_execute(buf.data, false, 0);
 	MemoryContextSwitchTo(oldCtx);
 	pfree(buf.data);
+	if (spiRes != SPI_OK_UPDATE)
+		ereport(ERROR,
+				(errmsg("SPI_execute failed: error code %d",
+						spiRes)));
+	rows = SPI_processed;
+	return rows;
+}
+
+int executeUpdateSql(char *sql, MemoryContext spiContext)
+{
+	int spiRes;
+	uint64 rows;
+	MemoryContext oldCtx;
+	oldCtx = MemoryContextSwitchTo(spiContext);
+	spiRes = SPI_execute(sql, false, 0);
+	MemoryContextSwitchTo(oldCtx);
 	if (spiRes != SPI_OK_UPDATE)
 		ereport(ERROR,
 				(errmsg("SPI_execute failed: error code %d",
@@ -1344,7 +1373,7 @@ bool callAgentDeletePGHbaConf(MgrNodeWrapper *node,
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
-		ereport(DEBUG1,
+		ereport(LOG,
 				(errmsg("delete %s pg_hba.conf %s successfully",
 						NameStr(node->form.nodename),
 						toStringPGHbaItem(items))));
@@ -1378,7 +1407,7 @@ bool callAgentRefreshPGHbaConf(MgrNodeWrapper *node,
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
-		ereport(DEBUG1,
+		ereport(LOG,
 				(errmsg("refresh %s pg_hba.conf %s successfully",
 						NameStr(node->form.nodename),
 						toStringPGHbaItem(items))));
@@ -1411,7 +1440,7 @@ bool callAgentReloadNode(MgrNodeWrapper *node, bool complain)
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
-		ereport(DEBUG1,
+		ereport(LOG,
 				(errmsg("reload %s %s successfully",
 						NameStr(node->form.nodename),
 						node->nodepath)));
@@ -1445,7 +1474,7 @@ bool callAgentRefreshPGSqlConfReload(MgrNodeWrapper *node,
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
-		ereport(DEBUG1,
+		ereport(LOG,
 				(errmsg("refresh %s postgresql.conf %s successfully",
 						NameStr(node->form.nodename),
 						toStringPGConfParameterItem(items))));
@@ -1479,7 +1508,7 @@ bool callAgentRefreshPGSqlConf(MgrNodeWrapper *node,
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
-		ereport(DEBUG1,
+		ereport(LOG,
 				(errmsg("refresh %s postgresql.conf %s successfully",
 						NameStr(node->form.nodename),
 						toStringPGConfParameterItem(items))));
@@ -1513,7 +1542,7 @@ bool callAgentRefreshRecoveryConf(MgrNodeWrapper *node,
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
-		ereport(DEBUG1,
+		ereport(LOG,
 				(errmsg("refresh %s %s recovery.conf successfully",
 						NameStr(node->form.nodename),
 						node->nodepath)));
@@ -1566,7 +1595,7 @@ bool callAgentPromoteNode(MgrNodeWrapper *node, bool complain)
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
-		ereport(DEBUG1,
+		ereport(LOG,
 				(errmsg("promote %s %s successfully",
 						NameStr(node->form.nodename),
 						node->nodepath)));
@@ -2611,14 +2640,20 @@ end:
 
 bool dropNodeFromPgxcNode(PGconn *activeCoon,
 						  char *executeOnNodeName,
-						  char *nodeName, bool complain)
+						  bool localExecute,
+						  char *nodeName,
+						  bool complain)
 {
 	char *sql;
 	bool execOk;
 
-	sql = psprintf("drop node \"%s\" on (\"%s\");",
-				   nodeName,
-				   executeOnNodeName);
+	if (localExecute)
+		sql = psprintf("drop node \"%s\";",
+					   nodeName);
+	else
+		sql = psprintf("drop node \"%s\" on (\"%s\");",
+					   nodeName,
+					   executeOnNodeName);
 	execOk = PQexecCommandSql(activeCoon, sql, false);
 	pfree(sql);
 	if (execOk)
@@ -2640,15 +2675,24 @@ bool dropNodeFromPgxcNode(PGconn *activeCoon,
 
 bool createNodeOnPgxcNode(PGconn *activeCoon,
 						  char *executeOnNodeName,
-						  MgrNodeWrapper *mgrNode, bool complain)
+						  bool localExecute,
+						  MgrNodeWrapper *mgrNode,
+						  char *pgxcNodeName,
+						  bool complain)
 {
 	char *sql;
 	bool execOk;
 	char *type;
+	bool is_gtm = false;
 
 	if (mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER)
 	{
 		type = "coordinator";
+	}
+	else if (mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+	{
+		type = "coordinator";
+		is_gtm = true;
 	}
 	else if (mgrNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER)
 	{
@@ -2663,15 +2707,30 @@ bool createNodeOnPgxcNode(PGconn *activeCoon,
 						mgrNode->form.nodetype)));
 		return false;
 	}
-	sql = psprintf("EXECUTE DIRECT ON (\"%s\")  "
-				   "'CREATE NODE %s WITH (TYPE=''%s'',HOST=''%s'',PORT=%d);'",
-				   executeOnNodeName,
-				   NameStr(mgrNode->form.nodename),
-				   type,
-				   mgrNode->host->hostaddr,
-				   mgrNode->form.nodeport);
+	if (localExecute)
+	{
+		sql = psprintf("CREATE NODE \"%s\" with (TYPE='%s', HOST='%s', PORT=%d, GTM=%d);",
+					   pgxcNodeName ? pgxcNodeName : NameStr(mgrNode->form.nodename),
+					   type,
+					   mgrNode->host->hostaddr,
+					   mgrNode->form.nodeport,
+					   is_gtm);
+	}
+	else
+	{
+		sql = psprintf("EXECUTE DIRECT ON (\"%s\")  "
+					   "'CREATE NODE \"%s\" WITH (TYPE=''%s'',HOST=''%s'',PORT=%d, GTM=%d);'",
+					   executeOnNodeName,
+					   pgxcNodeName ? pgxcNodeName : NameStr(mgrNode->form.nodename),
+					   type,
+					   mgrNode->host->hostaddr,
+					   mgrNode->form.nodeport,
+					   is_gtm);
+	}
+
 	execOk = PQexecCommandSql(activeCoon, sql, complain);
-	pfree(sql);
+	if (sql)
+		pfree(sql);
 	return execOk;
 }
 
@@ -2761,6 +2820,7 @@ bool isMgrModeExistsInCoordinator(MgrNodeWrapper *coordinator,
 	{
 		executeOnNodeName = getMgrNodePgxcNodeName(coordinator,
 												   coordConn,
+												   localExecute,
 												   complain);
 		appendStringInfo(&sql,
 						 "EXECUTE DIRECT ON (\"%s\") "
@@ -2859,14 +2919,16 @@ bool isNodeInSyncStandbyNames(MgrNodeWrapper *masterNode,
 
 void cleanMgrNodesOnCoordinator(dlist_head *mgrNodes,
 								MgrNodeWrapper *coordinator,
-								PGconn *coordConn)
+								PGconn *coordConn,
+								bool complain)
 {
 	dlist_mutable_iter iter;
 	MgrNodeWrapper *mgrNode;
 	char *executeOnNodeName = NULL;
 
-	executeOnNodeName = getMgrNodePgxcNodeName(coordinator, coordConn, true);
-
+	executeOnNodeName = getMgrNodePgxcNodeName(coordinator,
+											   coordConn,
+											   true, true);
 	dlist_foreach_modify(iter, mgrNodes)
 	{
 		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
@@ -2877,55 +2939,121 @@ void cleanMgrNodesOnCoordinator(dlist_head *mgrNodes,
 		}
 		else
 		{
-			if (nodenameExistsInPgxcNode(coordConn,
-										 executeOnNodeName,
-										 true,
-										 NameStr(mgrNode->form.nodename),
-										 getMappedPgxcNodetype(mgrNode->form.nodetype),
-										 true))
-			{
-				ereport(LOG,
-						(errmsg("clean node %s in table pgxc_node of %s begin",
-								NameStr(mgrNode->form.nodename),
-								NameStr(coordinator->form.nodename))));
-				dropNodeFromPgxcNode(coordConn,
-									 executeOnNodeName,
-									 NameStr(mgrNode->form.nodename),
-									 true);
-				exec_pgxc_pool_reload(coordConn, true);
-				ereport(LOG,
-						(errmsg("clean node %s in table pgxc_node of %s successed",
-								NameStr(mgrNode->form.nodename),
-								NameStr(coordinator->form.nodename))));
-			}
-			else
-			{
-				ereport(LOG,
-						(errmsg("%s not exist in table pgxc_node of %s, skip",
-								NameStr(mgrNode->form.nodename),
-								NameStr(coordinator->form.nodename))));
-			}
-			ereport(LOG,
-					(errmsg("clean %s in table pgxc_node of all coordinators successed",
-							NameStr(mgrNode->form.nodename))));
+			compareAndCleanMgrNodeOnCoordinator(mgrNode,
+												coordinator,
+												coordConn,
+												true,
+												executeOnNodeName,
+												complain);
 		}
 	}
 	if (executeOnNodeName)
 		pfree(executeOnNodeName);
 }
 
+void compareAndCreateMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
+										  char *pgxcNodeName,
+										  MgrNodeWrapper *coordinator,
+										  PGconn *coordConn,
+										  bool localExecute,
+										  char *executeOnNodeName,
+										  bool complain)
+{
+
+	if (nodenameExistsInPgxcNode(coordConn,
+								 executeOnNodeName,
+								 localExecute,
+								 pgxcNodeName ? pgxcNodeName : NameStr(mgrNode->form.nodename),
+								 getMappedPgxcNodetype(mgrNode->form.nodetype),
+								 complain))
+	{
+		ereport(LOG,
+				(errmsg("%s already exist in table pgxc_node of %s, skip",
+						NameStr(mgrNode->form.nodename),
+						NameStr(coordinator->form.nodename))));
+	}
+	else
+	{
+		createNodeOnPgxcNode(coordConn,
+							 executeOnNodeName,
+							 localExecute,
+							 mgrNode,
+							 pgxcNodeName,
+							 complain);
+		pgxcPoolReloadOnCoordinator(coordConn,
+									localExecute,
+									executeOnNodeName,
+									complain);
+		ereport(LOG,
+				(errmsg("create %s in table pgxc_node of %s, successed",
+						NameStr(mgrNode->form.nodename),
+						NameStr(coordinator->form.nodename))));
+	}
+}
+
+void compareAndCleanMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
+										 MgrNodeWrapper *coordinator,
+										 PGconn *coordConn,
+										 bool localExecute,
+										 char *executeOnNodeName,
+										 bool complain)
+{
+	if (isMgrModeExistsInCoordinator(coordinator,
+									 coordConn,
+									 localExecute,
+									 mgrNode,
+									 complain))
+	{
+		ereport(LOG,
+				(errmsg("clean node %s in table pgxc_node of %s begin",
+						NameStr(mgrNode->form.nodename),
+						NameStr(coordinator->form.nodename))));
+		dropNodeFromPgxcNode(coordConn,
+							 executeOnNodeName,
+							 localExecute,
+							 NameStr(mgrNode->form.nodename),
+							 complain);
+		pgxcPoolReloadOnCoordinator(coordConn,
+									localExecute,
+									executeOnNodeName,
+									complain);
+		ereport(LOG,
+				(errmsg("clean node %s in table pgxc_node of %s successed",
+						NameStr(mgrNode->form.nodename),
+						NameStr(coordinator->form.nodename))));
+	}
+	else
+	{
+		ereport(LOG,
+				(errmsg("%s not exist in table pgxc_node of %s, skip",
+						NameStr(mgrNode->form.nodename),
+						NameStr(coordinator->form.nodename))));
+	}
+}
+
 /*
  * Pfree the returned result when no longer needed
  */
 char *getMgrNodePgxcNodeName(MgrNodeWrapper *mgrNode,
-							 PGconn *nodeConn, bool complain)
+							 PGconn *nodeConn,
+							 bool localExecute,
+							 bool complain)
 {
 	char *pgxcNodeName;
 
 	if (isGtmCoordMgrNode(mgrNode->form.nodetype))
 	{
-		pgxcNodeName = showNodeParameter(nodeConn,
-										 "pgxc_node_name", complain);
+		if (localExecute)
+		{
+			pgxcNodeName = showNodeParameter(nodeConn,
+											 "pgxc_node_name", complain);
+		}
+		else
+		{
+			ereport(complain ? ERROR : LOG,
+					(errmsg("can not get the value of pgxc_node_name")));
+			pgxcNodeName = NULL;
+		}
 	}
 	else
 	{
@@ -2933,6 +3061,30 @@ char *getMgrNodePgxcNodeName(MgrNodeWrapper *mgrNode,
 		memcpy(pgxcNodeName, NameStr(mgrNode->form.nodename), NAMEDATALEN);
 	}
 	return pgxcNodeName;
+}
+
+bool pgxcPoolReloadOnCoordinator(PGconn *coordCoon,
+								 bool localExecute,
+								 char *executeOnNodeName,
+								 bool complain)
+{
+	char *sql;
+	bool res;
+	if (localExecute)
+		sql = psprintf("set FORCE_PARALLEL_MODE = off; "
+					   "select pgxc_pool_reload();");
+	else
+		sql = psprintf("set FORCE_PARALLEL_MODE = off; "
+					   "EXECUTE DIRECT ON (\"%s\") "
+					   "'select pgxc_pool_reload();'",
+					   executeOnNodeName);
+	res = PQexecBoolQuery(coordCoon, sql, true, complain);
+	pfree(sql);
+	if (res)
+		ereport(LOG,
+				(errmsg("%s execute pgxc_pool_reload() successfully",
+						executeOnNodeName)));
+	return res;
 }
 
 bool isGtmCoordMgrNode(char nodetype)

@@ -365,13 +365,13 @@ static void nodeMonitorMainLoop(MonitorNodeInfo *nodeInfo)
 					(errmsg("%s my postmaster dead, i need to exit",
 							MyBgworkerEntry->bgw_name)));
 		}
-
 		/* Interrupted? */
 		if (rc & WL_LATCH_SET)
 		{
 			ResetLatch(MyLatch);
 			CHECK_FOR_INTERRUPTS();
 		}
+
 		examineAdbDoctorConf();
 
 		nodeInfo->occurredEvents = rc;
@@ -1223,7 +1223,7 @@ static bool PQflushAction(MonitorNodeInfo *nodeInfo)
 static void PQgetResultUntilNull(PGconn *conn)
 {
 	PGresult *pgResult;
-	while (true)
+	while (!gotSigterm)
 	{
 		pgResult = PQgetResult(conn);
 		if (pgResult != NULL)
@@ -1721,7 +1721,7 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *mgrNode,
 	}
 	if (needReset)
 	{
-		SPI_FINISH_TRANSACTIONAL_COMMIT();
+		SPI_FINISH_TRANSACTIONAL_ABORT();
 		pfreeMgrNodeWrapper(nodeDataInDB);
 		resetNodeMonitor();
 	}
@@ -1869,8 +1869,10 @@ static void treatFollowFailAfterSwitch(MgrNodeWrapper *followFail)
 	/* Wait for a while, let the cluster fully return to normal */
 	pg_usleep(10L * 1000000L);
 
-	while (true)
+	while (!gotSigterm)
 	{
+		CHECK_FOR_INTERRUPTS();
+		examineAdbDoctorConf();
 		if (followFail->form.nodetype != CNDN_TYPE_DATANODE_SLAVE &&
 			followFail->form.nodetype != CNDN_TYPE_GTM_COOR_SLAVE)
 		{
@@ -1910,9 +1912,8 @@ static void treatFollowFailAfterSwitch(MgrNodeWrapper *followFail)
 		else
 		{
 			SPI_FINISH_TRANSACTIONAL_ABORT();
-			pg_usleep(nodeConfiguration->retryFollowMasterIntervalMs * 1000L);
 			CHECK_FOR_INTERRUPTS();
-			examineAdbDoctorConf();
+			pg_usleep(nodeConfiguration->retryFollowMasterIntervalMs * 1000L);
 		}
 	}
 }
@@ -1928,8 +1929,10 @@ static void treatOldMasterAfterSwitch(MgrNodeWrapper *oldMaster)
 	/* Wait for a while, let the cluster fully return to normal */
 	pg_usleep(10L * 1000000L);
 
-	while (true)
+	while (!gotSigterm)
 	{
+		CHECK_FOR_INTERRUPTS();
+		examineAdbDoctorConf();
 		if (oldMaster->form.nodetype != CNDN_TYPE_DATANODE_SLAVE &&
 			oldMaster->form.nodetype != CNDN_TYPE_GTM_COOR_SLAVE)
 		{
@@ -1969,9 +1972,8 @@ static void treatOldMasterAfterSwitch(MgrNodeWrapper *oldMaster)
 		else
 		{
 			SPI_FINISH_TRANSACTIONAL_ABORT();
-			pg_usleep(nodeConfiguration->retryRewindIntervalMs * 1000L);
 			CHECK_FOR_INTERRUPTS();
-			examineAdbDoctorConf();
+			pg_usleep(nodeConfiguration->retryRewindIntervalMs * 1000L);
 		}
 	}
 }
@@ -2451,7 +2453,7 @@ static void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
 								   PGconn *pgConn,
 								   MemoryContext spiContext)
 {
-	MgrNodeWrapper *gtmMaster;
+	MgrNodeWrapper *gtmMaster = NULL;
 
 	if (mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
 	{
@@ -2464,7 +2466,8 @@ static void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
 				(errmsg("There is no GTM master node in the cluster")));
 	}
 	setCheckGtmInfoInPGSqlConf(gtmMaster, mgrNode, pgConn, true, 10);
-	pfreeMgrNodeWrapper(gtmMaster);
+	if (gtmMaster)
+		pfreeMgrNodeWrapper(gtmMaster);
 }
 
 static bool setMgrNodeGtmInfo(MgrNodeWrapper *mgrNode)
@@ -2510,7 +2513,7 @@ static void masterNodeCrashed(MonitorNodeInfo *nodeInfo)
 	{
 		if (tryTreatNodeByStartup(nodeInfo))
 		{
-			/* wait */
+			resetAdbDoctorBounceNum(nodeInfo->restartFactor);
 		}
 		else
 		{
@@ -2520,7 +2523,7 @@ static void masterNodeCrashed(MonitorNodeInfo *nodeInfo)
 			}
 			else
 			{
-				/* wait */
+				resetAdbDoctorBounceNum(nodeInfo->restartFactor);
 			}
 		}
 	}
@@ -2536,7 +2539,7 @@ static void slaveNodeCrashed(MonitorNodeInfo *nodeInfo)
 	{
 		if (tryTreatNodeByStartup(nodeInfo))
 		{
-			/* wait */
+			resetAdbDoctorBounceNum(nodeInfo->restartFactor);
 		}
 		else
 		{
@@ -2546,7 +2549,7 @@ static void slaveNodeCrashed(MonitorNodeInfo *nodeInfo)
 			}
 			else
 			{
-				/* wait */
+				resetAdbDoctorBounceNum(nodeInfo->restartFactor);
 			}
 		}
 	}
@@ -2562,7 +2565,7 @@ static void coordinatorCrashed(MonitorNodeInfo *nodeInfo)
 	{
 		if (tryTreatNodeByStartup(nodeInfo))
 		{
-			/* wait */
+			resetAdbDoctorBounceNum(nodeInfo->restartFactor);
 		}
 		else
 		{
@@ -2572,7 +2575,7 @@ static void coordinatorCrashed(MonitorNodeInfo *nodeInfo)
 			}
 			else
 			{
-				/* wait */
+				resetAdbDoctorBounceNum(nodeInfo->restartFactor);
 			}
 		}
 	}

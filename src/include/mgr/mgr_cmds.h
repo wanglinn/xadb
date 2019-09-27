@@ -132,6 +132,7 @@ typedef enum AlarmLevel
 	ALARM_EMERGENCY
 }AlarmLevel;
 
+extern NameData GTM_COORD_PGXC_NODE_NAME;
 /* host commands, in cmd_host.c */
 
 extern void mgr_add_host(MGRAddHost *node, ParamListInfo params, DestReceiver *dest);
@@ -284,7 +285,9 @@ extern Datum mgr_monitor_ha(PG_FUNCTION_ARGS);
 extern void get_nodeinfo_byname(char *node_name, char node_type, bool *is_exist, bool *is_running, AppendNodeInfo *nodeinfo);
 extern void pfree_AppendNodeInfo(AppendNodeInfo nodeinfo);
 extern bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid);
+extern bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid);
 extern void mgr_unlock_cluster(PGconn **pg_conn);
+extern void mgr_unlock_cluster_involve_gtm_coord(PGconn **pg_conn);
 extern int mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam);
 extern bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *dnname
 		, GetAgentCmdRst *getAgentCmdRst, PGconn **pg_conn, Oid cnoid, char *newSyncSlaveName);

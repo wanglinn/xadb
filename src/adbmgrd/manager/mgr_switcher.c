@@ -36,10 +36,6 @@ static SwitcherNodeWrapper *checkGetSwitchoverNewMaster(char *newMasterName,
 static SwitcherNodeWrapper *checkGetSwitchoverOldMaster(Oid oldMasterOid,
 														bool dataNode,
 														MemoryContext spiContext);
-static void checkGetMasterCoordinators(MemoryContext spiContext,
-									   dlist_head *coordinators,
-									   bool includeGtmCoord,
-									   bool checkRunningMode);
 static void checkGetAllDataNodes(dlist_head *dataNodes,
 								 MemoryContext spiContext);
 static void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
@@ -132,11 +128,6 @@ static bool updateAdbSlot(SwitcherNodeWrapper *coordinator,
 						  MgrNodeWrapper *oldMaster,
 						  MgrNodeWrapper *newMaster,
 						  bool complain);
-static bool pgxcPoolReload(PGconn *activeCoordinatorCoon,
-						   char *coordinatorName,
-						   bool localExecute,
-						   bool complain);
-static SwitcherNodeWrapper *getHoldLockCoordinator(dlist_head *coordinators);
 static SwitcherNodeWrapper *getGtmCoordMaster(dlist_head *coordinators);
 static void batchSetGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 								   dlist_head *nodes,
@@ -749,7 +740,9 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 		/* isolated node in pgxc_node would block the cluster */
 		selectIsolatedMgrNodes(spiContext, &isolatedNodes);
 		cleanMgrNodesOnCoordinator(&isolatedNodes,
-								   newMaster->mgrNode, newMaster->pgConn);
+								   newMaster->mgrNode,
+								   newMaster->pgConn,
+								   true);
 
 		/* 
 		 * Save the cluster status after the switch operation to the mgr_node 
@@ -1012,7 +1005,9 @@ void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 	/* isolated node in pgxc_node would block the cluster */
 	selectIsolatedMgrNodes(spiContext, &isolatedNodes);
 	cleanMgrNodesOnCoordinator(&isolatedNodes,
-							   newMaster->mgrNode, newMaster->pgConn);
+							   newMaster->mgrNode,
+							   newMaster->pgConn,
+							   true);
 	pfreeMgrNodeWrapperList(&isolatedNodes, NULL);
 
 	/* 
@@ -1595,10 +1590,10 @@ static void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
 	MgrNodeWrapper *mgrNode;
 
 	slaveNodetype = getMgrSlaveNodetype(masterNode->mgrNode->form.nodetype);
-	selectAllMgrSlaveNodes(masterNode->mgrNode->oid,
-						   slaveNodetype,
-						   spiContext,
-						   &mgrNodes);
+	selectActiveMgrSlaveNodes(masterNode->mgrNode->oid,
+							  slaveNodetype,
+							  spiContext,
+							  &mgrNodes);
 	if (excludeSlaveOid > 0)
 	{
 		dlist_foreach_modify(iter, &mgrNodes)
@@ -1613,9 +1608,31 @@ static void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
 	}
 	mgrNodesToSwitcherNodes(&mgrNodes,
 							&slaveNodes);
+
 	classifyNodesForSwitch(&slaveNodes,
 						   runningSlaves,
 						   failedSlaves);
+
+	/* add isolated slave node to failedSlaves */
+	dlist_init(&mgrNodes);
+	selectIsolatedMgrSlaveNodes(masterNode->mgrNode->oid,
+								slaveNodetype,
+								spiContext,
+								&mgrNodes);
+	if (excludeSlaveOid > 0)
+	{
+		dlist_foreach_modify(iter, &mgrNodes)
+		{
+			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+			if (mgrNode->oid == excludeSlaveOid)
+			{
+				dlist_delete(iter.cur);
+				pfreeMgrNodeWrapper(mgrNode);
+			}
+		}
+	}
+	mgrNodesToSwitcherNodes(&mgrNodes,
+							failedSlaves);
 }
 
 static void classifyNodesForSwitch(dlist_head *nodes,
@@ -1632,6 +1649,10 @@ static void classifyNodesForSwitch(dlist_head *nodes,
 
 		if (tryConnectNode(node, 10))
 		{
+			node->pgxcNodeName = getMgrNodePgxcNodeName(node->mgrNode,
+														node->pgConn,
+														true,
+														true);
 			node->runningMode = getNodeRunningMode(node->pgConn);
 			if (node->runningMode == NODE_RUNNING_MODE_UNKNOW)
 			{
@@ -1709,10 +1730,10 @@ static void sortNodesByWalLsnDesc(dlist_head *nodes)
 	}
 }
 
-static void checkGetMasterCoordinators(MemoryContext spiContext,
-									   dlist_head *coordinators,
-									   bool includeGtmCoord,
-									   bool checkRunningMode)
+void checkGetMasterCoordinators(MemoryContext spiContext,
+								dlist_head *coordinators,
+								bool includeGtmCoord,
+								bool checkRunningMode)
 {
 	dlist_head mgrNodes = DLIST_STATIC_INIT(mgrNodes);
 	SwitcherNodeWrapper *node;
@@ -1746,7 +1767,8 @@ static void checkGetMasterCoordinators(MemoryContext spiContext,
 		}
 		node->pgxcNodeName = getMgrNodePgxcNodeName(node->mgrNode,
 													node->pgConn,
-													false);
+													true,
+													true);
 		if (checkRunningMode)
 		{
 			node->runningMode = getNodeRunningMode(node->pgConn);
@@ -1893,7 +1915,7 @@ static SwitcherNodeWrapper *checkGetDataNodeOldMaster(char *oldMasterName,
 	}
 	oldMaster = palloc0(sizeof(SwitcherNodeWrapper));
 	oldMaster->mgrNode = mgrNode;
-	if (tryConnectNode(oldMaster, 10))
+	if (tryConnectNode(oldMaster, 2))
 	{
 		oldMaster->runningMode = getNodeRunningMode(oldMaster->pgConn);
 	}
@@ -1939,7 +1961,7 @@ static SwitcherNodeWrapper *checkGetGtmCoordOldMaster(char *oldMasterName,
 	}
 	oldMaster = palloc0(sizeof(SwitcherNodeWrapper));
 	oldMaster->mgrNode = mgrNode;
-	if (tryConnectNode(oldMaster, 10))
+	if (tryConnectNode(oldMaster, 2))
 	{
 		oldMaster->runningMode = getNodeRunningMode(oldMaster->pgConn);
 	}
@@ -2011,6 +2033,10 @@ static SwitcherNodeWrapper *checkGetSwitchoverNewMaster(char *newMasterName,
 	newMaster->mgrNode = mgrNode;
 	if (tryConnectNode(newMaster, 10))
 	{
+		newMaster->pgxcNodeName = getMgrNodePgxcNodeName(newMaster->mgrNode,
+														 newMaster->pgConn,
+														 true,
+														 true);
 		newMaster->runningMode = getNodeRunningMode(newMaster->pgConn);
 		if (newMaster->runningMode != NODE_RUNNING_MODE_SLAVE)
 		{
@@ -2019,9 +2045,6 @@ static SwitcherNodeWrapper *checkGetSwitchoverNewMaster(char *newMasterName,
 					(errmsg("%s expected running status is slave mode, but actually is not",
 							NameStr(mgrNode->form.nodename))));
 		}
-		newMaster->pgxcNodeName = getMgrNodePgxcNodeName(newMaster->mgrNode,
-														 newMaster->pgConn,
-														 false);
 	}
 	else
 	{
@@ -2072,6 +2095,10 @@ static SwitcherNodeWrapper *checkGetSwitchoverOldMaster(Oid oldMasterOid,
 	oldMaster->mgrNode = mgrNode;
 	if (tryConnectNode(oldMaster, 10))
 	{
+		oldMaster->pgxcNodeName = getMgrNodePgxcNodeName(oldMaster->mgrNode,
+														 oldMaster->pgConn,
+														 true,
+														 true);
 		oldMaster->runningMode = getNodeRunningMode(oldMaster->pgConn);
 		if (oldMaster->runningMode != NODE_RUNNING_MODE_MASTER)
 		{
@@ -2080,9 +2107,6 @@ static SwitcherNodeWrapper *checkGetSwitchoverOldMaster(Oid oldMasterOid,
 					(errmsg("%s expected running status is master mode, but actually is not",
 							NameStr(mgrNode->form.nodename))));
 		}
-		oldMaster->pgxcNodeName = getMgrNodePgxcNodeName(oldMaster->mgrNode,
-														 oldMaster->pgConn,
-														 false);
 	}
 	else
 	{
@@ -2548,6 +2572,13 @@ static void refreshSlaveNodesAfterSwitch(SwitcherNodeWrapper *newMaster,
 									 CURE_STATUS_OLD_MASTER,
 									 spiContext);
 		}
+		else if (pg_strcasecmp(NameStr(node->oldCurestatus),
+							   CURE_STATUS_ISOLATED) == 0)
+		{
+			updateMgrNodeAfterSwitch(node->mgrNode,
+									 CURE_STATUS_ISOLATED,
+									 spiContext);
+		}
 		else
 		{
 			updateMgrNodeAfterSwitch(node->mgrNode,
@@ -2666,9 +2697,10 @@ static void refreshPgxcNodesAfterSwitchDataNode(dlist_head *coordinators,
 											  oldMaster->mgrNode,
 											  newMaster->mgrNode,
 											  true);
-		pgxcPoolReload(holdLockCoordinator->pgConn,
-					   NameStr(coordinator->mgrNode->form.nodename),
-					   localExecute, true);
+		pgxcPoolReloadOnCoordinator(holdLockCoordinator->pgConn,
+									localExecute,
+									coordinator->pgxcNodeName,
+									true);
 	}
 	/* change pgxc_node on datanode master */
 	newMaster->pgxcNodeChanged =
@@ -2695,9 +2727,10 @@ static void refreshPgxcNodesAfterSwitchGtmCoord(dlist_head *coordinators,
 											  coordinator,
 											  newMaster,
 											  true);
-		pgxcPoolReload(coordinator->pgConn,
-					   NameStr(coordinator->mgrNode->form.nodename),
-					   true, true);
+		pgxcPoolReloadOnCoordinator(coordinator->pgConn,
+									true,
+									coordinator->pgxcNodeName,
+									true);
 	}
 }
 
@@ -2929,6 +2962,7 @@ static bool updatePgxcNodeAfterSwitchDataNode(SwitcherNodeWrapper *holdLockNode,
 		{
 			dropNodeFromPgxcNode(activeCoon,
 								 executeOnNodeName,
+								 localExecute,
 								 NameStr(newMgrNode->form.nodename),
 								 complain);
 		}
@@ -3015,31 +3049,7 @@ static bool updateAdbSlot(SwitcherNodeWrapper *coordinator,
 	return execOk;
 }
 
-static bool pgxcPoolReload(PGconn *activeCoordinatorCoon,
-						   char *coordinatorName,
-						   bool localExecute,
-						   bool complain)
-{
-	char *sql;
-	bool res;
-	if (localExecute)
-		sql = psprintf("set FORCE_PARALLEL_MODE = off; "
-					   "select pgxc_pool_reload();");
-	else
-		sql = psprintf("set FORCE_PARALLEL_MODE = off; "
-					   "EXECUTE DIRECT ON (\"%s\") "
-					   "'select pgxc_pool_reload();'",
-					   coordinatorName);
-	res = PQexecBoolQuery(activeCoordinatorCoon, sql, true, complain);
-	pfree(sql);
-	if (res)
-		ereport(LOG,
-				(errmsg("%s execute pgxc_pool_reload() successfully",
-						coordinatorName)));
-	return res;
-}
-
-static SwitcherNodeWrapper *getHoldLockCoordinator(dlist_head *coordinators)
+SwitcherNodeWrapper *getHoldLockCoordinator(dlist_head *coordinators)
 {
 	dlist_iter iter;
 	SwitcherNodeWrapper *coordinator;

@@ -1041,10 +1041,10 @@ static void classifySlaveNodesByIfRunning(MgrNodeWrapper *masterNode,
 	SwitcherNodeWrapper *node;
 	dlist_mutable_iter miter;
 
-	selectAllMgrSlaveNodes(masterNode->oid,
-						   getMgrSlaveNodetype(masterNode->form.nodetype),
-						   spiContext,
-						   &mgrNodes);
+	selectActiveMgrSlaveNodes(masterNode->oid,
+							  getMgrSlaveNodetype(masterNode->form.nodetype),
+							  spiContext,
+							  &mgrNodes);
 
 	mgrNodesToSwitcherNodes(&mgrNodes,
 							&slaveNodes);

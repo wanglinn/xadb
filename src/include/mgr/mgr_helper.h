@@ -339,10 +339,14 @@ extern void selectActiveMgrNodeByNodetype(MemoryContext spiContext,
 										  dlist_head *resultList);
 extern void selectMgrAllDataNodes(MemoryContext spiContext,
 								  dlist_head *resultList);
-extern void selectAllMgrSlaveNodes(Oid masterOid,
-								   char nodetype,
-								   MemoryContext spiContext,
-								   dlist_head *resultList);
+extern void selectActiveMgrSlaveNodes(Oid masterOid,
+									  char nodetype,
+									  MemoryContext spiContext,
+									  dlist_head *resultList);
+extern void selectIsolatedMgrSlaveNodes(Oid masterOid,
+										char nodetype,
+										MemoryContext spiContext,
+										dlist_head *resultList);
 extern void selectMgrNodesForNodeDoctors(MemoryContext spiContext,
 										 dlist_head *resultList);
 extern MgrNodeWrapper *selectMgrNodeForNodeDoctor(Oid oid,
@@ -364,6 +368,7 @@ extern int updateMgrNodeToIsolate(MgrNodeWrapper *mgrNode,
 								  MemoryContext spiContext);
 extern int updateMgrNodeToUnIsolate(MgrNodeWrapper *mgrNode,
 									MemoryContext spiContext);
+extern int executeUpdateSql(char *sql, MemoryContext spiContext);
 extern void selectMgrHosts(char *sql,
 						   MemoryContext spiContext,
 						   dlist_head *resultList);
@@ -498,10 +503,15 @@ extern bool batchStartupNodesWithinSeconds(dlist_head *nodes,
 										   bool complain);
 extern bool dropNodeFromPgxcNode(PGconn *activeCoon,
 								 char *executeOnNodeName,
-								 char *nodeName, bool complain);
+								 bool localExecute,
+								 char *nodeName,
+								 bool complain);
 extern bool createNodeOnPgxcNode(PGconn *activeCoon,
 								 char *executeOnNodeName,
-								 MgrNodeWrapper *mgrNode, bool complain);
+								 bool localExecute,
+								 MgrNodeWrapper *mgrNode,
+								 char *pgxcNodeName,
+								 bool complain);
 extern bool nodenameExistsInPgxcNode(PGconn *activeCoon,
 									 char *executeOnNodeName,
 									 bool localExecute,
@@ -519,9 +529,29 @@ extern bool isNodeInSyncStandbyNames(MgrNodeWrapper *masterNode,
 									 PGconn *masterConn);
 extern void cleanMgrNodesOnCoordinator(dlist_head *mgrNodes,
 									   MgrNodeWrapper *coordinator,
-									   PGconn *coordConn);
+									   PGconn *coordConn,
+									   bool complain);
+extern void compareAndCreateMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
+												 char *pgxcNodeName,
+												 MgrNodeWrapper *coordinator,
+												 PGconn *coordConn,
+												 bool localExecute,
+												 char *executeOnNodeName,
+												 bool complain);
+extern void compareAndCleanMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
+												MgrNodeWrapper *coordinator,
+												PGconn *coordConn,
+												bool localExecute,
+												char *executeOnNodeName,
+												bool complain);
 extern char *getMgrNodePgxcNodeName(MgrNodeWrapper *mgrNode,
-									PGconn *nodeConn, bool complain);
+									PGconn *nodeConn,
+									bool localExecute,
+									bool complain);
+extern bool pgxcPoolReloadOnCoordinator(PGconn *coordCoon,
+										bool localExecute,
+										char *executeOnNodeName,
+										bool complain);
 extern bool isGtmCoordMgrNode(char nodetype);
 extern bool isDataNodeMgrNode(char nodetype);
 extern bool isCoordinatorMgrNode(char nodetype);

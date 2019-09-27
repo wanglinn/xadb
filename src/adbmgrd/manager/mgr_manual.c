@@ -740,6 +740,10 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	get_nodeinfo_byname(m_coordname, CNDN_TYPE_COORDINATOR_MASTER, &b_exist_src, &b_running_src, &src_nodeinfo);
 	if (!b_exist_src)
 	{
+		get_nodeinfo_byname(m_coordname, CNDN_TYPE_GTM_COOR_MASTER, &b_exist_src, &b_running_src, &src_nodeinfo);
+	}
+	if (!b_exist_src)
+	{
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 			, errmsg("coordinator \"%s\" does not exist in cluster", m_coordname)));
 	}
@@ -749,10 +753,10 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errmsg("coordinator \"%s\" is not running normal", m_coordname)));
 	}
 	/* check the source coordinator the parameters in postgresql.conf */
-	if (!mgr_check_param_reload_postgresqlconf(CNDN_TYPE_COORDINATOR_MASTER
+	if (!mgr_check_param_reload_postgresqlconf(src_nodeinfo.nodetype
 		, src_nodeinfo.nodehost, src_nodeinfo.nodeport, src_nodeinfo.nodeaddr
 		, "wal_level", "replica")
-		&& !mgr_check_param_reload_postgresqlconf(CNDN_TYPE_COORDINATOR_MASTER
+		&& !mgr_check_param_reload_postgresqlconf(src_nodeinfo.nodetype
 		, src_nodeinfo.nodehost, src_nodeinfo.nodeport, src_nodeinfo.nodeaddr
 		, "wal_level", "logical"))
 	{
@@ -1083,7 +1087,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	PG_TRY();
 	{
 		/* lock the cluster */
-		mgr_lock_cluster(&pg_conn, &cnoid);
+		mgr_lock_cluster_involve_gtm_coord(&pg_conn, &cnoid);
 		/*set xc_maintenance_mode=on  */
 		res = PQexec(pg_conn, "set xc_maintenance_mode = on;");
 		if (PQresultStatus(res) != PGRES_COMMAND_OK)
@@ -1278,7 +1282,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 			appendStringInfo(&infosendmsg, "SELECT PGXC_POOL_RELOAD();");
 			(void) mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_TUPLES_OK, &strerr);
 		}
-		mgr_unlock_cluster(&pg_conn);
+		mgr_unlock_cluster_involve_gtm_coord(&pg_conn);
 		pfree(sqlstrmsg.data);
 		pfree(strerr.data);
 		pfree(restmsg.data);
@@ -1311,7 +1315,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	pfree_AppendNodeInfo(dest_nodeinfo);
 
 	/* unlock the cluster */
-	mgr_unlock_cluster(&pg_conn);
+	mgr_unlock_cluster_involve_gtm_coord(&pg_conn);
 
 	/* update pgxc_node if the node is read only node and
 	*  set preferred node
@@ -1478,7 +1482,7 @@ bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const in
 		ereport(NOTICE, (errmsg("on GTM coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename), sql)));
 
 		num = iloop;
-		appendStringInfo(&restmsg, "EXECUTE DIRECT ON (\"%s\") '%s'", NameStr(mgr_node->nodename), sql);
+		appendStringInfo(&restmsg, "EXECUTE DIRECT ON (\"%s\") '%s'", strlen(NameStr(GTM_COORD_PGXC_NODE_NAME)) ==0 ?NameStr(mgr_node->nodename):NameStr(GTM_COORD_PGXC_NODE_NAME), sql);
 		while (num-- > 0)
 		{
 			res = PQexec(*pg_conn, restmsg.data);
