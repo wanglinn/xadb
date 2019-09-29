@@ -392,7 +392,7 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		2.4 wait 20s for sync
 		*/
 		ereport(INFO, (errmsg("%s%s", phase1_msg, "lock cluster and wait 20s for sync.")));
-		mgr_lock_cluster(&co_pg_conn, &cnoid);
+		mgr_lock_cluster_involve_gtm_coord(&co_pg_conn, &cnoid);
 
 		try=20;
 		for(;;)
@@ -486,7 +486,7 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 			3, PGRES_TUPLES_OK, &strinfo))
 			ereport(WARNING, (errmsg("%s, use 'select adb_invalidate_relcache_all() on the coordinators.", strinfo.data)));
 
-		mgr_unlock_cluster(&co_pg_conn);
+		mgr_unlock_cluster_involve_gtm_coord(&co_pg_conn);
 
 		//5.update dst node init and in cluster, and parent node is empty.
 		ereport(INFO, (errmsg("update dst node init and in cluster, and parent node is empty.if this step fails, use 'expand activate recover promote success dst' to recover.")));
@@ -630,7 +630,7 @@ Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS)
 
 		//flush slot info in all nodes(includes new node)
 		hexp_pqexec_direct_execute_utility(co_pg_conn, "flush slot;", MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		mgr_unlock_cluster(&co_pg_conn);
+		mgr_unlock_cluster_involve_gtm_coord(&co_pg_conn);
 
 
 		//5.update dst node init and in cluster, and parent node is empty.

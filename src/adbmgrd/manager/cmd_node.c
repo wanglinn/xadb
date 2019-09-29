@@ -1850,12 +1850,12 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	else if (AGT_CMD_GTMCOOR_SLAVE_FAILOVER == cmdtype)
 	{
 		/*pause cluster*/
-		mgr_lock_cluster(&pg_conn, &cnoid);
+		mgr_lock_cluster_involve_gtm_coord(&pg_conn, &cnoid);
 		/*stop gtm master*/
 		mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(nodemasternameoid));
 		if(!HeapTupleIsValid(mastertuple))
 		{
-			mgr_unlock_cluster(&pg_conn);
+			mgr_unlock_cluster_involve_gtm_coord(&pg_conn);
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 				,errmsg("gtm master \"%s\" does not exist", cndnname)));
 		}
@@ -1873,12 +1873,12 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	else if (AGT_CMD_DN_FAILOVER == cmdtype)
 	{
 		/*pause cluster*/
-		mgr_lock_cluster(&pg_conn, &cnoid);
+		mgr_lock_cluster_involve_gtm_coord(&pg_conn, &cnoid);
 		/*stop datanode master*/
 		 mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(nodemasternameoid));
 		 if(!HeapTupleIsValid(mastertuple))
 		 {
-			mgr_unlock_cluster(&pg_conn);
+			mgr_unlock_cluster_involve_gtm_coord(&pg_conn);
 			ereport(WARNING, (errcode(ERRCODE_UNDEFINED_OBJECT)
 				,errmsg("datanode master \"%s\" dosen't exist", cndnname)));
 		 }
@@ -1944,7 +1944,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	{
 		if (AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTMCOOR_SLAVE_FAILOVER == cmdtype)
 		{
-			mgr_unlock_cluster(&pg_conn);
+			mgr_unlock_cluster_involve_gtm_coord(&pg_conn);
 			pg_conn = NULL;
 		}
 
@@ -1961,7 +1961,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 				execRes = true;
 			else
 			{
-				mgr_unlock_cluster(&pg_conn);
+				mgr_unlock_cluster_involve_gtm_coord(&pg_conn);
 				goto end;
 			}
 		}
@@ -2032,7 +2032,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	}PG_CATCH();
 	{
 		if (pg_conn)
-			mgr_unlock_cluster(&pg_conn);
+			mgr_unlock_cluster_involve_gtm_coord(&pg_conn);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
@@ -4903,6 +4903,11 @@ void mgr_make_sure_all_running(char node_type)
 	char *user;
 	NameData nodetypestr_data;
 	NameData nodename;
+	PGconn *pgconn = NULL;
+	PGresult *res = NULL;
+	char bufPort[10];
+
+	memset(bufPort, 0, 10);
 
 	ScanKeyInit(&key[0]
 				,Anum_mgr_node_nodeinited
@@ -4952,6 +4957,47 @@ void mgr_make_sure_all_running(char node_type)
 			namestrcpy(&nodetypestr_data, nodetype_str);
 			pfree(nodetype_str);
 			ereport(ERROR, (errmsg("%s \"%s\" is not running", nodetypestr_data.data,nodename.data)));
+		} 
+		else
+		{
+			/* all gtm coord node have the same pgxc_node_name value */
+			if(mgr_node->nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
+			   mgr_node->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+			{
+				sprintf(bufPort, "%d", mgr_node->nodeport);
+				pgconn = ExpPQsetdbLogin(hostaddr
+										,bufPort
+										,NULL, NULL
+										,user
+										,NULL);
+				if (PQstatus(pgconn) != CONNECTION_OK)
+				{
+					if(pgconn)
+					{
+						PQfinish(pgconn);
+						pgconn = NULL;
+					}
+					ereport(ERROR, 
+								(errmsg("can not get connection to %s \"%s\"", 
+										nodetypestr_data.data,
+										nodename.data)));
+				}
+				else 
+				{
+					/* all gtm coord node have the same pgxc_node_name value */
+					res = PQexec(pgconn, "show pgxc_node_name");
+					if (PQresultStatus(res) == PGRES_TUPLES_OK)
+					{
+						namestrcpy(&GTM_COORD_PGXC_NODE_NAME, PQgetvalue(res, 0, 0));
+					}
+					PQclear(res);
+					res = NULL;
+				}
+			}
+			else 
+			{
+				/* ignore */
+			}
 		}
 		pfree(user);
 	}
@@ -4962,6 +5008,10 @@ void mgr_make_sure_all_running(char node_type)
 
 	if (hostaddr != NULL)
 		pfree(hostaddr);
+	if(pgconn)
+		PQfinish(pgconn);
+	if(res)
+		PQclear(res);
 
 	return;
 }
@@ -7417,7 +7467,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 		getAgentCmdRst->ret = false;
 		resetStringInfo(&(getAgentCmdRst->description));
 		appendStringInfo(&(getAgentCmdRst->description), "do the steps after gtm promote fail");
-		mgr_unlock_cluster(pg_conn);
+		mgr_unlock_cluster_involve_gtm_coord(pg_conn);
 		pfree(infosendsyncmsg.data);
 		pfree(infosendmsg.data);
 		pfree(recorderr.data);
@@ -7430,7 +7480,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 	}PG_END_TRY();
 
 	/*unlock cluster*/
-	mgr_unlock_cluster(pg_conn);
+	mgr_unlock_cluster_involve_gtm_coord(pg_conn);
 
 	/*refresh new master synchronous_standby_names*/
 	resetStringInfo(&infosendmsg);
@@ -7732,12 +7782,12 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 		}
 	}PG_CATCH();
 	{
-		mgr_unlock_cluster(pg_conn);
+		mgr_unlock_cluster_involve_gtm_coord(pg_conn);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
 	/*unlock cluster*/
-	mgr_unlock_cluster(pg_conn);
+	mgr_unlock_cluster_involve_gtm_coord(pg_conn);
 
 	/* refresh new master synchronous_standby_names */
 	ereport(LOG, (errmsg("on datanode master \"%s\" reload \"synchronous_standby_names = '%s'\""
@@ -11090,7 +11140,7 @@ List* mgr_get_nodetype_namelist(char nodetype)
 * mgr_lock_cluster
 *  lock the cluster: find the active coodinator and execute 'SELECT PGXC_PAUSE_CLUSER()'
 */
-bool mgr_lock_cluster(PGconn **pg_conn, Oid *cnoid)
+bool mgr_lock_cluster_deprecated(PGconn **pg_conn, Oid *cnoid)
 {
 	Oid coordhostoid = InvalidOid;
 	int32 coordport = -1;
@@ -11316,6 +11366,7 @@ bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 	bool bgetAddress = true;
 	bool ret = true;
 	PGresult *res;
+	char holdLockCoordNodetype = 0;
 
 	rel_node = heap_open(NodeRelationId, AccessShareLock);
 
@@ -11354,6 +11405,7 @@ bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 			*cnoid = HeapTupleGetOid(tuple);
 			clusterLockCoordNodeOid = *cnoid;
 			namestrcpy(&clusterLockCoordNodeName, NameStr(mgr_node->nodename));
+			holdLockCoordNodetype = mgr_node->nodetype;
 			/*get the adbmanager ip*/
 			memset(self_address.data, 0, NAMEDATALEN);
 			bgetAddress = mgr_get_self_address(coordhost, coordport, &self_address);
@@ -11433,7 +11485,8 @@ bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 	
 	ereport(LOG, (errmsg("get active coordinator to connect end")));
 
-	if(mgr_node->nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+	/* all gtm coord node have the same pgxc_node_name value */
+	if(holdLockCoordNodetype == CNDN_TYPE_GTM_COOR_MASTER)
 	{
 		res = PQexec(*pg_conn, "show pgxc_node_name");
 		if (PQresultStatus(res) == PGRES_TUPLES_OK)
@@ -11504,7 +11557,7 @@ bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 	return ret;
 }
 
-void mgr_unlock_cluster(PGconn **pg_conn)
+void mgr_unlock_cluster_deprecated(PGconn **pg_conn)
 {
 	int try = 0;
 	const int maxnum = 3;

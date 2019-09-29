@@ -449,7 +449,7 @@ Datum mgr_failover_manual_pgxcnode_func(PG_FUNCTION_ARGS)
 	PG_TRY();
 	{
 		/*pause cluster*/
-		mgr_lock_cluster(&pg_conn, &cnoid);
+		mgr_lock_cluster_involve_gtm_coord(&pg_conn, &cnoid);
 		/*refresh pgxc_node on all coordiantors*/
 		initStringInfo(&(getAgentCmdRst.description));
 		getrefresh = mgr_pqexec_refresh_pgxc_node(PGXC_FAILOVER, nodetype, nodenamedata.data
@@ -461,12 +461,12 @@ Datum mgr_failover_manual_pgxcnode_func(PG_FUNCTION_ARGS)
 		}
 	}PG_CATCH();
 	{
-		mgr_unlock_cluster(&pg_conn);
+		mgr_unlock_cluster_involve_gtm_coord(&pg_conn);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
 	/*unlock cluster*/
-	mgr_unlock_cluster(&pg_conn);
+	mgr_unlock_cluster_involve_gtm_coord(&pg_conn);
 
 	PG_RETURN_BOOL(true);
 }
@@ -1750,11 +1750,11 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 		HOLD_CANCEL_INTERRUPTS();
 		while (iloop-- > 0)
 		{
-			mgr_lock_cluster(&pgConn, &cnOid);
+			mgr_lock_cluster_involve_gtm_coord(&pgConn, &cnOid);
 			res = mgr_check_active_connect_in_coordinator(pgConn, cnOid);
 			if (!res)
 			{
-				mgr_unlock_cluster(&pgConn);
+				mgr_unlock_cluster_involve_gtm_coord(&pgConn);
 			}
 			else
 				break;
@@ -1770,7 +1770,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 
 	}
 	else
-		mgr_lock_cluster(&pgConn, &cnOid);
+		mgr_lock_cluster_involve_gtm_coord(&pgConn, &cnOid);
 
 	/* check the xlog diff */
 	PG_TRY();
@@ -1939,7 +1939,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 			}
 		}
 
-		mgr_unlock_cluster(&pgConn);
+		mgr_unlock_cluster_involve_gtm_coord(&pgConn);
 		pfree_AppendNodeInfo(nodeInfoS);
 		pfree_AppendNodeInfo(nodeInfoM);
 		if (!binfosendmsg)
@@ -1976,7 +1976,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 		{
 			ereport(LOG, (errmsg("rollback start:")));
 			ereport(NOTICE, (errmsg("rollback start:")));
-			mgr_unlock_cluster(&pgConn);
+			mgr_unlock_cluster_involve_gtm_coord(&pgConn);
 			pfree_AppendNodeInfo(nodeInfoS);
 			pfree_AppendNodeInfo(nodeInfoM);
 			pfree(infosendmsg.data);
@@ -2009,7 +2009,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 		{
 			ereport(LOG, (errmsg("rollback start:")));
 			ereport(NOTICE, (errmsg("rollback start:")));
-			mgr_unlock_cluster(&pgConn);
+			mgr_unlock_cluster_involve_gtm_coord(&pgConn);
 			ereport(WARNING, (errmsg("set agtm_post, agtm_host fail, use \"monitor all\", \"monitor ha\" to check nodes status !!! you may need to make the original %s \"%s\" to run normal !!! check agtm_host,agtm_port in postgresql.conf of all coordinators and datanodes, make the original %s \"%s\" to run normal!!! check hot_standby in its postgresql.conf"
 			 ,masterTypeStrData.data, nodeMasterNameData.data, nodeTypeStrData.data, nodeNameData.data)));
 			pfree_AppendNodeInfo(nodeInfoS);
@@ -2045,7 +2045,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 		}
 	}PG_CATCH();
 	{
-		mgr_unlock_cluster(&pgConn);
+		mgr_unlock_cluster_involve_gtm_coord(&pgConn);
 		pfree(restmsg.data);
 		pfree(syncStateData.data);
 
@@ -2053,7 +2053,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 	}PG_END_TRY();
 
 	/*unlock cluster*/
-	mgr_unlock_cluster(&pgConn);
+	mgr_unlock_cluster_involve_gtm_coord(&pgConn);
 	pfree(restmsg.data);
 	pfree(syncStateData.data);
 
