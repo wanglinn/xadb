@@ -796,7 +796,6 @@ static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 		GxidSender->xip[GxidSender->xcnt++] = xid;
 	}
 
-	SnapSendTransactionAssignArray(xids, xid_num, InvalidTransactionId);
 	SpinLockRelease(&GxidSender->mutex);
 
 	if (GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false) == false)

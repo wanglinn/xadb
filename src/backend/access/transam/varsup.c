@@ -35,6 +35,7 @@
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "replication/gxidreceiver.h"
+#include "replication/snapsender.h"
 
 /*
  * Parameters as below are used only in Datanode or NoMaster-Coordinator.
@@ -509,7 +510,7 @@ GetNewGlobalTransactionId(int level)
 }
 #endif
 
-#ifdef ADB_EXT
+#ifdef ADB
 TransactionId* GetNewTransactionIdArrayExt(bool isSubXact, bool isInsertXact, int xidNum)
 {
 	TransactionId	xid;
@@ -536,183 +537,196 @@ TransactionId* GetNewTransactionIdArrayExt(bool isSubXact, bool isInsertXact, in
 	xids = palloc(xidNum * sizeof(TransactionId));
 
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	for (i = 0; i < xidNum; i++)
+
+	PG_TRY();
 	{
-		xid = ShmemVariableCache->nextXid;
-
-		/*----------
-		* Check to see if it's safe to assign another XID.  This protects against
-		* catastrophic data loss due to XID wraparound.  The basic rules are:
-		*
-		* If we're past xidVacLimit, start trying to force autovacuum cycles.
-		* If we're past xidWarnLimit, start issuing warnings.
-		* If we're past xidStopLimit, refuse to execute transactions, unless
-		* we are running in single-user mode (which gives an escape hatch
-		* to the DBA who somehow got past the earlier defenses).
-		*
-		* Note that this coding also appears in GetNewMultiXactId.
-		*----------
-		*/
-		if (TransactionIdFollowsOrEquals(xid, ShmemVariableCache->xidVacLimit))
+		for (i = 0; i < xidNum; i++)
 		{
-			/*
-			* For safety's sake, we release XidGenLock while sending signals,
-			* warnings, etc.  This is not so much because we care about
-			* preserving concurrency in this situation, as to avoid any
-			* possibility of deadlock while doing get_database_name(). First,
-			* copy all the shared values we'll need in this path.
-			*/
-			TransactionId xidWarnLimit = ShmemVariableCache->xidWarnLimit;
-			TransactionId xidStopLimit = ShmemVariableCache->xidStopLimit;
-			TransactionId xidWrapLimit = ShmemVariableCache->xidWrapLimit;
-			Oid			oldest_datoid = ShmemVariableCache->oldestXidDB;
-
-			LWLockRelease(XidGenLock);
-
-			/*
-			* To avoid swamping the postmaster with signals, we issue the autovac
-			* request only once per 64K transaction starts.  This still gives
-			* plenty of chances before we get into real trouble.
-			*/
-			if (IsUnderPostmaster && (xid % 65536) == 0)
-				SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
-
-			if (IsUnderPostmaster &&
-				TransactionIdFollowsOrEquals(xid, xidStopLimit))
-			{
-				char	   *oldest_datname = get_database_name(oldest_datoid);
-
-				/* complain even if that DB has disappeared */
-				if (oldest_datname)
-					ereport(ERROR,
-							(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-							errmsg("database is not accepting commands to avoid wraparound data loss in database \"%s\"",
-									oldest_datname),
-							errhint("Stop the postmaster and vacuum that database in single-user mode.\n"
-									"You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
-				else
-					ereport(ERROR,
-							(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-							errmsg("database is not accepting commands to avoid wraparound data loss in database with OID %u",
-									oldest_datoid),
-							errhint("Stop the postmaster and vacuum that database in single-user mode.\n"
-									"You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
-			}
-			else if (TransactionIdFollowsOrEquals(xid, xidWarnLimit))
-			{
-				char	   *oldest_datname = get_database_name(oldest_datoid);
-
-				/* complain even if that DB has disappeared */
-				if (oldest_datname)
-					ereport(WARNING,
-							(errmsg("database \"%s\" must be vacuumed within %u transactions",
-									oldest_datname,
-									xidWrapLimit - xid),
-							errhint("To avoid a database shutdown, execute a database-wide VACUUM in that database.\n"
-									"You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
-				else
-					ereport(WARNING,
-							(errmsg("database with OID %u must be vacuumed within %u transactions",
-									oldest_datoid,
-									xidWrapLimit - xid),
-							errhint("To avoid a database shutdown, execute a database-wide VACUUM in that database.\n"
-									"You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
-			}
-
-			/* Re-acquire lock and start over */
-			LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 			xid = ShmemVariableCache->nextXid;
-		}
 
-		/*
-		* If we are allocating the first XID of a new page of the commit log,
-		* zero out that commit-log page before returning. We must do this while
-		* holding XidGenLock, else another xact could acquire and commit a later
-		* XID before we zero the page.  Fortunately, a page of the commit log
-		* holds 32K or more transactions, so we don't have to do this very often.
-		*
-		* Extend pg_subtrans and pg_commit_ts too.
-		*/
-		ExtendCLOG(xid);
-		ExtendCommitTs(xid);
-		ExtendSUBTRANS(xid);
-
-		/*
-		* Now advance the nextXid counter.  This must not happen until after we
-		* have successfully completed ExtendCLOG() --- if that routine fails, we
-		* want the next incoming transaction to try it again.  We cannot assign
-		* more XIDs until there is CLOG space for them.
-		*/
-		TransactionIdAdvance(ShmemVariableCache->nextXid);
-
-		/*
-		* We must store the new XID into the shared ProcArray before releasing
-		* XidGenLock.  This ensures that every active XID older than
-		* latestCompletedXid is present in the ProcArray, which is essential for
-		* correct OldestXmin tracking; see src/backend/access/transam/README.
-		*
-		* XXX by storing xid into MyPgXact without acquiring ProcArrayLock, we
-		* are relying on fetch/store of an xid to be atomic, else other backends
-		* might see a partially-set xid here.  But holding both locks at once
-		* would be a nasty concurrency hit.  So for now, assume atomicity.
-		*
-		* Note that readers of PGXACT xid fields should be careful to fetch the
-		* value only once, rather than assume they can read a value multiple
-		* times and get the same answer each time.
-		*
-		* The same comments apply to the subxact xid count and overflow fields.
-		*
-		* A solution to the atomic-store problem would be to give each PGXACT its
-		* own spinlock used only for fetching/storing that PGXACT's xid and
-		* related fields.
-		*
-		* If there's no room to fit a subtransaction XID into PGPROC, set the
-		* cache-overflowed flag instead.  This forces readers to look in
-		* pg_subtrans to map subtransaction XIDs up to top-level XIDs. There is a
-		* race-condition window, in that the new XID will not appear as running
-		* until its parent link has been placed into pg_subtrans. However, that
-		* will happen before anyone could possibly have a reason to inquire about
-		* the status of the XID, so it seems OK.  (Snapshots taken during this
-		* window *will* include the parent XID, so they will deliver the correct
-		* answer later on when someone does have a reason to inquire.)
-		*/
-		{
-			/*
-			* Use volatile pointer to prevent code rearrangement; other backends
-			* could be examining my subxids info concurrently, and we don't want
-			* them to see an invalid intermediate state, such as incrementing
-			* nxids before filling the array entry.  Note we are assuming that
-			* TransactionId and int fetch/store are atomic.
+			/*----------
+			* Check to see if it's safe to assign another XID.  This protects against
+			* catastrophic data loss due to XID wraparound.  The basic rules are:
+			*
+			* If we're past xidVacLimit, start trying to force autovacuum cycles.
+			* If we're past xidWarnLimit, start issuing warnings.
+			* If we're past xidStopLimit, refuse to execute transactions, unless
+			* we are running in single-user mode (which gives an escape hatch
+			* to the DBA who somehow got past the earlier defenses).
+			*
+			* Note that this coding also appears in GetNewMultiXactId.
+			*----------
 			*/
-			volatile PGPROC *myproc = MyProc;
-			volatile PGXACT *mypgxact = MyPgXact;
-
-			if (!isSubXact)
+			if (TransactionIdFollowsOrEquals(xid, ShmemVariableCache->xidVacLimit))
 			{
-				if (isInsertXact)
-					mypgxact->xid = xid;
-			}
-			else
-			{
-				int			nxids = mypgxact->nxids;
+				/*
+				* For safety's sake, we release XidGenLock while sending signals,
+				* warnings, etc.  This is not so much because we care about
+				* preserving concurrency in this situation, as to avoid any
+				* possibility of deadlock while doing get_database_name(). First,
+				* copy all the shared values we'll need in this path.
+				*/
+				TransactionId xidWarnLimit = ShmemVariableCache->xidWarnLimit;
+				TransactionId xidStopLimit = ShmemVariableCache->xidStopLimit;
+				TransactionId xidWrapLimit = ShmemVariableCache->xidWrapLimit;
+				Oid			oldest_datoid = ShmemVariableCache->oldestXidDB;
 
-				if (nxids < PGPROC_MAX_CACHED_SUBXIDS)
+				LWLockRelease(XidGenLock);
+
+				/*
+				* To avoid swamping the postmaster with signals, we issue the autovac
+				* request only once per 64K transaction starts.  This still gives
+				* plenty of chances before we get into real trouble.
+				*/
+				if (IsUnderPostmaster && (xid % 65536) == 0)
+					SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
+
+				if (IsUnderPostmaster &&
+					TransactionIdFollowsOrEquals(xid, xidStopLimit))
 				{
-					myproc->subxids.xids[nxids] = xid;
-					mypgxact->nxids = nxids + 1;
+					char	   *oldest_datname = get_database_name(oldest_datoid);
+
+					/* complain even if that DB has disappeared */
+					if (oldest_datname)
+						ereport(ERROR,
+								(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+								errmsg("database is not accepting commands to avoid wraparound data loss in database \"%s\"",
+										oldest_datname),
+								errhint("Stop the postmaster and vacuum that database in single-user mode.\n"
+										"You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
+					else
+						ereport(ERROR,
+								(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+								errmsg("database is not accepting commands to avoid wraparound data loss in database with OID %u",
+										oldest_datoid),
+								errhint("Stop the postmaster and vacuum that database in single-user mode.\n"
+										"You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
+				}
+				else if (TransactionIdFollowsOrEquals(xid, xidWarnLimit))
+				{
+					char	   *oldest_datname = get_database_name(oldest_datoid);
+
+					/* complain even if that DB has disappeared */
+					if (oldest_datname)
+						ereport(WARNING,
+								(errmsg("database \"%s\" must be vacuumed within %u transactions",
+										oldest_datname,
+										xidWrapLimit - xid),
+								errhint("To avoid a database shutdown, execute a database-wide VACUUM in that database.\n"
+										"You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
+					else
+						ereport(WARNING,
+								(errmsg("database with OID %u must be vacuumed within %u transactions",
+										oldest_datoid,
+										xidWrapLimit - xid),
+								errhint("To avoid a database shutdown, execute a database-wide VACUUM in that database.\n"
+										"You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
+				}
+
+				/* Re-acquire lock and start over */
+				LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+				xid = ShmemVariableCache->nextXid;
+			}
+
+			/*
+			* If we are allocating the first XID of a new page of the commit log,
+			* zero out that commit-log page before returning. We must do this while
+			* holding XidGenLock, else another xact could acquire and commit a later
+			* XID before we zero the page.  Fortunately, a page of the commit log
+			* holds 32K or more transactions, so we don't have to do this very often.
+			*
+			* Extend pg_subtrans and pg_commit_ts too.
+			*/
+			ExtendCLOG(xid);
+			ExtendCommitTs(xid);
+			ExtendSUBTRANS(xid);
+
+			/*
+			* Now advance the nextXid counter.  This must not happen until after we
+			* have successfully completed ExtendCLOG() --- if that routine fails, we
+			* want the next incoming transaction to try it again.  We cannot assign
+			* more XIDs until there is CLOG space for them.
+			*/
+			TransactionIdAdvance(ShmemVariableCache->nextXid);
+
+			/*
+			* We must store the new XID into the shared ProcArray before releasing
+			* XidGenLock.  This ensures that every active XID older than
+			* latestCompletedXid is present in the ProcArray, which is essential for
+			* correct OldestXmin tracking; see src/backend/access/transam/README.
+			*
+			* XXX by storing xid into MyPgXact without acquiring ProcArrayLock, we
+			* are relying on fetch/store of an xid to be atomic, else other backends
+			* might see a partially-set xid here.  But holding both locks at once
+			* would be a nasty concurrency hit.  So for now, assume atomicity.
+			*
+			* Note that readers of PGXACT xid fields should be careful to fetch the
+			* value only once, rather than assume they can read a value multiple
+			* times and get the same answer each time.
+			*
+			* The same comments apply to the subxact xid count and overflow fields.
+			*
+			* A solution to the atomic-store problem would be to give each PGXACT its
+			* own spinlock used only for fetching/storing that PGXACT's xid and
+			* related fields.
+			*
+			* If there's no room to fit a subtransaction XID into PGPROC, set the
+			* cache-overflowed flag instead.  This forces readers to look in
+			* pg_subtrans to map subtransaction XIDs up to top-level XIDs. There is a
+			* race-condition window, in that the new XID will not appear as running
+			* until its parent link has been placed into pg_subtrans. However, that
+			* will happen before anyone could possibly have a reason to inquire about
+			* the status of the XID, so it seems OK.  (Snapshots taken during this
+			* window *will* include the parent XID, so they will deliver the correct
+			* answer later on when someone does have a reason to inquire.)
+			*/
+			{
+				/*
+				* Use volatile pointer to prevent code rearrangement; other backends
+				* could be examining my subxids info concurrently, and we don't want
+				* them to see an invalid intermediate state, such as incrementing
+				* nxids before filling the array entry.  Note we are assuming that
+				* TransactionId and int fetch/store are atomic.
+				*/
+				volatile PGPROC *myproc = MyProc;
+				volatile PGXACT *mypgxact = MyPgXact;
+
+				if (!isSubXact)
+				{
+					if (isInsertXact)
+						mypgxact->xid = xid;
 				}
 				else
-					mypgxact->overflowed = true;
+				{
+					int			nxids = mypgxact->nxids;
+
+					if (nxids < PGPROC_MAX_CACHED_SUBXIDS)
+					{
+						myproc->subxids.xids[nxids] = xid;
+						mypgxact->nxids = nxids + 1;
+					}
+					else
+						mypgxact->overflowed = true;
+				}
 			}
+
+		#ifdef DEBUG_ADB
+			adb_ereport(LOG,
+				(errmsg("Return new local xid: %u", xid)));
+		#endif
+
+			xids[i] = xid;
 		}
 
-	#ifdef DEBUG_ADB
-		adb_ereport(LOG,
-			(errmsg("Return new local xid: %u", xid)));
-	#endif
-
-		xids[i] = xid;
 	}
+	PG_CATCH();
+	{
+		LWLockRelease(XidGenLock);
+		free(xids);
+	}
+	PG_END_TRY();
+
+	SnapSendTransactionAssignArray(xids, xidNum, InvalidTransactionId);
 	LWLockRelease(XidGenLock);
 	
 	return xids;
@@ -734,7 +748,7 @@ GetNewTransactionId(bool isSubXact)
 #ifdef ADB_EXT
 	return GetNewTransactionIdExt(isSubXact, true);
 }
-int GetNewTransactionIdExt(bool isSubXact, bool isInsertXact)
+TransactionId GetNewTransactionIdExt(bool isSubXact, bool isInsertXact)
 {
 #endif
 	TransactionId xid;
@@ -946,6 +960,14 @@ int GetNewTransactionIdExt(bool isSubXact, bool isInsertXact)
 	XLogRecordXidAssignment(xid);
 #endif
 
+#endif
+
+#ifdef ADB
+	if (IsGTMNode())
+	{
+		if (!isSubXact)
+			SnapSendTransactionAssign(xid, InvalidTransactionId);
+	}
 #endif
 
 	LWLockRelease(XidGenLock);

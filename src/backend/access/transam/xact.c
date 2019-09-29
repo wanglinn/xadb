@@ -689,6 +689,7 @@ AssignTransactionId(TransactionState s)
 	if (isSubXact)
 		SubTransSetParent(s->transactionId, s->parent->transactionId);
 
+/*
 #ifdef ADB
 	if (IsGTMNode())
 	{
@@ -697,7 +698,7 @@ AssignTransactionId(TransactionState s)
 		else
 			SnapSendTransactionAssign(s->transactionId, InvalidTransactionId);
 	}
-#endif /* ADB */
+#endif*/ /* ADB */
 
 	/*
 	 * If it's a top-level transaction, the predicate locking system needs to

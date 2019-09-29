@@ -978,6 +978,7 @@ static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test,
 			exit(1);
 		}else if(rc & WL_TIMEOUT)
 		{
+			LOCK_GXID_RCV();
 			return false;
 		}
 
@@ -1245,7 +1246,7 @@ TransactionId GixRcvGetGlobalTransactionId(bool isSubXact)
 		return MyProc->getGlobalTransaction;
 	}
 
-	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 2000);
+	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 1000);
 	WaitGxidRcvEvent(endtime, WaitGxidRcvCondReturn, &GxidRcv->reters, &GxidRcv->geters, NULL);
 
 	if (!TransactionIdIsValid(MyProc->getGlobalTransaction))
@@ -1299,7 +1300,7 @@ void GixRcvCommitTransactionId(TransactionId txid)
 	}
 
 	MyProc->getGlobalTransaction = txid;
-	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 2000);
+	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 1000);
 	ret = WaitGxidRcvEvent(endtime, WaitGxidRcvCommitReturn, &GxidRcv->wait_commiters,
 			&GxidRcv->send_commiters, (void*)((size_t)txid));
 
