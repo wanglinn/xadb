@@ -5528,7 +5528,7 @@ static bool mgr_drop_node_on_all_coord(char nodetype, char *nodename)
 				,Anum_mgr_node_nodetype
 				,BTEqualStrategyNumber
 				,F_CHAREQ
-				,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
+				,CharGetDatum(nodetype));
 
 	ScanKeyInit(&key[1]
 				,Anum_mgr_node_nodeinited
@@ -12721,7 +12721,8 @@ static bool exec_remove_coordinator(char *nodename)
 	char *userName;
 	char *nodeAddr;
 	bool isRunning;
-	bool res = true;
+	bool res1 = true;
+	bool res2 = true;
 
 	relNode = heap_open(NodeRelationId, AccessShareLock);
 	tuple = mgr_get_tuple_node_from_name_type(relNode, nodename);
@@ -12754,12 +12755,13 @@ static bool exec_remove_coordinator(char *nodename)
 		ereport(ERROR, (errmsg("coordinator master \"%s\" , stop it first", nodename)));
 	}
 	/* modify the pgxc_node table, because the coordinator has stoppend so it's not need to add ddl lock */
-	res = mgr_drop_node_on_all_coord(CNDN_TYPE_COORDINATOR_MASTER, nodename);
+	res1 = mgr_drop_node_on_all_coord(CNDN_TYPE_COORDINATOR_MASTER, nodename);
+	res2 = mgr_drop_node_on_all_coord(CNDN_TYPE_GTM_COOR_MASTER, nodename);
 
 	/* modify the mgr_node table */
 	mgr_set_inited_incluster(nodename, CNDN_TYPE_COORDINATOR_MASTER, true, false);
 
-	return res;
+	return res1 && res2;
 }
 /*
 * check the node pingNode ok max_try times
