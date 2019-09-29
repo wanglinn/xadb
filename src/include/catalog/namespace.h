@@ -180,8 +180,4 @@ extern char *namespace_search_path;
 extern List *fetch_search_path(bool includeImplicit);
 extern int	fetch_search_path_array(Oid *sarray, int sarray_len);
 
-#ifdef ADB_MULTI_GRAM
-extern Oid	get_namespace_for_gram(int grammar);
-#endif /* ADB_MULTI_GRAM */
-
 #endif							/* NAMESPACE_H */

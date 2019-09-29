@@ -52,6 +52,9 @@
 #include "catalog/pgxc_node.h"
 #include "catalog/pgxc_group.h"
 #endif
+#ifdef ADB_GRAM_ORA
+#include "catalog/ora_convert.h"
+#endif /* ADB_GRAM_ORA */
 
 
 /* Hook for plugins to get control in get_attavgwidth() */
@@ -3694,3 +3697,43 @@ get_funcid(const char *funcname, oidvector *argtypes, Oid funcnsp)
 }
 
 #endif /* ADB_MULTI_GRAM */
+
+#ifdef ADB_GRAM_ORA
+Oid* find_ora_convert(char kind, const char *name, const Oid *from, int count)
+{
+	bool			isnull;
+	Datum			datum;
+	HeapTuple		tup;
+	oidvector	   *vto;
+	oidvector	   *vfrom = buildoidvector(from, count);
+
+	tup = SearchSysCache3(ORACONVERTSCID,
+						  CharGetDatum(kind),
+						  CStringGetDatum(name),
+						  PointerGetDatum(vfrom));
+	if (!HeapTupleIsValid(tup))
+		return NULL;
+	
+	datum = SysCacheGetAttr(ORACONVERTSCID,
+							tup,
+							Anum_ora_convert_cvtto,
+							&isnull);
+	if (isnull)
+		goto data_corrupted_;
+	vto = (oidvector*)DatumGetPointer(datum);
+	if (vto->dim1 != count)
+		goto data_corrupted_;
+
+	/* we not use vfrom again, so we can reuse it for return */
+	memcpy(vfrom, vto->values, sizeof(Oid)*count);
+	ReleaseSysCache(tup);
+	return (Oid*)vfrom;
+
+data_corrupted_:
+	ereport(ERROR,
+			(errcode(ERRCODE_DATA_CORRUPTED),
+			 errmsg("corrupted data"),
+			 err_generic_string(PG_DIAG_TABLE_NAME, "ora_convert")));
+	return NULL;	/* keep compiler quiet */
+}
+#endif /* ADB_GRAM_ORA */

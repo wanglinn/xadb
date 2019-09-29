@@ -1,0 +1,27 @@
+
+[
+# sum(string)
+{ cvtkind => 'f', cvtname => 'sum', cvtfrom => 'varchar', cvtto => 'numeric' },
+{ cvtkind => 'f', cvtname => 'sum', cvtfrom => 'oracle.varchar2', cvtto => 'numeric' },
+{ cvtkind => 'f', cvtname => 'sum', cvtfrom => 'text', cvtto => 'numeric' },
+
+# int / int
+{ cvtkind => 'o', cvtname => '/', cvtfrom => 'int2 int2',
+  cvtto => 'numeric numeric' },
+{ cvtkind => 'o', cvtname => '/', cvtfrom => 'int2 int4',
+  cvtto => 'numeric numeric' },
+{ cvtkind => 'o', cvtname => '/', cvtfrom => 'int2 int8',
+  cvtto => 'numeric numeric' },
+{ cvtkind => 'o', cvtname => '/', cvtfrom => 'int4 int2',
+  cvtto => 'numeric numeric' },
+{ cvtkind => 'o', cvtname => '/', cvtfrom => 'int4 int4',
+  cvtto => 'numeric numeric' },
+{ cvtkind => 'o', cvtname => '/', cvtfrom => 'int4 int8',
+  cvtto => 'numeric numeric' },
+{ cvtkind => 'o', cvtname => '/', cvtfrom => 'int8 int2',
+  cvtto => 'numeric numeric' },
+{ cvtkind => 'o', cvtname => '/', cvtfrom => 'int8 int4',
+  cvtto => 'numeric numeric' },
+{ cvtkind => 'o', cvtname => '/', cvtfrom => 'int8 int8',
+  cvtto => 'numeric numeric' },
+]

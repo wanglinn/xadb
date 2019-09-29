@@ -223,4 +223,8 @@ extern bool is_relid_remote(Oid tableoid);
 extern Oid get_funcid(const char *funcname, oidvector *argtypes, Oid funcnsp);
 #endif
 
+#ifdef ADB_GRAM_ORA
+extern Oid* find_ora_convert(char kind, const char *name, const Oid *from, int count);
+#endif /* ADB_GRAM_ORA */
+
 #endif							/* LSYSCACHE_H */

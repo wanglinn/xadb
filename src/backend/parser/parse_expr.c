@@ -47,6 +47,7 @@
 #include "utils/fmgroids.h"
 #endif
 #ifdef ADB_GRAM_ORA
+#include "catalog/ora_convert_d.h"
 #include "nodes/nodes.h"
 #include "oraschema/oracoerce.h"
 #include "parser/parse_cte.h"
@@ -1102,50 +1103,6 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 										castNode(RowExpr, rexpr)->args,
 										a->location);
 	}
-#ifdef ADB_GRAM_ORA
-	else if(IsOracleParseGram(pstate))
-	{
-		Node *new_lexpr = transformExprRecurse(pstate, lexpr);
-		Node *new_rexpr = transformExprRecurse(pstate, rexpr);
-
-		if(new_lexpr && new_rexpr)
-		{
-			volatile ParseGrammar save_gram = pstate->p_grammar;
-
-			PG_TRY();
-			{
-				if (exprType(new_lexpr) == ORACLE_RIDOID && IsA(new_rexpr, Const))
-				{
-					pstate->p_grammar = PARSE_GRAM_POSTGRES;
-					new_rexpr = transformExprRecurse(pstate, rexpr);
-				}else if (exprType(new_rexpr) == ORACLE_RIDOID && IsA(new_lexpr, Const))
-				{
-					pstate->p_grammar = PARSE_GRAM_POSTGRES;
-					new_lexpr = transformExprRecurse(pstate, lexpr);
-				}
-			}PG_CATCH();
-			{
-				pstate->p_grammar = save_gram;
-				PG_RE_THROW();
-			}PG_END_TRY();
-			pstate->p_grammar = save_gram;
-
-			result = transformOraAExprOp(pstate,
-										 a->name,
-										 new_lexpr,
-										 new_rexpr,
-										 a->location);
-		}else
-		{
-			result = (Node *) make_op(pstate,
-									  a->name,
-									  new_lexpr,
-									  new_rexpr,
-									  pstate->p_last_srf,
-									  a->location);
-		}
-	}
-#endif /* ADB_GRAM_ORA */
 	else
 	{
 		/* Ordinary scalar operator */
@@ -1153,6 +1110,37 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 
 		lexpr = transformExprRecurse(pstate, lexpr);
 		rexpr = transformExprRecurse(pstate, rexpr);
+
+#ifdef ADB_GRAM_ORA
+		if (IsOracleParseGram(pstate) &&
+			list_length(a->name) == 1 &&
+			lexpr && rexpr)
+		{
+			Oid from[2];
+			Oid *to;
+			from[0] = exprType(lexpr);
+			from[1] = exprType(rexpr);
+
+			to = find_ora_convert(ORA_CONVERT_KIND_OPERATOR,
+								  strVal(linitial(a->name)),
+								  from,
+								  lengthof(from));
+			if (to != NULL)
+			{
+				if (from[0] != to[0])
+					lexpr = coerce_to_target_type(pstate, lexpr, from[0], to[0], -1,
+												  COERCION_IMPLICIT,
+												  COERCE_IMPLICIT_CAST,
+												  -1);
+				if (from[1] != to[1])
+					rexpr = coerce_to_target_type(pstate, rexpr, from[1], to[1], -1,
+												  COERCION_IMPLICIT,
+												  COERCE_IMPLICIT_CAST,
+												  -1);
+				pfree(to);
+			}
+		}
+#endif /* ADB_GRAM_ORA */
 
 		result = (Node *) make_op(pstate,
 								  a->name,

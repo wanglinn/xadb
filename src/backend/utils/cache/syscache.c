@@ -100,6 +100,7 @@
 #endif
 #ifdef ADB_GRAM_ORA
 #include "catalog/ora_cast.h"
+#include "catalog/ora_convert.h"
 #endif
 /*---------------------------------------------------------------------------
 
@@ -1109,6 +1110,18 @@ static const struct cachedesc cacheinfo[] = {
 			0
 		},
 		256
+	},
+	{
+		OraConvertRelationId,		/* ORACONVERTSCID */
+		OraConvertIndexId,
+		3,
+		{
+			Anum_ora_convert_cvtkind,
+			Anum_ora_convert_cvtname,
+			Anum_ora_convert_cvtfrom,
+			0
+		},
+		128
 	},
 #endif
 #ifdef ADBMGRD

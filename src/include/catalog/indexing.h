@@ -347,6 +347,8 @@ DECLARE_UNIQUE_INDEX(ora_cast_oid_index, 9016, on ora_cast using btree(oid oid_o
 #define OraCastOidIndexId	9016
 DECLARE_UNIQUE_INDEX(ora_cast_source_target_index, 9017, on ora_cast using btree(castsource oid_ops, casttarget oid_ops, castcontext char_ops));
 #define OraCastSourceTargetIndexId  9017
+DECLARE_UNIQUE_INDEX(ora_convert_index, 6103, on ora_convert using btree(cvtkind char_ops, cvtname name_ops, cvtfrom oidvector_ops));
+#define OraConvertIndexId 6103
 #endif
 
 DECLARE_UNIQUE_INDEX(pg_foreign_table_relid_index, 3119, on pg_foreign_table using btree(ftrelid oid_ops));

@@ -64,7 +64,7 @@ ifeq ($(adb_multi_gram),yes)
   MYCPPFLAGS += -DADB_MULTI_GRAM
 endif
 ifeq ($(enable_grammar_oracle),yes)
-  CATALOG_HEADERS += ora_cast.h
+  CATALOG_HEADERS += ora_cast.h ora_convert.h
   MYCPPFLAGS += -DADB_GRAM_ORA
 endif
 ifeq ($(enable_grammar_db2),yes)
@@ -99,7 +99,8 @@ ifeq ($(enable_cluster),yes)
 endif
 
 ifeq ($(enable_grammar_oracle),yes)
-  POSTGRES_BKI_DATA += $(top_srcdir)/src/include/catalog/ora_cast.dat
+  POSTGRES_BKI_DATA += $(addprefix $(top_srcdir)/src/include/catalog/,\
+	ora_cast.dat ora_convert.dat)
 endif
 
 # location of Catalog.pm

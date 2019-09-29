@@ -37,8 +37,7 @@
 #include "tcop/tcopprot.h"
 #endif /* ADB_MULTI_GRAM */
 #if defined(ADB_GRAM_ORA)
-#include "catalog/pg_namespace.h"
-#include "oraschema/oracoerce.h"
+#include "catalog/ora_convert.h"
 #endif /* ADB_GRAM_ORA */
 
 
@@ -1152,55 +1151,6 @@ func_select_candidate(int nargs,
 	if (ncandidates == 1)
 		return candidates;
 
-#ifdef ADB_GRAM_ORA
-	/*
-	 * Still too many candidates? Now look for candidates which have same
-	 * category by oracle grammar at the args that will require coercion.
-	 * Keep all candidates if none match.
-	 */
-	if (IsOraFunctionCoercionContext())
-	{
-		ncandidates = 0;
-		nbestMatch = 0;
-		last_candidate = NULL;
-		for (current_candidate = candidates;
-			 current_candidate != NULL;
-			 current_candidate = current_candidate->next)
-		{
-			current_typeids = current_candidate->args;
-			nmatch = 0;
-			for (i = 0; i < nargs; i++)
-			{
-				if (input_base_typeids[i] != UNKNOWNOID)
-				{
-					if (slot_category[i] == TypeCategory(current_typeids[i]))
-						nmatch++;
-				}
-			}
-
-			if ((nmatch > nbestMatch) || (last_candidate == NULL))
-			{
-				nbestMatch = nmatch;
-				candidates = current_candidate;
-				last_candidate = current_candidate;
-				ncandidates = 1;
-			}
-			else if (nmatch == nbestMatch)
-			{
-				last_candidate->next = current_candidate;
-				last_candidate = current_candidate;
-				ncandidates++;
-			}
-		}
-
-		if (last_candidate) 		/* terminate rebuilt list */
-			last_candidate->next = NULL;
-
-		if (ncandidates == 1)
-			return candidates;
-	}
-#endif /* ADB_GRAM_ORA */
-
 	/*
 	 * Still too many candidates?  Try assigning types for the unknown inputs.
 	 *
@@ -1603,63 +1553,28 @@ func_get_detail(List *funcname,
 			 */
 			else if (ncandidates > 1)
 			{
-#ifdef ADB_MULTI_GRAM
-				Oid nsp;
-
-				if (list_length(funcname) == 1 &&	/* unspecified schema */
-					current_grammar != PARSE_GRAM_POSTGRES &&
-					(nsp = get_namespace_for_gram(current_grammar)) != InvalidOid)
-				{
-					ListCell *lc;
-					List *list_better = NIL;
-					for(best_candidate = current_candidates;
-						best_candidate != NULL;
-						best_candidate = best_candidate->next)
-					{
-						if (best_candidate->nspoid == nsp)
-							list_better = lappend(list_better, best_candidate);
-					}
-
-					/* modify chain if we found better */
-					if (list_better != NIL)
-					{
-						lc = list_head(list_better);
-						best_candidate = current_candidates = lfirst(lc);
-						for(lc=lnext(lc);lc!=NULL;lc=lnext(lc))
-						{
-							best_candidate->next = lfirst(lc);
-							best_candidate = lfirst(lc);
-						}
-						best_candidate->next = NULL;
-						list_free(list_better);
-					}
-				}
-#endif
 				best_candidate = func_select_candidate(nargs,
 													   argtypes,
 													   current_candidates);
 #ifdef ADB_GRAM_ORA
-				/*
-				 * We think the function belong to oracle namespace is the best
-				 * candidate if we are not able to choose the best candidate.
-				 *
-				 * but, there may still be multiple matches,
-				 * the code is not a good idea
-				 * e.g.
-				 *          subtract('2018-01-01', '1')
-				 * it can be
-				 *   oracle.subtract('2018-01-01', '1'::oracle.date)
-				 * and
-				 *   oracle.subtract('2018-01-01', '1'::numeric)
-				 */
-				if (!best_candidate && IsOraFunctionCoercionContext())
+				if (!best_candidate &&
+					current_grammar == PARSE_GRAM_ORACLE &&
+					list_length(funcname) == 1)
 				{
-					for (best_candidate = current_candidates;
-						best_candidate != NULL;
-						best_candidate = best_candidate->next)
+					Oid *to = find_ora_convert(ORA_CONVERT_KIND_FUNCTION,
+											   strVal(linitial(funcname)),
+											   argtypes,
+											   nargs);
+					if (to != NULL)
 					{
-						if (best_candidate->nspoid == PG_ORACLE_NAMESPACE)
-							break;
+						for(best_candidate = current_candidates;
+							best_candidate != NULL;
+							best_candidate = best_candidate->next)
+						{
+							if (memcmp(to, best_candidate->args, nargs * sizeof(Oid)) == 0)
+								break;
+						}
+						pfree(to);
 					}
 				}
 #endif
