@@ -190,8 +190,7 @@ extern int TransactionLogFetch(TransactionId transactionId);
 #endif
 
 #ifdef ADB_EXT
-extern TransactionId GetNewTransactionIdExt(bool isSubXact, bool isInsertXact);
-TransactionId* GetNewTransactionIdArrayExt(bool isSubXact, bool isInsertXact, int xidNum);
+extern TransactionId GetNewTransactionIdExt(bool isSubXact, int num, bool isInsertXact);
 #endif
 
 extern TransactionId GetNewTransactionId(bool isSubXact);

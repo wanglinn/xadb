@@ -706,7 +706,7 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 	while(gxid_send_input_buffer.cursor < gxid_send_input_buffer.len)
 	{
 		procno = pq_getmsgint(&gxid_send_input_buffer, sizeof(procno));
-		xid = GetNewTransactionIdExt(false, false);
+		xid = GetNewTransactionIdExt(false, 1, false);
 
 		xiditem = palloc0(sizeof(*xiditem));
 		xiditem->procno = procno;
@@ -714,7 +714,7 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 		slist_push_head(&clientitem->gxid_assgin_xid_list, &xiditem->snode);
 		clientitem->xcnt++;
 
-		SnapSendTransactionAssign(xid, InvalidTransactionId);
+		SnapSendTransactionAssign(xid, 1, InvalidTransactionId);
 		pq_sendint32(&gxid_send_output_buffer, procno);
 		pq_sendint32(&gxid_send_output_buffer, xid);
 
@@ -747,8 +747,7 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 
 static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 {
-	TransactionId				xid;
-	TransactionId				*xids;
+	TransactionId				xid, xidmax;
 	ClientHashItemInfo			*clientitem;
 	ClientXidItemInfo			*xiditem;
 	bool						found;
@@ -774,12 +773,12 @@ static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 	ereport(LOG,(errmsg("GxidSend assging xid for %s\n", client->client_name)));
 #endif
 
-	xids = GetNewTransactionIdArrayExt(false, false, xid_num);
+	xidmax = GetNewTransactionIdExt(false, xid_num, false);
 
 	SpinLockAcquire(&GxidSender->mutex);
 	for (i = 0; i < xid_num; i++)
 	{
-		xid = xids[i];
+		xid = xidmax - xid_num + i + 1;
 #ifdef SNAP_SYNC_DEBUG
 		if (i == 0)
 			ereport(LOG,(errmsg(" %d --\n", xid)));
@@ -802,8 +801,6 @@ static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 	{
 		GxidSenderDropClient(client, true);
 	}
-
-	pfree(xids);
 }
 
 /*static void GxidSenderUpdateNextXidAllClient(TransactionId xid, GxidClientData *exclude_client)

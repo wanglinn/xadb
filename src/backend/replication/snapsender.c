@@ -1269,8 +1269,10 @@ static void SnapSenderCheckXactPrepareList(void)
 	return;
 }
 
-void SnapSendTransactionAssign(TransactionId txid, TransactionId parent)
+void SnapSendTransactionAssign(TransactionId txid, int txidnum, TransactionId parent)
 {
+	int i = 0;
+
 	Assert(TransactionIdIsValid(txid));
 	Assert(TransactionIdIsNormal(txid));
 	if (!IsGTMNode())
@@ -1289,16 +1291,20 @@ void SnapSendTransactionAssign(TransactionId txid, TransactionId parent)
 		return;
 	}
 
+	for (i = txidnum; i > 0; i--)
+	{
 #ifdef SNAP_SYNC_DEBUG
-	ereport(LOG,(errmsg("Call SnapSend assging xid %d\n",
-			 			txid)));
+		ereport(LOG,(errmsg("Call SnapSend assging xid %d\n",
+							txid)));
 #endif
-	if(SnapSender->cur_cnt_assign == MAX_CNT_SHMEM_XID_BUF)
-		WaitSnapSendShmemSpace(&SnapSender->mutex,
-							   &SnapSender->cur_cnt_assign,
-							   &SnapSender->waiters_assign);
-	Assert(SnapSender->cur_cnt_assign < MAX_CNT_SHMEM_XID_BUF);
-	SnapSender->xid_assign[SnapSender->cur_cnt_assign++] = txid;
+		if(SnapSender->cur_cnt_assign == MAX_CNT_SHMEM_XID_BUF)
+			WaitSnapSendShmemSpace(&SnapSender->mutex,
+								&SnapSender->cur_cnt_assign,
+								&SnapSender->waiters_assign);
+		Assert(SnapSender->cur_cnt_assign < MAX_CNT_SHMEM_XID_BUF);
+		SnapSender->xid_assign[SnapSender->cur_cnt_assign++] = txid--;
+	}
+
 	SetLatch(&(GetPGProcByNumber(SnapSender->procno)->procLatch));
 	SpinLockRelease(&SnapSender->mutex);
 }
