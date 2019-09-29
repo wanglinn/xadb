@@ -2465,7 +2465,7 @@ static void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
 		ereport(ERROR,
 				(errmsg("There is no GTM master node in the cluster")));
 	}
-	setCheckGtmInfoInPGSqlConf(gtmMaster, mgrNode, pgConn, true, 10);
+	setCheckGtmInfoInPGSqlConf(gtmMaster, mgrNode, pgConn, true, 10, true);
 	if (gtmMaster)
 		pfreeMgrNodeWrapper(gtmMaster);
 }
@@ -2474,9 +2474,6 @@ static bool setMgrNodeGtmInfo(MgrNodeWrapper *mgrNode)
 {
 	bool done;
 	MgrNodeWrapper *gtmMaster;
-	char *agtm_host;
-	char snapsender_port[12] = {0};
-	char gxidsender_port[12] = {0};
 	MemoryContext spiContext;
 
 	spiContext = beginCureOperation(mgrNode);
@@ -2489,14 +2486,13 @@ static bool setMgrNodeGtmInfo(MgrNodeWrapper *mgrNode)
 	}
 	else
 	{
-		EXTRACT_GTM_INFOMATION(gtmMaster, agtm_host,
-							   snapsender_port, gxidsender_port);
 		ereport(DEBUG1,
 				(errmsg("try to fix GTM information on %s",
 						NameStr(mgrNode->form.nodename))));
 
-		done = setGtmInfoInPGSqlConf(mgrNode, agtm_host,
-									 snapsender_port, gxidsender_port, false);
+		done = setGtmInfoInPGSqlConf(mgrNode,
+									 gtmMaster,
+									 false);
 		ereport(DEBUG1,
 				(errmsg("fix GTM information on %s %s",
 						NameStr(mgrNode->form.nodename),

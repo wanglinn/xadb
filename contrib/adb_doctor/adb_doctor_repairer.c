@@ -564,7 +564,7 @@ static bool repairCoordinatorNode(MgrNodeWrapper *faultCoordinator)
 // 			dlist_foreach(iter, activeCoordinators)
 // 			{
 // 				activeCoordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-// 				compareAndCleanMgrNodeOnCoordinator(faultCoordinator,
+// 				compareAndDropMgrNodeOnCoordinator(faultCoordinator,
 // 													activeCoordinator->mgrNode,
 // 													activeCoordinator->pgConn,
 // 													true,

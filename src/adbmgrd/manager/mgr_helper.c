@@ -2154,14 +2154,19 @@ void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 }
 
 bool setGtmInfoInPGSqlConf(MgrNodeWrapper *mgrNode,
-						   char *agtm_host,
-						   char *snapsender_port,
-						   char *gxidsender_port,
+						   MgrNodeWrapper *gtmMaster,
 						   bool complain)
 {
 	bool done;
-
+	char *agtm_host;
+	char snapsender_port[12] = {0};
+	char gxidsender_port[12] = {0};
 	PGConfParameterItem *items = NULL;
+
+	EXTRACT_GTM_INFOMATION(gtmMaster,
+						   agtm_host,
+						   snapsender_port,
+						   gxidsender_port);
 	items = newPGConfParameterItem("agtm_host", agtm_host, true);
 	items->next = newPGConfParameterItem("snapsender_port",
 										 snapsender_port, false);
@@ -2223,13 +2228,19 @@ bool checkGtmInfoInPGresult(PGresult *pgResult,
 bool checkGtmInfoInPGSqlConf(PGconn *pgConn,
 							 char *nodename,
 							 bool localSqlCheck,
-							 char *agtm_host,
-							 char *snapsender_port,
-							 char *gxidsender_port)
+							 MgrNodeWrapper *gtmMaster)
 {
 	char *sql;
 	PGresult *pgResult = NULL;
 	bool execOk;
+	char *agtm_host;
+	char snapsender_port[12] = {0};
+	char gxidsender_port[12] = {0};
+
+	EXTRACT_GTM_INFOMATION(gtmMaster,
+						   agtm_host,
+						   snapsender_port,
+						   gxidsender_port);
 
 	if (localSqlCheck)
 		sql = psprintf("select name, setting from pg_settings "
@@ -2266,50 +2277,45 @@ void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
 								MgrNodeWrapper *mgrNode,
 								PGconn *pgConn,
 								bool localSqlCheck,
-								int checkSeconds)
+								int checkSeconds,
+								bool complain)
 {
 	int seconds;
 	bool execOk = false;
-	char *agtm_host;
-	char snapsender_port[12] = {0};
-	char gxidsender_port[12] = {0};
-
-	agtm_host = gtmMaster->host->hostaddr;
-	pg_ltoa(gtmMaster->form.nodeport + 1, snapsender_port);
-	pg_ltoa(gtmMaster->form.nodeport + 2, gxidsender_port);
 
 	if (checkGtmInfoInPGSqlConf(pgConn,
 								NameStr(mgrNode->form.nodename),
 								localSqlCheck,
-								agtm_host,
-								snapsender_port,
-								gxidsender_port))
+								gtmMaster))
 	{
 		return;
 	}
-
-	setGtmInfoInPGSqlConf(mgrNode, agtm_host,
-						  snapsender_port,
-						  gxidsender_port, true);
-
-	for (seconds = 0; seconds <= checkSeconds; seconds++)
+	if (setGtmInfoInPGSqlConf(mgrNode,
+							  gtmMaster,
+							  complain))
 	{
-		execOk = checkGtmInfoInPGSqlConf(pgConn,
-										 NameStr(mgrNode->form.nodename),
-										 localSqlCheck,
-										 agtm_host,
-										 snapsender_port,
-										 gxidsender_port);
-		if (execOk)
+		for (seconds = 0; seconds <= checkSeconds; seconds++)
 		{
-			break;
-		}
-		else
-		{
-			if (seconds < checkSeconds)
-				pg_usleep(1000000L);
+			execOk = checkGtmInfoInPGSqlConf(pgConn,
+											 NameStr(mgrNode->form.nodename),
+											 localSqlCheck,
+											 gtmMaster);
+			if (execOk)
+			{
+				break;
+			}
+			else
+			{
+				if (seconds < checkSeconds)
+					pg_usleep(1000000L);
+			}
 		}
 	}
+	else
+	{
+		execOk = false;
+	}
+
 	if (execOk)
 	{
 		ereport(NOTICE,
@@ -2321,7 +2327,7 @@ void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
 	}
 	else
 	{
-		ereport(ERROR,
+		ereport(complain ? ERROR : LOG,
 				(errmsg("set GTM information on %s failed",
 						NameStr(mgrNode->form.nodename))));
 	}
@@ -2788,7 +2794,7 @@ bool isMgrModeExistsInCoordinator(MgrNodeWrapper *coordinator,
 	StringInfoData sql;
 	bool exists;
 	char pgxcNodeType;
-	char *executeOnNodeName = NULL;
+	NameData executeOnNodeName = {{0}};
 
 	initStringInfo(&sql);
 	pgxcNodeType = getMappedPgxcNodetype(mgrNode->form.nodetype);
@@ -2826,7 +2832,7 @@ bool isMgrModeExistsInCoordinator(MgrNodeWrapper *coordinator,
 						 "EXECUTE DIRECT ON (\"%s\") "
 						 "'select count(*) from pgxc_node "
 						 "where node_port = %d ",
-						 executeOnNodeName,
+						 NameStr(executeOnNodeName),
 						 mgrNode->form.nodeport);
 		appendStringInfo(&sql,
 						 "and node_host = ''%s''",
@@ -2847,8 +2853,6 @@ bool isMgrModeExistsInCoordinator(MgrNodeWrapper *coordinator,
 		appendStringInfo(&sql, " ;'");
 	}
 	exists = PQexecCountSql(coordConn, sql.data, complain) > 0;
-	if (executeOnNodeName)
-		pfree(executeOnNodeName);
 	pfree(sql.data);
 	return exists;
 }
@@ -2924,7 +2928,7 @@ void cleanMgrNodesOnCoordinator(dlist_head *mgrNodes,
 {
 	dlist_mutable_iter iter;
 	MgrNodeWrapper *mgrNode;
-	char *executeOnNodeName = NULL;
+	NameData executeOnNodeName = {{0}};
 
 	executeOnNodeName = getMgrNodePgxcNodeName(coordinator,
 											   coordConn,
@@ -2939,16 +2943,14 @@ void cleanMgrNodesOnCoordinator(dlist_head *mgrNodes,
 		}
 		else
 		{
-			compareAndCleanMgrNodeOnCoordinator(mgrNode,
-												coordinator,
-												coordConn,
-												true,
-												executeOnNodeName,
-												complain);
+			compareAndDropMgrNodeOnCoordinator(mgrNode,
+											   coordinator,
+											   coordConn,
+											   true,
+											   NameStr(executeOnNodeName),
+											   complain);
 		}
 	}
-	if (executeOnNodeName)
-		pfree(executeOnNodeName);
 }
 
 void compareAndCreateMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
@@ -2991,12 +2993,12 @@ void compareAndCreateMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
 	}
 }
 
-void compareAndCleanMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
-										 MgrNodeWrapper *coordinator,
-										 PGconn *coordConn,
-										 bool localExecute,
-										 char *executeOnNodeName,
-										 bool complain)
+void compareAndDropMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
+										MgrNodeWrapper *coordinator,
+										PGconn *coordConn,
+										bool localExecute,
+										char *executeOnNodeName,
+										bool complain)
 {
 	if (isMgrModeExistsInCoordinator(coordinator,
 									 coordConn,
@@ -3034,31 +3036,33 @@ void compareAndCleanMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
 /*
  * Pfree the returned result when no longer needed
  */
-char *getMgrNodePgxcNodeName(MgrNodeWrapper *mgrNode,
-							 PGconn *nodeConn,
-							 bool localExecute,
-							 bool complain)
+NameData getMgrNodePgxcNodeName(MgrNodeWrapper *mgrNode,
+								PGconn *nodeConn,
+								bool localExecute,
+								bool complain)
 {
-	char *pgxcNodeName;
+	NameData pgxcNodeName = {{0}};
+	char *temp;
 
 	if (isGtmCoordMgrNode(mgrNode->form.nodetype))
 	{
 		if (localExecute)
 		{
-			pgxcNodeName = showNodeParameter(nodeConn,
-											 "pgxc_node_name", complain);
+			temp = showNodeParameter(nodeConn,
+									 "pgxc_node_name",
+									 complain);
+			namestrcpy(&pgxcNodeName, temp);
+			pfree(temp);
 		}
 		else
 		{
 			ereport(complain ? ERROR : LOG,
 					(errmsg("can not get the value of pgxc_node_name")));
-			pgxcNodeName = NULL;
 		}
 	}
 	else
 	{
-		pgxcNodeName = palloc(NAMEDATALEN);
-		memcpy(pgxcNodeName, NameStr(mgrNode->form.nodename), NAMEDATALEN);
+		pgxcNodeName = mgrNode->form.nodename;
 	}
 	return pgxcNodeName;
 }

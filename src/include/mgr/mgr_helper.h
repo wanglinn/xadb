@@ -227,7 +227,7 @@ static inline char *toStringPGConfParameterItem(PGConfParameterItem *obj)
 			{
 				appendStringInfo(&str, "%s", curr->value);
 			}
-			appendStringInfoString(&str, "\n");
+			appendStringInfoString(&str, "\t");
 			curr = curr->next;
 		}
 		/* delete the last \n */
@@ -455,9 +455,7 @@ extern void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 											char *value,
 											int checkSeconds);
 extern bool setGtmInfoInPGSqlConf(MgrNodeWrapper *mgrNode,
-								  char *agtm_host,
-								  char *snapsender_port,
-								  char *gxidsender_port,
+								  MgrNodeWrapper *gtmMaster,
 								  bool complain);
 extern bool checkGtmInfoInPGresult(PGresult *pgResult,
 								   char *agtm_host,
@@ -466,14 +464,13 @@ extern bool checkGtmInfoInPGresult(PGresult *pgResult,
 extern bool checkGtmInfoInPGSqlConf(PGconn *pgConn,
 									char *nodename,
 									bool localSqlCheck,
-									char *agtm_host,
-									char *snapsender_port,
-									char *gxidsender_port);
+									MgrNodeWrapper *gtmMaster);
 extern void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
 									   MgrNodeWrapper *mgrNode,
 									   PGconn *pgConn,
 									   bool localSqlCheck,
-									   int checkSeconds);
+									   int checkSeconds,
+									   bool complain);
 extern void setSlaveNodeRecoveryConf(MgrNodeWrapper *masterNode,
 									 MgrNodeWrapper *slaveNode);
 
@@ -538,16 +535,16 @@ extern void compareAndCreateMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
 												 bool localExecute,
 												 char *executeOnNodeName,
 												 bool complain);
-extern void compareAndCleanMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
-												MgrNodeWrapper *coordinator,
-												PGconn *coordConn,
-												bool localExecute,
-												char *executeOnNodeName,
-												bool complain);
-extern char *getMgrNodePgxcNodeName(MgrNodeWrapper *mgrNode,
-									PGconn *nodeConn,
-									bool localExecute,
-									bool complain);
+extern void compareAndDropMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
+											   MgrNodeWrapper *coordinator,
+											   PGconn *coordConn,
+											   bool localExecute,
+											   char *executeOnNodeName,
+											   bool complain);
+extern NameData getMgrNodePgxcNodeName(MgrNodeWrapper *mgrNode,
+									   PGconn *nodeConn,
+									   bool localExecute,
+									   bool complain);
 extern bool pgxcPoolReloadOnCoordinator(PGconn *coordCoon,
 										bool localExecute,
 										char *executeOnNodeName,
