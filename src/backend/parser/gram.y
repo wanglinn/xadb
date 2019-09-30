@@ -15312,6 +15312,30 @@ when_clause:
 					w->location = @1;
 					$$ = (Node *)w;
 				}
+			| WHEN IS NULL_P THEN a_expr
+				{
+					CaseWhen *w = makeNode(CaseWhen);
+					NullTest *n = makeNode(NullTest);
+					n->arg = NULL;
+					n->nulltesttype = IS_NULL;
+					n->location = @2;
+					w->expr = (Expr*)n;
+					w->result = (Expr*)$5;
+					w->location = @1;
+					$$ = (Node *)w;
+				}
+			| WHEN IS NOT NULL_P THEN a_expr
+				{
+					CaseWhen *w = makeNode(CaseWhen);
+					NullTest *n = makeNode(NullTest);
+					n->arg = NULL;
+					n->nulltesttype = IS_NOT_NULL;
+					n->location = @2;
+					w->expr = (Expr*)n;
+					w->result = (Expr*)$6;
+					w->location = @1;
+					$$ = (Node *)w;
+				}
 		;
 
 case_default:

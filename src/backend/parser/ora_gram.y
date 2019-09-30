@@ -2567,6 +2567,7 @@ a_expr:	c_expr
 			NullTest *n = makeNode(NullTest);
 			n->arg = (Expr *) $1;
 			n->nulltesttype = IS_NULL;
+			n->location = @2;
 			$$ = (Node *) n;
 		}
 	| a_expr IS NOT NULL_P						%prec IS
@@ -2574,6 +2575,7 @@ a_expr:	c_expr
 			NullTest *n = makeNode(NullTest);
 			n->arg = (Expr *) $1;
 			n->nulltesttype = IS_NOT_NULL;
+			n->location = @2;
 			$$ = (Node *) n;
 		}
 	| a_expr BETWEEN b_expr AND b_expr			%prec BETWEEN
@@ -2884,6 +2886,30 @@ case_when_item: WHEN a_expr THEN a_expr
 			CaseWhen *w = makeNode(CaseWhen);
 			w->expr = (Expr *) $2;
 			w->result = (Expr *) $4;
+			w->location = @1;
+			$$ = (Node *)w;
+		}
+	| WHEN IS NULL_P THEN a_expr
+		{
+			CaseWhen *w = makeNode(CaseWhen);
+			NullTest *n = makeNode(NullTest);
+			n->arg = NULL;
+			n->nulltesttype = IS_NULL;
+			n->location = @2;
+			w->expr = (Expr*)n;
+			w->result = (Expr*)$5;
+			w->location = @1;
+			$$ = (Node *)w;
+		}
+	| WHEN IS NOT NULL_P THEN a_expr
+		{
+			CaseWhen *w = makeNode(CaseWhen);
+			NullTest *n = makeNode(NullTest);
+			n->arg = NULL;
+			n->nulltesttype = IS_NOT_NULL;
+			n->location = @2;
+			w->expr = (Expr*)n;
+			w->result = (Expr*)$6;
 			w->location = @1;
 			$$ = (Node *)w;
 		}
@@ -4505,7 +4531,7 @@ func_application_normal:
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
 								errmsg("Not engouh parameters for \"decode\" function"),
-								parser_errposition(@1)));
+								parser_errposition(@4)));
 
 					$$ = reparse_decode_func($3, @1);
 				}
@@ -6790,23 +6816,6 @@ ViewStmt: CREATE OptTemp VIEW qualified_name opt_column_list
 				}
 		;
 
-//when_clause:
-//	WHEN a_expr THEN a_expr
-//		{
-//			CaseWhen *w = makeNode(CaseWhen);
-//			w->expr = (Expr *) $2;
-//			w->result = (Expr *) $4;
-//			w->location = @1;
-//			$$ = (Node *)w;
-//		}
-//	;
-//
-//when_clause_list:
-//	/* There must be at least one */
-//	when_clause								{ $$ = list_make1($1); }
-//	| when_clause_list when_clause			{ $$ = lappend($1, $2); }
-//	;
-
 where_clause: WHERE a_expr	{ $$ = $2; }
 	| /* empty */ { $$ = NULL; }
 	;
@@ -8287,48 +8296,46 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 
 static Node *reparse_decode_func(List *args, int location)
 {
-	List		*cargs = NIL;
-	ListCell 	*lc = NULL;
-	Expr		*expr = NULL;
-	Node		*search = NULL;
+	ListCell 	*lc = list_head(args);
+	Expr		*expr;
 
 	CaseExpr *c = makeNode(CaseExpr);
 	c->casetype = InvalidOid; /* not analyzed yet */
 	c->isdecode = true;
-	expr = (Expr *)linitial(args);
+	c->arg = lfirst(lc);
+	lc = lnext(lc);
 
-	for_each_cell(lc, lnext(list_head(args)))
+	while(lc)
 	{
-		if (lnext(lc) == NULL)
-		{
-			break;
-		} else
+		if (lnext(lc))
 		{
 			CaseWhen *w = makeNode(CaseWhen);
-			search = (Node *)lfirst(lc);
-			if (IsA(search, A_Const) &&
-				((A_Const*)search)->val.type == T_Null)
+			expr = lfirst(lc);
+			if (IsA(expr, A_Const) &&
+				((A_Const*)expr)->val.type == T_Null)
 			{
-				NullTest *n = (NullTest *)makeNode(NullTest);
-				n->arg = expr;
+				NullTest *n = makeNode(NullTest);
+				n->arg = c->arg;
 				n->nulltesttype = IS_NULL;
-				w->expr = (Expr *)n;
-			} else
+				w->expr = (Expr*)n;
+			}else
 			{
-				w->expr = (Expr *) makeSimpleA_Expr(AEXPR_OP,
-													"=",
-													(Node *)expr,
-													search,
-													-1);
+				w->expr = expr;
 			}
-			w->result = (Expr *) lfirst(lnext(lc));
-			w->location = -1;
-			cargs = lappend(cargs, w);
+
 			lc = lnext(lc);
+			w->result = lfirst(lc);
+			w->location = -1;
+
+			c->args = lappend(c->args, w);
+		}else
+		{
+			c->defresult = lfirst(lc);
 		}
+
+		lc = lnext(lc);
 	}
-	c->args = cargs;
-	c->defresult = lc ? (Expr *)lfirst(lc) : NULL;
+
 	c->location = location;
 
 	return (Node *)c;

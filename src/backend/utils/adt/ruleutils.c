@@ -8904,6 +8904,26 @@ get_rule_expr(Node *node, deparse_context *context,
 						appendStringInfoChar(buf, ' ');
 					appendContextKeyword(context, "WHEN ",
 										 0, 0, 0);
+#ifdef ADB_EXT
+					if (caseexpr->arg &&
+						IsA(when->expr, NullTest) &&
+						IsA(((NullTest*)when->expr)->arg, CaseTestExpr))
+					{
+						NullTest   *ntest = (NullTest *)when->expr;
+						switch(ntest->nulltesttype)
+						{
+						case IS_NULL:
+							appendStringInfoString(buf, " IS NULL");
+							break;
+						case IS_NOT_NULL:
+							appendStringInfoString(buf, " IS NOT NULL");
+							break;
+						default:
+							elog(ERROR, "unrecognized nulltesttype: %d",
+								 (int) ntest->nulltesttype);
+						}
+					}else
+#endif /* ADB_EXT */
 					get_rule_expr(w, context, false);
 					appendStringInfoString(buf, " THEN ");
 					get_rule_expr((Node *) when->result, context, true);
