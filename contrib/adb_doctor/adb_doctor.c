@@ -147,6 +147,7 @@ Datum adb_doctor_start(PG_FUNCTION_ARGS)
 Datum adb_doctor_stop(PG_FUNCTION_ARGS)
 {
 	int ret;
+	char *sql;
 
 	adbDoctorStopLauncher(false);
 	adbDoctorStopBgworkers(false);
@@ -159,6 +160,11 @@ Datum adb_doctor_stop(PG_FUNCTION_ARGS)
 						ret)));
 	}
 	updateAdbDoctorConf(ADB_DOCTOR_CONF_KEY_ENABLE, "0");
+	/* forget curestatus, just like reset doctor */
+	sql = psprintf("update pg_catalog.mgr_node set curestatus = '%s' ;",
+				   CURE_STATUS_NORMAL);
+	executeUpdateSql(sql, CurrentMemoryContext);
+	pfree(sql);
 	SPI_finish();
 
 	PG_RETURN_BOOL(true);

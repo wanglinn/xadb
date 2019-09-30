@@ -1486,9 +1486,17 @@ static bool beyondRestartDelay(MonitorNodeInfo *nodeInfo)
 	}
 	else
 	{
-		/* We don't want to restart too often.  */
-		realRestartDelayMs = nodeConfiguration->restartDelayMs *
-							 (1 << nodeInfo->restartFactor->num);
+
+		if (isMasterNode(nodeInfo->mgrNode->form.nodetype, false))
+		{
+			realRestartDelayMs = nodeConfiguration->restartDelayMs;
+		}
+		else
+		{
+			/* We don't want to restart too often.  */
+			realRestartDelayMs = nodeConfiguration->restartDelayMs *
+								 (1 << nodeInfo->restartFactor->num);
+		}
 		return TimestampDifferenceExceeds(nodeInfo->restartTime,
 										  GetCurrentTimestamp(),
 										  realRestartDelayMs);
@@ -2828,7 +2836,7 @@ static MonitorNodeInfo *newMonitorNodeInfo(MgrNodeWrapper *mgrNode)
 	nodeInfo->shutdownTime = 0;
 	nodeInfo->recoveryTime = 0;
 	nodeInfo->nQueryfails = 0;
-	nodeInfo->restartFactor = newAdbDoctorBounceNum(0, 5);
+	nodeInfo->restartFactor = newAdbDoctorBounceNum(0, 3);
 	nodeInfo->connectionErrors = newAdbDoctorErrorRecorder(100);
 	return nodeInfo;
 }
