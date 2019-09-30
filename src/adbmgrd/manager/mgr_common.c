@@ -1536,8 +1536,8 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	agentPortM = mgr_host->hostagentport;
 	ReleaseSysCache(hostTupleM);
 
-	ereport(LOG, (errmsg("on %s master \"%s\" execute \"checkpoint\"", bGtmType ? "gtmcoord":"datanode", nodename)));
-	ereport(NOTICE, (errmsg("on %s master \"%s\" execute \"checkpoint\"", bGtmType ? "gtmcoord":"datanode", nodename)));
+	ereport(LOG, (errmsg("on %s master \"%s\" execute \"checkpoint\"", bGtmType ? "gtmcoord":"datanode", NameStr(masterNameData))));
+	ereport(NOTICE, (errmsg("on %s master \"%s\" execute \"checkpoint\"", bGtmType ? "gtmcoord":"datanode", NameStr(masterNameData))));
 	initStringInfo(&restmsg);
 	iloop = 10;
 	while(iloop-- > 0)
@@ -1583,13 +1583,13 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 
 	if (!resA || !resB)
 	{
-		appendStringInfo(strinfo, "on %s master \"%s\" pg_controldata get expect value fail", bGtmType?"gtm":"datanode", nodename);
+		appendStringInfo(strinfo, "on %s master \"%s\" pg_controldata get expect value fail", bGtmType?"gtm":"datanode", NameStr(masterNameData));
 		ereport(WARNING, (errcode(ERRCODE_OBJECT_IN_USE)
 				,errmsg("on the %s master \"%s\" execute \"pg_controldata %s\" to get the expect value fail"
-				, bGtmType?"gtm":"datanode", nodename, master_nodeinfo.nodepath)
+				, bGtmType?"gtm":"datanode", NameStr(masterNameData), master_nodeinfo.nodepath)
 				,errhint("execute \"checkpoint\" on %s master \"%s\", then execute  \"pg_controldata %s\" to check \"Minimum recovery \
 					ending location\" is \"0/0\" and \"Min recovery ending loc's timeline\" is \"0\" before execute the rewind command again",
-					bGtmType?"gtm":"datanode", nodename, master_nodeinfo.nodepath)));
+					bGtmType?"gtm":"datanode", NameStr(masterNameData), master_nodeinfo.nodepath)));
 		pfree(restmsg.data);
 		pfree(infosendmsg.data);
 		pfree_AppendNodeInfo(master_nodeinfo);

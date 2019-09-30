@@ -908,6 +908,26 @@ end:
 	}
 }
 
+PGPing pingNodeDefaultDB(MgrNodeWrapper *node,
+						 int connectTimeout)
+{
+	PGPing pgPing;
+
+	StringInfoData conninfo;
+
+	initStringInfo(&conninfo);
+	appendStringInfo(&conninfo,
+					 "postgresql://%s@%s:%d/%s?connect_timeout=%d",
+					 NameStr(node->host->form.hostuser),
+					 node->host->hostaddr,
+					 node->form.nodeport,
+					 DEFAULT_DB,
+					 connectTimeout);
+	pgPing = PQping(conninfo.data);
+	pfree(conninfo.data);
+	return pgPing;
+}
+
 XLogRecPtr getNodeLastWalReceiveLsn(PGconn *pgConn)
 {
 	XLogRecPtr ptr;
@@ -2382,12 +2402,9 @@ bool pingNodeWaitinSeconds(MgrNodeWrapper *node,
 						   int waitSeconds)
 {
 	int seconds;
-	PingNodeResult pingNodeResult;
 	for (seconds = 0; seconds <= waitSeconds; seconds++)
 	{
-		pingNodeResult = callAgentPingNode(node);
-		if (pingNodeResult.agentRes &&
-			pingNodeResult.pgPing == expectedPGPing)
+		if (pingNodeDefaultDB(node, 10) == expectedPGPing)
 		{
 			return true;
 		}
@@ -2477,7 +2494,6 @@ bool batchPingNodesWaitinSeconds(dlist_head *nodes,
 	MgrNodeWrapper *copyOfNode;
 	dlist_mutable_iter iter;
 	int seconds;
-	PingNodeResult pingNodeResult;
 
 	dlist_foreach_modify(iter, nodes)
 	{
@@ -2491,9 +2507,7 @@ bool batchPingNodesWaitinSeconds(dlist_head *nodes,
 		dlist_foreach_modify(iter, failedNodes)
 		{
 			node = dlist_container(MgrNodeWrapper, link, iter.cur);
-			pingNodeResult = callAgentPingNode(node);
-			if (pingNodeResult.agentRes &&
-				pingNodeResult.pgPing == expectedPGPing)
+			if (pingNodeDefaultDB(node, 10) == expectedPGPing)
 			{
 				dlist_delete(iter.cur);
 				pfree(node);

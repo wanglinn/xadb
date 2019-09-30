@@ -443,14 +443,14 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		try=60;
 		for(;;)
 		{
-			if (is_node_running(appendnodeinfo.nodeaddr, appendnodeinfo.nodeport, appendnodeinfo.nodeusername))
+			if (is_node_running(appendnodeinfo.nodeaddr, appendnodeinfo.nodeport, appendnodeinfo.nodeusername, appendnodeinfo.nodetype))
 				break;
 			pg_usleep(1000000L);
 			try--;
 			if(try==0)
 				break;
 		}
-		if (!is_node_running(appendnodeinfo.nodeaddr, appendnodeinfo.nodeport, appendnodeinfo.nodeusername))
+		if (!is_node_running(appendnodeinfo.nodeaddr, appendnodeinfo.nodeport, appendnodeinfo.nodeusername, appendnodeinfo.nodetype))
 			ereport(ERROR, (errmsg("expend dst node %s can not restart in %d seconds",appendnodeinfo.nodename, 60)));
 
 		/*
@@ -1852,7 +1852,7 @@ Datum mgr_checkout_dnslave_status(PG_FUNCTION_ARGS)
 	get_agent_info_from_hostoid(ObjectIdGetDatum(mgr_node->nodehost), NameStr(agent_addr), &agent_port);
 
 	/*check node is running */
-	execok = is_node_running(NameStr(agent_addr), node_port, node_user);
+	execok = is_node_running(NameStr(agent_addr), node_port, node_user, mgr_node->nodetype);
 	if (!execok)
 	{
 		get_node_type_str(mgr_node->nodetype, &node_type_str);

@@ -61,11 +61,7 @@ void _PG_init(void)
 	BackgroundWorker worker;
 
 	if (!process_shared_preload_libraries_in_progress)
-	{
-		ereport(LOG,
-				(errmsg("start doctor failed, please check shared_preload_libraries")));
 		return;
-	}
 
 	/* set up common data for all our workers */
 	memset(&worker, 0, sizeof(worker));

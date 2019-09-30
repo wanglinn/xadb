@@ -521,6 +521,9 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 	initStringInfo(&strinfo);
 	initStringInfo(&strinfo_sync);
 
+	/* get rid of doctor */
+	updateDoctorStatusOfMgrNode(NameStr(nodenamedata), nodetype, false, NULL);
+
 	res = mgr_rewind_node(nodetype, nodenamedata.data, &strinfo);
 	if (!res)
 	{
@@ -684,6 +687,12 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 			res = false;
 		}
 		pfree(str);
+	}
+
+	if(res)
+	{
+		/* embrace doctor */
+		updateDoctorStatusOfMgrNode(NameStr(nodenamedata), nodetype, true, CURE_STATUS_NORMAL);
 	}
 
 	pfree_AppendNodeInfo(master_nodeinfo);
@@ -1301,6 +1310,8 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	Assert(mgr_node);
 	mgr_node->nodeinited = true;
 	mgr_node->nodeincluster = true;
+	mgr_node->allowcure = true;
+	namestrcpy(&mgr_node->curestatus, CURE_STATUS_NORMAL);
 	bReadOnly = mgr_node->nodereadonly;
 	agentPort = get_agentPort_from_hostoid(mgr_node->nodehost);
 	nodePort = mgr_node->nodeport;

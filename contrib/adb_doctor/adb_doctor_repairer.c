@@ -429,6 +429,8 @@ static bool repairCoordinatorNode(MgrNodeWrapper *faultCoordinator)
 								 srcCoordinator);
 		callAppendActivateCoordinator(faultCoordinator);
 
+		/* curestatus was updated to CURE_STATUS_NORMAL in the function mgr_append_activate_coord */
+		namestrcpy(&faultCoordinator->form.curestatus, CURE_STATUS_NORMAL);
 		refreshMgrNodeAfterRepair(faultCoordinator,
 								  spiContext);
 
@@ -605,6 +607,12 @@ static bool repairSlaveNode(MgrNodeWrapper *faultSlaveNode)
 	PG_TRY();
 	{
 		set_ps_display(NameStr(faultSlaveNode->form.nodename), false);
+
+		/* shutdown fault node */
+		shutdownNodeWithinSeconds(faultSlaveNode,
+								  SHUTDOWN_NODE_FAST_SECONDS,
+								  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
+								  true);
 
 		if (checkGetMasterNode(faultSlaveNode, &masterNode))
 		{
@@ -891,7 +899,8 @@ static bool pullBackToCluster(SwitcherNodeWrapper *masterNode,
 		else
 		{
 			appendSlaveNodeFollowMaster(masterNode->mgrNode,
-										faultSlaveNode, masterNode->pgConn);
+										faultSlaveNode,
+										masterNode->pgConn);
 		}
 		refreshMgrNodeAfterRepair(faultSlaveNode, spiContext);
 		done = true;

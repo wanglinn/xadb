@@ -3969,7 +3969,7 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 		get_nodeinfo(gtmMasterNameData.data, CNDN_TYPE_GTM_COOR_MASTER, &agtm_m_is_exist, &agtm_m_is_running, &agtm_m_nodeinfo);
 		mastertupleoid = appendnodeinfo.nodemasteroid;
 		/* step 1: make sure datanode master, agtm master or agtm slave is running. */
-		dnmaster_is_running = is_node_running(parentnodeinfo.nodeaddr, parentnodeinfo.nodeport, parentnodeinfo.nodeusername);
+		dnmaster_is_running = is_node_running(parentnodeinfo.nodeaddr, parentnodeinfo.nodeport, parentnodeinfo.nodeusername, parentnodeinfo.nodetype);
 		if (!dnmaster_is_running)
 			ereport(ERROR, (errmsg("datanode master \"%s\" is not running", parentnodeinfo.nodename)));
 
@@ -4739,7 +4739,7 @@ void mgr_get_nodeinfo_byname_type(char *node_name, char node_type, bool binclust
 	}
 	nodeinfo->nodepath = pstrdup(TextDatumGetCString(datumPath));
 
-	if ( !is_node_running(nodeinfo->nodeaddr, nodeinfo->nodeport, nodeinfo->nodeusername))
+	if ( !is_node_running(nodeinfo->nodeaddr, nodeinfo->nodeport, nodeinfo->nodeusername, nodeinfo->nodetype))
 		*is_running = false;
 
 	heap_endscan(info->rel_scan);
@@ -4832,7 +4832,7 @@ void get_nodeinfo(char *nodename, char node_type, bool *is_exist, bool *is_runni
 	}
 	nodeinfo->nodepath = pstrdup(TextDatumGetCString(datumPath));
 
-	if ( !is_node_running(nodeinfo->nodeaddr, nodeinfo->nodeport, nodeinfo->nodeusername))
+	if ( !is_node_running(nodeinfo->nodeaddr, nodeinfo->nodeport, nodeinfo->nodeusername, nodeinfo->nodetype))
 		*is_running = false;
 
 	heap_endscan(info->rel_scan);
@@ -4903,11 +4903,6 @@ void mgr_make_sure_all_running(char node_type)
 	char *user;
 	NameData nodetypestr_data;
 	NameData nodename;
-	PGconn *pgconn = NULL;
-	PGresult *res = NULL;
-	char bufPort[10];
-
-	memset(bufPort, 0, 10);
 
 	ScanKeyInit(&key[0]
 				,Anum_mgr_node_nodeinited
@@ -4945,7 +4940,7 @@ void mgr_make_sure_all_running(char node_type)
 
 		hostaddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
 		user = get_hostuser_from_hostoid(mgr_node->nodehost);
-		if (!is_node_running(hostaddr, mgr_node->nodeport, user))
+		if (!is_node_running(hostaddr, mgr_node->nodeport, user, mgr_node->nodetype))
 		{
 			nodetype_str = mgr_nodetype_str(mgr_node->nodetype);
 			namestrcpy(&nodename, NameStr(mgr_node->nodename));
@@ -4958,47 +4953,6 @@ void mgr_make_sure_all_running(char node_type)
 			pfree(nodetype_str);
 			ereport(ERROR, (errmsg("%s \"%s\" is not running", nodetypestr_data.data,nodename.data)));
 		} 
-		else
-		{
-			/* all gtm coord node have the same pgxc_node_name value */
-			if(mgr_node->nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
-			   mgr_node->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-			{
-				sprintf(bufPort, "%d", mgr_node->nodeport);
-				pgconn = ExpPQsetdbLogin(hostaddr
-										,bufPort
-										,NULL, NULL
-										,user
-										,NULL);
-				if (PQstatus(pgconn) != CONNECTION_OK)
-				{
-					if(pgconn)
-					{
-						PQfinish(pgconn);
-						pgconn = NULL;
-					}
-					ereport(ERROR, 
-								(errmsg("can not get connection to %s \"%s\"", 
-										nodetypestr_data.data,
-										nodename.data)));
-				}
-				else 
-				{
-					/* all gtm coord node have the same pgxc_node_name value */
-					res = PQexec(pgconn, "show pgxc_node_name");
-					if (PQresultStatus(res) == PGRES_TUPLES_OK)
-					{
-						namestrcpy(&GTM_COORD_PGXC_NODE_NAME, PQgetvalue(res, 0, 0));
-					}
-					PQclear(res);
-					res = NULL;
-				}
-			}
-			else 
-			{
-				/* ignore */
-			}
-		}
 		pfree(user);
 	}
 
@@ -5008,18 +4962,16 @@ void mgr_make_sure_all_running(char node_type)
 
 	if (hostaddr != NULL)
 		pfree(hostaddr);
-	if(pgconn)
-		PQfinish(pgconn);
-	if(res)
-		PQclear(res);
 
 	return;
 }
 
-bool is_node_running(char *hostaddr, int32 hostport, char *user)
+bool is_node_running(char *hostaddr, int32 hostport, char *user, char nodetype)
 {
 	char bufPort[10];
 	int ret;
+	PGconn *pgconn = NULL;
+	PGresult *res = NULL;
 
 	memset(bufPort, 0, 10);
 	sprintf(bufPort, "%d", hostport);
@@ -5029,6 +4981,47 @@ bool is_node_running(char *hostaddr, int32 hostport, char *user)
 	{
 		return false;
 	}
+	else
+	{
+		/* all gtm coord node have the same pgxc_node_name value */
+		if(nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
+		   nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+		{
+			pgconn = ExpPQsetdbLogin(hostaddr
+									,bufPort
+									,NULL, NULL
+									,user
+									,NULL);
+			if (PQstatus(pgconn) != CONNECTION_OK)
+			{
+				if(pgconn)
+				{
+					PQfinish(pgconn);
+					pgconn = NULL;
+				}
+				return false;
+			}
+			else 
+			{
+				/* all gtm coord node have the same pgxc_node_name value */
+				res = PQexec(pgconn, "show pgxc_node_name");
+				if (PQresultStatus(res) == PGRES_TUPLES_OK)
+				{
+					namestrcpy(&GTM_COORD_PGXC_NODE_NAME, PQgetvalue(res, 0, 0));
+				}
+				PQclear(res);
+				res = NULL;
+			}
+		}
+		else 
+		{
+			/* ignore */
+		}
+	}
+	if(pgconn)
+		PQfinish(pgconn);
+	if(res)
+		PQclear(res);	
 
 	return true;
 }
@@ -5319,6 +5312,8 @@ static void mgr_set_inited_incluster(char *nodename, char nodetype, bool checkva
 
 	mgr_node->nodeinited = setvalue;
 	mgr_node->nodeincluster = setvalue;
+	mgr_node->allowcure = setvalue;
+	namestrcpy(&mgr_node->curestatus, CURE_STATUS_NORMAL);
 	heap_inplace_update(info->rel_node, tuple);
 
 	heap_endscan(info->rel_scan);
@@ -12744,7 +12739,7 @@ static bool exec_remove_coordinator(char *nodename)
 	/* check the remove coordinator is running */
 	nodeAddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
 	userName = get_hostuser_from_hostoid(mgr_node->nodehost);
-	isRunning = is_node_running(nodeAddr, mgr_node->nodeport, userName);
+	isRunning = is_node_running(nodeAddr, mgr_node->nodeport, userName, mgr_node->nodetype);
 	pfree(nodeAddr);
 	pfree(userName);
 	heap_freetuple(tuple);
@@ -13291,7 +13286,7 @@ bool get_active_node_info(const char node_type, const char *node_name, AppendNod
 		Assert(mgr_node);
 		nodeinfo->nodeaddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
 		nodeinfo->nodeport = mgr_node->nodeport;
-		is_running = is_node_running(nodeinfo->nodeaddr, nodeinfo->nodeport, NameStr(mgr_node->nodename));
+		is_running = is_node_running(nodeinfo->nodeaddr, nodeinfo->nodeport, NameStr(mgr_node->nodename), mgr_node->nodetype);
 		if (is_running)
 			break;
 	}

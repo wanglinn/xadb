@@ -702,8 +702,17 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 								  SHUTDOWN_NODE_FAST_SECONDS,
 								  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
 								  true);
-		/* I am already dead. If I hold a cluster lock, I will automatically give up. */
-		oldMaster->holdClusterLock = false;
+		if (oldMaster->holdClusterLock)
+		{
+			/* I am already dead. If I hold a cluster lock, I will automatically give up. */
+			oldMaster->holdClusterLock = false;
+			ereport(LOG,
+					(errmsg("%s has been shut down and the cluster is unlocked",
+							NameStr(oldMaster->mgrNode->form.nodename))));
+			ereport(NOTICE,
+					(errmsg("%s has been shut down and the cluster is unlocked",
+							NameStr(oldMaster->mgrNode->form.nodename))));
+		}
 		PQfinish(oldMaster->pgConn);
 		oldMaster->pgConn = NULL;
 		/* Delete the oldMaster, it is not a coordinator now. */
@@ -2646,10 +2655,14 @@ static void refreshOldMasterAfterSwitch(SwitcherNodeWrapper *oldMaster,
 		updateMgrNodeAfterSwitch(oldMaster->mgrNode,
 								 CURE_STATUS_OLD_MASTER,
 								 spiContext);
-		ereport(LOG, (errmsg("%s is waiting for doctor to do rewind",
-							 NameStr(oldMaster->mgrNode->form.nodename))));
-		ereport(NOTICE, (errmsg("%s is waiting for doctor to do rewind",
-								NameStr(oldMaster->mgrNode->form.nodename))));
+		ereport(LOG,
+				(errmsg("%s is waiting for rewinding. If the doctor is enabled, "
+						"the doctor will automatically rewind it",
+						NameStr(oldMaster->mgrNode->form.nodename))));
+		ereport(NOTICE,
+				(errmsg("%s is waiting for rewinding. If the doctor is enabled, "
+						"the doctor will automatically rewind it",
+						NameStr(oldMaster->mgrNode->form.nodename))));
 	}
 }
 

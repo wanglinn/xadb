@@ -382,6 +382,8 @@ extern NodeConnectionStatus connectNodeDefaultDB(MgrNodeWrapper *node,
 												 PGconn **pgConn);
 extern PGconn *getNodeDefaultDBConnection(MgrNodeWrapper *mgrNode,
 										  int connectTimeout);
+extern PGPing pingNodeDefaultDB(MgrNodeWrapper *node,
+								int connectTimeout);
 extern XLogRecPtr getNodeLastWalReceiveLsn(PGconn *pgConn);
 extern XLogRecPtr getNodeCurrentWalLsn(PGconn *pgConn);
 extern XLogRecPtr getNodeWalLsn(PGconn *pgConn, NodeRunningMode runningMode);
