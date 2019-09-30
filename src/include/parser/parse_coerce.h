@@ -93,4 +93,10 @@ extern CoercionPathType find_coercion_pathway(Oid targetTypeId,
 extern CoercionPathType find_typmod_coercion_function(Oid typeId,
 							  Oid *funcid);
 
+#ifdef ADB_GRAM_ORA
+extern Oid select_oracle_type(ParseState *pstate, List *exprs,
+							  const char *context, Node **which_expr,
+							  char kind, const char *name);
+#endif /* ADB_GRAM_ORA */
+
 #endif							/* PARSE_COERCE_H */

@@ -32,6 +32,7 @@
 #include "utils/typcache.h"
 #ifdef ADB_GRAM_ORA
 #include "oraschema/oracoerce.h"
+#include "catalog/ora_convert_d.h"
 #endif
 #ifdef ADB
 #include "pgxc/pgxc.h"
@@ -2525,3 +2526,62 @@ typeIsOfTypedTable(Oid reltypeId, Oid reloftypeId)
 
 	return result;
 }
+
+#ifdef ADB_GRAM_ORA
+Oid select_oracle_type(ParseState *pstate, List *exprs,
+					   const char *context, Node **which_expr,
+					   char kind, const char *name)
+{
+	Oid			from[2];
+	Oid		   *to;
+	Node	   *pexpr;
+	ListCell   *lc;
+	List	   *list = NIL;
+	Const	   *c = NULL;
+	Assert(list_length(exprs) > 0);
+
+	pexpr = linitial(exprs);
+	lc = lnext(list_head(exprs));
+	from[0] = exprType(pexpr);
+	for_each_cell(lc, lc)
+	{
+		Node	   *nexpr = lfirst(lc);
+		from[1] = exprType(nexpr);
+		to = find_ora_convert(kind, name, from, lengthof(from), 1);
+		if (to == NULL &&
+			kind != ORA_CONVERT_KIND_COMMON)
+			to = find_ora_convert(ORA_CONVERT_KIND_COMMON, "", from, lengthof(from), 1);
+		
+		if (to == NULL)
+		{
+			/* select_common_type */
+			if (c == NULL)
+				c = makeNullConst(from[0], -1, InvalidOid);
+			else
+				c->consttype = from[0];
+			if (list == NIL)
+				list = list_make2(c, nexpr);
+			else
+				llast(list) = nexpr;
+			from[0] = select_common_type(pstate, list, context, which_expr);
+			if (from[0] == InvalidOid)
+				break;
+		}else
+		{
+			from[0] = to[0];
+			if (which_expr)
+				*which_expr = (to[0] == from[1] ? nexpr : pexpr);
+			pfree(to);
+		}
+
+		pexpr = nexpr;
+	}
+
+	if (list != NIL)
+		list_free(list);
+	if (c != NULL)
+		pfree(c);
+
+	return from[0];
+}
+#endif /* ADB_GRAM_ORA */
