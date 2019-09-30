@@ -26,6 +26,18 @@ typedef FormData_ora_convert *Form_ora_convert;
 
 #define ORA_CONVERT_KIND_OPERATOR	'o'
 #define ORA_CONVERT_KIND_FUNCTION	'f'
+/*
+ * common for combin decode,nvl2... functions
+ * and UNION INTERSECT, MINUS Operators
+ * cvtname is empty
+ */
+#define ORA_CONVERT_KIND_COMMON		'c'
+/*
+ * special functions
+ * decode(arg, cmp1, ret1, cmp2, ret2, def) check ('s', 'decode', 'ret1 ret2')
+ * 										 => check ('s', 'decode', 'pret def')
+ */
+#define ORA_CONVERT_KIND_SPECIAL_FUN 's'
 
 #endif							/* EXPOSE_TO_CLIENT_CODE */
 
