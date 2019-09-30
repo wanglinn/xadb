@@ -1118,25 +1118,21 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 		{
 			Oid from[2];
 			Oid *to;
+			const char *name = strVal(linitial(a->name));
 			from[0] = exprType(lexpr);
 			from[1] = exprType(rexpr);
 
 			to = find_ora_convert(ORA_CONVERT_KIND_OPERATOR,
-								  strVal(linitial(a->name)),
+								  name,
 								  from,
+								  lengthof(from),
 								  lengthof(from));
 			if (to != NULL)
 			{
 				if (from[0] != to[0])
-					lexpr = coerce_to_target_type(pstate, lexpr, from[0], to[0], -1,
-												  COERCION_IMPLICIT,
-												  COERCE_IMPLICIT_CAST,
-												  -1);
+					lexpr = coerce_to_common_type(pstate, lexpr, to[0], name);
 				if (from[1] != to[1])
-					rexpr = coerce_to_target_type(pstate, rexpr, from[1], to[1], -1,
-												  COERCION_IMPLICIT,
-												  COERCE_IMPLICIT_CAST,
-												  -1);
+					rexpr = coerce_to_common_type(pstate, rexpr, to[1], name);
 				pfree(to);
 			}
 		}

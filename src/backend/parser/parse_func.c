@@ -1564,6 +1564,7 @@ func_get_detail(List *funcname,
 					Oid *to = find_ora_convert(ORA_CONVERT_KIND_FUNCTION,
 											   strVal(linitial(funcname)),
 											   argtypes,
+											   nargs,
 											   nargs);
 					if (to != NULL)
 					{

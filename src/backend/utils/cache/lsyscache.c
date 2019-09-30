@@ -3699,12 +3699,12 @@ get_funcid(const char *funcname, oidvector *argtypes, Oid funcnsp)
 #endif /* ADB_MULTI_GRAM */
 
 #ifdef ADB_GRAM_ORA
-Oid* find_ora_convert(char kind, const char *name, const Oid *from, int count)
+Oid* find_ora_convert(char kind, const char *name, const Oid *from, int count, int outcount)
 {
 	bool			isnull;
 	Datum			datum;
 	HeapTuple		tup;
-	oidvector	   *vto;
+	ArrayType	   *vto;
 	oidvector	   *vfrom = buildoidvector(from, count);
 
 	tup = SearchSysCache3(ORACONVERTSCID,
@@ -3720,12 +3720,14 @@ Oid* find_ora_convert(char kind, const char *name, const Oid *from, int count)
 							&isnull);
 	if (isnull)
 		goto data_corrupted_;
-	vto = (oidvector*)DatumGetPointer(datum);
-	if (vto->dim1 != count)
+	vto = DatumGetArrayTypeP(datum);
+	if (ARR_HASNULL(vto) ||
+		ARR_NDIM(vto) != 1 ||
+		ARR_DIMS(vto)[0] != outcount)
 		goto data_corrupted_;
 
 	/* we not use vfrom again, so we can reuse it for return */
-	memcpy(vfrom, vto->values, sizeof(Oid)*count);
+	memcpy(vfrom, ARR_DATA_PTR(vto), sizeof(Oid)*outcount);
 	ReleaseSysCache(tup);
 	return (Oid*)vfrom;
 
