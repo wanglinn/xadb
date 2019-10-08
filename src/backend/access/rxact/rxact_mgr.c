@@ -107,10 +107,12 @@ typedef struct NodeConn
 
 typedef enum WaiteEventTag
 {
-	T_Event_Agent,
+	T_Event_Start = 0,
+	T_Event_Agent = T_Event_Start,
 	T_Event_Node,
 	T_Event_Socket,
-	T_Event_Signal
+	T_Event_Signal,
+	T_Event_Last
 }WaiteEventTag;
 
 typedef struct RxactWaitEventData
@@ -438,7 +440,7 @@ static void RxactLoop(void)
 				/* change node evnet */
 				ModifyWaitEvent(rxact_wait_event_set, pos, wait_write ? WL_SOCKET_WRITEABLE:WL_SOCKET_READABLE, NULL);
 				rxactEventData = (RxactWaitEventData *)GetWaitEventData(rxact_wait_event_set, pos);
-				Assert(rxactEventData->type>=0 && rxactEventData->type<4);
+				Assert(rxactEventData->type >= T_Event_Start && rxactEventData->type < T_Event_Last);
 			}else
 				AddRxactEventToSet(rxact_wait_event_set, T_Event_Node, PQsocket(pconn->conn), wait_write ? WL_SOCKET_WRITEABLE:WL_SOCKET_READABLE, pconn);
 		}
