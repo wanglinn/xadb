@@ -877,6 +877,7 @@ static bool pullBackToCluster(SwitcherNodeWrapper *masterNode,
 	MemoryContext spiContext;
 	MgrNodeWrapper mgrNodeBackup;
 	MemoryContext oldContext;
+	MgrNodeWrapper *gtmMaster = NULL;
 
 	oldContext = CurrentMemoryContext;
 	memcpy(&mgrNodeBackup, faultSlaveNode, sizeof(MgrNodeWrapper));
@@ -886,6 +887,17 @@ static bool pullBackToCluster(SwitcherNodeWrapper *masterNode,
 	PG_TRY();
 	{
 		refreshMgrNodeBeforeRepair(faultSlaveNode, spiContext);
+
+		if (faultSlaveNode->form.nodetype != CNDN_TYPE_GTM_COOR_SLAVE)
+		{
+			gtmMaster = selectMgrGtmCoordNode(spiContext);
+			if (!gtmMaster)
+			{
+				ereport(ERROR,
+						(errmsg("There is no GTM master node in the cluster")));
+			}
+			setGtmInfoInPGSqlConf(faultSlaveNode, gtmMaster, true);
+		}
 
 		startupNodeWithinSeconds(faultSlaveNode,
 								 STARTUP_NODE_SECONDS, true);
@@ -913,6 +925,9 @@ static bool pullBackToCluster(SwitcherNodeWrapper *masterNode,
 		MemoryContextSwitchTo(oldContext);
 	}
 	PG_END_TRY();
+
+	if (gtmMaster)
+		pfreeMgrNodeWrapper(gtmMaster);
 
 	if (done)
 	{

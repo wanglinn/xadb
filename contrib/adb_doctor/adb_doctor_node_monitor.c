@@ -1996,7 +1996,9 @@ static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 	volatile bool done;
 	NameData oldCurestatus;
 	NameData oldNodesync;
+	MemoryContext oldContext;
 
+	oldContext = CurrentMemoryContext;
 	memcpy(&oldCurestatus, &slaveNode->form.curestatus, sizeof(NameData));
 	memcpy(&oldNodesync, &slaveNode->form.nodesync, sizeof(NameData));
 
@@ -2070,6 +2072,7 @@ static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 		done = false;
 		EmitErrorReport();
 		FlushErrorState();
+		MemoryContextSwitchTo(oldContext);
 	}
 	PG_END_TRY();
 
@@ -2105,7 +2108,9 @@ static bool rewindSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 	volatile bool done;
 	StringInfoData infosendmsg;
 	GetAgentCmdRst getAgentCmdRst;
+	MemoryContext oldContext;
 
+	oldContext = CurrentMemoryContext;
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
 	rewindObject = palloc0(sizeof(RewindMgrNodeObject));
@@ -2161,6 +2166,7 @@ static bool rewindSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 		done = false;
 		EmitErrorReport();
 		FlushErrorState();
+		MemoryContextSwitchTo(oldContext);
 	}
 	PG_END_TRY();
 

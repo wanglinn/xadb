@@ -218,7 +218,7 @@ static inline char *toStringPGConfParameterItem(PGConfParameterItem *obj)
 		curr = obj;
 		while (curr)
 		{
-			appendStringInfo(&str, "%s,", curr->name);
+			appendStringInfo(&str, "%s=", curr->name);
 			if (curr->quoteValue)
 			{
 				appendStringInfo(&str, "'%s'", curr->value);

@@ -406,14 +406,10 @@ void selectIsolatedMgrSlaveNodes(Oid masterOid,
 					 "SELECT * \n"
 					 "FROM pg_catalog.mgr_node "
 					 "WHERE nodetype = '%c' "
-					 "AND nodeinited = %d::boolean "
 					 "AND nodemasternameoid = %u "
-					 "AND nodeincluster = %d::boolean "
 					 "AND curestatus = '%s' ",
 					 nodetype,
-					 false,
 					 masterOid,
-					 false,
 					 CURE_STATUS_ISOLATED);
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
@@ -608,20 +604,36 @@ int updateMgrNodeToIsolate(MgrNodeWrapper *mgrNode,
 
 	newCurestatus = CURE_STATUS_ISOLATED;
 	initStringInfo(&buf);
-	appendStringInfo(&buf,
-					 "update pg_catalog.mgr_node "
-					 "set curestatus = '%s', "
-					 "nodeinited = %d::boolean, "
-					 "nodeincluster = %d::boolean "
-					 "WHERE oid = %u "
-					 "and curestatus = '%s' "
-					 "and nodetype = '%c' ",
-					 newCurestatus,
-					 false,
-					 false,
-					 mgrNode->oid,
-					 NameStr(mgrNode->form.curestatus),
-					 mgrNode->form.nodetype);
+	if (mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+	{
+		appendStringInfo(&buf,
+						 "update pg_catalog.mgr_node "
+						 "set curestatus = '%s', "
+						 "nodeinited = %d::boolean, "
+						 "nodeincluster = %d::boolean "
+						 "WHERE oid = %u "
+						 "and curestatus = '%s' "
+						 "and nodetype = '%c' ",
+						 newCurestatus,
+						 false,
+						 false,
+						 mgrNode->oid,
+						 NameStr(mgrNode->form.curestatus),
+						 mgrNode->form.nodetype);
+	}
+	else
+	{
+		appendStringInfo(&buf,
+						 "update pg_catalog.mgr_node "
+						 "set curestatus = '%s' "
+						 "WHERE oid = %u "
+						 "and curestatus = '%s' "
+						 "and nodetype = '%c' ",
+						 newCurestatus,
+						 mgrNode->oid,
+						 NameStr(mgrNode->form.curestatus),
+						 mgrNode->form.nodetype);
+	}
 	oldCtx = MemoryContextSwitchTo(spiContext);
 	spiRes = SPI_execute(buf.data, false, 0);
 	MemoryContextSwitchTo(oldCtx);

@@ -89,6 +89,8 @@ static void refreshOldMasterAfterSwitch(SwitcherNodeWrapper *oldMaster,
 										SwitcherNodeWrapper *newMaster,
 										MemoryContext spiContext,
 										bool kickOutOldMaster);
+static void refreshOtherNodeAfterSwitchGtmCoord(SwitcherNodeWrapper *node,
+												MemoryContext spiContext);
 static void refreshOldMasterAfterSwitchover(SwitcherNodeWrapper *oldMaster,
 											SwitcherNodeWrapper *newMaster,
 											MemoryContext spiContext);
@@ -791,16 +793,14 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 		{
 			node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 			if (node != newMaster)
-				updateCureStatusForSwitch(node->mgrNode,
-										  CURE_STATUS_SWITCHED,
-										  spiContext);
+				refreshOtherNodeAfterSwitchGtmCoord(node,
+													spiContext);
 		}
 		dlist_foreach(iter, &dataNodes)
 		{
 			node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-			updateCureStatusForSwitch(node->mgrNode,
-									  CURE_STATUS_SWITCHED,
-									  spiContext);
+			refreshOtherNodeAfterSwitchGtmCoord(node,
+												spiContext);
 		}
 
 		tryUnlockCluster(&coordinators, true);
@@ -1063,16 +1063,14 @@ void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 		if (node != newMaster)
-			updateCureStatusForSwitch(node->mgrNode,
-									  CURE_STATUS_SWITCHED,
-									  spiContext);
+			refreshOtherNodeAfterSwitchGtmCoord(node,
+												spiContext);
 	}
 	dlist_foreach(iter, dataNodes)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		updateCureStatusForSwitch(node->mgrNode,
-								  CURE_STATUS_SWITCHED,
-								  spiContext);
+		refreshOtherNodeAfterSwitchGtmCoord(node,
+											spiContext);
 	}
 
 	tryUnlockCluster(coordinators, true);
@@ -1699,7 +1697,7 @@ static void classifyNodesForSwitch(dlist_head *nodes,
 		{
 			nodeOk = false;
 			ereport(WARNING,
-					(errmsg("connect to datanode %s failed, you can manually fix it, "
+					(errmsg("connect to %s failed, you can manually fix it, "
 							"or enable doctor to fix it automatically",
 							NameStr(node->mgrNode->form.nodename))));
 		}
@@ -2663,6 +2661,24 @@ static void refreshOldMasterAfterSwitch(SwitcherNodeWrapper *oldMaster,
 				(errmsg("%s is waiting for rewinding. If the doctor is enabled, "
 						"the doctor will automatically rewind it",
 						NameStr(oldMaster->mgrNode->form.nodename))));
+	}
+}
+
+static void refreshOtherNodeAfterSwitchGtmCoord(SwitcherNodeWrapper *node,
+												MemoryContext spiContext)
+{
+	if (pg_strcasecmp(NameStr(node->oldCurestatus),
+					  CURE_STATUS_NORMAL) == 0)
+	{
+		updateCureStatusForSwitch(node->mgrNode,
+								  CURE_STATUS_SWITCHED,
+								  spiContext);
+	}
+	else
+	{
+		updateCureStatusForSwitch(node->mgrNode,
+								  NameStr(node->oldCurestatus),
+								  spiContext);
 	}
 }
 
