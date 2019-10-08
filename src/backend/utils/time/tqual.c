@@ -174,7 +174,9 @@ static inline void
 SetHintBits(HeapTupleHeader tuple, Buffer buffer,
 			uint16 infomask, TransactionId xid HINTBIT_DEBUG_SNAP(Snapshot snap))
 {
+#ifdef ADB
 	static int recovery_status = -1;	/* -1 for unknown */
+#endif
 	if (TransactionIdIsValid(xid))
 	{
 		/* NB: xid must be known committed here! */
@@ -188,6 +190,7 @@ SetHintBits(HeapTupleHeader tuple, Buffer buffer,
 		}
 	}
 
+#ifdef ADB
 	/*
 	 * in standby mode we don't change it,
 	 * because maybe got error snapshot for this version
@@ -196,6 +199,7 @@ SetHintBits(HeapTupleHeader tuple, Buffer buffer,
 		recovery_status = RecoveryInProgress() ? 1:0;
 	if(recovery_status > 0)
 		return;
+#endif
 
 #if ADB_MAX_HINTBIT_TRACE > 0
 	if (!BufferIsLocal(buffer) &&
