@@ -8064,10 +8064,10 @@ Datum mgr_clean_node(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 				 ,errmsg("%s \"%s\" is running, cannot be cleaned, stop it first", mgr_nodetype_str(nodetype), nodename)));
 		}
-		heap_endscan(rel_scan);
 		mgr_node->allowcure = false;
 		namestrcpy(&mgr_node->curestatus, CURE_STATUS_NORMAL);
 		heap_inplace_update(rel_node, tuple);
+		heap_endscan(rel_scan);
 	}
 	heap_close(rel_node, RowExclusiveLock);
 
@@ -11707,8 +11707,8 @@ void mgr_unlock_cluster_involve_gtm_coord(PGconn **pg_conn)
 			ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
 				,errmsg("execute \"%s\" fail %s", cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
 		}
-
 	}
+	heap_endscan(rel_scan);
 
 	ScanKeyInit(&key[0]
 		,Anum_mgr_node_nodetype

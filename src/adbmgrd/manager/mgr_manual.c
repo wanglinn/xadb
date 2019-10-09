@@ -1167,10 +1167,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		ereport(LOG, (errmsg("create node \"%s\" on all coordiantors in cluster", s_coordname)));
 		ereport(NOTICE, (errmsg("create node \"%s\" on all coordiantors in cluster", s_coordname)));
 
-		resetStringInfo(&infosendmsg);
-		appendStringInfo(&infosendmsg, "CREATE NODE \"%s\" with (TYPE=COORDINATOR, HOST=''%s'', PORT=%d);"
-			,s_coordname, dest_nodeinfo.nodeaddr, dest_nodeinfo.nodeport);
-		rest = mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_COMMAND_OK, &strerr);
+		rest = mgr_manipulate_pgxc_node_on_all_coord(&pg_conn, cnoid, 2, &dest_nodeinfo, PGXC_NODE_MANIPULATE_TYPE_CREATE, &strerr);
 		if (!rest)
 			ereport(ERROR, (errmsg("create node \"%s\" on all coordiantors in cluster fail", s_coordname)));
 
@@ -1283,9 +1280,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		if (!noneed_dropnode)
 		{
 			ereport(WARNING, (errmsg("rollback, drop the node \"%s\" information in pgxc_node on all coordinators.\n\tif the coordinator pgxc_node has not coordinator \"%s\" information, \n\tthe \"DROP NODE\" command may reports WARNING, ignore the warning.\n\tif you want to execute the command \"APPEND ACTIVATE COORDINATOR %s\" again, \n\tmake the coordinator \"%s\" as slave and build the streaming replication with the coordinator \"%s\"", s_coordname, s_coordname, s_coordname, s_coordname, m_nodename.data)));
-			resetStringInfo(&infosendmsg);
-			appendStringInfo(&infosendmsg, "DROP NODE \"%s\";", s_coordname);
-			(void) mgr_execute_direct_on_all_coord(&pg_conn, infosendmsg.data, 2, PGRES_COMMAND_OK, &strerr);
+			(void) mgr_manipulate_pgxc_node_on_all_coord(&pg_conn, cnoid, 2, &dest_nodeinfo, PGXC_NODE_MANIPULATE_TYPE_DROP, &strerr);
 
 			resetStringInfo(&infosendmsg);
 			appendStringInfo(&infosendmsg, "SELECT PGXC_POOL_RELOAD();");
@@ -1526,6 +1521,258 @@ bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const in
 	return rest;
 }
 
+static void getCreatePgxcNodeSql(AppendNodeInfo *nodeinfo, Form_mgr_node executeOnNode, bool localExecute, StringInfo outSql)
+{
+	char *type;
+	char *pgxcNodeName;
+	char *executeOnNodeName;
+	bool is_gtm;
+
+	if (nodeinfo->nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+	{
+		type = "coordinator";
+		pgxcNodeName = nodeinfo->nodename;
+	}
+	else if (nodeinfo->nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+	{
+		type = "coordinator";
+		is_gtm = true;
+		pgxcNodeName = strlen(NameStr(GTM_COORD_PGXC_NODE_NAME)) ==0 ? nodeinfo->nodename : NameStr(GTM_COORD_PGXC_NODE_NAME);
+	}
+	else if (nodeinfo->nodetype == CNDN_TYPE_DATANODE_MASTER)
+	{
+		type = "datanode";
+		pgxcNodeName = nodeinfo->nodename;
+	}
+	else
+	{
+		ereport(ERROR,
+				(errmsg("nodename %s, unknow nodetype:%c",
+						nodeinfo->nodename,
+						nodeinfo->nodetype)));
+	}
+	if (localExecute)
+	{
+		appendStringInfo(outSql, 
+						"CREATE NODE \"%s\" with (TYPE='%s', HOST='%s', PORT=%d, GTM=%d);",
+						pgxcNodeName,
+						type,
+						nodeinfo->nodeaddr,
+						nodeinfo->nodeport,
+						is_gtm);
+	}
+	else
+	{
+		if(executeOnNode->nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
+		   executeOnNode->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+		{
+			executeOnNodeName = strlen(NameStr(GTM_COORD_PGXC_NODE_NAME)) ==0 ? NameStr(executeOnNode->nodename) : NameStr(GTM_COORD_PGXC_NODE_NAME);
+		}
+		else
+		{
+			executeOnNodeName = NameStr(executeOnNode->nodename);
+		}
+		appendStringInfo(outSql, 
+						"CREATE NODE \"%s\" with (TYPE='%s', HOST='%s', PORT=%d, GTM=%d) on (\"%s\");",
+						pgxcNodeName,
+						type,
+						nodeinfo->nodeaddr,
+						nodeinfo->nodeport,
+						is_gtm,
+						executeOnNodeName);
+	}
+}
+
+static void getDropPgxcNodeSql(AppendNodeInfo *nodeinfo, Form_mgr_node executeOnNode, bool localExecute, StringInfo outSql)
+{
+	char *pgxcNodeName;
+	char *executeOnNodeName;
+
+	if (nodeinfo->nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+	{
+		pgxcNodeName = nodeinfo->nodename;
+	}
+	else if (nodeinfo->nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+	{
+		pgxcNodeName = strlen(NameStr(GTM_COORD_PGXC_NODE_NAME)) ==0 ? nodeinfo->nodename : NameStr(GTM_COORD_PGXC_NODE_NAME);
+	}
+	else if (nodeinfo->nodetype == CNDN_TYPE_DATANODE_MASTER)
+	{
+		pgxcNodeName = nodeinfo->nodename;
+	}
+	else
+	{
+		ereport(ERROR,
+				(errmsg("nodename %s, unknow nodetype:%c",
+						nodeinfo->nodename,
+						nodeinfo->nodetype)));
+	}
+	if (localExecute)
+	{
+		appendStringInfo(outSql, 
+						"drop node \"%s\";",
+						pgxcNodeName);
+	}
+	else
+	{
+		if(executeOnNode->nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
+		   executeOnNode->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+		{
+			executeOnNodeName = strlen(NameStr(GTM_COORD_PGXC_NODE_NAME)) ==0 ? NameStr(executeOnNode->nodename) : NameStr(GTM_COORD_PGXC_NODE_NAME);
+		}
+		else
+		{
+			executeOnNodeName = NameStr(executeOnNode->nodename);
+		}
+		appendStringInfo(outSql, 
+						"drop node \"%s\" on (\"%s\");",
+						pgxcNodeName,
+					   	executeOnNodeName);
+	}
+}
+
+static void getManipulatePgxcNodeSql(AppendNodeInfo *nodeinfo, Form_mgr_node executeOnNode, bool localExecute, PGXC_NODE_MANIPULATE_TYPE manipulateType, StringInfo outSql)
+{
+	if (manipulateType == PGXC_NODE_MANIPULATE_TYPE_CREATE)
+	{
+		getCreatePgxcNodeSql(nodeinfo, executeOnNode, localExecute, outSql);
+	}
+	else if (manipulateType == PGXC_NODE_MANIPULATE_TYPE_DROP)
+	{
+		getDropPgxcNodeSql(nodeinfo, executeOnNode, localExecute, outSql);
+	}
+	else
+	{
+		ereport(ERROR,
+				(errmsg("get manipulate pgxc_node sql error, unknow PGXC_NODE_MANIPULATE_TYPE:%d",
+						manipulateType)));
+	}
+}
+
+bool mgr_manipulate_pgxc_node_on_all_coord(PGconn **pg_conn, 
+										   Oid cnoidOfConn, 
+										   const int iloop, 
+										   AppendNodeInfo *nodeinfo,
+										   PGXC_NODE_MANIPULATE_TYPE manipulateType, 
+										   StringInfo strinfo)
+{
+	StringInfoData sql;
+	ScanKeyData key[4];
+	Relation rel_node;
+	HeapScanDesc rel_scan;
+	Form_mgr_node mgr_node;
+	HeapTuple tuple;
+	PGresult *res = NULL;
+	bool rest = true;
+	int num = iloop;
+
+	initStringInfo(&sql);
+
+	ScanKeyInit(&key[0],
+		Anum_mgr_node_nodeincluster
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(true));
+	ScanKeyInit(&key[1]
+		,Anum_mgr_node_nodeinited
+		,BTEqualStrategyNumber
+		,F_BOOLEQ
+		,BoolGetDatum(true));
+	ScanKeyInit(&key[2],
+		Anum_mgr_node_nodetype
+		,BTEqualStrategyNumber
+		,F_CHAREQ
+		,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
+	ScanKeyInit(&key[3]
+		,Anum_mgr_node_nodezone
+		,BTEqualStrategyNumber
+		,F_NAMEEQ
+		,CStringGetDatum(mgr_zone));
+	rel_node = heap_open(NodeRelationId, AccessShareLock);
+	rel_scan = heap_beginscan_catalog(rel_node, 4, key);
+	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		resetStringInfo(&sql);
+		getManipulatePgxcNodeSql(nodeinfo, mgr_node, cnoidOfConn == HeapTupleGetOid(tuple), manipulateType, &sql);
+		ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename), sql.data)));
+		ereport(NOTICE, (errmsg("on coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename), sql.data)));
+
+		num = iloop;
+		while (num-- > 0)
+		{
+			res = PQexec(*pg_conn, sql.data);
+			if (PQresultStatus(res) == PGRES_COMMAND_OK)
+			{
+				break;
+			}
+			if (num)
+			{
+				PQclear(res);
+				res = NULL;
+			}
+			pg_usleep(100000L);
+		}
+
+		if (PQresultStatus(res) != PGRES_COMMAND_OK)
+		{
+			rest = false;
+			ereport(WARNING, (errmsg("on coordinator \"%s\" execute \"%s\" fail, %s", NameStr(mgr_node->nodename), sql.data, PQerrorMessage(*pg_conn))));
+			appendStringInfo(strinfo, "on coordinator \"%s\" execute \"%s\" fail, %s\n", NameStr(mgr_node->nodename), sql.data, PQerrorMessage(*pg_conn));
+		}
+		PQclear(res);
+
+	}
+	heap_endscan(rel_scan);
+
+	ScanKeyInit(&key[2],
+		Anum_mgr_node_nodetype
+		,BTEqualStrategyNumber
+		,F_CHAREQ
+		,CharGetDatum(CNDN_TYPE_GTM_COOR_MASTER));
+	rel_scan = heap_beginscan_catalog(rel_node, 4, key);
+	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		resetStringInfo(&sql);
+		getManipulatePgxcNodeSql(nodeinfo, mgr_node, cnoidOfConn == HeapTupleGetOid(tuple), manipulateType, &sql);
+		ereport(LOG, (errmsg("on GTM coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename), sql.data)));
+		ereport(NOTICE, (errmsg("on GTM coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename), sql.data)));
+
+		num = iloop;
+		while (num-- > 0)
+		{
+			res = PQexec(*pg_conn, sql.data);
+			if (PQresultStatus(res) == PGRES_COMMAND_OK)
+			{
+				break;
+			}
+			if (num)
+			{
+				PQclear(res);
+				res = NULL;
+			}
+			pg_usleep(100000L);
+		}
+
+		if (PQresultStatus(res) != PGRES_COMMAND_OK)
+		{
+			rest = false;
+			ereport(WARNING, (errmsg("on GTM coordinator \"%s\" execute \"%s\" fail, %s", NameStr(mgr_node->nodename), sql.data, PQerrorMessage(*pg_conn))));
+			appendStringInfo(strinfo, "on GTM coordinator \"%s\" execute \"%s\" fail, %s\n", NameStr(mgr_node->nodename), sql.data, PQerrorMessage(*pg_conn));
+		}
+		PQclear(res);
+
+	}
+
+	heap_endscan(rel_scan);
+	heap_close(rel_node, AccessShareLock);
+	pfree(sql.data);
+
+	return rest;
+}
 
 /*
 * datanode switchover, command format: switchover datanode slave datanode_name [force]

@@ -2750,14 +2750,14 @@ bool createNodeOnPgxcNode(PGconn *activeCoon,
 	}
 	else
 	{
-		sql = psprintf("EXECUTE DIRECT ON (\"%s\")  "
-					   "'CREATE NODE \"%s\" WITH (TYPE=''%s'',HOST=''%s'',PORT=%d, GTM=%d);'",
-					   executeOnNodeName,
+		Assert(executeOnNodeName);
+		sql = psprintf("CREATE NODE \"%s\" with (TYPE='%s', HOST='%s', PORT=%d, GTM=%d) on (\"%s\");",
 					   pgxcNodeName ? pgxcNodeName : NameStr(mgrNode->form.nodename),
 					   type,
 					   mgrNode->host->hostaddr,
 					   mgrNode->form.nodeport,
-					   is_gtm);
+					   is_gtm,
+					   executeOnNodeName);
 	}
 
 	execOk = PQexecCommandSql(activeCoon, sql, complain);

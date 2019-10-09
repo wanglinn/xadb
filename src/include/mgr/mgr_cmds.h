@@ -132,6 +132,12 @@ typedef enum AlarmLevel
 	ALARM_EMERGENCY
 }AlarmLevel;
 
+typedef enum PGXC_NODE_MANIPULATE_TYPE
+{
+	PGXC_NODE_MANIPULATE_TYPE_CREATE = 1,
+	PGXC_NODE_MANIPULATE_TYPE_DROP
+} PGXC_NODE_MANIPULATE_TYPE;
+
 extern NameData GTM_COORD_PGXC_NODE_NAME;
 /* host commands, in cmd_host.c */
 
@@ -527,6 +533,7 @@ bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid);
 extern bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg);
 extern bool RemoveHba(const AppendNodeInfo *nodeinfo, const StringInfo infosendmsg);
 extern bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const int iloop, const int res_type, StringInfo strinfo);
+extern bool mgr_manipulate_pgxc_node_on_all_coord(PGconn **pg_conn, Oid cnoidOfConn, const int iloop, AppendNodeInfo *nodeinfo, PGXC_NODE_MANIPULATE_TYPE manipulateType, StringInfo strinfo);
 extern void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name, bool startTransaction, bool complain);
 extern bool hexp_check_select_result_count(PGconn *pg_conn, char* sql);
 extern void hexp_pqexec_direct_execute_utility(PGconn *pg_conn, char *sqlstr, int ret_type);
