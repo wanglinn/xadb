@@ -233,7 +233,7 @@ SetHintBits(HeapTupleHeader tuple, Buffer buffer,
 		while(n_--)
 			appendStringInfo(&msg, " %p",addrs[n_]);
 
-		if (snap)
+		if (snap && TransactionIdIsValid(snap->xmin) && TransactionIdIsValid(snap->xmax))
 		{
 			appendStringInfo(&msg, " snap %p %u:%u", snap, snap->xmin, snap->xmax);
 			for(n_=0;n_<snap->xcnt;++n_)
