@@ -99,6 +99,14 @@ typedef struct MgrDatanodeInfo
 	Form_mgr_node	slaveNode;
 }MgrDatanodeInfo;
 
+typedef struct ReadonlyUpdateparm
+{
+	NameData	updateparmnodename;
+	char		updateparmnodetype;
+	NameData	updateparmkey;
+	NameData	updateparmvalue;
+}ReadonlyUpdateparm;
+
 #define MAX_PREPARED_TRANSACTIONS_DEFAULT	120
 #define PG_DUMPALL_TEMP_FILE "/tmp/pg_dumpall_temp"
 #define MAX_WAL_SENDERS_NUM	5
@@ -223,10 +231,11 @@ static bool mgr_check_node_path(Relation rel, Oid hostoid, char *path);
 static bool mgr_check_node_port(Relation rel, Oid hostoid, int port);
 static void mgr_update_one_potential_to_sync(Relation rel, Oid mastertupleoid, bool bincluster, bool excludeoid);
 static bool exec_remove_coordinator(char *nodename);
-static bool mgr_get_async_slave_readonly_state(void);
+static bool mgr_get_async_slave_readonly_state(List **parms);
 static bool mgr_get_sync_slave_readonly_state(void);
 static bool check_all_cn_sync_slave_is_active(void);
-static bool mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List *datanode_list);
+static bool mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List *datanode_list, List *sync_parms);
+static void check_readsql_slave_param_state(Form_mgr_node cn_master_node, List *sync_parms, char *key, bool *state);
 
 static bool get_local_ip(Name local_ip);
 extern HeapTuple build_list_nodesize_tuple(const Name nodename, char nodetype, int32 nodeport, const char *nodepath, int64 nodesize);
@@ -2047,7 +2056,7 @@ end:
 		|| AGT_CMD_CN_RESTART == cmdtype || AGT_CMD_GTMCOOR_SLAVE_FAILOVER == cmdtype 
 		|| AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTMCOOR_START_MASTER_BACKEND == cmdtype
 		|| AGT_CMD_GTMCOOR_START_MASTER == cmdtype || AGT_CMD_GTMCOOR_START_SLAVE == cmdtype))
-		mgr_update_cn_pgxcnode_readonlysql_slave(NULL, NULL);
+		mgr_update_cn_pgxcnode_readonlysql_slave(NULL, NULL, NULL);
 }
 
 /*
@@ -13371,7 +13380,7 @@ mgr_get_gtm_host_snapsender_gxidsender_port(StringInfo infosendmsg)
 }
 
 /* Automatically add read-only standby node information to coordinate */
-bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync)
+bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync, Node *node)
 {
 	InitNodeInfo	*info;
 	ScanKeyData		cnkey[1], ndkey[2], ndskey[3];
@@ -13379,10 +13388,11 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync)
 	Form_mgr_node	cn_master_node, dn_master_node;
 	MgrDatanodeInfo	*mgr_datanode_info;
 	List			*datanode_list = NIL;
-	ListCell		*cell;
+	ListCell		*cell, *prev;
+	List			*sync_parms = NIL;
 	NameData		nodeSync;
-	bool			isSlaveAsync;
 	bool			updateAll = true;
+	ReadonlyUpdateparm *rdUpdateparm;
 
 	/* Check for the need for updates based on read-write separation parameters */
 	if (!mgr_get_sync_slave_readonly_state() && 
@@ -13393,16 +13403,65 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync)
 	if (!check_all_cn_sync_slave_is_active())
 		return true;
 
+	/* get read-write separation parameters */
+	if (!mgr_get_async_slave_readonly_state(&sync_parms) && updateKey == NULL)
+		return true; 
+
 	info = palloc(sizeof(*info));
 	info->rel_node = heap_open(NodeRelationId, AccessShareLock);	/* open table */
 	info->lcp = NULL;
 
 	readonlySqlSlaveInfoRefreshComplete = false;
-	/* Check asynchronous slave nodes are available */
-	if (updateKey && strcmp(updateKey, "enable_readsql_on_slave_async") == 0)
-		isSlaveAsync = isSlaveSync;
-	else
-		isSlaveAsync = mgr_get_async_slave_readonly_state();
+
+	/* update or add parameter settings */
+	if (updateKey != NULL && node != NULL)
+	{	
+		ReadonlyUpdateparm		*newUpdateparm;
+		MGRUpdateparm			*parm_node;
+		MGRUpdateparmReset		*parm_node_reset;
+
+		Assert(nodeTag(node) == T_MGRUpdateparm || nodeTag(node) == T_MGRUpdateparmReset);
+
+		newUpdateparm = (ReadonlyUpdateparm *) palloc(sizeof(ReadonlyUpdateparm));
+		if (nodeTag(node) == T_MGRUpdateparm)
+		{
+			parm_node = (MGRUpdateparm *)node;
+			strcpy(NameStr(newUpdateparm->updateparmnodename), parm_node->nodename);
+			newUpdateparm->updateparmnodetype = parm_node->nodetype;
+			strcpy(NameStr(newUpdateparm->updateparmkey), updateKey);
+			strcpy(NameStr(newUpdateparm->updateparmvalue), isSlaveSync ? "on":"off");
+		}
+		else
+		{
+			parm_node_reset = (MGRUpdateparmReset *)node;
+			strcpy(NameStr(newUpdateparm->updateparmnodename), parm_node_reset->nodename);
+			newUpdateparm->updateparmnodetype = parm_node_reset->nodetype;
+			strcpy(NameStr(newUpdateparm->updateparmkey), updateKey);
+			strcpy(NameStr(newUpdateparm->updateparmvalue), isSlaveSync ? "on":"off");
+		}
+		if (list_length(sync_parms) > 0)
+		{
+			prev = NULL;
+			foreach (cell, sync_parms)
+			{
+				rdUpdateparm = (ReadonlyUpdateparm *) lfirst(cell);
+				if (strcmp(NameStr(rdUpdateparm->updateparmnodename), NameStr(newUpdateparm->updateparmnodename)) == 0 
+					&& rdUpdateparm->updateparmnodetype == newUpdateparm->updateparmnodetype
+					&& strcmp(NameStr(rdUpdateparm->updateparmkey), NameStr(newUpdateparm->updateparmkey)) == 0)
+				{
+					sync_parms = list_delete_cell(sync_parms, cell, prev);
+					pfree(rdUpdateparm);
+					break;
+				}
+				prev = cell;
+			}
+			sync_parms = lappend(sync_parms, newUpdateparm);
+		}
+		else
+		{
+			sync_parms = lappend(sync_parms, newUpdateparm);
+		}
+	}
 
 	/* get datanode master info */
 	ScanKeyInit(&ndkey[0]
@@ -13468,7 +13527,7 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync)
 			mgr_datanode_info->slaveNode = (Form_mgr_node)GETSTRUCT(tuple);
 		}
 		/* Allow reading of asynchronous node slave */
-		else if (isSlaveAsync)
+		else
 		{
 			heap_endscan(info->rel_scan);
 			ScanKeyInit(&ndskey[2]
@@ -13502,7 +13561,7 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync)
 			continue;
 
 		/* Perform the actual update work */
-		if (!mgr_exec_update_cn_pgxcnode_readonlysql_slave(cn_master_node, datanode_list))
+		if (!mgr_exec_update_cn_pgxcnode_readonlysql_slave(cn_master_node, datanode_list, sync_parms))
 			updateAll = false;
 	}
 	list_free(datanode_list);
@@ -13526,7 +13585,7 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync)
 
 /* Execute the update of the pgxc_node table */
 static bool
-mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List *datanode_list)
+mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List *datanode_list, List *sync_parms)
 {
 	MgrDatanodeInfo	*mgr_datanode_info;
 	StringInfoData	connStr, execSql, checkSql;
@@ -13534,7 +13593,17 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 	PGresult		*res = NULL;
 	ListCell		*cell;
 	char			*warningMassage = "Failed to write slave node information to pgxc_node table";
+	bool			enable_slave = false;
+	bool			enable_slave_async = false;
 
+
+	/* check Read-Write separation switch */
+	check_readsql_slave_param_state(cn_master_node, sync_parms, "enable_readsql_on_slave", &enable_slave);
+	/* skip useless update tasks when switching off read-write separation switches */
+	if (!enable_slave)
+		return true;
+	/* check whether asynchronous standby is allowed */
+	check_readsql_slave_param_state(cn_master_node, sync_parms, "enable_readsql_on_slave_async", &enable_slave_async);
 
 	/* init coordinate connect string */
 	initStringInfo(&connStr);
@@ -13599,21 +13668,35 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 			/* Add nonexistent, or update existing */
 			if(PQntuples(res) == 0)
 			{
-				appendStringInfo(&execSql, 
-						"create node %s for %s with(type='datanode slave', host='%s', port=%d);", 
-						mgr_datanode_info->slaveNode->nodename.data,
-						mgr_datanode_info->masterNode->nodename.data,
-						get_hostaddress_from_hostoid(mgr_datanode_info->slaveNode->nodehost),
-						mgr_datanode_info->slaveNode->nodeport);
+				if (strcmp(NameStr(mgr_datanode_info->slaveNode->nodesync), "sync") == 0 
+					|| (strcmp(NameStr(mgr_datanode_info->slaveNode->nodesync), "async") == 0 && enable_slave_async))
+					appendStringInfo(&execSql, 
+							"create node %s for %s with(type='datanode slave', host='%s', port=%d);", 
+							mgr_datanode_info->slaveNode->nodename.data,
+							mgr_datanode_info->masterNode->nodename.data,
+							get_hostaddress_from_hostoid(mgr_datanode_info->slaveNode->nodehost),
+							mgr_datanode_info->slaveNode->nodeport);
 			}
 			else
 			{
-				appendStringInfo(&execSql, 
-						"update pgxc_node set node_name = '%s', node_host = '%s', node_port = %d where node_master_oid = (select oid from pgxc_node where node_name = '%s');",
-						mgr_datanode_info->slaveNode->nodename.data,
-						get_hostaddress_from_hostoid(mgr_datanode_info->slaveNode->nodehost),
-						mgr_datanode_info->slaveNode->nodeport,
+				if (strcmp(NameStr(mgr_datanode_info->slaveNode->nodesync), "sync") == 0 
+					|| (strcmp(NameStr(mgr_datanode_info->slaveNode->nodesync), "async") == 0 && enable_slave_async))
+				{
+					appendStringInfo(&execSql, 
+							"update pgxc_node set node_name = '%s', node_host = '%s', node_port = %d where node_master_oid = (select oid from pgxc_node where node_name = '%s');",
+							mgr_datanode_info->slaveNode->nodename.data,
+							get_hostaddress_from_hostoid(mgr_datanode_info->slaveNode->nodehost),
+							mgr_datanode_info->slaveNode->nodeport,
+							mgr_datanode_info->masterNode->nodename.data);
+				}
+				/* When asynchronous readonly is turned off, the relevant datanode slave information is deleted */
+				else if (strcmp(NameStr(mgr_datanode_info->slaveNode->nodesync), "async") == 0 && !enable_slave_async)
+				{
+					appendStringInfo(&execSql, 
+						"delete from pgxc_node where node_master_oid = (select oid from pgxc_node where node_name = '%s');", 
 						mgr_datanode_info->masterNode->nodename.data);
+				}
+
 			}
 			PQclear(res);
 		}
@@ -13645,56 +13728,42 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 
 /* Gets whether the asynchronous slave node is available in read-write separation mode */
 static bool
-mgr_get_async_slave_readonly_state(void)
+mgr_get_async_slave_readonly_state(List **sync_parms)
 {
 	Relation rel_updateparm;
 	Form_mgr_updateparm mgr_updateparm;
-	ScanKeyData key[1];
 	HeapScanDesc rel_scan;
 	HeapTuple tuple;
-	NameData updateparmkey;
-	char *updateParmValue = NULL;
-	bool isAsyncInfo;
+	ReadonlyUpdateparm *rdUpdateparm;
 
-	namestrcpy(&updateparmkey, "enable_readsql_on_slave_async");
-	ScanKeyInit(&key[0]
-		,Anum_mgr_updateparm_updateparmkey
-		,BTEqualStrategyNumber
-		,F_NAMEEQ
-		,NameGetDatum(&updateparmkey));
+	Assert(*sync_parms == NIL);
+
+	/* get synchronization parameters */
 	rel_updateparm = heap_open(UpdateparmRelationId, AccessShareLock);
-	rel_scan = heap_beginscan_catalog(rel_updateparm, 1, key);
-	tuple = heap_getnext(rel_scan, ForwardScanDirection);
-	if (tuple != NULL)
+	rel_scan = heap_beginscan_catalog(rel_updateparm, 0, NULL);
+	while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
-		bool isNull = false;
-		Datum datumValue;
-
 		mgr_updateparm = (Form_mgr_updateparm)GETSTRUCT(tuple);
 		Assert(mgr_updateparm);
-		/*get key, value*/
-		datumValue = heap_getattr(tuple, Anum_mgr_updateparm_updateparmvalue, RelationGetDescr(rel_updateparm), &isNull);
-		if(isNull)
+		if (strcmp(NameStr(mgr_updateparm->updateparmkey), "enable_readsql_on_slave") == 0
+			|| strcmp(NameStr(mgr_updateparm->updateparmkey), "enable_readsql_on_slave_async") == 0)
 		{
-			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
-				, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_updateparm")
-				, errmsg("column value is null")));
-		}
-		updateParmValue = pstrdup(TextDatumGetCString(datumValue));
+			rdUpdateparm = (ReadonlyUpdateparm *) palloc(sizeof(ReadonlyUpdateparm));
+			strcpy(NameStr(rdUpdateparm->updateparmnodename), NameStr(mgr_updateparm->updateparmnodename));
+			rdUpdateparm->updateparmnodetype = mgr_updateparm->updateparmnodetype;
+			strcpy(NameStr(rdUpdateparm->updateparmkey), NameStr(mgr_updateparm->updateparmkey));
+			strcpy(NameStr(rdUpdateparm->updateparmvalue), text_to_cstring(&mgr_updateparm->updateparmvalue));
 
-		if (strcmp(updateParmValue, "on") == 0)
-			isAsyncInfo = true;
-		else
-			isAsyncInfo = false;
-	}
-	else
-	{
-		isAsyncInfo = false;
+			*sync_parms = lappend(*sync_parms, rdUpdateparm);
+		}
 	}
 	heap_endscan(rel_scan);
 	heap_close(rel_updateparm, AccessShareLock);	/* close table */
 
-	return isAsyncInfo;
+	if(*sync_parms == NIL)
+		return false;
+	else
+		return true;
 }
 
 /* Gets whether the synchronous slave node is available in read-write separation mode */
@@ -13913,6 +13982,40 @@ void mgr_clean_cn_pgxcnode_readonlysql_slave(void)
 	heap_endscan(info->rel_scan);
 	heap_close(info->rel_node, AccessShareLock);	/* close table */
 	pfree(info);
+}
+
+/* 
+ * Obtaining read-write separation status information 
+ * of specified nodes based on parameter information.
+ */
+static void
+check_readsql_slave_param_state(Form_mgr_node cn_master_node, List *sync_parms, char *key, bool *state)
+{
+	bool		isUpdate = false;
+	ListCell	*cell;
+	
+	foreach (cell, sync_parms)
+	{
+		ReadonlyUpdateparm *updateparm = (ReadonlyUpdateparm *) lfirst(cell);
+
+		/* If the coordinator node name is specified explicitly, the relevant settings of the nodeName wildcard'*'will be ignored. */
+		if (strcmp(NameStr(cn_master_node->nodename), NameStr(updateparm->updateparmnodename)) == 0 
+			|| (!isUpdate && strcmp(NameStr(updateparm->updateparmnodename), "*") == 0))
+		{
+			if (strcmp(NameStr(updateparm->updateparmkey), key) == 0
+				&& (updateparm->updateparmnodetype == cn_master_node->nodetype 
+					|| (updateparm->updateparmnodetype == CNDN_TYPE_GTMCOOR && (cn_master_node->nodetype == CNDN_TYPE_GTM_COOR_MASTER || cn_master_node->nodetype == CNDN_TYPE_GTM_COOR_SLAVE))
+					|| (updateparm->updateparmnodetype == CNDN_TYPE_COORDINATOR && (cn_master_node->nodetype == CNDN_TYPE_COORDINATOR_MASTER || cn_master_node->nodetype == CNDN_TYPE_COORDINATOR_SLAVE))
+				))
+			{
+				if (strcmp(NameStr(updateparm->updateparmvalue), "on") == 0)
+					*state = true;
+				else
+					*state = false;
+				isUpdate = true;
+			}
+		}
+	}
 }
 
 char *getMgrNodeSyncStateValue(sync_state state)

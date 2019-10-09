@@ -177,7 +177,7 @@ void mgr_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 		mgr_flushparam((MGRFlushParam*)parsetree, params, dest);
 		break;
 	case T_MGRFlushReadonlySlave:
-		mgr_update_cn_pgxcnode_readonlysql_slave(NULL, NULL);
+		mgr_update_cn_pgxcnode_readonlysql_slave(NULL, NULL, NULL);
 		break;
 	default:
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)

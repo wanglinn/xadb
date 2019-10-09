@@ -489,4 +489,4 @@ extern PGDLLIMPORT volatile uint32 ClusterOwnerXactSectionCount;
 
 #endif							/* XACT_H */
 
-extern bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync);
+extern bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync, Node *node);

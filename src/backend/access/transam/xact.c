@@ -3506,7 +3506,7 @@ CommitTransactionCommand(void)
 			{
 				readonlySqlSlaveInfoRefreshFlag = false;
 				StartTransactionCommand();
-				mgr_update_cn_pgxcnode_readonlysql_slave(NULL, NULL);
+				mgr_update_cn_pgxcnode_readonlysql_slave(NULL, NULL, NULL);
 				CommitTransactionCommand();
 			}
 #endif /* ADBMGR */

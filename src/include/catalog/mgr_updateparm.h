@@ -14,9 +14,7 @@ CATALOG(mgr_updateparm,4801,UpdateparmRelationId) BKI_WITHOUT_OIDS
 
 	NameData	updateparmkey;
 
-#ifdef CATALOG_VARLEN
 	text	updateparmvalue;
-#endif
 } FormData_mgr_updateparm;
 
 /* ----------------

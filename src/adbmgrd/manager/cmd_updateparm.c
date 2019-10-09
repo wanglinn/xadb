@@ -146,7 +146,7 @@ Datum mgr_add_updateparm_func(PG_FUNCTION_ARGS)
 	char nodetype; /*master/slave*/
 
 	MGRUpdateparm *parm_node;
-	parm_node = palloc(sizeof(*parm_node));
+	parm_node = makeNode(MGRUpdateparm);
 	parm_node->parmtype = PG_GETARG_CHAR(0);
 	parm_node->nodename = PG_GETARG_CSTRING(1);
 	parm_node->nodetype = PG_GETARG_CHAR(2);
@@ -287,7 +287,7 @@ static void mgr_add_givenname_updateparm(MGRUpdateparm *parm_node, Name nodename
 		if ((strcmp(key.data, "enable_readsql_on_slave") == 0 && strcmp(value.data, "on") == 0) || strcmp(key.data, "enable_readsql_on_slave_async") == 0)
 		{
 			bool isSlaveSync = strcmp(value.data, "on") == 0 ? true : false;
-			if (!mgr_update_cn_pgxcnode_readonlysql_slave(key.data, isSlaveSync))
+			if (!mgr_update_cn_pgxcnode_readonlysql_slave(key.data, isSlaveSync, (Node *)parm_node))
 			{
 				pfree(enumvalue.data);
 				ereport(WARNING, (errmsg("Adding read-only standby node information to coord failed.")));
@@ -1170,7 +1170,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 	Form_mgr_updateparm mgr_updateparm;
 
 	MGRUpdateparmReset *parm_node;
-	parm_node = palloc(sizeof(*parm_node));
+	parm_node = makeNode(MGRUpdateparmReset);
 	parm_node->parmtype = PG_GETARG_CHAR(0);
 	parm_node->nodename = PG_GETARG_CSTRING(1);
 	parm_node->nodetype = PG_GETARG_CHAR(2);
@@ -1223,10 +1223,9 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 			Assert(def && IsA(def, DefElem));
 			namestrcpy(&key, def->defname);
 			/* check reading and writing separation */
-			if (strcmp(key.data, "enable_readsql_on_slave") == 0)
-				mgr_update_cn_pgxcnode_readonlysql_slave(key.data, false);
-			if (strcmp(key.data, "enable_readsql_on_slave_async") == 0)
-				mgr_update_cn_pgxcnode_readonlysql_slave(key.data, false);
+			if (strcmp(key.data, "enable_readsql_on_slave") == 0
+				|| strcmp(key.data, "enable_readsql_on_slave_async") == 0)
+				mgr_update_cn_pgxcnode_readonlysql_slave(key.data, false, (Node *)parm_node);
 			if (strcmp(key.data, "port") == 0 || strcmp(key.data, "synchronous_standby_names") == 0)
 			{
 				ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)

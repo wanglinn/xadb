@@ -2530,7 +2530,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 	tupResult = build_common_command_tuple(&nodeNameData, rest, strerr.data);
 	pfree(strerr.data);
 	/* Refresh slave node information about read-only query in pgxc_node table */ 
-	mgr_update_cn_pgxcnode_readonlysql_slave(NULL, NULL);
+	mgr_update_cn_pgxcnode_readonlysql_slave(NULL, NULL, NULL);
 	return HeapTupleGetDatum(tupResult);
 }
 
