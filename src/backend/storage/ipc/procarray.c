@@ -1721,45 +1721,7 @@ GetSnapshotData(Snapshot snapshot)
 	if(try_agtm_snap)
 	{
 		Assert(TransactionIdIsNormal(snapshot->xmax));
-
-		/*
-		 * If local xmax <= global xmax, the xmax of snapshot will be not changed
-		 * in this case. Otherwise, it will update the xmax of snapshot.
-		 */
-		if (TransactionIdPrecedesOrEquals(xmax, snapshot->xmax))
-			xmax = snapshot->xmax;
-		else
-		{
-			TransactionId	xid = snapshot->xmax;
-			int				try_max = GetMaxSnapshotXidCount();
-			int				try_cnt = 0;
-
-			/*
-			 * Try to add "local commited" but "global uncommited" XID to the
-			 * global snapshot and try GetMaxSnapshotXidCount() times at most.
-			 */
-			for (try_cnt = 0;
-				 TransactionIdPrecedes(xid, xmax) && try_cnt < try_max;
-				 try_cnt++)
-			{
-				/* We don't include our own XIDs (if any) in the snapshot */
-				if (TransactionIdEquals(xid, MyPgXact->xid))
-				{
-					TransactionIdAdvance(xid);
-					continue;
-				}
-
-				/* Local committed but global uncommitted */
-				if (TransactionIdDidCommitGTM(xid, false))
-				{
-					EnlargeSnapshotXip(snapshot, count + 1);
-					snapshot->xip[count++] = xid;
-				}
-
-				TransactionIdAdvance(xid);
-			}
-		}
-
+		xmax = snapshot->xmax;
 		globalxmin = xmin = snapshot->xmin;
 	}
 	else
