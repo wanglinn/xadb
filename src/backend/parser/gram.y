@@ -11094,7 +11094,7 @@ opt_barrier_id:
  *					[ PORT = portnum, ]
  *					[ PRIMARY [ = boolean ], ]
  *					[ PREFERRED [ = boolean ] ]
- *				)
+ *				) [ ON (nodename [,...])]
  *
  *****************************************************************************/
 
@@ -11104,6 +11104,15 @@ CreateNodeStmt: CREATE NODE pgxcnode_name OptWith
 					n->node_name = $3;
 					n->node_mastername = "";
 					n->options = $4;
+					$$ = (Node *)n;
+				}
+			| 	CREATE NODE pgxcnode_name OptWith ON '(' pgxcnode_list ')'
+				{
+					CreateNodeStmt *n = makeNode(CreateNodeStmt);
+					n->node_name = $3;
+					n->node_mastername = "";
+					n->options = $4;
+					n->node_list = $7;
 					$$ = (Node *)n;
 				}
 			|	CREATE NODE pgxcnode_name FOR pgxcnode_name OptWith

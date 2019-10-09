@@ -41,6 +41,7 @@
 
 #define REMOTE_KEY_ALTER_NODE	1
 #define REMOTE_KEY_REMOVE_NODE	2
+#define REMOTE_KEY_CREATE_NODE	3
 
 typedef struct NodeOidInfo
 {
@@ -449,13 +450,8 @@ generate_node_id(const char *node_name)
 	return node_id;
 }
 
-/*
- * PgxcNodeCreate
- *
- * Add a PGXC node
- */
-void
-PgxcNodeCreate(CreateNodeStmt *stmt)
+static void
+PgxcNodeCreateLocal(CreateNodeStmt *stmt)
 {
 	Relation	pgxcnodesrel;
 	HeapTuple	htup;
@@ -585,6 +581,92 @@ PgxcNodeCreate(CreateNodeStmt *stmt)
 	CatalogTupleInsert(pgxcnodesrel, htup);
 
 	heap_close(pgxcnodesrel, RowExclusiveLock);
+}
+
+/*
+ * PgxcNodeCreate
+ *
+ * Add a PGXC node
+ */
+void
+PgxcNodeCreate(CreateNodeStmt *stmt)
+{
+	ListCell   *lc;
+	Value	   *value;
+	List	   *nodeOids;
+	List	   *remoteList;
+	Oid			oid;
+	bool		include_myself = false;
+
+	if (stmt->node_list == NIL)
+		include_myself = true;
+
+	nodeOids = NIL;
+	foreach(lc, stmt->node_list)
+	{
+		value = lfirst(lc);
+		if (strcasecmp(PGXCNodeName, strVal(value)) == 0)
+		{
+			include_myself = true;
+			if (IsConnFromCoord())
+				break;
+			else
+				continue;
+		}
+		if (IsConnFromApp())
+		{
+			oid = get_pgxc_nodeoid(strVal(value));
+			Assert(oid != PGXCNodeOid);
+
+			nodeOids = list_append_unique_oid(nodeOids, oid);
+		}
+	}
+
+	remoteList = NIL;
+	if (nodeOids != NIL)
+	{
+		StringInfoData msg;
+		initStringInfo(&msg);
+
+		ClusterTocSetCustomFun(&msg, ClusterNodeCreate);
+
+		begin_mem_toc_insert(&msg, REMOTE_KEY_CREATE_NODE);
+		saveNode(&msg, (Node*)stmt);
+		end_mem_toc_insert(&msg, REMOTE_KEY_CREATE_NODE);
+
+		remoteList = ExecClusterCustomFunction(nodeOids, &msg, 0);
+		pfree(msg.data);
+	}
+
+	if (include_myself)
+		PgxcNodeCreateLocal(stmt);
+
+	if (remoteList)
+	{
+		PQNListExecFinish(remoteList, NULL, &PQNDefaultHookFunctions, true);
+		list_free(remoteList);
+	}
+	list_free(nodeOids);
+}
+
+void ClusterNodeCreate(StringInfo mem_toc)
+{
+	CreateNodeStmt *stmt;
+	StringInfoData buf;
+
+	buf.data = mem_toc_lookup(mem_toc, REMOTE_KEY_CREATE_NODE, &buf.maxlen);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errmsg("Can not found CreateNodeStmt in cluster message"),
+				 errcode(ERRCODE_PROTOCOL_VIOLATION)));
+	}
+	buf.len = buf.maxlen;
+	buf.cursor = 0;
+
+	stmt = castNode(CreateNodeStmt, loadNode(&buf));
+
+	PgxcNodeCreateLocal(stmt);
 }
 
 /*

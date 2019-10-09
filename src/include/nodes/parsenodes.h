@@ -3525,6 +3525,7 @@ typedef struct CreateNodeStmt
 	char		*node_name;
 	char		*node_mastername;
 	List		*options;
+	List		*node_list;
 } CreateNodeStmt;
 
 /*

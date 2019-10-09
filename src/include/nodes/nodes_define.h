@@ -779,6 +779,7 @@ BEGIN_NODE(CreateNodeStmt)
 	NODE_STRING(node_name)
 	NODE_STRING(node_mastername)
 	NODE_NODE(List,options)
+	NODE_NODE(List,node_list)
 END_NODE(CreateNodeStmt)
 #endif /* NO_NODE_CreateNodeStmt */
 
