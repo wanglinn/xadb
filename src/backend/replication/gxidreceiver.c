@@ -28,6 +28,8 @@ static volatile bool GxidRcvImmediateInterruptOK = false;
 int gxid_receiver_timeout = 60 * 1000L;
 int max_pre_alloc_xid_size = MAX_XID_PRE_ASSGIN_NUM;
 
+static bool is_use_prealloc_xids = true;
+
 typedef struct GxidRcvData
 {
 	WalRcvState		state;
@@ -1114,7 +1116,7 @@ static void GxidRcvCheckPreAssignArray(void)
 {
 	int req_num;
 
-	if (!IS_PGXC_COORDINATOR)
+	if (!IS_PGXC_COORDINATOR || !is_use_prealloc_xids)
 		return;
 
 	LOCK_GXID_RCV();
@@ -1302,7 +1304,7 @@ void GixRcvCommitTransactionId(TransactionId txid)
 	MyProc->getGlobalTransaction = txid;
 	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 1000);
 	ret = WaitGxidRcvEvent(endtime, WaitGxidRcvCommitReturn, &GxidRcv->wait_commiters,
-			&GxidRcv->send_commiters, (void*)((size_t)txid));
+				&GxidRcv->send_commiters, (void*)((size_t)txid));
 
 	if (!ret)
 	{

@@ -99,6 +99,7 @@ typedef struct SnapClientData
 extern char *AGtmHost;
 extern int snapsender_port;
 extern int snap_receiver_timeout;
+extern bool force_multiple_cn_consistency;
 
 static volatile sig_atomic_t got_sigterm = false;
 
@@ -141,13 +142,14 @@ static const WaitEventData PostmasterDeathEventData = {OnPostmasterDeathEvent};
 static const WaitEventData ListenEventData = {OnListenEvent};
 static void SnapSendCheckTimeoutSocket(void);
 static void snapsender_create_xid_htab(void);
-//static void append_client_xid_to_htab(SnapClientData *client, TransactionId xid);
 static int	snapsender_match_xid(const void *key1, const void *key2, Size keysize);
 static bool SnapSenderWakeupFinishXidEvent(TransactionId txid);
-//static bool SnapSenderWaitTxidFinsihEvent(TimestampTz end, WaitSnapSenderCond test, void *context);
-//static bool WaitSnapSendCondTransactionComplate(void *context);
 static void snapsenderProcessLocalMaxXid(SnapClientData *client, const char* data, int len);
 static void snapsenderUpdateNextXid(TransactionId xid, SnapClientData *exclue_client);
+
+static void append_client_xid_to_htab(SnapClientData *client, TransactionId xid);
+static bool SnapSenderWaitTxidFinsihEvent(TimestampTz end, WaitSnapSenderCond test, void *context);
+static bool WaitSnapSendCondTransactionComplate(void *context);
 
 /* Signal handlers */
 static void SnapSenderSigUsr1Handler(SIGNAL_ARGS);
@@ -213,40 +215,6 @@ static void snapsender_create_xid_htab(void)
 	snapsender_xid_htab = hash_create("hash SnapsenderXid", 100,
 			&hctl, HASH_ELEM|HASH_FUNCTION|HASH_COMPARE|HASH_CONTEXT);
 }
-
-/*static void append_client_xid_to_htab(SnapClientData *client, TransactionId xid)
-{
-	XidClientHashItemInfo *info;
-	SnapSendXidListItem* xiditem;
-	ClientIdListItemInfo* clientitem;
-	slist_mutable_iter siter;
-	bool found;
-
-	xiditem = palloc0(sizeof(*xiditem));
-	xiditem->xid = xid;
-	slist_push_head(&client->slist_xid, &xiditem->snode);
-
-	info = hash_search(snapsender_xid_htab, &xid, HASH_ENTER, &found);
-	if(found == false)
-	{
-		MemSet(info, 0, sizeof(*info));
-		info->xid = xid;
-		slist_init(&(info->slist_client));
-	}
-
-	slist_foreach_modify(siter, &info->slist_client)
-	{
-		clientitem = slist_container(ClientIdListItemInfo, snode, siter.cur);
-		if (socket_pq_node(client->node) == clientitem->cleint_sockid)
-		{
-			return;
-		}
-	}
-
-	clientitem = palloc0(sizeof(*clientitem));
-	clientitem->cleint_sockid = socket_pq_node(client->node);
-	slist_push_head(&info->slist_client, &clientitem->snode);
-}*/
 
 static bool SnapSenderWakeupFinishXidEvent(TransactionId txid)
 {
@@ -413,7 +381,40 @@ static void snapsenderProcessHeartBeat(SnapClientData *client)
 	}
 }
 
-/*
+static void append_client_xid_to_htab(SnapClientData *client, TransactionId xid)
+{
+	XidClientHashItemInfo *info;
+	SnapSendXidListItem* xiditem;
+	ClientIdListItemInfo* clientitem;
+	slist_mutable_iter siter;
+	bool found;
+
+	xiditem = palloc0(sizeof(*xiditem));
+	xiditem->xid = xid;
+	slist_push_head(&client->slist_xid, &xiditem->snode);
+
+	info = hash_search(snapsender_xid_htab, &xid, HASH_ENTER, &found);
+	if(found == false)
+	{
+		MemSet(info, 0, sizeof(*info));
+		info->xid = xid;
+		slist_init(&(info->slist_client));
+	}
+
+	slist_foreach_modify(siter, &info->slist_client)
+	{
+		clientitem = slist_container(ClientIdListItemInfo, snode, siter.cur);
+		if (socket_pq_node(client->node) == clientitem->cleint_sockid)
+		{
+			return;
+		}
+	}
+
+	clientitem = palloc0(sizeof(*clientitem));
+	clientitem->cleint_sockid = socket_pq_node(client->node);
+	slist_push_head(&info->slist_client, &clientitem->snode);
+}
+
 static bool WaitSnapSendCondTransactionComplate(void *context)
 {
 	proclist_mutable_iter	iter;
@@ -475,7 +476,7 @@ static bool SnapSenderWaitTxidFinsihEvent(TimestampTz end, WaitSnapSenderCond te
 
 	MyProc->waitGlobalTransaction = InvalidTransactionId;
 	return true;
-}*/
+}
 
 static void SnapSendCheckTimeoutSocket(void)
 {
@@ -823,7 +824,8 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 					ereport(LOG,(errmsg("SnapSend rel finsih xid %d\n",
 			 			xid[i])));
 #endif
-					//append_client_xid_to_htab(client, xid[i]);
+					if (force_multiple_cn_consistency)
+						append_client_xid_to_htab(client, xid[i]);
 				}
 				else
 				{
@@ -836,14 +838,11 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 			}
 			output_buffer.cursor = true;
 		}
-		else
+		else if (force_multiple_cn_consistency && msgtype == 'c')
 		{
-			if (msgtype == 'c')
+			for(i=0;i<xid_cnt;++i)
 			{
-				for(i=0;i<xid_cnt;++i)
-				{
-					//append_client_xid_to_htab(client, xid[i]);
-				}
+				append_client_xid_to_htab(client, xid[i]);
 			}
 		}
 
@@ -1353,13 +1352,12 @@ void SnapSendTransactionAssignArray(TransactionId* xids, int xid_num, Transactio
 
 void SnapSendTransactionFinish(TransactionId txid)
 {
-	//proclist_mutable_iter	iter;
-	//TimestampTz				endtime;
-	//bool 					in_list = false;
-	//int						procno = MyProc->pgprocno;
+	proclist_mutable_iter	iter;
+	TimestampTz				endtime;
+	bool 					in_list = false;
+	int						procno = MyProc->pgprocno;
 
-	if(!TransactionIdIsValid(txid) ||
-		!IsGTMNode())
+	if(!TransactionIdIsValid(txid) || !IsGTMNode())
 		return;
 
 	Assert(TransactionIdIsNormal(txid));
@@ -1385,22 +1383,26 @@ void SnapSendTransactionFinish(TransactionId txid)
 	SnapSender->xid_complete[SnapSender->cur_cnt_complete++] = txid;
 	SetLatch(&(GetPGProcByNumber(SnapSender->procno)->procLatch));
 
-	/*proclist_foreach_modify(iter, &SnapSender->waiters_finish, GTMWaitLink)
+	if (force_multiple_cn_consistency)
 	{
-		if (iter.cur == procno)
+		proclist_foreach_modify(iter, &SnapSender->waiters_finish, GTMWaitLink)
 		{
-			in_list = true;
-			break;
+			if (iter.cur == procno)
+			{
+				in_list = true;
+				break;
+			}
 		}
-	}
-	if (!in_list)
-	{
-		MyProc->waitGlobalTransaction = txid;
-		pg_write_barrier();
-		proclist_push_tail(&SnapSender->waiters_finish, procno, GTMWaitLink);
-	}
+		if (!in_list)
+		{
+			MyProc->waitGlobalTransaction = txid;
+			pg_write_barrier();
+			proclist_push_tail(&SnapSender->waiters_finish, procno, GTMWaitLink);
+		}
 
-	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 500);
-	SnapSenderWaitTxidFinsihEvent(endtime, WaitSnapSendCondTransactionComplate, (void*)((size_t)txid));*/
+		endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 5000);
+		SnapSenderWaitTxidFinsihEvent(endtime, WaitSnapSendCondTransactionComplate, (void*)((size_t)txid));
+	}
+	
 	SpinLockRelease(&SnapSender->mutex);
 }

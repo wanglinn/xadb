@@ -24,6 +24,7 @@
 
 int snap_receiver_timeout = 60 * 1000L;
 int snap_sender_connect_timeout = 5000L;
+bool force_multiple_cn_consistency = false;
 
 typedef struct SnapRcvData
 {
@@ -730,7 +731,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	StringInfoData	msg;
 	TransactionId	txid;
 	uint32			i,count;
-	StringInfoData xidmsg;
+	StringInfoData xidmsg;			
 
 	if ((len % sizeof(txid)) != 0 ||
 		len == 0)
@@ -743,7 +744,8 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	msg.cursor = 0;
 
 	initStringInfo(&xidmsg);
-	pq_sendbyte(&xidmsg, 'f');
+	if (force_multiple_cn_consistency)
+		pq_sendbyte(&xidmsg, 'f');
 
 	LOCK_SNAP_RCV();
 	count = SnapRcv->xcnt;
@@ -774,7 +776,8 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 		}
 		--count;
 		WakeupTransaction(txid);
-		pq_sendint32(&xidmsg, txid);
+		if (force_multiple_cn_consistency)
+			pq_sendint32(&xidmsg, txid);
 	}
 	
 	SnapRcv->xcnt = count;
@@ -783,7 +786,9 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 #ifdef SNAP_SYNC_DEBUG
 	ereport(LOG,(errmsg("SanpRcv xcnt now is %d\n", count)));
 #endif
-	walrcv_send(wrconn, xidmsg.data, xidmsg.len);
+
+	if (force_multiple_cn_consistency)
+		walrcv_send(wrconn, xidmsg.data, xidmsg.len);
 	pfree(xidmsg.data);
 }
 
@@ -1008,7 +1013,7 @@ re_lock_:
 		/* We don't include our own XIDs (if any) in the snapshot */
 		if (xid == MyPgXact->xid)
 			continue;
-
+			
 		/* Add XID to snapshot. */
 		snap->xip[xcnt++] = xid;
 	}

@@ -894,29 +894,27 @@ static void GxidProcessFinishGxid(GxidClientData *client)
 #endif
 	}
 
+	SpinLockAcquire(&GxidSender->mutex);
+	slist_foreach_modify(siter, &xid_slist)
+	{
+		xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
+		found = IsXidInPreparedState(xiditem->xid);
+
+		/* comman commite, xid should not left in Prepared*/
+		Assert(!found);
+		SnapSendTransactionFinish(xiditem->xid);
+
+		GxidDropXidClientItem(xiditem->xid, clientitem);
+		GxidDropXidItem(xiditem->xid);
+		slist_delete(&xid_slist, &xiditem->snode);
+		pfree(xiditem);
+	}
+	SpinLockRelease(&GxidSender->mutex);
+
 	if (GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false) == false)
 	{
 		GxidSenderDropClient(client, true);
 	}
-	else
-	{
-		SpinLockAcquire(&GxidSender->mutex);
-		slist_foreach_modify(siter, &xid_slist)
-		{
-			xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
-			found = IsXidInPreparedState(xiditem->xid);
-
-			/* comman commite, xid should not left in Prepared*/
-			Assert(!found);
-			SnapSendTransactionFinish(xiditem->xid);
-
-			GxidDropXidClientItem(xiditem->xid, clientitem);
-			GxidDropXidItem(xiditem->xid);
-			slist_delete(&xid_slist, &xiditem->snode);
-			pfree(xiditem);
-		}
-		SpinLockRelease(&GxidSender->mutex);
-	}  
 }
 
 static void GxidSenderOnClientRecvMsg(GxidClientData *client, pq_comm_node *node)
