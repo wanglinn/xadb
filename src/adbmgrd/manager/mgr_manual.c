@@ -1233,6 +1233,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		mgr_add_parm(s_coordname, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
 		mgr_append_pgconf_paras_str_str("hot_standby", "off", &infosendmsg);
 		mgr_append_pgconf_paras_str_str("pgxc_node_name", s_coordname, &infosendmsg);
+		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", "", &infosendmsg);
 		/* for read only coordinator */
 		if (mgr_get_coord_readtype(s_coordname))
 			mgr_append_pgconf_paras_str_str("default_transaction_read_only", "on", &infosendmsg);
