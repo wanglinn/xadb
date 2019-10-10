@@ -22,13 +22,10 @@
 
 #define RESTART_STEP_MS		3000	/* 2 second */
 
-#define MAX_XID_PRE_ASSGIN_NUM 50
 /* like WalRcvImmediateInterruptOK */
 static volatile bool GxidRcvImmediateInterruptOK = false;
 int gxid_receiver_timeout = 60 * 1000L;
-int max_pre_alloc_xid_size = MAX_XID_PRE_ASSGIN_NUM;
-
-static bool is_use_prealloc_xids = true;
+int max_cn_prealloc_xid_size = 0;
 
 typedef struct GxidRcvData
 {
@@ -52,7 +49,7 @@ typedef struct GxidRcvData
 	TimestampTz		next_try_time;	/* next connection GTM time */
 
 	uint32			cur_pre_alloc;
-	TransactionId	xid_alloc[MAX_XID_PRE_ASSGIN_NUM];
+	TransactionId	xid_alloc[2*MAX_XID_PRE_ALLOC_NUM];
 
 	uint32			wait_finish_cnt;
 	TransactionId	wait_xid_finish[MAX_BACKENDS];
@@ -808,10 +805,10 @@ static void GxidRcvProcessPreAssign(char *buf, Size len)
 #endif
 
 	num = pq_getmsgint(&msg, sizeof(num));
-	Assert(num > 0 && num <= max_pre_alloc_xid_size);
+	Assert(num > 0 && num <= MAX_XID_PRE_ALLOC_NUM);
 	
 	LOCK_GXID_RCV();
-	Assert((GxidRcv->cur_pre_alloc + num) <= max_pre_alloc_xid_size);
+	Assert((GxidRcv->cur_pre_alloc + num) <= MAX_XID_PRE_ALLOC_NUM);
 	start_index = GxidRcv->cur_pre_alloc;
 	while(msg.cursor < msg.len)
 	{
@@ -827,7 +824,7 @@ static void GxidRcvProcessPreAssign(char *buf, Size len)
 		GxidRcv->cur_pre_alloc++;
 	}
 	GxidRcv->is_send_realloc_num = 0;
-	Assert(GxidRcv->cur_pre_alloc <= max_pre_alloc_xid_size);
+	Assert(GxidRcv->cur_pre_alloc <= MAX_XID_PRE_ALLOC_NUM);
 	UNLOCK_GXID_RCV();
 
 	Assert(num == 0);	
@@ -1114,21 +1111,36 @@ GxidRcvProcessFinishList(void)
 
 static void GxidRcvCheckPreAssignArray(void)
 {
-	int req_num;
+	int req_num = 0;
 
-	if (!IS_PGXC_COORDINATOR || !is_use_prealloc_xids)
+	if (!IS_PGXC_COORDINATOR || max_cn_prealloc_xid_size == 0)
 		return;
 
 	LOCK_GXID_RCV();
-	if (GxidRcv->cur_pre_alloc <= (max_pre_alloc_xid_size/2) && GxidRcv->is_send_realloc_num == 0)
+	if (GxidRcv->is_send_realloc_num == 0)
 	{
-		if (GxidRcv->cur_pre_alloc == 0)
-			req_num = max_pre_alloc_xid_size;
-		else
-			req_num = max_pre_alloc_xid_size/2;
+		if (max_cn_prealloc_xid_size == 1 && GxidRcv->cur_pre_alloc == 0)
+		{
+			req_num = 1;
+		}
+		else if (GxidRcv->cur_pre_alloc <= (max_cn_prealloc_xid_size/2))
+		{
+			if (GxidRcv->cur_pre_alloc == 0)
+				req_num = max_cn_prealloc_xid_size;
+			else
+				req_num = max_cn_prealloc_xid_size/2;
+		}
 
-		GxidRcvSendPreAssginXid(req_num);
-		GxidRcv->is_send_realloc_num = 1;
+		if (req_num > 0)
+		{
+			GxidRcvSendPreAssginXid(req_num);
+			GxidRcv->is_send_realloc_num = 1;
+#ifdef SNAP_SYNC_DEBUG
+			ereport(LOG,(errmsg("max_cn_prealloc_xid_size is %d, send req_num is %d\n",
+				max_cn_prealloc_xid_size, req_num)));
+#endif
+		}
+		
 	}
 	UNLOCK_GXID_RCV();
 }

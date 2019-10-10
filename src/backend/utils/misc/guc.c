@@ -2485,7 +2485,17 @@ static struct config_int ConfigureNamesInt[] =
 		100, 1, MAX_BACKENDS,
 		check_maxconnections, NULL, NULL
 	},
-
+#ifdef ADB
+	{
+		{"max_cn_prealloc_xid_size", PGC_SIGHUP, COORDINATORS,
+			gettext_noop("For coordinators sets the maximum number of pre-alloc txid size from gtmcoord."),
+			NULL
+		},
+		&max_cn_prealloc_xid_size,
+		0, 0, MAX_XID_PRE_ALLOC_NUM,
+		NULL, NULL, NULL
+	},
+#endif /* ADB */
 	{
 		/* see max_connections and max_wal_senders */
 		{"superuser_reserved_connections", PGC_POSTMASTER, CONN_AUTH_SETTINGS,

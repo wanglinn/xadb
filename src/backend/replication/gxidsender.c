@@ -82,7 +82,6 @@ typedef struct GxidClientData
 extern char *AGtmHost;
 extern int gxidsender_port;
 extern int gxid_receiver_timeout;
-extern int max_pre_alloc_xid_size;
 
 static volatile sig_atomic_t gxid_send_got_sigterm = false;
 
@@ -753,7 +752,7 @@ static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 	int							i, xid_num;
 
 	xid_num = pq_getmsgint(&gxid_send_input_buffer, sizeof(xid_num));
-	Assert(xid_num > 0 && xid_num <= max_pre_alloc_xid_size);
+	Assert(xid_num > 0 && xid_num <= MAX_XID_PRE_ALLOC_NUM);
 
 	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_ENTER, &found);
 	if(found == false)

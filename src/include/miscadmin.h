@@ -261,6 +261,8 @@ extern double vacuum_cleanup_index_scale_factor;
 
 #ifdef ADB
 extern bool useLocalXid;
+extern int max_cn_prealloc_xid_size;
+#define MAX_XID_PRE_ALLOC_NUM 100
 #endif
 
 /* in tcop/postgres.c */
