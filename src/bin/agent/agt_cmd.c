@@ -1413,15 +1413,8 @@ static void cmd_get_showparam_values(char cmdtype, StringInfo buf)
 	strcpy(param, rec_msg_string + strlen(portstr) + 1);
 	/*get param*/
 	appendStringInfo(&sqlstr, "select name from pg_settings where name like '%%%s%%' order by 1", param);
-	if (AGT_CMD_SHOW_CNDN_PARAM == cmdtype)
-	{
-		pwd = getpwuid(getuid());
-		valuestr = mgr_get_showparam(sqlstr.data, pwd->pw_name, "127.0.0.1", atoi(portstr), AGTM_DBNAME);
-	}
-	else
-	{
-		valuestr = mgr_get_showparam(sqlstr.data, AGTM_USER, "127.0.0.1", atoi(portstr), AGTM_DBNAME);
-	}
+	pwd = getpwuid(getuid());
+	valuestr = mgr_get_showparam(sqlstr.data, pwd->pw_name, "127.0.0.1", atoi(portstr), AGTM_DBNAME);
 	pfree(sqlstr.data);
 	if (valuestr != NULL)
 	{

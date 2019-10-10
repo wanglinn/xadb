@@ -7608,7 +7608,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 		resetStringInfo(&(getAgentCmdRst->description));
 		ereport(LOG, (errmsg("update new gtm master \"%s\" pg_hba.conf for gtm slave \"%s\" sreaming replication", NameStr(mgr_nodetmp->nodename), cndnname.data)));
 		address = get_hostaddress_from_hostoid(mgr_nodetmp->nodehost);
-		mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", AGTM_USER, address, 32, "trust", &infosendmsg);
+		mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", "all", address, 32, "trust", &infosendmsg);
 		pfree(address);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF,
 								cndnPath,

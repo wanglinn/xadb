@@ -1394,10 +1394,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	iloop = iMax-2;
 	while(iloop-- >0)
 	{
-		if (bGtmType)
-			rest = pingNode_user(hostAddr, portBuf, user);
-		else
-			rest = pingNode_user(hostAddr, portBuf, AGTM_USER);
+		rest = pingNode_user(hostAddr, portBuf, user);
 		if (PQPING_NO_RESPONSE == rest)
 			break;
 		pg_usleep(1000000L);

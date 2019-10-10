@@ -773,7 +773,7 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 			if (agtm_m_is_running)
 			{
 				/* append "host all postgres  ip/32" for agtm master pg_hba.conf and reload it. */
-				mgr_add_hbaconf(CNDN_TYPE_GTM_COOR_MASTER, AGTM_USER, destnodeinfo.nodeaddr);
+				mgr_add_hbaconf(CNDN_TYPE_GTM_COOR_MASTER, "all", destnodeinfo.nodeaddr);
 			}
 			else
 				{	ereport(ERROR, (errmsg("gtm master is not running")));}
@@ -782,7 +782,7 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		{	ereport(ERROR, (errmsg("gtm master is not initialized")));}
 
 		/* for gtm slave */
-		mgr_add_hbaconf(CNDN_TYPE_GTM_COOR_SLAVE, AGTM_USER, destnodeinfo.nodeaddr);
+		mgr_add_hbaconf(CNDN_TYPE_GTM_COOR_SLAVE, "all", destnodeinfo.nodeaddr);
 
 		/*
 		3.add dst node ip and account into src node hba
@@ -4137,10 +4137,7 @@ static bool hexp_get_nodeinfo_from_table(char *node_name, char node_type, Append
 	nodeinfo->nodename = pstrdup(NameStr(mgr_node->nodename));
 	nodeinfo->nodetype = mgr_node->nodetype;
 	nodeinfo->nodeaddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
-	if (mgr_node->nodetype == CNDN_TYPE_GTM_COOR_MASTER || mgr_node->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-		nodeinfo->nodeusername = pstrdup(AGTM_USER);
-	else
-		nodeinfo->nodeusername = get_hostuser_from_hostoid(mgr_node->nodehost);
+	nodeinfo->nodeusername = get_hostuser_from_hostoid(mgr_node->nodehost);
 	nodeinfo->nodeport = mgr_node->nodeport;
 	nodeinfo->nodehost = mgr_node->nodehost;
 	nodeinfo->nodemasteroid = mgr_node->nodemasternameoid;
@@ -4205,10 +4202,7 @@ static bool hexp_get_nodeinfo_from_table_byoid(Oid tupleOid, AppendNodeInfo *nod
 	nodeinfo->nodename = pstrdup(NameStr(mgr_node->nodename));
 	nodeinfo->nodetype = mgr_node->nodetype;
 	nodeinfo->nodeaddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
-	if (mgr_node->nodetype == CNDN_TYPE_GTM_COOR_MASTER || mgr_node->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-		nodeinfo->nodeusername = pstrdup(AGTM_USER);
-	else
-		nodeinfo->nodeusername = get_hostuser_from_hostoid(mgr_node->nodehost);
+	nodeinfo->nodeusername = get_hostuser_from_hostoid(mgr_node->nodehost);
 	nodeinfo->nodeport = mgr_node->nodeport;
 	nodeinfo->nodehost = mgr_node->nodehost;
 	nodeinfo->nodemasteroid = mgr_node->nodemasternameoid;

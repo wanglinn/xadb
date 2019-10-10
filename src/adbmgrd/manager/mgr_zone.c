@@ -227,19 +227,16 @@ Datum mgr_zone_promote(PG_FUNCTION_ARGS)
 			{
 				memset(nodePortBuf, 0, 10);
 				sprintf(nodePortBuf, "%d", mgr_node->nodeport);
-				if (mgr_node->nodetype != CNDN_TYPE_GTM_COOR_MASTER && mgr_node->nodetype != CNDN_TYPE_GTM_COOR_SLAVE)
-					userName = get_hostuser_from_hostoid(mgr_node->nodehost);
-				else
-					userName = NULL;
+				userName = get_hostuser_from_hostoid(mgr_node->nodehost);
 				i = 0;
 				while(i++<3)
 				{
-					if (pingNode_user(hostAddr, nodePortBuf, userName == NULL ? AGTM_USER : userName) == 0)
+					if (pingNode_user(hostAddr, nodePortBuf, userName) == 0)
 						break;
 					pg_usleep(1 * 1000000L);
 				}
 
-				if (pingNode_user(hostAddr, nodePortBuf, userName == NULL ? AGTM_USER : userName) != 0)
+				if (pingNode_user(hostAddr, nodePortBuf, userName) != 0)
 				{
 					bres = false;
 					ereport(WARNING, (errmsg("the node \"%s\" is master type, but not running normal", NameStr(mgr_node->nodename))));

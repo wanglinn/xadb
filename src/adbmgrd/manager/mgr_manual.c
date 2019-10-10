@@ -896,12 +896,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 		resetStringInfo(&infosendmsg);
 		ereport(NOTICE, (errmsg("update pg_hba.conf of %s \"%s\"", nodetypestr, NameStr(mgr_node->nodename))));
 		pfree(nodetypestr);
-		if (mgr_node->nodetype == CNDN_TYPE_GTM_COOR_MASTER || mgr_node->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", AGTM_USER, dest_nodeinfo.nodeaddr
-				, 32, "trust", &infosendmsg);
-		else
-			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", dest_nodeinfo.nodeaddr, 32, "trust"
-			, &infosendmsg);
+		mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", dest_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
 		datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(rel_node), &isNull);
 		if(isNull)
 		{
@@ -2569,16 +2564,9 @@ static void mgr_get_hba_replication_info(Oid masterTupleOid, StringInfo infosend
 		if ((masterTupleOid != mgr_node->nodemasternameoid) && (masterTupleOid != HeapTupleGetOid(tuple)))
 			continue;
 		hostAddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
-		if (CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype || CNDN_TYPE_GTM_COOR_SLAVE == mgr_node->nodetype)
-		{
-			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", AGTM_USER, hostAddr, 32, "trust", infosendmsg);
-		}
-		else
-		{
-			userName = get_hostuser_from_hostoid(mgr_node->nodehost);
-			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", userName, hostAddr, 32, "trust", infosendmsg);
-			pfree(userName);
-		}
+		userName = get_hostuser_from_hostoid(mgr_node->nodehost);
+		mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", userName, hostAddr, 32, "trust", infosendmsg);
+		pfree(userName);
 		pfree(hostAddr);
 	}
 
