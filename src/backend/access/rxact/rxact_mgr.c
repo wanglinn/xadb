@@ -2927,6 +2927,10 @@ AddRxactEventToSet(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint32 ev
 															NULL,
 															(void*)rxactEventData);
 			break;
+		default:
+			ereport(ERROR,
+				(errmsg("Unrecognized event tag: %d", type)));
+			break;
 	}
 	++rxact_event_cur_count;
 }
