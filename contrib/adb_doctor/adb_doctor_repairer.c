@@ -38,11 +38,6 @@ static void repairSpecificMgrNode(dlist_head *mgrNodes, char nodetype);
 static bool cleanFaultNodesOnCoordinators(dlist_head *faultNodes);
 static bool repairCoordinatorNode(MgrNodeWrapper *faultCoordinator);
 static bool repairSlaveNode(MgrNodeWrapper *faultSlaveNode);
-// static void addDataNodeMasterToCoordinator(MgrNodeWrapper *coordinator,
-// 										   PGconn *activeConn,
-// 										   bool localExecute,
-// 										   char *executeOnNodeName,
-// 										   MemoryContext spiContext);
 static bool checkGetMgrNodePGconn(MgrNodeWrapper *mgrNode,
 								  bool isMaster,
 								  PGconn **connP,
@@ -61,10 +56,6 @@ static void refreshMgrNodeBeforeRepair(MgrNodeWrapper *mgrNode,
 									   MemoryContext spiContext);
 static void refreshMgrNodeAfterRepair(MgrNodeWrapper *mgrNode,
 									  MemoryContext spiContext);
-// static void refreshMgrNodeBeforeAppendNode(MgrNodeWrapper *mgrNode,
-// 										   MemoryContext spiContext);
-// static void refreshMgrNodeAfterAppendNode(MgrNodeWrapper *mgrNode,
-// 										  MemoryContext spiContext);
 static void selectSiblingActiveNodes(MgrNodeWrapper *faultNode,
 									 dlist_head *resultList,
 									 MemoryContext spiContext);
@@ -462,138 +453,6 @@ static bool repairCoordinatorNode(MgrNodeWrapper *faultCoordinator)
 	return done;
 }
 
-// static void tryReEnableCoordinator(MgrNodeWrapper *faultCoordinator,
-// 								   dlist_head *activeCoordinators,
-// 								   MemoryContext spiContext)
-// {
-// 	PGconn *faultNodePgconn = NULL;
-// 	char *faultNodePgxcNodeName = NULL;
-// 	bool tryedLockCluster = false;
-// 	char *sql = false;
-// 	SwitcherNodeWrapper *holdLockCoordinator;
-// 	SwitcherNodeWrapper *activeCoordinator;
-// 	dlist_iter iter;
-// 	MemoryContext oldContext;
-// 	ErrorData *edata = NULL;
-
-// 	oldContext = CurrentMemoryContext;
-// 	ereport(LOG,
-// 			(errmsg("can't find any active coordinator, try to startup %s",
-// 					NameStr(faultCoordinator->form.nodename))));
-
-// 	PG_TRY();
-// 	{
-// 		refreshMgrNodeBeforeRepair(faultCoordinator,
-// 								   spiContext);
-// 		startupNodeWithinSeconds(faultCoordinator,
-// 								 STARTUP_NODE_SECONDS,
-// 								 true);
-
-// 		checkGetMgrNodePGconn(faultCoordinator,
-// 							  true,
-// 							  &faultNodePgconn,
-// 							  true);
-// 		/* clean pgxc_node in fault coordinator */
-// 		sql = psprintf("delete from pgxc_node where node_name !='%s' and nodeis_gtm !=%d::boolean ",
-// 					   NameStr(faultCoordinator->form.nodename),
-// 					   true);
-// 		PQexecCommandSql(faultNodePgconn, sql, true);
-// 		faultNodePgxcNodeName = getMgrNodePgxcNodeName(faultCoordinator,
-// 													   faultNodePgconn,
-// 													   false, true);
-// 		pgxcPoolReloadOnCoordinator(faultNodePgconn,
-// 									true,
-// 									faultNodePgxcNodeName,
-// 									true);
-
-// 		tryLockCluster(activeCoordinators);
-// 		tryedLockCluster = true;
-// 		holdLockCoordinator = getHoldLockCoordinator(activeCoordinators);
-
-// 		PQexecCommandSql(holdLockCoordinator->pgConn,
-// 						 "set xc_maintenance_mode = on;",
-// 						 true);
-
-// 		/* add this fault node to the active coordinator which hold the cluster lock */
-// 		compareAndCreateMgrNodeOnCoordinator(faultCoordinator,
-// 											 faultNodePgxcNodeName,
-// 											 holdLockCoordinator->mgrNode,
-// 											 holdLockCoordinator->pgConn,
-// 											 true,
-// 											 holdLockCoordinator->pgxcNodeName,
-// 											 true);
-// 		dlist_foreach(iter, activeCoordinators)
-// 		{
-// 			activeCoordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-// 			/* add the active coordinator to this fault node */
-// 			compareAndCreateMgrNodeOnCoordinator(activeCoordinator->mgrNode,
-// 												 activeCoordinator->pgxcNodeName,
-// 												 faultCoordinator,
-// 												 holdLockCoordinator->pgConn,
-// 												 false,
-// 												 faultNodePgxcNodeName,
-// 												 true);
-// 			/* add this fault node to the active coordinator */
-// 			compareAndCreateMgrNodeOnCoordinator(faultCoordinator,
-// 												 faultNodePgxcNodeName,
-// 												 activeCoordinator->mgrNode,
-// 												 holdLockCoordinator->pgConn,
-// 												 activeCoordinator == holdLockCoordinator,
-// 												 activeCoordinator->pgxcNodeName,
-// 												 true);
-// 		}
-// 		/* add the data node master to the pgxc_node table of this fault node */
-// 		addDataNodeMasterToCoordinator(faultCoordinator,
-// 									   holdLockCoordinator->pgConn,
-// 									   false,
-// 									   faultNodePgxcNodeName,
-// 									   spiContext);
-// 		refreshMgrNodeAfterRepair(faultCoordinator,
-// 								  spiContext);
-
-// 		tryUnlockCluster(activeCoordinators, true);
-// 	}
-// 	PG_CATCH();
-// 	{
-// 		/* Save error info in our stmt_mcontext */
-// 		MemoryContextSwitchTo(oldContext);
-// 		edata = CopyErrorData();
-// 		FlushErrorState();
-// 		if (tryedLockCluster)
-// 		{
-// 			tryUnlockCluster(activeCoordinators, false);
-// 			/* clean the fault coordinator in pgxc_node of activecoordinators */
-// 			dlist_foreach(iter, activeCoordinators)
-// 			{
-// 				activeCoordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-// 				compareAndDropMgrNodeOnCoordinator(faultCoordinator,
-// 													activeCoordinator->mgrNode,
-// 													activeCoordinator->pgConn,
-// 													true,
-// 													activeCoordinator->pgxcNodeName,
-// 													false);
-// 			}
-// 			shutdownNodeWithinSeconds(faultCoordinator,
-// 									  SHUTDOWN_NODE_FAST_SECONDS,
-// 									  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
-// 									  false);
-// 		}
-// 	}
-// 	PG_END_TRY();
-
-// 	if (sql)
-// 		pfree(sql);
-// 	if (faultNodePgconn)
-// 		PQfinish(faultNodePgconn);
-// 	if (faultNodePgxcNodeName)
-// 		pfree(faultNodePgxcNodeName);
-// 	(void)MemoryContextSwitchTo(oldContext);
-// 	if (edata)
-// 	{
-// 		ReThrowError(edata);
-// 	}
-// }
-
 static bool repairSlaveNode(MgrNodeWrapper *faultSlaveNode)
 {
 	volatile bool done = false;
@@ -658,48 +517,6 @@ static bool repairSlaveNode(MgrNodeWrapper *faultSlaveNode)
 	}
 	return done;
 }
-
-// static void addDataNodeMasterToCoordinator(MgrNodeWrapper *coordinator,
-// 										   PGconn *activeConn,
-// 										   bool localExecute,
-// 										   char *executeOnNodeName,
-// 										   MemoryContext spiContext)
-// {
-// 	dlist_iter iter;
-// 	dlist_head mgrNodes = DLIST_STATIC_INIT(mgrNodes);
-// 	MgrNodeWrapper *mgrNode;
-// 	char *pgxcNodeName;
-
-// 	selectActiveMgrNodeByNodetype(spiContext,
-// 								  CNDN_TYPE_DATANODE_MASTER,
-// 								  &mgrNodes);
-// 	dlist_foreach(iter, &mgrNodes)
-// 	{
-// 		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-// 		pgxcNodeName = getMgrNodePgxcNodeName(mgrNode, NULL, false, true);
-// 		compareAndCreateMgrNodeOnCoordinator(mgrNode,
-// 											 pgxcNodeName,
-// 											 coordinator,
-// 											 activeConn,
-// 											 localExecute,
-// 											 executeOnNodeName,
-// 											 true);
-// 		pfree(pgxcNodeName);
-// 	}
-
-// dlist_init(&mgrNodes);
-// selectActiveMgrNodeByNodetype(spiContext, CNDN_TYPE_DATANODE_MASTER, &mgrNodes);
-// dlist_foreach(iter, &mgrNodes)
-// {
-// 	mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-// 	compareAndCreateMgrNodeOnCoordinator(mgrNode,
-// 										 coordinator,
-// 										 activeConn,
-// 										 localExecute,
-// 										 executeOnNodeName,
-// 										 true);
-// }
-//}
 
 static bool checkGetMgrNodePGconn(MgrNodeWrapper *mgrNode,
 								  bool isMaster,
@@ -1143,78 +960,6 @@ static void refreshMgrNodeAfterRepair(MgrNodeWrapper *mgrNode,
 						CURE_STATUS_CURING)));
 	}
 }
-
-// static void refreshMgrNodeBeforeAppendNode(MgrNodeWrapper *mgrNode,
-// 										   MemoryContext spiContext)
-// {
-// 	StringInfoData buf;
-// 	NameData oldCurestatus;
-
-// 	namestrcpy(&oldCurestatus, NameStr(mgrNode->form.curestatus));
-// 	namestrcpy(&mgrNode->form.curestatus, CURE_STATUS_CURING);
-// 	mgrNode->form.nodeinited = false;
-// 	mgrNode->form.nodeincluster = false;
-
-// 	initStringInfo(&buf);
-// 	appendStringInfo(&buf,
-// 					 "update pg_catalog.mgr_node "
-// 					 "set curestatus = '%s', "
-// 					 "nodeinited = %d::boolean, "
-// 					 "nodeincluster = %d::boolean "
-// 					 "WHERE oid = %u "
-// 					 "and curestatus = '%s' "
-// 					 "and nodetype = '%c' ",
-// 					 NameStr(mgrNode->form.curestatus),
-// 					 mgrNode->form.nodeinited,
-// 					 mgrNode->form.nodeincluster,
-// 					 mgrNode->oid,
-// 					 NameStr(oldCurestatus),
-// 					 mgrNode->form.nodetype);
-// 	if (executeUpdateSql(buf.data, spiContext) != 1)
-// 	{
-// 		ereport(ERROR,
-// 				(errmsg("%s, can not transit to curestatus:%s",
-// 						NameStr(mgrNode->form.nodename),
-// 						NameStr(mgrNode->form.curestatus))));
-// 	}
-// }
-
-// static void refreshMgrNodeAfterAppendNode(MgrNodeWrapper *mgrNode,
-// 										  MemoryContext spiContext)
-// {
-// 	StringInfoData buf;
-// 	NameData oldCurestatus;
-
-// 	namestrcpy(&oldCurestatus, NameStr(mgrNode->form.curestatus));
-// 	namestrcpy(&mgrNode->form.curestatus, CURE_STATUS_NORMAL);
-// 	mgrNode->form.nodeinited = true;
-// 	mgrNode->form.nodeincluster = true;
-
-// 	initStringInfo(&buf);
-// 	appendStringInfo(&buf,
-// 					 "update pg_catalog.mgr_node "
-// 					 "set curestatus = '%s', "
-// 					 "nodesync = '%s', "
-// 					 "nodeinited = %d::boolean, "
-// 					 "nodeincluster = %d::boolean "
-// 					 "WHERE oid = %u "
-// 					 "and curestatus = '%s' "
-// 					 "and nodetype = '%c' ",
-// 					 NameStr(mgrNode->form.curestatus),
-// 					 NameStr(mgrNode->form.nodesync),
-// 					 mgrNode->form.nodeinited,
-// 					 mgrNode->form.nodeincluster,
-// 					 mgrNode->oid,
-// 					 NameStr(oldCurestatus),
-// 					 mgrNode->form.nodetype);
-// 	if (executeUpdateSql(buf.data, spiContext) != 1)
-// 	{
-// 		ereport(ERROR,
-// 				(errmsg("%s, can not transit to curestatus:%s",
-// 						NameStr(mgrNode->form.nodename),
-// 						NameStr(mgrNode->form.curestatus))));
-// 	}
-// }
 
 static void selectSiblingActiveNodes(MgrNodeWrapper *faultNode,
 									 dlist_head *resultList,

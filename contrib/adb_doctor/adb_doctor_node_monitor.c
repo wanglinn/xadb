@@ -224,9 +224,7 @@ static void slaveNodeCrashed(MonitorNodeInfo *nodeInfo);
 static void coordinatorCrashed(MonitorNodeInfo *nodeInfo);
 static void isolateNode(MonitorNodeInfo *nodeInfo);
 static bool canDoSwitching(MonitorNodeInfo *nodeInfo);
-static bool canIsolateCoordinator(MonitorNodeInfo *nodeInfo);
 static void startupMasterNodeExceedMaxTry(MonitorNodeInfo *nodeInfo);
-static void startupCoordinatorExceedMaxTry(MonitorNodeInfo *nodeInfo);
 
 static void handleSigterm(SIGNAL_ARGS);
 static void handleSigusr1(SIGNAL_ARGS);
@@ -2581,7 +2579,7 @@ static void coordinatorCrashed(MonitorNodeInfo *nodeInfo)
 		{
 			if (nodeConfiguration->restartCoordinatorCount <= nodeInfo->nRestarts)
 			{
-				startupCoordinatorExceedMaxTry(nodeInfo);
+				isolateNode(nodeInfo);
 			}
 			else
 			{
@@ -2591,7 +2589,7 @@ static void coordinatorCrashed(MonitorNodeInfo *nodeInfo)
 	}
 	else
 	{
-		startupCoordinatorExceedMaxTry(nodeInfo);
+		isolateNode(nodeInfo);
 	}
 }
 
@@ -2638,58 +2636,6 @@ static bool canDoSwitching(MonitorNodeInfo *nodeInfo)
 	}
 }
 
-static bool canIsolateCoordinator(MonitorNodeInfo *nodeInfo)
-{
-	int count;
-	Datum datum;
-	bool isNull;
-	StringInfoData buf;
-	HeapTuple tuple;
-	TupleDesc tupdesc;
-	uint64 rows;
-	int ret;
-	SPITupleTable *tupTable;
-
-	initStringInfo(&buf);
-	appendStringInfo(&buf,
-					 "SELECT count(*) FROM mgr_node \n"
-					 "WHERE nodeinited = %d::boolean \n"
-					 "AND nodeincluster = %d::boolean \n"
-					 "AND nodetype = '%c' "
-					 "AND nodename != '%s' ",
-					 true,
-					 true,
-					 nodeInfo->mgrNode->form.nodetype,
-					 NameStr(nodeInfo->mgrNode->form.nodename));
-	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
-	ret = SPI_execute(buf.data, false, 0);
-	pfree(buf.data);
-	if (ret != SPI_OK_SELECT)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("SPI_execute failed: error code %d",
-						ret)));
-
-	rows = SPI_processed;
-	tupTable = SPI_tuptable;
-	tupdesc = tupTable->tupdesc;
-	if (rows == 1 && tupTable != NULL)
-	{
-		tuple = tupTable->vals[0];
-		datum = SPI_getbinval(tuple, tupdesc, 1, &isNull);
-		if (!isNull)
-			count = DatumGetInt32(datum);
-		else
-			count = 0;
-	}
-	else
-	{
-		count = 0;
-	}
-	SPI_FINISH_TRANSACTIONAL_COMMIT();
-	return count > 0;
-}
-
 static void startupMasterNodeExceedMaxTry(MonitorNodeInfo *nodeInfo)
 {
 	if (canDoSwitching(nodeInfo))
@@ -2700,22 +2646,6 @@ static void startupMasterNodeExceedMaxTry(MonitorNodeInfo *nodeInfo)
 	{
 		ereport(DEBUG1,
 				(errmsg("%s can't do switching, try to startup it",
-						NameStr(nodeInfo->mgrNode->form.nodename))));
-		/* startup this node until succeeded */
-		tryStartupNode(nodeInfo);
-	}
-}
-
-static void startupCoordinatorExceedMaxTry(MonitorNodeInfo *nodeInfo)
-{
-	if (canIsolateCoordinator(nodeInfo))
-	{
-		isolateNode(nodeInfo);
-	}
-	else
-	{
-		ereport(DEBUG1,
-				(errmsg("%s can't isolate this node, try to startup it",
 						NameStr(nodeInfo->mgrNode->form.nodename))));
 		/* startup this node until succeeded */
 		tryStartupNode(nodeInfo);
