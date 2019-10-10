@@ -13249,6 +13249,7 @@ bool get_active_node_info(const char node_type, const char *node_name, AppendNod
 	Datum datumPath;
 	bool isNull = false;
 	bool is_running = false;
+	char *nodeusername = NULL;
 	ScanKeyInit(&key[0]
 				,Anum_mgr_node_nodeinited
 				,BTEqualStrategyNumber
@@ -13295,7 +13296,9 @@ bool get_active_node_info(const char node_type, const char *node_name, AppendNod
 		Assert(mgr_node);
 		nodeinfo->nodeaddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
 		nodeinfo->nodeport = mgr_node->nodeport;
-		is_running = is_node_running(nodeinfo->nodeaddr, nodeinfo->nodeport, NameStr(mgr_node->nodename), mgr_node->nodetype);
+		nodeusername = get_hostuser_from_hostoid(mgr_node->nodehost);
+		is_running = is_node_running(nodeinfo->nodeaddr, nodeinfo->nodeport, nodeusername, mgr_node->nodetype);
+		pfree(nodeusername);
 		if (is_running)
 			break;
 	}
