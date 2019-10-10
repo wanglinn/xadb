@@ -13704,28 +13704,36 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 			PQclear(res);
 		}
 	}
-	res = PQexec(conn, execSql.data);
-	if (PQresultStatus(res) != PGRES_COMMAND_OK)
+	if (execSql.len > 0)
 	{
+		res = PQexec(conn, execSql.data);
+		if (PQresultStatus(res) != PGRES_COMMAND_OK)
+		{
+			PQclear(res);
+			PQfinish(conn);
+			pfree(connStr.data);
+			pfree(checkSql.data);
+			pfree(execSql.data);
+			ereport(WARNING, 
+					(errmsg("%s, Failed to update pgxc_node in '%s'.", 
+							warningMassage,
+							cn_master_node->nodename.data)));
+			return false;
+		}
 		PQclear(res);
-		PQfinish(conn);
-		pfree(connStr.data);
-		pfree(checkSql.data);
-		pfree(execSql.data);
-		ereport(WARNING, 
-				(errmsg("%s, Failed to update pgxc_node in '%s'.", 
-						warningMassage,
+		ereport(NOTICE, 
+				(errmsg("Update pgxc_node successfully in '%s'.", 
 						cn_master_node->nodename.data)));
-		return false;
 	}
-	PQclear(res);
+	else
+		ereport(WARNING, 
+			(errmsg("Node '%s' has no update task. HINT: Please check the read-write separation parameters or the synchronization status of datanode slave.", 
+					cn_master_node->nodename.data)));
+	
 	PQfinish(conn);
 	pfree(connStr.data);
 	pfree(checkSql.data);
 	pfree(execSql.data);
-	ereport(NOTICE, 
-			(errmsg("Update pgxc_node successfully in '%s'.", 
-					cn_master_node->nodename.data)));
 	return true;
 }
 
