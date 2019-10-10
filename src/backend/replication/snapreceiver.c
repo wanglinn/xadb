@@ -24,7 +24,6 @@
 
 int snap_receiver_timeout = 60 * 1000L;
 int snap_sender_connect_timeout = 5000L;
-bool force_multiple_cn_consistency = false;
 
 typedef struct SnapRcvData
 {
@@ -61,6 +60,8 @@ static StringInfoData incoming_message;
 
 static TimestampTz last_heat_beat_sendtime;
 
+static bool finish_xid_ack_send = false;
+
 /*
  * Flags set by interrupt handlers of walreceiver for later service in the
  * main loop.
@@ -93,8 +94,7 @@ static void SnapRcvProcessComplete(char *buf, Size len);
 static void SnapRcvProcessHeartBeat(char *buf, Size len);
 static void SnapRcvProcessUpdateXid(char *buf, Size len);
 static void WakeupTransaction(TransactionId);
-static void
-SnapRcvSendLocalNextXid(void);
+static void SnapRcvSendLocalNextXid(void);
 
 /* Signal handlers */
 static void SnapRcvSigHupHandler(SIGNAL_ARGS);
@@ -733,7 +733,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	uint32			i,count;
 	StringInfoData xidmsg;			
 
-	if ((len % sizeof(txid)) != 0 ||
+	if (((len-1) % sizeof(txid)) != 0 ||
 		len == 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
@@ -744,7 +744,9 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	msg.cursor = 0;
 
 	initStringInfo(&xidmsg);
-	if (force_multiple_cn_consistency)
+
+	finish_xid_ack_send = pq_getmsgbyte(&msg);
+	if (finish_xid_ack_send)
 		pq_sendbyte(&xidmsg, 'f');
 
 	LOCK_SNAP_RCV();
@@ -776,7 +778,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 		}
 		--count;
 		WakeupTransaction(txid);
-		if (force_multiple_cn_consistency)
+		if (finish_xid_ack_send)
 			pq_sendint32(&xidmsg, txid);
 	}
 	
@@ -787,7 +789,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	ereport(LOG,(errmsg("SanpRcv xcnt now is %d\n", count)));
 #endif
 
-	if (force_multiple_cn_consistency)
+	if (finish_xid_ack_send)
 		walrcv_send(wrconn, xidmsg.data, xidmsg.len);
 	pfree(xidmsg.data);
 }

@@ -99,9 +99,10 @@ typedef struct SnapClientData
 extern char *AGtmHost;
 extern int snapsender_port;
 extern int snap_receiver_timeout;
-extern bool force_multiple_cn_consistency;
 
+bool force_cn_consistent = false;
 static volatile sig_atomic_t got_sigterm = false;
+static volatile sig_atomic_t got_SIGHUP = false;
 
 static SnapSenderData  *SnapSender = NULL;
 static slist_head		slist_all_client = SLIST_STATIC_INIT(slist_all_client);
@@ -146,6 +147,7 @@ static int	snapsender_match_xid(const void *key1, const void *key2, Size keysize
 static bool SnapSenderWakeupFinishXidEvent(TransactionId txid);
 static void snapsenderProcessLocalMaxXid(SnapClientData *client, const char* data, int len);
 static void snapsenderUpdateNextXid(TransactionId xid, SnapClientData *exclue_client);
+static void SnapSenderSigHupHandler(SIGNAL_ARGS);
 
 static void append_client_xid_to_htab(SnapClientData *client, TransactionId xid);
 static bool SnapSenderWaitTxidFinsihEvent(TimestampTz end, WaitSnapSenderCond test, void *context);
@@ -200,6 +202,13 @@ static int snapsender_match_xid(const void *key1, const void *key2, Size keysize
 	else if(l > r)
 		return 1;
 	return 0;
+}
+
+/* SIGHUP: set flag to re-read config file at next convenient time */
+static void
+SnapSenderSigHupHandler(SIGNAL_ARGS)
+{
+	got_SIGHUP = true;
 }
 
 static void snapsender_create_xid_htab(void)
@@ -528,7 +537,7 @@ void SnapSenderMain(void)
 	pqsignal(SIGINT, SIG_IGN);
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGHUP, SIG_IGN);
+	pqsignal(SIGHUP, SnapSenderSigHupHandler);
 	pqsignal(SIGTERM, SnapSenderSigTermHandler);
 	pqsignal(SIGQUIT, SnapSenderQuickDieHander);
 	sigdelset(&BlockSig, SIGQUIT);
@@ -614,6 +623,11 @@ void SnapSenderMain(void)
 		}
 
 		SnapSendCheckTimeoutSocket();
+		if (got_SIGHUP)
+		{
+			got_SIGHUP = false;
+			ProcessConfigFile(PGC_SIGHUP);
+		}
 	}
 	proc_exit(1);
 }
@@ -814,6 +828,12 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 		{
 			resetStringInfo(&output_buffer);
 			appendStringInfoChar(&output_buffer, msgtype);
+
+			/* add msg whether need xid finish ack*/
+			if (msgtype == 'c')
+			{
+				pq_sendbyte(&output_buffer, force_cn_consistent);
+			}
 			for(i=0;i<xid_cnt;++i)
 			{
 				pq_sendint32(&output_buffer, xid[i]);
@@ -824,7 +844,7 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 					ereport(LOG,(errmsg("SnapSend rel finsih xid %d\n",
 			 			xid[i])));
 #endif
-					if (force_multiple_cn_consistency)
+					if (force_cn_consistent)
 						append_client_xid_to_htab(client, xid[i]);
 				}
 				else
@@ -838,7 +858,7 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 			}
 			output_buffer.cursor = true;
 		}
-		else if (force_multiple_cn_consistency && msgtype == 'c')
+		else if (force_cn_consistent && msgtype == 'c')
 		{
 			for(i=0;i<xid_cnt;++i)
 			{
@@ -1383,7 +1403,7 @@ void SnapSendTransactionFinish(TransactionId txid)
 	SnapSender->xid_complete[SnapSender->cur_cnt_complete++] = txid;
 	SetLatch(&(GetPGProcByNumber(SnapSender->procno)->procLatch));
 
-	if (force_multiple_cn_consistency)
+	if (force_cn_consistent)
 	{
 		proclist_foreach_modify(iter, &SnapSender->waiters_finish, GTMWaitLink)
 		{
