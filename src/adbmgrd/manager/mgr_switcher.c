@@ -1826,8 +1826,9 @@ static void validateFailedSlavesForSwitch(MgrNodeWrapper *oldMaster,
 
 	if (forceSwitch)
 	{
-		ereport(WARNING,
-				(errmsg("There are some slave nodes failed, force switch may cause data loss")));
+		if (!dlist_is_empty(failedSlaves))
+			ereport(WARNING,
+					(errmsg("There are some slave nodes failed, force switch may cause data loss")));
 	}
 	else
 	{

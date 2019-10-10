@@ -752,7 +752,7 @@ static void failoverOldMaster(MgrNodeWrapper *oldMaster)
 							oldMaster->form.nodetype)));
 		}
 		ereport(LOG,
-				(errmsg("From now on，the master node %s begin to reign. "
+				(errmsg("From now on, the master node %s begin to reign. "
 						"The old master %s become slave and wait for rewind. "
 						"Switching completed",
 						NameStr(newMasterName),
