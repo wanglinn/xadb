@@ -414,6 +414,7 @@ static void waitForDoctorBecomeReady(AdbDoctorBgworkerStatus *bgworkerStatus,
 {
 	bool ready;
 	BgwHandleStatus status;
+	int rc;
 
 	/* wait for postmaster startup the doctor process as a bgworker */
 	status = WaitForBackgroundWorkerStartup(bgworkerStatus->handle,
@@ -452,7 +453,16 @@ static void waitForDoctorBecomeReady(AdbDoctorBgworkerStatus *bgworkerStatus,
 					 errhint("More details may be available in the server log.")));
 
 		/* Wait to be signalled. */
-		WaitLatch(MyLatch, WL_LATCH_SET, 0, PG_WAIT_EXTENSION);
+		rc = WaitLatch(MyLatch,
+					   WL_LATCH_SET | WL_POSTMASTER_DEATH, 0,
+					   PG_WAIT_EXTENSION);
+
+		if (rc & WL_POSTMASTER_DEATH)
+		{
+			ereport(ERROR,
+					(errmsg("%s my postmaster dead, i need to exit",
+							MyBgworkerEntry->bgw_name)));
+		}
 
 		/* Reset the latch so we don't spin. */
 		ResetLatch(MyLatch);
