@@ -714,7 +714,6 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 		slist_push_head(&clientitem->gxid_assgin_xid_list, &xiditem->snode);
 		clientitem->xcnt++;
 
-		SnapSendTransactionAssign(xid, 1, InvalidTransactionId);
 		pq_sendint32(&gxid_send_output_buffer, procno);
 		pq_sendint32(&gxid_send_output_buffer, xid);
 
