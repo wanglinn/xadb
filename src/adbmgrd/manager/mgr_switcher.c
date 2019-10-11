@@ -1761,14 +1761,19 @@ void checkGetMasterCoordinators(MemoryContext spiContext,
 								bool includeGtmCoord,
 								bool checkRunningMode)
 {
-	dlist_head mgrNodes = DLIST_STATIC_INIT(mgrNodes);
+	dlist_head masterMgrNodes = DLIST_STATIC_INIT(masterMgrNodes);
+	dlist_head slaveCoordinators = DLIST_STATIC_INIT(slaveCoordinators);
+	dlist_head slaveMgrNodes = DLIST_STATIC_INIT(slaveMgrNodes);
 	SwitcherNodeWrapper *node;
-	dlist_iter iter;
+	MgrNodeWrapper *slaveMgrNode;
+	PGconn *slaveConn = NULL;
+	dlist_iter iter_switcher;
+	dlist_iter iter_mgr;
 
 	if (includeGtmCoord)
 	{
-		selectActiveMasterCoordinators(spiContext, &mgrNodes);
-		if (dlist_is_empty(&mgrNodes))
+		selectActiveMasterCoordinators(spiContext, &masterMgrNodes);
+		if (dlist_is_empty(&masterMgrNodes))
 		{
 			ereport(ERROR,
 					(errmsg("can't find any master coordinator")));
@@ -1778,13 +1783,13 @@ void checkGetMasterCoordinators(MemoryContext spiContext,
 	{
 		selectActiveMgrNodeByNodetype(spiContext,
 									  CNDN_TYPE_COORDINATOR_MASTER,
-									  &mgrNodes);
+									  &masterMgrNodes);
 	}
-	mgrNodesToSwitcherNodes(&mgrNodes, coordinators);
+	mgrNodesToSwitcherNodes(&masterMgrNodes, coordinators);
 
-	dlist_foreach(iter, coordinators)
+	dlist_foreach(iter_switcher, coordinators)
 	{
-		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		node = dlist_container(SwitcherNodeWrapper, link, iter_switcher.cur);
 		if (!tryConnectNode(node, 10))
 		{
 			ereport(ERROR,
@@ -1810,6 +1815,43 @@ void checkGetMasterCoordinators(MemoryContext spiContext,
 		{
 			node->runningMode = NODE_RUNNING_MODE_UNKNOW;
 		}
+
+		/* 
+		 * The data of the PGXC_NODE table needs to be modified during the 
+		 * switching process. If the synchronization node of the coordinator 
+		 * fails, the cluster will hang. 
+		 */
+		dlist_init(&slaveMgrNodes);
+		selectActiveMgrSlaveNodes(node->mgrNode->oid,
+								  getMgrSlaveNodetype(node->mgrNode->form.nodetype),
+								  spiContext,
+								  &slaveMgrNodes);
+		dlist_foreach(iter_mgr, &slaveMgrNodes)
+		{
+			slaveMgrNode = dlist_container(MgrNodeWrapper, link, iter_mgr.cur);
+			if (strcmp(NameStr(slaveMgrNode->form.nodesync),
+					   getMgrNodeSyncStateValue(SYNC_STATE_SYNC)) == 0)
+			{
+				slaveConn = getNodeDefaultDBConnection(slaveMgrNode, 10);
+				if (slaveConn == NULL)
+				{
+					ereport(ERROR,
+							(errmsg("%s is a Synchronous standby node of coordinator %s, but it is not running properly",
+									NameStr(slaveMgrNode->form.nodename),
+									NameStr(node->mgrNode->form.nodename))));
+				}
+				else
+				{
+					PQfinish(slaveConn);
+					slaveConn = NULL;
+				}
+			}
+			else
+			{
+				continue;
+			}
+		}
+		pfreeMgrNodeWrapperList(&slaveMgrNodes, NULL);
 	}
 }
 
