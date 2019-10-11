@@ -673,7 +673,7 @@ static void GxidSenderClearOldXid(GxidClientData *client)
 	if (sscan_ret <= 0)
 		return;
 
-	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_ENTER, &found);
+	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_REMOVE, &found);
 	if(found == false)
 		return;
 
@@ -839,7 +839,7 @@ static void GxidProcessUpdateMaxXid(GxidClientData *client)
 	ClientHashItemInfo			*clientitem;
 	bool						found;
 
-	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_FIND, &found);
+	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_ENTER, &found);
 	if(found == false)
 	{
 		MemSet(clientitem, 0, sizeof(*clientitem));
