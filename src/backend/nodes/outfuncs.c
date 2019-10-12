@@ -911,6 +911,10 @@ _outAgg(StringInfo str, const Agg *node)
 	WRITE_BITMAPSET_FIELD(aggParams);
 	WRITE_NODE_FIELD(groupingSets);
 	WRITE_NODE_FIELD(chain);
+#ifdef ADB
+	WRITE_NODE_FIELD(exec_nodes);
+	WRITE_BOOL_FIELD(skip_trans);
+#endif
 }
 
 static void
