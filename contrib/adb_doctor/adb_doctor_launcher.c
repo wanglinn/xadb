@@ -13,6 +13,7 @@
 #include "storage/shm_toc.h"
 #include "utils/resowner.h"
 #include "utils/builtins.h"
+#include "utils/memutils.h"
 #include "executor/spi.h"
 #include "access/xlog.h"
 #include "adb_doctor.h"
@@ -30,8 +31,7 @@ static void queryBgworkerDataAndConf(AdbDoctorConf **confP,
 									 dlist_head *switchNodes,
 									 dlist_head *monitorHosts,
 									 dlist_head *repairNodes);
-static char *getDoctorDisplayName(Adb_Doctor_Type type,
-								  MgrNodeWrapper *mgrNode);
+static char *getDoctorDisplayName(Adb_Doctor_Type type, char *customName);
 static void registerDoctorAsBgworker(AdbDoctorBgworkerStatus *bgworkerStatus,
 									 AdbDoctorBgworkerDataShm *dataShm);
 static void waitForDoctorBecomeReady(AdbDoctorBgworkerStatus *bgworkerStatus,
@@ -40,7 +40,8 @@ static void launchNodeMonitorDoctors(dlist_head *monitorNodes);
 static void launchNodeMonitorDoctor(MgrNodeWrapper *mgrNode);
 static void launchSwitcherDoctor(dlist_head *nodes);
 static void launchHostMonitorDoctor(dlist_head *hosts);
-static void launchRepairerDoctor(dlist_head *nodes);
+static void launchRepairerDoctors(dlist_head *nodes);
+static void launchRepairerDoctor(char nodetype);
 static AdbDoctorBgworkerStatus *launchDoctor(AdbDoctorBgworkerData *bgworkerData);
 static void terminateAllDoctor(void);
 static bool equalsDoctorUniqueId(Adb_Doctor_Type type, Oid oid,
@@ -63,6 +64,13 @@ static void tryRefreshHostMonitorDoctor(bool confChanged,
 static void tryRefreshRepairerDoctor(bool confChanged,
 									 dlist_head *staleNodes,
 									 dlist_head *freshNodes);
+static void copyMgrNodesByNodetype(dlist_head *mgrNodes,
+								   char nodetype,
+								   dlist_head *results);
+static void compareAndManipulateRepairerDoctor(dlist_head *staleNodes,
+											   dlist_head *freshNodes,
+											   bool confChanged,
+											   char nodetype);
 
 static void handleSigterm(SIGNAL_ARGS);
 static void handleSigusr1(SIGNAL_ARGS);
@@ -141,7 +149,7 @@ void adbDoctorLauncherMain(Datum main_arg)
 		launchNodeMonitorDoctors(cachedMonitorNodes);
 		launchSwitcherDoctor(cachedSwitchNodes);
 		launchHostMonitorDoctor(cachedMonitorHosts);
-		launchRepairerDoctor(cachedRepairNodes);
+		launchRepairerDoctors(cachedRepairNodes);
 
 		/* tell backend we do it well, and cut the contact with backend */
 		if (needNotify)
@@ -310,14 +318,12 @@ static void launcherLoop(AdbDoctorConf *conf)
 /**
  * give each doctor process a user friendly display name.
  */
-static char *getDoctorDisplayName(Adb_Doctor_Type type,
-								  MgrNodeWrapper *mgrNode)
+static char *getDoctorDisplayName(Adb_Doctor_Type type, char *customName)
 {
-	char *name;
+	char *name = NULL;
 	if (type == ADB_DOCTOR_TYPE_NODE_MONITOR)
 	{
-		name = psprintf("antdb doctor node monitor %s",
-						NameStr(mgrNode->form.nodename));
+		name = psprintf("antdb doctor node monitor %s", customName);
 	}
 	else if (type == ADB_DOCTOR_TYPE_HOST_MONITOR)
 	{
@@ -329,11 +335,10 @@ static char *getDoctorDisplayName(Adb_Doctor_Type type,
 	}
 	else if (type == ADB_DOCTOR_TYPE_REPAIRER)
 	{
-		name = psprintf("antdb doctor repairer");
+		name = psprintf("antdb doctor repairer %s", customName);
 	}
 	else
 	{
-		name = NULL;
 		ereport(ERROR,
 				(errmsg("could not recognize type:%d",
 						type)));
@@ -443,7 +448,7 @@ static void waitForDoctorBecomeReady(AdbDoctorBgworkerStatus *bgworkerStatus,
 			break;
 		}
 
-		// doctor process may crashed
+		/* doctor process may crashed */ 
 		status = GetBackgroundWorkerPid(bgworkerStatus->handle,
 										&bgworkerStatus->pid);
 		if (status != BGWH_STARTED)
@@ -489,7 +494,8 @@ static void launchNodeMonitorDoctor(MgrNodeWrapper *mgrNode)
 	bgworkerData = palloc0(sizeof(AdbDoctorBgworkerData));
 	bgworkerData->type = ADB_DOCTOR_TYPE_NODE_MONITOR;
 	bgworkerData->oid = mgrNode->oid;
-	bgworkerData->displayName = getDoctorDisplayName(bgworkerData->type, mgrNode);
+	bgworkerData->displayName = getDoctorDisplayName(bgworkerData->type,
+													 NameStr(mgrNode->form.nodename));
 	Assert(confShm != NULL);
 	bgworkerData->commonShmHandle = dsm_segment_handle(confShm->seg);
 	bgworkerData->ready = false;
@@ -537,23 +543,72 @@ static void launchHostMonitorDoctor(dlist_head *hosts)
 	}
 }
 
-static void launchRepairerDoctor(dlist_head *nodes)
+static void launchRepairerDoctors(dlist_head *nodes)
+{
+	dlist_iter iter;
+	MgrNodeWrapper *mgrNode;
+
+	dlist_foreach(iter, nodes)
+	{
+		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		if (mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+		{
+			launchRepairerDoctor(mgrNode->form.nodetype);
+			break;
+		}
+	}
+	dlist_foreach(iter, nodes)
+	{
+		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		if (mgrNode->form.nodetype == CNDN_TYPE_DATANODE_SLAVE)
+		{
+			launchRepairerDoctor(mgrNode->form.nodetype);
+			break;
+		}
+	}
+	dlist_foreach(iter, nodes)
+	{
+		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		if (mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+		{
+			launchRepairerDoctor(mgrNode->form.nodetype);
+			break;
+		}
+	}
+}
+
+static void launchRepairerDoctor(char nodetype)
 {
 	AdbDoctorBgworkerData *bgworkerData;
 	AdbDoctorBgworkerStatus *bgworkerStatus;
+	char *customName;
 
-	if (!dlist_is_empty(nodes))
+	bgworkerData = palloc0(sizeof(AdbDoctorBgworkerData));
+	bgworkerData->type = ADB_DOCTOR_TYPE_REPAIRER;
+	bgworkerData->oid = (Oid)nodetype;
+	if (nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
 	{
-		bgworkerData = palloc0(sizeof(AdbDoctorBgworkerData));
-		bgworkerData->type = ADB_DOCTOR_TYPE_REPAIRER;
-		bgworkerData->oid = 0;
-		bgworkerData->displayName = getDoctorDisplayName(bgworkerData->type, NULL);
-		Assert(confShm != NULL);
-		bgworkerData->commonShmHandle = dsm_segment_handle(confShm->seg);
-		bgworkerData->ready = false;
-		bgworkerStatus = launchDoctor(bgworkerData);
-		dlist_push_tail(&bgworkerStatusList, &bgworkerStatus->wi_links);
+		customName = "gtmcoord";
 	}
+	else if (nodetype == CNDN_TYPE_DATANODE_SLAVE)
+	{
+		customName = "datanode";
+	}
+	else if (nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+	{
+		customName = "coordinator";
+	}
+	else
+	{
+		ereport(ERROR,
+				(errmsg("unsupported nodetype %c", nodetype)));
+	}
+	bgworkerData->displayName = getDoctorDisplayName(bgworkerData->type, customName);
+	Assert(confShm != NULL);
+	bgworkerData->commonShmHandle = dsm_segment_handle(confShm->seg);
+	bgworkerData->ready = false;
+	bgworkerStatus = launchDoctor(bgworkerData);
+	dlist_push_tail(&bgworkerStatusList, &bgworkerStatus->wi_links);
 }
 
 /**
@@ -690,8 +745,15 @@ static void terminateDoctor(AdbDoctorBgworkerStatus *bgworkerStatus,
 	}
 	else if (type == ADB_DOCTOR_TYPE_REPAIRER)
 	{
-		pfreeMgrNodeWrapperList(cachedRepairNodes, NULL);
-		dlist_init(cachedRepairNodes);
+		dlist_foreach_modify(miter, cachedRepairNodes)
+		{
+			mgrNode = dlist_container(MgrNodeWrapper, link, miter.cur);
+			if (mgrNode->form.nodetype == (char)oid)
+			{
+				dlist_delete(miter.cur);
+				pfreeMgrNodeWrapper(mgrNode);
+			}
+		}
 	}
 	else
 	{
@@ -794,7 +856,7 @@ static void queryBgworkerDataAndConf(AdbDoctorConf **confP,
 		/* query out all data from table mgr_host that need to be monitored */
 		selectMgrHostsForHostDoctor(spiContext, monitorHosts);
 		/* query out all data from table mgr_node that need to be repaired */
-		selectMgrNodesForRepairerDoctor(spiContext, repairNodes);
+		selectIsolatedMgrNodes(spiContext, repairNodes);
 	}
 	else
 	{
@@ -948,7 +1010,7 @@ static void tryRefreshSwitcherDoctor(bool confChanged,
 {
 	if (isIdenticalDoctorMgrNodes(staleNodes, freshNodes))
 	{
-		if (confChanged)
+		if (confChanged && !dlist_is_empty(staleNodes))
 			signalDoctorByUniqueId(ADB_DOCTOR_TYPE_SWITCHER,
 								   0);
 	}
@@ -980,7 +1042,7 @@ static void tryRefreshHostMonitorDoctor(bool confChanged,
 {
 	if (isIdenticalDoctorMgrHosts(staleHosts, freshHosts))
 	{
-		if (confChanged)
+		if (confChanged && !dlist_is_empty(staleHosts))
 			signalDoctorByUniqueId(ADB_DOCTOR_TYPE_HOST_MONITOR,
 								   0);
 	}
@@ -1010,29 +1072,90 @@ static void tryRefreshRepairerDoctor(bool confChanged,
 									 dlist_head *staleNodes,
 									 dlist_head *freshNodes)
 {
+	dlist_head staleGtmCoordSlaves = DLIST_STATIC_INIT(staleGtmCoordSlaves);
+	dlist_head staleDataNodeSlaves = DLIST_STATIC_INIT(staleDataNodeSlaves);
+	dlist_head staleCoordinators = DLIST_STATIC_INIT(staleCoordinators);
+	dlist_head freshGtmCoordSlaves = DLIST_STATIC_INIT(freshGtmCoordSlaves);
+	dlist_head freshDataNodeSlaves = DLIST_STATIC_INIT(freshDataNodeSlaves);
+	dlist_head freshCoordinators = DLIST_STATIC_INIT(freshCoordinators);
+	MemoryContext tempContext;
+	MemoryContext oldContext;
+
+	oldContext = CurrentMemoryContext;
+	tempContext = AllocSetContextCreate(oldContext,
+										"tempContext",
+										ALLOCSET_DEFAULT_SIZES);
+	MemoryContextSwitchTo(tempContext);
+	copyMgrNodesByNodetype(staleNodes, CNDN_TYPE_GTM_COOR_SLAVE, &staleGtmCoordSlaves);
+	copyMgrNodesByNodetype(staleNodes, CNDN_TYPE_DATANODE_SLAVE, &staleDataNodeSlaves);
+	copyMgrNodesByNodetype(staleNodes, CNDN_TYPE_COORDINATOR_MASTER, &staleCoordinators);
+	copyMgrNodesByNodetype(freshNodes, CNDN_TYPE_GTM_COOR_SLAVE, &freshGtmCoordSlaves);
+	copyMgrNodesByNodetype(freshNodes, CNDN_TYPE_DATANODE_SLAVE, &freshDataNodeSlaves);
+	copyMgrNodesByNodetype(freshNodes, CNDN_TYPE_COORDINATOR_MASTER, &freshCoordinators);
+	(void)MemoryContextSwitchTo(oldContext);
+
+	compareAndManipulateRepairerDoctor(&staleGtmCoordSlaves,
+									   &freshGtmCoordSlaves,
+									   confChanged,
+									   CNDN_TYPE_GTM_COOR_SLAVE);
+	compareAndManipulateRepairerDoctor(&staleDataNodeSlaves,
+									   &freshDataNodeSlaves,
+									   confChanged,
+									   CNDN_TYPE_DATANODE_SLAVE);
+	compareAndManipulateRepairerDoctor(&staleCoordinators,
+									   &freshCoordinators,
+									   confChanged,
+									   CNDN_TYPE_COORDINATOR_MASTER);
+
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(tempContext);
+}
+
+static void copyMgrNodesByNodetype(dlist_head *mgrNodes,
+								   char nodetype,
+								   dlist_head *results)
+{
+	dlist_iter iter;
+	MgrNodeWrapper *mgrNode;
+	MgrNodeWrapper *copy;
+
+	dlist_foreach(iter, mgrNodes)
+	{
+		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		if (mgrNode->form.nodetype == nodetype)
+		{
+			copy = palloc(sizeof(MgrNodeWrapper));
+			memcpy(copy, mgrNode, sizeof(MgrNodeWrapper));
+			dlist_push_tail(results, &copy->link);
+		}
+	}
+}
+
+static void compareAndManipulateRepairerDoctor(dlist_head *staleNodes,
+											   dlist_head *freshNodes,
+											   bool confChanged,
+											   char nodetype)
+{
 	if (isIdenticalDoctorMgrNodes(staleNodes, freshNodes))
 	{
-		if (confChanged)
-			signalDoctorByUniqueId(ADB_DOCTOR_TYPE_REPAIRER,
-								   0);
+		if (confChanged && !dlist_is_empty(staleNodes))
+			signalDoctorByUniqueId(ADB_DOCTOR_TYPE_REPAIRER, (Oid)nodetype);
 	}
 	else
 	{
 		if (dlist_is_empty(freshNodes))
 		{
-			terminateDoctorByUniqueId(ADB_DOCTOR_TYPE_REPAIRER,
-									  0);
+			terminateDoctorByUniqueId(ADB_DOCTOR_TYPE_REPAIRER, (Oid)nodetype);
 		}
 		else
 		{
 			if (dlist_is_empty(staleNodes))
 			{
-				launchRepairerDoctor(freshNodes);
+				launchRepairerDoctor(nodetype);
 			}
 			else
 			{
-				signalDoctorByUniqueId(ADB_DOCTOR_TYPE_REPAIRER,
-									   0);
+				signalDoctorByUniqueId(ADB_DOCTOR_TYPE_REPAIRER, (Oid)nodetype);
 			}
 		}
 	}

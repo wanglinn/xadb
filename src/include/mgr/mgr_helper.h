@@ -354,6 +354,7 @@ extern MgrNodeWrapper *selectMgrNodeForNodeDoctor(Oid oid,
 extern void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
 											dlist_head *resultList);
 extern void selectMgrNodesForRepairerDoctor(MemoryContext spiContext,
+											char nodetype,
 											dlist_head *resultList);
 extern void selectIsolatedMgrNodes(MemoryContext spiContext,
 								   dlist_head *resultList);

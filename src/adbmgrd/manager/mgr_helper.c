@@ -494,9 +494,23 @@ void selectMgrNodesForSwitcherDoctor(MemoryContext spiContext,
 }
 
 void selectMgrNodesForRepairerDoctor(MemoryContext spiContext,
+									 char nodetype,
 									 dlist_head *resultList)
 {
-	selectIsolatedMgrNodes(spiContext, resultList);
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * "
+					 "FROM pg_catalog.mgr_node "
+					 "WHERE allowcure = %d::boolean "
+					 "AND curestatus in ('%s') "
+					 "AND nodetype in ('%c') ",
+					 true,
+					 CURE_STATUS_ISOLATED,
+					 nodetype);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
 }
 
 void selectIsolatedMgrNodes(MemoryContext spiContext,

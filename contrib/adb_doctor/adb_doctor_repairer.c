@@ -34,7 +34,9 @@ typedef struct RepairerConfiguration
 
 static void repairerMainLoop(dlist_head *mgrNodes);
 static void checkAndRepairNodes(dlist_head *faultNodes);
-static void repairSpecificMgrNode(dlist_head *mgrNodes, char nodetype);
+static void repairGtmCoordSlaveNodes(dlist_head *mgrNodes);
+static void repairDataNodeSlaveNodes(dlist_head *mgrNodes);
+static void repairCoordinatorMasterNodes(dlist_head *mgrNodes);
 static bool cleanFaultNodesOnCoordinators(dlist_head *faultNodes);
 static bool repairCoordinatorNode(MgrNodeWrapper *faultCoordinator);
 static bool repairSlaveNode(MgrNodeWrapper *faultSlaveNode);
@@ -42,6 +44,7 @@ static bool checkGetMgrNodePGconn(MgrNodeWrapper *mgrNode,
 								  bool isMaster,
 								  PGconn **connP,
 								  bool complain);
+static bool checkIfSyncSlaveIsRunning(MgrNodeWrapper *masterMgrNode);
 static bool refreshSyncStandbyNames(SwitcherNodeWrapper *masterNode,
 									MgrNodeWrapper *faultSlaveNode);
 static bool pullBackToCluster(SwitcherNodeWrapper *masterNode,
@@ -51,7 +54,7 @@ static void callAppendCoordinatorFor(MgrNodeWrapper *destCoordinator,
 									 MgrNodeWrapper *srcCoordinator);
 static void callAppendActivateCoordinator(MgrNodeWrapper *destCoordinator);
 static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem);
-static void getCheckMgrNodesForRepairer(dlist_head *mgrNodes);
+static void getCheckMgrNodesForRepairer(char nodetype, dlist_head *mgrNodes);
 static void refreshMgrNodeBeforeRepair(MgrNodeWrapper *mgrNode,
 									   MemoryContext spiContext);
 static void refreshMgrNodeAfterRepair(MgrNodeWrapper *mgrNode,
@@ -73,6 +76,7 @@ static void handleSigusr1(SIGNAL_ARGS);
 static AdbDoctorConfShm *confShm;
 static RepairerConfiguration *repairerConfiguration;
 static sigjmp_buf reset_repairer_sigjmp_buf;
+static char repaireNodetype;
 
 static volatile sig_atomic_t gotSigterm = false;
 static volatile sig_atomic_t gotSigusr1 = false;
@@ -92,6 +96,7 @@ void adbDoctorRepairerMain(Datum main_arg)
 	{
 		bgworkerData = attachAdbDoctorBgworkerDataShm(main_arg,
 													  MyBgworkerEntry->bgw_name);
+		repaireNodetype = (char)bgworkerData->oid;
 		notifyAdbDoctorRegistrant();
 		ereport(LOG,
 				(errmsg("%s started",
@@ -109,7 +114,7 @@ void adbDoctorRepairerMain(Datum main_arg)
 		}
 		dlist_init(&mgrNodes);
 
-		getCheckMgrNodesForRepairer(&mgrNodes);
+		getCheckMgrNodesForRepairer(repaireNodetype, &mgrNodes);
 		repairerMainLoop(&mgrNodes);
 	}
 	PG_CATCH();
@@ -157,7 +162,6 @@ static void checkAndRepairNodes(dlist_head *faultNodes)
 {
 	MemoryContext oldContext;
 	MemoryContext workerContext;
-	bool pgxcNodeCleaned;
 
 	oldContext = CurrentMemoryContext;
 	workerContext = AllocSetContextCreate(oldContext,
@@ -167,17 +171,23 @@ static void checkAndRepairNodes(dlist_head *faultNodes)
 
 	PG_TRY();
 	{
-		/* repaire gtmcoord slave first */
-		repairSpecificMgrNode(faultNodes, CNDN_TYPE_GTM_COOR_SLAVE);
-
-		pgxcNodeCleaned = cleanFaultNodesOnCoordinators(faultNodes);
-		CHECK_FOR_INTERRUPTS();
-
-		if (pgxcNodeCleaned)
+		if (repaireNodetype == CNDN_TYPE_GTM_COOR_SLAVE)
 		{
-			repairSpecificMgrNode(faultNodes, CNDN_TYPE_DATANODE_SLAVE);
-			CHECK_FOR_INTERRUPTS();
-			repairSpecificMgrNode(faultNodes, CNDN_TYPE_COORDINATOR_MASTER);
+			repairGtmCoordSlaveNodes(faultNodes);
+		}
+		else if (repaireNodetype == CNDN_TYPE_DATANODE_SLAVE)
+		{
+			repairDataNodeSlaveNodes(faultNodes);
+		}
+		else if (repaireNodetype == CNDN_TYPE_COORDINATOR_MASTER)
+		{
+			repairCoordinatorMasterNodes(faultNodes);
+		}
+		else
+		{
+			ereport(WARNING,
+					(errmsg("repaire failed, Unsupported nodetype %c",
+							repaireNodetype)));
 		}
 	}
 	PG_CATCH();
@@ -192,7 +202,7 @@ static void checkAndRepairNodes(dlist_head *faultNodes)
 	MemoryContextDelete(workerContext);
 }
 
-static void repairSpecificMgrNode(dlist_head *mgrNodes, char nodetype)
+static void repairGtmCoordSlaveNodes(dlist_head *mgrNodes)
 {
 	dlist_mutable_iter iter;
 	MgrNodeWrapper *mgrNode;
@@ -202,40 +212,73 @@ static void repairSpecificMgrNode(dlist_head *mgrNodes, char nodetype)
 	oldContext = CurrentMemoryContext;
 	dlist_foreach_modify(iter, mgrNodes)
 	{
+		MemoryContextSwitchTo(oldContext);
 		CHECK_FOR_INTERRUPTS();
 		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-		if (mgrNode->form.nodetype == nodetype)
+		Assert(mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE);
+		repaired = repairSlaveNode(mgrNode);
+		if (repaired)
+		{
+			dlist_delete(iter.cur);
+			pfreeMgrNodeWrapper(mgrNode);
+		}
+	}
+}
+
+static void repairDataNodeSlaveNodes(dlist_head *mgrNodes)
+{
+	dlist_mutable_iter iter;
+	MgrNodeWrapper *mgrNode;
+	bool repaired;
+	MemoryContext oldContext;
+
+	oldContext = CurrentMemoryContext;
+
+	if (cleanFaultNodesOnCoordinators(mgrNodes))
+	{
+		CHECK_FOR_INTERRUPTS();
+
+		dlist_foreach_modify(iter, mgrNodes)
 		{
 			MemoryContextSwitchTo(oldContext);
-			repaired = false;
-			if (mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-			{
-				repaired = repairSlaveNode(mgrNode);
-			}
-			else if (mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER)
-			{
-				repaired = repairCoordinatorNode(mgrNode);
-			}
-			else if (mgrNode->form.nodetype == CNDN_TYPE_DATANODE_SLAVE)
-			{
-				repaired = repairSlaveNode(mgrNode);
-			}
-			else
-			{
-				ereport(WARNING,
-						(errmsg("%s repaire failed, Unsupported nodetype %c",
-								NameStr(mgrNode->form.nodename),
-								mgrNode->form.nodetype)));
-			}
+			CHECK_FOR_INTERRUPTS();
+			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+			Assert(mgrNode->form.nodetype == CNDN_TYPE_DATANODE_SLAVE);
+			repaired = repairSlaveNode(mgrNode);
 			if (repaired)
 			{
 				dlist_delete(iter.cur);
 				pfreeMgrNodeWrapper(mgrNode);
 			}
 		}
-		else
+	}
+}
+
+static void repairCoordinatorMasterNodes(dlist_head *mgrNodes)
+{
+	dlist_mutable_iter iter;
+	MgrNodeWrapper *mgrNode;
+	bool repaired;
+	MemoryContext oldContext;
+
+	oldContext = CurrentMemoryContext;
+
+	if (cleanFaultNodesOnCoordinators(mgrNodes))
+	{
+		CHECK_FOR_INTERRUPTS();
+
+		dlist_foreach_modify(iter, mgrNodes)
 		{
-			continue;
+			MemoryContextSwitchTo(oldContext);
+			CHECK_FOR_INTERRUPTS();
+			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+			Assert(mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER);
+			repaired = repairCoordinatorNode(mgrNode);
+			if (repaired)
+			{
+				dlist_delete(iter.cur);
+				pfreeMgrNodeWrapper(mgrNode);
+			}
 		}
 	}
 }
@@ -307,15 +350,22 @@ static bool cleanFaultNodesOnCoordinators(dlist_head *faultNodes)
 			coordinator = dlist_container(MgrNodeWrapper, link, iterCoord.cur);
 			if (checkGetMgrNodePGconn(coordinator, true, &coordConn, false))
 			{
-				dlist_foreach_modify(iterFault, &needCleanNodes)
+				if (checkIfSyncSlaveIsRunning(coordinator))
 				{
-					needCleanNode = dlist_container(MgrNodeWrapper, link, iterFault.cur);
-					checkMgrNodeDataInDB(needCleanNode);
+					dlist_foreach_modify(iterFault, &needCleanNodes)
+					{
+						needCleanNode = dlist_container(MgrNodeWrapper, link, iterFault.cur);
+						checkMgrNodeDataInDB(needCleanNode);
+					}
+					cleanMgrNodesOnCoordinator(&needCleanNodes,
+											   coordinator,
+											   coordConn,
+											   true);
 				}
-				cleanMgrNodesOnCoordinator(&needCleanNodes,
-										   coordinator,
-										   coordConn,
-										   true);
+				else
+				{
+					allCleaned = false;
+				}
 			}
 			else
 			{
@@ -384,14 +434,14 @@ static bool repairCoordinatorNode(MgrNodeWrapper *faultCoordinator)
 				gtmCoordMaster = activeCoordinator;
 			}
 		}
-		if (numOfOrdinaryCoordinators < 1)
-		{
-			srcCoordinator = gtmCoordMaster->mgrNode;
-		}
 		if (!gtmCoordMaster)
 		{
 			ereport(ERROR,
 					(errmsg("can't find any gtm coordinator master")));
+		}
+		if (numOfOrdinaryCoordinators < 1)
+		{
+			srcCoordinator = gtmCoordMaster->mgrNode;
 		}
 		refreshMgrNodeBeforeRepair(faultCoordinator,
 								   spiContext);
@@ -547,6 +597,55 @@ static bool checkGetMgrNodePGconn(MgrNodeWrapper *mgrNode,
 		return false;
 	}
 	return true;
+}
+
+static bool checkIfSyncSlaveIsRunning(MgrNodeWrapper *masterMgrNode)
+{
+	MemoryContext oldContext;
+	MemoryContext spiContext;
+	int spiRes;
+	dlist_head slaveMgrNodes = DLIST_STATIC_INIT(slaveMgrNodes);
+	dlist_iter iter;
+	MgrNodeWrapper *slaveMgrNode;
+	PGconn *slaveConn;
+	bool ok;
+
+	oldContext = CurrentMemoryContext;
+	SPI_CONNECT_TRANSACTIONAL_START(spiRes, true);
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(oldContext);
+	selectActiveMgrSlaveNodes(masterMgrNode->oid,
+							  getMgrSlaveNodetype(masterMgrNode->form.nodetype),
+							  spiContext,
+							  &slaveMgrNodes);
+	SPI_FINISH_TRANSACTIONAL_COMMIT();
+
+	ok = true;
+	dlist_foreach(iter, &slaveMgrNodes)
+	{
+		slaveMgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		if (strcmp(NameStr(slaveMgrNode->form.nodesync),
+				   getMgrNodeSyncStateValue(SYNC_STATE_SYNC)) == 0)
+		{
+			slaveConn = getNodeDefaultDBConnection(slaveMgrNode, 10);
+			if (slaveConn == NULL)
+			{
+				ereport(WARNING,
+						(errmsg("%s is a Synchronous standby node of %s, but it is not running properly",
+								NameStr(slaveMgrNode->form.nodename),
+								NameStr(masterMgrNode->form.nodename))));
+				ok = false;
+				break;
+			}
+			else
+			{
+				PQfinish(slaveConn);
+				slaveConn = NULL;
+			}
+		}
+	}
+	pfreeMgrNodeWrapperList(&slaveMgrNodes, NULL);
+	return ok;
 }
 
 static bool refreshSyncStandbyNames(SwitcherNodeWrapper *masterNode,
@@ -909,7 +1008,7 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem)
 	nodeDataInDB = NULL;
 }
 
-static void getCheckMgrNodesForRepairer(dlist_head *mgrNodes)
+static void getCheckMgrNodesForRepairer(char nodetype, dlist_head *mgrNodes)
 {
 	MemoryContext oldContext;
 	MemoryContext spiContext;
@@ -919,7 +1018,7 @@ static void getCheckMgrNodesForRepairer(dlist_head *mgrNodes)
 	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
 	spiContext = CurrentMemoryContext;
 	MemoryContextSwitchTo(oldContext);
-	selectMgrNodesForRepairerDoctor(spiContext, mgrNodes);
+	selectMgrNodesForRepairerDoctor(spiContext, nodetype, mgrNodes);
 	SPI_FINISH_TRANSACTIONAL_COMMIT();
 	if (dlist_is_empty(mgrNodes))
 	{
@@ -1133,7 +1232,7 @@ static void examineAdbDoctorConf(dlist_head *mgrNodes)
 				(errmsg("%s, Refresh configuration completed",
 						MyBgworkerEntry->bgw_name)));
 
-		getCheckMgrNodesForRepairer(&freshMgrNodes);
+		getCheckMgrNodesForRepairer(repaireNodetype, &freshMgrNodes);
 		if (isIdenticalDoctorMgrNodes(&freshMgrNodes, &staleMgrNodes))
 		{
 			pfreeMgrNodeWrapperList(&freshMgrNodes, NULL);
