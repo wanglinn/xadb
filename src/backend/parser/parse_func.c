@@ -1434,6 +1434,43 @@ func_get_detail(List *funcname,
 			break;
 	}
 
+#ifdef ADB_MULTI_GRAM
+	if (current_grammar == PARSE_GRAM_ORACLE)
+	{
+		Oid	targetFuncOid = 0;
+
+		/* Specify the corresponding FUNCOID for the SUM () function of the parameter type UNKNOWN 
+		 * eg: select sum('1') from dual;
+		 */
+		if (list_length(funcname) == 1 
+			&& strcmp(strVal(linitial(funcname)), "sum") == 0
+			&& ((Const *)linitial(fargs))->consttype == UNKNOWNOID)
+		{
+			targetFuncOid = 2114;
+
+		/* oracle grammar agg function(MAX/MIN) support character type field */
+		}else if (list_length(funcname) == 1
+			&& (strcmp(strVal(linitial(funcname)), "max") == 0))
+		{
+			targetFuncOid = 2129;
+		}else if (list_length(funcname) == 1
+			&& (strcmp(strVal(linitial(funcname)), "min") == 0))
+		{
+			targetFuncOid = 2145;
+		}	
+		if (targetFuncOid)
+		{
+			for (best_candidate = raw_candidates;
+				best_candidate != NULL;
+				best_candidate = best_candidate->next)
+			{
+				if (best_candidate->oid == targetFuncOid)
+					break;
+			}
+		}
+	}
+#endif
+
 	if (best_candidate == NULL)
 	{
 		/*
