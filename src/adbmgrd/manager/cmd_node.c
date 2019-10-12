@@ -13602,9 +13602,7 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 
 	/* check Read-Write separation switch */
 	check_readsql_slave_param_state(cn_master_node, sync_parms, "enable_readsql_on_slave", &enable_slave);
-	/* skip useless update tasks when switching off read-write separation switches */
-	if (!enable_slave)
-		return true;
+
 	/* check whether asynchronous standby is allowed */
 	check_readsql_slave_param_state(cn_master_node, sync_parms, "enable_readsql_on_slave_async", &enable_slave_async);
 
@@ -13641,6 +13639,14 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 	foreach (cell, datanode_list)
 	{
 		initStringInfo(&checkSql);
+
+		/* Delete slave node information when closing read-write separation */
+		if (enable_slave == false)
+		{
+			appendStringInfoString(&execSql, "delete from pgxc_node where node_type = 'E';");
+			break;
+		}
+
 		mgr_datanode_info = (MgrDatanodeInfo *) lfirst(cell);
 		if (mgr_datanode_info->slaveNode == NULL)
 		{	
