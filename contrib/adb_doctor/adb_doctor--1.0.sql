@@ -94,7 +94,7 @@ INSERT INTO adb_doctor_conf VALUES (
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_connect_timeout_ms_min',
-	'2000',
+	'1000',
 	'f',
 	8,
 	'In milliseconds. The value of node_connect_timeout is calculated based on nodedeadline. In order to make this value reasonable, it needs to be limited in the range of node_connect_timeout_ms_min and node_connect_timeout_ms_max. Other similar parameters(suffixes such as _min and _max) are also this strategy.'
@@ -150,7 +150,7 @@ INSERT INTO adb_doctor_conf VALUES (
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_restart_delay_ms_min',
-	'5000',
+	'1000',
 	'f',
 	16,
 	'In milliseconds. The minimum time interval to restart crashed node.'
@@ -164,14 +164,14 @@ INSERT INTO adb_doctor_conf VALUES (
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_retry_follow_master_interval_ms',
-	'60000',
+	'30000',
 	'f',
 	18,
 	'In milliseconds. The time interval to retry after slave node failed to follow the master node.'
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_retry_rewind_interval_ms',
-	'60000',
+	'30000',
 	'f',
 	19,
 	'In milliseconds. The time interval to retry after slave node failed to rewind.'
@@ -192,7 +192,7 @@ INSERT INTO adb_doctor_conf VALUES (
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_restart_slave_count',
-	'2',
+	'1',
 	'f',
 	22,
 	'The number of times the doctor tries to restart a crashed slave (GTM or datanode) node. If it finally restart failed, doctor will kick it out of cluster.'
@@ -229,7 +229,7 @@ INSERT INTO adb_doctor_conf VALUES (
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'agent_connect_timeout_ms_min',
-	'2000',
+	'1000',
 	'f',
 	27,
 	'In milliseconds. The minimum time of connecting agent.'
