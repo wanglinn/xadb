@@ -575,6 +575,19 @@ CreateAsStmt:
 					$4->skipData = !($7);
 					$$ = (Node *) ctas;
 				}
+		| CREATE OptTemp TABLE IF_P NOT EXISTS create_as_target AS SelectStmt opt_with_data
+				{
+					CreateTableAsStmt *ctas = makeNode(CreateTableAsStmt);
+					ctas->query = $9;
+					ctas->into = $7;
+					ctas->relkind = OBJECT_TABLE;
+					ctas->is_select_into = false;
+					ctas->if_not_exists = true;
+					/* cram additional flags into the IntoClause */
+					$7->rel->relpersistence = $2;
+					$7->skipData = !($10);
+					$$ = (Node *) ctas;
+				}
 		;
 
 create_as_target:
