@@ -1860,6 +1860,20 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 			if (objname && strcasecmp(objname, "nvl2") == 0)
 				targs = transformNvl2Args(pstate, targs);
 			/*
+			 * avoid parameter ignoring decimal part of string
+			 */
+			else if (objname && strcasecmp(objname, "to_char") == 0 &&
+				list_length(targs) == 2)
+			{
+				Node *lexpr = linitial(targs);
+				Oid ltype = exprType(lexpr);
+				if (ltype == TEXTOID ||
+					ltype == VARCHAROID ||
+					ltype == ORACLE_VARCHAR2OID||
+					ltype == ORACLE_NVARCHAR2OID)
+					linitial(targs) = coerce_to_common_type(pstate, lexpr, NUMERICOID, "to_char");
+			}
+			/*
 			 * others cases
 			 */
 			else
