@@ -1645,6 +1645,53 @@ static void getManipulatePgxcNodeSql(AppendNodeInfo *nodeinfo, Form_mgr_node exe
 	}
 }
 
+bool mgr_manipulate_pgxc_node_on_node(PGconn **pg_conn, 
+									  const int iloop, 
+									  AppendNodeInfo *nodeinfo, 
+									  Form_mgr_node executeOnNode, 
+									  bool localExecute, 
+									  PGXC_NODE_MANIPULATE_TYPE manipulateType,
+									  StringInfo strinfo)
+{
+	StringInfoData sql;
+	int num = iloop;
+	PGresult *res = NULL;
+	bool rest = true;
+
+	Assert(nodeinfo);
+	Assert(executeOnNode);
+	initStringInfo(&sql);
+	getManipulatePgxcNodeSql(nodeinfo, executeOnNode, localExecute, manipulateType, &sql);
+	ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", NameStr(executeOnNode->nodename), sql.data)));
+	ereport(NOTICE, (errmsg("on coordinator \"%s\" execute \"%s\"", NameStr(executeOnNode->nodename), sql.data)));
+
+	num = iloop;
+	while (num-- > 0)
+	{
+		res = PQexec(*pg_conn, sql.data);
+		if (PQresultStatus(res) == PGRES_COMMAND_OK)
+		{
+			break;
+		}
+		if (num)
+		{
+			PQclear(res);
+			res = NULL;
+		}
+		pg_usleep(100000L);
+	}
+
+	if (PQresultStatus(res) != PGRES_COMMAND_OK)
+	{
+		rest = false;
+		ereport(WARNING, (errmsg("on coordinator \"%s\" execute \"%s\" fail, %s", NameStr(executeOnNode->nodename), sql.data, PQerrorMessage(*pg_conn))));
+		if(strinfo)
+			appendStringInfo(strinfo, "on coordinator \"%s\" execute \"%s\" fail, %s\n", NameStr(executeOnNode->nodename), sql.data, PQerrorMessage(*pg_conn));
+	}
+	PQclear(res);
+	return rest;
+}
+
 bool mgr_manipulate_pgxc_node_on_all_coord(PGconn **pg_conn, 
 										   Oid cnoidOfConn, 
 										   const int iloop, 
@@ -1658,9 +1705,7 @@ bool mgr_manipulate_pgxc_node_on_all_coord(PGconn **pg_conn,
 	HeapScanDesc rel_scan;
 	Form_mgr_node mgr_node;
 	HeapTuple tuple;
-	PGresult *res = NULL;
 	bool rest = true;
-	int num = iloop;
 
 	initStringInfo(&sql);
 
@@ -1689,36 +1734,16 @@ bool mgr_manipulate_pgxc_node_on_all_coord(PGconn **pg_conn,
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		resetStringInfo(&sql);
-		getManipulatePgxcNodeSql(nodeinfo, mgr_node, cnoidOfConn == HeapTupleGetOid(tuple), manipulateType, &sql);
-		ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename), sql.data)));
-		ereport(NOTICE, (errmsg("on coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename), sql.data)));
-
-		num = iloop;
-		while (num-- > 0)
-		{
-			res = PQexec(*pg_conn, sql.data);
-			if (PQresultStatus(res) == PGRES_COMMAND_OK)
-			{
-				break;
-			}
-			if (num)
-			{
-				PQclear(res);
-				res = NULL;
-			}
-			pg_usleep(100000L);
-		}
-
-		if (PQresultStatus(res) != PGRES_COMMAND_OK)
+		if(!mgr_manipulate_pgxc_node_on_node(pg_conn,
+											 iloop,
+											 nodeinfo,
+											 mgr_node,
+											 cnoidOfConn == HeapTupleGetOid(tuple),
+											 manipulateType,
+											 strinfo))
 		{
 			rest = false;
-			ereport(WARNING, (errmsg("on coordinator \"%s\" execute \"%s\" fail, %s", NameStr(mgr_node->nodename), sql.data, PQerrorMessage(*pg_conn))));
-			appendStringInfo(strinfo, "on coordinator \"%s\" execute \"%s\" fail, %s\n", NameStr(mgr_node->nodename), sql.data, PQerrorMessage(*pg_conn));
 		}
-		PQclear(res);
-
 	}
 	heap_endscan(rel_scan);
 
@@ -1731,36 +1756,17 @@ bool mgr_manipulate_pgxc_node_on_all_coord(PGconn **pg_conn,
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		resetStringInfo(&sql);
-		getManipulatePgxcNodeSql(nodeinfo, mgr_node, cnoidOfConn == HeapTupleGetOid(tuple), manipulateType, &sql);
-		ereport(LOG, (errmsg("on GTM coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename), sql.data)));
-		ereport(NOTICE, (errmsg("on GTM coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename), sql.data)));
 
-		num = iloop;
-		while (num-- > 0)
-		{
-			res = PQexec(*pg_conn, sql.data);
-			if (PQresultStatus(res) == PGRES_COMMAND_OK)
-			{
-				break;
-			}
-			if (num)
-			{
-				PQclear(res);
-				res = NULL;
-			}
-			pg_usleep(100000L);
-		}
-
-		if (PQresultStatus(res) != PGRES_COMMAND_OK)
+		if(!mgr_manipulate_pgxc_node_on_node(pg_conn,
+											 iloop,
+											 nodeinfo,
+											 mgr_node,
+											 cnoidOfConn == HeapTupleGetOid(tuple),
+											 manipulateType,
+											 strinfo))
 		{
 			rest = false;
-			ereport(WARNING, (errmsg("on GTM coordinator \"%s\" execute \"%s\" fail, %s", NameStr(mgr_node->nodename), sql.data, PQerrorMessage(*pg_conn))));
-			appendStringInfo(strinfo, "on GTM coordinator \"%s\" execute \"%s\" fail, %s\n", NameStr(mgr_node->nodename), sql.data, PQerrorMessage(*pg_conn));
 		}
-		PQclear(res);
-
 	}
 
 	heap_endscan(rel_scan);

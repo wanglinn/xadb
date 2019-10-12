@@ -173,8 +173,8 @@ int	SlotArrayIndex = 0;
 /*hot expansion definition end*/
 
 static bool hexp_get_nodeinfo_from_table(char *node_name, char node_type, AppendNodeInfo *nodeinfo);
-static void hexp_create_dm_on_all_node(PGconn *pg_conn, char *dnname, Oid dnhostoid, int32 dnport);
-static void hexp_create_dm_on_itself(PGconn *pg_conn, char *dnname, Oid dnhostoid, int32 dnport);
+static void hexp_create_dm_on_all_node(PGconn *pg_conn, AppendNodeInfo *nodeinfo);
+static void hexp_create_dm_on_itself(PGconn *pg_conn, AppendNodeInfo *nodeinfo);
 static void hexp_set_expended_node_state(char *nodename, bool search_init, bool search_incluster, bool value_init, bool value_incluster, Oid src_oid);
 static bool hexp_get_nodeinfo_from_table_byoid(Oid tupleOid, AppendNodeInfo *nodeinfo);
 static void hexp_get_coordinator_conn(PGconn **pg_conn, Oid *cnoid);
@@ -459,8 +459,8 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		ereport(INFO, (errmsg("add dst node to all other node's pgxc_node.if this step fails, use 'expand activate recover promote success dst' to recover.")));
 		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_XC_MAINTENANCE_MODE_ON , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 		//create new node on all node which is initilized and incluster
-		hexp_create_dm_on_all_node(co_pg_conn, appendnodeinfo.nodename, appendnodeinfo.nodehost, appendnodeinfo.nodeport);
-		hexp_create_dm_on_itself(co_pg_conn, appendnodeinfo.nodename, appendnodeinfo.nodehost, appendnodeinfo.nodeport);
+		hexp_create_dm_on_all_node(co_pg_conn, &appendnodeinfo);
+		hexp_create_dm_on_itself(co_pg_conn, &appendnodeinfo);
 		//flush in this connection backend.
 		//hexp_pqexec_direct_execute_utility(co_pg_conn, "select pgxc_pool_reload();", MGR_PGEXEC_DIRECT_EXE_UTI_RET_TUPLES_TRUE);
 		hexp_pgxc_pool_reload_on_all_node(co_pg_conn);
@@ -616,8 +616,8 @@ Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS)
 		ereport(INFO, (errmsg("add dst node to all other node's pgxc_node.if this step fails, do it by hand.")));
 		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_XC_MAINTENANCE_MODE_ON , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 		//create new node on all node which is initilized and incluster
-		hexp_create_dm_on_all_node(co_pg_conn, appendnodeinfo.nodename, appendnodeinfo.nodehost, appendnodeinfo.nodeport);
-		hexp_create_dm_on_itself(co_pg_conn, appendnodeinfo.nodename, appendnodeinfo.nodehost, appendnodeinfo.nodeport);
+		hexp_create_dm_on_all_node(co_pg_conn, &appendnodeinfo);
+		hexp_create_dm_on_itself(co_pg_conn, &appendnodeinfo);
 		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_XC_MAINTENANCE_MODE_OFF , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 
 		/*
@@ -3933,20 +3933,24 @@ void hexp_pqexec_direct_execute_utility(PGconn *pg_conn, char *sqlstr, int ret_t
 
 
 
-static void hexp_create_dm_on_itself(PGconn *pg_conn, char *dnname, Oid dnhostoid, int32 dnport)
+static void hexp_create_dm_on_itself(PGconn *pg_conn, AppendNodeInfo *nodeinfo)
 {
-	StringInfoData psql_cmd;
-	char *addressnode = NULL;
+	FormData_mgr_node mgr_node;
 
-	addressnode = get_hostaddress_from_hostoid(dnhostoid);
-	initStringInfo(&psql_cmd);
-	appendStringInfo(&psql_cmd, " EXECUTE DIRECT ON (%s) ", dnname);
-	appendStringInfo(&psql_cmd, " 'CREATE NODE %s WITH (TYPE = ''datanode'', HOST=''%s'', PORT=%d);'"
-					,dnname
-					,addressnode
-					,dnport);
-	hexp_pqexec_direct_execute_utility(pg_conn, psql_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+	memset(&mgr_node, 0, sizeof(FormData_mgr_node));
+	namestrcpy(&mgr_node.nodename, nodeinfo->nodename);
+	mgr_node.nodetype = nodeinfo->nodetype;
 
+	if(!mgr_manipulate_pgxc_node_on_node(&pg_conn,
+										 1,
+										 nodeinfo,
+										 &mgr_node,
+										 false,
+										 PGXC_NODE_MANIPULATE_TYPE_CREATE,
+										 NULL))
+	{
+		ereport(ERROR, (errmsg("on coordinator \"%s\" create node \"%s\" fail", NameStr(mgr_node.nodename), nodeinfo->nodename)));
+	}
 
 	/*
 	initStringInfo(&psql_cmd);
@@ -3959,7 +3963,6 @@ static void hexp_create_dm_on_itself(PGconn *pg_conn, char *dnname, Oid dnhostoi
 	appendStringInfo(&psql_cmd, " 'flush slot;'");
 	hexp_pqexec_direct_execute_utility(pg_conn, psql_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 	*/
-	pfree(addressnode);
 }
 
 /*
@@ -3980,14 +3983,12 @@ static void hexp_flush_node_slot_on_itself(PGconn *pg_conn, char *dnname, Oid dn
 }
 */
 
-static void hexp_create_dm_on_all_node(PGconn *pg_conn, char *dnname, Oid dnhostoid, int32 dnport)
+static void hexp_create_dm_on_all_node(PGconn *pg_conn, AppendNodeInfo *nodeinfo)
 {
 	InitNodeInfo *info;
 	ScanKeyData key[2];
 	HeapTuple tuple;
 	Form_mgr_node mgr_node;
-	StringInfoData psql_cmd;
-	char *addressnode = NULL;
 
 	//select all inicialized and incluster node
 	ScanKeyInit(&key[0]
@@ -4007,27 +4008,27 @@ static void hexp_create_dm_on_all_node(PGconn *pg_conn, char *dnname, Oid dnhost
 	info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, key);
 	info->lcp = NULL;
 
-	addressnode = get_hostaddress_from_hostoid(dnhostoid);
-
 	//todo rollback
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
 
-		if(!((mgr_node->nodetype==CNDN_TYPE_DATANODE_MASTER)
-			||(mgr_node->nodetype==CNDN_TYPE_COORDINATOR_MASTER)))
+		if(!((mgr_node->nodetype==CNDN_TYPE_DATANODE_MASTER) ||
+			 (mgr_node->nodetype==CNDN_TYPE_COORDINATOR_MASTER) ||
+			 (mgr_node->nodetype==CNDN_TYPE_GTM_COOR_MASTER)))
 			continue;
 
-		initStringInfo(&psql_cmd);
-		appendStringInfo(&psql_cmd, " EXECUTE DIRECT ON (%s) ", NameStr(mgr_node->nodename));
-		appendStringInfo(&psql_cmd, " 'CREATE NODE %s WITH (TYPE = ''datanode'', HOST=''%s'', PORT=%d);'"
-							,dnname
-							,addressnode
-							,dnport);
-		hexp_pqexec_direct_execute_utility(pg_conn, psql_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-
-
+		if(!mgr_manipulate_pgxc_node_on_node(&pg_conn,
+											 1,
+											 nodeinfo,
+											 mgr_node,
+											 false,
+											 PGXC_NODE_MANIPULATE_TYPE_CREATE,
+											 NULL))
+		{
+			ereport(ERROR, (errmsg("on coordinator \"%s\" create node \"%s\" fail", NameStr(mgr_node->nodename), nodeinfo->nodename)));
+		}
 
 		/*
 		initStringInfo(&psql_cmd);
@@ -4045,7 +4046,6 @@ static void hexp_create_dm_on_all_node(PGconn *pg_conn, char *dnname, Oid dnhost
 	heap_endscan(info->rel_scan);
 	heap_close(info->rel_node, AccessShareLock);
 	pfree(info);
-	pfree(addressnode);
 }
 
 
@@ -4285,7 +4285,11 @@ static void hexp_set_expended_node_state(char *nodename, bool search_init, bool 
 	mgr_node->nodeinited = value_init;
 	mgr_node->nodeincluster = value_incluster;
 	if(value_init&&value_incluster)
+	{
 		mgr_node->nodemasternameoid = 0;
+		mgr_node->allowcure = true;
+		namestrcpy(&mgr_node->curestatus, CURE_STATUS_NORMAL);
+	}
 
 	if(value_init&&(!value_incluster))
 		mgr_node->nodemasternameoid = src_oid;
