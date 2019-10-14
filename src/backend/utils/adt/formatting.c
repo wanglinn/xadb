@@ -6590,7 +6590,7 @@ ora_DCH_from_char(FormatNode *node, char *in, TmFromChar *out)
 	/*
 	 * It means format ends before input string.
 	 */
-	if (*s != '\0')
+	if (*s != '\0' && *s != ' ')
 		ereport(ERROR,
 			(errcode(ERRCODE_INVALID_DATETIME_FORMAT),
 			errmsg("Date format picture ends before converting entire input string")));
