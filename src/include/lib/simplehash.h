@@ -75,6 +75,9 @@
 #define SH_INSERT SH_MAKE_NAME(insert)
 #define SH_DELETE SH_MAKE_NAME(delete)
 #define SH_LOOKUP SH_MAKE_NAME(lookup)
+#define SH_INSERT_WITH_HASH SH_MAKE_NAME(insert_with_hash)
+#define SH_DELETE_WITH_HASH SH_MAKE_NAME(delete_with_hash)
+#define SH_LOOKUP_WITH_HASH SH_MAKE_NAME(lookup_with_hash)
 #define SH_GROW SH_MAKE_NAME(grow)
 #define SH_START_ITERATE SH_MAKE_NAME(start_iterate)
 #define SH_START_ITERATE_AT SH_MAKE_NAME(start_iterate_at)
@@ -144,6 +147,9 @@ SH_SCOPE void SH_GROW(SH_TYPE * tb, uint32 newsize);
 SH_SCOPE	SH_ELEMENT_TYPE *SH_INSERT(SH_TYPE * tb, SH_KEY_TYPE key, bool *found);
 SH_SCOPE	SH_ELEMENT_TYPE *SH_LOOKUP(SH_TYPE * tb, SH_KEY_TYPE key);
 SH_SCOPE bool SH_DELETE(SH_TYPE * tb, SH_KEY_TYPE key);
+SH_SCOPE SH_ELEMENT_TYPE *SH_INSERT_WITH_HASH(SH_TYPE * tb, SH_KEY_TYPE key, bool *found, uint32 hash);
+SH_SCOPE SH_ELEMENT_TYPE *SH_LOOKUP_WITH_HASH(SH_TYPE * tb, SH_KEY_TYPE key, uint32 hash);
+SH_SCOPE bool SH_DELETE_WITH_HASH(SH_TYPE * tb, SH_KEY_TYPE key, uint32 hash);
 SH_SCOPE void SH_START_ITERATE(SH_TYPE * tb, SH_ITERATOR * iter);
 SH_SCOPE void SH_START_ITERATE_AT(SH_TYPE * tb, SH_ITERATOR * iter, uint32 at);
 SH_SCOPE	SH_ELEMENT_TYPE *SH_ITERATE(SH_TYPE * tb, SH_ITERATOR * iter);
@@ -477,7 +483,12 @@ SH_GROW(SH_TYPE * tb, uint32 newsize)
 SH_SCOPE	SH_ELEMENT_TYPE *
 SH_INSERT(SH_TYPE * tb, SH_KEY_TYPE key, bool *found)
 {
-	uint32		hash = SH_HASH_KEY(tb, key);
+	return SH_INSERT_WITH_HASH(tb, key, found, SH_HASH_KEY(tb, key));
+}
+
+SH_SCOPE	SH_ELEMENT_TYPE *
+SH_INSERT_WITH_HASH(SH_TYPE * tb, SH_KEY_TYPE key, bool *found, uint32 hash)
+{
 	uint32		startelem;
 	uint32		curelem;
 	SH_ELEMENT_TYPE *data;
@@ -647,7 +658,12 @@ restart:
 SH_SCOPE	SH_ELEMENT_TYPE *
 SH_LOOKUP(SH_TYPE * tb, SH_KEY_TYPE key)
 {
-	uint32		hash = SH_HASH_KEY(tb, key);
+	return SH_LOOKUP_WITH_HASH(tb, key, SH_HASH_KEY(tb, key));
+}
+
+SH_SCOPE	SH_ELEMENT_TYPE *
+SH_LOOKUP_WITH_HASH(SH_TYPE * tb, SH_KEY_TYPE key, uint32 hash)
+{
 	const uint32 startelem = SH_INITIAL_BUCKET(tb, hash);
 	uint32		curelem = startelem;
 
@@ -683,7 +699,12 @@ SH_LOOKUP(SH_TYPE * tb, SH_KEY_TYPE key)
 SH_SCOPE bool
 SH_DELETE(SH_TYPE * tb, SH_KEY_TYPE key)
 {
-	uint32		hash = SH_HASH_KEY(tb, key);
+	return SH_DELETE_WITH_HASH(tb, key, SH_HASH_KEY(tb, key));
+}
+
+SH_SCOPE bool
+SH_DELETE_WITH_HASH(SH_TYPE * tb, SH_KEY_TYPE key, uint32 hash)
+{
 	uint32		startelem = SH_INITIAL_BUCKET(tb, hash);
 	uint32		curelem = startelem;
 
