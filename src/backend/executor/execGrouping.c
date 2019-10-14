@@ -285,6 +285,56 @@ LookupTupleHashEntry(TupleHashTable hashtable, TupleTableSlot *slot,
 	return entry;
 }
 
+#ifdef ADB_EXT
+TupleHashEntry LookupTupleHashEntryWithHash(TupleHashTable hashtable,
+					 TupleTableSlot *slot, bool *isnew, uint32 hash)
+{
+	TupleHashEntryData *entry;
+	MemoryContext oldContext;
+	bool		found;
+	MinimalTuple key;
+
+	/* Need to run the hash functions in short-lived context */
+	oldContext = MemoryContextSwitchTo(hashtable->tempcxt);
+
+	/* set up data needed by hash and match functions */
+	hashtable->inputslot = slot;
+	hashtable->in_hash_funcs = hashtable->tab_hash_funcs;
+	hashtable->cur_eq_func = hashtable->tab_eq_func;
+
+	key = NULL;					/* flag to reference inputslot */
+
+	if (isnew)
+	{
+		entry = tuplehash_insert_with_hash(hashtable->hashtab, key, &found, hash);
+
+		if (found)
+		{
+			/* found pre-existing entry */
+			*isnew = false;
+		}
+		else
+		{
+			/* created new entry */
+			*isnew = true;
+			/* zero caller data */
+			entry->additional = NULL;
+			MemoryContextSwitchTo(hashtable->tablecxt);
+			/* Copy the first tuple into the table context */
+			entry->firstTuple = ExecCopySlotMinimalTuple(slot);
+		}
+	}
+	else
+	{
+		entry = tuplehash_lookup_with_hash(hashtable->hashtab, key, hash);
+	}
+
+	MemoryContextSwitchTo(oldContext);
+
+	return entry;
+}
+#endif /* ADB_EXIT */
+
 /*
  * Search for a hashtable entry matching the given tuple.  No entry is
  * created if there's not a match.  This is similar to the non-creating
@@ -391,6 +441,46 @@ TupleHashTableHash(struct tuplehash_hash *tb, const MinimalTuple tuple)
 	 */
 	return murmurhash32(hashkey);
 }
+#ifdef ADB_EXT
+uint32 TupleHashGetHashValue(TupleHashTable hashtable, TupleTableSlot *slot)
+{
+	FmgrInfo   *hashfunctions = hashtable->tab_hash_funcs;
+	AttrNumber *keyColIdx = hashtable->keyColIdx;
+	uint32		hashkey = hashtable->hash_iv;
+	int			numCols = hashtable->numCols;
+	int			i;
+	AttrNumber	att;
+	Datum		attr;
+	bool		isNull;
+
+	for (i=0; i<numCols; ++i)
+	{
+		att = keyColIdx[i];
+
+		/* rotate hashkey left 1 bit at each step */
+		hashkey = (hashkey << 1) | ((hashkey & 0x80000000) ? 1 : 0);
+
+		attr = slot_getattr(slot, att, &isNull);
+
+		if (!isNull)			/* treat nulls as having hash key 0 */
+		{
+			uint32		hkey;
+
+			hkey = DatumGetUInt32(FunctionCall1(&hashfunctions[i],
+												attr));
+			hashkey ^= hkey;
+		}
+	}
+
+	/*
+	 * The way hashes are combined above, among each other and with the IV,
+	 * doesn't lead to good bit perturbation. As the IV's goal is to lead to
+	 * achieve that, perform a round of hashing of the combined hash -
+	 * resulting in near perfect perturbation.
+	 */
+	return murmurhash32(hashkey);
+}
+#endif /* ADB_EXT */
 
 /*
  * See whether two tuples (presumably of the same hash value) match

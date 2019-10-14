@@ -138,12 +138,19 @@ extern TupleHashTable BuildTupleHashTable(PlanState *parent,
 extern TupleHashEntry LookupTupleHashEntry(TupleHashTable hashtable,
 					 TupleTableSlot *slot,
 					 bool *isnew);
+#ifdef ADB_EXT
+extern TupleHashEntry LookupTupleHashEntryWithHash(TupleHashTable hashtable,
+					 TupleTableSlot *slot,
+					 bool *isnew,
+					 uint32 hash);
+#endif /* ADB_EXT */
 extern TupleHashEntry FindTupleHashEntry(TupleHashTable hashtable,
 				   TupleTableSlot *slot,
 				   ExprState *eqcomp,
 				   FmgrInfo *hashfunctions);
 #ifdef ADB_EXT
 extern uint32 TupleHashTableMembers(TupleHashTable hashtable);
+extern uint32 TupleHashGetHashValue(TupleHashTable hashtable, TupleTableSlot *slot);
 #endif /* ADB_EXT */
 
 /*
