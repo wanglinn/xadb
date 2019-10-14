@@ -526,6 +526,9 @@ BEGIN_NODE(Agg)
 	NODE_BITMAPSET(Bitmapset,aggParams)
 	NODE_NODE(List,groupingSets)
 	NODE_NODE(List,chain)
+#ifdef ADB_EXT
+	NODE_SCALAR(uint32,num_batches)
+#endif
 #ifdef ADB
 	NODE_NODE(List,exec_nodes)
 	NODE_SCALAR(bool,skip_trans)
@@ -1846,6 +1849,9 @@ BEGIN_NODE(AggPath)
 	NODE_SCALAR(double,numGroups)
 	NODE_NODE(List,groupClause)
 	NODE_NODE(List,qual)
+#ifdef ADB_EXT
+	NODE_SCALAR(uint32,num_batches)
+#endif
 END_NODE(AggPath)
 #endif /* NO_NODE_AggPath */
 

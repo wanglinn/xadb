@@ -157,6 +157,9 @@ bool		enable_remotesort = true;
 bool		enable_remotelimit = true;
 bool		enable_hashscan = true;
 #endif
+#ifdef ADB_EXT
+bool enable_batch_hash = true;
+#endif /* ADB_EXT */
 
 typedef struct
 {
@@ -2147,7 +2150,11 @@ cost_agg(Path *path, PlannerInfo *root,
 	/* Use all-zero per-aggregate costs if NULL is passed */
 	if (aggcosts == NULL)
 	{
-		Assert(aggstrategy == AGG_HASHED);
+		Assert(aggstrategy == AGG_HASHED
+#ifdef ADB_EXT
+		 || aggstrategy == AGG_BATCH_HASH
+#endif /* ADB_EXT */
+		 );
 		MemSet(&dummy_aggcosts, 0, sizeof(AggClauseCosts));
 		aggcosts = &dummy_aggcosts;
 	}
@@ -2204,13 +2211,24 @@ cost_agg(Path *path, PlannerInfo *root,
 	}
 	else
 	{
-		/* must be AGG_HASHED */
+		/* must be AGG_HASHED or AGG_BATCH_HASH */
 		startup_cost = input_total_cost;
 		if (!enable_hashagg)
 			startup_cost += disable_cost;
 		startup_cost += aggcosts->transCost.startup;
 		startup_cost += aggcosts->transCost.per_tuple * input_tuples;
 		startup_cost += (cpu_operator_cost * numGroupCols) * input_tuples;
+#ifdef ADB_EXT
+		if (aggstrategy == AGG_BATCH_HASH)
+		{
+			double	nbytes = relation_byte_size(input_tuples,
+												castNode(AggPath, path)->subpath->pathtarget->width +
+												  MINIMAL_TUPLE_DATA_OFFSET);
+			startup_cost += seq_page_cost * ceil(nbytes / BLCKSZ);
+			if (enable_hashagg && !enable_batch_hash)
+				startup_cost += disable_cost;
+		}
+#endif /* ADB_EXT */
 		total_cost = startup_cost;
 		total_cost += aggcosts->finalCost * numGroups;
 		total_cost += cpu_tuple_cost * numGroups;

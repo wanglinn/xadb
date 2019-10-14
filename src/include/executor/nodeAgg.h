@@ -15,6 +15,9 @@
 #define NODEAGG_H
 
 #include "nodes/execnodes.h"
+#ifdef ADB_EXT
+#include "access/parallel.h"
+#endif /* ADB_EXT */
 
 
 /*
@@ -330,5 +333,13 @@ extern void ExecReScanAgg(AggState *node);
 extern Size hash_agg_entry_size(int numAggs);
 
 extern Datum aggregate_dummy(PG_FUNCTION_ARGS);
+
+#ifdef ADB_EXT
+extern void ExecAggEstimate(AggState *node, ParallelContext *pcxt);
+extern void ExecAggInitializeDSM(AggState *node, ParallelContext *pcxt);
+extern void ExecAggReInitializeDSM(AggState *node, ParallelContext *pcxt);
+extern void ExecAggInitializeWorker(AggState *node, ParallelWorkerContext *pwcxt);
+extern void ExecShutdownAgg(AggState *node);
+#endif /* ADB_EXT */
 
 #endif							/* NODEAGG_H */

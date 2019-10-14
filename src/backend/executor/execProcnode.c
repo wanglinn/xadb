@@ -862,6 +862,11 @@ ExecShutdownNode(PlanState *node)
 		case T_HashJoinState:
 			ExecShutdownHashJoin((HashJoinState *) node);
 			break;
+#ifdef ADB_EXT
+		case T_AggState:
+			ExecShutdownAgg((AggState *) node);
+			break;
+#endif /* ADB_EXT */
 		default:
 			break;
 	}

@@ -1979,6 +1979,12 @@ typedef struct AggState
 	AggStatePerGroup *all_pergroups;	/* array of first ->pergroups, than
 										 * ->hash_pergroup */
 	ProjectionInfo *combinedproj;	/* projection machinery */
+#ifdef ADB_EXT
+	struct BatchStoreData *batch_store;	/* for batch hash */
+	struct Barrier *batch_barrier;		/* for parallel batch */
+	TupleTableSlot *outer_slot;			/* for read batch */
+	bool			batch_filled;
+#endif /* ADB_EXT */
 #ifdef ADB
 	bool		skip_trans; 	/* skip the transition step for aggregates */
 #endif /* ADB */

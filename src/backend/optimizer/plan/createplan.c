@@ -2029,6 +2029,9 @@ create_agg_plan(PlannerInfo *root, AggPath *best_path)
 					subplan);
 
 	copy_generic_path_info(&plan->plan, (Path *) best_path);
+#ifdef ADB_EXT
+	plan->num_batches = best_path->num_batches;
+#endif /* ADB_EXT */
 #ifdef ADB
 	if (IS_PGXC_COORDINATOR &&
 		best_path->aggsplit != AGGSPLIT_INITIAL_SERIAL &&

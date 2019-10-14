@@ -111,6 +111,9 @@
 #if defined(ADBMGRD)
 #include "postmaster/adbmonitor.h"
 #endif /* ADBMGRD */
+#ifdef ADB_EXT
+extern bool enable_batch_hash;	/* in planner.c */
+#endif /* ADB_EXT */
 
 
 #ifndef PG_KRB_SRVTAB
@@ -1382,6 +1385,18 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
+#ifdef ADB_EXT
+	{
+		{"enable_batch_hash", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("enable batch hash method"),
+			NULL
+		},
+		&enable_batch_hash,
+		false,
+		NULL, NULL, NULL
+	},
+#endif /* ADB_EXT */
+
 #if defined(ADB) || defined(ADB_MULTI_GRAM)
 	{
 		{"debug_print_grammar", PGC_USERSET, LOGGING_WHAT,

@@ -1702,6 +1702,9 @@ typedef struct AggPath
 	double		numGroups;		/* estimated number of groups in input */
 	List	   *groupClause;	/* a list of SortGroupClause's */
 	List	   *qual;			/* quals (HAVING quals), if any */
+#ifdef ADB_EXT
+	uint32		num_batches;	/* when use batch hash it is valid */
+#endif /* ADB_EXT */
 } AggPath;
 
 /*
@@ -2488,6 +2491,9 @@ typedef struct JoinPathExtraData
 #define GROUPING_CAN_USE_SORT       0x0001
 #define GROUPING_CAN_USE_HASH       0x0002
 #define GROUPING_CAN_PARTIAL_AGG	0x0004
+#ifdef ADB_EXT
+#define GROUPING_CAN_USE_BATCH		0x0008
+#endif /* ADB_EXT */
 
 /*
  * What kind of partitionwise aggregation is in use?

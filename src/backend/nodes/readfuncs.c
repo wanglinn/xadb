@@ -2148,6 +2148,9 @@ _readAgg(void)
 	READ_BITMAPSET_FIELD(aggParams);
 	READ_NODE_FIELD(groupingSets);
 	READ_NODE_FIELD(chain);
+#ifdef ADB_EXT
+	READ_UINT_FIELD(num_batches);
+#endif /* ADB_EXT */
 #ifdef ADB
 	READ_NODE_FIELD(exec_nodes);
 	READ_BOOL_FIELD(skip_trans);

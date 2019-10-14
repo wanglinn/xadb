@@ -48,6 +48,9 @@
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 #include "pgstat.h"
+#ifdef ADB_EXT
+#include "executor/nodeAgg.h"
+#endif /* ADB_EXT */
 #ifdef ADB
 #include "executor/nodeClusterReduce.h"
 #endif /* ADB */
@@ -284,6 +287,12 @@ ExecParallelEstimate(PlanState *planstate, ExecParallelEstimateContext *e)
 			/* even when not parallel-aware, for EXPLAIN ANALYZE */
 			ExecSortEstimate((SortState *) planstate, e->pcxt);
 			break;
+#ifdef ADB_EXT
+		case T_AggState:
+			if (planstate->plan->parallel_aware)
+				ExecAggEstimate((AggState*)planstate, e->pcxt);
+			break;
+#endif /* ADB_EXT */
 #ifdef ADB
 		case T_ClusterReduceState:
 			ExecClusterReduceEstimate((ClusterReduceState*)planstate, e->pcxt);
@@ -502,6 +511,12 @@ ExecParallelInitializeDSM(PlanState *planstate,
 			/* even when not parallel-aware, for EXPLAIN ANALYZE */
 			ExecSortInitializeDSM((SortState *) planstate, d->pcxt);
 			break;
+#ifdef ADB_EXT
+		case T_AggState:
+			if (planstate->plan->parallel_aware)
+				ExecAggInitializeDSM((AggState*)planstate, d->pcxt);
+			break;
+#endif /* ADB_EXT */
 #ifdef ADB
 		case T_ClusterReduceState:
 			ExecClusterReduceInitializeDSM((ClusterReduceState*)planstate, d->pcxt);
@@ -933,6 +948,12 @@ ExecParallelReInitializeDSM(PlanState *planstate,
 		case T_SortState:
 			/* these nodes have DSM state, but no reinitialization is required */
 			break;
+#ifdef ADB_EXT
+		case T_AggState:
+			if (planstate->plan->parallel_aware)
+				ExecAggReInitializeDSM((AggState*)planstate, pcxt);
+			break;
+#endif /* ADB_EXT */
 #ifdef ADB
 		case T_ClusterReduceState:
 			ExecClusterReduceReInitializeDSM((ClusterReduceState*)planstate, pcxt);
@@ -1245,6 +1266,13 @@ ExecParallelInitializeWorker(PlanState *planstate, ParallelWorkerContext *pwcxt)
 			/* even when not parallel-aware, for EXPLAIN ANALYZE */
 			ExecSortInitializeWorker((SortState *) planstate, pwcxt);
 			break;
+#ifdef ADB_EXT
+		case T_AggState:
+			if (planstate->plan->parallel_aware)
+				ExecAggInitializeWorker((AggState *) planstate,
+										pwcxt);
+			break;
+#endif /* ADB_EXT */
 #ifdef ADB
 		case T_ClusterReduceState:
 			ExecClusterReduceInitializeWorker((ClusterReduceState*)planstate, pwcxt);

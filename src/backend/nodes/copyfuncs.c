@@ -1006,6 +1006,9 @@ _copyAgg(const Agg *from)
 	COPY_BITMAPSET_FIELD(aggParams);
 	COPY_NODE_FIELD(groupingSets);
 	COPY_NODE_FIELD(chain);
+#ifdef ADB_EXT
+	COPY_SCALAR_FIELD(num_batches);
+#endif /* ADB_EXT */
 #ifdef ADB
 	COPY_NODE_FIELD(exec_nodes);
 	COPY_SCALAR_FIELD(skip_trans);

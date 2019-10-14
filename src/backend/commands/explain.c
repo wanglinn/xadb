@@ -1176,6 +1176,12 @@ ExplainNode(PlanState *planstate, List *ancestors,
 						pname = "MixedAggregate";
 						strategy = "Mixed";
 						break;
+#ifdef ADB_EXT
+					case AGG_BATCH_HASH:
+						pname = "BatchHashAggregate";
+						strategy = "Hashed";
+						break;
+#endif /* ADB_EXT */
 					default:
 						pname = "Aggregate ???";
 						strategy = "???";
@@ -1810,6 +1816,11 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			if (plan->qual)
 				show_instrumentation_count("Rows Removed by Filter", 1,
 										   planstate, es);
+#ifdef ADB_EXT
+			if (es->verbose &&
+				((Agg*)plan)->aggstrategy == AGG_BATCH_HASH)
+				ExplainPropertyInteger("batchs", NULL, ((Agg*)plan)->num_batches, es);
+#endif /* ADB_EXT */
 			break;
 		case T_Group:
 			show_group_keys(castNode(GroupState, planstate), ancestors, es);
