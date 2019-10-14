@@ -13333,7 +13333,7 @@ bool get_active_node_info(const char node_type, const char *node_name, AppendNod
 }
 
 /*
-* read gtm_port gtm_host from system table:gtm, add agtm_host, snapsender_port to infosendmsg
+* read gtm_port gtm_host from system table:gtm, add agtm_host, agtm_port to infosendmsg
 * ,use '\0' to interval
 */
 static void
@@ -13345,8 +13345,7 @@ mgr_get_gtm_host_snapsender_gxidsender_port(StringInfo infosendmsg)
 	Form_mgr_node mgr_node;
 	ScanKeyData key[2];
 	HeapTuple tuple;
-	Oid snapsender_port;
-	Oid gxidsender_port;
+	Oid gtm_port;
 
 	/*get the gtm_port, gtm_host*/
 	ScanKeyInit(&key[0]
@@ -13366,8 +13365,7 @@ mgr_get_gtm_host_snapsender_gxidsender_port(StringInfo infosendmsg)
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
 		gtm_host = get_hostaddress_from_hostoid(mgr_node->nodehost);
-		snapsender_port = mgr_node->nodeport+1;
-		gxidsender_port = mgr_node->nodeport+2;
+		gtm_port = mgr_node->nodeport;
 		break;
 	}
 	heap_endscan(rel_scan);
@@ -13377,8 +13375,7 @@ mgr_get_gtm_host_snapsender_gxidsender_port(StringInfo infosendmsg)
 		, errmsg("the type of gmt_coord for coordinator does not exist")));
 
 	mgr_append_pgconf_paras_str_quotastr("agtm_host", gtm_host, infosendmsg);
-	mgr_append_pgconf_paras_str_int("snapsender_port", snapsender_port, infosendmsg);
-	mgr_append_pgconf_paras_str_int("gxidsender_port", gxidsender_port, infosendmsg);
+	mgr_append_pgconf_paras_str_int("agtm_port", gtm_port, infosendmsg);
 	pfree(gtm_host);
 }
 

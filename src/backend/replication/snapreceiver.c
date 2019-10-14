@@ -50,7 +50,7 @@ typedef struct SnapRcvData
 
 /* GUC variables */
 extern char *AGtmHost;
-extern int snapsender_port;
+extern int	AGtmPort;
 
 /* libpqwalreceiver connection */
 static WalReceiverConn *wrconn;
@@ -537,8 +537,8 @@ static void SnapRcvConnectGTM(void)
 	Assert(wrconn == NULL);
 
 	snprintf(conninfo, MAXCONNINFO,
-			 "user=postgres host=%s port=%d",
-			 AGtmHost, snapsender_port);
+			 "user=postgres host=%s port=%d contype=snaprcv",
+			 AGtmHost, AGtmPort);
 	wrconn = walrcv_connect(conninfo, false, "snapreceiver", &errstr);
 	if (!wrconn)
 		ereport(ERROR,

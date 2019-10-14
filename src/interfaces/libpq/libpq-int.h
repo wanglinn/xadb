@@ -375,6 +375,10 @@ struct pg_conn
 	/* Type of connection to make.  Possible values: any, read-write. */
 	char	   *target_session_attrs;
 
+#ifdef ADB
+	char	   *connect_type;
+#endif /* ADB */
+
 	/* Optional file to write trace info to */
 	FILE	   *Pfdebug;
 

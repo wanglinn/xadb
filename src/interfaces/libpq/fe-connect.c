@@ -330,6 +330,11 @@ static const internalPQconninfoOption PQconninfoOptions[] = {
 		"Target-Session-Attrs", "", 11, /* sizeof("read-write") = 11 */
 	offsetof(struct pg_conn, target_session_attrs)},
 
+#ifdef ADB
+	{"contype", NULL, DEF_PGPORT_STR, NULL,
+		"connect-type", "", 6,
+	offsetof(struct pg_conn, connect_type)},
+#endif /* ADB */
 	/* Terminating entry --- MUST BE LAST */
 	{NULL, NULL, NULL, NULL,
 	NULL, NULL, 0}
@@ -1819,6 +1824,13 @@ connectDBStart(PGconn *conn)
 	 */
 	conn->whichhost = 0;
 	conn->addr_cur = conn->connhost[0].addrlist;
+#ifdef ADB
+	if (conn->connect_type && strcmp(conn->connect_type, "gxidrcv") == 0)
+		conn->pversion = GXID_SEND_SOCKET;
+	else if (conn->connect_type && strcmp(conn->connect_type, "snaprcv") == 0)
+		conn->pversion = SNAP_SEND_SOCKET;
+	else
+#endif
 	conn->pversion = PG_PROTOCOL(3, 0);
 	conn->send_appname = true;
 	conn->status = CONNECTION_NEEDED;
@@ -2670,6 +2682,15 @@ keep_going:						/* We will come back to here until there is
 					/* We'll come back when there is more data */
 					return PGRES_POLLING_READING;
 				}
+
+#ifdef ADB
+				if ((conn->pversion == GXID_SEND_SOCKET || conn->pversion == SNAP_SEND_SOCKET) && beresp == 'T')
+				{
+					conn->status = CONNECTION_MADE;
+					conn->inStart = conn->inCursor;
+					return PGRES_POLLING_WRITING;
+				}
+#endif /* */
 
 				/*
 				 * Validate message type: we expect only an authentication
@@ -6095,6 +6116,16 @@ PQoptions(const PGconn *conn)
 		return NULL;
 	return conn->pgoptions;
 }
+
+#ifdef ADB
+char*
+PQConType(const PGconn *conn)
+{
+	if (!conn)
+		return NULL;
+	return conn->connect_type;
+}
+#endif /* ADB */
 
 ConnStatusType
 PQstatus(const PGconn *conn)

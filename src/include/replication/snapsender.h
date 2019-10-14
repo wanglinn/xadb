@@ -10,4 +10,6 @@ extern void SnapSendTransactionAssignArray(TransactionId* xids, int xid_num, Tra
 extern void SnapSendTransactionAssign(TransactionId txid, int txidnum, TransactionId parent);
 extern void SnapSendTransactionFinish(TransactionId txid);
 
+extern void SnapSendLockSendSock(void);
+extern void SnapSendUnlockSendSock(void);
 #endif /* SNAP_SENDER_H_ */

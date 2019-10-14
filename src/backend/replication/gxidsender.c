@@ -12,6 +12,7 @@
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/poolcomm.h"
 #include "replication/gxidsender.h"
 #include "replication/snapsender.h"
 #include "postmaster/postmaster.h"
@@ -31,6 +32,7 @@ typedef struct GxidSenderData
 	int				procno;				/* proc number of current active transsender process */
 
 	slock_t			mutex;				/* locks shared variables */
+	pg_atomic_flag 	lock;				/* locks receive client sock */
 
 	uint32			xcnt;
 	TransactionId	latestCompletedXid;
@@ -80,7 +82,7 @@ typedef struct GxidClientData
 
 /* GUC variables */
 extern char *AGtmHost;
-extern int gxidsender_port;
+extern int AGtmPort;
 extern int gxid_receiver_timeout;
 
 static volatile sig_atomic_t gxid_send_got_sigterm = false;
@@ -170,6 +172,7 @@ void GxidSenderShmemInit(void)
 		GxidSender->procno = INVALID_PGPROCNO;
 		GxidSender->xcnt = 0;
 		SpinLockInit(&GxidSender->mutex);
+		pg_atomic_init_flag(&GxidSender->lock);
 	}
 }
 
@@ -316,71 +319,11 @@ void GxidSenderMain(void)
 
 static void GxidSenderStartup(void)
 {
-	Size i;
-
-	/* initialize listen sockets */
-	for(i=GXID_SENDER_MAX_LISTEN;i>0;--i)
-		GxidSenderListenSocket[i-1] = PGINVALID_SOCKET;
-
-	/* create listen sockets */
-	ereport(LOG, (errmsg("GxidSender process starts to listen on port %d\n", gxidsender_port)));
-	if (AGtmHost)
-	{
-		char	   *rawstring;
-		List	   *elemlist;
-		ListCell   *l;
-		int			status;
-
-		rawstring = pstrdup(AGtmHost);
-		/* Parse string into list of hostnames */
-		if (!SplitIdentifierString(rawstring, ',', &elemlist))
-		{
-			/* syntax error in list */
-			ereport(FATAL,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("invalid list syntax in parameter \"%s\"",
-							"agtm_host")));
-		}
-
-		foreach(l, elemlist)
-		{
-			char *curhost = lfirst(l);
-			status = StreamServerPort(AF_UNSPEC,
-									  strcmp(curhost, "*") == 0 ? NULL:curhost,
-									  (unsigned short)gxidsender_port,
-									  NULL,
-									  GxidSenderListenSocket,
-									  GXID_SENDER_MAX_LISTEN);
-			if (status != STATUS_OK)
-			{
-				ereport(WARNING,
-						(errcode_for_socket_access(),
-						 errmsg("could not create listen socket for \"%s\"",
-								curhost)));
-			}
-		}
-		pfree(rawstring);
-	}else if (StreamServerPort(AF_UNSPEC, NULL,
-							   (unsigned short)gxidsender_port,
-							   NULL,
-							   GxidSenderListenSocket,
-							   GXID_SENDER_MAX_LISTEN) != STATUS_OK)
-	{
-		ereport(WARNING,
-				(errcode_for_socket_access(),
-				 errmsg("could not create listen socket for \"%s\"",
-						"*")));
-	}
-
 	/* check listen sockets */
-	if (GxidSenderListenSocket[0] == PGINVALID_SOCKET)
+	if (socket_gxid_pair[1] == PGINVALID_SOCKET)
 		ereport(FATAL,
-				(errmsg("no socket created for transsender listening")));
+				(errmsg("no socket created for gxid listening")));
 
-	/* create WaitEventSet */
-#if (GXID_WAIT_EVENT_SIZE_START < GXID_SENDER_MAX_LISTEN+2)
-#error macro GXID_WAIT_EVENT_SIZE_START size too small
-#endif
 	gxid_send_wait_event_set = CreateWaitEventSet(TopMemoryContext, GXID_WAIT_EVENT_SIZE_START);
 	gxid_send_wait_event = palloc0(GXID_WAIT_EVENT_SIZE_START * sizeof(WaitEvent));
 	gxid_send_max_wait_event = GXID_WAIT_EVENT_SIZE_START;
@@ -402,19 +345,13 @@ static void GxidSenderStartup(void)
 	++gxid_send_cur_wait_event;
 
 	/* add listen sockets */
-	for(i=0;i<GXID_SENDER_MAX_LISTEN;++i)
-	{
-		if (GxidSenderListenSocket[i] == PGINVALID_SOCKET)
-			break;
-
-		Assert(gxid_send_cur_wait_event < gxid_send_max_wait_event);
-		AddWaitEventToSet(gxid_send_wait_event_set,
-						  WL_SOCKET_READABLE,
-						  GxidSenderListenSocket[i],
-						  NULL,
-						  (void*)&GxidSenderListenEventData);
-		++gxid_send_cur_wait_event;
-	}
+	Assert(gxid_send_cur_wait_event < gxid_send_max_wait_event);
+	AddWaitEventToSet(gxid_send_wait_event_set,
+						WL_SOCKET_READABLE,
+						socket_gxid_pair[1],
+						NULL,
+						(void*)&GxidSenderListenEventData);
+	++gxid_send_cur_wait_event;
 
 	/* create a fake Port */
 	MyProcPort = MemoryContextAllocZero(TopMemoryContext, sizeof(*MyProcPort));
@@ -564,18 +501,15 @@ void GxidSenderOnListenEvent(WaitEvent *event)
 	MemoryContext volatile oldcontext = CurrentMemoryContext;
 	MemoryContext volatile newcontext = NULL;
 	GxidClientData *client;
-	Port			port;
+	int				client_fdsock;
+
+	if(pool_recvfds(event->fd, &client_fdsock, 1) != 0)
+	{
+		ereport(ERROR, (errmsg("receive client socke failed\n")));
+	}
 
 	PG_TRY();
 	{
-		MemSet(&port, 0, sizeof(port));
-		if (StreamConnection(event->fd, &port) != STATUS_OK)
-		{
-			if (port.sock != PGINVALID_SOCKET)
-				StreamClose(port.sock);
-			return;
-		}
-
 		newcontext = AllocSetContextCreate(TopMemoryContext,
 										   "gxid sender client",
 										   ALLOCSET_DEFAULT_SIZES);
@@ -583,7 +517,7 @@ void GxidSenderOnListenEvent(WaitEvent *event)
 		client = palloc0(sizeof(*client));
 		client->context = newcontext;
 		client->evd.fun = GxidSenderOnClientMsgEvent;
-		client->node = pq_node_new(port.sock, false);
+		client->node = pq_node_new(client_fdsock, false);
 		client->last_msg = GetCurrentTimestamp();
 		client->status = GXID_CLIENT_STATUS_CONNECTED;
 
@@ -595,7 +529,7 @@ void GxidSenderOnListenEvent(WaitEvent *event)
 		}
 		client->event_pos = AddWaitEventToSet(gxid_send_wait_event_set,
 											  WL_SOCKET_READABLE,	/* waiting start pack */
-											  port.sock,
+											  client_fdsock,
 											  NULL,
 											  client);
 		++gxid_send_cur_wait_event;
@@ -604,8 +538,8 @@ void GxidSenderOnListenEvent(WaitEvent *event)
 		MemoryContextSwitchTo(oldcontext);
 	}PG_CATCH();
 	{
-		if (port.sock != PGINVALID_SOCKET)
-			StreamClose(port.sock);
+		if (client_fdsock != PGINVALID_SOCKET)
+			StreamClose(client_fdsock);
 
 		MemoryContextSwitchTo(oldcontext);
 		if (newcontext != NULL)
@@ -1155,4 +1089,25 @@ void SerializeFullAssignXid(StringInfo buf)
 		pq_sendint32(buf, xids[i]);
 
 	pfree(xids);
+}
+
+void GxidSendLockSendSock(void)
+{
+re_lock_:
+	if (!GxidSender )
+	{
+		pg_usleep(100000L);
+		goto re_lock_;
+	}
+
+	if (!pg_atomic_test_set_flag(&GxidSender->lock))
+	{
+		pg_usleep(100000L);
+		goto re_lock_;
+	}
+}
+
+void GxidSendUnlockSendSock(void)
+{
+	pg_atomic_clear_flag(&GxidSender->lock);
 }

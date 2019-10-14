@@ -472,7 +472,7 @@ pool_putmessage(PoolPort *port, char msgtype, const char *s, size_t len)
  * connection
  */
 int
-pool_sendfds(PoolPort *port, int *fds, int count)
+pool_sendfds(const int fdsock, int *fds, int count)
 {
 	struct iovec iov[1];
 	struct msghdr msg;
@@ -511,7 +511,7 @@ pool_sendfds(PoolPort *port, int *fds, int count)
 		memcpy(CMSG_DATA(cmptr), fds, count * sizeof(int));
 	}
 
-	if (sendmsg(Socket(*port), &msg, 0) != SEND_MSG_BUFFER_SIZE)
+	if (sendmsg(fdsock, &msg, 0) != SEND_MSG_BUFFER_SIZE)
 	{
 		if (cmptr)
 			free(cmptr);
@@ -529,7 +529,7 @@ pool_sendfds(PoolPort *port, int *fds, int count)
  * Read a message from the specified connection carrying file descriptors
  */
 int
-pool_recvfds(PoolPort *port, pgsocket *fds, int count)
+pool_recvfds(const int fdsock, pgsocket *fds, int count)
 {
 	struct iovec iov[1];
 	struct msghdr msg;
@@ -540,7 +540,7 @@ pool_recvfds(PoolPort *port, pgsocket *fds, int count)
 	uint32 msg_size;
 	int rval;
 
-	AssertArg(port && fds && count>0);
+	AssertArg(fdsock && fds && count>0);
 	need_size = CMSG_LEN(count * sizeof(int));
 	if(controllen < need_size)
 	{
@@ -564,7 +564,7 @@ retry_recvmsg_:
 	msg.msg_control = (caddr_t)cmptr;
 	msg.msg_controllen = need_size;
 
-	rval = recvmsg(Socket(*port), &msg, 0);
+	rval = recvmsg(fdsock, &msg, 0);
 	if(rval < 0)
 	{
 		CHECK_FOR_INTERRUPTS();
@@ -590,7 +590,7 @@ retry_recvmsg_:
 	{
 		/* poolmgr send us an error message */
 		msg_size = htonl(msg_size);
-		pool_report_error(Socket(*port), msg_size-4);
+		pool_report_error(fdsock, msg_size-4);
 		/* if run to here, socket is closed */
 		RESUME_CANCEL_INTERRUPTS();
 		return EOF;
@@ -608,7 +608,7 @@ retry_recvmsg_:
 	}
 
 	/* read other message */
-	if(pool_block_recv(Socket(*port), &buf[5], sizeof(buf)-5) != sizeof(buf)-5)
+	if(pool_block_recv(fdsock, &buf[5], sizeof(buf)-5) != sizeof(buf)-5)
 	{
 		RESUME_CANCEL_INTERRUPTS();
 		return EOF;

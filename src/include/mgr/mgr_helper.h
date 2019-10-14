@@ -19,13 +19,12 @@
 #include "../../interfaces/libpq/libpq-fe.h"
 
 #define EXTRACT_GTM_INFOMATION(gtmMaster, agtm_host,             \
-							   snapsender_port, gxidsender_port) \
+							   agtm_port) \
 	do                                                           \
 	{                                                            \
 		Assert(gtmMaster != NULL);                               \
 		agtm_host = gtmMaster->host->hostaddr;                   \
-		pg_ltoa(gtmMaster->form.nodeport + 1, snapsender_port);  \
-		pg_ltoa(gtmMaster->form.nodeport + 2, gxidsender_port);  \
+		pg_ltoa(gtmMaster->form.nodeport, agtm_port);  \
 	} while (0)
 
 typedef enum NodeConnectionStatus
@@ -462,8 +461,7 @@ extern bool setGtmInfoInPGSqlConf(MgrNodeWrapper *mgrNode,
 								  bool complain);
 extern bool checkGtmInfoInPGresult(PGresult *pgResult,
 								   char *agtm_host,
-								   char *snapsender_port,
-								   char *gxidsender_port);
+								   char *agtm_port);
 extern bool checkGtmInfoInPGSqlConf(PGconn *pgConn,
 									char *nodename,
 									bool localSqlCheck,

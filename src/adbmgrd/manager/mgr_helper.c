@@ -2189,19 +2189,14 @@ bool setGtmInfoInPGSqlConf(MgrNodeWrapper *mgrNode,
 {
 	bool done;
 	char *agtm_host;
-	char snapsender_port[12] = {0};
-	char gxidsender_port[12] = {0};
+	char agtm_port[12] = {0};
 	PGConfParameterItem *items = NULL;
 
 	EXTRACT_GTM_INFOMATION(gtmMaster,
 						   agtm_host,
-						   snapsender_port,
-						   gxidsender_port);
+						   agtm_port);
 	items = newPGConfParameterItem("agtm_host", agtm_host, true);
-	items->next = newPGConfParameterItem("snapsender_port",
-										 snapsender_port, false);
-	items->next->next = newPGConfParameterItem("gxidsender_port",
-											   gxidsender_port, false);
+	items->next = newPGConfParameterItem("agtm_port", agtm_port, false);
 	done = callAgentRefreshPGSqlConfReload(mgrNode, items, complain);
 	pfreePGConfParameterItem(items);
 	return done;
@@ -2209,8 +2204,7 @@ bool setGtmInfoInPGSqlConf(MgrNodeWrapper *mgrNode,
 
 bool checkGtmInfoInPGresult(PGresult *pgResult,
 							char *agtm_host,
-							char *snapsender_port,
-							char *gxidsender_port)
+							char *agtm_port)
 {
 	int i;
 	bool execOk;
@@ -2229,16 +2223,9 @@ bool checkGtmInfoInPGresult(PGresult *pgResult,
 				execOk = false;
 			}
 		}
-		else if (strcmp(paramName, "snapsender_port") == 0)
+		else if (strcmp(paramName, "agtm_port") == 0)
 		{
-			if (!strcmp(paramValue, snapsender_port) == 0)
-			{
-				execOk = false;
-			}
-		}
-		else if (strcmp(paramName, "gxidsender_port") == 0)
-		{
-			if (!strcmp(paramValue, gxidsender_port) == 0)
+			if (!strcmp(paramValue, agtm_port) == 0)
 			{
 				execOk = false;
 			}
@@ -2264,30 +2251,27 @@ bool checkGtmInfoInPGSqlConf(PGconn *pgConn,
 	PGresult *pgResult = NULL;
 	bool execOk;
 	char *agtm_host;
-	char snapsender_port[12] = {0};
-	char gxidsender_port[12] = {0};
+	char agtm_port[12] = {0};
 
 	EXTRACT_GTM_INFOMATION(gtmMaster,
 						   agtm_host,
-						   snapsender_port,
-						   gxidsender_port);
+						   agtm_port);
 
 	if (localSqlCheck)
 		sql = psprintf("select name, setting from pg_settings "
 					   "where name in "
-					   "('agtm_host','snapsender_port','gxidsender_port');");
+					   "('agtm_host','agtm_port');");
 	else
 		sql = psprintf("EXECUTE DIRECT ON (\"%s\") "
 					   "'select name, setting from pg_settings "
 					   "where name in "
-					   "(''agtm_host'',''snapsender_port'',''gxidsender_port'');'",
+					   "(''agtm_host'',''agtm_port'');'",
 					   nodename);
 	pgResult = PQexec(pgConn, sql);
 	execOk = true;
 	if (PQresultStatus(pgResult) == PGRES_TUPLES_OK)
 	{
-		execOk = checkGtmInfoInPGresult(pgResult, agtm_host,
-										snapsender_port, gxidsender_port);
+		execOk = checkGtmInfoInPGresult(pgResult, agtm_host, agtm_port);
 	}
 	else
 	{

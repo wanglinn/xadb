@@ -12,4 +12,6 @@ extern void SerializeFullAssignXid(StringInfo buf);
 extern Snapshot GxidSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, TransactionId* xmaxOld,
 			int *countOld);
 
+extern void GxidSendLockSendSock(void);
+extern void GxidSendUnlockSendSock(void);
 #endif /* TRANS_SENDER_H_ */

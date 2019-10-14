@@ -538,7 +538,8 @@ static bool pq_node_ProcessStartupPacket(pq_comm_node *node)
 		if(buf->cursor < buf->len)
 			return pq_node_ProcessStartupPacket(node);
 		return false;
-	}else if(proto != PG_PROTOCOL_LATEST)
+	}else if(proto != PG_PROTOCOL_LATEST && proto != GXID_SEND_SOCKET
+				&& proto != SNAP_SEND_SOCKET)
 	{
 		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 			errmsg("invalid protocol")));

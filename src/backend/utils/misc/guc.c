@@ -601,8 +601,6 @@ char	   *nls_timestamp_tz_format;
 char	   *adb_ha_param_delimiter;
 char	   *AGtmHost;
 int			AGtmPort;
-int			snapsender_port;
-int			gxidsender_port;
 int			pool_time_out;
 int			pool_release_to_idle_timeout;
 bool		enable_truncate_ident;
@@ -3708,26 +3706,6 @@ static struct config_int ConfigureNamesInt[] =
 		&AGtmPort,
 		6666, -1, 65535,
 		check_agtm_port, NULL, NULL
-	},
-
-	{
-		{"snapsender_port", PGC_SIGHUP, GTM,
-			gettext_noop("Port of GTM snapshot sender."),
-			NULL
-		},
-		&snapsender_port,
-		6667, 1, 65535,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"gxidsender_port", PGC_SIGHUP, GTM,
-			gettext_noop("Port of GTM gxid sender."),
-			NULL
-		},
-		&gxidsender_port,
-		6668, 1, 65535,
-		NULL, NULL, NULL
 	},
 
 	{

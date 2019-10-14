@@ -1280,7 +1280,7 @@ re_try_:
 	/* we reuse buf.data, here palloc maybe failed */
 	Assert(buf.maxlen >= sizeof(pgsocket)*val);
 	fds = (int*)(buf.data);
-	if(pool_recvfds(&(poolHandle->port), fds, val) != 0)
+	if(pool_recvfds(poolHandle->port.fdsock, fds, val) != 0)
 	{
 		pfree(fds);
 		return NULL;
@@ -1945,7 +1945,7 @@ end_params_local_:
 				++index;
 			}
 
-			if(pool_sendfds(&(agent->port), pfds, (int)index) != 0)
+			if(pool_sendfds(agent->port.fdsock, pfds, (int)index) != 0)
 				ereport(ERROR, (errmsg("can not send fds to backend")));
 		}PG_CATCH();
 		{

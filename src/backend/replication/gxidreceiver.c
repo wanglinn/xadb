@@ -75,7 +75,7 @@ typedef struct GxiRcvAssginXidItemInfo
 /* GUC variables */
 extern char *AGtmHost;
 extern char *PGXCNodeName;
-extern int gxidsender_port;
+extern int	AGtmPort;
 
 /* libpqwalreceiver connection */
 static WalReceiverConn *wrconn;
@@ -573,8 +573,8 @@ static void GxidRcvConnectTransSender(void)
 	Assert(wrconn == NULL);
 
 	snprintf(conninfo, MAXCONNINFO,
-			 "user=postgres host=%s port=%d",
-			 AGtmHost, gxidsender_port);
+			 "user=postgres host=%s port=%d contype=gxidrcv",
+			 AGtmHost, AGtmPort);
 	wrconn = walrcv_connect(conninfo, false, "gxidreceiver", &errstr);
 	if (!wrconn)
 		ereport(ERROR,

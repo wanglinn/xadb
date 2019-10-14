@@ -12,6 +12,7 @@
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/poolcomm.h"
 #include "replication/snapsender.h"
 #include "replication/gxidsender.h"
 #include "storage/ipc.h"
@@ -37,6 +38,7 @@ typedef struct SnapSenderData
 	int				procno;				/* proc number of current active snapsender process */
 
 	slock_t			mutex;				/* locks shared variables */
+	pg_atomic_flag	lock;				/* locks receive client sock */
 
 	volatile uint32			cur_cnt_assign;
 	TransactionId	xid_assign[MAX_CNT_SHMEM_XID_BUF];
@@ -97,7 +99,6 @@ typedef struct SnapClientData
 
 /* GUC variables */
 extern char *AGtmHost;
-extern int snapsender_port;
 extern int snap_receiver_timeout;
 
 bool force_cn_consistent = false;
@@ -187,6 +188,7 @@ void SnapSenderShmemInit(void)
 		proclist_init(&SnapSender->waiters_complete);
 		proclist_init(&SnapSender->waiters_finish);
 		SpinLockInit(&SnapSender->mutex);
+		pg_atomic_init_flag(&SnapSender->lock);
 	}
 }
 
@@ -634,65 +636,8 @@ void SnapSenderMain(void)
 
 static void SnapSenderStartup(void)
 {
-	Size i;
-
-	/* initialize listen sockets */
-	for(i=SNAP_SENDER_MAX_LISTEN;i>0;--i)
-		SnapSenderListenSocket[i-1] = PGINVALID_SOCKET;
-
-	/* create listen sockets */
-	ereport(LOG, (errmsg("SnapSender process starts to listen on port %d\n", snapsender_port)));
-	if (AGtmHost)
-	{
-		char	   *rawstring;
-		List	   *elemlist;
-		ListCell   *l;
-		int			status;
-
-		rawstring = pstrdup(AGtmHost);
-		/* Parse string into list of hostnames */
-		if (!SplitIdentifierString(rawstring, ',', &elemlist))
-		{
-			/* syntax error in list */
-			ereport(FATAL,
-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("invalid list syntax in parameter \"%s\"",
-							"agtm_host")));
-		}
-
-		foreach(l, elemlist)
-		{
-			char *curhost = lfirst(l);
-			status = StreamServerPort(AF_UNSPEC,
-									  strcmp(curhost, "*") == 0 ? NULL:curhost,
-									  (unsigned short)snapsender_port,
-									  NULL,
-									  SnapSenderListenSocket,
-									  SNAP_SENDER_MAX_LISTEN);
-			if (status != STATUS_OK)
-			{
-				ereport(WARNING,
-						(errcode_for_socket_access(),
-						 errmsg("could not create listen socket for \"%s\"",
-								curhost)));
-			}
-		}
-		list_free(elemlist);
-		pfree(rawstring);
-	}else if (StreamServerPort(AF_UNSPEC, NULL,
-							   (unsigned short)snapsender_port,
-							   NULL,
-							   SnapSenderListenSocket,
-							   SNAP_SENDER_MAX_LISTEN) != STATUS_OK)
-	{
-		ereport(WARNING,
-				(errcode_for_socket_access(),
-				 errmsg("could not create listen socket for \"%s\"",
-						"*")));
-	}
-
 	/* check listen sockets */
-	if (SnapSenderListenSocket[0] == PGINVALID_SOCKET)
+	if (socket_snap_pair[1] == PGINVALID_SOCKET)
 		ereport(FATAL,
 				(errmsg("no socket created for snapsender listening")));
 
@@ -721,19 +666,13 @@ static void SnapSenderStartup(void)
 	++cur_wait_event;
 
 	/* add listen sockets */
-	for(i=0;i<SNAP_SENDER_MAX_LISTEN;++i)
-	{
-		if (SnapSenderListenSocket[i] == PGINVALID_SOCKET)
-			break;
-
-		Assert(cur_wait_event < max_wait_event);
-		AddWaitEventToSet(wait_event_set,
-						  WL_SOCKET_READABLE,
-						  SnapSenderListenSocket[i],
-						  NULL,
-						  (void*)&ListenEventData);
-		++cur_wait_event;
-	}
+	Assert(cur_wait_event < max_wait_event);
+	AddWaitEventToSet(wait_event_set,
+						WL_SOCKET_READABLE,
+						socket_snap_pair[1],
+						NULL,
+						(void*)&ListenEventData);
+	++cur_wait_event;
 
 	/* create a fake Port */
 	MyProcPort = MemoryContextAllocZero(TopMemoryContext, sizeof(*MyProcPort));
@@ -988,18 +927,15 @@ void OnListenEvent(WaitEvent *event)
 	MemoryContext volatile oldcontext = CurrentMemoryContext;
 	MemoryContext volatile newcontext = NULL;
 	SnapClientData *client;
-	Port			port;
+	int				client_fdsock;
+
+	if(pool_recvfds(event->fd, &client_fdsock, 1) != 0)
+	{
+		ereport(ERROR, (errmsg("receive client socke failed\n")));
+	}
 
 	PG_TRY();
 	{
-		MemSet(&port, 0, sizeof(port));
-		if (StreamConnection(event->fd, &port) != STATUS_OK)
-		{
-			if (port.sock != PGINVALID_SOCKET)
-				StreamClose(port.sock);
-			return;
-		}
-
 		newcontext = AllocSetContextCreate(TopMemoryContext,
 										   "Snapshot sender client",
 										   ALLOCSET_DEFAULT_SIZES);
@@ -1007,7 +943,7 @@ void OnListenEvent(WaitEvent *event)
 		client = palloc0(sizeof(*client));
 		client->context = newcontext;
 		client->evd.fun = OnClientMsgEvent;
-		client->node = pq_node_new(port.sock, false);
+		client->node = pq_node_new(client_fdsock, false);
 		client->last_msg = GetCurrentTimestamp();
 		client->max_cnt = GetMaxSnapshotXidCount();
 		client->xid = palloc(client->max_cnt * sizeof(TransactionId));
@@ -1023,7 +959,7 @@ void OnListenEvent(WaitEvent *event)
 		}
 		client->event_pos = AddWaitEventToSet(wait_event_set,
 											  WL_SOCKET_READABLE,	/* waiting start pack */
-											  port.sock,
+											  client_fdsock,
 											  NULL,
 											  client);
 		slist_push_head(&slist_all_client, &client->snode);
@@ -1031,8 +967,8 @@ void OnListenEvent(WaitEvent *event)
 		MemoryContextSwitchTo(oldcontext);
 	}PG_CATCH();
 	{
-		if (port.sock != PGINVALID_SOCKET)
-			StreamClose(port.sock);
+		if (client_fdsock != PGINVALID_SOCKET)
+			StreamClose(client_fdsock);
 
 		MemoryContextSwitchTo(oldcontext);
 		if (newcontext != NULL)
@@ -1425,4 +1361,25 @@ void SnapSendTransactionFinish(TransactionId txid)
 	}
 	
 	SpinLockRelease(&SnapSender->mutex);
+}
+
+void SnapSendLockSendSock(void)
+{
+re_lock_:
+	if (!SnapSender)
+	{
+		pg_usleep(100000L);
+		goto re_lock_;
+	}
+
+	if (!pg_atomic_test_set_flag(&SnapSender->lock))
+	{
+		pg_usleep(100000L);
+		goto re_lock_;
+	}
+}
+
+void SnapSendUnlockSendSock(void)
+{
+	pg_atomic_clear_flag(&SnapSender->lock);
 }

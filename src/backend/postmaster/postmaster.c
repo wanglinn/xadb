@@ -141,6 +141,8 @@
 #include "pgxc/locator.h"
 #include "pgxc/poolmgr.h"
 #include "utils/resowner.h"
+#include "replication/snapsender.h"
+#include "replication/gxidsender.h"
 #endif
 
 #if defined(ADBMGRD)
@@ -266,6 +268,8 @@ bool		restart_after_crash = true;
 
 #ifdef ADB
 bool		adb_log_query = false;
+int			socket_gxid_pair[2];
+int			socket_snap_pair[2];
 #endif
 
 /* PIDs of special child processes; 0 when not running */
@@ -1533,6 +1537,21 @@ PostmasterMain(int argc, char *argv[])
 	pmState = PM_STARTUP;
 
 #ifdef ADB
+	if (IsGTMCnNode())
+	{
+		if(socketpair(AF_UNIX, SOCK_STREAM, 0, socket_gxid_pair) == -1 )
+		{
+			ereport(FATAL, (errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg(" socketpair create failed, errno(%d): %s", errno, strerror(errno))));
+		}
+
+		if(socketpair(AF_UNIX, SOCK_STREAM, 0, socket_snap_pair) == -1 )
+		{
+			ereport(FATAL, (errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg(" socketpair create failed, errno(%d): %s", errno, strerror(errno))));
+		}
+	}
+
 	/*
 	 * K.Suzuki memo, Sep.2nd, 2013.
 	 * PG 9.3 added a call to StartOneBackgroundWorker().  THis should be
@@ -2201,6 +2220,38 @@ ProcessStartupPacket(Port *port, bool SSLdone)
 		/* Not really an error, but we don't want to proceed further */
 		return STATUS_ERROR;
 	}
+
+#ifdef ADB
+	if (proto ==  GXID_SEND_SOCKET || proto ==  SNAP_SEND_SOCKET)
+	{
+		char	retry_ack;
+		retry_ack = 'T';
+
+		if (proto ==  GXID_SEND_SOCKET)
+		{
+			GxidSendLockSendSock();
+			pool_sendfds(socket_gxid_pair[0], &port->sock, 1);
+			GxidSendUnlockSendSock();
+		}
+		else if (proto ==  SNAP_SEND_SOCKET)
+		{
+			SnapSendLockSendSock();
+			pool_sendfds(socket_snap_pair[0], &port->sock, 1);
+			SnapSendUnlockSendSock();
+		}
+		
+retry2:
+		if (send(port->sock, &retry_ack, 1, 0) != 1)
+		{
+			if (errno == EINTR)
+				goto retry2;	/* if interrupted, just retry */
+			ereport(FATAL,
+					(errcode_for_socket_access(),
+					 errmsg("failed to send resend startup msg to client")));
+		}
+		return STATUS_ERROR;
+	}
+#endif /* ADB */
 
 	if (proto == NEGOTIATE_SSL_CODE && !SSLdone)
 	{
@@ -4610,6 +4661,14 @@ BackendStartup(Port *port)
 		/* Close the postmaster's sockets */
 		ClosePostmasterPorts(false);
 
+#ifdef ADB
+		if (IsGTMCnNode())
+		{
+			close(socket_gxid_pair[1]);
+			close(socket_snap_pair[1]);
+		}
+#endif /* ADB */
+
 		/* Perform additional initialization and collect startup packet */
 		BackendInitialize(port);
 
@@ -4840,6 +4899,16 @@ BackendInitialize(Port *port)
 	 */
 	if (status != STATUS_OK)
 		proc_exit(0);
+
+#ifdef ADB
+	if (IsGTMCnNode())
+	{
+		close(socket_gxid_pair[0]);
+		close(socket_snap_pair[0]);
+		close(socket_gxid_pair[1]);
+		close(socket_snap_pair[1]);
+	}
+#endif /* ADB */
 
 	/*
 	 * Now that we have the user and database name, we can set the process
@@ -5928,6 +5997,35 @@ StartChildProcess(AuxProcType type)
 		PostmasterContext = NULL;
 #ifdef ADB
 		PGXC_StartChildProcess();
+
+		if (IsGTMCnNode())
+		{
+			if (type == GxidSenderProcess)
+			{
+				close(socket_gxid_pair[0]);
+				close(socket_snap_pair[0]);
+				close(socket_snap_pair[1]);
+			}
+			else if (type == SnapSenderProcess)
+			{
+				close(socket_gxid_pair[0]);
+				close(socket_snap_pair[0]);
+				close(socket_gxid_pair[1]);
+			}
+			else if (type == RemoteXactMgrProcess)
+			{
+				/* why ractmgr cannot close socket_gxid_pair[0] and socket_snap_pair[0]*/
+				close(socket_gxid_pair[1]);
+				close(socket_snap_pair[1]);
+			}
+			else
+			{
+				close(socket_gxid_pair[0]);
+				close(socket_snap_pair[0]);
+				close(socket_gxid_pair[1]);
+				close(socket_snap_pair[1]);
+			}
+		}
 #endif
 		AuxiliaryProcessMain(ac, av);
 		ExitPostmaster(0);
