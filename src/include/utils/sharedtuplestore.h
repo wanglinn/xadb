@@ -61,6 +61,14 @@ extern MinimalTuple sts_parallel_scan_next(SharedTuplestoreAccessor *accessor,
 #ifdef ADB_EXT
 extern SharedTuplestoreAccessor *sts_attach_read_only(SharedTuplestore *sts,
 		   SharedFileSet *fileset);
+
+extern void sts_begin_scan(SharedTuplestoreAccessor *accessor);
+
+extern void sts_end_scan(SharedTuplestoreAccessor *accessor);
+
+extern MinimalTuple sts_scan_next(SharedTuplestoreAccessor *accessor,
+					   void *meta_data);
+
 #endif /* ADB_EXT */
 
 #endif							/* SHAREDTUPLESTORE_H */

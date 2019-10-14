@@ -76,6 +76,7 @@ struct SharedTuplestoreAccessor
 	int			participant;	/* My participant number. */
 #ifdef ADB_EXT
 	bool		is_read_only;	/* is read only attach? */
+	bool		is_normal_scan;	/* is not parallel scan? */
 #endif /* ADB_EXT */
 	SharedTuplestore *sts;		/* The shared state. */
 	SharedFileSet *fileset;		/* The SharedFileSet holding files. */
@@ -570,6 +571,18 @@ sts_parallel_scan_next(SharedTuplestoreAccessor *accessor, void *meta_data)
 		/* Find the location of a new chunk to read. */
 		p = &accessor->sts->participants[accessor->read_participant];
 
+#ifdef ADB_EXT
+		if (accessor->is_normal_scan)
+		{
+			eof = accessor->read_next_page >= p->npages;
+			if (!eof)
+			{
+				read_page = accessor->read_next_page;
+				accessor->read_next_page += STS_CHUNK_PAGES;
+			}
+		}else
+		{
+#endif /* ADB_EXT */
 		LWLockAcquire(&p->lock, LW_EXCLUSIVE);
 		/* We can skip directly past overflow pages we know about. */
 		if (p->read_page < accessor->read_next_page)
@@ -584,6 +597,9 @@ sts_parallel_scan_next(SharedTuplestoreAccessor *accessor, void *meta_data)
 			accessor->read_next_page = p->read_page;
 		}
 		LWLockRelease(&p->lock);
+#ifdef ADB_EXT
+		}
+#endif /* ADB_EXT */
 
 		if (!eof)
 		{
@@ -662,3 +678,25 @@ sts_filename(char *name, SharedTuplestoreAccessor *accessor, int participant)
 {
 	snprintf(name, MAXPGPATH, "%s.p%d", accessor->sts->name, participant);
 }
+
+#ifdef ADB_EXT
+void sts_begin_scan(SharedTuplestoreAccessor *accessor)
+{
+	sts_begin_parallel_scan(accessor);
+	accessor->is_normal_scan = true;
+}
+
+void sts_end_scan(SharedTuplestoreAccessor *accessor)
+{
+	Assert(accessor->is_normal_scan);
+	sts_end_parallel_scan(accessor);
+	accessor->is_normal_scan = false;
+}
+
+MinimalTuple sts_scan_next(SharedTuplestoreAccessor *accessor,
+					   void *meta_data)
+{
+	Assert(accessor->is_normal_scan);
+	return sts_parallel_scan_next(accessor, meta_data);
+}
+#endif /* ADB_EXT */
