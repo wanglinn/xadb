@@ -242,3 +242,11 @@ SharedFilePath(char *path, SharedFileSet *fileset, const char *name)
 	SharedFileSetPath(dirpath, fileset, ChooseTablespace(fileset, name));
 	snprintf(path, MAXPGPATH, "%s/%s", dirpath, name);
 }
+
+#ifdef ADB_EXT
+void SharedFileSetDetach(SharedFileSet *fileset, dsm_segment *seg)
+{
+	cancel_on_dsm_detach(seg, SharedFileSetOnDetach, PointerGetDatum(fileset));
+	SharedFileSetOnDetach(seg, PointerGetDatum(fileset));
+}
+#endif /* ADB_EXT */

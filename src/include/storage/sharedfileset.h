@@ -41,5 +41,7 @@ extern File SharedFileSetOpen(SharedFileSet *fileset, const char *name);
 extern bool SharedFileSetDelete(SharedFileSet *fileset, const char *name,
 					bool error_on_failure);
 extern void SharedFileSetDeleteAll(SharedFileSet *fileset);
-
+#ifdef ADB_EXT
+extern void SharedFileSetDetach(SharedFileSet *fileset, dsm_segment *seg);
+#endif /* ADB_EXT */
 #endif
