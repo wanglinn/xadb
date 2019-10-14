@@ -996,7 +996,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	int nodePort;
 	int agentPort;
 	int nodeStatus;
-	Oid cnoid;
+	Oid cnoid = InvalidOid;
 	Oid checkOid;
 	List *dnList = NIL;
 	List *newDnList = NIL;
