@@ -1444,6 +1444,7 @@ func_get_detail(List *funcname,
 		 */
 		if (list_length(funcname) == 1 
 			&& strcmp(strVal(linitial(funcname)), "sum") == 0
+			&& fargs != NIL && linitial(fargs) != NULL
 			&& ((Const *)linitial(fargs))->consttype == UNKNOWNOID)
 		{
 			targetFuncOid = 2114;
