@@ -313,8 +313,9 @@ extern PGPROC *PreparedXactProcs;
  * pooler manager processes
  * rxact manager processes
  * snapshot sender or receiver process
+ * gxid sender or receiver process
  */
-#define NUM_AUXILIARY_PROCS		7
+#define NUM_AUXILIARY_PROCS		8
 #else
 #define NUM_AUXILIARY_PROCS		4
 #endif
