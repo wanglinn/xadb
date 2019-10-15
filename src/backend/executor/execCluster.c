@@ -60,6 +60,7 @@
 #define REMOTE_KEY_REDUCE_GROUP				0xFFFFFF0A
 #define REMOTE_KEY_CUSTOM_FUNCTION			0xFFFFFF0B
 #define REMOTE_KEY_COORD_INFO				0xFFFFFF0C
+#define REMOTE_KEY_QUERY_STRING_INFO		0xFFFFFF0D
 
 #define CLUSTER_CUSTOM_NEED_SEND_STAT			1
 #define CLUSTER_CUSTOM_NO_NEED_SEND_STAT		2
@@ -121,7 +122,9 @@ static bool HaveModifyPlanWalker(Plan *plan, Node *GlobOrStmt, void *context);
 static void SerializeRelationOid(StringInfo buf, Oid relid);
 static Oid RestoreRelationOid(StringInfo buf, bool missok);
 static void SerializeCoordinatorInfo(StringInfo buf);
+static void SerializeDebugQueryString(StringInfo buf);
 static ClusterCoordInfo* RestoreCoordinatorInfo(StringInfo buf);
+static const char* RestoreDebugQueryString(StringInfo buf);
 static void send_rdc_listend_port(int port);
 static void wait_rdc_group_message(void);
 static bool get_rdc_listen_port_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
@@ -195,6 +198,7 @@ void exec_cluster_plan(const void *splan, int length)
 	SetupClusterErrorHook(&error_context_hook);
 	restore_cluster_plan_info(&msg);
 	info = RestoreCoordinatorInfo(&msg);
+	debug_query_string = RestoreDebugQueryString(&msg);
 
 	/* Send a message
 	 * 'H' for copy out, 'W' for copy both */
@@ -682,6 +686,8 @@ List* ExecClusterCustomFunction(List *rnodes, StringInfo mem_toc, uint32 flag)
 
 	SerializeCoordinatorInfo(mem_toc);
 
+	SerializeDebugQueryString(mem_toc);
+
 	MemSet(&context, 0, sizeof(context));
 	context.transaction_read_only = ((flag & EXEC_CLUSTER_FLAG_READ_ONLY) ? true:false);
 	if (flag & EXEC_CLUSTER_FLAG_NEED_REDUCE)
@@ -1105,6 +1111,26 @@ static void SerializeCoordinatorInfo(StringInfo buf)
 	appendBinaryStringInfo(buf, (char*)&PGXCNodeOid, sizeof(PGXCNodeOid));
 	appendBinaryStringInfo(buf, PGXCNodeName, strlen(PGXCNodeName)+1);
 	end_mem_toc_insert(buf, REMOTE_KEY_COORD_INFO);
+}
+
+static void SerializeDebugQueryString(StringInfo buf)
+{
+	begin_mem_toc_insert(buf, REMOTE_KEY_QUERY_STRING_INFO);
+	appendBinaryStringInfo(buf, debug_query_string, strlen(debug_query_string)+1);
+	end_mem_toc_insert(buf, REMOTE_KEY_QUERY_STRING_INFO);
+}
+
+static const char* RestoreDebugQueryString(StringInfo buf)
+{
+	StringInfoData msg;
+
+	msg.data = mem_toc_lookup(buf, REMOTE_KEY_QUERY_STRING_INFO, &msg.maxlen);
+	if (msg.data == NULL)
+		return NULL;
+	msg.cursor = 0;
+	msg.len = msg.maxlen;
+
+	return pq_getmsgrawstring(&msg);
 }
 
 static ClusterCoordInfo* RestoreCoordinatorInfo(StringInfo buf)
