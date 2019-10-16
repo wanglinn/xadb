@@ -785,15 +785,12 @@ do_analyze_rel(Relation onerel, int options, VacuumParams *params,
 		if (IS_PGXC_DATANODE &&
 			IsConnFromCoord())
 		{
-			if (IsConnFromGTM())
-			{
-				/*
-				 * GetCurrentTransactionId must in copy mode, after send_sample_rows_to_coord
-				 * need transaction ID, and after send_sample_rows_to_coord() coordinator
-				 * maybe end copy mode, so get transaction id must before send_sample_rows_to_coord
-				 */
-				GetCurrentTransactionId();
-			}
+			/*
+				* GetCurrentTransactionId must in copy mode, after send_sample_rows_to_coord
+				* need transaction ID, and after send_sample_rows_to_coord() coordinator
+				* maybe end copy mode, so get transaction id must before send_sample_rows_to_coord
+				*/
+			GetCurrentTransactionId();
 			send_sample_rows_to_coord(onerel, rows, numrows, totalrows, totaldeadrows);
 		}else if (IsCnMaster() &&
 			(onerel->rd_locator_info != NULL ||

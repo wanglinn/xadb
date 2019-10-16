@@ -407,45 +407,12 @@ ProcArrayRemove(PGPROC *proc, TransactionId latestXid)
 			arrayP->pgprocnos[arrayP->numProcs - 1] = -1;	/* for debugging */
 			arrayP->numProcs--;
 			LWLockRelease(ProcArrayLock);
-#ifdef ADB
-			if (TransactionIdIsValid(latestXid))
-			{
-				if (IsGTMNode())
-					SnapSendTransactionFinish(latestXid);
-				else
-				{
-					if (TransactionIdIsValid(proc->getGlobalTransaction))
-					{
-						Assert(TransactionIdEquals(proc->getGlobalTransaction, latestXid));
-						GixRcvCommitTransactionId(latestXid);
-					}
-					
-				}
-			}
-#endif /* ADB */
 			return;
 		}
 	}
 
 	/* Oops */
 	LWLockRelease(ProcArrayLock);
-
-#ifdef ADB
-	if (TransactionIdIsValid(latestXid))
-	{
-		if (IsGTMNode())
-			SnapSendTransactionFinish(latestXid);
-		else
-		{
-			if (TransactionIdIsValid(proc->getGlobalTransaction))
-			{
-				Assert(TransactionIdEquals(proc->getGlobalTransaction, latestXid));
-				GixRcvCommitTransactionId(latestXid);
-			}
-		}
-		
-	}
-#endif /* ADB */
 
 	elog(LOG, "failed to find proc %p in ProcArray", proc);
 }
@@ -503,10 +470,12 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid)
 			ProcArrayGroupClearXid(proc, latestXid);
 
 #ifdef ADB
-		if (!IsGTMNode() && TransactionIdIsValid(proc->getGlobalTransaction))
+		if (IsCnMaster() && TransactionIdIsValid(latestXid))
 		{
-			Assert(TransactionIdEquals(proc->getGlobalTransaction, latestXid));
-			GixRcvCommitTransactionId(latestXid);
+			if (IsGTMNode())
+				SnapSendTransactionFinish(latestXid);
+			else
+				GixRcvCommitTransactionId(latestXid);
 		}
 #endif /* ADB */
 	}
@@ -556,9 +525,6 @@ ProcArrayEndTransactionInternal(PGPROC *proc, PGXACT *pgxact,
 	if (TransactionIdPrecedes(ShmemVariableCache->latestCompletedXid,
 							  latestXid))
 		ShmemVariableCache->latestCompletedXid = latestXid;
-#ifdef ADB
-	SnapSendTransactionFinish(latestXid);
-#endif /* ADB */
 }
 
 /*

@@ -1926,6 +1926,14 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 						   nodeIds,
 						   isMissingOK,
 						   isCommit);
+	
+	if (TransactionIdIsValid(latestXid) && IsCnMaster())
+	{
+		if (IsGTMNode())
+			SnapSendTransactionFinish(latestXid);
+		else
+			GixRcvCommitTransactionId(latestXid);
+	}
 #endif
 	RESUME_INTERRUPTS();
 

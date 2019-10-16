@@ -788,7 +788,7 @@ static void GxidProcessUpdateMaxXid(GxidClientData *client)
 		GxidsenderUpdateNextXid(xid, client);
 
 #ifdef SNAP_SYNC_DEBUG
-		ereport(LOG,(errmsg("GxidSend finish xid %d for client %s\n",
+		ereport(LOG,(errmsg("GxidSend update max xid %d for client %s\n",
 			 			xid, clientitem->client_name)));
 #endif
 	}

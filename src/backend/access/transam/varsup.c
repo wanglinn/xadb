@@ -393,7 +393,7 @@ GetNewGlobalTransactionId(int level)
 		}
 	}
 
-	if (IsConnFromGTM())
+	if (IsConnFromCoord())
 		gxid = GetXidFromCoord(level);
 	else
 		gxid = ObtainGlobalTransactionId(isSubXact);
