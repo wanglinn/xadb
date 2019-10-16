@@ -18,13 +18,13 @@
 #include "access/xlogdefs.h"
 #include "../../interfaces/libpq/libpq-fe.h"
 
-#define EXTRACT_GTM_INFOMATION(gtmMaster, agtm_host,             \
-							   agtm_port) \
-	do                                                           \
-	{                                                            \
-		Assert(gtmMaster != NULL);                               \
-		agtm_host = gtmMaster->host->hostaddr;                   \
-		pg_ltoa(gtmMaster->form.nodeport, agtm_port);  \
+#define EXTRACT_GTM_INFOMATION(gtmMaster, agtm_host,  \
+							   agtm_port)             \
+	do                                                \
+	{                                                 \
+		Assert(gtmMaster != NULL);                    \
+		agtm_host = gtmMaster->host->hostaddr;        \
+		pg_ltoa(gtmMaster->form.nodeport, agtm_port); \
 	} while (0)
 
 typedef enum NodeConnectionStatus
@@ -346,6 +346,10 @@ extern void selectIsolatedMgrSlaveNodes(Oid masterOid,
 										char nodetype,
 										MemoryContext spiContext,
 										dlist_head *resultList);
+extern void selectAllMgrSlaveNodes(Oid masterOid,
+								   char nodetype,
+								   MemoryContext spiContext,
+								   dlist_head *resultList);
 extern void selectMgrNodesForNodeDoctors(MemoryContext spiContext,
 										 dlist_head *resultList);
 extern MgrNodeWrapper *selectMgrNodeForNodeDoctor(Oid oid,

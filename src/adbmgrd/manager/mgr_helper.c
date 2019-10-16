@@ -415,6 +415,17 @@ void selectIsolatedMgrSlaveNodes(Oid masterOid,
 	pfree(sql.data);
 }
 
+void selectAllMgrSlaveNodes(Oid masterOid,
+							char nodetype,
+							MemoryContext spiContext,
+							dlist_head *resultList)
+{
+	selectActiveMgrSlaveNodes(masterOid, nodetype,
+							  spiContext, resultList);
+	selectIsolatedMgrSlaveNodes(masterOid, nodetype,
+								spiContext, resultList);
+}
+
 void selectMgrNodesForNodeDoctors(MemoryContext spiContext,
 								  dlist_head *resultList)
 {

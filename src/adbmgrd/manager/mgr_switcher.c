@@ -27,9 +27,9 @@
 
 static SwitcherNodeWrapper *checkGetDataNodeOldMaster(char *oldMasterName,
 													  MemoryContext spiContext);
-static void getSiblingMasterNodes(MemoryContext spiContext,
-								  SwitcherNodeWrapper *node,
-								  dlist_head *siblingMasters);
+static void checkGetActiveSiblingMasterNodes(MemoryContext spiContext,
+											 SwitcherNodeWrapper *node,
+											 dlist_head *siblingMasters);
 static SwitcherNodeWrapper *checkGetGtmCoordOldMaster(char *oldMasterName,
 													  MemoryContext spiContext);
 static SwitcherNodeWrapper *checkGetSwitchoverNewMaster(char *newMasterName,
@@ -51,6 +51,8 @@ static void precheckPromotionNode(dlist_head *runningSlaves, bool forceSwitch);
 static SwitcherNodeWrapper *getBestWalLsnSlaveNode(dlist_head *runningSlaves,
 												   dlist_head *failedSlaves);
 static void sortNodesByWalLsnDesc(dlist_head *nodes);
+static bool checkIfSyncSlaveNodeIsRunning(MemoryContext spiContext,
+										  MgrNodeWrapper *masterNode);
 static void validateFailedSlavesForSwitch(MgrNodeWrapper *oldMaster,
 										  dlist_head *failedSlaves,
 										  bool forceSwitch);
@@ -327,9 +329,9 @@ void switchDataNodeMaster(char *oldMasterName,
 		checkGetMasterCoordinators(spiContext,
 								   &coordinators,
 								   true, true);
-		getSiblingMasterNodes(spiContext,
-							  oldMaster,
-							  &siblingMasters);
+		checkGetActiveSiblingMasterNodes(spiContext,
+										 oldMaster,
+										 &siblingMasters);
 		chooseNewMasterNode(oldMaster,
 							&newMaster,
 							&runningSlaves,
@@ -530,9 +532,9 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 		checkGetMasterCoordinators(spiContext,
 								   &coordinators,
 								   true, true);
-		getSiblingMasterNodes(spiContext,
-							  oldMaster,
-							  &siblingMasters);
+		checkGetActiveSiblingMasterNodes(spiContext,
+										 oldMaster,
+										 &siblingMasters);
 		checkTrackActivitiesForSwitchover(&coordinators,
 										  oldMaster);
 		refreshPgxcNodeBeforeSwitchDataNode(&coordinators);
@@ -1780,19 +1782,57 @@ static void sortNodesByWalLsnDesc(dlist_head *nodes)
 	}
 }
 
+static bool checkIfSyncSlaveNodeIsRunning(MemoryContext spiContext,
+										  MgrNodeWrapper *masterNode)
+{
+	dlist_head mgrNodes = DLIST_STATIC_INIT(mgrNodes);
+	dlist_iter iter;
+	MgrNodeWrapper *mgrNode;
+	bool standbySyncOk;
+
+	selectAllMgrSlaveNodes(masterNode->oid,
+						   getMgrSlaveNodetype(masterNode->form.nodetype),
+						   spiContext,
+						   &mgrNodes);
+	standbySyncOk = true;
+	dlist_foreach(iter, &mgrNodes)
+	{
+		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		if (strcmp(NameStr(mgrNode->form.nodesync),
+				   getMgrNodeSyncStateValue(SYNC_STATE_SYNC)) == 0)
+		{
+			if (PQPING_OK == pingNodeDefaultDB(mgrNode, 10))
+			{
+				standbySyncOk = true;
+				break;
+			}
+			else
+			{
+				standbySyncOk = false;
+				/* may be there are more than one sync slaves */
+				ereport(WARNING,
+						(errmsg("%s is a Synchronous standby node of %s, but it is not running properly",
+								NameStr(mgrNode->form.nodename),
+								NameStr(masterNode->form.nodename))));
+			}
+		}
+		else
+		{
+			continue;
+		}
+	}
+	pfreeMgrNodeWrapperList(&mgrNodes, NULL);
+	return standbySyncOk;
+}
+
 void checkGetMasterCoordinators(MemoryContext spiContext,
 								dlist_head *coordinators,
 								bool includeGtmCoord,
 								bool checkRunningMode)
 {
 	dlist_head masterMgrNodes = DLIST_STATIC_INIT(masterMgrNodes);
-	dlist_head slaveCoordinators = DLIST_STATIC_INIT(slaveCoordinators);
-	dlist_head slaveMgrNodes = DLIST_STATIC_INIT(slaveMgrNodes);
 	SwitcherNodeWrapper *node;
-	MgrNodeWrapper *slaveMgrNode;
-	PGconn *slaveConn = NULL;
-	dlist_iter iter_switcher;
-	dlist_iter iter_mgr;
+	dlist_iter iter;
 
 	if (includeGtmCoord)
 	{
@@ -1811,9 +1851,9 @@ void checkGetMasterCoordinators(MemoryContext spiContext,
 	}
 	mgrNodesToSwitcherNodes(&masterMgrNodes, coordinators);
 
-	dlist_foreach(iter_switcher, coordinators)
+	dlist_foreach(iter, coordinators)
 	{
-		node = dlist_container(SwitcherNodeWrapper, link, iter_switcher.cur);
+		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 		if (!tryConnectNode(node, 10))
 		{
 			ereport(ERROR,
@@ -1845,37 +1885,12 @@ void checkGetMasterCoordinators(MemoryContext spiContext,
 		 * switching process. If the synchronization node of the coordinator 
 		 * fails, the cluster will hang. 
 		 */
-		dlist_init(&slaveMgrNodes);
-		selectActiveMgrSlaveNodes(node->mgrNode->oid,
-								  getMgrSlaveNodetype(node->mgrNode->form.nodetype),
-								  spiContext,
-								  &slaveMgrNodes);
-		dlist_foreach(iter_mgr, &slaveMgrNodes)
+		if (!checkIfSyncSlaveNodeIsRunning(spiContext, node->mgrNode))
 		{
-			slaveMgrNode = dlist_container(MgrNodeWrapper, link, iter_mgr.cur);
-			if (strcmp(NameStr(slaveMgrNode->form.nodesync),
-					   getMgrNodeSyncStateValue(SYNC_STATE_SYNC)) == 0)
-			{
-				slaveConn = getNodeDefaultDBConnection(slaveMgrNode, 10);
-				if (slaveConn == NULL)
-				{
-					ereport(ERROR,
-							(errmsg("%s is a Synchronous standby node of coordinator %s, but it is not running properly",
-									NameStr(slaveMgrNode->form.nodename),
-									NameStr(node->mgrNode->form.nodename))));
-				}
-				else
-				{
-					PQfinish(slaveConn);
-					slaveConn = NULL;
-				}
-			}
-			else
-			{
-				continue;
-			}
+			ereport(ERROR,
+					(errmsg("%s Synchronous standby node Streaming Replication failure",
+							NameStr(node->mgrNode->form.nodename))));
 		}
-		pfreeMgrNodeWrapperList(&slaveMgrNodes, NULL);
 	}
 }
 
@@ -2023,12 +2038,13 @@ static SwitcherNodeWrapper *checkGetDataNodeOldMaster(char *oldMasterName,
 	return oldMaster;
 }
 
-static void getSiblingMasterNodes(MemoryContext spiContext,
-								  SwitcherNodeWrapper *node,
-								  dlist_head *siblingMasters)
+static void checkGetActiveSiblingMasterNodes(MemoryContext spiContext,
+											 SwitcherNodeWrapper *node,
+											 dlist_head *siblingMasters)
 {
 	dlist_head mgrNodes = DLIST_STATIC_INIT(mgrNodes);
 	MgrNodeWrapper *mgrNode;
+	SwitcherNodeWrapper *switcherNode;
 	dlist_mutable_iter iter;
 
 	selectActiveMgrNodeByNodetype(spiContext,
@@ -2044,6 +2060,34 @@ static void getSiblingMasterNodes(MemoryContext spiContext,
 		}
 	}
 	mgrNodesToSwitcherNodes(&mgrNodes, siblingMasters);
+	dlist_foreach_modify(iter, siblingMasters)
+	{
+		switcherNode = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		if (!tryConnectNode(switcherNode, 10))
+		{
+			ereport(ERROR,
+					(errmsg("connect to %s failed",
+							NameStr(switcherNode->mgrNode->form.nodename))));
+		}
+		switcherNode->pgxcNodeName = getMgrNodePgxcNodeName(switcherNode->mgrNode,
+															switcherNode->pgConn,
+															true,
+															true);
+		node->runningMode = getNodeRunningMode(node->pgConn);
+		if (node->runningMode != NODE_RUNNING_MODE_MASTER)
+		{
+			ereport(ERROR,
+					(errmsg("%s configured as master, "
+							"but actually did not running on that status",
+							NameStr(node->mgrNode->form.nodename))));
+		}
+		if (!checkIfSyncSlaveNodeIsRunning(spiContext, switcherNode->mgrNode))
+		{
+			ereport(ERROR,
+					(errmsg("%s Synchronous standby node Streaming Replication failure",
+							NameStr(switcherNode->mgrNode->form.nodename))));
+		}
+	}
 }
 
 static SwitcherNodeWrapper *checkGetGtmCoordOldMaster(char *oldMasterName,
