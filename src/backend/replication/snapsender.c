@@ -1215,7 +1215,7 @@ static void SnapSenderCheckXactPrepareList(void)
 							   &SnapSender->waiters_assign);
 		Assert(SnapSender->cur_cnt_assign < MAX_CNT_SHMEM_XID_BUF);
 		xid = lfirst_int(lc);
-		ereport(DEBUG2,(errmsg("SnapSend restart get 2pc left xid %d\n",
+		ereport(LOG,(errmsg("SnapSend restart get 2pc left xid %d\n",
 			 			xid)));
 		SnapSender->xid_assign[SnapSender->cur_cnt_assign++] = xid;
 	}

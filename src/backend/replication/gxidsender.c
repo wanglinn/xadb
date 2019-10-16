@@ -412,20 +412,20 @@ static void GxidDropXidClientItem(TransactionId xid, ClientHashItemInfo	*clienti
 {
 	slist_mutable_iter	siter;
 	ClientXidItemInfo	*xiditem;
-	bool found = false;
+	//bool found = false;
 
 	slist_foreach_modify(siter, &clientitem->gxid_assgin_xid_list)
 	{
 		xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
 		if (xiditem->xid == xid)
 		{
-			found = true;
+			//found = true;
 			clientitem->xcnt--;
 			slist_delete(&clientitem->gxid_assgin_xid_list, &xiditem->snode);
 			pfree(xiditem);
 		}
 	}
-	Assert(found);
+	//Assert(found);
 	Assert(clientitem->xcnt >= 0);
 }
 

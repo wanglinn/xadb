@@ -703,7 +703,7 @@ static void GxidRcvProcessCommit(char *buf, Size len)
 		ereport(LOG,(errmsg("GxidRcv  rcv finish xid %d for %d\n", txid, procno)));
 #endif
 		GxidRcvFinishLocalXid(txid, procno);
-		GxidRcvRemoveWaitFinishList(txid, false);
+		GxidRcvRemoveWaitFinishList(txid, true);
 		Assert(TransactionIdIsValid(txid));
 
 		found = false;
@@ -1172,7 +1172,8 @@ static void GxidRcvRemoveWaitFinishList(TransactionId xid, bool is_miss_ok)
 	found = false;
 	count = GxidRcv->wait_finish_cnt;
 
-	Assert(count > 0);
+	if (!is_miss_ok)
+		Assert(count > 0);
 	for (i = 0; i < count; i++)
 	{
 		if (GxidRcv->wait_xid_finish[i] == xid)
@@ -1307,10 +1308,10 @@ void GixRcvCommitTransactionId(TransactionId txid)
 	ret = GxidRcvFoundWaitFinishList(txid);
 	if (!ret)
 	{
-		UNLOCK_GXID_RCV();
-		MyProc->getGlobalTransaction = InvalidTransactionId;
-		ereport(WARNING,(errmsg("xid %d is gone, maybe gtmcoord restart\n", txid)));
-		return;
+		//UNLOCK_GXID_RCV();
+		//MyProc->getGlobalTransaction = InvalidTransactionId;
+		ereport(LOG,(errmsg("xid %d is gone in gxidrcv, maybe gtmcoord restart\n", txid)));
+		//return;
 	}
 
 	MyProc->getGlobalTransaction = txid;
