@@ -54,7 +54,8 @@ install: all installdirs
 	  cp $(srcdir)/$$dir/*.h '$(DESTDIR)$(includedir_server)'/$$dir/ || exit; \
 	done
 ifeq ($(vpath_build),yes)
-	for file in dynloader.h catalog/schemapg.h catalog/pg_*_d.h parser/gram.h storage/lwlocknames.h utils/probes.h; do \
+	for file in dynloader.h catalog/schemapg.h parser/gram.h storage/lwlocknames.h utils/probes.h \
+	   catalog/pg_*_d.h catalog/adb_*_d.h catalog/mgr_*_d.h catalog/monitor_*_d.h catalog/ora_*_d.h catalog/pgxc_*_d.h; do \
 	  cp $$file '$(DESTDIR)$(includedir_server)'/$$file || exit; \
 	done
 endif
