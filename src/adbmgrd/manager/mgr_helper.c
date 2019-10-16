@@ -1213,10 +1213,28 @@ bool PQexecBoolQuery(PGconn *pgConn, char *sql,
 	return boolResult;
 }
 
-bool exec_pgxc_pool_reload(PGconn *pgConn, bool complain)
+bool exec_pgxc_pool_reload(PGconn *coordCoon,
+						   bool localExecute,
+						   char *executeOnNodeName,
+						   bool complain)
 {
-	char *sql = "set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();";
-	return PQexecBoolQuery(pgConn, sql, true, complain);
+	char *sql;
+	bool res;
+	if (localExecute)
+		sql = psprintf("set FORCE_PARALLEL_MODE = off; "
+					   "select pgxc_pool_reload();");
+	else
+		sql = psprintf("set FORCE_PARALLEL_MODE = off; "
+					   "EXECUTE DIRECT ON (\"%s\") "
+					   "'select pgxc_pool_reload();'",
+					   executeOnNodeName);
+	res = PQexecBoolQuery(coordCoon, sql, true, complain);
+	pfree(sql);
+	if (res)
+		ereport(LOG,
+				(errmsg("%s execute pgxc_pool_reload() successfully",
+						executeOnNodeName)));
+	return res;
 }
 
 bool exec_pg_pause_cluster(PGconn *pgConn, bool complain)
@@ -2712,6 +2730,10 @@ bool createNodeOnPgxcNode(PGconn *activeCoon,
 	{
 		type = "datanode";
 	}
+	else if (mgrNode->form.nodetype == CNDN_TYPE_DATANODE_SLAVE)
+	{
+		type = "datanode slave";
+	}
 	else
 	{
 		ereport(complain ? ERROR : WARNING,
@@ -2765,7 +2787,7 @@ bool nodenameExistsInPgxcNode(PGconn *activeCoon,
 						 "select count(*) from pgxc_node "
 						 "where node_name = '%s' ",
 						 nodeName);
-		if (pgxcNodeType > 0 && PGXC_NODE_NONE != PGXC_NODE_NONE)
+		if (pgxcNodeType > 0 && pgxcNodeType != PGXC_NODE_NONE)
 		{
 			appendStringInfo(&sql,
 							 "and node_type = '%c' ",
@@ -2780,7 +2802,7 @@ bool nodenameExistsInPgxcNode(PGconn *activeCoon,
 						 "where node_name = ''%s'' ",
 						 executeOnNodeName,
 						 nodeName);
-		if (pgxcNodeType > 0 && PGXC_NODE_NONE != PGXC_NODE_NONE)
+		if (pgxcNodeType > 0 && pgxcNodeType != PGXC_NODE_NONE)
 		{
 			appendStringInfo(&sql,
 							 "and node_type = ''%c'' ",
@@ -2822,7 +2844,7 @@ bool isMgrModeExistsInCoordinator(MgrNodeWrapper *coordinator,
 							 "and node_name = '%s' ",
 							 NameStr(mgrNode->form.nodename));
 		}
-		if (pgxcNodeType > 0 && PGXC_NODE_NONE != PGXC_NODE_NONE)
+		if (pgxcNodeType > 0 && pgxcNodeType != PGXC_NODE_NONE)
 		{
 			appendStringInfo(&sql,
 							 "and node_type = '%c' ",
@@ -2852,7 +2874,7 @@ bool isMgrModeExistsInCoordinator(MgrNodeWrapper *coordinator,
 							 "and node_name = ''%s'' ",
 							 NameStr(mgrNode->form.nodename));
 		}
-		if (pgxcNodeType > 0 && PGXC_NODE_NONE != PGXC_NODE_NONE)
+		if (pgxcNodeType > 0 && pgxcNodeType != PGXC_NODE_NONE)
 		{
 			appendStringInfo(&sql,
 							 "and node_type = ''%c'' ",
@@ -2990,10 +3012,10 @@ void compareAndCreateMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
 							 mgrNode,
 							 pgxcNodeName,
 							 complain);
-		pgxcPoolReloadOnCoordinator(coordConn,
-									localExecute,
-									executeOnNodeName,
-									complain);
+		exec_pgxc_pool_reload(coordConn,
+							  localExecute,
+							  executeOnNodeName,
+							  complain);
 		ereport(LOG,
 				(errmsg("create %s in table pgxc_node of %s, successed",
 						NameStr(mgrNode->form.nodename),
@@ -3023,10 +3045,10 @@ void compareAndDropMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
 							 localExecute,
 							 NameStr(mgrNode->form.nodename),
 							 complain);
-		pgxcPoolReloadOnCoordinator(coordConn,
-									localExecute,
-									executeOnNodeName,
-									complain);
+		exec_pgxc_pool_reload(coordConn,
+							  localExecute,
+							  executeOnNodeName,
+							  complain);
 		ereport(LOG,
 				(errmsg("clean node %s in table pgxc_node of %s successed",
 						NameStr(mgrNode->form.nodename),
@@ -3073,30 +3095,6 @@ NameData getMgrNodePgxcNodeName(MgrNodeWrapper *mgrNode,
 		pgxcNodeName = mgrNode->form.nodename;
 	}
 	return pgxcNodeName;
-}
-
-bool pgxcPoolReloadOnCoordinator(PGconn *coordCoon,
-								 bool localExecute,
-								 char *executeOnNodeName,
-								 bool complain)
-{
-	char *sql;
-	bool res;
-	if (localExecute)
-		sql = psprintf("set FORCE_PARALLEL_MODE = off; "
-					   "select pgxc_pool_reload();");
-	else
-		sql = psprintf("set FORCE_PARALLEL_MODE = off; "
-					   "EXECUTE DIRECT ON (\"%s\") "
-					   "'select pgxc_pool_reload();'",
-					   executeOnNodeName);
-	res = PQexecBoolQuery(coordCoon, sql, true, complain);
-	pfree(sql);
-	if (res)
-		ereport(LOG,
-				(errmsg("%s execute pgxc_pool_reload() successfully",
-						executeOnNodeName)));
-	return res;
 }
 
 bool isGtmCoordMgrNode(char nodetype)

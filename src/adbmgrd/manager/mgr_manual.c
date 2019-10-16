@@ -1540,6 +1540,11 @@ static void getCreatePgxcNodeSql(AppendNodeInfo *nodeinfo, Form_mgr_node execute
 		type = "datanode";
 		pgxcNodeName = nodeinfo->nodename;
 	}
+	else if (nodeinfo->nodetype == CNDN_TYPE_DATANODE_SLAVE)
+	{
+		type = "datanode slave";
+		pgxcNodeName = nodeinfo->nodename;
+	}
 	else
 	{
 		ereport(ERROR,

@@ -398,7 +398,10 @@ extern int PQexecCountSql(PGconn *pgConn, char *sql, bool complain);
 extern bool equalsNodeParameter(PGconn *pgConn, char *parameterName,
 								char *expectValue);
 
-extern bool exec_pgxc_pool_reload(PGconn *pgConn, bool complain);
+extern bool exec_pgxc_pool_reload(PGconn *coordCoon,
+								  bool localExecute,
+								  char *executeOnNodeName,
+								  bool complain);
 extern bool exec_pg_pause_cluster(PGconn *pgConn, bool complain);
 extern bool exec_pg_unpause_cluster(PGconn *pgConn, bool complain);
 extern bool exec_pool_close_idle_conn(PGconn *pgConn, bool complain);
@@ -546,10 +549,6 @@ extern NameData getMgrNodePgxcNodeName(MgrNodeWrapper *mgrNode,
 									   PGconn *nodeConn,
 									   bool localExecute,
 									   bool complain);
-extern bool pgxcPoolReloadOnCoordinator(PGconn *coordCoon,
-										bool localExecute,
-										char *executeOnNodeName,
-										bool complain);
 extern bool isGtmCoordMgrNode(char nodetype);
 extern bool isDataNodeMgrNode(char nodetype);
 extern bool isCoordinatorMgrNode(char nodetype);

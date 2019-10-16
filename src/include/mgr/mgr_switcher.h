@@ -98,24 +98,12 @@ extern void switchGtmCoordMaster(char *oldMasterName,
 								 Name newMasterName);
 extern void switchoverDataNode(char *newMasterName, bool forceSwitch);
 extern void switchoverGtmCoord(char *newMasterName, bool forceSwitch);
-extern void checkSwitchDataNodePrerequisite(SwitcherNodeWrapper *oldMaster,
-											dlist_head *runningSlaves,
-											dlist_head *failedSlaves,
-											dlist_head *coordinators,
-											MemoryContext spiContext,
-											bool forceSwitch);
-extern void checkSwitchGtmCoordPrerequisite(SwitcherNodeWrapper *oldMaster,
-											dlist_head *runningSlaves,
-											dlist_head *failedSlaves,
-											dlist_head *coordinators,
-											dlist_head *dataNodes,
-											MemoryContext spiContext,
-											bool forceSwitch);
 extern void switchToDataNodeNewMaster(SwitcherNodeWrapper *oldMaster,
 									  SwitcherNodeWrapper *newMaster,
 									  dlist_head *runningSlaves,
 									  dlist_head *failedSlaves,
 									  dlist_head *coordinators,
+									  dlist_head *siblingMasters,
 									  MemoryContext spiContext,
 									  bool kickOutOldMaster);
 extern void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
@@ -132,9 +120,6 @@ extern void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 								dlist_head *failedSlaves,
 								MemoryContext spiContext,
 								bool forceSwitch);
-extern void revertClusterSetting(dlist_head *coordinators,
-								 SwitcherNodeWrapper *oldMaster,
-								 SwitcherNodeWrapper *newMaster);
 extern void tryLockCluster(dlist_head *coordinators);
 extern bool tryUnlockCluster(dlist_head *coordinators, bool complain);
 extern void mgrNodesToSwitcherNodes(dlist_head *mgrNodes,
@@ -149,5 +134,8 @@ extern void checkGetMasterCoordinators(MemoryContext spiContext,
 									   bool includeGtmCoord,
 									   bool checkRunningMode);
 extern SwitcherNodeWrapper *getHoldLockCoordinator(dlist_head *coordinators);
+extern void updateCureStatusForSwitch(MgrNodeWrapper *mgrNode,
+									  char *newCurestatus,
+									  MemoryContext spiContext);
 
 #endif /* MGR_SWITCHER_H */

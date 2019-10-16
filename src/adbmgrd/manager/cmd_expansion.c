@@ -4637,7 +4637,7 @@ static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name, bool
 	if (0==PQntuples(res))
 	{
 		PQclear(res);
-		ereport(complain?ERROR:WARNING, (errmsg("%s runs error. result is null.", SELECT_PGXC_NODE)));
+		ereport(complain?ERROR:WARNING, (errmsg("%s runs error. result is null.", sql)));
 	}
 
 	SlotArrayIndex = 0;
