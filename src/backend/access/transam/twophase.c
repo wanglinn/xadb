@@ -1927,7 +1927,7 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 						   isMissingOK,
 						   isCommit);
 	
-	if (TransactionIdIsValid(latestXid) && IsCnMaster())
+	if (TransactionIdIsValid(latestXid) && (IsCnMaster() || proc->getGlobalTransaction == latestXid))
 	{
 		if (IsGTMNode())
 			SnapSendTransactionFinish(latestXid);

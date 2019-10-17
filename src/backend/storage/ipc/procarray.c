@@ -470,7 +470,7 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid)
 			ProcArrayGroupClearXid(proc, latestXid);
 
 #ifdef ADB
-		if (IsCnMaster() && TransactionIdIsValid(latestXid))
+		if (TransactionIdIsValid(latestXid) && (IsCnMaster() || proc->getGlobalTransaction == latestXid))
 		{
 			if (IsGTMNode())
 				SnapSendTransactionFinish(latestXid);
