@@ -1115,9 +1115,12 @@ static void SerializeCoordinatorInfo(StringInfo buf)
 
 static void SerializeDebugQueryString(StringInfo buf)
 {
-	begin_mem_toc_insert(buf, REMOTE_KEY_QUERY_STRING_INFO);
-	appendBinaryStringInfo(buf, debug_query_string, strlen(debug_query_string)+1);
-	end_mem_toc_insert(buf, REMOTE_KEY_QUERY_STRING_INFO);
+	if (debug_query_string)
+	{
+		begin_mem_toc_insert(buf, REMOTE_KEY_QUERY_STRING_INFO);
+		appendBinaryStringInfo(buf, debug_query_string, strlen(debug_query_string)+1);
+		end_mem_toc_insert(buf, REMOTE_KEY_QUERY_STRING_INFO);
+	}
 }
 
 static const char* RestoreDebugQueryString(StringInfo buf)
