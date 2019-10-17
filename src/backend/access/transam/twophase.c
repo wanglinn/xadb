@@ -117,6 +117,8 @@
 #include "pgxc/pgxc.h"
 #include "pgxc/xc_maintenance_mode.h"
 #include "utils/lsyscache.h"
+#include "replication/snapsender.h"
+#include "replication/gxidreceiver.h"
 #endif
 
 /*
