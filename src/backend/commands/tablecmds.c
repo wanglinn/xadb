@@ -16738,8 +16738,11 @@ checkTwoTblDistributebyType(Relation destRel, Relation sourceRel, bool checkByCo
 
 	Assert(RelationIsValid(destRel));
 	Assert(RelationIsValid(sourceRel));
-	Assert(RelationGetLocInfo(destRel)->relid == RelationGetRelid(destRel));
-	Assert(RelationGetLocInfo(sourceRel)->relid == RelationGetRelid(sourceRel));
+
+	if (RelationGetLocInfo(destRel))
+		Assert(RelationGetLocInfo(destRel)->relid == RelationGetRelid(destRel));
+	if (RelationGetLocInfo(sourceRel))
+		Assert(RelationGetLocInfo(sourceRel)->relid == RelationGetRelid(sourceRel));
 
 	if (RelationGetLocInfo(destRel) == NULL &&
 		RelationGetLocInfo(sourceRel) == NULL)
