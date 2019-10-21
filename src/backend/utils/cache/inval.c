@@ -1547,4 +1547,9 @@ void InvalidateRemoteNode(void)
 							   InvalidOid);
 }
 
+bool HasInvalidateMessage(void)
+{
+	return transInvalInfo != NULL;
+}
+
 #endif /* ADB */

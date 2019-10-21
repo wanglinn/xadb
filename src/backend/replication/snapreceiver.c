@@ -13,17 +13,37 @@
 #include "replication/snapreceiver.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
+#include "storage/lock.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
 #include "storage/proclist.h"
 #include "storage/shmem.h"
+#include "utils/dsa.h"
 #include "utils/guc.h"
+#include "utils/memutils.h"
 #include "utils/resowner.h"
+#include "utils/tqual.h"
 
 #define RESTART_STEP_MS		3000	/* 2 second */
 
 int snap_receiver_timeout = 60 * 1000L;
 int snap_sender_connect_timeout = 5000L;
+
+#define MAX_LOCK_HOLD	8
+typedef struct SnapHoldLock
+{
+	LOCKTAG		tag;
+	LOCKMASK	holdMask;
+}SnapHoldLock;
+
+typedef struct SnapLockInfo
+{
+	dsa_pointer		next;
+	TransactionId	xid;
+	uint32			count;
+	SnapHoldLock	locks[FLEXIBLE_ARRAY_MEMBER];
+}SnapLockInfo;
+#define SNAP_LOCK_INFO_SIZE(count)	(offsetof(SnapLockInfo,locks)+sizeof(SnapHoldLock)*(count))
 
 typedef struct SnapRcvData
 {
@@ -42,6 +62,12 @@ typedef struct SnapRcvData
 
 	TimestampTz		next_try_time;	/* next connection GTM time */
 	TimestampTz		gtm_delta_time;
+
+	dsa_pointer		first_lock_info;
+	dsa_pointer		last_lock_info;
+	dsa_handle		handle_lock_info;
+	LWLock			lock_lock_info;
+	LWLock			lock_proc_link;
 
 	uint32			xcnt;
 	TransactionId	latestCompletedXid;
@@ -106,6 +132,10 @@ typedef bool (*WaitSnapRcvCond)(void *context);
 static bool WaitSnapRcvCondStreaming(void *context);
 static bool WaitSnapRcvCondTransactionComplate(void *context);
 static bool WaitSnapRcvEvent(TimestampTz end, WaitSnapRcvCond test, void *context);
+
+static dsa_area* SnapRcvGetLockArea(void);
+static void SnapRcvReleaseTransactionLocks(TransactionId xid);
+static void SnapRcvReleaseSnapshotTxidLocks(TransactionId *xip, uint32 count, TransactionId lastxid);
 
 static void
 ProcessSnapRcvInterrupts(void)
@@ -224,6 +254,9 @@ void SnapReceiverMain(void)
 
 	/* Arrange to clean up at walreceiver exit */
 	on_shmem_exit(SnapRcvDie, (Datum)0);
+
+	/* make sure dsa_area create */
+	(void)SnapRcvGetLockArea();
 
 	now = WaitUntilStartTime();
 
@@ -401,6 +434,12 @@ void SnapRcvShmemInit(void)
 		proclist_init(&SnapRcv->waiters);
 		SnapRcv->procno = INVALID_PGPROCNO;
 		SpinLockInit(&SnapRcv->mutex);
+
+		SnapRcv->handle_lock_info = DSM_HANDLE_INVALID;
+		SnapRcv->first_lock_info = InvalidDsaPointer;
+		SnapRcv->last_lock_info = InvalidDsaPointer;
+		LWLockInitialize(&SnapRcv->lock_lock_info, LWTRANCHE_SNAPSHOT_RECEIVER_DSA);
+		LWLockInitialize(&SnapRcv->lock_proc_link, LWTRANCHE_SNAPSHOT_RECEIVER_DSA);
 	}
 }
 
@@ -657,6 +696,8 @@ static void SnapRcvProcessSnapshot(char *buf, Size len)
 	WakeupTransaction(InvalidTransactionId);
 	UNLOCK_SNAP_RCV();
 
+	SnapRcvReleaseSnapshotTxidLocks(xid, count, latestCompletedXid);
+
 	if (xid != NULL)
 		pfree(xid);
 
@@ -731,7 +772,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	StringInfoData	msg;
 	TransactionId	txid;
 	uint32			i,count;
-	StringInfoData xidmsg;			
+	StringInfoData	xidmsg;
 
 	if (((len-1) % sizeof(txid)) != 0 ||
 		len == 0)
@@ -744,6 +785,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	msg.cursor = 0;
 
 	initStringInfo(&xidmsg);
+	enlargeStringInfo(&xidmsg, msg.maxlen);
 
 	finish_xid_ack_send = pq_getmsgbyte(&msg);
 	if (finish_xid_ack_send)
@@ -792,6 +834,13 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	if (finish_xid_ack_send)
 		walrcv_send(wrconn, xidmsg.data, xidmsg.len);
 	pfree(xidmsg.data);
+
+	msg.cursor = sizeof(bool);
+	while (msg.cursor < msg.len)
+	{
+		txid = pq_getmsgint(&msg, sizeof(txid));
+		SnapRcvReleaseTransactionLocks(txid);
+	}
 }
 
 static void SnapRcvProcessHeartBeat(char *buf, Size len)
@@ -1055,4 +1104,264 @@ bool SnapRcvWaitTopTransactionEnd(TransactionId txid, TimestampTz end)
 	MyProc->waitGlobalTransaction = InvalidTransactionId;
 
 	return result;
+}
+
+static dsa_area* SnapRcvGetLockArea(void)
+{
+	static dsa_area *lock_area = NULL;
+	if (lock_area == NULL)
+	{
+		MemoryContext old_context = MemoryContextSwitchTo(TopMemoryContext);
+		dsa_handle handle;
+		LWLockAcquire(&SnapRcv->lock_lock_info, LW_SHARED);
+		handle = SnapRcv->handle_lock_info;
+		LWLockRelease(&SnapRcv->lock_lock_info);
+		if (handle == DSM_HANDLE_INVALID)
+		{
+			LWLockAcquire(&SnapRcv->lock_lock_info, LW_EXCLUSIVE);
+			if (SnapRcv->handle_lock_info == DSM_HANDLE_INVALID)
+			{
+				lock_area = dsa_create(LWTRANCHE_SNAPSHOT_RECEIVER_DSA);
+				SnapRcv->handle_lock_info = dsa_get_handle(lock_area);
+			}else
+			{
+				handle = SnapRcv->handle_lock_info;
+			}
+			LWLockRelease(&SnapRcv->lock_lock_info);
+		}
+
+		if (lock_area == NULL)
+		{
+			Assert(handle != DSM_HANDLE_INVALID);
+			lock_area = dsa_attach(handle);
+		}
+		dsa_pin_mapping(lock_area);
+		MemoryContextSwitchTo(old_context);
+	}
+	Assert(lock_area != NULL);
+	return lock_area;
+}
+
+static inline LWLock* SnapRcvGetProcLinkLock(void)
+{
+	return &SnapRcv->lock_proc_link;
+}
+
+static void SnapRcvReleaseLock(SnapLockInfo *lock)
+{
+	uint32			i;
+	LOCKMODE		mode;
+	SnapHoldLock   *hold;
+
+	LWLockAcquire(SnapRcvGetProcLinkLock(), LW_EXCLUSIVE);
+	for (i=0;i<lock->count;++i)
+	{
+		hold = &lock->locks[i];
+		for (mode=1;mode<=MAX_LOCK_HOLD;++mode)
+		{
+			if (hold->holdMask & LOCKBIT_ON(mode))
+				TryReleaseLock(&hold->tag, mode, MyProc);
+		}
+	}
+	LWLockRelease(SnapRcvGetProcLinkLock());
+}
+
+static void SnapRcvReleaseTransactionLocks(TransactionId xid)
+{
+	dsa_area	   *lock_area = SnapRcvGetLockArea();
+	MemoryContext	old_context = MemoryContextSwitchTo(TopMemoryContext);
+	SnapLockInfo   *lock,*prev;
+	dsa_pointer		dp;
+
+	lock = prev = NULL;
+	LWLockAcquire(&SnapRcv->lock_lock_info, LW_EXCLUSIVE);
+	dp = SnapRcv->first_lock_info;
+	while (dp != InvalidDsaPointer)
+	{
+		lock = dsa_get_address(lock_area, dp);
+		if (lock->xid == xid)
+		{
+			if (prev)
+			{
+				prev->next = lock->next;
+			}else
+			{
+				Assert(SnapRcv->first_lock_info == dp);
+				SnapRcv->first_lock_info = lock->next;
+			}
+			if (SnapRcv->last_lock_info == dp)
+				SnapRcv->last_lock_info = lock->next;
+			break;
+		}
+		prev = lock;
+		dp = lock->next;
+		lock = NULL;
+	}
+	LWLockRelease(&SnapRcv->lock_lock_info);
+
+	if (lock != NULL)
+	{
+		Assert(dsa_get_address(lock_area, dp) == lock);
+		SnapRcvReleaseLock(lock);
+		dsa_free(lock_area, dp);
+	}
+	MemoryContextSwitchTo(old_context);
+}
+
+static void SnapRcvReleaseSnapshotTxidLocks(TransactionId *xip, uint32 count, TransactionId lastxid)
+{
+	SnapLockInfo   *lock,*prev;
+	dsa_area	   *lock_area = SnapRcvGetLockArea();
+	SnapshotData	snap;
+	dsa_pointer		dp;
+	uint32			i;
+
+	MemSet(&snap, 0, sizeof(snap));
+	TransactionIdAdvance(lastxid);
+	snap.xmin = snap.xmax = lastxid;
+	for (i=0;i<count;++i)
+	{
+		lastxid = xip[i];
+		if (NormalTransactionIdPrecedes(lastxid, snap.xmin))
+			snap.xmin = lastxid;
+	}
+
+	lock = prev = NULL;
+	LWLockAcquire(&SnapRcv->lock_lock_info, LW_EXCLUSIVE);
+	dp = SnapRcv->first_lock_info;
+	while (dp != InvalidDsaPointer)
+	{
+		lock = dsa_get_address(lock_area, dp);
+		if (XidInMVCCSnapshot(lock->xid, &snap) == false)
+		{
+			dsa_pointer next = lock->next;
+			if (prev)
+			{
+				prev->next = lock->next;
+			}else
+			{
+				Assert(SnapRcv->first_lock_info == dp);
+				SnapRcv->first_lock_info = lock->next;
+			}
+			if (SnapRcv->last_lock_info == dp)
+				SnapRcv->last_lock_info = lock->next;
+			SnapRcvReleaseLock(lock);
+			dsa_free(lock_area, dp);
+			dp = next;
+		}else
+		{
+			prev = lock;
+			dp = lock->next;
+		}
+	}
+	LWLockRelease(&SnapRcv->lock_lock_info);
+}
+
+void* SnapRcvBeginTransferLock(void)
+{
+	HASHCTL		ctl;
+
+	MemSet(&ctl, 0, sizeof(ctl));
+	ctl.keysize = sizeof(LOCKTAG);
+	ctl.entrysize = sizeof(SnapHoldLock);
+	return hash_create("snapshot hold lock",
+					   MaxBackends,
+					   &ctl,
+					   HASH_ELEM|HASH_BLOBS);
+}
+
+void SnapRcvInsertTransferLock(void* map, const LOCKTAG *tag, LOCKMASK holdMask)
+{
+	bool found;
+	SnapHoldLock *hold;
+
+	if (tag->locktag_type != LOCKTAG_RELATION ||
+		!(holdMask & LOCKBIT_ON(AccessExclusiveLock)))
+		return;
+
+	hold = hash_search(map, tag, HASH_ENTER, &found);
+	if (found)
+		elog(ERROR, "locktag already exist");
+	hold->holdMask = holdMask;
+}
+
+bool SnapRcvIsHoldLock(void *map, const LOCKTAG *tag)
+{
+	return hash_search(map, tag, HASH_FIND, NULL) != NULL;
+}
+
+void SnapRcvTransferLock(void *map, TransactionId xid, struct PGPROC *from)
+{
+	uint32					i;
+	volatile dsa_pointer	pointer;
+	SnapLockInfo		   *info,*prev;
+	SnapHoldLock		   *hold;
+	HASH_SEQ_STATUS			seq_state;
+	dsa_area			   *lock_area;
+	PGPROC				   *newproc;
+
+	if (hash_get_num_entries(map) <= 0)
+		return;
+
+	lock_area = SnapRcvGetLockArea();
+	pointer = dsa_allocate0(lock_area, SNAP_LOCK_INFO_SIZE(hash_get_num_entries(map)));
+	PG_TRY();
+	{
+		info = dsa_get_address(lock_area, pointer);
+		info->xid = xid;
+		info->count = (uint32)hash_get_num_entries(map);
+		info->next = InvalidDsaPointer;
+		hash_seq_init(&seq_state, map);
+		i = 0;
+		while ((hold = hash_seq_search(&seq_state)) != NULL)
+		{
+			Assert(i < info->count);
+			info->locks[i] = *hold;
+			++i;
+		}
+
+		LWLockAcquire(&SnapRcv->lock_lock_info, LW_EXCLUSIVE);
+#ifdef USE_ASSERT_CHECKING
+		{
+			dsa_pointer dp = SnapRcv->first_lock_info;
+			while (dp != InvalidDsaPointer)
+			{
+				prev = dsa_get_address(lock_area, dp);
+				Assert(prev->xid != xid);
+				dp = prev->next;
+			}
+		}
+#endif /* USE_ASSERT_CHECKING */
+		if (SnapRcv->last_lock_info == InvalidDsaPointer)
+		{
+			Assert(SnapRcv->first_lock_info == InvalidDsaPointer);
+			SnapRcv->first_lock_info = pointer;
+		}else
+		{
+			Assert(SnapRcv->first_lock_info != InvalidDsaPointer);
+			prev = dsa_get_address(lock_area, SnapRcv->last_lock_info);
+			Assert(prev->next == InvalidDsaPointer);
+			prev->next = pointer;
+		}
+		SnapRcv->last_lock_info = pointer;
+		LWLockRelease(&SnapRcv->lock_lock_info);
+	}PG_CATCH();
+	{
+		dsa_free(SnapRcvGetLockArea(), pointer);
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	newproc = GetSnapshotProcess();
+	hash_seq_init(&seq_state, map);
+	LWLockAcquire(&SnapRcv->lock_proc_link, LW_EXCLUSIVE);
+
+	while((hold = hash_seq_search(&seq_state)) != NULL)
+		TransferLock(&hold->tag, from, newproc);
+
+	LWLockRelease(&SnapRcv->lock_proc_link);
+}
+
+void SnapRcvEndTransferLock(void* map)
+{
+	hash_destroy(map);
 }

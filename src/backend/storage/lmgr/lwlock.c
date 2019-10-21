@@ -521,6 +521,10 @@ RegisterLWLockTranches(void)
 	LWLockRegisterTranche(LWTRANCHE_TBM, "tbm");
 	LWLockRegisterTranche(LWTRANCHE_PARALLEL_APPEND, "parallel_append");
 	LWLockRegisterTranche(LWTRANCHE_PARALLEL_HASH_JOIN, "parallel_hash_join");
+#ifdef ADB
+	LWLockRegisterTranche(LWTRANCHE_SNAPSHOT_RECEIVER_DSA,
+						  "snapshot_receiver_dsa");
+#endif /* ADB */
 
 	/* Register named tranches. */
 	for (i = 0; i < NamedLWLockTrancheRequests; i++)

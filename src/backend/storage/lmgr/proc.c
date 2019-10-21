@@ -96,6 +96,10 @@ static DeadLockState deadlock_state = DS_NOT_YET_CHECKED;
 /* Is a deadlock check pending? */
 static volatile sig_atomic_t got_deadlock_timeout;
 
+#ifdef ADB
+static PGPROC* snapshotProcess = NULL;
+#endif /* ADB */
+
 static void RemoveProcFromArray(int code, Datum arg);
 static void ProcKill(int code, Datum arg);
 static void AuxiliaryProcKill(int code, Datum arg);
@@ -299,6 +303,10 @@ InitProcGlobal(void)
 	/* Create ProcStructLock spinlock, too */
 	ProcStructLock = (slock_t *) ShmemAlloc(sizeof(slock_t));
 	SpinLockInit(ProcStructLock);
+#ifdef ADB
+	ProcGlobal->snapshotProc = &AuxiliaryProcs[NUM_AUXILIARY_PROCS-1];
+	snapshotProcess = ProcGlobal->snapshotProc;
+#endif /* ADB */
 }
 
 /*
@@ -549,9 +557,24 @@ InitAuxiliaryProcess(void)
 	/*
 	 * Find a free auxproc ... *big* trouble if there isn't one ...
 	 */
+#ifdef ADB
+	if (MyAuxProcType == SnapSenderProcess ||
+		MyAuxProcType == SnapReceiverProcess)
+	{
+		auxproc = ProcGlobal->snapshotProc;
+		Assert(auxproc != NULL);
+		Assert(auxproc->pid == 0);
+		proctype = auxproc - AuxiliaryProcs;
+		goto found_free_;
+	}
+#endif /* ADB */
 	for (proctype = 0; proctype < NUM_AUXILIARY_PROCS; proctype++)
 	{
 		auxproc = &AuxiliaryProcs[proctype];
+#ifdef ADB
+		if (auxproc == ProcGlobal->snapshotProc)
+			continue;
+#endif /* ADB */
 		if (auxproc->pid == 0)
 			break;
 	}
@@ -560,6 +583,9 @@ InitAuxiliaryProcess(void)
 		SpinLockRelease(ProcStructLock);
 		elog(FATAL, "all AuxiliaryProcs are in use");
 	}
+#ifdef ADB
+found_free_:
+#endif /* ADB */
 
 	/* Mark auxiliary proc as in use by me */
 	/* use volatile pointer to prevent code rearrangement */
@@ -1933,3 +1959,16 @@ BecomeLockGroupMember(PGPROC *leader, int pid)
 
 	return ok;
 }
+
+#ifdef ADB
+PGPROC *GetSnapshotProcess(void)
+{
+	if (snapshotProcess == NULL)
+	{
+		SpinLockAcquire(ProcStructLock);
+		snapshotProcess = ProcGlobal->snapshotProc;
+		SpinLockRelease(ProcStructLock);
+	}
+	return snapshotProcess;
+}
+#endif /* ADB */

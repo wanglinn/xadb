@@ -589,4 +589,14 @@ extern void VirtualXactLockTableInsert(VirtualTransactionId vxid);
 extern void VirtualXactLockTableCleanup(void);
 extern bool VirtualXactLock(VirtualTransactionId vxid, bool wait);
 
+#ifdef ADB
+struct SnapshotData;
+extern LOCKTAG* GetTwoPhaseLockRecordLockTag(void *recdata, uint32 len, LOCKMODE *mode);
+extern void TransferLock(const LOCKTAG *locktag, PGPROC *proc, PGPROC *newproc);
+extern void TryReleaseLock(LOCKTAG *locktag, LOCKMODE mode, PGPROC *proc);
+extern void EnumProcLocks(PGPROC *proc,
+						  void(*callback)(void *context, const LOCKTAG *tag, LOCKMASK holdMask),
+						  void *context);
+#endif /* ADB */
+
 #endif							/* LOCK_H */

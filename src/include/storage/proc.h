@@ -273,6 +273,10 @@ typedef struct PROC_HDR
 	/* Head of list of adb monitor's free PGPROC structures */
 	PGPROC	   *adbmntFreeProcs;
 #endif
+#ifdef ADB
+	/* Hand of snapshot sender or receiver */
+	PGPROC	   *snapshotProc;
+#endif /* ADB */
 	/* Head of list of bgworker free PGPROC structures */
 	PGPROC	   *bgworkerFreeProcs;
 	/* First pgproc waiting for group XID clear */
@@ -361,5 +365,9 @@ extern PGPROC *AuxiliaryPidGetProc(int pid);
 
 extern void BecomeLockGroupLeader(void);
 extern bool BecomeLockGroupMember(PGPROC *leader, int pid);
+
+#ifdef ADB
+extern PGPROC *GetSnapshotProcess(void);
+#endif /* ADB */
 
 #endif							/* PROC_H */

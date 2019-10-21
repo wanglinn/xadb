@@ -78,6 +78,7 @@
 #include "pgxc/pgxc.h"
 #include "pgxc/xc_maintenance_mode.h"
 #include "postmaster/autovacuum.h"
+#include "replication/snapreceiver.h"
 #include "replication/snapsender.h"
 #include "replication/gxidreceiver.h"
 #endif
@@ -2596,6 +2597,20 @@ CommitTransaction(void)
 	 */
 	if (use_2pc_commit)
 		EndCommitRemoteXact(s);
+
+	/*
+	 * hold relation(s) lock(s) until snapshot receiver process
+	 * get transaction end message
+	 */
+	if (!IsGTMNode() &&
+		TransactionIdIsValid(latestXid) &&
+		HasInvalidateMessage())
+	{
+		void *map = SnapRcvBeginTransferLock();
+		EnumProcLocks(MyProc, SnapRcvInsertTransferLock, map);
+		SnapRcvTransferLock(map, latestXid, MyProc);
+		SnapRcvEndTransferLock(map);
+	}
 #endif /* ADB */
 
 	/*

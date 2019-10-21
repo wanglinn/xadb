@@ -66,6 +66,7 @@ extern void InvalidateSystemCaches(void);
 
 #ifdef ADB
 extern void InvalidateRemoteNode(void);
+extern bool HasInvalidateMessage(void);
 #endif /* ADB */
 
 #endif							/* INVAL_H */

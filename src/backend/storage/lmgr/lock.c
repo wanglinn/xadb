@@ -356,7 +356,7 @@ static void CleanUpLock(LOCK *lock, PROCLOCK *proclock,
 			bool wakeupNeeded);
 static void LockRefindAndRelease(LockMethod lockMethodTable, PGPROC *proc,
 					 LOCKTAG *locktag, LOCKMODE lockmode,
-					 bool decrement_strong_lock_count);
+					 bool decrement_strong_lock_count ADB_ONLY_COMMA_ARG(bool noError));
 static void GetSingleProcBlockerStatusData(PGPROC *blocked_proc,
 							   BlockedProcsData *data);
 #ifdef ADB
@@ -2228,7 +2228,7 @@ LockReleaseAll(LOCKMETHODID lockmethodid, bool allLocks)
 			 * partitionLock, but hopefully it shouldn't happen often.
 			 */
 			LockRefindAndRelease(lockMethodTable, MyProc,
-								 &locallock->tag.lock, lockmode, false);
+								 &locallock->tag.lock, lockmode, false ADB_ONLY_COMMA_ARG(false));
 			RemoveLocalLock(locallock);
 			continue;
 		}
@@ -3036,7 +3036,7 @@ GetLockConflicts(const LOCKTAG *locktag, LOCKMODE lockmode)
 static void
 LockRefindAndRelease(LockMethod lockMethodTable, PGPROC *proc,
 					 LOCKTAG *locktag, LOCKMODE lockmode,
-					 bool decrement_strong_lock_count)
+					 bool decrement_strong_lock_count ADB_ONLY_COMMA_ARG(bool noError))
 {
 	LOCK	   *lock;
 	PROCLOCK   *proclock;
@@ -3060,7 +3060,18 @@ LockRefindAndRelease(LockMethod lockMethodTable, PGPROC *proc,
 												HASH_FIND,
 												NULL);
 	if (!lock)
-		elog(PANIC, "failed to re-find shared lock object");
+	{
+#ifdef ADB
+		if (noError)
+		{
+			LWLockRelease(partitionLock);
+			return;
+		}else
+#endif /* ADB */
+		{
+			elog(PANIC, "failed to re-find shared lock object");
+		}
+	}
 
 	/*
 	 * Re-find the proclock object (ditto).
@@ -4260,7 +4271,7 @@ lock_twophase_postcommit(TransactionId xid, uint16 info,
 		elog(ERROR, "unrecognized lock method: %d", lockmethodid);
 	lockMethodTable = LockMethods[lockmethodid];
 
-	LockRefindAndRelease(lockMethodTable, proc, locktag, rec->lockmode, true);
+	LockRefindAndRelease(lockMethodTable, proc, locktag, rec->lockmode, true ADB_ONLY_COMMA_ARG(false));
 }
 
 /*
@@ -4349,7 +4360,7 @@ VirtualXactLockTableCleanup(void)
 		SET_LOCKTAG_VIRTUALTRANSACTION(locktag, vxid);
 
 		LockRefindAndRelease(LockMethods[DEFAULT_LOCKMETHOD], MyProc,
-							 &locktag, ExclusiveLock, false);
+							 &locktag, ExclusiveLock, false ADB_ONLY_COMMA_ARG(false));
 	}
 }
 
@@ -4489,3 +4500,182 @@ LockWaiterCount(const LOCKTAG *locktag)
 
 	return waiters;
 }
+
+#ifdef ADB
+LOCKTAG* GetTwoPhaseLockRecordLockTag(void *recdata, uint32 len, LOCKMODE *mode)
+{
+	TwoPhaseLockRecord *rec = (TwoPhaseLockRecord*) recdata;
+	Assert(len == sizeof(TwoPhaseLockRecord));
+
+	if (mode)
+		*mode = rec->lockmode;
+	return &rec->locktag;
+}
+
+void TransferLock(const LOCKTAG *locktag, PGPROC *proc, PGPROC *newproc)
+{
+	LOCK	   *lock;
+	PROCLOCK   *proclock;
+	PROCLOCKTAG proclocktag;
+	uint32		hashcode;
+	uint32		proclock_hashcode;
+	LWLock	   *partitionLock;
+
+	hashcode = LockTagHashCode(locktag);
+	partitionLock = LockHashPartitionLock(hashcode);
+
+	LWLockAcquire(partitionLock, LW_EXCLUSIVE);
+
+	/*
+	 * Re-find the lock object (it had better be there).
+	 */
+	lock = (LOCK *) hash_search_with_hash_value(LockMethodLockHash,
+												(void *) locktag,
+												hashcode,
+												HASH_FIND,
+												NULL);
+	if (!lock)
+		elog(PANIC, "failed to find shared lock object");
+
+	/*
+	 * Re-find the proclock object (ditto).
+	 */
+	proclocktag.myLock = lock;
+	proclocktag.myProc = proc;
+
+	proclock_hashcode = ProcLockHashCode(&proclocktag, hashcode);
+
+	proclock = (PROCLOCK *) hash_search_with_hash_value(LockMethodProcLockHash,
+														(void *) &proclocktag,
+														proclock_hashcode,
+														HASH_FIND,
+														NULL);
+	if (!proclock)
+		elog(PANIC, "failed to find shared proclock object");
+
+	Assert(lock->nRequested >= 0);
+	Assert(lock->nGranted >= 0);
+	Assert(lock->nGranted <= lock->nRequested);
+	Assert((proclock->holdMask & ~lock->grantMask) == 0);
+
+	/*
+	 * do transfer lock
+	 */
+	START_CRIT_SECTION();
+	SHMQueueDelete(&proclock->procLink);
+
+	/*
+	 * Create the new hash key for the proclock.
+	 */
+	proclocktag.myLock = lock;
+	proclocktag.myProc = newproc;
+
+	/*
+	 * Update groupLeader pointer to point to the new proc.  (We'd
+	 * better not be a member of somebody else's lock group!)
+	 */
+	Assert(proclock->groupLeader == proclock->tag.myProc);
+	proclock->groupLeader = newproc;
+
+	/*
+	 * Update the proclock.  We should not find any existing entry for
+	 * the same hash key, since there can be only one entry for any
+	 * given lock with my own proc.
+	 */
+	if (!hash_update_hash_key(LockMethodProcLockHash,
+							  (void *) proclock,
+							  (void *) &proclocktag))
+		elog(PANIC, "duplicate entry found while reassigning a prepared transaction's locks");
+
+	/* Re-link into the new proc's proclock list */
+	SHMQueueInsertBefore(&(newproc->myProcLocks[LockHashPartition(hashcode)]),
+						 &proclock->procLink);
+	PROCLOCK_PRINT("TransferLock: updated", proclock);
+
+	LWLockRelease(partitionLock);
+	END_CRIT_SECTION();
+}
+
+void TryReleaseLock(LOCKTAG *locktag, LOCKMODE mode, PGPROC *proc)
+{
+	if (locktag->locktag_lockmethodid <= 0 ||
+		locktag->locktag_lockmethodid >= lengthof(LockMethods))
+		elog(ERROR, "unrecognized lock method: %d", locktag->locktag_lockmethodid);
+
+	LockRefindAndRelease(LockMethods[locktag->locktag_lockmethodid],
+						 proc,
+						 locktag,
+						 mode,
+						 true,
+						 true);
+}
+
+/* like PostPrepare_Locks() */
+void EnumProcLocks(PGPROC *proc, void(*callback)(void *context, const LOCKTAG *tag, LOCKMASK holdMask),
+				   void *context)
+{
+	LOCK	   *lock;
+	PROCLOCK   *proclock;
+	int			partition;
+
+	for (partition = 0; partition < NUM_LOCK_PARTITIONS; partition++)
+	{
+		LWLock	   *partitionLock;
+		SHM_QUEUE  *procLocks = &(proc->myProcLocks[partition]);
+		PROCLOCK   *nextplock;
+
+		partitionLock = LockHashPartitionLockByIndex(partition);
+
+		/*
+		 * If the proclock list for this partition is empty, we can skip
+		 * acquiring the partition lock.  This optimization is safer than the
+		 * situation in LockReleaseAll, because we got rid of any fast-path
+		 * locks during AtPrepare_Locks, so there cannot be any case where
+		 * another backend is adding something to our lists now.  For safety,
+		 * though, we code this the same way as in LockReleaseAll.
+		 */
+		if (SHMQueueNext(procLocks, procLocks,
+						 offsetof(PROCLOCK, procLink)) == NULL)
+			continue;			/* needn't examine this partition */
+
+		LWLockAcquire(partitionLock, LW_SHARED);
+
+		for (proclock = (PROCLOCK *) SHMQueueNext(procLocks, procLocks,
+												  offsetof(PROCLOCK, procLink));
+			 proclock;
+			 proclock = nextplock)
+		{
+			/* Get link first, since we may unlink/relink this proclock */
+			nextplock = (PROCLOCK *)
+				SHMQueueNext(procLocks, &proclock->procLink,
+							 offsetof(PROCLOCK, procLink));
+
+			Assert(proclock->tag.myProc == proc);
+
+			lock = proclock->tag.myLock;
+
+			/* Ignore VXID locks */
+			if (lock->tag.locktag_type == LOCKTAG_VIRTUALTRANSACTION)
+				continue;
+
+			Assert(lock->nRequested >= 0);
+			Assert(lock->nGranted >= 0);
+			Assert(lock->nGranted <= lock->nRequested);
+			Assert((proclock->holdMask & ~lock->grantMask) == 0);
+
+			/* Ignore it if nothing to release (must be a session lock) */
+			if (proclock->releaseMask == 0)
+				continue;
+
+			/* Else we should be releasing all locks */
+			if (proclock->releaseMask != proclock->holdMask)
+				elog(PANIC, "we seem to have dropped a bit somewhere");
+
+			PROCLOCK_PRINT("EnumProcLocks:", proclock);
+			(*callback)(context, &lock->tag, proclock->holdMask);
+		}
+
+		LWLockRelease(partitionLock);
+	}
+}
+#endif /* ADB */

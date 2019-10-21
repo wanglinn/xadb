@@ -116,6 +116,7 @@
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/xc_maintenance_mode.h"
+#include "replication/snapreceiver.h"
 #include "utils/lsyscache.h"
 #include "replication/snapsender.h"
 #include "replication/gxidreceiver.h"
@@ -237,7 +238,7 @@ static void RecordTransactionAbortPrepared(TransactionId xid,
 							   RelFileNode *rels,
 							   const char *gid);
 static void ProcessRecords(char *bufptr, TransactionId xid,
-			   const TwoPhaseCallback callbacks[]);
+			   const TwoPhaseCallback callbacks[] ADB_ONLY_COMMA_ARG(bool transfer_lock));
 static void RemoveGXact(GlobalTransaction gxact);
 static void XlogReadTwoPhaseData(XLogRecPtr lsn, char **buf, int *len);
 static char *ProcessTwoPhaseBuffer(TransactionId xid,
@@ -1897,9 +1898,10 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 
 	/* And now do the callbacks */
 	if (isCommit)
-		ProcessRecords(bufptr, xid, twophase_postcommit_callbacks);
+		ProcessRecords(bufptr, xid, twophase_postcommit_callbacks
+					   ADB_ONLY_COMMA_ARG(!IsGTMNode() && hdr->ninvalmsgs > 0));
 	else
-		ProcessRecords(bufptr, xid, twophase_postabort_callbacks);
+		ProcessRecords(bufptr, xid, twophase_postabort_callbacks ADB_ONLY_COMMA_ARG(false));
 
 	PredicateLockTwoPhaseFinish(xid, isCommit);
 
@@ -1942,13 +1944,40 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 	pfree(buf);
 }
 
+#ifdef ADB
+static inline bool MapHoldLock(void *map, void *bufptr, uint32 len)
+{
+	LOCKTAG	   *locktag;
+	LOCKMODE	lockmode;
+	
+	locktag = GetTwoPhaseLockRecordLockTag(bufptr, len, &lockmode);
+	return SnapRcvIsHoldLock(map, locktag);
+}
+#endif /* ADB */
+
 /*
  * Scan 2PC state data in memory and call the indicated callbacks for each 2PC record.
  */
 static void
 ProcessRecords(char *bufptr, TransactionId xid,
-			   const TwoPhaseCallback callbacks[])
+			   const TwoPhaseCallback callbacks[] ADB_ONLY_COMMA_ARG(bool transfer_lock))
 {
+#ifdef ADB
+	void		   *map = NULL;
+	if (transfer_lock)
+	{
+		/*
+		 * hold relation(s) lock(s) until snapshot receiver process
+		 * get transaction end message
+		 */
+		PGPROC	   *dummy_proc = TwoPhaseGetDummyProc(xid);
+		map = SnapRcvBeginTransferLock();
+
+		EnumProcLocks(dummy_proc, SnapRcvInsertTransferLock, map);
+		SnapRcvTransferLock(map, xid, dummy_proc);
+	}
+#endif /* ADB */
+
 	for (;;)
 	{
 		TwoPhaseRecordOnDisk *record = (TwoPhaseRecordOnDisk *) bufptr;
@@ -1959,12 +1988,24 @@ ProcessRecords(char *bufptr, TransactionId xid,
 
 		bufptr += MAXALIGN(sizeof(TwoPhaseRecordOnDisk));
 
+#ifdef ADB
+		if (map != NULL &&
+			record->rmid == TWOPHASE_RM_LOCK_ID &&
+			MapHoldLock(map, bufptr, record->len))
+		{
+			/* nothing todo */
+		}else
+#endif /* ADB */
 		if (callbacks[record->rmid] != NULL)
 			callbacks[record->rmid] (xid, record->info,
 									 (void *) bufptr, record->len);
 
 		bufptr += MAXALIGN(record->len);
 	}
+#ifdef ADB
+	if (map)
+		SnapRcvEndTransferLock(map);
+#endif /* ADB */
 }
 
 /*
@@ -2421,7 +2462,7 @@ RecoverPreparedTransactions(void)
 		/*
 		 * Recover other state (notably locks) using resource managers.
 		 */
-		ProcessRecords(bufptr, xid, twophase_recover_callbacks);
+		ProcessRecords(bufptr, xid, twophase_recover_callbacks ADB_ONLY_COMMA_ARG(false));
 
 		/*
 		 * Release locks held by the standby process after we process each
