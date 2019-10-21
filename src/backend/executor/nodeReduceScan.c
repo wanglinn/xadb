@@ -280,7 +280,8 @@ void ExecReScanReduceScan(ReduceScanState *node)
 		node->cur_batch = node->batchs[0];
 	}
 
-	sts_begin_parallel_scan(node->cur_batch);
+	if (node->cur_batch)
+		sts_begin_parallel_scan(node->cur_batch);
 }
 
 static TupleTableSlot* SeqReduceScanNext(ReduceScanState *node)
