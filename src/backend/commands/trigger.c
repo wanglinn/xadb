@@ -7487,8 +7487,10 @@ pgxc_check_distcol_update(HeapTuple tup1, HeapTuple tup2,
 	 */
 	if (!partAtt->attbyval && partAtt->attlen == -1)
 	{
-		old_distval = PointerGetDatum(PG_DETOAST_DATUM(old_distval));
-		new_distval = PointerGetDatum(PG_DETOAST_DATUM(new_distval));
+		if (!old_isnull)
+			old_distval = PointerGetDatum(PG_DETOAST_DATUM(old_distval));
+		if (!new_isnull)
+			new_distval = PointerGetDatum(PG_DETOAST_DATUM(new_distval));
 	}
 
 	/*
