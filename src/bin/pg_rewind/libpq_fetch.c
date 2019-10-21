@@ -48,6 +48,9 @@ libpqConnect(const char *connstr)
 {
 	char	   *str;
 	PGresult   *res;
+#ifdef ADB
+	char	   *sql;
+#endif
 
 	conn = PQconnectdb(connstr);
 	if (PQstatus(conn) == CONNECTION_BAD)
@@ -63,9 +66,12 @@ libpqConnect(const char *connstr)
 	PQclear(res);
 
 #ifdef ADB
-	str = run_simple_query("select node_name from pgxc_node");
+	/* there will be more then one record in table pgxc_node */
+	sql = psprintf("select node_name from pgxc_node where node_name='%s' ", source_nodename);
+	str = run_simple_query(sql);
 	if(strcmp(str, source_nodename) != 0)
 		pg_fatal("Connection server name \"%s\" is different from expected \"%s\"\n", str, source_nodename);
+	pg_free(sql);
 	pg_free(str);
 #endif
 	/*
