@@ -1125,7 +1125,7 @@ bool PQexecCommandSql(PGconn *pgConn, char *sql, bool complain)
 	if (PQresultStatus(pgResult) == PGRES_COMMAND_OK)
 	{
 		execOk = true;
-		ereport(DEBUG1,
+		ereport(LOG,
 				(errmsg("execute %s successfully",
 						sql)));
 	}
@@ -1264,6 +1264,21 @@ bool exec_pool_close_idle_conn(PGconn *pgConn, bool complain)
 {
 	char *sql = "set FORCE_PARALLEL_MODE = off; select pool_close_idle_conn();";
 	return PQexecBoolQuery(pgConn, sql, true, complain);
+}
+
+int countAdbSlot(PGconn *pgconn, bool complain)
+{
+	int numberOfSlots;
+
+	numberOfSlots = PQexecCountSql(pgconn,
+								   SELECT_ADB_SLOT_TABLE_COUNT,
+								   false);
+	if (numberOfSlots < 0)
+	{
+		ereport(complain ? ERROR : WARNING,
+				(errmsg("count adb_slot information failed")));
+	}
+	return numberOfSlots;
 }
 
 /* 
@@ -2781,6 +2796,41 @@ bool createNodeOnPgxcNode(PGconn *activeCoon,
 	return execOk;
 }
 
+bool alterNodeOnPgxcNode(PGconn *activeCoon,
+						 char *executeOnNodeName,
+						 bool localExecute,
+						 char *oldNodeName,
+						 MgrNodeWrapper *newNode,
+						 bool changeNodeName,
+						 bool complain)
+{
+	StringInfoData sql;
+	bool execOk;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "alter node \"%s\" with(",
+					 oldNodeName);
+	if (changeNodeName)
+		appendStringInfo(&sql,
+						 "name='%s',",
+						 NameStr(newNode->form.nodename));
+	appendStringInfo(&sql,
+					 "host='%s', port=%d) ",
+					 newNode->host->hostaddr,
+					 newNode->form.nodeport);
+	if (!localExecute)
+	{
+		Assert(executeOnNodeName);
+		appendStringInfo(&sql,
+						 "on (\"%s\") ",
+						 executeOnNodeName);
+	}
+	execOk = PQexecCommandSql(activeCoon, sql.data, complain);
+	pfree(sql.data);
+	return execOk;
+}
+
 bool nodenameExistsInPgxcNode(PGconn *activeCoon,
 							  char *executeOnNodeName,
 							  bool localExecute,
@@ -2977,20 +3027,16 @@ void cleanMgrNodesOnCoordinator(dlist_head *mgrNodes,
 	dlist_foreach_modify(iter, mgrNodes)
 	{
 		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-		if (isGtmCoordMgrNode(mgrNode->form.nodetype))
-		{
-			ereport(LOG,
-					(errmsg("all gtm coordinator have the same pgxc_node_name, no need to clean")));
-		}
-		else
-		{
-			compareAndDropMgrNodeOnCoordinator(mgrNode,
-											   coordinator,
-											   coordConn,
-											   true,
-											   NameStr(executeOnNodeName),
-											   complain);
-		}
+		compareAndDropMgrNodeOnCoordinator(mgrNode,
+										   coordinator,
+										   coordConn,
+										   true,
+										   NameStr(executeOnNodeName),
+										   complain);
+		exec_pgxc_pool_reload(coordConn,
+							  true,
+							  NameStr(executeOnNodeName),
+							  complain);
 	}
 }
 
@@ -3023,10 +3069,6 @@ void compareAndCreateMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
 							 mgrNode,
 							 pgxcNodeName,
 							 complain);
-		exec_pgxc_pool_reload(coordConn,
-							  localExecute,
-							  executeOnNodeName,
-							  complain);
 		ereport(LOG,
 				(errmsg("create %s in table pgxc_node of %s, successed",
 						NameStr(mgrNode->form.nodename),
@@ -3041,36 +3083,47 @@ void compareAndDropMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
 										char *executeOnNodeName,
 										bool complain)
 {
-	if (isMgrModeExistsInCoordinator(coordinator,
-									 coordConn,
-									 localExecute,
-									 mgrNode,
-									 complain))
+	if (isGtmCoordMgrNode(mgrNode->form.nodetype))
 	{
 		ereport(LOG,
-				(errmsg("clean node %s in table pgxc_node of %s begin",
-						NameStr(mgrNode->form.nodename),
-						NameStr(coordinator->form.nodename))));
-		dropNodeFromPgxcNode(coordConn,
-							 executeOnNodeName,
-							 localExecute,
-							 NameStr(mgrNode->form.nodename),
-							 complain);
-		exec_pgxc_pool_reload(coordConn,
-							  localExecute,
-							  executeOnNodeName,
-							  complain);
-		ereport(LOG,
-				(errmsg("clean node %s in table pgxc_node of %s successed",
+				(errmsg("all gtm coordinator have the same pgxc_node_name, no need to clean")));
+	}
+	else if (mgrNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER)
+	{
+		ereport(complain ? ERROR : WARNING,
+				(errmsg("%s is a datanode master, can not drop it from coordinator %s",
 						NameStr(mgrNode->form.nodename),
 						NameStr(coordinator->form.nodename))));
 	}
 	else
 	{
-		ereport(LOG,
-				(errmsg("%s not exist in table pgxc_node of %s, skip",
-						NameStr(mgrNode->form.nodename),
-						NameStr(coordinator->form.nodename))));
+		if (isMgrModeExistsInCoordinator(coordinator,
+										 coordConn,
+										 localExecute,
+										 mgrNode,
+										 complain))
+		{
+			ereport(LOG,
+					(errmsg("clean node %s in table pgxc_node of %s begin",
+							NameStr(mgrNode->form.nodename),
+							NameStr(coordinator->form.nodename))));
+			dropNodeFromPgxcNode(coordConn,
+								 executeOnNodeName,
+								 localExecute,
+								 NameStr(mgrNode->form.nodename),
+								 complain);
+			ereport(LOG,
+					(errmsg("clean node %s in table pgxc_node of %s successed",
+							NameStr(mgrNode->form.nodename),
+							NameStr(coordinator->form.nodename))));
+		}
+		else
+		{
+			ereport(LOG,
+					(errmsg("%s not exist in table pgxc_node of %s, skip",
+							NameStr(mgrNode->form.nodename),
+							NameStr(coordinator->form.nodename))));
+		}
 	}
 }
 

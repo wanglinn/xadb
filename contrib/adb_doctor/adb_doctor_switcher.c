@@ -48,8 +48,8 @@ static bool checkIfDataNodeOldMasterCanReign(MgrNodeWrapper *oldMaster,
 static bool checkIfGtmCoordOldMasterCanReign(MgrNodeWrapper *oldMaster,
 											 bool forceSwitch,
 											 MemoryContext spiContext);
-static void oldMasterContinueToReign(MgrNodeWrapper *oldMaster,
-									 bool forceSwitch);
+static void oldGtmCoordMasterContinueToReign(MgrNodeWrapper *oldMaster);
+static void oldDataNodeMasterContinueToReign(MgrNodeWrapper *oldMaster);
 static void failoverOldMaster(MgrNodeWrapper *oldMaster);
 static bool isAllCoordinatorsHoldOldMaster(MgrNodeWrapper *oldMaster,
 										   MemoryContext spiContext);
@@ -217,8 +217,14 @@ static bool checkAndSwitchMaster(MgrNodeWrapper *oldMaster)
 			if (checkIfOldMasterCanReign(oldMaster,
 										 switcherConfiguration->forceSwitch))
 			{
-				oldMasterContinueToReign(oldMaster,
-										 switcherConfiguration->forceSwitch);
+				if (oldMaster->form.nodetype == CNDN_TYPE_DATANODE_MASTER)
+				{
+					oldDataNodeMasterContinueToReign(oldMaster);
+				}
+				else
+				{
+					oldGtmCoordMasterContinueToReign(oldMaster);
+				}
 			}
 			else
 			{
@@ -647,8 +653,7 @@ end:
 	return oldMasterCanReign;
 }
 
-static void oldMasterContinueToReign(MgrNodeWrapper *oldMaster,
-									 bool forceSwitch)
+static void oldGtmCoordMasterContinueToReign(MgrNodeWrapper *oldMaster)
 {
 	ErrorData *edata = NULL;
 	int spiRes;
@@ -659,7 +664,6 @@ static void oldMasterContinueToReign(MgrNodeWrapper *oldMaster,
 	MemoryContext oldContext;
 	MemoryContext doctorContext;
 	MemoryContext spiContext;
-	MgrNodeWrapper *gtmMaster = NULL;
 
 	oldContext = CurrentMemoryContext;
 	doctorContext = AllocSetContextCreate(oldContext,
@@ -705,11 +709,6 @@ static void oldMasterContinueToReign(MgrNodeWrapper *oldMaster,
 					(errmsg("old master %s cancel the reign, because the cluster state may have changed",
 							NameStr(oldMaster->form.nodename))));
 		}
-		if (isDataNodeMgrNode(oldMaster->form.nodetype))
-		{
-			gtmMaster = selectMgrGtmCoordNode(spiContext);
-			setGtmInfoInPGSqlConf(oldMaster, gtmMaster, false);
-		}
 		startupNodeWithinSeconds(oldMaster,
 								 STARTUP_NODE_SECONDS,
 								 true);
@@ -749,8 +748,6 @@ static void oldMasterContinueToReign(MgrNodeWrapper *oldMaster,
 	PG_END_TRY();
 
 	pfreeSwitcherNodeWrapperList(&slaveNodes, NULL);
-	if (gtmMaster)
-		pfreeMgrNodeWrapper(gtmMaster);
 
 	(void)MemoryContextSwitchTo(oldContext);
 	MemoryContextDelete(doctorContext);
@@ -758,6 +755,202 @@ static void oldMasterContinueToReign(MgrNodeWrapper *oldMaster,
 	if (edata)
 	{
 		SPI_FINISH_TRANSACTIONAL_ABORT();
+		shutdownNodeWithinSeconds(oldMaster,
+								  SHUTDOWN_NODE_FAST_SECONDS,
+								  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
+								  false);
+		ReThrowError(edata);
+	}
+	else
+	{
+		SPI_FINISH_TRANSACTIONAL_COMMIT();
+	}
+}
+
+static void oldDataNodeMasterContinueToReign(MgrNodeWrapper *oldMaster)
+{
+	ErrorData *edata = NULL;
+	int spiRes;
+	int numberOfSlots;
+	dlist_head mgrNodes = DLIST_STATIC_INIT(mgrNodes);
+	dlist_head slaveNodes = DLIST_STATIC_INIT(slaveNodes);
+	dlist_head coordinators = DLIST_STATIC_INIT(coordinators);
+	dlist_head siblingMasters = DLIST_STATIC_INIT(siblingMasters);
+	dlist_iter iter;
+	SwitcherNodeWrapper *node;
+	SwitcherNodeWrapper *gtmMaster = NULL;
+	SwitcherNodeWrapper *holdLockCoordinator = NULL;
+	MemoryContext oldContext;
+	MemoryContext doctorContext;
+	MemoryContext spiContext;
+	PGconn *oldMasterConn = NULL;
+	SwitcherNodeWrapper *switcherOldMaster = NULL;
+
+	oldContext = CurrentMemoryContext;
+	doctorContext = AllocSetContextCreate(oldContext,
+										  "doctorContext",
+										  ALLOCSET_DEFAULT_SIZES);
+	SPI_CONNECT_TRANSACTIONAL_START(spiRes, true);
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(doctorContext);
+
+	PG_TRY();
+	{
+		ereport(LOG,
+				(errmsg("old master %s returned to normal, try to abort switching",
+						NameStr(oldMaster->form.nodename))));
+
+		checkGetMasterCoordinators(spiContext,
+								   &coordinators,
+								   true,
+								   true);
+		dlist_foreach(iter, &coordinators)
+		{
+			node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+			if (node->mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+			{
+				gtmMaster = node;
+			}
+			if (!isMgrModeExistsInCoordinator(node->mgrNode,
+											  node->pgConn,
+											  true,
+											  oldMaster,
+											  true))
+			{
+				ereport(ERROR,
+						(errmsg("old master %s cancel the reign, because the cluster state may have changed",
+								NameStr(oldMaster->form.nodename))));
+			}
+		}
+
+		selectActiveMgrSlaveNodes(oldMaster->oid,
+								  getMgrSlaveNodetype(oldMaster->form.nodetype),
+								  spiContext,
+								  &mgrNodes);
+		selectIsolatedMgrSlaveNodes(oldMaster->oid,
+									getMgrSlaveNodetype(oldMaster->form.nodetype),
+									spiContext,
+									&mgrNodes);
+		mgrNodesToSwitcherNodes(&mgrNodes, &slaveNodes);
+		/* Sentinel, prevent other doctors from operating this node simultaneously. */
+		checkMgrNodeDataInDB(oldMaster, spiContext);
+		updateCureStatusForSwitch(oldMaster,
+								  CURE_STATUS_SWITCHING,
+								  spiContext);
+		dlist_foreach(iter, &slaveNodes)
+		{
+			node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+			/* backup curestatus */
+			memcpy(&node->oldCurestatus,
+				   &node->mgrNode->form.curestatus, sizeof(NameData));
+			updateCureStatusForSwitch(node->mgrNode,
+									  CURE_STATUS_SWITCHING,
+									  spiContext);
+		}
+
+		if (gtmMaster)
+			setGtmInfoInPGSqlConf(oldMaster, gtmMaster->mgrNode, false);
+
+		startupNodeWithinSeconds(oldMaster,
+								 STARTUP_NODE_SECONDS,
+								 true);
+		oldMasterConn = getNodeDefaultDBConnection(oldMaster, 10);
+		if (!oldMasterConn)
+			ereport(ERROR,
+					(errmsg("old master %s cancel the reign, can not connect to it",
+							NameStr(oldMaster->form.nodename))));
+
+		if (!checkNodeRunningMode(oldMasterConn, true))
+			ereport(ERROR,
+					(errmsg("old master %s cancel the reign, it running improperly",
+							NameStr(oldMaster->form.nodename))));
+		switcherOldMaster = palloc0(sizeof(SwitcherNodeWrapper));
+		switcherOldMaster->mgrNode = oldMaster;
+		switcherOldMaster->pgConn = oldMasterConn;
+		switcherOldMaster->runningMode = NODE_RUNNING_MODE_MASTER;
+
+		numberOfSlots = countAdbSlot(oldMasterConn, true);
+		if (numberOfSlots > 0)
+		{
+			checkGetSiblingMasterNodes(spiContext,
+									   switcherOldMaster,
+									   &siblingMasters);
+			tryLockCluster(&coordinators);
+			holdLockCoordinator = getHoldLockCoordinator(&coordinators);
+			Assert(holdLockCoordinator);
+			diffPgxcNodesOfDataNode(holdLockCoordinator->pgConn,
+									false,
+									switcherOldMaster,
+									&siblingMasters,
+									spiContext,
+									true);
+			diffAdbSlotOfDataNodes(holdLockCoordinator,
+								   switcherOldMaster,
+								   &siblingMasters,
+								   spiContext,
+								   true);
+			commitSwitcherNodeTransaction(holdLockCoordinator,
+										  true);
+			tryUnlockCluster(&coordinators, true);
+		}
+
+		updateCureStatusForSwitch(oldMaster,
+								  CURE_STATUS_SWITCHED,
+								  spiContext);
+		dlist_foreach(iter, &slaveNodes)
+		{
+			node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+			if (pg_strcasecmp(NameStr(node->oldCurestatus),
+							  CURE_STATUS_OLD_MASTER) == 0 ||
+				pg_strcasecmp(NameStr(node->oldCurestatus),
+							  CURE_STATUS_ISOLATED) == 0)
+			{
+				updateCureStatusForSwitch(node->mgrNode,
+										  NameStr(node->oldCurestatus),
+										  spiContext);
+			}
+			else
+			{
+				updateCureStatusForSwitch(node->mgrNode,
+										  CURE_STATUS_FOLLOW_FAIL,
+										  spiContext);
+			}
+		}
+
+		ereport(LOG,
+				(errmsg("old master %s returned to normal and begin to reign again, switching aborted",
+						NameStr(oldMaster->form.nodename))));
+	}
+	PG_CATCH();
+	{
+		rollbackSwitcherNodeTransaction(holdLockCoordinator, false);
+		tryUnlockCluster(&coordinators, false);
+
+		/* Save error info in our stmt_mcontext */
+		MemoryContextSwitchTo(oldContext);
+		edata = CopyErrorData();
+		FlushErrorState();
+	}
+	PG_END_TRY();
+
+	pfreeSwitcherNodeWrapperList(&slaveNodes, NULL);
+	pfreeSwitcherNodeWrapperList(&coordinators, NULL);
+	pfreeSwitcherNodeWrapperList(&siblingMasters, switcherOldMaster);
+	if (oldMasterConn)
+		PQfinish(oldMasterConn);
+	if (switcherOldMaster)
+		pfree(switcherOldMaster);
+
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(doctorContext);
+
+	if (edata)
+	{
+		SPI_FINISH_TRANSACTIONAL_ABORT();
+		shutdownNodeWithinSeconds(oldMaster,
+								  SHUTDOWN_NODE_FAST_SECONDS,
+								  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
+								  false);
 		ReThrowError(edata);
 	}
 	else

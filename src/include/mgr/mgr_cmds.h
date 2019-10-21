@@ -541,7 +541,7 @@ extern bool mgr_manipulate_pgxc_node_on_node(PGconn **pg_conn,
 									  	 	 bool localExecute, 
 									  		 PGXC_NODE_MANIPULATE_TYPE manipulateType,
 									  		 StringInfo strinfo);
-extern void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name, bool startTransaction, bool complain);
+extern bool hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name, bool startTransaction, bool complain);
 extern bool hexp_check_select_result_count(PGconn *pg_conn, char* sql);
 extern void hexp_pqexec_direct_execute_utility(PGconn *pg_conn, char *sqlstr, int ret_type);
 

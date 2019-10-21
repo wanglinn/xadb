@@ -4581,7 +4581,7 @@ Datum mgr_failover_one_dn_inner_func(char *nodename, char cmdtype, char nodetype
 	return HeapTupleGetDatum(tup_result);
 }
 
-void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name, bool startTransaction, bool complain)
+bool hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name, bool startTransaction, bool complain)
 {
 	char sql[100];
 	PGresult* res;
@@ -4589,6 +4589,8 @@ void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, c
 	ExecStatusType status;
 	int slotid = -1;
 	SlotArrayIndex = 0;
+	bool execOk = true;
+	char *errorMessage = NULL;
 
 	if (startTransaction)
 		hexp_pqexec_direct_execute_utility(pgconn,SQL_BEGIN_TRANSACTION
@@ -4607,14 +4609,25 @@ void hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, c
 			case PGRES_COMMAND_OK:
 				break;
 			default:
-				ereport(complain?ERROR:WARNING, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
+			{
+				execOk = false;
+				errorMessage = psprintf("%s runs error. result is %s.", sql, PQresultErrorMessage(res));
+				break;
+			}
 		}
 		PQclear(res);
+		if(!execOk)
+			break;
 	}
 
 	if (startTransaction)
-		hexp_pqexec_direct_execute_utility(pgconn,SQL_COMMIT_TRANSACTION
-			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+		hexp_pqexec_direct_execute_utility(pgconn,
+										   execOk? SQL_COMMIT_TRANSACTION : SQL_ROLLBACK_TRANSACTION, 
+										   MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+	if(!execOk)
+		ereport(complain ? ERROR : WARNING, 
+				(errmsg("%s",errorMessage)));
+	return execOk && SlotArrayIndex > 0;
 }
 
 static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name, bool complain)
@@ -4623,7 +4636,9 @@ static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name, bool
 	char sql[200];
 	ExecStatusType status;
 	int i = 0;
+	int ntups = 0;
 
+	SlotArrayIndex = 0;
 	sprintf(sql, SELECT_SLOTID_STATUS_FROM_ADB_SLOT_BY_NODE, src_node_name);
 	res = PQexec(pgconn,  sql);
 	status = PQresultStatus(res);
@@ -4632,16 +4647,22 @@ static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name, bool
 		case PGRES_TUPLES_OK:
 			break;
 		default:
+		{
+			SlotArrayIndex = 0;
+			PQclear(res);
 			ereport(complain?ERROR:WARNING, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
+			return;
+		}
 	}
-	if (0==PQntuples(res))
+	ntups = PQntuples(res);
+	if (0==ntups)
 	{
 		PQclear(res);
 		ereport(complain?ERROR:WARNING, (errmsg("%s runs error. result is null.", sql)));
+		return;
 	}
 
-	SlotArrayIndex = 0;
-	for (i = 0; i < PQntuples(res); i++)
+	for (i = 0; i < ntups; i++)
 	{
 		SlotIdArray[SlotArrayIndex] = atoi(PQgetvalue(res, i, 0));
 		SlotArrayIndex++;

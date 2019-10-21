@@ -33,6 +33,7 @@ typedef struct SwitcherNodeWrapper
 	bool holdClusterLock;
 	bool adbSlotChanged;
 	bool startupAfterException;
+	bool inTransactionBlock;
 	NameData pgxcNodeName;
 	bool gtmInfoChanged;
 } SwitcherNodeWrapper;
@@ -98,22 +99,6 @@ extern void switchGtmCoordMaster(char *oldMasterName,
 								 Name newMasterName);
 extern void switchoverDataNode(char *newMasterName, bool forceSwitch);
 extern void switchoverGtmCoord(char *newMasterName, bool forceSwitch);
-extern void switchToDataNodeNewMaster(SwitcherNodeWrapper *oldMaster,
-									  SwitcherNodeWrapper *newMaster,
-									  dlist_head *runningSlaves,
-									  dlist_head *failedSlaves,
-									  dlist_head *coordinators,
-									  dlist_head *siblingMasters,
-									  MemoryContext spiContext,
-									  bool kickOutOldMaster);
-extern void switchToGtmCoordNewMaster(SwitcherNodeWrapper *oldMaster,
-									  SwitcherNodeWrapper *newMaster,
-									  dlist_head *runningSlaves,
-									  dlist_head *failedSlaves,
-									  dlist_head *coordinators,
-									  dlist_head *dataNodes,
-									  MemoryContext spiContext,
-									  bool kickOutOldMaster);
 extern void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 								SwitcherNodeWrapper **newMasterP,
 								dlist_head *runningSlaves,
@@ -137,5 +122,25 @@ extern SwitcherNodeWrapper *getHoldLockCoordinator(dlist_head *coordinators);
 extern void updateCureStatusForSwitch(MgrNodeWrapper *mgrNode,
 									  char *newCurestatus,
 									  MemoryContext spiContext);
+extern void checkGetSiblingMasterNodes(MemoryContext spiContext,
+									   SwitcherNodeWrapper *masterNode,
+									   dlist_head *siblingMasters);
+extern void diffPgxcNodesOfDataNode(PGconn *pgconn,
+									bool localExecute,
+									SwitcherNodeWrapper *dataNodeMaster,
+									dlist_head *siblingMasters,
+									MemoryContext spiContext,
+									bool complain);
+extern void diffAdbSlotOfDataNodes(SwitcherNodeWrapper *coordinator,
+								   SwitcherNodeWrapper *dataNodeMaster,
+								   dlist_head *siblingMasters,
+								   MemoryContext spiContext,
+								   bool complain);
+extern void beginSwitcherNodeTransaction(SwitcherNodeWrapper *switcherNode,
+										 bool complain);
+extern void commitSwitcherNodeTransaction(SwitcherNodeWrapper *switcherNode,
+										  bool complain);
+extern void rollbackSwitcherNodeTransaction(SwitcherNodeWrapper *switcherNode,
+											bool complain);
 
 #endif /* MGR_SWITCHER_H */
