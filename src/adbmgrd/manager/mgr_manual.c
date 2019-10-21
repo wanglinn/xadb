@@ -576,6 +576,12 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 	ereport(NOTICE, (errmsg("set parameters in postgresql.conf of %s \"%s\"", nodetypestr, nodenamedata.data)));
 	mgr_add_parameters_pgsqlconf(slave_nodeinfo.tupleoid, nodetype, slave_nodeinfo.nodeport, &infosendmsg);
 	mgr_add_parm(nodenamedata.data, nodetype, &infosendmsg);
+	/* special design, same for all gtm pgxc_node_name, the reason is ??? */
+	if (slave_nodeinfo.nodetype == CNDN_TYPE_DATANODE_MASTER ||
+		slave_nodeinfo.nodetype == CNDN_TYPE_DATANODE_SLAVE)
+		mgr_append_pgconf_paras_str_quotastr("pgxc_node_name",
+											 slave_nodeinfo.nodename,
+											 &infosendmsg);
 	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, slave_nodeinfo.nodepath, &infosendmsg, slave_nodeinfo.nodehost, &getAgentCmdRst);
 	if (!getAgentCmdRst.ret)
 	{

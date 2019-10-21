@@ -1413,9 +1413,19 @@ static bool isShutdownTimedout(MonitorNodeInfo *nodeInfo)
 
 static bool isShouldResetConnection(MonitorNodeInfo *nodeInfo)
 {
+	long realHoldConnectionMs;
+	if (nodeInfo->nQueryfails < 1)
+	{
+		realHoldConnectionMs = nodeConfiguration->holdConnectionMs;
+	}
+	else
+	{
+		realHoldConnectionMs = nodeConfiguration->holdConnectionMs *
+							   (1 << Min(nodeInfo->nQueryfails, 8));
+	}
 	return TimestampDifferenceExceeds(nodeInfo->connectTime,
 									  GetCurrentTimestamp(),
-									  nodeConfiguration->holdConnectionMs);
+									  realHoldConnectionMs);
 }
 
 static bool beyondReconnectDelay(MonitorNodeInfo *nodeInfo)
@@ -2137,6 +2147,11 @@ static bool rewindSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 		mgr_add_parm(NameStr(slaveNode->form.nodename),
 					 slaveNode->form.nodetype,
 					 &infosendmsg);
+		/* special design, same for all gtm pgxc_node_name, the reason is ??? */
+		if (isDataNodeMgrNode(slaveNode->form.nodetype))
+			mgr_append_pgconf_paras_str_quotastr("pgxc_node_name",
+												 NameStr(slaveNode->form.nodename),
+												 &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF,
 								 slaveNode->nodepath,
 								 &infosendmsg,
@@ -2477,7 +2492,7 @@ static void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
 		ereport(ERROR,
 				(errmsg("There is no GTM master node in the cluster")));
 	}
-	setCheckGtmInfoInPGSqlConf(gtmMaster, mgrNode, pgConn, true, 10, true);
+	setCheckGtmInfoInPGSqlConf(gtmMaster, mgrNode, pgConn, true, CHECK_GTM_INFO_SECONDS, true);
 	if (gtmMaster)
 		pfreeMgrNodeWrapper(gtmMaster);
 }
