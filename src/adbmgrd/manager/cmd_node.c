@@ -235,6 +235,8 @@ static bool mgr_get_async_slave_readonly_state(List **parms);
 static bool mgr_get_sync_slave_readonly_state(void);
 static bool check_all_cn_sync_slave_is_active(void);
 static bool mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List *datanode_list, List *sync_parms);
+static bool mgr_exec_update_dn_pgxcnode_slave(Form_mgr_node	dn_master_node, Oid master_oid);
+static void mgr_update_da_master_pgxcnode_slave_info(const char* dn_master_name);
 static void check_readsql_slave_param_state(Form_mgr_node cn_master_node, List *sync_parms, char *key, bool *state);
 
 static bool get_local_ip(Name local_ip);
@@ -2057,6 +2059,9 @@ end:
 		|| AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTMCOOR_START_MASTER_BACKEND == cmdtype
 		|| AGT_CMD_GTMCOOR_START_MASTER == cmdtype || AGT_CMD_GTMCOOR_START_SLAVE == cmdtype))
 		mgr_update_cn_pgxcnode_readonlysql_slave(NULL, NULL, NULL);
+
+	if (mgr_node->nodetype == CNDN_TYPE_DATANODE_MASTER && (AGT_CMD_DN_START == cmdtype || AGT_CMD_DN_START_BACKEND == cmdtype || AGT_CMD_DN_RESTART == cmdtype))
+		mgr_update_da_master_pgxcnode_slave_info(cndnname);
 }
 
 /*
@@ -13379,6 +13384,50 @@ mgr_get_gtm_host_snapsender_gxidsender_port(StringInfo infosendmsg)
 	pfree(gtm_host);
 }
 
+static void mgr_update_da_master_pgxcnode_slave_info(const char* dn_master_name)
+{
+	InitNodeInfo	*info;
+	ScanKeyData		ndkey[4];
+	HeapTuple		tuple;
+	Form_mgr_node	dn_master_node;
+
+	info = palloc(sizeof(*info));
+	info->rel_node = heap_open(NodeRelationId, AccessShareLock);	/* open table */
+
+	/* get datanode master info */
+	ScanKeyInit(&ndkey[0]
+			,Anum_mgr_node_nodeinited
+			,BTEqualStrategyNumber
+			,F_BOOLEQ
+			,BoolGetDatum(true));
+	ScanKeyInit(&ndkey[1]
+			,Anum_mgr_node_nodetype
+			,BTEqualStrategyNumber
+			,F_CHAREQ
+			,CharGetDatum(CNDN_TYPE_DATANODE_MASTER));
+	ScanKeyInit(&ndkey[2]
+			,Anum_mgr_node_nodetype
+			,BTEqualStrategyNumber
+			,F_CHAREQ
+			,CharGetDatum(CNDN_TYPE_DATANODE_MASTER));
+	ScanKeyInit(&ndkey[3]
+			,Anum_mgr_node_nodename
+			,BTEqualStrategyNumber
+			,F_NAMEEQ
+			,CStringGetDatum(dn_master_name));
+	info->rel_scan = heap_beginscan_catalog(info->rel_node, 4, ndkey);
+	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+	{
+		dn_master_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(dn_master_node);
+		mgr_exec_update_dn_pgxcnode_slave(dn_master_node, HeapTupleGetOid(tuple));
+		
+	}
+	heap_endscan(info->rel_scan);
+	heap_close(info->rel_node, AccessShareLock);	/* close table */
+	pfree(info);
+}
+
 /* Automatically add read-only standby node information to coordinate */
 bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync, Node *node)
 {
@@ -13581,6 +13630,144 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 				(errmsg("Pgxc_node update not completed on all datanode masters.")));
 	}
 	return true;
+}
+
+/* Execute the update of the pgxc_node table */
+static bool
+mgr_exec_update_dn_pgxcnode_slave(Form_mgr_node	dn_master_node, Oid master_oid)
+{
+	bool			ret_flag;
+	InitNodeInfo	*info;
+	ScanKeyData		ndskey[2];
+	Form_mgr_node	slavenode;
+	HeapTuple		tuple;
+
+	StringInfoData	connStr, execSql, checkSql;
+	PGconn			*conn = NULL;
+	PGresult		*res = NULL;
+	char			*warningMassage = "Failed to write slave node information to pgxc_node table for datanode master";
+
+	ret_flag = false;
+	/* init datanode master connect string */
+	initStringInfo(&connStr);
+	appendStringInfo(&connStr, 
+					"postgresql://%s@%s:%d/%s", 
+					get_hostuser_from_hostoid(dn_master_node->nodehost), 
+					get_hostaddress_from_hostoid(dn_master_node->nodehost), 
+					dn_master_node->nodeport, 
+					DEFAULT_DB);
+	appendStringInfoCharMacro(&connStr, '\0');
+	
+	/* get coordinate connect */
+	conn = PQconnectdb(connStr.data);
+	if (PQstatus(conn) != CONNECTION_OK)
+	{
+		pg_usleep(1 * 1000000L);
+		conn = PQconnectdb(connStr.data);
+		if (PQstatus(conn) != CONNECTION_OK)
+		{
+			PQfinish(conn);
+			pfree(connStr.data);
+			ereport(WARNING, 
+					(errmsg("%s, attempt to link to the node '%s' failed, please confirm that the cluster is running. %s", 
+							warningMassage,
+							dn_master_node->nodename.data, 
+							PQerrorMessage(conn))));
+			return ret_flag;
+		}
+	}
+	pfree(connStr.data);
+	
+	info = palloc(sizeof(*info));
+	info->rel_node = heap_open(NodeRelationId, AccessShareLock);	/* open table */
+	info->lcp = NULL;
+	ScanKeyInit(&ndskey[0]
+			,Anum_mgr_node_nodemasternameoid
+			,BTEqualStrategyNumber
+			,F_OIDEQ
+			,ObjectIdGetDatum(master_oid));
+	ScanKeyInit(&ndskey[1]
+			,Anum_mgr_node_nodetype
+			,BTEqualStrategyNumber
+			,F_CHAREQ
+			,CharGetDatum(CNDN_TYPE_DATANODE_SLAVE));
+
+	/* In read-write separation mode, synchronous slave node is used by default, 
+		* and asynchronous slave node can be used if no synchronous slave node exists. */
+	info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, ndskey);
+
+	initStringInfo(&execSql);
+	initStringInfo(&checkSql);
+	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+	{
+		slavenode = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(slavenode);
+
+		resetStringInfo(&checkSql);
+		appendStringInfo(&checkSql, "select * from pgxc_node where node_master_oid = (select oid from pgxc_node where node_name = '%s');",
+					dn_master_node->nodename.data);
+		res = PQexec(conn, checkSql.data);
+		/* query failed */
+		if (PQresultStatus(res) != PGRES_TUPLES_OK)
+		{
+			PQclear(res);
+			ereport(WARNING, 
+					(errmsg("%s, failed to query pgxc_node in '%s'.", 
+							warningMassage,
+							dn_master_node->nodename.data)));
+			goto exit;
+		}
+	
+		/* Add nonexistent, or update existing */
+		if(PQntuples(res) == 0)
+		{
+			appendStringInfo(&execSql, 
+					"create node %s for %s with(type='datanode slave', host='%s', port=%d);", 
+					slavenode->nodename.data,
+					dn_master_node->nodename.data,
+					get_hostaddress_from_hostoid(slavenode->nodehost),
+					slavenode->nodeport);
+		}
+		else
+		{
+			appendStringInfo(&execSql, 
+					"update pgxc_node set node_name = '%s', node_host = '%s', node_port = %d where node_master_oid = (select oid from pgxc_node where node_name = '%s');",
+					slavenode->nodename.data,
+					get_hostaddress_from_hostoid(slavenode->nodehost),
+					slavenode->nodeport,
+					dn_master_node->nodename.data);
+		}
+		PQclear(res);
+	}
+
+	if (execSql.len > 0)
+	{
+		res = PQexec(conn, execSql.data);
+		if (PQresultStatus(res) != PGRES_COMMAND_OK)
+		{
+			PQclear(res);
+			ereport(WARNING, 
+					(errmsg("%s, Failed to update pgxc_node in '%s'.", 
+							warningMassage,
+							dn_master_node->nodename.data)));
+			goto exit;
+		}
+		PQclear(res);
+		ereport(NOTICE, 
+				(errmsg("Update pgxc_node successfully in '%s'.", 
+						dn_master_node->nodename.data)));
+	}
+	ret_flag = true;
+
+exit:
+	heap_endscan(info->rel_scan);
+	heap_close(info->rel_node, AccessShareLock);	/* close table */
+	pfree(info);
+
+	PQfinish(conn);
+	pfree(checkSql.data);
+	pfree(execSql.data);
+	return ret_flag;
 }
 
 /* Execute the update of the pgxc_node table */
