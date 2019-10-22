@@ -29,7 +29,6 @@
 int snap_receiver_timeout = 60 * 1000L;
 int snap_sender_connect_timeout = 5000L;
 
-#define MAX_LOCK_HOLD	8
 typedef struct SnapHoldLock
 {
 	LOCKTAG		tag;
@@ -1157,7 +1156,7 @@ static void SnapRcvReleaseLock(SnapLockInfo *lock)
 	for (i=0;i<lock->count;++i)
 	{
 		hold = &lock->locks[i];
-		for (mode=1;mode<=MAX_LOCK_HOLD;++mode)
+		for (mode=0;mode<=MAX_LOCKMODES;++mode)
 		{
 			if (hold->holdMask & LOCKBIT_ON(mode))
 				TryReleaseLock(&hold->tag, mode, MyProc);
