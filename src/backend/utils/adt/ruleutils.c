@@ -5845,9 +5845,6 @@ get_target_list(List *targetList, deparse_context *context,
 	char	   *sep;
 	int			colno;
 	ListCell   *l;
-#ifdef ADB
-	bool no_targetlist = true;
-#endif
 
 	/* we use targetbuf to hold each TLE's text temporarily */
 	initStringInfo(&targetbuf);
@@ -5862,12 +5859,6 @@ get_target_list(List *targetList, deparse_context *context,
 
 		if (tle->resjunk)
 			continue;			/* ignore junk entries */
-
-#ifdef ADB
-		/* Found at least one element in the target list */
-		if (no_targetlist)
-			no_targetlist = false;
-#endif
 
 		appendStringInfoString(buf, sep);
 		sep = ", ";
@@ -5971,16 +5962,6 @@ get_target_list(List *targetList, deparse_context *context,
 		appendStringInfoString(buf, targetbuf.data);
 	}
 
-#ifdef ADB
-	/*
-	 * Because the empty target list can generate invalid SQL
-	 * clause. Here, just fill a '*' to process a table without
-	 * any columns, this statement will be sent to Datanodes
-	 * and treated correctly on remote nodes.
-	 */
-	if (no_targetlist)
-		appendStringInfo(buf, " *");
-#endif
 	/* clean up */
 	pfree(targetbuf.data);
 }
