@@ -100,14 +100,25 @@ static void refreshMgrUpdateparmAfterSwitch(MgrNodeWrapper *oldMaster,
 											MgrNodeWrapper *newMaster,
 											MemoryContext spiContext,
 											bool kickOutOldMaster);
-static void refreshPgxcNodesOfCoordinators(SwitcherNodeWrapper *holdLockCoordinator,
+static void refreshPgxcNodesOfCoordinators(SwitcherNodeWrapper *holdLockNode,
 										   dlist_head *coordinators,
 										   SwitcherNodeWrapper *oldMaster,
 										   SwitcherNodeWrapper *newMaster);
-static void refreshPgxcNodesOfSiblingMasters(SwitcherNodeWrapper *holdLockCoordinator,
+static void refreshPgxcNodesOfNewDataNodeMaster(SwitcherNodeWrapper *holdLockNode,
+												SwitcherNodeWrapper *oldMaster,
+												SwitcherNodeWrapper *newMaster,
+												dlist_head *runningSlaves,
+												dlist_head *failedSlaves,
+												bool complain);
+static void refreshPgxcNodesOfSiblingMasters(SwitcherNodeWrapper *holdLockNode,
 											 SwitcherNodeWrapper *oldMaster,
 											 SwitcherNodeWrapper *newMaster,
 											 dlist_head *siblingMasters);
+static void checkCreateDataNodeSlaveOnPgxcNodeOfMaster(PGconn *activeConn,
+													   char *masterNodeName,
+													   bool localExecute,
+													   MgrNodeWrapper *dataNodeSlave,
+													   bool complain);
 static void updateMgrNodeAfterSwitch(MgrNodeWrapper *mgrNode,
 									 char *newCurestatus,
 									 MemoryContext spiContext);
@@ -168,7 +179,7 @@ static bool checkActiveLocks(PGconn *activePGcoon,
 							 MgrNodeWrapper *mgrNode);
 static void checkXlogDiffForSwitchover(SwitcherNodeWrapper *oldMaster,
 									   SwitcherNodeWrapper *newMaster);
-static bool alterPgxcNodeForSwitch(PGconn *activeCoon,
+static bool alterPgxcNodeForSwitch(PGconn *activeConn,
 								   char *executeOnNodeName,
 								   char *oldNodeName, char *newNodeName,
 								   char *host, int32 port, bool complain);
@@ -397,12 +408,12 @@ void switchDataNodeMaster(char *oldMasterName,
 									   oldMaster,
 									   newMaster);
 		/* change pgxc_node on datanode master */
-		newMaster->pgxcNodeChanged =
-			updatePgxcNodeForSwitch(holdLockCoordinator,
-									newMaster,
-									oldMaster,
-									newMaster,
-									true);
+		refreshPgxcNodesOfNewDataNodeMaster(holdLockCoordinator,
+											oldMaster,
+											newMaster,
+											&runningSlaves,
+											&failedSlaves,
+											true);
 		refreshOldMasterAfterSwitch(oldMaster,
 									newMaster,
 									spiContext,
@@ -810,12 +821,12 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 									   oldMaster,
 									   newMaster);
 		/* change pgxc_node on datanode master */
-		newMaster->pgxcNodeChanged =
-			updatePgxcNodeForSwitch(holdLockCoordinator,
-									newMaster,
-									oldMaster,
-									newMaster,
-									true);
+		refreshPgxcNodesOfNewDataNodeMaster(holdLockCoordinator,
+											oldMaster,
+											newMaster,
+											&runningSlaves,
+											&failedSlaves,
+											true);
 		refreshOldMasterAfterSwitchover(oldMaster,
 										newMaster,
 										spiContext);
@@ -2927,7 +2938,7 @@ static void refreshMgrUpdateparmAfterSwitch(MgrNodeWrapper *oldMaster,
 								spiContext);
 }
 
-static void refreshPgxcNodesOfCoordinators(SwitcherNodeWrapper *holdLockCoordinator,
+static void refreshPgxcNodesOfCoordinators(SwitcherNodeWrapper *holdLockNode,
 										   dlist_head *coordinators,
 										   SwitcherNodeWrapper *oldMaster,
 										   SwitcherNodeWrapper *newMaster)
@@ -2943,18 +2954,102 @@ static void refreshPgxcNodesOfCoordinators(SwitcherNodeWrapper *holdLockCoordina
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 		node->pgxcNodeChanged =
-			updatePgxcNodeForSwitch(holdLockCoordinator,
+			updatePgxcNodeForSwitch(holdLockNode,
 									node,
 									oldMaster,
 									newMaster,
 									true);
-		pgxcPoolReloadOnNode(holdLockCoordinator,
+		pgxcPoolReloadOnNode(holdLockNode,
 							 node,
 							 true);
 	}
 }
 
-static void refreshPgxcNodesOfSiblingMasters(SwitcherNodeWrapper *holdLockCoordinator,
+static void checkCreateDataNodeSlaveOnPgxcNodeOfMaster(PGconn *activeConn,
+													   char *masterNodeName,
+													   bool localExecute,
+													   MgrNodeWrapper *dataNodeSlave,
+													   bool complain)
+{
+	char *slaveNodeName;
+
+	slaveNodeName = NameStr(dataNodeSlave->form.nodename);
+	if (nodenameExistsInPgxcNode(activeConn,
+								 masterNodeName,
+								 localExecute,
+								 slaveNodeName,
+								 PGXC_NODE_DATANODESLAVE,
+								 complain))
+	{
+		dropNodeFromPgxcNode(activeConn,
+							 masterNodeName,
+							 localExecute,
+							 slaveNodeName,
+							 complain);
+	}
+	createNodeOnPgxcNode(activeConn,
+						 masterNodeName,
+						 localExecute,
+						 dataNodeSlave,
+						 slaveNodeName,
+						 masterNodeName,
+						 complain);
+}
+
+static void refreshPgxcNodesOfNewDataNodeMaster(SwitcherNodeWrapper *holdLockNode,
+												SwitcherNodeWrapper *oldMaster,
+												SwitcherNodeWrapper *newMaster,
+												dlist_head *runningSlaves,
+												dlist_head *failedSlaves,
+												bool complain)
+{
+	PGconn *activeConn;
+	bool localExecute;
+	char *newMasterNodeName;
+	dlist_iter iter;
+	SwitcherNodeWrapper *node;
+	MgrNodeWrapper copyOfMgrNode;
+
+	Assert(holdLockNode);
+	activeConn = holdLockNode->pgConn;
+	localExecute = holdLockNode == newMaster;
+	newMasterNodeName = NameStr(newMaster->mgrNode->form.nodename);
+
+	updatePgxcNodeForSwitchDataNode(holdLockNode,
+									newMaster,
+									oldMaster,
+									newMaster,
+									complain);
+
+	memcpy(&copyOfMgrNode, oldMaster->mgrNode, sizeof(MgrNodeWrapper));
+	copyOfMgrNode.form.nodetype = getMgrSlaveNodetype(copyOfMgrNode.form.nodetype);
+	checkCreateDataNodeSlaveOnPgxcNodeOfMaster(activeConn,
+											   newMasterNodeName,
+											   localExecute,
+											   &copyOfMgrNode,
+											   complain);
+
+	dlist_foreach(iter, runningSlaves)
+	{
+		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		checkCreateDataNodeSlaveOnPgxcNodeOfMaster(activeConn,
+												   newMasterNodeName,
+												   localExecute,
+												   node->mgrNode,
+												   complain);
+	}
+	dlist_foreach(iter, failedSlaves)
+	{
+		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		checkCreateDataNodeSlaveOnPgxcNodeOfMaster(activeConn,
+												   newMasterNodeName,
+												   localExecute,
+												   node->mgrNode,
+												   complain);
+	}
+}
+
+static void refreshPgxcNodesOfSiblingMasters(SwitcherNodeWrapper *holdLockNode,
 											 SwitcherNodeWrapper *oldMaster,
 											 SwitcherNodeWrapper *newMaster,
 											 dlist_head *siblingMasters)
@@ -2962,7 +3057,6 @@ static void refreshPgxcNodesOfSiblingMasters(SwitcherNodeWrapper *holdLockCoordi
 	dlist_iter iter;
 	SwitcherNodeWrapper *node;
 
-	Assert(holdLockCoordinator);
 	dlist_foreach(iter, siblingMasters)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
@@ -2972,7 +3066,7 @@ static void refreshPgxcNodesOfSiblingMasters(SwitcherNodeWrapper *holdLockCoordi
 						  CURE_STATUS_SWITCHED) == 0)
 		{
 			node->pgxcNodeChanged =
-				updatePgxcNodeForSwitch(holdLockCoordinator,
+				updatePgxcNodeForSwitch(holdLockNode,
 										node,
 										oldMaster,
 										newMaster,
@@ -3195,46 +3289,46 @@ static bool updatePgxcNodeForSwitchDataNode(SwitcherNodeWrapper *holdLockNode,
 											SwitcherNodeWrapper *newNode,
 											bool complain)
 {
-	bool execOk;
-	PGconn *activeCoon;
+	bool execOk = false;
+	PGconn *activeConn;
 	bool localExecute;
 	char *executeOnNodeName;
 
 	if (holdLockNode == NULL)
 	{
-		activeCoon = executeOnNode->pgConn;
+		activeConn = executeOnNode->pgConn;
 		localExecute = true;
 	}
 	else
 	{
-		activeCoon = holdLockNode->pgConn;
+		activeConn = holdLockNode->pgConn;
 		localExecute = holdLockNode == executeOnNode;
 	}
 
 	executeOnNodeName = IS_EMPTY_STRING(NameStr(executeOnNode->pgxcNodeName))
 							? NameStr(executeOnNode->mgrNode->form.nodename)
 							: NameStr(executeOnNode->pgxcNodeName);
-	if (nodenameExistsInPgxcNode(activeCoon,
+	if (nodenameExistsInPgxcNode(activeConn,
 								 executeOnNodeName,
 								 localExecute,
 								 NameStr(newNode->mgrNode->form.nodename),
 								 PGXC_NODE_DATANODESLAVE,
 								 complain))
 	{
-		dropNodeFromPgxcNode(activeCoon,
+		dropNodeFromPgxcNode(activeConn,
 							 executeOnNodeName,
 							 localExecute,
 							 NameStr(newNode->mgrNode->form.nodename),
 							 complain);
 	}
-	if (nodenameExistsInPgxcNode(activeCoon,
+	if (nodenameExistsInPgxcNode(activeConn,
 								 executeOnNodeName,
 								 localExecute,
 								 NameStr(newNode->mgrNode->form.nodename),
 								 (char)0,
 								 complain))
 	{
-		execOk = alterPgxcNodeForSwitch(activeCoon,
+		execOk = alterPgxcNodeForSwitch(activeConn,
 										executeOnNodeName,
 										NameStr(newNode->mgrNode->form.nodename),
 										NameStr(newNode->mgrNode->form.nodename),
@@ -3244,14 +3338,14 @@ static bool updatePgxcNodeForSwitchDataNode(SwitcherNodeWrapper *holdLockNode,
 	}
 	else
 	{
-		if (nodenameExistsInPgxcNode(activeCoon,
+		if (nodenameExistsInPgxcNode(activeConn,
 									 executeOnNodeName,
 									 localExecute,
 									 NameStr(oldNode->mgrNode->form.nodename),
 									 (char)0,
 									 complain))
 		{
-			execOk = alterPgxcNodeForSwitch(activeCoon,
+			execOk = alterPgxcNodeForSwitch(activeConn,
 											executeOnNodeName,
 											NameStr(oldNode->mgrNode->form.nodename),
 											NameStr(newNode->mgrNode->form.nodename),
@@ -3276,17 +3370,17 @@ static bool updatePgxcNodeForSwitchGtmCoord(SwitcherNodeWrapper *holdLockNode,
 											bool complain)
 {
 	bool execOk;
-	PGconn *activeCoon;
+	PGconn *activeConn;
 	char *executeOnNodeName;
 	char *oldNodeName;
 
 	if (holdLockNode)
 	{
-		activeCoon = holdLockNode->pgConn;
+		activeConn = holdLockNode->pgConn;
 	}
 	else
 	{
-		activeCoon = executeOnNode->pgConn;
+		activeConn = executeOnNode->pgConn;
 	}
 	executeOnNodeName = IS_EMPTY_STRING(NameStr(executeOnNode->pgxcNodeName))
 							? NameStr(executeOnNode->mgrNode->form.nodename)
@@ -3295,7 +3389,7 @@ static bool updatePgxcNodeForSwitchGtmCoord(SwitcherNodeWrapper *holdLockNode,
 	oldNodeName = IS_EMPTY_STRING(NameStr(newMaster->pgxcNodeName))
 					  ? NameStr(newMaster->mgrNode->form.nodename)
 					  : NameStr(newMaster->pgxcNodeName);
-	execOk = alterPgxcNodeForSwitch(activeCoon,
+	execOk = alterPgxcNodeForSwitch(activeConn,
 									executeOnNodeName,
 									oldNodeName,
 									NULL,
@@ -3309,24 +3403,24 @@ static bool pgxcPoolReloadOnNode(SwitcherNodeWrapper *holdLockNode,
 								 SwitcherNodeWrapper *executeOnNode,
 								 bool complain)
 {
-	PGconn *activeCoon;
+	PGconn *activeConn;
 	char *executeOnNodeName;
 	bool localExecute;
 
 	if (holdLockNode)
 	{
-		activeCoon = holdLockNode->pgConn;
+		activeConn = holdLockNode->pgConn;
 		localExecute = holdLockNode == executeOnNode;
 	}
 	else
 	{
-		activeCoon = executeOnNode->pgConn;
+		activeConn = executeOnNode->pgConn;
 		localExecute = true;
 	}
 	executeOnNodeName = IS_EMPTY_STRING(NameStr(executeOnNode->pgxcNodeName))
 							? NameStr(executeOnNode->mgrNode->form.nodename)
 							: NameStr(executeOnNode->pgxcNodeName);
-	return exec_pgxc_pool_reload(activeCoon,
+	return exec_pgxc_pool_reload(activeConn,
 								 localExecute,
 								 executeOnNodeName,
 								 complain);
@@ -3792,7 +3886,7 @@ static void checkXlogDiffForSwitchover(SwitcherNodeWrapper *oldMaster,
 						NameStr(newMaster->mgrNode->form.nodename))));
 }
 
-static bool alterPgxcNodeForSwitch(PGconn *activeCoon,
+static bool alterPgxcNodeForSwitch(PGconn *activeConn,
 								   char *executeOnNodeName,
 								   char *oldNodeName, char *newNodeName,
 								   char *host, int32 port, bool complain)
@@ -3815,7 +3909,7 @@ static bool alterPgxcNodeForSwitch(PGconn *activeCoon,
 					 host,
 					 port,
 					 executeOnNodeName);
-	execOk = PQexecCommandSql(activeCoon, sql.data, false);
+	execOk = PQexecCommandSql(activeConn, sql.data, false);
 	pfree(sql.data);
 	if (execOk)
 	{

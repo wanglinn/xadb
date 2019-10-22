@@ -2283,7 +2283,7 @@ static void prepareRewindMgrNode(RewindMgrNodeObject *rewindObject,
 		tryUpdateMgrNodeCurestatus(masterNode, CURE_STATUS_SWITCHED, spiContext);
 	}
 
-	/* set master node postgresql.conf wal_log_hints, full_page_writes if necessary */
+	/* set slave node postgresql.conf wal_log_hints, full_page_writes if necessary */
 	if (checkSetRewindNodeParamter(slaveNode, rewindObject->slavePGconn))
 	{
 		PQfinish(rewindObject->slavePGconn);

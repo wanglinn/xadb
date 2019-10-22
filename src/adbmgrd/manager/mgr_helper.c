@@ -2696,7 +2696,7 @@ end:
 	return res;
 }
 
-bool dropNodeFromPgxcNode(PGconn *activeCoon,
+bool dropNodeFromPgxcNode(PGconn *activeConn,
 						  char *executeOnNodeName,
 						  bool localExecute,
 						  char *nodeName,
@@ -2712,7 +2712,7 @@ bool dropNodeFromPgxcNode(PGconn *activeCoon,
 		sql = psprintf("drop node \"%s\" on (\"%s\");",
 					   nodeName,
 					   executeOnNodeName);
-	execOk = PQexecCommandSql(activeCoon, sql, false);
+	execOk = PQexecCommandSql(activeConn, sql, false);
 	pfree(sql);
 	if (execOk)
 	{
@@ -2731,14 +2731,15 @@ bool dropNodeFromPgxcNode(PGconn *activeCoon,
 	return execOk;
 }
 
-bool createNodeOnPgxcNode(PGconn *activeCoon,
+bool createNodeOnPgxcNode(PGconn *activeConn,
 						  char *executeOnNodeName,
 						  bool localExecute,
 						  MgrNodeWrapper *mgrNode,
 						  char *pgxcNodeName,
+						  char *masterNodeName,
 						  bool complain)
 {
-	char *sql;
+	StringInfoData sql;
 	bool execOk;
 	char *type;
 	bool is_gtm = false;
@@ -2769,34 +2770,29 @@ bool createNodeOnPgxcNode(PGconn *activeCoon,
 						mgrNode->form.nodetype)));
 		return false;
 	}
-	if (localExecute)
-	{
-		sql = psprintf("CREATE NODE \"%s\" with (TYPE='%s', HOST='%s', PORT=%d, GTM=%d);",
-					   pgxcNodeName ? pgxcNodeName : NameStr(mgrNode->form.nodename),
-					   type,
-					   mgrNode->host->hostaddr,
-					   mgrNode->form.nodeport,
-					   is_gtm);
-	}
-	else
+	pgxcNodeName = pgxcNodeName ? pgxcNodeName : NameStr(mgrNode->form.nodename);
+	initStringInfo(&sql);
+	appendStringInfo(&sql, "CREATE NODE \"%s\" ", pgxcNodeName);
+	if (masterNodeName)
+		appendStringInfo(&sql, "FOR \"%s\" ", masterNodeName);
+	appendStringInfo(&sql, "with (TYPE='%s', HOST='%s', PORT=%d, GTM=%d) ",
+					 type,
+					 mgrNode->host->hostaddr,
+					 mgrNode->form.nodeport,
+					 is_gtm);
+	if (!localExecute)
 	{
 		Assert(executeOnNodeName);
-		sql = psprintf("CREATE NODE \"%s\" with (TYPE='%s', HOST='%s', PORT=%d, GTM=%d) on (\"%s\");",
-					   pgxcNodeName ? pgxcNodeName : NameStr(mgrNode->form.nodename),
-					   type,
-					   mgrNode->host->hostaddr,
-					   mgrNode->form.nodeport,
-					   is_gtm,
-					   executeOnNodeName);
+		appendStringInfo(&sql, "on (\"%s\") ",
+						 executeOnNodeName);
 	}
-
-	execOk = PQexecCommandSql(activeCoon, sql, complain);
-	if (sql)
-		pfree(sql);
+	appendStringInfo(&sql, "; ");
+	execOk = PQexecCommandSql(activeConn, sql.data, complain);
+	pfree(sql.data);
 	return execOk;
 }
 
-bool alterNodeOnPgxcNode(PGconn *activeCoon,
+bool alterNodeOnPgxcNode(PGconn *activeConn,
 						 char *executeOnNodeName,
 						 bool localExecute,
 						 char *oldNodeName,
@@ -2826,12 +2822,12 @@ bool alterNodeOnPgxcNode(PGconn *activeCoon,
 						 "on (\"%s\") ",
 						 executeOnNodeName);
 	}
-	execOk = PQexecCommandSql(activeCoon, sql.data, complain);
+	execOk = PQexecCommandSql(activeConn, sql.data, complain);
 	pfree(sql.data);
 	return execOk;
 }
 
-bool nodenameExistsInPgxcNode(PGconn *activeCoon,
+bool nodenameExistsInPgxcNode(PGconn *activeConn,
 							  char *executeOnNodeName,
 							  bool localExecute,
 							  char *nodeName,
@@ -2871,7 +2867,7 @@ bool nodenameExistsInPgxcNode(PGconn *activeCoon,
 		}
 		appendStringInfo(&sql, " ;'");
 	}
-	exists = PQexecCountSql(activeCoon, sql.data, complain) > 0;
+	exists = PQexecCountSql(activeConn, sql.data, complain) > 0;
 	pfree(sql.data);
 	return exists;
 }
@@ -3037,42 +3033,6 @@ void cleanMgrNodesOnCoordinator(dlist_head *mgrNodes,
 							  true,
 							  NameStr(executeOnNodeName),
 							  complain);
-	}
-}
-
-void compareAndCreateMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
-										  char *pgxcNodeName,
-										  MgrNodeWrapper *coordinator,
-										  PGconn *coordConn,
-										  bool localExecute,
-										  char *executeOnNodeName,
-										  bool complain)
-{
-
-	if (nodenameExistsInPgxcNode(coordConn,
-								 executeOnNodeName,
-								 localExecute,
-								 pgxcNodeName ? pgxcNodeName : NameStr(mgrNode->form.nodename),
-								 getMappedPgxcNodetype(mgrNode->form.nodetype),
-								 complain))
-	{
-		ereport(LOG,
-				(errmsg("%s already exist in table pgxc_node of %s, skip",
-						NameStr(mgrNode->form.nodename),
-						NameStr(coordinator->form.nodename))));
-	}
-	else
-	{
-		createNodeOnPgxcNode(coordConn,
-							 executeOnNodeName,
-							 localExecute,
-							 mgrNode,
-							 pgxcNodeName,
-							 complain);
-		ereport(LOG,
-				(errmsg("create %s in table pgxc_node of %s, successed",
-						NameStr(mgrNode->form.nodename),
-						NameStr(coordinator->form.nodename))));
 	}
 }
 

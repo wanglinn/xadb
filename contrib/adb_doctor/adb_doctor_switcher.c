@@ -1267,7 +1267,7 @@ static void getCheckMgrNodesForSwitcher(dlist_head *nodes)
 	if (dlist_is_empty(nodes))
 	{
 		ereport(ERROR,
-				(errmsg("%s There is no node to switch",
+				(errmsg("%s there are no nodes that need to perform master/slave switching",
 						MyBgworkerEntry->bgw_name)));
 	}
 }
