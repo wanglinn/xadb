@@ -335,20 +335,6 @@ xact_desc(StringInfo buf, XLogReaderState *record)
 		appendStringInfo(buf, "xtop %u: ", xlrec->xtop);
 		xact_desc_assignment(buf, xlrec);
 	}
-#if defined(ADB) || defined(AGTM)
-	else if (info == XLOG_XACT_XID_ASSIGNMENT)
-	{
-		int i;
-		xl_xid_assignment *xlrec = (xl_xid_assignment *) rec;
-
-		appendStringInfo(buf, "%s xids: %u",
-						xlrec->assign ? "assigned" : "unassigned",
-						xlrec->xids[0]);
-
-		for (i = 1; i < xlrec->nxids; i++)
-			appendStringInfo(buf, ", %u", xlrec->xids[i]);
-	}
-#endif
 }
 
 const char *
@@ -376,11 +362,6 @@ xact_identify(uint8 info)
 		case XLOG_XACT_ASSIGNMENT:
 			id = "ASSIGNMENT";
 			break;
-#ifdef AGTM
-		case XLOG_XACT_XID_ASSIGNMENT:
-			id = "XID_ASSIGNMENT";
-			break;
-#endif
 	}
 
 	return id;

@@ -296,14 +296,6 @@ DecodeXactOp(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
 			 */
 			ReorderBufferProcessXid(reorder, XLogRecGetXid(r), buf->origptr);
 			break;
-#ifdef AGTM
-		case XLOG_XACT_XID_ASSIGNMENT:
-			/*
-			 * ADBQ
-			 * What to do? How to do?
-			 */
-			break;
-#endif
 		default:
 			elog(ERROR, "unexpected RM_XACT_ID record type: %u", info);
 	}

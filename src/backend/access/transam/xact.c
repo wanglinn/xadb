@@ -6649,17 +6649,6 @@ xact_redo(XLogReaderState *record)
 			ProcArrayApplyXidAssignment(xlrec->xtop,
 										xlrec->nsubxacts, xlrec->xsub);
 	}
-#if defined(ADB) || defined(AGTM)
-	else if (info == XLOG_XACT_XID_ASSIGNMENT)
-	{
-		xl_xid_assignment	*xlrec = (xl_xid_assignment *) XLogRecGetData(record);
-
-		if (xlrec->assign)
-			ProcAssignedXids(xlrec->nxids, xlrec->xids);
-		else
-			ProcUnassignedXids(xlrec->nxids, xlrec->xids);
-	}
-#endif
 	else
 		elog(PANIC, "xact_redo: unknown op code %u", info);
 }
