@@ -178,9 +178,6 @@ extern bool TransactionIdDidCommitGTM(TransactionId transactionId, bool try_gtm)
 #endif /* ADB */
 
 /* in transam/varsup.c */
-#if defined(AGTM)
-extern void AdjustTransactionId(TransactionId least_xid);
-#endif
 #ifdef ADB
 extern void SetGlobalTransactionId(GlobalTransactionId gxid);
 extern void UnsetGlobalTransactionId(void);

@@ -10379,16 +10379,6 @@ transaction_mode_item:
 			| NOT DEFERRABLE
 					{ $$ = makeDefElem("transaction_deferrable",
 									   makeIntConst(false, @1), @1); }
-			/* for AGTM: LEAST XID IS Iconst */
-			| LEAST ColLabel IS Iconst
-			{
-#ifdef AGTM
-				if (strcmp($2, "xid") == 0)
-					$$ = makeDefElem("least_xid_is", makeIntConst($4, @4), @1);
-				else
-#endif
-					ereport_pos($2, @2);
-			}
 		;
 
 /* Syntax with commas is SQL-spec, without commas is Postgres historical */

@@ -57,52 +57,6 @@ static bool ForceObtainXidFromAGTM = false;
 /* pointer to "variable cache" in shared memory (set up by shmem.c) */
 VariableCache ShmemVariableCache = NULL;
 
-#if defined(AGTM)
-/*
- * It is used to save previous "nextXid" after AdjustTransactionId
- * adjust it. and [prev_nextXid, nextXid) will be recorded as unassigned
- * xids xlog, see XLogRecordXidAssignment.
- *
- * Caller must hold XidGenLock in exclusive mode when change it just like
- * "ShmemVariableCache->nextXid".
- */
-static TransactionId prev_nextXid = InvalidTransactionId;
-
-/*
- * AdjustTransactionId
- *
- * make sure next xid from AGTM is bigger than the caller's.
- */
-void
-AdjustTransactionId(TransactionId least_xid)
-{
-	/*
-	 * First time to check nextXid.
-	 */
-	if (TransactionIdPrecedes(ShmemVariableCache->nextXid, least_xid))
-	{
-		LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-
-		/*
-		 * Check it again after we acquire an execluse lock.
-		 */
-		if (TransactionIdPrecedes(ShmemVariableCache->nextXid, least_xid))
-		{
-#ifdef DEBUG_ADB
-			adb_ereport(LOG,
-				(errmsg("AGTM adjust nextXid from %u to %u",
-				 ShmemVariableCache->nextXid, least_xid)));
-#endif
-			prev_nextXid = ShmemVariableCache->nextXid;
-			ShmemVariableCache->nextXid = least_xid;
-		}
-
-		LWLockRelease(XidGenLock);
-	}
-}
-
-#endif
-
 #ifdef ADB
 void
 SetGlobalTransactionId(GlobalTransactionId gxid)
