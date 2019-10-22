@@ -1122,6 +1122,7 @@ static dsa_area* SnapRcvGetLockArea(void)
 			{
 				lock_area = dsa_create(LWTRANCHE_SNAPSHOT_RECEIVER_DSA);
 				SnapRcv->handle_lock_info = dsa_get_handle(lock_area);
+				dsa_pin(lock_area);
 			}else
 			{
 				handle = SnapRcv->handle_lock_info;
