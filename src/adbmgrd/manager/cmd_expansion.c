@@ -15,6 +15,7 @@
 #include "catalog/mgr_updateparm.h"
 #include "catalog/mgr_parm.h"
 #include "catalog/pg_type.h"
+#include "catalog/pgxc_node.h"
 #include "commands/defrem.h"
 #include "fmgr.h"
 #include "mgr/mgr_cmds.h"
@@ -2959,7 +2960,11 @@ static void hexp_init_dn_pgxcnode_check(Form_mgr_node mgr_node, char* cnpath)
 
 
 		//check pgxc_node has one item
-		res = PQexec(dn_pg_conn,  SELECT_COUNT_FROM_PGXC_NODE);
+		sprintf(sql, 
+				"select count(*) from pgxc_node where node_type='%c' or node_type = '%c' ;",
+				PGXC_NODE_COORDINATOR, /* this is the initial value */
+				PGXC_NODE_DATANODE);
+		res = PQexec(dn_pg_conn,  sql);
 		status = PQresultStatus(res);
 		switch(status)
 		{
