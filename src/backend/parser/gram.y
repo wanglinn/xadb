@@ -11113,6 +11113,15 @@ CreateNodeStmt: CREATE NODE pgxcnode_name OptWith
 					n->options = $6;
 					$$ = (Node *)n;
 				}
+			|	CREATE NODE pgxcnode_name FOR pgxcnode_name OptWith ON '(' pgxcnode_list ')'
+				{
+					CreateNodeStmt *n = makeNode(CreateNodeStmt);
+					n->node_name = $3;
+					n->node_mastername = $5;
+					n->options = $6;
+					n->node_list = $9;
+					$$ = (Node *)n;
+				}
 		;
 
 pgxcnode_name:

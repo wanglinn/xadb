@@ -906,8 +906,8 @@ PgxcNodeRemoveLocal(DropNodeStmt *stmt)
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
 				 errmsg("PGXC Node %s: object not defined",
 						node_name)));
-
-	if (strcmp(node_name, PGXCNodeName) == 0)
+	if (strcmp(node_name, PGXCNodeName) == 0 && 
+		get_pgxc_nodetype(noid) != PGXC_NODE_DATANODESLAVE)
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("PGXC Node %s: cannot drop local node",
