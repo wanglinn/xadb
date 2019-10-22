@@ -8,7 +8,6 @@
 #include "access/hash.h"
 #include "access/htup_details.h"
 #include "access/xact.h"
-#include "agtm/agtm_client.h"
 #include "catalog/pgxc_node.h"
 #include "commands/dbcommands.h"
 #include "libpq/pqformat.h"

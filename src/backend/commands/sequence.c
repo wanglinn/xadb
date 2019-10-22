@@ -271,32 +271,6 @@ IsTempSequence(Oid relid)
 {
 	return get_rel_persistence(relid) == RELPERSISTENCE_TEMP;
 }
-
-void
-register_sequence_cb(Relation rel, AGTM_SequenceKeyType key, AGTM_SequenceDropType type)
-{
-	switch(type)
-	{
-		case AGTM_DROP_SEQ:
-			{
-				char * seqName = NULL;
-				char * databaseName = NULL;
-				char * schemaName = NULL;
-
-				seqName = RelationGetRelationName(rel);
-				databaseName = get_database_name(rel->rd_node.dbNode);
-				schemaName = get_namespace_name(RelationGetNamespace(rel));
-
-				agtm_DropSequence(seqName, databaseName, schemaName);
-				break;
-			}
-		case AGTM_CREATE_SEQ:
-			break;
-		default:
-			break;
-	}
-
-}
 #endif
 
 /*
@@ -559,25 +533,6 @@ AlterSequence(ParseState *pstate, AlterSeqStmt *stmt)
 	heap_close(rel, RowExclusiveLock);
 	relation_close(seqrel, NoLock);
 
-#ifdef ADB
-	/*
-	 * Remote Coordinator is in charge of create sequence in AGTM
-	 * If sequence is temporary, no need to go through GTM.
-	 */
-	/*if (IsCnMaster() &&
-		!IsGTMNode() &&
-		!RelationUsesLocalBuffers(seqrel))
-	{
-		char * databaseName = NULL;
-		char * schemaName = NULL;
-
-		databaseName = get_database_name(seqrel->rd_node.dbNode);
-		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
-
-		agtm_AlterSequence(RelationGetRelationName(seqrel), databaseName,
-			schemaName, seqOptions);
-	}*/
-#endif
 	return address;
 }
 
@@ -1205,7 +1160,6 @@ setval3_oid(PG_FUNCTION_ARGS)
 		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
 
 		set_seqnextval_from_gtmcorrd(seqName, databaseName, schemaName, next);
-		//agtm_SetSeqValCalled(seqName, databaseName, schemaName, next, iscalled);
 		relation_close(seqrel, NoLock);
 
 		pfree(databaseName);
@@ -2115,15 +2069,6 @@ seq_redo(XLogReaderState *record)
 void
 ResetSequenceCaches(void)
 {
-#ifdef ADB
-	/*if (IsCnMaster())
-		agtm_ResetSequenceCaches();
-	else
-	{
-		PreventCommandIfReadOnly("DISCARD SEQUENCES");
-	}*/
-#endif
-
 	if (seqhashtab)
 	{
 		hash_destroy(seqhashtab);

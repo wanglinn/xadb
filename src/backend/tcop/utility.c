@@ -821,8 +821,6 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 #endif
 
 #ifdef ADB
-				//if (IsCnMaster() && !IsGTMNode())
-					//agtms_DropSequenceByDataBase(stmt->dbname);
 				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 			}
@@ -1437,26 +1435,6 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 						utilityContext.is_temp = is_temp;
 						ExecRemoteUtilityStmt(&utilityContext);
 					}
-
-					/* execute alter sequecne (set schema)	on agtm */
-					/*if (stmt->objectType == OBJECT_SEQUENCE)
-					{
-						Relation	targetrelation;
-						char		*seqName = NULL;
-						char		*databaseName = NULL;
-						char		*schemaName = NULL;
-
-						targetrelation = relation_open(oid, AccessExclusiveLock);
-
-						seqName = RelationGetRelationName(targetrelation);
-						databaseName = get_database_name(targetrelation->rd_node.dbNode);
-						schemaName = get_namespace_name(RelationGetNamespace(targetrelation));
-
-						agtm_RenameSequence(seqName, databaseName,
-							schemaName, stmt->newschema, T_RENAME_SCHEMA);
-
-						relation_close(targetrelation, NoLock);
-					}*/
 				}
 #endif
 

@@ -2503,25 +2503,4 @@ static void CreateRecentGTMSnapshot(void)
 	}
 }
 
-Snapshot GetRecentGTMSnapshot(bool refurbish)
-{
-	if (RecentGTMSnapshot == NULL)
-	{
-		CreateRecentGTMSnapshot();
-		Assert(RecentGTMSnapshot != NULL);
-		refurbish = true;
-	}
-
-	if (refurbish)
-	{
-		if (!IsUnderAGTM())
-		{
-			ereport(ERROR,
-					(errmsg("Can not refurbish GTM snapshot, because not under AGTM")));
-		}
-		agtm_GetGlobalSnapShot(RecentGTMSnapshot);
-	}
-
-	return RecentGTMSnapshot;
-}
 #endif /* ADB */

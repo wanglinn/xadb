@@ -1088,8 +1088,8 @@ RenameDatabase(const char *oldname, const char *newname)
 	CatalogTupleUpdate(rel, &newtup->t_self, newtup);
 
 #ifdef ADB
-	if (IsCnMaster())
-		agtm_RenameSeuqneceByDataBase(oldname, newname);
+	//if (IsCnMaster())
+		//agtm_RenameSeuqneceByDataBase(oldname, newname);
 #endif
 
 	InvokeObjectPostAlterHook(DatabaseRelationId, db_id, 0);

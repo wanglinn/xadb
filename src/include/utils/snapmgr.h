@@ -116,7 +116,6 @@ extern void UnsetGlobalSnapshot(void);
 extern Snapshot GetGlobalSnapshot(Snapshot snapshot);
 extern Snapshot
 GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin, TransactionId* xmax, int *count);
-extern Snapshot GetRecentGTMSnapshot(bool refurbish);
 #endif
 
 #endif							/* SNAPMGR_H */

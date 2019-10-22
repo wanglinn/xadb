@@ -68,7 +68,6 @@ typedef enum
 extern bool IsTempSequence(Oid relid);
 extern char *GetGlobalSeqName(Relation seqrel, const char *new_seqname, const char *new_schemaname);
 extern void GetSequenceInfoByName(Relation seqrel, char ** dbname, char ** schemaName);
-extern void register_sequence_cb(Relation  rel, AGTM_SequenceKeyType key, AGTM_SequenceDropType type);
 #endif
 
 extern ObjectAddress DefineSequence(ParseState *pstate, CreateSeqStmt *stmt);

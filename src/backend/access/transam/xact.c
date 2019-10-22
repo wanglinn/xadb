@@ -67,7 +67,6 @@
 
 #ifdef ADB
 #include "agtm/agtm.h"
-#include "agtm/agtm_client.h"
 #include "executor/clusterReceiver.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
@@ -2391,7 +2390,7 @@ EndCommitRemoteXact(TransactionState state)
 	if (ClusterOwnerXactSectionCount > 0
 		&& IsCnMaster())
 	{
-		agtm_CommitTransaction(NULL, true);
+		//agtm_CommitTransaction(NULL, true);
 		return;
 	}
 
@@ -2400,7 +2399,7 @@ EndCommitRemoteXact(TransactionState state)
 
 	if (IS_PGXC_DATANODE && GetForceXidFromAGTM())
 	{
-		agtm_CommitTransaction(NULL, true);
+		//agtm_CommitTransaction(NULL, true);
 		return ;
 	}
 
@@ -3076,13 +3075,13 @@ NormalAbortRemoteXact(TransactionState state)
 	if (ClusterOwnerXactSectionCount > 0
 		&& IsCnMaster())
 	{
-		agtm_AbortTransaction(NULL, true, true);
+		//agtm_AbortTransaction(NULL, true, true);
 		return;
 	}
 
 	if (IS_PGXC_DATANODE && GetForceXidFromAGTM())
 	{
-		agtm_CommitTransaction(NULL, true);
+		//agtm_CommitTransaction(NULL, true);
 		return ;
 	}
 
@@ -3128,13 +3127,13 @@ UnexpectedAbortRemoteXact(TransactionState state)
 	if (ClusterOwnerXactSectionCount > 0
 		&& IsCnMaster())
 	{
-		agtm_AbortTransaction(NULL, true, true);
+		//agtm_AbortTransaction(NULL, true, true);
 		return;
 	}
 
 	if (IS_PGXC_DATANODE && GetForceXidFromAGTM())
 	{
-		agtm_CommitTransaction(NULL, true);
+		//agtm_CommitTransaction(NULL, true);
 		return ;
 	}
 

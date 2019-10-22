@@ -85,7 +85,6 @@
 #include "access/rxact_mgr.h"
 #include "access/transam.h"
 #include "agtm/agtm.h"
-#include "agtm/agtm_client.h"
 #include "catalog/adb_ha_sync_log.h"
 #include "catalog/pg_class.h"
 #include "commands/copy.h"
@@ -279,7 +278,7 @@ static void
 DataNodeShutdown (int code, Datum arg)
 {
 	/* Close connection with AGTM, if active */
-	agtm_Close();
+	//agtm_Close();
 }
 #endif
 
@@ -5269,8 +5268,8 @@ PostgresMain(int argc, char *argv[],
 
 					ereport(DEBUG1, (errmsg("Received AGTM listen port: %d", listen_port)));
 
-					if (IS_PGXC_DATANODE || IsCnCandidate())
-						agtm_SetPort(listen_port);
+					//if (IS_PGXC_DATANODE || IsCnCandidate())
+						//agtm_SetPort(listen_port);
 					sprintf(cmd_msg, "%d", listen_port);
 					EndCommand(cmd_msg, whereToSendOutput);
 				}

@@ -23,7 +23,6 @@
 #include "access/twophase.h"
 #include "access/xact.h"
 #include "agtm/agtm.h"
-#include "agtm/agtm_client.h"
 #include "datatype/timestamp.h"
 #include "intercomm/inter-comm.h"
 #include "libpq-fe.h"
@@ -1110,7 +1109,7 @@ AbortPreparedRxact(const char *gid,
 		InterXactAbort(gid, nodes, nnodes, isMissingOK, true);
 
 		/* rollback prepared on AGTM */
-		agtm_AbortTransaction(gid, isMissingOK, false);
+		//agtm_AbortTransaction(gid, isMissingOK, false);
 	} PG_CATCH();
 	{
 		/* record failed log */

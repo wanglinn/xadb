@@ -448,43 +448,6 @@ performMultipleDeletions(const ObjectAddresses *objects,
  * performRename: used to rename objects
  * on AGTM depending on another object(s)
  */
-#if 0
-static void
-doRename(const ObjectAddress *object, const char *oldname, const char *newname)
-{
-	switch (getObjectClass(object))
-	{
-		case OCLASS_CLASS:
-		{
-			 char		 relKind = get_rel_relkind(object->objectId);
-
-			 /*
-			  * If we are here, a schema is being renamed, a sequence depends on it.
-			  * as sequences' global name use the schema name, this sequence
-			  * has also to be renamed on GTM.
-			  * An operation with GTM can just be done from a remote Coordinator.
-			  */
-			 if (relKind == RELKIND_SEQUENCE && IsCnMaster() &&
-				 !IsTempSequence(object->objectId))
-			 {
-				 Relation relseq = relation_open(object->objectId, AccessShareLock);
-
-				 char *seqName = RelationGetRelationName(relseq);
-				 char * databaseName = get_database_name(relseq->rd_node.dbNode);
-				 agtm_RenameSequence(seqName, databaseName, oldname, newname, T_RENAME_SCHEMA);
-
-				 if(databaseName)
-					 pfree(databaseName);
-				 relation_close(relseq, AccessShareLock);
-			 }
-	 	}
-		default:
-		 	/* Nothing to do, this object has not to be renamed, end of the story... */
-			 break;
-	}
-}
-#endif
-
 extern void performRenameSchema(const ObjectAddress *object,
 								   const char *oldname, const char *newname)
 {
@@ -1281,7 +1244,7 @@ doDeletion(const ObjectAddress *object, int flags)
 							 * of the transaction block. In case this transaction fails,
 							 * all the data remains intact on AGTM.
 							 */
-							 register_sequence_cb(relseq, AGTM_SEQ_FULL_NAME, AGTM_DROP_SEQ);
+							 //register_sequence_cb(relseq, AGTM_SEQ_FULL_NAME, AGTM_DROP_SEQ);
 
 							 /* Then close the relation opened previously */
 							 relation_close(relseq, AccessShareLock);

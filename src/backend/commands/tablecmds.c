@@ -3609,23 +3609,6 @@ RenameRelationInternal(Oid myrelid, const char *newrelname, bool is_internal)
 			RenameConstraintById(constraintId, newrelname);
 	}
 
-#ifdef ADB
-	if (IsCnMaster() &&
-		(targetrelation->rd_rel->reltype == OBJECT_SEQUENCE ||
-		 targetrelation->rd_rel->relkind == RELKIND_SEQUENCE) &&
-		!IsTempSequence(myrelid)) /* It is possible to rename a sequence with ALTER TABLE */
-		{
-		/*	char * seqName = NULL;
-			char * databaseName = NULL;
-			char * schemaName = NULL;
-
-			seqName = RelationGetRelationName(targetrelation);
-			databaseName = get_database_name(targetrelation->rd_node.dbNode);
-			schemaName = get_namespace_name(RelationGetNamespace(targetrelation));
-			agtm_RenameSequence(seqName, databaseName, schemaName, newrelname, T_RENAME_SEQUENCE);*/
-		}
-#endif
-
 	/*
 	 * Close rel, but keep exclusive lock!
 	 */
@@ -14562,21 +14545,6 @@ AlterSeqNamespaces(Relation classRel, Relation rel,
 		 */
 		AlterTypeNamespaceInternal(RelationGetForm(seqRel)->reltype,
 								   newNspOid, false, false, objsMoved);
-#ifdef ADB
-		if(IsCnMaster())
-		{
-			/*char * seqName = NULL;
-			char * databaseName = NULL;
-			char * schemaName = NULL;
-			char * schemaNewName = NULL;
-
-			seqName = RelationGetRelationName(seqRel);
-			databaseName = get_database_name(seqRel->rd_node.dbNode);
-			schemaName = get_namespace_name(RelationGetNamespace(seqRel));
-			schemaNewName = get_namespace_name(newNspOid);
-			agtm_RenameSequence(seqName, databaseName, schemaName, schemaNewName, T_RENAME_SCHEMA);*/
-	   }
-#endif
 		/* Now we can close it.  Keep the lock till end of transaction. */
 		relation_close(seqRel, NoLock);
 	}

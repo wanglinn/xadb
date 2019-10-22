@@ -26,7 +26,6 @@
 #include "access/sysattr.h"
 #include "access/xact.h"
 #include "agtm/agtm.h"
-#include "agtm/agtm_client.h"
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_node.h"
 #include "commands/prepare.h"
@@ -895,7 +894,7 @@ PGXCNodeCleanAndRelease(int code, Datum arg)
 	PoolManagerDisconnect();
 
 	/* Close connection with AGTM */
-	agtm_Close();
+	//agtm_Close();
 }
 
 /*

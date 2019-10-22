@@ -33,7 +33,6 @@
 
 #ifdef ADB
 #include "access/xact.h"
-#include "agtm/agtm_client.h"
 #include "utils/dynamicreduce.h"	/* for StopDynamicReduceWorker() */
 #endif
 
@@ -200,9 +199,9 @@ proc_exit_prepare(int code)
 	debug_query_string = NULL;
 
 #ifdef ADB
-	agtm_Close();
-	SetTopXactBeginAGTM(false);
-	agtm_SetDefaultPort();
+	//agtm_Close();
+	//SetTopXactBeginAGTM(false);
+	//agtm_SetDefaultPort();
 	StopDynamicReduceWorker();
 #endif
 

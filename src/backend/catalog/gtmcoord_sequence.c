@@ -3,7 +3,6 @@
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/printtup.h"
-#include "catalog/agtm_sequence.h"
 #include "catalog/pg_sequence.h"
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
@@ -21,6 +20,8 @@
 #include "utils/ps_status.h"
 #include "utils/memutils.h"
 #include "libpq/pqformat.h"
+
+static Oid SequenceSystemClassOid(char* schema, char* sequencename);
 
 static	void parse_seqFullName_to_details(StringInfo message, char ** dbName, 
 							char ** schemaName, char ** sequenceName)
@@ -165,7 +166,7 @@ ProcessSetSeqCommand(StringInfo message, StringInfo output)
 	return output;
 }
 
-Oid SequenceSystemClassOid(char* schema, char* sequencename)
+static Oid SequenceSystemClassOid(char* schema, char* sequencename)
 {
 	RangeVar   *sequence;
 	Oid			relid;

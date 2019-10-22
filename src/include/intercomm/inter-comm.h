@@ -42,7 +42,6 @@ typedef struct InterXactStateData *InterXactState;
 /* src/backend/intercomm/inter-comm.c */
 extern List *OidArraryToList(MemoryContext context, Oid *oids, int noids);
 extern Oid *OidListToArrary(MemoryContext context, List *oid_list, int *noids);
-extern void ClusterSyncXid(void);
 extern char *HandleGetError(NodeHandle *handle);
 extern char *HandleCopyError(NodeHandle *handle);
 extern void HandleGC(NodeHandle *handle);

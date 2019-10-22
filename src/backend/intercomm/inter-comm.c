@@ -91,65 +91,6 @@ OidListToArrary(MemoryContext context, List *oid_list, int *noids)
 }
 
 /*
- * ClusterSyncXid
- *
- * we want to make the whole cluster node to synchronize
- * the next xid with AGTM.
- */
-void
-ClusterSyncXid(void)
-{
-	NodeMixHandle	   *cur_handle;
-	NodeHandle		   *handle;
-	ListCell		   *lc_handle;
-	List			   *node_list;
-	bool				error_occured;
-	const char		   *query = "select * from sync_local_xid()";
-
-	/* only master coordinator can do this */
-	if (!IsCnMaster())
-		return ;
-
-	node_list = GetAllNodeIDL(false);
-	if (node_list == NIL || list_length(node_list) < 1)
-		return ;
-	cur_handle = GetMixedHandles(node_list, NULL);
-	Assert(list_length(node_list) == list_length(cur_handle->handles));
-	list_free(node_list);
-
-	PG_TRY();
-	{
-		error_occured = false;
-		foreach (lc_handle, cur_handle->handles)
-		{
-			handle = (NodeHandle *) lfirst(lc_handle);
-			if (!HandleSendQueryTree(handle, InvalidCommandId, InvalidSnapshot, query, NULL) ||
-				!HandleFinishCommand(handle, NULL_TAG))
-			{
-				error_occured = true;
-				ereport(WARNING,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("Fail to send query: \"%s\"", query),
-						 errnode(NameStr(handle->node_name)),
-						 errdetail("%s", HandleGetError(handle))));
-			}
-		}
-
-		if (error_occured)
-			ereport(WARNING,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Fail to synchronize the whole cluster next xid."),
-					 errhint("You are better to select sync_local_xid() manually.")));
-
-		HandleListGC(cur_handle->handles);
-	} PG_CATCH();
-	{
-		HandleListGC(cur_handle->handles);
-		PG_RE_THROW();
-	} PG_END_TRY();
-}
-
-/*
  * Construct a BEGIN TRANSACTION command after taking into account the
  * current options. The returned string is not palloced and is valid only until
  * the next call to the function.
