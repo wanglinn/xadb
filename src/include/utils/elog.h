@@ -14,10 +14,6 @@
 #ifndef ELOG_H
 #define ELOG_H
 
-#if defined(ADB) || defined(ADBMGRD) || defined(AGTM)
-#include "lib/stringinfo.h"
-#endif
-
 #include <setjmp.h>
 
 #ifdef DEBUG_ADB
@@ -227,9 +223,6 @@ extern int	geterrcode(void);
 extern int	geterrposition(void);
 extern int	getinternalerrposition(void);
 
-#if defined(ADB) || defined(ADBMGRD) || defined(AGTM)
-extern void geterrmsg(StringInfo buf);
-#endif
 #ifdef ADB
 extern int errnode(const char *node);
 #define errnode_gtm()		errnode("agtm")

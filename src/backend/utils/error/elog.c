@@ -1303,24 +1303,6 @@ getinternalerrposition(void)
 	return edata->internalpos;
 }
 
-#if defined(ADB) || defined(ADBMGRD) || defined(AGTM)
-void
-geterrmsg(StringInfo buf)
-{
-    ErrorData  *edata = &errordata[errordata_stack_depth];
-
-    /* we don't bother incrementing recursion_depth */
-	CHECK_STACK_DEPTH();
-
-    if (edata->message)
-		appendStringInfo(buf, "%s", edata->message);
-	if (edata->detail)
-		appendStringInfo(buf, "\n%s", edata->detail);
-	if (edata->hint)
-		appendStringInfo(buf, "\n%s", edata->hint);
-}
-#endif
-
 #ifdef ADB
 int errnode(const char *node)
 {
