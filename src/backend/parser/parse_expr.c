@@ -1129,10 +1129,38 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 								  lengthof(from));
 			if (to != NULL)
 			{
+				int typmod;
 				if (from[0] != to[0])
-					lexpr = coerce_to_common_type(pstate, lexpr, to[0], name);
+				{
+					if (to[0] == to[1] &&
+						to[0] == from[1])
+					{
+						typmod = exprTypmod(rexpr);
+					}else if ((typmod = getTypeTypmod(to[0])) == -1)
+					{
+						(void)getBaseTypeAndTypmod(to[0], &typmod);
+					}
+
+					lexpr = coerce_to_target_type(pstate, lexpr, from[0], to[0], typmod,
+												  COERCION_EXPLICIT,
+												  COERCE_EXPLICIT_CAST,
+												  -1);
+				}
 				if (from[1] != to[1])
-					rexpr = coerce_to_common_type(pstate, rexpr, to[1], name);
+				{
+					if (to[1] == to[0] &&
+						to[1] == from[0])
+					{
+						typmod = exprTypmod(lexpr);
+					}else if ((typmod = getTypeTypmod(to[1])) == -1)
+					{
+						(void)getBaseTypeAndTypmod(to[1], &typmod);
+					}
+					rexpr = coerce_to_target_type(pstate, rexpr, from[1], to[1], typmod,
+												  COERCION_EXPLICIT,
+												  COERCE_EXPLICIT_CAST,
+												  -1);
+				}
 				pfree(to);
 			}
 		}
