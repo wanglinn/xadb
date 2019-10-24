@@ -134,3 +134,42 @@ CREATE CAST (oracle.rid AS bpchar) WITH INOUT AS IMPLICIT;
 
 CREATE CAST (bpchar AS oracle.rid) WITH INOUT AS IMPLICIT;
 
+/* COPY "type1 + type2 AS type3 + type3" TO "type2 + type1 AS type3 + type3" */
+INSERT INTO ora_convert
+  SELECT 'o','+',CAST(concat(cvtfrom[1], ' ', cvtfrom[0]) AS oidvector),cvtto
+  FROM ora_convert
+  WHERE cvtkind='o' AND cvtname = '+' AND cvtto[0] = cvtto[1] AND cvtfrom[0] != cvtfrom[1];
+
+/* COPY "type1 + type2 AS type3 + type3" TO "type1 - type2 AS type3 + type3"
+   COPY "type1 + type2 AS type3 + type3" TO "type1 * type2 AS type3 + type3"
+   COPY "type1 + type2 AS type3 + type3" TO "type1 / type2 AS type3 + type3" */
+INSERT INTO ora_convert
+  SELECT 'o', unnest('{-,*,/}'::name[]), cvtfrom, cvtto
+  FROM ora_convert
+  WHERE cvtkind='o' AND cvtname = '+' AND cvtto[0] = cvtto[1];
+
+/* COPY "type1 + date AS type2 + date" TO "date + type1 AS date + type2" */
+INSERT INTO ora_convert
+  SELECT 'o', '+',
+    cast(concat(cvtfrom[1], ' ', cvtfrom[0]) as oidvector),
+    cast(concat(cvtto[1], ' ', cvtto[0]) as oidvector)
+  FROM ora_convert
+  WHERE cvtkind = 'o' AND cvtname = '+' AND 'oracle.date'::regtype = ANY(cvtto);
+
+/* COPY "type1 + date AS type2 + date" TO "type1 - date AS type2 - date" */
+INSERT INTO ora_convert
+  SELECT 'o', '-', cvtfrom, cvtto
+  FROM ora_convert
+  WHERE cvtkind = 'o' AND cvtname = '+' AND 'oracle.date'::regtype = ANY(cvtto);
+
+/* >, >=, <, <=, <> and != from = */
+INSERT INTO ora_convert
+  SELECT 'o', unnest('{>, >=, <, <=, <>, !=}'::name[]), cvtfrom, cvtto
+  FROM ora_convert
+  WHERE cvtkind = 'o' AND cvtname = '=';
+
+/* common combin */
+INSERT INTO ora_convert
+  SELECT 'c', '', CAST(concat(cvtfrom[1], ' ', cvtfrom[0]) AS oidvector), cvtto
+  FROM ora_convert
+  WHERE cvtkind = 'c' AND cvtname = '';
