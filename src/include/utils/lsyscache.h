@@ -173,6 +173,9 @@ extern Oid	get_typcollation(Oid typid);
 extern bool type_is_collatable(Oid typid);
 extern Oid	getBaseType(Oid typid);
 extern Oid	getBaseTypeAndTypmod(Oid typid, int32 *typmod);
+#ifdef ADB_GRAM_ORA
+extern int getTypeTypmod(Oid typid);
+#endif
 #ifdef ADB
 extern Oid	get_pgxc_nodeoid(const char *nodename);
 extern char	get_pgxc_nodetype(Oid nodeid);

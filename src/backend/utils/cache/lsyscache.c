@@ -2392,6 +2392,24 @@ getBaseTypeAndTypmod(Oid typid, int32 *typmod)
 	return typid;
 }
 
+#ifdef ADB_GRAM_ORA
+int getTypeTypmod(Oid typid)
+{
+	HeapTuple	tup;
+	Form_pg_type typTup;
+	int			typmod;
+
+	tup = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));
+	if (!HeapTupleIsValid(tup))
+		elog(ERROR, "cache lookup failed for type %u", typid);
+	typTup = (Form_pg_type) GETSTRUCT(tup);
+	typmod = typTup->typtypmod;
+	ReleaseSysCache(tup);
+
+	return typmod;
+}
+#endif /* ADB_GRAM_ORA */
+
 /*
  * get_typavgwidth
  *
