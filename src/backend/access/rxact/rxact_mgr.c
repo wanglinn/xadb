@@ -2187,6 +2187,9 @@ void CheckPointRxact(int flags)
 	if(!IS_PGXC_COORDINATOR || !IsUnderPostmaster || (flags & CHECKPOINT_END_OF_RECOVERY))
 		return;
 
+	if (RecoveryInProgress())
+		return;
+
 	connect_rxact(false);
 	Assert(rxact_client_fd != PGINVALID_SOCKET);
 

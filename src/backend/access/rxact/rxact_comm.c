@@ -131,7 +131,10 @@ rxact_connect(void)
 		strlen(unix_addr.sun_path) + 1;
 
 	if (connect(fd, (struct sockaddr *) & unix_addr, len) < 0)
+	{
+		close(fd);
 		return -1;
+	}
 
 	return fd;
 #else
