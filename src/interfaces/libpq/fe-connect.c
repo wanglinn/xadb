@@ -1780,7 +1780,6 @@ connectDBStart(PGconn *conn)
 	 * a bit of a cheat, but PQconnectPoll will advance it to 0 before
 	 * anything else looks at it.)
 	 */
-#warning "version set droped from here, change code please. see f6f735f78d9e05b757c96b036dfd31b1f9f77312"
 	conn->whichhost = -1;
 	conn->try_next_addr = false;
 	conn->try_next_host = true;
@@ -2210,7 +2209,6 @@ keep_going:						/* We will come back to here until there is
 		else
 #endif
 		conn->pversion = PG_PROTOCOL(3, 0);
-
 		conn->send_appname = true;
 #ifdef USE_SSL
 		/* initialize these values based on SSL mode */
