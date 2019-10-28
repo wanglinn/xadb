@@ -900,7 +900,7 @@ ldelete:;
 		result = heap_delete(resultRelationDesc, tupleid,
 							 estate->es_output_cid,
 							 estate->es_crosscheck_snapshot,
-							 ADB_ONLY_ARG(estate->es_snapshot)
+							 ADB_ONLY_ARG_COMMA(estate->es_snapshot)
 							 true /* wait for commit */ ,
 							 &hufd,
 							 changingPart);
@@ -1533,7 +1533,7 @@ lreplace:;
 		result = heap_update(resultRelationDesc, tupleid, tuple,
 							 estate->es_output_cid,
 							 estate->es_crosscheck_snapshot,
-							 ADB_ONLY_ARG(estate->es_snapshot)
+							 ADB_ONLY_ARG_COMMA(estate->es_snapshot)
 							 true /* wait for commit */ ,
 							 &hufd, &lockmode);
 		switch (result)

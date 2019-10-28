@@ -306,7 +306,7 @@ static void pgss_ExecutorEnd(QueryDesc *queryDesc);
 static void pgss_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 					ProcessUtilityContext context, ParamListInfo params,
 					QueryEnvironment *queryEnv,
-					DestReceiver *dest, ADB_ONLY_ARG(bool sentToRemote) char *completionTag);
+					DestReceiver *dest, ADB_ONLY_ARG_COMMA(bool sentToRemote) char *completionTag);
 static uint64 pgss_hash_string(const char *str, int len);
 static void pgss_store(const char *query, uint64 queryId,
 		   int query_location, int query_len,
@@ -1080,11 +1080,11 @@ pgss_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 		if (prev_ProcessUtility)
 			prev_ProcessUtility(pstmt, queryString,
 								context, params, queryEnv,
-								dest, ADB_ONLY_ARG(sentToRemote) completionTag);
+								dest, ADB_ONLY_ARG_COMMA(sentToRemote) completionTag);
 		else
 			standard_ProcessUtility(pstmt, queryString,
 									context, params, queryEnv,
-									dest, ADB_ONLY_ARG(sentToRemote) completionTag);
+									dest, ADB_ONLY_ARG_COMMA(sentToRemote) completionTag);
 	}
 }
 

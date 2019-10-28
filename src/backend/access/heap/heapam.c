@@ -3121,7 +3121,7 @@ xmax_infomask_changed(uint16 new_infomask, uint16 old_infomask)
  */
 HTSU_Result
 heap_delete(Relation relation, ItemPointer tid,
-			CommandId cid, Snapshot crosscheck, ADB_ONLY_ARG(Snapshot globalcheck) bool wait,
+			CommandId cid, Snapshot crosscheck, ADB_ONLY_ARG_COMMA(Snapshot globalcheck) bool wait,
 			HeapUpdateFailureData *hufd, bool changingPart)
 {
 	HTSU_Result result;
@@ -3541,7 +3541,7 @@ simple_heap_delete(Relation relation, ItemPointer tid)
 
 	result = heap_delete(relation, tid,
 						 GetCurrentCommandId(true), InvalidSnapshot,
-						 ADB_ONLY_ARG(InvalidSnapshot)
+						 ADB_ONLY_ARG_COMMA(InvalidSnapshot)
 						 true /* wait for commit */ ,
 						 &hufd, false /* changingPart */ );
 	switch (result)
@@ -3600,7 +3600,7 @@ simple_heap_delete(Relation relation, ItemPointer tid)
  */
 HTSU_Result
 heap_update(Relation relation, ItemPointer otid, HeapTuple newtup,
-			CommandId cid, Snapshot crosscheck, ADB_ONLY_ARG(Snapshot globalcheck) bool wait,
+			CommandId cid, Snapshot crosscheck, ADB_ONLY_ARG_COMMA(Snapshot globalcheck) bool wait,
 			HeapUpdateFailureData *hufd, LockTupleMode *lockmode)
 {
 	HTSU_Result result;
@@ -4711,7 +4711,7 @@ simple_heap_update(Relation relation, ItemPointer otid, HeapTuple tup)
 	LockTupleMode lockmode;
 
 	result = heap_update(relation, otid, tup,
-						 GetCurrentCommandId(true), InvalidSnapshot, ADB_ONLY_ARG(InvalidSnapshot)
+						 GetCurrentCommandId(true), InvalidSnapshot, ADB_ONLY_ARG_COMMA(InvalidSnapshot)
 						 true /* wait for commit */ ,
 						 &hufd, &lockmode);
 	switch (result)

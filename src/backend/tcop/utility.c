@@ -417,7 +417,7 @@ ProcessUtility(PlannedStmt *pstmt,
 	if (ProcessUtility_hook)
 		(*ProcessUtility_hook) (pstmt, queryString,
 								context, params, queryEnv,
-								dest, ADB_ONLY_ARG(sentToRemote) completionTag);
+								dest, ADB_ONLY_ARG_COMMA(sentToRemote) completionTag);
 #ifdef ADBMGRD
 	else if(IsMgrNode(pstmt->utilityStmt))
 		mgr_ProcessUtility(pstmt, queryString, context, params, queryEnv, dest, completionTag);
@@ -425,7 +425,7 @@ ProcessUtility(PlannedStmt *pstmt,
 	else
 		standard_ProcessUtility(pstmt, queryString,
 								context, params, queryEnv,
-								dest, ADB_ONLY_ARG(sentToRemote) completionTag);
+								dest, ADB_ONLY_ARG_COMMA(sentToRemote) completionTag);
 }
 
 /*
@@ -1271,7 +1271,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsObjectType(stmt->objtype))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2_COMMA(this_query_str, sentToRemote) completionTag);
 				else
 					ExecuteGrantStmt(stmt);
 			}
@@ -1284,7 +1284,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsObjectType(stmt->removeType))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2_COMMA(this_query_str, sentToRemote) completionTag);
 				else
 					ExecDropStmt(stmt, isTopLevel ADB_ONLY_COMMA_ARG2(this_query_str, sentToRemote));
 			}
@@ -1337,7 +1337,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsObjectType(stmt->renameType))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2_COMMA(this_query_str, sentToRemote) completionTag);
 				else
 					ExecRenameStmt(stmt);
 			}
@@ -1390,7 +1390,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsObjectType(stmt->objectType))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2_COMMA(this_query_str, sentToRemote) completionTag);
 				else
 					ExecAlterObjectDependsStmt(stmt, NULL);
 			}
@@ -1444,7 +1444,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsObjectType(stmt->objectType))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2_COMMA(this_query_str, sentToRemote) completionTag);
 				else
 					ExecAlterObjectSchemaStmt(stmt, NULL);
 			}
@@ -1457,7 +1457,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsObjectType(stmt->objectType))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2_COMMA(this_query_str, sentToRemote) completionTag);
 				else
 					ExecAlterOwnerStmt(stmt);
 
@@ -1474,7 +1474,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsObjectType(stmt->objtype))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2_COMMA(this_query_str, sentToRemote) completionTag);
 				else
 					CommentObject(stmt);
 #ifdef ADB
@@ -1501,7 +1501,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				if (EventTriggerSupportsObjectType(stmt->objtype))
 					ProcessUtilitySlow(pstate, pstmt, queryString,
 									   context, params, queryEnv,
-									   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
+									   dest, ADB_ONLY_ARG2_COMMA(this_query_str, sentToRemote) completionTag);
 				else
 					ExecSecLabelStmt(stmt);
 				break;
@@ -1539,7 +1539,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			/* All other statement types have event trigger support */
 			ProcessUtilitySlow(pstate, pstmt, queryString,
 							   context, params, queryEnv,
-							   dest, ADB_ONLY_ARG2(this_query_str, sentToRemote) completionTag);
+							   dest, ADB_ONLY_ARG2_COMMA(this_query_str, sentToRemote) completionTag);
 			break;
 	}
 

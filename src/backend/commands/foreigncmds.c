@@ -1628,7 +1628,7 @@ ImportForeignSchema(ImportForeignSchemaStmt *stmt)
 			ProcessUtility(pstmt,
 						   cmd,
 						   PROCESS_UTILITY_SUBCOMMAND, NULL, NULL,
-						   None_Receiver, ADB_ONLY_ARG(true) NULL);
+						   None_Receiver, ADB_ONLY_ARG_COMMA(true) NULL);
 
 			/* Be sure to advance the command counter between subcommands */
 			CommandCounterIncrement();

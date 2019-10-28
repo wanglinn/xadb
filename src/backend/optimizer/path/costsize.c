@@ -2485,7 +2485,7 @@ initial_cost_nestloop(PlannerInfo *root, JoinCostWorkspace *workspace,
 void
 final_cost_nestloop(PlannerInfo *root, NestPath *path,
 					JoinCostWorkspace *workspace,
-					ADB_ONLY_ARG(double *rows)
+					ADB_ONLY_ARG_COMMA(double *rows)
 					JoinPathExtraData *extra)
 {
 	Path	   *outer_path = path->outerjoinpath;
@@ -2933,7 +2933,7 @@ initial_cost_mergejoin(PlannerInfo *root, JoinCostWorkspace *workspace,
 void
 final_cost_mergejoin(PlannerInfo *root, MergePath *path,
 					 JoinCostWorkspace *workspace,
-					 ADB_ONLY_ARG(double *rows)
+					 ADB_ONLY_ARG_COMMA(double *rows)
 					 JoinPathExtraData *extra)
 {
 	Path	   *outer_path = path->jpath.outerjoinpath;
@@ -3386,7 +3386,7 @@ initial_cost_hashjoin(PlannerInfo *root, JoinCostWorkspace *workspace,
 void
 final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 					JoinCostWorkspace *workspace,
-					ADB_ONLY_ARG(double *rows)
+					ADB_ONLY_ARG_COMMA(double *rows)
 					JoinPathExtraData *extra)
 {
 	Path	   *outer_path = path->jpath.outerjoinpath;

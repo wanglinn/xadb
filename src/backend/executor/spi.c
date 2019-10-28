@@ -2115,7 +2115,7 @@ _SPI_pgxc_prepare_plan(const char *src, List *src_parsetree, SPIPlanPtr plan ADB
 		 */
 		plansource = CreateCachedPlan(parsetree,
 									  src,
-									  ADB_ONLY_ARG(NULL)
+									  ADB_ONLY_ARG_COMMA(NULL)
 									  CreateCommandTag(parsetree->stmt));
 #ifdef ADB_MULTI_GRAM
 		plansource->grammar = grammar;
