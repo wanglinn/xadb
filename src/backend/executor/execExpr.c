@@ -1522,10 +1522,11 @@ ExecInitExprRec(Expr *node, ExprState *state,
 				/*
 				 * Read from location identified by innermost_caseval.  Note
 				 * that innermost_caseval could be NULL, if this node isn't
-				 * actually within a CASE structure; some parts of the system
-				 * abuse CaseTestExpr to cause a read of a value externally
-				 * supplied in econtext->caseValue_datum.  We'll take care of
-				 * that scenario at runtime.
+				 * actually within a CaseExpr, ArrayCoerceExpr, etc structure.
+				 * That can happen because some parts of the system abuse
+				 * CaseTestExpr to cause a read of a value externally supplied
+				 * in econtext->caseValue_datum.  We'll take care of that
+				 * scenario at runtime.
 				 */
 				scratch.opcode = EEOP_CASE_TESTVAL;
 				scratch.d.casetest.value = state->innermost_caseval;
@@ -2975,7 +2976,6 @@ ExecBuildAggTrans(AggState *aggstate, AggStatePerPhase phase,
 	for (transno = 0; transno < aggstate->numtrans; transno++)
 	{
 		AggStatePerTrans pertrans = &aggstate->pertrans[transno];
-		int			numInputs = pertrans->numInputs;
 		int			argno;
 		int			setno;
 		FunctionCallInfo trans_fcinfo = &pertrans->transfn_fcinfo;
@@ -3149,7 +3149,7 @@ ExecBuildAggTrans(AggState *aggstate, AggStatePerPhase phase,
 				argno++;
 			}
 		}
-		Assert(numInputs == argno);
+		Assert(pertrans->numInputs == argno);
 
 		/*
 		 * For a strict transfn, nothing happens when there's a NULL input; we
@@ -3161,12 +3161,12 @@ ExecBuildAggTrans(AggState *aggstate, AggStatePerPhase phase,
 #ifdef ADB_EXT
 			 pertrans->numKeepCols > 0 ||
 #endif
-			 numInputs > 0))
+			 pertrans->numTransInputs > 0))
 		{
 			scratch.opcode = EEOP_AGG_STRICT_INPUT_CHECK;
 			scratch.d.agg_strict_input_check.nulls = strictnulls;
 			scratch.d.agg_strict_input_check.jumpnull = -1; /* adjust later */
-			scratch.d.agg_strict_input_check.nargs = numInputs;
+			scratch.d.agg_strict_input_check.nargs = pertrans->numTransInputs;
 			ExprEvalPushStep(state, &scratch);
 			adjust_bailout = lappend_int(adjust_bailout,
 										 state->steps_len - 1);

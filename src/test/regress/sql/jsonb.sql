@@ -663,6 +663,13 @@ SELECT * FROM jsonb_populate_recordset(row('def',99,NULL)::jbpop,'[{"a":[100,200
 -- anonymous record type
 SELECT jsonb_populate_recordset(null::record, '[{"x": 0, "y": 1}]');
 SELECT jsonb_populate_recordset(row(1,2), '[{"f1": 0, "f2": 1}]');
+SELECT i, jsonb_populate_recordset(row(i,50), '[{"f1":"42"},{"f2":"43"}]')
+FROM (VALUES (1),(2)) v(i);
+
+-- empty array is a corner case
+SELECT jsonb_populate_recordset(null::record, '[]');
+SELECT jsonb_populate_recordset(row(1,2), '[]');
+SELECT * FROM jsonb_populate_recordset(NULL::jbpop,'[]') q;
 
 -- composite domain
 SELECT jsonb_populate_recordset(null::jb_ordered_pair, '[{"x": 0, "y": 1}]');
@@ -701,6 +708,13 @@ select * from jsonb_to_record('{"ia": [[1], [2, 3]]}') as x(ia _int4);
 select * from jsonb_to_record('{"ia2": [1, 2, 3]}') as x(ia2 int[][]);
 select * from jsonb_to_record('{"ia2": [[1, 2], [3, 4]]}') as x(ia2 int4[][]);
 select * from jsonb_to_record('{"ia2": [[[1], [2], [3]]]}') as x(ia2 int4[][]);
+
+select * from jsonb_to_record('{"out": {"key": 1}}') as x(out json);
+select * from jsonb_to_record('{"out": [{"key": 1}]}') as x(out json);
+select * from jsonb_to_record('{"out": "{\"key\": 1}"}') as x(out json);
+select * from jsonb_to_record('{"out": {"key": 1}}') as x(out jsonb);
+select * from jsonb_to_record('{"out": [{"key": 1}]}') as x(out jsonb);
+select * from jsonb_to_record('{"out": "{\"key\": 1}"}') as x(out jsonb);
 
 -- test type info caching in jsonb_populate_record()
 CREATE TEMP TABLE jsbpoptest (js jsonb);

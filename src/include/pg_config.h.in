@@ -152,6 +152,18 @@
    don't. */
 #undef HAVE_DECL_F_FULLFSYNC
 
+/* Define to 1 if you have the declaration of
+   `LLVMCreateGDBRegistrationListener', and to 0 if you don't. */
+#undef HAVE_DECL_LLVMCREATEGDBREGISTRATIONLISTENER
+
+/* Define to 1 if you have the declaration of
+   `LLVMCreatePerfJITEventListener', and to 0 if you don't. */
+#undef HAVE_DECL_LLVMCREATEPERFJITEVENTLISTENER
+
+/* Define to 1 if you have the declaration of `LLVMGetHostCPUFeatures', and to
+   0 if you don't. */
+#undef HAVE_DECL_LLVMGETHOSTCPUFEATURES
+
 /* Define to 1 if you have the declaration of `LLVMGetHostCPUName', and to 0
    if you don't. */
 #undef HAVE_DECL_LLVMGETHOSTCPUNAME
@@ -159,14 +171,6 @@
 /* Define to 1 if you have the declaration of `LLVMOrcGetSymbolAddressIn', and
    to 0 if you don't. */
 #undef HAVE_DECL_LLVMORCGETSYMBOLADDRESSIN
-
-/* Define to 1 if you have the declaration of `LLVMOrcRegisterGDB', and to 0
-   if you don't. */
-#undef HAVE_DECL_LLVMORCREGISTERGDB
-
-/* Define to 1 if you have the declaration of `LLVMOrcRegisterPerf', and to 0
-   if you don't. */
-#undef HAVE_DECL_LLVMORCREGISTERPERF
 
 /* Define to 1 if you have the declaration of `posix_fadvise', and to 0 if you
    don't. */
@@ -246,20 +250,21 @@
 /* Define to 1 if you have __atomic_compare_exchange_n(int *, int *, int). */
 #undef HAVE_GCC__ATOMIC_INT32_CAS
 
-/* Define to 1 if you have __atomic_compare_exchange_n(int64 *, int *, int64).
-   */
+/* Define to 1 if you have __atomic_compare_exchange_n(int64 *, int64 *,
+   int64). */
 #undef HAVE_GCC__ATOMIC_INT64_CAS
 
 /* Define to 1 if you have __sync_lock_test_and_set(char *) and friends. */
 #undef HAVE_GCC__SYNC_CHAR_TAS
 
-/* Define to 1 if you have __sync_compare_and_swap(int *, int, int). */
+/* Define to 1 if you have __sync_val_compare_and_swap(int *, int, int). */
 #undef HAVE_GCC__SYNC_INT32_CAS
 
 /* Define to 1 if you have __sync_lock_test_and_set(int *) and friends. */
 #undef HAVE_GCC__SYNC_INT32_TAS
 
-/* Define to 1 if you have __sync_compare_and_swap(int64 *, int64, int64). */
+/* Define to 1 if you have __sync_val_compare_and_swap(int64 *, int64, int64).
+   */
 #undef HAVE_GCC__SYNC_INT64_CAS
 
 /* Define to 1 if you have the `getaddrinfo' function. */
@@ -690,6 +695,9 @@
 /* Define to 1 if the system has the type `unsigned long long int'. */
 #undef HAVE_UNSIGNED_LONG_LONG_INT
 
+/* Define to 1 if you have the `uselocale' function. */
+#undef HAVE_USELOCALE
+
 /* Define to 1 if you have the `utime' function. */
 #undef HAVE_UTIME
 
@@ -755,6 +763,9 @@
 
 /* Define to 1 if your compiler understands __builtin_unreachable. */
 #undef HAVE__BUILTIN_UNREACHABLE
+
+/* Define to 1 if you have the `_configthreadlocale' function. */
+#undef HAVE__CONFIGTHREADLOCALE
 
 /* Define to 1 if you have __cpuid. */
 #undef HAVE__CPUID
@@ -868,7 +879,7 @@
 /* Define to 1 if you have the ANSI C header files. */
 #undef STDC_HEADERS
 
-/* Define to 1 if strerror_r() returns a int. */
+/* Define to 1 if strerror_r() returns int. */
 #undef STRERROR_R_INT
 
 /* Define to 1 if your <sys/time.h> declares `struct tm'. */

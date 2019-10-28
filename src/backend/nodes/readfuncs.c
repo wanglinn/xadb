@@ -29,6 +29,7 @@
 #include <math.h>
 
 #include "fmgr.h"
+#include "miscadmin.h"
 #include "nodes/extensible.h"
 #include "nodes/parsenodes.h"
 #include "nodes/plannodes.h"
@@ -1383,6 +1384,15 @@ _readRangeTblEntry(void)
 			break;
 		case RTE_TABLEFUNC:
 			READ_NODE_FIELD(tablefunc);
+			/* The RTE must have a copy of the column type info, if any */
+			if (local_node->tablefunc)
+			{
+				TableFunc  *tf = local_node->tablefunc;
+
+				local_node->coltypes = tf->coltypes;
+				local_node->coltypmods = tf->coltypmods;
+				local_node->colcollations = tf->colcollations;
+			}
 			break;
 		case RTE_VALUES:
 			READ_NODE_FIELD(values_lists);
@@ -1634,7 +1644,7 @@ _readAppend(void)
 	READ_NODE_FIELD(appendplans);
 	READ_INT_FIELD(first_partial_plan);
 	READ_NODE_FIELD(partitioned_rels);
-	READ_NODE_FIELD(part_prune_infos);
+	READ_NODE_FIELD(part_prune_info);
 
 	READ_DONE();
 }
@@ -1926,6 +1936,21 @@ _readCteScan(void)
 
 	READ_INT_FIELD(ctePlanId);
 	READ_INT_FIELD(cteParam);
+
+	READ_DONE();
+}
+
+/*
+ * _readNamedTuplestoreScan
+ */
+static NamedTuplestoreScan *
+_readNamedTuplestoreScan(void)
+{
+	READ_LOCALS(NamedTuplestoreScan);
+
+	ReadCommonScan(&local_node->scan);
+
+	READ_STRING_FIELD(enrname);
 
 	READ_DONE();
 }
@@ -2357,6 +2382,17 @@ _readPartitionPruneInfo(void)
 {
 	READ_LOCALS(PartitionPruneInfo);
 
+	READ_NODE_FIELD(prune_infos);
+	READ_BITMAPSET_FIELD(other_subplans);
+
+	READ_DONE();
+}
+
+static PartitionedRelPruneInfo *
+_readPartitionedRelPruneInfo(void)
+{
+	READ_LOCALS(PartitionedRelPruneInfo);
+
 	READ_OID_FIELD(reloid);
 	READ_NODE_FIELD(pruning_steps);
 	READ_BITMAPSET_FIELD(present_parts);
@@ -2368,6 +2404,8 @@ _readPartitionPruneInfo(void)
 	READ_BOOL_FIELD(do_initial_prune);
 	READ_BOOL_FIELD(do_exec_prune);
 	READ_BITMAPSET_FIELD(execparamids);
+	READ_NODE_FIELD(initial_pruning_steps);
+	READ_NODE_FIELD(exec_pruning_steps);
 
 	READ_DONE();
 }
@@ -2674,6 +2712,9 @@ parseNodeString(void)
 
 	READ_TEMP_LOCALS();
 
+	/* Guard against stack overflow due to overly complex expressions */
+	check_stack_depth();
+
 	token = pg_strtok(&length);
 
 #define MATCH(tokname, namelen) \
@@ -2851,6 +2892,8 @@ parseNodeString(void)
 		return_value = _readTableFuncScan();
 	else if (MATCH("CTESCAN", 7))
 		return_value = _readCteScan();
+	else if (MATCH("NAMEDTUPLESTORESCAN", 19))
+		return_value = _readNamedTuplestoreScan();
 	else if (MATCH("WORKTABLESCAN", 13))
 		return_value = _readWorkTableScan();
 	else if (MATCH("FOREIGNSCAN", 11))
@@ -2895,6 +2938,8 @@ parseNodeString(void)
 		return_value = _readPlanRowMark();
 	else if (MATCH("PARTITIONPRUNEINFO", 18))
 		return_value = _readPartitionPruneInfo();
+	else if (MATCH("PARTITIONEDRELPRUNEINFO", 23))
+		return_value = _readPartitionedRelPruneInfo();
 	else if (MATCH("PARTITIONPRUNESTEPOP", 20))
 		return_value = _readPartitionPruneStepOp();
 	else if (MATCH("PARTITIONPRUNESTEPCOMBINE", 25))

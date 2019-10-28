@@ -123,7 +123,7 @@ typedef struct ExprState
  *
  *		NumIndexAttrs		total number of columns in this index
  *		NumIndexKeyAttrs	number of key columns in index
- *		KeyAttrNumbers		underlying-rel attribute numbers used as keys
+ *		IndexAttrNumbers	underlying-rel attribute numbers used as keys
  *							(zeroes indicate expressions). It also contains
  * 							info about included columns.
  *		Expressions			expr trees for expression entries, or NIL if none
@@ -141,6 +141,7 @@ typedef struct ExprState
  *		Concurrent			are we doing a concurrent index build?
  *		BrokenHotChain		did we detect any broken HOT chains?
  *		ParallelWorkers		# of workers requested (excludes leader)
+ *		Am					Oid of index AM
  *		AmCache				private cache area for index AM
  *		Context				memory context holding this IndexInfo
  *
@@ -596,9 +597,14 @@ typedef struct EState
 	 * JIT information. es_jit_flags indicates whether JIT should be performed
 	 * and with which options.  es_jit is created on-demand when JITing is
 	 * performed.
+	 *
+	 * es_jit_combined_instr is the the combined, on demand allocated,
+	 * instrumentation from all workers. The leader's instrumentation is kept
+	 * separate, and is combined on demand by ExplainPrintJITSummary().
 	 */
 	int			es_jit_flags;
 	struct JitContext *es_jit;
+	struct JitInstrumentation *es_jit_worker_instr;
 } EState;
 
 
@@ -704,7 +710,7 @@ typedef struct TupleHashTableData
 	/* The following fields are set transiently for each table search: */
 	TupleTableSlot *inputslot;	/* current input tuple's slot */
 	FmgrInfo   *in_hash_funcs;	/* hash functions for input datatype(s) */
-	ExprState  *cur_eq_func;	/* comparator for for input vs. table */
+	ExprState  *cur_eq_func;	/* comparator for input vs. table */
 	uint32		hash_iv;		/* hash-function IV */
 	ExprContext *exprcontext;	/* expression context */
 }			TupleHashTableData;
@@ -956,6 +962,9 @@ typedef struct PlanState
 	List	   *list_cluster_instrument;
 #endif /* ADB */
 
+	/* Per-worker JIT instrumentation */
+	struct SharedJitInstrumentation *worker_jit_instrument;
+
 	/*
 	 * Common structural data for all Plan types.  These links to subsidiary
 	 * state trees parallel links in the associated plan tree (except for the
@@ -1110,7 +1119,7 @@ typedef struct ModifyTableState
  *		nplans				how many plans are in the array
  *		whichplan			which plan is being executed (0 .. n-1), or a
  *							special negative value. See nodeAppend.c.
- *		pruningstate		details required to allow partitions to be
+ *		prune_state			details required to allow partitions to be
  *							eliminated from the scan, or NULL if not possible.
  *		valid_subplans		for runtime pruning, valid appendplans indexes to
  *							scan.
@@ -1604,15 +1613,15 @@ typedef struct TableFuncScanState
 	ExprState  *rowexpr;		/* state for row-generating expression */
 	List	   *colexprs;		/* state for column-generating expression */
 	List	   *coldefexprs;	/* state for column default expressions */
-	List	   *ns_names;		/* list of str nodes with namespace names */
-	List	   *ns_uris;		/* list of states of namespace uri exprs */
+	List	   *ns_names;		/* same as TableFunc.ns_names */
+	List	   *ns_uris;		/* list of states of namespace URI exprs */
 	Bitmapset  *notnulls;		/* nullability flag for each output column */
 	void	   *opaque;			/* table builder private space */
 	const struct TableFuncRoutine *routine; /* table builder methods */
 	FmgrInfo   *in_functions;	/* input function for each column */
 	Oid		   *typioparams;	/* typioparam for each column */
 	int64		ordinal;		/* row number to be output next */
-	MemoryContext perValueCxt;	/* short life context for value evaluation */
+	MemoryContext perTableCxt;	/* per-table context */
 	Tuplestorestate *tupstore;	/* output tuple store */
 } TableFuncScanState;
 

@@ -354,7 +354,12 @@ typedef struct PLpgSQL_var
  * Note that there's no way to name the row as such from PL/pgSQL code,
  * so many functions don't need to support these.
  *
- * refname, isconst, notnull, and default_val are unsupported (and hence
+ * That also means that there's no real name for the row variable, so we
+ * conventionally set refname to "(unnamed row)".  We could leave it NULL,
+ * but it's too convenient to be able to assume that refname is valid in
+ * all variants of PLpgSQL_variable.
+ *
+ * isconst, notnull, and default_val are unsupported (and hence
  * always zero/null) for a row.  The member variables of a row should have
  * been checked to be writable at compile time, so isconst is correctly set
  * to false.  notnull and default_val aren't applicable.
@@ -1314,7 +1319,7 @@ extern PLpgSQL_recfield *plpgsql_build_recfield(PLpgSQL_rec *rec,
 extern int plpgsql_recognize_err_condition(const char *condname,
 								bool allow_sqlstate);
 extern PLpgSQL_condition *plpgsql_parse_err_condition(char *condname);
-extern void plpgsql_adddatum(PLpgSQL_datum *new);
+extern void plpgsql_adddatum(PLpgSQL_datum *newdatum);
 extern int	plpgsql_add_initdatums(int **varnos);
 extern void plpgsql_HashTableInit(void);
 #ifdef ADB_GRAM_ORA
@@ -1346,7 +1351,7 @@ extern Oid plpgsql_exec_get_datum_type(PLpgSQL_execstate *estate,
 							PLpgSQL_datum *datum);
 extern void plpgsql_exec_get_datum_type_info(PLpgSQL_execstate *estate,
 								 PLpgSQL_datum *datum,
-								 Oid *typeid, int32 *typmod, Oid *collation);
+								 Oid *typeId, int32 *typMod, Oid *collation);
 
 /*
  * Functions for namespace handling in pl_funcs.c

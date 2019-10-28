@@ -2230,6 +2230,7 @@ StdAnalyzeData
 StdRdOptions
 Step
 StopList
+StopWorkersData
 StrategyNumber
 StreamCtl
 StringInfo

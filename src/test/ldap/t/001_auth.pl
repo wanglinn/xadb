@@ -6,7 +6,7 @@ use Test::More;
 
 if ($ENV{with_ldap} eq 'yes')
 {
-	plan tests => 19;
+	plan tests => 22;
 }
 else
 {
@@ -48,7 +48,7 @@ my $slapd_pidfile = "${TestLib::tmp_check}/slapd.pid";
 my $slapd_logfile = "${TestLib::tmp_check}/slapd.log";
 my $ldap_conf     = "${TestLib::tmp_check}/ldap.conf";
 my $ldap_server   = 'localhost';
-my $ldap_port     = int(rand() * 16384) + 49152;
+my $ldap_port     = get_free_port();
 my $ldaps_port    = $ldap_port + 1;
 my $ldap_url      = "ldap://$ldap_server:$ldap_port";
 my $ldaps_url     = "ldaps://$ldap_server:$ldaps_port";
@@ -113,6 +113,22 @@ END
 append_to_file($ldap_pwfile, $ldap_rootpw);
 chmod 0600, $ldap_pwfile or die;
 
+# wait until slapd accepts requests
+my $retries = 0;
+while (1)
+{
+	last
+	  if (
+		system_log(
+			"ldapsearch", "-h", $ldap_server, "-p",
+			$ldap_port,   "-s", "base",       "-b",
+			$ldap_basedn, "-D", $ldap_rootdn, "-y",
+			$ldap_pwfile, "-n", "'objectclass=*'") == 0);
+	die "cannot connect to slapd" if ++$retries >= 300;
+	note "waiting for slapd to accept requests...";
+	Time::HiRes::usleep(1000000);
+}
+
 $ENV{'LDAPURI'}    = $ldap_url;
 $ENV{'LDAPBINDDN'} = $ldap_rootdn;
 $ENV{'LDAPCONF'}   = $ldap_conf;
@@ -168,6 +184,22 @@ note "search+bind";
 unlink($node->data_dir . '/pg_hba.conf');
 $node->append_conf('pg_hba.conf',
 	qq{local all all ldap ldapserver=$ldap_server ldapport=$ldap_port ldapbasedn="$ldap_basedn"}
+);
+$node->restart;
+
+$ENV{"PGPASSWORD"} = 'wrong';
+test_access($node, 'test0', 2,
+	'search+bind authentication fails if user not found in LDAP');
+test_access($node, 'test1', 2,
+	'search+bind authentication fails with wrong password');
+$ENV{"PGPASSWORD"} = 'secret1';
+test_access($node, 'test1', 0, 'search+bind authentication succeeds');
+
+note "multiple servers";
+
+unlink($node->data_dir . '/pg_hba.conf');
+$node->append_conf('pg_hba.conf',
+	qq{local all all ldap ldapserver="$ldap_server $ldap_server" ldapport=$ldap_port ldapbasedn="$ldap_basedn"}
 );
 $node->restart;
 

@@ -30,7 +30,7 @@ static char *datasegpath(RelFileNode rnode, ForkNumber forknum,
 static int	path_cmp(const void *a, const void *b);
 static int	final_filemap_cmp(const void *a, const void *b);
 static void filemap_list_to_array(filemap_t *map);
-static bool check_file_excluded(const char *path, const char *type);
+static bool check_file_excluded(const char *path, bool is_source);
 
 /*
  * The contents of these directories are removed or recreated during server
@@ -153,8 +153,11 @@ process_source_file(const char *path, file_type_t type, size_t newsize,
 
 	Assert(map->array == NULL);
 
-	/* ignore any path matching the exclusion filters */
-	if (check_file_excluded(path, "source"))
+	/*
+	 * Skip any files matching the exclusion filters. This has the effect to
+	 * remove all those files on the target.
+	 */
+	if (check_file_excluded(path, true))
 		return;
 
 	/*
@@ -364,12 +367,10 @@ process_target_file(const char *path, file_type_t type, size_t oldsize,
 #endif
 
 	/*
-	 * Ignore any path matching the exclusion filters.  This is not actually
-	 * mandatory for target files, but this does not hurt and let's be
-	 * consistent with the source processing.
+	 * Do not apply any exclusion filters here.  This has advantage to remove
+	 * from the target data folder all paths which have been filtered out from
+	 * the source data folder when processing the source files.
 	 */
-	if (check_file_excluded(path, "target"))
-		return;
 
 	snprintf(localpath, sizeof(localpath), "%s/%s", datadir_target, path);
 	if (lstat(localpath, &statbuf) < 0)
@@ -525,7 +526,7 @@ process_block_change(ForkNumber forknum, RelFileNode rnode, BlockNumber blkno)
  * Is this the path of file that pg_rewind can skip copying?
  */
 static bool
-check_file_excluded(const char *path, const char *type)
+check_file_excluded(const char *path, bool is_source)
 {
 	char		localpath[MAXPGPATH];
 	int			excludeIdx;
@@ -541,8 +542,12 @@ check_file_excluded(const char *path, const char *type)
 			filename++;
 		if (strcmp(filename, excludeFiles[excludeIdx]) == 0)
 		{
-			pg_log(PG_DEBUG, "entry \"%s\" excluded from %s file list\n",
-				   path, type);
+			if (is_source)
+				pg_log(PG_DEBUG, "entry \"%s\" excluded from source file list\n",
+					   path);
+			else
+				pg_log(PG_DEBUG, "entry \"%s\" excluded from target file list\n",
+					   path);
 			return true;
 		}
 	}
@@ -557,8 +562,12 @@ check_file_excluded(const char *path, const char *type)
 				 excludeDirContents[excludeIdx]);
 		if (strstr(path, localpath) == path)
 		{
-			pg_log(PG_DEBUG, "entry \"%s\" excluded from %s file list\n",
-				   path, type);
+			if (is_source)
+				pg_log(PG_DEBUG, "entry \"%s\" excluded from source file list\n",
+					   path);
+			else
+				pg_log(PG_DEBUG, "entry \"%s\" excluded from target file list\n",
+					   path);
 			return true;
 		}
 	}
@@ -850,7 +859,7 @@ final_filemap_cmp(const void *a, const void *b)
 		return -1;
 
 	if (fa->action == FILE_ACTION_REMOVE)
-		return -strcmp(fa->path, fb->path);
+		return strcmp(fb->path, fa->path);
 	else
 		return strcmp(fa->path, fb->path);
 }

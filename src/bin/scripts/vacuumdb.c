@@ -371,7 +371,7 @@ vacuum_one_database(const char *dbname, vacuumingOptions *vacopts,
 	{
 		if (stage != ANALYZE_NO_STAGE)
 			printf(_("%s: processing database \"%s\": %s\n"),
-				   progname, PQdb(conn), stage_messages[stage]);
+				   progname, PQdb(conn), _(stage_messages[stage]));
 		else
 			printf(_("%s: vacuuming database \"%s\"\n"),
 				   progname, PQdb(conn));
@@ -406,8 +406,7 @@ vacuum_one_database(const char *dbname, vacuumingOptions *vacopts,
 		for (i = 0; i < ntups; i++)
 		{
 			appendPQExpBufferStr(&buf,
-								 fmtQualifiedId(PQserverVersion(conn),
-												PQgetvalue(res, i, 1),
+								 fmtQualifiedId(PQgetvalue(res, i, 1),
 												PQgetvalue(res, i, 0)));
 
 			simple_string_list_append(&dbtables, buf.data);
@@ -525,7 +524,10 @@ vacuum_one_database(const char *dbname, vacuumingOptions *vacopts,
 		for (j = 0; j < concurrentCons; j++)
 		{
 			if (!GetQueryResult((slots + j)->connection, progname))
+			{
+				failed = true;
 				goto finish;
+			}
 		}
 	}
 

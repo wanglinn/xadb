@@ -421,9 +421,9 @@ static void sn_scalar(void *state, char *token, JsonTokenType tokentype);
 
 /* worker functions for populate_record, to_record, populate_recordset and to_recordset */
 static Datum populate_recordset_worker(FunctionCallInfo fcinfo, const char *funcname,
-						  bool have_record_arg);
+						  bool is_json, bool have_record_arg);
 static Datum populate_record_worker(FunctionCallInfo fcinfo, const char *funcname,
-					   bool have_record_arg);
+					   bool is_json, bool have_record_arg);
 
 /* helper functions for populate_record[set] */
 static HeapTupleHeader populate_record(TupleDesc tupdesc, RecordIOData **record_p,
@@ -2296,25 +2296,29 @@ elements_scalar(void *state, char *token, JsonTokenType tokentype)
 Datum
 jsonb_populate_record(PG_FUNCTION_ARGS)
 {
-	return populate_record_worker(fcinfo, "jsonb_populate_record", true);
+	return populate_record_worker(fcinfo, "jsonb_populate_record",
+								  false, true);
 }
 
 Datum
 jsonb_to_record(PG_FUNCTION_ARGS)
 {
-	return populate_record_worker(fcinfo, "jsonb_to_record", false);
+	return populate_record_worker(fcinfo, "jsonb_to_record",
+								  false, false);
 }
 
 Datum
 json_populate_record(PG_FUNCTION_ARGS)
 {
-	return populate_record_worker(fcinfo, "json_populate_record", true);
+	return populate_record_worker(fcinfo, "json_populate_record",
+								  true, true);
 }
 
 Datum
 json_to_record(PG_FUNCTION_ARGS)
 {
-	return populate_record_worker(fcinfo, "json_to_record", false);
+	return populate_record_worker(fcinfo, "json_to_record",
+								  true, false);
 }
 
 /* helper function for diagnostics */
@@ -2799,26 +2803,7 @@ populate_scalar(ScalarIOData *io, Oid typid, int32 typmod, JsValue *jsv)
 
 		json = jsv->val.json.str;
 		Assert(json);
-
-		/* already done the hard work in the json case */
-		if ((typid == JSONOID || typid == JSONBOID) &&
-			jsv->val.json.type == JSON_TOKEN_STRING)
-		{
-			/*
-			 * Add quotes around string value (should be already escaped) if
-			 * converting to json/jsonb.
-			 */
-
-			if (len < 0)
-				len = strlen(json);
-
-			str = palloc(len + sizeof(char) * 3);
-			str[0] = '"';
-			memcpy(&str[1], json, len);
-			str[len + 1] = '"';
-			str[len + 2] = '\0';
-		}
-		else if (len >= 0)
+		if (len >= 0)
 		{
 			/* Need to copy non-null-terminated string */
 			str = palloc(len + 1 * sizeof(char));
@@ -2826,7 +2811,21 @@ populate_scalar(ScalarIOData *io, Oid typid, int32 typmod, JsValue *jsv)
 			str[len] = '\0';
 		}
 		else
-			str = json;			/* null-terminated string */
+			str = json;			/* string is already null-terminated */
+
+		/* If converting to json/jsonb, make string into valid JSON literal */
+		if ((typid == JSONOID || typid == JSONBOID) &&
+			jsv->val.json.type == JSON_TOKEN_STRING)
+		{
+			StringInfoData buf;
+
+			initStringInfo(&buf);
+			escape_json(&buf, str);
+			/* free temporary buffer */
+			if (str != json)
+				pfree(str);
+			str = buf.data;
+		}
 	}
 	else
 	{
@@ -3203,20 +3202,21 @@ populate_record(TupleDesc tupdesc,
 	return res->t_data;
 }
 
+/*
+ * common worker for json{b}_populate_record() and json{b}_to_record()
+ * is_json and have_record_arg identify the specific function
+ */
 static Datum
 populate_record_worker(FunctionCallInfo fcinfo, const char *funcname,
-					   bool have_record_arg)
+					   bool is_json, bool have_record_arg)
 {
 	int			json_arg_num = have_record_arg ? 1 : 0;
-	Oid			jtype = get_fn_expr_argtype(fcinfo->flinfo, json_arg_num);
 	JsValue		jsv = {0};
 	HeapTupleHeader rec;
 	Datum		rettuple;
 	JsonbValue	jbv;
 	MemoryContext fnmcxt = fcinfo->flinfo->fn_mcxt;
 	PopulateRecordCache *cache = fcinfo->flinfo->fn_extra;
-
-	Assert(jtype == JSONOID || jtype == JSONBOID);
 
 	/*
 	 * If first time through, identify input/result record type.  Note that
@@ -3303,9 +3303,9 @@ populate_record_worker(FunctionCallInfo fcinfo, const char *funcname,
 			PG_RETURN_NULL();
 	}
 
-	jsv.is_json = jtype == JSONOID;
+	jsv.is_json = is_json;
 
-	if (jsv.is_json)
+	if (is_json)
 	{
 		text	   *json = PG_GETARG_TEXT_PP(json_arg_num);
 
@@ -3489,25 +3489,29 @@ hash_scalar(void *state, char *token, JsonTokenType tokentype)
 Datum
 jsonb_populate_recordset(PG_FUNCTION_ARGS)
 {
-	return populate_recordset_worker(fcinfo, "jsonb_populate_recordset", true);
+	return populate_recordset_worker(fcinfo, "jsonb_populate_recordset",
+									 false, true);
 }
 
 Datum
 jsonb_to_recordset(PG_FUNCTION_ARGS)
 {
-	return populate_recordset_worker(fcinfo, "jsonb_to_recordset", false);
+	return populate_recordset_worker(fcinfo, "jsonb_to_recordset",
+									 false, false);
 }
 
 Datum
 json_populate_recordset(PG_FUNCTION_ARGS)
 {
-	return populate_recordset_worker(fcinfo, "json_populate_recordset", true);
+	return populate_recordset_worker(fcinfo, "json_populate_recordset",
+									 true, true);
 }
 
 Datum
 json_to_recordset(PG_FUNCTION_ARGS)
 {
-	return populate_recordset_worker(fcinfo, "json_to_recordset", false);
+	return populate_recordset_worker(fcinfo, "json_to_recordset",
+									 true, false);
 }
 
 static void
@@ -3544,14 +3548,14 @@ populate_recordset_record(PopulateRecordsetState *state, JsObject *obj)
 }
 
 /*
- * common worker for json_populate_recordset() and json_to_recordset()
+ * common worker for json{b}_populate_recordset() and json{b}_to_recordset()
+ * is_json and have_record_arg identify the specific function
  */
 static Datum
 populate_recordset_worker(FunctionCallInfo fcinfo, const char *funcname,
-						  bool have_record_arg)
+						  bool is_json, bool have_record_arg)
 {
 	int			json_arg_num = have_record_arg ? 1 : 0;
-	Oid			jtype = get_fn_expr_argtype(fcinfo->flinfo, json_arg_num);
 	ReturnSetInfo *rsi;
 	MemoryContext old_cxt;
 	HeapTupleHeader rec;
@@ -3649,6 +3653,12 @@ populate_recordset_worker(FunctionCallInfo fcinfo, const char *funcname,
 	if (PG_ARGISNULL(json_arg_num))
 		PG_RETURN_NULL();
 
+	/*
+	 * Forcibly update the cached tupdesc, to ensure we have the right tupdesc
+	 * to return even if the JSON contains no rows.
+	 */
+	update_cached_tupdesc(&cache->c.io.composite, cache->fn_mcxt);
+
 	state = palloc0(sizeof(PopulateRecordsetState));
 
 	/* make tuplestore in a sufficiently long-lived memory context */
@@ -3662,7 +3672,7 @@ populate_recordset_worker(FunctionCallInfo fcinfo, const char *funcname,
 	state->cache = cache;
 	state->rec = rec;
 
-	if (jtype == JSONOID)
+	if (is_json)
 	{
 		text	   *json = PG_GETARG_TEXT_PP(json_arg_num);
 		JsonLexContext *lex;
@@ -3692,8 +3702,6 @@ populate_recordset_worker(FunctionCallInfo fcinfo, const char *funcname,
 		JsonbValue	v;
 		bool		skipNested = false;
 		JsonbIteratorToken r;
-
-		Assert(jtype == JSONBOID);
 
 		if (JB_ROOT_IS_SCALAR(jb) || !JB_ROOT_IS_ARRAY(jb))
 			ereport(ERROR,
@@ -3726,8 +3734,13 @@ populate_recordset_worker(FunctionCallInfo fcinfo, const char *funcname,
 		}
 	}
 
+	/*
+	 * Note: we must copy the cached tupdesc because the executor will free
+	 * the passed-back setDesc, but we want to hang onto the cache in case
+	 * we're called again in the same query.
+	 */
 	rsi->setResult = state->tuple_store;
-	rsi->setDesc = cache->c.io.composite.tupdesc;
+	rsi->setDesc = CreateTupleDescCopy(cache->c.io.composite.tupdesc);
 
 	PG_RETURN_NULL();
 }

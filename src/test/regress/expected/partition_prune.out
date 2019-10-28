@@ -517,15 +517,13 @@ explain (costs off) select * from rlp where a <= 31;
          Filter: (a <= 31)
    ->  Seq Scan on rlp5_1
          Filter: (a <= 31)
-   ->  Seq Scan on rlp5_default
-         Filter: (a <= 31)
    ->  Seq Scan on rlp_default_10
          Filter: (a <= 31)
    ->  Seq Scan on rlp_default_30
          Filter: (a <= 31)
    ->  Seq Scan on rlp_default_default
          Filter: (a <= 31)
-(29 rows)
+(27 rows)
 
 explain (costs off) select * from rlp where a = 1 or a = 7;
               QUERY PLAN              
@@ -573,11 +571,7 @@ explain (costs off) select * from rlp where a > 20 and a < 27;
          Filter: ((a > 20) AND (a < 27))
    ->  Seq Scan on rlp4_2
          Filter: ((a > 20) AND (a < 27))
-   ->  Seq Scan on rlp4_default
-         Filter: ((a > 20) AND (a < 27))
-   ->  Seq Scan on rlp_default_default
-         Filter: ((a > 20) AND (a < 27))
-(9 rows)
+(5 rows)
 
 explain (costs off) select * from rlp where a = 29;
            QUERY PLAN           
@@ -602,6 +596,16 @@ explain (costs off) select * from rlp where a >= 29;
    ->  Seq Scan on rlp_default_default
          Filter: (a >= 29)
 (11 rows)
+
+explain (costs off) select * from rlp where a < 1 or (a > 20 and a < 25);
+                      QUERY PLAN                      
+------------------------------------------------------
+ Append
+   ->  Seq Scan on rlp1
+         Filter: ((a < 1) OR ((a > 20) AND (a < 25)))
+   ->  Seq Scan on rlp4_1
+         Filter: ((a < 1) OR ((a > 20) AND (a < 25)))
+(5 rows)
 
 -- redundant clauses are eliminated
 explain (costs off) select * from rlp where a > 1 and a = 10;	/* only default */
@@ -993,6 +997,47 @@ explain (costs off) select * from mc2p where a = 1 and b > 1;
          Filter: ((b > 1) AND (a = 1))
 (3 rows)
 
+-- all partitions but the default one should be pruned
+explain (costs off) select * from mc2p where a = 1 and b is null;
+                QUERY PLAN                 
+-------------------------------------------
+ Append
+   ->  Seq Scan on mc2p_default
+         Filter: ((b IS NULL) AND (a = 1))
+(3 rows)
+
+explain (costs off) select * from mc2p where a is null and b is null;
+                  QUERY PLAN                   
+-----------------------------------------------
+ Append
+   ->  Seq Scan on mc2p_default
+         Filter: ((a IS NULL) AND (b IS NULL))
+(3 rows)
+
+explain (costs off) select * from mc2p where a is null and b = 1;
+                QUERY PLAN                 
+-------------------------------------------
+ Append
+   ->  Seq Scan on mc2p_default
+         Filter: ((a IS NULL) AND (b = 1))
+(3 rows)
+
+explain (costs off) select * from mc2p where a is null;
+           QUERY PLAN           
+--------------------------------
+ Append
+   ->  Seq Scan on mc2p_default
+         Filter: (a IS NULL)
+(3 rows)
+
+explain (costs off) select * from mc2p where b is null;
+           QUERY PLAN           
+--------------------------------
+ Append
+   ->  Seq Scan on mc2p_default
+         Filter: (b IS NULL)
+(3 rows)
+
 -- boolean partitioning
 create table boolpart (a bool) partition by list (a);
 create table boolpart_default partition of boolpart default;
@@ -1073,6 +1118,20 @@ explain (costs off) select * from boolpart where a is not unknown;
          Filter: (a IS NOT UNKNOWN)
 (7 rows)
 
+create table boolrangep (a bool, b bool, c int) partition by range (a,b,c);
+create table boolrangep_tf partition of boolrangep for values from ('true', 'false', 0) to ('true', 'false', 100);
+create table boolrangep_ft partition of boolrangep for values from ('false', 'true', 0) to ('false', 'true', 100);
+create table boolrangep_ff1 partition of boolrangep for values from ('false', 'false', 0) to ('false', 'false', 50);
+create table boolrangep_ff2 partition of boolrangep for values from ('false', 'false', 50) to ('false', 'false', 100);
+-- try a more complex case that's been known to trip up pruning in the past
+explain (costs off)  select * from boolrangep where not a and not b and c = 25;
+                     QUERY PLAN                     
+----------------------------------------------------
+ Append
+   ->  Seq Scan on boolrangep_ff1
+         Filter: ((NOT a) AND (NOT b) AND (c = 25))
+(3 rows)
+
 -- test scalar-to-array operators
 create table coercepart (a varchar) partition by list (a);
 create table coercepart_ab partition of coercepart for values in ('ab');
@@ -1139,6 +1198,21 @@ explain (costs off) select * from coercepart where a !~ all ('{ab,bc}');
 (7 rows)
 
 drop table coercepart;
+CREATE TABLE part (a INT, b INT) PARTITION BY LIST (a);
+CREATE TABLE part_p1 PARTITION OF part FOR VALUES IN (-2,-1,0,1,2);
+CREATE TABLE part_p2 PARTITION OF part DEFAULT PARTITION BY RANGE(a);
+CREATE TABLE part_p2_p1 PARTITION OF part_p2 DEFAULT;
+INSERT INTO part VALUES (-1,-1), (1,1), (2,NULL), (NULL,-2),(NULL,NULL);
+EXPLAIN (COSTS OFF) SELECT tableoid::regclass as part, a, b FROM part WHERE a IS NULL ORDER BY 1, 2, 3;
+                                QUERY PLAN                                 
+---------------------------------------------------------------------------
+ Sort
+   Sort Key: ((part_p2_p1.tableoid)::regclass), part_p2_p1.a, part_p2_p1.b
+   ->  Append
+         ->  Seq Scan on part_p2_p1
+               Filter: (a IS NULL)
+(5 rows)
+
 --
 -- some more cases
 --
@@ -1396,7 +1470,7 @@ explain (costs off) select * from rparted_by_int2 where a > 100000000000000;
          Filter: (a > '100000000000000'::bigint)
 (3 rows)
 
-drop table lp, coll_pruning, rlp, mc3p, mc2p, boolpart, rp, coll_pruning_multi, like_op_noprune, lparted_by_int2, rparted_by_int2;
+drop table lp, coll_pruning, rlp, mc3p, mc2p, boolpart, boolrangep, rp, coll_pruning_multi, like_op_noprune, lparted_by_int2, rparted_by_int2;
 --
 -- Test Partition pruning for HASH partitioning
 --
@@ -2326,11 +2400,180 @@ select * from ab where a = (select max(a) from lprt_a) and b = (select max(a)-1 
                Index Cond: (a = $0)
 (52 rows)
 
+-- Test run-time partition pruning with UNION ALL parents
+explain (analyze, costs off, summary off, timing off)
+select * from (select * from ab where a = 1 union all select * from ab) ab where b = (select 1);
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Append (actual rows=0 loops=1)
+   InitPlan 1 (returns $0)
+     ->  Result (actual rows=1 loops=1)
+   ->  Append (actual rows=0 loops=1)
+         ->  Bitmap Heap Scan on ab_a1_b1 ab_a1_b1_1 (actual rows=0 loops=1)
+               Recheck Cond: (a = 1)
+               Filter: (b = $0)
+               ->  Bitmap Index Scan on ab_a1_b1_a_idx (actual rows=0 loops=1)
+                     Index Cond: (a = 1)
+         ->  Bitmap Heap Scan on ab_a1_b2 ab_a1_b2_1 (never executed)
+               Recheck Cond: (a = 1)
+               Filter: (b = $0)
+               ->  Bitmap Index Scan on ab_a1_b2_a_idx (never executed)
+                     Index Cond: (a = 1)
+         ->  Bitmap Heap Scan on ab_a1_b3 ab_a1_b3_1 (never executed)
+               Recheck Cond: (a = 1)
+               Filter: (b = $0)
+               ->  Bitmap Index Scan on ab_a1_b3_a_idx (never executed)
+                     Index Cond: (a = 1)
+   ->  Seq Scan on ab_a1_b1 (actual rows=0 loops=1)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a1_b2 (never executed)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a1_b3 (never executed)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a2_b1 (actual rows=0 loops=1)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a2_b2 (never executed)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a2_b3 (never executed)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a3_b1 (actual rows=0 loops=1)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a3_b2 (never executed)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a3_b3 (never executed)
+         Filter: (b = $0)
+(37 rows)
+
+-- A case containing a UNION ALL with a non-partitioned child.
+explain (analyze, costs off, summary off, timing off)
+select * from (select * from ab where a = 1 union all (values(10,5)) union all select * from ab) ab where b = (select 1);
+                                  QUERY PLAN                                   
+-------------------------------------------------------------------------------
+ Append (actual rows=0 loops=1)
+   InitPlan 1 (returns $0)
+     ->  Result (actual rows=1 loops=1)
+   ->  Append (actual rows=0 loops=1)
+         ->  Bitmap Heap Scan on ab_a1_b1 ab_a1_b1_1 (actual rows=0 loops=1)
+               Recheck Cond: (a = 1)
+               Filter: (b = $0)
+               ->  Bitmap Index Scan on ab_a1_b1_a_idx (actual rows=0 loops=1)
+                     Index Cond: (a = 1)
+         ->  Bitmap Heap Scan on ab_a1_b2 ab_a1_b2_1 (never executed)
+               Recheck Cond: (a = 1)
+               Filter: (b = $0)
+               ->  Bitmap Index Scan on ab_a1_b2_a_idx (never executed)
+                     Index Cond: (a = 1)
+         ->  Bitmap Heap Scan on ab_a1_b3 ab_a1_b3_1 (never executed)
+               Recheck Cond: (a = 1)
+               Filter: (b = $0)
+               ->  Bitmap Index Scan on ab_a1_b3_a_idx (never executed)
+                     Index Cond: (a = 1)
+   ->  Result (actual rows=0 loops=1)
+         One-Time Filter: (5 = $0)
+   ->  Seq Scan on ab_a1_b1 (actual rows=0 loops=1)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a1_b2 (never executed)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a1_b3 (never executed)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a2_b1 (actual rows=0 loops=1)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a2_b2 (never executed)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a2_b3 (never executed)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a3_b1 (actual rows=0 loops=1)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a3_b2 (never executed)
+         Filter: (b = $0)
+   ->  Seq Scan on ab_a3_b3 (never executed)
+         Filter: (b = $0)
+(39 rows)
+
 deallocate ab_q1;
 deallocate ab_q2;
 deallocate ab_q3;
 deallocate ab_q4;
 deallocate ab_q5;
+-- UPDATE on a partition subtree has been seen to have problems.
+insert into ab values (1,2);
+explain (analyze, costs off, summary off, timing off)
+update ab_a1 set b = 3 from ab where ab.a = 1 and ab.a = ab_a1.a;
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
+ Update on ab_a1 (actual rows=0 loops=1)
+   Update on ab_a1_b1
+   Update on ab_a1_b2
+   Update on ab_a1_b3
+   ->  Nested Loop (actual rows=0 loops=1)
+         ->  Append (actual rows=1 loops=1)
+               ->  Bitmap Heap Scan on ab_a1_b1 ab_a1_b1_1 (actual rows=0 loops=1)
+                     Recheck Cond: (a = 1)
+                     ->  Bitmap Index Scan on ab_a1_b1_a_idx (actual rows=0 loops=1)
+                           Index Cond: (a = 1)
+               ->  Bitmap Heap Scan on ab_a1_b2 ab_a1_b2_1 (actual rows=1 loops=1)
+                     Recheck Cond: (a = 1)
+                     Heap Blocks: exact=1
+                     ->  Bitmap Index Scan on ab_a1_b2_a_idx (actual rows=1 loops=1)
+                           Index Cond: (a = 1)
+               ->  Bitmap Heap Scan on ab_a1_b3 ab_a1_b3_1 (actual rows=0 loops=1)
+                     Recheck Cond: (a = 1)
+                     ->  Bitmap Index Scan on ab_a1_b3_a_idx (actual rows=0 loops=1)
+                           Index Cond: (a = 1)
+         ->  Materialize (actual rows=0 loops=1)
+               ->  Bitmap Heap Scan on ab_a1_b1 (actual rows=0 loops=1)
+                     Recheck Cond: (a = 1)
+                     ->  Bitmap Index Scan on ab_a1_b1_a_idx (actual rows=0 loops=1)
+                           Index Cond: (a = 1)
+   ->  Nested Loop (actual rows=1 loops=1)
+         ->  Append (actual rows=1 loops=1)
+               ->  Bitmap Heap Scan on ab_a1_b1 ab_a1_b1_1 (actual rows=0 loops=1)
+                     Recheck Cond: (a = 1)
+                     ->  Bitmap Index Scan on ab_a1_b1_a_idx (actual rows=0 loops=1)
+                           Index Cond: (a = 1)
+               ->  Bitmap Heap Scan on ab_a1_b2 ab_a1_b2_1 (actual rows=1 loops=1)
+                     Recheck Cond: (a = 1)
+                     Heap Blocks: exact=1
+                     ->  Bitmap Index Scan on ab_a1_b2_a_idx (actual rows=1 loops=1)
+                           Index Cond: (a = 1)
+               ->  Bitmap Heap Scan on ab_a1_b3 ab_a1_b3_1 (actual rows=0 loops=1)
+                     Recheck Cond: (a = 1)
+                     ->  Bitmap Index Scan on ab_a1_b3_a_idx (actual rows=1 loops=1)
+                           Index Cond: (a = 1)
+         ->  Materialize (actual rows=1 loops=1)
+               ->  Bitmap Heap Scan on ab_a1_b2 (actual rows=1 loops=1)
+                     Recheck Cond: (a = 1)
+                     Heap Blocks: exact=1
+                     ->  Bitmap Index Scan on ab_a1_b2_a_idx (actual rows=1 loops=1)
+                           Index Cond: (a = 1)
+   ->  Nested Loop (actual rows=0 loops=1)
+         ->  Append (actual rows=1 loops=1)
+               ->  Bitmap Heap Scan on ab_a1_b1 ab_a1_b1_1 (actual rows=0 loops=1)
+                     Recheck Cond: (a = 1)
+                     ->  Bitmap Index Scan on ab_a1_b1_a_idx (actual rows=0 loops=1)
+                           Index Cond: (a = 1)
+               ->  Bitmap Heap Scan on ab_a1_b2 ab_a1_b2_1 (actual rows=1 loops=1)
+                     Recheck Cond: (a = 1)
+                     Heap Blocks: exact=1
+                     ->  Bitmap Index Scan on ab_a1_b2_a_idx (actual rows=1 loops=1)
+                           Index Cond: (a = 1)
+               ->  Bitmap Heap Scan on ab_a1_b3 ab_a1_b3_1 (actual rows=0 loops=1)
+                     Recheck Cond: (a = 1)
+                     ->  Bitmap Index Scan on ab_a1_b3_a_idx (actual rows=1 loops=1)
+                           Index Cond: (a = 1)
+         ->  Materialize (actual rows=0 loops=1)
+               ->  Bitmap Heap Scan on ab_a1_b3 (actual rows=0 loops=1)
+                     Recheck Cond: (a = 1)
+                     ->  Bitmap Index Scan on ab_a1_b3_a_idx (actual rows=1 loops=1)
+                           Index Cond: (a = 1)
+(65 rows)
+
+table ab;
+ a | b 
+---+---
+ 1 | 3
+(1 row)
+
 drop table ab, lprt_a;
 -- Join
 create table tbl1(col1 int);
@@ -2746,6 +2989,159 @@ select * from listp where a = (select null::int);
 (7 rows)
 
 drop table listp;
+--
+-- check that stable query clauses are only used in run-time pruning
+--
+create table stable_qual_pruning (a timestamp) partition by range (a);
+create table stable_qual_pruning1 partition of stable_qual_pruning
+  for values from ('2000-01-01') to ('2000-02-01');
+create table stable_qual_pruning2 partition of stable_qual_pruning
+  for values from ('2000-02-01') to ('2000-03-01');
+create table stable_qual_pruning3 partition of stable_qual_pruning
+  for values from ('3000-02-01') to ('3000-03-01');
+-- comparison against a stable value requires run-time pruning
+explain (analyze, costs off, summary off, timing off)
+select * from stable_qual_pruning where a < localtimestamp;
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Append (actual rows=0 loops=1)
+   Subplans Removed: 1
+   ->  Seq Scan on stable_qual_pruning1 (actual rows=0 loops=1)
+         Filter: (a < LOCALTIMESTAMP)
+   ->  Seq Scan on stable_qual_pruning2 (actual rows=0 loops=1)
+         Filter: (a < LOCALTIMESTAMP)
+(6 rows)
+
+-- timestamp < timestamptz comparison is only stable, not immutable
+explain (analyze, costs off, summary off, timing off)
+select * from stable_qual_pruning where a < '2000-02-01'::timestamptz;
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Append (actual rows=0 loops=1)
+   Subplans Removed: 2
+   ->  Seq Scan on stable_qual_pruning1 (actual rows=0 loops=1)
+         Filter: (a < 'Tue Feb 01 00:00:00 2000 PST'::timestamp with time zone)
+(4 rows)
+
+-- check ScalarArrayOp cases
+explain (analyze, costs off, summary off, timing off)
+select * from stable_qual_pruning
+  where a = any(array['2010-02-01', '2020-01-01']::timestamp[]);
+           QUERY PLAN           
+--------------------------------
+ Result (actual rows=0 loops=1)
+   One-Time Filter: false
+(2 rows)
+
+explain (analyze, costs off, summary off, timing off)
+select * from stable_qual_pruning
+  where a = any(array['2000-02-01', '2010-01-01']::timestamp[]);
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
+ Append (actual rows=0 loops=1)
+   ->  Seq Scan on stable_qual_pruning2 (actual rows=0 loops=1)
+         Filter: (a = ANY ('{"Tue Feb 01 00:00:00 2000","Fri Jan 01 00:00:00 2010"}'::timestamp without time zone[]))
+(3 rows)
+
+explain (analyze, costs off, summary off, timing off)
+select * from stable_qual_pruning
+  where a = any(array['2000-02-01', localtimestamp]::timestamp[]);
+                                                 QUERY PLAN                                                 
+------------------------------------------------------------------------------------------------------------
+ Append (actual rows=0 loops=1)
+   Subplans Removed: 2
+   ->  Seq Scan on stable_qual_pruning2 (actual rows=0 loops=1)
+         Filter: (a = ANY (ARRAY['Tue Feb 01 00:00:00 2000'::timestamp without time zone, LOCALTIMESTAMP]))
+(4 rows)
+
+explain (analyze, costs off, summary off, timing off)
+select * from stable_qual_pruning
+  where a = any(array['2010-02-01', '2020-01-01']::timestamptz[]);
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Append (actual rows=0 loops=1)
+   Subplans Removed: 2
+   ->  Seq Scan on stable_qual_pruning1 (never executed)
+         Filter: (a = ANY ('{"Mon Feb 01 00:00:00 2010 PST","Wed Jan 01 00:00:00 2020 PST"}'::timestamp with time zone[]))
+(4 rows)
+
+explain (analyze, costs off, summary off, timing off)
+select * from stable_qual_pruning
+  where a = any(array['2000-02-01', '2010-01-01']::timestamptz[]);
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Append (actual rows=0 loops=1)
+   Subplans Removed: 2
+   ->  Seq Scan on stable_qual_pruning2 (actual rows=0 loops=1)
+         Filter: (a = ANY ('{"Tue Feb 01 00:00:00 2000 PST","Fri Jan 01 00:00:00 2010 PST"}'::timestamp with time zone[]))
+(4 rows)
+
+drop table stable_qual_pruning;
+--
+-- Check that pruning with composite range partitioning works correctly when
+-- it must ignore clauses for trailing keys once it has seen a clause with
+-- non-inclusive operator for an earlier key
+--
+create table mc3p (a int, b int, c int) partition by range (a, abs(b), c);
+create table mc3p0 partition of mc3p
+  for values from (0, 0, 0) to (0, maxvalue, maxvalue);
+create table mc3p1 partition of mc3p
+  for values from (1, 1, 1) to (2, minvalue, minvalue);
+create table mc3p2 partition of mc3p
+  for values from (2, minvalue, minvalue) to (3, maxvalue, maxvalue);
+insert into mc3p values (0, 1, 1), (1, 1, 1), (2, 1, 1);
+explain (analyze, costs off, summary off, timing off)
+select * from mc3p where a < 3 and abs(b) = 1;
+                   QUERY PLAN                    
+-------------------------------------------------
+ Append (actual rows=3 loops=1)
+   ->  Seq Scan on mc3p0 (actual rows=1 loops=1)
+         Filter: ((a < 3) AND (abs(b) = 1))
+   ->  Seq Scan on mc3p1 (actual rows=1 loops=1)
+         Filter: ((a < 3) AND (abs(b) = 1))
+   ->  Seq Scan on mc3p2 (actual rows=1 loops=1)
+         Filter: ((a < 3) AND (abs(b) = 1))
+(7 rows)
+
+--
+-- Check that pruning with composite range partitioning works correctly when
+-- a combination of runtime parameters is specified, not all of whose values
+-- are available at the same time
+--
+-- Note: this test doesn't actually prove much in v11, for lack of a way
+-- to force use of a generic plan.
+--
+prepare ps1 as
+  select * from mc3p where a = $1 and abs(b) < (select 3);
+explain (analyze, costs off, summary off, timing off)
+execute ps1(1);
+                   QUERY PLAN                    
+-------------------------------------------------
+ Append (actual rows=1 loops=1)
+   InitPlan 1 (returns $0)
+     ->  Result (actual rows=1 loops=1)
+   ->  Seq Scan on mc3p1 (actual rows=1 loops=1)
+         Filter: ((a = 1) AND (abs(b) < $0))
+(5 rows)
+
+deallocate ps1;
+prepare ps2 as
+  select * from mc3p where a <= $1 and abs(b) < (select 3);
+explain (analyze, costs off, summary off, timing off)
+execute ps2(1);
+                   QUERY PLAN                    
+-------------------------------------------------
+ Append (actual rows=2 loops=1)
+   InitPlan 1 (returns $0)
+     ->  Result (actual rows=1 loops=1)
+   ->  Seq Scan on mc3p0 (actual rows=1 loops=1)
+         Filter: ((a <= 1) AND (abs(b) < $0))
+   ->  Seq Scan on mc3p1 (actual rows=1 loops=1)
+         Filter: ((a <= 1) AND (abs(b) < $0))
+(7 rows)
+
+deallocate ps2;
+drop table mc3p;
 -- Ensure runtime pruning works with initplans params with boolean types
 create table boolvalues (value bool not null);
 insert into boolvalues values('t'),('f');
@@ -2816,6 +3212,24 @@ explain (costs off) select * from pp_arrpart where a in ('{4, 5}', '{1}');
    ->  Seq Scan on pp_arrpart2
          Filter: ((a = '{4,5}'::integer[]) OR (a = '{1}'::integer[]))
 (5 rows)
+
+explain (costs off) update pp_arrpart set a = a where a = '{1}';
+               QUERY PLAN               
+----------------------------------------
+ Update on pp_arrpart
+   Update on pp_arrpart1
+   ->  Seq Scan on pp_arrpart1
+         Filter: (a = '{1}'::integer[])
+(4 rows)
+
+explain (costs off) delete from pp_arrpart where a = '{1}';
+               QUERY PLAN               
+----------------------------------------
+ Delete on pp_arrpart
+   Delete on pp_arrpart1
+   ->  Seq Scan on pp_arrpart1
+         Filter: (a = '{1}'::integer[])
+(4 rows)
 
 drop table pp_arrpart;
 -- array type hash partition key
@@ -3107,3 +3521,113 @@ explain (costs off) select * from pp_temp_parent where a = 2;
 (3 rows)
 
 drop table pp_temp_parent;
+-- Stress run-time partition pruning a bit more, per bug reports
+create temp table p (a int, b int, c int) partition by list (a);
+create temp table p1 partition of p for values in (1);
+create temp table p2 partition of p for values in (2);
+create temp table q (a int, b int, c int) partition by list (a);
+create temp table q1 partition of q for values in (1) partition by list (b);
+create temp table q11 partition of q1 for values in (1) partition by list (c);
+create temp table q111 partition of q11 for values in (1);
+create temp table q2 partition of q for values in (2) partition by list (b);
+create temp table q21 partition of q2 for values in (1);
+create temp table q22 partition of q2 for values in (2);
+insert into q22 values (2, 2, 3);
+explain (costs off)
+select *
+from (
+      select * from p
+      union all
+      select * from q1
+      union all
+      select 1, 1, 1
+     ) s(a, b, c)
+where s.a = 1 and s.b = 1 and s.c = (select 1);
+                     QUERY PLAN                     
+----------------------------------------------------
+ Append
+   InitPlan 1 (returns $0)
+     ->  Result
+   ->  Seq Scan on p1
+         Filter: ((a = 1) AND (b = 1) AND (c = $0))
+   ->  Seq Scan on q111
+         Filter: ((a = 1) AND (b = 1) AND (c = $0))
+   ->  Result
+         One-Time Filter: (1 = $0)
+(9 rows)
+
+select *
+from (
+      select * from p
+      union all
+      select * from q1
+      union all
+      select 1, 1, 1
+     ) s(a, b, c)
+where s.a = 1 and s.b = 1 and s.c = (select 1);
+ a | b | c 
+---+---+---
+ 1 | 1 | 1
+(1 row)
+
+drop table p, q;
+-- Ensure run-time pruning works correctly when we match a partitioned table
+-- on the first level but find no matching partitions on the second level.
+create table listp (a int, b int) partition by list (a);
+create table listp1 partition of listp for values in(1);
+create table listp2 partition of listp for values in(2) partition by list(b);
+create table listp2_10 partition of listp2 for values in (10);
+explain (analyze, costs off, summary off, timing off)
+select * from listp where a = (select 2) and b <> 10;
+                QUERY PLAN                 
+-------------------------------------------
+ Append (actual rows=0 loops=1)
+   InitPlan 1 (returns $0)
+     ->  Result (actual rows=1 loops=1)
+   ->  Seq Scan on listp1 (never executed)
+         Filter: ((b <> 10) AND (a = $0))
+(5 rows)
+
+--
+-- check that a partition directly accessed in a query is excluded with
+-- constraint_exclusion = on
+--
+-- turn off partition pruning, so that it doesn't interfere
+set enable_partition_pruning to off;
+-- setting constraint_exclusion to 'partition' disables exclusion
+set constraint_exclusion to 'partition';
+explain (costs off) select * from listp1 where a = 2;
+     QUERY PLAN     
+--------------------
+ Seq Scan on listp1
+   Filter: (a = 2)
+(2 rows)
+
+explain (costs off) update listp1 set a = 1 where a = 2;
+        QUERY PLAN        
+--------------------------
+ Update on listp1
+   ->  Seq Scan on listp1
+         Filter: (a = 2)
+(3 rows)
+
+-- constraint exclusion enabled
+set constraint_exclusion to 'on';
+explain (costs off) select * from listp1 where a = 2;
+        QUERY PLAN        
+--------------------------
+ Result
+   One-Time Filter: false
+(2 rows)
+
+explain (costs off) update listp1 set a = 1 where a = 2;
+           QUERY PLAN           
+--------------------------------
+ Update on listp1
+   ->  Result
+         One-Time Filter: false
+(3 rows)
+
+reset constraint_exclusion;
+reset enable_partition_pruning;
+drop table listp;

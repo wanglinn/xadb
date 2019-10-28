@@ -56,4 +56,7 @@ void check_joinon_column_join(Node *node, ParseState *pstate);
 bool rewrite_rownum_query_enum(Node *node, void *context);
 #endif /* ADB_GRAM_ORA */
 
+extern List *BuildOnConflictExcludedTargetlist(Relation targetrel,
+								  Index exclRelIndex);
+
 #endif							/* ANALYZE_H */

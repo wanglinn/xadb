@@ -3065,8 +3065,13 @@ final_cost_mergejoin(PlannerInfo *root, MergePath *path,
 		if (rescannedtuples < 0)
 			rescannedtuples = 0;
 	}
-	/* We'll inflate various costs this much to account for rescanning */
-	rescanratio = 1.0 + (rescannedtuples / inner_path_rows);
+
+	/*
+	 * We'll inflate various costs this much to account for rescanning.  Note
+	 * that this is to be multiplied by something involving inner_rows, or
+	 * another number related to the portion of the inner rel we'll scan.
+	 */
+	rescanratio = 1.0 + (rescannedtuples / inner_rows);
 
 	/*
 	 * Decide whether we want to materialize the inner input to shield it from
@@ -3093,7 +3098,7 @@ final_cost_mergejoin(PlannerInfo *root, MergePath *path,
 	 * of the generated Material node.
 	 */
 	mat_inner_cost = inner_run_cost +
-		cpu_operator_cost * inner_path_rows * rescanratio;
+		cpu_operator_cost * inner_rows * rescanratio;
 
 	/*
 	 * If we don't need mark/restore at all, we don't need materialization.
@@ -3595,10 +3600,10 @@ final_cost_hashjoin(PlannerInfo *root, HashPath *path,
 			clamp_row_est(inner_path_rows / virtualbuckets) * 0.05;
 
 		/* Get # of tuples that will pass the basic join */
-		if (path->jpath.jointype == JOIN_SEMI)
-			hashjointuples = outer_matched_rows;
-		else
+		if (path->jpath.jointype == JOIN_ANTI)
 			hashjointuples = outer_path_rows - outer_matched_rows;
+		else
+			hashjointuples = outer_matched_rows;
 	}
 	else
 	{

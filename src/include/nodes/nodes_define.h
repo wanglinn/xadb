@@ -270,7 +270,7 @@ BEGIN_NODE(Append)
 	NODE_NODE(List,appendplans)
 	NODE_SCALAR(int,first_partial_plan)
 	NODE_NODE(List,partitioned_rels)
-	NODE_NODE(List,part_prune_infos)
+	NODE_NODE(PartitionPruneInfo,part_prune_info)
 END_NODE(Append)
 #endif /* NO_NODE_Append */
 
@@ -673,6 +673,13 @@ END_NODE(PlanRowMark)
 
 #ifndef NO_NODE_PartitionPruneInfo
 BEGIN_NODE(PartitionPruneInfo)
+	NODE_NODE(List,prune_infos)
+	NODE_BITMAPSET(Bitmapset,other_subplans)
+END_NODE(PartitionPruneInfo)
+#endif /* NO_NODE_PartitionPruneInfo */
+
+#ifndef NO_NODE_PartitionedRelPruneInfo
+BEGIN_NODE(PartitionedRelPruneInfo)
 	NODE_SCALAR(Oid,reloid)
 	NODE_NODE(List,pruning_steps)
 	NODE_BITMAPSET(Bitmapset,present_parts)
@@ -684,8 +691,10 @@ BEGIN_NODE(PartitionPruneInfo)
 	NODE_SCALAR(bool,do_initial_prune)
 	NODE_SCALAR(bool,do_exec_prune)
 	NODE_BITMAPSET(Bitmapset,execparamids)
-END_NODE(PartitionPruneInfo)
-#endif /* NO_NODE_PartitionPruneInfo */
+	NODE_NODE(List,initial_pruning_steps)
+	NODE_NODE(List,exec_pruning_steps)
+END_NODE(PartitionedRelPruneInfo)
+#endif /* NO_NODE_PartitionedRelPruneInfo */
 
 #ifndef NO_NODE_PartitionPruneStepOp
 BEGIN_NODE(PartitionPruneStepOp)
@@ -1878,7 +1887,6 @@ BEGIN_NODE(WindowAggPath)
 	NODE_BASE2(Path,path)
 	NODE_NODE(Path,subpath)
 	NODE_NODE(WindowClause,winclause)
-	NODE_NODE(List,winpathkeys)
 END_NODE(WindowAggPath)
 #endif /* NO_NODE_WindowAggPath */
 

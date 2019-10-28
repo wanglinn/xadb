@@ -97,9 +97,9 @@ typedef struct RelationData
 	List	   *rd_fkeylist;	/* list of ForeignKeyCacheInfo (see below) */
 	bool		rd_fkeyvalid;	/* true if list has been computed */
 
-	MemoryContext rd_partkeycxt;	/* private memory cxt for the below */
+	MemoryContext rd_partkeycxt;	/* private context for rd_partkey, if any */
 	struct PartitionKeyData *rd_partkey;	/* partition key, or NULL */
-	MemoryContext rd_pdcxt;		/* private context for partdesc */
+	MemoryContext rd_pdcxt;		/* private context for rd_partdesc, if any */
 	struct PartitionDescData *rd_partdesc;	/* partitions, or NULL */
 	List	   *rd_partcheck;	/* partition CHECK quals */
 
@@ -190,6 +190,10 @@ typedef struct RelationData
 
 	/* use "struct" here to avoid needing to include pgstat.h: */
 	struct PgStat_TableStatus *pgstat_info; /* statistics collection area */
+
+	/* placed here to avoid ABI break before v12: */
+	bool		rd_partcheckvalid;	/* true if list has been computed */
+	MemoryContext rd_partcheckcxt;	/* private cxt for rd_partcheck, if any */
 #ifdef ADB
 	RelationLocInfo *rd_locator_info;
 	List		   *rd_auxlist;		/* list of OIDs of auxiliaries on relation */
@@ -209,12 +213,13 @@ typedef struct RelationData
  * The per-FK-column arrays can be fixed-size because we allow at most
  * INDEX_MAX_KEYS columns in a foreign key constraint.
  *
- * Currently, we only cache fields of interest to the planner, but the
- * set of fields could be expanded in future.
+ * Currently, we mostly cache fields of interest to the planner, but the set
+ * of fields has already grown the constraint OID for other uses.
  */
 typedef struct ForeignKeyCacheInfo
 {
 	NodeTag		type;
+	Oid			conoid;			/* oid of the constraint itself */
 	Oid			conrelid;		/* relation constrained by the foreign key */
 	Oid			confrelid;		/* relation referenced by the foreign key */
 	int			nkeys;			/* number of columns in the foreign key */
@@ -225,7 +230,7 @@ typedef struct ForeignKeyCacheInfo
 } ForeignKeyCacheInfo;
 
 /*
- * Options common for all all indexes
+ * Options common for all indexes
  */
 typedef struct GenericIndexOpts
 {

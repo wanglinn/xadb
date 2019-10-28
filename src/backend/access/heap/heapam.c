@@ -125,7 +125,7 @@ static void GetMultiXactIdHintBits(MultiXactId multi, uint16 *new_infomask,
 static TransactionId MultiXactIdGetUpdateXid(TransactionId xmax,
 						uint16 t_infomask);
 static bool DoesMultiXactIdConflict(MultiXactId multi, uint16 infomask,
-						LockTupleMode lockmode);
+						LockTupleMode lockmode, bool *current_is_member);
 static void MultiXactIdWait(MultiXactId multi, MultiXactStatus status, uint16 infomask,
 				Relation rel, ItemPointer ctid, XLTW_Oper oper,
 				int *remaining);
@@ -2482,6 +2482,11 @@ ReleaseBulkInsertStatePin(BulkInsertState bistate)
  * Speculatively inserted tuples behave as "value locks" of short duration,
  * used to implement INSERT .. ON CONFLICT.
  *
+ * HEAP_INSERT_NO_LOGICAL force-disables the emitting of logical decoding
+ * information for the tuple. This should solely be used during table rewrites
+ * where RelationIsLogicallyLogged(relation) is not yet accurate for the new
+ * relation.
+ *
  * Note that most of these options will be applied when inserting into the
  * heap's TOAST table, too, if the tuple requires any out-of-line data.  Only
  * HEAP_INSERT_SPECULATIVE is explicitly ignored, as the toast data does not
@@ -2610,7 +2615,8 @@ heap_insert(Relation relation, HeapTuple tup, CommandId cid,
 		 * page write, so make sure it's included even if we take a full-page
 		 * image. (XXX We could alternatively store a pointer into the FPW).
 		 */
-		if (RelationIsLogicallyLogged(relation))
+		if (RelationIsLogicallyLogged(relation) &&
+			!(options & HEAP_INSERT_NO_LOGICAL))
 		{
 			xlrec.flags |= XLH_INSERT_CONTAINS_NEW_TUPLE;
 			bufflags |= REGBUF_KEEP_DATA;
@@ -2771,12 +2777,15 @@ heap_multi_insert(Relation relation, HeapTuple *tuples, int ntuples,
 	HeapTuple  *heaptuples;
 	int			i;
 	int			ndone;
-	char	   *scratch = NULL;
+	PGAlignedBlock scratch;
 	Page		page;
 	bool		needwal;
 	Size		saveFreeSpace;
 	bool		need_tuple_data = RelationIsLogicallyLogged(relation);
 	bool		need_cids = RelationIsAccessibleInLogicalDecoding(relation);
+
+	/* currently not needed (thus unsupported) for heap_multi_insert() */
+	AssertArg(!(options & HEAP_INSERT_NO_LOGICAL));
 
 	needwal = !(options & HEAP_INSERT_SKIP_WAL) && RelationNeedsWAL(relation);
 	saveFreeSpace = RelationGetTargetPageFreeSpace(relation,
@@ -2787,14 +2796,6 @@ heap_multi_insert(Relation relation, HeapTuple *tuples, int ntuples,
 	for (i = 0; i < ntuples; i++)
 		heaptuples[i] = heap_prepare_insert(relation, tuples[i],
 											xid, cid, options);
-
-	/*
-	 * Allocate some memory to use for constructing the WAL record. Using
-	 * palloc() within a critical section is not safe, so we allocate this
-	 * beforehand.
-	 */
-	if (needwal)
-		scratch = palloc(BLCKSZ);
 
 	/*
 	 * We're about to do the actual inserts -- but check for conflict first,
@@ -2888,7 +2889,7 @@ heap_multi_insert(Relation relation, HeapTuple *tuples, int ntuples,
 			uint8		info = XLOG_HEAP2_MULTI_INSERT;
 			char	   *tupledata;
 			int			totaldatalen;
-			char	   *scratchptr = scratch;
+			char	   *scratchptr = scratch.data;
 			bool		init;
 			int			bufflags = 0;
 
@@ -2947,7 +2948,7 @@ heap_multi_insert(Relation relation, HeapTuple *tuples, int ntuples,
 				scratchptr += datalen;
 			}
 			totaldatalen = scratchptr - tupledata;
-			Assert((scratchptr - scratch) < BLCKSZ);
+			Assert((scratchptr - scratch.data) < BLCKSZ);
 
 			if (need_tuple_data)
 				xlrec->flags |= XLH_INSERT_CONTAINS_NEW_TUPLE;
@@ -2974,7 +2975,7 @@ heap_multi_insert(Relation relation, HeapTuple *tuples, int ntuples,
 				bufflags |= REGBUF_KEEP_DATA;
 
 			XLogBeginInsert();
-			XLogRegisterData((char *) xlrec, tupledata - scratch);
+			XLogRegisterData((char *) xlrec, tupledata - scratch.data);
 			XLogRegisterBuffer(0, buffer, REGBUF_STANDARD | bufflags);
 
 			XLogRegisterBufData(0, tupledata, totaldatalen);
@@ -3222,15 +3223,20 @@ l1:
 		 */
 		if (infomask & HEAP_XMAX_IS_MULTI)
 		{
-			/* wait for multixact */
+			bool		current_is_member = false;
+
 			if (DoesMultiXactIdConflict((MultiXactId) xwait, infomask,
-										LockTupleExclusive))
+										LockTupleExclusive, &current_is_member))
 			{
 				LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
 
-				/* acquire tuple lock, if necessary */
-				heap_acquire_tuplock(relation, &(tp.t_self), LockTupleExclusive,
-									 LockWaitBlock, &have_tuple_lock);
+				/*
+				 * Acquire the lock, if necessary (but skip it when we're
+				 * requesting a lock and already have one; avoids deadlock).
+				 */
+				if (!current_is_member)
+					heap_acquire_tuplock(relation, &(tp.t_self), LockTupleExclusive,
+										 LockWaitBlock, &have_tuple_lock);
 
 				/* wait for multixact */
 				MultiXactIdWait((MultiXactId) xwait, MultiXactStatusUpdate, infomask,
@@ -3419,6 +3425,7 @@ l1:
 	if (RelationNeedsWAL(relation))
 	{
 		xl_heap_delete xlrec;
+		xl_heap_header xlhdr;
 		XLogRecPtr	recptr;
 
 		/* For logical decode we need combocids to properly decode the catalog */
@@ -3453,8 +3460,6 @@ l1:
 		 */
 		if (old_key_tuple != NULL)
 		{
-			xl_heap_header xlhdr;
-
 			xlhdr.t_infomask2 = old_key_tuple->t_data->t_infomask2;
 			xlhdr.t_infomask = old_key_tuple->t_data->t_infomask;
 			xlhdr.t_hoff = old_key_tuple->t_data->t_hoff;
@@ -3846,15 +3851,20 @@ l2:
 		{
 			TransactionId update_xact;
 			int			remain;
+			bool		current_is_member = false;
 
 			if (DoesMultiXactIdConflict((MultiXactId) xwait, infomask,
-										*lockmode))
+										*lockmode, &current_is_member))
 			{
 				LockBuffer(buffer, BUFFER_LOCK_UNLOCK);
 
-				/* acquire tuple lock, if necessary */
-				heap_acquire_tuplock(relation, &(oldtup.t_self), *lockmode,
-									 LockWaitBlock, &have_tuple_lock);
+				/*
+				 * Acquire the lock, if necessary (but skip it when we're
+				 * requesting a lock and already have one; avoids deadlock).
+				 */
+				if (!current_is_member)
+					heap_acquire_tuplock(relation, &(oldtup.t_self), *lockmode,
+										 LockWaitBlock, &have_tuple_lock);
 
 				/* wait for multixact */
 				MultiXactIdWait((MultiXactId) xwait, mxact_status, infomask,
@@ -4313,11 +4323,10 @@ l2:
 	{
 		/*
 		 * Since the new tuple is going into the same page, we might be able
-		 * to do a HOT update.  Check if any of the index columns have been
-		 * changed, or if we have projection functional indexes, check whether
-		 * the old and the new values are the same.   If the page was already
-		 * full, we may have skipped checking for index columns. If so, HOT
-		 * update is possible.
+		 * to do a HOT update.  A HOT update is possible if none of the index
+		 * columns, nor columns used in projection functional indexes, have
+		 * changed.  If the page was already full, we may have skipped
+		 * checking for index columns, and also can't do a HOT update.
 		 */
 		if (hot_attrs_checked
 			&& !bms_overlap(modified_attrs, hot_attrs)
@@ -4801,6 +4810,7 @@ heap_lock_tuple(Relation relation, HeapTuple tuple,
 				new_infomask,
 				new_infomask2;
 	bool		first_time = true;
+	bool		skip_tuple_lock = false;
 	bool		have_tuple_lock = false;
 	bool		cleared_all_frozen = false;
 
@@ -4901,6 +4911,21 @@ l3:
 						pfree(members);
 						result = HeapTupleMayBeUpdated;
 						goto out_unlocked;
+					}
+					else
+					{
+						/*
+						 * Disable acquisition of the heavyweight tuple lock.
+						 * Otherwise, when promoting a weaker lock, we might
+						 * deadlock with another locker that has acquired the
+						 * heavyweight tuple lock and is waiting for our
+						 * transaction to finish.
+						 *
+						 * Note that in this case we still need to wait for
+						 * the multixact if required, to avoid acquiring
+						 * conflicting locks.
+						 */
+						skip_tuple_lock = true;
 					}
 				}
 
@@ -5056,7 +5081,7 @@ l3:
 			if (infomask & HEAP_XMAX_IS_MULTI)
 			{
 				if (!DoesMultiXactIdConflict((MultiXactId) xwait, infomask,
-											 mode))
+											 mode, NULL))
 				{
 					/*
 					 * No conflict, but if the xmax changed under us in the
@@ -5133,13 +5158,15 @@ l3:
 			/*
 			 * Acquire tuple lock to establish our priority for the tuple, or
 			 * die trying.  LockTuple will release us when we are next-in-line
-			 * for the tuple.  We must do this even if we are share-locking.
+			 * for the tuple.  We must do this even if we are share-locking,
+			 * but not if we already have a weaker lock on the tuple.
 			 *
 			 * If we are forced to "start over" below, we keep the tuple lock;
 			 * this arranges that we stay at the head of the line while
 			 * rechecking tuple state.
 			 */
-			if (!heap_acquire_tuplock(relation, tid, mode, wait_policy,
+			if (!skip_tuple_lock &&
+				!heap_acquire_tuplock(relation, tid, mode, wait_policy,
 									  &have_tuple_lock))
 			{
 				/*
@@ -7317,10 +7344,13 @@ HeapTupleGetUpdateXid(HeapTupleHeader tuple)
  * tuple lock of the given strength?
  *
  * The passed infomask pairs up with the given multixact in the tuple header.
+ *
+ * If current_is_member is not NULL, it is set to 'true' if the current
+ * transaction is a member of the given multixact.
  */
 static bool
 DoesMultiXactIdConflict(MultiXactId multi, uint16 infomask,
-						LockTupleMode lockmode)
+						LockTupleMode lockmode, bool *current_is_member)
 {
 	int			nmembers;
 	MultiXactMember *members;
@@ -7341,15 +7371,24 @@ DoesMultiXactIdConflict(MultiXactId multi, uint16 infomask,
 			TransactionId memxid;
 			LOCKMODE	memlockmode;
 
+			if (result && (current_is_member == NULL || *current_is_member))
+				break;
+
 			memlockmode = LOCKMODE_from_mxstatus(members[i].status);
+
+			/* ignore members from current xact (but track their presence) */
+			memxid = members[i].xid;
+			if (TransactionIdIsCurrentTransactionId(memxid))
+			{
+				if (current_is_member != NULL)
+					*current_is_member = true;
+				continue;
+			}
+			else if (result)
+				continue;
 
 			/* ignore members that don't conflict with the lock we want */
 			if (!DoLockModesConflict(memlockmode, wanted))
-				continue;
-
-			/* ignore members from current xact */
-			memxid = members[i].xid;
-			if (TransactionIdIsCurrentTransactionId(memxid))
 				continue;
 
 			if (ISUPDATE_from_mxstatus(members[i].status))
@@ -7368,10 +7407,11 @@ DoesMultiXactIdConflict(MultiXactId multi, uint16 infomask,
 			/*
 			 * Whatever remains are either live lockers that conflict with our
 			 * wanted lock, and updaters that are not aborted.  Those conflict
-			 * with what we want, so return true.
+			 * with what we want.  Set up to return true, but keep going to
+			 * look for the current transaction among the multixact members,
+			 * if needed.
 			 */
 			result = true;
-			break;
 		}
 		pfree(members);
 	}
@@ -8274,7 +8314,7 @@ heap_xlog_cleanup_info(XLogReaderState *record)
 }
 
 /*
- * Handles HEAP2_CLEAN record type
+ * Handles XLOG_HEAP2_CLEAN record type
  */
 static void
 heap_xlog_clean(XLogReaderState *record)
@@ -8282,7 +8322,6 @@ heap_xlog_clean(XLogReaderState *record)
 	XLogRecPtr	lsn = record->EndRecPtr;
 	xl_heap_clean *xlrec = (xl_heap_clean *) XLogRecGetData(record);
 	Buffer		buffer;
-	Size		freespace = 0;
 	RelFileNode rnode;
 	BlockNumber blkno;
 	XLogRedoAction action;
@@ -8334,8 +8373,6 @@ heap_xlog_clean(XLogReaderState *record)
 								nowdead, ndead,
 								nowunused, nunused);
 
-		freespace = PageGetHeapFreeSpace(page); /* needed to update FSM below */
-
 		/*
 		 * Note: we don't worry about updating the page's prunability hints.
 		 * At worst this will cause an extra prune cycle to occur soon.
@@ -8344,18 +8381,24 @@ heap_xlog_clean(XLogReaderState *record)
 		PageSetLSN(page, lsn);
 		MarkBufferDirty(buffer);
 	}
+
 	if (BufferIsValid(buffer))
+	{
+		Size		freespace = PageGetHeapFreeSpace(BufferGetPage(buffer));
+
 		UnlockReleaseBuffer(buffer);
 
-	/*
-	 * Update the FSM as well.
-	 *
-	 * XXX: Don't do this if the page was restored from full page image. We
-	 * don't bother to update the FSM in that case, it doesn't need to be
-	 * totally accurate anyway.
-	 */
-	if (action == BLK_NEEDS_REDO)
+		/*
+		 * After cleaning records from a page, it's useful to update the FSM
+		 * about it, as it may cause the page become target for insertions
+		 * later even if vacuum decides not to visit it (which is possible if
+		 * gets marked all-visible.)
+		 *
+		 * Do this regardless of a full-page image being applied, since the
+		 * FSM data is not in the page anyway.
+		 */
 		XLogRecordPageWithFreeSpace(rnode, blkno, freespace);
+	}
 }
 
 /*
@@ -8428,8 +8471,33 @@ heap_xlog_visible(XLogReaderState *record)
 		 * wal_log_hints enabled.)
 		 */
 	}
+
 	if (BufferIsValid(buffer))
+	{
+		Size		space = PageGetFreeSpace(BufferGetPage(buffer));
+
 		UnlockReleaseBuffer(buffer);
+
+		/*
+		 * Since FSM is not WAL-logged and only updated heuristically, it
+		 * easily becomes stale in standbys.  If the standby is later promoted
+		 * and runs VACUUM, it will skip updating individual free space
+		 * figures for pages that became all-visible (or all-frozen, depending
+		 * on the vacuum mode,) which is troublesome when FreeSpaceMapVacuum
+		 * propagates too optimistic free space values to upper FSM layers;
+		 * later inserters try to use such pages only to find out that they
+		 * are unusable.  This can cause long stalls when there are many such
+		 * pages.
+		 *
+		 * Forestall those problems by updating FSM's idea about a page that
+		 * is becoming all-visible or all-frozen.
+		 *
+		 * Do this regardless of a full-page image being applied, since the
+		 * FSM data is not in the page anyway.
+		 */
+		if (xlrec->flags & VISIBILITYMAP_VALID_BITS)
+			XLogRecordPageWithFreeSpace(rnode, blkno, space);
+	}
 
 	/*
 	 * Even if we skipped the heap page update due to the LSN interlock, it's

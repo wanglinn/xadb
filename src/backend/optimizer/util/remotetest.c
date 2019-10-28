@@ -324,7 +324,7 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 		null_test_list = list_make1(makeNotNullTest((Expr*)context.var_expr, false));
 	}
 
-	constraint_pred = get_relation_constraints_base(root, loc_info->relid, varno, true);
+	constraint_pred = get_relation_constraints_base(root, loc_info->relid, varno, true, true, false);
 	safe_constraints = NIL;
 	foreach(lc, constraint_pred)
 	{

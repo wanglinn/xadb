@@ -66,7 +66,7 @@
       <para>
        <emphasis>Numeric with Unit:</emphasis>
        Some numeric parameters have an implicit unit, because they describe
-       quantities of memory or time. The unit might be kilobytes, blocks
+       quantities of memory or time. The unit might be bytes, kilobytes, blocks
        (typically eight kilobytes), milliseconds, seconds, or minutes.
        An unadorned numeric value for one of these settings will use the
        setting's default unit, which can be learned from
@@ -81,7 +81,8 @@
        <itemizedlist>
         <listitem>
          <para>
-          Valid memory units are <literal>kB</literal> (kilobytes),
+          Valid memory units are <literal>B</literal> (bytes),
+          <literal>kB</literal> (kilobytes),
           <literal>MB</literal> (megabytes), <literal>GB</literal>
           (gigabytes), and <literal>TB</literal> (terabytes).
           The multiplier for memory units is 1024, not 1000.
@@ -4142,7 +4143,8 @@ ANY <replaceable class="parameter">num_sync</replaceable> ( <replaceable class="
         used. When setting this parameter you should consider both
         <productname>PostgreSQL</productname>'s shared buffers and the
         portion of the kernel's disk cache that will be used for
-        <productname>PostgreSQL</productname> data files.  Also, take
+        <productname>PostgreSQL</productname> data files, though some
+        data might exist in both places. Also, take
         into account the expected number of concurrent queries on different
         tables, since they will have to share the available
         space.  This parameter has no effect on the size of shared
@@ -4155,7 +4157,6 @@ ANY <replaceable class="parameter">num_sync</replaceable> ( <replaceable class="
       </listitem>
      </varlistentry>
 
-
      <varlistentry id="guc-jit-above-cost" xreflabel="jit_above_cost">
       <term><varname>jit_above_cost</varname> (<type>floating point</type>)
       <indexterm>
@@ -4164,29 +4165,12 @@ ANY <replaceable class="parameter">num_sync</replaceable> ( <replaceable class="
       </term>
       <listitem>
        <para>
-        Sets the planner's cutoff above which JIT compilation is used as part
-        of query execution (see <xref linkend="jit"/>). Performing
-        <acronym>JIT</acronym> costs time but can accelerate query execution.
-
+        Sets the query cost above which JIT compilation is activated, if
+        enabled (see <xref linkend="jit"/>).
+        Performing <acronym>JIT</acronym> costs planning time but can
+        accelerate query execution.
+        Setting this to <literal>-1</literal> disables JIT compilation.
         The default is <literal>100000</literal>.
-       </para>
-      </listitem>
-     </varlistentry>
-
-     <varlistentry id="guc-jit-optimize-above-cost" xreflabel="jit_optimize_above_cost">
-      <term><varname>jit_optimize_above_cost</varname> (<type>floating point</type>)
-      <indexterm>
-       <primary><varname>jit_optimize_above_cost</varname> configuration parameter</primary>
-      </indexterm>
-      </term>
-      <listitem>
-       <para>
-        Sets the planner's cutoff above which JIT compiled programs (see <xref
-        linkend="guc-jit-above-cost"/>) are optimized. Optimization initially
-        takes time, but can improve execution speed.  It is not meaningful to
-        set this to a lower value than <xref linkend="guc-jit-above-cost"/>.
-
-        The default is <literal>500000</literal>.
        </para>
       </listitem>
      </varlistentry>
@@ -4199,13 +4183,31 @@ ANY <replaceable class="parameter">num_sync</replaceable> ( <replaceable class="
       </term>
       <listitem>
        <para>
-        Sets the planner's cutoff above which JIT compiled programs (see <xref
-        linkend="guc-jit-above-cost"/>) attempt to inline functions and
-        operators. Inlining initially takes time, but can improve execution
-        speed.  It is unlikely to be beneficial to set
-        <varname>jit_inline_above_cost</varname> below
-        <varname>jit_optimize_above_cost</varname>.
+        Sets the query cost above which JIT compilation attempts to inline
+        functions and operators.  Inlining adds planning time, but can
+        improve execution speed.  It is not meaningful to set this to less
+        than <varname>jit_above_cost</varname>.
+        Setting this to <literal>-1</literal> disables inlining.
+        The default is <literal>500000</literal>.
+       </para>
+      </listitem>
+     </varlistentry>
 
+     <varlistentry id="guc-jit-optimize-above-cost" xreflabel="jit_optimize_above_cost">
+      <term><varname>jit_optimize_above_cost</varname> (<type>floating point</type>)
+      <indexterm>
+       <primary><varname>jit_optimize_above_cost</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Sets the query cost above which JIT compilation applies expensive
+        optimizations.  Such optimization adds planning time, but can improve
+        execution speed.  It is not meaningful to set this to less
+        than <varname>jit_above_cost</varname>, and it is unlikely to be
+        beneficial to set it to more
+        than <varname>jit_inline_above_cost</varname>.
+        Setting this to <literal>-1</literal> disables expensive optimizations.
         The default is <literal>500000</literal>.
        </para>
       </listitem>
@@ -4408,10 +4410,11 @@ ANY <replaceable class="parameter">num_sync</replaceable> ( <replaceable class="
         The allowed values of <varname>constraint_exclusion</varname> are
         <literal>on</literal> (examine constraints for all tables),
         <literal>off</literal> (never examine constraints), and
-        <literal>partition</literal> (examine constraints only for inheritance child
-        tables and <literal>UNION ALL</literal> subqueries).
+        <literal>partition</literal> (examine constraints only for inheritance
+        child tables and <literal>UNION ALL</literal> subqueries).
         <literal>partition</literal> is the default setting.
-        It is often used with inheritance tables to improve performance.
+        It is often used with traditional inheritance trees to improve
+        performance.
       </para>
 
        <para>
@@ -4435,15 +4438,19 @@ SELECT * FROM parent WHERE key = 2400;
        <para>
         Currently, constraint exclusion is enabled by default
         only for cases that are often used to implement table partitioning via
-        inheritance tables.  Turning it on for all tables imposes extra
+        inheritance trees.  Turning it on for all tables imposes extra
         planning overhead that is quite noticeable on simple queries, and most
         often will yield no benefit for simple queries.  If you have no
-        inheritance partitioned tables you might prefer to turn it off entirely.
+        tables that are partitioned using traditional inheritance, you might
+        prefer to turn it off entirely.  (Note that the equivalent feature for
+        partitioned tables is controlled by a separate parameter,
+        <xref linkend="guc-enable-partition-pruning"/>.)
        </para>
 
        <para>
         Refer to <xref linkend="ddl-partitioning-constraint-exclusion"/> for
-        more information on using constraint exclusion and partitioning.
+        more information on using constraint exclusion to implement
+        partitioning.
        </para>
       </listitem>
      </varlistentry>
@@ -4500,11 +4507,10 @@ SELECT * FROM parent WHERE key = 2400;
       </term>
       <listitem>
        <para>
-        Determines whether <acronym>JIT</acronym> may be used by
+        Determines whether <acronym>JIT</acronym> compilation may be used by
         <productname>PostgreSQL</productname>, if available (see <xref
         linkend="jit"/>).
-
-        The default is <literal>on</literal>.
+        The default is <literal>off</literal>.
        </para>
       </listitem>
      </varlistentry>
@@ -5076,28 +5082,6 @@ local0.*    /var/log/postgresql
 
      <variablelist>
 
-     <varlistentry id="guc-client-min-messages" xreflabel="client_min_messages">
-      <term><varname>client_min_messages</varname> (<type>enum</type>)
-      <indexterm>
-       <primary><varname>client_min_messages</varname> configuration parameter</primary>
-      </indexterm>
-      </term>
-      <listitem>
-       <para>
-        Controls which message levels are sent to the client.
-        Valid values are <literal>DEBUG5</literal>,
-        <literal>DEBUG4</literal>, <literal>DEBUG3</literal>, <literal>DEBUG2</literal>,
-        <literal>DEBUG1</literal>, <literal>LOG</literal>, <literal>NOTICE</literal>,
-        <literal>WARNING</literal>, <literal>ERROR</literal>, <literal>FATAL</literal>,
-        and <literal>PANIC</literal>.  Each level
-        includes all the levels that follow it.  The later the level,
-        the fewer messages are sent.  The default is
-        <literal>NOTICE</literal>.  Note that <literal>LOG</literal> has a different
-        rank here than in <varname>log_min_messages</varname>.
-       </para>
-      </listitem>
-     </varlistentry>
-
      <varlistentry id="guc-log-min-messages" xreflabel="log_min_messages">
       <term><varname>log_min_messages</varname> (<type>enum</type>)
       <indexterm>
@@ -5106,7 +5090,8 @@ local0.*    /var/log/postgresql
       </term>
       <listitem>
        <para>
-        Controls which message levels are written to the server log.
+        Controls which <link linkend="runtime-config-severity-levels">message
+        levels</link> are written to the server log.
         Valid values are <literal>DEBUG5</literal>, <literal>DEBUG4</literal>,
         <literal>DEBUG3</literal>, <literal>DEBUG2</literal>, <literal>DEBUG1</literal>,
         <literal>INFO</literal>, <literal>NOTICE</literal>, <literal>WARNING</literal>,
@@ -5115,7 +5100,7 @@ local0.*    /var/log/postgresql
         follow it.  The later the level, the fewer messages are sent
         to the log.  The default is <literal>WARNING</literal>.  Note that
         <literal>LOG</literal> has a different rank here than in
-        <varname>client_min_messages</varname>.
+        <xref linkend="guc-client-min-messages"/>.
         Only superusers can change this setting.
        </para>
       </listitem>
@@ -5132,7 +5117,9 @@ local0.*    /var/log/postgresql
         Controls which SQL statements that cause an error
         condition are recorded in the server log.  The current
         SQL statement is included in the log entry for any message of
-        the specified severity or higher.
+        the specified
+        <link linkend="runtime-config-severity-levels">severity</link>
+        or higher.
         Valid values are <literal>DEBUG5</literal>,
         <literal>DEBUG4</literal>, <literal>DEBUG3</literal>,
         <literal>DEBUG2</literal>, <literal>DEBUG1</literal>,
@@ -6436,6 +6423,32 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
      <title>Statement Behavior</title>
      <variablelist>
 
+     <varlistentry id="guc-client-min-messages" xreflabel="client_min_messages">
+      <term><varname>client_min_messages</varname> (<type>enum</type>)
+      <indexterm>
+       <primary><varname>client_min_messages</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        Controls which
+        <link linkend="runtime-config-severity-levels">message levels</link>
+        are sent to the client.
+        Valid values are <literal>DEBUG5</literal>,
+        <literal>DEBUG4</literal>, <literal>DEBUG3</literal>, <literal>DEBUG2</literal>,
+        <literal>DEBUG1</literal>, <literal>LOG</literal>, <literal>NOTICE</literal>,
+        <literal>WARNING</literal>, and <literal>ERROR</literal>.
+        Each level includes all the levels that follow it.  The later the level,
+        the fewer messages are sent.  The default is
+        <literal>NOTICE</literal>.  Note that <literal>LOG</literal> has a different
+        rank here than in <xref linkend="guc-log-min-messages"/>.
+       </para>
+       <para>
+        <literal>INFO</literal> level messages are always sent to the client.
+       </para>
+      </listitem>
+     </varlistentry>
+
      <varlistentry id="guc-search-path" xreflabel="search_path">
       <term><varname>search_path</varname> (<type>string</type>)
       <indexterm>
@@ -6464,7 +6477,7 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
        <para>
         If one of the list items is the special name
         <literal>$user</literal>, then the schema having the name returned by
-        <function>SESSION_USER</function> is substituted, if there is such a schema
+        <function>CURRENT_USER</function> is substituted, if there is such a schema
         and the user has <literal>USAGE</literal> permission for it.
         (If not, <literal>$user</literal> is ignored.)
        </para>
@@ -6477,6 +6490,10 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
         be searched <emphasis>before</emphasis> searching any of the path items.
        </para>
 
+       <!-- To further split hairs, funcname('foo') does not use the temporary
+            schema, even when it considers typname='funcname'.  This paragraph
+            refers to function names in a loose sense, "pg_proc.proname or
+            func_name grammar production". -->
        <para>
         Likewise, the current session's temporary-table schema,
         <literal>pg_temp_<replaceable>nnn</replaceable></literal>, is always searched if it
@@ -7552,16 +7569,17 @@ SET XML OPTION { DOCUMENT | CONTENT };
       </term>
       <listitem>
        <para>
-        Determines which JIT provider (see <xref linkend="jit-extensibility"/>) is
-        used. The built-in default is <literal>llvmjit</literal>.
+        This variable is the name of the JIT provider library to be used
+        (see <xref linkend="jit-pluggable"/>).
+        The default is <literal>llvmjit</literal>.
+        This parameter can only be set at server start.
        </para>
+
        <para>
-        If set to a non-existent library <acronym>JIT</acronym> will not be
+        If set to a non-existent library, <acronym>JIT</acronym> will not be
         available, but no error will be raised. This allows JIT support to be
         installed separately from the main
         <productname>PostgreSQL</productname> package.
-
-        This parameter can only be set at server start.
        </para>
       </listitem>
      </varlistentry>
@@ -8126,6 +8144,39 @@ dynamic_library_path = 'C:\tools\postgresql;H:\my_project\lib;$libdir'
       </listitem>
      </varlistentry>
 
+     <varlistentry id="guc-data-sync-retry" xreflabel="data_sync_retry">
+      <term><varname>data_sync_retry</varname> (<type>boolean</type>)
+      <indexterm>
+       <primary><varname>data_sync_retry</varname> configuration parameter</primary>
+      </indexterm>
+      </term>
+      <listitem>
+       <para>
+        When set to false, which is the default, <productname>PostgreSQL</productname>
+        will raise a PANIC-level error on failure to flush modified data files
+        to the filesystem.  This causes the database server to crash.  This
+        parameter can only be set at server start.
+       </para>
+       <para>
+        On some operating systems, the status of data in the kernel's page
+        cache is unknown after a write-back failure.  In some cases it might
+        have been entirely forgotten, making it unsafe to retry; the second
+        attempt may be reported as successful, when in fact the data has been
+        lost.  In these circumstances, the only way to avoid data loss is to
+        recover from the WAL after any failure is reported, preferably
+        after investigating the root cause of the failure and replacing any
+        faulty hardware.
+       </para>
+       <para>
+        If set to true, <productname>PostgreSQL</productname> will instead
+        report an error but continue to run so that the data flushing
+        operation can be retried in a later checkpoint.  Only set it to true
+        after investigating the operating system's treatment of buffered data
+        in case of write-back failure.
+       </para>
+      </listitem>
+     </varlistentry>
+
     </variablelist>
 
    </sect1>
@@ -8394,11 +8445,8 @@ dynamic_library_path = 'C:\tools\postgresql;H:\my_project\lib;$libdir'
       </term>
       <listitem>
        <para>
-        Reports the number of blocks (pages) in a WAL segment file.
-        The total size of a WAL segment file in bytes is equal to
-        <varname>wal_segment_size</varname> multiplied by <varname>wal_block_size</varname>;
-        by default this is 16MB.  See <xref linkend="wal-configuration"/> for
-        more information.
+        Reports the size of write ahead log segments.  The default value is
+        16MB. See <xref linkend="wal-configuration"/> for more information.
        </para>
       </listitem>
      </varlistentry>
@@ -8840,9 +8888,8 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
        <para>
         If LLVM has the required functionality, register generated functions
         with <productname>GDB</productname>.  This makes debugging easier.
-
-        The default setting is <literal>off</literal>, and can only be set at
-        server start.
+        The default setting is <literal>off</literal>.
+        This parameter can only be set at server start.
        </para>
       </listitem>
      </varlistentry>
@@ -8858,9 +8905,8 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
         Writes the generated <productname>LLVM</productname> IR out to the
         file system, inside <xref linkend="guc-data-directory"/>. This is only
         useful for working on the internals of the JIT implementation.
-
-        The default setting is <literal>off</literal>, and it can only be
-        changed by a superuser.
+        The default setting is <literal>off</literal>.
+        This parameter can only be changed by a superuser.
        </para>
       </listitem>
      </varlistentry>
@@ -8873,8 +8919,8 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       </term>
       <listitem>
        <para>
-        Determines whether expressions are JIT compiled, subject to costing
-        decisions (see <xref linkend="jit-decision"/>).  The default is
+        Determines whether expressions are JIT compiled, when JIT compilation
+        is activated (see <xref linkend="jit-decision"/>).  The default is
         <literal>on</literal>.
        </para>
       </listitem>
@@ -8888,13 +8934,12 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       </term>
       <listitem>
        <para>
-        If LLVM has the required functionality, emit required data to allow
+        If LLVM has the required functionality, emit the data needed to allow
         <productname>perf</productname> to profile functions generated by JIT.
         This writes out files to <filename>$HOME/.debug/jit/</filename>; the
         user is responsible for performing cleanup when desired.
-
-        The default setting is <literal>off</literal>, and can only be set at
-        server start.
+        The default setting is <literal>off</literal>.
+        This parameter can only be set at server start.
        </para>
       </listitem>
      </varlistentry>
@@ -8907,9 +8952,9 @@ LOG:  CleanUpLock: deleting: lock(0xb7acd844) id(24688,24696,0,0,0,1)
       </term>
       <listitem>
        <para>
-        Determines whether tuple deforming is JIT compiled, subject to costing
-        decisions (see <xref linkend="jit-decision"/>). The default is
-        <literal>on</literal>.
+        Determines whether tuple deforming is JIT compiled, when JIT
+        compilation is activated (see <xref linkend="jit-decision"/>).
+        The default is <literal>on</literal>.
        </para>
       </listitem>
      </varlistentry>

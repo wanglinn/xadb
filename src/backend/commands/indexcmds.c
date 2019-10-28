@@ -34,6 +34,7 @@
 #include "commands/comment.h"
 #include "commands/dbcommands.h"
 #include "commands/defrem.h"
+#include "commands/event_trigger.h"
 #include "commands/tablecmds.h"
 #include "commands/tablespace.h"
 #include "mb/pg_wchar.h"
@@ -90,6 +91,7 @@ static List *ChooseIndexColumnNames(List *indexElems);
 static void RangeVarCallbackForReindexIndex(const RangeVar *relation,
 								Oid relId, Oid oldRelId, void *arg);
 static void ReindexPartitionedIndex(Relation parentIdx);
+static void update_relispartition(Oid relationId, bool newval);
 
 /*
  * CheckIndexCompatible
@@ -375,11 +377,6 @@ DefineIndex(Oid relationId,
 	Snapshot	snapshot;
 	int			i;
 
-	if (list_intersection(stmt->indexParams, stmt->indexIncludingParams) != NIL)
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-				 errmsg("included columns must not intersect with key columns")));
-
 	/*
 	 * count key attributes in index
 	 */
@@ -602,7 +599,7 @@ DefineIndex(Oid relationId,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("access method \"%s\" does not support unique indexes",
 						accessMethodName)));
-	if (list_length(stmt->indexIncludingParams) > 0 && !amRoutine->amcaninclude)
+	if (stmt->indexIncludingParams != NIL && !amRoutine->amcaninclude)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("access method \"%s\" does not support included columns",
@@ -707,7 +704,7 @@ DefineIndex(Oid relationId,
 	 * Extra checks when creating a PRIMARY KEY index.
 	 */
 	if (stmt->primary)
-		index_check_primary_key(rel, indexInfo, is_alter_table);
+		index_check_primary_key(rel, indexInfo, is_alter_table, stmt);
 
 	/*
 	 * If this table is partitioned and we're creating a unique index or a
@@ -762,7 +759,7 @@ DefineIndex(Oid relationId,
 						 errdetail("%s constraints cannot be used when partition keys include expressions.",
 								   constraint_type)));
 
-			for (j = 0; j < indexInfo->ii_NumIndexAttrs; j++)
+			for (j = 0; j < indexInfo->ii_NumIndexKeyAttrs; j++)
 			{
 				if (key->partattrs[i] == indexInfo->ii_IndexAttrNumbers[j])
 				{
@@ -874,8 +871,18 @@ DefineIndex(Oid relationId,
 		flags |= INDEX_CREATE_PARTITIONED;
 	if (stmt->primary)
 		flags |= INDEX_CREATE_IS_PRIMARY;
+
+	/*
+	 * If the table is partitioned, and recursion was declined but partitions
+	 * exist, mark the index as invalid.
+	 */
 	if (partitioned && stmt->relation && !stmt->relation->inh)
-		flags |= INDEX_CREATE_INVALID;
+	{
+		PartitionDesc	pd = RelationGetPartitionDesc(rel);
+
+		if (pd->nparts != 0)
+			flags |= INDEX_CREATE_INVALID;
+	}
 
 	if (stmt->deferrable)
 		constr_flags |= INDEX_CONSTR_CREATE_DEFERRABLE;
@@ -925,12 +932,10 @@ DefineIndex(Oid relationId,
 
 			memcpy(part_oids, partdesc->oids, sizeof(Oid) * nparts);
 
-			parentDesc = CreateTupleDescCopy(RelationGetDescr(rel));
+			parentDesc = RelationGetDescr(rel);
 			opfamOids = palloc(sizeof(Oid) * numberOfKeyAttributes);
 			for (i = 0; i < numberOfKeyAttributes; i++)
 				opfamOids[i] = get_opclass_family(classObjectId[i]);
-
-			heap_close(rel, NoLock);
 
 			/*
 			 * For each partition, scan all existing indexes; if one matches
@@ -951,13 +956,32 @@ DefineIndex(Oid relationId,
 				int			maplen;
 
 				childrel = heap_open(childRelid, lockmode);
+
+				/*
+				 * Don't try to create indexes on foreign tables, though.
+				 * Skip those if a regular index, or fail if trying to create
+				 * a constraint index.
+				 */
+				if (childrel->rd_rel->relkind == RELKIND_FOREIGN_TABLE)
+				{
+					if (stmt->unique || stmt->primary)
+						ereport(ERROR,
+								(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+								 errmsg("cannot create unique index on partitioned table \"%s\"",
+										RelationGetRelationName(rel)),
+								 errdetail("Table \"%s\" contains partitions that are foreign tables.",
+										RelationGetRelationName(rel))));
+
+					heap_close(childrel, lockmode);
+					continue;
+				}
+
 				childidxs = RelationGetIndexList(childrel);
 				attmap =
 					convert_tuples_by_name_map(RelationGetDescr(childrel),
 											   parentDesc,
 											   gettext_noop("could not convert row type"));
 				maplen = parentDesc->natts;
-
 
 				foreach(cell, childidxs)
 				{
@@ -1032,6 +1056,19 @@ DefineIndex(Oid relationId,
 					ListCell   *lc;
 
 					/*
+					 * We can't use the same index name for the child index,
+					 * so clear idxname to let the recursive invocation choose
+					 * a new name.  Likewise, the existing target relation
+					 * field is wrong, and if indexOid or oldNode are set,
+					 * they mustn't be applied to the child either.
+					 */
+					childStmt->idxname = NULL;
+					childStmt->relation = NULL;
+					childStmt->relationId = childRelid;
+					childStmt->indexOid = InvalidOid;
+					childStmt->oldNode = InvalidOid;
+
+					/*
 					 * Adjust any Vars (both in expressions and in the index's
 					 * WHERE clause) to match the partition's column numbering
 					 * in case it's different from the parent's.
@@ -1062,8 +1099,6 @@ DefineIndex(Oid relationId,
 					if (found_whole_row)
 						elog(ERROR, "cannot convert whole-row table reference");
 
-					childStmt->idxname = NULL;
-					childStmt->relationId = childRelid;
 					DefineIndex(childRelid, childStmt,
 								InvalidOid, /* no predefined OID */
 								indexRelationId,	/* this is our child */
@@ -1088,7 +1123,7 @@ DefineIndex(Oid relationId,
 
 				tup = SearchSysCache1(INDEXRELID,
 									  ObjectIdGetDatum(indexRelationId));
-				if (!tup)
+				if (!HeapTupleIsValid(tup))
 					elog(ERROR, "cache lookup failed for index %u",
 						 indexRelationId);
 				newtup = heap_copytuple(tup);
@@ -1099,13 +1134,12 @@ DefineIndex(Oid relationId,
 				heap_freetuple(newtup);
 			}
 		}
-		else
-			heap_close(rel, NoLock);
 
 		/*
 		 * Indexes on partitioned tables are not themselves built, so we're
 		 * done here.
 		 */
+		heap_close(rel, NoLock);
 		return address;
 	}
 
@@ -2036,6 +2070,12 @@ makeObjectName(const char *name1, const char *name2, const char *label)
  * except that the label can't be NULL; digits will be appended to the label
  * if needed to create a name that is unique within the specified namespace.
  *
+ * If isconstraint is true, we also avoid choosing a name matching any
+ * existing constraint in the same namespace.  (This is stricter than what
+ * Postgres itself requires, but the SQL standard says that constraint names
+ * should be unique within schemas, so we follow that for autogenerated
+ * constraint names.)
+ *
  * Note: it is theoretically possible to get a collision anyway, if someone
  * else chooses the same name concurrently.  This is fairly unlikely to be
  * a problem in practice, especially if one is holding an exclusive lock on
@@ -2047,7 +2087,8 @@ makeObjectName(const char *name1, const char *name2, const char *label)
  */
 char *
 ChooseRelationName(const char *name1, const char *name2,
-				   const char *label, Oid namespaceid)
+				   const char *label, Oid namespaceid,
+				   bool isconstraint)
 {
 	int			pass = 0;
 	char	   *relname = NULL;
@@ -2061,7 +2102,11 @@ ChooseRelationName(const char *name1, const char *name2,
 		relname = makeObjectName(name1, name2, modlabel);
 
 		if (!OidIsValid(get_relname_relid(relname, namespaceid)))
-			break;
+		{
+			if (!isconstraint ||
+				!ConstraintNameExists(relname, namespaceid))
+				break;
+		}
 
 		/* found a conflict, so try a new name component */
 		pfree(relname);
@@ -2089,28 +2134,32 @@ ChooseIndexName(const char *tabname, Oid namespaceId,
 		indexname = ChooseRelationName(tabname,
 									   NULL,
 									   "pkey",
-									   namespaceId);
+									   namespaceId,
+									   true);
 	}
 	else if (exclusionOpNames != NIL)
 	{
 		indexname = ChooseRelationName(tabname,
 									   ChooseIndexNameAddition(colnames),
 									   "excl",
-									   namespaceId);
+									   namespaceId,
+									   true);
 	}
 	else if (isconstraint)
 	{
 		indexname = ChooseRelationName(tabname,
 									   ChooseIndexNameAddition(colnames),
 									   "key",
-									   namespaceId);
+									   namespaceId,
+									   true);
 	}
 	else
 	{
 		indexname = ChooseRelationName(tabname,
 									   ChooseIndexNameAddition(colnames),
 									   "idx",
-									   namespaceId);
+									   namespaceId,
+									   false);
 	}
 
 	return indexname;
@@ -2456,6 +2505,18 @@ ReindexMultipleTables(const char *objectName, ReindexObjectType objectKind,
 			!IsSystemClass(relid, classtuple))
 			continue;
 
+		/*
+		 * The table can be reindexed if the user is superuser, the table
+		 * owner, or the database/schema owner (but in the latter case, only
+		 * if it's not a shared relation).  pg_class_ownercheck includes the
+		 * superuser case, and depending on objectKind we already know that
+		 * the user has permission to run REINDEX on this database or schema
+		 * per the permission checks at the beginning of this routine.
+		 */
+		if (classtuple->relisshared &&
+			!pg_class_ownercheck(relid, GetUserId()))
+			continue;
+
 		/* Save the list of relation OIDs in private context */
 		old = MemoryContextSwitchTo(private_context);
 
@@ -2621,6 +2682,9 @@ IndexSetParentIndex(Relation partitionIdx, Oid parentOid)
 	systable_endscan(scan);
 	relation_close(pg_inherits, RowExclusiveLock);
 
+	/* set relispartition correctly on the partition */
+	update_relispartition(partRelid, OidIsValid(parentOid));
+
 	if (fix_dependencies)
 	{
 		ObjectAddress partIdx;
@@ -2657,4 +2721,25 @@ IndexSetParentIndex(Relation partitionIdx, Oid parentOid)
 		/* make our updates visible */
 		CommandCounterIncrement();
 	}
+}
+
+/*
+ * Subroutine of IndexSetParentIndex to update the relispartition flag of the
+ * given index to the given value.
+ */
+static void
+update_relispartition(Oid relationId, bool newval)
+{
+	HeapTuple	tup;
+	Relation	classRel;
+
+	classRel = heap_open(RelationRelationId, RowExclusiveLock);
+	tup = SearchSysCacheCopy1(RELOID, ObjectIdGetDatum(relationId));
+	if (!HeapTupleIsValid(tup))
+		elog(ERROR, "cache lookup failed for relation %u", relationId);
+	Assert(((Form_pg_class) GETSTRUCT(tup))->relispartition != newval);
+	((Form_pg_class) GETSTRUCT(tup))->relispartition = newval;
+	CatalogTupleUpdate(classRel, &tup->t_self, tup);
+	heap_freetuple(tup);
+	heap_close(classRel, RowExclusiveLock);
 }

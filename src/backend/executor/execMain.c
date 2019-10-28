@@ -46,6 +46,7 @@
 #include "commands/matview.h"
 #include "commands/trigger.h"
 #include "executor/execdebug.h"
+#include "executor/nodeSubplan.h"
 #include "foreign/fdwapi.h"
 #include "jit/jit.h"
 #include "mb/pg_wchar.h"
@@ -528,10 +529,6 @@ standard_ExecutorEnd(QueryDesc *queryDesc)
 	/* do away with our snapshots */
 	UnregisterSnapshot(estate->es_snapshot);
 	UnregisterSnapshot(estate->es_crosscheck_snapshot);
-
-	/* release JIT context, if allocated */
-	if (estate->es_jit)
-		jit_release_context(estate->es_jit);
 
 	/*
 	 * Must switch out of context before destroying it
@@ -1794,8 +1791,12 @@ ExecutePlan(EState *estate,
 		 */
 		if (TupIsNull(slot))
 		{
-			/* Allow nodes to release or shut down resources. */
-			(void) ExecShutdownNode(planstate);
+			/*
+			 * If we know we won't need to back up, we can release resources
+			 * at this point.
+			 */
+			if (!(estate->es_top_eflags & EXEC_FLAG_BACKWARD))
+				(void) ExecShutdownNode(planstate);
 			break;
 		}
 
@@ -1844,8 +1845,12 @@ ExecutePlan(EState *estate,
 		current_tuple_count++;
 		if (numberTuples && numberTuples == current_tuple_count)
 		{
-			/* Allow nodes to release or shut down resources. */
-			(void) ExecShutdownNode(planstate);
+			/*
+			 * If we know we won't need to back up, we can release resources
+			 * at this point.
+			 */
+			if (!(estate->es_top_eflags & EXEC_FLAG_BACKWARD))
+				(void) ExecShutdownNode(planstate);
 			break;
 		}
 	}
@@ -3057,17 +3062,8 @@ EvalPlanQualFetchRowMarks(EPQState *epqstate)
 								false, NULL))
 					elog(ERROR, "failed to fetch tuple for EvalPlanQual recheck");
 
-				if (HeapTupleHeaderGetNatts(tuple.t_data) <
-					RelationGetDescr(erm->relation)->natts)
-				{
-					copyTuple = heap_expand_tuple(&tuple,
-												  RelationGetDescr(erm->relation));
-				}
-				else
-				{
-					/* successful, copy tuple */
-					copyTuple = heap_copytuple(&tuple);
-				}
+				/* successful, copy tuple */
+				copyTuple = heap_copytuple(&tuple);
 				ReleaseBuffer(buffer);
 			}
 
@@ -3153,6 +3149,14 @@ EvalPlanQualBegin(EPQState *epqstate, EState *parentestate)
 		{
 			int			i;
 
+			/*
+			 * Force evaluation of any InitPlan outputs that could be needed
+			 * by the subplan, just in case they got reset since
+			 * EvalPlanQualStart (see comments therein).
+			 */
+			ExecSetParamPlanMulti(planstate->plan->extParam,
+								  GetPerTupleExprContext(parentestate));
+
 			i = list_length(parentestate->es_plannedstmt->paramExecTypes);
 
 			while (--i >= 0)
@@ -3201,7 +3205,7 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
 	 * es_param_exec_vals, etc.
 	 *
 	 * The ResultRelInfo array management is trickier than it looks.  We
-	 * create a fresh array for the child but copy all the content from the
+	 * create fresh arrays for the child but copy all the content from the
 	 * parent.  This is because it's okay for the child to share any
 	 * per-relation state the parent has already created --- but if the child
 	 * sets up any ResultRelInfo fields, such as its own junkfilter, that
@@ -3212,12 +3216,14 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
 	estate->es_snapshot = parentestate->es_snapshot;
 	estate->es_crosscheck_snapshot = parentestate->es_crosscheck_snapshot;
 	estate->es_range_table = parentestate->es_range_table;
+	estate->es_queryEnv = parentestate->es_queryEnv;
 	estate->es_plannedstmt = parentestate->es_plannedstmt;
 	estate->es_junkFilter = parentestate->es_junkFilter;
 	estate->es_output_cid = parentestate->es_output_cid;
 	if (parentestate->es_num_result_relations > 0)
 	{
 		int			numResultRelations = parentestate->es_num_result_relations;
+		int			numRootResultRels = parentestate->es_num_root_result_relations;
 		ResultRelInfo *resultRelInfos;
 
 		resultRelInfos = (ResultRelInfo *)
@@ -3226,6 +3232,17 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
 			   numResultRelations * sizeof(ResultRelInfo));
 		estate->es_result_relations = resultRelInfos;
 		estate->es_num_result_relations = numResultRelations;
+
+		/* Also transfer partitioned root result relations. */
+		if (numRootResultRels > 0)
+		{
+			resultRelInfos = (ResultRelInfo *)
+				palloc(numRootResultRels * sizeof(ResultRelInfo));
+			memcpy(resultRelInfos, parentestate->es_root_result_relations,
+				   numRootResultRels * sizeof(ResultRelInfo));
+			estate->es_root_result_relations = resultRelInfos;
+			estate->es_num_root_result_relations = numRootResultRels;
+		}
 	}
 #ifdef ADB
 	/* XXX Check if this is OK */
@@ -3248,9 +3265,32 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
 	{
 		int			i;
 
+		/*
+		 * Force evaluation of any InitPlan outputs that could be needed by
+		 * the subplan.  (With more complexity, maybe we could postpone this
+		 * till the subplan actually demands them, but it doesn't seem worth
+		 * the trouble; this is a corner case already, since usually the
+		 * InitPlans would have been evaluated before reaching EvalPlanQual.)
+		 *
+		 * This will not touch output params of InitPlans that occur somewhere
+		 * within the subplan tree, only those that are attached to the
+		 * ModifyTable node or above it and are referenced within the subplan.
+		 * That's OK though, because the planner would only attach such
+		 * InitPlans to a lower-level SubqueryScan node, and EPQ execution
+		 * will not descend into a SubqueryScan.
+		 *
+		 * The EState's per-output-tuple econtext is sufficiently short-lived
+		 * for this, since it should get reset before there is any chance of
+		 * doing EvalPlanQual again.
+		 */
+		ExecSetParamPlanMulti(planTree->extParam,
+							  GetPerTupleExprContext(parentestate));
+
+		/* now make the internal param workspace ... */
 		i = list_length(parentestate->es_plannedstmt->paramExecTypes);
 		estate->es_param_exec_vals = (ParamExecData *)
 			palloc0(i * sizeof(ParamExecData));
+		/* ... and copy down all values, whether really needed or not */
 		while (--i >= 0)
 		{
 			/* copy value if any, but not execPlan link */

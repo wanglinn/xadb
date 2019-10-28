@@ -449,6 +449,16 @@ insert into inner_7597 values(0, null);
 select * from outer_7597 where (f1, f2) not in (select * from inner_7597);
 
 --
+-- Another test case for cross-type hashed subplans: comparison of
+-- inner-side values must be done with appropriate operator
+--
+
+explain (verbose, costs off)
+select 'foo'::text in (select 'bar'::name union all select 'bar'::name);
+
+select 'foo'::text in (select 'bar'::name union all select 'bar'::name);
+
+--
 -- Test case for premature memory release during hashing of subplan output
 --
 
@@ -622,3 +632,19 @@ select * from (select pk,c2 from sq_limit order by c1,pk) as x limit 3;
 drop function explain_sq_limit();
 
 drop table sq_limit;
+
+--
+-- Ensure that backward scan direction isn't propagated into
+-- expression subqueries (bug #15336)
+--
+
+begin;
+
+declare c1 scroll cursor for
+ select * from generate_series(1,4) i
+  where i <> all (values (2),(3));
+
+move forward all in c1;
+fetch backward all in c1;
+
+commit;

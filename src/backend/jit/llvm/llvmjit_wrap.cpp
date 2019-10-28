@@ -6,7 +6,7 @@
  * Copyright (c) 2016-2018, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
- *	  src/backend/lib/llvm/llvmjit_wrap.c
+ *	  src/backend/lib/llvm/llvmjit_wrap.cpp
  *
  *-------------------------------------------------------------------------
  */
@@ -32,6 +32,7 @@ char *LLVMGetHostCPUName(void) {
 #endif
 
 
+#if defined(HAVE_DECL_LLVMGETHOSTCPUFEATURES) && !HAVE_DECL_LLVMGETHOSTCPUFEATURES
 char *LLVMGetHostCPUFeatures(void) {
 	llvm::SubtargetFeatures Features;
 	llvm::StringMap<bool> HostFeatures;
@@ -42,3 +43,4 @@ char *LLVMGetHostCPUFeatures(void) {
 
 	return strdup(Features.getString().c_str());
 }
+#endif

@@ -32,7 +32,7 @@ endif
 REGRESS_OPTS = --dbname=$(PL_TESTDB)
 
 REGRESS = plpgsql_call plpgsql_control plpgsql_domain plpgsql_record \
-	plpgsql_transaction plpgsql_varprops
+	plpgsql_cache plpgsql_transaction plpgsql_trigger plpgsql_varprops
 
 all: all-lib
 

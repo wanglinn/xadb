@@ -54,6 +54,7 @@
  *	Also, whenever we see an operation on a pg_class, pg_attribute, or
  *	pg_index tuple, we register a relcache flush operation for the relation
  *	described by that tuple (as specified in CacheInvalidateHeapTuple()).
+ *	Likewise for pg_constraint tuples for foreign keys on relations.
  *
  *	We keep the relcache flush requests in lists separate from the catcache
  *	tuple flush requests.  This allows us to issue all the pending catcache
@@ -100,6 +101,7 @@
 #include "access/htup_details.h"
 #include "access/xact.h"
 #include "catalog/catalog.h"
+#include "catalog/pg_constraint.h"
 #include "miscadmin.h"
 #include "storage/sinval.h"
 #include "storage/smgr.h"
@@ -723,7 +725,17 @@ AcceptInvalidationMessages(void)
 		}
 	}
 #elif defined(CLOBBER_CACHE_RECURSIVELY)
-	InvalidateSystemCaches();
+	{
+		static int	recursion_depth = 0;
+
+		/* Maximum depth is arbitrary depending on your threshold of pain */
+		if (recursion_depth < 3)
+		{
+			recursion_depth++;
+			InvalidateSystemCaches();
+			recursion_depth--;
+		}
+	}
 #endif
 }
 
@@ -1207,6 +1219,23 @@ CacheInvalidateHeapTuple(Relation relation,
 		 */
 		relationId = indextup->indexrelid;
 		databaseId = MyDatabaseId;
+	}
+	else if (tupleRelId == ConstraintRelationId)
+	{
+		Form_pg_constraint constrtup = (Form_pg_constraint) GETSTRUCT(tuple);
+
+		/*
+		 * Foreign keys are part of relcache entries, too, so send out an
+		 * inval for the table that the FK applies to.
+		 */
+		if (constrtup->contype == CONSTRAINT_FOREIGN &&
+			OidIsValid(constrtup->conrelid))
+		{
+			relationId = constrtup->conrelid;
+			databaseId = MyDatabaseId;
+		}
+		else
+			return;
 	}
 #ifdef ADB
 	else if (tupleRelId == PgxcClassRelationId)

@@ -28,6 +28,8 @@ extern void ExecReScanSetParamPlan(SubPlanState *node, PlanState *parent);
 
 extern void ExecSetParamPlan(SubPlanState *node, ExprContext *econtext);
 
+extern void ExecSetParamPlanMulti(const Bitmapset *params, ExprContext *econtext);
+
 #ifdef ADB_EXT
 extern bool IsQualHasEmptySubPlan(PlanState *pstate, List *quals);
 #endif /* ADB_EXT */

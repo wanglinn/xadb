@@ -731,7 +731,7 @@ typedef struct ColumnDef
 	bool		is_local;		/* column has local (non-inherited) def'n */
 	bool		is_not_null;	/* NOT NULL constraint specified? */
 	bool		is_from_type;	/* column definition came from table type */
-	bool		is_from_parent; /* column def came from partition parent */
+	bool		is_from_parent; /* XXX unused */
 	char		storage;		/* attstorage setting, or 0 for default */
 	Node	   *raw_default;	/* default value (untransformed parse tree) */
 	Node	   *cooked_default; /* default value (transformed expr tree) */
@@ -1122,7 +1122,7 @@ typedef struct RangeTblEntry
 	bool		self_reference; /* is this a recursive self-reference? */
 
 	/*
-	 * Fields valid for table functions, values, CTE and ENR RTEs (else NIL):
+	 * Fields valid for CTE, VALUES, ENR, and TableFunc RTEs (else NIL):
 	 *
 	 * We need these for CTE RTEs so that the types of self-referential
 	 * columns are well-defined.  For VALUES RTEs, storing these explicitly
@@ -1130,7 +1130,9 @@ typedef struct RangeTblEntry
 	 * ENRs, we store the types explicitly here (we could get the information
 	 * from the catalogs if 'relid' was supplied, but we'd still need these
 	 * for TupleDesc-based ENRs, so we might as well always store the type
-	 * info here).
+	 * info here).  For TableFuncs, these fields are redundant with data in
+	 * the TableFunc node, but keeping them here allows some code sharing with
+	 * the other cases.
 	 *
 	 * For ENRs only, we have to consider the possibility of dropped columns.
 	 * A dropped column is included in these lists, but it will have zeroes in
@@ -3895,7 +3897,7 @@ typedef struct AlterTSConfigurationStmt
 typedef struct CreatePublicationStmt
 {
 	NodeTag		type;
-	char	   *pubname;		/* Name of of the publication */
+	char	   *pubname;		/* Name of the publication */
 	List	   *options;		/* List of DefElem nodes */
 	List	   *tables;			/* Optional list of tables to add */
 	bool		for_all_tables; /* Special publication for all tables in db */
@@ -3904,7 +3906,7 @@ typedef struct CreatePublicationStmt
 typedef struct AlterPublicationStmt
 {
 	NodeTag		type;
-	char	   *pubname;		/* Name of of the publication */
+	char	   *pubname;		/* Name of the publication */
 
 	/* parameters used for ALTER PUBLICATION ... WITH */
 	List	   *options;		/* List of DefElem nodes */
@@ -3918,7 +3920,7 @@ typedef struct AlterPublicationStmt
 typedef struct CreateSubscriptionStmt
 {
 	NodeTag		type;
-	char	   *subname;		/* Name of of the subscription */
+	char	   *subname;		/* Name of the subscription */
 	char	   *conninfo;		/* Connection string to publisher */
 	List	   *publication;	/* One or more publication to subscribe to */
 	List	   *options;		/* List of DefElem nodes */
@@ -3937,7 +3939,7 @@ typedef struct AlterSubscriptionStmt
 {
 	NodeTag		type;
 	AlterSubscriptionType kind; /* ALTER_SUBSCRIPTION_OPTIONS, etc */
-	char	   *subname;		/* Name of of the subscription */
+	char	   *subname;		/* Name of the subscription */
 	char	   *conninfo;		/* Connection string to publisher */
 	List	   *publication;	/* One or more publication to subscribe to */
 	List	   *options;		/* List of DefElem nodes */
@@ -3946,7 +3948,7 @@ typedef struct AlterSubscriptionStmt
 typedef struct DropSubscriptionStmt
 {
 	NodeTag		type;
-	char	   *subname;		/* Name of of the subscription */
+	char	   *subname;		/* Name of the subscription */
 	bool		missing_ok;		/* Skip error if missing? */
 	DropBehavior behavior;		/* RESTRICT or CASCADE behavior */
 } DropSubscriptionStmt;

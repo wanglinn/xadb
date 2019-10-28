@@ -40,10 +40,14 @@ extern bool relation_excluded_by_constraints(PlannerInfo *root,
 
 extern List *get_relation_constraints(PlannerInfo *root,
 									  Oid relationObjectId, RelOptInfo *rel,
-									  bool include_notnull);
+									  bool include_noinherit,
+									  bool include_notnull,
+									  bool include_partition);
 extern List *get_relation_constraints_base(PlannerInfo *root,
 										   Oid relationObjectId, Index varno,
-										   bool include_notnull);
+										   bool include_noinherit,
+										   bool include_notnull,
+										   bool include_partition);
 
 
 extern List *build_physical_tlist(PlannerInfo *root, RelOptInfo *rel);

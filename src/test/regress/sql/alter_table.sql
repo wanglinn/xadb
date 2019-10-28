@@ -301,6 +301,20 @@ DROP TABLE constraint_rename_test;
 ALTER TABLE IF EXISTS constraint_not_exist RENAME CONSTRAINT con3 TO con3foo; -- ok
 ALTER TABLE IF EXISTS constraint_rename_test ADD CONSTRAINT con4 UNIQUE (a);
 
+-- renaming constraints with cache reset of target relation
+CREATE TABLE constraint_rename_cache (a int,
+  CONSTRAINT chk_a CHECK (a > 0),
+  PRIMARY KEY (a));
+ALTER TABLE constraint_rename_cache
+  RENAME CONSTRAINT chk_a TO chk_a_new;
+ALTER TABLE constraint_rename_cache
+  RENAME CONSTRAINT constraint_rename_cache_pkey TO constraint_rename_pkey_new;
+CREATE TABLE like_constraint_rename_cache
+  (LIKE constraint_rename_cache INCLUDING ALL);
+\d like_constraint_rename_cache
+DROP TABLE constraint_rename_cache;
+DROP TABLE like_constraint_rename_cache;
+
 -- FOREIGN KEY CONSTRAINT adding TEST
 
 CREATE TABLE attmp2 (a int primary key) DISTRIBUTE BY REPLICATION;
@@ -1343,6 +1357,31 @@ select * from anothertab order by atcol1, atcol2;
 
 drop table anothertab;
 
+-- Test index handling in alter table column type (cf. bugs #15835, #15865)
+create table anothertab(f1 int primary key, f2 int unique,
+                        f3 int, f4 int, f5 int);
+alter table anothertab
+  add exclude using btree (f3 with =);
+alter table anothertab
+  add exclude using btree (f4 with =) where (f4 is not null);
+alter table anothertab
+  add exclude using btree (f4 with =) where (f5 > 0);
+alter table anothertab
+  add unique(f1,f4);
+create index on anothertab(f2,f3);
+create unique index on anothertab(f4);
+
+\d anothertab
+alter table anothertab alter column f1 type bigint;
+alter table anothertab
+  alter column f2 type bigint,
+  alter column f3 type bigint,
+  alter column f4 type bigint;
+alter table anothertab alter column f5 type bigint;
+\d anothertab
+
+drop table anothertab;
+
 create table another (f1 int, f2 text);
 
 insert into another values(1, 'one');
@@ -1379,6 +1418,69 @@ alter table at_partitioned attach partition at_part_2 for values from (1000) to 
 alter table at_partitioned alter column b type numeric using b::numeric;
 \d at_part_1
 \d at_part_2
+drop table at_partitioned;
+
+-- Alter column type when no table rewrite is required
+-- Also check that comments are preserved
+create table at_partitioned(id int, name varchar(64), unique (id, name))
+  partition by hash(id);
+comment on constraint at_partitioned_id_name_key on at_partitioned is 'parent constraint';
+comment on index at_partitioned_id_name_key is 'parent index';
+create table at_partitioned_0 partition of at_partitioned
+  for values with (modulus 2, remainder 0);
+comment on constraint at_partitioned_0_id_name_key on at_partitioned_0 is 'child 0 constraint';
+comment on index at_partitioned_0_id_name_key is 'child 0 index';
+create table at_partitioned_1 partition of at_partitioned
+  for values with (modulus 2, remainder 1);
+comment on constraint at_partitioned_1_id_name_key on at_partitioned_1 is 'child 1 constraint';
+comment on index at_partitioned_1_id_name_key is 'child 1 index';
+insert into at_partitioned values(1, 'foo');
+insert into at_partitioned values(3, 'bar');
+
+create temp table old_oids as
+  select relname, oid as oldoid, relfilenode as oldfilenode
+  from pg_class where relname like 'at_partitioned%';
+
+select relname,
+  c.oid = oldoid as orig_oid,
+  case relfilenode
+    when 0 then 'none'
+    when c.oid then 'own'
+    when oldfilenode then 'orig'
+    else 'OTHER'
+    end as storage,
+  obj_description(c.oid, 'pg_class') as desc
+  from pg_class c left join old_oids using (relname)
+  where relname like 'at_partitioned%'
+  order by relname;
+
+select conname, obj_description(oid, 'pg_constraint') as desc
+  from pg_constraint where conname like 'at_partitioned%'
+  order by conname;
+
+alter table at_partitioned alter column name type varchar(127);
+
+-- Note: these tests currently show the wrong behavior for comments :-(
+
+select relname,
+  c.oid = oldoid as orig_oid,
+  case relfilenode
+    when 0 then 'none'
+    when c.oid then 'own'
+    when oldfilenode then 'orig'
+    else 'OTHER'
+    end as storage,
+  obj_description(c.oid, 'pg_class') as desc
+  from pg_class c left join old_oids using (relname)
+  where relname like 'at_partitioned%'
+  order by relname;
+
+select conname, obj_description(oid, 'pg_constraint') as desc
+  from pg_constraint where conname like 'at_partitioned%'
+  order by conname;
+
+-- Don't remove this DROP, it exposes bug #15672
+drop table at_partitioned;
 
 -- disallow recursive containment of row types
 create temp table recur1 (f1 int);
@@ -1865,6 +1967,24 @@ ALTER TABLE IF EXISTS tt8 SET SCHEMA alter2;
 DROP TABLE alter2.tt8;
 DROP SCHEMA alter2;
 
+--
+-- Check conflicts between index and CHECK constraint names
+--
+CREATE TABLE tt9(c integer);
+ALTER TABLE tt9 ADD CHECK(c > 1);
+ALTER TABLE tt9 ADD CHECK(c > 2);  -- picks nonconflicting name
+ALTER TABLE tt9 ADD CONSTRAINT foo CHECK(c > 3);
+ALTER TABLE tt9 ADD CONSTRAINT foo CHECK(c > 4);  -- fail, dup name
+ALTER TABLE tt9 ADD UNIQUE(c);
+ALTER TABLE tt9 ADD UNIQUE(c);  -- picks nonconflicting name
+ALTER TABLE tt9 ADD CONSTRAINT tt9_c_key UNIQUE(c);  -- fail, dup name
+ALTER TABLE tt9 ADD CONSTRAINT foo UNIQUE(c);  -- fail, dup name
+ALTER TABLE tt9 ADD CONSTRAINT tt9_c_key CHECK(c > 5);  -- fail, dup name
+ALTER TABLE tt9 ADD CONSTRAINT tt9_c_key2 CHECK(c > 6);
+ALTER TABLE tt9 ADD UNIQUE(c);  -- picks nonconflicting name
+\d tt9
+DROP TABLE tt9;
+
 
 -- Check that comments on constraints and indexes are not lost at ALTER TABLE.
 CREATE TABLE comment_test (
@@ -2022,8 +2142,12 @@ ALTER TABLE test_add_column
 \d test_add_column
 ALTER TABLE test_add_column
 	ADD COLUMN c2 integer; -- fail because c2 already exists
+ALTER TABLE ONLY test_add_column
+	ADD COLUMN c2 integer; -- fail because c2 already exists
 \d test_add_column
 ALTER TABLE test_add_column
+	ADD COLUMN IF NOT EXISTS c2 integer; -- skipping because c2 already exists
+ALTER TABLE ONLY test_add_column
 	ADD COLUMN IF NOT EXISTS c2 integer; -- skipping because c2 already exists
 \d test_add_column
 ALTER TABLE test_add_column
@@ -2575,7 +2699,8 @@ DROP USER regress_alter_table_user1;
 -- default partition
 create table defpart_attach_test (a int) partition by list (a);
 create table defpart_attach_test1 partition of defpart_attach_test for values in (1);
-create table defpart_attach_test_d (like defpart_attach_test);
+create table defpart_attach_test_d (b int, a int);
+alter table defpart_attach_test_d drop b;
 insert into defpart_attach_test_d values (1), (2);
 
 -- error because its constraint as the default partition would be violated
@@ -2586,6 +2711,12 @@ alter table defpart_attach_test_d add check (a > 1);
 
 -- should be attached successfully and without needing to be scanned
 alter table defpart_attach_test attach partition defpart_attach_test_d default;
+
+-- check that attaching a partition correctly reports any rows in the default
+-- partition that should not be there for the new partition to be attached
+-- successfully
+create table defpart_attach_test_2 (like defpart_attach_test_d);
+alter table defpart_attach_test attach partition defpart_attach_test_2 for values in (2);
 
 drop table defpart_attach_test;
 
@@ -2600,3 +2731,35 @@ alter table perm_part_parent attach partition temp_part_child default; -- error
 alter table temp_part_parent attach partition temp_part_child default; -- ok
 drop table perm_part_parent cascade;
 drop table temp_part_parent cascade;
+
+-- check that attaching partitions to a table while it is being used is
+-- prevented
+create table tab_part_attach (a int) partition by list (a);
+create or replace function func_part_attach() returns trigger
+  language plpgsql as $$
+  begin
+    execute 'create table tab_part_attach_1 (a int)';
+    execute 'alter table tab_part_attach attach partition tab_part_attach_1 for values in (1)';
+    return null;
+  end $$;
+create trigger trig_part_attach before insert on tab_part_attach
+  for each statement execute procedure func_part_attach();
+insert into tab_part_attach values (1);
+drop table tab_part_attach;
+drop function func_part_attach();
+
+-- test case where the partitioning operator is a SQL function whose
+-- evaluation results in the table's relcache being rebuilt partway through
+-- the execution of an ATTACH PARTITION command
+create function at_test_sql_partop (int4, int4) returns int language sql
+as $$ select case when $1 = $2 then 0 when $1 > $2 then 1 else -1 end; $$;
+create operator class at_test_sql_partop for type int4 using btree as
+    operator 1 < (int4, int4), operator 2 <= (int4, int4),
+    operator 3 = (int4, int4), operator 4 >= (int4, int4),
+    operator 5 > (int4, int4), function 1 at_test_sql_partop(int4, int4);
+create table at_test_sql_partop (a int) partition by range (a at_test_sql_partop);
+create table at_test_sql_partop_1 (a int);
+alter table at_test_sql_partop attach partition at_test_sql_partop_1 for values from (0) to (10);
+drop table at_test_sql_partop;
+drop operator class at_test_sql_partop using btree;
+drop function at_test_sql_partop;

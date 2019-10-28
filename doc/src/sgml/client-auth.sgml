@@ -603,8 +603,9 @@ hostnossl  <replaceable>database</replaceable>  <replaceable>user</replaceable> 
    <systemitem>SIGHUP</systemitem><indexterm><primary>SIGHUP</primary></indexterm>
    signal. If you edit the file on an
    active system, you will need to signal the postmaster
-   (using <literal>pg_ctl reload</literal> or <literal>kill -HUP</literal>) to make it
-   re-read the file.
+   (using <literal>pg_ctl reload</literal>, calling the SQL function
+   <function>pg_reload_conf()</function>, or using <literal>kill
+   -HUP</literal>) to make it re-read the file.
   </para>
 
   <note>
@@ -821,8 +822,9 @@ mymap   /^(.*)@otherdomain\.com$   guest
    <systemitem>SIGHUP</systemitem><indexterm><primary>SIGHUP</primary></indexterm>
    signal. If you edit the file on an
    active system, you will need to signal the postmaster
-   (using <literal>pg_ctl reload</literal> or <literal>kill -HUP</literal>) to make it
-   re-read the file.
+   (using <literal>pg_ctl reload</literal>, calling the SQL function
+   <function>pg_reload_conf()</function>, or using <literal>kill
+   -HUP</literal>) to make it re-read the file.
   </para>
 
   <para>
@@ -1889,7 +1891,7 @@ host ... ldap ldapserver=ldap.example.net ldapbasedn="dc=example, dc=net" ldapse
     connected remote host name or IP address. Therefore the user must already
     exist in the database before PAM can be used for authentication.  For more
     information about PAM, please read the
-    <ulink url="http://www.kernel.org/pub/linux/libs/pam/">
+    <ulink url="https://www.kernel.org/pub/linux/libs/pam/">
     <productname>Linux-PAM</productname> Page</ulink>.
    </para>
 

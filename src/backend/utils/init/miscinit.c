@@ -323,6 +323,14 @@ InitStandaloneProcess(const char *argv0)
 
 	MyStartTime = time(NULL);	/* set our start time in case we call elog */
 
+	/*
+	 * Initialize random() for the first time, like PostmasterMain() would.
+	 * In a regular IsUnderPostmaster backend, BackendRun() computes a
+	 * high-entropy seed before any user query.  Fewer distinct initial seeds
+	 * can occur here.
+	 */
+	srandom((unsigned int) (MyProcPid ^ MyStartTime));
+
 	/* Initialize process-local latch support */
 	InitializeLatchSupport();
 	MyLatch = &LocalLatchData;
@@ -1068,14 +1076,10 @@ CreateLockFile(const char *filename, bool amPostmaster,
 				if (PGSharedMemoryIsInUse(id1, id2))
 					ereport(FATAL,
 							(errcode(ERRCODE_LOCK_FILE_EXISTS),
-							 errmsg("pre-existing shared memory block "
-									"(key %lu, ID %lu) is still in use",
+							 errmsg("pre-existing shared memory block (key %lu, ID %lu) is still in use",
 									id1, id2),
-							 errhint("If you're sure there are no old "
-									 "server processes still running, remove "
-									 "the shared memory block "
-									 "or just delete the file \"%s\".",
-									 filename)));
+							 errhint("Terminate any old server processes associated with data directory \"%s\".",
+									 refName)));
 			}
 		}
 

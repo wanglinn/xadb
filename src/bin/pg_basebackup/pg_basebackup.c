@@ -1710,9 +1710,9 @@ GenerateRecoveryConf(PGconn *conn)
 
 	if (replication_slot)
 	{
-		escaped = escape_quotes(replication_slot);
-		appendPQExpBuffer(recoveryconfcontents, "primary_slot_name = '%s'\n", replication_slot);
-		free(escaped);
+		/* unescaped: ReplicationSlotValidateName allows [a-z0-9_] only */
+		appendPQExpBuffer(recoveryconfcontents, "primary_slot_name = '%s'\n",
+						  replication_slot);
 	}
 
 	if (PQExpBufferBroken(recoveryconfcontents) ||
@@ -2036,7 +2036,7 @@ BaseBackup(void)
 		if (sqlstate &&
 			strcmp(sqlstate, ERRCODE_DATA_CORRUPTED) == 0)
 		{
-			fprintf(stderr, _("%s: checksum error occured\n"),
+			fprintf(stderr, _("%s: checksum error occurred\n"),
 					progname);
 			checksum_failure = true;
 		}
@@ -2598,7 +2598,7 @@ main(int argc, char **argv)
 			disconnect_and_exit(1);
 		}
 #else
-		fprintf(stderr, _("%s: symlinks are not supported on this platform\n"));
+		fprintf(stderr, _("%s: symlinks are not supported on this platform\n"), progname);
 		disconnect_and_exit(1);
 #endif
 		free(linkloc);

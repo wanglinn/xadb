@@ -212,11 +212,11 @@ search_directory(const char *directory, const char *fname)
 	/* set WalSegSz if file is successfully opened */
 	if (fd >= 0)
 	{
-		char		buf[XLOG_BLCKSZ];
+		PGAlignedXLogBlock buf;
 
-		if (read(fd, buf, XLOG_BLCKSZ) == XLOG_BLCKSZ)
+		if (read(fd, buf.data, XLOG_BLCKSZ) == XLOG_BLCKSZ)
 		{
-			XLogLongPageHeader longhdr = (XLogLongPageHeader) buf;
+			XLogLongPageHeader longhdr = (XLogLongPageHeader) buf.data;
 
 			WalSegSz = longhdr->xlp_seg_size;
 
@@ -1075,7 +1075,7 @@ main(int argc, char **argv)
 		XLogFromFileName(fname, &private.timeline, &segno, WalSegSz);
 
 		if (XLogRecPtrIsInvalid(private.startptr))
-			XLogSegNoOffsetToRecPtr(segno, 0, private.startptr, WalSegSz);
+			XLogSegNoOffsetToRecPtr(segno, 0, WalSegSz, private.startptr);
 		else if (!XLByteInSeg(private.startptr, segno, WalSegSz))
 		{
 			fprintf(stderr,
@@ -1089,7 +1089,7 @@ main(int argc, char **argv)
 
 		/* no second file specified, set end position */
 		if (!(optind + 1 < argc) && XLogRecPtrIsInvalid(private.endptr))
-			XLogSegNoOffsetToRecPtr(segno + 1, 0, private.endptr, WalSegSz);
+			XLogSegNoOffsetToRecPtr(segno + 1, 0, WalSegSz, private.endptr);
 
 		/* parse ENDSEG if passed */
 		if (optind + 1 < argc)
@@ -1112,8 +1112,8 @@ main(int argc, char **argv)
 							argv[optind + 1], argv[optind]);
 
 			if (XLogRecPtrIsInvalid(private.endptr))
-				XLogSegNoOffsetToRecPtr(endsegno + 1, 0, private.endptr,
-										WalSegSz);
+				XLogSegNoOffsetToRecPtr(endsegno + 1, 0, WalSegSz,
+										private.endptr);
 
 			/* set segno to endsegno for check of --end */
 			segno = endsegno;

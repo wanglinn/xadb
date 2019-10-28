@@ -80,6 +80,7 @@ extern Oid	RelnameGetRelid(const char *relname);
 extern bool RelationIsVisible(Oid relid);
 
 extern Oid	TypenameGetTypid(const char *typname);
+extern Oid	TypenameGetTypidExtended(const char *typname, bool temp_ok);
 extern bool TypeIsVisible(Oid typid);
 
 extern FuncCandidateList FuncnameGetCandidates(List *names,
@@ -143,6 +144,7 @@ extern bool isTempToastNamespace(Oid namespaceId);
 extern bool isTempOrTempToastNamespace(Oid namespaceId);
 extern bool isAnyTempNamespace(Oid namespaceId);
 extern bool isOtherTempNamespace(Oid namespaceId);
+extern bool isTempNamespaceInUse(Oid namespaceId);
 extern int	GetTempNamespaceBackendId(Oid namespaceId);
 extern Oid	GetTempToastNamespace(void);
 extern void GetTempNamespaceState(Oid *tempNamespaceId,

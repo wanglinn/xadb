@@ -112,7 +112,7 @@ extern bool execCurrentOf(CurrentOfExpr *cexpr,
 			  Oid table_oid,
 			  ItemPointer current_tid);
 #ifdef ADB
-ScanState *search_plan_tree(PlanState *node, Oid table_oid);
+ScanState *search_plan_tree(PlanState *node, Oid table_oid, bool *pending_rescan);
 #endif
 
 /*
@@ -135,6 +135,15 @@ extern TupleHashTable BuildTupleHashTable(PlanState *parent,
 					long nbuckets, Size additionalsize,
 					MemoryContext tablecxt,
 					MemoryContext tempcxt, bool use_variable_hash_iv);
+extern TupleHashTable BuildTupleHashTableExt(PlanState *parent,
+					TupleDesc inputDesc,
+					int numCols, AttrNumber *keyColIdx,
+					Oid *eqfuncoids,
+					FmgrInfo *hashfunctions,
+					long nbuckets, Size additionalsize,
+					MemoryContext metacxt,
+					MemoryContext tablecxt,
+					MemoryContext tempcxt, bool use_variable_hash_iv);
 extern TupleHashEntry LookupTupleHashEntry(TupleHashTable hashtable,
 					 TupleTableSlot *slot,
 					 bool *isnew);
@@ -148,6 +157,7 @@ extern TupleHashEntry FindTupleHashEntry(TupleHashTable hashtable,
 				   TupleTableSlot *slot,
 				   ExprState *eqcomp,
 				   FmgrInfo *hashfunctions);
+extern void ResetTupleHashTable(TupleHashTable hashtable);
 #ifdef ADB_EXT
 extern uint32 TupleHashTableMembers(TupleHashTable hashtable);
 extern uint32 TupleHashGetHashValue(TupleHashTable hashtable, TupleTableSlot *slot);

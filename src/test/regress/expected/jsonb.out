@@ -2523,6 +2523,29 @@ SELECT jsonb_populate_recordset(row(1,2), '[{"f1": 0, "f2": 1}]');
  (0,1)
 (1 row)
 
+SELECT i, jsonb_populate_recordset(row(i,50), '[{"f1":"42"},{"f2":"43"}]')
+FROM (VALUES (1),(2)) v(i);
+ i | jsonb_populate_recordset 
+---+--------------------------
+ 1 | (42,50)
+ 1 | (1,43)
+ 2 | (42,50)
+ 2 | (2,43)
+(4 rows)
+
+-- empty array is a corner case
+SELECT jsonb_populate_recordset(null::record, '[]');
+ERROR:  record type has not been registered
+SELECT jsonb_populate_recordset(row(1,2), '[]');
+ jsonb_populate_recordset 
+--------------------------
+(0 rows)
+
+SELECT * FROM jsonb_populate_recordset(NULL::jbpop,'[]') q;
+ a | b | c 
+---+---+---
+(0 rows)
+
 -- composite domain
 SELECT jsonb_populate_recordset(null::jb_ordered_pair, '[{"x": 0, "y": 1}]');
  jsonb_populate_recordset 
@@ -2627,6 +2650,42 @@ select * from jsonb_to_record('{"ia2": [[[1], [2], [3]]]}') as x(ia2 int4[][]);
        ia2       
 -----------------
  {{{1},{2},{3}}}
+(1 row)
+
+select * from jsonb_to_record('{"out": {"key": 1}}') as x(out json);
+    out     
+------------
+ {"key": 1}
+(1 row)
+
+select * from jsonb_to_record('{"out": [{"key": 1}]}') as x(out json);
+     out      
+--------------
+ [{"key": 1}]
+(1 row)
+
+select * from jsonb_to_record('{"out": "{\"key\": 1}"}') as x(out json);
+      out       
+----------------
+ "{\"key\": 1}"
+(1 row)
+
+select * from jsonb_to_record('{"out": {"key": 1}}') as x(out jsonb);
+    out     
+------------
+ {"key": 1}
+(1 row)
+
+select * from jsonb_to_record('{"out": [{"key": 1}]}') as x(out jsonb);
+     out      
+--------------
+ [{"key": 1}]
+(1 row)
+
+select * from jsonb_to_record('{"out": "{\"key\": 1}"}') as x(out jsonb);
+      out       
+----------------
+ "{\"key\": 1}"
 (1 row)
 
 -- test type info caching in jsonb_populate_record()

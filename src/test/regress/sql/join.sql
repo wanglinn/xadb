@@ -1787,6 +1787,14 @@ select * from
     select * from (select 3 as z offset 0) z where z.z = x.x
   ) zz on zz.z = y.y;
 
+-- check dummy rels with lateral references (bug #15694)
+explain (verbose, costs off)
+select * from int8_tbl i8 left join lateral
+  (select *, i8.q2 from int4_tbl where false) ss on true;
+explain (verbose, costs off)
+select * from int8_tbl i8 left join lateral
+  (select *, i8.q2 from int4_tbl i1, int4_tbl i2 where false) ss on true;
+
 -- check handling of nested appendrels inside LATERAL
 select * from
   ((select 2 as v) union all (select 3 as v)) as q1
@@ -2067,6 +2075,7 @@ begin;
 
 set local min_parallel_table_scan_size = 0;
 set local parallel_setup_cost = 0;
+set local enable_hashjoin = on;
 
 -- Extract bucket and batch counts from an explain analyze plan.  In
 -- general we can't make assertions about how many batches (or

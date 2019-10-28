@@ -14,7 +14,7 @@
  * Copyright (c) 2016-2018, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
- *	  src/backend/lib/llvmjit/llvmjit_inline.c
+ *	  src/backend/lib/llvmjit/llvmjit_inline.cpp
  *
  *-------------------------------------------------------------------------
  */
@@ -41,6 +41,9 @@ extern "C"
 
 #include <llvm-c/Core.h>
 #include <llvm-c/BitReader.h>
+
+/* Avoid macro clash with LLVM's C++ headers */
+#undef Min
 
 #include <llvm/ADT/SetVector.h>
 #include <llvm/ADT/StringSet.h>
@@ -286,14 +289,6 @@ llvm_build_inline_plan(llvm::Module *mod)
 
 			Assert(!funcDef->isDeclaration());
 			Assert(funcDef->hasExternalLinkage());
-
-			/* don't inline functions marked as noinline */
-			if (funcDef->getAttributes().hasFnAttribute(llvm::Attribute::NoInline))
-			{
-				ilog(DEBUG1, "ineligibile to import %s due to noinline",
-					 symbolName.data());
-				continue;
-			}
 
 			llvm::StringSet<> importVars;
 			llvm::SmallPtrSet<const llvm::Function *, 8> visitedFunctions;
@@ -599,6 +594,13 @@ function_inlinable(llvm::Function &F,
 
 	if (F.materialize())
 		elog(FATAL, "failed to materialize metadata");
+
+	if (F.getAttributes().hasFnAttribute(llvm::Attribute::NoInline))
+	{
+		ilog(DEBUG1, "ineligibile to import %s due to noinline",
+			 F.getName().data());
+		return false;
+	}
 
 	function_references(F, running_instcount, referencedVars, referencedFunctions);
 

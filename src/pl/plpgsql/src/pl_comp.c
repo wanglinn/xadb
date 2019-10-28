@@ -2028,6 +2028,8 @@ build_row_from_vars(PLpgSQL_variable **vars, int numvars)
 
 	row = palloc0(sizeof(PLpgSQL_row));
 	row->dtype = PLPGSQL_DTYPE_ROW;
+	row->refname = "(unnamed row)";
+	row->lineno = -1;
 	row->rowtupdesc = CreateTemplateTupleDesc(numvars, false);
 	row->nfields = numvars;
 	row->fieldnames = palloc(numvars * sizeof(char *));
@@ -2336,7 +2338,7 @@ plpgsql_start_datums(void)
  * ----------
  */
 void
-plpgsql_adddatum(PLpgSQL_datum *new)
+plpgsql_adddatum(PLpgSQL_datum *newdatum)
 {
 	if (plpgsql_nDatums == datums_alloc)
 	{
@@ -2344,8 +2346,8 @@ plpgsql_adddatum(PLpgSQL_datum *new)
 		plpgsql_Datums = repalloc(plpgsql_Datums, sizeof(PLpgSQL_datum *) * datums_alloc);
 	}
 
-	new->dno = plpgsql_nDatums;
-	plpgsql_Datums[plpgsql_nDatums++] = new;
+	newdatum->dno = plpgsql_nDatums;
+	plpgsql_Datums[plpgsql_nDatums++] = newdatum;
 }
 
 /* ----------

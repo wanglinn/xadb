@@ -197,6 +197,7 @@ static int	syslog_facility = 0;
 static void assign_syslog_facility(int newval, void *extra);
 static void assign_syslog_ident(const char *newval, void *extra);
 static void assign_session_replication_role(int newval, void *extra);
+static bool check_client_min_messages(int *newval, void **extra, GucSource source);
 static bool check_temp_buffers(int *newval, void **extra, GucSource source);
 static bool check_bonjour(bool *newval, void **extra, GucSource source);
 static bool check_ssl(bool *newval, void **extra, GucSource source);
@@ -1136,7 +1137,7 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 	{
 		{"enable_parallel_hash", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("Enables the planner's user of parallel hash plans."),
+			gettext_noop("Enables the planner's use of parallel hash plans."),
 			NULL
 		},
 		&enable_parallel_hash,
@@ -2066,7 +2067,7 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&jit_enabled,
-		true,
+		false,
 		NULL, NULL, NULL
 	},
 
@@ -2137,6 +2138,14 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"data_sync_retry", PGC_POSTMASTER, ERROR_HANDLING_OPTIONS,
+			gettext_noop("Whether to continue running after a failure to sync data files."),
+		},
+		&data_sync_retry,
+		false,
+		NULL, NULL, NULL
+	},
 #ifdef ADB
 	{
 		{"enable_remotejoin", PGC_USERSET, QUERY_TUNING_METHOD,
@@ -2323,8 +2332,6 @@ static struct config_bool ConfigureNamesBool[] =
 	{
 		{"adb_debug", PGC_SUSET, DEVELOPER_OPTIONS,
 			gettext_noop("Emit ADB debugging output."),
-			NULL,
-			GUC_NOT_IN_SAMPLE
 		},
 		&ADB_DEBUG,
 		false,
@@ -3182,10 +3189,11 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&effective_io_concurrency,
 #ifdef USE_PREFETCH
-		1, 0, MAX_IO_CONCURRENCY,
+		1,
 #else
-		0, 0, 0,
+		0,
 #endif
+		0, MAX_IO_CONCURRENCY,
 		check_effective_io_concurrency, assign_effective_io_concurrency, NULL
 	},
 
@@ -3574,10 +3582,9 @@ static struct config_int ConfigureNamesInt[] =
 
 	{
 		{"effective_cache_size", PGC_USERSET, QUERY_TUNING_COST,
-			gettext_noop("Sets the planner's assumption about the size of the disk cache."),
-			gettext_noop("That is, the portion of the kernel's disk cache that "
-						 "will be used for PostgreSQL data files. This is measured in disk "
-						 "pages, which are normally 8 kB each."),
+			gettext_noop("Sets the planner's assumption about the total size of the data caches."),
+			gettext_noop("That is, the total size of the caches (kernel cache and shared buffers) used for PostgreSQL data files. "
+						 "This is measured in disk pages, which are normally 8 kB each."),
 			GUC_UNIT_BLOCKS,
 		},
 		&effective_cache_size,
@@ -4704,7 +4711,7 @@ static struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"jit_provider", PGC_POSTMASTER, FILE_LOCATIONS,
+		{"jit_provider", PGC_POSTMASTER, CLIENT_CONN_PRELOAD,
 			gettext_noop("JIT provider to use."),
 			NULL,
 			GUC_SUPERUSER_ONLY
@@ -4864,14 +4871,14 @@ static struct config_enum ConfigureNamesEnum[] =
 	},
 
 	{
-		{"client_min_messages", PGC_USERSET, LOGGING_WHEN,
+		{"client_min_messages", PGC_USERSET, CLIENT_CONN_STATEMENT,
 			gettext_noop("Sets the message levels that are sent to the client."),
 			gettext_noop("Each level includes all the levels that follow it. The later"
 						 " the level, the fewer messages are sent.")
 		},
 		&client_min_messages,
 		NOTICE, client_message_level_options,
-		NULL, NULL, NULL
+		check_client_min_messages, NULL, NULL
 	},
 
 	{
@@ -6856,6 +6863,10 @@ parse_real(const char *value, double *result)
 	errno = 0;
 	val = strtod(value, &endptr);
 	if (endptr == value || errno == ERANGE)
+		return false;
+
+	/* reject NaN (infinities will fail range checks later) */
+	if (isnan(val))
 		return false;
 
 	/* allow whitespace after number */
@@ -10462,6 +10473,8 @@ do_serialize(char **destptr, Size *maxbytes, const char *fmt,...)
 	if (*maxbytes <= 0)
 		elog(ERROR, "not enough space to serialize GUC state");
 
+	errno = 0;
+
 	va_start(vargs, fmt);
 	n = vsnprintf(*destptr, *maxbytes, fmt, vargs);
 	va_end(vargs);
@@ -11497,6 +11510,20 @@ assign_session_replication_role(int newval, void *extra)
 }
 
 static bool
+check_client_min_messages(int *newval, void **extra, GucSource source)
+{
+	/*
+	 * We disallow setting client_min_messages above ERROR, because not
+	 * sending an ErrorResponse message for an error breaks the FE/BE
+	 * protocol.  However, for backwards compatibility, we still accept FATAL
+	 * or PANIC as input values, and then adjust here.
+	 */
+	if (*newval > ERROR)
+		*newval = ERROR;
+	return true;
+}
+
+static bool
 check_temp_buffers(int *newval, void **extra, GucSource source)
 {
 	/*
@@ -11841,6 +11868,11 @@ check_effective_io_concurrency(int *newval, void **extra, GucSource source)
 	else
 		return false;
 #else
+	if (*newval != 0)
+	{
+		GUC_check_errdetail("effective_io_concurrency must be set to 0 on platforms that lack posix_fadvise()");
+		return false;
+	}
 	return true;
 #endif							/* USE_PREFETCH */
 }

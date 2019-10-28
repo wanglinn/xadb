@@ -633,6 +633,12 @@ NODE_SPECIAL_MEB(NextValueExpr)
 	seqid NODE_OID(class,seqid)
 END_SPECIAL_MEB(NextValueExpr)
 
+NODE_SPECIAL_MEB(PartitionedRelPruneInfo)
+	subplan_map NODE_SCALAR_POINT(int,subplan_map,NODE_ARG_->nparts)
+	subpart_map NODE_SCALAR_POINT(int,subpart_map,NODE_ARG_->nparts)
+	hasexecparam NODE_SCALAR_POINT(bool,hasexecparam,NODE_ARG_->nexprs)
+END_SPECIAL_MEB(PartitionedRelPruneInfo)
+
 /* ADB_GRAM_ORA */
 NODE_SPECIAL_MEB(ConnectByPlan)
 	sortColIdx NODE_SCALAR_POINT(AttrNumber,sortColIdx,NODE_ARG_->numCols)

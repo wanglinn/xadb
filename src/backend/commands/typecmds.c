@@ -2206,6 +2206,9 @@ AlterDomainDefault(List *names, Node *defaultRaw)
 	Relation	rel;
 	char	   *defaultValue;
 	Node	   *defaultExpr = NULL; /* NULL if no default specified */
+	Acl		   *typacl;
+	Datum		aclDatum;
+	bool		isNull;
 	Datum		new_record[Natts_pg_type];
 	bool		new_record_nulls[Natts_pg_type];
 	bool		new_record_repl[Natts_pg_type];
@@ -2297,25 +2300,23 @@ AlterDomainDefault(List *names, Node *defaultRaw)
 
 	CatalogTupleUpdate(rel, &tup->t_self, newtuple);
 
+	/* Must extract ACL for use of GenerateTypeDependencies */
+	aclDatum = heap_getattr(newtuple, Anum_pg_type_typacl,
+							RelationGetDescr(rel), &isNull);
+	if (isNull)
+		typacl = NULL;
+	else
+		typacl = DatumGetAclPCopy(aclDatum);
+
 	/* Rebuild dependencies */
-	GenerateTypeDependencies(typTup->typnamespace,
-							 domainoid,
-							 InvalidOid,	/* typrelid is n/a */
-							 0, /* relation kind is n/a */
-							 typTup->typowner,
-							 typTup->typinput,
-							 typTup->typoutput,
-							 typTup->typreceive,
-							 typTup->typsend,
-							 typTup->typmodin,
-							 typTup->typmodout,
-							 typTup->typanalyze,
-							 InvalidOid,
-							 false, /* a domain isn't an implicit array */
-							 typTup->typbasetype,
-							 typTup->typcollation,
+	GenerateTypeDependencies(domainoid,
+							 (Form_pg_type) GETSTRUCT(newtuple),
 							 defaultExpr,
-							 true); /* Rebuild is true */
+							 typacl,
+							 0, /* relation kind is n/a */
+							 false, /* a domain isn't an implicit array */
+							 false, /* nor is it any kind of dependent type */
+							 true); /* We do need to rebuild dependencies */
 
 	InvokeObjectPostAlterHook(TypeRelationId, domainoid, 0);
 
@@ -2450,6 +2451,8 @@ AlterDomainNotNull(List *names, bool notNull)
  * AlterDomainDropConstraint
  *
  * Implements the ALTER DOMAIN DROP CONSTRAINT statement
+ *
+ * Returns ObjectAddress of the modified domain.
  */
 ObjectAddress
 AlterDomainDropConstraint(List *names, const char *constrName,
@@ -2461,10 +2464,10 @@ AlterDomainDropConstraint(List *names, const char *constrName,
 	Relation	rel;
 	Relation	conrel;
 	SysScanDesc conscan;
-	ScanKeyData key[1];
+	ScanKeyData skey[3];
 	HeapTuple	contup;
 	bool		found = false;
-	ObjectAddress address = InvalidObjectAddress;
+	ObjectAddress address;
 
 	/* Make a TypeName so we can use standard type lookup machinery */
 	typename = makeTypeNameFromNameList(names);
@@ -2483,36 +2486,35 @@ AlterDomainDropConstraint(List *names, const char *constrName,
 	/* Grab an appropriate lock on the pg_constraint relation */
 	conrel = heap_open(ConstraintRelationId, RowExclusiveLock);
 
-	/* Use the index to scan only constraints of the target relation */
-	ScanKeyInit(&key[0],
+	/* Find and remove the target constraint */
+	ScanKeyInit(&skey[0],
+				Anum_pg_constraint_conrelid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(InvalidOid));
+	ScanKeyInit(&skey[1],
 				Anum_pg_constraint_contypid,
 				BTEqualStrategyNumber, F_OIDEQ,
-				ObjectIdGetDatum(HeapTupleGetOid(tup)));
+				ObjectIdGetDatum(domainoid));
+	ScanKeyInit(&skey[2],
+				Anum_pg_constraint_conname,
+				BTEqualStrategyNumber, F_NAMEEQ,
+				CStringGetDatum(constrName));
 
-	conscan = systable_beginscan(conrel, ConstraintTypidIndexId, true,
-								 NULL, 1, key);
+	conscan = systable_beginscan(conrel, ConstraintRelidTypidNameIndexId, true,
+								 NULL, 3, skey);
 
-	/*
-	 * Scan over the result set, removing any matching entries.
-	 */
-	while ((contup = systable_getnext(conscan)) != NULL)
+	/* There can be at most one matching row */
+	if ((contup = systable_getnext(conscan)) != NULL)
 	{
-		Form_pg_constraint con = (Form_pg_constraint) GETSTRUCT(contup);
+		ObjectAddress conobj;
 
-		if (strcmp(NameStr(con->conname), constrName) == 0)
-		{
-			ObjectAddress conobj;
+		conobj.classId = ConstraintRelationId;
+		conobj.objectId = HeapTupleGetOid(contup);
+		conobj.objectSubId = 0;
 
-			conobj.classId = ConstraintRelationId;
-			conobj.objectId = HeapTupleGetOid(contup);
-			conobj.objectSubId = 0;
-
-			performDeletion(&conobj, behavior, 0);
-			found = true;
-		}
+		performDeletion(&conobj, behavior, 0);
+		found = true;
 	}
-
-	ObjectAddressSet(address, TypeRelationId, domainoid);
 
 	/* Clean up after the scan */
 	systable_endscan(conscan);
@@ -2532,6 +2534,8 @@ AlterDomainDropConstraint(List *names, const char *constrName,
 					(errmsg("constraint \"%s\" of domain \"%s\" does not exist, skipping",
 							constrName, TypeNameToString(typename))));
 	}
+
+	ObjectAddressSet(address, TypeRelationId, domainoid);
 
 	return address;
 }
@@ -2658,16 +2662,15 @@ AlterDomainValidateConstraint(List *names, const char *constrName)
 	Relation	typrel;
 	Relation	conrel;
 	HeapTuple	tup;
-	Form_pg_constraint con = NULL;
+	Form_pg_constraint con;
 	Form_pg_constraint copy_con;
 	char	   *conbin;
 	SysScanDesc scan;
 	Datum		val;
-	bool		found = false;
 	bool		isnull;
 	HeapTuple	tuple;
 	HeapTuple	copyTuple;
-	ScanKeyData key;
+	ScanKeyData skey[3];
 	ObjectAddress address;
 
 	/* Make a TypeName so we can use standard type lookup machinery */
@@ -2688,29 +2691,31 @@ AlterDomainValidateConstraint(List *names, const char *constrName)
 	 * Find and check the target constraint
 	 */
 	conrel = heap_open(ConstraintRelationId, RowExclusiveLock);
-	ScanKeyInit(&key,
+
+	ScanKeyInit(&skey[0],
+				Anum_pg_constraint_conrelid,
+				BTEqualStrategyNumber, F_OIDEQ,
+				ObjectIdGetDatum(InvalidOid));
+	ScanKeyInit(&skey[1],
 				Anum_pg_constraint_contypid,
 				BTEqualStrategyNumber, F_OIDEQ,
 				ObjectIdGetDatum(domainoid));
-	scan = systable_beginscan(conrel, ConstraintTypidIndexId,
-							  true, NULL, 1, &key);
+	ScanKeyInit(&skey[2],
+				Anum_pg_constraint_conname,
+				BTEqualStrategyNumber, F_NAMEEQ,
+				CStringGetDatum(constrName));
 
-	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
-	{
-		con = (Form_pg_constraint) GETSTRUCT(tuple);
-		if (strcmp(NameStr(con->conname), constrName) == 0)
-		{
-			found = true;
-			break;
-		}
-	}
+	scan = systable_beginscan(conrel, ConstraintRelidTypidNameIndexId, true,
+							  NULL, 3, skey);
 
-	if (!found)
+	/* There can be at most one matching row */
+	if (!HeapTupleIsValid(tuple = systable_getnext(scan)))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
 				 errmsg("constraint \"%s\" of domain \"%s\" does not exist",
 						constrName, TypeNameToString(typename))));
 
+	con = (Form_pg_constraint) GETSTRUCT(tuple);
 	if (con->contype != CONSTRAINT_CHECK)
 		ereport(ERROR,
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
@@ -3078,7 +3083,6 @@ domainAddConstraint(Oid domainOid, Oid domainNamespace, Oid baseTypeOid,
 	{
 		if (ConstraintNameIsUsed(CONSTRAINT_DOMAIN,
 								 domainOid,
-								 domainNamespace,
 								 constr->conname))
 			ereport(ERROR,
 					(errcode(ERRCODE_DUPLICATE_OBJECT),

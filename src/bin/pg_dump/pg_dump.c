@@ -134,11 +134,9 @@ static const CatalogId nilCatalogId = {0, 0};
 
 /*
  * Macro for producing quoted, schema-qualified name of a dumpable object.
- * Note implicit dependence on "fout"; we should get rid of that argument.
  */
 #define fmtQualifiedDumpable(obj) \
-	fmtQualifiedId(fout->remoteVersion, \
-				   (obj)->dobj.namespace->dobj.name, \
+	fmtQualifiedId((obj)->dobj.namespace->dobj.name, \
 				   (obj)->dobj.name)
 
 #ifdef ADB
@@ -2620,20 +2618,41 @@ dumpDatabase(Archive *fout)
 	if (g_verbose)
 		write_msg(NULL, "saving database definition\n");
 
-	/* Fetch the database-level properties for this database */
+	/*
+	 * Fetch the database-level properties for this database.
+	 *
+	 * The order in which privileges are in the ACL string (the order they
+	 * have been GRANT'd in, which the backend maintains) must be preserved to
+	 * ensure that GRANTs WITH GRANT OPTION and subsequent GRANTs based on
+	 * those are dumped in the correct order.  Note that initial privileges
+	 * (pg_init_privs) are not supported on databases, so this logic cannot
+	 * make use of buildACLQueries().
+	 */
 	if (fout->remoteVersion >= 90600)
 	{
 		appendPQExpBuffer(dbQry, "SELECT tableoid, oid, datname, "
 						  "(%s datdba) AS dba, "
 						  "pg_encoding_to_char(encoding) AS encoding, "
 						  "datcollate, datctype, datfrozenxid, datminmxid, "
-						  "(SELECT array_agg(acl ORDER BY acl::text COLLATE \"C\") FROM ( "
-						  "  SELECT unnest(coalesce(datacl,acldefault('d',datdba))) AS acl "
-						  "  EXCEPT SELECT unnest(acldefault('d',datdba))) as datacls)"
+						  "(SELECT array_agg(acl ORDER BY row_n) FROM "
+						  "  (SELECT acl, row_n FROM "
+						  "     unnest(coalesce(datacl,acldefault('d',datdba))) "
+						  "     WITH ORDINALITY AS perm(acl,row_n) "
+						  "   WHERE NOT EXISTS ( "
+						  "     SELECT 1 "
+						  "     FROM unnest(acldefault('d',datdba)) "
+						  "       AS init(init_acl) "
+						  "     WHERE acl = init_acl)) AS datacls) "
 						  " AS datacl, "
-						  "(SELECT array_agg(acl ORDER BY acl::text COLLATE \"C\") FROM ( "
-						  "  SELECT unnest(acldefault('d',datdba)) AS acl "
-						  "  EXCEPT SELECT unnest(coalesce(datacl,acldefault('d',datdba)))) as rdatacls)"
+						  "(SELECT array_agg(acl ORDER BY row_n) FROM "
+						  "  (SELECT acl, row_n FROM "
+						  "     unnest(acldefault('d',datdba)) "
+						  "     WITH ORDINALITY AS initp(acl,row_n) "
+						  "   WHERE NOT EXISTS ( "
+						  "     SELECT 1 "
+						  "     FROM unnest(coalesce(datacl,acldefault('d',datdba))) "
+						  "       AS permp(orig_acl) "
+						  "     WHERE acl = orig_acl)) AS rdatacls) "
 						  " AS rdatacl, "
 						  "datistemplate, datconnlimit, "
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = dattablespace) AS tablespace, "
@@ -3525,8 +3544,8 @@ getPolicies(Archive *fout, TableInfo tblinfo[], int numTables)
 
 		/*
 		 * Get row security enabled information for the table. We represent
-		 * RLS enabled on a table by creating PolicyInfo object with an empty
-		 * policy.
+		 * RLS being enabled on a table by creating a PolicyInfo object with
+		 * null polname.
 		 */
 		if (tbinfo->rowsec)
 		{
@@ -3667,8 +3686,13 @@ dumpPolicy(Archive *fout, PolicyInfo *polinfo)
 		query = createPQExpBuffer();
 
 		appendPQExpBuffer(query, "ALTER TABLE %s ENABLE ROW LEVEL SECURITY;",
-						  fmtQualifiedDumpable(polinfo));
+						  fmtQualifiedDumpable(tbinfo));
 
+		/*
+		 * We must emit the ROW SECURITY object's dependency on its table
+		 * explicitly, because it will not match anything in pg_depend (unlike
+		 * the case for other PolicyInfo objects).
+		 */
 		if (polinfo->dobj.dump & DUMP_COMPONENT_POLICY)
 			ArchiveEntry(fout, polinfo->dobj.catId, polinfo->dobj.dumpId,
 						 polinfo->dobj.name,
@@ -3677,7 +3701,7 @@ dumpPolicy(Archive *fout, PolicyInfo *polinfo)
 						 tbinfo->rolname, false,
 						 "ROW SECURITY", SECTION_POST_DATA,
 						 query->data, "", NULL,
-						 NULL, 0,
+						 &(tbinfo->dobj.dumpId), 1,
 						 NULL, NULL);
 
 		destroyPQExpBuffer(query);
@@ -3935,6 +3959,7 @@ getPublicationTables(Archive *fout, TableInfo tblinfo[], int numTables)
 	PQExpBuffer query;
 	PGresult   *res;
 	PublicationRelInfo *pubrinfo;
+	DumpOptions *dopt = fout->dopt;
 	int			i_tableoid;
 	int			i_oid;
 	int			i_pubname;
@@ -3942,7 +3967,7 @@ getPublicationTables(Archive *fout, TableInfo tblinfo[], int numTables)
 				j,
 				ntups;
 
-	if (fout->remoteVersion < 100000)
+	if (dopt->no_publications || fout->remoteVersion < 100000)
 		return;
 
 	query = createPQExpBuffer();
@@ -6734,8 +6759,20 @@ getOwnedSeqs(Archive *fout, TableInfo tblinfo[], int numTables)
 						  seqinfo->owning_tab, seqinfo->dobj.catId.oid);
 
 		/*
-		 * We need to dump the components that are being dumped for the table
-		 * and any components which the sequence is explicitly marked with.
+		 * Only dump identity sequences if we're going to dump the table that
+		 * it belongs to.
+		 */
+		if (owning_tab->dobj.dump == DUMP_COMPONENT_NONE &&
+			seqinfo->is_identity_sequence)
+		{
+			seqinfo->dobj.dump = DUMP_COMPONENT_NONE;
+			continue;
+		}
+
+		/*
+		 * Otherwise we need to dump the components that are being dumped for
+		 * the table and any components which the sequence is explicitly
+		 * marked with.
 		 *
 		 * We can't simply use the set of components which are being dumped
 		 * for the table as the table might be in an extension (and only the
@@ -6841,7 +6878,9 @@ getIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
 				i_condef,
 				i_tablespace,
 				i_indreloptions,
-				i_relpages;
+				i_relpages,
+				i_indstatcols,
+				i_indstatvals;
 	int			ntups;
 
 	for (i = 0; i < numTables; i++)
@@ -6895,7 +6934,15 @@ getIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
 							  "c.oid AS conoid, "
 							  "pg_catalog.pg_get_constraintdef(c.oid, false) AS condef, "
 							  "(SELECT spcname FROM pg_catalog.pg_tablespace s WHERE s.oid = t.reltablespace) AS tablespace, "
-							  "t.reloptions AS indreloptions "
+							  "t.reloptions AS indreloptions, "
+							  "(SELECT pg_catalog.array_agg(attnum ORDER BY attnum) "
+							  "  FROM pg_catalog.pg_attribute "
+							  "  WHERE attrelid = i.indexrelid AND "
+							  "    attstattarget >= 0) AS indstatcols,"
+							  "(SELECT pg_catalog.array_agg(attstattarget ORDER BY attnum) "
+							  "  FROM pg_catalog.pg_attribute "
+							  "  WHERE attrelid = i.indexrelid AND "
+							  "    attstattarget >= 0) AS indstatvals "
 							  "FROM pg_catalog.pg_index i "
 							  "JOIN pg_catalog.pg_class t ON (t.oid = i.indexrelid) "
 							  "JOIN pg_catalog.pg_class t2 ON (t2.oid = i.indrelid) "
@@ -6932,7 +6979,9 @@ getIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
 							  "c.oid AS conoid, "
 							  "pg_catalog.pg_get_constraintdef(c.oid, false) AS condef, "
 							  "(SELECT spcname FROM pg_catalog.pg_tablespace s WHERE s.oid = t.reltablespace) AS tablespace, "
-							  "t.reloptions AS indreloptions "
+							  "t.reloptions AS indreloptions, "
+							  "'' AS indstatcols, "
+							  "'' AS indstatvals "
 							  "FROM pg_catalog.pg_index i "
 							  "JOIN pg_catalog.pg_class t ON (t.oid = i.indexrelid) "
 							  "LEFT JOIN pg_catalog.pg_constraint c "
@@ -6965,7 +7014,9 @@ getIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
 							  "c.oid AS conoid, "
 							  "pg_catalog.pg_get_constraintdef(c.oid, false) AS condef, "
 							  "(SELECT spcname FROM pg_catalog.pg_tablespace s WHERE s.oid = t.reltablespace) AS tablespace, "
-							  "t.reloptions AS indreloptions "
+							  "t.reloptions AS indreloptions, "
+							  "'' AS indstatcols, "
+							  "'' AS indstatvals "
 							  "FROM pg_catalog.pg_index i "
 							  "JOIN pg_catalog.pg_class t ON (t.oid = i.indexrelid) "
 							  "LEFT JOIN pg_catalog.pg_constraint c "
@@ -6994,7 +7045,9 @@ getIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
 							  "c.oid AS conoid, "
 							  "null AS condef, "
 							  "(SELECT spcname FROM pg_catalog.pg_tablespace s WHERE s.oid = t.reltablespace) AS tablespace, "
-							  "t.reloptions AS indreloptions "
+							  "t.reloptions AS indreloptions, "
+							  "'' AS indstatcols, "
+							  "'' AS indstatvals "
 							  "FROM pg_catalog.pg_index i "
 							  "JOIN pg_catalog.pg_class t ON (t.oid = i.indexrelid) "
 							  "LEFT JOIN pg_catalog.pg_depend d "
@@ -7026,7 +7079,9 @@ getIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
 							  "c.oid AS conoid, "
 							  "null AS condef, "
 							  "(SELECT spcname FROM pg_catalog.pg_tablespace s WHERE s.oid = t.reltablespace) AS tablespace, "
-							  "null AS indreloptions "
+							  "null AS indreloptions, "
+							  "'' AS indstatcols, "
+							  "'' AS indstatvals "
 							  "FROM pg_catalog.pg_index i "
 							  "JOIN pg_catalog.pg_class t ON (t.oid = i.indexrelid) "
 							  "LEFT JOIN pg_catalog.pg_depend d "
@@ -7065,6 +7120,8 @@ getIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
 		i_condef = PQfnumber(res, "condef");
 		i_tablespace = PQfnumber(res, "tablespace");
 		i_indreloptions = PQfnumber(res, "indreloptions");
+		i_indstatcols = PQfnumber(res, "indstatcols");
+		i_indstatvals = PQfnumber(res, "indstatvals");
 
 		tbinfo->indexes = indxinfo =
 			(IndxInfo *) pg_malloc(ntups * sizeof(IndxInfo));
@@ -7088,6 +7145,8 @@ getIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
 			indxinfo[j].indnattrs = atoi(PQgetvalue(res, j, i_indnatts));
 			indxinfo[j].tablespace = pg_strdup(PQgetvalue(res, j, i_tablespace));
 			indxinfo[j].indreloptions = pg_strdup(PQgetvalue(res, j, i_indreloptions));
+			indxinfo[j].indstatcols = pg_strdup(PQgetvalue(res, j, i_indstatcols));
+			indxinfo[j].indstatvals = pg_strdup(PQgetvalue(res, j, i_indstatvals));
 			indxinfo[j].indkeys = (Oid *) pg_malloc(indxinfo[j].indnattrs * sizeof(Oid));
 			parseOidArray(PQgetvalue(res, j, i_indkey),
 						  indxinfo[j].indkeys, indxinfo[j].indnattrs);
@@ -7236,7 +7295,12 @@ getConstraints(Archive *fout, TableInfo tblinfo[], int numTables)
 	{
 		TableInfo  *tbinfo = &tblinfo[i];
 
-		if (!tbinfo->hastriggers ||
+		/*
+		 * For partitioned tables, foreign keys have no triggers so they must
+		 * be included anyway in case some foreign keys are defined.
+		 */
+		if ((!tbinfo->hastriggers &&
+			 tbinfo->relkind != RELKIND_PARTITIONED_TABLE) ||
 			!(tbinfo->dobj.dump & DUMP_COMPONENT_DEFINITION))
 			continue;
 
@@ -8679,9 +8743,12 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
  * Normally this is always true, but it's false for dropped columns, as well
  * as those that were inherited without any local definition.  (If we print
  * such a column it will mistakenly get pg_attribute.attislocal set to true.)
- * However, in binary_upgrade mode, we must print all such columns anyway and
- * fix the attislocal/attisdropped state later, so as to keep control of the
- * physical column order.
+ * For partitions, it's always true, because we want the partitions to be
+ * created independently and ATTACH PARTITION used afterwards.
+ *
+ * In binary_upgrade mode, we must print all columns and fix the attislocal/
+ * attisdropped state later, so as to keep control of the physical column
+ * order.
  *
  * This function exists because there are scattered nonobvious places that
  * must be kept in sync with this decision.
@@ -8691,7 +8758,9 @@ shouldPrintColumn(DumpOptions *dopt, TableInfo *tbinfo, int colno)
 {
 	if (dopt->binary_upgrade)
 		return true;
-	return (tbinfo->attislocal[colno] && !tbinfo->attisdropped[colno]);
+	if (tbinfo->attisdropped[colno])
+		return false;
+	return (tbinfo->attislocal[colno] || tbinfo->ispartition);
 }
 
 
@@ -12055,14 +12124,36 @@ dumpFunc(Archive *fout, FuncInfo *finfo)
 		/*
 		 * Variables that are marked GUC_LIST_QUOTE were already fully quoted
 		 * by flatten_set_variable_args() before they were put into the
-		 * proconfig array; we mustn't re-quote them or we'll make a mess.
+		 * proconfig array.  However, because the quoting rules used there
+		 * aren't exactly like SQL's, we have to break the list value apart
+		 * and then quote the elements as string literals.  (The elements may
+		 * be double-quoted as-is, but we can't just feed them to the SQL
+		 * parser; it would do the wrong thing with elements that are
+		 * zero-length or longer than NAMEDATALEN.)
+		 *
 		 * Variables that are not so marked should just be emitted as simple
 		 * string literals.  If the variable is not known to
-		 * variable_is_guc_list_quote(), we'll do the latter; this makes it
-		 * unsafe to use GUC_LIST_QUOTE for extension variables.
+		 * variable_is_guc_list_quote(), we'll do that; this makes it unsafe
+		 * to use GUC_LIST_QUOTE for extension variables.
 		 */
 		if (variable_is_guc_list_quote(configitem))
-			appendPQExpBufferStr(q, pos);
+		{
+			char	  **namelist;
+			char	  **nameptr;
+
+			/* Parse string into list of identifiers */
+			/* this shouldn't fail really */
+			if (SplitGUCList(pos, ',', &namelist))
+			{
+				for (nameptr = namelist; *nameptr; nameptr++)
+				{
+					if (nameptr != namelist)
+						appendPQExpBufferStr(q, ", ");
+					appendStringLiteralAH(q, *nameptr, fout);
+				}
+			}
+			pg_free(namelist);
+		}
 		else
 			appendStringLiteralAH(q, pos, fout);
 	}
@@ -12474,7 +12565,7 @@ dumpOpr(Archive *fout, OprInfo *oprinfo)
 	oprregproc = convertRegProcReference(fout, oprcode);
 	if (oprregproc)
 	{
-		appendPQExpBuffer(details, "    PROCEDURE = %s", oprregproc);
+		appendPQExpBuffer(details, "    FUNCTION = %s", oprregproc);
 		free(oprregproc);
 	}
 
@@ -15578,27 +15669,6 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 		if (tbinfo->reloftype && !dopt->binary_upgrade)
 			appendPQExpBuffer(q, " OF %s", tbinfo->reloftype);
 
-		/*
-		 * If the table is a partition, dump it as such; except in the case of
-		 * a binary upgrade, we dump the table normally and attach it to the
-		 * parent afterward.
-		 */
-		if (tbinfo->ispartition && !dopt->binary_upgrade)
-		{
-			TableInfo  *parentRel = tbinfo->parents[0];
-
-			/*
-			 * With partitions, unlike inheritance, there can only be one
-			 * parent.
-			 */
-			if (tbinfo->numParents != 1)
-				exit_horribly(NULL, "invalid number of parents %d for table \"%s\"\n",
-							  tbinfo->numParents, tbinfo->dobj.name);
-
-			appendPQExpBuffer(q, " PARTITION OF %s",
-							  fmtQualifiedDumpable(parentRel));
-		}
-
 		if (tbinfo->relkind != RELKIND_MATVIEW)
 		{
 			/* Dump the attributes */
@@ -15613,26 +15683,30 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 				 */
 				if (shouldPrintColumn(dopt, tbinfo, j))
 				{
+					bool		print_default;
+					bool		print_notnull;
+
 					/*
 					 * Default value --- suppress if to be printed separately.
 					 */
-					bool		has_default = (tbinfo->attrdefs[j] != NULL &&
-											   !tbinfo->attrdefs[j]->separate);
+					print_default = (tbinfo->attrdefs[j] != NULL &&
+									 !tbinfo->attrdefs[j]->separate);
 
 					/*
 					 * Not Null constraint --- suppress if inherited, except
-					 * in binary-upgrade case where that won't work.
+					 * if partition, or in binary-upgrade case where that
+					 * won't work.
 					 */
-					bool		has_notnull = (tbinfo->notnull[j] &&
-											   (!tbinfo->inhNotNull[j] ||
-												dopt->binary_upgrade));
+					print_notnull = (tbinfo->notnull[j] &&
+									 (!tbinfo->inhNotNull[j] ||
+									  tbinfo->ispartition || dopt->binary_upgrade));
 
 					/*
-					 * Skip column if fully defined by reloftype or the
-					 * partition parent.
+					 * Skip column if fully defined by reloftype, except in
+					 * binary upgrade
 					 */
-					if ((tbinfo->reloftype || tbinfo->ispartition) &&
-						!has_default && !has_notnull && !dopt->binary_upgrade)
+					if (tbinfo->reloftype && !print_default && !print_notnull &&
+						!dopt->binary_upgrade)
 						continue;
 
 					/* Format properly if not first attr */
@@ -15655,20 +15729,16 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 						 * clean things up later.
 						 */
 						appendPQExpBufferStr(q, " INTEGER /* dummy */");
-						/* Skip all the rest, too */
+						/* and skip to the next column */
 						continue;
 					}
 
 					/*
-					 * Attribute type
-					 *
-					 * In binary-upgrade mode, we always include the type. If
-					 * we aren't in binary-upgrade mode, then we skip the type
-					 * when creating a typed table ('OF type_name') or a
-					 * partition ('PARTITION OF'), since the type comes from
-					 * the parent/partitioned table.
+					 * Attribute type; print it except when creating a typed
+					 * table ('OF type_name'), but in binary-upgrade mode,
+					 * print it in that case too.
 					 */
-					if (dopt->binary_upgrade || (!tbinfo->reloftype && !tbinfo->ispartition))
+					if (dopt->binary_upgrade || !tbinfo->reloftype)
 					{
 						appendPQExpBuffer(q, " %s",
 										  tbinfo->atttypnames[j]);
@@ -15685,23 +15755,29 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 											  fmtQualifiedDumpable(coll));
 					}
 
-					if (has_default)
+					if (print_default)
 						appendPQExpBuffer(q, " DEFAULT %s",
 										  tbinfo->attrdefs[j]->adef_expr);
 
-					if (has_notnull)
+					if (print_notnull)
 						appendPQExpBufferStr(q, " NOT NULL");
 				}
 			}
 
 			/*
 			 * Add non-inherited CHECK constraints, if any.
+			 *
+			 * For partitions, we need to include check constraints even if
+			 * they're not defined locally, because the ALTER TABLE ATTACH
+			 * PARTITION that we'll emit later expects the constraint to be
+			 * there.  (No need to fix conislocal: ATTACH PARTITION does that)
 			 */
 			for (j = 0; j < tbinfo->ncheck; j++)
 			{
 				ConstraintInfo *constr = &(tbinfo->checkexprs[j]);
 
-				if (constr->separate || !constr->conislocal)
+				if (constr->separate ||
+					(!constr->conislocal && !tbinfo->ispartition))
 					continue;
 
 				if (actual_atts == 0)
@@ -15718,25 +15794,20 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 
 			if (actual_atts)
 				appendPQExpBufferStr(q, "\n)");
-			else if (!((tbinfo->reloftype || tbinfo->ispartition) &&
-					   !dopt->binary_upgrade))
+			else if (!(tbinfo->reloftype && !dopt->binary_upgrade))
 			{
 				/*
-				 * We must have a parenthesized attribute list, even though
-				 * empty, when not using the OF TYPE or PARTITION OF syntax.
+				 * No attributes? we must have a parenthesized attribute list,
+				 * even though empty, when not using the OF TYPE syntax.
 				 */
 				appendPQExpBufferStr(q, " (\n)");
 			}
 
-			if (tbinfo->ispartition && !dopt->binary_upgrade)
-			{
-				appendPQExpBufferChar(q, '\n');
-				appendPQExpBufferStr(q, tbinfo->partbound);
-			}
-
-			/* Emit the INHERITS clause, except if this is a partition. */
-			if (numParents > 0 &&
-				!tbinfo->ispartition &&
+			/*
+			 * Emit the INHERITS clause (not for partitions), except in
+			 * binary-upgrade mode.
+			 */
+			if (numParents > 0 && !tbinfo->ispartition &&
 				!dopt->binary_upgrade)
 			{
 				appendPQExpBufferStr(q, "\nINHERITS (");
@@ -15931,11 +16002,17 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 				}
 			}
 
+			/*
+			 * Add inherited CHECK constraints, if any.
+			 *
+			 * For partitions, they were already dumped, and conislocal
+			 * doesn't need fixing.
+			 */
 			for (k = 0; k < tbinfo->ncheck; k++)
 			{
 				ConstraintInfo *constr = &(tbinfo->checkexprs[k]);
 
-				if (constr->separate || constr->conislocal)
+				if (constr->separate || constr->conislocal || tbinfo->ispartition)
 					continue;
 
 				appendPQExpBufferStr(q, "\n-- For binary upgrade, set up inherited constraint.\n");
@@ -15953,30 +16030,16 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 				appendPQExpBufferStr(q, "::pg_catalog.regclass;\n");
 			}
 
-			if (numParents > 0)
+			if (numParents > 0 && !tbinfo->ispartition)
 			{
-				appendPQExpBufferStr(q, "\n-- For binary upgrade, set up inheritance and partitioning this way.\n");
+				appendPQExpBufferStr(q, "\n-- For binary upgrade, set up inheritance this way.\n");
 				for (k = 0; k < numParents; k++)
 				{
 					TableInfo  *parentRel = parents[k];
 
-					/* In the partitioning case, we alter the parent */
-					if (tbinfo->ispartition)
-						appendPQExpBuffer(q,
-										  "ALTER TABLE ONLY %s ATTACH PARTITION ",
-										  fmtQualifiedDumpable(parentRel));
-					else
-						appendPQExpBuffer(q, "ALTER TABLE ONLY %s INHERIT ",
-										  qualrelname);
-
-					/* Partition needs specifying the bounds */
-					if (tbinfo->ispartition)
-						appendPQExpBuffer(q, "%s %s;\n",
-										  qualrelname,
-										  tbinfo->partbound);
-					else
-						appendPQExpBuffer(q, "%s;\n",
-										  fmtQualifiedDumpable(parentRel));
+					appendPQExpBuffer(q, "ALTER TABLE ONLY %s INHERIT %s;\n",
+									  qualrelname,
+									  fmtQualifiedDumpable(parentRel));
 				}
 			}
 
@@ -15987,6 +16050,27 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 								  qualrelname,
 								  tbinfo->reloftype);
 			}
+		}
+
+		/*
+		 * For partitioned tables, emit the ATTACH PARTITION clause.  Note
+		 * that we always want to create partitions this way instead of using
+		 * CREATE TABLE .. PARTITION OF, mainly to preserve a possible column
+		 * layout discrepancy with the parent, but also to ensure it gets the
+		 * correct tablespace setting if it differs from the parent's.
+		 */
+		if (tbinfo->ispartition)
+		{
+			/* With partitions there can only be one parent */
+			if (tbinfo->numParents != 1)
+				exit_horribly(NULL, "invalid number of parents %d for table \"%s\"\n",
+					  tbinfo->numParents, tbinfo->dobj.name);
+
+			/* Perform ALTER TABLE on the parent */
+			appendPQExpBuffer(q,
+							  "ALTER TABLE ONLY %s ATTACH PARTITION %s %s;\n",
+							  fmtQualifiedDumpable(parents[0]),
+							  qualrelname, tbinfo->partbound);
 		}
 
 		/*
@@ -16352,12 +16436,25 @@ dumpIndex(Archive *fout, IndxInfo *indxinfo)
 	 */
 	if (!is_constraint)
 	{
+		char	   *indstatcols = indxinfo->indstatcols;
+		char	   *indstatvals = indxinfo->indstatvals;
+		char	  **indstatcolsarray = NULL;
+		char	  **indstatvalsarray = NULL;
+		int			nstatcols;
+		int			nstatvals;
+
 		if (dopt->binary_upgrade)
 			binary_upgrade_set_pg_class_oids(fout, q,
 											 indxinfo->dobj.catId.oid, true);
 
 		/* Plain secondary index */
 		appendPQExpBuffer(q, "%s;\n", indxinfo->indexdef);
+
+		/*
+		 * Append ALTER TABLE commands as needed to set properties that we
+		 * only have ALTER TABLE syntax for.  Keep this in sync with the
+		 * similar code in dumpConstraint!
+		 */
 
 		/* If the index is clustered, we need to record that. */
 		if (indxinfo->indisclustered)
@@ -16367,6 +16464,32 @@ dumpIndex(Archive *fout, IndxInfo *indxinfo)
 			/* index name is not qualified in this syntax */
 			appendPQExpBuffer(q, " ON %s;\n",
 							  qindxname);
+		}
+
+		/*
+		 * If the index has any statistics on some of its columns, generate
+		 * the associated ALTER INDEX queries.
+		 */
+		if (parsePGArray(indstatcols, &indstatcolsarray, &nstatcols) &&
+			parsePGArray(indstatvals, &indstatvalsarray, &nstatvals) &&
+			nstatcols == nstatvals)
+		{
+			int			j;
+
+			for (j = 0; j < nstatcols; j++)
+			{
+				appendPQExpBuffer(q, "ALTER INDEX %s ",
+								  fmtQualifiedDumpable(indxinfo));
+
+				/*
+				 * Note that this is a column number, so no quotes should be
+				 * used.
+				 */
+				appendPQExpBuffer(q, "ALTER COLUMN %s ",
+								  indstatcolsarray[j]);
+				appendPQExpBuffer(q, "SET STATISTICS %s;\n",
+								  indstatvalsarray[j]);
+			}
 		}
 
 		/* If the index defines identity, we need to record that. */
@@ -16392,6 +16515,11 @@ dumpIndex(Archive *fout, IndxInfo *indxinfo)
 						 q->data, delq->data, NULL,
 						 NULL, 0,
 						 NULL, NULL);
+
+		if (indstatcolsarray)
+			free(indstatcolsarray);
+		if (indstatvalsarray)
+			free(indstatvalsarray);
 	}
 
 	/* Dump Index Comments */
@@ -16422,14 +16550,15 @@ dumpIndexAttach(Archive *fout, IndexAttachInfo *attachinfo)
 	{
 		PQExpBuffer q = createPQExpBuffer();
 
-		appendPQExpBuffer(q, "\nALTER INDEX %s ",
+		appendPQExpBuffer(q, "ALTER INDEX %s ",
 						  fmtQualifiedDumpable(attachinfo->parentIdx));
 		appendPQExpBuffer(q, "ATTACH PARTITION %s;\n",
 						  fmtQualifiedDumpable(attachinfo->partitionIdx));
 
 		ArchiveEntry(fout, attachinfo->dobj.catId, attachinfo->dobj.dumpId,
 					 attachinfo->dobj.name,
-					 NULL, NULL,
+					 attachinfo->dobj.namespace->dobj.name,
+					 NULL,
 					 "",
 					 false, "INDEX ATTACH", SECTION_POST_DATA,
 					 q->data, "", NULL,
@@ -16608,6 +16737,12 @@ dumpConstraint(Archive *fout, ConstraintInfo *coninfo)
 			appendPQExpBufferStr(q, ";\n");
 		}
 
+		/*
+		 * Append ALTER TABLE commands as needed to set properties that we
+		 * only have ALTER TABLE syntax for.  Keep this in sync with the
+		 * similar code in dumpIndex!
+		 */
+
 		/* If the index is clustered, we need to record that. */
 		if (indxinfo->indisclustered)
 		{
@@ -16615,6 +16750,16 @@ dumpConstraint(Archive *fout, ConstraintInfo *coninfo)
 							  fmtQualifiedDumpable(tbinfo));
 			/* index name is not qualified in this syntax */
 			appendPQExpBuffer(q, " ON %s;\n",
+							  fmtId(indxinfo->dobj.name));
+		}
+
+		/* If the index defines identity, we need to record that. */
+		if (indxinfo->indisreplident)
+		{
+			appendPQExpBuffer(q, "\nALTER TABLE ONLY %s REPLICA IDENTITY USING",
+							  fmtQualifiedDumpable(tbinfo));
+			/* index name is not qualified in this syntax */
+			appendPQExpBuffer(q, " INDEX %s;\n",
 							  fmtId(indxinfo->dobj.name));
 		}
 
@@ -17427,6 +17572,10 @@ dumpEventTrigger(Archive *fout, EventTriggerInfo *evtinfo)
 	appendPQExpBuffer(delqry, "DROP EVENT TRIGGER %s;\n",
 					  qevtname);
 
+	if (dopt->binary_upgrade)
+		binary_upgrade_extension_member(query, &evtinfo->dobj,
+										"EVENT TRIGGER", qevtname, NULL);
+
 	if (evtinfo->dobj.dump & DUMP_COMPONENT_DEFINITION)
 		ArchiveEntry(fout, evtinfo->dobj.catId, evtinfo->dobj.dumpId,
 					 evtinfo->dobj.name, NULL, NULL,
@@ -17909,14 +18058,45 @@ getDependencies(Archive *fout)
 	query = createPQExpBuffer();
 
 	/*
+	 * Messy query to collect the dependency data we need.  Note that we
+	 * ignore the sub-object column, so that dependencies of or on a column
+	 * look the same as dependencies of or on a whole table.
+	 *
 	 * PIN dependencies aren't interesting, and EXTENSION dependencies were
 	 * already processed by getExtensionMembership.
 	 */
 	appendPQExpBufferStr(query, "SELECT "
 						 "classid, objid, refclassid, refobjid, deptype "
 						 "FROM pg_depend "
-						 "WHERE deptype != 'p' AND deptype != 'e' "
-						 "ORDER BY 1,2");
+						 "WHERE deptype != 'p' AND deptype != 'e'\n");
+
+	/*
+	 * Since we don't treat pg_amop entries as separate DumpableObjects, we
+	 * have to translate their dependencies into dependencies of their parent
+	 * opfamily.  Ignore internal dependencies though, as those will point to
+	 * their parent opclass, which we needn't consider here (and if we did,
+	 * it'd just result in circular dependencies).  Also, "loose" opfamily
+	 * entries will have dependencies on their parent opfamily, which we
+	 * should drop since they'd likewise become useless self-dependencies.
+	 * (But be sure to keep deps on *other* opfamilies; see amopsortfamily.)
+	 */
+	appendPQExpBufferStr(query, "UNION ALL\n"
+						 "SELECT 'pg_opfamily'::regclass AS classid, amopfamily AS objid, refclassid, refobjid, deptype "
+						 "FROM pg_depend d, pg_amop o "
+						 "WHERE deptype NOT IN ('p', 'e', 'i') AND "
+						 "classid = 'pg_amop'::regclass AND objid = o.oid "
+						 "AND NOT (refclassid = 'pg_opfamily'::regclass AND amopfamily = refobjid)\n");
+
+	/* Likewise for pg_amproc entries */
+	appendPQExpBufferStr(query, "UNION ALL\n"
+						 "SELECT 'pg_opfamily'::regclass AS classid, amprocfamily AS objid, refclassid, refobjid, deptype "
+						 "FROM pg_depend d, pg_amproc p "
+						 "WHERE deptype NOT IN ('p', 'e', 'i') AND "
+						 "classid = 'pg_amproc'::regclass AND objid = p.oid "
+						 "AND NOT (refclassid = 'pg_opfamily'::regclass AND amprocfamily = refobjid)\n");
+
+	/* Sort the output for efficiency below */
+	appendPQExpBufferStr(query, "ORDER BY 1,2");
 
 	res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
 

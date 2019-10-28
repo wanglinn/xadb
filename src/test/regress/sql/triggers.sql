@@ -26,13 +26,13 @@ create unique index pkeys_i on pkeys (pkey1, pkey2);
 create trigger check_fkeys_pkey_exist
 	before insert or update on fkeys
 	for each row
-	execute procedure
+	execute function
 	check_primary_key ('fkey1', 'fkey2', 'pkeys', 'pkey1', 'pkey2');
 
 create trigger check_fkeys_pkey2_exist
 	before insert or update on fkeys
 	for each row
-	execute procedure check_primary_key ('fkey3', 'fkeys2', 'pkey23');
+	execute function check_primary_key ('fkey3', 'fkeys2', 'pkey23');
 
 --
 -- For fkeys2:
@@ -1184,6 +1184,33 @@ drop function self_ref_trigger_ins_func();
 drop function self_ref_trigger_del_func();
 
 --
+-- Check that statement triggers work correctly even with all children excluded
+--
+
+create table stmt_trig_on_empty_upd (a int);
+create table stmt_trig_on_empty_upd1 () inherits (stmt_trig_on_empty_upd);
+create function update_stmt_notice() returns trigger as $$
+begin
+	raise notice 'updating %', TG_TABLE_NAME;
+	return null;
+end;
+$$ language plpgsql;
+create trigger before_stmt_trigger
+	before update on stmt_trig_on_empty_upd
+	execute procedure update_stmt_notice();
+create trigger before_stmt_trigger
+	before update on stmt_trig_on_empty_upd1
+	execute procedure update_stmt_notice();
+
+-- inherited no-op update
+update stmt_trig_on_empty_upd set a = a where false returning a+1 as aa;
+-- simple no-op update
+update stmt_trig_on_empty_upd1 set a = a where false returning a+1 as aa;
+
+drop table stmt_trig_on_empty_upd cascade;
+drop function update_stmt_notice();
+
+--
 -- Check that index creation (or DDL in general) is prohibited in a trigger
 --
 
@@ -1437,6 +1464,29 @@ create trigger aaa after insert on parted_trig_1 for each row execute procedure 
 create trigger bbb after insert on parted_trig for each row execute procedure trigger_notice();
 create trigger qqq after insert on parted_trig_1_1 for each row execute procedure trigger_notice();
 insert into parted_trig values (50), (1500);
+drop table parted_trig;
+
+-- Verify propagation of trigger arguments to partitions
+create table parted_trig (a int) partition by list (a);
+create table parted_trig1 partition of parted_trig for values in (1);
+create or replace function trigger_notice() returns trigger as $$
+  declare
+    arg1 text = TG_ARGV[0];
+    arg2 integer = TG_ARGV[1];
+  begin
+    raise notice 'trigger % on % % % for % args % %',
+		TG_NAME, TG_TABLE_NAME, TG_WHEN, TG_OP, TG_LEVEL, arg1, arg2;
+    return null;
+  end;
+  $$ language plpgsql;
+create trigger aaa after insert on parted_trig
+   for each row execute procedure trigger_notice('quirky', 1);
+
+-- Verify propagation of trigger arguments to partitions attached after creating trigger
+create table parted_trig2 partition of parted_trig for values in (2);
+create table parted_trig3 (like parted_trig);
+alter table parted_trig attach partition parted_trig3 for values in (3);
+insert into parted_trig values (1), (2), (3);
 drop table parted_trig;
 
 -- test irregular partitions (i.e., different column definitions),

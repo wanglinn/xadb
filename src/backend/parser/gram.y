@@ -1508,6 +1508,7 @@ generic_set:
 					n->name = $1;
 					$$ = n;
 				}
+		;
 
 set_rest_more:	/* Generic SET syntaxes: */
 			generic_set 						{$$ = $1;}
@@ -2804,7 +2805,7 @@ alter_identity_column_option:
 		;
 
 PartitionBoundSpec:
-			/* a HASH partition*/
+			/* a HASH partition */
 			FOR VALUES WITH '(' hash_partbound ')'
 				{
 					ListCell   *lc;
@@ -3678,7 +3679,6 @@ columnDef:	ColId Typename create_generic_options ColQualList
 					n->is_local = true;
 					n->is_not_null = false;
 					n->is_from_type = false;
-					n->is_from_parent = false;
 					n->storage = 0;
 					n->raw_default = NULL;
 					n->cooked_default = NULL;
@@ -3700,7 +3700,6 @@ columnOptions:	ColId ColQualList
 					n->is_local = true;
 					n->is_not_null = false;
 					n->is_from_type = false;
-					n->is_from_parent = false;
 					n->storage = 0;
 					n->raw_default = NULL;
 					n->cooked_default = NULL;
@@ -3719,7 +3718,6 @@ columnOptions:	ColId ColQualList
 					n->is_local = true;
 					n->is_not_null = false;
 					n->is_from_type = false;
-					n->is_from_parent = false;
 					n->storage = 0;
 					n->raw_default = NULL;
 					n->cooked_default = NULL;
@@ -5709,7 +5707,7 @@ CreateAmStmt: CREATE ACCESS METHOD name TYPE_P INDEX HANDLER handler_name
 CreateTrigStmt:
 			CREATE TRIGGER name TriggerActionTime TriggerEvents ON
 			qualified_name TriggerReferencing TriggerForSpec TriggerWhen
-			EXECUTE PROCEDURE func_name '(' TriggerFuncArgs ')'
+			EXECUTE FUNCTION_or_PROCEDURE func_name '(' TriggerFuncArgs ')'
 				{
 					CreateTrigStmt *n = makeNode(CreateTrigStmt);
 					n->trigname = $3;
@@ -5731,7 +5729,7 @@ CreateTrigStmt:
 			| CREATE CONSTRAINT TRIGGER name AFTER TriggerEvents ON
 			qualified_name OptConstrFromTable ConstraintAttributeSpec
 			FOR EACH ROW TriggerWhen
-			EXECUTE PROCEDURE func_name '(' TriggerFuncArgs ')'
+			EXECUTE FUNCTION_or_PROCEDURE func_name '(' TriggerFuncArgs ')'
 				{
 					CreateTrigStmt *n = makeNode(CreateTrigStmt);
 					n->trigname = $4;
@@ -5869,6 +5867,11 @@ TriggerWhen:
 			| /*EMPTY*/								{ $$ = NULL; }
 		;
 
+FUNCTION_or_PROCEDURE:
+			FUNCTION
+		|	PROCEDURE
+		;
+
 TriggerFuncArgs:
 			TriggerFuncArg							{ $$ = list_make1($1); }
 			| TriggerFuncArgs ',' TriggerFuncArg	{ $$ = lappend($1, $3); }
@@ -5939,7 +5942,7 @@ ConstraintAttributeElem:
 
 CreateEventTrigStmt:
 			CREATE EVENT TRIGGER name ON ColLabel
-			EXECUTE PROCEDURE func_name '(' ')'
+			EXECUTE FUNCTION_or_PROCEDURE func_name '(' ')'
 				{
 					CreateEventTrigStmt *n = makeNode(CreateEventTrigStmt);
 					n->trigname = $4;
@@ -5950,7 +5953,7 @@ CreateEventTrigStmt:
 				}
 		  | CREATE EVENT TRIGGER name ON ColLabel
 			WHEN event_trigger_when_list
-			EXECUTE PROCEDURE func_name '(' ')'
+			EXECUTE FUNCTION_or_PROCEDURE func_name '(' ')'
 				{
 					CreateEventTrigStmt *n = makeNode(CreateEventTrigStmt);
 					n->trigname = $4;
@@ -6741,6 +6744,7 @@ attrs:		'.' attr_name
 type_name_list:
 			Typename								{ $$ = list_make1($1); }
 			| type_name_list ',' Typename			{ $$ = lappend($1, $3); }
+		;
 
 /*****************************************************************************
  *
@@ -11537,6 +11541,7 @@ ExecuteStmt: EXECUTE name execute_param_clause
 					ctas->into = $4;
 					ctas->relkind = OBJECT_TABLE;
 					ctas->is_select_into = false;
+					ctas->if_not_exists = false;
 					/* cram additional flags into the IntoClause */
 					$4->rel->relpersistence = $2;
 #ifdef ADB
@@ -11545,6 +11550,23 @@ ExecuteStmt: EXECUTE name execute_param_clause
 							 errmsg("CREATE TABLE AS EXECUTE not yet supported")));
 #endif
 					$4->skipData = !($9);
+					$$ = (Node *) ctas;
+				}
+			| CREATE OptTemp TABLE IF_P NOT EXISTS create_as_target AS
+				EXECUTE name execute_param_clause opt_with_data
+				{
+					CreateTableAsStmt *ctas = makeNode(CreateTableAsStmt);
+					ExecuteStmt *n = makeNode(ExecuteStmt);
+					n->name = $10;
+					n->params = $11;
+					ctas->query = (Node *) n;
+					ctas->into = $7;
+					ctas->relkind = OBJECT_TABLE;
+					ctas->is_select_into = false;
+					ctas->if_not_exists = true;
+					/* cram additional flags into the IntoClause */
+					$7->rel->relpersistence = $2;
+					$7->skipData = !($12);
 					$$ = (Node *) ctas;
 				}
 		;
@@ -13047,7 +13069,6 @@ TableFuncElement:	ColId Typename opt_collate_clause
 					n->is_local = true;
 					n->is_not_null = false;
 					n->is_from_type = false;
-					n->is_from_parent = false;
 					n->storage = 0;
 					n->raw_default = NULL;
 					n->cooked_default = NULL;

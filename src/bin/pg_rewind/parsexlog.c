@@ -90,8 +90,7 @@ extractPageMap(const char *datadir, XLogRecPtr startpoint, int tliIndex,
 						 errormsg);
 			else
 				pg_fatal("could not read WAL record at %X/%X\n",
-						 (uint32) (startpoint >> 32),
-						 (uint32) (startpoint));
+						 (uint32) (errptr >> 32), (uint32) (errptr));
 		}
 
 		extractPageInfo(xlogreader);
@@ -248,7 +247,7 @@ SimpleXLogPageRead(XLogReaderState *xlogreader, XLogRecPtr targetPagePtr,
 	XLogSegNo	targetSegNo;
 
 	XLByteToSeg(targetPagePtr, targetSegNo, WalSegSz);
-	XLogSegNoOffsetToRecPtr(targetSegNo + 1, 0, targetSegEnd, WalSegSz);
+	XLogSegNoOffsetToRecPtr(targetSegNo + 1, 0, WalSegSz, targetSegEnd);
 	targetPageOff = XLogSegmentOffset(targetPagePtr, WalSegSz);
 
 	/*

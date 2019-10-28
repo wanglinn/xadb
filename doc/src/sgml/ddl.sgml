@@ -1189,6 +1189,29 @@ ALTER TABLE products ADD COLUMN description text;
     value is given (null if you don't specify a <literal>DEFAULT</literal> clause).
    </para>
 
+   <tip>
+    <para>
+     From <productname>PostgreSQL</productname> 11, adding a column with
+     a constant default value no longer means that each row of the table
+     needs to be updated when the <command>ALTER TABLE</command> statement
+     is executed. Instead, the default value will be returned the next time
+     the row is accessed, and applied when the table is rewritten, making
+     the <command>ALTER TABLE</command> very fast even on large tables.
+    </para>
+
+    <para>
+     However, if the default value is volatile (e.g.
+     <function>clock_timestamp()</function>)
+     each row will need to be updated with the value calculated at the time
+     <command>ALTER TABLE</command> is executed. To avoid a potentially
+     lengthy update operation, particularly if you intend to fill the column
+     with mostly nondefault values anyway, it may be preferable to add the
+     column with no default, insert the correct values using
+     <command>UPDATE</command>, and then add any desired default as described
+     below.
+    </para>
+   </tip>
+
    <para>
     You can also define constraints on the column at the same time,
     using the usual syntax:
@@ -1203,17 +1226,6 @@ ALTER TABLE products ADD COLUMN description text CHECK (description &lt;&gt; '')
     correctly.
    </para>
 
-  <tip>
-   <para>
-    Adding a column with a default requires updating each row of the
-    table (to store the new column value).  However, if no default is
-    specified, <productname>PostgreSQL</productname> is able to avoid
-    the physical update.  So if you intend to fill the column with
-    mostly nondefault values, it's best to add the column with no default,
-    insert the correct values using <command>UPDATE</command>, and then add any
-    desired default as described below.
-   </para>
-  </tip>
   </sect2>
 
   <sect2 id="ddl-alter-removing-a-column">
@@ -1624,9 +1636,20 @@ CREATE POLICY account_managers ON accounts TO managers
 </programlisting>
 
   <para>
+   The policy above implicitly provides a <literal>WITH CHECK</literal>
+   clause identical to its <literal>USING</literal> clause, so that the
+   constraint applies both to rows selected by a command (so a manager
+   cannot <command>SELECT</command>, <command>UPDATE</command>,
+   or <command>DELETE</command> existing rows belonging to a different
+   manager) and to rows modified by a command (so rows belonging to a
+   different manager cannot be created via <command>INSERT</command>
+   or <command>UPDATE</command>).
+  </para>
+
+  <para>
    If no role is specified, or the special user name
    <literal>PUBLIC</literal> is used, then the policy applies to all
-   users on the system.  To allow all users to access their own row in
+   users on the system.  To allow all users to access only their own row in
    a <literal>users</literal> table, a simple policy can be used:
   </para>
 
@@ -1636,17 +1659,30 @@ CREATE POLICY user_policy ON users
 </programlisting>
 
   <para>
+   This works similarly to the previous example.
+  </para>
+
+  <para>
    To use a different policy for rows that are being added to the table
-   compared to those rows that are visible, the <literal>WITH CHECK</literal>
-   clause can be used.  This policy would allow all users to view all rows
+   compared to those rows that are visible, multiple policies can be
+   combined.  This pair of policies would allow all users to view all rows
    in the <literal>users</literal> table, but only modify their own:
   </para>
 
 <programlisting>
-CREATE POLICY user_policy ON users
-    USING (true)
-    WITH CHECK (user_name = current_user);
+CREATE POLICY user_sel_policy ON users
+    FOR SELECT
+    USING (true);
+CREATE POLICY user_mod_policy ON users
+    USING (user_name = current_user);
 </programlisting>
+
+  <para>
+   In a <command>SELECT</command> command, these two policies are combined
+   using <literal>OR</literal>, with the net effect being that all rows
+   can be selected.  In other command types, only the second policy applies,
+   so that the effects are the same as before.
+  </para>
 
   <para>
    Row security can also be disabled with the <command>ALTER TABLE</command>
@@ -2380,9 +2416,12 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
        using <literal>ALTER ROLE <replaceable>user</replaceable> SET
        search_path = "$user"</literal>.  Everyone retains the ability to
        create objects in the public schema, but only qualified names will
-       choose those objects.  A user holding the <literal>CREATEROLE</literal>
-       privilege can undo this setting and issue arbitrary queries under the
-       identity of users relying on the setting.  If you
+       choose those objects.  While qualified table references are fine, calls
+       to functions in the public schema <link linkend="typeconv-func">will be
+       unsafe or unreliable</link>.  Also, a user holding
+       the <literal>CREATEROLE</literal> privilege can undo this setting and
+       issue arbitrary queries under the identity of users relying on the
+       setting.  If you create functions or extensions in the public schema or
        grant <literal>CREATEROLE</literal> to users not warranting this
        almost-superuser ability, use the first pattern instead.
       </para>
@@ -2393,8 +2432,10 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
        Remove the public schema from <varname>search_path</varname> in
        <link linkend="config-setting-configuration-file"><filename>postgresql.conf</filename></link>.
        The ensuing user experience matches the previous pattern.  In addition
-       to that pattern's implications for <literal>CREATEROLE</literal>, this
-       trusts database owners the same way.  If you assign
+       to that pattern's implications for functions
+       and <literal>CREATEROLE</literal>, this trusts database owners
+       like <literal>CREATEROLE</literal>.  If you create functions or
+       extensions in the public schema or assign
        the <literal>CREATEROLE</literal>
        privilege, <literal>CREATEDB</literal> privilege or individual database
        ownership to users not warranting almost-superuser access, use the
@@ -2804,8 +2845,9 @@ VALUES ('Albany', NULL, NULL, 'NY');
     </listitem>
    </itemizedlist>
 
-   These deficiencies will probably be fixed in some future release,
-   but in the meantime considerable care is needed in deciding whether
+   Some functionality not implemented for inheritance hierarchies is
+   implemented for declarative partitioning.
+   Considerable care is needed in deciding whether partitioning with legacy
    inheritance is useful for your application.
   </para>
 
@@ -3302,6 +3344,44 @@ ALTER TABLE measurement ATTACH PARTITION measurement_y2008m02
      One may then drop the constraint after <command>ATTACH PARTITION</command>
      is finished, because it is no longer necessary.
     </para>
+
+    <para>
+     As explained above, it is possible to create indexes on partitioned tables
+     and they are applied automatically to the entire hierarchy.  This is very
+     convenient, as not only the existing partitions will become indexed, but
+     also any partitions that are created in the future will.  One limitation is
+     that it's not possible to use the <literal>CONCURRENTLY</literal>
+     qualifier when creating such a partitioned index.  To overcome long lock
+     times, it is possible to use <command>CREATE INDEX ON ONLY</command>
+     the partitioned table; such an index is marked invalid, and the partitions
+     do not get the index applied automatically.  The indexes on partitions can
+     be created separately using <literal>CONCURRENTLY</literal>, and later
+     <firstterm>attached</firstterm> to the index on the parent using
+     <command>ALTER INDEX .. ATTACH PARTITION</command>.  Once indexes for all
+     partitions are attached to the parent index, the parent index is marked
+     valid automatically.  Example:
+<programlisting>
+CREATE INDEX measurement_usls_idx ON ONLY measurement (unitsales);
+
+CREATE INDEX measurement_usls_200602_idx
+    ON measurement_y2006m02 (unitsales);
+ALTER INDEX measurement_usls_idx
+    ATTACH PARTITION measurement_usls_200602_idx;
+...
+</programlisting>
+
+     This technique can be used with <literal>UNIQUE</literal> and
+     <literal>PRIMARY KEY</literal> constraints too; the indexes are created
+     implicitly when the constraint is created.  Example:
+<programlisting>
+ALTER TABLE ONLY measurement ADD UNIQUE (city_id, logdate);
+
+ALTER TABLE measurement_y2006m02 ADD UNIQUE (city_id, logdate);
+ALTER INDEX measurement_city_id_logdate_key
+    ATTACH PARTITION measurement_y2006m02_city_id_logdate_key;
+...
+</programlisting>
+    </para>
    </sect3>
 
    <sect3 id="ddl-partitioning-declarative-limitations">
@@ -3320,30 +3400,18 @@ ALTER TABLE measurement ATTACH PARTITION measurement_y2008m02
 
      <listitem>
       <para>
-       While primary keys are supported on partitioned tables, foreign
-       keys referencing partitioned tables are not supported.  (Foreign key
-       references from a partitioned table to some other table are supported.)
+       Unique constraints on partitioned tables must include all the
+       partition key columns.  This limitation exists because
+       <productname>PostgreSQL</productname> can only enforce
+       uniqueness in each partition individually.
       </para>
      </listitem>
 
      <listitem>
       <para>
-       When an <command>UPDATE</command> causes a row to move from one
-       partition to another, there is a chance that another concurrent
-       <command>UPDATE</command> or <command>DELETE</command> misses this row.
-       Suppose session 1 is performing an <command>UPDATE</command> on a
-       partition key, and meanwhile a concurrent session 2 for which this row
-       is visible performs an <command>UPDATE</command> or
-       <command>DELETE</command> operation on this row. Session 2 can silently
-       miss the row if the row is deleted from the partition due to session
-       1's activity.  In such case, session 2's
-       <command>UPDATE</command> or <command>DELETE</command>, being unaware of
-       the row movement thinks that the row has just been deleted and concludes
-       that there is nothing to be done for this row. In the usual case where
-       the table is not partitioned, or where there is no row movement,
-       session 2 would have identified the newly updated row and carried out
-       the <command>UPDATE</command>/<command>DELETE</command> on this new row
-       version.
+       While primary keys are supported on partitioned tables, foreign
+       keys referencing partitioned tables are not supported.  (Foreign key
+       references from a partitioned table to some other table are supported.)
       </para>
      </listitem>
 
@@ -3397,8 +3465,8 @@ ALTER TABLE measurement ATTACH PARTITION measurement_y2008m02
         Declarative partitioning only supports range, list and hash
         partitioning, whereas table inheritance allows data to be divided in a
         manner of the user's choosing.  (Note, however, that if constraint
-        exclusion is unable to prune partitions effectively, query performance
-        will be very poor.)
+        exclusion is unable to prune child tables effectively, query performance
+        might be poor.)
        </para>
       </listitem>
 
@@ -3420,18 +3488,18 @@ ALTER TABLE measurement ATTACH PARTITION measurement_y2008m02
 
      <para>
       We use the same <structname>measurement</structname> table we used
-      above.  To implement it as a partitioned table using inheritance, use
+      above.  To implement partitioning using inheritance, use
       the following steps:
 
       <orderedlist spacing="compact">
        <listitem>
         <para>
          Create the <quote>master</quote> table, from which all of the
-         partitions will inherit.  This table will contain no data.  Do not
+         <quote>child</quote> tables will inherit.  This table will contain no data.  Do not
          define any check constraints on this table, unless you intend them
-         to be applied equally to all partitions.  There is no point in
+         to be applied equally to all child tables.  There is no point in
          defining any indexes or unique constraints on it, either.  For our
-         example, master table is the <structname>measurement</structname>
+         example, the master table is the <structname>measurement</structname>
          table as originally defined.
         </para>
        </listitem>
@@ -3441,7 +3509,7 @@ ALTER TABLE measurement ATTACH PARTITION measurement_y2008m02
          Create several <quote>child</quote> tables that each inherit from
          the master table.  Normally, these tables will not add any columns
          to the set inherited from the master.  Just as with declarative
-         partitioning, these partitions are in every way normal
+         partitioning, these tables are in every way normal
          <productname>PostgreSQL</productname> tables (or foreign tables).
         </para>
 
@@ -3459,8 +3527,8 @@ CREATE TABLE measurement_y2008m01 () INHERITS (measurement);
 
        <listitem>
         <para>
-         Add non-overlapping table constraints to the partition tables to
-         define the allowed key values in each partition.
+         Add non-overlapping table constraints to the child tables to
+         define the allowed key values in each.
         </para>
 
         <para>
@@ -3471,18 +3539,18 @@ CHECK ( county IN ( 'Oxfordshire', 'Buckinghamshire', 'Warwickshire' ))
 CHECK ( outletID &gt;= 100 AND outletID &lt; 200 )
 </programlisting>
          Ensure that the constraints guarantee that there is no overlap
-         between the key values permitted in different partitions.  A common
+         between the key values permitted in different child tables.  A common
          mistake is to set up range constraints like:
 <programlisting>
 CHECK ( outletID BETWEEN 100 AND 200 )
 CHECK ( outletID BETWEEN 200 AND 300 )
 </programlisting>
-         This is wrong since it is not clear which partition the key value
-         200 belongs in.
+         This is wrong since it is not clear which child table the key
+         value 200 belongs in.
         </para>
 
         <para>
-         It would be better to instead create partitions as follows:
+         It would be better to instead create child tables as follows:
 
 <programlisting>
 CREATE TABLE measurement_y2006m02 (
@@ -3511,7 +3579,7 @@ CREATE TABLE measurement_y2008m01 (
 
        <listitem>
         <para>
-         For each partition, create an index on the key column(s),
+         For each child table, create an index on the key column(s),
          as well as any other indexes you might want.
 <programlisting>
 CREATE INDEX measurement_y2006m02_logdate ON measurement_y2006m02 (logdate);
@@ -3527,9 +3595,9 @@ CREATE INDEX measurement_y2008m01_logdate ON measurement_y2008m01 (logdate);
         <para>
          We want our application to be able to say <literal>INSERT INTO
          measurement ...</literal> and have the data be redirected into the
-         appropriate partition table.  We can arrange that by attaching
+         appropriate child table.  We can arrange that by attaching
          a suitable trigger function to the master table.
-         If data will be added only to the latest partition, we can
+         If data will be added only to the latest child, we can
          use a very simple trigger function:
 
 <programlisting>
@@ -3551,17 +3619,17 @@ LANGUAGE plpgsql;
 <programlisting>
 CREATE TRIGGER insert_measurement_trigger
     BEFORE INSERT ON measurement
-    FOR EACH ROW EXECUTE PROCEDURE measurement_insert_trigger();
+    FOR EACH ROW EXECUTE FUNCTION measurement_insert_trigger();
 </programlisting>
 
          We must redefine the trigger function each month so that it always
-         points to the current partition.  The trigger definition does
+         points to the current child table.  The trigger definition does
          not need to be updated, however.
         </para>
 
         <para>
          We might want to insert data and have the server automatically
-         locate the partition into which the row should be added. We
+         locate the child table into which the row should be added. We
          could do this with a more complex trigger function, for example:
 
 <programlisting>
@@ -3589,7 +3657,7 @@ LANGUAGE plpgsql;
 
          The trigger definition is the same as before.
          Note that each <literal>IF</literal> test must exactly match the
-         <literal>CHECK</literal> constraint for its partition.
+         <literal>CHECK</literal> constraint for its child table.
         </para>
 
         <para>
@@ -3600,8 +3668,8 @@ LANGUAGE plpgsql;
 
         <note>
          <para>
-          In practice it might be best to check the newest partition first,
-          if most inserts go into that partition.  For simplicity we have
+          In practice, it might be best to check the newest child first,
+          if most inserts go into that child.  For simplicity, we have
           shown the trigger's tests in the same order as in other parts
           of this example.
          </para>
@@ -3609,7 +3677,7 @@ LANGUAGE plpgsql;
 
         <para>
          A different approach to redirecting inserts into the appropriate
-         partition table is to set up rules, instead of a trigger, on the
+         child table is to set up rules, instead of a trigger, on the
          master table.  For example:
 
 <programlisting>
@@ -3635,7 +3703,7 @@ DO INSTEAD
         <para>
          Be aware that <command>COPY</command> ignores rules.  If you want to
          use <command>COPY</command> to insert data, you'll need to copy into the
-         correct partition table rather than into the master. <command>COPY</command>
+         correct child table rather than directly into the master. <command>COPY</command>
          does fire triggers, so you can use it normally if you use the trigger
          approach.
         </para>
@@ -3651,25 +3719,25 @@ DO INSTEAD
         <para>
          Ensure that the <xref linkend="guc-constraint-exclusion"/>
          configuration parameter is not disabled in
-         <filename>postgresql.conf</filename>.
-         If it is, queries will not be optimized as desired.
+         <filename>postgresql.conf</filename>; otherwise
+         child tables may be accessed unnecessarily.
         </para>
        </listitem>
       </orderedlist>
      </para>
 
      <para>
-      As we can see, a complex partitioning scheme could require a
+      As we can see, a complex table hierarchy could require a
       substantial amount of DDL.  In the above example we would be creating
-      a new partition each month, so it might be wise to write a script that
+      a new child table each month, so it might be wise to write a script that
       generates the required DDL automatically.
      </para>
     </sect3>
 
     <sect3 id="ddl-partitioning-inheritance-maintenance">
-     <title>Partition Maintenance</title>
+     <title>Maintenance for Inheritance Partitioning</title>
      <para>
-      To remove old data quickly, simply drop the partition that is no longer
+      To remove old data quickly, simply drop the child table that is no longer
       necessary:
 <programlisting>
 DROP TABLE measurement_y2006m02;
@@ -3677,7 +3745,7 @@ DROP TABLE measurement_y2006m02;
      </para>
 
     <para>
-     To remove the partition from the partitioned table but retain access to
+     To remove the child table from the inheritance hierarchy table but retain access to
      it as a table in its own right:
 
 <programlisting>
@@ -3686,8 +3754,8 @@ ALTER TABLE measurement_y2006m02 NO INHERIT measurement;
     </para>
 
     <para>
-     To add a new partition to handle new data, create an empty partition
-     just as the original partitions were created above:
+     To add a new child table to handle new data, create an empty child table
+     just as the original children were created above:
 
 <programlisting>
 CREATE TABLE measurement_y2008m02 (
@@ -3695,9 +3763,10 @@ CREATE TABLE measurement_y2008m02 (
 ) INHERITS (measurement);
 </programlisting>
 
-     Alternatively, one may want to create the new table outside the partition
-     structure, and make it a partition after the data is loaded, checked,
-     and transformed.
+     Alternatively, one may want to create and populate the new child table
+     before adding it to the table hierarchy.  This could allow data to be
+     loaded, checked, and transformed before being made visible to queries on
+     the parent table.
 
 <programlisting>
 CREATE TABLE measurement_y2008m02
@@ -3715,7 +3784,7 @@ ALTER TABLE measurement_y2008m02 INHERIT measurement;
     <title>Caveats</title>
 
     <para>
-     The following caveats apply to partitioned tables implemented using
+     The following caveats apply to partitioning implemented using
      inheritance:
      <itemizedlist>
       <listitem>
@@ -3723,19 +3792,19 @@ ALTER TABLE measurement_y2008m02 INHERIT measurement;
         There is no automatic way to verify that all of the
         <literal>CHECK</literal> constraints are mutually
         exclusive.  It is safer to create code that generates
-        partitions and creates and/or modifies associated objects than
+        child tables and creates and/or modifies associated objects than
         to write each by hand.
        </para>
       </listitem>
 
       <listitem>
        <para>
-        The schemes shown here assume that the partition key column(s)
-        of a row never change, or at least do not change enough to require
-        it to move to another partition.  An <command>UPDATE</command> that attempts
+        The schemes shown here assume that the values of a row's key column(s)
+        never change, or at least do not change enough to require it to move to another partition.
+        An <command>UPDATE</command> that attempts
         to do that will fail because of the <literal>CHECK</literal> constraints.
         If you need to handle such cases, you can put suitable update triggers
-        on the partition tables, but it makes management of the structure
+        on the child tables, but it makes management of the structure
         much more complicated.
        </para>
       </listitem>
@@ -3744,7 +3813,7 @@ ALTER TABLE measurement_y2008m02 INHERIT measurement;
        <para>
         If you are using manual <command>VACUUM</command> or
         <command>ANALYZE</command> commands, don't forget that
-        you need to run them on each partition individually. A command like:
+        you need to run them on each child table individually. A command like:
 <programlisting>
 ANALYZE measurement;
 </programlisting>
@@ -3764,7 +3833,7 @@ ANALYZE measurement;
       <listitem>
        <para>
         Triggers or rules will be needed to route rows to the desired
-        partition, unless the application is explicitly aware of the
+        child table, unless the application is explicitly aware of the
         partitioning scheme.  Triggers may be complicated to write, and will
         be much slower than the tuple routing performed internally by
         declarative partitioning.
@@ -3891,8 +3960,12 @@ EXPLAIN SELECT count(*) FROM measurement WHERE logdate &gt;= DATE '2008-01-01';
        query, partition pruning is performed whenever one of the
        execution parameters being used by partition pruning changes.
        Determining if partitions were pruned during this phase requires
-       careful inspection of the <literal>nloops</literal> property in
-       the <command>EXPLAIN ANALYZE</command> output.
+       careful inspection of the <literal>loops</literal> property in
+       the <command>EXPLAIN ANALYZE</command> output.  Subplans
+       corresponding to different partitions may have different values
+       for it depending on how many times each of them was pruned during
+       execution.  Some may be shown as <literal>(never executed)</literal>
+       if they were pruned every time.
       </para>
      </listitem>
     </itemizedlist>
@@ -3905,22 +3978,11 @@ EXPLAIN SELECT count(*) FROM measurement WHERE logdate &gt;= DATE '2008-01-01';
 
    <note>
     <para>
-     Currently, pruning of partitions during the planning of an
-     <command>UPDATE</command> or <command>DELETE</command> command is
-     implemented using the constraint exclusion method (however, it is
-     controlled by the <literal>enable_partition_pruning</literal> rather than
-     <literal>constraint_exclusion</literal>) &mdash; see the following section
-     for details and caveats that apply.
-    </para>
-
-    <para>
-     Also, execution-time partition pruning currently only occurs for the
-     <literal>Append</literal> node type, not <literal>MergeAppend</literal>.
-    </para>
-
-    <para>
-     Both of these behaviors are likely to be changed in a future release
-     of <productname>PostgreSQL</productname>.
+     Execution-time partition pruning currently only occurs for the
+     <literal>Append</literal> node type, not
+     for <literal>MergeAppend</literal> or <literal>ModifyTable</literal>
+     nodes.  That is likely to be changed in a future release of
+     <productname>PostgreSQL</productname>.
     </para>
    </note>
   </sect2>
@@ -3935,7 +3997,7 @@ EXPLAIN SELECT count(*) FROM measurement WHERE logdate &gt;= DATE '2008-01-01';
    <para>
     <firstterm>Constraint exclusion</firstterm> is a query optimization
     technique similar to partition pruning.  While it is primarily used
-    for partitioned tables using the legacy inheritance method, it can be
+    for partitioning implemented using the legacy inheritance method, it can be
     used for other purposes, including with declarative partitioning.
    </para>
 
@@ -3943,7 +4005,7 @@ EXPLAIN SELECT count(*) FROM measurement WHERE logdate &gt;= DATE '2008-01-01';
     Constraint exclusion works in a very similar way to partition
     pruning, except that it uses each table's <literal>CHECK</literal>
     constraints &mdash; which gives it its name &mdash; whereas partition
-    pruning uses the table's partition bounds, which exists only in the
+    pruning uses the table's partition bounds, which exist only in the
     case of declarative partitioning.  Another difference is that
     constraint exclusion is only applied at plan time; there is no attempt
     to remove partitions at execution time.
@@ -3953,9 +4015,9 @@ EXPLAIN SELECT count(*) FROM measurement WHERE logdate &gt;= DATE '2008-01-01';
     The fact that constraint exclusion uses <literal>CHECK</literal>
     constraints, which makes it slow compared to partition pruning, can
     sometimes be used as an advantage: because constraints can be defined
-    even on declaratively-partitioned tables, in addition to the internal
-    partitioning constraints, and only constraint exclusion would be able
-    to elide certain partitions from the query plan using those.
+    even on declaratively-partitioned tables, in addition to their internal
+    partition bounds, constraint exclusion may be able
+    to elide additional partitions from the query plan.
    </para>
 
    <para>
@@ -3975,8 +4037,8 @@ EXPLAIN SELECT count(*) FROM measurement WHERE logdate &gt;= DATE '2008-01-01';
    <itemizedlist>
     <listitem>
      <para>
-      Constraint exclusion is only applied during query planning; unlike
-      partition pruning, it cannot be applied during query execution.
+      Constraint exclusion is only applied during query planning, unlike
+      partition pruning, which can also be applied during query execution.
      </para>
     </listitem>
 
@@ -3986,7 +4048,7 @@ EXPLAIN SELECT count(*) FROM measurement WHERE logdate &gt;= DATE '2008-01-01';
       clause contains constants (or externally supplied parameters).
       For example, a comparison against a non-immutable function such as
       <function>CURRENT_TIMESTAMP</function> cannot be optimized, since the
-      planner cannot know which partition the function's value might fall
+      planner cannot know which child table the function's value might fall
       into at run time.
      </para>
     </listitem>
@@ -3994,7 +4056,7 @@ EXPLAIN SELECT count(*) FROM measurement WHERE logdate &gt;= DATE '2008-01-01';
     <listitem>
      <para>
       Keep the partitioning constraints simple, else the planner may not be
-      able to prove that partitions don't need to be visited.  Use simple
+      able to prove that child tables might not need to be visited.  Use simple
       equality conditions for list partitioning, or simple
       range tests for range partitioning, as illustrated in the preceding
       examples.  A good rule of thumb is that partitioning constraints should
@@ -4006,17 +4068,98 @@ EXPLAIN SELECT count(*) FROM measurement WHERE logdate &gt;= DATE '2008-01-01';
 
     <listitem>
      <para>
-      All constraints on all partitions of the master table are examined
-      during constraint exclusion, so large numbers of partitions are likely
+      All constraints on all children of the parent table are examined
+      during constraint exclusion, so large numbers of children are likely
       to increase query planning time considerably.  So the legacy
       inheritance based partitioning will work well with up to perhaps a
-      hundred partitions; don't try to use many thousands of partitions.
+      hundred child tables; don't try to use many thousands of children.
      </para>
     </listitem>
 
    </itemizedlist>
    </para>
   </sect2>
+  
+  <sect2 id="ddl-partitioning-declarative-best-practices">
+   <title>Declarative Partitioning Best Practices</title>
+
+   <para>
+    The choice of how to partition a table should be made carefully as the
+    performance of query planning and execution can be negatively affected by
+    poor design.
+   </para>
+
+   <para>
+    One of the most critical design decisions will be the column or columns
+    by which you partition your data.  Often the best choice will be to
+    partition by the column or set of columns which most commonly appear in
+    <literal>WHERE</literal> clauses of queries being executed on the
+    partitioned table.  <literal>WHERE</literal> clause items that match and
+    are compatible with the partition key can be used to prune unneeded
+    partitions.  However, you may be forced into making other decisions by
+    requirements for the <literal>PRIMARY KEY</literal> or a
+    <literal>UNIQUE</literal> constraint.  Removal of unwanted data is also a
+    factor to consider when planning your partitioning strategy.  An entire
+    partition can be detached fairly quickly, so it may be beneficial to
+    design the partition strategy in such a way that all data to be removed
+    at once is located in a single partition.
+   </para>
+
+   <para>
+    Choosing the target number of partitions that the table should be divided
+    into is also a critical decision to make.  Not having enough partitions
+    may mean that indexes remain too large and that data locality remains poor
+    which could result in low cache hit ratios.  However, dividing the table
+    into too many partitions can also cause issues.  Too many partitions can
+    mean longer query planning times and higher memory consumption during both
+    query planning and execution.  When choosing how to partition your table,
+    it's also important to consider what changes may occur in the future.  For
+    example, if you choose to have one partition per customer and you
+    currently have a small number of large customers, consider the
+    implications if in several years you instead find yourself with a large
+    number of small customers.  In this case, it may be better to choose to
+    partition by <literal>HASH</literal> and choose a reasonable number of
+    partitions rather than trying to partition by <literal>LIST</literal> and
+    hoping that the number of customers does not increase beyond what it is
+    practical to partition the data by.
+   </para>
+
+   <para>
+    Sub-partitioning can be useful to further divide partitions that are
+    expected to become larger than other partitions, although excessive
+    sub-partitioning can easily lead to large numbers of partitions and can
+    cause the same problems mentioned in the preceding paragraph.
+   </para>
+
+   <para>
+    It is also important to consider the overhead of partitioning during
+    query planning and execution.  The query planner is generally able to
+    handle partition hierarchies with up to a few hundred partitions fairly
+    well, provided that typical queries allow the query planner to prune all
+    but a small number of partitions.  Planning times become longer and memory
+    consumption becomes higher as more partitions are added.  This is
+    particularly true for the <command>UPDATE</command> and
+    <command>DELETE</command> commands.  Another reason to be concerned about
+    having a large number of partitions is that the server's memory
+    consumption may grow significantly over a period of time, especially if
+    many sessions touch large numbers of partitions.  That's because each
+    partition requires its metadata to be loaded into the local memory of
+    each session that touches it.
+   </para>
+
+   <para>
+    With data warehouse type workloads, it can make sense to use a larger
+    number of partitions than with an <acronym>OLTP</acronym> type workload.
+    Generally, in data warehouses, query planning time is less of a concern as
+    the majority of processing time is spent during query execution.  With
+    either of these two types of workload, it is important to make the right
+    decisions early, as re-partitioning large quantities of data can be
+    painfully slow.  Simulations of the intended workload are often beneficial
+    for optimizing the partitioning strategy.  Never assume that more
+    partitions are better than fewer partitions and vice-versa.
+   </para>
+  </sect2>
+
  </sect1>
 
  <sect1 id="ddl-foreign-data">

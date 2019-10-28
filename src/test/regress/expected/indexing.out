@@ -75,6 +75,25 @@ Indexes:
     "idxpart1_a_idx" btree (a)
     "idxpart1_b_c_idx" btree (b, c)
 
+\d+ idxpart1_a_idx
+                 Index "public.idxpart1_a_idx"
+ Column |  Type   | Key? | Definition | Storage | Stats target 
+--------+---------+------+------------+---------+--------------
+ a      | integer | yes  | a          | plain   | 
+Partition of: idxparti 
+No partition constraint
+btree, for table "public.idxpart1"
+
+\d+ idxpart1_b_c_idx
+                Index "public.idxpart1_b_c_idx"
+ Column |  Type   | Key? | Definition | Storage  | Stats target 
+--------+---------+------+------------+----------+--------------
+ b      | integer | yes  | b          | plain    | 
+ c      | text    | yes  | c          | extended | 
+Partition of: idxparti2 
+No partition constraint
+btree, for table "public.idxpart1"
+
 drop table idxpart;
 -- If a partition already has an index, don't create a duplicative one
 create table idxpart (a int, b int) partition by range (a, b);
@@ -781,8 +800,24 @@ Indexes:
     "idxpart_pkey" PRIMARY KEY, btree (a)
 Number of partitions: 0
 
+-- multiple primary key on child should fail
+create table failpart partition of idxpart (b primary key) for values from (0) to (100);
+ERROR:  multiple primary keys for table "failpart" are not allowed
 drop table idxpart;
--- but not if you fail to use the full partition key
+-- primary key on child is okay if there's no PK in the parent, though
+create table idxpart (a int) partition by range (a);
+create table idxpart1pk partition of idxpart (a primary key) for values from (0) to (100);
+\d idxpart1pk
+             Table "public.idxpart1pk"
+ Column |  Type   | Collation | Nullable | Default 
+--------+---------+-----------+----------+---------
+ a      | integer |           | not null | 
+Partition of: idxpart FOR VALUES FROM (0) TO (100)
+Indexes:
+    "idxpart1pk_pkey" PRIMARY KEY, btree (a)
+
+drop table idxpart;
+-- Failing to use the full partition key is not allowed
 create table idxpart (a int unique, b int) partition by range (a, b);
 ERROR:  insufficient columns in UNIQUE constraint definition
 DETAIL:  UNIQUE constraint on table "idxpart" lacks column "b" which is part of the partition key.
@@ -1325,6 +1360,11 @@ alter index idxpart2_a_idx attach partition idxpart22_a_idx;
 create index on idxpart (a);
 create table idxpart_another (a int, b int, primary key (a, b)) partition by range (a);
 create table idxpart_another_1 partition of idxpart_another for values from (0) to (100);
+create table idxpart3 (c int, b int, a int) partition by range (a);
+alter table idxpart3 drop column b, drop column c;
+create table idxpart31 partition of idxpart3 for values from (1000) to (1200);
+create table idxpart32 partition of idxpart3 for values from (1200) to (1400);
+alter table idxpart attach partition idxpart3 for values from (1000) to (2000);
 -- Test that covering partitioned indexes work in various cases
 create table covidxpart (a int, b int) partition by list (a);
 create unique index on covidxpart (a) include (b);
@@ -1349,3 +1389,21 @@ insert into covidxpart values (4, 1);
 insert into covidxpart values (4, 1);
 ERROR:  duplicate key value violates unique constraint "covidxpart4_a_b_idx"
 DETAIL:  Key (a)=(4) already exists.
+create unique index on covidxpart (b) include (a); -- should fail
+ERROR:  insufficient columns in UNIQUE constraint definition
+DETAIL:  UNIQUE constraint on table "covidxpart" lacks column "a" which is part of the partition key.
+-- check that detaching a partition also detaches the primary key constraint
+create table parted_pk_detach_test (a int primary key) partition by list (a);
+create table parted_pk_detach_test1 partition of parted_pk_detach_test for values in (1);
+alter table parted_pk_detach_test1 drop constraint parted_pk_detach_test1_pkey;	-- should fail
+ERROR:  cannot drop inherited constraint "parted_pk_detach_test1_pkey" of relation "parted_pk_detach_test1"
+alter table parted_pk_detach_test detach partition parted_pk_detach_test1;
+alter table parted_pk_detach_test1 drop constraint parted_pk_detach_test1_pkey;
+drop table parted_pk_detach_test, parted_pk_detach_test1;
+create table parted_uniq_detach_test (a int unique) partition by list (a);
+create table parted_uniq_detach_test1 partition of parted_uniq_detach_test for values in (1);
+alter table parted_uniq_detach_test1 drop constraint parted_uniq_detach_test1_a_key;	-- should fail
+ERROR:  cannot drop inherited constraint "parted_uniq_detach_test1_a_key" of relation "parted_uniq_detach_test1"
+alter table parted_uniq_detach_test detach partition parted_uniq_detach_test1;
+alter table parted_uniq_detach_test1 drop constraint parted_uniq_detach_test1_a_key;
+drop table parted_uniq_detach_test, parted_uniq_detach_test1;
