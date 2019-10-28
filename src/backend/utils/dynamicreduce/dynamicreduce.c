@@ -1,6 +1,7 @@
 #include "postgres.h"
 
 #include "access/parallel.h"
+#include "access/xact.h"
 #include "common/ip.h"
 #include "lib/ilist.h"
 #include "libpq/pqformat.h"
@@ -155,6 +156,7 @@ uint16 StartDynamicReduceWorker(void)
 	pid_t			pid;
 	uint32			i;
 	Oid				auth_user_id;
+	TimestampTz		ts;
 	uint16			result;
 
 	ResetDynamicReduceWork();
@@ -238,6 +240,10 @@ uint16 StartDynamicReduceWorker(void)
 	appendBinaryStringInfoNT(&buf, (char*)&MyDatabaseId, sizeof(MyDatabaseId));
 	auth_user_id = GetAuthenticatedUserId();
 	appendBinaryStringInfoNT(&buf, (char*)&auth_user_id, sizeof(auth_user_id));
+	ts = GetCurrentTransactionStartTimestamp();
+	appendBinaryStringInfoNT(&buf, (char*)&ts, sizeof(ts));
+	ts = GetCurrentStatementStartTimestamp();
+	appendBinaryStringInfoNT(&buf, (char*)&ts, sizeof(ts));
 
 	DRSendMsgToReduce(buf.data, buf.len, false);
 	pfree(buf.data);
@@ -425,6 +431,8 @@ static void TryBackendMessage(WaitEvent *ev)
 		MemoryContext		oldcontext;
 		Oid					dboid;
 		Oid					auth_user_id;
+		TimestampTz			xact_ts;
+		TimestampTz			stmt_ts;
 		char 				port_msg[3];
 
 		/* reset first */
@@ -435,6 +443,8 @@ static void TryBackendMessage(WaitEvent *ev)
 		pq_copymsgbytes(&buf, (char*)&PGXCNodeIdentifier, sizeof(PGXCNodeIdentifier));
 		pq_copymsgbytes(&buf, (char*)&dboid, sizeof(dboid));
 		pq_copymsgbytes(&buf, (char*)&auth_user_id, sizeof(auth_user_id));
+		pq_copymsgbytes(&buf, (char*)&xact_ts, sizeof(xact_ts));
+		pq_copymsgbytes(&buf, (char*)&stmt_ts, sizeof(stmt_ts));
 		pq_getmsgend(&buf);
 
 		if (OidIsValid(MyDatabaseId))
@@ -445,9 +455,11 @@ static void TryBackendMessage(WaitEvent *ev)
 						(errmsg("diffent database OID as last"),
 						 errdetail("last is %u, current is %u", MyDatabaseId, dboid)));
 			}
+			SetParallelStartTimestamps(xact_ts, stmt_ts);
 		}else
 		{
 			InitializingParallelWorker = true;
+			SetParallelStartTimestamps(xact_ts, stmt_ts);
 			BackgroundWorkerInitializeConnectionByOid(dboid, auth_user_id, 0);
 			Assert(MyDatabaseId == dboid);
 			SetClientEncoding(GetDatabaseEncoding());
@@ -517,6 +529,7 @@ static void DRReset(void)
 		if (base->type == DR_EVENT_DATA_NODE)
 			DRNodeReset((DRNodeEventData*)base);
 	}
+	SetParallelStartTimestamps(0, 0);
 	DRUtilsReset();
 }
 
