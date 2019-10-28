@@ -1171,29 +1171,39 @@ static void SnapRcvReleaseTransactionLocks(TransactionId xid)
 	dsa_area	   *lock_area = SnapRcvGetLockArea();
 	MemoryContext	old_context = MemoryContextSwitchTo(TopMemoryContext);
 	SnapLockInfo   *lock,*prev;
-	dsa_pointer		dp;
+	dsa_pointer		dp, prev_dp;
 
 	lock = prev = NULL;
 	LWLockAcquire(&SnapRcv->lock_lock_info, LW_EXCLUSIVE);
 	dp = SnapRcv->first_lock_info;
+	prev_dp = InvalidDsaPointer;
+
 	while (dp != InvalidDsaPointer)
 	{
 		lock = dsa_get_address(lock_area, dp);
 		if (lock->xid == xid)
 		{
-			if (prev)
-			{
-				prev->next = lock->next;
-			}else
+			if (!prev)
 			{
 				Assert(SnapRcv->first_lock_info == dp);
 				SnapRcv->first_lock_info = lock->next;
 			}
 			if (SnapRcv->last_lock_info == dp)
-				SnapRcv->last_lock_info = lock->next;
+			{
+				if (lock->next == InvalidDsaPointer && prev_dp != InvalidDsaPointer)
+					SnapRcv->last_lock_info = prev_dp;
+				else
+					SnapRcv->last_lock_info = lock->next;
+			}
+
+			if (prev)
+			{
+				prev->next = lock->next;
+			}
 			break;
 		}
 		prev = lock;
+		prev_dp = dp;
 		dp = lock->next;
 		lock = NULL;
 	}
@@ -1213,7 +1223,7 @@ static void SnapRcvReleaseSnapshotTxidLocks(TransactionId *xip, uint32 count, Tr
 	SnapLockInfo   *lock,*prev;
 	dsa_area	   *lock_area = SnapRcvGetLockArea();
 	SnapshotData	snap;
-	dsa_pointer		dp;
+	dsa_pointer		dp, prev_dp;
 	uint32			i;
 
 	MemSet(&snap, 0, sizeof(snap));
@@ -1229,6 +1239,7 @@ static void SnapRcvReleaseSnapshotTxidLocks(TransactionId *xip, uint32 count, Tr
 	lock = prev = NULL;
 	LWLockAcquire(&SnapRcv->lock_lock_info, LW_EXCLUSIVE);
 	dp = SnapRcv->first_lock_info;
+	prev_dp = InvalidDsaPointer;
 	while (dp != InvalidDsaPointer)
 	{
 		lock = dsa_get_address(lock_area, dp);
@@ -1244,13 +1255,21 @@ static void SnapRcvReleaseSnapshotTxidLocks(TransactionId *xip, uint32 count, Tr
 				SnapRcv->first_lock_info = lock->next;
 			}
 			if (SnapRcv->last_lock_info == dp)
-				SnapRcv->last_lock_info = lock->next;
+			{
+				if (lock->next == InvalidDsaPointer && prev_dp != InvalidDsaPointer)
+					SnapRcv->last_lock_info = prev_dp;
+				else
+					SnapRcv->last_lock_info = lock->next;
+			}
+				
 			SnapRcvReleaseLock(lock);
 			dsa_free(lock_area, dp);
+			prev_dp = dp;
 			dp = next;
 		}else
 		{
 			prev = lock;
+			prev_dp = dp;
 			dp = lock->next;
 		}
 	}
