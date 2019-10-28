@@ -1723,7 +1723,7 @@ static void
 exec_parse_message(const char *query_string,	/* string to execute */
 				   const char *stmt_name,	/* name for prepared stmt */
 				   Oid *paramTypes, /* parameter types */
-				   ADB_ONLY_ARG(const char **paramTypeNames)
+				   ADB_ONLY_ARG_COMMA(const char **paramTypeNames)
 				   int numParams)	/* number of parameters */
 {
 	MemoryContext unnamed_stmt_context = NULL;
@@ -5114,7 +5114,7 @@ PostgresMain(int argc, char *argv[],
 					pq_getmsgend(&input_message);
 
 					exec_parse_message(query_string, stmt_name,
-									   paramTypes, ADB_ONLY_ARG(paramTypeNames) numParams);
+									   paramTypes, ADB_ONLY_ARG_COMMA(paramTypeNames) numParams);
 				}
 				break;
 

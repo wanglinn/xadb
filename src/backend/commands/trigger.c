@@ -1497,7 +1497,7 @@ ConvertTriggerToFK(CreateTrigStmt *stmt, Oid funcoid)
 		ProcessUtility(wrapper,
 					   "(generated ALTER TABLE ADD FOREIGN KEY command)",
 					   PROCESS_UTILITY_SUBCOMMAND, NULL, NULL,
-					   None_Receiver, ADB_ONLY_ARG(false) NULL);
+					   None_Receiver, ADB_ONLY_ARG_COMMA(false) NULL);
 
 		/* Remove the matched item from the list */
 		info_list = list_delete_ptr(info_list, info);

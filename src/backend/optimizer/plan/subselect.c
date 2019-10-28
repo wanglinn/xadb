@@ -687,7 +687,7 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 												  ANY_SUBLINK, 0,
 												  newtestexpr,
 												  false,
-												  ADB_ONLY_ARG(final_rel->cheapest_replicate_path)
+												  ADB_ONLY_ARG_COMMA(final_rel->cheapest_replicate_path)
 												  true));
 				/* Check we got what we expected */
 				Assert(hashplan->parParam == NIL);

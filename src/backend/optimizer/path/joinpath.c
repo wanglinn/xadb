@@ -450,7 +450,7 @@ try_nestloop_path(PlannerInfo *root,
 				  Path *inner_path,
 				  List *pathkeys,
 				  JoinType jointype,
-				  ADB_ONLY_ARG(List *reduce_info_list)
+				  ADB_ONLY_ARG_COMMA(List *reduce_info_list)
 				  JoinPathExtraData *extra)
 {
 	Relids		required_outer;
@@ -552,7 +552,7 @@ try_nestloop_path(PlannerInfo *root,
 									  inner_path,
 									  extra->restrictlist,
 									  pathkeys,
-									  ADB_ONLY_ARG(reduce_info_list)
+									  ADB_ONLY_ARG_COMMA(reduce_info_list)
 									  required_outer));
 #ifdef ADB
 		if(reduce_info_list)
@@ -655,7 +655,7 @@ try_partial_nestloop_path(PlannerInfo *root,
 										  inner_path,
 										  extra->restrictlist,
 										  pathkeys,
-										  ADB_ONLY_ARG(NIL)
+										  ADB_ONLY_ARG_COMMA(NIL)
 										  NULL));
 }
 
@@ -735,7 +735,7 @@ try_mergejoin_path(PlannerInfo *root,
 				   List *outersortkeys,
 				   List *innersortkeys,
 				   JoinType jointype,
-				   ADB_ONLY_ARG(List *reduce_info_list)
+				   ADB_ONLY_ARG_COMMA(List *reduce_info_list)
 				   JoinPathExtraData *extra,
 				   bool is_partial)
 {
@@ -813,7 +813,7 @@ try_mergejoin_path(PlannerInfo *root,
 									   pathkeys,
 									   required_outer,
 									   mergeclauses,
-									   ADB_ONLY_ARG(reduce_info_list)
+									   ADB_ONLY_ARG_COMMA(reduce_info_list)
 									   outersortkeys,
 									   innersortkeys));
 #ifdef ADB
@@ -900,7 +900,7 @@ try_partial_mergejoin_path(PlannerInfo *root,
 										   extra->restrictlist,
 										   pathkeys,
 										   NULL,
-										   mergeclauses, ADB_ONLY_ARG(NIL)
+										   mergeclauses, ADB_ONLY_ARG_COMMA(NIL)
 										   outersortkeys,
 										   innersortkeys));
 }
@@ -917,7 +917,7 @@ try_hashjoin_path(PlannerInfo *root,
 				  Path *inner_path,
 				  List *hashclauses,
 				  JoinType jointype,
-				  ADB_ONLY_ARG(List *reduce_info_list)
+				  ADB_ONLY_ARG_COMMA(List *reduce_info_list)
 				  JoinPathExtraData *extra)
 {
 	Relids		required_outer;
@@ -966,7 +966,7 @@ try_hashjoin_path(PlannerInfo *root,
 									  false,	/* parallel_hash */
 									  extra->restrictlist,
 									  required_outer,
-									  ADB_ONLY_ARG(reduce_info_list)
+									  ADB_ONLY_ARG_COMMA(reduce_info_list)
 									  hashclauses));
 #ifdef ADB
 		if(reduce_info_list)
@@ -1003,7 +1003,7 @@ try_partial_hashjoin_path(PlannerInfo *root,
 						  Path *inner_path,
 						  List *hashclauses,
 						  JoinType jointype,
-						  ADB_ONLY_ARG(List *reduce_info_list)
+						  ADB_ONLY_ARG_COMMA(List *reduce_info_list)
 						  JoinPathExtraData *extra,
 						  bool parallel_hash)
 {
@@ -1056,7 +1056,7 @@ try_partial_hashjoin_path(PlannerInfo *root,
 										  parallel_hash,
 										  extra->restrictlist,
 										  NULL,
-										  ADB_ONLY_ARG(reduce_info_list)
+										  ADB_ONLY_ARG_COMMA(reduce_info_list)
 										  hashclauses);
 #ifdef ADB
 	if (reduce_info_list)
@@ -1276,7 +1276,7 @@ sort_inner_and_outer(PlannerInfo *root,
 						   outerkeys,
 						   innerkeys,
 						   jointype,
-						   ADB_ONLY_ARG(NIL)
+						   ADB_ONLY_ARG_COMMA(NIL)
 						   extra,
 						   false);
 
@@ -1428,7 +1428,7 @@ generate_mergejoin_paths(PlannerInfo *root,
 					   mergeclauses,
 					   NIL,
 					   innersortkeys,
-					   jointype, ADB_ONLY_ARG(NIL)
+					   jointype, ADB_ONLY_ARG_COMMA(NIL)
 					   extra,
 					   is_partial);
 
@@ -1525,7 +1525,7 @@ generate_mergejoin_paths(PlannerInfo *root,
 							   newclauses,
 							   NIL,
 							   NIL,
-							   jointype, ADB_ONLY_ARG(NIL)
+							   jointype, ADB_ONLY_ARG_COMMA(NIL)
 							   extra,
 							   is_partial);
 			cheapest_total_inner = innerpath;
@@ -1569,7 +1569,7 @@ generate_mergejoin_paths(PlannerInfo *root,
 								   newclauses,
 								   NIL,
 								   NIL,
-								   jointype, ADB_ONLY_ARG(NIL)
+								   jointype, ADB_ONLY_ARG_COMMA(NIL)
 								   extra,
 								   is_partial);
 			}
@@ -1736,7 +1736,7 @@ match_unsorted_outer(PlannerInfo *root,
 							  inner_cheapest_total,
 							  merge_pathkeys,
 							  jointype,
-							  ADB_ONLY_ARG(NIL)
+							  ADB_ONLY_ARG_COMMA(NIL)
 							  extra);
 		}
 		else if (nestjoinOK)
@@ -1759,7 +1759,7 @@ match_unsorted_outer(PlannerInfo *root,
 								  innerpath,
 								  merge_pathkeys,
 								  jointype,
-								  ADB_ONLY_ARG(NIL)
+								  ADB_ONLY_ARG_COMMA(NIL)
 								  extra);
 			}
 
@@ -1771,7 +1771,7 @@ match_unsorted_outer(PlannerInfo *root,
 								  matpath,
 								  merge_pathkeys,
 								  jointype,
-								  ADB_ONLY_ARG(NIL)
+								  ADB_ONLY_ARG_COMMA(NIL)
 								  extra);
 		}
 
@@ -2182,7 +2182,7 @@ hash_inner_and_outer(PlannerInfo *root,
 							  cheapest_total_inner,
 							  hashclauses,
 							  jointype,
-							  ADB_ONLY_ARG(NIL)
+							  ADB_ONLY_ARG_COMMA(NIL)
 							  extra);
 			/* no possibility of cheap startup here */
 		}
@@ -2199,7 +2199,7 @@ hash_inner_and_outer(PlannerInfo *root,
 							  cheapest_total_inner,
 							  hashclauses,
 							  jointype,
-							  ADB_ONLY_ARG(NIL)
+							  ADB_ONLY_ARG_COMMA(NIL)
 							  extra);
 			if (cheapest_startup_outer != NULL &&
 				cheapest_startup_outer != cheapest_total_outer)
@@ -2209,7 +2209,7 @@ hash_inner_and_outer(PlannerInfo *root,
 								  cheapest_total_inner,
 								  hashclauses,
 								  jointype,
-								  ADB_ONLY_ARG(NIL)
+								  ADB_ONLY_ARG_COMMA(NIL)
 								  extra);
 		}
 		else
@@ -2231,7 +2231,7 @@ hash_inner_and_outer(PlannerInfo *root,
 								  cheapest_total_inner,
 								  hashclauses,
 								  jointype,
-								  ADB_ONLY_ARG(NIL)
+								  ADB_ONLY_ARG_COMMA(NIL)
 								  extra);
 
 			foreach(lc1, outerrel->cheapest_parameterized_paths)
@@ -2266,7 +2266,7 @@ hash_inner_and_outer(PlannerInfo *root,
 									  innerpath,
 									  hashclauses,
 									  jointype,
-									  ADB_ONLY_ARG(NIL)
+									  ADB_ONLY_ARG_COMMA(NIL)
 									  extra);
 				}
 			}
@@ -2309,7 +2309,7 @@ hash_inner_and_outer(PlannerInfo *root,
 				try_partial_hashjoin_path(root, joinrel,
 										  cheapest_partial_outer,
 										  cheapest_partial_inner,
-										  hashclauses, jointype, ADB_ONLY_ARG(NIL) extra,
+										  hashclauses, jointype, ADB_ONLY_ARG_COMMA(NIL) extra,
 										  true /* parallel_hash */ );
 			}
 
@@ -2330,7 +2330,7 @@ hash_inner_and_outer(PlannerInfo *root,
 				try_partial_hashjoin_path(root, joinrel,
 										  cheapest_partial_outer,
 										  cheapest_safe_inner,
-										  hashclauses, jointype, ADB_ONLY_ARG(NIL) extra,
+										  hashclauses, jointype, ADB_ONLY_ARG_COMMA(NIL) extra,
 										  false /* parallel_hash */ );
 		}
 	}
@@ -3055,7 +3055,7 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 											  innerpath,
 											  jcontext->merge_pathkeys,
 											  jointype,
-											  ADB_ONLY_ARG(tmp_reduce_list)
+											  ADB_ONLY_ARG_COMMA(tmp_reduce_list)
 											  jcontext->extra);
 						}
 					}
@@ -3072,7 +3072,7 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 									  (Path*)matpath,
 									  jcontext->merge_pathkeys,
 									  jointype,
-									  ADB_ONLY_ARG(new_reduce_list)
+									  ADB_ONLY_ARG_COMMA(new_reduce_list)
 									  jcontext->extra);
 				}
 
@@ -3447,7 +3447,7 @@ static void sort_cluster_inner_and_outer(ClusterJoinContext *jcontext, Path *out
 						   outerkeys,
 						   innerkeys,
 						   jointype,
-						   ADB_ONLY_ARG(reduce_list)
+						   ADB_ONLY_ARG_COMMA(reduce_list)
 						   extra,
 						   false);
 	}
