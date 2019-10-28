@@ -340,7 +340,7 @@ static void RxactLoop(void)
 		if (!PostmasterIsAlive() && rxact_event_cur_count <= EXIT_MINIMUM_NUMBER)
 			exit(0);
 
-		for (i = rxact_event_cur_count; i--;)
+		for (i = rxact_event_cur_count-1; i--;)
 		{
 			user_data = (RxactWaitEventData *)GetWaitEventData(rxact_wait_event_set, i);
 			if(user_data->type == T_Event_Agent)
