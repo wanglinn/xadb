@@ -68,9 +68,21 @@ static bool OnSFSPlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoi
 	return true;
 }
 
+void DynamicReduceWriteSFSMsgTuple(struct BufFile *file, const char *data, int len)
+{
+	SFSWriteTupleData(file, len, data);
+}
+
 void DynamicReduceWriteSFSTuple(TupleTableSlot *slot, BufFile *file)
 {
 	MinimalTuple	mtup = ExecFetchSlotMinimalTuple(slot);
+	SFSWriteTupleData(file,
+					  mtup->t_len - MINIMAL_TUPLE_DATA_OFFSET,
+					  (char*)mtup + MINIMAL_TUPLE_DATA_OFFSET);
+}
+
+void DynamicReduceWriteSFSMinTuple(struct BufFile *file, MinimalTuple mtup)
+{
 	SFSWriteTupleData(file,
 					  mtup->t_len - MINIMAL_TUPLE_DATA_OFFSET,
 					  (char*)mtup + MINIMAL_TUPLE_DATA_OFFSET);

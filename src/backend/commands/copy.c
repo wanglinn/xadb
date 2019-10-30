@@ -6256,7 +6256,8 @@ static void InitCopyFromReduce(CopyFromReduceState *state, TupleDesc desc, Expr 
 								 state->dsm_seg,
 								 drmq,
 								 desc,
-								 rnodes);
+								 rnodes,
+								 false);
 
 	state->NextRow = fun;
 	state->func_data = func_data;

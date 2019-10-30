@@ -15,6 +15,8 @@
 dsm_segment *dr_mem_seg = NULL;
 shm_mq_handle *dr_mq_backend_sender = NULL;
 shm_mq_handle *dr_mq_worker_sender = NULL;
+SharedFileSet *dr_shared_fs = NULL;
+static uint32 dr_shared_fs_num = 0U;
 
 static void check_error_message_from_reduce(void)
 {
@@ -45,7 +47,7 @@ re_get_:
 			 errmsg("got a not to be received message type %d from dynamic reduce", *(char*)data)));
 }
 
-static bool recv_msg_from_plan(shm_mq_handle *mqh, Size *sizep, void **datap, Oid *nodeoid)
+static uint8 recv_msg_from_plan(shm_mq_handle *mqh, Size *sizep, void **datap, uint32 *id)
 {
 	shm_mq_result	result;
 	unsigned char  *addr;
@@ -54,7 +56,7 @@ static bool recv_msg_from_plan(shm_mq_handle *mqh, Size *sizep, void **datap, Oi
 	result = shm_mq_receive(mqh, &size, (void**)&addr, true);
 	if (result == SHM_MQ_WOULD_BLOCK)
 	{
-		return false;
+		return ADB_DR_MSG_INVALID;
 	}else if (result == SHM_MQ_DETACHED)
 	{
 		ereport(ERROR,
@@ -67,17 +69,24 @@ static bool recv_msg_from_plan(shm_mq_handle *mqh, Size *sizep, void **datap, Oi
 	{
 	case ADB_DR_MSG_TUPLE:
 		Assert(size > 8);
-		if (nodeoid)
-			*nodeoid = *((Oid*)(addr+4));
+		if (id)
+			*id = *((Oid*)(addr+4));
 		*datap = addr+8;
 		*sizep = size-8;
+		break;
+	case ADB_DR_MSG_SHARED_FILE_NUMBER:
+		Assert(size == 8);
+		if (id)
+			*id = *((uint32*)(addr+4));
+		*datap = addr + 4;
+		*sizep = size - 4;
 		break;
 	case ADB_DR_MSG_END_OF_PLAN:
 		Assert(size == sizeof(addr[0]));
 		*sizep = 0;
 		*datap = NULL;
-		if (nodeoid)
-			*nodeoid = InvalidOid;
+		if (id)
+			*id = InvalidOid;
 		break;
 	default:
 		ereport(ERROR,
@@ -86,7 +95,7 @@ static bool recv_msg_from_plan(shm_mq_handle *mqh, Size *sizep, void **datap, Oi
 		break;	/* never run */
 	}
 
-	return true;
+	return addr[0];
 }
 
 static inline bool send_msg_to_plan(shm_mq_handle *mqh, shm_mq_iovec *iov)
@@ -125,46 +134,66 @@ static void set_slot_data(void *data, Size size, TupleTableSlot *slot, StringInf
 	}
 }
 
-bool
+/*
+ * result:
+ *   DR_MSG_INVALID: would block
+ *   DR_MSG_RECV: data saved in slot, node oid saved in id
+ *   DR_MSG_RECV_SF: shared file number saved in id
+ */
+uint8
 DynamicReduceRecvTuple(shm_mq_handle *mqh, struct TupleTableSlot *slot, StringInfo buf,
-					   Oid *nodeoid, bool nowait)
+					   uint32 *id, bool nowait)
 {
 	void		   *data;
 	Size			size;
 	WaitEvent		event;
-	bool			result;
+	uint8			result;
 
-	result = recv_msg_from_plan(mqh, &size, &data, nodeoid);
-	if (result == false)
+	result = recv_msg_from_plan(mqh, &size, &data, id);
+	if (result == ADB_DR_MSG_INVALID)
 	{
 		check_error_message_from_reduce();
 		if (nowait == true)
-			return false;
+			return DR_MSG_INVALID;
 	}
 
-	while(result == false)
+	while(result == ADB_DR_MSG_INVALID)
 	{
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_RECEIVE);
 		ResetLatch(&MyProc->procLatch);
 		CHECK_FOR_INTERRUPTS();
 
 		check_error_message_from_reduce();
-		result = recv_msg_from_plan(mqh, &size, &data, nodeoid);
+		result = recv_msg_from_plan(mqh, &size, &data, id);
 	}
 
-	set_slot_data(data, size, slot, buf);
+	Assert(result != ADB_DR_MSG_INVALID);
+	switch(result)
+	{
+	case ADB_DR_MSG_TUPLE:
+	case ADB_DR_MSG_END_OF_PLAN:
+		set_slot_data(data, size, slot, buf);
+		return DR_MSG_RECV;
+	case ADB_DR_MSG_SHARED_FILE_NUMBER:
+		return DR_MSG_RECV_SF;
+	default:
+		elog(ERROR, "unknown message type %u from dynamic reduce", result);
+		break;
+	}
 
-	return true;
+	return DR_MSG_INVALID;	/* keep compiler quiet */
 }
 
 int DynamicReduceSendOrRecvTuple(shm_mq_handle *mqsend, shm_mq_handle *mqrecv,
-								 StringInfo send_buf, struct TupleTableSlot *slot_recv, StringInfo recv_buf)
+								 StringInfo send_buf, struct TupleTableSlot *slot_recv,
+								 StringInfo recv_buf, uint32 *id)
 {
 	void		   *data;
 	Size			size;
 	shm_mq_iovec	iov;
 	WaitEvent		event;
 	int				flags = 0;
+	uint8			msg_type;
 
 	Assert(send_buf->len > 0);
 	iov.data = send_buf->data;
@@ -177,10 +206,22 @@ int DynamicReduceSendOrRecvTuple(shm_mq_handle *mqsend, shm_mq_handle *mqrecv,
 			flags |= DR_MSG_SEND;
 
 		/* and try recv */
-		if (recv_msg_from_plan(mqrecv, &size, &data, NULL))
+		msg_type = recv_msg_from_plan(mqrecv, &size, &data, id);
+		switch(msg_type)
 		{
+		case ADB_DR_MSG_INVALID:
+			break;
+		case ADB_DR_MSG_TUPLE:
+		case ADB_DR_MSG_END_OF_PLAN:
 			set_slot_data(data, size, slot_recv, recv_buf);
 			flags |= DR_MSG_RECV;
+			break;
+		case ADB_DR_MSG_SHARED_FILE_NUMBER:
+			flags |= DR_MSG_RECV_SF;
+			break;
+		default:
+			elog(ERROR, "unknown message type from dynamic reduce");
+			break;
 		}
 		
 		if (flags)
@@ -496,8 +537,7 @@ void DRSetupShmem(void)
 	 */
 	size = add_size(MAXALIGN(ADB_DYNAMIC_REDUCE_QUERY_SIZE),
 					MAXALIGN(ADB_DYNAMIC_REDUCE_QUERY_SIZE));
-	size = add_size(size,
-					MAXALIGN(ADB_DYNAMIC_REDUCE_QUERY_SIZE));
+	size = add_size(size, MAXALIGN(sizeof(SharedFileSet)));
 
 	dr_mem_seg = dsm_create(size, 0);
 
@@ -529,6 +569,11 @@ void DRResetShmem(void)
 		shm_mq_detach(dr_mq_worker_sender);
 		dr_mq_worker_sender = NULL;
 	}
+	if (dr_shared_fs)
+	{
+		SharedFileSetDetach(dr_shared_fs, dr_mem_seg);
+		dr_shared_fs = NULL;
+	}
 
 	addr = dsm_segment_address(dr_mem_seg);
 
@@ -545,6 +590,11 @@ void DRResetShmem(void)
 	/* initialize worker sender shm_mq */
 	shm_mq_set_receiver(mq[ADB_DR_MQ_WORKER_SENDER], MyProc);
 	dr_mq_worker_sender = shm_mq_attach(mq[ADB_DR_MQ_WORKER_SENDER], dr_mem_seg, NULL);
+
+	/* initialize shared file set */
+	SharedFileSetInit((SharedFileSet*)addr, dr_mem_seg);
+	dr_shared_fs = (SharedFileSet*)addr;
+	addr += MAXALIGN(sizeof(SharedFileSet));
 
 	MemoryContextSwitchTo(oldcontext);
 	CurrentResourceOwner = saved_owner;
@@ -568,13 +618,17 @@ void DRAttachShmem(Datum datum)
 	mq[0] = (shm_mq*)addr;
 	addr += MAXALIGN(ADB_DYNAMIC_REDUCE_QUERY_SIZE);
 	mq[1] = (shm_mq*)addr;
-	/* addr += MAXALIGN(ADB_DYNAMIC_REDUCE_QUERY_SIZE); */
+	addr += MAXALIGN(ADB_DYNAMIC_REDUCE_QUERY_SIZE);
 
 	shm_mq_set_receiver(mq[ADB_DR_MQ_BACKEND_SENDER], MyProc);
 	dr_mq_backend_sender = shm_mq_attach(mq[ADB_DR_MQ_BACKEND_SENDER], dr_mem_seg, NULL);
 
 	shm_mq_set_sender(mq[ADB_DR_MQ_WORKER_SENDER], MyProc);
 	dr_mq_worker_sender = shm_mq_attach(mq[ADB_DR_MQ_WORKER_SENDER], dr_mem_seg, NULL);
+
+	SharedFileSetAttach((SharedFileSet*)addr, dr_mem_seg);
+	dr_shared_fs = (SharedFileSet*)addr;
+	addr += MAXALIGN(sizeof(SharedFileSet));
 
 	MemoryContextSwitchTo(oldcontext);
 
@@ -594,7 +648,25 @@ void DRDetachShmem(void)
 
 	MEM_DETACH(dr_mq_backend_sender, shm_mq_detach);
 	MEM_DETACH(dr_mq_worker_sender, shm_mq_detach);
+	/* dr_shared_fs auto detach in dsm_detach() function */
+	dr_shared_fs = NULL;
+	dr_shared_fs_num = 0U;
 	MEM_DETACH(dr_mem_seg, dsm_detach);
 
 #undef MEM_DETACH
+}
+
+dsm_segment* DynamicReduceGetSharedMemory(void)
+{
+	return dr_mem_seg;
+}
+
+SharedFileSet* DynamicReduceGetSharedFileSet(void)
+{
+	return dr_shared_fs;
+}
+
+uint32 DRNextSharedFileSetNumber(void)
+{
+	return dr_shared_fs_num++;
 }

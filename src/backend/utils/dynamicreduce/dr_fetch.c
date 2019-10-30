@@ -25,6 +25,7 @@ void DynamicReduceInitFetch(DynamicReduceIOBuffer *io, dsm_segment *seg, TupleDe
 	shm_mq_set_receiver(mq, MyProc);
 	io->mqh_receiver = shm_mq_attach(mq, seg, NULL);
 
+	io->shared_file = NULL;
 	initStringInfo(&io->send_buf);
 	initStringInfo(&io->recv_buf);
 	initOidBuffer(&io->tmp_buf);
@@ -38,6 +39,12 @@ void DynamicReduceClearFetch(DynamicReduceIOBuffer *io)
 {
 	if (io == NULL)
 		return;
+
+	if (io->shared_file)
+	{
+		BufFileClose(io->shared_file);
+		io->shared_file = NULL;
+	}
 
 	if (io->slot_remote)
 	{
@@ -73,26 +80,84 @@ void DynamicReduceClearFetch(DynamicReduceIOBuffer *io)
 	}
 }
 
+static inline void DRFetchOpenSharedFile(DynamicReduceIOBuffer *io, uint32 id)
+{
+	MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(io->mqh_sender));
+	char name[MAXPGPATH];
+	Assert(io->shared_file == NULL);
+	io->shared_file = BufFileOpenShared(DynamicReduceGetSharedFileSet(),
+										DynamicReduceSharedFileName(name, id));
+	io->shared_file_no = id;
+	MemoryContextSwitchTo(oldcontext);
+}
+
+static inline void DRFetchCloseSharedFile(DynamicReduceIOBuffer *io)
+{
+	char name[MAXPGPATH];
+
+	BufFileClose(io->shared_file);
+	io->shared_file = NULL;
+	/* shared file is last message */
+	io->eof_remote = true;
+
+	/* delete cache file */
+	BufFileDeleteShared(DynamicReduceGetSharedFileSet(),
+						DynamicReduceSharedFileName(name, io->shared_file_no));
+}
+
 TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 {
 	TupleTableSlot	   *slot;
 	int					dr_flags;
+	uint32				id;
 
 	while (io->eof_local == false ||
 		   io->eof_remote == false ||
 		   io->send_buf.len > 0)
 	{
-		if (io->eof_remote == false &&
-			DynamicReduceRecvTuple(io->mqh_receiver,
-								   io->slot_remote,
-								   &io->recv_buf,
-								   NULL,
-								   io->eof_local ? false:true))
+		if (io->send_buf.len > 0 &&
+			DynamicReduceSendMessage(io->mqh_sender,
+									 io->send_buf.len,
+									 io->send_buf.data,
+									 io->eof_remote ? false:true))
 		{
-			if (TupIsNull(io->slot_remote))
-				io->eof_remote = true;
-			else
-				return io->slot_remote;
+			io->send_buf.len = 0;
+		}
+
+		if (io->eof_remote == false)
+		{
+			if (io->shared_file)
+			{
+				resetStringInfo(&io->recv_buf);
+				slot = DynamicReduceReadSFSTuple(io->slot_remote, io->shared_file, &io->recv_buf);
+				if (TupIsNull(slot))
+				{
+					DRFetchCloseSharedFile(io);
+					continue;
+				}
+				return slot;
+			}
+
+			dr_flags = DynamicReduceRecvTuple(io->mqh_receiver,
+											  io->slot_remote,
+											  &io->recv_buf,
+											  &id,
+											  io->eof_local ? false:true);
+			if (dr_flags == DR_MSG_RECV)
+			{
+				if (TupIsNull(io->slot_remote))
+					io->eof_remote = true;
+				else
+					return io->slot_remote;
+			}else if (dr_flags == DR_MSG_RECV_SF)
+			{
+				DRFetchOpenSharedFile(io, id);
+				Assert(io->shared_file != NULL);
+				continue;
+			}else if (dr_flags != 0)
+			{
+				elog(ERROR, "unknown result type %u from dynamic reduce recv tuple", (unsigned int)dr_flags);
+			}
 		}
 
 		if (io->send_buf.len == 0 &&
@@ -128,7 +193,8 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 												io->mqh_receiver,
 												&io->send_buf,
 												slot,
-												&io->recv_buf);
+												&io->recv_buf,
+												&id);
 		if (dr_flags & DR_MSG_SEND)
 			io->send_buf.len = 0;
 		if (dr_flags & DR_MSG_RECV)
@@ -137,6 +203,11 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 				io->eof_remote = true;
 			else
 				return slot;
+		}
+		if (dr_flags & DR_MSG_RECV_SF)
+		{
+			DRFetchOpenSharedFile(io, id);
+			Assert(io->shared_file != NULL);
 		}
 	}
 

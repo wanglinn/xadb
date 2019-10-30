@@ -43,7 +43,9 @@
 #define ADB_DR_MSG_INVALID				'\x00'
 #define ADB_DR_MSG_NODEOID				'\x01'
 #define ADB_DR_MSG_TUPLE				'\x02'
-#define ADB_DR_MSG_END_OF_PLAN			'\x03'
+#define ADB_DR_MSG_SHARED_FILE_NUMBER	'\x03'
+#define ADB_DR_MSG_SHARED_TUPLE_STORE	'\x04'
+#define ADB_DR_MSG_END_OF_PLAN			'\x05'
 
 /* define DRD_CONNECT 1 */
 #ifdef DRD_CONNECT
@@ -204,6 +206,7 @@ struct PlanInfo
 	OidBufferData		working_nodes;		/* not include PGXCNodeOid */
 	PlanWorkerInfo	   *pwi;
 
+	void			   *private;
 	union
 	{
 		/* for parallel */
@@ -245,6 +248,7 @@ extern DR_STATUS			dr_status;
 extern dsm_segment		   *dr_mem_seg;
 extern shm_mq_handle	   *dr_mq_backend_sender;
 extern shm_mq_handle	   *dr_mq_worker_sender;
+extern SharedFileSet	   *dr_shared_fs;
 
 /* public function */
 void DRCheckStarted(void);
@@ -279,7 +283,10 @@ void DRStartNormalPlanMessage(StringInfo msg);
 void DRStartMergePlanMessage(StringInfo msg);
 
 /* SharedFileSet plan functions in plan_sfs.c */
+struct BufFile;
 void DRStartSFSPlanMessage(StringInfo msg);
+void DynamicReduceWriteSFSMinTuple(struct BufFile *file, MinimalTuple mtup);
+void DynamicReduceWriteSFSMsgTuple(struct BufFile *file, const char *data, int len);
 
 /* parallel plan functions in plan_parallel.c */
 void DRStartParallelPlanMessage(StringInfo msg);
@@ -315,6 +322,7 @@ void DRSetupShmem(void);
 void DRResetShmem(void);
 void DRAttachShmem(Datum datum);
 void DRDetachShmem(void);
+uint32 DRNextSharedFileSetNumber(void);
 
 bool DRSendMsgToReduce(const char *data, Size len, bool nowait);
 bool DRRecvMsgFromReduce(Size *sizep, void **datap, bool nowait);
