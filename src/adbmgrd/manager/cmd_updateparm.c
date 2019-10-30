@@ -286,7 +286,20 @@ static void mgr_add_givenname_updateparm(MGRUpdateparm *parm_node, Name nodename
 		/* Check the read and write separation settings */
 		if ((strcmp(key.data, "enable_readsql_on_slave") == 0) || strcmp(key.data, "enable_readsql_on_slave_async") == 0)
 		{
-			bool isSlaveSync = strcmp(value.data, "on") == 0 ? true : false;
+			bool isSlaveSync;
+			
+			/* Disable updates to unrelated nodes. */
+			parmtype = parm_node->parmtype;
+			if(parmtype == CNDN_TYPE_DATANODE || 
+				parmtype == CNDN_TYPE_DATANODE_MASTER ||
+				parmtype == CNDN_TYPE_DATANODE_SLAVE)
+			{
+				ereport(WARNING, 
+					(errmsg("Disable the setting of read-write separation for datanode. This setting will be skipped.")));
+				continue;
+			}
+			
+			isSlaveSync = strcmp(value.data, "on") == 0 ? true : false;
 			if (!mgr_update_cn_pgxcnode_readonlysql_slave(key.data, isSlaveSync, (Node *)parm_node))
 			{
 				pfree(enumvalue.data);
