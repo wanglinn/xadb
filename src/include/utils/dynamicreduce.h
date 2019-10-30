@@ -83,6 +83,19 @@ typedef struct DynamicReduceIOBuffer
 	bool					eof_remote;
 }DynamicReduceIOBuffer;
 
+typedef union DynamicReduceRecvInfo
+{
+	int8	i8;
+	uint8	u8;
+	int16	i16;
+	uint16	u16;
+	int32	i32;
+	uint32	u32;
+	int64	i64;
+	uint64	u64;
+	void   *pointer;
+}DynamicReduceRecvInfo;
+
 extern PGDLLIMPORT bool is_reduce_worker;
 
 #define IsDynamicReduceWorker()		(is_reduce_worker)
@@ -107,10 +120,10 @@ extern TupleTableSlot *DynamicReduceReadSFSTuple(TupleTableSlot *slot, BufFile *
 extern void DynamicReduceWriteSFSTuple(TupleTableSlot *slot, BufFile *file);
 
 extern uint8 DynamicReduceRecvTuple(shm_mq_handle *mqh, TupleTableSlot *slot, StringInfo buf,
-									uint32 *id, bool nowait);
+									DynamicReduceRecvInfo *info, bool nowait);
 extern int DynamicReduceSendOrRecvTuple(shm_mq_handle *mqsend, shm_mq_handle *mqrecv,
 										StringInfo send_buf, TupleTableSlot *slot_recv,
-										StringInfo recv_buf, uint32 *id);
+										StringInfo recv_buf, DynamicReduceRecvInfo *info);
 extern bool DynamicReduceSendMessage(shm_mq_handle *mqh, Size nbytes, void *data, bool nowait);
 
 extern void SerializeEndOfPlanMessage(StringInfo buf);

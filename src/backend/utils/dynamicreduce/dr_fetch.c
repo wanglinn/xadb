@@ -107,9 +107,9 @@ static inline void DRFetchCloseSharedFile(DynamicReduceIOBuffer *io)
 
 TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 {
-	TupleTableSlot	   *slot;
-	int					dr_flags;
-	uint32				id;
+	TupleTableSlot		   *slot;
+	int						dr_flags;
+	DynamicReduceRecvInfo	info;
 
 	while (io->eof_local == false ||
 		   io->eof_remote == false ||
@@ -141,7 +141,7 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 			dr_flags = DynamicReduceRecvTuple(io->mqh_receiver,
 											  io->slot_remote,
 											  &io->recv_buf,
-											  &id,
+											  &info,
 											  io->eof_local ? false:true);
 			if (dr_flags == DR_MSG_RECV)
 			{
@@ -151,7 +151,7 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 					return io->slot_remote;
 			}else if (dr_flags == DR_MSG_RECV_SF)
 			{
-				DRFetchOpenSharedFile(io, id);
+				DRFetchOpenSharedFile(io, info.u32);
 				Assert(io->shared_file != NULL);
 				continue;
 			}else if (dr_flags != 0)
@@ -194,7 +194,7 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 												&io->send_buf,
 												slot,
 												&io->recv_buf,
-												&id);
+												&info);
 		if (dr_flags & DR_MSG_SEND)
 			io->send_buf.len = 0;
 		if (dr_flags & DR_MSG_RECV)
@@ -206,7 +206,7 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 		}
 		if (dr_flags & DR_MSG_RECV_SF)
 		{
-			DRFetchOpenSharedFile(io, id);
+			DRFetchOpenSharedFile(io, info.u32);
 			Assert(io->shared_file != NULL);
 		}
 	}
