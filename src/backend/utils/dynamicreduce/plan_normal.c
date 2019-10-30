@@ -3,11 +3,18 @@
 #include "access/htup_details.h"
 #include "access/xact.h"
 #include "libpq/pqformat.h"
+#include "storage/buffile.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"
 
 #include "utils/dynamicreduce.h"
 #include "utils/dr_private.h"
+
+typedef struct NormalSharedFile
+{
+	BufFile	   *buffile;
+	uint32		file_number;
+}NormalSharedFile;
 
 static bool OnNormalPlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid);
 static bool OnNormalPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid);
@@ -24,20 +31,82 @@ static void ClearNormalPlanInfo(PlanInfo *pi)
 		pfree(pi->pwi);
 		pi->pwi = NULL;
 	}
+	if (pi->private)
+	{
+		NormalSharedFile *sf = pi->private;
+		if (sf->buffile)
+			BufFileClose(sf->buffile);
+		pfree(sf);
+		pi->private = NULL;
+	}
 	DRClearPlanInfo(pi);
+}
+
+static inline BufFile* NormalPlanGetSharedFile(NormalSharedFile *sf)
+{
+	char			name[MAXPGPATH];
+	MemoryContext	oldcontext;
+	
+	if (sf->buffile == NULL)
+	{
+		oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(sf));
+
+		sf->file_number = DRNextSharedFileSetNumber();
+		sf->buffile = BufFileCreateShared(dr_shared_fs,
+										  DynamicReduceSharedFileName(name, sf->file_number));
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	return sf->buffile;
+}
+
+static inline MinimalTuple NormalPlanConvertTuple(PlanInfo *pi, const char *data, int len)
+{
+	HeapTupleData	tup;
+	MinimalTuple	mtup;
+	MemoryContext	oldcontext;
+	PlanWorkerInfo *pwi = pi->pwi;
+
+	MemoryContextReset(pi->convert_context);
+	oldcontext = MemoryContextSwitchTo(pi->convert_context);
+
+	DRStoreTypeConvertTuple(pwi->slot_node_src, data, len, &tup);
+	do_type_convert_slot_in(pi->type_convert, pwi->slot_node_src, pwi->slot_node_dest, false);
+	mtup = ExecFetchSlotMinimalTuple(pwi->slot_node_dest);
+	ExecClearTuple(pwi->slot_node_src);
+
+	MemoryContextSwitchTo(oldcontext);
+
+	return mtup;
 }
 
 static bool OnNormalPlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid)
 {
-	HeapTupleData	tup;
-	PlanWorkerInfo *pwi;
-	MinimalTuple	mtup;
-	MemoryContext	oldcontext;
+	PlanWorkerInfo *pwi = pi->pwi;
 
-	pwi = pi->pwi;
 	/* we only cache one tuple */
 	if (pwi->sendBuffer.len != 0)
+	{
+		if (pi->private)
+		{
+			/* cache on disk */
+			BufFile *file = NormalPlanGetSharedFile(pi->private);
+			Assert(file != NULL);
+
+			if (pi->type_convert)
+			{
+				MinimalTuple mtup = NormalPlanConvertTuple(pi, data, len);
+				DynamicReduceWriteSFSMinTuple(file, mtup);
+			}else
+			{
+				DynamicReduceWriteSFSMsgTuple(file, data, len);
+			}
+			DR_PLAN_DEBUG((errmsg("normal plan %d(%p) cache a tuple from %u length %d",
+								  pi->plan_id, pi, nodeoid, len)));
+			return true;
+		}
 		return false;
+	}
 
 	DR_PLAN_DEBUG((errmsg("normal plan %d(%p) got a tuple from %u length %d",
 						  pi->plan_id, pi, nodeoid, len)));
@@ -46,18 +115,11 @@ static bool OnNormalPlanMessage(PlanInfo *pi, const char *data, int len, Oid nod
 	appendBinaryStringInfoNT(&pwi->sendBuffer, (char*)&nodeoid, sizeof(nodeoid));
 	if (pi->type_convert)
 	{
-		MemoryContextReset(pi->convert_context);
-		oldcontext = MemoryContextSwitchTo(pi->convert_context);
-
-		DRStoreTypeConvertTuple(pwi->slot_node_src, data, len, &tup);
-		do_type_convert_slot_in(pi->type_convert, pwi->slot_node_src, pwi->slot_node_dest, false);
-		mtup = ExecFetchSlotMinimalTuple(pwi->slot_node_dest);
-		ExecClearTuple(pwi->slot_node_src);
+		MinimalTuple mtup = NormalPlanConvertTuple(pi, data, len);
 
 		appendBinaryStringInfoNT(&pwi->sendBuffer,
 								 (char*)mtup + MINIMAL_TUPLE_DATA_OFFSET,
 								 mtup->t_len - MINIMAL_TUPLE_DATA_OFFSET);
-		MemoryContextSwitchTo(oldcontext);
 	}else
 	{
 		appendBinaryStringInfoNT(&pwi->sendBuffer, data, len);
@@ -82,7 +144,18 @@ static bool OnNormalPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
 	if (pi->end_of_plan_nodes.len == pi->working_nodes.len)
 	{
 		DR_PLAN_DEBUG_EOF((errmsg("normal plan %d(%p) sending end of plan message", pi->plan_id, pi)));
-		appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_END_OF_PLAN);
+		if (pi->private &&
+			((NormalSharedFile*)pi->private)->buffile != NULL)
+		{
+			NormalSharedFile *sf = (NormalSharedFile*)pi->private;
+			BufFileExportShared(sf->buffile);
+			appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_SHARED_FILE_NUMBER);
+			appendStringInfoSpaces(&pwi->sendBuffer, sizeof(sf->file_number)-sizeof(char)); /* align */
+			appendBinaryStringInfoNT(&pwi->sendBuffer, (char*)&sf->file_number, sizeof(sf->file_number));
+		}else
+		{
+			appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_END_OF_PLAN);
+		}
 		DRSendPlanWorkerMessage(pwi, pi);
 		pwi->end_of_plan_send = true;
 	}
@@ -112,6 +185,12 @@ void DRStartNormalPlanMessage(StringInfo msg)
 
 		pi = DRRestorePlanInfo(msg, (void**)&mq, sizeof(*mq), ClearNormalPlanInfo);
 		Assert(DRPlanSearch(pi->plan_id, HASH_FIND, NULL) == pi);
+		if (pq_getmsgbyte(msg))
+		{
+			/* cache on disk */
+			pi->private = MemoryContextAllocZero(TopMemoryContext,
+												 sizeof(NormalSharedFile));
+		}
 		pq_getmsgend(msg);
 
 		pwi = pi->pwi = MemoryContextAllocZero(TopMemoryContext, sizeof(PlanWorkerInfo));
@@ -139,7 +218,7 @@ void DRStartNormalPlanMessage(StringInfo msg)
 	DRActiveNode(pi->plan_id);
 }
 
-void DynamicReduceStartNormalPlan(int plan_id, dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes)
+void DynamicReduceStartNormalPlan(int plan_id, dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, bool cache_on_disk)
 {
 	StringInfoData	buf;
 	Assert(plan_id >= 0);
@@ -150,6 +229,7 @@ void DynamicReduceStartNormalPlan(int plan_id, dsm_segment *seg, DynamicReduceMQ
 	pq_sendbyte(&buf, ADB_DR_MQ_MSG_START_PLAN_NORMAL);
 
 	DRSerializePlanInfo(plan_id, seg, mq, sizeof(*mq), desc, work_nodes, &buf);
+	pq_sendbyte(&buf, cache_on_disk);
 
 	DRSendMsgToReduce(buf.data, buf.len, false);
 	pfree(buf.data);

@@ -22,8 +22,10 @@
 
 #define ADB_DYNAMIC_REDUCE_QUERY_SIZE	(64*1024)	/* 64K */
 
-#define DR_MSG_SEND	0x1
-#define DR_MSG_RECV	0x2
+#define DR_MSG_INVALID		0x0
+#define DR_MSG_SEND			0x1		/* send success */
+#define DR_MSG_RECV			0x2		/* recv a tuple */
+#define DR_MSG_RECV_SF		0x4		/* recv a shared file */
 
 typedef struct DynamicReduceNodeInfo
 {
@@ -72,9 +74,11 @@ typedef struct DynamicReduceIOBuffer
 	struct ReduceExprState *expr_state;
 	TupleTableSlot		   *(*FetchLocal)(void *user_data, struct ExprContext *econtext);
 	void				   *user_data;
+	struct BufFile		   *shared_file;
 	OidBufferData			tmp_buf;
 	StringInfoData			send_buf;
 	StringInfoData			recv_buf;
+	uint32					shared_file_no;
 	bool					eof_local;
 	bool					eof_remote;
 }DynamicReduceIOBuffer;
@@ -91,7 +95,7 @@ extern void DynamicReduceStartParallel(void);
 extern void DynamicReduceConnectNet(const DynamicReduceNodeInfo *info, uint32 count);
 extern const Oid* DynamicReduceGetCurrentWorkingNodes(uint32 *count);
 
-extern void DynamicReduceStartNormalPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes);
+extern void DynamicReduceStartNormalPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, bool cache_on_disk);
 extern void DynamicReduceStartMergePlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes,
 										int numCols, AttrNumber *sortColIdx, Oid *sortOperators, Oid *collations, bool *nullsFirst);
 extern void DynamicReduceStartParallelPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, int parallel_max);
@@ -102,10 +106,11 @@ extern char* DynamicReduceSFSFileName(char *name, Oid nodeoid);
 extern TupleTableSlot *DynamicReduceReadSFSTuple(TupleTableSlot *slot, BufFile *file, StringInfo buf);
 extern void DynamicReduceWriteSFSTuple(TupleTableSlot *slot, BufFile *file);
 
-extern bool DynamicReduceRecvTuple(shm_mq_handle *mqh, TupleTableSlot *slot, StringInfo buf,
-								   Oid *nodeoid, bool nowait);
+extern uint8 DynamicReduceRecvTuple(shm_mq_handle *mqh, TupleTableSlot *slot, StringInfo buf,
+									uint32 *id, bool nowait);
 extern int DynamicReduceSendOrRecvTuple(shm_mq_handle *mqsend, shm_mq_handle *mqrecv,
-										StringInfo send_buf, TupleTableSlot *slot_recv, StringInfo recv_buf);
+										StringInfo send_buf, TupleTableSlot *slot_recv,
+										StringInfo recv_buf, uint32 *id);
 extern bool DynamicReduceSendMessage(shm_mq_handle *mqh, Size nbytes, void *data, bool nowait);
 
 extern void SerializeEndOfPlanMessage(StringInfo buf);
@@ -124,5 +129,10 @@ extern void DynamicReduceInitFetch(DynamicReduceIOBuffer *io, dsm_segment *seg, 
 extern void DynamicReduceClearFetch(DynamicReduceIOBuffer *io);
 extern TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io);
 extern TupleTableSlot* DynamicReduceFetchLocal(DynamicReduceIOBuffer *io);
+
+/* in dr_shm.c */
+extern dsm_segment* DynamicReduceGetSharedMemory(void);
+extern SharedFileSet* DynamicReduceGetSharedFileSet(void);
+#define DynamicReduceSharedFileName(name,fileno) DynamicReduceSFSFileName(name, fileno)
 
 #endif /* DYNAMIC_REDUCE_H_ */

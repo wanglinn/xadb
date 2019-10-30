@@ -193,9 +193,11 @@ static void InitNormalReduce(ClusterReduceState *crstate)
 								 normal->dsm_seg,
 								 dsm_segment_address(normal->dsm_seg),
 								 crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
-								 castNode(ClusterReduce, crstate->ps.plan)->reduce_oids);
+								 castNode(ClusterReduce, crstate->ps.plan)->reduce_oids,
+								 true);
 	MemoryContextSwitchTo(oldcontext);
 }
+
 static void InitParallelReduce(ClusterReduceState *crstate, ParallelContext *pcxt)
 {
 	MemoryContext		oldcontext;
@@ -233,7 +235,8 @@ static void StartParallelReduce(ClusterReduceState *crstate, ParallelContext *pc
 									 pcxt->seg,
 									 drmq,
 									 crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
-									 castNode(ClusterReduce, crstate->ps.plan)->reduce_oids);
+									 castNode(ClusterReduce, crstate->ps.plan)->reduce_oids,
+									 true);
 	else
 		DynamicReduceStartParallelPlan(crstate->ps.plan->plan_node_id,
 									   pcxt->seg,
@@ -306,14 +309,15 @@ re_get_:
 			AdvanceNodeInfo *info;
 			DynamicReduceSFS sfs = dsm_segment_address(state->normal.dsm_seg);
 			uint32 i;
+			uint8 flag PG_USED_FOR_ASSERTS_ONLY;
 
 			/* wait dynamic reduce end of plan */
-			DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
-								   slot,
-								   &state->normal.drio.recv_buf,
-								   NULL,
-								   false);
-			Assert(TupIsNull(slot));
+			flag = DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
+										  slot,
+										  &state->normal.drio.recv_buf,
+										  NULL,
+										  false);
+			Assert(flag == DR_MSG_RECV && TupIsNull(slot));
 			state->got_remote = true;
 
 			/* open remote SFS files */
@@ -429,12 +433,13 @@ static void EndAdvanceReduce(AdvanceReduceState *state, ClusterReduceState *crs)
 
 	if (state->got_remote == false)
 	{
-		DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
-							   crs->ps.ps_ResultTupleSlot,
-							   &state->normal.drio.recv_buf,
-							   NULL,
-							   false);
-		Assert(TupIsNull(crs->ps.ps_ResultTupleSlot));
+		uint8 flag PG_USED_FOR_ASSERTS_ONLY;
+		flag = DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
+									  crs->ps.ps_ResultTupleSlot,
+									  &state->normal.drio.recv_buf,
+									  NULL,
+									  false);
+		Assert(flag == DR_MSG_RECV && TupIsNull(crs->ps.ps_ResultTupleSlot));
 	}
 
 	for (i=0,count=state->nnodes;i<count;++i)
@@ -471,14 +476,15 @@ re_get_:
 			ConditionVariableCancelSleep();
 		}else
 		{
+			uint8 flag PG_USED_FOR_ASSERTS_ONLY;
 			Assert(pg_atomic_unlocked_test_flag(&shm->got_remote));
 			/* wait dynamic reduce end of plan */
-			DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
-								   ps->ps_ResultTupleSlot,
-								   &state->normal.drio.recv_buf,
-								   NULL,
-								   false);
-			Assert(TupIsNull(ps->ps_ResultTupleSlot));
+			flag = DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
+										  ps->ps_ResultTupleSlot,
+										  &state->normal.drio.recv_buf,
+										  NULL,
+										  false);
+			Assert(flag == DR_MSG_RECV && TupIsNull(ps->ps_ResultTupleSlot));
 
 			if (pg_atomic_test_set_flag(&shm->got_remote) == false)
 				ereport(ERROR,
@@ -764,14 +770,15 @@ static TupleTableSlot* ExecMergeReduceFinal(PlanState *pstate)
 {
 	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
 	MergeReduceState   *merge = node->private_state;
+	uint8				flag PG_USED_FOR_ASSERTS_ONLY;
 
 	/* wait dynamic reduce end of plan */
-	DynamicReduceRecvTuple(merge->normal.drio.mqh_receiver,
-						   node->ps.ps_ResultTupleSlot,
-						   &merge->normal.drio.recv_buf,
-						   NULL,
-						   false);
-	Assert(TupIsNull(node->ps.ps_ResultTupleSlot));
+	flag = DynamicReduceRecvTuple(merge->normal.drio.mqh_receiver,
+								  node->ps.ps_ResultTupleSlot,
+								  &merge->normal.drio.recv_buf,
+								  NULL,
+								  false);
+	Assert(flag = DR_MSG_RECV && TupIsNull(node->ps.ps_ResultTupleSlot));
 	merge->normal.drio.eof_remote = true;
 
 	ExecSetExecProcNode(&node->ps, ExecMergeReduce);
@@ -1524,7 +1531,7 @@ TopDownDriveClusterReduce(PlanState *node)
 static inline void AdvanceReduce(ClusterReduceState *crs, PlanState *parent, uint32 flags)
 {
 	ClusterReduce *plan = castNode(ClusterReduce, crs->ps.plan);
-	bool need_advance = plan->include_coord;
+	bool need_advance = false;
 
 	if (flags & ACR_MARK_SPECIAL)
 		need_advance = true;
