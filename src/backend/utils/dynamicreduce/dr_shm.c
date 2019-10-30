@@ -47,7 +47,7 @@ re_get_:
 			 errmsg("got a not to be received message type %d from dynamic reduce", *(char*)data)));
 }
 
-static uint8 recv_msg_from_plan(shm_mq_handle *mqh, Size *sizep, void **datap, uint32 *id)
+static uint8 recv_msg_from_plan(shm_mq_handle *mqh, Size *sizep, void **datap, DynamicReduceRecvInfo *info)
 {
 	shm_mq_result	result;
 	unsigned char  *addr;
@@ -69,15 +69,15 @@ static uint8 recv_msg_from_plan(shm_mq_handle *mqh, Size *sizep, void **datap, u
 	{
 	case ADB_DR_MSG_TUPLE:
 		Assert(size > 8);
-		if (id)
-			*id = *((Oid*)(addr+4));
+		if (info)
+			info->u32 = *((Oid*)(addr+4));
 		*datap = addr+8;
 		*sizep = size-8;
 		break;
 	case ADB_DR_MSG_SHARED_FILE_NUMBER:
 		Assert(size == 8);
-		if (id)
-			*id = *((uint32*)(addr+4));
+		if (info)
+			info->u32 = *((uint32*)(addr+4));
 		*datap = addr + 4;
 		*sizep = size - 4;
 		break;
@@ -85,8 +85,8 @@ static uint8 recv_msg_from_plan(shm_mq_handle *mqh, Size *sizep, void **datap, u
 		Assert(size == sizeof(addr[0]));
 		*sizep = 0;
 		*datap = NULL;
-		if (id)
-			*id = InvalidOid;
+		if (info)
+			MemSet(info, 0, sizeof(*info));
 		break;
 	default:
 		ereport(ERROR,
@@ -142,14 +142,14 @@ static void set_slot_data(void *data, Size size, TupleTableSlot *slot, StringInf
  */
 uint8
 DynamicReduceRecvTuple(shm_mq_handle *mqh, struct TupleTableSlot *slot, StringInfo buf,
-					   uint32 *id, bool nowait)
+					   DynamicReduceRecvInfo *info, bool nowait)
 {
 	void		   *data;
 	Size			size;
 	WaitEvent		event;
 	uint8			result;
 
-	result = recv_msg_from_plan(mqh, &size, &data, id);
+	result = recv_msg_from_plan(mqh, &size, &data, info);
 	if (result == ADB_DR_MSG_INVALID)
 	{
 		check_error_message_from_reduce();
@@ -164,7 +164,7 @@ DynamicReduceRecvTuple(shm_mq_handle *mqh, struct TupleTableSlot *slot, StringIn
 		CHECK_FOR_INTERRUPTS();
 
 		check_error_message_from_reduce();
-		result = recv_msg_from_plan(mqh, &size, &data, id);
+		result = recv_msg_from_plan(mqh, &size, &data, info);
 	}
 
 	Assert(result != ADB_DR_MSG_INVALID);
@@ -186,7 +186,7 @@ DynamicReduceRecvTuple(shm_mq_handle *mqh, struct TupleTableSlot *slot, StringIn
 
 int DynamicReduceSendOrRecvTuple(shm_mq_handle *mqsend, shm_mq_handle *mqrecv,
 								 StringInfo send_buf, struct TupleTableSlot *slot_recv,
-								 StringInfo recv_buf, uint32 *id)
+								 StringInfo recv_buf, DynamicReduceRecvInfo *info)
 {
 	void		   *data;
 	Size			size;
@@ -206,7 +206,7 @@ int DynamicReduceSendOrRecvTuple(shm_mq_handle *mqsend, shm_mq_handle *mqrecv,
 			flags |= DR_MSG_SEND;
 
 		/* and try recv */
-		msg_type = recv_msg_from_plan(mqrecv, &size, &data, id);
+		msg_type = recv_msg_from_plan(mqrecv, &size, &data, info);
 		switch(msg_type)
 		{
 		case ADB_DR_MSG_INVALID:
