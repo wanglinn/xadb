@@ -243,7 +243,8 @@ static void StartParallelReduce(ClusterReduceState *crstate, ParallelContext *pc
 									   drmq,
 									   crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
 									   castNode(ClusterReduce, crstate->ps.plan)->reduce_oids,
-									   pcxt->nworkers_launched+1);
+									   pcxt->nworkers_launched+1,
+									   true);
 }
 static void InitParallelReduceWorker(ClusterReduceState *crstate, ParallelWorkerContext *pwcxt, char *addr)
 {

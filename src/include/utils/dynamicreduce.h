@@ -18,6 +18,7 @@
 #include "lib/stringinfo.h"
 #include "storage/buffile.h"
 #include "storage/shm_mq.h"
+#include "utils/dsa.h"
 #include "utils/sharedtuplestore.h"
 
 #define ADB_DYNAMIC_REDUCE_QUERY_SIZE	(64*1024)	/* 64K */
@@ -26,6 +27,7 @@
 #define DR_MSG_SEND			0x1		/* send success */
 #define DR_MSG_RECV			0x2		/* recv a tuple */
 #define DR_MSG_RECV_SF		0x4		/* recv a shared file */
+#define DR_MSG_RECV_STS		0x8		/* recv a shared tuple store */
 
 typedef struct DynamicReduceNodeInfo
 {
@@ -65,6 +67,7 @@ typedef struct DynamicReduceSTSData
 #define DRSTSD_ADDR(st, npart, offset)	\
 	(SharedTuplestore*)((char*)st + MAXALIGN(sts_estimate(npart)) * offset)
 
+struct SharedTuplestoreAccessor;	/* avoid include sharedtuplestore.h */
 typedef struct DynamicReduceIOBuffer
 {
 	shm_mq_handle		   *mqh_sender;
@@ -75,6 +78,9 @@ typedef struct DynamicReduceIOBuffer
 	TupleTableSlot		   *(*FetchLocal)(void *user_data, struct ExprContext *econtext);
 	void				   *user_data;
 	struct BufFile		   *shared_file;
+	struct SharedTuplestoreAccessor
+						   *sts;
+	dsa_pointer				sts_dsa_ptr;
 	OidBufferData			tmp_buf;
 	StringInfoData			send_buf;
 	StringInfoData			recv_buf;
@@ -93,6 +99,8 @@ typedef union DynamicReduceRecvInfo
 	uint32	u32;
 	int64	i64;
 	uint64	u64;
+	Oid		oid;
+	dsa_pointer dp;
 	void   *pointer;
 }DynamicReduceRecvInfo;
 
@@ -108,10 +116,14 @@ extern void DynamicReduceStartParallel(void);
 extern void DynamicReduceConnectNet(const DynamicReduceNodeInfo *info, uint32 count);
 extern const Oid* DynamicReduceGetCurrentWorkingNodes(uint32 *count);
 
+extern Size EstimateDynamicReduceStateSpace(void);
+extern void SerializeDynamiceReduceState(Size maxsize, char *start_address);
+extern void RestoreDynamicReduceState(void *state);
+
 extern void DynamicReduceStartNormalPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, bool cache_on_disk);
 extern void DynamicReduceStartMergePlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes,
 										int numCols, AttrNumber *sortColIdx, Oid *sortOperators, Oid *collations, bool *nullsFirst);
-extern void DynamicReduceStartParallelPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, int parallel_max);
+extern void DynamicReduceStartParallelPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, int parallel_max, bool cache_on_disk);
 extern void DynamicReduceStartSharedTuplestorePlan(int plan_id, struct dsm_segment *seg, DynamicReduceSTS sts, TupleDesc desc,
 										List *work_nodes, int npart, int reduce_part);
 extern void DynamicReduceStartSharedFileSetPlan(int plan_id, struct dsm_segment *seg, DynamicReduceSFS sfs, TupleDesc desc, List *work_nodes);
@@ -142,6 +154,8 @@ extern void DynamicReduceInitFetch(DynamicReduceIOBuffer *io, dsm_segment *seg, 
 extern void DynamicReduceClearFetch(DynamicReduceIOBuffer *io);
 extern TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io);
 extern TupleTableSlot* DynamicReduceFetchLocal(DynamicReduceIOBuffer *io);
+extern struct SharedTuplestoreAccessor* DynamicReduceOpenSharedTuplestore(dsa_pointer ptr);
+extern void DynamicReduceCloseSharedTuplestore(struct SharedTuplestoreAccessor *stsa, dsa_pointer ptr);
 
 /* in dr_shm.c */
 extern dsm_segment* DynamicReduceGetSharedMemory(void);

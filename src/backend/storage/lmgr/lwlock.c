@@ -524,6 +524,7 @@ RegisterLWLockTranches(void)
 #ifdef ADB
 	LWLockRegisterTranche(LWTRANCHE_SNAPSHOT_RECEIVER_DSA,
 						  "snapshot_receiver_dsa");
+	LWLockRegisterTranche(LWTRANCHE_DYNAMIC_REDUCE_DSA, "dynamic_reduce_dsa");
 #endif /* ADB */
 
 	/* Register named tranches. */

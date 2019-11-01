@@ -68,7 +68,7 @@ void DynamicReduceWorkerMain(Datum main_arg)
 
 	dr_status = DRS_STARTUPED;
 
-	DRAttachShmem(main_arg);
+	DRAttachShmem(main_arg, true);
 
 	dr_start_event();
 	DRInitNodeSearch();

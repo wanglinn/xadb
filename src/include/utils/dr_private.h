@@ -12,6 +12,7 @@
 #include "access/tuptypeconvert.h"
 #include "lib/oidbuffer.h"
 #include "lib/stringinfo.h"
+#include "port/atomics.h"
 #include "storage/latch.h"
 #include "storage/shm_mq.h"
 #include "utils/hsearch.h"
@@ -235,6 +236,13 @@ struct PlanInfo
 	};
 };
 
+typedef struct DynamicReduceSharedTuplestore
+{
+	pg_atomic_uint32	attached;
+	char				padding[MAXIMUM_ALIGNOF-sizeof(pg_atomic_uint32)];
+	char				sts[FLEXIBLE_ARRAY_MEMBER];
+}DynamicReduceSharedTuplestore;
+
 extern Oid					PGXCNodeOid;	/* avoid include pgxc.h */
 
 /* public variables */
@@ -249,6 +257,7 @@ extern dsm_segment		   *dr_mem_seg;
 extern shm_mq_handle	   *dr_mq_backend_sender;
 extern shm_mq_handle	   *dr_mq_worker_sender;
 extern SharedFileSet	   *dr_shared_fs;
+extern struct dsa_area	   *dr_dsa;
 
 /* public function */
 void DRCheckStarted(void);
@@ -320,7 +329,7 @@ void DRUtilsAbort(void);
 /* dynamic reduce shared memory functions in dr_shm.c */
 void DRSetupShmem(void);
 void DRResetShmem(void);
-void DRAttachShmem(Datum datum);
+void DRAttachShmem(Datum datum, bool isDynamicReduce);
 void DRDetachShmem(void);
 uint32 DRNextSharedFileSetNumber(void);
 
