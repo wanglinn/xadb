@@ -6,16 +6,20 @@
 #include "libpq/pqmq.h"
 #include "miscadmin.h"
 #include "pgstat.h"
+#include "utils/dsa.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"
 
 #include "utils/dynamicreduce.h"
 #include "utils/dr_private.h"
 
+#define DR_DSA_DEFAULT_SIZE			(1024*1024)		/* 1M */
+
 dsm_segment *dr_mem_seg = NULL;
 shm_mq_handle *dr_mq_backend_sender = NULL;
 shm_mq_handle *dr_mq_worker_sender = NULL;
 SharedFileSet *dr_shared_fs = NULL;
+dsa_area	  *dr_dsa = NULL;
 static uint32 dr_shared_fs_num = 0U;
 
 static void check_error_message_from_reduce(void)
@@ -78,8 +82,8 @@ static uint8 recv_msg_from_plan(shm_mq_handle *mqh, Size *sizep, void **datap, D
 		Assert(size == 8);
 		if (info)
 			info->u32 = *((uint32*)(addr+4));
-		*datap = addr + 4;
-		*sizep = size - 4;
+		*datap = NULL;
+		*sizep = 0;
 		break;
 	case ADB_DR_MSG_END_OF_PLAN:
 		Assert(size == sizeof(addr[0]));
@@ -87,6 +91,13 @@ static uint8 recv_msg_from_plan(shm_mq_handle *mqh, Size *sizep, void **datap, D
 		*datap = NULL;
 		if (info)
 			MemSet(info, 0, sizeof(*info));
+		break;
+	case ADB_DR_MSG_SHARED_TUPLE_STORE:
+		Assert(size == SIZEOF_DSA_POINTER*2);
+		*sizep = 0;
+		*datap = NULL;
+		if (info)
+			info->dp = *((dsa_pointer*)(addr+SIZEOF_DSA_POINTER));
 		break;
 	default:
 		ereport(ERROR,
@@ -176,6 +187,8 @@ DynamicReduceRecvTuple(shm_mq_handle *mqh, struct TupleTableSlot *slot, StringIn
 		return DR_MSG_RECV;
 	case ADB_DR_MSG_SHARED_FILE_NUMBER:
 		return DR_MSG_RECV_SF;
+	case ADB_DR_MSG_SHARED_TUPLE_STORE:
+		return DR_MSG_RECV_STS;
 	default:
 		elog(ERROR, "unknown message type %u from dynamic reduce", result);
 		break;
@@ -218,6 +231,9 @@ int DynamicReduceSendOrRecvTuple(shm_mq_handle *mqsend, shm_mq_handle *mqrecv,
 			break;
 		case ADB_DR_MSG_SHARED_FILE_NUMBER:
 			flags |= DR_MSG_RECV_SF;
+			break;
+		case ADB_DR_MSG_SHARED_TUPLE_STORE:
+			flags |= DR_MSG_RECV_STS;
 			break;
 		default:
 			elog(ERROR, "unknown message type from dynamic reduce");
@@ -538,6 +554,7 @@ void DRSetupShmem(void)
 	size = add_size(MAXALIGN(ADB_DYNAMIC_REDUCE_QUERY_SIZE),
 					MAXALIGN(ADB_DYNAMIC_REDUCE_QUERY_SIZE));
 	size = add_size(size, MAXALIGN(sizeof(SharedFileSet)));
+	size = add_size(size, MAXALIGN(DR_DSA_DEFAULT_SIZE));
 
 	dr_mem_seg = dsm_create(size, 0);
 
@@ -596,11 +613,24 @@ void DRResetShmem(void)
 	dr_shared_fs = (SharedFileSet*)addr;
 	addr += MAXALIGN(sizeof(SharedFileSet));
 
+	if (dr_dsa)
+	{
+		dsa_trim(dr_dsa);
+	}else
+	{
+		dr_dsa = dsa_create_in_place(addr,
+									 MAXALIGN(DR_DSA_DEFAULT_SIZE),
+									 LWTRANCHE_DYNAMIC_REDUCE_DSA,
+									 dr_mem_seg);
+		dsa_pin_mapping(dr_dsa);
+	}
+	addr += MAXALIGN(DR_DSA_DEFAULT_SIZE);
+
 	MemoryContextSwitchTo(oldcontext);
 	CurrentResourceOwner = saved_owner;
 }
 
-void DRAttachShmem(Datum datum)
+void DRAttachShmem(Datum datum, bool isDynamicReduce)
 {
 	char		   *addr;
 	shm_mq		   *mq[2];
@@ -620,19 +650,27 @@ void DRAttachShmem(Datum datum)
 	mq[1] = (shm_mq*)addr;
 	addr += MAXALIGN(ADB_DYNAMIC_REDUCE_QUERY_SIZE);
 
-	shm_mq_set_receiver(mq[ADB_DR_MQ_BACKEND_SENDER], MyProc);
-	dr_mq_backend_sender = shm_mq_attach(mq[ADB_DR_MQ_BACKEND_SENDER], dr_mem_seg, NULL);
+	if (isDynamicReduce)
+	{
+		shm_mq_set_receiver(mq[ADB_DR_MQ_BACKEND_SENDER], MyProc);
+		dr_mq_backend_sender = shm_mq_attach(mq[ADB_DR_MQ_BACKEND_SENDER], dr_mem_seg, NULL);
 
-	shm_mq_set_sender(mq[ADB_DR_MQ_WORKER_SENDER], MyProc);
-	dr_mq_worker_sender = shm_mq_attach(mq[ADB_DR_MQ_WORKER_SENDER], dr_mem_seg, NULL);
+		shm_mq_set_sender(mq[ADB_DR_MQ_WORKER_SENDER], MyProc);
+		dr_mq_worker_sender = shm_mq_attach(mq[ADB_DR_MQ_WORKER_SENDER], dr_mem_seg, NULL);
+	}
 
 	SharedFileSetAttach((SharedFileSet*)addr, dr_mem_seg);
 	dr_shared_fs = (SharedFileSet*)addr;
 	addr += MAXALIGN(sizeof(SharedFileSet));
 
+	dr_dsa = dsa_attach_in_place(addr, dr_mem_seg);
+	dsa_pin_mapping(dr_dsa);
+	addr += MAXALIGN(DR_DSA_DEFAULT_SIZE);
+
 	MemoryContextSwitchTo(oldcontext);
 
-	pq_redirect_to_shm_mq(dr_mem_seg, dr_mq_worker_sender);
+	if (isDynamicReduce)
+		pq_redirect_to_shm_mq(dr_mem_seg, dr_mq_worker_sender);
 }
 
 void DRDetachShmem(void)
@@ -651,6 +689,7 @@ void DRDetachShmem(void)
 	/* dr_shared_fs auto detach in dsm_detach() function */
 	dr_shared_fs = NULL;
 	dr_shared_fs_num = 0U;
+	MEM_DETACH(dr_dsa, dsa_detach);
 	MEM_DETACH(dr_mem_seg, dsm_detach);
 
 #undef MEM_DETACH
@@ -669,4 +708,24 @@ SharedFileSet* DynamicReduceGetSharedFileSet(void)
 uint32 DRNextSharedFileSetNumber(void)
 {
 	return dr_shared_fs_num++;
+}
+
+Size EstimateDynamicReduceStateSpace(void)
+{
+	if (dr_mem_seg == NULL)
+		return 0;
+	return sizeof(dsm_handle);
+}
+
+void SerializeDynamiceReduceState(Size maxsize, char *start_address)
+{
+	Assert(dr_mem_seg != NULL);
+	*(dsm_handle*)start_address = dsm_segment_handle(dr_mem_seg);
+}
+
+void RestoreDynamicReduceState(void *state)
+{
+	dsm_handle handle = *(dsm_handle*)state;
+	Assert(handle != DSM_HANDLE_INVALID);
+	DRAttachShmem(UInt32GetDatum(handle), false);
 }

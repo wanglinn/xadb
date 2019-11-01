@@ -2,6 +2,7 @@
 
 #include "executor/executor.h"
 #include "pgxc/pgxc.h"
+#include "utils/sharedtuplestore.h"
 
 #include "utils/dynamicreduce.h"
 #include "utils/dr_private.h"
@@ -26,6 +27,8 @@ void DynamicReduceInitFetch(DynamicReduceIOBuffer *io, dsm_segment *seg, TupleDe
 	io->mqh_receiver = shm_mq_attach(mq, seg, NULL);
 
 	io->shared_file = NULL;
+	io->sts = NULL;
+	io->sts_dsa_ptr = InvalidDsaPointer;
 	initStringInfo(&io->send_buf);
 	initStringInfo(&io->recv_buf);
 	initOidBuffer(&io->tmp_buf);
@@ -78,6 +81,13 @@ void DynamicReduceClearFetch(DynamicReduceIOBuffer *io)
 		shm_mq_detach(io->mqh_sender);
 		io->mqh_sender = NULL;
 	}
+	if (io->sts)
+	{
+		Assert(io->sts_dsa_ptr != InvalidDsaPointer);
+		DynamicReduceCloseSharedTuplestore(io->sts, io->sts_dsa_ptr);
+		io->sts = NULL;
+		io->sts_dsa_ptr = InvalidDsaPointer;
+	}
 }
 
 static inline void DRFetchOpenSharedFile(DynamicReduceIOBuffer *io, uint32 id)
@@ -103,6 +113,27 @@ static inline void DRFetchCloseSharedFile(DynamicReduceIOBuffer *io)
 	/* delete cache file */
 	BufFileDeleteShared(DynamicReduceGetSharedFileSet(),
 						DynamicReduceSharedFileName(name, io->shared_file_no));
+}
+
+static inline void DRFetchOpenSharedTuplestore(DynamicReduceIOBuffer *io, dsa_pointer dp)
+{
+	MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(io->mqh_sender));
+	Assert(io->sts_dsa_ptr == InvalidDsaPointer);
+	Assert(io->sts == NULL);
+	io->sts_dsa_ptr = dp;
+	io->sts = DynamicReduceOpenSharedTuplestore(dp);
+	sts_begin_parallel_scan(io->sts);
+	MemoryContextSwitchTo(oldcontext);
+}
+
+static inline void DRFetchCloseSharedTuplestore(DynamicReduceIOBuffer *io)
+{
+	DynamicReduceCloseSharedTuplestore(io->sts, io->sts_dsa_ptr);
+	io->sts = NULL;
+	io->sts_dsa_ptr = InvalidDsaPointer;
+
+	/* shared tuplestore is last message */
+	io->eof_remote = true;
 }
 
 TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
@@ -137,6 +168,16 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 				}
 				return slot;
 			}
+			if (io->sts)
+			{
+				MinimalTuple mtup = sts_parallel_scan_next(io->sts, NULL);
+				if (mtup == NULL)
+				{
+					DRFetchCloseSharedTuplestore(io);
+					continue;
+				}
+				return ExecStoreMinimalTuple(mtup, io->slot_remote, false);
+			}
 
 			dr_flags = DynamicReduceRecvTuple(io->mqh_receiver,
 											  io->slot_remote,
@@ -153,6 +194,11 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 			{
 				DRFetchOpenSharedFile(io, info.u32);
 				Assert(io->shared_file != NULL);
+				continue;
+			}else if (dr_flags == DR_MSG_RECV_STS)
+			{
+				DRFetchOpenSharedTuplestore(io, info.dp);
+				Assert(io->sts != NULL);
 				continue;
 			}else if (dr_flags != 0)
 			{
@@ -208,6 +254,11 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 		{
 			DRFetchOpenSharedFile(io, info.u32);
 			Assert(io->shared_file != NULL);
+		}
+		if (dr_flags & DR_MSG_RECV_STS)
+		{
+			DRFetchOpenSharedTuplestore(io, info.dp);
+			Assert(io->sts != NULL);
 		}
 	}
 
@@ -266,4 +317,33 @@ TupleTableSlot* DynamicReduceFetchLocal(DynamicReduceIOBuffer *io)
 	}
 
 	return result;
+}
+
+struct SharedTuplestoreAccessor* DynamicReduceOpenSharedTuplestore(dsa_pointer ptr)
+{
+	DynamicReduceSharedTuplestore	*sts_mem;
+	SharedTuplestoreAccessor		*sts_accessor;
+
+	sts_mem = dsa_get_address(dr_dsa, ptr);
+	elog(LOG, "DynamicReduceOpenSharedTuplestore(%u)", pg_atomic_read_u32(&sts_mem->attached));
+	Assert(pg_atomic_read_u32(&sts_mem->attached) > 0);
+	sts_accessor = sts_attach_read_only((SharedTuplestore*)sts_mem->sts, dr_shared_fs);
+
+	return sts_accessor;
+}
+
+void DynamicReduceCloseSharedTuplestore(struct SharedTuplestoreAccessor *stsa, dsa_pointer ptr)
+{
+	DynamicReduceSharedTuplestore	*sts_mem;
+
+	sts_mem = dsa_get_address(dr_dsa, ptr);
+	elog(LOG, "DynamicReduceCloseSharedTuplestore(%u)", pg_atomic_read_u32(&sts_mem->attached));
+	Assert(pg_atomic_read_u32(&sts_mem->attached) > 0);
+	sts_detach(stsa);
+	if (pg_atomic_sub_fetch_u32(&sts_mem->attached, 1) == 0)
+	{
+		elog(LOG, "sts_delete_shared_files");
+		sts_delete_shared_files((SharedTuplestore*)sts_mem->sts, dr_shared_fs);
+		dsa_free(dr_dsa, ptr);
+	}
 }

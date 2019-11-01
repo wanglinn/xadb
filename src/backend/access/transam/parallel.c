@@ -77,6 +77,7 @@
 #define PARALLEL_KEY_REINDEX_STATE			UINT64CONST(0xFFFFFFFFFFFF000B)
 #ifdef ADB
 #define PARALLEL_KEY_NODE_INFO				UINT64CONST(0xFFFFFFFFFFFF000C)
+#define PARALLEL_KEY_REDUCE_STATE			UINT64CONST(0xFFFFFFFFFFFF000D)
 #endif /* ADB */
 
 /* Fixed-size parallel state. */
@@ -226,6 +227,7 @@ InitializeParallelDSM(ParallelContext *pcxt)
 	Size		segsize = 0;
 #ifdef ADB
 	Size		nodeinfolen = 0;
+	Size		drinfolen = 0;
 #endif /* ADB */
 	int			i;
 	FixedParallelState *fps;
@@ -299,6 +301,13 @@ InitializeParallelDSM(ParallelContext *pcxt)
 		nodeinfolen = EstimateNodeInfoSpace();
 		shm_toc_estimate_chunk(&pcxt->estimator, nodeinfolen);
 		shm_toc_estimate_keys(&pcxt->estimator, 1);
+
+		drinfolen = EstimateDynamicReduceStateSpace();
+		if (drinfolen > 0)
+		{
+			shm_toc_estimate_chunk(&pcxt->estimator, drinfolen);
+			shm_toc_estimate_keys(&pcxt->estimator, 1);
+		}
 #endif /* ADB */
 	}
 
@@ -447,6 +456,13 @@ InitializeParallelDSM(ParallelContext *pcxt)
 			char *ptr = shm_toc_allocate(pcxt->toc, nodeinfolen);
 			SerializeNodeInfo(nodeinfolen, ptr);
 			shm_toc_insert(pcxt->toc, PARALLEL_KEY_NODE_INFO, ptr);
+		}
+
+		if (drinfolen > 0)
+		{
+			char *ptr = shm_toc_allocate(pcxt->toc, drinfolen);
+			SerializeDynamiceReduceState(drinfolen, ptr);
+			shm_toc_insert(pcxt->toc, PARALLEL_KEY_REDUCE_STATE, ptr);
 		}
 #endif /* ADB */
 	}
@@ -1361,6 +1377,12 @@ ParallelWorkerMain(Datum main_arg)
 	CommitTransactionCommand();
 
 	RestoreNodeInfo(shm_toc_lookup(toc, PARALLEL_KEY_NODE_INFO, false));
+
+	{
+		void *ptr = shm_toc_lookup(toc, PARALLEL_KEY_REDUCE_STATE, true);
+		if (ptr != NULL)
+			RestoreDynamicReduceState(ptr);
+	}
 #endif
 
 	/*

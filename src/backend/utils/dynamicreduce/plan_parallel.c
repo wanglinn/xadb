@@ -3,11 +3,22 @@
 #include "access/htup_details.h"
 #include "access/xact.h"
 #include "libpq/pqformat.h"
+#include "utils/dsa.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"
 
 #include "utils/dynamicreduce.h"
 #include "utils/dr_private.h"
+
+typedef struct ParallelPlanPrivate
+{
+	SharedTuplestoreAccessor *sta;
+	DynamicReduceSharedTuplestore *shm;
+	dsa_pointer			dsa_ptr;
+	TupleTableSlot	   *slot_node_src;		/* type convert for recv tuple in from other node */
+	TupleTableSlot	   *slot_node_dest;		/* type convert for recv tuple out from other node */
+	StringInfoData		tup_buf;
+}ParallelPlanPrivate;
 
 static void ClearParallelPlanInfo(PlanInfo *pi)
 {
@@ -23,6 +34,37 @@ static void ClearParallelPlanInfo(PlanInfo *pi)
 			DRClearPlanWorkInfo(pi, &pi->pwi[i]);
 		pfree(pi->pwi);
 		pi->pwi = NULL;
+	}
+	if (pi->private)
+	{
+		ParallelPlanPrivate *private = pi->private;
+		if (private->sta)
+		{
+			sts_detach(private->sta);
+			private->sta = NULL;
+		}
+		/*
+		 * don't need call dsa_free
+		 * when error, dsm will reset
+		 * normal, last worker will call dsa_free
+		 */
+		if (private->slot_node_src)
+		{
+			ExecDropSingleTupleTableSlot(private->slot_node_src);
+			private->slot_node_src = NULL;
+		}
+		if (private->slot_node_dest)
+		{
+			ExecDropSingleTupleTableSlot(private->slot_node_dest);
+			private->slot_node_dest = NULL;
+		}
+		if (private->tup_buf.data)
+		{
+			pfree(private->tup_buf.data);
+			private->tup_buf.data = NULL;
+		}
+		pfree(private);
+		pi->private = NULL;
 	}
 	DRClearPlanInfo(pi);
 }
@@ -105,12 +147,56 @@ static void OnParallelPlanLatch(PlanInfo *pi)
 	}
 }
 
-static bool OnParallelPlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid)
+static inline SharedTuplestoreAccessor* ParallelPlanGetCacheSTS(ParallelPlanPrivate *private, uint32 npart)
+{
+	char			name[MAXPGPATH];
+	MemoryContext	oldcontext;
+
+	if (private->sta == NULL)
+	{
+		oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(private));
+
+		private->dsa_ptr = dsa_allocate(dr_dsa, offsetof(DynamicReduceSharedTuplestore, sts) + sts_estimate(1));
+		private->shm = dsa_get_address(dr_dsa, private->dsa_ptr);
+		pg_atomic_init_u32(&private->shm->attached, npart);
+		private->sta = sts_initialize((SharedTuplestore*)private->shm->sts,
+									  1, 0, 0, 0,
+									  dr_shared_fs,
+									  DynamicReduceSharedFileName(name, DRNextSharedFileSetNumber()));
+		elog(LOG, "ParallelPlanGetCacheSTS(%d,%d)", dr_shared_fs->creator_pid, dr_shared_fs->number);
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	return private->sta;
+}
+
+static inline MinimalTuple ParallelConvertNodeTupIn(MemoryContext context,
+													TupleTypeConvert *convert,
+													TupleTableSlot *src,
+													TupleTableSlot *dest,
+													const char *data,
+													int len)
 {
 	HeapTupleData	tup;
-	PlanWorkerInfo *pwi;
 	MinimalTuple	mtup;
 	MemoryContext	oldcontext;
+	
+	MemoryContextReset(context);
+	oldcontext = MemoryContextSwitchTo(context);
+
+	DRStoreTypeConvertTuple(src, data, len, &tup);
+	do_type_convert_slot_in(convert, src, dest, false);
+	mtup = ExecFetchSlotMinimalTuple(dest);
+	ExecClearTuple(src);
+
+	MemoryContextSwitchTo(oldcontext);
+	return mtup;
+}
+
+static bool OnParallelPlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid)
+{
+	PlanWorkerInfo *pwi;
+	MinimalTuple	mtup;
 	uint32			i,count;
 
 	i=pi->last_pwi;
@@ -131,18 +217,15 @@ static bool OnParallelPlanMessage(PlanInfo *pi, const char *data, int len, Oid n
 		appendBinaryStringInfoNT(&pwi->sendBuffer, (char*)&nodeoid, sizeof(nodeoid));
 		if (pi->type_convert)
 		{
-			MemoryContextReset(pi->convert_context);
-			oldcontext = MemoryContextSwitchTo(pi->convert_context);
-
-			DRStoreTypeConvertTuple(pwi->slot_node_src, data, len, &tup);
-			do_type_convert_slot_in(pi->type_convert, pwi->slot_node_src, pwi->slot_node_dest, false);
-			mtup = ExecFetchSlotMinimalTuple(pwi->slot_node_dest);
-			ExecClearTuple(pwi->slot_node_src);
-
+			mtup = ParallelConvertNodeTupIn(pi->convert_context,
+											pi->type_convert,
+											pwi->slot_node_src,
+											pwi->slot_node_dest,
+											data,
+											len);
 			appendBinaryStringInfoNT(&pwi->sendBuffer,
 									 (char*)mtup + MINIMAL_TUPLE_DATA_OFFSET,
 									 mtup->t_len - MINIMAL_TUPLE_DATA_OFFSET);
-			MemoryContextSwitchTo(oldcontext);
 		}else
 		{
 			appendBinaryStringInfoNT(&pwi->sendBuffer, data, len);
@@ -152,6 +235,33 @@ static bool OnParallelPlanMessage(PlanInfo *pi, const char *data, int len, Oid n
 
 		pi->last_pwi = i;
 
+		return true;
+	}
+
+	/* try cache on disk */
+	if (pi->private)
+	{
+		DR_PLAN_DEBUG((errmsg("parallel plan %d(%p) sts got a tuple from %u length %d",
+							  pi->plan_id, pi, nodeoid, len)));
+		ParallelPlanPrivate *private = pi->private;
+		if (pi->type_convert)
+		{
+			mtup = ParallelConvertNodeTupIn(pi->convert_context,
+											pi->type_convert,
+											private->slot_node_src,
+											private->slot_node_dest,
+											data,
+											len);
+		}else
+		{
+			resetStringInfo(&private->tup_buf);
+			Assert(private->tup_buf.maxlen >= MINIMAL_TUPLE_DATA_OFFSET);
+			private->tup_buf.len = MINIMAL_TUPLE_DATA_OFFSET;
+			appendBinaryStringInfoNT(&private->tup_buf, data, len);
+			mtup = (MinimalTuple)private->tup_buf.data;
+			mtup->t_len = len + MINIMAL_TUPLE_DATA_OFFSET;
+		}
+		sts_puttuple(ParallelPlanGetCacheSTS(private, pi->count_pwi), NULL, mtup);
 		return true;
 	}
 
@@ -181,7 +291,6 @@ static bool OnParallelPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
 
 	DR_PLAN_DEBUG_EOF((errmsg("parallel plan %d(%p) got end of plan message from node %u",
 							  pi->plan_id, pi, nodeoid)));
-	Assert(oidBufferMember(&pi->working_nodes, nodeoid, NULL));
 	appendOidBufferUniqueOid(&pi->end_of_plan_nodes, nodeoid);
 
 	if (pi->end_of_plan_nodes.len == pi->working_nodes.len)
@@ -192,13 +301,30 @@ static bool OnParallelPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
 				return false;
 		}
 
-		DR_PLAN_DEBUG_EOF((errmsg("parallel plan %d(%p) sending end of plan message", pi->plan_id, pi)));
-		for(i=pi->count_pwi;i>0;)
+		if (pi->private != NULL &&
+			((ParallelPlanPrivate*)pi->private)->sta != NULL)
 		{
-			pwi = &pi->pwi[--i];
-			appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_END_OF_PLAN);
-			DRSendPlanWorkerMessage(pwi, pi);
-			pwi->end_of_plan_send = true;
+			ParallelPlanPrivate *private = pi->private;
+			Assert(private->dsa_ptr != InvalidDsaPointer);
+			DR_PLAN_DEBUG_EOF((errmsg("parallel plan %d(%p) sending STS message", pi->plan_id, pi)));
+			sts_end_write(private->sta);
+			for (i=pi->count_pwi;i>0;)
+			{
+				pwi = &pi->pwi[--i];
+				appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_SHARED_TUPLE_STORE);
+				appendStringInfoSpaces(&pwi->sendBuffer, SIZEOF_DSA_POINTER-sizeof(char));	/* align */
+				appendBinaryStringInfoNT(&pwi->sendBuffer, (char*)&(private->dsa_ptr), SIZEOF_DSA_POINTER);
+			}
+		}else
+		{
+			DR_PLAN_DEBUG_EOF((errmsg("parallel plan %d(%p) sending end of plan message", pi->plan_id, pi)));
+			for(i=pi->count_pwi;i>0;)
+			{
+				pwi = &pi->pwi[--i];
+				appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_END_OF_PLAN);
+				DRSendPlanWorkerMessage(pwi, pi);
+				pwi->end_of_plan_send = true;
+			}
 		}
 	}
 	return true;
@@ -212,6 +338,7 @@ void DRStartParallelPlanMessage(StringInfo msg)
 	ResourceOwner			oldowner;
 	int						parallel_max;
 	int						i;
+	bool					cache_on_disk;
 
 	if (!IsTransactionState())
 	{
@@ -229,6 +356,7 @@ void DRStartParallelPlanMessage(StringInfo msg)
 		pq_copymsgbytes(msg, (char*)&parallel_max, sizeof(parallel_max));
 		if (parallel_max <= 1)
 			elog(ERROR, "invalid parallel count");
+		cache_on_disk = (bool)pq_getmsgbyte(msg);
 
 		pi = DRRestorePlanInfo(msg, (void**)&mq, sizeof(*mq)*parallel_max, ClearParallelPlanInfo);
 		pi->pwi = MemoryContextAllocZero(TopMemoryContext, sizeof(PlanWorkerInfo)*parallel_max);
@@ -239,6 +367,24 @@ void DRStartParallelPlanMessage(StringInfo msg)
 		CurrentResourceOwner = oldowner;
 		for (i=0;i<parallel_max;++i)
 			DRSetupPlanWorkTypeConvert(pi, &pi->pwi[i]);
+
+		if (cache_on_disk)
+		{
+			ParallelPlanPrivate *private = MemoryContextAllocZero(TopMemoryContext,
+																  sizeof(ParallelPlanPrivate));
+			pi->private = private;
+			private->dsa_ptr = InvalidDsaPointer;
+			if (pi->convert_context == NULL)
+			{
+				initStringInfo(&private->tup_buf);
+				enlargeStringInfo(&private->tup_buf, MINIMAL_TUPLE_DATA_OFFSET);
+				MemSet(private->tup_buf.data, 0, MINIMAL_TUPLE_DATA_OFFSET);
+			}else
+			{
+				private->slot_node_src = MakeSingleTupleTableSlot(pi->type_convert->out_desc);
+				private->slot_node_dest = MakeSingleTupleTableSlot(pi->type_convert->base_desc);
+			}
+		}
 
 		pi->OnLatchSet = OnParallelPlanLatch;
 		pi->OnNodeRecvedData = OnParallelPlanMessage;
@@ -261,7 +407,8 @@ void DRStartParallelPlanMessage(StringInfo msg)
 }
 
 void DynamicReduceStartParallelPlan(int plan_id, struct dsm_segment *seg,
-									DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, int parallel_max)
+									DynamicReduceMQ mq, TupleDesc desc, List *work_nodes,
+									int parallel_max, bool cache_on_disk)
 {
 	StringInfoData	buf;
 	Assert(plan_id >= 0);
@@ -273,6 +420,7 @@ void DynamicReduceStartParallelPlan(int plan_id, struct dsm_segment *seg,
 	pq_sendbyte(&buf, ADB_DR_MQ_MSG_START_PLAN_PARALLEL);
 
 	pq_sendbytes(&buf, (char*)&parallel_max, sizeof(parallel_max));
+	pq_sendbyte(&buf, cache_on_disk);
 	DRSerializePlanInfo(plan_id, seg, mq, sizeof(*mq)*parallel_max, desc, work_nodes, &buf);
 
 	DRSendMsgToReduce(buf.data, buf.len, false);
