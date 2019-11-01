@@ -131,12 +131,16 @@ re_wait_:
 		SetWaitPreCheckLatch(dr_wait_event_set, pre_check_latch);
 
 		nevent = WaitEventSetWait(dr_wait_event_set,
-								  pre_check_latch ? -1:0,
+								  pre_check_latch ? 100:0,
 								  dr_wait_event,
 								  dr_wait_count,
 								  PG_WAIT_IPC);
 		if (nevent == 0)
+		{
+			if (pre_check_latch)
+				SetLatch(MyLatch);
 			goto re_wait_;
+		}
 
 		while (nevent > 0)
 		{
