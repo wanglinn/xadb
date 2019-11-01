@@ -27,6 +27,9 @@
 #include "storage/buffile.h"
 #include "storage/lwlock.h"
 #include "storage/sharedfileset.h"
+#ifdef ADB_EXT
+#include "utils/memutils.h"
+#endif /* ADB_EXT */
 #include "utils/sharedtuplestore.h"
 
 #include <limits.h>
@@ -100,7 +103,7 @@ struct SharedTuplestoreAccessor
 	char	   *write_end;		/* One past the end of the current chunk. */
 };
 
-static void sts_filename(char *name, SharedTuplestoreAccessor *accessor,
+static inline void sts_filename(char *name, SharedTuplestore *sts,
 			 int participant);
 
 /*
@@ -164,6 +167,9 @@ sts_initialize(SharedTuplestore *sts, int participants,
 		LWLockInitialize(&sts->participants[i].lock,
 						 LWTRANCHE_SHARED_TUPLESTORE);
 		sts->participants[i].read_page = 0;
+#ifdef ADB_EXT
+		sts->participants[i].npages = 0;
+#endif /* ADB_EXT */
 		sts->participants[i].writing = false;
 	}
 
@@ -350,10 +356,16 @@ sts_puttuple(SharedTuplestoreAccessor *accessor, void *meta_data,
 	{
 		SharedTuplestoreParticipant *participant;
 		char		name[MAXPGPATH];
+#ifdef ADB_EXT
+		MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(accessor));
+#endif /* ADB_EXT */
 
 		/* Create one.  Only this backend will write into it. */
-		sts_filename(name, accessor, accessor->participant);
+		sts_filename(name, accessor->sts, accessor->participant);
 		accessor->write_file = BufFileCreateShared(accessor->fileset, name);
+#ifdef ADB_EXT
+		MemoryContextSwitchTo(oldcontext);
+#endif /* ADB_EXT */
 
 		/* Set up the shared state for this backend's file. */
 		participant = &accessor->sts->participants[accessor->participant];
@@ -613,10 +625,16 @@ sts_parallel_scan_next(SharedTuplestoreAccessor *accessor, void *meta_data)
 			if (accessor->read_file == NULL)
 			{
 				char		name[MAXPGPATH];
+#ifdef ADB_EXT
+				MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(accessor));
+#endif /* ADB_EXT */
 
-				sts_filename(name, accessor, accessor->read_participant);
+				sts_filename(name, accessor->sts, accessor->read_participant);
 				accessor->read_file =
 					BufFileOpenShared(accessor->fileset, name);
+#ifdef ADB_EXT
+				MemoryContextSwitchTo(oldcontext);
+#endif /* ADB_EXT */
 			}
 
 			/* Seek and load the chunk header. */
@@ -629,7 +647,8 @@ sts_parallel_scan_next(SharedTuplestoreAccessor *accessor, void *meta_data)
 							STS_CHUNK_HEADER_SIZE) != STS_CHUNK_HEADER_SIZE)
 				ereport(ERROR,
 						(errcode_for_file_access(),
-						 errmsg("could not read from shared tuplestore temporary file"),
+						 errmsg("could not read from shared tuplestore temporary file(%d,%d,%s)",
+						 		accessor->fileset->creator_pid, accessor->fileset->number, accessor->sts->name),
 						 errdetail_internal("Short read while reading chunk header.")));
 
 			/*
@@ -677,10 +696,10 @@ sts_parallel_scan_next(SharedTuplestoreAccessor *accessor, void *meta_data)
 /*
  * Create the name used for the BufFile that a given participant will write.
  */
-static void
-sts_filename(char *name, SharedTuplestoreAccessor *accessor, int participant)
+static inline void
+sts_filename(char *name, SharedTuplestore *sts, int participant)
 {
-	snprintf(name, MAXPGPATH, "%s.p%d", accessor->sts->name, participant);
+	snprintf(name, MAXPGPATH, "%s.p%d", sts->name, participant);
 }
 
 #ifdef ADB_EXT
@@ -703,4 +722,28 @@ MinimalTuple sts_scan_next(SharedTuplestoreAccessor *accessor,
 	Assert(accessor->is_normal_scan);
 	return sts_parallel_scan_next(accessor, meta_data);
 }
+
+void sts_detach(SharedTuplestoreAccessor *accessor)
+{
+	sts_end_write(accessor);
+	sts_end_parallel_scan(accessor);
+	pfree(accessor);
+}
+
+void sts_delete_shared_files(SharedTuplestore *sts, SharedFileSet *fileset)
+{
+	char		name[MAXPGPATH];
+	int			part;
+
+	for (part=sts->nparticipants;part>0;)
+	{
+		--part;
+		if (sts->participants[part].npages > 0)
+		{
+			sts_filename(name, sts, part);
+			BufFileDeleteShared(fileset, name);
+		}
+	}
+}
+
 #endif /* ADB_EXT */
