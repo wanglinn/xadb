@@ -312,7 +312,7 @@ sts_begin_parallel_scan(SharedTuplestoreAccessor *accessor)
 #ifdef ADB_EXT
 	accessor->read_ntuples = 0;
 	accessor->read_ntuples_available = 0;
-#endif ADB_EXT /* ADB_EXT */
+#endif /* ADB_EXT */
 }
 
 /*
