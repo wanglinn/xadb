@@ -1261,7 +1261,7 @@ TransactionId GixRcvGetGlobalTransactionId(bool isSubXact)
 		return MyProc->getGlobalTransaction;
 	}
 
-	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 1000);
+	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 3000);
 	WaitGxidRcvEvent(endtime, WaitGxidRcvCondReturn, &GxidRcv->reters, &GxidRcv->geters, NULL);
 
 	if (!TransactionIdIsValid(MyProc->getGlobalTransaction))
@@ -1315,7 +1315,7 @@ void GixRcvCommitTransactionId(TransactionId txid)
 	}
 
 	MyProc->getGlobalTransaction = txid;
-	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 1000);
+	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 3000);
 	ret = WaitGxidRcvEvent(endtime, WaitGxidRcvCommitReturn, &GxidRcv->wait_commiters,
 				&GxidRcv->send_commiters, (void*)((size_t)txid));
 
