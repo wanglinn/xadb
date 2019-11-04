@@ -610,7 +610,8 @@ AssignTransactionId(TransactionState s)
 	Assert(s->state == TRANS_INPROGRESS);
 
 #ifdef ADB
-	if(isSubXact && try_agtm)
+   /*4.0 is if(isSubXact && is_under_agtm) now all nodes is under gtm*/
+	if(isSubXact)
 		ereport(ERROR, (errmsg("cannot assign XIDs in child transaction")));
 #endif /* ADB */
 

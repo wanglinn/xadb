@@ -622,11 +622,14 @@ found_free_:
 	MyProc->waitProcLock = NULL;
 #ifdef USE_ASSERT_CHECKING
 	{
-		int			i;
+		ADB_ONLY_CODE(if(MyAuxProcType != SnapReceiverProcess))
+		{
+			int			i;
 
-		/* Last process should have released all locks. */
-		for (i = 0; i < NUM_LOCK_PARTITIONS; i++)
-			Assert(SHMQueueEmpty(&(MyProc->myProcLocks[i])));
+			/* Last process should have released all locks. */
+			for (i = 0; i < NUM_LOCK_PARTITIONS; i++)
+				Assert(SHMQueueEmpty(&(MyProc->myProcLocks[i])));
+		}
 	}
 #endif
 
