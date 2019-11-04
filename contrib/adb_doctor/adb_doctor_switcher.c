@@ -62,6 +62,8 @@ static bool isAllCoordinatorsHoldGtmCoordMaster(MgrNodeWrapper *gtmCoordMaster,
 static CoordinatorHoldMgrNode isCoordinatorHoldMgrNode(MgrNodeWrapper *coordinator,
 													   MgrNodeWrapper *mgrNode,
 													   bool complain);
+static bool isAnyCoordinatorsQueryOk(MemoryContext spiContext);
+static bool isCoordinatorQueryOk(MgrNodeWrapper *coordinator);
 static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 								 MemoryContext spiContext);
 static void getCheckMgrNodesForSwitcher(dlist_head *nodes);
@@ -579,6 +581,12 @@ static bool checkIfGtmCoordOldMasterCanReign(MgrNodeWrapper *oldMaster,
 		}
 		if (haveQualifiedCandidate)
 			goto end;
+
+		if (isAnyCoordinatorsQueryOk(spiContext))
+		{
+			allCoordinatorsHoldOldMaster = false;
+			goto end;
+		}
 
 		/* 
 		 * may be some slave nodes has been promoted as a master node, 
@@ -1192,6 +1200,58 @@ static CoordinatorHoldMgrNode isCoordinatorHoldMgrNode(MgrNodeWrapper *coordinat
 		pgconn = NULL;
 	}
 	return hold;
+}
+
+static bool isAnyCoordinatorsQueryOk(MemoryContext spiContext)
+{
+	dlist_head coordinators = DLIST_STATIC_INIT(coordinators);
+	dlist_iter iter;
+	MgrNodeWrapper *coordinator;
+	bool anyQueryOk;
+
+	selectActiveMgrNodeByNodetype(spiContext,
+								  CNDN_TYPE_COORDINATOR_MASTER,
+								  &coordinators);
+	anyQueryOk = false;
+	dlist_foreach(iter, &coordinators)
+	{
+		coordinator = dlist_container(MgrNodeWrapper, link, iter.cur);
+		if (isCoordinatorQueryOk(coordinator))
+		{
+			anyQueryOk = true;
+			break;
+		}
+		else
+		{
+			anyQueryOk = false;
+			continue;
+		}
+	}
+	pfreeMgrNodeWrapperList(&coordinators, NULL);
+	return anyQueryOk;
+}
+
+static bool isCoordinatorQueryOk(MgrNodeWrapper *coordinator)
+{
+	PGconn *pgconn = NULL;
+	bool queryOk = false;
+
+	pgconn = getNodeDefaultDBConnection(coordinator, 10);
+	if (!pgconn)
+	{
+		queryOk = false;
+	}
+	else
+	{
+		queryOk = (getNodeRunningMode(pgconn) == NODE_RUNNING_MODE_MASTER);
+	}
+
+	if (pgconn)
+	{
+		PQfinish(pgconn);
+		pgconn = NULL;
+	}
+	return queryOk;
 }
 
 static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
