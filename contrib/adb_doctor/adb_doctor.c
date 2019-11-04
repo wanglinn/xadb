@@ -415,17 +415,3 @@ void notifyAdbDoctorRegistrant(void)
 	}
 	SetLatch(&registrant->procLatch);
 }
-
-void usleepIgnoreSignal(long microsec)
-{
-	TimestampTz current;
-	TimestampTz latest;
-	current = GetCurrentTimestamp();
-	while (microsec > 0)
-	{
-		latest = current;
-		pg_usleep(microsec);
-		current = GetCurrentTimestamp();
-		microsec -= (current - latest);
-	}
-}
