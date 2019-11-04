@@ -51,6 +51,4 @@ extern void adbDoctorRepairerMain(Datum main_arg) pg_attribute_noreturn();
 extern void cleanupAdbDoctorBgworker(dsm_segment *seg, Datum arg);
 extern void notifyAdbDoctorRegistrant(void);
 
-extern void usleepIgnoreSignal(long microsec);
-
 #endif
