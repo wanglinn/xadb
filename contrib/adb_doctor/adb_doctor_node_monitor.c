@@ -1881,6 +1881,7 @@ static void treatFollowFailAfterSwitch(MgrNodeWrapper *followFail)
 	MemoryContext spiContext;
 	int ret;
 	bool done;
+	int rc;
 
 	/* Wait for a while, let the cluster fully return to normal */
 	pg_usleep(10L * 1000000L);
@@ -1929,7 +1930,24 @@ static void treatFollowFailAfterSwitch(MgrNodeWrapper *followFail)
 		{
 			SPI_FINISH_TRANSACTIONAL_ABORT();
 			CHECK_FOR_INTERRUPTS();
-			pg_usleep(nodeConfiguration->retryFollowMasterIntervalMs * 1000L);
+			rc = WaitLatchOrSocket(MyLatch,
+								   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
+								   PGINVALID_SOCKET,
+								   nodeConfiguration->retryFollowMasterIntervalMs,
+								   PG_WAIT_EXTENSION);
+			/* Reset the latch, bail out if postmaster died. */
+			if (rc & WL_POSTMASTER_DEATH)
+			{
+				ereport(ERROR,
+						(errmsg("%s my postmaster dead, i need to exit",
+								MyBgworkerEntry->bgw_name)));
+			}
+			/* Interrupted? */
+			if (rc & WL_LATCH_SET)
+			{
+				ResetLatch(MyLatch);
+				CHECK_FOR_INTERRUPTS();
+			}
 		}
 	}
 }
@@ -1941,6 +1959,7 @@ static void treatOldMasterAfterSwitch(MgrNodeWrapper *oldMaster)
 	MemoryContext spiContext;
 	int ret;
 	bool done;
+	int rc;
 
 	/* Wait for a while, let the cluster fully return to normal */
 	pg_usleep(10L * 1000000L);
@@ -1989,7 +2008,24 @@ static void treatOldMasterAfterSwitch(MgrNodeWrapper *oldMaster)
 		{
 			SPI_FINISH_TRANSACTIONAL_ABORT();
 			CHECK_FOR_INTERRUPTS();
-			pg_usleep(nodeConfiguration->retryRewindIntervalMs * 1000L);
+			rc = WaitLatchOrSocket(MyLatch,
+								   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
+								   PGINVALID_SOCKET,
+								   nodeConfiguration->retryRewindIntervalMs,
+								   PG_WAIT_EXTENSION);
+			/* Reset the latch, bail out if postmaster died. */
+			if (rc & WL_POSTMASTER_DEATH)
+			{
+				ereport(ERROR,
+						(errmsg("%s my postmaster dead, i need to exit",
+								MyBgworkerEntry->bgw_name)));
+			}
+			/* Interrupted? */
+			if (rc & WL_LATCH_SET)
+			{
+				ResetLatch(MyLatch);
+				CHECK_FOR_INTERRUPTS();
+			}
 		}
 	}
 }
