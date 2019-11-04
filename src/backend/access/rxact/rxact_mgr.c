@@ -1751,7 +1751,17 @@ static void rxact_2pc_do(void)
 	/*all_finish = true;*/
 	while((rinfo = hash_seq_search(&hstatus)) != NULL)
 	{
+#ifdef ADB_EXT
+		if (rinfo->count_nodes == 0)
+		{
+			ereport(ERROR,
+			(errcode(ERRCODE_UNDEFINED_OBJECT),
+			 errmsg("prepared transaction with identifier \"%s\" does not exist int this node",
+					rinfo->gid)));
+		}
+#else
 		Assert(rinfo->count_nodes > 0);
+#endif /* ADB_EXT */
 		if(rinfo->failed == false)
 			continue;
 
@@ -2209,7 +2219,7 @@ bool RecordRemoteXact(const char *gid, Oid *nodes, int count, RemoteXactType typ
 	AssertArg(gid && gid[0] && count >= 0);
 	AssertArg(RXACT_TYPE_IS_VALID(type));
 
-	ereport(DEBUG1, (errmsg("[ADB]Record %s rxact %s", RemoteXactType2String(type), gid)));
+	ereport(DEBUG1, (errmsg("[ADB_EXT]Record %s rxact %s", RemoteXactType2String(type), gid)));
 
 	if(connect_rxact(no_error) == false)
 		return false;
