@@ -313,6 +313,7 @@ static bool OnParallelPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
 				appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_SHARED_TUPLE_STORE);
 				appendStringInfoSpaces(&pwi->sendBuffer, SIZEOF_DSA_POINTER-sizeof(char));	/* align */
 				appendBinaryStringInfoNT(&pwi->sendBuffer, (char*)&(private->dsa_ptr), SIZEOF_DSA_POINTER);
+				pwi->end_of_plan_send = true;
 			}
 		}else
 		{
