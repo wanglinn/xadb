@@ -325,7 +325,6 @@ struct SharedTuplestoreAccessor* DynamicReduceOpenSharedTuplestore(dsa_pointer p
 	SharedTuplestoreAccessor		*sts_accessor;
 
 	sts_mem = dsa_get_address(dr_dsa, ptr);
-	elog(LOG, "DynamicReduceOpenSharedTuplestore(%u)", pg_atomic_read_u32(&sts_mem->attached));
 	Assert(pg_atomic_read_u32(&sts_mem->attached) > 0);
 	sts_accessor = sts_attach_read_only((SharedTuplestore*)sts_mem->sts, dr_shared_fs);
 
@@ -337,12 +336,10 @@ void DynamicReduceCloseSharedTuplestore(struct SharedTuplestoreAccessor *stsa, d
 	DynamicReduceSharedTuplestore	*sts_mem;
 
 	sts_mem = dsa_get_address(dr_dsa, ptr);
-	elog(LOG, "DynamicReduceCloseSharedTuplestore(%u)", pg_atomic_read_u32(&sts_mem->attached));
 	Assert(pg_atomic_read_u32(&sts_mem->attached) > 0);
 	sts_detach(stsa);
 	if (pg_atomic_sub_fetch_u32(&sts_mem->attached, 1) == 0)
 	{
-		elog(LOG, "sts_delete_shared_files");
 		sts_delete_shared_files((SharedTuplestore*)sts_mem->sts, dr_shared_fs);
 		dsa_free(dr_dsa, ptr);
 	}
