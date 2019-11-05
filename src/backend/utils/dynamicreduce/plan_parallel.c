@@ -163,7 +163,6 @@ static inline SharedTuplestoreAccessor* ParallelPlanGetCacheSTS(ParallelPlanPriv
 									  1, 0, 0, 0,
 									  dr_shared_fs,
 									  DynamicReduceSharedFileName(name, DRNextSharedFileSetNumber()));
-		elog(LOG, "ParallelPlanGetCacheSTS(%d,%d)", dr_shared_fs->creator_pid, dr_shared_fs->number);
 		MemoryContextSwitchTo(oldcontext);
 	}
 
