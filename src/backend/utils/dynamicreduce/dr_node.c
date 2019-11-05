@@ -16,15 +16,14 @@
 
 static HTAB		   *htab_node_info = NULL;
 
-static void OnNodeEvent(WaitEvent *ev);
-static void OnNodeError(DREventData *base, int pos);
-static void OnPreWaitNode(struct DREventData *base, int pos);
+static void OnNodeEvent(DROnEventArgs);
+static void OnNodeError(DROnErrorArgs);
+static void OnPreWaitNode(DROnPreWaitArgs);
 
-static int PorcessNodeEventData(DRNodeEventData *ned, WaitEvent *ev);
-static void OnNodeSendMessage(DRNodeEventData *ned, int latch_pos);
-static void OnNodeRecvMessage(DRNodeEventData *ned, WaitEvent *ev);
+static int PorcessNodeEventData(DRNodeEventData *ned);
+static void OnNodeSendMessage(DRNodeEventData *ned, pgsocket fd);
 
-void DROnNodeConectSuccess(DRNodeEventData *ned, WaitEvent *ev)
+void DROnNodeConectSuccess(DRNodeEventData *ned)
 {
 	ned->base.OnEvent = OnNodeEvent;
 	ned->base.OnPreWait = OnPreWaitNode;
@@ -35,7 +34,7 @@ void DROnNodeConectSuccess(DRNodeEventData *ned, WaitEvent *ev)
 	if (ned->recvBuf.cursor < ned->recvBuf.len)
 	{
 		/* process other message(s) */
-		PorcessNodeEventData(ned, ev);
+		PorcessNodeEventData(ned);
 	}else
 	{
 		/* reset receive buffer */
@@ -119,18 +118,33 @@ bool PutMessageToNode(DRNodeEventData *ned, char msg_type, const char *data, uin
 	return true;
 }
 
-static void OnNodeEvent(WaitEvent *ev)
+static void OnNodeEvent(DROnEventArgs)
 {
+#ifdef DR_USING_EPOLL
+	DRNodeEventData *ned = (DRNodeEventData*)base;
+	Assert(ned->base.type == DR_EVENT_DATA_NODE);
+	DR_NODE_DEBUG((errmsg("node %d got events %d", ned->nodeoid, ev->events)));
+	if ((events & (EPOLLIN|EPOLLPRI|EPOLLHUP|EPOLLERR)) &&
+		ned->status != DRN_WAIT_CLOSE &&
+		RecvMessageFromNode(ned, ned->base.fd) > 0)
+		PorcessNodeEventData(ned);
+	if ((events & EPOLLOUT) &&
+		ned->status != DRN_WAIT_CLOSE)
+		OnNodeSendMessage(ned, ned->base.fd);
+#else
 	DRNodeEventData *ned = ev->user_data;
 	Assert(ned->base.type == DR_EVENT_DATA_NODE);
 	DR_NODE_DEBUG((errmsg("node %d got events %d", ned->nodeoid, ev->events)));
-	if (ev->events & WL_SOCKET_READABLE)
-		OnNodeRecvMessage(ned, ev);
-	if (ev->events & WL_SOCKET_WRITEABLE)
-		OnNodeSendMessage(ned, ev->pos);
+	if ((ev->events & WL_SOCKET_READABLE) &&
+		RecvMessageFromNode(ned, ev->fd) > 0)
+		PorcessNodeEventData(ned);
+	if ((ev->events & WL_SOCKET_WRITEABLE) &&
+		ned->status != DRN_WAIT_CLOSE)
+		OnNodeSendMessage(ned, ev->fd);
+#endif
 }
 
-static void OnNodeError(DREventData *base, int pos)
+static void OnNodeError(DROnErrorArgs)
 {
 	DRNodeEventData *ned = (DRNodeEventData*)base;
 	Assert(base->type == DR_EVENT_DATA_NODE);
@@ -141,12 +155,14 @@ static void OnNodeError(DREventData *base, int pos)
 		FreeNodeEventInfo(ned);
 }
 
-static void OnPreWaitNode(struct DREventData *base, int pos)
+static void OnPreWaitNode(DROnPreWaitArgs)
 {
 	DRNodeEventData *ned = (DRNodeEventData*)base;
 	uint32 need_event;
 	Assert(base->type == DR_EVENT_DATA_NODE);
+#ifndef DR_USING_EPOLL
 	Assert(GetWaitEventData(dr_wait_event_set, pos) == base);
+#endif
 	if (ned->status == DRN_WAIT_CLOSE)
 	{
 		if (dr_status == DRS_RESET)
@@ -157,16 +173,29 @@ static void OnPreWaitNode(struct DREventData *base, int pos)
 	if (OidIsValid(ned->nodeoid))
 	{
 		need_event = 0;
+#ifdef DR_USING_EPOLL
+		if (ned->recvBuf.maxlen > ned->recvBuf.len)
+			need_event |= EPOLLIN;
+		if (ned->sendBuf.len > ned->sendBuf.cursor)
+			need_event |= EPOLLOUT;
+		if (need_event != ned->waiting_events)
+		{
+			DR_NODE_DEBUG((errmsg("node %d set wait events %d", ned->nodeoid, need_event)));
+			DRCtlWaitEvent(ned->base.fd, need_event, ned, EPOLL_CTL_MOD);
+			ned->waiting_events = need_event;
+		}
+#else /* DR_USING_EPOLL */
 		if (ned->recvBuf.maxlen > ned->recvBuf.len)
 			need_event |= WL_SOCKET_READABLE;
 		if (ned->sendBuf.len > ned->sendBuf.cursor)
 			need_event |= WL_SOCKET_WRITEABLE;
 		DR_NODE_DEBUG((errmsg("node %d set wait events %d", ned->nodeoid, need_event)));
 		ModifyWaitEvent(dr_wait_event_set, pos, need_event, NULL);
+#endif /* DR_USING_EPOLL */
 	}
 }
 
-ssize_t RecvMessageFromNode(DRNodeEventData *ned, WaitEvent *ev)
+ssize_t RecvMessageFromNode(DRNodeEventData *ned, pgsocket fd)
 {
 	ssize_t size;
 	int space;
@@ -198,7 +227,7 @@ ssize_t RecvMessageFromNode(DRNodeEventData *ned, WaitEvent *ev)
 	Assert(space > 0);
 
 rerecv_:
-	size = recv(ev->fd,
+	size = recv(fd,
 				ned->recvBuf.data + ned->recvBuf.len,
 				space,
 				0);
@@ -228,7 +257,7 @@ rerecv_:
 	return size;
 }
 
-static int PorcessNodeEventData(DRNodeEventData *ned, WaitEvent *ev)
+static int PorcessNodeEventData(DRNodeEventData *ned)
 {
 	PlanInfo	   *pi;
 	StringInfoData	buf;
@@ -390,23 +419,7 @@ bool DRNodeFetchTuple(DRNodeEventData *ned, int fetch_plan_id, char **data, int 
 	return true;
 }
 
-static void OnNodeRecvMessage(DRNodeEventData *ned, WaitEvent *ev)
-{
-	ssize_t result;
-
-	Assert(ned->base.type == DR_EVENT_DATA_NODE);
-	Assert(ned->recvBuf.maxlen > ned->recvBuf.len);
-	if (ned->status == DRN_WAIT_CLOSE)
-		return;
-
-	result = RecvMessageFromNode(ned, ev);
-	if (result > 0)
-	{
-		PorcessNodeEventData(ned, ev);
-	}
-}
-
-static void OnNodeSendMessage(DRNodeEventData *ned, int latch_pos)
+static void OnNodeSendMessage(DRNodeEventData *ned, pgsocket fd)
 {
 	ssize_t result;
 
@@ -416,7 +429,7 @@ static void OnNodeSendMessage(DRNodeEventData *ned, int latch_pos)
 		return;
 
 resend_:
-	result = send(GetWaitEventSocket(dr_wait_event_set, latch_pos),
+	result = send(fd,
 				  ned->sendBuf.data + ned->sendBuf.cursor,
 				  ned->sendBuf.len - ned->sendBuf.cursor,
 				  0);
@@ -470,6 +483,20 @@ void DRNodeReset(DRNodeEventData *ned)
 void DRActiveNode(int planid)
 {
 	DRNodeEventData	   *ned;
+#ifdef DR_USING_EPOLL
+	HASH_SEQ_STATUS		seq;
+
+	hash_seq_init(&seq, htab_node_info);
+	while ((ned = hash_seq_search(&seq)) != NULL)
+	{
+		if (ned->base.type == DR_EVENT_DATA_NODE &&
+			ned->waiting_plan_id == planid)
+		{
+			DR_NODE_DEBUG((errmsg("plan %d activing node %u", planid, ned->nodeoid)));
+			PorcessNodeEventData(ned);
+		}
+	}
+#else /* DR_USING_EPOLL */
 	Size				i;
 
 	for (i=0;i<dr_wait_count;++i)
@@ -479,9 +506,10 @@ void DRActiveNode(int planid)
 			ned->waiting_plan_id == planid)
 		{
 			DR_NODE_DEBUG((errmsg("plan %d activing node %u", planid, ned->nodeoid)));
-			PorcessNodeEventData(ned, NULL);
+			PorcessNodeEventData(ned);
 		}
 	}
+#endif /* DR_USING_EPOLL */
 }
 
 void DRInitNodeSearch(void)
@@ -511,3 +539,11 @@ DRNodeEventData* DRSearchNodeEventData(Oid nodeoid, HASHACTION action, bool *fou
 	ned.nodeoid = nodeoid;
 	return hash_search_with_hash_value(htab_node_info, &ned, nodeoid, action, found);
 }
+
+#ifdef DR_USING_EPOLL
+void DRNodeSeqInit(HASH_SEQ_STATUS *seq)
+{
+	Assert(htab_node_info);
+	hash_seq_init(seq, htab_node_info);
+}
+#endif /* DR_USING_EPOLL */

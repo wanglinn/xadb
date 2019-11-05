@@ -384,14 +384,10 @@ PlanInfo* DRPlanSearch(int planid, HASHACTION action, bool *found)
 	return hash_search(htab_plan_info, &planid, action, found);
 }
 
-bool DRPlanSeqInit(HASH_SEQ_STATUS *seq)
+void DRPlanSeqInit(HASH_SEQ_STATUS *seq)
 {
-	if (htab_plan_info)
-	{
-		hash_seq_init(seq, htab_plan_info);
-		return true;
-	}
-	return false;
+	Assert(htab_plan_info);
+	hash_seq_init(seq, htab_plan_info);
 }
 
 void DRClearPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi)

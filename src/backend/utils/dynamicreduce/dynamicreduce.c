@@ -16,17 +16,26 @@
 #include <unistd.h>
 
 #include "utils/dr_private.h"
+#ifdef DR_USING_EPOLL
+#include "postmaster/postmaster.h"
+#endif /* DR_USING_EPOLL */
 
 DRLatchEventData *dr_latch_data = NULL;
 
 static BackgroundWorker *dr_bgworker = NULL;
 static BackgroundWorkerHandle *dr_bghandle = NULL;
 
+#ifdef DR_USING_EPOLL
+int					dr_epoll_fd = PGINVALID_SOCKET;
+struct epoll_event  *dr_epoll_events = NULL;
+#else
 WaitEventSet   *dr_wait_event_set = NULL;
 WaitEvent	   *dr_wait_event = NULL;
+#endif /* DR_USING_EPOLL */
 Size			dr_wait_count = 0;
 Size			dr_wait_max = 0;
 #define DrTopMemoryContext TopMemoryContext
+pid_t			dr_reduce_pid = 0;
 DR_STATUS		dr_status;
 bool			is_reduce_worker = false;
 
@@ -40,19 +49,42 @@ static void dr_start_event(void);
 static void handle_sigterm(SIGNAL_ARGS);
 
 /* event functions */
-static void OnPostmasterEvent(WaitEvent *ev);
-static void OnLatchEvent(WaitEvent *ev);
-static void OnLatchPreWait(DREventData *base, int pos);
-static void TryBackendMessage(WaitEvent *ev);
+static void OnPostmasterEvent(DROnEventArgs);
+static void OnLatchEvent(DROnEventArgs);
+static void OnLatchPreWait(DROnPreWaitArgs);
+static void TryBackendMessage(void);
 static void DRReset(void);
 
+#ifdef DR_USING_EPOLL
+static inline void DRSetupSignal(void)
+{
+	sigset_t	sigs;
+
+	/* block SIGUSR1 and SIGUSR2 */
+	if (sigemptyset(&sigs) < 0 ||
+		sigaddset(&sigs, SIGUSR1) < 0 ||
+		sigaddset(&sigs, SIGUSR2) < 0 ||
+		sigprocmask(SIG_SETMASK, &sigs, NULL) < 0 ||
+		raise(SIGUSR2) < 0)
+	{
+		elog(ERROR, "block signal failed: %m");
+	}
+}
+#endif
 void DynamicReduceWorkerMain(Datum main_arg)
 {
-	Size nevent;
 	DREventData *base;
 	sigjmp_buf	local_sigjmp_buf;
 	MemoryContext	loop_context;
+	HASH_SEQ_STATUS	seq_state;
+	PlanInfo	   *pi;
+#ifdef DR_USING_EPOLL
+	sigset_t		unblock_sigs;
+	int				nevent;
+#else
+	Size nevent;
 	bool pre_check_latch = false;
+#endif /* DR_USING_EPOLL */
 
 	is_reduce_worker = true;
 	ParallelWorkerNumber = 0;
@@ -65,7 +97,12 @@ void DynamicReduceWorkerMain(Datum main_arg)
 	 * signal handler that is a stripped-down version of die().
 	 */
 	pqsignal(SIGTERM, handle_sigterm);
+#ifdef DR_USING_EPOLL
+	DRSetupSignal();
+	sigemptyset(&unblock_sigs);
+#else
 	BackgroundWorkerUnblockSignals();
+#endif
 
 	dr_status = DRS_STARTUPED;
 
@@ -80,9 +117,6 @@ void DynamicReduceWorkerMain(Datum main_arg)
 
 	if (sigsetjmp(local_sigjmp_buf, 1) != 0)
 	{
-		PlanInfo	   *pi;
-		HASH_SEQ_STATUS seq_state;
-
 		/* Since not using PG_TRY, must reset error stack by hand */
 		error_context_stack = NULL;
 
@@ -99,6 +133,16 @@ void DynamicReduceWorkerMain(Datum main_arg)
 
 		DRUtilsAbort();
 
+#ifdef DR_USING_EPOLL
+		CallConnectingOnError();
+		DRNodeSeqInit(&seq_state);
+		while ((base=hash_seq_search(&seq_state)) != NULL)
+		{
+			Assert(base->type == DR_EVENT_DATA_NODE);
+			if (base->OnError)
+				(*base->OnError)(base);
+		}
+#else /* DR_USING_EPOLL */
 		for (nevent=dr_wait_count;nevent>0;)
 		{
 			--nevent;
@@ -106,6 +150,7 @@ void DynamicReduceWorkerMain(Datum main_arg)
 			if (base->OnError)
 				(*base->OnError)(base, (int)nevent);
 		}
+#endif /* DR_USING_EPOLL */
 	}
 	/* We can now handle ereport(ERROR) */
 	PG_exception_stack = &local_sigjmp_buf;
@@ -117,6 +162,31 @@ void DynamicReduceWorkerMain(Datum main_arg)
 		MemoryContextSwitchTo(loop_context);
 		MemoryContextResetAndDeleteChildren(loop_context);
 
+#ifdef DR_USING_EPOLL
+		DRNodeSeqInit(&seq_state);
+		while((base=hash_seq_search(&seq_state)) != NULL)
+		{
+			if (base->OnPreWait)
+				(*base->OnPreWait)(base);
+		}
+
+		DRPlanSeqInit(&seq_state);
+		while ((pi=hash_seq_search(&seq_state)) != NULL)
+		{
+			if (pi->OnPreWait)
+				(*pi->OnPreWait)(pi);
+		}
+
+		nevent = epoll_pwait(dr_epoll_fd, dr_epoll_events, (int)dr_wait_count, -1, &unblock_sigs);
+		while (nevent>0)
+		{
+			--nevent;
+			base = dr_epoll_events[nevent].data.ptr;
+			(*base->OnEvent)(base, dr_epoll_events[nevent].events);
+		}
+		if (MyLatch->is_set)
+			OnLatchEvent(NULL, 0);
+#else /* DR_USING_EPOLL */
 		for (nevent=dr_wait_count;nevent>0;)
 		{
 			--nevent;
@@ -149,6 +219,7 @@ re_wait_:
 			base = we->user_data;
 			(*base->OnEvent)(we);
 		}
+#endif /* DR_USING_EPOLL */
 	}
 }
 
@@ -157,7 +228,6 @@ uint16 StartDynamicReduceWorker(void)
 	Size			size;
 	StringInfoData	buf;
 	int				msgtype;
-	pid_t			pid;
 	uint32			i;
 	Oid				auth_user_id;
 	TimestampTz		ts;
@@ -171,6 +241,7 @@ uint16 StartDynamicReduceWorker(void)
 		Assert(dr_mem_seg != NULL);
 	}
 
+#ifndef DR_USING_EPOLL
 	if (dr_wait_event_set == NULL)
 	{
 		dr_wait_event_set = CreateWaitEventSet(TopMemoryContext, 2);
@@ -185,6 +256,7 @@ uint16 StartDynamicReduceWorker(void)
 						  NULL,
 						  NULL);
 	}
+#endif /* DR_USING_EPOLL */
 
 	if (dr_bgworker == NULL)
 	{
@@ -219,7 +291,7 @@ uint16 StartDynamicReduceWorker(void)
 			shm_mq_set_handle(dr_mq_worker_sender, dr_bghandle);
 		}
 
-		status = WaitForBackgroundWorkerStartup(dr_bghandle, &pid);
+		status = WaitForBackgroundWorkerStartup(dr_bghandle, &dr_reduce_pid);
 		if (status == BGWH_STARTED)
 		{
 			break;
@@ -281,24 +353,32 @@ void StopDynamicReduceWorker(void)
 {
 	HASH_SEQ_STATUS	seq;
 	PlanInfo	   *pi;
-	Size			i;
-	pgsocket		fd;
 
 	if (is_reduce_worker)
 	{
-		i = dr_wait_count;
+#ifdef DR_USING_EPOLL
+		DREventData		   *base;
+
+		DRNodeSeqInit(&seq);
+		while ((base=hash_seq_search(&seq)) != NULL)
+		{
+			if (base->fd != PGINVALID_SOCKET)
+				closesocket(base->fd);
+		}
+#else
+		pgsocket	fd;
+		Size		i = dr_wait_count;
 		while (i>0)
 		{
 			fd = GetWaitEventSocket(dr_wait_event_set, --i);
 			if (fd != PGINVALID_SOCKET)
 				closesocket(fd);
 		}
+#endif
 
-		if (DRPlanSeqInit(&seq))
-		{
-			while ((pi=hash_seq_search(&seq)) != NULL)
-				(*pi->OnDestroy)(pi);
-		}
+		DRPlanSeqInit(&seq);
+		while ((pi=hash_seq_search(&seq)) != NULL)
+			(*pi->OnDestroy)(pi);
 	}
 
 	if (dr_bghandle)
@@ -314,6 +394,7 @@ void DynamicReduceStartParallel(void)
 {
 	Assert(IsParallelWorker());
 
+#ifndef DR_USING_EPOLL
 	if (dr_wait_event_set == NULL)
 	{
 		dr_wait_event_set = CreateWaitEventSet(TopMemoryContext, 2);
@@ -328,7 +409,7 @@ void DynamicReduceStartParallel(void)
 						  NULL,
 						  NULL);
 	}
-
+#endif /* DR_USING_EPOLL */
 }
 
 void DRCheckStarted(void)
@@ -344,9 +425,25 @@ static void dr_start_event(void)
 	MemoryContext oldcontext;
 	oldcontext = MemoryContextSwitchTo(DrTopMemoryContext);
 
+#ifdef DR_USING_EPOLL
+	if (dr_epoll_fd == PGINVALID_SOCKET &&
+		(dr_epoll_fd = epoll_create1(EPOLL_CLOEXEC)) == PGINVALID_SOCKET)
+	{
+		ereport(ERROR,
+				(errcode_for_socket_access(),
+				 errmsg("epoll_create1 failed: %m")));
+	}
+	if (dr_epoll_events == NULL)
+	{
+		dr_epoll_events = MemoryContextAlloc(DrTopMemoryContext,
+											 sizeof(dr_epoll_events[0]) * DR_WAIT_EVENT_SIZE_STEP);
+		dr_wait_max = DR_WAIT_EVENT_SIZE_STEP;
+	}
+#else /* DR_USING_EPOLL */
 	dr_wait_event_set = CreateWaitEventSet(DrTopMemoryContext, DR_WAIT_EVENT_SIZE_STEP);
 	dr_wait_event = MemoryContextAlloc(DrTopMemoryContext, sizeof(dr_wait_event[0]) * DR_WAIT_EVENT_SIZE_STEP);
 	dr_wait_max = DR_WAIT_EVENT_SIZE_STEP;
+#endif /*  DR_USING_EPOLL */
 
 	/* postmaster death event */
 	{
@@ -354,7 +451,14 @@ static void dr_start_event(void)
 		ped = MemoryContextAllocZero(DrTopMemoryContext, sizeof(*ped));
 		ped->type = DR_EVENT_DATA_POSTMASTER;
 		ped->OnEvent = OnPostmasterEvent;
+#ifdef DR_USING_EPOLL
+		DRCtlWaitEvent(postmaster_alive_fds[POSTMASTER_FD_WATCH],
+					   EPOLLIN,
+					   ped,
+					   EPOLL_CTL_ADD);
+#else
 		AddWaitEventToSet(dr_wait_event_set, WL_POSTMASTER_DEATH, PGINVALID_SOCKET, NULL, ped);
+#endif
 		++dr_wait_count;
 	}
 
@@ -366,18 +470,20 @@ static void dr_start_event(void)
 	initOidBufferEx(&dr_latch_data->net_oid_buf, OID_BUF_DEF_SIZE, DrTopMemoryContext);
 	initOidBufferEx(&dr_latch_data->work_oid_buf, OID_BUF_DEF_SIZE, DrTopMemoryContext);
 	initOidBufferEx(&dr_latch_data->work_pid_buf, OID_BUF_DEF_SIZE, DrTopMemoryContext);
+#ifndef DR_USING_EPOLL
 	AddWaitEventToSet(dr_wait_event_set,
 					  WL_LATCH_SET,
 					  PGINVALID_SOCKET,
 					  MyLatch,
 					  dr_latch_data);
 	++dr_wait_count;
+#endif /* DR_USING_EPOLL */
 
 	MemoryContextSwitchTo(oldcontext);
 }
 
 /* event functions */
-static void OnPostmasterEvent(WaitEvent *ev)
+static void OnPostmasterEvent(DROnEventArgs)
 {
 	if (!proc_exit_inprogress)
 	{
@@ -386,14 +492,14 @@ static void OnPostmasterEvent(WaitEvent *ev)
 	}
 }
 
-static void OnLatchEvent(WaitEvent *ev)
+static void OnLatchEvent(DROnEventArgs)
 {
 	PlanInfo *pi;
 	HASH_SEQ_STATUS seq_status;
 
 	ResetLatch(MyLatch);
 
-	TryBackendMessage(ev);
+	TryBackendMessage();
 
 	DRPlanSeqInit(&seq_status);
 	while ((pi=hash_seq_search(&seq_status)) != NULL)
@@ -402,7 +508,7 @@ static void OnLatchEvent(WaitEvent *ev)
 	}
 }
 
-static void OnLatchPreWait(DREventData *base, int pos)
+static void OnLatchPreWait(DROnPreWaitArgs)
 {
 	PlanInfo	   *pi;
 	HASH_SEQ_STATUS seq_state;
@@ -415,9 +521,8 @@ static void OnLatchPreWait(DREventData *base, int pos)
 	}
 }
 
-static void TryBackendMessage(WaitEvent *ev)
+static void TryBackendMessage(void)
 {
-	DRLatchEventData   *led;
 	StringInfoData		buf;
 	Size				size;
 	int					msgtype;
@@ -427,7 +532,6 @@ static void TryBackendMessage(WaitEvent *ev)
 	buf.cursor = 0;
 	buf.len = buf.maxlen = (int)size;
 
-	led = ev->user_data;
 	msgtype = pq_getmsgbyte(&buf);
 	if (msgtype == ADB_DR_MQ_MSG_STARTUP)
 	{
@@ -442,7 +546,7 @@ static void TryBackendMessage(WaitEvent *ev)
 		/* reset first */
 		DRReset();
 
-		oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(led));
+		oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(dr_latch_data));
 		pq_copymsgbytes(&buf, (char*)&PGXCNodeOid, sizeof(PGXCNodeOid));
 		pq_copymsgbytes(&buf, (char*)&PGXCNodeIdentifier, sizeof(PGXCNodeIdentifier));
 		pq_copymsgbytes(&buf, (char*)&dboid, sizeof(dboid));
@@ -517,15 +621,23 @@ static void TryBackendMessage(WaitEvent *ev)
 
 static void DRReset(void)
 {
-	HASH_SEQ_STATUS		state;
-	Size				nevent;
+	HASH_SEQ_STATUS		status;
+	Size				nevent pg_attribute_unused();
 	PlanInfo		   *pi;
 	DREventData		   *base;
 
-	DRPlanSeqInit(&state);
-	while ((pi=hash_seq_search(&state)) != NULL)
+	DRPlanSeqInit(&status);
+	while ((pi=hash_seq_search(&status)) != NULL)
 		(*pi->OnDestroy)(pi);
-	
+
+#ifdef DR_USING_EPOLL
+	DRNodeSeqInit(&status);
+	while ((base=hash_seq_search(&status)) != NULL)
+	{
+		if (base->type == DR_EVENT_DATA_NODE)
+			DRNodeReset((DRNodeEventData*)base);
+	}
+#else
 	for (nevent=dr_wait_count;nevent>0;)
 	{
 		--nevent;
@@ -533,10 +645,12 @@ static void DRReset(void)
 		if (base->type == DR_EVENT_DATA_NODE)
 			DRNodeReset((DRNodeEventData*)base);
 	}
+#endif
 	SetParallelStartTimestamps(0, 0);
 	DRUtilsReset();
 }
 
+#ifndef DR_USING_EPOLL
 void DREnlargeWaitEventSet(void)
 {
 	if (dr_wait_count == dr_wait_max)
@@ -546,6 +660,7 @@ void DREnlargeWaitEventSet(void)
 		dr_wait_max += DR_WAIT_EVENT_SIZE_STEP;
 	}
 }
+#endif /* DR_USING_EPOLL */
 
 void DRGetEndOfPlanMessage(PlanInfo *pi, PlanWorkerInfo *pwi)
 {

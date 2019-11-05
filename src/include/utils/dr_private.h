@@ -8,6 +8,14 @@
 #ifndef DR_PRIVATE_H_
 #define DR_PRIVATE_H_
 
+#include "postgres.h"
+
+#ifdef HAVE_SYS_EPOLL_H
+#include <sys/epoll.h>
+#include <signal.h>
+#define DR_USING_EPOLL 1
+#endif
+
 #include "access/tupdesc.h"
 #include "access/tuptypeconvert.h"
 #include "lib/oidbuffer.h"
@@ -21,7 +29,9 @@
 #define ADB_DYNAMIC_REDUCE_MQ_MAGIC		0xa553038f
 #define ADB_DR_MQ_BACKEND_SENDER		0
 #define ADB_DR_MQ_WORKER_SENDER			1
+#ifndef DR_USING_EPOLL
 #define INVALID_EVENT_SET_POS			(-1)
+#endif /* DR_USING_EPOLL */
 #define INVALID_PLAN_ID					(-1)
 
 #define DR_WAIT_EVENT_SIZE_STEP			32
@@ -104,12 +114,25 @@ typedef enum DR_NODE_STATUS
 	DRN_WAIT_CLOSE
 }DR_NODE_STATUS;
 
+#ifdef DR_USING_EPOLL
+#define DROnEventArgs	struct DREventData *base, uint32_t events
+#define DROnPreWaitArgs	struct DREventData *base
+#define DROnErrorArgs	struct DREventData *base
+#else /* DR_USING_EPOLL */
+#define DROnEventArgs	WaitEvent *ev
+#define DROnPreWaitArgs	struct DREventData *base, int pos
+#define DROnErrorArgs	struct DREventData *base, int pos
+#endif /* DR_USING_EPOLL */
+
 typedef struct DREventData
 {
-	DR_EVENT_DATA_TYPE type;
-	void (*OnEvent)(WaitEvent *ev);
-	void (*OnPreWait)(struct DREventData *base, int pos);	/* can be null */
-	void (*OnError)(struct DREventData *base, int pos);		/* can be null */
+	DR_EVENT_DATA_TYPE	type;
+#ifdef DR_USING_EPOLL
+	pgsocket			fd;				/* maybe PGINVALID_SOCKET */
+#endif /* DR_USING_EPOLL */
+	void (*OnEvent)(DROnEventArgs);
+	void (*OnPreWait)(DROnPreWaitArgs);	/* can be null */
+	void (*OnError)(DROnErrorArgs);		/* can be null */
 }DREventData;
 
 typedef DREventData DRPostmasterEventData;
@@ -146,6 +169,10 @@ typedef struct DRNodeEventData
 	 * it waiting plan connect to me or send buffer changed
 	 */
 	int				waiting_plan_id;
+
+#ifdef DR_USING_EPOLL
+	uint32_t		waiting_events;
+#endif /* DR_USING_EPOLL */
 
 	struct addrinfo *addrlist;
 	struct addrinfo *addr_cur;
@@ -246,11 +273,17 @@ typedef struct DynamicReduceSharedTuplestore
 extern Oid					PGXCNodeOid;	/* avoid include pgxc.h */
 
 /* public variables */
+#ifdef DR_USING_EPOLL
+extern int					dr_epoll_fd;
+extern struct epoll_event  *dr_epoll_events;
+#else
 extern struct WaitEventSet *dr_wait_event_set;
 extern struct WaitEvent	   *dr_wait_event;
+#endif /* DR_USING_EPOLL */
 extern Size					dr_wait_count;
 extern Size					dr_wait_max;
 extern DR_STATUS			dr_status;
+extern pid_t				dr_reduce_pid;
 
 /* public shared memory variables in dr_shm.c */
 extern dsm_segment		   *dr_mem_seg;
@@ -261,7 +294,11 @@ extern struct dsa_area	   *dr_dsa;
 
 /* public function */
 void DRCheckStarted(void);
+#ifdef DR_USING_EPOLL
+#define DREnlargeWaitEventSet() ((void)true)
+#else
 void DREnlargeWaitEventSet(void);
+#endif
 void DRGetEndOfPlanMessage(PlanInfo *pi, PlanWorkerInfo *pwi);
 
 /* public plan functions in plan_public.c */
@@ -276,7 +313,7 @@ PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(
 void DRSetupPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi, DynamicReduceMQ mq, int worker_id);
 void DRInitPlanSearch(void);
 PlanInfo* DRPlanSearch(int planid, HASHACTION action, bool *found);
-bool DRPlanSeqInit(HASH_SEQ_STATUS *seq);
+void DRPlanSeqInit(HASH_SEQ_STATUS *seq);
 
 void DRClearPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi);
 void DRClearPlanInfo(PlanInfo *pi);
@@ -307,16 +344,23 @@ void DRStartSTSPlanMessage(StringInfo msg);
 void FreeNodeEventInfo(DRNodeEventData *ned);
 void ConnectToAllNode(const DynamicReduceNodeInfo *info, uint32 count);
 DRListenEventData* GetListenEventData(void);
+#ifdef DR_USING_EPOLL
+void DRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, int ctl);
+void CallConnectingOnError(void);
+#endif /* DR_USING_EPOLL */
 
 /* node functions in dr_node.c */
-void DROnNodeConectSuccess(DRNodeEventData *ned, WaitEvent *ev);
+void DROnNodeConectSuccess(DRNodeEventData *ned);
 bool PutMessageToNode(DRNodeEventData *ned, char msg_type, const char *data, uint32 len, int plan_id);
-ssize_t RecvMessageFromNode(DRNodeEventData *ned, WaitEvent *ev);
+ssize_t RecvMessageFromNode(DRNodeEventData *ned, pgsocket fd);
 bool DRNodeFetchTuple(DRNodeEventData *ned, int fetch_plan_id, char **data, int *len);
 void DRNodeReset(DRNodeEventData *ned);
 void DRActiveNode(int planid);
 void DRInitNodeSearch(void);
 DRNodeEventData* DRSearchNodeEventData(Oid nodeoid, HASHACTION action, bool *found);
+#ifdef DR_USING_EPOLL
+void DRNodeSeqInit(HASH_SEQ_STATUS *seq);
+#endif /* DR_USING_EPOLL */
 
 /* dynamic reduce utils functions in dr_utils.c */
 bool DynamicReduceHandleMessage(void *data, Size len);
