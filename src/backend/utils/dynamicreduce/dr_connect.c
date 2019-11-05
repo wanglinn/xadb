@@ -10,6 +10,9 @@
 #include "utils/dynamicreduce.h"
 #include "utils/dr_private.h"
 
+#ifdef DR_USING_EPOLL
+#include "nodes/pg_list.h"
+#endif
 #include <unistd.h>
 
 /*
@@ -19,18 +22,33 @@
  */
 #define CONNECT_MSG_LENGTH	9
 
+#ifdef DR_USING_EPOLL
+static DRListenEventData *dr_listen_event = NULL;
+static List *dr_accepted_node_list = NIL;
+#define INSERT_ACCEPTED_NODE(n_)	dr_accepted_node_list = lappend(dr_accepted_node_list, n_)
+#define DELETE_ACCEPTED_NODE(n_)	dr_accepted_node_list = list_delete_ptr(dr_accepted_node_list, n_)
+#else
 static int dr_listen_pos = INVALID_EVENT_SET_POS;
+#define INSERT_ACCEPTED_NODE(n_)	((void)true)
+#define DELETE_ACCEPTED_NODE(n_)	((void)true)
+#endif /* DR_USING_EPOLL */
 static pgsocket ConnectToAddress(const struct addrinfo *addr);
 
-static void OnNodeEventConnectFrom(WaitEvent *ev)
+static void OnNodeEventConnectFrom(DROnEventArgs)
 {
+#ifdef DR_USING_EPOLL
+	DRNodeEventData	   *ned = (DRNodeEventData*)base;
+	pgsocket			fd = ned->base.fd;
+#else
 	DRNodeEventData    *ned = ev->user_data;
+	pgsocket			fd = ev->fd;
+#endif /* DR_USING_EPOLL */
 	uint32				index;
 	bool				found;
 	Assert(ned->status == DRN_ACCEPTED);
 	Assert(ned->nodeoid == InvalidOid);
 
-	if (RecvMessageFromNode(ned, ev) <= 0 ||
+	if (RecvMessageFromNode(ned, fd) <= 0 ||
 		ned->recvBuf.len - ned->recvBuf.cursor < CONNECT_MSG_LENGTH)
 		return;
 	if (ned->recvBuf.data[ned->recvBuf.cursor] != ADB_DR_MSG_NODEOID)
@@ -80,59 +98,79 @@ static void OnNodeEventConnectFrom(WaitEvent *ev)
 					(errmsg("replicate node oid %u from remote", ned->nodeoid)));
 		}
 		DR_CONNECT_DEBUG((errmsg("node %u from remote accept successed", ned->nodeoid)));
+#ifdef DR_USING_EPOLL
+		DRCtlWaitEvent(fd, ned->waiting_events, newned, EPOLL_CTL_MOD);
+		DELETE_ACCEPTED_NODE(ned);
+#else
 		ModifyWaitEventData(dr_wait_event_set, ev->pos, newned);
+#endif
 		memcpy(newned, ned, sizeof(*newned));
 		pfree(ned);
 		ned = newned;
 	}
 
-	DROnNodeConectSuccess(ned, ev);
+	DROnNodeConectSuccess(ned);
 }
 
-static void OnNodeEventConnectTo(WaitEvent *ev)
+static void OnNodeEventConnectTo(DROnEventArgs)
 {
-	DRNodeEventData *ned = ev->user_data;
+#ifdef DR_USING_EPOLL
+	DRNodeEventData	   *ned = (DRNodeEventData*)base;
+	pgsocket			event_fd = ned->base.fd;
+#else
+	DRNodeEventData    *ned = ev->user_data;
+	pgsocket			event_fd = ev->fd;
+#endif /* DR_USING_EPOLL */
 	ssize_t size;
 
 	Assert(DRSearchNodeEventData(ned->nodeoid, HASH_FIND, NULL) != NULL);
 
 resend_:
-	size = send(ev->fd,
+	size = send(event_fd,
 				ned->sendBuf.data + ned->sendBuf.cursor,
 				ned->sendBuf.len - ned->sendBuf.cursor,
 				0);
 	if (size < 0)
 	{
-		pgsocket fd;
+		pgsocket new_fd;
 		if (errno == EINTR)
 			goto resend_;
 
-		fd = PGINVALID_SOCKET;
+		new_fd = PGINVALID_SOCKET;
 		ned->addr_cur = ned->addr_cur->ai_next;
 		while (ned->addr_cur != NULL)
 		{
-			fd = ConnectToAddress(ned->addr_cur);
-			if (fd != PGINVALID_SOCKET)
+			new_fd = ConnectToAddress(ned->addr_cur);
+			if (new_fd != PGINVALID_SOCKET)
 				break;
 		}
-		if (fd == PGINVALID_SOCKET)
+		if (new_fd == PGINVALID_SOCKET)
 		{
 			ned->status = DRN_WAIT_CLOSE;
 			ereport(ERROR,
 					(errmsg("could not connect to any addres for remote node %u", ned->nodeoid)));
 		}
 
+#ifdef DR_USING_EPOLL
+		DRCtlWaitEvent(event_fd, 0, NULL, EPOLL_CTL_DEL);
+		--dr_wait_count;
+		closesocket(event_fd);
+		base->fd = new_fd;
+		DRCtlWaitEvent(new_fd, EPOLLOUT, base, EPOLL_CTL_ADD);
+		++dr_wait_count;
+#else /* DR_USING_EPOLL */
 		/* modify wait event */
 		RemoveWaitEvent(dr_wait_event_set, ev->pos);
 		--dr_wait_count;
 		closesocket(ev->fd);
-		ev->fd = fd;
+		ev->fd = new_fd;
 		ev->pos = AddWaitEventToSet(dr_wait_event_set,
 									WL_SOCKET_CONNECTED,
-									fd,
+									new_fd,
 									NULL,
 									ned);
 		++dr_wait_count;
+#endif /* DR_USING_EPOLL */
 	}else
 	{
 		ned->sendBuf.cursor += size;
@@ -141,17 +179,33 @@ resend_:
 			DR_CONNECT_DEBUG((errmsg("connect to node %u success", ned->nodeoid)));
 			/* update status */
 			resetStringInfo(&ned->sendBuf);
-			DROnNodeConectSuccess(ned, ev);
+			DROnNodeConectSuccess(ned);
 		}
 	}
 }
 
-static void OnConnectError(struct DREventData *base, int pos)
+static void OnConnectError(DROnErrorArgs)
 {
 	DRNodeEventData *ned = (DRNodeEventData*)base;
 	if (ned->status == DRN_WAIT_CLOSE)
 		FreeNodeEventInfo(ned);
 }
+
+#ifdef DR_USING_EPOLL
+void CallConnectingOnError(void)
+{
+	ListCell	   *lc;
+	DREventData	   *base;
+	for (lc=list_head(dr_accepted_node_list);lc != NULL;)
+	{
+		base = lfirst(lc);
+		Assert(base->type == DR_EVENT_DATA_NODE);
+		lc = lnext(lc);
+		if (base->OnError)
+			(*base->OnError)(base);
+	}
+}
+#endif /* DR_USING_EPOLL */
 
 static void ConnectToOneNode(const DynamicReduceNodeInfo *info, const struct addrinfo *hintp, DRNodeEventData **newed)
 {
@@ -219,12 +273,17 @@ static void ConnectToOneNode(const DynamicReduceNodeInfo *info, const struct add
 						info->node_oid, NameStr(info->host), info->port)));
 	}
 	DREnlargeWaitEventSet();
+#ifdef DR_USING_EPOLL
+	ned->base.fd = fd;
+	DRCtlWaitEvent(fd, EPOLLOUT, ned, EPOLL_CTL_ADD);
+#else
 	ret = AddWaitEventToSet(dr_wait_event_set,
 							WL_SOCKET_CONNECTED,
 							fd,
 							NULL,
 							ned);
 	Assert(ret != INVALID_EVENT_SET_POS);
+#endif
 	dr_wait_count++;
 }
 
@@ -307,12 +366,17 @@ void ConnectToAllNode(const DynamicReduceNodeInfo *info, uint32 count)
 	}PG_END_TRY();
 }
 
-static void OnListenEvent(WaitEvent *ev)
+static void OnListenEvent(DROnEventArgs)
 {
+#ifdef DR_USING_EPOLL
+	DRListenEventData *led = (DRListenEventData*)base;
+	pgsocket fd = base->fd;
+#else
 	DRListenEventData *led = ev->user_data;
+	pgsocket fd = GetWaitEventSocket(dr_wait_event_set, ev->pos);
+#endif
 	MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(led));
 	volatile pgsocket newfd = PGINVALID_SOCKET;
-	pgsocket fd = GetWaitEventSocket(dr_wait_event_set, ev->pos);
 	DRNodeEventData * volatile newdata = NULL;
 	Assert(led->base.type == DR_EVENT_DATA_LISTEN);
 	Assert(fd != PGINVALID_SOCKET);
@@ -341,15 +405,21 @@ static void OnListenEvent(WaitEvent *ev)
 			newdata->base.OnError = OnConnectError;
 			initStringInfoExtend(&newdata->sendBuf, DR_SOCKET_BUF_SIZE_START);
 			initStringInfoExtend(&newdata->recvBuf, DR_SOCKET_BUF_SIZE_START);
+			INSERT_ACCEPTED_NODE(newdata);
 			MemoryContextSwitchTo(oldcontext);
 
 			newdata->nodeoid = InvalidOid;
 			newdata->status = DRN_ACCEPTED;
+#ifdef DR_USING_EPOLL
+			newdata->base.fd = newfd;
+			DRCtlWaitEvent(newfd, EPOLLOUT, newdata, EPOLL_CTL_ADD);
+#else
 			AddWaitEventToSet(dr_wait_event_set,
 							  WL_SOCKET_READABLE,
 							  newfd,
 							  NULL,
 							  (void*)newdata);
+#endif
 			++dr_wait_count;
 
 			newdata = NULL;
@@ -360,6 +430,7 @@ static void OnListenEvent(WaitEvent *ev)
 			closesocket(newfd);
 		if (newdata)
 		{
+			DELETE_ACCEPTED_NODE(newdata);
 			if (newdata->recvBuf.data)
 				pfree(newdata->recvBuf.data);
 			if (newdata->sendBuf.data)
@@ -382,12 +453,17 @@ DRListenEventData* GetListenEventData(void)
 	int					one = 1;
 #endif
 
+#ifdef DR_USING_EPOLL
+	if (dr_listen_event != NULL)
+		return dr_listen_event;
+#else
 	if (dr_listen_pos != INVALID_EVENT_SET_POS)
 	{
 		led = GetWaitEventData(dr_wait_event_set, dr_listen_pos);
 		Assert(led->base.type == DR_EVENT_DATA_LISTEN);
 		return led;
 	}
+#endif
 
 	DREnlargeWaitEventSet();
 
@@ -442,11 +518,17 @@ DRListenEventData* GetListenEventData(void)
 	}
 	led->port = htons(addr_inet.sin_port);
 
+#ifdef DR_USING_EPOLL
+	led->base.fd = fd;
+	DRCtlWaitEvent(fd, EPOLLIN, led, EPOLL_CTL_ADD);
+	dr_listen_event = led;
+#else
 	dr_listen_pos = AddWaitEventToSet(dr_wait_event_set,
 									  WL_SOCKET_READABLE,
 									  fd, NULL, led);
 	Assert(dr_listen_pos != INVALID_EVENT_SET_POS);
 	Assert(GetWaitEventData(dr_wait_event_set, dr_listen_pos) == led);
+#endif
 	++dr_wait_count;
 
 	return led;
@@ -488,6 +570,15 @@ static pgsocket ConnectToAddress(const struct addrinfo *addr)
 
 void FreeNodeEventInfo(DRNodeEventData *ned)
 {
+#ifdef DR_USING_EPOLL
+	if (ned->base.fd != PGINVALID_SOCKET)
+	{
+		DRCtlWaitEvent(ned->base.fd, 0, ned, EPOLL_CTL_DEL);
+		--dr_wait_count;
+		closesocket(ned->base.fd);
+		ned->base.fd = PGINVALID_SOCKET;
+	}
+#else
 	WaitEvent we;
 	if (FindWaitEventInfoWithData(dr_wait_event_set, 0, ned, &we) != NULL)
 	{
@@ -496,6 +587,8 @@ void FreeNodeEventInfo(DRNodeEventData *ned)
 		if (we.fd != PGINVALID_SOCKET)
 			closesocket(we.fd);
 	}
+#endif
+	DELETE_ACCEPTED_NODE(ned);
 	if (ned->addrlist)
 		pg_freeaddrinfo_all(AF_UNSPEC, ned->addrlist);
 	if (ned->recvBuf.data)
@@ -508,3 +601,20 @@ void FreeNodeEventInfo(DRNodeEventData *ned)
 	else
 		pfree(ned);
 }
+
+#ifdef DR_USING_EPOLL
+void DRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, int ctl)
+{
+	struct epoll_event event;
+
+	event.events = events;
+	event.data.ptr = ptr;
+
+	if (epoll_ctl(dr_epoll_fd, ctl, fd, &event) < 0)
+	{
+		ereport(ERROR,
+				(errcode_for_socket_access(),
+				 errmsg("dynamic reduce epoll_ctl() failed: %m")));
+	}
+}
+#endif /* DR_USING_EPOLL */

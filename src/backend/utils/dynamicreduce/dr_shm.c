@@ -22,6 +22,24 @@ SharedFileSet *dr_shared_fs = NULL;
 dsa_area	  *dr_dsa = NULL;
 static uint32 dr_shared_fs_num = 0U;
 
+#ifdef DR_USING_EPOLL
+static void dr_wait_latch(void)
+{
+	sigset_t	sigmask;
+	sigset_t	origmask;
+
+	if (MyLatch->is_set)
+		return;
+	sigprocmask(0, NULL, &sigmask);
+	sigaddset(&sigmask, SIGUSR1);
+	sigprocmask(SIG_SETMASK, &sigmask, &origmask);
+	while(MyLatch->is_set == false)
+		sigsuspend(&origmask);
+
+	sigprocmask(SIG_SETMASK, &origmask, NULL);
+}
+#endif
+
 static void check_error_message_from_reduce(void)
 {
 	Size			size;
@@ -157,7 +175,9 @@ DynamicReduceRecvTuple(shm_mq_handle *mqh, struct TupleTableSlot *slot, StringIn
 {
 	void		   *data;
 	Size			size;
+#ifndef DR_USING_EPOLL
 	WaitEvent		event;
+#endif
 	uint8			result;
 
 	result = recv_msg_from_plan(mqh, &size, &data, info);
@@ -170,7 +190,11 @@ DynamicReduceRecvTuple(shm_mq_handle *mqh, struct TupleTableSlot *slot, StringIn
 
 	while(result == ADB_DR_MSG_INVALID)
 	{
+#ifdef DR_USING_EPOLL
+		dr_wait_latch();
+#else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_RECEIVE);
+#endif /* DR_USING_EPOLL */
 		ResetLatch(&MyProc->procLatch);
 		CHECK_FOR_INTERRUPTS();
 
@@ -204,7 +228,9 @@ int DynamicReduceSendOrRecvTuple(shm_mq_handle *mqsend, shm_mq_handle *mqrecv,
 	void		   *data;
 	Size			size;
 	shm_mq_iovec	iov;
+#ifndef DR_USING_EPOLL
 	WaitEvent		event;
+#endif
 	int				flags = 0;
 	uint8			msg_type;
 
@@ -245,7 +271,11 @@ int DynamicReduceSendOrRecvTuple(shm_mq_handle *mqsend, shm_mq_handle *mqrecv,
 
 		check_error_message_from_reduce();
 
+#ifdef DR_USING_EPOLL
+		dr_wait_latch();
+#else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_INTERNAL);
+#endif
 		ResetLatch(&MyProc->procLatch);
 		CHECK_FOR_INTERRUPTS();
 	}
@@ -256,7 +286,9 @@ int DynamicReduceSendOrRecvTuple(shm_mq_handle *mqsend, shm_mq_handle *mqrecv,
 bool DynamicReduceSendMessage(shm_mq_handle *mqh, Size nbytes, void *data, bool nowait)
 {
 	shm_mq_iovec	iov;
+#ifndef DR_USING_EPOLL
 	WaitEvent		event;
+#endif
 
 	iov.data = data;
 	iov.len = nbytes;
@@ -269,7 +301,11 @@ bool DynamicReduceSendMessage(shm_mq_handle *mqh, Size nbytes, void *data, bool 
 	{
 		check_error_message_from_reduce();
 
+#ifdef DR_USING_EPOLL
+		dr_wait_latch();
+#else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_INTERNAL);
+#endif
 		ResetLatch(&MyProc->procLatch);
 		CHECK_FOR_INTERRUPTS();
 
@@ -282,7 +318,9 @@ bool DynamicReduceSendMessage(shm_mq_handle *mqh, Size nbytes, void *data, bool 
 
 bool DRSendMsgToReduce(const char *data, Size len, bool nowait)
 {
+#ifndef DR_USING_EPOLL
 	WaitEvent		event;
+#endif
 	shm_mq_result	result;
 	shm_mq_iovec	iov;
 
@@ -304,7 +342,11 @@ bool DRSendMsgToReduce(const char *data, Size len, bool nowait)
 		Assert(result == SHM_MQ_WOULD_BLOCK);
 		check_error_message_from_reduce();
 
+#ifdef DR_USING_EPOLL
+		dr_wait_latch();
+#else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_SEND);
+#endif
 		ResetLatch(&MyProc->procLatch);
 		CHECK_FOR_INTERRUPTS();
 
@@ -317,7 +359,9 @@ bool DRSendMsgToReduce(const char *data, Size len, bool nowait)
 
 bool DRRecvMsgFromReduce(Size *sizep, void **datap, bool nowait)
 {
+#ifndef DR_USING_EPOLL
 	WaitEvent		event;
+#endif
 	shm_mq_result	result;
 
 re_get_:
@@ -334,7 +378,11 @@ re_get_:
 		}
 
 		Assert(result == SHM_MQ_WOULD_BLOCK);
+#ifdef DR_USING_EPOLL
+		dr_wait_latch();
+#else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_RECEIVE);
+#endif
 		ResetLatch(&MyProc->procLatch);
 		CHECK_FOR_INTERRUPTS();
 
@@ -449,7 +497,9 @@ void ResetDynamicReduceWork(void)
 	static const char reset_msg[1] = {ADB_DR_MQ_MSG_RESET};
 	Size			size;
 	char		   *data;
+#ifndef DR_USING_EPOLL
 	WaitEvent		event;
+#endif
 	shm_mq_result	result;
 	shm_mq_iovec	iov[2];
 
@@ -481,7 +531,11 @@ void ResetDynamicReduceWork(void)
 		{
 		}*/
 
+#ifdef DR_USING_EPOLL
+		dr_wait_latch();
+#else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_SEND);
+#endif
 		ResetLatch(&MyProc->procLatch);
 		CHECK_FOR_INTERRUPTS();
 
@@ -493,7 +547,11 @@ reget_reset_msg_:
 	result = shm_mq_receive(dr_mq_worker_sender, &size, (void**)&data, true);
 	while(result != SHM_MQ_SUCCESS)
 	{
+#ifdef DR_USING_EPOLL
+		dr_wait_latch();
+#else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_RECEIVE);
+#endif
 		ResetLatch(&MyProc->procLatch);
 		CHECK_FOR_INTERRUPTS();
 
