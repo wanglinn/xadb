@@ -177,7 +177,18 @@ void DynamicReduceWorkerMain(Datum main_arg)
 				(*pi->OnPreWait)(pi);
 		}
 
-		nevent = epoll_pwait(dr_epoll_fd, dr_epoll_events, (int)dr_wait_count, -1, &unblock_sigs);
+		nevent = epoll_pwait(dr_epoll_fd, dr_epoll_events, (int)dr_wait_count, 100, &unblock_sigs);
+		if (nevent == 0 &&	/* timeout */
+			MyLatch->is_set == false)
+		{
+			/*
+			 * sometime shm_mq can send/receive, but we not get latch event,
+			 * We don't no why, maybe shm_mq has a bug.
+			 * For now, we also using timeout(0.1 second) process latch event,
+			 * I think this is not a good idea
+			 */
+			OnLatchEvent(NULL, 0);
+		}
 		while (nevent>0)
 		{
 			--nevent;
