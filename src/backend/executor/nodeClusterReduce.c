@@ -1469,7 +1469,10 @@ DriveClusterReduceWalker(PlanState *node)
 		 * Drive all ClusterReduce to send slot, discard slot
 		 * used for local.
 		 */
-		res = DriveClusterReduceState((ClusterReduceState *) node);
+		if (((ClusterReduceState*)node)->reduce_method == RT_NOTHING)
+			res = DriveClusterReduceWalker(outerPlanState(node));
+		else
+			res = DriveClusterReduceState((ClusterReduceState *) node);
 	} else
 	if (IsA(node, CteScanState))
 	{
