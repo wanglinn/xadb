@@ -2524,11 +2524,20 @@ a_expr:	c_expr
 			if (objname &&
 				strncmp(objname, "||", strlen(objname)) == 0)
 			{
-				FuncCall *n = makeNode(FuncCall);
-				n->funcname = SystemFuncName("concat");
-				n->args = list_make2($1, $3);
-				n->location = @1;
-				$$ = (Node *)n;
+				if (nodeTag($1) == T_A_Const && nodeTag($3) == T_A_Const &&
+						((A_Const*)$1)->val.type == T_Null && ((A_Const*)$3)->val.type == T_Null )
+				{
+					$$ = $1;
+					pfree($3);
+				}
+				else
+				{
+					FuncCall *n = makeNode(FuncCall);
+					n->funcname = SystemFuncName("concat");
+					n->args = list_make2($1, $3);
+					n->location = @1;
+					$$ = (Node *)n;
+				}
 			} else
 			{
 				$$ = (Node *) makeA_Expr(AEXPR_OP, $2, $1, $3, @2);
