@@ -13384,7 +13384,22 @@ mgr_get_gtm_host_snapsender_gxidsender_port(StringInfo infosendmsg)
 		break;
 	}
 	heap_endscan(rel_scan);
+
+	if(!gtm_host)
+	{
+		rel_scan = heap_beginscan_catalog(rel_node, 2, key);
+		while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+		{
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			Assert(mgr_node);
+			gtm_host = get_hostaddress_from_hostoid(mgr_node->nodehost);
+			gtm_port = mgr_node->nodeport;
+			break;
+		}
+		heap_endscan(rel_scan);
+	}
 	heap_close(rel_node, AccessShareLock);
+
 	if (!gtm_host)
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 		, errmsg("the type of gmt_coord for coordinator does not exist")));
