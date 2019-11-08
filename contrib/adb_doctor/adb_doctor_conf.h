@@ -29,6 +29,7 @@
 #define ADB_DOCTOR_CONF_ATTR_COMMENT "comment"
 #define ADB_DOCTOR_CONF_KEY_ENABLE "enable"
 #define ADB_DOCTOR_CONF_KEY_FORCESWITCH "forceswitch"
+#define ADB_DOCTOR_CONF_KEY_REWINDOLDMASTER "rewindoldmaster"
 #define ADB_DOCTOR_CONF_KEY_SWITCHINTERVAL "switchinterval"
 #define ADB_DOCTOR_CONF_KEY_NODEDEADLINE "nodedeadline"
 #define ADB_DOCTOR_CONF_KEY_AGENTDEADLINE "agentdeadline"
@@ -59,13 +60,14 @@
                                                                  \
 	} while (0)
 
-/* AdbDoctorConf elements all in one */
+/* AdbDoctorConf elements all in one, see adb_doctor--1.0.sql for more information */
 typedef struct AdbDoctorConf
 {
 	LWLock lock;
 	/* Below three elements are editable */
 	int enable;
 	int forceswitch;
+	int rewindoldmaster;
 	int switchinterval;
 	int nodedeadline;
 	int agentdeadline;
