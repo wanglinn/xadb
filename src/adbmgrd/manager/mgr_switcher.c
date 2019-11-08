@@ -213,7 +213,7 @@ Datum mgr_failover_one_dn(PG_FUNCTION_ARGS)
 		ereport(ERROR,
 				(errmsg("cannot assign TransactionIds during recovery")));
 
-	switchDataNodeMaster(nodename, force, false, &newMasterName);
+	switchDataNodeMaster(nodename, force, true, &newMasterName);
 
 	tup_result = build_common_command_tuple(&newMasterName,
 											true,
@@ -238,7 +238,7 @@ Datum mgr_failover_gtm(PG_FUNCTION_ARGS)
 		ereport(ERROR,
 				(errmsg("cannot assign TransactionIds during recovery")));
 
-	switchGtmCoordMaster(nodename, force, false, &newMasterName);
+	switchGtmCoordMaster(nodename, force, true, &newMasterName);
 
 	tup_result = build_common_command_tuple(&newMasterName,
 											true,
@@ -2844,8 +2844,6 @@ static void refreshOldMasterAfterSwitch(SwitcherNodeWrapper *oldMaster,
 										bool kickOutOldMaster)
 {
 	namestrcpy(&oldMaster->mgrNode->form.nodesync, "");
-	/* Mark the data group to which the old master belongs */
-	oldMaster->mgrNode->form.nodemasternameoid = newMaster->mgrNode->oid;
 	if (kickOutOldMaster)
 	{
 		oldMaster->mgrNode->form.nodeinited = false;
@@ -2853,7 +2851,7 @@ static void refreshOldMasterAfterSwitch(SwitcherNodeWrapper *oldMaster,
 		oldMaster->mgrNode->form.allowcure = false;
 		/* Kick the old master out of the cluster */
 		updateMgrNodeAfterSwitch(oldMaster->mgrNode,
-								 CURE_STATUS_OLD_MASTER,
+								 CURE_STATUS_NORMAL,
 								 spiContext);
 		ereport(LOG, (errmsg("%s has been kicked out of the cluster",
 							 NameStr(oldMaster->mgrNode->form.nodename))));
@@ -2862,6 +2860,8 @@ static void refreshOldMasterAfterSwitch(SwitcherNodeWrapper *oldMaster,
 	}
 	else
 	{
+		/* Mark the data group to which the old master belongs */
+		oldMaster->mgrNode->form.nodemasternameoid = newMaster->mgrNode->oid;
 		oldMaster->mgrNode->form.nodetype =
 			getMgrSlaveNodetype(oldMaster->mgrNode->form.nodetype);
 		/* Update Old master follow the new master, 
@@ -3192,7 +3192,7 @@ static void deleteMgrUpdateparmByNodenameType(char *updateparmnodename,
 	MemoryContextSwitchTo(oldCtx);
 
 	pfree(sql.data);
-	if (spiRes != SPI_OK_UPDATE)
+	if (spiRes != SPI_OK_DELETE)
 	{
 		ereport(ERROR,
 				(errmsg("SPI_execute failed: error code %d",

@@ -29,6 +29,7 @@ typedef struct SwitcherConfiguration
 {
 	long switchIntervalMs;
 	bool forceSwitch;
+	bool rewindOldMaster;
 } SwitcherConfiguration;
 
 typedef enum CoordinatorHoldMgrNode
@@ -983,14 +984,14 @@ static void failoverOldMaster(MgrNodeWrapper *oldMaster)
 		{
 			switchGtmCoordMaster(NameStr(oldMaster->form.nodename),
 								 switcherConfiguration->forceSwitch,
-								 false,
+								 !switcherConfiguration->rewindOldMaster,
 								 &newMasterName);
 		}
 		else if (isDataNodeMgrNode(oldMaster->form.nodetype))
 		{
 			switchDataNodeMaster(NameStr(oldMaster->form.nodename),
 								 switcherConfiguration->forceSwitch,
-								 false,
+								 !switcherConfiguration->rewindOldMaster,
 								 &newMasterName);
 		}
 		else
@@ -1389,11 +1390,16 @@ static SwitcherConfiguration *newSwitcherConfiguration(AdbDoctorConf *conf)
 
 	sc->switchIntervalMs = conf->switchinterval * 1000L;
 	sc->forceSwitch = conf->forceswitch;
+	sc->rewindOldMaster = conf->rewindoldmaster;
 	ereport(DEBUG1,
 			(errmsg("%s configuration: "
-					"switchIntervalMs:%ld, forceSwitch:%d",
+					"switchIntervalMs:%ld, "
+					"forceSwitch:%d, "
+					"rewindOldMaster:%d",
 					MyBgworkerEntry->bgw_name,
-					sc->switchIntervalMs, sc->forceSwitch)));
+					sc->switchIntervalMs,
+					sc->forceSwitch,
+					sc->rewindOldMaster)));
 	return sc;
 }
 

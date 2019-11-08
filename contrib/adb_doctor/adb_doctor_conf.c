@@ -18,6 +18,7 @@ void checkAdbDoctorConf(AdbDoctorConf *src)
 {
 	src->enable = LIMIT_VALUE_RANGE(0, 1, src->enable);
 	src->forceswitch = LIMIT_VALUE_RANGE(0, 1, src->forceswitch);
+	src->rewindoldmaster = LIMIT_VALUE_RANGE(0, 1, src->rewindoldmaster);
 	src->switchinterval = LIMIT_VALUE_RANGE(ADB_DOCTOR_CONF_SWITCHINTERVAL_MIN,
 											ADB_DOCTOR_CONF_SWITCHINTERVAL_MAX,
 											src->switchinterval);
@@ -255,6 +256,13 @@ void validateAdbDoctorConfEditableEntry(char *k, char *v)
 										  0,
 										  1);
 	}
+	else if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_REWINDOLDMASTER) == 0)
+	{
+		CHECK_ADB_DOCTOR_CONF_VALUE_RANGE(ADB_DOCTOR_CONF_KEY_REWINDOLDMASTER,
+										  v_int,
+										  0,
+										  1);
+	}
 	else if (pg_strcasecmp(k, ADB_DOCTOR_CONF_KEY_SWITCHINTERVAL) == 0)
 	{
 		CHECK_ADB_DOCTOR_CONF_VALUE_RANGE(ADB_DOCTOR_CONF_KEY_SWITCHINTERVAL,
@@ -437,6 +445,10 @@ AdbDoctorConf *selectAllAdbDoctorConf(MemoryContext spiContext)
 			else if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_FORCESWITCH) == 0)
 			{
 				conf->forceswitch = valueInt;
+			}
+			else if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_REWINDOLDMASTER) == 0)
+			{
+				conf->rewindoldmaster = valueInt;
 			}
 			else if (pg_strcasecmp(keyStr, ADB_DOCTOR_CONF_KEY_SWITCHINTERVAL) == 0)
 			{
