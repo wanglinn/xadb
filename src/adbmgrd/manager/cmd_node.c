@@ -13348,7 +13348,7 @@ mgr_get_gtm_host_snapsender_gxidsender_port(StringInfo infosendmsg)
 	Relation rel_node;
 	HeapScanDesc rel_scan;
 	Form_mgr_node mgr_node;
-	ScanKeyData key[2];
+	ScanKeyData key[4];
 	HeapTuple tuple;
 	Oid gtm_port;
 
@@ -13363,8 +13363,18 @@ mgr_get_gtm_host_snapsender_gxidsender_port(StringInfo infosendmsg)
 				, BTEqualStrategyNumber
 				, F_NAMEEQ
 				, CStringGetDatum(mgr_zone));
+	ScanKeyInit(&key[2]
+				,Anum_mgr_node_nodeinited
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
+	ScanKeyInit(&key[3]
+				,Anum_mgr_node_nodeincluster
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
 	rel_node = heap_open(NodeRelationId, AccessShareLock);
-	rel_scan = heap_beginscan_catalog(rel_node, 2, key);
+	rel_scan = heap_beginscan_catalog(rel_node, 4, key);
 	while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
