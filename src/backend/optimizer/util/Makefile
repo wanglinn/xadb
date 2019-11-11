@@ -18,6 +18,7 @@ OBJS = clauses.o joininfo.o orclauses.o pathnode.o placeholder.o \
 ifeq ($(enable_cluster), yes)
   OBJS += pgxcship.o reduceinfo.o remotetest.o
 remotetest.o: CFLAGS += -I$(libpq_srcdir)
+remotetest.bc: BITCODE_CFLAGS += -I$(libpq_srcdir)
 endif
 
 include $(top_srcdir)/src/backend/common.mk
