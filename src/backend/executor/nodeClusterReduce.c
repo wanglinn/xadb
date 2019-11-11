@@ -1167,12 +1167,8 @@ cmr_heap_compare_slots(Datum a, Datum b, void *arg)
 	return 0;
 }
 
-void
-ExecEndClusterReduce(ClusterReduceState *node)
+void ExecShutdownClusterReduce(ClusterReduceState *node)
 {
-	if ((node->eflags & EXEC_FLAG_EXPLAIN_ONLY) != 0)
-		DriveClusterReduceState(node);
-
 	if (node->private_state)
 	{
 		switch(node->reduce_method)
@@ -1196,7 +1192,17 @@ ExecEndClusterReduce(ClusterReduceState *node)
 			break;
 		}
 		pfree(node->private_state);
+		node->private_state = NULL;
 	}
+}
+
+void
+ExecEndClusterReduce(ClusterReduceState *node)
+{
+	if ((node->eflags & EXEC_FLAG_EXPLAIN_ONLY) != 0)
+		DriveClusterReduceState(node);
+
+	ExecShutdownClusterReduce(node);
 
 	ExecEndNode(outerPlanState(node));
 }
