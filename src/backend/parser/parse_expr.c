@@ -1196,6 +1196,22 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 			ItemPointer ctid = palloc(sizeof(ItemPointerData));
 			if(IsA(lexpr, Const))
 			{
+#if defined(ADB_GRAM_ORA)
+				/* Oracle syntax: Avoid null pointer caused by null value 
+				 * in expression 'ROWID = null'.
+				 * */
+				if(((Const*)lexpr)->constisnull && 
+					((Const*)lexpr)->consttype == ORACLE_RIDOID)
+				{
+					lexpr = (Node *)makeConst(UNKNOWNOID,
+											 -1,
+											 InvalidOid,
+											 -2,
+											 CStringGetDatum(""),
+											 false,
+											 false);
+				}
+#endif	/* ADB_GRAM_ORA */
 #ifdef ADB
 				xc_node_id = rowid_get_data(((Const*)lexpr)->constvalue, ctid);
 #else
@@ -1205,6 +1221,22 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 				level = ((Var*)rexpr)->varlevelsup;
 			}else
 			{
+#if defined(ADB_GRAM_ORA)
+				/* Oracle syntax: Avoid null pointer caused by null value 
+				* in expression 'ROWID = null'.
+				*/
+				if(((Const*)rexpr)->constisnull && 
+					((Const*)rexpr)->consttype == ORACLE_RIDOID)
+				{
+					rexpr = (Node *)makeConst(UNKNOWNOID,
+											 -1,
+											 InvalidOid,
+											 -2,
+											 CStringGetDatum(""),
+											 false,
+											 false);
+				}
+#endif	/* ADB_GRAM_ORA */
 #ifdef ADB
 				xc_node_id = rowid_get_data(((Const*)rexpr)->constvalue, ctid);
 #else
