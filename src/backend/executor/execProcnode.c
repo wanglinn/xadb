@@ -876,6 +876,11 @@ ExecShutdownNode(PlanState *node)
 			ExecShutdownAgg((AggState *) node);
 			break;
 #endif /* ADB_EXT */
+#ifdef ADB
+		case T_ClusterReduceState:
+			ExecShutdownClusterReduce((ClusterReduceState*) node);
+			break;
+#endif /* ADB */
 		default:
 			break;
 	}
