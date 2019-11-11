@@ -3707,7 +3707,15 @@ ForValues:
 
 					$$ = n;
 				}
+			| VALUES '(' DEFAULT ')'
+				{
+					PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
 
+					n->strategy = PARTITION_STRATEGY_LIST;
+					n->is_default = true;
+					n->location = @2;
+					$$ = n;
+				}
 			/* a RANGE partition */
 			| VALUES FROM '(' range_datum_list ')' TO '(' range_datum_list ')'
 				{
@@ -4126,6 +4134,14 @@ explain_option_arg:
 expr_list: a_expr { $$ = list_make1($1); }
 	| expr_list ',' a_expr
 		{ $$ = lappend($1, $3); }
+	/*
+	| DEFAULT
+		{
+			SetToDefault *n = makeNode(SetToDefault);
+			n->location = @1;
+			$$ = list_make1((Node *) n);
+		}
+	*/
 	;
 
 trim_list:	a_expr FROM expr_list					{ $$ = lappend($3, $1); }
