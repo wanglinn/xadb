@@ -354,12 +354,14 @@ static void BeginAdvanceReduce(ClusterReduceState *crstate)
 	MemoryContext		oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
 	AdvanceReduceState *state;
 	DynamicReduceSFS	sfs;
-	const Oid		   *nodes;
 	AdvanceNodeInfo	   *myinfo;
 	TupleTableSlot	   *slot;
+	List			   *reduce_oids;
+	ListCell		   *lc;
 	uint32 				i,count;
 
-	nodes = DynamicReduceGetCurrentWorkingNodes(&count);
+	reduce_oids = castNode(ClusterReduce, crstate->ps.plan)->reduce_oids;
+	count = list_length(reduce_oids);
 	if (count == 0)
 	{
 		ereport(ERROR,
@@ -377,10 +379,12 @@ static void BeginAdvanceReduce(ClusterReduceState *crstate)
 	SharedFileSetInit(&sfs->sfs, state->normal.dsm_seg);
 
 	myinfo = NULL;
+	lc = list_head(reduce_oids);
 	for(i=0;i<count;++i)
 	{
 		AdvanceNodeInfo *info = &state->nodes[i];
-		info->nodeoid = nodes[i];
+		info->nodeoid = lfirst_oid(lc);
+		lc = lnext(lc);
 		if (info->nodeoid == PGXCNodeOid)
 		{
 			char name[MAXPGPATH];
@@ -396,7 +400,7 @@ static void BeginAdvanceReduce(ClusterReduceState *crstate)
 										state->normal.dsm_seg,
 										dsm_segment_address(state->normal.dsm_seg),
 										crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
-										castNode(ClusterReduce, crstate->ps.plan)->reduce_oids);
+										reduce_oids);
 
 	while (state->normal.drio.eof_local == false)
 	{
@@ -801,11 +805,13 @@ static void InitMergeReduceState(ClusterReduceState *state, MergeReduceState *me
 	TupleDesc		desc = state->ps.ps_ResultTupleSlot->tts_tupleDescriptor;
 	ClusterReduce  *plan = castNode(ClusterReduce, state->ps.plan);
 	DynamicReduceSFS sfs;
-	const Oid	   *nodes;
-	uint32 i,count;
+	List		   *reduce_oids;
+	ListCell	   *lc;
+	uint32			i,count;
 	Assert(plan->numCols > 0);
 
-	nodes = DynamicReduceGetCurrentWorkingNodes(&count);
+	reduce_oids = castNode(ClusterReduce, state->ps.plan)->reduce_oids;
+	count = list_length(reduce_oids);
 	if (count == 0)
 	{
 		ereport(ERROR,
@@ -818,12 +824,14 @@ static void InitMergeReduceState(ClusterReduceState *state, MergeReduceState *me
 
 	merge->nodes = palloc0(sizeof(merge->nodes[0]) * count);
 	merge->nnodes = count;
+	lc = list_head(reduce_oids);
 	for (i=0;i<count;++i)
 	{
 		MergeNodeInfo *info = &merge->nodes[i];
 		info->slot = ExecInitExtraTupleSlot(state->ps.state, desc);
 		initStringInfo(&info->read_buf);
-		info->nodeoid = nodes[i];
+		info->nodeoid = lfirst_oid(lc);
+		lc = lnext(lc);
 		if (info->nodeoid == PGXCNodeOid)
 		{
 			char name[MAXPGPATH];
