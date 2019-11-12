@@ -1389,7 +1389,7 @@ GetOldestXmin(Relation rel, int flags)
 
 #ifdef ADB
 	if (TransactionIdIsValid(RecentGlobalXmin))
-		return RecentGlobalXmin;
+		return RecentGlobalXmin;	
 #endif
 
 	/*
@@ -1589,7 +1589,7 @@ GetSnapshotData(Snapshot snapshot)
 	volatile TransactionId replication_slot_xmin = InvalidTransactionId;
 	volatile TransactionId replication_slot_catalog_xmin = InvalidTransactionId;
 #ifdef ADB
-	bool		try_agtm_snap = IsUnderAGTM() && !IsGTMNode();
+	bool		try_agtm_snap = IsAnyAutoVacuumProcess() || (IsUnderAGTM() && !IsGTMNode());
 	bool		hint;
 	Snapshot 	snap PG_USED_FOR_ASSERTS_ONLY;
 #endif /* ADB */
@@ -1914,7 +1914,7 @@ GetSnapshotData(Snapshot snapshot)
 	 */
 	if (TransactionIdPrecedes(xmin, globalxmin))
 		globalxmin = xmin;
-
+		
 	/* Update global variables too */
 	RecentGlobalXmin = globalxmin - vacuum_defer_cleanup_age;
 	if (!TransactionIdIsNormal(RecentGlobalXmin))
