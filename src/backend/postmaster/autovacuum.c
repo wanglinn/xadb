@@ -105,6 +105,9 @@
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
 #include "utils/tqual.h"
+#ifdef ADB
+#include "replication/snapreceiver.h"
+#endif /* ADB */
 
 
 /*
@@ -476,6 +479,10 @@ AutoVacLauncherMain(int argc, char *argv[])
 #ifndef EXEC_BACKEND
 	InitProcess();
 #endif
+
+#ifdef ADB
+	SnapRcvShmemInit();
+#endif /* ADB */
 
 	InitPostgres(NULL, InvalidOid, NULL, InvalidOid, NULL, false);
 
