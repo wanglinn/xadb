@@ -1600,7 +1600,7 @@ GetSnapshotData(Snapshot snapshot)
 	volatile TransactionId replication_slot_xmin = InvalidTransactionId;
 	volatile TransactionId replication_slot_catalog_xmin = InvalidTransactionId;
 #ifdef ADB
-	bool		try_agtm_snap = IsAnyAutoVacuumProcess() || (IsUnderAGTM() && !IsGTMNode());
+	bool		try_agtm_snap = (IsUnderAGTM() || IsAnyAutoVacuumProcess()) && (!IsGTMNode());
 	bool		hint;
 	Snapshot 	snap PG_USED_FOR_ASSERTS_ONLY;
 #endif /* ADB */
