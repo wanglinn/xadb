@@ -2846,6 +2846,10 @@ static void refreshOldMasterAfterSwitch(SwitcherNodeWrapper *oldMaster,
 	namestrcpy(&oldMaster->mgrNode->form.nodesync, "");
 	if (kickOutOldMaster)
 	{
+		/* Mark the data group to which the old master belongs */
+		oldMaster->mgrNode->form.nodemasternameoid = newMaster->mgrNode->oid;
+		oldMaster->mgrNode->form.nodetype =
+			getMgrSlaveNodetype(oldMaster->mgrNode->form.nodetype);
 		oldMaster->mgrNode->form.nodeinited = false;
 		oldMaster->mgrNode->form.nodeincluster = false;
 		oldMaster->mgrNode->form.allowcure = false;
