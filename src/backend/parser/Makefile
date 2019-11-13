@@ -91,12 +91,12 @@ scan.c: FLEX_FIX_WARNING=yes
 
 
 # Force these dependencies to be known even without dependency info built:
-gram.o ora_gram.o scan.o parser.o: gram.h
+gram.o scan.o parser.o: gram.h
 ifeq ($(enable_grammar_oracle),yes)
-ora_gram.o scan.o parser.o: ora_gram.h
+ora_gram.o: ora_gram.h gram.h
 endif
 ifeq ($(enable_grammar_db2),yes)
-db2_gram.o scan.o parser.o: db2_gram.h
+db2_gram.o: db2_gram.h gram.h
 endif
 
 # gram.c, gram.h, and scan.c are in the distribution tarball, so they

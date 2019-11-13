@@ -54,10 +54,24 @@ install: all installdirs
 	  cp $(srcdir)/$$dir/*.h '$(DESTDIR)$(includedir_server)'/$$dir/ || exit; \
 	done
 ifeq ($(vpath_build),yes)
-	for file in dynloader.h catalog/schemapg.h parser/gram.h storage/lwlocknames.h utils/probes.h \
-	   catalog/pg_*_d.h catalog/adb_*_d.h catalog/mgr_*_d.h catalog/monitor_*_d.h catalog/ora_*_d.h catalog/pgxc_*_d.h; do \
+	for file in dynloader.h catalog/schemapg.h catalog/pg_*_d.h parser/gram.h storage/lwlocknames.h utils/probes.h; do \
 	  cp $$file '$(DESTDIR)$(includedir_server)'/$$file || exit; \
 	done
+ifeq ($(enable_cluster),yes)
+	for file in catalog/adb_*_d.h catalog/mgr_*_d.h catalog/monitor_*_d.h catalog/pgxc_*_d.h; do \
+	  cp $$file '$(DESTDIR)$(includedir_server)'/$$file || exit; \
+	done
+endif
+ifeq ($(enable_grammar_oracle),yes)
+	for file in catalog/ora_*_d.h parser/ora_gram.h; do \
+	  cp $$file '$(DESTDIR)$(includedir_server)'/$$file || exit; \
+	done
+endif
+ifeq ($(enable_grammar_db2),yes)
+	for file in parser/db2_gram.h; do \
+	  cp $$file '$(DESTDIR)$(includedir_server)'/$$file || exit; \
+	done
+endif
 endif
 	cd '$(DESTDIR)$(includedir_server)' && chmod $(INSTALL_DATA_MODE) *.h
 	for dir in $(SUBDIRS); do \

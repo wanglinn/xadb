@@ -1,7 +1,6 @@
 #include "postgres.h"
 
 #include "common/keywords.h"
-#include "nodes/parsenodes.h"
 #include "parser/ora_gramparse.h"
 /* we don't need YYSTYPE */
 #define YYSTYPE_IS_DECLARED
