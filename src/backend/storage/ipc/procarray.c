@@ -150,6 +150,10 @@ static TransactionId latestObservedXid = InvalidTransactionId;
  */
 static TransactionId standbySnapshotPendingXmin;
 
+#ifdef ADB
+extern int vacuum_cluster_xin_diff;
+#endif /* ADB */
+
 #ifdef XIDCACHE_DEBUG
 
 /* counters for XidCache measurement */
@@ -1947,6 +1951,9 @@ GetSnapshotData(Snapshot snapshot)
 		NormalTransactionIdPrecedes(replication_slot_catalog_xmin, RecentGlobalXmin))
 		RecentGlobalXmin = replication_slot_catalog_xmin;
 
+#ifdef ADB
+	RecentGlobalXmin = globalxmin - vacuum_cluster_xin_diff;
+#endif /* ADB */
 	RecentXmin = xmin;
 
 	snapshot->xmin = xmin;
