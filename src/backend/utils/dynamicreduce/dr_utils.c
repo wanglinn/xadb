@@ -397,7 +397,7 @@ void DRConnectNetMsg(StringInfo msg)
 		if (OidIsValid(temp_namespace_id))
 		{
 			if (temp_namespace_id != fs->temp_namespace_id ||
-				temp_toast_namespace_id == fs->temp_toast_namespace_id)
+				temp_toast_namespace_id != fs->temp_toast_namespace_id)
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
