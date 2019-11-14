@@ -911,6 +911,7 @@ static void BeginAdvanceMerge(ClusterReduceState *crstate)
 static void InitReduceMethod(ClusterReduceState *crstate)
 {
 	Assert(crstate->private_state == NULL);
+	Assert(crstate->initialized == false);
 	switch(crstate->reduce_method)
 	{
 	case RT_NOTHING:
@@ -928,6 +929,7 @@ static void InitReduceMethod(ClusterReduceState *crstate)
 				 errmsg("unknown reduce method %u", crstate->reduce_method)));
 		break;
 	}
+	crstate->initialized = true;
 	Assert(crstate->private_state != NULL ||
 		   crstate->reduce_method == RT_NOTHING);
 }
@@ -1347,8 +1349,15 @@ ExecReScanClusterReduce(ClusterReduceState *node)
 static bool
 DriveClusterReduceState(ClusterReduceState *node)
 {
-	if (node->private_state == NULL)
-		InitReduceMethod(node);
+	if (node->initialized == false)
+	{
+		if (node->private_state == NULL)
+			InitReduceMethod(node);
+	}else if(node->private_state == NULL)
+	{
+		/* execute finished */
+		return false;
+	}
 
 	switch(node->reduce_method)
 	{

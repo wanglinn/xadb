@@ -2314,6 +2314,7 @@ typedef struct ClusterReduceState
 	void		   *private_state;
 	int				eflags;			/* capability flags to pass to tuplestore */
 	uint8			reduce_method;
+	bool			initialized;
 } ClusterReduceState;
 
 typedef struct ReduceScanState

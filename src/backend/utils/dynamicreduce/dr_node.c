@@ -123,7 +123,7 @@ static void OnNodeEvent(DROnEventArgs)
 #ifdef DR_USING_EPOLL
 	DRNodeEventData *ned = (DRNodeEventData*)base;
 	Assert(ned->base.type == DR_EVENT_DATA_NODE);
-	DR_NODE_DEBUG((errmsg("node %d got events %d", ned->nodeoid, ev->events)));
+	DR_NODE_DEBUG((errmsg("node %d got events %d", ned->nodeoid, events)));
 	if ((events & (EPOLLIN|EPOLLPRI|EPOLLHUP|EPOLLERR)) &&
 		ned->status != DRN_WAIT_CLOSE &&
 		RecvMessageFromNode(ned, ned->base.fd) > 0)
