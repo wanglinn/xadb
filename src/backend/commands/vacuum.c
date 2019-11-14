@@ -2282,7 +2282,7 @@ static int process_master_vacuum_cmd(ClusterVacuumCmdContext *context, const cha
 		pq_copymsgbytes(&buf, (char*)&oldest_xmin, sizeof(oldest_xmin));
 		//ereport(LOG,(errmsg("CLUSTER_VACUUM_CMD_VACUUM get %d\n",oldest_xmin)));
 		if (oldest_xmin < RecentGlobalXmin)
-			vacuum_cluster_xin_diff = RecentGlobalXmin - vacuum_cluster_xin_diff;
+			vacuum_cluster_xin_diff = RecentGlobalXmin - oldest_xmin;
 		else
 			vacuum_cluster_xin_diff = 0;
 		range = makeRangeVar(namespace, relname, -1);
