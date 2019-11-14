@@ -994,12 +994,11 @@ Snapshot GxidSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, Transactio
 			int *countOld)
 {
 	TransactionId	xid,xmax,xmin;
-	uint32			i,count,xcnt;
+	uint32			i,xcnt;
 
 	if (snap->xip == NULL)
 		EnlargeSnapshotXip(snap, GetMaxSnapshotXidCount());
 
-re_lock_:
 	SpinLockAcquire(&GxidSender->mutex);
 
 	if (!TransactionIdIsNormal(GxidSender->latestCompletedXid))
@@ -1008,17 +1007,8 @@ re_lock_:
 		return snap;
 	}
 
-	count = GxidSender->xcnt + *countOld;
-	if (snap->max_xcnt < count)
-	{
-		/*
-		 * EnlargeSnapshotXip maybe report an error,
-		 * so release lock first
-		 */
-		SpinLockRelease(&GxidSender->mutex);
-		EnlargeSnapshotXip(snap, count);
-		goto re_lock_;
-	}
+	if (GxidSender->xcnt > 0)
+		EnlargeSnapshotXip(snap, GxidSender->xcnt + snap->max_xcnt);
 
 	xmax = GxidSender->latestCompletedXid;
 	Assert(TransactionIdIsNormal(xmax));

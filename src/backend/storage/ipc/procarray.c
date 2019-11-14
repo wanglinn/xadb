@@ -1674,7 +1674,7 @@ GetSnapshotData(Snapshot snapshot)
 #endif
 	}
 #endif /* ADB */
-	
+
 	/*
 	 * It is sufficient to get shared lock on ProcArrayLock, even if we are
 	 * going to set MyPgXact->xmin.
@@ -1695,9 +1695,17 @@ GetSnapshotData(Snapshot snapshot)
 		globalxmin = xmin = snapshot->xmin;
 	}
 	else
-#endif /* ADB */
+	{
+		xmin = xmax;
+		snap = GetGlobalSnapshotGxid(snapshot, &xmin, &xmax, &count);
+		Assert(snap == snapshot);
+		Assert(snap->xcnt <= snap->max_xcnt);
+		globalxmin = xmin;
+	}
+#else
 	globalxmin = xmin = xmax;
-
+#endif /* ADB */
+	
 	snapshot->takenDuringRecovery = RecoveryInProgress();
 
 	if (!snapshot->takenDuringRecovery)
@@ -1895,16 +1903,6 @@ GetSnapshotData(Snapshot snapshot)
 	/* fetch into volatile var while ProcArrayLock is held */
 	replication_slot_xmin = procArray->replication_slot_xmin;
 	replication_slot_catalog_xmin = procArray->replication_slot_catalog_xmin;
-
-#ifdef ADB
-	if (!try_agtm_snap)
-	{
-		snap = GetGlobalSnapshotGxid(snapshot, &xmin, &xmax, &count);
-		Assert(snap == snapshot);
-		Assert(snap->xcnt <= snap->max_xcnt);
-	}
-		
-#endif /* ADB*/
 
 	if (!TransactionIdIsValid(MyPgXact->xmin))
 		MyPgXact->xmin = TransactionXmin = xmin;
