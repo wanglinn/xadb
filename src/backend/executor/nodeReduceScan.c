@@ -30,7 +30,8 @@ typedef struct RedcueScanSharedMemory
 int reduce_scan_bucket_size = 1024*1024;	/* 1MB */
 int reduce_scan_max_buckets = 1024;
 
-static TupleTableSlot *ExecReduceScan(PlanState *pstate);
+static TupleTableSlot *ExecSeqReduceScan(PlanState *pstate);
+static TupleTableSlot* ExecHashReduceScan(PlanState *pstate);
 static TupleTableSlot *ExecEmptyReduceScan(PlanState *pstate);
 static TupleTableSlot* SeqReduceScanNext(ReduceScanState *node);
 static TupleTableSlot* HashReduceScanNext(ReduceScanState *node);
@@ -49,7 +50,6 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 
 	rcs->ss.ps.plan = (Plan*)node;
 	rcs->ss.ps.state = estate;
-	rcs->ss.ps.ExecProcNode = ExecReduceScan;
 
 	/*
 	 * Miscellaneous initialization
@@ -121,27 +121,46 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 			fmgr_info(typeCache->hash_proc, &rcs->scan_hash_funs[i]);
 			++i;
 		}
+		rcs->ss.ps.ExecProcNode = ExecHashReduceScan;
 	}else
 	{
 		rcs->nbatchs = 1;
+		rcs->ss.ps.ExecProcNode = ExecSeqReduceScan;
 	}
 
 	return rcs;
 }
 
-static TupleTableSlot *ExecReduceScan(PlanState *pstate)
+static TupleTableSlot *ExecSeqReduceScan(PlanState *pstate)
 {
 	ReduceScanState *node = castNode(ReduceScanState, pstate);
 	/* call FetchReduceScanOuter first */
 	Assert(node->cur_batch != NULL);
 
 	return ExecScan(&node->ss,
-					(ExecScanAccessMtd)(node->param_hash_exprs ? HashReduceScanNext : SeqReduceScanNext),
+					(ExecScanAccessMtd)SeqReduceScanNext,
+					(ExecScanRecheckMtd)ReduceScanRecheck);
+}
+
+static TupleTableSlot* ExecHashReduceScan(PlanState *pstate)
+{
+	ReduceScanState *node = castNode(ReduceScanState, pstate);
+	/* call FetchReduceScanOuter first */
+	Assert(node->cur_batch != NULL);
+
+	return ExecScan(&node->ss,
+					(ExecScanAccessMtd)HashReduceScanNext,
 					(ExecScanRecheckMtd)ReduceScanRecheck);
 }
 
 static TupleTableSlot *ExecEmptyReduceScan(PlanState *pstate)
 {
+	return ExecClearTuple(pstate->ps_ResultTupleSlot);
+}
+
+static inline TupleTableSlot* SetAndExecEmptyReduceScan(PlanState *pstate)
+{
+	ExecSetExecProcNode(pstate, ExecEmptyReduceScan);
 	return ExecClearTuple(pstate->ps_ResultTupleSlot);
 }
 
@@ -255,7 +274,7 @@ void ExecReScanReduceScan(ReduceScanState *node)
 {
 	if (node->cur_batch != NULL)
 	{
-		sts_end_parallel_scan(node->cur_batch);
+		sts_end_scan(node->cur_batch);
 		node->cur_batch = NULL;
 	}
 
@@ -273,23 +292,24 @@ void ExecReScanReduceScan(ReduceScanState *node)
 		}else
 		{
 			node->cur_batch = ExecGetReduceScanBatch(node, node->cur_hashval);
-			ExecSetExecProcNode(&node->ss.ps, ExecReduceScan);
+			ExecSetExecProcNode(&node->ss.ps, ExecHashReduceScan);
 		}
 	}else
 	{
 		node->cur_batch = node->batchs[0];
+		ExecSetExecProcNode(&node->ss.ps, ExecSeqReduceScan);
 	}
 
 	if (node->cur_batch)
-		sts_begin_parallel_scan(node->cur_batch);
+		sts_begin_scan(node->cur_batch);
 }
 
 static TupleTableSlot* SeqReduceScanNext(ReduceScanState *node)
 {
-	MinimalTuple mtup = sts_parallel_scan_next(node->cur_batch, NULL);
+	MinimalTuple mtup = sts_scan_next(node->cur_batch, NULL);
 
 	if (mtup == NULL)
-		return ExecClearTuple(node->ss.ss_ScanTupleSlot);
+		return SetAndExecEmptyReduceScan(&node->ss.ps);
 	else
 		return ExecStoreMinimalTuple(mtup, node->ss.ss_ScanTupleSlot, false);
 }
@@ -301,9 +321,9 @@ static TupleTableSlot* HashReduceScanNext(ReduceScanState *node)
 	
 	for (;;)
 	{
-		mtup = sts_parallel_scan_next(node->cur_batch, &hashval);
+		mtup = sts_scan_next(node->cur_batch, &hashval);
 		if (mtup == NULL)
-			return ExecClearTuple(node->ss.ss_ScanTupleSlot);
+			return SetAndExecEmptyReduceScan(&node->ss.ps);
 		else if (hashval == node->cur_hashval)
 			return ExecStoreMinimalTuple(mtup, node->ss.ss_ScanTupleSlot, false);
 	}
@@ -339,4 +359,29 @@ static uint32 ExecReduceScanGetHashValue(ExprContext *econtext, List *exprs, Fmg
 	}
 
 	return hash_value;
+}
+
+static bool SetEmptyResultWalker(ReduceScanState *state, void *context)
+{
+	if (state == NULL)
+		return false;
+
+	if (IsA(state, ReduceScanState))
+	{
+		Assert(state->batchs != NULL);
+		ExecSetExecProcNode(&state->ss.ps, ExecEmptyReduceScan);
+		if (state->cur_batch)
+		{
+			sts_end_scan(state->cur_batch);
+			state->cur_batch = NULL;
+		}
+		return false;
+	}
+
+	return planstate_tree_walker(&state->ss.ps, SetEmptyResultWalker, context);
+}
+
+void BeginDriveClusterReduce(PlanState *node)
+{
+	SetEmptyResultWalker((ReduceScanState*)node, NULL);
 }
