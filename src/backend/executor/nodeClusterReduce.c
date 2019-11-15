@@ -1567,6 +1567,12 @@ IsThereClusterReduce(PlanState *node)
 		IsThereClusterReduce(((CteScanState *) node)->cteplanstate))
 		return true;
 
+	if (IsA(node, ReduceScanState))
+	{
+		/* ReduceScan's outer should be executed */
+		return false;
+	}
+
 	return planstate_tree_walker(node, IsThereClusterReduce, NULL);
 }
 
@@ -1580,6 +1586,7 @@ TopDownDriveClusterReduce(PlanState *node)
 	if (!node->state->es_reduce_plan_inited)
 		return ;
 
+	BeginDriveClusterReduce(node);
 	(void) DriveClusterReduceWalker(node);
 }
 
