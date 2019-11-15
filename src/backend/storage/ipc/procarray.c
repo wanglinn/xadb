@@ -1716,8 +1716,13 @@ GetSnapshotData(Snapshot snapshot)
 #else
 	globalxmin = xmin = xmax;
 #endif /* ADB */
-	
+
 	snapshot->takenDuringRecovery = RecoveryInProgress();
+#ifdef ADB
+	/* when enable_readsql_on_slave, we should make sure snapshot->takenDuringRecovery is false*/
+	if (IsConnFromCoord() && RecoveryInProgress())
+		snapshot->takenDuringRecovery = false;
+#endif /* ADB */
 
 	if (!snapshot->takenDuringRecovery)
 	{
