@@ -176,6 +176,9 @@ void FetchReduceScanOuter(ReduceScanState *node)
 	if(node->batchs)
 		return;
 
+	if (node->ss.ps.instrument)
+		InstrStartNode(node->ss.ps.instrument);
+
 	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(node));
 
 	node->dsm_seg = dsm_create(REDUCE_SCAN_SHM_SIZE(node->nbatchs), 0);
@@ -241,6 +244,9 @@ void FetchReduceScanOuter(ReduceScanState *node)
 
 	econtext->ecxt_outertuple = node->ss.ss_ScanTupleSlot;
 	MemoryContextSwitchTo(oldcontext);
+
+	if (node->ss.ps.instrument)
+		InstrStopNode(node->ss.ps.instrument, 0.0);
 }
 
 void ExecEndReduceScan(ReduceScanState *node)
