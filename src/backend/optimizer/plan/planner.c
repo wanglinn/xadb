@@ -787,6 +787,10 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 			result->jitFlags |= PGJIT_DEFORM;
 	}
 
+#ifdef ADB
+	OptimizeClusterPlan(result);
+#endif /* ADB */
+
 	return result;
 }
 

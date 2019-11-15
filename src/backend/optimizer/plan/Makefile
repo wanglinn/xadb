@@ -16,7 +16,7 @@ OBJS = analyzejoins.o createplan.o initsplan.o planagg.o planmain.o planner.o \
 	setrefs.o subselect.o
 
 ifeq ($(enable_cluster), yes)
-  OBJS += pgxcplan.o
+  OBJS += pgxcplan.o clusterplan.o
 endif
 
 include $(top_srcdir)/src/backend/common.mk
