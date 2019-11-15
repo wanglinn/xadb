@@ -1015,6 +1015,9 @@ typedef struct ClusterMergeGather
 
 typedef Plan ClusterGetCopyData;
 
+#define CRF_FETCH_LOCAL_FIRST	0x0001	/* fetch all local first */
+#define CRF_DISK_UNNECESSARY	0x0002	/* don't need cache on disk */
+
 typedef struct ClusterReduce
 {
 	Plan		plan;
@@ -1030,7 +1033,7 @@ typedef struct ClusterReduce
 	Oid		   *collations;		/* OIDs of collations */
 	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
 
-	bool		include_coord;	/* reduce include coordinator ? */
+	uint32		reduce_flags;	/* clsuter reduce plan flags, see CRF_XXX */
 } ClusterReduce;
 
 typedef struct ReduceScan

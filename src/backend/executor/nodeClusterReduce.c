@@ -136,6 +136,40 @@ static TupleTableSlot* ExecNormalReduce(PlanState *pstate)
 	return slot;
 }
 
+static TupleTableSlot* ExecNormalReduceLocalFirst(PlanState *pstate)
+{
+	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
+	NormalReduceState  *normal = node->private_state;
+	TupleTableSlot	   *slot;
+	bool				send_success PG_USED_FOR_ASSERTS_ONLY;
+	Assert(normal != NULL && node->reduce_method == RT_NORMAL);
+
+re_get_:
+	Assert(normal->drio.eof_local == false);
+	slot = DynamicReduceFetchLocal(&normal->drio);
+	if (normal->drio.send_buf.len > 0)
+	{
+		/* befor return, we must tall other node, we are end of tuple */
+		send_success = DynamicReduceSendMessage(normal->drio.mqh_sender,
+												normal->drio.send_buf.len,
+												normal->drio.send_buf.data,
+												false);
+		Assert(send_success);
+		normal->drio.send_buf.len = 0;
+	}
+	if (normal->drio.eof_local)
+		ExecSetExecProcNode(pstate, ExecNormalReduce);
+
+	if (TupIsNull(slot))
+	{
+		if (normal->drio.eof_local)
+			slot = ExecNormalReduce(pstate);
+		else
+			goto re_get_;
+	}
+	return slot;
+}
+
 static TupleTableSlot* ExecReduceFetchLocal(void *pstate, ExprContext *econtext)
 {
 	TupleTableSlot *slot = ExecProcNode(pstate);
@@ -182,19 +216,21 @@ static void InitNormalReduce(ClusterReduceState *crstate)
 {
 	MemoryContext		oldcontext;
 	NormalReduceState  *normal;
+	ClusterReduce	   *plan = castNode(ClusterReduce, crstate->ps.plan);
 	Assert(crstate->private_state == NULL);
 
 	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
 	normal = palloc0(sizeof(NormalReduceState));
 	InitNormalReduceState(normal, sizeof(DynamicReduceMQData), crstate);
 	crstate->private_state = normal;
-	ExecSetExecProcNode(&crstate->ps, ExecNormalReduce);
+	ExecSetExecProcNode(&crstate->ps,
+						plan->reduce_flags & CRF_FETCH_LOCAL_FIRST ? ExecNormalReduceLocalFirst:ExecNormalReduce);
 	DynamicReduceStartNormalPlan(crstate->ps.plan->plan_node_id, 
 								 normal->dsm_seg,
 								 dsm_segment_address(normal->dsm_seg),
 								 crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
-								 castNode(ClusterReduce, crstate->ps.plan)->reduce_oids,
-								 true);
+								 plan->reduce_oids,
+								 plan->reduce_flags & CRF_DISK_UNNECESSARY ? false:true);
 	MemoryContextSwitchTo(oldcontext);
 }
 
@@ -221,12 +257,16 @@ static void InitParallelReduce(ClusterReduceState *crstate, ParallelContext *pcx
 	normal = palloc0(sizeof(NormalReduceState));
 	SetupNormalReduceState(normal, drmq, crstate, false);
 	crstate->private_state = normal;
-	ExecSetExecProcNode(&crstate->ps, ExecNormalReduce);
+	if (castNode(ClusterReduce, crstate->ps.plan)->reduce_flags & CRF_FETCH_LOCAL_FIRST)
+		ExecSetExecProcNode(&crstate->ps, ExecNormalReduceLocalFirst);
+	else
+		ExecSetExecProcNode(&crstate->ps, ExecNormalReduce);
 	MemoryContextSwitchTo(oldcontext);
 }
 static void StartParallelReduce(ClusterReduceState *crstate, ParallelContext *pcxt)
 {
 	DynamicReduceMQ		drmq;
+	ClusterReduce	   *plan = castNode(ClusterReduce, crstate->ps.plan);
 
 	char* addr = shm_toc_lookup(pcxt->toc, crstate->ps.plan->plan_node_id, false);
 	drmq = (DynamicReduceMQ)(addr + sizeof(Size));
@@ -235,16 +275,16 @@ static void StartParallelReduce(ClusterReduceState *crstate, ParallelContext *pc
 									 pcxt->seg,
 									 drmq,
 									 crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
-									 castNode(ClusterReduce, crstate->ps.plan)->reduce_oids,
-									 true);
+									 plan->reduce_oids,
+									 plan->reduce_flags & CRF_DISK_UNNECESSARY ? false:true);
 	else
 		DynamicReduceStartParallelPlan(crstate->ps.plan->plan_node_id,
 									   pcxt->seg,
 									   drmq,
 									   crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
-									   castNode(ClusterReduce, crstate->ps.plan)->reduce_oids,
+									   plan->reduce_oids,
 									   pcxt->nworkers_launched+1,
-									   true);
+									   plan->reduce_flags & CRF_DISK_UNNECESSARY ? false:true);
 }
 static void InitParallelReduceWorker(ClusterReduceState *crstate, ParallelWorkerContext *pwcxt, char *addr)
 {

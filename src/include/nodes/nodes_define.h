@@ -866,7 +866,7 @@ BEGIN_NODE(ClusterReduce)
 	NODE_SCALAR_POINT(Oid,sortOperators,NODE_ARG_->numCols)
 	NODE_SCALAR_POINT(Oid,collations,NODE_ARG_->numCols)
 	NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numCols)
-	NODE_SCALAR(bool,include_coord)
+	NODE_SCALAR(uint32,reduce_flags)
 END_NODE(ClusterReduce)
 #endif /* NO_NODE_ClusterReduce */
 

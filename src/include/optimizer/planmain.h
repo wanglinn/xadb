@@ -149,6 +149,9 @@ extern List* get_remote_nodes(PlannerInfo *root, Path *path, bool include_subroo
 extern List* get_reduce_info_list(Path *path);
 extern List* copy_reduce_info_list(List *list);
 
+/* in optimizer/plan/clusterplan.c */
+extern void OptimizeClusterPlan(PlannedStmt *stmt);
+
 #endif
 
 #endif							/* PLANMAIN_H */
