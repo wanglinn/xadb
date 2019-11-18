@@ -2222,7 +2222,7 @@ ProcessStartupPacket(Port *port, bool SSLdone)
 	}
 
 #ifdef ADB
-	if (proto ==  GXID_SEND_SOCKET || proto ==  SNAP_SEND_SOCKET)
+	if ((!RecoveryInProgress()) && (proto ==  GXID_SEND_SOCKET || proto ==  SNAP_SEND_SOCKET))
 	{
 		char	retry_ack;
 		retry_ack = 'T';
