@@ -13457,7 +13457,7 @@ static void mgr_update_da_master_pgxcnode_slave_info(const char* dn_master_name)
 bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync, Node *node)
 {
 	InitNodeInfo	*info;
-	ScanKeyData		cnkey[1], ndkey[2], ndskey[3];
+	ScanKeyData		cnkey[1], ndkey[3], ndskey[4];
 	HeapTuple		tuple;
 	Form_mgr_node	cn_master_node, dn_master_node;
 	MgrDatanodeInfo	*mgr_datanode_info;
@@ -13548,7 +13548,12 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 			,BTEqualStrategyNumber
 			,F_CHAREQ
 			,CharGetDatum(CNDN_TYPE_DATANODE_MASTER));
-	info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, ndkey);
+	ScanKeyInit(&ndkey[2]
+			,Anum_mgr_node_nodezone
+			,BTEqualStrategyNumber
+			,F_NAMEEQ
+			,CStringGetDatum("local"));
+	info->rel_scan = heap_beginscan_catalog(info->rel_node, 3, ndkey);
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
 		dn_master_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -13575,6 +13580,11 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 				,BTEqualStrategyNumber
 				,F_BOOLEQ
 				,BoolGetDatum(true));
+	ScanKeyInit(&ndskey[1]
+			,Anum_mgr_node_nodezone
+			,BTEqualStrategyNumber
+			,F_NAMEEQ
+			,CStringGetDatum("local"));
 
 	/* get slave info */
 	foreach (cell, datanode_list)
@@ -13582,12 +13592,12 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 		mgr_datanode_info = (MgrDatanodeInfo *) lfirst(cell);
 		mgr_datanode_info->slaveNode = NULL;
 
-		ScanKeyInit(&ndskey[1]
+		ScanKeyInit(&ndskey[2]
 				,Anum_mgr_node_nodemasternameoid
 				,BTEqualStrategyNumber
 				,F_OIDEQ
 				,ObjectIdGetDatum(mgr_datanode_info->masterOid));
-		ScanKeyInit(&ndskey[2]
+		ScanKeyInit(&ndskey[3]
 				,Anum_mgr_node_nodesync
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
@@ -13595,7 +13605,7 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 
 		/* In read-write separation mode, synchronous slave node is used by default, 
 		 * and asynchronous slave node can be used if no synchronous slave node exists. */
-		info->rel_scan = heap_beginscan_catalog(info->rel_node, 3, ndskey);
+		info->rel_scan = heap_beginscan_catalog(info->rel_node, 4, ndskey);
 		if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 		{
 			mgr_datanode_info->slaveNode = (Form_mgr_node)GETSTRUCT(tuple);
@@ -13604,13 +13614,13 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 		else
 		{
 			heap_endscan(info->rel_scan);
-			ScanKeyInit(&ndskey[2]
+			ScanKeyInit(&ndskey[3]
 					,Anum_mgr_node_nodesync
 					,BTEqualStrategyNumber
 					,F_NAMENE
 					,NameGetDatum(&nodeSync));
 			
-			info->rel_scan = heap_beginscan_catalog(info->rel_node, 3, ndskey);
+			info->rel_scan = heap_beginscan_catalog(info->rel_node, 4, ndskey);
 			if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 			{
 				mgr_datanode_info->slaveNode = (Form_mgr_node)GETSTRUCT(tuple);
