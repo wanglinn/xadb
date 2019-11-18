@@ -46,10 +46,9 @@
 #define ADB_DR_MQ_MSG_STARTUP			'\x11'
 #define ADB_DR_MQ_MSG_CONNECT			'\x12'
 #define ADB_DR_MQ_MSG_START_PLAN_NORMAL	'\x13'
-#define ADB_DR_MQ_MSG_START_PLAN_MERGE	'\x14'
-#define ADB_DR_MQ_MSG_START_PLAN_SFS	'\x15'
-#define ADB_DR_MQ_MSG_START_PLAN_PARALLEL '\x16'
-#define ADB_DR_MQ_MSG_START_PLAN_STS	'\x17'
+#define ADB_DR_MQ_MSG_START_PLAN_SFS	'\x14'
+#define ADB_DR_MQ_MSG_START_PLAN_PARALLEL '\x15'
+#define ADB_DR_MQ_MSG_START_PLAN_STS	'\x16'
 
 #define ADB_DR_MSG_INVALID				'\x00'
 #define ADB_DR_MSG_NODEOID				'\x01'
@@ -245,15 +244,6 @@ struct PlanInfo
 			uint32		last_pwi;			/* last put to message pwi */
 		};
 
-		/* for merge */
-		struct
-		{
-			int				nsort_keys;
-			struct SortSupportData
-						   *sort_keys;
-			MemoryContext	sort_context;
-		};
-
 		/* for shared tuplestore */
 		struct
 		{
@@ -324,9 +314,6 @@ void OnDefaultPlanIdleNode(PlanInfo *pi, WaitEvent *w, DRNodeEventData *ned);
 
 /* normal plan functions in plan_normal.c */
 void DRStartNormalPlanMessage(StringInfo msg);
-
-/* merge plan functions in plan_merge.c */
-void DRStartMergePlanMessage(StringInfo msg);
 
 /* SharedFileSet plan functions in plan_sfs.c */
 struct BufFile;
