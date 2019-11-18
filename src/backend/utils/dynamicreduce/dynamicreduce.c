@@ -594,10 +594,6 @@ static void TryBackendMessage(void)
 	{
 		DRStartNormalPlanMessage(&buf);
 		DRSendConfirmToBackend(false);
-	}else if (msgtype == ADB_DR_MQ_MSG_START_PLAN_MERGE)
-	{
-		DRStartMergePlanMessage(&buf);
-		DRSendConfirmToBackend(false);
 	}else if (msgtype == ADB_DR_MQ_MSG_START_PLAN_SFS)
 	{
 		DRStartSFSPlanMessage(&buf);
