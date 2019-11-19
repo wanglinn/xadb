@@ -28,4 +28,8 @@ ifeq ($(enable_cluster),yes)
 	BITCODE_CFLAGS += -I$(top_srcdir)/src/interfaces
 endif
 
+ifeq ($(enable_grammar_oracle),yes)
+	OBJS += ora_convert.o
+endif
+
 include $(top_srcdir)/src/backend/common.mk
