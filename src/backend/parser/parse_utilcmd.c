@@ -534,6 +534,11 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 				addDefaultDistributeBy(stmt);
 				orgstmt->distributeby = (DistributeBy *) copyObject(stmt->distributeby);
 			}
+			else
+			{
+				inferCreateStmtDistributeBy(stmt);
+				orgstmt->distributeby = (DistributeBy *) copyObject(stmt->distributeby);
+			}
 		}
 	}
 #endif
