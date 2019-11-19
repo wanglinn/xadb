@@ -3610,6 +3610,31 @@ OptPartitionSpec:
 				}
 			| PartitionSpec '(' ora_part_child_list ')'
 				{
+					if (strcmp($1->partitionSpec->strategy, "hash") == 0)
+					{
+						int			part_count, i;
+						ListCell	*cell;
+						CreateStmt	*stmt;
+
+						part_count = list_length($3);
+						if (part_count > 0)
+						{
+							cell = list_head($3);
+							for (i = 0; i < part_count; i++)
+							{
+								if (cell && nodeTag(lfirst(cell)) != T_CreateStmt)
+									elog(ERROR, "Unknown hash partition table creation clause.");
+
+								stmt = (CreateStmt*) lfirst(cell);
+								Assert (stmt->partbound->strategy = PARTITION_STRATEGY_HASH);
+								stmt->partbound->modulus = part_count;
+								stmt->partbound->remainder = i;
+
+								cell = lnext(cell);
+							}
+						}
+					}
+
 					$$ =  $1;
 					$$->children = $3;
 				}
@@ -3728,7 +3753,7 @@ ForValues:
 
 					$$ = n;
 				}
-			| VALUES LESS THAN '(' range_datum_list ')'
+			| VALUES LESS THAN '(' expr_list ')'
 				{
 						PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
 
@@ -3738,6 +3763,26 @@ ForValues:
 						n->location = @2;
 
 						$$ = n;
+				}
+			| VALUES LESS THAN '(' MAXVALUE ')'
+				{
+					PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
+
+					n = makeNode(PartitionBoundSpec);
+					n->strategy = PARTITION_STRATEGY_RANGE;
+					n->lowerdatums = NIL;
+					n->upperdatums = list_make1((Node *) makeColumnRef("maxvalue", NIL, -1, NULL));
+					n->location = @2;
+
+					$$ = n;
+				}
+			| /* empty */
+				{
+					PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
+
+					n->strategy = PARTITION_STRATEGY_HASH;
+					n->location = -1;
+					$$ = n;
 				}
 		;
 
@@ -7707,6 +7752,7 @@ reserved_keyword:
 	| LIKE
 	| LOCK_P
 	| MAXEXTENTS
+	| MAXVALUE
 	| MINUS
 	| MLSLABEL
 	| MODE
@@ -7870,7 +7916,6 @@ unreserved_keyword:
 	| MATERIALIZED
 	| MINUTE_P
 	| MATCH
-	| MAXVALUE
 	| METHOD
 	| NOMAXVALUE
 	| MINVALUE
