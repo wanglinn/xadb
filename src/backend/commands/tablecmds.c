@@ -17492,4 +17492,65 @@ DistribRewriteCatalogs(AlterTableCmd *cmd, Oid childOID, LOCKMODE lockmode)
 
 	heap_close(rel, lockmode);
 }
+
+void inferCreateStmtDistributeBy(CreateStmt *stmt)
+{
+	TupleDesc			descriptor;
+	DistributeBy	   *inferredDistributeBy;
+	char				inferredDisttype;
+	AttrNumber			attnum = 0;
+	Form_pg_attribute	attr;
+	List				*copyOfTableElts;
+	List				*old_constraints;
+	List				*inheritOids;
+	int					parentOidCount;
+	
+	/* only coordinator master can do this */
+	Assert(IsCnMaster());
+	/* has no DistributeBy */
+	Assert(stmt->distributeby == NULL);
+	/* not inherit from */
+	Assert(stmt->inhRelations == NULL);
+	/* not temp table */
+	Assert(stmt->relation->relpersistence != RELPERSISTENCE_TEMP);
+
+	copyOfTableElts = copyObject(stmt->tableElts);
+	/*
+	 * Look up inheritance ancestors and generate relation schema, including
+	 * inherited attributes.  (Note that copyOfTableElts is destructively
+	 * modified by MergeAttributes.)
+	 */
+	copyOfTableElts =
+		MergeAttributes(copyOfTableElts, stmt->inhRelations,
+						stmt->relation->relpersistence,
+						stmt->partbound != NULL,
+						&inheritOids, &old_constraints, &parentOidCount);
+
+	/*
+	 * Create a tuple descriptor from the relation schema.  Note that this
+	 * deals with column names, types, and NOT NULL constraints, but not
+	 * default values or CHECK constraints; we handle those below.
+	 */
+	descriptor = BuildDescForRelation(stmt->tableElts);
+
+	/* Obtain details of distribution information */
+	GetRelationDistributionItems(InvalidOid,
+								 NULL,
+								 descriptor,
+								 &inferredDisttype,
+								 NULL,
+								 NULL,
+								 &attnum,
+								 NULL,
+								 NULL,
+								 NULL);
+	if(inferredDisttype > 0 && attnum > 0)
+	{
+		inferredDistributeBy = makeNode(DistributeBy);
+		inferredDistributeBy->disttype = inferredDisttype;
+		attr = TupleDescAttr(descriptor, (attnum - 1));
+		inferredDistributeBy->colname = NameStr(attr->attname);
+		stmt->distributeby = inferredDistributeBy;
+	}
+}
 #endif
