@@ -109,6 +109,9 @@ bool node_tree_walker(Node *n, bool (*walker)(), void *context)
 	case T_SortGroupClause:
 	case T_Value:
 	case T_A_Const:
+#ifdef ADB_GRAM_ORA
+	case T_OraImplicitConvertStmt:
+#endif /* ADB_GRAM_ORA */
 		break;
 	default:
 		ereport(ERROR, (errmsg("unknown node type %d\n", (int)nodeTag(n))));

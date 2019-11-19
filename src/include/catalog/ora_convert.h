@@ -6,6 +6,33 @@
 #include "catalog/genbki.h"
 #include "catalog/ora_convert_d.h"
 
+typedef enum IConvertKind
+{
+	KIND_OPERATOR,
+	KIND_FUNCTION,
+	KIND_COMMON,
+	KIND_SPECIAL_FUN
+}IConvertKind;
+typedef enum IConvertAction
+{
+	ICONVERT_CREATE,
+	ICONVERT_UPDATE,
+	ICONVERT_DELETE
+}IConvertAction;
+typedef struct OraImplicitConvertStmt
+{
+	NodeTag			type;
+	char			cvtkind;
+	char			*cvtname;
+	List			*cvtfrom;
+	List			*cvtto;
+	IConvertAction	action;
+	bool			if_exists;
+}OraImplicitConvertStmt;
+
+
+extern void ExecImplicitConvert(OraImplicitConvertStmt *stmt);
+
 CATALOG(ora_convert,6116,OraConvertRelationId) BKI_WITHOUT_OIDS
 {
 	/* implicit convert kind, ORA_CONVERT_KIND_XXX */

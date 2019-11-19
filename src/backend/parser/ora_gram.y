@@ -9,6 +9,7 @@
 #include "catalog/index.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_class.h"
+#include "catalog/ora_convert.h"
 #include "commands/defrem.h"
 #include "lib/stringinfo.h"
 #include "nodes/makefuncs.h"
@@ -174,7 +175,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %type <ielem>	index_elem
 
 %type <list>	stmtblock stmtmulti opt_column_list columnList alter_table_cmds
-				OptRoleList
+				OptRoleList convert_type_list
 
 %type <list>	OptSeqOptList SeqOptList
 /* %type <list>	NumericOnly_list */
@@ -285,7 +286,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	func_application func_application_normal func_expr_common_subexpr func_arg_expr
 	func_expr func_table for_locking_item func_expr_windowless
 	having_clause
-	indirection_el InsertStmt IndexStmt
+	indirection_el InsertStmt IndexStmt OraImplicitConvertStmt
 	join_outer
 	limit_clause
 	offset_clause opt_collate_clause opt_start_with_clause
@@ -314,10 +315,10 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	opt_boolean_or_string opt_encoding OptConsTableSpace opt_index_name
 	opt_existing_window_name
 	OptTableSpace
-	param_name
+	param_name convert_type opt_function_or_common
 	RoleId
 	Sconst
-	type_function_name
+	type_function_name convert_functon_name
 	var_name
 
 %type <target>	insert_column_item single_set_clause set_target target_item
@@ -360,8 +361,8 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	BACKWARD BEGIN_P BETWEEN BFILE BIGINT BINARY BINARY_FLOAT BINARY_DOUBLE
 	BLOB BOOLEAN_P BOTH BY BYTE_P
 	CASCADE CASE CAST CATALOG_P CHAR_P CHARACTERISTICS CHECK CLASS CLOSE CLUSTER
-	COLUMN COMMIT COMMENT COLLATION CONVERSION_P CONNECT_BY_ROOT CONNECTION
-	COMMITTED COMPRESS COLLATE CONNECT CONSTRAINT CYCLE NOCYCLE
+	COLUMN COMMIT COMMENT COLLATION CONVERSION_P CONNECT_BY_ROOT CONNECTION COMMON
+	COMMITTED COMPRESS COLLATE CONNECT CONSTRAINT CONVERT CYCLE NOCYCLE
 	CONSTRAINTS CLOB COALESCE CONTENT_P CONTINUE_P CREATE CROSS CUBE CURRENT_DATE
 	CURRENT_P CURRENT_TIMESTAMP CURRENT_USER CURRVAL CURSOR CONCURRENTLY CONFIGURATION
 	CACHE NOCACHE COMMENTS
@@ -400,7 +401,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	REFERENCES REPLICA RULE RELATIVE_P RELEASE RESULT_CACHE
 	SCHEMA SECOND_P SELECT SERIALIZABLE SERVER SESSION SESSIONTIMEZONE SET SETS SHARE SHOW SIBLINGS SIZE SEARCH
 	SMALLINT SIMPLE SETOF STATISTICS SAVEPOINT SEQUENCE SYSID SOME SCROLL
-	SNAPSHOT START STORAGE SUBSCRIPTION SUCCESSFUL SYNONYM SYSDATE SYSTIMESTAMP
+	SNAPSHOT SPECIAL START STORAGE SUBSCRIPTION SUCCESSFUL SYNONYM SYSDATE SYSTIMESTAMP
 	TABLE TEMP TEMPLATE TEMPORARY THAN THEN TIME TIMESTAMP TO TRAILING
 	TRANSACTION TRANSFORM TREAT TRIM TRUNCATE TRIGGER TRUE_P TABLESPACE
 	TYPE_P TEXT_P
@@ -536,6 +537,7 @@ stmt:
 	| FetchStmt
 	| InsertStmt
 	| IndexStmt
+	| OraImplicitConvertStmt
 	| RefreshMatViewStmt
 	| RenameStmt
 	| SelectStmt
@@ -7539,6 +7541,114 @@ comment_text:
 			| NULL_P							{ $$ = NULL; }
 		;
 
+/*****************************************************************************
+ *	Oracle Implicit Conversion:
+ *		
+ *		CREATE [ OR REPLACE ] CONVERT FUNCTION function_name (type1 [,type2 [, ...]]) 
+ *				AS new_function_name (new_type1 [,new_type2 [, ...]]);
+ *
+ *
+ *****************************************************************************/
+
+OraImplicitConvertStmt:
+			/* implicit convert function or special function */
+			CREATE opt_or_replace CONVERT opt_function_or_common convert_functon_name '(' convert_type_list ')' 
+						AS convert_functon_name '(' convert_type_list ')'
+				{
+					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
+					c->cvtkind = *$4;
+					c->cvtname = $5;
+					c->cvtfrom = $7;
+					c->cvtto = $12;
+					if ($2)
+						c->action = ICONVERT_UPDATE;
+					else
+						c->action = ICONVERT_CREATE;
+					c->if_exists = false;
+					$$ = (Node *) c;
+				}
+			| DROP CONVERT opt_function_or_common convert_functon_name '(' convert_type_list ')'
+				{
+					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
+					c->cvtkind = *$3;
+					c->cvtname = $4;
+					c->cvtfrom = $6;
+					c->cvtto = NIL;
+					c->action = ICONVERT_DELETE;
+					c->if_exists = false;
+					$$ = (Node *) c;
+				}
+			| DROP CONVERT opt_function_or_common IF_P EXISTS convert_functon_name '(' convert_type_list ')'
+				{
+					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
+					c->cvtkind = *$3;
+					c->cvtname = $6;
+					c->cvtfrom = $8;
+					c->cvtto = NIL;
+					c->action = ICONVERT_DELETE;
+					c->if_exists = true;
+					$$ = (Node *) c;
+				}
+			/* implicit convert operator */
+			| CREATE opt_or_replace CONVERT OPERATOR convert_type all_Op convert_type AS convert_type all_Op convert_type
+				{
+					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
+					c->cvtkind = 'o';
+					c->cvtname = $6;
+					c->cvtfrom = list_make2($5, $7);
+					c->cvtto = list_make2($9, $11);
+					if ($2)
+						c->action = ICONVERT_UPDATE;
+					else
+						c->action = ICONVERT_CREATE;
+					c->if_exists = false;
+					$$ = (Node *) c;
+				}
+			| DROP CONVERT OPERATOR convert_type all_Op convert_type
+				{
+					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
+					c->cvtkind = 'o';
+					c->cvtname = $5;
+					c->cvtfrom = list_make2($4, $6);
+					c->cvtto = NIL;
+					c->action = ICONVERT_DELETE;
+					c->if_exists = false;
+					$$ = (Node *) c;
+				}
+			| DROP CONVERT OPERATOR IF_P EXISTS convert_type all_Op convert_type
+				{
+					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
+					c->cvtkind = 'o';
+					c->cvtname = $7;
+					c->cvtfrom = list_make2($6, $8);
+					c->cvtto = NIL;
+					c->action = ICONVERT_DELETE;
+					c->if_exists = true;
+					$$ = (Node *) c;
+				}
+		;
+convert_functon_name:
+			type_function_name						{ $$ = $1; }
+			| /* EMPTY */							{ $$ = ""; }
+			;
+
+convert_type_list:
+			convert_type							{ $$ = list_make1($1); }
+			| convert_type_list ',' convert_type 	{ $$ = lappend($1, $3); }
+		;
+
+convert_type:
+			ColLabel		{ $$ = $1; }
+		;
+
+opt_function_or_common:
+			FUNCTION								{ $$ = "f"; }
+			/*
+			| SPECIAL FUNCTION						{ $$ = "s"; }
+			| COMMON								{ $$ = "c"; }
+			*/
+		;
+
 /* object types taking any_name */
 comment_type_any_name:
 			COLUMN								{ $$ = OBJECT_COLUMN; }
@@ -7849,15 +7959,17 @@ unreserved_keyword:
 	| CHARACTERISTICS
 	| CLASS
 	| CLOB
+	| COMMENTS
 	| COMMIT
+	| COMMITTED
+	| COMMON
 	| CONFIGURATION
 	| CONTENT_P
 	| CONVERSION_P
-	| COMMITTED
 	| CONTINUE_P
-	| COMMENTS
 	| CONNECT
 	| CONSTRAINTS
+	| CONVERT
 	/*| CURRVAL*/
 	| CUBE
 	| CURRENT_USER
@@ -7996,6 +8108,7 @@ unreserved_keyword:
 	| SIBLINGS
 	| SIMPLE
 	| SNAPSHOT
+	| SPECIAL
 	| STORAGE
 	| SUBSCRIPTION
 	| TEMP

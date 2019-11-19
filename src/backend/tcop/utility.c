@@ -24,6 +24,7 @@
 #include "access/xact.h"
 #include "access/xlog.h"
 #include "catalog/catalog.h"
+#include "catalog/ora_convert.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_inherits.h"
 #include "catalog/toasting.h"
@@ -1534,7 +1535,11 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 							  completionTag);
 			break;
 #endif
-
+#ifdef ADB_GRAM_ORA
+		case T_OraImplicitConvertStmt:
+			ExecImplicitConvert((OraImplicitConvertStmt *) parsetree);
+			break;
+#endif /* ADB_GRAM_ORA */
 		default:
 			/* All other statement types have event trigger support */
 			ProcessUtilitySlow(pstate, pstmt, queryString,
@@ -4399,6 +4404,30 @@ CreateCommandTag(Node *parsetree)
 			tag = "CLEAN SLOT";
 			break;
 #endif
+#ifdef ADB_GRAM_ORA
+		case T_OraImplicitConvertStmt:
+			{
+				OraImplicitConvertStmt *stmt = (OraImplicitConvertStmt *)parsetree;
+				switch (stmt->action)
+				{
+					case ICONVERT_CREATE:
+						tag = "CREATE CONVERT";	/* CREATE CONVERT */
+						break;
+					case ICONVERT_UPDATE:
+						tag = "CREATE CONVERT";	/* CREATE CONVERT */
+						break;
+					case ICONVERT_DELETE:
+						tag = "DROP CONVERT";	/* DROP CONVERT */
+						break;
+					default:
+						elog(WARNING, "unrecognized commandType: %d",
+							 (int) stmt->action);
+						tag = "???";
+						break;
+				}
+			}
+			break;
+#endif /* ADB_GRAM_ORA */
 		default:
 			elog(WARNING, "unrecognized node type: %d",
 				 (int) nodeTag(parsetree));
