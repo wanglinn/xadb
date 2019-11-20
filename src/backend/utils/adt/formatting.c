@@ -1097,6 +1097,9 @@ typedef struct NUMProc
 			   *L_currency_symbol;
 } NUMProc;
 
+#ifdef ADB_MULTI_GRAM
+extern int parse_grammar;
+#endif
 
 /* ----------
  * Functions
@@ -4740,7 +4743,16 @@ NUM_numpart_from_char(NUMProc *Np, int id, int input_len)
 		elog(DEBUG_elog_output, "Read digit (%c)", *Np->inout_p);
 #endif
 	}
+#ifdef ADB_MULTI_GRAM
+	/*
+	 * Avoid the exception of the output result of 'to_number' function in Oracle syntax.
+	 * 		eg: to_number(5000.00,'999999') --> 50000
+	 */
+	else if ((IS_DECIMAL(Np->Num) && Np->read_dec == false) || 
+			(parse_grammar == PARSE_GRAM_ORACLE && *Np->inout_p == '.'))
+#else
 	else if (IS_DECIMAL(Np->Num) && Np->read_dec == false)
+#endif
 	{
 		/*
 		 * We need not test IS_LDECIMAL(Np->Num) explicitly here, because
