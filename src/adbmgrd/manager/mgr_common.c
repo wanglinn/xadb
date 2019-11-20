@@ -5,6 +5,7 @@
 #include "catalog/pg_type.h"
 #include "funcapi.h"
 #include "mgr/mgr_cmds.h"
+#include "mgr/mgr_helper.h"
 #include "utils/builtins.h"
 #include "utils/memutils.h"
 #include "utils/syscache.h"
@@ -16,6 +17,7 @@
 #include "utils/tqual.h"
 #include "executor/spi.h"
 #include "../../interfaces/libpq/libpq-fe.h"
+#include "../../interfaces/libpq/libpq-int.h"
 #include "utils/fmgroids.h"
 #include "executor/spi.h"
 #include "utils/snapmgr.h"
@@ -3645,6 +3647,8 @@ int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
 	char *hostAddr;
 	char *user;
 	StringInfoData resultstrdata;
+	StringInfoData conninfo;
+	PGconn *conn = NULL;
 
 	sprintf(nodeport_buf, "%d", nodeport);
 
@@ -3693,7 +3697,38 @@ int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
 				}
 				break;
 			case PQPING_REJECT:
-				appendStringInfoString(strinfo, "server is alive but rejecting connections");
+				initStringInfo(&conninfo);
+				appendStringInfo(&conninfo,
+								"postgresql://%s@%s:%d/%s?connect_timeout=%d",
+								user,
+								hostAddr,
+								nodeport,
+								DEFAULT_DB,
+								10);
+				conn = PQconnectdb(conninfo.data);
+				pfree(conninfo.data);
+				if(strlen(PQerrorMessage(conn)) > 0)
+				{
+					appendStringInfoString(strinfo, PQerrorMessage(conn));
+				}
+				else
+				{
+					if(MAKE_SQLSTATE(conn->last_sqlstate[0],
+								 conn->last_sqlstate[1],
+								 conn->last_sqlstate[2],
+								 conn->last_sqlstate[3],
+								 conn->last_sqlstate[4]) ==
+					   ERRCODE_CANNOT_CONNECT_NOW)
+					{
+						appendStringInfoString(strinfo, "server is alive but rejecting connections");
+					}
+					else
+					{
+						appendStringInfo(strinfo, "server status unknow, error code:%s", conn->last_sqlstate);
+					}
+				}
+				if(conn)
+					PQfinish(conn);
 				appendStringInfoString(starttime, "unknow");
 				break;
 			case PQPING_NO_RESPONSE:
