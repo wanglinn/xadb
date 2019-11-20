@@ -107,7 +107,6 @@ bool isIdenticalDoctorMgrNode(MgrNodeWrapper *data1, MgrNodeWrapper *data2)
 		   data1->form.nodeinited == data2->form.nodeinited &&
 		   data1->form.nodemasternameoid == data2->form.nodemasternameoid &&
 		   data1->form.nodeincluster == data2->form.nodeincluster &&
-		   data1->form.nodereadonly == data2->form.nodereadonly &&
 		   strcmp(NameStr(data1->form.nodezone),
 				  NameStr(data2->form.nodezone)) == 0 &&
 		   data1->form.allowcure == data2->form.allowcure &&

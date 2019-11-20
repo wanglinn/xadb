@@ -641,11 +641,6 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 	if (res)
 	{
 		resetStringInfo(&infosendmsg);
-		/* refresh read only coordinator pgxc_node */
-		if (strcmp(slave_sync.data, sync_state_tab[SYNC_STATE_SYNC].name) == 0)
-		{
-			mgr_alter_sync_refresh_pgxcnode_readnode(slave_nodeinfo.tupleoid, InvalidOid);
-		}
 
 		if (strinfo_sync.len == 0)
 		{
@@ -995,7 +990,6 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	bool rest = false;
 	bool noneed_dropnode = true;
 	bool bres = false;
-	bool bReadOnly = false;
 	int iloop = 0;
 	int s_agent_port;
 	int iMax = 90;
@@ -1005,7 +999,6 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	Oid cnoid = InvalidOid;
 	Oid checkOid;
 	List *dnList = NIL;
-	List *newDnList = NIL;
 
 	/*check all gtm, coordinator, datanode master running normal*/
 	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER);
@@ -1235,9 +1228,6 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		mgr_append_pgconf_paras_str_str("hot_standby", "off", &infosendmsg);
 		mgr_append_pgconf_paras_str_str("pgxc_node_name", s_coordname, &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", "", &infosendmsg);
-		/* for read only coordinator */
-		if (mgr_get_coord_readtype(s_coordname))
-			mgr_append_pgconf_paras_str_str("default_transaction_read_only", "on", &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, dest_nodeinfo.nodepath, &infosendmsg
 			, dest_nodeinfo.nodehost, &getAgentCmdRst);
 		if (!getAgentCmdRst.ret)
@@ -1309,7 +1299,6 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	mgr_node->nodeincluster = true;
 	mgr_node->allowcure = true;
 	namestrcpy(&mgr_node->curestatus, CURE_STATUS_NORMAL);
-	bReadOnly = mgr_node->nodereadonly;
 	agentPort = get_agentPort_from_hostoid(mgr_node->nodehost);
 	nodePort = mgr_node->nodeport;
 	nodeAddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
@@ -1341,36 +1330,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 			please, do it manual", s_coordname)));
 	else
 	{
-		/* update pgxc_node if the append coordinator is read only node
-		*/
-		if (bReadOnly)
-		{
-			int seqNum = 0;
-			resetStringInfo(&sqlstrmsg);
-			seqNum = mgr_get_node_sequence(s_coordname, CNDN_TYPE_COORDINATOR_MASTER, true);
-			newDnList = mgr_append_coord_update_pgxcnode(&sqlstrmsg, dnList, &oldPreferredNode, seqNum, s_coordname);
-			Assert(newDnList);
-			ereport(LOG, (errmsg("on coordinator \"%s\", update the pgxc_node table", s_coordname)));
-			ereport(NOTICE, (errmsg("on coordinator \"%s\", update the pgxc_node table", s_coordname)));
-			bres = mgr_try_max_times_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES_COMMAND, agentPort, sqlstrmsg.data, userName
-							, nodeAddress, nodePort, DEFAULT_DB, &restmsg, 3, "ALTER NODE");
-			if (!bres)
-				ereport(WARNING, (errmsg("on coordinator \"%s\" execute \"%s\" fail, you need to check it"
-					, s_coordname
-				, sqlstrmsg.data)));
-		}
-
-		ereport(LOG, (errmsg("on coordinator \"%s\", set the preferred node", s_coordname)));
-		ereport(NOTICE, (errmsg("on coordinator \"%s\", set the preferred node", s_coordname)));
-		if (bReadOnly)
-		{
-			mgr_get_prefer_nodename_for_cn(s_coordname, bReadOnly, newDnList, &preferredDnName);
-			list_free(newDnList);
-		}
-		else
-		{
-			mgr_get_prefer_nodename_for_cn(s_coordname, bReadOnly, dnList, &preferredDnName);
-		}
+		mgr_get_prefer_nodename_for_cn(s_coordname, dnList, &preferredDnName);
 
 		list_free(dnList);
 		dnList = NIL;

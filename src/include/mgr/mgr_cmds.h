@@ -469,13 +469,9 @@ extern Datum monitor_handle_datanode(PG_FUNCTION_ARGS);
 extern Datum monitor_handle_gtm(PG_FUNCTION_ARGS);
 extern HeapTuple mgr_get_sync_slavenode_tuple(Oid mastertupleoid, bool bincluster, Oid includeoid, Oid excludeoid, int seqNum);
 extern bool mgr_get_createnodeCmd_on_readonly_cn(char *nodeName, bool bincluster, StringInfo cmdstring);
-extern bool mgr_refresh_pgxc_readnode(PGconn **pg_conn, bool bExecDirect, char *readOnlyNodeName
-				,char *newMasterName, char *newSyncSlaveName, Oid oldMasterTupOid
-				,char *execSqlNode, StringInfo recorderr);
 
 extern int mgr_pqexec_boolsql_try_maxnum(PGconn **pg_conn, char *sqlstr, const int maxnum, int sqltype);
-extern bool mgr_alter_sync_refresh_pgxcnode_readnode(Oid includeoid, Oid excludeOid);
-extern void mgr_get_prefer_nodename_for_cn(char *cnName, bool breadOnly, List *dnNamelist, Name preferredDnName);
+extern void mgr_get_prefer_nodename_for_cn(char *cnName, List *dnNamelist, Name preferredDnName);
 extern Oid mgr_get_tupoid_from_nodename(Relation relNode, char *nodename);
 extern bool mgr_check_list_in(List *list, char *checkName);
 extern bool mgr_try_max_times_get_stringvalues(char cmdtype, int agentPort, char *sqlStr, char *userName, char *nodeAddress
@@ -485,12 +481,9 @@ extern void mgr_set_preferred_node(char *oldPreferredNode, char *preferredDnName
 		,char *coordname, char *userName, char *nodeAddress, int agentPort, int nodePort);
 
 extern List *mgr_append_coord_update_pgxcnode(StringInfo sqlstrmsg, List *dnList, Name oldPreferredNode, int nodeSeqNum, char *execNodeName);
-extern bool mgr_get_coord_readtype(char *nodeName);
-extern int mgr_get_node_sequence(char *nodeName, char nodeType, bool bReadOnly);
 extern Oid mgr_get_nodeMaster_tupleOid(char *nodeName);
 extern int mgr_get_nodetype_num(const char nodeType, const bool inCluster, const bool readOnly);
 extern bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrdata, char *nodename, int newport);
-extern bool mgr_update_pgxcnode_readonly_coord(void);
 extern void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *dest);
 extern void mgr_check_all_agent(void);
 extern void check_node_incluster(void);
