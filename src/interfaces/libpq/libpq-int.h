@@ -375,10 +375,6 @@ struct pg_conn
 	/* Type of connection to make.  Possible values: any, read-write. */
 	char	   *target_session_attrs;
 
-#ifdef ADB
-	char	   *connect_type;
-#endif /* ADB */
-
 	/* Optional file to write trace info to */
 	FILE	   *Pfdebug;
 
@@ -515,6 +511,7 @@ struct pg_conn
 	struct addrinfo *addrlist;	/* list of addresses for current connhost */
 	int			addrlist_family;	/* needed to know how to free addrlist */
 #ifdef ADB
+	char *connect_type;
 	void *custom;				/* user custom data */
 	const PGcustumFuns *funs;	/* custom functions */
 	bool is_attached;
