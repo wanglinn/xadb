@@ -167,7 +167,7 @@ static Const *transformPartitionBoundValue(ParseState *pstate, Node *con,
 
 #ifdef ADB
 /*
- * addDefaultDistributeBy
+ * addDefaultDistributeByOfSingleInherit
  *
  * Add the same DistributeBy as its parent if the table has
  * no DistributeBy and inherit from only one parent.
@@ -179,7 +179,7 @@ static Const *transformPartitionBoundValue(ParseState *pstate, Node *con,
  *	  3. must inherit from only one parent
  */
 static void
-addDefaultDistributeBy(CreateStmt *stmt)
+addDefaultDistributeByOfSingleInherit(CreateStmt *stmt)
 {
 	Relation			parent;
 	RelationLocInfo	   *relloc;
@@ -264,6 +264,99 @@ addDefaultDistributeBy(CreateStmt *stmt)
 
 	stmt->distributeby = distby;
 	heap_close(parent, ShareUpdateExclusiveLock);
+}
+
+/* 
+ * Only if all parent tables have the same DistributeBy specification,
+ * and only if disttype is one of LOCATOR_TYPE_REPLICATED, LOCATOR_TYPE_RANDOM.
+ * Child table can inherit DistributeBy.
+ */
+static void
+addDefaultDistributeByOfMultiInherit(CreateStmt *stmt)
+{
+	Relation			parent;
+	RelationLocInfo	   *relloc;
+	DistributeBy	   *distby;
+	ListCell		   *entry;
+	AttrNumber			partAttrNum = 0;
+	char			   *distColname = NULL;
+	char				disttype = 0;
+	bool				isSameDistSpec = false;
+
+	/* only coordinator master can do this */
+	Assert(IsCnMaster());
+	/* has no DistributeBy */
+	Assert(stmt->distributeby == NULL);
+	/* inherit from multiple parent */
+	Assert(list_length(stmt->inhRelations) > 1);
+
+	foreach(entry, stmt->inhRelations)
+	{
+		RangeVar   *rv = (RangeVar *) lfirst(entry);
+		parent = heap_openrv((const RangeVar *) rv,
+							 ShareUpdateExclusiveLock);
+		relloc = RelationGetLocInfo(parent);
+		if (relloc == NULL)
+		{
+			isSameDistSpec = false;
+		}
+		else
+		{
+			isSameDistSpec = true;
+			switch (relloc->locatorType)
+			{
+				case LOCATOR_TYPE_REPLICATED:
+				case LOCATOR_TYPE_RANDOM:
+					if (disttype == 0)
+						disttype = relloc->locatorType;
+					else
+						isSameDistSpec = (disttype == relloc->locatorType);
+					if (!isSameDistSpec)
+						break;
+
+					if (partAttrNum == 0)
+						partAttrNum = relloc->partAttrNum;
+					else
+						isSameDistSpec = (partAttrNum == relloc->partAttrNum);
+					/* 0 is also a effective value */
+					if (partAttrNum > 0)
+						distColname = get_attname(relloc->relid, relloc->partAttrNum, false);
+					break;
+				default:
+					isSameDistSpec = false;
+					break;
+			}
+		}
+		heap_close(parent, ShareUpdateExclusiveLock);
+
+		if(isSameDistSpec)
+			continue;
+		else
+			break;
+	}
+	if (isSameDistSpec && disttype > 0)
+	{
+		distby = makeNode(DistributeBy);
+		distby->disttype = disttype;
+		distby->colname = distColname;
+		stmt->distributeby = distby;
+	}
+}
+
+static void
+addDefaultDistributeByOfInherit(CreateStmt *stmt)
+{
+	/* only coordinator master can do this */
+	Assert(IsCnMaster());
+	/* has no DistributeBy */
+	Assert(stmt->distributeby == NULL);
+	/* inherit from multiple parent */
+	Assert(list_length(stmt->inhRelations) > 0);
+
+	if (list_length(stmt->inhRelations) == 1)
+		addDefaultDistributeByOfSingleInherit(stmt);
+	else
+		addDefaultDistributeByOfMultiInherit(stmt);
 }
 #endif
 
@@ -527,14 +620,14 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 		{
 			/*
 			 * Add default DistributeBy clause if stmt->distributeby is null
-			 * and has only one parent. (include partition table)
+			 * and has parent. (include partition table)
 			 */
-			if (list_length(stmt->inhRelations) == 1)
+			if (list_length(stmt->inhRelations) > 0)
 			{
-				addDefaultDistributeBy(stmt);
+				addDefaultDistributeByOfInherit(stmt);
 				orgstmt->distributeby = (DistributeBy *) copyObject(stmt->distributeby);
 			}
-			else
+			if(stmt->distributeby == NULL)
 			{
 				inferCreateStmtDistributeBy(stmt);
 				orgstmt->distributeby = (DistributeBy *) copyObject(stmt->distributeby);

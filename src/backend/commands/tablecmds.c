@@ -17542,12 +17542,16 @@ void inferCreateStmtDistributeBy(CreateStmt *stmt)
 								 NULL,
 								 NULL,
 								 NULL);
-	if(inferredDisttype > 0 && attnum > 0)
+	if (inferredDisttype > 0)
 	{
 		inferredDistributeBy = makeNode(DistributeBy);
 		inferredDistributeBy->disttype = inferredDisttype;
-		attr = TupleDescAttr(descriptor, (attnum - 1));
-		inferredDistributeBy->colname = NameStr(attr->attname);
+		/* 0 is also a effective value */
+		if (attnum > 0)
+		{
+			attr = TupleDescAttr(descriptor, (attnum - 1));
+			inferredDistributeBy->colname = NameStr(attr->attname);
+		}
 		stmt->distributeby = inferredDistributeBy;
 	}
 }
