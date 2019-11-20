@@ -16779,8 +16779,6 @@ void inferCreateStmtDistributeBy(CreateStmt *stmt)
 	Assert(IsCnMaster());
 	/* has no DistributeBy */
 	Assert(stmt->distributeby == NULL);
-	/* not inherit from */
-	Assert(stmt->inhRelations == NULL);
 	/* not temp table */
 	Assert(stmt->relation->relpersistence != RELPERSISTENCE_TEMP);
 
@@ -16801,7 +16799,7 @@ void inferCreateStmtDistributeBy(CreateStmt *stmt)
 	 * deals with column names, types, and NOT NULL constraints, but not
 	 * default values or CHECK constraints; we handle those below.
 	 */
-	descriptor = BuildDescForRelation(stmt->tableElts);
+	descriptor = BuildDescForRelation(copyOfTableElts);
 
 	/* Obtain details of distribution information */
 	GetRelationDistributionItems(InvalidOid,
