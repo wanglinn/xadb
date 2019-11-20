@@ -131,10 +131,10 @@ static bool OnSFSPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
 	if (pi->end_of_plan_nodes.len == pi->working_nodes.len)
 	{
 		DR_PLAN_DEBUG_EOF((errmsg("SFS plan %d(%p) sending end of plan message", pi->plan_id, pi)));
+		Assert(pwi->sendBuffer.len == 0);	/* before send EOF it is empty */
 		ExportNodeBufFile(pwi->private);
-		appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_END_OF_PLAN);
+		pwi->plan_send_state = DR_PLAN_SEND_GENERATE_EOF;
 		DRSendPlanWorkerMessage(pwi, pi);
-		pwi->end_of_plan_send = true;
 	}
 	return true;
 

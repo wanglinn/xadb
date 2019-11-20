@@ -12,7 +12,9 @@ static HTAB		   *htab_plan_info = NULL;
 bool DRSendPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
 {
 	shm_mq_result result;
+	bool sended = false;
 
+re_send_:
 	if (pwi->sendBuffer.len > 0)
 	{
 		Assert(pwi->sendBuffer.cursor == 0);
@@ -25,22 +27,55 @@ bool DRSendPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
 			DR_PLAN_DEBUG((errmsg("send plan %d worker %d with data length %d success",
 								  pi->plan_id, pwi->worker_id, pwi->sendBuffer.len)));
 			pwi->sendBuffer.len = 0;
-			return true;
+			sended = true;
 		}else if (result == SHM_MQ_DETACHED)
 		{
 			ereport(ERROR,
 					(errmsg("plan %d parallel %d MQ detached",
 							pi->plan_id, pwi->worker_id)));
 		}
-#ifdef USE_ASSERT_CHECKING
-		else
+		else if(result == SHM_MQ_WOULD_BLOCK)
 		{
-			Assert(result == SHM_MQ_WOULD_BLOCK);
+			return sended;
+		}else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("unknown shm_mq_send result %d", result)));
 		}
-#endif /* USE_ASSERT_CHECKING */
 	}
 
-	return false;
+	Assert(pwi->sendBuffer.len == 0);
+	switch(pwi->plan_send_state)
+	{
+	case DR_PLAN_SEND_WORKING:
+	case DR_PLAN_SEND_ENDED:
+		break;
+	case DR_PLAN_SEND_GENERATE_CACHE:
+		if (pi->GenerateCacheMsg &&
+			pi->GenerateCacheMsg(pwi, pi))
+		{
+			Assert(pwi->sendBuffer.len > 0);
+			pwi->plan_send_state = DR_PLAN_SEND_SENDING_CACHE;
+			goto re_send_;
+		}
+		/* do not add break, need generate EOF message */
+	case DR_PLAN_SEND_SENDING_CACHE:
+	case DR_PLAN_SEND_GENERATE_EOF:
+		appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_END_OF_PLAN);
+		pwi->plan_send_state = DR_PLAN_SEND_SENDING_EOF;
+		goto re_send_;
+	case DR_PLAN_SEND_SENDING_EOF:
+		pwi->plan_send_state = DR_PLAN_SEND_ENDED;
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknown worker sending state %u", pwi->plan_send_state)));
+		break;	/* never run */
+	}
+
+	return sended;
 }
 
 bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
@@ -313,6 +348,7 @@ void DRSetupPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi, DynamicReduceMQ mq, 
 {
 	pwi->worker_id = worker_id;
 	pwi->waiting_node = InvalidOid;
+	pwi->plan_send_state = DR_PLAN_SEND_WORKING;
 
 	shm_mq_set_receiver((shm_mq*)mq->worker_sender_mq, MyProc);
 	shm_mq_set_sender((shm_mq*)mq->reduce_sender_mq, MyProc);
@@ -465,9 +501,8 @@ void OnDefaultPlanPreWait(PlanInfo *pi)
 {
 	PlanWorkerInfo *pwi = pi->pwi;
 	if (pwi->end_of_plan_recv &&
-		pwi->end_of_plan_send &&
 		pwi->last_msg_type == ADB_DR_MSG_INVALID &&
-		pwi->sendBuffer.len == 0)
+		pwi->plan_send_state == DR_PLAN_SEND_ENDED)
 		(*pi->OnDestroy)(pi);
 }
 

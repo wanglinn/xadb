@@ -79,9 +79,8 @@ static void OnParallelPlanPreWait(PlanInfo *pi)
 	{
 		pwi = &pi->pwi[--count];
 		if (pwi->end_of_plan_recv == false ||
-			pwi->end_of_plan_send == false ||
 			pwi->last_msg_type != ADB_DR_MSG_INVALID ||
-			pwi->sendBuffer.len > 0)
+			pwi->plan_send_state != DR_PLAN_SEND_ENDED)
 		{
 			need_wait = true;
 			break;
@@ -205,6 +204,8 @@ static bool OnParallelPlanMessage(PlanInfo *pi, const char *data, int len, Oid n
 			i = 0;
 		pwi = &pi->pwi[i];
 
+		CHECK_WORKER_IN_WROKING(pwi, pi);
+
 		/* we only cache one tuple */
 		if (pwi->sendBuffer.len != 0)
 			continue;
@@ -296,38 +297,32 @@ static bool OnParallelPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
 	{
 		for(i=pi->count_pwi;i>0;)
 		{
-			if (pi->pwi[--i].sendBuffer.len != 0)
-				return false;
-		}
-
-		if (pi->private != NULL &&
-			((ParallelPlanPrivate*)pi->private)->sta != NULL)
-		{
-			ParallelPlanPrivate *private = pi->private;
-			Assert(private->dsa_ptr != InvalidDsaPointer);
-			DR_PLAN_DEBUG_EOF((errmsg("parallel plan %d(%p) sending STS message", pi->plan_id, pi)));
-			sts_end_write(private->sta);
-			for (i=pi->count_pwi;i>0;)
+			pwi = &pi->pwi[--i];
+			CHECK_WORKER_IN_WROKING(pwi, pi);
+			pwi->plan_send_state = DR_PLAN_SEND_GENERATE_CACHE;
+			if (pwi->sendBuffer.len == 0)
 			{
-				pwi = &pi->pwi[--i];
-				appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_SHARED_TUPLE_STORE);
-				appendStringInfoSpaces(&pwi->sendBuffer, SIZEOF_DSA_POINTER-sizeof(char));	/* align */
-				appendBinaryStringInfoNT(&pwi->sendBuffer, (char*)&(private->dsa_ptr), SIZEOF_DSA_POINTER);
-				pwi->end_of_plan_send = true;
-			}
-		}else
-		{
-			DR_PLAN_DEBUG_EOF((errmsg("parallel plan %d(%p) sending end of plan message", pi->plan_id, pi)));
-			for(i=pi->count_pwi;i>0;)
-			{
-				pwi = &pi->pwi[--i];
-				appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_END_OF_PLAN);
+				/* when not busy, generate and send message immediately */
 				DRSendPlanWorkerMessage(pwi, pi);
-				pwi->end_of_plan_send = true;
 			}
 		}
 	}
 	return true;
+}
+
+static bool GenerateParallelCacheMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
+{
+	ParallelPlanPrivate *private = pi->private;
+	if (private->sta != NULL)
+	{
+		Assert(private->dsa_ptr != InvalidDsaPointer);
+		sts_end_write(private->sta);
+		appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_SHARED_TUPLE_STORE);
+		appendStringInfoSpaces(&pwi->sendBuffer, SIZEOF_DSA_POINTER-sizeof(char));	/* align */
+		appendBinaryStringInfoNT(&pwi->sendBuffer, (char*)&(private->dsa_ptr), SIZEOF_DSA_POINTER);
+		return true;
+	}
+	return false;
 }
 
 void DRStartParallelPlanMessage(StringInfo msg)
@@ -384,6 +379,7 @@ void DRStartParallelPlanMessage(StringInfo msg)
 				private->slot_node_src = MakeSingleTupleTableSlot(pi->type_convert->out_desc);
 				private->slot_node_dest = MakeSingleTupleTableSlot(pi->type_convert->base_desc);
 			}
+			pi->GenerateCacheMsg = GenerateParallelCacheMessage;
 		}
 
 		pi->OnLatchSet = OnParallelPlanLatch;

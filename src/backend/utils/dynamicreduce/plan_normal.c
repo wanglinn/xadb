@@ -84,6 +84,8 @@ static bool OnNormalPlanMessage(PlanInfo *pi, const char *data, int len, Oid nod
 {
 	PlanWorkerInfo *pwi = pi->pwi;
 
+	CHECK_WORKER_IN_WROKING(pwi, pi);
+
 	/* we only cache one tuple */
 	if (pwi->sendBuffer.len != 0)
 	{
@@ -144,22 +146,30 @@ static bool OnNormalPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
 	if (pi->end_of_plan_nodes.len == pi->working_nodes.len)
 	{
 		DR_PLAN_DEBUG_EOF((errmsg("normal plan %d(%p) sending end of plan message", pi->plan_id, pi)));
-		if (pi->private &&
-			((NormalSharedFile*)pi->private)->buffile != NULL)
+		pwi->plan_send_state = DR_PLAN_SEND_GENERATE_CACHE;
+		if (pwi->sendBuffer.len == 0)
 		{
-			NormalSharedFile *sf = (NormalSharedFile*)pi->private;
-			BufFileExportShared(sf->buffile);
-			appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_SHARED_FILE_NUMBER);
-			appendStringInfoSpaces(&pwi->sendBuffer, sizeof(sf->file_number)-sizeof(char)); /* align */
-			appendBinaryStringInfoNT(&pwi->sendBuffer, (char*)&sf->file_number, sizeof(sf->file_number));
-		}else
-		{
-			appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_END_OF_PLAN);
+			/* when not busy, generate and send message immediately */
+			DRSendPlanWorkerMessage(pwi, pi);
 		}
-		DRSendPlanWorkerMessage(pwi, pi);
-		pwi->end_of_plan_send = true;
 	}
 	return true;
+}
+
+static bool GenerateNormalCacheMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
+{
+	NormalSharedFile *sf = (NormalSharedFile*)pi->private;
+	Assert(pwi->sendBuffer.len == 0);
+	Assert(pwi->plan_send_state == DR_PLAN_SEND_GENERATE_CACHE);
+	if (sf->buffile != NULL)
+	{
+		BufFileExportShared(sf->buffile);
+		appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_SHARED_FILE_NUMBER);
+		appendStringInfoSpaces(&pwi->sendBuffer, sizeof(sf->file_number)-sizeof(char)); /* align */
+		appendBinaryStringInfoNT(&pwi->sendBuffer, (char*)&sf->file_number, sizeof(sf->file_number));
+		return true;
+	}
+	return false;
 }
 
 void DRStartNormalPlanMessage(StringInfo msg)
@@ -190,6 +200,7 @@ void DRStartNormalPlanMessage(StringInfo msg)
 			/* cache on disk */
 			pi->private = MemoryContextAllocZero(TopMemoryContext,
 												 sizeof(NormalSharedFile));
+			pi->GenerateCacheMsg = GenerateNormalCacheMessage;
 		}
 		pq_getmsgend(msg);
 
