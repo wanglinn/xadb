@@ -57,6 +57,13 @@
 #define ADB_DR_MSG_SHARED_TUPLE_STORE	'\x04'
 #define ADB_DR_MSG_END_OF_PLAN			'\x05'
 
+#define DR_PLAN_SEND_WORKING			0x01	/* sending tuple */
+#define DR_PLAN_SEND_GENERATE_CACHE		0x02	/* waiting generate send cached data */
+#define DR_PLAN_SEND_SENDING_CACHE		0x03	/* waiting send cached data */
+#define DR_PLAN_SEND_GENERATE_EOF		0x04	/* waiting generate send end of plan data */
+#define DR_PLAN_SEND_SENDING_EOF		0x05	/* waiting send EOF data */
+#define DR_PLAN_SEND_ENDED				0x06	/* all data sended */
+
 /* define DRD_CONNECT 1 */
 #ifdef DRD_CONNECT
 #define DR_CONNECT_DEBUG(rest) ereport_domain(LOG_SERVER_ONLY, PG_TEXTDOMAIN("DynamicReduce"), rest)
@@ -199,9 +206,9 @@ typedef struct PlanWorkerInfo
 	uint32			dest_cursor;
 	Size			last_size;			/* last received data size */
 	StringInfoData	sendBuffer;			/* cached data for send to worker */
-	char			last_msg_type;		/* last message type for waiting send */
-	bool			end_of_plan_recv;
-	bool			end_of_plan_send;
+	char			last_msg_type;		/* last message type from backend */
+	bool			end_of_plan_recv;	/* got EOF message from backend or error */
+	uint8			plan_send_state;	/* see DR_PLAN_SEND_XXX */
 	void		   *private;			/* private data for special plan */
 }PlanWorkerInfo;
 
@@ -223,6 +230,7 @@ struct PlanInfo
 	void (*OnPlanError)(PlanInfo *pi);
 	void (*OnDestroy)(PlanInfo *pi);
 	void (*OnPreWait)(PlanInfo *pi);
+	bool (*GenerateCacheMsg)(PlanWorkerInfo *pwi, PlanInfo *pi);
 
 	TupleDesc			base_desc;
 	TupleTypeConvert   *type_convert;
@@ -252,6 +260,13 @@ struct PlanInfo
 		};
 	};
 };
+
+#define CHECK_WORKER_IN_WROKING(pwi_, pi)									\
+	if((pwi_)->plan_send_state != DR_PLAN_SEND_WORKING)						\
+		ereport(ERROR,														\
+				(errcode(ERRCODE_INTERNAL_ERROR),							\
+				 errmsg("plan %d worker %d is not in sending tuple state",	\
+						(pi)->plan_id, (pwi_)->worker_id)))
 
 typedef struct DynamicReduceSharedTuplestore
 {

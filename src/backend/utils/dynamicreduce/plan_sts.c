@@ -131,9 +131,9 @@ static bool OnSTSPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
 	{
 		DR_PLAN_DEBUG_EOF((errmsg("STS plan %d(%p) sending end of plan message", pi->plan_id, pi)));
 		EndSTSPut(pwi->private);
-		appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_END_OF_PLAN);
+		Assert(pwi->sendBuffer.len == 0);	/* before send EOF it is empty */
+		pwi->plan_send_state = DR_PLAN_SEND_GENERATE_EOF;
 		DRSendPlanWorkerMessage(pwi, pi);
-		pwi->end_of_plan_send = true;
 	}
 	return true;
 }
