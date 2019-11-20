@@ -63,7 +63,6 @@ CREATE VIEW adbmgr.node AS
     mgrnode.nodepath    AS  path,
     mgrnode.nodeinited  AS  initialized,
     mgrnode.nodeincluster AS incluster,
-    mgrnode.nodereadonly AS readonly,
     mgrnode.nodezone     AS zone
   FROM pg_catalog.mgr_node AS mgrnode LEFT JOIN pg_catalog.mgr_host ON mgrnode.nodehost = pg_catalog.mgr_host.oid
 		LEFT JOIN pg_catalog.mgr_node AS node_alise ON node_alise.oid = mgrnode.nodemasternameoid) AS node_tb

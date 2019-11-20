@@ -31,9 +31,6 @@ CATALOG(mgr_node,4813,NodeRelationId)
 	/*check the node in cluster*/
 	bool		nodeincluster;
 
-	/* check the node is read only */
-	bool		nodereadonly;
-
 	NameData	nodezone;
 
 	/* 

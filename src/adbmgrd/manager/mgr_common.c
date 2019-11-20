@@ -971,7 +971,7 @@ void mgr_recv_sql_stringvalues_msg(ManagerAgent	*ma, StringInfo resultstrdata)
 */
 bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid)
 {
-	ScanKeyData key[5];
+	ScanKeyData key[4];
 	Form_mgr_node mgr_node;
 	Relation relNode;
 	HeapScanDesc relScan;
@@ -999,17 +999,12 @@ bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid)
 				,F_BOOLEQ
 				,BoolGetDatum(true));
 	ScanKeyInit(&key[3]
-				,Anum_mgr_node_nodereadonly
-				,BTEqualStrategyNumber
-				,F_BOOLEQ
-				,BoolGetDatum(false));
-	ScanKeyInit(&key[4]
 				,Anum_mgr_node_nodezone
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,CStringGetDatum(mgr_zone));	
 	relNode = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(relNode, 5, key);
+	relScan = heap_beginscan_catalog(relNode, 4, key);
 	for (iloop = 0; iloop < 2; iloop++)
 	{
 		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
@@ -2713,7 +2708,7 @@ bool mgr_get_createnodeCmd_on_readonly_cn(char *nodeName, bool bincluster, Strin
 	int seqNum = 0;
 
 	Assert(nodeName);
-	seqNum = mgr_get_node_sequence(nodeName, CNDN_TYPE_COORDINATOR_MASTER, true);
+	seqNum = -1;
 	relNode = heap_open(NodeRelationId, AccessShareLock);
 	namestrcpy(&sync_state_name, sync_state_tab[SYNC_STATE_SYNC].name);
 
@@ -2808,7 +2803,7 @@ bool mgr_get_createnodeCmd_on_readonly_cn(char *nodeName, bool bincluster, Strin
 	heap_close(relNode, AccessShareLock);
 
 	/* find the preferred datanode */
-	mgr_get_prefer_nodename_for_cn(nodeName, true, dnList, &preferredDnName);
+	mgr_get_prefer_nodename_for_cn(nodeName, dnList, &preferredDnName);
 	list_free(dnList);
 	appendStringInfo(cmdstring, " ALTER NODE \\\"%s\\\" WITH (preferred = %s);"
 							,NameStr(preferredDnName)
@@ -2817,544 +2812,10 @@ bool mgr_get_createnodeCmd_on_readonly_cn(char *nodeName, bool bincluster, Strin
 }
 
 /*
-* when failover datanode, use this function to refresh the pgxc_node on read only coordinator
-*
-*/
-bool mgr_refresh_pgxc_readnode(PGconn **pg_conn, bool bExecDirect, char *readOnlyNodeName
-								,char *newMasterName, char *newSyncSlaveName, Oid oldMasterTupOid
-								,char *execSqlNode, StringInfo recorderr)
-{
-	Relation relNode;
-	StringInfoData cmdstring;
-	StringInfoData sqlstrinfo;
-	PGresult *res;
-	NameData tmpNodeName;
-	NameData preferredDnName;
-	HeapTuple oldMasterTuple = NULL;
-	HeapTuple syncSlaveNodeTup = NULL;
-	HeapTuple newMasterTup = NULL;
-	List *dnList = NIL;
-	Form_mgr_node mgr_nodeOld = NULL;
-	Form_mgr_node mgr_node_tmp = NULL;
-	char *newSyncSlaveAddress = NULL;
-	int newSyncSlavePort = -1;
-	int try = 0;
-	int maxnum = 5;
-	char *newMasterAddress = NULL;
-	int newMasterPort = -1;
-	bool result = true;
-
-	initStringInfo(&cmdstring);
-	relNode = heap_open(NodeRelationId, AccessShareLock);
-
-	newMasterTup = mgr_get_tuple_node_from_name_type(relNode, newMasterName);
-	mgr_node_tmp = (Form_mgr_node)GETSTRUCT(newMasterTup);
-	Assert(mgr_node_tmp);
-	newMasterAddress = get_hostaddress_from_hostoid(mgr_node_tmp->nodehost);
-	newMasterPort = mgr_node_tmp->nodeport;
-	heap_freetuple(newMasterTup);
-
-	/* check old master name in pgxc_node on the coordinator */
-	resetStringInfo(&cmdstring);
-	oldMasterTuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(oldMasterTupOid));
-	mgr_nodeOld = (Form_mgr_node)GETSTRUCT(oldMasterTuple);
-	Assert(mgr_nodeOld);
-	if (strcmp(newSyncSlaveName, "") != 0)
-	{
-		syncSlaveNodeTup = mgr_get_tuple_node_from_name_type(relNode, newSyncSlaveName);
-		mgr_node_tmp = (Form_mgr_node)GETSTRUCT(syncSlaveNodeTup);
-		Assert(mgr_node_tmp);
-		newSyncSlaveAddress = get_hostaddress_from_hostoid(mgr_node_tmp->nodehost);
-		newSyncSlavePort = mgr_node_tmp->nodeport;
-		heap_freetuple(syncSlaveNodeTup);
-	}
-
-	namestrcpy(&tmpNodeName, "");
-	initStringInfo(&sqlstrinfo);
-	if (!bExecDirect)
-		appendStringInfo(&sqlstrinfo, "select node_name from pgxc_node where node_name = '%s' \
-		or node_name = '%s';", newMasterName, NameStr(mgr_nodeOld->nodename));
-	else
-		appendStringInfo(&sqlstrinfo, "EXECUTE DIRECT ON (\"%s\") 'select node_name from \
-			pgxc_node where node_name = ''%s'' or node_name = ''%s'';'"
-		,readOnlyNodeName
-		,newMasterName, NameStr(mgr_nodeOld->nodename));
-
-	try = 0;
-	while (try++ < maxnum)
-	{
-		res = PQexec(*pg_conn, sqlstrinfo.data);
-		if (PQresultStatus(res) == PGRES_TUPLES_OK)
-		{
-			namestrcpy(&tmpNodeName, PQgetvalue(res, 0, 0));
-			PQclear(res);
-			res = NULL;
-			break;
-		}else
-		{
-			ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
-			,errmsg("on coordinator execute \"%s\" fail %s", sqlstrinfo.data
-				, PQerrorMessage((PGconn*)*pg_conn))));
-		}
-		PQclear(res);
-		res = NULL;
-	}
-	pfree(sqlstrinfo.data);
-
-	if (res)
-		PQclear(res);
-
-	if (strcmp(NameStr(tmpNodeName), NameStr(mgr_nodeOld->nodename)) == 0)
-	{
-		if (strcmp(newSyncSlaveName, "") == 0)
-		{
-			/* use the new master info to replace the old master info on coordinator */
-			appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
-				,NameStr(mgr_nodeOld->nodename)
-				,newMasterName
-				,newMasterAddress
-				,newMasterPort
-				,"false"
-				,bExecDirect ? readOnlyNodeName : execSqlNode);
-		}
-		else
-		{
-			appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
-				,NameStr(mgr_nodeOld->nodename)
-				,newSyncSlaveName
-				,newSyncSlaveAddress
-				,newSyncSlavePort
-				,"false"
-				,bExecDirect ? readOnlyNodeName : execSqlNode);
-		}
-	}
-	else if (strcmp(NameStr(tmpNodeName), newMasterName) == 0)
-	{
-		if (strcmp(newSyncSlaveName, "") == 0)
-		{
-
-		}
-		else
-		{
-			/* use the new master info to replace the old master info on coordinator */
-			appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
-				,newMasterName
-				,newSyncSlaveName
-				,newSyncSlaveAddress
-				,newSyncSlavePort
-				,"false"
-				,bExecDirect ? readOnlyNodeName : execSqlNode);
-		}
-
-	}
-
-	if (newSyncSlaveAddress)
-		pfree(newSyncSlaveAddress);
-	ReleaseSysCache(oldMasterTuple);
-	if (cmdstring.len > 0)
-	{
-		ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", execSqlNode, cmdstring.data)));
-		try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
-		if (try<0)
-		{
-			result = false;
-			ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
-				,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", execSqlNode
-					, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
-			appendStringInfo(recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n"
-					, execSqlNode, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
-		}
-	}
-	/* refresh preferred node in pgxc_node of this node */
-	resetStringInfo(&cmdstring);
-	if (!bExecDirect)
-		appendStringInfo(&cmdstring, "select node_name from pgxc_node where node_type = 'D' \
-			and nodeis_preferred = true union all select '*' union all select node_name \
-			from pgxc_node where node_type = 'D';");
-	else
-		appendStringInfo(&cmdstring, "EXECUTE DIRECT ON (\"%s\") 'select node_name from pgxc_node \
-			where node_type = ''D'' and nodeis_preferred = true union all select ''*'' union all select \
-			node_name from pgxc_node where node_type = ''D''';", readOnlyNodeName);
-
-	try = 0;
-	namestrcpy(&tmpNodeName, "");
-	while (try++ < maxnum)
-	{
-		res = PQexec(*pg_conn, cmdstring.data);
-		if (PQresultStatus(res) == PGRES_TUPLES_OK)
-		{
-			int nrow = 0;
-			int i = 0;
-			char *value;
-			nrow = PQntuples(res);
-			/* old preferred node */
-			value = PQgetvalue(res, 0, 0);
-			if (value && strcmp(value, "*") != 0)
-			{
-				namestrcpy(&tmpNodeName, PQgetvalue(res, 0, 0));
-
-			}
-			i = 0;
-			while (i<nrow)
-			{
-				value = PQgetvalue(res, i, 0);
-				i++;
-				if(value && strcmp(value, "*") == 0)
-					break;
-			}
-
-			while (i<nrow)
-			{
-				value = PQgetvalue(res, i, 0);
-				if (value)
-					dnList = lappend(dnList, pstrdup(value));
-				i++;
-			}
-			break;
-
-		}else
-		{
-			ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
-			,errmsg("on coordinator execute \"%s\" fail %s", cmdstring.data
-				, PQerrorMessage((PGconn*)*pg_conn))));
-		}
-		PQclear(res);
-		res = NULL;
-	}
-
-	resetStringInfo(&cmdstring);
-	pfree(newMasterAddress);
-
-	mgr_get_prefer_nodename_for_cn(readOnlyNodeName, true, dnList, &preferredDnName);
-	list_free(dnList);
-	/* set preferred node on coordinator */
-	if (strcmp(NameStr(tmpNodeName), NameStr(preferredDnName)) != 0)
-	{
-		int port;
-		char *address;
-		HeapTuple tuple;
-		Form_mgr_node mgr_node;
-
-		appendStringInfo(&cmdstring, "set force_parallel_mode = off;");
-		if (!bExecDirect)
-		{
-			if (strcmp(NameStr(tmpNodeName), "") != 0)
-			{
-				tuple = mgr_get_tuple_node_from_name_type(relNode, NameStr(tmpNodeName));
-				if (!HeapTupleIsValid(tuple))
-					ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-					, errmsg("datanode \"%s\" does not exist in mgr_node table", NameStr(tmpNodeName))));
-				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-				Assert(mgr_node);
-				port = mgr_node->nodeport;
-				address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-				appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
-					,NameStr(tmpNodeName)
-					,NameStr(tmpNodeName)
-					,address
-					,port
-					,"false"
-					,NameStr(clusterLockCoordNodeName));
-				pfree(address);
-				heap_freetuple(tuple);
-			}
-
-			tuple = mgr_get_tuple_node_from_name_type(relNode, NameStr(preferredDnName));
-			if (!HeapTupleIsValid(tuple))
-				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-				, errmsg("datanode \"%s\" does not exist in mgr_node table", NameStr(preferredDnName))));
-			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-			Assert(mgr_node);
-			port = mgr_node->nodeport;
-			address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-			appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
-				,NameStr(preferredDnName)
-				,NameStr(preferredDnName)
-				,address
-				,port
-				,"true"
-				,execSqlNode);
-			pfree(address);
-			heap_freetuple(tuple);
-		}
-		else
-		{
-			if (strcmp(NameStr(tmpNodeName), "") != 0)
-			{
-				tuple = mgr_get_tuple_node_from_name_type(relNode, NameStr(tmpNodeName));
-				if (!HeapTupleIsValid(tuple))
-					ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-					, errmsg("datanode \"%s\" does not exist in mgr_node table", NameStr(tmpNodeName))));
-				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-				Assert(mgr_node);
-				port = mgr_node->nodeport;
-				address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-				appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
-					,NameStr(tmpNodeName)
-					,NameStr(tmpNodeName)
-					,address
-					,port
-					,"false"
-					,readOnlyNodeName);
-				pfree(address);
-				heap_freetuple(tuple);
-			}
-
-			tuple = mgr_get_tuple_node_from_name_type(relNode, NameStr(preferredDnName));
-			if (!HeapTupleIsValid(tuple))
-				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-				, errmsg("datanode \"%s\" does not exist in mgr_node table", NameStr(preferredDnName))));
-			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-			Assert(mgr_node);
-			port = mgr_node->nodeport;
-			address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-			appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
-				,NameStr(preferredDnName)
-				,NameStr(preferredDnName)
-				,address
-				,port
-				,"true"
-				,readOnlyNodeName);
-			pfree(address);
-			heap_freetuple(tuple);
-		}
-		ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", execSqlNode, cmdstring.data)));
-		try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
-		if (try<0)
-		{
-			result = false;
-			ereport(WARNING, (errcode(ERRCODE_DATA_EXCEPTION)
-				,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", execSqlNode
-					, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
-			appendStringInfo(recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n"
-					, execSqlNode, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
-		}
-
-	}
-
-	pfree(cmdstring.data);
-	heap_close(relNode, AccessShareLock);
-	return result;
-}
-
-/*
-* when append sync datanode slave, alter sync datanode slave to async or potential node, remove sync datanode.
-* rewind sync slave node, it need to update the datanode information in pgxc_node table of read only coordinator.
-*/
-bool mgr_alter_sync_refresh_pgxcnode_readnode(Oid includeOid, Oid excludeOid)
-{
-	Relation relNode;
-	ScanKeyData key[2];
-	HeapScanDesc relScan;
-	HeapTuple tuple;
-	HeapTuple syncNodeTuple;
-	HeapTuple masterTuple;
-	Form_mgr_node mgr_node;
-	Form_mgr_node mgr_nodetmp;
-	StringInfoData restmsg;
-	StringInfoData sqlstrmsg;
-	int nodePort;
-	int agentPort;
-	int seq = 0;
-	Oid masterTupleOid;
-	char *nodeAddress;
-	char *userName;
-	char *nodeName;
-	char *dnAddress;
-	bool bneedExec = false;
-	bool bres = false;
-	bool bsame = false;
-	NameData oldPreferredNode;
-	NameData preferredDnName;
-	List *dnList = NIL;
-	List *newDnList = NIL;
-	ListCell *dnCeil;
-
-	initStringInfo(&restmsg);
-	initStringInfo(&sqlstrmsg);
-	relNode = heap_open(NodeRelationId, AccessShareLock);
-	ScanKeyInit(&key[0]
-		,Anum_mgr_node_nodeincluster
-		,BTEqualStrategyNumber
-		,F_BOOLEQ
-		,BoolGetDatum(true));
-	ScanKeyInit(&key[1]
-		,Anum_mgr_node_nodetype
-		,BTEqualStrategyNumber
-		,F_CHAREQ
-		,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
-	relScan = heap_beginscan_catalog(relNode, 2, key);
-	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
-	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		/* record the sequence num */
-		if (!mgr_node->nodereadonly)
-			continue;
-		seq++;
-		bneedExec = false;
-		nodePort = mgr_node->nodeport;
-		agentPort = get_agentPort_from_hostoid(mgr_node->nodehost);
-		nodeAddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
-		userName = get_hostuser_from_hostoid(mgr_node->nodehost);
-		resetStringInfo(&restmsg);
-		resetStringInfo(&sqlstrmsg);
-		/* update the datanode information on pgxc_node */
-		appendStringInfo(&sqlstrmsg, "select node_name from pgxc_node where node_type = 'D' \
-			and nodeis_preferred = true union all select '*' union all select node_name \
-			from pgxc_node where node_type = 'D';");
-		ereport(LOG, (errmsg("on read only coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename)
-					, sqlstrmsg.data)));
-		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sqlstrmsg.data
-			,userName, nodeAddress, nodePort, DEFAULT_DB, &restmsg);
-		if ((restmsg.len >0 && restmsg.data[0] == '\0') || restmsg.len == 0)
-		{
-			ereport(WARNING, (errmsg("on read only coordinator \"%s\" execute \"%s\" fail %s", NameStr(mgr_node->nodename)
-				, sqlstrmsg.data, restmsg.len >0 ? restmsg.data : "")));
-		}
-		else
-		{
-			bres = mgr_get_dnlist(&oldPreferredNode, "*", &restmsg, &dnList);
-			if (!bres || !dnList)
-				ereport(WARNING, (errmsg("on read only coordinator \"%s\" execute \"%s\" fail %s"
-					, NameStr(mgr_node->nodename), sqlstrmsg.data, restmsg.len >0 ? restmsg.data : "")));
-			else
-			{
-				resetStringInfo(&sqlstrmsg);
-				appendStringInfo(&sqlstrmsg, "set force_parallel_mode = off; ");
-				foreach(dnCeil, dnList)
-				{
-					nodeName = (char *)lfirst(dnCeil);
-					masterTupleOid = mgr_get_nodeMaster_tupleOid(nodeName);
-					if (masterTupleOid == InvalidOid)
-					{
-						newDnList = lappend(newDnList, pstrdup(nodeName));
-						ereport(WARNING, (errmsg("get tuple oid of the master \"%s\" fail", nodeName)));
-					}
-					else
-					{
-						bsame = false;
-						syncNodeTuple = mgr_get_sync_slavenode_tuple(masterTupleOid, mgr_node->nodeincluster, includeOid, excludeOid, seq);
-						if (!HeapTupleIsValid(syncNodeTuple))
-						{
-							/* no sync slave node exist, get its master information */
-							masterTuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(masterTupleOid));
-							if (!HeapTupleIsValid(masterTuple))
-							{
-								newDnList = lappend(newDnList, pstrdup(nodeName));
-								ereport(WARNING, (errmsg("get tuple oid of the master \"%s\" fail", nodeName)));
-							}
-							else
-							{
-								mgr_nodetmp = (Form_mgr_node)GETSTRUCT(masterTuple);
-								Assert (mgr_nodetmp);
-								if (strcmp(NameStr(mgr_nodetmp->nodename), nodeName) != 0)
-								{
-									bneedExec = true;
-									/* old preferred node name change */
-									if (namestrcmp(&oldPreferredNode, nodeName) == 0)
-									{
-										bsame = true;
-										namestrcpy(&oldPreferredNode, NameStr(mgr_nodetmp->nodename));
-									}
-									newDnList = lappend(newDnList, pstrdup(NameStr(mgr_nodetmp->nodename)));
-									dnAddress = get_hostaddress_from_hostoid(mgr_nodetmp->nodehost);
-									appendStringInfo(&sqlstrmsg, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
-										, nodeName, NameStr(mgr_nodetmp->nodename), dnAddress
-										, mgr_nodetmp->nodeport
-										, bsame ? "true":"false"
-										,NameStr(mgr_node->nodename));
-									pfree(dnAddress);
-								}
-								else
-									newDnList = lappend(newDnList, pstrdup(nodeName));
-								ReleaseSysCache(masterTuple);
-							}
-						}
-						else
-						{
-							mgr_nodetmp = (Form_mgr_node)GETSTRUCT(syncNodeTuple);
-							Assert (mgr_nodetmp);
-							if (strcmp(NameStr(mgr_nodetmp->nodename), nodeName) != 0)
-							{
-								bneedExec = true;
-								/* old preferred node name change */
-								if (namestrcmp(&oldPreferredNode, nodeName) == 0)
-								{
-									bsame = true;
-									namestrcpy(&oldPreferredNode, NameStr(mgr_nodetmp->nodename));
-								}
-								newDnList = lappend(newDnList, pstrdup(NameStr(mgr_nodetmp->nodename)));
-								dnAddress = get_hostaddress_from_hostoid(mgr_nodetmp->nodehost);
-								appendStringInfo(&sqlstrmsg, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
-									, nodeName, NameStr(mgr_nodetmp->nodename), dnAddress
-									, mgr_nodetmp->nodeport
-									, bsame ? "true":"false"
-									, NameStr(mgr_node->nodename));
-								pfree(dnAddress);
-							}
-							else
-								newDnList = lappend(newDnList, pstrdup(nodeName));
-
-							heap_freetuple(syncNodeTuple);
-						}
-					}
-				}
-			}
-		}
-		if (bneedExec)
-		{
-			/* update the datanode information on pgxc_node of read only coordinator */
-			resetStringInfo(&restmsg);
-			ereport(LOG, (errmsg("on read only coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename)
-					, sqlstrmsg.data)));
-			monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sqlstrmsg.data
-				,userName, nodeAddress, nodePort, DEFAULT_DB, &restmsg);
-			if ((restmsg.len >0 && restmsg.data[0] == '\0') || restmsg.len == 0)
-			{
-				ereport(WARNING, (errmsg("on read only coordinator \"%s\" execute \"%s\" fail %s"
-					, NameStr(mgr_node->nodename), sqlstrmsg.data, restmsg.len >0 ? restmsg.data : "")));
-			}
-			/* update the preferred datanode information on pgxc_node of read only coordinator */
-			resetStringInfo(&restmsg);
-			resetStringInfo(&sqlstrmsg);
-			appendStringInfo(&sqlstrmsg, "set force_parallel_mode = off; select pgxc_pool_reload();");
-			ereport(LOG, (errmsg("on read only coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename)
-					, sqlstrmsg.data)));
-			monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sqlstrmsg.data
-				,userName, nodeAddress, nodePort, DEFAULT_DB, &restmsg);
-			if ((restmsg.len >0 && restmsg.data[0] == '\0') || restmsg.len == 0)
-			{
-				ereport(WARNING, (errmsg("on read only coordinator \"%s\" execute \"%s\" fail %s"
-					, NameStr(mgr_node->nodename), sqlstrmsg.data, restmsg.len >0 ? restmsg.data : "")));
-			}
-
-			/* get the new preferred node */
-			mgr_get_prefer_nodename_for_cn(NameStr(mgr_node->nodename), mgr_node->nodereadonly
-						, newDnList, &preferredDnName);
-			/* set preferred node on coordinator */
-			mgr_set_preferred_node(NameStr(oldPreferredNode), NameStr(preferredDnName)
-						,NameStr(mgr_node->nodename), userName, nodeAddress, agentPort, nodePort);
-		}
-		pfree(userName);
-		pfree(nodeAddress);
-		list_free(dnList);
-		list_free(newDnList);
-		dnList = NIL;
-		newDnList = NIL;
-	}
-
-	heap_endscan(relScan);
-	heap_close(relNode, AccessShareLock);
-
-	return bneedExec;
-}
-
-/*
 * for read only coordinator, used by given the datanode list to get the preferred datanode name
 *
 */
-void mgr_get_prefer_nodename_for_cn(char *cnName, bool breadOnly, List *dnNamelist, Name preferredDnName)
+void mgr_get_prefer_nodename_for_cn(char *cnName, List *dnNamelist, Name preferredDnName)
 {
 	List *cnPreferredList = NIL;
 	List *cnRestList = NIL;
@@ -3460,8 +2921,6 @@ void mgr_get_prefer_nodename_for_cn(char *cnName, bool breadOnly, List *dnNameli
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
-		if (breadOnly != mgr_node->nodereadonly)
-			continue;
 		bget = false;
 		foreach(dnCeil, dnList)
 		{
@@ -3866,90 +3325,6 @@ List *mgr_append_coord_update_pgxcnode(StringInfo sqlstrmsg, List *dnList, Name 
 	return newDnList;
 }
 
-/*
-* check the given node is read only coordinator
-*/
-bool mgr_get_coord_readtype(char *nodeName)
-{
-	Relation relNode;
-	HeapTuple tuple;
-	Form_mgr_node mgr_node;
-	NameData nameattrdata;
-	HeapScanDesc relScan;
-	ScanKeyData key[2];
-	bool bReadOnly = false;
-
-	Assert(nodeName);
-	relNode = heap_open(NodeRelationId, AccessShareLock);
-	namestrcpy(&nameattrdata, nodeName);
-	ScanKeyInit(&key[0]
-		,Anum_mgr_node_nodename
-		,BTEqualStrategyNumber, F_NAMEEQ
-		,NameGetDatum(&nameattrdata));
-	ScanKeyInit(&key[1]
-		,Anum_mgr_node_nodetype
-		,BTEqualStrategyNumber
-		,F_CHAREQ
-		,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
-	relScan = heap_beginscan_catalog(relNode, 2, key);
-	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
-	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		bReadOnly = mgr_node->nodereadonly;
-		break;
-	}
-	heap_endscan(relScan);
-	heap_close(relNode, AccessShareLock);
-
-	return bReadOnly;
-}
-
-/*
-* get the sequence number in the type of node, used for read only coordinator
-*
-*/
-int mgr_get_node_sequence(char *nodeName, char nodeType, bool bReadOnly)
-{
-	Relation relNode;
-	HeapTuple tuple;
-	Form_mgr_node mgr_node;
-	NameData nameattrdata;
-	HeapScanDesc relScan;
-	ScanKeyData key[2];
-	bool bget = false;
-	int sequenceNum = 0;
-
-	Assert(nodeName);
-	relNode = heap_open(NodeRelationId, AccessShareLock);
-	namestrcpy(&nameattrdata, nodeName);
-	ScanKeyInit(&key[0]
-		,Anum_mgr_node_nodetype
-		,BTEqualStrategyNumber
-		,F_CHAREQ
-		,CharGetDatum(nodeType));
-	ScanKeyInit(&key[1]
-		,Anum_mgr_node_nodereadonly
-		,BTEqualStrategyNumber
-		,F_BOOLEQ
-		,BoolGetDatum(bReadOnly));
-	relScan = heap_beginscan_catalog(relNode, 2, key);
-	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
-	{
-		sequenceNum++;
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		if (strcmp(nodeName, NameStr(mgr_node->nodename)) == 0)
-		{
-			bget = true;
-			break;
-		}
-	}
-	heap_endscan(relScan);
-	heap_close(relNode, AccessShareLock);
-
-	return bget ? sequenceNum : -1;
-}
 
 /*
 * get the the master tuple oid, if the node is gtm or datanode slave , the mgr_node->nodemasternameoid
@@ -3996,7 +3371,7 @@ int mgr_get_nodetype_num(const char nodeType, const bool inCluster, const bool r
 	Relation relNode;
 	HeapScanDesc relScan;
 	HeapTuple tuple;
-	ScanKeyData key[3];
+	ScanKeyData key[2];
 	int num = 0;
 
 	relNode = heap_open(NodeRelationId, AccessShareLock);
@@ -4007,16 +3382,11 @@ int mgr_get_nodetype_num(const char nodeType, const bool inCluster, const bool r
 		,F_BOOLEQ
 		,BoolGetDatum(inCluster));
 	ScanKeyInit(&key[1],
-		Anum_mgr_node_nodereadonly
-		,BTEqualStrategyNumber
-		,F_BOOLEQ
-		,BoolGetDatum(readOnly));
-	ScanKeyInit(&key[2]
-		,Anum_mgr_node_nodetype
+		Anum_mgr_node_nodetype
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(nodeType));
-	relScan = heap_beginscan_catalog(relNode, 3, key);
+	relScan = heap_beginscan_catalog(relNode, 2, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		num++;
@@ -4039,7 +3409,7 @@ bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrda
 	StringInfoData restmsg;
 	HeapTuple tuple;
 	Form_mgr_node mgr_node;
-	ScanKeyData key[3];
+	ScanKeyData key[2];
 	char *user;
 	char *address;
 	bool execRes = false;
@@ -4064,12 +3434,7 @@ bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrda
 		,BTEqualStrategyNumber
 		,F_BOOLEQ
 		,BoolGetDatum(true));
-	ScanKeyInit(&key[2]
-		,Anum_mgr_node_nodereadonly
-		,BTEqualStrategyNumber
-		,F_BOOLEQ
-		,BoolGetDatum(true));
-	relScan = heap_beginscan_catalog(rel_node, 3, key);
+	relScan = heap_beginscan_catalog(rel_node, 2, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -4150,159 +3515,6 @@ bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrda
 	return bnormal;
 }
 
-/*
-* update the pgxc_node information of readonly coordinator when execute "flush host"
-* 1. the the nodename of datanode in pgxc_node, sql is "select node_name from pgxc_node where node_type = 'D'"
-* 2. form the sql string: from the node name to get its address, sql is "alter node nodename with(host='xxx')"
-* 3. add the sql: set force_parallel_mode =off; select pgxc_pool_reload()
-* 4. send the sql to the readonly coordinator
-*/
-bool mgr_update_pgxcnode_readonly_coord(void)
-{
-	Relation relNode;
-	HeapScanDesc relScan;
-	HeapTuple tuple;
-	HeapTuple nodeTuple;
-	ScanKeyData key[2];
-	Form_mgr_node mgr_node = NULL;
-	Form_mgr_node mgr_nodetmp = NULL;
-	StringInfoData sqlstrinfocn;
-	StringInfoData sqlstrinfodn;
-	StringInfoData sqlstrinfotmp;
-	StringInfoData sqlinfo;
-	StringInfoData restmsg;
-	char *nodeUser;
-	char *nodeAddress;
-	char *value;
-	int agentPort;
-	int position = 0;
-	bool bnormal = true;
-
-	initStringInfo(&sqlstrinfocn);
-	initStringInfo(&sqlstrinfodn);
-	initStringInfo(&sqlstrinfotmp);
-	initStringInfo(&sqlinfo);
-	initStringInfo(&restmsg);
-	relNode = heap_open(NodeRelationId, AccessShareLock);
-
-	/* for coordinator */
-	ScanKeyInit(&key[0]
-		,Anum_mgr_node_nodetype
-		,BTEqualStrategyNumber
-		,F_CHAREQ
-		,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
-	ScanKeyInit(&key[1]
-		,Anum_mgr_node_nodeincluster
-		,BTEqualStrategyNumber
-		,F_BOOLEQ
-		,BoolGetDatum(true));
-	relScan = heap_beginscan_catalog(relNode, 2, key);
-	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
-	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		nodeAddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
-		appendStringInfo(&sqlstrinfocn, "ALTER NODE \\\"%s\\\" WITH (HOST='%s');"
-				,NameStr(mgr_node->nodename),nodeAddress);
-		pfree(nodeAddress);
-	}
-	heap_endscan(relScan);
-
-	relScan = heap_beginscan_catalog(relNode, 2, key);
-	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
-	{
-		/* just for readonly coordinator */
-		if (!mgr_node->nodereadonly)
-			continue;
-		nodeUser = get_hostuser_from_hostoid(mgr_node->nodehost);
-		agentPort = get_agentPort_from_hostoid(mgr_node->nodehost);
-		resetStringInfo(&sqlstrinfotmp);
-		resetStringInfo(&restmsg);
-		resetStringInfo(&sqlstrinfodn);
-		appendStringInfo(&sqlstrinfotmp, "select node_name from pgxc_node where node_type = 'D'");
-		/* get the node names from read only coordinator */
-		nodeAddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
-		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sqlstrinfotmp.data,
-			nodeUser, nodeAddress,
-			mgr_node->nodeport,
-			DEFAULT_DB,
-			&restmsg);
-		pfree(nodeAddress);
-		if ((restmsg.len >0 && restmsg.data[0] == '\0') || restmsg.len == 0)
-		{
-			bnormal = false;
-			ereport(WARNING, (errmsg("on readonly coordinator \"%s\" execute the sql \"%s\" fail %s, \
-				and will not update the pgxc_node of this coordinator, you need update it by yourself",
-					NameStr(mgr_node->nodename), sqlstrinfotmp.data
-					, (restmsg.len >0 && restmsg.data[0] != '\0')? restmsg.data : "")));
-		}
-		else
-		{
-			/* for datanode */
-			while(1)
-			{
-				if(position >= restmsg.len)
-					break;
-				value = &(restmsg.data[position]);
-				if (*value)
-				{
-					nodeTuple = mgr_get_tuple_node_from_name_type(relNode, value);
-					if (!HeapTupleIsValid(nodeTuple))
-					{
-						bnormal = false;
-						ereport(WARNING, (errcode(ERRCODE_UNDEFINED_OBJECT)
-							, errmsg("get the node \"%s\" information in node table fail", value)));
-					}
-					else
-					{
-						mgr_nodetmp = (Form_mgr_node)GETSTRUCT(nodeTuple);
-						Assert(mgr_nodetmp);
-						nodeAddress = get_hostaddress_from_hostoid(mgr_nodetmp->nodehost);
-						appendStringInfo(&sqlstrinfodn, "ALTER NODE \\\"%s\\\" WITH (HOST='%s');"
-								,NameStr(mgr_nodetmp->nodename),nodeAddress);
-						pfree(nodeAddress);
-						heap_freetuple(nodeTuple);
-					}
-					position = position + strlen(value);
-				}
-				position = position + 1;
-			}
-			/* connect the sql string */
-			resetStringInfo(&sqlinfo);
-			appendStringInfo(&sqlinfo, " -h %s -p %u -d %s -U %s -a -c \""
-				,"127.0.0.1"
-				,mgr_node->nodeport
-				,DEFAULT_DB
-				,nodeUser);
-			/* send the sql string to readonly coordinator */
-			resetStringInfo(&restmsg);
-			appendStringInfo(&sqlinfo, "%s", sqlstrinfocn.data);
-			appendStringInfo(&sqlinfo, "%s", sqlstrinfodn.data);
-			appendStringInfo(&sqlinfo, "set force_parallel_mode = off; select pgxc_pool_reload();\"");
-			mgr_ma_send_cmd_get_original_result(AGT_CMD_PSQL_CMD, sqlinfo.data, mgr_node->nodehost,
-					&restmsg, AGENT_RESULT_LOG);
-			if ((restmsg.len >0 && restmsg.data[0] == '\0') || restmsg.len == 0)
-			{
-				bnormal = false;
-				ereport(WARNING, (errmsg("on readonly coordinator \"%s\" execute the sql \"%s\" fail %s, \
-				and will not update the pgxc_node of this coordinator, you need update it by yourself",
-					NameStr(mgr_node->nodename), sqlinfo.data
-					, (restmsg.len >0 && restmsg.data[0] != '\0')? restmsg.data : "")));
-			}
-		}
-		pfree(nodeUser);
-	}
-
-	pfree(sqlstrinfocn.data);
-	pfree(sqlstrinfodn.data);
-	pfree(sqlstrinfotmp.data);
-	pfree(sqlinfo.data);
-	pfree(restmsg.data);
-	heap_endscan(relScan);
-	heap_close(relNode, AccessShareLock);
-
-	return bnormal;
-}
 
 void check_node_incluster(void)
 {
