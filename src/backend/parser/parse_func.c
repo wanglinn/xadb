@@ -1417,6 +1417,21 @@ func_get_detail(List *funcname,
 	if (argdefaults)
 		*argdefaults = NIL;
 
+#ifdef ADB_GRAM_ORA
+	/* Querying custom Oracle data type implicit conversion rules */
+	if (current_grammar == PARSE_GRAM_ORACLE &&
+		list_length(funcname) == 1)
+	{
+		Oid *to = find_ora_convert(ORA_CONVERT_KIND_FUNCTION,
+									strVal(linitial(funcname)),
+									argtypes,
+									nargs,
+									nargs);
+		if (to != NULL)
+			argtypes = to;
+	}
+#endif
+
 	/* Get list of possible candidates from namespace search */
 	raw_candidates = FuncnameGetCandidates(funcname, nargs, fargnames,
 										   expand_variadic, expand_defaults,
@@ -1433,44 +1448,6 @@ func_get_detail(List *funcname,
 		if (memcmp(argtypes, best_candidate->args, nargs * sizeof(Oid)) == 0)
 			break;
 	}
-
-#ifdef ADB_MULTI_GRAM
-	if (current_grammar == PARSE_GRAM_ORACLE)
-	{
-		Oid	targetFuncOid = 0;
-
-		/* Specify the corresponding FUNCOID for the SUM () function of the parameter type UNKNOWN 
-		 * eg: select sum('1') from dual;
-		 */
-		if (list_length(funcname) == 1 
-			&& strcmp(strVal(linitial(funcname)), "sum") == 0
-			&& fargs != NIL && linitial(fargs) != NULL
-			&& ((Const *)linitial(fargs))->consttype == UNKNOWNOID)
-		{
-			targetFuncOid = 2114;
-
-		/* oracle grammar agg function(MAX/MIN) support character type field */
-		}else if (list_length(funcname) == 1
-			&& (strcmp(strVal(linitial(funcname)), "max") == 0))
-		{
-			targetFuncOid = 2129;
-		}else if (list_length(funcname) == 1
-			&& (strcmp(strVal(linitial(funcname)), "min") == 0))
-		{
-			targetFuncOid = 2145;
-		}	
-		if (targetFuncOid)
-		{
-			for (best_candidate = raw_candidates;
-				best_candidate != NULL;
-				best_candidate = best_candidate->next)
-			{
-				if (best_candidate->oid == targetFuncOid)
-					break;
-			}
-		}
-	}
-#endif
 
 	if (best_candidate == NULL)
 	{
@@ -1594,30 +1571,6 @@ func_get_detail(List *funcname,
 				best_candidate = func_select_candidate(nargs,
 													   argtypes,
 													   current_candidates);
-#ifdef ADB_GRAM_ORA
-				if (!best_candidate &&
-					current_grammar == PARSE_GRAM_ORACLE &&
-					list_length(funcname) == 1)
-				{
-					Oid *to = find_ora_convert(ORA_CONVERT_KIND_FUNCTION,
-											   strVal(linitial(funcname)),
-											   argtypes,
-											   nargs,
-											   nargs);
-					if (to != NULL)
-					{
-						for(best_candidate = current_candidates;
-							best_candidate != NULL;
-							best_candidate = best_candidate->next)
-						{
-							if (memcmp(to, best_candidate->args, nargs * sizeof(Oid)) == 0)
-								break;
-						}
-						pfree(to);
-					}
-				}
-#endif
-
 				/*
 				 * If we were able to choose a best candidate, we're done.
 				 * Otherwise, ambiguous function call.
