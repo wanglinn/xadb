@@ -1273,6 +1273,9 @@ _readTargetEntry(void)
 	READ_BOOL_FIELD(resjunk);
 #ifdef ADB_GRAM_ORA
 	READ_INT_FIELD(as_location);
+	READ_INT_FIELD(expr_loc);
+	READ_INT_FIELD(expr_len);
+	READ_ENUM_FIELD(expr_type, NodeTag);
 #endif /* ADB_GRAM_ORA */
 
 	READ_DONE();

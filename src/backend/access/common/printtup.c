@@ -244,6 +244,56 @@ void SendRowDescriptionMessageUpperAttributeName(StringInfo buf, TupleDesc typei
 	pq_endmessage_reuse(buf);
 }
 
+#ifdef ADB_GRAM_ORA
+static bool write_ora_target(StringInfo buf, TargetEntry *te, const char *source_cmd, const char *attname)
+{
+	StringInfoData	name;
+	int				i;
+	bool			result = false;
+
+	if (te->as_location <= 0 &&
+		te->expr_len > 0 &&
+		te->expr_loc >= 0 &&
+		te->expr_type != T_Invalid)
+	{
+		result = true;
+		switch (te->expr_type)
+		{
+		case T_FuncCall:
+			initStringInfoExtend(&name, te->expr_len + 1);
+			for (i=0;i<te->expr_len;++i)
+			{
+				char c = source_cmd[pg_mbstrlen_with_len(source_cmd, te->expr_loc + i)];
+				if (c != '\n')
+					appendStringInfoChar(&name, (char)pg_toupper(c));
+			}
+			pq_writestring(buf, name.data);
+			pfree(name.data);
+			break;
+		case T_CaseExpr:
+			pq_writestring(buf, "CASEWHEN");
+			break;
+		default:
+			result = false;
+			break;
+		}
+	}
+
+	if (result == false &&
+		(te->as_location <= 0 ||
+		 source_cmd[pg_mbstrlen_with_len(source_cmd, te->as_location)] != '"'))
+	{
+		i = buf->len;
+		pq_writestring(buf, attname);
+		for(;i<buf->len;++i)
+			buf->data[i] = pg_toupper(buf->data[i]);
+		result = true;
+	}
+
+	return result;
+}
+#endif /* ADB_GRAM_ORA */
+
 /*
  * Send description for each column when using v3+ protocol
  */
@@ -314,13 +364,9 @@ SendRowDescriptionCols_3(StringInfo buf, TupleDesc typeinfo, List *targetlist, i
 
 #ifdef ADB_GRAM_ORA
 		if (upper_target && tle &&
-			(tle->as_location <= 0 ||	/* 0 is valid location, but not "AS" valid location */
-			 source_cmd[pg_mbstrlen_with_len(source_cmd, tle->as_location)] != '"'))
+			write_ora_target(buf, tle, source_cmd, NameStr(att->attname)))
 		{
-			int i = buf->len;
-			pq_writestring(buf, NameStr(att->attname));
-			for(;i<buf->len;++i)
-				buf->data[i] = pg_toupper(buf->data[i]);
+			/* nothing to do */
 		}else
 #endif /* ADB_GRAM_ORA */
 		pq_writestring(buf, NameStr(att->attname));

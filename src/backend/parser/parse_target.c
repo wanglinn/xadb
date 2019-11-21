@@ -137,6 +137,9 @@ transformTargetList(ParseState *pstate, List *targetlist,
 	List	   *p_target = NIL;
 	bool		expand_star;
 	ListCell   *o_target;
+#ifdef ADB_GRAM_ORA
+	TargetEntry *te;
+#endif /* ADB_GRAM_ORA */
 
 	/* Shouldn't have any leftover multiassign items at start */
 	Assert(pstate->p_multiassign_exprs == NIL);
@@ -166,7 +169,13 @@ transformTargetList(ParseState *pstate, List *targetlist,
 #ifdef ADB_GRAM_ORA
 					ListCell *lc;
 					foreach (lc, list)
-						lfirst_node(TargetEntry, lc)->as_location = -1;
+					{
+						te = lfirst_node(TargetEntry, lc);
+						te->as_location = -1;
+						te->expr_len = -1;
+						te->expr_loc = -1;
+						te->expr_type = T_Invalid;
+					}
 #endif /* ADB_GRAM_ORA */
 					p_target = list_concat(p_target, list);
 					continue;
@@ -183,7 +192,13 @@ transformTargetList(ParseState *pstate, List *targetlist,
 #ifdef ADB_GRAM_ORA
 					ListCell *lc;
 					foreach (lc, list)
-						lfirst_node(TargetEntry, lc)->as_location = -1;
+					{
+						te = lfirst_node(TargetEntry, lc);
+						te->as_location = -1;
+						te->expr_len = -1;
+						te->expr_loc = -1;
+						te->expr_type = T_Invalid;
+					}
 #endif /* ADB_GRAM_ORA */
 					p_target = list_concat(p_target, list);
 					continue;
@@ -226,7 +241,15 @@ transformTargetList(ParseState *pstate, List *targetlist,
 												res->name,
 												false));
 #ifdef ADB_GRAM_ORA
-		llast_node(TargetEntry, p_target)->as_location = res->as_location;
+		te = llast_node(TargetEntry, p_target);
+		te->as_location = res->as_location;
+		te->expr_loc = exprLocation(res->val);
+		te->expr_len = res->expr_len;
+		if (nodeTag(res->val) == T_CaseExpr &&
+			((CaseExpr*)res->val)->isdecode)
+			te->expr_type = T_FuncCall;
+		else
+			te->expr_type = nodeTag(res->val);
 #endif /* ADB_GRAM_ORA */
 	}
 

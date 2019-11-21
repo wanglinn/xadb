@@ -8797,6 +8797,8 @@ apply_scanjoin_target_to_paths(PlannerInfo *root,
 #ifdef ADB_GRAM_ORA
 			subpath->pathtarget->as_loc_list =
 				scanjoin_target->as_loc_list;
+			subpath->pathtarget->expr_len_list =
+				scanjoin_target->expr_len_list;
 #endif /* ADB_GRAM_ORA */
 		}
 		else

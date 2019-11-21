@@ -864,7 +864,10 @@ build_path_tlist(PlannerInfo *root, Path *path)
 	int			resno = 1;
 	ListCell   *v;
 #ifdef ADB_GRAM_ORA
-	ListCell   *lc_loc = list_head(path->pathtarget->as_loc_list);
+	ListCell   *lc_as_loc = list_head(path->pathtarget->as_loc_list);
+	ListCell   *lc_expr_loc = list_head(path->pathtarget->expr_loc_list);
+	ListCell   *lc_expr_len = list_head(path->pathtarget->expr_len_list);
+	ListCell   *lc_expr_type = list_head(path->pathtarget->expr_type_list);
 #endif /* ADB_GRAM_ORA */
 
 	foreach(v, path->pathtarget->exprs)
@@ -888,14 +891,39 @@ build_path_tlist(PlannerInfo *root, Path *path)
 		if (sortgrouprefs)
 			tle->ressortgroupref = sortgrouprefs[resno - 1];
 #ifdef ADB_GRAM_ORA
-		if (lc_loc)
+		if (lc_as_loc)
 		{
-			tle->as_location = lfirst_int(lc_loc);
-			lc_loc = lnext(lc_loc);
+			tle->as_location = lfirst_int(lc_as_loc);
+			lc_as_loc = lnext(lc_as_loc);
 		}else
 		{
 			tle->as_location = -1;
 		}
+		if (lc_expr_loc)
+		{
+			tle->expr_loc = lfirst_int(lc_expr_loc);
+			lc_expr_loc = lnext(lc_expr_loc);
+		}else
+		{
+			tle->expr_loc = -1;
+		}
+		if (lc_expr_len)
+		{
+			tle->expr_len = lfirst_int(lc_expr_len);
+			lc_expr_len = lnext(lc_expr_len);
+		}else
+		{
+			tle->expr_len = -1;
+		}
+		if (lc_expr_type)
+		{
+			tle->expr_type = (NodeTag)lfirst_int(lc_expr_type);
+			lc_expr_type = lnext(lc_expr_type);
+		}else
+		{
+			tle->expr_type = T_Invalid;
+		}
+		
 #endif /* ADB_GRAM_ORA */
 
 		tlist = lappend(tlist, tle);

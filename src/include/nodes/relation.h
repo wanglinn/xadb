@@ -1069,6 +1069,9 @@ typedef struct PathTarget
 	int			width;			/* estimated avg width of result tuples */
 #ifdef ADB_GRAM_ORA
 	List	   *as_loc_list;
+	List	   *expr_loc_list;
+	List	   *expr_len_list;
+	List	   *expr_type_list;
 #endif /* ADB_GRAM_ORA */
 } PathTarget;
 

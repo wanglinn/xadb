@@ -1067,6 +1067,7 @@ ResTarget* make_star_target(int location)
 	target->location = location;
 #ifdef ADB_GRAM_ORA
 	target->as_location = -1;
+	target->expr_len = -1;
 #endif
 
 	return target;

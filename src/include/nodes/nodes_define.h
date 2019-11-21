@@ -1487,6 +1487,9 @@ BEGIN_NODE(TargetEntry)
 	NODE_SCALAR(bool,resjunk)
 #ifdef ADB_GRAM_ORA
 	NODE_SCALAR(int,as_location)
+	NODE_SCALAR(int,expr_loc)
+	NODE_SCALAR(int,expr_len)
+	NODE_ENUM(NodeTag,expr_type)
 #endif
 END_NODE(TargetEntry)
 #endif /* NO_NODE_TargetEntry */
@@ -2061,6 +2064,9 @@ BEGIN_NODE(PathTarget)
 	NODE_SCALAR(int,width)
 #ifdef ADB_GRAM_ORA
 	NODE_NODE(List,as_loc_list)
+	NODE_NODE(List,expr_loc_list)
+	NODE_NODE(List,expr_len_list)
+	NODE_NODE(List,expr_type_list)
 #endif
 END_NODE(PathTarget)
 #endif /* NO_NODE_PathTarget */
@@ -3483,6 +3489,7 @@ BEGIN_NODE(ResTarget)
 	NODE_SCALAR(int,location)
 #ifdef ADB_GRAM_ORA
 	NODE_SCALAR(int,as_location)
+	NODE_SCALAR(int,expr_len)
 #endif
 END_NODE(ResTarget)
 #endif /* NO_NODE_ResTarget */
