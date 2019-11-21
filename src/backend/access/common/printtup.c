@@ -277,6 +277,16 @@ static bool write_ora_target(StringInfo buf, TargetEntry *te, const char *source
 		case T_CaseExpr:
 			pq_writestring(buf, "CASEWHEN");
 			break;
+		case T_ColumnRef:
+			if (source_cmd[pg_mbstrlen_with_len(source_cmd, te->expr_loc)] == '"')
+			{
+				/* select "xxx" from ... */
+				pq_writestring(buf, attname);
+			}else
+			{
+				result = false;
+			}
+			break;
 		default:
 			result = false;
 			break;
