@@ -15478,6 +15478,7 @@ target_el:	a_expr AS ColLabel
 					$$->location = @1;
 #ifdef ADB_GRAM_ORA
 					$$->as_location = @3;
+					$$->expr_len = @2 - @1;
 #endif /* ADB_GRAM_ORA */
 				}
 			/*
@@ -15497,6 +15498,7 @@ target_el:	a_expr AS ColLabel
 					$$->location = @1;
 #ifdef ADB_GRAM_ORA
 					$$->as_location = @2;
+					$$->expr_len = @2 - @1;
 #endif /* ADB_GRAM_ORA */
 				}
 			| a_expr
@@ -15508,6 +15510,7 @@ target_el:	a_expr AS ColLabel
 					$$->location = @1;
 #ifdef ADB_GRAM_ORA
 					$$->as_location = -1;
+					$$->expr_len = -1;
 #endif /* ADB_GRAM_ORA */
 				}
 			| '*'

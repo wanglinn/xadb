@@ -439,6 +439,7 @@ BEGIN_ENUM(NodeTag)
 #ifdef ADB_GRAM_ORA
 	ENUM_VALUE(T_ColumnRefJoin)
 	ENUM_VALUE(T_PriorExpr)
+	ENUM_VALUE(T_OraImplicitConvertStmt)
 #endif
 #ifdef ADB_EXT
 	ENUM_VALUE(T_KeepClause)

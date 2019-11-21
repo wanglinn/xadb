@@ -2240,6 +2240,9 @@ _copyTargetEntry(const TargetEntry *from)
 
 #ifdef ADB_GRAM_ORA
 	COPY_SCALAR_FIELD(as_location);
+	COPY_SCALAR_FIELD(expr_loc);
+	COPY_SCALAR_FIELD(expr_len);
+	COPY_SCALAR_FIELD(expr_type);
 #endif /* ADB_GRAM_ORA */
 
 	return newnode;

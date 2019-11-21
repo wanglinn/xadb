@@ -634,6 +634,9 @@ make_pathtarget_from_tlist(List *tlist)
 		target->sortgrouprefs[i] = tle->ressortgroupref;
 #ifdef ADB_GRAM_ORA
 		target->as_loc_list = lappend_int(target->as_loc_list, tle->as_location);
+		target->expr_loc_list = lappend_int(target->expr_loc_list, tle->expr_loc);
+		target->expr_len_list = lappend_int(target->expr_len_list, tle->expr_len);
+		target->expr_type_list = lappend_int(target->expr_type_list, (int)tle->expr_type);
 #endif
 		i++;
 	}
@@ -652,7 +655,10 @@ make_tlist_from_pathtarget(PathTarget *target)
 	int			i;
 	ListCell   *lc;
 #ifdef ADB_GRAM_ORA
-	ListCell   *lc_loc = list_head(target->as_loc_list);
+	ListCell   *lc_as_loc = list_head(target->as_loc_list);
+	ListCell   *lc_expr_loc = list_head(target->expr_loc_list);
+	ListCell   *lc_expr_len = list_head(target->expr_len_list);
+	ListCell   *lc_expr_type = list_head(target->expr_type_list);
 #endif /* ADB_GRAM_ORA */
 
 	i = 0;
@@ -668,13 +674,37 @@ make_tlist_from_pathtarget(PathTarget *target)
 		if (target->sortgrouprefs)
 			tle->ressortgroupref = target->sortgrouprefs[i];
 #ifdef ADB_GRAM_ORA
-		if (lc_loc)
+		if (lc_as_loc)
 		{
-			tle->as_location = lfirst_int(lc_loc);
-			lc_loc = lnext(lc_loc);
+			tle->as_location = lfirst_int(lc_as_loc);
+			lc_as_loc = lnext(lc_as_loc);
 		}else
 		{
 			tle->as_location = -1;
+		}
+		if (lc_expr_loc)
+		{
+			tle->expr_loc = lfirst_int(lc_expr_loc);
+			lc_expr_loc = lnext(lc_expr_loc);
+		}else
+		{
+			tle->expr_loc = -1;
+		}
+		if (lc_expr_len)
+		{
+			tle->expr_len = lfirst_int(lc_expr_len);
+			lc_expr_len = lnext(lc_expr_len);
+		}else
+		{
+			tle->expr_len = -1;
+		}
+		if (lc_expr_type)
+		{
+			tle->expr_type = (NodeTag)lfirst_int(lc_expr_type);
+			lc_expr_type = lnext(lc_expr_type);
+		}else
+		{
+			tle->expr_type = T_Invalid;
 		}
 #endif /* ADB_GRAM_ORA */
 		tlist = lappend(tlist, tle);
@@ -703,6 +733,7 @@ copy_pathtarget(PathTarget *src)
 	dst->exprs = list_copy(src->exprs);
 #ifdef ADB_GRAM_ORA
 	dst->as_loc_list = list_copy(src->as_loc_list);
+	dst->expr_len_list = list_copy(src->expr_len_list);
 #endif /* ADB_GRAM_ORA */
 	/* Duplicate sortgrouprefs if any (if not, the memcpy handled this) */
 	if (src->sortgrouprefs)

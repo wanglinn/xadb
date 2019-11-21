@@ -524,7 +524,8 @@ typedef struct ResTarget
 	Node	   *val;			/* the value expression to compute or assign */
 	int			location;		/* token location, or -1 if unknown */
 #ifdef ADB_GRAM_ORA
-	int			as_location;	/* alias location */
+	int			as_location;	/* alias name location */
+	int			expr_len;		/* the value expression string length in bytes, less or equal 0 for unknown */
 #endif /* ADB_GRAM_ORA */
 } ResTarget;
 

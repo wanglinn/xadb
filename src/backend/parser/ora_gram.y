@@ -6309,6 +6309,14 @@ simple_select:
 		opt_connect_by_clause group_clause having_clause
 			{
 				SelectStmt *n = makeNode(SelectStmt);
+				ResTarget *rt = llast_node(ResTarget, $3);
+				if (rt->expr_len <= 0 && rt->location >= 0)
+				{
+					if (@4 > rt->location)
+						rt->expr_len = @4 - rt->location;
+					else if (@5 > rt->location)
+						rt->expr_len = @5 - rt->location;
+				}
 				n->distinctClause = $2;
 				n->targetList = $3;
 				n->intoClause = $4;
@@ -6540,6 +6548,7 @@ target_item:
 				$$ = makeNode(ResTarget);
 				$$->name = $3;
 				$$->as_location = @3;
+				$$->expr_len = @2 - @1;
 				$$->indirection = NIL;
 				$$->val = (Node *)$1;
 				$$->location = @1;
@@ -6549,6 +6558,7 @@ target_item:
 				$$ = makeNode(ResTarget);
 				$$->name = $2;
 				$$->as_location = @2;
+				$$->expr_len = @2 - @1;
 				$$->indirection = NIL;
 				$$->val = (Node *)$1;
 				$$->location = @1;
@@ -6561,16 +6571,25 @@ target_item:
 				$$->val = (Node *)$1;
 				$$->location = @1;
 				$$->as_location = -1;
+				$$->expr_len = -1;
 			}
 		| '*'
 			{
 				$$ = make_star_target(@1);
+				$$->expr_len = 3;
 			}
 		;
 
 target_list:
 		target_item 					{ $$ = list_make1($1); }
-		| target_list ',' target_item	{ $$ = lappend($1, $3); }
+		| target_list ',' target_item
+			{
+				ResTarget *rt = llast_node(ResTarget, $1);
+				if (rt->expr_len <= 0 &&
+					rt->location >= 0)
+					rt->expr_len = @2 - rt->location;
+				$$ = lappend($1, $3);
+			}
 		;
 
 transaction_mode_item:

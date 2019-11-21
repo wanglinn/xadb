@@ -1425,7 +1425,10 @@ typedef struct TargetEntry
 	bool		resjunk;		/* set to true to eliminate the attribute from
 								 * final target list */
 #ifdef ADB_GRAM_ORA
-	int			as_location;
+	int			as_location;	/* alias name location */
+	int			expr_loc;		/* origin expr expression location */
+	int			expr_len;		/* origin expr expression length in bytes */
+	NodeTag		expr_type;		/* origin expr expression type(from gram) */
 #endif /* ADB_GRAM */
 } TargetEntry;
 
