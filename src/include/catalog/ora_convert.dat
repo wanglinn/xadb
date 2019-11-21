@@ -1,15 +1,19 @@
 
 [
 # sum(string)
-{ cvtkind => 'f', cvtname => 'sum', cvtfrom => 'varchar', cvtto => 'numeric' },
-{ cvtkind => 'f', cvtname => 'sum', cvtfrom => 'oracle.varchar2', cvtto => 'numeric' },
-{ cvtkind => 'f', cvtname => 'sum', cvtfrom => 'text', cvtto => 'numeric' },
-{ cvtkind => 'f', cvtname => 'sinh', cvtfrom => 'text', cvtto => 'numeric' },
-{ cvtkind => 'f', cvtname => 'tanh', cvtfrom => 'text', cvtto => 'numeric' },
 { cvtkind => 'f', cvtname => 'bitand', cvtfrom => 'unknown unknown', cvtto => 'int8 int8' },
 { cvtkind => 'f', cvtname => 'length', cvtfrom => 'numeric', cvtto => 'char' },
 { cvtkind => 'f', cvtname => 'length', cvtfrom => 'float8', cvtto => 'char' },
-[ cvtkind => 'f', cvtname => 'to_char', cvtfrom => 'unknown unknown', cvtto => 'text unknown' },
+{ cvtkind => 'f', cvtname => 'power', cvtfrom => 'int2 int2', cvtto => 'numeric numeric' },
+{ cvtkind => 'f', cvtname => 'power', cvtfrom => 'int4 int4', cvtto => 'numeric numeric' },
+{ cvtkind => 'f', cvtname => 'power', cvtfrom => 'int8 int8', cvtto => 'numeric numeric' },
+{ cvtkind => 'f', cvtname => 'sinh', cvtfrom => 'text', cvtto => 'numeric' },
+{ cvtkind => 'f', cvtname => 'sum', cvtfrom => 'varchar', cvtto => 'numeric' },
+{ cvtkind => 'f', cvtname => 'sum', cvtfrom => 'oracle.varchar2', cvtto => 'numeric' },
+{ cvtkind => 'f', cvtname => 'sum', cvtfrom => 'text', cvtto => 'numeric' },
+{ cvtkind => 'f', cvtname => 'sum', cvtfrom => 'unknown', cvtto => 'numeric' },
+{ cvtkind => 'f', cvtname => 'tanh', cvtfrom => 'text', cvtto => 'numeric' },
+{ cvtkind => 'f', cvtname => 'to_char', cvtfrom => 'unknown unknown', cvtto => 'int8 text' },
 
 # type + type
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.varchar2 int2', cvtto => 'numeric numeric' },
