@@ -1911,7 +1911,9 @@ dumpNodes(PGconn *conn)
 					" || ' , HOST = ' || chr(39) || node_host || chr(39)"
 					" || ', PORT = ' || node_port || (case when nodeis_primary='t'"
 					" then ', PRIMARY' else ' ' end) || (case when nodeis_preferred"
-					" then ', PREFERRED' else ' ' end) || ');' "
+					" then ', PREFERRED' else ' ' end) "
+					" || ' , GTM = ' || chr(39) || (case when nodeis_gtm then 'true' else 'false' end) || chr(39) "
+					" || ');' "
 					" as node_query from pg_catalog.pgxc_node order by oid");
 
 	res = executeQuery(conn, query->data);
