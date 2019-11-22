@@ -21,6 +21,7 @@
 #include "commands/trigger.h"
 #include "executor/spi.h"
 #include "utils/expandedrecord.h"
+#include "utils/typcache.h"
 
 
 /**********************************************************************
@@ -220,6 +221,10 @@ typedef struct PLpgSQL_type
 	Oid			collation;		/* from pg_type, but can be overridden */
 	bool		typisarray;		/* is "true" array, or domain over one */
 	int32		atttypmod;		/* typmod (taken from someplace else) */
+	/* Remaining fields are used only for named composite types (not RECORD) */
+	TypeName   *origtypname;	/* type name as written by user */
+	TypeCacheEntry *tcache;		/* typcache entry for composite type */
+	uint64		tupdesc_id;		/* last-seen tupdesc identifier */
 #ifdef ADB_GRAM_ORA
 	int			cursor_dno;		/* only for "cursor%rowtype" */
 #endif /* ADB_GRAM_ORA */
@@ -403,6 +408,12 @@ typedef struct PLpgSQL_rec
 	bool		notnull;
 	PLpgSQL_expr *default_val;
 	/* end of PLpgSQL_variable fields */
+
+	/*
+	 * Note: for non-RECORD cases, we may from time to time re-look-up the
+	 * composite type, using datatype->origtypname.  That can result in
+	 * changing rectypeid.
+	 */
 
 	PLpgSQL_type *datatype;		/* can be NULL, if rectypeid is RECORDOID */
 	Oid			rectypeid;		/* declared type of variable */
@@ -1307,7 +1318,7 @@ extern PLpgSQL_type *plpgsql_parse_cwordtype(List *idents);
 extern PLpgSQL_type *plpgsql_parse_wordrowtype(char *ident);
 extern PLpgSQL_type *plpgsql_parse_cwordrowtype(List *idents);
 extern PLpgSQL_type *plpgsql_build_datatype(Oid typeOid, int32 typmod,
-					   Oid collation);
+					   Oid collation, TypeName *origtypname);
 extern PLpgSQL_variable *plpgsql_build_variable(const char *refname, int lineno,
 					   PLpgSQL_type *dtype,
 					   bool add2namespace);

@@ -617,7 +617,8 @@ decl_statement	: decl_varname decl_const decl_datatype decl_notnull decl_defval
 							plpgsql_build_variable($2.name, $2.lineno,
 												   plpgsql_build_datatype(REFCURSOROID,
 																		  -1,
-																		  InvalidOid),
+																		  InvalidOid,
+																		  NULL),
 												   true);
 
 						curname_def = palloc0(sizeof(PLpgSQL_expr));
@@ -1144,7 +1145,8 @@ exception_sect	:
 						var = plpgsql_build_variable("sqlstate", lineno,
 													 plpgsql_build_datatype(TEXTOID,
 																			-1,
-																			plpgsql_curr_compile->fn_input_collation),
+																			plpgsql_curr_compile->fn_input_collation,
+																			NULL),
 													 true);
 						((PLpgSQL_var *) var)->isconst = true;
 						new->sqlstate_varno = var->dno;
@@ -1152,7 +1154,8 @@ exception_sect	:
 						var = plpgsql_build_variable("sqlerrm", lineno,
 													 plpgsql_build_datatype(TEXTOID,
 																			-1,
-																			plpgsql_curr_compile->fn_input_collation),
+																			plpgsql_curr_compile->fn_input_collation,
+																			NULL),
 													 true);
 						((PLpgSQL_var *) var)->isconst = true;
 						new->sqlerrm_varno = var->dno;
@@ -1160,7 +1163,8 @@ exception_sect	:
 						var = plpgsql_build_variable("sqlcode", lineno,
 													 plpgsql_build_datatype(INT4OID,
 																			-1,
-																			plpgsql_curr_compile->fn_input_collation),
+																			plpgsql_curr_compile->fn_input_collation,
+																			NULL),
 													 true);
 						((PLpgSQL_var *) var)->isconst = true;
 						new->sqlcode_varno = var->dno;
@@ -1567,7 +1571,8 @@ for_control		: for_variable POK_IN
 														   $1.lineno,
 														   plpgsql_build_datatype(INT4OID,
 																				  -1,
-																				  InvalidOid),
+																				  InvalidOid,
+																				  NULL),
 														   true);
 
 								new = palloc0(sizeof(PLpgSQL_stmt_fori));
@@ -2700,7 +2705,7 @@ read_datatype(int tok)
 						result = var->datatype;
 					}else if(var->datatype->typoid == REFCURSOROID)
 					{
-						result = plpgsql_build_datatype(RECORDOID, -1, InvalidOid);
+						result = plpgsql_build_datatype(RECORDOID, -1, InvalidOid, NULL);
 						result->cursor_dno = var->dno;
 					}
 					if (result)
@@ -3144,7 +3149,8 @@ read_into_target(PLpgSQL_variable **target, bool bulk_collect, bool *strict)
 				}
 				elem_type = plpgsql_build_datatype(elem_type_oid,
 												   var->datatype->atttypmod,
-												   var->datatype->collation);
+												   var->datatype->collation,
+												   NULL);
 				elem_var = plpgsql_build_variable("*internal*",
 												  var->lineno,
 												  elem_type,
@@ -3404,7 +3410,8 @@ parse_datatype(const char *string, int location)
 
 	/* Okay, build a PLpgSQL_type data structure for it */
 	return plpgsql_build_datatype(type_id, typmod,
-								  plpgsql_curr_compile->fn_input_collation);
+								  plpgsql_curr_compile->fn_input_collation,
+								  NULL);
 }
 
 /*
@@ -3479,7 +3486,8 @@ make_case(int location, PLpgSQL_expr *t_expr,
 			plpgsql_build_variable(varname, new->lineno,
 								   plpgsql_build_datatype(INT4OID,
 														  -1,
-														  InvalidOid),
+														  InvalidOid,
+														  NULL),
 								   true);
 		new->t_varno = t_var->dno;
 
@@ -3893,7 +3901,7 @@ static PLoraSQL_type   *plora_build_type(char *name, int location, Oid oid, int 
 		getBaseType(oid) == REFCURSOROID)
 		oid = REFCURSOROID;
 
-	typ = plpgsql_build_datatype(oid, typmod, InvalidOid);
+	typ = plpgsql_build_datatype(oid, typmod, InvalidOid, NULL);
 	oraTyp = palloc0(sizeof(PLoraSQL_type));
 	pfree(typ->typname);
 	typ->typname = name;

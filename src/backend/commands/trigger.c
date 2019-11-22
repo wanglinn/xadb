@@ -3274,7 +3274,9 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 									   relinfo->ri_TrigFunctions,
 									   relinfo->ri_TrigInstrument,
 									   GetPerTupleMemoryContext(estate));
-		if (oldtuple != newtuple && oldtuple != slottuple)
+		if (oldtuple != newtuple &&
+			oldtuple != slottuple &&
+			oldtuple != trigtuple)
 			heap_freetuple(oldtuple);
 		if (newtuple == NULL)
 		{
@@ -6032,12 +6034,9 @@ AfterTriggerSetState(ConstraintsSetStmt *stmt)
 		foreach(lc, conoidlist)
 		{
 			Oid			conoid = lfirst_oid(lc);
-			bool		found;
 			ScanKeyData skey;
 			SysScanDesc tgscan;
 			HeapTuple	htup;
-
-			found = false;
 
 			ScanKeyInit(&skey,
 						Anum_pg_trigger_tgconstraint,
@@ -6060,16 +6059,9 @@ AfterTriggerSetState(ConstraintsSetStmt *stmt)
 				if (pg_trigger->tgdeferrable)
 					tgoidlist = lappend_oid(tgoidlist,
 											HeapTupleGetOid(htup));
-
-				found = true;
 			}
 
 			systable_endscan(tgscan);
-
-			/* Safety check: a deferrable constraint should have triggers */
-			if (!found)
-				elog(ERROR, "no triggers found for constraint with OID %u",
-					 conoid);
 		}
 
 		heap_close(tgrel, AccessShareLock);
