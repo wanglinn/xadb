@@ -1827,7 +1827,8 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 			oids = list_union_oid(oids, onerel->rd_locator_info->nodeids);
 		
 		oids_all = GetAllCnIDL(false);
-		oids_all = list_union_oid(oids_all, onerel->rd_locator_info->nodeids);
+		if (onerel->rd_rel->relkind != RELKIND_MATVIEW)
+			oids_all = list_union_oid(oids_all, onerel->rd_locator_info->nodeids);
 		oldest_xmin = cluster_cn_vacuum_sync_xmin(oids_all, onerel);
 		list_free(oids_all);
 
