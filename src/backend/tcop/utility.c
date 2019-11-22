@@ -2709,6 +2709,29 @@ ProcessUtilitySlow(ParseState *pstate,
 			case T_CreateStatsStmt:
 				address = CreateStatistics((CreateStatsStmt *) parsetree);
 #ifdef ADB
+				if (IsCnMaster())
+				{
+					Relation			rel = NULL;
+					RangeVar		   *rln;
+					/*
+					 * PG community will later probably allow multiple tables and 
+					 * JOIN syntax. Currently we need to prohibit this situation.
+					 */
+					if (list_length(((CreateStatsStmt *) parsetree)->relations) != 1)
+						ereport(ERROR,
+								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								errmsg("only a single relation is allowed in CREATE STATISTICS")));
+					rln = linitial_node(RangeVar, ((CreateStatsStmt *) parsetree)->relations);
+					if (!IsA(rln, RangeVar))
+						ereport(ERROR,
+								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 			errmsg("only a single relation is allowed in CREATE STATISTICS")));
+					rel = relation_openrv((RangeVar *) rln, NoLock);
+					/* Statistics on materialized view should only be performed in the coordinators */
+					if (rel->rd_rel->relkind == RELKIND_MATVIEW)
+						utilityContext.exec_type = EXEC_ON_COORDS;
+					relation_close(rel, NoLock);
+				}
 				ExecRemoteUtilityStmt(&utilityContext);
 #endif
 				break;
