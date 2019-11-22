@@ -717,6 +717,7 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 	node_type_old = node_type_new = node_form->node_type;
 	is_primary = node_form->nodeis_primary;
 	is_preferred = node_form->nodeis_preferred;
+	is_gtm = node_form->nodeis_gtm;
 	node_id = node_form->node_id;
 
 	/* Filter options */
