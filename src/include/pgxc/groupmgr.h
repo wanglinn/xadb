@@ -20,5 +20,7 @@
 
 extern void PgxcGroupCreate(CreateGroupStmt *stmt);
 extern void PgxcGroupRemove(DropGroupStmt *stmt);
+extern void ClusterPgxcGroupCreate(StringInfo mem_toc);
+extern void ClusterPgxcGroupRemove(StringInfo mem_toc);
 
 #endif   /* GROUPMGR_H */
