@@ -330,12 +330,11 @@ extern ReduceScanPath *create_reducescan_path(PlannerInfo *root, RelOptInfo *rel
 											  Path *subpath, List *reduce_list, List *pathkeys,
 											  List *clauses);
 extern struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab, PlannerInfo *root);
-extern bool path_tree_have_exec_param(Path *path, PlannerInfo *root);
+extern bool path_tree_have_upper_reference(Path *path, PlannerInfo *root);
 extern bool expression_have_reduce_plan(Expr *expr, PlannerGlobal *glob);
 extern bool expr_have_node(Expr *expr, ...);
-extern bool expr_have_exec_param_and_node(Expr *expr, ...);
-#define expression_have_exec_param(expr) expr_have_exec_param_and_node(expr, T_Invalid)
-#define restrict_list_have_exec_param(list) expr_have_exec_param_and_node((Expr*)(list), T_Invalid)
+extern bool expr_have_upper_reference(Expr *expr, PlannerInfo *root);
+extern bool restrict_list_have_upper_reference(List *list, PlannerInfo *root);
 #define expression_have_subplan(expr) expr_have_node(expr, T_SubPlan, T_Invalid)
 
 #endif /* ADB */

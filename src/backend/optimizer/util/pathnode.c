@@ -4827,8 +4827,8 @@ ReduceScanPath *create_reducescan_path(PlannerInfo *root, RelOptInfo *rel, PathT
 									List *pathkeys, List *clauses)
 {
 	ReduceScanPath *rs;
-	Assert(restrict_list_have_exec_param(clauses) ||
-		   expression_have_exec_param((Expr*)target->exprs));
+	Assert(restrict_list_have_upper_reference(clauses, root) ||
+		   expr_have_upper_reference((Expr*)target->exprs, root));
 	Assert(!PATH_REQ_OUTER(subpath));
 
 	subpath = create_cluster_reduce_path(root, subpath, reduce_info, rel, pathkeys);
@@ -5061,7 +5061,7 @@ struct HTAB* get_path_execute_on(Path *path, struct HTAB *htab, PlannerInfo *roo
 	return context.htab;
 }
 
-bool path_tree_have_exec_param(Path *path, PlannerInfo *root)
+bool path_tree_have_upper_reference(Path *path, PlannerInfo *root)
 {
 	if(path == NULL)
 		return false;
@@ -5069,24 +5069,24 @@ bool path_tree_have_exec_param(Path *path, PlannerInfo *root)
 	switch(nodeTag(path))
 	{
 	case T_Path:
-		return restrict_list_have_exec_param(path->parent->baserestrictinfo);
+		return restrict_list_have_upper_reference(path->parent->baserestrictinfo, root);
 	case T_IndexPath:
 		{
 			IndexPath *index = (IndexPath*)path;
-			return restrict_list_have_exec_param(index->indexclauses) ||
-				   restrict_list_have_exec_param(index->indexquals) ||
-				   restrict_list_have_exec_param(index->indexinfo->indrestrictinfo);
+			return restrict_list_have_upper_reference(index->indexclauses, root) ||
+				   restrict_list_have_upper_reference(index->indexquals, root) ||
+				   restrict_list_have_upper_reference(index->indexinfo->indrestrictinfo, root);
 		}
 	case T_SubqueryScanPath:
-		if(restrict_list_have_exec_param(path->parent->baserestrictinfo))
+		if(restrict_list_have_upper_reference(path->parent->baserestrictinfo, root))
 			return true;
-		return path_tree_have_exec_param(((SubqueryScanPath*)path)->subpath,
-										 path->parent->subroot);
+		return path_tree_have_upper_reference(((SubqueryScanPath*)path)->subpath,
+											   path->parent->subroot);
 	default:
 		break;
 	}
 
-	return path_tree_walker(path, path_tree_have_exec_param, root);
+	return path_tree_walker(path, path_tree_have_upper_reference, root);
 }
 
 bool expression_have_reduce_plan(Expr *expr, PlannerGlobal *glob)
@@ -5161,14 +5161,44 @@ bool expr_have_node(Expr *expr, ...)
 	va_end(va);
 	return result;
 }
-bool expr_have_exec_param_and_node(Expr *expr, ...)
+
+bool expr_have_upper_reference(Expr *expr, PlannerInfo *root)
 {
-	va_list va;
-	bool result;
-	va_start(va, expr);
-	result =  expr_have_node_internal(expr, true, va);
-	va_end(va);
-	return result;
+	if (expr == NULL ||
+		root->parent_root == NULL)
+		return false;
+	
+	if (IsA(expr, Param) &&
+		((Param*)expr)->paramkind == PARAM_EXEC)
+	{
+		int				paramid = ((Param*)expr)->paramid;
+		PlannerInfo	   *parent_root = root->parent_root;
+		ListCell	   *lc;
+		while (parent_root != NULL)
+		{
+			foreach (lc, parent_root->plan_params)
+			{
+				if (lfirst_node(PlannerParamItem, lc)->paramId == paramid)
+					return true;
+			}
+		}
+		return false;
+	}
+
+	return expression_tree_walker((Node*)expr, expr_have_upper_reference, root);
+}
+
+bool restrict_list_have_upper_reference(List *list, PlannerInfo *root)
+{
+	ListCell *lc;
+
+	foreach(lc, list)
+	{
+		if (expr_have_upper_reference(lfirst_node(RestrictInfo, lc)->clause, root))
+			return true;
+	}
+
+	return false;
 }
 
 static double* get_path_rows(RelOptInfo *joinrel, List *reduce_info_list, double *rows)

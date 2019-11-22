@@ -865,7 +865,7 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		foreach(lc, rel->baserestrictinfo)
 		{
 			RestrictInfo *ri = lfirst(lc);
-			if(expression_have_exec_param(ri->clause))
+			if(expr_have_upper_reference(ri->clause, root))
 			{
 				exec_param_clauses = lappend(exec_param_clauses, ri);
 			}
@@ -3294,7 +3294,7 @@ set_cte_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			foreach(lc, rel->baserestrictinfo)
 			{
 				RestrictInfo *ri = lfirst_node(RestrictInfo, lc);
-				if (expression_have_exec_param(ri->clause))
+				if (expr_have_upper_reference(ri->clause, subroot))
 					exec_param_clauses = lappend(exec_param_clauses, ri);
 			}
 
