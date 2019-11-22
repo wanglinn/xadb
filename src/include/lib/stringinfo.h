@@ -78,14 +78,14 @@ extern StringInfo makeStringInfo(void);
  */
 extern void initStringInfo(StringInfo str);
 
-#ifdef ADB
+#ifdef ADB_EXT
 /*------------------------
  * initStringInfoExtend
  * Initialize a StringInfoData struct (with specified length and previously
  * undefined contents) to describe an empty string.
  */
 extern void initStringInfoExtend(StringInfo str, int size);
-#endif
+#endif /* ADB_EXT */
 
 /*------------------------
  * resetStringInfo
