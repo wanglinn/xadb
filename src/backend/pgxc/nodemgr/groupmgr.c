@@ -24,13 +24,32 @@
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_node.h"
 #include "catalog/pgxc_group.h"
+#include "nodes/plannodes.h"
+#include "executor/execCluster.h"
+#include "libpq/libpq-node.h"
 #include "nodes/parsenodes.h"
 #include "pgxc/groupmgr.h"
+#include "pgxc/pgxc.h"
+#include "storage/lwlock.h"
+#include "storage/mem_toc.h"
+#include "storage/shmem.h"
 #include "utils/builtins.h"
+#include "utils/fmgroids.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
 #include "utils/lsyscache.h"
 #include "utils/array.h"
+
+
+#define REMOTE_KEY_CREATE_GROUP 1
+#define REMOTE_KEY_REMOVE_GROUP 2
+
+extern Oid PGXCNodeOid;
+extern void *mem_toc_lookup(StringInfo buf, uint32 key, int *len);
+
+static void PgxcGroupCreateLocal(CreateGroupStmt *stmt);
+static void PgxcGroupRemoveLocal(DropGroupStmt *stmt);
+static List *getCoordOid(bool *include_myself);
 
 /*
  * PgxcGroupCreate
@@ -39,6 +58,68 @@
  */
 void
 PgxcGroupCreate(CreateGroupStmt *stmt)
+{
+	List			*nodeOid_list = NIL;
+	List			*remoteList = NIL;
+	bool			include_myself = false;
+
+	if (IsConnFromApp())
+		nodeOid_list = getCoordOid(&include_myself);
+
+	remoteList = NIL;
+	if (nodeOid_list != NIL)
+	{
+		StringInfoData msg;
+		initStringInfo(&msg);
+
+		ClusterTocSetCustomFun(&msg, ClusterPgxcGroupCreate);
+
+		begin_mem_toc_insert(&msg, REMOTE_KEY_CREATE_GROUP);
+		saveNode(&msg, (Node*)stmt);
+		end_mem_toc_insert(&msg, REMOTE_KEY_CREATE_GROUP);
+
+		remoteList = ExecClusterCustomFunction(nodeOid_list, &msg, 0);
+		pfree(msg.data);
+	}
+
+	/* exec local pgxc group */
+	if (include_myself)
+		PgxcGroupCreateLocal(stmt);
+
+	if (remoteList)
+	{
+		PQNListExecFinish(remoteList, NULL, &PQNDefaultHookFunctions, true);
+		list_free(remoteList);
+	}
+	list_free(nodeOid_list);
+}
+
+/* Create cluster nodeGroup */
+void
+ClusterPgxcGroupCreate(StringInfo mem_toc)
+{
+	CreateGroupStmt *stmt;
+	StringInfoData buf;
+
+	buf.data = mem_toc_lookup(mem_toc, REMOTE_KEY_CREATE_GROUP, &buf.maxlen);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errmsg("Can not found CreateGroupStmt in cluster message"),
+				 errcode(ERRCODE_PROTOCOL_VIOLATION)));
+	}
+	buf.len = buf.maxlen;
+	buf.cursor = 0;
+
+	stmt = castNode(CreateGroupStmt, loadNode(&buf));
+
+	PgxcGroupCreateLocal(stmt);
+}
+
+
+/* Create local nodeGroup */
+static void
+PgxcGroupCreateLocal(CreateGroupStmt *stmt)
 {
 	const char *group_name = stmt->group_name;
 	List	   *nodes = stmt->nodes;
@@ -115,7 +196,6 @@ PgxcGroupCreate(CreateGroupStmt *stmt)
 	heap_close(rel, RowExclusiveLock);
 }
 
-
 /*
  * PgxcNodeGroupsRemove():
  *
@@ -123,6 +203,64 @@ PgxcGroupCreate(CreateGroupStmt *stmt)
  */
 void
 PgxcGroupRemove(DropGroupStmt *stmt)
+{
+	List			*nodeOid_list = NIL;
+	List			*remoteList = NIL;
+	bool			include_myself = false;
+
+	if (IsConnFromApp())
+		nodeOid_list = getCoordOid(&include_myself);
+
+	if (nodeOid_list != NIL)
+	{
+		StringInfoData msg;
+		initStringInfo(&msg);
+
+		ClusterTocSetCustomFun(&msg, ClusterPgxcGroupRemove);
+
+		begin_mem_toc_insert(&msg, REMOTE_KEY_REMOVE_GROUP);
+		saveNode(&msg, (Node*)stmt);
+		end_mem_toc_insert(&msg, REMOTE_KEY_REMOVE_GROUP);
+
+		remoteList = ExecClusterCustomFunction(nodeOid_list, &msg, 0);
+		pfree(msg.data);
+	}
+
+	/* exec local pgxc group */
+	if (include_myself)
+		PgxcGroupRemoveLocal(stmt);
+
+	if (remoteList)
+	{
+		PQNListExecFinish(remoteList, NULL, &PQNDefaultHookFunctions, true);
+		list_free(remoteList);
+	}
+	list_free(nodeOid_list);
+}
+
+void
+ClusterPgxcGroupRemove(StringInfo mem_toc)
+{
+	DropGroupStmt *stmt;
+	StringInfoData buf;
+
+	buf.data = mem_toc_lookup(mem_toc, REMOTE_KEY_REMOVE_GROUP, &buf.maxlen);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errmsg("Can not found CreateGroupStmt in cluster message"),
+				 errcode(ERRCODE_PROTOCOL_VIOLATION)));
+	}
+	buf.len = buf.maxlen;
+	buf.cursor = 0;
+
+	stmt = castNode(DropGroupStmt, loadNode(&buf));
+
+	PgxcGroupRemoveLocal(stmt);
+}
+
+static void
+PgxcGroupRemoveLocal(DropGroupStmt *stmt)
 {
 	Relation	relation;
 	HeapTuple	tup;
@@ -162,4 +300,42 @@ PgxcGroupRemove(DropGroupStmt *stmt)
 	ReleaseSysCache(tup);
 
 	heap_close(relation, RowExclusiveLock);
+}
+
+/* Get the nodeoid list without the current node
+ * 'include_myself': Include this node or not
+ */
+static List*
+getCoordOid(bool *include_myself)
+{
+	HeapTuple		tuple;
+	ScanKeyData		skey[1];
+	Relation		rel;
+	HeapScanDesc	scan;
+	Oid				nodeOid;
+	List 			*nodeOid_list = NIL;
+	bool			include_current_node = false;;
+
+	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
+	ScanKeyInit(&skey[0],
+				Anum_pgxc_node_node_type,
+				BTEqualStrategyNumber, F_CHAREQ,
+				CharGetDatum(PGXC_NODE_COORDINATOR));
+	scan = heap_beginscan_catalog(rel, 1, skey);
+
+	while ((tuple=heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{
+		nodeOid = HeapTupleGetOid(tuple);
+		if (nodeOid == PGXCNodeOid)
+		{
+			include_current_node = true;
+			continue;
+		}
+		nodeOid_list = list_append_unique_oid(nodeOid_list, nodeOid);
+	}
+	heap_endscan(scan);
+	heap_close(rel, AccessShareLock);
+
+	*include_myself = include_current_node;
+	return nodeOid_list;
 }

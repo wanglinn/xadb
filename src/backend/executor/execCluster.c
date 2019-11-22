@@ -13,6 +13,7 @@
 #include "executor/executor.h"
 #include "executor/nodeEmptyResult.h"
 #include "intercomm/inter-comm.h"
+#include "pgxc/groupmgr.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/pgxcnode.h"
 #include "lib/stringinfo.h"
@@ -149,6 +150,8 @@ static const ClusterCustomExecInfo cluster_custom_execute[] =
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeAlter, CLUSTER_CUSTOM_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeRemove, CLUSTER_CUSTOM_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeCreate, CLUSTER_CUSTOM_NEED_SEND_STAT)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterPgxcGroupCreate, CLUSTER_CUSTOM_NEED_SEND_STAT)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterPgxcGroupRemove, CLUSTER_CUSTOM_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(cluster_cluster, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterRedistributeRelation, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
 	};
