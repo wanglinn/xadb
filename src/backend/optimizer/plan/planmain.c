@@ -259,7 +259,7 @@ query_planner(PlannerInfo *root, List *tlist,
 #ifdef ADB
 		if (root->must_replicate == false &&
 			root->parse->in_sub_plan &&
-			restrict_list_have_exec_param(brel->baserestrictinfo))
+			restrict_list_have_upper_reference(brel->baserestrictinfo, root))
 			root->must_replicate = true;
 #endif /* ADB */
 	}

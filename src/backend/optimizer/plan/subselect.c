@@ -575,7 +575,7 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 	if(root->glob->clusterPlanOK)
 	{
 		if (final_rel->cheapest_replicate_path == NULL ||
-			path_tree_have_exec_param(final_rel->cheapest_replicate_path, subroot))
+			path_tree_have_upper_reference(final_rel->cheapest_replicate_path, subroot))
 		{
 			/* make a new replicate path */
 			Path *cheapest_replicate = NULL;

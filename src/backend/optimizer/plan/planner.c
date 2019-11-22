@@ -2260,7 +2260,7 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 
 #ifdef ADB
 		if (root->parse->in_sub_plan &&
-			expression_have_exec_param((Expr*)tlist))
+			expr_have_upper_reference((Expr*)tlist, root))
 			root->must_replicate = true;
 #endif /* ADB */
 		/*
@@ -7921,8 +7921,8 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 		gcontext.can_hash = can_hash;
 		gcontext.can_batch = extra->flags & GROUPING_CAN_USE_BATCH ? true:false;
 		gcontext.can_gather = (root->parent_root == NULL &&
-							   !expression_have_exec_param((Expr*)havingQual) &&
-							   !expr_have_exec_param_and_node((Expr*)grouped_rel->reltarget->exprs, T_SubPlan, T_SubLink, T_Invalid) &&
+							   !expr_have_upper_reference((Expr*)havingQual, root) &&
+							   !expr_have_node((Expr*)grouped_rel->reltarget->exprs, T_SubPlan, T_SubLink, T_Invalid) &&
 							   !expression_have_reduce_plan((Expr*)havingQual, root->glob));
 
 		if (!no_partial)
@@ -8838,7 +8838,7 @@ apply_scanjoin_target_to_paths(PlannerInfo *root,
 		Path *subpath;
 		List *reduce_info = NULL;
 		List *new_pathlist = NIL;
-		bool try_reduce = root->must_replicate && expression_have_exec_param((Expr*)scanjoin_target->exprs);
+		bool try_reduce = root->must_replicate && expr_have_upper_reference((Expr*)scanjoin_target->exprs, root);
 		bool has_volatile = contain_volatile_functions((Node*)scanjoin_target->exprs);
 		if(try_reduce)
 			reduce_info = list_make1(MakeFinalReplicateReduceInfo());
