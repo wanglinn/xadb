@@ -29,7 +29,6 @@ ADD COORDINATOR SLAVE <replaceable class="parameter">slave_name</replaceable> FO
     PORT = <replaceable class="parameter">port_number</replaceable>,
     SYNC_STATE = <replaceable class="parameter">sync_mode</replaceable>,
     PATH = <replaceable class="parameter">pg_data</replaceable>,
-    READONLY = <replaceable class="parameter">readonly_type</replaceable>,
     ZONE = <replaceable class="parameter">zone_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
