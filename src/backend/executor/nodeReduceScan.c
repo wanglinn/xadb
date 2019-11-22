@@ -242,6 +242,9 @@ void FetchReduceScanOuter(ReduceScanState *node)
 	for (i=0;i<node->nbatchs;++i)
 		sts_end_write(node->batchs[i]);
 
+	if (node->cur_batch)
+		sts_begin_scan(node->cur_batch);
+
 	econtext->ecxt_outertuple = node->ss.ss_ScanTupleSlot;
 	MemoryContextSwitchTo(oldcontext);
 
