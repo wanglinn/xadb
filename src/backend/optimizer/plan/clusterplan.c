@@ -98,7 +98,7 @@ static bool OptimizeClusterReduceWalker(Plan *plan, PlannedStmt *stmt, void *con
 	if (IsA(plan, NestLoop))
 	{
 		List	   *init_reduce;
-		List	   *inner_reduce;
+		List	   *inner_reduce = NIL;
 		List	   *outer_reduce;
 		ListCell   *lc;
 
