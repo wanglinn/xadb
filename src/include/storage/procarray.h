@@ -82,6 +82,7 @@ extern Snapshot GetSnapshotData(Snapshot snapshot);
 #ifdef ADB
 extern void SerializeActiveTransactionIds(StringInfo buf);
 extern void EnlargeSnapshotXip(Snapshot snapshot, uint32 need_size);
+extern TransactionId ProcArrayGetXactXmin(void);
 #endif /* ADB */
 
 extern bool ProcArrayInstallImportedXmin(TransactionId xmin,
