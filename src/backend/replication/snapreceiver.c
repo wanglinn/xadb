@@ -123,6 +123,7 @@ static void SnapRcvProcessHeartBeat(char *buf, Size len);
 static void SnapRcvProcessUpdateXid(char *buf, Size len);
 static void WakeupTransaction(TransactionId);
 static void SnapRcvSendLocalNextXid(void);
+static void SnapRcvProcessSyncXminResp(char *buf, Size len);
 static TransactionId SnapRcvGetLocalXmin(void);
 
 /* Signal handlers */
@@ -167,6 +168,22 @@ DisableSnapRcvImmediateExit(void)
 {
 	SnapRcvImmediateInterruptOK = false;
 	ProcessSnapRcvInterrupts();
+}
+
+static void
+SnapRcvSendLocalGlobalXmin(void)
+{
+	TransactionId xmin;
+
+	last_gxmin_stime = GetCurrentTimestamp();
+	/* Construct a new message */
+	resetStringInfo(&reply_message);
+	pq_sendbyte(&reply_message, 't');
+	xmin = SnapRcvGetLocalXmin();
+	pq_sendint64(&reply_message, xmin);
+
+	/* Send it */
+	walrcv_send(wrconn, reply_message.data, reply_message.len);
 }
 
 static void
@@ -621,7 +638,7 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 	{
 	case 's':				/* snapshot */
 		SnapRcvProcessSnapshot(buf, len);
-		SnapRcvSendHeartbeat();
+		SnapRcvSendLocalGlobalXmin();
 		break;
 	case 'a':
 		SnapRcvProcessAssign(buf, len);
@@ -634,6 +651,8 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 		break;
 	case 'u':				/* heartbeat response */
 		SnapRcvProcessUpdateXid(buf, len);
+	case 't':				/* heartbeat response */
+		SnapRcvProcessSyncXminResp(buf, len);
 		break;
 	default:
 		ereport(ERROR,
@@ -644,7 +663,7 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 
 	now = GetCurrentTimestamp();
 	if (now - last_gxmin_stime >= snap_receiver_sxmin_time)
-		SnapRcvSendHeartbeat();
+		SnapRcvSendLocalGlobalXmin();
 }
 
 static void SnapRcvProcessSnapshot(char *buf, Size len)
@@ -856,6 +875,21 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 		txid = pq_getmsgint(&msg, sizeof(txid));
 		SnapRcvReleaseTransactionLocks(txid);
 	}
+}
+
+static void SnapRcvProcessSyncXminResp(char *buf, Size len)
+{
+	StringInfoData	msg;
+	TransactionId 	xmin;
+
+	msg.data = buf;
+	msg.len = msg.maxlen = len;
+	msg.cursor = 0;
+
+	xmin = pq_getmsgint64(&msg);
+	LOCK_SNAP_RCV();
+	SnapRcv->global_xmin = xmin;
+	UNLOCK_SNAP_RCV();
 }
 
 static void SnapRcvProcessHeartBeat(char *buf, Size len)
