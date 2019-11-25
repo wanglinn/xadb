@@ -115,7 +115,7 @@ static void DisableSnapRcvImmediateExit(void);
 static void SnapRcvDie(int code, Datum arg);
 static void SnapRcvConnectGTM(void);
 static void SnapRcvUpdateShmemConnInfo(void);
-static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len);
+static bool SnapRcvProcessMessage(unsigned char type, char *buf, Size len);
 static void SnapRcvProcessSnapshot(char *buf, Size len);
 static void SnapRcvProcessAssign(char *buf, Size len);
 static void SnapRcvProcessComplete(char *buf, Size len);
@@ -361,7 +361,11 @@ void SnapReceiverMain(void)
 						{
 							last_recv_timestamp = GetCurrentTimestamp();
 							heartbeat_sent = false;
-							SnapRcvProcessMessage(buf[0], &buf[1], len-1);
+							if(SnapRcvProcessMessage(buf[0], &buf[1], len-1))
+							{
+								heartbeat_sent = true;
+								SnapRcvSendHeartbeat();
+							}
 						}else if(len == 0)
 						{
 							break;
@@ -612,16 +616,17 @@ void SnapRcvUpdateShmemConnInfo(void)
 		pfree(sender_host);
 }
 
-static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
+static bool SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 {
 	TimestampTz now;
+	bool is_need_send_heartbeat = false;
 	resetStringInfo(&incoming_message);
 
 	switch (type)
 	{
 	case 's':				/* snapshot */
 		SnapRcvProcessSnapshot(buf, len);
-		SnapRcvSendHeartbeat();
+		is_need_send_heartbeat = true;
 		break;
 	case 'a':
 		SnapRcvProcessAssign(buf, len);
@@ -644,7 +649,9 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 
 	now = GetCurrentTimestamp();
 	if (now - last_gxmin_stime >= snap_receiver_sxmin_time)
-		SnapRcvSendHeartbeat();
+		is_need_send_heartbeat = true;
+	
+	return is_need_send_heartbeat;
 }
 
 static void SnapRcvProcessSnapshot(char *buf, Size len)
