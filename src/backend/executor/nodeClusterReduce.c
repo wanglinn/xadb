@@ -1607,6 +1607,15 @@ static inline void AdvanceReduce(ClusterReduceState *crs, PlanState *parent, uin
 	ClusterReduce *plan = castNode(ClusterReduce, crs->ps.plan);
 	bool need_advance = false;
 
+	if (IsA(outerPlan(plan), ParamTuplestoreScan))
+	{
+		/*
+		 * this reduce is only for auxiliary table sync for now,
+		 * can't advance before main table update
+		 */
+		return;
+	}
+
 	if (flags & ACR_MARK_SPECIAL)
 		need_advance = true;
 
