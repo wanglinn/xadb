@@ -394,6 +394,41 @@ static TransactionId snapsenderGetSenderGlobalXmin(void)
 	return global_xmin;
 }
 
+static void snapsenderProcessSyncGlobalXmin(SnapClientData *client)
+{
+	TransactionId xmin,global_xmin;
+	slist_iter siter;
+	SnapClientData *cur_client;
+
+	input_buffer.cursor = 1;
+	xmin = pq_getmsgint64(&input_buffer);
+
+	global_xmin = xmin;
+	slist_foreach(siter, &slist_all_client)
+	{
+		cur_client = slist_container(SnapClientData, snode, siter.cur);
+		if (client->event_pos == cur_client->event_pos)
+			client->global_xmin = xmin;
+
+		if (TransactionIdIsNormal(cur_client->global_xmin) &&
+			NormalTransactionIdPrecedes(cur_client->global_xmin,global_xmin ))
+			global_xmin = cur_client->global_xmin;
+	}
+
+	SpinLockAcquire(&SnapSender->mutex);
+	SnapSender->global_xmin = global_xmin;
+	SpinLockRelease(&SnapSender->mutex);
+
+	/* Send a sync xmin Response message */
+	resetStringInfo(&output_buffer);
+	pq_sendbyte(&output_buffer, 't');
+	pq_sendint64(&output_buffer, global_xmin);
+	if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false) == false)
+	{
+		DropClient(client, true);
+	}
+}
+
 static void snapsenderProcessHeartBeat(SnapClientData *client)
 {
 	TimestampTz t1, t2, t3;
@@ -1141,6 +1176,10 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node)
 				else if (strcasecmp(input_buffer.data, "u") == 0)
 				{
 					snapsenderProcessLocalMaxXid(client, input_buffer.data, input_buffer.len);
+				}
+				else if (strcasecmp(input_buffer.data, "t") == 0)
+				{
+					snapsenderProcessSyncGlobalXmin(client);
 				}
 			}
 			break;
