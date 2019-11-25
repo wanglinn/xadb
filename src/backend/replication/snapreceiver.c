@@ -28,6 +28,7 @@
 
 int snap_receiver_timeout = 60 * 1000L;
 int snap_sender_connect_timeout = 5000L;
+int snap_receiver_sxmin_time = 60 * 1000L;
 
 typedef struct SnapHoldLock
 {
@@ -70,6 +71,7 @@ typedef struct SnapRcvData
 
 	uint32			xcnt;
 	TransactionId	latestCompletedXid;
+	TransactionId	global_xmin;
 	TransactionId	xip[MAX_BACKENDS];
 }SnapRcvData;
 
@@ -84,6 +86,7 @@ static StringInfoData reply_message;
 static StringInfoData incoming_message;
 
 static TimestampTz last_heat_beat_sendtime;
+static TimestampTz last_gxmin_stime;
 
 static bool finish_xid_ack_send = false;
 
@@ -120,6 +123,7 @@ static void SnapRcvProcessHeartBeat(char *buf, Size len);
 static void SnapRcvProcessUpdateXid(char *buf, Size len);
 static void WakeupTransaction(TransactionId);
 static void SnapRcvSendLocalNextXid(void);
+static TransactionId SnapRcvGetLocalXmin(void);
 
 /* Signal handlers */
 static void SnapRcvSigHupHandler(SIGNAL_ARGS);
@@ -168,14 +172,19 @@ DisableSnapRcvImmediateExit(void)
 static void
 SnapRcvSendHeartbeat(void)
 {
+	TransactionId xmin;
+	
 	last_heat_beat_sendtime = GetCurrentTimestamp();
 	/* Construct a new message */
 	resetStringInfo(&reply_message);
 	pq_sendbyte(&reply_message, 'h');
 	pq_sendint64(&reply_message, last_heat_beat_sendtime);
+	xmin = SnapRcvGetLocalXmin();
+	pq_sendint64(&reply_message, xmin);
 
 	/* Send it */
 	walrcv_send(wrconn, reply_message.data, reply_message.len);
+	last_gxmin_stime = last_heat_beat_sendtime;
 }
 
 static void
@@ -187,10 +196,7 @@ SnapRcvSendLocalNextXid(void)
 	LWLockRelease(XidGenLock);
 
 	if (!TransactionIdIsValid(xid))
-	{
-		SnapRcvSendHeartbeat();
 		return;
-	}
 
 	/* Construct a new message */
 	resetStringInfo(&reply_message);
@@ -248,6 +254,8 @@ void SnapReceiverMain(void)
 	/* Advertise our PID so that the startup process can kill us */
 	SnapRcv->pid = MyProcPid;
 	SnapRcv->procno = MyProc->pgprocno;
+	SnapRcv->global_xmin = FirstNormalTransactionId;
+	last_gxmin_stime = 0;
 
 	UNLOCK_SNAP_RCV();
 
@@ -606,12 +614,14 @@ void SnapRcvUpdateShmemConnInfo(void)
 
 static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 {
+	TimestampTz now;
 	resetStringInfo(&incoming_message);
 
 	switch (type)
 	{
 	case 's':				/* snapshot */
 		SnapRcvProcessSnapshot(buf, len);
+		SnapRcvSendHeartbeat();
 		break;
 	case 'a':
 		SnapRcvProcessAssign(buf, len);
@@ -631,11 +641,15 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 				 errmsg_internal("invalid replication message type %d",
 								 type)));
 	}
+
+	now = GetCurrentTimestamp();
+	if (now - last_gxmin_stime >= snap_receiver_sxmin_time)
+		SnapRcvSendHeartbeat();
 }
 
 static void SnapRcvProcessSnapshot(char *buf, Size len)
 {
-	TransactionId latestCompletedXid;
+	TransactionId latestCompletedXid, xmin;
 	TransactionId *xid;
 	uint32 i,count;
 #define SNAP_HDR_LEN	(sizeof(TransactionId))
@@ -652,6 +666,7 @@ static void SnapRcvProcessSnapshot(char *buf, Size len)
 	resetStringInfo(&incoming_message);
 	appendBinaryStringInfoNT(&incoming_message, buf, len);
 
+	xmin = pq_getmsgint(&incoming_message, sizeof(TransactionId));
 	latestCompletedXid = pq_getmsgint(&incoming_message, sizeof(TransactionId));
 	count = (incoming_message.len - incoming_message.cursor) / sizeof(TransactionId);
 
@@ -682,6 +697,7 @@ static void SnapRcvProcessSnapshot(char *buf, Size len)
 
 	LOCK_SNAP_RCV();
 	SnapRcv->latestCompletedXid = latestCompletedXid;
+	SnapRcv->global_xmin = xmin;
 	if (count > 0)
 	{
 		SnapRcv->xcnt = count;
@@ -845,9 +861,10 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 static void SnapRcvProcessHeartBeat(char *buf, Size len)
 {
 	StringInfoData	msg;
+	TransactionId 	xmin;
 	TimestampTz		t1, t2, t3, t4, deltatime;
 
-	if (len != 3 * sizeof(t1))
+	if (len != 4 * sizeof(t1))
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
 				 errmsg("invalid snapshot transaction timestamp length")));
@@ -861,11 +878,13 @@ static void SnapRcvProcessHeartBeat(char *buf, Size len)
 	Assert(t1 == last_heat_beat_sendtime);
 	t2 = pq_getmsgint64(&msg);
 	t3 = pq_getmsgint64(&msg);
+	xmin = pq_getmsgint64(&msg);
 
 	deltatime = ((t2-t1)+(t3-t4))/2;
 
 	LOCK_SNAP_RCV();
 	SnapRcv->gtm_delta_time = deltatime;
+	SnapRcv->global_xmin = xmin;
 	UNLOCK_SNAP_RCV();
 }
 
@@ -1383,4 +1402,51 @@ void SnapRcvTransferLock(void *map, TransactionId xid, struct PGPROC *from)
 void SnapRcvEndTransferLock(void* map)
 {
 	hash_destroy(map);
+}
+
+static TransactionId SnapRcvGetLocalXmin(void)
+{
+	TransactionId	xid,xact_min,xmin,xmax;
+	uint32			i,count;
+
+	LOCK_SNAP_RCV();
+	Assert(SnapRcv->state == WALRCV_STREAMING);
+	count = SnapRcv->xcnt;
+	xmin = xmax = SnapRcv->latestCompletedXid;
+
+	for (i=0; i<count; ++i)
+	{
+		xid = SnapRcv->xip[i];
+
+		/* If the XID is >= xmax, we can skip it */
+		if (!NormalTransactionIdPrecedes(xid, xmax))
+			continue;
+
+		if (NormalTransactionIdPrecedes(xid, xmin))
+			xmin = xid;
+	}
+
+	UNLOCK_SNAP_RCV();
+	xact_min = ProcArrayGetXactXmin();
+	if (TransactionIdIsNormal(xact_min) && NormalTransactionIdPrecedes(xact_min, xmin))
+		xmin = xact_min;
+
+	return xmin;
+}
+
+TransactionId SnapRcvGetGlobalXmin(void)
+{
+	TransactionId 	xmin;
+
+	LOCK_SNAP_RCV();
+	if (SnapRcv->state != WALRCV_STREAMING)
+	{
+		UNLOCK_SNAP_RCV();
+		return FirstNormalTransactionId;
+	}
+
+	xmin = SnapRcv->global_xmin;
+	UNLOCK_SNAP_RCV();
+
+	return xmin;
 }

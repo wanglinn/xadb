@@ -40,6 +40,7 @@ typedef struct SnapSenderData
 	slock_t			mutex;				/* locks shared variables */
 	pg_atomic_flag	lock;				/* locks receive client sock */
 
+	TransactionId	global_xmin;
 	volatile uint32			cur_cnt_assign;
 	TransactionId	xid_assign[MAX_CNT_SHMEM_XID_BUF];
 
@@ -95,6 +96,7 @@ typedef struct SnapClientData
 	ClientStatus	status;
 	int				event_pos;
 	slist_head		slist_xid;
+	TransactionId	global_xmin;
 }SnapClientData;
 
 /* GUC variables */
@@ -149,6 +151,7 @@ static bool SnapSenderWakeupFinishXidEvent(TransactionId txid);
 static void snapsenderProcessLocalMaxXid(SnapClientData *client, const char* data, int len);
 static void snapsenderUpdateNextXid(TransactionId xid, SnapClientData *exclue_client);
 static void SnapSenderSigHupHandler(SIGNAL_ARGS);
+static TransactionId snapsenderGetSenderGlobalXmin(void);
 
 static void append_client_xid_to_htab(SnapClientData *client, TransactionId xid);
 static bool SnapSenderWaitTxidFinsihEvent(TimestampTz end, WaitSnapSenderCond test, void *context);
@@ -361,7 +364,6 @@ static void snapsenderProcessLocalMaxXid(SnapClientData *client, const char* dat
 	msg.data = input_buffer.data;
 	msg.len = msg.maxlen = input_buffer.len;
 	msg.cursor = 1; /* skip msgtype */
-	
 	while(msg.cursor < msg.len)
 	{
 		txid = pq_getmsgint64(&msg);
@@ -369,23 +371,66 @@ static void snapsenderProcessLocalMaxXid(SnapClientData *client, const char* dat
 	}
 }
 
+static TransactionId snapsenderGetSenderGlobalXmin(void)
+{
+	slist_iter siter;
+	SnapClientData *cur_client;
+	TransactionId global_xmin = InvalidTransactionId;
+
+	slist_foreach(siter, &slist_all_client)
+	{
+		cur_client = slist_container(SnapClientData, snode, siter.cur);
+		if (!TransactionIdIsValid(global_xmin))
+			global_xmin = cur_client->global_xmin;
+		else if (TransactionIdIsNormal(cur_client->global_xmin) &&
+			NormalTransactionIdPrecedes(cur_client->global_xmin, global_xmin ))
+			global_xmin = cur_client->global_xmin;
+	}
+
+	SpinLockAcquire(&SnapSender->mutex);
+	SnapSender->global_xmin = global_xmin;
+	SpinLockRelease(&SnapSender->mutex);
+
+	return global_xmin;
+}
+
 static void snapsenderProcessHeartBeat(SnapClientData *client)
 {
 	TimestampTz t1, t2, t3;
+	TransactionId xmin,global_xmin;
+	slist_iter siter;
+	SnapClientData *cur_client;
 
 	input_buffer.cursor = 1;
 	t2 = GetCurrentTimestamp();
 	t1 = pq_getmsgint64(&input_buffer);
-	
+	xmin = pq_getmsgint64(&input_buffer);
+
+	global_xmin = xmin;
+
+	slist_foreach(siter, &slist_all_client)
+	{
+		cur_client = slist_container(SnapClientData, snode, siter.cur);
+		if (client->event_pos == cur_client->event_pos)
+			client->global_xmin = xmin;
+
+		if (TransactionIdIsNormal(cur_client->global_xmin) &&
+			NormalTransactionIdPrecedes(cur_client->global_xmin,global_xmin ))
+			global_xmin = cur_client->global_xmin;
+	}
+
+	SpinLockAcquire(&SnapSender->mutex);
+	SnapSender->global_xmin = global_xmin;
+	SpinLockRelease(&SnapSender->mutex);
 
 	/* Send a HEARTBEAT Response message */
 	resetStringInfo(&output_buffer);
 	pq_sendbyte(&output_buffer, 'h');
 	pq_sendint64(&output_buffer, t1);
 	pq_sendint64(&output_buffer, t2);
-
 	t3 = GetCurrentTimestamp();
 	pq_sendint64(&output_buffer, t3);
+	pq_sendint64(&output_buffer, global_xmin);
 	if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false) == false)
 	{
 		DropClient(client, true);
@@ -531,6 +576,7 @@ void SnapSenderMain(void)
 	pg_memory_barrier();
 	SnapSender->pid = MyProc->pid;
 	SnapSender->procno = MyProc->pgprocno;
+	SnapSender->global_xmin = FirstNormalTransactionId;
 	SpinLockRelease(&SnapSender->mutex);
 	snap_send_timeout = snap_receiver_timeout + 10000L;
 
@@ -948,6 +994,7 @@ void OnListenEvent(WaitEvent *event)
 		client->max_cnt = GetMaxSnapshotXidCount();
 		client->xid = palloc(client->max_cnt * sizeof(TransactionId));
 		client->cur_cnt = 0;
+		client->global_xmin = InvalidTransactionId;
 		slist_init(&(client->slist_xid));
 		client->status = CLIENT_STATUS_CONNECTED;
 
@@ -1061,6 +1108,7 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node)
 			/* send snapshot */
 			resetStringInfo(&output_buffer);
 			appendStringInfoChar(&output_buffer, 's');
+			pq_sendint32(&output_buffer, snapsenderGetSenderGlobalXmin());
 			SerializeActiveTransactionIds(&output_buffer);
 			SerializeFullAssignXid(&output_buffer);
 			AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false);
@@ -1382,4 +1430,14 @@ re_lock_:
 void SnapSendUnlockSendSock(void)
 {
 	pg_atomic_clear_flag(&SnapSender->lock);
+}
+
+TransactionId SnapSendGetGlobalXmin(void)
+{
+	TransactionId xmin;
+	SpinLockAcquire(&SnapSender->mutex);
+	xmin = SnapSender->global_xmin;
+	SpinLockRelease(&SnapSender->mutex);
+
+	return xmin;
 }

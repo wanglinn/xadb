@@ -23,4 +23,5 @@ extern void SnapRcvInsertTransferLock(void* map, const struct LOCKTAG *tag, LOCK
 extern bool SnapRcvIsHoldLock(void *map, const struct LOCKTAG *tag);
 extern void SnapRcvTransferLock(void *map, TransactionId xid, struct PGPROC *from);
 extern void SnapRcvEndTransferLock(void* map);
+extern TransactionId SnapRcvGetGlobalXmin(void);
 #endif							/* SNAP_RECEIVER_H_ */
