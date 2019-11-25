@@ -46,7 +46,8 @@ static void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
 											dlist_head *runningSlaves);
 static void precheckPromotionNode(dlist_head *runningSlaves, bool forceSwitch);
 static SwitcherNodeWrapper *getBestWalLsnSlaveNode(dlist_head *runningSlaves,
-												   dlist_head *failedSlaves);
+												   dlist_head *failedSlaves,
+												   char *masterNodeZone);
 static void sortNodesByWalLsnDesc(dlist_head *nodes);
 static bool checkIfSyncSlaveNodeIsRunning(MemoryContext spiContext,
 										  MgrNodeWrapper *masterNode);
@@ -1219,7 +1220,8 @@ void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 							  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
 							  true);
 	newMaster = getBestWalLsnSlaveNode(runningSlaves,
-									   failedSlaves);
+									   failedSlaves,
+									   NameStr(oldMaster->mgrNode->form.nodezone));
 	*newMasterP = newMaster;
 	if (newMaster)
 	{
@@ -1584,7 +1586,8 @@ void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
  * runningSlaves should follow this bestNode.
  */
 static SwitcherNodeWrapper *getBestWalLsnSlaveNode(dlist_head *runningSlaves,
-												   dlist_head *failedSlaves)
+												   dlist_head *failedSlaves,
+												   char *masterNodeZone)
 {
 	SwitcherNodeWrapper *node;
 	SwitcherNodeWrapper *bestNode = NULL;
@@ -1593,6 +1596,9 @@ static SwitcherNodeWrapper *getBestWalLsnSlaveNode(dlist_head *runningSlaves,
 	dlist_foreach_modify(miter, runningSlaves)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, miter.cur);
+
+		if (strcmp(masterNodeZone, NameStr(node->mgrNode->form.nodezone)) != 0)
+			continue;
 
 		node->walLsn = getNodeWalLsn(node->pgConn, node->runningMode);
 		if (node->walLsn <= InvalidXLogRecPtr)
