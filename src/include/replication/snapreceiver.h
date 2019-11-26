@@ -4,6 +4,7 @@
 #include "storage/lockdefs.h"
 #include "utils/snapshot.h"
 
+extern int snap_receiver_sxmin_time;
 /* prototypes for functions in snapreceiver.c */
 extern void SnapReceiverMain(void) pg_attribute_noreturn();
 
