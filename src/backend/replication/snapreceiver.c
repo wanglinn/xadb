@@ -28,7 +28,7 @@
 
 int snap_receiver_timeout = 60 * 1000L;
 int snap_sender_connect_timeout = 5000L;
-int snap_receiver_sxmin_time = 60 * 1000L;
+int snap_receiver_sxmin_time;
 
 typedef struct SnapHoldLock
 {
