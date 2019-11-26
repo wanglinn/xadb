@@ -7,6 +7,10 @@
 { cvtkind => 'f', cvtname => 'power', cvtfrom => 'int2 int2', cvtto => 'numeric numeric' },
 { cvtkind => 'f', cvtname => 'power', cvtfrom => 'int4 int4', cvtto => 'numeric numeric' },
 { cvtkind => 'f', cvtname => 'power', cvtfrom => 'int8 int8', cvtto => 'numeric numeric' },
+{ cvtkind => 'f', cvtname => 'regexp_replace', cvtfrom => 'unknown unknown unknown unknown', cvtto => 'text text text int4' },
+{ cvtkind => 'f', cvtname => 'regexp_replace', cvtfrom => 'unknown unknown unknown numeric', cvtto => 'text text text int4' },
+{ cvtkind => 'f', cvtname => 'regexp_replace', cvtfrom => 'unknown unknown unknown text', cvtto => 'text text text int4' },
+{ cvtkind => 'f', cvtname => 'round', cvtfrom => 'unknown unknown', cvtto => 'timestamptz text' },
 { cvtkind => 'f', cvtname => 'sinh', cvtfrom => 'text', cvtto => 'numeric' },
 { cvtkind => 'f', cvtname => 'sum', cvtfrom => 'varchar', cvtto => 'numeric' },
 { cvtkind => 'f', cvtname => 'sum', cvtfrom => 'oracle.varchar2', cvtto => 'numeric' },
@@ -51,6 +55,8 @@
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'varchar varchar', cvtto => 'numeric numeric' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'text text', cvtto => 'numeric numeric' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'unknown unknown', cvtto => 'numeric numeric' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'int4 unknown', cvtto => 'numeric numeric' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'int4 bpchar', cvtto => 'numeric numeric' },
 
 # to date + interval
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.varchar2 interval', cvtto => 'oracle.date interval' },
@@ -63,6 +69,9 @@
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'char oracle.date', cvtto => 'interval oracle.date' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'text interval', cvtto => 'oracle.date interval' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'text oracle.date', cvtto => 'interval oracle.date' },
+
+# nvl2
+{ cvtkind => 'o', cvtname => '*', cvtfrom => 'numeric int4', cvtto => 'numeric numeric' },
 
 # special operator "int / int"
 { cvtkind => 'o', cvtname => '/', cvtfrom => 'int2 int2', cvtto => 'numeric numeric' },
@@ -117,6 +126,10 @@
 { cvtkind => 'o', cvtname => '=', cvtfrom => 'text float8', cvtto => 'float8 float8' },
 { cvtkind => 'o', cvtname => '=', cvtfrom => 'text interval', cvtto => 'interval interval' },
 { cvtkind => 'o', cvtname => '=', cvtfrom => 'text oracle.date', cvtto => 'oracle.date oracle.date' },
+
+{ cvtkind => 'o', cvtname => '>=', cvtfrom => 'int4 bpchar', cvtto => 'numeric numeric' },
+{ cvtkind => 'o', cvtname => '>=', cvtfrom => 'int4 unknown', cvtto => 'numeric numeric' },
+{ cvtkind => 'o', cvtname => '<=', cvtfrom => 'int4 unknown', cvtto => 'numeric numeric' },
 
 # common combin
 { cvtkind => 'c', cvtname => '', cvtfrom => 'oracle.varchar2 varchar',			cvtto => 'oracle.varchar2' },

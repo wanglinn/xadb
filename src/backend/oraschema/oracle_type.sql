@@ -162,6 +162,14 @@ INSERT INTO ora_convert
   FROM ora_convert
   WHERE cvtkind = 'o' AND cvtname = '+' AND 'oracle.date'::regtype = ANY(cvtto);
 
+/* COPY "type1 = type2 AS type3 = type4" TO "type2 = type1 AS type4 + type3" */
+INSERT INTO ora_convert
+  SELECT 'o', '=',
+    cast(concat(cvtfrom[1], ' ', cvtfrom[0]) as oidvector),
+    cast(concat(cvtto[1], ' ', cvtto[0]) as oidvector)
+  FROM ora_convert
+  WHERE cvtkind = 'o' AND cvtname = '=';
+
 /* >, >=, <, <=, <> and != from = */
 INSERT INTO ora_convert
   SELECT 'o', unnest('{>, >=, <, <=, <>, !=}'::name[]), cvtfrom, cvtto
