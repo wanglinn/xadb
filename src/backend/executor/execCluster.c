@@ -202,6 +202,8 @@ void exec_cluster_plan(const void *splan, int length)
 	restore_cluster_plan_info(&msg);
 	info = RestoreCoordinatorInfo(&msg);
 	debug_query_string = RestoreDebugQueryString(&msg);
+	pgstat_report_activity(STATE_RUNNING,
+						   debug_query_string ? debug_query_string : "<cluster query>");
 
 	/* Send a message
 	 * 'H' for copy out, 'W' for copy both */
