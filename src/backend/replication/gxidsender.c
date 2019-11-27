@@ -505,7 +505,8 @@ void GxidSenderOnListenEvent(WaitEvent *event)
 
 	if(pool_recvfds(event->fd, &client_fdsock, 1) != 0)
 	{
-		ereport(ERROR, (errmsg("receive client socke failed\n")));
+		ereport(WARNING, (errmsg("receive client socke failed:%m\n")));
+		return;
 	}
 
 	PG_TRY();
