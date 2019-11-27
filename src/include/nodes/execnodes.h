@@ -1908,6 +1908,17 @@ typedef struct SortState
 	SharedSortInfo *shared_info;	/* one entry per worker */
 } SortState;
 
+#ifdef ADB_EXT
+typedef struct BatchSortState
+{
+	ScanState	ss;				/* its first field is NodeTag */
+	void	  **batches;			/* private state of tuplesort.c */
+	List	   *groupFuns;		/* hash function call info for each group-key */
+	int			curBatch;		/* current batch index */
+	bool		sort_Done;		/* sort completed yet? */
+}BatchSortState;
+#endif /* ADB_EXT */
+
 /* ---------------------
  *	GroupState information
  * ---------------------

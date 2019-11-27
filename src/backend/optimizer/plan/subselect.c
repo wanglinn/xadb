@@ -2643,6 +2643,9 @@ finalize_plan(PlannerInfo *root, Plan *plan,
 		case T_Unique:
 		case T_SetOp:
 		case T_Group:
+#ifdef ADB_EXT
+#endif /* ADB_EXT */
+		case T_BatchSort:
 #ifdef ADB
 		case T_ClusterGather:
 		case T_ClusterMergeGather:

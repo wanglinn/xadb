@@ -159,6 +159,7 @@ bool		enable_hashscan = true;
 #endif
 #ifdef ADB_EXT
 bool enable_batch_hash = true;
+bool enable_batch_sort = true;
 #endif /* ADB_EXT */
 
 typedef struct
@@ -1834,6 +1835,86 @@ cost_sort(Path *path, PlannerInfo *root,
 	path->startup_cost = startup_cost;
 	path->total_cost = startup_cost + run_cost;
 }
+
+#ifdef ADB_EXT
+void cost_batchsort(Path *path, PlannerInfo *root,
+					List *batchkeys, Cost input_cost,
+					double tuples, int width,
+					Cost comparison_cost, int sort_mem,
+					uint32 numGroupCols, uint32 numBatches)
+{
+	Cost		startup_cost = input_cost;
+	Cost		run_cost = 0;
+	double		input_bytes = relation_byte_size(tuples, width);
+	double		batch_bytes = input_bytes / numBatches;
+	double		batch_tuples = tuples / numBatches;
+	long		sort_mem_bytes = sort_mem * 1024L;
+
+	if (!enable_batch_sort)
+		startup_cost += disable_cost;
+
+	/* hash cost */
+	startup_cost += cpu_operator_cost * numGroupCols * tuples;
+
+	path->rows = tuples;
+
+	/*
+	 * We want to be sure the cost of a sort is never estimated as zero, even
+	 * if passed-in tuple count is zero.  Besides, mustn't do log(0)...
+	 */
+	if (tuples < 2.0)
+		tuples = 2.0;
+
+	if (batch_bytes > sort_mem_bytes)
+	{
+		/*
+		 * We'll have to use a disk-based sort of all the tuples
+		 */
+		double		npages = ceil(batch_bytes / BLCKSZ);
+		double		nruns = batch_bytes / sort_mem_bytes;
+		double		mergeorder = tuplesort_merge_order(sort_mem_bytes);
+		double		log_runs;
+		double		npageaccesses;
+
+		/*
+		 * CPU costs
+		 *
+		 * Assume about N log2 N comparisons
+		 */
+		startup_cost += comparison_cost * batch_tuples * LOG2(batch_tuples) * numBatches;
+
+		/* Disk costs */
+
+		/* Compute logM(r) as log(r) / log(M) */
+		if (nruns > mergeorder)
+			log_runs = ceil(log(nruns) / log(mergeorder));
+		else
+			log_runs = 1.0;
+		npageaccesses = 2.0 * npages * log_runs;
+		/* Assume 3/4ths of accesses are sequential, 1/4th are not */
+		startup_cost += npageaccesses * numBatches *
+			(seq_page_cost * 0.75 + random_page_cost * 0.25);
+
+	}else
+	{
+		/* We'll use plain quicksort on all the input tuples */
+		startup_cost += comparison_cost * tuples * LOG2(tuples);
+	}
+
+	/*
+	 * Also charge a small amount (arbitrarily set equal to operator cost) per
+	 * extracted tuple.  We don't charge cpu_tuple_cost because a Sort node
+	 * doesn't do qual-checking or projection, so it has less overhead than
+	 * most plan nodes.  Note it's correct to use tuples not output_tuples
+	 * here --- the upper LIMIT will pro-rate the run cost so we'd be double
+	 * counting the LIMIT otherwise.
+	 */
+	run_cost += cpu_operator_cost * tuples;
+
+	path->startup_cost = startup_cost;
+	path->total_cost = startup_cost + run_cost;
+}
+#endif /* ADB_EXT */
 
 /*
  * append_nonpartial_cost

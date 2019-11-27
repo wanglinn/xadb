@@ -82,6 +82,9 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_SetOp)
 	ENUM_VALUE(T_LockRows)
 	ENUM_VALUE(T_Limit)
+#ifdef ADB_EXT
+	ENUM_VALUE(T_BatchSort)
+#endif
 #ifdef ADB_GRAM_ORA
 	ENUM_VALUE(T_ConnectByPlan)
 #endif
@@ -152,6 +155,9 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_SetOpState)
 	ENUM_VALUE(T_LockRowsState)
 	ENUM_VALUE(T_LimitState)
+#ifdef ADB_EXT
+	ENUM_VALUE(T_BatchSortState)
+#endif
 #ifdef ADB
 	ENUM_VALUE(T_RemoteCopyState)
 	ENUM_VALUE(T_RemoteQueryState)
@@ -274,6 +280,9 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_LockRowsPath)
 	ENUM_VALUE(T_ModifyTablePath)
 	ENUM_VALUE(T_LimitPath)
+#ifdef ADB_EXT
+	ENUM_VALUE(T_BatchSortPath)
+#endif
 #ifdef ADB
 	ENUM_VALUE(T_RemoteQueryPath)
 	ENUM_VALUE(T_ClusterGatherPath)

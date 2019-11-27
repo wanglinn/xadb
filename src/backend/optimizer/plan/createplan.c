@@ -109,6 +109,9 @@ static Plan *create_projection_plan(PlannerInfo *root,
 					   int flags);
 static Plan *inject_projection_plan(Plan *subplan, List *tlist, bool parallel_safe);
 static Sort *create_sort_plan(PlannerInfo *root, SortPath *best_path, int flags);
+#ifdef ADB_EXT
+static BatchSort *create_batchsort_plan(PlannerInfo *root, BatchSortPath *best_path, int flags);
+#endif /* ADB_EXT */
 static Group *create_group_plan(PlannerInfo *root, GroupPath *best_path);
 static Unique *create_upper_unique_plan(PlannerInfo *root, UpperUniquePath *best_path,
 						 int flags);
@@ -551,6 +554,13 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 			plan = (Plan *) create_gather_merge_plan(root,
 													 (GatherMergePath *) best_path);
 			break;
+#ifdef ADB_EXT
+		case T_BatchSort:
+			plan = (Plan *) create_batchsort_plan(root,
+												  (BatchSortPath*) best_path,
+												  flags);
+			break;
+#endif /* ADB_EXT */
 #ifdef ADB
 		case T_RemoteQuery:
 			plan = create_remotequery_plan(root,
@@ -2011,6 +2021,41 @@ create_sort_plan(PlannerInfo *root, SortPath *best_path, int flags)
 
 	return plan;
 }
+
+#ifdef ADB_EXT
+static BatchSort *create_batchsort_plan(PlannerInfo *root, BatchSortPath *best_path, int flags)
+{
+	BatchSort	   *plan;
+	Plan		   *subplan;
+
+	subplan = create_plan_recurse(root, best_path->subpath,
+								  flags | CP_SMALL_TLIST);
+
+	plan = makeNode(BatchSort);
+	subplan = prepare_sort_from_pathkeys(subplan,
+										 best_path->batchkeys,
+										 IS_OTHER_REL(best_path->subpath->parent) ?
+										     best_path->path.parent->relids : NULL,
+										 NULL,
+										 false,
+										 &plan->numSortCols,
+										 &plan->sortColIdx,
+										 &plan->sortOperators,
+										 &plan->collations,
+										 &plan->nullsFirst);
+	plan->plan.targetlist = subplan->targetlist;
+	plan->plan.qual = NIL;
+	outerPlan(plan) = subplan;
+	innerPlan(plan) = NULL;
+	plan->numBatches = best_path->numBatches;
+	plan->numGroupCols = list_length(best_path->groupClause);
+	plan->grpColIdx = extract_grouping_cols(best_path->groupClause,
+											subplan->targetlist);
+
+	copy_generic_path_info(&plan->plan, &best_path->path);
+	return plan;
+}
+#endif /* ADB_EXT */
 
 /*
  * create_group_plan

@@ -2143,6 +2143,27 @@ _readSort(void)
 	READ_DONE();
 }
 
+#ifdef ADB_EXT
+static BatchSort *
+_readBatchSort(void)
+{
+	READ_LOCALS(BatchSort);
+
+	ReadCommonPlan(&local_node->plan);
+
+	READ_INT_FIELD(numSortCols);
+	READ_INT_FIELD(numGroupCols);
+	READ_INT_FIELD(numBatches);
+	READ_ATTRNUMBER_ARRAY(sortColIdx, local_node->numSortCols);
+	READ_OID_ARRAY(sortOperators, local_node->numSortCols);
+	READ_OID_ARRAY(collations, local_node->numSortCols);
+	READ_BOOL_ARRAY(nullsFirst, local_node->numSortCols);
+	READ_ATTRNUMBER_ARRAY(grpColIdx, local_node->numGroupCols);
+
+	READ_DONE();
+}
+#endif /* ADB_EXT */
+
 /*
  * _readGroup
  */
@@ -2918,6 +2939,10 @@ parseNodeString(void)
 		return_value = _readMaterial();
 	else if (MATCH("SORT", 4))
 		return_value = _readSort();
+#ifdef ADB_EXT
+	else if (MATCH("BATCHSORT", 9))
+		return_value = _readBatchSort();
+#endif /* ADB_EXT */
 	else if (MATCH("GROUP", 5))
 		return_value = _readGroup();
 	else if (MATCH("AGG", 3))

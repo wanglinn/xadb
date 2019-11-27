@@ -966,6 +966,30 @@ _copySort(const Sort *from)
 	return newnode;
 }
 
+#ifdef ADB_EXT
+static BatchSort *
+_copyBatchSort(const BatchSort *from)
+{
+	BatchSort   *newnode = makeNode(BatchSort);
+
+	/*
+	 * copy node superclass fields
+	 */
+	CopyPlanFields((const Plan *) from, (Plan *) newnode);
+
+	COPY_SCALAR_FIELD(numSortCols);
+	COPY_SCALAR_FIELD(numGroupCols);
+	COPY_SCALAR_FIELD(numBatches);
+	COPY_POINTER_FIELD(sortColIdx, from->numSortCols * sizeof(AttrNumber));
+	COPY_POINTER_FIELD(sortOperators, from->numSortCols * sizeof(Oid));
+	COPY_POINTER_FIELD(collations, from->numSortCols * sizeof(Oid));
+	COPY_POINTER_FIELD(nullsFirst, from->numSortCols * sizeof(bool));
+	COPY_POINTER_FIELD(grpColIdx, from->numGroupCols * sizeof(AttrNumber));
+
+	return newnode;
+}
+
+#endif /* ADB_EXT */
 
 /*
  * _copyGroup
@@ -5472,6 +5496,11 @@ copyObjectImpl(const void *from)
 		case T_PlanInvalItem:
 			retval = _copyPlanInvalItem(from);
 			break;
+#ifdef ADB_EXT
+		case T_BatchSort:
+			retval = _copyBatchSort(from);
+			break;
+#endif /* ADB_EXT */
 #ifdef ADB
 			/*
 			 * ADB SPECIFIC NODES

@@ -4651,6 +4651,9 @@ bool path_tree_walker(struct Path *path, bool (*walker)(), void *context)
 	case T_SortPath:
 		WALK_CHILD_PATH(SortPath, subpath);
 		break;
+	case T_BatchSortPath:
+		WALK_CHILD_PATH(BatchSortPath, subpath);
+		break;
 	case T_GroupPath:
 		WALK_CHILD_PATH(GroupPath, subpath);
 		break;

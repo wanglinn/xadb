@@ -787,6 +787,21 @@ typedef struct Sort
 #endif /* ADB */
 } Sort;
 
+#ifdef ADB_EXT
+typedef struct BatchSort
+{
+	Plan		plan;
+	int			numSortCols;	/* number of sort-key columns */
+	int			numGroupCols;	/* number of group-key columns */
+	int			numBatches;		/* number of group */
+	AttrNumber *sortColIdx;		/* their indexes in the target list */
+	Oid		   *sortOperators;	/* OIDs of operators to sort them by */
+	Oid		   *collations;		/* OIDs of collations */
+	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
+	AttrNumber *grpColIdx;		/* their indexes in the target list */
+}BatchSort;
+#endif /* ADB_EXT */
+
 /* ---------------
  *	 group node -
  *		Used for queries with GROUP BY (but no aggregates) specified.

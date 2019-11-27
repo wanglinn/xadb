@@ -137,6 +137,13 @@ extern void cost_sort(Path *path, PlannerInfo *root,
 		  List *pathkeys, Cost input_cost, double tuples, int width,
 		  Cost comparison_cost, int sort_mem,
 		  double limit_tuples);
+#ifdef ADB_EXT
+extern void cost_batchsort(Path *path, PlannerInfo *root,
+						   List *batchkeys, Cost input_cost,
+						   double tuples, int width,
+						   Cost comparison_cost, int sort_mem,
+						   uint32 numGroupCols, uint32 numBatchs);
+#endif /* ADB_EXT */
 extern void cost_append(AppendPath *path);
 extern void cost_merge_append(Path *path, PlannerInfo *root,
 				  List *pathkeys, int n_streams,

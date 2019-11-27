@@ -1021,6 +1021,42 @@ _outSort(StringInfo str, const Sort *node)
 		appendStringInfo(str, " %s", booltostr(node->nullsFirst[i]));
 }
 
+#ifdef ADB_EXT
+static void
+_outBatchSort(StringInfo str, const BatchSort *node)
+{
+	int			i;
+
+	WRITE_NODE_TYPE("BATCHSORT");
+
+	_outPlanInfo(str, (const Plan *) node);
+
+	WRITE_INT_FIELD(numSortCols);
+	WRITE_INT_FIELD(numGroupCols);
+	WRITE_INT_FIELD(numBatches);
+
+	appendStringInfoString(str, " :sortColIdx");
+	for (i = 0; i < node->numSortCols; i++)
+		appendStringInfo(str, " %d", node->sortColIdx[i]);
+
+	appendStringInfoString(str, " :sortOperators");
+	for (i = 0; i < node->numSortCols; i++)
+		appendStringInfo(str, " %u", node->sortOperators[i]);
+
+	appendStringInfoString(str, " :collations");
+	for (i = 0; i < node->numSortCols; i++)
+		appendStringInfo(str, " %u", node->collations[i]);
+
+	appendStringInfoString(str, " :nullsFirst");
+	for (i = 0; i < node->numSortCols; i++)
+		appendStringInfo(str, " %s", booltostr(node->nullsFirst[i]));
+
+	appendStringInfoString(str, " :grpColIdx");
+	for (i = 0; i < node->numGroupCols; i++)
+		appendStringInfo(str, " %d", node->grpColIdx[i]);
+}
+#endif /* ADB_EXT */
+
 static void
 _outUnique(StringInfo str, const Unique *node)
 {
@@ -2156,6 +2192,21 @@ _outSortPath(StringInfo str, const SortPath *node)
 
 	WRITE_NODE_FIELD(subpath);
 }
+
+#ifdef ADB_EXT
+static void
+_outBatchSortPath(StringInfo str, const BatchSortPath *node)
+{
+	WRITE_NODE_TYPE("BATCHSORTPATH");
+
+	_outPathInfo(str, (const Path *) node);
+
+	WRITE_NODE_FIELD(subpath);
+	WRITE_NODE_FIELD(batchkeys);
+	WRITE_NODE_FIELD(groupClause);
+	WRITE_UINT_FIELD(numBatches);
+}
+#endif /* ADB_EXT */
 
 static void
 _outGroupPath(StringInfo str, const GroupPath *node)
@@ -4070,6 +4121,11 @@ outNode(StringInfo str, const void *obj)
 			case T_Sort:
 				_outSort(str, obj);
 				break;
+#ifdef ADB_EXT
+			case T_BatchSort:
+				_outBatchSort(str, obj);
+				break;
+#endif /* ADB_EXT */
 			case T_Unique:
 				_outUnique(str, obj);
 				break;
@@ -4333,6 +4389,11 @@ outNode(StringInfo str, const void *obj)
 			case T_SortPath:
 				_outSortPath(str, obj);
 				break;
+#ifdef ADB_EXT
+			case T_BatchSortPath:
+				_outBatchSortPath(str, obj);
+				break;
+#endif /* ADB_EXT */
 			case T_GroupPath:
 				_outGroupPath(str, obj);
 				break;

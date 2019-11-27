@@ -1226,6 +1226,11 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_Sort:
 			pname = sname = "Sort";
 			break;
+#ifdef ADB_EXT
+		case T_BatchSort:
+			pname = sname = "BatchSort";
+			break;
+#endif /* ADB_EXT */
 		case T_Group:
 			pname = sname = "Group";
 			break;
@@ -1928,6 +1933,20 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			show_sort_keys(castNode(SortState, planstate), ancestors, es);
 			show_sort_info(castNode(SortState, planstate), es);
 			break;
+#ifdef ADB_EXT
+		case T_BatchSort:
+			{
+				BatchSort *bsort = (BatchSort*)plan;
+				show_sort_group_keys(planstate, "Sort Key",
+									 bsort->numSortCols, bsort->sortColIdx,
+									 bsort->sortOperators, bsort->collations,
+									 bsort->nullsFirst,
+									 ancestors, es);
+				if (es->verbose)
+					ExplainPropertyInteger("batches", NULL, bsort->numBatches, es);
+			}
+			break;
+#endif /* ADB_EXT */
 		case T_MergeAppend:
 			show_merge_append_keys(castNode(MergeAppendState, planstate),
 								   ancestors, es);

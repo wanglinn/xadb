@@ -114,6 +114,7 @@
 #endif /* ADBMGRD */
 #ifdef ADB_EXT
 extern bool enable_batch_hash;	/* in planner.c */
+extern bool enable_batch_sort;	/* in costsize.c */
 #endif /* ADB_EXT */
 
 
@@ -1396,6 +1397,15 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&enable_batch_hash,
+		false,
+		NULL, NULL, NULL
+	},
+	{
+		{"enable_batch_sort", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("enable batch sort method"),
+			NULL
+		},
+		&enable_batch_sort,
 		false,
 		NULL, NULL, NULL
 	},

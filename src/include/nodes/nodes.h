@@ -85,6 +85,9 @@ typedef enum NodeTag
 	T_SetOp,
 	T_LockRows,
 	T_Limit,
+#ifdef ADB_EXT
+	T_BatchSort,
+#endif /* ADB_EXT */
 #ifdef ADB_GRAM_ORA
 	T_ConnectByPlan,
 #endif /* ADB_GRAM_ORA */
@@ -166,6 +169,9 @@ typedef enum NodeTag
 	T_SetOpState,
 	T_LockRowsState,
 	T_LimitState,
+#ifdef ADB_EXT
+	T_BatchSortState,
+#endif /* ADB_EXT */
 #ifdef ADB
 	T_RemoteCopyState,
 	T_RemoteQueryState,
@@ -306,6 +312,9 @@ typedef enum NodeTag
 	T_LockRowsPath,
 	T_ModifyTablePath,
 	T_LimitPath,
+#ifdef ADB_EXT
+	T_BatchSortPath,
+#endif /* ADB_EXT */
 #ifdef ADB
 	T_RemoteQueryPath,
 	T_ClusterGatherPath,
