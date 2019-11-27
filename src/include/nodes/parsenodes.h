@@ -4002,4 +4002,29 @@ typedef struct PaddingAuxDataStmt
 } PaddingAuxDataStmt;
 #endif
 
+
+#ifdef ADB_GRAM_ORA
+typedef enum IConvertAction
+{
+	ICONVERT_CREATE,		/* exec create */
+	ICONVERT_UPDATE,		/* exec modify */
+	ICONVERT_DELETE			/* exec delete */
+}IConvertAction;
+
+/*
+ * 
+ */
+typedef struct OraImplicitConvertStmt
+{
+	NodeTag			type;
+	char			cvtkind;		/* types of implicit conversions */
+	char			*cvtname;		
+	List			*cvtfrom;		/* Primitive type */
+	List			*cvtto;			/* Target type */
+	IConvertAction	action;			/* Create or modify or delete */
+	bool			if_exists;		/* IF EXISTS clause*/
+}OraImplicitConvertStmt;
+
+#endif /* ADB_GRAM_ORA */
+
 #endif							/* PARSENODES_H */
