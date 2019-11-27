@@ -114,6 +114,7 @@ typedef struct SnapshotData
 	XLogRecPtr	lsn;			/* position in the WAL stream when taken */
 #ifdef ADB
 	uint32		max_xcnt;		/* alloced xip size */
+	TransactionId global_xmin;  /* global xmin sync from gtmc */
 #endif /* ADB */
 } SnapshotData;
 

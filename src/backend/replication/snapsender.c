@@ -40,7 +40,7 @@ typedef struct SnapSenderData
 	slock_t			mutex;				/* locks shared variables */
 	pg_atomic_flag	lock;				/* locks receive client sock */
 
-	TransactionId	global_xmin;
+	pg_atomic_uint32		global_xmin;
 	volatile uint32			cur_cnt_assign;
 	TransactionId	xid_assign[MAX_CNT_SHMEM_XID_BUF];
 
@@ -191,6 +191,7 @@ void SnapSenderShmemInit(void)
 		proclist_init(&SnapSender->waiters_complete);
 		proclist_init(&SnapSender->waiters_finish);
 		SpinLockInit(&SnapSender->mutex);
+		pg_atomic_init_u32(&SnapSender->global_xmin, INVALID_PGPROCNO);
 		pg_atomic_init_flag(&SnapSender->lock);
 	}
 }
@@ -387,9 +388,11 @@ static TransactionId snapsenderGetSenderGlobalXmin(void)
 			global_xmin = cur_client->global_xmin;
 	}
 
-	SpinLockAcquire(&SnapSender->mutex);
-	SnapSender->global_xmin = global_xmin;
-	SpinLockRelease(&SnapSender->mutex);
+	if (TransactionIdIsValid(global_xmin))
+	{
+		pg_atomic_write_u32(&SnapSender->global_xmin, global_xmin);
+		//ereport(LOG,(errmsg("snapsenderGetSenderGlobalXmin  set xid %d\n", global_xmin)));
+	}
 
 	return global_xmin;
 }
@@ -408,17 +411,19 @@ static void snapsenderProcessSyncGlobalXmin(SnapClientData *client)
 	{
 		cur_client = slist_container(SnapClientData, snode, siter.cur);
 		if (client->event_pos == cur_client->event_pos)
+		{
 			client->global_xmin = xmin;
+			continue;
+		}
 
 		if (TransactionIdIsNormal(cur_client->global_xmin) &&
-			NormalTransactionIdPrecedes(cur_client->global_xmin,global_xmin ))
+			NormalTransactionIdPrecedes(cur_client->global_xmin, global_xmin ))
+		{
 			global_xmin = cur_client->global_xmin;
+		}
 	}
 
-	SpinLockAcquire(&SnapSender->mutex);
-	SnapSender->global_xmin = global_xmin;
-	SpinLockRelease(&SnapSender->mutex);
-
+	pg_atomic_write_u32(&SnapSender->global_xmin, global_xmin);
 	/* Send a sync xmin Response message */
 	resetStringInfo(&output_buffer);
 	pq_sendbyte(&output_buffer, 't');
@@ -447,17 +452,17 @@ static void snapsenderProcessHeartBeat(SnapClientData *client)
 	{
 		cur_client = slist_container(SnapClientData, snode, siter.cur);
 		if (client->event_pos == cur_client->event_pos)
+		{
 			client->global_xmin = xmin;
-
+			continue;
+		}
 		if (TransactionIdIsNormal(cur_client->global_xmin) &&
 			NormalTransactionIdPrecedes(cur_client->global_xmin,global_xmin ))
 			global_xmin = cur_client->global_xmin;
 	}
 
-	SpinLockAcquire(&SnapSender->mutex);
-	SnapSender->global_xmin = global_xmin;
-	SpinLockRelease(&SnapSender->mutex);
-
+	pg_atomic_write_u32(&SnapSender->global_xmin, global_xmin);
+	
 	/* Send a HEARTBEAT Response message */
 	resetStringInfo(&output_buffer);
 	pq_sendbyte(&output_buffer, 'h');
@@ -611,8 +616,9 @@ void SnapSenderMain(void)
 	pg_memory_barrier();
 	SnapSender->pid = MyProc->pid;
 	SnapSender->procno = MyProc->pgprocno;
-	SnapSender->global_xmin = FirstNormalTransactionId;
 	SpinLockRelease(&SnapSender->mutex);
+
+	pg_atomic_write_u32(&SnapSender->global_xmin, InvalidTransactionId);
 	snap_send_timeout = snap_receiver_timeout + 10000L;
 
 	on_shmem_exit(SnapSenderDie, (Datum)0);
@@ -1475,9 +1481,7 @@ void SnapSendUnlockSendSock(void)
 TransactionId SnapSendGetGlobalXmin(void)
 {
 	TransactionId xmin;
-	SpinLockAcquire(&SnapSender->mutex);
-	xmin = SnapSender->global_xmin;
-	SpinLockRelease(&SnapSender->mutex);
-
+	xmin = pg_atomic_read_u32(&SnapSender->global_xmin);
+	//ereport(LOG,(errmsg("SnapSendGetGlobalXmin  get xid %d\n", xmin)));
 	return xmin;
 }

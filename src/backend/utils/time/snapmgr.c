@@ -2407,10 +2407,7 @@ GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin, TransactionId* xma
 	if (IsGTMNode())
 	{
 		snap = GxidSenderGetSnapshot(snapshot, xmin, xmax, count);
-		global_xmin = SnapSendGetGlobalXmin();
-		if (TransactionIdIsNormal(global_xmin) && NormalTransactionIdPrecedes(global_xmin, *xmin))
-			*xmin = global_xmin;
-
+		snap->global_xmin = SnapSendGetGlobalXmin();
 	} else
 	{
 		return snapshot;
@@ -2431,7 +2428,6 @@ GetGlobalSnapshot(Snapshot snapshot)
 {
 	Snapshot	snap;
 	CommandId	cid;
-	TransactionId global_xmin;
 
 	if (IsCnMaster())
 	{
@@ -2465,10 +2461,7 @@ GetGlobalSnapshot(Snapshot snapshot)
 		snap = CopyGlobalSnapshot(snapshot);
 	}
 
-	global_xmin = SnapRcvGetGlobalXmin();
-	if (TransactionIdIsNormal(global_xmin) && NormalTransactionIdPrecedes(global_xmin, snap->xmin))
-		snap->xmin = global_xmin;
-
+	snapshot->global_xmin = SnapRcvGetGlobalXmin();
 	/*
 	 * We replace "curcid" if the current command id is
 	 * bigger than the snapshot's.

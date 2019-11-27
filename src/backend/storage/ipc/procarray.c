@@ -1955,7 +1955,11 @@ GetSnapshotData(Snapshot snapshot)
 		RecentGlobalXmin = replication_slot_catalog_xmin;
 
 #ifdef ADB
-	RecentGlobalXmin = globalxmin - vacuum_cluster_xin_diff;
+	if (TransactionIdIsNormal(snapshot->global_xmin) && NormalTransactionIdPrecedes(snapshot->global_xmin, RecentGlobalXmin))
+	{
+		RecentGlobalXmin = snapshot->global_xmin;
+		RecentGlobalDataXmin = RecentGlobalXmin;
+	}
 #endif /* ADB */
 	RecentXmin = xmin;
 
@@ -2122,27 +2126,28 @@ ProcArrayInstallRestoredXmin(TransactionId xmin, PGPROC *proc)
 
 #ifdef ADB
 TransactionId
-ProcArrayGetXactXmin(void)
+ProcArrayGetXactXmin(TransactionId xmin)
 {
 	ProcArrayStruct *arrayP = procArray;
 	TransactionId 	result, xid;
 	int				index;
 	volatile PGXACT *pgxact;
+	volatile PGPROC	*proc;
 
 	LWLockAcquire(ProcArrayLock, LW_SHARED);	
-	result = ShmemVariableCache->latestCompletedXid;
+	result = xmin;
 	for (index = 0; index < arrayP->numProcs; index++)
 	{
 		int			pgprocno = arrayP->pgprocnos[index];
 		pgxact = &allPgXact[pgprocno];
+		proc = &allProcs[pgprocno];
 
-
-		/*if (pgxact->vacuumFlags & PROC_IN_LOGICAL_DECODING)
+		if (pgxact->vacuumFlags & PROC_IN_LOGICAL_DECODING)
 			continue;
 		if (pgxact->vacuumFlags & PROC_IN_VACUUM)
 			continue;
 		if (pgxact == MyPgXact)
-			continue;*/
+			continue;
 
 		/* Fetch xid just once - see GetNewTransactionId */
 		xid = pgxact->xid;
@@ -2150,12 +2155,16 @@ ProcArrayGetXactXmin(void)
 		/* First consider the transaction's own Xid, if any */
 		if (TransactionIdIsNormal(xid) &&
 			TransactionIdPrecedes(xid, result))
+		{
 			result = xid;
+		}
 
 		xid = pgxact->xmin; /* Fetch just once */
 		if (TransactionIdIsNormal(xid) &&
 			TransactionIdPrecedes(xid, result))
+		{
 			result = xid;
+		}	
 	}
 
 	LWLockRelease(ProcArrayLock);
