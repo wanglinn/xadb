@@ -9,7 +9,7 @@
 #include "catalog/index.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_class.h"
-#include "catalog/ora_convert.h"
+#include "catalog/ora_convert_d.h"
 #include "commands/defrem.h"
 #include "lib/stringinfo.h"
 #include "nodes/makefuncs.h"
@@ -215,7 +215,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	OptTemp
 	SignedIconst sub_type
 
-%type <ival> ConstraintAttributeElem ConstraintAttributeSpec
+%type <ival> ConstraintAttributeElem ConstraintAttributeSpec opt_function_or_common
 
 %type <ival>	cursor_options
 				key_actions key_delete key_match key_update key_action
@@ -315,7 +315,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	opt_boolean_or_string opt_encoding OptConsTableSpace opt_index_name
 	opt_existing_window_name
 	OptTableSpace
-	param_name convert_type opt_function_or_common
+	param_name convert_type
 	RoleId
 	Sconst
 	type_function_name convert_functon_name
@@ -7575,7 +7575,7 @@ OraImplicitConvertStmt:
 						AS convert_functon_name '(' convert_type_list ')'
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
-					c->cvtkind = *$4;
+					c->cvtkind = $4;
 					c->cvtname = $5;
 					c->cvtfrom = $7;
 					c->cvtto = $12;
@@ -7589,7 +7589,7 @@ OraImplicitConvertStmt:
 			| DROP CONVERT opt_function_or_common convert_functon_name '(' convert_type_list ')'
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
-					c->cvtkind = *$3;
+					c->cvtkind = $3;
 					c->cvtname = $4;
 					c->cvtfrom = $6;
 					c->cvtto = NIL;
@@ -7600,7 +7600,7 @@ OraImplicitConvertStmt:
 			| DROP CONVERT opt_function_or_common IF_P EXISTS convert_functon_name '(' convert_type_list ')'
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
-					c->cvtkind = *$3;
+					c->cvtkind = $3;
 					c->cvtname = $6;
 					c->cvtfrom = $8;
 					c->cvtto = NIL;
@@ -7612,7 +7612,7 @@ OraImplicitConvertStmt:
 			| CREATE opt_or_replace CONVERT OPERATOR convert_type all_Op convert_type AS convert_type all_Op convert_type
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
-					c->cvtkind = 'o';
+					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
 					c->cvtname = $6;
 					c->cvtfrom = list_make2($5, $7);
 					c->cvtto = list_make2($9, $11);
@@ -7626,7 +7626,7 @@ OraImplicitConvertStmt:
 			| DROP CONVERT OPERATOR convert_type all_Op convert_type
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
-					c->cvtkind = 'o';
+					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
 					c->cvtname = $5;
 					c->cvtfrom = list_make2($4, $6);
 					c->cvtto = NIL;
@@ -7637,7 +7637,7 @@ OraImplicitConvertStmt:
 			| DROP CONVERT OPERATOR IF_P EXISTS convert_type all_Op convert_type
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
-					c->cvtkind = 'o';
+					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
 					c->cvtname = $7;
 					c->cvtfrom = list_make2($6, $8);
 					c->cvtto = NIL;
@@ -7661,10 +7661,10 @@ convert_type:
 		;
 
 opt_function_or_common:
-			FUNCTION								{ $$ = "f"; }
+			FUNCTION								{ $$ = ORA_CONVERT_KIND_FUNCTION; }
 			/*
-			| SPECIAL FUNCTION						{ $$ = "s"; }
-			| COMMON								{ $$ = "c"; }
+			| SPECIAL FUNCTION						{ $$ = ORA_CONVERT_KIND_SPECIAL_FUN; }
+			| COMMON								{ $$ = ORA_CONVERT_KIND_COMMON; }
 			*/
 		;
 
