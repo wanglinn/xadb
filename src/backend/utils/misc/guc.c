@@ -2822,11 +2822,11 @@ static struct config_int ConfigureNamesInt[] =
 	{
 		{"sync_global_xmin_time", PGC_USERSET, CUSTOM_OPTIONS,
 			gettext_noop("Sets the minimum time for sync recent global xmin."),
-			gettext_noop("minimum time is 300000ms."),
+			gettext_noop("minimum time is 100000ms."),
 			GUC_UNIT_MS
 		},
 		&snap_receiver_sxmin_time,
-		60000, 30000, INT_MAX,
+		10000, 10000, INT_MAX,
 		NULL, NULL, NULL
 	},
 

@@ -71,7 +71,7 @@ typedef struct SnapRcvData
 
 	uint32			xcnt;
 	TransactionId	latestCompletedXid;
-	TransactionId	global_xmin;
+	pg_atomic_uint32	global_xmin;
 	TransactionId	xip[MAX_BACKENDS];
 }SnapRcvData;
 
@@ -271,10 +271,10 @@ void SnapReceiverMain(void)
 	/* Advertise our PID so that the startup process can kill us */
 	SnapRcv->pid = MyProcPid;
 	SnapRcv->procno = MyProc->pgprocno;
-	SnapRcv->global_xmin = FirstNormalTransactionId;
 	last_gxmin_stime = 0;
 
 	UNLOCK_SNAP_RCV();
+	pg_atomic_write_u32(&SnapRcv->global_xmin, InvalidTransactionId);
 
 	/* Arrange to clean up at walreceiver exit */
 	on_shmem_exit(SnapRcvDie, (Datum)0);
@@ -464,6 +464,7 @@ void SnapRcvShmemInit(void)
 		SnapRcv->last_lock_info = InvalidDsaPointer;
 		LWLockInitialize(&SnapRcv->lock_lock_info, LWTRANCHE_SNAPSHOT_RECEIVER_DSA);
 		LWLockInitialize(&SnapRcv->lock_proc_link, LWTRANCHE_SNAPSHOT_RECEIVER_DSA);
+		pg_atomic_init_u32(&SnapRcv->global_xmin, INVALID_PGPROCNO);
 	}
 }
 
@@ -716,7 +717,6 @@ static void SnapRcvProcessSnapshot(char *buf, Size len)
 
 	LOCK_SNAP_RCV();
 	SnapRcv->latestCompletedXid = latestCompletedXid;
-	SnapRcv->global_xmin = xmin;
 	if (count > 0)
 	{
 		SnapRcv->xcnt = count;
@@ -730,6 +730,9 @@ static void SnapRcvProcessSnapshot(char *buf, Size len)
 	WakeupTransaction(InvalidTransactionId);
 	UNLOCK_SNAP_RCV();
 
+	if (TransactionIdIsValid(xmin))
+		pg_atomic_write_u32(&SnapRcv->global_xmin, xmin);
+	
 	SnapRcvReleaseSnapshotTxidLocks(xid, count, latestCompletedXid);
 
 	if (xid != NULL)
@@ -887,9 +890,7 @@ static void SnapRcvProcessSyncXminResp(char *buf, Size len)
 	msg.cursor = 0;
 
 	xmin = pq_getmsgint64(&msg);
-	LOCK_SNAP_RCV();
-	SnapRcv->global_xmin = xmin;
-	UNLOCK_SNAP_RCV();
+	pg_atomic_write_u32(&SnapRcv->global_xmin, xmin);
 }
 
 static void SnapRcvProcessHeartBeat(char *buf, Size len)
@@ -918,8 +919,9 @@ static void SnapRcvProcessHeartBeat(char *buf, Size len)
 
 	LOCK_SNAP_RCV();
 	SnapRcv->gtm_delta_time = deltatime;
-	SnapRcv->global_xmin = xmin;
 	UNLOCK_SNAP_RCV();
+
+	pg_atomic_write_u32(&SnapRcv->global_xmin, xmin);
 }
 
 /*
@@ -1461,26 +1463,17 @@ static TransactionId SnapRcvGetLocalXmin(void)
 	}
 
 	UNLOCK_SNAP_RCV();
-	xact_min = ProcArrayGetXactXmin();
+	xact_min = ProcArrayGetXactXmin(xmin);
 	if (TransactionIdIsNormal(xact_min) && NormalTransactionIdPrecedes(xact_min, xmin))
 		xmin = xact_min;
 
+	//ereport(LOG,(errmsg("SnapRcvGetLocalXmin xid %d\n", xmin)));
 	return xmin;
 }
 
 TransactionId SnapRcvGetGlobalXmin(void)
 {
 	TransactionId 	xmin;
-
-	LOCK_SNAP_RCV();
-	if (SnapRcv->state != WALRCV_STREAMING)
-	{
-		UNLOCK_SNAP_RCV();
-		return FirstNormalTransactionId;
-	}
-
-	xmin = SnapRcv->global_xmin;
-	UNLOCK_SNAP_RCV();
-
+	xmin = pg_atomic_read_u32(&SnapRcv->global_xmin);
 	return xmin;
 }
