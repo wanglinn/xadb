@@ -3909,6 +3909,9 @@ static void fill_batch_store(AggState *node)
 	int				i,varNumber;
 	uint32			hashvalue;
 
+	if (node->batch_barrier)
+		BarrierAttach(node->batch_barrier);
+
 	for(;;)
 	{
 		CHECK_FOR_INTERRUPTS();
@@ -3935,7 +3938,10 @@ static void fill_batch_store(AggState *node)
 
 	bs_end_write(store);
 	if (node->batch_barrier)
+	{
 		BarrierArriveAndWait(node->batch_barrier, 0);
+		BarrierDetach(node->batch_barrier);
+	}
 	node->batch_filled = true;
 }
 
@@ -4098,7 +4104,6 @@ void ExecAggInitializeDSM(AggState *node, ParallelContext *pcxt)
 	node->batch_barrier = (Barrier*)ptr;
 	ptr += MAXALIGN(sizeof(Barrier));
 	BarrierInit(node->batch_barrier, 0);
-	BarrierAttach(node->batch_barrier);
 	node->batch_store = bs_init_parallel_hash(num_batches, pcxt->nworkers+1,
 											  0, (BatchStoreParallelHash)ptr,
 											  pcxt->seg);
@@ -4119,7 +4124,6 @@ void ExecAggInitializeWorker(AggState *node, ParallelWorkerContext *pwcxt)
 
 	node->batch_barrier = (Barrier*)ptr;
 	ptr += MAXALIGN(sizeof(Barrier));
-	BarrierAttach(node->batch_barrier);
 	node->batch_store = bs_attach_parallel_hash((BatchStoreParallelHash)ptr,
 												pwcxt->seg,
 												ParallelWorkerNumber+1);
