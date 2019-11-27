@@ -5,7 +5,7 @@
 #include "storage/dsm.h"
 
 #define BATCH_STORE_MIN_BATCH	2
-#define BATCH_STORE_MAX_BATCH	INT32_MAX
+#define BATCH_STORE_MAX_BATCH	1024
 
 typedef struct BatchStoreData* BatchStore;
 typedef struct BatchStoreParallelHashData* BatchStoreParallelHash;

@@ -5793,6 +5793,7 @@ create_distinct_paths(PlannerInfo *root,
 	distinct_rel->userid = input_rel->userid;
 	distinct_rel->useridiscurrent = input_rel->useridiscurrent;
 	distinct_rel->fdwroutine = input_rel->fdwroutine;
+	distinct_rel->reltarget = input_rel->reltarget;
 
 	/* Estimate number of distinct rows there will be */
 	if (parse->groupClause || parse->groupingSets || parse->hasAggs ||
@@ -5826,11 +5827,13 @@ create_distinct_paths(PlannerInfo *root,
 	dcontext.distinct_rel = distinct_rel;
 	dcontext.input_rel = input_rel;
 	dcontext.distinct_clause = parse->distinctClause;
-	/*dcontext.needed_pathkeys = NIL;*/
 	dcontext.num_distinct_rows = numDistinctRows;
-	/*dcontext.can_sort = grouping_is_sortable(parse->distinctClause);
-	dcontext.can_hash = grouping_is_hashable(parse->distinctClause);*/
 #endif /* ADB */
+
+	if (distinct_rel->consider_parallel &&
+		distinctExprs != NIL &&
+		is_parallel_safe(root, (Node*)distinctExprs) == false)
+		distinct_rel->consider_parallel = false;
 
 	/*
 	 * Consider sort-based implementations of DISTINCT, if possible.
@@ -5999,6 +6002,22 @@ create_distinct_paths(PlannerInfo *root,
 				create_cluster_distinct_path(root, path, &dcontext);
 			}
 		}
+		if (distinct_rel->consider_parallel)
+		{
+			foreach(lc, input_rel->cluster_partial_pathlist)
+			{
+				Path	   *path = (Path*) lfirst(lc);
+				List	   *reduce_list = get_reduce_info_list(path);
+
+				if (IsReduceInfoListCoordinator(reduce_list) ||
+					IsReduceInfoListReplicated(reduce_list) ||
+					IsReduceInfoListInOneNode(reduce_list) ||
+					CanOnceDistinctReduceInfoList(distinctExprs, reduce_list))
+				{
+					create_cluster_distinct_path(root, path, &dcontext);
+				}
+			}
+		}
 	}
 #endif /* ADB */
 
@@ -6074,7 +6093,6 @@ create_distinct_paths(PlannerInfo *root,
 									 REDUCE_TYPE_HASH,
 									 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 									 REDUCE_TYPE_NONE);
-
 			}
 
 			list_free(storage_list);
@@ -6098,6 +6116,8 @@ create_distinct_paths(PlannerInfo *root,
 	if (create_upper_paths_hook)
 		(*create_upper_paths_hook) (root, UPPERREL_DISTINCT,
 									input_rel, distinct_rel, NULL);
+
+	generate_gather_paths(root, distinct_rel, false);
 
 	/* Now choose the best path(s) */
 	set_cheapest(distinct_rel);
@@ -9754,8 +9774,10 @@ static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *
 	Path *path;
 	CreateDistinctPathsContext *dcontext = (CreateDistinctPathsContext*)context;
 	List *reduce_list = get_reduce_info_list(subpath);
+	Size hashentrysize = 0;
 
-	if(dcontext->can_sort)
+	if (dcontext->can_sort &&
+		subpath->parallel_workers == 0)
 	{
 		Assert(pathkeys_contained_in(root->distinct_pathkeys, dcontext->needed_pathkeys));
 		if(!pathkeys_contained_in(dcontext->needed_pathkeys, subpath->pathkeys))
@@ -9776,7 +9798,16 @@ static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *
 		add_cluster_path(dcontext->distinct_rel, path);
 	}
 
-	if(dcontext->can_hash)
+	if (dcontext->can_hash)
+	{
+		hashentrysize = MAXALIGN(subpath->pathtarget->width) + 
+			MAXALIGN(SizeofMinimalTupleHeader);
+		hashentrysize += hash_agg_entry_size(0);
+	}
+
+	if (dcontext->can_hash &&
+		subpath->parallel_workers == 0 &&
+		hashentrysize*dcontext->num_distinct_rows <= work_mem*1024)
 	{
 		path = (Path*)create_agg_path(root,
 									  dcontext->distinct_rel,
@@ -9792,6 +9823,41 @@ static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *
 		path->reduce_is_valid = true;
 		add_cluster_path(dcontext->distinct_rel, path);
 	}
+
+	if (dcontext->can_hash &&
+		subpath->parallel_workers > 0)
+	{
+		double num_distinct_rows;
+		uint32 num_batches = dcontext->num_distinct_rows;
+		uint32 min_batches = (subpath->parallel_workers + 1) * 3;
+		if (num_batches < min_batches)
+			num_batches = min_batches;
+		if (num_batches > BATCH_STORE_MAX_BATCH)
+			num_batches = BATCH_STORE_MAX_BATCH;
+		if (num_batches >= BATCH_STORE_MIN_BATCH &&
+			num_batches <= BATCH_STORE_MAX_BATCH &&
+			hashentrysize*num_batches <= work_mem*1024)
+		{
+			num_distinct_rows = dcontext->num_distinct_rows / (subpath->parallel_workers + 1);
+			if (num_distinct_rows < 1.0)
+				num_distinct_rows = 1.0;
+			path = (Path*)create_agg_path(root,
+										  dcontext->distinct_rel,
+										  subpath,
+										  subpath->pathtarget,
+										  AGG_BATCH_HASH,
+										  AGGSPLIT_SIMPLE,
+										  dcontext->distinct_clause,
+										  NIL,
+										  NULL,
+										  num_distinct_rows);
+			((AggPath*)path)->num_batches = num_batches;
+			path->reduce_info_list = CopyReduceInfoList(reduce_list);
+			path->reduce_is_valid = true;
+			add_cluster_partial_path(dcontext->distinct_rel, path);
+		}
+	}
+
 	return 0;
 }
 
