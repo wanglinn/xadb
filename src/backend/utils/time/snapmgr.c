@@ -2403,7 +2403,6 @@ Snapshot
 GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin, TransactionId* xmax, int *count)
 {
 	Snapshot	snap;
-	TransactionId global_xmin;
 	if (IsGTMNode())
 	{
 		snap = GxidSenderGetSnapshot(snapshot, xmin, xmax, count);
@@ -2411,7 +2410,7 @@ GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin, TransactionId* xma
 	} else
 	{
 		return snapshot;
-	} 
+	}
 
 #ifdef SHOW_GLOBAL_SNAPSHOT
 	OutputGlobalSnapshot(snap);
