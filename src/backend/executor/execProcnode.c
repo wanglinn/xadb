@@ -115,6 +115,9 @@
 #include "executor/nodeWorktablescan.h"
 #include "nodes/nodeFuncs.h"
 #include "miscadmin.h"
+#ifdef ADB_EXT
+#include "executor/nodeBatchSort.h"
+#endif /* ADB_EXT */
 #ifdef ADB
 #include "pgxc/execRemote.h"
 #include "executor/nodeClusterGather.h"
@@ -374,6 +377,13 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 			result = (PlanState *) ExecInitLimit((Limit *) node,
 												 estate, eflags);
 			break;
+
+#ifdef ADB_EXT
+		case T_BatchSort:
+			result = (PlanState *)ExecInitBatchSort((BatchSort*) node,
+													estate, eflags);
+			break;
+#endif /* ADB_EXT */
 
 #ifdef ADB
 		case T_RemoteQuery:
@@ -781,6 +791,11 @@ ExecEndNode(PlanState *node)
 		case T_LimitState:
 			ExecEndLimit((LimitState *) node);
 			break;
+#ifdef ADB_EXT
+		case T_BatchSortState:
+			ExecEndBatchSort((BatchSortState *) node);
+			break;
+#endif /* ADB_EXT */
 #ifdef ADB
 		case T_RemoteQueryState:
 			ExecEndRemoteQuery((RemoteQueryState *) node);

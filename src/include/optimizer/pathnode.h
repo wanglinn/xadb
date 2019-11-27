@@ -207,6 +207,14 @@ extern SortPath *create_sort_path(PlannerInfo *root,
 				 Path *subpath,
 				 List *pathkeys,
 				 double limit_tuples);
+#ifdef ADB_EXT
+extern BatchSortPath *create_batchsort_path(PlannerInfo *root,
+				 RelOptInfo *rel,
+				 Path *subpath,
+				 List *pathkeys,
+				 List *groupClause,
+				 uint32 numBatches);
+#endif /* ADB_EXT */
 extern GroupPath *create_group_path(PlannerInfo *root,
 				  RelOptInfo *rel,
 				  Path *subpath,

@@ -59,6 +59,7 @@
  *   SetOpState
  *   LockRowsState
  *   LimitState
+ *   BatchSortState
  *   RemoteCopyState
  *   RemoteQueryState
  *   ClusterGatherState
@@ -631,6 +632,24 @@ BEGIN_NODE(Limit)
 END_NODE(Limit)
 #endif /* NO_NODE_Limit */
 
+#ifdef ADB_EXT
+
+#ifndef NO_NODE_BatchSort
+BEGIN_NODE(BatchSort)
+	NODE_BASE2(Plan,plan)
+	NODE_SCALAR(int,numSortCols)
+	NODE_SCALAR(int,numGroupCols)
+	NODE_SCALAR(int,numBatches)
+	NODE_SCALAR_POINT(AttrNumber,sortColIdx,NODE_ARG_->numSortCols)
+	NODE_SCALAR_POINT(Oid,sortOperators,NODE_ARG_->numSortCols)
+	NODE_SCALAR_POINT(Oid,collations,NODE_ARG_->numSortCols)
+	NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numSortCols)
+	NODE_SCALAR_POINT(AttrNumber,grpColIdx,NODE_ARG_->numGroupCols)
+END_NODE(BatchSort)
+#endif /* NO_NODE_BatchSort */
+
+#endif
+
 #ifdef ADB_GRAM_ORA
 
 #ifndef NO_NODE_ConnectByPlan
@@ -883,6 +902,10 @@ BEGIN_NODE(ParamTuplestoreScan)
 	NODE_SCALAR(int,paramid)
 END_NODE(ParamTuplestoreScan)
 #endif /* NO_NODE_ParamTuplestoreScan */
+
+#endif
+
+#ifdef ADB_EXT
 
 #endif
 
@@ -1951,6 +1974,20 @@ BEGIN_NODE(LimitPath)
 	NODE_NODE(Node,limitCount)
 END_NODE(LimitPath)
 #endif /* NO_NODE_LimitPath */
+
+#ifdef ADB_EXT
+
+#ifndef NO_NODE_BatchSortPath
+BEGIN_NODE(BatchSortPath)
+	NODE_BASE2(Path,path)
+	NODE_NODE(Path,subpath)
+	NODE_NODE(List,batchkeys)
+	NODE_NODE(List,groupClause)
+	NODE_SCALAR(uint32,numBatches)
+END_NODE(BatchSortPath)
+#endif /* NO_NODE_BatchSortPath */
+
+#endif
 
 #ifdef ADB
 

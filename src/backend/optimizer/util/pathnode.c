@@ -3336,6 +3336,44 @@ create_sort_path(PlannerInfo *root,
 	return pathnode;
 }
 
+#ifdef ADB_EXT
+BatchSortPath *create_batchsort_path(PlannerInfo *root,
+				 RelOptInfo *rel,
+				 Path *subpath,
+				 List *pathkeys,
+				 List *groupClause,
+				 uint32 numBatches)
+{
+	BatchSortPath   *pathnode = makeNode(BatchSortPath);
+
+	pathnode->path.pathtype = T_BatchSort;
+	pathnode->path.parent = rel;
+	/* Sort doesn't project, so use source path's pathtarget */
+	pathnode->path.pathtarget = subpath->pathtarget;
+	/* For now, assume we are above any joins, so no parameterization */
+	pathnode->path.param_info = NULL;
+	pathnode->path.parallel_aware = false;
+	pathnode->path.parallel_safe = rel->consider_parallel &&
+		subpath->parallel_safe;
+	pathnode->path.parallel_workers = subpath->parallel_workers;
+	pathnode->batchkeys = pathkeys;
+	pathnode->groupClause = groupClause;
+	pathnode->numBatches = numBatches;
+
+	pathnode->subpath = subpath;
+
+	cost_batchsort(&pathnode->path, root, pathkeys,
+				   subpath->total_cost, subpath->rows,
+				   subpath->pathtarget->width,
+				   0.0,				/* XXX comparison_cost shouldn't be 0? */
+				   work_mem/numBatches,
+				   list_length(groupClause),
+				   numBatches);
+
+	return pathnode;
+}
+#endif /* ADB_EXT */
+
 /*
  * create_group_path
  *	  Creates a pathnode that represents performing grouping of presorted input

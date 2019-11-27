@@ -29,7 +29,7 @@ OBJS = execAmi.o execCurrent.o execExpr.o execExprInterp.o \
        nodeCtescan.o nodeNamedtuplestorescan.o nodeWorktablescan.o \
        nodeGroup.o nodeSubplan.o nodeSubqueryscan.o nodeTidscan.o \
        nodeForeignscan.o nodeWindowAgg.o tstoreReceiver.o tqueue.o spi.o \
-       nodeTableFuncscan.o
+       nodeTableFuncscan.o nodeBatchSort.o
 
 ifeq ($(enable_cluster),yes)
   OBJS += clusterReceiver.o nodeClusterGather.o execCluster.o \

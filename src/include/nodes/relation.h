@@ -1663,6 +1663,18 @@ typedef struct SortPath
 	Path	   *subpath;		/* path representing input source */
 } SortPath;
 
+#ifdef ADB_EXT
+typedef struct BatchSortPath
+{
+	Path		path;
+	Path	   *subpath;		/* path representing input source */
+	List	   *batchkeys;		/* our result is not all ordered, just for each batch,
+								   so we can use Path::pathkeys */
+	List	   *groupClause;	/* a list of SortGroupClause's */
+	uint32		numBatches;
+}BatchSortPath;
+#endif /* ADB_EXT */
+
 /*
  * GroupPath represents grouping (of presorted input)
  *

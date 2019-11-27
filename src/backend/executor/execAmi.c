@@ -60,6 +60,9 @@
 #include "nodes/relation.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
+#ifdef ADB_EXT
+#include "executor/nodeBatchSort.h"
+#endif /* ADB_EXT */
 #ifdef ADB
 #include "pgxc/execRemote.h"
 #include "executor/nodeClusterGather.h"
@@ -243,6 +246,11 @@ ExecReScan(PlanState *node)
 		case T_ForeignScanState:
 			ExecReScanForeignScan((ForeignScanState *) node);
 			break;
+#ifdef ADB_EXT
+		case T_BatchSortState:
+			ExecReScanBatchSort((BatchSortState *) node);
+			break;
+#endif /* ADB_EXT */
 #ifdef ADB
 		case T_RemoteQueryState:
 			ExecRemoteQueryReScan((RemoteQueryState *) node, node->ps_ExprContext);

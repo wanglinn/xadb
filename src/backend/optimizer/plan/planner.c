@@ -9873,6 +9873,48 @@ static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *
 		gcontext->new_paths_list = lappend(gcontext->new_paths_list, path);
 	}
 
+	if (gcontext->can_sort &&
+		gcontext->can_batch &&
+		num_groups >= 2.0 &&
+		!pathkeys_contained_in(gcontext->group_pathkeys, subpath->pathkeys))
+	{
+		uint32 num_batches = (uint32)num_groups;
+		Assert(gcontext->group_clause);
+
+		if (num_batches > 1024)
+			num_batches = 1024;
+		path = (Path*)create_batchsort_path(root,
+											gcontext->grouped_rel,
+											subpath,
+											gcontext->group_pathkeys,
+											gcontext->group_clause,
+											num_batches);
+		if (gcontext->has_agg)
+			path = (Path*)create_agg_path(root,
+										  gcontext->grouped_rel,
+										  path,
+										  target,
+										  AGG_SORTED,
+										  gcontext->split,
+										  gcontext->group_clause,
+										  quals,
+										  costs,
+										  num_groups);
+		else
+			path = (Path*)create_group_path(root,
+											gcontext->grouped_rel,
+											path,
+											gcontext->group_clause,
+											quals,
+											num_groups);
+		/* batch sort it not same sort */
+		path->pathkeys = NIL;
+		path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(subpath));
+		Assert(path->reduce_info_list != NIL);
+		path->reduce_is_valid = true;
+		gcontext->new_paths_list = lappend(gcontext->new_paths_list, path);
+	}
+
 	if (gcontext->can_hash &&
 		estimate_hashagg_tablesize(subpath, costs, num_groups) < work_mem * 1024L)
 	{
@@ -9892,7 +9934,8 @@ static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *
 		gcontext->new_paths_list = lappend(gcontext->new_paths_list, path);
 	}
 
-	if (gcontext->can_batch)
+	if (gcontext->can_batch &&
+		gcontext->can_hash)
 	{
 		uint32		num_batches;
 
