@@ -699,7 +699,7 @@ END_NODE(PartitionPruneInfo)
 
 #ifndef NO_NODE_PartitionedRelPruneInfo
 BEGIN_NODE(PartitionedRelPruneInfo)
-	NODE_SCALAR(Oid,reloid)
+	NODE_OID(class,reloid)
 	NODE_NODE(List,pruning_steps)
 	NODE_BITMAPSET(Bitmapset,present_parts)
 	NODE_SCALAR(int,nparts)
