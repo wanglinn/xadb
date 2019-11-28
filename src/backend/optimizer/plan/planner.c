@@ -9972,7 +9972,8 @@ static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *
 											subpath,
 											gcontext->group_pathkeys,
 											gcontext->group_clause,
-											num_batches);
+											num_batches,
+											false);
 		if (gcontext->has_agg)
 			path = (Path*)create_agg_path(root,
 										  gcontext->grouped_rel,
@@ -10091,6 +10092,38 @@ static int create_cluster_batch_grouping_path(PlannerInfo *root, Path *subpath, 
 		num_batches = BATCH_STORE_MIN_BATCH;
 	if (num_batches > BATCH_STORE_MAX_BATCH)
 		num_batches = BATCH_STORE_MAX_BATCH;
+
+	if (gcontext->can_sort)
+	{
+		path = (Path*)create_batchsort_path(root,
+											gcontext->grouped_rel,
+											subpath,
+											gcontext->group_pathkeys,
+											gcontext->group_clause,
+											num_batches,
+											true);
+		if (gcontext->has_agg)
+			path = (Path*)create_agg_path(root,
+										  gcontext->grouped_rel,
+										  path,
+										  gcontext->final_target,
+										  AGG_SORTED,
+										  gcontext->split,
+										  gcontext->group_clause,
+										  gcontext->having_quals,
+										  costs,
+										  num_groups);
+		else
+			path = (Path*)create_group_path(root,
+											gcontext->grouped_rel,
+											path,
+											gcontext->group_clause,
+											gcontext->having_quals,
+											num_groups);
+		/* batch sort it not same sort */
+		path->pathkeys = NIL;
+		save_cluster_grouping_path(gcontext, path, rlist);
+	}
 
 	if (gcontext->can_hash &&
 		estimate_hashagg_tablesize(subpath, costs, num_groups) <= work_mem * 1024)

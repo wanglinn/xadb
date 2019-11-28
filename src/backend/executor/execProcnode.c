@@ -890,6 +890,9 @@ ExecShutdownNode(PlanState *node)
 		case T_AggState:
 			ExecShutdownAgg((AggState *) node);
 			break;
+		case T_BatchSortState:
+			ExecShutdownBatchSort((BatchSortState*) node);
+			break;
 #endif /* ADB_EXT */
 #ifdef ADB
 		case T_ClusterReduceState:

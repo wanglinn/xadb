@@ -213,7 +213,8 @@ extern BatchSortPath *create_batchsort_path(PlannerInfo *root,
 				 Path *subpath,
 				 List *pathkeys,
 				 List *groupClause,
-				 uint32 numBatches);
+				 uint32 numBatches,
+				 bool parallel_sort);
 #endif /* ADB_EXT */
 extern GroupPath *create_group_path(PlannerInfo *root,
 				  RelOptInfo *rel,

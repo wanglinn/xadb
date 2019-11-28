@@ -471,11 +471,11 @@ SIMPLE_OUTPUT_DECLARE(StrategyNumber, "%u");
 		do													\
 		{													\
 			const char *s = get_enum_string_##t(node->m);	\
-			if(s == NULL)									\
-				ereport(ERROR, (							\
-				errmsg("unknown enum " #t " value %d", node->m)));\
 			appendObjectMebName(str, #m, space);			\
-			appendStringInfoString(str, s);					\
+			if (s)											\
+				appendStringInfoString(str, s);				\
+			else											\
+				appendStringInfo(str, "%u", node->m);		\
 			appendStringInfoChar(str, '\n');				\
 		}while(0);
 
