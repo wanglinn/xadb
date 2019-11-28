@@ -4,6 +4,7 @@
 #include "executor/nodeBatchSort.h"
 #include "fmgr.h"
 #include "miscadmin.h"
+#include "pgstat.h"
 #include "port/atomics.h"
 #include "storage/barrier.h"
 #include "utils/builtins.h"
@@ -190,7 +191,7 @@ static TupleTableSlot *ExecBatchSortFirst(PlanState *pstate)
 			tuplesort_end(state->batches[i]);
 			state->batches[i] = NULL;
 		}
-		BarrierArriveAndWait(&parallel->barrier, 0);
+		BarrierArriveAndWait(&parallel->barrier, WAIT_EVENT_BATCH_SORT_BUILD);
 		BarrierDetach(&parallel->barrier);
 
 		if (ExecNextParallelBatchSort(state))

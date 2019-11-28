@@ -242,6 +242,7 @@
 #endif /* ADB */
 #ifdef ADB_EXT
 #include "access/parallel.h"
+#include "pgstat.h"
 #include "storage/barrier.h"
 #include "utils/batchstore.h"
 #endif /* ADB_EXT */
@@ -3973,7 +3974,7 @@ static void fill_batch_store(AggState *node)
 	bs_end_write(store);
 	if (node->batch_barrier)
 	{
-		BarrierArriveAndWait(node->batch_barrier, 0);
+		BarrierArriveAndWait(node->batch_barrier, WAIT_EVENT_BATCH_HASH_BUILD);
 		BarrierDetach(node->batch_barrier);
 	}
 	node->batch_filled = true;

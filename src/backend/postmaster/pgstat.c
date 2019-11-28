@@ -3787,6 +3787,14 @@ pgstat_get_wait_ipc(WaitEventIPC w)
 		case WAIT_EVENT_SYNC_REP:
 			event_name = "SyncRep";
 			break;
+#ifdef ADB_EXT
+		case WAIT_EVENT_BATCH_HASH_BUILD:
+			event_name = "Batch/Hash/Building";
+			break;
+		case WAIT_EVENT_BATCH_SORT_BUILD:
+			event_name = "Batch/Sort/Building";
+			break;
+#endif /* ADB_EXT */
 			/* no default case, so that compiler will warn */
 	}
 
