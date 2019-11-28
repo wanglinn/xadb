@@ -1008,8 +1008,8 @@ Snapshot GxidSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, Transactio
 		return snap;
 	}
 
-	if (GxidSender->xcnt > 0)
-		EnlargeSnapshotXip(snap, GxidSender->xcnt + snap->max_xcnt);
+	if (GxidSender->xcnt > 0 && (GxidSender->xcnt + GetMaxSnapshotXidCount()) > snap->max_xcnt)
+		EnlargeSnapshotXip(snap, GxidSender->xcnt + GetMaxSnapshotXidCount());
 
 	xmax = GxidSender->latestCompletedXid;
 	Assert(TransactionIdIsNormal(xmax));
