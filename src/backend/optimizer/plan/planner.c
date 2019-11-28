@@ -330,6 +330,7 @@ static bool modify_have_auxiliary(PlannerInfo *root, Index relid);
 static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms);
 static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *context);
 static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *context);
+static int create_cluster_batch_grouping_path(PlannerInfo *root, Path *subpath, void *context);
 static bool replace_replicate_reduce(Path *path, List *reduce_replicate);
 static void create_cluster_window_path(PlannerInfo *root,
 									   RelOptInfo *window_rel,
@@ -4586,7 +4587,8 @@ create_grouping_paths(PlannerInfo *root,
 		{
 			bool hashable = (gd ? gd->any_hashable : grouping_is_hashable(parse->groupClause));
 #ifdef ADB_EXT
-			if (hashable)
+			if (hashable &&
+				parse->groupingSets == NIL)
 				flags |= GROUPING_CAN_USE_BATCH;
 #endif /* ADB_EXT */
 			if (hashable &&
@@ -8181,7 +8183,6 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 			}else
 			{
 				List *storage_list;
-				List *batch_paths = NIL;
 				List *initial_paths;
 				groupExprs = get_sortgrouplist_exprs(parse->groupClause, parse->targetList);
 				subpath = linitial(input_rel->cluster_partial_pathlist);
@@ -8192,16 +8193,15 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 				foreach(lc, input_rel->cluster_partial_pathlist)
 					create_cluster_grouping_path(root, lfirst(lc), &gcontext);
 
+				/* save AGGSPLIT_INITIAL_SERIAL paths */
+				initial_paths = gcontext.new_paths_list;
+
 				/* step 2: sort(hash agg) */
 				new_path_list = NIL;
 				foreach(lc, gcontext.new_paths_list)
 				{
 					subpath = lfirst(lc);
 					new_path_list = lappend(new_path_list, subpath);
-
-					if (IsA(subpath, AggPath) &&
-						((AggPath*)subpath)->groupClause != NIL)
-						batch_paths = lappend(batch_paths, subpath);
 
 					if (!pathkeys_contained_in(gcontext.group_pathkeys, subpath->pathkeys))
 					{
@@ -8213,11 +8213,7 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 						new_path_list = lappend(new_path_list, subpath);
 					}
 				}
-				list_free(gcontext.new_paths_list);
 				gcontext.new_paths_list = NIL;
-
-				/* save AGGSPLIT_INITIAL_SERIAL paths */
-				initial_paths = new_path_list;
 
 				/* step 3: gather */
 				ParallelGatherSubPathList(root, grouped_rel, new_path_list, ReducePathSave2List, (void*)&gcontext.new_paths_list);
@@ -8251,18 +8247,11 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 				add_cluster_path_list(grouped_rel, gcontext.new_paths_list, true);
 				gcontext.new_paths_list = NIL;
 
-				/* addons,
-				 * initial batch agg -> reduce -> final batch agg */
-				if (batch_paths != NIL)
+				if (gcontext.can_batch)
 				{
-					bool saved_can_hash = gcontext.can_hash;
-					bool saved_can_sort = gcontext.can_sort;
-					gcontext.split = AGGSPLIT_FINAL_DESERIAL;
-					gcontext.can_hash = false;
-					gcontext.can_sort = false;
-
 					Assert(groupExprs != NIL);
-					foreach (lc, batch_paths)
+					/* step 5: pallel reduce and batch final agg */
+					foreach(lc, initial_paths)
 					{
 						subpath = lfirst(lc);
 						ReduceInfoListGetStorageAndExcludeOidList(get_reduce_info_list(subpath),
@@ -8274,36 +8263,26 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 										 subpath,
 										 storage_list,
 										 NIL,
-										 create_cluster_grouping_path,
+										 create_cluster_batch_grouping_path,
 										 &gcontext,
 										 REDUCE_TYPE_HASH,
-										 glob->has_hashmap_rel ? REDUCE_TYPE_HASHMAP : REDUCE_TYPE_IGNORE,
-										 glob->has_modulo_rel ? REDUCE_TYPE_MODULO : REDUCE_TYPE_IGNORE,
+										 (groupExprs && glob->has_hashmap_rel) ? REDUCE_TYPE_HASHMAP : REDUCE_TYPE_IGNORE,
+										 (groupExprs && glob->has_modulo_rel) ? REDUCE_TYPE_MODULO : REDUCE_TYPE_IGNORE,
 										 REDUCE_TYPE_NONE);
 						list_free(storage_list);
 					}
-					list_free(batch_paths);
-					foreach (lc, gcontext.new_paths_list)
+					foreach(lc, gcontext.new_paths_list)
 						add_cluster_partial_path(grouped_rel, lfirst(lc));
-					list_free(gcontext.new_paths_list);
-					gcontext.new_paths_list = NIL;
-					gcontext.can_hash = saved_can_hash;
-					gcontext.can_sort = saved_can_sort;
 				}
 			}
 		}
 
-		/* batch hash */
+		/* batch agg */
 		if (input_rel->cluster_partial_pathlist != NIL &&
 			grouped_rel->consider_parallel &&
 			(extra->flags & GROUPING_CAN_USE_BATCH) != 0)
 		{
 			Path *subpath;
-			bool saved_can_sort = gcontext.can_sort;
-			bool saved_can_hash = gcontext.can_hash;
-			gcontext.can_sort = false;
-			gcontext.can_hash = false;
-			gcontext.can_batch = true;
 			gcontext.new_paths_list = NIL;
 			gcontext.split = AGGSPLIT_SIMPLE;
 
@@ -8311,26 +8290,14 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 			{
 				subpath = lfirst(lc);
 				if (CanOnceGroupingClusterPath(gcontext.final_target, subpath))
-					create_cluster_grouping_path(root, subpath, &gcontext);
+					create_cluster_batch_grouping_path(root, subpath, &gcontext);
 			}
 
 			foreach(lc, gcontext.new_paths_list)
-			{
-				AggPath *agg = lfirst_node(AggPath, lc);
-				if (agg->aggstrategy == AGG_BATCH_HASH)
-				{
-					agg->path.parallel_aware = true;
-					add_cluster_partial_path(grouped_rel, (Path*)agg);
-				}else
-				{
-					pfree(agg);
-				}
-			}
+				add_cluster_partial_path(grouped_rel, lfirst(lc));
 
 			list_free(gcontext.new_paths_list);
 			gcontext.new_paths_list = NIL;
-			gcontext.can_sort = saved_can_sort;
-			gcontext.can_hash = saved_can_hash;
 		}
 	}
 #endif /* ADB */
@@ -9897,14 +9864,40 @@ static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *
 	return 0;
 }
 
+static inline double get_cluster_grouping_number(List *rlist, double number)
+{
+	List *nodes;
+
+	if (IsReduceInfoListByValue(rlist))
+	{
+		ReduceInfoListGetStorageAndExcludeOidList(rlist, &nodes, NULL);
+		number /= list_length(nodes);
+		if (number < 1.0)
+			number = 1.0;
+		list_free(nodes);
+	}
+
+	return number;
+}
+
+static inline void save_cluster_grouping_path(CreateGrupingPathsContext *gcontext,
+											  Path *path, List *reduce_info_list)
+{
+	path->reduce_info_list = CopyReduceInfoList(reduce_info_list);
+	Assert(path->reduce_info_list != NIL);
+	path->reduce_is_valid = true;
+	gcontext->new_paths_list = lappend(gcontext->new_paths_list, path);
+}
+
 static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *context)
 {
-	Path *path;
-	PathTarget *target = NULL;
-	const AggClauseCosts *costs = NULL;
-	List *quals = NIL;
-	double num_groups = 0.0;
-	CreateGrupingPathsContext *gcontext = context;
+	Path					   *path;
+	PathTarget				   *target = NULL;
+	const AggClauseCosts	   *costs = NULL;
+	List					   *quals = NIL;
+	double						num_groups = 0.0;
+	CreateGrupingPathsContext  *gcontext = context;
+	List					   *rlist = get_reduce_info_list(subpath);
 	Assert(gcontext->can_hash || gcontext->can_sort || gcontext->can_batch);
 
 	switch(gcontext->split)
@@ -9929,16 +9922,8 @@ static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *
 	}
 
 	if (num_groups > 1.0 &&
-		gcontext->split != AGGSPLIT_INITIAL_SERIAL &&
-		IsReduceInfoListByValue(get_reduce_info_list(subpath)))
-	{
-		List * nodes;
-		ReduceInfoListGetStorageAndExcludeOidList(get_reduce_info_list(subpath), &nodes, NULL);
-		num_groups /= list_length(nodes);
-		if(num_groups < 1.0)
-			num_groups = 1.0;
-		list_free(nodes);
-	}
+		gcontext->split != AGGSPLIT_INITIAL_SERIAL)
+		num_groups = get_cluster_grouping_number(rlist, num_groups);
 
 	if(gcontext->can_sort)
 	{
@@ -9969,22 +9954,19 @@ static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *
 											gcontext->group_clause,
 											quals,
 											num_groups);
-		path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(subpath));
-		Assert(path->reduce_info_list != NIL);
-		path->reduce_is_valid = true;
-		gcontext->new_paths_list = lappend(gcontext->new_paths_list, path);
+		save_cluster_grouping_path(gcontext, path, rlist);
 	}
 
 	if (gcontext->can_sort &&
 		gcontext->can_batch &&
-		num_groups >= 2.0 &&
+		num_groups >= BATCH_STORE_MIN_BATCH &&
 		!pathkeys_contained_in(gcontext->group_pathkeys, subpath->pathkeys))
 	{
 		uint32 num_batches = (uint32)num_groups;
 		Assert(gcontext->group_clause);
 
-		if (num_batches > 1024)
-			num_batches = 1024;
+		if (num_batches > BATCH_STORE_MAX_BATCH)
+			num_batches = BATCH_STORE_MAX_BATCH;
 		path = (Path*)create_batchsort_path(root,
 											gcontext->grouped_rel,
 											subpath,
@@ -10011,10 +9993,7 @@ static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *
 											num_groups);
 		/* batch sort it not same sort */
 		path->pathkeys = NIL;
-		path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(subpath));
-		Assert(path->reduce_info_list != NIL);
-		path->reduce_is_valid = true;
-		gcontext->new_paths_list = lappend(gcontext->new_paths_list, path);
+		save_cluster_grouping_path(gcontext, path, rlist);
 	}
 
 	if (gcontext->can_hash &&
@@ -10030,14 +10009,13 @@ static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *
 									  quals,
 									  costs,
 									  num_groups);
-		path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(subpath));
-		Assert(path->reduce_info_list != NIL);
-		path->reduce_is_valid = true;
-		gcontext->new_paths_list = lappend(gcontext->new_paths_list, path);
+		save_cluster_grouping_path(gcontext, path, rlist);
 	}
 
 	if (gcontext->can_batch &&
-		gcontext->can_hash)
+		gcontext->can_hash &&
+		/* simple and final should generate in create_cluster_batch_grouping_path function */
+		gcontext->split == AGGSPLIT_INITIAL_SERIAL)
 	{
 		uint32		num_batches;
 
@@ -10071,11 +10049,65 @@ static int create_cluster_grouping_path(PlannerInfo *root, Path *subpath, void *
 										  costs,
 										  num_groups);
 			((AggPath*)path)->num_batches = num_batches;
-			path->reduce_info_list = CopyReduceInfoList(get_reduce_info_list(subpath));
-			Assert(path->reduce_info_list != NIL);
-			path->reduce_is_valid = true;
-			gcontext->new_paths_list = lappend(gcontext->new_paths_list, path);
+			save_cluster_grouping_path(gcontext, path, rlist);
 		}
+	}
+
+	return 0;
+}
+
+static int create_cluster_batch_grouping_path(PlannerInfo *root, Path *subpath, void *context)
+{
+	CreateGrupingPathsContext  *gcontext = context;
+	double						num_groups = gcontext->final_groups;
+	const AggClauseCosts	   *costs;
+	Path					   *path;
+	List					   *rlist = get_reduce_info_list(subpath);
+	uint32						num_batches;
+	Assert((gcontext->can_hash || gcontext->can_sort) && gcontext->can_batch);
+	Assert(subpath->parallel_workers > 0 && subpath->parallel_safe);
+
+	if (gcontext->split == AGGSPLIT_SIMPLE)
+	{
+		costs = gcontext->agg_once_costs;
+	}else if (gcontext->split == AGGSPLIT_FINAL_DESERIAL)
+	{
+		costs = gcontext->agg_final_costs;
+	}else
+	{
+		/* must simple or final, not initial */
+		Assert(false);
+		return 0;
+	}
+
+	if (num_groups > 1.0)
+		num_groups = get_cluster_grouping_number(rlist, num_groups);
+	num_groups /= (subpath->parallel_workers+1);
+	if (num_groups < 1.0)
+		num_groups = 1.0;
+
+	num_batches = gcontext->final_groups;
+	if (num_batches < BATCH_STORE_MIN_BATCH)
+		num_batches = BATCH_STORE_MIN_BATCH;
+	if (num_batches > BATCH_STORE_MAX_BATCH)
+		num_batches = BATCH_STORE_MAX_BATCH;
+
+	if (gcontext->can_hash &&
+		estimate_hashagg_tablesize(subpath, costs, num_groups) <= work_mem * 1024)
+	{
+		path = (Path*)create_agg_path(root,
+									  gcontext->grouped_rel,
+									  subpath,
+									  gcontext->final_target,
+									  AGG_BATCH_HASH,
+									  gcontext->split,
+									  gcontext->group_clause,
+									  gcontext->having_quals,
+									  costs,
+									  num_groups);
+		((AggPath*)path)->num_batches = num_batches;
+		path->parallel_aware = true;
+		save_cluster_grouping_path(gcontext, path, rlist);
 	}
 
 	return 0;
