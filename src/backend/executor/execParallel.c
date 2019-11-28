@@ -50,6 +50,7 @@
 #include "pgstat.h"
 #ifdef ADB_EXT
 #include "executor/nodeAgg.h"
+#include "executor/nodeBatchSort.h"
 #endif /* ADB_EXT */
 #ifdef ADB
 #include "executor/nodeClusterReduce.h"
@@ -292,6 +293,10 @@ ExecParallelEstimate(PlanState *planstate, ExecParallelEstimateContext *e)
 			if (planstate->plan->parallel_aware)
 				ExecAggEstimate((AggState*)planstate, e->pcxt);
 			break;
+		case T_BatchSortState:
+			if (planstate->plan->parallel_aware)
+				ExecBatchSortEstimate((BatchSortState*)planstate, e->pcxt);
+			break;
 #endif /* ADB_EXT */
 #ifdef ADB
 		case T_ClusterReduceState:
@@ -515,6 +520,10 @@ ExecParallelInitializeDSM(PlanState *planstate,
 		case T_AggState:
 			if (planstate->plan->parallel_aware)
 				ExecAggInitializeDSM((AggState*)planstate, d->pcxt);
+			break;
+		case T_BatchSortState:
+			if (planstate->plan->parallel_aware)
+				ExecBatchSortInitializeDSM((BatchSortState*)planstate, d->pcxt);
 			break;
 #endif /* ADB_EXT */
 #ifdef ADB
@@ -953,6 +962,10 @@ ExecParallelReInitializeDSM(PlanState *planstate,
 			if (planstate->plan->parallel_aware)
 				ExecAggReInitializeDSM((AggState*)planstate, pcxt);
 			break;
+		case T_BatchSortState:
+			if (planstate->plan->parallel_aware)
+				ExecBatchSortReInitializeDSM((BatchSortState*)planstate, pcxt);
+			break;
 #endif /* ADB_EXT */
 #ifdef ADB
 		case T_ClusterReduceState:
@@ -1271,6 +1284,10 @@ ExecParallelInitializeWorker(PlanState *planstate, ParallelWorkerContext *pwcxt)
 			if (planstate->plan->parallel_aware)
 				ExecAggInitializeWorker((AggState *) planstate,
 										pwcxt);
+			break;
+		case T_BatchSortState:
+			if (planstate->plan->parallel_aware)
+				ExecBatchSortInitializeWorker((BatchSortState*)planstate, pwcxt);
 			break;
 #endif /* ADB_EXT */
 #ifdef ADB

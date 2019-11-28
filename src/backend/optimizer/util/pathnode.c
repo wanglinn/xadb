@@ -3342,7 +3342,8 @@ BatchSortPath *create_batchsort_path(PlannerInfo *root,
 				 Path *subpath,
 				 List *pathkeys,
 				 List *groupClause,
-				 uint32 numBatches)
+				 uint32 numBatches,
+				 bool parallel_sort)
 {
 	BatchSortPath   *pathnode = makeNode(BatchSortPath);
 
@@ -3352,7 +3353,7 @@ BatchSortPath *create_batchsort_path(PlannerInfo *root,
 	pathnode->path.pathtarget = subpath->pathtarget;
 	/* For now, assume we are above any joins, so no parameterization */
 	pathnode->path.param_info = NULL;
-	pathnode->path.parallel_aware = false;
+	pathnode->path.parallel_aware = parallel_sort;
 	pathnode->path.parallel_safe = rel->consider_parallel &&
 		subpath->parallel_safe;
 	pathnode->path.parallel_workers = subpath->parallel_workers;

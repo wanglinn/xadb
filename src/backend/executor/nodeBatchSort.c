@@ -4,10 +4,70 @@
 #include "executor/nodeBatchSort.h"
 #include "fmgr.h"
 #include "miscadmin.h"
+#include "port/atomics.h"
+#include "storage/barrier.h"
 #include "utils/builtins.h"
 #include "utils/hashutils.h"
 #include "utils/tuplesort.h"
 #include "utils/typcache.h"
+
+typedef struct ParallelBatchSort
+{
+	Barrier				barrier;
+	pg_atomic_uint32	attached;
+	pg_atomic_uint32	cur_batch;
+	Size				tuplesort_size;	/* MAXIMUM_ALIGNOF*n */
+}ParallelBatchSort;
+
+#define PARALLEL_BATCH_SORT_SIZE		MAXALIGN(sizeof(ParallelBatchSort))
+#define PARALLEL_BATCH_SORT_SHARED(p,n)	\
+	(Sharedsort*)(((char*)p) + PARALLEL_BATCH_SORT_SIZE + (p)->tuplesort_size * n)
+
+static bool ExecNextParallelBatchSort(BatchSortState *state)
+{
+	ParallelBatchSort  *parallel = state->parallel;
+	BatchSort		   *plan = castNode(BatchSort, state->ss.ps.plan);
+	SortCoordinateData	coord;
+	uint32				cur_batch;
+	Assert(parallel != NULL);
+
+	if (state->curBatch >= 0 &&
+		state->curBatch < plan->numBatches &&
+		state->batches[state->curBatch] != NULL)
+	{
+		tuplesort_end(state->batches[state->curBatch]);
+		state->batches[state->curBatch] = NULL;
+	}
+
+	cur_batch = pg_atomic_fetch_add_u32(&parallel->cur_batch, 1);
+	if (cur_batch >= plan->numBatches)
+	{
+		state->curBatch = plan->numBatches;
+		return false;
+	}
+
+	Assert(state->batches[cur_batch] == NULL);
+	state->curBatch = cur_batch;
+	coord.isWorker = false;
+	coord.nParticipants = pg_atomic_read_u32(&parallel->attached);
+	coord.sharedsort = PARALLEL_BATCH_SORT_SHARED(parallel, cur_batch);
+	state->batches[cur_batch] = tuplesort_begin_heap(ExecGetResultType(outerPlanState(state)),
+													 plan->numSortCols,
+													 plan->sortColIdx,
+													 plan->sortOperators,
+													 plan->collations,
+													 plan->nullsFirst,
+													 work_mem,
+													 &coord,
+													 false);
+	tuplesort_performsort(state->batches[cur_batch]);
+	return true;
+}
+
+static TupleTableSlot *ExecEmptyBatchSort(PlanState *pstate)
+{
+	return ExecClearTuple(pstate->ps_ResultTupleSlot);
+}
 
 static TupleTableSlot *ExecBatchSort(PlanState *pstate)
 {
@@ -23,7 +83,17 @@ re_get_:
 							   NULL) == false &&
 		state->curBatch < castNode(BatchSort, pstate->plan)->numBatches-1)
 	{
-		state->curBatch++;
+		if (state->parallel)
+		{
+			if (ExecNextParallelBatchSort(state) == false)
+			{
+				ExecSetExecProcNode(pstate, ExecEmptyBatchSort);
+				return ExecClearTuple(slot);
+			}
+		}else
+		{
+			state->curBatch++;
+		}
 		goto re_get_;
 	}
 
@@ -37,6 +107,8 @@ static TupleTableSlot *ExecBatchSortFirst(PlanState *pstate)
 	PlanState		   *outerNode = outerPlanState(pstate);
 	TupleTableSlot	   *slot;
 	ListCell		   *lc;
+	ParallelBatchSort  *parallel = state->parallel;
+	SortCoordinateData	coord;
 	FunctionCallInfo	fcinfo;
 	uint32				hash;
 	int					i;
@@ -44,17 +116,30 @@ static TupleTableSlot *ExecBatchSortFirst(PlanState *pstate)
 	Assert(state->sort_Done == false);
 	Assert(list_length(state->groupFuns) == node->numGroupCols);
 
+	if (parallel)
+	{
+		BarrierAttach(&parallel->barrier);
+		pg_atomic_add_fetch_u32(&parallel->attached, 1);
+	}
+
 	for (i=node->numBatches;i>0;)
 	{
-		state->batches[--i] = tuplesort_begin_heap(ExecGetResultType(outerNode),
-												   node->numSortCols,
-												   node->sortColIdx,
-												   node->sortOperators,
-												   node->collations,
-												   node->nullsFirst,
-												   work_mem / node->numBatches,
-												   NULL,
-												   false);
+		--i;
+		if (parallel)
+		{
+			coord.isWorker = true;
+			coord.nParticipants = -1;
+			coord.sharedsort = PARALLEL_BATCH_SORT_SHARED(parallel, i);
+		}
+		state->batches[i] = tuplesort_begin_heap(ExecGetResultType(outerNode),
+												 node->numSortCols,
+												 node->sortColIdx,
+												 node->sortOperators,
+												 node->collations,
+												 node->nullsFirst,
+												 work_mem / node->numBatches,
+												 parallel ? &coord : NULL,
+												 false);
 	}
 
 	maxAttr = 0;
@@ -97,11 +182,29 @@ static TupleTableSlot *ExecBatchSortFirst(PlanState *pstate)
 
 	for (i=node->numBatches;i>0;)
 		tuplesort_performsort(state->batches[--i]);
-	state->curBatch = 0;
+	if (parallel)
+	{
+		for (i=node->numBatches;i>0;)
+		{
+			--i;
+			tuplesort_end(state->batches[i]);
+			state->batches[i] = NULL;
+		}
+		BarrierArriveAndWait(&parallel->barrier, 0);
+		BarrierDetach(&parallel->barrier);
+
+		if (ExecNextParallelBatchSort(state))
+			ExecSetExecProcNode(pstate, ExecBatchSort);
+		else
+			ExecSetExecProcNode(pstate, ExecEmptyBatchSort);
+	}else
+	{
+		state->curBatch = 0;
+		ExecSetExecProcNode(pstate, ExecBatchSort);
+	}
 	state->sort_Done = true;
 
-	ExecSetExecProcNode(pstate, ExecBatchSort);
-	return ExecBatchSort(pstate);
+	return (*pstate->ExecProcNodeReal)(pstate);
 }
 
 BatchSortState* ExecInitBatchSort(BatchSort *node, EState *estate, int eflags)
@@ -174,8 +277,11 @@ static void CleanBatchSort(BatchSortState *node)
 	{
 		for (i=castNode(BatchSort, node->ss.ps.plan)->numBatches;i>0;)
 		{
-			tuplesort_end(node->batches[--i]);
-			node->batches[i] = NULL;
+			if (node->batches[--i] != NULL)
+			{
+				tuplesort_end(node->batches[i]);
+				node->batches[i] = NULL;
+			}
 		}
 		node->sort_Done = false;
 	}
@@ -193,4 +299,75 @@ void ExecReScanBatchSort(BatchSortState *node)
 	CleanBatchSort(node);
 	if (outerPlanState(node)->chgParam != NULL)
 		ExecReScan(outerPlanState(node));
+	ExecSetExecProcNode(&node->ss.ps, ExecBatchSortFirst);
+}
+
+void ExecShutdownBatchSort(BatchSortState *node)
+{
+	CleanBatchSort(node);
+}
+
+void ExecBatchSortEstimate(BatchSortState *node, ParallelContext *pcxt)
+{
+	Size size = mul_size(MAXALIGN(tuplesort_estimate_shared(pcxt->nworkers)),
+						 castNode(BatchSort, node->ss.ps.plan)->numBatches);
+	size = add_size(size, PARALLEL_BATCH_SORT_SIZE);
+
+	shm_toc_estimate_chunk(&pcxt->estimator, size);
+	shm_toc_estimate_keys(&pcxt->estimator, 1);
+}
+
+static void InitializeBatchSortParallel(ParallelBatchSort *parallel,
+										int num_batches,
+										int num_workers,
+										dsm_segment *seg)
+{
+	int i;
+	BarrierInit(&parallel->barrier, 0);
+	pg_atomic_init_u32(&parallel->attached, 0);
+	pg_atomic_init_u32(&parallel->cur_batch, 0);
+	for (i=0;i<num_batches;++i)
+	{
+		tuplesort_initialize_shared(PARALLEL_BATCH_SORT_SHARED(parallel, i),
+									num_workers,
+									seg);
+	}
+}
+
+void ExecBatchSortInitializeDSM(BatchSortState *node, ParallelContext *pcxt)
+{
+	ParallelBatchSort *parallel;
+	BatchSort *plan = castNode(BatchSort, node->ss.ps.plan);
+	Size tuplesort_size = MAXALIGN(tuplesort_estimate_shared(pcxt->nworkers));
+	Size size = mul_size(tuplesort_size, plan->numBatches);
+	size = add_size(PARALLEL_BATCH_SORT_SIZE, size);
+
+	node->parallel = parallel = shm_toc_allocate(pcxt->toc, size);
+	parallel->tuplesort_size = tuplesort_size;
+	InitializeBatchSortParallel(parallel, plan->numBatches, pcxt->nworkers, pcxt->seg);
+	shm_toc_insert(pcxt->toc, plan->plan.plan_node_id, parallel);
+}
+
+void ExecBatchSortReInitializeDSM(BatchSortState *node, ParallelContext *pcxt)
+{
+	InitializeBatchSortParallel(node->parallel,
+								castNode(BatchSort, node->ss.ps.plan)->numBatches,
+								pcxt->nworkers,
+								pcxt->seg);
+	ExecSetExecProcNode(&node->ss.ps, ExecBatchSortFirst);
+}
+
+void ExecBatchSortInitializeWorker(BatchSortState *node, ParallelWorkerContext *pwcxt)
+{
+	uint32 i;
+	BatchSort *plan = castNode(BatchSort, node->ss.ps.plan);
+	ParallelBatchSort *parallel = shm_toc_lookup(pwcxt->toc,
+												 plan->plan.plan_node_id,
+												 false);
+	node->parallel = parallel;
+	for (i=0;i<plan->numBatches;++i)
+	{
+		tuplesort_attach_shared(PARALLEL_BATCH_SORT_SHARED(parallel, i),
+								pwcxt->seg);
+	}
 }

@@ -1905,6 +1905,8 @@ typedef struct BatchSortState
 	ScanState	ss;				/* its first field is NodeTag */
 	void	  **batches;			/* private state of tuplesort.c */
 	List	   *groupFuns;		/* hash function call info for each group-key */
+	struct ParallelBatchSort
+			   *parallel;		/* parallel info, private in nodeBatchSort.c */
 	int			curBatch;		/* current batch index */
 	bool		sort_Done;		/* sort completed yet? */
 }BatchSortState;
