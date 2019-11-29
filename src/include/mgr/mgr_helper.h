@@ -16,7 +16,14 @@
 #include "mgr/mgr_agent.h"
 #include "mgr/mgr_msg_type.h"
 #include "access/xlogdefs.h"
+#include "nodes/pg_list.h"
 #include "../../interfaces/libpq/libpq-fe.h"
+
+#define CHECK_SYNC_STANDBY_NAMES_SECONDS 60
+#define CHECK_GTM_INFO_SECONDS 60
+#define SHUTDOWN_NODE_FAST_SECONDS 5
+#define SHUTDOWN_NODE_IMMEDIATE_SECONDS 90
+#define STARTUP_NODE_SECONDS 90
 
 #define EXTRACT_GTM_INFOMATION(gtmMaster, agtm_host,  \
 							   agtm_port)             \
@@ -101,6 +108,14 @@ typedef struct MgrNodeWrapper
 	dlist_node cmpLink;
 } MgrNodeWrapper;
 
+typedef struct SynchronousStandbyNamesConfig
+{
+	int num_sync;
+	uint8 syncrep_method;
+	List *syncStandbyNames;
+	List *potentialStandbyNames;
+} SynchronousStandbyNamesConfig;
+
 static inline PGHbaItem *newPGHbaItem(ConnectType type,
 									  char *database,
 									  char *user,
@@ -177,9 +192,10 @@ static inline PGConfParameterItem *newPGConfParameterItem(char *name,
 														  char *value,
 														  bool quoteValue)
 {
+	Assert(name != NULL);
 	PGConfParameterItem *item = palloc(sizeof(PGConfParameterItem));
 	item->name = psprintf("%s", name);
-	item->value = psprintf("%s", value);
+	item->value = psprintf("%s", (value == NULL) ? "" : value);
 	item->quoteValue = quoteValue;
 	item->next = NULL;
 	return item;
@@ -342,6 +358,9 @@ extern void selectActiveMgrSlaveNodes(Oid masterOid,
 									  char nodetype,
 									  MemoryContext spiContext,
 									  dlist_head *resultList);
+extern void selectSiblingActiveNodes(MgrNodeWrapper *faultNode,
+									 dlist_head *resultList,
+									 MemoryContext spiContext);
 extern void selectIsolatedMgrSlaveNodes(Oid masterOid,
 										char nodetype,
 										MemoryContext spiContext,
@@ -365,6 +384,9 @@ extern MgrNodeWrapper *selectMgrGtmCoordNode(MemoryContext spiContext);
 extern int updateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 								   char *newCurestatus,
 								   MemoryContext spiContext);
+extern int updateMgrNodeNodesync(MgrNodeWrapper *mgrNode,
+								 char *newNodesync,
+								 MemoryContext spiContext);
 extern int updateMgrNodeAfterFollowMaster(MgrNodeWrapper *mgrNode,
 										  char *newCurestatus,
 										  MemoryContext spiContext);
@@ -558,5 +580,30 @@ extern NameData getMgrNodePgxcNodeName(MgrNodeWrapper *mgrNode,
 extern bool isGtmCoordMgrNode(char nodetype);
 extern bool isDataNodeMgrNode(char nodetype);
 extern bool isCoordinatorMgrNode(char nodetype);
+extern bool is_equal_string(char *a, char *b);
+extern bool list_contain_string(const List *list, char *str);
+extern List *list_delete_string(List *list, char *str, bool deep);
+extern bool isSameNodeZone(MgrNodeWrapper *mgrNode1, MgrNodeWrapper *mgrNode2);
+extern bool isSameNodeName(MgrNodeWrapper *mgrNode1, MgrNodeWrapper *mgrNode2);
+extern SynchronousStandbyNamesConfig *parseSynchronousStandbyNamesConfig(char *synchronous_standby_names,
+																		 bool complain);
+extern char *transformSynchronousStandbyNamesConfig(List *syncStandbyNames,
+													List *potentialStandbyNames);
+/**
+ * This function may modify MgrNodeWrapper field form.nodesync.
+ */
+extern void appendToSyncStandbyNames(MgrNodeWrapper *masterNode,
+									 MgrNodeWrapper *slaveNode,
+									 dlist_head *siblingSlaveNodes,
+									 PGconn *masterPGconn,
+									 MemoryContext spiContext);
+/**
+ * This function may modify MgrNodeWrapper's field form.nodesync.
+ */
+extern void removeFromSyncStandbyNames(MgrNodeWrapper *masterNode,
+									   MgrNodeWrapper *slaveNode,
+									   dlist_head *siblingSlaveNodes,
+									   PGconn *masterPGconn,
+									   MemoryContext spiContext);
 
 #endif /* MGR_HELPER_H */

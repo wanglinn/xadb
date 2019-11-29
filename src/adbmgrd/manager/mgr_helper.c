@@ -18,6 +18,7 @@
 #include "../../src/interfaces/libpq/libpq-fe.h"
 #include "../../src/interfaces/libpq/libpq-int.h"
 #include "catalog/pgxc_node.h"
+#include "replication/syncrep.h"
 
 static MgrHostWrapper *popHeadMgrHostPfreeOthers(dlist_head *mgrHosts);
 static MgrNodeWrapper *popHeadMgrNodePfreeOthers(dlist_head *mgrNodes);
@@ -370,7 +371,8 @@ void selectMgrAllDataNodes(MemoryContext spiContext,
 /**
  * the list link data type is MgrNodeWrapper
  */
-void selectActiveMgrSlaveNodes(Oid masterOid, char nodetype,
+void selectActiveMgrSlaveNodes(Oid masterOid,
+							   char nodetype,
 							   MemoryContext spiContext,
 							   dlist_head *resultList)
 {
@@ -382,14 +384,40 @@ void selectActiveMgrSlaveNodes(Oid masterOid, char nodetype,
 					 "FROM pg_catalog.mgr_node "
 					 "WHERE nodetype = '%c' "
 					 "AND nodeinited = %d::boolean "
-					 "AND nodemasternameoid = %u "
 					 "AND nodeincluster = %d::boolean "
+					 "AND nodemasternameoid = %u "
 					 "AND curestatus != '%s' ",
 					 nodetype,
 					 true,
-					 masterOid,
 					 true,
+					 masterOid,
 					 CURE_STATUS_ISOLATED);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
+
+void selectSiblingActiveNodes(MgrNodeWrapper *faultNode,
+							  dlist_head *resultList,
+							  MemoryContext spiContext)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node \n"
+					 "WHERE nodetype in ('%c') \n"
+					 "AND nodeinited = %d::boolean \n"
+					 "AND nodeincluster = %d::boolean \n"
+					 "AND nodemasternameoid = %u \n"
+					 "AND curestatus != '%s' \n"
+					 "AND nodename != '%s' \n",
+					 faultNode->form.nodetype,
+					 true,
+					 true,
+					 faultNode->form.nodemasternameoid,
+					 CURE_STATUS_ISOLATED,
+					 NameStr(faultNode->form.nodename));
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
@@ -571,6 +599,40 @@ int updateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 					 newCurestatus,
 					 mgrNode->oid,
 					 NameStr(mgrNode->form.curestatus),
+					 mgrNode->form.nodetype);
+	oldCtx = MemoryContextSwitchTo(spiContext);
+	spiRes = SPI_execute(buf.data, false, 0);
+	MemoryContextSwitchTo(oldCtx);
+	pfree(buf.data);
+	if (spiRes != SPI_OK_UPDATE)
+		ereport(ERROR,
+				(errmsg("SPI_execute failed: error code %d",
+						spiRes)));
+	rows = SPI_processed;
+	return rows;
+}
+
+int updateMgrNodeNodesync(MgrNodeWrapper *mgrNode,
+						  char *newNodesync,
+						  MemoryContext spiContext)
+{
+	StringInfoData buf;
+	int spiRes;
+	uint64 rows;
+	MemoryContext oldCtx;
+
+	initStringInfo(&buf);
+	appendStringInfo(&buf,
+					 "update pg_catalog.mgr_node "
+					 "set nodesync = '%s' "
+					 "WHERE oid = %u "
+					 "and nodemasternameoid = %u "
+					 "and nodesync = '%s' "
+					 "and nodetype = '%c' ",
+					 newNodesync,
+					 mgrNode->oid,
+					 mgrNode->form.nodemasternameoid,
+					 NameStr(mgrNode->form.nodesync),
 					 mgrNode->form.nodetype);
 	oldCtx = MemoryContextSwitchTo(spiContext);
 	spiRes = SPI_execute(buf.data, false, 0);
@@ -1111,7 +1173,8 @@ bool equalsNodeParameter(PGconn *pgConn, char *name, char *expectValue)
 	bool equal;
 	char *actualValue;
 	actualValue = showNodeParameter(pgConn, name, true);
-	equal = strcmp(actualValue, expectValue) == 0;
+	equal = is_equal_string(actualValue, expectValue) ||
+			((actualValue == NULL || strlen(actualValue) == 0) && expectValue == NULL);
 	pfree(actualValue);
 	return equal;
 }
@@ -1237,7 +1300,7 @@ bool exec_pgxc_pool_reload(PGconn *coordCoon,
 	else
 		sql = psprintf("set FORCE_PARALLEL_MODE = off; "
 					   "EXECUTE DIRECT ON (\"%s\") "
-					   "'select pgxc_pool_reload();'",
+					   "'select pgxc_pool_reload();';",
 					   executeOnNodeName);
 	res = PQexecBoolQuery(coordCoon, sql, true, complain);
 	pfree(sql);
@@ -3137,4 +3200,566 @@ bool isCoordinatorMgrNode(char nodetype)
 {
 	return nodetype == CNDN_TYPE_COORDINATOR_MASTER ||
 		   nodetype == CNDN_TYPE_COORDINATOR_SLAVE;
+}
+
+bool is_equal_string(char *a, char *b)
+{
+	return (a != NULL && b != NULL) ? (strcmp(a, b) == 0) : (a == b);
+}
+
+bool list_contain_string(const List *list, char *str)
+{
+	ListCell *cell;
+
+	foreach (cell, list)
+	{
+		if (is_equal_string((char *)lfirst(cell), str))
+			return true;
+	}
+	return false;
+}
+
+List *list_delete_string(List *list, char *str, bool deep)
+{
+	ListCell *cell;
+	ListCell *prev;
+
+	prev = NULL;
+	foreach (cell, list)
+	{
+		if (is_equal_string((char *)lfirst(cell), str))
+		{
+			if (deep)
+				pfree(lfirst(cell));
+			return list_delete_cell(list, cell, prev);
+		}
+		prev = cell;
+	}
+	return list;
+}
+
+bool isSameNodeZone(MgrNodeWrapper *mgrNode1, MgrNodeWrapper *mgrNode2)
+{
+	return is_equal_string(NameStr(mgrNode1->form.nodezone),
+						   NameStr(mgrNode2->form.nodezone));
+}
+
+bool isSameNodeName(MgrNodeWrapper *mgrNode1, MgrNodeWrapper *mgrNode2)
+{
+	return is_equal_string(NameStr(mgrNode1->form.nodename),
+						   NameStr(mgrNode2->form.nodename));
+}
+
+SynchronousStandbyNamesConfig *parseSynchronousStandbyNamesConfig(char *synchronous_standby_names,
+																  bool complain)
+{
+	SynchronousStandbyNamesConfig *synchronousStandbyNamesConfig = NULL;
+	ErrorData *edata = NULL;
+	SyncRepConfigData *syncrep_parse_result_save = syncrep_parse_result;
+	char *syncrep_parse_error_msg_save = syncrep_parse_error_msg;
+	int i;
+	char *standby_name;
+	MemoryContext oldContext;
+	MemoryContext tempContext;
+
+	oldContext = CurrentMemoryContext;
+	tempContext = AllocSetContextCreate(oldContext,
+										"tempContext",
+										ALLOCSET_DEFAULT_SIZES);
+	MemoryContextSwitchTo(tempContext);
+
+	PG_TRY();
+	{
+		if (synchronous_standby_names != NULL &&
+			synchronous_standby_names[0] != '\0')
+		{
+			int parse_rc;
+			/* Reset communication variables to ensure a fresh start */
+			syncrep_parse_result = NULL;
+			syncrep_parse_error_msg = NULL;
+
+			/* Parse the synchronous_standby_names string */
+			syncrep_scanner_init(synchronous_standby_names);
+			parse_rc = syncrep_yyparse();
+			syncrep_scanner_finish();
+
+			if (parse_rc != 0 || syncrep_parse_result == NULL)
+			{
+				ereport(complain ? ERROR : WARNING,
+						(errmsg("%s",
+								(syncrep_parse_error_msg == NULL)
+									? "synchronous_standby_names parser failed"
+									: syncrep_parse_error_msg)));
+			}
+			else
+			{
+				if (syncrep_parse_result->num_sync <= 0)
+				{
+					ereport(complain ? ERROR : WARNING,
+							(errmsg("number of synchronous standbys (%d) must be greater than zero",
+									syncrep_parse_result->num_sync)));
+				}
+				else
+				{
+					(void)MemoryContextSwitchTo(oldContext);
+
+					synchronousStandbyNamesConfig = palloc0(sizeof(SynchronousStandbyNamesConfig));
+					synchronousStandbyNamesConfig->num_sync = syncrep_parse_result->num_sync;
+					synchronousStandbyNamesConfig->syncrep_method = syncrep_parse_result->syncrep_method;
+					standby_name = syncrep_parse_result->member_names;
+					for (i = 1; i <= syncrep_parse_result->nmembers; i++)
+					{
+						if (i <= synchronousStandbyNamesConfig->num_sync)
+							synchronousStandbyNamesConfig->syncStandbyNames =
+								lappend(synchronousStandbyNamesConfig->syncStandbyNames,
+										psprintf("%s", standby_name));
+						else
+							synchronousStandbyNamesConfig->potentialStandbyNames =
+								lappend(synchronousStandbyNamesConfig->potentialStandbyNames,
+										psprintf("%s", standby_name));
+						standby_name += strlen(standby_name) + 1;
+					}
+
+					(void)MemoryContextSwitchTo(tempContext);
+				}
+			}
+		}
+		else
+		{
+			synchronousStandbyNamesConfig = NULL;
+		}
+	}
+	PG_CATCH();
+	{
+		/* Save error info in our stmt_mcontext */
+		MemoryContextSwitchTo(oldContext);
+		edata = CopyErrorData();
+		FlushErrorState();
+	}
+	PG_END_TRY();
+
+	syncrep_parse_result = syncrep_parse_result_save;
+	syncrep_parse_error_msg = syncrep_parse_error_msg_save;
+
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(tempContext);
+
+	if (edata)
+	{
+		if (synchronousStandbyNamesConfig)
+		{
+			pfree(synchronousStandbyNamesConfig);
+			synchronousStandbyNamesConfig = NULL;
+		}
+		ReThrowError(edata);
+	}
+
+	return synchronousStandbyNamesConfig;
+}
+
+char *transformSynchronousStandbyNamesConfig(List *syncStandbyNames,
+											 List *potentialStandbyNames)
+{
+	int nSyncs;
+	char *synchronous_standby_names;
+	char *tempStr;
+	ListCell *cell;
+
+	nSyncs = 0;
+	synchronous_standby_names = NULL;
+	if (list_length(syncStandbyNames) > 0)
+	{
+		nSyncs = list_length(syncStandbyNames);
+		foreach (cell, syncStandbyNames)
+		{
+			if (synchronous_standby_names)
+			{
+				tempStr = psprintf("%s,%s", synchronous_standby_names, (char *)lfirst(cell));
+				pfree(synchronous_standby_names);
+				synchronous_standby_names = tempStr;
+			}
+			else
+				synchronous_standby_names = psprintf("%s", (char *)lfirst(cell));
+		}
+	}
+	if (list_length(potentialStandbyNames) > 0)
+	{
+		if (nSyncs < 1)
+			nSyncs = 1;
+		foreach (cell, potentialStandbyNames)
+		{
+			if (synchronous_standby_names)
+			{
+				tempStr = psprintf("%s,%s", synchronous_standby_names, (char *)lfirst(cell));
+				pfree(synchronous_standby_names);
+				synchronous_standby_names = tempStr;
+			}
+			else
+				synchronous_standby_names = psprintf("%s", (char *)lfirst(cell));
+		}
+	}
+
+	if (synchronous_standby_names)
+	{
+		tempStr = psprintf("FIRST %d (%s)", nSyncs, synchronous_standby_names);
+		pfree(synchronous_standby_names);
+		synchronous_standby_names = tempStr;
+	}
+	return synchronous_standby_names;
+}
+
+static void checkIfNodesyncChangedAndUpdateIt(MgrNodeWrapper *masterNode,
+											  MgrNodeWrapper *mgrNode,
+											  List *syncStandbyNames,
+											  List *potentialStandbyNames,
+											  MemoryContext spiContext)
+{
+	NameData newNodesync;
+	ListCell *cell;
+	char *nodename;
+	bool found;
+
+	if (isSameNodeZone(masterNode, mgrNode))
+	{
+		found = false;
+		namestrcpy(&newNodesync, getMgrNodeSyncStateValue(SYNC_STATE_SYNC));
+		foreach (cell, syncStandbyNames)
+		{
+			nodename = (char *)lfirst(cell);
+			if (is_equal_string(NameStr(mgrNode->form.nodename), nodename))
+			{
+				found = true;
+				break;
+			}
+		}
+		if (!found)
+		{
+			namestrcpy(&newNodesync, getMgrNodeSyncStateValue(SYNC_STATE_POTENTIAL));
+			foreach (cell, potentialStandbyNames)
+			{
+				nodename = (char *)lfirst(cell);
+				if (is_equal_string(NameStr(mgrNode->form.nodename), nodename))
+				{
+					found = true;
+					break;
+				}
+			}
+		}
+		if (!found)
+		{
+			namestrcpy(&newNodesync, getMgrNodeSyncStateValue(SYNC_STATE_ASYNC));
+		}
+		if (!is_equal_string(NameStr(newNodesync), NameStr(mgrNode->form.nodesync)))
+		{
+			if (updateMgrNodeNodesync(mgrNode, NameStr(newNodesync), spiContext) == 1)
+				namecpy(&mgrNode->form.nodesync, &newNodesync);
+			else
+				ereport(ERROR,
+						(errmsg("%s try to change nodesync from '%s' to '%s' failed",
+								NameStr(mgrNode->form.nodename),
+								NameStr(mgrNode->form.nodesync),
+								NameStr(newNodesync))));
+		}
+	}
+}
+
+/**
+ * This function may modify slaveNode's field form.nodesync.
+ */
+void appendToSyncStandbyNames(MgrNodeWrapper *masterNode,
+							  MgrNodeWrapper *slaveNode,
+							  dlist_head *siblingSlaveNodes,
+							  PGconn *masterPGconn,
+							  MemoryContext spiContext)
+{
+	char *oldSyncConfigStr;
+	char *newSyncConfigStr;
+	SynchronousStandbyNamesConfig *synchronousStandbyNamesConfig;
+	List *syncStandbyNames;
+	List *potentialStandbyNames;
+	bool found;
+	dlist_iter iter;
+	MgrNodeWrapper *mgrNode;
+
+	oldSyncConfigStr = showNodeParameter(masterPGconn,
+										 "synchronous_standby_names", true);
+	synchronousStandbyNamesConfig =
+		parseSynchronousStandbyNamesConfig(oldSyncConfigStr, true);
+	if (synchronousStandbyNamesConfig)
+	{
+		syncStandbyNames = synchronousStandbyNamesConfig->syncStandbyNames;
+		potentialStandbyNames = synchronousStandbyNamesConfig->potentialStandbyNames;
+	}
+	else
+	{
+		syncStandbyNames = NIL;
+		potentialStandbyNames = NIL;
+	}
+
+	if (isSameNodeZone(masterNode, slaveNode))
+	{
+		if (list_contain_string(syncStandbyNames,
+								NameStr(slaveNode->form.nodename)))
+		{
+			potentialStandbyNames = list_delete_string(potentialStandbyNames,
+													   NameStr(slaveNode->form.nodename),
+													   true);
+		}
+		else
+		{
+			/* By default, expect one sync node in the current zone */
+			found = false;
+			if (siblingSlaveNodes)
+			{
+				dlist_foreach(iter, siblingSlaveNodes)
+				{
+					mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+					if (isSameNodeZone(masterNode, mgrNode))
+					{
+						if (list_contain_string(syncStandbyNames,
+												NameStr(mgrNode->form.nodename)))
+						{
+							found = true;
+							break;
+						}
+					}
+				}
+			}
+			if (found)
+			{
+				if (!list_contain_string(potentialStandbyNames,
+										 NameStr(slaveNode->form.nodename)))
+				{
+					/* current zone Prepend */
+					potentialStandbyNames = lcons(psprintf("%s", NameStr(slaveNode->form.nodename)),
+												  potentialStandbyNames);
+				}
+			}
+			else
+			{
+				potentialStandbyNames = list_delete_string(potentialStandbyNames,
+														   NameStr(slaveNode->form.nodename),
+														   true);
+				/* current zone Prepend */
+				syncStandbyNames = lcons(psprintf("%s", NameStr(slaveNode->form.nodename)),
+										 syncStandbyNames);
+			}
+		}
+	}
+	else
+	{
+		if (is_equal_string(NameStr(slaveNode->form.nodesync),
+							getMgrNodeSyncStateValue(SYNC_STATE_SYNC)))
+		{
+			potentialStandbyNames = list_delete_string(potentialStandbyNames,
+													   NameStr(slaveNode->form.nodename),
+													   true);
+			if (!list_contain_string(syncStandbyNames,
+									 NameStr(slaveNode->form.nodename)))
+			{
+				/* other zone append */
+				syncStandbyNames = lappend(syncStandbyNames,
+										   psprintf("%s", NameStr(slaveNode->form.nodename)));
+			}
+		}
+		else if (is_equal_string(NameStr(slaveNode->form.nodesync),
+								 getMgrNodeSyncStateValue(SYNC_STATE_POTENTIAL)))
+		{
+			syncStandbyNames = list_delete_string(syncStandbyNames,
+												  NameStr(slaveNode->form.nodename),
+												  true);
+			if (!list_contain_string(potentialStandbyNames,
+									 NameStr(slaveNode->form.nodename)))
+			{
+				/* other zone append */
+				potentialStandbyNames = lappend(potentialStandbyNames,
+												psprintf("%s", NameStr(slaveNode->form.nodename)));
+			}
+		}
+		else
+		{
+			/* It is an asynchronous standby, no need set synchronous_standby_names. */
+			syncStandbyNames = list_delete_string(syncStandbyNames,
+												  NameStr(slaveNode->form.nodename),
+												  true);
+			potentialStandbyNames = list_delete_string(potentialStandbyNames,
+													   NameStr(slaveNode->form.nodename),
+													   true);
+		}
+	}
+
+	if (siblingSlaveNodes)
+	{
+		dlist_foreach(iter, siblingSlaveNodes)
+		{
+			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+			if (!isSameNodeName(slaveNode, mgrNode))
+			{
+				checkIfNodesyncChangedAndUpdateIt(masterNode,
+												  mgrNode,
+												  syncStandbyNames,
+												  potentialStandbyNames,
+												  spiContext);
+			}
+		}
+	}
+	checkIfNodesyncChangedAndUpdateIt(masterNode,
+									  slaveNode,
+									  syncStandbyNames,
+									  potentialStandbyNames,
+									  spiContext);
+
+	newSyncConfigStr = transformSynchronousStandbyNamesConfig(syncStandbyNames,
+															  potentialStandbyNames);
+	if (!is_equal_string(oldSyncConfigStr, newSyncConfigStr))
+	{
+		ereport(LOG,
+				(errmsg("%s try to change synchronous_standby_names from '%s' to '%s'",
+						NameStr(masterNode->form.nodename),
+						oldSyncConfigStr,
+						newSyncConfigStr)));
+		setCheckSynchronousStandbyNames(masterNode,
+										masterPGconn,
+										newSyncConfigStr,
+										CHECK_SYNC_STANDBY_NAMES_SECONDS);
+	}
+
+	if (oldSyncConfigStr)
+		pfree(oldSyncConfigStr);
+	if (newSyncConfigStr)
+		pfree(newSyncConfigStr);
+	if (syncStandbyNames)
+		list_free_deep(syncStandbyNames);
+	if (potentialStandbyNames)
+		list_free_deep(potentialStandbyNames);
+	if (synchronousStandbyNamesConfig)
+		pfree(synchronousStandbyNamesConfig);
+}
+
+/**
+ * This function may modify MgrNodeWrapper's field form.nodesync.
+ */
+void removeFromSyncStandbyNames(MgrNodeWrapper *masterNode,
+								MgrNodeWrapper *slaveNode,
+								dlist_head *siblingSlaveNodes,
+								PGconn *masterPGconn,
+								MemoryContext spiContext)
+{
+	char *oldSyncConfigStr;
+	char *newSyncConfigStr;
+	SynchronousStandbyNamesConfig *synchronousStandbyNamesConfig;
+	List *syncStandbyNames;
+	List *potentialStandbyNames;
+	dlist_iter iter;
+	MgrNodeWrapper *mgrNode;
+
+	oldSyncConfigStr = showNodeParameter(masterPGconn,
+										 "synchronous_standby_names", true);
+	synchronousStandbyNamesConfig =
+		parseSynchronousStandbyNamesConfig(oldSyncConfigStr, true);
+	if (synchronousStandbyNamesConfig)
+	{
+		syncStandbyNames = synchronousStandbyNamesConfig->syncStandbyNames;
+		potentialStandbyNames = synchronousStandbyNamesConfig->potentialStandbyNames;
+	}
+	else
+	{
+		syncStandbyNames = NIL;
+		potentialStandbyNames = NIL;
+	}
+
+	if (isSameNodeZone(masterNode, slaveNode))
+	{
+		if (list_contain_string(syncStandbyNames,
+								NameStr(slaveNode->form.nodename)))
+		{
+			syncStandbyNames = list_delete_string(syncStandbyNames,
+												  NameStr(slaveNode->form.nodename),
+												  true);
+			/* pick one from potential to sync */
+			if (siblingSlaveNodes)
+			{
+				dlist_foreach(iter, siblingSlaveNodes)
+				{
+					mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+					if (isSameNodeZone(masterNode, mgrNode))
+					{
+						if (list_contain_string(potentialStandbyNames,
+												NameStr(mgrNode->form.nodename)))
+						{
+							potentialStandbyNames = list_delete_string(potentialStandbyNames,
+																	   NameStr(mgrNode->form.nodename),
+																	   true);
+							/* current zone Prepend */
+							syncStandbyNames = lcons(psprintf("%s", NameStr(mgrNode->form.nodename)),
+													 syncStandbyNames);
+							break;
+						}
+					}
+				}
+			}
+		}
+		else
+		{
+			potentialStandbyNames = list_delete_string(potentialStandbyNames,
+													   NameStr(slaveNode->form.nodename),
+													   true);
+		}
+	}
+	else
+	{
+		syncStandbyNames = list_delete_string(syncStandbyNames,
+											  NameStr(slaveNode->form.nodename),
+											  true);
+		potentialStandbyNames = list_delete_string(potentialStandbyNames,
+												   NameStr(slaveNode->form.nodename),
+												   true);
+	}
+
+	if (siblingSlaveNodes)
+	{
+		dlist_foreach(iter, siblingSlaveNodes)
+		{
+			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+			if (!isSameNodeName(slaveNode, mgrNode))
+			{
+				checkIfNodesyncChangedAndUpdateIt(masterNode,
+												  mgrNode,
+												  syncStandbyNames,
+												  potentialStandbyNames,
+												  spiContext);
+			}
+		}
+	}
+	checkIfNodesyncChangedAndUpdateIt(masterNode,
+									  slaveNode,
+									  syncStandbyNames,
+									  potentialStandbyNames,
+									  spiContext);
+
+	newSyncConfigStr = transformSynchronousStandbyNamesConfig(syncStandbyNames,
+															  potentialStandbyNames);
+	if (!is_equal_string(oldSyncConfigStr, newSyncConfigStr))
+	{
+		ereport(LOG,
+				(errmsg("%s try to change synchronous_standby_names from '%s' to '%s'",
+						NameStr(masterNode->form.nodename),
+						oldSyncConfigStr,
+						newSyncConfigStr)));
+		setCheckSynchronousStandbyNames(masterNode,
+										masterPGconn,
+										newSyncConfigStr,
+										CHECK_SYNC_STANDBY_NAMES_SECONDS);
+	}
+
+	if (oldSyncConfigStr)
+		pfree(oldSyncConfigStr);
+	if (newSyncConfigStr)
+		pfree(newSyncConfigStr);
+	if (syncStandbyNames)
+		list_free_deep(syncStandbyNames);
+	if (potentialStandbyNames)
+		list_free_deep(potentialStandbyNames);
+	if (synchronousStandbyNamesConfig)
+		pfree(synchronousStandbyNamesConfig);
 }

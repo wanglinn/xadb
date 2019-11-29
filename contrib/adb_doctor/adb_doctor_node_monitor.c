@@ -2041,6 +2041,7 @@ static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 	NameData oldCurestatus;
 	NameData oldNodesync;
 	MemoryContext oldContext;
+	dlist_head siblingSlaveNodes = DLIST_STATIC_INIT(siblingSlaveNodes);
 
 	oldContext = CurrentMemoryContext;
 	memcpy(&oldCurestatus, &slaveNode->form.curestatus, sizeof(NameData));
@@ -2102,9 +2103,14 @@ static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 		}
 		else
 		{
+			selectSiblingActiveNodes(slaveNode,
+									 &siblingSlaveNodes,
+									 spiContext);
 			appendSlaveNodeFollowMaster(masterNode,
 										slaveNode,
-										masterPGconn);
+										&siblingSlaveNodes,
+										masterPGconn,
+										spiContext);
 		}
 		refreshMgrNodeAfterFollowMaster(slaveNode,
 										CURE_STATUS_NORMAL,
@@ -2153,6 +2159,7 @@ static bool rewindSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 	StringInfoData infosendmsg;
 	GetAgentCmdRst getAgentCmdRst;
 	MemoryContext oldContext;
+	dlist_head siblingSlaveNodes = DLIST_STATIC_INIT(siblingSlaveNodes);
 
 	oldContext = CurrentMemoryContext;
 	initStringInfo(&(getAgentCmdRst.description));
@@ -2201,9 +2208,14 @@ static bool rewindSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 							getAgentCmdRst.description.data)));
 		}
 
+		selectSiblingActiveNodes(slaveNode,
+								 &siblingSlaveNodes,
+								 spiContext);
 		appendSlaveNodeFollowMaster(rewindObject->masterNode,
 									slaveNode,
-									rewindObject->masterPGconn);
+									&siblingSlaveNodes,
+									rewindObject->masterPGconn,
+									spiContext);
 
 		refreshMgrNodeAfterFollowMaster(slaveNode,
 										CURE_STATUS_NORMAL,
