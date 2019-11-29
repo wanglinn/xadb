@@ -36,6 +36,10 @@
 #include "utils/dynamicreduce.h"	/* for StopDynamicReduceWorker() */
 #endif
 
+#ifdef ADBMGRD
+#include "postmaster/adbmonitor.h"
+#endif /* ADBMGRD */
+
 /*
  * This flag is set during proc_exit() to change ereport()'s behavior,
  * so that an ereport() from an on_proc_exit routine cannot get us out

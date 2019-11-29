@@ -2014,8 +2014,8 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 		subpaths_valid = true;
 		foreach(lcr, live_childrels)
 		{
-			childrel = (RelOptInfo *) lfirst(lcr);
 			Path	   *subpath;
+			childrel = (RelOptInfo *) lfirst(lcr);
 
 			if (childrel->pathlist == NIL)
 			{

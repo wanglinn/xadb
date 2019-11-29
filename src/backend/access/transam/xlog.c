@@ -5832,6 +5832,11 @@ recoveryStopsBefore(XLogReaderState *record)
 		}
 		/* fix: The left operand of '==' is a garbage value @ line:4703 */
 		recordXid = InvalidTransactionId;
+		isCommit = false;
+	}else
+	{
+		recordXid = InvalidTransactionId;
+		isCommit = false;
 	}
 #endif
 
