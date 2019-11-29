@@ -1208,6 +1208,16 @@ BEGIN_ENUM(AlterSubscriptionType)
 END_ENUM(AlterSubscriptionType)
 #endif /* NO_ENUM_AlterSubscriptionType */
 
+#if defined(ADB_GRAM_ORA)
+#ifndef NO_ENUM_IConvertAction
+BEGIN_ENUM(IConvertAction)
+	ENUM_VALUE(ICONVERT_CREATE)
+	ENUM_VALUE(ICONVERT_UPDATE)
+	ENUM_VALUE(ICONVERT_DELETE)
+END_ENUM(IConvertAction)
+#endif /* NO_ENUM_IConvertAction */
+#endif
+
 #if defined(ADB)
 #ifndef NO_ENUM_ClusterGatherType
 BEGIN_ENUM(ClusterGatherType)

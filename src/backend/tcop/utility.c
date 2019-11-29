@@ -24,7 +24,9 @@
 #include "access/xact.h"
 #include "access/xlog.h"
 #include "catalog/catalog.h"
+#ifdef ADB_GRAM_ORA
 #include "catalog/ora_convert.h"
+#endif /* ADB_GRAM_ORA */
 #include "catalog/namespace.h"
 #include "catalog/pg_inherits.h"
 #include "catalog/toasting.h"

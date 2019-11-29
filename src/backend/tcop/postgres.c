@@ -1701,7 +1701,11 @@ exec_simple_query(const char *query_string)
 			ereport(LOG,
 					(errmsg("duration: %s ms  grammar: %s  statement: %s",
 							msec_str,
+#ifdef ADB_GRAM_ORA
 							IsOracleGram(grammar) ? _("oracle") : _("postgres"),
+#else
+							_("postgres"),
+#endif /* ADB_GRAM_ORA */
 							query_string),
 					 errhidestmt(true),
 					 errdetail_execute(parsetree_list)));
