@@ -3716,8 +3716,8 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 	char *gtmMasterName;
 	char nodeport_buf[10];
 	char coordport_buf[10];
-	Oid dnhostoid;
-	int32 dnport;
+	Oid dnhostoid = InvalidOid;
+	int32 dnport = 0;
 	PGconn * pg_conn = NULL;
 	HeapTuple tup_result;
 	GetAgentCmdRst getAgentCmdRst;

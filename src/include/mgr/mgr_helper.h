@@ -192,8 +192,9 @@ static inline PGConfParameterItem *newPGConfParameterItem(char *name,
 														  char *value,
 														  bool quoteValue)
 {
+	PGConfParameterItem *item;
 	Assert(name != NULL);
-	PGConfParameterItem *item = palloc(sizeof(PGConfParameterItem));
+	item = palloc(sizeof(PGConfParameterItem));
 	item->name = psprintf("%s", name);
 	item->value = psprintf("%s", (value == NULL) ? "" : value);
 	item->quoteValue = quoteValue;
