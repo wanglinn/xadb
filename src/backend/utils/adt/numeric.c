@@ -552,6 +552,9 @@ static void accum_sum_final(NumericSumAccum *accum, NumericVar *result);
 static void accum_sum_copy(NumericSumAccum *dst, NumericSumAccum *src);
 static void accum_sum_combine(NumericSumAccum *accum, NumericSumAccum *accum2);
 
+#ifdef ADB_GRAM_ORA
+extern int parse_grammar;
+#endif
 
 /* ----------------------------------------------------------------------
  *
@@ -668,8 +671,10 @@ numeric_out(PG_FUNCTION_ARGS)
 
 	str = get_str_from_var(&x);
 
+#ifdef ADB_GRAM_ORA
 	/* terminal last '0' */
-	if (PG_NARGS() == 1 || PG_GETARG_BOOL(1) != false)
+	if (parse_grammar == PARSE_GRAM_ORACLE && 
+		(PG_NARGS() == 1 || PG_GETARG_BOOL(1) != false))
 	{
 		char *p = strrchr(str, '.');
 		int i;
@@ -693,6 +698,7 @@ numeric_out(PG_FUNCTION_ARGS)
 			}
 		}
 	}
+#endif
 
 	PG_RETURN_CSTRING(str);
 }
