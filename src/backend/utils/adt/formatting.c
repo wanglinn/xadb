@@ -5736,9 +5736,15 @@ numeric_to_char(PG_FUNCTION_ARGS)
 		x = DatumGetNumeric(DirectFunctionCall2(numeric_round,
 												NumericGetDatum(val),
 												Int32GetDatum(Num.post)));
-		orgnum = DatumGetCString(DirectFunctionCall2(numeric_out,
-													 NumericGetDatum(x),
-													 BoolGetDatum(false)));
+#ifdef ADB_GRAM_ORA
+		if (parse_grammar == PARSE_GRAM_ORACLE)
+			orgnum = DatumGetCString(DirectFunctionCall2(numeric_out,
+														NumericGetDatum(x),
+														BoolGetDatum(false)));
+		else
+#endif	/* ADB_GRAM_ORA */
+		orgnum = DatumGetCString(DirectFunctionCall1(numeric_out,
+													 NumericGetDatum(x)));
 
 		if (*orgnum == '-')
 		{
