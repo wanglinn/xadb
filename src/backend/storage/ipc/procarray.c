@@ -2132,7 +2132,6 @@ ProcArrayGetXactXmin(TransactionId xmin)
 	TransactionId 	result, xid;
 	int				index;
 	volatile PGXACT *pgxact;
-	volatile PGPROC	*proc;
 
 	LWLockAcquire(ProcArrayLock, LW_SHARED);	
 	result = xmin;
@@ -2140,7 +2139,6 @@ ProcArrayGetXactXmin(TransactionId xmin)
 	{
 		int			pgprocno = arrayP->pgprocnos[index];
 		pgxact = &allPgXact[pgprocno];
-		proc = &allProcs[pgprocno];
 
 		if (pgxact->vacuumFlags & PROC_IN_LOGICAL_DECODING)
 			continue;

@@ -241,9 +241,9 @@ static bool OnParallelPlanMessage(PlanInfo *pi, const char *data, int len, Oid n
 	/* try cache on disk */
 	if (pi->private)
 	{
+		ParallelPlanPrivate *private = pi->private;
 		DR_PLAN_DEBUG((errmsg("parallel plan %d(%p) sts got a tuple from %u length %d",
 							  pi->plan_id, pi, nodeoid, len)));
-		ParallelPlanPrivate *private = pi->private;
 		if (pi->type_convert)
 		{
 			mtup = ParallelConvertNodeTupIn(pi->convert_context,

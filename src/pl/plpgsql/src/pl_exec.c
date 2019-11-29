@@ -243,7 +243,7 @@ static HTAB *shared_cast_hash = NULL;
 #ifdef ADB_GRAM_ORA
 #define set_cursor_count(cur_, count)	((cur_)->row_count = (count))
 #else
-#define set_cursor_count(cur_, count)	((void*)0)
+#define set_cursor_count(cur_, count)	((void)true)
 #endif /* ADB_GRAM_ORA */
 static void coerce_function_result_tuple(PLpgSQL_execstate *estate,
 							 TupleDesc tupdesc);

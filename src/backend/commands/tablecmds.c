@@ -4187,7 +4187,7 @@ ATController(AlterTableStmt *parsetree,
 		ListCell *item;
 		ListCell *lcmd;
 		ListCell *ltab;
-		List *subcmds;
+		List *subcmds = NIL;
 		AlterTableCmd * cmd;
 		AlteredTableInfo *tab;
 		int pass;
