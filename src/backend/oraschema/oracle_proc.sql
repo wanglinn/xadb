@@ -717,6 +717,18 @@ CREATE OR REPLACE FUNCTION oracle.lpad(text, integer, text default ' '::text)
     RETURNS NULL ON NULL INPUT;
 
 /*
+ * Function: lpad
+ * Parameter Type: (text, numeric, text)
+ */
+CREATE OR REPLACE FUNCTION oracle.lpad(text, numeric, text default ' '::text)
+    RETURNS text
+    AS $$select pg_catalog.lpad($1, (pg_catalog.trunc($2))::integer, $3);$$
+    LANGUAGE SQL
+    IMMUTABLE
+--ADBONLY CLUSTER SAFE
+    RETURNS NULL ON NULL INPUT;
+
+/*
  * Function: rpad
  * Parameter Type: (text, integer, text)
  */
@@ -724,6 +736,18 @@ CREATE OR REPLACE FUNCTION oracle.rpad(text, integer, text default ' '::text)
     RETURNS text
     AS 'rpad'
     LANGUAGE INTERNAL
+    IMMUTABLE
+--ADBONLY CLUSTER SAFE
+    RETURNS NULL ON NULL INPUT;
+
+/*
+ * Function: rpad
+ * Parameter Type: (text, numeric, text)
+ */
+CREATE OR REPLACE FUNCTION oracle.rpad(text, numeric, text default ' '::text)
+    RETURNS text
+    AS $$select pg_catalog.rpad($1, (pg_catalog.trunc($2))::integer, $3);$$
+    LANGUAGE SQL
     IMMUTABLE
 --ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
