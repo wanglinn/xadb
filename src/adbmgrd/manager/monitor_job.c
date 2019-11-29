@@ -603,7 +603,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 	int agentPort;
 	int normalNodePort = 0;
 	Oid normalNodeHostOid;
-	Oid unNormalNodeTupleOid;
+	Oid unNormalNodeTupleOid = InvalidOid;
 	fdCtl *fdHandle = NULL;
 	struct sockaddr_in *serv_addr = NULL;
 	handleDnGtmArg nodeArg;
