@@ -52,6 +52,7 @@ static void sortNodesByWalLsnDesc(dlist_head *nodes);
 static bool checkIfSyncSlaveNodeIsRunning(MemoryContext spiContext,
 										  MgrNodeWrapper *masterNode);
 static void validateFailedSlavesForSwitch(MgrNodeWrapper *oldMaster,
+										  MgrNodeWrapper *newMaster,
 										  dlist_head *failedSlaves,
 										  bool forceSwitch);
 static void validateNewMasterCandidateForSwitch(MgrNodeWrapper *oldMaster,
@@ -62,12 +63,11 @@ static bool tryConnectNode(SwitcherNodeWrapper *node, int connectTimeout);
 static void classifyNodesForSwitch(dlist_head *nodes,
 								   dlist_head *runningNodes,
 								   dlist_head *failedNodes);
-static void runningSlavesFollowMaster(SwitcherNodeWrapper *masterNode,
-									  dlist_head *runningSlaves,
-									  MgrNodeWrapper *gtmMaster);
-static void appendSyncStandbyNames(MgrNodeWrapper *masterNode,
-								   MgrNodeWrapper *slaveNode,
-								   PGconn *masterPGconn);
+static void runningSlavesFollowNewMaster(SwitcherNodeWrapper *newMaster,
+										 SwitcherNodeWrapper *oldMaster,
+										 dlist_head *runningSlaves,
+										 MgrNodeWrapper *gtmMaster,
+										 MemoryContext spiContext);
 static int walLsnDesc(const void *node1, const void *node2);
 static void checkSet_pool_release_to_idle_timeout(SwitcherNodeWrapper *node);
 static void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
@@ -353,6 +353,7 @@ void switchDataNodeMaster(char *oldMasterName,
 							spiContext,
 							forceSwitch);
 		validateFailedSlavesForSwitch(oldMaster->mgrNode,
+									  newMaster->mgrNode,
 									  &failedSlaves,
 									  forceSwitch);
 		numberOfSlots = countAdbSlot(newMaster->pgConn,
@@ -396,9 +397,11 @@ void switchDataNodeMaster(char *oldMasterName,
 
 		/* The better slave node is in front of the list */
 		sortNodesByWalLsnDesc(&runningSlaves);
-		runningSlavesFollowMaster(newMaster,
-								  &runningSlaves,
-								  gtmMaster->mgrNode);
+		runningSlavesFollowNewMaster(newMaster,
+									 oldMaster,
+									 &runningSlaves,
+									 gtmMaster->mgrNode,
+									 spiContext);
 
 		holdLockCoordinator = getHoldLockCoordinator(&coordinators);
 		if (!holdLockCoordinator)
@@ -554,6 +557,7 @@ void switchGtmCoordMaster(char *oldMasterName,
 							spiContext,
 							forceSwitch);
 		validateFailedSlavesForSwitch(oldMaster->mgrNode,
+									  newMaster->mgrNode,
 									  &failedSlaves,
 									  forceSwitch);
 		CHECK_FOR_INTERRUPTS();
@@ -599,9 +603,11 @@ void switchGtmCoordMaster(char *oldMasterName,
 
 		/* The better slave node is in front of the list */
 		sortNodesByWalLsnDesc(&runningSlaves);
-		runningSlavesFollowMaster(newMaster,
-								  &runningSlaves,
-								  NULL);
+		runningSlavesFollowNewMaster(newMaster,
+									 oldMaster,
+									 &runningSlaves,
+									 NULL,
+									 spiContext);
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
 									&coordinators,
 									newMaster);
@@ -749,6 +755,7 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 										&failedSlaves,
 										&runningSlaves);
 		validateFailedSlavesForSwitch(oldMaster->mgrNode,
+									  newMaster->mgrNode,
 									  &failedSlaves,
 									  forceSwitch);
 		checkGetMasterCoordinators(spiContext,
@@ -808,10 +815,14 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 
 		appendSlaveNodeFollowMaster(newMaster->mgrNode,
 									oldMaster->mgrNode,
-									newMaster->pgConn);
-		runningSlavesFollowMaster(newMaster,
-								  &runningSlaves,
-								  gtmMaster->mgrNode);
+									NULL,
+									newMaster->pgConn,
+									spiContext);
+		runningSlavesFollowNewMaster(newMaster,
+									 oldMaster,
+									 &runningSlaves,
+									 gtmMaster->mgrNode,
+									 spiContext);
 
 		holdLockCoordinator = getHoldLockCoordinator(&coordinators);
 		if (!holdLockCoordinator)
@@ -953,6 +964,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 										&failedSlaves,
 										&runningSlaves);
 		validateFailedSlavesForSwitch(oldMaster->mgrNode,
+									  newMaster->mgrNode,
 									  &failedSlaves,
 									  forceSwitch);
 		checkGetMasterCoordinators(spiContext,
@@ -1051,10 +1063,14 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 
 		appendSlaveNodeFollowMaster(newMaster->mgrNode,
 									oldMaster->mgrNode,
-									newMaster->pgConn);
-		runningSlavesFollowMaster(newMaster,
-								  &runningSlaves,
-								  NULL);
+									NULL,
+									newMaster->pgConn,
+									spiContext);
+		runningSlavesFollowNewMaster(newMaster,
+									 oldMaster,
+									 &runningSlaves,
+									 NULL,
+									 spiContext);
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
 									&coordinators,
 									newMaster);
@@ -1553,7 +1569,9 @@ void switcherNodesToMgrNodes(dlist_head *switcherNodes,
 
 void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 								 MgrNodeWrapper *slaveNode,
-								 PGconn *masterPGconn)
+								 dlist_head *siblingSlaveNodes,
+								 PGconn *masterPGconn,
+								 MemoryContext spiContext)
 {
 	setPGHbaTrustSlaveReplication(masterNode, slaveNode);
 
@@ -1570,7 +1588,11 @@ void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 
 	waitForNodeRunningOk(slaveNode, false, NULL, NULL);
 
-	appendSyncStandbyNames(masterNode, slaveNode, masterPGconn);
+	appendToSyncStandbyNames(masterNode,
+							 slaveNode,
+							 siblingSlaveNodes,
+							 masterPGconn,
+							 spiContext);
 
 	ereport(LOG,
 			(errmsg("%s has followed master %s",
@@ -1972,6 +1994,7 @@ void checkGetMasterCoordinators(MemoryContext spiContext,
  * and then suddenly crashed, on this time, switching may cause data loss.
  */
 static void validateFailedSlavesForSwitch(MgrNodeWrapper *oldMaster,
+										  MgrNodeWrapper *newMaster,
 										  dlist_head *failedSlaves,
 										  bool forceSwitch)
 {
@@ -1986,17 +2009,23 @@ static void validateFailedSlavesForSwitch(MgrNodeWrapper *oldMaster,
 	}
 	else
 	{
-		dlist_foreach(iter, failedSlaves)
+		if (strcmp(NameStr(newMaster->form.nodesync),
+				   getMgrNodeSyncStateValue(SYNC_STATE_SYNC)) != 0)
 		{
-			node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-			if (strcmp(NameStr(node->mgrNode->form.nodesync),
-					   getMgrNodeSyncStateValue(SYNC_STATE_SYNC)) == 0)
+			dlist_foreach(iter, failedSlaves)
 			{
-				ereport(ERROR,
-						(errmsg("%s failed, but it is a Synchronous standby node of old master %s, "
-								"abort switching to avoid data loss",
-								NameStr(node->mgrNode->form.nodename),
-								NameStr(oldMaster->form.nodename))));
+				node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+				if (strcmp(NameStr(node->mgrNode->form.nodesync),
+						   getMgrNodeSyncStateValue(SYNC_STATE_SYNC)) == 0 &&
+					strcmp(NameStr(oldMaster->form.nodezone),
+						   NameStr(node->mgrNode->form.nodezone)) == 0)
+				{
+					ereport(ERROR,
+							(errmsg("%s failed, but it is a Synchronous standby node of old master %s, "
+									"abort switching to avoid data loss",
+									NameStr(node->mgrNode->form.nodename),
+									NameStr(oldMaster->form.nodename))));
+				}
 			}
 		}
 	}
@@ -2025,6 +2054,15 @@ static void validateNewMasterCandidateForSwitch(MgrNodeWrapper *oldMaster,
 		{
 			ereport(ERROR,
 					(errmsg("candidate %s is not a Synchronous standby node of old master %s, "
+							"abort switching to avoid data loss",
+							NameStr(candidate->mgrNode->form.nodename),
+							NameStr(oldMaster->form.nodename))));
+		}
+		if (strcmp(NameStr(oldMaster->form.nodezone),
+				   NameStr(candidate->mgrNode->form.nodezone)) != 0)
+		{
+			ereport(ERROR,
+					(errmsg("candidate %s is not in the same zone with old master %s, "
 							"abort switching to avoid data loss",
 							NameStr(candidate->mgrNode->form.nodename),
 							NameStr(oldMaster->form.nodename))));
@@ -2378,23 +2416,26 @@ static SwitcherNodeWrapper *checkGetSwitchoverOldMaster(Oid oldMasterOid,
 	return oldMaster;
 }
 
-static void runningSlavesFollowMaster(SwitcherNodeWrapper *masterNode,
-									  dlist_head *runningSlaves,
-									  MgrNodeWrapper *gtmMaster)
+static void runningSlavesFollowNewMaster(SwitcherNodeWrapper *newMaster,
+										 SwitcherNodeWrapper *oldMaster,
+										 dlist_head *runningSlaves,
+										 MgrNodeWrapper *gtmMaster,
+										 MemoryContext spiContext)
 {
 	dlist_mutable_iter iter;
 	SwitcherNodeWrapper *slaveNode;
 	dlist_head mgrNodes = DLIST_STATIC_INIT(mgrNodes);
+	dlist_head siblingSlaveNodes = DLIST_STATIC_INIT(siblingSlaveNodes);
 
 	/* config these slave node to follow new master and restart them */
 	dlist_foreach_modify(iter, runningSlaves)
 	{
 		slaveNode = dlist_container(SwitcherNodeWrapper,
 									link, iter.cur);
-		setPGHbaTrustSlaveReplication(masterNode->mgrNode,
+		setPGHbaTrustSlaveReplication(newMaster->mgrNode,
 									  slaveNode->mgrNode);
 		setSynchronousStandbyNames(slaveNode->mgrNode, "");
-		setSlaveNodeRecoveryConf(masterNode->mgrNode,
+		setSlaveNodeRecoveryConf(newMaster->mgrNode,
 								 slaveNode->mgrNode);
 		pfreeSwitcherNodeWrapperPGconn(slaveNode);
 	}
@@ -2413,6 +2454,8 @@ static void runningSlavesFollowMaster(SwitcherNodeWrapper *masterNode,
 								   STARTUP_NODE_SECONDS,
 								   true);
 
+	switcherNodesToMgrNodes(runningSlaves, &siblingSlaveNodes);
+	dlist_push_tail(&siblingSlaveNodes, &oldMaster->mgrNode->link);
 	dlist_foreach_modify(iter, runningSlaves)
 	{
 		slaveNode = dlist_container(SwitcherNodeWrapper,
@@ -2421,124 +2464,21 @@ static void runningSlavesFollowMaster(SwitcherNodeWrapper *masterNode,
 							 false,
 							 &slaveNode->pgConn,
 							 &slaveNode->runningMode);
-		appendSyncStandbyNames(masterNode->mgrNode,
-							   slaveNode->mgrNode,
-							   masterNode->pgConn);
+		appendToSyncStandbyNames(newMaster->mgrNode,
+								 slaveNode->mgrNode,
+								 &siblingSlaveNodes,
+								 newMaster->pgConn,
+								 spiContext);
 		ereport(LOG,
 				(errmsg("%s has followed master %s",
 						NameStr(slaveNode->mgrNode->form.nodename),
-						NameStr(masterNode->mgrNode->form.nodename))));
+						NameStr(newMaster->mgrNode->form.nodename))));
 	}
 	if (gtmMaster)
 		batchCheckGtmInfoOnNodes(gtmMaster,
 								 runningSlaves,
 								 NULL,
 								 CHECK_GTM_INFO_SECONDS);
-}
-
-/**
- * This function will modify slaveNode's field form.nodesync.
- */
-static void appendSyncStandbyNames(MgrNodeWrapper *masterNode,
-								   MgrNodeWrapper *slaveNode,
-								   PGconn *masterPGconn)
-{
-	char *oldSyncNames = NULL;
-	char *newSyncNames = NULL;
-	char *syncNodes = NULL;
-	char *backupSyncNodes = NULL;
-	char *buf = NULL;
-	char *temp = NULL;
-	bool contained = false;
-	int i;
-
-	temp = showNodeParameter(masterPGconn,
-							 "synchronous_standby_names", true);
-	ereport(DEBUG1,
-			(errmsg("%s synchronous_standby_names is %s",
-					NameStr(masterNode->form.nodename),
-					temp)));
-	oldSyncNames = trimString(temp);
-	pfree(temp);
-	temp = NULL;
-	if (IS_EMPTY_STRING(oldSyncNames))
-	{
-		newSyncNames = psprintf("FIRST %d (%s)",
-								1,
-								NameStr(slaveNode->form.nodename));
-		namestrcpy(&slaveNode->form.nodesync,
-				   getMgrNodeSyncStateValue(SYNC_STATE_SYNC));
-	}
-	else
-	{
-		buf = palloc0(strlen(oldSyncNames) + 1);
-		/* "FIRST 1 (nodename2,nodename4)" will get result nodename2,nodename4 */
-		sscanf(oldSyncNames, "%*[^(](%[^)]", buf);
-		syncNodes = trimString(buf);
-		pfree(buf);
-		if (IS_EMPTY_STRING(syncNodes))
-		{
-			ereport(ERROR,
-					(errmsg("%s unexpected synchronous_standby_names %s",
-							NameStr(masterNode->form.nodename),
-							oldSyncNames)));
-		}
-
-		contained = false;
-		i = 0;
-		/* function "strtok" will scribble on the input argument */
-		backupSyncNodes = psprintf("%s", syncNodes);
-		temp = strtok(syncNodes, ",");
-		while (temp)
-		{
-			i++;
-			if (equalsAfterTrim(temp, NameStr(slaveNode->form.nodename)))
-			{
-				contained = true;
-				break;
-			}
-			temp = strtok(NULL, ",");
-		}
-		if (contained)
-		{
-			ereport(LOG,
-					(errmsg("%s synchronous_standby_names "
-							"already contained %s, no need to change it",
-							NameStr(masterNode->form.nodename),
-							NameStr(slaveNode->form.nodename))));
-			newSyncNames = NULL;
-			if (i == 1)
-				namestrcpy(&slaveNode->form.nodesync,
-						   getMgrNodeSyncStateValue(SYNC_STATE_SYNC));
-			else
-				namestrcpy(&slaveNode->form.nodesync,
-						   getMgrNodeSyncStateValue(SYNC_STATE_POTENTIAL));
-		}
-		else
-		{
-			newSyncNames = psprintf("FIRST %d (%s,%s)",
-									1,
-									backupSyncNodes,
-									NameStr(slaveNode->form.nodename));
-			namestrcpy(&slaveNode->form.nodesync,
-					   getMgrNodeSyncStateValue(SYNC_STATE_POTENTIAL));
-		}
-	}
-	if (newSyncNames)
-	{
-		ereport(LOG,
-				(errmsg("%s try to change synchronous_standby_names from '%s' to '%s'",
-						NameStr(masterNode->form.nodename),
-						oldSyncNames,
-						newSyncNames)));
-		setCheckSynchronousStandbyNames(masterNode,
-										masterPGconn,
-										newSyncNames,
-										CHECK_SYNC_STANDBY_NAMES_SECONDS);
-		pfree(newSyncNames);
-	}
-	if (backupSyncNodes)
-		pfree(backupSyncNodes);
 }
 
 static int walLsnDesc(const void *node1, const void *node2)

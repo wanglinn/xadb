@@ -13,12 +13,6 @@
 #include "mgr/mgr_agent.h"
 #include "mgr/mgr_helper.h"
 
-#define CHECK_SYNC_STANDBY_NAMES_SECONDS 60
-#define CHECK_GTM_INFO_SECONDS 60
-#define SHUTDOWN_NODE_FAST_SECONDS 5
-#define SHUTDOWN_NODE_IMMEDIATE_SECONDS 90
-#define STARTUP_NODE_SECONDS 90
-
 typedef struct SwitcherNodeWrapper
 {
 	MgrNodeWrapper *mgrNode;
@@ -113,7 +107,9 @@ extern void switcherNodesToMgrNodes(dlist_head *switcherNodes,
 									dlist_head *mgrNodes);
 extern void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 										MgrNodeWrapper *slaveNode,
-										PGconn *masterPGconn);
+										dlist_head *siblingSlaveNodes,
+										PGconn *masterPGconn,
+										MemoryContext spiContext);
 extern void checkGetMasterCoordinators(MemoryContext spiContext,
 									   dlist_head *coordinators,
 									   bool includeGtmCoord,

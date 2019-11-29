@@ -59,11 +59,6 @@ static void refreshMgrNodeBeforeRepair(MgrNodeWrapper *mgrNode,
 									   MemoryContext spiContext);
 static void refreshMgrNodeAfterRepair(MgrNodeWrapper *mgrNode,
 									  MemoryContext spiContext);
-static void selectSiblingActiveNodes(MgrNodeWrapper *faultNode,
-									 dlist_head *resultList,
-									 MemoryContext spiContext);
-static void updateMgrNodeNodesync(MgrNodeWrapper *mgrNode,
-								  MemoryContext spiContext);
 static bool checkGetMasterNode(MgrNodeWrapper *faultSlaveNode,
 							   SwitcherNodeWrapper **masterNodeP);
 static RepairerConfiguration *newRepairerConfiguration(AdbDoctorConf *conf);
@@ -651,14 +646,6 @@ static bool checkIfSyncSlaveIsRunning(MgrNodeWrapper *masterMgrNode)
 static bool refreshSyncStandbyNames(SwitcherNodeWrapper *masterNode,
 									MgrNodeWrapper *faultSlaveNode)
 {
-	char *temp;
-	char *oldSyncStandbyNames = NULL;
-	char *newSyncStandbyNames = NULL;
-	char *bareNodenames;
-	StringInfoData buf;
-	int i;
-	dlist_iter iter;
-	MgrNodeWrapper *node;
 	int spiRes;
 	volatile bool done = false;
 	MemoryContext oldContext;
@@ -672,96 +659,17 @@ static bool refreshSyncStandbyNames(SwitcherNodeWrapper *masterNode,
 	SPI_CONNECT_TRANSACTIONAL_START(spiRes, true);
 	spiContext = CurrentMemoryContext;
 
-	initStringInfo(&buf);
 	PG_TRY();
 	{
-		selectSiblingActiveNodes(faultSlaveNode, &siblingNodes, spiContext);
-		oldSyncStandbyNames = showNodeParameter(masterNode->pgConn,
-												"synchronous_standby_names", true);
-		ereport(DEBUG1,
-				(errmsg("%s synchronous_standby_names is %s",
-						NameStr(masterNode->mgrNode->form.nodename),
-						oldSyncStandbyNames)));
-		oldSyncStandbyNames = trimString(oldSyncStandbyNames);
-		if (oldSyncStandbyNames == NULL || strlen(oldSyncStandbyNames) == 0)
-		{
-			done = true;
-		}
-		else
-		{
-			temp = palloc0(strlen(oldSyncStandbyNames) + 1);
-			/* "FIRST 1 (nodename2,nodename4)" will get result nodename2,nodename4 */
-			sscanf(oldSyncStandbyNames, "%*[^(](%[^)]", temp);
-			bareNodenames = trimString(temp);
-			pfree(temp);
-			if (bareNodenames == NULL || strlen(bareNodenames) == 0)
-			{
-				done = true;
-			}
-			else
-			{
-				i = 0;
-				/* function "strtok" will scribble on the input argument */
-				temp = strtok(bareNodenames, ",");
-				while (temp)
-				{
-					if (!equalsAfterTrim(temp, NameStr(faultSlaveNode->form.nodename)))
-					{
-						i++;
-						if (i == 1)
-							appendStringInfo(&buf, "%s", temp);
-						else
-							appendStringInfo(&buf, ",%s", temp);
-						dlist_foreach(iter, &siblingNodes)
-						{
-							node = dlist_container(MgrNodeWrapper, link, iter.cur);
-							if (strcmp(NameStr(node->form.nodename), temp) == 0)
-							{
-								if (i == 1)
-									namestrcpy(&node->form.nodesync,
-											   getMgrNodeSyncStateValue(SYNC_STATE_SYNC));
-								else
-									namestrcpy(&node->form.nodesync,
-											   getMgrNodeSyncStateValue(SYNC_STATE_POTENTIAL));
-							}
-						}
-					}
-					temp = strtok(NULL, ",");
-				}
-				if (buf.data == NULL || strlen(buf.data) == 0)
-				{
-					newSyncStandbyNames = palloc0(1);
-				}
-				else
-				{
-					newSyncStandbyNames = psprintf("FIRST %d (%s)", 1, buf.data);
-				}
-				if (strcmp(oldSyncStandbyNames, newSyncStandbyNames) != 0)
-				{
-					dlist_foreach(iter, &siblingNodes)
-					{
-						node = dlist_container(MgrNodeWrapper, link, iter.cur);
-						updateMgrNodeNodesync(node, spiContext);
-					}
-					namestrcpy(&faultSlaveNode->form.nodesync, "");
-					updateMgrNodeNodesync(faultSlaveNode, spiContext);
-					ereport(LOG,
-							(errmsg("%s try to change synchronous_standby_names from '%s' to '%s'",
-									NameStr(masterNode->mgrNode->form.nodename),
-									oldSyncStandbyNames,
-									newSyncStandbyNames)));
-					setCheckSynchronousStandbyNames(masterNode->mgrNode,
-													masterNode->pgConn,
-													newSyncStandbyNames,
-													CHECK_SYNC_STANDBY_NAMES_SECONDS);
-				}
-				else
-				{
-					/* Synchronous_standby_names has been set and does not need to be set repeatedly */
-				}
-				done = true;
-			}
-		}
+		selectSiblingActiveNodes(faultSlaveNode,
+								 &siblingNodes,
+								 spiContext);
+		removeFromSyncStandbyNames(masterNode->mgrNode,
+								   faultSlaveNode,
+								   &siblingNodes,
+								   masterNode->pgConn,
+								   spiContext);
+		done = true;
 	}
 	PG_CATCH();
 	{
@@ -794,6 +702,7 @@ static bool pullBackToCluster(SwitcherNodeWrapper *masterNode,
 	MgrNodeWrapper mgrNodeBackup;
 	MemoryContext oldContext;
 	MgrNodeWrapper *gtmMaster = NULL;
+	dlist_head siblingSlaveNodes = DLIST_STATIC_INIT(siblingSlaveNodes);
 
 	oldContext = CurrentMemoryContext;
 	memcpy(&mgrNodeBackup, faultSlaveNode, sizeof(MgrNodeWrapper));
@@ -826,9 +735,14 @@ static bool pullBackToCluster(SwitcherNodeWrapper *masterNode,
 		}
 		else
 		{
+			selectSiblingActiveNodes(faultSlaveNode,
+									 &siblingSlaveNodes,
+									 spiContext);
 			appendSlaveNodeFollowMaster(masterNode->mgrNode,
 										faultSlaveNode,
-										masterNode->pgConn);
+										&siblingSlaveNodes,
+										masterNode->pgConn,
+										spiContext);
 		}
 		refreshMgrNodeAfterRepair(faultSlaveNode, spiContext);
 		done = true;
@@ -1057,71 +971,6 @@ static void refreshMgrNodeAfterRepair(MgrNodeWrapper *mgrNode,
 				(errmsg("%s, can not transit to curestatus:%s",
 						NameStr(mgrNode->form.nodename),
 						CURE_STATUS_CURING)));
-	}
-}
-
-static void selectSiblingActiveNodes(MgrNodeWrapper *faultNode,
-									 dlist_head *resultList,
-									 MemoryContext spiContext)
-{
-	StringInfoData sql;
-
-	initStringInfo(&sql);
-	appendStringInfo(&sql,
-					 "SELECT * \n"
-					 "FROM pg_catalog.mgr_node \n"
-					 "WHERE nodetype in ('%c') \n"
-					 "AND nodeinited = %d::boolean \n"
-					 "AND nodeincluster = %d::boolean \n"
-					 "AND nodemasternameoid = %u \n"
-					 "AND curestatus != '%s' \n"
-					 "AND nodename != '%s' \n",
-					 faultNode->form.nodetype,
-					 true,
-					 true,
-					 faultNode->form.nodemasternameoid,
-					 CURE_STATUS_ISOLATED,
-					 NameStr(faultNode->form.nodename));
-	selectMgrNodes(sql.data, spiContext, resultList);
-	pfree(sql.data);
-}
-
-static void updateMgrNodeNodesync(MgrNodeWrapper *mgrNode,
-								  MemoryContext spiContext)
-{
-	StringInfoData buf;
-	int spiRes;
-	uint64 rows;
-	MemoryContext oldCtx;
-
-	initStringInfo(&buf);
-	appendStringInfo(&buf,
-					 "update pg_catalog.mgr_node  \n"
-					 "set nodesync = '%s' \n"
-					 "WHERE oid = %u \n"
-					 "and nodemasternameoid = %u \n"
-					 "and curestatus = '%s' \n"
-					 "and nodetype = '%c' \n",
-					 NameStr(mgrNode->form.nodesync),
-					 mgrNode->oid,
-					 mgrNode->form.nodemasternameoid,
-					 NameStr(mgrNode->form.curestatus),
-					 mgrNode->form.nodetype);
-	oldCtx = MemoryContextSwitchTo(spiContext);
-	spiRes = SPI_execute(buf.data, false, 0);
-	MemoryContextSwitchTo(oldCtx);
-	pfree(buf.data);
-	if (spiRes != SPI_OK_UPDATE)
-		ereport(ERROR,
-				(errmsg("SPI_execute failed: error code %d",
-						spiRes)));
-	rows = SPI_processed;
-	if (rows != 1)
-	{
-		ereport(ERROR,
-				(errmsg("%s, update nodesync to %s failed",
-						NameStr(mgrNode->form.nodename),
-						NameStr(mgrNode->form.nodesync))));
 	}
 }
 
