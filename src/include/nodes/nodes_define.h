@@ -3453,6 +3453,17 @@ BEGIN_NODE(PriorExpr)
 END_NODE(PriorExpr)
 #endif /* NO_NODE_PriorExpr */
 
+#ifndef NO_NODE_OraImplicitConvertStmt
+BEGIN_NODE(OraImplicitConvertStmt)
+	NODE_SCALAR(char,cvtkind)
+	NODE_STRING(cvtname)
+	NODE_NODE(List,cvtfrom)
+	NODE_NODE(List,cvtto)
+	NODE_ENUM(IConvertAction,action)
+	NODE_SCALAR(bool,if_exists)
+END_NODE(OraImplicitConvertStmt)
+#endif /* NO_NODE_OraImplicitConvertStmt */
+
 #endif
 
 #ifdef ADB_EXT

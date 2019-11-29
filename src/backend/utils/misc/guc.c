@@ -5185,7 +5185,7 @@ static struct config_enum ConfigureNamesEnum[] =
 			GUC_REPORT|GUC_NOT_IN_SAMPLE|GUC_DISALLOW_IN_FILE
 		},
 		&adb_node_type,
-		PARSE_GRAM_POSTGRES, parese_adb_node_type,
+		ADB_NODE_COORDINATOR, parese_adb_node_type,
 		NULL, NULL, NULL
 	},
 #endif /* ADB */

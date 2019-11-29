@@ -4713,9 +4713,11 @@ bool path_tree_walker(struct Path *path, bool (*walker)(), void *context)
 	case T_ReduceScanPath:
 		WALK_CHILD_PATH(ReduceScanPath, reducepath);
 		break;
+#ifdef ADB_GRAM_ORA
 	case T_ConnectByPath:
 		WALK_CHILD_PATH(ConnectByPath, subpath);
 		break;
+#endif /* ADB_GRAM_ORA */
 	case T_List:
 		{
 			ListCell *lc;

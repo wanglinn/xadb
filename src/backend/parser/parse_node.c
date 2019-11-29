@@ -29,9 +29,9 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #include "utils/varbit.h"
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 #include "oraschema/oracoerce.h"
-#endif
+#endif /* ADB_GRAM_ORA */
 
 static void pcb_error_callback(void *arg);
 
