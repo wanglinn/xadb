@@ -1317,3 +1317,40 @@ add_sp_items_to_pathtarget(PathTarget *target, List *items)
 		add_sp_item_to_pathtarget(target, item);
 	}
 }
+
+#ifdef ADB
+static Node* get_pathtarget_sortgroupref_expr(Index sortref, PathTarget *target)
+{
+	ListCell   *lc;
+	uint32		i;
+
+	if (target->sortgrouprefs)
+	{
+		i = 0;
+		foreach(lc, target->exprs)
+		{
+			if (target->sortgrouprefs[i] == sortref)
+				return lfirst(lc);
+			++i;
+		}
+	}
+
+	elog(ERROR, "ORDER/GROUP BY expression not found in PathTarget");
+	return NULL;
+}
+
+List *get_pathtarget_sortgrouplist_exprs(List *sgClauses, PathTarget *target)
+{
+	List	   *result = NIL;
+	ListCell   *lc;
+
+	foreach(lc, sgClauses)
+	{
+		SortGroupClause *sortcl = lfirst_node(SortGroupClause, lc);
+		result = lappend(result,
+						 get_pathtarget_sortgroupref_expr(sortcl->tleSortGroupRef, target));
+	}
+
+	return result;
+}
+#endif /* ADB */

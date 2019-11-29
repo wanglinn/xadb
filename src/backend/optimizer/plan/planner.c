@@ -4903,6 +4903,13 @@ create_ordinary_grouping_paths(PlannerInfo *root, RelOptInfo *input_rel,
 		gather_grouping_paths(root, partially_grouped_rel);
 		set_cheapest(partially_grouped_rel);
 	}
+#ifdef ADB
+	else if(partially_grouped_rel && partially_grouped_rel->cluster_partial_pathlist)
+	{
+		gather_grouping_paths(root, partially_grouped_rel);
+		set_cheapest(partially_grouped_rel);
+	}
+#endif /* ADB */
 
 	/*
 	 * Estimate number of groups.
@@ -8015,7 +8022,7 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 			Path *path;
 			List *storage_list;
 			List *pathlist;
-			List *groupExprs = get_sortgrouplist_exprs(parse->groupClause, parse->targetList);
+			List *groupExprs = get_pathtarget_sortgrouplist_exprs(parse->groupClause, input_rel->reltarget);
 
 			if(gcontext.new_paths_list != NIL)
 			{
@@ -8141,7 +8148,7 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 			{
 				List *storage_list;
 				List *initial_paths;
-				groupExprs = get_sortgrouplist_exprs(parse->groupClause, parse->targetList);
+				groupExprs = get_pathtarget_sortgrouplist_exprs(parse->groupClause, input_rel->reltarget);
 				subpath = linitial(input_rel->cluster_partial_pathlist);
 				gcontext.partial_groups = get_number_of_groups(root, subpath->rows, gd, extra->targetList);
 
@@ -8255,6 +8262,112 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 
 			list_free(gcontext.new_paths_list);
 			gcontext.new_paths_list = NIL;
+		}
+
+		/* partial group */
+		if (partially_grouped_rel &&
+			(partially_grouped_rel->cluster_pathlist != NIL ||
+			 (partially_grouped_rel->consider_parallel &&
+			  partially_grouped_rel->cluster_partial_pathlist != NIL &&
+			  (extra->flags & GROUPING_CAN_USE_BATCH) != 0)))
+		{
+			List   *storage_list;
+			List   *groupExprs = NIL;
+			Path   *path;
+
+			gcontext.split = AGGSPLIT_FINAL_DESERIAL;
+			gcontext.new_paths_list = NIL;
+			gcontext.input_rel = partially_grouped_rel;
+
+			if (partially_grouped_rel->cluster_pathlist != NIL)
+			{
+				foreach(lc, partially_grouped_rel->cluster_pathlist)
+				{
+					path = lfirst(lc);
+					if (CanOnceGroupingClusterPath(gcontext.final_target, path))
+						create_cluster_grouping_path(root, path, &gcontext);
+				}
+				if (gcontext.new_paths_list == NIL)
+				{
+					groupExprs = get_pathtarget_sortgrouplist_exprs(parse->groupClause,
+																	partially_grouped_rel->reltarget);
+					foreach(lc, partially_grouped_rel->cluster_pathlist)
+					{
+						path = lfirst(lc);
+						groupExprs = get_pathtarget_sortgrouplist_exprs(parse->groupClause,
+																		path->pathtarget);
+						ReduceInfoListGetStorageAndExcludeOidList(get_reduce_info_list(path),
+																  &storage_list,
+																  NULL);
+						/* reduce to coord, by hash and modulo and agg finial */
+						ReducePathByExpr((Expr*)groupExprs,
+										 root,
+										 grouped_rel,
+										 path,
+										 storage_list,
+										 NIL,
+										 create_cluster_grouping_path,
+										 &gcontext,
+										 REDUCE_TYPE_HASH,
+										 glob->has_hashmap_rel ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
+										 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
+										 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
+										 REDUCE_TYPE_NONE);
+						list_free(storage_list);
+					}
+				}
+				add_cluster_path_list(grouped_rel, gcontext.new_paths_list, true);
+				gcontext.new_paths_list = NIL;
+			}
+
+			/* batch agg */
+			if (partially_grouped_rel->consider_parallel &&
+				partially_grouped_rel->cluster_partial_pathlist != NIL &&
+				(extra->flags & GROUPING_CAN_USE_BATCH) != 0)
+			{
+				gcontext.new_paths_list = NIL;
+
+				foreach(lc, partially_grouped_rel->cluster_partial_pathlist)
+				{
+					path = lfirst(lc);
+					if (CanOnceGroupingClusterPath(gcontext.final_target, path))
+						create_cluster_batch_grouping_path(root, path, &gcontext);
+				}
+
+				if (gcontext.new_paths_list == NIL)
+				{
+					if (groupExprs == NIL)
+						groupExprs = get_pathtarget_sortgrouplist_exprs(parse->groupClause,
+																		partially_grouped_rel->reltarget);
+					/* pallel reduce and batch final agg */
+					foreach(lc, partially_grouped_rel->cluster_partial_pathlist)
+					{
+						path = lfirst(lc);
+						groupExprs = get_pathtarget_sortgrouplist_exprs(parse->groupClause,
+																		path->pathtarget);
+						ReduceInfoListGetStorageAndExcludeOidList(get_reduce_info_list(path),
+																  &storage_list,
+																  NULL);
+						ReducePathByExpr((Expr*)groupExprs,
+										 root,
+										 grouped_rel,
+										 path,
+										 storage_list,
+										 NIL,
+										 create_cluster_batch_grouping_path,
+										 &gcontext,
+										 REDUCE_TYPE_HASH,
+										 (groupExprs && glob->has_hashmap_rel) ? REDUCE_TYPE_HASHMAP : REDUCE_TYPE_IGNORE,
+										 (groupExprs && glob->has_modulo_rel) ? REDUCE_TYPE_MODULO : REDUCE_TYPE_IGNORE,
+										 REDUCE_TYPE_NONE);
+						list_free(storage_list);
+					}
+				}
+				foreach(lc, gcontext.new_paths_list)
+					add_cluster_partial_path(grouped_rel, lfirst(lc));
+				list_free(gcontext.new_paths_list);
+			}
+			list_free(groupExprs);
 		}
 	}
 #endif /* ADB */
@@ -8561,6 +8674,54 @@ create_partial_grouping_paths(PlannerInfo *root,
 		}
 	}
 
+#ifdef ADB
+	if (input_rel->cluster_pathlist != NIL &&
+		!has_cluster_hazard((Node*)grouped_rel->reltarget->exprs, false) &&
+		!has_cluster_hazard((Node*)parse->havingQual, false))
+	{
+		CreateGrupingPathsContext gcontext;
+
+		MemSet(&gcontext, 0, sizeof(gcontext));
+		gcontext.grouped_rel = partially_grouped_rel;
+		gcontext.input_rel = input_rel;
+		gcontext.group_pathkeys = root->group_pathkeys;
+		gcontext.group_clause = parse->groupClause;
+		gcontext.has_agg = parse->hasAggs;
+		gcontext.can_gather = false;
+		gcontext.can_hash = can_hash;
+		gcontext.can_sort = can_sort;
+		gcontext.can_batch = (extra->flags & GROUPING_CAN_USE_BATCH) != 0;
+		gcontext.partial_target = partially_grouped_rel->reltarget;
+		gcontext.agg_partial_costs = &extra->agg_partial_costs;
+		gcontext.split = AGGSPLIT_INITIAL_SERIAL;
+		gcontext.partial_groups = get_number_of_groups(root,
+													   input_rel->cheapest_cluster_total_path->rows,
+													   gd,
+													   extra->targetList);
+
+		gcontext.new_paths_list = NIL;
+		foreach (lc, input_rel->cluster_pathlist)
+			create_cluster_grouping_path(root, lfirst(lc), &gcontext);
+		add_cluster_path_list(partially_grouped_rel, gcontext.new_paths_list, true);
+
+		if (partially_grouped_rel->consider_parallel &&
+			input_rel->cluster_partial_pathlist != NIL)
+		{
+			Path *path = linitial(input_rel->cluster_partial_pathlist);
+			gcontext.partial_groups = get_number_of_groups(root,
+														   path->rows,
+														   gd,
+														   extra->targetList);
+			gcontext.new_paths_list = NIL;
+			foreach(lc, input_rel->cluster_partial_pathlist)
+				create_cluster_grouping_path(root, lfirst(lc), &gcontext);
+			foreach(lc, gcontext.new_paths_list)
+				add_cluster_partial_path(partially_grouped_rel, lfirst(lc));
+			list_free(gcontext.new_paths_list);
+		}
+	}
+#endif /* ADB */
+
 	/*
 	 * If there is an FDW that's responsible for all baserels of the query,
 	 * let it consider adding partially grouped ForeignPaths.
@@ -8600,6 +8761,11 @@ gather_grouping_paths(PlannerInfo *root, RelOptInfo *rel)
 	/* Try Gather for unordered paths and Gather Merge for ordered ones. */
 	generate_gather_paths(root, rel, true);
 
+#ifdef ADB
+	if (rel->partial_pathlist == NIL)
+		goto try_cluster_;
+#endif /* ADB */
+
 	/* Try cheapest partial path + explicit Sort + Gather Merge. */
 	cheapest_partial_path = linitial(rel->partial_pathlist);
 	if (!pathkeys_contained_in(root->group_pathkeys,
@@ -8624,6 +8790,36 @@ gather_grouping_paths(PlannerInfo *root, RelOptInfo *rel)
 
 		add_path(rel, path);
 	}
+
+#ifdef ADB
+	try_cluster_:
+	if (rel->cluster_partial_pathlist != NIL)
+	{
+		cheapest_partial_path = linitial(rel->cluster_partial_pathlist);
+		if (!pathkeys_contained_in(root->group_pathkeys,
+								   cheapest_partial_path->pathkeys))
+		{
+			Path	   *path;
+			double		total_groups;
+
+			total_groups =
+				cheapest_partial_path->rows * cheapest_partial_path->parallel_workers;
+			path = (Path *) create_sort_path(root, rel, cheapest_partial_path,
+											 root->group_pathkeys,
+											 -1.0);
+			path = (Path *)
+				create_gather_merge_path(root,
+										 rel,
+										 path,
+										 rel->reltarget,
+										 root->group_pathkeys,
+										 NULL,
+										 &total_groups);
+
+			add_cluster_path(rel, path);
+		}
+	}
+#endif /* ADB */
 }
 
 /*
