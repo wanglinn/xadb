@@ -371,8 +371,16 @@ add_months(PG_FUNCTION_ARGS)
 	v = div(y * 12 + m - 1 + n, 12);
 	y = v.quot;
 	if (y < 0)
-		y += 1; /* offset because of year 0 */
+	{
+		if (v.rem == 0)
+			y = -y;
+		else
+			y = -y + 1;
+	}
 	m = v.rem + 1;
+
+	if (m <= 0)
+		m = 12 + m;
 
 	days = days_of_month(y, m);
 	if (last_day || d > days)
