@@ -5220,6 +5220,7 @@ bool expr_have_upper_reference(Expr *expr, PlannerInfo *root)
 				if (lfirst_node(PlannerParamItem, lc)->paramId == paramid)
 					return true;
 			}
+			parent_root = parent_root->parent_root;
 		}
 		return false;
 	}
