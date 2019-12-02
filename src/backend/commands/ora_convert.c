@@ -70,7 +70,8 @@ void ExecImplicitConvert(OraImplicitConvertStmt *stmt)
 		cell = list_head(stmt->cvtfrom);
 		for (i = 0; i < cvtfromList_count; i++)
 		{
-			fromOids[i] = TypenameGetTypid((char*)lfirst(cell));
+			Assert(nodeTag(lfirst(cell)) == T_String);
+			fromOids[i] = TypenameGetTypid(strVal(lfirst(cell)));
 			if (fromOids[i] == InvalidOid)
 				elog(ERROR, "Added data type not included.");
 			cell = lnext(cell);
@@ -84,7 +85,8 @@ void ExecImplicitConvert(OraImplicitConvertStmt *stmt)
 			cell = list_head(stmt->cvtto);
 			for (i = 0; i < cvttoList_count; i++)
 			{
-				toOids[i] = TypenameGetTypid((char*)lfirst(cell));
+				Assert(nodeTag(lfirst(cell)) == T_String);
+				toOids[i] = TypenameGetTypid(strVal(lfirst(cell)));
 				if (toOids[i] == InvalidOid)
 					elog(ERROR, "Added data type not included.");
 				cell = lnext(cell);
