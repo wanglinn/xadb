@@ -278,8 +278,6 @@ addDefaultDistributeByOfMultiInherit(CreateStmt *stmt)
 	RelationLocInfo	   *relloc;
 	DistributeBy	   *distby;
 	ListCell		   *entry;
-	AttrNumber			partAttrNum = 0;
-	char			   *distColname = NULL;
 	char				disttype = 0;
 	bool				isSameDistSpec = false;
 
@@ -302,25 +300,19 @@ addDefaultDistributeByOfMultiInherit(CreateStmt *stmt)
 		}
 		else
 		{
-			isSameDistSpec = true;
 			switch (relloc->locatorType)
 			{
 				case LOCATOR_TYPE_REPLICATED:
 				case LOCATOR_TYPE_RANDOM:
 					if (disttype == 0)
+					{
 						disttype = relloc->locatorType;
+						isSameDistSpec = true;
+					}
 					else
+					{
 						isSameDistSpec = (disttype == relloc->locatorType);
-					if (!isSameDistSpec)
-						break;
-
-					if (partAttrNum == 0)
-						partAttrNum = relloc->partAttrNum;
-					else
-						isSameDistSpec = (partAttrNum == relloc->partAttrNum);
-					/* 0 is also a effective value */
-					if (partAttrNum > 0)
-						distColname = get_attname(relloc->relid, relloc->partAttrNum, false);
+					}
 					break;
 				default:
 					isSameDistSpec = false;
@@ -338,7 +330,7 @@ addDefaultDistributeByOfMultiInherit(CreateStmt *stmt)
 	{
 		distby = makeNode(DistributeBy);
 		distby->disttype = disttype;
-		distby->colname = distColname;
+		distby->colname = NULL;
 		stmt->distributeby = distby;
 	}
 }
