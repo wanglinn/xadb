@@ -191,7 +191,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 
 %type <node>	TableConstraint TableLikeClause
 
-%type <node>	columnOptions
+%type <node>	columnOptions convert_type
 
 %type <alias>	alias_clause opt_alias_clause
 
@@ -315,7 +315,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	opt_boolean_or_string opt_encoding OptConsTableSpace opt_index_name
 	opt_existing_window_name
 	OptTableSpace
-	param_name convert_type
+	param_name
 	RoleId
 	Sconst
 	type_function_name convert_functon_name
@@ -7657,7 +7657,7 @@ convert_type_list:
 		;
 
 convert_type:
-			ColLabel		{ $$ = $1; }
+			ColLabel								{ $$ = (Node*) makeString($1); }
 		;
 
 opt_function_or_common:
