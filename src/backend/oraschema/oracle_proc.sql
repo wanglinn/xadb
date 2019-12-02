@@ -32,6 +32,18 @@ CREATE OR REPLACE FUNCTION oracle.nanvl(float8, float8)
     STRICT;
 
 /*
+ * Function: nanvl
+ * Parameter Type: (numeric, numeric)
+ */
+CREATE OR REPLACE FUNCTION oracle.nanvl(numeric, numeric)
+    RETURNS numeric
+    AS $$SELECT CASE WHEN $1 = 'NaN' THEN $2 ELSE $1 END;$$
+    LANGUAGE SQL
+    IMMUTABLE
+--ADBONLY CLUSTER SAFE
+    STRICT;
+
+/*
  * Function: sinh
  * sinh x = (e ^ x - e ^ (-x))/2
  * Parameter Type: : (numeric)
@@ -729,6 +741,18 @@ CREATE OR REPLACE FUNCTION oracle.lpad(text, numeric, text default ' '::text)
     RETURNS NULL ON NULL INPUT;
 
 /*
+ * Function: lpad
+ * Parameter Type: (text, float8, text)
+ */
+CREATE OR REPLACE FUNCTION oracle.lpad(text, float8, text default ' '::text)
+    RETURNS text
+    AS $$select pg_catalog.lpad($1, (pg_catalog.trunc($2))::integer, $3);$$
+    LANGUAGE SQL
+    IMMUTABLE
+--ADBONLY CLUSTER SAFE
+    RETURNS NULL ON NULL INPUT;
+
+/*
  * Function: rpad
  * Parameter Type: (text, integer, text)
  */
@@ -745,6 +769,18 @@ CREATE OR REPLACE FUNCTION oracle.rpad(text, integer, text default ' '::text)
  * Parameter Type: (text, numeric, text)
  */
 CREATE OR REPLACE FUNCTION oracle.rpad(text, numeric, text default ' '::text)
+    RETURNS text
+    AS $$select pg_catalog.rpad($1, (pg_catalog.trunc($2))::integer, $3);$$
+    LANGUAGE SQL
+    IMMUTABLE
+--ADBONLY CLUSTER SAFE
+    RETURNS NULL ON NULL INPUT;
+
+/*
+ * Function: rpad
+ * Parameter Type: (text, float8, text)
+ */
+CREATE OR REPLACE FUNCTION oracle.rpad(text, float8, text default ' '::text)
     RETURNS text
     AS $$select pg_catalog.rpad($1, (pg_catalog.trunc($2))::integer, $3);$$
     LANGUAGE SQL

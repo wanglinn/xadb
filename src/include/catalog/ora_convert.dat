@@ -2,12 +2,18 @@
 [
 # sum(string)
 { cvtkind => 'f', cvtname => 'bitand', cvtfrom => 'unknown unknown', cvtto => 'int8 int8' },
+{ cvtkind => 'f', cvtname => 'cosh', cvtfrom => 'text', cvtto => 'numeric' },
 { cvtkind => 'f', cvtname => 'length', cvtfrom => 'numeric', cvtto => 'char' },
 { cvtkind => 'f', cvtname => 'length', cvtfrom => 'float8', cvtto => 'char' },
 { cvtkind => 'f', cvtname => 'lpad', cvtfrom => 'unknown unknown', cvtto => 'text numeric' },
 { cvtkind => 'f', cvtname => 'lpad', cvtfrom => 'unknown unknown unknown', cvtto => 'text numeric text' },
 { cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float8 int4', cvtto => 'numeric numeric' },
 { cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float8 float8', cvtto => 'numeric numeric' },
+{ cvtkind => 'f', cvtname => 'mod', cvtfrom => 'numeric int4', cvtto => 'numeric numeric' },
+{ cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int4 numeric', cvtto => 'numeric numeric' },
+{ cvtkind => 'f', cvtname => 'mod', cvtfrom => 'unknown numeric', cvtto => 'numeric numeric' },
+{ cvtkind => 'f', cvtname => 'mod', cvtfrom => 'numeric unknown', cvtto => 'numeric numeric' },
+{ cvtkind => 'f', cvtname => 'mod', cvtfrom => 'unknown unknown', cvtto => 'numeric numeric' },
 { cvtkind => 'f', cvtname => 'power', cvtfrom => 'int2 int2', cvtto => 'numeric numeric' },
 { cvtkind => 'f', cvtname => 'power', cvtfrom => 'int4 int4', cvtto => 'numeric numeric' },
 { cvtkind => 'f', cvtname => 'power', cvtfrom => 'int8 int8', cvtto => 'numeric numeric' },
@@ -56,6 +62,9 @@
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'text numeric', cvtto => 'numeric numeric' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'text float4', cvtto => 'float4 float4' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'text float8', cvtto => 'float8 float8' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'int2 numeric', cvtto => 'numeric numeric' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'int4 numeric', cvtto => 'numeric numeric' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'int8 numeric', cvtto => 'numeric numeric' },
 
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.varchar2 oracle.varchar2', cvtto => 'numeric numeric' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'varchar varchar', cvtto => 'numeric numeric' },
@@ -76,8 +85,6 @@
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'text interval', cvtto => 'oracle.date interval' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'text oracle.date', cvtto => 'interval oracle.date' },
 
-# nvl2
-{ cvtkind => 'o', cvtname => '*', cvtfrom => 'numeric int4', cvtto => 'numeric numeric' },
 
 # special operator "int / int"
 { cvtkind => 'o', cvtname => '/', cvtfrom => 'int2 int2', cvtto => 'numeric numeric' },
@@ -136,6 +143,7 @@
 { cvtkind => 'o', cvtname => '>=', cvtfrom => 'int4 bpchar', cvtto => 'numeric numeric' },
 { cvtkind => 'o', cvtname => '>=', cvtfrom => 'int4 unknown', cvtto => 'numeric numeric' },
 { cvtkind => 'o', cvtname => '<=', cvtfrom => 'int4 unknown', cvtto => 'numeric numeric' },
+{ cvtkind => 'o', cvtname => '<=', cvtfrom => 'int8 numeric', cvtto => 'numeric numeric' },
 
 # common combin
 { cvtkind => 'c', cvtname => '', cvtfrom => 'oracle.varchar2 varchar',			cvtto => 'oracle.varchar2' },
