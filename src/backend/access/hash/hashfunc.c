@@ -29,10 +29,15 @@
 #include "access/hash.h"
 #include "utils/builtins.h"
 #ifdef ADB
+#include "access/htup_details.h"
+#include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "utils/date.h"
+#include "utils/lsyscache.h"
 #include "utils/nabstime.h"
+#include "utils/syscache.h"
 #include "utils/timestamp.h"
+#include "utils/typcache.h"
 #endif
 
 /*
@@ -950,78 +955,35 @@ hash_uint32_extended(uint32 k, uint64 seed)
  * be required or not.
  */
 char *
-get_compute_hash_function(Oid type, char locator)
+get_compute_hash_function(Oid type)
 {
-	switch (type)
+	TypeCacheEntry *typeCache;
+	char		   *schemaname;
+	char		   *result;
+	HeapTuple		proctup;
+	Form_pg_proc	procform;
+
+	if (type_is_enum(type))
+		type = NAMEOID;
+
+	typeCache = lookup_type_cache(type, TYPECACHE_HASH_PROC_FINFO);
+	if(!OidIsValid(typeCache->hash_proc_finfo.fn_oid))
 	{
-		case INT8OID:
-			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
-				return "hashint8";
-			return NULL;
-		case INT2OID:
-			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
-				return "hashint2";
-			return NULL;
-		case OIDOID:
-			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
-				return "hashoid";
-			return NULL;
-		case DATEOID:
-		case INT4OID:
-			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
-				return "hashint4";
-			return NULL;
-		case BOOLOID:
-			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
-				return "hashchar";
-			return NULL;
-		case CHAROID:
-			return "hashchar";
-		case NAMEOID:
-			return "hashname";
-		case INT2VECTOROID:
-			return "hashint2vector";
-
-#if defined(ADB_GRAM_ORA)
-		case ORACLE_VARCHAR2OID:
-		case ORACLE_NVARCHAR2OID:
-#endif
-		case VARCHAROID:
-		case TEXTOID:
-			return "hashtext";
-		case OIDVECTOROID:
-			return "hashoidvector";
-		case FLOAT4OID:
-			return "hashfloat4";
-		case FLOAT8OID:
-			return "hashfloat8";
-		case RELTIMEOID:
-		case ABSTIMEOID:
-			if ((locator == LOCATOR_TYPE_HASH)||(locator == LOCATOR_TYPE_HASHMAP))
-				return "hashint4";
-			return NULL;
-		case CASHOID:
-				return "hashint8";
-		case BPCHAROID:
-			return "hashbpchar";
-		case BYTEAOID:
-			return "hashvarlena";
-		case TIMEOID:
-			return "time_hash";
-		case TIMESTAMPOID:
-		case TIMESTAMPTZOID:
-			return "timestamp_hash";
-		case INTERVALOID:
-			return "interval_hash";
-		case TIMETZOID:
-			return "timetz_hash";
-		case NUMERICOID:
-			return "hash_numeric";
-		default:
-			ereport(ERROR,(errmsg("Unhandled datatype for modulo or hash distribution\n")));
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_FUNCTION),
+				 errmsg("could not identify a hash function for type %s",
+						format_type_be(type))));
 	}
+	proctup = SearchSysCache1(PROCOID, typeCache->hash_proc_finfo.fn_oid);
+	if (!HeapTupleIsValid(proctup))
+		elog(ERROR, "cache lookup failed for function %u",
+			 typeCache->hash_proc_finfo.fn_oid);
+	procform = (Form_pg_proc) GETSTRUCT(proctup);
 
-	/* Keep compiler quiet */
-	return NULL;
+	schemaname = get_namespace_name(procform->pronamespace);
+	result = psprintf("%s.%s", schemaname, NameStr(procform->proname));
+	pfree(schemaname);
+	ReleaseSysCache(proctup);
+	return result;
 }
 #endif

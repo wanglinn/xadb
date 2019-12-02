@@ -808,7 +808,15 @@ distrib_delete_hash(RedistribState *distribState, ExecNodes *exec_nodes)
 		hashtype = attr[locinfo->partAttrNum - 1].atttypid;
 
 		/* Get function hash name */
-		hashfuncname = get_compute_hash_function(hashtype, locinfo->locatorType);
+		if (locinfo->locatorType == LOCATOR_TYPE_HASH ||
+			locinfo->locatorType == LOCATOR_TYPE_HASHMAP)
+		{
+			hashfuncname = get_compute_hash_function(hashtype);
+		}else
+		{
+			Assert(locinfo->locatorType == LOCATOR_TYPE_MODULO);
+			hashfuncname = NULL;
+		}
 
 		/* Get distribution column name */
 		if (IsRelationDistributedByValue(locinfo))
