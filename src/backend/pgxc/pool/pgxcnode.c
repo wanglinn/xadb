@@ -62,7 +62,11 @@ PGXCNodeConnStr(char *host, int port, char *dbname,
 				char *user, char *pgoptions, char *remote_type)
 {
 	return psprintf("host=%s port=%d dbname=%s user=%s application_name=pgxc"
-				   " options='-c grammar=postgres -c remotetype=%s %s'",
+				   " options='-c remotetype=%s %s"
+#ifdef ADB_MULTI_GRAM
+				   " -c grammar=postgres"
+#endif /* ADB_MULTI_GRAM */
+				   "'",
 				   host, port, dbname, user, remote_type, pgoptions);
 }
 
