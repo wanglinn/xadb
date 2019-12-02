@@ -2666,7 +2666,16 @@ numeric_mod(PG_FUNCTION_ARGS)
 	NumericVar	result;
 
 	if (NUMERIC_IS_NAN(num1) || NUMERIC_IS_NAN(num2))
+#ifdef ADB_GRAM_ORA
+	{
+		if (parse_grammar == PARSE_GRAM_ORACLE)
+			elog(ERROR,"NaN is invalid number.");
+		else
+			PG_RETURN_NUMERIC(make_result(&const_nan));
+	}
+#else
 		PG_RETURN_NUMERIC(make_result(&const_nan));
+#endif	/* ADB_GRAM_ORA */
 
 	init_var_from_num(num1, &arg1);
 	init_var_from_num(num2, &arg2);
