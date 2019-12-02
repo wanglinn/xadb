@@ -930,10 +930,15 @@ CopyRelationLocInfo(RelationLocInfo *srcInfo)
 		key->key = copyObject(((LocatorKeyInfo*)lfirst(lc))->key);
 		destInfo->keys = lappend(destInfo->keys, key);
 	}
-	destInfo->nodeids = list_copy(srcInfo->nodeids);
 	destInfo->values = copyObject(srcInfo->values);
 	destInfo->masternodeids = list_copy(srcInfo->masternodeids);
 	destInfo->slavenodeids = list_copy(srcInfo->slavenodeids);
+	Assert(srcInfo->nodeids == srcInfo->masternodeids ||
+		   srcInfo->nodeids == srcInfo->slavenodeids);
+	if (srcInfo->nodeids == srcInfo->masternodeids)
+		destInfo->nodeids = destInfo->masternodeids;
+	else
+		destInfo->nodeids = destInfo->slavenodeids;
 
 	/* Note: for roundrobin, we use the relcache entry */
 	return destInfo;
