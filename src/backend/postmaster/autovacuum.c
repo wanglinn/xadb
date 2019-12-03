@@ -106,7 +106,6 @@
 #include "utils/timestamp.h"
 #include "utils/tqual.h"
 #ifdef ADB
-#include "pgxc/pgxc.h"
 #include "replication/snapreceiver.h"
 #endif /* ADB */
 
@@ -3227,10 +3226,6 @@ AutoVacuumingActive(void)
 {
 	if (!autovacuum_start_daemon || !pgstat_track_counts)
 		return false;
-#ifdef ADB
-	if (IsDnNode())
-		return false;
-#endif /* ADB */
 	return true;
 }
 
