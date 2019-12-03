@@ -377,7 +377,10 @@ static void RxactLoop(void)
 				while((pconn = hash_seq_search(&seq_status)) != NULL)
 				{
 					if (pconn == user_data->pconn)
+					{
+						hash_seq_term(&seq_status);
 						break;
+					}
 				}
 				if (pconn == NULL || PQstatus(user_data->pconn->conn) == CONNECTION_BAD || 
 				 	user_data->pconn->status == PGRES_POLLING_FAILED ||
