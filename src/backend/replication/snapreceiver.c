@@ -274,7 +274,7 @@ void SnapReceiverMain(void)
 	last_gxmin_stime = 0;
 
 	UNLOCK_SNAP_RCV();
-	pg_atomic_write_u32(&SnapRcv->global_xmin, InvalidTransactionId);
+	pg_atomic_write_u32(&SnapRcv->global_xmin, FirstNormalTransactionId);
 
 	/* Arrange to clean up at walreceiver exit */
 	on_shmem_exit(SnapRcvDie, (Datum)0);
@@ -464,7 +464,7 @@ void SnapRcvShmemInit(void)
 		SnapRcv->last_lock_info = InvalidDsaPointer;
 		LWLockInitialize(&SnapRcv->lock_lock_info, LWTRANCHE_SNAPSHOT_RECEIVER_DSA);
 		LWLockInitialize(&SnapRcv->lock_proc_link, LWTRANCHE_SNAPSHOT_RECEIVER_DSA);
-		pg_atomic_init_u32(&SnapRcv->global_xmin, INVALID_PGPROCNO);
+		pg_atomic_init_u32(&SnapRcv->global_xmin, FirstNormalTransactionId);
 	}
 }
 
