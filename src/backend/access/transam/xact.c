@@ -1935,9 +1935,15 @@ RecordTransactionAbort(bool isSubXact)
 	/*
 	 * Check that we haven't aborted halfway through RecordTransactionCommit.
 	 */
+#ifdef ADB
+	if (TransactionIdDidCommitGTM(xid, false))
+		elog(PANIC, "cannot abort transaction %u, it was already committed",
+			 xid);
+#else
 	if (TransactionIdDidCommit(xid))
 		elog(PANIC, "cannot abort transaction %u, it was already committed",
 			 xid);
+#endif /* ADB*/
 
 	/* Fetch the data we need for the abort record */
 	nrels = smgrGetPendingDeletes(false, &rels);
