@@ -87,6 +87,7 @@ typedef struct DynamicReduceIOBuffer
 	uint32					shared_file_no;
 	bool					eof_local;
 	bool					eof_remote;
+	bool					called_attach;		/* for pallel */
 }DynamicReduceIOBuffer;
 
 typedef union DynamicReduceRecvInfo
@@ -138,6 +139,9 @@ extern int DynamicReduceSendOrRecvTuple(shm_mq_handle *mqsend, shm_mq_handle *mq
 										StringInfo recv_buf, DynamicReduceRecvInfo *info);
 extern bool DynamicReduceSendMessage(shm_mq_handle *mqh, Size nbytes, void *data, bool nowait);
 
+extern bool DynamicReduceNotifyAttach(shm_mq_handle *mq_send, shm_mq_handle *mq_recv,
+									  uint8 *remote, DynamicReduceRecvInfo *info);
+
 extern void SerializeEndOfPlanMessage(StringInfo buf);
 extern bool SendEndOfPlanMessageToMQ(shm_mq_handle *mqh, bool nowait);
 extern bool SendRejectPlanMessageToMQ(shm_mq_handle *mqh, bool nowait);
@@ -156,6 +160,7 @@ extern TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io);
 extern TupleTableSlot* DynamicReduceFetchLocal(DynamicReduceIOBuffer *io);
 extern struct SharedTuplestoreAccessor* DynamicReduceOpenSharedTuplestore(dsa_pointer ptr);
 extern void DynamicReduceCloseSharedTuplestore(struct SharedTuplestoreAccessor *stsa, dsa_pointer ptr);
+extern void DynamicReduceAttachPallel(DynamicReduceIOBuffer *io);
 
 /* in dr_shm.c */
 extern dsm_segment* DynamicReduceGetSharedMemory(void);

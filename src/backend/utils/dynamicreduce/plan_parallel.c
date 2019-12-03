@@ -20,6 +20,25 @@ typedef struct ParallelPlanPrivate
 	StringInfoData		tup_buf;
 }ParallelPlanPrivate;
 
+#if 0
+#define SHOW_PLAN_INFO_STATE(msg, pi)							\
+	do{															\
+		PlanWorkerInfo *w;uint32 n;								\
+		for (n=pi->count_pwi;n>0;)								\
+		{														\
+			w = &pi->pwi[--n];									\
+			ereport(LOG_SERVER_ONLY,							\
+					(errmsg(msg " plan %d worker %d leof %d reof %d rstate %d sstate %d", \
+							pi->plan_id, w->worker_id,			\
+							pi->local_eof,pi->remote_eof,		\
+							w->plan_recv_state,					\
+							w->plan_send_state)));				\
+		}														\
+	}while(0)
+#else
+#define SHOW_PLAN_INFO_STATE(msg, pi) ((void)true)
+#endif
+
 static void ClearParallelPlanInfo(PlanInfo *pi)
 {
 	if (pi == NULL)
@@ -30,6 +49,7 @@ static void ClearParallelPlanInfo(PlanInfo *pi)
 	if (pi->pwi)
 	{
 		uint32 i;
+		SHOW_PLAN_INFO_STATE("clean", pi);
 		for (i=0;i<pi->count_pwi;++i)
 			DRClearPlanWorkInfo(pi, &pi->pwi[i]);
 		pfree(pi->pwi);
@@ -78,7 +98,7 @@ static void OnParallelPlanPreWait(PlanInfo *pi)
 	while(count > 0)
 	{
 		pwi = &pi->pwi[--count];
-		if (pwi->end_of_plan_recv == false ||
+		if (pwi->plan_recv_state == DR_PLAN_RECV_WORKING ||
 			pwi->last_msg_type != ADB_DR_MSG_INVALID ||
 			pwi->plan_send_state != DR_PLAN_SEND_ENDED)
 		{
@@ -88,6 +108,50 @@ static void OnParallelPlanPreWait(PlanInfo *pi)
 	}
 	if (need_wait == false)
 		ClearParallelPlanInfo(pi);
+}
+
+static inline bool NeedGenerateEndMessage(PlanInfo *pi)
+{
+	PlanWorkerInfo *pwi;
+	uint32 result;
+	uint32 count;
+
+	if (pi->local_eof)
+		return false;
+	if (pi->end_count_pwi == pi->count_pwi)
+		return true;
+
+	SHOW_PLAN_INFO_STATE("NeedGenerateEndMessage", pi);
+
+	result = 0;
+	for (count=pi->count_pwi;count>0;)
+	{
+		pwi = &pi->pwi[--count];
+		if (pwi->plan_recv_state != DR_PLAN_RECV_WAITING_ATTACH)
+			++result;
+	}
+
+	return result == pi->end_count_pwi;
+}
+
+static inline void NotifyNotAttachedWorker(PlanInfo *pi)
+{
+	PlanWorkerInfo *w;
+	uint32 n;
+	for (n=pi->count_pwi;n>0;)
+	{
+		w = &pi->pwi[--n];
+		if (w->plan_recv_state == DR_PLAN_RECV_WAITING_ATTACH)
+		{
+			w->plan_send_state = DR_PLAN_SEND_GENERATE_CACHE;
+			while (w->plan_send_state != DR_PLAN_SEND_ENDED)
+			{
+				if (DRSendPlanWorkerMessage(w, pi) == false)
+					break;
+			}
+		}
+	}
+	SHOW_PLAN_INFO_STATE("notify", pi);
 }
 
 static void OnParallelPlanLatch(PlanInfo *pi)
@@ -101,8 +165,25 @@ static void OnParallelPlanLatch(PlanInfo *pi)
 	for(count = pi->count_pwi;count>0;)
 	{
 		pwi = &pi->pwi[--count];
-		if (DRSendPlanWorkerMessage(pwi, pi))
+		if (pwi->plan_recv_state == DR_PLAN_RECV_WAITING_ATTACH)
+		{
+			if (DRRecvPlanWorkerMessage(pwi, pi))
+			{
+				Assert(pwi->last_msg_type == ADB_DR_MSG_ATTACH_PLAN &&
+					   pwi->plan_recv_state == DR_PLAN_RECV_WORKING &&
+					   pwi->sendBuffer.len == 0);
+				SHOW_PLAN_INFO_STATE("got attach", pi);
+				/* clear last message */
+				pwi->last_msg_type = ADB_DR_MSG_INVALID;
+				appendStringInfoCharMacro(&pwi->sendBuffer, ADB_DR_MSG_ATTACH_PLAN);
+				appendStringInfoCharMacro(&pwi->sendBuffer, pi->local_eof);
+				DRSendPlanWorkerMessage(pwi, pi);
+				need_active_node = true;
+			}
+		}else if (DRSendPlanWorkerMessage(pwi, pi))
+		{
 			need_active_node = true;
+		}
 	}
 	if (need_active_node)
 		DRActiveNode(pi->plan_id);
@@ -111,7 +192,7 @@ static void OnParallelPlanLatch(PlanInfo *pi)
 	{
 		pwi = &pi->pwi[--count];
 		while (pwi->waiting_node == InvalidOid &&
-			   pwi->end_of_plan_recv == false &&
+			   pwi->plan_recv_state == DR_PLAN_RECV_WORKING &&
 			   pwi->last_msg_type == ADB_DR_MSG_INVALID)
 		{
 			if (DRRecvPlanWorkerMessage(pwi, pi) == false)
@@ -120,15 +201,23 @@ static void OnParallelPlanLatch(PlanInfo *pi)
 
 			if (msg_type == ADB_DR_MSG_END_OF_PLAN)
 			{
-				pwi->end_of_plan_recv = true;
+				if (pwi->got_eof)
+					ereport(ERROR,
+							(errcode(ERRCODE_PROTOCOL_VIOLATION),
+							 errmsg("already got EOF message from plan %d worker %d", pi->plan_id, pwi->worker_id)));
+				pwi->got_eof = true;
+				pwi->plan_recv_state = DR_PLAN_RECV_ENDED;
 				++(pi->end_count_pwi);
 				Assert(pi->end_count_pwi <= pi->count_pwi);
 
 				/* is all parallel got end? */
-				if (pi->end_count_pwi == pi->count_pwi)
+				if (NeedGenerateEndMessage(pi))
 				{
 					DR_PLAN_DEBUG_EOF((errmsg("parall plan %d(%p) worker %d will send end of plan message to remote",
 											  pi->plan_id, pi, pwi->worker_id)));
+					pi->local_eof = true;
+					if (pi->remote_eof)
+						NotifyNotAttachedWorker(pi);
 					DRGetEndOfPlanMessage(pi, pwi);
 				}else
 				{
@@ -204,11 +293,11 @@ static bool OnParallelPlanMessage(PlanInfo *pi, const char *data, int len, Oid n
 			i = 0;
 		pwi = &pi->pwi[i];
 
-		CHECK_WORKER_IN_WROKING(pwi, pi);
-
-		/* we only cache one tuple */
-		if (pwi->sendBuffer.len != 0)
+		if (pwi->sendBuffer.len != 0 ||		/* we only cache one tuple */
+			pwi->plan_recv_state == DR_PLAN_RECV_WAITING_ATTACH) /* not attachd */
 			continue;
+
+		CHECK_WORKER_IN_WROKING(pwi, pi);
 
 		DR_PLAN_DEBUG((errmsg("parallel plan %d(%p) worker %u got a tuple from %u length %d",
 							  pi->plan_id, pi, pwi->worker_id, nodeoid, len)));
@@ -291,21 +380,34 @@ static bool OnParallelPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
 
 	DR_PLAN_DEBUG_EOF((errmsg("parallel plan %d(%p) got end of plan message from node %u",
 							  pi->plan_id, pi, nodeoid)));
+	if (oidBufferMember(&pi->end_of_plan_nodes, nodeoid, NULL))
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("plan %d already got end of plan message from node %u", pi->plan_id, nodeoid)));
 	appendOidBufferUniqueOid(&pi->end_of_plan_nodes, nodeoid);
 
 	if (pi->end_of_plan_nodes.len == pi->working_nodes.len)
 	{
+		DR_PLAN_DEBUG_EOF((errmsg("plan %d generating EOF message to all worker", pi->plan_id)));
+		SHOW_PLAN_INFO_STATE("begin EOF plan", pi);
+		pi->remote_eof = true;
 		for(i=pi->count_pwi;i>0;)
 		{
 			pwi = &pi->pwi[--i];
 			CHECK_WORKER_IN_WROKING(pwi, pi);
+			if (pi->local_eof == false &&
+				pwi->plan_recv_state == DR_PLAN_RECV_WAITING_ATTACH)
+				continue;	/* don't send EOF message for now */
 			pwi->plan_send_state = DR_PLAN_SEND_GENERATE_CACHE;
-			if (pwi->sendBuffer.len == 0)
+			while (pwi->sendBuffer.len == 0 &&
+				   pwi->plan_send_state != DR_PLAN_SEND_ENDED)
 			{
-				/* when not busy, generate and send message immediately */
-				DRSendPlanWorkerMessage(pwi, pi);
+				/* when not busy and not send end, send message immediately */
+				if (DRSendPlanWorkerMessage(pwi, pi) == false)
+					break;
 			}
 		}
+		SHOW_PLAN_INFO_STATE("end EOF plan",pi);
 	}
 	return true;
 }
@@ -316,9 +418,15 @@ static bool GenerateParallelCacheMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
 	if (private->sta != NULL)
 	{
 		Assert(private->dsa_ptr != InvalidDsaPointer);
+		Assert(pwi->sendBuffer.len == 0);
 		sts_end_write(private->sta);
 		appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_SHARED_TUPLE_STORE);
-		appendStringInfoSpaces(&pwi->sendBuffer, SIZEOF_DSA_POINTER-sizeof(char));	/* align */
+		if (pwi->plan_recv_state == DR_PLAN_RECV_WAITING_ATTACH)
+		{
+			Assert(pi->local_eof == true);
+			appendStringInfoChar(&pwi->sendBuffer, pi->local_eof);
+		}
+		appendStringInfoSpaces(&pwi->sendBuffer, SIZEOF_DSA_POINTER-pwi->sendBuffer.len);	/* align */
 		appendBinaryStringInfoNT(&pwi->sendBuffer, (char*)&(private->dsa_ptr), SIZEOF_DSA_POINTER);
 		return true;
 	}
@@ -357,7 +465,7 @@ void DRStartParallelPlanMessage(StringInfo msg)
 		pi->pwi = MemoryContextAllocZero(TopMemoryContext, sizeof(PlanWorkerInfo)*parallel_max);
 		pi->count_pwi = parallel_max;
 		for (i=0;i<parallel_max;++i)
-			DRSetupPlanWorkInfo(pi, &pi->pwi[i], &mq[i], i-1);
+			DRSetupPlanWorkInfo(pi, &pi->pwi[i], &mq[i], i-1, DR_PLAN_RECV_WAITING_ATTACH);
 
 		CurrentResourceOwner = oldowner;
 		for (i=0;i<parallel_max;++i)

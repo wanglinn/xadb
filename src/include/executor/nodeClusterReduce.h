@@ -15,6 +15,4 @@ extern void ExecClusterReduceInitializeDSM(ClusterReduceState *node, ParallelCon
 extern void ExecClusterReduceReInitializeDSM(ClusterReduceState *node, ParallelContext *pcxt);
 extern void ExecClusterReduceInitializeWorker(ClusterReduceState *node,
 											  ParallelWorkerContext *pwcxt);
-
-extern void ExecClusterReduceStartedParallel(ClusterReduceState *node, ParallelContext *pcxt);
 #endif /* NODE_CLUSTER_REDUCE_H */

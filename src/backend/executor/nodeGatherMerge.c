@@ -226,9 +226,6 @@ ExecGatherMerge(PlanState *pstate)
 				node->nreaders = 0;
 				node->reader = NULL;
 			}
-#ifdef ADB
-			ExecStartedParallel(node->pei);
-#endif /* ADB */
 		}
 
 		/* allow leader to participate if enabled or no choice */

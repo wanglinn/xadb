@@ -344,3 +344,38 @@ void DynamicReduceCloseSharedTuplestore(struct SharedTuplestoreAccessor *stsa, d
 		dsa_free(dr_dsa, ptr);
 	}
 }
+
+void DynamicReduceAttachPallel(DynamicReduceIOBuffer *io)
+{
+	uint8 remote;
+	DynamicReduceRecvInfo info;
+	if (io->called_attach)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("DynamicReduceIOBuffer already attached")));
+
+	io->eof_local = DynamicReduceNotifyAttach(io->mqh_sender,
+											  io->mqh_receiver,
+											  &remote,
+											  &info);
+	switch(remote)
+	{
+	case ADB_DR_MSG_ATTACH_PLAN:
+		break;
+	case ADB_DR_MSG_END_OF_PLAN:
+		io->eof_remote = true;
+		break;
+	case ADB_DR_MSG_SHARED_FILE_NUMBER:
+		DRFetchOpenSharedFile(io, info.u32);
+		break;
+	case ADB_DR_MSG_SHARED_TUPLE_STORE:
+		DRFetchOpenSharedTuplestore(io, info.dp);
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknow result dynamic reduce remote state %u for attach pallel plan", remote)));
+		break;
+	}
+	io->called_attach = true;
+}

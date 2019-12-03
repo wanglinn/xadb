@@ -56,6 +56,7 @@
 #define ADB_DR_MSG_SHARED_FILE_NUMBER	'\x03'
 #define ADB_DR_MSG_SHARED_TUPLE_STORE	'\x04'
 #define ADB_DR_MSG_END_OF_PLAN			'\x05'
+#define ADB_DR_MSG_ATTACH_PLAN			'\x06'
 
 #define DR_PLAN_SEND_WORKING			0x01	/* sending tuple */
 #define DR_PLAN_SEND_GENERATE_CACHE		0x02	/* waiting generate send cached data */
@@ -63,6 +64,10 @@
 #define DR_PLAN_SEND_GENERATE_EOF		0x04	/* waiting generate send end of plan data */
 #define DR_PLAN_SEND_SENDING_EOF		0x05	/* waiting send EOF data */
 #define DR_PLAN_SEND_ENDED				0x06	/* all data sended */
+
+#define DR_PLAN_RECV_WAITING_ATTACH		0x01	/* waiting backend notify attach message */
+#define DR_PLAN_RECV_WORKING			0x02	/* receiving tuple */
+#define DR_PLAN_RECV_ENDED				0x03	/* got EOF data */
 
 /* define DRD_CONNECT 1 */
 #ifdef DRD_CONNECT
@@ -92,6 +97,12 @@
 #define DR_NODE_DEBUG(rest)	((void)true)
 #endif
 
+/* #define DRD_PLAN_ATTACH 1 */
+#ifdef DRD_PLAN_ATTACH
+#define DR_PLAN_DEBUG_ATTACH(rest) ereport_domain(LOG_SERVER_ONLY, PG_TEXTDOMAIN("DynamicReduce"), rest)
+#else
+#define DR_PLAN_DEBUG_ATTACH(rest)	((void)true)
+#endif
 
 typedef enum DR_STATUS
 {
@@ -207,8 +218,9 @@ typedef struct PlanWorkerInfo
 	Size			last_size;			/* last received data size */
 	StringInfoData	sendBuffer;			/* cached data for send to worker */
 	char			last_msg_type;		/* last message type from backend */
-	bool			end_of_plan_recv;	/* got EOF message from backend or error */
+	uint8			plan_recv_state;	/* see DR_PLAN_RECV_XXX */
 	uint8			plan_send_state;	/* see DR_PLAN_SEND_XXX */
+	bool			got_eof;			/* got ADB_DR_MSG_END_OF_PLAN message */
 	void		   *private;			/* private data for special plan */
 }PlanWorkerInfo;
 
@@ -247,9 +259,11 @@ struct PlanInfo
 		/* for parallel */
 		struct
 		{
-			uint32		count_pwi;	/* for parallel */
+			uint32		count_pwi;			/* for parallel */
 			uint32		end_count_pwi;		/* got end of plan message count */
 			uint32		last_pwi;			/* last put to message pwi */
+			bool		remote_eof;			/* got eof message from all remote? */
+			bool		local_eof;			/* got eof message from all attached worker? */
 		};
 
 		/* for shared tuplestore */
@@ -262,11 +276,13 @@ struct PlanInfo
 };
 
 #define CHECK_WORKER_IN_WROKING(pwi_, pi)									\
-	if((pwi_)->plan_send_state != DR_PLAN_SEND_WORKING)						\
+	if ((pwi_)->plan_send_state < DR_PLAN_SEND_WORKING ||					\
+		(pwi_)->plan_send_state >= DR_PLAN_SEND_ENDED)						\
 		ereport(ERROR,														\
 				(errcode(ERRCODE_INTERNAL_ERROR),							\
-				 errmsg("plan %d worker %d is not in sending tuple state",	\
-						(pi)->plan_id, (pwi_)->worker_id)))
+				 errmsg("plan %d worker %d rstate %d sstate %d is not in sending tuple state",	\
+						(pi)->plan_id, (pwi_)->worker_id,					\
+						(pwi_)->plan_recv_state, (pwi_)->plan_send_state)))
 
 typedef struct DynamicReduceSharedTuplestore
 {
@@ -315,7 +331,7 @@ void DRSetupPlanWorkTypeConvert(PlanInfo *pi, PlanWorkerInfo *pwi);
 TupleTableSlot* DRStoreTypeConvertTuple(TupleTableSlot *slot, const char *data, uint32 len, HeapTuple head);
 void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, TupleDesc desc, List *work_nodes, StringInfo buf);
 PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(PlanInfo*));
-void DRSetupPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi, DynamicReduceMQ mq, int worker_id);
+void DRSetupPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi, DynamicReduceMQ mq, int worker_id, uint8 recv_state);
 void DRInitPlanSearch(void);
 PlanInfo* DRPlanSearch(int planid, HASHACTION action, bool *found);
 void DRPlanSeqInit(HASH_SEQ_STATUS *seq);
