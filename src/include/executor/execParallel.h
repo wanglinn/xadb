@@ -46,8 +46,4 @@ extern void ExecParallelReinitialize(PlanState *planstate,
 
 extern void ParallelQueryMain(dsm_segment *seg, shm_toc *toc);
 
-#ifdef ADB
-extern void ExecStartedParallel(ParallelExecutorInfo *pei);
-#endif /* ADB */
-
 #endif							/* EXECPARALLEL_H */

@@ -63,6 +63,12 @@ re_send_:
 	case DR_PLAN_SEND_SENDING_CACHE:
 	case DR_PLAN_SEND_GENERATE_EOF:
 		appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_END_OF_PLAN);
+		if (pwi->plan_recv_state == DR_PLAN_RECV_WAITING_ATTACH)
+		{
+			/* parallel */
+			Assert(pi->local_eof == true);
+			appendStringInfoChar(&pwi->sendBuffer, pi->local_eof);
+		}
 		pwi->plan_send_state = DR_PLAN_SEND_SENDING_EOF;
 		goto re_send_;
 	case DR_PLAN_SEND_SENDING_EOF:
@@ -89,7 +95,7 @@ bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
 	int				msg_type;
 	uint32			msg_head;
 
-	if (pwi->end_of_plan_recv ||
+	if (pwi->plan_recv_state == DR_PLAN_RECV_ENDED ||
 		pwi->last_data != NULL)
 		return false;
 
@@ -99,7 +105,7 @@ bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
 		return false;
 	}else if(result == SHM_MQ_DETACHED)
 	{
-		pwi->end_of_plan_recv = true;
+		pwi->plan_recv_state = DR_PLAN_RECV_ENDED;
 		ereport(ERROR,
 				(errmsg("plan %d parallel %d MQ detached",
 						pi->plan_id, pwi->worker_id)));
@@ -151,10 +157,23 @@ bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
 								  pi->plan_id, pwi->worker_id)));
 		pwi->last_msg_type = ADB_DR_MSG_END_OF_PLAN;
 		return true;
+	}else if(msg_type == ADB_DR_MSG_ATTACH_PLAN)
+	{
+		if (pwi->plan_recv_state != DR_PLAN_RECV_WAITING_ATTACH)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					 errmsg("paln %d worker %d is not in waiting attach state",
+					 		pi->plan_id, pwi->worker_id)));
+		}
+		DR_PLAN_DEBUG_ATTACH((errmsg("plan %d worker %d got attach message", pi->plan_id, pwi->worker_id)));
+		pwi->plan_recv_state = DR_PLAN_RECV_WORKING;
+		pwi->last_msg_type = ADB_DR_MSG_ATTACH_PLAN;
+		return true;
 	}
 
 invalid_plan_message_:
-	pwi->end_of_plan_recv = true;
+	pwi->plan_recv_state = DR_PLAN_RECV_ENDED;
 	ereport(ERROR,
 			(errmsg("Invalid MQ message format plan %d parallel %d", pi->plan_id, pwi->worker_id)));
 	return false;	/* keep compiler quiet */
@@ -344,10 +363,11 @@ PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(
 	return pi;
 }
 
-void DRSetupPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi, DynamicReduceMQ mq, int worker_id)
+void DRSetupPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi, DynamicReduceMQ mq, int worker_id, uint8 recv_state)
 {
 	pwi->worker_id = worker_id;
 	pwi->waiting_node = InvalidOid;
+	pwi->plan_recv_state = recv_state;
 	pwi->plan_send_state = DR_PLAN_SEND_WORKING;
 
 	shm_mq_set_receiver((shm_mq*)mq->worker_sender_mq, MyProc);
@@ -500,7 +520,7 @@ void DRClearPlanInfo(PlanInfo *pi)
 void OnDefaultPlanPreWait(PlanInfo *pi)
 {
 	PlanWorkerInfo *pwi = pi->pwi;
-	if (pwi->end_of_plan_recv &&
+	if (pwi->plan_recv_state == DR_PLAN_RECV_ENDED &&
 		pwi->last_msg_type == ADB_DR_MSG_INVALID &&
 		pwi->plan_send_state == DR_PLAN_SEND_ENDED)
 		(*pi->OnDestroy)(pi);
@@ -516,7 +536,7 @@ void OnDefaultPlanLatch(PlanInfo *pi)
 		DRActiveNode(pi->plan_id);
 
 	while (pwi->waiting_node == InvalidOid &&
-		   pwi->end_of_plan_recv == false &&
+		   pwi->plan_recv_state == DR_PLAN_RECV_WORKING &&
 		   pwi->last_msg_type == ADB_DR_MSG_INVALID)
 	{
 		if (DRRecvPlanWorkerMessage(pwi, pi) == false)
@@ -525,7 +545,7 @@ void OnDefaultPlanLatch(PlanInfo *pi)
 
 		if (msg_type == ADB_DR_MSG_END_OF_PLAN)
 		{
-			pwi->end_of_plan_recv = true;
+			pwi->plan_recv_state = DR_PLAN_RECV_ENDED;
 			DRGetEndOfPlanMessage(pi, pwi);
 		}else
 		{

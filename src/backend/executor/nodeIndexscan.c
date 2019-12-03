@@ -1691,11 +1691,6 @@ ExecIndexScanEstimate(IndexScanState *node,
 {
 	EState	   *estate = node->ss.ps.state;
 
-#ifdef ADB
-	if (node->iss_ScanDesc)
-		return;
-#endif /* ADB */
-
 	node->iss_PscanLen = index_parallelscan_estimate(node->iss_RelationDesc,
 													 estate->es_snapshot);
 	shm_toc_estimate_chunk(&pcxt->estimator, node->iss_PscanLen);
@@ -1714,14 +1709,6 @@ ExecIndexScanInitializeDSM(IndexScanState *node,
 {
 	EState	   *estate = node->ss.ps.state;
 	ParallelIndexScanDesc piscan;
-
-#ifdef ADB
-	if (node->iss_ScanDesc)
-	{
-		ExecSetExecProcNode(&node->ss.ps, ExecFakeProcNode);
-		return;
-	}
-#endif /* ADB */
 
 	piscan = shm_toc_allocate(pcxt->toc, node->iss_PscanLen);
 	index_parallelscan_initialize(node->ss.ss_currentRelation,
@@ -1771,16 +1758,7 @@ ExecIndexScanInitializeWorker(IndexScanState *node,
 {
 	ParallelIndexScanDesc piscan;
 
-#ifdef ADB
-	piscan = shm_toc_lookup(pwcxt->toc, node->ss.ps.plan->plan_node_id, true);
-	if (piscan == NULL)
-	{
-		ExecSetExecProcNode(&node->ss.ps, ExecFakeProcNode);
-		return;
-	}
-#else
 	piscan = shm_toc_lookup(pwcxt->toc, node->ss.ps.plan->plan_node_id, false);
-#endif /* ADB */
 	node->iss_ScanDesc =
 		index_beginscan_parallel(node->ss.ss_currentRelation,
 								 node->iss_RelationDesc,

@@ -49,7 +49,7 @@ static void OnSTSPlanLatch(PlanInfo *pi)
 	DRSendPlanWorkerMessage(pwi, pi);
 
 	while (pwi->waiting_node == InvalidOid &&
-		   pwi->end_of_plan_recv == false &&
+		   pwi->plan_recv_state == DR_PLAN_RECV_WORKING &&
 		   pwi->last_msg_type == ADB_DR_MSG_INVALID)
 	{
 		if (DRRecvPlanWorkerMessage(pwi, pi) == false)
@@ -58,7 +58,7 @@ static void OnSTSPlanLatch(PlanInfo *pi)
 
 		if (msg_type == ADB_DR_MSG_END_OF_PLAN)
 		{
-			pwi->end_of_plan_recv = true;
+			pwi->plan_recv_state = DR_PLAN_RECV_ENDED;
 			DRGetEndOfPlanMessage(pi, pwi);
 		}else
 		{
@@ -183,7 +183,7 @@ void DRStartSTSPlanMessage(StringInfo msg)
 		pq_getmsgend(msg);
 
 		pwi = pi->pwi = MemoryContextAllocZero(TopMemoryContext, sizeof(PlanWorkerInfo));
-		DRSetupPlanWorkInfo(pi, pwi, &sts->sfs.mq, -1);
+		DRSetupPlanWorkInfo(pi, pwi, &sts->sfs.mq, -1, DR_PLAN_RECV_WORKING);
 		SharedFileSetAttach(&sts->sfs.sfs, pi->seg);
 
 		CurrentResourceOwner = oldowner;

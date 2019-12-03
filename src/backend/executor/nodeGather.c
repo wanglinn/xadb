@@ -185,9 +185,6 @@ ExecGather(PlanState *pstate)
 				node->reader = NULL;
 			}
 			node->nextreader = 0;
-#ifdef ADB
-			ExecStartedParallel(node->pei);
-#endif /* ADB */
 		}
 
 		/* Run plan locally if no workers or enabled and not single-copy. */

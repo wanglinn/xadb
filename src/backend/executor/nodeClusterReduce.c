@@ -170,6 +170,19 @@ re_get_:
 	return slot;
 }
 
+static TupleTableSlot* ExecParallelReduceFirst(PlanState *pstate)
+{
+	/* notify attach */
+	NormalReduceState *normal = castNode(ClusterReduceState, pstate)->private_state;
+	DynamicReduceAttachPallel(&normal->drio);
+
+	if (castNode(ClusterReduce, pstate->plan)->reduce_flags & CRF_FETCH_LOCAL_FIRST)
+		ExecSetExecProcNode(pstate, ExecNormalReduceLocalFirst);
+	else
+		ExecSetExecProcNode(pstate, ExecNormalReduce);
+	return (*pstate->ExecProcNodeReal)(pstate);
+}
+
 static TupleTableSlot* ExecReduceFetchLocal(void *pstate, ExprContext *econtext)
 {
 	TupleTableSlot *slot = ExecProcNode(pstate);
@@ -239,6 +252,7 @@ static void InitParallelReduce(ClusterReduceState *crstate, ParallelContext *pcx
 	MemoryContext		oldcontext;
 	NormalReduceState  *normal;
 	DynamicReduceMQ		drmq;
+	ClusterReduce	   *plan = castNode(ClusterReduce, crstate->ps.plan);
 	char			   *addr;
 	int					i;
 	Assert(crstate->private_state == NULL);
@@ -257,35 +271,17 @@ static void InitParallelReduce(ClusterReduceState *crstate, ParallelContext *pcx
 	normal = palloc0(sizeof(NormalReduceState));
 	SetupNormalReduceState(normal, drmq, crstate, false);
 	crstate->private_state = normal;
-	if (castNode(ClusterReduce, crstate->ps.plan)->reduce_flags & CRF_FETCH_LOCAL_FIRST)
-		ExecSetExecProcNode(&crstate->ps, ExecNormalReduceLocalFirst);
-	else
-		ExecSetExecProcNode(&crstate->ps, ExecNormalReduce);
+	ExecSetExecProcNode(&crstate->ps, ExecParallelReduceFirst);
+	DynamicReduceStartParallelPlan(crstate->ps.plan->plan_node_id,
+								   pcxt->seg,
+								   drmq,
+								   crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
+								   plan->reduce_oids,
+								   pcxt->nworkers+1,
+								   plan->reduce_flags & CRF_DISK_UNNECESSARY ? false:true);
 	MemoryContextSwitchTo(oldcontext);
 }
-static void StartParallelReduce(ClusterReduceState *crstate, ParallelContext *pcxt)
-{
-	DynamicReduceMQ		drmq;
-	ClusterReduce	   *plan = castNode(ClusterReduce, crstate->ps.plan);
 
-	char* addr = shm_toc_lookup(pcxt->toc, crstate->ps.plan->plan_node_id, false);
-	drmq = (DynamicReduceMQ)(addr + sizeof(Size));
-	if (pcxt->nworkers_launched == 0)
-		DynamicReduceStartNormalPlan(crstate->ps.plan->plan_node_id, 
-									 pcxt->seg,
-									 drmq,
-									 crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
-									 plan->reduce_oids,
-									 plan->reduce_flags & CRF_DISK_UNNECESSARY ? false:true);
-	else
-		DynamicReduceStartParallelPlan(crstate->ps.plan->plan_node_id,
-									   pcxt->seg,
-									   drmq,
-									   crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
-									   plan->reduce_oids,
-									   pcxt->nworkers_launched+1,
-									   plan->reduce_flags & CRF_DISK_UNNECESSARY ? false:true);
-}
 static void InitParallelReduceWorker(ClusterReduceState *crstate, ParallelWorkerContext *pwcxt, char *addr)
 {
 	MemoryContext		oldcontext;
@@ -300,7 +296,7 @@ static void InitParallelReduceWorker(ClusterReduceState *crstate, ParallelWorker
 	normal = palloc0(sizeof(NormalReduceState));
 	SetupNormalReduceState(normal, drmq, crstate, false);
 	crstate->private_state = normal;
-	ExecSetExecProcNode(&crstate->ps, ExecNormalReduce);
+	ExecSetExecProcNode(&crstate->ps, ExecParallelReduceFirst);
 	MemoryContextSwitchTo(oldcontext);
 }
 static inline void EstimateNormalReduce(ParallelContext *pcxt)
@@ -319,6 +315,10 @@ static void DriveNormalReduce(ClusterReduceState *node)
 {
 	TupleTableSlot	   *slot;
 	NormalReduceState  *normal = node->private_state;
+
+	if (normal->dsm_seg == NULL &&				/* pallel */
+		normal->drio.called_attach == false)	/* not attached */
+		DynamicReduceAttachPallel(&normal->drio);
 
 	if (normal->drio.eof_local == false ||
 		normal->drio.eof_remote == false ||
@@ -1044,6 +1044,7 @@ void ExecClusterReduceInitializeDSM(ClusterReduceState *node, ParallelContext *p
 				 errmsg("unknown reduce method %u", node->reduce_method)));
 		break;
 	}
+	node->initialized = true;
 }
 void ExecClusterReduceReInitializeDSM(ClusterReduceState *node, ParallelContext *pcxt)
 {
@@ -1079,29 +1080,7 @@ void ExecClusterReduceInitializeWorker(ClusterReduceState *node, ParallelWorkerC
 				 errmsg("unknown reduce method %u", node->reduce_method)));
 		break;
 	}
-}
-
-void ExecClusterReduceStartedParallel(ClusterReduceState *node, ParallelContext *pcxt)
-{
-	switch(node->reduce_method)
-	{
-	case RT_NOTHING:
-	case RT_ADVANCE_PARALLEL:
-		break;
-	case RT_NORMAL:
-		StartParallelReduce(node, pcxt);
-		break;
-	case RT_MERGE:
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("merge reduce not support parallel yet")));
-		break;
-	default:
-		ereport(ERROR,
-				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("unknown reduce method %u", node->reduce_method)));
-		break;
-	}
+	node->initialized = true;
 }
 
 ClusterReduceState *
@@ -1599,8 +1578,6 @@ TopDownDriveClusterReduce(PlanState *node)
 #define ACR_MARK_SPECIAL	0xFFFF0000
 #define ACR_FLAG_SUBPLAN	0x10000
 #define ACR_FLAG_INITPLAN	0x20000
-#define ACR_FLAG_PAPPEND	0x40000
-
 
 static inline void AdvanceReduce(ClusterReduceState *crs, PlanState *parent, uint32 flags)
 {
@@ -1696,12 +1673,8 @@ static void AdvanceClusterReduceWorker(PlanState *ps, PlanState *pps, uint32 fla
 					  (flags&ACR_MARK_SPECIAL)|ACR_FLAG_APPEND);
 		break;
 	case T_AppendState:
-		{
-			uint32 new_flags = (flags&ACR_MARK_SPECIAL)|ACR_FLAG_APPEND;
-			if (ps->plan->parallel_safe)
-				new_flags |= ACR_FLAG_PAPPEND;
-			WalkerMembers(AppendState, appendplans, as_nplans, new_flags);
-		}
+		WalkerMembers(AppendState, appendplans, as_nplans,
+					  (flags&ACR_MARK_SPECIAL)|ACR_FLAG_APPEND);
 		break;
 	case T_MergeAppendState:
 		WalkerMembers(MergeAppendState, mergeplans, ms_nplans,

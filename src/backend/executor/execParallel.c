@@ -1406,27 +1406,3 @@ ParallelQueryMain(dsm_segment *seg, shm_toc *toc)
 	FreeQueryDesc(queryDesc);
 	receiver->rDestroy(receiver);
 }
-
-#ifdef ADB
-static bool ExecStartedParallelWorker(PlanState *planstate, ParallelContext *pcxt)
-{
-	if (planstate == NULL)
-		return false;
-	
-	switch(nodeTag(planstate))
-	{
-	case T_ClusterReduceState:
-		ExecClusterReduceStartedParallel((ClusterReduceState*)planstate, pcxt);
-		break;
-	
-	default:
-		break;
-	}
-
-	return planstate_tree_walker(planstate, ExecStartedParallelWorker, pcxt);
-}
-void ExecStartedParallel(ParallelExecutorInfo *pei)
-{
-	ExecStartedParallelWorker(pei->planstate, pei->pcxt);
-}
-#endif /* ADB */

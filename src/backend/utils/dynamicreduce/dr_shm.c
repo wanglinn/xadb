@@ -166,8 +166,9 @@ static void set_slot_data(void *data, Size size, TupleTableSlot *slot, StringInf
 /*
  * result:
  *   DR_MSG_INVALID: would block
- *   DR_MSG_RECV: data saved in slot, node oid saved in id
- *   DR_MSG_RECV_SF: shared file number saved in id
+ *   DR_MSG_RECV: data saved in slot, node oid saved in info
+ *   DR_MSG_RECV_SF: shared file number saved in info
+ *   DR_MSG_RECV_STS: shared tuplestore saved in info
  */
 uint8
 DynamicReduceRecvTuple(shm_mq_handle *mqh, struct TupleTableSlot *slot, StringInfo buf,
@@ -314,6 +315,83 @@ bool DynamicReduceSendMessage(shm_mq_handle *mqh, Size nbytes, void *data, bool 
 	}
 
 	return false;	/* never run, keep compiler quiet */
+}
+
+/* return EOF local */
+bool DynamicReduceNotifyAttach(shm_mq_handle *mq_send, shm_mq_handle *mq_recv,
+							   uint8 *remote, DynamicReduceRecvInfo *info)
+{
+	static const uint32 msg = (ADB_DR_MSG_ATTACH_PLAN << 24);
+	shm_mq_iovec iov = {(const char*)&msg, sizeof(msg)};
+	shm_mq_result mq_result;
+#ifndef DR_USING_EPOLL
+	WaitEvent event;
+#endif
+
+re_send_:
+	mq_result = shm_mq_sendv(mq_send, &iov, 1, true);
+	if (mq_result == SHM_MQ_WOULD_BLOCK)
+	{
+#ifdef DR_USING_EPOLL
+		dr_wait_latch();
+#else
+		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_SEND);
+#endif
+		ResetLatch(&MyProc->procLatch);
+		CHECK_FOR_INTERRUPTS();
+		check_error_message_from_reduce();
+		goto re_send_;
+	}
+	/*
+	 * when mq detached, maybe dynamic reduce closed plan,
+	 * we shoud also can get an EOF message
+	 */
+	Assert(mq_result == SHM_MQ_SUCCESS || mq_result == SHM_MQ_DETACHED);
+
+	iov.len = 0;
+	iov.data = NULL;
+re_get_:
+	mq_result = shm_mq_receive(mq_recv, &iov.len, (void**)&iov.data, true);
+	if (mq_result == SHM_MQ_WOULD_BLOCK)
+	{
+#ifdef DR_USING_EPOLL
+		dr_wait_latch();
+#else
+		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_RECEIVE);
+#endif
+		ResetLatch(&MyProc->procLatch);
+		CHECK_FOR_INTERRUPTS();
+		check_error_message_from_reduce();
+		goto re_get_;
+	}else if (mq_result == SHM_MQ_DETACHED)
+	{
+		ereport(ERROR,
+				(errmsg("can not receive message from dynamic reduce for plan: MQ detached")));
+	}
+	Assert(mq_result == SHM_MQ_SUCCESS && iov.len>0);
+
+	switch(iov.data[0])
+	{
+	case ADB_DR_MSG_ATTACH_PLAN:
+	case ADB_DR_MSG_END_OF_PLAN:
+		Assert(iov.len == sizeof(iov.data[0])*2);
+		break;
+	case ADB_DR_MSG_SHARED_FILE_NUMBER:
+		Assert(iov.len == 8);
+		info->u32 = *((uint32*)(iov.data+4));
+		break;
+	case ADB_DR_MSG_SHARED_TUPLE_STORE:
+		Assert(iov.len == SIZEOF_DSA_POINTER*2);
+		info->dp = *((dsa_pointer*)(iov.data+SIZEOF_DSA_POINTER));
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("unknown MQ attach message type %d from dynamic reduce for plan", iov.data[0])));
+		break;
+	}
+	*remote = iov.data[0];
+	return iov.data[1];
 }
 
 bool DRSendMsgToReduce(const char *data, Size len, bool nowait)

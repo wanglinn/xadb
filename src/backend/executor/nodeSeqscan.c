@@ -277,11 +277,6 @@ ExecSeqScanEstimate(SeqScanState *node,
 {
 	EState	   *estate = node->ss.ps.state;
 
-#ifdef ADB
-	if (node->ss.ss_currentScanDesc)
-		return;
-#endif /* ADB */
-
 	node->pscan_len = heap_parallelscan_estimate(estate->es_snapshot);
 	shm_toc_estimate_chunk(&pcxt->estimator, node->pscan_len);
 	shm_toc_estimate_keys(&pcxt->estimator, 1);
@@ -299,14 +294,6 @@ ExecSeqScanInitializeDSM(SeqScanState *node,
 {
 	EState	   *estate = node->ss.ps.state;
 	ParallelHeapScanDesc pscan;
-
-#ifdef ADB
-	if (node->ss.ss_currentScanDesc)
-	{
-		ExecSetExecProcNode(&node->ss.ps, ExecFakeProcNode);
-		return;
-	}
-#endif /* ADB */
 
 	pscan = shm_toc_allocate(pcxt->toc, node->pscan_len);
 	heap_parallelscan_initialize(pscan,
@@ -344,16 +331,7 @@ ExecSeqScanInitializeWorker(SeqScanState *node,
 {
 	ParallelHeapScanDesc pscan;
 
-#ifdef ADB
-	pscan = shm_toc_lookup(pwcxt->toc, node->ss.ps.plan->plan_node_id, true);
-	if (pscan == NULL)
-	{
-		ExecSetExecProcNode(&node->ss.ps, ExecFakeProcNode);
-		return;
-	}
-#else
 	pscan = shm_toc_lookup(pwcxt->toc, node->ss.ps.plan->plan_node_id, false);
-#endif /* ADB */
 	node->ss.ss_currentScanDesc =
 		heap_beginscan_parallel(node->ss.ss_currentRelation, pscan);
 }

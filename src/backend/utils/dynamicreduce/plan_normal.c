@@ -205,7 +205,7 @@ void DRStartNormalPlanMessage(StringInfo msg)
 		pq_getmsgend(msg);
 
 		pwi = pi->pwi = MemoryContextAllocZero(TopMemoryContext, sizeof(PlanWorkerInfo));
-		DRSetupPlanWorkInfo(pi, pwi, mq, -1);
+		DRSetupPlanWorkInfo(pi, pwi, mq, -1, DR_PLAN_RECV_WORKING);
 
 		CurrentResourceOwner = oldowner;
 		DRSetupPlanWorkTypeConvert(pi, pwi);
