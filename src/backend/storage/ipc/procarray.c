@@ -150,10 +150,6 @@ static TransactionId latestObservedXid = InvalidTransactionId;
  */
 static TransactionId standbySnapshotPendingXmin;
 
-#ifdef ADB
-extern int vacuum_cluster_xin_diff;
-#endif /* ADB */
-
 #ifdef XIDCACHE_DEBUG
 
 /* counters for XidCache measurement */

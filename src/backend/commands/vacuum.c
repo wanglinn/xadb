@@ -84,12 +84,6 @@ typedef struct ClusterVacuumHookFuncs
 	PGconn *conn;			/* last exec end PGconn* */
 }ClusterVacuumHookFuncs;
 
-typedef struct GetVacuumXminHook
-{
-	PQNHookFunctions		pub;
-	TransactionId			*xmin;
-}GetVacuumXminHook;
-
 typedef struct ClusterVacuumCmdContext
 {
 	VacuumParams   *params;
@@ -107,9 +101,6 @@ int			vacuum_freeze_table_age;
 int			vacuum_multixact_freeze_min_age;
 int			vacuum_multixact_freeze_table_age;
 
-#ifdef ADB
-int			vacuum_cluster_xin_diff;
-#endif /* ADB */
 
 /* A few variables that don't seem worth passing around as parameters */
 static MemoryContext vac_context = NULL;
@@ -127,10 +118,6 @@ static void vac_truncate_clog(TransactionId frozenXID,
 static List* get_vacuum_all_node(List *relations, MemoryContext context, bool need_vacuum);
 static List* get_vacuum_all_coord(List *relations, MemoryContext context);
 static void cluster_recv_exec_end(List *conns);
-static bool get_vacuum_xmin_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
-static TransactionId cluster_recv_vacuum_xmin(List *conns, TransactionId local_oldest);
-static TransactionId cluster_cn_vacuum_sync_xmin(List *oids, Relation onerel);
-static List* cluster_cn_vacuum_sync_relinfo(List *oids, Relation onerel, TransactionId xmin);
 static int process_master_vacuum_cmd(ClusterVacuumCmdContext *context, const char *data, int len);
 #endif /* ADB */
 static bool vacuum_rel(Oid relid, RangeVar *relation, int options,
@@ -1458,89 +1445,6 @@ vac_truncate_clog(TransactionId frozenXID,
 	SetMultiXactIdLimit(minMulti, minmulti_datoid, false);
 }
 
-#ifdef ADB
-static List* cluster_cn_vacuum_sync_relinfo(List *oids, Relation onerel, TransactionId oldest_xmin)
-{
-	StringInfoData	buf;
-	List		   	*conns;
-	char	   		*namespace;
-	ListCell   		*lc;
-
-	conns = NIL;
-	if (!oids)
-		return conns;
-
-	
-	initStringInfo(&buf);
-	appendStringInfoChar(&buf, CLUSTER_VACUUM_CMD_VACUUM);
-	namespace = get_namespace_name(RelationGetNamespace(onerel));
-	save_node_string(&buf, namespace);
-	save_node_string(&buf, RelationGetRelationName(onerel));
-	appendBinaryStringInfoNT(&buf, (char*)&oldest_xmin, sizeof(oldest_xmin));
-
-	foreach(lc, oids)
-	{
-		PGconn *conn = PQNFindConnUseOid(lfirst_oid(lc));
-		if (conn == NULL)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg("remote node %u not connected", lfirst_oid(lc))));
-		}
-		conns = lappend(conns, conn);
-	}
-
-	PQNputCopyData(conns, buf.data, buf.len);
-	pfree(namespace);
-	pfree(buf.data);
-
-	return conns;
-}
-
-static TransactionId cluster_cn_vacuum_sync_xmin(List *oids, Relation onerel)
-{
-	StringInfoData	buf;
-	List		   	*conns;
-	TransactionId	oldest_xmin;
-	char	   		*namespace;
-	ListCell   		*lc;
-
-	if (!oids)
-		return InvalidTransactionId;
-
-	conns = NIL;
-	initStringInfo(&buf);
-	appendStringInfoChar(&buf, CLUSTER_VACUUM_CMD_VACUUM_SYNC_XMIN);
-	namespace = get_namespace_name(RelationGetNamespace(onerel));
-	save_node_string(&buf, namespace);
-	save_node_string(&buf, RelationGetRelationName(onerel));
-
-	foreach(lc, oids)
-	{
-		PGconn *conn = PQNFindConnUseOid(lfirst_oid(lc));
-		if (conn == NULL)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg("remote node %u not connected", lfirst_oid(lc))));
-		}
-		conns = lappend(conns, conn);
-	}
-
-	PQNputCopyData(conns, buf.data, buf.len);
-	PQNFlush(conns, true);
-
-	oldest_xmin = GetOldestXmin(onerel, PROCARRAY_FLAGS_VACUUM);
-	oldest_xmin = cluster_recv_vacuum_xmin(conns, oldest_xmin);
-
-	pfree(namespace);
-	pfree(buf.data);
-	list_free(conns);
-
-	return oldest_xmin;
-}
-#endif /* ADB*/
-
 
 /*
  *	vacuum_rel() -- vacuum one heap relation
@@ -1573,6 +1477,7 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	int			save_nestlevel;
 	bool		rel_lock = true;
 #ifdef ADB
+	StringInfoData	buf;
 	List		   *conns;
 #endif /* ADB */
 
@@ -1816,23 +1721,43 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 		(onerel->rd_locator_info != NULL ||
 		 onerel->rd_rel->relkind == RELKIND_MATVIEW))
 	{
-		List	   		*oids = NIL;
-		List	   		*oids_all = NIL;
-		TransactionId	oldest_xmin;
-		MemoryContext 	oldcontext = MemoryContextSwitchTo(vac_context);
+		char	   *namespace;
+		ListCell   *lc;
+		List	   *oids = NIL;
+		MemoryContext oldcontext = MemoryContextSwitchTo(vac_context);
+
 
 		if (onerel->rd_rel->relkind == RELKIND_MATVIEW)
 			oids = GetAllCnIDL(false);
 		if (onerel->rd_locator_info != NULL)
 			oids = list_union_oid(oids, onerel->rd_locator_info->nodeids);
-		
-		oids_all = GetAllCnIDL(false);
-		if (onerel->rd_rel->relkind != RELKIND_MATVIEW)
-			oids_all = list_union_oid(oids_all, onerel->rd_locator_info->nodeids);
-		oldest_xmin = cluster_cn_vacuum_sync_xmin(oids_all, onerel);
-		list_free(oids_all);
 
-		conns = cluster_cn_vacuum_sync_relinfo(oids, onerel, oldest_xmin);
+		if (oids != NIL)
+		{
+			initStringInfo(&buf);
+
+			appendStringInfoChar(&buf, CLUSTER_VACUUM_CMD_VACUUM);
+			namespace = get_namespace_name(RelationGetNamespace(onerel));
+			save_node_string(&buf, namespace);
+			save_node_string(&buf, RelationGetRelationName(onerel));
+			pfree(namespace);
+
+			foreach(lc, oids)
+			{
+				PGconn *conn = PQNFindConnUseOid(lfirst_oid(lc));
+				if (conn == NULL)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							errmsg("remote node %u not connected", lfirst_oid(lc))));
+				}
+				conns = lappend(conns, conn);
+			}
+			list_free(oids);
+
+			PQNputCopyData(conns, buf.data, buf.len);
+			pfree(buf.data);
+		}
 		MemoryContextSwitchTo(oldcontext);
 	}
 #endif /* ADB */
@@ -2184,61 +2109,6 @@ static bool ClusterVacuumExecEndHookCopyOut(PQNHookFunctions *pub, struct pg_con
 	return clusterRecvTuple(NULL, buf, len, NULL, conn);
 }
 
-static void cluster_send_vacuum_oldest_xmin(TransactionId xmin)
-{
-	StringInfoData buf;
-
-	initStringInfo(&buf);
-	appendBinaryStringInfo(&buf, (char *) &xmin, sizeof(xmin));
-	pq_putmessage('d', buf.data, buf.len);
-	pq_flush();
-	pfree(buf.data);
-}
-
-static bool
-get_vacuum_xmin_hook(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
-{
-	TransactionId *info = ((GetVacuumXminHook*)pub)->xmin;
-	
-	memcpy(info, buf, sizeof(TransactionId));
-
-	//ereport(LOG,(errmsg("get_vacuum_xmin_hook get %d\n",*info)));
-	return true;
-}
-
-static TransactionId cluster_recv_vacuum_xmin(List *list_conn, TransactionId local_oldest)
-{
-	TransactionId		*xmin_info;
-	int					xmin_id, i;
-	ListCell   			*lc;
-	PGconn 				*conn;
-	GetVacuumXminHook 	*vhook = PQNMakeDefHookFunctions(sizeof(GetVacuumXminHook));
-	vhook->pub.HookCopyOut = get_vacuum_xmin_hook;
-
-	xmin_info = (TransactionId*) palloc0 (list_length(list_conn) * sizeof(TransactionId));
-	xmin_id = 0;
-
-	/* wait for vacuum xmin other node */
-	foreach(lc, list_conn)
-	{
-		conn = lfirst(lc);
-		vhook->xmin = &xmin_info[xmin_id];
-		PQNOneExecFinish(conn, &vhook->pub, true);
-		xmin_id++;
-	}
-
-	for (i = 0; i < xmin_id; i++)
-	{
-		if (NormalTransactionIdPrecedes(xmin_info[i], local_oldest))
-			local_oldest = xmin_info[i];
-	}
-
-	pfree(vhook);
-	safe_pfree(xmin_info);
-
-	return local_oldest;
-}
-
 static void cluster_recv_exec_end(List *conns)
 {
 	ClusterVacuumHookFuncs context;
@@ -2263,8 +2133,6 @@ static int process_master_vacuum_cmd(ClusterVacuumCmdContext *context, const cha
 	char *namespace;
 	char *relname;
 	RangeVar *range = NULL;
-	TransactionId oldest_xmin;
-	Relation rel;
 	List *va_cols;
 	int mtype;
 	Oid relid;
@@ -2280,36 +2148,10 @@ static int process_master_vacuum_cmd(ClusterVacuumCmdContext *context, const cha
 	case CLUSTER_VACUUM_CMD_VACUUM:
 		namespace = load_node_string(&buf, false);
 		relname = load_node_string(&buf, false);
-		pq_copymsgbytes(&buf, (char*)&oldest_xmin, sizeof(oldest_xmin));
-		//ereport(LOG,(errmsg("CLUSTER_VACUUM_CMD_VACUUM get %d\n",oldest_xmin)));
-		if (oldest_xmin < RecentGlobalXmin)
-			vacuum_cluster_xin_diff = RecentGlobalXmin - oldest_xmin;
-		else
-			vacuum_cluster_xin_diff = 0;
 		range = makeRangeVar(namespace, relname, -1);
 		vacuum_rel(InvalidOid, range, context->options, context->params);
 		put_executor_end_msg(true);
-		vacuum_cluster_xin_diff = 0;
 		break;
-
-	case CLUSTER_VACUUM_CMD_VACUUM_SYNC_XMIN:
-		namespace = load_node_string(&buf, false);
-		relname = load_node_string(&buf, false);
-		range = makeRangeVar(namespace, relname, -1);
-
-		StartTransactionCommand();
-		PushActiveSnapshot(GetTransactionSnapshot());
-		relid = RangeVarGetRelid(range, AccessShareLock, true);
-		rel = relation_open(relid, AccessShareLock);
-		oldest_xmin = GetOldestXmin(rel, PROCARRAY_FLAGS_VACUUM);
-		//ereport(LOG,(errmsg("CLUSTER_VACUUM_CMD_VACUUM_SYNC_XMIN send %d\n",oldest_xmin)));
-		relation_close(rel, AccessShareLock);
-		cluster_send_vacuum_oldest_xmin(oldest_xmin);
-
-		PopActiveSnapshot();
-		CommitTransactionCommand();
-		break;
-
 	case CLUSTER_VACUUM_CMD_ANALYZE:
 	case CLUSTER_VACUUM_CMD_ANALYZE_FORCE_INH:
 		namespace = load_node_string(&buf, false);
