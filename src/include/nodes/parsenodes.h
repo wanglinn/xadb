@@ -347,6 +347,9 @@ typedef struct A_Expr
 	Node	   *lexpr;			/* left argument, or NULL if none */
 	Node	   *rexpr;			/* right argument, or NULL if none */
 	int			location;		/* token location, or -1 if unknown */
+#ifdef ADB_GRAM_ORA
+	bool		is_decode;		/* mark if decode function by oracle gammar */
+#endif /* ADB_GRAM_ORA */
 } A_Expr;
 
 /*
