@@ -153,8 +153,6 @@ extern void StorePartitionBound(Relation rel, Relation parent,
 					PartitionBoundSpec *bound);
 
 #ifdef ADB
-extern Oid *GetRelationDistributionNodes(PGXCSubCluster *subcluster, int *numnodes);
-
 extern Oid *BuildRelationDistributionNodes(List *nodes, int *numnodes);
 extern Oid GetDatanodeOidByName(const char *name, ParseState *pstate, int location);
 
