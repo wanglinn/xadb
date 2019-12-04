@@ -886,6 +886,9 @@ typedef struct PartitionSpec
 #define PARTITION_STRATEGY_HASH		'h'
 #define PARTITION_STRATEGY_LIST		'l'
 #define PARTITION_STRATEGY_RANGE	'r'
+#ifdef ADB
+#define PARTITION_STRATEGY_MODULO	'm'
+#endif /* ADB */
 
 /*
  * PartitionBoundSpec - a partition bound specification

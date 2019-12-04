@@ -63,7 +63,10 @@ static void SetDistributeByDatums(Datum *datums, bool *nulls, bool *replace, Lis
 					 errmsg("invalid distribute by key length %d", list_length(keys))));
 		nkeys = list_length(keys);
 		attr_array = buildint2vector(NULL, nkeys);
-		class_array = buildoidvector(NULL, nkeys);
+		if (loc_type == LOCATOR_TYPE_MODULO)
+			class_array = NULL;
+		else
+			class_array = buildoidvector(NULL, nkeys);
 		if (loc_type == LOCATOR_TYPE_LIST ||
 			loc_type == LOCATOR_TYPE_RANGE)
 			collation_array = buildoidvector(NULL, nkeys);
@@ -77,22 +80,29 @@ static void SetDistributeByDatums(Datum *datums, bool *nulls, bool *replace, Lis
 			if (key->attno == InvalidAttrNumber)
 			{
 				Assert(key->key != NULL);
-				exprs = lappend(exprs, keys);
+				exprs = lappend(exprs, key->key);
 				attr_array->values[i] = InvalidAttrNumber;
 			}else
 			{
 				Assert(key->attno > 0);
 				attr_array->values[i] = key->attno;
 			}
-			class_array->values[i] = key->opclass;
+			if (class_array)
+				class_array->values[i] = key->opclass;
 			if (collation_array)
 				collation_array->values[i] = key->collation;
 		}
 
 		datums[Anum_pgxc_class_pcattrs - 1] = PointerGetDatum(attr_array);
 		nulls[Anum_pgxc_class_pcattrs - 1] = false;
-		datums[Anum_pgxc_class_pcclass - 1] = PointerGetDatum(class_array);
-		nulls[Anum_pgxc_class_pcclass - 1] = false;
+		if (class_array)
+		{
+			datums[Anum_pgxc_class_pcclass - 1] = PointerGetDatum(class_array);
+			nulls[Anum_pgxc_class_pcclass - 1] = false;
+		}else
+		{
+			nulls[Anum_pgxc_class_pcclass - 1] = true;
+		}
 		if (exprs != NIL)
 		{
 			char *str = nodeToString(exprs);

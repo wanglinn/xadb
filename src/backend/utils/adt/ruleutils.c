@@ -12118,7 +12118,7 @@ static void adb_get_distribute_def_worker(StringInfo buf, Oid relid, int prettyF
 	if (attrs != NULL)
 	{
 		List	   *exprs = NIL;
-		oidvector  *attclass = GetSysCacheXCClassAttr(tuple, Anum_pgxc_class_pcclass, false, relid);
+		oidvector  *attclass = GetSysCacheXCClassAttr(tuple, Anum_pgxc_class_pcclass, form->pclocatortype == LOCATOR_TYPE_MODULO, relid);
 		oidvector  *attcollation = GetSysCacheXCClassAttr(tuple, Anum_pgxc_class_pccollation, true, relid);
 		txt = GetSysCacheXCClassAttr(tuple, Anum_pgxc_class_pcexprs, true, relid);
 		if (txt)
@@ -12183,7 +12183,8 @@ static void adb_get_distribute_def_worker(StringInfo buf, Oid relid, int prettyF
 				appendStringInfo(buf, " COLLATE %s", str);
 				pfree(str);
 			}
-			get_opclass_name(attclass->values[n], keycoltype, buf);
+			if (attclass)
+				get_opclass_name(attclass->values[n], keycoltype, buf);
 		}
 		appendStringInfoChar(buf, ')');
 	}

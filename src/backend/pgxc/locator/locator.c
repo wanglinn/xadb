@@ -705,13 +705,19 @@ RelationIdBuildLocator(Oid relid)
 			text		   *txt;
 
 			attr_array = GetPGXCClassAttr(htup, Anum_pgxc_class_pcattrs, RelationGetDescr(pcrel), false, relid);
-			class_array = GetPGXCClassAttr(htup, Anum_pgxc_class_pcclass, RelationGetDescr(pcrel), false, relid);
-			if (class_array->dim1 != attr_array->dim1)
+			if (relationLocInfo->locatorType == LOCATOR_TYPE_MODULO)
 			{
-				ereport(ERROR,
-						(errcode(ERRCODE_DATA_CORRUPTED),
-						 errmsg("invalid column(%d) data for pgxc_class(%u)",
-								Anum_pgxc_class_pcclass, relid)));
+				class_array = NULL;
+			}else
+			{
+				class_array = GetPGXCClassAttr(htup, Anum_pgxc_class_pcclass, RelationGetDescr(pcrel), false, relid);
+				if (class_array->dim1 != attr_array->dim1)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_DATA_CORRUPTED),
+							 errmsg("invalid column(%d) data for pgxc_class(%u)",
+									Anum_pgxc_class_pcclass, relid)));
+				}
 			}
 
 			txt = GetPGXCClassAttr(htup, Anum_pgxc_class_pcexprs, RelationGetDescr(pcrel), true, relid);
@@ -768,12 +774,20 @@ RelationIdBuildLocator(Oid relid)
 					key->key = lfirst(lc);
 					lc = lnext(lc);
 				}
-				key->opclass = class_array->values[j];
-				key->opfamily = get_opclass_family(key->opclass);
-				if (collation_array)
-					key->collation = collation_array->values[j];
-				else
-					key->collation = InvalidOid;
+				if (relationLocInfo->locatorType == LOCATOR_TYPE_MODULO)
+				{
+					key->opclass =
+						key->opfamily =
+						key->collation = InvalidOid;
+				}else
+				{
+					key->opclass = class_array->values[j];
+					key->opfamily = get_opclass_family(key->opclass);
+					if (collation_array)
+						key->collation = collation_array->values[j];
+					else
+						key->collation = InvalidOid;
+				}
 				relationLocInfo->keys = lappend(relationLocInfo->keys, key);
 			}
 
