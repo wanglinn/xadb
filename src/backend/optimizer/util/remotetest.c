@@ -310,43 +310,11 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 		PartitionKey part_key;
 		PartitionDesc part_desc;
 		PartitionScheme part_scheme;
-		List	   *exprs = NIL;
 		List	   *clauses;
 		Bitmapset  *bms;
-		Oid			opclass[PARTITION_MAX_KEYS];
-		Oid			collation[PARTITION_MAX_KEYS];
-		AttrNumber	attr[PARTITION_MAX_KEYS];
-		char		strategy;
-
-		Assert(list_length(loc_info->keys) > 0);
-		Assert(list_length(loc_info->keys) <= PARTITION_MAX_KEYS);
 
 		rel = relation_open(loc_info->relid, NoLock);
-		if (loc_info->locatorType == LOCATOR_TYPE_LIST)
-			strategy = PARTITION_STRATEGY_LIST;
-		else
-			strategy = PARTITION_STRATEGY_RANGE;
-
-		i = 0;
-		foreach(lc, loc_info->keys)
-		{
-			LocatorKeyInfo *key = lfirst(lc);
-			opclass[i] = key->opclass;
-			collation[i] = key->collation;
-			attr[i] = key->attno;
-			if (key->attno == InvalidAttrNumber)
-			{
-				Assert(key->key != NULL);
-				exprs = lappend(exprs, key->key);
-			}
-		}
-		part_key = RelationGenerateDistributeKey(rel,
-												attr,
-												exprs,
-												opclass,
-												collation,
-												strategy,
-												list_length(loc_info->keys));
+		part_key = RelationGenerateDistributeKeyFromLocInfo(rel, loc_info);
 		part_scheme = build_partschema_from_partkey(part_key);
 		part_desc = DistributeRelationGenerateDesc(part_key, loc_info->nodeids, loc_info->values);
 
