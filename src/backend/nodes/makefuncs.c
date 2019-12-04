@@ -679,7 +679,7 @@ Expr *makeHashExpr(Expr *expr)
 							   COERCE_EXPLICIT_CALL);
 }
 
-Expr *makeHashExprFamily(Expr *expr, Oid opfamily)
+Expr *makeHashExprFamily(Expr *expr, Oid opfamily, Oid inputtype)
 {
 	Oid typoid = exprType((Node*)expr);
 	Oid collid;
@@ -702,13 +702,24 @@ Expr *makeHashExprFamily(Expr *expr, Oid opfamily)
 	}else
 	{
 		collid = exprCollation((Node*)expr);
-		funcid = get_opfamily_proc(opfamily, typoid, typoid, 1);
+		funcid = get_opfamily_proc(opfamily, inputtype, inputtype, 1);
 		if (!OidIsValid(funcid))
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_UNDEFINED_FUNCTION),
 					 errmsg("could not identify a hash function for type %s",
 							format_type_be(typoid))));
+		}
+		if (typoid != inputtype)
+		{
+			expr = (Expr*)coerce_to_target_type(NULL,
+												(Node*)expr,
+												typoid,
+												inputtype,
+												exprTypmod((Node*)expr),
+												COERCION_IMPLICIT,
+												COERCE_IMPLICIT_CAST,
+												exprLocation((Node*)expr));
 		}
 	}
 

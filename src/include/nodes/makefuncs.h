@@ -90,7 +90,7 @@ extern VacuumRelation *makeVacuumRelation(RangeVar *relation, Oid oid, List *va_
 
 #ifdef ADB
 extern Expr *makeHashExpr(Expr *expr);
-extern Expr *makeHashExprFamily(Expr *expr, Oid opfamily);
+extern Expr *makeHashExprFamily(Expr *expr, Oid opfamily, Oid inputtype);
 extern Expr *makeModuloExpr(Expr *expr, int right);
 extern NullTest *makeNullTest(Expr *arg, NullTestType type, bool isrow, int location);
 extern int32 execHashValue(Datum datum, Oid typid, Oid collid);

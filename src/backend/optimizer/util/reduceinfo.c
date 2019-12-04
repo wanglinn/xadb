@@ -2362,7 +2362,10 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 			/* make hash_combin_mod(node_count, hash_value1, hash_value2 ...) */
 			args = list_make1(MakeInt4Const(list_length(reduce->storage_nodes)));
 			for(i=0,nkey=reduce->nkey;i<nkey;++i)
-				args = lappend(args, makeHashExprFamily(reduce->keys[0].key, reduce->keys[0].opfamily));
+			{
+				ReduceKeyInfo *key = &reduce->keys[i];
+				args = lappend(args, makeHashExprFamily(key->key, key->opfamily, get_opclass_input_type(key->opclass)));
+			}
 			result = (Expr*)makeSimpleFuncExpr(F_HASH_COMBIN_MOD, INT4OID, args);
 
 			result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids), true);
@@ -2374,7 +2377,9 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					 errmsg("not support multi-col for hash yet")));
-		result = makeHashExprFamily(reduce->keys[0].key, reduce->keys[0].opfamily);
+		result = makeHashExprFamily(reduce->keys[0].key,
+									reduce->keys[0].opfamily,
+									get_opclass_input_type(reduce->keys[0].opclass));
 
 		result = (Expr*) makeSimpleFuncExpr(F_HASH_COMBIN_MOD,
 											INT4OID,
@@ -2516,7 +2521,7 @@ Expr *CreateReduceModuloExpr(Relation rel, const RelationLocInfo *loc, Index rel
 			Assert(result != NULL);
 			if (loc->locatorType == LOCATOR_TYPE_HASH)
 			{
-				result = makeHashExprFamily(result, key->opfamily);
+				result = makeHashExprFamily(result, key->opfamily, get_opclass_input_type(key->opclass));
 			}else
 			{
 				result = (Expr*)coerce_to_target_type(NULL,
