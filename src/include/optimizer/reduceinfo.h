@@ -18,7 +18,7 @@
 			 (t_) == REDUCE_TYPE_HASHMAP	|| \
 			 (t_) == REDUCE_TYPE_MODULO		|| \
 			 (t_) == REDUCE_TYPE_LIST		|| \
-			 (t_) == REDUCE_TYPE_RANDOM)
+			 (t_) == REDUCE_TYPE_RANGE)
 #define IsReduceTypeNotByValue(t_)		\
 			((t_) == REDUCE_TYPE_REPLICATED	|| \
 			 (t_) == REDUCE_TYPE_RANDOM		|| \
