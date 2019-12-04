@@ -16037,6 +16037,21 @@ ComputePartitionAttrs(Relation rel, List *partParams, AttrNumber *partattrs,
 
 		partcollation[attn] = attcollation;
 
+#ifdef ADB
+		if (strategy == PARTITION_STRATEGY_MODULO)
+		{
+			if (CanModuloType(atttype, true) == false)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_UNDEFINED_OBJECT),
+						 errmsg("data type %s can not using by modulo", format_type_be(atttype))));
+			}
+			partopclass[attn] = InvalidOid;
+			attn++;
+			continue;
+		}
+#endif /* ADB */
+
 		/*
 		 * Identify the appropriate operator class.  For list and range
 		 * partitioning, we use a btree operator class; hash partitioning uses
@@ -17770,8 +17785,8 @@ static char GetRelationDistributeKey(ParseState *pstate, Relation rel, bool auxi
 		case LOCATOR_TYPE_RANDOM:
 			goto end_spec_;
 		case LOCATOR_TYPE_MODULO:
-#warning TODO test can modulo
-			goto end_spec_;
+			strategy = PARTITION_STRATEGY_MODULO;
+			break;
 		case LOCATOR_TYPE_HASH:
 		case LOCATOR_TYPE_HASHMAP:
 			strategy = PARTITION_STRATEGY_HASH;
@@ -17818,9 +17833,17 @@ static char GetRelationDistributeKey(ParseState *pstate, Relation rel, bool auxi
 				loc_key->key = lfirst(lc);
 				lc = lnext(lc);
 			}
-			loc_key->opclass = partopclass[i];
-			loc_key->opfamily = get_opclass_family(loc_key->opclass);
-			loc_key->collation = partcollation[i];
+			if (loc_type == LOCATOR_TYPE_MODULO)
+			{
+				loc_key->opclass = 
+					loc_key->opfamily =
+					loc_key->collation = InvalidOid;
+			}else
+			{
+				loc_key->opclass = partopclass[i];
+				loc_key->opfamily = get_opclass_family(loc_key->opclass);
+				loc_key->collation = partcollation[i];
+			}
 			list_key = lappend(list_key, loc_key);
 		}
 end_spec_:
