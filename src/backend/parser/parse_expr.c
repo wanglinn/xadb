@@ -1122,46 +1122,66 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 			from[0] = exprType(lexpr);
 			from[1] = exprType(rexpr);
 
-			to = find_ora_convert(ORA_CONVERT_KIND_OPERATOR,
-								  name,
-								  from,
-								  lengthof(from),
-								  lengthof(from));
-			if (to != NULL)
+			/*
+			 * Oracle DECODE parameter type conversion is always consistent 
+			 * with the first search value type.
+			 */
+			if (a->is_decode)
 			{
-				int typmod;
-				if (from[0] != to[0])
+				if (from[0] != from[1])
 				{
-					if (to[0] == to[1] &&
-						to[0] == from[1])
-					{
-						typmod = exprTypmod(rexpr);
-					}else if ((typmod = getTypeTypmod(to[0])) == -1)
-					{
-						(void)getBaseTypeAndTypmod(to[0], &typmod);
-					}
+					int typmod;
+					typmod = exprTypmod(lexpr);
+					rexpr = coerce_to_target_type(pstate, rexpr, from[1], from[0], typmod,
+														COERCION_EXPLICIT,
+														COERCE_EXPLICIT_CAST,
+														-1);
+				}
+			}
+			else
+			{
 
-					lexpr = coerce_to_target_type(pstate, lexpr, from[0], to[0], typmod,
-												  COERCION_EXPLICIT,
-												  COERCE_EXPLICIT_CAST,
-												  -1);
-				}
-				if (from[1] != to[1])
+				to = find_ora_convert(ORA_CONVERT_KIND_OPERATOR,
+									name,
+									from,
+									lengthof(from),
+									lengthof(from));
+				if (to != NULL)
 				{
-					if (to[1] == to[0] &&
-						to[1] == from[0])
+					int typmod;
+					if (from[0] != to[0])
 					{
-						typmod = exprTypmod(lexpr);
-					}else if ((typmod = getTypeTypmod(to[1])) == -1)
-					{
-						(void)getBaseTypeAndTypmod(to[1], &typmod);
+						if (to[0] == to[1] &&
+							to[0] == from[1])
+						{
+							typmod = exprTypmod(rexpr);
+						}else if ((typmod = getTypeTypmod(to[0])) == -1)
+						{
+							(void)getBaseTypeAndTypmod(to[0], &typmod);
+						}
+
+						lexpr = coerce_to_target_type(pstate, lexpr, from[0], to[0], typmod,
+													COERCION_EXPLICIT,
+													COERCE_EXPLICIT_CAST,
+													-1);
 					}
-					rexpr = coerce_to_target_type(pstate, rexpr, from[1], to[1], typmod,
-												  COERCION_EXPLICIT,
-												  COERCE_EXPLICIT_CAST,
-												  -1);
+					if (from[1] != to[1])
+					{
+						if (to[1] == to[0] &&
+							to[1] == from[0])
+						{
+							typmod = exprTypmod(lexpr);
+						}else if ((typmod = getTypeTypmod(to[1])) == -1)
+						{
+							(void)getBaseTypeAndTypmod(to[1], &typmod);
+						}
+						rexpr = coerce_to_target_type(pstate, rexpr, from[1], to[1], typmod,
+													COERCION_EXPLICIT,
+													COERCE_EXPLICIT_CAST,
+													-1);
+					}
+					pfree(to);
 				}
-				pfree(to);
 			}
 		}
 #endif /* ADB_GRAM_ORA */
@@ -2160,6 +2180,41 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 		placeholder->typeId = exprType(arg);
 		placeholder->typeMod = exprTypmod(arg);
 		placeholder->collation = exprCollation(arg);
+#ifdef ADB_GRAM_ORA
+		/*
+		 * Oracle will use the type of the 
+		 * first search value as a rule of comparison.
+		 * Note: compare by TEXT type if the first search value is NULL.
+		 */
+		if (IsOracleParseGram(pstate) && c->isdecode)
+		{		
+			CaseWhen	*w;
+			Oid		convertType;
+			int		typeMod;
+
+			w = lfirst_node(CaseWhen, list_head(c->args));
+			if (IsA(w->expr, NullTest))
+			{
+				convertType = TEXTOID;
+				typeMod = exprTypmod(arg);
+			}
+			else
+			{
+				convertType = exprType(transformExprRecurse(pstate, (Node*) (w->expr)));
+				typeMod = exprTypmod((Node*) (w->expr));
+			}
+
+			/* INTEGER type uses NUMERIC type comparison to avoid strings with decimal points */
+			if (convertType == INT2OID || convertType == INT4OID || convertType == INT8OID)
+				convertType = NUMERICOID;
+			/* UNKNOWNOID type unified use TEXT type comparison */
+			if (convertType == UNKNOWNOID)
+				convertType = TEXTOID;
+
+			placeholder->typeId = convertType;
+			placeholder->typeMod = typeMod;
+		}
+#endif /* ADB_GRAM_ORA */
 	}
 	else
 		placeholder = NULL;
@@ -2195,6 +2250,15 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 											 (Node *) placeholder,
 											 warg,
 											 w->location);
+#ifdef ADB_GRAM_ORA
+			/* mark if decode function by oracle gammar */
+			if (IsOracleParseGram(pstate) && c->isdecode && IsA(warg, NullTest) == false)
+			{
+				A_Expr	*expr;
+				expr = (A_Expr *)warg;
+				expr->is_decode = true;
+			}
+#endif /* ADB_GRAM_ORA */	
 		}
 #ifdef ADB_EXT
 		else if(IsA(warg, NullTest) &&
@@ -2220,6 +2284,20 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 		resultexprs = lappend(resultexprs, neww->result);
 	}
 
+#ifdef ADB_GRAM_ORA
+	/* 
+	 * If the DECODE 'Expr' is not the same as the first search value type, 
+	 * try an expression result type conversion 
+	 */
+	if (IsOracleParseGram(pstate) && c->isdecode && 
+		placeholder->typeId != exprType(arg))
+		newc->arg = (Expr *)coerce_to_target_type(pstate, arg, exprType(arg), 
+													placeholder->typeId,
+													placeholder->typeMod,
+													COERCION_EXPLICIT,
+													COERCE_EXPLICIT_CAST,
+													-1);
+#endif /* ADB_GRAM_ORA */
 	newc->args = newargs;
 
 	/* transform the default clause */
