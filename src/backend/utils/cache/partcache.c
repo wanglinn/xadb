@@ -35,6 +35,9 @@
 #include "utils/partcache.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
+#ifdef ADB
+#include "pgxc/locator.h"
+#endif /* ADB */
 
 
 static List *generate_partition_qual(Relation rel);
@@ -1113,6 +1116,50 @@ PartitionKey RelationGenerateDistributeKey(Relation rel, AttrNumber *attno,
 	}
 
 	return key;
+}
+
+PartitionKey RelationGenerateDistributeKeyFromLocInfo(Relation rel, struct RelationLocInfo *loc)
+{
+	List	   *exprs;
+	ListCell   *lc;
+	Oid			opclass[PARTITION_MAX_KEYS];
+	Oid			collation[PARTITION_MAX_KEYS];
+	AttrNumber	attr[PARTITION_MAX_KEYS];
+	uint32		i;
+	char		strategy;
+
+	if (loc->locatorType == LOCATOR_TYPE_LIST)
+		strategy = PARTITION_STRATEGY_LIST;
+	else if (loc->locatorType == LOCATOR_TYPE_RANGE)
+		strategy = PARTITION_STRATEGY_RANGE;
+	else
+		return NULL;
+
+	Assert(list_length(loc->keys) > 0);
+	Assert(list_length(loc->keys) <= PARTITION_MAX_KEYS);
+
+	exprs = NIL;
+	i = 0;
+	foreach(lc, loc->keys)
+	{
+		LocatorKeyInfo *key = lfirst(lc);
+		opclass[i] = key->opclass;
+		collation[i] = key->collation;
+		attr[i] = key->attno;
+		if (key->attno == InvalidAttrNumber)
+		{
+			Assert(key->key != NULL);
+			exprs = lappend(exprs, key->key);
+		}
+	}
+
+	return RelationGenerateDistributeKey(rel,
+										 attr,
+										 exprs,
+										 opclass,
+										 collation,
+										 strategy,
+										 list_length(loc->keys));
 }
 
 PartitionDesc DistributeRelationGenerateDesc(PartitionKey key, List *nodeoids, List *values)
