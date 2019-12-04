@@ -248,6 +248,16 @@ ReduceInfo *MakeReduceInfoFromLocInfo(const RelationLocInfo *loc_info, const Lis
 	return rinfo;
 }
 
+static Node* replace_reduce_var(Var *var, List *exprs)
+{
+	if (var == NULL)
+		return NULL;
+	if (IsA(var, Var))
+		return copyObject(list_nth(exprs, var->varattno-1));
+
+	return expression_tree_mutator((Node*)var, replace_reduce_var, exprs);
+}
+
 ReduceInfo *MakeReduceInfoUsingPathTarget(const RelationLocInfo *loc_info, const List *exclude, PathTarget *target)
 {
 	ReduceInfo *rinfo;
@@ -283,9 +293,7 @@ ReduceInfo *MakeReduceInfoUsingPathTarget(const RelationLocInfo *loc_info, const
 				rinfo->keys[i].key = list_nth(target->exprs, key->attno-1);
 			}else
 			{
-				ereport(ERROR,
-						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("distribute by expression not support yet")));
+				rinfo->keys[i].key = (Expr*)replace_reduce_var((Var*)key->key, target->exprs);
 			}
 			relids = pull_varnos((Node*)rinfo->keys[i].key);
 			rinfo->relids = bms_add_members(rinfo->relids, relids);
