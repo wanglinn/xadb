@@ -14631,22 +14631,14 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 				break;
 			case AT_SubCluster:
 				/* Update new list of nodes */
-				if (spec == NULL)
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_SYNTAX_ERROR),
-							 errmsg("TO NODE|GROUP must after DISTRIBUTE BY")));
-				}else
-				{
-					new_num = transformDistributeCluster(pstate,
-														 rel,
-														 partkey,
-														 spec,
-														 castNode(PGXCSubCluster, cmd->def),
-														 newLocInfo->locatorType,
-														 &newLocInfo->values,
-														 &new_oid_array);
-				}
+				new_num = transformDistributeCluster(pstate,
+													 rel,
+													 partkey,
+													 spec,
+													 castNode(PGXCSubCluster, cmd->def),
+													 newLocInfo->locatorType,
+													 &newLocInfo->values,
+													 &new_oid_array);
 				break;
 			case AT_AddNodeList:
 				{
