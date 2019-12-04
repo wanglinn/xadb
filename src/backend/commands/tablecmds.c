@@ -14576,6 +14576,14 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 	 */
 	newLocInfo = CopyRelationLocInfo(oldLocInfo);
 	/* The node list of this locator information will be rebuilt after command scan */
+	if(newLocInfo->nodeids == newLocInfo->masternodeids)
+	{
+		newLocInfo->masternodeids = NIL;
+	}else
+	{
+		Assert(newLocInfo->nodeids == newLocInfo->slavenodeids);
+		newLocInfo->slavenodeids = NIL;
+	}
 	list_free(newLocInfo->nodeids);
 	newLocInfo->nodeids = NIL;
 
@@ -14653,6 +14661,7 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 	/* Build relation node list for new locator info */
 	for (i = 0; i < new_num; i++)
 		newLocInfo->nodeids = lappend_oid(newLocInfo->nodeids, new_oid_array[i]);
+	newLocInfo->masternodeids = newLocInfo->nodeids;
 
 	redistribState->newLocInfo = CopyRelationLocInfo(newLocInfo);
 	redistribState->createShadowRel = false;
