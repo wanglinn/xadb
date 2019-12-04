@@ -14325,35 +14325,22 @@ ATExecGenericOptions(Relation rel, List *options)
 void
 AtExecDistributeBy(Relation rel, PartitionSpec *options)
 {
-	/*List   *keys;
-	Oid		relid;
-	char	locatortype;*/
+	List   *keys;
+	char	locatortype;
 
-	if (options == NULL)
+	if (options == NULL ||
+		IS_PGXC_DATANODE)
 		return;
-#if 0
-	relid = RelationGetRelid(rel);
 
-	/* Get necessary distribution information */
-	locatortype = GetRelationDistributionItems(relid, options, RelationGetDescr(rel), &keys);
-
-	/*
-	 * It is not checked if the distribution type list is the same as the old one,
-	 * user might define a different sub-cluster at the same time.
-	 */
-
-	/* Update pgxc_class entry */
-	PgxcClassAlter(relid,
+	locatortype = GetRelationDistributeKey(NULL, rel, false, options, &keys, NULL);
+	PgxcClassAlter(RelationGetRelid(rel),
 				   locatortype,
 				   keys,
 				   NIL,
 				   0,
 				   NULL,
 				   PGXC_CLASS_ALTER_DISTRIBUTION);
-#endif
-	ereport(ERROR,
-			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			 errmsg("not support yet")));
+
 	/* Make the additional catalog changes visible */
 	CommandCounterIncrement();
 }
@@ -14364,12 +14351,31 @@ AtExecDistributeBy(Relation rel, PartitionSpec *options)
 static void
 AtExecSubCluster(Relation rel, PGXCSubCluster *options)
 {
-	Oid *nodeoids;
-	int numnodes;
+	RelationLocInfo *loc;
+	PartitionKey	part_key;
+	List		   *values;
+	Oid			   *nodeoids;
+	int				numnodes;
 
 	/* Nothing to do on Datanodes */
 	if (IS_PGXC_DATANODE || options == NULL)
 		return;
+
+	if (rel->rd_locator_info == NULL)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("relation %s is not a remote table", RelationGetRelationName(rel))));
+	}
+	loc = rel->rd_locator_info;
+	if (loc->locatorType == LOCATOR_TYPE_LIST ||
+		loc->locatorType == LOCATOR_TYPE_RANGE)
+	{
+		part_key = RelationGenerateDistributeKeyFromLocInfo(rel, rel->rd_locator_info);
+	}else
+	{
+		part_key = NULL;
+	}
 
 	/*
 	 * It is not checked if the new subcluster list is the same as the old one,
@@ -14377,13 +14383,20 @@ AtExecSubCluster(Relation rel, PGXCSubCluster *options)
 	 */
 
 	/* Obtain new node information */
-	nodeoids = GetRelationDistributionNodes(options, &numnodes);
+	numnodes = transformDistributeCluster(NULL,
+										  rel,
+										  part_key,
+										  NULL,
+										  options,
+										  loc->locatorType,
+										  &values,
+										  &nodeoids);
 
 	/* Update pgxc_class entry */
 	PgxcClassAlter(RelationGetRelid(rel),
-				   LOCATOR_TYPE_INVALID,
+				   loc->locatorType,
 				   NIL,
-				   NIL,
+				   values,
 				   numnodes,
 				   nodeoids,
 				   PGXC_CLASS_ALTER_NODES);
@@ -14631,7 +14644,7 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 														 spec,
 														 castNode(PGXCSubCluster, cmd->def),
 														 newLocInfo->locatorType,
-														 &newLocInfo->keys,
+														 &newLocInfo->values,
 														 &new_oid_array);
 				}
 				break;
