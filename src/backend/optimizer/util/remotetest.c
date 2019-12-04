@@ -535,7 +535,7 @@ static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node)
 	{
 	case LOCATOR_TYPE_HASH:
 	case LOCATOR_TYPE_HASHMAP:
-		expr = makeHashExprFamily((Expr*)node, key->opfamily);
+		expr = makeHashExprFamily((Expr*)node, key->opfamily, get_opclass_input_type(key->opclass));
 		break;
 	case LOCATOR_TYPE_MODULO:
 		expr = (Expr*)coerce_to_target_type(NULL,
