@@ -115,6 +115,10 @@ void DoClusterHeapScan(StringInfo mem_toc)
 
 	/* relation */
 	rel = heap_open(load_oid_class(&buf), AccessShareLock);
+	if (rel->rd_rel->relkind != RELKIND_RELATION)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("\"%s\" is not a table", RelationGetRelationName(rel))));
 
 	/* eq_attr */
 	pq_copymsgbytes(&buf, (char*)&eq_attr, sizeof(eq_attr));
@@ -264,6 +268,10 @@ void DoClusterHeapScan(StringInfo mem_toc)
 	}
 	index_endscan(index_scan);
 	pq_flush();
+
+	/* hold lock until end of transaction */
+	index_close(index_rel, NoLock);
+	relation_close(rel, NoLock);
 
 	/* clean up */
 	if (convert)
