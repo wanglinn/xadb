@@ -11115,7 +11115,7 @@
 { oid => '4925', row_macros => 'ADBMGRD', descr => 'mgr list nodesize all',
   proname => 'mgr_list_nodesize_all', procost => '10000', prorows => '400',
   proisstrict => 'f', proretset => 't', provolatile => 's',
-  prorettype => 'record', proargtypes => '',
+  prorettype => 'record', provariadic => 'any', proargtypes => 'any',
   proallargtypes => '{name,name,int4,text,int8}', proargmodes => '{o,o,o,o,o}',
   proargnames => '{nodename,type,port,nodepath,nodesize}',
   prosrc => 'mgr_list_nodesize_all' },
