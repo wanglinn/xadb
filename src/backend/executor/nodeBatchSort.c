@@ -24,6 +24,8 @@ typedef struct ParallelBatchSort
 #define PARALLEL_BATCH_SORT_SHARED(p,n)	\
 	(Sharedsort*)(((char*)p) + PARALLEL_BATCH_SORT_SIZE + (p)->tuplesort_size * n)
 
+#define BUILD_BATCH_DONE	1
+
 static bool ExecNextParallelBatchSort(BatchSortState *state)
 {
 	ParallelBatchSort  *parallel = state->parallel;
@@ -119,7 +121,8 @@ static TupleTableSlot *ExecBatchSortFirst(PlanState *pstate)
 
 	if (parallel)
 	{
-		BarrierAttach(&parallel->barrier);
+		if (BarrierAttach(&parallel->barrier) >= BUILD_BATCH_DONE)
+			goto build_already_done_;
 		pg_atomic_add_fetch_u32(&parallel->attached, 1);
 	}
 
@@ -183,15 +186,20 @@ static TupleTableSlot *ExecBatchSortFirst(PlanState *pstate)
 
 	for (i=node->numBatches;i>0;)
 		tuplesort_performsort(state->batches[--i]);
+build_already_done_:
 	if (parallel)
 	{
 		for (i=node->numBatches;i>0;)
 		{
 			--i;
-			tuplesort_end(state->batches[i]);
-			state->batches[i] = NULL;
+			if (state->batches[i])
+			{
+				tuplesort_end(state->batches[i]);
+				state->batches[i] = NULL;
+			}
 		}
-		BarrierArriveAndWait(&parallel->barrier, WAIT_EVENT_BATCH_SORT_BUILD);
+		if (BarrierPhase(&parallel->barrier) < BUILD_BATCH_DONE)
+			BarrierArriveAndWait(&parallel->barrier, WAIT_EVENT_BATCH_SORT_BUILD);
 		BarrierDetach(&parallel->barrier);
 
 		if (ExecNextParallelBatchSort(state))
@@ -310,7 +318,7 @@ void ExecShutdownBatchSort(BatchSortState *node)
 
 void ExecBatchSortEstimate(BatchSortState *node, ParallelContext *pcxt)
 {
-	Size size = mul_size(MAXALIGN(tuplesort_estimate_shared(pcxt->nworkers)),
+	Size size = mul_size(MAXALIGN(tuplesort_estimate_shared(pcxt->nworkers+1)),
 						 castNode(BatchSort, node->ss.ps.plan)->numBatches);
 	size = add_size(size, PARALLEL_BATCH_SORT_SIZE);
 
@@ -339,13 +347,13 @@ void ExecBatchSortInitializeDSM(BatchSortState *node, ParallelContext *pcxt)
 {
 	ParallelBatchSort *parallel;
 	BatchSort *plan = castNode(BatchSort, node->ss.ps.plan);
-	Size tuplesort_size = MAXALIGN(tuplesort_estimate_shared(pcxt->nworkers));
+	Size tuplesort_size = MAXALIGN(tuplesort_estimate_shared(pcxt->nworkers+1));
 	Size size = mul_size(tuplesort_size, plan->numBatches);
 	size = add_size(PARALLEL_BATCH_SORT_SIZE, size);
 
 	node->parallel = parallel = shm_toc_allocate(pcxt->toc, size);
 	parallel->tuplesort_size = tuplesort_size;
-	InitializeBatchSortParallel(parallel, plan->numBatches, pcxt->nworkers, pcxt->seg);
+	InitializeBatchSortParallel(parallel, plan->numBatches, pcxt->nworkers+1, pcxt->seg);
 	shm_toc_insert(pcxt->toc, plan->plan.plan_node_id, parallel);
 }
 
@@ -353,7 +361,7 @@ void ExecBatchSortReInitializeDSM(BatchSortState *node, ParallelContext *pcxt)
 {
 	InitializeBatchSortParallel(node->parallel,
 								castNode(BatchSort, node->ss.ps.plan)->numBatches,
-								pcxt->nworkers,
+								pcxt->nworkers+1,
 								pcxt->seg);
 	ExecSetExecProcNode(&node->ss.ps, ExecBatchSortFirst);
 }
