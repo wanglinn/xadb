@@ -10286,7 +10286,7 @@ static int create_cluster_batch_grouping_path(PlannerInfo *root, Path *subpath, 
 	}
 
 	if (gcontext->can_hash &&
-		estimate_hashagg_tablesize(subpath, costs, num_groups) <= work_mem * 1024)
+		estimate_hashagg_tablesize(subpath, costs, num_groups/num_batches) <= work_mem * 1024)
 	{
 		path = (Path*)create_agg_path(root,
 									  gcontext->grouped_rel,
