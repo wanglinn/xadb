@@ -52,6 +52,12 @@ static void get_partition_ancestors_worker(Relation inhRel, Oid relid,
 Oid
 get_partition_parent(Oid relid)
 {
+#ifdef ADB
+	return get_partition_parent_ext(relid, true);
+}
+Oid get_partition_parent_ext(Oid relid, bool is_report_error)
+{
+#endif /* ADB */
 	Relation	catalogRelation;
 	Oid			result;
 
@@ -59,6 +65,9 @@ get_partition_parent(Oid relid)
 
 	result = get_partition_parent_worker(catalogRelation, relid);
 
+#ifdef ADB
+	if (is_report_error)
+#endif /* ADB */
 	if (!OidIsValid(result))
 		elog(ERROR, "could not find tuple for parent of relation %u", relid);
 

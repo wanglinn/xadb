@@ -13821,6 +13821,7 @@ AtExecDeleteNode(Relation rel, List *options)
 static void
 ATCheckCmd(Relation rel, AlterTableCmd *cmd)
 {
+	Oid parent_oid;
 	/* Do nothing in the case of a remote node */
 	if (!IsCnMaster())
 		return;
@@ -13846,6 +13847,16 @@ ATCheckCmd(Relation rel, AlterTableCmd *cmd)
 						 errmsg("There are some auxiliary table(s) depend on \"%s\"",
 						 		RelationGetRelationName(rel)),
 						 errhint("You should DROP its AUXILIARY TABLE(s) first")));
+
+			parent_oid = get_partition_parent_ext(RelationGetRelid(rel), false);
+			if (OidIsValid(parent_oid) && (get_rel_relkind(parent_oid) == RELKIND_PARTITIONED_TABLE))
+			{
+				ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("Can not modify distrubute key for partion child table \"%s\"",
+								RelationGetRelationName(rel)),
+						errhint("You should ALTER its parent TABLE \"%s\"", get_rel_name(parent_oid))));
+			}
 			break;
 		default:
 			break;
