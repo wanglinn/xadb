@@ -178,7 +178,24 @@ static void OnParallelPlanLatch(PlanInfo *pi)
 				appendStringInfoCharMacro(&pwi->sendBuffer, ADB_DR_MSG_ATTACH_PLAN);
 				appendStringInfoCharMacro(&pwi->sendBuffer, pi->local_eof);
 				DRSendPlanWorkerMessage(pwi, pi);
-				need_active_node = true;
+
+				if (pi->remote_eof)
+				{
+					/* maybe this is first attach, and got remote eof */
+					if (pwi->plan_send_state == DR_PLAN_SEND_WORKING)
+					{
+						pwi->plan_send_state = DR_PLAN_SEND_GENERATE_CACHE;
+						while (pwi->plan_send_state != DR_PLAN_SEND_ENDED)
+						{
+							if (DRSendPlanWorkerMessage(pwi, pi) == false)
+								break;
+						}
+					}
+					SHOW_PLAN_INFO_STATE("attach remote eof", pi);
+				}else
+				{
+					need_active_node = true;
+				}
 			}
 		}else if (DRSendPlanWorkerMessage(pwi, pi))
 		{
