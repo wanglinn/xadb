@@ -41,6 +41,9 @@
 #include "utils/numeric.h"
 #include "utils/sortsupport.h"
 
+#ifdef ADB_GRAM_ORA
+#include "nodes/makefuncs.h"
+#endif /* ADB_GRAM_ORA */
 /* ----------
  * Uncomment the following to enable compilation of dump_numeric()
  * and dump_var() and to get a dump of any result produced by make_result().
@@ -2691,6 +2694,48 @@ numeric_mod(PG_FUNCTION_ARGS)
 	PG_RETURN_NUMERIC(res);
 }
 
+#ifdef ADB_GRAM_ORA
+/*
+ * numericlike(Numeric, text)
+ * 
+ * Consistent with Oracle.
+ * When comparing like, the numeric type and the decimal value are 0 for the parameter,
+ * it will be ignored.
+ */
+Datum
+numericlike(PG_FUNCTION_ARGS)
+{
+	Numeric		 num = PG_GETARG_NUMERIC(0);
+	NumericVar	 arg1;
+	text		*str;
+	text		*pat = PG_GETARG_TEXT_PP(1);
+	int			 i;
+	char		*charnum;
+	Datum		datum;
+
+	init_var_from_num(num, &arg1);
+	charnum = get_str_from_var(&arg1);
+	
+	/* Clean up the extra decimal point and 0 at the end. */
+	for (i=strlen(charnum)-1; i; i--)
+	{
+		if(charnum[i] == '.')
+		{
+			charnum[i] = '\0';
+			break;
+		}
+		else if(charnum[i] == '0')
+			charnum[i] = '\0';
+		else
+			break;
+	}
+	str = cstring_to_text_with_len(charnum, strlen(charnum));
+	/* call the native textlike() function of Postgres */
+	datum = DirectFunctionCall2(textlike, PointerGetDatum(str), PointerGetDatum(pat));
+
+	PG_RETURN_POINTER(datum);
+}
+#endif /* ADB_GRAM_ORA */
 
 /*
  * numeric_inc() -
