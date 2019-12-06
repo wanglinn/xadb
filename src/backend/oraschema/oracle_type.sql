@@ -181,3 +181,23 @@ INSERT INTO ora_convert
   SELECT 'c', '', CAST(concat(cvtfrom[1], ' ', cvtfrom[0]) AS oidvector), cvtto
   FROM ora_convert
   WHERE cvtkind = 'c' AND cvtname = '';
+
+/* COPY: ~~(like)  Any permutation and combination of existing type conversions */
+INSERT INTO ora_convert
+  SELECT 'o', '~~',
+    CAST(concat(f1, ' ', f2) AS oidvector), 
+    CAST(concat('text'::regtype::int, ' ', 'text'::regtype::int) AS oidvector)
+  FROM (SELECT t1.cvtfrom[0] AS f1,t2.cvtfrom[0] AS f2 
+        FROM (SELECT cvtname,cvtfrom FROM ora_convert WHERE cvtname='~~' AND cvtfrom[0]<>'numeric'::regtype::int) t1
+        FULL JOIN (SELECT cvtname,cvtfrom FROM ora_convert WHERE cvtname='~~' AND cvtfrom[0]<>'numeric'::regtype::int) t2 
+        ON t1.cvtname=t2.cvtname)	t3
+  WHERE f1<>f2
+  UNION
+  SELECT 'o', '~~',
+    CAST(concat(f1, ' ', f2) AS oidvector), 
+    CAST(concat('numeric'::regtype::int, ' ', 'text'::regtype::int) AS oidvector)
+  FROM (SELECT t1.cvtfrom[0] AS f1,t2.cvtfrom[0] AS f2 
+        FROM (SELECT cvtname,cvtfrom FROM ora_convert WHERE cvtname='~~' AND cvtfrom[0]='numeric'::regtype::int) t1
+        FULL JOIN (SELECT cvtname,cvtfrom FROM ora_convert WHERE cvtname='~~' AND cvtfrom[0]<>'numeric'::regtype::int) t2 
+        ON t1.cvtname=t2.cvtname)	t3
+  WHERE f1<>f2;

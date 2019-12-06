@@ -3389,5 +3389,9 @@
   oprname => '-', oprnamespace => 'ORANSP', oprleft => 'oracle.date',
   oprright => 'interval', oprresult => 'oracle.date',
   oprcode => 'oracle.ora_date_mi_interval' },
+{ oid => '3423', row_macros => 'ADB_GRAM_ORA', descr => 'matches LIKE expression',
+  oprname => '~~', oprnamespace => 'ORANSP', oprleft => 'numeric',
+  oprright => 'text', oprresult => 'bool',
+  oprcode => 'numericlike' },
 # ADB_END
 ]

@@ -145,6 +145,16 @@
 { cvtkind => 'o', cvtname => '<=', cvtfrom => 'int4 unknown', cvtto => 'numeric numeric' },
 { cvtkind => 'o', cvtname => '<=', cvtfrom => 'int8 numeric', cvtto => 'numeric numeric' },
 
+# like
+{ cvtkind => 'o', cvtname => '~~', cvtfrom => 'unknown text', cvtto => 'text text' },
+{ cvtkind => 'o', cvtname => '~~', cvtfrom => 'int2 text', cvtto => 'text text' },
+{ cvtkind => 'o', cvtname => '~~', cvtfrom => 'int4 text', cvtto => 'text text' },
+{ cvtkind => 'o', cvtname => '~~', cvtfrom => 'int8 text', cvtto => 'text text' },
+{ cvtkind => 'o', cvtname => '~~', cvtfrom => 'float4 text', cvtto => 'text text' },
+{ cvtkind => 'o', cvtname => '~~', cvtfrom => 'float8 text', cvtto => 'text text' },
+{ cvtkind => 'o', cvtname => '~~', cvtfrom => 'numeric text', cvtto => 'numeric text' },
+{ cvtkind => 'o', cvtname => '~~', cvtfrom => 'numeric numeric', cvtto => 'numeric text' },
+
 # common combin
 { cvtkind => 'c', cvtname => '', cvtfrom => 'oracle.varchar2 varchar',			cvtto => 'oracle.varchar2' },
 { cvtkind => 'c', cvtname => '', cvtfrom => 'oracle.varchar2 char',				cvtto => 'oracle.varchar2' },
