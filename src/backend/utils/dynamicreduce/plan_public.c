@@ -18,10 +18,10 @@ re_send_:
 	if (pwi->sendBuffer.len > 0)
 	{
 		Assert(pwi->sendBuffer.cursor == 0);
-		result = shm_mq_send(pwi->reduce_sender,
+		result = shm_mq_send_ext(pwi->reduce_sender,
 							 pwi->sendBuffer.len,
 							 pwi->sendBuffer.data,
-							 true);
+							 true, false);
 		if (result == SHM_MQ_SUCCESS)
 		{
 			DR_PLAN_DEBUG((errmsg("send plan %d worker %d with data length %d success",

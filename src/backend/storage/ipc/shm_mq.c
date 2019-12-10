@@ -319,12 +319,23 @@ shm_mq_set_handle(shm_mq_handle *mqh, BackgroundWorkerHandle *handle)
 shm_mq_result
 shm_mq_send(shm_mq_handle *mqh, Size nbytes, const void *data, bool nowait)
 {
+#ifdef ADB
+	return shm_mq_send_ext(mqh, nbytes, data, nowait, true);
+}
+shm_mq_result shm_mq_send_ext(shm_mq_handle *mqh, Size nbytes, const void *data, bool nowait,
+			bool setlatchforce)
+{
+#endif /* ADB */
 	shm_mq_iovec iov;
 
 	iov.data = data;
 	iov.len = nbytes;
 
+#ifdef ADB
+	return shm_mq_sendv_ext(mqh, &iov, 1, nowait, setlatchforce);
+#else
 	return shm_mq_sendv(mqh, &iov, 1, nowait);
+#endif /* ADB */
 }
 
 /*
@@ -345,6 +356,12 @@ shm_mq_send(shm_mq_handle *mqh, Size nbytes, const void *data, bool nowait)
 shm_mq_result
 shm_mq_sendv(shm_mq_handle *mqh, shm_mq_iovec *iov, int iovcnt, bool nowait)
 {
+#ifdef ADB
+	return shm_mq_sendv_ext(mqh, iov, iovcnt, nowait, true);
+}
+shm_mq_result shm_mq_sendv_ext(shm_mq_handle *mqh, shm_mq_iovec *iov, int iovcnt, bool nowait, bool setlatchforce)
+{
+#endif /* ADB */
 	shm_mq_result res;
 	shm_mq	   *mq = mqh->mqh_queue;
 	PGPROC	   *receiver;
@@ -353,6 +370,18 @@ shm_mq_sendv(shm_mq_handle *mqh, shm_mq_iovec *iov, int iovcnt, bool nowait)
 	int			i;
 	int			which_iov = 0;
 	Size		offset;
+
+#ifdef ADB
+	uint64		rb;
+	uint64		wb;
+	rb = pg_atomic_read_u64(&mq->mq_bytes_read);
+	wb = pg_atomic_read_u64(&mq->mq_bytes_written);
+
+	if (!setlatchforce && rb == wb)
+	{
+		setlatchforce = true;
+	}
+#endif /* ADB */
 
 	Assert(mq->mq_sender == MyProc);
 
@@ -510,7 +539,11 @@ shm_mq_sendv(shm_mq_handle *mqh, shm_mq_iovec *iov, int iovcnt, bool nowait)
 	}
 
 	/* Notify receiver of the newly-written data, and return. */
+#ifdef ADB
+	if (setlatchforce)
+#endif /* ADB */
 	SetLatch(&receiver->procLatch);
+
 	return SHM_MQ_SUCCESS;
 }
 
