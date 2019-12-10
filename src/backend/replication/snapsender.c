@@ -376,6 +376,7 @@ static TransactionId snapsenderGetSenderGlobalXmin(void)
 {
 	slist_iter siter;
 	SnapClientData *cur_client;
+	TransactionId oldxmin;
 	TransactionId global_xmin = FirstNormalTransactionId;
 
 	slist_foreach(siter, &slist_all_client)
@@ -388,6 +389,9 @@ static TransactionId snapsenderGetSenderGlobalXmin(void)
 			global_xmin = cur_client->global_xmin;
 	}
 
+	oldxmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_DEFAULT);
+	if (NormalTransactionIdPrecedes(oldxmin, global_xmin))
+		global_xmin = oldxmin;
 	if (TransactionIdIsValid(global_xmin))
 	{
 		pg_atomic_write_u32(&SnapSender->global_xmin, global_xmin);
@@ -399,7 +403,7 @@ static TransactionId snapsenderGetSenderGlobalXmin(void)
 
 static void snapsenderProcessSyncGlobalXmin(SnapClientData *client)
 {
-	TransactionId xmin,global_xmin;
+	TransactionId xmin,global_xmin, oldxmin;
 	slist_iter siter;
 	SnapClientData *cur_client;
 
@@ -423,6 +427,10 @@ static void snapsenderProcessSyncGlobalXmin(SnapClientData *client)
 		}
 	}
 
+	oldxmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_DEFAULT);
+	if (NormalTransactionIdPrecedes(oldxmin, global_xmin))
+		global_xmin = oldxmin;
+
 	pg_atomic_write_u32(&SnapSender->global_xmin, global_xmin);
 	/* Send a sync xmin Response message */
 	resetStringInfo(&output_buffer);
@@ -437,7 +445,7 @@ static void snapsenderProcessSyncGlobalXmin(SnapClientData *client)
 static void snapsenderProcessHeartBeat(SnapClientData *client)
 {
 	TimestampTz t1, t2, t3;
-	TransactionId xmin,global_xmin;
+	TransactionId xmin,global_xmin, oldxmin;
 	slist_iter siter;
 	SnapClientData *cur_client;
 
@@ -460,6 +468,10 @@ static void snapsenderProcessHeartBeat(SnapClientData *client)
 			NormalTransactionIdPrecedes(cur_client->global_xmin,global_xmin ))
 			global_xmin = cur_client->global_xmin;
 	}
+
+	oldxmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_DEFAULT);
+	if (NormalTransactionIdPrecedes(oldxmin, global_xmin))
+		global_xmin = oldxmin;
 
 	pg_atomic_write_u32(&SnapSender->global_xmin, global_xmin);
 	
