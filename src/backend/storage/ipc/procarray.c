@@ -2108,53 +2108,6 @@ ProcArrayInstallRestoredXmin(TransactionId xmin, PGPROC *proc)
 	return result;
 }
 
-
-#ifdef ADB
-TransactionId
-ProcArrayGetXactXmin(TransactionId xmin)
-{
-	ProcArrayStruct *arrayP = procArray;
-	TransactionId 	result, xid;
-	int				index;
-	volatile PGXACT *pgxact;
-
-	LWLockAcquire(ProcArrayLock, LW_SHARED);	
-	result = xmin;
-	for (index = 0; index < arrayP->numProcs; index++)
-	{
-		int			pgprocno = arrayP->pgprocnos[index];
-		pgxact = &allPgXact[pgprocno];
-
-		if (pgxact->vacuumFlags & PROC_IN_LOGICAL_DECODING)
-			continue;
-		if (pgxact->vacuumFlags & PROC_IN_VACUUM)
-			continue;
-		if (pgxact == MyPgXact)
-			continue;
-
-		/* Fetch xid just once - see GetNewTransactionId */
-		xid = pgxact->xid;
-
-		/* First consider the transaction's own Xid, if any */
-		if (TransactionIdIsNormal(xid) &&
-			TransactionIdPrecedes(xid, result))
-		{
-			result = xid;
-		}
-
-		xid = pgxact->xmin; /* Fetch just once */
-		if (TransactionIdIsNormal(xid) &&
-			TransactionIdPrecedes(xid, result))
-		{
-			result = xid;
-		}	
-	}
-
-	LWLockRelease(ProcArrayLock);
-	return result;
-}
-#endif /* ADB */
-
 /*
  * GetRunningTransactionData -- returns information about running transactions.
  *

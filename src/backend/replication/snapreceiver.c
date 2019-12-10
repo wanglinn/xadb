@@ -1442,7 +1442,7 @@ void SnapRcvEndTransferLock(void* map)
 
 static TransactionId SnapRcvGetLocalXmin(void)
 {
-	TransactionId	xid,xact_min,xmin,xmax;
+	TransactionId	xid,xmin,xmax, oldxmin;
 	uint32			i,count;
 
 	LOCK_SNAP_RCV();
@@ -1463,10 +1463,10 @@ static TransactionId SnapRcvGetLocalXmin(void)
 	}
 
 	UNLOCK_SNAP_RCV();
-	xact_min = ProcArrayGetXactXmin(xmin);
-	if (TransactionIdIsNormal(xact_min) && NormalTransactionIdPrecedes(xact_min, xmin))
-		xmin = xact_min;
-
+	oldxmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_DEFAULT);
+	if (NormalTransactionIdPrecedes(oldxmin, xmin))
+		xmin = oldxmin;
+	
 	//ereport(LOG,(errmsg("SnapRcvGetLocalXmin xid %d\n", xmin)));
 	return xmin;
 }
