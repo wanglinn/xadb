@@ -1581,8 +1581,7 @@ TopDownDriveClusterReduce(PlanState *node)
 
 static inline void AdvanceReduce(ClusterReduceState *crs, PlanState *parent, uint32 flags)
 {
-	ClusterReduce *plan = castNode(ClusterReduce, crs->ps.plan);
-	bool need_advance = false;
+	ClusterReduce  *plan = castNode(ClusterReduce, crs->ps.plan);
 
 	if (IsA(outerPlan(plan), ParamTuplestoreScan))
 	{
@@ -1593,10 +1592,7 @@ static inline void AdvanceReduce(ClusterReduceState *crs, PlanState *parent, uin
 		return;
 	}
 
-	if (flags & ACR_MARK_SPECIAL)
-		need_advance = true;
-
-	if (need_advance == false)
+	if ((flags & ACR_MARK_SPECIAL) == 0)
 		return;
 	
 	switch(crs->reduce_method)
@@ -1618,6 +1614,9 @@ static inline void AdvanceReduce(ClusterReduceState *crs, PlanState *parent, uin
 				 errmsg("unknown reduce method %u", crs->reduce_method)));
 		break;
 	}
+
+	/* save initialized state */
+	crs->initialized = true;
 }
 
 #define WalkerList(list, type_)						\
