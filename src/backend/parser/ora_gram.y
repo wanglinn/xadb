@@ -6247,7 +6247,11 @@ SimpleTypename:
 			$$->typmods = list_make1(makeIntConst(INTERVAL_MASK(YEAR) |
 											 INTERVAL_MASK(MONTH), @1));
 			if($3)
-				$$->typmods = lappend($$->typmods, $3);
+			{
+				A_Const *n = (A_Const *)linitial($3);
+				n->location = @3;
+				$$->typmods = lappend($$->typmods, n);
+			}
 		}
 	| INTERVAL DAY_P opt_type_mod TO SECOND_P					%prec '+'
 		{
@@ -6257,7 +6261,11 @@ SimpleTypename:
 												INTERVAL_MASK(MINUTE) |
 												INTERVAL_MASK(SECOND), @1));
 			if($3)
-				$$->typmods = lappend($$->typmods, $3);
+			{
+				A_Const *n = (A_Const *)linitial($3);
+				n->location = @3;
+				$$->typmods = lappend($$->typmods, n);
+			}
 		}
 	| INTERVAL DAY_P opt_type_mod TO SECOND_P '(' Iconst ')'	%prec '/' /* height then no "( n )" operator */
 		{
@@ -6267,7 +6275,11 @@ SimpleTypename:
 												INTERVAL_MASK(MINUTE) |
 												INTERVAL_MASK(SECOND), @1));
 			if($3)
-				$$->typmods = lappend($$->typmods, $3);
+			{
+				A_Const *n = (A_Const *)linitial($3);
+				n->location = @3;
+				$$->typmods = lappend($$->typmods, n);
+			}
 		}
 	| IDENT
 		{
@@ -7816,6 +7828,7 @@ col_name_keyword:
 	| INT_P
 	| INOUT
 	| INTEGER
+	| INTERVAL
 	| LONG_P
 	| NUMBER_P
 	| PIPELINED

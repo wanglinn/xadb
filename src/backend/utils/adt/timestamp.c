@@ -67,6 +67,9 @@ typedef struct
 	int			step_sign;
 } generate_series_timestamptz_fctx;
 
+#ifdef ADB_GRAM_ORA
+extern int parse_grammar;
+#endif
 
 static TimeOffset time2t(const int hour, const int min, const int sec, const fsec_t fsec);
 static Timestamp dt2local(Timestamp dt, int timezone);
@@ -1239,8 +1242,12 @@ intervaltypmodout(PG_FUNCTION_ARGS)
 			fieldstr = "";
 			break;
 	}
-
+#ifdef ADB_GRAM_ORA
+	/* Ignore the precision of interval type Under Oracle syntax */
+	if (precision != INTERVAL_FULL_PRECISION && parse_grammar != PARSE_GRAM_ORACLE)
+#else
 	if (precision != INTERVAL_FULL_PRECISION)
+#endif
 		snprintf(res, 64, "%s(%d)", fieldstr, precision);
 	else
 		snprintf(res, 64, "%s", fieldstr);
