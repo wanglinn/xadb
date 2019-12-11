@@ -1463,10 +1463,13 @@ static TransactionId SnapRcvGetLocalXmin(void)
 	}
 
 	UNLOCK_SNAP_RCV();
-	oldxmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_DEFAULT);
-	if (NormalTransactionIdPrecedes(oldxmin, xmin))
-		xmin = oldxmin;
-	
+	if (!RecoveryInProgress())
+	{
+		oldxmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_DEFAULT);
+		if (NormalTransactionIdPrecedes(oldxmin, xmin))
+			xmin = oldxmin;
+	}
+
 	//ereport(LOG,(errmsg("SnapRcvGetLocalXmin xid %d\n", xmin)));
 	return xmin;
 }
