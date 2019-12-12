@@ -13523,6 +13523,16 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 		ereport(WARNING, 
 				(errmsg("Pgxc_node update not completed on all datanode masters.")));
 	}
+	/* Add read-write separation mode data to force consistency setting reminder */
+	if (updateKey && isSlaveSync)
+	{
+		ereport(WARNING, 
+				(errcode(ERRCODE_WARNING),
+				 errmsg("Data nodes are synchronized by means of stream replication between primary and secondary nodes, which may cause extremely short synchronization delay. \
+				 		 If strong data consistency is required for the read-write separation function, configure the commit mode for 'DATANODE MASTER'."),
+				 errhint("SYNCHRONOUS_COMMIT = REMOTE_APPLY")));
+
+	}
 	return true;
 }
 
