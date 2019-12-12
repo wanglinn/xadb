@@ -152,6 +152,7 @@
 { cvtkind => 'o', cvtname => '~~', cvtfrom => 'int8 text', cvtto => 'text text' },
 { cvtkind => 'o', cvtname => '~~', cvtfrom => 'float4 text', cvtto => 'text text' },
 { cvtkind => 'o', cvtname => '~~', cvtfrom => 'float8 text', cvtto => 'text text' },
+{ cvtkind => 'o', cvtname => '~~', cvtfrom => 'timestamp text', cvtto => 'text text' },
 { cvtkind => 'o', cvtname => '~~', cvtfrom => 'numeric text', cvtto => 'numeric text' },
 { cvtkind => 'o', cvtname => '~~', cvtfrom => 'numeric numeric', cvtto => 'numeric text' },
 
