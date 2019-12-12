@@ -13858,6 +13858,19 @@ ATCheckCmd(Relation rel, AlterTableCmd *cmd)
 						errhint("You should ALTER its parent TABLE \"%s\"", get_rel_name(parent_oid))));
 			}
 			break;
+#ifdef ADB
+		case AT_AlterColumnType:
+			{
+				AttrNumber attnum = get_attnum(RelationGetRelid(rel), cmd->name);
+
+				/* Temporarily forbid modifying the distribution field type */
+				if (IsDistribColumn(RelationGetRelid(rel), attnum))
+					ereport(ERROR,
+							(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+							errmsg("Distribution field does not support type modification.")));
+			}
+			break;
+#endif
 		default:
 			break;
 	}
