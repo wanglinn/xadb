@@ -51,6 +51,9 @@
 #include "utils/rel.h"
 #include "utils/resowner_private.h"
 #include "utils/timestamp.h"
+#ifdef ADB_EXT
+#include "storage/pmsignal.h"
+#endif /* ADB_EXT */
 
 
 /* Note: these two macros only work on shared buffers, not local ones! */
@@ -2012,6 +2015,12 @@ BufferSync(int flags)
 		 * Sleep to throttle our I/O rate.
 		 */
 		CheckpointWriteDelay(flags, (double) num_processed / num_to_scan);
+
+#ifdef ADB_EXT
+		CHECK_FOR_INTERRUPTS();
+		if(IsUnderPostmaster && !PostmasterIsAlive())
+			proc_exit(1);
+#endif /* ADB_EXT */
 	}
 
 	/* issue all pending flushes */
