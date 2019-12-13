@@ -3766,7 +3766,7 @@ void removeFromSyncStandbyNames(MgrNodeWrapper *masterNode,
 
 bool setPGHbaTrustMyself(MgrNodeWrapper *mgrNode)
 {
-	NameData myAddress = {0};
+	NameData myAddress = {{0}};
 	bool execOk = false;
 
 	if (!mgr_get_self_address(mgrNode->host->hostaddr,
