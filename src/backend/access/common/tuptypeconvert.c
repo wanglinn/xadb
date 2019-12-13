@@ -738,7 +738,12 @@ static Datum convert_record_recv(PG_FUNCTION_ARGS)
 	{
 		TupleDesc desc;
 		BlessTupleDesc(tupdesc);
-		desc = lookup_rowtype_tupdesc(tupdesc->tdtypeid, tupdesc->tdtypmod);
+		desc = lookup_rowtype_tupdesc_noerror(tupdesc->tdtypeid, tupdesc->tdtypmod, true);
+		if (desc == NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("type %s mod %d is not composite",
+							format_type_be(tupdesc->tdtypeid), tupdesc->tdtypmod)));
 		my_extra = fcinfo->flinfo->fn_extra
 				 = set_record_convert_tuple_desc(my_extra,
 												 desc,
@@ -779,7 +784,12 @@ static Datum convert_record_send(PG_FUNCTION_ARGS)
 	record = PG_GETARG_HEAPTUPLEHEADER(0);
 	tupType = HeapTupleHeaderGetTypeId(record);
 	tupTypmod = HeapTupleHeaderGetTypMod(record);
-	tupdesc = lookup_rowtype_tupdesc(tupType, tupTypmod);
+	tupdesc = lookup_rowtype_tupdesc_noerror(tupType, tupTypmod, true);
+	if (tupdesc == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("type %s mod %d is not composite",
+						format_type_be(tupType), tupTypmod)));
 
 	my_extra = fcinfo->flinfo->fn_extra
 			 = set_record_convert_tuple_desc(fcinfo->flinfo->fn_extra,
