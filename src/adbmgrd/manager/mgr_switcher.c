@@ -2574,6 +2574,7 @@ static void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
 		}
 		else
 		{
+			setPGHbaTrustMyself(mgrNode);
 			networkFailures++;
 		}
 		fputs(_("."), stdout);

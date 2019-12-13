@@ -3763,3 +3763,32 @@ void removeFromSyncStandbyNames(MgrNodeWrapper *masterNode,
 	if (synchronousStandbyNamesConfig)
 		pfree(synchronousStandbyNamesConfig);
 }
+
+bool setPGHbaTrustMyself(MgrNodeWrapper *mgrNode)
+{
+	NameData myAddress = {0};
+	bool execOk = false;
+
+	if (!mgr_get_self_address(mgrNode->host->hostaddr,
+							  mgrNode->form.nodeport,
+							  &myAddress))
+	{
+		ereport(LOG,
+				(errmsg("on ADB Manager get local address fail, "
+						"this may be caused by cannot get the "
+						"connection to node %s",
+						NameStr(mgrNode->form.nodename))));
+	}
+	if (!setPGHbaTrustAddress(mgrNode, NameStr(myAddress)))
+	{
+		ereport(LOG,
+				(errmsg("set node %s trust me failed, "
+						"this may be caused by network error",
+						NameStr(mgrNode->form.nodename))));
+	}
+	else
+	{
+		execOk = true;
+	}
+	return execOk;
+}
