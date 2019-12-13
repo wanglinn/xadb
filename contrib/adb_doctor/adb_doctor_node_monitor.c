@@ -1542,6 +1542,10 @@ static void occurredError(MonitorNodeInfo *nodeInfo, NodeError error)
 					MyBgworkerEntry->bgw_name,
 					NODE_ERROR_MSG[(int)error - 1],
 					PQerrorMessage(nodeInfo->conn))));
+	if (error == NODE_ERROR_CONNECT_FAIL)
+	{
+		setPGHbaTrustMyself(nodeInfo->mgrNode);
+	}
 	if (error == NODE_ERROR_CONNECT_TIMEDOUT ||
 		error == NODE_ERROR_CONNECT_FAIL ||
 		error == NODE_CANNOT_CONNECT_STARTUP ||

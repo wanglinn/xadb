@@ -606,5 +606,6 @@ extern void removeFromSyncStandbyNames(MgrNodeWrapper *masterNode,
 									   dlist_head *siblingSlaveNodes,
 									   PGconn *masterPGconn,
 									   MemoryContext spiContext);
+extern bool setPGHbaTrustMyself(MgrNodeWrapper *mgrNode);
 
 #endif /* MGR_HELPER_H */
