@@ -6867,6 +6867,8 @@ void mgr_add_parameters_hbaconf(Oid mastertupleoid, char nodetype, StringInfo in
 	Form_mgr_node mgr_node;
 	HeapTuple tuple;
 	ScanKeyData key[1];
+	NameData self_address;
+	bool bgetAddress;
 
 	rel_node = heap_open(NodeRelationId, AccessShareLock);
 	/*get all coordinator master ip*/
@@ -6931,7 +6933,14 @@ void mgr_add_parameters_hbaconf(Oid mastertupleoid, char nodetype, StringInfo in
 		}
 		heap_endscan(rel_scan);
 	}
-
+	/*get the adbmanager ip*/
+	memset(self_address.data, 0, NAMEDATALEN);
+	bgetAddress = get_local_ip(&self_address);
+	if (!bgetAddress)
+	{
+		ereport(ERROR, (errmsg("get adb manager local ip.")));
+	}
+	mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", NameStr(self_address), 32, "trust", infosendhbamsg);
 	heap_close(rel_node, AccessShareLock);
 }
 /*
