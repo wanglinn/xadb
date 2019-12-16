@@ -6886,7 +6886,9 @@ void mgr_add_parameters_hbaconf(Oid mastertupleoid, char nodetype, StringInfo in
 			Assert(mgr_node);
 			/*get address*/
 			cnaddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
-			if (CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype || CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype)
+			if (CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype || 
+				CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype ||
+				CNDN_TYPE_GTM_COOR_SLAVE == mgr_node->nodetype)
 				mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", cnaddress, 32, "trust", infosendhbamsg);
 			pfree(cnaddress);
 		}
@@ -6926,7 +6928,9 @@ void mgr_add_parameters_hbaconf(Oid mastertupleoid, char nodetype, StringInfo in
 			}
 			else
 			{
-				if (CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype || CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype)
+				if (CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype ||
+					CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype ||
+					CNDN_TYPE_GTM_COOR_SLAVE == mgr_node->nodetype)
 					mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", cnaddress, 32, "trust", infosendhbamsg);
 			}
 			pfree(cnaddress);
