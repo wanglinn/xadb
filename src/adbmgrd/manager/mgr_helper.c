@@ -3767,7 +3767,6 @@ void removeFromSyncStandbyNames(MgrNodeWrapper *masterNode,
 bool setPGHbaTrustMyself(MgrNodeWrapper *mgrNode)
 {
 	NameData myAddress = {{0}};
-	bool execOk = false;
 
 	if (!mgr_get_self_address(mgrNode->host->hostaddr,
 							  mgrNode->form.nodeport,
@@ -3778,6 +3777,7 @@ bool setPGHbaTrustMyself(MgrNodeWrapper *mgrNode)
 						"this may be caused by cannot get the "
 						"connection to node %s",
 						NameStr(mgrNode->form.nodename))));
+		return false;
 	}
 	if (!setPGHbaTrustAddress(mgrNode, NameStr(myAddress)))
 	{
@@ -3785,10 +3785,7 @@ bool setPGHbaTrustMyself(MgrNodeWrapper *mgrNode)
 				(errmsg("set node %s trust me failed, "
 						"this may be caused by network error",
 						NameStr(mgrNode->form.nodename))));
+		return false;
 	}
-	else
-	{
-		execOk = true;
-	}
-	return execOk;
+	return true;
 }
