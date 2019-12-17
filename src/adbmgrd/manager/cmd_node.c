@@ -66,8 +66,6 @@ hot_expansion changes below functions:
 
 extern char	*MGRDatabaseName;
 
-NameData GTM_COORD_PGXC_NODE_NAME = {{0}};
-
 static PGconn *
 ExpPQsetdbLogin(const char *pghost, const char *pgport, const char *pgoptions,
 			 const char *pgtty, const char *login, const char *pwd);
@@ -1959,6 +1957,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		/*refresh postgresql.conf of this node*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
+		mgr_append_pgconf_paras_str_quotastr("pgxc_node_name", NameStr(mgr_node->nodename), &infosendmsg);
 		mgr_add_parameters_pgsqlconf(tupleOid, nodetype, cndnport, &infosendmsg);
 		mgr_add_parm(cndnname, nodetype, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
@@ -4408,6 +4407,7 @@ Datum mgr_append_agtmslave(PG_FUNCTION_ARGS)
 
 		/* step 4: update agtm slave's postgresql.conf. */
 		resetStringInfo(&infosendmsg);
+		mgr_append_pgconf_paras_str_quotastr("pgxc_node_name", appendnodeinfo.nodename, &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("archive_command", "", &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("log_directory", "pg_log", &infosendmsg);
 		mgr_add_parm(appendnodeinfo.nodename, CNDN_TYPE_GTM_COOR_SLAVE, &infosendmsg);
@@ -4897,8 +4897,6 @@ bool is_node_running(char *hostaddr, int32 hostport, char *user, char nodetype)
 {
 	char bufPort[10];
 	int ret;
-	PGconn *pgconn = NULL;
-	PGresult *res = NULL;
 
 	memset(bufPort, 0, 10);
 	sprintf(bufPort, "%d", hostport);
@@ -4908,47 +4906,6 @@ bool is_node_running(char *hostaddr, int32 hostport, char *user, char nodetype)
 	{
 		return false;
 	}
-	else
-	{
-		/* all gtm coord node have the same pgxc_node_name value */
-		if(nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
-		   nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-		{
-			pgconn = ExpPQsetdbLogin(hostaddr
-									,bufPort
-									,NULL, NULL
-									,user
-									,NULL);
-			if (PQstatus(pgconn) != CONNECTION_OK)
-			{
-				if(pgconn)
-				{
-					PQfinish(pgconn);
-					pgconn = NULL;
-				}
-				return false;
-			}
-			else 
-			{
-				/* all gtm coord node have the same pgxc_node_name value */
-				res = PQexec(pgconn, "show pgxc_node_name");
-				if (PQresultStatus(res) == PGRES_TUPLES_OK)
-				{
-					namestrcpy(&GTM_COORD_PGXC_NODE_NAME, PQgetvalue(res, 0, 0));
-				}
-				PQclear(res);
-				res = NULL;
-			}
-		}
-		else 
-		{
-			/* ignore */
-		}
-	}
-	if(pgconn)
-		PQfinish(pgconn);
-	if(res)
-		PQclear(res);	
 
 	return true;
 }
@@ -11270,7 +11227,6 @@ bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 	bool bgetAddress = true;
 	bool ret = true;
 	PGresult *res;
-	char holdLockCoordNodetype = 0;
 
 	rel_node = heap_open(NodeRelationId, AccessShareLock);
 
@@ -11309,7 +11265,6 @@ bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 			*cnoid = HeapTupleGetOid(tuple);
 			clusterLockCoordNodeOid = *cnoid;
 			namestrcpy(&clusterLockCoordNodeName, NameStr(mgr_node->nodename));
-			holdLockCoordNodetype = mgr_node->nodetype;
 			/*get the adbmanager ip*/
 			memset(self_address.data, 0, NAMEDATALEN);
 			bgetAddress = mgr_get_self_address(coordhost, coordport, &self_address);
@@ -11386,20 +11341,7 @@ bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 				coordhost, coordport, DEFAULT_DB, connect_user)));
 	}
 
-	
 	ereport(LOG, (errmsg("get active coordinator to connect end")));
-
-	/* all gtm coord node have the same pgxc_node_name value */
-	if(holdLockCoordNodetype == CNDN_TYPE_GTM_COOR_MASTER)
-	{
-		res = PQexec(*pg_conn, "show pgxc_node_name");
-		if (PQresultStatus(res) == PGRES_TUPLES_OK)
-		{
-			namestrcpy(&GTM_COORD_PGXC_NODE_NAME, PQgetvalue(res, 0, 0));
-		}
-		PQclear(res);
-		res = NULL;
-	}
 
 	/* get the value of pool_release_to_idle_timeout to record */
 	try = 0;
@@ -11632,8 +11574,9 @@ void mgr_unlock_cluster_involve_gtm_coord(PGconn **pg_conn)
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
 		resetStringInfo(&cmdstring);
-		appendStringInfo(&cmdstring, "set FORCE_PARALLEL_MODE = off; EXECUTE DIRECT ON (\"%s\") 'select pool_close_idle_conn();'"
-			, strlen(NameStr(GTM_COORD_PGXC_NODE_NAME)) ==0 ? NameStr(mgr_node->nodename) : NameStr(GTM_COORD_PGXC_NODE_NAME));
+		appendStringInfo(&cmdstring, 
+						"set FORCE_PARALLEL_MODE = off; EXECUTE DIRECT ON (\"%s\") 'select pool_close_idle_conn();'",
+						NameStr(mgr_node->nodename));
 		ereport(NOTICE, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
 		ereport(LOG, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
 		try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);

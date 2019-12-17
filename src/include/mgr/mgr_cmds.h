@@ -138,7 +138,6 @@ typedef enum PGXC_NODE_MANIPULATE_TYPE
 	PGXC_NODE_MANIPULATE_TYPE_DROP
 } PGXC_NODE_MANIPULATE_TYPE;
 
-extern NameData GTM_COORD_PGXC_NODE_NAME;
 /* host commands, in cmd_host.c */
 
 extern void mgr_add_host(MGRAddHost *node, ParamListInfo params, DestReceiver *dest);

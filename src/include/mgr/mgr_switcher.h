@@ -28,7 +28,6 @@ typedef struct SwitcherNodeWrapper
 	bool adbSlotChanged;
 	bool startupAfterException;
 	bool inTransactionBlock;
-	NameData pgxcNodeName;
 	bool gtmInfoChanged;
 } SwitcherNodeWrapper;
 

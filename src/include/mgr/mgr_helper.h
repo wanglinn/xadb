@@ -539,7 +539,6 @@ extern bool createNodeOnPgxcNode(PGconn *activeConn,
 								 char *executeOnNodeName,
 								 bool localExecute,
 								 MgrNodeWrapper *mgrNode,
-								 char *pgxcNodeName,
 								 char *masterNodeName,
 								 bool complain);
 extern bool alterNodeOnPgxcNode(PGconn *activeConn,
@@ -547,7 +546,6 @@ extern bool alterNodeOnPgxcNode(PGconn *activeConn,
 								bool localExecute,
 								char *oldNodeName,
 								MgrNodeWrapper *newNode,
-								bool changeNodeName,
 								bool complain);
 extern bool nodenameExistsInPgxcNode(PGconn *activeConn,
 									 char *executeOnNodeName,
@@ -572,12 +570,7 @@ extern void compareAndDropMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
 											   MgrNodeWrapper *coordinator,
 											   PGconn *coordConn,
 											   bool localExecute,
-											   char *executeOnNodeName,
 											   bool complain);
-extern NameData getMgrNodePgxcNodeName(MgrNodeWrapper *mgrNode,
-									   PGconn *nodeConn,
-									   bool localExecute,
-									   bool complain);
 extern bool isGtmCoordMgrNode(char nodetype);
 extern bool isDataNodeMgrNode(char nodetype);
 extern bool isCoordinatorMgrNode(char nodetype);
