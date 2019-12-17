@@ -4,6 +4,7 @@
 
 #include "access/parallel.h"
 #include "executor/executor.h"
+#include "access/htup_details.h"
 #include "executor/nodeClusterReduce.h"
 #include "executor/nodeCtescan.h"
 #include "executor/nodeMaterial.h"
@@ -16,6 +17,7 @@
 #include "nodes/nodeFuncs.h"
 #include "pgstat.h"
 #include "pgxc/pgxc.h"
+#include "storage/barrier.h"
 #include "storage/buffile.h"
 #include "storage/shm_mq.h"
 #include "storage/condition_variable.h"
@@ -26,6 +28,8 @@ typedef enum ReduceType
 {
 	RT_NOTHING = 1,
 	RT_NORMAL,
+	RT_REDUCE_FIRST,
+	RT_PARALLEL_REDUCE_FIRST,
 	RT_ADVANCE,
 	RT_ADVANCE_PARALLEL,
 	RT_MERGE
@@ -37,6 +41,21 @@ typedef struct NormalReduceState
 	DynamicReduceIOBuffer
 					drio;
 }NormalReduceState;
+
+typedef struct NormalReduceFirstState
+{
+	NormalReduceState	normal;	/* must be first */
+	BufFile			   *file;
+	StringInfoData		buf;
+}NormalReduceFirstState;
+
+typedef struct ParallelReduceFirstState
+{
+	NormalReduceState			normal;	/* must be first */
+	SharedFileSet			   *sfs;
+	Barrier					   *barrier;
+	SharedTuplestoreAccessor   *sta;
+}ParallelReduceFirstState;
 
 typedef struct AdvanceNodeInfo
 {
@@ -123,7 +142,10 @@ static TupleTableSlot* ExecNormalReduce(PlanState *pstate)
 	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
 	NormalReduceState  *normal = node->private_state;
 	TupleTableSlot *slot;
-	Assert(normal != NULL && node->reduce_method == RT_NORMAL);
+	Assert(normal != NULL);
+	Assert(node->reduce_method == RT_NORMAL ||
+		   node->reduce_method == RT_REDUCE_FIRST ||
+		   node->reduce_method == RT_PARALLEL_REDUCE_FIRST);
 
 	slot = DynamicReduceFetchSlot(&normal->drio);
 	if (TupIsNull(slot))
@@ -136,51 +158,14 @@ static TupleTableSlot* ExecNormalReduce(PlanState *pstate)
 	return slot;
 }
 
-static TupleTableSlot* ExecNormalReduceLocalFirst(PlanState *pstate)
-{
-	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
-	NormalReduceState  *normal = node->private_state;
-	TupleTableSlot	   *slot;
-	bool				send_success PG_USED_FOR_ASSERTS_ONLY;
-	Assert(normal != NULL && node->reduce_method == RT_NORMAL);
-
-re_get_:
-	Assert(normal->drio.eof_local == false);
-	slot = DynamicReduceFetchLocal(&normal->drio);
-	if (normal->drio.send_buf.len > 0)
-	{
-		/* befor return, we must tall other node, we are end of tuple */
-		send_success = DynamicReduceSendMessage(normal->drio.mqh_sender,
-												normal->drio.send_buf.len,
-												normal->drio.send_buf.data,
-												false);
-		Assert(send_success);
-		normal->drio.send_buf.len = 0;
-	}
-	if (normal->drio.eof_local)
-		ExecSetExecProcNode(pstate, ExecNormalReduce);
-
-	if (TupIsNull(slot))
-	{
-		if (normal->drio.eof_local)
-			slot = ExecNormalReduce(pstate);
-		else
-			goto re_get_;
-	}
-	return slot;
-}
-
 static TupleTableSlot* ExecParallelReduceFirst(PlanState *pstate)
 {
 	/* notify attach */
 	NormalReduceState *normal = castNode(ClusterReduceState, pstate)->private_state;
 	DynamicReduceAttachPallel(&normal->drio);
 
-	if (castNode(ClusterReduce, pstate->plan)->reduce_flags & CRF_FETCH_LOCAL_FIRST)
-		ExecSetExecProcNode(pstate, ExecNormalReduceLocalFirst);
-	else
-		ExecSetExecProcNode(pstate, ExecNormalReduce);
-	return (*pstate->ExecProcNodeReal)(pstate);
+	ExecSetExecProcNode(pstate, ExecNormalReduce);
+	return ExecNormalReduce(pstate);
 }
 
 static TupleTableSlot* ExecReduceFetchLocal(void *pstate, ExprContext *econtext)
@@ -236,14 +221,13 @@ static void InitNormalReduce(ClusterReduceState *crstate)
 	normal = palloc0(sizeof(NormalReduceState));
 	InitNormalReduceState(normal, sizeof(DynamicReduceMQData), crstate);
 	crstate->private_state = normal;
-	ExecSetExecProcNode(&crstate->ps,
-						plan->reduce_flags & CRF_FETCH_LOCAL_FIRST ? ExecNormalReduceLocalFirst:ExecNormalReduce);
+	ExecSetExecProcNode(&crstate->ps, ExecNormalReduce);
 	DynamicReduceStartNormalPlan(crstate->ps.plan->plan_node_id, 
 								 normal->dsm_seg,
 								 dsm_segment_address(normal->dsm_seg),
 								 crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
 								 plan->reduce_oids,
-								 plan->reduce_flags & CRF_DISK_UNNECESSARY ? false:true);
+								 plan->reduce_flags & CRF_DISK_UNNECESSARY ? DR_CACHE_ON_DISK_DO_NOT:DR_CACHE_ON_DISK_AUTO);
 	MemoryContextSwitchTo(oldcontext);
 }
 
@@ -278,7 +262,7 @@ static void InitParallelReduce(ClusterReduceState *crstate, ParallelContext *pcx
 								   crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
 								   plan->reduce_oids,
 								   pcxt->nworkers+1,
-								   plan->reduce_flags & CRF_DISK_UNNECESSARY ? false:true);
+								   plan->reduce_flags & CRF_DISK_UNNECESSARY ? DR_CACHE_ON_DISK_DO_NOT:DR_CACHE_ON_DISK_AUTO);
 	MemoryContextSwitchTo(oldcontext);
 }
 
@@ -329,6 +313,300 @@ static void DriveNormalReduce(ClusterReduceState *node)
 			slot = DynamicReduceFetchSlot(&normal->drio);
 		}while(!TupIsNull(slot));
 	}
+}
+
+/* ===================== Normal Reduce First ========================== */
+static TupleTableSlot* ExecReduceFirstLocal(PlanState *pstate)
+{
+	NormalReduceFirstState *state = castNode(ClusterReduceState, pstate)->private_state;
+	TupleTableSlot		   *slot;
+
+	resetStringInfo(&state->buf);
+	slot = DynamicReduceReadSFSTuple(pstate->ps_ResultTupleSlot, state->file, &state->buf);
+	if (!TupIsNull(slot))
+		return slot;
+
+	ExecSetExecProcNode(pstate, ExecNormalReduce);
+	return ExecNormalReduce(pstate);
+}
+
+static TupleTableSlot* ExecReduceFirstPrepare(PlanState *pstate)
+{
+	NormalReduceFirstState *state = castNode(ClusterReduceState, pstate)->private_state;
+	TupleTableSlot		   *slot;
+	bool					send_success PG_USED_FOR_ASSERTS_ONLY;
+
+	Assert(state->normal.drio.eof_local == false);
+	while(state->normal.drio.eof_local == false)
+	{
+		slot = DynamicReduceFetchLocal(&state->normal.drio);
+		if (state->normal.drio.send_buf.len > 0)
+		{
+			send_success = DynamicReduceSendMessage(state->normal.drio.mqh_sender,
+													state->normal.drio.send_buf.len,
+													state->normal.drio.send_buf.data,
+													false);
+			Assert(send_success);
+			state->normal.drio.send_buf.len = 0;
+		}
+		if (!TupIsNull(slot))
+			DynamicReduceWriteSFSTuple(slot, state->file);
+	}
+
+	if (BufFileSeek(state->file, 0, 0, SEEK_SET) != 0)
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				errmsg("can not seek buffer file to head")));
+	ExecSetExecProcNode(pstate, ExecReduceFirstLocal);
+	return ExecReduceFirstLocal(pstate);
+}
+
+static void DriveReduceFirst(ClusterReduceState *node)
+{
+	NormalReduceFirstState *state = node->private_state;
+	TupleTableSlot		   *slot;
+	bool					send_success PG_USED_FOR_ASSERTS_ONLY;
+
+	while (state->normal.drio.eof_local == false)
+	{
+		slot = DynamicReduceFetchLocal(&state->normal.drio);
+		if (state->normal.drio.send_buf.len > 0)
+		{
+			send_success = DynamicReduceSendMessage(state->normal.drio.mqh_sender,
+													state->normal.drio.send_buf.len,
+													state->normal.drio.send_buf.data,
+													false);
+			Assert(send_success);
+			state->normal.drio.send_buf.len = 0;
+		}
+		/* ignore local tuple */
+	}
+}
+
+static void InitReduceFirst(ClusterReduceState *crstate)
+{
+	MemoryContext			oldcontext;
+	NormalReduceFirstState *state;
+	Assert(crstate->private_state == NULL);
+
+	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
+
+	crstate->private_state = state = palloc0(sizeof(*state));
+	InitNormalReduceState(&state->normal, sizeof(DynamicReduceMQData), crstate);
+	initStringInfo(&state->buf);
+	enlargeStringInfo(&state->buf, MINIMAL_TUPLE_DATA_OFFSET);
+	MemSet(state->buf.data, 0, MINIMAL_TUPLE_DATA_OFFSET);
+	state->file = BufFileCreateTemp(false);
+
+	DynamicReduceStartNormalPlan(crstate->ps.plan->plan_node_id,
+								 state->normal.dsm_seg,
+								 dsm_segment_address(state->normal.dsm_seg),
+								 crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
+								 castNode(ClusterReduce, crstate->ps.plan)->reduce_oids,
+								 DR_CACHE_ON_DISK_ALWAYS);
+	ExecSetExecProcNode(&crstate->ps, ExecReduceFirstPrepare);
+
+	MemoryContextSwitchTo(oldcontext);
+}
+
+static void EndReduceFirst(NormalReduceFirstState *state)
+{
+	BufFileClose(state->file);
+	pfree(state->buf.data);
+	EndNormalReduce(&state->normal);
+}
+
+/* ========================= parallel reduce first ================== */
+static TupleTableSlot* ExecParallelReduceFirstLocal(PlanState *pstate)
+{
+	ParallelReduceFirstState   *state = castNode(ClusterReduceState, pstate)->private_state;
+	MinimalTuple				mtup = sts_parallel_scan_next(state->sta, NULL);
+
+	if (mtup != NULL)
+		return ExecStoreMinimalTuple(mtup, pstate->ps_ResultTupleSlot, false);
+	
+	ExecSetExecProcNode(pstate, ExecNormalReduce);
+	return ExecNormalReduce(pstate);
+}
+
+static void ExecParallelReduceFirstFetchLocal(ParallelReduceFirstState *state)
+{
+	TupleTableSlot			   *slot;
+	bool						send_success PG_USED_FOR_ASSERTS_ONLY;
+
+	while(state->normal.drio.eof_local == false)
+	{
+		slot = DynamicReduceFetchLocal(&state->normal.drio);
+		if (state->normal.drio.send_buf.len > 0)
+		{
+			send_success = DynamicReduceSendMessage(state->normal.drio.mqh_sender,
+													state->normal.drio.send_buf.len,
+													state->normal.drio.send_buf.data,
+													false);
+			Assert(send_success);
+			state->normal.drio.send_buf.len = 0;
+		}
+		if (!TupIsNull(slot))
+			sts_puttuple(state->sta, NULL, ExecFetchSlotMinimalTuple(slot));
+	}
+	sts_end_write(state->sta);
+}
+
+static TupleTableSlot* ExecParallelReduceFirstPrepare(PlanState *pstate)
+{
+	ParallelReduceFirstState   *state = castNode(ClusterReduceState, pstate)->private_state;
+
+	Assert(state->normal.drio.eof_local == false);
+	DynamicReduceAttachPallel(&state->normal.drio);
+	if (BarrierAttach(state->barrier) > 0)
+	{
+		Assert(state->normal.drio.eof_local == true);
+		goto prepare_end_;
+	}
+	
+	ExecParallelReduceFirstFetchLocal(state);
+	Assert(state->normal.drio.eof_local == true);
+	BarrierArriveAndWait(state->barrier, WAIT_EVENT_DATA_FILE_READ);
+
+prepare_end_:
+	BarrierDetach(state->barrier);
+	sts_begin_parallel_scan(state->sta);
+	ExecSetExecProcNode(pstate, ExecParallelReduceFirstLocal);
+	return ExecParallelReduceFirstLocal(pstate);
+}
+
+static void DriveParallelReduceFirst(ClusterReduceState *node)
+{
+	ParallelReduceFirstState   *state = node->private_state;
+	if (state->normal.drio.eof_local)
+		return;
+
+	DynamicReduceAttachPallel(&state->normal.drio);
+	if (BarrierAttach(state->barrier) == 0)
+	{
+		ExecParallelReduceFirstFetchLocal(state);
+		Assert(state->normal.drio.eof_local == true);
+		/* don't need wait */
+		BarrierArriveAndDetach(state->barrier);
+	}else
+	{
+		Assert(state->normal.drio.eof_local == true);
+		BarrierDetach(state->barrier);
+	}
+}
+
+static Size GetReduceFirstShmSize(ParallelContext *pcxt)
+{
+	Size size = sizeof(Size) * 2;		/* reduce method and shared tuplestore size */
+	size = add_size(size, MAXALIGN(sizeof(SharedFileSet)));				/* shared fileset */
+	size = add_size(size, MAXALIGN(sizeof(Barrier)));					/* barrier */
+	size = add_size(size, MAXALIGN(sts_estimate(pcxt->nworkers + 1)));	/* shared tuplestore */
+	size = add_size(size, (pcxt->nworkers+1)*sizeof(DynamicReduceMQData));	/* MQ */
+
+	return size;
+}
+
+static void EstimateReduceFirst(ParallelContext *pcxt)
+{
+	shm_toc_estimate_chunk(&pcxt->estimator, GetReduceFirstShmSize(pcxt));
+	shm_toc_estimate_keys(&pcxt->estimator, 1);
+}
+
+static void InitParallelReduceFirstCommon(ClusterReduceState *node, ParallelContext *pcxt,
+										  ParallelWorkerContext *pwcxt, char *addr)
+{
+	MemoryContext				oldcontext;
+	ParallelReduceFirstState   *state;
+	Size						sts_size;
+	DynamicReduceMQ				drmq;
+	Assert(node->private_state == NULL);
+
+	/* shared tuplestore size */
+	if (pcxt)
+		*(Size*)addr = sts_size = MAXALIGN(sts_estimate(pcxt->nworkers+1));
+	else
+		sts_size = *(Size*)addr;
+	addr += sizeof(Size);
+
+	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(node));
+	node->private_state = state = palloc0(sizeof(*state));
+
+	/* shared fileset */
+	state->sfs = (SharedFileSet*)addr;
+	addr += MAXALIGN(sizeof(SharedFileSet));
+	if (pcxt)
+		SharedFileSetInit(state->sfs, pcxt->seg);
+	else
+		SharedFileSetAttach(state->sfs, pwcxt->seg);
+
+	/* barrier */
+	state->barrier = (Barrier*)addr;
+	addr += MAXALIGN(sizeof(Barrier));
+	if (pcxt)
+		BarrierInit(state->barrier, 0);
+
+	/* shared tuplestore */
+	if (pcxt)
+		state->sta = sts_initialize((SharedTuplestore*)addr,
+									pcxt->nworkers+1,
+									ParallelWorkerNumber+1,
+									0,
+									0,
+									state->sfs,
+									"prf");
+	else
+		state->sta = sts_attach((SharedTuplestore*)addr,
+								ParallelWorkerNumber+1,
+								state->sfs);
+	addr += sts_size;
+
+	/* MQ */
+	drmq = (DynamicReduceMQ)addr;
+	if (pcxt)
+	{
+		int i;
+		for (i=0;i<=pcxt->nworkers;++i)
+		{
+			shm_mq_create(drmq[i].reduce_sender_mq, sizeof(drmq->reduce_sender_mq));
+			shm_mq_create(drmq[i].worker_sender_mq, sizeof(drmq->worker_sender_mq));
+		}
+
+		SetupNormalReduceState(&state->normal, drmq, node, false);
+		DynamicReduceStartParallelPlan(node->ps.plan->plan_node_id,
+									   pcxt->seg,
+									   drmq,
+									   node->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
+									   castNode(ClusterReduce, node->ps.plan)->reduce_oids,
+									   pcxt->nworkers+1,
+									   DR_CACHE_ON_DISK_ALWAYS);
+	}else
+	{
+		SetupNormalReduceState(&state->normal, &drmq[ParallelWorkerNumber+1], node, false);
+	}
+	ExecSetExecProcNode(&node->ps, ExecParallelReduceFirstPrepare);
+
+	MemoryContextSwitchTo(oldcontext);
+}
+
+static void InitParallelReduceFirst(ClusterReduceState *node, ParallelContext *pcxt)
+{
+	char					   *addr;
+
+	addr = shm_toc_allocate(pcxt->toc, GetReduceFirstShmSize(pcxt));
+	shm_toc_insert(pcxt->toc, node->ps.plan->plan_node_id, addr);
+
+	/* reduce method */
+	node->reduce_method = RT_PARALLEL_REDUCE_FIRST;
+	*(Size*)addr = RT_PARALLEL_REDUCE_FIRST;
+	addr += sizeof(Size);
+
+	InitParallelReduceFirstCommon(node, pcxt, NULL, addr);
+}
+
+static void EndParallelReduceFirst(ParallelReduceFirstState *state)
+{
+	sts_detach(state->sta);
+	EndNormalReduce(&state->normal);
 }
 
 /* ========================= advance reduce ========================= */
@@ -960,6 +1238,9 @@ static void InitReduceMethod(ClusterReduceState *crstate)
 	case RT_NORMAL:
 		InitNormalReduce(crstate);
 		break;
+	case RT_REDUCE_FIRST:
+		InitReduceFirst(crstate);
+		break;
 	case RT_MERGE:
 		InitMergeReduce(crstate);
 		break;
@@ -993,6 +1274,9 @@ void ExecClusterReduceEstimate(ClusterReduceState *node, ParallelContext *pcxt)
 	case RT_NORMAL:
 		EstimateNormalReduce(pcxt);
 		break;
+	case RT_REDUCE_FIRST:
+		EstimateReduceFirst(pcxt);
+		break;
 	case RT_ADVANCE:
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -1022,6 +1306,9 @@ void ExecClusterReduceInitializeDSM(ClusterReduceState *node, ParallelContext *p
 		break;
 	case RT_NORMAL:
 		InitParallelReduce(node, pcxt);
+		break;
+	case RT_REDUCE_FIRST:
+		InitParallelReduceFirst(node, pcxt);
 		break;
 	case RT_ADVANCE_PARALLEL:
 		{
@@ -1066,6 +1353,9 @@ void ExecClusterReduceInitializeWorker(ClusterReduceState *node, ParallelWorkerC
 	case RT_NORMAL:
 		InitParallelReduceWorker(node, pwcxt, addr);
 		break;
+	case RT_REDUCE_FIRST:
+		InitParallelReduceFirstCommon(node, NULL, pwcxt, addr);
+		break;
 	case RT_ADVANCE_PARALLEL:
 		InitAdvanceParallelReduceWorker(node, pwcxt, addr);
 		break;
@@ -1104,6 +1394,8 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 		crstate->reduce_method = (uint8)RT_NOTHING;
 	else if (node->numCols > 0)
 		crstate->reduce_method = (uint8)RT_MERGE;
+	else if (node->reduce_flags & CRF_FETCH_LOCAL_FIRST)
+		crstate->reduce_method = (uint8)RT_REDUCE_FIRST;
 	else
 		crstate->reduce_method = (uint8)RT_NORMAL;
 
@@ -1205,6 +1497,13 @@ void ExecShutdownClusterReduce(ClusterReduceState *node)
 		case RT_NORMAL:
 			EndNormalReduce(node->private_state);
 			break;
+		case RT_REDUCE_FIRST:
+			EndReduceFirst(node->private_state);
+			break;
+		case RT_PARALLEL_REDUCE_FIRST:
+			EndParallelReduceFirst(node->private_state);
+			break;
+			break;
 		case RT_ADVANCE:
 			EndAdvanceReduce(node->private_state, node);
 			break;
@@ -1283,6 +1582,8 @@ ExecReScanClusterReduce(ClusterReduceState *node)
 	case RT_NOTHING:
 		break;
 	case RT_NORMAL:
+	case RT_REDUCE_FIRST:
+	case RT_PARALLEL_REDUCE_FIRST:
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("normal cluster reduce not support rescan")));
@@ -1386,6 +1687,12 @@ DriveClusterReduceState(ClusterReduceState *node)
 		break;
 	case RT_NORMAL:
 		DriveNormalReduce(node);
+		break;
+	case RT_REDUCE_FIRST:
+		DriveReduceFirst(node);
+		break;
+	case RT_PARALLEL_REDUCE_FIRST:
+		DriveParallelReduceFirst(node);
 		break;
 	case RT_MERGE:
 		DriveMergeReduce(node);
@@ -1600,6 +1907,7 @@ static inline void AdvanceReduce(ClusterReduceState *crs, PlanState *parent, uin
 	case RT_NOTHING:
 		return;
 	case RT_NORMAL:
+	case RT_REDUCE_FIRST:
 		if (plan->plan.parallel_safe)
 			BeginAdvanceParallelReduce(crs);
 		else

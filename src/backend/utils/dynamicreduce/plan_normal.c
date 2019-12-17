@@ -80,6 +80,24 @@ static inline MinimalTuple NormalPlanConvertTuple(PlanInfo *pi, const char *data
 	return mtup;
 }
 
+static bool OnNormalPlanCacheMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid)
+{
+	BufFile *file = NormalPlanGetSharedFile(pi->private);
+	Assert(file != NULL);
+
+	if (pi->type_convert)
+	{
+		MinimalTuple mtup = NormalPlanConvertTuple(pi, data, len);
+		DynamicReduceWriteSFSMinTuple(file, mtup);
+	}else
+	{
+		DynamicReduceWriteSFSMsgTuple(file, data, len);
+	}
+	DR_PLAN_DEBUG((errmsg("normal plan %d(%p) cache a tuple from %u length %d",
+						  pi->plan_id, pi, nodeoid, len)));
+	return true;
+}
+
 static bool OnNormalPlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid)
 {
 	PlanWorkerInfo *pwi = pi->pwi;
@@ -90,23 +108,7 @@ static bool OnNormalPlanMessage(PlanInfo *pi, const char *data, int len, Oid nod
 	if (pwi->sendBuffer.len != 0)
 	{
 		if (pi->private)
-		{
-			/* cache on disk */
-			BufFile *file = NormalPlanGetSharedFile(pi->private);
-			Assert(file != NULL);
-
-			if (pi->type_convert)
-			{
-				MinimalTuple mtup = NormalPlanConvertTuple(pi, data, len);
-				DynamicReduceWriteSFSMinTuple(file, mtup);
-			}else
-			{
-				DynamicReduceWriteSFSMsgTuple(file, data, len);
-			}
-			DR_PLAN_DEBUG((errmsg("normal plan %d(%p) cache a tuple from %u length %d",
-								  pi->plan_id, pi, nodeoid, len)));
-			return true;
-		}
+			return OnNormalPlanCacheMessage(pi, data, len, nodeoid);
 		return false;
 	}
 
@@ -179,6 +181,7 @@ void DRStartNormalPlanMessage(StringInfo msg)
 	PlanWorkerInfo		   *pwi;
 	MemoryContext			oldcontext;
 	ResourceOwner			oldowner;
+	uint8					cache_flag;
 
 	if (!IsTransactionState())
 	{
@@ -195,7 +198,8 @@ void DRStartNormalPlanMessage(StringInfo msg)
 
 		pi = DRRestorePlanInfo(msg, (void**)&mq, sizeof(*mq), ClearNormalPlanInfo);
 		Assert(DRPlanSearch(pi->plan_id, HASH_FIND, NULL) == pi);
-		if (pq_getmsgbyte(msg))
+		cache_flag = pq_getmsgbyte(msg);
+		if (cache_flag != DR_CACHE_ON_DISK_DO_NOT)
 		{
 			/* cache on disk */
 			pi->private = MemoryContextAllocZero(TopMemoryContext,
@@ -211,7 +215,10 @@ void DRStartNormalPlanMessage(StringInfo msg)
 		DRSetupPlanWorkTypeConvert(pi, pwi);
 
 		pi->OnLatchSet = OnDefaultPlanLatch;
-		pi->OnNodeRecvedData = OnNormalPlanMessage;
+		if (cache_flag == DR_CACHE_ON_DISK_ALWAYS)
+			pi->OnNodeRecvedData = OnNormalPlanCacheMessage;
+		else
+			pi->OnNodeRecvedData = OnNormalPlanMessage;
 		pi->OnNodeIdle = OnDefaultPlanIdleNode;
 		pi->OnNodeEndOfPlan = OnNormalPlanNodeEndOfPlan;
 		pi->OnPlanError = ClearNormalPlanInfo;
@@ -229,7 +236,7 @@ void DRStartNormalPlanMessage(StringInfo msg)
 	DRActiveNode(pi->plan_id);
 }
 
-void DynamicReduceStartNormalPlan(int plan_id, dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, bool cache_on_disk)
+void DynamicReduceStartNormalPlan(int plan_id, dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, uint8 cache_flag)
 {
 	StringInfoData	buf;
 	Assert(plan_id >= 0);
@@ -240,7 +247,7 @@ void DynamicReduceStartNormalPlan(int plan_id, dsm_segment *seg, DynamicReduceMQ
 	pq_sendbyte(&buf, ADB_DR_MQ_MSG_START_PLAN_NORMAL);
 
 	DRSerializePlanInfo(plan_id, seg, mq, sizeof(*mq), desc, work_nodes, &buf);
-	pq_sendbyte(&buf, cache_on_disk);
+	pq_sendbyte(&buf, cache_flag);
 
 	DRSendMsgToReduce(buf.data, buf.len, false);
 	pfree(buf.data);
