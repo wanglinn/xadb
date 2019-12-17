@@ -576,12 +576,9 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 	ereport(NOTICE, (errmsg("set parameters in postgresql.conf of %s \"%s\"", nodetypestr, nodenamedata.data)));
 	mgr_add_parameters_pgsqlconf(slave_nodeinfo.tupleoid, nodetype, slave_nodeinfo.nodeport, &infosendmsg);
 	mgr_add_parm(nodenamedata.data, nodetype, &infosendmsg);
-	/* special design, same for all gtm pgxc_node_name, the reason is ??? */
-	if (slave_nodeinfo.nodetype == CNDN_TYPE_DATANODE_MASTER ||
-		slave_nodeinfo.nodetype == CNDN_TYPE_DATANODE_SLAVE)
-		mgr_append_pgconf_paras_str_quotastr("pgxc_node_name",
-											 slave_nodeinfo.nodename,
-											 &infosendmsg);
+	mgr_append_pgconf_paras_str_quotastr("pgxc_node_name",
+										 slave_nodeinfo.nodename,
+										 &infosendmsg);
 	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, slave_nodeinfo.nodepath, &infosendmsg, slave_nodeinfo.nodehost, &getAgentCmdRst);
 	if (!getAgentCmdRst.ret)
 	{
@@ -1450,7 +1447,7 @@ bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const in
 		ereport(NOTICE, (errmsg("on GTM coordinator \"%s\" execute \"%s\"", NameStr(mgr_node->nodename), sql)));
 
 		num = iloop;
-		appendStringInfo(&restmsg, "EXECUTE DIRECT ON (\"%s\") '%s'", strlen(NameStr(GTM_COORD_PGXC_NODE_NAME)) ==0 ?NameStr(mgr_node->nodename):NameStr(GTM_COORD_PGXC_NODE_NAME), sql);
+		appendStringInfo(&restmsg, "EXECUTE DIRECT ON (\"%s\") '%s'", NameStr(mgr_node->nodename), sql);
 		while (num-- > 0)
 		{
 			res = PQexec(*pg_conn, restmsg.data);
@@ -1486,30 +1483,24 @@ bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const in
 static void getCreatePgxcNodeSql(AppendNodeInfo *nodeinfo, Form_mgr_node executeOnNode, bool localExecute, StringInfo outSql)
 {
 	char *type;
-	char *pgxcNodeName;
-	char *executeOnNodeName;
 	bool is_gtm;
 
 	if (nodeinfo->nodetype == CNDN_TYPE_COORDINATOR_MASTER)
 	{
 		type = "coordinator";
-		pgxcNodeName = nodeinfo->nodename;
 	}
 	else if (nodeinfo->nodetype == CNDN_TYPE_GTM_COOR_MASTER)
 	{
 		type = "coordinator";
 		is_gtm = true;
-		pgxcNodeName = strlen(NameStr(GTM_COORD_PGXC_NODE_NAME)) ==0 ? nodeinfo->nodename : NameStr(GTM_COORD_PGXC_NODE_NAME);
 	}
 	else if (nodeinfo->nodetype == CNDN_TYPE_DATANODE_MASTER)
 	{
 		type = "datanode";
-		pgxcNodeName = nodeinfo->nodename;
 	}
 	else if (nodeinfo->nodetype == CNDN_TYPE_DATANODE_SLAVE)
 	{
 		type = "datanode slave";
-		pgxcNodeName = nodeinfo->nodename;
 	}
 	else
 	{
@@ -1521,80 +1512,40 @@ static void getCreatePgxcNodeSql(AppendNodeInfo *nodeinfo, Form_mgr_node execute
 	if (localExecute)
 	{
 		appendStringInfo(outSql, 
-						"CREATE NODE \"%s\" with (TYPE='%s', HOST='%s', PORT=%d, GTM=%d);",
-						pgxcNodeName,
-						type,
-						nodeinfo->nodeaddr,
-						nodeinfo->nodeport,
-						is_gtm);
+						 "CREATE NODE \"%s\" with (TYPE='%s', HOST='%s', PORT=%d, GTM=%d);",
+						 nodeinfo->nodename,
+						 type,
+						 nodeinfo->nodeaddr,
+						 nodeinfo->nodeport,
+						 is_gtm);
 	}
 	else
 	{
-		if(executeOnNode->nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
-		   executeOnNode->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-		{
-			executeOnNodeName = strlen(NameStr(GTM_COORD_PGXC_NODE_NAME)) ==0 ? NameStr(executeOnNode->nodename) : NameStr(GTM_COORD_PGXC_NODE_NAME);
-		}
-		else
-		{
-			executeOnNodeName = NameStr(executeOnNode->nodename);
-		}
 		appendStringInfo(outSql, 
-						"CREATE NODE \"%s\" with (TYPE='%s', HOST='%s', PORT=%d, GTM=%d) on (\"%s\");",
-						pgxcNodeName,
-						type,
-						nodeinfo->nodeaddr,
-						nodeinfo->nodeport,
-						is_gtm,
-						executeOnNodeName);
+						 "CREATE NODE \"%s\" with (TYPE='%s', HOST='%s', PORT=%d, GTM=%d) on (\"%s\");",
+						 nodeinfo->nodename,
+						 type,
+						 nodeinfo->nodeaddr,
+						 nodeinfo->nodeport,
+						 is_gtm,
+						 NameStr(executeOnNode->nodename));
 	}
 }
 
 static void getDropPgxcNodeSql(AppendNodeInfo *nodeinfo, Form_mgr_node executeOnNode, bool localExecute, StringInfo outSql)
 {
-	char *pgxcNodeName;
-	char *executeOnNodeName;
-
-	if (nodeinfo->nodetype == CNDN_TYPE_COORDINATOR_MASTER)
-	{
-		pgxcNodeName = nodeinfo->nodename;
-	}
-	else if (nodeinfo->nodetype == CNDN_TYPE_GTM_COOR_MASTER)
-	{
-		pgxcNodeName = strlen(NameStr(GTM_COORD_PGXC_NODE_NAME)) ==0 ? nodeinfo->nodename : NameStr(GTM_COORD_PGXC_NODE_NAME);
-	}
-	else if (nodeinfo->nodetype == CNDN_TYPE_DATANODE_MASTER)
-	{
-		pgxcNodeName = nodeinfo->nodename;
-	}
-	else
-	{
-		ereport(ERROR,
-				(errmsg("nodename %s, unknow nodetype:%c",
-						nodeinfo->nodename,
-						nodeinfo->nodetype)));
-	}
 	if (localExecute)
 	{
 		appendStringInfo(outSql, 
 						"drop node \"%s\";",
-						pgxcNodeName);
+						nodeinfo->nodename);
 	}
 	else
 	{
-		if(executeOnNode->nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
-		   executeOnNode->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-		{
-			executeOnNodeName = strlen(NameStr(GTM_COORD_PGXC_NODE_NAME)) ==0 ? NameStr(executeOnNode->nodename) : NameStr(GTM_COORD_PGXC_NODE_NAME);
-		}
-		else
-		{
-			executeOnNodeName = NameStr(executeOnNode->nodename);
-		}
 		appendStringInfo(outSql, 
 						"drop node \"%s\" on (\"%s\");",
-						pgxcNodeName,
-					   	executeOnNodeName);
+						nodeinfo->nodename,
+					   	NameStr(executeOnNode->nodename));
 	}
 }
 

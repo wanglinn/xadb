@@ -2194,11 +2194,9 @@ static bool rewindSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 		mgr_add_parm(NameStr(slaveNode->form.nodename),
 					 slaveNode->form.nodetype,
 					 &infosendmsg);
-		/* special design, same for all gtm pgxc_node_name, the reason is ??? */
-		if (isDataNodeMgrNode(slaveNode->form.nodetype))
-			mgr_append_pgconf_paras_str_quotastr("pgxc_node_name",
-												 NameStr(slaveNode->form.nodename),
-												 &infosendmsg);
+		mgr_append_pgconf_paras_str_quotastr("pgxc_node_name",
+											 NameStr(slaveNode->form.nodename),
+											 &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF,
 								 slaveNode->nodepath,
 								 &infosendmsg,

@@ -2798,7 +2798,6 @@ bool createNodeOnPgxcNode(PGconn *activeConn,
 						  char *executeOnNodeName,
 						  bool localExecute,
 						  MgrNodeWrapper *mgrNode,
-						  char *pgxcNodeName,
 						  char *masterNodeName,
 						  bool complain)
 {
@@ -2833,9 +2832,8 @@ bool createNodeOnPgxcNode(PGconn *activeConn,
 						mgrNode->form.nodetype)));
 		return false;
 	}
-	pgxcNodeName = pgxcNodeName ? pgxcNodeName : NameStr(mgrNode->form.nodename);
 	initStringInfo(&sql);
-	appendStringInfo(&sql, "CREATE NODE \"%s\" ", pgxcNodeName);
+	appendStringInfo(&sql, "CREATE NODE \"%s\" ", NameStr(mgrNode->form.nodename));
 	if (masterNodeName)
 		appendStringInfo(&sql, "FOR \"%s\" ", masterNodeName);
 	appendStringInfo(&sql, "with (TYPE='%s', HOST='%s', PORT=%d, GTM=%d) ",
@@ -2860,7 +2858,6 @@ bool alterNodeOnPgxcNode(PGconn *activeConn,
 						 bool localExecute,
 						 char *oldNodeName,
 						 MgrNodeWrapper *newNode,
-						 bool changeNodeName,
 						 bool complain)
 {
 	StringInfoData sql;
@@ -2870,10 +2867,9 @@ bool alterNodeOnPgxcNode(PGconn *activeConn,
 	appendStringInfo(&sql,
 					 "alter node \"%s\" with(",
 					 oldNodeName);
-	if (changeNodeName)
-		appendStringInfo(&sql,
-						 "name='%s',",
-						 NameStr(newNode->form.nodename));
+	appendStringInfo(&sql,
+					 "name='%s',",
+					 NameStr(newNode->form.nodename));
 	appendStringInfo(&sql,
 					 "host='%s', port=%d) ",
 					 newNode->host->hostaddr,
@@ -2944,7 +2940,6 @@ bool isMgrModeExistsInCoordinator(MgrNodeWrapper *coordinator,
 	StringInfoData sql;
 	bool exists;
 	char pgxcNodeType;
-	NameData executeOnNodeName = {{0}};
 
 	initStringInfo(&sql);
 	pgxcNodeType = getMappedPgxcNodetype(mgrNode->form.nodetype);
@@ -2974,15 +2969,11 @@ bool isMgrModeExistsInCoordinator(MgrNodeWrapper *coordinator,
 	}
 	else
 	{
-		executeOnNodeName = getMgrNodePgxcNodeName(coordinator,
-												   coordConn,
-												   localExecute,
-												   complain);
 		appendStringInfo(&sql,
 						 "EXECUTE DIRECT ON (\"%s\") "
 						 "'select count(*) from pgxc_node "
 						 "where node_port = %d ",
-						 NameStr(executeOnNodeName),
+						 NameStr(coordinator->form.nodename),
 						 mgrNode->form.nodeport);
 		appendStringInfo(&sql,
 						 "and node_host = ''%s''",
@@ -3078,11 +3069,7 @@ void cleanMgrNodesOnCoordinator(dlist_head *mgrNodes,
 {
 	dlist_mutable_iter iter;
 	MgrNodeWrapper *mgrNode;
-	NameData executeOnNodeName = {{0}};
 
-	executeOnNodeName = getMgrNodePgxcNodeName(coordinator,
-											   coordConn,
-											   true, true);
 	dlist_foreach_modify(iter, mgrNodes)
 	{
 		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
@@ -3090,11 +3077,10 @@ void cleanMgrNodesOnCoordinator(dlist_head *mgrNodes,
 										   coordinator,
 										   coordConn,
 										   true,
-										   NameStr(executeOnNodeName),
 										   complain);
 		exec_pgxc_pool_reload(coordConn,
 							  true,
-							  NameStr(executeOnNodeName),
+							  NameStr(coordinator->form.nodename),
 							  complain);
 	}
 }
@@ -3103,15 +3089,10 @@ void compareAndDropMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
 										MgrNodeWrapper *coordinator,
 										PGconn *coordConn,
 										bool localExecute,
-										char *executeOnNodeName,
 										bool complain)
 {
-	if (isGtmCoordMgrNode(mgrNode->form.nodetype))
-	{
-		ereport(LOG,
-				(errmsg("all gtm coordinator have the same pgxc_node_name, no need to clean")));
-	}
-	else if (mgrNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER)
+	if (mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
+		mgrNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER)
 	{
 		ereport(complain ? ERROR : WARNING,
 				(errmsg("%s is a datanode master, can not drop it from coordinator %s",
@@ -3131,7 +3112,7 @@ void compareAndDropMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
 							NameStr(mgrNode->form.nodename),
 							NameStr(coordinator->form.nodename))));
 			dropNodeFromPgxcNode(coordConn,
-								 executeOnNodeName,
+								 NameStr(coordinator->form.nodename),
 								 localExecute,
 								 NameStr(mgrNode->form.nodename),
 								 complain);
@@ -3148,40 +3129,6 @@ void compareAndDropMgrNodeOnCoordinator(MgrNodeWrapper *mgrNode,
 							NameStr(coordinator->form.nodename))));
 		}
 	}
-}
-
-/*
- * Pfree the returned result when no longer needed
- */
-NameData getMgrNodePgxcNodeName(MgrNodeWrapper *mgrNode,
-								PGconn *nodeConn,
-								bool localExecute,
-								bool complain)
-{
-	NameData pgxcNodeName = {{0}};
-	char *temp;
-
-	if (isGtmCoordMgrNode(mgrNode->form.nodetype))
-	{
-		if (localExecute)
-		{
-			temp = showNodeParameter(nodeConn,
-									 "pgxc_node_name",
-									 complain);
-			namestrcpy(&pgxcNodeName, temp);
-			pfree(temp);
-		}
-		else
-		{
-			ereport(complain ? ERROR : LOG,
-					(errmsg("can not get the value of pgxc_node_name")));
-		}
-	}
-	else
-	{
-		pgxcNodeName = mgrNode->form.nodename;
-	}
-	return pgxcNodeName;
 }
 
 bool isGtmCoordMgrNode(char nodetype)
