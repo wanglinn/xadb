@@ -39,6 +39,8 @@ typedef struct ParallelPlanPrivate
 #define SHOW_PLAN_INFO_STATE(msg, pi) ((void)true)
 #endif
 
+static bool OnParallelCachePlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid);
+
 static void ClearParallelPlanInfo(PlanInfo *pi)
 {
 	if (pi == NULL)
@@ -346,32 +348,36 @@ static bool OnParallelPlanMessage(PlanInfo *pi, const char *data, int len, Oid n
 
 	/* try cache on disk */
 	if (pi->private)
-	{
-		ParallelPlanPrivate *private = pi->private;
-		DR_PLAN_DEBUG((errmsg("parallel plan %d(%p) sts got a tuple from %u length %d",
-							  pi->plan_id, pi, nodeoid, len)));
-		if (pi->type_convert)
-		{
-			mtup = ParallelConvertNodeTupIn(pi->convert_context,
-											pi->type_convert,
-											private->slot_node_src,
-											private->slot_node_dest,
-											data,
-											len);
-		}else
-		{
-			resetStringInfo(&private->tup_buf);
-			Assert(private->tup_buf.maxlen >= MINIMAL_TUPLE_DATA_OFFSET);
-			private->tup_buf.len = MINIMAL_TUPLE_DATA_OFFSET;
-			appendBinaryStringInfoNT(&private->tup_buf, data, len);
-			mtup = (MinimalTuple)private->tup_buf.data;
-			mtup->t_len = len + MINIMAL_TUPLE_DATA_OFFSET;
-		}
-		sts_puttuple(ParallelPlanGetCacheSTS(private, pi->count_pwi), NULL, mtup);
-		return true;
-	}
+		return OnParallelCachePlanMessage(pi, data, len, nodeoid);
 
 	return false;
+}
+
+static bool OnParallelCachePlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid)
+{
+	MinimalTuple	mtup;
+	ParallelPlanPrivate *private = pi->private;
+	DR_PLAN_DEBUG((errmsg("parallel plan %d(%p) sts got a tuple from %u length %d",
+							pi->plan_id, pi, nodeoid, len)));
+	if (pi->type_convert)
+	{
+		mtup = ParallelConvertNodeTupIn(pi->convert_context,
+										pi->type_convert,
+										private->slot_node_src,
+										private->slot_node_dest,
+										data,
+										len);
+	}else
+	{
+		resetStringInfo(&private->tup_buf);
+		Assert(private->tup_buf.maxlen >= MINIMAL_TUPLE_DATA_OFFSET);
+		private->tup_buf.len = MINIMAL_TUPLE_DATA_OFFSET;
+		appendBinaryStringInfoNT(&private->tup_buf, data, len);
+		mtup = (MinimalTuple)private->tup_buf.data;
+		mtup->t_len = len + MINIMAL_TUPLE_DATA_OFFSET;
+	}
+	sts_puttuple(ParallelPlanGetCacheSTS(private, pi->count_pwi), NULL, mtup);
+	return true;
 }
 
 static void OnParallelPlanIdleNode(PlanInfo *pi, WaitEvent *we, DRNodeEventData *ned)
@@ -458,7 +464,7 @@ void DRStartParallelPlanMessage(StringInfo msg)
 	ResourceOwner			oldowner;
 	int						parallel_max;
 	int						i;
-	bool					cache_on_disk;
+	uint8					cache_flag;
 
 	if (!IsTransactionState())
 	{
@@ -476,7 +482,7 @@ void DRStartParallelPlanMessage(StringInfo msg)
 		pq_copymsgbytes(msg, (char*)&parallel_max, sizeof(parallel_max));
 		if (parallel_max <= 1)
 			elog(ERROR, "invalid parallel count");
-		cache_on_disk = (bool)pq_getmsgbyte(msg);
+		cache_flag = (bool)pq_getmsgbyte(msg);
 
 		pi = DRRestorePlanInfo(msg, (void**)&mq, sizeof(*mq)*parallel_max, ClearParallelPlanInfo);
 		pi->pwi = MemoryContextAllocZero(TopMemoryContext, sizeof(PlanWorkerInfo)*parallel_max);
@@ -488,7 +494,7 @@ void DRStartParallelPlanMessage(StringInfo msg)
 		for (i=0;i<parallel_max;++i)
 			DRSetupPlanWorkTypeConvert(pi, &pi->pwi[i]);
 
-		if (cache_on_disk)
+		if (cache_flag != DR_CACHE_ON_DISK_DO_NOT)
 		{
 			ParallelPlanPrivate *private = MemoryContextAllocZero(TopMemoryContext,
 																  sizeof(ParallelPlanPrivate));
@@ -508,7 +514,10 @@ void DRStartParallelPlanMessage(StringInfo msg)
 		}
 
 		pi->OnLatchSet = OnParallelPlanLatch;
-		pi->OnNodeRecvedData = OnParallelPlanMessage;
+		if (cache_flag == DR_CACHE_ON_DISK_ALWAYS)
+			pi->OnNodeRecvedData = OnParallelCachePlanMessage;
+		else
+			pi->OnNodeRecvedData = OnParallelPlanMessage;
 		pi->OnNodeIdle = OnParallelPlanIdleNode;
 		pi->OnNodeEndOfPlan = OnParallelPlanNodeEndOfPlan;
 		pi->OnPlanError = ClearParallelPlanInfo;
@@ -529,7 +538,7 @@ void DRStartParallelPlanMessage(StringInfo msg)
 
 void DynamicReduceStartParallelPlan(int plan_id, struct dsm_segment *seg,
 									DynamicReduceMQ mq, TupleDesc desc, List *work_nodes,
-									int parallel_max, bool cache_on_disk)
+									int parallel_max, uint8 cache_flag)
 {
 	StringInfoData	buf;
 	Assert(plan_id >= 0);
@@ -541,7 +550,7 @@ void DynamicReduceStartParallelPlan(int plan_id, struct dsm_segment *seg,
 	pq_sendbyte(&buf, ADB_DR_MQ_MSG_START_PLAN_PARALLEL);
 
 	pq_sendbytes(&buf, (char*)&parallel_max, sizeof(parallel_max));
-	pq_sendbyte(&buf, cache_on_disk);
+	pq_sendbyte(&buf, cache_flag);
 	DRSerializePlanInfo(plan_id, seg, mq, sizeof(*mq)*parallel_max, desc, work_nodes, &buf);
 
 	DRSendMsgToReduce(buf.data, buf.len, false);

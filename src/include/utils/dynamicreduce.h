@@ -29,6 +29,10 @@
 #define DR_MSG_RECV_SF		0x4		/* recv a shared file */
 #define DR_MSG_RECV_STS		0x8		/* recv a shared tuple store */
 
+#define DR_CACHE_ON_DISK_DO_NOT		0x0
+#define DR_CACHE_ON_DISK_AUTO		0x1
+#define DR_CACHE_ON_DISK_ALWAYS		0x2
+
 typedef struct DynamicReduceNodeInfo
 {
 	Oid			node_oid;
@@ -121,10 +125,10 @@ extern Size EstimateDynamicReduceStateSpace(void);
 extern void SerializeDynamiceReduceState(Size maxsize, char *start_address);
 extern void RestoreDynamicReduceState(void *state);
 
-extern void DynamicReduceStartNormalPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, bool cache_on_disk);
+extern void DynamicReduceStartNormalPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, uint8 cache_flag);
 extern void DynamicReduceStartMergePlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes,
 										int numCols, AttrNumber *sortColIdx, Oid *sortOperators, Oid *collations, bool *nullsFirst);
-extern void DynamicReduceStartParallelPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, int parallel_max, bool cache_on_disk);
+extern void DynamicReduceStartParallelPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, int parallel_max, uint8 cache_flag);
 extern void DynamicReduceStartSharedTuplestorePlan(int plan_id, struct dsm_segment *seg, DynamicReduceSTS sts, TupleDesc desc,
 										List *work_nodes, int npart, int reduce_part);
 extern void DynamicReduceStartSharedFileSetPlan(int plan_id, struct dsm_segment *seg, DynamicReduceSFS sfs, TupleDesc desc, List *work_nodes);
