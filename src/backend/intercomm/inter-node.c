@@ -56,7 +56,8 @@ static void InvalidateNodeHandleCacheCallBack(Datum arg, int cacheid, uint32 has
 static NodeHandle *MakeNodeHandleEntry(Oid node_id, Name node_name,
 									   NodeType node_type,
 									   bool node_primary,
-									   bool node_preferred);
+									   bool node_preferred,
+									   bool nodeis_gtm);
 static NodeHandle *MakeNodeHandleEntryByTuple(HeapTuple htup);
 static void HandleAttatchPGconn(NodeHandle *handle);
 static void HandleDetachPGconn(NodeHandle *handle);
@@ -233,7 +234,7 @@ InvalidateNodeHandleCacheCallBack(Datum arg, int cacheid, uint32 hashvalue)
 
 static NodeHandle *
 MakeNodeHandleEntry(Oid node_id, Name node_name, NodeType node_type,
-					bool node_primary, bool node_preferred)
+					bool node_primary, bool node_preferred, bool nodeis_gtm)
 {
 	NodeHandle *handle = NULL;
 	bool		found = false;
@@ -242,6 +243,7 @@ MakeNodeHandleEntry(Oid node_id, Name node_name, NodeType node_type,
 	handle = (NodeHandle *) hash_search(NodeHandleCacheHash,
 										(void *) &node_id,
 										HASH_ENTER, &found);
+	/* Should I change this value to pgxc_node_name if I am a gtmcoord slave node? */
 	namecpy(&(handle->node_name), node_name);
 	handle->node_type = node_type;
 	handle->node_primary = node_primary;
@@ -261,7 +263,19 @@ MakeNodeHandleEntry(Oid node_id, Name node_name, NodeType node_type,
 
 	if (pg_strcasecmp(PGXCNodeName, NameStr(*node_name)) == 0)
 		SelfNodeID = PGXCNodeOid = node_id;
-
+	else
+	{
+		/* If I am a gtmcoord slave node, I have the same nodeid as my master node. */
+		if ((nodeis_gtm && node_type == TYPE_CN_NODE) && /* It is a gtmcoord master */
+			(IsGTMCnNode())) /* I am a gtmcorod slave, please note: 
+							  * Do not call RecoveryInProgress(), 
+							  * as the slave node may be promoted to
+							  * the master node at some point in time. 
+							  */
+		{
+			SelfNodeID = PGXCNodeOid = node_id;
+		}
+	}
 	return handle;
 }
 
@@ -306,7 +320,8 @@ MakeNodeHandleEntryByTuple(HeapTuple htup)
 							   &(tuple->node_name),
 							   node_type,
 							   tuple->nodeis_primary,
-							   tuple->nodeis_preferred);
+							   tuple->nodeis_preferred,
+							   tuple->nodeis_gtm);
 }
 
 NodeHandle *
