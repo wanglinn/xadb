@@ -78,6 +78,7 @@ typedef struct ClusterErrorHookContext
 {
 	ErrorContextCallback	callback;
 	Oid						saved_node_oid;
+	uint32					saved_node_id;
 	bool					saved_enable_cluster_plan;
 	bool					saved_in_cluster_mode;
 }ClusterErrorHookContext;
@@ -421,6 +422,7 @@ static void restore_cluster_plan_info(StringInfo buf)
 		ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION)
 			, errmsg("Can not find Node Oid")));
 	memcpy(&PGXCNodeOid, ptr, sizeof(PGXCNodeOid));
+	memcpy(&PGXCNodeIdentifier, ptr+sizeof(PGXCNodeOid), sizeof(PGXCNodeIdentifier));
 
 	msg.data = mem_toc_lookup(buf, REMOTE_KEY_GLOBAL_SNAPSHOT, &msg.len);
 	if(msg.data == NULL)
@@ -1331,7 +1333,9 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 		/* send node oid to remote */
 		msg->len = save_len;
 		begin_mem_toc_insert(msg, REMOTE_KEY_NODE_OID);
-		appendBinaryStringInfo(msg, (char*)&(handle->node_id), sizeof(handle->node_id));
+		appendBinaryStringInfoNT(msg, (char*)&(handle->node_id), sizeof(handle->node_id));
+		StaticAssertStmt(sizeof(handle->hashvalue) == sizeof(PGXCNodeIdentifier), "need change code");
+		appendBinaryStringInfoNT(msg, (char*)&(handle->hashvalue), sizeof(handle->hashvalue));
 		end_mem_toc_insert(msg, REMOTE_KEY_NODE_OID);
 
 		/* send reduce group map and reduce ID to remote */
@@ -1480,6 +1484,7 @@ static void SetupClusterErrorHook(ClusterErrorHookContext *context)
 	AssertArg(context);
 
 	context->saved_node_oid = PGXCNodeOid;
+	context->saved_node_id = PGXCNodeIdentifier;
 	context->saved_enable_cluster_plan = enable_cluster_plan;
 	context->saved_in_cluster_mode = in_cluster_mode;
 	in_cluster_mode = true;
@@ -1492,6 +1497,7 @@ static void SetupClusterErrorHook(ClusterErrorHookContext *context)
 static void RestoreClusterHook(ClusterErrorHookContext *context)
 {
 	PGXCNodeOid = context->saved_node_oid;
+	PGXCNodeIdentifier = context->saved_node_id;
 	enable_cluster_plan = context->saved_enable_cluster_plan;
 	error_context_stack = context->callback.previous;
 	in_cluster_mode = context->saved_in_cluster_mode;
