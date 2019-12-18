@@ -77,6 +77,7 @@ typedef struct DynamicReduceIOBuffer
 	shm_mq_handle		   *mqh_sender;
 	shm_mq_handle		   *mqh_receiver;
 	TupleTableSlot		   *slot_remote;
+	TupleTableSlot		   *slot_local;
 	struct ExprContext	   *econtext;
 	struct ReduceExprState *expr_state;
 	TupleTableSlot		   *(*FetchLocal)(void *user_data, struct ExprContext *econtext);
@@ -89,6 +90,7 @@ typedef struct DynamicReduceIOBuffer
 	StringInfoData			send_buf;
 	StringInfoData			recv_buf;
 	uint32					shared_file_no;
+	struct TupleTypeConvert *convert;
 	bool					eof_local;
 	bool					eof_remote;
 	bool					called_attach;		/* for pallel */
@@ -125,13 +127,11 @@ extern Size EstimateDynamicReduceStateSpace(void);
 extern void SerializeDynamiceReduceState(Size maxsize, char *start_address);
 extern void RestoreDynamicReduceState(void *state);
 
-extern void DynamicReduceStartNormalPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, uint8 cache_flag);
-extern void DynamicReduceStartMergePlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes,
-										int numCols, AttrNumber *sortColIdx, Oid *sortOperators, Oid *collations, bool *nullsFirst);
-extern void DynamicReduceStartParallelPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, TupleDesc desc, List *work_nodes, int parallel_max, uint8 cache_flag);
-extern void DynamicReduceStartSharedTuplestorePlan(int plan_id, struct dsm_segment *seg, DynamicReduceSTS sts, TupleDesc desc,
+extern void DynamicReduceStartNormalPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, List *work_nodes, uint8 cache_flag);
+extern void DynamicReduceStartParallelPlan(int plan_id, struct dsm_segment *seg, DynamicReduceMQ mq, List *work_nodes, int parallel_max, uint8 cache_flag);
+extern void DynamicReduceStartSharedTuplestorePlan(int plan_id, struct dsm_segment *seg, DynamicReduceSTS sts,
 										List *work_nodes, int npart, int reduce_part);
-extern void DynamicReduceStartSharedFileSetPlan(int plan_id, struct dsm_segment *seg, DynamicReduceSFS sfs, TupleDesc desc, List *work_nodes);
+extern void DynamicReduceStartSharedFileSetPlan(int plan_id, struct dsm_segment *seg, DynamicReduceSFS sfs, List *work_nodes);
 extern char* DynamicReduceSFSFileName(char *name, Oid nodeoid);
 extern TupleTableSlot *DynamicReduceReadSFSTuple(TupleTableSlot *slot, BufFile *file, StringInfo buf);
 extern void DynamicReduceWriteSFSTuple(TupleTableSlot *slot, BufFile *file);

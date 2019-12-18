@@ -17,7 +17,6 @@
 #endif
 
 #include "access/tupdesc.h"
-#include "access/tuptypeconvert.h"
 #include "lib/oidbuffer.h"
 #include "lib/stringinfo.h"
 #include "port/atomics.h"
@@ -244,10 +243,6 @@ struct PlanInfo
 	void (*OnPreWait)(PlanInfo *pi);
 	bool (*GenerateCacheMsg)(PlanWorkerInfo *pwi, PlanInfo *pi);
 
-	TupleDesc			base_desc;
-	TupleTypeConvert   *type_convert;
-	MemoryContext		convert_context;
-
 	dsm_segment		   *seg;
 	OidBufferData		end_of_plan_nodes;
 	OidBufferData		working_nodes;		/* not include PGXCNodeOid */
@@ -327,9 +322,8 @@ bool DRSendPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi);
 bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi);
 void DRSendWorkerMsgToNode(PlanWorkerInfo *pwi, PlanInfo *pi, DRNodeEventData *ned);
 void ActiveWaitingPlan(DRNodeEventData *ned);
-void DRSetupPlanWorkTypeConvert(PlanInfo *pi, PlanWorkerInfo *pwi);
 TupleTableSlot* DRStoreTypeConvertTuple(TupleTableSlot *slot, const char *data, uint32 len, HeapTuple head);
-void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, TupleDesc desc, List *work_nodes, StringInfo buf);
+void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, List *work_nodes, StringInfo buf);
 PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(PlanInfo*));
 void DRSetupPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi, DynamicReduceMQ mq, int worker_id, uint8 recv_state);
 void DRInitPlanSearch(void);
@@ -382,8 +376,6 @@ void DRNodeSeqInit(HASH_SEQ_STATUS *seq);
 
 /* dynamic reduce utils functions in dr_utils.c */
 bool DynamicReduceHandleMessage(void *data, Size len);
-void SerializeTupleDesc(StringInfo buf, TupleDesc desc);
-TupleDesc RestoreTupleDesc(StringInfo buf);
 void DRConnectNetMsg(StringInfo msg);
 void DRUtilsReset(void);
 void DRUtilsAbort(void);

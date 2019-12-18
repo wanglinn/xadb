@@ -94,28 +94,6 @@ static bool OnSTSPlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoi
 	return true;
 }
 
-static bool OnSTSPlanConvertMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid)
-{
-	MinimalTuple	mtup;
-	MemoryContext	oldcontext;
-	PlanWorkerInfo *pwi = pi->pwi;
-	SharedTuplestoreAccessor *accessor = GetNodeAccessor(pi->pwi->private, nodeoid, pi->plan_id);
-
-	MemoryContextReset(pi->convert_context);
-	oldcontext = MemoryContextSwitchTo(pi->convert_context);
-
-	ExecStoreMinimalTuple(GetSTSBufferTuple(pi, data, len), pwi->slot_node_src, false);
-	do_type_convert_slot_in(pi->type_convert, pwi->slot_node_src, pwi->slot_node_dest, false);
-	mtup = ExecFetchSlotMinimalTuple(pwi->slot_node_dest);
-
-	oldcontext = MemoryContextSwitchTo(pi->sts_context);
-	sts_puttuple(accessor, NULL, mtup);
-	ExecClearTuple(pwi->slot_node_dest);
-	MemoryContextSwitchTo(oldcontext);
-
-	return true;
-}
-
 static bool OnSTSPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
 {
 	PlanWorkerInfo *pwi = pi->pwi;
@@ -188,9 +166,8 @@ void DRStartSTSPlanMessage(StringInfo msg)
 
 		CurrentResourceOwner = oldowner;
 		CreateOidAccessor(pi, sts, npart, mypart);
-		DRSetupPlanWorkTypeConvert(pi, pwi);
 
-		pi->OnNodeRecvedData = pi->type_convert ? OnSTSPlanConvertMessage:OnSTSPlanMessage;
+		pi->OnNodeRecvedData = OnSTSPlanMessage;
 		pi->OnLatchSet = OnSTSPlanLatch;
 		pi->OnNodeIdle = OnDefaultPlanIdleNode;
 		pi->OnNodeEndOfPlan = OnSTSPlanNodeEndOfPlan;
@@ -210,8 +187,8 @@ void DRStartSTSPlanMessage(StringInfo msg)
 }
 
 void DynamicReduceStartSharedTuplestorePlan(int plan_id, struct dsm_segment *seg,
-											DynamicReduceSTS sts, TupleDesc desc,
-											List *work_nodes, int npart, int reduce_part)
+											DynamicReduceSTS sts, List *work_nodes,
+											int npart, int reduce_part)
 {
 	StringInfoData	buf;
 	Assert(plan_id >= 0);
@@ -228,7 +205,7 @@ void DynamicReduceStartSharedTuplestorePlan(int plan_id, struct dsm_segment *seg
 
 	DRSerializePlanInfo(plan_id, seg, sts,
 						DRSTSD_SIZE(npart, list_length(work_nodes)),
-						desc, work_nodes, &buf);
+						work_nodes, &buf);
 
 	DRSendMsgToReduce(buf.data, buf.len, false);
 	pfree(buf.data);

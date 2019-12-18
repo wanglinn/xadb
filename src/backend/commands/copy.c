@@ -6305,7 +6305,6 @@ static void InitCopyFromReduce(CopyFromReduceState *state, TupleDesc desc, Expr 
 	DynamicReduceStartNormalPlan(id,
 								 state->dsm_seg,
 								 drmq,
-								 desc,
 								 rnodes,
 								 false);
 

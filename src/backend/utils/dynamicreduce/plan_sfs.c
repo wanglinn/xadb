@@ -17,7 +17,6 @@ typedef struct OidBufFile
 }OidBufFile;
 
 static void ClearSFSPlanInfo(PlanInfo *pi);
-static bool OnSFSPlanConvertMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid);
 static bool OnSFSPlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid);
 static bool OnSFSPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid);
 static void OnSFSPlanLatch(PlanInfo *pi);
@@ -35,30 +34,6 @@ static inline void SFSWriteTupleData(BufFile *file, uint32 len, const void *data
 				(errcode_for_file_access(),
 				 errmsg("could not write to SFS plan file: %m")));
 	}
-}
-static bool OnSFSPlanConvertMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid)
-{
-	HeapTupleData	tup;
-	MinimalTuple	mtup;
-	MemoryContext	oldcontext;
-	PlanWorkerInfo *pwi = pi->pwi;
-	BufFile		   *file = GetNodeBufFile(pwi->private, nodeoid, pi->plan_id);
-
-	MemoryContextReset(pi->convert_context);
-	oldcontext = MemoryContextSwitchTo(pi->convert_context);
-
-	DRStoreTypeConvertTuple(pwi->slot_node_src, data, len, &tup);
-	do_type_convert_slot_in(pi->type_convert, pwi->slot_node_src, pwi->slot_node_dest, false);
-	mtup = ExecFetchSlotMinimalTuple(pwi->slot_node_dest);
-	ExecClearTuple(pwi->slot_node_src);
-
-	SFSWriteTupleData(file,
-					  mtup->t_len - MINIMAL_TUPLE_DATA_OFFSET,
-					  (char*)mtup + MINIMAL_TUPLE_DATA_OFFSET);
-	ExecClearTuple(pwi->slot_node_dest);
-	MemoryContextSwitchTo(oldcontext);
-
-	return true;
 }
 
 static bool OnSFSPlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid)
@@ -205,9 +180,8 @@ void DRStartSFSPlanMessage(StringInfo msg)
 
 		CurrentResourceOwner = oldowner;
 		CreateOidBufFiles(pi, sfs);
-		DRSetupPlanWorkTypeConvert(pi, pwi);
 
-		pi->OnNodeRecvedData = pi->type_convert ? OnSFSPlanConvertMessage:OnSFSPlanMessage;
+		pi->OnNodeRecvedData = OnSFSPlanMessage;
 		pi->OnLatchSet = OnSFSPlanLatch;
 		pi->OnNodeIdle = OnDefaultPlanIdleNode;
 		pi->OnNodeEndOfPlan = OnSFSPlanNodeEndOfPlan;
@@ -226,7 +200,7 @@ void DRStartSFSPlanMessage(StringInfo msg)
 	DRActiveNode(pi->plan_id);
 }
 
-void DynamicReduceStartSharedFileSetPlan(int plan_id, struct dsm_segment *seg, DynamicReduceSFS sfs, struct tupleDesc *desc, List *work_nodes)
+void DynamicReduceStartSharedFileSetPlan(int plan_id, struct dsm_segment *seg, DynamicReduceSFS sfs, List *work_nodes)
 {
 	StringInfoData	buf;
 	Assert(plan_id >= 0);
@@ -236,7 +210,7 @@ void DynamicReduceStartSharedFileSetPlan(int plan_id, struct dsm_segment *seg, D
 	initStringInfo(&buf);
 	pq_sendbyte(&buf, ADB_DR_MQ_MSG_START_PLAN_SFS);
 
-	DRSerializePlanInfo(plan_id, seg, sfs, sizeof(*sfs), desc, work_nodes, &buf);
+	DRSerializePlanInfo(plan_id, seg, sfs, sizeof(*sfs), work_nodes, &buf);
 
 	DRSendMsgToReduce(buf.data, buf.len, false);
 	pfree(buf.data);

@@ -124,32 +124,6 @@ uint32 RestoreDynamicReduceNodeInfo(StringInfo buf, DynamicReduceNodeInfo **info
 	return count;
 }
 
-/* ================== serialize and restore TupleDesc =================================== */
-void SerializeTupleDesc(StringInfo buf, TupleDesc desc)
-{
-	appendBinaryStringInfoNT(buf, (char*)&desc->natts, sizeof(desc->natts));
-	appendStringInfoChar(buf, desc->tdhasoid);
-
-	appendBinaryStringInfoNT(buf,
-							 (char*)desc->attrs,
-							 sizeof(desc->attrs[0]) * desc->natts);
-}
-
-TupleDesc RestoreTupleDesc(StringInfo buf)
-{
-	TupleDesc	desc;
-	int			natts;
-	bool		hasoid;
-
-	pq_copymsgbytes(buf, (char*)&natts, sizeof(natts));
-	hasoid = (bool)pq_getmsgbyte(buf);
-
-	desc = CreateTemplateTupleDesc(natts, hasoid);
-	pq_copymsgbytes(buf, (char*)desc->attrs, sizeof(desc->attrs[0]) * natts);
-
-	return desc;
-}
-
 /* ===================== connect message =============================== */
 void DynamicReduceConnectNet(const DynamicReduceNodeInfo *info, uint32 count)
 {
@@ -260,7 +234,7 @@ void DynamicReduceConnectNet(const DynamicReduceNodeInfo *info, uint32 count)
 	shm_toc_insert(toc, DR_KEY_REINDEX_STATE, ptr);
 
 	/* Serialize fixed state */
-	fs = shm_toc_allocate(toc, sizeof(MyProc));
+	fs = shm_toc_allocate(toc, sizeof(*fs));
 	fs->master_proc = MyProc;
 	fs->outer_user_id = GetCurrentRoleId();
 	GetUserIdAndSecContext(&fs->current_user_id, &fs->sec_context);

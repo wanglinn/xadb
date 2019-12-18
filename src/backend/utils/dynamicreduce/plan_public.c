@@ -87,9 +87,6 @@ re_send_:
 bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
 {
 	unsigned char  *addr,*saved_addr;
-	MinimalTuple	mtup;
-	HeapTupleData	tup;
-	MemoryContext	oldcontext;
 	Size			size;
 	shm_mq_result	result;
 	int				msg_type;
@@ -133,22 +130,6 @@ bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
 		pwi->last_size = size - (addr - saved_addr);
 		pwi->last_data = addr;
 		pwi->last_msg_type = ADB_DR_MSG_TUPLE;
-
-		if (pi->type_convert)
-		{
-			MemoryContextReset(pi->convert_context);
-			oldcontext = MemoryContextSwitchTo(pi->convert_context);
-
-			DRStoreTypeConvertTuple(pwi->slot_plan_src, pwi->last_data, pwi->last_size, &tup);
-			do_type_convert_slot_out(pi->type_convert, pwi->slot_plan_src, pwi->slot_plan_dest, false);
-			mtup = ExecFetchSlotMinimalTuple(pwi->slot_plan_dest);
-			ExecClearTuple(pwi->slot_plan_src);
-
-			pwi->last_size = mtup->t_len - MINIMAL_TUPLE_DATA_OFFSET;
-			pwi->last_data = (char*)mtup + MINIMAL_TUPLE_DATA_OFFSET;
-
-			MemoryContextSwitchTo(oldcontext);
-		}
 
 		return true;
 	}else if(msg_type == ADB_DR_MSG_END_OF_PLAN)
@@ -227,7 +208,7 @@ TupleTableSlot* DRStoreTypeConvertTuple(TupleTableSlot *slot, const char *data, 
 	return slot;
 }
 
-void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, TupleDesc desc, List *work_nodes, StringInfo buf)
+void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, List *work_nodes, StringInfo buf)
 {
 	Size		offset;
 	ListCell   *lc;
@@ -251,7 +232,6 @@ void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, T
 	pq_sendbytes(buf, (char*)&plan_id, sizeof(plan_id));
 	pq_sendbytes(buf, (char*)&handle, sizeof(handle));
 	pq_sendbytes(buf, (char*)&offset, sizeof(offset));
-	SerializeTupleDesc(buf, desc);
 	pq_sendbytes(buf, (char*)&length, sizeof(length));
 	foreach(lc, work_nodes)
 		pq_sendbytes(buf, (char*)&lfirst_oid(lc), sizeof(Oid));
@@ -261,8 +241,6 @@ PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(
 {
 	Size			offset;
 	dsm_handle		handle;
-	struct tupleDesc * volatile
-					desc = NULL;
 	PlanInfo * volatile
 					pi = NULL;
 	int				plan_id;
@@ -275,7 +253,6 @@ PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(
 		pq_copymsgbytes(buf, (char*)&plan_id, sizeof(plan_id));
 		pq_copymsgbytes(buf, (char*)&handle, sizeof(handle));
 		pq_copymsgbytes(buf, (char*)&offset, sizeof(offset));
-		desc = RestoreTupleDesc(buf);
 
 		if (plan_id < 0)
 			ereport(ERROR,
@@ -293,8 +270,6 @@ PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(
 		MemSet(pi, 0, sizeof(*pi));
 		pi->plan_id = plan_id;
 		pi->OnDestroy = clear;
-		pi->base_desc = desc;
-		desc = NULL;
 
 		if ((pi->seg = dsm_find_mapping(handle)) == NULL)
 			pi->seg = dsm_attach(handle);
@@ -351,10 +326,6 @@ PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(
 		}
 	}PG_CATCH();
 	{
-		if (pi && pi->type_convert)
-			desc = NULL;
-		if (desc)
-			FreeTupleDesc(desc);
 		if (pi)
 			(*pi->OnDestroy)(pi);
 		PG_RE_THROW();
@@ -397,25 +368,6 @@ void ActiveWaitingPlan(DRNodeEventData *ned)
 
 	if (hint)
 		SetLatch(MyLatch);
-}
-
-void DRSetupPlanWorkTypeConvert(PlanInfo *pi, PlanWorkerInfo *pwi)
-{
-	MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-
-	pi->type_convert = create_type_convert(pi->base_desc, true, true);
-	if (pi->type_convert)
-	{
-		pi->convert_context = AllocSetContextCreate(TopMemoryContext,
-													"plan tuple convert",
-													ALLOCSET_DEFAULT_SIZES);
-		pwi->slot_plan_src = MakeSingleTupleTableSlot(pi->type_convert->base_desc);
-		pwi->slot_plan_dest = MakeSingleTupleTableSlot(pi->type_convert->out_desc);
-		pwi->slot_node_src = MakeSingleTupleTableSlot(pi->type_convert->out_desc);
-		pwi->slot_node_dest = MakeSingleTupleTableSlot(pi->type_convert->base_desc);
-	}
-
-	MemoryContextSwitchTo(oldcontext);
 }
 
 void DRInitPlanSearch(void)
@@ -471,18 +423,6 @@ void DRClearPlanInfo(PlanInfo *pi)
 	if (pi == NULL)
 		return;
 
-	if (pi->type_convert)
-	{
-		free_type_convert(pi->type_convert);
-		pi->type_convert = NULL;
-	}
-	if (pi->convert_context)
-	{
-		MemoryContextDelete(pi->convert_context);
-		pi->convert_context = NULL;
-	}
-	if (pi->base_desc)
-		FreeTupleDesc(pi->base_desc);
 	if (pi->end_of_plan_nodes.oids)
 	{
 		pfree(pi->end_of_plan_nodes.oids);
