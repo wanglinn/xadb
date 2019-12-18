@@ -59,6 +59,7 @@
 #include "utils/timestamp.h"
 #ifdef ADB
 #include "pgxc/poolmgr.h"
+#include "pgxc/pgxc.h"
 #endif
 
 
@@ -98,6 +99,7 @@ static volatile sig_atomic_t got_deadlock_timeout;
 
 #ifdef ADB
 static PGPROC* snapshotProcess = NULL;
+static PGPROC* gxidProcess = NULL;
 #endif /* ADB */
 
 static void RemoveProcFromArray(int code, Datum arg);
@@ -312,7 +314,10 @@ InitProcGlobal(void)
 	SpinLockInit(ProcStructLock);
 #ifdef ADB
 	ProcGlobal->snapshotProc = &AuxiliaryProcs[NUM_AUXILIARY_PROCS-1];
+	ProcGlobal->gxidProc = &AuxiliaryProcs[NUM_AUXILIARY_PROCS-2];
+
 	snapshotProcess = ProcGlobal->snapshotProc;
+	gxidProcess = ProcGlobal->gxidProc;
 #endif /* ADB */
 }
 
@@ -575,12 +580,21 @@ InitAuxiliaryProcess(void)
 		proctype = auxproc - AuxiliaryProcs;
 		goto found_free_;
 	}
+	if (MyAuxProcType == GxidSenderProcess ||
+		MyAuxProcType == GxidReceiverProcess)
+	{
+		auxproc = ProcGlobal->gxidProc;
+		Assert(auxproc != NULL);
+		Assert(auxproc->pid == 0);
+		proctype = auxproc - AuxiliaryProcs;
+		goto found_free_;
+	}
 #endif /* ADB */
 	for (proctype = 0; proctype < NUM_AUXILIARY_PROCS; proctype++)
 	{
 		auxproc = &AuxiliaryProcs[proctype];
 #ifdef ADB
-		if (auxproc == ProcGlobal->snapshotProc)
+		if (auxproc == ProcGlobal->snapshotProc || auxproc == ProcGlobal->gxidProc)
 			continue;
 #endif /* ADB */
 		if (auxproc->pid == 0)
@@ -1980,5 +1994,16 @@ PGPROC *GetSnapshotProcess(void)
 		SpinLockRelease(ProcStructLock);
 	}
 	return snapshotProcess;
+}
+
+PGPROC *GetGxidProcess(void)
+{
+	if (gxidProcess == NULL)
+	{
+		SpinLockAcquire(ProcStructLock);
+		gxidProcess = ProcGlobal->gxidProc;
+		SpinLockRelease(ProcStructLock);
+	}
+	return gxidProcess;
 }
 #endif /* ADB */

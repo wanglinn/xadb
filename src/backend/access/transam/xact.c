@@ -79,7 +79,9 @@
 #include "postmaster/autovacuum.h"
 #include "replication/snapreceiver.h"
 #include "replication/snapsender.h"
+#include "replication/snapcommon.h"
 #include "replication/gxidreceiver.h"
+#include "replication/gxidsender.h"
 #endif
 #ifdef ADBMGRD
 extern bool readonlySqlSlaveInfoRefreshFlag;
@@ -2644,14 +2646,23 @@ CommitTransaction(void)
 	 * hold relation(s) lock(s) until snapshot receiver process
 	 * get transaction end message
 	 */
-	if (!IsGTMNode() &&
-		TransactionIdIsValid(latestXid) &&
-		HasInvalidateMessage())
+	if (IsUnderAGTM() && TransactionIdIsValid(latestXid) &&
+		HasInvalidateMessage() && (!IsGTMNode() || IsConnFromCoord()))
 	{
-		void *map = SnapRcvBeginTransferLock();
-		EnumProcLocks(MyProc, SnapRcvInsertTransferLock, map);
-		SnapRcvTransferLock(map, latestXid, MyProc);
-		SnapRcvEndTransferLock(map);
+		SnapTransPara param;
+		param.map = SnapBeginTransferLock();
+		param.msgs = NULL;
+		param.msg_num = 0;
+		param.xid = latestXid;
+
+		EnumProcLocks(MyProc, SnapInsertTransferLock, param.map);
+		SnapCollectAllInvalidMsgs(&param);
+		if (!IsGTMNode())
+			SnapRcvTransferLock(&param, MyProc);
+		else if (IsConnFromCoord())
+			GxidSenderTransferLock(&param, MyProc);
+
+		SnapEndTransferLockIvdMsg(&param);
 	}
 #endif /* ADB */
 
@@ -2707,7 +2718,7 @@ CommitTransaction(void)
 	 * waiting for lock on a relation we've modified, we want them to know
 	 * about the catalog change before they start using the relation).
 	 */
-	AtEOXact_Inval(true);
+	AtEOXact_Inval(ADB_ONLY_ARG_COMMA(latestXid) true);
 
 	AtEOXact_MultiXact();
 
@@ -3370,7 +3381,7 @@ AbortTransaction(void)
 							 false, true);
 		AtEOXact_Buffers(false);
 		AtEOXact_RelationCache(false);
-		AtEOXact_Inval(false);
+		AtEOXact_Inval(ADB_ONLY_ARG_COMMA(latestXid) false);
 		AtEOXact_MultiXact();
 		ResourceOwnerRelease(TopTransactionResourceOwner,
 							 RESOURCE_RELEASE_LOCKS,

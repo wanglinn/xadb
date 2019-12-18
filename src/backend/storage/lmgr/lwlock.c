@@ -522,8 +522,8 @@ RegisterLWLockTranches(void)
 	LWLockRegisterTranche(LWTRANCHE_PARALLEL_APPEND, "parallel_append");
 	LWLockRegisterTranche(LWTRANCHE_PARALLEL_HASH_JOIN, "parallel_hash_join");
 #ifdef ADB
-	LWLockRegisterTranche(LWTRANCHE_SNAPSHOT_RECEIVER_DSA,
-						  "snapshot_receiver_dsa");
+	LWLockRegisterTranche(LWTRANCHE_SNAPSHOT_COMMON_DSA,
+						  "snapshot_common_dsa");
 	LWLockRegisterTranche(LWTRANCHE_DYNAMIC_REDUCE_DSA, "dynamic_reduce_dsa");
 #endif /* ADB */
 

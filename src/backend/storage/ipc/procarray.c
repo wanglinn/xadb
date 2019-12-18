@@ -1589,6 +1589,12 @@ GetMaxSnapshotSubxidCount(void)
 Snapshot
 GetSnapshotData(Snapshot snapshot)
 {
+#ifdef ADB
+	return GetSnapshotDataExt(snapshot, false);
+}
+Snapshot GetSnapshotDataExt(Snapshot snapshot, bool isCatelog)
+{
+#endif /* ADB */
 	ProcArrayStruct *arrayP = procArray;
 	TransactionId xmin;
 	TransactionId xmax;
@@ -1661,7 +1667,7 @@ GetSnapshotData(Snapshot snapshot)
 	 */
 	if (try_agtm_snap)
 	{
-		snap = GetGlobalSnapshot(snapshot);
+		snap = GetGlobalSnapshot(snapshot, isCatelog);
 		Assert(snap == snapshot);
 		Assert(snap->xcnt <= snap->max_xcnt);
 		subcount = snapshot->subxcnt;
@@ -1704,7 +1710,7 @@ GetSnapshotData(Snapshot snapshot)
 	else
 	{
 		xmin = xmax;
-		snap = GetGlobalSnapshotGxid(snapshot, &xmin, &xmax, &count);
+		snap = GetGlobalSnapshotGxid(snapshot, &xmin, &xmax, &count, isCatelog);
 		Assert(snap == snapshot);
 		Assert(snap->xcnt <= snap->max_xcnt);
 		globalxmin = xmin;
