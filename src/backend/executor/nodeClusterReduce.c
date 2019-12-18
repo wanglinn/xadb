@@ -225,7 +225,6 @@ static void InitNormalReduce(ClusterReduceState *crstate)
 	DynamicReduceStartNormalPlan(crstate->ps.plan->plan_node_id, 
 								 normal->dsm_seg,
 								 dsm_segment_address(normal->dsm_seg),
-								 crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
 								 plan->reduce_oids,
 								 plan->reduce_flags & CRF_DISK_UNNECESSARY ? DR_CACHE_ON_DISK_DO_NOT:DR_CACHE_ON_DISK_AUTO);
 	MemoryContextSwitchTo(oldcontext);
@@ -259,7 +258,6 @@ static void InitParallelReduce(ClusterReduceState *crstate, ParallelContext *pcx
 	DynamicReduceStartParallelPlan(crstate->ps.plan->plan_node_id,
 								   pcxt->seg,
 								   drmq,
-								   crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
 								   plan->reduce_oids,
 								   pcxt->nworkers+1,
 								   plan->reduce_flags & CRF_DISK_UNNECESSARY ? DR_CACHE_ON_DISK_DO_NOT:DR_CACHE_ON_DISK_AUTO);
@@ -401,7 +399,6 @@ static void InitReduceFirst(ClusterReduceState *crstate)
 	DynamicReduceStartNormalPlan(crstate->ps.plan->plan_node_id,
 								 state->normal.dsm_seg,
 								 dsm_segment_address(state->normal.dsm_seg),
-								 crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
 								 castNode(ClusterReduce, crstate->ps.plan)->reduce_oids,
 								 DR_CACHE_ON_DISK_ALWAYS);
 	ExecSetExecProcNode(&crstate->ps, ExecReduceFirstPrepare);
@@ -575,7 +572,6 @@ static void InitParallelReduceFirstCommon(ClusterReduceState *node, ParallelCont
 		DynamicReduceStartParallelPlan(node->ps.plan->plan_node_id,
 									   pcxt->seg,
 									   drmq,
-									   node->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
 									   castNode(ClusterReduce, node->ps.plan)->reduce_oids,
 									   pcxt->nworkers+1,
 									   DR_CACHE_ON_DISK_ALWAYS);
@@ -717,7 +713,6 @@ static void BeginAdvanceReduce(ClusterReduceState *crstate)
 	DynamicReduceStartSharedFileSetPlan(crstate->ps.plan->plan_node_id,
 										state->normal.dsm_seg,
 										dsm_segment_address(state->normal.dsm_seg),
-										crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
 										reduce_oids);
 
 	while (state->normal.drio.eof_local == false)
@@ -947,7 +942,6 @@ static void BeginAdvanceParallelReduce(ClusterReduceState *crstate)
 	DynamicReduceStartSharedTuplestorePlan(crstate->ps.plan->plan_node_id,
 										   state->normal.dsm_seg,
 										   &shm->sts,
-										   crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
 										   oid_list,
 										   APR_NPART,
 										   APR_REDUCE_PART);
@@ -1189,7 +1183,6 @@ static void InitMergeReduce(ClusterReduceState *crstate)
 	DynamicReduceStartSharedFileSetPlan(crstate->ps.plan->plan_node_id,
 										merge->normal.dsm_seg,
 										dsm_segment_address(merge->normal.dsm_seg),
-										crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
 										castNode(ClusterReduce, crstate->ps.plan)->reduce_oids);
 
 	MemoryContextSwitchTo(oldcontext);

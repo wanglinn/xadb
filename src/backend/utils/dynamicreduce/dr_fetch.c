@@ -1,5 +1,6 @@
 #include "postgres.h"
 
+#include "access/tuptypeconvert.h"
 #include "executor/executor.h"
 #include "pgxc/pgxc.h"
 #include "utils/sharedtuplestore.h"
@@ -33,7 +34,10 @@ void DynamicReduceInitFetch(DynamicReduceIOBuffer *io, dsm_segment *seg, TupleDe
 	initStringInfo(&io->recv_buf);
 	initOidBuffer(&io->tmp_buf);
 
-	io->slot_remote = MakeSingleTupleTableSlot(desc);
+	io->convert = create_type_convert(desc, true, true);
+	if (io->convert != NULL)
+		io->slot_remote = MakeSingleTupleTableSlot(io->convert->out_desc);
+	io->slot_local = MakeSingleTupleTableSlot(desc);
 
 	io->eof_local = io->eof_remote = false;
 }
@@ -53,6 +57,18 @@ void DynamicReduceClearFetch(DynamicReduceIOBuffer *io)
 	{
 		ExecDropSingleTupleTableSlot(io->slot_remote);
 		io->slot_remote = NULL;
+	}
+
+	if (io->slot_local)
+	{
+		ExecDropSingleTupleTableSlot(io->slot_local);
+		io->slot_local = NULL;
+	}
+
+	if (io->convert)
+	{
+		free_type_convert(io->convert);
+		io->convert = NULL;
 	}
 
 	if (io->tmp_buf.oids)
@@ -157,15 +173,21 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 
 		if (io->eof_remote == false)
 		{
+			slot = io->convert ? io->slot_remote : io->slot_local;
 			if (io->shared_file)
 			{
 				resetStringInfo(&io->recv_buf);
-				slot = DynamicReduceReadSFSTuple(io->slot_remote, io->shared_file, &io->recv_buf);
+				DynamicReduceReadSFSTuple(slot, io->shared_file, &io->recv_buf);
 				if (TupIsNull(slot))
 				{
 					DRFetchCloseSharedFile(io);
 					continue;
 				}
+				if (io->convert)
+					slot = do_type_convert_slot_in(io->convert,
+												   slot,
+												   io->slot_local,
+												   false);
 				return slot;
 			}
 			if (io->sts)
@@ -176,20 +198,30 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 					DRFetchCloseSharedTuplestore(io);
 					continue;
 				}
-				return ExecStoreMinimalTuple(mtup, io->slot_remote, false);
+				ExecStoreMinimalTuple(mtup, slot, false);
+				if (io->convert)
+				{
+					slot = do_type_convert_slot_in(io->convert,
+												   io->slot_remote,
+												   io->slot_local,
+												   false);
+				}
+				return slot;
 			}
 
 			dr_flags = DynamicReduceRecvTuple(io->mqh_receiver,
-											  io->slot_remote,
+											  slot,
 											  &io->recv_buf,
 											  &info,
 											  io->eof_local ? false:true);
 			if (dr_flags == DR_MSG_RECV)
 			{
-				if (TupIsNull(io->slot_remote))
+				if (TupIsNull(slot))
 					io->eof_remote = true;
+				else if(io->convert)
+					return do_type_convert_slot_in(io->convert, slot, io->slot_local, false);
 				else
-					return io->slot_remote;
+					return slot;
 			}else if (dr_flags == DR_MSG_RECV_SF)
 			{
 				DRFetchOpenSharedFile(io, info.u32);
@@ -234,7 +266,7 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 		}
 
 		Assert(io->send_buf.len > 0);
-		slot = ExecClearTuple(io->slot_remote);
+		slot = ExecClearTuple(io->convert ? io->slot_remote:io->slot_local);
 		dr_flags = DynamicReduceSendOrRecvTuple(io->mqh_sender,
 												io->mqh_receiver,
 												&io->send_buf,
@@ -247,6 +279,8 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 		{
 			if (TupIsNull(slot))
 				io->eof_remote = true;
+			else if (io->convert)
+				return do_type_convert_slot_in(io->convert, slot, io->slot_local, false);
 			else
 				return slot;
 		}
@@ -310,6 +344,8 @@ TupleTableSlot* DynamicReduceFetchLocal(DynamicReduceIOBuffer *io)
 		}
 		if (io->tmp_buf.len > 0)
 		{
+			if (io->convert)
+				slot = do_type_convert_slot_out(io->convert, slot, io->slot_remote, false);
 			SerializeDynamicReduceSlot(&io->send_buf,
 									   slot,
 									   &io->tmp_buf);
