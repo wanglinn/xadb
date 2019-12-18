@@ -10828,7 +10828,7 @@ List* mgr_get_nodetype_namelist(char nodetype)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
-		nodenamelist = lappend(nodenamelist, NameStr(mgr_node->nodename));
+		nodenamelist = lappend(nodenamelist, pstrdup(NameStr(mgr_node->nodename)));
 		if (CNDN_TYPE_GTM_COOR_MASTER == nodetype)
 						break;
 	}
