@@ -1906,6 +1906,9 @@ static inline void AdvanceReduce(ClusterReduceState *crs, PlanState *parent, uin
 		else
 			BeginAdvanceReduce(crs);
 		break;
+	case RT_ADVANCE:
+	case RT_ADVANCE_PARALLEL:
+		break;
 	case RT_MERGE:
 		BeginAdvanceMerge(crs);
 		break;
