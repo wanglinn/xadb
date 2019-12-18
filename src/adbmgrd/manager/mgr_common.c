@@ -1287,15 +1287,14 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 		return false;
 	}
 
+	cmdtype = AGT_CMD_NODE_REWIND;
 	if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
 	{
 		bGtmType = true;
-		cmdtype = AGT_CMD_AGTM_REWIND;
 	}
 	else
 	{
 		bGtmType = false;
-		cmdtype = AGT_CMD_NODE_REWIND;
 	}
 
 	Assert(nodename);
@@ -1417,13 +1416,13 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	get_nodeinfo_byname(masterNameData.data, mastertype, &master_is_exist, &master_is_running, &master_nodeinfo);
 	if (master_is_exist && (!master_is_running))
 	{
-			pfree_AppendNodeInfo(master_nodeinfo);
-			pfree_AppendNodeInfo(slave_nodeinfo);
-			nodetypestr = mgr_nodetype_str(mastertype);
-			appendStringInfo(strinfo, "%s \"%s\" does not running normal", nodetypestr, masterNameData.data);
-			pfree(nodetypestr);
-			pfree(getAgentCmdRst.description.data);
-			return false;
+		pfree_AppendNodeInfo(master_nodeinfo);
+		pfree_AppendNodeInfo(slave_nodeinfo);
+		nodetypestr = mgr_nodetype_str(mastertype);
+		appendStringInfo(strinfo, "%s \"%s\" does not running normal", nodetypestr, masterNameData.data);
+		pfree(nodetypestr);
+		pfree(getAgentCmdRst.description.data);
+		return false;
 	}
 
 	initStringInfo(&infosendmsg);
@@ -1593,13 +1592,14 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	pg_usleep(3000000L);
 	/*node rewind*/
 	resetStringInfo(&infosendmsg);
-	if (bGtmType)
-		appendStringInfo(&infosendmsg, " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres'"
-			, slave_nodeinfo.nodepath, master_nodeinfo.nodeaddr, master_nodeinfo.nodeport, master_nodeinfo.nodeusername);
-	else
-		appendStringInfo(&infosendmsg, " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres' -T %s -S %s"
-				, slave_nodeinfo.nodepath, master_nodeinfo.nodeaddr
-				, master_nodeinfo.nodeport, slave_nodeinfo.nodeusername, nodename, master_nodeinfo.nodename);
+	appendStringInfo(&infosendmsg,
+					 " --target-pgdata %s --source-server='host=%s port=%d user=%s dbname=postgres' -T %s -S %s",
+					 slave_nodeinfo.nodepath,
+					 master_nodeinfo.nodeaddr,
+					 master_nodeinfo.nodeport,
+					 slave_nodeinfo.nodeusername,
+					 nodename,
+					 master_nodeinfo.nodename);
 
 	res = mgr_ma_send_cmd_get_original_result(cmdtype, infosendmsg.data, slave_nodeinfo.nodehost, strinfo, AGENT_RESULT_LOG);
 	pfree(restmsg.data);
@@ -1717,6 +1717,7 @@ Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtyp
 	StringInfoData strdata;
 	StringInfoData strhint;
 	StringInfoData infosendmsg;
+	StringInfoData alterNodeCmd;
 	Relation rel_node;
 	HeapTuple aimtuple = NULL;
 	Form_mgr_node mgr_node;
@@ -1801,25 +1802,55 @@ Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtyp
 					sprintf(port_buf, "%d", mgr_node->nodeport);
 					user = get_hostuser_from_hostoid(mgr_node->nodehost);
 					ret = pingNode_user(host_addr, port_buf, user);
-					heap_freetuple(aimtuple);
-					pfree(host_addr);
-					pfree(user);
 					if (bstartcmd)
 					{
 						if (PQPING_OK != ret && PQPING_REJECT != ret && AGENT_DOWN != ret && binit)
 						{
+							heap_freetuple(aimtuple);
+							pfree(host_addr);
+							pfree(user);
 							pg_usleep(1 * 1000000L);
 							break;
 						}
+						if (nodetype == CNDN_TYPE_GTM_COOR_MASTER &&
+							ret == PQPING_OK &&
+							mgr_node->nodeinited &&
+							!mgr_node->nodeincluster)
+						{
+							initStringInfo(&alterNodeCmd);
+							appendStringInfo(&alterNodeCmd,
+											 " -h %s -p %u -d %s -U %s -a -c \"",
+											 host_addr,
+											 mgr_node->nodeport,
+											 DEFAULT_DB,
+											 user);
+							appendStringInfo(&alterNodeCmd,
+											 "ALTER NODE \\\"%s\\\" WITH (GTM=%d);",
+											 NameStr(mgr_node->nodename),
+											 true);
+							appendStringInfoString(&alterNodeCmd, "\"");
+							callAgentSendCmd(AGT_CMD_PSQL_CMD,
+											 &alterNodeCmd,
+											 host_addr,
+											 get_agentPort_from_hostoid(mgr_node->nodehost));
+							pfree(alterNodeCmd.data);
+						}
+
 					}
 					else if (bstopcmd)
 					{
 						if (PQPING_NO_RESPONSE != ret && AGENT_DOWN != ret)
 						{
+							heap_freetuple(aimtuple);
+							pfree(host_addr);
+							pfree(user);
 							pg_usleep(1 * 1000000L);
 							break;
 						}
 					}
+					heap_freetuple(aimtuple);
+					pfree(host_addr);
+					pfree(user);
 				}
 
 				if (NULL == lc)
