@@ -31,11 +31,12 @@ typedef struct SnapHoldLock
 	LOCKMASK	holdMask;
 }SnapHoldLock;
 
-/*typedef struct SnapInvalidMsg
+typedef enum ClientStatus
 {
-	SharedInvalidationMessage 	msg;
-	slist_node					snode;
-}SnapInvalidMsg;*/
+	CLIENT_STATUS_CONNECTED = 1,
+	CLIENT_STATUS_STREAMING = 2,
+	CLIENT_STATUS_EXITING = 3
+}ClientStatus;
 
 typedef struct SnapLockIvdInfo
 {
