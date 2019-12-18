@@ -53,13 +53,6 @@ typedef struct WaitEventData
 	void (*fun)(WaitEvent *event);
 }WaitEventData;
 
-typedef enum ClientStatus
-{
-	CLIENT_STATUS_CONNECTED = 1,
-	CLIENT_STATUS_STREAMING = 2,
-	CLIENT_STATUS_EXITING = 3
-}ClientStatus;
-
 /* in hash table snapsender_xid_htab */
 typedef struct XidClientHashItemInfo
 {
@@ -325,7 +318,10 @@ static void snapsenderUpdateNextXidAllClient(TransactionId xid, SnapClientData *
 		resetStringInfo(&output_buffer);
 		pq_sendbyte(&output_buffer, 'u');
 		pq_sendint64(&output_buffer, xid);
-		AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false);
+		if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false) == false)
+		{
+			client->status = CLIENT_STATUS_EXITING;
+		}
 	}
 }
 
@@ -438,7 +434,7 @@ static void snapsenderProcessSyncGlobalXmin(SnapClientData *client)
 	pq_sendint64(&output_buffer, global_xmin);
 	if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false) == false)
 	{
-		DropClient(client, true);
+		client->status = CLIENT_STATUS_EXITING;
 	}
 }
 
@@ -485,7 +481,7 @@ static void snapsenderProcessHeartBeat(SnapClientData *client)
 	pq_sendint64(&output_buffer, global_xmin);
 	if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false) == false)
 	{
-		DropClient(client, true);
+		client->status = CLIENT_STATUS_EXITING;
 	}
 }
 
@@ -596,10 +592,10 @@ static void SnapSendCheckTimeoutSocket(void)
 	slist_foreach_modify(siter, &slist_all_client)
 	{
 		SnapClientData *client = slist_container(SnapClientData, snode, siter.cur);
-		if (client && client->status == CLIENT_STATUS_STREAMING)
+		if (client && (client->status == CLIENT_STATUS_STREAMING || client->status == CLIENT_STATUS_EXITING))
 		{
 			timeout = TimestampTzPlusMilliseconds(client->last_msg, snap_send_timeout);
-			if (now >= timeout)
+			if (client->status == CLIENT_STATUS_EXITING || now >= timeout)
 			{
 				slist_delete_current(&siter);
 				DropClient(client, false);
@@ -719,7 +715,7 @@ void SnapSenderMain(void)
 		{
 			event = &wait_event[--rc];
 			wed = event->user_data;
-			(*wed->fun)(event);
+			(*wed->fun)(event); //
 			pq_switch_to_none();
 		}
 
@@ -910,8 +906,7 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 			ereport(LOG,(errmsg("SnapSend send to client event_pos %d error\n",
 			 			client->event_pos)));
 #endif
-			slist_delete_current(&siter);
-			DropClient(client, false);
+			client->status = CLIENT_STATUS_EXITING;
 		}
 	}
 }
@@ -1108,11 +1103,7 @@ static void OnClientMsgEvent(WaitEvent *event)
 		{
 			if ((event->events & (WL_SOCKET_WRITEABLE|WL_SOCKET_CONNECTED)) == 0)
 				new_event = WL_SOCKET_WRITEABLE;
-		}else if(client->status == CLIENT_STATUS_EXITING)
-		{
-			/* all data sended and exiting, close it */
-			DropClient(client, true);
-		}else
+		}else if(client->status != CLIENT_STATUS_EXITING)
 		{
 			if ((event->events & WL_SOCKET_READABLE) == 0)
 				new_event = WL_SOCKET_READABLE;
@@ -1120,6 +1111,10 @@ static void OnClientMsgEvent(WaitEvent *event)
 
 		if (new_event != 0)
 			ModifyWaitEvent(wait_event_set, event->pos, new_event, NULL);
+
+		/* all data sended and exiting, close it */
+		if(client->status == CLIENT_STATUS_EXITING)
+			DropClient(client, true);
 	}PG_CATCH();
 	{
 		client->status = CLIENT_STATUS_EXITING;

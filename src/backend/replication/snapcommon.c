@@ -357,8 +357,7 @@ void SnapReleaseSnapshotTxidLocks(SnapCommonLock *comm_lock, TransactionId *xip,
 void SnapReleaseAllTxidLocks(SnapCommonLock *comm_lock)
 {
 	SnapLockIvdInfo   *lock,*prev;
-	dsa_pointer		dp, prev_dp;
-	uint32			i;
+	dsa_pointer		dp, prev_dp, next;
 	dsa_area 		*lock_area;
 
 	lock_area = SnapGetLockArea(comm_lock);
@@ -369,7 +368,7 @@ void SnapReleaseAllTxidLocks(SnapCommonLock *comm_lock)
 	while (dp != InvalidDsaPointer)
 	{
 		lock = dsa_get_address(lock_area, dp);
-		dsa_pointer next = lock->next;
+		next = lock->next;
 		if (prev)
 		{
 			prev->next = lock->next;

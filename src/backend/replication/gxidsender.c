@@ -46,13 +46,6 @@ typedef struct GxidWaitEventData
 	void (*fun)(WaitEvent *event);
 }GxidWaitEventData;
 
-typedef enum GixdClientStatus
-{
-	GXID_CLIENT_STATUS_CONNECTED = 1,
-	GXID_CLIENT_STATUS_STREAMING = 2,
-	GXID_CLIENT_STATUS_EXITING = 3
-}GixdClientStatus;
-
 /* item in  slist_client */
 typedef struct ClientHashItemInfo
 {
@@ -77,7 +70,7 @@ typedef struct GxidClientData
 	pq_comm_node   		*node;
 
 	TimestampTz			last_msg;	/* last time of received message from client */
-	GixdClientStatus	status;
+	ClientStatus		status;
 	int					event_pos;
 	char				client_name[NAMEDATALEN];
 }GxidClientData;
@@ -194,10 +187,10 @@ static void GxidSendCheckTimeoutSocket(void)
 	slist_foreach_modify(siter, &gxid_send_all_client)
 	{
 		client = slist_container(GxidClientData, snode, siter.cur);
-		if (client && client->status == GXID_CLIENT_STATUS_STREAMING)
+		if (client && (client->status == CLIENT_STATUS_STREAMING || client->status == CLIENT_STATUS_EXITING))
 		{
 			timeout = TimestampTzPlusMilliseconds(client->last_msg, gxid_send_timeout);
-			if (now >= timeout)
+			if (client->status == CLIENT_STATUS_EXITING || now >= timeout)
 			{
 				slist_delete_current(&siter);
 				GxidSenderDropClient(client, false);
@@ -292,7 +285,7 @@ void GxidSenderMain(void)
 			}else if(pq_node_send_pending(client->node))
 			{
 				ModifyWaitEvent(gxid_send_wait_event_set, client->event_pos, WL_SOCKET_WRITEABLE, NULL);
-			}else if(client->status == GXID_CLIENT_STATUS_EXITING)
+			}else if(client->status == CLIENT_STATUS_EXITING)
 			{
 				/* no data sending and exiting, close it */
 				slist_delete_current(&siter);
@@ -534,7 +527,7 @@ void GxidSenderOnListenEvent(WaitEvent *event)
 		client->evd.fun = GxidSenderOnClientMsgEvent;
 		client->node = pq_node_new(client_fdsock, false);
 		client->last_msg = GetCurrentTimestamp();
-		client->status = GXID_CLIENT_STATUS_CONNECTED;
+		client->status = CLIENT_STATUS_CONNECTED;
 
 		if (gxid_send_cur_wait_event == gxid_send_max_wait_event)
 		{
@@ -580,7 +573,7 @@ static void GxidSenderOnClientMsgEvent(WaitEvent *event)
 
 		if (event->events & WL_SOCKET_READABLE)
 		{
-			if (client->status == GXID_CLIENT_STATUS_EXITING)
+			if (client->status == CLIENT_STATUS_EXITING)
 				ModifyWaitEvent(gxid_send_wait_event_set, event->pos, 0, NULL);
 			else
 				GxidSenderOnClientRecvMsg(client, node);
@@ -592,11 +585,7 @@ static void GxidSenderOnClientMsgEvent(WaitEvent *event)
 		{
 			if ((event->events & (WL_SOCKET_WRITEABLE|WL_SOCKET_CONNECTED)) == 0)
 				new_event = WL_SOCKET_WRITEABLE;
-		}else if(client->status == GXID_CLIENT_STATUS_EXITING)
-		{
-			/* all data sended and exiting, close it */
-			GxidSenderDropClient(client, true);
-		}else
+		}else if(client->status != CLIENT_STATUS_EXITING)
 		{
 			if ((event->events & WL_SOCKET_READABLE) == 0)
 				new_event = WL_SOCKET_READABLE;
@@ -604,9 +593,13 @@ static void GxidSenderOnClientMsgEvent(WaitEvent *event)
 
 		if (new_event != 0)
 			ModifyWaitEvent(gxid_send_wait_event_set, event->pos, new_event, NULL);
+
+		/* all data sended and exiting, close it */
+		if (client->status == CLIENT_STATUS_EXITING)
+			GxidSenderDropClient(client, true);
 	}PG_CATCH();
 	{
-		client->status = GXID_CLIENT_STATUS_EXITING;
+		client->status = CLIENT_STATUS_EXITING;
 		PG_RE_THROW();
 	}PG_END_TRY();
 }
@@ -676,7 +669,8 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 
 	if (GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false) == false)
 	{
-		GxidSenderDropClient(client, true);
+		client->status = CLIENT_STATUS_EXITING;
+		//GxidSenderDropClient(client, true);
 	}
 	else
 	{
@@ -746,7 +740,7 @@ static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 
 	if (GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false) == false)
 	{
-		GxidSenderDropClient(client, true);
+		client->status = CLIENT_STATUS_EXITING;
 	}
 }
 
@@ -855,7 +849,7 @@ static void GxidProcessFinishGxid(GxidClientData *client)
 
 	if (GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false) == false)
 	{
-		GxidSenderDropClient(client, true);
+		client->status = CLIENT_STATUS_EXITING;
 	}
 }
 
@@ -898,21 +892,21 @@ static void GxidSenderOnClientRecvMsg(GxidClientData *client, pq_comm_node *node
 			resetStringInfo(&gxid_send_output_buffer);
 			appendStringInfoChar(&gxid_send_output_buffer, 's');
 			GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false);
-			client->status = GXID_CLIENT_STATUS_STREAMING;
+			client->status = CLIENT_STATUS_STREAMING;
 			break;
 		case 'X':
-			client->status = GXID_CLIENT_STATUS_EXITING;
+			client->status = CLIENT_STATUS_EXITING;
 			return;
 		case 'c':
 		case 'd':
-			if (client->status != GXID_CLIENT_STATUS_STREAMING)
+			if (client->status != CLIENT_STATUS_STREAMING)
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
 						errmsg("not in copy mode")));
 			}
 			if (msgtype == 'c')
-				client->status = GXID_CLIENT_STATUS_CONNECTED;
+				client->status = CLIENT_STATUS_CONNECTED;
 			else
 			{
 				cmdtype = pq_getmsgbyte(&gxid_send_input_buffer);
@@ -947,7 +941,7 @@ static void GxidSenderOnClientRecvMsg(GxidClientData *client, pq_comm_node *node
 					appendStringInfoChar(&gxid_send_output_buffer, 'h');
 					if (GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false) == false)
 					{
-						GxidSenderDropClient(client, true);
+						client->status = CLIENT_STATUS_EXITING;
 					}
 				}
 				else
@@ -968,7 +962,7 @@ static void GxidSenderOnClientSendMsg(GxidClientData *client, pq_comm_node *node
 {
 	if (pq_node_flush_if_writable_sock(node) != 0)
 	{
-		client->status = GXID_CLIENT_STATUS_EXITING;
+		client->status = CLIENT_STATUS_EXITING;
 	}
 	else
 	{
