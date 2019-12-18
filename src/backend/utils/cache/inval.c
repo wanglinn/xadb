@@ -116,6 +116,9 @@
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node_d.h"
 #include "libpq/libpq-node.h"
+#include "replication/snapreceiver.h"
+#include "pgxc/pgxc.h"
+#include "agtm/agtm.h"
 #endif /* ADB */
 
 #ifdef ADBMGRD
@@ -466,6 +469,27 @@ ProcessInvalidationMessages(InvalidationListHeader *hdr,
 	ProcessMessageList(hdr->rclist, func(msg));
 }
 
+#ifdef ADB
+static void
+ProcessInvalidationMessagesMultiAdb(InvalidationListHeader *hdr,
+						SnapTransPara *param,
+						void (*func) (SnapTransPara *param,
+						const SharedInvalidationMessage *msgs,
+						int n))
+{
+	ProcessMessageListMulti(hdr->cclist, func(param, msgs, n));
+	ProcessMessageListMulti(hdr->rclist, func(param, msgs, n));
+}
+
+void SnapCollectAllInvalidMsgs(SnapTransPara *param)
+{
+	AppendInvalidationMessages(&transInvalInfo->PriorCmdInvalidMsgs,
+								   &transInvalInfo->CurrentCmdInvalidMsgs);
+	ProcessInvalidationMessagesMultiAdb(&transInvalInfo->PriorCmdInvalidMsgs, param,
+							SnapCollcectInvalidMsgItem);
+}
+#endif /* ADB */
+
 /*
  * As above, but the function is able to process an array of messages
  * rather than just one at a time.
@@ -771,7 +795,7 @@ PrepareInvalidationState(void)
 void
 PostPrepare_Inval(void)
 {
-	AtEOXact_Inval(false);
+	AtEOXact_Inval(ADB_ONLY_ARG_COMMA(InvalidTransactionId) false);
 }
 
 /*
@@ -949,7 +973,7 @@ ProcessCommittedInvalidationMessages(SharedInvalidationMessage *msgs,
  *		This should be called as the last step in processing a transaction.
  */
 void
-AtEOXact_Inval(bool isCommit)
+AtEOXact_Inval(ADB_ONLY_ARG_COMMA(TransactionId latestXid) bool isCommit)
 {
 	/* Quick exit if no messages */
 	if (transInvalInfo == NULL)
@@ -968,11 +992,20 @@ AtEOXact_Inval(bool isCommit)
 		if (transInvalInfo->RelcacheInitFileInval)
 			RelationCacheInitFilePreInvalidate();
 
-		AppendInvalidationMessages(&transInvalInfo->PriorCmdInvalidMsgs,
-								   &transInvalInfo->CurrentCmdInvalidMsgs);
+#ifdef ADB
 
-		ProcessInvalidationMessagesMulti(&transInvalInfo->PriorCmdInvalidMsgs,
-										 SendSharedInvalidMessages);
+		if (IsUnderAGTM() && !IsGTMNode() && TransactionIdIsValid(latestXid))
+		{
+			/* Do nothing, skip process invalid messages*/
+		}
+		else
+#endif /* ADB */
+		{
+			AppendInvalidationMessages(&transInvalInfo->PriorCmdInvalidMsgs,
+								   &transInvalInfo->CurrentCmdInvalidMsgs);
+			ProcessInvalidationMessagesMulti(&transInvalInfo->PriorCmdInvalidMsgs,
+									SendSharedInvalidMessages);
+		}
 
 		if (transInvalInfo->RelcacheInitFileInval)
 			RelationCacheInitFilePostInvalidate();

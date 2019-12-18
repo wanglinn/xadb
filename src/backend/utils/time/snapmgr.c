@@ -522,8 +522,12 @@ GetNonHistoricCatalogSnapshot(Oid relid)
 	if (CatalogSnapshot == NULL)
 	{
 		/* Get new snapshot. */
+#ifdef ADB
+		CatalogSnapshot = GetSnapshotDataExt(&CatalogSnapshotData, true);
+#else
 		CatalogSnapshot = GetSnapshotData(&CatalogSnapshotData);
-
+#endif /* ADB */
+		
 		/*
 		 * Make sure the catalog snapshot will be accounted for in decisions
 		 * about advancing PGXACT->xmin.  We could apply RegisterSnapshot, but
@@ -2400,13 +2404,44 @@ CopyGlobalSnapshot(Snapshot snapshot)
  * Entry of snapshot obtention for Postgres-XC node
  */
 Snapshot
-GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin, TransactionId* xmax, int *count)
+GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin,
+			TransactionId* xmax, int *count, bool isCatelog)
 {
 	Snapshot	snap;
+	
 	if (IsGTMNode())
 	{
-		snap = GxidSenderGetSnapshot(snapshot, xmin, xmax, count);
-		snap->global_xmin = SnapSendGetGlobalXmin();
+		if (IsCnMaster() || isCatelog)
+		{
+			snap = GxidSenderGetSnapshot(snapshot, xmin, xmax, count);
+			snap->global_xmin = SnapSendGetGlobalXmin();
+		}
+		else if (GlobalSnapshot == NULL ||
+				GlobalSnapshotSet == false ||
+			IsAnyAutoVacuumProcess())
+		{
+			/*
+			* Datanode or NoMaster-Coordinator get snapshot
+			* from AGTM when GlobalSnapshot is invalid or
+			* current process is AutoVacuum process.
+			*/
+			snap = GxidSenderGetSnapshot(snapshot, xmin, xmax, count);
+			snap->global_xmin = SnapSendGetGlobalXmin();
+	#ifdef SHOW_GLOBAL_SNAPSHOT
+			if (IsAnyAutoVacuumProcess())
+			{
+				elog(LOG, "Auto vacuum process get snapshot from AGTM, and RecentGlobalMin is %u",
+					RecentGlobalXmin);
+			}
+	#endif
+		} else
+		{
+			/*
+			* Datanode or NoMaster-Coordinator copy snapshot
+			* from Master-Coordinator.
+			*/
+			snap = CopyGlobalSnapshot(snapshot);
+		}
 	} else
 	{
 		return snapshot;
@@ -2423,12 +2458,12 @@ GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin, TransactionId* xma
  * Entry of snapshot obtention for Postgres-XC node
  */
 Snapshot
-GetGlobalSnapshot(Snapshot snapshot)
+GetGlobalSnapshot(Snapshot snapshot, bool isCatelog)
 {
 	Snapshot	snap;
 	CommandId	cid;
 
-	if (IsCnMaster())
+	if (IsCnMaster() || isCatelog)
 	{
 		/*
 	 	 * Master-Coordinator get snapshot from AGTM.

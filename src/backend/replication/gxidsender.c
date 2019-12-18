@@ -15,6 +15,7 @@
 #include "pgxc/poolcomm.h"
 #include "replication/gxidsender.h"
 #include "replication/snapsender.h"
+#include "replication/snapcommon.h"
 #include "postmaster/postmaster.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
@@ -28,6 +29,7 @@
 
 typedef struct GxidSenderData
 {
+	SnapCommonLock	comm_lock;
 	pid_t			pid;				/* PID of currently active transsender process */
 	int				procno;				/* proc number of current active transsender process */
 
@@ -173,6 +175,11 @@ void GxidSenderShmemInit(void)
 		GxidSender->xcnt = 0;
 		SpinLockInit(&GxidSender->mutex);
 		pg_atomic_init_flag(&GxidSender->lock);
+		GxidSender->comm_lock.handle_lock_info = DSM_HANDLE_INVALID;
+		GxidSender->comm_lock.first_lock_info = InvalidDsaPointer;
+		GxidSender->comm_lock.last_lock_info = InvalidDsaPointer;
+		LWLockInitialize(&GxidSender->comm_lock.lock_lock_info, LWTRANCHE_SNAPSHOT_COMMON_DSA);
+		LWLockInitialize(&GxidSender->comm_lock.lock_proc_link, LWTRANCHE_SNAPSHOT_COMMON_DSA);
 	}
 }
 
@@ -223,6 +230,12 @@ void GxidSenderMain(void)
 	gxid_send_timeout = gxid_receiver_timeout + 10000L;
 
 	on_shmem_exit(GxidSenderDie, (Datum)0);
+
+	/* make sure dsa_area create */
+	(void)SnapGetLockArea(&GxidSender->comm_lock);
+
+	/* release all last store lock and invalid msgs*/
+	SnapReleaseAllTxidLocks(&GxidSender->comm_lock);
 
 	pqsignal(SIGINT, SIG_IGN);
 	pqsignal(SIGALRM, SIG_IGN);
@@ -401,6 +414,7 @@ static void GxidDropXidList(ClientHashItemInfo	*clientitem)
 		xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
 		clientitem->xcnt--;
 		SnapSendTransactionFinish(xiditem->xid);
+		SnapReleaseTransactionLocks(&GxidSender->comm_lock, xiditem->xid);
 		slist_delete(&clientitem->gxid_assgin_xid_list, &xiditem->snode);
 		pfree(xiditem);
 	}
@@ -797,19 +811,19 @@ static void GxidProcessUpdateMaxXid(GxidClientData *client)
 
 static void GxidProcessFinishGxid(GxidClientData *client)
 {
-	int							procno;
+	int							procno, start_cursor;
 	TransactionId				xid; 
-	slist_mutable_iter			siter;
 	ClientHashItemInfo			*clientitem;
-	ClientXidItemInfo			*xiditem;
 	bool						found;
-	slist_head					xid_slist =  SLIST_STATIC_INIT(xid_slist);
 
 	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_FIND, &found);
 	Assert(found);
 
 	resetStringInfo(&gxid_send_output_buffer);
 	pq_sendbyte(&gxid_send_output_buffer, 'f');
+
+	start_cursor = gxid_send_input_buffer.cursor;
+	SpinLockAcquire(&GxidSender->mutex);
 	while(gxid_send_input_buffer.cursor < gxid_send_input_buffer.len)
 	{
 		procno = pq_getmsgint(&gxid_send_input_buffer, sizeof(procno));
@@ -818,31 +832,26 @@ static void GxidProcessFinishGxid(GxidClientData *client)
 		pq_sendint32(&gxid_send_output_buffer, procno);
 		pq_sendint32(&gxid_send_output_buffer, xid);
 
-		xiditem = palloc0(sizeof(*xiditem));
-		xiditem->xid = xid;
-		slist_push_head(&xid_slist, &xiditem->snode);
+		found = IsXidInPreparedState(xid);
+		/* comman commite, xid should not left in Prepared*/
+		Assert(!found);
+		SnapSendTransactionFinish(xid);
+		GxidDropXidClientItem(xid, clientitem);
+		GxidDropXidItem(xid);
 #ifdef SNAP_SYNC_DEBUG
 		ereport(LOG,(errmsg("GxidSend finish xid %d for client %s\n",
 			 			xid, clientitem->client_name)));
 #endif
 	}
-
-	SpinLockAcquire(&GxidSender->mutex);
-	slist_foreach_modify(siter, &xid_slist)
-	{
-		xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
-		found = IsXidInPreparedState(xiditem->xid);
-
-		/* comman commite, xid should not left in Prepared*/
-		Assert(!found);
-		SnapSendTransactionFinish(xiditem->xid);
-
-		GxidDropXidClientItem(xiditem->xid, clientitem);
-		GxidDropXidItem(xiditem->xid);
-		slist_delete(&xid_slist, &xiditem->snode);
-		pfree(xiditem);
-	}
 	SpinLockRelease(&GxidSender->mutex);
+
+	gxid_send_input_buffer.cursor = start_cursor;
+	while(gxid_send_input_buffer.cursor < gxid_send_input_buffer.len)
+	{
+		procno = pq_getmsgint(&gxid_send_input_buffer, sizeof(procno));
+		xid = pq_getmsgint(&gxid_send_input_buffer, sizeof(xid));
+		SnapReleaseTransactionLocks(&GxidSender->comm_lock, xid);
+	}
 
 	if (GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false) == false)
 	{
@@ -1101,4 +1110,9 @@ re_lock_:
 void GxidSendUnlockSendSock(void)
 {
 	pg_atomic_clear_flag(&GxidSender->lock);
+}
+
+void GxidSenderTransferLock(SnapTransPara *param, struct PGPROC *from)
+{
+	SnapTransferLock(&GxidSender->comm_lock, param, from);
 }

@@ -17,6 +17,9 @@
 #include "access/htup.h"
 #include "storage/relfilenode.h"
 #include "utils/relcache.h"
+#ifdef ADB
+#include "replication/snapcommon.h"
+#endif /*  */
 
 
 typedef void (*SyscacheCallbackFunction) (Datum arg, int cacheid, uint32 hashvalue);
@@ -25,7 +28,7 @@ typedef void (*RelcacheCallbackFunction) (Datum arg, Oid relid);
 
 extern void AcceptInvalidationMessages(void);
 
-extern void AtEOXact_Inval(bool isCommit);
+extern void AtEOXact_Inval(ADB_ONLY_ARG_COMMA(TransactionId latestXid) bool isCommit);
 
 extern void AtEOSubXact_Inval(bool isCommit);
 
@@ -67,6 +70,7 @@ extern void InvalidateSystemCaches(void);
 #ifdef ADB
 extern void InvalidateRemoteNode(void);
 extern bool HasInvalidateMessage(void);
+extern void SnapCollectAllInvalidMsgs(SnapTransPara *param);
 #endif /* ADB */
 
 #endif							/* INVAL_H */

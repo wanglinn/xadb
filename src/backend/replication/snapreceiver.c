@@ -11,6 +11,7 @@
 #include "postmaster/postmaster.h"
 #include "replication/walreceiver.h"
 #include "replication/snapreceiver.h"
+#include "replication/snapcommon.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
 #include "storage/lock.h"
@@ -30,23 +31,10 @@ int snap_receiver_timeout = 60 * 1000L;
 int snap_sender_connect_timeout = 5000L;
 int snap_receiver_sxmin_time;
 
-typedef struct SnapHoldLock
-{
-	LOCKTAG		tag;
-	LOCKMASK	holdMask;
-}SnapHoldLock;
-
-typedef struct SnapLockInfo
-{
-	dsa_pointer		next;
-	TransactionId	xid;
-	uint32			count;
-	SnapHoldLock	locks[FLEXIBLE_ARRAY_MEMBER];
-}SnapLockInfo;
-#define SNAP_LOCK_INFO_SIZE(count)	(offsetof(SnapLockInfo,locks)+sizeof(SnapHoldLock)*(count))
 
 typedef struct SnapRcvData
 {
+	SnapCommonLock	comm_lock;
 	WalRcvState		state;
 	pid_t			pid;
 	int				procno;
@@ -62,12 +50,6 @@ typedef struct SnapRcvData
 
 	TimestampTz		next_try_time;	/* next connection GTM time */
 	TimestampTz		gtm_delta_time;
-
-	dsa_pointer		first_lock_info;
-	dsa_pointer		last_lock_info;
-	dsa_handle		handle_lock_info;
-	LWLock			lock_lock_info;
-	LWLock			lock_proc_link;
 
 	uint32			xcnt;
 	TransactionId	latestCompletedXid;
@@ -136,10 +118,6 @@ typedef bool (*WaitSnapRcvCond)(void *context);
 static bool WaitSnapRcvCondStreaming(void *context);
 static bool WaitSnapRcvCondTransactionComplate(void *context);
 static bool WaitSnapRcvEvent(TimestampTz end, WaitSnapRcvCond test, void *context);
-
-static dsa_area* SnapRcvGetLockArea(void);
-static void SnapRcvReleaseTransactionLocks(TransactionId xid);
-static void SnapRcvReleaseSnapshotTxidLocks(TransactionId *xip, uint32 count, TransactionId lastxid);
 
 static void
 ProcessSnapRcvInterrupts(void)
@@ -280,7 +258,7 @@ void SnapReceiverMain(void)
 	on_shmem_exit(SnapRcvDie, (Datum)0);
 
 	/* make sure dsa_area create */
-	(void)SnapRcvGetLockArea();
+	(void)SnapGetLockArea(&SnapRcv->comm_lock);
 
 	now = WaitUntilStartTime();
 
@@ -459,11 +437,11 @@ void SnapRcvShmemInit(void)
 		SnapRcv->procno = INVALID_PGPROCNO;
 		SpinLockInit(&SnapRcv->mutex);
 
-		SnapRcv->handle_lock_info = DSM_HANDLE_INVALID;
-		SnapRcv->first_lock_info = InvalidDsaPointer;
-		SnapRcv->last_lock_info = InvalidDsaPointer;
-		LWLockInitialize(&SnapRcv->lock_lock_info, LWTRANCHE_SNAPSHOT_RECEIVER_DSA);
-		LWLockInitialize(&SnapRcv->lock_proc_link, LWTRANCHE_SNAPSHOT_RECEIVER_DSA);
+		SnapRcv->comm_lock.handle_lock_info = DSM_HANDLE_INVALID;
+		SnapRcv->comm_lock.first_lock_info = InvalidDsaPointer;
+		SnapRcv->comm_lock.last_lock_info = InvalidDsaPointer;
+		LWLockInitialize(&SnapRcv->comm_lock.lock_lock_info, LWTRANCHE_SNAPSHOT_COMMON_DSA);
+		LWLockInitialize(&SnapRcv->comm_lock.lock_proc_link, LWTRANCHE_SNAPSHOT_COMMON_DSA);
 		pg_atomic_init_u32(&SnapRcv->global_xmin, FirstNormalTransactionId);
 	}
 }
@@ -733,7 +711,7 @@ static void SnapRcvProcessSnapshot(char *buf, Size len)
 	if (TransactionIdIsValid(xmin))
 		pg_atomic_write_u32(&SnapRcv->global_xmin, xmin);
 	
-	SnapRcvReleaseSnapshotTxidLocks(xid, count, latestCompletedXid);
+	SnapReleaseSnapshotTxidLocks(&SnapRcv->comm_lock,xid, count, latestCompletedXid);
 
 	if (xid != NULL)
 		pfree(xid);
@@ -860,7 +838,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 		if (finish_xid_ack_send)
 			pq_sendint32(&xidmsg, txid);
 	}
-	
+
 	SnapRcv->xcnt = count;
 
 	UNLOCK_SNAP_RCV();
@@ -876,7 +854,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	while (msg.cursor < msg.len)
 	{
 		txid = pq_getmsgint(&msg, sizeof(txid));
-		SnapRcvReleaseTransactionLocks(txid);
+		SnapReleaseTransactionLocks(&SnapRcv->comm_lock, txid);
 	}
 }
 
@@ -1160,286 +1138,6 @@ bool SnapRcvWaitTopTransactionEnd(TransactionId txid, TimestampTz end)
 	return result;
 }
 
-static dsa_area* SnapRcvGetLockArea(void)
-{
-	static dsa_area *lock_area = NULL;
-	if (lock_area == NULL)
-	{
-		MemoryContext old_context = MemoryContextSwitchTo(TopMemoryContext);
-		dsa_handle handle;
-		LWLockAcquire(&SnapRcv->lock_lock_info, LW_SHARED);
-		handle = SnapRcv->handle_lock_info;
-		LWLockRelease(&SnapRcv->lock_lock_info);
-		if (handle == DSM_HANDLE_INVALID)
-		{
-			LWLockAcquire(&SnapRcv->lock_lock_info, LW_EXCLUSIVE);
-			if (SnapRcv->handle_lock_info == DSM_HANDLE_INVALID)
-			{
-				lock_area = dsa_create(LWTRANCHE_SNAPSHOT_RECEIVER_DSA);
-				SnapRcv->handle_lock_info = dsa_get_handle(lock_area);
-				dsa_pin(lock_area);
-			}else
-			{
-				handle = SnapRcv->handle_lock_info;
-			}
-			LWLockRelease(&SnapRcv->lock_lock_info);
-		}
-
-		if (lock_area == NULL)
-		{
-			Assert(handle != DSM_HANDLE_INVALID);
-			lock_area = dsa_attach(handle);
-		}
-		dsa_pin_mapping(lock_area);
-		MemoryContextSwitchTo(old_context);
-	}
-	Assert(lock_area != NULL);
-	return lock_area;
-}
-
-static inline LWLock* SnapRcvGetProcLinkLock(void)
-{
-	return &SnapRcv->lock_proc_link;
-}
-
-static void SnapRcvReleaseLock(SnapLockInfo *lock)
-{
-	uint32			i;
-	LOCKMODE		mode;
-	SnapHoldLock   *hold;
-
-	LWLockAcquire(SnapRcvGetProcLinkLock(), LW_EXCLUSIVE);
-	for (i=0;i<lock->count;++i)
-	{
-		hold = &lock->locks[i];
-		for (mode=0;mode<=MAX_LOCKMODES;++mode)
-		{
-			if (hold->holdMask & LOCKBIT_ON(mode))
-				TryReleaseLock(&hold->tag, mode, MyProc);
-		}
-	}
-	LWLockRelease(SnapRcvGetProcLinkLock());
-}
-
-static void SnapRcvReleaseTransactionLocks(TransactionId xid)
-{
-	dsa_area	   *lock_area = SnapRcvGetLockArea();
-	MemoryContext	old_context = MemoryContextSwitchTo(TopMemoryContext);
-	SnapLockInfo   *lock,*prev;
-	dsa_pointer		dp, prev_dp;
-
-	lock = prev = NULL;
-	LWLockAcquire(&SnapRcv->lock_lock_info, LW_EXCLUSIVE);
-	dp = SnapRcv->first_lock_info;
-	prev_dp = InvalidDsaPointer;
-
-	while (dp != InvalidDsaPointer)
-	{
-		lock = dsa_get_address(lock_area, dp);
-		if (lock->xid == xid)
-		{
-			if (!prev)
-			{
-				Assert(SnapRcv->first_lock_info == dp);
-				SnapRcv->first_lock_info = lock->next;
-			}
-			if (SnapRcv->last_lock_info == dp)
-			{
-				if (lock->next == InvalidDsaPointer && prev_dp != InvalidDsaPointer)
-					SnapRcv->last_lock_info = prev_dp;
-				else
-					SnapRcv->last_lock_info = lock->next;
-			}
-
-			if (prev)
-			{
-				prev->next = lock->next;
-			}
-			break;
-		}
-		prev = lock;
-		prev_dp = dp;
-		dp = lock->next;
-		lock = NULL;
-	}
-	LWLockRelease(&SnapRcv->lock_lock_info);
-
-	if (lock != NULL)
-	{
-		Assert(dsa_get_address(lock_area, dp) == lock);
-		SnapRcvReleaseLock(lock);
-		dsa_free(lock_area, dp);
-	}
-	MemoryContextSwitchTo(old_context);
-}
-
-static void SnapRcvReleaseSnapshotTxidLocks(TransactionId *xip, uint32 count, TransactionId lastxid)
-{
-	SnapLockInfo   *lock,*prev;
-	dsa_area	   *lock_area = SnapRcvGetLockArea();
-	SnapshotData	snap;
-	dsa_pointer		dp, prev_dp;
-	uint32			i;
-
-	MemSet(&snap, 0, sizeof(snap));
-	TransactionIdAdvance(lastxid);
-	snap.xmin = snap.xmax = lastxid;
-	for (i=0;i<count;++i)
-	{
-		lastxid = xip[i];
-		if (NormalTransactionIdPrecedes(lastxid, snap.xmin))
-			snap.xmin = lastxid;
-	}
-
-	lock = prev = NULL;
-	LWLockAcquire(&SnapRcv->lock_lock_info, LW_EXCLUSIVE);
-	dp = SnapRcv->first_lock_info;
-	prev_dp = InvalidDsaPointer;
-	while (dp != InvalidDsaPointer)
-	{
-		lock = dsa_get_address(lock_area, dp);
-		if (XidInMVCCSnapshot(lock->xid, &snap) == false)
-		{
-			dsa_pointer next = lock->next;
-			if (prev)
-			{
-				prev->next = lock->next;
-			}else
-			{
-				Assert(SnapRcv->first_lock_info == dp);
-				SnapRcv->first_lock_info = lock->next;
-			}
-			if (SnapRcv->last_lock_info == dp)
-			{
-				if (lock->next == InvalidDsaPointer && prev_dp != InvalidDsaPointer)
-					SnapRcv->last_lock_info = prev_dp;
-				else
-					SnapRcv->last_lock_info = lock->next;
-			}
-				
-			SnapRcvReleaseLock(lock);
-			dsa_free(lock_area, dp);
-			prev_dp = dp;
-			dp = next;
-		}else
-		{
-			prev = lock;
-			prev_dp = dp;
-			dp = lock->next;
-		}
-	}
-	LWLockRelease(&SnapRcv->lock_lock_info);
-}
-
-void* SnapRcvBeginTransferLock(void)
-{
-	HASHCTL		ctl;
-
-	MemSet(&ctl, 0, sizeof(ctl));
-	ctl.keysize = sizeof(LOCKTAG);
-	ctl.entrysize = sizeof(SnapHoldLock);
-	return hash_create("snapshot hold lock",
-					   MaxBackends,
-					   &ctl,
-					   HASH_ELEM|HASH_BLOBS);
-}
-
-void SnapRcvInsertTransferLock(void* map, const LOCKTAG *tag, LOCKMASK holdMask)
-{
-	bool found;
-	SnapHoldLock *hold;
-
-	if (tag->locktag_type != LOCKTAG_RELATION ||
-		!(holdMask & LOCKBIT_ON(AccessExclusiveLock)))
-		return;
-
-	hold = hash_search(map, tag, HASH_ENTER, &found);
-	if (found)
-		elog(ERROR, "locktag already exist");
-	hold->holdMask = holdMask;
-}
-
-bool SnapRcvIsHoldLock(void *map, const LOCKTAG *tag)
-{
-	return hash_search(map, tag, HASH_FIND, NULL) != NULL;
-}
-
-void SnapRcvTransferLock(void *map, TransactionId xid, struct PGPROC *from)
-{
-	uint32					i;
-	volatile dsa_pointer	pointer;
-	SnapLockInfo		   *info,*prev;
-	SnapHoldLock		   *hold;
-	HASH_SEQ_STATUS			seq_state;
-	dsa_area			   *lock_area;
-	PGPROC				   *newproc;
-
-	if (hash_get_num_entries(map) <= 0)
-		return;
-
-	lock_area = SnapRcvGetLockArea();
-	pointer = dsa_allocate0(lock_area, SNAP_LOCK_INFO_SIZE(hash_get_num_entries(map)));
-	PG_TRY();
-	{
-		info = dsa_get_address(lock_area, pointer);
-		info->xid = xid;
-		info->count = (uint32)hash_get_num_entries(map);
-		info->next = InvalidDsaPointer;
-		hash_seq_init(&seq_state, map);
-		i = 0;
-		while ((hold = hash_seq_search(&seq_state)) != NULL)
-		{
-			Assert(i < info->count);
-			info->locks[i] = *hold;
-			++i;
-		}
-
-		LWLockAcquire(&SnapRcv->lock_lock_info, LW_EXCLUSIVE);
-#ifdef USE_ASSERT_CHECKING
-		{
-			dsa_pointer dp = SnapRcv->first_lock_info;
-			while (dp != InvalidDsaPointer)
-			{
-				prev = dsa_get_address(lock_area, dp);
-				Assert(prev->xid != xid);
-				dp = prev->next;
-			}
-		}
-#endif /* USE_ASSERT_CHECKING */
-		if (SnapRcv->last_lock_info == InvalidDsaPointer)
-		{
-			Assert(SnapRcv->first_lock_info == InvalidDsaPointer);
-			SnapRcv->first_lock_info = pointer;
-		}else
-		{
-			Assert(SnapRcv->first_lock_info != InvalidDsaPointer);
-			prev = dsa_get_address(lock_area, SnapRcv->last_lock_info);
-			Assert(prev->next == InvalidDsaPointer);
-			prev->next = pointer;
-		}
-		SnapRcv->last_lock_info = pointer;
-		LWLockRelease(&SnapRcv->lock_lock_info);
-	}PG_CATCH();
-	{
-		dsa_free(SnapRcvGetLockArea(), pointer);
-		PG_RE_THROW();
-	}PG_END_TRY();
-
-	newproc = GetSnapshotProcess();
-	hash_seq_init(&seq_state, map);
-	LWLockAcquire(&SnapRcv->lock_proc_link, LW_EXCLUSIVE);
-
-	while((hold = hash_seq_search(&seq_state)) != NULL)
-		TransferLock(&hold->tag, from, newproc);
-
-	LWLockRelease(&SnapRcv->lock_proc_link);
-}
-
-void SnapRcvEndTransferLock(void* map)
-{
-	hash_destroy(map);
-}
-
 static TransactionId SnapRcvGetLocalXmin(void)
 {
 	TransactionId	xid,xmin,xmax, oldxmin;
@@ -1479,4 +1177,9 @@ TransactionId SnapRcvGetGlobalXmin(void)
 	TransactionId 	xmin;
 	xmin = pg_atomic_read_u32(&SnapRcv->global_xmin);
 	return xmin;
+}
+
+void SnapRcvTransferLock(SnapTransPara *param, struct PGPROC *from)
+{
+	SnapTransferLock(&SnapRcv->comm_lock, param, from);
 }
