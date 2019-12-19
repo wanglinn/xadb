@@ -1706,12 +1706,17 @@ static void mgr_cmd_run_backend(const char nodetype, const char cmdtype, const L
 * for the comand "start all" or "stop all" or "start nodename nodetype all", send the command to agent and
 * run as backend, at last, check the node's status, if fail, send the command again, then get result
 */
-Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtype, const List* nodenamelist, const char *shutdown_mode, PG_FUNCTION_ARGS)
+Datum mgr_typenode_cmd_run_backend_result(nodenames_supplier supplier,
+										  nodenames_consumer consumer,
+										  const char nodetype,
+										  const char cmdtype,
+										  const char *shutdown_mode,
+										  PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
 	ListCell  **lcp;
 	ListCell  *lc;
-	List *new_list = NIL;
+	List *nodenamelist = NIL;
 	HeapTuple tup_result;
 	NameData nodenamedata;
 	StringInfoData strdata;
@@ -1754,13 +1759,17 @@ Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtyp
 		/* switch to memory context appropriate for multiple function calls */
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
+		Assert(supplier);
+		nodenamelist = supplier(fcinfo, nodetype);
+		if(consumer)
+			consumer(nodenamelist, nodetype);
+
 		/* allocate memory for user context */
 		lcp = (ListCell **) palloc(sizeof(ListCell *));
-		new_list = list_copy(nodenamelist);
-		*lcp = list_head(new_list);
+		*lcp = list_head(nodenamelist);
 		funcctx->user_fctx = (void *) lcp;
 		/*send the command to agent, running as backend*/
-		mgr_cmd_run_backend(nodetype, cmdtype, new_list, shutdown_mode, fcinfo);
+		mgr_cmd_run_backend(nodetype, cmdtype, nodenamelist, shutdown_mode, fcinfo);
 
 		/*wait the max time to check the node status*/
 		if (*lcp != NULL)
@@ -1978,6 +1987,106 @@ Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtyp
 	}
 
 	SRF_RETURN_DONE(funcctx);
+}
+
+List *nodenames_supplier_of_db(PG_FUNCTION_ARGS, char nodetype)
+{
+	Assert(nodetype > 0);
+	return mgr_get_nodetype_namelist(nodetype);
+}
+
+List *nodenames_supplier_of_argidx_0(PG_FUNCTION_ARGS, char nodetype)
+{
+	return get_fcinfo_namelist("", 0, fcinfo);
+}
+
+List *nodenames_supplier_of_argidx_1(PG_FUNCTION_ARGS, char nodetype)
+{
+	return get_fcinfo_namelist("", 1, fcinfo);
+}
+
+List *nodenames_supplier_of_clean_node(PG_FUNCTION_ARGS, char nodetype)
+{
+	char *nodename;
+	char *user;
+	char *address;
+	NameData namedata;
+	List *nodenamelist = NIL;
+	Relation rel_node;
+	HeapScanDesc rel_scan;
+	HeapTuple tuple;
+	ListCell   *cell;
+	Form_mgr_node mgr_node;
+	ScanKeyData key[2];
+	char port_buf[10];
+	int ret;
+	/*ndoe type*/
+	nodetype = PG_GETARG_CHAR(0);
+	nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
+
+	/*check the node not in the cluster*/
+	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
+	foreach(cell, nodenamelist)
+	{
+		nodename = (char *) lfirst(cell);
+		namestrcpy(&namedata, nodename);
+		ScanKeyInit(&key[0],
+			Anum_mgr_node_nodetype
+			,BTEqualStrategyNumber
+			,F_CHAREQ
+			,CharGetDatum(nodetype));
+		ScanKeyInit(&key[1],
+			Anum_mgr_node_nodename
+			,BTEqualStrategyNumber
+			,F_NAMEEQ
+			,NameGetDatum(&namedata));
+
+		rel_scan = heap_beginscan_catalog(rel_node, 2, key);
+		if ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) == NULL)
+		{
+			heap_endscan(rel_scan);
+			heap_close(rel_node, RowExclusiveLock);
+			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+				 ,errmsg("%s \"%s\" does not exist", mgr_nodetype_str(nodetype), nodename)));
+		}
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		if (mgr_node->nodeincluster)
+		{
+			heap_endscan(rel_scan);
+			heap_close(rel_node, RowExclusiveLock);
+			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
+				 ,errmsg("%s \"%s\" already exists in cluster, cannot be cleaned", mgr_nodetype_str(nodetype), nodename)));
+		}
+		/*check node stoped*/
+		address = get_hostaddress_from_hostoid(mgr_node->nodehost);
+		sprintf(port_buf, "%d", mgr_node->nodeport);
+		user = get_hostuser_from_hostoid(mgr_node->nodehost);
+		ret = pingNode_user(address, port_buf, user);
+		pfree(address);
+		pfree(user);
+		if (ret == 0)
+		{
+			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
+				 ,errmsg("%s \"%s\" is running, cannot be cleaned, stop it first", mgr_nodetype_str(nodetype), nodename)));
+		}
+		mgr_node->allowcure = false;
+		namestrcpy(&mgr_node->curestatus, CURE_STATUS_NORMAL);
+		heap_inplace_update(rel_node, tuple);
+		heap_endscan(rel_scan);
+	}
+	heap_close(rel_node, RowExclusiveLock);
+
+	return nodenamelist;
+}
+
+void enable_doctor_consulting(List *nodenames, char nodetype)
+{
+	updateDoctorStatusOfMgrNodes(nodenames, nodetype, true, CURE_STATUS_NORMAL);
+}
+
+void disable_doctor_consulting(List *nodenames, char nodetype)
+{
+	updateDoctorStatusOfMgrNodes(nodenames, nodetype, false, CURE_STATUS_NORMAL);
 }
 
 char mgr_change_cmdtype_unbackend(char cmdtype)

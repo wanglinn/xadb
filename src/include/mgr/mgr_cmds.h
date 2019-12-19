@@ -138,6 +138,8 @@ typedef enum PGXC_NODE_MANIPULATE_TYPE
 	PGXC_NODE_MANIPULATE_TYPE_DROP
 } PGXC_NODE_MANIPULATE_TYPE;
 
+typedef List * (*nodenames_supplier) (PG_FUNCTION_ARGS, char nodetype);
+typedef void (nodenames_consumer)(List *nodenames, char nodetype);
 /* host commands, in cmd_host.c */
 
 extern void mgr_add_host(MGRAddHost *node, ParamListInfo params, DestReceiver *dest);
@@ -219,7 +221,12 @@ extern Datum mgr_stop_dn_slave(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_dn_slave_all(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_agent_all(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS);
-extern Datum mgr_runmode_cndn(char nodetype, char cmdtype, List *namelist, char *shutdown_mode, PG_FUNCTION_ARGS);
+extern Datum mgr_runmode_cndn(nodenames_supplier supplier,
+							  nodenames_consumer consumer,
+							  char nodetype,
+							  char cmdtype, 
+							  char *shutdown_mode, 
+							  PG_FUNCTION_ARGS);
 
 extern Datum mgr_boottime_all(PG_FUNCTION_ARGS);
 extern Datum mgr_boottime_gtmcoor_all(PG_FUNCTION_ARGS);
@@ -333,7 +340,18 @@ extern bool mgr_recv_msg_original_result(ManagerAgent	*ma, GetAgentCmdRst *getAg
 extern void mgr_get_cmd_head_word(char cmdtype, char *str);
 extern bool mgr_check_node_recovery_finish(char nodetype, Oid hostoid, int nodeport, char *address);
 extern char mgr_get_master_type(char nodetype);
-Datum mgr_typenode_cmd_run_backend_result(const char nodetype, const char cmdtype, const List* nodenamelist, const char *shutdown_mode, PG_FUNCTION_ARGS);
+extern Datum mgr_typenode_cmd_run_backend_result(nodenames_supplier supplier,
+												 nodenames_consumer consumer,
+												 const char nodetype,
+												 const char cmdtype,
+												 const char *shutdown_mode,
+												 PG_FUNCTION_ARGS);
+extern List *nodenames_supplier_of_db(PG_FUNCTION_ARGS, char nodetype);
+extern List *nodenames_supplier_of_argidx_0(PG_FUNCTION_ARGS, char nodetype);
+extern List *nodenames_supplier_of_argidx_1(PG_FUNCTION_ARGS, char nodetype);
+extern List *nodenames_supplier_of_clean_node(PG_FUNCTION_ARGS, char nodetype);
+extern void enable_doctor_consulting(List *nodenames, char nodetype);
+extern void disable_doctor_consulting(List *nodenames, char nodetype);
 extern char mgr_change_cmdtype_unbackend(char cmdtype);
 extern HeapTuple build_common_command_tuple_four_col(const Name name, char type, bool status, const char *description);
 extern bool mgr_check_param_reload_postgresqlconf(char nodetype, Oid hostoid, int nodeport, char *address, char *check_param, char *expect_result);

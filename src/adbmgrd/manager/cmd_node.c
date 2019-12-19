@@ -1131,13 +1131,10 @@ Datum mgr_drop_node_func(PG_FUNCTION_ARGS)
 Datum
 mgr_init_gtmcoor_master(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
-
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
-	nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_GTM_COOR_MASTER);
-	return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOOR_INIT, nodenamelist, TAKEPLAPARM_N, fcinfo);
+	return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOOR_INIT, TAKEPLAPARM_N, fcinfo);
 }
 
 /*
@@ -1146,13 +1143,10 @@ mgr_init_gtmcoor_master(PG_FUNCTION_ARGS)
 Datum
 mgr_init_gtmcoor_slave(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
-
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
-	nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_GTM_COOR_SLAVE);
-	return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_SLAVE_INIT, nodenamelist, TAKEPLAPARM_N, fcinfo);
+	return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_SLAVE_INIT, TAKEPLAPARM_N, fcinfo);
 }
 
 /*
@@ -1162,18 +1156,13 @@ mgr_init_gtmcoor_slave(PG_FUNCTION_ARGS)
 Datum
 mgr_init_cn_master(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
-
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	if (PG_ARGISNULL(0))
-		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_MASTER);
+		return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CNDN_CNDN_INIT, TAKEPLAPARM_N, fcinfo);
 	else
-		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
-
-	return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CNDN_CNDN_INIT
-		, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		return mgr_runmode_cndn(nodenames_supplier_of_argidx_0, NULL, CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CNDN_CNDN_INIT, TAKEPLAPARM_N, fcinfo);
 }
 
 /*
@@ -1183,17 +1172,13 @@ mgr_init_cn_master(PG_FUNCTION_ARGS)
 Datum
 mgr_init_dn_master(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
-
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	if (PG_ARGISNULL(0))
-		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_MASTER);
+		return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_DATANODE_MASTER, AGT_CMD_CNDN_CNDN_INIT, TAKEPLAPARM_N, fcinfo);
 	else
-		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
-
-	return mgr_runmode_cndn(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_CNDN_CNDN_INIT, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		return mgr_runmode_cndn(nodenames_supplier_of_argidx_0, NULL, CNDN_TYPE_DATANODE_MASTER, AGT_CMD_CNDN_CNDN_INIT, TAKEPLAPARM_N, fcinfo);
 }
 
 /*
@@ -1441,22 +1426,24 @@ get_fcinfo_namelist(const char *sepstr, int argidx, FunctionCallInfo fcinfo)
 */
 Datum mgr_start_gtmcoor_master(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
-	char *nodename;
-
 	mgr_check_job_in_updateparam("monitor_handle_gtm");
 	if (PG_ARGISNULL(0))
 	{
-		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_GTM_COOR_MASTER);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, true, CURE_STATUS_NORMAL);
-		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOOR_START_MASTER_BACKEND, nodenamelist, TAKEPLAPARM_N,fcinfo);
+		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
+												   enable_doctor_consulting,
+												   CNDN_TYPE_GTM_COOR_MASTER,
+												   AGT_CMD_GTMCOOR_START_MASTER_BACKEND,
+												   TAKEPLAPARM_N,
+												   fcinfo);
 	}
 	else
 	{
-		nodename = PG_GETARG_CSTRING(0);
-		nodenamelist = lappend(nodenamelist, nodename);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, true, CURE_STATUS_NORMAL);
-		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOOR_START_MASTER, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		return mgr_runmode_cndn(nodenames_supplier_of_argidx_0,
+								enable_doctor_consulting,
+								CNDN_TYPE_GTM_COOR_MASTER,
+								AGT_CMD_GTMCOOR_START_MASTER,
+								TAKEPLAPARM_N,
+								fcinfo);
 	}
 }
 
@@ -1465,21 +1452,23 @@ Datum mgr_start_gtmcoor_master(PG_FUNCTION_ARGS)
 */
 Datum mgr_start_gtmcoor_slave(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
-	char *nodename;
-
 	if (PG_ARGISNULL(0))
 	{
-		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_GTM_COOR_SLAVE);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, true, CURE_STATUS_NORMAL);
-		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_START_SLAVE_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
+												   enable_doctor_consulting,
+												   CNDN_TYPE_GTM_COOR_SLAVE,
+												   AGT_CMD_GTMCOOR_START_SLAVE_BACKEND,
+												   TAKEPLAPARM_N,
+												   fcinfo);
 	}
 	else
 	{
-		nodename = PG_GETARG_CSTRING(0);
-		nodenamelist = lappend(nodenamelist, nodename);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, true, CURE_STATUS_NORMAL);
-		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_START_SLAVE, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		return mgr_runmode_cndn(nodenames_supplier_of_argidx_0,
+								enable_doctor_consulting,
+								CNDN_TYPE_GTM_COOR_SLAVE,
+								AGT_CMD_GTMCOOR_START_SLAVE,
+								TAKEPLAPARM_N,
+								fcinfo);
 	}
 }
 
@@ -1489,21 +1478,25 @@ Datum mgr_start_gtmcoor_slave(PG_FUNCTION_ARGS)
 */
 Datum mgr_start_cn_master(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
-
 	mgr_check_job_in_updateparam("monitor_handle_coordinator");
 
 	if (PG_ARGISNULL(0))
 	{
-		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_MASTER);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, true, CURE_STATUS_NORMAL);
-		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
+												   enable_doctor_consulting,
+												   CNDN_TYPE_COORDINATOR_MASTER,
+												   AGT_CMD_CN_START_BACKEND,
+												   TAKEPLAPARM_N,
+												   fcinfo);
 	}
 	else
 	{
-		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, true, CURE_STATUS_NORMAL);
-		return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		return mgr_runmode_cndn(nodenames_supplier_of_argidx_0,
+								enable_doctor_consulting,
+								CNDN_TYPE_COORDINATOR_MASTER,
+								AGT_CMD_CN_START,
+								TAKEPLAPARM_N,
+								fcinfo);
 	}
 }
 
@@ -1513,21 +1506,25 @@ Datum mgr_start_cn_master(PG_FUNCTION_ARGS)
 */
 Datum mgr_start_cn_slave(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
-
 	mgr_check_job_in_updateparam("monitor_handle_coordinator");
 
 	if (PG_ARGISNULL(0))
 	{
-		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_SLAVE);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, true, CURE_STATUS_NORMAL);
-		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
+												   enable_doctor_consulting,
+												   CNDN_TYPE_COORDINATOR_SLAVE,
+												   AGT_CMD_CN_START_BACKEND,
+												   TAKEPLAPARM_N,
+												   fcinfo);
 	}
 	else
 	{
-		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, true, CURE_STATUS_NORMAL);
-		return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		return mgr_runmode_cndn(nodenames_supplier_of_argidx_0,
+								enable_doctor_consulting,
+								CNDN_TYPE_COORDINATOR_SLAVE,
+								AGT_CMD_CN_START,
+								TAKEPLAPARM_N,
+								fcinfo);
 	}
 }
 
@@ -1537,20 +1534,24 @@ Datum mgr_start_cn_slave(PG_FUNCTION_ARGS)
 */
 Datum mgr_start_dn_master(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
-
 	mgr_check_job_in_updateparam("monitor_handle_datanode");
 	if (PG_ARGISNULL(0))
 	{
-		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_MASTER);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, true, CURE_STATUS_NORMAL);
-		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
+												   enable_doctor_consulting,
+												   CNDN_TYPE_DATANODE_MASTER,
+												   AGT_CMD_DN_START_BACKEND,
+												   TAKEPLAPARM_N,
+												   fcinfo);
 	}
 	else
 	{
-		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, true, CURE_STATUS_NORMAL);
-		return mgr_runmode_cndn(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		return mgr_runmode_cndn(nodenames_supplier_of_argidx_0,
+								enable_doctor_consulting,
+								CNDN_TYPE_DATANODE_MASTER,
+								AGT_CMD_DN_START,
+								TAKEPLAPARM_N,
+								fcinfo);
 	}
 }
 
@@ -1596,19 +1597,23 @@ Datum mgr_start_one_dn_master(PG_FUNCTION_ARGS)
 */
 Datum mgr_start_dn_slave(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
-
 	if (PG_ARGISNULL(0))
 	{
-		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_SLAVE);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, true, CURE_STATUS_NORMAL);
-		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_START_BACKEND, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
+												   enable_doctor_consulting,
+												   CNDN_TYPE_DATANODE_SLAVE,
+												   AGT_CMD_DN_START_BACKEND,
+												   TAKEPLAPARM_N,
+												   fcinfo);
 	}
 	else
 	{
-		nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, true, CURE_STATUS_NORMAL);
-		return mgr_runmode_cndn(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_START, nodenamelist, TAKEPLAPARM_N, fcinfo);
+		return mgr_runmode_cndn(nodenames_supplier_of_argidx_0,
+								enable_doctor_consulting,
+								CNDN_TYPE_DATANODE_SLAVE,
+								AGT_CMD_DN_START,
+								TAKEPLAPARM_N,
+								fcinfo);
 	}
 }
 
@@ -2033,24 +2038,27 @@ end:
 */
 Datum mgr_stop_gtmcoor_master(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
 	char *stop_mode;
-	char *nodename;
 
 	mgr_check_job_in_updateparam("monitor_handle_gtm");
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
 	{
-		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_GTM_COOR_MASTER);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, false, CURE_STATUS_NORMAL);
-		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_CN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
+		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
+												   disable_doctor_consulting,
+												   CNDN_TYPE_GTM_COOR_MASTER,
+												   AGT_CMD_CN_STOP_BACKEND,
+												   stop_mode,
+												   fcinfo);
 	}
 	else
 	{
-		nodename = PG_GETARG_CSTRING(1);
-		nodenamelist = lappend(nodenamelist, nodename);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_MASTER, false, CURE_STATUS_NORMAL);
-		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_CN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
+		return mgr_runmode_cndn(nodenames_supplier_of_argidx_1,
+								disable_doctor_consulting,
+								CNDN_TYPE_GTM_COOR_MASTER,
+								AGT_CMD_CN_STOP_BACKEND,
+								stop_mode,
+								fcinfo);
 	}
 }
 
@@ -2100,23 +2108,26 @@ Datum mgr_stop_one_gtm_master(PG_FUNCTION_ARGS)
 */
 Datum mgr_stop_gtmcoor_slave(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
 	char *stop_mode;
-	char *nodename;
 
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
 	{
-		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_GTM_COOR_SLAVE);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, false, CURE_STATUS_NORMAL);
-		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND, nodenamelist, stop_mode, fcinfo);
+		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
+												   disable_doctor_consulting,
+												   CNDN_TYPE_GTM_COOR_SLAVE,
+												   AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND,
+												   stop_mode,
+												   fcinfo);
 	}
 	else
 	{
-		nodename = PG_GETARG_CSTRING(1);
-		nodenamelist = lappend(nodenamelist, nodename);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_GTM_COOR_SLAVE, false, CURE_STATUS_NORMAL);
-		return mgr_runmode_cndn(CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_STOP_SLAVE, nodenamelist, stop_mode, fcinfo);
+		return mgr_runmode_cndn(nodenames_supplier_of_argidx_1,
+								disable_doctor_consulting,
+								CNDN_TYPE_GTM_COOR_SLAVE,
+								AGT_CMD_GTMCOOR_STOP_SLAVE,
+								stop_mode,
+								fcinfo);
 	}
 }
 
@@ -2126,7 +2137,6 @@ Datum mgr_stop_gtmcoor_slave(PG_FUNCTION_ARGS)
 */
 Datum mgr_stop_cn_master(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
 	char *stop_mode;
 
 	mgr_check_job_in_updateparam("monitor_handle_coordinator");
@@ -2134,15 +2144,21 @@ Datum mgr_stop_cn_master(PG_FUNCTION_ARGS)
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
 	{
-		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_MASTER);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, false, CURE_STATUS_NORMAL);
-		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
+		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
+												   disable_doctor_consulting,
+												   CNDN_TYPE_COORDINATOR_MASTER,
+												   AGT_CMD_CN_STOP_BACKEND,
+												   stop_mode,
+												   fcinfo);
 	}
 	else
 	{
-		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_MASTER, false, CURE_STATUS_NORMAL);
-		return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CN_STOP, nodenamelist, stop_mode, fcinfo);
+		return mgr_runmode_cndn(nodenames_supplier_of_argidx_1,
+								disable_doctor_consulting,
+								CNDN_TYPE_COORDINATOR_MASTER,
+								AGT_CMD_CN_STOP,
+								stop_mode,
+								fcinfo);
 	}
 }
 
@@ -2152,7 +2168,6 @@ Datum mgr_stop_cn_master(PG_FUNCTION_ARGS)
 */
 Datum mgr_stop_cn_slave(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
 	char *stop_mode;
 
 	mgr_check_job_in_updateparam("monitor_handle_coordinator");
@@ -2160,15 +2175,21 @@ Datum mgr_stop_cn_slave(PG_FUNCTION_ARGS)
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
 	{
-		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_COORDINATOR_SLAVE);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, false, CURE_STATUS_NORMAL);
-		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
+		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
+												   disable_doctor_consulting,
+												   CNDN_TYPE_COORDINATOR_SLAVE,
+												   AGT_CMD_CN_STOP_BACKEND,
+												   stop_mode,
+												   fcinfo);
 	}
 	else
 	{
-		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_COORDINATOR_SLAVE, false, CURE_STATUS_NORMAL);
-		return mgr_runmode_cndn(CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CN_STOP, nodenamelist, stop_mode, fcinfo);
+		return mgr_runmode_cndn(nodenames_supplier_of_argidx_1,
+								disable_doctor_consulting,
+								CNDN_TYPE_COORDINATOR_SLAVE,
+								AGT_CMD_CN_STOP, 
+								stop_mode,
+								fcinfo);
 	}
 }
 
@@ -2178,22 +2199,27 @@ Datum mgr_stop_cn_slave(PG_FUNCTION_ARGS)
 */
 Datum mgr_stop_dn_master(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
 	char *stop_mode;
 
 	mgr_check_job_in_updateparam("monitor_handle_datanode");
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
 	{
-		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_MASTER);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, false, CURE_STATUS_NORMAL);
-		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
+		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
+												   disable_doctor_consulting,
+												   CNDN_TYPE_DATANODE_MASTER,
+												   AGT_CMD_DN_STOP_BACKEND,
+												   stop_mode,
+												   fcinfo);
 	}
 	else
 	{
-		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_MASTER, false, CURE_STATUS_NORMAL);
-		return mgr_runmode_cndn(CNDN_TYPE_DATANODE_MASTER, AGT_CMD_DN_STOP, nodenamelist, stop_mode, fcinfo);
+		return mgr_runmode_cndn(nodenames_supplier_of_argidx_1,
+								disable_doctor_consulting,
+								CNDN_TYPE_DATANODE_MASTER,
+								AGT_CMD_DN_STOP,
+								stop_mode,
+								fcinfo);
 	}
 }
 
@@ -2238,35 +2264,45 @@ Datum mgr_stop_one_dn_master(PG_FUNCTION_ARGS)
 */
 Datum mgr_stop_dn_slave(PG_FUNCTION_ARGS)
 {
-	List *nodenamelist = NIL;
 	char *stop_mode;
 
 	stop_mode = PG_GETARG_CSTRING(0);
 	if (PG_ARGISNULL(1))
 	{
-		nodenamelist = mgr_get_nodetype_namelist(CNDN_TYPE_DATANODE_SLAVE);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, false, CURE_STATUS_NORMAL);
-		return mgr_typenode_cmd_run_backend_result(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_STOP_BACKEND, nodenamelist, stop_mode, fcinfo);
+		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
+												   disable_doctor_consulting,
+												   CNDN_TYPE_DATANODE_SLAVE,
+												   AGT_CMD_DN_STOP_BACKEND,
+												   stop_mode,
+												   fcinfo);
 	}
 	else
 	{
-		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
-		updateDoctorStatusOfMgrNodes(nodenamelist, CNDN_TYPE_DATANODE_SLAVE, false, CURE_STATUS_NORMAL);
-		return mgr_runmode_cndn(CNDN_TYPE_DATANODE_SLAVE, AGT_CMD_DN_STOP, nodenamelist, stop_mode, fcinfo);
+		return mgr_runmode_cndn(nodenames_supplier_of_argidx_1,
+								disable_doctor_consulting,
+								CNDN_TYPE_DATANODE_SLAVE,
+								AGT_CMD_DN_STOP,
+								stop_mode,
+								fcinfo);
 	}
 }
 
 /*
 * get the result of start/stop/init gtm master/slave, coordinator master/slave, datanode master/slave
 */
-Datum mgr_runmode_cndn(char nodetype, char cmdtype, List* nodenamelist , char *shutdown_mode, PG_FUNCTION_ARGS)
+Datum mgr_runmode_cndn(nodenames_supplier supplier,
+					   nodenames_consumer consumer,
+					   char nodetype,
+					   char cmdtype, 
+					   char *shutdown_mode, 
+					   PG_FUNCTION_ARGS)
 {
 	GetAgentCmdRst getAgentCmdRst;
 	HeapTuple tup_result;
 	HeapTuple aimtuple =NULL;
 	FuncCallContext *funcctx;
 	ListCell **lcp;
-	List *new_list;
+	List *nodenamelist;
 	InitNodeInfo *info;
 	char *nodestrname;
 	NameData nodenamedata;
@@ -2280,12 +2316,16 @@ Datum mgr_runmode_cndn(char nodetype, char cmdtype, List* nodenamelist , char *s
 		funcctx = SRF_FIRSTCALL_INIT();
 		/* switch to memory context appropriate for multiple function calls */
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		Assert(supplier);
+		nodenamelist = supplier(fcinfo, nodetype);
+		if(consumer)
+			consumer(nodenamelist, nodetype);
+
 		/* allocate memory for user context */
 		info = palloc(sizeof(*info));
 		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
-		new_list = list_copy(nodenamelist);
-		*(info->lcp) = list_head(new_list);
-		list_free(nodenamelist);
+		*(info->lcp) = list_head(nodenamelist);
 
 		info->rel_node = heap_open(NodeRelationId, RowExclusiveLock);
 		/* save info */
@@ -7717,79 +7757,15 @@ Datum mgr_clean_all(PG_FUNCTION_ARGS)
 
 Datum mgr_clean_node(PG_FUNCTION_ARGS)
 {
-	char nodetype;
-	char *nodename;
-	char *user;
-	char *address;
-	NameData namedata;
-	List *nodenamelist = NIL;
-	Relation rel_node;
-	HeapScanDesc rel_scan;
-	HeapTuple tuple;
-	ListCell   *cell;
-	Form_mgr_node mgr_node;
-	ScanKeyData key[2];
-	char port_buf[10];
-	int ret;
-	/*ndoe type*/
-	nodetype = PG_GETARG_CHAR(0);
-	nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
-
-	/*check the node not in the cluster*/
-	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
-	foreach(cell, nodenamelist)
-	{
-		nodename = (char *) lfirst(cell);
-		namestrcpy(&namedata, nodename);
-		ScanKeyInit(&key[0],
-			Anum_mgr_node_nodetype
-			,BTEqualStrategyNumber
-			,F_CHAREQ
-			,CharGetDatum(nodetype));
-		ScanKeyInit(&key[1],
-			Anum_mgr_node_nodename
-			,BTEqualStrategyNumber
-			,F_NAMEEQ
-			,NameGetDatum(&namedata));
-
-		rel_scan = heap_beginscan_catalog(rel_node, 2, key);
-		if ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) == NULL)
-		{
-			heap_endscan(rel_scan);
-			heap_close(rel_node, RowExclusiveLock);
-			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-				 ,errmsg("%s \"%s\" does not exist", mgr_nodetype_str(nodetype), nodename)));
-		}
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		if (mgr_node->nodeincluster)
-		{
-			heap_endscan(rel_scan);
-			heap_close(rel_node, RowExclusiveLock);
-			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
-				 ,errmsg("%s \"%s\" already exists in cluster, cannot be cleaned", mgr_nodetype_str(nodetype), nodename)));
-		}
-		/*check node stoped*/
-		address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-		sprintf(port_buf, "%d", mgr_node->nodeport);
-		user = get_hostuser_from_hostoid(mgr_node->nodehost);
-		ret = pingNode_user(address, port_buf, user);
-		pfree(address);
-		pfree(user);
-		if (ret == 0)
-		{
-			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
-				 ,errmsg("%s \"%s\" is running, cannot be cleaned, stop it first", mgr_nodetype_str(nodetype), nodename)));
-		}
-		mgr_node->allowcure = false;
-		namestrcpy(&mgr_node->curestatus, CURE_STATUS_NORMAL);
-		heap_inplace_update(rel_node, tuple);
-		heap_endscan(rel_scan);
-	}
-	heap_close(rel_node, RowExclusiveLock);
-
-	return mgr_runmode_cndn(nodetype, AGT_CMD_CLEAN_NODE, nodenamelist, TAKEPLAPARM_N, fcinfo);
-
+	char nodetype = PG_GETARG_CHAR(0);
+	return mgr_runmode_cndn(nodenames_supplier_of_clean_node,
+							NULL,
+							nodetype,
+							AGT_CMD_CLEAN_NODE,
+							TAKEPLAPARM_N,
+							fcinfo);
 }
+
 /*clean the node folder*/
 void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, GetAgentCmdRst *getAgentCmdRst)
 {
