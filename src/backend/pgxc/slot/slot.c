@@ -337,7 +337,7 @@ SlotCreate(CreateSlotStmt *stmt)
 
 	htup = search_adb_slot_tuple_by_slotid(adbslotsrel, slotid);
 	if (HeapTupleIsValid(htup))
-		elog(ERROR, "this slot has already existed");
+		elog(ERROR, "the slotid %u has already existed", slotid);
 
 
 	/* Build entry tuple */
