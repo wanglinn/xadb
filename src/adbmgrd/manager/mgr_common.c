@@ -1168,7 +1168,7 @@ bool mgr_promote_node(char cmdtype, Oid hostOid, char *path, StringInfo strinfo)
 	StringInfoData infosendmsg;
 
 	/*check the cmdtype*/
-	if (AGT_CMD_GTMCOOR_SLAVE_FAILOVER != cmdtype || AGT_CMD_DN_FAILOVER != cmdtype)
+	if (AGT_CMD_GTMCOORD_SLAVE_FAILOVER != cmdtype || AGT_CMD_DN_FAILOVER != cmdtype)
 	{
 		appendStringInfo(strinfo, "the cmdtype is \"%d\", not for gtm promote or datanode promote", cmdtype);
 		return false;
@@ -1366,7 +1366,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	ereport(NOTICE, (errmsg("pg_ctl stop %s \"%s\" with fast mode", nodetypestr, nodename)));
 	resetStringInfo(&(getAgentCmdRst.description));
 	if (bGtmType)
-		mgr_runmode_cndn_get_result(AGT_CMD_GTMCOOR_STOP_SLAVE, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
+		mgr_runmode_cndn_get_result(AGT_CMD_GTMCOORD_STOP_SLAVE, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
 	else
 		mgr_runmode_cndn_get_result(AGT_CMD_DN_STOP, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
 	if(!getAgentCmdRst.ret)
@@ -1743,9 +1743,9 @@ Datum mgr_typenode_cmd_run_backend_result(nodenames_supplier supplier,
 	char *cmd_type;
 	char port_buf[10];
 
-	bstartcmd = (AGT_CMD_GTMCOOR_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_START_SLAVE_BACKEND == cmdtype
+	bstartcmd = (AGT_CMD_GTMCOORD_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOORD_START_SLAVE_BACKEND == cmdtype
 								|| AGT_CMD_CN_START_BACKEND == cmdtype || AGT_CMD_DN_START_BACKEND == cmdtype);
-	bstopcmd = (AGT_CMD_GTMCOOR_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND == cmdtype
+	bstopcmd = (AGT_CMD_GTMCOORD_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOORD_STOP_SLAVE_BACKEND == cmdtype
 								|| AGT_CMD_CN_STOP_BACKEND == cmdtype || AGT_CMD_DN_STOP_BACKEND == cmdtype);
 	//bgtmtype = (CNDN_TYPE_GTM_COOR_MASTER == nodetype || CNDN_TYPE_GTM_COOR_SLAVE == nodetype);
 	/* stuff done only on the first call of the function */
@@ -1932,7 +1932,7 @@ Datum mgr_typenode_cmd_run_backend_result(nodenames_supplier supplier,
 					pfree(typestr);
 				}
 				mgr_get_nodeinfo_byname_type(nodename, nodetype, false, &slave_is_exist, &slave_is_running, &node_info);
-				if (AGT_CMD_GTMCOOR_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_START_SLAVE_BACKEND == cmdtype)
+				if (AGT_CMD_GTMCOORD_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOORD_START_SLAVE_BACKEND == cmdtype)
 					appendStringInfo(&infosendmsg, " start -D %s -Z gtm_coord  -o -i -w -c -t 3 -l %s/logfile", node_info.nodepath, node_info.nodepath);
 				else if (AGT_CMD_CN_START_BACKEND == cmdtype)
 					appendStringInfo(&infosendmsg, " start -D %s -Z coordinator -o -i -w -c -t 3 -l %s/logfile"
@@ -1962,7 +1962,7 @@ Datum mgr_typenode_cmd_run_backend_result(nodenames_supplier supplier,
 					pfree(typestr);
 				}
 				mgr_get_nodeinfo_byname_type(nodename, nodetype, false, &slave_is_exist, &slave_is_running, &node_info);
-				if (AGT_CMD_GTMCOOR_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND == cmdtype)
+				if (AGT_CMD_GTMCOORD_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOORD_STOP_SLAVE_BACKEND == cmdtype)
 					appendStringInfo(&infosendmsg, " stop -D %s -m %s -o -i -w -c -t 3", node_info.nodepath, shutdown_mode);
 				else if (AGT_CMD_CN_STOP_BACKEND == cmdtype)
 					appendStringInfo(&infosendmsg, " stop -D %s -Z coordinator -m %s -o -i -w -c -t 3", node_info.nodepath, shutdown_mode);
@@ -2093,11 +2093,11 @@ char mgr_change_cmdtype_unbackend(char cmdtype)
 {
 	switch(cmdtype)
 	{
-		case	AGT_CMD_GTMCOOR_START_MASTER_BACKEND:
-			return	AGT_CMD_GTMCOOR_START_MASTER;
+		case	AGT_CMD_GTMCOORD_START_MASTER_BACKEND:
+			return	AGT_CMD_GTMCOORD_START_MASTER;
 
-		case	AGT_CMD_GTMCOOR_START_SLAVE_BACKEND:
-			return	AGT_CMD_GTMCOOR_START_SLAVE;
+		case	AGT_CMD_GTMCOORD_START_SLAVE_BACKEND:
+			return	AGT_CMD_GTMCOORD_START_SLAVE;
 
 		case	AGT_CMD_CN_START_BACKEND:
 			return	AGT_CMD_CN_START;
@@ -2105,14 +2105,14 @@ char mgr_change_cmdtype_unbackend(char cmdtype)
 		case	AGT_CMD_DN_START_BACKEND:
 			return	AGT_CMD_DN_START;
 
-		case	AGT_CMD_GTMCOOR_STOP_MASTER_BACKEND:
-			return	AGT_CMD_GTMCOOR_STOP_MASTER;
+		case	AGT_CMD_GTMCOORD_STOP_MASTER_BACKEND:
+			return	AGT_CMD_GTMCOORD_STOP_MASTER;
 
-		case 	AGT_CMD_GTMCOOR_STOP_SLAVE:
-			return	AGT_CMD_GTMCOOR_STOP_SLAVE;
+		case 	AGT_CMD_GTMCOORD_STOP_SLAVE:
+			return	AGT_CMD_GTMCOORD_STOP_SLAVE;
 
-		case	AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND:
-			return	AGT_CMD_GTMCOOR_STOP_SLAVE;
+		case	AGT_CMD_GTMCOORD_STOP_SLAVE_BACKEND:
+			return	AGT_CMD_GTMCOORD_STOP_SLAVE;
 
 		case	AGT_CMD_CN_STOP_BACKEND:
 			return AGT_CMD_CN_STOP;

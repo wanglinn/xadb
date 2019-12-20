@@ -136,13 +136,13 @@ CREATE VIEW adbmgr.hba AS
 
 --init all
 CREATE VIEW adbmgr.initall AS
-	SELECT 'init gtmcoord master' AS "operation type",* FROM mgr_init_gtmcoor_master()
+	SELECT 'init gtmcoord master' AS "operation type",* FROM mgr_init_gtmcoord_master()
 	UNION ALL
-	SELECT 'start gtmcoord master' AS "operation type", * FROM mgr_start_gtmcoor_master(NULL)
+	SELECT 'start gtmcoord master' AS "operation type", * FROM mgr_start_gtmcoord_master(NULL)
 	UNION ALL
-	SELECT 'init gtmcoord slave' AS "operation type",* FROM mgr_init_gtmcoor_slave()
+	SELECT 'init gtmcoord slave' AS "operation type",* FROM mgr_init_gtmcoord_slave()
 	UNION ALL
-	SELECT 'start gtmcoord slave' AS "operation type", * FROM mgr_start_gtmcoor_slave(NULL)
+	SELECT 'start gtmcoord slave' AS "operation type", * FROM mgr_start_gtmcoord_slave(NULL)
 	UNION ALL
 	SELECT 'init coordinator' AS "operation type",* FROM mgr_init_cn_master(NULL)
 	UNION ALL
@@ -159,25 +159,25 @@ CREATE VIEW adbmgr.initall AS
 	SELECT 'config gtmcoord and coordinator' AS "operation type", * FROM mgr_configure_nodes_all(NULL);
 
 --start gtmcoord all
-CREATE VIEW adbmgr.start_gtmcoor_all AS
-	SELECT 'start gtmcoord master' AS "operation type", * FROM mgr_start_gtmcoor_master(NULL)
+CREATE VIEW adbmgr.start_gtmcoord_all AS
+	SELECT 'start gtmcoord master' AS "operation type", * FROM mgr_start_gtmcoord_master(NULL)
 	UNION all
-	SELECT 'start gtmcoord slave' AS "operation type", * FROM mgr_start_gtmcoor_slave(NULL);
+	SELECT 'start gtmcoord slave' AS "operation type", * FROM mgr_start_gtmcoord_slave(NULL);
 --stop gtmcoord all
 CREATE VIEW adbmgr.stop_gtm_all AS
-	SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('smart', NULL)
+	SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoord_slave('smart', NULL)
 	UNION all
-	SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoor_master('smart', NULL);
+	SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoord_master('smart', NULL);
 --stop gtmcoord all -m f
 CREATE VIEW adbmgr.stop_gtm_all_f AS
-	SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('fast', NULL)
+	SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoord_slave('fast', NULL)
 	UNION all
-	SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoor_master('fast', NULL);
+	SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoord_master('fast', NULL);
 --stop gtmcoord all -m i
 CREATE VIEW adbmgr.stop_gtm_all_i AS
-	SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('immediate', NULL)
+	SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoord_slave('immediate', NULL)
 	UNION all
-	SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoor_master('immediate', NULL);
+	SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoord_master('immediate', NULL);
 --init datanode all
 CREATE VIEW adbmgr.initdatanodeall AS
     SELECT 'init datanode master' AS "operation type",* FROM mgr_init_dn_master(NULL)
@@ -203,9 +203,9 @@ CREATE VIEW adbmgr.start_coordinator_all AS
 
 --start all
 CREATE VIEW adbmgr.startall AS
-    SELECT 'start gtmcoord master' AS "operation type", * FROM mgr_start_gtmcoor_master(NULL)
+    SELECT 'start gtmcoord master' AS "operation type", * FROM mgr_start_gtmcoord_master(NULL)
     UNION all
-    SELECT 'start gtmcoord slave' AS "operation type", * FROM mgr_start_gtmcoor_slave(NULL)
+    SELECT 'start gtmcoord slave' AS "operation type", * FROM mgr_start_gtmcoord_slave(NULL)
     UNION all
     SELECT 'start coordinator master' AS "operation type", * FROM mgr_start_cn_master(NULL)
     UNION all
@@ -257,9 +257,9 @@ CREATE VIEW adbmgr.stopall AS
     UNION all
     SELECT 'stop coordinator slave' AS "operation type", * FROM mgr_stop_cn_slave('smart', NULL)
     UNION all
-    SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('smart', NULL)
+    SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoord_slave('smart', NULL)
     UNION all
-    SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoor_master('smart', NULL);
+    SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoord_master('smart', NULL);
 
 CREATE VIEW adbmgr.stopall_f AS
     SELECT 'stop datanode slave' AS "operation type", * FROM mgr_stop_dn_slave('fast', NULL)
@@ -270,9 +270,9 @@ CREATE VIEW adbmgr.stopall_f AS
     UNION all
     SELECT 'stop coordinator slave' AS "operation type", * FROM mgr_stop_cn_slave('fast', NULL)
     UNION all
-    SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('fast', NULL)
+    SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoord_slave('fast', NULL)
     UNION all
-    SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoor_master('fast', NULL);
+    SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoord_master('fast', NULL);
 
 CREATE VIEW adbmgr.stopall_i AS
     SELECT 'stop datanode slave' AS "operation type", * FROM mgr_stop_dn_slave('immediate', NULL)
@@ -283,9 +283,9 @@ CREATE VIEW adbmgr.stopall_i AS
     UNION all
     SELECT 'stop coordinator slave' AS "operation type", * FROM mgr_stop_cn_slave('immediate', NULL)
     UNION all
-    SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoor_slave('immediate', NULL)
+    SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoord_slave('immediate', NULL)
     UNION all
-    SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoor_master('immediate', NULL);
+    SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoord_master('immediate', NULL);
 
 -- for ADB monitor host page: get all host various parameters.
 CREATE VIEW adbmgr.get_all_host_parm AS
@@ -1130,7 +1130,7 @@ from public;
 revoke execute on function
 mgr_monitor_agent_all(),
 mgr_monitor_agent_hostlist(text[]),
-mgr_monitor_gtmcoor_all(),
+mgr_monitor_gtmcoord_all(),
 mgr_monitor_datanode_all(),
 mgr_monitor_nodetype_namelist(bigint, "any"),
 mgr_monitor_nodetype_all(bigint),
@@ -1139,7 +1139,7 @@ from public;
 
 --boottime
 revoke execute on function
-mgr_boottime_gtmcoor_all(),
+mgr_boottime_gtmcoord_all(),
 mgr_boottime_datanode_all(),
 mgr_boottime_coordinator_all(),
 mgr_boottime_all(),
@@ -1165,8 +1165,8 @@ revoke execute on function mgr_list_hba_by_name("any") from public;
 revoke execute on function
 mgr_start_agent_all(cstring),
 mgr_start_agent_hostnamelist(cstring,text[]),
-mgr_start_gtmcoor_master("any"),
-mgr_start_gtmcoor_slave("any"),
+mgr_start_gtmcoord_master("any"),
+mgr_start_gtmcoord_slave("any"),
 mgr_start_cn_master("any"),
 mgr_start_dn_master("any"),
 mgr_start_dn_slave("any")
@@ -1211,8 +1211,8 @@ from public;
 revoke execute on function
 mgr_stop_agent_all(),
 mgr_stop_agent_hostnamelist(text[]),
-mgr_stop_gtmcoor_master("any"),
-mgr_stop_gtmcoor_slave("any"),
+mgr_stop_gtmcoord_master("any"),
+mgr_stop_gtmcoord_slave("any"),
 mgr_stop_cn_master("any"),
 mgr_stop_dn_master("any"),
 mgr_stop_dn_slave("any")
