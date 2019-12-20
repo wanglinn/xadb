@@ -2301,7 +2301,7 @@ WalSndKill(int code, Datum arg)
 	walsnd->pid = 0;
 	SpinLockRelease(&walsnd->mutex);
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 	if(rep_max_avail_flag)
 		WakeUpAllWakedBackend();
 #endif
@@ -2390,7 +2390,7 @@ retry:
 
 			sendFile = BasicOpenFile(path, O_RDONLY | PG_BINARY);
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 			if (rep_read_archive_path_flag && (sendFile < 0))
 			{
 				ArchiveXLogFilePath(path, curFileTimeLine, sendSegNo, wal_segment_size);

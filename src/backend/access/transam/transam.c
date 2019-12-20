@@ -33,7 +33,7 @@
 #include "utils/tqual.h"
 #include <time.h>
 #endif /* ADB */
-#if defined(ADB) || defined(AGTM) || defined(ADB_MULTI_GRAM)
+#if defined(ADB) || defined(ADB_MULTI_GRAM)
 #include "utils/builtins.h"
 #endif
 
@@ -489,7 +489,7 @@ TransactionIdGetCommitLSN(TransactionId xid)
 	return result;
 }
 
-#if defined(ADB) || defined(AGTM) || defined(ADB_MULTI_GRAM)
+#if defined(ADB) || defined(ADB_MULTI_GRAM)
 Datum pg_xact_status(PG_FUNCTION_ARGS)
 {
 	TransactionId	tid = (TransactionId) PG_GETARG_INT64(0);

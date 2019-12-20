@@ -155,13 +155,9 @@ static bool DoingCopyOut;		/* in old-protocol COPY OUT processing */
 static void socket_comm_reset(void);
 static void socket_close(int code, Datum arg);
 static void socket_set_nonblocking(bool nonblocking);
-#ifndef AGTM
 static int	socket_flush(void);
-#endif
 static int	socket_flush_if_writable(void);
-#ifndef AGTM
 static bool socket_is_send_pending(void);
-#endif
 static int	socket_putmessage(char msgtype, const char *s, size_t len);
 static void socket_putmessage_noblock(char msgtype, const char *s, size_t len);
 static void socket_startcopyout(void);
@@ -939,11 +935,7 @@ socket_set_nonblocking(bool nonblocking)
  *		returns 0 if OK, EOF if trouble
  * --------------------------------
  */
-#ifdef AGTM
-int
-#else
 static int
-#endif
 pq_recvbuf(void)
 {
 	if (PqRecvPointer > 0)
@@ -1035,27 +1027,6 @@ pq_peekbyte(void)
 	}
 	return (unsigned char) PqRecvBuffer[PqRecvPointer];
 }
-
-#ifdef AGTM
-/* --------------------------------
- *		pq_peek_bytes	- peek at next bytes from connection
- *
- *	 Same as recv(..., MSG_PEEK).
- * --------------------------------
- */
-int	pq_getmessage_noblock(StringInfo s, int maxlen)
-{
-	int amount;
-	if(PqRecvPointer >= PqRecvLength)
-		return 0;
-	amount = PqRecvLength - PqRecvPointer;
-	if(maxlen > amount)
-		maxlen = amount;
-	appendBinaryStringInfo(s, &(PqRecvBuffer[PqRecvPointer]), maxlen);
-	PqRecvPointer += maxlen;
-	return maxlen;
-}
-#endif
 
 /* --------------------------------
  *		pq_getbyte_if_available - get a single byte from connection,
@@ -1425,11 +1396,7 @@ internal_putbytes(const char *s, size_t len)
  *		returns 0 if OK, EOF if trouble
  * --------------------------------
  */
-#ifdef AGTM
-int
-#else
 static int
-#endif
 socket_flush(void)
 {
 	int			res;
@@ -1550,11 +1517,7 @@ socket_flush_if_writable(void)
  *	socket_is_send_pending	- is there any pending data in the output buffer?
  * --------------------------------
  */
-#ifdef AGTM
-bool
-#else
 static bool
-#endif
 socket_is_send_pending(void)
 {
 	return (PqSendStart < PqSendPointer);
@@ -1963,11 +1926,3 @@ pq_setkeepalivescount(int count, Port *port)
 
 	return STATUS_OK;
 }
-
-#ifdef AGTM
-void
-pq_switch_to_socket(void)
-{
-	PqCommMethods = &PqCommSocketMethods;
-}
-#endif

@@ -3171,7 +3171,7 @@ typedef enum TransactionStmtKind
 typedef struct TransactionStmt
 {
 	NodeTag		type;
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 	bool		missing_ok;
 #endif
 	TransactionStmtKind kind;	/* see above */

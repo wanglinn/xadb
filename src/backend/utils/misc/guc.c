@@ -2289,7 +2289,7 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 #endif /* ADB */
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 	{
 		{"rep_max_avail_flag", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enable replication max avail available level"),
@@ -2559,8 +2559,6 @@ static struct config_int ConfigureNamesInt[] =
 		&PostPortNumber,
 #ifdef ADBMGRD
 		6432, 1, 65535,
-#elif defined(AGTM)
-		7432, 1, 65535,
 #else
 		DEF_PGPORT, 1, 65535,
 #endif
@@ -3811,7 +3809,7 @@ static struct config_int ConfigureNamesInt[] =
 	},
 #endif /* ADB */
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 	{
 		{"rep_max_avail_lsn_lag", PGC_POSTMASTER, CONN_AUTH_SETTINGS,
 			gettext_noop("Sets the maximum lsn lag under replication max available level."),
@@ -3822,7 +3820,7 @@ static struct config_int ConfigureNamesInt[] =
 		NULL, NULL, NULL
 	},
 
-#endif /* ADB || AGTM */
+#endif /* ADB */
 
 #ifdef AGTM
 	{
@@ -4811,7 +4809,7 @@ static struct config_string ConfigureNamesString[] =
 	},
 #endif
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 
 	{
 		{"rep_read_archive_path", PGC_USERSET, CLIENT_CONN_LOCALE,

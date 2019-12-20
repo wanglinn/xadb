@@ -1010,7 +1010,7 @@ numeric		(PG_FUNCTION_ARGS)
 	 */
 	tmp_typmod = typmod - VARHDRSZ;
 	precision = (tmp_typmod >> 16) & 0xffff;
-#if defined(ADB) || defined(AGTM) || defined(ADBMGRD)
+#if defined(ADB) || defined(ADBMGRD)
 	scale = (int)((int16)(tmp_typmod & 0xffff));
 	if(scale < 0)
 		scale = 0;
@@ -1075,21 +1075,21 @@ numerictypmodin(PG_FUNCTION_ARGS)
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("NUMERIC precision %d must be between 1 and %d",
 							tl[0], NUMERIC_MAX_PRECISION)));
-#if defined(ADB) || defined(AGTM) || defined(ADBMGRD)
+#if defined(ADB) || defined(ADBMGRD)
 		if (tl[1] <= -(tl[0]) || tl[1] > tl[0])
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				errmsg("NUMERIC scale %d must be between %d and precision %d",
 					   tl[1], -(tl[0]-1), tl[0])));
 		typmod = ((tl[0] << 16) | (uint16)((int16)tl[1])) + VARHDRSZ;
-#else /* ADB || AGTM || ADBMGRD */
+#else /* ADB || ADBMGRD */
 		if (tl[1] < 0 || tl[1] > tl[0])
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("NUMERIC scale %d must be between 0 and precision %d",
 							tl[1], tl[0])));
 		typmod = ((tl[0] << 16) | tl[1]) + VARHDRSZ;
-#endif /* ADB || AGTM || ADBMGRD */
+#endif /* ADB || ADBMGRD */
 	}
 	else if (n == 1)
 	{
@@ -1119,7 +1119,7 @@ numerictypmodout(PG_FUNCTION_ARGS)
 	char	   *res = (char *) palloc(64);
 
 	if (typmod >= 0)
-#if defined(ADB) || defined(AGTM) || defined(ADBMGRD)
+#if defined(ADB) || defined(ADBMGRD)
 	{
 		typmod -= VARHDRSZ;
 		snprintf(res, 64, "(%d,%d)",
@@ -6305,7 +6305,7 @@ apply_typmod(NumericVar *var, int32 typmod)
 
 	typmod -= VARHDRSZ;
 	precision = (typmod >> 16) & 0xffff;
-#if defined(ADB) || defined(AGTM) || defined(ADBMGRD)
+#if defined(ADB) || defined(ADBMGRD)
 	scale = (int)((int16)(typmod & 0xffff));
 	maxdigits = (scale <= 0) ? precision : precision - scale;
 #else
@@ -6315,7 +6315,7 @@ apply_typmod(NumericVar *var, int32 typmod)
 
 	/* Round to target scale (and set var->dscale) */
 	round_var(var, scale);
-#if defined(ADB) || defined(AGTM) || defined(ADBMGRD)
+#if defined(ADB) || defined(ADBMGRD)
 	if(var->dscale < 0)
 		var->dscale = 0;
 #endif

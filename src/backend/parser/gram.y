@@ -10333,7 +10333,7 @@ TransactionStmt:
 			| COMMIT PREPARED IF_P EXISTS Sconst
 				{
 					TransactionStmt *n = makeNode(TransactionStmt);
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 					n->missing_ok = true;
 #else
 					ereport_pos($3, @3);
@@ -10345,7 +10345,7 @@ TransactionStmt:
 			| ROLLBACK PREPARED IF_P EXISTS Sconst
 				{
 					TransactionStmt *n = makeNode(TransactionStmt);
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 					n->missing_ok = true;
 #else
 					ereport_pos($3, @3);

@@ -77,7 +77,7 @@
 #include <libintl.h>
 #endif
 
-#if defined(AGTM) || defined(ADBMGRD) || defined(INITMGR) || defined(INITAGTM)
+#if defined(ADBMGRD) || defined(INITMGR) || defined(INITAGTM)
 #undef ADB_GRAM_DB2
 #undef ADB_GRAM_ORA
 #undef ADB_MULTI_GRAM
@@ -490,7 +490,7 @@ typedef uint32 SubTransactionId;
 #define InvalidSubTransactionId		((SubTransactionId) 0)
 #define TopSubTransactionId			((SubTransactionId) 1)
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 typedef uint32 GlobalTransactionId;
 
 #define InvalidGlobalTransactionId		((GlobalTransactionId) 0)

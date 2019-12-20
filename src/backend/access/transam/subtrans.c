@@ -34,7 +34,7 @@
 #include "pg_trace.h"
 #include "utils/snapmgr.h"
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 /* Check if there is about a 1 billion XID difference for XID wraparound */
 #define SUBTRANS_WRAP_CHECK_DELTA	((1 << 30) / SUBTRANS_XACTS_PER_PAGE)
 #endif
@@ -333,7 +333,7 @@ ExtendSUBTRANS(TransactionId newestXact)
 	 * No work except at first XID of a page.  But beware: just after
 	 * wraparound, the first XID of page zero is FirstNormalTransactionId.
 	 */
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 	/* 
 	 * In PGXC, it may be that a node is not involved in a transaction,
 	 * and therefore will be skipped, so we need to detect this by using
@@ -364,7 +364,7 @@ ExtendSUBTRANS(TransactionId newestXact)
 
 	LWLockAcquire(SubtransControlLock, LW_EXCLUSIVE);
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 	/*
 	 * We repeat the check.  Another process may have written 
 	 * out the page already and advanced the latest_page_number

@@ -119,9 +119,6 @@
 #include "nodes/nodeFuncs.h"
 #include "parser/analyze.h"
 #endif
-#ifdef AGTM
-#include "agtm/agtm.h"
-#endif
 #if defined(ADBMGRD)
 #include "mgr/mgr_agent.h"
 #include "postmaster/adbmonitor.h"
@@ -238,9 +235,7 @@ int mgr_cmd_mode = CMD_MODE_MGR;
  */
 static int	InteractiveBackend(StringInfo inBuf);
 static int	interactive_getc(void);
-#ifndef AGTM
 static int	SocketBackend(StringInfo inBuf);
-#endif /* AGTM */
 static int	ReadCommand(StringInfo inBuf);
 static void forbidden_in_wal_sender(char firstchar);
 static List *pg_rewrite_query(Query *query);
@@ -262,9 +257,6 @@ static void disable_statement_timeout(void);
 static int check_adb_log_duration(char * msec_str, bool was_logged);
 static CommandDest PortalSetCommandDest(Portal portal, CommandDest dest);
 #endif
-#ifdef AGTM
-#include "agtm.c"
-#endif /* AGTM */
 
 
 #ifdef ADB /* PGXC_DATANODE */
@@ -415,7 +407,6 @@ interactive_getc(void)
  *	EOF is returned if the connection is lost.
  * ----------------
  */
-#ifndef AGTM
 static int
 SocketBackend(StringInfo inBuf)
 {
@@ -603,7 +594,6 @@ SocketBackend(StringInfo inBuf)
 
 	return qtype;
 }
-#endif /* AGTM */
 
 /* ----------------
  *		ReadCommand reads a command from either the frontend or
@@ -618,11 +608,7 @@ ReadCommand(StringInfo inBuf)
 	int			result;
 
 	if (whereToSendOutput == DestRemote)
-#ifdef AGTM
-		result = agtm_ReadCommand(inBuf);
-#else /* AGTM */
 		result = SocketBackend(inBuf);
-#endif /* AGTM */
 	else
 		result = InteractiveBackend(inBuf);
 	return result;
@@ -4584,10 +4570,6 @@ PostgresMain(int argc, char *argv[],
 	 * Now all GUC states are fully set up.  Report them to client if
 	 * appropriate.
 	 */
-#ifdef AGTM
-	if(IsUnderPostmaster)
-		start_agtm_listen();
-#endif /* AGTM */
 #ifdef ADB
 	on_proc_exit(disconnect_gtmcoord, 0);
 #endif /* ADB */
@@ -5275,7 +5257,7 @@ PostgresMain(int argc, char *argv[],
 				send_ready_for_query = true;
 				break;
 #endif /* ADB */
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 			case 'I':		/* query server info */
 				BeginReportingGUCOptions();
 				if(whereToSendOutput == DestRemote&&
@@ -5290,7 +5272,7 @@ PostgresMain(int argc, char *argv[],
 				}
 				send_ready_for_query = true;
 				break;
-#endif /* defined(ADB) || defined(AGTM) */
+#endif /* defined(ADB) */
 
 			case 'H':			/* flush */
 				pq_getmsgend(&input_message);

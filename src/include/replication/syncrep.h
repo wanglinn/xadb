@@ -63,7 +63,7 @@ extern char *syncrep_parse_error_msg;
 /* user-settable parameters for synchronous replication */
 extern char *SyncRepStandbyNames;
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 extern bool	rep_max_avail_flag;
 extern int	rep_max_avail_lsn_lag;
 extern char*	rep_read_archive_path;

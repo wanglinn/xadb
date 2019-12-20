@@ -10741,7 +10741,7 @@
   proname => 'adb_invalidate_relcache_all', provolatile => 'v',
   proparallel => 'r', prorettype => 'bool', proargtypes => '',
   proallargtypes => '', prosrc => 'adb_invalidate_relcache_all' },
-{ oid => '5403', row_macros => 'ADB AGTM ADB_MULTI_GRAM',
+{ oid => '5403', row_macros => 'ADB ADB_MULTI_GRAM',
   descr => 'transaction status of specifical xid',
   proname => 'pg_xact_status', prorows => '1', provolatile => 's',
   prorettype => 'cstring', proargtypes => 'int8', prosrc => 'pg_xact_status' },

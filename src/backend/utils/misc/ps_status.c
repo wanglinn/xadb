@@ -299,8 +299,6 @@ init_ps_display(const char *username, const char *dbname,
 
 #if defined(ADBMGRD)
 #define PROGRAM_NAME_PREFIX "adbmgr: "
-#elif defined(AGTM)
-#define PROGRAM_NAME_PREFIX "agtm: "
 #elif defined(RDC_FRONTEND)
 #define PROGRAM_NAME_PREFIX "adb_reduce: "
 #else

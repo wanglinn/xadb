@@ -71,14 +71,7 @@ extern int	pq_getbyte(void);
 extern int	pq_peekbyte(void);
 extern int	pq_getbyte_if_available(unsigned char *c);
 extern int	pq_putbytes(const char *s, size_t len);
-/* used for AGTM */
-#ifdef AGTM
-extern bool socket_is_send_pending(void);
-extern int	socket_flush(void);
-extern int	pq_recvbuf(void);
-extern int	pq_getmessage_noblock(StringInfo s, int maxlen);
-extern void pq_switch_to_socket(void);
-#endif /* AGTM */
+
 /*
  * prototypes for functions in be-secure.c
  */

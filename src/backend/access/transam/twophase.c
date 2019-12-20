@@ -627,11 +627,7 @@ MarkAsPrepared(GlobalTransaction gxact, bool lock_held)
  *		Locate the prepared transaction and mark it busy for COMMIT or PREPARE.
  */
 static GlobalTransaction
-#if defined(ADB) || defined(AGTM)
-LockGXact(const char *gid, Oid user, bool missing_ok)
-#else
-LockGXact(const char *gid, Oid user)
-#endif
+LockGXact(const char *gid, Oid user ADB_ONLY_COMMA_ARG(bool missing_ok))
 {
 	int			i;
 
@@ -700,7 +696,7 @@ LockGXact(const char *gid, Oid user)
 	{
 #endif
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 		if (!missing_ok)
 #endif
 	ereport(ERROR,
@@ -1200,7 +1196,7 @@ StartRemoteXactPrepare(const char *gid, Oid *nodes, int count)
 /*
  * Finish preparing xact.
  *
- * Here is where we truly prepare remote nodes(include AGTM), then mark the
+ * Here is where we truly prepare remote nodes, then mark the
  * xact will COMMIT or SUCCESS PREPARE after all nodes truly prepare.
  *
  * It means we tell remote xact manager we step into the second phase.
@@ -1230,9 +1226,6 @@ EndRemoteXactPrepareExt(TransactionId xid, const char *gid, Oid *nodes, int coun
 	{
 		/* Prepare on remote nodes */
 		InterXactPrepare(gid, nodes, count);
-
-		/* Prepare on AGTM */
-		//InterXactPrepareGtm(gid, nodes, count);
 	} PG_CATCH();
 	{
 		/* Record FAILED log */
@@ -1716,7 +1709,7 @@ StandbyTransactionIdIsPrepared(TransactionId xid)
  */
 void
 FinishPreparedTransaction(const char *gid, bool isCommit)
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 {
 	FinishPreparedTransactionExt(gid, isCommit, false);
 }
@@ -1752,11 +1745,7 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 	 * Validate the GID, and lock the GXACT to ensure that two backends do not
 	 * try to commit the same GID at once.
 	 */
-#if defined(ADB) || defined(AGTM)
-	gxact = LockGXact(gid, GetUserId(), isMissingOK);
-#else
-	gxact = LockGXact(gid, GetUserId());
-#endif
+	gxact = LockGXact(gid, GetUserId() ADB_ONLY_COMMA_ARG(isMissingOK));
 
 #ifdef ADB
 	/*
@@ -1773,7 +1762,7 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 		return ;
 #endif
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 	/*
 	 * Just for COMMIT/ROLLBACK PREPARED IF EXISTS XXX
 	 */

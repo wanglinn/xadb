@@ -1060,10 +1060,6 @@ CommitPreparedRxact(const char *gid,
 	{
 		/* Commit prepared on remote nodes */
 		InterXactCommit(gid, nodes, nnodes, isMissingOK);
-
-		/* Commit prepared on AGTM */
-		//(gid, nodes, nnodes, isMissingOK);
-		//agtm_CommitTransaction(gid, isMissingOK);
 	} PG_CATCH_HOLD();
 	{
 		AtAbort_Twophase();
@@ -1107,9 +1103,6 @@ AbortPreparedRxact(const char *gid,
 	{
 		/* rollback prepared on remote nodes */
 		InterXactAbort(gid, nodes, nnodes, isMissingOK, true);
-
-		/* rollback prepared on AGTM */
-		//agtm_AbortTransaction(gid, isMissingOK, false);
 	} PG_CATCH();
 	{
 		/* record failed log */
