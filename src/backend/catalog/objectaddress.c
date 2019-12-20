@@ -3597,10 +3597,6 @@ getObjectDescription(const ObjectAddress *object)
 											 object->objectSubId,
 											 false));
 			break;
-
-		case OCLASS_ADB_HA_SYNC_LOG:
-			appendStringInfoString(&buffer, _("adb ha sync log"));
-			break;
 #endif
 
 			/*
@@ -4126,9 +4122,6 @@ getObjectTypeDescription(const ObjectAddress *object)
 			break;
 		case OCLASS_AUX_CLASS:
 			appendStringInfo(&buffer, "auxiliary table");
-			break;
-		case OCLASS_ADB_HA_SYNC_LOG:
-			appendStringInfo(&buffer, "adb ha sync log");
 			break;
 #endif
 
@@ -5224,9 +5217,6 @@ getObjectIdentityParts(const ObjectAddress *object,
 			}
 		case OCLASS_AUX_CLASS:
 			getRelationIdentity(&buffer, object->objectId, objname);
-			break;
-		case OCLASS_ADB_HA_SYNC_LOG:
-			*objname = list_make1(pstrdup("adb ha sync log"));
 			break;
 #endif
 

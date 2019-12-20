@@ -5204,7 +5204,6 @@ _copyAlterSlotStmt(const AlterSlotStmt *from)
 {
 	AlterSlotStmt *newnode = makeNode(AlterSlotStmt);
 
-	COPY_SCALAR_FIELD(endpos);
 	COPY_SCALAR_FIELD(slotid);
 	COPY_NODE_FIELD(options);
 
@@ -5216,7 +5215,6 @@ _copyCreateSlotStmt(const CreateSlotStmt *from)
 {
 	CreateSlotStmt *newnode = makeNode(CreateSlotStmt);
 
-	COPY_SCALAR_FIELD(endpos);
 	COPY_SCALAR_FIELD(slotid);
 	COPY_NODE_FIELD(options);
 
@@ -5228,7 +5226,6 @@ _copyDropSlotStmt(const DropSlotStmt *from)
 {
 	DropSlotStmt *newnode = makeNode(DropSlotStmt);
 
-	COPY_SCALAR_FIELD(endpos);
 	COPY_SCALAR_FIELD(slotid);
 
 	return newnode;

@@ -638,7 +638,6 @@ AlterObjectNamespace_oid(Oid classId, Oid objid, Oid nspOid,
 		case OCLASS_PGXC_NODE:
 		case OCLASS_PGXC_GROUP:
 		case OCLASS_PGXC_CLASS:
-		case OCLASS_ADB_HA_SYNC_LOG:
 #endif
 			/* ignore object types that don't have schema-qualified names */
 			break;

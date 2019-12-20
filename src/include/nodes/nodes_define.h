@@ -3419,6 +3419,9 @@ BEGIN_NODE(A_Expr)
 	NODE_NODE(Node,lexpr)
 	NODE_NODE(Node,rexpr)
 	NODE_SCALAR(int,location)
+#ifdef ADB_GRAM_ORA
+	NODE_SCALAR(bool,is_decode)
+#endif
 END_NODE(A_Expr)
 #endif /* NO_NODE_A_Expr */
 
@@ -4268,7 +4271,6 @@ END_NODE(MGRFlushReadonlySlave)
 
 #ifndef NO_NODE_CreateSlotStmt
 BEGIN_NODE(CreateSlotStmt)
-	NODE_SCALAR(int,endpos)
 	NODE_SCALAR(int,slotid)
 	NODE_NODE(List,options)
 END_NODE(CreateSlotStmt)
@@ -4276,7 +4278,6 @@ END_NODE(CreateSlotStmt)
 
 #ifndef NO_NODE_AlterSlotStmt
 BEGIN_NODE(AlterSlotStmt)
-	NODE_SCALAR(int,endpos)
 	NODE_SCALAR(int,slotid)
 	NODE_NODE(List,options)
 END_NODE(AlterSlotStmt)
@@ -4284,20 +4285,17 @@ END_NODE(AlterSlotStmt)
 
 #ifndef NO_NODE_DropSlotStmt
 BEGIN_NODE(DropSlotStmt)
-	NODE_SCALAR(int,endpos)
 	NODE_SCALAR(int,slotid)
 END_NODE(DropSlotStmt)
 #endif /* NO_NODE_DropSlotStmt */
 
 #ifndef NO_NODE_FlushSlotStmt
 BEGIN_NODE(FlushSlotStmt)
-	NODE_SCALAR(int,endpos)
 END_NODE(FlushSlotStmt)
 #endif /* NO_NODE_FlushSlotStmt */
 
 #ifndef NO_NODE_CleanSlotStmt
 BEGIN_NODE(CleanSlotStmt)
-	NODE_SCALAR(int,endpos)
 	NODE_STRING(schema_name)
 	NODE_STRING(table_name)
 END_NODE(CleanSlotStmt)

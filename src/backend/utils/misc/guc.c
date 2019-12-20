@@ -610,8 +610,6 @@ int			AGtmPort;
 int			pool_time_out;
 int			pool_release_to_idle_timeout;
 bool		enable_truncate_ident;
-bool		enable_adb_ha_sync;
-bool		enable_adb_ha_sync_select;
 bool 		debug_enable_satisfy_mvcc;
 bool		enable_pushdown_art;
 bool		enable_zero_year;
@@ -1429,26 +1427,6 @@ static struct config_bool ConfigureNamesBool[] =
 		},
 		&enable_truncate_ident,
 		true,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"enable_adb_ha_sync", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("Enable ADB record HA synchronous log."),
-			NULL
-		},
-		&enable_adb_ha_sync,
-		false,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"enable_adb_ha_sync_select", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("Enable ADB record HA synchronous SELECT SQL log."),
-			NULL
-		},
-		&enable_adb_ha_sync_select,
-		false,
 		NULL, NULL, NULL
 	},
 

@@ -10508,7 +10508,6 @@ ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 			case OCLASS_PGXC_GROUP:
 			case OCLASS_PGXC_CLASS:
 			case OCLASS_AUX_CLASS:
-			case OCLASS_ADB_HA_SYNC_LOG:
 #endif
 				/*
 				 * We don't expect any of these sorts of objects to depend on
