@@ -21,7 +21,7 @@ OBJS = catalog.o dependency.o heap.o index.o indexing.o namespace.o aclchk.o \
 	   pg_db_role_setting.o pg_shdepend.o pg_subscription.o pg_type.o \
 	   storage.o toasting.o
 ifeq ($(enable_cluster),yes)
-  OBJS += pgxc_class.o adb_ha_sync_log.o gtmcoord_sequence.o
+  OBJS += pgxc_class.o gtmcoord_sequence.o
 endif
 
 BKIFILES = postgres.bki postgres.description postgres.shdescription
@@ -54,7 +54,7 @@ CATALOG_HEADERS := \
 MYCPPFLAGS = -DBUILD_BKI -DCATALOG_VARLEN
 
 ifeq ($(enable_cluster),yes)
-  CATALOG_HEADERS += adb_proc.h pgxc_group.h pgxc_node.h pgxc_class.h pg_aux_class.h adb_ha_sync_log.h adb_slot.h
+  CATALOG_HEADERS += adb_proc.h pgxc_group.h pgxc_node.h pgxc_class.h pg_aux_class.h adb_slot.h
   MYCPPFLAGS += -DADB
 else
   MYCPPFLAGS += -DNADB

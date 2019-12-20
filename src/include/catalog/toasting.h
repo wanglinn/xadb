@@ -72,10 +72,5 @@ DECLARE_TOAST(pg_db_role_setting, 2966, 2967);
 DECLARE_TOAST(pg_shseclabel, 4060, 4061);
 #define PgShseclabelToastTable 4060
 #define PgShseclabelToastIndex 4061
-#ifdef ADB
-DECLARE_TOAST(adb_ha_sync_log, 9026, 9027);
-#define AdbHaSyncLogToastTable 9026
-#define AdbHaSyncLogToastIndex 9027
-#endif
 
 #endif							/* TOASTING_H */

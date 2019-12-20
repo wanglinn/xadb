@@ -83,7 +83,6 @@
 
 #ifdef ADB
 #include "agtm/agtm.h"
-#include "catalog/adb_ha_sync_log.h"
 #include "catalog/pg_aux_class.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
@@ -182,7 +181,6 @@ static const Oid object_classes[] = {
 	PgxcNodeRelationId,			/* OCLASS_PGXC_NODE */
 	PgxcGroupRelationId,		/* OCLASS_PGXC_GROUP */
 	AuxClassRelationId,			/* OCLASS_AUX_CLASS */
-	AdbHaSyncLogRelationId,		/* OCLASS_ADB_HA_SYNC_LOG */
 #endif
 	DefaultAclRelationId,		/* OCLASS_DEFACL */
 	ExtensionRelationId,		/* OCLASS_EXTENSION */
@@ -1451,7 +1449,6 @@ doDeletion(const ObjectAddress *object, int flags)
 #ifdef ADB
 		case OCLASS_PGXC_NODE:
 		case OCLASS_PGXC_GROUP:
-		case OCLASS_ADB_HA_SYNC_LOG:
 #endif /* ADB */
 			elog(ERROR, "global objects cannot be deleted by doDeletion");
 			break;
@@ -2713,9 +2710,6 @@ getObjectClass(const ObjectAddress *object)
 		case AuxClassRelationId:
 			Assert(object->objectSubId == 0);
 			return OCLASS_AUX_CLASS;
-
-		case AdbHaSyncLogRelationId:
-			return OCLASS_ADB_HA_SYNC_LOG;
 #endif
 		case PolicyRelationId:
 			return OCLASS_POLICY;

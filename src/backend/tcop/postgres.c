@@ -85,7 +85,6 @@
 #include "access/rxact_mgr.h"
 #include "access/transam.h"
 #include "agtm/agtm.h"
-#include "catalog/adb_ha_sync_log.h"
 #include "catalog/pg_class.h"
 #include "commands/copy.h"
 #include "commands/defrem.h"
@@ -1631,17 +1630,6 @@ exec_simple_query(const char *query_string)
 
 		receiver->rDestroy(receiver);
 
-#ifdef ADB
-		if (AdbHaSyncLogWalkerPortal(portal))
-		{
-			AddAdbHaSyncLog(portal->creation_time,
-							ADB_MULTI_GRAM_ARG_COMMA(portal->grammar)
-							ADB_SQL_KIND_SIMPLE,
-							query_string,
-							portal->portalParams);
-		}
-#endif
-
 		PortalDrop(portal, false);
 
 		if (lnext(parsetree_item) == NULL)
@@ -2656,17 +2644,6 @@ exec_execute_message(const char *portal_name, long max_rows)
 						  completionTag);
 
 	receiver->rDestroy(receiver);
-
-#ifdef ADB
-	if (AdbHaSyncLogWalkerPortal(portal))
-	{
-		AddAdbHaSyncLog(portal->creation_time,
-						ADB_MULTI_GRAM_ARG_COMMA(portal->grammar)
-						ADB_SQL_KIND_EXECUTE,
-						portal->sourceText,
-						portal->portalParams);
-	}
-#endif
 
 	if (completed)
 	{
