@@ -244,7 +244,6 @@ addDefaultDistributeByOfMultiInherit(CreateStmt *stmt)
 	Relation			parent;
 	RelationLocInfo	   *relloc;
 	ListCell		   *entry;
-	char			   *distColname = NULL;
 	char				disttype = LOCATOR_TYPE_INVALID;
 	bool				isSameDistSpec = false;
 
@@ -4481,7 +4480,6 @@ int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey ke
 				if (bound == NULL)
 					goto leak_node_bound_;
 				Assert(key != NULL);
-				Assert(key->strategy == PARTITION_STRATEGY_LIST);
 				bound = transformPartitionBoundForKey(pstate, rel, bound, key);
 				valuelist = lappend(valuelist, bound->listdatums);
 			}else if (loc_type == LOCATOR_TYPE_RANGE)
@@ -4489,7 +4487,6 @@ int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey ke
 				if (bound == NULL)
 					goto leak_node_bound_;
 				Assert(key != NULL);
-				Assert(key->strategy == PARTITION_STRATEGY_RANGE);
 				bound = transformPartitionBoundForKey(pstate, rel, bound, key);
 				valuelist = lappend(valuelist, list_make2(bound->lowerdatums, bound->upperdatums));
 			}else if (loc_type == LOCATOR_TYPE_REPLICATED ||
@@ -4509,9 +4506,27 @@ int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey ke
 #warning TODO check bound and sort list/range
 	}
 
-	*nodeoids = sortDistributeCluster(oidlist, valuelist);
 	count = list_length(oidlist);
-	list_free(oidlist);
+	if (cluster == NULL ||
+		cluster->clustertype == SUBCLUSTER_GROUP ||
+		loc_type == LOCATOR_TYPE_LIST ||
+		loc_type == LOCATOR_TYPE_RANGE ||
+		loc_type == LOCATOR_TYPE_REPLICATED ||
+		loc_type == LOCATOR_TYPE_RANDOM)
+	{
+		*nodeoids = sortDistributeCluster(oidlist, valuelist);
+		list_free(oidlist);
+	}else
+	{
+		Oid *oids = palloc(sizeof(Oid)*list_length(oidlist));
+		*nodeoids = oids;
+		while (oidlist != NIL)
+		{
+			*oids = linitial_oid(oidlist);
+			oids = &oids[1];
+			oidlist = list_delete_first(oidlist);
+		}
+	}
 	if (values)
 		*values = valuelist;
 
