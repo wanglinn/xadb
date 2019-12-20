@@ -145,9 +145,4 @@ extern int data_sync_elevel(int elevel);
 #define PG_TEMP_FILES_DIR "pgsql_tmp"
 #define PG_TEMP_FILE_PREFIX "pgsql_tmp"
 
-#if defined(RDC_FRONTEND)
-#define RDC_TEMP_FILES_DIR  "reduce"
-#define RDC_TEMP_FILE_PREFIX "reduce_tmp"
-#endif
-
 #endif							/* FD_H */

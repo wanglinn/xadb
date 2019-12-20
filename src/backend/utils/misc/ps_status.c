@@ -249,11 +249,9 @@ init_ps_display(const char *username, const char *dbname,
 	Assert(host_info);
 
 #ifndef PS_USE_NONE
-#ifndef RDC_FRONTEND
 	/* no ps display for stand-alone backend */
 	if (!IsUnderPostmaster)
 		return;
-#endif
 
 	/* no ps display if you didn't call save_ps_display_args() */
 	if (!save_argv)
@@ -299,15 +297,12 @@ init_ps_display(const char *username, const char *dbname,
 
 #if defined(ADBMGRD)
 #define PROGRAM_NAME_PREFIX "adbmgr: "
-#elif defined(RDC_FRONTEND)
-#define PROGRAM_NAME_PREFIX "adb_reduce: "
 #else
 #define PROGRAM_NAME_PREFIX "postgres: "
 #endif
 
 #endif
 
-#ifndef RDC_FRONTEND
 	if (*cluster_name == '\0')
 	{
 		snprintf(ps_buffer, ps_buffer_size,
@@ -320,10 +315,6 @@ init_ps_display(const char *username, const char *dbname,
 				 PROGRAM_NAME_PREFIX "%s: %s %s %s ",
 				 cluster_name, username, dbname, host_info);
 	}
-#else
-	snprintf(ps_buffer, ps_buffer_size,
-			 PROGRAM_NAME_PREFIX "%s", username);
-#endif
 
 	ps_buffer_cur_len = ps_buffer_fixed_size = strlen(ps_buffer);
 
@@ -345,11 +336,9 @@ set_ps_display(const char *activity, bool force)
 	if (!force && !update_process_title)
 		return;
 
-#ifndef RDC_FRONTEND
 	/* no ps display for stand-alone backend */
 	if (!IsUnderPostmaster)
 		return;
-#endif
 
 #ifdef PS_USE_CLOBBER_ARGV
 	/* If ps_buffer is a pointer, it might still be null */
