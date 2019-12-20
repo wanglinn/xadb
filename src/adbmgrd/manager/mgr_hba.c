@@ -1084,6 +1084,10 @@ void add_hba_table_to_file(char *coord_name)
 		hba_value = TextDatumGetCString(&(mgr_hba->hbavalue));
 		namestrcpy(&nodenamedata, coord_name);
 		nodetype = mgr_get_nodetype(&nodenamedata);
+		if (nodetype == CNDN_TYPE_NONE)
+		{
+			ereport(ERROR, (errmsg("illegal hba info \"%s\" of \"%s\", please check table mgr_hba", hba_value, NameStr(mgr_hba->nodename))));
+		}
 		mgr_add_hba_one(nodetype, (char *)coord_name, hba_value, true, false, &err_msg);
 		if (!err_msg.ret)
 		{
