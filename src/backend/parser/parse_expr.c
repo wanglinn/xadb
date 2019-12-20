@@ -2252,7 +2252,7 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 											 w->location);
 #ifdef ADB_GRAM_ORA
 			/* mark if decode function by oracle gammar */
-			if (IsOracleParseGram(pstate) && c->isdecode && IsA(warg, NullTest) == false)
+			if (IsOracleParseGram(pstate) && c->isdecode && IsA(warg, A_Expr))
 			{
 				A_Expr	*expr;
 				expr = (A_Expr *)warg;
