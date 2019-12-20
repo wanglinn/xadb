@@ -16,19 +16,116 @@
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
 #include "catalog/ora_convert.h"
+#include "catalog/pgxc_node.h"
+#include "commands/defrem.h"
+#include "executor/execCluster.h"
+#include "libpq/libpq-node.h"
 #include "nodes/parsenodes.h"
-
+#include "pgxc/pgxc.h"
+#include "pgxc/nodemgr.h"
+#include "storage/mem_toc.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/rel.h"
 
+#define REMOTE_KEY_IMPLICIT_CONVERT		1
 
-
+void ClusterExecImplicitConvert(StringInfo mem_toc);
 void ExecImplicitConvert(OraImplicitConvertStmt *stmt);
+static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt);
+static List* getMasterNodeOid(void);
 
 
 
+/* 
+ * Oracle type implicit conversion creation.
+ */
 void ExecImplicitConvert(OraImplicitConvertStmt *stmt)
+{
+	ListCell   *lc;
+	List	   *nodeOids;
+	List	   *remoteList;
+	Oid			oid;
+	bool		include_myself = false;
+
+	if (stmt->node_list == NIL)
+	{
+		include_myself = true;
+		stmt->node_list = getMasterNodeOid();
+	}
+
+	nodeOids = NIL;
+	foreach(lc, stmt->node_list)
+	{
+		oid = lfirst_oid(lc);
+		if (oid == PGXCNodeOid)
+		{
+			include_myself = true;
+			continue;
+		}
+		
+		if (IsConnFromApp())
+			nodeOids = list_append_unique_oid(nodeOids, oid);
+	}
+
+	/* Execute settings on other nodes of the cluster */
+	remoteList = NIL;
+	if (nodeOids != NIL)
+	{
+		StringInfoData msg;
+		initStringInfo(&msg);
+
+		ClusterTocSetCustomFun(&msg, ClusterExecImplicitConvert);
+
+		begin_mem_toc_insert(&msg, REMOTE_KEY_IMPLICIT_CONVERT);
+		saveNode(&msg, (Node*)stmt);
+		end_mem_toc_insert(&msg, REMOTE_KEY_IMPLICIT_CONVERT);
+
+		remoteList = ExecClusterCustomFunction(nodeOids, &msg, 0);
+		pfree(msg.data);
+	}
+
+	/* Create an implicit transform in local */
+	if (include_myself)
+		ExecImplicitConvertLocal(stmt);
+
+	if (remoteList)
+	{
+		PQNListExecFinish(remoteList, NULL, &PQNDefaultHookFunctions, true);
+		list_free(remoteList);
+	}
+	list_free(nodeOids);
+}
+
+
+/* 
+ * Execute cluster Oracle type implicit conversion creation.
+ */
+void ClusterExecImplicitConvert(StringInfo mem_toc)
+{
+	OraImplicitConvertStmt *stmt;
+	StringInfoData buf;
+
+	buf.data = mem_toc_lookup(mem_toc, REMOTE_KEY_IMPLICIT_CONVERT, &buf.maxlen);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errmsg("Can not found CreateNodeStmt in cluster message"),
+				 errcode(ERRCODE_PROTOCOL_VIOLATION)));
+	}
+	buf.len = buf.maxlen;
+	buf.cursor = 0;
+
+	stmt = castNode(OraImplicitConvertStmt, loadNode(&buf));
+
+	ExecImplicitConvertLocal(stmt);
+}
+
+
+/* 
+ * Execute local Oracle type implicit conversion creation.
+ */
+static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt)
 {
 	Relation			convert_rel;
 	TupleDesc			rel_dsc;
@@ -238,4 +335,40 @@ void ExecImplicitConvert(OraImplicitConvertStmt *stmt)
 	}
 	heap_endscan(rel_scan);
 	heap_close(convert_rel, RowExclusiveLock);
+}
+
+
+/*
+ * Get the oid of all coordinators or datanode masters 
+ * that do not include this node in the cluster.
+ */
+static List*
+getMasterNodeOid(void)
+{
+	HeapTuple		tuple;
+	Relation		rel;
+	HeapScanDesc	scan;
+	Form_pgxc_node	xc_node;
+	Oid				nodeOid;
+	List 			*nodeOid_list = NIL;
+
+	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
+	scan = heap_beginscan_catalog(rel, 0, NULL);
+
+	while ((tuple=heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{	
+		xc_node = (Form_pgxc_node)GETSTRUCT(tuple);
+		if (xc_node->node_type == PGXC_NODE_COORDINATOR || 
+			xc_node->node_type == PGXC_NODE_DATANODE)
+		{
+			nodeOid = HeapTupleGetOid(tuple);
+			if (nodeOid == PGXCNodeOid)
+				continue;
+			nodeOid_list = list_append_unique_oid(nodeOid_list, nodeOid);
+		}
+	}
+	heap_endscan(scan);
+	heap_close(rel, AccessShareLock);
+
+	return nodeOid_list;
 }

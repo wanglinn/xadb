@@ -3881,6 +3881,7 @@ typedef struct OraImplicitConvertStmt
 	List			*cvtto;			/* Target type */
 	IConvertAction	action;			/* Create or modify or delete */
 	bool			if_exists;		/* IF EXISTS clause*/
+	List			*node_list;		
 }OraImplicitConvertStmt;
 
 #endif /* ADB_GRAM_ORA */
