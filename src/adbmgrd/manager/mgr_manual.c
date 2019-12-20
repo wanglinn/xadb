@@ -124,7 +124,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 	pfree(masternodename);
 	mastertype = mgr_get_master_type(nodetype);
 	if (CNDN_TYPE_GTM_COOR_MASTER == mastertype)
-		stop_cmdtype = AGT_CMD_GTMCOOR_STOP_MASTER;
+		stop_cmdtype = AGT_CMD_GTMCOORD_STOP_MASTER;
 	else if (CNDN_TYPE_COORDINATOR_MASTER == mastertype)
 		stop_cmdtype = AGT_CMD_CN_STOP;
 	else if (CNDN_TYPE_DATANODE_MASTER == mastertype)
@@ -331,7 +331,7 @@ Datum mgr_failover_manual_promote_func(PG_FUNCTION_ARGS)
 	if (!slave_is_running)
 		ereport(ERROR, (errmsg("%s \"%s\" is not running normal", nodetypestr, nodenamedata.data)));
 	if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
-		cmdtype = AGT_CMD_GTMCOOR_SLAVE_FAILOVER;
+		cmdtype = AGT_CMD_GTMCOORD_SLAVE_FAILOVER;
 	else if (CNDN_TYPE_DATANODE_SLAVE == nodetype || CNDN_TYPE_DATANODE_MASTER == nodetype)
 		cmdtype = AGT_CMD_DN_FAILOVER;
 	else
@@ -627,7 +627,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 
 		ereport(NOTICE, (errmsg("pg_ctl %s", infosendmsg.data)));
 		if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
-			res = mgr_ma_send_cmd(AGT_CMD_GTMCOOR_START_SLAVE, infosendmsg.data, slave_nodeinfo.nodehost, &strinfo);
+			res = mgr_ma_send_cmd(AGT_CMD_GTMCOORD_START_SLAVE, infosendmsg.data, slave_nodeinfo.nodehost, &strinfo);
 		else
 			res = mgr_ma_send_cmd(AGT_CMD_DN_START, infosendmsg.data, slave_nodeinfo.nodehost, &strinfo);
 		if (!res)
@@ -1997,7 +1997,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 		if (!bgtmKind)
 			res = mgr_ma_send_cmd(AGT_CMD_DN_STOP, infosendmsg.data, nodeInfoM.nodehost, &restmsg);
 		else
-			res = mgr_ma_send_cmd(AGT_CMD_GTMCOOR_STOP_MASTER, infosendmsg.data, nodeInfoM.nodehost, &restmsg);
+			res = mgr_ma_send_cmd(AGT_CMD_GTMCOORD_STOP_MASTER, infosendmsg.data, nodeInfoM.nodehost, &restmsg);
 		if (!res)
 				ereport(ERROR, (errmsg("stop %s \"%s\" fail %s", masterTypeStrData.data, nodeNameData.data, restmsg.data)));
 
@@ -2046,7 +2046,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 		if (!bgtmKind)
 			res = mgr_ma_send_cmd(AGT_CMD_DN_FAILOVER, infosendmsg.data, nodeInfoS.nodehost, &restmsg);
 		else
-			res = mgr_ma_send_cmd(AGT_CMD_GTMCOOR_SLAVE_FAILOVER, infosendmsg.data, nodeInfoS.nodehost, &restmsg);
+			res = mgr_ma_send_cmd(AGT_CMD_GTMCOORD_SLAVE_FAILOVER, infosendmsg.data, nodeInfoS.nodehost, &restmsg);
 		if (!res)
 		{
 			brestmsg = true;
@@ -2349,7 +2349,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 	if (!bgtmKind)
 		mgr_runmode_cndn_get_result(AGT_CMD_DN_START, &getAgentCmdRst, nodeRel, tuple, TAKEPLAPARM_N);
 	else
-		mgr_runmode_cndn_get_result(AGT_CMD_GTMCOOR_START_SLAVE, &getAgentCmdRst, nodeRel, tuple, TAKEPLAPARM_N);
+		mgr_runmode_cndn_get_result(AGT_CMD_GTMCOORD_START_SLAVE, &getAgentCmdRst, nodeRel, tuple, TAKEPLAPARM_N);
 
 	if(!getAgentCmdRst.ret)
 	{

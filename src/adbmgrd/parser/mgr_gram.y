@@ -77,7 +77,7 @@ typedef struct mgr_yy_extra_type
 #define parser_yyerror(msg)  scanner_yyerror(msg, yyscanner)
 #define parser_errposition(pos)  scanner_errposition(pos, yyscanner)
 
-#define GTMCOOR_TYPE      'G'
+#define GTMCOORD_TYPE      'G'
 #define COORDINATOR_TYPE  'C'
 #define DATANODE_TYPE     'D'
 
@@ -968,7 +968,7 @@ MonitorStmt:
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_monitor_gtmcoor_all", NULL));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_monitor_gtmcoord_all", NULL));
 			$$ = (Node*)stmt;
 		}
 		| MONITOR DATANODE opt_general_all
@@ -1779,7 +1779,7 @@ ListParmStmt:
 
 			switch ($3)
 			{
-				case GTMCOOR_TYPE:
+				case GTMCOORD_TYPE:
 					stmt->whereClause =
 						(Node *)(Node *)makeAndExpr(
 							(Node *) makeSimpleA_Expr(AEXPR_OP, "~",
@@ -2359,7 +2359,7 @@ StartNodeMasterStmt:
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($4, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_start_gtmcoor_master", args));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_start_gtmcoord_master", args));
 			$$ = (Node*)stmt;
 		}
 	|	START GTMCOORD SLAVE Ident
@@ -2367,14 +2367,14 @@ StartNodeMasterStmt:
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($4, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_start_gtmcoor_slave", args));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_start_gtmcoord_slave", args));
 			$$ = (Node*)stmt;
 		}
 	| START GTMCOORD ALL
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("start_gtmcoor_all"), -1));
+			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("start_gtmcoord_all"), -1));
 			$$ = (Node*)stmt;
 		}
 	|	START COORDINATOR MASTER NodeConstList
@@ -2475,7 +2475,7 @@ StopNodeMasterStmt:
 			List *args = list_make1(makeStringConst($5, -1));
 			args = lappend(args,makeStringConst($4, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_stop_gtmcoor_master", args));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_stop_gtmcoord_master", args));
 			$$ = (Node*)stmt;
 		}
 	|	STOP GTMCOORD SLAVE Ident opt_stop_mode
@@ -2484,7 +2484,7 @@ StopNodeMasterStmt:
 			List *args = list_make1(makeStringConst($5, -1));
 			args = lappend(args,makeStringConst($4, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_stop_gtmcoor_slave", args));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_stop_gtmcoord_slave", args));
 			$$ = (Node*)stmt;
 		}
 	| STOP GTMCOORD ALL opt_stop_mode
@@ -2492,11 +2492,11 @@ StopNodeMasterStmt:
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			if (strcmp($4, SHUTDOWN_S) == 0)
-				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stop_gtmcoor_all"), -1));
+				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stop_gtmcoord_all"), -1));
 			else if (strcmp($4, SHUTDOWN_F) == 0)
-				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stop_gtmcoor_all_f"), -1));
+				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stop_gtmcoord_all_f"), -1));
 			else
-				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stop_gtmcoor_all_i"), -1));
+				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stop_gtmcoord_all_i"), -1));
 			$$ = (Node*)stmt;
 		}
 	|	STOP COORDINATOR MASTER NodeConstList opt_stop_mode
@@ -2678,7 +2678,7 @@ opt_slave_inner_type:
 	;
 
 cluster_type:
-	GTMCOORD             {$$ = GTMCOOR_TYPE;}
+	GTMCOORD             {$$ = GTMCOORD_TYPE;}
 	| GTMCOORD MASTER    {$$ = CNDN_TYPE_GTM_COOR_MASTER;}
 	| GTMCOORD SLAVE    {$$ = CNDN_TYPE_GTM_COOR_SLAVE;}
 	| COORDINATOR    {$$ = COORDINATOR_TYPE;}
@@ -3251,7 +3251,7 @@ GetBoottimeStmt:
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_boottime_gtmcoor_all", NULL));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_boottime_gtmcoord_all", NULL));
 			$$ = (Node*)stmt;
 		}
 		| 	SHOW BOOTTIME DATANODE opt_general_all

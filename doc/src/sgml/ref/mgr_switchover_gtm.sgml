@@ -41,7 +41,7 @@ SWITCHOVER GTMCOORD SLAVE <replaceable class="parameter">gtm_name</replaceable>
     <term><replaceable class="parameter">gtm_name</replaceable></term>
     <listitem>
       <para>
-      Gtmcoor slave name.
+      Gtmcoord slave name.
       </para>
     </listitem>
    </varlistentry>

@@ -21,7 +21,7 @@ ADB documentation
 
   <refsynopsisdiv>
     <synopsis>
-REWIND GTGTMCOORM SLAVE { <replaceable class="parameter">node_name</replaceable> }
+REWIND GTMCOORD SLAVE { <replaceable class="parameter">node_name</replaceable> }
 </synopsis>
   </refsynopsisdiv>
 

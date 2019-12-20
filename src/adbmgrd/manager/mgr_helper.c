@@ -1710,7 +1710,7 @@ bool callAgentPromoteNode(MgrNodeWrapper *node, bool complain)
 	else if (node->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
 			 node->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
 	{
-		cmd = AGT_CMD_GTMCOOR_SLAVE_FAILOVER;
+		cmd = AGT_CMD_GTMCOORD_SLAVE_FAILOVER;
 	}
 	else
 	{
@@ -1856,9 +1856,9 @@ bool callAgentStopNode(MgrNodeWrapper *node, char *shutdownMode,
 		 : appendStringInfo(&cmdMessage, " -W");
 
 	if (node->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER)
-		cmd = AGT_CMD_GTMCOOR_STOP_MASTER;
+		cmd = AGT_CMD_GTMCOORD_STOP_MASTER;
 	else if (node->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-		cmd = AGT_CMD_GTMCOOR_STOP_SLAVE;
+		cmd = AGT_CMD_GTMCOORD_STOP_SLAVE;
 	else if (node->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER ||
 			 node->form.nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
 		cmd = AGT_CMD_CN_STOP;
@@ -1931,9 +1931,9 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool wait, bool complain)
 		 : appendStringInfo(&cmdMessage, " -W");
 
 	if (node->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER)
-		cmd = AGT_CMD_GTMCOOR_START_MASTER;
+		cmd = AGT_CMD_GTMCOORD_START_MASTER;
 	if (node->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-		cmd = AGT_CMD_GTMCOOR_START_SLAVE; /* agtm_ctl */
+		cmd = AGT_CMD_GTMCOORD_START_SLAVE; /* agtm_ctl */
 	else if (node->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER ||
 			 node->form.nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
 		cmd = AGT_CMD_CN_START; /* pg_ctl  */

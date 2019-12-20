@@ -1129,24 +1129,24 @@ Datum mgr_drop_node_func(PG_FUNCTION_ARGS)
 * execute init gtm master, send information to agent to init gtm master
 */
 Datum
-mgr_init_gtmcoor_master(PG_FUNCTION_ARGS)
+mgr_init_gtmcoord_master(PG_FUNCTION_ARGS)
 {
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
-	return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOOR_INIT, TAKEPLAPARM_N, fcinfo);
+	return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOORD_INIT, TAKEPLAPARM_N, fcinfo);
 }
 
 /*
 * execute init gtm slave, send information to agent to init gtm slave
 */
 Datum
-mgr_init_gtmcoor_slave(PG_FUNCTION_ARGS)
+mgr_init_gtmcoord_slave(PG_FUNCTION_ARGS)
 {
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
-	return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOOR_SLAVE_INIT, TAKEPLAPARM_N, fcinfo);
+	return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOORD_SLAVE_INIT, TAKEPLAPARM_N, fcinfo);
 }
 
 /*
@@ -1424,7 +1424,7 @@ get_fcinfo_namelist(const char *sepstr, int argidx, FunctionCallInfo fcinfo)
 /*
 * start gtm master
 */
-Datum mgr_start_gtmcoor_master(PG_FUNCTION_ARGS)
+Datum mgr_start_gtmcoord_master(PG_FUNCTION_ARGS)
 {
 	mgr_check_job_in_updateparam("monitor_handle_gtm");
 	if (PG_ARGISNULL(0))
@@ -1432,7 +1432,7 @@ Datum mgr_start_gtmcoor_master(PG_FUNCTION_ARGS)
 		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
 												   enable_doctor_consulting,
 												   CNDN_TYPE_GTM_COOR_MASTER,
-												   AGT_CMD_GTMCOOR_START_MASTER_BACKEND,
+												   AGT_CMD_GTMCOORD_START_MASTER_BACKEND,
 												   TAKEPLAPARM_N,
 												   fcinfo);
 	}
@@ -1441,7 +1441,7 @@ Datum mgr_start_gtmcoor_master(PG_FUNCTION_ARGS)
 		return mgr_runmode_cndn(nodenames_supplier_of_argidx_0,
 								enable_doctor_consulting,
 								CNDN_TYPE_GTM_COOR_MASTER,
-								AGT_CMD_GTMCOOR_START_MASTER,
+								AGT_CMD_GTMCOORD_START_MASTER,
 								TAKEPLAPARM_N,
 								fcinfo);
 	}
@@ -1450,14 +1450,14 @@ Datum mgr_start_gtmcoor_master(PG_FUNCTION_ARGS)
 /*
 * start gtm slave
 */
-Datum mgr_start_gtmcoor_slave(PG_FUNCTION_ARGS)
+Datum mgr_start_gtmcoord_slave(PG_FUNCTION_ARGS)
 {
 	if (PG_ARGISNULL(0))
 	{
 		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
 												   enable_doctor_consulting,
 												   CNDN_TYPE_GTM_COOR_SLAVE,
-												   AGT_CMD_GTMCOOR_START_SLAVE_BACKEND,
+												   AGT_CMD_GTMCOORD_START_SLAVE_BACKEND,
 												   TAKEPLAPARM_N,
 												   fcinfo);
 	}
@@ -1466,7 +1466,7 @@ Datum mgr_start_gtmcoor_slave(PG_FUNCTION_ARGS)
 		return mgr_runmode_cndn(nodenames_supplier_of_argidx_0,
 								enable_doctor_consulting,
 								CNDN_TYPE_GTM_COOR_SLAVE,
-								AGT_CMD_GTMCOOR_START_SLAVE,
+								AGT_CMD_GTMCOORD_START_SLAVE,
 								TAKEPLAPARM_N,
 								fcinfo);
 	}
@@ -1671,20 +1671,20 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	nodetypestr = mgr_nodetype_str(nodetype);
 	/* Clear the slave node information about the read-only query in the pgxc_node table,
 	 * avoid repeating node names and causing subsequent work to fail */
-	if (AGT_CMD_GTMCOOR_SLAVE_FAILOVER == cmdtype || AGT_CMD_DN_FAILOVER == cmdtype)
+	if (AGT_CMD_GTMCOORD_SLAVE_FAILOVER == cmdtype || AGT_CMD_DN_FAILOVER == cmdtype)
 		mgr_clean_cn_pgxcnode_readonlysql_slave();
 	/*check node init or not*/
-	if ((AGT_CMD_CNDN_CNDN_INIT == cmdtype || AGT_CMD_GTMCOOR_INIT == cmdtype || AGT_CMD_GTMCOOR_SLAVE_INIT == cmdtype ) && mgr_node->nodeinited)
+	if ((AGT_CMD_CNDN_CNDN_INIT == cmdtype || AGT_CMD_GTMCOORD_INIT == cmdtype || AGT_CMD_GTMCOORD_SLAVE_INIT == cmdtype ) && mgr_node->nodeinited)
 	{
 		appendStringInfo(&(getAgentCmdRst->description), "%s \"%s\" has been initialized", nodetypestr, cndnname);
 		getAgentCmdRst->ret = false;
 		goto end;
 	}
-	if(AGT_CMD_CNDN_CNDN_INIT != cmdtype && AGT_CMD_GTMCOOR_INIT != cmdtype && AGT_CMD_GTMCOOR_SLAVE_INIT != cmdtype
-		&& AGT_CMD_CLEAN_NODE != cmdtype && AGT_CMD_GTMCOOR_STOP_MASTER != cmdtype && AGT_CMD_GTMCOOR_STOP_SLAVE != cmdtype
+	if(AGT_CMD_CNDN_CNDN_INIT != cmdtype && AGT_CMD_GTMCOORD_INIT != cmdtype && AGT_CMD_GTMCOORD_SLAVE_INIT != cmdtype
+		&& AGT_CMD_CLEAN_NODE != cmdtype && AGT_CMD_GTMCOORD_STOP_MASTER != cmdtype && AGT_CMD_GTMCOORD_STOP_SLAVE != cmdtype
 		&& AGT_CMD_CN_STOP != cmdtype && AGT_CMD_DN_STOP != cmdtype && !mgr_node->nodeinited
 		&& AGT_CMD_DN_RESTART != cmdtype && AGT_CMD_CN_RESTART != cmdtype && AGT_CMD_AGTM_RESTART != cmdtype
-		&& AGT_CMD_GTMCOOR_STOP_MASTER_BACKEND != cmdtype && AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND != cmdtype
+		&& AGT_CMD_GTMCOORD_STOP_MASTER_BACKEND != cmdtype && AGT_CMD_GTMCOORD_STOP_SLAVE_BACKEND != cmdtype
 		&& AGT_CMD_CN_STOP_BACKEND != cmdtype && AGT_CMD_DN_STOP_BACKEND != cmdtype)
 	{
 		appendStringInfo(&(getAgentCmdRst->description), "%s \"%s\" has not been initialized", nodetypestr, cndnname);
@@ -1709,17 +1709,17 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	cndnPath = TextDatumGetCString(datumPath);
 	switch(cmdtype)
 	{
-		case AGT_CMD_GTMCOOR_START_MASTER:
-		case AGT_CMD_GTMCOOR_START_MASTER_BACKEND:
-		case AGT_CMD_GTMCOOR_START_SLAVE:
-		case AGT_CMD_GTMCOOR_START_SLAVE_BACKEND:
+		case AGT_CMD_GTMCOORD_START_MASTER:
+		case AGT_CMD_GTMCOORD_START_MASTER_BACKEND:
+		case AGT_CMD_GTMCOORD_START_SLAVE:
+		case AGT_CMD_GTMCOORD_START_SLAVE_BACKEND:
 			cmdmode = "start";
 			zmode = "gtm_coord";
 			break;
-		case AGT_CMD_GTMCOOR_STOP_MASTER:
-		case AGT_CMD_GTMCOOR_STOP_MASTER_BACKEND:
-		case AGT_CMD_GTMCOOR_STOP_SLAVE:
-		case AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND:
+		case AGT_CMD_GTMCOORD_STOP_MASTER:
+		case AGT_CMD_GTMCOORD_STOP_MASTER_BACKEND:
+		case AGT_CMD_GTMCOORD_STOP_SLAVE:
+		case AGT_CMD_GTMCOORD_STOP_SLAVE_BACKEND:
 			cmdmode = "stop";
 			zmode = "gtm_coord";
 			break;
@@ -1755,7 +1755,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			cmdmode = "promote";
 			zmode = "datanode";
 			break;
-		case AGT_CMD_GTMCOOR_SLAVE_FAILOVER:
+		case AGT_CMD_GTMCOORD_SLAVE_FAILOVER:
 			cmdmode = "promote";
 			zmode = "node";
 			break;
@@ -1778,7 +1778,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	}
 
 	/*init coordinator/datanode/gtmcoord*/
-	if (AGT_CMD_CNDN_CNDN_INIT == cmdtype || AGT_CMD_GTMCOOR_INIT == cmdtype)
+	if (AGT_CMD_CNDN_CNDN_INIT == cmdtype || AGT_CMD_GTMCOORD_INIT == cmdtype)
 	{
 		appendStringInfo(&infosendmsg, " -D %s", cndnPath);
 		if (with_data_checksums)
@@ -1786,7 +1786,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		else
 			appendStringInfo(&infosendmsg, " --nodename %s -E UTF8 --locale=C", cndnname);
 	}  /*init gtmcoord slave*/
-	else if (AGT_CMD_GTMCOOR_SLAVE_INIT == cmdtype)
+	else if (AGT_CMD_GTMCOORD_SLAVE_INIT == cmdtype)
 	{
 		user = get_hostuser_from_hostoid(hostOid);
 		/*get gtmcoord masterport, masterhostaddress*/
@@ -1826,12 +1826,12 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	}
 	/*stop coordinator/datanode*/
 	else if(AGT_CMD_CN_STOP == cmdtype || AGT_CMD_DN_STOP == cmdtype ||
-			AGT_CMD_GTMCOOR_STOP_MASTER == cmdtype || AGT_CMD_GTMCOOR_STOP_SLAVE == cmdtype)
+			AGT_CMD_GTMCOORD_STOP_MASTER == cmdtype || AGT_CMD_GTMCOORD_STOP_SLAVE == cmdtype)
 	{
 		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
 		appendStringInfo(&infosendmsg, " -Z %s -m %s -o -i -w -c", zmode, shutdown_mode);
 	}
-	else if (AGT_CMD_GTMCOOR_SLAVE_FAILOVER == cmdtype)
+	else if (AGT_CMD_GTMCOORD_SLAVE_FAILOVER == cmdtype)
 	{
 		/*pause cluster*/
 		mgr_lock_cluster_involve_gtm_coord(&pg_conn, &cnoid);
@@ -1888,14 +1888,14 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		appendStringInfo(&infosendmsg, "rm -rf %s; mkdir -p %s; chmod 0700 %s", cndnPath, cndnPath, cndnPath);
 	}
 	else if(AGT_CMD_CN_STOP_BACKEND == cmdtype || AGT_CMD_DN_STOP_BACKEND == cmdtype ||
-			AGT_CMD_GTMCOOR_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND == cmdtype)
+			AGT_CMD_GTMCOORD_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOORD_STOP_SLAVE_BACKEND == cmdtype)
 	{
 		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
 		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
 		appendStringInfo(&infosendmsg, " -Z %s -m %s -o -i -w -c -W", zmode, shutdown_mode);
 	}
 	else if (AGT_CMD_CN_START_BACKEND == cmdtype || AGT_CMD_DN_START_BACKEND == cmdtype ||
-		AGT_CMD_GTMCOOR_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOOR_START_SLAVE_BACKEND == cmdtype)
+		AGT_CMD_GTMCOORD_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOORD_START_SLAVE_BACKEND == cmdtype)
 	{
 		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
 		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
@@ -1926,7 +1926,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	}
 	}PG_CATCH();
 	{
-		if (AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTMCOOR_SLAVE_FAILOVER == cmdtype)
+		if (AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTMCOORD_SLAVE_FAILOVER == cmdtype)
 		{
 			mgr_unlock_cluster_involve_gtm_coord(&pg_conn);
 			pg_conn = NULL;
@@ -1939,7 +1939,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	if (!execRes && pg_conn)
 	{
 		/* check the slave node running status, if it had promote to master, skip this error */
-		if (AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTMCOOR_SLAVE_FAILOVER == cmdtype)
+		if (AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTMCOORD_SLAVE_FAILOVER == cmdtype)
 		{
 			if (mgr_check_node_recovery_finish(nodetype, hostOid, cndnport, hostaddress))
 				execRes = true;
@@ -1952,7 +1952,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	}
 
 	/*when init, 1. update gtm system table's column to set initial is true 2. refresh postgresql.conf*/
-	if (execRes && AGT_CMD_GTMCOOR_SLAVE_INIT == cmdtype)
+	if (execRes && AGT_CMD_GTMCOORD_SLAVE_INIT == cmdtype)
 	{
 		/*update node system table's column to set initial is true when cmd is init*/
 		mgr_node->nodeinited = true;
@@ -1978,7 +1978,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	}
 
 	/*update node system table's column to set initial is true when cmd is init*/
-	if ((AGT_CMD_CNDN_CNDN_INIT == cmdtype ||  AGT_CMD_GTMCOOR_INIT == cmdtype) && execRes)
+	if ((AGT_CMD_CNDN_CNDN_INIT == cmdtype ||  AGT_CMD_GTMCOORD_INIT == cmdtype) && execRes)
 	{
 		mgr_node->nodeinited = true;
 		heap_inplace_update(noderel, aimtuple);
@@ -2007,7 +2007,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		}
 
 		/*gtm failover*/
-		if (AGT_CMD_GTMCOOR_SLAVE_FAILOVER == cmdtype && execRes)
+		if (AGT_CMD_GTMCOORD_SLAVE_FAILOVER == cmdtype && execRes)
 		{
 			mgr_after_gtm_failover_handle(hostaddress, cndnport, noderel, getAgentCmdRst, aimtuple
 				, cndnPath, &pg_conn, cnoid);
@@ -2027,16 +2027,16 @@ end:
 	/* Refresh slave node information about read-only query in pgxc_node table */ 
 	if (!readonlySqlSlaveInfoRefreshComplete
 		&& (AGT_CMD_CN_START == cmdtype || AGT_CMD_CN_START_BACKEND == cmdtype 
-		|| AGT_CMD_CN_RESTART == cmdtype || AGT_CMD_GTMCOOR_SLAVE_FAILOVER == cmdtype 
-		|| AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTMCOOR_START_MASTER_BACKEND == cmdtype
-		|| AGT_CMD_GTMCOOR_START_MASTER == cmdtype || AGT_CMD_GTMCOOR_START_SLAVE == cmdtype))
+		|| AGT_CMD_CN_RESTART == cmdtype || AGT_CMD_GTMCOORD_SLAVE_FAILOVER == cmdtype 
+		|| AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTMCOORD_START_MASTER_BACKEND == cmdtype
+		|| AGT_CMD_GTMCOORD_START_MASTER == cmdtype || AGT_CMD_GTMCOORD_START_SLAVE == cmdtype))
 		mgr_update_cn_pgxcnode_readonlysql_slave(NULL, NULL, NULL);
 }
 
 /*
 * stop gtm master
 */
-Datum mgr_stop_gtmcoor_master(PG_FUNCTION_ARGS)
+Datum mgr_stop_gtmcoord_master(PG_FUNCTION_ARGS)
 {
 	char *stop_mode;
 
@@ -2091,7 +2091,7 @@ Datum mgr_stop_one_gtm_master(PG_FUNCTION_ARGS)
 	}
 	/*get execute cmd result from agent*/
 	initStringInfo(&(getAgentCmdRst.description));
-	mgr_runmode_cndn_get_result(AGT_CMD_GTMCOOR_STOP_MASTER, &getAgentCmdRst, rel_node, aimtuple, SHUTDOWN_I);
+	mgr_runmode_cndn_get_result(AGT_CMD_GTMCOORD_STOP_MASTER, &getAgentCmdRst, rel_node, aimtuple, SHUTDOWN_I);
 	tup_result = build_common_command_tuple(
 		&(getAgentCmdRst.nodename)
 		, getAgentCmdRst.ret
@@ -2106,7 +2106,7 @@ Datum mgr_stop_one_gtm_master(PG_FUNCTION_ARGS)
 /*
 * stop gtm slave
 */
-Datum mgr_stop_gtmcoor_slave(PG_FUNCTION_ARGS)
+Datum mgr_stop_gtmcoord_slave(PG_FUNCTION_ARGS)
 {
 	char *stop_mode;
 
@@ -2116,7 +2116,7 @@ Datum mgr_stop_gtmcoor_slave(PG_FUNCTION_ARGS)
 		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
 												   disable_doctor_consulting,
 												   CNDN_TYPE_GTM_COOR_SLAVE,
-												   AGT_CMD_GTMCOOR_STOP_SLAVE_BACKEND,
+												   AGT_CMD_GTMCOORD_STOP_SLAVE_BACKEND,
 												   stop_mode,
 												   fcinfo);
 	}
@@ -2125,7 +2125,7 @@ Datum mgr_stop_gtmcoor_slave(PG_FUNCTION_ARGS)
 		return mgr_runmode_cndn(nodenames_supplier_of_argidx_1,
 								disable_doctor_consulting,
 								CNDN_TYPE_GTM_COOR_SLAVE,
-								AGT_CMD_GTMCOOR_STOP_SLAVE,
+								AGT_CMD_GTMCOORD_STOP_SLAVE,
 								stop_mode,
 								fcinfo);
 	}
@@ -2668,7 +2668,7 @@ Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS)
 /*
  * MONITOR GTMCOORD ALL;
  */
-Datum mgr_monitor_gtmcoor_all(PG_FUNCTION_ARGS)
+Datum mgr_monitor_gtmcoord_all(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
 	InitNodeInfo *info;
@@ -2771,7 +2771,7 @@ Datum mgr_monitor_gtmcoor_all(PG_FUNCTION_ARGS)
 /*
  * BOOTTIME GTMCOORD ALL;
  */
-Datum mgr_boottime_gtmcoor_all(PG_FUNCTION_ARGS)
+Datum mgr_boottime_gtmcoord_all(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
 	InitNodeInfo *info;
@@ -5609,7 +5609,7 @@ void mgr_start_node(char nodetype, const char *nodepath, Oid hostoid)
 	ma_beginmessage(&buf, AGT_MSG_COMMAND);
 
 	if (nodetype == CNDN_TYPE_GTM_COOR_MASTER || nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-		ma_sendbyte(&buf, AGT_CMD_GTMCOOR_START_SLAVE); /* agtm_ctl */
+		ma_sendbyte(&buf, AGT_CMD_GTMCOORD_START_SLAVE); /* agtm_ctl */
 	else if (nodetype == CNDN_TYPE_COORDINATOR_MASTER || nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
 		ma_sendbyte(&buf, AGT_CMD_CN_START);  /* pg_ctl  */
 	else
@@ -6198,7 +6198,7 @@ Datum mgr_failover_one_dn_deprecated(PG_FUNCTION_ARGS)
 	return HeapTupleGetDatum(tup_result);
 }
 
-static void mgr_construct_add_coornode(InitNodeInfo *info_in, const char nodetype, 
+static void mgr_construct_add_coordnode(InitNodeInfo *info_in, const char nodetype, 
 		Form_mgr_node mgr_node_out, StringInfoData *cmdstring)
 {
 	ScanKeyData key_in[1];
@@ -6325,8 +6325,8 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 						,cnUser);
 
 		info_in = palloc(sizeof(*info_in));
-		mgr_construct_add_coornode(info_in, CNDN_TYPE_GTM_COOR_MASTER, mgr_node_out, &cmdstring);
-		mgr_construct_add_coornode(info_in, CNDN_TYPE_COORDINATOR_MASTER, mgr_node_out, &cmdstring);
+		mgr_construct_add_coordnode(info_in, CNDN_TYPE_GTM_COOR_MASTER, mgr_node_out, &cmdstring);
+		mgr_construct_add_coordnode(info_in, CNDN_TYPE_COORDINATOR_MASTER, mgr_node_out, &cmdstring);
 		pfree(info_in);
 
 		prefer_cndn = get_new_pgxc_node(PGXC_CONFIG, NULL, 0);
@@ -6946,7 +6946,7 @@ Datum mgr_failover_gtm_deprecated(PG_FUNCTION_ARGS)
 
 	initStringInfo(&(getAgentCmdRst.description));
 	slaveTuple = mgr_get_tuple_node_from_name_type(relNode, slaveNodeName.data);
-	mgr_runmode_cndn_get_result(AGT_CMD_GTMCOOR_SLAVE_FAILOVER, &getAgentCmdRst, relNode, slaveTuple, TAKEPLAPARM_N);
+	mgr_runmode_cndn_get_result(AGT_CMD_GTMCOORD_SLAVE_FAILOVER, &getAgentCmdRst, relNode, slaveTuple, TAKEPLAPARM_N);
 	heap_freetuple(slaveTuple);
 
 	tup_result = build_common_command_tuple(
@@ -8038,11 +8038,11 @@ void mgr_get_cmd_head_word(char cmdtype, char *str)
 
 	switch(cmdtype)
 	{
-		case AGT_CMD_GTMCOOR_START_MASTER:
-		case AGT_CMD_GTMCOOR_START_SLAVE:
-		case AGT_CMD_GTMCOOR_STOP_MASTER:
-		case AGT_CMD_GTMCOOR_STOP_SLAVE:
-		case AGT_CMD_GTMCOOR_SLAVE_FAILOVER:
+		case AGT_CMD_GTMCOORD_START_MASTER:
+		case AGT_CMD_GTMCOORD_START_SLAVE:
+		case AGT_CMD_GTMCOORD_STOP_MASTER:
+		case AGT_CMD_GTMCOORD_STOP_SLAVE:
+		case AGT_CMD_GTMCOORD_SLAVE_FAILOVER:
 		case AGT_CMD_AGTM_RESTART:
 		case AGT_CMD_CN_RESTART:
 		case AGT_CMD_CN_START:
@@ -8055,16 +8055,16 @@ void mgr_get_cmd_head_word(char cmdtype, char *str)
 		case AGT_CMD_DN_MASTER_PROMOTE:
 			strcpy(str, "pg_ctl");
 			break;
-		case AGT_CMD_GTMCOOR_CLEAN:
+		case AGT_CMD_GTMCOORD_CLEAN:
 		case AGT_CMD_CLEAN_NODE:
 			strcpy(str, "");
 			break;
-		case AGT_CMD_GTMCOOR_INIT:
+		case AGT_CMD_GTMCOORD_INIT:
 		case AGT_CMD_CNDN_CNDN_INIT:
 			strcpy(str, "initdb");
 			break;
 		case AGT_CMD_CNDN_SLAVE_INIT:
-		case AGT_CMD_GTMCOOR_SLAVE_INIT:
+		case AGT_CMD_GTMCOORD_SLAVE_INIT:
 			strcpy(str, "pg_basebackup");
 			break;
 		case AGT_CMD_PSQL_CMD:
@@ -9433,8 +9433,8 @@ static void mgr_manage_stop_func(StringInfo commandsql)
 {
 	appendStringInfoString(commandsql, "mgr_stop_agent_all(), ");
 	appendStringInfoString(commandsql, "mgr_stop_agent_hostnamelist(text[]), ");
-	appendStringInfoString(commandsql, "mgr_stop_gtmcoor_master(\"any\"), ");
-	appendStringInfoString(commandsql, "mgr_stop_gtmcoor_slave(\"any\"), ");
+	appendStringInfoString(commandsql, "mgr_stop_gtmcoord_master(\"any\"), ");
+	appendStringInfoString(commandsql, "mgr_stop_gtmcoord_slave(\"any\"), ");
 	appendStringInfoString(commandsql, "mgr_stop_cn_master(\"any\"), ");
 	appendStringInfoString(commandsql, "mgr_stop_dn_master(\"any\"), ");
 	appendStringInfoString(commandsql, "mgr_stop_dn_slave(\"any\")");
@@ -9749,8 +9749,8 @@ static void mgr_manage_start(char command_type, char *user_list_str)
 		appendStringInfoString(&commandsql, "GRANT EXECUTE ON FUNCTION ");
 		appendStringInfoString(&commandsql, "mgr_start_agent_all(cstring), ");
 		appendStringInfoString(&commandsql, "mgr_start_agent_hostnamelist(cstring,text[]), ");
-		appendStringInfoString(&commandsql, "mgr_start_gtmcoor_master(\"any\"), ");
-		appendStringInfoString(&commandsql, "mgr_start_gtmcoor_slave(\"any\"), ");
+		appendStringInfoString(&commandsql, "mgr_start_gtmcoord_master(\"any\"), ");
+		appendStringInfoString(&commandsql, "mgr_start_gtmcoord_slave(\"any\"), ");
 		appendStringInfoString(&commandsql, "mgr_start_cn_master(\"any\"), ");
 		appendStringInfoString(&commandsql, "mgr_start_dn_master(\"any\"), ");
 		appendStringInfoString(&commandsql, "mgr_start_dn_slave(\"any\") ");
@@ -9758,7 +9758,7 @@ static void mgr_manage_start(char command_type, char *user_list_str)
 		appendStringInfoString(&commandsql, user_list_str);
 		appendStringInfoString(&commandsql, ";");
 		appendStringInfoString(&commandsql, "GRANT select ON ");
-		appendStringInfoString(&commandsql, "adbmgr.start_gtmcoor_all, ");
+		appendStringInfoString(&commandsql, "adbmgr.start_gtmcoord_all, ");
 		appendStringInfoString(&commandsql, "adbmgr.start_datanode_all, ");
 		appendStringInfoString(&commandsql, "adbmgr.startall ");
 		appendStringInfoString(&commandsql, "TO ");
@@ -9769,8 +9769,8 @@ static void mgr_manage_start(char command_type, char *user_list_str)
 		appendStringInfoString(&commandsql, "REVOKE EXECUTE ON FUNCTION ");
 		appendStringInfoString(&commandsql, "mgr_start_agent_all(cstring), ");
 		appendStringInfoString(&commandsql, "mgr_start_agent_hostnamelist(cstring,text[]), ");
-		appendStringInfoString(&commandsql, "mgr_start_gtmcoor_master(\"any\"), ");
-		appendStringInfoString(&commandsql, "mgr_start_gtmcoor_slave(\"any\"), ");
+		appendStringInfoString(&commandsql, "mgr_start_gtmcoord_master(\"any\"), ");
+		appendStringInfoString(&commandsql, "mgr_start_gtmcoord_slave(\"any\"), ");
 		appendStringInfoString(&commandsql, "mgr_start_cn_master(\"any\"), ");
 		appendStringInfoString(&commandsql, "mgr_start_dn_master(\"any\"), ");
 		appendStringInfoString(&commandsql, "mgr_start_dn_slave(\"any\") ");
@@ -9778,7 +9778,7 @@ static void mgr_manage_start(char command_type, char *user_list_str)
 		appendStringInfoString(&commandsql, user_list_str);
 		appendStringInfoString(&commandsql, ";");
 		appendStringInfoString(&commandsql, "REVOKE select ON ");
-		appendStringInfoString(&commandsql, "adbmgr.start_gtmcoor_all, ");
+		appendStringInfoString(&commandsql, "adbmgr.start_gtmcoord_all, ");
 		appendStringInfoString(&commandsql, "adbmgr.start_datanode_all, ");
 		appendStringInfoString(&commandsql, "adbmgr.startall ");
 		appendStringInfoString(&commandsql, "FROM ");
@@ -9812,7 +9812,7 @@ static void mgr_manage_show(char command_type, char *user_list_str)
 		appendStringInfoString(&commandsql, "GRANT EXECUTE ON FUNCTION ");
 		appendStringInfoString(&commandsql, "mgr_show_var_param(\"any\"), ");
 		appendStringInfoString(&commandsql, "mgr_show_hba_all(\"any\") ");
-		appendStringInfoString(&commandsql, "mgr_boottime_gtmcoor_all(), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_gtmcoord_all(), ");
 		appendStringInfoString(&commandsql, "mgr_boottime_datanode_all(), ");
 		appendStringInfoString(&commandsql, "mgr_boottime_coordinator_all(), ");
 		appendStringInfoString(&commandsql, "mgr_boottime_nodetype_namelist(bigint, \"any\"), ");
@@ -9829,7 +9829,7 @@ static void mgr_manage_show(char command_type, char *user_list_str)
 		appendStringInfoString(&commandsql, "REVOKE EXECUTE ON FUNCTION ");
 		appendStringInfoString(&commandsql, "mgr_show_var_param(\"any\"), ");
 		appendStringInfoString(&commandsql, "mgr_show_hba_all(\"any\") ");
-		appendStringInfoString(&commandsql, "mgr_boottime_gtmcoor_all(), ");
+		appendStringInfoString(&commandsql, "mgr_boottime_gtmcoord_all(), ");
 		appendStringInfoString(&commandsql, "mgr_boottime_datanode_all(), ");
 		appendStringInfoString(&commandsql, "mgr_boottime_coordinator_all(), ");
 		appendStringInfoString(&commandsql, "mgr_boottime_nodetype_namelist(bigint, \"any\"), ");
@@ -9871,7 +9871,7 @@ static void mgr_manage_monitor(char command_type, char *user_list_str)
 		appendStringInfoString(&commandsql, "GRANT EXECUTE ON FUNCTION ");
 		appendStringInfoString(&commandsql, "mgr_monitor_agent_all(), ");
 		appendStringInfoString(&commandsql, "mgr_monitor_agent_hostlist(text[]), ");
-		appendStringInfoString(&commandsql, "mgr_monitor_gtmcoor_all(), ");
+		appendStringInfoString(&commandsql, "mgr_monitor_gtmcoord_all(), ");
 		appendStringInfoString(&commandsql, "mgr_monitor_datanode_all(), ");
 		appendStringInfoString(&commandsql, "mgr_monitor_nodetype_namelist(bigint, \"any\"), ");
 		appendStringInfoString(&commandsql, "mgr_monitor_nodetype_all(bigint), ");
@@ -9889,7 +9889,7 @@ static void mgr_manage_monitor(char command_type, char *user_list_str)
 		appendStringInfoString(&commandsql, "REVOKE EXECUTE ON FUNCTION ");
 		appendStringInfoString(&commandsql, "mgr_monitor_agent_all(), ");
 		appendStringInfoString(&commandsql, "mgr_monitor_agent_hostlist(text[]), ");
-		appendStringInfoString(&commandsql, "mgr_monitor_gtmcoor_all(), ");
+		appendStringInfoString(&commandsql, "mgr_monitor_gtmcoord_all(), ");
 		appendStringInfoString(&commandsql, "mgr_monitor_datanode_all(), ");
 		appendStringInfoString(&commandsql, "mgr_monitor_nodetype_namelist(bigint, \"any\"), ");
 		appendStringInfoString(&commandsql, "mgr_monitor_nodetype_all(bigint), ");
@@ -10467,8 +10467,8 @@ static bool mgr_acl_stop(char *username)
 
 	f1 = mgr_has_func_priv(username, "mgr_stop_agent_all()", "execute");
 	f2 = mgr_has_func_priv(username, "mgr_stop_agent_hostnamelist(text[])", "execute");
-	f3 = mgr_has_func_priv(username, "mgr_stop_gtmcoor_master(\"any\")", "execute");
-	f4 = mgr_has_func_priv(username, "mgr_stop_gtmcoor_slave(\"any\")", "execute");
+	f3 = mgr_has_func_priv(username, "mgr_stop_gtmcoord_master(\"any\")", "execute");
+	f4 = mgr_has_func_priv(username, "mgr_stop_gtmcoord_slave(\"any\")", "execute");
 	f5 = mgr_has_func_priv(username, "mgr_stop_cn_master(\"any\")", "execute");
 	f6 = mgr_has_func_priv(username, "mgr_stop_dn_master(\"any\")", "execute");
 	f7 = mgr_has_func_priv(username, "mgr_stop_dn_slave(\"any\")", "execute");
@@ -10608,13 +10608,13 @@ static bool mgr_acl_start(char *username)
 
 	f1 = mgr_has_func_priv(username, "mgr_start_agent_all(cstring)", "execute");
 	f2 = mgr_has_func_priv(username, "mgr_stop_agent_hostnamelist(text[])", "execute");
-	f3 = mgr_has_func_priv(username, "mgr_start_gtmcoor_master(\"any\")", "execute");
-	f4 = mgr_has_func_priv(username, "mgr_start_gtmcoor_slave(\"any\")", "execute");
+	f3 = mgr_has_func_priv(username, "mgr_start_gtmcoord_master(\"any\")", "execute");
+	f4 = mgr_has_func_priv(username, "mgr_start_gtmcoord_slave(\"any\")", "execute");
 	f5 = mgr_has_func_priv(username, "mgr_start_cn_master(\"any\")", "execute");
 	f6 = mgr_has_func_priv(username, "mgr_start_dn_master(\"any\")", "execute");
 	f7 = mgr_has_func_priv(username, "mgr_start_dn_slave(\"any\")", "execute");
 
-	t1 = mgr_has_table_priv(username, "adbmgr.start_gtmcoor_all", "select");
+	t1 = mgr_has_table_priv(username, "adbmgr.start_gtmcoord_all", "select");
 	t2 = mgr_has_table_priv(username, "adbmgr.start_datanode_all", "select");
 	t3 = mgr_has_table_priv(username, "adbmgr.startall", "select");
 
@@ -10631,7 +10631,7 @@ static bool mgr_acl_show(char *username)
 
 	f3 = mgr_has_func_priv(username, "mgr_boottime_nodetype_all(bigint)", "execute");
 	f4 = mgr_has_func_priv(username, "mgr_boottime_nodetype_namelist(bigint, \"any\")", "execute");
-	f5 = mgr_has_func_priv(username, "mgr_boottime_gtmcoor_all()", "execute");
+	f5 = mgr_has_func_priv(username, "mgr_boottime_gtmcoord_all()", "execute");
 	f6 = mgr_has_func_priv(username, "mgr_boottime_datanode_all()", "execute");
 	f7 = mgr_has_func_priv(username, "mgr_boottime_coordinator_all()", "execute");
 	
@@ -10646,7 +10646,7 @@ static bool mgr_acl_monitor(char *username)
 
 	f1 = mgr_has_func_priv(username, "mgr_monitor_agent_all()", "execute");
 	f2 = mgr_has_func_priv(username, "mgr_monitor_agent_hostlist(text[])", "execute");
-	f3 = mgr_has_func_priv(username, "mgr_monitor_gtmcoor_all()", "execute");
+	f3 = mgr_has_func_priv(username, "mgr_monitor_gtmcoord_all()", "execute");
 	f4 = mgr_has_func_priv(username, "mgr_monitor_datanode_all()", "execute");
 	f5 = mgr_has_func_priv(username, "mgr_monitor_nodetype_namelist(bigint, \"any\")", "execute");
 	f6 = mgr_has_func_priv(username, "mgr_monitor_nodetype_all(bigint)", "execute");
