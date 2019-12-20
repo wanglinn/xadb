@@ -7596,6 +7596,7 @@ OraImplicitConvertStmt:
 					else
 						c->action = ICONVERT_CREATE;
 					c->if_exists = false;
+					c->node_list = NIL;
 					$$ = (Node *) c;
 				}
 			| DROP CONVERT opt_function_or_common convert_functon_name '(' convert_type_list ')'
@@ -7607,6 +7608,7 @@ OraImplicitConvertStmt:
 					c->cvtto = NIL;
 					c->action = ICONVERT_DELETE;
 					c->if_exists = false;
+					c->node_list = NIL;
 					$$ = (Node *) c;
 				}
 			| DROP CONVERT opt_function_or_common IF_P EXISTS convert_functon_name '(' convert_type_list ')'
@@ -7618,6 +7620,7 @@ OraImplicitConvertStmt:
 					c->cvtto = NIL;
 					c->action = ICONVERT_DELETE;
 					c->if_exists = true;
+					c->node_list = NIL;
 					$$ = (Node *) c;
 				}
 			/* implicit convert operator */
@@ -7633,6 +7636,7 @@ OraImplicitConvertStmt:
 					else
 						c->action = ICONVERT_CREATE;
 					c->if_exists = false;
+					c->node_list = NIL;
 					$$ = (Node *) c;
 				}
 			| DROP CONVERT OPERATOR convert_type all_Op convert_type
@@ -7644,6 +7648,7 @@ OraImplicitConvertStmt:
 					c->cvtto = NIL;
 					c->action = ICONVERT_DELETE;
 					c->if_exists = false;
+					c->node_list = NIL;
 					$$ = (Node *) c;
 				}
 			| DROP CONVERT OPERATOR IF_P EXISTS convert_type all_Op convert_type
@@ -7655,6 +7660,7 @@ OraImplicitConvertStmt:
 					c->cvtto = NIL;
 					c->action = ICONVERT_DELETE;
 					c->if_exists = true;
+					c->node_list = NIL;
 					$$ = (Node *) c;
 				}
 		;
