@@ -46,6 +46,7 @@
 #include "utils/rel.h"
 #include "utils/tqual.h"
 #ifdef ADB
+#include "catalog/adb_clean_d.h"
 #include "catalog/adb_slot.h"
 #include "catalog/pgxc_node.h"
 #include "catalog/pgxc_group.h"
@@ -248,6 +249,7 @@ IsSharedRelation(Oid relationId)
 		relationId == PgxcGroupRelationId ||
 		relationId == PgxcNodeRelationId ||
 		relationId == AdbSlotRelationId ||
+		relationId == AdbCleanRelationId ||
 #endif
 		relationId == DbRoleSettingRelationId ||
 		relationId == ReplicationOriginRelationId ||
@@ -274,6 +276,7 @@ IsSharedRelation(Oid relationId)
 		relationId == PgxcGroupGroupNameIndexId ||
 		relationId == PgxcGroupOidIndexId ||
 		relationId == AdbSlotSlotidIndexId ||
+		relationId == AdbCleanIndexId ||
 #endif
 		relationId == DbRoleSettingDatidRolidIndexId ||
 		relationId == ReplicationOriginIdentIndex ||
@@ -286,6 +289,10 @@ IsSharedRelation(Oid relationId)
 		relationId == PgShdescriptionToastIndex ||
 		relationId == PgDbRoleSettingToastTable ||
 		relationId == PgDbRoleSettingToastIndex ||
+#ifdef ADB
+		relationId == AdbCleanToastTable ||
+		relationId == AdbCleanToastIndex ||
+#endif /* ADB */
 		relationId == PgShseclabelToastTable ||
 		relationId == PgShseclabelToastIndex)
 		return true;
