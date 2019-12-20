@@ -632,19 +632,6 @@ TransactionId GetNewTransactionIdExt(bool isSubXact, int xidnum, bool isInsertXa
 		}
 	}
 
-#ifdef AGTM
-	/*
-	 * Write ahead xid assignment xlog to ensure that the same xid
-	 * will never be assigned twice.
-	 * The comment is due to the fact that the xid processing logic has guaranteed
-	 * that no duplicate values will occur now.
-	 */
-#if 0
-	XLogRecordXidAssignment(xid);
-#endif
-
-#endif
-
 #ifdef ADB
 	if (IsGTMNode())
 	{

@@ -1608,12 +1608,8 @@ AlterDatabase(ParseState *pstate, AlterDatabaseStmt *stmt, bool isTopLevel)
 		/* ... but we allow it on remote nodes */
 		if (IsCnMaster())
 #endif /*ADB*/
-
-/* prevent agtm check IsTransactionBlock(), user PGXC restrict, by lvcx */
-#ifndef AGTM
 		/* this case isn't allowed within a transaction block */
 		PreventInTransactionBlock(isTopLevel, "ALTER DATABASE SET TABLESPACE");
-#endif
 		movedb(stmt->dbname, defGetString(dtablespace));
 		return InvalidOid;
 	}

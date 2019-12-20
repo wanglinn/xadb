@@ -305,7 +305,7 @@ extern Datum rxact_get_running(PG_FUNCTION_ARGS);
 extern Datum current_xid(PG_FUNCTION_ARGS);
 #endif   /* ADB */
 
-#if defined(ADB) || defined(AGTM) || defined(ADB_MULTI_GRAM)
+#if defined(ADB) || defined(ADB_MULTI_GRAM)
 extern Datum pg_xact_status(PG_FUNCTION_ARGS);
 #endif
 

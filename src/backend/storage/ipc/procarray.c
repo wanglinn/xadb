@@ -4288,7 +4288,7 @@ KnownAssignedXidsReset(void)
 	LWLockRelease(ProcArrayLock);
 }
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 /*
  * ProcAssignedXids
  *		Process WAL log of assigned xids.

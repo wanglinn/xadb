@@ -63,7 +63,7 @@ typedef struct CommitTimestampEntry
 #define SizeOfCommitTimestampEntry (offsetof(CommitTimestampEntry, nodeid) + \
 									sizeof(RepOriginId))
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 /* Check if there is about a 1 billion XID difference for XID wraparound */
 #define COMMIT_TS_WRAP_CHECK_DELTA	((1 << 30) / COMMIT_TS_XACTS_PER_PAGE)
 #endif
@@ -803,7 +803,7 @@ ExtendCommitTs(TransactionId newestXact)
 	 * No work except at first XID of a page.  But beware: just after
 	 * wraparound, the first XID of page zero is FirstNormalTransactionId.
 	 */
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 	pageno = TransactionIdToCTsPage(newestXact);
 	if (CommitTsCtl->shared->latest_page_number - pageno <= COMMIT_TS_WRAP_CHECK_DELTA &&
 		pageno <= CommitTsCtl->shared->latest_page_number)
@@ -818,7 +818,7 @@ ExtendCommitTs(TransactionId newestXact)
 
 	LWLockAcquire(CommitTsControlLock, LW_EXCLUSIVE);
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 	pageno = TransactionIdToCTsPage(newestXact);
 	if (CommitTsCtl->shared->latest_page_number - pageno <= COMMIT_TS_WRAP_CHECK_DELTA &&
 		pageno <= CommitTsCtl->shared->latest_page_number)

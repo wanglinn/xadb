@@ -463,13 +463,4 @@ DECLARE_UNIQUE_INDEX(monitor_jobitem_name_index, 4930, on monitor_jobitem using 
 
 #endif /* ADBMGRD */
 
-#ifdef AGTM
-DECLARE_UNIQUE_INDEX(agtm_sequence_oid_index, 4998, on agtm_sequence using btree(oid oid_ops));
-#define AgtmSequenceOidIndexId 4998
-
-DECLARE_UNIQUE_INDEX(agtm_sequence_fields_index, 4999, on agtm_sequence using btree(database name_ops,schema name_ops,sequence name_ops));
-#define AgtmSequenceFieldsIndexId 4999
-
-#endif
-
 #endif							/* INDEXING_H */

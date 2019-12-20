@@ -1593,7 +1593,7 @@ _equalUnlistenStmt(const UnlistenStmt *a, const UnlistenStmt *b)
 static bool
 _equalTransactionStmt(const TransactionStmt *a, const TransactionStmt *b)
 {
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 	COMPARE_SCALAR_FIELD(missing_ok);
 #endif
 	COMPARE_SCALAR_FIELD(kind);

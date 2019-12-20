@@ -892,9 +892,6 @@ PGXCNodeCleanAndRelease(int code, Datum arg)
 
 	/* Disconnect from Pooler */
 	PoolManagerDisconnect();
-
-	/* Close connection with AGTM */
-	//agtm_Close();
 }
 
 /*

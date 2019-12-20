@@ -3853,7 +3853,7 @@ static TransactionStmt *
 _copyTransactionStmt(const TransactionStmt *from)
 {
 	TransactionStmt *newnode = makeNode(TransactionStmt);
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 	COPY_SCALAR_FIELD(missing_ok);
 #endif
 	COPY_SCALAR_FIELD(kind);

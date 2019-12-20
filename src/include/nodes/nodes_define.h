@@ -2680,7 +2680,7 @@ END_NODE(UnlistenStmt)
 
 #ifndef NO_NODE_TransactionStmt
 BEGIN_NODE(TransactionStmt)
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 	NODE_SCALAR(bool,missing_ok)
 #endif
 	NODE_ENUM(TransactionStmtKind,kind)

@@ -97,7 +97,7 @@ static bool announce_next_takeover = true;
 SyncRepConfigData *SyncRepConfig = NULL;
 static int	SyncRepWaitMode = SYNC_REP_NO_WAIT;
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 bool	rep_max_avail_flag;
 int	rep_max_avail_lsn_lag;
 char*	rep_read_archive_path;
@@ -169,7 +169,7 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 	if (!SyncRepRequested())
 		return;
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 	if(rep_max_avail_flag)
 	{
 		if(!LiveSyncWalSenderExists())
@@ -197,7 +197,7 @@ SyncRepWaitForLSN(XLogRecPtr lsn, bool commit)
 		return;
 	}
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 	if(rep_max_avail_flag)
 	{
 		if((lsn - WalSndCtl->lsn[mode])
@@ -1276,7 +1276,7 @@ assign_synchronous_commit(int newval, void *extra)
 	}
 }
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 void
 WakeUpAllWakedBackend(void)
 {

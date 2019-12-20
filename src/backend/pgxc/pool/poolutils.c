@@ -65,9 +65,6 @@ pgxc_pool_reload(PG_FUNCTION_ARGS)
 
 	RemoteXactReloadNode();
 
-	/* Sync cluster nextXid with AGTM */
-	//ClusterSyncXid();
-
 	PG_RETURN_BOOL(true);
 }
 

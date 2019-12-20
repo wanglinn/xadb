@@ -78,9 +78,6 @@
 
 
 #ifdef ADB
-#if defined(AGTM)
-#include "access/transam.h"
-#endif
 #include "agtm/agtm.h"
 #include "catalog/index.h"
 #include "nodes/nodes.h"
@@ -597,14 +594,10 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 					case TRANS_STMT_COMMIT_PREPARED:
 						PreventInTransactionBlock(isTopLevel, "COMMIT PREPARED");
 						PreventCommandDuringRecovery("COMMIT PREPARED");
-#if defined(ADB) || defined(AGTM)
 #ifdef ADB
 						SetCurrentXactPhase2();
-#endif
 						FinishPreparedTransactionExt(stmt->gid, true, stmt->missing_ok);
-#ifdef ADB
 						SetCurrentXactPhase1();
-#endif
 #else
 						FinishPreparedTransaction(stmt->gid, true);
 #endif
@@ -613,14 +606,10 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 					case TRANS_STMT_ROLLBACK_PREPARED:
 						PreventInTransactionBlock(isTopLevel, "ROLLBACK PREPARED");
 						PreventCommandDuringRecovery("ROLLBACK PREPARED");
-#if defined(ADB) || defined(AGTM)
 #ifdef ADB
 						SetCurrentXactPhase2();
-#endif
 						FinishPreparedTransactionExt(stmt->gid, false, stmt->missing_ok);
-#ifdef ADB
 						SetCurrentXactPhase1();
-#endif
 #else
 						FinishPreparedTransaction(stmt->gid, false);
 #endif
@@ -1386,7 +1375,6 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 						utilityContext.is_temp = is_temp;
 						ExecRemoteUtilityStmt(&utilityContext);
 					}
-					/* ADBQ TODO this at AGTM */
 				}
 #endif
 

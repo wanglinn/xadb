@@ -66,7 +66,7 @@ extern void RecoverPreparedTransactions(void);
 extern void CheckPointTwoPhase(XLogRecPtr redo_horizon);
 
 extern void FinishPreparedTransaction(const char *gid, bool isCommit);
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 extern void FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK);
 #endif /* ADB */
 

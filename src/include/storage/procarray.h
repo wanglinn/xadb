@@ -129,7 +129,7 @@ extern void ProcArraySetReplicationSlotXmin(TransactionId xmin,
 extern void ProcArrayGetReplicationSlotXmin(TransactionId *xmin,
 								TransactionId *catalog_xmin);
 
-#if defined(ADB) || defined(AGTM)
+#if defined(ADB)
 extern void ProcAssignedXids(int nxids, TransactionId *xids);
 extern void ProcUnassignedXids(int nxids, TransactionId *xids);
 #endif
