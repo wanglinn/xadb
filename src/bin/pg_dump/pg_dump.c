@@ -18574,7 +18574,7 @@ dumpAdbmgrTable(Archive *fout)
 	resetPQExpBuffer(dbQry);
 	appendPQExpBuffer(dbQry, "LIST NODE;");
 	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
-	Assert(PQnfields(res) == 11);
+	Assert(PQnfields(res) == 10);
 	resetPQExpBuffer(addstrdata);
 	for (i = 0; i < PQntuples(res); i++)
 	{
@@ -18587,15 +18587,7 @@ dumpAdbmgrTable(Archive *fout)
 				PQgetvalue(res, i, 4),
 				PQgetvalue(res, i, 5),
 				PQgetvalue(res, i, 6),
-				PQgetvalue(res, i, 10));
-		else if (strcmp(PQgetvalue(res, i, 9), "t") == 0)
-			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, path=\"%s\", readonly=true,zone=\"%s\");\n",
-				PQgetvalue(res, i, 2),
-				PQgetvalue(res, i, 0),
-				PQgetvalue(res, i, 1),
-				PQgetvalue(res, i, 4),
-				PQgetvalue(res, i, 6),
-				PQgetvalue(res, i, 10));
+				PQgetvalue(res, i, 9));
 		else
 			appendPQExpBuffer(addstrdata, "ADD %s \"%s\" (host=\"%s\", port=%s, path=\"%s\",zone=\"%s\");\n",
 				PQgetvalue(res, i, 2),
@@ -18603,7 +18595,7 @@ dumpAdbmgrTable(Archive *fout)
 				PQgetvalue(res, i, 1),
 				PQgetvalue(res, i, 4),
 				PQgetvalue(res, i, 6),
-				PQgetvalue(res, i, 10));
+				PQgetvalue(res, i, 9));
 	}
 	ArchiveEntry(fout, nilCatalogId, createDumpId(),
 		"mgr_node",
@@ -18626,7 +18618,7 @@ dumpAdbmgrTable(Archive *fout)
 		if (strcmp(PQgetvalue(res, i, 0), "*") == 0)
 			appendPQExpBuffer(addstrdata, "SET %s %s (\"%s\"=\"%s\") FORCE;\n",
 				strcasecmp(PQgetvalue(res, i, 1), "datanode master|slave") == 0 ? "datanode"
-					:(strcasecmp(PQgetvalue(res, i, 1), "gtm master|slave") == 0 ? "gtm"
+					:(strcasecmp(PQgetvalue(res, i, 1), "gtmcoord master|slave") == 0 ? "gtmcoord"
 						:(strcasecmp(PQgetvalue(res, i, 1), "coordinator master|slave") == 0
 						? "coordinator" : PQgetvalue(res, i, 1))),
 				"all",
@@ -18655,6 +18647,7 @@ dumpAdbmgrTable(Archive *fout)
 	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
 	Assert(PQnfields(res) == 3);
 	resetPQExpBuffer(addstrdata);
+	appendPQExpBuffer(addstrdata, "set cluster init;\n");
 	for (i = 0; i < PQntuples(res); i++)
 	{
 		appendPQExpBuffer(addstrdata, "ADD HBA %s \"%s\" (\"%s\");\n",
