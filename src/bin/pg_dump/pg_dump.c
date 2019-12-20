@@ -18716,6 +18716,55 @@ dumpAdbmgrTable(Archive *fout)
 		NULL, NULL);
 	PQclear(res);
 
+	/* Get the adb_doctor_conf table begin */
+	resetPQExpBuffer(dbQry);
+	appendPQExpBuffer(dbQry, "SET COMMAND_MODE TO SQL;");
+	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_COMMAND_OK);
+	PQclear(res);
+	resetPQExpBuffer(dbQry);
+	appendPQExpBuffer(dbQry, 
+					  "SELECT COUNT(1) FROM PG_CLASS T1, PG_NAMESPACE T2 "
+					  "WHERE UPPER(T1.RELNAME) = UPPER('ADB_DOCTOR_CONF') "
+					  "AND UPPER(T2.NSPNAME) = UPPER('ADB_DOCTOR') "
+					  "AND T1.RELNAMESPACE = T2.OID;");
+	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
+	i = PQntuples(res);
+	PQclear(res);
+	if (i > 0)
+	{
+		resetPQExpBuffer(dbQry);
+		appendPQExpBuffer(dbQry, "SELECT K, V FROM ADB_DOCTOR.ADB_DOCTOR_CONF;");
+		res = ExecuteSqlQuery(fout, dbQry->data, PGRES_TUPLES_OK);
+		if (PQntuples(res) > 0)
+		{
+			Assert(PQnfields(res) == 2);
+			resetPQExpBuffer(addstrdata);
+			appendPQExpBuffer(addstrdata, "SET COMMAND_MODE TO SQL;\n");
+			for (i = 0; i < PQntuples(res); i++)
+			{
+				appendPQExpBuffer(addstrdata,
+								  "UPDATE ADB_DOCTOR.ADB_DOCTOR_CONF SET V = '%s' WHERE K = '%s';\n",
+								  PQgetvalue(res, i, 1),
+								  PQgetvalue(res, i, 0));
+			}
+			appendPQExpBuffer(addstrdata, "SET COMMAND_MODE TO MGR;\n");
+			ArchiveEntry(fout, nilCatalogId, createDumpId(),
+			"adb_doctor_conf",
+			"adb_doctor",
+			NULL, "",
+			false, "DEFAULT", SECTION_DATA,
+			addstrdata->data, "", "",
+			NULL, 0,
+			NULL, NULL);
+		}
+		PQclear(res);
+	}
+	resetPQExpBuffer(dbQry);
+	appendPQExpBuffer(dbQry, "SET COMMAND_MODE TO MGR;");
+	res = ExecuteSqlQuery(fout, dbQry->data, PGRES_COMMAND_OK);
+	PQclear(res);
+	/* Get the adb_doctor_conf table end */
+
 	destroyPQExpBuffer(addstrdata);
 	destroyPQExpBuffer(dbQry);
 	destroyPQExpBuffer(delQry);
