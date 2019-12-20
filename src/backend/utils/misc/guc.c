@@ -614,7 +614,6 @@ bool		enable_truncate_ident;
 bool 		debug_enable_satisfy_mvcc;
 bool		enable_pushdown_art;
 bool		enable_zero_year;
-bool		print_reduce_debug_log = false;
 bool		enable_aux_dml = false;
 bool		adb_slot_enable_mvcc;
 extern bool auto_release_connect;	/* in libpq-node.c */
@@ -1428,16 +1427,6 @@ static struct config_bool ConfigureNamesBool[] =
 		},
 		&enable_truncate_ident,
 		true,
-		NULL, NULL, NULL
-	},
-
-	{
-		{"print_reduce_debug_log", PGC_USERSET, ADB_REDUCE,
-			gettext_noop("Logs something about adb reduce."),
-			NULL
-		},
-		&print_reduce_debug_log,
-		false,
 		NULL, NULL, NULL
 	},
 

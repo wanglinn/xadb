@@ -735,7 +735,6 @@
 									# Available values: replication, hash, hashmap, modulo, random 
 
 #adb_slot_enable_mvcc = false		# enable slot vacuum.
-#print_reduce_debug_log = false		# Print debug log of adb reduce
 #enable_cluster_plan = on
 #auto_release_connect = off			# release connects for connected other nodes when transaction finish
 #enable_readsql_on_slave = false	# Enable readonly sql execute on datanode slaves
