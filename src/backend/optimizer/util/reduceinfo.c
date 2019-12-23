@@ -2384,9 +2384,7 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 		result = (Expr*) makeSimpleFuncExpr(F_HASH_COMBIN_MOD,
 											INT4OID,
 											list_make2(MakeInt4Const(HASHMAP_SLOTSIZE), result));
-		result = (Expr*) makeSimpleFuncExpr(F_NODEID_FROM_HASHVALUE,
-											INT4OID,
-											list_make1(result));
+		result = CreateNodeOidFromSlotIndexExpr(result);
 		break;
 
 	case REDUCE_TYPE_MODULO:

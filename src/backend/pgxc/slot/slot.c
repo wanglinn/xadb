@@ -14,12 +14,14 @@
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
 #include "catalog/pgxc_node.h"
+#include "catalog/pg_type_d.h"
 #include "commands/defrem.h"
 #include "nodes/execnodes.h"	/* before execCluster.h */
 #include "executor/execCluster.h"
 #include "executor/spi.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
+#include "nodes/nodeFuncs.h"
 #include "nodes/parsenodes.h"
 #include "nodes/pg_list.h"
 #include "pgxc/locator.h"
@@ -27,6 +29,7 @@
 #include "pgxc/pgxc.h"
 #include "pgxc/slot.h"
 #include "utils/builtins.h"
+#include "utils/datum.h"
 #include "utils/fmgroids.h"
 #include "utils/inval.h"
 #include "utils/lsyscache.h"
@@ -40,10 +43,11 @@ static Oid *unique_slot_oids = NULL;	/* terminal by InvalidOid, order by slotid 
 
 static HeapTuple search_adb_slot_tuple_by_slotid(Relation rel, int slotid);
 static void SlotUploadFromCurrentDB(void);
+static void LockSlotsForRead(void);
 static void check_Slot_options(List *options, char **pnodename, char *pnodestatus);
 static int32 DatumGetHashAndModulo(Datum datum, Oid typid, bool isnull);
 
-Datum nodeid_from_hashvalue(PG_FUNCTION_ARGS);
+Datum nodeid_from_slotindex(PG_FUNCTION_ARGS);
 
 #define SLOT_STATUS_ONLINE	"online"
 #define SLOT_STATUS_MOVE	"move"
@@ -213,13 +217,7 @@ List *GetSlotNodeOids(void)
 	List *list = NIL;
 	Size i;
 
-	LWLockAcquire(SlotTableLock, LW_SHARED);
-	if (!OidIsValid(unique_slot_oids[0]))
-	{
-		LWLockRelease(SlotTableLock);
-		SlotUploadFromCurrentDB();
-		LWLockAcquire(SlotTableLock, LW_SHARED);
-	}
+	LockSlotsForRead();
 	for(i=0;i<HASHMAP_SLOTSIZE && OidIsValid(unique_slot_oids[i]);++i)
 		list = lappend_oid(list, unique_slot_oids[i]);
 	LWLockRelease(SlotTableLock);
@@ -237,13 +235,7 @@ bool IsSlotNodeOidsEqualOidList(const List *list)
 
 	count_found = 0;
 
-	LWLockAcquire(SlotTableLock, LW_SHARED);
-	if (!OidIsValid(unique_slot_oids[0]))
-	{
-		LWLockRelease(SlotTableLock);
-		SlotUploadFromCurrentDB();
-		LWLockAcquire(SlotTableLock, LW_SHARED);
-	}
+	LockSlotsForRead();
 
 	for(i=0;i<HASHMAP_SLOTSIZE && OidIsValid(unique_slot_oids[i]);++i)
 	{
@@ -590,8 +582,9 @@ static int32 DatumGetHashAndModulo(Datum datum, Oid typid, bool isnull)
 		return 0;
 
 	hashvalue = execHashValue(datum, typid, InvalidOid);
-	datum = DirectFunctionCall2(int4mod, Int32GetDatum(hashvalue), Int32GetDatum(HASHMAP_SLOTSIZE));
-	datum = DirectFunctionCall1(int4abs, datum);
+	datum = DirectFunctionCall2(hash_combin_mod,
+								UInt32GetDatum(HASHMAP_SLOTSIZE),
+								UInt32GetDatum(hashvalue));
 
 	return DatumGetInt32(datum);
 }
@@ -688,21 +681,169 @@ SlotUploadFromCurrentDB(void)
 	list_free(oids);
 }
 
-Datum
-nodeid_from_hashvalue(PG_FUNCTION_ARGS)
+static void LockSlotsForRead(void)
 {
-	int pnodeindex;
-	int pstatus;
-	int	slotid;
+	LWLockAcquire(SlotTableLock, LW_SHARED);
+	if (!OidIsValid(unique_slot_oids[0]))
+	{
+		LWLockRelease(SlotTableLock);
+		SlotUploadFromCurrentDB();
+		LWLockAcquire(SlotTableLock, LW_SHARED);
+	}
+}
 
-	if(PG_ARGISNULL(0))
-		slotid = 0;
-	else
-		slotid = PG_GETARG_INT32(0);
+Datum
+nodeoid_from_slotindex(PG_FUNCTION_ARGS)
+{
+	int32 pnodeindex;
+	struct
+	{
+		ArrayType  *arr_range;
+		ArrayType  *arr_node;
+		int			varsize_range;
+		int			varsize_node;
+		int32		count_oid;
+		Oid	   *oids;
+	}*extra = fcinfo->flinfo->fn_extra;
+	ArrayType	  *arr_range;
+	ArrayType	  *arr_node;
 
-	SlotGetInfo(slotid, &pnodeindex, &pstatus);
+	if (PG_ARGISNULL(0) ||
+		PG_ARGISNULL(1) ||
+		PG_ARGISNULL(2))
+	{
+		if (PG_ARGISNULL(3))
+			PG_RETURN_NULL();
+		PG_RETURN_DATUM(PG_GETARG_DATUM(3));
+	}
 
-	PG_RETURN_INT32(pnodeindex);
+	arr_range = PG_GETARG_ARRAYTYPE_P(0);
+	arr_node = PG_GETARG_ARRAYTYPE_P(1);
+
+	if (extra == NULL ||
+		VARSIZE_ANY(arr_range) != extra->varsize_range ||
+		VARSIZE_ANY(arr_node) != extra->varsize_node ||
+		memcmp(arr_range, extra->arr_range, extra->varsize_range) != 0 ||
+		memcmp(arr_node, extra->arr_node, extra->varsize_node) != 0)
+	{
+		int				count_range;
+		int				count_oids;
+		int32		   *ranges;
+		Oid			   *oids;
+		MemoryContext	oldcontext;
+		int				i;
+
+		if (ARR_NDIM(arr_range) != 1 ||
+			ARR_HASNULL(arr_range))
+			elog(ERROR, "argument range_list is not a 1-D not null array");
+		if (ARR_NDIM(arr_node) != 1 ||
+			ARR_HASNULL(arr_node))
+			elog(ERROR, "argument nodes is not a 1-D not null array");
+		ranges = (int32*)ARR_DATA_PTR(arr_range);
+		count_range = ARR_DIMS(arr_range)[0];
+		oids = (Oid*)ARR_DATA_PTR(arr_node);
+		count_oids = ARR_DIMS(arr_node)[0];
+		if (count_range != count_oids ||
+			count_oids <= 0 ||
+			ARR_LBOUND(arr_range)[0] != ARR_LBOUND(arr_node)[0])
+			elog(ERROR, "bad argument for range_list or nodes");
+
+		oldcontext = MemoryContextSwitchTo(fcinfo->flinfo->fn_mcxt);
+		if (extra == NULL)
+		{
+			extra = palloc0(sizeof(*extra));
+			fcinfo->flinfo->fn_extra = extra;
+		}else
+		{
+			pfree(extra->arr_range);
+			pfree(extra->arr_node);
+		}
+		extra->arr_range = (ArrayType*)datumCopy(PointerGetDatum(arr_range), false, -1);
+		extra->varsize_range = VARSIZE_ANY(arr_range);
+		extra->arr_node = (ArrayType*)datumCopy(PointerGetDatum(arr_node), false, -1);
+		extra->varsize_node = VARSIZE_ANY(arr_node);
+		extra->count_oid = ranges[count_range-1];
+		if (extra->oids == NULL)
+			extra->oids = palloc(sizeof(Oid) * extra->count_oid);
+		else
+			extra->oids = repalloc(extra->oids,
+								   sizeof(Oid) * extra->count_oid);
+		MemoryContextSwitchTo(oldcontext);
+
+		for (i=0;i<count_range;++i)
+		{
+			int j = (i==0 ? 0:ranges[i-1]);
+			int count=ranges[i];
+			for (;j<count;++j)
+				extra->oids[j] = oids[i];
+		}
+	}
+	PG_FREE_IF_COPY(arr_range, 0);
+	PG_FREE_IF_COPY(arr_node, 1);
+
+	pnodeindex = PG_GETARG_INT32(2);
+	if (pnodeindex >= extra->count_oid ||
+		pnodeindex < 0)
+	{
+		if (PG_ARGISNULL(3))
+			PG_RETURN_NULL();
+		PG_RETURN_DATUM(PG_GETARG_DATUM(3));
+	}
+	PG_RETURN_OID(extra->oids[pnodeindex]);
+}
+
+Expr* CreateNodeOidFromSlotIndexExpr(Expr *index)
+{
+	List	   *args = NIL;
+	Datum	   *ranges;
+	Datum	   *oids;
+	ArrayType  *array;
+	Const	   *c;
+	int			count;
+	int			i;
+	Assert(exprType((Node*)index) == INT4OID);
+
+	ranges = palloc0(sizeof(Datum) * HASHMAP_SLOTSIZE);
+	count = 0;
+
+	LockSlotsForRead();
+	for (i=1;i<=HASHMAP_SLOTSIZE;++i)
+	{
+		if (i == HASHMAP_SLOTSIZE ||
+			slotnode[i] != slotnode[i-1])
+		{
+			ranges[count] = Int32GetDatum(i);
+			++count;
+		}
+	}
+
+	array = construct_array(ranges, count, INT4OID, sizeof(int32), true, 'i');
+	c = makeConst(INT4ARRAYOID, -1, InvalidOid, -1, PointerGetDatum(array), false, false);
+	args = list_make1(c);
+
+	oids = palloc(sizeof(Datum) * count);
+	for (i=0;i<count;++i)
+		oids[i] = slotnode[DatumGetInt32(ranges[i])-1];
+	LWLockRelease(SlotTableLock);
+	array = construct_array(oids, count, OIDOID, sizeof(Oid), true, 'i');
+	c = makeConst(OIDARRAYOID, -1, InvalidOid, -1, PointerGetDatum(array), false, false);
+	args = lappend(args, c);
+
+	pfree(oids);
+	pfree(ranges);
+
+	args = lappend(args, index);
+
+	/* when not found */
+	c = makeConst(OIDOID, -1, InvalidOid, sizeof(Oid), ObjectIdGetDatum(slotnode[0]), false, true);
+	args = lappend(args, c);
+
+	return (Expr*)makeFuncExpr(F_NODEOID_FROM_SLOTINDEX,
+							   OIDOID,
+							   args,
+							   InvalidOid,
+							   InvalidOid,
+							   COERCE_EXPLICIT_CALL);
 }
 
 void InitSLOTPGXCNodeOid(void)
