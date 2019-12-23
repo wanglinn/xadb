@@ -1063,6 +1063,12 @@ ProcArrayApplyXidAssignment(TransactionId topxid,
 bool
 TransactionIdIsInProgress(TransactionId xid)
 {
+#ifdef ADB
+	return TransactionIdIsInProgressExt(xid, false);
+}
+bool TransactionIdIsInProgressExt(TransactionId xid, bool isAdb)
+{
+#endif /* ADB */
 	static TransactionId *xids = NULL;
 	int			nxids = 0;
 	ProcArrayStruct *arrayP = procArray;
@@ -1129,11 +1135,16 @@ TransactionIdIsInProgress(TransactionId xid)
 	 * Now that we have the lock, we can check latestCompletedXid; if the
 	 * target Xid is after that, it's surely still running.
 	 */
-	if (TransactionIdPrecedes(ShmemVariableCache->latestCompletedXid, xid))
+#ifdef ADB
+	if (!isAdb) /* when exec command in CN only, dn will not update latestCompletedXid */
+#endif /*ADB */
 	{
-		LWLockRelease(ProcArrayLock);
-		xc_by_latest_xid_inc();
-		return true;
+		if (TransactionIdPrecedes(ShmemVariableCache->latestCompletedXid, xid))
+		{
+			LWLockRelease(ProcArrayLock);
+			xc_by_latest_xid_inc();
+			return true;
+		}
 	}
 
 	/* No shortcuts, gotta grovel through the array */

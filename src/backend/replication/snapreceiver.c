@@ -806,8 +806,19 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	if (finish_xid_ack_send)
 		pq_sendbyte(&xidmsg, 'f');
 
+#ifdef USE_ASSERT_CHECKING
+	while (msg.cursor < msg.len)
+	{
+		bool isInProgress;
+		txid = pq_getmsgint(&msg, sizeof(txid));
+		isInProgress = TransactionIdIsInProgressExt(txid, true);
+		Assert(!isInProgress);
+	}
+#endif /* USE_ASSERT_CHECKING */
+
 	LOCK_SNAP_RCV();
 	count = SnapRcv->xcnt;
+	msg.cursor = sizeof(bool);
 	while(msg.cursor < msg.len)
 	{
 		txid = pq_getmsgint(&msg, sizeof(txid));
