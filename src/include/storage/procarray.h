@@ -83,6 +83,7 @@ extern Snapshot GetSnapshotData(Snapshot snapshot);
 extern Snapshot GetSnapshotDataExt(Snapshot snapshot, bool isCatelog);
 extern void SerializeActiveTransactionIds(StringInfo buf);
 extern void EnlargeSnapshotXip(Snapshot snapshot, uint32 need_size);
+extern bool TransactionIdIsInProgressExt(TransactionId xid, bool isAdb);
 #endif /* ADB */
 
 extern bool ProcArrayInstallImportedXmin(TransactionId xmin,
