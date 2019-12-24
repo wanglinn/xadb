@@ -230,6 +230,8 @@ static void ConnectToOneNode(const DynamicReduceNodeInfo *info, const struct add
 
 	sprintf(buf, "%u", info->port);
 	*newed = ned;
+	MemSet(ned, 0, sizeof(*ned));
+	ned->nodeoid = info->node_oid;
 	ned->owner_pid = info->pid;
 	ned->base.type = DR_EVENT_DATA_NODE;
 	ned->base.OnEvent = OnNodeEventConnectTo;
@@ -276,6 +278,7 @@ static void ConnectToOneNode(const DynamicReduceNodeInfo *info, const struct add
 #ifdef DR_USING_EPOLL
 	ned->base.fd = fd;
 	DRCtlWaitEvent(fd, EPOLLOUT, ned, EPOLL_CTL_ADD);
+	ned->waiting_events = EPOLLOUT;
 #else
 	ret = AddWaitEventToSet(dr_wait_event_set,
 							WL_SOCKET_CONNECTED,
@@ -412,7 +415,8 @@ static void OnListenEvent(DROnEventArgs)
 			newdata->status = DRN_ACCEPTED;
 #ifdef DR_USING_EPOLL
 			newdata->base.fd = newfd;
-			DRCtlWaitEvent(newfd, EPOLLOUT, newdata, EPOLL_CTL_ADD);
+			DRCtlWaitEvent(newfd, EPOLLIN, newdata, EPOLL_CTL_ADD);
+			newdata->waiting_events = EPOLLIN;
 #else
 			AddWaitEventToSet(dr_wait_event_set,
 							  WL_SOCKET_READABLE,
