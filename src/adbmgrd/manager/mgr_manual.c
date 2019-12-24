@@ -1483,7 +1483,7 @@ bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const in
 static void getCreatePgxcNodeSql(AppendNodeInfo *nodeinfo, Form_mgr_node executeOnNode, bool localExecute, StringInfo outSql)
 {
 	char *type;
-	bool is_gtm;
+	bool is_gtm = false;
 
 	if (nodeinfo->nodetype == CNDN_TYPE_COORDINATOR_MASTER)
 	{
