@@ -1929,6 +1929,18 @@ inheritance_planner(PlannerInfo *root)
 		 * not expecting to be there.
 		 */
 		root->partColsUpdated = false;
+
+#ifdef ADB
+		if (cluster_paths == NIL)
+		{
+			/* Make a dummy path, cf set_dummy_rel_pathlist() */
+			dummy_path = (Path *) create_append_path(NULL, final_rel, NIL, NIL,
+													 NULL, 0, false, NIL, -1);
+
+			/* These lists must be nonempty to make a valid ModifyTable node */
+			cluster_paths = list_make1(dummy_path);
+		}
+#endif /* ADB */
 	}
 	else
 	{
