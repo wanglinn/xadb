@@ -5469,6 +5469,7 @@ static bool mgr_drop_node_on_all_coord(char nodetype, char *nodename)
 		if ((strcmp(NameStr(mgr_node->nodename), nodename) == 0) && mgr_node->nodetype == nodetype)
 			continue;
 
+		resetStringInfo(&(getAgentCmdRst.description));
 		/* connection agent */
 		ma = ma_connect_hostoid(mgr_node->nodehost);
 		if (!ma_isconnected(ma))
