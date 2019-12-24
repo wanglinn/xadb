@@ -164,17 +164,17 @@ CREATE VIEW adbmgr.start_gtmcoord_all AS
 	UNION all
 	SELECT 'start gtmcoord slave' AS "operation type", * FROM mgr_start_gtmcoord_slave(NULL);
 --stop gtmcoord all
-CREATE VIEW adbmgr.stop_gtm_all AS
+CREATE VIEW adbmgr.stop_gtmcoord_all AS
 	SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoord_slave('smart', NULL)
 	UNION all
 	SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoord_master('smart', NULL);
 --stop gtmcoord all -m f
-CREATE VIEW adbmgr.stop_gtm_all_f AS
+CREATE VIEW adbmgr.stop_gtmcoord_all_f AS
 	SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoord_slave('fast', NULL)
 	UNION all
 	SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoord_master('fast', NULL);
 --stop gtmcoord all -m i
-CREATE VIEW adbmgr.stop_gtm_all_i AS
+CREATE VIEW adbmgr.stop_gtmcoord_all_i AS
 	SELECT 'stop gtmcoord slave' AS "operation type", * FROM mgr_stop_gtmcoord_slave('immediate', NULL)
 	UNION all
 	SELECT 'stop gtmcoord master' AS "operation type", * FROM mgr_stop_gtmcoord_master('immediate', NULL);
