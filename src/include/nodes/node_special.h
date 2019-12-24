@@ -637,7 +637,6 @@ NODE_SPECIAL_MEB(NextValueExpr)
 	seqid NODE_OID(class,seqid)
 END_SPECIAL_MEB(NextValueExpr)
 
-
 NODE_SPECIAL_MEB(PartitionedRelPruneInfo)
 	reloid NODE_OID(class,reloid)
 	subplan_map NODE_SCALAR_POINT(int,subplan_map,NODE_ARG_->nparts)
