@@ -6039,7 +6039,7 @@ getTables(Archive *fout, int *numTables)
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = c.reltablespace) AS reltablespace, "
 #ifdef ADB
 						  "(SELECT pclocatortype from pgxc_class v where v.pcrelid = c.oid) AS pgxclocatortype,"
-						  "(SELECT pcattnum from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
+						  "(SELECT pcattrs from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
 						  "(SELECT '\"' || string_agg(node_name,'\",\"') || '\"' AS pgxc_node_names from pgxc_node n where n.oid in (select unnest(nodeoids) from pgxc_class v where v.pcrelid=c.oid) ) , "
 #endif
 						  "array_remove(array_remove(c.reloptions,'check_option=local'),'check_option=cascaded') AS reloptions, "
@@ -6130,7 +6130,7 @@ getTables(Archive *fout, int *numTables)
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = c.reltablespace) AS reltablespace, "
 #ifdef ADB
 						  "(SELECT pclocatortype from pgxc_class v where v.pcrelid = c.oid) AS pgxclocatortype,"
-						  "(SELECT pcattnum from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
+						  "(SELECT pcattrs from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
 						  "(SELECT '\"' || string_agg(node_name,'\",\"') || '\"' AS pgxc_node_names from pgxc_node n where n.oid in (select unnest(nodeoids) from pgxc_class v where v.pcrelid=c.oid) ) , "
 #endif
 
@@ -6185,7 +6185,7 @@ getTables(Archive *fout, int *numTables)
 						  "(SELECT spcname FROM pg_tablespace t WHERE t.oid = c.reltablespace) AS reltablespace, "
 #ifdef ADB
 						  "(SELECT pclocatortype from pgxc_class v where v.pcrelid = c.oid) AS pgxclocatortype,"
-						  "(SELECT pcattnum from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
+						  "(SELECT pcattrs from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
 						  "(SELECT '\"' || string_agg(node_name,'\",\"') || '\"' AS pgxc_node_names from pgxc_node n where n.oid in (select unnest(nodeoids) from pgxc_class v where v.pcrelid=c.oid) ) , "
 #endif
 						  "array_remove(array_remove(c.reloptions,'check_option=local'),'check_option=cascaded') AS reloptions, "
@@ -6240,7 +6240,7 @@ getTables(Archive *fout, int *numTables)
 
 #ifdef ADB
 						  "(SELECT pclocatortype from pgxc_class v where v.pcrelid = c.oid) AS pgxclocatortype,"
-						  "(SELECT pcattnum from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
+						  "(SELECT pcattrs from pgxc_class v where v.pcrelid = c.oid) AS pgxcattnum,"
 						  "(SELECT '\"' || string_agg(node_name,'\",\"') || '\"' AS pgxc_node_names from pgxc_node n where n.oid in (select unnest(nodeoids) from pgxc_class v where v.pcrelid=c.oid) ) , "
 #endif
 
