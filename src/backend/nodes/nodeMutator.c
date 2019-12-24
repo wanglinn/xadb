@@ -89,6 +89,7 @@ static type* _mutator_##type(type *dest, const type *src,		\
 #define NODE_DATUM(t,m,o,n)
 
 #define NO_STRUCT_ReduceInfo
+#ifdef ADB
 BEGIN_STRUCT(ReduceInfo)
 	uint32 i;
 	uint32 nkey = src->nkey;
@@ -103,6 +104,7 @@ BEGIN_STRUCT(ReduceInfo)
 	for (i=0;i<nkey;++i)
 		_mutator_ReduceKeyInfo(&dest->keys[i], &src->keys[i], mutator, context);
 END_STRUCT(ReduceInfo)
+#endif /* ADB */
 
 #include "nodes/nodes_define.h"
 #include "nodes/struct_define.h"

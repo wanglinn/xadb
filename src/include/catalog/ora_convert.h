@@ -8,7 +8,9 @@
 
 struct OraImplicitConvertStmt;	/* avoid include parsenode.h */
 void ExecImplicitConvert(struct OraImplicitConvertStmt *stmt);
+#ifdef ADB
 void ClusterExecImplicitConvert(StringInfo mem_toc);
+#endif /* ADB */
 
 CATALOG(ora_convert,6116,OraConvertRelationId) BKI_WITHOUT_OIDS
 {

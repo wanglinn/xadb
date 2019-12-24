@@ -162,6 +162,7 @@ BEGIN_STRUCT(ParamListInfoData)
 END_STRUCT(ParamListInfoData)
 #endif /* NO_STRUCT_ParamListInfoData */
 
+#if defined(ADB)
 #ifndef NO_STRUCT_ReduceKeyInfo
 BEGIN_STRUCT(ReduceKeyInfo)
 	NODE_NODE(Expr,key)
@@ -170,6 +171,7 @@ BEGIN_STRUCT(ReduceKeyInfo)
 	NODE_SCALAR(Oid,collation)
 END_STRUCT(ReduceKeyInfo)
 #endif /* NO_STRUCT_ReduceKeyInfo */
+#endif
 
 #if defined(ADB)
 #ifndef NO_STRUCT_ReduceInfo

@@ -16,31 +16,38 @@
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
 #include "catalog/ora_convert.h"
-#include "catalog/pgxc_node.h"
 #include "commands/defrem.h"
-#include "executor/execCluster.h"
-#include "libpq/libpq-node.h"
 #include "nodes/parsenodes.h"
-#include "pgxc/pgxc.h"
-#include "pgxc/nodemgr.h"
-#include "storage/mem_toc.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/rel.h"
 
-#define REMOTE_KEY_IMPLICIT_CONVERT		1
+#ifdef ADB
+#include "catalog/pgxc_node.h"
+#include "executor/execCluster.h"
+#include "libpq/libpq-node.h"
+#include "pgxc/nodemgr.h"
+#include "pgxc/pgxc.h"
+#include "storage/mem_toc.h"
 
-void ClusterExecImplicitConvert(StringInfo mem_toc);
+#define REMOTE_KEY_IMPLICIT_CONVERT		1
+#endif /* ADB */
+
+
 void ExecImplicitConvert(OraImplicitConvertStmt *stmt);
 static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt);
-static List* getMasterNodeOid(void);
 
+#ifdef ADB
+void ClusterExecImplicitConvert(StringInfo mem_toc);
+static List* getMasterNodeOid(void);
+#endif	/* ADB */
 
 
 /* 
  * Oracle type implicit conversion creation.
  */
 void ExecImplicitConvert(OraImplicitConvertStmt *stmt)
+#ifdef ADB
 {
 	ListCell   *lc;
 	List	   *nodeOids;
@@ -96,31 +103,11 @@ void ExecImplicitConvert(OraImplicitConvertStmt *stmt)
 	}
 	list_free(nodeOids);
 }
-
-
-/* 
- * Execute cluster Oracle type implicit conversion creation.
- */
-void ClusterExecImplicitConvert(StringInfo mem_toc)
+#else
 {
-	OraImplicitConvertStmt *stmt;
-	StringInfoData buf;
-
-	buf.data = mem_toc_lookup(mem_toc, REMOTE_KEY_IMPLICIT_CONVERT, &buf.maxlen);
-	if (buf.data == NULL)
-	{
-		ereport(ERROR,
-				(errmsg("Can not found CreateNodeStmt in cluster message"),
-				 errcode(ERRCODE_PROTOCOL_VIOLATION)));
-	}
-	buf.len = buf.maxlen;
-	buf.cursor = 0;
-
-	stmt = castNode(OraImplicitConvertStmt, loadNode(&buf));
-
 	ExecImplicitConvertLocal(stmt);
 }
-
+#endif	/* ADB */
 
 /* 
  * Execute local Oracle type implicit conversion creation.
@@ -337,6 +324,30 @@ static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt)
 	heap_close(convert_rel, RowExclusiveLock);
 }
 
+#ifdef ADB
+/* 
+ * Execute cluster Oracle type implicit conversion creation.
+ */
+void ClusterExecImplicitConvert(StringInfo mem_toc)
+{
+	OraImplicitConvertStmt *stmt;
+	StringInfoData buf;
+
+	buf.data = mem_toc_lookup(mem_toc, REMOTE_KEY_IMPLICIT_CONVERT, &buf.maxlen);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errmsg("Can not found CreateNodeStmt in cluster message"),
+				 errcode(ERRCODE_PROTOCOL_VIOLATION)));
+	}
+	buf.len = buf.maxlen;
+	buf.cursor = 0;
+
+	stmt = castNode(OraImplicitConvertStmt, loadNode(&buf));
+
+	ExecImplicitConvertLocal(stmt);
+}
+
 
 /*
  * Get the oid of all coordinators or datanode masters 
@@ -372,3 +383,4 @@ getMasterNodeOid(void)
 
 	return nodeOid_list;
 }
+#endif 
