@@ -2991,7 +2991,9 @@ validate_part_col_updatable(const Query *query)
 	if (rte == NULL)
 		return ;
 
-	if (rte != NULL && rte->relkind != RELKIND_RELATION)
+	if (rte != NULL &&
+		rte->relkind != RELKIND_RELATION &&
+		rte->relkind != RELKIND_PARTITIONED_TABLE)
 		/* Bad relation type */
 		return;
 
