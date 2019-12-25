@@ -261,20 +261,6 @@ static List* get_cluster_rel_nodes(List *listIO, Oid tableOid)
 	return listIO;
 }
 
-static List* get_cluster_rel_list_nodes(List *rvs, MemoryContext context)
-{
-	ListCell   *rv;
-	List *result = NIL;
-
-	foreach(rv, rvs)
-	{
-		RelToCluster *rvtc = (RelToCluster *) lfirst(rv);
-		result = get_cluster_rel_nodes(result, rvtc->tableOid);
-	}
-
-	return result;
-}
-
 void cluster_cluster(struct StringInfoData *msg)
 {
 	StringInfoData	buf;
@@ -325,13 +311,13 @@ static void cluster_clu_recv_exec_end(List *conns)
 	}
 }
 
-static List *send_cluster_cluster_function(List *node_list, int flags, bool verbose)
+static void send_cluster_cluster_function(List *node_list, int flags, bool verbose)
 {
 	List *list_conns;
 	StringInfoData buf;
 
 	if (node_list == NIL)
-		return NIL;
+		return;
 
 	initStringInfo(&buf);
 	ClusterTocSetCustomFun(&buf, cluster_cluster);
@@ -345,7 +331,7 @@ static List *send_cluster_cluster_function(List *node_list, int flags, bool verb
 
 	list_conns = ExecClusterCustomFunction(node_list, &buf, flags);
 	pfree(buf.data);
-	return list_conns;
+	list_free(list_conns);
 }
 
 static List* send_cluster_cluster_rel(List *node_list, Oid tableOid, Oid indexOid)
@@ -402,8 +388,8 @@ cluster(ClusterStmt *stmt, bool isTopLevel)
 {
 #ifdef ADB
 	List *list_table_conns = NIL;
-	List *list_conns = NIL;
 	List *cur_list = NIL;
+	ListCell *lc;
 #endif /* ADB */
 
 	if (stmt->relation != NULL)
@@ -489,9 +475,9 @@ cluster(ClusterStmt *stmt, bool isTopLevel)
 #ifdef ADB
 		cur_list = get_cluster_rel_nodes(cur_list, tableOid);
 
-		list_conns = send_cluster_cluster_function(cur_list,
-									  EXEC_CLUSTER_FLAG_NOT_START_TRANS,
-									  stmt->verbose);
+		send_cluster_cluster_function(cur_list,
+								EXEC_CLUSTER_FLAG_NOT_START_TRANS,
+								stmt->verbose);
 		list_table_conns = send_cluster_cluster_rel(cur_list, tableOid, indexOid);
 		list_free(cur_list);
 #endif /* ADB */
@@ -503,17 +489,12 @@ cluster(ClusterStmt *stmt, bool isTopLevel)
 		if (list_table_conns)
 		{
 			cluster_clu_recv_exec_end(list_table_conns);
-			list_free(list_table_conns);
-		}
 
-		if (list_conns)
-		{
-			ListCell *lc;
-			foreach(lc, list_conns)
+			foreach(lc, list_table_conns)
 				PQputCopyEnd(lfirst(lc), NULL);
 
-			PQNListExecFinish(list_conns, NULL, &PQNFalseHookFunctions, true);
-			list_free(list_conns);
+			PQNListExecFinish(list_table_conns, NULL, &PQNFalseHookFunctions, true);
+			list_free(list_table_conns);
 		}
 #endif /* ADB */
 	}
@@ -527,9 +508,6 @@ cluster(ClusterStmt *stmt, bool isTopLevel)
 		List	   *rvs;
 		ListCell   *rv;
 
-#ifdef ADB
-		List	   *list_node_oid = NIL;
-#endif /* ADB */
 		/*
 		 * We cannot run this form of CLUSTER inside a user transaction block;
 		 * we'd be holding locks way too long.
@@ -552,15 +530,6 @@ cluster(ClusterStmt *stmt, bool isTopLevel)
 		 */
 		rvs = get_tables_to_cluster(cluster_context);
 
-#ifdef ADB
-		list_node_oid = get_cluster_rel_list_nodes(rvs, cluster_context);
-
-		START_CLUSTER_OWNER_XACT_SECTION();
-		list_conns = send_cluster_cluster_function(list_node_oid,
-									  EXEC_CLUSTER_FLAG_NOT_START_TRANS,
-									  stmt->verbose);
-#endif
-
 		/* Commit to get out of starting transaction */
 		PopActiveSnapshot();
 		CommitTransactionCommand();
@@ -578,8 +547,12 @@ cluster(ClusterStmt *stmt, bool isTopLevel)
 #ifdef ADB
 			cur_list = NIL;
 			cur_list = get_cluster_rel_nodes(cur_list, rvtc->tableOid);
+			START_CLUSTER_OWNER_XACT_SECTION();
+			send_cluster_cluster_function(cur_list,
+								EXEC_CLUSTER_FLAG_NOT_START_TRANS,
+								stmt->verbose);
 			list_table_conns = send_cluster_cluster_rel(cur_list, rvtc->tableOid, rvtc->indexOid);
-			list_free(cur_list);
+
 #endif /* ADB */
 
 			/* Do the job. */
@@ -588,25 +561,20 @@ cluster(ClusterStmt *stmt, bool isTopLevel)
 			if (list_table_conns)
 			{
 				cluster_clu_recv_exec_end(list_table_conns);
+
+				foreach(lc, list_table_conns)
+					PQputCopyEnd(lfirst(lc), NULL);
+
+				PQNListExecFinish(list_table_conns, NULL, &PQNFalseHookFunctions, true);
 				list_free(list_table_conns);
 			}
-#endif
+
+			END_CLUSTER_OWNER_XACT_SECTION();
+#endif /* ADB */
 
 			PopActiveSnapshot();
 			CommitTransactionCommand();
 		}
-
-#ifdef ADB
-		if (list_conns)
-		{
-			ListCell *lc;
-			foreach(lc, list_conns)
-				PQputCopyEnd(lfirst(lc), NULL);
-
-			PQNListExecFinish(list_conns, NULL, &PQNFalseHookFunctions, true);
-		}
-		END_CLUSTER_OWNER_XACT_SECTION();
-#endif /* ADB */
 
 		/* Start a new transaction for the cleanup work. */
 		StartTransactionCommand();
