@@ -1106,7 +1106,7 @@ void GxidSendUnlockSendSock(void)
 	pg_atomic_clear_flag(&GxidSender->lock);
 }
 
-void GxidSenderTransferLock(SnapTransPara *param, struct PGPROC *from)
+void GxidSenderTransferLock(void **param, TransactionId xid, struct PGPROC *from)
 {
-	SnapTransferLock(&GxidSender->comm_lock, param, from);
+	SnapTransferLock(&GxidSender->comm_lock, param, xid, from);
 }

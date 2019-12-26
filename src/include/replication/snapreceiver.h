@@ -21,6 +21,6 @@ extern Snapshot SnapRcvGetSnapshot(Snapshot snap);
 extern bool SnapRcvWaitTopTransactionEnd(TransactionId txid, TimestampTz end);
 
 struct PGPROC;
-extern void SnapRcvTransferLock(SnapTransPara *param, struct PGPROC *from);
+extern void SnapRcvTransferLock(void **param, TransactionId xid, struct PGPROC *from);
 extern TransactionId SnapRcvGetGlobalXmin(void);
 #endif							/* SNAP_RECEIVER_H_ */

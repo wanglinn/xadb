@@ -242,7 +242,7 @@ static void RecordTransactionAbortPrepared(TransactionId xid,
 							   const char *gid);
 static void ProcessRecords(char *bufptr, TransactionId xid,
 	const TwoPhaseCallback callbacks[] 
-	ADB_ONLY_COMMA_ARG2(bool transfer_lock, void *param));
+	ADB_ONLY_COMMA_ARG2(bool transfer_lock, void **param));
 static void RemoveGXact(GlobalTransaction gxact);
 static void XlogReadTwoPhaseData(XLogRecPtr lsn, char **buf, int *len);
 static char *ProcessTwoPhaseBuffer(TransactionId xid,
@@ -1734,10 +1734,7 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 	SharedInvalidationMessage *invalmsgs;
 #ifdef ADB
 	Oid		   *nodeIds;
-	SnapTransPara param;
-	param.map = NULL;
-	param.msgs = NULL;
-	param.msg_num = 0;
+	void		*param = NULL;
 #endif
 	int			i;
 
@@ -1953,13 +1950,13 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 }
 
 #ifdef ADB
-static inline bool MapHoldLock(void *map, void *bufptr, uint32 len)
+static inline bool MapHoldLock(void *param_io, void *bufptr, uint32 len)
 {
 	LOCKTAG	   *locktag;
 	LOCKMODE	lockmode;
 	
 	locktag = GetTwoPhaseLockRecordLockTag(bufptr, len, &lockmode);
-	return SnapIsHoldLock(map, locktag);
+	return SnapIsHoldLock(param_io, locktag);
 }
 #endif /* ADB */
 
@@ -1969,27 +1966,23 @@ static inline bool MapHoldLock(void *map, void *bufptr, uint32 len)
 static void
 ProcessRecords(char *bufptr, TransactionId xid,
 			   const TwoPhaseCallback callbacks[]
-			   ADB_ONLY_COMMA_ARG2(bool transfer_lock, void *param_input))
+			   ADB_ONLY_COMMA_ARG2(bool transfer_lock, void **param_io))
 {
 #ifdef ADB
-	SnapTransPara *param = (SnapTransPara*)param_input;
-	if (transfer_lock && param && (!IsGTMNode() || IsConnFromCoord()))
+	if (transfer_lock && param_io && (!IsGTMNode() || IsConnFromCoord()))
 	{
 		/*
 		 * hold relation(s) lock(s) until snapshot receiver process
 		 * get transaction end message
 		 */
 		PGPROC	   *dummy_proc = TwoPhaseGetDummyProc(xid);
-		param->xid = xid;
-		param->map = SnapBeginTransferLock();
-		EnumProcLocks(dummy_proc, SnapInsertTransferLock, param->map);
 		if (!IsGTMNode())
 		{
-			SnapRcvTransferLock(param, dummy_proc);
+			SnapRcvTransferLock(param_io, xid, dummy_proc);
 		}
 		else if (IsConnFromCoord())
 		{
-			GxidSenderTransferLock(param, dummy_proc);
+			GxidSenderTransferLock(param_io, xid, dummy_proc);
 		}
 	}
 #endif /* ADB */
@@ -2005,9 +1998,8 @@ ProcessRecords(char *bufptr, TransactionId xid,
 		bufptr += MAXALIGN(sizeof(TwoPhaseRecordOnDisk));
 
 #ifdef ADB
-		if (param && param->map != NULL &&
-			record->rmid == TWOPHASE_RM_LOCK_ID &&
-			MapHoldLock(param->map, bufptr, record->len))
+		if (param_io && *param_io && record->rmid == TWOPHASE_RM_LOCK_ID &&
+			MapHoldLock(*param_io, bufptr, record->len))
 		{
 			/* nothing todo */
 		}else

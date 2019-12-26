@@ -8,13 +8,6 @@
 #include "utils/snapshot.h"
 #include "lib/ilist.h"
 #include "utils/dsa.h"
-typedef struct SnapTransPara
-{
-	SharedInvalidationMessage	*msgs;
-	int							msg_num;
-	void						*map;
-	TransactionId				xid;
-}SnapTransPara;
 
 typedef struct SnapCommonLock
 {
@@ -55,13 +48,12 @@ typedef struct SnapLockIvdInfo
 
 struct LOCKTAG;
 extern void
-SnapCollcectInvalidMsgItem(SnapTransPara *param,
+SnapCollcectInvalidMsgItem(void **param,
 			const SharedInvalidationMessage *msgs, int n);
-extern void SnapEndTransferLockIvdMsg(SnapTransPara *param);
-extern void* SnapBeginTransferLock(void);
-extern void SnapInsertTransferLock(void* map, const struct LOCKTAG *tag, LOCKMASK holdMask);
+extern void SnapEndTransferLockIvdMsg(void **param);
 extern bool SnapIsHoldLock(void *map, const struct LOCKTAG *tag);
-extern void SnapTransferLock(SnapCommonLock *comm_lock, SnapTransPara *param, struct PGPROC *from);
+extern void SnapTransferLock(SnapCommonLock *comm_lock, void **param,
+			TransactionId xid, struct PGPROC *from);
 extern void SnapReleaseTransactionLocks(SnapCommonLock *comm_lock, TransactionId xid);
 extern void SnapReleaseSnapshotTxidLocks(SnapCommonLock *comm_lock, TransactionId *xip,
 				uint32 count, TransactionId lastxid);
