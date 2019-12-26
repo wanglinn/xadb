@@ -432,11 +432,9 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 					if(rel_loc_info->locatorType == LOCATOR_TYPE_HASH)
 					{
 						int32 hashVal = execHashValue(dist_col_values[0],
-											  dist_col_types[0],
-											  InvalidOid);
-						modulo = execModuloValue(Int32GetDatum(hashVal),
-												 INT4OID,
-												 list_length(rel_loc_info->nodeids));
+													  dist_col_types[0],
+													  InvalidOid);
+						modulo = (uint32)hashVal % (uint32)list_length(rel_loc_info->nodeids);
 					}else
 					{
 						modulo = execModuloValue(dist_col_values[0],
@@ -480,10 +478,9 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 				}else
 				{
 						int32 hashVal = execHashValue(dist_col_values[0],
-							dist_col_types[0],InvalidOid);
-						modulo = execModuloValue(Int32GetDatum(hashVal),
-												 INT4OID,
-												 HASHMAP_SLOTSIZE);
+													  dist_col_types[0],
+													  InvalidOid);
+						modulo = (uint32)hashVal % HASHMAP_SLOTSIZE;
 						SlotGetInfo(modulo, &nodeIndex, &slotstatus);
 						exec_nodes->nodeids = list_make1_oid(nodeIndex);
 				}
@@ -1173,7 +1170,7 @@ GetInvolvedNodes(RelationLocInfo *rel_loc,
 					if(rel_loc->locatorType == LOCATOR_TYPE_HASH)
 					{
 						int32 hashVal = execHashValue(dist_values[0], dist_types[0], InvalidOid);
-						modulo = execModuloValue(Int32GetDatum(hashVal), INT4OID, nnodes);
+						modulo = (uint32)hashVal % (uint32)nnodes;
 					}else
 						modulo = execModuloValue(dist_values[0], dist_types[0], nnodes);
 				}
@@ -1220,7 +1217,7 @@ GetInvolvedNodes(RelationLocInfo *rel_loc,
 				} else
 				{
 					int32 hashVal = execHashValue(dist_values[0], dist_types[0], InvalidOid);
-					modulo = execModuloValue(Int32GetDatum(hashVal), INT4OID, HASHMAP_SLOTSIZE);
+					modulo = (uint32)hashVal % HASHMAP_SLOTSIZE;
 					SlotGetInfo(modulo, &nodeIndex, &slotstatus);
 					node_list = list_make1_oid(nodeIndex);
 				}
