@@ -162,6 +162,7 @@ analyze_rel(Oid relid, RangeVar *relation, int options,
 	bool		rel_lock = true;
 #ifdef ADB
 	List		*cnlist = NIL;
+	List		*dnlist = NIL;
 #endif /* ADB*/
 
 	/* Select logging level */
@@ -423,7 +424,6 @@ end_if_:
 		  onerel->rd_rel->relkind == RELKIND_FOREIGN_TABLE)))
 	{
 		/* send analyze command to other nodes */
-		List *dnlist = NIL;
 		List *oids;
 
 		/* find all other coordinator connection */
@@ -497,8 +497,6 @@ end_if_:
 				send_relpage_num_to_other_coord(cnlist, relpages);
 			}
 		}
-		/* clean up */
-		list_free(dnlist);
 	}else if (acquirefunc == acquire_sample_rows_coord_slave &&
 		onerel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
 	{
@@ -537,6 +535,12 @@ end_if_:
 	{
 		analyze_cluster_recv_exec_end(cnlist);
 		list_free(cnlist);
+	}
+
+	if (dnlist)
+	{
+		analyze_cluster_recv_exec_end(dnlist);
+		list_free(dnlist);
 	}
 #endif /* ADB */
 	/*

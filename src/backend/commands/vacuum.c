@@ -2192,8 +2192,7 @@ static int process_master_vacuum_cmd(ClusterVacuumCmdContext *context, const cha
 			CommitTransactionCommand();
 		}
 
-		if (isPGXCCoordinator)
-			put_executor_end_msg(true);
+		put_executor_end_msg(true);
 		break;
 	default:
 		ereport(ERROR,
