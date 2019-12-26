@@ -2649,18 +2649,12 @@ CommitTransaction(void)
 	if (IsUnderAGTM() && TransactionIdIsValid(latestXid) &&
 		HasInvalidateMessage() && (!IsGTMNode() || IsConnFromCoord()))
 	{
-		SnapTransPara param;
-		param.map = SnapBeginTransferLock();
-		param.msgs = NULL;
-		param.msg_num = 0;
-		param.xid = latestXid;
-
-		EnumProcLocks(MyProc, SnapInsertTransferLock, param.map);
+		void *param = NULL;
 		SnapCollectAllInvalidMsgs(&param);
 		if (!IsGTMNode())
-			SnapRcvTransferLock(&param, MyProc);
+			SnapRcvTransferLock(&param, latestXid, MyProc);
 		else if (IsConnFromCoord())
-			GxidSenderTransferLock(&param, MyProc);
+			GxidSenderTransferLock(&param, latestXid, MyProc);
 
 		SnapEndTransferLockIvdMsg(&param);
 	}

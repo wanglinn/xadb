@@ -70,7 +70,7 @@ extern void InvalidateSystemCaches(void);
 #ifdef ADB
 extern void InvalidateRemoteNode(void);
 extern bool HasInvalidateMessage(void);
-extern void SnapCollectAllInvalidMsgs(SnapTransPara *param);
+extern void SnapCollectAllInvalidMsgs(void **param);
 #endif /* ADB */
 
 #endif							/* INVAL_H */

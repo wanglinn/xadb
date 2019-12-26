@@ -25,6 +25,17 @@
 #include "utils/tqual.h"
 #include "pgxc/pgxc.h"
 
+static void* SnapBeginTransferLock(void);
+static void SnapInsertTransferLock(void* map, const LOCKTAG *tag, LOCKMASK holdMask);
+
+typedef struct SnapTransPara
+{
+	SharedInvalidationMessage	*msgs;
+	int							msg_num;
+	void						*map;
+	TransactionId				xid;
+}SnapTransPara;
+
 static void SnapReleaseLock(SnapCommonLock *comm_lock, SnapLockIvdInfo *lock)
 {
 	uint32			i;
@@ -87,9 +98,18 @@ dsa_area* SnapGetLockArea(SnapCommonLock *comm_lock)
 }
 
 void
-SnapCollcectInvalidMsgItem(SnapTransPara *param,
+SnapCollcectInvalidMsgItem(void **param_io,
 			const SharedInvalidationMessage *msgs, int n)
 {
+	SnapTransPara *param = NULL;
+
+	if (!param_io)
+		return;
+
+	if (!(*param_io))
+		*param_io = (SnapTransPara*)palloc0(sizeof(SnapTransPara));
+
+	param = *param_io;
 	if (param->msgs == NULL)
 		param->msgs = palloc0(sizeof(SharedInvalidationMessage) * n);
 	else
@@ -99,8 +119,9 @@ SnapCollcectInvalidMsgItem(SnapTransPara *param,
 	param->msg_num += n;
 }
 
-void SnapEndTransferLockIvdMsg(SnapTransPara *param)
+void SnapEndTransferLockIvdMsg(void **param_io)
 {
+	SnapTransPara *param = (SnapTransPara*)(*param_io);
 	if (!param)
 		return;
 
@@ -110,9 +131,11 @@ void SnapEndTransferLockIvdMsg(SnapTransPara *param)
 
 	if (param->map)
 		hash_destroy(param->map);
+	
+	pfree(param);
 }
 
-void* SnapBeginTransferLock(void)
+static void* SnapBeginTransferLock(void)
 {
 	HASHCTL		ctl;
 
@@ -125,7 +148,7 @@ void* SnapBeginTransferLock(void)
 					   HASH_ELEM|HASH_BLOBS);
 }
 
-void SnapInsertTransferLock(void* map, const LOCKTAG *tag, LOCKMASK holdMask)
+static void SnapInsertTransferLock(void* map, const LOCKTAG *tag, LOCKMASK holdMask)
 {
 	bool found;
 	SnapHoldLock *hold;
@@ -140,13 +163,17 @@ void SnapInsertTransferLock(void* map, const LOCKTAG *tag, LOCKMASK holdMask)
 	hold->holdMask = holdMask;
 }
 
-bool SnapIsHoldLock(void *map, const LOCKTAG *tag)
+bool SnapIsHoldLock(void *param_io, const LOCKTAG *tag)
 {
-	return hash_search(map, tag, HASH_FIND, NULL) != NULL;
+	SnapTransPara *param = (SnapTransPara*)(param_io);
+	if (!param || !param->map)
+		return false;
+
+	return hash_search(param->map, tag, HASH_FIND, NULL) != NULL;
 }
 
-void SnapTransferLock(SnapCommonLock *comm_lock,
-			SnapTransPara *param, struct PGPROC *from)
+void SnapTransferLock(SnapCommonLock *comm_lock, void **param_io,
+			TransactionId xid, struct PGPROC *from)
 {
 	uint32					i;
 	volatile dsa_pointer	pointer;
@@ -157,10 +184,17 @@ void SnapTransferLock(SnapCommonLock *comm_lock,
 	int						hash_num;
 	dsa_area				*lock_area;
 	char					*lock_start;
+	SnapTransPara			*param;
+
+	if (!param_io)
+		return;
+
+	param = (SnapTransPara*)(*param_io);
+	param->map = SnapBeginTransferLock();
+	param->xid = xid;
+	EnumProcLocks(from, SnapInsertTransferLock, param->map);
 
 	hash_num = 0;
-	if (!param)
-		return;
 	if (param->map)
 		hash_num = hash_get_num_entries(param->map);
 	if (hash_num <= 0 && param->msg_num == 0)

@@ -474,8 +474,8 @@ ProcessInvalidationMessages(InvalidationListHeader *hdr,
 #ifdef ADB
 static void
 ProcessInvalidationMessagesMultiAdb(InvalidationListHeader *hdr,
-						SnapTransPara *param,
-						void (*func) (SnapTransPara *param,
+						void **param,
+						void (*func) (void **param,
 						const SharedInvalidationMessage *msgs,
 						int n))
 {
@@ -483,7 +483,7 @@ ProcessInvalidationMessagesMultiAdb(InvalidationListHeader *hdr,
 	ProcessMessageListMulti(hdr->rclist, func(param, msgs, n));
 }
 
-void SnapCollectAllInvalidMsgs(SnapTransPara *param)
+void SnapCollectAllInvalidMsgs(void **param)
 {
 	AppendInvalidationMessages(&transInvalInfo->PriorCmdInvalidMsgs,
 								   &transInvalInfo->CurrentCmdInvalidMsgs);
