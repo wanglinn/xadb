@@ -13846,7 +13846,7 @@ ATCheckCmd(Relation rel, AlterTableCmd *cmd)
 				AttrNumber attnum = get_attnum(RelationGetRelid(rel),
 											   cmd->name);
 				/* Distribution column cannot be dropped */
-				if (LocatorIncludeColumn(RelationGetLocInfo(rel), attnum, true))
+				if (RelationGetLocInfo(rel) && LocatorIncludeColumn(RelationGetLocInfo(rel), attnum, true))
 					ereport(ERROR,
 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("Distribution column cannot be dropped")));
