@@ -5598,7 +5598,10 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 			if (done != ExprEndResult)
 			{
 				/* send to remote */
-				Assert(!isnull);
+				if(isnull)
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("ReduceExpr return a null value")));
 				conn = PQNFindConnUseOid(DatumGetObjectId(datum));
 				Assert(conn != NULL);
 

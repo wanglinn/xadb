@@ -632,6 +632,8 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 				{
 					nodes = lappend_oid(nodes, nodeoid);
 				}
+				if (done == ExprSingleResult)
+					break;
 			}
 		}
 		MemoryContextSwitchTo(old_context);
