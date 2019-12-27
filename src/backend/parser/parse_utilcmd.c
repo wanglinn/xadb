@@ -4437,7 +4437,7 @@ int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey ke
 		if (!OidIsValid(groupoid))
 			ereport(ERROR,
 					(errcode(ERRCODE_UNDEFINED_OBJECT),
-					 errmsg("PGXC Group %s: group not defined", def->defname),
+					 errmsg("group \"%s\" not defined", def->defname),
 					 parser_errposition(pstate, def->location)));
 
 		cnt_arr_oids = get_pgxc_groupmembers(groupoid, &arr_nodeoids);

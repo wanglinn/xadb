@@ -4293,7 +4293,7 @@ OptSubClusterInternal:
 				{
 					PGXCSubCluster *n = makeNode(PGXCSubCluster);
 					n->clustertype = SUBCLUSTER_GROUP;
-					n->members = list_make1(makeString($3));
+					n->members = list_make1(makeDefElem($3, NULL, @3));
 					$$ = n;
 				}
 		;
