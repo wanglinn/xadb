@@ -130,7 +130,7 @@ typedef struct
 
 
 static void transformColumnDefinition(CreateStmtContext *cxt,
-						  ColumnDef *column);
+						  ColumnDef *column ADB_ONLY_COMMA_ARG(bool is_addcln));
 static void transformTableConstraint(CreateStmtContext *cxt,
 						 Constraint *constraint);
 static void transformTableLikeClause(CreateStmtContext *cxt,
@@ -480,7 +480,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 		switch (nodeTag(element))
 		{
 			case T_ColumnDef:
-				transformColumnDefinition(&cxt, (ColumnDef *) element);
+				transformColumnDefinition(&cxt, (ColumnDef *) element ADB_ONLY_COMMA_ARG(false));
 				break;
 
 			case T_Constraint:
@@ -788,7 +788,7 @@ generateSerialExtraStmts(CreateStmtContext *cxt, ColumnDef *column,
  *		Also used in ALTER TABLE ADD COLUMN
  */
 static void
-transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column)
+transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column ADB_ONLY_COMMA_ARG(bool is_addcln))
 {
 	bool		is_serial;
 	bool		saw_nullable;
@@ -950,6 +950,13 @@ transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column)
 					Type		ctype;
 					Oid			typeOid;
 
+#ifdef ADB
+					if (is_addcln)
+						ereport(ERROR,
+							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							errmsg("identity columns are not supported on adding column. "
+								"Please create sequence manually first, then use it in new column.")));
+#endif /*ADB*/
 					if (cxt->ofType)
 						ereport(ERROR,
 								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -3345,7 +3352,7 @@ transformAlterTableStmt(Oid relid, AlterTableStmt *stmt,
 				{
 					ColumnDef  *def = castNode(ColumnDef, cmd->def);
 
-					transformColumnDefinition(&cxt, def);
+					transformColumnDefinition(&cxt, def ADB_ONLY_COMMA_ARG(true));
 
 					/*
 					 * If the column has a non-null default, we can't skip

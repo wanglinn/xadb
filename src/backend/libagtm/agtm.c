@@ -233,37 +233,11 @@ connect_gtmcoord_rel(const char* host, const int32 port, const char* user, const
 
 static void get_gtmcorrdmaster_rel(const char* dbname)
 {
-	Relation		nodeRelation;
-	ScanKeyData 	skey[1];
-	HeapScanDesc 	scan;
-	HeapTuple		nodeTuple;
-	Form_pgxc_node	node_gtm;
 	char* 			user_name;
-
 	user_name = GetUserNameFromId(GetUserId(), false);
 	Assert(user_name);
 
-	/* Prepare to scan pg_index for entries having indrelid = this rel. */
-	nodeRelation = heap_open(PgxcNodeRelationId, AccessShareLock);
-	ScanKeyInit(&skey[0],
-				Anum_pgxc_node_nodeis_gtm,
-				BTEqualStrategyNumber, F_BOOLEQ,
-				BoolGetDatum(true));
-
-	scan = heap_beginscan_catalog(nodeRelation, 1, skey);
-	nodeTuple = heap_getnext(scan, ForwardScanDirection);
-
-	Assert(nodeTuple);
-	
-	node_gtm = (Form_pgxc_node)GETSTRUCT(nodeTuple);
-	Assert(node_gtm);
-	Assert(node_gtm->nodeis_gtm == true);
-
-	connect_gtmcoord_rel(NameStr(node_gtm->node_host), node_gtm->node_port, user_name, dbname);
-	
-	heap_endscan(scan);
-	heap_close(nodeRelation, AccessShareLock);
-
+	connect_gtmcoord_rel(AGtmHost, AGtmPort, user_name, dbname);
 	pfree(user_name);
 }
 
