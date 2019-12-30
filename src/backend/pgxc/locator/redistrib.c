@@ -966,7 +966,6 @@ distrib_build_shadow_relation(RedistribState *distribState
 	{
 		resetStringInfo(&msg);
 		ClusterTocSetCustomFun(&msg, ClusterRedistributeRelation);
-		remoteList = ExecClusterCustomFunction(nodeOids, &msg, flag);
 		childOID = lfirst_oid(lc);
 		childOids = find_all_inheritors(childOID, AccessExclusiveLock, NULL);
 		childRel = heap_open(childOID, AccessExclusiveLock);
@@ -982,6 +981,7 @@ distrib_build_shadow_relation(RedistribState *distribState
 			heap_close(childRel, AccessExclusiveLock);
 			continue;
 		}
+		remoteList = ExecClusterCustomFunction(nodeOids, &msg, flag);
 		childRelname = get_rel_name(childOID);
 		childNspname = get_namespace_name(relnamespace);
 		ereport(DEBUG1,
