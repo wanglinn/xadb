@@ -5288,6 +5288,14 @@ PostgresMain(int argc, char *argv[],
 #endif /* ADB */
 #if defined(ADB)
 			case 'I':		/* query server info */
+				/*
+				 * for now, this message only using in PQbeginAttach function.
+				 * when coordinator call PQbeginAttach, the last backend is exited,
+				 * then reduce network maybe not work, so we let it exit.
+				 */
+				StopDynamicReduceWorker();
+
+				/* report server info */
 				BeginReportingGUCOptions();
 				if(whereToSendOutput == DestRemote&&
 					PG_PROTOCOL_MAJOR(FrontendProtocol) >= 2)
