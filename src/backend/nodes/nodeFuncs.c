@@ -4224,6 +4224,7 @@ planstate_exec_walk_hashjoin(HashJoinState *node,
 	 * Other conditions must be valid).
 	 */
 	if (!drive_outer_first &&
+		castNode(HashJoin, node->js.ps.plan)->cluster_hashtable_first == false &&
 		outerNode->plan->startup_cost < hashNode->ps.plan->total_cost)
 		drive_outer_first = true;
 
