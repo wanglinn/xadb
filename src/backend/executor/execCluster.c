@@ -1330,14 +1330,16 @@ static List* StartRemotePlan(StringInfo msg, List *rnodes, ClusterPlanContext *c
 	save_len = msg->len;
 	foreach(lc, state->cur_handle->handles)
 	{
+		uint32 node_id;
 		handle = (NodeHandle *) lfirst(lc);
 
-		/* send node oid to remote */
+		/* send node oid and identifier to remote */
 		msg->len = save_len;
 		begin_mem_toc_insert(msg, REMOTE_KEY_NODE_OID);
 		appendBinaryStringInfoNT(msg, (char*)&(handle->node_id), sizeof(handle->node_id));
-		StaticAssertStmt(sizeof(handle->hashvalue) == sizeof(PGXCNodeIdentifier), "need change code");
-		appendBinaryStringInfoNT(msg, (char*)&(handle->hashvalue), sizeof(handle->hashvalue));
+		StaticAssertStmt(sizeof(node_id) == sizeof(PGXCNodeIdentifier), "need change code");
+		node_id = get_pgxc_node_id(handle->node_id);
+		appendBinaryStringInfoNT(msg, (char*)&(node_id), sizeof(node_id));
 		end_mem_toc_insert(msg, REMOTE_KEY_NODE_OID);
 
 		/* send reduce group map and reduce ID to remote */
