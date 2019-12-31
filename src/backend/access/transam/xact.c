@@ -2605,7 +2605,7 @@ CommitTransaction(void)
 	 */
 	if (use_2pc_commit)
 		EndCommitRemoteXact(s);
-
+	
 	/*
 	 * hold relation(s) lock(s) until snapshot receiver process
 	 * get transaction end message
@@ -3126,7 +3126,10 @@ NormalAbortRemoteXact(TransactionState state)
 
 		nodeIds = InterXactBeginNodes(state->interXactState, false, &nodecnt);
 		/* Abort remote xact */
-		RemoteXactAbort(nodecnt, nodeIds, true);
+		if (state->interXactState && state->interXactState->gid)
+			RemoteXactAbort(state->interXactState->gid, nodecnt, nodeIds, true);
+		else
+			RemoteXactAbort(NULL, nodecnt, nodeIds, true);
 	}
 }
 
@@ -3156,7 +3159,10 @@ UnexpectedAbortRemoteXact(TransactionState state)
 
 	nodeIds = InterXactBeginNodes(state->interXactState, false, &nodecnt);
 	/* Abort remote xact */
-	RemoteXactAbort(nodecnt, nodeIds, false);
+	if (state->interXactState && state->interXactState->gid)
+		RemoteXactAbort(state->interXactState->gid, nodecnt, nodeIds, false);
+	else
+		RemoteXactAbort(NULL, nodecnt, nodeIds, false);
 }
 #endif
 

@@ -984,12 +984,12 @@ RemoteXactCommit(int nnodes, Oid *nodes)
 }
 
 void
-RemoteXactAbort(int nnodes, Oid *nodes, bool normal)
+RemoteXactAbort(const char *gid, int nnodes, Oid *nodes, bool normal)
 {
 	if (!IsCnMaster())
 		return ;
 
-	InterXactAbort(NULL, nodes, nnodes, false, normal);
+	InterXactAbort(gid, nodes, nnodes, false, normal);
 	//(NULL, nodes, nnodes, false, normal);
 	//agtm_AbortTransaction(NULL, false, !normal);
 }
