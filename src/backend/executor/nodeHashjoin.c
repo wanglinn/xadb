@@ -152,6 +152,22 @@ static bool ExecHashJoinNewBatch(HashJoinState *hjstate);
 static bool ExecParallelHashJoinNewBatch(HashJoinState *hjstate);
 static void ExecParallelHashJoinPartitionOuter(HashJoinState *node);
 
+#ifdef ADB
+/* must same as ExecHashJoinImpl HJ_BUILD_HASHTABLE */
+bool IsHashJoinExecOuterFirst(HashJoinState *node)
+{
+	if (HJ_FILL_INNER(node))
+		return false;
+	else if (castNode(HashJoin, node->js.ps.plan)->cluster_hashtable_first)
+		return false;
+	else if (node->js.ps.plan->parallel_aware)
+		return false;
+	else if (HJ_FILL_OUTER(node) ||
+			 outerPlanState(node)->plan->startup_cost < innerPlanState(node)->plan->total_cost)
+		return true;
+	return false;
+}
+#endif /* ADB */
 
 /* ----------------------------------------------------------------
  *		ExecHashJoinImpl
@@ -254,8 +270,15 @@ ExecHashJoinImpl(PlanState *pstate, bool parallel)
 					/* build hash table first if the cluster plan needs to */
 					node->hj_FirstOuterTupleSlot = NULL;
 				}
-#endif
+				/*
+				 * param parallel just for one node, in cluster someone
+				 * node maybe not working in parallel, so we use parallel_aware
+				 * for test
+				 */
+				else if (node->js.ps.plan->parallel_aware)
+#else
 				else if (parallel)
+#endif
 				{
 					/*
 					 * The empty-outer optimization is not implemented for

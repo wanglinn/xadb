@@ -35,5 +35,8 @@ extern TupleTableSlot *ExecHashJoinReadTuple(BufFile *file,
 											 uint32 *hashvalue,
 											 TupleTableSlot *tupleSlot);
 #endif /* ADB_EXT */
+#ifdef ADB
+extern bool IsHashJoinExecOuterFirst(HashJoinState *node);
+#endif /* ADB */
 
 #endif							/* NODEHASHJOIN_H */
