@@ -26,6 +26,7 @@
 
 
 #ifdef ADB
+#include "executor/nodeHashjoin.h"
 typedef bool (*WalkerFunc) ();
 
 typedef struct QualWalkContext {
@@ -4084,44 +4085,8 @@ planstate_exec_walk_hashjoin(HashJoinState *node,
 							 bool (*walker) (),
 							 void *context)
 {
-	PlanState  *outerNode;
-	HashState  *hashNode;
-	bool		drive_outer_first;
-
-	Assert(node && IsA(node, HashJoinState));
-	hashNode = (HashState *) innerPlanState(node);
-	outerNode = outerPlanState(node);
-
-	/*
-	 * If the hash join type is one of JOIN_LEFT, JOIN_ANTI and JOIN_FULL,
-	 * HJ_FILL_OUTER(node) is true and the outer plan will be executed first,
-	 * see the 150 line in nodeHashJoin.c.
-	 */
-	drive_outer_first = false;
-	switch (node->js.jointype)
-	{
-		case JOIN_LEFT:
-		case JOIN_ANTI:
-		case JOIN_FULL:
-			drive_outer_first = true;
-			break;
-		default:
-			break;
-	}
-
-	/*
-	 * if the startup cost of outer plan is smaller than the hash plan,
-	 * the outer plan will be executed first, see the 151 line in node-
-	 * HashJoin.c.(According to the initial value, see in ExecInitHashJoin,
-	 * Other conditions must be valid).
-	 */
-	if (!drive_outer_first &&
-		castNode(HashJoin, node->js.ps.plan)->cluster_hashtable_first == false &&
-		outerNode->plan->startup_cost < hashNode->ps.plan->total_cost)
-		drive_outer_first = true;
-
 	/* lefttree and righttree */
-	if (drive_outer_first)
+	if (IsHashJoinExecOuterFirst(node))
 	{
 		if (walker(outerPlanState(node), context))
 			return true;
