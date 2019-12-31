@@ -1894,14 +1894,14 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	{
 		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
 		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
-		appendStringInfo(&infosendmsg, " -Z %s -m %s -o -i -w -c -W", zmode, shutdown_mode);
+		appendStringInfo(&infosendmsg, " -Z %s -m %s -o -i -c -W", zmode, shutdown_mode);
 	}
 	else if (AGT_CMD_CN_START_BACKEND == cmdtype || AGT_CMD_DN_START_BACKEND == cmdtype ||
 		AGT_CMD_GTMCOORD_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOORD_START_SLAVE_BACKEND == cmdtype)
 	{
 		cmdtype_s = mgr_change_cmdtype_unbackend(cmdtype);
 		appendStringInfo(&infosendmsg, " %s -D %s", cmdmode, cndnPath);
-		appendStringInfo(&infosendmsg, " -Z %s -o -i -w -c -W -l %s/logfile", zmode, cndnPath);
+		appendStringInfo(&infosendmsg, " -Z %s -o -i -c -W -l %s/logfile", zmode, cndnPath);
 	}
 	else /*dn,cn start*/
 	{

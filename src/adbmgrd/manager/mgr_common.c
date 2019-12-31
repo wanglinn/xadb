@@ -1726,14 +1726,10 @@ Datum mgr_typenode_cmd_run_backend_result(nodenames_supplier supplier,
 	Relation rel_node;
 	HeapTuple aimtuple = NULL;
 	Form_mgr_node mgr_node;
-	AppendNodeInfo node_info;
 	bool bresult = false;
-	bool slave_is_exist = false;
-	bool slave_is_running = false;
 	bool binit = false;
 	bool bstartcmd = false;
 	bool bstopcmd = false;
-	//bool bgtmtype = false;
 	int ret;
 	int iloop = 90;
 	char *host_addr;
@@ -1747,7 +1743,6 @@ Datum mgr_typenode_cmd_run_backend_result(nodenames_supplier supplier,
 								|| AGT_CMD_CN_START_BACKEND == cmdtype || AGT_CMD_DN_START_BACKEND == cmdtype);
 	bstopcmd = (AGT_CMD_GTMCOORD_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOORD_STOP_SLAVE_BACKEND == cmdtype
 								|| AGT_CMD_CN_STOP_BACKEND == cmdtype || AGT_CMD_DN_STOP_BACKEND == cmdtype);
-	//bgtmtype = (CNDN_TYPE_GTM_COOR_MASTER == nodetype || CNDN_TYPE_GTM_COOR_SLAVE == nodetype);
 	/* stuff done only on the first call of the function */
 	if (SRF_IS_FIRSTCALL())
 	{
@@ -1923,25 +1918,8 @@ Datum mgr_typenode_cmd_run_backend_result(nodenames_supplier supplier,
 			}
 			else
 			{
-				/* get the output description after cmd fail */
-				if (AGENT_DOWN != ret)
-				{
-					typestr = mgr_nodetype_str(nodetype);
-					ereport(LOG, (errmsg("try start %s %s again", typestr, nodename)));
-					ereport(WARNING, (errmsg("try start %s %s again", typestr, nodename)));
-					pfree(typestr);
-				}
-				mgr_get_nodeinfo_byname_type(nodename, nodetype, false, &slave_is_exist, &slave_is_running, &node_info);
-				if (AGT_CMD_GTMCOORD_START_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOORD_START_SLAVE_BACKEND == cmdtype)
-					appendStringInfo(&infosendmsg, " start -D %s -Z gtm_coord  -o -i -w -c -t 3 -l %s/logfile", node_info.nodepath, node_info.nodepath);
-				else if (AGT_CMD_CN_START_BACKEND == cmdtype)
-					appendStringInfo(&infosendmsg, " start -D %s -Z coordinator -o -i -w -c -t 3 -l %s/logfile"
-									, node_info.nodepath, node_info.nodepath);
-				else
-					appendStringInfo(&infosendmsg, " start -D %s -Z datanode -o -i -w -c -t 3 -l %s/logfile"
-									, node_info.nodepath, node_info.nodepath);
-				bresult = mgr_ma_send_cmd(mgr_change_cmdtype_unbackend(cmdtype), infosendmsg.data, node_info.nodehost, &strdata);
-				pfree_AppendNodeInfo(node_info);
+				bresult = false;
+				appendStringInfoString(&strdata, "failure");
 			}
 		}
 		else if (bstopcmd)
@@ -1953,23 +1931,8 @@ Datum mgr_typenode_cmd_run_backend_result(nodenames_supplier supplier,
 			}
 			else
 			{
-				/* get the output description after cmd fail */
-				if (AGENT_DOWN != ret && binit)
-				{
-					typestr = mgr_nodetype_str(nodetype);
-					ereport(LOG, (errmsg("try stop %s %s again", typestr, nodename)));
-					ereport(WARNING, (errmsg("try stop %s %s again", typestr, nodename)));
-					pfree(typestr);
-				}
-				mgr_get_nodeinfo_byname_type(nodename, nodetype, false, &slave_is_exist, &slave_is_running, &node_info);
-				if (AGT_CMD_GTMCOORD_STOP_MASTER_BACKEND == cmdtype || AGT_CMD_GTMCOORD_STOP_SLAVE_BACKEND == cmdtype)
-					appendStringInfo(&infosendmsg, " stop -D %s -m %s -o -i -w -c -t 3", node_info.nodepath, shutdown_mode);
-				else if (AGT_CMD_CN_STOP_BACKEND == cmdtype)
-					appendStringInfo(&infosendmsg, " stop -D %s -Z coordinator -m %s -o -i -w -c -t 3", node_info.nodepath, shutdown_mode);
-				else
-					appendStringInfo(&infosendmsg, " stop -D %s -Z datanode -m %s -o -i -w -c -t 3", node_info.nodepath, shutdown_mode);
-				bresult = mgr_ma_send_cmd(mgr_change_cmdtype_unbackend(cmdtype), infosendmsg.data, node_info.nodehost, &strdata);
-				pfree_AppendNodeInfo(node_info);
+				bresult = false;
+				appendStringInfoString(&strdata, "failure");
 			}
 		}
 		else
