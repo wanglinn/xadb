@@ -15855,42 +15855,60 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 		/* Add the grammar extension linked to ADB depending on data got from pgxc_class */
 		if (tbinfo->pgxclocatortype != 'E' && !(tbinfo->ispartition && !dopt->binary_upgrade))
 		{
-			/* N: DISTRIBUTE BY RANDOM */
-			if (tbinfo->pgxclocatortype == 'N')
+			PQExpBuffer query = createPQExpBuffer();
+			PGresult   *res;
+			char	   *distribute_def;
+			bool		distribute_def_isnull;
+			char	   *to_node_clause;
+			char	   *distribute_def_substr;
+			size_t		substrLength;
+
+			/* retrieve name of foreign server and generic options */
+			appendPQExpBuffer(query,
+							  "SELECT  * from pg_catalog.adb_get_distribute_def(%u)",
+							  tbinfo->dobj.catId.oid);
+			res = ExecuteSqlQueryForSingleRow(fout, query->data);
+			distribute_def_isnull = PQgetisnull(res, 0, 0);
+			if (!distribute_def_isnull)
 			{
-				appendPQExpBuffer(q, "\nDISTRIBUTE BY RANDOM");
+				distribute_def = pstrdup(PQgetvalue(res, 0, 0));
+				if (strlen(distribute_def) > 0)
+				{
+					if (include_nodes)
+					{
+						appendPQExpBuffer(q, "\n%s", distribute_def);
+					}
+					else
+					{
+						if (tbinfo->pgxclocatortype == 'G' ||
+							tbinfo->pgxclocatortype == 'L' )
+						{
+							/* DISTRIBUTE BY RANGE or LIST must include nodes */
+							write_msg(NULL, "Dump the table defined by 'DISTRIBUTE BY RANGE or LIST' must include 'TO NODE' clause, please see Option --include-nodes.\n");
+							appendPQExpBuffer(q, "\n%s", distribute_def);
+						}
+						else
+						{
+							to_node_clause = strstr(distribute_def, " TO NODE");
+							if (to_node_clause != NULL)
+							{
+								substrLength = strlen(distribute_def) - strlen(to_node_clause);
+								distribute_def_substr = palloc0(substrLength + 1);
+								memcpy(distribute_def_substr, distribute_def, substrLength);
+								appendPQExpBuffer(q, "\n%s", distribute_def_substr);
+								pfree(distribute_def_substr);
+							}
+							else
+							{
+								appendPQExpBuffer(q, "\n%s", distribute_def);
+							}
+						}
+					}
+				}
+				pfree(distribute_def);
 			}
-			/* R: DISTRIBUTE BY REPLICATED */
-			else if (tbinfo->pgxclocatortype == 'R')
-			{
-				appendPQExpBuffer(q, "\nDISTRIBUTE BY REPLICATION");
-			}
-			/* H: DISTRIBUTE BY HASH  */
-			else if (tbinfo->pgxclocatortype == 'H')
-			{
-				int hashkey = tbinfo->pgxcattnum;
-				appendPQExpBuffer(q, "\nDISTRIBUTE BY HASH (%s)",
-					fmtId(tbinfo->attnames[hashkey - 1]));
-			}
-			else if (tbinfo->pgxclocatortype == 'M')
-			{
-				int hashkey = tbinfo->pgxcattnum;
-				appendPQExpBuffer(q, "\nDISTRIBUTE BY MODULO (%s)",
-				fmtId(tbinfo->attnames[hashkey - 1]));
-			}
-			else if (tbinfo->pgxclocatortype == 'B')
-			{
-				int hashkey = tbinfo->pgxcattnum;
-				appendPQExpBuffer(q, "\nDISTRIBUTE BY HASHMAP (%s)",
-				fmtId(tbinfo->attnames[hashkey - 1]));
-			}
-		}
-		if (include_nodes &&
-			tbinfo->pgxc_node_names != NULL &&
-			tbinfo->pgxc_node_names[0] != '\0' &&
-			tbinfo->pgxclocatortype != 'B')
-		{
-			appendPQExpBuffer(q, "\nTO NODE (%s)", tbinfo->pgxc_node_names);
+			PQclear(res);
+			destroyPQExpBuffer(query);
 		}
 #endif
 
