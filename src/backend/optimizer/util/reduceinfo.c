@@ -2745,7 +2745,7 @@ static int CompareOid(const void *a, const void *b)
 bool CanModuloType(Oid type, bool no_error)
 {
 	Oid target = INT4OID;
-	return can_coerce_type(1, &type, &target, COERCION_EXPLICIT);
+	return can_coerce_type(1, &type, &target, COERCION_IMPLICIT);
 }
 
 typedef struct ReduceSetExprState
