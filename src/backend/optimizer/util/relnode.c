@@ -620,6 +620,11 @@ build_join_rel(PlannerInfo *root,
 	joinrel->partexprs = NULL;
 	joinrel->nullable_partexprs = NULL;
 	joinrel->partitioned_child_rels = NIL;
+#ifdef ADB
+	if (outer_rel->have_upper_reference ||
+		inner_rel->have_upper_reference)
+		joinrel->have_upper_reference = true;
+#endif /* ADB */
 
 	/* Compute information relevant to the foreign relations. */
 	set_foreign_rel_properties(joinrel, outer_rel, inner_rel);

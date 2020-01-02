@@ -1010,6 +1010,10 @@ void add_cluster_path(RelOptInfo *parent_rel, Path *new_path)
 	new_reduce_list = get_reduce_info_list(new_path);
 	Assert(new_reduce_list != NIL);
 
+	if (parent_rel->have_upper_reference &&
+		!IsReduceInfoListReplicated(new_reduce_list))
+		return;
+
 	/*
 	 * Loop to check proposed new path against old paths.  Note it is possible
 	 * for more than one old path to be tossed out because new_path dominates

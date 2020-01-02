@@ -749,6 +749,7 @@ typedef struct RelOptInfo
 	struct RelationLocInfo *loc_info;	/* when RELOPT_BASEREL */
 	List	   *remote_oids;			/* when RELOPT_BASEREL */
 	struct RelOptInfo *no_param_rel;	/* for ReduceScan */
+	bool		have_upper_reference;	/* this or sub rel using upper reference expression? */
 #endif /* ADB */
 } RelOptInfo;
 
