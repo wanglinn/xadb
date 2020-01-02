@@ -2916,6 +2916,20 @@ pgxc_FQS_create_remote_plan(Query *query, ExecNodes *exec_nodes, bool is_exec_di
 	 */
 	query_step->combine_type = get_plan_combine_type(
 				query->commandType, query_step->exec_nodes->baselocatortype);
+	if (query_step->combine_type == COMBINE_TYPE_SAME)
+	{
+		ListCell	   *lc;
+		RangeTblEntry  *rte = rt_fetch(query->resultRelation, query->rtable);
+		List		   *sub_rel = rte->inh ? find_inheritance_children(rte->relid, NoLock) : NIL;
+		foreach (lc, sub_rel)
+		{
+			if (get_pgxc_class_loc_type(lfirst_oid(lc), true) != LOCATOR_TYPE_REPLICATED)
+			{
+				query_step->combine_type = COMBINE_TYPE_SUM;
+				break;
+			}
+		}
+	}
 	/*
 	 * Walk the query tree collecting the rtables from the subqueries. We need
 	 * this rtable to construct the rtable to be examined for permissions at

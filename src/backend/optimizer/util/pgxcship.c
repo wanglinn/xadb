@@ -998,7 +998,7 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 				foreach (lc, query->rtable)
 				{
 					rte = (RangeTblEntry *) lfirst(lc);
-					if (rte->rtekind == RTE_RELATION)
+					if (rte->rtekind == RTE_RELATION && rte->inh)
 					{
 						children = find_inheritance_children(rte->relid, AccessShareLock);
 						if (children != NIL)
