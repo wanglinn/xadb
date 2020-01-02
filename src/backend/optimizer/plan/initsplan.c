@@ -2292,6 +2292,11 @@ distribute_restrictinfo_to_rels(PlannerInfo *root,
 			/* Update security level info */
 			rel->baserestrict_min_security = Min(rel->baserestrict_min_security,
 												 restrictinfo->security_level);
+#ifdef ADB
+			if (rel->have_upper_reference == false &&
+				expr_have_upper_reference(restrictinfo->clause, root))
+				rel->have_upper_reference = true;
+#endif /* ADB */
 			break;
 		case BMS_MULTIPLE:
 

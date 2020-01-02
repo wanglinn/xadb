@@ -377,8 +377,7 @@ add_paths_to_joinrel(PlannerInfo *root,
 							 jointype, &extra);
 
 #ifdef ADB
-	if(!root->must_replicate)
-		add_cluster_paths_to_joinrel(root, joinrel, outerrel, innerrel, jointype, &extra);
+	add_cluster_paths_to_joinrel(root, joinrel, outerrel, innerrel, jointype, &extra);
 #endif /* ADB */
 
 	/*
@@ -672,8 +671,6 @@ try_cluster_partial_nestloop_path(PlannerInfo *root,
 {
 	JoinCostWorkspace workspace;
 	NestPath *nestloop;
-	if(root->must_replicate)
-		return;
 
 	/*
 	 * If the inner path is parameterized, the parameterization must be fully
@@ -1297,7 +1294,7 @@ sort_inner_and_outer(PlannerInfo *root,
 									   extra);
 	}
 #ifdef ADB
-	if(!root->must_replicate && outerrel->cluster_pathlist && innerrel->cluster_pathlist)
+	if(outerrel->cluster_pathlist && innerrel->cluster_pathlist)
 	{
 		List	   *new_reduce_list;
 		ClusterJoinContext jcontext;
@@ -1961,6 +1958,10 @@ consider_parallel_nestloop(PlannerInfo *root,
 		List	   *pathkeys;
 		ListCell   *lc2;
 
+		if (joinrel->have_upper_reference &&
+			IsReduceInfoListReplicated(outer_reduce_list) == false)
+			continue;
+
 		/* Figure out what useful ordering any paths we create will have. */
 		pathkeys = build_join_pathkeys(root, joinrel, jointype,
 									   outerpath->pathkeys);
@@ -1981,6 +1982,9 @@ consider_parallel_nestloop(PlannerInfo *root,
 										  extra->restrictlist,
 										  jointype,
 										  &new_reduce_list) == false)
+				continue;
+			if (joinrel->have_upper_reference &&
+				!IsReduceInfoListReplicated(new_reduce_list) == false)
 				continue;
 
 			/*
@@ -2512,6 +2516,17 @@ static void set_all_join_inner_path(ClusterJoinContext *jcontext, Path *outer_pa
 	List *restrictlist = jcontext->extra->restrictlist;
 	ListCell *lc;
 	JoinType jointype = jcontext->jointype;
+	bool have_upper_reference = jcontext->joinrel->have_upper_reference;
+
+	if(jcontext->inner_pathlist != NIL)
+	{
+		list_free(jcontext->inner_pathlist);
+		jcontext->inner_pathlist = NIL;
+	}
+
+	if (have_upper_reference &&
+		IsReduceInfoListReplicated(outer_reduce_list) == false)
+		return;
 
 	foreach(lc, inner_pathlist)
 	{
@@ -2527,6 +2542,11 @@ static void set_all_join_inner_path(ClusterJoinContext *jcontext, Path *outer_pa
 		{
 			inner_reduce_list = get_reduce_info_list(inner_path);
 		}
+
+		if (have_upper_reference &&
+			IsReduceInfoListReplicated(inner_reduce_list) == false)
+			continue;
+
 		if(reduce_info_list_can_join(outer_reduce_list,
 									 inner_reduce_list,
 									 restrictlist,
@@ -2537,8 +2557,6 @@ static void set_all_join_inner_path(ClusterJoinContext *jcontext, Path *outer_pa
 		}
 	}
 
-	if(jcontext->inner_pathlist)
-		list_free(jcontext->inner_pathlist);
 	jcontext->inner_pathlist = list;
 }
 
@@ -3042,11 +3060,13 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 					{
 						List	   *tmp_reduce_list = NIL;
 						Path	   *innerpath = (Path *) lfirst(lc2);
-						if(reduce_info_list_can_join(outer_reduce_list,
+						if (reduce_info_list_can_join(outer_reduce_list,
 													 get_reduce_info_list(innerpath),
 													 jcontext->extra->restrictlist,
 													 jcontext->jointype,
-													 &tmp_reduce_list))
+													 &tmp_reduce_list) &&
+							(jcontext->joinrel->have_upper_reference == false ||
+							 IsReduceInfoListReplicated(tmp_reduce_list)))
 						{
 							Assert(tmp_reduce_list != NIL);
 							try_nestloop_path(jcontext->root,
@@ -3148,6 +3168,10 @@ static void try_cluster_join_path(ClusterJoinContext *jcontext, Path *outer_path
 {
 	JoinType jointype;
 	AssertArg(jcontext && new_reduce_list);
+
+	if (jcontext->joinrel->have_upper_reference &&
+		!IsReduceInfoListReplicated(new_reduce_list))
+		return;
 
 	if(jcontext->jointype == JOIN_UNIQUE_OUTER)
 	{
