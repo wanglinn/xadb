@@ -3710,13 +3710,13 @@ int
 get_pgxc_classnodes(Oid tableid, Oid **nodes)
 {
 	HeapTuple		tuple;
-	Form_pgxc_class		classForm;
-	int			numnodes;
+	Form_pgxc_class	classForm;
+	int				numnodes;
 
 	tuple = SearchSysCache1(PGXCCLASSRELID, ObjectIdGetDatum(tableid));
 
 	if (!HeapTupleIsValid(tuple))
-			elog(ERROR, "cache lookup failed for relation %u", tableid);
+		elog(ERROR, "cache lookup failed for relation %u", tableid);
 
 	classForm = (Form_pgxc_class) GETSTRUCT(tuple);
 	numnodes = (int) classForm->nodeoids.dim1;
@@ -3730,6 +3730,27 @@ get_pgxc_classnodes(Oid tableid, Oid **nodes)
 bool is_relid_remote(Oid tableoid)
 {
 	return SearchSysCacheExists1(PGXCCLASSRELID, ObjectIdGetDatum(tableoid));
+}
+
+char get_pgxc_class_loc_type(Oid tableid, bool noerror)
+{
+	HeapTuple		tuple;
+	char			loc_type;
+
+	tuple = SearchSysCache1(PGXCCLASSRELID, ObjectIdGetDatum(tableid));
+
+	if (!HeapTupleIsValid(tuple))
+	{
+		if (noerror)
+			return LOCATOR_TYPE_INVALID;
+		else
+			elog(ERROR, "cache lookup failed for relation %u", tableid);
+	}
+
+	loc_type = ((Form_pgxc_class) GETSTRUCT(tuple))->pclocatortype;
+	ReleaseSysCache(tuple);
+
+	return loc_type;
 }
 #endif /* ADB */
 
