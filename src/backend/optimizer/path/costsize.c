@@ -4144,6 +4144,7 @@ cost_qual_eval_walker(Node *node, cost_qual_eval_context *context)
 			locContext.root = context->root;
 			locContext.total.startup = 0;
 			locContext.total.per_tuple = 0;
+			ADB_ONLY_CODE(locContext.is_cluster = context->is_cluster);
 
 			/*
 			 * For an OR clause, recurse into the marked-up tree so that we
