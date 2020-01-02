@@ -5485,6 +5485,7 @@ void DoClusterCopy(CopyStmt *stmt, StringInfo mem_toc)
 	if (cstate->aux_info)
 		ApplyCopyToAuxiliary(cstate, rnodes);
 
+	heap_close(rel, RowExclusiveLock);
 	EndCopyFrom(cstate);
 }
 
