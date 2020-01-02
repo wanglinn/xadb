@@ -235,6 +235,10 @@ HandleCacheOrGC(NodeHandle *handle)
 			if (TupIsNull(iterSlot))
 				break;
 		}
+	}else
+	{
+		ereport(WARNING,
+				(errmsg("unknwon handle owner %d", nodeTag(handle->node_owner))));
 	}
 }
 

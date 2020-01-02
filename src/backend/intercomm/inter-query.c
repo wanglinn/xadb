@@ -903,6 +903,10 @@ HandleQueryCompleteMsg(PGconn *conn)
 
 		/* If response checking is enable only then do further processing */
 		node->command_complete_count++;
+	}else
+	{
+		ereport(WARNING,
+				(errmsg("unknwon handle owner %d", nodeTag(handle->node_owner))));
 	}
 
 	return 0;
