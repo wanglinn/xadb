@@ -7950,6 +7950,7 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 		gcontext.can_hash = can_hash;
 		gcontext.can_batch = extra->flags & GROUPING_CAN_USE_BATCH ? true:false;
 		gcontext.can_gather = (root->parent_root == NULL &&
+							   grouped_rel->reloptkind != RELOPT_OTHER_UPPER_REL &&
 							   !expr_have_upper_reference((Expr*)havingQual, root) &&
 							   !expr_have_node((Expr*)grouped_rel->reltarget->exprs, T_SubPlan, T_SubLink, T_Invalid) &&
 							   !expression_have_reduce_plan((Expr*)havingQual, root->glob));
