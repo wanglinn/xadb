@@ -7098,10 +7098,22 @@ static ClusterGather *create_cluster_gather_plan(PlannerInfo *root, ClusterGathe
 	plan->gatherType = get_gather_type(reduce_list);
 
 	if (IsA(subpath, ModifyTablePath) &&
-		((ModifyTablePath*)subpath)->canSetTag &&
-		IsReduceInfoListReplicated(subpath->reduce_info_list))
+		((ModifyTablePath*)subpath)->canSetTag)
 	{
-		plan->check_rep_processed = true;
+		bool check_rep_processed = IsReduceInfoListReplicated(subpath->reduce_info_list);
+		ListCell *lc;
+		if (check_rep_processed)
+		{
+			foreach (lc, ((ModifyTablePath*)subpath)->subpaths)
+			{
+				if (IsReduceInfoListReplicated(((Path*)lfirst(lc))->reduce_info_list) == false)
+				{
+					check_rep_processed = false;
+					break;
+				}
+			}
+		}
+		plan->check_rep_processed = check_rep_processed;
 	}
 
 	subplan = create_plan_recurse(root, subpath, flags);
