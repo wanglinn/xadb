@@ -267,7 +267,7 @@ MakeNodeHandleEntry(Oid node_id, Name node_name, NodeType node_type,
 	{
 		/* If I am a gtmcoord slave node, I have the same nodeid as my master node. */
 		if ((nodeis_gtm && node_type == TYPE_CN_NODE) && /* It is a gtmcoord master */
-			(IsGTMCnNode() && RecoveryInProgress()))	 /* I am a gtmcorod slave */
+			IsGTMCnNode())	/* I am a gtmcorod slave */
 		{
 			SelfNodeID = PGXCNodeOid = node_id;
 		}
