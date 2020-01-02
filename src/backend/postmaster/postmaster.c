@@ -1574,7 +1574,7 @@ PostmasterMain(int argc, char *argv[])
 		MemoryContextSwitchTo(oldcontext);
 	}
 
-	if (IsGTMNode() && !RecoveryInProgress())
+	if (IsGTMNode() && pmState == PM_RUN)
 	{
 		SnapSenderPID = StartSnapSender();
 		GxidSenderPID = StartGxidSender();
@@ -1987,7 +1987,7 @@ ServerLoop(void)
 		if (IS_PGXC_COORDINATOR && RemoteXactMgrPID == 0 && pmState == PM_RUN)
 			RemoteXactMgrPID = StartRemoteXactMgr();
 
-		if (IsGTMNode() && !RecoveryInProgress() && pmState == PM_RUN)
+		if (IsGTMNode() && pmState == PM_RUN)
 		{
 			if (SnapSenderPID == 0)
 				SnapSenderPID = StartSnapSender();
@@ -1995,7 +1995,7 @@ ServerLoop(void)
 				GxidSenderPID = StartGxidSender();
 		}
 
-		if (!IsGTMNode() && pmState == PM_RUN)
+		if (!IsGTMNode())
 		{
 			if (SnapReceiverPID == 0)
 				SnapReceiverPID = StartSnapReceiver();
@@ -2223,7 +2223,7 @@ ProcessStartupPacket(Port *port, bool SSLdone)
 	}
 
 #ifdef ADB
-	if ((!RecoveryInProgress()) && (proto ==  GXID_SEND_SOCKET || proto ==  SNAP_SEND_SOCKET))
+	if (pmState == PM_RUN && (proto == GXID_SEND_SOCKET || proto ==  SNAP_SEND_SOCKET))
 	{
 		char	retry_ack;
 		retry_ack = 'T';
@@ -3235,11 +3235,11 @@ reaper(SIGNAL_ARGS)
 				PgPoolerPID = StartPoolManager();
 			if (IS_PGXC_COORDINATOR && RemoteXactMgrPID == 0)
 				RemoteXactMgrPID = StartRemoteXactMgr();
-			if (IsGTMNode() && !RecoveryInProgress() && SnapSenderPID == 0)
+			if (IsGTMNode() && pmState == PM_RUN && SnapSenderPID == 0)
 				SnapSenderPID = StartSnapSender();
 			if (!IsGTMNode() && SnapReceiverPID == 0)
 				SnapReceiverPID = StartSnapReceiver();
-			if (IsGTMNode() && !RecoveryInProgress() && GxidSenderPID == 0)
+			if (IsGTMNode() && pmState == PM_RUN && GxidSenderPID == 0)
 				GxidSenderPID = StartGxidSender();
 			if (!IsGTMNode() && GxidReceiverPID == 0)
 				GxidReceiverPID = StartGxidReceiver();
@@ -3477,7 +3477,7 @@ reaper(SIGNAL_ARGS)
 			continue;
 		}
 
-		if (IsGTMNode() && !RecoveryInProgress() && pid == SnapSenderPID)
+		if (IsGTMNode() && pmState == PM_RUN && pid == SnapSenderPID)
 		{
 			SnapSenderPID = 0;
 			if (EXIT_STATUS_0(exitstatus) ||
@@ -3494,7 +3494,7 @@ reaper(SIGNAL_ARGS)
 			continue;
 		}
 
-		if (IsGTMNode() && !RecoveryInProgress() && pid == GxidSenderPID)
+		if (IsGTMNode() && pmState == PM_RUN && pid == GxidSenderPID)
 		{
 			GxidSenderPID = 0;
 			if (EXIT_STATUS_0(exitstatus) ||
