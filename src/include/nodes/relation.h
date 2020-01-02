@@ -673,18 +673,6 @@ typedef struct RelOptInfo
 	struct Path *cheapest_total_path;
 	struct Path *cheapest_unique_path;
 	List	   *cheapest_parameterized_paths;
-#ifdef ADB
-	List	   *cluster_pathlist;
-	List	   *cluster_partial_pathlist;	/* cluster partial Paths */
-	List	   *cluster_unique_pathlist;
-	struct Path *cheapest_cluster_startup_path;
-	struct Path *cheapest_cluster_total_path;
-	struct Path *cheapest_replicate_path;		/* reduce to replicate */
-	struct Path *cheapest_coordinator_path;		/* reduce to coordinator */
-	List	   *cheapest_cluster_parameterized_paths;
-	struct RelationLocInfo *loc_info;	/* when RELOPT_BASEREL */
-	List	   *remote_oids;			/* when RELOPT_BASEREL */
-#endif /* ADB */
 
 	/* parameterization information needed for both base rels and join rels */
 	/* (see also lateral_vars and lateral_referencers) */
@@ -750,6 +738,16 @@ typedef struct RelOptInfo
 	List	  **nullable_partexprs; /* Nullable partition key expressions. */
 	List	   *partitioned_child_rels; /* List of RT indexes. */
 #ifdef ADB
+	List	   *cluster_pathlist;
+	List	   *cluster_partial_pathlist;	/* cluster partial Paths */
+	List	   *cluster_unique_pathlist;
+	struct Path *cheapest_cluster_startup_path;
+	struct Path *cheapest_cluster_total_path;
+	struct Path *cheapest_replicate_path;		/* reduce to replicate */
+	struct Path *cheapest_coordinator_path;		/* reduce to coordinator */
+	List	   *cheapest_cluster_parameterized_paths;
+	struct RelationLocInfo *loc_info;	/* when RELOPT_BASEREL */
+	List	   *remote_oids;			/* when RELOPT_BASEREL */
 	struct RelOptInfo *no_param_rel;	/* for ReduceScan */
 #endif /* ADB */
 } RelOptInfo;
