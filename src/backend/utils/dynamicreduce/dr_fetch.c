@@ -173,42 +173,28 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 
 		if (io->eof_remote == false)
 		{
-			slot = io->convert ? io->slot_remote : io->slot_local;
 			if (io->shared_file)
 			{
-				resetStringInfo(&io->recv_buf);
-				DynamicReduceReadSFSTuple(slot, io->shared_file, &io->recv_buf);
+				slot = DynamicReduceFetchBufFile(io, io->shared_file);
 				if (TupIsNull(slot))
 				{
 					DRFetchCloseSharedFile(io);
 					continue;
 				}
-				if (io->convert)
-					slot = do_type_convert_slot_in(io->convert,
-												   slot,
-												   io->slot_local,
-												   false);
 				return slot;
 			}
 			if (io->sts)
 			{
-				MinimalTuple mtup = sts_parallel_scan_next(io->sts, NULL);
-				if (mtup == NULL)
+				slot = DynamicReduceFetchSTS(io, io->sts);
+				if (TupIsNull(slot))
 				{
 					DRFetchCloseSharedTuplestore(io);
 					continue;
 				}
-				ExecStoreMinimalTuple(mtup, slot, false);
-				if (io->convert)
-				{
-					slot = do_type_convert_slot_in(io->convert,
-												   io->slot_remote,
-												   io->slot_local,
-												   false);
-				}
 				return slot;
 			}
 
+			slot = io->convert ? io->slot_remote : io->slot_local;
 			dr_flags = DynamicReduceRecvTuple(io->mqh_receiver,
 											  slot,
 											  &io->recv_buf,
@@ -297,6 +283,38 @@ TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
 	}
 
 	return NULL;
+}
+
+TupleTableSlot* DynamicReduceFetchBufFile(DynamicReduceIOBuffer *io, BufFile *buffile)
+{
+	TupleTableSlot *slot = io->convert ? io->slot_remote : io->slot_local;
+	resetStringInfo(&io->recv_buf);
+	DynamicReduceReadSFSTuple(slot, buffile, &io->recv_buf);
+	if (!TupIsNull(slot))
+	{
+		if (io->convert)
+			slot = do_type_convert_slot_in(io->convert,
+										   slot,
+										   io->slot_local,
+										   false);
+		return slot;
+	}
+	return ExecClearTuple(io->slot_local);
+}
+
+TupleTableSlot* DynamicReduceFetchSTS(DynamicReduceIOBuffer *io, SharedTuplestoreAccessor *sts)
+{
+	MinimalTuple	mtup = sts_parallel_scan_next(sts, NULL);
+	if (mtup == NULL)
+		return ExecClearTuple(io->slot_local);
+	if (io->convert)
+	{
+		return do_type_convert_slot_in(io->convert,
+									   ExecStoreMinimalTuple(mtup, io->slot_remote, false),
+									   io->slot_local,
+									   false);
+	}
+	return ExecStoreMinimalTuple(mtup, io->slot_local, false);
 }
 
 TupleTableSlot* DynamicReduceFetchLocal(DynamicReduceIOBuffer *io)
