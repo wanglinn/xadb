@@ -838,6 +838,14 @@ transformColumnDefinition(CreateStmtContext *cxt, ColumnDef *column ADB_ONLY_COM
 					 errmsg("array of serial is not implemented"),
 					 parser_errposition(cxt->pstate,
 										column->typeName->location)));
+
+#ifdef ADB
+		if (is_serial && is_addcln)
+			ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				errmsg("%s columns are not supported on adding column. "
+					"Please create sequence manually first, then use it in new column.", typname)));
+#endif /*ADB*/
 	}
 
 	/* Do necessary work on the column type declaration */
