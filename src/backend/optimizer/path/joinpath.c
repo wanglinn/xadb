@@ -3194,19 +3194,10 @@ static void try_cluster_join_path(ClusterJoinContext *jcontext, Path *outer_path
 
 	if (jcontext->try_match & CLUSTER_TRY_NESTLOOP_JOIN)
 	{
-		/*
-		 * ClusterReduce not support rescan,
-		 * so we generate a material plan if inner is ClusteReduce
-		 */
-		Path *tmp_inner;
-		if (IsA(inner_path, ClusterReducePath))
-			tmp_inner = (Path*)create_material_path(jcontext->innerrel, inner_path);
-		else
-			tmp_inner = inner_path;
 		try_nestloop_path(jcontext->root,
 						  jcontext->joinrel,
 						  outer_path,
-						  tmp_inner,
+						  inner_path,
 						  jcontext->merge_pathkeys,
 						  jointype,
 						  new_reduce_list,
