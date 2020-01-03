@@ -45,8 +45,11 @@ typedef struct NormalReduceState
 typedef struct NormalReduceFirstState
 {
 	NormalReduceState	normal;	/* must be first */
-	BufFile			   *file;
-	StringInfoData		buf;
+	BufFile			   *file_local;
+	BufFile			   *file_remote;
+	uint32				file_no;
+	bool				ready_local;
+	bool				ready_remote;
 }NormalReduceFirstState;
 
 typedef struct ParallelReduceFirstState
@@ -314,27 +317,92 @@ static void DriveNormalReduce(ClusterReduceState *node)
 }
 
 /* ===================== Normal Reduce First ========================== */
+static TupleTableSlot* ExecReduceFirstRemote(PlanState *pstate)
+{
+	NormalReduceFirstState *state = castNode(ClusterReduceState, pstate)->private_state;
+
+	if (state->file_remote == NULL)
+		return ExecClearTuple(pstate->ps_ResultTupleSlot);
+	return DynamicReduceFetchBufFile(&state->normal.drio, state->file_remote);
+}
+
+static void ExecReduceFirstWaitRemote(NormalReduceFirstState *state)
+{
+	MemoryContext			oldcontext;
+	DynamicReduceRecvInfo	info;
+	int						flags;
+	char					name[MAXPGPATH];
+	Assert(state->ready_remote == false && state->file_remote == NULL);
+
+	resetStringInfo(&state->normal.drio.recv_buf);
+	flags = DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
+								   state->normal.drio.slot_local,
+								   &state->normal.drio.recv_buf,
+								   &info,
+								   false);
+	state->ready_remote = true;
+	if (flags == DR_MSG_RECV)
+	{
+		if (!TupIsNull(state->normal.drio.slot_local))
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("reduce first reduce got a tuple, should got a shared file")));
+		state->ready_remote = true;
+	}else if (flags == DR_MSG_RECV_SF)
+	{
+		oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state));
+		state->file_remote = BufFileOpenShared(DynamicReduceGetSharedFileSet(),
+											   DynamicReduceSharedFileName(name, info.u32));
+		state->file_no = info.u32;
+		state->ready_remote = true;
+		MemoryContextSwitchTo(oldcontext);
+	}else if (flags == DR_MSG_RECV_STS)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("reduce first reduce get a sharedtuple, should got a shared file")));
+	}else
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("reduce first reduce got unknown message from dynamic reduce %u", flags)));
+	}
+}
+
 static TupleTableSlot* ExecReduceFirstLocal(PlanState *pstate)
 {
 	NormalReduceFirstState *state = castNode(ClusterReduceState, pstate)->private_state;
 	TupleTableSlot		   *slot;
 
-	resetStringInfo(&state->buf);
-	slot = DynamicReduceReadSFSTuple(pstate->ps_ResultTupleSlot, state->file, &state->buf);
+	resetStringInfo(&state->normal.drio.recv_buf);
+	slot = DynamicReduceReadSFSTuple(pstate->ps_ResultTupleSlot,
+									 state->file_local,
+									 &state->normal.drio.recv_buf);
 	if (!TupIsNull(slot))
 		return slot;
 
-	ExecSetExecProcNode(pstate, ExecNormalReduce);
-	return ExecNormalReduce(pstate);
+	if (state->ready_remote == false)
+		ExecReduceFirstWaitRemote(state);
+
+	ExecSetExecProcNode(pstate, ExecReduceFirstRemote);
+	return ExecReduceFirstRemote(pstate);
 }
 
 static TupleTableSlot* ExecReduceFirstPrepare(PlanState *pstate)
 {
 	NormalReduceFirstState *state = castNode(ClusterReduceState, pstate)->private_state;
 	TupleTableSlot		   *slot;
+	MemoryContext			oldcontext;
 	bool					send_success PG_USED_FOR_ASSERTS_ONLY;
 
 	Assert(state->normal.drio.eof_local == false);
+	Assert(state->ready_local == false && state->file_local == NULL);
+
+	/* create local file */
+	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state));
+	state->file_local = BufFileCreateTemp(false);
+	MemoryContextSwitchTo(oldcontext);
+
 	while(state->normal.drio.eof_local == false)
 	{
 		slot = DynamicReduceFetchLocal(&state->normal.drio);
@@ -348,10 +416,11 @@ static TupleTableSlot* ExecReduceFirstPrepare(PlanState *pstate)
 			state->normal.drio.send_buf.len = 0;
 		}
 		if (!TupIsNull(slot))
-			DynamicReduceWriteSFSTuple(slot, state->file);
+			DynamicReduceWriteSFSTuple(slot, state->file_local);
 	}
+	state->ready_local = true;
 
-	if (BufFileSeek(state->file, 0, 0, SEEK_SET) != 0)
+	if (BufFileSeek(state->file_local, 0, 0, SEEK_SET) != 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				errmsg("can not seek buffer file to head")));
@@ -391,11 +460,6 @@ static void InitReduceFirst(ClusterReduceState *crstate)
 
 	crstate->private_state = state = palloc0(sizeof(*state));
 	InitNormalReduceState(&state->normal, sizeof(DynamicReduceMQData), crstate);
-	initStringInfo(&state->buf);
-	enlargeStringInfo(&state->buf, MINIMAL_TUPLE_DATA_OFFSET);
-	MemSet(state->buf.data, 0, MINIMAL_TUPLE_DATA_OFFSET);
-	state->file = BufFileCreateTemp(false);
-
 	DynamicReduceStartNormalPlan(crstate->ps.plan->plan_node_id,
 								 state->normal.dsm_seg,
 								 dsm_segment_address(state->normal.dsm_seg),
@@ -408,8 +472,15 @@ static void InitReduceFirst(ClusterReduceState *crstate)
 
 static void EndReduceFirst(NormalReduceFirstState *state)
 {
-	BufFileClose(state->file);
-	pfree(state->buf.data);
+	char name[MAXPGPATH];
+	if (state->file_local)
+		BufFileClose(state->file_local);
+	if (state->file_remote)
+	{
+		BufFileClose(state->file_remote);
+		BufFileDeleteShared(DynamicReduceGetSharedFileSet(),
+							DynamicReduceSharedFileName(name, state->file_no));
+	}
 	EndNormalReduce(&state->normal);
 }
 
@@ -1383,14 +1454,6 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	crstate->ps.plan = (Plan*)node;
 	crstate->ps.state = estate;
 	crstate->ps.ExecProcNode = ExecDefaultClusterReduce;
-	if (list_member_oid(node->reduce_oids, PGXCNodeOid) == false)
-		crstate->reduce_method = (uint8)RT_NOTHING;
-	else if (node->numCols > 0)
-		crstate->reduce_method = (uint8)RT_MERGE;
-	else if (node->reduce_flags & CRF_FETCH_LOCAL_FIRST)
-		crstate->reduce_method = (uint8)RT_REDUCE_FIRST;
-	else
-		crstate->reduce_method = (uint8)RT_NORMAL;
 
 	/*
 	 * We must have a tuplestore buffering the subplan output to do backward
@@ -1411,6 +1474,16 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	 */
 	if (eflags & EXEC_FLAG_BACKWARD)
 		crstate->eflags |= EXEC_FLAG_REWIND;
+
+	if (list_member_oid(node->reduce_oids, PGXCNodeOid) == false)
+		crstate->reduce_method = (uint8)RT_NOTHING;
+	else if (node->numCols > 0)
+		crstate->reduce_method = (uint8)RT_MERGE;
+	else if (node->reduce_flags & CRF_FETCH_LOCAL_FIRST ||
+			 crstate->eflags != 0)
+		crstate->reduce_method = (uint8)RT_REDUCE_FIRST;
+	else
+		crstate->reduce_method = (uint8)RT_NORMAL;
 
 	/*
 	 * Miscellaneous initialization
@@ -1575,11 +1648,32 @@ ExecReScanClusterReduce(ClusterReduceState *node)
 	case RT_NOTHING:
 		break;
 	case RT_NORMAL:
-	case RT_REDUCE_FIRST:
 	case RT_PARALLEL_REDUCE_FIRST:
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("normal cluster reduce not support rescan")));
+				 errmsg("normal cluster reduce %d not support rescan",
+						node->ps.plan->plan_node_id)));
+		break;
+	case RT_REDUCE_FIRST:
+		{
+			NormalReduceFirstState *state = node->private_state;
+			if (state->ready_local)
+			{
+				if (BufFileSeek(state->file_local, 0, 0, SEEK_SET) != 0)
+					ereport(ERROR,
+						(errcode_for_file_access(),
+						 errmsg("can not seek buffer file to head")));
+				ExecSetExecProcNode(&node->ps, ExecReduceFirstLocal);
+			}
+			if (state->ready_remote &&
+				state->file_remote &&
+				BufFileSeek(state->file_remote, 0, 0, SEEK_SET) != 0)
+			{
+				ereport(ERROR,
+					(errcode_for_file_access(),
+					 errmsg("can not seek buffer file to head")));
+			}
+		}
 		break;
 	case RT_ADVANCE:
 		{
