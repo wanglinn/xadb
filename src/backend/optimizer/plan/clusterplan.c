@@ -107,9 +107,9 @@ static bool OptimizeClusterReduceWalker(Plan *plan, PlannedStmt *stmt, void *con
 		{
 			outer_reduce = FindReducePlan(outerPlan(plan), stmt);
 			foreach (lc, outer_reduce)
-			{
 				lfirst_node(ClusterReduce, lc)->reduce_flags |= CRF_FETCH_LOCAL_FIRST;
-			}
+			foreach (lc, inner_reduce)
+				lfirst_node(ClusterReduce, lc)->reduce_flags |= CRF_FETCH_LOCAL_FIRST;
 			list_free(outer_reduce);
 			list_free(inner_reduce);
 			list_free(init_reduce);
@@ -118,6 +118,7 @@ static bool OptimizeClusterReduceWalker(Plan *plan, PlannedStmt *stmt, void *con
 			 IsA(outerPlan(plan), ClusterReduce))
 	{
 		((ClusterReduce*)outerPlan(plan))->reduce_flags |= CRF_DISK_UNNECESSARY;
+		((ClusterReduce*)outerPlan(plan))->reduce_flags &= ~CRF_FETCH_LOCAL_FIRST;
 	}
 
 	return plan_tree_walker(plan, (Node*)stmt, OptimizeClusterReduceWalker, context);
