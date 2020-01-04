@@ -191,8 +191,8 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 
 			str = defGetString(def);
 			datumtime = DirectFunctionCall2(to_timestamp,
-																			 PointerGetDatum(cstring_to_text(str)),
-																			 PointerGetDatum(cstring_to_text("yyyy-mm-dd hh24:mi:ss")));
+											PointerGetDatum(cstring_to_text(str)),
+											PointerGetDatum(cstring_to_text("yyyy-mm-dd hh24:mi:ss")));
 			datum[Anum_monitor_job_next_time-1] = datumtime;
 			got[Anum_monitor_job_next_time-1] = true;
 		}

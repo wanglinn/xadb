@@ -1267,24 +1267,34 @@ update_next_work_time(Oid jobid)
 	if (HeapTupleIsValid(tuple))
 	{
 		HeapTuple			newtuple;
-		Form_monitor_job	monitor_job;
 		Datum				datum[Natts_monitor_job];
 		bool				isnull[Natts_monitor_job];
 		bool				got[Natts_monitor_job];
 		TimestampTz			next_time;
+		Datum				attrDatum;
+		bool				attrDatumIsNull;
+		int32				interval;
 
 		Assert(HeapTupleGetOid(tuple) == jobid);
-
-		monitor_job = (Form_monitor_job) GETSTRUCT(tuple);
-		Assert(monitor_job);
+		
 		MemSet(datum, 0, sizeof(datum));
 		MemSet(isnull, 0, sizeof(isnull));
 		MemSet(got, 0, sizeof(got));
+		attrDatum = fastgetattr(tuple,
+								Anum_monitor_job_interval,
+								tupledsc,
+								&attrDatumIsNull);
+		if(attrDatumIsNull)
+			ereport(ERROR, 
+					(errcode(ERRCODE_DATA_EXCEPTION),
+					(errmsg("The attribute interval of %s with jobid=%u, can not be null",
+							RelationGetRelationName(rel_job), jobid))));
+		interval = DatumGetInt32(attrDatum);
 		next_time = TimestampTzPlusMilliseconds(GetCurrentTimestamp(),
-						(monitor_job->interval) * INT64CONST(1000));
+												interval * INT64CONST(1000));
 		datum[Anum_monitor_job_next_time - 1] = TimestampTzGetDatum(next_time);
 		got[Anum_monitor_job_next_time - 1] = true;
-		newtuple = heap_modify_tuple(tuple, tupledsc, datum,isnull, got);
+		newtuple = heap_modify_tuple(tuple, tupledsc, datum, isnull, got);
 		CatalogTupleUpdate(rel_job, &(tuple->t_self), newtuple);
 	}
 
