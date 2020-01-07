@@ -1030,6 +1030,7 @@ typedef Plan ClusterGetCopyData;
 
 #define CRF_FETCH_LOCAL_FIRST	0x0001	/* fetch all local first */
 #define CRF_DISK_UNNECESSARY	0x0002	/* don't need cache on disk */
+#define CRF_DISK_ALWAYS			0x0004	/* always cache tuples on disk */
 
 typedef struct ClusterReduce
 {
