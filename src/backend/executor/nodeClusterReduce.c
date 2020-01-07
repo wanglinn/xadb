@@ -3,6 +3,7 @@
 #include "miscadmin.h"
 
 #include "access/parallel.h"
+#include "access/tuptypeconvert.h"
 #include "executor/executor.h"
 #include "access/htup_details.h"
 #include "executor/nodeClusterReduce.h"
@@ -326,8 +327,10 @@ static TupleTableSlot* ExecReduceFirstRemote(PlanState *pstate)
 	return DynamicReduceFetchBufFile(&state->normal.drio, state->file_remote);
 }
 
-static void ExecReduceFirstWaitRemote(NormalReduceFirstState *state)
+static TupleTableSlot* ExecReduceFirstWaitRemote(PlanState *pstate)
 {
+	NormalReduceFirstState *state = castNode(ClusterReduceState, pstate)->private_state;
+	TupleTableSlot		   *slot;
 	MemoryContext			oldcontext;
 	DynamicReduceRecvInfo	info;
 	int						flags;
@@ -335,19 +338,32 @@ static void ExecReduceFirstWaitRemote(NormalReduceFirstState *state)
 	Assert(state->ready_remote == false && state->file_remote == NULL);
 
 	resetStringInfo(&state->normal.drio.recv_buf);
+	if (state->normal.drio.convert)
+		slot = state->normal.drio.slot_remote;
+	else
+		slot = state->normal.drio.slot_local;
 	flags = DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
-								   state->normal.drio.slot_local,
+								   slot,
 								   &state->normal.drio.recv_buf,
 								   &info,
 								   false);
-	state->ready_remote = true;
 	if (flags == DR_MSG_RECV)
 	{
-		if (!TupIsNull(state->normal.drio.slot_local))
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("reduce first reduce got a tuple, should got a shared file")));
-		state->ready_remote = true;
+		if (TupIsNull(slot))
+		{
+			/* end of remote, and no cached tuple */
+			state->ready_remote = true;
+			ExecSetExecProcNode(pstate, ExecReduceFirstRemote);
+			return ExecClearTuple(pstate->ps_ResultTupleSlot);
+		}
+		if (state->normal.drio.convert)
+			slot = do_type_convert_slot_in(state->normal.drio.convert,
+										   slot,
+										   state->normal.drio.slot_local,
+										   false);
+		if (castNode(ClusterReduce, pstate->plan)->reduce_flags & CRF_DISK_ALWAYS)
+			DynamicReduceWriteSFSTuple(slot, state->file_local);
+		return slot;
 	}else if (flags == DR_MSG_RECV_SF)
 	{
 		oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state));
@@ -356,6 +372,8 @@ static void ExecReduceFirstWaitRemote(NormalReduceFirstState *state)
 		state->file_no = info.u32;
 		state->ready_remote = true;
 		MemoryContextSwitchTo(oldcontext);
+		ExecSetExecProcNode(pstate, ExecReduceFirstRemote);
+		return ExecReduceFirstRemote(pstate);
 	}else if (flags == DR_MSG_RECV_STS)
 	{
 		ereport(ERROR,
@@ -367,6 +385,9 @@ static void ExecReduceFirstWaitRemote(NormalReduceFirstState *state)
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("reduce first reduce got unknown message from dynamic reduce %u", flags)));
 	}
+
+	/* keep compiler quiet */
+	return ExecClearTuple(pstate->ps_ResultTupleSlot);
 }
 
 static TupleTableSlot* ExecReduceFirstLocal(PlanState *pstate)
@@ -382,7 +403,10 @@ static TupleTableSlot* ExecReduceFirstLocal(PlanState *pstate)
 		return slot;
 
 	if (state->ready_remote == false)
-		ExecReduceFirstWaitRemote(state);
+	{
+		ExecSetExecProcNode(pstate, ExecReduceFirstWaitRemote);
+		return ExecReduceFirstWaitRemote(pstate);
+	}
 
 	ExecSetExecProcNode(pstate, ExecReduceFirstRemote);
 	return ExecReduceFirstRemote(pstate);
@@ -454,6 +478,7 @@ static void InitReduceFirst(ClusterReduceState *crstate)
 {
 	MemoryContext			oldcontext;
 	NormalReduceFirstState *state;
+	ClusterReduce		   *plan = castNode(ClusterReduce, crstate->ps.plan);
 	Assert(crstate->private_state == NULL);
 
 	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
@@ -463,8 +488,8 @@ static void InitReduceFirst(ClusterReduceState *crstate)
 	DynamicReduceStartNormalPlan(crstate->ps.plan->plan_node_id,
 								 state->normal.dsm_seg,
 								 dsm_segment_address(state->normal.dsm_seg),
-								 castNode(ClusterReduce, crstate->ps.plan)->reduce_oids,
-								 DR_CACHE_ON_DISK_ALWAYS);
+								 plan->reduce_oids,
+								 plan->reduce_flags & CRF_DISK_ALWAYS ? DR_CACHE_ON_DISK_ALWAYS:DR_CACHE_ON_DISK_AUTO);
 	ExecSetExecProcNode(&crstate->ps, ExecReduceFirstPrepare);
 
 	MemoryContextSwitchTo(oldcontext);
@@ -492,7 +517,7 @@ static TupleTableSlot* ExecParallelReduceFirstLocal(PlanState *pstate)
 
 	if (mtup != NULL)
 		return ExecStoreMinimalTuple(mtup, pstate->ps_ResultTupleSlot, false);
-	
+
 	ExecSetExecProcNode(pstate, ExecNormalReduce);
 	return ExecNormalReduce(pstate);
 }
@@ -531,7 +556,7 @@ static TupleTableSlot* ExecParallelReduceFirstPrepare(PlanState *pstate)
 		Assert(state->normal.drio.eof_local == true);
 		goto prepare_end_;
 	}
-	
+
 	ExecParallelReduceFirstFetchLocal(state);
 	Assert(state->normal.drio.eof_local == true);
 	BarrierArriveAndWait(state->barrier, WAIT_EVENT_DATA_FILE_READ);
@@ -1479,7 +1504,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 		crstate->reduce_method = (uint8)RT_NOTHING;
 	else if (node->numCols > 0)
 		crstate->reduce_method = (uint8)RT_MERGE;
-	else if (node->reduce_flags & CRF_FETCH_LOCAL_FIRST ||
+	else if (node->reduce_flags & (CRF_FETCH_LOCAL_FIRST|CRF_DISK_ALWAYS) ||
 			 crstate->eflags != 0)
 		crstate->reduce_method = (uint8)RT_REDUCE_FIRST;
 	else
