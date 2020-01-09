@@ -1443,6 +1443,7 @@ void ExecClusterReduceInitializeWorker(ClusterReduceState *node, ParallelWorkerC
 		InitParallelReduceWorker(node, pwcxt, addr);
 		break;
 	case RT_REDUCE_FIRST:
+	case RT_PARALLEL_REDUCE_FIRST:
 		InitParallelReduceFirstCommon(node, NULL, pwcxt, addr);
 		break;
 	case RT_ADVANCE_PARALLEL:
