@@ -51,7 +51,7 @@ get_seqnextval_from_gtmcorrd(const char *seqname, const char * database,	const c
 				   int64 min, int64 max, int64 cache, int64 inc, bool cycle, int64 *cached);
 AGTM_Sequence
 set_seqnextval_from_gtmcorrd(const char *seqname, const char * database,
-			const char * schema, AGTM_Sequence nextva);
+			const char * schema, AGTM_Sequence nextva, bool iscalled);
 extern void disconnect_gtmcoord(int code, Datum arg);
 
 #endif
