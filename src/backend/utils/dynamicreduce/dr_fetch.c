@@ -373,6 +373,38 @@ TupleTableSlot* DynamicReduceFetchLocal(DynamicReduceIOBuffer *io)
 	return result;
 }
 
+void DRFetchSaveNothing(TupleTableSlot *slot, void *context)
+{
+}
+
+void DRFetchSaveSTS(TupleTableSlot *slot, void *context)
+{
+	sts_puttuple(context, NULL, ExecFetchSlotMinimalTuple(slot));
+}
+
+void DynamicReduceFetchAllLocalAndSend(DynamicReduceIOBuffer *io, const void *context, FetchSaveFunc func)
+{
+	bool			send_result PG_USED_FOR_ASSERTS_ONLY;
+	TupleTableSlot *slot;
+
+	while(io->eof_local == false)
+	{
+		CHECK_FOR_INTERRUPTS();
+		slot = DynamicReduceFetchLocal(io);
+		if (io->send_buf.len > 0)
+		{
+			send_result = DynamicReduceSendMessage(io->mqh_sender,
+												   io->send_buf.len,
+												   io->send_buf.data,
+												   false);
+			Assert(send_result);
+			io->send_buf.len = 0;
+		}
+		if (!TupIsNull(slot))
+			(*func)(slot, (void*)context);
+	}
+}
+
 struct SharedTuplestoreAccessor* DynamicReduceOpenSharedTuplestore(dsa_pointer ptr)
 {
 	DynamicReduceSharedTuplestore	*sts_mem;

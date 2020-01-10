@@ -415,9 +415,7 @@ static TupleTableSlot* ExecReduceFirstLocal(PlanState *pstate)
 static TupleTableSlot* ExecReduceFirstPrepare(PlanState *pstate)
 {
 	NormalReduceFirstState *state = castNode(ClusterReduceState, pstate)->private_state;
-	TupleTableSlot		   *slot;
 	MemoryContext			oldcontext;
-	bool					send_success PG_USED_FOR_ASSERTS_ONLY;
 
 	Assert(state->normal.drio.eof_local == false);
 	Assert(state->ready_local == false && state->file_local == NULL);
@@ -427,21 +425,9 @@ static TupleTableSlot* ExecReduceFirstPrepare(PlanState *pstate)
 	state->file_local = BufFileCreateTemp(false);
 	MemoryContextSwitchTo(oldcontext);
 
-	while(state->normal.drio.eof_local == false)
-	{
-		slot = DynamicReduceFetchLocal(&state->normal.drio);
-		if (state->normal.drio.send_buf.len > 0)
-		{
-			send_success = DynamicReduceSendMessage(state->normal.drio.mqh_sender,
-													state->normal.drio.send_buf.len,
-													state->normal.drio.send_buf.data,
-													false);
-			Assert(send_success);
-			state->normal.drio.send_buf.len = 0;
-		}
-		if (!TupIsNull(slot))
-			DynamicReduceWriteSFSTuple(slot, state->file_local);
-	}
+	DynamicReduceFetchAllLocalAndSend(&state->normal.drio,
+									  state->file_local,
+									  DRFetchSaveSFS);
 	state->ready_local = true;
 
 	if (BufFileSeek(state->file_local, 0, 0, SEEK_SET) != 0)
@@ -455,23 +441,10 @@ static TupleTableSlot* ExecReduceFirstPrepare(PlanState *pstate)
 static void DriveReduceFirst(ClusterReduceState *node)
 {
 	NormalReduceFirstState *state = node->private_state;
-	TupleTableSlot		   *slot;
-	bool					send_success PG_USED_FOR_ASSERTS_ONLY;
 
-	while (state->normal.drio.eof_local == false)
-	{
-		slot = DynamicReduceFetchLocal(&state->normal.drio);
-		if (state->normal.drio.send_buf.len > 0)
-		{
-			send_success = DynamicReduceSendMessage(state->normal.drio.mqh_sender,
-													state->normal.drio.send_buf.len,
-													state->normal.drio.send_buf.data,
-													false);
-			Assert(send_success);
-			state->normal.drio.send_buf.len = 0;
-		}
-		/* ignore local tuple */
-	}
+	DynamicReduceFetchAllLocalAndSend(&state->normal.drio,
+									  NULL,
+									  DRFetchSaveNothing);/* ignore local tuple */
 }
 
 static void InitReduceFirst(ClusterReduceState *crstate)
@@ -524,24 +497,9 @@ static TupleTableSlot* ExecParallelReduceFirstLocal(PlanState *pstate)
 
 static void ExecParallelReduceFirstFetchLocal(ParallelReduceFirstState *state)
 {
-	TupleTableSlot			   *slot;
-	bool						send_success PG_USED_FOR_ASSERTS_ONLY;
-
-	while(state->normal.drio.eof_local == false)
-	{
-		slot = DynamicReduceFetchLocal(&state->normal.drio);
-		if (state->normal.drio.send_buf.len > 0)
-		{
-			send_success = DynamicReduceSendMessage(state->normal.drio.mqh_sender,
-													state->normal.drio.send_buf.len,
-													state->normal.drio.send_buf.data,
-													false);
-			Assert(send_success);
-			state->normal.drio.send_buf.len = 0;
-		}
-		if (!TupIsNull(slot))
-			sts_puttuple(state->sta, NULL, ExecFetchSlotMinimalTuple(slot));
-	}
+	DynamicReduceFetchAllLocalAndSend(&state->normal.drio,
+									  state->sta,
+									  DRFetchSaveSTS);
 	sts_end_write(state->sta);
 }
 
@@ -765,7 +723,6 @@ static void BeginAdvanceReduce(ClusterReduceState *crstate)
 	AdvanceReduceState *state;
 	DynamicReduceSFS	sfs;
 	AdvanceNodeInfo	   *myinfo;
-	TupleTableSlot	   *slot;
 	List			   *reduce_oids;
 	ListCell		   *lc;
 	uint32 				i,count;
@@ -811,20 +768,9 @@ static void BeginAdvanceReduce(ClusterReduceState *crstate)
 										dsm_segment_address(state->normal.dsm_seg),
 										reduce_oids);
 
-	while (state->normal.drio.eof_local == false)
-	{
-		slot = DynamicReduceFetchLocal(&state->normal.drio);
-		if (state->normal.drio.send_buf.len > 0)
-		{
-			DynamicReduceSendMessage(state->normal.drio.mqh_sender,
-									 state->normal.drio.send_buf.len,
-									 state->normal.drio.send_buf.data,
-									 false);
-			state->normal.drio.send_buf.len = 0;
-		}
-		if (!TupIsNull(slot))
-			DynamicReduceWriteSFSTuple(slot, myinfo->file);
-	}
+	DynamicReduceFetchAllLocalAndSend(&state->normal.drio,
+									  myinfo->file,
+									  DRFetchSaveSFS);
 	if (BufFileSeek(myinfo->file, 0, 0, SEEK_SET) != 0)
 	{
 		ereport(ERROR,
@@ -1009,7 +955,6 @@ static void BeginAdvanceParallelReduce(ClusterReduceState *crstate)
 	AdvanceParallelState		   *state;
 	AdvanceParallelSharedMemory	   *shm;
 	SharedTuplestoreAccessor	   *accessor;
-	TupleTableSlot				   *slot;
 	List						   *oid_list;
 	uint32 							count;
 
@@ -1043,20 +988,9 @@ static void BeginAdvanceParallelReduce(ClusterReduceState *crstate)
 										   APR_REDUCE_PART);
 
 	accessor = state->cur_node->accessor;
-	while (state->normal.drio.eof_local == false)
-	{
-		slot = DynamicReduceFetchLocal(&state->normal.drio);
-		if (state->normal.drio.send_buf.len > 0)
-		{
-			DynamicReduceSendMessage(state->normal.drio.mqh_sender,
-									 state->normal.drio.send_buf.len,
-									 state->normal.drio.send_buf.data,
-									 false);
-			state->normal.drio.send_buf.len = 0;
-		}
-		if (!TupIsNull(slot))
-			sts_puttuple(accessor, NULL, ExecFetchSlotMinimalTuple(slot));
-	}
+	DynamicReduceFetchAllLocalAndSend(&state->normal.drio,
+									  accessor,
+									  DRFetchSaveSTS);
 	sts_end_write(accessor);
 	sts_begin_parallel_scan(accessor);
 
@@ -1157,26 +1091,14 @@ static void ExecMergeReduceLocal(ClusterReduceState *node)
 {
 	MergeReduceState   *merge = node->private_state;
 	BufFile			   *file;
-	TupleTableSlot	   *slot;
 
 	/* find local MergeNodeInfo */
 	file = GetMergeBufFile(merge, PGXCNodeOid);
 	Assert(file != NULL);
 
-	while(merge->normal.drio.eof_local == false)
-	{
-		slot = DynamicReduceFetchLocal(&merge->normal.drio);
-		if (merge->normal.drio.send_buf.len > 0)
-		{
-			DynamicReduceSendMessage(merge->normal.drio.mqh_sender,
-									 merge->normal.drio.send_buf.len,
-									 merge->normal.drio.send_buf.data,
-									 false);
-			merge->normal.drio.send_buf.len = 0;
-		}
-		if (!TupIsNull(slot))
-			DynamicReduceWriteSFSTuple(slot, file);
-	}
+	DynamicReduceFetchAllLocalAndSend(&merge->normal.drio,
+									  file,
+									  DRFetchSaveSFS);
 }
 
 static TupleTableSlot* ExecMergeReduceFinal(PlanState *pstate)

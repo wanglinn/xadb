@@ -162,6 +162,11 @@ extern void DynamicReduceInitFetch(DynamicReduceIOBuffer *io, dsm_segment *seg, 
 extern void DynamicReduceClearFetch(DynamicReduceIOBuffer *io);
 extern TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io);
 extern TupleTableSlot* DynamicReduceFetchLocal(DynamicReduceIOBuffer *io);
+typedef void(*FetchSaveFunc)(TupleTableSlot *slot, void *context);
+#define DRFetchSaveSFS (FetchSaveFunc)DynamicReduceWriteSFSTuple
+extern void DRFetchSaveNothing(TupleTableSlot *slot, void *context);
+extern void DRFetchSaveSTS(TupleTableSlot *slot, void *context);
+extern void DynamicReduceFetchAllLocalAndSend(DynamicReduceIOBuffer *io, const void *context, FetchSaveFunc func);
 extern TupleTableSlot* DynamicReduceFetchBufFile(DynamicReduceIOBuffer *io, BufFile *buffile);
 extern TupleTableSlot* DynamicReduceFetchSTS(DynamicReduceIOBuffer *io, SharedTuplestoreAccessor *sts);
 extern struct SharedTuplestoreAccessor* DynamicReduceOpenSharedTuplestore(dsa_pointer ptr);
