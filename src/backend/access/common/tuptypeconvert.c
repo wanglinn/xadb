@@ -841,7 +841,9 @@ static RecordConvert* set_record_convert_tuple_desc(RecordConvert *rc, TupleDesc
 				rc->slot_temp = NULL;
 			}
 			free_type_convert(rc->convert);
-			ExecSetSlotDescriptor(rc->slot_base, desc);
+			/* update slot */
+			ExecDropSingleTupleTableSlot(rc->slot_base);
+			rc->slot_base = MakeSingleTupleTableSlot(desc);
 		}
 
 		if(is_send)
