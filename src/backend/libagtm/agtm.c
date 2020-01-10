@@ -312,7 +312,7 @@ get_seqnextval_from_gtmcorrd(const char *seqname, const char * database,	const c
 
 AGTM_Sequence
 set_seqnextval_from_gtmcorrd(const char *seqname, const char * database,
-			const char * schema, AGTM_Sequence nextval)
+			const char * schema, AGTM_Sequence nextval, bool iscalled)
 {
 	PGresult		*res;
 	StringInfoData	buf;
@@ -345,7 +345,7 @@ set_seqnextval_from_gtmcorrd(const char *seqname, const char * database,
 					database, databaseSize,
 					schemaSize, 4,
 					schema, schemaSize,
-					nextval, true);
+					nextval, iscalled);
 
 	res = agtmcoord_get_result(AGTM_MSG_SEQUENCE_SET_VAL, database);
 	Assert(res);
