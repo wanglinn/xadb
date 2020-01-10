@@ -312,6 +312,7 @@ static void DriveNormalReduce(ClusterReduceState *node)
 	{
 		do
 		{
+			CHECK_FOR_INTERRUPTS();
 			slot = DynamicReduceFetchSlot(&normal->drio);
 		}while(!TupIsNull(slot));
 	}
@@ -441,10 +442,18 @@ static TupleTableSlot* ExecReduceFirstPrepare(PlanState *pstate)
 static void DriveReduceFirst(ClusterReduceState *node)
 {
 	NormalReduceFirstState *state = node->private_state;
+	TupleTableSlot *slot;
 
-	DynamicReduceFetchAllLocalAndSend(&state->normal.drio,
-									  NULL,
-									  DRFetchSaveNothing);/* ignore local tuple */
+	/*
+	 * send local and eat remote tuple.
+	 * if not eat remote tuple dynamic reduce maybe get MQ deatched result,
+	 * when send MQ message to us
+	 */
+	do
+	{
+		CHECK_FOR_INTERRUPTS();
+		slot = DynamicReduceFetchSlot(&state->normal.drio);
+	}while(!TupIsNull(slot));
 }
 
 static void InitReduceFirst(ClusterReduceState *crstate)
@@ -529,21 +538,31 @@ prepare_end_:
 static void DriveParallelReduceFirst(ClusterReduceState *node)
 {
 	ParallelReduceFirstState   *state = node->private_state;
-	if (state->normal.drio.eof_local)
-		return;
+	TupleTableSlot			   *slot;
 
-	DynamicReduceAttachPallel(&state->normal.drio);
+	if (state->normal.drio.called_attach == false)
+		DynamicReduceAttachPallel(&state->normal.drio);
 	if (BarrierAttach(state->barrier) == 0)
 	{
-		ExecParallelReduceFirstFetchLocal(state);
-		Assert(state->normal.drio.eof_local == true);
+		/* not write tuple to shared tuplestore anymore, so call end write */
+		sts_end_write(state->sta);
 		/* don't need wait */
 		BarrierArriveAndDetach(state->barrier);
 	}else
 	{
-		Assert(state->normal.drio.eof_local == true);
 		BarrierDetach(state->barrier);
 	}
+
+	/*
+	 * send local and eat remote tuple.
+	 * if not eat remote tuple dynamic reduce maybe get MQ deatched result,
+	 * when send MQ message to us
+	 */
+	do
+	{
+		CHECK_FOR_INTERRUPTS();
+		slot = DynamicReduceFetchSlot(&state->normal.drio);
+	}while(!TupIsNull(slot));
 }
 
 static Size GetReduceFirstShmSize(ParallelContext *pcxt)
