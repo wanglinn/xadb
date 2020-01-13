@@ -391,6 +391,7 @@ static TupleTableSlot* ExecReduceFirstWaitRemote(PlanState *pstate)
 		{
 			/* end of remote, and no cached tuple */
 			state->ready_remote = true;
+			state->normal.drio.eof_remote = true;
 			ExecSetExecProcNode(pstate, ExecReduceFirstRemote);
 			return ExecClearTuple(pstate->ps_ResultTupleSlot);
 		}
