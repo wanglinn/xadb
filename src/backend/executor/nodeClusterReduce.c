@@ -162,11 +162,34 @@ static TupleTableSlot* ExecNormalReduce(PlanState *pstate)
 	return slot;
 }
 
-static TupleTableSlot* ExecParallelReduceFirst(PlanState *pstate)
+static TupleTableSlot* ExecParallelReduceAttach(PlanState *pstate)
 {
 	/* notify attach */
-	NormalReduceState *normal = castNode(ClusterReduceState, pstate)->private_state;
+	NormalReduceState  *normal = castNode(ClusterReduceState, pstate)->private_state;
 	DynamicReduceAttachPallel(&normal->drio);
+	if (normal->drio.eof_local == false)
+	{
+		TupleTableSlot *slot = DynamicReduceFetchLocal(&normal->drio);
+		if (!TupIsNull(slot))
+		{
+			ExecSetExecProcNode(pstate, ExecNormalReduce);
+			return slot;
+		}
+	}
+
+	Assert(normal->drio.eof_local);
+	/*
+	 * when first execute in parallel and local is end, dynamic reduce maybe
+	 * end of MQ receive, so send EOF message maybe get detached result,
+	 * so we need ignore send EOF message result
+	 */
+	if (normal->drio.send_buf.len == 0)
+		SerializeEndOfPlanMessage(&normal->drio.send_buf);
+	shm_mq_send(normal->drio.mqh_sender,
+				normal->drio.send_buf.len,
+				normal->drio.send_buf.data,
+				false);
+	normal->drio.send_buf.len = 0;
 
 	ExecSetExecProcNode(pstate, ExecNormalReduce);
 	return ExecNormalReduce(pstate);
@@ -258,7 +281,7 @@ static void InitParallelReduce(ClusterReduceState *crstate, ParallelContext *pcx
 	normal = palloc0(sizeof(NormalReduceState));
 	SetupNormalReduceState(normal, drmq, crstate, false);
 	crstate->private_state = normal;
-	ExecSetExecProcNode(&crstate->ps, ExecParallelReduceFirst);
+	ExecSetExecProcNode(&crstate->ps, ExecParallelReduceAttach);
 	DynamicReduceStartParallelPlan(crstate->ps.plan->plan_node_id,
 								   pcxt->seg,
 								   drmq,
@@ -282,7 +305,7 @@ static void InitParallelReduceWorker(ClusterReduceState *crstate, ParallelWorker
 	normal = palloc0(sizeof(NormalReduceState));
 	SetupNormalReduceState(normal, drmq, crstate, false);
 	crstate->private_state = normal;
-	ExecSetExecProcNode(&crstate->ps, ExecParallelReduceFirst);
+	ExecSetExecProcNode(&crstate->ps, ExecParallelReduceAttach);
 	MemoryContextSwitchTo(oldcontext);
 }
 static inline void EstimateNormalReduce(ParallelContext *pcxt)
@@ -304,7 +327,21 @@ static void DriveNormalReduce(ClusterReduceState *node)
 
 	if (normal->dsm_seg == NULL &&				/* pallel */
 		normal->drio.called_attach == false)	/* not attached */
+	{
 		DynamicReduceAttachPallel(&normal->drio);
+		if (normal->drio.eof_local == false)
+			DynamicReduceFetchLocal(&normal->drio);
+		if (normal->drio.eof_local)
+		{
+			/* send EOF message, like function ExecParallelReduceAttach */
+			if (normal->drio.send_buf.len == 0)
+				SerializeEndOfPlanMessage(&normal->drio.send_buf);
+			shm_mq_send(normal->drio.mqh_sender,
+						normal->drio.send_buf.len,
+						normal->drio.send_buf.data,
+						false);
+		}
+	}
 
 	if (normal->drio.eof_local == false ||
 		normal->drio.eof_remote == false ||
