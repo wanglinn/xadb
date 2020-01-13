@@ -406,6 +406,7 @@ static void OnListenEvent(DROnEventArgs)
 			newdata->base.type = DR_EVENT_DATA_NODE;
 			newdata->base.OnEvent = OnNodeEventConnectFrom;
 			newdata->base.OnError = OnConnectError;
+			newdata->waiting_plan_id = INVALID_PLAN_ID;
 			initStringInfoExtend(&newdata->sendBuf, DR_SOCKET_BUF_SIZE_START);
 			initStringInfoExtend(&newdata->recvBuf, DR_SOCKET_BUF_SIZE_START);
 			INSERT_ACCEPTED_NODE(newdata);
@@ -574,6 +575,7 @@ static pgsocket ConnectToAddress(const struct addrinfo *addr)
 
 void FreeNodeEventInfo(DRNodeEventData *ned)
 {
+	DR_CONNECT_DEBUG((errmsg("node %u(%p) free", ned->nodeoid, ned)));
 #ifdef DR_USING_EPOLL
 	if (ned->base.fd != PGINVALID_SOCKET)
 	{

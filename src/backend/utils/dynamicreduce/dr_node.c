@@ -467,6 +467,7 @@ static void* copy_node_event_key(void *dest, const void *src, Size keysize)
 {
 	MemSet(dest, 0, sizeof(DRNodeEventData));
 	((DRNodeEventData*)dest)->nodeoid = ((DRNodeEventData*)src)->nodeoid;
+	((DRNodeEventData*)dest)->waiting_plan_id = INVALID_PLAN_ID;
 
 	return dest;
 }
