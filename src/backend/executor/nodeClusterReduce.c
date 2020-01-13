@@ -504,14 +504,6 @@ static TupleTableSlot* ExecParallelReduceFirstLocal(PlanState *pstate)
 	return ExecNormalReduce(pstate);
 }
 
-static void ExecParallelReduceFirstFetchLocal(ParallelReduceFirstState *state)
-{
-	DynamicReduceFetchAllLocalAndSend(&state->normal.drio,
-									  state->sta,
-									  DRFetchSaveSTS);
-	sts_end_write(state->sta);
-}
-
 static TupleTableSlot* ExecParallelReduceFirstPrepare(PlanState *pstate)
 {
 	ParallelReduceFirstState   *state = castNode(ClusterReduceState, pstate)->private_state;
@@ -520,15 +512,44 @@ static TupleTableSlot* ExecParallelReduceFirstPrepare(PlanState *pstate)
 	DynamicReduceAttachPallel(&state->normal.drio);
 	if (BarrierAttach(state->barrier) > 0)
 	{
-		Assert(state->normal.drio.eof_local == true);
-		goto prepare_end_;
+		/*
+		 * we also need send EOF message to dynamic reduce. if not it maybe get
+		 * a MQ deatched result
+		 */
+		if (state->normal.drio.eof_local == false)
+		{
+			TupleTableSlot *slot = DynamicReduceFetchLocal(&state->normal.drio);
+			Assert(TupIsNull(slot));	/* should no more tuple */
+			Assert(state->normal.drio.eof_local == true);	/* should set eof_local */
+			Assert(state->normal.drio.send_buf.len > 0);	/* and should have an eof message */
+		}else
+		{
+			SerializeEndOfPlanMessage(&state->normal.drio.send_buf);
+			Assert(state->normal.drio.send_buf.len > 0);
+		}
+
+		/* 
+		 * here we don't use DynamicReduceSendMessage function,
+		 * because dynamic reduce MQ maybe deatched and DynamicReduceSendMessage
+		 * report an error.
+		 * here it's OK for dynamic reduce deatch
+		 */
+		shm_mq_send(state->normal.drio.mqh_sender,
+					state->normal.drio.send_buf.len,
+					state->normal.drio.send_buf.data,
+					false);
+		state->normal.drio.send_buf.len = 0;
+	}else
+	{
+		/* save local and send to remote */
+		DynamicReduceFetchAllLocalAndSend(&state->normal.drio,
+										  state->sta,
+										  DRFetchSaveSTS);
+		sts_end_write(state->sta);
+		BarrierArriveAndWait(state->barrier, WAIT_EVENT_DATA_FILE_READ);
 	}
-
-	ExecParallelReduceFirstFetchLocal(state);
 	Assert(state->normal.drio.eof_local == true);
-	BarrierArriveAndWait(state->barrier, WAIT_EVENT_DATA_FILE_READ);
 
-prepare_end_:
 	BarrierDetach(state->barrier);
 	sts_begin_parallel_scan(state->sta);
 	ExecSetExecProcNode(pstate, ExecParallelReduceFirstLocal);
@@ -540,17 +561,27 @@ static void DriveParallelReduceFirst(ClusterReduceState *node)
 	ParallelReduceFirstState   *state = node->private_state;
 	TupleTableSlot			   *slot;
 
-	if (state->normal.drio.called_attach == false)
+	if (state->normal.drio.eof_local == false)
+	{
+		resetStringInfo(&state->normal.drio.send_buf);
 		DynamicReduceAttachPallel(&state->normal.drio);
-	if (BarrierAttach(state->barrier) == 0)
-	{
-		/* not write tuple to shared tuplestore anymore, so call end write */
-		sts_end_write(state->sta);
-		/* don't need wait */
-		BarrierArriveAndDetach(state->barrier);
-	}else
-	{
-		BarrierDetach(state->barrier);
+		if (BarrierAttach(state->barrier) == 0)
+		{
+			/* not write tuple to shared tuplestore anymore, so call end write */
+			sts_end_write(state->sta);
+			/* don't need wait */
+			BarrierArriveAndDetach(state->barrier);
+		}else
+		{
+			SerializeEndOfPlanMessage(&state->normal.drio.send_buf);
+			shm_mq_send(state->normal.drio.mqh_sender,
+						state->normal.drio.send_buf.len,
+						state->normal.drio.send_buf.data,
+						false);
+			BarrierDetach(state->barrier);
+			state->normal.drio.send_buf.len = 0;
+			state->normal.drio.eof_local = true;
+		}
 	}
 
 	/*
@@ -1673,14 +1704,18 @@ ExecReScanClusterReduce(ClusterReduceState *node)
 			uint32					i;
 
 			state->cur_node = NULL;
-			sts_end_parallel_scan(state->cur_node->accessor);
 			for (i=0;i<state->nnodes;++i)
 			{
 				node = &state->nodes[i];
+				if (node->accessor)
+				{
+					sts_end_parallel_scan(node->accessor);
+					sts_reinitialize(node->accessor);	/* rescan */
+				}
 				if (node->nodeoid == PGXCNodeOid)
 				{
+					Assert(state->cur_node == NULL);
 					state->cur_node = node;
-					break;
 				}
 			}
 			Assert(state->cur_node != NULL);
