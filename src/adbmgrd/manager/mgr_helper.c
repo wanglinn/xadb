@@ -1295,11 +1295,9 @@ bool exec_pgxc_pool_reload(PGconn *coordCoon,
 	char *sql;
 	bool res;
 	if (localExecute)
-		sql = psprintf("set FORCE_PARALLEL_MODE = off; "
-					   "select pgxc_pool_reload();");
+		sql = psprintf("select pgxc_pool_reload();");
 	else
-		sql = psprintf("set FORCE_PARALLEL_MODE = off; "
-					   "EXECUTE DIRECT ON (\"%s\") "
+		sql = psprintf("EXECUTE DIRECT ON (\"%s\") "
 					   "'select pgxc_pool_reload();';",
 					   executeOnNodeName);
 	res = PQexecBoolQuery(coordCoon, sql, true, complain);
