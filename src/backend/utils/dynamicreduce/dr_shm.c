@@ -104,7 +104,7 @@ static uint8 recv_msg_from_plan(shm_mq_handle *mqh, Size *sizep, void **datap, D
 		*sizep = 0;
 		break;
 	case ADB_DR_MSG_END_OF_PLAN:
-		Assert(size == sizeof(addr[0]));
+		Assert(size == sizeof(addr[0]) || size == sizeof(addr[0])*2);
 		*sizep = 0;
 		*datap = NULL;
 		if (info)
