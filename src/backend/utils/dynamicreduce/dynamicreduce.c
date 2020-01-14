@@ -176,6 +176,15 @@ void DynamicReduceWorkerMain(Datum main_arg)
 				(*pi->OnPreWait)(pi);
 		}
 
+		if (dr_wait_count > dr_wait_max)
+		{
+			Size new_size = dr_wait_max + DR_WAIT_EVENT_SIZE_STEP;
+			while (new_size < dr_wait_max)
+				new_size += DR_WAIT_EVENT_SIZE_STEP;
+			dr_epoll_events = repalloc(dr_epoll_events, sizeof(dr_epoll_events[0]) * new_size);
+			dr_wait_max = new_size;
+		}
+
 		nevent = epoll_pwait(dr_epoll_fd, dr_epoll_events, (int)dr_wait_count, 100, &unblock_sigs);
 		if (nevent == 0 &&	/* timeout */
 			MyLatch->is_set == false)
