@@ -167,14 +167,14 @@ static TupleTableSlot* ExecParallelReduceAttach(PlanState *pstate)
 	/* notify attach */
 	NormalReduceState  *normal = castNode(ClusterReduceState, pstate)->private_state;
 	DynamicReduceAttachPallel(&normal->drio);
+	ExecSetExecProcNode(pstate, ExecNormalReduce);
 	if (normal->drio.eof_local == false)
 	{
 		TupleTableSlot *slot = DynamicReduceFetchLocal(&normal->drio);
 		if (!TupIsNull(slot))
-		{
-			ExecSetExecProcNode(pstate, ExecNormalReduce);
 			return slot;
-		}
+		if (normal->drio.eof_local == false)
+			return ExecNormalReduce(pstate);
 	}
 
 	Assert(normal->drio.eof_local);
@@ -191,7 +191,6 @@ static TupleTableSlot* ExecParallelReduceAttach(PlanState *pstate)
 				false);
 	normal->drio.send_buf.len = 0;
 
-	ExecSetExecProcNode(pstate, ExecNormalReduce);
 	return ExecNormalReduce(pstate);
 }
 
