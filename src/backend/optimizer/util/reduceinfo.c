@@ -1392,6 +1392,8 @@ ReduceInfo *CopyReduceInfoExtend(const ReduceInfo *reduce, int mark)
 				rinfo->keys[i].key = copyObject(reduce->keys[i].key);
 			if (mark & REDUCE_MARK_OPCLASS)
 				rinfo->keys[i].opclass = reduce->keys[i].opclass;
+			if (mark & REDUCE_MARK_OPFAMILY)
+				rinfo->keys[i].opfamily = reduce->keys[i].opfamily;
 			if (mark & REDUCE_MARK_COLLATION)
 				rinfo->keys[i].collation = reduce->keys[i].collation;
 		}
@@ -1451,6 +1453,9 @@ bool CompReduceInfo(const ReduceInfo *left, const ReduceInfo *right, int mark)
 				return false;
 			if ((mark & REDUCE_MARK_OPCLASS) &&
 				left->keys[i].opclass != right->keys[i].opclass)
+				return false;
+			if ((mark & REDUCE_MARK_OPFAMILY) &&
+				left->keys[i].opfamily != right->keys[i].opfamily)
 				return false;
 			if ((mark & REDUCE_MARK_COLLATION) &&
 				left->keys[i].collation != right->keys[i].collation)
