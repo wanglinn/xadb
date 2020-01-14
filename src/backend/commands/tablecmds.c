@@ -1214,6 +1214,8 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 
 			tmpStmt.inhRelations = list_make1(stmt->relation);
 			tmpStmt.relation->relpersistence = stmt->relation->relpersistence;
+			if (tmpStmt.relation->schemaname == NULL)
+				tmpStmt.relation->schemaname = stmt->relation->schemaname;
 
 			if (last_range_upperdatums != NIL)
 			{
