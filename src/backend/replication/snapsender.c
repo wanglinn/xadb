@@ -1457,7 +1457,10 @@ void SnapSendTransactionFinish(TransactionId txid)
 			proclist_push_tail(&SnapSender->waiters_finish, procno, GTMWaitLink);
 		}
 
-		endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 5000);
+		if (force_cn_consistent)
+			endtime = -1;
+		else
+			endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 10000);
 		SnapSenderWaitTxidFinsihEvent(endtime, WaitSnapSendCondTransactionComplate, (void*)((size_t)txid));
 	}
 	
