@@ -123,8 +123,6 @@ static inline void DRFetchCloseSharedFile(DynamicReduceIOBuffer *io)
 
 	BufFileClose(io->shared_file);
 	io->shared_file = NULL;
-	/* shared file is last message */
-	io->eof_remote = true;
 
 	/* delete cache file */
 	BufFileDeleteShared(DynamicReduceGetSharedFileSet(),
@@ -147,9 +145,6 @@ static inline void DRFetchCloseSharedTuplestore(DynamicReduceIOBuffer *io)
 	DynamicReduceCloseSharedTuplestore(io->sts, io->sts_dsa_ptr);
 	io->sts = NULL;
 	io->sts_dsa_ptr = InvalidDsaPointer;
-
-	/* shared tuplestore is last message */
-	io->eof_remote = true;
 }
 
 TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io)
