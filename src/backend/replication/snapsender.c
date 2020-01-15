@@ -909,6 +909,14 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 			client->status = CLIENT_STATUS_EXITING;
 		}
 	}
+
+	if (slist_is_empty(&slist_all_client) && force_snapshot_consistent && msgtype == 'c')
+	{
+		for(i=0;i<xid_cnt;++i)
+		{
+			SnapSenderWakeupFinishXidEvent(xid[i]);
+		}
+	}
 }
 
 static void remove_hash_waiter(SnapClientData *client)
@@ -957,14 +965,31 @@ static void DropClient(SnapClientData *client, bool drop_in_slist)
 	slist_iter siter;
 	pgsocket fd = socket_pq_node(client->node);
 	int pos = client->event_pos;
-	Assert(GetWaitEventData(wait_event_set, client->event_pos) == client);
 
+	SnapSendXidListItem* xiditem;
+	XidClientHashItemInfo *info;
+	slist_mutable_iter siter_xid;
+	bool found;
+
+	Assert(GetWaitEventData(wait_event_set, client->event_pos) == client);
 #ifdef SNAP_SYNC_DEBUG
 	ereport(LOG,(errmsg("SnapSend DropClient event_pos %d with drop_in_slist %d\n",
 			 			client->event_pos, drop_in_slist)));
 #endif
 	if (drop_in_slist)
+	{
 		slist_delete(&slist_all_client, &client->snode);
+		slist_foreach_modify(siter_xid, &client->slist_xid)
+		{
+			xiditem = slist_container(SnapSendXidListItem, snode, siter_xid.cur);
+			if (force_snapshot_consistent)
+				SnapSenderWakeupFinishXidEvent(xiditem->xid);
+			
+			hash_search(snapsender_xid_htab, &xiditem->xid, HASH_REMOVE, &found);
+			slist_delete_current(&siter_xid);
+			pfree(xiditem);
+		}
+	}
 
 	RemoveWaitEvent(wait_event_set, client->event_pos);
 	remove_hash_waiter(client);
