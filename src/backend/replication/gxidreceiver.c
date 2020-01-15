@@ -1315,7 +1315,11 @@ void GixRcvCommitTransactionId(TransactionId txid)
 	}
 
 	MyProc->getGlobalTransaction = txid;
-	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snapshot_sync_waittime+5000);
+	if (force_snapshot_consistent)
+		endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 30000);
+	else
+		endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snapshot_sync_waittime);
+	
 	ret = WaitGxidRcvEvent(endtime, WaitGxidRcvCommitReturn, &GxidRcv->wait_commiters,
 				&GxidRcv->send_commiters, (void*)((size_t)txid));
 
