@@ -61,8 +61,10 @@
 #include "parser/parse_type.h"
 #include "parser/parse_utilcmd.h"
 #ifdef ADB
+#include "catalog/partition.h"
 #include "catalog/pgxc_class.h"
 #include "intercomm/inter-comm.h"
+#include "intercomm/inter-node.h"
 #include "optimizer/pgxcship.h"
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
@@ -4472,6 +4474,46 @@ int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey ke
 	{
 		Assert(cluster->clustertype == SUBCLUSTER_NODE);
 		Assert(list_length(cluster->members) > 0);
+
+		/* 
+		 * Prevent child and parent tables of partitioned tables 
+		 * from being distributed differently.
+		 */
+		if (OidIsValid(get_partition_parent_ext(RelationGetRelid(rel), false)) &&
+			rel->rd_rel->relispartition &&
+			IsConnFromApp())
+		{
+			RelationLocInfo	*relLocInfo;
+			Oid				parentOid;
+			List			*node_list;
+			ListCell		*lc2;
+			bool			include;
+
+			parentOid = get_partition_parent(RelationGetRelid(rel));
+			relLocInfo = RelationIdBuildLocator(parentOid);
+			node_list = relLocInfo->nodeids;
+			Assert(node_list > 0);
+			if (list_length(node_list) == list_length(cluster->members))
+			{
+				foreach(lc, cluster->members)
+				{
+					def = lfirst_node(DefElem, lc);
+					include = false;
+					foreach(lc2, node_list)
+					{
+						if (strcmp(GetNodeName(lfirst_oid(lc2)), def->defname) == 0)
+							include = true;
+					}
+					if (!include)
+						ereport(ERROR,
+								(errmsg("The new distribution node is different from the parent table.")));
+				}
+			}
+			else
+				ereport(ERROR,
+						(errmsg("The new distribution node is different from the parent table.")));
+		}
+
 		foreach (lc, cluster->members)
 		{
 			def = lfirst_node(DefElem, lc);
