@@ -968,7 +968,6 @@ static void DropClient(SnapClientData *client, bool drop_in_slist)
 	int pos = client->event_pos;
 
 	SnapSendXidListItem* xiditem;
-	XidClientHashItemInfo *info;
 	slist_mutable_iter siter_xid;
 	bool found;
 
@@ -1483,11 +1482,7 @@ void SnapSendTransactionFinish(TransactionId txid)
 			proclist_push_tail(&SnapSender->waiters_finish, procno, GTMWaitLink);
 		}
 
-		if (force_snapshot_consistent)
-			endtime = 20000;
-		else if (snapshot_sync_waittime)
-			endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snapshot_sync_waittime);
-		
+		endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 20000 + snapshot_sync_waittime);
 		SnapSenderWaitTxidFinsihEvent(endtime, WaitSnapSendCondTransactionComplate, (void*)((size_t)txid));
 	}
 	
