@@ -2806,6 +2806,17 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
+		{"snapshot_sync_waittime", PGC_SIGHUP, COORDINATORS,
+			gettext_noop("For coordinators sync snapshot wait timeout."),
+			gettext_noop("minimum time is 0ms, means no wait"),
+			GUC_UNIT_MS
+		},
+		&snapshot_sync_waittime,
+		10000, 0, INT_MAX,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"waitglobaltransaction", PGC_USERSET, CLIENT_CONN_STATEMENT,
 			gettext_noop("Sets the maximum allowed duration of any wait for the global transaction id committed on agtm."),
 			gettext_noop("A value of 0 turns off the wait."),
