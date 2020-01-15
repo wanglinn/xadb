@@ -1315,7 +1315,7 @@ void GixRcvCommitTransactionId(TransactionId txid)
 	}
 
 	MyProc->getGlobalTransaction = txid;
-	if (force_cn_consistent)
+	if (force_snapshot_consistent)
 		endtime = -1;
 	else
 		endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 10000);
