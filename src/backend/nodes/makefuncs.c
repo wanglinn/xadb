@@ -717,9 +717,14 @@ Expr *makeHashExprFamily(Expr *expr, Oid opfamily, Oid inputtype)
 												typoid,
 												inputtype,
 												exprTypmod((Node*)expr),
-												COERCION_IMPLICIT,
+												COERCION_ASSIGNMENT,
 												COERCE_IMPLICIT_CAST,
 												exprLocation((Node*)expr));
+			if (expr == NULL)
+				ereport(ERROR,
+						(errcode(ERRCODE_DATATYPE_MISMATCH),
+						 errmsg("cannot be cast automatically from %s to type %s",
+								format_type_be(typoid), format_type_be(inputtype))));
 		}
 	}
 
