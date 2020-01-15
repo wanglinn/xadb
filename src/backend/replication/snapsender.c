@@ -96,7 +96,7 @@ typedef struct SnapClientData
 extern char *AGtmHost;
 extern int snap_receiver_timeout;
 
-bool force_cn_consistent = false;
+bool force_snapshot_consistent = false;
 static volatile sig_atomic_t got_sigterm = false;
 static volatile sig_atomic_t got_SIGHUP = false;
 
@@ -866,7 +866,7 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 			/* add msg whether need xid finish ack*/
 			if (msgtype == 'c')
 			{
-				pq_sendbyte(&output_buffer, force_cn_consistent);
+				pq_sendbyte(&output_buffer, force_snapshot_consistent);
 			}
 			for(i=0;i<xid_cnt;++i)
 			{
@@ -878,7 +878,7 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 					ereport(LOG,(errmsg("SnapSend rel finsih xid %d\n",
 			 			xid[i])));
 #endif
-					if (force_cn_consistent)
+					if (force_snapshot_consistent)
 						append_client_xid_to_htab(client, xid[i]);
 				}
 				else
@@ -892,7 +892,7 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 			}
 			output_buffer.cursor = true;
 		}
-		else if (force_cn_consistent && msgtype == 'c')
+		else if (force_snapshot_consistent && msgtype == 'c')
 		{
 			for(i=0;i<xid_cnt;++i)
 			{
@@ -1440,7 +1440,7 @@ void SnapSendTransactionFinish(TransactionId txid)
 	SnapSender->xid_complete[SnapSender->cur_cnt_complete++] = txid;
 	SetLatch(&(GetPGProcByNumber(SnapSender->procno)->procLatch));
 
-	if (force_cn_consistent)
+	if (force_snapshot_consistent)
 	{
 		proclist_foreach_modify(iter, &SnapSender->waiters_finish, GTMWaitLink)
 		{
@@ -1457,7 +1457,7 @@ void SnapSendTransactionFinish(TransactionId txid)
 			proclist_push_tail(&SnapSender->waiters_finish, procno, GTMWaitLink);
 		}
 
-		if (force_cn_consistent)
+		if (force_snapshot_consistent)
 			endtime = -1;
 		else
 			endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 10000);
