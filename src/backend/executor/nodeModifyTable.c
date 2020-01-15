@@ -2914,6 +2914,11 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 
 	/* Get the target relation */
 	rel = (getTargetResultRelInfo(mtstate))->ri_RelationDesc;
+#ifdef ADB
+	/* maybe target rel not exists in this node(for example "temp table") */
+	if (rel == NULL)
+		goto not_exists_rel_;
+#endif /* ADB */
 
 	/*
 	 * If it's not a partitioned table after all, UPDATE tuple routing should
@@ -2949,6 +2954,9 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 	if (update_tuple_routing_needed)
 		ExecSetupChildParentMapForSubplan(mtstate);
 
+#ifdef ADB
+not_exists_rel_:
+#endif /* ADB */
 	/*
 	 * Initialize any WITH CHECK OPTION constraints if needed.
 	 */
