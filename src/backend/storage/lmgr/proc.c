@@ -575,8 +575,11 @@ InitAuxiliaryProcess(void)
 		MyAuxProcType == SnapReceiverProcess)
 	{
 		auxproc = ProcGlobal->snapshotProc;
-		Assert(auxproc != NULL);
-		Assert(auxproc->pid == 0);
+		if (auxproc == NULL || auxproc->pid != 0)
+		{
+			SpinLockRelease(ProcStructLock);
+			elog(FATAL, "InitAuxiliaryProcess SnapProcess failed");
+		}
 		proctype = auxproc - AuxiliaryProcs;
 		goto found_free_;
 	}
@@ -584,8 +587,11 @@ InitAuxiliaryProcess(void)
 		MyAuxProcType == GxidReceiverProcess)
 	{
 		auxproc = ProcGlobal->gxidProc;
-		Assert(auxproc != NULL);
-		Assert(auxproc->pid == 0);
+		if (auxproc == NULL || auxproc->pid != 0)
+		{
+			SpinLockRelease(ProcStructLock);
+			elog(FATAL, "InitAuxiliaryProcess GxidProcess failed");
+		}
 		proctype = auxproc - AuxiliaryProcs;
 		goto found_free_;
 	}
