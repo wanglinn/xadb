@@ -398,6 +398,7 @@ void StopDynamicReduceWorker(void)
 	if (dr_bghandle)
 	{
 		TerminateBackgroundWorker(dr_bghandle);
+		WaitForBackgroundWorkerShutdown(dr_bghandle);
 		pfree(dr_bghandle);
 		dr_bghandle = NULL;
 	}
