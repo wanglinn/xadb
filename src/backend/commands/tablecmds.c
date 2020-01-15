@@ -523,6 +523,7 @@ static void ATPaddingAuxData(void *arg);
 static char GetRelationDistributeKey(ParseState *pstate, Relation rel, bool auxiliary,
 									 PartitionSpec *spec, List **keys, PartitionKey *partkey);
 static void AtExecDistributeBy(Relation rel, PartitionSpec *options);
+static void checkRedistribution(Relation rel, AlterTableCmd *cmd);
 #endif
 
 static void copy_relation_data(SMgrRelation rel, SMgrRelation dst,
@@ -13949,6 +13950,16 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 				(errcode(ERRCODE_SYNTAX_ERROR),
 					errmsg("not support ALTER hashmap table ADD/DELETE/TO node")));
 
+		/* 
+		 * Prevent child and parent tables of partitioned tables 
+		 * from being distributed differently.
+		 */
+		if (cmd->subtype != AT_DistributeBy &&
+			OidIsValid(get_partition_parent_ext(RelationGetRelid(rel), false)) &&
+			rel->rd_rel->relispartition &&
+			IsConnFromApp())
+			checkRedistribution(rel, cmd);
+
 		switch (cmd->subtype)
 		{
 			case AT_DistributeBy:
@@ -17133,5 +17144,74 @@ end_spec_:
 
 	*keys = list_key;
 	return loc_type;
+}
+
+/*
+ * Check whether the relation supports 
+ * modifying distribution nodes.
+ */
+static void
+checkRedistribution(Relation rel, AlterTableCmd *cmd)
+{
+	RelationLocInfo	*parent_relLoc_info;
+	Oid				parent_oid;
+	List			*parent_node_list;
+	ListCell		*lc, *lc2;
+	DefElem			*def;
+	bool			include;
+	List			*new_child_relLoc_node = NIL;
+
+	switch (nodeTag(cmd->def))
+	{
+		case T_PGXCSubCluster:
+		{
+			PGXCSubCluster *cluster = castNode(PGXCSubCluster, cmd->def);
+			Assert(list_length(cluster->members) > 0);
+			foreach(lc, cluster->members)
+			{
+				def = lfirst_node(DefElem, lc);
+				new_child_relLoc_node = lappend(new_child_relLoc_node, def->defname);
+			}
+			break;
+		}
+		case T_List:
+		{
+			List *relLoc_node = (List *)cmd->def;
+			Assert(list_length(relLoc_node) > 0);
+			foreach(lc, relLoc_node)
+			{
+				new_child_relLoc_node = lappend(new_child_relLoc_node, strVal(lfirst(lc)));
+			}
+			break;
+		}
+		default:
+			Assert(0); /* Should not happen */
+	}
+
+	parent_oid = get_partition_parent(RelationGetRelid(rel));
+	parent_relLoc_info = RelationIdBuildLocator(parent_oid);
+	parent_node_list = parent_relLoc_info->nodeids;
+
+	Assert(parent_node_list > 0);
+	if (list_length(parent_node_list) == list_length(new_child_relLoc_node))
+	{
+		foreach(lc, new_child_relLoc_node)
+		{
+			char *node_name = (char *)lfirst(lc);
+			include = false;
+			foreach(lc2, parent_node_list)
+			{
+				if (strcmp(GetNodeName(lfirst_oid(lc2)), node_name) == 0)
+					include = true;
+			}
+			if (!include)
+				ereport(ERROR,
+						(errmsg("The new distribution node is different from the parent table.")));
+		}
+	}
+	else
+		ereport(ERROR,
+				(errmsg("The new distribution node is different from the parent table.")));
+
 }
 #endif
