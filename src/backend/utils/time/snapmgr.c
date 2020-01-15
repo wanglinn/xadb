@@ -645,10 +645,7 @@ SetTransactionSnapshot(Snapshot sourcesnap, VirtualTransactionId *sourcevxid,
 	CurrentSnapshot->xmin = sourcesnap->xmin;
 	CurrentSnapshot->xmax = sourcesnap->xmax;
 	CurrentSnapshot->xcnt = sourcesnap->xcnt;
-#ifdef ADB
-	if (!IsGTMNode())
-		Assert(sourcesnap->xcnt <= GetMaxSnapshotXidCount());
-#else
+#ifndef ADB
 	Assert(sourcesnap->xcnt <= GetMaxSnapshotXidCount());
 #endif /* ADB */
 	memcpy(CurrentSnapshot->xip, sourcesnap->xip,
