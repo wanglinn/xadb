@@ -872,28 +872,19 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 			for(i=0;i<xid_cnt;++i)
 			{
 				pq_sendint32(&output_buffer, xid[i]);
-
-				if (msgtype == 'c')
-				{
 #ifdef SNAP_SYNC_DEBUG
+				if (msgtype == 'c')
 					ereport(LOG,(errmsg("SnapSend rel finsih xid %d\n",
 			 			xid[i])));
-#endif
-					if (force_snapshot_consistent)
-						append_client_xid_to_htab(client, xid[i]);
-				}
 				else
-				{
-#ifdef SNAP_SYNC_DEBUG
 					ereport(LOG,(errmsg("SnapSend rel assign xid %d\n",
 			 			xid[i])));
 #endif
-				}
-				
 			}
 			output_buffer.cursor = true;
 		}
-		else if (force_snapshot_consistent && msgtype == 'c')
+
+		if (force_snapshot_consistent && msgtype == 'c')
 		{
 			for(i=0;i<xid_cnt;++i)
 			{
