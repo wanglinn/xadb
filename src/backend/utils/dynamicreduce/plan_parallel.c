@@ -383,11 +383,8 @@ static bool GenerateParallelCacheMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
 		Assert(pwi->sendBuffer.len == 0);
 		sts_end_write(private->sta);
 		appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_SHARED_TUPLE_STORE);
-		if (pwi->plan_recv_state == DR_PLAN_RECV_WAITING_ATTACH)
-		{
-			Assert(pi->local_eof == true);
-			appendStringInfoChar(&pwi->sendBuffer, pi->local_eof);
-		}
+		Assert(pwi->plan_send_state != DR_PLAN_RECV_WAITING_ATTACH || pi->local_eof == true);
+		appendStringInfoChar(&pwi->sendBuffer, pi->local_eof);
 		appendStringInfoSpaces(&pwi->sendBuffer, SIZEOF_DSA_POINTER-pwi->sendBuffer.len);	/* align */
 		appendBinaryStringInfoNT(&pwi->sendBuffer, (char*)&(private->dsa_ptr), SIZEOF_DSA_POINTER);
 		return true;

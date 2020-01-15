@@ -339,6 +339,7 @@ static void DriveNormalReduce(ClusterReduceState *node)
 						normal->drio.send_buf.len,
 						normal->drio.send_buf.data,
 						false);
+			normal->drio.send_buf.len = 0;
 		}
 	}
 
