@@ -97,6 +97,7 @@ extern char *AGtmHost;
 extern int snap_receiver_timeout;
 
 bool force_snapshot_consistent = false;
+int snapshot_sync_waittime = 10000;
 static volatile sig_atomic_t got_sigterm = false;
 static volatile sig_atomic_t got_SIGHUP = false;
 
@@ -1483,9 +1484,10 @@ void SnapSendTransactionFinish(TransactionId txid)
 		}
 
 		if (force_snapshot_consistent)
-			endtime = -1;
-		else
-			endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 10000);
+			endtime = 20000;
+		else if (snapshot_sync_waittime)
+			endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snapshot_sync_waittime);
+		
 		SnapSenderWaitTxidFinsihEvent(endtime, WaitSnapSendCondTransactionComplate, (void*)((size_t)txid));
 	}
 	
