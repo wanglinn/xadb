@@ -402,14 +402,20 @@ static void GxidDropXidList(ClientHashItemInfo	*clientitem)
 	slist_mutable_iter	siter;
 	ClientXidItemInfo	*xiditem;
 
-	slist_foreach_modify(siter, &clientitem->gxid_assgin_xid_list)
+	if (!slist_is_empty(&clientitem->gxid_assgin_xid_list))
 	{
-		xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
-		clientitem->xcnt--;
-		SnapSendTransactionFinish(xiditem->xid);
-		SnapReleaseTransactionLocks(&GxidSender->comm_lock, xiditem->xid);
-		slist_delete(&clientitem->gxid_assgin_xid_list, &xiditem->snode);
-		pfree(xiditem);
+		SpinLockAcquire(&GxidSender->mutex);
+		slist_foreach_modify(siter, &clientitem->gxid_assgin_xid_list)
+		{
+			xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
+			clientitem->xcnt--;
+			SnapSendTransactionFinish(xiditem->xid);
+			SnapReleaseTransactionLocks(&GxidSender->comm_lock, xiditem->xid);
+			slist_delete(&clientitem->gxid_assgin_xid_list, &xiditem->snode);
+			GxidDropXidItem(xiditem->xid);
+			pfree(xiditem);
+		}
+		SpinLockRelease(&GxidSender->mutex);
 	}
 	Assert(clientitem->xcnt == 0);
 }
