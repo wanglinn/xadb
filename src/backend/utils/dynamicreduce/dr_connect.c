@@ -602,6 +602,16 @@ void FreeNodeEventInfo(DRNodeEventData *ned)
 	if (ned->sendBuf.data)
 		pfree(ned->sendBuf.data);
 
+	if (ned->cached_data)
+	{
+		HASH_SEQ_STATUS seq;
+		DRPlanCacheData *cache;
+		hash_seq_init(&seq, ned->cached_data);
+		while ((cache=hash_seq_search(&seq)) != NULL)
+			CleanNodePlanCacheData(cache, true);
+		hash_destroy(ned->cached_data);
+	}
+
 	if (OidIsValid(ned->nodeoid))
 		DRSearchNodeEventData(ned->nodeoid, HASH_REMOVE, NULL);
 	else
