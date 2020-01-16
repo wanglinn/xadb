@@ -100,8 +100,6 @@ static bool OnNormalPlanMessage(PlanInfo *pi, const char *data, int len, Oid nod
 static bool OnNormalPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid)
 {
 	PlanWorkerInfo *pwi = pi->pwi;
-	if (pwi->sendBuffer.len != 0)
-		return false;
 
 	DR_PLAN_DEBUG_EOF((errmsg("normal plan %d(%p) got end of plan message from node %u",
 							  pi->plan_id, pi, nodeoid)));
