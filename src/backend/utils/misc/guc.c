@@ -1476,7 +1476,7 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 	{
-		{"force_snapshot_consistent", PGC_SIGHUP, GTM,
+		{"force_snapshot_consistent", PGC_POSTMASTER, GTM,
 			gettext_noop("force muptiple cn/gc data consistent, set in gtmcoord"),
 			NULL
 		},
