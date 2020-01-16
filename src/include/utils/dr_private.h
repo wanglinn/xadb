@@ -171,6 +171,16 @@ typedef struct DRLatchEventData
 }DRLatchEventData;
 extern DRLatchEventData *dr_latch_data;
 
+typedef struct DRPlanCacheData
+{
+	int				plan_id;		/* data for plan ID */
+	uint32			file_no;		/* shared file number */
+	BufFile		   *file;			/* cached data */
+	StringInfoData	buf;			/* buffer for read */
+	bool			got_eof;		/* got end of plan message */
+	bool			read_only;		/* for debug */
+}DRPlanCacheData;
+
 typedef struct DRNodeEventData
 {
 	DREventData		base;
@@ -192,6 +202,7 @@ typedef struct DRNodeEventData
 
 	struct addrinfo *addrlist;
 	struct addrinfo *addr_cur;
+	HTAB		   *cached_data;
 }DRNodeEventData;
 
 typedef struct PlanWorkerInfo
@@ -242,6 +253,7 @@ struct PlanInfo
 	void (*OnDestroy)(PlanInfo *pi);
 	void (*OnPreWait)(PlanInfo *pi);
 	bool (*GenerateCacheMsg)(PlanWorkerInfo *pwi, PlanInfo *pi);
+	void (*ProcessCachedData)(PlanInfo *pi, DRPlanCacheData *data, Oid nodeoid);
 
 	dsm_segment		   *seg;
 	OidBufferData		end_of_plan_nodes;
@@ -351,6 +363,7 @@ void DRStartParallelPlanMessage(StringInfo msg);
 
 /* shared tuplestore plan functions in plan_sts.c */
 void DRStartSTSPlanMessage(StringInfo msg);
+bool DRReadSFSTupleData(struct BufFile *file, StringInfo buf);
 
 /* connect functions in dr_connect.c */
 void FreeNodeEventInfo(DRNodeEventData *ned);
@@ -373,6 +386,7 @@ DRNodeEventData* DRSearchNodeEventData(Oid nodeoid, HASHACTION action, bool *fou
 #ifdef DR_USING_EPOLL
 void DRNodeSeqInit(HASH_SEQ_STATUS *seq);
 #endif /* DR_USING_EPOLL */
+void CleanNodePlanCacheData(DRPlanCacheData *cache, bool delete_file);
 
 /* dynamic reduce utils functions in dr_utils.c */
 bool DynamicReduceHandleMessage(void *data, Size len);

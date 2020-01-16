@@ -135,6 +135,25 @@ static bool GenerateNormalCacheMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
 	return false;
 }
 
+static void NormalProcessNodeCacheData(PlanInfo *pi, DRPlanCacheData *cache, Oid nodeoid)
+{
+	NormalSharedFile *sf = pi->private;
+	Assert(sf->buffile == NULL);
+	sf->buffile = cache->file;
+	cache->file = NULL;
+	sf->file_number = cache->file_no;
+
+	/* do not process other cache */
+	pi->ProcessCachedData = NULL;
+
+	if (cache->got_eof)
+	{
+		bool result PG_USED_FOR_ASSERTS_ONLY;
+		result = OnNormalPlanNodeEndOfPlan(pi, nodeoid);
+		Assert(result == true);
+	}
+}
+
 void DRStartNormalPlanMessage(StringInfo msg)
 {
 	PlanInfo * volatile		pi = NULL;
@@ -166,6 +185,7 @@ void DRStartNormalPlanMessage(StringInfo msg)
 			pi->private = MemoryContextAllocZero(TopMemoryContext,
 												 sizeof(NormalSharedFile));
 			pi->GenerateCacheMsg = GenerateNormalCacheMessage;
+			pi->ProcessCachedData = NormalProcessNodeCacheData;
 		}
 		pq_getmsgend(msg);
 

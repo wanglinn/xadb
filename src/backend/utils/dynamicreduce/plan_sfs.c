@@ -63,10 +63,38 @@ void DynamicReduceWriteSFSMinTuple(struct BufFile *file, MinimalTuple mtup)
 					  (char*)mtup + MINIMAL_TUPLE_DATA_OFFSET);
 }
 
+bool DRReadSFSTupleData(struct BufFile *file, StringInfo buf)
+{
+	size_t			nread;
+	int				len;
+
+	nread = BufFileRead(file, &len, sizeof(len));
+	if (nread == 0)
+		return false;	/* end of file */
+	if (nread != sizeof(len))
+	{
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not read from SFS plan file: %m")));
+	}
+
+	resetStringInfo(buf);
+	enlargeStringInfo(buf, len);
+	if (BufFileRead(file, buf->data, len) != len)
+	{
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not read from SFS plan file: %m")));
+	}
+
+	buf->len = len;
+	return true;
+}
+
 TupleTableSlot *DynamicReduceReadSFSTuple(TupleTableSlot *slot, BufFile *file, StringInfo buf)
 {
 	MinimalTuple	mtup;
-	Size			nread;
+	size_t			nread;
 	int				len;
 
 	nread = BufFileRead(file, &len, sizeof(len));

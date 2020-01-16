@@ -1,5 +1,6 @@
 #include "postgres.h"
 
+#include "access/xact.h"
 #include "libpq/pqformat.h"
 #include "storage/latch.h"
 #include "utils/memutils.h"
@@ -126,7 +127,8 @@ static void OnNodeEvent(DROnEventArgs)
 	DR_NODE_DEBUG((errmsg("node %d got events %d", ned->nodeoid, events)));
 	if ((events & (EPOLLIN|EPOLLPRI|EPOLLHUP|EPOLLERR)) &&
 		ned->status != DRN_WAIT_CLOSE &&
-		RecvMessageFromNode(ned, ned->base.fd) > 0)
+		RecvMessageFromNode(ned, ned->base.fd) > 0 &&
+		IsTransactionState())
 		PorcessNodeEventData(ned);
 	if ((events & EPOLLOUT) &&
 		ned->status != DRN_WAIT_CLOSE)
@@ -257,9 +259,45 @@ rerecv_:
 	return size;
 }
 
+static DRPlanCacheData* NodeGetPlanCache(DRNodeEventData *ned, int plan_id)
+{
+	DRPlanCacheData *result;
+	bool found;
+
+	if (ned->cached_data == NULL)
+	{
+		HASHCTL ctl;
+		MemSet(&ctl, 0, sizeof(ctl));
+		ctl.keysize = sizeof(int);
+		ctl.entrysize = sizeof(DRPlanCacheData);
+		ctl.hash = uint32_hash;
+		ctl.hcxt = GetMemoryChunkContext(ned->sendBuf.data);
+		ned->cached_data = hash_create("node cache plan data",
+									   512,
+									   &ctl,
+									   HASH_ELEM|HASH_FUNCTION|HASH_CONTEXT);
+	}
+
+	result = hash_search(ned->cached_data, &plan_id, HASH_ENTER, &found);
+	if (found == false)
+	{
+		char name[MAXPGPATH];
+		MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(ned->sendBuf.data));
+		MemSet(result, 0, sizeof(*result));
+		result->plan_id = plan_id;
+		result->file_no = DRNextSharedFileSetNumber();
+		result->file = BufFileCreateShared(dr_shared_fs,
+										   DynamicReduceSharedFileName(name, result->file_no));
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	return result;
+}
+
 static int PorcessNodeEventData(DRNodeEventData *ned)
 {
 	PlanInfo	   *pi;
+	DRPlanCacheData*cache;
 	StringInfoData	buf;
 	uint32			msglen;
 	int				msgtype;
@@ -268,6 +306,8 @@ static int PorcessNodeEventData(DRNodeEventData *ned)
 	Assert(OidIsValid(ned->nodeoid));
 
 	ned->waiting_plan_id = INVALID_PLAN_ID;
+	pi = NULL;
+	cache = NULL;
 	for (;;)
 	{
 		buf = ned->recvBuf;
@@ -285,27 +325,51 @@ static int PorcessNodeEventData(DRNodeEventData *ned)
 			break;
 		}
 
-		pi = DRPlanSearch(plan_id, HASH_FIND, NULL);
+		if (pi == NULL ||
+			pi->plan_id != plan_id)
+		{
+			if (ned->cached_data &&
+				hash_search(ned->cached_data, &plan_id, HASH_FIND, NULL) != NULL)
+			{
+				/* have cache data, we do not process data */
+				break;
+			}
+			pi = DRPlanSearch(plan_id, HASH_FIND, NULL);
+		}
+
 		DR_NODE_DEBUG((errmsg("node %u processing message %d plan %d(%p) length %u",
 					   ned->nodeoid, msgtype, plan_id, pi, msglen)));
 
 		if (msgtype == ADB_DR_MSG_TUPLE)
 		{
-			if (pi == NULL ||
-				(*pi->OnNodeRecvedData)(pi, buf.data+buf.cursor, msglen, ned->nodeoid) == false)
+			if (pi == NULL)
+			{
+				if (cache == NULL ||
+					cache->plan_id != plan_id)
+					cache = NodeGetPlanCache(ned, plan_id);
+				Assert(cache->read_only == false);
+				DynamicReduceWriteSFSMsgTuple(cache->file, buf.data+buf.cursor, msglen);
+			}else if((*pi->OnNodeRecvedData)(pi, buf.data+buf.cursor, msglen, ned->nodeoid) == false)
 			{
 				DR_NODE_DEBUG((errmsg("node %u put tuple to plan %d(%p) return false", ned->nodeoid, plan_id, pi)));
 				ned->waiting_plan_id = plan_id;
-				return msg_count;
+				break;
 			}
 		}else if (msgtype == ADB_DR_MSG_END_OF_PLAN)
 		{
-			if (pi == NULL ||
-				(*pi->OnNodeEndOfPlan)(pi, ned->nodeoid) == false)
+			if (pi == NULL)
+			{
+				if (cache == NULL ||
+					cache->plan_id != plan_id)
+					cache = NodeGetPlanCache(ned, plan_id);
+				Assert(cache->got_eof == false);
+				Assert(cache->read_only == false);
+				cache->got_eof = true;
+			}else if((*pi->OnNodeEndOfPlan)(pi, ned->nodeoid) == false)
 			{
 				DR_NODE_DEBUG((errmsg("node %u put end of plan %d(%p) return false", ned->nodeoid, plan_id, pi)));
 				ned->waiting_plan_id = plan_id;
-				return msg_count;
+				break;
 			}
 		}else
 		{
@@ -477,8 +541,58 @@ void DRNodeReset(DRNodeEventData *ned)
 	if (ned->status != DRN_WORKING ||
 		ned->waiting_plan_id != INVALID_PLAN_ID ||
 		ned->recvBuf.len != ned->recvBuf.cursor ||
-		ned->sendBuf.len != ned->sendBuf.cursor)
+		ned->sendBuf.len != ned->sendBuf.cursor ||
+		(ned->cached_data && hash_get_num_entries(ned->cached_data) > 0))
 		FreeNodeEventInfo(ned);
+}
+
+static bool ProcessNodeCacheData(DRNodeEventData *ned, int planid)
+{
+	DRPlanCacheData *cache;
+	if (ned->cached_data &&
+		(cache = hash_search(ned->cached_data, &planid, HASH_FIND, NULL)) != NULL)
+	{
+		PlanInfo *pi = DRPlanSearch(planid, HASH_FIND, NULL);
+		Assert(pi != NULL && pi->plan_id == planid);
+		DR_NODE_DEBUG((errmsg("plan %d activing node %u for cache", planid, ned->nodeoid)));
+		if (pi->ProcessCachedData)
+		{
+			(*pi->ProcessCachedData)(pi, cache, ned->nodeoid);
+			CleanNodePlanCacheData(cache, false);
+			hash_search(ned->cached_data, &planid, HASH_REMOVE, NULL);
+			return false;
+		}
+		if (cache->buf.data == NULL)
+		{
+			MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(cache->file));
+			initStringInfo(&cache->buf);
+			MemoryContextSwitchTo(oldcontext);
+		}
+		cache->read_only = true;
+
+		for(;;)
+		{
+			if (cache->buf.len == 0 &&	/* have no last readed data */
+				DRReadSFSTupleData(cache->file, &cache->buf) == false)
+				break;
+			Assert(cache->buf.len > 0);
+			if ((*pi->OnNodeRecvedData)(pi, cache->buf.data, cache->buf.len, ned->nodeoid))
+				resetStringInfo(&cache->buf);
+			else
+				return true;
+		}
+
+		if (cache->got_eof == false ||
+			(*pi->OnNodeEndOfPlan)(pi, ned->nodeoid))
+		{
+			CleanNodePlanCacheData(cache, true);
+			hash_search(ned->cached_data, &planid, HASH_REMOVE, NULL);
+			return false;
+		}
+		return true;
+	}
+
+	return false;
 }
 
 void DRActiveNode(int planid)
@@ -491,7 +605,9 @@ void DRActiveNode(int planid)
 	while ((ned = hash_seq_search(&seq)) != NULL)
 	{
 		if (ned->base.type == DR_EVENT_DATA_NODE &&
-			ned->waiting_plan_id == planid)
+			ProcessNodeCacheData(ned, planid) == false &&
+			(ned->waiting_plan_id == planid ||
+			 ned->recvBuf.len - ned->recvBuf.cursor >= NODE_MSG_HEAD_LEN))
 		{
 			DR_NODE_DEBUG((errmsg("plan %d activing node %u", planid, ned->nodeoid)));
 			PorcessNodeEventData(ned);
@@ -504,7 +620,9 @@ void DRActiveNode(int planid)
 	{
 		ned = GetWaitEventData(dr_wait_event_set, i);
 		if (ned->base.type == DR_EVENT_DATA_NODE &&
-			ned->waiting_plan_id == planid)
+			ProcessNodeCacheData(ned, planid) == false &&
+			(ned->waiting_plan_id == planid ||
+			 ned->recvBuf.len - ned->recvBuf.cursor >= NODE_MSG_HEAD_LEN))
 		{
 			DR_NODE_DEBUG((errmsg("plan %d activing node %u", planid, ned->nodeoid)));
 			PorcessNodeEventData(ned);
@@ -548,3 +666,23 @@ void DRNodeSeqInit(HASH_SEQ_STATUS *seq)
 	hash_seq_init(seq, htab_node_info);
 }
 #endif /* DR_USING_EPOLL */
+
+void CleanNodePlanCacheData(DRPlanCacheData *cache, bool delete_file)
+{
+	char name[MAXPGPATH];
+	if (cache->file)
+	{
+		BufFileClose(cache->file);
+		cache->file = NULL;
+		if (delete_file)
+		{
+			BufFileDeleteShared(dr_shared_fs,
+								DynamicReduceSharedFileName(name, cache->file_no));
+		}
+	}
+	if (cache->buf.data)
+	{
+		pfree(cache->buf.data);
+		cache->buf.data = NULL;
+	}
+}
