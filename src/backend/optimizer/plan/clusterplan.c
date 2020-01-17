@@ -114,11 +114,23 @@ static bool OptimizeClusterReduceWalker(Plan *plan, PlannedStmt *stmt, void *con
 			list_free(inner_reduce);
 			list_free(init_reduce);
 		}
-	}else if(IsA(plan, Hash) &&
-			 IsA(outerPlan(plan), ClusterReduce))
+	}else if(outerPlan(plan) &&
+			 IsA(outerPlan(plan), ClusterReduce) &&
+			 (IsA(plan, Hash) ||
+			  IsA(plan, Sort)))
 	{
-		((ClusterReduce*)outerPlan(plan))->reduce_flags |= CRF_DISK_UNNECESSARY;
-		((ClusterReduce*)outerPlan(plan))->reduce_flags &= ~(CRF_FETCH_LOCAL_FIRST|CRF_DISK_ALWAYS);
+		List	   *init_reduce = FindReduceInSubPlan(plan->initPlan, stmt);
+		List	   *outer_reduce = FindReducePlan(outerPlan(outerPlan(plan)), stmt);
+		if (init_reduce == NIL &&
+			outer_reduce == NIL)
+		{
+			((ClusterReduce*)outerPlan(plan))->reduce_flags |= CRF_DISK_UNNECESSARY;
+			((ClusterReduce*)outerPlan(plan))->reduce_flags &= ~(CRF_FETCH_LOCAL_FIRST|CRF_DISK_ALWAYS);
+		}else
+		{
+			list_free(init_reduce);
+			list_free(outer_reduce);
+		}
 	}else if (IsA(plan, ClusterReduce))
 	{
 		List	   *outer_reduce = FindReducePlan(outerPlan(plan), stmt);
