@@ -1,9 +1,9 @@
 #include "postgres.h"
 
-#include "access/xact.h"
 #include "libpq/pqformat.h"
 #include "storage/latch.h"
 #include "utils/memutils.h"
+#include "utils/resowner.h"
 
 #include "utils/dynamicreduce.h"
 #include "utils/dr_private.h"
@@ -128,7 +128,7 @@ static void OnNodeEvent(DROnEventArgs)
 	if ((events & (EPOLLIN|EPOLLPRI|EPOLLHUP|EPOLLERR)) &&
 		ned->status != DRN_WAIT_CLOSE &&
 		RecvMessageFromNode(ned, ned->base.fd) > 0 &&
-		IsTransactionState())
+		CurrentResourceOwner != NULL)
 		PorcessNodeEventData(ned);
 	if ((events & EPOLLOUT) &&
 		ned->status != DRN_WAIT_CLOSE)
@@ -138,7 +138,8 @@ static void OnNodeEvent(DROnEventArgs)
 	Assert(ned->base.type == DR_EVENT_DATA_NODE);
 	DR_NODE_DEBUG((errmsg("node %d got events %d", ned->nodeoid, ev->events)));
 	if ((ev->events & WL_SOCKET_READABLE) &&
-		RecvMessageFromNode(ned, ev->fd) > 0)
+		RecvMessageFromNode(ned, ev->fd) > 0 &&
+		CurrentResourceOwner != NULL)
 		PorcessNodeEventData(ned);
 	if ((ev->events & WL_SOCKET_WRITEABLE) &&
 		ned->status != DRN_WAIT_CLOSE)
@@ -347,7 +348,7 @@ static int PorcessNodeEventData(DRNodeEventData *ned)
 				if (cache == NULL ||
 					cache->plan_id != plan_id)
 					cache = NodeGetPlanCache(ned, plan_id);
-				Assert(cache->read_only == false);
+				Assert(cache->locked == false);
 				DynamicReduceWriteSFSMsgTuple(cache->file, buf.data+buf.cursor, msglen);
 			}else if((*pi->OnNodeRecvedData)(pi, buf.data+buf.cursor, msglen, ned->nodeoid) == false)
 			{
@@ -363,7 +364,7 @@ static int PorcessNodeEventData(DRNodeEventData *ned)
 					cache->plan_id != plan_id)
 					cache = NodeGetPlanCache(ned, plan_id);
 				Assert(cache->got_eof == false);
-				Assert(cache->read_only == false);
+				Assert(cache->locked == false);
 				cache->got_eof = true;
 			}else if((*pi->OnNodeEndOfPlan)(pi, ned->nodeoid) == false)
 			{
@@ -568,7 +569,16 @@ static bool ProcessNodeCacheData(DRNodeEventData *ned, int planid)
 			initStringInfo(&cache->buf);
 			MemoryContextSwitchTo(oldcontext);
 		}
-		cache->read_only = true;
+		if (cache->locked == false)
+		{
+			if (BufFileSeek(cache->file, 0, 0, SEEK_SET) != 0)
+			{
+				ereport(ERROR,
+						(errcode_for_file_access(),
+						 errmsg("can not seek buffer file to head")));
+			}
+			cache->locked = true;
+		}
 
 		for(;;)
 		{

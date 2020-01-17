@@ -178,7 +178,7 @@ typedef struct DRPlanCacheData
 	BufFile		   *file;			/* cached data */
 	StringInfoData	buf;			/* buffer for read */
 	bool			got_eof;		/* got end of plan message */
-	bool			read_only;		/* for debug */
+	bool			locked;			/* begin read? */
 }DRPlanCacheData;
 
 typedef struct DRNodeEventData
