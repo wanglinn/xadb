@@ -7477,19 +7477,27 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 	ListCell	   *lc;
 	ReduceInfo	   *info;
 	List		   *from_oids;
+	bool			include_coord;
 
 	Assert(list_length(path->path.reduce_info_list) == 1);
 	Assert(!IsA(path->subpath, ClusterReducePath));
 	to = linitial(path->path.reduce_info_list);
+	include_coord = IsReduceInfoFinalReplicated(to) || list_member_oid(to->storage_nodes, PGXCNodeOid);
 	reduce_list = get_reduce_info_list(path->subpath);
 	foreach(lc, reduce_list)
 	{
 		info = lfirst(lc);
 		if(IsReduceInfoEqual(info, to))
 			return create_plan_recurse(root, path->subpath, flags);
+		if (include_coord == false &&
+			(IsReduceInfoFinalReplicated(info) ||
+			 list_member_oid(info->storage_nodes, PGXCNodeOid)))
+			include_coord = true;
 	}
 
 	plan = makeNode(ClusterReduce);
+	if (include_coord)
+		plan->reduce_flags |= CRF_FETCH_LOCAL_FIRST;
 	outerPlan(plan) = subplan = create_plan_recurse(root, path->subpath, flags);
 	plan->reduce = CreateExprUsingReduceInfo(to);
 	plan->reduce_oids = list_copy(to->storage_nodes);
@@ -7501,7 +7509,7 @@ static Plan *create_cluster_reduce_plan(PlannerInfo *root, ClusterReducePath *pa
 	plan->plan.targetlist = subplan->targetlist;
 
 	if (path->path.pathkeys != NIL)
-{
+	{
 		(void) prepare_sort_from_pathkeys(&plan->plan,
 										  path->path.pathkeys,
 										  path->path.parent->relids,
