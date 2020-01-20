@@ -2823,7 +2823,7 @@ for example:
   '$abs_srcdir/configure'" "$LINENO" 5
 fi
 
-ADB_VERSION='5.0devel'
+ADB_VERSION='5.0.0'
 GIT_SHA1=`(cd $srcdir && git log -1 --pretty='format:%h' --no-color) 2>/dev/null`
 if test x"$GIT_SHA1" != x; then
   ADB_VERSION="$ADB_VERSION $GIT_SHA1"
