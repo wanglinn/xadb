@@ -135,7 +135,6 @@ extern bool
 create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte,
 						Relids required_outer)
 {
-	List			*rnodes;
 	ExecNodes		*exec_nodes;
 	ParamPathInfo	*param_info;
 
@@ -150,16 +149,12 @@ create_plainrel_rqpath(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte,
 		rel->remote_oids == NIL)
 		return false;
 
-	rnodes = rel->remote_oids;
-	exec_nodes = MakeExecNodesByOids(rel->loc_info, rnodes, RELATION_ACCESS_READ);
+	exec_nodes = MakeExecNodesByOids(rel->loc_info, rel->remote_oids, RELATION_ACCESS_READ);
 	if (!exec_nodes)
 		return false;
 
 	if (IsExecNodesDistributedByValue(exec_nodes))
-	{
-		Var	*dist_var = pgxc_get_dist_var(rel->relid, rte, rel->reltarget->exprs);
-		exec_nodes->en_dist_vars = list_make1(dist_var);
-	}
+		exec_nodes->en_dist_vars = adb_get_all_dist_vars(rel->relid, rte, rel->reltarget->exprs, rel->loc_info);
 
 	param_info = get_baserel_parampathinfo(root, rel, required_outer);
 
