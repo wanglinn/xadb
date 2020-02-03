@@ -1068,6 +1068,8 @@ void OnListenEvent(WaitEvent *event)
 			wait_event_set = EnlargeWaitEventSet(wait_event_set,
 												 cur_wait_event + WAIT_EVENT_SIZE_STEP);
 			max_wait_event += WAIT_EVENT_SIZE_STEP;
+			wait_event = repalloc(wait_event, max_wait_event * sizeof(WaitEvent));
+			
 		}
 		client->event_pos = AddWaitEventToSet(wait_event_set,
 											  WL_SOCKET_READABLE,	/* waiting start pack */
@@ -1075,6 +1077,7 @@ void OnListenEvent(WaitEvent *event)
 											  NULL,
 											  client);
 		slist_push_head(&slist_all_client, &client->snode);
+		++cur_wait_event;
 
 		MemoryContextSwitchTo(oldcontext);
 	}PG_CATCH();
