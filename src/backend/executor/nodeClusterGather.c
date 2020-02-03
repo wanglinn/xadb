@@ -117,7 +117,7 @@ static TupleTableSlot *ExecClusterGather(PlanState *pstate)
 
 void ExecFinishClusterGather(ClusterGatherState *node)
 {
-	if (node->remote_run_end)
+	if (node->remote_running)
 	{
 		ListCell *lc;
 		PGconn *conn;
