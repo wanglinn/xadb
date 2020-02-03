@@ -1211,6 +1211,13 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		foreach(lc, stmt->child_rels)
 		{
 			child = lfirst_node(CreateStmt, lc);
+			/* 
+			 * Keep the distribution keys of the child table 
+			 * consistent with the parent tabl. 
+			 */
+			if (stmt->distributeby != NULL)
+				child->distributeby = stmt->distributeby;
+
 			memcpy(&tmpStmt, child, sizeof(CreateStmt));
 
 			tmpStmt.inhRelations = list_make1(stmt->relation);
