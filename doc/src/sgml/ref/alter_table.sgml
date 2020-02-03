@@ -83,7 +83,7 @@ ALTER TABLE [ IF EXISTS ] <replaceable class="parameter">name</replaceable>
     NOT OF
     OWNER TO { <replaceable class="parameter">new_owner</replaceable> | CURRENT_USER | SESSION_USER }
     REPLICA IDENTITY { DEFAULT | USING INDEX <replaceable class="parameter">index_name</replaceable> | FULL | NOTHING }
-    DISTRIBUTE BY { REPLICATION | ROUNDROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } }
+    DISTRIBUTE BY { REPLICATION | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } }
     TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) }
     ADD NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] )
     DELETE NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] )
@@ -850,17 +850,6 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
          Each row of the table will be replicated into all the
          Datanode of the <productname>Postgres-XC</> database
          cluster.
-        </para>
-       </listitem>
-      </varlistentry>
-
-      <varlistentry>
-       <term><literal>ROUNDROBIN</literal></term>
-       <listitem>
-        <para>
-         Each row of the table will be placed in one of the Datanodes
-         by round-robin manner.  The value of the row will not be
-         needed to determine what Datanode to go.
         </para>
        </listitem>
       </varlistentry>
