@@ -3461,8 +3461,7 @@ ConstTypename:
  *
  *		PGXC-related extensions:
  *		1) Distribution type of a table:
- *			DISTRIBUTE BY ( HASH(column) | MODULO(column) |
- *							REPLICATION | ROUNDROBIN )
+ *			DISTRIBUTE BY ( HASH(column) | MODULO(column) | REPLICATION )
  *		2) Subcluster for table
  *			TO ( GROUP groupname | NODE nodename1,...,nodenameN )
  *

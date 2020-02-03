@@ -32,7 +32,7 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXI
 [ WITH ( <replaceable class="parameter">storage_parameter</replaceable> [= <replaceable class="parameter">value</replaceable>] [, ... ] ) | WITH OIDS | WITHOUT OIDS ]
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
 [ TABLESPACE <replaceable class="parameter">tablespace_name</replaceable> ]
-[ DISTRIBUTE BY { REPLICATION | ROUNDROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
+[ DISTRIBUTE BY { REPLICATION | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
 [ TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) } ]
 
 CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXISTS ] <replaceable class="parameter">table_name</replaceable>
@@ -56,12 +56,12 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXI
 [ WITH ( <replaceable class="parameter">storage_parameter</replaceable> [= <replaceable class="parameter">value</replaceable>] [, ... ] ) | WITH OIDS | WITHOUT OIDS ]
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
 [ TABLESPACE <replaceable class="PARAMETER">tablespace_name</replaceable> ]
-[ DISTRIBUTE BY { REPLICATION | ROUNDROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
+[ DISTRIBUTE BY { REPLICATION | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
 [ TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) } ]
 
 CREATE AUXILIARY TABLE [ auxiliary_table_name ] ON master_table_name ( column_name [ aux_index_options ])
 [ TABLESPACE tablespace_name ]
-[ DISTRIBUTE BY { REPLICATION | ROUNDROBIN | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
+[ DISTRIBUTE BY { REPLICATION | { [HASH | MODULO ] ( <replaceable class="PARAMETER">column_name</replaceable> ) } } ]
 [ TO { GROUP <replaceable class="PARAMETER">groupname</replaceable> | NODE ( <replaceable class="PARAMETER">nodename</replaceable> [, ... ] ) } ]
 
 <phrase>where <replaceable class="parameter">column_constraint</replaceable> is:</phrase>
@@ -1244,17 +1244,6 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
         </listitem>
        </varlistentry>
 
-       <varlistentry>
-        <term><literal>ROUNDROBIN</literal></term>
-        <listitem>
-         <para>
-          Each row of the table will be placed in one of the Datanodes
-          by round-robin manner.  The value of the row will not be
-          needed to determine what Datanode to go.
-         </para>
-        </listitem>
-       </varlistentry>
-
       <varlistentry>
        <term><literal>HASH ( <replaceable class="PARAMETER">column_name</> )</literal></term>
        <listitem>
@@ -1292,13 +1281,6 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       </varlistentry>
 
      </variablelist>
-    <para>
-     If <literal>DISTRIBUTE BY</> is not specified, columns with
-     UNIQUE constraint will be chosen as the distribution key.  If no
-     such column is specified, distribution column is the first
-     eligible column in the definition.  If no such column is found,
-     then the table will be distributed by <literal>ROUNDROBIN</>.
-    </para>
 
    </listitem>
    </varlistentry>
