@@ -539,6 +539,7 @@ void GxidSenderOnListenEvent(WaitEvent *event)
 			gxid_send_wait_event_set = EnlargeWaitEventSet(gxid_send_wait_event_set,
 												gxid_send_cur_wait_event + GXID_WAIT_EVENT_SIZE_STEP);
 			gxid_send_max_wait_event += GXID_WAIT_EVENT_SIZE_STEP;
+			gxid_send_wait_event = repalloc(gxid_send_wait_event, gxid_send_max_wait_event * sizeof(WaitEvent));
 		}
 		client->event_pos = AddWaitEventToSet(gxid_send_wait_event_set,
 											  WL_SOCKET_READABLE,	/* waiting start pack */
