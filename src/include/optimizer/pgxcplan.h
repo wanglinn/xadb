@@ -160,7 +160,6 @@ extern void pgxc_rqplan_adjust_tlist(RemoteQuery *rqplan);
 extern Plan *pgxc_make_modifytable(PlannerInfo *root, Plan *topplan, ModifyTablePath *mtp);
 extern Var *pgxc_get_dist_var(Index varno, RangeTblEntry *rte, List *tlist);
 #ifdef ADB
-extern List *pgxc_get_dist_var_list(Index varno, RangeTblEntry *rte);
 extern ExecNodes *pgxc_is_all_replicated_table(Query *query);
 #endif
 extern ExecNodes *pgxc_is_join_shippable(ExecNodes *inner_en, ExecNodes *outer_en,
