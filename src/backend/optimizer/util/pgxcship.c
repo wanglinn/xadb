@@ -2144,6 +2144,39 @@ pgxc_replace_dist_vars_subquery(Query *query, ExecNodes *exec_nodes, Index varno
 	exec_nodes->en_dist_vars = new_dist_vars;
 }
 
+static Var *get_dist_var(Index varno, RangeTblEntry *rte, List *tlist, AttrNumber attno)
+{
+	ListCell	   *lc;
+	TargetEntry	   *tle;
+	Var			   *var;
+	Oid				dist_var_type;
+	int32			dist_var_typmod;
+	Oid				dist_var_collid;
+
+	/* find the TLE corresponding to the distribution column it. */
+	foreach (lc, tlist)
+	{
+		tle = lfirst(lc);
+		if (tle && IsA(tle, TargetEntry))
+			var = (Var *)tle->expr;
+		else
+			var = (Var *)tle;
+
+		if (var && IsA(var, Var) && (var->varno == varno) &&
+			(var->varattno == attno))
+			return copyObject(var);
+	}
+
+	/*
+	 * Bare distribution column is not found in the targetlist, craft a Var for
+	 * it and return.
+	 */
+	get_rte_attribute_type(rte, attno, &dist_var_type,
+							&dist_var_typmod, &dist_var_collid);
+	return makeVar(varno, attno, dist_var_type,
+						dist_var_typmod, dist_var_collid, 0);
+
+}
 /*
  * pgxc_get_dist_var
  * Given the varno, corresponding range table entry and targetlist, get the Var
@@ -2164,11 +2197,6 @@ Var *
 pgxc_get_dist_var(Index varno, RangeTblEntry *rte, List *tlist)
 {
 	RelationLocInfo *rel_loc_info = GetRelationLocInfo(rte->relid);
-	ListCell		*lcell;
-	Var				*dist_var;
-	Oid				dist_var_type;
-	int32			dist_var_typmod;
-	Oid				dist_var_collid;
 	AttrNumber		attno;
 
 	if (!rel_loc_info || !IsRelationDistributedByValue(rel_loc_info))
@@ -2176,30 +2204,34 @@ pgxc_get_dist_var(Index varno, RangeTblEntry *rte, List *tlist)
 
 	attno = GetFirstLocAttNumIfOnlyOne(rel_loc_info);
 
-	/* find the TLE corresponding to the distribution column it. */
-	foreach (lcell, tlist)
-	{
-		TargetEntry *tle = lfirst(lcell);
-		Var *var;
-		if (tle && IsA(tle, TargetEntry))
-			var = (Var *)tle->expr;
-		else
-			var = (Var *)tle;
+	return get_dist_var(varno, rte, tlist, attno);
+}
 
-		if (var && IsA(var, Var) && (var->varno == varno) &&
-			(var->varattno == attno))
-			return copyObject(var);
+/* must no expression */
+List *adb_get_all_dist_vars(Index varno, RangeTblEntry *rte, List *tlist, struct RelationLocInfo *loc)
+{
+	List		   *list;
+	ListCell	   *lc;
+	LocatorKeyInfo *key;
+
+	if (loc == NULL ||
+		!IsRelationDistributedByValue(loc));
+		return NIL;
+	
+	list = NIL;
+	foreach (lc, loc->keys)
+	{
+		key = lfirst(lc);
+		if (key->attno == InvalidAttrNumber)
+		{
+			/* distribute by key is expression */
+			list_free_deep(list);
+			return NIL;
+		}
+		list = lappend(list, get_dist_var(varno, rte, tlist, key->attno));
 	}
 
-	/*
-	 * Bare distribution column is not found in the targetlist, craft a Var for
-	 * it and return.
-	 */
-	get_rte_attribute_type(rte, attno, &dist_var_type,
-							&dist_var_typmod, &dist_var_collid);
-	dist_var = makeVar(varno, attno, dist_var_type,
-						dist_var_typmod, dist_var_collid, 0);
-	return dist_var;
+	return list;
 }
 
 /*
