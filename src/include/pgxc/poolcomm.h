@@ -17,7 +17,7 @@
 
 #include "lib/stringinfo.h"
 
-#define POOL_BUFFER_SIZE 1024
+#define POOL_BUFFER_SIZE 4096
 #define Socket(port) (port).fdsock
 
 typedef struct
