@@ -33,13 +33,8 @@
 #include "utils/pg_locale.h"
 #ifdef ADB
 #include "catalog/pg_type_d.h"
-#include "catalog/pgxc_class_d.h"
 #include "utils/array.h"
-#include "utils/date.h"
 #include "utils/hashutils.h"
-#include "utils/syscache.h"
-#include "utils/timestamp.h"
-#include "utils/typcache.h"
 #endif
 
 /*
