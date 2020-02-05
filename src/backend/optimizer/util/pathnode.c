@@ -5075,6 +5075,23 @@ static bool get_path_execute_on_walker(Path *path, PathExecuteOnContext *context
 			subroot_context.root = path->parent->subroot;
 			return path_tree_walker(path, get_path_execute_on_walker, &subroot_context);
 		}
+	case T_ClusterReducePath:
+		{
+			ReduceInfo	   *rinfo;
+			ExecNodeInfo   *exec_info;
+			ListCell	   *lc;
+			Assert(list_length(path->reduce_info_list) == 1);
+			rinfo = linitial(path->reduce_info_list);
+			if (!IsReduceInfoFinalReplicated(rinfo))
+			{
+				foreach(lc, rinfo->storage_nodes)
+				{
+					exec_info = get_exec_node_info(context->htab, lfirst_oid(lc));
+					++(exec_info->part_count);
+				}
+			}
+		}
+		break;
 	default:
 		break;
 	}
