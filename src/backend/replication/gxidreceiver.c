@@ -718,7 +718,7 @@ static void GxidRcvProcessCommit(char *buf, Size len)
 				break;
 			}
 		}
-		Assert(found);
+		//Assert(found);
 	}
 	UNLOCK_GXID_RCV();
 }
