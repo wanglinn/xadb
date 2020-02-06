@@ -201,6 +201,7 @@ void CallConnectingOnError(void)
 		base = lfirst(lc);
 		Assert(base->type == DR_EVENT_DATA_NODE);
 		lc = lnext(lc);
+		((DRNodeEventData*)base)->status = DRN_WAIT_CLOSE;
 		if (base->OnError)
 			(*base->OnError)(base);
 	}
