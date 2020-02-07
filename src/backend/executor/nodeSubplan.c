@@ -54,11 +54,7 @@ static void buildSubPlanHash(SubPlanState *node, ExprContext *econtext);
 static bool findPartialMatch(TupleHashTable hashtable, TupleTableSlot *slot,
 				 FmgrInfo *eqfunctions);
 #ifdef ADB
-static List *list_subplan_status = NIL;	/* for clean hash store */
-static ExecutorEnd_hook_type old_executor_end_hook = NULL;
-static bool hooked_executor_end = false;
-static void clean_subplan_hashstore(QueryDesc *queryDesc);
-
+static void callback_clean_hashstore(Datum datum);
 static void buildSubPlanHashstore(SubPlanState *node, ExprContext *econtext);
 static bool findHashstoreMatch(SubPlanState *node, TupleTableSlot *slot);
 static uint32 ExecSubPlanGetHashValue(SubPlanState *node, TupleTableSlot *slot, FmgrInfo *fmgr);
@@ -1040,19 +1036,6 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
 													 cross_eq_funcoids,
 													 parent);
 	}
-#ifdef ADB
-	if (subplan->useHashStore)
-	{
-		if (!hooked_executor_end)
-		{
-			old_executor_end_hook = ExecutorEnd_hook;
-			ExecutorEnd_hook = clean_subplan_hashstore;
-			hooked_executor_end = true;
-		}
-
-		list_subplan_status = lappend(list_subplan_status, sstate);
-	}
-#endif /* ADB */
 
 	return sstate;
 }
@@ -1437,7 +1420,13 @@ static void buildSubPlanHashstore(SubPlanState *node, ExprContext *econtext)
 	Assert(subplan->subLinkType == ANY_SUBLINK);
 
 	if (node->hashstore)
+	{
+		UnregisterExprContextCallback(econtext,
+									  callback_clean_hashstore,
+									  PointerGetDatum(node->hashstore));
 		hashstore_end(node->hashstore);
+		node->hashstore = NULL;
+	}
 	node->havenullrows = node->havehashrows = false;
 	MemoryContextReset(node->hashtablecxt);
 	oldcontext = MemoryContextSwitchTo(node->hashtablecxt);
@@ -1452,6 +1441,9 @@ static void buildSubPlanHashstore(SubPlanState *node, ExprContext *econtext)
 							&nbatches,
 							&nskew_mcvs);
 	node->hashstore = hashstore_begin_heap(false, nbuckets);
+	RegisterExprContextCallback(econtext,
+								callback_clean_hashstore,
+								PointerGetDatum(node->hashstore));
 
 	/*
 	 * We are probably in a short-lived expression-evaluation context. Switch
@@ -1573,33 +1565,10 @@ static bool findHashstoreMatch(SubPlanState *node, TupleTableSlot *slot)
 	return hint;
 }
 
-static void clean_subplan_hashstore(QueryDesc *queryDesc)
+static void callback_clean_hashstore(Datum datum)
 {
-	SubPlanState *sstate;
-	ListCell *lc;
-
-	/* restore hook */
-	ExecutorEnd_hook = old_executor_end_hook;
-	hooked_executor_end = false;
-
-	foreach(lc ,list_subplan_status)
-	{
-		sstate = lfirst(lc);
-		if (sstate->hashstore)
-		{
-			hashstore_end(sstate->hashstore);
-			sstate->hashstore = NULL;
-		}
-	}
-	list_free(list_subplan_status);
-	list_subplan_status = NIL;
-
-	if (ExecutorEnd_hook)
-		(*ExecutorEnd_hook) (queryDesc);
-	else
-		standard_ExecutorEnd(queryDesc);
+	hashstore_end((Hashstorestate*)DatumGetPointer(datum));
 }
-
 #endif /* ADB */
 
 #ifdef ADB_EXT
