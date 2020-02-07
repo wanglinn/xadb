@@ -35,7 +35,8 @@ void DROnNodeConectSuccess(DRNodeEventData *ned)
 	if (ned->recvBuf.cursor < ned->recvBuf.len)
 	{
 		/* process other message(s) */
-		PorcessNodeEventData(ned);
+		if (CurrentResourceOwner != NULL)
+			PorcessNodeEventData(ned);
 	}else
 	{
 		/* reset receive buffer */
