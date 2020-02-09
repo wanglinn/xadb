@@ -122,6 +122,7 @@
 
 
 extern bool enable_aux_dml;
+extern char	*PGXCNodeName;
 
 typedef void (*post_alter_table_callback)(void *arg);
 
@@ -899,7 +900,8 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	if ((IsCnNode() || (isRestoreMode && stmt->distributeby != NULL))
 		&& (relkind == RELKIND_RELATION || relkind == RELKIND_PARTITIONED_TABLE)
 		&& stmt->relation->relpersistence != RELPERSISTENCE_TEMP
-		&& !useLocalXid)
+		&& !useLocalXid
+		&& (!IsCnNode() || stmt->inhRelations == NIL))
 	{
 		List		   *loc_keys;
 		List		   *valuelist = NIL;
@@ -940,6 +942,40 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		CacheInvalidateRelcache(rel);
 		CommandCounterIncrement();
 	}
+	/* Create partition key of partition sub table */
+	else if (IsCnNode() && stmt->inhRelations != NIL)
+	{
+		RangeVar		*range;
+		HeapTuple		parent_tuple;
+		HeapTuple		new_tuple;
+		Relation		pgxcclassrel;
+		Form_pgxc_class	form;
+		Oid				parent_relid;
+
+		/* check to node clause*/
+		if (stmt->subcluster != NULL)
+			elog(ERROR, "Partition child table does not need to specify data node.");
+
+		range = castNode(RangeVar, linitial(stmt->inhRelations));
+		parent_relid = RangeVarGetRelid(range, NoLock, true);
+
+		parent_tuple = SearchSysCache1(PGXCCLASSRELID, parent_relid);
+		if (!HeapTupleIsValid(parent_tuple))
+			elog(ERROR, "cache lookup failed for pgxc_class %u", parent_relid);
+
+		new_tuple = heap_copytuple(parent_tuple);
+		ReleaseSysCache(parent_tuple);
+		
+		form = (Form_pgxc_class) GETSTRUCT(new_tuple);
+		Assert(form->pcrelid == parent_relid);
+		form->pcrelid = RelationGetRelid(rel);
+
+		/* Open the relation for insertion */
+		pgxcclassrel = heap_open(PgxcClassRelationId, RowExclusiveLock);
+		CatalogTupleInsert(pgxcclassrel, new_tuple);
+		heap_freetuple(new_tuple);
+		heap_close(pgxcclassrel, RowExclusiveLock);
+    }
 #endif /* ADB */
 
 	/* Process and store partition bound, if any. */
