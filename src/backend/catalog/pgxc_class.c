@@ -154,6 +154,20 @@ static void SetDistributeToDatums(Datum *datums, bool *nulls, bool *replace, Lis
 		datums[Anum_pgxc_class_pcvalues - 1] = CStringGetTextDatum(nodeToString(values));
 		nulls[Anum_pgxc_class_pcvalues - 1] = false;
 		break;
+	case LOCATOR_TYPE_HASH:
+		if (values != NIL)
+		{
+			if (list_length(values) != numnodes)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+					 errmsg("values count not same node count")));
+			datums[Anum_pgxc_class_pcvalues - 1] = CStringGetTextDatum(nodeToString(values));
+			nulls[Anum_pgxc_class_pcvalues - 1] = false;
+		}else
+		{
+			nulls[Anum_pgxc_class_pcvalues - 1] = true;
+		}
+		break;
 	default:
 		nulls[Anum_pgxc_class_pcvalues - 1] = true;
 		break;

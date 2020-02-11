@@ -67,6 +67,10 @@
 #define parser_yyerror(msg)  scanner_yyerror(msg, yyscanner)
 #define parser_errposition(pos)  scanner_errposition(pos, yyscanner)
 #define pg_yyget_extra(yyscanner) (*((base_yy_extra_type **) (yyscanner)))
+#define ereport_pos(str, n)	ereport(ERROR,											\
+								(errcode(ERRCODE_SYNTAX_ERROR),						\
+								 errmsg("syntax error at or near \"%s\"", str),		\
+								 parser_errposition(n)))
 
 union YYSTYPE;					/* need forward reference for tok_is_keyword */
 
@@ -1781,6 +1785,24 @@ OptSubClusterInternal:
 					PGXCSubCluster *n = makeNode(PGXCSubCluster);
 					n->clustertype = SUBCLUSTER_NODE;
 					n->members = $4;
+					n->modulus = n->mod_loc = -1;
+					$$ = n;
+				}
+			| TO NODE NonReservedWord Iconst '(' SubClusterNodeList ')'
+				{
+					PGXCSubCluster *n = makeNode(PGXCSubCluster);
+					n->clustertype = SUBCLUSTER_NODE;
+					n->members = $6;
+					if (strcmp($3, "modulus") == 0)
+					{
+						n->modulus = $4;
+						if (n->modulus == 0)
+							ereport_pos("0", @4);
+						n->mod_loc = @4;
+					}else
+					{
+						ereport_pos($3, @3);
+					}
 					$$ = n;
 				}
 			| TO GROUP_P pgxcgroup_name
@@ -1788,6 +1810,7 @@ OptSubClusterInternal:
 					PGXCSubCluster *n = makeNode(PGXCSubCluster);
 					n->clustertype = SUBCLUSTER_GROUP;
 					n->members = list_make1(makeDefElem($3, NULL, @3));
+					n->modulus = n->mod_loc = -1;
 					$$ = n;
 				}
 		;
