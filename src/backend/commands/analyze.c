@@ -3524,7 +3524,7 @@ static List* FindConnectedList(List *list)
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
 					 errmsg("Connection for node %u is not in copy both mode", lfirst_oid(lc))));
-		result = lappend(result, conn);
+		result = list_append_unique_ptr(result, conn);
 	}
 	return result;
 }
