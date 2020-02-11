@@ -7749,9 +7749,15 @@ static void set_scan_execute_oids(Scan *scan, Path *path, PlannerInfo *root)
 	if(path->reduce_is_valid)
 	{
 		ReduceInfo *rinfo;
+		ListCell   *lc;
 		Assert(list_length(path->reduce_info_list) == 1);
 		rinfo = linitial(path->reduce_info_list);
-		scan->execute_nodes = list_difference_oid(rinfo->storage_nodes, rinfo->exclude_exec);
+		foreach (lc, rinfo->storage_nodes)
+		{
+			if (list_member_oid(scan->execute_nodes, lfirst_oid(lc)) == false &&
+				list_member_oid(rinfo->exclude_exec, lfirst_oid(lc)) == false)
+				scan->execute_nodes = lappend_oid(scan->execute_nodes, lfirst_oid(lc));
+		}
 	}
 }
 

@@ -238,7 +238,7 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel, bool mo
 			foreach (lc, rel->loc_info->nodeids)
 			{
 				if (list_member_int(exec_on->list_nodeid, get_pgxc_node_id(lfirst_oid(lc))))
-					result = lappend_oid(result, lfirst_oid(lc));
+					result = list_append_unique_oid(result, lfirst_oid(lc));
 			}
 		}
 		if (modify_info_when_aux && exec_on->cur_tid_size > 0)
@@ -400,7 +400,7 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 		if (predicate_refuted_by(temp_constraints, new_clauses, false) == false)
 		{
 			MemoryContextSwitchTo(old_mctx);
-			result = lappend_oid(result, node_oid);
+			result = list_append_unique_oid(result, node_oid);
 			/* MemoryContextSwitchTo(...) */
 		}
 		++i;

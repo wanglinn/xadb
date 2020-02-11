@@ -193,11 +193,11 @@ void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, L
 {
 	Size		offset;
 	ListCell   *lc;
+	OidBufferData oids;
 	dsm_handle	handle;
-	uint32		length;
 
 	Assert(plan_id >= 0);
-	if ((length=list_length(work_nodes)) == 0)
+	if (list_length(work_nodes) == 0)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
@@ -213,9 +213,12 @@ void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, L
 	pq_sendbytes(buf, (char*)&plan_id, sizeof(plan_id));
 	pq_sendbytes(buf, (char*)&handle, sizeof(handle));
 	pq_sendbytes(buf, (char*)&offset, sizeof(offset));
-	pq_sendbytes(buf, (char*)&length, sizeof(length));
+	initOidBufferEx(&oids, list_length(work_nodes), CurrentMemoryContext);
 	foreach(lc, work_nodes)
-		pq_sendbytes(buf, (char*)&lfirst_oid(lc), sizeof(Oid));
+		appendOidBufferUniqueOid(&oids, lfirst_oid(lc));
+	pq_sendbytes(buf, (char*)&oids.len, sizeof(uint32));
+	pq_sendbytes(buf, (char*)oids.oids, sizeof(Oid) * oids.len);
+	pfree(oids.oids);
 }
 
 PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(PlanInfo*))
