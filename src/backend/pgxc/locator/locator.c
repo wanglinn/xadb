@@ -663,6 +663,7 @@ RelationIdBuildLocator(Oid relid)
 	HeapTuple		htup;
 	Form_pgxc_class pgxc_class;
 	RelationLocInfo*relationLocInfo;
+	text		   *txt;
 	int				j;
 
 	ScanKeyInit(&skey,
@@ -699,7 +700,6 @@ RelationIdBuildLocator(Oid relid)
 			oidvector	   *class_array;
 			oidvector	   *collation_array = NULL;
 			char		   *str;
-			text		   *txt;
 
 			attr_array = GetPGXCClassAttr(htup, Anum_pgxc_class_pcattrs, RelationGetDescr(pcrel), false, relid);
 			if (relationLocInfo->locatorType == LOCATOR_TYPE_MODULO)
@@ -821,29 +821,74 @@ RelationIdBuildLocator(Oid relid)
 	relationLocInfo->masternodeids = NIL;
 	relationLocInfo->slavenodeids = NIL;
 
-	if (pgxc_class->pclocatortype != LOCATOR_TYPE_HASHMAP)
+	if (pgxc_class->pclocatortype == LOCATOR_TYPE_HASH &&
+		(txt = GetPGXCClassAttr(htup, Anum_pgxc_class_pcvalues, RelationGetDescr(pcrel), true, relid)) != NULL)
+	{
+		char *str = text_to_cstring(txt);
+		List *list = stringToNode(str);
+		ListCell *lc,*lc2;
+		Oid *oids;
+		uint32 count = 0;
+
+		if (!IsA(list, List) ||
+			list_length(list) != pgxc_class->nodeoids.dim1)
+			ereport(ERROR,
+					(errcode(ERRCODE_DATA_CORRUPTED),
+					 errmsg("invalid column(%d) data for pgxc_class(%u)",
+							Anum_pgxc_class_pcvalues, relid)));
+
+		foreach (lc, list)
+		{
+			if (!IsA(lfirst(lc), IntList))
+				ereport(ERROR,
+						(errcode(ERRCODE_DATA_CORRUPTED),
+						 errmsg("invalid column(%d) data for pgxc_class(%u)",
+								Anum_pgxc_class_pcvalues, relid)));
+			count += list_length(lfirst(lc));
+		}
+		oids = palloc0(sizeof(oids[0]) * count);
+		j = 0;
+		foreach (lc, list)
+		{
+			foreach(lc2, lfirst(lc))
+			{
+				if (lfirst_int(lc2) < 0 ||
+					lfirst_int(lc2) >= count ||
+					oids[lfirst_int(lc2)] != InvalidOid)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_DATA_CORRUPTED),
+							 errmsg("invalid column(%d) data for pgxc_class(%u)",
+									Anum_pgxc_class_pcvalues, relid)));
+				}
+				oids[lfirst_int(lc2)] = pgxc_class->nodeoids.values[j];
+			}
+			++j;
+		}
+		for (j=0; j<count; ++j)
+			relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids, oids[j]);
+		pfree(str);
+		pfree(oids);
+		list_free_deep(list);
+	}
+	else if (pgxc_class->pclocatortype != LOCATOR_TYPE_HASHMAP)
 	{
 		for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
 			relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids,
 							pgxc_class->nodeoids.values[j]);
-
-		if (enable_readsql_on_slave && IsCnMaster())
-		{
-			relationLocInfo->masternodeids = relationLocInfo->nodeids;
-			relationLocInfo->slavenodeids = adbUseDnSlaveNodeids(relationLocInfo->nodeids);
-		}
-
-		if (enable_readsql_on_slave && sql_readonly == SQLTYPE_READ)
-			relationLocInfo->nodeids = relationLocInfo->slavenodeids;
 	}
 	else
 	{
 		relationLocInfo->nodeids = GetSlotNodeOids();
-		if (enable_readsql_on_slave && IsCnMaster())
-		{
-			relationLocInfo->masternodeids = relationLocInfo->nodeids;
-			relationLocInfo->slavenodeids = adbUseDnSlaveNodeids(relationLocInfo->nodeids);
-		}
+	}
+
+	if (IsCnMaster())
+	{
+		relationLocInfo->masternodeids = relationLocInfo->nodeids;
+		relationLocInfo->slavenodeids = adbUseDnSlaveNodeids(relationLocInfo->nodeids);
+
+		if (enable_readsql_on_slave && sql_readonly == SQLTYPE_READ)
+			relationLocInfo->nodeids = relationLocInfo->slavenodeids;
 	}
 
 	if (relationLocInfo->locatorType == LOCATOR_TYPE_LIST ||
