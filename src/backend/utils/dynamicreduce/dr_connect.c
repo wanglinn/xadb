@@ -22,7 +22,7 @@
  */
 #define CONNECT_MSG_LENGTH	9
 
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET) 
 static DRListenEventData *dr_listen_event = NULL;
 static List *dr_accepted_node_list = NIL;
 #define INSERT_ACCEPTED_NODE(n_)	dr_accepted_node_list = lappend(dr_accepted_node_list, n_)
@@ -31,12 +31,12 @@ static List *dr_accepted_node_list = NIL;
 static int dr_listen_pos = INVALID_EVENT_SET_POS;
 #define INSERT_ACCEPTED_NODE(n_)	((void)true)
 #define DELETE_ACCEPTED_NODE(n_)	((void)true)
-#endif /* DR_USING_EPOLL */
+#endif /* DR_USING_EPOLL || DR_USING_RSOCKET */
 static pgsocket ConnectToAddress(const struct addrinfo *addr);
 
 static void OnNodeEventConnectFrom(DROnEventArgs)
 {
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET)
 	DRNodeEventData	   *ned = (DRNodeEventData*)base;
 	pgsocket			fd = ned->base.fd;
 #else
@@ -98,7 +98,10 @@ static void OnNodeEventConnectFrom(DROnEventArgs)
 					(errmsg("replicate node oid %u from remote", ned->nodeoid)));
 		}
 		DR_CONNECT_DEBUG((errmsg("node %u from remote accept successed", ned->nodeoid)));
-#ifdef DR_USING_EPOLL
+#ifdef DR_USING_RSOCKET
+		RDRCtlWaitEvent(fd, ned->waiting_events, newned, RPOLL_EVENT_MOD);
+		DELETE_ACCEPTED_NODE(ned);
+#elif defined DR_USING_EPOLL
 		DRCtlWaitEvent(fd, ned->waiting_events, newned, EPOLL_CTL_MOD);
 		DELETE_ACCEPTED_NODE(ned);
 #else
@@ -114,7 +117,7 @@ static void OnNodeEventConnectFrom(DROnEventArgs)
 
 static void OnNodeEventConnectTo(DROnEventArgs)
 {
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET)
 	DRNodeEventData	   *ned = (DRNodeEventData*)base;
 	pgsocket			event_fd = ned->base.fd;
 #else
@@ -126,16 +129,24 @@ static void OnNodeEventConnectTo(DROnEventArgs)
 	Assert(DRSearchNodeEventData(ned->nodeoid, HASH_FIND, NULL) != NULL);
 
 resend_:
+#ifdef DR_USING_RSOCKET
+	size = rsend(event_fd,
+				ned->sendBuf.data + ned->sendBuf.cursor,
+				ned->sendBuf.len - ned->sendBuf.cursor,
+				0);
+#else
 	size = send(event_fd,
 				ned->sendBuf.data + ned->sendBuf.cursor,
 				ned->sendBuf.len - ned->sendBuf.cursor,
 				0);
+#endif
 	if (size < 0)
 	{
 		pgsocket new_fd;
 		if (errno == EINTR)
 			goto resend_;
 
+		elog(LOG, "send fd  %d errno %m", event_fd);
 		new_fd = PGINVALID_SOCKET;
 		ned->addr_cur = ned->addr_cur->ai_next;
 		while (ned->addr_cur != NULL)
@@ -150,8 +161,15 @@ resend_:
 			ereport(ERROR,
 					(errmsg("could not connect to any addres for remote node %u", ned->nodeoid)));
 		}
-
-#ifdef DR_USING_EPOLL
+#ifdef DR_USING_RSOCKET
+		RDRCtlWaitEvent(event_fd, 0, NULL, RPOLL_EVENT_DEL);
+		--dr_wait_count;
+		rclose(event_fd);
+		base->fd = new_fd;
+		//elog(LOG, "OnNodeEventConnectTo RDRCtlWaitEvent fd %d", new_fd);
+		RDRCtlWaitEvent(new_fd, POLLOUT, base, RPOLL_EVENT_ADD);
+		++dr_wait_count;
+#elif defined DR_USING_EPOLL
 		DRCtlWaitEvent(event_fd, 0, NULL, EPOLL_CTL_DEL);
 		--dr_wait_count;
 		closesocket(event_fd);
@@ -191,7 +209,7 @@ static void OnConnectError(DROnErrorArgs)
 		FreeNodeEventInfo(ned);
 }
 
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET)
 void CallConnectingOnError(void)
 {
 	ListCell	   *lc;
@@ -206,7 +224,7 @@ void CallConnectingOnError(void)
 			(*base->OnError)(base);
 	}
 }
-#endif /* DR_USING_EPOLL */
+#endif /* DR_USING_EPOLL | DR_USING_RSOCKET */
 
 static void ConnectToOneNode(const DynamicReduceNodeInfo *info, const struct addrinfo *hintp, DRNodeEventData **newed)
 {
@@ -275,12 +293,17 @@ static void ConnectToOneNode(const DynamicReduceNodeInfo *info, const struct add
 				(errmsg("could not connect to any addres for remote node %u(%s:%d)",
 						info->node_oid, NameStr(info->host), info->port)));
 	}
-	DREnlargeWaitEventSet();
-#ifdef DR_USING_EPOLL
+#ifdef DR_USING_RSOCKET
+	ned->base.fd = fd;
+	//elog(LOG, "ConnectToOneNode RDRCtlWaitEvent fd %d", fd);
+	RDRCtlWaitEvent(fd, POLLOUT, ned, RPOLL_EVENT_ADD);
+	ned->waiting_events = POLLOUT;
+#elif defined DR_USING_EPOLL
 	ned->base.fd = fd;
 	DRCtlWaitEvent(fd, EPOLLOUT, ned, EPOLL_CTL_ADD);
 	ned->waiting_events = EPOLLOUT;
 #else
+	DREnlargeWaitEventSet();
 	ret = AddWaitEventToSet(dr_wait_event_set,
 							WL_SOCKET_CONNECTED,
 							fd,
@@ -372,7 +395,7 @@ void ConnectToAllNode(const DynamicReduceNodeInfo *info, uint32 count)
 
 static void OnListenEvent(DROnEventArgs)
 {
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET)
 	DRListenEventData *led = (DRListenEventData*)base;
 	pgsocket fd = base->fd;
 #else
@@ -390,7 +413,11 @@ static void OnListenEvent(DROnEventArgs)
 		MemoryContext oldcontext;
 		do
 		{
+#ifdef DR_USING_RSOCKET
+			newfd = raccept(fd, NULL, NULL);
+#else
 			newfd = accept(fd, NULL, NULL);
+#endif
 			if (newfd == PGINVALID_SOCKET)
 			{
 				if (errno == EAGAIN)
@@ -399,8 +426,9 @@ static void OnListenEvent(DROnEventArgs)
 						(errcode_for_socket_access(),
 						 errmsg("can not accept new socket:%m")));
 			}
-
+#if (!defined DR_USING_EPOLL) && (!defined DR_USING_RSOCKET)
 			DREnlargeWaitEventSet();
+#endif
 
 			oldcontext = MemoryContextSwitchTo(TopMemoryContext);
 			newdata = palloc0(sizeof(*newdata));
@@ -415,7 +443,11 @@ static void OnListenEvent(DROnEventArgs)
 
 			newdata->nodeoid = InvalidOid;
 			newdata->status = DRN_ACCEPTED;
-#ifdef DR_USING_EPOLL
+#ifdef DR_USING_RSOCKET
+			newdata->base.fd = newfd;
+			RDRCtlWaitEvent(newfd, POLLIN, newdata, RPOLL_EVENT_ADD);
+			newdata->waiting_events = POLLIN;
+#elif defined DR_USING_EPOLL
 			newdata->base.fd = newfd;
 			DRCtlWaitEvent(newfd, EPOLLIN, newdata, EPOLL_CTL_ADD);
 			newdata->waiting_events = EPOLLIN;
@@ -427,7 +459,6 @@ static void OnListenEvent(DROnEventArgs)
 							  (void*)newdata);
 #endif
 			++dr_wait_count;
-
 			newdata = NULL;
 		}while(led->noblock);
 	}PG_CATCH();
@@ -449,6 +480,28 @@ static void OnListenEvent(DROnEventArgs)
 	MemoryContextSwitchTo(oldcontext);
 }
 
+static bool
+pg_set_rnoblock(pgsocket sock)
+{
+	int			flags;
+#ifdef DR_USING_RSOCKET
+	flags = rfcntl(sock, F_GETFL);
+	if (flags < 0)
+	{
+		ereport(ERROR,(errmsg("rfcntl F_GETFL error")));
+		return false;
+	}
+	if (rfcntl(sock, F_SETFL, (flags | O_NONBLOCK)) == -1)
+	{
+		ereport(ERROR,(errmsg("rfcntl F_SETFL error")));
+		return false;
+	}
+	return true;
+#else
+	return false;
+#endif
+}
+
 DRListenEventData* GetListenEventData(void)
 {
 	DRListenEventData  *led;
@@ -459,7 +512,7 @@ DRListenEventData* GetListenEventData(void)
 	int					one = 1;
 #endif
 
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET) 
 	if (dr_listen_event != NULL)
 		return dr_listen_event;
 #else
@@ -469,14 +522,17 @@ DRListenEventData* GetListenEventData(void)
 		Assert(led->base.type == DR_EVENT_DATA_LISTEN);
 		return led;
 	}
-#endif
-
 	DREnlargeWaitEventSet();
+#endif
 
 	led = MemoryContextAllocZero(TopMemoryContext, sizeof(*led));
 	led->base.type = DR_EVENT_DATA_LISTEN;
 	led->base.OnEvent = OnListenEvent;
+#ifdef DR_USING_RSOCKET
+	fd = rsocket(AF_INET, SOCK_STREAM, 0);
+#else
 	fd = socket(AF_INET, SOCK_STREAM, 0);
+#endif
 	if (fd == PGINVALID_SOCKET)
 	{
 		pfree(led);
@@ -484,27 +540,53 @@ DRListenEventData* GetListenEventData(void)
 				(errcode_for_socket_access(),
 				 errmsg("could not create socket: %m")));
 	}
+#ifdef DR_USING_RSOCKET
+	led->noblock = pg_set_rnoblock(fd);
+#else
 	led->noblock = pg_set_noblock(fd);
+#endif
+	
 #ifndef WIN32
+#ifdef DR_USING_RSOCKET
+	rsetsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *) &one, sizeof(one));
+#else
 	/* ignore result */
 	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *) &one, sizeof(one));
+#endif
 #endif
 	MemSet(&addr_inet, 0, sizeof(addr_inet));
 	addr_inet.sin_family = AF_INET;
 	/* addr_inet.sin_port = 0; */
 	addr_inet.sin_addr.s_addr = htonl(INADDR_ANY);
 
+#ifdef DR_USING_RSOCKET
+	if (rbind(fd, (struct sockaddr *)&addr_inet, sizeof(addr_inet)) < 0)
+#else
 	if (bind(fd, (struct sockaddr *)&addr_inet, sizeof(addr_inet)) < 0)
+#endif
 	{
+#ifdef DR_USING_RSOCKET
+		rclose(fd);
+#else
 		closesocket(fd);
+#endif
 		pfree(led);
 		ereport(ERROR,
 				(errcode_for_socket_access(),
 				 errmsg("could not bind IPv4 socket: %m")));
 	}
+
+#ifdef DR_USING_RSOCKET
+	if (rlisten(fd, PG_SOMAXCONN) < 0)
+#else
 	if (listen(fd, PG_SOMAXCONN) < 0)
+#endif
 	{
+#ifdef DR_USING_RSOCKET
+		rclose(fd);
+#else
 		closesocket(fd);
+#endif
 		pfree(led);
 		ereport(LOG,
 				(errcode_for_socket_access(),
@@ -514,9 +596,17 @@ DRListenEventData* GetListenEventData(void)
 	/* get random listen port */
 	MemSet(&addr_inet, 0, sizeof(addr_inet));
 	addrlen = sizeof(addr_inet);
+#ifdef DR_USING_RSOCKET
+	if (rgetsockname(fd, (struct sockaddr *)&addr_inet, &addrlen) < 0)
+#else
 	if (getsockname(fd, &addr_inet, &addrlen) < 0)
+#endif
 	{
+#ifdef DR_USING_RSOCKET
+		rclose(fd);
+#else
 		closesocket(fd);
+#endif
 		pfree(led);
 		ereport(ERROR,
 				(errcode_for_socket_access(),
@@ -524,7 +614,12 @@ DRListenEventData* GetListenEventData(void)
 	}
 	led->port = htons(addr_inet.sin_port);
 
-#ifdef DR_USING_EPOLL
+#ifdef DR_USING_RSOCKET
+	led->base.fd = fd;
+	//elog(LOG, "GetListenEventData RDRCtlWaitEvent fd %d, port %d", fd, led->port);
+	RDRCtlWaitEvent(fd, POLLIN, led, RPOLL_EVENT_ADD);
+	dr_listen_event = led;
+#elif defined DR_USING_EPOLL
 	led->base.fd = fd;
 	DRCtlWaitEvent(fd, EPOLLIN, led, EPOLL_CTL_ADD);
 	dr_listen_event = led;
@@ -542,7 +637,12 @@ DRListenEventData* GetListenEventData(void)
 
 static pgsocket ConnectToAddress(const struct addrinfo *addr)
 {
+#ifdef DR_USING_RSOCKET
+	volatile pgsocket fd = rsocket(addr->ai_family, SOCK_STREAM, 0);
+#else
 	volatile pgsocket fd = socket(addr->ai_family, SOCK_STREAM, 0);
+#endif
+
 	if (fd == PGINVALID_SOCKET)
 	{
 		ereport(ERROR,
@@ -556,7 +656,11 @@ static pgsocket ConnectToAddress(const struct addrinfo *addr)
 				(errcode_for_socket_access(),
 				 errmsg("could not set socket to nonblocking mode: %m")));
 	}
+#ifdef DR_USING_RSOCKET
+	if (rconnect(fd, addr->ai_addr, addr->ai_addrlen) < 0)
+#else
 	if (connect(fd, addr->ai_addr, addr->ai_addrlen) < 0)
+#endif
 	{
 		if (errno != EINPROGRESS &&
 #if (EINTR != EWOULDBLOCK)
@@ -577,7 +681,15 @@ static pgsocket ConnectToAddress(const struct addrinfo *addr)
 void FreeNodeEventInfo(DRNodeEventData *ned)
 {
 	DR_CONNECT_DEBUG((errmsg("node %u(%p) free", ned->nodeoid, ned)));
-#ifdef DR_USING_EPOLL
+#ifdef DR_USING_RSOCKET
+	if (ned->base.fd != PGINVALID_SOCKET)
+	{
+		RDRCtlWaitEvent(ned->base.fd, 0, ned, RPOLL_EVENT_DEL);
+		--dr_wait_count;
+		rclose(ned->base.fd);
+		ned->base.fd = PGINVALID_SOCKET;
+	}
+#elif defined DR_USING_EPOLL
 	if (ned->base.fd != PGINVALID_SOCKET)
 	{
 		DRCtlWaitEvent(ned->base.fd, 0, ned, EPOLL_CTL_DEL);
@@ -633,5 +745,70 @@ void DRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, int ctl)
 				(errcode_for_socket_access(),
 				 errmsg("dynamic reduce epoll_ctl() failed: %m")));
 	}
+}
+#endif /* DR_USING_EPOLL */
+
+#ifdef DR_USING_RSOCKET
+void RDRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, RPOLL_EVENTS ctl)
+{
+	bool found;
+	int i;
+
+	if (ctl == RPOLL_EVENT_ADD)
+	{
+		if (poll_count == poll_max)
+		{
+			poll_fd = repalloc(poll_fd, (poll_max+STEP_POLL_ALLOC)*sizeof(*poll_fd));
+			poll_max += STEP_POLL_ALLOC;
+			dr_create_rhandle_list(poll_max, 1);
+		}
+		Assert(poll_count < poll_max);
+		poll_fd[poll_count].fd = fd;
+		poll_fd[poll_count].events = events;
+		dr_rhandle_add(poll_count, ptr);
+		((DRNodeEventData*)ptr)->base.fd = fd;
+		++poll_count;
+	}
+
+	if (ctl == RPOLL_EVENT_MOD)
+	{
+		found = false;
+		for (i = 0; i < poll_count; i++)
+		{
+			if (poll_fd[i].fd == fd)
+			{
+				found = true;
+				poll_fd[i].events = events;
+				break;
+			}
+		}
+		Assert (found);
+		dr_rhandle_add(i, ptr);
+		((DRNodeEventData*)ptr)->base.fd = fd;
+	}
+
+	if (ctl == RPOLL_EVENT_DEL)
+	{
+		found = false;
+		for (i = 0; i < poll_count-1; i++)
+		{
+			if (poll_fd[i].fd == fd)
+			{
+				found = true;
+				memmove(&poll_fd[i],
+						&poll_fd[i+1],
+						(poll_count-i-1) * sizeof(struct pollfd));
+				
+				memmove(dr_rhandle_find(i),
+						dr_rhandle_find(i+1),
+						(poll_count-i-1) * sizeof(void*));
+				break;
+			}
+		}
+		poll_count--;
+	}
+
+	return;
+	
 }
 #endif /* DR_USING_EPOLL */

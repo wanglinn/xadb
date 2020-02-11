@@ -22,7 +22,7 @@ SharedFileSet *dr_shared_fs = NULL;
 dsa_area	  *dr_dsa = NULL;
 static uint32 dr_shared_fs_num = 0U;
 
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET) 
 static void dr_wait_latch(void)
 {
 	sigset_t	sigmask;
@@ -176,7 +176,7 @@ DynamicReduceRecvTuple(shm_mq_handle *mqh, struct TupleTableSlot *slot, StringIn
 {
 	void		   *data;
 	Size			size;
-#ifndef DR_USING_EPOLL
+#if (!defined DR_USING_EPOLL) && (!defined DR_USING_RSOCKET)
 	WaitEvent		event;
 #endif
 	uint8			result;
@@ -191,7 +191,7 @@ DynamicReduceRecvTuple(shm_mq_handle *mqh, struct TupleTableSlot *slot, StringIn
 
 	while(result == ADB_DR_MSG_INVALID)
 	{
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET) 
 		dr_wait_latch();
 #else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_RECEIVE);
@@ -229,7 +229,7 @@ int DynamicReduceSendOrRecvTuple(shm_mq_handle *mqsend, shm_mq_handle *mqrecv,
 	void		   *data;
 	Size			size;
 	shm_mq_iovec	iov;
-#ifndef DR_USING_EPOLL
+#if (!defined DR_USING_EPOLL) && (!defined DR_USING_RSOCKET)
 	WaitEvent		event;
 #endif
 	int				flags = 0;
@@ -271,8 +271,7 @@ int DynamicReduceSendOrRecvTuple(shm_mq_handle *mqsend, shm_mq_handle *mqrecv,
 			return flags;
 
 		check_error_message_from_reduce();
-
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET) 
 		dr_wait_latch();
 #else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_INTERNAL);
@@ -287,7 +286,7 @@ int DynamicReduceSendOrRecvTuple(shm_mq_handle *mqsend, shm_mq_handle *mqrecv,
 bool DynamicReduceSendMessage(shm_mq_handle *mqh, Size nbytes, void *data, bool nowait)
 {
 	shm_mq_iovec	iov;
-#ifndef DR_USING_EPOLL
+#if (!defined DR_USING_EPOLL) && (!defined DR_USING_RSOCKET)
 	WaitEvent		event;
 #endif
 
@@ -302,7 +301,7 @@ bool DynamicReduceSendMessage(shm_mq_handle *mqh, Size nbytes, void *data, bool 
 	{
 		check_error_message_from_reduce();
 
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET) 
 		dr_wait_latch();
 #else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_INTERNAL);
@@ -324,7 +323,7 @@ bool DynamicReduceNotifyAttach(shm_mq_handle *mq_send, shm_mq_handle *mq_recv,
 	static const uint32 msg = (ADB_DR_MSG_ATTACH_PLAN << 24);
 	shm_mq_iovec iov = {(const char*)&msg, sizeof(msg)};
 	shm_mq_result mq_result;
-#ifndef DR_USING_EPOLL
+#if (!defined DR_USING_EPOLL) && (!defined DR_USING_RSOCKET)
 	WaitEvent event;
 #endif
 
@@ -332,7 +331,8 @@ re_send_:
 	mq_result = shm_mq_sendv(mq_send, &iov, 1, true);
 	if (mq_result == SHM_MQ_WOULD_BLOCK)
 	{
-#ifdef DR_USING_EPOLL
+
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET) 
 		dr_wait_latch();
 #else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_SEND);
@@ -354,7 +354,7 @@ re_get_:
 	mq_result = shm_mq_receive(mq_recv, &iov.len, (void**)&iov.data, true);
 	if (mq_result == SHM_MQ_WOULD_BLOCK)
 	{
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET) 
 		dr_wait_latch();
 #else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_RECEIVE);
@@ -396,7 +396,7 @@ re_get_:
 
 bool DRSendMsgToReduce(const char *data, Size len, bool nowait)
 {
-#ifndef DR_USING_EPOLL
+#if (!defined DR_USING_EPOLL) && (!defined DR_USING_RSOCKET)
 	WaitEvent		event;
 #endif
 	shm_mq_result	result;
@@ -420,7 +420,7 @@ bool DRSendMsgToReduce(const char *data, Size len, bool nowait)
 		Assert(result == SHM_MQ_WOULD_BLOCK);
 		check_error_message_from_reduce();
 
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET) 
 		dr_wait_latch();
 #else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_SEND);
@@ -437,7 +437,7 @@ bool DRSendMsgToReduce(const char *data, Size len, bool nowait)
 
 bool DRRecvMsgFromReduce(Size *sizep, void **datap, bool nowait)
 {
-#ifndef DR_USING_EPOLL
+#if (!defined DR_USING_EPOLL) && (!defined DR_USING_RSOCKET)
 	WaitEvent		event;
 #endif
 	shm_mq_result	result;
@@ -456,7 +456,7 @@ re_get_:
 		}
 
 		Assert(result == SHM_MQ_WOULD_BLOCK);
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET) 
 		dr_wait_latch();
 #else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_RECEIVE);
@@ -576,7 +576,7 @@ void ResetDynamicReduceWork(void)
 	Size			size;
 	char		   *data;
 #ifndef DR_USING_EPOLL
-	WaitEvent		event;
+	//WaitEvent		event;
 #endif
 	shm_mq_result	result;
 	shm_mq_iovec	iov[2];
@@ -609,7 +609,7 @@ void ResetDynamicReduceWork(void)
 		{
 		}*/
 
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET) 
 		dr_wait_latch();
 #else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_SEND);
@@ -625,7 +625,7 @@ reget_reset_msg_:
 	result = shm_mq_receive(dr_mq_worker_sender, &size, (void**)&data, true);
 	while(result != SHM_MQ_SUCCESS)
 	{
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET) 
 		dr_wait_latch();
 #else
 		WaitEventSetWait(dr_wait_event_set, -1, &event, 1, WAIT_EVENT_MQ_RECEIVE);
