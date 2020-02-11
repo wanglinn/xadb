@@ -4994,6 +4994,8 @@ _copyPGXCSubCluster(const PGXCSubCluster *from)
 	PGXCSubCluster *newnode = makeNode(PGXCSubCluster);
 
 	COPY_SCALAR_FIELD(clustertype);
+	COPY_SCALAR_FIELD(modulus);
+	COPY_LOCATION_FIELD(mod_loc);
 	COPY_NODE_FIELD(members);
 
 	return newnode;

@@ -4287,6 +4287,24 @@ OptSubClusterInternal:
 					PGXCSubCluster *n = makeNode(PGXCSubCluster);
 					n->clustertype = SUBCLUSTER_NODE;
 					n->members = $4;
+					n->modulus = n->mod_loc = -1;
+					$$ = n;
+				}
+			| TO NODE NonReservedWord Iconst '(' SubClusterNodeList ')'
+				{
+					PGXCSubCluster *n = makeNode(PGXCSubCluster);
+					n->clustertype = SUBCLUSTER_NODE;
+					n->members = $6;
+					if (strcmp($3, "modulus") == 0)
+					{
+						n->modulus = $4;
+						if (n->modulus == 0)
+							ereport_pos("0", @4);
+						n->mod_loc = @4;
+					}else
+					{
+						ereport_pos($3, @3);
+					}
 					$$ = n;
 				}
 			| TO GROUP_P pgxcgroup_name
@@ -4294,6 +4312,7 @@ OptSubClusterInternal:
 					PGXCSubCluster *n = makeNode(PGXCSubCluster);
 					n->clustertype = SUBCLUSTER_GROUP;
 					n->members = list_make1(makeDefElem($3, NULL, @3));
+					n->modulus = n->mod_loc = -1;
 					$$ = n;
 				}
 		;

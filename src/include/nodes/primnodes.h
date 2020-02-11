@@ -1577,7 +1577,9 @@ typedef struct PGXCSubCluster
 {
 	NodeTag				type;
 	PGXCSubClusterType	clustertype;	/* Subcluster type */
-	List				*members;		/* List of nodes or groups */
+	int					modulus;		/* for hash only */
+	int					mod_loc;		/* modulus number location */
+	List			   *members;		/* List of nodes or groups */
 } PGXCSubCluster;
 #endif /* ADB */
 

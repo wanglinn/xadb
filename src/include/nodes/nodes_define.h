@@ -1586,6 +1586,8 @@ END_NODE(IntoClause)
 #ifndef NO_NODE_PGXCSubCluster
 BEGIN_NODE(PGXCSubCluster)
 	NODE_ENUM(PGXCSubClusterType,clustertype)
+	NODE_SCALAR(int,modulus)
+	NODE_SCALAR(int,mod_loc)
 	NODE_NODE(List,members)
 END_NODE(PGXCSubCluster)
 #endif /* NO_NODE_PGXCSubCluster */

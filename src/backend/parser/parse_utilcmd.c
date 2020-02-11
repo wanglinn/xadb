@@ -4412,6 +4412,127 @@ static Oid* sortDistributeCluster(List *nodeoids, List *values)
 	return result;
 }
 
+static void insertHashRemainderOid(Oid *oids, uint32 modulus, Oid oid, uint32 remainder, ParseState *pstate, int location)
+{
+	if (remainder >= modulus)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+				 errmsg("remainder out of range"),
+				 parser_errposition(pstate, location),
+				 errdetail("must less then %u", modulus)));
+	}
+
+	if (oids[remainder] != InvalidOid)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_DUPLICATE_OBJECT),
+				 errmsg("duplicate modulus %u", remainder),
+				 parser_errposition(pstate, location)));
+	}
+	oids[remainder] = oid;
+}
+
+static List* transformDistributeClusterHash(ParseState *pstate, PGXCSubCluster *cluster, Oid **nodeoids)
+{
+	ListCell		   *lc;
+	DefElem			   *def;
+	PartitionBoundSpec *bound;
+	Oid				   *oids;
+	List			   *result;
+	uint32				next_remainder;
+	Oid					oid;
+
+	Assert(cluster->modulus > 0);
+	oids = palloc0(sizeof(Oid) * cluster->modulus);
+	*nodeoids = oids;
+	next_remainder = 0;
+	StaticAssertStmt(InvalidOid == 0, "initialize oids to InvalidOid");
+	foreach (lc, cluster->members)
+	{
+		def = lfirst_node(DefElem, lc);
+		oid = GetDatanodeOidByName(def->defname, pstate, def->location);
+
+		if (def->arg == NULL)
+		{
+			insertHashRemainderOid(oids, cluster->modulus, oid, next_remainder, pstate, def->location);
+			++next_remainder;
+			continue;
+		}
+		bound = castNode(PartitionBoundSpec, def->arg);
+		if (bound->is_default)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("not support default yet"),
+					 parser_errposition(pstate, def->location)));
+
+		if (bound->strategy == PARTITION_STRATEGY_LIST)
+		{
+			ListCell *lc2;
+			foreach (lc2, bound->listdatums)
+			{
+				A_Const *a = lfirst(lc2);
+				if (!IsA(a, A_Const) ||
+					a->val.type != T_Integer ||
+					intVal(&a->val) < 0)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("syntax error"),
+							 parser_errposition(pstate, exprLocation((Node*)a))));
+				}
+				insertHashRemainderOid(oids, cluster->modulus, oid, intVal(&a->val), pstate, a->location);
+				if (intVal(&a->val) >= next_remainder)
+					next_remainder = intVal(&a->val)+1;
+			}
+		}else
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("syntax error"),
+					 parser_errposition(pstate, def->location)));
+		}
+	}
+
+	/* check */
+	next_remainder = cluster->modulus;
+	while (next_remainder > 0)
+	{
+		--next_remainder;
+		if (oids[next_remainder] == InvalidOid)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("no remainder value %u special to datanode", next_remainder),
+					 parser_errposition(pstate, cluster->mod_loc)));
+		}
+	}
+
+	result = list_make1(list_make1_int(0));
+	for (next_remainder=1;next_remainder<cluster->modulus;++next_remainder)
+	{
+		bool found = false;
+		uint32 i = 0;
+		foreach(lc, result)
+		{
+			if (oids[i++] == oids[next_remainder])
+			{
+				lfirst(lc) = lappend_int(lfirst(lc), next_remainder);
+				found = true;
+				break;
+			}
+		}
+		if (found == false)
+		{
+			Assert(list_length(result) <= next_remainder);
+			oids[list_length(result)] = oids[next_remainder];
+			result = lappend(result, list_make1_int(next_remainder));
+		}
+	}
+
+	return result;
+}
+
 int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey key,
 							   PartitionSpec *spec, PGXCSubCluster *cluster, char loc_type,
 							   List **values, Oid **nodeoids)
@@ -4471,6 +4592,11 @@ int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey ke
 	{
 		Assert(cluster->clustertype == SUBCLUSTER_NODE);
 		Assert(list_length(cluster->members) > 0);
+		if (cluster->modulus > 0)
+		{
+			*values = transformDistributeClusterHash(pstate, cluster, nodeoids);
+			return list_length(*values);
+		}
 		foreach (lc, cluster->members)
 		{
 			def = lfirst_node(DefElem, lc);
