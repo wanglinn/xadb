@@ -17,6 +17,10 @@
 
 static HTAB		   *htab_node_info = NULL;
 
+#ifdef DR_USING_RSOCKET
+static void **dr_rhandle_list;
+#endif
+
 static void OnNodeEvent(DROnEventArgs);
 static void OnNodeError(DROnErrorArgs);
 static void OnPreWaitNode(DROnPreWaitArgs);
@@ -122,7 +126,19 @@ bool PutMessageToNode(DRNodeEventData *ned, char msg_type, const char *data, uin
 
 static void OnNodeEvent(DROnEventArgs)
 {
-#ifdef DR_USING_EPOLL
+#ifdef DR_USING_RSOCKET
+	DRNodeEventData *ned = (DRNodeEventData*)base;
+	Assert(ned->base.type == DR_EVENT_DATA_NODE);
+	DR_NODE_DEBUG((errmsg("node %d got events %d", ned->nodeoid, events)));
+	if ((events & (POLLIN|POLLPRI|POLLHUP|POLLERR)) &&
+		ned->status != DRN_WAIT_CLOSE &&
+		RecvMessageFromNode(ned, ned->base.fd) > 0 &&
+		CurrentResourceOwner != NULL)
+		PorcessNodeEventData(ned);
+	if ((events & POLLOUT) &&
+		ned->status != DRN_WAIT_CLOSE)
+		OnNodeSendMessage(ned, ned->base.fd);
+#elif defined DR_USING_EPOLL
 	DRNodeEventData *ned = (DRNodeEventData*)base;
 	Assert(ned->base.type == DR_EVENT_DATA_NODE);
 	DR_NODE_DEBUG((errmsg("node %d got events %d", ned->nodeoid, events)));
@@ -164,7 +180,7 @@ static void OnPreWaitNode(DROnPreWaitArgs)
 	DRNodeEventData *ned = (DRNodeEventData*)base;
 	uint32 need_event;
 	Assert(base->type == DR_EVENT_DATA_NODE);
-#ifndef DR_USING_EPOLL
+#if (!defined DR_USING_EPOLL) && (!defined DR_USING_RSOCKET)
 	Assert(GetWaitEventData(dr_wait_event_set, pos) == base);
 #endif
 	if (ned->status == DRN_WAIT_CLOSE)
@@ -177,7 +193,19 @@ static void OnPreWaitNode(DROnPreWaitArgs)
 	if (OidIsValid(ned->nodeoid))
 	{
 		need_event = 0;
-#ifdef DR_USING_EPOLL
+#ifdef DR_USING_RSOCKET
+		if (ned->recvBuf.maxlen > ned->recvBuf.len)
+			need_event |= POLLIN;
+		if (ned->sendBuf.len > ned->sendBuf.cursor)
+			need_event |= POLLOUT;
+		if (need_event != ned->waiting_events)
+		{
+			DR_NODE_DEBUG((errmsg("need_event %d ned->waiting_events %d", need_event, ned->waiting_events)));
+			DR_NODE_DEBUG((errmsg("node %d set wait events %d", ned->nodeoid, need_event)));
+			RDRCtlWaitEvent(ned->base.fd, need_event, ned, RPOLL_EVENT_MOD);
+			ned->waiting_events = need_event;
+		}
+#elif defined DR_USING_EPOLL
 		if (ned->recvBuf.maxlen > ned->recvBuf.len)
 			need_event |= EPOLLIN;
 		if (ned->sendBuf.len > ned->sendBuf.cursor)
@@ -231,10 +259,17 @@ ssize_t RecvMessageFromNode(DRNodeEventData *ned, pgsocket fd)
 	Assert(space > 0);
 
 rerecv_:
+#ifdef DR_USING_RSOCKET
+	size = rrecv(fd,
+				ned->recvBuf.data + ned->recvBuf.len,
+				space,
+				0);
+#else
 	size = recv(fd,
 				ned->recvBuf.data + ned->recvBuf.len,
 				space,
 				0);
+#endif
 	if (size < 0)
 	{
 		if (errno == EINTR)
@@ -249,6 +284,8 @@ rerecv_:
 				(errmsg("could not recv message from node %u:%m", ned->nodeoid)));
 	}else if (size == 0)
 	{
+		ereport(LOG,
+				(errmsg("rrecv size  0, dr_status %d", dr_status)));
 		ned->status = DRN_WAIT_CLOSE;
 		//dr_keep_error = true;
 		if (dr_status == DRS_RESET)
@@ -495,10 +532,17 @@ static void OnNodeSendMessage(DRNodeEventData *ned, pgsocket fd)
 		return;
 
 resend_:
+#ifdef DR_USING_RSOCKET
+	result = rsend(fd,
+				  ned->sendBuf.data + ned->sendBuf.cursor,
+				  ned->sendBuf.len - ned->sendBuf.cursor,
+				  0);
+#else
 	result = send(fd,
 				  ned->sendBuf.data + ned->sendBuf.cursor,
 				  ned->sendBuf.len - ned->sendBuf.cursor,
 				  0);
+#endif
 	if (result >= 0)
 	{
 		DR_NODE_DEBUG((errmsg("node %u send message of length %zd to remote success", ned->nodeoid, result)));
@@ -609,7 +653,7 @@ static bool ProcessNodeCacheData(DRNodeEventData *ned, int planid)
 void DRActiveNode(int planid)
 {
 	DRNodeEventData	   *ned;
-#ifdef DR_USING_EPOLL
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET)
 	HASH_SEQ_STATUS		seq;
 
 	hash_seq_init(&seq, htab_node_info);
@@ -670,7 +714,36 @@ DRNodeEventData* DRSearchNodeEventData(Oid nodeoid, HASHACTION action, bool *fou
 	return hash_search_with_hash_value(htab_node_info, &ned, nodeoid, action, found);
 }
 
-#ifdef DR_USING_EPOLL
+#ifdef DR_USING_RSOCKET
+void dr_create_rhandle_list(int num, bool is_realloc)
+{
+	if (is_realloc)
+		dr_rhandle_list = repalloc(dr_rhandle_list,
+								 sizeof(void*) * num);
+	else
+		dr_rhandle_list = MemoryContextAlloc(TopMemoryContext, 
+								 sizeof(void*) * num);
+}
+
+void* dr_rhandle_find(int num)
+{
+	void *info;
+	Assert(num < poll_max && num >= 0);
+	
+	info = dr_rhandle_list[num];
+	Assert(info);
+	return info;
+}
+
+void dr_rhandle_add(int num, void *info)
+{
+	Assert(num < poll_max && num >= 0);
+	
+	dr_rhandle_list[num] = info;
+}
+#endif /* DR_USING_RSOCKET */
+
+#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET)
 void DRNodeSeqInit(HASH_SEQ_STATUS *seq)
 {
 	Assert(htab_node_info);
