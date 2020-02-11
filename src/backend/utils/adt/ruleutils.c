@@ -12331,9 +12331,17 @@ static void adb_get_distribute_def_worker(StringInfo buf, Oid relid, int prettyF
 	{
 		values = NIL;
 	}
-	lc = list_head(values);
 
 	appendStringInfoString(buf, " TO NODE");
+	if (form->pclocatortype == LOCATOR_TYPE_HASH &&
+		values != NIL)
+	{
+		int modulus = 0;
+		foreach (lc, values)
+			modulus += list_length(lfirst(lc));
+		appendStringInfo(buf, " MODULUS %d", modulus);
+	}
+	lc = list_head(values);
 	sep = "(";
 	for (n=0;n<form->nodeoids.dim1;++n)
 	{
@@ -12345,11 +12353,12 @@ static void adb_get_distribute_def_worker(StringInfo buf, Oid relid, int prettyF
 		if (lc)
 		{
 			ListCell *lc2;
-			List *list2 = lfirst_node(List, lc);
+			List *list2 = lfirst(lc);
 			lc = lnext(lc);
 			switch(form->pclocatortype)
 			{
 			case LOCATOR_TYPE_LIST:
+				Assert(IsA(list2, List));
 				Assert(list_length(list2) > 0);
 				appendStringInfoString(buf, " FOR VALUES IN (");
 				foreach(lc2, list2)
@@ -12361,6 +12370,7 @@ static void adb_get_distribute_def_worker(StringInfo buf, Oid relid, int prettyF
 				appendStringInfoChar(buf, ')');
 				break;
 			case LOCATOR_TYPE_RANGE:
+				Assert(IsA(list2, List));
 				Assert(list_length(list2) == 2);
 				appendStringInfoString(buf, " FOR VALUES FROM ");
 				str = get_range_partbound_string(linitial_node(List, list2));
@@ -12370,6 +12380,17 @@ static void adb_get_distribute_def_worker(StringInfo buf, Oid relid, int prettyF
 				str = get_range_partbound_string(llast_node(List, list2));
 				appendStringInfoString(buf, str);
 				pfree(str);
+				break;
+			case LOCATOR_TYPE_HASH:
+				Assert(IsA(list2, IntList));
+				appendStringInfoString(buf, " FOR VALUES IN(");
+				foreach(lc2, list2)
+				{
+					appendStringInfo(buf, "%d", lfirst_int(lc2));
+					if (lnext(lc2))
+						appendStringInfoString(buf, ", ");
+				}
+				appendStringInfoChar(buf, ')');
 				break;
 			}
 		}
