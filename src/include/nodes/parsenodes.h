@@ -3407,6 +3407,7 @@ typedef struct CreateNodeStmt
 typedef struct AlterNodeStmt
 {
 	NodeTag		type;
+	bool		is_expansion;
 	char	   *node_name;
 	List	   *options;
 	List	   *node_list;

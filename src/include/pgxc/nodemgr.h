@@ -38,4 +38,8 @@ extern void ClusterNodeRemove(StringInfo mem_toc);
 
 extern void InitPGXCNodeIdentifier(void);
 
+/* in expansion.c */
+struct ParseState;
+extern void AlterNodeExpansion(AlterNodeStmt *stmt, struct ParseState *pstate);
+
 #endif	/* NODEMGR_H */

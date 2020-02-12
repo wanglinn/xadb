@@ -5110,9 +5110,10 @@ _copyAlterNodeStmt(const AlterNodeStmt *from)
 {
 	AlterNodeStmt *newnode = makeNode(AlterNodeStmt);
 
-
+	COPY_SCALAR_FIELD(is_expansion);
 	COPY_STRING_FIELD(node_name);
 	COPY_NODE_FIELD(options);
+	COPY_NODE_FIELD(node_list);
 
 	return newnode;
 }

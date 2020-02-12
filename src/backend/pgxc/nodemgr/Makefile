@@ -14,6 +14,6 @@ subdir = src/backend/pgxc/nodemgr
 top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = nodemgr.o groupmgr.o
+OBJS = nodemgr.o groupmgr.o expansion.o
 
 include $(top_srcdir)/src/backend/common.mk
