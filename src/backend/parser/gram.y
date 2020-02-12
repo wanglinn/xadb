@@ -565,18 +565,19 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 %type <list>		hash_partbound
 %type <defelt>		hash_partbound_elem
 /* ADB_BEGIN */
-%type <defelt>	SubClusterNodeElem
+%type <defelt>	SubClusterNodeElem NodeName
 %type <partspec>	OptDistributeBy OptDistributeByInternal
 %type <node>	AlterNodeStmt
 		BarrierStmt AlterSlotStmt CreateSlotStmt DropSlotStmt FlushSlotStmt CleanSlotStmt
 		CleanConnStmt CreateAuxStmt CreateNodeGroupStmt CreateNodeStmt
 		DropNodeGroupStmt DropNodeStmt
 		ExecDirectStmt
+		NodeSplit
 		OptIndex
 
 
 %type <range>	opt_aux_name
-%type <list>	pgxcnode_list pgxcnodes SubClusterNodeList
+%type <list>	pgxcnode_list pgxcnodes NodeNameList NodeSplitList SubClusterNodeList
 %type <boolean> opt_force
 %type <str>		CleanConnDbName CleanConnUserName
 		DirectStmt
@@ -11269,6 +11270,34 @@ AlterNodeStmt: ALTER NODE pgxcnode_name OptWith
 					n->node_list = $7;
 					$$ = (Node *)n;
 				}
+			| ALTER NODE DATA_P '(' NodeSplitList ')'
+				{
+					AlterNodeStmt *n = makeNode(AlterNodeStmt);
+					n->is_expansion = true;
+					n->options = $5;
+					$$ = (Node*)n;
+				}
+		;
+
+NodeSplit: pgxcnode_name TO '(' NodeNameList ')'
+				{
+					$$ = (Node*) makeDefElem($1, (Node*)$4, @1);
+				}
+			| pgxcnode_name TO NodeName
+				{
+					$$ = (Node*) makeDefElem($1, (Node*)list_make1($3), @1);
+				}
+		;
+
+NodeSplitList: NodeSplitList ',' NodeSplit		{ $$ = lappend($1, $3); }
+			| NodeSplit							{ $$ = list_make1($1); }
+		;
+
+NodeName: pgxcnode_name							{ $$ = makeDefElem($1, NULL, @1); }
+		;
+
+NodeNameList: NodeNameList ',' NodeName			{ $$ = lappend($1, $3); }
+			| NodeName							{ $$ = list_make1($1); }
 		;
 
 /*****************************************************************************

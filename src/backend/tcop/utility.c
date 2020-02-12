@@ -1072,7 +1072,17 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 		 * it is necessary to create this node on all the Coordinators independently.
 		 */
 		case T_AlterNodeStmt:
-			PgxcNodeAlter((AlterNodeStmt *) parsetree);
+			if (((AlterNodeStmt*)parsetree)->is_expansion)
+			{
+				if (!superuser())
+					ereport(ERROR,
+							(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+							 errmsg("must be superuser to do ALTER NODE DATA")));
+				AlterNodeExpansion((AlterNodeStmt*) parsetree, pstate);
+			}else
+			{
+				PgxcNodeAlter((AlterNodeStmt *) parsetree);
+			}
 			break;
 
 		case T_CreateNodeStmt:
