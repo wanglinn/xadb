@@ -15853,7 +15853,7 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 
 #ifdef ADB
 		/* Add the grammar extension linked to ADB depending on data got from pgxc_class */
-		if (tbinfo->pgxclocatortype != 'E' && !(tbinfo->ispartition && !dopt->binary_upgrade))
+		if (tbinfo->pgxclocatortype != 'E')
 		{
 			PQExpBuffer query = createPQExpBuffer();
 			PGresult   *res;
