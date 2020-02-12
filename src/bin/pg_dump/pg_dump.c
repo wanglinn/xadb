@@ -152,7 +152,7 @@ static int	extra_float_digits;
 #ifdef ADB
 static int	include_nodes = 0;
 #endif
-
+static int	include_partition = 0;
 #ifdef MGR_DUMP
 static int	adbmgr_table = 0;
 #endif
@@ -382,6 +382,7 @@ main(int argc, char **argv)
 		{"exclude-table-data", required_argument, NULL, 4},
 		{"extra-float-digits", required_argument, NULL, 8},
 		{"if-exists", no_argument, &dopt.if_exists, 1},
+		{"include-partition", no_argument, &include_partition, 1},
 		{"inserts", no_argument, NULL, 9},
 		{"lock-wait-timeout", required_argument, NULL, 2},
 		{"no-tablespaces", no_argument, &dopt.outputNoTablespaces, 1},
@@ -1054,6 +1055,7 @@ help(const char *progname)
 	printf(_("  --exclude-table-data=TABLE   do NOT dump data for the named table(s)\n"));
 	printf(_("  --extra-float-digits=NUM     override default setting for extra_float_digits\n"));
 	printf(_("  --if-exists                  use IF EXISTS when dropping objects\n"));
+	printf(_("  --include-partition          dump tables include partition sub tables\n"));
 	printf(_("  --inserts                    dump data as INSERT commands, rather than COPY\n"));
 	printf(_("  --load-via-partition-root    load partitions via the root table\n"));
 	printf(_("  --no-comments                do not dump comments\n"));
@@ -1438,6 +1440,24 @@ expand_table_name_patterns(Archive *fout,
 
 		PQclear(res);
 		resetPQExpBuffer(query);
+
+		/* dump tables include partition sub tables */
+		if (include_partition)
+		{
+			appendPQExpBuffer(query,
+							"select i.inhrelid"
+							"\nfrom pg_catalog.pg_inherits i"
+							"\nleft join pg_catalog.pg_class c on i.inhparent = c.oid"
+							"\nwhere c.relname='%s'\n",
+							cell->val);
+			res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
+			for (i = 0; i < PQntuples(res); i++)
+			{
+				simple_oid_list_append(oids, atooid(PQgetvalue(res, i, 0)));
+			}
+			PQclear(res);
+			resetPQExpBuffer(query);
+		}
 	}
 
 	destroyPQExpBuffer(query);
