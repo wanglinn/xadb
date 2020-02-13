@@ -560,12 +560,14 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 		*transform_stmt = (Node *) stmt;
 
 	/*
-	 * If the user did not specify any distribution clause and there is no
+	 * If the user does not specify any distribution terms, 
+	 * and there are no default distribution terms and no 
 	 * inherits clause, try and use PK or unique index
 	 */
 	if (!stmt->distributeby &&
 		!stmt->inhRelations &&
 		stmt->relation->relpersistence != RELPERSISTENCE_TEMP &&
+		default_distribute_by == LOCATOR_TYPE_INVALID &&
 		cxt.fallback_dist_col)
 	{
 		PartitionElem *elem = makeNode(PartitionElem);
