@@ -340,7 +340,10 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %type <fun_param> aggr_arg func_arg func_arg_with_default
 %type <fun_param_mode> arg_class
 
-%type <orapartspec>	PartitionSpec OptPartitionSpec
+%type <orapartspec>	PartitionSpec OptPartitionSpecNotEmpty
+/* ADB_BEGIN */
+%type <orapartspec>	OptPartitionSpec
+/* ADB_END */
 %type <str>			part_strategy
 %type <partelem>	part_elem
 %type <list>		part_params
@@ -1789,7 +1792,7 @@ OptSubClusterInternal:
 					$$ = n;
 				}
 			| TO NODE NonReservedWord Iconst '(' SubClusterNodeList ')'
-				{
+				{				
 					PGXCSubCluster *n = makeNode(PGXCSubCluster);
 					n->clustertype = SUBCLUSTER_NODE;
 					n->members = $6;
@@ -1806,7 +1809,7 @@ OptSubClusterInternal:
 					$$ = n;
 				}
 			| TO GROUP_P pgxcgroup_name
-				{
+				{					
 					PGXCSubCluster *n = makeNode(PGXCSubCluster);
 					n->clustertype = SUBCLUSTER_GROUP;
 					n->members = list_make1(makeDefElem($3, NULL, @3));
@@ -3484,7 +3487,33 @@ ConstTypename:
  *****************************************************************************/
 
 CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
-			OptInherit OptPartitionSpec OptWith OnCommitOption OptTableSpace
+			OptInherit OptWith OnCommitOption OptTableSpace
+/* ADB_BEGIN */
+			OptSubCluster
+/* ADB_END */
+				{
+					CreateStmt *n = makeNode(CreateStmt);
+					n->grammar = PARSE_GRAM_ORACLE;
+					$4->relpersistence = $2;
+					n->relation = $4;
+					n->tableElts = $6;
+					n->inhRelations = $8;
+					n->constraints = NIL;
+					n->options = $9;
+					n->oncommit = $10;
+					n->tablespacename = $11;
+					n->if_not_exists = false;
+/* ADB_BEGIN */
+					n->distributeby = NULL;
+					n->subcluster = $12;
+/* ADB_END */					
+					n->partspec = NULL;
+					n->child_rels = NIL;
+				
+					$$ = (Node *)n;
+				}		               
+        | CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
+			OptInherit OptPartitionSpecNotEmpty OptWith OnCommitOption OptTableSpace
 /* ADB_BEGIN */
 			OptDistributeBy OptSubCluster
 /* ADB_END */
@@ -3511,8 +3540,61 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					}
 					$$ = (Node *)n;
 				}
-		| CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name '('
-			OptTableElementList ')' OptInherit OptPartitionSpec OptWith OnCommitOption
+/* ADB_BEGIN */
+		| CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
+		    OptInherit OptDistributeByInternal OptSubCluster
+			OptPartitionSpec OptWith OnCommitOption OptTableSpace 
+				{
+					CreateStmt *n = makeNode(CreateStmt);
+					n->grammar = PARSE_GRAM_ORACLE;
+					$4->relpersistence = $2;
+					n->relation = $4;
+					n->tableElts = $6;
+                    n->inhRelations = $8;	
+					n->distributeby = $9;
+					n->subcluster = $10;
+					n->constraints = NIL;
+					n->options = $12;
+					n->oncommit = $13;
+					n->tablespacename = $14;
+					n->if_not_exists = false;
+
+					if ($11)
+					{
+						n->partspec = $11->partitionSpec;
+						n->child_rels = $11->children;
+					}
+					$$ = (Node *)n;
+				}
+/* ADB_END */
+        | CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name '('        
+			OptTableElementList ')' OptInherit OptWith OnCommitOption OptTableSpace
+/* ADB_BEGIN */
+			OptSubCluster
+/* ADB_END */
+				{
+					CreateStmt *n = makeNode(CreateStmt);
+					n->grammar = PARSE_GRAM_ORACLE;
+					$7->relpersistence = $2;
+					n->relation = $7;
+					n->tableElts = $9;
+					n->inhRelations = $11;
+					n->constraints = NIL;
+					n->options = $12;
+					n->oncommit = $13;
+					n->tablespacename = $14;
+					n->if_not_exists = true;
+/* ADB_BEGIN */
+					n->distributeby = NULL;
+					n->subcluster = $15;					
+/* ADB_END */
+                    n->partspec = NULL;
+					n->child_rels = NIL;
+
+					$$ = (Node *)n;
+				}		
+		| CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name '('  
+			OptTableElementList ')' OptInherit OptPartitionSpecNotEmpty OptWith OnCommitOption
 			OptTableSpace
 /* ADB_BEGIN */
 			OptDistributeBy OptSubCluster
@@ -3544,9 +3626,68 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 						n->child_rels = $12->children;
 					}
 					$$ = (Node *)n;
+				}		
+/* ADB_BEGIN */
+        | CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name '('
+			OptTableElementList ')' OptInherit OptDistributeByInternal OptSubCluster
+			OptPartitionSpec OptWith OnCommitOption	OptTableSpace
+				{
+					CreateStmt *n = makeNode(CreateStmt);
+					n->grammar = PARSE_GRAM_ORACLE;
+					$7->relpersistence = $2;
+					n->relation = $7;
+					n->tableElts = $9;
+					n->inhRelations = $11;
+					n->constraints = NIL;
+					n->distributeby = $12;
+					n->subcluster = $13;
+					if (n->inhRelations != NULL && n->distributeby != NULL)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
+								 parser_errposition(exprLocation((Node *) n->distributeby))));
+					n->options = $15;
+					n->oncommit = $16;
+					n->tablespacename = $17;
+					n->if_not_exists = true;
+
+					if ($14)
+					{
+						n->partspec = $14->partitionSpec;
+						n->child_rels = $14->children;
+					}
+					$$ = (Node *)n;
 				}
-		| CREATE OptTemp TABLE qualified_name OF any_name
-			OptTypedTableElementList OptPartitionSpec OptWith OnCommitOption OptTableSpace
+/* ADB_END */
+		| CREATE OptTemp TABLE qualified_name OF any_name 
+		    OptTypedTableElementList OptWith OnCommitOption OptTableSpace
+/* ADB_BEGIN */
+			OptSubCluster
+/* ADB_END */
+				{
+					CreateStmt *n = makeNode(CreateStmt);
+					n->grammar = PARSE_GRAM_ORACLE;
+					$4->relpersistence = $2;
+					n->relation = $4;
+					n->tableElts = $7;
+					n->ofTypename = makeTypeNameFromNameList($6);
+					n->ofTypename->location = @6;
+					n->constraints = NIL;
+					n->options = $8;
+					n->oncommit = $9;
+					n->tablespacename = $10;
+					n->if_not_exists = false;
+/* ADB_BEGIN */
+					n->distributeby = NULL;
+					n->subcluster = $11;
+/* ADB_END */
+					n->partspec = NULL;
+					n->child_rels = NIL;
+				
+					$$ = (Node *)n;
+				}	
+		| CREATE OptTemp TABLE qualified_name OF any_name 
+		    OptTypedTableElementList OptPartitionSpecNotEmpty OptWith OnCommitOption OptTableSpace
 /* ADB_BEGIN */
 			OptDistributeBy OptSubCluster
 /* ADB_END */
@@ -3578,9 +3719,70 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 						n->child_rels = $8->children;
 					}
 					$$ = (Node *)n;
+				}		
+/* ADB_BEGIN */
+		| CREATE OptTemp TABLE qualified_name OF any_name 
+		    OptTypedTableElementList OptDistributeByInternal OptSubCluster
+			OptPartitionSpec OptWith OnCommitOption OptTableSpace
+				{
+					CreateStmt *n = makeNode(CreateStmt);
+					n->grammar = PARSE_GRAM_ORACLE;
+					$4->relpersistence = $2;
+					n->relation = $4;
+					n->tableElts = $7;
+					n->ofTypename = makeTypeNameFromNameList($6);
+					n->ofTypename->location = @6;
+					n->constraints = NIL;
+					n->distributeby = $8;
+					n->subcluster = $9;
+					n->options = $11;
+					n->oncommit = $12;
+					n->tablespacename = $13;
+					n->if_not_exists = false;
+					
+					if (n->inhRelations != NULL && n->distributeby != NULL)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
+								 parser_errposition(exprLocation((Node *) n->distributeby))));
+
+					if ($10)
+					{
+						n->partspec = $10->partitionSpec;
+						n->child_rels = $10->children;
+					}
+					$$ = (Node *)n;
 				}
+/* ADB_END */			
 		| CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name OF any_name
-			OptTypedTableElementList OptPartitionSpec OptWith OnCommitOption OptTableSpace
+			OptTypedTableElementList OptWith OnCommitOption OptTableSpace
+/* ADB_BEGIN */
+			OptSubCluster
+/* ADB_END */
+				{
+					CreateStmt *n = makeNode(CreateStmt);
+					n->grammar = PARSE_GRAM_ORACLE;
+					$7->relpersistence = $2;
+					n->relation = $7;
+					n->tableElts = $10;
+					n->ofTypename = makeTypeNameFromNameList($9);
+					n->ofTypename->location = @9;
+					n->constraints = NIL;
+					n->options = $11;
+					n->oncommit = $12;
+					n->tablespacename = $13;
+					n->if_not_exists = true;
+/* ADB_BEGIN */
+					n->distributeby = NULL;
+					n->subcluster = $14;
+/* ADB_END */
+					n->partspec = NULL;
+					n->child_rels = NIL;
+				
+					$$ = (Node *)n;
+				}	
+		| CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name OF any_name
+			OptTypedTableElementList OptPartitionSpecNotEmpty OptWith OnCommitOption OptTableSpace
 /* ADB_BEGIN */
 			OptDistributeBy OptSubCluster
 /* ADB_END */
@@ -3613,6 +3815,39 @@ CreateStmt:	CREATE OptTemp TABLE qualified_name '(' OptTableElementList ')'
 					}
 					$$ = (Node *)n;
 				}
+/* ADB_BEGIN */
+		| CREATE OptTemp TABLE IF_P NOT EXISTS qualified_name OF any_name OptTypedTableElementList
+			OptDistributeByInternal OptSubCluster
+			OptPartitionSpec OptWith OnCommitOption OptTableSpace
+				{
+					CreateStmt *n = makeNode(CreateStmt);
+					n->grammar = PARSE_GRAM_ORACLE;
+					$7->relpersistence = $2;
+					n->relation = $7;
+					n->tableElts = $10;
+					n->ofTypename = makeTypeNameFromNameList($9);
+					n->ofTypename->location = @9;
+					n->constraints = NIL;
+					n->options = $14;
+					n->oncommit = $15;
+					n->tablespacename = $16;
+					n->if_not_exists = true;
+					n->distributeby = $11;
+					n->subcluster = $12;
+					if (n->inhRelations != NULL && n->distributeby != NULL)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("CREATE TABLE cannot contains both an INHERITS and a DISTRIBUTE BY clause"),
+								 parser_errposition(exprLocation((Node *) n->distributeby))));
+
+					if ($13)
+					{
+						n->partspec = $13->partitionSpec;
+						n->child_rels = $13->children;
+					}
+					$$ = (Node *)n;
+				}
+/* ADB_END */								
 		;
 
 /*
@@ -3652,7 +3887,20 @@ OptInherit: INHERITS '(' qualified_name_list ')'	{ $$ = $3; }
 			| /*EMPTY*/								{ $$ = NIL; }
 		;
 
+/* ADB_BEGIN */
 OptPartitionSpec:
+			 OptPartitionSpecNotEmpty
+				{
+					$$ = $1;
+				}
+			| /*EMPTY*/
+				{
+					$$ = NULL;
+				}
+        ;
+/* ADB_END */
+
+OptPartitionSpecNotEmpty:
 			  PartitionSpec
 				{
 					$$ = $1;
@@ -3686,10 +3934,6 @@ OptPartitionSpec:
 
 					$$ =  $1;
 					$$->children = $3;
-				}
-			| /*EMPTY*/
-				{
-					$$ = NULL;
 				}
 		;
 
