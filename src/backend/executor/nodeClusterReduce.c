@@ -755,7 +755,11 @@ static TupleTableSlot *ExecAdvanceReduce(PlanState *pstate)
 	TupleTableSlot *slot;
 
 re_get_:
-	slot = DynamicReduceReadSFSTuple(pstate->ps_ResultTupleSlot, cur_info->file, &state->read_buf);
+	if (cur_info->nodeoid != PGXCNodeOid &&
+		state->normal.drio.convert)
+		slot = DynamicReduceFetchBufFile(&state->normal.drio, cur_info->file);
+	else
+		slot = DynamicReduceReadSFSTuple(pstate->ps_ResultTupleSlot, cur_info->file, &state->read_buf);
 	if (TupIsNull(slot))
 	{
 		if (cur_info->nodeoid == PGXCNodeOid &&
@@ -910,7 +914,15 @@ static TupleTableSlot* ExecAdvanceParallelReduce(PlanState *ps)
 re_get_:
 	mtup = sts_parallel_scan_next(cur_node->accessor, NULL);
 	if (mtup != NULL)
+	{
+		if (cur_node->nodeoid != PGXCNodeOid &&
+			state->normal.drio.convert)
+			return do_type_convert_slot_in(state->normal.drio.convert,
+										   ExecStoreMinimalTuple(mtup, state->normal.drio.slot_remote, false),
+										   state->normal.drio.slot_local,
+										   false);
 		return ExecStoreMinimalTuple(mtup, ps->ps_ResultTupleSlot, false);
+	}
 
 	sts_end_parallel_scan(cur_node->accessor);
 	if (cur_node->nodeoid == PGXCNodeOid)
@@ -1110,7 +1122,17 @@ static TupleTableSlot* ExecMergeReduce(PlanState *pstate)
 
 	i = DatumGetUInt32(binaryheap_first(merge->binheap));
 	info = &merge->nodes[i];
-	DynamicReduceReadSFSTuple(info->slot, info->file, &info->read_buf);
+	if (info->nodeoid != PGXCNodeOid &&
+		merge->normal.drio.convert != NULL)
+	{
+		TupleTableSlot *slot = DynamicReduceReadSFSTuple(merge->normal.drio.slot_remote,
+														 info->file,
+														 &info->read_buf);
+		do_type_convert_slot_in(merge->normal.drio.convert, slot, info->slot, false);
+	}else
+	{
+		DynamicReduceReadSFSTuple(info->slot, info->file, &info->read_buf);
+	}
 	if (TupIsNull(info->slot))
 		binaryheap_remove_first(merge->binheap);
 	else
@@ -1168,7 +1190,17 @@ static void BuildMergeBinaryHeap(MergeReduceState *merge)
 	for(i=0,count=merge->nnodes;i<count;++i)
 	{
 		info = &merge->nodes[i];
-		DynamicReduceReadSFSTuple(info->slot, info->file, &info->read_buf);
+		if (info->nodeoid != PGXCNodeOid &&
+			merge->normal.drio.convert != NULL)
+		{
+			TupleTableSlot *slot = DynamicReduceReadSFSTuple(merge->normal.drio.slot_remote,
+															 info->file,
+															 &info->read_buf);
+			do_type_convert_slot_in(merge->normal.drio.convert, slot, info->slot, false);
+		}else
+		{
+			DynamicReduceReadSFSTuple(info->slot, info->file, &info->read_buf);
+		}
 		if (!TupIsNull(info->slot))
 			binaryheap_add_unordered(merge->binheap, UInt32GetDatum(i));
 	}
@@ -1248,6 +1280,8 @@ static void InitMergeReduceState(ClusterReduceState *state, MergeReduceState *me
 		MergeNodeInfo *info = &merge->nodes[i];
 		info->slot = ExecInitExtraTupleSlot(state->ps.state, desc);
 		initStringInfo(&info->read_buf);
+		enlargeStringInfo(&info->read_buf, SizeofMinimalTupleHeader);
+		MemSet(info->read_buf.data, SizeofMinimalTupleHeader, 0);
 		info->nodeoid = lfirst_oid(lc);
 		lc = lnext(lc);
 		if (info->nodeoid == PGXCNodeOid)
