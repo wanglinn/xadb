@@ -1219,7 +1219,28 @@ doDeletion(const ObjectAddress *object, int flags)
 						RemoveAttributeById(object->objectId,
 											object->objectSubId);
 					else
+#ifdef ADB
+					{
+						Relation  relation;
+						HeapTuple tup;
+						
 						heap_drop_with_catalog(object->objectId);
+
+						/* Delete relation distribute info. */
+						tup = SearchSysCache(PGXCCLASSRELID,
+											ObjectIdGetDatum(object->objectId),
+											0, 0, 0);
+						if (HeapTupleIsValid(tup))
+						{
+							relation = heap_open(PgxcClassRelationId, RowExclusiveLock);
+							CatalogTupleDelete(relation, &tup->t_self);
+							ReleaseSysCache(tup);
+							heap_close(relation, RowExclusiveLock);
+						}
+					}
+#else
+						heap_drop_with_catalog(object->objectId);
+#endif	/* ADB */
 				}
 
 				/*
