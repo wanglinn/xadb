@@ -2973,6 +2973,13 @@ void RemoveRxactWaitEvent(WaitEventSet *set, RxactAgent *agent, NodeConn *pconn)
 	if(pos < rxact_event_cur_count)
 	{
 		RemoveWaitEvent(set, pos);
+		if (agent)
+			closesocket(agent->sock);
+		if (pconn)
+		{
+			closesocket(rxactEventData->pconn_fd_dup);
+			rxact_finish_node_conn(pconn);
+		}
 		--rxact_event_cur_count;
 	}
 }
