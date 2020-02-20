@@ -356,6 +356,7 @@ static void RxactLoop(void)
 						agent->last_gid[0] = '\0';
 						rxact_agent_simple_msg(agent, RXACT_MSG_OK);
 						RemoveWaitEvent(rxact_wait_event_set, i);
+						closesocket(agent->sock);
 						--rxact_event_cur_count;
 						if(agent->sock == PGINVALID_SOCKET)
 							continue;
@@ -385,7 +386,12 @@ static void RxactLoop(void)
 				 	user_data->pconn->status == PGRES_POLLING_FAILED ||
 				 	user_data->pconn->status == PGRES_POLLING_ACTIVE)
 				{
-					RemoveWaitEvent(rxact_wait_event_set, i);
+					if (user_data->pconn)
+					{
+						RemoveWaitEvent(rxact_wait_event_set, i);
+						closesocket(user_data->pconn_fd_dup);
+						rxact_finish_node_conn(user_data->pconn);
+					}
 					--rxact_event_cur_count;
 				}
 			}
@@ -2816,6 +2822,8 @@ OnListenNodeConnEvent(WaitEvent *event)
 		if(pconn->status == PGRES_POLLING_OK && pconn->doing_gid[0] == '\0')
 		{
 			RemoveWaitEvent(rxact_wait_event_set, getNodeConnPos(pconn));
+			closesocket(user_data->pconn_fd_dup);
+			rxact_finish_node_conn(user_data->pconn);
 			--rxact_event_cur_count;
 		}
 	}else
