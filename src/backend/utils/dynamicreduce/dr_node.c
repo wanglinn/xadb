@@ -173,6 +173,8 @@ static void OnNodeError(DROnErrorArgs)
 		ned->sendBuf.len > ned->sendBuf.cursor ||
 		ned->recvBuf.len > ned->recvBuf.cursor)
 		FreeNodeEventInfo(ned);
+	else if(ned->cached_data)
+		DropNodeAllPlanCacheData(ned, true);
 }
 
 static void OnPreWaitNode(DROnPreWaitArgs)
@@ -769,4 +771,18 @@ void CleanNodePlanCacheData(DRPlanCacheData *cache, bool delete_file)
 		pfree(cache->buf.data);
 		cache->buf.data = NULL;
 	}
+}
+
+void DropNodeAllPlanCacheData(DRNodeEventData *ned, bool delete_file)
+{
+	HASH_SEQ_STATUS seq;
+	DRPlanCacheData *cache;
+	if (ned->cached_data == NULL)
+		return;
+
+	hash_seq_init(&seq, ned->cached_data);
+	while ((cache=hash_seq_search(&seq)) != NULL)
+		CleanNodePlanCacheData(cache, delete_file);
+	hash_destroy(ned->cached_data);
+	ned->cached_data = NULL;
 }
