@@ -416,6 +416,7 @@ DRNodeEventData* DRSearchNodeEventData(Oid nodeoid, HASHACTION action, bool *fou
 void DRNodeSeqInit(HASH_SEQ_STATUS *seq);
 #endif /* DR_USING_EPOLL */
 void CleanNodePlanCacheData(DRPlanCacheData *cache, bool delete_file);
+void DropNodeAllPlanCacheData(DRNodeEventData *ned, bool delete_file);
 
 /* dynamic reduce utils functions in dr_utils.c */
 bool DynamicReduceHandleMessage(void *data, Size len);
