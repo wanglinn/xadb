@@ -1749,6 +1749,12 @@ Snapshot GetSnapshotDataExt(Snapshot snapshot, bool isCatelog)
 				(PROC_IN_LOGICAL_DECODING | PROC_IN_VACUUM))
 				continue;
 
+#ifdef ADB
+			/* expansion worker use info as main(include transaction ID) */
+			if (pgxact->vacuumFlags & PROC_IS_EXPANSION_WORKER)
+				continue;
+#endif /* ADB */
+
 			/* Update globalxmin to be the smallest valid xmin */
 			xid = UINT32_ACCESS_ONCE(pgxact->xmin);
 			if (TransactionIdIsNormal(xid) &&
@@ -2113,7 +2119,7 @@ ProcArrayInstallRestoredXmin(TransactionId xmin, PGPROC *proc)
 	 * so that the per-database xmin cannot go backwards.
 	 */
 	xid = UINT32_ACCESS_ONCE(pgxact->xmin);
-	if (proc->databaseId == MyDatabaseId &&
+	if ((proc->databaseId == MyDatabaseId ADB_ONLY_CODE(|| MyPgXact->vacuumFlags & PROC_IS_EXPANSION_WORKER)) &&
 		TransactionIdIsNormal(xid) &&
 		TransactionIdPrecedesOrEquals(xid, xmin))
 	{

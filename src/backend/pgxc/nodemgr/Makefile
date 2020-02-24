@@ -16,4 +16,7 @@ include $(top_builddir)/src/Makefile.global
 
 OBJS = nodemgr.o groupmgr.o expansion.o
 
+expansion.o: CFLAGS += -I$(libpq_srcdir)
+expansion.bc: BITCODE_CFLAGS += -I$(libpq_srcdir)
+
 include $(top_srcdir)/src/backend/common.mk

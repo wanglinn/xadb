@@ -159,6 +159,7 @@ static const ClusterCustomExecInfo cluster_custom_execute[] =
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterPgxcGroupRemove, CLUSTER_CUSTOM_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(cluster_cluster, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterRedistributeRelation, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
+		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterExpansion, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
 	};
 
 static void set_cluster_display(const char *activity, bool force, ClusterCoordInfo *info);
