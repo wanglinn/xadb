@@ -21,6 +21,7 @@
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "catalog/pgxc_class.h"
+#include "lib/oidbuffer.h"
 #include "utils/builtins.h"
 #include "utils/rel.h"
 #include "utils/lsyscache.h"
@@ -402,4 +403,59 @@ CreatePgxcRelationAttrDepend(Oid relid, AttrNumber attnum)
 		referenced.objectSubId = 0;
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
+}
+
+uint32 MakeHashNodesAndValues(Oid *remainder_node, uint32 modulus, Oid **nodeoids, List **values)
+{
+	OidBufferData	buf;
+	uint32			i;
+	uint32			n;
+	List		   *pcvalues = NIL;
+	ListCell	   *lc;
+	bool			need_values;
+
+	initOidBufferEx(&buf, modulus, CurrentMemoryContext);
+	for (i=0;i<modulus;++i)
+	{
+		Assert(OidIsValid(remainder_node[i]));
+		if (oidBufferMember(&buf, remainder_node[i], &n) == false)
+		{
+			appendOidBufferOid(&buf, remainder_node[i]);
+			if (values)
+				pcvalues = lappend(pcvalues, list_make1_int(i));
+		}else if (values)
+		{
+			lc = list_nth_cell(pcvalues, n);
+			lfirst(lc) = lappend_int(lfirst(lc), i);
+		}
+	}
+
+	if (values)
+	{
+		need_values = false;
+		n = sizeof(Oid)*buf.len;
+		for (i=0;i<modulus;i+=buf.len)
+		{
+			if (memcmp(buf.oids, &remainder_node[i], n) != 0)
+			{
+				need_values = true;
+				break;
+			}
+		}
+		if (need_values == false)
+		{
+			foreach(lc, pcvalues)
+				list_free(lfirst(lc));
+			list_free(pcvalues);
+			pcvalues = NIL;
+		}
+		*values = pcvalues;
+	}
+
+	if (nodeoids)
+		*nodeoids = buf.oids;
+	else
+		pfree(buf.oids);
+
+	return buf.len;
 }

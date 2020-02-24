@@ -115,4 +115,6 @@ extern void RemovePgxcClass(Oid pcrelid);
 
 extern void CreatePgxcRelationAttrDepend(Oid relid, AttrNumber attnum);
 
+extern uint32 MakeHashNodesAndValues(Oid *remainder_node, uint32 modulus, Oid **nodeoids, List **values);
+
 #endif   /* PGXC_CLASS_H */
