@@ -1084,6 +1084,10 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 					ereport(ERROR,
 							(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 							 errmsg("must be superuser to do ALTER NODE DATA")));
+				if (!IsGTMCnNode())
+					ereport(ERROR,
+							(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+							 errmsg("must gtm_coord node to do ALTER NODE DATA")));
 				AlterNodeExpansion((AlterNodeStmt*) parsetree, pstate);
 			}else
 			{

@@ -36,6 +36,9 @@
 
 #define		PROCARRAY_SLOTS_XMIN			0x20	/* replication slot xmin,
 													 * catalog_xmin */
+#ifdef ADB
+#define		PROCARRAY_EXPANSION_WORKER		0X80	/* expansion worker */
+#endif
 /*
  * Only flags in PROCARRAY_PROC_FLAGS_MASK are considered when matching
  * PGXACT->vacuumFlags. Other flags are used for different purposes and

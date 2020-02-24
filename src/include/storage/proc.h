@@ -57,6 +57,9 @@ struct XidCache
 #define		PROC_IN_LOGICAL_DECODING	0x10	/* currently doing logical
 												 * decoding outside xact */
 #define		PROC_RESERVED				0x20	/* reserved for procarray */
+#ifdef ADB
+#define		PROC_IS_EXPANSION_WORKER	0x80	/* expansion worker */
+#endif
 
 /* flags reset at EOXact */
 #define		PROC_VACUUM_STATE_MASK \

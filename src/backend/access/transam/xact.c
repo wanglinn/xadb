@@ -1494,7 +1494,7 @@ AtSubStart_ResourceOwner(void)
 static TransactionId
 RecordTransactionCommit(void)
 {
-	TransactionId xid = GetTopTransactionIdIfAny();
+	TransactionId xid = ADB_ONLY_CODE(MyPgXact->vacuumFlags & PROC_IS_EXPANSION_WORKER ? InvalidTransactionId:) GetTopTransactionIdIfAny();
 	bool		markXidCommitted = TransactionIdIsValid(xid);
 	TransactionId latestXid = InvalidTransactionId;
 	int			nrels;
@@ -1904,7 +1904,7 @@ AtSubCommit_childXids(void)
 static TransactionId
 RecordTransactionAbort(bool isSubXact)
 {
-	TransactionId xid = GetCurrentTransactionIdIfAny();
+	TransactionId xid = ADB_ONLY_CODE(MyPgXact->vacuumFlags & PROC_IS_EXPANSION_WORKER ? InvalidTransactionId :) GetCurrentTransactionIdIfAny();
 	TransactionId latestXid;
 	int			nrels;
 	RelFileNode *rels;

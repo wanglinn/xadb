@@ -37,6 +37,7 @@
 #include "utils/ps_status.h"
 #include "utils/timeout.h"
 #ifdef ADB
+#include "pgxc/nodemgr.h"
 #include "utils/dynamicreduce.h"
 #endif /* ADB */
 /*
@@ -135,6 +136,9 @@ static const struct
 #ifdef ADB
 	,{
 		"DynamicReduceWorkerMain", DynamicReduceWorkerMain
+	},
+	{
+		"ExpansionWorkerMain", ExpansionWorkerMain
 	}
 #endif /* ADB */
 };
