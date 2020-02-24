@@ -134,6 +134,7 @@ static WaitEventSet *rxact_wait_event_set = NULL;
 static WaitEvent *rxact_wait_event = NULL;
 static Size rxact_event_max_count = 32;
 static Size rxact_event_cur_count = 0;
+static long waiting_time = -1L;
 #define RXACT_WAIT_EVENT_ENLARGE_STEP	32
 
 static void AddRxactEventToSet(WaitEventSet *set, WaiteEventTag type, pgsocket fd, uint32 events, NodeConn *pconn);
@@ -410,7 +411,6 @@ static void RxactLoop(void)
 			if(PQstatus(pconn->conn) == CONNECTION_BAD)
 			{
 				RemoveRxactWaitEvent(rxact_wait_event_set, NULL, pconn);
-				rxact_finish_node_conn(pconn);
 				continue;
 			}
 
@@ -419,14 +419,10 @@ static void RxactLoop(void)
 			case PGRES_POLLING_ACTIVE:
 			case PGRES_POLLING_FAILED:
 				RemoveRxactWaitEvent(rxact_wait_event_set, NULL, pconn);
-				rxact_finish_node_conn(pconn);
 				continue;
 			case PGRES_POLLING_OK:
 				if(pconn->doing_gid[0] == '\0')
-				{
-					RemoveRxactWaitEvent(rxact_wait_event_set, NULL, pconn);
 					continue;
-				}
 				wait_write = false;
 				break;
 			case PGRES_POLLING_WRITING:
@@ -477,7 +473,7 @@ static void RxactLoop(void)
 
 		/* wait event  nevents */
 		nevents = WaitEventSetWaitSignal(rxact_wait_event_set,
-								   -1L, //-1L or 1000,
+								   waiting_time, //-1L or 1000,
 								   rxact_wait_event,
 								   rxact_event_cur_count,
 								   WAIT_EVENT_CLIENT_WRITE,
@@ -1900,6 +1896,15 @@ static void rxact_2pc_result(NodeConn *conn)
 				, rinfo->gid, RemoteXactType2String(rinfo->type), "success")));
 		}
 	}
+	/* 
+	 * When the datanode connection fails, adjust the epoll waiting time to 
+	 * avoid that the unfinished two-phase transaction 
+	 * cannot continue after the datanode recovery.
+	 */
+	if(finish)
+		waiting_time = -1L;
+	else
+		waiting_time = 1000L;
 }
 
 static NodeConn* rxact_get_node_conn(Oid db_oid, Oid node_oid, time_t cur_time)
@@ -2825,14 +2830,7 @@ OnListenNodeConnEvent(WaitEvent *event)
 	{
 		pconn->status = PQconnectPoll(pconn->conn);
 		if(pconn->status == PGRES_POLLING_FAILED)
-			rxact_finish_node_conn(pconn);
-		if(pconn->status == PGRES_POLLING_OK && pconn->doing_gid[0] == '\0')
-		{
-			RemoveWaitEvent(rxact_wait_event_set, getNodeConnPos(pconn));
-			closesocket(user_data->pconn_fd_dup);
-			rxact_finish_node_conn(user_data->pconn);
-			--rxact_event_cur_count;
-		}
+			RemoveRxactWaitEvent(rxact_wait_event_set, NULL, pconn);
 	}else
 	{
 		Assert(pconn->doing_gid[0] != '\0');
