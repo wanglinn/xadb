@@ -2489,7 +2489,7 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 	return result;
 }
 
-Expr *CreateReduceModuloExpr(Relation rel, const RelationLocInfo *loc, Index relid)
+Expr *CreateReduceModuloExpr(Relation rel, const RelationLocInfo *loc, int modulus, Index relid)
 {
 	Expr *result;
 
@@ -2502,7 +2502,7 @@ Expr *CreateReduceModuloExpr(Relation rel, const RelationLocInfo *loc, Index rel
 		LocatorKeyInfo	   *key;
 
 		/* make hash_combin_mod(node_count, hash(column) [,...]) */
-		args = list_make1(MakeInt4Const(list_length(loc->nodeids)));
+		args = list_make1(MakeInt4Const(modulus));
 
 		Assert(list_length(loc->keys) > 0);
 		foreach (lc, loc->keys)
