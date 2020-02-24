@@ -210,6 +210,7 @@ extern Oid get_opnamespace(Oid opno);
 extern Oid get_operid(const char *oprname, Oid oprleft, Oid oprright, Oid oprnsp);
 extern char *get_typename(Oid typid);
 extern char *get_pgxc_nodename(Oid nodeoid);
+extern int cmp_pgxc_nodename(Oid a, Oid b);
 extern char *get_pgxc_groupname(Oid groupid);
 extern void get_pgxc_node_name_and_host(Oid nodeoid, Name name, Name host);
 extern Oid get_pgxc_nodeoid(const char *nodename);
