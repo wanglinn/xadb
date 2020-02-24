@@ -58,5 +58,5 @@
 #undef EXPOSE_TO_CLIENT_CODE
 
 #define timestamptz int
-
+#define pg_node_tree text
 #endif							/* GENBKI_H */
