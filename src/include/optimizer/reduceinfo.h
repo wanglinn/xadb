@@ -1,6 +1,8 @@
 #ifndef REDUCEINFO_H
 #define REDUCEINFO_H
 
+#include "nodes/relation.h"
+
 #define REDUCE_TYPE_NONE		'\0'
 #define REDUCE_TYPE_HASHMAP		'B'
 #define REDUCE_TYPE_HASH		'H'
@@ -252,7 +254,7 @@ extern bool HaveOnceWindowAggClusterPath(List *wclauses, List *tlist, Path *path
 
 extern Var *makeVarByRel(AttrNumber attno, Oid rel_oid, Index rel_index);
 extern Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce);
-extern Expr *CreateReduceModuloExpr(Relation rel, const RelationLocInfo *loc, Index relid);
+extern Expr *CreateReduceModuloExpr(Relation rel, const RelationLocInfo *loc, int modulus, Index relid);
 extern Expr *CreateNodeOidEqualOid(Oid nodeoid);
 extern Expr *CreateNodeOidEqualExpr(Expr *expr);
 extern Expr *CreateNodeOidNotEqualOid(Oid nodeoid);

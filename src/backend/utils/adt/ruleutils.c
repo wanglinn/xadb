@@ -5411,7 +5411,7 @@ char* deparse_to_reduce_modulo(Relation rel, RelationLocInfo *loc)
 													  "deparse reduce modulo",
 													  ALLOCSET_DEFAULT_SIZES);
 	MemoryContext old_mem = MemoryContextSwitchTo(mem_context);
-	Expr *expr = CreateReduceModuloExpr(rel, loc, 1);
+	Expr *expr = CreateReduceModuloExpr(rel, loc, list_length(loc->nodeids), 1);
 	List *context = deparse_context_for(RelationGetRelationName(rel), RelationGetRelid(rel));
 	char *result = deparse_expression_pretty((Node*)expr, context, false, false, 0, 0);
 	MemoryContextSwitchTo(old_mem);
