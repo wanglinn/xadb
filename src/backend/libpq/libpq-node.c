@@ -1054,6 +1054,36 @@ void PQNputCopyData(List *conn_list, const char *buffer, int nbytes)
 	}
 }
 
+void PQNPutCopyEnd(List *conn_list)
+{
+	List	   *block_list;
+	List	   *list;
+	ListCell   *lc;
+	int			res;
+
+	list = conn_list;
+re_do_:
+	block_list = NIL;
+	foreach (lc, list)
+	{
+		res = PQputCopyEnd(lfirst(lc), NULL);
+		if (res < 0)
+			ereport(ERROR,
+					(errmsg("%s", PQerrorMessage(lfirst(lc))),
+					 errnode(PQNConnectName(lfirst(lc)))));
+		else if (res == 0)
+			block_list = lappend(block_list, lfirst(lc));
+	}
+	if (list != conn_list)
+		list_free(list);
+
+	if (block_list)
+	{
+		list = block_list;
+		goto re_do_;
+	}
+}
+
 void* PQNMakeDefHookFunctions(Size size)
 {
 	PQNHookFunctions *pub;

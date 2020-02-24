@@ -54,6 +54,7 @@ extern Oid PQNConnectOid(struct pg_conn *conn);
 extern int PQNFlush(List *conn_list, bool blocking);
 
 extern void PQNputCopyData(List *conn_list, const char *buffer, int nbytes);
+extern void PQNPutCopyEnd(List *conn_list);
 
 extern void* PQNMakeDefHookFunctions(Size size);
 
