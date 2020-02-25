@@ -12,6 +12,7 @@
 #include "commands/copy.h"
 #include "commands/dbcommands.h"
 #include "executor/execCluster.h"
+#include "executor/executor.h"
 #include "libpq-fe.h"
 #include "libpq/libpq-node.h"
 #include "libpq/pqformat.h"
@@ -75,6 +76,16 @@ typedef struct ClusterExpansionContext
 	BackgroundWorkerHandle *handle;
 	List				   *expansion;
 }ClusterExpansionContext;
+
+typedef struct ExpansionClean
+{
+	MemoryContext	mcontext;
+	Expr		   *expr;
+	ExprState	   *state;
+	ExprContext	   *econtext;
+	TupleTableSlot *slot;
+	BlockNumber		max_block;
+}ExpansionClean;
 
 static void CreateSHMQPipe(dsm_segment *seg, shm_mq_handle** mqh_sender, shm_mq_handle **mqh_receiver, bool is_worker)
 {
@@ -445,6 +456,7 @@ void AlterNodeExpansion(AlterNodeStmt *stmt, ParseState *pstate)
 	PQNListExecFinish(remote_list, NULL, &PQNDefaultHookFunctions, true);
 
 	CacheInvalidateRelcacheAll();
+	InvalidateSystemCaches();
 }
 
 static List* RestoreWorkerInfo(shm_mq_handle *mq)
@@ -1282,5 +1294,100 @@ void ClusterExpansion(StringInfo mem_toc)
 		WaitForBackgroundWorkerShutdown(context.handle);	/* should not run to here */
 	if (context.seg)
 		dsm_detach(context.seg);
+
 	CacheInvalidateRelcacheAll();
+	InvalidateSystemCaches();
+}
+
+void RelationBuildExpansionClean(Relation rel)
+{
+	MemoryContext volatile context;
+	MemoryContext volatile oldcontext;
+	HeapTuple		tuple;
+	ExpansionClean *clean;
+	Form_adb_clean	form_clean;
+	text		   *txt;
+	char		   *str;
+	if (RelationGetRelid(rel) < FirstNormalObjectId ||
+		!IsDnNode())
+		return;
+
+	tuple = SearchSysCache2(ADBCLEANOID, ObjectIdGetDatum(MyDatabaseId), ObjectIdGetDatum(RelationGetRelid(rel)));
+	if (!HeapTupleIsValid(tuple))
+		return;
+
+	context = AllocSetContextCreate(CacheMemoryContext, "expansion clean", ALLOCSET_DEFAULT_SIZES);
+	oldcontext = MemoryContextSwitchTo(context);
+	PG_TRY();
+	{
+		form_clean = (Form_adb_clean) GETSTRUCT(tuple);
+		clean = palloc0(sizeof(*clean));
+		clean->mcontext = CurrentMemoryContext;
+		clean->max_block = form_clean->clnblocks;
+		txt = pg_detoast_datum_packed(&form_clean->clnexpr);
+		str = text_to_cstring(txt);
+		clean->expr = stringToNode(str);
+		pfree(str);
+		if (txt != &form_clean->clnexpr)
+			pfree(txt);
+		clean->state = ExecInitExpr(clean->expr, NULL);
+		clean->econtext = CreateStandaloneExprContext();
+		clean->slot = table_slot_create(rel, NULL);
+		clean->econtext->ecxt_scantuple = clean->slot;
+	}PG_CATCH();
+	{
+		MemoryContextSwitchTo(oldcontext);
+		MemoryContextDelete(context);
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	ReleaseSysCache(tuple);
+	MemoryContextSwitchTo(oldcontext);
+	rel->rd_clean = clean;
+}
+
+void DestroyExpansionClean(struct ExpansionClean *clean)
+{
+	if (clean == NULL)
+		return;
+	FreeExprContext(clean->econtext, true);
+	ExecDropSingleTupleTableSlot(clean->slot);
+	MemoryContextDelete(clean->mcontext);
+}
+
+bool IsExpansionCleanEqual(struct ExpansionClean *a, struct ExpansionClean *b)
+{
+	if (a == b)
+		return true;
+	if (a == NULL ||
+		b == NULL)
+		return false;
+
+	if (equal(a->expr, b->expr) == false)
+		return false;
+	if (a->slot->tts_tupleDescriptor == b->slot->tts_tupleDescriptor ||
+		equalTupleDescs(a->slot->tts_tupleDescriptor, b->slot->tts_tupleDescriptor))
+		return true;
+
+	return false;
+}
+
+bool ExecTestExpansionClean(struct ExpansionClean *clean, void *tup)
+{
+	Datum			datum;
+	bool			isnull;
+
+	if (ItemPointerGetBlockNumberNoCheck(&((HeapTuple)tup)->t_self) > clean->max_block)
+	{
+		datum = BoolGetDatum(true);
+	}else
+	{
+		ExecForceStoreHeapTuple(tup, clean->slot, false);
+		datum = ExecEvalExprSwitchContext(clean->state, clean->econtext, &isnull);
+		Assert(!isnull);
+		ExecClearTuple(clean->slot);
+		ResetExprContext(clean->econtext);
+	}
+
+	return DatumGetBool(datum);
 }

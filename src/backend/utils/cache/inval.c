@@ -114,6 +114,7 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #ifdef ADB
+#include "catalog/adb_clean.h"
 #include "catalog/pg_aux_class.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node_d.h"
@@ -611,6 +612,12 @@ LocalExecuteInvalidationMessage(SharedInvalidationMessage *msg)
 	}
 	else if (msg->id == SHAREDINVALRELCACHE_ID)
 	{
+#ifdef ADB
+		if (msg->rc.dbId == InvalidOid && msg->rc.relId == InvalidOid)
+		{
+			InvalidateSystemCaches();
+		}else
+#endif /* ADB */
 		if (msg->rc.dbId == MyDatabaseId || msg->rc.dbId == InvalidOid)
 		{
 			int			i;
@@ -1290,6 +1297,13 @@ CacheInvalidateHeapTuple(Relation relation,
 		InvalidateRemoteNode();
 		PQNForceReleaseWhenTransactionFinish();
 		return;
+	}
+	else if (IsDnNode() &&	/* only datanode need clean */
+			 tupleRelId == AdbCleanRelationId)
+	{
+		Form_adb_clean clean = (Form_adb_clean) GETSTRUCT(tuple);
+		relationId = clean->clnrel;
+		databaseId = clean->clndb;
 	}
 #endif /* ADB */
 #ifdef ADBMGRD

@@ -28,6 +28,7 @@
 #include "utils/reltrigger.h"
 #ifdef ADB
 #include "pgxc/locator.h"
+struct ExpansionClean;
 #endif
 
 /*
@@ -206,6 +207,8 @@ typedef struct RelationData
 	RelationLocInfo *rd_locator_info;
 	List		   *rd_auxlist;		/* list of OIDs of auxiliaries on relation */
 	Bitmapset	   *rd_auxatt;		/* auxiliaries columns used in indexes */
+	struct ExpansionClean
+				   *rd_clean;		/* clean info */
 #endif
 } RelationData;
 
@@ -630,5 +633,13 @@ extern void RelationIncrementReferenceCount(Relation rel);
 extern void RelationDecrementReferenceCount(Relation rel);
 extern bool RelationHasUnloggedIndex(Relation rel);
 extern List *RelationGetRepsetList(Relation rel);
+
+#ifdef ADB
+/* routines in pgxc/nodemgr/expansion.c */
+extern void RelationBuildExpansionClean(Relation rel);
+extern void DestroyExpansionClean(struct ExpansionClean *clean);
+extern bool IsExpansionCleanEqual(struct ExpansionClean *a, struct ExpansionClean *b);
+extern bool ExecTestExpansionClean(struct ExpansionClean *clean, void *tup);
+#endif /* ADB */
 
 #endif							/* REL_H */
