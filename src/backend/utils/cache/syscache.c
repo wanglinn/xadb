@@ -79,6 +79,7 @@
 #include "utils/catcache.h"
 #include "utils/syscache.h"
 #ifdef ADB
+#include "catalog/adb_clean.h"
 #include "catalog/adb_proc.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"
@@ -1095,6 +1096,19 @@ static const struct cachedesc cacheinfo[] = {
 		},
 		2
 	}
+#ifdef ADB
+	,{AdbCleanRelationId,		/* ADBCLEANOID */
+		AdbCleanIndexId,
+		2,
+		{
+			Anum_adb_clean_clndb,
+			Anum_adb_clean_clnrel,
+			0,
+			0
+		},
+		64
+	}
+#endif /* ADB */
 #ifdef ADB_GRAM_ORA
 	,{
 		OraCastRelationId,			/* ORACASTSOURCETARGET */

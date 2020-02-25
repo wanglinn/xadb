@@ -453,6 +453,8 @@ heapgetpage(HeapScanDesc scan, BlockNumber page)
 											buffer, snapshot);
 
 #ifdef ADB
+			if (valid && scan->rs_rd->rd_clean)
+				valid = ExecTestExpansionClean(scan->rs_rd->rd_clean, &loctup);
 			//only check tuple slot in datanode and hash distribution
 			if ((valid)&&(scan->rs_rd->rd_id >= FirstNormalObjectId)
 				&& IS_PGXC_REAL_DATANODE&&adb_slot_enable_mvcc
@@ -681,6 +683,8 @@ heapgettup(HeapScanDesc scan,
 								nkeys, key, valid);
 
 #ifdef ADB
+			if (valid && scan->rs_rd->rd_clean)
+				valid = ExecTestExpansionClean(scan->rs_rd->rd_clean, tuple);
 			//only check tuple slot in datanode and hash distribution
 				if ((valid)&&(scan->rs_rd->rd_id >= FirstNormalObjectId)
 					&& IS_PGXC_REAL_DATANODE&&adb_slot_enable_mvcc
@@ -2011,6 +2015,8 @@ heap_fetch(Relation relation,
 
 
 #ifdef ADB
+	if (valid && relation->rd_clean)
+		valid = ExecTestExpansionClean(relation->rd_clean, tuple);
 	//only check tuple slot in datanode and hash distribution
 	if ((valid)&&(relation->rd_id >= FirstNormalObjectId)
 		&& IS_PGXC_REAL_DATANODE&&adb_slot_enable_mvcc
@@ -2167,6 +2173,8 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 			CheckForSerializableConflictOut(valid, relation, heapTuple,
 											buffer, snapshot);
 #ifdef ADB
+			if (valid && relation->rd_clean)
+				valid = ExecTestExpansionClean(relation->rd_clean, heapTuple);
 			//only check tuple slot in datanode and hash distribution
 			if ((valid)&&(relation->rd_id >= FirstNormalObjectId)
 				&& IS_PGXC_REAL_DATANODE&&adb_slot_enable_mvcc
@@ -2347,6 +2355,8 @@ heap_get_latest_tid(Relation relation,
 
 
 #ifdef ADB
+		if (valid && relation->rd_clean)
+			valid = ExecTestExpansionClean(relation->rd_clean, &tp);
 		//only check tuple slot in datanode and hash distribution
 		if ((valid)&&(relation->rd_id >= FirstNormalObjectId)
 			&& IS_PGXC_REAL_DATANODE&&adb_slot_enable_mvcc

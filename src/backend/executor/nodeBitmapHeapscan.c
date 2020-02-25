@@ -467,6 +467,8 @@ bitgetpage(HeapScanDesc scan, TBMIterateResult *tbmres)
 
 
 #ifdef ADB
+			if (valid && scan->rs_rd->rd_clean)
+				valid = ExecTestExpansionClean(scan->rs_rd->rd_clean, &loctup);
 			//only check tuple slot in datanode and hash distribution
 			if ((valid)&&(scan->rs_rd->rd_id >= FirstNormalObjectId)
 				&& IS_PGXC_REAL_DATANODE&&adb_slot_enable_mvcc

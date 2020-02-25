@@ -1192,6 +1192,8 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 		RelationBuildLocator(relation);
 
 	RelationBuildAuxiliary(relation);
+
+	RelationBuildExpansionClean(relation);
 #endif
 
 	/* foreign key data is not loaded till asked for */
@@ -2354,6 +2356,11 @@ RelationDestroyRelation(Relation relation, bool remember_tupdesc)
 		Assert(context != CacheMemoryContext);
 		MemoryContextDelete(context);
 	}
+	if (relation->rd_auxlist)
+		list_free(relation->rd_auxlist);
+	bms_free(relation->rd_auxatt);
+	if (relation->rd_clean)
+		DestroyExpansionClean(relation->rd_clean);
 #endif
 	pfree(relation);
 }
@@ -2638,6 +2645,8 @@ RelationClearRelation(Relation relation, bool rebuild)
 		}
 		if (IsLocatorInfoEqual(relation->rd_locator_info, newrel->rd_locator_info))
 			SWAPFIELD(RelationLocInfo *, rd_locator_info);
+		if (IsExpansionCleanEqual(relation->rd_clean, newrel->rd_clean))
+			SWAPFIELD(struct ExpansionClean *, rd_clean);
 #endif /* ADB */
 
 #undef SWAPFIELD
