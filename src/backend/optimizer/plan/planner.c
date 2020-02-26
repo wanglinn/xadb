@@ -10032,6 +10032,7 @@ static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *
 										  NULL,
 										  num_distinct_rows);
 			((AggPath*)path)->num_batches = num_batches;
+			path->parallel_aware = true;
 			path->reduce_info_list = CopyReduceInfoList(reduce_list);
 			path->reduce_is_valid = true;
 			add_cluster_partial_path(dcontext->distinct_rel, path);
