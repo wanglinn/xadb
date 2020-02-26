@@ -887,6 +887,11 @@ Oid load_oid_operator(StringInfo buf)
 
 Oid load_oid_class(StringInfo buf)
 {
+	return load_oid_class_extend(buf, false);
+}
+
+Oid load_oid_class_extend(StringInfoData *buf, bool missok)
+{
 	const char *relname;
 	Oid nsp;
 	Oid oid;
@@ -898,7 +903,7 @@ Oid load_oid_class(StringInfo buf)
 		nsp = load_namespace(buf);
 		relname = load_node_string(buf, false);
 		oid = get_relname_relid(relname, nsp);
-		if (!OidIsValid(oid))
+		if (!OidIsValid(oid) && missok == false)
 			elog(ERROR, "relation \"%s\" not exists in schema %u", relname, nsp);
 	}
 	return oid;

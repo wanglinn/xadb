@@ -762,6 +762,7 @@ extern Oid load_oid_type(struct StringInfoData *buf);
 extern Oid load_namespace(struct StringInfoData *buf);
 extern Oid load_namespace_extend(struct StringInfoData *buf, bool missok);
 extern Oid load_oid_class(struct StringInfoData *buf);
+extern Oid load_oid_class_extend(struct StringInfoData *buf, bool missok);
 extern struct List* load_oid_list(struct StringInfoData *buf, load_oid_fun fun);
 extern char * load_node_string(struct StringInfoData *buf, bool need_dup);
 extern Oid load_oid_ts_config(struct StringInfoData *buf);
