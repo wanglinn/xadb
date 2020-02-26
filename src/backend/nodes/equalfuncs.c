@@ -3118,7 +3118,7 @@ _equalBarrierStmt(const BarrierStmt *a, const BarrierStmt *b)
 static bool
 _equalAlterNodeStmt(const AlterNodeStmt *a, const AlterNodeStmt *b)
 {
-	COMPARE_SCALAR_FIELD(is_expansion);
+	COMPARE_SCALAR_FIELD(expansion_type);
 	COMPARE_STRING_FIELD(node_name);
 	COMPARE_NODE_FIELD(options);
 	COMPARE_NODE_FIELD(node_list);

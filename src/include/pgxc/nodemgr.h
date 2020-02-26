@@ -40,8 +40,10 @@ extern void InitPGXCNodeIdentifier(void);
 
 /* in expansion.c */
 struct ParseState;
-extern void AlterNodeExpansion(AlterNodeStmt *stmt, struct ParseState *pstate);
+extern void AlterNodeExpansionWork(AlterNodeStmt *stmt, struct ParseState *pstate);
+extern void AlterNodeExpansionClean(AlterNodeStmt *stmt, struct ParseState *pstate);
 extern void ExpansionWorkerMain(Datum arg);
 extern void ClusterExpansion(StringInfo mem_toc);
+extern void ClusterExpansionClean(StringInfo mem_toc);
 
 #endif	/* NODEMGR_H */

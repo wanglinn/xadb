@@ -3429,10 +3429,13 @@ typedef struct CreateNodeStmt
  * ----------------------
  *     Alter Node statement
  */
+#define EXPANSION_TYPE_NONE		0
+#define EXPANSION_TYPE_WORK		1
+#define EXPANSION_TYPE_CLEAN	2
 typedef struct AlterNodeStmt
 {
 	NodeTag		type;
-	bool		is_expansion;
+	uint8		expansion_type;
 	char	   *node_name;
 	List	   *options;
 	List	   *node_list;
