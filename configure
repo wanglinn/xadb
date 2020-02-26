@@ -768,6 +768,7 @@ adb_multi_gram
 enable_grammar_db2
 enable_grammar_oracle
 enable_cluster
+enable_rdma
 default_port
 WANTED_LANGUAGES
 enable_nls
@@ -842,6 +843,7 @@ enable_debug
 enable_profiling
 enable_coverage
 enable_dtrace
+enable_rdma
 enable_tap_tests
 with_blocksize
 with_segsize
@@ -1541,6 +1543,7 @@ Optional Features:
   --disable-largefile     omit support for large files
   --disable-float4-byval  disable float4 passed by value
   --disable-float8-byval  disable float8 passed by value
+  --enable-rdma           build with support rdma rsockets
 
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
@@ -3261,8 +3264,33 @@ else
 
 fi
 
+#
+# Rdma
+#
 
 
+# Check whether --enable-rdma was given.
+if test "${enable_rdma+set}" = set; then :
+  enableval=$enable_rdma;
+  case $enableval in
+    yes)
+      :
+      ;;
+    no)
+      :
+      ;;
+    *)
+      as_fn_error $? "no argument expected for --enable-rdma option" "$LINENO" 5
+      ;;
+  esac
+
+else
+  enable_rdma=no
+fi
+
+if test "$enable_rdma" = yes ; then
+  LIBS="-lrdmacm $LIBS"
+fi
 
 #
 # oracle grammar
@@ -5426,6 +5454,13 @@ if test "$enable_cluster" = yes; then
   CFLAGS="$CFLAGS -DADB"
   BITCODE_CFLAGS="$BITCODE_CFLAGS -DADB"
   BITCODE_CXXFLAGS="$BITCODE_CXXFLAGS -DADB"
+fi
+
+if test "$enable_rdma" = yes; then
+  # for WITH_RDMA set "-DWITH_RDMA" by default
+  CFLAGS="$CFLAGS -DWITH_RDMA"
+  BITCODE_CFLAGS="$BITCODE_CFLAGS -DWITH_RDMA"
+  BITCODE_CXXFLAGS="$BITCODE_CXXFLAGS -DWITH_RDMA"
 fi
 
 # C[XX]FLAGS we determined above will be added back at the end

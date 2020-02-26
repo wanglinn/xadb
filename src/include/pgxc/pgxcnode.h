@@ -29,6 +29,11 @@
 typedef struct PGconn NODE_CONNECTION;
 typedef struct PGcancel NODE_CANCEL;
 
+#ifdef WITH_RDMA
+extern char *PGXCNodeRsConnStr(char *hostaddr, int port, const char *dbname,
+				const char *user, const char *pgoptions, char *remote_type);
+#endif
+
 /* Open/close connection routines (invoked from Pool Manager) */
 extern char *PGXCNodeConnStr(char *host, int port, char *dbname, char *user,
 							 char *pgoptions, char *remote_type);

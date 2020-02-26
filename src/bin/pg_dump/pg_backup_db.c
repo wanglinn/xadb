@@ -246,7 +246,7 @@ ConnectDatabase(Archive *AHX,
 				const char *pghost,
 				const char *pgport,
 				const char *username,
-				trivalue prompt_password)
+				trivalue prompt_password ADB_RDMA_COMMA_ARG(bool is_rs))
 {
 	ArchiveHandle *AH = (ArchiveHandle *) AHX;
 	char	   *password;
@@ -274,11 +274,17 @@ ConnectDatabase(Archive *AHX,
 	 */
 	do
 	{
+#ifdef WITH_RDMA
+		const char *keywords[8];
+		const char *values[8];
+		keywords[0] = "hostaddr";
+		values[0] = pghost;
+#else
 		const char *keywords[7];
 		const char *values[7];
-
 		keywords[0] = "host";
 		values[0] = pghost;
+#endif
 		keywords[1] = "port";
 		values[1] = pgport;
 		keywords[2] = "user";
@@ -289,8 +295,15 @@ ConnectDatabase(Archive *AHX,
 		values[4] = dbname;
 		keywords[5] = "fallback_application_name";
 		values[5] = progname;
+#ifdef WITH_RDMA
+		keywords[7] = "rdma";
+		values[7] = "1";
+		keywords[8] = NULL;
+		values[8] = NULL;
+#else
 		keywords[6] = NULL;
 		values[6] = NULL;
+#endif
 
 		new_pass = false;
 		AH->connection = PQconnectdbParams(keywords, values, true);

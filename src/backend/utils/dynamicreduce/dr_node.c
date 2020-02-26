@@ -17,7 +17,7 @@
 
 static HTAB		   *htab_node_info = NULL;
 
-#ifdef DR_USING_RSOCKET
+#ifdef WITH_RDMA
 static void **dr_rhandle_list;
 #endif
 
@@ -126,7 +126,7 @@ bool PutMessageToNode(DRNodeEventData *ned, char msg_type, const char *data, uin
 
 static void OnNodeEvent(DROnEventArgs)
 {
-#ifdef DR_USING_RSOCKET
+#ifdef WITH_RDMA
 	DRNodeEventData *ned = (DRNodeEventData*)base;
 	Assert(ned->base.type == DR_EVENT_DATA_NODE);
 	DR_NODE_DEBUG((errmsg("node %d got events %d", ned->nodeoid, events)));
@@ -182,7 +182,7 @@ static void OnPreWaitNode(DROnPreWaitArgs)
 	DRNodeEventData *ned = (DRNodeEventData*)base;
 	uint32 need_event;
 	Assert(base->type == DR_EVENT_DATA_NODE);
-#if (!defined DR_USING_EPOLL) && (!defined DR_USING_RSOCKET)
+#if (!defined DR_USING_EPOLL) && (!defined WITH_RDMA)
 	Assert(GetWaitEventData(dr_wait_event_set, pos) == base);
 #endif
 	if (ned->status == DRN_WAIT_CLOSE)
@@ -195,7 +195,7 @@ static void OnPreWaitNode(DROnPreWaitArgs)
 	if (OidIsValid(ned->nodeoid))
 	{
 		need_event = 0;
-#ifdef DR_USING_RSOCKET
+#ifdef WITH_RDMA
 		if (ned->recvBuf.maxlen > ned->recvBuf.len)
 			need_event |= POLLIN;
 		if (ned->sendBuf.len > ned->sendBuf.cursor)
@@ -261,7 +261,7 @@ ssize_t RecvMessageFromNode(DRNodeEventData *ned, pgsocket fd)
 	Assert(space > 0);
 
 rerecv_:
-#ifdef DR_USING_RSOCKET
+#ifdef WITH_RDMA
 	size = rrecv(fd,
 				ned->recvBuf.data + ned->recvBuf.len,
 				space,
@@ -292,6 +292,9 @@ rerecv_:
 		//dr_keep_error = true;
 		if (dr_status == DRS_RESET)
 			return 0;
+
+		ereport(LOG,
+				(errmsg("rrecv size  0, dr_status %d", dr_status)));
 		ereport(ERROR,
 				(errmsg("remote node %u closed socket", ned->nodeoid)));
 	}
@@ -534,7 +537,7 @@ static void OnNodeSendMessage(DRNodeEventData *ned, pgsocket fd)
 		return;
 
 resend_:
-#ifdef DR_USING_RSOCKET
+#ifdef WITH_RDMA
 	result = rsend(fd,
 				  ned->sendBuf.data + ned->sendBuf.cursor,
 				  ned->sendBuf.len - ned->sendBuf.cursor,
@@ -655,7 +658,7 @@ static bool ProcessNodeCacheData(DRNodeEventData *ned, int planid)
 void DRActiveNode(int planid)
 {
 	DRNodeEventData	   *ned;
-#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET)
+#if (defined DR_USING_EPOLL) || (defined WITH_RDMA)
 	HASH_SEQ_STATUS		seq;
 
 	hash_seq_init(&seq, htab_node_info);
@@ -716,7 +719,7 @@ DRNodeEventData* DRSearchNodeEventData(Oid nodeoid, HASHACTION action, bool *fou
 	return hash_search_with_hash_value(htab_node_info, &ned, nodeoid, action, found);
 }
 
-#ifdef DR_USING_RSOCKET
+#ifdef WITH_RDMA
 void dr_create_rhandle_list(int num, bool is_realloc)
 {
 	if (is_realloc)
@@ -743,9 +746,9 @@ void dr_rhandle_add(int num, void *info)
 	
 	dr_rhandle_list[num] = info;
 }
-#endif /* DR_USING_RSOCKET */
+#endif /* WITH_RDMA */
 
-#if (defined DR_USING_EPOLL) || (defined DR_USING_RSOCKET)
+#if (defined DR_USING_EPOLL) || (defined WITH_RDMA)
 void DRNodeSeqInit(HASH_SEQ_STATUS *seq)
 {
 	Assert(htab_node_info);

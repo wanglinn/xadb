@@ -15,7 +15,9 @@
 #include "c.h"
 
 #include <fcntl.h>
-
+#ifdef WITH_RDMA
+#include <rdma/rsocket.h> 
+#endif
 
 /*
  * Put socket into nonblock mode.
@@ -40,6 +42,41 @@ pg_set_noblock(pgsocket sock)
 	return (ioctlsocket(sock, FIONBIO, &ioctlsocket_ret) == 0);
 #endif
 }
+
+#ifdef WITH_RDMA
+bool
+pg_set_rnoblock(pgsocket sock)
+{
+	int			flags;
+
+	flags = rfcntl(sock, F_GETFL);
+	if (flags < 0)
+		return false;
+	if (rfcntl(sock, F_SETFL, (flags | O_NONBLOCK)) == -1)
+		return false;
+	return true;
+}
+
+bool
+pg_set_rblock(pgsocket sock)
+{
+#if !defined(WIN32)
+	int			flags;
+
+	flags = rfcntl(sock, F_GETFL);
+	if (flags < 0)
+		return false;
+	if (rfcntl(sock, F_SETFL, (flags & ~O_NONBLOCK)) == -1)
+		return false;
+	return true;
+#else
+	unsigned long ioctlsocket_ret = 0;
+
+	/* Returns non-0 on failure, while fcntl() returns -1 on failure */
+	return (ioctlsocket(sock, FIONBIO, &ioctlsocket_ret) == 0);
+#endif
+}
+#endif
 
 /*
  * Put socket into blocking mode.

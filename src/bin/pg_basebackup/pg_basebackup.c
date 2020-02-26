@@ -2233,6 +2233,9 @@ main(int argc, char **argv)
 #ifdef ADB
 		{"nodename", required_argument, NULL, 11},
 #endif
+#ifdef WITH_RDMA
+		{"rdma", no_argument, NULL, 12},
+#endif
 		{"label", required_argument, NULL, 'l'},
 		{"no-clean", no_argument, NULL, 'n'},
 		{"no-sync", no_argument, NULL, 'N'},
@@ -2425,6 +2428,11 @@ main(int argc, char **argv)
 			case 3:
 				verify_checksums = false;
 				break;
+#ifdef WITH_RDMA
+			case 12:
+				is_rs = true;
+				break;
+#endif
 			default:
 
 				/*

@@ -243,7 +243,13 @@ secure_raw_read(Port *port, void *ptr, size_t len)
 #ifdef WIN32
 	pgwin32_noblock = true;
 #endif
+
+#ifdef WITH_RDMA
+	n = port->is_rs ? rrecv(port->sock, ptr, len, 0)
+		: recv(port->sock, ptr, len, 0);
+#else
 	n = recv(port->sock, ptr, len, 0);
+#endif
 #ifdef WIN32
 	pgwin32_noblock = false;
 #endif
@@ -335,7 +341,13 @@ secure_raw_write(Port *port, const void *ptr, size_t len)
 #ifdef WIN32
 	pgwin32_noblock = true;
 #endif
+
+#ifdef WITH_RDMA
+	n = port->is_rs ? rsend(port->sock, ptr, len, 0)
+		: send(port->sock, ptr, len, 0);
+#else
 	n = send(port->sock, ptr, len, 0);
+#endif
 #ifdef WIN32
 	pgwin32_noblock = false;
 #endif

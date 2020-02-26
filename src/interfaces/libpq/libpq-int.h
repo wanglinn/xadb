@@ -527,6 +527,13 @@ struct pg_conn
 	bool close_sock_on_end;		/* attached conn, close socket when error or finish */
 	bool is_gtm;
 #endif /* ADB */
+#ifdef WITH_RDMA
+	char *is_rs_str;
+	bool is_rs_request;
+	bool is_need_rcon;
+	bool is_rs;
+	int  rs_port_num;
+#endif /* WITH_RDMA */
 };
 
 /* PGcancel stores all data necessary to cancel a connection. A copy of this

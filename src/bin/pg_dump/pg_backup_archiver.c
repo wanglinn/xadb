@@ -413,7 +413,7 @@ RestoreArchive(Archive *AHX)
 
 		ConnectDatabase(AHX, ropt->dbname,
 						ropt->pghost, ropt->pgport, ropt->username,
-						ropt->promptPassword);
+						ropt->promptPassword ADB_RDMA_COMMA_ARG(0));
 
 		/*
 		 * If we're talking to the DB directly, don't send comments since they
@@ -4173,7 +4173,7 @@ restore_toc_entries_postfork(ArchiveHandle *AH, TocEntry *pending_list)
 	 */
 	ConnectDatabase((Archive *) AH, ropt->dbname,
 					ropt->pghost, ropt->pgport, ropt->username,
-					ropt->promptPassword);
+					ropt->promptPassword ADB_RDMA_COMMA_ARG(0));
 
 	/* re-establish fixed state */
 	_doSetFixedOutputState(AH);
@@ -4849,7 +4849,7 @@ CloneArchive(ArchiveHandle *AH)
 		/* this also sets clone->connection */
 		ConnectDatabase((Archive *) clone, ropt->dbname,
 						ropt->pghost, ropt->pgport, ropt->username,
-						ropt->promptPassword);
+						ropt->promptPassword ADB_RDMA_COMMA_ARG(0));
 
 		/* re-establish fixed state */
 		_doSetFixedOutputState(clone);
@@ -4878,7 +4878,7 @@ CloneArchive(ArchiveHandle *AH)
 
 		/* this also sets clone->connection */
 		ConnectDatabase((Archive *) clone, connstr.data,
-						pghost, pgport, username, TRI_NO);
+						pghost, pgport, username, TRI_NO ADB_RDMA_COMMA_ARG(0));
 
 		termPQExpBuffer(&connstr);
 		/* setupDumpWorker will fix up connection state */

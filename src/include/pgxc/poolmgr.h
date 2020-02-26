@@ -124,6 +124,10 @@ extern int PoolManagerSetCommand(PoolCommandType command_type, const char *set_c
 /* Get pooled connections */
 extern pgsocket *PoolManagerGetConnectionsOid(List *oidlist);
 
+#ifdef WITH_RDMA
+extern List *PoolManagerGetRsConnectionsOid(List *oidlist);
+#endif
+
 /* Clean pool connections */
 extern void PoolManagerCleanConnectionOid(List *oidlist, const char *dbname, const char *username);
 

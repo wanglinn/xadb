@@ -200,6 +200,13 @@ PGAC_ARG_BOOL(enable, cluster, yes,
 AC_SUBST(enable_cluster)
 
 #
+# Rdma
+#
+PGAC_ARG_BOOL(enable, rdma, yes,
+              [enable rdma module])
+AC_SUBST(enable_rdma)
+
+#
 # oracle grammar
 #
 PGAC_ARG_BOOL(enable,grammar-oracle, yes,

@@ -70,6 +70,24 @@ PGXCNodeConnStr(char *host, int port, char *dbname,
 				   host, port, dbname, user, remote_type, pgoptions);
 }
 
+#ifdef WITH_RDMA
+/*
+ * Builds up a rsocket connection string
+ */
+char *
+PGXCNodeRsConnStr(char *hostaddr, int port, const char *dbname,
+				const char *user, const char *pgoptions, char *remote_type)
+{
+	return psprintf("hostaddr=%s port=%d dbname=%s user=%s application_name=pgxc"
+				   " rdma=1 options='-c remotetype=%s %s"
+#ifdef ADB_MULTI_GRAM
+				   " -c grammar=postgres"
+#endif /* ADB_MULTI_GRAM */
+				   "'",
+				   hostaddr, port, dbname, user, remote_type, pgoptions);
+}
+#endif
+
 /*
  * Send SET query to given connection.
  * Query is sent asynchronously and results are consumed

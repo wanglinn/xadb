@@ -369,6 +369,9 @@ main(int argc, char **argv)
 		{"encoding", required_argument, NULL, 'E'},
 		{"help", no_argument, NULL, '?'},
 		{"version", no_argument, NULL, 'V'},
+#ifdef WITH_RDMA
+		{"rdma", no_argument, NULL, 'r'},
+#endif
 
 		/*
 		 * the following options don't have an equivalent short option letter
@@ -451,8 +454,13 @@ main(int argc, char **argv)
 
 	InitDumpOptions(&dopt);
 
+#ifdef WITH_RDMA
+	while ((c = getopt_long(argc, argv, "abBcCd:E:f:F:h:j:n:N:Op:RrsS:t:T:U:vwWxZ:",
+							long_options, &optindex)) != -1)
+#else
 	while ((c = getopt_long(argc, argv, "abBcCd:E:f:F:h:j:n:N:Op:RsS:t:T:U:vwWxZ:",
 							long_options, &optindex)) != -1)
+#endif
 	{
 		switch (c)
 		{
@@ -520,6 +528,12 @@ main(int argc, char **argv)
 			case 'R':
 				/* no-op, still accepted for backwards compatibility */
 				break;
+			
+#ifdef WITH_RDMA
+			case 'r':
+				dopt.is_rs = true;
+				break;
+#endif
 
 			case 's':			/* dump schema only */
 				dopt.schemaOnly = true;
@@ -762,7 +776,7 @@ main(int argc, char **argv)
 	 * Open the database using the Archiver, so it knows about it. Errors mean
 	 * death.
 	 */
-	ConnectDatabase(fout, dopt.dbname, dopt.pghost, dopt.pgport, dopt.username, prompt_password);
+	ConnectDatabase(fout, dopt.dbname, dopt.pghost, dopt.pgport, dopt.username, prompt_password ADB_RDMA_COMMA_ARG(dopt.is_rs));
 #ifdef MGR_DUMP
 	if (!adbmgr_table)
 #endif

@@ -343,6 +343,12 @@ static const internalPQconninfoOption PQconninfoOptions[] = {
 		"Target-Session-Attrs", "", 11, /* sizeof("read-write") = 11 */
 	offsetof(struct pg_conn, target_session_attrs)},
 
+#ifdef WITH_RDMA
+	{"rdma", NULL, NULL, NULL,
+		"rdma", "", 1,
+	offsetof(struct pg_conn, is_rs_str)},
+#endif /* ADB */
+
 #ifdef ADB
 	{"contype", NULL, DEF_PGPORT_STR, NULL,
 		"connect-type", "", 6,
@@ -464,7 +470,16 @@ pqDropConnection(PGconn *conn, bool flushInput)
 	}
 #endif
 	if (conn->sock != PGINVALID_SOCKET)
+#ifdef WITH_RDMA
+	{
+		if (conn->is_rs) 
+			rclose(conn->sock);
+		else
+			closesocket(conn->sock);
+	}
+#else
 		closesocket(conn->sock);
+#endif
 	conn->sock = PGINVALID_SOCKET;
 
 	/* Optionally discard any unread data */
@@ -682,11 +697,27 @@ PQpingParams(const char *const *keywords,
 PGconn *
 PQconnectdb(const char *conninfo)
 {
+	
 	PGconn	   *conn = PQconnectStart(conninfo);
+	/*FILE	   *fd;
+	fd = AllocateFile("libpqlog", "ab+");
+	PQtrace(conn, fd);
 
+	if (conn->Pfdebug)
+	{
+		fprintf(conn->Pfdebug, "After PQconnectStart conn status %d\n",
+				conn->status);
+		fprintf(conn->Pfdebug, "conninfo %s\n",
+				conninfo);
+	}*/
 	if (conn && conn->status != CONNECTION_BAD)
 		(void) connectDBComplete(conn);
 
+	/*if (conn->Pfdebug)
+		fprintf(conn->Pfdebug, "Last PQconnectdb conn status %d\n",
+				conn->status);
+	PQuntrace(conn);
+	FreeFile(fd);*/
 	return conn;
 }
 
@@ -876,6 +907,10 @@ fillPGconn(PGconn *conn, PQconninfoOption *connOptions)
 			}
 		}
 	}
+
+#ifdef WITH_RDMA
+	conn->is_rs_request = 1;
+#endif
 
 	return true;
 }
@@ -1525,9 +1560,18 @@ connectNoDelay(PGconn *conn)
 #ifdef	TCP_NODELAY
 	int			on = 1;
 
+#ifdef WITH_RDMA
+	if ((conn->is_rs ? rsetsockopt(conn->sock, IPPROTO_TCP, TCP_NODELAY,
+				   (char *) &on,
+				   sizeof(on))
+		: setsockopt(conn->sock, IPPROTO_TCP, TCP_NODELAY,
+				   (char *) &on,
+				   sizeof(on))) < 0)
+#else
 	if (setsockopt(conn->sock, IPPROTO_TCP, TCP_NODELAY,
 				   (char *) &on,
 				   sizeof(on)) < 0)
+#endif
 	{
 		char		sebuf[PG_STRERROR_R_BUFLEN];
 
@@ -1713,8 +1757,15 @@ setKeepalivesIdle(PGconn *conn)
 		idle = 0;
 
 #ifdef PG_TCP_KEEPALIVE_IDLE
+#ifdef WITH_RDMA
+	if ((conn->is_rs ? rsetsockopt(conn->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
+				   (char *) &idle, sizeof(idle))
+		: setsockopt(conn->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
+				   (char *) &idle, sizeof(idle))) < 0)
+#else
 	if (setsockopt(conn->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
 				   (char *) &idle, sizeof(idle)) < 0)
+#endif
 	{
 		char		sebuf[PG_STRERROR_R_BUFLEN];
 
@@ -1747,8 +1798,15 @@ setKeepalivesInterval(PGconn *conn)
 		interval = 0;
 
 #ifdef TCP_KEEPINTVL
+#ifdef WITH_RDMA
+	if ((conn->is_rs ? rsetsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPINTVL,
+				   (char *) &interval, sizeof(interval))
+			: setsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPINTVL,
+				   (char *) &interval, sizeof(interval))) < 0)
+#else
 	if (setsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPINTVL,
 				   (char *) &interval, sizeof(interval)) < 0)
+#endif
 	{
 		char		sebuf[PG_STRERROR_R_BUFLEN];
 
@@ -1782,8 +1840,15 @@ setKeepalivesCount(PGconn *conn)
 		count = 0;
 
 #ifdef TCP_KEEPCNT
+#ifdef WITH_RDMA
+	if ((conn->is_rs ? rsetsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPCNT,
+				   (char *) &count, sizeof(count))
+			: setsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPCNT,
+				   (char *) &count, sizeof(count))) < 0)
+#else
 	if (setsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPCNT,
 				   (char *) &count, sizeof(count)) < 0)
+#endif
 	{
 		char		sebuf[PG_STRERROR_R_BUFLEN];
 
@@ -2168,6 +2233,9 @@ PQconnectPoll(PGconn *conn)
 	if (conn == NULL)
 		return PGRES_POLLING_FAILED;
 
+	if (conn->Pfdebug)
+		fprintf(conn->Pfdebug, "PQconnectPoll conn status %d, try_next_addr %d,  try_next_host %d\n",
+				conn->status, conn->try_next_addr, conn->try_next_host);
 	/* Get the new data */
 	switch (conn->status)
 	{
@@ -2206,6 +2274,9 @@ PQconnectPoll(PGconn *conn)
 
 			/* Special cases: proceed without waiting. */
 		case CONNECTION_SSL_STARTUP:
+#ifdef WITH_RDMA
+		case CONNECTION_RSCOKET_STARTUP:
+#endif
 		case CONNECTION_NEEDED:
 		case CONNECTION_CHECK_WRITABLE:
 		case CONNECTION_CONSUME:
@@ -2225,6 +2296,9 @@ PQconnectPoll(PGconn *conn)
 keep_going:						/* We will come back to here until there is
 								 * nothing left to do. */
 
+	if (conn->Pfdebug)
+		fprintf(conn->Pfdebug, "After keep_going, try_next_addr %d,  try_next_host %d\n",
+				conn->try_next_addr, conn->try_next_host);
 	/* Time to advance to next address, or next host if no more addresses? */
 	if (conn->try_next_addr)
 	{
@@ -2384,6 +2458,16 @@ keep_going:						/* We will come back to here until there is
 		need_new_connection = true;
 	}
 
+#ifdef WITH_RDMA
+	if (conn->is_need_rcon)
+	{
+		need_new_connection = true;
+	}
+	if (conn->Pfdebug)
+		fprintf(conn->Pfdebug, "conn->is_need_rcon %d, conn->is_rs is %d\n",
+				conn->is_need_rcon, conn->is_rs);
+#endif
+
 	/* Force a new connection (perhaps to the same server as before)? */
 	if (need_new_connection)
 	{
@@ -2402,8 +2486,14 @@ keep_going:						/* We will come back to here until there is
 		conn->status = CONNECTION_NEEDED;
 
 		need_new_connection = false;
+#ifdef WITH_RDMA
+		conn->is_need_rcon = false;
+#endif
 	}
 
+	if (conn->Pfdebug)
+		fprintf(conn->Pfdebug, "Befor conn->status PQconnectPoll conn status %d, conn->try_next_host %d\n",
+				conn->status, conn->try_next_host);
 	/* Now try to advance the state machine for this connection */
 	switch (conn->status)
 	{
@@ -2452,9 +2542,24 @@ keep_going:						/* We will come back to here until there is
 					 * it fails anyway.
 					 */
 
+#ifdef WITH_RDMA
+					if (conn->Pfdebug)
+						fprintf(conn->Pfdebug, "addr_cur->ai_family is %d, conn->is_rs %d\n",
+							addr_cur->ai_family, conn->is_rs);
+					if (conn->is_rs)
+						conn->sock = rsocket(addr_cur->ai_family, SOCK_STREAM, 0);
+					else
+						conn->sock = socket(addr_cur->ai_family, SOCK_STREAM, 0);
+#else
 					conn->sock = socket(addr_cur->ai_family, SOCK_STREAM, 0);
+#endif
 					if (conn->sock == PGINVALID_SOCKET)
 					{
+
+						if (conn->Pfdebug)
+						{
+							fprintf(conn->Pfdebug, "create socket error %m\n");
+						}
 						/*
 						 * Silently ignore socket() failure if we have more
 						 * addresses to try; this reduces useless chatter in
@@ -2487,8 +2592,17 @@ keep_going:						/* We will come back to here until there is
 							goto keep_going;
 						}
 					}
+#ifdef WITH_RDMA
+					if (!(conn->is_rs ? pg_set_rnoblock(conn->sock) 
+							: pg_set_noblock(conn->sock)))
+#else
 					if (!pg_set_noblock(conn->sock))
+#endif
 					{
+						if (conn->Pfdebug)
+						{
+							fprintf(conn->Pfdebug, "set socket error %m\n");
+						}
 						appendPQExpBuffer(&conn->errorMessage,
 										  libpq_gettext("could not set socket to nonblocking mode: %s\n"),
 										  SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
@@ -2497,8 +2611,19 @@ keep_going:						/* We will come back to here until there is
 					}
 
 #ifdef F_SETFD
+#ifdef WITH_RDMA
+					if (conn->is_rs)
+						usleep(100000);
+					else if (!conn->is_rs && fcntl(conn->sock, F_SETFD, FD_CLOEXEC) == -1)
+#else
+					//TODO rsocket don't support FD_CLOEXEC
 					if (fcntl(conn->sock, F_SETFD, FD_CLOEXEC) == -1)
+#endif
 					{
+						if (conn->Pfdebug)
+						{
+							fprintf(conn->Pfdebug, "fcntl socket FD_CLOEXEC error %m\n");
+						}
 						appendPQExpBuffer(&conn->errorMessage,
 										  libpq_gettext("could not set socket to close-on-exec mode: %s\n"),
 										  SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
@@ -2526,10 +2651,21 @@ keep_going:						/* We will come back to here until there is
 							/* Do nothing */
 						}
 #ifndef WIN32
+#ifdef WITH_RDMA
+						else if ((conn->is_rs ? rsetsockopt(conn->sock,
+											SOL_SOCKET, SO_KEEPALIVE,
+											(char *) &on, sizeof(on))
+							: setsockopt(conn->sock,
+											SOL_SOCKET, SO_KEEPALIVE,
+											(char *) &on, sizeof(on))) < 0)
+#else
 						else if (setsockopt(conn->sock,
 											SOL_SOCKET, SO_KEEPALIVE,
 											(char *) &on, sizeof(on)) < 0)
+#endif
 						{
+							if (conn->Pfdebug)
+								fprintf(conn->Pfdebug, "setsockopt socket error %m\n");
 							appendPQExpBuffer(&conn->errorMessage,
 											  libpq_gettext("setsockopt(%s) failed: %s\n"),
 											  "SO_KEEPALIVE",
@@ -2588,9 +2724,18 @@ keep_going:						/* We will come back to here until there is
 
 #ifdef SO_NOSIGPIPE
 					optval = 1;
+#ifdef WITH_RDMA
+					if ((conn->is_rs ? rsetsockopt(conn->sock, SOL_SOCKET, SO_NOSIGPIPE,
+								   (char *) &optval, sizeof(optval))
+						: setsockopt(conn->sock, SOL_SOCKET, SO_NOSIGPIPE,
+								   (char *) &optval, sizeof(optval))) == 0)
+#else
 					if (setsockopt(conn->sock, SOL_SOCKET, SO_NOSIGPIPE,
 								   (char *) &optval, sizeof(optval)) == 0)
+#endif
 					{
+						if (conn->Pfdebug)
+								fprintf(conn->Pfdebug, "setsockopt socket error %m\n");
 						conn->sigpipe_so = true;
 						conn->sigpipe_flag = false;
 					}
@@ -2600,8 +2745,38 @@ keep_going:						/* We will come back to here until there is
 					 * Start/make connection.  This should not block, since we
 					 * are in nonblock mode.  If it does, well, too bad.
 					 */
+#ifdef WITH_RDMA
+					if (conn->is_rs)
+					{
+						if (conn->rs_port_num <= 0)
+						{
+							if (conn->Pfdebug)
+								fprintf(conn->Pfdebug, "Could not get the server rs_port_num %m\n");
+							appendPQExpBuffer(&conn->errorMessage,
+									  libpq_gettext("Could not get the server rs_port_num: %d\n"),
+									  conn->rs_port_num);
+							goto error_return;
+						}
+						//replace the connect port with new rsocket port
+						((struct sockaddr_in*)(addr_cur->ai_addr))->sin_port = htons(conn->rs_port_num);
+					}
+
+#ifdef WITH_RDMA
+					if (conn->Pfdebug && conn->is_rs)
+					{
+						fprintf(conn->Pfdebug, "Before connect errno %d\n",errno);
+						//struct sockaddr_in *addr =(struct sockaddr_in *)(addr_cur->ai_addr);
+						//fprintf(conn->Pfdebug, "connect ip %s\n", inet_ntoa(addr->sin_addr));
+					}
+#endif
+					if ((conn->is_rs ? rconnect(conn->sock, addr_cur->ai_addr,
+								addr_cur->ai_addrlen)
+						: connect(conn->sock, addr_cur->ai_addr,
+								addr_cur->ai_addrlen)) < 0)
+#else
 					if (connect(conn->sock, addr_cur->ai_addr,
 								addr_cur->ai_addrlen) < 0)
+#endif
 					{
 						if (SOCK_ERRNO == EINPROGRESS ||
 #ifdef WIN32
@@ -2609,6 +2784,8 @@ keep_going:						/* We will come back to here until there is
 #endif
 							SOCK_ERRNO == EINTR)
 						{
+							if (conn->Pfdebug)
+								fprintf(conn->Pfdebug, "transfer to CONNECTION_STARTED, %m\n");
 							/*
 							 * This is fine - we're in non-blocking mode, and
 							 * the connection is in progress.  Tell caller to
@@ -2626,6 +2803,8 @@ keep_going:						/* We will come back to here until there is
 						 * connection" wasn't.  Advance the state machine and
 						 * go do the next stuff.
 						 */
+						if (conn->Pfdebug)
+							fprintf(conn->Pfdebug, "transfer to CONNECTION_STARTED\n");
 						conn->status = CONNECTION_STARTED;
 						goto keep_going;
 					}
@@ -2653,10 +2832,23 @@ keep_going:						/* We will come back to here until there is
 				 * Now check (using getsockopt) that there is not an error
 				 * state waiting for us on the socket.
 				 */
-
+#ifdef WITH_RDMA
+				if (conn->Pfdebug)
+				{
+					fprintf(conn->Pfdebug, "conn->is_rs %d errno %d\n",
+						conn->is_rs, errno);
+				}
+				if ((conn->is_rs ? rgetsockopt(conn->sock, SOL_SOCKET, SO_ERROR,
+							   (char *) &optval, &optlen)
+					: getsockopt(conn->sock, SOL_SOCKET, SO_ERROR,
+							   (char *) &optval, &optlen)) == -1)
+#else
 				if (getsockopt(conn->sock, SOL_SOCKET, SO_ERROR,
 							   (char *) &optval, &optlen) == -1)
+#endif
 				{
+					if (conn->Pfdebug)
+						fprintf(conn->Pfdebug, "getsockopt failed %m\n");
 					appendPQExpBuffer(&conn->errorMessage,
 									  libpq_gettext("could not get socket error status: %s\n"),
 									  SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
@@ -2664,6 +2856,8 @@ keep_going:						/* We will come back to here until there is
 				}
 				else if (optval != 0)
 				{
+					if (conn->Pfdebug)
+						fprintf(conn->Pfdebug, "getsockopt optval %d, %m\n", optval);
 					/*
 					 * When using a nonblocking connect, we will typically see
 					 * connect failures at this point, so provide a friendly
@@ -2681,10 +2875,21 @@ keep_going:						/* We will come back to here until there is
 
 				/* Fill in the client address */
 				conn->laddr.salen = sizeof(conn->laddr.addr);
+#ifdef WITH_RDMA
+				if ((conn->is_rs ? rgetsockname(conn->sock,
+								(struct sockaddr *) &conn->laddr.addr,
+								&conn->laddr.salen)
+					: getsockname(conn->sock,
+								(struct sockaddr *) &conn->laddr.addr,
+								&conn->laddr.salen)) < 0)
+#else
 				if (getsockname(conn->sock,
 								(struct sockaddr *) &conn->laddr.addr,
 								&conn->laddr.salen) < 0)
+#endif
 				{
+					if (conn->Pfdebug)
+						fprintf(conn->Pfdebug, "getsockname error, %m\n");
 					appendPQExpBuffer(&conn->errorMessage,
 									  libpq_gettext("could not get client address from socket: %s\n"),
 									  SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
@@ -2760,6 +2965,28 @@ keep_going:						/* We will come back to here until there is
 					}
 				}
 #endif							/* HAVE_UNIX_SOCKETS */
+
+#ifdef WITH_RDMA
+				if (conn->is_rs_request)
+				{
+					ProtocolVersion prv;
+					if (conn->is_rs_str && strcmp (conn->is_rs_str, "1") == 0)
+						prv = pg_hton32(NEGOTIATE_RSOCKET_CODE);
+					else
+						prv = pg_hton32(NEGOTIATE_NORSOCKET_CODE);
+					
+					if (pqPacketSend(conn, 0, &prv, sizeof(prv)) != STATUS_OK)
+					{
+						appendPQExpBuffer(&conn->errorMessage,
+											libpq_gettext("could not send rsocket negotiation packet: %s\n"),
+											SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
+						goto error_return;
+					}
+					/* Ok, wait for response */
+					conn->status = CONNECTION_RSCOKET_STARTUP;
+					return PGRES_POLLING_READING;
+				}
+#endif
 
 				if (IS_AF_UNIX(conn->raddr.addr.ss_family))
 				{
@@ -2883,6 +3110,60 @@ keep_going:						/* We will come back to here until there is
 			 * Handle SSL negotiation: wait for postmaster messages and
 			 * respond as necessary.
 			 */
+#ifdef WITH_RDMA
+		case CONNECTION_RSCOKET_STARTUP:
+			{
+				int			new_rs_port;
+				int			rdresult;
+
+				rdresult = pqReadData(conn);
+
+				if (conn->Pfdebug)
+					fprintf(conn->Pfdebug, "rdresult %d, %m\n",
+						rdresult);
+				if (rdresult < 0)
+				{
+					/* errorMessage is already filled in */
+					goto error_return;
+				}
+				if (rdresult == 0)
+				{
+					/* caller failed to wait for data */
+					return PGRES_POLLING_READING;
+				}
+				if (pqGetInt(&new_rs_port, 4, conn) < 0)
+				{
+					/* should not happen really */
+					return PGRES_POLLING_READING;
+				}
+
+				conn->inStart = conn->inCursor;
+				if (conn->Pfdebug)
+					fprintf(conn->Pfdebug, "new_rs_port %d, %m\n",
+						new_rs_port);
+				conn->try_next_host = false;
+				conn->try_next_addr = false;
+				if (new_rs_port > 0)
+				{
+					conn->is_rs = 1;
+					conn->rs_port_num = new_rs_port;
+					conn->status = CONNECTION_STARTED;
+					conn->is_rs_request = 0;
+					conn->is_need_rcon = 1;
+					goto keep_going;
+					//return PGRES_POLLING_WRITING;
+				}
+				else
+				{
+					conn->is_rs = 0;
+					conn->rs_port_num = 0;
+					conn->status = CONNECTION_MADE;
+					conn->is_rs_request = 0;
+					conn->is_need_rcon = 0;
+					return PGRES_POLLING_WRITING;
+				}
+			}
+#endif
 		case CONNECTION_SSL_STARTUP:
 			{
 #ifdef USE_SSL
@@ -3889,6 +4170,11 @@ makeEmptyPGconn(void)
 		conn->close_sock_on_end = true;
 	}
 #endif /* ADB */
+
+#ifdef WITH_RDMA
+	if (conn)
+		conn->is_rs_str = NULL;
+#endif
 
 	return conn;
 }
@@ -6664,6 +6950,16 @@ PQsocket(const PGconn *conn)
 	return (conn->sock != PGINVALID_SOCKET) ? conn->sock : -1;
 }
 
+#ifdef WITH_RDMA
+bool
+PQisrs(const PGconn *conn)
+{
+	if (!conn)
+		return -1;
+	return conn->is_rs;
+}
+#endif
+
 int
 PQbackendPID(const PGconn *conn)
 {
@@ -7153,6 +7449,76 @@ PGconn *PQattach(pgsocket sock, void *custom, int close_sock_on_end, int pgversi
 		(void)connectDBCompleteFlag(conn, PGRES_POLLING_READING);
 	return conn;
 }
+
+#ifdef WITH_RDMA
+/* async interface, use PQconnectPoll finish connection */
+int PQbeginRsAttach(PGconn *conn)
+{
+	char		sebuf[256];
+
+	Assert(conn);
+	conn->custom = NULL;
+	conn->is_attached = true;
+	conn->close_sock_on_end = true;
+	conn->pversion = PG_PROTOCOL_LATEST;
+	conn->auth_req_received = true;
+
+	/* Fill in the client address */
+	conn->laddr.salen = sizeof(conn->laddr.addr);
+
+	if ((conn->is_rs ? rgetsockname(conn->sock,
+					(struct sockaddr *) & conn->laddr.addr,
+					&conn->laddr.salen)
+			: getsockname(conn->sock,
+					(struct sockaddr *) & conn->laddr.addr,
+					&conn->laddr.salen)) < 0)
+	{
+		appendPQExpBuffer(&conn->errorMessage,
+						  libpq_gettext("could not get client address from socket: %s\n"),
+				SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
+		goto error_return;
+	}
+
+	conn->raddr.salen = sizeof(conn->raddr.addr);
+
+	if ((conn->is_rs ? rgetpeername(conn->sock,
+					(struct sockaddr *) & conn->raddr.addr,
+					&conn->raddr.salen)
+			: getpeername(conn->sock,
+					(struct sockaddr *) & conn->raddr.addr,
+					&conn->raddr.salen) < 0))
+	{
+		appendPQExpBuffer(&conn->errorMessage,
+						  libpq_gettext("could not get peer address from socket: %s\n"),
+				SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
+		goto error_return;
+	}
+
+	/* get block status */
+	conn->nonblocking = conn->is_rs ? pg_set_rnoblock(conn->sock)
+		: pg_set_noblock(conn->sock);
+
+	if(!conn->nonblocking)
+		conn->is_rs ? pg_set_rblock(conn->sock) : pg_set_block(conn->sock);
+
+	/* make a query info message */
+	if(pqPacketSend(conn, 'I', NULL, 0) != STATUS_OK)
+	{
+		appendPQExpBuffer(&conn->errorMessage,
+			libpq_gettext("could not send query info packet: %s\n"),
+				SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
+		goto error_return;
+	}
+
+	conn->status = CONNECTION_AUTH_OK;
+	conn->asyncStatus = PGASYNC_BUSY;
+
+	return 0;
+
+error_return:
+	return -1;
+}
+#endif
 
 /* async interface, use PQconnectPoll finish connection */
 PGconn *PQbeginAttach(pgsocket sock, void *custom, int close_sock_on_end, int pgversion)
