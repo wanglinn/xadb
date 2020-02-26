@@ -799,7 +799,7 @@ END_NODE(RemoteQuery)
 
 #ifndef NO_NODE_AlterNodeStmt
 BEGIN_NODE(AlterNodeStmt)
-	NODE_SCALAR(bool,is_expansion)
+	NODE_SCALAR(uint8,expansion_type)
 	NODE_STRING(node_name)
 	NODE_NODE(List,options)
 	NODE_NODE(List,node_list)

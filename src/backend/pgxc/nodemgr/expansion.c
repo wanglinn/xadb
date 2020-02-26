@@ -1,7 +1,9 @@
 #include "postgres.h"
 
 #include "access/heapam.h"
+#include "access/heapam_xlog.h"
 #include "access/htup_details.h"
+#include "access/relscan.h"
 #include "access/xact.h"
 #include "catalog/adb_clean.h"
 #include "catalog/indexing.h"
@@ -11,6 +13,7 @@
 #include "catalog/pgxc_class.h"
 #include "commands/copy.h"
 #include "commands/dbcommands.h"
+#include "executor/clusterReceiver.h"
 #include "executor/execCluster.h"
 #include "executor/executor.h"
 #include "libpq-fe.h"
@@ -76,6 +79,12 @@ typedef struct ClusterExpansionContext
 	BackgroundWorkerHandle *handle;
 	List				   *expansion;
 }ClusterExpansionContext;
+
+typedef struct ClusterCleanContext
+{
+	Relation	rel_clean;
+	Snapshot	snapshot;
+}ClusterCleanContext;
 
 typedef struct ExpansionClean
 {
@@ -406,7 +415,7 @@ static void LoopExpansionWorkerMessage(shm_mq_handle *mq)
 	}
 }
 
-void AlterNodeExpansion(AlterNodeStmt *stmt, ParseState *pstate)
+void AlterNodeExpansionWork(AlterNodeStmt *stmt, ParseState *pstate)
 {
 	dsm_segment	   *dsm_seg = dsm_create(EXPANSION_QUEUE_SIZE*2, 0);
 	Relation		rel = relation_open(DatabaseRelationId, LW_SHARED);
@@ -454,6 +463,7 @@ void AlterNodeExpansion(AlterNodeStmt *stmt, ParseState *pstate)
 	list_free(expansion_list);
 	PQNPutCopyEnd(remote_list);
 	PQNListExecFinish(remote_list, NULL, &PQNDefaultHookFunctions, true);
+	list_free(remote_list);
 
 	CacheInvalidateRelcacheAll();
 	InvalidateSystemCaches();
@@ -1389,4 +1399,271 @@ bool ExecTestExpansionClean(struct ExpansionClean *clean, void *tup)
 	}
 
 	return DatumGetBool(datum);
+}
+
+static void finish_clean_rel(Relation rel_clean, ItemPointer tid, Buffer buffer)
+{
+	bool		need_release;
+	Page		page;
+	XLogRecPtr	recptr;
+	ItemId		lpp;
+
+	if (BufferIsValid(buffer))
+	{
+		need_release = false;
+		Assert(BufferGetBlockNumber(buffer) == ItemPointerGetBlockNumber(tid));
+	}else
+	{
+		need_release = true;
+		buffer = ReadBuffer(rel_clean, ItemPointerGetBlockNumber(tid));
+		LockBufferForCleanup(buffer);
+	}
+	page = BufferGetPage(buffer);
+
+	lpp = PageGetItemId(page, tid->ip_posid);
+	if (ItemIdIsNormal(lpp))
+	{
+		heap_page_prune_execute(buffer, NULL, 0, &tid->ip_posid, 1, NULL, 0);
+		PageClearFull(page);
+		MarkBufferDirty(buffer);
+		recptr = log_heap_clean(rel_clean, buffer, NULL, 0, &tid->ip_posid, 1, NULL, 0, InvalidTransactionId);
+		PageSetLSN(page, recptr);
+	}
+	if (need_release)
+		UnlockReleaseBuffer(buffer);
+}
+
+void AlterNodeExpansionClean(AlterNodeStmt *stmt, struct ParseState *pstate)
+{
+	HeapTuple		tuple;
+	Form_adb_clean	form_clean;
+	List		   *all_connect;
+	List		   *remote_list;
+	List		   *remote_oids;
+	List		   *list;
+	ListCell	   *lc;
+	text		   *txt;
+	char		   *str;
+	PGconn		   *conn;
+	StringInfoData	msg;
+	Relation		rel_clean = relation_open(AdbCleanRelationId, AccessExclusiveLock);
+	HeapScanDesc	scan = heap_beginscan_catalog(rel_clean, 0, NULL);
+
+#if 0
+	(void)GetTransactionSnapshot();	/* update RecentGlobalDataXmin */
+#endif
+
+	/* find all datanodes */
+	remote_oids = NIL;
+	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{
+		form_clean = (Form_adb_clean) GETSTRUCT(tuple);
+		if (form_clean->clndb != MyDatabaseId)
+			continue;
+#if 0
+		if (HeapTupleHeaderGetRawXmax(tuple->t_data) < /* SnapSendGetGlobalXmin() */RecentGlobalDataXmin)
+		{
+			ereport(ERROR,
+					(errmsg("expansion transaction id %u still in snapshot, please try again later",
+							HeapTupleHeaderGetRawXmin(tuple->t_data)),
+					 errhint("maybe \"vacuum_defer_cleanup_age\" too large")));
+		}
+#endif
+		txt = pg_detoast_datum_packed(&form_clean->clnexpr);
+		str = text_to_cstring(txt);
+		list = stringToNode(str);
+		pfree(str);
+		if (txt != &form_clean->clnexpr)
+			pfree(txt);
+
+		foreach (lc, list)
+			remote_oids = list_append_unique_oid(remote_oids, lfirst_oid(lc));
+		list_free(list);
+	}
+	all_connect = NIL;
+	if (remote_oids == NIL)
+		goto clean_end_;
+
+	/* start cluster function */
+	initStringInfo(&msg);
+	ClusterTocSetCustomFun(&msg, ClusterExpansionClean);
+	all_connect = ExecClusterCustomFunction(remote_oids, &msg, 0);
+
+	/* clean each relation data */
+	heap_rescan(scan, NULL);
+	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{
+		CHECK_FOR_INTERRUPTS();
+		form_clean = (Form_adb_clean) GETSTRUCT(tuple);
+		if (form_clean->clndb != MyDatabaseId)
+			continue;
+
+		if (SearchSysCacheExists1(RELOID, ObjectIdGetDatum(form_clean)) == false)
+			goto clean_rel_end_;	/* should not happen */
+
+		txt = pg_detoast_datum_packed(&form_clean->clnexpr);
+		str = text_to_cstring(txt);
+		list = stringToNode(str);
+		pfree(str);
+		if (txt != &form_clean->clnexpr)
+			pfree(txt);
+
+		remote_list = NIL;
+		foreach (lc, list)
+		{
+			conn = PQNFindConnUseOid(lfirst_oid(lc));
+			if (conn == NULL)
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Connection for node %u not connected", lfirst_oid(lc))));
+			if (!PQisCopyOutState(conn) || !PQisCopyInState(conn))
+				ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+						 errmsg("Connection for node %u is not in copy both mode", lfirst_oid(lc))));
+			remote_list = lappend(remote_list, conn);
+		}
+		list_free(list);
+
+		resetStringInfo(&msg);
+		appendStringInfoChar(&msg, EW_KEY_CLASS_RELATION);
+		save_oid_class(&msg, form_clean->clnrel);
+		PQNputCopyData(remote_list, msg.data, msg.len);
+		PQNFlush(remote_list, true);
+		
+		while(remote_list)
+		{
+			conn = linitial(remote_list);
+			wait_executor_end_msg(conn);
+			remote_list = list_delete_first(remote_list);
+		}
+clean_rel_end_:
+		LockBufferForCleanup(scan->rs_cbuf);
+		finish_clean_rel(rel_clean, &tuple->t_self, scan->rs_cbuf);
+		LockBuffer(scan->rs_cbuf, BUFFER_LOCK_UNLOCK);
+	}
+	pfree(msg.data);
+
+clean_end_:
+	heap_endscan(scan);
+	relation_close(rel_clean, AccessExclusiveLock);
+	if (all_connect)
+	{
+		PQNPutCopyEnd(all_connect);
+		PQNListExecFinish(all_connect, NULL, &PQNDefaultHookFunctions, true);
+		list_free(all_connect);
+	}
+}
+
+static int ProcessClusterCleanCommand(ClusterCleanContext *context, const char *data, int len)
+{
+	Relation		rel;
+	ExpansionClean *clean;
+	StringInfoData	buf;
+	int				msgtype;
+	Oid				relid;
+	BlockNumber		block;
+	OffsetNumber	clean_items[MaxHeapTuplesPerPage];
+	int				clean_nitem;
+
+	buf.data = (char*)data;
+	buf.len = buf.maxlen = len;
+	buf.cursor = 0;
+
+	msgtype = pq_getmsgbyte(&buf);
+	if (msgtype != EW_KEY_CLASS_RELATION)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("unexpected cluster command 0x%02X during COPY from coordinator", msgtype)));
+	}
+	rel = NULL;
+	relid = load_oid_class_extend(&buf, true);
+	if (!OidIsValid(relid))
+		goto end_clean_rel_;
+
+	rel = heap_open(relid, AccessShareLock);
+	if (rel->rd_clean == NULL)
+	{
+		Assert(SearchSysCacheExists2(ADBCLEANOID, ObjectIdGetDatum(MyDatabaseId), ObjectIdGetDatum(relid)) == false);
+		goto end_clean_rel_;
+	}
+	clean = rel->rd_clean;
+
+	for (block=0;block<clean->max_block;++block)
+	{
+		bool			all_visible;
+		bool			valid;
+		int				lines;
+		OffsetNumber	lineoff;
+		ItemId			lpp;
+		HeapTupleData	loctup;
+		XLogRecPtr		recptr;
+		Buffer			buffer = ReadBuffer(rel, block);
+		Page			page = BufferGetPage(buffer);
+
+		LockBufferForCleanup(buffer);
+		TestForOldSnapshot(context->snapshot, rel, page);
+		lines = PageGetMaxOffsetNumber(page);
+		all_visible = PageIsAllVisible(page);
+		clean_nitem = 0;
+		for (lineoff = FirstOffsetNumber, lpp = PageGetItemId(page, lineoff);
+			 lineoff <= lines;
+			 lineoff++,lpp++)
+		{
+			if (!ItemIdIsNormal(lpp))
+				continue;
+			loctup.t_tableOid = relid;
+			loctup.t_data = (HeapTupleHeader) PageGetItem(page, lpp);
+			loctup.t_len = ItemIdGetLength(lpp);
+			ItemPointerSet(&(loctup.t_self), block, lineoff);
+
+			if (all_visible)
+				valid = true;
+			else
+				valid = HeapTupleSatisfiesVisibility(&loctup, context->snapshot, buffer);
+
+			if (valid && ExecTestExpansionClean(rel->rd_clean, &loctup) == false)
+				clean_items[clean_nitem++] = lineoff;
+		}
+
+		if (clean_nitem > 0)
+		{
+			heap_page_prune_execute(buffer, NULL, 0, clean_items, clean_nitem, NULL, 0);
+			PageClearFull(page);
+			MarkBufferDirty(buffer);
+			if (RelationNeedsWAL(rel))
+			{
+				recptr = log_heap_clean(rel, buffer, NULL, 0, clean_items, clean_nitem, NULL, 0, InvalidTransactionId);
+				PageSetLSN(page, recptr);
+			}
+		}
+		UnlockReleaseBuffer(buffer);
+		CHECK_FOR_INTERRUPTS();
+	}
+
+end_clean_rel_:
+	if (rel != NULL)
+	{
+		HeapTuple tup = SearchSysCache2(ADBCLEANOID, ObjectIdGetDatum(MyDatabaseId), relid);
+		if (HeapTupleIsValid(tup))
+		{
+			finish_clean_rel(context->rel_clean, &tup->t_self, InvalidBuffer);
+			ReleaseSysCache(tup);
+		}
+		relation_close(rel, AccessShareLock);
+	}
+	put_executor_end_msg(true);
+	return 0;
+}
+
+void ClusterExpansionClean(StringInfo mem_toc)
+{
+	ClusterCleanContext context;
+	MemSet(&context, 0, sizeof(context));
+	context.rel_clean = relation_open(AdbCleanRelationId, AccessExclusiveLock);
+	context.snapshot = GetActiveSnapshot();
+	SimpleNextCopyFromNewFE((SimpleCopyDataFunction)ProcessClusterCleanCommand, &context);
+	relation_close(context.rel_clean, AccessExclusiveLock);
+	CacheInvalidateRelcacheAll();
+	InvalidateSystemCaches();
 }

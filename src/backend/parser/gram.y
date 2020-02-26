@@ -11213,6 +11213,7 @@ pgxcnode_list:
 AlterNodeStmt: ALTER NODE pgxcnode_name OptWith
 				{
 					AlterNodeStmt *n = makeNode(AlterNodeStmt);
+					n->expansion_type = EXPANSION_TYPE_NONE;
 					n->node_name = $3;
 					n->options = $4;
 					$$ = (Node *)n;
@@ -11220,6 +11221,7 @@ AlterNodeStmt: ALTER NODE pgxcnode_name OptWith
 			| ALTER NODE pgxcnode_name OptWith ON '(' pgxcnode_list ')'
 				{
 					AlterNodeStmt *n = makeNode(AlterNodeStmt);
+					n->expansion_type = EXPANSION_TYPE_NONE;
 					n->node_name = $3;
 					n->options = $4;
 					n->node_list = $7;
@@ -11228,8 +11230,14 @@ AlterNodeStmt: ALTER NODE pgxcnode_name OptWith
 			| ALTER NODE DATA_P '(' NodeSplitList ')'
 				{
 					AlterNodeStmt *n = makeNode(AlterNodeStmt);
-					n->is_expansion = true;
+					n->expansion_type = EXPANSION_TYPE_WORK;
 					n->options = $5;
+					$$ = (Node*)n;
+				}
+			| ALTER NODE DATA_P CLEAN
+				{
+					AlterNodeStmt *n = makeNode(AlterNodeStmt);
+					n->expansion_type = EXPANSION_TYPE_CLEAN;
 					$$ = (Node*)n;
 				}
 		;

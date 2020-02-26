@@ -1078,7 +1078,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 		 * it is necessary to create this node on all the Coordinators independently.
 		 */
 		case T_AlterNodeStmt:
-			if (((AlterNodeStmt*)parsetree)->is_expansion)
+			if (((AlterNodeStmt*)parsetree)->expansion_type == EXPANSION_TYPE_WORK)
 			{
 				if (!superuser())
 					ereport(ERROR,
@@ -1088,7 +1088,18 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 					ereport(ERROR,
 							(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 							 errmsg("must gtm_coord node to do ALTER NODE DATA")));
-				AlterNodeExpansion((AlterNodeStmt*) parsetree, pstate);
+				AlterNodeExpansionWork((AlterNodeStmt*) parsetree, pstate);
+			}else if (((AlterNodeStmt*)parsetree)->expansion_type == EXPANSION_TYPE_CLEAN)
+			{
+				if (!superuser())
+					ereport(ERROR,
+							(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+							 errmsg("must be superuser to do ALTER NODE DATA CLEAN")));
+				if (!IsGTMCnNode())
+					ereport(ERROR,
+							(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+							 errmsg("must gtm_coord node to do ALTER NODE DATA CLEAN")));
+				AlterNodeExpansionClean((AlterNodeStmt*) parsetree, pstate);
 			}else
 			{
 				PgxcNodeAlter((AlterNodeStmt *) parsetree);
