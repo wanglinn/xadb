@@ -51,7 +51,7 @@ static void buildShSecLabels(PGconn *conn,
 				 const char *objtype, const char *objname,
 				 PQExpBuffer buffer);
 static PGconn *connectDatabase(const char *dbname, const char *connstr, const char *pghost, const char *pgport,
-				const char *pguser, trivalue prompt_password, bool fail_on_error);
+				const char *pguser, trivalue prompt_password, bool fail_on_error ADB_RDMA_COMMA_ARG(int is_rs));
 static char *constructConnStr(const char **keywords, const char **values);
 static PGresult *executeQuery(PGconn *conn, const char *query);
 static void executeCommand(PGconn *conn, const char *query);
@@ -101,6 +101,10 @@ static int dump_adb_slot = 0;
 static int include_nodes = 0;
 #endif
 
+#ifdef WITH_RDMA
+static int is_rs = 0;
+#endif
+
 #define exit_nicely(code) exit(code)
 
 int
@@ -128,7 +132,6 @@ main(int argc, char *argv[])
 		{"password", no_argument, NULL, 'W'},
 		{"no-privileges", no_argument, NULL, 'x'},
 		{"no-acl", no_argument, NULL, 'x'},
-
 		/*
 		 * the following options don't have an equivalent short option letter
 		 */
@@ -156,6 +159,9 @@ main(int argc, char *argv[])
 		{"dump-nodes", no_argument, &dump_nodes, 1},
 		{"dump-adb_slot", no_argument, &dump_adb_slot, 1},
 		{"include-nodes", no_argument, &include_nodes, 1},
+#endif
+#ifdef WITH_RDMA
+		{"rdma", no_argument, &is_rs, 1},
 #endif
 
 		{NULL, 0, NULL, 0}
@@ -447,7 +453,7 @@ main(int argc, char *argv[])
 	if (pgdb)
 	{
 		conn = connectDatabase(pgdb, connstr, pghost, pgport, pguser,
-							   prompt_password, false);
+							   prompt_password, false ADB_RDMA_COMMA_ARG(is_rs));
 
 		if (!conn)
 		{
@@ -459,10 +465,10 @@ main(int argc, char *argv[])
 	else
 	{
 		conn = connectDatabase("postgres", connstr, pghost, pgport, pguser,
-							   prompt_password, false);
+							   prompt_password, false ADB_RDMA_COMMA_ARG(is_rs));
 		if (!conn)
 			conn = connectDatabase("template1", connstr, pghost, pgport, pguser,
-								   prompt_password, true);
+								   prompt_password, true ADB_RDMA_COMMA_ARG(is_rs));
 
 		if (!conn)
 		{
@@ -1588,7 +1594,7 @@ buildShSecLabels(PGconn *conn, const char *catalog_name, Oid objectId,
 static PGconn *
 connectDatabase(const char *dbname, const char *connection_string,
 				const char *pghost, const char *pgport, const char *pguser,
-				trivalue prompt_password, bool fail_on_error)
+				trivalue prompt_password, bool fail_on_error ADB_RDMA_COMMA_ARG(int is_rs))
 {
 	PGconn	   *conn;
 	bool		new_pass;
@@ -1617,6 +1623,9 @@ connectDatabase(const char *dbname, const char *connection_string,
 	do
 	{
 		int			argcount = 6;
+#ifdef WITH_RDMA
+		argcount = 7;
+#endif
 		PQconninfoOption *conn_opt;
 		char	   *err_msg = NULL;
 		int			i = 0;
@@ -1672,7 +1681,11 @@ connectDatabase(const char *dbname, const char *connection_string,
 
 		if (pghost)
 		{
+#ifdef WITH_RDMA
+			keywords[i] = "hostaddr";
+#else
 			keywords[i] = "host";
+#endif
 			values[i] = pghost;
 			i++;
 		}
@@ -1700,6 +1713,15 @@ connectDatabase(const char *dbname, const char *connection_string,
 			values[i] = dbname;
 			i++;
 		}
+
+#ifdef WITH_RDMA
+		if (is_rs)
+		{
+			keywords[i] = "rdma";
+			values[i] = "1";
+			i++;
+		}
+#endif
 		keywords[i] = "fallback_application_name";
 		values[i] = progname;
 		i++;

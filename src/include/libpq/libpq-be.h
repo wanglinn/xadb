@@ -190,6 +190,9 @@ typedef struct Port
 	SSL		   *ssl;
 	X509	   *peer;
 #endif
+#ifdef WITH_RDMA
+	bool		is_rs;
+#endif
 } Port;
 
 #ifdef USE_SSL

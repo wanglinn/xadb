@@ -215,7 +215,12 @@ pq_init(void)
 	 * infinite recursion.
 	 */
 #ifndef WIN32
+#ifdef WITH_RDMA
+	if (!(MyProcPort->is_rs ? pg_set_rnoblock(MyProcPort->sock)
+		:pg_set_noblock(MyProcPort->sock)))
+#else
 	if (!pg_set_noblock(MyProcPort->sock))
+#endif
 		ereport(COMMERROR,
 				(errmsg("could not set socket to nonblocking mode: %m")));
 #endif
@@ -302,8 +307,161 @@ socket_close(int code, Datum arg)
 	}
 }
 
+//(struct sockaddr_in *)
+#ifdef WITH_RDMA
+int
+StreamServerRsPort(SockAddr *laddr, pgsocket *sr_fd, int *port_out)
+{
+	pgsocket	fd;
+	int			err;
+	socklen_t			addrlen;
+	struct sockaddr_in	addr_inet;
+	const struct sockaddr_in	*laddr_inet;
+	const char *familyDesc;
+	char		familyDescBuf[64];
+	const char *addrDesc;
+	char		addrBuf[NI_MAXHOST];
 
+#if !defined(WIN32) || defined(IPV6_V6ONLY)
+	int			one = 1;
+#endif
 
+	laddr_inet = (const struct sockaddr_in*)laddr;
+	/* set up address family name for log messages */
+	switch (laddr_inet->sin_family )
+	{
+		case AF_INET:
+			familyDesc = _("IPv4");
+			break;
+#ifdef HAVE_IPV6
+		case AF_INET6:
+			familyDesc = _("IPv6");
+			break;
+#endif
+#ifdef HAVE_UNIX_SOCKETS
+		case AF_UNIX:
+			ereport(LOG,
+					(errmsg("RDMA not support Unix-domain socket yet")));
+			return STATUS_ERROR;
+#endif
+		default:
+			snprintf(familyDescBuf, sizeof(familyDescBuf),
+						_("unrecognized address family %d"),
+						laddr_inet->sin_family);
+			familyDesc = familyDescBuf;
+			break;
+	}
+
+	/* Initialize hint structure */
+	MemSet(&addr_inet, 0, sizeof(addr_inet));
+	addr_inet.sin_family = laddr_inet->sin_family;
+	/* addr_inet.sin_port = 0; */
+	addr_inet.sin_addr.s_addr = laddr_inet->sin_addr.s_addr;
+
+	pg_getnameinfo_all((const struct sockaddr_storage *) laddr_inet,
+						laddr->salen,
+						addrBuf, sizeof(addrBuf),
+						NULL, 0,
+						NI_NUMERICHOST);
+	addrDesc = addrBuf;
+
+	if ((fd = rsocket(addr_inet.sin_family, SOCK_STREAM, 0)) == PGINVALID_SOCKET)
+	{
+		ereport(LOG,
+				(errcode_for_socket_access(),
+		/* translator: first %s is IPv4, IPv6, or Unix */
+					errmsg("could not create %s socket for address \"%s\": %m",
+						familyDesc, addrDesc)));
+		return STATUS_ERROR;
+	}
+
+#ifndef WIN32
+	/*
+		* Without the SO_REUSEADDR flag, a new postmaster can't be started
+		* right away after a stop or crash, giving "address already in use"
+		* error on TCP ports.
+		*
+		* On win32, however, this behavior only happens if the
+		* SO_EXLUSIVEADDRUSE is set. With SO_REUSEADDR, win32 allows multiple
+		* servers to listen on the same address, resulting in unpredictable
+		* behavior. With no flags at all, win32 behaves as Unix with
+		* SO_REUSEADDR.
+		*/
+	if ((rsetsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+					(char *) &one, sizeof(one))) == -1)
+	{
+		ereport(LOG,
+				(errcode_for_socket_access(),
+		/* translator: first %s is IPv4, IPv6, or Unix */
+					errmsg("rsetsockopt(SO_REUSEADDR) failed for %s address \"%s\": %m",
+						familyDesc, addrDesc)));
+		rclose(fd);
+		return STATUS_ERROR;
+	}
+#endif
+
+#ifdef IPV6_V6ONLY
+	if (laddr_inet->sin_family == AF_INET6)
+	{
+		if (rsetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
+						(char *) &one, sizeof(one)) == -1)
+		{
+			ereport(LOG,
+					(errcode_for_socket_access(),
+			/* translator: first %s is IPv4, IPv6, or Unix */
+						errmsg("rsetsockopt(IPV6_V6ONLY) failed for %s address \"%s\": %m",
+							familyDesc, addrDesc)));
+			rclose(fd);
+			return STATUS_ERROR;
+		}
+	}
+#endif
+
+	/*
+		* Note: This might fail on some OS's, like Linux older than
+		* 2.4.21-pre3, that don't have the IPV6_V6ONLY socket option, and map
+		* ipv4 addresses to ipv6.  It will show ::ffff:ipv4 for all ipv4
+		* connections.
+		*/
+	err = rbind(fd, (struct sockaddr *)&addr_inet, sizeof(addr_inet));
+	if (err < 0)
+	{
+		ereport(LOG,
+				(errcode_for_socket_access(),
+					errmsg("could not bind %s address \"%s\": %m",
+						familyDesc, addrDesc)));
+
+		rclose(fd);
+		return STATUS_ERROR;
+	}
+
+	err = rlisten(fd, 1);
+	if (err < 0)
+	{
+		ereport(LOG,
+				(errcode_for_socket_access(),
+		/* translator: first %s is IPv4, IPv6, or Unix */
+					errmsg("could not rlisten on %s address \"%s\": %m",
+						familyDesc, addrDesc)));
+		rclose(fd);
+		return STATUS_ERROR;
+	}
+
+	/* get random listen port */
+	MemSet(&addr_inet, 0, sizeof(addr_inet));
+	addrlen = sizeof(addr_inet);
+	if (rgetsockname(fd, (struct sockaddr *)&addr_inet, &addrlen) < 0)
+	{
+		ereport(LOG,
+				(errmsg("rgetsockname error %m")));
+		return STATUS_ERROR;;
+	}
+
+	*port_out = htons(addr_inet.sin_port);
+	*sr_fd = fd;
+	return STATUS_OK;
+}
+#endif
 /*
  * Streams -- wrapper around Unix socket system calls
  *
@@ -329,7 +487,7 @@ socket_close(int code, Datum arg)
 int
 StreamServerPort(int family, char *hostName, unsigned short portNumber,
 				 char *unixSocketDir,
-				 pgsocket ListenSocket[], int MaxListen)
+				 pgsocket ListenSocket[], int MaxListen ADB_RDMA_COMMA_ARG(bool is_rs))
 {
 	pgsocket	fd;
 	int			err;
@@ -361,6 +519,14 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 	hint.ai_socktype = SOCK_STREAM;
 
 #ifdef HAVE_UNIX_SOCKETS
+#ifdef WITH_RDMA
+	if (is_rs && family == AF_UNIX)
+	{
+		ereport(LOG,
+					(errmsg("RDMA not support Unix-domain socket yet")));
+			return STATUS_ERROR;
+	}
+#endif
 	if (family == AF_UNIX)
 	{
 		/*
@@ -467,7 +633,12 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 			addrDesc = addrBuf;
 		}
 
+#ifdef WITH_RDMA
+		if ((fd = is_rs ? rsocket(addr->ai_family, SOCK_STREAM, 0) :
+				socket(addr->ai_family, SOCK_STREAM, 0)) == PGINVALID_SOCKET)
+#else
 		if ((fd = socket(addr->ai_family, SOCK_STREAM, 0)) == PGINVALID_SOCKET)
+#endif
 		{
 			ereport(LOG,
 					(errcode_for_socket_access(),
@@ -492,8 +663,15 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 		 */
 		if (!IS_AF_UNIX(addr->ai_family))
 		{
+#ifdef WITH_RDMA
+			if (is_rs ? (rsetsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+							(char *) &one, sizeof(one))) == -1
+				:(setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+							(char *) &one, sizeof(one))) == -1)
+#else
 			if ((setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
 							(char *) &one, sizeof(one))) == -1)
+#endif
 			{
 				ereport(LOG,
 						(errcode_for_socket_access(),
@@ -509,8 +687,15 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 #ifdef IPV6_V6ONLY
 		if (addr->ai_family == AF_INET6)
 		{
+#ifdef WITH_RDMA
+			if (is_rs ? rsetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
+						   (char *) &one, sizeof(one)) == -1
+					:setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
+						   (char *) &one, sizeof(one)) == -1)
+#else
 			if (setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
 						   (char *) &one, sizeof(one)) == -1)
+#endif
 			{
 				ereport(LOG,
 						(errcode_for_socket_access(),
@@ -529,7 +714,12 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 		 * ipv4 addresses to ipv6.  It will show ::ffff:ipv4 for all ipv4
 		 * connections.
 		 */
+#ifdef WITH_RDMA
+		err = is_rs ? rbind(fd, addr->ai_addr, addr->ai_addrlen)
+			:bind(fd, addr->ai_addr, addr->ai_addrlen);
+#else
 		err = bind(fd, addr->ai_addr, addr->ai_addrlen);
+#endif
 		if (err < 0)
 		{
 			ereport(LOG,
@@ -544,7 +734,11 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 					 errhint("Is another postmaster already running on port %d?"
 							 " If not, wait a few seconds and retry.",
 							 (int) portNumber)));
+#ifdef WITH_RDMA
+			is_rs ? rclose(fd) : closesocket(fd);
+#else
 			closesocket(fd);
+#endif
 			continue;
 		}
 
@@ -568,7 +762,11 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 		if (maxconn > PG_SOMAXCONN)
 			maxconn = PG_SOMAXCONN;
 
+#ifdef WITH_RDMA
+		err = is_rs ? rlisten(fd, maxconn) : listen(fd, maxconn);
+#else
 		err = listen(fd, maxconn);
+#endif
 		if (err < 0)
 		{
 			ereport(LOG,
@@ -717,9 +915,18 @@ StreamConnection(pgsocket server_fd, Port *port)
 {
 	/* accept connection and fill in the client (remote) address */
 	port->raddr.salen = sizeof(port->raddr.addr);
+#ifdef WITH_RDMA
+	if ((port->sock = port->is_rs ? raccept(server_fd,
+							 (struct sockaddr *) &port->raddr.addr,
+							 &port->raddr.salen)
+						: accept(server_fd,
+							 (struct sockaddr *) &port->raddr.addr,
+							 &port->raddr.salen)) == PGINVALID_SOCKET)
+#else
 	if ((port->sock = accept(server_fd,
 							 (struct sockaddr *) &port->raddr.addr,
 							 &port->raddr.salen)) == PGINVALID_SOCKET)
+#endif
 	{
 		ereport(LOG,
 				(errcode_for_socket_access(),
@@ -738,9 +945,18 @@ StreamConnection(pgsocket server_fd, Port *port)
 
 	/* fill in the server (local) address */
 	port->laddr.salen = sizeof(port->laddr.addr);
+#ifdef WITH_RDMA
+	if ((port->is_rs ? rgetsockname(port->sock,
+					(struct sockaddr *) &port->laddr.addr,
+					&port->laddr.salen)
+			: getsockname(port->sock,
+					(struct sockaddr *) &port->laddr.addr,
+					&port->laddr.salen)) < 0)
+#else
 	if (getsockname(port->sock,
 					(struct sockaddr *) &port->laddr.addr,
 					&port->laddr.salen) < 0)
+#endif
 	{
 		elog(LOG, "getsockname() failed: %m");
 		return STATUS_ERROR;
@@ -758,16 +974,31 @@ StreamConnection(pgsocket server_fd, Port *port)
 
 #ifdef	TCP_NODELAY
 		on = 1;
+
+#ifdef WITH_RDMA
+		if ((port->is_rs ? rsetsockopt(port->sock, IPPROTO_TCP, TCP_NODELAY,
+					   (char *) &on, sizeof(on))
+			: setsockopt(port->sock, IPPROTO_TCP, TCP_NODELAY,
+					   (char *) &on, sizeof(on))) < 0)
+#else
 		if (setsockopt(port->sock, IPPROTO_TCP, TCP_NODELAY,
 					   (char *) &on, sizeof(on)) < 0)
+#endif
 		{
 			elog(LOG, "setsockopt(%s) failed: %m", "TCP_NODELAY");
 			return STATUS_ERROR;
 		}
 #endif
 		on = 1;
+#ifdef WITH_RDMA
+		if ((port->is_rs ? rsetsockopt(port->sock, SOL_SOCKET, SO_KEEPALIVE,
+					   (char *) &on, sizeof(on))
+			: setsockopt(port->sock, SOL_SOCKET, SO_KEEPALIVE,
+					   (char *) &on, sizeof(on))) < 0)
+#else
 		if (setsockopt(port->sock, SOL_SOCKET, SO_KEEPALIVE,
 					   (char *) &on, sizeof(on)) < 0)
+#endif
 		{
 			elog(LOG, "setsockopt(%s) failed: %m", "SO_KEEPALIVE");
 			return STATUS_ERROR;
@@ -827,6 +1058,10 @@ StreamConnection(pgsocket server_fd, Port *port)
 		(void) pq_setkeepalivescount(tcp_keepalives_count, port);
 	}
 
+#ifdef WITH_RDMA
+	if (port->is_rs)
+		ereport(LOG,(errmsg("RDMA connect successfully\n")));
+#endif
 	return STATUS_OK;
 }
 
@@ -1707,9 +1942,18 @@ pq_getkeepalivesidle(Port *port)
 #ifndef WIN32
 		ACCEPT_TYPE_ARG3 size = sizeof(port->default_keepalives_idle);
 
+#ifdef WITH_RDMA
+		if ((port->is_rs ? rgetsockopt(port->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
+					   (char *) &port->default_keepalives_idle,
+					   &size)
+					: getsockopt(port->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
+					   (char *) &port->default_keepalives_idle,
+					   &size)) < 0)
+#else
 		if (getsockopt(port->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
 					   (char *) &port->default_keepalives_idle,
 					   &size) < 0)
+#endif
 		{
 			elog(LOG, "getsockopt(%s) failed: %m", PG_TCP_KEEPALIVE_IDLE_STR);
 			port->default_keepalives_idle = -1; /* don't know */
@@ -1752,8 +1996,15 @@ pq_setkeepalivesidle(int idle, Port *port)
 	if (idle == 0)
 		idle = port->default_keepalives_idle;
 
+#ifdef WITH_RDMA
+	if ((port->is_rs ? rsetsockopt(port->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
+				   (char *) &idle, sizeof(idle))
+			: setsockopt(port->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
+				   (char *) &idle, sizeof(idle))) < 0)
+#else
 	if (setsockopt(port->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
 				   (char *) &idle, sizeof(idle)) < 0)
+#endif
 	{
 		elog(LOG, "setsockopt(%s) failed: %m", PG_TCP_KEEPALIVE_IDLE_STR);
 		return STATUS_ERROR;
@@ -1789,9 +2040,18 @@ pq_getkeepalivesinterval(Port *port)
 #ifndef WIN32
 		ACCEPT_TYPE_ARG3 size = sizeof(port->default_keepalives_interval);
 
+#ifdef WITH_RDMA
+		if ((port->is_rs ? rgetsockopt(port->sock, IPPROTO_TCP, TCP_KEEPINTVL,
+					   (char *) &port->default_keepalives_interval,
+					   &size)
+				: getsockopt(port->sock, IPPROTO_TCP, TCP_KEEPINTVL,
+					   (char *) &port->default_keepalives_interval,
+					   &size)) < 0)
+#else
 		if (getsockopt(port->sock, IPPROTO_TCP, TCP_KEEPINTVL,
 					   (char *) &port->default_keepalives_interval,
 					   &size) < 0)
+#endif
 		{
 			elog(LOG, "getsockopt(%s) failed: %m", "TCP_KEEPINTVL");
 			port->default_keepalives_interval = -1; /* don't know */
@@ -1833,8 +2093,15 @@ pq_setkeepalivesinterval(int interval, Port *port)
 	if (interval == 0)
 		interval = port->default_keepalives_interval;
 
+#ifdef WITH_RDMA
+	if ((port->is_rs ? rsetsockopt(port->sock, IPPROTO_TCP, TCP_KEEPINTVL,
+				   (char *) &interval, sizeof(interval))
+				: setsockopt(port->sock, IPPROTO_TCP, TCP_KEEPINTVL,
+				   (char *) &interval, sizeof(interval))) < 0)
+#else
 	if (setsockopt(port->sock, IPPROTO_TCP, TCP_KEEPINTVL,
 				   (char *) &interval, sizeof(interval)) < 0)
+#endif
 	{
 		elog(LOG, "setsockopt(%s) failed: %m", "TCP_KEEPINTVL");
 		return STATUS_ERROR;
@@ -1869,9 +2136,18 @@ pq_getkeepalivescount(Port *port)
 	{
 		ACCEPT_TYPE_ARG3 size = sizeof(port->default_keepalives_count);
 
+#ifdef WITH_RDMA
+		if ((port->is_rs ? rgetsockopt(port->sock, IPPROTO_TCP, TCP_KEEPCNT,
+					   (char *) &port->default_keepalives_count,
+					   &size)
+				: getsockopt(port->sock, IPPROTO_TCP, TCP_KEEPCNT,
+					   (char *) &port->default_keepalives_count,
+					   &size)) < 0)
+#else
 		if (getsockopt(port->sock, IPPROTO_TCP, TCP_KEEPCNT,
 					   (char *) &port->default_keepalives_count,
 					   &size) < 0)
+#endif
 		{
 			elog(LOG, "getsockopt(%s) failed: %m", "TCP_KEEPCNT");
 			port->default_keepalives_count = -1;	/* don't know */
@@ -1908,8 +2184,15 @@ pq_setkeepalivescount(int count, Port *port)
 	if (count == 0)
 		count = port->default_keepalives_count;
 
+#ifdef WITH_RDMA
+	if ((port->is_rs ? rsetsockopt(port->sock, IPPROTO_TCP, TCP_KEEPCNT,
+				   (char *) &count, sizeof(count))
+		:  setsockopt(port->sock, IPPROTO_TCP, TCP_KEEPCNT,
+				   (char *) &count, sizeof(count))) < 0)
+#else
 	if (setsockopt(port->sock, IPPROTO_TCP, TCP_KEEPCNT,
 				   (char *) &count, sizeof(count)) < 0)
+#endif
 	{
 		elog(LOG, "setsockopt(%s) failed: %m", "TCP_KEEPCNT");
 		return STATUS_ERROR;

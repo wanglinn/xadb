@@ -450,7 +450,7 @@ static void CloseServerPorts(int status, Datum arg);
 static void unlink_external_pid_file(int status, Datum arg);
 static void getInstallationPaths(const char *argv0);
 static void checkControlFile(void);
-static Port *ConnCreate(int serverFd);
+static Port *ConnCreate(int serverFd ADB_RDMA_COMMA_ARG(bool is_rs));
 static void ConnFree(Port *port);
 static void reset_shared(int port);
 static void SIGHUP_handler(SIGNAL_ARGS);
@@ -481,6 +481,9 @@ static bool RandomCancelKey(int32 *cancel_key);
 static void signal_child(pid_t pid, int signal);
 static bool SignalSomeChildren(int signal, int targets);
 static void TerminateChildren(int signal);
+#ifdef WITH_RDMA
+static Port* ProcessRsocketNegPacket(Port *port);
+#endif
 
 #define SignalChildren(sig)			   SignalSomeChildren(sig, BACKEND_TYPE_ALL)
 
@@ -1201,12 +1204,12 @@ PostmasterMain(int argc, char *argv[])
 				status = StreamServerPort(AF_UNSPEC, NULL,
 										  (unsigned short) PostPortNumber,
 										  NULL,
-										  ListenSocket, MAXLISTEN);
+										  ListenSocket, MAXLISTEN ADB_RDMA_COMMA_ARG(0));
 			else
 				status = StreamServerPort(AF_UNSPEC, curhost,
 										  (unsigned short) PostPortNumber,
 										  NULL,
-										  ListenSocket, MAXLISTEN);
+										  ListenSocket, MAXLISTEN ADB_RDMA_COMMA_ARG(0));
 
 			if (status == STATUS_OK)
 			{
@@ -1298,7 +1301,7 @@ PostmasterMain(int argc, char *argv[])
 			status = StreamServerPort(AF_UNIX, NULL,
 									  (unsigned short) PostPortNumber,
 									  socketdir,
-									  ListenSocket, MAXLISTEN);
+									  ListenSocket, MAXLISTEN ADB_RDMA_COMMA_ARG(0));
 
 			if (status == STATUS_OK)
 			{
@@ -1913,7 +1916,7 @@ ServerLoop(void)
 				{
 					Port	   *port;
 
-					port = ConnCreate(ListenSocket[i]);
+					port = ConnCreate(ListenSocket[i] ADB_RDMA_COMMA_ARG(0));
 					if (port)
 					{
 						BackendStartup(port);
@@ -2142,6 +2145,134 @@ initMasks(fd_set *rmask)
 	return maxsock + 1;
 }
 
+#ifdef WITH_RDMA
+static Port*
+ProcessRsocketNegPacket(Port *port)
+{
+	int32		len;
+	void		*buf;
+	int			rs_port_num;
+	int			send_pnum;
+	ProtocolVersion proto;
+	int			status;
+	Port		*rsport;
+	pgsocket	rs_fd;
+
+	MyProcPort = port;
+	rsport = NULL;
+
+	pqsignal(SIGTERM, startup_die);
+	pqsignal(SIGQUIT, startup_die);
+	PG_SETMASK(&StartupBlockSig);
+
+	pq_init();
+	pq_startmsgread();
+	if (pq_getbytes((char *) &len, 4) == EOF)
+	{
+		ereport(COMMERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+					errmsg("incomplete rsocket neg packet")));
+		return rsport;
+	}
+
+	len = pg_ntoh32(len);
+	len -= 4;
+	if (len < (int32) sizeof(ProtocolVersion) ||
+		len > MAX_STARTUP_PACKET_LENGTH)
+	{
+		ereport(COMMERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("invalid length of rsocket neg packet")));
+		return rsport;
+	}
+
+	/*
+	 * Allocate at least the size of an old-style startup packet, plus one
+	 * extra byte, and make sure all are zeroes.  This ensures we will have
+	 * null termination of all strings, in both fixed- and variable-length
+	 * packet layouts.
+	 */
+	if (len <= (int32) sizeof(StartupPacket))
+		buf = palloc0(sizeof(StartupPacket) + 1);
+	else
+		buf = palloc0(len + 1);
+
+	if (pq_getbytes(buf, len) == EOF)
+	{
+		pfree(buf);
+		ereport(COMMERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("incomplete startup packet")));
+		return rsport;
+	}
+	pq_endmsgread();
+
+	/*
+	 * The first field is either a protocol version number or a special
+	 * request code.
+	 */
+	port->proto = proto = pg_ntoh32(*((ProtocolVersion *) buf));
+
+	if (proto == CANCEL_REQUEST_CODE)
+	{
+		processCancelRequest(port, buf);
+		/* Not really an error, but we don't want to proceed further */
+		pfree(buf);
+		return rsport;
+	}
+
+	if (proto != NEGOTIATE_NORSOCKET_CODE && proto != NEGOTIATE_RSOCKET_CODE)
+	{
+		pfree(buf);
+		ereport(COMMERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("wrong rsocket neg pprotocol %d", proto)));
+		return rsport;
+	}
+
+	rs_port_num = 0;
+	if (proto == NEGOTIATE_RSOCKET_CODE)
+	{
+		status = StreamServerRsPort(&port->laddr, &rs_fd, &rs_port_num);
+		if (status != STATUS_OK)
+		{
+			rs_port_num = 0;
+			ereport(LOG,
+					(errmsg("Cannot create RDMA socket listen, use normal socket!")));
+		}
+		else
+		{
+			ereport(LOG,
+					(errmsg("Create RDMA socket listen successfully, listen on port %d!", rs_port_num)));
+		}
+	}
+
+retry1:
+	send_pnum = pg_hton32(rs_port_num);
+	if (send(port->sock, &send_pnum, sizeof(send_pnum), 0) != sizeof(send_pnum))
+	{
+		if (errno == EINTR)
+			goto retry1;	/* if interrupted, just retry */
+
+		pfree(buf);
+		if (rs_fd)
+			rclose(rs_fd);
+		ereport(COMMERROR,
+				(errcode_for_socket_access(),
+					errmsg("failed to send rsocket negotiation response: %m")));
+		return rsport;	/* close the connection */
+	}
+
+	if (rs_port_num)
+		rsport = ConnCreate(rs_fd ADB_RDMA_COMMA_ARG(1));
+
+	if (rs_fd)
+		rclose(rs_fd);
+	
+	pfree(buf);
+	return rsport;
+}
+#endif
 
 /*
  * Read a client's startup packet and do something according to it.
@@ -2223,7 +2354,7 @@ ProcessStartupPacket(Port *port, bool SSLdone)
 	}
 
 #ifdef ADB
-	if (pmState == PM_RUN && (proto == GXID_SEND_SOCKET || proto ==  SNAP_SEND_SOCKET))
+	if (proto == GXID_SEND_SOCKET || proto ==  SNAP_SEND_SOCKET)
 	{
 		char	retry_ack;
 		retry_ack = 'T';
@@ -2678,7 +2809,7 @@ canAcceptConnections(int backend_type)
  * Returns NULL on failure, other than out-of-memory which is fatal.
  */
 static Port *
-ConnCreate(int serverFd)
+ConnCreate(int serverFd ADB_RDMA_COMMA_ARG(bool is_rs))
 {
 	Port	   *port;
 
@@ -2689,6 +2820,9 @@ ConnCreate(int serverFd)
 				 errmsg("out of memory")));
 		ExitPostmaster(1);
 	}
+#ifdef WITH_RDMA
+	port->is_rs = is_rs;
+#endif
 
 	if (StreamConnection(serverFd, port) != STATUS_OK)
 	{
@@ -4587,6 +4721,10 @@ BackendStartup(Port *port)
 	Backend    *bn;				/* for backend cleanup */
 	pid_t		pid;
 
+#ifdef WITH_RDMA
+	Port*		rs_port;
+#endif
+
 	/*
 	 * Create backend data structure.  Better before the fork() so we can
 	 * handle failure cleanly.
@@ -4654,11 +4792,25 @@ BackendStartup(Port *port)
 		}
 #endif /* ADB */
 
+#ifdef WITH_RDMA
+		rs_port = ProcessRsocketNegPacket(port);
+		if (rs_port)
+		{
+			StreamClose(port->sock);
+			ConnFree(port);
+			BackendInitialize(rs_port);
+			BackendRun(rs_port);
+		}
+		else
+		{	
+#endif
 		/* Perform additional initialization and collect startup packet */
 		BackendInitialize(port);
-
 		/* And run the backend */
 		BackendRun(port);
+#ifdef WITH_RDMA
+		}
+#endif
 	}
 #endif							/* EXEC_BACKEND */
 
@@ -4776,7 +4928,15 @@ BackendInitialize(Port *port)
 	 * Initialize libpq and enable reporting of ereport errors to the client.
 	 * Must do this now because authentication uses libpq to send messages.
 	 */
+/*#ifdef WITH_RDMA
+	pq_comm_reset();
+	if (!(MyProcPort->is_rs ? pg_set_rnoblock(MyProcPort->sock)
+		:pg_set_noblock(MyProcPort->sock)))
+		ereport(COMMERROR,
+				(errmsg("could not set socket to nonblocking mode: %m")));
+#else*/
 	pq_init();					/* initialize libpq to talk to client */
+//#endif
 	whereToSendOutput = DestRemote; /* now safe to ereport to client */
 
 	/*

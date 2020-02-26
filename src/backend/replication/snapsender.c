@@ -707,7 +707,7 @@ void SnapSenderMain(void)
 		pq_switch_to_none();
 		wed = NULL;
 		rc = WaitEventSetWait(wait_event_set,
-							  snap_send_timeout,
+							  100,
 							  wait_event,
 							  cur_wait_event,
 							  PG_WAIT_CLIENT);

@@ -26,6 +26,10 @@
 #include "fe_utils/simple_list.h"
 #include "libpq-fe.h"
 
+#ifdef WITH_RDMA
+#include "postgres.h"
+#endif
+
 
 typedef enum trivalue
 {
@@ -172,6 +176,9 @@ typedef struct _dumpOptions
 	char	   *outputSuperuser;
 
 	int			sequence_data;	/* dump sequence data even in schema-only mode */
+#ifdef WITH_RDMA
+	bool		is_rs;
+#endif
 } DumpOptions;
 
 /*
@@ -247,7 +254,7 @@ extern void ConnectDatabase(Archive *AH,
 				const char *pghost,
 				const char *pgport,
 				const char *username,
-				trivalue prompt_password);
+				trivalue prompt_password ADB_RDMA_COMMA_ARG(bool is_rs));
 extern void DisconnectDatabase(Archive *AHX);
 extern PGconn *GetConnection(Archive *AHX);
 

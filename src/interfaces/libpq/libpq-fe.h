@@ -22,6 +22,9 @@ extern "C"
 
 #include <stdio.h>
 
+//TODO
+#include "c.h"
+
 /*
  * postgres_ext.h defines the backend's externally visible types,
  * such as Oid.
@@ -62,6 +65,9 @@ typedef enum
 								 * backend startup. */
 	CONNECTION_SETENV,			/* Negotiating environment. */
 	CONNECTION_SSL_STARTUP,		/* Negotiating SSL. */
+#ifdef WITH_RDMA
+	CONNECTION_RSCOKET_STARTUP,		/* Negotiating rsocket. */
+#endif
 	CONNECTION_NEEDED,			/* Internal state: connect() needed */
 	CONNECTION_CHECK_WRITABLE,	/* Check if we could make a writable
 								 * connection. */
@@ -282,6 +288,10 @@ extern PGconn *PQbeginAttach(int sock, void *custom, int close_sock_on_end, int 
 extern void PQdetach(PGconn *conn);
 #endif /* ADB */
 
+#ifdef WITH_RDMA
+int PQbeginRsAttach(PGconn *conn);
+#endif
+
 /* get info about connection options known to PQconnectdb */
 extern PQconninfoOption *PQconndefaults(void);
 
@@ -343,6 +353,10 @@ extern int	PQconnectionNeedsPassword(const PGconn *conn);
 extern int	PQconnectionUsedPassword(const PGconn *conn);
 extern int	PQclientEncoding(const PGconn *conn);
 extern int	PQsetClientEncoding(PGconn *conn, const char *encoding);
+
+//#ifdef WITH_RDMA
+extern bool PQisrs(const PGconn *conn);
+//#endif
 
 /* SSL information functions */
 extern int	PQsslInUse(PGconn *conn);

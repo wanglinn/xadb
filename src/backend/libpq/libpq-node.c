@@ -54,7 +54,9 @@ static bool force_release_connect = false;
 
 static void init_htab_oid_pgconn(void);
 static List* apply_for_node_use_oid(List *oid_list);
+//#ifndef WITH_RDMA
 static List* pg_conn_attach_socket(int *fds, Size n);
+//#endif
 static bool PQNExecFinish(PGconn *conn, const PQNHookFunctions *hook);
 static int PQNIsConnecting(PGconn *conn);
 static void check_is_all_socket_correct(List *oid_list);
@@ -137,7 +139,11 @@ static void check_is_all_socket_correct(List *oid_list)
 			i++;
 		}
 	}
+#ifdef WITH_RDMA
+	n = rpoll(pfds, i, 0);
+#else
 	n = poll(pfds, i, 0);
+#endif
 	if(n > 0)
 	{
 		PQNForceReleaseWhenTransactionFinish();
@@ -182,7 +188,17 @@ static List* apply_for_node_use_oid(List *oid_list)
 	if (need_list != NIL)
 	{
 		List * volatile conn_list = NIL;
-		pgsocket * volatile fds = PoolManagerGetConnectionsOid(need_list);
+		pgsocket * volatile fds = NULL;
+#ifdef WITH_RDMA
+		conn_list = PoolManagerGetRsConnectionsOid(need_list);
+		if(conn_list == NIL)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+					 errmsg("Failed to get rs connections")));
+		}
+#else
+		fds = PoolManagerGetConnectionsOid(need_list);
 		if(fds == NULL)
 		{
 			/* this error message copy from pgxcnode.c */
@@ -190,15 +206,17 @@ static List* apply_for_node_use_oid(List *oid_list)
 					(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
 					 errmsg("Failed to get pooled connections")));
 		}
+#endif
 
 		PG_TRY();
 		{
+#ifndef WITH_RDMA
 			conn_list = pg_conn_attach_socket(fds, list_length(need_list));
-			Assert(list_length(conn_list) == list_length(need_list));
 			/* at here don't need fds */
 			pfree(fds);
 			fds = NULL;
-
+#endif
+			Assert(list_length(conn_list) == list_length(need_list));
 			PQNListExecFinish(conn_list, NULL, &PQNDefaultHookFunctions, true);
 
 			foreach(lc, need_list)
@@ -263,6 +281,7 @@ static List* apply_for_node_use_oid(List *oid_list)
 	return result;
 }
 
+//#ifndef WITH_RDMA
 static List* pg_conn_attach_socket(int *fds, Size n)
 {
 	Size i;
@@ -295,6 +314,7 @@ static List* pg_conn_attach_socket(int *fds, Size n)
 
 	return list;
 }
+//#endif
 
 bool PQNOneExecFinish(struct pg_conn *conn, const PQNHookFunctions *hook, bool blocking)
 {
@@ -310,7 +330,12 @@ bool PQNOneExecFinish(struct pg_conn *conn, const PQNHookFunctions *hook, bool b
 		{
 			pfd.fd = PQsocket(conn);
 			pfd.events = POLLOUT;
+#ifdef WITH_RDMA
+			poll_res = PQisrs(conn) ? rpoll(&pfd, 1, blocking ? -1:0)
+					: poll(&pfd, 1, blocking ? -1:0);
+#else
 			poll_res = poll(&pfd, 1, blocking ? -1:0);
+#endif
 			if(poll_res == 0)
 			{
 				/* timeout */
@@ -335,7 +360,12 @@ bool PQNOneExecFinish(struct pg_conn *conn, const PQNHookFunctions *hook, bool b
 			pfd.events = POLLOUT;
 		else
 			pfd.events = POLLIN;
+#ifdef WITH_RDMA
+			poll_res = PQisrs(conn)  ? rpoll(&pfd, 1, blocking ? -1:0)
+					: poll(&pfd, 1, blocking ? -1:0);
+#else
 		poll_res = poll(&pfd, 1, blocking ? -1:0);
+#endif
 		CHECK_FOR_INTERRUPTS();
 		if(poll_res == 0)
 		{
@@ -375,7 +405,12 @@ bool PQNOneExecFinish(struct pg_conn *conn, const PQNHookFunctions *hook, bool b
 			|| PQtransactionStatus(conn) != PQTRANS_ACTIVE)
 			break;
 
+#ifdef WITH_RDMA
+		poll_res = PQisrs(conn)  ? rpoll(&pfd, 1, blocking ? -1:0)
+				: poll(&pfd, 1, blocking ? -1:0);
+#else
 		poll_res = poll(&pfd, 1, blocking ? -1:0);
+#endif
 		if(poll_res < 0)
 		{
 			if(errno == EINTR)
@@ -489,7 +524,11 @@ PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook,
 		}
 
 re_poll_:
+#ifdef WITH_RDMA
+		n = rpoll(pfds, list_length(list), blocking ? -1:0);
+#else
 		n = poll(pfds, list_length(list), blocking ? -1:0);
+#endif
 		if(n < 0)
 		{
 			if(errno == EINTR)
@@ -642,6 +681,9 @@ static int PQNIsConnecting(PGconn *conn)
 						errmsg("No support protocol 2.0 version for remote node")));
 		break;
 	case CONNECTION_SSL_STARTUP:
+#ifdef WITH_RDMA
+	case CONNECTION_RSCOKET_STARTUP:
+#endif
 	case CONNECTION_CHECK_WRITABLE:
 	case CONNECTION_CONSUME:
 		return -1;
@@ -688,7 +730,11 @@ re_select_:
 				sock = PQsocket(conn);
 				FD_SET(sock, &wfds);
 				FD_SET(sock, &efds);
+#ifdef WITH_RDMA
+				ret = rselect(sock + 1, NULL, &wfds, &efds, NULL);
+#else
 				ret = select(sock + 1, NULL, &wfds, &efds, NULL);
+#endif
 				CHECK_FOR_INTERRUPTS();
 				if (ret < 0)
 				{
@@ -960,7 +1006,11 @@ re_set_:
 		++i;
 	}
 re_select_:
+#ifdef WITH_RDMA
+	result = rpoll(pfd, count, -1);
+#else
 	result = poll(pfd, count, -1);
+#endif
 	CHECK_FOR_INTERRUPTS();
 	if (result < 0)
 	{

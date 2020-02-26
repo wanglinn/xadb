@@ -26,6 +26,10 @@ extern char *dbname;
 extern int	dbgetpassword;
 extern uint32 WalSegSz;
 
+#ifdef WITH_RDMA
+extern bool is_rs;
+#endif
+
 /* Connection kept global so we can disconnect easily */
 extern PGconn *conn;
 

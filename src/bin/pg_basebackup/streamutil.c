@@ -52,6 +52,10 @@ char	   *dbname = NULL;
 int			dbgetpassword = 0;	/* 0=auto, -1=never, 1=always */
 static bool have_password = false;
 static char password[100];
+
+#ifdef WITH_RDMA
+bool		is_rs = false;
+#endif
 PGconn	   *conn = NULL;
 
 /*
@@ -63,8 +67,13 @@ PGconn *
 GetConnection(void)
 {
 	PGconn	   *tmpconn;
+
+#ifdef WITH_RDMA
+	int			argcount = 8;
+#else
 	int			argcount = 7;	/* dbname, replication, fallback_app_name,
 								 * host, user, port, password */
+#endif
 	int			i;
 	const char **keywords;
 	const char **values;
@@ -133,7 +142,11 @@ GetConnection(void)
 
 	if (dbhost)
 	{
+#ifdef WITH_RDMA
+		keywords[i] = "hostaddr";
+#else
 		keywords[i] = "host";
+#endif
 		values[i] = dbhost;
 		i++;
 	}
@@ -149,6 +162,14 @@ GetConnection(void)
 		values[i] = dbport;
 		i++;
 	}
+#ifdef WITH_RDMA
+	if (is_rs)
+	{
+		keywords[i] = "rdma";
+		values[i] = "1";
+		i++;
+	}
+#endif
 
 	/* If -W was given, force prompt for password, but only the first time */
 	need_password = (dbgetpassword == 1 && !have_password);

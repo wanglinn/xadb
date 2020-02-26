@@ -60,12 +60,12 @@
  * define somewhere before this block.
  */
 #if defined(WAIT_USE_EPOLL) || defined(WAIT_USE_POLL) || \
-	defined(WAIT_USE_WIN32)
+	defined(WAIT_USE_WIN32) || defined(WITH_RDMA)
 /* don't overwrite manual choice */
-#elif defined(HAVE_SYS_EPOLL_H)
+#elif defined(HAVE_SYS_EPOLL_H) && !defined(WITH_RDMA)
 #define WAIT_USE_EPOLL
 #define ADB_USE_OFFSET_EVENT_ADDR
-#elif defined(HAVE_POLL)
+#elif defined(HAVE_POLL) || defined(WITH_RDMA)
 #define WAIT_USE_POLL
 #elif WIN32
 #define WAIT_USE_WIN32
@@ -98,11 +98,11 @@ struct WaitEventSet
 	bool		pre_check_latch;
 #endif /* ADB_EXT */
 
-#if defined(WAIT_USE_EPOLL)
+#if defined(WAIT_USE_EPOLL) && !defined(WITH_RDMA)
 	int			epoll_fd;
 	/* epoll_wait returns events in a user provided arrays, allocate once */
 	struct epoll_event *epoll_ret_events;
-#elif defined(WAIT_USE_POLL)
+#elif defined(WAIT_USE_POLL) || defined(WITH_RDMA)
 	/* poll expects events to be waited on every poll() call, prepare once */
 	struct pollfd *pollfds;
 #elif defined(WAIT_USE_WIN32)
@@ -132,9 +132,9 @@ static void sendSelfPipeByte(void);
 static void drainSelfPipe(void);
 #endif							/* WIN32 */
 
-#if defined(WAIT_USE_EPOLL)
+#if defined(WAIT_USE_EPOLL) && !defined(WITH_RDMA)
 static void WaitEventAdjustEpoll(WaitEventSet *set, WaitEvent *event, int action);
-#elif defined(WAIT_USE_POLL)
+#elif defined(WAIT_USE_POLL) || defined(WITH_RDMA)
 static void WaitEventAdjustPoll(WaitEventSet *set, WaitEvent *event);
 #elif defined(WAIT_USE_WIN32)
 static void WaitEventAdjustWin32(WaitEventSet *set, WaitEvent *event);
@@ -532,9 +532,9 @@ static WaitEventSet *AllocWaitEventSet(MemoryContext context, int nevents)
 	sz += MAXALIGN(sizeof(WaitEventSet));
 	sz += MAXALIGN(sizeof(WaitEvent) * nevents);
 
-#if defined(WAIT_USE_EPOLL)
+#if defined(WAIT_USE_EPOLL) && !defined(WITH_RDMA)
 	sz += MAXALIGN(sizeof(struct epoll_event) * nevents);
-#elif defined(WAIT_USE_POLL)
+#elif defined(WAIT_USE_POLL) || defined(WITH_RDMA)
 	sz += MAXALIGN(sizeof(struct pollfd) * nevents);
 #elif defined(WAIT_USE_WIN32)
 	/* need space for the pgwin32_signal_event */
@@ -549,10 +549,10 @@ static WaitEventSet *AllocWaitEventSet(MemoryContext context, int nevents)
 	set->events = (WaitEvent *) data;
 	data += MAXALIGN(sizeof(WaitEvent) * nevents);
 
-#if defined(WAIT_USE_EPOLL)
+#if defined(WAIT_USE_EPOLL) && !defined(WITH_RDMA)
 	set->epoll_ret_events = (struct epoll_event *) data;
 	data += MAXALIGN(sizeof(struct epoll_event) * nevents);
-#elif defined(WAIT_USE_POLL)
+#elif defined(WAIT_USE_POLL) || defined(WITH_RDMA)
 	set->pollfds = (struct pollfd *) data;
 	data += MAXALIGN(sizeof(struct pollfd) * nevents);
 #elif defined(WAIT_USE_WIN32)
@@ -584,7 +584,7 @@ CreateWaitEventSet(MemoryContext context, int nevents)
 	set->pre_check_latch = true;
 #endif /* ADB_EXT */
 
-#if defined(WAIT_USE_EPOLL)
+#if defined(WAIT_USE_EPOLL) && !defined(WITH_RDMA)
 #ifdef EPOLL_CLOEXEC
 	set->epoll_fd = epoll_create1(EPOLL_CLOEXEC);
 	if (set->epoll_fd < 0)
@@ -627,7 +627,7 @@ CreateWaitEventSet(MemoryContext context, int nevents)
 void
 FreeWaitEventSet(WaitEventSet *set)
 {
-#if defined(WAIT_USE_EPOLL)
+#if defined(WAIT_USE_EPOLL) && !defined(WITH_RDMA)
 	close(set->epoll_fd);
 #elif defined(WAIT_USE_WIN32)
 	WaitEvent  *cur_event;
@@ -736,9 +736,9 @@ AddWaitEventToSet(WaitEventSet *set, uint32 events, pgsocket fd, Latch *latch,
 	}
 
 	/* perform wait primitive specific initialization, if needed */
-#if defined(WAIT_USE_EPOLL)
+#if defined(WAIT_USE_EPOLL) && !defined(WITH_RDMA)
 	WaitEventAdjustEpoll(set, event, EPOLL_CTL_ADD);
-#elif defined(WAIT_USE_POLL)
+#elif defined(WAIT_USE_POLL) || defined(WITH_RDMA)
 	WaitEventAdjustPoll(set, event);
 #elif defined(WAIT_USE_WIN32)
 	WaitEventAdjustWin32(set, event);
@@ -792,9 +792,9 @@ ModifyWaitEvent(WaitEventSet *set, int pos, uint32 events, Latch *latch)
 		set->latch = latch;
 	}
 
-#if defined(WAIT_USE_EPOLL)
+#if defined(WAIT_USE_EPOLL) && !defined(WITH_RDMA)
 	WaitEventAdjustEpoll(set, event, EPOLL_CTL_MOD);
-#elif defined(WAIT_USE_POLL)
+#elif defined(WAIT_USE_POLL) || defined(WITH_RDMA)
 	WaitEventAdjustPoll(set, event);
 #elif defined(WAIT_USE_WIN32)
 	WaitEventAdjustWin32(set, event);
@@ -844,9 +844,9 @@ void RemoveWaitEvent(WaitEventSet *set, int pos)
 		elog(ERROR, "cannot remove postmaster death event");
 	}
 
-#if defined(WAIT_USE_EPOLL)
+#if defined(WAIT_USE_EPOLL) && !defined(WITH_RDMA)
 	WaitEventAdjustEpoll(set, event, EPOLL_CTL_DEL);
-#elif defined(WAIT_USE_POLL)
+#elif defined(WAIT_USE_POLL) || defined(WITH_RDMA)
 	memmove(&set->pollfds[pos],
 		   &set->pollfds[pos+1],
 		   sizeof(set->pollfds[0]) * (set->nevents-pos-1));
@@ -866,7 +866,7 @@ void RemoveWaitEvent(WaitEventSet *set, int pos)
 		{
 			set->latch_pos--;
 		}
-#if defined(WAIT_USE_EPOLL)
+#if defined(WAIT_USE_EPOLL) & !defined(WITH_RDMA)
 		/* modify epoll_event::data */
 		WaitEventAdjustEpoll(set, event, EPOLL_CTL_MOD);
 #endif
@@ -891,7 +891,7 @@ WaitEventSet* EnlargeWaitEventSet(WaitEventSet *set, int nevents)
 	newset->latch_pos = set->latch_pos;
 	memcpy(newset->events, set->events,
 		   sizeof(set->events[0]) * set->nevents);
-#if defined(WAIT_USE_EPOLL)
+#if defined(WAIT_USE_EPOLL) && !defined(WITH_RDMA)
 	newset->epoll_fd = set->epoll_fd;
 	memcpy(newset->epoll_ret_events, set->epoll_ret_events,
 		   sizeof(set->epoll_ret_events[0]) * set->nevents);
@@ -903,7 +903,7 @@ WaitEventSet* EnlargeWaitEventSet(WaitEventSet *set, int nevents)
 			WaitEventAdjustEpoll(newset, &newset->events[i], EPOLL_CTL_MOD);
 	}
 #endif /* ADB_USE_OFFSET_EVENT_ADDR */
-#elif defined(WAIT_USE_POLL)
+#elif defined(WAIT_USE_POLL) || defined(WITH_RDMA)
 	memcpy(newset->pollfds, set->pollfds,
 		   sizeof(set->pollfds[0]) * set->nevents);
 #elif defined(WAIT_USE_WIN32)
@@ -951,7 +951,7 @@ WaitEvent* FindWaitEventInfoWithData(WaitEventSet *set, int start_pos, void *use
 }
 #endif /* ADB_EXT */
 
-#if defined(WAIT_USE_EPOLL)
+#if defined(WAIT_USE_EPOLL) && !defined(WITH_RDMA)
 /*
  * action can be one of EPOLL_CTL_ADD | EPOLL_CTL_MOD | EPOLL_CTL_DEL
  */
@@ -1008,7 +1008,7 @@ WaitEventAdjustEpoll(WaitEventSet *set, WaitEvent *event, int action)
 }
 #endif
 
-#if defined(WAIT_USE_POLL)
+#if defined(WAIT_USE_POLL) || defined(WITH_RDMA)
 static void
 WaitEventAdjustPoll(WaitEventSet *set, WaitEvent *event)
 {
@@ -1221,7 +1221,7 @@ int WaitEventSetWaitSignal(WaitEventSet *set, long timeout,
 }
 
 
-#if defined(WAIT_USE_EPOLL)
+#if defined(WAIT_USE_EPOLL) && !defined(WITH_RDMA)
 
 /*
  * Wait using linux's epoll_wait(2).
@@ -1351,7 +1351,7 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 	return returned_events;
 }
 
-#elif defined(WAIT_USE_POLL)
+#elif defined(WAIT_USE_POLL) || defined(WITH_RDMA)
 
 /*
  * Wait using poll(2).
@@ -1369,7 +1369,17 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 	struct pollfd *cur_pollfd;
 
 	/* Sleep */
+#ifdef WITH_RDMA
+	ereport(LOG, (errmsg("rpoll set->nevents %d", set->nevents)));
+	int i = 0;
+	for(i = 0; i < set->nevents; i++)
+	{
+		ereport(LOG, (errmsg("rpoll watch fd %d", set->pollfds[i].fd)));
+	}
+	rc = rpoll(set->pollfds, set->nevents, (int) cur_timeout);
+#else
 	rc = poll(set->pollfds, set->nevents, (int) cur_timeout);
+#endif
 
 	/* Check return code */
 	if (rc < 0)

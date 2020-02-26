@@ -64,6 +64,7 @@ static int PMGR_BACKTRACE_DETIAL()
 #define PM_MSG_CLOSE_CONNECT		'C'
 #define PM_MSG_ERROR				'E'
 #define PM_MSG_CLOSE_IDLE_CONNECT	'S'
+#define PM_MSG_GET_DBINFO_CONNECT	'T'
 
 typedef enum SlotStateType
 {
@@ -278,7 +279,7 @@ static void agent_handle_output(PoolAgent *agent);
 static void agent_destroy(PoolAgent *agent);
 static void agent_error_hook(void *arg);
 static void agent_check_waiting_slot(PoolAgent *agent);
-static bool agent_recv_data(PoolAgent *agent);
+static bool pool_recv_data(PoolPort *port);
 static bool agent_has_completion_msg(PoolAgent *agent, StringInfo msg, int *msg_type);
 static int *abort_pids(int *count, int pid, const char *database, const char *user_name);
 static int clean_connection(StringInfo msg);
@@ -306,6 +307,10 @@ static int pool_wait_pq(PGconn *conn);
 static int pq_custom_msg(PGconn *conn, char id, int msgLength);
 static void close_idle_connection(void);
 static void check_idle_slot(void);
+
+#ifdef WITH_RDMA
+static bool pool_getstringdata(PoolPort *port, StringInfo msg);
+#endif
 
 /* for hash DatabasePool */
 static HTAB *htab_database;
@@ -1173,6 +1178,10 @@ agent_destroy(PoolAgent *agent)
 void
 PoolManagerDisconnect(void)
 {
+#ifdef WITH_RDMA
+	PQNForceReleaseWhenTransactionFinish();
+	PQNReleaseAllConnect(true);
+#endif
 	if (poolHandle)
 	{
 
@@ -1225,6 +1234,86 @@ static List* recv_host_info(StringInfo buf, bool dup_str)
 
 	return list;
 }
+
+#ifdef WITH_RDMA
+List*
+PoolManagerGetRsConnectionsOid(List *oidlist)
+{
+	StringInfoData buf;
+	const char *database;
+	const char *user_name;
+	const char *pgoptions;
+	ListCell *lc;
+	char*	rs_conn_str;
+	HeapTuple		tuple;
+	Form_pgxc_node	nodeForm;
+	PGconn *pcon;
+	List *lcon = NIL;
+
+re_try_:
+	if (!poolHandle)
+		PoolManagerReconnect();
+	Assert(poolHandle != NULL);
+	if(oidlist == NIL)
+		return NIL;
+
+	pq_beginmessage(&buf, PM_MSG_GET_DBINFO_CONNECT);
+	pool_sendint(&buf, 1);
+
+	if (pool_putmessage(&(poolHandle->port), (char)buf.cursor, buf.data, buf.len) != 0 ||
+		pool_flush(&(poolHandle->port)) != 0 ||
+		poolHandle->port.SendPointer != 0)
+	{
+		PoolManagerCloseHandle(poolHandle);
+		poolHandle = NULL;
+		pfree(buf.data);
+		goto re_try_;
+	}
+
+	pool_recv_data(&(poolHandle->port));
+	pool_getstringdata(&(poolHandle->port), &buf);
+
+	database = pool_getstring(&buf);
+	user_name = pool_getstring(&buf);
+	pgoptions = pool_getstring(&buf);
+
+	foreach(lc, oidlist)
+	{
+		tuple = SearchSysCache1(PGXCNODEOID, ObjectIdGetDatum(lfirst_oid(lc)));
+		if (!HeapTupleIsValid(tuple))
+			elog(ERROR, "cache lookup failed for node %u", lfirst_oid(lc));
+
+		nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
+
+		//rs_conn_str = PGXCNodeConnStr(NameStr(nodeForm->node_host), nodeForm->node_port,
+					//database, user_name, pgoptions, IsGTMNode() ? "AGTM" : "coordinator");
+		rs_conn_str = PGXCNodeRsConnStr(NameStr(nodeForm->node_host), nodeForm->node_port,
+					database, user_name, pgoptions, IsGTMNode() ? "AGTM" : "coordinator");
+
+		//elog(LOG, "rs_conn_str is %s", rs_conn_str);
+		pcon = PQconnectdb(rs_conn_str);
+
+		if (pcon->status != CONNECTION_OK)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("Connect node %s:%d error, return status %d", 
+					NameStr(nodeForm->node_host),
+					nodeForm->node_port,
+					pcon->status)));
+		PQbeginRsAttach(pcon);
+		elog(LOG, "get rsocket %d,nonblocking %d", pcon->sock, pcon->nonblocking);
+		Assert(pcon);
+
+		lcon = lappend(lcon, pcon);
+
+		ReleaseSysCache(tuple);
+		pfree(rs_conn_str);
+	}
+
+	pfree(buf.data);
+	return lcon;
+}
+#endif
 
 /*
  * Get pooled connections
@@ -1439,9 +1528,12 @@ static void agent_handle_input(PoolAgent * agent, StringInfo s)
 	int			*pids;
 	int			len,res;
 	int qtype;
+#ifdef WITH_RDMA
+	StringInfoData buf;
+#endif
 
 	/* try recv data */
-	if(agent_recv_data(agent) == false)
+	if(pool_recv_data(&agent->port) == false)
 	{
 		/*
 		 * closed by remote, maybe it have not normal exit.
@@ -1554,6 +1646,18 @@ static void agent_handle_input(PoolAgent * agent, StringInfo s)
 				close_idle_connection();
 			}
 			break;
+#ifdef WITH_RDMA
+		case PM_MSG_GET_DBINFO_CONNECT:
+			{
+				pool_getint(s);
+				initStringInfo(&buf);
+				pool_sendstring(&buf, agent->db_pool->db_info.database);
+				pool_sendstring(&buf, agent->db_pool->db_info.user_name);
+				pool_sendstring(&buf, agent->db_pool->db_info.pgoptions);
+				pool_end_flush_msg(&agent->port, &buf);
+			}
+			break;
+#endif
 		default:
 			agent_destroy(agent);
 			ereport(WARNING, (errcode(ERRCODE_INTERNAL_ERROR),
@@ -1982,12 +2086,10 @@ end_params_local_:
 }
 
 /* true for recv some data, false for closed by remote */
-static bool agent_recv_data(PoolAgent *agent)
+static bool pool_recv_data(PoolPort *port)
 {
-	PoolPort *port;
 	int rval;
-	AssertArg(agent);
-	port = &(agent->port);
+	AssertArg(port);
 
 	if (port->RecvPointer > 0)
 	{
@@ -2047,6 +2149,38 @@ static bool agent_recv_data(PoolAgent *agent)
 	}
 	return true;
 }
+#ifdef WITH_RDMA
+static bool pool_getstringdata(PoolPort *port, StringInfo msg)
+{
+	Size unread_len;
+	int len;
+	AssertArg(port && msg);
+
+	Assert(port->RecvLength >= 0 && port->RecvPointer >= 0
+		&& port->RecvLength >= port->RecvPointer);
+
+	unread_len = port->RecvLength - port->RecvPointer;
+	if(unread_len < 5)
+		return false;
+
+	/* get message length */
+	memcpy(&len, port->RecvBuffer + port->RecvPointer + 1, 4);
+	len = htonl(len);
+	if((len+1) > unread_len)
+		return false;
+
+	/* okay, copy message */
+	len++;	/* add char length */
+	resetStringInfo(msg);
+	enlargeStringInfo(msg, len);
+	Assert(msg->data);
+	memcpy(msg->data, port->RecvBuffer + port->RecvPointer, len);
+	port->RecvPointer += len;
+	msg->len = len;
+	msg->cursor = +5; /* skip length */
+	return true;
+}
+#endif
 
 /* get message if has completion message */
 static bool agent_has_completion_msg(PoolAgent *agent, StringInfo msg, int *msg_type)

@@ -1124,7 +1124,11 @@ pqSocketPoll(int sock, int forRead, int forWrite, time_t end_time)
 			timeout_ms = 0;
 	}
 
+#ifdef WITH_RDMA
+	return rpoll(&input_fd, 1, timeout_ms);
+#else
 	return poll(&input_fd, 1, timeout_ms);
+#endif
 #else							/* !HAVE_POLL */
 
 	fd_set		input_mask;
@@ -1161,8 +1165,13 @@ pqSocketPoll(int sock, int forRead, int forWrite, time_t end_time)
 		ptr_timeout = &timeout;
 	}
 
+#ifdef WITH_RDMA
+	return rselect(sock + 1, &input_mask, &output_mask,
+				  &except_mask, ptr_timeout);
+#else
 	return select(sock + 1, &input_mask, &output_mask,
 				  &except_mask, ptr_timeout);
+#endif
 #endif							/* HAVE_POLL */
 }
 

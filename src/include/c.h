@@ -77,6 +77,10 @@
 #include <libintl.h>
 #endif
 
+#ifdef WITH_RDMA
+#include <rdma/rsocket.h> 
+#endif
+
 #if defined(ADBMGRD) || defined(INITMGR) || defined(INITAGTM)
 #undef ADB_GRAM_DB2
 #undef ADB_GRAM_ORA
@@ -85,6 +89,12 @@
 
 /* This macro just to mark which code is ADB extension feature */
 #define ADB_EXT 1
+
+#if defined(WITH_RDMA)
+#define ADB_RDMA_COMMA_ARG(v)		,v
+#else
+#define ADB_RDMA_COMMA_ARG(v)
+#endif
 
 //#define SNAP_SYNC_DEBUG 1
 

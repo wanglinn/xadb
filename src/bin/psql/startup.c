@@ -75,6 +75,10 @@ struct adhoc_opts
 	bool		no_psqlrc;
 	bool		single_txn;
 	bool		list_dbs;
+#ifdef WITH_RDMA
+	char		*hostaddr;
+	bool		is_rs;
+#endif
 	SimpleActionList actions;
 };
 
@@ -218,7 +222,11 @@ main(int argc, char *argv[])
 	/* loop until we have a password if requested by backend */
 	do
 	{
+#ifdef WITH_RDMA
+#define PARAMS_ARRAY_SIZE	10
+#else
 #define PARAMS_ARRAY_SIZE	8
+#endif
 		const char **keywords = pg_malloc(PARAMS_ARRAY_SIZE * sizeof(*keywords));
 		const char **values = pg_malloc(PARAMS_ARRAY_SIZE * sizeof(*values));
 
@@ -237,8 +245,29 @@ main(int argc, char *argv[])
 		values[5] = pset.progname;
 		keywords[6] = "client_encoding";
 		values[6] = (pset.notty || getenv("PGCLIENTENCODING")) ? NULL : "auto";
+
+#ifdef WITH_RDMA
+		if (options.is_rs)
+		{
+			keywords[7] = "rdma";
+			values[7] = "1";
+
+			if (!options.hostaddr)
+			{
+				fprintf(stderr, _("For rdma socket, you must supply hostaddr parameter\n"));
+				exit(EXIT_FAILURE);
+			}
+
+			keywords[8] = "hostaddr";
+			values[8] = options.hostaddr;
+		}
+
+		keywords[9] = NULL;
+		values[9] = NULL;
+#else
 		keywords[7] = NULL;
 		values[7] = NULL;
+#endif
 
 		new_pass = false;
 		pset.db = PQconnectdbParams(keywords, values, true);
@@ -468,6 +497,10 @@ parse_psql_options(int argc, char *argv[], struct adhoc_opts *options)
 		{"expanded", no_argument, NULL, 'x'},
 		{"no-psqlrc", no_argument, NULL, 'X'},
 		{"help", optional_argument, NULL, 1},
+#ifdef WITH_RDMA
+		{"hostaddr", required_argument, NULL, 'j'},
+		{"rdma", no_argument, NULL, 'r'},
+#endif
 		{NULL, 0, NULL, 0}
 	};
 
@@ -476,8 +509,13 @@ parse_psql_options(int argc, char *argv[], struct adhoc_opts *options)
 
 	memset(options, 0, sizeof *options);
 
+#ifdef WITH_RDMA
+	while ((c = getopt_long(argc, argv, "aAbc:d:eEf:F:h:HlL:no:p:P:qR:rj:sStT:U:v:VwWxXz?01",
+							long_options, &optindex)) != -1)
+#else
 	while ((c = getopt_long(argc, argv, "aAbc:d:eEf:F:h:HlL:no:p:P:qR:sStT:U:v:VwWxXz?01",
 							long_options, &optindex)) != -1)
+#endif
 	{
 		switch (c)
 		{
@@ -521,6 +559,15 @@ parse_psql_options(int argc, char *argv[], struct adhoc_opts *options)
 			case 'h':
 				options->host = pg_strdup(optarg);
 				break;
+#ifdef WITH_RDMA
+			case 'j':
+				options->hostaddr = pg_strdup(optarg);
+				break;
+
+			case 'r':
+				options->is_rs = true;
+				break;
+#endif
 			case 'H':
 				pset.popt.topt.format = PRINT_HTML;
 				break;

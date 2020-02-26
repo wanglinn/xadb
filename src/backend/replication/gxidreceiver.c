@@ -687,7 +687,7 @@ static void GxidRcvProcessCommit(char *buf, Size len)
 	int							procno;
 	PGPROC						*proc;				
 	proclist_mutable_iter		iter;
-	bool						found;
+	//bool						found;
 
 	msg.data = buf;
 	msg.len = msg.maxlen = len;
@@ -706,7 +706,7 @@ static void GxidRcvProcessCommit(char *buf, Size len)
 		GxidRcvRemoveWaitFinishList(txid, true);
 		Assert(TransactionIdIsValid(txid));
 
-		found = false;
+		//found = false;
 		proclist_foreach_modify(iter, &GxidRcv->wait_commiters, GxidWaitLink)
 		{
 			proc = GetPGProcByNumber(iter.cur);
@@ -714,7 +714,7 @@ static void GxidRcvProcessCommit(char *buf, Size len)
 			{
 				proc->getGlobalTransaction = InvalidTransactionId;
 				SetLatch(&proc->procLatch);
-				found = true;
+				//found = true;
 				break;
 			}
 		}
