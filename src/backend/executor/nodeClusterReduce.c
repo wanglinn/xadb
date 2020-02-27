@@ -2033,6 +2033,9 @@ TopDownDriveClusterReduce(PlanState *node)
 	if (!node->state->es_reduce_plan_inited)
 		return ;
 
+	if (bms_is_member(node->plan->plan_node_id, node->state->es_reduce_drived_set))
+		return;
+
 	BeginDriveClusterReduce(node);
 	(void) DriveClusterReduceWalker(node);
 }
