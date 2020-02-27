@@ -11075,7 +11075,7 @@ bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 			coordhostoid = mgr_node->nodehost;
 			coordport = mgr_node->nodeport;
-			coordhost = get_hostaddress_from_hostoid(coordhostoid);
+			coordhost = get_hostaddress_from_hostoid(coordhostoid);		
 			connect_user = get_hostuser_from_hostoid(coordhostoid);
 			*cnoid = mgr_node->oid;
 			clusterLockCoordNodeOid = *cnoid;
@@ -13856,4 +13856,45 @@ uint64 updateAllowcureOfMgrHost(char *hostname, bool allowcure)
 	rows = updateAllowcureOfMgrHosts(hostnames, allowcure);
 	list_free(hostnames);
 	return rows;
+}
+
+bool MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *src_name, char* dst_name)
+{
+	StringInfoData sql;
+	int num = 2;
+	PGresult *res = NULL;
+	bool rest = true;
+
+	Assert(pg_conn);
+	Assert(src_name);
+	Assert(dst_name);
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql, "ALTER NODE DATA (\"%s\" TO \"%s\");",
+					src_name,
+					dst_name);
+	ereport(LOG, (errmsg("on gtm execute \"%s\".", sql.data)));
+	
+	while (num-- > 0)
+	{
+		res = PQexec(pg_conn, sql.data);
+		if (PQresultStatus(res) == PGRES_COMMAND_OK)
+		{
+			break;
+		}
+		if (num)
+		{
+			PQclear(res);
+			res = NULL;
+		}
+		pg_usleep(100000L);
+	}
+
+	if (PQresultStatus(res) != PGRES_COMMAND_OK)
+	{
+		rest = false;
+		ereport(ERROR, (errmsg("on gtm execute %s fail, %s.", sql.data, PQresultErrorMessage(res))));
+	}
+	PQclear(res);
+	return rest;					
 }

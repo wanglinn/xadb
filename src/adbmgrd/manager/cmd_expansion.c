@@ -185,7 +185,6 @@ static void hexp_update_slot_get_slotinfo(
 			PGconn *pgconn, char* src_node_name,
 			int* ppart1_slotid_startid, int* ppart1_slotid_len,
 			int* ppart2_slotid_startid, int* ppart2_slotid_len);
-static void hexp_update_slot_phase1_rollback(PGconn *pgconn,char* src_node_name);
 static void hexp_check_dn_pgxcnode_info(PGconn *pg_conn, char *nodename, StringInfoData* pnode_list_exists);
 static void hexp_check_cluster_pgxcnode(void);
 static bool hexp_activate_dn_exist(char* dn_name);
@@ -198,12 +197,8 @@ static List *hexp_init_dn_nodes(PGconn *pg_conn);
 static void hexp_init_cluster_pgxcnode(void);
 static void hexp_init_dn_pgxcnode_check(Form_mgr_node mgr_node, char* cnpath);
 
-static void hexp_check_set_all_dn_status(List* dn_status_list, bool is_vacuum_state);
-static void hexp_check_parent_dn_status(List *dn_status_list, DN_STATUS *old_dn_status);
-
 static int 	hexp_select_result_count(PGconn *pg_conn, char* sql);
 
-static void hexp_slot_1_online_to_move(	PGconn *pgconn, char* src_node_name,	char* dst_node_name);
 static void hexp_slot_2_move_to_clean(PGconn *pgconn,char* src_node_name, char* dst_node_name);
 static void hexp_slot_all_clean_to_online(PGconn *pgconn);
 
@@ -219,8 +214,6 @@ static void hexp_pgxc_pool_reload_on_all_node(PGconn *pg_conn);
 
 static Datum hexp_expand_check_show_status(bool check);
 static bool hexp_check_cluster_status_internal(List **pdn_status_list, StringInfo pserialize, bool check);
-static int  hexp_dn_slot_status_from_dn_status(List *dn_status_list, char* nodename);
-static int  hexp_cluster_slot_status_from_dn_status(List *dn_status_list);
 
 static void hexp_execute_cmd_get_reloid(PGconn *pg_conn, char *sqlstr, char* ret);
 static void hexp_import_hash_meta(PGconn *pgconn, PGconn *pgconn_dn, char* node_name);
@@ -383,7 +376,6 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		if(!((src_lsn_high==dst_lsn_high) && ((src_lsn_low-dst_lsn_low)>=0) &&((src_lsn_low-dst_lsn_low)<=8388608)))
 			ereport(ERROR, (errmsg("the lsn lag between src node and dst node is longer than 8M.src lsn is %x/%x, dst lsn is %x/%x", src_lsn_high,src_lsn_low,dst_lsn_high,dst_lsn_low)));
 
-
 		//check global and node status againt cluster lock
 		ereport(INFO, (errmsg("%s%s", phase1_msg, "expand check status.")));
 		hexp_check_expand_activate(srcnodeinfo.nodename, appendnodeinfo.nodename);
@@ -412,10 +404,7 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		if(!((src_lsn_high==dst_lsn_high) && (src_lsn_low==dst_lsn_low)))
 			ereport(ERROR, (errmsg("expend src node and dst node can not sync in %d seconds", try)));
 
-
-
 		//phase2
-
 		/*
 		3.promote&check connect
 		*/
@@ -430,12 +419,6 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		*/
 		ereport(INFO, (errmsg("update pgxc node name in postgresql.conf in dst node.if this step fails, do it by hand, then restart the node")));
 		hexp_update_conf_pgxc_node_name(appendnodeinfo, appendnodeinfo.nodename);
-
-		ereport(INFO, (errmsg("dst node :update adb_slot_enable_mvcc = on in postgresql.conf in dst node.if this step fails, do it by hand, then restart the node")));
-		hexp_update_conf_enable_mvcc(appendnodeinfo, true);
-
-		ereport(INFO, (errmsg("src node :update adb_slot_enable_mvcc = on in postgresql.conf in dst node.if this step fails, do it by hand, then restart the node")));
-		hexp_update_conf_enable_mvcc(srcnodeinfo, true);
 
 		//wait 60s for restart
 		ereport(INFO, (errmsg("restart dst node. if this step fails, do it by hand.")));
@@ -465,27 +448,30 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		//hexp_pqexec_direct_execute_utility(co_pg_conn, "select pgxc_pool_reload();", MGR_PGEXEC_DIRECT_EXE_UTI_RET_TUPLES_TRUE);
 		hexp_pgxc_pool_reload_on_all_node(co_pg_conn);
 		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_XC_MAINTENANCE_MODE_OFF , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+        
+		MgrSendAlterNodeDataToGtm(co_pg_conn, srcnodeinfo.nodename, appendnodeinfo.nodename);
 
 		/*
 		6.update slot info, move to clean
-		*/
 		ereport(INFO, (errmsg("update slot info from move to online.if this step fails, use 'expand activate recover promote success dst' to recover.")));
 		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 		hexp_slot_2_move_to_clean(co_pg_conn,srcnodeinfo.nodename, appendnodeinfo.nodename);
 
 		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-
+        
 		//flush slot info in all nodes(includes new node)
 		hexp_pqexec_direct_execute_utility(co_pg_conn, "flush slot;", MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-
+		*/
+	
 		/*
 		7.refresh hashmap table nodeoids in pgxc_class
-		*/
+		
 		ereport(INFO, (errmsg("invalidate all relations cache.if this step fails, use 'select adb_invalidate_relcache_all() on all coordinators.")));
 		if (!mgr_execute_direct_on_all_coord(&co_pg_conn, "select adb_invalidate_relcache_all();",
 			3, PGRES_TUPLES_OK, &strinfo))
 			ereport(WARNING, (errmsg("%s, use 'select adb_invalidate_relcache_all() on the coordinators.", strinfo.data)));
-
+		*/
+	
 		mgr_unlock_cluster_involve_gtm_coord(&co_pg_conn);
 
 		//5.update dst node init and in cluster, and parent node is empty.
@@ -691,19 +677,15 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 	char nodeport_buf[10];
 	bool findtuple;
 	PGconn * co_pg_conn = NULL;
-	Oid cnoid;
 	char phase1_msg[100];
 	char phase3_msg[256];
 	char *gtmMasterName;
-	bool before_basebackup;
-	bool after_basebackup;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
 
 	strcpy(phase1_msg, "phase1--if this command failed, there's nothing need to do. the command:");
 	strcpy(phase3_msg, "phase3--if this command failed, use 'expand recover basebackup success src to dst' to recover. the command:");
-	before_basebackup = after_basebackup = false;
 
 	memset(&destnodeinfo, 0, sizeof(AppendNodeInfo));
 	memset(&sourcenodeinfo, 0, sizeof(AppendNodeInfo));
@@ -806,28 +788,13 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		ereport(INFO, (errmsg("%s.%s", phase1_msg, "check dst node basebackup dir does not exist.if this step fails , you should check the dir.")));
 		mgr_check_dir_exist_and_priv(destnodeinfo.nodehost, destnodeinfo.nodepath);
 
-		/*
-		5.update slot info from online to move
-		*/
-		ereport(INFO, (errmsg("%s.%s", phase1_msg, "update slot info from online to move.")));
-		hexp_get_coordinator_conn(&co_pg_conn, &cnoid);
-		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		hexp_slot_1_online_to_move(co_pg_conn,sourcenodeinfo.nodename,destnodeinfo.nodename);
-		//hexp_slot_1_online_to_move(co_pg_conn,sourcenodeinfo.nodename);
-		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		PQfinish(co_pg_conn);
-		co_pg_conn = NULL;
-
 		//phase 2. if errors occur, slot info must rollback.
 		/*
 		6.basebackup
 		*/
-		before_basebackup = true;
-		ereport(INFO, (errmsg("phase2--basebackup.If the command failed, you must delete directory by hand and mgr will try to rollbake slot info from move to online.If you don't see the rollback success message, you can do it by expand recover basebackup fail src to dst.")));
+		ereport(INFO, (errmsg("phase2--basebackup.If the command failed, you must delete directory by hand.If you don't see the rollback success message, you can do it by expand recover basebackup fail src to dst.")));
 		mgr_pgbasebackup(CNDN_TYPE_DATANODE_MASTER, &destnodeinfo, &sourcenodeinfo);
-		after_basebackup = true;
 		ereport(INFO, (errmsg("phase2--basebackup suceess.")));
-
 
 		//phase 3. if errors occur, redo those.
 		/*
@@ -890,18 +857,6 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 
 	}PG_CATCH();
 	{
-		//rollback slot info
-		if(before_basebackup && !after_basebackup)
-		{
-			ereport(INFO, (errmsg("basebackup failed, rollback slot info from online to move.If you don't see rollback succes msg, do it by youself.")));
-			hexp_get_coordinator_conn(&co_pg_conn, &cnoid);
-			hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-			hexp_update_slot_phase1_rollback(co_pg_conn,sourcenodeinfo.nodename);
-			hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-			PQfinish(co_pg_conn);
-			co_pg_conn = NULL;
-			ereport(INFO, (errmsg("basebackup failed, rollback slot info success.")));
-		}
 		if(co_pg_conn)
 		{
 			PQfinish(co_pg_conn);
@@ -1111,7 +1066,6 @@ Datum mgr_expand_recover_backup_fail(PG_FUNCTION_ARGS)
 	GetAgentCmdRst getAgentCmdRst;
 	bool findtuple;
 	PGconn * co_pg_conn = NULL;
-	Oid cnoid;
 	char phase1_msg[100];
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
@@ -1157,18 +1111,6 @@ Datum mgr_expand_recover_backup_fail(PG_FUNCTION_ARGS)
 		{
 			ereport(ERROR, (errmsg("The node status is error. It should be not initialized and not in cluster.")));
 		}
-
-		/*
-		5.update slot info from online to move
-		*/
-		ereport(INFO, (errmsg("%s.%s", phase1_msg, "update slot info from move to online.")));
-		hexp_get_coordinator_conn(&co_pg_conn, &cnoid);
-		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		hexp_update_slot_phase1_rollback(co_pg_conn,sourcenodeinfo.nodename);
-		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		PQfinish(co_pg_conn);
-		co_pg_conn = NULL;
-
 	}PG_CATCH();
 	{
 		if(co_pg_conn)
@@ -1196,7 +1138,6 @@ Datum mgr_expand_clean_init(PG_FUNCTION_ARGS)
 	Oid cnoid;
 	HeapTuple tup_result = NULL;
 	HeapTuple tuple_coord = NULL;
-	int ret;
 	char ret_msg[100];
 	NameData nodename;
 	StringInfoData psql_cmd;
@@ -1252,16 +1193,6 @@ Datum mgr_expand_clean_init(PG_FUNCTION_ARGS)
 		is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list, &serialize, true);
 		if(is_vacuum_state)
 			ereport(ERROR, (errmsg("%s exists, clean init cann't be initialized.", ADB_SLOT_CLEAN_TABLE)));
-
-		ret = hexp_cluster_slot_status_from_dn_status(dn_status_list);
-		if (ClusterSlotStatusClean != ret)
-		{
-			if(ClusterSlotStatusOnline==ret)
-				strcpy(ret_msg, "cluster status is online. clean init cann't be started.");
-			else if (ClusterSlotStatusMove == ret)
-				strcpy(ret_msg, "cluster status is move. clean init cann't be started.");
-			ereport(ERROR, (errmsg("%s", ret_msg)));
-		}
 
 		initStringInfo(&psql_cmd);
 
@@ -1352,7 +1283,6 @@ Datum mgr_expand_clean_start(PG_FUNCTION_ARGS)
 	PGconn *pg_conn_clean = NULL;
 	Oid cnoid;
 	HeapTuple tup_result = NULL;
-	int ret;
 	char ret_msg[100];
 	NameData nodename;
 	bool is_vacuum_state = false;
@@ -1424,17 +1354,7 @@ Datum mgr_expand_clean_start(PG_FUNCTION_ARGS)
 		is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list , &serialize, true);
 		if(!is_vacuum_state)
 			ereport(ERROR, (errmsg("%s doesn't exist, clean start cann't be started.", ADB_SLOT_CLEAN_TABLE)));
-
-		ret = hexp_cluster_slot_status_from_dn_status(dn_status_list);
-		if (ClusterSlotStatusClean != ret)
-		{
-			if(ClusterSlotStatusOnline==ret)
-				strcpy(ret_msg, "cluster status is online. clean cann't be started.");
-			else if (ClusterSlotStatusMove == ret)
-				strcpy(ret_msg, "cluster status is move. clean cann't be started.");
-			ereport(ERROR, (errmsg("%s", ret_msg)));
-		}
-
+		
 		//2.choose a table that needs clean.
 		for(;;)
 		{
@@ -1520,7 +1440,6 @@ Datum mgr_expand_clean_end(PG_FUNCTION_ARGS)
 	PGconn *pg_conn = NULL;
 	Oid cnoid;
 	HeapTuple tup_result;
-	int ret;
 	char ret_msg[100];
 	NameData nodename;
 	bool is_vacuum_state;
@@ -1550,16 +1469,6 @@ Datum mgr_expand_clean_end(PG_FUNCTION_ARGS)
 		is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list, &serialize, true);
 		if(!is_vacuum_state)
 			ereport(ERROR, (errmsg("%s doesn't exist, clean end cann't be started.", ADB_SLOT_CLEAN_TABLE)));
-
-		ret = hexp_cluster_slot_status_from_dn_status(dn_status_list);
-		if (ClusterSlotStatusClean != ret)
-		{
-			if(ClusterSlotStatusOnline==ret)
-				strcpy(ret_msg, "cluster status is online. clean cann't be started.");
-			else if (ClusterSlotStatusMove == ret)
-				strcpy(ret_msg, "cluster status is move. clean cann't be started.");
-			ereport(ERROR, (errmsg("%s", ret_msg)));
-		}
 
 		//check if there is table not vacummed.
 		res = PQexec(pg_conn, SELECT_ADB_SLOT_CLEAN_TABLE);
@@ -2118,7 +2027,7 @@ static void hexp_check_hash_meta(void)
 		dn_node_list = hexp_init_dn_nodes(pg_conn);
 
 		foreach (lc, dn_node_list)
-		{
+		{	
 			dn_node = (DN_NODE *)lfirst(lc);
 			hexp_check_hash_meta_dn(pg_conn, pg_conn_dn, NameStr(dn_node->nodename));
 		}
@@ -2430,176 +2339,6 @@ static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* 
 	}PG_END_TRY();
 }
 
-static void hexp_check_parent_dn_status(List *dn_status_list, DN_STATUS *old_dn_status)
-{
-	DN_STATUS *dn_status;
-	ListCell *lc;
-	int diff;
-	diff = -1;
-
-	foreach (lc, dn_status_list)
-	{
-		dn_status = (DN_STATUS *)lfirst(lc);
-		if(dn_status->tid == old_dn_status->nodemasternameoid)
-		{
-			if(dn_status->checked)
-				ereport(ERROR, (errmsg("%s's parent is checked.parent=%s",
-					NameStr(old_dn_status->nodename),
-					NameStr(dn_status->nodename))));
-
-			if(0!=strcmp(NameStr(dn_status->nodename), NameStr(old_dn_status->pgxc_node_name)))
-				ereport(ERROR, (errmsg("%s's whose pgxcnodename is %s doesn't match master name %s",
-					NameStr(old_dn_status->nodename), NameStr(old_dn_status->pgxc_node_name), NameStr(dn_status->nodename))));
-
-			diff = dn_status->move_count - dn_status->online_count;
-			if((dn_status->online_count != 0)
-			&&(dn_status->move_count != 0)
-			&&(dn_status->clean_count == 0)
-			&&((0==diff)||(1==diff))
-			&&(dn_status->enable_mvcc == false)
-			&&(dn_status->nodemasternameoid == 0)
-			&&(dn_status->nodeincluster == true))
-			{
-				dn_status->checked = true;
-				dn_status->node_status = SlotStatusMoveInDB;
-				return;
-			}
-
-			ereport(ERROR, (errmsg("%s is in move state, but value is wrong.mvcc=%d-masterid=%d-incluster=%d",
-				NameStr(dn_status->nodename),
-				dn_status->enable_mvcc,
-				dn_status->nodemasternameoid,
-				dn_status->nodeincluster)));
-		}
-	}
-
-	ereport(ERROR, (errmsg("%s's parent cann't be found.mvcc=%d-masterid=%d-incluster=%d",
-		NameStr(old_dn_status->nodename),
-		old_dn_status->enable_mvcc,
-		old_dn_status->nodemasternameoid,
-		old_dn_status->nodeincluster)));
-
-}
-
-static void hexp_check_set_all_dn_status(List* dn_status_list, bool is_vacuum_state)
-{
-	ListCell	*lc;
-	DN_STATUS	*dn_status;
-
-	foreach (lc, dn_status_list)
-	{
-		dn_status = (DN_STATUS *)lfirst(lc);
-		if(dn_status->checked)
-			continue;
-
-		//online
-		if((dn_status->online_count != 0)
-			&&(dn_status->move_count == 0)
-			&&(dn_status->clean_count == 0))
-		{
-			if((dn_status->enable_mvcc == false)
-				&&(dn_status->nodemasternameoid == 0)
-				&&(dn_status->nodeincluster == true))
-			{
-				dn_status->checked = true;
-				dn_status->node_status = SlotStatusOnlineInDB;
-				continue;
-			}
-			ereport(ERROR, (errmsg("%s is in online state, but value is wrong.mvcc=%d-masterid=%d-incluster=%d",
-				NameStr(dn_status->nodename),
-				dn_status->enable_mvcc,
-				dn_status->nodemasternameoid,
-				dn_status->nodeincluster)));
-
-		}
-		//clean
-		else if((dn_status->online_count == 0)
-			&&(dn_status->move_count == 0)
-			&&(dn_status->clean_count != 0))
-		{
-			if((dn_status->enable_mvcc == true)
-				&&(dn_status->nodemasternameoid == 0)
-				&&(dn_status->nodeincluster == true))
-			{
-				dn_status->checked = true;
-				dn_status->node_status = SlotStatusCleanInDB;
-				continue;
-			}
-			ereport(ERROR, (errmsg("%s is in online state, but value is wrong.mvcc=%d-masterid=%d-incluster=%d",
-				NameStr(dn_status->nodename),
-				dn_status->enable_mvcc,
-				dn_status->nodemasternameoid,
-				dn_status->nodeincluster)));
-
-		}
-		//move
-		else if((dn_status->online_count != 0)
-			&&(dn_status->move_count != 0)
-			&&(dn_status->clean_count == 0))
-		{
-				if(is_vacuum_state)
-					ereport(ERROR, (errmsg("in vacuum state, move state node exists")));
-				//slot info is move, unsure if mgr info is set.
-				dn_status->node_status = SlotStatusMoveHalfWay;
-				continue;
-		}
-		//expand
-		else if((dn_status->online_count == 0)
-			&&(dn_status->move_count == 0)
-			&&(dn_status->clean_count == 0))
-		{
-			if(is_vacuum_state)
-				ereport(ERROR, (errmsg("in vacuum state, expend state node exists")));
-
-			if((dn_status->enable_mvcc == false)
-				&&(dn_status->nodemasternameoid != 0)
-				&&(dn_status->nodeincluster == false))
-			{
-				//find master
-				dn_status->checked = true;
-				dn_status->node_status = SlotStatusExpand;
-				hexp_check_parent_dn_status(dn_status_list, dn_status);
-				continue;
-			}
-			ereport(ERROR, (errmsg("%s is in expanded state, but value is wrong.mvcc=%d-masterid=%d-incluster=%d",
-				NameStr(dn_status->nodename),
-				dn_status->enable_mvcc,
-				dn_status->nodemasternameoid,
-				dn_status->nodeincluster)));
-		}
-	}
-
-
-	foreach (lc, dn_status_list)
-	{
-		dn_status = (DN_STATUS *)lfirst(lc);
-		if(SlotStatusMoveHalfWay==dn_status->node_status)
-			dn_status->checked = true;
-
-		if(!dn_status->checked)
-			ereport(ERROR, (errmsg("%s is not checked.mvcc=%d-masterid=%d-incluster=%d",
-				NameStr(dn_status->nodename),
-				dn_status->enable_mvcc,
-				dn_status->nodemasternameoid,
-				dn_status->nodeincluster)));
-
-		if(SlotStatusInvalid == dn_status->node_status)
-			ereport(ERROR, (errmsg("%s is not set status.mvcc=%d-masterid=%d-incluster=%d",
-				NameStr(dn_status->nodename),
-				dn_status->enable_mvcc,
-				dn_status->nodemasternameoid,
-				dn_status->nodeincluster)));
-
-		if(SlotStatusExpand != dn_status->node_status)
-			if (0!=strcmp(NameStr(dn_status->nodename), NameStr(dn_status->pgxc_node_name)))
-			{
-				ereport(ERROR, (errmsg("mgr's node is %s. pgxc_node_name is %s.", NameStr(dn_status->nodename), NameStr(dn_status->pgxc_node_name))));
-			}
-
-	}
-
-}
-
 static bool hexp_activate_dn_exist(char* dn_name)
 {
 	List		*dn_status_list;
@@ -2719,46 +2458,6 @@ static void hexp_update_slot_get_slotinfo(
 	*part1_slotid_startid = 0;
 	*part2_slotid_startid = (*part1_slotid_startid) + (*part1_slotid_len);
 }
-
-/*
-phase1 fails,rollback slot info from move to online.
-*/
-static void hexp_update_slot_phase1_rollback(PGconn *pgconn,char* src_node_name)
-{
-	int part1_slotid_startid;
-	int part1_slotid_len;
-	int part2_slotid_startid;
-	int part2_slotid_len;
-
-	char sql[100];
-	PGresult* res;
-	int i = 0;
-	ExecStatusType status;
-	int slotid = -1;
-
-	SlotArrayIndex = 0;
-	hexp_update_slot_get_slotinfo(pgconn, src_node_name,
-		&part1_slotid_startid, &part1_slotid_len,
-		&part2_slotid_startid, &part2_slotid_len);
-
-	for(i=part2_slotid_startid;
-		i<part2_slotid_startid+part2_slotid_len; i++)
-	{
-		slotid = SlotIdArray[i];
-		sprintf(sql, ALTER_SLOT_STATUS_BY_SLOTID, slotid, SLOT_STATUS_ONLINE);
-		res = PQexec(pgconn, sql);
-		status = PQresultStatus(res);
-		switch(status)
-		{
-			case PGRES_COMMAND_OK:
-				break;
-			default:
-				ereport(ERROR, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
-		}
-		PQclear(res);
-	}
-}
-
 
 static int hexp_select_result_count(PGconn *pg_conn, char* sql)
 {
@@ -2976,11 +2675,11 @@ static void hexp_init_dn_pgxcnode_check(Form_mgr_node mgr_node, char* cnpath)
 		{
 			PQclear(res);
 			ereport(ERROR, (errmsg("%s runs error. result is null.", SHOW_PGXC_NODE_NAME)));
-		}
+		}		
 		if (1!=atoi(PQgetvalue(res, 0, 0)))
 		{
 			PQclear(res);
-			ereport(ERROR, (errmsg("more than one datanode in %s's pgxc_node.", mgr_node->nodename.data)));
+			ereport(ERROR, (errmsg("more than one datanode in %s's pgxc_node, tuple_num=%d.", mgr_node->nodename.data, atoi(PQgetvalue(res, 0, 0)))));
 		}
 		PQclear(res);
 
@@ -3192,7 +2891,7 @@ static void hexp_init_cluster_pgxcnode(void)
 	List	*dn_node_list = NIL;
 
 	//check if hash table meta matches in cluster.
-	hexp_check_hash_meta();
+	//hexp_check_hash_meta();
 
 	PG_TRY();
 	{
@@ -3296,52 +2995,8 @@ static void hexp_check_cluster_pgxcnode(void)
 
 }
 
-static void hexp_slot_1_online_to_move(
-	PGconn *pgconn,
-	char* src_node_name,
-	char* dst_node_name)
-{
-	int part1_slotid_startid;
-	int part1_slotid_len;
-	int part2_slotid_startid;
-	int part2_slotid_len;
-
-	char sql[100];
-	PGresult* res;
-	int i = 0;
-	ExecStatusType status;
-	int slotid = -1;
-
-	SlotArrayIndex = 0;
-	hexp_update_slot_get_slotinfo(pgconn, src_node_name,
-		&part1_slotid_startid, &part1_slotid_len,
-		&part2_slotid_startid, &part2_slotid_len);
-
-	for(i=part2_slotid_startid;
-		i<part2_slotid_startid+part2_slotid_len; i++)
-	{
-		slotid = SlotIdArray[i];
-		if(SlotStatusOnlineInDB != SlotStatusArray[i])
-			ereport(ERROR, (errmsg("the %d slot's status should be online.", slotid)));
-
-		sprintf(sql, ALTER_SLOT_STATUS_BY_SLOTID, slotid, SLOT_STATUS_MOVE);
-		res = PQexec(pgconn, sql);
-		status = PQresultStatus(res);
-		switch(status)
-		{
-			case PGRES_COMMAND_OK:
-				break;
-			default:
-				ereport(ERROR, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
-		}
-		PQclear(res);
-	}
-}
-
-
 static void hexp_check_expand_backup(char* src_node_name)
 {
-	int src_ret;
 	StringInfoData serialize;
 	bool is_vacuum_state;
 	List *dn_status_list;
@@ -3351,17 +3006,10 @@ static void hexp_check_expand_backup(char* src_node_name)
 	is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list, &serialize, true);
 	if(is_vacuum_state)
 		ereport(ERROR, (errmsg("%s exists, expand activate cann't be started.", ADB_SLOT_CLEAN_TABLE)));
-
-	//check src node status
-	src_ret = hexp_dn_slot_status_from_dn_status(dn_status_list, src_node_name);
-	if (SlotStatusOnlineInDB != src_ret)
-		ereport(ERROR, (errmsg("src node %s status is %d. expand backup cann't be started.", src_node_name,src_ret)));
-
 }
 
 static void hexp_check_expand_activate(char* src_node_name, char* dst_node_name)
 {
-	int ret, src_ret, dst_ret;
 	StringInfoData serialize;
 	bool is_vacuum_state;
 	List *dn_status_list;
@@ -3371,21 +3019,6 @@ static void hexp_check_expand_activate(char* src_node_name, char* dst_node_name)
 	is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list, &serialize, true);
 	if(is_vacuum_state)
 		ereport(ERROR, (errmsg("%s exists, expand activate cann't be started.", ADB_SLOT_CLEAN_TABLE)));
-
-	//check cluster status
-	ret = hexp_cluster_slot_status_from_dn_status(dn_status_list);
-	if (ClusterSlotStatusMove != ret)
-		ereport(ERROR, (errmsg("cluster status is %d. expand activate cann't be started.", ret)));
-
-	//check src node status
-	src_ret = hexp_dn_slot_status_from_dn_status(dn_status_list, src_node_name);
-	if (SlotStatusMoveInDB != src_ret)
-		ereport(ERROR, (errmsg("src node %s status is %d. expand activate cann't be started.", src_node_name,src_ret)));
-
-	//check dst node status
-	dst_ret = hexp_dn_slot_status_from_dn_status(dn_status_list, dst_node_name);
-	if (SlotStatusExpand != dst_ret)
-		ereport(ERROR, (errmsg("dst node %s status is %d. expand activate cann't be started.", dst_node_name,src_ret)));
 }
 
 static void hexp_slot_2_move_to_clean(PGconn *pgconn,char* src_node_name, char* dst_node_name)
@@ -3473,61 +3106,8 @@ static void hexp_slot_all_clean_to_online(PGconn *pgconn)
 	}
 }
 
-int  hexp_cluster_slot_status_from_dn_status(List *dn_status_list)
-{
-	int online_count;
-	int move_count;
-	int clean_count;
-	ListCell	*lc;
-	DN_STATUS	*dn_status;
-	online_count = move_count = clean_count = 0;
-
-	foreach (lc, dn_status_list)
-	{
-		dn_status = (DN_STATUS *)lfirst(lc);
-		online_count += dn_status->online_count;
-		move_count += dn_status->move_count;
-		clean_count += dn_status->clean_count;
-	}
-
-	if (HASHMAP_SLOTSIZE!=(online_count+move_count+clean_count))
-		ereport(ERROR, (errmsg("cluster slot is not initialized. slot number is not 1024.")));
-
-	if (HASHMAP_SLOTSIZE==online_count)
-		return ClusterSlotStatusOnline;
-
-	if (0!=move_count)
-		return ClusterSlotStatusMove;
-
-	if (0!=clean_count)
-		return ClusterSlotStatusClean;
-
-	ereport(ERROR,
-		(errmsg("cluster slot status is error. online= %d, move=%d, clean=%d.",
-		online_count, move_count, clean_count)));
-}
-
-
-int  hexp_dn_slot_status_from_dn_status(List *dn_status_list, char* nodename)
-{
-	ListCell	*lc;
-	DN_STATUS	*dn_status;
-	foreach (lc, dn_status_list)
-	{
-		dn_status = (DN_STATUS *)lfirst(lc);
-		if(0==strcmp(nodename, NameStr(dn_status->nodename)))
-		{
-			if(SlotStatusInvalid==dn_status->node_status)
-				ereport(ERROR, (errmsg("node %s 's slot status is invalid.", nodename)));
-			return dn_status->node_status;
-		}
-	}
-	ereport(ERROR, (errmsg("node %s is not found in DN_STATUS arrary.", nodename)));
-}
-
 bool hexp_check_cluster_status_internal(List **pdn_status_list, StringInfo pserialize, bool check)
 {
-	int ret;
 	PGconn *pg_conn = NULL;
 	Oid cnoid;
 	bool is_vacuum_state;
@@ -3557,21 +3137,10 @@ bool hexp_check_cluster_status_internal(List **pdn_status_list, StringInfo pseri
 		//get all dn info
 		*pdn_status_list = hexp_get_all_dn_status();
 
-		//get and check cluster slot status
-		ret = hexp_cluster_slot_status_from_dn_status(*pdn_status_list);
-		if(ClusterSlotStatusOnline==ret)
-			appendStringInfo(pserialize,"cluster status is online\n");
-		else if (ClusterSlotStatusMove == ret)
-			appendStringInfo(pserialize,"cluster status is online/move/clean\n");
-		else if (ClusterSlotStatusClean == ret)
-			appendStringInfo(pserialize,"cluster status is clean\n");
-
 		//check each node
-		if(check&&is_vacuum_state&&(ClusterSlotStatusClean != ret))
+		if(check&&is_vacuum_state)
 			ereport(ERROR, (errmsg("cluster status is slot vacuum, but ClusterSlotStatus is not clean.")));
-		if(check)
-			hexp_check_set_all_dn_status(*pdn_status_list, is_vacuum_state);
-
+		
 		foreach (lc, *pdn_status_list)
 		{
 			dn_status = (DN_STATUS *)lfirst(lc);

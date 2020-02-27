@@ -569,6 +569,6 @@ extern uint64 updateDoctorStatusOfMgrNodes(List *nodenames, char nodetype, bool 
 extern uint64 updateDoctorStatusOfMgrNode(char *nodename, char nodetype, bool allowcure, char *curestatus);
 extern uint64 updateAllowcureOfMgrHosts(List *hostnames, bool allowcure);
 extern uint64 updateAllowcureOfMgrHost(char *hostname, bool allowcure);
-
+extern bool MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *src_name, char* dst_name);
 extern void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, GetAgentCmdRst *getAgentCmdRst);
 #endif /* MGR_CMDS_H */
