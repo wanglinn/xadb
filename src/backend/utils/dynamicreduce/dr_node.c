@@ -196,7 +196,8 @@ static void OnPreWaitNode(DROnPreWaitArgs)
 	{
 		need_event = 0;
 #ifdef WITH_RDMA
-		if (ned->recvBuf.maxlen > ned->recvBuf.len)
+		if (ned->recvBuf.maxlen > ned->recvBuf.len &&
+			CurrentResourceOwner != NULL)
 			need_event |= POLLIN;
 		if (ned->sendBuf.len > ned->sendBuf.cursor)
 			need_event |= POLLOUT;
@@ -208,7 +209,8 @@ static void OnPreWaitNode(DROnPreWaitArgs)
 			ned->waiting_events = need_event;
 		}
 #elif defined DR_USING_EPOLL
-		if (ned->recvBuf.maxlen > ned->recvBuf.len)
+		if (ned->recvBuf.maxlen > ned->recvBuf.len &&
+			CurrentResourceOwner != NULL)
 			need_event |= EPOLLIN;
 		if (ned->sendBuf.len > ned->sendBuf.cursor)
 			need_event |= EPOLLOUT;
@@ -219,7 +221,8 @@ static void OnPreWaitNode(DROnPreWaitArgs)
 			ned->waiting_events = need_event;
 		}
 #else /* DR_USING_EPOLL */
-		if (ned->recvBuf.maxlen > ned->recvBuf.len)
+		if (ned->recvBuf.maxlen > ned->recvBuf.len &&
+			CurrentResourceOwner != NULL)
 			need_event |= WL_SOCKET_READABLE;
 		if (ned->sendBuf.len > ned->sendBuf.cursor)
 			need_event |= WL_SOCKET_WRITEABLE;
