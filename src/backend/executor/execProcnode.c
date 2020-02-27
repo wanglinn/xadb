@@ -851,6 +851,10 @@ ExecShutdownNode(PlanState *node)
 
 	check_stack_depth();
 
+#ifdef ADB
+	TopDownDriveClusterReduce(node);
+#endif /* ADB */
+
 	planstate_tree_walker(node, ExecShutdownNode, NULL);
 
 	/*
