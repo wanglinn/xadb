@@ -162,7 +162,7 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 				AddExtensionStmt DropExtensionStmt RemoveNodeStmt FailoverManualStmt SwitchoverStmt
 				ZoneStmt GetBoottimeStmt
 
-				ExpandNodeStmt CheckNodeStmt ClusterSlotInitStmt
+				ExpandNodeStmt CheckNodeStmt
 				ClusterPgxcNodeInitStmt ClusterPgxcNodeCheckStmt
 				ImportHashMetaStmt ClusterHashMetaCheckStmt
 				StartDoctorStmt StopDoctorStmt SetDoctorParamStmt ListDoctorParamStmt
@@ -174,12 +174,12 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 %type <list>	general_options opt_general_options general_option_list HbaParaList
 				AConstList targetList ObjList var_list NodeConstList set_parm_general_options
 				OptRoleList name_list privilege_list username_list hostname_list
-				AlterOptRoleList slot_value_list slot_in_value_list
+				AlterOptRoleList
 
 %type <node>	general_option_item general_option_arg target_el
-%type <node> 	var_value slot_value
+%type <node> 	var_value
 
-%type <defelt>	CreateOptRoleElem AlterOptRoleElem slot_for_values
+%type <defelt>	CreateOptRoleElem AlterOptRoleElem
 
 %type <ival>	Iconst SignedIconst opt_gtm_inner_type opt_dn_inner_type opt_general_force opt_cn_inner_type
 		opt_slave_inner_type
@@ -309,7 +309,6 @@ stmt :
 	| RemoveNodeStmt
 	| ExpandNodeStmt
 	| CheckNodeStmt
-	| ClusterSlotInitStmt
 	| ClusterPgxcNodeInitStmt
 	| ClusterPgxcNodeCheckStmt
 	| ImportHashMetaStmt
@@ -555,27 +554,11 @@ ExpandNodeStmt:
 			$$ = (Node*)stmt;
 		}
 		|
-		EXPAND CLEAN INIT
+		EXPAND CLEAN
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_clean_init", NULL));
-			$$ = (Node*)stmt;
-		}
-		|
-		EXPAND CLEAN START
-		{
-			SelectStmt *stmt = makeNode(SelectStmt);
-			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_clean_start", NULL));
-			$$ = (Node*)stmt;
-		}
-		|
-		EXPAND CLEAN END
-		{
-			SelectStmt *stmt = makeNode(SelectStmt);
-			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_clean_end", NULL));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_clean", NULL));
 			$$ = (Node*)stmt;
 		}
 		|
@@ -587,72 +570,6 @@ ExpandNodeStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("pg_sleep", args));
 			$$ = (Node*)stmt;
 		};
-
-ClusterSlotInitStmt:
-		CLUSTER SLOT INIT '(' slot_value_list ')'
-		{
-			ClusterSlotInitStmt *node = makeNode(ClusterSlotInitStmt);
-			node->options = $5;
-			$$ = (Node*)node;
-		};
-
-slot_value_list:
-		  slot_for_values						{ $$ = list_make1($1); }
-		| slot_value_list ',' slot_for_values	{ $$ = lappend($1, $3); }
-		;
-
-slot_for_values:
-		/* a RANGE */
-		  Ident FROM slot_value TO slot_value
-			{
-				PartitionBoundSpec *pbs = makeNode(PartitionBoundSpec);
-				pbs->strategy = PARTITION_STRATEGY_RANGE;
-				pbs->lowerdatums = list_make1($3);
-				pbs->upperdatums = list_make1($5);
-				pbs->location = @2;
-
-				$$ = makeDefElem($1, (Node *)pbs, @1);
-			}
-		| Ident IN_P '(' slot_in_value_list ')'
-			{
-				PartitionBoundSpec *pbs = makeNode(PartitionBoundSpec);
-				pbs->strategy = PARTITION_STRATEGY_LIST;
-				pbs->listdatums = $4;
-				pbs->location = @2;
-
-				$$ = makeDefElem($1, (Node*)pbs, @1);
-			}
-		;
-
-slot_in_value_list:
-		  slot_value							{ $$ = list_make1($1); }
-		| slot_in_value_list ',' slot_value		{ $$ = lappend($1, $3); }
-		;
-
-slot_value:
-		  Iconst
-			{
-				PartitionRangeDatum *n = makeNode(PartitionRangeDatum);
-				n->kind = PARTITION_RANGE_DATUM_VALUE;
-				n->value = (Node *)makeInteger($1);
-				n->location = @1;
-				$$ = (Node *)n;
-			}
-		| MINVALUE
-			{
-				PartitionRangeDatum *n = makeNode(PartitionRangeDatum);
-				n->kind = PARTITION_RANGE_DATUM_MINVALUE;
-				n->location = @1;
-				$$ = (Node *)n;
-			}
-		| MAXVALUE
-			{
-				PartitionRangeDatum *n = makeNode(PartitionRangeDatum);
-				n->kind = PARTITION_RANGE_DATUM_MAXVALUE;
-				n->location = @1;
-				$$ = (Node *)n;
-			}
-		;
 
 ClusterPgxcNodeInitStmt:
 		CLUSTER PGXCNODE INIT

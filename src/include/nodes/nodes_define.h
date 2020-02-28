@@ -4329,11 +4329,6 @@ BEGIN_NODE(MonitorDeleteData)
 END_NODE(MonitorDeleteData)
 #endif /* NO_NODE_MonitorDeleteData */
 
-#ifndef NO_NODE_ClusterSlotInitStmt
-BEGIN_NODE(ClusterSlotInitStmt)
-	NODE_NODE(List,options)
-END_NODE(ClusterSlotInitStmt)
-#endif /* NO_NODE_ClusterSlotInitStmt */
 
 #ifndef NO_NODE_MGRFlushParam
 BEGIN_NODE(MGRFlushParam)

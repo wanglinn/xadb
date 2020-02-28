@@ -138,10 +138,6 @@ static bool updatePgxcNodeForSwitch(SwitcherNodeWrapper *holdLockNode,
 static bool pgxcPoolReloadOnNode(SwitcherNodeWrapper *holdLockNode,
 								 SwitcherNodeWrapper *executeOnNode,
 								 bool complain);
-static bool updateAdbSlotForSwitch(SwitcherNodeWrapper *coordinator,
-								   MgrNodeWrapper *oldMaster,
-								   MgrNodeWrapper *newMaster,
-								   bool complain);
 static SwitcherNodeWrapper *getGtmCoordMaster(dlist_head *coordinators);
 static void batchSetGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 								   dlist_head *nodes,
@@ -297,7 +293,6 @@ void switchDataNodeMaster(char *oldMasterName,
 	MemoryContext oldContext;
 	MemoryContext switchContext;
 	MemoryContext spiContext;
-	int numberOfSlots = 0;
 	SwitcherNodeWrapper *holdLockCoordinator = NULL;
 	ErrorData *edata = NULL;
 
@@ -342,12 +337,7 @@ void switchDataNodeMaster(char *oldMasterName,
 									  newMaster->mgrNode,
 									  &failedSlaves,
 									  forceSwitch);
-		numberOfSlots = countAdbSlot(newMaster->pgConn,
-									 true);
-		if (numberOfSlots > 0)
-			checkGetSiblingMasterNodes(spiContext,
-									   oldMaster,
-									   &siblingMasters);
+		
 		CHECK_FOR_INTERRUPTS();
 
 		/**
@@ -416,28 +406,22 @@ void switchDataNodeMaster(char *oldMasterName,
 										newMaster->mgrNode,
 										spiContext,
 										kickOutOldMaster);
-		if (numberOfSlots > 0)
-		{
-			refreshPgxcNodesOfSiblingMasters(holdLockCoordinator,
+		refreshPgxcNodesOfSiblingMasters(holdLockCoordinator,
 											 oldMaster,
 											 newMaster,
 											 &siblingMasters);
-			/* 
-			 * In the last active/standby switching of other nodes, this node may 
-			 * have been bypassed, Therefore diff PGXC_NODE is very necessary.
-			 */
-			diffPgxcNodesOfDataNode(holdLockCoordinator->pgConn,
-									false,
-									newMaster,
-									&siblingMasters,
-									spiContext,
-									true);
-			diffAdbSlotOfDataNodes(holdLockCoordinator,
-								   newMaster,
-								   &siblingMasters,
-								   spiContext,
-								   true);
-		}
+			 
+		/* In the last active/standby switching of other nodes, this node may 
+		* have been bypassed, Therefore diff PGXC_NODE is very necessary.
+		*/
+		diffPgxcNodesOfDataNode(holdLockCoordinator->pgConn,
+								false,
+								newMaster,
+								&siblingMasters,
+								spiContext,
+								true);
+
+		
 		commitSwitcherNodeTransaction(holdLockCoordinator,
 									  true);
 		tryUnlockCluster(&coordinators, true);
@@ -708,7 +692,6 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 	MemoryContext spiContext;
 	ErrorData *edata = NULL;
 	SwitcherNodeWrapper *gtmMaster = NULL;
-	int numberOfSlots = 0;
 	SwitcherNodeWrapper *holdLockCoordinator = NULL;
 
 	oldContext = CurrentMemoryContext;
@@ -748,12 +731,7 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 		checkGetMasterCoordinators(spiContext,
 								   &coordinators,
 								   true, true);
-		numberOfSlots = countAdbSlot(newMaster->pgConn,
-									 true);
-		if (numberOfSlots > 0)
-			checkGetSiblingMasterNodes(spiContext,
-									   oldMaster,
-									   &siblingMasters);
+		
 		checkTrackActivitiesForSwitchover(&coordinators,
 										  oldMaster);
 		refreshPgxcNodeBeforeSwitchDataNode(&coordinators);
@@ -837,28 +815,35 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 										newMaster->mgrNode,
 										spiContext,
 										false);
-		if (numberOfSlots > 0)
-		{
-			refreshPgxcNodesOfSiblingMasters(holdLockCoordinator,
+		refreshPgxcNodesOfSiblingMasters(holdLockCoordinator,
 											 oldMaster,
 											 newMaster,
 											 &siblingMasters);
-			/* 
-			 * In the last active/standby switching of other nodes, this node may 
-			 * have been bypassed, Therefore diff PGXC_NODE is very necessary.
-			 */
-			diffPgxcNodesOfDataNode(holdLockCoordinator->pgConn,
-									false,
-									newMaster,
-									&siblingMasters,
-									spiContext,
-									true);
-			diffAdbSlotOfDataNodes(holdLockCoordinator,
-								   newMaster,
-								   &siblingMasters,
-								   spiContext,
-								   true);
-		}
+		/* 
+			* In the last active/standby switching of other nodes, this node may 
+			* have been bypassed, Therefore diff PGXC_NODE is very necessary.
+			*/
+		diffPgxcNodesOfDataNode(holdLockCoordinator->pgConn,
+								false,
+								newMaster,
+								&siblingMasters,
+								spiContext,
+								true);
+		refreshPgxcNodesOfSiblingMasters(holdLockCoordinator,
+											 oldMaster,
+											 newMaster,
+											 &siblingMasters);
+		/* 
+			* In the last active/standby switching of other nodes, this node may 
+			* have been bypassed, Therefore diff PGXC_NODE is very necessary.
+			*/
+		diffPgxcNodesOfDataNode(holdLockCoordinator->pgConn,
+								false,
+								newMaster,
+								&siblingMasters,
+								spiContext,
+								true);
+		
 		commitSwitcherNodeTransaction(holdLockCoordinator,
 									  true);
 		tryUnlockCluster(&coordinators, true);
@@ -1350,30 +1335,7 @@ static void revertClusterSetting(dlist_head *coordinators,
 								 false);
 		}
 	}
-	dlist_foreach(iter, coordinators)
-	{
-		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		if (node->adbSlotChanged)
-		{
-			if (updateAdbSlotForSwitch(node,
-									   newMaster->mgrNode,
-									   oldMaster->mgrNode,
-									   false))
-			{
-				node->adbSlotChanged = false;
-			}
-			else
-			{
-				ereport(NOTICE,
-						(errmsg("%s revert adb_slot failed",
-								NameStr(node->mgrNode->form.nodename))));
-				ereport(LOG,
-						(errmsg("%s revert adb_slot failed",
-								NameStr(node->mgrNode->form.nodename))));
-				execOk = false;
-			}
-		}
-	}
+	
 	if (oldMaster && oldMaster->startupAfterException)
 	{
 		callAgentStartNode(oldMaster->mgrNode, false, false);
@@ -3277,24 +3239,6 @@ static bool pgxcPoolReloadOnNode(SwitcherNodeWrapper *holdLockNode,
 								 complain);
 }
 
-static bool updateAdbSlotForSwitch(SwitcherNodeWrapper *coordinator,
-								   MgrNodeWrapper *oldMaster,
-								   MgrNodeWrapper *newMaster,
-								   bool complain)
-{
-	ereport(LOG, (errmsg("refresh node %s slot information",
-						 NameStr(newMaster->form.nodename))));
-	ereport(NOTICE, (errmsg("refresh node %s slot information",
-							NameStr(newMaster->form.nodename))));
-	coordinator->adbSlotChanged = hexp_alter_slotinfo_nodename_noflush(coordinator->pgConn,
-																	   NameStr(oldMaster->form.nodename),
-																	   NameStr(newMaster->form.nodename),
-																	   true,
-																	   complain);
-	if (coordinator->adbSlotChanged)
-		PQexecCommandSql(coordinator->pgConn, "flush slot;", complain);
-	return coordinator->adbSlotChanged;
-}
 
 SwitcherNodeWrapper *getHoldLockCoordinator(dlist_head *coordinators)
 {
@@ -3907,111 +3851,6 @@ void diffPgxcNodesOfDataNode(PGconn *pgconn,
 							currentDataNodeMaster,
 							complain);
 	}
-
-end:
-	PQclear(res);
-	pfree(allMasterNames.data);
-	pfree(sql.data);
-	if (currentDataNodeMaster)
-		pfreeMgrNodeWrapper(currentDataNodeMaster);
-	return;
-}
-
-/*
- * One "waitswitch" datanode master may block the operation of "alter node"
- * and "alter slot" in subsequent processes, If there is such a node,
- * temporarily bypass it. When that "waitswitch" datanode master back to normal,
- * It must compare the data its adb_slot tables with the data in mgr_node, 
- * and then update the difference datanode master data to the cluster nodes.
- * NB: call this method when mgr_node was updated in the process of datanode switching.
- */
-void diffAdbSlotOfDataNodes(SwitcherNodeWrapper *coordinator,
-							SwitcherNodeWrapper *dataNodeMaster,
-							dlist_head *siblingMasters,
-							MemoryContext spiContext,
-							bool complain)
-{
-	int i;
-	int nDiffNodes = 0;
-	char *historicalDataNodeMasterName;
-	MgrNodeWrapper *currentDataNodeMaster = NULL;
-	StringInfoData allMasterNames;
-	dlist_iter iter;
-	SwitcherNodeWrapper *switcherNode;
-	StringInfoData sql;
-	PGresult *res = NULL;
-	char slaveNodetype;
-
-	initStringInfo(&allMasterNames);
-	initStringInfo(&sql);
-	slaveNodetype = getMgrSlaveNodetype(dataNodeMaster->mgrNode->form.nodetype);
-
-	dlist_foreach(iter, siblingMasters)
-	{
-		switcherNode = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		if (!isCurestatusForRunningOk(NameStr(switcherNode->mgrNode->form.curestatus)))
-		{
-			ereport(LOG,
-					(errmsg("%s curestatus:%s, cancel the operation of diff adb_slot, "
-							"this operation will be performed when all master nodes are normal",
-							NameStr(switcherNode->mgrNode->form.nodename),
-							NameStr(switcherNode->mgrNode->form.curestatus))));
-			goto end;
-		}
-		else if (switcherNode->runningMode != NODE_RUNNING_MODE_MASTER)
-		{
-			ereport(complain ? ERROR : WARNING,
-					(errmsg("%s unexpected running mode %d, diff adb_slot failed",
-							NameStr(switcherNode->mgrNode->form.nodename),
-							switcherNode->runningMode)));
-			goto end;
-		}
-		else
-		{
-			appendStringInfo(&allMasterNames, "'%s',", NameStr(switcherNode->mgrNode->form.nodename));
-		}
-	}
-	appendStringInfo(&allMasterNames, "'%s'", NameStr(dataNodeMaster->mgrNode->form.nodename));
-	appendStringInfo(&sql,
-					 "select distinct slotnodename from adb_slot where slotnodename not in (%s) ",
-					 allMasterNames.data);
-	res = PQexec(coordinator->pgConn, sql.data);
-	if (PQresultStatus(res) != PGRES_TUPLES_OK)
-	{
-		PQclear(res);
-		res = NULL;
-		ereport(complain ? ERROR : WARNING,
-				(errmsg("PQexec \"%s\" failed",
-						sql.data)));
-		goto end;
-	}
-	nDiffNodes = PQntuples(res);
-	if (nDiffNodes > 0)
-	{
-		beginSwitcherNodeTransaction(coordinator, true);
-		for (i = 0; i < nDiffNodes; i++)
-		{
-			historicalDataNodeMasterName = PQgetvalue(res, i, 0);
-			currentDataNodeMaster = checkGetMasterNodeBySlaveNodename(historicalDataNodeMasterName,
-																	  slaveNodetype,
-																	  spiContext,
-																	  complain);
-			if (!currentDataNodeMaster)
-				goto end;
-			ereport(LOG, (errmsg("refresh node %s slot information",
-								 NameStr(currentDataNodeMaster->form.nodename))));
-			ereport(NOTICE, (errmsg("refresh node %s slot information",
-									NameStr(currentDataNodeMaster->form.nodename))));
-			hexp_alter_slotinfo_nodename_noflush(coordinator->pgConn,
-												 historicalDataNodeMasterName,
-												 NameStr(currentDataNodeMaster->form.nodename),
-												 !coordinator->inTransactionBlock,
-												 complain);
-		}
-		PQexecCommandSql(coordinator->pgConn, "flush slot;", complain);
-	}
-	PQclear(res);
-	res = NULL;
 
 end:
 	PQclear(res);

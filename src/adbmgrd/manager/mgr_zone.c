@@ -313,25 +313,19 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 	Datum datumPath;
 	List *newNameList = NIL;
 	List *oldNameList = NIL;
-	ListCell   *newceil;
-	ListCell   *oldceil;
 	PGconn *pgConn;
 	char *cnUserName;
 	char *hostAddress;
 	char *cnHostAddress;
 	char *currentZone;
 	char *cndnPath;
-	char *newname;
-	char *oldname;
 	char coordPortBuf[10];
-	int i = 0;
 	Oid coordHostOid;
 	bool bres = true;
 	bool isNull = false;
 	bool bDnMaster = false;
 	bool bgetAddress = false;
-	bool bexpandStatus = false;
-
+	
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot do the command during recovery")));
 
@@ -433,9 +427,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 			if (PQstatus((PGconn*)pgConn) != CONNECTION_OK)
 				ereport(ERROR, (errmsg("mgr connect to active coordinator master \"%s\" fail", NameStr(cnName))));
 		}
-		if(hexp_check_select_result_count(pgConn, SELECT_ADB_SLOT_TABLE_COUNT))
-			bexpandStatus = true;
-
+		
 		hexp_pqexec_direct_execute_utility(pgConn,SQL_BEGIN_TRANSACTION
 			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 
@@ -529,7 +521,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 		heap_endscan(relScanout);
 
 		/* update datanode master pgxc_node */
-		if (!bexpandStatus)
+		
 		{
 			relScanin = table_beginscan_catalog(relNode, 2, key);
 			while((tuplein = heap_getnext(relScanin, ForwardScanDirection)) != NULL)
@@ -564,54 +556,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 			}
 			heap_endscan(relScanin);
 		}
-		else
-		{
-			relScanout = table_beginscan_catalog(relNode, 2, key);
-			while((tupleout = heap_getnext(relScanout, ForwardScanDirection)) != NULL)
-			{
-				mgr_node_out = (Form_mgr_node)GETSTRUCT(tupleout);
-				Assert(mgr_node_out);
-				if (mgr_node_out->nodetype != CNDN_TYPE_DATANODE_MASTER)
-					continue;
-				if (strcmp(NameStr(mgr_node_out->nodename), NameStr(cnName)) == 0)
-					continue;
-				if (mgr_checknode_in_currentzone(currentZone, mgr_node_out->nodemasternameoid))
-					continue;
-				resetStringInfo(&infosendmsg);
-				relScanin = table_beginscan_catalog(relNode, 2, key);
-				while((tuplein = heap_getnext(relScanin, ForwardScanDirection)) != NULL)
-				{
-					mgr_node_in = (Form_mgr_node)GETSTRUCT(tuplein);
-					Assert(mgr_node_in);
-					if (mgr_node_in->nodetype != CNDN_TYPE_DATANODE_MASTER)
-						continue;
-					if (mgr_checknode_in_currentzone(currentZone, mgr_node_in->nodemasternameoid))
-						continue;
-					hostAddress = get_hostaddress_from_hostoid(mgr_node_in->nodehost);
-					masterTuple = SearchSysCache1(NODENODEOID
-						, ObjectIdGetDatum(mgr_node_in->nodemasternameoid));
-					if(!HeapTupleIsValid(masterTuple))
-					{
-						heap_endscan(relScanin);
-						ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-							, errmsg("cache lookup failed for the master of \"%s\" in zone \"%s\"", NameStr(mgr_node_in->nodename), currentZone)));
-					}
-					mgr_nodeM = (Form_mgr_node)GETSTRUCT(masterTuple);
-					Assert(mgr_nodeM);
-					appendStringInfo(&infosendmsg
-						, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=false) on (\"%s\");"
-						,NameStr(mgr_nodeM->nodename), NameStr(mgr_node_in->nodename)
-						, hostAddress, mgr_node_in->nodeport
-						,NameStr(mgr_node_out->nodename));
-					ReleaseSysCache(masterTuple);
-					pfree(hostAddress);
-				}
-				heap_endscan(relScanin);
-				hexp_pqexec_direct_execute_utility(pgConn
-					, infosendmsg.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-			}
-			heap_endscan(relScanout);
-		}
+		
 
 		hexp_pqexec_direct_execute_utility(pgConn,SQL_COMMIT_TRANSACTION
 			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
@@ -707,34 +652,6 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 		}
 		heap_endscan(relScan);
 
-		if(bexpandStatus)
-		{
-			ereport(LOG, (errmsg("flush adb_slot on coordinator master \"%s\"", cnName.data)));
-			ereport(NOTICE, (errmsg("flush adb_slot on coordinator master \"%s\"", cnName.data)));
-			i = 0;
-			while(i++<3)
-			{
-				pgConn = PQsetdbLogin(cnHostAddress, coordPortBuf, NULL, NULL, DEFAULT_DB, cnUserName, NULL);
-				if (PQstatus((PGconn*)pgConn) == CONNECTION_OK)
-					break;
-				else
-					PQfinish(pgConn);
-				if (i == 3)
-					ereport(ERROR, (errmsg("mgr connect to active coordinator master \"%s\" fail", NameStr(cnName))));
-			}
-			forboth(newceil, newNameList, oldceil, oldNameList)
-			{
-				newname = (char *)lfirst(newceil);
-				oldname = (char *)lfirst(oldceil);
-				hexp_alter_slotinfo_nodename_noflush(pgConn, oldname, newname, true, true);
-			}
-			hexp_pqexec_direct_execute_utility(pgConn, "flush slot;", MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-			list_free(newNameList);
-			list_free(oldNameList);
-			pfree(cnUserName);
-			pfree(cnHostAddress);
-			PQfinish(pgConn);
-		}
 
 		if (bres)
 		{

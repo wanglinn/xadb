@@ -1325,20 +1325,6 @@ bool exec_pool_close_idle_conn(PGconn *pgConn, bool complain)
 	return PQexecBoolQuery(pgConn, sql, true, complain);
 }
 
-int countAdbSlot(PGconn *pgconn, bool complain)
-{
-	int numberOfSlots;
-
-	numberOfSlots = PQexecCountSql(pgconn,
-								   SELECT_ADB_SLOT_TABLE_COUNT,
-								   false);
-	if (numberOfSlots < 0)
-	{
-		ereport(complain ? ERROR : WARNING,
-				(errmsg("count adb_slot information failed")));
-	}
-	return numberOfSlots;
-}
 
 /* 
  * Pointer is disgusting, just return a small struct,

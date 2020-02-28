@@ -114,6 +114,8 @@ typedef struct ReadonlyUpdateparm
 #define ASYNC           'f'
 #define SPACE           ' '
 
+#define ALTER_NODE_DATA_CLEAN						"ALTER NODE DATA CLEAN"
+
 bool with_data_checksums = false;
 Oid specHostOid = 0;
 Oid clusterLockCoordNodeOid = 0;
@@ -11441,7 +11443,6 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 	bool is_preferred = false;
 	bool result = true;
 	bool bExecDirect = false;
-	bool slotIsNotEmpty = true;
 	const int maxnum = 3;
 	int try = 0;
 	int newMasterPort;
@@ -11555,63 +11556,34 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 		}
 	}
 
-	/* update the pgxc_node information on datanode masters */
-	slotIsNotEmpty = hexp_check_select_result_count(*pg_conn, SELECT_ADB_SLOT_TABLE_COUNT);
-	if (slotIsNotEmpty)
-	{
-		ereport(LOG, (errmsg("refresh the new datanode master \"%s\" information in pgxc_node"
-			" on all datanode masters", dnname)));
-		ereport(NOTICE, (errmsg("refresh the new datanode master \"%s\" information in pgxc_node"
-			" on all datanode masters", dnname)));
-	}
-	else
-	{
-		ereport(LOG, (errmsg("refresh the new datanode master \"%s\" information in its pgxc_node"
-		, dnname)));
-		ereport(NOTICE, (errmsg("refresh the new datanode master \"%s\" information in its pgxc_node"
-		, dnname)));
-	}
+
 	foreach(dn_lc, prefer_cndn->datanode_list)
 	{
 		resetStringInfo(&cmdstring);
 		tuple_in = (HeapTuple)lfirst(dn_lc);
 		mgr_node_in = (Form_mgr_node)GETSTRUCT(tuple_in);
 		Assert(mgr_node_in);
-		if (slotIsNotEmpty ||
-			(!slotIsNotEmpty && strcmp(NameStr(mgr_node_in->nodename), NameStr(masternameData)) == 0))
+		
+		appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
+				,NameStr(masternameData)
+				,dnname
+				,newMasterAddress
+				,newMasterPort
+				,"false"
+				,strcmp(NameStr(mgr_node_in->nodename), NameStr(masternameData)) == 0 ?
+					dnname : NameStr(mgr_node_in->nodename));
+		try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_UTILITY);
+		if (try<0)
 		{
-			appendStringInfo(&cmdstring, "alter node \"%s\" with(name='%s', host='%s', port=%d, preferred=%s) on (\"%s\");"
-					,NameStr(masternameData)
-					,dnname
-					,newMasterAddress
-					,newMasterPort
-					,"false"
-					,strcmp(NameStr(mgr_node_in->nodename), NameStr(masternameData)) == 0 ?
-						dnname : NameStr(mgr_node_in->nodename));
-			try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_UTILITY);
-			if (try<0)
-			{
-				result = false;
-				appendStringInfo(&recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n"
-					, cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
-				ereport(ERROR, (errcode(ERRCODE_DATA_EXCEPTION)
-					,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
-			}
+			result = false;
+			appendStringInfo(&recorderr, "on coordinator \"%s\" execute \"%s\" fail %s\n"
+				, cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn));
+			ereport(ERROR, (errcode(ERRCODE_DATA_EXCEPTION)
+				,errmsg("on coordinator \"%s\" execute \"%s\" fail %s", cnnamedata.data, cmdstring.data, PQerrorMessage((PGconn*)*pg_conn))));
 		}
 	}
 
-	/* update adb_slot */
-	if (slotIsNotEmpty)
-	{
-		ereport(LOG, (errmsg("refresh the new datanode master \"%s\" information in adb_slot"
-			, dnname)));
-		ereport(NOTICE, (errmsg("refresh the new datanode master \"%s\" information in adb_slot"
-			, dnname)));
-		hexp_alter_slotinfo_nodename_noflush((PGconn*)*pg_conn, NameStr(masternameData), dnname, false, true);
-		hexp_pqexec_direct_execute_utility((PGconn*)*pg_conn, "flush slot;"
-				, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-	}
-
+	
 	/* hexp_pqexec_direct_execute_utility((PGconn*)*pg_conn,SQL_COMMIT_TRANSACTION
 			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK); */
 
@@ -13858,12 +13830,11 @@ uint64 updateAllowcureOfMgrHost(char *hostname, bool allowcure)
 	return rows;
 }
 
-bool MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *src_name, char* dst_name)
+void MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *src_name, char* dst_name)
 {
 	StringInfoData sql;
 	int num = 2;
 	PGresult *res = NULL;
-	bool rest = true;
 
 	Assert(pg_conn);
 	Assert(src_name);
@@ -13892,9 +13863,43 @@ bool MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *src_name, char* dst_name)
 
 	if (PQresultStatus(res) != PGRES_COMMAND_OK)
 	{
-		rest = false;
 		ereport(ERROR, (errmsg("on gtm execute %s fail, %s.", sql.data, PQresultErrorMessage(res))));
 	}
 	PQclear(res);
-	return rest;					
+	return;					
+}
+
+void MgrSendDataCleanToGtm(PGconn *pg_conn)
+{
+	StringInfoData sql;
+	int num = 2;
+	PGresult *res = NULL;
+
+	Assert(pg_conn);
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql, ALTER_NODE_DATA_CLEAN);
+	ereport(LOG, (errmsg("on gtm execute \"%s\".", sql.data)));
+	
+	while (num-- > 0)
+	{
+		res = PQexec(pg_conn, sql.data);
+		if (PQresultStatus(res) == PGRES_COMMAND_OK)
+		{
+			break;
+		}
+		if (num)
+		{
+			PQclear(res);
+			res = NULL;
+		}
+		pg_usleep(100000L);
+	}
+
+	if (PQresultStatus(res) != PGRES_COMMAND_OK)
+	{
+		ereport(ERROR, (errmsg("on gtm execute %s fail, %s.", sql.data, PQresultErrorMessage(res))));
+	}
+	PQclear(res);
+	return;					
 }

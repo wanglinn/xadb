@@ -47,9 +47,6 @@ char *DefaultDatabaseName = DEFAULT_DB;
 
 
 /*hot expansion definition begin*/
-#define SLOT_STATUS_ONLINE	"online"
-#define SLOT_STATUS_MOVE	"move"
-#define SLOT_STATUS_CLEAN	"clean"
 
 /*see hexp_cluster_slot_status_from_dn_status*/
 #define ClusterSlotStatusUnInit		-1
@@ -112,33 +109,9 @@ ADBSQL
 #define IS_ADB_SCHEMA_EXISTS						"select count(*) from pg_namespace where nspname = 'adb';"
 #define CREATE_SCHEMA 								"create schema if not exists adb;"
 
-/*adb_slot_clean*/
-#define ADB_SLOT_CLEAN_TABLE						"adb_slot_clean"
-#define IS_ADB_SLOT_CLEAN_TABLE_EXISTS 				"select count(*) from pg_class pgc, pg_namespace pgn where pgn.nspname = 'adb' and pgc.relname = 'adb_slot_clean' and pgc.relnamespace = pgn.oid;"
-#define CREATE_ADB_SLOT_CLEAN_TABLE					"create table adb.adb_slot_clean(dbname varchar(100), name varchar(100), schema varchar(100), status int DEFAULT 0) distribute by replication;"
-#define DROP_ADB_SLOT_CLEAN_TABLE					"drop table adb.adb_slot_clean;"
-#define IMPORT_ADB_SLOT_CLEAN_TABLE 				"insert into adb.adb_slot_clean select relname, pgn.nspname from pgxc_class xcc , pg_class pgc , pg_namespace pgn where xcc.pclocatortype = 'B' and xcc.pcrelid = pgc.oid and pgc.relnamespace = pgn.oid;"
-#define SELECT_ADB_SLOT_CLEAN_TABLE					"select schema , name, dbname from adb.adb_slot_clean where status = 0 order by dbname, schema, name limit 1;"
-#define UPDATE_ADB_SLOT_CLEAN_TABLE					"update adb.adb_slot_clean set status = 1 where schema = '%s' and name='%s' and dbname = '%s';"
-#define ADB_SLOT_TABLE_STATUS_UNFINISHED			0
-#define ADB_SLOT_TABLE_STATUS_FINISHED				1
-#define SELECT_DBNAME								"select datname from pg_database where datname != 'template1' and datname!='template0';"
-#define SELECT_HASH_TABLE							"select relname, pgn.nspname from pgxc_class xcc , pg_class pgc , pg_namespace pgn where xcc.pclocatortype = 'B' and xcc.pcrelid = pgc.oid and pgc.relnamespace = pgn.oid and pgn.nspname!='information_schema';"
-#define INSERT_ADB_SLOT_CLEAN_TABLE					"insert into adb.adb_slot_clean(dbname, name, schema) values('%s', '%s', '%s');"
-/*adb_slot*/
-#define SELECT_MIN_MAX_COUNT_SLOTID_ADB_SLOT		"select min(slotid),max(slotid),count(slotid) from pg_catalog.adb_slot"
-#define SELECT_ADB_SLOT_TABLE_COUNT					"select count(*) from pg_catalog.adb_slot;"
-#define SELECT_STATUS_COUNT_FROM_ADB_SLOT_BY_NODE 	"select slotstatus as status, count(*) from pg_catalog.adb_slot where slotnodename = '%s' group by status;"
-#define SELECT_COUNT_FROM_ADB_SLOT_BY_NODE 			"select count(*) from pg_catalog.adb_slot where slotnodename = '%s'"
-#define SELECT_FIRST_SLOTID_FROM_ADB_SLOT_BY_NODE 	"select slotid from pg_catalog.adb_slot where slotnodename = '%s' order by slotid asc limit 1;"
-#define SELECT_SLOTID_STATUS_FROM_ADB_SLOT_BY_NODE 	"select slotid, slotstatus as status from pg_catalog.adb_slot where slotnodename = '%s' order by slotid;"
 
-/*slot command*/
-#define CREATE_SLOT									"create slot %d with(nodename = %s, status = 'online');"
-#define ALTER_SLOT_STATUS_BY_SLOTID 				"alter slot %d with(status = %s);"
-#define ALTER_SLOT_NODE_NAME_STATUS_BY_SLOTID 		"alter slot %d with(nodename='%s',status = %s);"
-#define VACUUM_ADB_SLOT_CLEAN_TABLE					"clean slot \"%s\" \"%s\";"
-#define ALTER_SLOT_NODE_NAME_SLOTID					"alter slot %d with(nodename='%s');"
+#define ADB_CLEAN_TABLE						        "adb_clean"
+#define IS_ADB_CLEAN_TABLE_EXISTS 				    "select count(*) from pg_class pgc, pg_namespace pgn where pgn.nspname = 'adb' and pgc.relname = 'adb_clean' and pgc.relnamespace = pgn.oid;"
 
 /*pgxc_node*/
 #define SELECT_COUNT_FROM_PGXC_NODE					"select count(*) from pgxc_node;"
@@ -166,9 +139,6 @@ ADBSQL
 #define SQL_XC_MAINTENANCE_MODE_ON 					"set xc_maintenance_mode = on;"
 #define SQL_XC_MAINTENANCE_MODE_OFF 				"set xc_maintenance_mode = off;"
 
-int	SlotIdArray[HASHMAP_SLOTSIZE];
-int	SlotStatusArray[HASHMAP_SLOTSIZE];
-int	SlotArrayIndex = 0;
 
 /*hot expansion definition end*/
 
@@ -178,20 +148,14 @@ static void hexp_create_dm_on_itself(PGconn *pg_conn, AppendNodeInfo *nodeinfo);
 static void hexp_set_expended_node_state(char *nodename, bool search_init, bool search_incluster, bool value_init, bool value_incluster, Oid src_oid);
 static bool hexp_get_nodeinfo_from_table_byoid(Oid tupleOid, AppendNodeInfo *nodeinfo);
 static void hexp_get_coordinator_conn(PGconn **pg_conn, Oid *cnoid);
-static void hexp_get_coordinator_conn_output(PGconn **pg_conn, Oid *cnoid, char* out_host, char* out_port, char* out_db, char* out_user);
 static void hexp_mgr_pqexec_getlsn(PGconn **pg_conn, char *sqlstr, int* phvalue, int* plvalue);
 static void hexp_parse_pair_lsn(char* strvalue, int* phvalue, int* plvalue);
-static void hexp_update_slot_get_slotinfo(
-			PGconn *pgconn, char* src_node_name,
-			int* ppart1_slotid_startid, int* ppart1_slotid_len,
-			int* ppart2_slotid_startid, int* ppart2_slotid_len);
+
 static void hexp_check_dn_pgxcnode_info(PGconn *pg_conn, char *nodename, StringInfoData* pnode_list_exists);
 static void hexp_check_cluster_pgxcnode(void);
-static bool hexp_activate_dn_exist(char* dn_name);
 static List *hexp_get_all_dn_status(void);
 static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* pdn_status, char* cnpath);
 static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnpath);
-static void hexp_get_dn_slot_param_status(PGconn *pgconn, DN_STATUS* pdn_status);
 static int 	hexp_find_dn_nodes(List *dn_node_list, char* nodename);
 static List *hexp_init_dn_nodes(PGconn *pg_conn);
 static void hexp_init_cluster_pgxcnode(void);
@@ -199,14 +163,10 @@ static void hexp_init_dn_pgxcnode_check(Form_mgr_node mgr_node, char* cnpath);
 
 static int 	hexp_select_result_count(PGconn *pg_conn, char* sql);
 
-static void hexp_slot_2_move_to_clean(PGconn *pgconn,char* src_node_name, char* dst_node_name);
-static void hexp_slot_all_clean_to_online(PGconn *pgconn);
-
 static void hexp_check_expand_activate(char* src_node_name, char* dst_node_name);
 static void hexp_check_expand_backup(char* src_node_name);
 
 static void hexp_update_conf_pgxc_node_name(AppendNodeInfo node, char* newname);
-static void hexp_update_conf_enable_mvcc(AppendNodeInfo node, bool value);
 static void hexp_restart_node(AppendNodeInfo node);
 
 static void hexp_pgxc_pool_reload_on_all_node(PGconn *pg_conn);
@@ -222,8 +182,6 @@ static void hexp_check_hash_meta(void);
 static void hexp_check_hash_meta_dn(PGconn *pgconn, PGconn *pgconn_dn, char* node_name);
 
 static void hexp_init_dn_pgxcnode_addnode(Form_mgr_node mgr_node, List *dn_node_list, char* cnpath);
-static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name, bool complain);
-static void report_slot_range_invalid(PartitionRangeDatum *prd, ParseState *parser) pg_attribute_noreturn();
 
 /*
  * expand sourcenode to destnode
@@ -451,27 +409,6 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
         
 		MgrSendAlterNodeDataToGtm(co_pg_conn, srcnodeinfo.nodename, appendnodeinfo.nodename);
 
-		/*
-		6.update slot info, move to clean
-		ereport(INFO, (errmsg("update slot info from move to online.if this step fails, use 'expand activate recover promote success dst' to recover.")));
-		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		hexp_slot_2_move_to_clean(co_pg_conn,srcnodeinfo.nodename, appendnodeinfo.nodename);
-
-		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-        
-		//flush slot info in all nodes(includes new node)
-		hexp_pqexec_direct_execute_utility(co_pg_conn, "flush slot;", MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		*/
-	
-		/*
-		7.refresh hashmap table nodeoids in pgxc_class
-		
-		ereport(INFO, (errmsg("invalidate all relations cache.if this step fails, use 'select adb_invalidate_relcache_all() on all coordinators.")));
-		if (!mgr_execute_direct_on_all_coord(&co_pg_conn, "select adb_invalidate_relcache_all();",
-			3, PGRES_TUPLES_OK, &strinfo))
-			ereport(WARNING, (errmsg("%s, use 'select adb_invalidate_relcache_all() on the coordinators.", strinfo.data)));
-		*/
-	
 		mgr_unlock_cluster_involve_gtm_coord(&co_pg_conn);
 
 		//5.update dst node init and in cluster, and parent node is empty.
@@ -606,13 +543,6 @@ Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS)
 		hexp_create_dm_on_itself(co_pg_conn, &appendnodeinfo);
 		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_XC_MAINTENANCE_MODE_OFF , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 
-		/*
-		6.update slot info, move to clean
-		*/
-		ereport(INFO, (errmsg("update slot info from move to online.if this step fails, do it by hand.")));
-		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		hexp_slot_2_move_to_clean(co_pg_conn,srcnodeinfo.nodename, appendnodeinfo.nodename);
-		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 
 		//flush slot info in all nodes(includes new node)
 		hexp_pqexec_direct_execute_utility(co_pg_conn, "flush slot;", MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
@@ -1131,405 +1061,49 @@ Datum mgr_expand_recover_backup_fail(PG_FUNCTION_ARGS)
 }
 
 
-Datum mgr_expand_clean_init(PG_FUNCTION_ARGS)
-{
-	PGconn *pg_conn = NULL;
-	PGconn *pg_conn_clean = NULL;
-	Oid cnoid;
-	HeapTuple tup_result = NULL;
-	HeapTuple tuple_coord = NULL;
-	char ret_msg[100];
-	NameData nodename;
-	StringInfoData psql_cmd;
-	StringInfoData serialize;
-	bool is_vacuum_state;
-	bool isAddHba = false;
-	PGresult* res;
-	PGresult* res_pg_conn_clean;
-	char sql_pg_conn_clean[200];
-	ExecStatusType status;
-	ExecStatusType status_pg_conn_clean;
-	int i = 0;
-	int i_pg_conn_clean = 0;
-	char	out_host[64];
-	char	out_port[64];
-	char	out_db[64];
-	char	out_user[64];
-	char*	dbname;
-	char*	name_pg_conn_clean;
-	char*	schema_pg_conn_clean;
-	AppendNodeInfo coordnodeinfo;
-	Form_mgr_node mgr_node;
-	StringInfoData infosendmsg;
-	List		*dn_status_list;
-
-	strcpy(nodename.data, "---");
-	strcpy(ret_msg, "expand clean init success.");
-	if (RecoveryInProgress())
-		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
-
-	PG_TRY();
-	{
-		hexp_get_coordinator_conn_output(&pg_conn, &cnoid, out_host, out_port, out_db, out_user);
-
-		Assert(cnoid);
-		coordnodeinfo.nodeport = atoi(out_port);
-		coordnodeinfo.nodeaddr = out_host;
-		coordnodeinfo.nodeusername = out_user;
-		coordnodeinfo.nodepath = get_nodepath_from_tupleoid(cnoid);
-		tuple_coord = SearchSysCache1(NODENODEOID, cnoid);
-		if(!(HeapTupleIsValid(tuple_coord)))
-		{
-			ereport(ERROR, (errmsg("get node oid %d tuple information in node table error", cnoid)));
-		}
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple_coord);
-		coordnodeinfo.nodehost = mgr_node->nodehost;
-		ReleaseSysCache(tuple_coord);
-		initStringInfo(&infosendmsg);
-		/* update coordinator pg_hba.conf */
-		isAddHba = AddHbaIsValid(&coordnodeinfo, &infosendmsg);
-		//check get node in clean status
-		initStringInfo(&serialize);
-		is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list, &serialize, true);
-		if(is_vacuum_state)
-			ereport(ERROR, (errmsg("%s exists, clean init cann't be initialized.", ADB_SLOT_CLEAN_TABLE)));
-
-		initStringInfo(&psql_cmd);
-
-		//1.
-		hexp_pqexec_direct_execute_utility(pg_conn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		/* create schema if not exists adb */
-		hexp_pqexec_direct_execute_utility(pg_conn, CREATE_SCHEMA, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		//create adb.adb_slot_clean,
-		hexp_pqexec_direct_execute_utility(pg_conn, CREATE_ADB_SLOT_CLEAN_TABLE, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		//create clean database
-		//hexp_pqexec_direct_execute_utility(pg_conn, CREATE_CLEAN_DATABASE_TABLE, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		//import clean database
-		//hexp_pqexec_direct_execute_utility(pg_conn, IMPORT_DATABASE_CLEAN, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-
-		//2.collect all hash table from all database.
-		res = PQexec(pg_conn,  SELECT_DBNAME);
-		status = PQresultStatus(res);
-		switch(status)
-		{
-			case PGRES_TUPLES_OK:
-				break;
-			default:
-				ereport(ERROR, (errmsg("%s runs error. result is %s.", SELECT_DBNAME, PQresultErrorMessage(res))));
-		}
-
-		for (i = 0; i < PQntuples(res); i++)
-		{
-			//connect
-			dbname = PQgetvalue(res, i, 0);
-			pg_conn_clean= PQsetdbLogin(
-				out_host,out_port,NULL, NULL,
-				dbname,out_user,NULL);
-			if (PQstatus(pg_conn_clean) != CONNECTION_OK)
-				ereport(ERROR, (errmsg("cann't connect to %s.", dbname)));
-
-			//fetch hash tables and insert into adb_slot_clean
-			res_pg_conn_clean = PQexec(pg_conn_clean,  SELECT_HASH_TABLE);
-			status_pg_conn_clean = PQresultStatus(res_pg_conn_clean);
-			switch(status_pg_conn_clean)
-			{
-				case PGRES_TUPLES_OK:
-					break;
-				default:
-					ereport(ERROR, (errmsg("%s runs error. result is %s.", SELECT_DBNAME, PQresultErrorMessage(res_pg_conn_clean))));
-			}
-			for (i_pg_conn_clean = 0; i_pg_conn_clean < PQntuples(res_pg_conn_clean); i_pg_conn_clean++)
-			{
-
-				name_pg_conn_clean = PQgetvalue(res_pg_conn_clean, i_pg_conn_clean, 0);
-				schema_pg_conn_clean = PQgetvalue(res_pg_conn_clean, i_pg_conn_clean, 1);
-				sprintf(sql_pg_conn_clean,INSERT_ADB_SLOT_CLEAN_TABLE,dbname, name_pg_conn_clean, schema_pg_conn_clean);
-				hexp_pqexec_direct_execute_utility(pg_conn, sql_pg_conn_clean, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-			}
-			PQfinish(pg_conn_clean);
-			pg_conn_clean = NULL;
-		}
-		PQclear(res);
-
-		hexp_pqexec_direct_execute_utility(pg_conn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		PQfinish(pg_conn);
-		pg_conn = NULL;
-		if (isAddHba)
-			RemoveHba(&coordnodeinfo, &infosendmsg);
-		pfree(coordnodeinfo.nodepath);
-		pfree(infosendmsg.data);
-	}PG_CATCH();
-	{
-		if(pg_conn)
-		{
-			PQfinish(pg_conn);
-			pg_conn = NULL;
-		}
-		if(pg_conn_clean)
-		{
-			PQfinish(pg_conn_clean);
-			pg_conn_clean = NULL;
-		}
-		PG_RE_THROW();
-	}PG_END_TRY();
-
-	tup_result = build_common_command_tuple(&nodename, true, ret_msg);
-	return HeapTupleGetDatum(tup_result);
-}
-
-Datum mgr_expand_clean_start(PG_FUNCTION_ARGS)
-{
-	PGconn *pg_conn = NULL;
-	PGconn *pg_conn_clean = NULL;
+Datum mgr_expand_clean(PG_FUNCTION_ARGS)
+{	
+	PGconn *co_pg_conn = NULL;
 	Oid cnoid;
 	HeapTuple tup_result = NULL;
 	char ret_msg[100];
 	NameData nodename;
 	bool is_vacuum_state = false;
-	bool isAddHba = false;
-
-
-	List *dn_status_list = NIL;
-	StringInfoData serialize;
-
-	ExecStatusType status;
-	PGresult *res;
-
-	StringInfoData table_name;
-	StringInfoData schema_name;
-	StringInfoData vacuum_slot_cmd;
-	StringInfoData update_cmd;
-	StringInfoData db_name;
-	StringInfoData last_db_name;
-
-	char	out_host[64];
-	char	out_port[64];
-	char	out_db[64];
-	char	out_user[64];
-	HeapTuple tuple_coord = NULL;
-	AppendNodeInfo coordnodeinfo;
-	Form_mgr_node mgr_node;
-	StringInfoData infosendmsg;
-
-	initStringInfo(&table_name);
-	initStringInfo(&schema_name);
-	initStringInfo(&vacuum_slot_cmd);
-	initStringInfo(&update_cmd);
-	initStringInfo(&db_name);
-	initStringInfo(&last_db_name);
+	
+	strcpy(nodename.data, "---");
+	strcpy(ret_msg, "expand clean success.");
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
 
-	strcpy(nodename.data, "---");
-	strcpy(ret_msg, "");
-
-	resetStringInfo(&table_name);
-	resetStringInfo(&schema_name);
-	resetStringInfo(&vacuum_slot_cmd);
-	resetStringInfo(&update_cmd);
-	resetStringInfo(&db_name);
-	resetStringInfo(&last_db_name);
-
 	PG_TRY();
 	{
-		hexp_get_coordinator_conn_output(&pg_conn, &cnoid, out_host, out_port, out_db, out_user);
+		mgr_lock_cluster_involve_gtm_coord(&co_pg_conn, &cnoid);
 		Assert(cnoid);
-		coordnodeinfo.nodeport = atoi(out_port);
-		coordnodeinfo.nodeaddr = out_host;
-		coordnodeinfo.nodeusername = out_user;
-		coordnodeinfo.nodepath = get_nodepath_from_tupleoid(cnoid);
-		tuple_coord = SearchSysCache1(NODENODEOID, cnoid);
-		if(!(HeapTupleIsValid(tuple_coord)))
-		{
-			ereport(ERROR, (errmsg("get node oid %d tuple information in node table error", cnoid)));
-		}
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple_coord);
-		coordnodeinfo.nodehost = mgr_node->nodehost;
-		ReleaseSysCache(tuple_coord);
-		initStringInfo(&infosendmsg);
-		/* update coordinator pg_hba.conf */
-		isAddHba = AddHbaIsValid(&coordnodeinfo, &infosendmsg);
 
-		initStringInfo(&serialize);
-		is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list , &serialize, true);
-		if(!is_vacuum_state)
-			ereport(ERROR, (errmsg("%s doesn't exist, clean start cann't be started.", ADB_SLOT_CLEAN_TABLE)));
+		//get slot vacuum status
+		is_vacuum_state = hexp_check_select_result_count(co_pg_conn, IS_ADB_CLEAN_TABLE_EXISTS);
+		if(is_vacuum_state)
+			ereport(ERROR, (errmsg("cluster status is vacuum, can't clean.")));
+
+		MgrSendDataCleanToGtm(co_pg_conn);
 		
-		//2.choose a table that needs clean.
-		for(;;)
-		{
-			res = PQexec(pg_conn, SELECT_ADB_SLOT_CLEAN_TABLE);
-			status = PQresultStatus(res);
+		mgr_unlock_cluster_involve_gtm_coord(&co_pg_conn);
 
-			switch(status)
-			{
-				case PGRES_TUPLES_OK:
-					break;
-				default:
-					ereport(ERROR, (errmsg("%s runs error. result is %s.", SELECT_ADB_SLOT_CLEAN_TABLE, PQresultErrorMessage(res))));
-			}
-
-			//there is no table need clean. all work are done.
-			if (0==PQntuples(res))
-			{
-				if(pg_conn_clean)
-				{
-					PQfinish(pg_conn_clean);
-					pg_conn_clean = NULL;
-				}
-				PQclear(res);
-				PQfinish(pg_conn);
-				pg_conn = NULL;
-				strcpy(ret_msg, "expand clean finish.");
-				tup_result = build_common_command_tuple(&nodename, true, ret_msg);
-				return HeapTupleGetDatum(tup_result);
-			}
-
-			resetStringInfo(&table_name);
-			resetStringInfo(&schema_name);
-			resetStringInfo(&vacuum_slot_cmd);
-			resetStringInfo(&update_cmd);
-			resetStringInfo(&db_name);
-
-			appendStringInfo(&schema_name,"%s", PQgetvalue(res, 0, 0));
-			appendStringInfo(&table_name, "%s", PQgetvalue(res, 0, 1));
-			appendStringInfo(&db_name, "%s", PQgetvalue(res, 0, 2));
-
-			appendStringInfo(&vacuum_slot_cmd, VACUUM_ADB_SLOT_CLEAN_TABLE, schema_name.data, table_name.data);
-			appendStringInfo(&update_cmd, UPDATE_ADB_SLOT_CLEAN_TABLE, schema_name.data, table_name.data, db_name.data);
-
-			//connect db. if db changes, connect to new db.
-			if(0!=strcmp(db_name.data, last_db_name.data))
-			{
-				if(pg_conn_clean)
-				{
-					PQfinish(pg_conn_clean);
-					pg_conn_clean = NULL;
-				}
-				pg_conn_clean= PQsetdbLogin(
-					out_host,out_port,NULL, NULL,
-					db_name.data,out_user,NULL);
-				if (PQstatus(pg_conn_clean) != CONNECTION_OK)
-					ereport(ERROR, (errmsg("cann't connect to %s.", db_name.data)));
-				resetStringInfo(&last_db_name);
-				appendStringInfo(&last_db_name, "%s", db_name.data);
-			}
-			//set clean on, vacuum table, update adb_slot_clean
-			hexp_pqexec_direct_execute_utility(pg_conn_clean, vacuum_slot_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-			hexp_pqexec_direct_execute_utility(pg_conn, update_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		}
-
-		if (isAddHba)
-			RemoveHba(&coordnodeinfo, &infosendmsg);
-		pfree(coordnodeinfo.nodepath);
-		pfree(infosendmsg.data);
+		PQfinish(co_pg_conn);
+		co_pg_conn = NULL;	
 	}PG_CATCH();
 	{
-		if(pg_conn)
+		if(co_pg_conn)
 		{
-			PQfinish(pg_conn);
-			pg_conn = NULL;
+			PQfinish(co_pg_conn);
+			co_pg_conn = NULL;
 		}
 		PG_RE_THROW();
 	}PG_END_TRY();
-}
-
-
-Datum mgr_expand_clean_end(PG_FUNCTION_ARGS)
-{
-	PGconn *pg_conn = NULL;
-	Oid cnoid;
-	HeapTuple tup_result;
-	char ret_msg[100];
-	NameData nodename;
-	bool is_vacuum_state;
-
-	ExecStatusType status;
-	PGresult *res;
-
-	List		*dn_status_list;
-	ListCell	*lc;
-	DN_STATUS	*dn_status;
-	bool sn_is_exist, sn_is_running; /*src node status */
-	AppendNodeInfo cleannodeinfo;
-	StringInfoData serialize;
-
-
-	strcpy(nodename.data, "---");
-	strcpy(ret_msg, "");
-	if (RecoveryInProgress())
-		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
-
-
-	PG_TRY();
-	{
-		hexp_get_coordinator_conn(&pg_conn, &cnoid);
-
-		initStringInfo(&serialize);
-		is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list, &serialize, true);
-		if(!is_vacuum_state)
-			ereport(ERROR, (errmsg("%s doesn't exist, clean end cann't be started.", ADB_SLOT_CLEAN_TABLE)));
-
-		//check if there is table not vacummed.
-		res = PQexec(pg_conn, SELECT_ADB_SLOT_CLEAN_TABLE);
-		status = PQresultStatus(res);
-
-		switch(status)
-		{
-			case PGRES_TUPLES_OK:
-				break;
-			default:
-				ereport(ERROR, (errmsg("%s runs error. result is %s.", SELECT_ADB_SLOT_CLEAN_TABLE, PQresultErrorMessage(res))));
-		}
-
-		//there is no table need clean. all work are done.
-		if (!(0==PQntuples(res)))
-		{
-			PQclear(res);
-			PQfinish(pg_conn);
-			pg_conn = NULL;
-			strcpy(ret_msg, "expand clean end fail. there are tables need clean.");
-			tup_result = build_common_command_tuple(&nodename, false, ret_msg);
-			return HeapTupleGetDatum(tup_result);
-		}
-
-		//2.do end
-		hexp_pqexec_direct_execute_utility(pg_conn, SQL_BEGIN_TRANSACTION, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		//drop adb_slot_clean
-		hexp_pqexec_direct_execute_utility(pg_conn, DROP_ADB_SLOT_CLEAN_TABLE, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		//set clean to online
-		hexp_slot_all_clean_to_online(pg_conn);
-		hexp_pqexec_direct_execute_utility(pg_conn, SQL_COMMIT_TRANSACTION, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		PQfinish(pg_conn);
-		pg_conn = NULL;
-
-		//set param
-		foreach (lc, dn_status_list)
-		{
-			dn_status = (DN_STATUS *)lfirst(lc);
-			if(SlotStatusCleanInDB == dn_status->node_status)
-			{
-				get_nodeinfo_byname(NameStr(dn_status->nodename), CNDN_TYPE_DATANODE_MASTER,
-							&sn_is_exist, &sn_is_running, &cleannodeinfo);
-				hexp_update_conf_enable_mvcc(cleannodeinfo, false);
-			}
-		}
-		strcpy(ret_msg, "expand clean end success.");
-	}PG_CATCH();
-	{
-		if(pg_conn)
-		{
-			PQfinish(pg_conn);
-			pg_conn = NULL;
-		}
-		PG_RE_THROW();
-	}PG_END_TRY();
-
 
 	tup_result = build_common_command_tuple(&nodename, true, ret_msg);
 	return HeapTupleGetDatum(tup_result);
 }
-
 
 Datum mgr_cluster_pgxcnode_init(PG_FUNCTION_ARGS)
 {
@@ -1678,7 +1252,6 @@ Datum mgr_expand_show_status(PG_FUNCTION_ARGS)
 {
 	return hexp_expand_check_show_status(false);
 }
-
 
 /*
 	check datanode slave status
@@ -1856,28 +1429,6 @@ static void hexp_update_conf_pgxc_node_name(AppendNodeInfo node, char* newname)
 	if (!getAgentCmdRst.ret)
 	{
 		ereport(ERROR, (errmsg("update datanode %s's pgxc_node_name param fail\n", newname)));
-	}
-}
-
-static void hexp_update_conf_enable_mvcc(AppendNodeInfo node, bool value)
-{
-	GetAgentCmdRst getAgentCmdRst;
-	StringInfoData infosendmsg;
-
-	initStringInfo(&infosendmsg);
-	initStringInfo(&(getAgentCmdRst.description));
-
-	if(value)
-		mgr_append_pgconf_paras_str_str("adb_slot_enable_mvcc", "on", &infosendmsg);
-	else
-		mgr_append_pgconf_paras_str_str("adb_slot_enable_mvcc", "off", &infosendmsg);
-
-	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, node.nodepath, &infosendmsg, node.nodehost, &getAgentCmdRst);
-
-
-	if (!getAgentCmdRst.ret)
-	{
-		ereport(ERROR, (errmsg("update datanode %s's adb_slot_enable_mvcc param %d fail\n", node.nodename, value)));
 	}
 }
 
@@ -2103,111 +1654,6 @@ static void hexp_import_hash_meta(PGconn *pgconn, PGconn *pgconn_dn, char* node_
     PQclear(res);
 }
 
-static void hexp_get_dn_slot_param_status(
-			PGconn *pgconn,
-			DN_STATUS* pdn_status)
-{
-	PGresult* res;
-	char sql[256];
-	ExecStatusType status;
-	int dbstatus;
-	int dbcount;
-	int i;
-
-	pdn_status->clean_count =
-		pdn_status->move_count =
-		pdn_status->online_count = 0;
-
-	//get param adb_slot_enable_mvcc
-	sprintf(sql, SHOW_ADB_SLOT_ENABLE_MVCC);
-	res = PQexec(pgconn,  sql);
-	status = PQresultStatus(res);
-	switch(status)
-	{
-		case PGRES_TUPLES_OK:
-			break;
-		default:
-			ereport(ERROR, (errmsg("%s runs error. result is %d.%s", sql, PQresultStatus(res), PQresultErrorMessage(res))));
-	}
-	if (0==PQntuples(res))
-	{
-		PQclear(res);
-		ereport(ERROR, (errmsg("%s runs error. result is null.", sql)));
-	}
-	if (strcasecmp("off", PQgetvalue(res, 0, 0)) == 0)
-	{
-		pdn_status->enable_mvcc = false;
-	}else if (strcasecmp("on", PQgetvalue(res, 0, 0)) == 0)
-	{
-		pdn_status->enable_mvcc = true;
-	}
-	else
-		ereport(ERROR, (errmsg("%s runs. result is %s.", sql, PQgetvalue(res, 0, 0))));
-	PQclear(res);
-
-
-	//check param pgxc_node_name
-	res = PQexec(pgconn,  SHOW_PGXC_NODE_NAME);
-	status = PQresultStatus(res);
-	switch(status)
-	{
-		case PGRES_TUPLES_OK:
-			break;
-		default:
-			ereport(ERROR, (errmsg("%s runs error. result is %d.%s", SHOW_PGXC_NODE_NAME, PQresultStatus(res), PQresultErrorMessage(res))));
-	}
-	if (0==PQntuples(res))
-	{
-		PQclear(res);
-		ereport(ERROR, (errmsg("%s runs error. result is null.", SHOW_PGXC_NODE_NAME)));
-	}
-	strcpy(pdn_status->pgxc_node_name.data, PQgetvalue(res, 0, 0));
-	PQclear(res);
-
-
-	//get slot
-	sprintf(sql, SELECT_STATUS_COUNT_FROM_ADB_SLOT_BY_NODE, pdn_status->nodename.data);
-	res = PQexec(pgconn,  sql);
-	status = PQresultStatus(res);
-	switch(status)
-	{
-		case PGRES_TUPLES_OK:
-			break;
-		default:
-			ereport(ERROR, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
-	}
-
-
-	if (0==PQntuples(res))
-	{
-		PQclear(res);
-		return;
-	}
-
-    for (i = 0; i < PQntuples(res); i++)
-    {
-    	dbstatus = atoi(PQgetvalue(res, i, 0));
-		dbcount = atoi(PQgetvalue(res, i, 1));
-		switch(dbstatus)
-		{
-			case SlotStatusOnlineInDB:
-				pdn_status->online_count = dbcount;
-				break;
-			case SlotStatusMoveInDB:
-				pdn_status->move_count = dbcount;
-				break;
-			case SlotStatusCleanInDB:
-				pdn_status->clean_count = dbcount;
-				break;
-			default:
-				ereport(ERROR, (errmsg("%s runs error. slot status  %d is node valid .", sql, dbcount)));
-		}
-	}
-
-	PQclear(res);
-	return;
-}
-
 
 static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnpath)
 {
@@ -2325,7 +1771,7 @@ static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* 
 	PG_TRY();
 	{
 		hexp_get_dn_conn((PGconn**)&dn_pg_conn, mgr_node, cnpath);
-		hexp_get_dn_slot_param_status(dn_pg_conn, pdn_status);
+		//hexp_get_dn_slot_param_status(dn_pg_conn, pdn_status);
 		PQfinish(dn_pg_conn);
 		dn_pg_conn = NULL;
 	}PG_CATCH();
@@ -2339,25 +1785,6 @@ static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* 
 	}PG_END_TRY();
 }
 
-static bool hexp_activate_dn_exist(char* dn_name)
-{
-	List		*dn_status_list;
-	ListCell	*lc;
-	DN_STATUS	*dn_status;
-
-	dn_status_list = hexp_get_all_dn_status();
-
-	foreach (lc, dn_status_list)
-	{
-		dn_status = (DN_STATUS *)lfirst(lc);
-		if((0==strcmp(NameStr(dn_status->nodename), dn_name))
-			&& (SlotStatusExpand!=dn_status->node_status))
-			return true;
-	}
-
-
-	return false;
-}
 static List *
 hexp_get_all_dn_status(void)
 {
@@ -2414,49 +1841,6 @@ hexp_get_all_dn_status(void)
 	heap_close(info->rel_node, AccessShareLock);
 	pfree(info);
 	return dn_status_list;
-}
-
-
-static void hexp_update_slot_get_slotinfo(
-			PGconn *pgconn, char* src_node_name,
-			int* part1_slotid_startid, int* part1_slotid_len,
-			int* part2_slotid_startid, int* part2_slotid_len)
-{
-	PGresult* res;
-	char sql[200];
-	ExecStatusType status;
-	int i = 0;
-
-	sprintf(sql, SELECT_SLOTID_STATUS_FROM_ADB_SLOT_BY_NODE, src_node_name);
-	res = PQexec(pgconn,  sql);
-	status = PQresultStatus(res);
-	switch(status)
-	{
-		case PGRES_TUPLES_OK:
-			break;
-		default:
-			ereport(ERROR, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
-	}
-	if (0==PQntuples(res))
-	{
-		PQclear(res);
-		ereport(ERROR, (errmsg("%s runs error. result is null.", SELECT_PGXC_NODE)));
-	}
-
-	SlotArrayIndex = 0;
-	for (i = 0; i < PQntuples(res); i++)
-	{
-		SlotIdArray[SlotArrayIndex] = atoi(PQgetvalue(res, i, 0));
-		SlotStatusArray[SlotArrayIndex] = atoi(PQgetvalue(res, i, 1));
-		SlotArrayIndex++;
-	}
-	PQclear(res);
-
-	*part1_slotid_len = SlotArrayIndex/2;
-	*part2_slotid_len = SlotArrayIndex - *part1_slotid_len;
-
-	*part1_slotid_startid = 0;
-	*part2_slotid_startid = (*part1_slotid_startid) + (*part1_slotid_len);
 }
 
 static int hexp_select_result_count(PGconn *pg_conn, char* sql)
@@ -3005,7 +2389,7 @@ static void hexp_check_expand_backup(char* src_node_name)
 	initStringInfo(&serialize);
 	is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list, &serialize, true);
 	if(is_vacuum_state)
-		ereport(ERROR, (errmsg("%s exists, expand activate cann't be started.", ADB_SLOT_CLEAN_TABLE)));
+		ereport(ERROR, (errmsg("%s exists, expand activate cann't be started.", ADB_CLEAN_TABLE)));
 }
 
 static void hexp_check_expand_activate(char* src_node_name, char* dst_node_name)
@@ -3018,99 +2402,14 @@ static void hexp_check_expand_activate(char* src_node_name, char* dst_node_name)
 	initStringInfo(&serialize);
 	is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list, &serialize, true);
 	if(is_vacuum_state)
-		ereport(ERROR, (errmsg("%s exists, expand activate cann't be started.", ADB_SLOT_CLEAN_TABLE)));
-}
-
-static void hexp_slot_2_move_to_clean(PGconn *pgconn,char* src_node_name, char* dst_node_name)
-{
-	int part1_slotid_startid;
-	int part1_slotid_len;
-	int part2_slotid_startid;
-	int part2_slotid_len;
-
-	char sql[100];
-	PGresult* res;
-	int i = 0;
-	ExecStatusType status;
-	int slotid = -1;
-
-	SlotArrayIndex = 0;
-	hexp_update_slot_get_slotinfo(pgconn, src_node_name,
-		&part1_slotid_startid, &part1_slotid_len,
-		&part2_slotid_startid, &part2_slotid_len);
-
-	//change first part status to clean.
-	for(i=part1_slotid_startid;
-		i<part1_slotid_startid+part1_slotid_len; i++)
-	{
-		slotid = SlotIdArray[i];
-		if(SlotStatusOnlineInDB != SlotStatusArray[i])
-			ereport(ERROR, (errmsg("the %d slot's status should be online.", slotid)));
-
-		sprintf(sql, ALTER_SLOT_STATUS_BY_SLOTID, slotid, SLOT_STATUS_CLEAN);
-		res = PQexec(pgconn, sql);
-		status = PQresultStatus(res);
-		switch(status)
-		{
-			case PGRES_COMMAND_OK:
-				break;
-			default:
-				ereport(ERROR, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
-		}
-		PQclear(res);
-	}
-
-	//change second part node and status to dst node and clean.
-	for(i=part2_slotid_startid;
-		i<part2_slotid_startid+part2_slotid_len; i++)
-	{
-		slotid = SlotIdArray[i];
-		if(SlotStatusMoveInDB != SlotStatusArray[i])
-			ereport(ERROR, (errmsg("the %d slot's status should be move.", slotid)));
-		sprintf(sql, ALTER_SLOT_NODE_NAME_STATUS_BY_SLOTID, slotid, dst_node_name, SLOT_STATUS_CLEAN);
-		res = PQexec(pgconn, sql);
-		status = PQresultStatus(res);
-		switch(status)
-		{
-			case PGRES_COMMAND_OK:
-				break;
-			default:
-				ereport(ERROR, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
-		}
-		PQclear(res);
-	}
-
-}
-
-static void hexp_slot_all_clean_to_online(PGconn *pgconn)
-{
-	char sql[100];
-	PGresult* res;
-	int i = 0;
-	ExecStatusType status;
-
-
-	for( i=0; i<HASHMAP_SLOTSIZE ; i++)
-	{
-		sprintf(sql, ALTER_SLOT_STATUS_BY_SLOTID, i, SLOT_STATUS_ONLINE);
-		res = PQexec(pgconn, sql);
-		status = PQresultStatus(res);
-		switch(status)
-		{
-			case PGRES_COMMAND_OK:
-				break;
-			default:
-				ereport(ERROR, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
-		}
-		PQclear(res);
-	}
+		ereport(ERROR, (errmsg("%s exists, expand activate cann't be started.", ADB_CLEAN_TABLE)));
 }
 
 bool hexp_check_cluster_status_internal(List **pdn_status_list, StringInfo pserialize, bool check)
 {
 	PGconn *pg_conn = NULL;
 	Oid cnoid;
-	bool is_vacuum_state;
+	bool is_vacuum_state = false;
 	char* pstatus = "NULL";
 	ListCell	*lc;
 	DN_STATUS	*dn_status;
@@ -3130,9 +2429,9 @@ bool hexp_check_cluster_status_internal(List **pdn_status_list, StringInfo pseri
 		appendStringInfo(pserialize,"pgxc node info in cluster is consistent.\n");
 
 		//get slot vacuum status
-		is_vacuum_state = hexp_check_select_result_count(pg_conn, IS_ADB_SLOT_CLEAN_TABLE_EXISTS);
+		is_vacuum_state = hexp_check_select_result_count(pg_conn, IS_ADB_CLEAN_TABLE_EXISTS);
 		if(is_vacuum_state)
-			appendStringInfo(pserialize,"cluster status is slot vacuum\n");
+			appendStringInfo(pserialize,"cluster status is vacuum\n");
 
 		//get all dn info
 		*pdn_status_list = hexp_get_all_dn_status();
@@ -3169,136 +2468,6 @@ bool hexp_check_cluster_status_internal(List **pdn_status_list, StringInfo pseri
 		PG_RE_THROW();
 	}PG_END_TRY();
 	return is_vacuum_state;
-}
-
-
-static void hexp_get_coordinator_conn_output(PGconn **pg_conn, Oid *cnoid, char* out_host, char* out_port, char* out_db, char* out_user)
-{
-	Oid coordhostoid;
-	int32 coordport;
-	char *coordhost;
-	char coordport_buf[10];
-	char *connect_user;
-	char cnpath[1024];
-	int try = 0;
-	NameData self_address;
-	NameData nodename;
-	GetAgentCmdRst getAgentCmdRst;
-	StringInfoData infosendmsg;
-	Datum datumPath;
-	Relation rel_node;
-	HeapTuple tuple;
-	Form_mgr_node mgr_node;
-	bool isNull;
-	char* database ;
-	bool breload = false;
-
-	if(0!=strcmp(MGRDatabaseName,""))
-		database = MGRDatabaseName;
-	else
-		database = DEFAULT_DB;
-
-
-	/*get active coordinator to connect*/
-	if (!mgr_get_active_node(&nodename, CNDN_TYPE_COORDINATOR_MASTER, 0))
-		ereport(ERROR, (errmsg("can not get active coordinator in cluster")));
-	rel_node = table_open(NodeRelationId, AccessShareLock);
-	//tuple = mgr_get_tuple_node_from_name_type(rel_node, nodename.data, CNDN_TYPE_COORDINATOR_MASTER);
-	tuple = mgr_get_tuple_node_from_name_type(rel_node, nodename.data);
-	if(!(HeapTupleIsValid(tuple)))
-	{
-		ereport(ERROR, (errmsg("coordinator \"%s\" does not exist", nodename.data)
-			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
-			, errcode(ERRCODE_UNDEFINED_OBJECT)));
-	}
-	mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-	coordhostoid = mgr_node->nodehost;
-	coordport = mgr_node->nodeport;
-	coordhost = get_hostaddress_from_hostoid(coordhostoid);
-	connect_user = get_hostuser_from_hostoid(coordhostoid);
-	*cnoid = mgr_node->oid;
-
-	/*get the adbmanager ip*/
-	mgr_get_self_address(coordhost, coordport, &self_address);
-
-	/*set adbmanager ip to the coordinator if need*/
-	datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(rel_node), &isNull);
-	if (isNull)
-	{
-		heap_freetuple(tuple);
-		heap_close(rel_node, AccessShareLock);
-		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
-			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
-			, errmsg("column nodepath is null")));
-	}
-	strncpy(cnpath, TextDatumGetCString(datumPath), 1024);
-	heap_freetuple(tuple);
-	heap_close(rel_node, AccessShareLock);
-	initStringInfo(&(getAgentCmdRst.description));
-	initStringInfo(&infosendmsg);
-
-	sprintf(coordport_buf, "%d", coordport);
-
-	strcpy(out_host,coordhost);
-	strcpy(out_db, database);
-	strcpy(out_port, coordport_buf);
-	strcpy(out_user, connect_user);
-
-	for (try = 0; try < 2; try++)
-	{
-		*pg_conn = PQsetdbLogin(coordhost
-								,coordport_buf
-								,NULL, NULL
-								,database
-								,connect_user
-								,NULL);
-		if (try != 0)
-			break;
-		if (PQstatus((PGconn*)*pg_conn) != CONNECTION_OK)
-		{
-			breload = true;
-			PQfinish(*pg_conn);
-			resetStringInfo(&infosendmsg);
-			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, DEFAULT_DB, connect_user, self_address.data, 31, "trust", &infosendmsg);
-			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cnpath, &infosendmsg, coordhostoid, &getAgentCmdRst);
-			mgr_reload_conf(coordhostoid, cnpath);
-			if (!getAgentCmdRst.ret)
-			{
-				pfree(infosendmsg.data);
-				ereport(ERROR, (errmsg("set ADB Manager ip \"%s\" to %s coordinator %s/pg_hba,conf fail %s", self_address.data, coordhost, cnpath, getAgentCmdRst.description.data)));
-			}
-		}
-		else
-			break;
-	}
-	try = 0;
-	if (*pg_conn == NULL || PQstatus((PGconn*)*pg_conn) != CONNECTION_OK)
-	{
-		pfree(infosendmsg.data);
-		pfree(getAgentCmdRst.description.data);
-		ereport(ERROR,
-			(errmsg("Fail to connect to coordinator %s", PQerrorMessage((PGconn*)*pg_conn)),
-			errhint("coordinator info(host=%s port=%d dbname=%s user=%s)",
-				coordhost, coordport, DEFAULT_DB, connect_user)));
-	}
-
-	/*remove the add line from coordinator pg_hba.conf*/
-	if (breload)
-	{
-		resetStringInfo(&(getAgentCmdRst.description));
-		mgr_send_conf_parameters(AGT_CMD_CNDN_DELETE_PGHBACONF
-								,cnpath
-								,&infosendmsg
-								,coordhostoid
-								,&getAgentCmdRst);
-		if (!getAgentCmdRst.ret)
-			ereport(WARNING, (errmsg("remove ADB Manager ip \"%s\" from %s coordinator %s/pg_hba,conf fail %s", self_address.data, coordhost, cnpath, getAgentCmdRst.description.data)));
-		mgr_reload_conf(coordhostoid, cnpath);
-	}
-	pfree(coordhost);
-	pfree(connect_user);
-	pfree(infosendmsg.data);
-	pfree(getAgentCmdRst.description.data);
 }
 
 static void hexp_get_coordinator_conn(PGconn **pg_conn, Oid *cnoid)
@@ -3537,24 +2706,6 @@ static void hexp_create_dm_on_itself(PGconn *pg_conn, AppendNodeInfo *nodeinfo)
 	hexp_pqexec_direct_execute_utility(pg_conn, psql_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 	*/
 }
-
-/*
-static void hexp_flush_node_slot_on_itself(PGconn *pg_conn, char *dnname, Oid dnhostoid, int32 dnport)
-{
-	StringInfoData psql_cmd;
-
-	initStringInfo(&psql_cmd);
-	appendStringInfo(&psql_cmd, " EXECUTE DIRECT ON (%s) ", dnname);
-	appendStringInfo(&psql_cmd, " 'select pgxc_pool_reload();'");
-	hexp_pqexec_direct_execute_utility(pg_conn, psql_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_TUPLES_TRUE);
-
-	initStringInfo(&psql_cmd);
-	appendStringInfo(&psql_cmd, " EXECUTE DIRECT ON (%s) ", dnname);
-	appendStringInfo(&psql_cmd, " 'flush slot;'");
-	hexp_pqexec_direct_execute_utility(pg_conn, psql_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-
-}
-*/
 
 static void hexp_create_dm_on_all_node(PGconn *pg_conn, AppendNodeInfo *nodeinfo)
 {
@@ -3874,181 +3025,6 @@ static void hexp_set_expended_node_state(char *nodename, bool search_init, bool 
 	pfree(info);
 }
 
-static void report_slot_range_invalid(PartitionRangeDatum *prd, ParseState *parser)
-{
-	ereport(ERROR,
-			(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
-			 parser_errposition(parser, prd->location),
-			 errmsg("Invalid slot id"),
-			 errdetail("Valid value is [0, %d)", HASHMAP_SLOTSIZE)));
-	abort();	/* never run */
-}
-
-void mgr_cluster_slot_init(ClusterSlotInitStmt *node, ParamListInfo params, DestReceiver *dest, const char *query)
-{
-	PGconn			   *volatile pg_conn = NULL;
-	PGresult		   *volatile pg_result = NULL;
-	ParseState		   *parser;
-	ListCell		   *lc;
-	DefElem			   *defel;
-	PartitionBoundSpec *pbs;
-	StringInfoData		sql;
-	Oid					cnoid;
-
-	if (!superuser())
-		ereport(ERROR,
-				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 errmsg("must be superuser to init slot")));
-
-	hexp_check_cluster_pgxcnode();
-	initStringInfo(&sql);
-
-	parser = make_parsestate(NULL);
-	parser->p_sourcetext = query;
-
-	PG_TRY();
-	{
-		/* connect to coordinator */
-		hexp_get_coordinator_conn((PGconn**)&pg_conn, &cnoid);
-
-		/* begin transaction */
-		hexp_pqexec_direct_execute_utility(pg_conn,
-										   SQL_BEGIN_TRANSACTION,
-										   MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-
-		foreach(lc, node->options)
-		{
-			defel = lfirst_node(DefElem, lc);
-			if (!hexp_activate_dn_exist(defel->defname))
-				ereport(ERROR,
-						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-						 parser_errposition(parser, defel->location),
-						 errmsg("datanode master %s running doesn't exist.", defel->defname)));
-
-			pbs = castNode(PartitionBoundSpec, defel->arg);
-			if (pbs->strategy == PARTITION_STRATEGY_RANGE)
-			{
-				PartitionRangeDatum *lower = linitial_node(PartitionRangeDatum, pbs->lowerdatums);
-				PartitionRangeDatum *upper = linitial_node(PartitionRangeDatum, pbs->upperdatums);
-				int start,end;
-
-				/* get lower */
-				if (lower->kind == PARTITION_RANGE_DATUM_MINVALUE)
-				{
-					start = 0;
-				}else if (lower->kind == PARTITION_RANGE_DATUM_VALUE)
-				{
-					start = intVal(lower->value);
-					if (start<0 || start>=HASHMAP_SLOTSIZE)
-						report_slot_range_invalid(lower, parser);
-				}else
-				{
-					report_slot_range_invalid(lower, parser);
-				}
-
-				/* get upper */
-				if (upper->kind == PARTITION_RANGE_DATUM_MAXVALUE)
-				{
-					end = HASHMAP_SLOTSIZE;
-				}else if (upper->kind == PARTITION_RANGE_DATUM_VALUE)
-				{
-					end = intVal(upper->value);
-					if (end<=0 || end>HASHMAP_SLOTSIZE)
-						report_slot_range_invalid(upper, parser);
-				}else
-				{
-					report_slot_range_invalid(upper, parser);
-				}
-
-				/* create slot */
-				while(start<end)
-				{
-					resetStringInfo(&sql);
-					appendStringInfo(&sql, CREATE_SLOT, start, defel->defname);
-					hexp_pqexec_direct_execute_utility(pg_conn,
-													   sql.data,
-													   MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-					++start;
-				}
-			}else if(pbs->strategy == PARTITION_STRATEGY_LIST)
-			{
-				ListCell			   *lc2;
-				PartitionRangeDatum	   *datum;
-				int						value;
-				foreach(lc2, pbs->listdatums)
-				{
-					/* get value */
-					datum = lfirst_node(PartitionRangeDatum, lc2);
-					if (datum->kind == PARTITION_RANGE_DATUM_MINVALUE)
-					{
-						value = 0;
-					}else if (datum->kind == PARTITION_RANGE_DATUM_MAXVALUE)
-					{
-						value = HASHMAP_SLOTSIZE-1;
-					}else
-					{
-						value = intVal(datum->value);
-						if (value < 0 || value >= HASHMAP_SLOTSIZE)
-							report_slot_range_invalid(datum, parser);
-					}
-
-					/* create slot */
-					resetStringInfo(&sql);
-					appendStringInfo(&sql, CREATE_SLOT, value, defel->defname);
-					hexp_pqexec_direct_execute_utility(pg_conn,
-													   sql.data,
-													   MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-				}
-			}else
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("Unknown strategy type %u", pbs->strategy),
-						 parser_errposition(parser, pbs->location)));
-			}
-		}
-
-		/* check status */
-		resetStringInfo(&sql);
-		pg_result = PQexec(pg_conn, SELECT_MIN_MAX_COUNT_SLOTID_ADB_SLOT);
-		if (PQresultStatus(pg_result) != PGRES_TUPLES_OK)
-			ereport(ERROR,
-					(errmsg("query slot status error:%s", PQerrorMessage(pg_conn))));
-
-		if (atoi(PQgetvalue(pg_result, 0, 0)) != 0 || /* min(slotid) != 0 */
-			atoi(PQgetvalue(pg_result, 0, 1)) != HASHMAP_SLOTSIZE-1 || /* max(slotid) != HASHMAP_SLOTSIZE-1 */
-			atoi(PQgetvalue(pg_result, 0, 2)) != HASHMAP_SLOTSIZE) /* count != HASHMAP_SLOTSIZE */
-			ereport(INFO,
-					(errmsg("slot initialize not full, you need initialize other again"),
-					 errdetail("current min is %s, max is %s and count is %s",
-							   PQgetvalue(pg_result, 0, 0),
-							   PQgetvalue(pg_result, 0, 1),
-							   PQgetvalue(pg_result, 0, 2))));
-		PQclear(pg_result);
-
-		/* commit transaction */
-		hexp_pqexec_direct_execute_utility(pg_conn,
-										   SQL_COMMIT_TRANSACTION,
-										   MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-	}PG_CATCH();
-	{
-		if (pg_result != NULL)
-			PQclear(pg_result);
-
-		if (pg_conn != NULL)
-		{
-			/* rollback transaction, and ignore result */
-			PQsendQuery(pg_conn, SQL_ROLLBACK_TRANSACTION);
-			PQfinish(pg_conn);
-		}
-		PG_RE_THROW();
-	}PG_END_TRY();
-
-	pfree(sql.data);
-	free_parsestate(parser);
-}
-
-
 bool get_agent_info_from_hostoid(const Oid hostOid, char *agent_addr, int *agent_port)
 {
 	Relation rel;
@@ -4152,93 +3128,4 @@ Datum mgr_failover_one_dn_inner_func(char *nodename, char cmdtype, char nodetype
 	pfree(getAgentCmdRst.description.data);
 	heap_close(rel_node, RowExclusiveLock);
 	return HeapTupleGetDatum(tup_result);
-}
-
-bool hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name, bool startTransaction, bool complain)
-{
-	char sql[100];
-	PGresult* res;
-	int i = 0;
-	ExecStatusType status;
-	int slotid = -1;
-	SlotArrayIndex = 0;
-	bool execOk = true;
-	char *errorMessage = NULL;
-
-	if (startTransaction)
-		hexp_pqexec_direct_execute_utility(pgconn,SQL_BEGIN_TRANSACTION
-			, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-
-	hexp_get_sourcenode_slotid(pgconn, src_node_name, complain);
-	for(i=0; i<SlotArrayIndex; i++)
-	{
-		slotid = SlotIdArray[i];
-
-		sprintf(sql, ALTER_SLOT_NODE_NAME_SLOTID, slotid, dst_node_name);
-		res = PQexec(pgconn, sql);
-		status = PQresultStatus(res);
-		switch(status)
-		{
-			case PGRES_COMMAND_OK:
-				break;
-			default:
-			{
-				execOk = false;
-				errorMessage = psprintf("%s runs error. result is %s.", sql, PQresultErrorMessage(res));
-				break;
-			}
-		}
-		PQclear(res);
-		if(!execOk)
-			break;
-	}
-
-	if (startTransaction)
-		hexp_pqexec_direct_execute_utility(pgconn,
-										   execOk? SQL_COMMIT_TRANSACTION : SQL_ROLLBACK_TRANSACTION, 
-										   MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-	if(!execOk)
-		ereport(complain ? ERROR : WARNING, 
-				(errmsg("%s",errorMessage)));
-	return execOk && SlotArrayIndex > 0;
-}
-
-static void hexp_get_sourcenode_slotid(PGconn *pgconn, char* src_node_name, bool complain)
-{
-	PGresult* res;
-	char sql[200];
-	ExecStatusType status;
-	int i = 0;
-	int ntups = 0;
-
-	SlotArrayIndex = 0;
-	sprintf(sql, SELECT_SLOTID_STATUS_FROM_ADB_SLOT_BY_NODE, src_node_name);
-	res = PQexec(pgconn,  sql);
-	status = PQresultStatus(res);
-	switch(status)
-	{
-		case PGRES_TUPLES_OK:
-			break;
-		default:
-		{
-			SlotArrayIndex = 0;
-			PQclear(res);
-			ereport(complain?ERROR:WARNING, (errmsg("%s runs error. result is %s.", sql, PQresultErrorMessage(res))));
-			return;
-		}
-	}
-	ntups = PQntuples(res);
-	if (0==ntups)
-	{
-		PQclear(res);
-		ereport(complain?ERROR:WARNING, (errmsg("%s runs error. result is null.", sql)));
-		return;
-	}
-
-	for (i = 0; i < ntups; i++)
-	{
-		SlotIdArray[SlotArrayIndex] = atoi(PQgetvalue(res, i, 0));
-		SlotArrayIndex++;
-	}
-	PQclear(res);
 }
