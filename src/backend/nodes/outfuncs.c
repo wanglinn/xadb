@@ -672,7 +672,9 @@ _outEmptyResult(StringInfo str, const EmptyResult *node)
 
 	_outPlanInfo(str, &node->plan);
 
+	WRITE_NODE_FIELD(subPlan);
 	WRITE_ENUM_FIELD(typeFrom, NodeTag);
+	WRITE_BOOL_FIELD(isshared);
 }
 
 #endif
