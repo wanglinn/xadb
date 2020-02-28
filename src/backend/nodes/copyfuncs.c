@@ -5082,7 +5082,9 @@ _copyEmptyResult(const EmptyResult *from)
 	EmptyResult *newnode = makeNode(EmptyResult);
 
 	CopyPlanFields(&from->plan, &newnode->plan);
+	COPY_NODE_FIELD(subPlan);
 	COPY_SCALAR_FIELD(typeFrom);
+	COPY_SCALAR_FIELD(isshared);
 
 	return newnode;
 }

@@ -904,7 +904,9 @@ END_NODE(ReduceScan)
 #ifndef NO_NODE_EmptyResult
 BEGIN_NODE(EmptyResult)
 	NODE_BASE2(Plan,plan)
+	NODE_NODE(List,subPlan)
 	NODE_ENUM(NodeTag,typeFrom)
+	NODE_SCALAR(bool,isshared)
 END_NODE(EmptyResult)
 #endif /* NO_NODE_EmptyResult */
 

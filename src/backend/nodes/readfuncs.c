@@ -2596,7 +2596,9 @@ _readEmptyResult(void)
 
 	ReadCommonPlan(&local_node->plan);
 
+	READ_NODE_FIELD(subPlan);
 	READ_ENUM_FIELD(typeFrom, NodeTag);
+	READ_BOOL_FIELD(isshared);
 
 	READ_DONE();
 }

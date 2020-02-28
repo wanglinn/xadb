@@ -1065,7 +1065,9 @@ typedef struct ReduceScan
 typedef struct EmptyResult
 {
 	Plan		plan;
-	NodeTag		typeFrom;
+	List	   *subPlan;		/* list of SubPlan expr */
+	NodeTag		typeFrom;		/* make from */
+	bool		isshared;		/* from BitmapOr or BitmapIndexScan */
 }EmptyResult;
 
 typedef struct ParamTuplestoreScan

@@ -10,6 +10,7 @@ static TupleTableSlot *ExecEmptyResult(PlanState *pstate);
 
 EmptyResultState *ExecInitEmptyResult(EmptyResult *node, EState *estate, int eflags)
 {
+	ListCell *lc;
 	EmptyResultState *ers = makeNode(EmptyResultState);
 
 	ers->ps.plan = (Plan*) node;
@@ -29,14 +30,23 @@ EmptyResultState *ExecInitEmptyResult(EmptyResult *node, EState *estate, int efl
 	 */
 	ExecInitResultTupleSlotTL(&ers->ps, &TTSOpsVirtual);
 
+	foreach (lc, node->subPlan)
+	{
+		/*
+		 * we don't use SubPlan expr,
+		 * just init it, let it save in PlanState::subPlan
+		 * so AdvanceReduce known it
+		 */
+		ExecInitExpr(lfirst(lc), &ers->ps);
+	}
+
 	/* initialize special node if need */
 	switch(node->typeFrom)
 	{
 	case T_BitmapAnd:
 	case T_BitmapOr:
 	case T_BitmapIndexScan:
-		ers->special = (Node*)tbm_create(64*1024L, NULL);
-		break;
+		ers->special = (Node*)tbm_create(64*1024, node->isshared ? estate->es_query_dsa : NULL);
 	default:
 		break;
 	}
@@ -88,12 +98,26 @@ Node* MultiExecEmptyResult(EmptyResultState *node)
 	return node->special;
 }
 
+static bool FindSubPlanWalker(Node *node, EmptyResult *result)
+{
+	if (node == NULL)
+		return false;
+
+	if(IsA(node, SubPlan))
+	{
+		result->subPlan = lappend(result->subPlan, node);
+		return false;
+	}
+
+	return expression_tree_walker(node, FindSubPlanWalker, result);
+}
+
 Plan* MakeEmptyResultPlan(Plan *from)
 {
-	ListCell *lc;
-	TargetEntry *te;
-	Expr *expr;
-	EmptyResult *result = palloc(sizeof(EmptyResult));
+	ListCell	   *lc;
+	TargetEntry	   *te;
+	Expr		   *expr;
+	EmptyResult	   *result = palloc0(sizeof(EmptyResult));
 	memcpy(result, from, sizeof(Plan));
 	NodeSetTag(result, T_EmptyResult);
 
@@ -117,6 +141,56 @@ Plan* MakeEmptyResultPlan(Plan *from)
 		te->resorigcol = InvalidAttrNumber;
 
 		result->plan.targetlist = lappend(result->plan.targetlist, te);
+	}
+
+	FindSubPlanWalker((Node*)from->targetlist, result);
+	FindSubPlanWalker((Node*)from->qual, result);
+	switch(nodeTag(from))
+	{
+	case T_ForeignScan:
+		{
+			ForeignScan *fs = (ForeignScan*)from;
+			FindSubPlanWalker((Node*)fs->fdw_exprs, result);
+			FindSubPlanWalker((Node*)fs->fdw_scan_tlist, result);
+			FindSubPlanWalker((Node*)fs->fdw_recheck_quals, result);
+		}
+		break;
+	case T_Agg:
+	case T_SeqScan:
+	case T_TidScan:
+		break;
+	case T_IndexScan:
+		{
+			IndexScan *is = (IndexScan*)from;
+			FindSubPlanWalker((Node*)is->indexqual, result);
+			FindSubPlanWalker((Node*)is->indexqualorig, result);
+			FindSubPlanWalker((Node*)is->indexorderby, result);
+			FindSubPlanWalker((Node*)is->indexorderbyorig, result);
+		}
+		break;
+	case T_IndexOnlyScan:
+		{
+			IndexOnlyScan *ios = (IndexOnlyScan*)from;
+			FindSubPlanWalker((Node*)ios->indexqual, result);
+			FindSubPlanWalker((Node*)ios->indexorderby, result);
+			FindSubPlanWalker((Node*)ios->indextlist, result);
+		}
+		break;
+	case T_BitmapIndexScan:
+		{
+			BitmapIndexScan *bis = (BitmapIndexScan*)from;
+			FindSubPlanWalker((Node*)bis->indexqual, result);
+			FindSubPlanWalker((Node*)bis->indexqualorig, result);
+			result->isshared = bis->isshared;
+		}
+		break;
+	case T_BitmapOr:
+		result->isshared = ((BitmapOr*)from)->isshared;
+		break;
+	default:
+		ereport(ERROR,
+				(errmsg("unknown plan type %d to EmptyResult", nodeTag(from))));
+		break;
 	}
 
 	return (Plan*)result;
