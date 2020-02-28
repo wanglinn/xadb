@@ -1244,9 +1244,7 @@ mgr_expand_recover_backup_fail(cstring, cstring),
 mgr_expand_recover_backup_suc(cstring, cstring),
 mgr_expand_activate_dnmaster(cstring),
 mgr_expand_activate_recover_promote_suc(cstring),
-mgr_expand_clean_init(),
-mgr_expand_clean_start(),
-mgr_expand_clean_end()
+mgr_expand_clean()
 from public;
 
 --doctor

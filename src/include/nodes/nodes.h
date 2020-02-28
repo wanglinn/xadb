@@ -616,7 +616,6 @@ typedef enum NodeTag
 	,T_MgrRemoveNode
 	,T_MGRSetClusterInit
 	,T_MonitorDeleteData
-	,T_ClusterSlotInitStmt
 	,T_MGRFlushParam
 	,T_MGRFlushReadonlySlave
 	,T_MGR_NODE_END

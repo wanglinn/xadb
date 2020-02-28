@@ -126,11 +126,7 @@ extern void diffPgxcNodesOfDataNode(PGconn *pgconn,
 									dlist_head *siblingMasters,
 									MemoryContext spiContext,
 									bool complain);
-extern void diffAdbSlotOfDataNodes(SwitcherNodeWrapper *coordinator,
-								   SwitcherNodeWrapper *dataNodeMaster,
-								   dlist_head *siblingMasters,
-								   MemoryContext spiContext,
-								   bool complain);
+
 extern void beginSwitcherNodeTransaction(SwitcherNodeWrapper *switcherNode,
 										 bool complain);
 extern void commitSwitcherNodeTransaction(SwitcherNodeWrapper *switcherNode,

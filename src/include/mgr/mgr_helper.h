@@ -432,7 +432,6 @@ extern bool exec_pgxc_pool_reload(PGconn *coordCoon,
 extern bool exec_pg_pause_cluster(PGconn *pgConn, bool complain);
 extern bool exec_pg_unpause_cluster(PGconn *pgConn, bool complain);
 extern bool exec_pool_close_idle_conn(PGconn *pgConn, bool complain);
-extern int countAdbSlot(PGconn *pgConn, bool complain);
 
 /* agent functions */
 extern CallAgentResult callAgentSendCmd(AgentCommand cmd,

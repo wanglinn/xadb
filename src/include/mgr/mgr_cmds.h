@@ -512,9 +512,7 @@ extern Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS);
 extern Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS);
 extern Datum mgr_expand_check_status(PG_FUNCTION_ARGS);
 extern Datum mgr_expand_show_status(PG_FUNCTION_ARGS);
-extern Datum mgr_expand_clean_init(PG_FUNCTION_ARGS);
-extern Datum mgr_expand_clean_start(PG_FUNCTION_ARGS);
-extern Datum mgr_expand_clean_end(PG_FUNCTION_ARGS);
+extern Datum mgr_expand_clean(PG_FUNCTION_ARGS);
 extern Datum mgr_cluster_pgxcnode_init(PG_FUNCTION_ARGS);
 extern Datum mgr_import_hash_meta(PG_FUNCTION_ARGS);
 extern Datum mgr_cluster_hash_meta_check(PG_FUNCTION_ARGS);
@@ -533,7 +531,7 @@ extern void mgr_doctor_set_param(MGRDoctorSet *node,
 								 DestReceiver *dest);
 
 /*online expand internal function*/
-void mgr_cluster_slot_init(ClusterSlotInitStmt *node, ParamListInfo params, DestReceiver *dest, const char *query);
+//void mgr_cluster_slot_init(ClusterSlotInitStmt *node, ParamListInfo params, DestReceiver *dest, const char *query);
 bool get_agent_info_from_hostoid(const Oid hostOid, char *agent_addr, int *agent_port);
 Datum mgr_failover_one_dn_inner_func(char *nodename, char cmdtype, char nodetype, bool nodetypechange, bool bforce);
 bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid);
@@ -549,7 +547,7 @@ extern bool mgr_manipulate_pgxc_node_on_node(PGconn **pg_conn,
 									  	 	 bool localExecute, 
 									  		 PGXC_NODE_MANIPULATE_TYPE manipulateType,
 									  		 StringInfo strinfo);
-extern bool hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name, bool startTransaction, bool complain);
+//extern bool hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name, bool startTransaction, bool complain);
 extern bool hexp_check_select_result_count(PGconn *pg_conn, char* sql);
 extern void hexp_pqexec_direct_execute_utility(PGconn *pg_conn, char *sqlstr, int ret_type);
 
@@ -569,6 +567,7 @@ extern uint64 updateDoctorStatusOfMgrNodes(List *nodenames, char nodetype, bool 
 extern uint64 updateDoctorStatusOfMgrNode(char *nodename, char nodetype, bool allowcure, char *curestatus);
 extern uint64 updateAllowcureOfMgrHosts(List *hostnames, bool allowcure);
 extern uint64 updateAllowcureOfMgrHost(char *hostname, bool allowcure);
-extern bool MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *src_name, char* dst_name);
+extern void MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *src_name, char* dst_name);
+extern void MgrSendDataCleanToGtm(PGconn *pg_conn);
 extern void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, GetAgentCmdRst *getAgentCmdRst);
 #endif /* MGR_CMDS_H */
