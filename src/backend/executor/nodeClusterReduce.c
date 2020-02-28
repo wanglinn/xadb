@@ -130,7 +130,6 @@ extern bool enable_cluster_plan;
 static int cmr_heap_compare_slots(Datum a, Datum b, void *arg);
 static bool DriveClusterReduceState(ClusterReduceState *node);
 static bool DriveCteScanState(PlanState *node);
-static bool DriveMaterialState(PlanState *node);
 static bool DriveClusterReduceWalker(PlanState *node);
 static bool IsThereClusterReduce(PlanState *node);
 
@@ -1919,30 +1918,6 @@ DriveCteScanState(PlanState *node)
 }
 
 static bool
-DriveMaterialState(PlanState *node)
-{
-	TupleTableSlot *slot = NULL;
-
-	Assert(node && IsA(node, MaterialState));
-
-	if (!IsThereClusterReduce(node))
-		return false;
-
-	/*
-	 * Here we do ExecMaterial instead of just driving ClusterReduce,
-	 * because other plan node may need the results of the Material.
-	 */
-	for (;;)
-	{
-		slot = node->ExecProcNode(node);
-		if (TupIsNull(slot))
-			break;
-	}
-
-	return false;
-}
-
-static bool
 DriveClusterReduceWalker(PlanState *node)
 {
 	EState	   *estate;
@@ -1987,10 +1962,6 @@ DriveClusterReduceWalker(PlanState *node)
 	if (IsA(node, CteScanState))
 	{
 		res = DriveCteScanState(node);
-	} else
-	if (IsA(node, MaterialState))
-	{
-		res = DriveMaterialState(node);
 	} else
 	{
 		res = planstate_tree_exec_walker(node, DriveClusterReduceWalker, NULL);
