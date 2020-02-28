@@ -780,7 +780,6 @@ static void oldDataNodeMasterContinueToReign(MgrNodeWrapper *oldMaster)
 {
 	ErrorData *edata = NULL;
 	int spiRes;
-	int numberOfSlots;
 	dlist_head mgrNodes = DLIST_STATIC_INIT(mgrNodes);
 	dlist_head slaveNodes = DLIST_STATIC_INIT(slaveNodes);
 	dlist_head coordinators = DLIST_STATIC_INIT(coordinators);
@@ -878,8 +877,7 @@ static void oldDataNodeMasterContinueToReign(MgrNodeWrapper *oldMaster)
 		switcherOldMaster->pgConn = oldMasterConn;
 		switcherOldMaster->runningMode = NODE_RUNNING_MODE_MASTER;
 
-		numberOfSlots = countAdbSlot(oldMasterConn, true);
-		if (numberOfSlots > 0)
+	
 		{
 			checkGetSiblingMasterNodes(spiContext,
 									   switcherOldMaster,
@@ -893,11 +891,7 @@ static void oldDataNodeMasterContinueToReign(MgrNodeWrapper *oldMaster)
 									&siblingMasters,
 									spiContext,
 									true);
-			diffAdbSlotOfDataNodes(holdLockCoordinator,
-								   switcherOldMaster,
-								   &siblingMasters,
-								   spiContext,
-								   true);
+			
 			commitSwitcherNodeTransaction(holdLockCoordinator,
 										  true);
 			tryUnlockCluster(&coordinators, true);
