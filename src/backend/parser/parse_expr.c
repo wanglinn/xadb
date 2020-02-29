@@ -2271,6 +2271,23 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 			int		typeMod;
 
 			w = lfirst_node(CaseWhen, list_head(c->args));
+			/* Oracle compatible, empty string converted to null */
+			if (IsA(w->expr, A_Const))
+			{
+				A_Const *con = (A_Const *) w->expr;
+				if (IsA(&con->val, String))
+				{
+					if (strcmp(strVal(&con->val), "") == 0)
+					{
+						NullTest *n = makeNode(NullTest);
+						n->arg = NULL;
+						n->nulltesttype = IS_NULL;
+						n->location = con->location;
+						w->expr = (Expr*)n;
+						pfree(con);
+					}
+				}
+			}
 			if (IsA(w->expr, NullTest))
 			{
 				convertType = TEXTOID;
@@ -2309,6 +2326,25 @@ transformCaseExpr(ParseState *pstate, CaseExpr *c)
 		Node	   *warg;
 
 		warg = (Node *) w->expr;
+#ifdef ADB_GRAM_ORA
+		/* Oracle compatible, empty string converted to null */
+		if (IsOracleParseGram(pstate) && c->isdecode && IsA(warg, A_Const))
+		{
+			A_Const *con = (A_Const *) warg;
+			if (IsA(&con->val, String))
+			{
+				if (strcmp(strVal(&con->val), "") == 0)
+				{
+					NullTest *n = makeNode(NullTest);
+					n->arg = NULL;
+					n->nulltesttype = IS_NULL;
+					n->location = con->location;
+					warg = (Node *)n;
+					pfree(con);
+				}
+			}
+		}
+#endif /* ADB_GRAM_ORA */
 		if (placeholder)
 		{
 #ifdef ADB_EXT
