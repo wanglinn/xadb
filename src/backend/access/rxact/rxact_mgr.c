@@ -356,9 +356,6 @@ static void RxactLoop(void)
 						agent->waiting_gid = false;
 						agent->last_gid[0] = '\0';
 						rxact_agent_simple_msg(agent, RXACT_MSG_OK);
-						RemoveWaitEvent(rxact_wait_event_set, i);
-						closesocket(agent->sock);
-						--rxact_event_cur_count;
 						if(agent->sock == PGINVALID_SOCKET)
 							continue;
 					}
@@ -392,8 +389,8 @@ static void RxactLoop(void)
 						RemoveWaitEvent(rxact_wait_event_set, i);
 						closesocket(user_data->pconn_fd_dup);
 						rxact_finish_node_conn(user_data->pconn);
+						--rxact_event_cur_count;
 					}
-					--rxact_event_cur_count;
 				}
 			}
 		}
