@@ -773,6 +773,7 @@ void PQNReleaseAllConnect(bool request_cancel)
 	HASH_SEQ_STATUS	seq_status;
 	OidPGconn	   *op;
 	bool			release_connect;
+	bool			force_close;
 
 	if (htab_oid_pgconn == NULL ||
 		hash_get_num_entries(htab_oid_pgconn) == 0)
@@ -781,32 +782,37 @@ void PQNReleaseAllConnect(bool request_cancel)
 	if (request_cancel)
 		PQNRequestCancelAllconnect();
 
-	if (auto_release_connect ||
-		force_release_connect)
-		release_connect = true;
-	else
-		release_connect = false;
-
+	release_connect = force_close = false;
 	hash_seq_init(&seq_status, htab_oid_pgconn);
 	while((op = hash_seq_search(&seq_status)) != NULL)
 	{
 		PQNExecFinish_trouble(op->conn);
-		if (release_connect ||
-			PQtransactionStatus(op->conn) != PQTRANS_IDLE)
+
+		switch (PQtransactionStatus(op->conn))
 		{
-			PQdetach(op->conn);
-			op->conn = NULL;
-			hash_search(htab_oid_pgconn,
-						&op->oid,
-						HASH_REMOVE,
-						NULL);
+		case PQTRANS_IDLE:
+			break;
+		case PQTRANS_UNKNOWN:
+			/* connect can not reuse, so we need release */
+			release_connect = true;
+			break;
+		default:
+			/* should not happy, can not reset connect, so close it */
+			release_connect = force_close = true;
+			break;
 		}
 	}
-	if (release_connect)
+
+	if (release_connect ||
+		auto_release_connect ||
+		force_release_connect)
 	{
+		hash_seq_init(&seq_status, htab_oid_pgconn);
+		while((op = hash_seq_search(&seq_status)) != NULL)
+			PQdetach(op->conn);
 		hash_destroy(htab_oid_pgconn);
 		htab_oid_pgconn = NULL;
-		PoolManagerReleaseConnections(false);
+		PoolManagerReleaseConnections(force_close);
 		force_release_connect = false;
 		StopDynamicReduceWorker();
 	}
