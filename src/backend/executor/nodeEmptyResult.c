@@ -147,6 +147,10 @@ Plan* MakeEmptyResultPlan(Plan *from)
 	FindSubPlanWalker((Node*)from->qual, result);
 	switch(nodeTag(from))
 	{
+	case T_FunctionScan:
+		foreach (lc, ((FunctionScan*)from)->functions)
+			FindSubPlanWalker(lfirst_node(RangeTblFunction, lc)->funcexpr, result);
+		break;
 	case T_ForeignScan:
 		{
 			ForeignScan *fs = (ForeignScan*)from;
