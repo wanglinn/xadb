@@ -1233,7 +1233,6 @@ revoke execute on function mgr_expand_activate_dnmaster(cstring) from public;
 --expand
 revoke execute on function
 mgr_import_hash_meta(cstring),
-mgr_cluster_pgxcnode_init(),
 mgr_expand_show_status(),
 mgr_expand_check_status(),
 mgr_cluster_pgxcnode_check(),
