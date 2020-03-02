@@ -3614,8 +3614,6 @@ reaper(SIGNAL_ARGS)
 		if (IsGTMNode() && pmState == PM_RUN && pid == SnapSenderPID)
 		{
 			SnapSenderPID = 0;
-			ProcGlobal->snapshotProc->pid = 0;
-			InitSharedLatch(&ProcGlobal->snapshotProc->procLatch);
 			if (EXIT_STATUS_0(exitstatus) ||
 				EXIT_STATUS_1(exitstatus))
 			{
@@ -3633,8 +3631,6 @@ reaper(SIGNAL_ARGS)
 		if (IsGTMNode() && pmState == PM_RUN && pid == GxidSenderPID)
 		{
 			GxidSenderPID = 0;
-			ProcGlobal->gxidProc->pid = 0;
-			InitSharedLatch(&ProcGlobal->gxidProc->procLatch);
 			if (EXIT_STATUS_0(exitstatus) ||
 				EXIT_STATUS_1(exitstatus))
 			{
@@ -3652,14 +3648,11 @@ reaper(SIGNAL_ARGS)
 		if (!IsGTMNode() && pid == SnapReceiverPID)
 		{
 			SnapReceiverPID = 0;
-			ProcGlobal->snapshotProc->pid = 0;
-			InitSharedLatch(&ProcGlobal->snapshotProc->procLatch);
 			if (EXIT_STATUS_0(exitstatus) ||
 				EXIT_STATUS_1(exitstatus))
 			{
 				LogChildExit(LOG,
 							 pgstat_get_backend_desc(B_ADB_SNAP_RECEIVER), pid, exitstatus);
-
 				SnapReceiverPID = StartSnapReceiver();
 			}else
 			{
@@ -3672,8 +3665,6 @@ reaper(SIGNAL_ARGS)
 		if (!IsGTMNode() && pid == GxidReceiverPID)
 		{
 			GxidReceiverPID = 0;
-			ProcGlobal->gxidProc->pid = 0;
-			InitSharedLatch(&ProcGlobal->gxidProc->procLatch);
 			if (EXIT_STATUS_0(exitstatus) ||
 				EXIT_STATUS_1(exitstatus))
 			{
