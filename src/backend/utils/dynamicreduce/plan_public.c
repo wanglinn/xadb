@@ -382,6 +382,13 @@ void DRPlanSeqInit(HASH_SEQ_STATUS *seq)
 	hash_seq_init(seq, htab_plan_info);
 }
 
+long DRCurrentPlanCount(void)
+{
+	if (htab_plan_info == NULL)
+		return 0;
+	return hash_get_num_entries(htab_plan_info);
+}
+
 void DRClearPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi)
 {
 	if (pwi == NULL)
