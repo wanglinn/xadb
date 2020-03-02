@@ -163,7 +163,7 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 				ZoneStmt GetBoottimeStmt
 
 				ExpandNodeStmt CheckNodeStmt
-				ClusterPgxcNodeInitStmt ClusterPgxcNodeCheckStmt
+				ClusterPgxcNodeCheckStmt
 				ImportHashMetaStmt ClusterHashMetaCheckStmt
 				StartDoctorStmt StopDoctorStmt SetDoctorParamStmt ListDoctorParamStmt
 %type <node>	ListNodeSize
@@ -309,7 +309,6 @@ stmt :
 	| RemoveNodeStmt
 	| ExpandNodeStmt
 	| CheckNodeStmt
-	| ClusterPgxcNodeInitStmt
 	| ClusterPgxcNodeCheckStmt
 	| ImportHashMetaStmt
 	| ClusterHashMetaCheckStmt
@@ -568,15 +567,6 @@ ExpandNodeStmt:
 			List *args = list_make1(makeIntConst($3, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("pg_sleep", args));
-			$$ = (Node*)stmt;
-		};
-
-ClusterPgxcNodeInitStmt:
-		CLUSTER PGXCNODE INIT
-		{
-			SelectStmt *stmt = makeNode(SelectStmt);
-			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_cluster_pgxcnode_init", NULL));
 			$$ = (Node*)stmt;
 		};
 

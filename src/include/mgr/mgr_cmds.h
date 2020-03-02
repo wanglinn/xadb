@@ -513,7 +513,6 @@ extern Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS);
 extern Datum mgr_expand_check_status(PG_FUNCTION_ARGS);
 extern Datum mgr_expand_show_status(PG_FUNCTION_ARGS);
 extern Datum mgr_expand_clean(PG_FUNCTION_ARGS);
-extern Datum mgr_cluster_pgxcnode_init(PG_FUNCTION_ARGS);
 extern Datum mgr_import_hash_meta(PG_FUNCTION_ARGS);
 extern Datum mgr_cluster_hash_meta_check(PG_FUNCTION_ARGS);
 extern Datum mgr_cluster_pgxcnode_check(PG_FUNCTION_ARGS);

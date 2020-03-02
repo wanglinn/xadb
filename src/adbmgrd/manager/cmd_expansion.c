@@ -47,13 +47,6 @@ char *DefaultDatabaseName = DEFAULT_DB;
 
 
 /*hot expansion definition begin*/
-
-/*see hexp_cluster_slot_status_from_dn_status*/
-#define ClusterSlotStatusUnInit		-1
-#define ClusterSlotStatusOnline		1
-#define ClusterSlotStatusMove		2
-#define ClusterSlotStatusClean		3
-
 #define SlotStatusInvalid		-1
 #define SlotStatusOnlineInDB	1
 #define SlotStatusMoveInDB		2
@@ -113,11 +106,6 @@ ADBSQL
 #define ADB_CLEAN_TABLE						        "adb_clean"
 #define IS_ADB_CLEAN_TABLE_EXISTS 				    "select count(*) from pg_class pgc, pg_namespace pgn where pgn.nspname = 'adb' and pgc.relname = 'adb_clean' and pgc.relnamespace = pgn.oid;"
 
-/*pgxc_node*/
-#define SELECT_COUNT_FROM_PGXC_NODE					"select count(*) from pgxc_node;"
-#define SELECT_COUNT_FROM_PGXC_NODE_BY_NAME			"select count(*) from pgxc_node where node_name = '%s';"
-#define ALTER_PGXC_NODE_TYPE						"alter node %s with(type='datanode');"
-#define CREATE_PGXC_NODE							"create node %s with (type='datanode', host='%s', port=%s);"
 #define SELECT_PGXC_NODE_THROUGH_COOR 				"execute direct on(%s) 'select node_name from pgxc_node n where node_type=''D'' order by node_name';"
 #define SELECT_PGXC_NODE 							"select node_name, node_host, node_port from pgxc_node n where node_type='D' order by node_name;"
 
@@ -141,7 +129,6 @@ ADBSQL
 
 
 /*hot expansion definition end*/
-
 static bool hexp_get_nodeinfo_from_table(char *node_name, char node_type, AppendNodeInfo *nodeinfo);
 static void hexp_create_dm_on_all_node(PGconn *pg_conn, AppendNodeInfo *nodeinfo);
 static void hexp_create_dm_on_itself(PGconn *pg_conn, AppendNodeInfo *nodeinfo);
@@ -150,7 +137,6 @@ static bool hexp_get_nodeinfo_from_table_byoid(Oid tupleOid, AppendNodeInfo *nod
 static void hexp_get_coordinator_conn(PGconn **pg_conn, Oid *cnoid);
 static void hexp_mgr_pqexec_getlsn(PGconn **pg_conn, char *sqlstr, int* phvalue, int* plvalue);
 static void hexp_parse_pair_lsn(char* strvalue, int* phvalue, int* plvalue);
-
 static void hexp_check_dn_pgxcnode_info(PGconn *pg_conn, char *nodename, StringInfoData* pnode_list_exists);
 static void hexp_check_cluster_pgxcnode(void);
 static List *hexp_get_all_dn_status(void);
@@ -158,30 +144,17 @@ static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* 
 static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnpath);
 static int 	hexp_find_dn_nodes(List *dn_node_list, char* nodename);
 static List *hexp_init_dn_nodes(PGconn *pg_conn);
-static void hexp_init_cluster_pgxcnode(void);
-static void hexp_init_dn_pgxcnode_check(Form_mgr_node mgr_node, char* cnpath);
-
 static int 	hexp_select_result_count(PGconn *pg_conn, char* sql);
-
-static void hexp_check_expand_activate(char* src_node_name, char* dst_node_name);
-static void hexp_check_expand_backup(char* src_node_name);
-
+static void hexp_check_expand();
 static void hexp_update_conf_pgxc_node_name(AppendNodeInfo node, char* newname);
 static void hexp_restart_node(AppendNodeInfo node);
-
 static void hexp_pgxc_pool_reload_on_all_node(PGconn *pg_conn);
-//static void hexp_flush_node_slot_on_itself(PGconn *pg_conn, char *dnname, Oid dnhostoid, int32 dnport);
-
 static Datum hexp_expand_check_show_status(bool check);
 static bool hexp_check_cluster_status_internal(List **pdn_status_list, StringInfo pserialize, bool check);
-
 static void hexp_execute_cmd_get_reloid(PGconn *pg_conn, char *sqlstr, char* ret);
 static void hexp_import_hash_meta(PGconn *pgconn, PGconn *pgconn_dn, char* node_name);
-
 static void hexp_check_hash_meta(void);
 static void hexp_check_hash_meta_dn(PGconn *pgconn, PGconn *pgconn_dn, char* node_name);
-
-static void hexp_init_dn_pgxcnode_addnode(Form_mgr_node mgr_node, List *dn_node_list, char* cnpath);
 
 /*
  * expand sourcenode to destnode
@@ -242,9 +215,6 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		//phase 1. if errors occur, doesn't need rollback.
-
-		//1.check src node and dst node status.
 		ereport(INFO, (errmsg("%s%s", phase1_msg, "check src node and dst node status.")));
 		/*
 		1.1 check dst node status.it exists and is inicilized but not in cluster
@@ -270,12 +240,10 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
 
-
 		//check global and node status
 		ereport(INFO, (errmsg("%s%s", phase1_msg, "expand check status.")));
-		hexp_check_expand_activate(srcnodeinfo.nodename, appendnodeinfo.nodename);
+		hexp_check_expand();
 
-		//2.check lag between src and dst
 		/*
 		2.1 get dst lsn
 		*/
@@ -336,14 +304,12 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 
 		//check global and node status againt cluster lock
 		ereport(INFO, (errmsg("%s%s", phase1_msg, "expand check status.")));
-		hexp_check_expand_activate(srcnodeinfo.nodename, appendnodeinfo.nodename);
+		hexp_check_expand();
 
 		/*
 		2.4 wait 20s for sync
 		*/
 		ereport(INFO, (errmsg("%s%s", phase1_msg, "lock cluster and wait 20s for sync.")));
-		mgr_lock_cluster_involve_gtm_coord(&co_pg_conn, &cnoid);
-
 		try=20;
 		for(;;)
 		{
@@ -358,11 +324,8 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 				break;
 		}
 
-		//cluster will unlock when the co_pg_conn closes.
 		if(!((src_lsn_high==dst_lsn_high) && (src_lsn_low==dst_lsn_low)))
 			ereport(ERROR, (errmsg("expend src node and dst node can not sync in %d seconds", try)));
-
-		//phase2
 		/*
 		3.promote&check connect
 		*/
@@ -397,19 +360,19 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		/*
 		5.add dst node to all other node's pgxc_node.
 		*/
+		mgr_lock_cluster_involve_gtm_coord(&co_pg_conn, &cnoid);
+	 	hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+		
 		ereport(INFO, (errmsg("add dst node to all other node's pgxc_node.if this step fails, use 'expand activate recover promote success dst' to recover.")));
-		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_XC_MAINTENANCE_MODE_ON , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 		//create new node on all node which is initilized and incluster
 		hexp_create_dm_on_all_node(co_pg_conn, &appendnodeinfo);
 		hexp_create_dm_on_itself(co_pg_conn, &appendnodeinfo);
-		//flush in this connection backend.
-		//hexp_pqexec_direct_execute_utility(co_pg_conn, "select pgxc_pool_reload();", MGR_PGEXEC_DIRECT_EXE_UTI_RET_TUPLES_TRUE);
 		hexp_pgxc_pool_reload_on_all_node(co_pg_conn);
-		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_XC_MAINTENANCE_MODE_OFF , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-        
+		
 		MgrSendAlterNodeDataToGtm(co_pg_conn, srcnodeinfo.nodename, appendnodeinfo.nodename);
-
-		mgr_unlock_cluster_involve_gtm_coord(&co_pg_conn);
+		
+		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+       	mgr_unlock_cluster_involve_gtm_coord(&co_pg_conn);
 
 		//5.update dst node init and in cluster, and parent node is empty.
 		ereport(INFO, (errmsg("update dst node init and in cluster, and parent node is empty.if this step fails, use 'expand activate recover promote success dst' to recover.")));
@@ -449,7 +412,14 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		appendStringInfo(&(getAgentCmdRst.description), "waiting %d seconds for the new node can accept connections failed", max_pingtry);
 	}
 
-	tup_result = build_common_command_tuple(&nodename, result, getAgentCmdRst.description.data);
+    if (result)
+	{
+		tup_result = build_common_command_tuple(&nodename, true, "success");
+	}
+	else
+	{
+		tup_result = build_common_command_tuple(&nodename, result, getAgentCmdRst.description.data);
+	}
 
 	if (isAddHbaSrc)
 		RemoveHba(&appendnodeinfo, &infosendmsgsrc);
@@ -584,7 +554,6 @@ Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS)
 	return HeapTupleGetDatum(tup_result);
 }
 
-
 /*
  * expand sourcenode to destnode
  */
@@ -632,9 +601,6 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-
-		//phase 1. if errors occur, doesn't need rollback.
-
 		//1.check src node and dst node status. if the process can start.
 		ereport(INFO, (errmsg("%s.%s", phase1_msg, "check src node and dst node status.")));
 		/*
@@ -668,7 +634,7 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
 
 		//check src node status
-		hexp_check_expand_backup(sourcenodeinfo.nodename);
+		hexp_check_expand();
 
 		/*
 		2. check gtm status and add dst info into gtm hba.
@@ -718,7 +684,6 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		ereport(INFO, (errmsg("%s.%s", phase1_msg, "check dst node basebackup dir does not exist.if this step fails , you should check the dir.")));
 		mgr_check_dir_exist_and_priv(destnodeinfo.nodehost, destnodeinfo.nodepath);
 
-		//phase 2. if errors occur, slot info must rollback.
 		/*
 		6.basebackup
 		*/
@@ -759,7 +724,6 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 						get_hostuser_from_hostoid(sourcenodeinfo.nodehost));
 
 		mgr_append_pgconf_paras_str_quotastr("standby_mode", "on", &infosendmsg);
-		//mgr_append_pgconf_paras_str_quotastr("primary_conninfo", primary_conninfo_value.data, &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("recovery_target_timeline", "latest", &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF,
 								destnodeinfo.nodepath,
@@ -892,8 +856,6 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
 
-		//phase 2. if errors occur, slot info must rollback.
-
 		//phase 3. if errors occur, redo those.
 		/*
 		7.update dst node postgres.conf
@@ -984,7 +946,6 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 	return HeapTupleGetDatum(tup_result);
 }
 
-
 Datum mgr_expand_recover_backup_fail(PG_FUNCTION_ARGS)
 {
 	AppendNodeInfo destnodeinfo;
@@ -1060,7 +1021,6 @@ Datum mgr_expand_recover_backup_fail(PG_FUNCTION_ARGS)
 	return HeapTupleGetDatum(tup_result);
 }
 
-
 Datum mgr_expand_clean(PG_FUNCTION_ARGS)
 {	
 	PGconn *co_pg_conn = NULL;
@@ -1091,41 +1051,6 @@ Datum mgr_expand_clean(PG_FUNCTION_ARGS)
 
 		PQfinish(co_pg_conn);
 		co_pg_conn = NULL;	
-	}PG_CATCH();
-	{
-		if(co_pg_conn)
-		{
-			PQfinish(co_pg_conn);
-			co_pg_conn = NULL;
-		}
-		PG_RE_THROW();
-	}PG_END_TRY();
-
-	tup_result = build_common_command_tuple(&nodename, true, ret_msg);
-	return HeapTupleGetDatum(tup_result);
-}
-
-Datum mgr_cluster_pgxcnode_init(PG_FUNCTION_ARGS)
-{
-	HeapTuple tup_result;
-	char ret_msg[100];
-	NameData nodename;
-	PGconn * co_pg_conn = NULL;
-	Oid cnoid;
-
-	strcpy(nodename.data, "---");
-	strcpy(ret_msg, "init all datanode's pgxc_node.");
-	if (RecoveryInProgress())
-		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
-
-
-	PG_TRY();
-	{
-		hexp_get_coordinator_conn(&co_pg_conn, &cnoid);
-		hexp_init_cluster_pgxcnode();
-		hexp_check_cluster_pgxcnode();
-		//flush node info
-		hexp_pgxc_pool_reload_on_all_node(co_pg_conn);
 	}PG_CATCH();
 	{
 		if(co_pg_conn)
@@ -1414,7 +1339,6 @@ Datum hexp_expand_check_show_status(bool check)
 	return HeapTupleGetDatum(tup_result);
 }
 
-
 static void hexp_update_conf_pgxc_node_name(AppendNodeInfo node, char* newname)
 {
 	GetAgentCmdRst getAgentCmdRst;
@@ -1488,8 +1412,6 @@ static void hexp_restart_node(AppendNodeInfo node)
 
 }
 
-
-
 static void hexp_execute_cmd_get_reloid(PGconn *pg_conn, char *sqlstr, char* ret)
 {
 	PGresult *res;
@@ -1508,7 +1430,6 @@ static void hexp_execute_cmd_get_reloid(PGconn *pg_conn, char *sqlstr, char* ret
 	strcpy(ret, PQgetvalue(res, 0, 0));
 	return;
 }
-
 
 static void hexp_check_hash_meta_dn(PGconn *pgconn, PGconn *pgconn_dn, char* node_name)
 {
@@ -1557,8 +1478,6 @@ static void hexp_check_hash_meta_dn(PGconn *pgconn, PGconn *pgconn_dn, char* nod
 	}
     PQclear(res);
 }
-
-
 
 static void hexp_check_hash_meta(void)
 {
@@ -1653,7 +1572,6 @@ static void hexp_import_hash_meta(PGconn *pgconn, PGconn *pgconn_dn, char* node_
 	}
     PQclear(res);
 }
-
 
 static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnpath)
 {
@@ -1750,8 +1668,6 @@ static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnp
 	pfree(infosendmsg.data);
 	pfree(getAgentCmdRst.description.data);
 }
-
-
 
 static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* pdn_status, char* cnpath)
 {
@@ -1951,273 +1867,12 @@ static void hexp_check_dn_pgxcnode_info(PGconn *pg_conn, char *nodename, StringI
 		appendStringInfo(&node_list_self, "%s", PQgetvalue(res, i, 0));
 
 	PQclear(res);
-	/*
-	if(0 == strlen(pnode_list_exists->data))
-	{
-		appendStringInfoString(pnode_list_exists, node_list_self.data);
-		return;
-	}
-	*/
 
 	if(0 != strcmp(pcoor_node_list->data, node_list_self.data))
 		ereport(ERROR, (errmsg("pgxc_node info is inconsistent in %s.", nodename)));
 
 	pfree(psql_cmd.data);
 	pfree(node_list_self.data);
-}
-
-static void hexp_init_dn_pgxcnode_addnode(Form_mgr_node mgr_node, List *dn_node_list, char* cnpath)
-{
-	char	sql[200];
-	DN_NODE	*dn_node;
-	ListCell	*lc;
-
-	PGconn * dn_pg_conn = NULL;
-
-	PG_TRY();
-	{
-		hexp_get_dn_conn(&dn_pg_conn, mgr_node, cnpath);
-
-		hexp_pqexec_direct_execute_utility(dn_pg_conn, SQL_BEGIN_TRANSACTION, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		foreach (lc, dn_node_list)
-		{
-			dn_node = (DN_NODE *)lfirst(lc);
-			if(0==strcmp(NameStr(dn_node->nodename), NameStr(mgr_node->nodename)))
-			{
-				sprintf(sql, ALTER_PGXC_NODE_TYPE, NameStr(mgr_node->nodename));
-				hexp_pqexec_direct_execute_utility(dn_pg_conn, sql, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-			}
-			else
-			{
-				sprintf(sql, CREATE_PGXC_NODE, NameStr(dn_node->nodename), NameStr(dn_node->host), NameStr(dn_node->port));
-				hexp_pqexec_direct_execute_utility(dn_pg_conn, sql, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-			}
-		}
-		hexp_pqexec_direct_execute_utility(dn_pg_conn, SQL_COMMIT_TRANSACTION, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		PQfinish(dn_pg_conn);
-		dn_pg_conn = NULL;
-	}PG_CATCH();
-	{
-		if(dn_pg_conn)
-		{
-			PQfinish(dn_pg_conn);
-			dn_pg_conn = NULL;
-		}
-		PG_RE_THROW();
-	}PG_END_TRY();}
-
-static void hexp_init_dn_pgxcnode_check(Form_mgr_node mgr_node, char* cnpath)
-{
-	PGconn * dn_pg_conn = NULL;
-
-	PGresult* res;
-	char sql[100];
-	ExecStatusType status;
-
-	PG_TRY();
-	{
-
-		hexp_get_dn_conn(&dn_pg_conn, mgr_node, cnpath);
-
-		//check param pgxc_node_name
-		res = PQexec(dn_pg_conn,  SHOW_PGXC_NODE_NAME);
-		status = PQresultStatus(res);
-		switch(status)
-		{
-			case PGRES_TUPLES_OK:
-				break;
-			default:
-				ereport(ERROR, (errmsg("%s runs error. result is %d.%s", SHOW_PGXC_NODE_NAME, PQresultStatus(res), PQresultErrorMessage(res))));
-		}
-		if (0==PQntuples(res))
-		{
-			PQclear(res);
-			ereport(ERROR, (errmsg("%s runs error. result is null.", SHOW_PGXC_NODE_NAME)));
-		}
-		if (0!=strcmp(mgr_node->nodename.data, PQgetvalue(res, 0, 0)))
-		{
-			ereport(ERROR, (errmsg("mgr's node is %s. pgxc_node_name is %s.", mgr_node->nodename.data, PQgetvalue(res, 0, 0))));
-		}
-		PQclear(res);
-
-
-		//check pgxc_node has one item
-		sprintf(sql, 
-				"select count(*) from pgxc_node where node_type='%c' or node_type = '%c' ;",
-				PGXC_NODE_COORDINATOR, /* this is the initial value */
-				PGXC_NODE_DATANODE);
-		res = PQexec(dn_pg_conn,  sql);
-		status = PQresultStatus(res);
-		switch(status)
-		{
-			case PGRES_TUPLES_OK:
-				break;
-			default:
-				ereport(ERROR, (errmsg("%s runs error. result is %d.%s", SELECT_COUNT_FROM_PGXC_NODE, PQresultStatus(res), PQresultErrorMessage(res))));
-		}
-		if (0==PQntuples(res))
-		{
-			PQclear(res);
-			ereport(ERROR, (errmsg("%s runs error. result is null.", SHOW_PGXC_NODE_NAME)));
-		}		
-		if (1!=atoi(PQgetvalue(res, 0, 0)))
-		{
-			PQclear(res);
-			ereport(ERROR, (errmsg("more than one datanode in %s's pgxc_node, tuple_num=%d.", mgr_node->nodename.data, atoi(PQgetvalue(res, 0, 0)))));
-		}
-		PQclear(res);
-
-		//check pgxc_node item is consistent with mgr's
-		sprintf(sql, SELECT_COUNT_FROM_PGXC_NODE_BY_NAME, mgr_node->nodename.data);
-		res = PQexec(dn_pg_conn,  sql);
-		status = PQresultStatus(res);
-		switch(status)
-		{
-			case PGRES_TUPLES_OK:
-				break;
-			default:
-				ereport(ERROR, (errmsg("%s runs error. result is %d.%s", sql, PQresultStatus(res), PQresultErrorMessage(res))));
-		}
-		if (0==PQntuples(res))
-		{
-			PQclear(res);
-			ereport(ERROR, (errmsg("%s runs error. result is null.", SELECT_COUNT_FROM_PGXC_NODE_BY_NAME)));
-		}
-		if (1!=atoi(PQgetvalue(res, 0, 0)))
-		{
-			PQclear(res);
-			ereport(ERROR, (errmsg("%s's pgxc_node item isn't consistent with mgr's.", mgr_node->nodename.data)));
-		}
-		PQclear(res);
-
-		PQfinish(dn_pg_conn);
-		dn_pg_conn = NULL;
-
-	}PG_CATCH();
-	{
-		if((dn_pg_conn) && (PQstatus(dn_pg_conn) == CONNECTION_OK))
-		{
-			PQfinish(dn_pg_conn);
-			dn_pg_conn = NULL;
-		}
-		PG_RE_THROW();
-	}PG_END_TRY();
-}
-
-static void hexp_init_dns_pgxcnode_addnode(List *dn_node_list)
-{
-	InitNodeInfo *info;
-	ScanKeyData key[2];
-	HeapTuple tuple;
-	Form_mgr_node mgr_node;
-	bool isNull;
-	char cnpath[1024];
-	Datum datumPath;
-
-	//select all inicialized and incluster node
-	ScanKeyInit(&key[0]
-				,Anum_mgr_node_nodeinited
-				,BTEqualStrategyNumber
-				,F_BOOLEQ
-				,BoolGetDatum(true));
-
-	ScanKeyInit(&key[1]
-				,Anum_mgr_node_nodeincluster
-				,BTEqualStrategyNumber
-				,F_BOOLEQ
-				,BoolGetDatum(true));
-
-	info = palloc(sizeof(*info));
-	info->rel_node = table_open(NodeRelationId, AccessShareLock);
-	info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
-	info->lcp = NULL;
-
-	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
-	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-
-		if(mgr_node->nodetype!=CNDN_TYPE_DATANODE_MASTER)
-			continue;
-
-		/*get nodepath from tuple*/
-		datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(info->rel_node), &isNull);
-		if (isNull)
-		{
-			heap_endscan(info->rel_scan);
-			heap_close(info->rel_node, AccessShareLock);
-			pfree(info);
-
-			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
-				, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
-				, errmsg("column nodepath is null")));
-		}
-		strncpy(cnpath, TextDatumGetCString(datumPath), 1024);
-		hexp_init_dn_pgxcnode_addnode(mgr_node, dn_node_list, cnpath);
-	}
-
-	heap_endscan(info->rel_scan);
-	heap_close(info->rel_node, AccessShareLock);
-	pfree(info);
-}
-
-static void hexp_init_dns_pgxcnode_check(void)
-{
-	InitNodeInfo *info;
-	ScanKeyData key[2];
-	HeapTuple tuple;
-	Form_mgr_node mgr_node;
-	char cnpath[1024];
-	Datum datumPath;
-	bool isNull;
-
-	//select all inicialized and incluster node
-	ScanKeyInit(&key[0]
-				,Anum_mgr_node_nodeinited
-				,BTEqualStrategyNumber
-				,F_BOOLEQ
-				,BoolGetDatum(true));
-
-	ScanKeyInit(&key[1]
-				,Anum_mgr_node_nodeincluster
-				,BTEqualStrategyNumber
-				,F_BOOLEQ
-				,BoolGetDatum(true));
-
-	info = palloc(sizeof(*info));
-	info->rel_node = table_open(NodeRelationId, AccessShareLock);
-	info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
-	info->lcp = NULL;
-
-	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
-	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-
-		if(mgr_node->nodetype!=CNDN_TYPE_DATANODE_MASTER)
-			continue;
-
-		/*get nodepath from tuple*/
-		datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(info->rel_node), &isNull);
-		if (isNull)
-		{
-			heap_endscan(info->rel_scan);
-			heap_close(info->rel_node, AccessShareLock);
-			pfree(info);
-
-			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
-				, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
-				, errmsg("column nodepath is null")));
-		}
-		strncpy(cnpath, TextDatumGetCString(datumPath), 1024);
-
-
-		hexp_init_dn_pgxcnode_check(mgr_node,cnpath);
-	}
-
-	heap_endscan(info->rel_scan);
-	heap_close(info->rel_node, AccessShareLock);
-	pfree(info);
 }
 
 static int hexp_find_dn_nodes(List *dn_node_list, char* nodename)
@@ -2268,35 +1923,6 @@ hexp_init_dn_nodes(PGconn *pg_conn)
 	PQclear(res);
 	return dn_node_list;
 }
-static void hexp_init_cluster_pgxcnode(void)
-{
-	PGconn	*pg_conn = NULL;
-	Oid		cnoid;
-	List	*dn_node_list = NIL;
-
-	//check if hash table meta matches in cluster.
-	//hexp_check_hash_meta();
-
-	PG_TRY();
-	{
-		hexp_get_coordinator_conn(&pg_conn, &cnoid);
-		dn_node_list = hexp_init_dn_nodes(pg_conn);
-		hexp_init_dns_pgxcnode_check();
-		hexp_init_dns_pgxcnode_addnode(dn_node_list);
-
-		PQfinish(pg_conn);
-		pg_conn = NULL;
-	}PG_CATCH();
-	{
-		if(pg_conn)
-		{
-			PQfinish(pg_conn);
-			pg_conn = NULL;
-		}
-		PG_RE_THROW();
-	}PG_END_TRY();
-}
-
 
 static void hexp_check_cluster_pgxcnode(void)
 {
@@ -2378,31 +2004,17 @@ static void hexp_check_cluster_pgxcnode(void)
 	}PG_END_TRY();
 
 }
-
-static void hexp_check_expand_backup(char* src_node_name)
+static void hexp_check_expand()
 {
 	StringInfoData serialize;
-	bool is_vacuum_state;
+	bool is_vacuum_state = false;
 	List *dn_status_list;
 
 	//check slot vacuum status
 	initStringInfo(&serialize);
 	is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list, &serialize, true);
 	if(is_vacuum_state)
-		ereport(ERROR, (errmsg("%s exists, expand activate cann't be started.", ADB_CLEAN_TABLE)));
-}
-
-static void hexp_check_expand_activate(char* src_node_name, char* dst_node_name)
-{
-	StringInfoData serialize;
-	bool is_vacuum_state;
-	List *dn_status_list;
-
-	//check slot vacuum status
-	initStringInfo(&serialize);
-	is_vacuum_state = hexp_check_cluster_status_internal(&dn_status_list, &serialize, true);
-	if(is_vacuum_state)
-		ereport(ERROR, (errmsg("%s exists, expand activate cann't be started.", ADB_CLEAN_TABLE)));
+		ereport(ERROR, (errmsg("%s exists, expand cann't be started.", ADB_CLEAN_TABLE)));
 }
 
 bool hexp_check_cluster_status_internal(List **pdn_status_list, StringInfo pserialize, bool check)
@@ -2425,7 +2037,6 @@ bool hexp_check_cluster_status_internal(List **pdn_status_list, StringInfo pseri
 			hexp_pgxc_pool_reload_on_all_node(pg_conn);
 
 		//check pgxc node info is consistent
-		hexp_check_cluster_pgxcnode();
 		appendStringInfo(pserialize,"pgxc node info in cluster is consistent.\n");
 
 		//get slot vacuum status
@@ -2495,7 +2106,6 @@ static void hexp_get_coordinator_conn(PGconn **pg_conn, Oid *cnoid)
 		database = MGRDatabaseName;
 	else
 		database = DEFAULT_DB;
-
 
 	/*get active coordinator to connect*/
 	if (!mgr_get_active_node(&nodename, CNDN_TYPE_COORDINATOR_MASTER, 0))
@@ -2673,8 +2283,6 @@ void hexp_pqexec_direct_execute_utility(PGconn *pg_conn, char *sqlstr, int ret_t
 	return;
 }
 
-
-
 static void hexp_create_dm_on_itself(PGconn *pg_conn, AppendNodeInfo *nodeinfo)
 {
 	FormData_mgr_node mgr_node;
@@ -2693,18 +2301,6 @@ static void hexp_create_dm_on_itself(PGconn *pg_conn, AppendNodeInfo *nodeinfo)
 	{
 		ereport(ERROR, (errmsg("on coordinator \"%s\" create node \"%s\" fail", NameStr(mgr_node.nodename), nodeinfo->nodename)));
 	}
-
-	/*
-	initStringInfo(&psql_cmd);
-	appendStringInfo(&psql_cmd, " EXECUTE DIRECT ON (%s) ", dnname);
-	appendStringInfo(&psql_cmd, " 'select pgxc_pool_reload();'");
-	hexp_pqexec_direct_execute_utility(pg_conn, psql_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_TUPLES_TRUE);
-
-	initStringInfo(&psql_cmd);
-	appendStringInfo(&psql_cmd, " EXECUTE DIRECT ON (%s) ", dnname);
-	appendStringInfo(&psql_cmd, " 'flush slot;'");
-	hexp_pqexec_direct_execute_utility(pg_conn, psql_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-	*/
 }
 
 static void hexp_create_dm_on_all_node(PGconn *pg_conn, AppendNodeInfo *nodeinfo)
@@ -2753,25 +2349,12 @@ static void hexp_create_dm_on_all_node(PGconn *pg_conn, AppendNodeInfo *nodeinfo
 		{
 			ereport(ERROR, (errmsg("on coordinator \"%s\" create node \"%s\" fail", NameStr(mgr_node->nodename), nodeinfo->nodename)));
 		}
-
-		/*
-		initStringInfo(&psql_cmd);
-		appendStringInfo(&psql_cmd, " EXECUTE DIRECT ON (%s) ", NameStr(mgr_node->nodename));
-		appendStringInfo(&psql_cmd, " 'select pgxc_pool_reload();'");
-		hexp_pqexec_direct_execute_utility(pg_conn, psql_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_TUPLES_TRUE);
-
-		initStringInfo(&psql_cmd);
-		appendStringInfo(&psql_cmd, " EXECUTE DIRECT ON (%s) ", NameStr(mgr_node->nodename));
-		appendStringInfo(&psql_cmd, " 'flush slot;'");
-		hexp_pqexec_direct_execute_utility(pg_conn, psql_cmd.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		*/
 	}
 
 	heap_endscan(info->rel_scan);
 	heap_close(info->rel_node, AccessShareLock);
 	pfree(info);
 }
-
 
 static void hexp_pgxc_pool_reload_on_all_node(PGconn *pg_conn)
 {
@@ -2889,8 +2472,6 @@ static bool hexp_get_nodeinfo_from_table(char *node_name, char node_type, Append
 	return true;
 }
 
-
-
 static bool hexp_get_nodeinfo_from_table_byoid(Oid tupleOid, AppendNodeInfo *nodeinfo)
 {
 	InitNodeInfo *info;
@@ -2933,7 +2514,6 @@ static bool hexp_get_nodeinfo_from_table_byoid(Oid tupleOid, AppendNodeInfo *nod
 	nodeinfo->init = mgr_node->nodeinited;
 	nodeinfo->incluster = mgr_node->nodeincluster;
 
-
 	/*get nodepath from tuple*/
 	datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(info->rel_node), &isNull);
 	if (isNull)
@@ -2953,7 +2533,6 @@ static bool hexp_get_nodeinfo_from_table_byoid(Oid tupleOid, AppendNodeInfo *nod
 	pfree(info);
 	return true;
 }
-
 
 static void hexp_set_expended_node_state(char *nodename, bool search_init, bool search_incluster, bool value_init, bool value_incluster, Oid src_oid)
 {
