@@ -197,7 +197,8 @@ static void OnPreWaitNode(DROnPreWaitArgs)
 		need_event = 0;
 #ifdef WITH_RDMA
 		if (ned->recvBuf.maxlen > ned->recvBuf.len &&
-			CurrentResourceOwner != NULL)
+			CurrentResourceOwner != NULL &&
+			DRCurrentPlanCount() > 0)
 			need_event |= POLLIN;
 		if (ned->sendBuf.len > ned->sendBuf.cursor)
 			need_event |= POLLOUT;
@@ -210,7 +211,8 @@ static void OnPreWaitNode(DROnPreWaitArgs)
 		}
 #elif defined DR_USING_EPOLL
 		if (ned->recvBuf.maxlen > ned->recvBuf.len &&
-			CurrentResourceOwner != NULL)
+			CurrentResourceOwner != NULL &&
+			DRCurrentPlanCount() > 0)
 			need_event |= EPOLLIN;
 		if (ned->sendBuf.len > ned->sendBuf.cursor)
 			need_event |= EPOLLOUT;
@@ -350,6 +352,7 @@ static int PorcessNodeEventData(DRNodeEventData *ned)
 	int				msgtype;
 	int				plan_id;
 	int				msg_count = 0;
+	bool			pause_recv = false;
 	Assert(OidIsValid(ned->nodeoid));
 
 	ned->waiting_plan_id = INVALID_PLAN_ID;
@@ -375,13 +378,16 @@ static int PorcessNodeEventData(DRNodeEventData *ned)
 		if (pi == NULL ||
 			pi->plan_id != plan_id)
 		{
-			if (ned->cached_data &&
-				hash_search(ned->cached_data, &plan_id, HASH_FIND, NULL) != NULL)
+			pi = DRPlanSearch(plan_id, HASH_FIND, NULL);
+			if (pi == NULL &&
+				ned->cached_data &&
+				(cache = hash_search(ned->cached_data, &plan_id, HASH_FIND, NULL)) != NULL &&
+				cache->locked)
 			{
 				/* have cache data, we do not process data */
+				pause_recv = true;
 				break;
 			}
-			pi = DRPlanSearch(plan_id, HASH_FIND, NULL);
 		}
 
 		DR_NODE_DEBUG((errmsg("node %u processing message %d plan %d(%p) length %u",
@@ -434,6 +440,7 @@ static int PorcessNodeEventData(DRNodeEventData *ned)
 	}
 
 	if (msg_count == 0 &&
+		pause_recv == false &&
 		ned->waiting_plan_id == INVALID_PLAN_ID &&
 		ned->recvBuf.len == ned->recvBuf.maxlen)
 	{

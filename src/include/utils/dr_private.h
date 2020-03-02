@@ -359,6 +359,7 @@ void DRSetupPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi, DynamicReduceMQ mq, 
 void DRInitPlanSearch(void);
 PlanInfo* DRPlanSearch(int planid, HASHACTION action, bool *found);
 void DRPlanSeqInit(HASH_SEQ_STATUS *seq);
+long DRCurrentPlanCount(void);
 
 void DRClearPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi);
 void DRClearPlanInfo(PlanInfo *pi);
