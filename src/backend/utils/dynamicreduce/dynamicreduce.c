@@ -110,9 +110,11 @@ void DynamicReduceWorkerMain(Datum main_arg)
 	DRNodeEventData *newdata;
 	struct 			signalfd_siginfo info;
 	int				sfd, i, ret;
+	time_t			time_now,time_last_latch = 0;
 #elif defined DR_USING_EPOLL
 	sigset_t		unblock_sigs;
 	int				nevent;
+	time_t			time_now,time_last_latch = 0;
 #else
 	Size nevent;
 	bool pre_check_latch = false;
@@ -238,8 +240,9 @@ void DynamicReduceWorkerMain(Datum main_arg)
 			poll_max+= new_size;
 		}
 		nevent = rpoll(poll_fd, poll_count, 100);
-		if (nevent == 0 &&	/* timeout */
-			MyLatch->is_set == false)
+		time_now = time(NULL);
+		if (nevent == 0 ||	/* timeout */
+			time_now != time_last_latch)
 		{
 			/*
 			 * sometime shm_mq can send/receive, but we not get latch event,
@@ -247,7 +250,8 @@ void DynamicReduceWorkerMain(Datum main_arg)
 			 * For now, we also using timeout(0.1 second) process latch event,
 			 * I think this is not a good idea
 			 */
-			OnLatchEvent(NULL, 0);
+			pg_memory_barrier();
+			MyLatch->is_set = true;
 		}
 		if (nevent>0)
 		{
@@ -278,8 +282,9 @@ void DynamicReduceWorkerMain(Datum main_arg)
 			dr_wait_max = new_size;
 		}
 		nevent = epoll_pwait(dr_epoll_fd, dr_epoll_events, (int)dr_wait_count, 100, &unblock_sigs);
-		if (nevent == 0 &&	/* timeout */
-			MyLatch->is_set == false)
+		time_now = time(NULL);
+		if (nevent == 0 ||	/* timeout */
+			time_now != time_last_latch)
 		{
 			/*
 			 * sometime shm_mq can send/receive, but we not get latch event,
@@ -287,7 +292,8 @@ void DynamicReduceWorkerMain(Datum main_arg)
 			 * For now, we also using timeout(0.1 second) process latch event,
 			 * I think this is not a good idea
 			 */
-			OnLatchEvent(NULL, 0);
+			pg_memory_barrier();
+			MyLatch->is_set = true;
 		}
 		while (nevent>0)
 		{
@@ -297,7 +303,10 @@ void DynamicReduceWorkerMain(Datum main_arg)
 		}
 #endif
 		if (MyLatch->is_set)
+		{
 			OnLatchEvent(NULL, 0);
+			time_last_latch = time_now;
+		}
 #else /* DR_USING_EPOLL */
 		for (nevent=dr_wait_count;nevent>0;)
 		{
