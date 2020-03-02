@@ -760,6 +760,7 @@ static void DRReset(void)
 	}
 #endif
 	DRUtilsReset();
+	DRShmemResetSharedFile();
 }
 
 #if (!defined DR_USING_EPOLL) && (!defined WITH_RDMA)

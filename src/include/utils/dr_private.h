@@ -427,6 +427,7 @@ void DRResetShmem(void);
 void DRAttachShmem(Datum datum, bool isDynamicReduce);
 void DRDetachShmem(void);
 uint32 DRNextSharedFileSetNumber(void);
+void DRShmemResetSharedFile(void);
 
 bool DRSendMsgToReduce(const char *data, Size len, bool nowait);
 bool DRRecvMsgFromReduce(Size *sizep, void **datap, bool nowait);
