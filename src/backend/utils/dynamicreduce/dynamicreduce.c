@@ -773,6 +773,7 @@ static void DRReset(void)
 #endif
 	SetParallelStartTimestamps(0, 0);
 	DRUtilsReset();
+	DRShmemResetSharedFile();
 }
 
 #if (!defined DR_USING_EPOLL) && (!defined WITH_RDMA)

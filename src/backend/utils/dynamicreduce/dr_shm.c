@@ -846,6 +846,15 @@ uint32 DRNextSharedFileSetNumber(void)
 	return dr_shared_fs_num++;
 }
 
+void DRShmemResetSharedFile(void)
+{
+	if (dr_shared_fs)
+	{
+		SharedFileSetDeleteAll(dr_shared_fs);
+		dr_shared_fs_num = 0;
+	}
+}
+
 Size EstimateDynamicReduceStateSpace(void)
 {
 	if (dr_mem_seg == NULL)
