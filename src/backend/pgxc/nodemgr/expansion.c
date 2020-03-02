@@ -420,6 +420,8 @@ void AlterNodeExpansionWork(AlterNodeStmt *stmt, ParseState *pstate)
 	dsm_segment	   *dsm_seg = dsm_create(EXPANSION_QUEUE_SIZE*2, 0);
 	Relation		rel = relation_open(DatabaseRelationId, LW_SHARED);
 	TableScanDesc	scan = table_beginscan_catalog(rel, 0, NULL);
+	Relation		rel_clean = relation_open(AdbCleanRelationId, AccessShareLock);
+	TableScanDesc	scan_clean = table_beginscan_catalog(rel_clean, 0, NULL);
 	HeapTuple		tuple;
 	shm_mq_handle  *mqh_sender;
 	shm_mq_handle  *mqh_receiver;
@@ -429,6 +431,17 @@ void AlterNodeExpansionWork(AlterNodeStmt *stmt, ParseState *pstate)
 				   *handle;
 	StringInfoData	msg;
 
+	/* Confirm that the adb_clean table is empty. */
+	if ((tuple = heap_getnext(scan_clean, ForwardScanDirection)) != NULL)
+	{
+		table_endscan(scan_clean);
+		relation_close(rel_clean, AccessShareLock);
+		ereport(ERROR, 
+				(errmsg("The capacity expansion work is not allowed to expand again when the cleaning task is not completed.")));
+	}
+	table_endscan(scan_clean);
+	relation_close(rel_clean, AccessShareLock);
+	
 	initStringInfo(&msg);
 	expansion_list = MakeExpansionArg(stmt, pstate);
 	remote_list = ConnectAlterNodes(stmt, expansion_list, pstate->p_sourcetext);
