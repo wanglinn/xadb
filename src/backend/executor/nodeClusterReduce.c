@@ -132,6 +132,7 @@ static bool DriveClusterReduceState(ClusterReduceState *node);
 static bool DriveCteScanState(PlanState *node);
 static bool DriveClusterReduceWalker(PlanState *node);
 static bool IsThereClusterReduce(PlanState *node);
+static void OnDsmDatchShutdownReduce(dsm_segment *seg, Datum arg);
 
 /* ======================= nothing reduce========================== */
 static TupleTableSlot* ExecNothingReduce(PlanState *pstate)
@@ -287,6 +288,7 @@ static void InitParallelReduce(ClusterReduceState *crstate, ParallelContext *pcx
 								   pcxt->nworkers+1,
 								   plan->reduce_flags & CRF_DISK_UNNECESSARY ? DR_CACHE_ON_DISK_DO_NOT:DR_CACHE_ON_DISK_AUTO);
 	MemoryContextSwitchTo(oldcontext);
+	on_dsm_detach(pcxt->seg, OnDsmDatchShutdownReduce, PointerGetDatum(crstate));
 }
 
 static void InitParallelReduceWorker(ClusterReduceState *crstate, ParallelWorkerContext *pwcxt, char *addr)
@@ -2009,6 +2011,11 @@ TopDownDriveClusterReduce(PlanState *node)
 
 	BeginDriveClusterReduce(node);
 	(void) DriveClusterReduceWalker(node);
+}
+
+static void OnDsmDatchShutdownReduce(dsm_segment *seg, Datum arg)
+{
+	ExecShutdownClusterReduce((ClusterReduceState*)DatumGetPointer(arg));
 }
 
 /* =========================================================================== */
