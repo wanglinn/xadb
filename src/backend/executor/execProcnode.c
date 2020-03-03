@@ -851,10 +851,6 @@ ExecShutdownNode(PlanState *node)
 
 	check_stack_depth();
 
-#ifdef ADB
-	TopDownDriveClusterReduce(node);
-#endif /* ADB */
-
 	planstate_tree_walker(node, ExecShutdownNode, NULL);
 
 	/*
@@ -898,11 +894,6 @@ ExecShutdownNode(PlanState *node)
 			ExecShutdownBatchSort((BatchSortState*) node);
 			break;
 #endif /* ADB_EXT */
-#ifdef ADB
-		case T_ClusterReduceState:
-			ExecShutdownClusterReduce((ClusterReduceState*) node);
-			break;
-#endif /* ADB */
 		default:
 			break;
 	}
