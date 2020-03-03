@@ -649,6 +649,8 @@ SetTransactionSnapshot(Snapshot sourcesnap, VirtualTransactionId *sourcevxid,
 	CurrentSnapshot->xcnt = sourcesnap->xcnt;
 #ifndef ADB
 	Assert(sourcesnap->xcnt <= GetMaxSnapshotXidCount());
+#else
+	EnlargeSnapshotXip(CurrentSnapshot, sourcesnap->xcnt);
 #endif /* ADB */
 	memcpy(CurrentSnapshot->xip, sourcesnap->xip,
 		   sourcesnap->xcnt * sizeof(TransactionId));
