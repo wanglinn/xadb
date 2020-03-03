@@ -1623,7 +1623,7 @@ cmr_heap_compare_slots(Datum a, Datum b, void *arg)
 	return 0;
 }
 
-void ExecShutdownClusterReduce(ClusterReduceState *node)
+static void ExecShutdownClusterReduce(ClusterReduceState *node)
 {
 	if (node->private_state)
 	{
