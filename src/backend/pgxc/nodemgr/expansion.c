@@ -1511,7 +1511,7 @@ void AlterNodeExpansionClean(AlterNodeStmt *stmt, struct ParseState *pstate)
 		if (form_clean->clndb != MyDatabaseId)
 			continue;
 
-		if (SearchSysCacheExists1(RELOID, ObjectIdGetDatum(form_clean)) == false)
+		if (SearchSysCacheExists1(RELOID, ObjectIdGetDatum(form_clean->clnrel)) == false)
 			goto clean_rel_end_;	/* should not happen */
 
 		txt = pg_detoast_datum_packed(&form_clean->clnexpr);
