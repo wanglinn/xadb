@@ -1931,12 +1931,15 @@ Snapshot GetSnapshotDataExt(Snapshot snapshot, bool isCatelog)
 	replication_slot_catalog_xmin = procArray->replication_slot_catalog_xmin;
 
 	if (!TransactionIdIsValid(MyPgXact->xmin))
-		MyPgXact->xmin = TransactionXmin = xmin;
-
+	{
 #ifdef ADB
-	if (TransactionIdIsNormal(global_snap_xmin) && NormalTransactionIdPrecedes(global_snap_xmin, xmin))
-		MyPgXact->xmin = TransactionXmin = global_snap_xmin;
+		if (TransactionIdIsNormal(global_snap_xmin) && NormalTransactionIdPrecedes(global_snap_xmin, xmin))
+			MyPgXact->xmin = TransactionXmin = global_snap_xmin;
+		else
 #endif
+			MyPgXact->xmin = TransactionXmin = xmin;
+	}
+
 
 	LWLockRelease(ProcArrayLock);
 
