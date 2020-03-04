@@ -14028,7 +14028,6 @@ int MgrSendSelectMsg(PGconn *pg_conn, StringInfoData* psql)
 void MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *src_name, char* dst_name)
 {
 	StringInfoData sql;
-
 	Assert(pg_conn);
 	Assert(src_name);
 	Assert(dst_name);
@@ -14037,68 +14036,17 @@ void MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *src_name, char* dst_name)
 	appendStringInfo(&sql, "ALTER NODE DATA (\"%s\" TO \"%s\");", src_name,	dst_name);
 	ereport(LOG, (errmsg("on gtm execute \"%s\".", sql.data)));
 	MgrSendAlterMsg(pg_conn, &sql);
-
-	return;
-
-	/*
-	while (num-- > 0)
-	{
-		res = PQexec(pg_conn, sql.data);
-		if (PQresultStatus(res) == PGRES_COMMAND_OK)
-		{
-			break;
-		}
-		if (num)
-		{
-			PQclear(res);
-			res = NULL;
-		}
-		pg_usleep(100000L);
-	}
-
-	if (PQresultStatus(res) != PGRES_COMMAND_OK)
-	{
-		ereport(ERROR, (errmsg("on gtm execute %s fail, %s.", sql.data, PQresultErrorMessage(res))));
-	}
-	PQclear(res);*/
 	return;					
 }
 
 void MgrSendDataCleanToGtm(PGconn *pg_conn)
 {
 	StringInfoData sql;
-	
 	Assert(pg_conn);
 
 	initStringInfo(&sql);
 	appendStringInfo(&sql, ALTER_NODE_DATA_CLEAN);
 	ereport(LOG, (errmsg("on gtm execute \"%s\".", sql.data)));	
 	MgrSendAlterMsg(pg_conn, &sql);
-
-	return;
-
-/*
-	while (num-- > 0)
-	{
-		res = PQexec(pg_conn, sql.data);
-		if (PQresultStatus(res) == PGRES_COMMAND_OK)
-		{
-			break;
-		}
-		if (num)
-		{
-			PQclear(res);
-			res = NULL;
-		}
-		pg_usleep(100000L);
-	}
-
-	if (PQresultStatus(res) != PGRES_COMMAND_OK)
-	{
-		ereport(ERROR, (errmsg("on gtm execute %s fail, %s.", sql.data, PQresultErrorMessage(res))));
-	}
-	PQclear(res);
-	return;		
-*/			
+	return;	
 }
-
