@@ -2058,13 +2058,9 @@ bool hexp_check_cluster_status_internal(List **pdn_status_list, StringInfo pseri
 				pstatus = MsgSlotStatus[dn_status->node_status-1];
 			
 			appendStringInfo(pserialize,
-				"name=%s-status=%s-online=%d-move=%d-clean=%d-mvcc=%d-masterid=%d-incluster=%d\n"
+				"name=%s-masterid=%d-incluster=%d\n"
 				, NameStr(dn_status->nodename),
-				pstatus,
-				dn_status->online_count,
-				dn_status->move_count,
-				dn_status->clean_count,
-				dn_status->enable_mvcc,
+
 				dn_status->nodemasternameoid,
 				dn_status->nodeincluster);
 		}
