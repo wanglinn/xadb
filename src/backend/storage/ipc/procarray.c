@@ -1619,6 +1619,7 @@ Snapshot GetSnapshotDataExt(Snapshot snapshot, bool isCatelog)
 #ifdef ADB
 	bool		try_agtm_snap = (IsUnderAGTM() || IsAnyAutoVacuumProcess()) && (!IsGTMNode());
 	bool		hint;
+	TransactionId global_snap_xmin;
 	Snapshot 	snap PG_USED_FOR_ASSERTS_ONLY;
 #endif /* ADB */
 
@@ -1678,7 +1679,7 @@ Snapshot GetSnapshotDataExt(Snapshot snapshot, bool isCatelog)
 	 */
 	if (try_agtm_snap)
 	{
-		snap = GetGlobalSnapshot(snapshot, isCatelog);
+		snap = GetGlobalSnapshot(snapshot, &global_snap_xmin, isCatelog);
 		Assert(snap == snapshot);
 		Assert(snap->xcnt <= snap->max_xcnt);
 		subcount = snapshot->subxcnt;
@@ -1941,6 +1942,11 @@ Snapshot GetSnapshotDataExt(Snapshot snapshot, bool isCatelog)
 
 	if (!TransactionIdIsValid(MyPgXact->xmin))
 		MyPgXact->xmin = TransactionXmin = xmin;
+
+#ifdef ADB
+	if (TransactionIdIsNormal(global_snap_xmin) && NormalTransactionIdPrecedes(global_snap_xmin, xmin))
+		MyPgXact->xmin = TransactionXmin = global_snap_xmin;
+#endif
 
 	LWLockRelease(ProcArrayLock);
 
