@@ -1037,18 +1037,11 @@ Datum mgr_expand_clean(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		mgr_lock_cluster_involve_gtm_coord(&co_pg_conn, &cnoid);
+		mgr_get_gtmcoord_conn(&co_pg_conn, &cnoid);
 		Assert(cnoid);
-
-		//get slot vacuum status
-		is_vacuum_state = hexp_check_select_result_count(co_pg_conn, IS_ADB_CLEAN_TABLE_EXISTS);
-		if(is_vacuum_state)
-			ereport(ERROR, (errmsg("cluster status is vacuum, can't clean.")));
 
 		MgrSendDataCleanToGtm(co_pg_conn);
 		
-		mgr_unlock_cluster_involve_gtm_coord(&co_pg_conn);
-
 		PQfinish(co_pg_conn);
 		co_pg_conn = NULL;	
 	}PG_CATCH();
@@ -2022,7 +2015,6 @@ bool hexp_check_cluster_status_internal(List **pdn_status_list, StringInfo pseri
 	PGconn *pg_conn = NULL;
 	Oid cnoid;
 	bool is_vacuum_state = false;
-	char* pstatus = "NULL";
 	ListCell	*lc;
 	DN_STATUS	*dn_status;
 
@@ -2054,13 +2046,9 @@ bool hexp_check_cluster_status_internal(List **pdn_status_list, StringInfo pseri
 		foreach (lc, *pdn_status_list)
 		{
 			dn_status = (DN_STATUS *)lfirst(lc);
-			if(check)
-				pstatus = MsgSlotStatus[dn_status->node_status-1];
-			
 			appendStringInfo(pserialize,
 				"name=%s-masterid=%d-incluster=%d\n"
-				, NameStr(dn_status->nodename),
-
+				,NameStr(dn_status->nodename),
 				dn_status->nodemasternameoid,
 				dn_status->nodeincluster);
 		}
@@ -2704,3 +2692,6 @@ Datum mgr_failover_one_dn_inner_func(char *nodename, char cmdtype, char nodetype
 	heap_close(rel_node, RowExclusiveLock);
 	return HeapTupleGetDatum(tup_result);
 }
+
+
+
