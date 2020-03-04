@@ -11018,6 +11018,142 @@ bool mgr_lock_cluster_deprecated(PGconn **pg_conn, Oid *cnoid)
 	return ret;
 }
 
+void mgr_get_gtmcoord_conn(PGconn **pg_conn, Oid *cnoid)
+{
+	Oid coordhostoid = InvalidOid;
+	int32 coordport = -1;
+	int iloop = 0;
+	int max = 3;
+	char *coordhost = NULL;
+	char coordport_buf[10];
+	char *connect_user = NULL;
+	char cnpath[1024];
+	int try = 0;
+	NameData self_address;
+	NameData nodename;
+	GetAgentCmdRst getAgentCmdRst;
+	StringInfoData infosendmsg;
+	Datum datumPath;
+	Relation rel_node;
+	HeapTuple tuple = NULL;
+	Form_mgr_node mgr_node;
+	bool isNull;
+	bool breload = false;
+	bool bgetAddress = true;
+
+	rel_node = heap_open(NodeRelationId, AccessShareLock);
+
+	ereport(LOG, (errmsg("get active coordinator to connect start")));
+
+	for (iloop = 0; iloop < max; iloop++)
+	{
+		/*get active coordinator to connect*/
+		if (!mgr_get_active_node(&nodename, CNDN_TYPE_GTM_COOR_MASTER, specHostOid))
+		{
+			if (iloop == max-1)
+			{
+				heap_close(rel_node, AccessShareLock);
+				ereport(ERROR, (errmsg("can not get active coordinator in cluster %d", iloop)));
+			}
+			else
+			{
+				ereport(WARNING, (errmsg("can not get active coordinator in cluster %d", iloop)));
+			}
+		}
+		else
+		{
+			tuple = mgr_get_tuple_node_from_name_type(rel_node, nodename.data);
+			if(!(HeapTupleIsValid(tuple)))
+			{
+				heap_close(rel_node, AccessShareLock);
+				ereport(ERROR, (errmsg("coordinator \"%s\" does not exist", nodename.data)
+					, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
+					, errcode(ERRCODE_UNDEFINED_OBJECT)));
+			}
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			coordhostoid = mgr_node->nodehost;
+			coordport = mgr_node->nodeport;
+			coordhost = get_hostaddress_from_hostoid(coordhostoid);		
+			connect_user = get_hostuser_from_hostoid(coordhostoid);
+			*cnoid = HeapTupleGetOid(tuple);
+			clusterLockCoordNodeOid = *cnoid;
+			namestrcpy(&clusterLockCoordNodeName, NameStr(mgr_node->nodename));
+			/*get the adbmanager ip*/
+			memset(self_address.data, 0, NAMEDATALEN);
+			bgetAddress = mgr_get_self_address(coordhost, coordport, &self_address);
+			if (bgetAddress)
+				break;
+			else
+			{
+				heap_freetuple(tuple);
+				pfree(coordhost);
+				pfree(connect_user);
+			}
+		}
+	}
+
+	if (!bgetAddress)
+	{
+		heap_close(rel_node, AccessShareLock);
+		ereport(ERROR, (errmsg("on ADB Manager get local address fail, so cannot do \"FAILOVER\" command")));
+	}
+
+	/*set adbmanager ip to the coordinator if need*/
+	datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(rel_node), &isNull);
+	if (isNull)
+	{
+		heap_freetuple(tuple);
+		heap_close(rel_node, AccessShareLock);
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
+			, errmsg("column nodepath is null")));
+	}
+	strncpy(cnpath, TextDatumGetCString(datumPath), 1024);
+	heap_freetuple(tuple);
+	heap_close(rel_node, AccessShareLock);
+	initStringInfo(&(getAgentCmdRst.description));
+	initStringInfo(&infosendmsg);
+
+	sprintf(coordport_buf, "%d", coordport);
+	for (try = 0; try < 2; try++)
+	{
+		*pg_conn = ExpPQsetdbLogin(coordhost
+								,coordport_buf
+								,NULL, NULL
+								,connect_user
+								,NULL);
+		if (try != 0)
+			break;
+		if (PQstatus((PGconn*)*pg_conn) != CONNECTION_OK)
+		{
+			breload = true;
+			PQfinish(*pg_conn);
+			resetStringInfo(&infosendmsg);
+			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, DEFAULT_DB, connect_user, self_address.data, 31, "trust", &infosendmsg);
+			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cnpath, &infosendmsg, coordhostoid, &getAgentCmdRst);
+			mgr_reload_conf(coordhostoid, cnpath);
+			if (!getAgentCmdRst.ret)
+			{
+				pfree(infosendmsg.data);
+				ereport(ERROR, (errmsg("set ADB Manager ip \"%s\" to %s coordinator %s/pg_hba,conf fail %s"
+					, self_address.data, coordhost, cnpath, getAgentCmdRst.description.data)));
+			}
+		}
+		else
+			break;
+	}
+
+	if (*pg_conn == NULL || PQstatus((PGconn*)*pg_conn) != CONNECTION_OK)
+	{
+		pfree(infosendmsg.data);
+		pfree(getAgentCmdRst.description.data);
+		ereport(ERROR,
+			(errmsg("Fail to connect to coordinator %s", PQerrorMessage((PGconn*)*pg_conn)),
+			errhint("coordinator info(host=%s port=%d dbname=%s user=%s)",
+				coordhost, coordport, DEFAULT_DB, connect_user)));
+	}
+}
+
 bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 {
 	Oid coordhostoid = InvalidOid;
@@ -13830,22 +13966,81 @@ uint64 updateAllowcureOfMgrHost(char *hostname, bool allowcure)
 	return rows;
 }
 
+void MgrSendAlterMsg(PGconn *pg_conn, StringInfoData *psql)
+{
+	int num = 2;
+	PGresult *res = NULL;
+	Assert(pg_conn);
+	
+	while (num-- > 0)
+	{
+		res = PQexec(pg_conn, psql->data);
+		if (PQresultStatus(res) == PGRES_COMMAND_OK)
+		{
+			break;
+		}
+		if (num)
+		{
+			PQclear(res);
+			res = NULL;
+		}
+		pg_usleep(100000L);
+	}
+
+	if (PQresultStatus(res) != PGRES_COMMAND_OK)
+	{
+		ereport(ERROR, (errmsg("on gtm execute %s fail, %s.", psql->data, PQresultErrorMessage(res))));
+	}
+	PQclear(res);
+	return;	
+}
+
+int MgrSendSelectMsg(PGconn *pg_conn, StringInfoData* psql)
+{
+	ExecStatusType status;
+	PGresult *res;
+	int count = 0;
+
+	Assert((pg_conn)!= 0);
+
+	res = PQexec(pg_conn, psql->data);
+	status = PQresultStatus(res);
+
+	switch(status)
+	{
+		case PGRES_TUPLES_OK:
+			break;
+		default:
+			ereport(ERROR, (errmsg("%s runs error. result is %s.", psql->data, PQresultErrorMessage(res))));
+	}
+
+	if (0==PQntuples(res))
+	{
+		PQclear(res);
+		ereport(ERROR, (errmsg("%s runs error. result is null.", psql->data)));
+	}
+
+	count = atoi(PQgetvalue(res, 0, 0));
+	PQclear(res);
+    return count;
+}
+
 void MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *src_name, char* dst_name)
 {
 	StringInfoData sql;
-	int num = 2;
-	PGresult *res = NULL;
 
 	Assert(pg_conn);
 	Assert(src_name);
 	Assert(dst_name);
 
 	initStringInfo(&sql);
-	appendStringInfo(&sql, "ALTER NODE DATA (\"%s\" TO \"%s\");",
-					src_name,
-					dst_name);
+	appendStringInfo(&sql, "ALTER NODE DATA (\"%s\" TO \"%s\");", src_name,	dst_name);
 	ereport(LOG, (errmsg("on gtm execute \"%s\".", sql.data)));
-	
+	MgrSendAlterMsg(pg_conn, &sql);
+
+	return;
+
+	/*
 	while (num-- > 0)
 	{
 		res = PQexec(pg_conn, sql.data);
@@ -13865,22 +14060,24 @@ void MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *src_name, char* dst_name)
 	{
 		ereport(ERROR, (errmsg("on gtm execute %s fail, %s.", sql.data, PQresultErrorMessage(res))));
 	}
-	PQclear(res);
+	PQclear(res);*/
 	return;					
 }
 
 void MgrSendDataCleanToGtm(PGconn *pg_conn)
 {
 	StringInfoData sql;
-	int num = 2;
-	PGresult *res = NULL;
-
+	
 	Assert(pg_conn);
 
 	initStringInfo(&sql);
 	appendStringInfo(&sql, ALTER_NODE_DATA_CLEAN);
-	ereport(LOG, (errmsg("on gtm execute \"%s\".", sql.data)));
-	
+	ereport(LOG, (errmsg("on gtm execute \"%s\".", sql.data)));	
+	MgrSendAlterMsg(pg_conn, &sql);
+
+	return;
+
+/*
 	while (num-- > 0)
 	{
 		res = PQexec(pg_conn, sql.data);
@@ -13901,5 +14098,7 @@ void MgrSendDataCleanToGtm(PGconn *pg_conn)
 		ereport(ERROR, (errmsg("on gtm execute %s fail, %s.", sql.data, PQresultErrorMessage(res))));
 	}
 	PQclear(res);
-	return;					
+	return;		
+*/			
 }
+

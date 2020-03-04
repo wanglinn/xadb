@@ -300,6 +300,7 @@ extern bool mgr_lock_cluster_deprecated(PGconn **pg_conn, Oid *cnoid);
 extern bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid);
 extern void mgr_unlock_cluster_deprecated(PGconn **pg_conn);
 extern void mgr_unlock_cluster_involve_gtm_coord(PGconn **pg_conn);
+extern void mgr_get_gtmcoord_conn(PGconn **pg_conn, Oid *cnoid);
 extern int mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam);
 extern bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *dnname
 		, GetAgentCmdRst *getAgentCmdRst, PGconn **pg_conn, Oid cnoid, char *newSyncSlaveName);
@@ -568,5 +569,7 @@ extern uint64 updateAllowcureOfMgrHosts(List *hostnames, bool allowcure);
 extern uint64 updateAllowcureOfMgrHost(char *hostname, bool allowcure);
 extern void MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *src_name, char* dst_name);
 extern void MgrSendDataCleanToGtm(PGconn *pg_conn);
+extern int MgrSendSelectMsg(PGconn *pg_conn, StringInfoData* psql);
+extern void MgrSendAlterMsg(PGconn *pg_conn, StringInfoData *psql);
 extern void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, GetAgentCmdRst *getAgentCmdRst);
 #endif /* MGR_CMDS_H */
