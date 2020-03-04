@@ -2583,7 +2583,7 @@ GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin,
  * Entry of snapshot obtention for Postgres-XC node
  */
 Snapshot
-GetGlobalSnapshot(Snapshot snapshot, bool isCatelog)
+GetGlobalSnapshot(Snapshot snapshot, TransactionId *gs_xmin, bool isCatelog)
 {
 	Snapshot	snap;
 	CommandId	cid;
@@ -2594,6 +2594,8 @@ GetGlobalSnapshot(Snapshot snapshot, bool isCatelog)
 	 	 * Master-Coordinator get snapshot from AGTM.
 	 	 */
 		snap = SnapRcvGetSnapshot(snapshot);
+		if (GlobalSnapshot)
+			*gs_xmin = GlobalSnapshot->xmin;
 	} else if (GlobalSnapshot == NULL ||
 		GlobalSnapshotSet == false ||
 		IsAnyAutoVacuumProcess())
@@ -2604,6 +2606,8 @@ GetGlobalSnapshot(Snapshot snapshot, bool isCatelog)
 		 * current process is AutoVacuum process.
 		 */
 		snap = SnapRcvGetSnapshot(snapshot);
+		if (GlobalSnapshot)
+			*gs_xmin = GlobalSnapshot->xmin;
 #ifdef SHOW_GLOBAL_SNAPSHOT
 		if (IsAnyAutoVacuumProcess())
 		{
