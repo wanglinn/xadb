@@ -6105,7 +6105,8 @@ void cost_cluster_reduce(ClusterReducePath *path)
 					reduce_max_rows,	/* max(reduce_out_rows,reduce_in_rows) */
 					cluster_rows;
 	Cost			sort_startup_cost,
-					sort_run_cost;
+					sort_run_cost,
+					startup_cost;
 	Cost			reduce_run_cost;
 	int				compare;
 	int				storage_count = 0;
@@ -6241,8 +6242,9 @@ void cost_cluster_reduce(ClusterReducePath *path)
 	}
 
 	/* here we calulate the average cost of ClusterReduce */
-	path->path.startup_cost = subpath->startup_cost + reduce_conn_cost + sort_startup_cost;
-	path->path.total_cost = subpath->total_cost + reduce_run_cost + sort_run_cost;
+	startup_cost = reduce_conn_cost + sort_startup_cost;
+	path->path.startup_cost = subpath->startup_cost + startup_cost;
+	path->path.total_cost = subpath->total_cost + startup_cost + reduce_run_cost + sort_run_cost;
 }
 
 #endif /* ADB */
