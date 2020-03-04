@@ -300,10 +300,7 @@ static void mgr_add_givenname_updateparm(MGRUpdateparm *parm_node, Name nodename
 			
 			isSlaveSync = strcmp(value.data, "on") == 0 ? true : false;
 			if (!mgr_update_cn_pgxcnode_readonlysql_slave(key.data, isSlaveSync, (Node *)parm_node))
-			{
-				pfree(enumvalue.data);
 				ereport(WARNING, (errmsg("Adding read-only standby node information to coord failed.")));
-			}
 		}
 
 		if (!parm_node->is_force)
