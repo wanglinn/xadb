@@ -1,11 +1,9 @@
 #include "postgres.h"
 
 #include "access/htup_details.h"
-#include "access/xact.h"
 #include "libpq/pqformat.h"
 #include "utils/hsearch.h"
 #include "utils/memutils.h"
-#include "utils/resowner.h"
 
 #include "utils/dynamicreduce.h"
 #include "utils/dr_private.h"
@@ -183,20 +181,10 @@ void DRStartSFSPlanMessage(StringInfo msg)
 	DynamicReduceSFS		sfs;
 	PlanWorkerInfo		   *pwi;
 	MemoryContext			oldcontext;
-	ResourceOwner			oldowner;
-
-	if (!IsTransactionState())
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_TRANSACTION_STATE),
-				 errmsg("not in transaction state")));
-	}
 
 	PG_TRY();
 	{
 		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-		oldowner = CurrentResourceOwner;
-		CurrentResourceOwner = NULL;
 
 		pi = DRRestorePlanInfo(msg, (void**)&sfs, sizeof(*sfs), ClearSFSPlanInfo);
 		Assert(DRPlanSearch(pi->plan_id, HASH_FIND, NULL) == pi);
@@ -206,7 +194,6 @@ void DRStartSFSPlanMessage(StringInfo msg)
 		DRSetupPlanWorkInfo(pi, pwi, &sfs->mq, -1, DR_PLAN_RECV_WORKING);
 		SharedFileSetAttach(&sfs->sfs, pi->seg);
 
-		CurrentResourceOwner = oldowner;
 		CreateOidBufFiles(pi, sfs);
 
 		pi->OnNodeRecvedData = OnSFSPlanMessage;

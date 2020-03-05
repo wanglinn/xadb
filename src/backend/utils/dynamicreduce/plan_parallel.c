@@ -1,11 +1,9 @@
 #include "postgres.h"
 
 #include "access/htup_details.h"
-#include "access/xact.h"
 #include "libpq/pqformat.h"
 #include "utils/dsa.h"
 #include "utils/memutils.h"
-#include "utils/resowner.h"
 
 #include "utils/dynamicreduce.h"
 #include "utils/dr_private.h"
@@ -397,23 +395,13 @@ void DRStartParallelPlanMessage(StringInfo msg)
 	PlanInfo * volatile		pi = NULL;
 	DynamicReduceMQ			mq;
 	MemoryContext			oldcontext;
-	ResourceOwner			oldowner;
 	int						parallel_max;
 	int						i;
 	uint8					cache_flag;
 
-	if (!IsTransactionState())
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_TRANSACTION_STATE),
-				 errmsg("not in transaction state")));
-	}
-
 	PG_TRY();
 	{
 		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-		oldowner = CurrentResourceOwner;
-		CurrentResourceOwner = NULL;
 
 		pq_copymsgbytes(msg, (char*)&parallel_max, sizeof(parallel_max));
 		if (parallel_max <= 1)
@@ -425,8 +413,6 @@ void DRStartParallelPlanMessage(StringInfo msg)
 		pi->count_pwi = parallel_max;
 		for (i=0;i<parallel_max;++i)
 			DRSetupPlanWorkInfo(pi, &pi->pwi[i], &mq[i], i-1, DR_PLAN_RECV_WAITING_ATTACH);
-
-		CurrentResourceOwner = oldowner;
 
 		if (cache_flag != DR_CACHE_ON_DISK_DO_NOT)
 		{
