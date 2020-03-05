@@ -180,7 +180,7 @@ HandleGC(NodeHandle *handle)
 	if (handle)
 	{
 		handle->node_owner = NULL;
-		PQNExecFinish_trouble(handle->node_conn);
+		PQNExecFinish_trouble(handle->node_conn, -1);
 	}
 }
 

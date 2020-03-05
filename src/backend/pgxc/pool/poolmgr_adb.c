@@ -1180,7 +1180,7 @@ PoolManagerDisconnect(void)
 {
 /*#ifdef WITH_RDMA
 	PQNForceReleaseWhenTransactionFinish();
-	PQNReleaseAllConnect(true);
+	PQNReleaseAllConnect(0);
 #endif*/
 	if (poolHandle)
 	{
