@@ -1583,8 +1583,7 @@ bool mgr_manipulate_pgxc_node_on_node(PGconn **pg_conn,
 	Assert(executeOnNode);
 	initStringInfo(&sql);
 	getManipulatePgxcNodeSql(nodeinfo, executeOnNode, localExecute, manipulateType, &sql);
-	ereport(LOG, (errmsg("on coordinator \"%s\" execute \"%s\"", NameStr(executeOnNode->nodename), sql.data)));
-	ereport(NOTICE, (errmsg("on coordinator \"%s\" execute \"%s\"", NameStr(executeOnNode->nodename), sql.data)));
+	ereport(LOG, (errmsg("on gtmcoord \"%s\" execute \"%s\"", NameStr(executeOnNode->nodename), sql.data)));
 
 	num = iloop;
 	while (num-- > 0)

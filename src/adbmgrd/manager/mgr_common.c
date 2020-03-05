@@ -1634,7 +1634,6 @@ bool mgr_ma_send_cmd_get_original_result(char cmdtype, char *cmdstr, Oid hostOid
 	}
 
 	mgr_get_cmd_head_word(cmdtype, cmdheadstr);
-	ereport(NOTICE, (errmsg("%s, %s %s", hostaddr, cmdheadstr, cmdstr)));
 	ereport(LOG, (errmsg("%s, %s %s", hostaddr, cmdheadstr, cmdstr)));
 	pfree(hostaddr);
 
