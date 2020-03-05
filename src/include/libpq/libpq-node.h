@@ -18,6 +18,8 @@ typedef enum PQNHookFuncType
 #define PQN_NODE_VALUE_MARK	0x3FFFFFFF
 #define PQN_NODE_TYPE_MARK	0xC0000000
 
+#define PQN_DEFAULT_TIMEOUT	1
+
 typedef struct PQNHookFunctions PQNHookFunctions;
 
 typedef bool (*PQNHookError_function)(PQNHookFunctions *pub);
@@ -45,8 +47,8 @@ extern List* PQNGetAllConns(void);
 extern bool PQNOneExecFinish(struct pg_conn *conn, const PQNHookFunctions *hook, bool blocking);
 extern bool PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook, const PQNHookFunctions *hook, bool blocking);
 extern bool PQNEFHNormal(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
-extern void PQNExecFinish_trouble(struct pg_conn *conn);
-extern void PQNReleaseAllConnect(bool request_cancel);
+extern bool PQNExecFinish_trouble(struct pg_conn *conn, int timeout_sec);
+extern void PQNReleaseAllConnect(int request_cancel);
 extern void PQNRequestCancelAllconnect(void);
 extern void PQNReportResultError(struct pg_result *result, struct pg_conn *conn, int elevel, bool free_result);
 extern const char *PQNConnectName(struct pg_conn *conn);

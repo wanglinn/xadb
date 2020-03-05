@@ -152,7 +152,7 @@ static void check_is_all_socket_correct(List *oid_list)
 	if(n > 0)
 	{
 		PQNForceReleaseWhenTransactionFinish();
-		PQNReleaseAllConnect(true);
+		PQNReleaseAllConnect(0);
 		init_htab_oid_pgconn();
 	}
 	pfree(pfds);
@@ -311,7 +311,7 @@ static List* pg_conn_attach_socket(int *fds, Size n)
 	{
 		while(list != NIL)
 		{
-			PQNExecFinish_trouble(linitial(list));
+			PQNExecFinish_trouble(linitial(list), -1);
 			list = list_delete_first(list);
 		}
 		PG_RE_THROW();
@@ -701,9 +701,20 @@ static int PQNIsConnecting(PGconn *conn)
 	return 0;
 }
 
-void PQNExecFinish_trouble(PGconn *conn)
+bool PQNExecFinish_trouble(PGconn *conn, int timeout_sec)
 {
-	PGresult *res;
+	PGresult   *res;
+	time_t		time_last;
+	struct timeval tv;
+	fd_set		fds;
+	fd_set		efds;
+	pgsocket	sock;
+	int			ret;
+
+	time_last = time(NULL);
+	MemSet(&tv, 0, sizeof(tv));
+	if (timeout_sec > 0)
+		tv.tv_sec = 1;
 	HOLD_CANCEL_INTERRUPTS();
 	for(;;)
 	{
@@ -711,28 +722,27 @@ void PQNExecFinish_trouble(PGconn *conn)
 			break;
 		if(PQisCopyInState(conn))
 		{
-			int ret;
 			PQputCopyEnd(conn, NULL);
 re_flush_:
 			ret = PQflush(conn);
-			if (ret < 0)
+			if(ret > 0)
 			{
-				break;
-			}else if(ret > 0)
-			{
-				fd_set wfds;
-				fd_set efds;
-				pgsocket sock;
 re_select_:
-				FD_ZERO(&wfds);
+				if ((timeout_sec > 0 && time(NULL) - time_last > timeout_sec) ||
+					timeout_sec == 0)
+				{
+					RESUME_CANCEL_INTERRUPTS();
+					return false;
+				}
+				FD_ZERO(&fds);
 				FD_ZERO(&efds);
 				sock = PQsocket(conn);
-				FD_SET(sock, &wfds);
+				FD_SET(sock, &fds);
 				FD_SET(sock, &efds);
 #ifdef WITH_RDMA
-				ret = adb_rselect(sock + 1, NULL, &wfds, &efds, NULL);
+				ret = adb_rselect(sock + 1, NULL, &wfds, &efds, timeout_sec >= 0 ? &tv:NULL);
 #else
-				ret = select(sock + 1, NULL, &wfds, &efds, NULL);
+				ret = select(sock + 1, NULL, &fds, &efds, timeout_sec >= 0 ? &tv:NULL);
 #endif
 				CHECK_FOR_INTERRUPTS();
 				if (ret < 0)
@@ -742,22 +752,44 @@ re_select_:
 						goto re_select_;
 					}else
 					{
+						/* unknown error, just sleep */
 						pg_usleep(1000);
-						goto re_flush_;
 					}
-				}else if(ret == 0)
-				{
-					/* should not happen */
-					pg_usleep(1000);
 				}
 				goto re_flush_;
 			}
 		}
 		while(PQisCopyOutState(conn))
 		{
-			if(PQgetCopyDataBuffer(conn, (const char**)&res, false) < 0)
+			ret = PQgetCopyDataBuffer(conn, (const char**)&res, true);
+			if (ret < 0)
+			{
+				/* end of copy or error */
 				break;
+			}else if (ret == 0)
+			{
+				if ((timeout_sec > 0 && time(NULL) - time_last > timeout_sec) ||
+					timeout_sec == 0)
+				{
+					RESUME_CANCEL_INTERRUPTS();
+					return false;
+				}
+				FD_ZERO(&fds);
+				FD_ZERO(&efds);
+				sock = PQsocket(conn);
+				FD_SET(sock, &fds);
+				FD_SET(sock, &efds);
+#ifdef WITH_RDMA
+				ret = rselect(sock + 1, NULL, &fds, &efds, timeout_sec >= 0 ? &tv:NULL);
+#else
+				ret = select(sock + 1, NULL, &fds, &efds, timeout_sec >= 0 ? &tv:NULL);
+#endif
+				CHECK_FOR_INTERRUPTS();
+				if (ret > 0)
+					PQconsumeInput(conn);
+			}
 		}
+
 		res = PQgetResult(conn);
 		if(res)
 			PQclear(res);
@@ -765,27 +797,54 @@ re_select_:
 			break;
 	}
 	RESUME_CANCEL_INTERRUPTS();
+	return true;
 }
 
-void PQNReleaseAllConnect(bool request_cancel)
+/*
+ * request_cancel_after < 0 don't request cancel
+ * request_cancel_after == 0 request first
+ * request_cancel_after > 0 request cancel after request_cancel_after second(s)
+ */
+void PQNReleaseAllConnect(int request_cancel_after)
 {
 	HASH_SEQ_STATUS	seq_status;
 	OidPGconn	   *op;
+	time_t			time_last;
 	bool			release_connect;
 	bool			force_close;
+	bool			sended_cancel;
 
 	if (htab_oid_pgconn == NULL ||
 		hash_get_num_entries(htab_oid_pgconn) == 0)
 		return;
 
-	if (request_cancel)
+	if (request_cancel_after == 0)
 		PQNRequestCancelAllconnect();
+	else if (request_cancel_after > 0)
+		time_last = time(NULL);
 
+	sended_cancel = false;
 	release_connect = force_close = false;
 	hash_seq_init(&seq_status, htab_oid_pgconn);
 	while((op = hash_seq_search(&seq_status)) != NULL)
 	{
-		PQNExecFinish_trouble(op->conn);
+		if (sended_cancel == false &&
+			request_cancel_after > 0)
+		{
+re_check_:
+			if (time(NULL) - time_last <= request_cancel_after)
+			{
+				if (PQNExecFinish_trouble(op->conn, 1) == false)
+					goto re_check_;
+			}else
+			{
+				PQNRequestCancelAllconnect();
+				PQNExecFinish_trouble(op->conn, -1);
+			}
+		}else
+		{
+			PQNExecFinish_trouble(op->conn, -1);
+		}
 
 		switch (PQtransactionStatus(op->conn))
 		{
