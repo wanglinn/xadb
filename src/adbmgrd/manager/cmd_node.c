@@ -11182,21 +11182,21 @@ bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 
 	rel_node = heap_open(NodeRelationId, AccessShareLock);
 
-	ereport(LOG, (errmsg("get active coordinator to connect start")));
+	ereport(LOG, (errmsg("get active gtmcoord to connect start")));
 
 	for (iloop = 0; iloop < max; iloop++)
 	{
-		/*get active coordinator to connect*/
+		/*get active gtmcoord to connect*/
 		if (!mgr_get_active_node(&nodename, CNDN_TYPE_GTM_COOR_MASTER, specHostOid))
 		{
 			if (iloop == max-1)
 			{
 				heap_close(rel_node, AccessShareLock);
-				ereport(ERROR, (errmsg("can not get active coordinator in cluster %d", iloop)));
+				ereport(ERROR, (errmsg("can not get active gtmcoord in cluster %d", iloop)));
 			}
 			else
 			{
-				ereport(WARNING, (errmsg("can not get active coordinator in cluster %d", iloop)));
+				ereport(WARNING, (errmsg("can not get active gtmcoord in cluster %d", iloop)));
 			}
 		}
 		else
@@ -11205,7 +11205,7 @@ bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 			if(!(HeapTupleIsValid(tuple)))
 			{
 				heap_close(rel_node, AccessShareLock);
-				ereport(ERROR, (errmsg("coordinator \"%s\" does not exist", nodename.data)
+				ereport(ERROR, (errmsg("gtmcoord \"%s\" does not exist", nodename.data)
 					, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
 					, errcode(ERRCODE_UNDEFINED_OBJECT)));
 			}
@@ -11288,12 +11288,12 @@ bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 		pfree(infosendmsg.data);
 		pfree(getAgentCmdRst.description.data);
 		ereport(ERROR,
-			(errmsg("Fail to connect to coordinator %s", PQerrorMessage((PGconn*)*pg_conn)),
-			errhint("coordinator info(host=%s port=%d dbname=%s user=%s)",
+			(errmsg("Fail to connect to gtmcoord %s", PQerrorMessage((PGconn*)*pg_conn)),
+			errhint("gtmcoord info(host=%s port=%d dbname=%s user=%s)",
 				coordhost, coordport, DEFAULT_DB, connect_user)));
 	}
 
-	ereport(LOG, (errmsg("get active coordinator to connect end")));
+	ereport(LOG, (errmsg("get active gtmcoord to connect end")));
 
 	/* get the value of pool_release_to_idle_timeout to record */
 	try = 0;
@@ -11321,9 +11321,7 @@ bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 	}
 
 	/*lock cluster*/
-	ereport(NOTICE, (errmsg("lock cluster on coordinator %s : set FORCE_PARALLEL_MODE = off; SELECT PG_PAUSE_CLUSTER();"
-	  , clusterLockCoordNodeName.data)));
-	ereport(LOG, (errmsg("lock cluster on coordinator %s : set FORCE_PARALLEL_MODE = off; SELECT PG_PAUSE_CLUSTER();"
+	ereport(LOG, (errmsg("lock cluster on %s : set FORCE_PARALLEL_MODE = off; SELECT PG_PAUSE_CLUSTER();"
 	  , clusterLockCoordNodeName.data)));
 	try = mgr_pqexec_boolsql_try_maxnum(pg_conn, "set FORCE_PARALLEL_MODE = off; \
 				SELECT PG_PAUSE_CLUSTER();", maxnum, CMD_SELECT);
@@ -11457,8 +11455,7 @@ void mgr_unlock_cluster_involve_gtm_coord(PGconn **pg_conn)
 
 	if (!*pg_conn)
 		return;
-	ereport(NOTICE, (errmsg("on coordinator \"%s\" : unlock cluster: %s", clusterLockCoordNodeName.data, sqlstr)));
-	ereport(LOG, (errmsg("on coordinator \"%s\" : unlock cluster: %s", clusterLockCoordNodeName.data, sqlstr)));
+	ereport(LOG, (errmsg(" unlock cluster on  \"%s\" :  %s", clusterLockCoordNodeName.data, sqlstr)));
 	try = mgr_pqexec_boolsql_try_maxnum(pg_conn, sqlstr, maxnum, CMD_SELECT);
 	if (try<0)
 	{
@@ -11469,7 +11466,6 @@ void mgr_unlock_cluster_involve_gtm_coord(PGconn **pg_conn)
 	if (strcmp(paramV.data, "-1") != 0)
 	{
 		/* set all coordinators pool_release_to_idle_timeout to record value */
-		ereport(NOTICE, (errmsg("set all coordinators pool_release_to_idle_timeout = '%s'", paramV.data)));
 		ereport(LOG, (errmsg("set all coordinators pool_release_to_idle_timeout = '%s'", paramV.data)));
 		mgr_set_all_nodetype_param(CNDN_TYPE_COORDINATOR_MASTER, "pool_release_to_idle_timeout", paramV.data);
 	}
@@ -11502,8 +11498,7 @@ void mgr_unlock_cluster_involve_gtm_coord(PGconn **pg_conn)
 		resetStringInfo(&cmdstring);
 		appendStringInfo(&cmdstring, "set FORCE_PARALLEL_MODE = off; EXECUTE DIRECT ON (\"%s\") 'select pool_close_idle_conn();'"
 			, NameStr(mgr_node->nodename));
-		ereport(NOTICE, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
-		ereport(LOG, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
+		ereport(LOG, (errmsg("on \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
 		try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
 		if (try<0)
 		{
@@ -11529,8 +11524,7 @@ void mgr_unlock_cluster_involve_gtm_coord(PGconn **pg_conn)
 		appendStringInfo(&cmdstring, 
 						"set FORCE_PARALLEL_MODE = off; EXECUTE DIRECT ON (\"%s\") 'select pool_close_idle_conn();'",
 						NameStr(mgr_node->nodename));
-		ereport(NOTICE, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
-		ereport(LOG, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
+		ereport(LOG, (errmsg("on \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
 		try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
 		if (try<0)
 		{
@@ -11542,8 +11536,7 @@ void mgr_unlock_cluster_involve_gtm_coord(PGconn **pg_conn)
 
 	resetStringInfo(&cmdstring);
 	appendStringInfo(&cmdstring, "set FORCE_PARALLEL_MODE = off; select pool_close_idle_conn();");
-	ereport(NOTICE, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
-	ereport(LOG, (errmsg("on coordinator \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
+	ereport(LOG, (errmsg("on \"%s\" : %s", clusterLockCoordNodeName.data, cmdstring.data)));
 	try = mgr_pqexec_boolsql_try_maxnum(pg_conn, cmdstring.data, maxnum, CMD_SELECT);
 	if (try<0)
 	{

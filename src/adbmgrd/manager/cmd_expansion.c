@@ -169,9 +169,9 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 	else
 		database = DEFAULT_DB;
 
-	strcpy(phase1_msg, "phase1--if this command failed, there's nothing need to do. the command:");
-	strcpy(phase2_msg, "if this step fails, use the command 'EXPAND ACTIVATE RECOVER DOPROMOTE SUCCESS DST' to recover.");
-
+	strcpy(phase1_msg, "phase1--if this step failed, there's nothing need to do. the command:");
+	strcpy(phase2_msg, "phase2--if this step failed, use the command 'EXPAND ACTIVATE RECOVER DOPROMOTE SUCCESS DST' to recover.");
+																	  
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
 
@@ -203,15 +203,15 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errmsg("The node %s does not exist.tuple id is %d", appendnodeinfo.nodename, appendnodeinfo.nodemasteroid)));
 
 		/*	1.3 check all dn and co are running.*/
-		ereport(INFO, (errmsg("%s%s", phase1_msg, "check all dn and co are running.")));
+		ereport(LOG, (errmsg("%s%s", phase1_msg, "check all dn and co are running.")));
 		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
 
-		ereport(INFO, (errmsg("%s%s", phase1_msg, "expand check status.")));
+		ereport(LOG, (errmsg("%s%s", phase1_msg, "expand check status.")));
 		hexp_check_expand();
 
 		/* 2.1 get dst lsn	*/
-		ereport(INFO, (errmsg("%s%s", phase1_msg, "get dst lsn.")));
+		ereport(LOG, (errmsg("%s%s", phase1_msg, "get dst lsn.")));
 		sprintf(dstport_buf, "%d", appendnodeinfo.nodeport);
 		dst_pg_conn = PQsetdbLogin(appendnodeinfo.nodeaddr,
 						dstport_buf,
@@ -234,8 +234,8 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 
 		hexp_mgr_pqexec_getlsn(&dst_pg_conn, "select pg_last_wal_replay_lsn();",&dst_lsn_high, &dst_lsn_low);
 
-		/* 2.2get src lsn */
-		ereport(INFO, (errmsg("%s%s", phase1_msg, "get src lsn.")));
+		/* 2.2 get src lsn */
+		ereport(LOG, (errmsg("%s%s", phase1_msg, "get src lsn.")));
 		sprintf(srcport_buf, "%d", srcnodeinfo.nodeport);
 		src_pg_conn = PQsetdbLogin(srcnodeinfo.nodeaddr,
 						srcport_buf,
@@ -258,15 +258,15 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		hexp_mgr_pqexec_getlsn(&src_pg_conn, "select pg_current_wal_lsn();",&src_lsn_high, &src_lsn_low);
 
 		/* 2.3 check lsn lag between src and dst is 8M.*/
-		ereport(INFO, (errmsg("%s%s", phase1_msg, "check lsn lag between src and dst is 8M.")));
+		ereport(LOG, (errmsg("%s%s", phase1_msg, "check lsn lag between src and dst is 8M.")));
 		if(!((src_lsn_high==dst_lsn_high) && ((src_lsn_low-dst_lsn_low)>=0) &&((src_lsn_low-dst_lsn_low)<=8388608)))
 			ereport(ERROR, (errmsg("the lsn lag between src node and dst node is longer than 8M.src lsn is %x/%x, dst lsn is %x/%x", src_lsn_high,src_lsn_low,dst_lsn_high,dst_lsn_low)));
 
-		ereport(INFO, (errmsg("%s%s", phase1_msg, "expand check status.")));
+		ereport(LOG, (errmsg("%s%s", phase1_msg, "expand check status.")));
 		hexp_check_expand();
 
 		/*	2.4 wait 20s for sync */
-		ereport(INFO, (errmsg("%s%s", phase1_msg, "lock cluster and wait 20s for sync.")));
+		ereport(LOG, (errmsg("%s%s", phase1_msg, "lock cluster and wait 20s for sync.")));
 		try=20;
 		for(;;)
 		{
@@ -285,18 +285,18 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errmsg("expend src node and dst node can not sync in %d seconds", try)));
 		
 		/* 3.promote&check connect	*/
-		ereport(INFO, (errmsg("promote dst node. if it fails, check dst status by hand.it cann't be revoked if promotion really fails.you have to drop the node and directory, then do expand from beginning.")));
+		ereport(INFO, (errmsg("phase1--promote dst node. if it fails, check dst status by hand.it cann't be revoked if promotion really fails.you have to drop the node and directory, then do expand from beginning.")));
 		mgr_failover_one_dn_inner_func(appendnodeinfo.nodename,
 			AGT_CMD_DN_MASTER_PROMOTE,
 			CNDN_TYPE_DATANODE_MASTER,
 			true, false);
 
 		/*	4.update pgxc node name in postgresql.conf in dst node.	*/
-		ereport(INFO, (errmsg("update pgxc node name in postgresql.conf in dst node.if this step fails, do it by hand, then restart the node")));
+		ereport(LOG, (errmsg("update pgxc node name in postgresql.conf in dst node.if this step fails, do it by hand, then restart the node")));
 		hexp_update_conf_pgxc_node_name(appendnodeinfo, appendnodeinfo.nodename);
 
 		/* wait 60s for restart */
-		ereport(INFO, (errmsg("restart dst node. if this step fails, do it by hand.")));
+		ereport(INFO, (errmsg("phase2--restart dst node. if this step fails, do it by hand.")));
 		hexp_restart_node(appendnodeinfo);
 		try=60;
 		for(;;)
@@ -315,7 +315,7 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		mgr_lock_cluster_involve_gtm_coord(&co_pg_conn, &cnoid);
 	 	hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 		
-		ereport(INFO, (errmsg("%s %s", "add dst node to all other node's pgxc_node.", phase2_msg)));
+		ereport(INFO, (errmsg("%s %s", phase2_msg, "add dst node to all other node's pgxc_node.")));
 		hexp_create_dm_on_all_node(co_pg_conn, &appendnodeinfo);
 		hexp_create_dm_on_itself(co_pg_conn, &appendnodeinfo);
 		hexp_pgxc_pool_reload_on_all_node(co_pg_conn);
@@ -325,8 +325,8 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
        	mgr_unlock_cluster_involve_gtm_coord(&co_pg_conn);
 
-		/* 5.update dst node init and in cluster, and parent node is empty. */
-		ereport(INFO, (errmsg("%s %s", "update dst node init and in cluster, and parent node is empty.", phase2_msg)));
+		/* 5.update dst node init and in cluster. */
+		ereport(INFO, (errmsg("%s %s", phase2_msg, "update dst node init and in cluster.")));
 		hexp_set_expended_node_state(appendnodeinfo.nodename, true, false,  true, true, 0);
 
 		PQfinish(dst_pg_conn);
@@ -513,9 +513,9 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
 
-	strcpy(phase1_msg, "phase1--if this command failed, there's nothing need to do. the command:");
-	strcpy(phase2_msg, "If this command failed, use the command 'EXPAND RECOVER BASEBACKUP FAIL SRC TO DST'");
-	strcpy(phase3_msg, "phase3--if this command failed, use the command 'EXPAND RECOVER BASEBACKUP SUCCESS SRC TO DST' to recover.");
+	strcpy(phase1_msg, "phase1--if this step failed, there's nothing need to do. the command:");
+	strcpy(phase2_msg, "phase2--If this step failed, use the command 'EXPAND RECOVER BASEBACKUP FAIL SRC TO DST'.");
+	strcpy(phase3_msg, "phase3--if this step failed, use the command 'EXPAND RECOVER BASEBACKUP SUCCESS SRC TO DST' to recover.");
 
 	memset(&destnodeinfo, 0, sizeof(AppendNodeInfo));
 	memset(&sourcenodeinfo, 0, sizeof(AppendNodeInfo));
@@ -533,7 +533,7 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 	PG_TRY();
 	{
 		//1.check src node and dst node status. if the process can start.
-		ereport(INFO, (errmsg("%s.%s", phase1_msg, "check src node and dst node status.")));
+		ereport(INFO, (errmsg("%s %s", phase1_msg, "check src node and dst node status.")));
 		
 		/*1.1 check src node state.src node is initialized and in cluster.*/
 		get_nodeinfo_byname(sourcenodeinfo.nodename, CNDN_TYPE_DATANODE_MASTER,
@@ -562,8 +562,8 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		//check src node status
 		hexp_check_expand();
 
-		/*2. check gtm status and add dst info into gtm hba.*/
-		ereport(INFO, (errmsg("%s.%s", phase1_msg, "check gtm status and add dst info into gtm hba.")));
+		/*2. check gtmcoord status and add dst info into gtmcoord hba.*/
+		ereport(LOG, (errmsg("%s %s", phase1_msg, "check gtm status and add dst info into gtmcoord hba.")));
 
 		gtmMasterName = mgr_get_agtm_name();
 		namestrcpy(&gtmMasterNameData, gtmMasterName);
@@ -579,18 +579,18 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 			}
 			else
 			{	
-				ereport(ERROR, (errmsg("gtm master is not running")));
+				ereport(ERROR, (errmsg("gtmcoord master is not running")));
 			}
 		}
 		else
 		{	
-			ereport(ERROR, (errmsg("gtm master is not initialized")));
+			ereport(ERROR, (errmsg("gtmcoord master is not initialized")));
 		}
 
 		mgr_add_hbaconf(CNDN_TYPE_GTM_COOR_SLAVE, "all", destnodeinfo.nodeaddr);
 
 		/*3.add dst node ip and account into src node hba*/
-		ereport(INFO, (errmsg("%s.%s", phase1_msg, "add dst node ip and account into src node hba.")));
+		ereport(LOG, (errmsg("%s %s", phase1_msg, "add dst node ip and account into src node hba.")));
 		resetStringInfo(&infosendmsg);
 		mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", destnodeinfo.nodeusername, destnodeinfo.nodeaddr, 32, "trust", &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF,
@@ -604,16 +604,16 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		mgr_reload_conf(sourcenodeinfo.nodehost, sourcenodeinfo.nodepath);
 
 		/*	4.check dst node basebackup dir does not exist.	*/
-		ereport(INFO, (errmsg("%s.%s", phase1_msg, "check dst node basebackup dir does not exist.if this step fails , you should check the dir.")));
+		ereport(LOG, (errmsg("%s %s", phase1_msg, "check dst node basebackup dir does not exist.if this step fails , you should check the dir.")));
 		mgr_check_dir_exist_and_priv(destnodeinfo.nodehost, destnodeinfo.nodepath);
 
 		/* 5.basebackup	*/
-		ereport(INFO, (errmsg("%s%s", "phase2--basebackup.If the command failed, you must delete directory by hand.", phase2_msg)));
+		ereport(INFO, (errmsg("%s %s", phase2_msg, "this step is basebackup, if the command failed, you must delete dst directory by hand.")));
 		mgr_pgbasebackup(CNDN_TYPE_DATANODE_MASTER, &destnodeinfo, &sourcenodeinfo);
 		ereport(INFO, (errmsg("phase2--basebackup suceess.")));
 
 		/*6.update dst node postgres.conf*/
-		ereport(INFO, (errmsg("%s.%s", phase3_msg, "update dst node postgres.conf.")));
+		ereport(LOG, (errmsg("%s %s", phase3_msg, "this step is update dst node postgres.conf.")));
 		resetStringInfo(&infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("archive_command", "", &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("log_directory", "pg_log", &infosendmsg);
@@ -630,7 +630,7 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
 
 		/*7. update dst node recovery.conf*/
-		ereport(INFO, (errmsg("%s.%s", phase3_msg, "update dst node recovery.conf.")));
+		ereport(LOG, (errmsg("%s %s", phase3_msg, "this step is update dst node recovery.conf.")));
 		resetStringInfo(&infosendmsg);
 		initStringInfo(&primary_conninfo_value);
 
@@ -653,11 +653,11 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		  async rep, don't need to update src node postgres.conf
 		  8. start datanode
 		*/
-		ereport(INFO, (errmsg("%s.%s", phase3_msg, "start datanode.")));
+		ereport(LOG, (errmsg("%s %s", phase3_msg, "this step is start datanode.")));
 		mgr_start_node(CNDN_TYPE_DATANODE_MASTER, destnodeinfo.nodepath, destnodeinfo.nodehost);
 
 		/*9.update node status initialized but not in cluster.*/
-		ereport(INFO, (errmsg("%s.%s", phase3_msg, "last step to update mgr info.if failed")));
+		ereport(INFO, (errmsg("%s %s", phase3_msg, "the last step to update mgr info.")));
 		hexp_set_expended_node_state(destnodeinfo.nodename, false, false,  true, false, sourcenodeinfo.tupleoid);
 
 		ereport(INFO, (errmsg("expend success.")));
@@ -958,8 +958,6 @@ Datum mgr_cluster_pgxcnode_check(PG_FUNCTION_ARGS)
 	char ret_msg[100];
 	NameData nodename;
 
-	// gtm  == coor
-
 	strcpy(nodename.data, "---");
 	strcpy(ret_msg, "pgxc node info in cluster is consistent.this info in all datanode is same with coordinator's.");
 	hexp_check_cluster_pgxcnode();
@@ -1214,12 +1212,13 @@ Datum mgr_expand_check_status(PG_FUNCTION_ARGS)
 	PG_TRY();
 	{
 		mgr_get_gtmcoord_conn(&pg_conn, &cnoid);
+		Assert(cnoid);
 
 		appendStringInfo(&serialize,"pgxc node info in cluster is consistent.\n");
 
 		if ((count = hexp_get_adb_clean_num(pg_conn)) > 0)
 		{
-			ereport(ERROR, (errmsg("cluster status is vacuum, adb_clean count(%d).", count)));
+			ereport(ERROR, (errmsg("cluster status is expanding, can't expand again. adb_clean count(%d).", count)));
 		}
 		
 		hexp_get_allnodes_serialize(&serialize);
@@ -1254,6 +1253,7 @@ Datum mgr_expand_show_status(PG_FUNCTION_ARGS)
 	PG_TRY();
 	{
 		mgr_get_gtmcoord_conn(&pg_conn, &cnoid);
+		Assert(cnoid);
 
 		hexp_pgxc_pool_reload_on_all_node(pg_conn);
 
