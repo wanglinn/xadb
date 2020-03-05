@@ -95,6 +95,9 @@
 #include "storage/ipc.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
+#if defined (WITH_RDMA) || defined(WITH_REDUCE_RDMA)
+#include "rdma/adb_rsocket.h"
+#endif
 
 /*
  * Cope with the various platform-specific ways to spell TCP keepalive socket
@@ -201,6 +204,9 @@ pq_init(void)
 	PqCommReadingMsg = false;
 	DoingCopyOut = false;
 
+#ifdef WITH_RDMA
+	rsocket_preload_int();
+#endif
 	/* set up process-exit hook to close the socket */
 	on_proc_exit(socket_close, 0);
 
@@ -305,6 +311,10 @@ socket_close(int code, Datum arg)
 		 */
 		MyProcPort->sock = PGINVALID_SOCKET;
 	}
+
+#ifdef WITH_RDMA
+	rsocket_preload_exit();
+#endif
 }
 
 //(struct sockaddr_in *)
@@ -365,7 +375,7 @@ StreamServerRsPort(SockAddr *laddr, pgsocket *sr_fd, int *port_out)
 						NI_NUMERICHOST);
 	addrDesc = addrBuf;
 
-	if ((fd = rsocket(addr_inet.sin_family, SOCK_STREAM, 0)) == PGINVALID_SOCKET)
+	if ((fd = adb_rsocket(addr_inet.sin_family, SOCK_STREAM, 0)) == PGINVALID_SOCKET)
 	{
 		ereport(LOG,
 				(errcode_for_socket_access(),
@@ -387,15 +397,15 @@ StreamServerRsPort(SockAddr *laddr, pgsocket *sr_fd, int *port_out)
 		* behavior. With no flags at all, win32 behaves as Unix with
 		* SO_REUSEADDR.
 		*/
-	if ((rsetsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+	if ((adb_rsetsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
 					(char *) &one, sizeof(one))) == -1)
 	{
 		ereport(LOG,
 				(errcode_for_socket_access(),
 		/* translator: first %s is IPv4, IPv6, or Unix */
-					errmsg("rsetsockopt(SO_REUSEADDR) failed for %s address \"%s\": %m",
+					errmsg("adb_rsetsockopt(SO_REUSEADDR) failed for %s address \"%s\": %m",
 						familyDesc, addrDesc)));
-		rclose(fd);
+		adb_rclose(fd);
 		return STATUS_ERROR;
 	}
 #endif
@@ -403,15 +413,15 @@ StreamServerRsPort(SockAddr *laddr, pgsocket *sr_fd, int *port_out)
 #ifdef IPV6_V6ONLY
 	if (laddr_inet->sin_family == AF_INET6)
 	{
-		if (rsetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
+		if (adb_rsetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
 						(char *) &one, sizeof(one)) == -1)
 		{
 			ereport(LOG,
 					(errcode_for_socket_access(),
 			/* translator: first %s is IPv4, IPv6, or Unix */
-						errmsg("rsetsockopt(IPV6_V6ONLY) failed for %s address \"%s\": %m",
+						errmsg("adb_rsetsockopt(IPV6_V6ONLY) failed for %s address \"%s\": %m",
 							familyDesc, addrDesc)));
-			rclose(fd);
+			adb_rclose(fd);
 			return STATUS_ERROR;
 		}
 	}
@@ -423,7 +433,7 @@ StreamServerRsPort(SockAddr *laddr, pgsocket *sr_fd, int *port_out)
 		* ipv4 addresses to ipv6.  It will show ::ffff:ipv4 for all ipv4
 		* connections.
 		*/
-	err = rbind(fd, (struct sockaddr *)&addr_inet, sizeof(addr_inet));
+	err = adb_rbind(fd, (struct sockaddr *)&addr_inet, sizeof(addr_inet));
 	if (err < 0)
 	{
 		ereport(LOG,
@@ -431,29 +441,29 @@ StreamServerRsPort(SockAddr *laddr, pgsocket *sr_fd, int *port_out)
 					errmsg("could not bind %s address \"%s\": %m",
 						familyDesc, addrDesc)));
 
-		rclose(fd);
+		adb_rclose(fd);
 		return STATUS_ERROR;
 	}
 
-	err = rlisten(fd, 1);
+	err = adb_rlisten(fd, 1);
 	if (err < 0)
 	{
 		ereport(LOG,
 				(errcode_for_socket_access(),
 		/* translator: first %s is IPv4, IPv6, or Unix */
-					errmsg("could not rlisten on %s address \"%s\": %m",
+					errmsg("could not adb_rlisten on %s address \"%s\": %m",
 						familyDesc, addrDesc)));
-		rclose(fd);
+		adb_rclose(fd);
 		return STATUS_ERROR;
 	}
 
 	/* get random listen port */
 	MemSet(&addr_inet, 0, sizeof(addr_inet));
 	addrlen = sizeof(addr_inet);
-	if (rgetsockname(fd, (struct sockaddr *)&addr_inet, &addrlen) < 0)
+	if (adb_rgetsockname(fd, (struct sockaddr *)&addr_inet, &addrlen) < 0)
 	{
 		ereport(LOG,
-				(errmsg("rgetsockname error %m")));
+				(errmsg("adb_rgetsockname error %m")));
 		return STATUS_ERROR;;
 	}
 
@@ -487,7 +497,7 @@ StreamServerRsPort(SockAddr *laddr, pgsocket *sr_fd, int *port_out)
 int
 StreamServerPort(int family, char *hostName, unsigned short portNumber,
 				 char *unixSocketDir,
-				 pgsocket ListenSocket[], int MaxListen ADB_RDMA_COMMA_ARG(bool is_rs))
+				 pgsocket ListenSocket[], int MaxListen)
 {
 	pgsocket	fd;
 	int			err;
@@ -519,14 +529,14 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 	hint.ai_socktype = SOCK_STREAM;
 
 #ifdef HAVE_UNIX_SOCKETS
-#ifdef WITH_RDMA
+/*#ifdef WITH_RDMA
 	if (is_rs && family == AF_UNIX)
 	{
 		ereport(LOG,
 					(errmsg("RDMA not support Unix-domain socket yet")));
 			return STATUS_ERROR;
 	}
-#endif
+#endif*/
 	if (family == AF_UNIX)
 	{
 		/*
@@ -634,8 +644,7 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 		}
 
 #ifdef WITH_RDMA
-		if ((fd = is_rs ? rsocket(addr->ai_family, SOCK_STREAM, 0) :
-				socket(addr->ai_family, SOCK_STREAM, 0)) == PGINVALID_SOCKET)
+		if ((fd = adb_rsocket(addr->ai_family, SOCK_STREAM, 0)) == PGINVALID_SOCKET)
 #else
 		if ((fd = socket(addr->ai_family, SOCK_STREAM, 0)) == PGINVALID_SOCKET)
 #endif
@@ -664,9 +673,7 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 		if (!IS_AF_UNIX(addr->ai_family))
 		{
 #ifdef WITH_RDMA
-			if (is_rs ? (rsetsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
-							(char *) &one, sizeof(one))) == -1
-				:(setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
+			if ((adb_rsetsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
 							(char *) &one, sizeof(one))) == -1)
 #else
 			if ((setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
@@ -688,9 +695,7 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 		if (addr->ai_family == AF_INET6)
 		{
 #ifdef WITH_RDMA
-			if (is_rs ? rsetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
-						   (char *) &one, sizeof(one)) == -1
-					:setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
+			if (adb_rsetsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
 						   (char *) &one, sizeof(one)) == -1)
 #else
 			if (setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY,
@@ -715,8 +720,7 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 		 * connections.
 		 */
 #ifdef WITH_RDMA
-		err = is_rs ? rbind(fd, addr->ai_addr, addr->ai_addrlen)
-			:bind(fd, addr->ai_addr, addr->ai_addrlen);
+		err = adb_rbind(fd, addr->ai_addr, addr->ai_addrlen);
 #else
 		err = bind(fd, addr->ai_addr, addr->ai_addrlen);
 #endif
@@ -735,7 +739,7 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 							 " If not, wait a few seconds and retry.",
 							 (int) portNumber)));
 #ifdef WITH_RDMA
-			is_rs ? rclose(fd) : closesocket(fd);
+			adb_rclose(fd);
 #else
 			closesocket(fd);
 #endif
@@ -763,7 +767,7 @@ StreamServerPort(int family, char *hostName, unsigned short portNumber,
 			maxconn = PG_SOMAXCONN;
 
 #ifdef WITH_RDMA
-		err = is_rs ? rlisten(fd, maxconn) : listen(fd, maxconn);
+		err = adb_rlisten(fd, maxconn);
 #else
 		err = listen(fd, maxconn);
 #endif
@@ -916,10 +920,7 @@ StreamConnection(pgsocket server_fd, Port *port)
 	/* accept connection and fill in the client (remote) address */
 	port->raddr.salen = sizeof(port->raddr.addr);
 #ifdef WITH_RDMA
-	if ((port->sock = port->is_rs ? raccept(server_fd,
-							 (struct sockaddr *) &port->raddr.addr,
-							 &port->raddr.salen)
-						: accept(server_fd,
+	if ((port->sock = adb_raccept(server_fd,
 							 (struct sockaddr *) &port->raddr.addr,
 							 &port->raddr.salen)) == PGINVALID_SOCKET)
 #else
@@ -946,12 +947,9 @@ StreamConnection(pgsocket server_fd, Port *port)
 	/* fill in the server (local) address */
 	port->laddr.salen = sizeof(port->laddr.addr);
 #ifdef WITH_RDMA
-	if ((port->is_rs ? rgetsockname(port->sock,
+	if (adb_rgetsockname(port->sock,
 					(struct sockaddr *) &port->laddr.addr,
-					&port->laddr.salen)
-			: getsockname(port->sock,
-					(struct sockaddr *) &port->laddr.addr,
-					&port->laddr.salen)) < 0)
+					&port->laddr.salen) < 0)
 #else
 	if (getsockname(port->sock,
 					(struct sockaddr *) &port->laddr.addr,
@@ -976,10 +974,8 @@ StreamConnection(pgsocket server_fd, Port *port)
 		on = 1;
 
 #ifdef WITH_RDMA
-		if ((port->is_rs ? rsetsockopt(port->sock, IPPROTO_TCP, TCP_NODELAY,
-					   (char *) &on, sizeof(on))
-			: setsockopt(port->sock, IPPROTO_TCP, TCP_NODELAY,
-					   (char *) &on, sizeof(on))) < 0)
+		if (adb_rsetsockopt(port->sock, IPPROTO_TCP, TCP_NODELAY,
+					   (char *) &on, sizeof(on)) < 0)
 #else
 		if (setsockopt(port->sock, IPPROTO_TCP, TCP_NODELAY,
 					   (char *) &on, sizeof(on)) < 0)
@@ -991,10 +987,8 @@ StreamConnection(pgsocket server_fd, Port *port)
 #endif
 		on = 1;
 #ifdef WITH_RDMA
-		if ((port->is_rs ? rsetsockopt(port->sock, SOL_SOCKET, SO_KEEPALIVE,
-					   (char *) &on, sizeof(on))
-			: setsockopt(port->sock, SOL_SOCKET, SO_KEEPALIVE,
-					   (char *) &on, sizeof(on))) < 0)
+		if (adb_rsetsockopt(port->sock, SOL_SOCKET, SO_KEEPALIVE,
+					   (char *) &on, sizeof(on)) < 0)
 #else
 		if (setsockopt(port->sock, SOL_SOCKET, SO_KEEPALIVE,
 					   (char *) &on, sizeof(on)) < 0)
@@ -1943,12 +1937,9 @@ pq_getkeepalivesidle(Port *port)
 		ACCEPT_TYPE_ARG3 size = sizeof(port->default_keepalives_idle);
 
 #ifdef WITH_RDMA
-		if ((port->is_rs ? rgetsockopt(port->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
+		if (adb_rgetsockopt(port->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
 					   (char *) &port->default_keepalives_idle,
-					   &size)
-					: getsockopt(port->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
-					   (char *) &port->default_keepalives_idle,
-					   &size)) < 0)
+					   &size) < 0)
 #else
 		if (getsockopt(port->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
 					   (char *) &port->default_keepalives_idle,
@@ -1997,10 +1988,8 @@ pq_setkeepalivesidle(int idle, Port *port)
 		idle = port->default_keepalives_idle;
 
 #ifdef WITH_RDMA
-	if ((port->is_rs ? rsetsockopt(port->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
-				   (char *) &idle, sizeof(idle))
-			: setsockopt(port->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
-				   (char *) &idle, sizeof(idle))) < 0)
+	if (adb_rsetsockopt(port->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
+				   (char *) &idle, sizeof(idle)) < 0)
 #else
 	if (setsockopt(port->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
 				   (char *) &idle, sizeof(idle)) < 0)
@@ -2041,12 +2030,9 @@ pq_getkeepalivesinterval(Port *port)
 		ACCEPT_TYPE_ARG3 size = sizeof(port->default_keepalives_interval);
 
 #ifdef WITH_RDMA
-		if ((port->is_rs ? rgetsockopt(port->sock, IPPROTO_TCP, TCP_KEEPINTVL,
+		if (adb_rgetsockopt(port->sock, IPPROTO_TCP, TCP_KEEPINTVL,
 					   (char *) &port->default_keepalives_interval,
-					   &size)
-				: getsockopt(port->sock, IPPROTO_TCP, TCP_KEEPINTVL,
-					   (char *) &port->default_keepalives_interval,
-					   &size)) < 0)
+					   &size) < 0)
 #else
 		if (getsockopt(port->sock, IPPROTO_TCP, TCP_KEEPINTVL,
 					   (char *) &port->default_keepalives_interval,
@@ -2094,10 +2080,8 @@ pq_setkeepalivesinterval(int interval, Port *port)
 		interval = port->default_keepalives_interval;
 
 #ifdef WITH_RDMA
-	if ((port->is_rs ? rsetsockopt(port->sock, IPPROTO_TCP, TCP_KEEPINTVL,
-				   (char *) &interval, sizeof(interval))
-				: setsockopt(port->sock, IPPROTO_TCP, TCP_KEEPINTVL,
-				   (char *) &interval, sizeof(interval))) < 0)
+	if (adb_rsetsockopt(port->sock, IPPROTO_TCP, TCP_KEEPINTVL,
+				   (char *) &interval, sizeof(interval)) < 0)
 #else
 	if (setsockopt(port->sock, IPPROTO_TCP, TCP_KEEPINTVL,
 				   (char *) &interval, sizeof(interval)) < 0)
@@ -2137,12 +2121,9 @@ pq_getkeepalivescount(Port *port)
 		ACCEPT_TYPE_ARG3 size = sizeof(port->default_keepalives_count);
 
 #ifdef WITH_RDMA
-		if ((port->is_rs ? rgetsockopt(port->sock, IPPROTO_TCP, TCP_KEEPCNT,
+		if (adb_rgetsockopt(port->sock, IPPROTO_TCP, TCP_KEEPCNT,
 					   (char *) &port->default_keepalives_count,
-					   &size)
-				: getsockopt(port->sock, IPPROTO_TCP, TCP_KEEPCNT,
-					   (char *) &port->default_keepalives_count,
-					   &size)) < 0)
+					   &size) < 0)
 #else
 		if (getsockopt(port->sock, IPPROTO_TCP, TCP_KEEPCNT,
 					   (char *) &port->default_keepalives_count,
@@ -2185,10 +2166,8 @@ pq_setkeepalivescount(int count, Port *port)
 		count = port->default_keepalives_count;
 
 #ifdef WITH_RDMA
-	if ((port->is_rs ? rsetsockopt(port->sock, IPPROTO_TCP, TCP_KEEPCNT,
-				   (char *) &count, sizeof(count))
-		:  setsockopt(port->sock, IPPROTO_TCP, TCP_KEEPCNT,
-				   (char *) &count, sizeof(count))) < 0)
+	if (adb_rsetsockopt(port->sock, IPPROTO_TCP, TCP_KEEPCNT,
+				   (char *) &count, sizeof(count)) < 0)
 #else
 	if (setsockopt(port->sock, IPPROTO_TCP, TCP_KEEPCNT,
 				   (char *) &count, sizeof(count)) < 0)

@@ -51,6 +51,10 @@ else
 OBJS_COMMON += sha2.o
 endif
 
+ifeq ($(filter yes,$(with_rdma) $(with_reduce_rdma)),)
+OBJS_COMMON += adb_rsocket.o
+endif
+
 OBJS_FRONTEND = $(OBJS_COMMON) fe_memutils.o file_utils.o restricted_token.o
 ifeq ($(enable_grammar_oracle),yes)
   OBJS_FRONTEND += ora_keywords.o

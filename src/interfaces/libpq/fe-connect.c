@@ -82,6 +82,9 @@ static int ldapServiceLookup(const char *purl, PQconninfoOption *options,
 #define PGPASSFILE "pgpass.conf"
 #endif
 
+#ifdef WITH_RDMA
+#include "rdma/adb_rsocket.h"
+#endif
 /*
  * Pre-9.0 servers will return this SQLSTATE if asked to set
  * application_name in a startup packet.  We hard-wire the value rather
@@ -452,12 +455,7 @@ pqDropConnection(PGconn *conn, bool flushInput)
 #endif
 	if (conn->sock != PGINVALID_SOCKET)
 #ifdef WITH_RDMA
-	{
-		if (conn->is_rs) 
-			rclose(conn->sock);
-		else
-			closesocket(conn->sock);
-	}
+		adb_rclose(conn->sock);
 #else
 		closesocket(conn->sock);
 #endif
@@ -674,7 +672,6 @@ PQpingParams(const char *const *keywords,
 PGconn *
 PQconnectdb(const char *conninfo)
 {
-	
 	PGconn	   *conn = PQconnectStart(conninfo);
 	/*FILE	   *fd;
 	fd = AllocateFile("libpqlog", "ab+");
@@ -885,9 +882,10 @@ fillPGconn(PGconn *conn, PQconninfoOption *connOptions)
 		}
 	}
 
+/*
 #ifdef WITH_RDMA
 	conn->is_rs_request = 1;
-#endif
+#endif*/
 
 	return true;
 }
@@ -1505,12 +1503,9 @@ connectNoDelay(PGconn *conn)
 	int			on = 1;
 
 #ifdef WITH_RDMA
-	if ((conn->is_rs ? rsetsockopt(conn->sock, IPPROTO_TCP, TCP_NODELAY,
+	if (adb_rsetsockopt(conn->sock, IPPROTO_TCP, TCP_NODELAY,
 				   (char *) &on,
-				   sizeof(on))
-		: setsockopt(conn->sock, IPPROTO_TCP, TCP_NODELAY,
-				   (char *) &on,
-				   sizeof(on))) < 0)
+				   sizeof(on)) < 0)
 #else
 	if (setsockopt(conn->sock, IPPROTO_TCP, TCP_NODELAY,
 				   (char *) &on,
@@ -1663,10 +1658,8 @@ setKeepalivesIdle(PGconn *conn)
 
 #ifdef PG_TCP_KEEPALIVE_IDLE
 #ifdef WITH_RDMA
-	if ((conn->is_rs ? rsetsockopt(conn->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
-				   (char *) &idle, sizeof(idle))
-		: setsockopt(conn->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
-				   (char *) &idle, sizeof(idle))) < 0)
+	if (adb_rsetsockopt(conn->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
+				   (char *) &idle, sizeof(idle)) < 0)
 #else
 	if (setsockopt(conn->sock, IPPROTO_TCP, PG_TCP_KEEPALIVE_IDLE,
 				   (char *) &idle, sizeof(idle)) < 0)
@@ -1702,10 +1695,8 @@ setKeepalivesInterval(PGconn *conn)
 
 #ifdef TCP_KEEPINTVL
 #ifdef WITH_RDMA
-	if ((conn->is_rs ? rsetsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPINTVL,
-				   (char *) &interval, sizeof(interval))
-			: setsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPINTVL,
-				   (char *) &interval, sizeof(interval))) < 0)
+	if (adb_rsetsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPINTVL,
+				   (char *) &interval, sizeof(interval)) < 0)
 #else
 	if (setsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPINTVL,
 				   (char *) &interval, sizeof(interval)) < 0)
@@ -1742,10 +1733,8 @@ setKeepalivesCount(PGconn *conn)
 
 #ifdef TCP_KEEPCNT
 #ifdef WITH_RDMA
-	if ((conn->is_rs ? rsetsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPCNT,
-				   (char *) &count, sizeof(count))
-			: setsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPCNT,
-				   (char *) &count, sizeof(count))) < 0)
+	if (adb_rsetsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPCNT,
+				   (char *) &count, sizeof(count)) < 0)
 #else
 	if (setsockopt(conn->sock, IPPROTO_TCP, TCP_KEEPCNT,
 				   (char *) &count, sizeof(count)) < 0)
@@ -2113,9 +2102,6 @@ PQconnectPoll(PGconn *conn)
 
 			/* Special cases: proceed without waiting. */
 		case CONNECTION_SSL_STARTUP:
-#ifdef WITH_RDMA
-		case CONNECTION_RSCOKET_STARTUP:
-#endif
 		case CONNECTION_NEEDED:
 		case CONNECTION_CHECK_WRITABLE:
 		case CONNECTION_CONSUME:
@@ -2365,10 +2351,8 @@ keep_going:						/* We will come back to here until there is
 					if (conn->Pfdebug)
 						fprintf(conn->Pfdebug, "addr_cur->ai_family is %d, conn->is_rs %d\n",
 							addr_cur->ai_family, conn->is_rs);
-					if (conn->is_rs)
-						conn->sock = rsocket(addr_cur->ai_family, SOCK_STREAM, 0);
-					else
-						conn->sock = socket(addr_cur->ai_family, SOCK_STREAM, 0);
+					
+					conn->sock = adb_rsocket(addr_cur->ai_family, SOCK_STREAM, 0);
 #else
 					conn->sock = socket(addr_cur->ai_family, SOCK_STREAM, 0);
 #endif
@@ -2412,8 +2396,7 @@ keep_going:						/* We will come back to here until there is
 						}
 					}
 #ifdef WITH_RDMA
-					if (!(conn->is_rs ? pg_set_rnoblock(conn->sock) 
-							: pg_set_noblock(conn->sock)))
+					if (!pg_set_rnoblock(conn->sock))
 #else
 					if (!pg_set_noblock(conn->sock))
 #endif
@@ -2431,9 +2414,9 @@ keep_going:						/* We will come back to here until there is
 
 #ifdef F_SETFD
 #ifdef WITH_RDMA
-					if (conn->is_rs)
-						usleep(100000);
-					else if (!conn->is_rs && fcntl(conn->sock, F_SETFD, FD_CLOEXEC) == -1)
+
+					//if (fcntl(conn->sock, F_SETFD, FD_CLOEXEC) == -1)
+					if(0)
 #else
 					//TODO rsocket don't support FD_CLOEXEC
 					if (fcntl(conn->sock, F_SETFD, FD_CLOEXEC) == -1)
@@ -2471,12 +2454,9 @@ keep_going:						/* We will come back to here until there is
 						}
 #ifndef WIN32
 #ifdef WITH_RDMA
-						else if ((conn->is_rs ? rsetsockopt(conn->sock,
+						else if (adb_rsetsockopt(conn->sock,
 											SOL_SOCKET, SO_KEEPALIVE,
-											(char *) &on, sizeof(on))
-							: setsockopt(conn->sock,
-											SOL_SOCKET, SO_KEEPALIVE,
-											(char *) &on, sizeof(on))) < 0)
+											(char *) &on, sizeof(on)) < 0)
 #else
 						else if (setsockopt(conn->sock,
 											SOL_SOCKET, SO_KEEPALIVE,
@@ -2542,10 +2522,8 @@ keep_going:						/* We will come back to here until there is
 #ifdef SO_NOSIGPIPE
 					optval = 1;
 #ifdef WITH_RDMA
-					if ((conn->is_rs ? rsetsockopt(conn->sock, SOL_SOCKET, SO_NOSIGPIPE,
-								   (char *) &optval, sizeof(optval))
-						: setsockopt(conn->sock, SOL_SOCKET, SO_NOSIGPIPE,
-								   (char *) &optval, sizeof(optval))) == 0)
+					if (adb_rsetsockopt(conn->sock, SOL_SOCKET, SO_NOSIGPIPE,
+								   (char *) &optval, sizeof(optval)) == 0)
 #else
 					if (setsockopt(conn->sock, SOL_SOCKET, SO_NOSIGPIPE,
 								   (char *) &optval, sizeof(optval)) == 0)
@@ -2586,10 +2564,8 @@ keep_going:						/* We will come back to here until there is
 						//fprintf(conn->Pfdebug, "connect ip %s\n", inet_ntoa(addr->sin_addr));
 					}
 #endif
-					if ((conn->is_rs ? rconnect(conn->sock, addr_cur->ai_addr,
-								addr_cur->ai_addrlen)
-						: connect(conn->sock, addr_cur->ai_addr,
-								addr_cur->ai_addrlen)) < 0)
+					if (adb_rconnect(conn->sock, addr_cur->ai_addr,
+								addr_cur->ai_addrlen) < 0)
 #else
 					if (connect(conn->sock, addr_cur->ai_addr,
 								addr_cur->ai_addrlen) < 0)
@@ -2655,10 +2631,8 @@ keep_going:						/* We will come back to here until there is
 					fprintf(conn->Pfdebug, "conn->is_rs %d errno %d\n",
 						conn->is_rs, errno);
 				}
-				if ((conn->is_rs ? rgetsockopt(conn->sock, SOL_SOCKET, SO_ERROR,
-							   (char *) &optval, &optlen)
-					: getsockopt(conn->sock, SOL_SOCKET, SO_ERROR,
-							   (char *) &optval, &optlen)) == -1)
+				if (adb_rgetsockopt(conn->sock, SOL_SOCKET, SO_ERROR,
+							   (char *) &optval, &optlen) == -1)
 #else
 				if (getsockopt(conn->sock, SOL_SOCKET, SO_ERROR,
 							   (char *) &optval, &optlen) == -1)
@@ -2693,12 +2667,9 @@ keep_going:						/* We will come back to here until there is
 				/* Fill in the client address */
 				conn->laddr.salen = sizeof(conn->laddr.addr);
 #ifdef WITH_RDMA
-				if ((conn->is_rs ? rgetsockname(conn->sock,
+				if (adb_rgetsockname(conn->sock,
 								(struct sockaddr *) &conn->laddr.addr,
-								&conn->laddr.salen)
-					: getsockname(conn->sock,
-								(struct sockaddr *) &conn->laddr.addr,
-								&conn->laddr.salen)) < 0)
+								&conn->laddr.salen) < 0)
 #else
 				if (getsockname(conn->sock,
 								(struct sockaddr *) &conn->laddr.addr,
@@ -2783,28 +2754,6 @@ keep_going:						/* We will come back to here until there is
 				}
 #endif							/* HAVE_UNIX_SOCKETS */
 
-#ifdef WITH_RDMA
-				if (conn->is_rs_request)
-				{
-					ProtocolVersion prv;
-					if (conn->is_rs_str && strcmp (conn->is_rs_str, "1") == 0)
-						prv = pg_hton32(NEGOTIATE_RSOCKET_CODE);
-					else
-						prv = pg_hton32(NEGOTIATE_NORSOCKET_CODE);
-					
-					if (pqPacketSend(conn, 0, &prv, sizeof(prv)) != STATUS_OK)
-					{
-						appendPQExpBuffer(&conn->errorMessage,
-											libpq_gettext("could not send rsocket negotiation packet: %s\n"),
-											SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
-						goto error_return;
-					}
-					/* Ok, wait for response */
-					conn->status = CONNECTION_RSCOKET_STARTUP;
-					return PGRES_POLLING_READING;
-				}
-#endif
-
 #ifdef USE_SSL
 
 				/*
@@ -2887,60 +2836,6 @@ keep_going:						/* We will come back to here until there is
 			 * Handle SSL negotiation: wait for postmaster messages and
 			 * respond as necessary.
 			 */
-#ifdef WITH_RDMA
-		case CONNECTION_RSCOKET_STARTUP:
-			{
-				int			new_rs_port;
-				int			rdresult;
-
-				rdresult = pqReadData(conn);
-
-				if (conn->Pfdebug)
-					fprintf(conn->Pfdebug, "rdresult %d, %m\n",
-						rdresult);
-				if (rdresult < 0)
-				{
-					/* errorMessage is already filled in */
-					goto error_return;
-				}
-				if (rdresult == 0)
-				{
-					/* caller failed to wait for data */
-					return PGRES_POLLING_READING;
-				}
-				if (pqGetInt(&new_rs_port, 4, conn) < 0)
-				{
-					/* should not happen really */
-					return PGRES_POLLING_READING;
-				}
-
-				conn->inStart = conn->inCursor;
-				if (conn->Pfdebug)
-					fprintf(conn->Pfdebug, "new_rs_port %d, %m\n",
-						new_rs_port);
-				conn->try_next_host = false;
-				conn->try_next_addr = false;
-				if (new_rs_port > 0)
-				{
-					conn->is_rs = 1;
-					conn->rs_port_num = new_rs_port;
-					conn->status = CONNECTION_STARTED;
-					conn->is_rs_request = 0;
-					conn->is_need_rcon = 1;
-					goto keep_going;
-					//return PGRES_POLLING_WRITING;
-				}
-				else
-				{
-					conn->is_rs = 0;
-					conn->rs_port_num = 0;
-					conn->status = CONNECTION_MADE;
-					conn->is_rs_request = 0;
-					conn->is_need_rcon = 0;
-					return PGRES_POLLING_WRITING;
-				}
-			}
-#endif
 		case CONNECTION_SSL_STARTUP:
 			{
 #ifdef USE_SSL
@@ -7094,10 +6989,7 @@ int PQbeginRsAttach(PGconn *conn)
 	/* Fill in the client address */
 	conn->laddr.salen = sizeof(conn->laddr.addr);
 
-	if ((conn->is_rs ? rgetsockname(conn->sock,
-					(struct sockaddr *) & conn->laddr.addr,
-					&conn->laddr.salen)
-			: getsockname(conn->sock,
+	if ((adb_rgetsockname(conn->sock,
 					(struct sockaddr *) & conn->laddr.addr,
 					&conn->laddr.salen)) < 0)
 	{
@@ -7109,12 +7001,9 @@ int PQbeginRsAttach(PGconn *conn)
 
 	conn->raddr.salen = sizeof(conn->raddr.addr);
 
-	if ((conn->is_rs ? rgetpeername(conn->sock,
+	if (adb_rgetpeername(conn->sock,
 					(struct sockaddr *) & conn->raddr.addr,
-					&conn->raddr.salen)
-			: getpeername(conn->sock,
-					(struct sockaddr *) & conn->raddr.addr,
-					&conn->raddr.salen) < 0))
+					&conn->raddr.salen) < 0)
 	{
 		appendPQExpBuffer(&conn->errorMessage,
 						  libpq_gettext("could not get peer address from socket: %s\n"),
@@ -7123,11 +7012,10 @@ int PQbeginRsAttach(PGconn *conn)
 	}
 
 	/* get block status */
-	conn->nonblocking = conn->is_rs ? pg_set_rnoblock(conn->sock)
-		: pg_set_noblock(conn->sock);
+	conn->nonblocking = pg_set_rnoblock(conn->sock);
 
 	if(!conn->nonblocking)
-		conn->is_rs ? pg_set_rblock(conn->sock) : pg_set_block(conn->sock);
+		pg_set_rblock(conn->sock);
 
 	/* make a query info message */
 	if(pqPacketSend(conn, 'I', NULL, 0) != STATUS_OK)

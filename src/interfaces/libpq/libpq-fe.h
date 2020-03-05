@@ -65,9 +65,6 @@ typedef enum
 								 * backend startup. */
 	CONNECTION_SETENV,			/* Negotiating environment. */
 	CONNECTION_SSL_STARTUP,		/* Negotiating SSL. */
-#ifdef WITH_RDMA
-	CONNECTION_RSCOKET_STARTUP,		/* Negotiating rsocket. */
-#endif
 	CONNECTION_NEEDED,			/* Internal state: connect() needed */
 	CONNECTION_CHECK_WRITABLE,	/* Check if we could make a writable
 								 * connection. */

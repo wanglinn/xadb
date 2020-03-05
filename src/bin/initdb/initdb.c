@@ -75,6 +75,10 @@
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
 
+#ifdef WITH_RDMA
+#include "rdma/adb_rsocket.h"
+#endif
+
 
 /* Ideally this would be in a .h file, but it hardly seems worth the trouble */
 extern const char *select_default_timezone(const char *share_path);
@@ -3414,6 +3418,9 @@ main(int argc, char *argv[])
 	setvbuf(stdout, NULL, PG_IOLBF, 0);
 	setvbuf(stderr, NULL, _IONBF, 0);
 
+#ifdef WITH_RDMA
+	rsocket_preload_int();
+#endif
 	progname = get_progname(argv[0]);
 	set_pglocale_pgservice(argv[0], PG_TEXTDOMAIN("initdb"));
 
@@ -3750,5 +3757,8 @@ main(int argc, char *argv[])
 
 	destroyPQExpBuffer(start_db_cmd);
 
+#ifdef WITH_RDMA
+	rsocket_preload_exit();
+#endif
 	return 0;
 }

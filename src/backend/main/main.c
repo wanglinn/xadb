@@ -43,6 +43,9 @@
 #include "utils/pg_locale.h"
 #include "utils/ps_status.h"
 
+#if defined (WITH_RDMA) || defined(WITH_REDUCE_RDMA)
+#include "rdma/adb_rsocket.h"
+#endif
 
 const char *progname;
 
@@ -199,6 +202,10 @@ main(int argc, char *argv[])
 	/*
 	 * Dispatch to one of various subprograms depending on first argument.
 	 */
+#if defined (WITH_RDMA) || defined(WITH_REDUCE_RDMA)
+	if (rsocket_preload_int() < 0)
+		elog(FATAL, "rsocket_preload_int failed");
+#endif
 
 #ifdef EXEC_BACKEND
 	if (argc > 1 && strncmp(argv[1], "--fork", 6) == 0)

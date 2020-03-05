@@ -17,7 +17,7 @@
 #include <sys/signalfd.h>
 
 #include "utils/dr_private.h"
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA)
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 #include "postmaster/postmaster.h"
 #endif /* DR_USING_EPOLL */
 
@@ -34,7 +34,7 @@ DRLatchEventData *dr_latch_data = NULL;
 static BackgroundWorker *dr_bgworker = NULL;
 static BackgroundWorkerHandle *dr_bghandle = NULL;
 
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 volatile Size poll_max;
 Size poll_count;
 struct pollfd * volatile poll_fd;
@@ -85,7 +85,7 @@ static inline void DRSetupSignal(void)
 }
 #endif
 
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 static inline int setup_signalfd(void)
 {
 	int sfd;
@@ -121,7 +121,7 @@ void DynamicReduceWorkerMain(Datum main_arg)
 	HASH_SEQ_STATUS	seq_state;
 	PlanInfo	   *pi;
 
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 	Size nevent;
 	DRNodeEventData *nedinfo;
 	DRNodeEventData *newdata;
@@ -165,7 +165,7 @@ void DynamicReduceWorkerMain(Datum main_arg)
 	DRInitNodeSearch();
 	DRInitPlanSearch();
 
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 	sfd = setup_signalfd();
 	newdata = MemoryContextAllocZero(DrTopMemoryContext, sizeof(*newdata));
 	newdata->base.type = DR_EVENT_DATA_LATCH;
@@ -177,7 +177,6 @@ void DynamicReduceWorkerMain(Datum main_arg)
 	newdata->nodeoid = InvalidOid;
 	newdata->status = DRN_ACCEPTED;
 
-	//elog(LOG, "DynamicReduceWorkerMain RDRCtlWaitEvent fd %d", sfd);
 	RDRCtlWaitEvent(sfd, POLLIN, newdata, RPOLL_EVENT_ADD);
 #endif
 
@@ -197,7 +196,7 @@ void DynamicReduceWorkerMain(Datum main_arg)
 		while ((pi=hash_seq_search(&seq_state)) != NULL)
 			(*pi->OnPlanError)(pi);
 
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA)
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 		CallConnectingOnError();
 		DRNodeSeqInit(&seq_state);
 		while ((base=hash_seq_search(&seq_state)) != NULL)
@@ -235,7 +234,7 @@ void DynamicReduceWorkerMain(Datum main_arg)
 		MemoryContextSwitchTo(loop_context);
 		MemoryContextResetAndDeleteChildren(loop_context);
 
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA)
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 		DRNodeSeqInit(&seq_state);
 		while((base=hash_seq_search(&seq_state)) != NULL)
 		{
@@ -249,7 +248,7 @@ void DynamicReduceWorkerMain(Datum main_arg)
 			if (pi->OnPreWait)
 				(*pi->OnPreWait)(pi);
 		}
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 		if (poll_count > poll_max)
 		{
 			Size new_size = poll_max+STEP_POLL_ALLOC;
@@ -258,7 +257,7 @@ void DynamicReduceWorkerMain(Datum main_arg)
 			poll_fd = repalloc(poll_fd, new_size*sizeof(*poll_fd));
 			poll_max+= new_size;
 		}
-		nevent = rpoll(poll_fd, poll_count, 100);
+		nevent = adb_rpoll(poll_fd, poll_count, 100);
 		time_now = time(NULL);
 		if (nevent == 0 ||	/* timeout */
 			time_now != time_last_latch)
@@ -284,8 +283,9 @@ void DynamicReduceWorkerMain(Datum main_arg)
 						if (ret < 0)
 							elog(ERROR, "read signal ret %d failed: %m", ret);
 					}
-					nedinfo = (DRNodeEventData*)dr_rhandle_find(i);
+					nedinfo = (DRNodeEventData*)dr_rhandle_find(poll_fd[i].fd);
 					base = &nedinfo->base;
+					Assert(base->fd == poll_fd[i].fd);
 					(*base->OnEvent)(base, poll_fd[i].revents);
 					--nevent;
 				}
@@ -379,7 +379,7 @@ uint16 StartDynamicReduceWorker(void)
 		Assert(dr_mem_seg != NULL);
 	}
 
-#if (!defined DR_USING_EPOLL) && (!defined WITH_RDMA)
+#if (!defined DR_USING_EPOLL) && (!defined WITH_REDUCE_RDMA)
 	if (dr_wait_event_set == NULL)
 	{
 		dr_wait_event_set = CreateWaitEventSet(TopMemoryContext, 2);
@@ -491,15 +491,15 @@ void StopDynamicReduceWorker(void)
 
 	if (is_reduce_worker)
 	{
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA)
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 		DREventData		   *base;
 
 		DRNodeSeqInit(&seq);
 		while ((base=hash_seq_search(&seq)) != NULL)
 		{
 			if (base->fd != PGINVALID_SOCKET)
-#ifdef WITH_RDMA
-				rclose(base->fd);
+#ifdef WITH_REDUCE_RDMA
+				adb_rclose(base->fd);
 #else
 				closesocket(base->fd);
 #endif
@@ -534,7 +534,7 @@ void DynamicReduceStartParallel(void)
 {
 	Assert(IsParallelWorker());
 
-#if (!defined DR_USING_EPOLL) && (!defined WITH_RDMA)
+#if (!defined DR_USING_EPOLL) && (!defined WITH_REDUCE_RDMA)
 	if (dr_wait_event_set == NULL)
 	{
 		dr_wait_event_set = CreateWaitEventSet(TopMemoryContext, 2);
@@ -563,13 +563,13 @@ void DRCheckStarted(void)
 static void dr_start_event(void)
 {
 	MemoryContext oldcontext;
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 	oldcontext = MemoryContextSwitchTo(DrTopMemoryContext);
 	poll_max = START_POOL_ALLOC;
 	poll_count = 0;
 	poll_fd = MemoryContextAlloc(DrTopMemoryContext,
 								 sizeof(struct pollfd) * poll_max);
-	dr_create_rhandle_list(poll_max, 0);
+	dr_create_rhandle_list();
 #elif defined DR_USING_EPOLL
 	oldcontext = MemoryContextSwitchTo(DrTopMemoryContext);
 	if (dr_epoll_fd == PGINVALID_SOCKET &&
@@ -597,7 +597,7 @@ static void dr_start_event(void)
 		ped = MemoryContextAllocZero(DrTopMemoryContext, sizeof(*ped));
 		ped->type = DR_EVENT_DATA_POSTMASTER;
 		ped->OnEvent = OnPostmasterEvent;
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 		RDRCtlWaitEvent(postmaster_alive_fds[POSTMASTER_FD_WATCH],
 					   POLLIN,
 					   ped,
@@ -621,7 +621,7 @@ static void dr_start_event(void)
 	initOidBufferEx(&dr_latch_data->net_oid_buf, OID_BUF_DEF_SIZE, DrTopMemoryContext);
 	initOidBufferEx(&dr_latch_data->work_oid_buf, OID_BUF_DEF_SIZE, DrTopMemoryContext);
 	initOidBufferEx(&dr_latch_data->work_pid_buf, OID_BUF_DEF_SIZE, DrTopMemoryContext);
-#if (!defined DR_USING_EPOLL) && (!defined WITH_RDMA)
+#if (!defined DR_USING_EPOLL) && (!defined WITH_REDUCE_RDMA)
 	AddWaitEventToSet(dr_wait_event_set,
 					  WL_LATCH_SET,
 					  PGINVALID_SOCKET,
@@ -748,7 +748,7 @@ static void DRReset(void)
 	while ((pi=hash_seq_search(&status)) != NULL)
 		(*pi->OnDestroy)(pi);
 
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA) 
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA) 
 	DRNodeSeqInit(&status);
 	while ((base=hash_seq_search(&status)) != NULL)
 	{
@@ -768,7 +768,7 @@ static void DRReset(void)
 	DRShmemResetSharedFile();
 }
 
-#if (!defined DR_USING_EPOLL) && (!defined WITH_RDMA)
+#if (!defined DR_USING_EPOLL) && (!defined WITH_REDUCE_RDMA)
 void DREnlargeWaitEventSet(void)
 {
 	if (dr_wait_count == dr_wait_max)

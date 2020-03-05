@@ -1125,7 +1125,7 @@ pqSocketPoll(int sock, int forRead, int forWrite, time_t end_time)
 	}
 
 #ifdef WITH_RDMA
-	return rpoll(&input_fd, 1, timeout_ms);
+	return adb_rpoll(&input_fd, 1, timeout_ms);
 #else
 	return poll(&input_fd, 1, timeout_ms);
 #endif
@@ -1166,7 +1166,7 @@ pqSocketPoll(int sock, int forRead, int forWrite, time_t end_time)
 	}
 
 #ifdef WITH_RDMA
-	return rselect(sock + 1, &input_mask, &output_mask,
+	return adb_rselect(sock + 1, &input_mask, &output_mask,
 				  &except_mask, ptr_timeout);
 #else
 	return select(sock + 1, &input_mask, &output_mask,
