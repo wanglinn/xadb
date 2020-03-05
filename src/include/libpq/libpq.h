@@ -60,7 +60,7 @@ extern WaitEventSet *FeBeWaitSet;
 
 extern int	StreamServerPort(int family, char *hostName,
 							 unsigned short portNumber, char *unixSocketDir,
-							 pgsocket ListenSocket[], int MaxListen ADB_RDMA_COMMA_ARG(bool is_rs));
+							 pgsocket ListenSocket[], int MaxListen);
 extern int	StreamConnection(pgsocket server_fd, Port *port);
 extern void StreamClose(pgsocket sock);
 extern void TouchSocketFiles(void);

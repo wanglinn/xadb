@@ -16,6 +16,11 @@
 #include "access/xact.h"
 #include "access/transam.h"
 
+
+#if defined (WITH_RDMA) || defined(WITH_REDUCE_RDMA)
+#include "rdma/adb_rsocket.h"
+#endif
+
 #ifdef HAVE_POLL_H
 #include <poll.h>
 #elif defined(HAVE_SYS_POLL_H)
@@ -140,7 +145,7 @@ static void check_is_all_socket_correct(List *oid_list)
 		}
 	}
 #ifdef WITH_RDMA
-	n = rpoll(pfds, i, 0);
+	n = adb_rpoll(pfds, i, 0);
 #else
 	n = poll(pfds, i, 0);
 #endif
@@ -189,7 +194,7 @@ static List* apply_for_node_use_oid(List *oid_list)
 	{
 		List * volatile conn_list = NIL;
 		pgsocket * volatile fds = NULL;
-#ifdef WITH_RDMA
+/*#ifdef WITH_RDMA
 		conn_list = PoolManagerGetRsConnectionsOid(need_list);
 		if(conn_list == NIL)
 		{
@@ -197,7 +202,7 @@ static List* apply_for_node_use_oid(List *oid_list)
 					(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
 					 errmsg("Failed to get rs connections")));
 		}
-#else
+#else*/
 		fds = PoolManagerGetConnectionsOid(need_list);
 		if(fds == NULL)
 		{
@@ -206,16 +211,16 @@ static List* apply_for_node_use_oid(List *oid_list)
 					(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
 					 errmsg("Failed to get pooled connections")));
 		}
-#endif
+//#endif
 
 		PG_TRY();
 		{
-#ifndef WITH_RDMA
+//#ifndef WITH_RDMA
 			conn_list = pg_conn_attach_socket(fds, list_length(need_list));
 			/* at here don't need fds */
 			pfree(fds);
 			fds = NULL;
-#endif
+//#endif
 			Assert(list_length(conn_list) == list_length(need_list));
 			PQNListExecFinish(conn_list, NULL, &PQNDefaultHookFunctions, true);
 
@@ -331,8 +336,7 @@ bool PQNOneExecFinish(struct pg_conn *conn, const PQNHookFunctions *hook, bool b
 			pfd.fd = PQsocket(conn);
 			pfd.events = POLLOUT;
 #ifdef WITH_RDMA
-			poll_res = PQisrs(conn) ? rpoll(&pfd, 1, blocking ? -1:0)
-					: poll(&pfd, 1, blocking ? -1:0);
+			poll_res = adb_rpoll(&pfd, 1, blocking ? -1:0);
 #else
 			poll_res = poll(&pfd, 1, blocking ? -1:0);
 #endif
@@ -361,8 +365,7 @@ bool PQNOneExecFinish(struct pg_conn *conn, const PQNHookFunctions *hook, bool b
 		else
 			pfd.events = POLLIN;
 #ifdef WITH_RDMA
-			poll_res = PQisrs(conn)  ? rpoll(&pfd, 1, blocking ? -1:0)
-					: poll(&pfd, 1, blocking ? -1:0);
+		poll_res = adb_rpoll(&pfd, 1, blocking ? -1:0);
 #else
 		poll_res = poll(&pfd, 1, blocking ? -1:0);
 #endif
@@ -406,8 +409,7 @@ bool PQNOneExecFinish(struct pg_conn *conn, const PQNHookFunctions *hook, bool b
 			break;
 
 #ifdef WITH_RDMA
-		poll_res = PQisrs(conn)  ? rpoll(&pfd, 1, blocking ? -1:0)
-				: poll(&pfd, 1, blocking ? -1:0);
+		poll_res = adb_rpoll(&pfd, 1, blocking ? -1:0);
 #else
 		poll_res = poll(&pfd, 1, blocking ? -1:0);
 #endif
@@ -525,7 +527,7 @@ PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook,
 
 re_poll_:
 #ifdef WITH_RDMA
-		n = rpoll(pfds, list_length(list), blocking ? -1:0);
+		n = adb_rpoll(pfds, list_length(list), blocking ? -1:0);
 #else
 		n = poll(pfds, list_length(list), blocking ? -1:0);
 #endif
@@ -682,9 +684,6 @@ static int PQNIsConnecting(PGconn *conn)
 		break;
 	case CONNECTION_SSL_STARTUP:
 	case CONNECTION_GSS_STARTUP:
-#ifdef WITH_RDMA
-	case CONNECTION_RSCOKET_STARTUP:
-#endif
 	case CONNECTION_CHECK_WRITABLE:
 	case CONNECTION_CONSUME:
 		return -1;
@@ -732,7 +731,7 @@ re_select_:
 				FD_SET(sock, &wfds);
 				FD_SET(sock, &efds);
 #ifdef WITH_RDMA
-				ret = rselect(sock + 1, NULL, &wfds, &efds, NULL);
+				ret = adb_rselect(sock + 1, NULL, &wfds, &efds, NULL);
 #else
 				ret = select(sock + 1, NULL, &wfds, &efds, NULL);
 #endif
@@ -1014,7 +1013,7 @@ re_set_:
 	}
 re_select_:
 #ifdef WITH_RDMA
-	result = rpoll(pfd, count, -1);
+	result = adb_rpoll(pfd, count, -1);
 #else
 	result = poll(pfd, count, -1);
 #endif

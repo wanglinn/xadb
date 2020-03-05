@@ -1406,13 +1406,7 @@ WaitEventSetWaitBlock(WaitEventSet *set, int cur_timeout,
 
 	/* Sleep */
 #ifdef WITH_RDMA
-	ereport(LOG, (errmsg("rpoll set->nevents %d", set->nevents)));
-	int i = 0;
-	for(i = 0; i < set->nevents; i++)
-	{
-		ereport(LOG, (errmsg("rpoll watch fd %d", set->pollfds[i].fd)));
-	}
-	rc = rpoll(set->pollfds, set->nevents, (int) cur_timeout);
+	rc = adb_rpoll(set->pollfds, set->nevents, (int) cur_timeout);
 #else
 	rc = poll(set->pollfds, set->nevents, (int) cur_timeout);
 #endif

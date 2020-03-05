@@ -78,7 +78,7 @@
 #endif
 
 #ifdef WITH_RDMA
-#include <rdma/rsocket.h> 
+#include "rdma/adb_rsocket.h"
 #endif
 
 #if defined(ADBMGRD) || defined(INITMGR) || defined(INITAGTM)

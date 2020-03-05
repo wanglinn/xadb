@@ -58,6 +58,10 @@ else
 OBJS_COMMON += sha2.o
 endif
 
+ifeq ($(filter yes,$(with_rdma) $(with_reduce_rdma)),)
+OBJS_COMMON += adb_rsocket.o
+endif
+
 # A few files are currently only built for frontend, not server
 # (Mkvcbuild.pm has a copy of this list, too)
 OBJS_FRONTEND = $(OBJS_COMMON) fe_memutils.o file_utils.o \

@@ -22,7 +22,7 @@
  */
 #define CONNECT_MSG_LENGTH	9
 
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA) 
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA) 
 static DRListenEventData *dr_listen_event = NULL;
 static List *dr_accepted_node_list = NIL;
 #define INSERT_ACCEPTED_NODE(n_)	dr_accepted_node_list = lappend(dr_accepted_node_list, n_)
@@ -31,12 +31,12 @@ static List *dr_accepted_node_list = NIL;
 static int dr_listen_pos = INVALID_EVENT_SET_POS;
 #define INSERT_ACCEPTED_NODE(n_)	((void)true)
 #define DELETE_ACCEPTED_NODE(n_)	((void)true)
-#endif /* DR_USING_EPOLL || WITH_RDMA */
+#endif /* DR_USING_EPOLL || WITH_REDUCE_RDMA */
 static pgsocket ConnectToAddress(const struct addrinfo *addr);
 
 static void OnNodeEventConnectFrom(DROnEventArgs)
 {
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA)
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 	DRNodeEventData	   *ned = (DRNodeEventData*)base;
 	pgsocket			fd = ned->base.fd;
 #else
@@ -98,7 +98,7 @@ static void OnNodeEventConnectFrom(DROnEventArgs)
 					(errmsg("replicate node oid %u from remote", ned->nodeoid)));
 		}
 		DR_CONNECT_DEBUG((errmsg("node %u from remote accept successed", ned->nodeoid)));
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 		RDRCtlWaitEvent(fd, ned->waiting_events, newned, RPOLL_EVENT_MOD);
 		DELETE_ACCEPTED_NODE(ned);
 #elif defined DR_USING_EPOLL
@@ -117,7 +117,7 @@ static void OnNodeEventConnectFrom(DROnEventArgs)
 
 static void OnNodeEventConnectTo(DROnEventArgs)
 {
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA)
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 	DRNodeEventData	   *ned = (DRNodeEventData*)base;
 	pgsocket			event_fd = ned->base.fd;
 #else
@@ -129,8 +129,8 @@ static void OnNodeEventConnectTo(DROnEventArgs)
 	Assert(DRSearchNodeEventData(ned->nodeoid, HASH_FIND, NULL) != NULL);
 
 resend_:
-#ifdef WITH_RDMA
-	size = rsend(event_fd,
+#ifdef WITH_REDUCE_RDMA
+	size = adb_rsend(event_fd,
 				ned->sendBuf.data + ned->sendBuf.cursor,
 				ned->sendBuf.len - ned->sendBuf.cursor,
 				0);
@@ -161,12 +161,11 @@ resend_:
 			ereport(ERROR,
 					(errmsg("could not connect to any addres for remote node %u", ned->nodeoid)));
 		}
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 		RDRCtlWaitEvent(event_fd, 0, NULL, RPOLL_EVENT_DEL);
 		--dr_wait_count;
-		rclose(event_fd);
+		adb_rclose(event_fd);
 		base->fd = new_fd;
-		//elog(LOG, "OnNodeEventConnectTo RDRCtlWaitEvent fd %d", new_fd);
 		RDRCtlWaitEvent(new_fd, POLLOUT, base, RPOLL_EVENT_ADD);
 		++dr_wait_count;
 #elif defined DR_USING_EPOLL
@@ -209,7 +208,7 @@ static void OnConnectError(DROnErrorArgs)
 		FreeNodeEventInfo(ned);
 }
 
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA)
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 void CallConnectingOnError(void)
 {
 	ListCell	   *lc;
@@ -224,7 +223,7 @@ void CallConnectingOnError(void)
 			(*base->OnError)(base);
 	}
 }
-#endif /* DR_USING_EPOLL | WITH_RDMA */
+#endif /* DR_USING_EPOLL | WITH_REDUCE_RDMA */
 
 static void ConnectToOneNode(const DynamicReduceNodeInfo *info, const struct addrinfo *hintp, DRNodeEventData **newed)
 {
@@ -293,9 +292,8 @@ static void ConnectToOneNode(const DynamicReduceNodeInfo *info, const struct add
 				(errmsg("could not connect to any addres for remote node %u(%s:%d)",
 						info->node_oid, NameStr(info->host), info->port)));
 	}
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 	ned->base.fd = fd;
-	//elog(LOG, "ConnectToOneNode RDRCtlWaitEvent fd %d", fd);
 	RDRCtlWaitEvent(fd, POLLOUT, ned, RPOLL_EVENT_ADD);
 	ned->waiting_events = POLLOUT;
 #elif defined DR_USING_EPOLL
@@ -395,7 +393,7 @@ void ConnectToAllNode(const DynamicReduceNodeInfo *info, uint32 count)
 
 static void OnListenEvent(DROnEventArgs)
 {
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA)
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 	DRListenEventData *led = (DRListenEventData*)base;
 	pgsocket fd = base->fd;
 #else
@@ -413,8 +411,8 @@ static void OnListenEvent(DROnEventArgs)
 		MemoryContext oldcontext;
 		do
 		{
-#ifdef WITH_RDMA
-			newfd = raccept(fd, NULL, NULL);
+#ifdef WITH_REDUCE_RDMA
+			newfd = adb_raccept(fd, NULL, NULL);
 #else
 			newfd = accept(fd, NULL, NULL);
 #endif
@@ -426,7 +424,7 @@ static void OnListenEvent(DROnEventArgs)
 						(errcode_for_socket_access(),
 						 errmsg("can not accept new socket:%m")));
 			}
-#if (!defined DR_USING_EPOLL) && (!defined WITH_RDMA)
+#if (!defined DR_USING_EPOLL) && (!defined WITH_REDUCE_RDMA)
 			DREnlargeWaitEventSet();
 #endif
 
@@ -443,7 +441,7 @@ static void OnListenEvent(DROnEventArgs)
 
 			newdata->nodeoid = InvalidOid;
 			newdata->status = DRN_ACCEPTED;
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 			newdata->base.fd = newfd;
 			RDRCtlWaitEvent(newfd, POLLIN, newdata, RPOLL_EVENT_ADD);
 			newdata->waiting_events = POLLIN;
@@ -464,7 +462,11 @@ static void OnListenEvent(DROnEventArgs)
 	}PG_CATCH();
 	{
 		if (newfd != PGINVALID_SOCKET)
+#ifdef WITH_REDUCE_RDMA
+			adb_rclose(newfd);
+#else
 			closesocket(newfd);
+#endif
 		if (newdata)
 		{
 			DELETE_ACCEPTED_NODE(newdata);
@@ -490,7 +492,7 @@ DRListenEventData* GetListenEventData(void)
 	int					one = 1;
 #endif
 
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA) 
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA) 
 	if (dr_listen_event != NULL)
 		return dr_listen_event;
 #else
@@ -506,8 +508,8 @@ DRListenEventData* GetListenEventData(void)
 	led = MemoryContextAllocZero(TopMemoryContext, sizeof(*led));
 	led->base.type = DR_EVENT_DATA_LISTEN;
 	led->base.OnEvent = OnListenEvent;
-#ifdef WITH_RDMA
-	fd = rsocket(AF_INET, SOCK_STREAM, 0);
+#ifdef WITH_REDUCE_RDMA
+	fd = adb_rsocket(AF_INET, SOCK_STREAM, 0);
 #else
 	fd = socket(AF_INET, SOCK_STREAM, 0);
 #endif
@@ -518,15 +520,15 @@ DRListenEventData* GetListenEventData(void)
 				(errcode_for_socket_access(),
 				 errmsg("could not create socket: %m")));
 	}
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 	led->noblock = pg_set_rnoblock(fd);
 #else
 	led->noblock = pg_set_noblock(fd);
 #endif
 	
 #ifndef WIN32
-#ifdef WITH_RDMA
-	rsetsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *) &one, sizeof(one));
+#ifdef WITH_REDUCE_RDMA
+	adb_rsetsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *) &one, sizeof(one));
 #else
 	/* ignore result */
 	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *) &one, sizeof(one));
@@ -537,14 +539,14 @@ DRListenEventData* GetListenEventData(void)
 	/* addr_inet.sin_port = 0; */
 	addr_inet.sin_addr.s_addr = htonl(INADDR_ANY);
 
-#ifdef WITH_RDMA
-	if (rbind(fd, (struct sockaddr *)&addr_inet, sizeof(addr_inet)) < 0)
+#ifdef WITH_REDUCE_RDMA
+	if (adb_rbind(fd, (struct sockaddr *)&addr_inet, sizeof(addr_inet)) < 0)
 #else
 	if (bind(fd, (struct sockaddr *)&addr_inet, sizeof(addr_inet)) < 0)
 #endif
 	{
-#ifdef WITH_RDMA
-		rclose(fd);
+#ifdef WITH_REDUCE_RDMA
+		adb_rclose(fd);
 #else
 		closesocket(fd);
 #endif
@@ -554,14 +556,14 @@ DRListenEventData* GetListenEventData(void)
 				 errmsg("could not bind IPv4 socket: %m")));
 	}
 
-#ifdef WITH_RDMA
-	if (rlisten(fd, PG_SOMAXCONN) < 0)
+#ifdef WITH_REDUCE_RDMA
+	if (adb_rlisten(fd, PG_SOMAXCONN) < 0)
 #else
 	if (listen(fd, PG_SOMAXCONN) < 0)
 #endif
 	{
-#ifdef WITH_RDMA
-		rclose(fd);
+#ifdef WITH_REDUCE_RDMA
+		adb_rclose(fd);
 #else
 		closesocket(fd);
 #endif
@@ -574,14 +576,14 @@ DRListenEventData* GetListenEventData(void)
 	/* get random listen port */
 	MemSet(&addr_inet, 0, sizeof(addr_inet));
 	addrlen = sizeof(addr_inet);
-#ifdef WITH_RDMA
-	if (rgetsockname(fd, (struct sockaddr *)&addr_inet, &addrlen) < 0)
+#ifdef WITH_REDUCE_RDMA
+	if (adb_rgetsockname(fd, (struct sockaddr *)&addr_inet, &addrlen) < 0)
 #else
 	if (getsockname(fd, &addr_inet, &addrlen) < 0)
 #endif
 	{
-#ifdef WITH_RDMA
-		rclose(fd);
+#ifdef WITH_REDUCE_RDMA
+		adb_rclose(fd);
 #else
 		closesocket(fd);
 #endif
@@ -592,9 +594,8 @@ DRListenEventData* GetListenEventData(void)
 	}
 	led->port = htons(addr_inet.sin_port);
 
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 	led->base.fd = fd;
-	//elog(LOG, "GetListenEventData RDRCtlWaitEvent fd %d, port %d", fd, led->port);
 	RDRCtlWaitEvent(fd, POLLIN, led, RPOLL_EVENT_ADD);
 	dr_listen_event = led;
 #elif defined DR_USING_EPOLL
@@ -615,8 +616,8 @@ DRListenEventData* GetListenEventData(void)
 
 static pgsocket ConnectToAddress(const struct addrinfo *addr)
 {
-#ifdef WITH_RDMA
-	volatile pgsocket fd = rsocket(addr->ai_family, SOCK_STREAM, 0);
+#ifdef WITH_REDUCE_RDMA
+	volatile pgsocket fd = adb_rsocket(addr->ai_family, SOCK_STREAM, 0);
 #else
 	volatile pgsocket fd = socket(addr->ai_family, SOCK_STREAM, 0);
 #endif
@@ -627,15 +628,23 @@ static pgsocket ConnectToAddress(const struct addrinfo *addr)
 				(errcode_for_socket_access(),
 				 errmsg("could not create socket: %m, addr->ai_family is %d", addr->ai_family)));
 	}
+#ifdef WITH_REDUCE_RDMA
+	if (!pg_set_rnoblock(fd))
+#else
 	if (!pg_set_noblock(fd))
+#endif
 	{
+#ifdef WITH_REDUCE_RDMA
+		adb_rclose(fd);
+#else
 		closesocket(fd);
+#endif
 		ereport(ERROR,
 				(errcode_for_socket_access(),
 				 errmsg("could not set socket to nonblocking mode: %m")));
 	}
-#ifdef WITH_RDMA
-	if (rconnect(fd, addr->ai_addr, addr->ai_addrlen) < 0)
+#ifdef WITH_REDUCE_RDMA
+	if (adb_rconnect(fd, addr->ai_addr, addr->ai_addrlen) < 0)
 #else
 	if (connect(fd, addr->ai_addr, addr->ai_addrlen) < 0)
 #endif
@@ -646,7 +655,11 @@ static pgsocket ConnectToAddress(const struct addrinfo *addr)
 #endif
 			errno != EINTR)
 		{
+#ifdef WITH_REDUCE_RDMA
+			adb_rclose(fd);
+#else
 			closesocket(fd);
+#endif
 			ereport(WARNING,
 					(errmsg("could not connect to remote node")));
 			return PGINVALID_SOCKET;
@@ -659,12 +672,12 @@ static pgsocket ConnectToAddress(const struct addrinfo *addr)
 void FreeNodeEventInfo(DRNodeEventData *ned)
 {
 	DR_CONNECT_DEBUG((errmsg("node %u(%p) free", ned->nodeoid, ned)));
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 	if (ned->base.fd != PGINVALID_SOCKET)
 	{
 		RDRCtlWaitEvent(ned->base.fd, 0, ned, RPOLL_EVENT_DEL);
 		--dr_wait_count;
-		rclose(ned->base.fd);
+		adb_rclose(ned->base.fd);
 		ned->base.fd = PGINVALID_SOCKET;
 	}
 #elif defined DR_USING_EPOLL
@@ -719,7 +732,7 @@ void DRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, int ctl)
 }
 #endif /* DR_USING_EPOLL */
 
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 void RDRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, RPOLL_EVENTS ctl)
 {
 	bool found;
@@ -731,14 +744,15 @@ void RDRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, RPOLL_EVENTS ctl)
 		{
 			poll_fd = repalloc(poll_fd, (poll_max+STEP_POLL_ALLOC)*sizeof(*poll_fd));
 			poll_max += STEP_POLL_ALLOC;
-			dr_create_rhandle_list(poll_max, 1);
+			dr_create_rhandle_list();
 		}
 		Assert(poll_count < poll_max);
 		poll_fd[poll_count].fd = fd;
 		poll_fd[poll_count].events = events;
-		dr_rhandle_add(poll_count, ptr);
+		poll_count++;
+
+		dr_rhandle_add(fd, ptr);
 		((DRNodeEventData*)ptr)->base.fd = fd;
-		++poll_count;
 	}
 
 	if (ctl == RPOLL_EVENT_MOD)
@@ -754,7 +768,7 @@ void RDRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, RPOLL_EVENTS ctl)
 			}
 		}
 		Assert (found);
-		dr_rhandle_add(i, ptr);
+		dr_rhandle_mod(fd, ptr);
 		((DRNodeEventData*)ptr)->base.fd = fd;
 	}
 
@@ -769,14 +783,11 @@ void RDRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, RPOLL_EVENTS ctl)
 				memmove(&poll_fd[i],
 						&poll_fd[i+1],
 						(poll_count-i-1) * sizeof(struct pollfd));
-				
-				memmove(dr_rhandle_find(i),
-						dr_rhandle_find(i+1),
-						(poll_count-i-1) * sizeof(void*));
 				break;
 			}
 		}
 		poll_count--;
+		dr_rhandle_del(fd);
 	}
 
 	return;

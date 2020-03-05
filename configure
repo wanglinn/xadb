@@ -769,6 +769,7 @@ enable_grammar_db2
 enable_grammar_oracle
 enable_cluster
 enable_rdma
+enable_reduce_rdma
 default_port
 WANTED_LANGUAGES
 enable_nls
@@ -844,6 +845,7 @@ enable_profiling
 enable_coverage
 enable_dtrace
 enable_rdma
+enable_reduce_rdma
 enable_tap_tests
 with_blocksize
 with_segsize
@@ -3288,8 +3290,29 @@ else
   enable_rdma=no
 fi
 
-if test "$enable_rdma" = yes ; then
-  LIBS="-lrdmacm $LIBS"
+# Check whether --enable-rdma was given.
+if test "${enable_reduce_rdma+set}" = set; then :
+  enableval=$enable_reduce_rdma;
+  case $enableval in
+    yes)
+      :
+      ;;
+    no)
+      :
+      ;;
+    *)
+      as_fn_error $? "no argument expected for --enable-reduce-rdma option" "$LINENO" 5
+      ;;
+  esac
+
+else
+  enable_reduce_rdma=no
+fi
+
+if test "$enable_rdma" = yes || test "$enable_reduce_rdma" = yes ; then
+  enable_reduce_rdma = yes;
+#LIBS="-lrdmacm $LIBS"
+  LIBS="-ldl $LIBS" 
 fi
 
 #
@@ -5461,6 +5484,13 @@ if test "$enable_rdma" = yes; then
   CFLAGS="$CFLAGS -DWITH_RDMA"
   BITCODE_CFLAGS="$BITCODE_CFLAGS -DWITH_RDMA"
   BITCODE_CXXFLAGS="$BITCODE_CXXFLAGS -DWITH_RDMA"
+fi
+
+if test "$enable_reduce_rdma" = yes; then
+  # for WITH_RDMA set "-DWITH_RDMA" by default
+  CFLAGS="$CFLAGS -DWITH_REDUCE_RDMA"
+  BITCODE_CFLAGS="$BITCODE_CFLAGS -DWITH_REDUCE_RDMA"
+  BITCODE_CXXFLAGS="$BITCODE_CXXFLAGS -DWITH_REDUCE_RDMA"
 fi
 
 # C[XX]FLAGS we determined above will be added back at the end

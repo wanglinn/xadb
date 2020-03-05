@@ -207,6 +207,13 @@ PGAC_ARG_BOOL(enable, rdma, yes,
 AC_SUBST(enable_rdma)
 
 #
+# Rdma reduce
+#
+PGAC_ARG_BOOL(enable, reduce_rdma, yes,
+              [enable reducerdma module])
+AC_SUBST(enable_reduce_rdma)
+
+#
 # oracle grammar
 #
 PGAC_ARG_BOOL(enable,grammar-oracle, yes,

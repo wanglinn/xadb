@@ -10,8 +10,8 @@
 
 #include "postgres.h"
 
-#ifdef WITH_RDMA
-#include <rdma/rsocket.h>
+#ifdef WITH_REDUCE_RDMA
+#include "rdma/adb_rsocket.h"
 #elif defined HAVE_SYS_EPOLL_H
 #include <sys/epoll.h>
 #include <signal.h>
@@ -132,7 +132,7 @@ typedef enum DR_NODE_STATUS
 	DRN_WAIT_CLOSE
 }DR_NODE_STATUS;
 
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA) 
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA) 
 #define DROnEventArgs	struct DREventData *base, uint32_t events
 #define DROnPreWaitArgs	struct DREventData *base
 #define DROnErrorArgs	struct DREventData *base
@@ -143,7 +143,7 @@ typedef enum DR_NODE_STATUS
 #endif /* DR_USING_EPOLL */
 
 
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 #define START_POOL_ALLOC	256
 #define STEP_POLL_ALLOC		8
 typedef enum RPOLL_EVENTS
@@ -152,12 +152,12 @@ typedef enum RPOLL_EVENTS
 	RPOLL_EVENT_DEL,
 	RPOLL_EVENT_MOD
 }RPOLL_EVENTS;
-#endif /* WITH_RDMA */
+#endif /* WITH_REDUCE_RDMA */
 
 typedef struct DREventData
 {
 	DR_EVENT_DATA_TYPE	type;
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA) 
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA) 
 	pgsocket			fd;				/* maybe PGINVALID_SOCKET */
 #endif /* DR_USING_EPOLL */
 	void (*OnEvent)(DROnEventArgs);
@@ -210,7 +210,7 @@ typedef struct DRNodeEventData
 	 */
 	int				waiting_plan_id;
 
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA) 
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA) 
 	uint32_t		waiting_events;
 #endif /* DR_USING_EPOLL */
 
@@ -315,7 +315,7 @@ typedef struct DynamicReduceSharedTuplestore
 extern Oid					PGXCNodeOid;	/* avoid include pgxc.h */
 
 /* public variables */
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 extern volatile Size poll_max;
 extern Size poll_count;
 extern struct pollfd * volatile poll_fd;
@@ -392,12 +392,15 @@ void DRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, int ctl);
 void CallConnectingOnError(void);
 #endif /* DR_USING_EPOLL */
 
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 void RDRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, RPOLL_EVENTS ctl);
 void CallConnectingOnError(void);
-void dr_create_rhandle_list(int num, bool is_realloc);
-void* dr_rhandle_find(int num);
-void dr_rhandle_add(int num, void *info);
+void dr_create_rhandle_list(void);
+void dr_rhandle_print(void);
+DRNodeEventData* dr_rhandle_find(int fd);
+void dr_rhandle_add(int fd, void *info);
+void dr_rhandle_del(int fd);
+void dr_rhandle_mod(int fd, void *info);
 #endif /* DR_USING_EPOLL */
 
 /* node functions in dr_node.c */
@@ -410,7 +413,7 @@ void DRActiveNode(int planid);
 void DRInitNodeSearch(void);
 DRNodeEventData* DRSearchNodeEventData(Oid nodeoid, HASHACTION action, bool *found);
 
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA)
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 void DRNodeSeqInit(HASH_SEQ_STATUS *seq);
 #endif /* DR_USING_EPOLL */
 void CleanNodePlanCacheData(DRPlanCacheData *cache, bool delete_file);

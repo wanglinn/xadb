@@ -37,6 +37,9 @@
 #include "storage/ipc.h"
 #include "storage/proc.h"
 
+#if defined (WITH_RDMA) || defined(WITH_REDUCE_RDMA)
+#include "rdma/adb_rsocket.h"
+#endif
 
 char	   *ssl_library;
 char	   *ssl_cert_file;
@@ -245,8 +248,7 @@ secure_raw_read(Port *port, void *ptr, size_t len)
 #endif
 
 #ifdef WITH_RDMA
-	n = port->is_rs ? rrecv(port->sock, ptr, len, 0)
-		: recv(port->sock, ptr, len, 0);
+	n = adb_rrecv(port->sock, ptr, len, 0);
 #else
 	n = recv(port->sock, ptr, len, 0);
 #endif
@@ -343,8 +345,7 @@ secure_raw_write(Port *port, const void *ptr, size_t len)
 #endif
 
 #ifdef WITH_RDMA
-	n = port->is_rs ? rsend(port->sock, ptr, len, 0)
-		: send(port->sock, ptr, len, 0);
+	n = adb_rsend(port->sock, ptr, len, 0);
 #else
 	n = send(port->sock, ptr, len, 0);
 #endif

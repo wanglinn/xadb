@@ -150,6 +150,10 @@ main(int argc, char *argv[])
 		}
 	}
 
+#ifdef WITH_RDMA
+	if (rsocket_preload_int() < 0)
+		elog(FATAL, "rsocket_preload_int failed");
+#endif
 	pset.progname = get_progname(argv[0]);
 
 	pset.db = NULL;
@@ -478,6 +482,10 @@ error:
 		fclose(pset.logfile);
 	PQfinish(pset.db);
 	setQFout(NULL);
+
+#ifdef WITH_RDMA
+	rsocket_preload_exit();
+#endif
 
 	return successResult;
 }

@@ -37,7 +37,7 @@ typedef SOCKET pgsocket;
 #define PGINVALID_SOCKET INVALID_SOCKET
 #endif
 
-#ifdef WITH_RDMA
+#if defined (WITH_RDMA) || defined(WITH_REDUCE_RDMA)
 extern bool pg_set_rnoblock(pgsocket sock);
 extern bool pg_set_rblock(pgsocket sock);
 #endif

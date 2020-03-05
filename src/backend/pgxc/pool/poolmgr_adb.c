@@ -1178,10 +1178,10 @@ agent_destroy(PoolAgent *agent)
 void
 PoolManagerDisconnect(void)
 {
-#ifdef WITH_RDMA
+/*#ifdef WITH_RDMA
 	PQNForceReleaseWhenTransactionFinish();
 	PQNReleaseAllConnect(true);
-#endif
+#endif*/
 	if (poolHandle)
 	{
 

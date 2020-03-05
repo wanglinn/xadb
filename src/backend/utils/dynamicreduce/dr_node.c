@@ -16,8 +16,14 @@
 
 static HTAB		   *htab_node_info = NULL;
 
-#ifdef WITH_RDMA
-static void **dr_rhandle_list;
+#ifdef WITH_REDUCE_RDMA
+static HTAB		   *htab_rsnode_info = NULL;
+typedef struct dr_rshandle_item
+{
+	int				fd;
+	DRNodeEventData *ptr;
+}dr_rshandle_item;
+DRNodeEventData *dr_rhandle_list;
 #endif
 
 static void OnNodeEvent(DROnEventArgs);
@@ -124,7 +130,7 @@ bool PutMessageToNode(DRNodeEventData *ned, char msg_type, const char *data, uin
 
 static void OnNodeEvent(DROnEventArgs)
 {
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 	DRNodeEventData *ned = (DRNodeEventData*)base;
 	Assert(ned->base.type == DR_EVENT_DATA_NODE);
 	DR_NODE_DEBUG((errmsg("node %d got events %d", ned->nodeoid, events)));
@@ -177,7 +183,7 @@ static void OnPreWaitNode(DROnPreWaitArgs)
 	DRNodeEventData *ned = (DRNodeEventData*)base;
 	uint32 need_event;
 	Assert(base->type == DR_EVENT_DATA_NODE);
-#if (!defined DR_USING_EPOLL) && (!defined WITH_RDMA)
+#if (!defined DR_USING_EPOLL) && (!defined WITH_REDUCE_RDMA)
 	Assert(GetWaitEventData(dr_wait_event_set, pos) == base);
 #endif
 	if (ned->status == DRN_WAIT_CLOSE)
@@ -190,12 +196,13 @@ static void OnPreWaitNode(DROnPreWaitArgs)
 	if (OidIsValid(ned->nodeoid))
 	{
 		need_event = 0;
-#ifdef WITH_RDMA
+#ifdef WITH_REDUCE_RDMA
 		if (ned->recvBuf.maxlen > ned->recvBuf.len &&
 			DRCurrentPlanCount() > 0)
 			need_event |= POLLIN;
 		if (ned->sendBuf.len > ned->sendBuf.cursor)
 			need_event |= POLLOUT;
+
 		if (need_event != ned->waiting_events)
 		{
 			DR_NODE_DEBUG((errmsg("need_event %d ned->waiting_events %d", need_event, ned->waiting_events)));
@@ -259,8 +266,8 @@ ssize_t RecvMessageFromNode(DRNodeEventData *ned, pgsocket fd)
 	Assert(space > 0);
 
 rerecv_:
-#ifdef WITH_RDMA
-	size = rrecv(fd,
+#ifdef WITH_REDUCE_RDMA
+	size = adb_rrecv(fd,
 				ned->recvBuf.data + ned->recvBuf.len,
 				space,
 				0);
@@ -285,14 +292,14 @@ rerecv_:
 	}else if (size == 0)
 	{
 		ereport(LOG,
-				(errmsg("rrecv size  0, dr_status %d", dr_status)));
+				(errmsg("adb_rrecv size  0, dr_status %d", dr_status)));
 		ned->status = DRN_WAIT_CLOSE;
 		//dr_keep_error = true;
 		if (dr_status == DRS_RESET)
 			return 0;
 
 		ereport(LOG,
-				(errmsg("rrecv size  0, dr_status %d", dr_status)));
+				(errmsg("adb_rrecv size  0, dr_status %d", dr_status)));
 		ereport(ERROR,
 				(errmsg("remote node %u closed socket", ned->nodeoid)));
 	}
@@ -540,8 +547,8 @@ static void OnNodeSendMessage(DRNodeEventData *ned, pgsocket fd)
 		return;
 
 resend_:
-#ifdef WITH_RDMA
-	result = rsend(fd,
+#ifdef WITH_REDUCE_RDMA
+	result = adb_rsend(fd,
 				  ned->sendBuf.data + ned->sendBuf.cursor,
 				  ned->sendBuf.len - ned->sendBuf.cursor,
 				  0);
@@ -566,6 +573,22 @@ resend_:
 				(errmsg("can not send message to node %u: %m", ned->nodeoid)));
 	}
 }
+
+#ifdef WITH_REDUCE_RDMA
+static uint32 hash_rsnode_data(const void *key, Size keysize)
+{
+	Assert(keysize == sizeof(dr_rshandle_item));
+
+	return ((dr_rshandle_item*)key)->fd;
+}
+
+static int compare_rsnode_data(const void *key1, const void *key2, Size keysize)
+{
+	Assert(keysize == sizeof(dr_rshandle_item));
+
+	return (int)((dr_rshandle_item*)key1)->fd - (int)((dr_rshandle_item*)key2)->fd;
+}
+#endif
 
 static uint32 hash_node_event_data(const void *key, Size keysize)
 {
@@ -661,7 +684,7 @@ static bool ProcessNodeCacheData(DRNodeEventData *ned, int planid)
 void DRActiveNode(int planid)
 {
 	DRNodeEventData	   *ned;
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA)
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 	HASH_SEQ_STATUS		seq;
 
 	hash_seq_init(&seq, htab_node_info);
@@ -722,36 +745,69 @@ DRNodeEventData* DRSearchNodeEventData(Oid nodeoid, HASHACTION action, bool *fou
 	return hash_search_with_hash_value(htab_node_info, &ned, nodeoid, action, found);
 }
 
-#ifdef WITH_RDMA
-void dr_create_rhandle_list(int num, bool is_realloc)
+#ifdef WITH_REDUCE_RDMA
+void dr_create_rhandle_list(void)
 {
-	if (is_realloc)
-		dr_rhandle_list = repalloc(dr_rhandle_list,
-								 sizeof(void*) * num);
-	else
-		dr_rhandle_list = MemoryContextAlloc(TopMemoryContext, 
-								 sizeof(void*) * num);
+	HASHCTL ctl;
+	if (htab_rsnode_info == NULL)
+	{
+		MemSet(&ctl, 0, sizeof(ctl));
+		ctl.keysize = sizeof(dr_rshandle_item);
+		ctl.entrysize = sizeof(dr_rshandle_item);
+		ctl.hash = hash_rsnode_data;
+		ctl.match = compare_rsnode_data;
+		ctl.hcxt = TopMemoryContext;
+		htab_rsnode_info = hash_create("Dynamic reduce rs node info",
+									 DR_HTAB_DEFAULT_SIZE,
+									 &ctl,
+									 HASH_ELEM|HASH_CONTEXT|HASH_FUNCTION|HASH_COMPARE);
+	}
 }
 
-void* dr_rhandle_find(int num)
+DRNodeEventData* dr_rhandle_find(int fd)
 {
-	void *info;
-	Assert(num < poll_max && num >= 0);
+	bool found;
+	dr_rshandle_item* item;
+	found = false;
+	item = hash_search(htab_rsnode_info, &fd, HASH_FIND, &found);
+	Assert(found);
+
+	return item->ptr;
+}
+
+void dr_rhandle_add(int fd, void *info)
+{
+	bool found;
+	dr_rshandle_item* item;
+	found = false;
+	item = hash_search(htab_rsnode_info, &fd, HASH_ENTER, &found);
+
+	Assert(!found);
 	
-	info = dr_rhandle_list[num];
-	Assert(info);
-	return info;
+	item->ptr = (DRNodeEventData*)info;
 }
 
-void dr_rhandle_add(int num, void *info)
+void dr_rhandle_del(int fd)
 {
-	Assert(num < poll_max && num >= 0);
-	
-	dr_rhandle_list[num] = info;
+	bool found;
+	found = false;
+	hash_search(htab_rsnode_info, &fd, HASH_REMOVE, &found);
+	Assert(found);
 }
-#endif /* WITH_RDMA */
 
-#if (defined DR_USING_EPOLL) || (defined WITH_RDMA)
+void dr_rhandle_mod(int fd, void *info)
+{
+	bool found;
+	dr_rshandle_item* item;
+	found = false;
+	item = hash_search(htab_rsnode_info, &fd, HASH_FIND, &found);
+	Assert(found);
+
+	item->ptr = (DRNodeEventData*)info;
+}
+#endif /* WITH_REDUCE_RDMA */
+
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 void DRNodeSeqInit(HASH_SEQ_STATUS *seq)
 {
 	Assert(htab_node_info);

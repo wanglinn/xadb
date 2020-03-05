@@ -146,6 +146,10 @@
 #include "replication/gxidsender.h"
 #endif
 
+#if defined (WITH_RDMA) || defined(WITH_REDUCE_RDMA)
+#include "rdma/adb_rsocket.h"
+#endif
+
 #if defined(ADBMGRD)
 #include "postmaster/adbmonitor.h"
 #endif /* ADBMGRD */
@@ -441,7 +445,7 @@ static void CloseServerPorts(int status, Datum arg);
 static void unlink_external_pid_file(int status, Datum arg);
 static void getInstallationPaths(const char *argv0);
 static void checkControlFile(void);
-static Port *ConnCreate(int serverFd ADB_RDMA_COMMA_ARG(bool is_rs));
+static Port *ConnCreate(int serverFd);
 static void ConnFree(Port *port);
 static void reset_shared(int port);
 static void SIGHUP_handler(SIGNAL_ARGS);
@@ -1202,12 +1206,12 @@ PostmasterMain(int argc, char *argv[])
 				status = StreamServerPort(AF_UNSPEC, NULL,
 										  (unsigned short) PostPortNumber,
 										  NULL,
-										  ListenSocket, MAXLISTEN ADB_RDMA_COMMA_ARG(0));
+										  ListenSocket, MAXLISTEN);
 			else
 				status = StreamServerPort(AF_UNSPEC, curhost,
 										  (unsigned short) PostPortNumber,
 										  NULL,
-										  ListenSocket, MAXLISTEN ADB_RDMA_COMMA_ARG(0));
+										  ListenSocket, MAXLISTEN);
 
 			if (status == STATUS_OK)
 			{
@@ -1299,7 +1303,7 @@ PostmasterMain(int argc, char *argv[])
 			status = StreamServerPort(AF_UNIX, NULL,
 									  (unsigned short) PostPortNumber,
 									  socketdir,
-									  ListenSocket, MAXLISTEN ADB_RDMA_COMMA_ARG(0));
+									  ListenSocket, MAXLISTEN);
 
 			if (status == STATUS_OK)
 			{
@@ -1881,8 +1885,11 @@ ServerLoop(void)
 			DetermineSleepTime(&timeout);
 
 			PG_SETMASK(&UnBlockSig);
-
+#ifdef WITH_RDMA
+			selres = adb_rselect(nSockets, &rmask, NULL, NULL, &timeout);
+#else
 			selres = select(nSockets, &rmask, NULL, NULL, &timeout);
+#endif
 
 			PG_SETMASK(&BlockSig);
 		}
@@ -1915,7 +1922,7 @@ ServerLoop(void)
 				{
 					Port	   *port;
 
-					port = ConnCreate(ListenSocket[i] ADB_RDMA_COMMA_ARG(0));
+					port = ConnCreate(ListenSocket[i]);
 					if (port)
 					{
 						BackendStartup(port);
@@ -2255,7 +2262,7 @@ retry1:
 
 		pfree(buf);
 		if (rs_fd)
-			rclose(rs_fd);
+			adb_rclose(rs_fd);
 		ereport(COMMERROR,
 				(errcode_for_socket_access(),
 					errmsg("failed to send rsocket negotiation response: %m")));
@@ -2263,10 +2270,10 @@ retry1:
 	}
 
 	if (rs_port_num)
-		rsport = ConnCreate(rs_fd ADB_RDMA_COMMA_ARG(1));
+		rsport = ConnCreate(rs_fd);
 
 	if (rs_fd)
-		rclose(rs_fd);
+		adb_rclose(rs_fd);
 	
 	pfree(buf);
 	return rsport;
@@ -2868,7 +2875,7 @@ canAcceptConnections(void)
  * Returns NULL on failure, other than out-of-memory which is fatal.
  */
 static Port *
-ConnCreate(int serverFd ADB_RDMA_COMMA_ARG(bool is_rs))
+ConnCreate(int serverFd)
 {
 	Port	   *port;
 
@@ -2879,9 +2886,9 @@ ConnCreate(int serverFd ADB_RDMA_COMMA_ARG(bool is_rs))
 				 errmsg("out of memory")));
 		ExitPostmaster(1);
 	}
-#ifdef WITH_RDMA
+/*#ifdef WITH_RDMA
 	port->is_rs = is_rs;
-#endif
+#endif*/
 
 	if (StreamConnection(serverFd, port) != STATUS_OK)
 	{
@@ -4809,10 +4816,6 @@ BackendStartup(Port *port)
 	Backend    *bn;				/* for backend cleanup */
 	pid_t		pid;
 
-#ifdef WITH_RDMA
-	Port*		rs_port;
-#endif
-
 	/*
 	 * Create backend data structure.  Better before the fork() so we can
 	 * handle failure cleanly.
@@ -4880,6 +4883,7 @@ BackendStartup(Port *port)
 		}
 #endif /* ADB */
 
+/*
 #ifdef WITH_RDMA
 		rs_port = ProcessRsocketNegPacket(port);
 		if (rs_port)
@@ -4891,14 +4895,14 @@ BackendStartup(Port *port)
 		}
 		else
 		{	
-#endif
+#endif*/
 		/* Perform additional initialization and collect startup packet */
 		BackendInitialize(port);
 		/* And run the backend */
 		BackendRun(port);
-#ifdef WITH_RDMA
-		}
-#endif
+//#ifdef WITH_RDMA
+		//}
+//#endif
 	}
 #endif							/* EXEC_BACKEND */
 

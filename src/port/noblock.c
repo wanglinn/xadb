@@ -15,8 +15,8 @@
 #include "c.h"
 
 #include <fcntl.h>
-#ifdef WITH_RDMA
-#include <rdma/rsocket.h> 
+#if defined (WITH_RDMA) || defined(WITH_REDUCE_RDMA)
+#include "rdma/adb_rsocket.h"
 #endif
 
 /*
@@ -43,16 +43,16 @@ pg_set_noblock(pgsocket sock)
 #endif
 }
 
-#ifdef WITH_RDMA
+#if defined (WITH_RDMA) || defined(WITH_REDUCE_RDMA)
 bool
 pg_set_rnoblock(pgsocket sock)
 {
 	int			flags;
 
-	flags = rfcntl(sock, F_GETFL);
+	flags = adb_rfcntl(sock, F_GETFL);
 	if (flags < 0)
 		return false;
-	if (rfcntl(sock, F_SETFL, (flags | O_NONBLOCK)) == -1)
+	if (adb_rfcntl(sock, F_SETFL, (flags | O_NONBLOCK)) == -1)
 		return false;
 	return true;
 }
@@ -63,10 +63,10 @@ pg_set_rblock(pgsocket sock)
 #if !defined(WIN32)
 	int			flags;
 
-	flags = rfcntl(sock, F_GETFL);
+	flags = adb_rfcntl(sock, F_GETFL);
 	if (flags < 0)
 		return false;
-	if (rfcntl(sock, F_SETFL, (flags & ~O_NONBLOCK)) == -1)
+	if (adb_rfcntl(sock, F_SETFL, (flags & ~O_NONBLOCK)) == -1)
 		return false;
 	return true;
 #else
