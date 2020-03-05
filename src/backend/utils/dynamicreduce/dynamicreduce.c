@@ -1,6 +1,7 @@
 #include "postgres.h"
 
 #include "access/parallel.h"
+#include "catalog/namespace.h"
 #include "common/ip.h"
 #include "lib/ilist.h"
 #include "libpq/pqformat.h"
@@ -19,6 +20,14 @@
 #if (defined DR_USING_EPOLL) || (defined WITH_RDMA)
 #include "postmaster/postmaster.h"
 #endif /* DR_USING_EPOLL */
+
+typedef struct DRExtraInfo
+{
+	Oid		PGXCNodeOid;
+	uint32	PGXCNodeIdentifier;
+	Oid		temp_namespace_id;
+	Oid		temp_toast_namespace_id;
+}DRExtraInfo;
 
 DRLatchEventData *dr_latch_data = NULL;
 
@@ -96,6 +105,14 @@ static inline int setup_signalfd(void)
 }
 #endif
 
+static void DynamicReduceRestoreExtra(void)
+{
+	DRExtraInfo *extra = (DRExtraInfo*)MyBgworkerEntry->bgw_extra;
+	PGXCNodeOid = extra->PGXCNodeOid;
+	PGXCNodeIdentifier = extra->PGXCNodeIdentifier;
+	SetTempNamespaceState(extra->temp_namespace_id, extra->temp_toast_namespace_id);
+}
+
 void DynamicReduceWorkerMain(Datum main_arg)
 {
 	DREventData *base;
@@ -140,6 +157,8 @@ void DynamicReduceWorkerMain(Datum main_arg)
 
 	dr_status = DRS_STARTUPED;
 
+	CurrentResourceOwner = ResourceOwnerCreate(NULL, "reduce toplevel");
+	DynamicReduceRestoreExtra();
 	DRAttachShmem(main_arg, true);
 
 	dr_start_event();
@@ -350,7 +369,6 @@ uint16 StartDynamicReduceWorker(void)
 	StringInfoData	buf;
 	int				msgtype;
 	uint32			i;
-	Oid				auth_user_id;
 	uint16			result;
 
 	ResetDynamicReduceWork();
@@ -380,8 +398,9 @@ uint16 StartDynamicReduceWorker(void)
 
 	if (dr_bgworker == NULL)
 	{
+		DRExtraInfo *extra;
 		dr_bgworker = MemoryContextAllocZero(TopMemoryContext, sizeof(*dr_bgworker));
-		dr_bgworker->bgw_flags = BGWORKER_SHMEM_ACCESS|BGWORKER_BACKEND_DATABASE_CONNECTION;
+		dr_bgworker->bgw_flags = BGWORKER_SHMEM_ACCESS;
 		dr_bgworker->bgw_start_time = BgWorkerStart_ConsistentState;
 		dr_bgworker->bgw_restart_time = BGW_NEVER_RESTART;
 		strcpy(dr_bgworker->bgw_library_name, "postgres");
@@ -389,6 +408,10 @@ uint16 StartDynamicReduceWorker(void)
 		strcpy(dr_bgworker->bgw_type, "dynamic reduce");
 		snprintf(dr_bgworker->bgw_name, BGW_MAXLEN, "dynamic reduce for PID %d", MyProcPid);
 		dr_bgworker->bgw_notify_pid = MyProcPid;
+		extra = (DRExtraInfo*)dr_bgworker->bgw_extra;
+		extra->PGXCNodeOid = PGXCNodeOid;
+		extra->PGXCNodeIdentifier = PGXCNodeIdentifier;
+		GetTempNamespaceState(&extra->temp_namespace_id, &extra->temp_toast_namespace_id);
 	}
 
 	for(i=0;;++i)
@@ -423,6 +446,7 @@ uint16 StartDynamicReduceWorker(void)
 		}
 
 		TerminateBackgroundWorker(dr_bghandle);
+		WaitForBackgroundWorkerShutdown(dr_bghandle);
 		DRResetShmem();
 		pfree(dr_bghandle);
 		dr_bghandle = NULL;
@@ -430,12 +454,6 @@ uint16 StartDynamicReduceWorker(void)
 
 	initStringInfo(&buf);
 	pq_sendbyte(&buf, ADB_DR_MQ_MSG_STARTUP);
-
-	appendBinaryStringInfoNT(&buf, (char*)&PGXCNodeOid, sizeof(PGXCNodeOid));
-	appendBinaryStringInfoNT(&buf, (char*)&PGXCNodeIdentifier, sizeof(PGXCNodeIdentifier));
-	appendBinaryStringInfoNT(&buf, (char*)&MyDatabaseId, sizeof(MyDatabaseId));
-	auth_user_id = GetAuthenticatedUserId();
-	appendBinaryStringInfoNT(&buf, (char*)&auth_user_id, sizeof(auth_user_id));
 
 	DRSendMsgToReduce(buf.data, buf.len, false);
 	pfree(buf.data);
@@ -451,6 +469,7 @@ uint16 StartDynamicReduceWorker(void)
 		shm_mq_set_handle(dr_mq_worker_sender, NULL);
 
 		TerminateBackgroundWorker(dr_bghandle);
+		WaitForBackgroundWorkerShutdown(dr_bghandle);
 		pfree(dr_bghandle);
 		dr_bghandle = NULL;
 
@@ -669,36 +688,13 @@ static void TryBackendMessage(void)
 	{
 		DRListenEventData  *listen_event;
 		MemoryContext		oldcontext;
-		Oid					dboid;
-		Oid					auth_user_id;
 		char 				port_msg[3];
 
 		/* reset first */
 		DRReset();
 
 		oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(dr_latch_data));
-		pq_copymsgbytes(&buf, (char*)&PGXCNodeOid, sizeof(PGXCNodeOid));
-		pq_copymsgbytes(&buf, (char*)&PGXCNodeIdentifier, sizeof(PGXCNodeIdentifier));
-		pq_copymsgbytes(&buf, (char*)&dboid, sizeof(dboid));
-		pq_copymsgbytes(&buf, (char*)&auth_user_id, sizeof(auth_user_id));
 		pq_getmsgend(&buf);
-
-		if (OidIsValid(MyDatabaseId))
-		{
-			if (MyDatabaseId != dboid)
-			{
-				ereport(ERROR,
-						(errmsg("diffent database OID as last"),
-						 errdetail("last is %u, current is %u", MyDatabaseId, dboid)));
-			}
-		}else
-		{
-			InitializingParallelWorker = true;
-			BackgroundWorkerInitializeConnectionByOid(dboid, auth_user_id, 0);
-			Assert(MyDatabaseId == dboid);
-			SetClientEncoding(GetDatabaseEncoding());
-			InitializingParallelWorker = false;
-		}
 
 		listen_event = GetListenEventData();
 		dr_status = DRS_LISTENED;

@@ -1,11 +1,9 @@
 #include "postgres.h"
 
 #include "access/htup_details.h"
-#include "access/xact.h"
 #include "libpq/pqformat.h"
 #include "storage/buffile.h"
 #include "utils/memutils.h"
-#include "utils/resowner.h"
 
 #include "utils/dynamicreduce.h"
 #include "utils/dr_private.h"
@@ -160,21 +158,11 @@ void DRStartNormalPlanMessage(StringInfo msg)
 	DynamicReduceMQ			mq;
 	PlanWorkerInfo		   *pwi;
 	MemoryContext			oldcontext;
-	ResourceOwner			oldowner;
 	uint8					cache_flag;
-
-	if (!IsTransactionState())
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_TRANSACTION_STATE),
-				 errmsg("not in transaction state")));
-	}
 
 	PG_TRY();
 	{
 		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-		oldowner = CurrentResourceOwner;
-		CurrentResourceOwner = NULL;
 
 		pi = DRRestorePlanInfo(msg, (void**)&mq, sizeof(*mq), ClearNormalPlanInfo);
 		Assert(DRPlanSearch(pi->plan_id, HASH_FIND, NULL) == pi);
@@ -191,8 +179,6 @@ void DRStartNormalPlanMessage(StringInfo msg)
 
 		pwi = pi->pwi = MemoryContextAllocZero(TopMemoryContext, sizeof(PlanWorkerInfo));
 		DRSetupPlanWorkInfo(pi, pwi, mq, -1, DR_PLAN_RECV_WORKING);
-
-		CurrentResourceOwner = oldowner;
 
 		pi->OnLatchSet = OnDefaultPlanLatch;
 		if (cache_flag == DR_CACHE_ON_DISK_ALWAYS)

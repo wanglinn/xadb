@@ -3,7 +3,6 @@
 #include "libpq/pqformat.h"
 #include "storage/latch.h"
 #include "utils/memutils.h"
-#include "utils/resowner.h"
 
 #include "utils/dynamicreduce.h"
 #include "utils/dr_private.h"
@@ -39,8 +38,7 @@ void DROnNodeConectSuccess(DRNodeEventData *ned)
 	if (ned->recvBuf.cursor < ned->recvBuf.len)
 	{
 		/* process other message(s) */
-		if (CurrentResourceOwner != NULL)
-			PorcessNodeEventData(ned);
+		PorcessNodeEventData(ned);
 	}else
 	{
 		/* reset receive buffer */
@@ -132,8 +130,7 @@ static void OnNodeEvent(DROnEventArgs)
 	DR_NODE_DEBUG((errmsg("node %d got events %d", ned->nodeoid, events)));
 	if ((events & (POLLIN|POLLPRI|POLLHUP|POLLERR)) &&
 		ned->status != DRN_WAIT_CLOSE &&
-		RecvMessageFromNode(ned, ned->base.fd) > 0 &&
-		CurrentResourceOwner != NULL)
+		RecvMessageFromNode(ned, ned->base.fd) > 0)
 		PorcessNodeEventData(ned);
 	if ((events & POLLOUT) &&
 		ned->status != DRN_WAIT_CLOSE)
@@ -144,8 +141,7 @@ static void OnNodeEvent(DROnEventArgs)
 	DR_NODE_DEBUG((errmsg("node %d got events %d", ned->nodeoid, events)));
 	if ((events & (EPOLLIN|EPOLLPRI|EPOLLHUP|EPOLLERR)) &&
 		ned->status != DRN_WAIT_CLOSE &&
-		RecvMessageFromNode(ned, ned->base.fd) > 0 &&
-		CurrentResourceOwner != NULL)
+		RecvMessageFromNode(ned, ned->base.fd) > 0)
 		PorcessNodeEventData(ned);
 	if ((events & EPOLLOUT) &&
 		ned->status != DRN_WAIT_CLOSE)
@@ -155,8 +151,7 @@ static void OnNodeEvent(DROnEventArgs)
 	Assert(ned->base.type == DR_EVENT_DATA_NODE);
 	DR_NODE_DEBUG((errmsg("node %d got events %d", ned->nodeoid, ev->events)));
 	if ((ev->events & WL_SOCKET_READABLE) &&
-		RecvMessageFromNode(ned, ev->fd) > 0 &&
-		CurrentResourceOwner != NULL)
+		RecvMessageFromNode(ned, ev->fd) > 0)
 		PorcessNodeEventData(ned);
 	if ((ev->events & WL_SOCKET_WRITEABLE) &&
 		ned->status != DRN_WAIT_CLOSE)
@@ -197,7 +192,6 @@ static void OnPreWaitNode(DROnPreWaitArgs)
 		need_event = 0;
 #ifdef WITH_RDMA
 		if (ned->recvBuf.maxlen > ned->recvBuf.len &&
-			CurrentResourceOwner != NULL &&
 			DRCurrentPlanCount() > 0)
 			need_event |= POLLIN;
 		if (ned->sendBuf.len > ned->sendBuf.cursor)
@@ -211,7 +205,6 @@ static void OnPreWaitNode(DROnPreWaitArgs)
 		}
 #elif defined DR_USING_EPOLL
 		if (ned->recvBuf.maxlen > ned->recvBuf.len &&
-			CurrentResourceOwner != NULL &&
 			DRCurrentPlanCount() > 0)
 			need_event |= EPOLLIN;
 		if (ned->sendBuf.len > ned->sendBuf.cursor)
@@ -224,7 +217,7 @@ static void OnPreWaitNode(DROnPreWaitArgs)
 		}
 #else /* DR_USING_EPOLL */
 		if (ned->recvBuf.maxlen > ned->recvBuf.len &&
-			CurrentResourceOwner != NULL)
+			DRCurrentPlanCount() > 0)
 			need_event |= WL_SOCKET_READABLE;
 		if (ned->sendBuf.len > ned->sendBuf.cursor)
 			need_event |= WL_SOCKET_WRITEABLE;
