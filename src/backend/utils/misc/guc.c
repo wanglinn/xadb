@@ -529,6 +529,7 @@ static const struct config_enum_entry command_mode[] = {
 
 extern int mgr_cmd_mode;
 char* MGRDatabaseName;
+bool		enable_readsql_on_slave_async = false;
 
 #endif /* ADBMGRD */
 
@@ -567,7 +568,6 @@ bool		Debug_print_grammar = false;
 #ifdef ADB
 bool		enable_cluster_plan = true;
 bool		enable_readsql_on_slave = false;
-bool		enable_readsql_on_slave_async = false;
 #endif
 bool		Debug_print_rewritten = false;
 bool		Debug_pretty_print = true;
@@ -1477,15 +1477,6 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
-	{
-		{"enable_readsql_on_slave_async", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("Enables the readonly sql execute on async datanode slaves."),
-			NULL
-		},
-		&enable_readsql_on_slave_async,
-		false,
-		NULL, NULL, NULL
-	},
 #endif
 	{
 		{"debug_print_rewritten", PGC_USERSET, LOGGING_WHAT,
@@ -1625,6 +1616,15 @@ static struct config_bool ConfigureNamesBool[] =
 		},
 		&adbmonitor_start_daemon,
 		true,
+		NULL, NULL, NULL
+	},
+	{
+		{"enable_readsql_on_slave_async", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the readonly sql execute on async datanode slaves."),
+			NULL
+		},
+		&enable_readsql_on_slave_async,
+		false,
 		NULL, NULL, NULL
 	},
 #endif /* ADBMGRD */
@@ -2216,17 +2216,6 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 #endif
 	{
-		{"persistent_datanode_connections", PGC_BACKEND, DEVELOPER_OPTIONS,
-			gettext_noop("Session never releases acquired connections."),
-			NULL,
-			GUC_NOT_IN_SAMPLE
-		},
-		&PersistentConnections,
-		false,
-		NULL, NULL, NULL
-	},
-
-	{
 		{"xc_maintenance_mode", PGC_SUSET, XC_HOUSEKEEPING_OPTIONS,
 			gettext_noop("Turn on XC maintenance mode."),
 			gettext_noop("Can set ON by SET command by superuser.")
@@ -2286,9 +2275,7 @@ static struct config_bool ConfigureNamesBool[] =
 		true,
 		NULL, NULL, NULL
 	},
-#endif /* ADB */
 
-#if defined(ADB)
 	{
 		{"rep_max_avail_flag", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enable replication max avail available level"),
@@ -2322,17 +2309,6 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 #endif /* ADB_GRAM_ORA */
-
-#ifdef DEBUG_ADB
-	{
-		{"adb_debug", PGC_SUSET, DEVELOPER_OPTIONS,
-			gettext_noop("Emit ADB debugging output."),
-		},
-		&ADB_DEBUG,
-		false,
-		NULL, NULL, NULL
-	},
-#endif
 
 	/* End-of-list marker */
 	{

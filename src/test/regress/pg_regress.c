@@ -853,9 +853,6 @@ set_node_config_file(ADBNodeTypeNum node)
 			  "log_error_verbosity = verbose\n"
 			  "log_min_duration_statement = 0\n"
 			  "log_min_messages = debug1\n"
-#ifdef DEBUG_ADB
-			  "adb_debug = on\n"
-#endif
 			  , pg_conf);
 	}
 

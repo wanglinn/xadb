@@ -63,8 +63,6 @@ extern int	MinPoolSize;
 extern int	MaxPoolSize;
 extern int	PoolRemoteCmdTimeout;
 
-extern bool PersistentConnections;
-
 /* Status inquiry functions */
 extern void PGXCPoolerProcessIam(void);
 extern bool IsPGXCPoolerProcess(void);
