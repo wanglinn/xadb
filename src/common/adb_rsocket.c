@@ -28,6 +28,7 @@ int rsocket_preload_int(void)
 {
     if (!rs_handle)
     {
+        //setenv("RDMAV_FORK_SAFE","1",1);
         rs_handle = dlopen("/usr/lib64/rsocket/librspreload.so", RTLD_NOW);
     }
     else

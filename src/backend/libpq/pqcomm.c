@@ -222,8 +222,7 @@ pq_init(void)
 	 */
 #ifndef WIN32
 #ifdef WITH_RDMA
-	if (!(MyProcPort->is_rs ? pg_set_rnoblock(MyProcPort->sock)
-		:pg_set_noblock(MyProcPort->sock)))
+	if (!pg_set_rnoblock(MyProcPort->sock))
 #else
 	if (!pg_set_noblock(MyProcPort->sock))
 #endif
