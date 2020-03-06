@@ -96,7 +96,7 @@ typedef struct SnapClientData
 extern char *AGtmHost;
 extern int snap_receiver_timeout;
 
-bool force_snapshot_consistent = false;
+int force_snapshot_consistent = FORCE_SNAP_CON_SESSION;
 int snapshot_sync_waittime = 10000;
 static volatile sig_atomic_t got_sigterm = false;
 static volatile sig_atomic_t got_SIGHUP = false;
@@ -872,7 +872,10 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 			/* add msg whether need xid finish ack*/
 			if (msgtype == 'c')
 			{
-				pq_sendbyte(&output_buffer, force_snapshot_consistent);
+				if (force_snapshot_consistent == FORCE_SNAP_CON_ON)
+					pq_sendbyte(&output_buffer, 1);
+				else
+					pq_sendbyte(&output_buffer, 0);
 			}
 			for(i=0;i<xid_cnt;++i)
 			{
@@ -889,7 +892,7 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 			output_buffer.cursor = true;
 		}
 
-		if (force_snapshot_consistent && msgtype == 'c')
+		if (force_snapshot_consistent == FORCE_SNAP_CON_ON && msgtype == 'c')
 		{
 			for(i=0;i<xid_cnt;++i)
 			{
@@ -907,7 +910,7 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 		}
 	}
 
-	if (slist_is_empty(&slist_all_client) && force_snapshot_consistent && msgtype == 'c')
+	if (slist_is_empty(&slist_all_client) && (force_snapshot_consistent == FORCE_SNAP_CON_ON) && msgtype == 'c')
 	{
 		for(i=0;i<xid_cnt;++i)
 		{
@@ -978,7 +981,7 @@ static void DropClient(SnapClientData *client, bool drop_in_slist)
 		slist_foreach_modify(siter_xid, &client->slist_xid)
 		{
 			xiditem = slist_container(SnapSendXidListItem, snode, siter_xid.cur);
-			if (force_snapshot_consistent)
+			if (force_snapshot_consistent == FORCE_SNAP_CON_ON)
 				SnapSenderWakeupFinishXidEvent(xiditem->xid);
 			
 			hash_search(snapsender_xid_htab, &xiditem->xid, HASH_REMOVE, &found);
@@ -1464,7 +1467,7 @@ void SnapSendTransactionFinish(TransactionId txid)
 	SnapSender->xid_complete[SnapSender->cur_cnt_complete++] = txid;
 	SetLatch(&(GetPGProcByNumber(SnapSender->procno)->procLatch));
 
-	if (force_snapshot_consistent)
+	if (force_snapshot_consistent == FORCE_SNAP_CON_ON)
 	{
 		proclist_foreach_modify(iter, &SnapSender->waiters_finish, GTMWaitLink)
 		{

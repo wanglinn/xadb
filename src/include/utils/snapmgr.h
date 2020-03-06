@@ -159,6 +159,7 @@ extern Snapshot RestoreSnapshot(char *start_address);
 extern void RestoreTransactionSnapshot(Snapshot snapshot, void *master_pgproc);
 
 #ifdef ADB
+extern void UpdateAdbLastFinishXid(TransactionId xid);
 extern void SetGlobalSnapshot(StringInfo input_message);
 extern void UnsetGlobalSnapshot(void);
 extern Snapshot GetGlobalSnapshot(Snapshot snapshot, TransactionId *gs_xmin, bool isCatelog);

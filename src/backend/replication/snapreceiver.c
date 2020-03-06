@@ -1052,15 +1052,27 @@ static void WakeupTransaction(TransactionId txid)
 	}
 }
 
-Snapshot SnapRcvGetSnapshot(Snapshot snap)
+Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid)
 {
 	TransactionId	xid,xmax,xmin;
 	uint32			i,count,xcnt;
 	bool			is_wait_ok;
-	TimestampTz end;
+	TimestampTz		end;
 
 	if (snap->xip == NULL)
 		EnlargeSnapshotXip(snap, GetMaxSnapshotXidCount());
+	
+	if (force_snapshot_consistent == FORCE_SNAP_CON_SESSION && TransactionIdIsNormal(last_mxid))
+	{
+		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
+		if (SnapRcvWaitTopTransactionEnd(last_mxid, end) == false)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+					errmsg("wait last xid commit time out, which version is %u", last_mxid),
+					errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
+		}
+	}
 
 re_lock_:
 	LOCK_SNAP_RCV();
