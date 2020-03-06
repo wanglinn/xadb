@@ -11153,6 +11153,24 @@ void mgr_get_gtmcoord_conn(PGconn **pg_conn, Oid *cnoid)
 			errhint("coordinator info(host=%s port=%d dbname=%s user=%s)",
 				coordhost, coordport, DEFAULT_DB, connect_user)));
 	}
+
+	/*remove the add line from coordinator pg_hba.conf*/
+	if (breload)
+	{
+		resetStringInfo(&(getAgentCmdRst.description));
+		mgr_send_conf_parameters(AGT_CMD_CNDN_DELETE_PGHBACONF
+								,cnpath
+								,&infosendmsg
+								,coordhostoid
+								,&getAgentCmdRst);
+		if (!getAgentCmdRst.ret)
+			ereport(WARNING, (errmsg("remove ADB Manager ip \"%s\" from %s coordinator %s/pg_hba,conf fail %s", self_address.data, coordhost, cnpath, getAgentCmdRst.description.data)));
+		mgr_reload_conf(coordhostoid, cnpath);
+	}
+	pfree(coordhost);
+	pfree(connect_user);
+	pfree(infosendmsg.data);
+	pfree(getAgentCmdRst.description.data);
 }
 
 bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
@@ -13994,7 +14012,8 @@ int MgrSendSelectMsg(PGconn *pg_conn, StringInfoData* psql)
 	PGresult *res;
 	int count = 0;
 
-	Assert((pg_conn)!= 0);
+	Assert(pg_conn);
+	Assert(psql);
 
 	res = PQexec(pg_conn, psql->data);
 	status = PQresultStatus(res);

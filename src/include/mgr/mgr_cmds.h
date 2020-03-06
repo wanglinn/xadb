@@ -514,9 +514,6 @@ extern Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS);
 extern Datum mgr_expand_check_status(PG_FUNCTION_ARGS);
 extern Datum mgr_expand_show_status(PG_FUNCTION_ARGS);
 extern Datum mgr_expand_clean(PG_FUNCTION_ARGS);
-extern Datum mgr_import_hash_meta(PG_FUNCTION_ARGS);
-extern Datum mgr_cluster_hash_meta_check(PG_FUNCTION_ARGS);
-extern Datum mgr_cluster_pgxcnode_check(PG_FUNCTION_ARGS);
 
 /* online doctor functions */
 extern Datum mgr_doctor_start(PG_FUNCTION_ARGS);
@@ -547,8 +544,6 @@ extern bool mgr_manipulate_pgxc_node_on_node(PGconn **pg_conn,
 									  	 	 bool localExecute, 
 									  		 PGXC_NODE_MANIPULATE_TYPE manipulateType,
 									  		 StringInfo strinfo);
-//extern bool hexp_alter_slotinfo_nodename_noflush(PGconn *pgconn, char* src_node_name, char* dst_node_name, bool startTransaction, bool complain);
-extern bool hexp_check_select_result_count(PGconn *pg_conn, char* sql);
 extern void hexp_pqexec_direct_execute_utility(PGconn *pg_conn, char *sqlstr, int ret_type);
 
 /* zone */

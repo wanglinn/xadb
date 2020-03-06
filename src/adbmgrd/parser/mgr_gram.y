@@ -163,8 +163,6 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 				ZoneStmt GetBoottimeStmt
 
 				ExpandNodeStmt CheckNodeStmt
-				ClusterPgxcNodeCheckStmt
-				ImportHashMetaStmt ClusterHashMetaCheckStmt
 				StartDoctorStmt StopDoctorStmt SetDoctorParamStmt ListDoctorParamStmt
 %type <node>	ListNodeSize
 %type <node>	opt_nodesize_with_list  opt_nodesize_with_list_items
@@ -206,8 +204,8 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 %token<keyword> SET TO ON OFF
 %token<keyword> APPEND CONFIG MODE FAST SMART IMMEDIATE S I F FORCE SHOW FLUSH
 %token<keyword> GRANT REVOKE FROM ITEM JOB EXTENSION REMOVE DATA_CHECKSUMS
-%token<keyword> EXPAND ACTIVATE CHECKOUT STATUS RECOVER BASEBACKUP FAIL SUCCESS DOPROMOTE SLOT DOCHECK PGXCNODE END SLEEP META
-%token<keyword> IMPORT HASH ZONE CLEAR
+%token<keyword> EXPAND ACTIVATE CHECKOUT STATUS RECOVER BASEBACKUP FAIL SUCCESS DOPROMOTE SLOT DOCHECK END SLEEP
+%token<keyword> HASH ZONE CLEAR
 %token<keyword> PROMOTE ADBMGR REWIND SWITCHOVER
 
 /* for ADB monitor*/
@@ -309,9 +307,6 @@ stmt :
 	| RemoveNodeStmt
 	| ExpandNodeStmt
 	| CheckNodeStmt
-	| ClusterPgxcNodeCheckStmt
-	| ImportHashMetaStmt
-	| ClusterHashMetaCheckStmt
 	| FailoverManualStmt
 	| SwitchoverStmt
 	| ZoneStmt
@@ -569,35 +564,6 @@ ExpandNodeStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("pg_sleep", args));
 			$$ = (Node*)stmt;
 		};
-
-ClusterPgxcNodeCheckStmt:
-		CLUSTER PGXCNODE DOCHECK
-		{
-			SelectStmt *stmt = makeNode(SelectStmt);
-			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_cluster_pgxcnode_check", NULL));
-			$$ = (Node*)stmt;
-		};
-
-ImportHashMetaStmt:
-		IMPORT HASH META TO Ident
-		{
-			SelectStmt *stmt = makeNode(SelectStmt);
-			List *args = list_make1(makeStringConst($5, -1));
-			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_import_hash_meta", args));
-			$$ = (Node*)stmt;
-		};
-
-ClusterHashMetaCheckStmt:
-		CLUSTER HASH META DOCHECK
-		{
-			SelectStmt *stmt = makeNode(SelectStmt);
-			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_cluster_hash_meta_check", NULL));
-			$$ = (Node*)stmt;
-		};
-
 
 CheckNodeStmt:
 		CHECKOUT DATANODE SLAVE STATUS
