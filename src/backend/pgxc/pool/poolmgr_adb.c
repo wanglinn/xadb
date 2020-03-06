@@ -239,8 +239,6 @@ int			MinPoolSize = 1;
 int			MaxPoolSize = 100;
 int			PoolRemoteCmdTimeout = 0;
 
-bool		PersistentConnections = false;
-
 /* pool time out */
 extern int pool_time_out;
 extern int pool_release_to_idle_timeout;
