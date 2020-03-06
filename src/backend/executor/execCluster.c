@@ -185,7 +185,7 @@ GetCurrentCnRdcID(const char *rdc_name)
 
 void exec_cluster_plan(const void *splan, int length)
 {
-	char *tmp;
+	char *reduce_info_data;
 	const ClusterCustomExecInfo *custom_fun;
 	ClusterCoordInfo *info;
 	StringInfoData msg;
@@ -219,7 +219,7 @@ void exec_cluster_plan(const void *splan, int length)
 
 	SaveTableStatSnapshot();
 
-	if ((tmp=mem_toc_lookup(&msg, REMOTE_KEY_REDUCE_INFO, NULL)) != NULL)
+	if ((reduce_info_data=mem_toc_lookup(&msg, REMOTE_KEY_REDUCE_INFO, NULL)) != NULL)
 	{
 		/* need reduce */
 		uint32 rdc_listen_port;
@@ -261,6 +261,9 @@ void exec_cluster_plan(const void *splan, int length)
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
 				 errmsg("unknown cluster plan type %d", tag)));
 	}
+
+	if (reduce_info_data != NULL)
+		ResetDynamicReduceWork();
 
 	/* send stat */
 	if ((!custom_fun) || (custom_fun->flag != CLUSTER_CUSTOM_NO_NEED_SEND_STAT))

@@ -17,18 +17,8 @@ typedef struct NormalSharedFile
 static bool OnNormalPlanMessage(PlanInfo *pi, const char *data, int len, Oid nodeoid);
 static bool OnNormalPlanNodeEndOfPlan(PlanInfo *pi, Oid nodeoid);
 
-static void ClearNormalPlanInfo(PlanInfo *pi)
+static void DestroyNormalSharedFile(PlanInfo *pi)
 {
-	if (pi == NULL)
-		return;
-	DR_PLAN_DEBUG((errmsg("clean normal plan %d(%p)", pi->plan_id, pi)));
-	DRPlanSearch(pi->plan_id, HASH_REMOVE, NULL);
-	if (pi->pwi)
-	{
-		DRClearPlanWorkInfo(pi, pi->pwi);
-		pfree(pi->pwi);
-		pi->pwi = NULL;
-	}
 	if (pi->private)
 	{
 		NormalSharedFile *sf = pi->private;
@@ -37,7 +27,28 @@ static void ClearNormalPlanInfo(PlanInfo *pi)
 		pfree(sf);
 		pi->private = NULL;
 	}
+}
+
+static void DestroyNormalPlan(PlanInfo *pi)
+{
+	if (pi == NULL)
+		return;
+	DR_PLAN_DEBUG((errmsg("destroy normal plan %d(%p)", pi->plan_id, pi)));
+	DRPlanSearch(pi->plan_id, HASH_REMOVE, NULL);
+	if (pi->pwi)
+	{
+		DRClearPlanWorkInfo(pi, pi->pwi);
+		pfree(pi->pwi);
+		pi->pwi = NULL;
+	}
+	DestroyNormalSharedFile(pi);
 	DRClearPlanInfo(pi);
+}
+
+static void OnNormalPlanError(PlanInfo *pi)
+{
+	DestroyNormalSharedFile(pi);
+	SetPlanFailedFunctions(pi, true, false);
 }
 
 static inline BufFile* NormalPlanGetSharedFile(NormalSharedFile *sf)
@@ -164,7 +175,7 @@ void DRStartNormalPlanMessage(StringInfo msg)
 	{
 		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
 
-		pi = DRRestorePlanInfo(msg, (void**)&mq, sizeof(*mq), ClearNormalPlanInfo);
+		pi = DRRestorePlanInfo(msg, (void**)&mq, sizeof(*mq), DestroyNormalPlan);
 		Assert(DRPlanSearch(pi->plan_id, HASH_FIND, NULL) == pi);
 		cache_flag = pq_getmsgbyte(msg);
 		if (cache_flag != DR_CACHE_ON_DISK_DO_NOT)
@@ -187,18 +198,23 @@ void DRStartNormalPlanMessage(StringInfo msg)
 			pi->OnNodeRecvedData = OnNormalPlanMessage;
 		pi->OnNodeIdle = OnDefaultPlanIdleNode;
 		pi->OnNodeEndOfPlan = OnNormalPlanNodeEndOfPlan;
-		pi->OnPlanError = ClearNormalPlanInfo;
+		pi->OnPlanError = OnNormalPlanError;
 		pi->OnPreWait = OnDefaultPlanPreWait;
+
+		if (dr_status == DRS_FAILED)
+			SetPlanFailedFunctions(pi, true, false);
 
 		MemoryContextSwitchTo(oldcontext);
 		DR_PLAN_DEBUG((errmsg("normal plan %d(%p) stared", pi->plan_id, pi)));
 	}PG_CATCH();
 	{
-		ClearNormalPlanInfo(pi);
+		DestroyNormalSharedFile(pi);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
 	Assert(pi != NULL);
+	if (dr_status == DRS_FAILED)
+		OnNormalPlanError(pi);
 	DRActiveNode(pi->plan_id);
 }
 

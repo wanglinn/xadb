@@ -38,6 +38,11 @@ static void ClearSTSPlanInfo(PlanInfo *pi)
 	DRClearPlanInfo(pi);
 }
 
+static void OnSTSPlanError(PlanInfo *pi)
+{
+	SetPlanFailedFunctions(pi, true, false);
+}
+
 static void OnSTSPlanLatch(PlanInfo *pi)
 {
 	PlanWorkerInfo *pwi;
@@ -158,7 +163,7 @@ void DRStartSTSPlanMessage(StringInfo msg)
 		pi->OnLatchSet = OnSTSPlanLatch;
 		pi->OnNodeIdle = OnDefaultPlanIdleNode;
 		pi->OnNodeEndOfPlan = OnSTSPlanNodeEndOfPlan;
-		pi->OnPlanError = ClearSTSPlanInfo;
+		pi->OnPlanError = OnSTSPlanError;
 		pi->OnPreWait = OnDefaultPlanPreWait;
 
 		MemoryContextSwitchTo(oldcontext);
@@ -170,6 +175,8 @@ void DRStartSTSPlanMessage(StringInfo msg)
 	}PG_END_TRY();
 
 	Assert(pi != NULL);
+	if (dr_status == DRS_FAILED)
+		OnSTSPlanError(pi);
 	DRActiveNode(pi->plan_id);
 }
 
