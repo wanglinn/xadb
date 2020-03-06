@@ -173,8 +173,3 @@ void DRUtilsReset(void)
 	if (cur_working_nodes)
 		resetOidBuffer(cur_working_nodes);
 }
-
-void DRUtilsAbort(void)
-{
-	DRUtilsReset();
-}

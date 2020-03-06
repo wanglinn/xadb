@@ -23,6 +23,11 @@ static void DestroyOidBufFiles(void *ptr);
 static BufFile *GetNodeBufFile(void *ptr, Oid nodeoid, int plan_id);
 static void ExportNodeBufFile(void *ptr);
 
+static void OnSFSPlanError(PlanInfo *pi)
+{
+	SetPlanFailedFunctions(pi, true, false);
+}
+
 static inline void SFSWriteTupleData(BufFile *file, uint32 len, const void *data)
 {
 	if (BufFileWrite(file, &len, sizeof(len)) != sizeof(len) ||
@@ -200,7 +205,7 @@ void DRStartSFSPlanMessage(StringInfo msg)
 		pi->OnLatchSet = OnSFSPlanLatch;
 		pi->OnNodeIdle = OnDefaultPlanIdleNode;
 		pi->OnNodeEndOfPlan = OnSFSPlanNodeEndOfPlan;
-		pi->OnPlanError = ClearSFSPlanInfo;
+		pi->OnPlanError = OnSFSPlanError;
 		pi->OnPreWait = OnDefaultPlanPreWait;
 
 		MemoryContextSwitchTo(oldcontext);
@@ -212,6 +217,8 @@ void DRStartSFSPlanMessage(StringInfo msg)
 	}PG_END_TRY();
 
 	Assert(pi != NULL);
+	if (dr_status == DRS_FAILED)
+		OnSFSPlanError(pi);
 	DRActiveNode(pi->plan_id);
 }
 

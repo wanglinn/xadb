@@ -52,10 +52,9 @@ pid_t			dr_reduce_pid = 0;
 DR_STATUS		dr_status;
 bool			is_reduce_worker = false;
 
-/* clear network when reset */
-//static bool dr_clear_network = false;
 /* keep error message, but don't report it immediately */
-//static bool dr_keep_error = false;
+static bool dr_keep_error = false;
+static ErrorData *dr_error_data = NULL;
 
 static void dr_start_event(void);
 
@@ -189,6 +188,27 @@ void DynamicReduceWorkerMain(Datum main_arg)
 		/* Since not using PG_TRY, must reset error stack by hand */
 		error_context_stack = NULL;
 
+		if (dr_keep_error == false)
+		{
+			/* Report the error to the server log and exit */
+			EmitErrorReport();
+			FlushErrorState();
+			return;
+		}
+
+		dr_keep_error = false;	/* reset keep error */
+		if (dr_error_data == NULL)
+		{
+			MemoryContextSwitchTo(DrTopMemoryContext);
+			dr_error_data = CopyErrorData();
+			MemoryContextSwitchTo(loop_context);
+		}
+
+		FlushErrorState();
+		dr_status = DRS_FAILED;
+
+		MemoryContextSwitchTo(loop_context);
+
 		/* reset hash_seq_search */
 		AtEOXact_HashTables(false);
 
@@ -217,12 +237,6 @@ void DynamicReduceWorkerMain(Datum main_arg)
 
 		/* reset hash_seq_search again */
 		AtEOXact_HashTables(false);
-
-		/* Report the error to the server log */
-		EmitErrorReport();
-		FlushErrorState();
-
-		DRUtilsAbort();
 	}
 	/* We can now handle ereport(ERROR) */
 	PG_exception_stack = &local_sigjmp_buf;
@@ -684,6 +698,21 @@ static void TryBackendMessage(void)
 	buf.len = buf.maxlen = (int)size;
 
 	msgtype = pq_getmsgbyte(&buf);
+	if (dr_status == DRS_FAILED)
+	{
+		Assert(dr_error_data != NULL);
+		Assert(dr_keep_error == false);
+		switch(msgtype)
+		{
+		case ADB_DR_MQ_MSG_STARTUP:
+		case ADB_DR_MQ_MSG_CONNECT:
+		case ADB_DR_MQ_MSG_RESET:
+			ReThrowError(dr_error_data);
+			abort();	/* should not run to here */
+		default:
+			break;
+		}
+	}
 	if (msgtype == ADB_DR_MQ_MSG_STARTUP)
 	{
 		DRListenEventData  *listen_event;
@@ -697,7 +726,7 @@ static void TryBackendMessage(void)
 		pq_getmsgend(&buf);
 
 		listen_event = GetListenEventData();
-		dr_status = DRS_LISTENED;
+		dr_status = DRS_WORKING;
 
 		/* send port to backend */
 		port_msg[0] = ADB_DR_MQ_MSG_PORT;
@@ -710,9 +739,10 @@ static void TryBackendMessage(void)
 		DRSendConfirmToBackend(false);
 	}else if (msgtype == ADB_DR_MQ_MSG_RESET)
 	{
+		Assert(dr_status != DRS_FAILED);
 		DRReset();
-		dr_status = DRS_RESET;
 		DRSendMsgToBackend(buf.data, buf.len, false);
+		dr_status = DRS_STARTUPED;
 	}else if (msgtype == ADB_DR_MQ_MSG_START_PLAN_NORMAL)
 	{
 		DRStartNormalPlanMessage(&buf);
@@ -740,9 +770,11 @@ static void TryBackendMessage(void)
 static void DRReset(void)
 {
 	HASH_SEQ_STATUS		status;
-	Size				nevent pg_attribute_unused();
 	PlanInfo		   *pi;
 	DREventData		   *base;
+#if !defined (DR_USING_EPOLL) && !defined(WITH_REDUCE_RDMA)
+	Size				nevent;
+#endif
 
 	DRPlanSeqInit(&status);
 	while ((pi=hash_seq_search(&status)) != NULL)
@@ -808,4 +840,15 @@ static void handle_sigterm(SIGNAL_ARGS)
 	}
 
 	errno = save_errno;
+}
+
+/*
+ * keep error, but not report, let dynamic reduce in failed state,
+ * until reset dynamic reduce report error
+ * can be call in function ereport()
+ */
+int DRKeepError(void)
+{
+	dr_keep_error = true;
+	return 0;
 }

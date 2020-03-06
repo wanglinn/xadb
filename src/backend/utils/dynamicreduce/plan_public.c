@@ -9,7 +9,7 @@
 
 static HTAB		   *htab_plan_info = NULL;
 
-bool DRSendPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
+static bool DRSendPlanWorkerMessageInternal(PlanWorkerInfo *pwi, PlanInfo *pi, bool on_failed)
 {
 	shm_mq_result result;
 	bool sended = false;
@@ -19,9 +19,9 @@ re_send_:
 	{
 		Assert(pwi->sendBuffer.cursor == 0);
 		result = shm_mq_send_ext(pwi->reduce_sender,
-							 pwi->sendBuffer.len,
-							 pwi->sendBuffer.data,
-							 true, false);
+								 pwi->sendBuffer.len,
+								 pwi->sendBuffer.data,
+								 true, false);
 		if (result == SHM_MQ_SUCCESS)
 		{
 			DR_PLAN_DEBUG((errmsg("send plan %d worker %d with data length %d success",
@@ -30,9 +30,16 @@ re_send_:
 			sended = true;
 		}else if (result == SHM_MQ_DETACHED)
 		{
-			ereport(ERROR,
-					(errmsg("plan %d parallel %d MQ detached",
-							pi->plan_id, pwi->worker_id)));
+			if (on_failed)
+			{
+				pwi->sendBuffer.len = 0;
+				sended = true;
+			}else
+			{
+				ereport(ERROR,
+						(errmsg("plan %d parallel %d MQ detached", pi->plan_id, pwi->worker_id),
+						 DRKeepError()));
+			}
 		}
 		else if(result == SHM_MQ_WOULD_BLOCK)
 		{
@@ -52,7 +59,8 @@ re_send_:
 	case DR_PLAN_SEND_ENDED:
 		break;
 	case DR_PLAN_SEND_GENERATE_CACHE:
-		if (pi->GenerateCacheMsg &&
+		if (on_failed == false &&	/* on failed state, don't send cache message, we need quick end plan */
+			pi->GenerateCacheMsg &&
 			pi->GenerateCacheMsg(pwi, pi))
 		{
 			Assert(pwi->sendBuffer.len > 0);
@@ -82,6 +90,11 @@ re_send_:
 	}
 
 	return sended;
+}
+
+bool DRSendPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
+{
+	return DRSendPlanWorkerMessageInternal(pwi, pi, false);
 }
 
 bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
@@ -516,4 +529,60 @@ void OnDefaultPlanIdleNode(PlanInfo *pi, WaitEvent *w, DRNodeEventData *ned)
 		return;
 
 	DRSendWorkerMsgToNode(pwi, pi, ned);
+}
+
+/***************************failed functions *******************/
+static void OnPlanFailedLatchSet(PlanInfo *pi)
+{
+	DRSendPlanWorkerMessageInternal(pi->pwi, pi, true);
+}
+
+static void OnParallelPlanFailedLatchSet(PlanInfo *pi)
+{
+	uint32 i = pi->count_pwi;
+	while (i>0)
+		DRSendPlanWorkerMessageInternal(&pi->pwi[--i], pi, true);
+}
+
+static bool OnPlanFailedRecvedData(PlanInfo *pi, const char *data, int len, Oid nodeoid)
+{
+	return true;
+}
+
+static void OnPlanFailedNodeIdle(PlanInfo *pi, WaitEvent *we, DRNodeEventData *ned)
+{
+	/* nothing todo */
+}
+
+static bool OnPlanFailedEndOfPlan(PlanInfo *pi, Oid nodeoid)
+{
+	return true;
+}
+
+static void OnPlanFailedError(PlanInfo *pi)
+{
+	/* nothing todo */
+}
+
+void SetPlanFailedFunctions(PlanInfo *pi, bool send_eof, bool parallel)
+{
+	PlanWorkerInfo *pwi;
+	uint32			i;
+	pi->OnLatchSet = parallel ? OnParallelPlanFailedLatchSet : OnPlanFailedLatchSet;
+	pi->OnNodeRecvedData = OnPlanFailedRecvedData;
+	pi->OnNodeIdle = OnPlanFailedNodeIdle;
+	pi->OnNodeEndOfPlan = OnPlanFailedEndOfPlan;
+	pi->OnPlanError = OnPlanFailedError;
+	pi->OnPreWait = NULL;
+
+	if (send_eof)
+	{
+		i = parallel ? pi->count_pwi : 1;
+		while (i>0)
+		{
+			pwi = &pi->pwi[--i];
+			if (pwi->plan_send_state < DR_PLAN_SEND_GENERATE_CACHE)
+				pwi->plan_send_state = DR_PLAN_SEND_GENERATE_CACHE;
+		}
+	}
 }

@@ -77,6 +77,35 @@ static void ClearParallelPlanInfo(PlanInfo *pi)
 	DRClearPlanInfo(pi);
 }
 
+static void OnParallelPlanInfoError(PlanInfo *pi)
+{
+	ParallelPlanPrivate *private = pi->private;
+	uint32 i;
+	if (private)
+	{
+		/* make sure cache data not sended */
+		for (i=0;i<pi->count_pwi;++i)
+		{
+			if (pi->pwi[i].plan_send_state > DR_PLAN_SEND_GENERATE_CACHE)
+				break;
+		}
+		if (i>=pi->count_pwi)
+		{
+			if (private->dsa_ptr)
+			{
+				sts_detach(private->sta);
+				sts_delete_shared_files((SharedTuplestore*)private->shm->sts, dr_shared_fs);
+				dsa_free(dr_dsa, private->dsa_ptr);
+			}
+			if (private->tup_buf.data)
+				pfree(private->tup_buf.data);
+			pfree(private);
+			pi->private = NULL;
+		}
+	}
+	SetPlanFailedFunctions(pi, true, true);
+}
+
 static void OnParallelPlanPreWait(PlanInfo *pi)
 {
 	PlanWorkerInfo *pwi;
@@ -433,7 +462,7 @@ void DRStartParallelPlanMessage(StringInfo msg)
 			pi->OnNodeRecvedData = OnParallelPlanMessage;
 		pi->OnNodeIdle = OnParallelPlanIdleNode;
 		pi->OnNodeEndOfPlan = OnParallelPlanNodeEndOfPlan;
-		pi->OnPlanError = ClearParallelPlanInfo;
+		pi->OnPlanError = OnParallelPlanInfoError;
 		pi->OnPreWait = OnParallelPlanPreWait;
 
 		MemoryContextSwitchTo(oldcontext);
@@ -446,6 +475,8 @@ void DRStartParallelPlanMessage(StringInfo msg)
 	}PG_END_TRY();
 
 	Assert(pi != NULL);
+	if (dr_status == DRS_FAILED)
+		OnParallelPlanInfoError(pi);
 	DRActiveNode(pi->plan_id);
 }
 

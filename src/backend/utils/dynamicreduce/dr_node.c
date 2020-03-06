@@ -167,15 +167,7 @@ static void OnNodeEvent(DROnEventArgs)
 
 static void OnNodeError(DROnErrorArgs)
 {
-	DRNodeEventData *ned = (DRNodeEventData*)base;
-	Assert(base->type == DR_EVENT_DATA_NODE);
-
-	if (ned->status == DRN_WAIT_CLOSE ||
-		ned->sendBuf.len > ned->sendBuf.cursor ||
-		ned->recvBuf.len > ned->recvBuf.cursor)
-		FreeNodeEventInfo(ned);
-	else if(ned->cached_data)
-		DropNodeAllPlanCacheData(ned, true);
+	FreeNodeEventInfo((DRNodeEventData*)base);
 }
 
 static void OnPreWaitNode(DROnPreWaitArgs)
@@ -186,12 +178,6 @@ static void OnPreWaitNode(DROnPreWaitArgs)
 #if (!defined DR_USING_EPOLL) && (!defined WITH_REDUCE_RDMA)
 	Assert(GetWaitEventData(dr_wait_event_set, pos) == base);
 #endif
-	if (ned->status == DRN_WAIT_CLOSE)
-	{
-		if (dr_status == DRS_RESET)
-			FreeNodeEventInfo(ned);
-		return;
-	}
 
 	if (OidIsValid(ned->nodeoid))
 	{
@@ -284,24 +270,20 @@ rerecv_:
 		if (errno == EWOULDBLOCK)
 			return 0;
 		ned->status = DRN_WAIT_CLOSE;
-		//dr_keep_error = true;
-		if (dr_status == DRS_RESET)
+		if (dr_status == DRS_STARTUPED)
 			return 0;
 		ereport(ERROR,
-				(errmsg("could not recv message from node %u:%m", ned->nodeoid)));
+				(errmsg("could not recv message from node %u:%m", ned->nodeoid),
+				 DRKeepError()));
 	}else if (size == 0)
 	{
-		ereport(LOG,
-				(errmsg("adb_rrecv size  0, dr_status %d", dr_status)));
 		ned->status = DRN_WAIT_CLOSE;
-		//dr_keep_error = true;
-		if (dr_status == DRS_RESET)
+		if (dr_status == DRS_STARTUPED)
 			return 0;
 
-		ereport(LOG,
-				(errmsg("adb_rrecv size  0, dr_status %d", dr_status)));
 		ereport(ERROR,
-				(errmsg("remote node %u closed socket", ned->nodeoid)));
+				(errmsg("remote node %u closed socket", ned->nodeoid),
+				 DRKeepError()));
 	}
 	ned->recvBuf.len += size;
 	DR_NODE_DEBUG((errmsg("node %u got message of length %zd from remote", ned->nodeoid, size)));
@@ -570,7 +552,8 @@ resend_:
 		if (errno == EINTR)
 			goto resend_;
 		ereport(ERROR,
-				(errmsg("can not send message to node %u: %m", ned->nodeoid)));
+				(errmsg("can not send message to node %u: %m", ned->nodeoid),
+				 DRKeepError()));
 	}
 }
 
@@ -813,7 +796,7 @@ void DRNodeSeqInit(HASH_SEQ_STATUS *seq)
 	Assert(htab_node_info);
 	hash_seq_init(seq, htab_node_info);
 }
-#endif /* DR_USING_EPOLL */
+#endif /* DR_USING_EPOLL || WITH_REDUCE_RDMA*/
 
 void CleanNodePlanCacheData(DRPlanCacheData *cache, bool delete_file)
 {

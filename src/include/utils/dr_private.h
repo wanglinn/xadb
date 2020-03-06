@@ -108,10 +108,8 @@
 typedef enum DR_STATUS
 {
 	DRS_STARTUPED = 1,		/* ready for listen */
-	DRS_LISTENED,			/* listen created */
-	DRS_RESET,
-	DRS_CONNECTING,			/* connecting network */
-	DRS_CONNECTED			/* ready for reduce */
+	DRS_WORKING,			/* working */
+	DRS_FAILED				/* got error message */
 }DR_STATUS;
 
 /* event structs */
@@ -346,6 +344,7 @@ void DRCheckStarted(void);
 void DREnlargeWaitEventSet(void);
 #endif
 void DRGetEndOfPlanMessage(PlanInfo *pi, PlanWorkerInfo *pwi);
+int DRKeepError(void);
 
 /* public plan functions in plan_public.c */
 bool DRSendPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi);
@@ -366,7 +365,7 @@ void DRClearPlanInfo(PlanInfo *pi);
 void OnDefaultPlanPreWait(PlanInfo *pi);
 void OnDefaultPlanLatch(PlanInfo *pi);
 void OnDefaultPlanIdleNode(PlanInfo *pi, WaitEvent *w, DRNodeEventData *ned);
-
+void SetPlanFailedFunctions(PlanInfo *pi, bool send_eof, bool parallel);
 
 /* normal plan functions in plan_normal.c */
 void DRStartNormalPlanMessage(StringInfo msg);
@@ -424,7 +423,6 @@ void DropNodeAllPlanCacheData(DRNodeEventData *ned, bool delete_file);
 bool DynamicReduceHandleMessage(void *data, Size len);
 void DRConnectNetMsg(StringInfo msg);
 void DRUtilsReset(void);
-void DRUtilsAbort(void);
 
 /* dynamic reduce shared memory functions in dr_shm.c */
 void DRSetupShmem(void);

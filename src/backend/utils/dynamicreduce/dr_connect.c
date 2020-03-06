@@ -22,7 +22,7 @@
  */
 #define CONNECT_MSG_LENGTH	9
 
-#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA) 
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 static DRListenEventData *dr_listen_event = NULL;
 static List *dr_accepted_node_list = NIL;
 #define INSERT_ACCEPTED_NODE(n_)	dr_accepted_node_list = lappend(dr_accepted_node_list, n_)
@@ -93,7 +93,6 @@ static void OnNodeEventConnectFrom(DROnEventArgs)
 		if (found)
 		{
 			ned->status = DRN_WAIT_CLOSE;
-			//dr_clear_network = true;
 			ereport(ERROR,
 					(errmsg("replicate node oid %u from remote", ned->nodeoid)));
 		}
@@ -321,7 +320,7 @@ void ConnectToAllNode(const DynamicReduceNodeInfo *info, uint32 count)
 	if (count < 2)
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
-				 errmsg("too few node fro reduce connect:%u", count)));
+				 errmsg("too few node for reduce connect:%u", count)));
 
 	resetOidBuffer(&dr_latch_data->work_oid_buf);
 	resetOidBuffer(&dr_latch_data->work_pid_buf);
@@ -423,6 +422,17 @@ static void OnListenEvent(DROnEventArgs)
 				ereport(ERROR,
 						(errcode_for_socket_access(),
 						 errmsg("can not accept new socket:%m")));
+			}
+			if (dr_status != DRS_WORKING)
+			{
+#ifdef WITH_REDUCE_RDMA
+				adb_rclose(newfd);
+#else
+				closesocket(newfd);
+#endif
+				ereport(LOG_SERVER_ONLY,
+						(errmsg("closed an accept socket, because dynamic reduce status is %d", dr_status)));
+				continue;
 			}
 #if (!defined DR_USING_EPOLL) && (!defined WITH_REDUCE_RDMA)
 			DREnlargeWaitEventSet();
@@ -723,7 +733,8 @@ void DRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, int ctl)
 	event.events = events;
 	event.data.ptr = ptr;
 
-	if (epoll_ctl(dr_epoll_fd, ctl, fd, &event) < 0)
+	if (epoll_ctl(dr_epoll_fd, ctl, fd, &event) < 0 &&
+		dr_status != DRS_FAILED)
 	{
 		ereport(ERROR,
 				(errcode_for_socket_access(),
@@ -791,6 +802,5 @@ void RDRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, RPOLL_EVENTS ctl)
 	}
 
 	return;
-	
 }
-#endif /* DR_USING_EPOLL */
+#endif /* WITH_REDUCE_RDMA */

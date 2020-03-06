@@ -625,6 +625,11 @@ reget_reset_msg_:
 	result = shm_mq_receive(dr_mq_worker_sender, &size, (void**)&data, true);
 	while(result != SHM_MQ_SUCCESS)
 	{
+		if (result == SHM_MQ_DETACHED)
+		{
+			StopDynamicReduceWorker();
+			return;
+		}
 #if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA) 
 		dr_wait_latch();
 #else
