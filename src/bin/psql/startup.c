@@ -129,7 +129,10 @@ main(int argc, char *argv[])
 
 #ifdef WITH_RDMA
 	if (rsocket_preload_int() < 0)
-		elog(FATAL, "rsocket_preload_int failed");
+	{
+		fprintf(stderr, _("rsocket_preload_int failed %m"));
+		exit(EXIT_FAILURE);
+	}
 #endif
 	pset.progname = get_progname(argv[0]);
 
