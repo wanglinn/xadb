@@ -11,6 +11,6 @@ extern void GxidRcvShmemInit(void);
 extern void ShutdownGixdRcv(void);
 extern bool GxidRcvStreaming(void);
 extern TransactionId GixRcvGetGlobalTransactionId(bool isSubXact);
-extern void GixRcvCommitTransactionId(TransactionId txid);
+extern void GixRcvCommitTransactionId(TransactionId txid, bool isCommit);
 
 #endif							/* GXID_RECEIVER_H_ */

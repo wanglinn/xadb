@@ -1937,7 +1937,7 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 		if (IsGTMNode())
 			SnapSendTransactionFinish(latestXid);
 		else
-			GixRcvCommitTransactionId(latestXid);
+			GixRcvCommitTransactionId(latestXid, isCommit);
 	}
 #endif
 	RESUME_INTERRUPTS();

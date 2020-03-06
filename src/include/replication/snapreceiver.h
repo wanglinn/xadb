@@ -17,7 +17,7 @@ extern void ShutdownSnapRcv(void);
 extern bool SnapRcvStreaming(void);
 extern bool SnapRcvRunning(void);
 
-extern Snapshot SnapRcvGetSnapshot(Snapshot snap);
+extern Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid);
 extern bool SnapRcvWaitTopTransactionEnd(TransactionId txid, TimestampTz end);
 
 struct PGPROC;

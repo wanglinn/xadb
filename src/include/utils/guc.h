@@ -229,6 +229,11 @@ typedef enum
 
 #define GUC_UNIT				(GUC_UNIT_MEMORY | GUC_UNIT_TIME)
 
+#ifdef ADB
+#define FORCE_SNAP_CON_SESSION 	0
+#define FORCE_SNAP_CON_OFF		1
+#define FORCE_SNAP_CON_ON		2
+#endif
 
 /* GUC vars that are actually declared in guc.c, rather than elsewhere */
 extern bool log_duration;
@@ -236,6 +241,9 @@ extern bool Debug_print_plan;
 extern bool Debug_print_parse;
 #if defined(ADB) || defined(ADB_MULTI_GRAM)
 extern bool Debug_print_grammar;
+extern int force_snapshot_consistent;
+extern int snapshot_sync_waittime;
+extern int max_cn_prealloc_xid_size;
 #endif /* defined(ADB) || defined(ADB_MULTI_GRAM) */
 extern bool Debug_print_rewritten;
 extern bool Debug_pretty_print;

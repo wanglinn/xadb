@@ -10,6 +10,7 @@
 #include "postmaster/postmaster.h"
 #include "replication/walreceiver.h"
 #include "replication/gxidreceiver.h"
+#include "replication/snapreceiver.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
 #include "storage/proc.h"
@@ -19,6 +20,7 @@
 #include "utils/guc.h"
 #include "utils/resowner.h"
 #include "pgxc/pgxc.h"
+#include "utils/snapmgr.h"
 
 #define RESTART_STEP_MS		3000	/* 2 second */
 
@@ -1285,11 +1287,10 @@ TransactionId GixRcvGetGlobalTransactionId(bool isSubXact)
 	return MyProc->getGlobalTransaction;
 }
 
-void GixRcvCommitTransactionId(TransactionId txid)
+void GixRcvCommitTransactionId(TransactionId txid, bool isCommit)
 {
 	TimestampTz				endtime;
 	bool					ret;
-
 #ifdef SNAP_SYNC_DEBUG
 	ereport(LOG,(errmsg("Proce %d finish xid %d\n",
 			MyProc->pgprocno, MyProc->getGlobalTransaction)));
@@ -1314,8 +1315,11 @@ void GixRcvCommitTransactionId(TransactionId txid)
 		//return;
 	}
 
+	if (isCommit)
+		UpdateAdbLastFinishXid(txid);
+
 	MyProc->getGlobalTransaction = txid;
-	if (force_snapshot_consistent)
+	if (force_snapshot_consistent == FORCE_SNAP_CON_ON)
 		endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), 30000);
 	else
 		endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snapshot_sync_waittime);

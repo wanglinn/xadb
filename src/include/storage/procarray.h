@@ -63,7 +63,7 @@ extern void CreateSharedProcArray(void);
 extern void ProcArrayAdd(PGPROC *proc);
 extern void ProcArrayRemove(PGPROC *proc, TransactionId latestXid);
 
-extern void ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid);
+extern void ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid ADB_ONLY_COMMA_ARG(bool isCommit));
 extern void ProcArrayClearTransaction(PGPROC *proc);
 
 extern void ProcArrayInitRecovery(TransactionId initializedUptoXID);

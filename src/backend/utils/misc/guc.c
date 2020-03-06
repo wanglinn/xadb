@@ -108,6 +108,7 @@
 #include "pgxc/xc_maintenance_mode.h"
 #include "optimizer/pgxcplan.h"
 #include "replication/snapreceiver.h"
+#include "replication/snapsender.h"
 #endif
 #if defined(ADBMGRD)
 #include "postmaster/adbmonitor.h"
@@ -290,6 +291,15 @@ static const struct config_enum_entry server_message_level_options[] = {
 	{"panic", PANIC, false},
 	{NULL, 0, false}
 };
+
+#ifdef ADB
+static const struct config_enum_entry fsc_level_options[] = {
+	{"session", FORCE_SNAP_CON_SESSION, false},
+	{"off", FORCE_SNAP_CON_OFF, false},
+	{"on", FORCE_SNAP_CON_ON, false},
+	{NULL, 0, false}
+};
+#endif
 
 static const struct config_enum_entry intervalstyle_options[] = {
 	{"postgres", INTSTYLE_POSTGRES, false},
@@ -1473,15 +1483,6 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&enable_readsql_on_slave_async,
-		false,
-		NULL, NULL, NULL
-	},
-	{
-		{"force_snapshot_consistent", PGC_POSTMASTER, GTM,
-			gettext_noop("force muptiple cn/gc data consistent, set in gtmcoord"),
-			NULL
-		},
-		&force_snapshot_consistent,
 		false,
 		NULL, NULL, NULL
 	},
@@ -4947,7 +4948,17 @@ static struct config_enum ConfigureNamesEnum[] =
 		WARNING, server_message_level_options,
 		NULL, NULL, NULL
 	},
-
+#ifdef ADB
+	{
+		{"force_snapshot_consistent", PGC_POSTMASTER, GTM,
+			gettext_noop("force muptiple cn/gc data consistent level, set in gtmcoord and coordinators"),
+			NULL
+		},
+		&force_snapshot_consistent,
+		FORCE_SNAP_CON_SESSION, fsc_level_options,
+		NULL, NULL, NULL
+	},
+#endif
 	{
 		{"log_min_error_statement", PGC_SUSET, LOGGING_WHEN,
 			gettext_noop("Causes all statements generating error at or above this level to be logged."),

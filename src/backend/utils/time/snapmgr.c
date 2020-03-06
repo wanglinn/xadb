@@ -163,6 +163,7 @@ static Snapshot HistoricSnapshot = NULL;
 static Snapshot GlobalSnapshot = NULL;
 static bool GlobalSnapshotSet = false;
 static Snapshot RecentGTMSnapshot = NULL;
+static TransactionId adb_last_fxid = InvalidTransactionId;
 #endif
 
 /*
@@ -2264,6 +2265,11 @@ RestoreTransactionSnapshot(Snapshot snapshot, void *master_pgproc)
 }
 
 #ifdef ADB
+void UpdateAdbLastFinishXid(TransactionId xid)
+{
+	adb_last_fxid = xid;
+}
+
 #ifdef SHOW_GLOBAL_SNAPSHOT
 static void
 OutputGlobalSnapshot(Snapshot snapshot)
@@ -2467,7 +2473,7 @@ GetGlobalSnapshot(Snapshot snapshot, TransactionId *gs_xmin, bool isCatelog)
 		/*
 	 	 * Master-Coordinator get snapshot from AGTM.
 	 	 */
-		snap = SnapRcvGetSnapshot(snapshot);
+		snap = SnapRcvGetSnapshot(snapshot, adb_last_fxid);
 		if (GlobalSnapshot)
 			*gs_xmin = GlobalSnapshot->xmin;
 	} else if (GlobalSnapshot == NULL ||
@@ -2479,7 +2485,7 @@ GetGlobalSnapshot(Snapshot snapshot, TransactionId *gs_xmin, bool isCatelog)
 		 * from AGTM when GlobalSnapshot is invalid or
 		 * current process is AutoVacuum process.
 		 */
-		snap = SnapRcvGetSnapshot(snapshot);
+		snap = SnapRcvGetSnapshot(snapshot, adb_last_fxid);
 		if (GlobalSnapshot)
 			*gs_xmin = GlobalSnapshot->xmin;
 #ifdef SHOW_GLOBAL_SNAPSHOT
