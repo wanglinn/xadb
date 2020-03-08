@@ -559,6 +559,7 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 
 		/* 5.basebackup	*/
 		ereport(INFO, (errmsg("%s %s", phase2_msg, "this step is basebackup, if the command failed, you must delete dst directory by hand.")));
+		ereport(INFO, (errmsg("phase2--basebackup begin, please wait for a moment.")));
 		mgr_pgbasebackup(CNDN_TYPE_DATANODE_MASTER, &destnodeinfo, &sourcenodeinfo);
 		ereport(INFO, (errmsg("phase2--basebackup suceess.")));
 
@@ -1323,6 +1324,10 @@ static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* 
 {
 	PGconn *dn_pg_conn = NULL;
 
+	Assert(mgr_node);
+	Assert(pdn_status);
+	Assert(cnpath);
+
 	namestrcpy(&pdn_status->node_status, "");
 	namecpy(&pdn_status->nodename, &mgr_node->nodename);
 	pdn_status->tid = tuple_id;
@@ -1437,13 +1442,13 @@ static int hexp_get_adb_clean_num(PGconn *pg_conn)
 
 static void hexp_parse_pair_lsn(char* strvalue, int* phvalue, int* plvalue)
 {
-    char* t;
+    char* t = NULL;
     char* d = "/";
     t = strtok(strvalue, d);
-    Assert(t!= 0);
+    Assert(t);
     sscanf(t, "%x", phvalue);
     t = strtok(NULL, d);
-    Assert(t!= 0);
+    Assert(t);
     sscanf(t, "%x", plvalue);
 }
 
