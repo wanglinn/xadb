@@ -2097,12 +2097,6 @@ static void AdvanceClusterReduceWorker(PlanState *ps, PlanState *pps, uint32 fla
 
 	/* initPlan-s */
 	WalkerList(ps->initPlan, ACR_FLAG_INITPLAN);
-	if (IsA(ps, ReduceScanState))
-	{
-		FetchReduceScanOuter((ReduceScanState*)ps);
-		WalkerList(ps->subPlan, ACR_FLAG_SUBPLAN);
-		return;
-	}
 
 	/* outer */
 	AdvanceClusterReduceWorker(outerPlanState(ps), ps, 
@@ -2117,8 +2111,6 @@ static void AdvanceClusterReduceWorker(PlanState *ps, PlanState *pps, uint32 fla
 	case T_ClusterReduceState:
 		Assert(flags != ACR_FLAG_INVALID);
 		AdvanceReduce((ClusterReduceState*)ps, pps, flags);
-		break;
-	case T_ReduceScanState:
 		break;
 	case T_ModifyTableState:
 		WalkerMembers(ModifyTableState, mt_plans, mt_nplans,
@@ -2154,6 +2146,9 @@ static void AdvanceClusterReduceWorker(PlanState *ps, PlanState *pps, uint32 fla
 	}
 
 	WalkerList(ps->subPlan, ACR_FLAG_SUBPLAN);
+
+	if (IsA(ps, ReduceScanState))
+		FetchReduceScanOuter((ReduceScanState*)ps);
 }
 
 void AdvanceClusterReduce(PlanState *pstate)
