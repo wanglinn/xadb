@@ -2465,16 +2465,26 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 	case REDUCE_TYPE_RANDOM:
 		{
 			List *store;
+			int count;
 			if (reduce->exclude_exec != NIL)
 				store = list_difference_oid(reduce->storage_nodes, reduce->exclude_exec);
 			else
 				store = reduce->storage_nodes;
-			/* result = random(list_length(store)) */
-			result = (Expr*)makeSimpleFuncExpr(F_INT4RANDOM_MAX,
-											   INT4OID,
-											   list_make1(MakeInt4Const(list_length(store))));
-			/* result = store[result] */
-			result = makeReduceArrayRef(store, result, false, false);
+
+			count = list_length(store);
+			Assert(count > 0);
+			if (count == 1)
+			{
+				result = (Expr*)makeOidConst(linitial_oid(store));
+			}else
+			{
+				/* result = random(list_length(store)) */
+				result = (Expr*)makeSimpleFuncExpr(F_INT4RANDOM_MAX,
+												   INT4OID,
+												   list_make1(MakeInt4Const(count)));
+				/* result = store[result] */
+				result = makeReduceArrayRef(store, result, false, false);
+			}
 
 			/* clean resource */
 			if (store != reduce->storage_nodes)
