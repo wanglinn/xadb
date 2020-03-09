@@ -42,7 +42,9 @@ static bool reduce_info_in_one_node_can_join(ReduceInfo *outer_info,
 											 ReduceInfo *inner_info,
 											 List **new_reduce_list,
 											 JoinType jointype,
-											 bool *is_dummy);
+											 bool *is_dummy,
+											 List *restrictlist);
+static bool IsRetrictListIncludeEqualExpr(List *list);
 static inline Const* MakeInt4Const(int32 value)
 {
 	return makeConst(INT4OID,
@@ -2101,14 +2103,16 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 												 inner_reduce_list,
 												 new_reduce_list,
 												 jointype,
-												 NULL);
+												 NULL,
+												 restrictlist);
 }
 
 bool reduce_info_list_is_one_node_can_join(List *outer_reduce_list,
 										   List *inner_reduce_list,
 										   List **new_reduce_list,
 										   JoinType jointype,
-										   bool *is_dummy)
+										   bool *is_dummy,
+										   List *restrictlist)
 {
 	ListCell   *olc;
 	ListCell   *ilc;
@@ -2129,7 +2133,7 @@ bool reduce_info_list_is_one_node_can_join(List *outer_reduce_list,
 		{
 			irinfo = lfirst(ilc);
 			if (IsReduceInfoInOneNode(irinfo) &&
-				reduce_info_in_one_node_can_join(orinfo, irinfo, new_reduce_list, jointype, is_dummy))
+				reduce_info_in_one_node_can_join(orinfo, irinfo, new_reduce_list, jointype, is_dummy, restrictlist))
 				can_join = true;
 		}
 	}
@@ -2140,7 +2144,8 @@ static bool reduce_info_in_one_node_can_join(ReduceInfo *outer_info,
 											 ReduceInfo *inner_info,
 											 List **new_reduce_list,
 											 JoinType jointype,
-											 bool *is_dummy)
+											 bool *is_dummy,
+											 List *restrictlist)
 {
 	ListCell *lc;
 	Oid outer_at_oid = InvalidOid;
@@ -2168,7 +2173,8 @@ static bool reduce_info_in_one_node_can_join(ReduceInfo *outer_info,
 
 	Assert(OidIsValid(outer_at_oid) && OidIsValid(inner_at_oid));
 	if (outer_at_oid == inner_at_oid ||
-		CompReduceInfo(outer_info, inner_info, REDUCE_MARK_STORAGE|REDUCE_MARK_TYPE))
+		(CompReduceInfo(outer_info, inner_info, REDUCE_MARK_STORAGE|REDUCE_MARK_TYPE) &&
+		 IsRetrictListIncludeEqualExpr(restrictlist)))
 	{
 		/* in same node */
 		if (is_dummy)
@@ -2222,6 +2228,20 @@ static bool reduce_info_in_one_node_can_join(ReduceInfo *outer_info,
 		return true;
 	}
 
+	return false;
+}
+
+static bool IsRetrictListIncludeEqualExpr(List *list)
+{
+	ListCell	   *lc;
+	RestrictInfo   *ri;
+	foreach (lc, list)
+	{
+		ri = lfirst_node(RestrictInfo, lc);
+		if (is_opclause(ri->clause) &&
+			op_is_equivalence(((OpExpr*)ri->clause)->opno))
+			return true;
+	}
 	return false;
 }
 
