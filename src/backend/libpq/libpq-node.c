@@ -516,6 +516,16 @@ PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook,
 				lc = lnext(lc);
 				list = list_delete_ptr(list, conn);
 				continue;
+			}else if (PQstatus(conn) == CONNECTION_BAD)
+			{
+				if (PQNExecFinish(conn, hook))
+				{
+					res = true;
+					goto end_loop_;
+				}
+				lc = lnext(lc);
+				list = list_delete_ptr(list, conn);
+				continue;
 			}else
 			{
 				pfds[i].events = POLLIN;
