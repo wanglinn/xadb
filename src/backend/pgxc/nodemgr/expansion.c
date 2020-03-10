@@ -429,6 +429,7 @@ void AlterNodeExpansionWork(AlterNodeStmt *stmt, ParseState *pstate)
 	List		   *remote_list;
 	BackgroundWorkerHandle
 				   *handle;
+	ListCell	   *lc;
 	StringInfoData	msg;
 
 	/* Confirm that the adb_clean table is empty. */
@@ -468,6 +469,9 @@ void AlterNodeExpansionWork(AlterNodeStmt *stmt, ParseState *pstate)
 		shm_mq_detach(mqh_sender);
 		shm_mq_detach(mqh_receiver);
 		GetCurrentCommandId(true);
+
+		foreach (lc, remote_list)
+			wait_executor_end_msg(lfirst(lc));
 	}
 	heap_endscan(scan);
 	relation_close(rel, LW_SHARED);
@@ -1093,6 +1097,7 @@ static void ExpansionWorkerDatanode(shm_mq_handle *mqh_receiver, shm_mq_handle *
 	StringInfoData		msg;
 	shm_mq_result		result;
 	int					msgtype;
+	BlockNumber			num_blocks;
 
 	rel_clean = table_open(AdbCleanRelationId, RowExclusiveLock);
 	clean_index_state = CatalogOpenIndexes(rel_clean);
@@ -1112,11 +1117,17 @@ loop_:
 	if (msgtype == EW_KEY_CLASS_RELATION)
 	{
 		rel = table_open(load_oid_class(&msg), NoLock);
-		InsertAdbClean(RelationGetRelid(rel),
-					   RelationGetNumberOfBlocks(rel),
-					   (Expr*)loadNode(&msg),
-					   rel_clean,
-					   clean_index_state);
+		if (rel->rd_rel->relkind == RELKIND_RELATION ||
+			rel->rd_rel->relkind == RELPERSISTENCE_UNLOGGED)
+			num_blocks = RelationGetNumberOfBlocks(rel);
+		else
+			num_blocks = 0;
+		if (num_blocks > 0)
+			InsertAdbClean(RelationGetRelid(rel),
+						   RelationGetNumberOfBlocks(rel),
+						   (Expr*)loadNode(&msg),
+						   rel_clean,
+						   clean_index_state);
 		heap_close(rel, NoLock);
 		goto loop_;
 	}else if (msgtype != EW_KEY_END_DATABASE)
@@ -1267,6 +1278,7 @@ static int ProcessClusterExpansionCommand(ClusterExpansionContext *context, cons
 					(errmsg("send message to expansion worker failed")));
 		while (context->handle)
 			TryExpansionWorkerMessage(context, false);
+		put_executor_end_msg(true);
 		break;
 	default:
 		ereport(ERROR,
