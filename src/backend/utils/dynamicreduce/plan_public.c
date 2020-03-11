@@ -97,7 +97,7 @@ bool DRSendPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
 	return DRSendPlanWorkerMessageInternal(pwi, pi, false);
 }
 
-bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
+static bool DRRecvPlanWorkerMessageInternal(PlanWorkerInfo *pwi, PlanInfo *pi, bool on_failed)
 {
 	unsigned char  *addr,*saved_addr;
 	Size			size;
@@ -115,6 +115,8 @@ bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
 		return false;
 	}else if(result == SHM_MQ_DETACHED)
 	{
+		if (on_failed)
+			return false;
 		pwi->plan_recv_state = DR_PLAN_RECV_ENDED;
 		ereport(ERROR,
 				(errmsg("plan %d parallel %d MQ detached",
@@ -122,7 +124,11 @@ bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
 	}
 	Assert(result == SHM_MQ_SUCCESS);
 	if (size < sizeof(msg_head))
+	{
+		if (on_failed)
+			return false;
 		goto invalid_plan_message_;
+	}
 
 	msg_head = *(uint32*)addr;
 	msg_type = (msg_head >> 24) & 0xff;
@@ -139,7 +145,11 @@ bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
 		pwi->dest_oids = (Oid*)addr;
 		addr += sizeof(Oid)*pwi->dest_count;
 		if ((addr - saved_addr) >= size)
+		{
+			if (on_failed)
+				return false;
 			goto invalid_plan_message_;
+		}
 		pwi->last_size = size - (addr - saved_addr);
 		pwi->last_data = addr;
 		pwi->last_msg_type = ADB_DR_MSG_TUPLE;
@@ -171,6 +181,11 @@ invalid_plan_message_:
 	ereport(ERROR,
 			(errmsg("Invalid MQ message format plan %d parallel %d", pi->plan_id, pwi->worker_id)));
 	return false;	/* keep compiler quiet */
+}
+
+bool DRRecvPlanWorkerMessage(PlanWorkerInfo *pwi, PlanInfo *pi)
+{
+	return DRRecvPlanWorkerMessageInternal(pwi, pi, false);
 }
 
 void DRSendWorkerMsgToNode(PlanWorkerInfo *pwi, PlanInfo *pi, DRNodeEventData *ned)
@@ -532,16 +547,34 @@ void OnDefaultPlanIdleNode(PlanInfo *pi, WaitEvent *w, DRNodeEventData *ned)
 }
 
 /***************************failed functions *******************/
+static inline void ProcessFailedPlanWorker(PlanWorkerInfo *pwi, PlanInfo *pi)
+{
+	DRSendPlanWorkerMessageInternal(pwi, pi, true);
+	for (;;)
+	{
+		pwi->last_data = NULL;
+		pwi->last_msg_type = ADB_DR_MSG_INVALID;
+		if (DRRecvPlanWorkerMessageInternal(pi->pwi, pi, true) == false)
+			break;
+		if (pwi->last_msg_type == ADB_DR_MSG_END_OF_PLAN)
+			pwi->plan_recv_state = DR_PLAN_RECV_ENDED;
+	}
+}
+
 static void OnPlanFailedLatchSet(PlanInfo *pi)
 {
-	DRSendPlanWorkerMessageInternal(pi->pwi, pi, true);
+	ProcessFailedPlanWorker(pi->pwi, pi);
 }
 
 static void OnParallelPlanFailedLatchSet(PlanInfo *pi)
 {
+	PlanWorkerInfo *pwi;
 	uint32 i = pi->count_pwi;
 	while (i>0)
-		DRSendPlanWorkerMessageInternal(&pi->pwi[--i], pi, true);
+	{
+		pwi = &pi->pwi[--i];
+		ProcessFailedPlanWorker(pwi, pi);
+	}
 }
 
 static bool OnPlanFailedRecvedData(PlanInfo *pi, const char *data, int len, Oid nodeoid)
