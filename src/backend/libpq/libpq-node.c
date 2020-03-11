@@ -887,11 +887,24 @@ re_check_:
 	}
 }
 
+void PQNRequestCancel(struct pg_conn *conn)
+{
+	PGTransactionStatusType ts;
+	if (PQstatus(conn) != CONNECTION_BAD)
+	{
+		ts = PQtransactionStatus(conn);
+		if (ts == PQTRANS_ACTIVE ||
+			ts == PQTRANS_UNKNOWN)
+		{
+			PQrequestCancel(conn);
+		}
+	}
+}
+
 void PQNRequestCancelAllconnect(void)
 {
 	HASH_SEQ_STATUS seq_status;
 	OidPGconn *op;
-	PGTransactionStatusType ts;
 
 	if (htab_oid_pgconn == NULL ||
 		hash_get_num_entries(htab_oid_pgconn) == 0)
@@ -899,17 +912,7 @@ void PQNRequestCancelAllconnect(void)
 
 	hash_seq_init(&seq_status, htab_oid_pgconn);
 	while((op = hash_seq_search(&seq_status)) != NULL)
-	{
-		if (PQstatus(op->conn) != CONNECTION_BAD)
-		{
-			ts = PQtransactionStatus(op->conn);
-			if (ts == PQTRANS_ACTIVE ||
-				ts == PQTRANS_UNKNOWN)
-			{
-				PQrequestCancel(op->conn);
-			}
-		}
-	}
+		PQNRequestCancel(op->conn);
 }
 
 void PQNReportResultError(struct pg_result *result, struct pg_conn *conn, int elevel, bool free_result)
