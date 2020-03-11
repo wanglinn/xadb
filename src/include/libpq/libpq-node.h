@@ -48,7 +48,8 @@ extern bool PQNOneExecFinish(struct pg_conn *conn, const PQNHookFunctions *hook,
 extern bool PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook, const PQNHookFunctions *hook, bool blocking);
 extern bool PQNEFHNormal(void *context, struct pg_conn *conn, PQNHookFuncType type, ...);
 extern bool PQNExecFinish_trouble(struct pg_conn *conn, int timeout_sec);
-extern void PQNReleaseAllConnect(int request_cancel);
+extern void PQNReleaseAllConnect(int request_cancel_after);
+extern void PQNRequestCancel(struct pg_conn *conn);
 extern void PQNRequestCancelAllconnect(void);
 extern void PQNReportResultError(struct pg_result *result, struct pg_conn *conn, int elevel, bool free_result);
 extern const char *PQNConnectName(struct pg_conn *conn);
