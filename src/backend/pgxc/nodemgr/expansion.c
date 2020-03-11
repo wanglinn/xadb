@@ -45,6 +45,7 @@
 #include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/resowner.h"
+#include "utils/resowner_private.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
@@ -1343,6 +1344,7 @@ void RelationBuildExpansionClean(Relation rel)
 	Form_adb_clean	form_clean;
 	text		   *txt;
 	char		   *str;
+	TupleDesc		desc;
 	if (RelationGetRelid(rel) < FirstNormalObjectId ||
 		!IsDnNode())
 		return;
@@ -1367,7 +1369,9 @@ void RelationBuildExpansionClean(Relation rel)
 			pfree(txt);
 		clean->state = ExecInitExpr(clean->expr, NULL);
 		clean->econtext = CreateStandaloneExprContext();
-		clean->slot = MakeSingleTupleTableSlot(RelationGetDescr(rel));
+		desc = RelationGetDescr(rel);
+		clean->slot = MakeSingleTupleTableSlot(desc);
+		ResourceOwnerForgetTupleDesc(CurrentResourceOwner, desc);
 		clean->econtext->ecxt_scantuple = clean->slot;
 	}PG_CATCH();
 	{
@@ -1386,7 +1390,8 @@ void DestroyExpansionClean(struct ExpansionClean *clean)
 	if (clean == NULL)
 		return;
 	FreeExprContext(clean->econtext, true);
-	ExecDropSingleTupleTableSlot(clean->slot);
+	ExecClearTuple(clean->slot);
+	--(clean->slot->tts_tupleDescriptor);
 	MemoryContextDelete(clean->mcontext);
 }
 
