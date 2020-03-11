@@ -3519,8 +3519,7 @@ static List *create_inner_reduce_info_for_join(List *outer_reduce_list, RelOptIn
 		case JOIN_UNIQUE_INNER:
 		case JOIN_UNIQUE_OUTER:
 		case JOIN_SEMI:
-			if (jointype != JOIN_SEMI)
-				need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
+			need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
 			if (!IsReduceInfoByValue(rinfo) ||
 				(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, innerrel)) == NIL)
 				continue;
