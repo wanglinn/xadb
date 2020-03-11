@@ -60,8 +60,6 @@ typedef struct DN_STATUS
 } DN_STATUS;
 
 
-#define SELECT_ADB_CLEANL_NUM       				"select count(*) from adb_clean;"
-
 /*hot expansion definition end*/
 static bool hexp_get_nodeinfo_from_table(char *node_name, char node_type, AppendNodeInfo *nodeinfo);
 static void hexp_create_dm_on_all_node(PGconn *pg_conn, AppendNodeInfo *nodeinfo);
@@ -73,12 +71,11 @@ static void hexp_parse_pair_lsn(char* strvalue, int* phvalue, int* plvalue);
 static List *hexp_get_all_dn_status(void);
 static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* pdn_status, char* cnpath);
 static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnpath);
-static void hexp_check_expand();
 static void hexp_update_conf_pgxc_node_name(AppendNodeInfo node, char* newname);
 static void hexp_restart_node(AppendNodeInfo node);
 static void hexp_pgxc_pool_reload_on_all_node(PGconn *pg_conn);
 static void hexp_get_allnodes_serialize(StringInfoData *pserialize);
-static int  hexp_get_adb_clean_num(PGconn *pg_conn);
+static void hexp_check_expand();
 
 /*
  * expand sourcenode to destnode
@@ -1064,7 +1061,7 @@ Datum mgr_expand_check_status(PG_FUNCTION_ARGS)
 
 		appendStringInfo(&serialize,"pgxc node info in cluster is consistent.\n");
 
-		if ((count = hexp_get_adb_clean_num(pg_conn)) > 0)
+		if ((count = MgrGetAdbcleanNum(pg_conn)) > 0)
 		{
 			ereport(ERROR, (errmsg("cluster status is expanding, can't expand again. adb_clean count(%d).", count)));
 		}
@@ -1107,7 +1104,7 @@ Datum mgr_expand_show_status(PG_FUNCTION_ARGS)
 
 		appendStringInfo(&serialize,"pgxc node info in cluster is consistent.\n");
 
-		if ((count = hexp_get_adb_clean_num(pg_conn)) > 0)
+		if ((count = MgrGetAdbcleanNum(pg_conn)) > 0)
 		{
 			appendStringInfo(&serialize,"cluster status is vacuum, can't expand now. adb_clean count(%d).\n", count);
 		}
@@ -1337,7 +1334,7 @@ static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* 
 	PG_TRY();
 	{
 		hexp_get_dn_conn((PGconn**)&dn_pg_conn, mgr_node, cnpath);
-        if(hexp_get_adb_clean_num(dn_pg_conn) > 0){
+        if(MgrGetAdbcleanNum(dn_pg_conn) > 0){
 			namestrcpy(&pdn_status->node_status, ExpandStatusExpanding);
 		}
 		else{
@@ -1423,21 +1420,11 @@ static void hexp_check_expand()
 
 	mgr_get_gtmcoord_conn(&pg_conn, &cnoid);
 
-	if ((count = hexp_get_adb_clean_num(pg_conn)) > 0)
+	if ((count = MgrGetAdbcleanNum(pg_conn)) > 0)
 	{
 		ereport(ERROR, (errmsg("abd_clean num(%d), expand cann't be started.", count)));
 	}
     return;
-}
-
-static int hexp_get_adb_clean_num(PGconn *pg_conn)
-{
-	StringInfoData sql;
-	Assert(pg_conn);
-
-	initStringInfo(&sql);
-	appendStringInfo(&sql, SELECT_ADB_CLEANL_NUM);
-	return MgrSendSelectMsg(pg_conn, &sql);
 }
 
 static void hexp_parse_pair_lsn(char* strvalue, int* phvalue, int* plvalue)

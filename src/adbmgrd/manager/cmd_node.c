@@ -117,6 +117,7 @@ typedef struct ReadonlyUpdateparm
 #define SPACE           ' '
 
 #define ALTER_NODE_DATA_CLEAN						"ALTER NODE DATA CLEAN"
+#define SELECT_ADB_CLEANL_NUM       				"SELECT COUNT(*) FROM adb_clean;"
 
 bool with_data_checksums = false;
 Oid specHostOid = 0;
@@ -14061,4 +14062,14 @@ void MgrSendDataCleanToGtm(PGconn *pg_conn)
 	ereport(LOG, (errmsg("on gtm execute \"%s\".", sql.data)));	
 	MgrSendAlterMsg(pg_conn, &sql);
 	return;	
+}
+
+int MgrGetAdbcleanNum(PGconn *pg_conn)
+{
+	StringInfoData sql;
+	Assert(pg_conn);
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql, SELECT_ADB_CLEANL_NUM);
+	return MgrSendSelectMsg(pg_conn, &sql);
 }

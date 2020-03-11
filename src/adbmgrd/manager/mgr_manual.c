@@ -1584,7 +1584,7 @@ bool mgr_manipulate_pgxc_node_on_node(PGconn **pg_conn,
 	Assert(executeOnNode);
 	initStringInfo(&sql);
 	getManipulatePgxcNodeSql(nodeinfo, executeOnNode, localExecute, manipulateType, &sql);
-	ereport(LOG, (errmsg("on gtmcoord \"%s\" execute \"%s\"", NameStr(executeOnNode->nodename), sql.data)));
+	ereport(LOG, (errmsg("on \"%s\" execute \"%s\"", NameStr(executeOnNode->nodename), sql.data)));
 
 	num = iloop;
 	while (num-- > 0)
@@ -1605,9 +1605,9 @@ bool mgr_manipulate_pgxc_node_on_node(PGconn **pg_conn,
 	if (PQresultStatus(res) != PGRES_COMMAND_OK)
 	{
 		rest = false;
-		ereport(WARNING, (errmsg("on coordinator \"%s\" execute \"%s\" fail, %s", NameStr(executeOnNode->nodename), sql.data, PQerrorMessage(*pg_conn))));
+		ereport(WARNING, (errmsg("on \"%s\" execute \"%s\" fail, %s", NameStr(executeOnNode->nodename), sql.data, PQerrorMessage(*pg_conn))));
 		if(strinfo)
-			appendStringInfo(strinfo, "on coordinator \"%s\" execute \"%s\" fail, %s\n", NameStr(executeOnNode->nodename), sql.data, PQerrorMessage(*pg_conn));
+			appendStringInfo(strinfo, "on \"%s\" execute \"%s\" fail, %s\n", NameStr(executeOnNode->nodename), sql.data, PQerrorMessage(*pg_conn));
 	}
 	PQclear(res);
 	return rest;
