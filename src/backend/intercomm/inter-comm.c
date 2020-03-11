@@ -184,6 +184,54 @@ HandleGC(NodeHandle *handle)
 	}
 }
 
+void HandleListGCRequestCancel(List *list, int after_sec)
+{
+	time_t		time_start;
+	ListCell   *lc;
+	NodeHandle *handle;
+
+	time_start = time(NULL);
+	foreach (lc, list)
+	{
+		handle = lfirst(lc);
+		handle->node_owner = NULL;
+		if (after_sec == 0)
+			PQNRequestCancel(handle->node_conn);
+		else if (after_sec < 0)
+			PQNExecFinish_trouble(handle->node_conn, -1);
+	}
+
+	if (after_sec < 0)
+	{
+		return;
+	}else if (after_sec == 0)
+	{
+		lc = list_head(list);
+	}else
+	{
+		foreach (lc, list)
+		{
+			handle = lfirst(lc);
+re_check_:
+			if (time(NULL) - time_start > after_sec)
+			{
+				ListCell *lc2 = lc;
+				for (lc2 = lc; lc2 != NULL; lc2 = lnext(lc2))
+					PQNRequestCancel(((NodeHandle*)lfirst(lc2))->node_conn);
+				break;
+			}
+			if (PQNExecFinish_trouble(handle->node_conn, 1) == false)
+				goto re_check_;
+		}
+	}
+
+	for (;lc != NULL; lc = lnext(lc))
+	{
+		handle = lfirst(lc);
+		PQNExecFinish_trouble(handle->node_conn, -1);
+	}
+}
+
 /*
  * HandleListGC
  *

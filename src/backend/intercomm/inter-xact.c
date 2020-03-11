@@ -526,23 +526,6 @@ InterXactGCCurrent(InterXactState state)
 }
 
 /*
- * InterXactGCAll
- *
- * garbage collection for all handles of InterXactState
- */
-void
-InterXactGCAll(InterXactState state)
-{
-	if (state)
-	{
-		NodeMixHandle	   *all_handle;
-		all_handle = state->all_handle;
-		if (all_handle)
-			HandleListGC(all_handle->handles);
-	}
-}
-
-/*
  * InterXactCacheCurrent
  *
  * Cache or GC for current handles of InterXactState
