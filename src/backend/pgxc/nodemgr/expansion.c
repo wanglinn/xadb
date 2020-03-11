@@ -45,6 +45,7 @@
 #include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/resowner.h"
+#include "utils/resowner_private.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 
@@ -1368,6 +1369,7 @@ void RelationBuildExpansionClean(Relation rel)
 		clean->state = ExecInitExpr(clean->expr, NULL);
 		clean->econtext = CreateStandaloneExprContext();
 		clean->slot = table_slot_create(rel, NULL);
+		ResourceOwnerForgetTupleDesc(CurrentResourceOwner, clean->slot->tts_tupleDescriptor);
 		clean->econtext->ecxt_scantuple = clean->slot;
 	}PG_CATCH();
 	{
@@ -1386,7 +1388,8 @@ void DestroyExpansionClean(struct ExpansionClean *clean)
 	if (clean == NULL)
 		return;
 	FreeExprContext(clean->econtext, true);
-	ExecDropSingleTupleTableSlot(clean->slot);
+	ExecClearTuple(clean->slot);
+	--(clean->slot->tts_tupleDescriptor);
 	MemoryContextDelete(clean->mcontext);
 }
 
