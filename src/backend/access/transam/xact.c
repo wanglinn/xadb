@@ -3260,7 +3260,10 @@ UnexpectedAbortRemoteXact(TransactionState state)
 	if (!IsCnMaster())
 		return ;
 
-	InterXactGCAll(state->interXactState);
+	if (state->interXactState &&
+		state->interXactState->all_handle &&
+		state->interXactState->all_handle->handles != NIL)
+		HandleListGCRequestCancel(state->interXactState->all_handle->handles, DEFAULT_REQ_CANCEL_TIME);
 
 	nodeIds = InterXactBeginNodes(state->interXactState, false, &nodecnt);
 	/* Abort remote xact */

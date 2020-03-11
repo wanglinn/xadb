@@ -36,6 +36,7 @@
 #define CLOSE_STMT_TAG				"CLOSE STATEMENT"
 #define CLOSE_PORTAL_TAG			"CLOSE PORTAL"
 #define CLUSTER_BARRIER_TAG			"CLUSTER BARRIER"
+#define DEFAULT_REQ_CANCEL_TIME		3
 
 typedef struct InterXactStateData *InterXactState;
 
@@ -46,6 +47,7 @@ extern char *HandleGetError(NodeHandle *handle);
 extern char *HandleCopyError(NodeHandle *handle);
 extern void HandleGC(NodeHandle *handle);
 extern void HandleListGC(List *handle_list);
+extern void HandleListGCRequestCancel(List *list, int after_sec);
 extern void HandleCacheOrGC(NodeHandle *handle);
 extern void HandleListCacheOrGC(List *handle_list);
 extern bool HandleListFinishCommand(const List *handle_list, const char *commandTag);
@@ -120,7 +122,6 @@ extern void InterXactSaveBeginNodes(InterXactState state, Oid node);
 extern Oid *InterXactBeginNodes(InterXactState state, bool include_self, int *node_num);
 extern void InterXactSerializeSnapshot(StringInfo buf, Snapshot snapshot);
 extern void InterXactGCCurrent(InterXactState state);
-extern void InterXactGCAll(InterXactState state);
 extern void InterXactCacheCurrent(InterXactState state);
 extern void InterXactCacheAll(InterXactState state);
 extern void InterXactUtility(InterXactState state, Snapshot snapshot, const char *utility, StringInfo utility_tree);
