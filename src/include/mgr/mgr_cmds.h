@@ -567,4 +567,5 @@ extern void MgrSendDataCleanToGtm(PGconn *pg_conn);
 extern int MgrSendSelectMsg(PGconn *pg_conn, StringInfoData* psql);
 extern void MgrSendAlterMsg(PGconn *pg_conn, StringInfoData *psql);
 extern void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, GetAgentCmdRst *getAgentCmdRst);
+extern int MgrGetAdbcleanNum(PGconn *pg_conn);
 #endif /* MGR_CMDS_H */

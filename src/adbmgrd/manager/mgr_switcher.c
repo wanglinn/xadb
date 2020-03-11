@@ -295,6 +295,9 @@ void switchDataNodeMaster(char *oldMasterName,
 	MemoryContext spiContext;
 	SwitcherNodeWrapper *holdLockCoordinator = NULL;
 	ErrorData *edata = NULL;
+	PGconn *pg_conn = NULL;
+	Oid 	cnoid;
+	int 	count = 0;
 
 	oldContext = CurrentMemoryContext;
 	switchContext = AllocSetContextCreate(oldContext,
@@ -315,6 +318,7 @@ void switchDataNodeMaster(char *oldMasterName,
 		oldMaster = checkGetDataNodeOldMaster(oldMasterName,
 											  2,
 											  spiContext);
+
 		oldMaster->startupAfterException = false;
 
 		checkGetSlaveNodesRunningStatus(oldMaster,
@@ -338,6 +342,14 @@ void switchDataNodeMaster(char *oldMasterName,
 									  &failedSlaves,
 									  forceSwitch);
 		
+		mgr_get_gtmcoord_conn(&pg_conn, &cnoid);
+		Assert(pg_conn);
+	    count = MgrGetAdbcleanNum(pg_conn);
+		if (count > 0)
+			checkGetSiblingMasterNodes(spiContext,
+									   oldMaster,
+									   &siblingMasters);
+
 		CHECK_FOR_INTERRUPTS();
 
 		/**
@@ -406,21 +418,23 @@ void switchDataNodeMaster(char *oldMasterName,
 										newMaster->mgrNode,
 										spiContext,
 										kickOutOldMaster);
-		refreshPgxcNodesOfSiblingMasters(holdLockCoordinator,
-											 oldMaster,
-											 newMaster,
-											 &siblingMasters);
-			 
-		/* In the last active/standby switching of other nodes, this node may 
-		* have been bypassed, Therefore diff PGXC_NODE is very necessary.
-		*/
-		diffPgxcNodesOfDataNode(holdLockCoordinator->pgConn,
-								false,
-								newMaster,
-								&siblingMasters,
-								spiContext,
-								true);
-
+		if (count > 0)
+		{
+			refreshPgxcNodesOfSiblingMasters(holdLockCoordinator,
+												oldMaster,
+												newMaster,
+												&siblingMasters);
+				
+			/* In the last active/standby switching of other nodes, this node may 
+			* have been bypassed, Therefore diff PGXC_NODE is very necessary.
+			*/
+			diffPgxcNodesOfDataNode(holdLockCoordinator->pgConn,
+									false,
+									newMaster,
+									&siblingMasters,
+									spiContext,
+									true);
+		}
 		
 		commitSwitcherNodeTransaction(holdLockCoordinator,
 									  true);
@@ -693,6 +707,9 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 	ErrorData *edata = NULL;
 	SwitcherNodeWrapper *gtmMaster = NULL;
 	SwitcherNodeWrapper *holdLockCoordinator = NULL;
+	PGconn *pg_conn = NULL;
+	Oid 	cnoid;
+	int 	count = 0;
 
 	oldContext = CurrentMemoryContext;
 	switchContext = AllocSetContextCreate(oldContext,
@@ -731,6 +748,14 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 		checkGetMasterCoordinators(spiContext,
 								   &coordinators,
 								   true, true);
+
+		mgr_get_gtmcoord_conn(&pg_conn, &cnoid);
+		Assert(pg_conn);
+	    count = MgrGetAdbcleanNum(pg_conn);
+		if (count > 0)
+			checkGetSiblingMasterNodes(spiContext,
+									   oldMaster,
+									   &siblingMasters);						   
 		
 		checkTrackActivitiesForSwitchover(&coordinators,
 										  oldMaster);
@@ -815,34 +840,23 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 										newMaster->mgrNode,
 										spiContext,
 										false);
-		refreshPgxcNodesOfSiblingMasters(holdLockCoordinator,
+		if (count > 0)
+		{
+			refreshPgxcNodesOfSiblingMasters(holdLockCoordinator,
 											 oldMaster,
 											 newMaster,
 											 &siblingMasters);
-		/* 
-			* In the last active/standby switching of other nodes, this node may 
-			* have been bypassed, Therefore diff PGXC_NODE is very necessary.
-			*/
-		diffPgxcNodesOfDataNode(holdLockCoordinator->pgConn,
-								false,
-								newMaster,
-								&siblingMasters,
-								spiContext,
-								true);
-		refreshPgxcNodesOfSiblingMasters(holdLockCoordinator,
-											 oldMaster,
-											 newMaster,
-											 &siblingMasters);
-		/* 
-			* In the last active/standby switching of other nodes, this node may 
-			* have been bypassed, Therefore diff PGXC_NODE is very necessary.
-			*/
-		diffPgxcNodesOfDataNode(holdLockCoordinator->pgConn,
-								false,
-								newMaster,
-								&siblingMasters,
-								spiContext,
-								true);
+			/* 
+				* In the last active/standby switching of other nodes, this node may 
+				* have been bypassed, Therefore diff PGXC_NODE is very necessary.
+				*/
+			diffPgxcNodesOfDataNode(holdLockCoordinator->pgConn,
+									false,
+									newMaster,
+									&siblingMasters,
+									spiContext,
+									true);
+		}		
 		
 		commitSwitcherNodeTransaction(holdLockCoordinator,
 									  true);
@@ -1254,6 +1268,15 @@ static void revertClusterSetting(dlist_head *coordinators,
 	SwitcherNodeWrapper *node;
 	SwitcherNodeWrapper *holdLockCoordinator = NULL;
 	bool execOk = true;
+
+	Assert(coordinators != NULL);	
+	Assert(siblingMasters != NULL);
+
+	if ((NULL == oldMaster) || (NULL == newMaster))
+	{
+		ereport(LOG,(errmsg("oldMaster = NULL || newMaster==NULL")));
+		return;
+	}
 
 	holdLockCoordinator = getHoldLockCoordinator(coordinators);
 	rollbackSwitcherNodeTransaction(holdLockCoordinator, false);
