@@ -1557,8 +1557,7 @@ static void hexp_create_dm_on_all_node(PGconn *pg_conn, AppendNodeInfo *nodeinfo
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
 
-		if(!((mgr_node->nodetype==CNDN_TYPE_DATANODE_MASTER) ||
-			 (mgr_node->nodetype==CNDN_TYPE_COORDINATOR_MASTER) ||
+		if(!((mgr_node->nodetype==CNDN_TYPE_COORDINATOR_MASTER) ||
 			 (mgr_node->nodetype==CNDN_TYPE_GTM_COOR_MASTER)))
 			continue;
 
