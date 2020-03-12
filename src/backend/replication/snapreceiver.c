@@ -8,6 +8,7 @@
 #include "lib/stringinfo.h"
 #include "miscadmin.h"
 #include "pgstat.h"
+#include "pgxc/pgxc.h"
 #include "postmaster/postmaster.h"
 #include "replication/walreceiver.h"
 #include "replication/snapreceiver.h"
@@ -1056,8 +1057,9 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid)
 
 	if (snap->xip == NULL)
 		EnlargeSnapshotXip(snap, GetMaxSnapshotXidCount());
-	
-	if (force_snapshot_consistent == FORCE_SNAP_CON_SESSION && TransactionIdIsNormal(last_mxid))
+
+	if (IsCnMaster() && force_snapshot_consistent == FORCE_SNAP_CON_SESSION &&
+			TransactionIdIsNormal(last_mxid))
 	{
 		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
 		if (SnapRcvWaitTopTransactionEnd(last_mxid, end) == false)
