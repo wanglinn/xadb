@@ -74,8 +74,9 @@ re_send_:
 		if (pwi->plan_recv_state == DR_PLAN_RECV_WAITING_ATTACH)
 		{
 			/* parallel */
-			Assert(pi->local_eof == true);
-			appendStringInfoChar(&pwi->sendBuffer, pi->local_eof);
+			Assert(pi->local_eof == true || on_failed == true);
+			/* on failed we need quick end plan, so we always tell backend "local is no more tuple" */
+			appendStringInfoChar(&pwi->sendBuffer, true);
 		}
 		pwi->plan_send_state = DR_PLAN_SEND_SENDING_EOF;
 		goto re_send_;
