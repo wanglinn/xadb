@@ -664,13 +664,13 @@ static void OnLatchEvent(DROnEventArgs)
 
 	ResetLatch(MyLatch);
 
-	TryBackendMessage();
-
 	DRPlanSeqInit(&seq_status);
 	while ((pi=hash_seq_search(&seq_status)) != NULL)
 	{
 		(*pi->OnLatchSet)(pi);
 	}
+
+	TryBackendMessage();
 }
 
 static void OnLatchPreWait(DROnPreWaitArgs)
