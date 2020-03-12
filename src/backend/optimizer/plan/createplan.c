@@ -1976,13 +1976,6 @@ change_plan_targetlist(Plan *subplan, List *tlist, bool tlist_parallel_safe)
 		/* Else we can just replace the plan node's tlist */
 		subplan->targetlist = tlist;
 		subplan->parallel_safe &= tlist_parallel_safe;
-#ifdef ADB
-			if (IsA(subplan, ClusterReduce))
-			{
-				outerPlan(subplan)->targetlist = tlist;
-				outerPlan(subplan)->parallel_safe &= tlist_parallel_safe;
-			}
-#endif /* ADB */
 	}
 	return subplan;
 }
@@ -6911,6 +6904,7 @@ is_projection_capable_path(Path *path)
 		case T_RemoteQuery:
 		case T_ClusterGather:
 		case T_ClusterMergeGather:
+		case T_ClusterReduce:
 #endif /* ADB */
 			return false;
 		case T_Append:
@@ -6960,6 +6954,7 @@ is_projection_capable_plan(Plan *plan)
 #ifdef ADB
 		case T_ClusterGather:
 		case T_ClusterMergeGather:
+		case T_ClusterReduce:
 #endif /* ADB */
 			return false;
 		case T_ProjectSet:
