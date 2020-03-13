@@ -24,13 +24,17 @@
 
 #if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 static DRListenEventData *dr_listen_event = NULL;
-static List *dr_accepted_node_list = NIL;
-#define INSERT_ACCEPTED_NODE(n_)	dr_accepted_node_list = lappend(dr_accepted_node_list, n_)
-#define DELETE_ACCEPTED_NODE(n_)	dr_accepted_node_list = list_delete_ptr(dr_accepted_node_list, n_)
+static List *dr_connecting_node_list = NIL;
+#define INSERT_CONNECTING_NODE(n_)	do{										\
+		MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);	\
+		dr_connecting_node_list = lappend(dr_connecting_node_list, n_);		\
+		MemoryContextSwitchTo(oldcontext);									\
+	}while(0)
+#define DELETE_CONNECTING_NODE(n_)	dr_connecting_node_list = list_delete_ptr(dr_connecting_node_list, n_)
 #else
 static int dr_listen_pos = INVALID_EVENT_SET_POS;
-#define INSERT_ACCEPTED_NODE(n_)	((void)true)
-#define DELETE_ACCEPTED_NODE(n_)	((void)true)
+#define INSERT_CONNECTING_NODE(n_)	((void)true)
+#define DELETE_CONNECTING_NODE(n_)	((void)true)
 #endif /* DR_USING_EPOLL || WITH_REDUCE_RDMA */
 static pgsocket ConnectToAddress(const struct addrinfo *addr);
 
@@ -99,10 +103,10 @@ static void OnNodeEventConnectFrom(DROnEventArgs)
 		DR_CONNECT_DEBUG((errmsg("node %u from remote accept successed", ned->nodeoid)));
 #ifdef WITH_REDUCE_RDMA
 		RDRCtlWaitEvent(fd, ned->waiting_events, newned, RPOLL_EVENT_MOD);
-		DELETE_ACCEPTED_NODE(ned);
+		DELETE_CONNECTING_NODE(ned);
 #elif defined DR_USING_EPOLL
 		DRCtlWaitEvent(fd, ned->waiting_events, newned, EPOLL_CTL_MOD);
-		DELETE_ACCEPTED_NODE(ned);
+		DELETE_CONNECTING_NODE(ned);
 #else
 		ModifyWaitEventData(dr_wait_event_set, ev->pos, newned);
 #endif
@@ -193,6 +197,7 @@ resend_:
 		if (ned->sendBuf.cursor == ned->sendBuf.len)
 		{
 			DR_CONNECT_DEBUG((errmsg("connect to node %u success", ned->nodeoid)));
+			DELETE_CONNECTING_NODE(ned);
 			/* update status */
 			resetStringInfo(&ned->sendBuf);
 			DROnNodeConectSuccess(ned);
@@ -212,7 +217,7 @@ void CallConnectingOnError(void)
 {
 	ListCell	   *lc;
 	DREventData	   *base;
-	for (lc=list_head(dr_accepted_node_list);lc != NULL;)
+	for (lc=list_head(dr_connecting_node_list);lc != NULL;)
 	{
 		base = lfirst(lc);
 		Assert(base->type == DR_EVENT_DATA_NODE);
@@ -221,6 +226,10 @@ void CallConnectingOnError(void)
 		if (base->OnError)
 			(*base->OnError)(base);
 	}
+}
+bool HaveConnectingNode(void)
+{
+	return dr_connecting_node_list != NIL;
 }
 #endif /* DR_USING_EPOLL | WITH_REDUCE_RDMA */
 
@@ -291,6 +300,7 @@ static void ConnectToOneNode(const DynamicReduceNodeInfo *info, const struct add
 				(errmsg("could not connect to any addres for remote node %u(%s:%d)",
 						info->node_oid, NameStr(info->host), info->port)));
 	}
+	INSERT_CONNECTING_NODE(ned);
 #ifdef WITH_REDUCE_RDMA
 	ned->base.fd = fd;
 	RDRCtlWaitEvent(fd, POLLOUT, ned, RPOLL_EVENT_ADD);
@@ -446,7 +456,7 @@ static void OnListenEvent(DROnEventArgs)
 			newdata->waiting_plan_id = INVALID_PLAN_ID;
 			initStringInfoExtend(&newdata->sendBuf, DR_SOCKET_BUF_SIZE_START);
 			initStringInfoExtend(&newdata->recvBuf, DR_SOCKET_BUF_SIZE_START);
-			INSERT_ACCEPTED_NODE(newdata);
+			INSERT_CONNECTING_NODE(newdata);
 			MemoryContextSwitchTo(oldcontext);
 
 			newdata->nodeoid = InvalidOid;
@@ -479,7 +489,7 @@ static void OnListenEvent(DROnEventArgs)
 #endif
 		if (newdata)
 		{
-			DELETE_ACCEPTED_NODE(newdata);
+			DELETE_CONNECTING_NODE(newdata);
 			if (newdata->recvBuf.data)
 				pfree(newdata->recvBuf.data);
 			if (newdata->sendBuf.data)
@@ -708,7 +718,7 @@ void FreeNodeEventInfo(DRNodeEventData *ned)
 			closesocket(we.fd);
 	}
 #endif
-	DELETE_ACCEPTED_NODE(ned);
+	DELETE_CONNECTING_NODE(ned);
 	if (ned->addrlist)
 		pg_freeaddrinfo_all(AF_UNSPEC, ned->addrlist);
 	if (ned->recvBuf.data)
