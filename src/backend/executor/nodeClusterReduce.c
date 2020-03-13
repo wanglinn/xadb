@@ -718,6 +718,7 @@ static void InitParallelReduceFirstCommon(ClusterReduceState *node, ParallelCont
 									   castNode(ClusterReduce, node->ps.plan)->reduce_oids,
 									   pcxt->nworkers+1,
 									   DR_CACHE_ON_DISK_ALWAYS);
+		on_dsm_detach(pcxt->seg, OnDsmDatchShutdownReduce, PointerGetDatum(node));
 	}else
 	{
 		SetupNormalReduceState(&state->normal, &drmq[ParallelWorkerNumber+1], node, false);
