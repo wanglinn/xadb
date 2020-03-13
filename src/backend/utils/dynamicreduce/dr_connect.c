@@ -465,11 +465,17 @@ static void OnListenEvent(DROnEventArgs)
 			newdata->base.fd = newfd;
 			RDRCtlWaitEvent(newfd, POLLIN, newdata, RPOLL_EVENT_ADD);
 			newdata->waiting_events = POLLIN;
+			if (!pg_set_rnoblock(newfd))
+				ereport(LOG_SERVER_ONLY,(errmsg("could not set rsocket noblocking %m")));
 #elif defined DR_USING_EPOLL
 			newdata->base.fd = newfd;
 			DRCtlWaitEvent(newfd, EPOLLIN, newdata, EPOLL_CTL_ADD);
 			newdata->waiting_events = EPOLLIN;
+			if (!pg_set_noblock(newfd))
+				ereport(LOG_SERVER_ONLY,(errmsg("could not set socket noblocking %m")));
 #else
+			if (!pg_set_noblock(newfd))
+				ereport(LOG_SERVER_ONLY,(errmsg("could not set socket noblocking %m")));
 			AddWaitEventToSet(dr_wait_event_set,
 							  WL_SOCKET_READABLE,
 							  newfd,
