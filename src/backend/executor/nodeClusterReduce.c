@@ -1535,7 +1535,8 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	 */
 	crstate->eflags = (eflags & (EXEC_FLAG_REWIND |
 								 EXEC_FLAG_BACKWARD |
-								 EXEC_FLAG_MARK));
+								 EXEC_FLAG_MARK |
+								 EXEC_FLAG_EXPLAIN_ONLY));
 
 	/*
 	 * Tuplestore's interpretation of the flag bits is subtly different from
@@ -1665,7 +1666,7 @@ static void ExecShutdownClusterReduce(ClusterReduceState *node)
 void
 ExecEndClusterReduce(ClusterReduceState *node)
 {
-	if ((node->eflags & EXEC_FLAG_EXPLAIN_ONLY) != 0)
+	if ((node->eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
 		DriveClusterReduceState(node);
 
 	ExecShutdownClusterReduce(node);
