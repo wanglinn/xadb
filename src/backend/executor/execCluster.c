@@ -1049,6 +1049,13 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 	case T_Hash:
 		((Hash*)node)->skewTable = load_oid_class_extend(buf, true);
 		break;
+	case T_PlanRowMark:
+		{
+			PlanRowMark *prm = (PlanRowMark*)node;
+			if (((Relation*)context)[prm->rti-1] == NULL)
+				prm->markType = ROW_MARK_COPY;
+		}
+		break;
 #if 0
 	/* in cte and subquery we can not get right Relation yet, so disable it for now */
 	case T_Var:
