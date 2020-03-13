@@ -71,7 +71,8 @@ re_send_:
 	case DR_PLAN_SEND_SENDING_CACHE:
 	case DR_PLAN_SEND_GENERATE_EOF:
 		appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_END_OF_PLAN);
-		if (pwi->plan_recv_state == DR_PLAN_RECV_WAITING_ATTACH)
+		if (on_failed ||
+			pwi->plan_recv_state == DR_PLAN_RECV_WAITING_ATTACH)
 		{
 			/* parallel */
 			Assert(pi->local_eof == true || on_failed == true);
@@ -596,8 +597,8 @@ void SetPlanFailedFunctions(PlanInfo *pi, bool send_eof, bool parallel)
 		while (i>0)
 		{
 			pwi = &pi->pwi[--i];
-			if (pwi->plan_send_state < DR_PLAN_SEND_GENERATE_CACHE)
-				pwi->plan_send_state = DR_PLAN_SEND_GENERATE_CACHE;
+			if (pwi->plan_send_state <= DR_PLAN_SEND_GENERATE_CACHE)
+				pwi->plan_send_state = DR_PLAN_SEND_GENERATE_EOF;
 		}
 	}
 }
