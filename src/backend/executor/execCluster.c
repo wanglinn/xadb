@@ -917,12 +917,16 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 		}
 		break;
 	case T_Hash:
-		if (IS_RELOID_COORD_ONLY(Hash, skewTable))
+		if (OidIsValid(((Hash*)node)->skewTable))
 		{
 			SAVE_NODE_INVALID_OID(Hash, skewTable);
-			return true;
+			save_oid_class(buf, ((Hash*)node)->skewTable);
+		}else
+		{
+			saveNodeAndHook(buf, node, SerializePlanHook, context);
+			save_oid_class(buf, InvalidOid);
 		}
-		break;
+		return true;
 	case T_IndexScan:
 		SAVE_NODE_INVALID_OID(IndexScan, indexid);
 		SerializeRelationOid(buf, ((IndexScan*)node)->indexid);
@@ -1043,6 +1047,9 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 		break;
 	case T_BitmapIndexScan:
 		LOAD_SCAN_REL_INFO(BitmapIndexScan, indexid);
+		break;
+	case T_Hash:
+		((Hash*)node)->skewTable = load_oid_class_extend(buf, true);
 		break;
 #if 0
 	/* in cte and subquery we can not get right Relation yet, so disable it for now */
