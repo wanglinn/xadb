@@ -529,7 +529,6 @@ static const struct config_enum_entry command_mode[] = {
 
 extern int mgr_cmd_mode;
 char* MGRDatabaseName;
-bool		enable_readsql_on_slave_async = false;
 
 #endif /* ADBMGRD */
 
@@ -568,6 +567,7 @@ bool		Debug_print_grammar = false;
 #ifdef ADB
 bool		enable_cluster_plan = true;
 bool		enable_readsql_on_slave = false;
+bool		enable_readsql_on_slave_async = false;
 #endif
 bool		Debug_print_rewritten = false;
 bool		Debug_pretty_print = true;
@@ -1477,6 +1477,15 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
+	{
+		{"enable_readsql_on_slave_async", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the readonly sql execute on async datanode slaves."),
+			NULL
+		},
+		&enable_readsql_on_slave_async,
+		false,
+		NULL, NULL, NULL
+	},
 #endif
 	{
 		{"debug_print_rewritten", PGC_USERSET, LOGGING_WHAT,
@@ -1616,15 +1625,6 @@ static struct config_bool ConfigureNamesBool[] =
 		},
 		&adbmonitor_start_daemon,
 		true,
-		NULL, NULL, NULL
-	},
-	{
-		{"enable_readsql_on_slave_async", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("Enables the readonly sql execute on async datanode slaves."),
-			NULL
-		},
-		&enable_readsql_on_slave_async,
-		false,
 		NULL, NULL, NULL
 	},
 #endif /* ADBMGRD */
