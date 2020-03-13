@@ -51,6 +51,7 @@ Size			dr_wait_max = 0;
 pid_t			dr_reduce_pid = 0;
 DR_STATUS		dr_status;
 bool			is_reduce_worker = false;
+static bool		dr_backend_is_query_error = false;
 
 /* keep error message, but don't report it immediately */
 static bool dr_keep_error = false;
@@ -66,6 +67,7 @@ static void OnLatchEvent(DROnEventArgs);
 static void OnLatchPreWait(DROnPreWaitArgs);
 static void TryBackendMessage(void);
 static void DRReset(void);
+static bool DRIsIdleStatus(void);
 
 #ifdef DR_USING_EPOLL
 static inline void DRSetupSignal(void)
@@ -188,7 +190,8 @@ void DynamicReduceWorkerMain(Datum main_arg)
 		/* Since not using PG_TRY, must reset error stack by hand */
 		error_context_stack = NULL;
 
-		if (dr_keep_error == false)
+		if (dr_keep_error == false ||
+			dr_backend_is_query_error)
 		{
 			/* Report the error to the server log and exit */
 			EmitErrorReport();
@@ -261,6 +264,13 @@ void DynamicReduceWorkerMain(Datum main_arg)
 		{
 			if (pi->OnPreWait)
 				(*pi->OnPreWait)(pi);
+		}
+
+		if (dr_backend_is_query_error &&
+			DRIsIdleStatus())
+		{
+			DRSendConfirmToBackend(false);
+			dr_backend_is_query_error = false;
 		}
 #ifdef WITH_REDUCE_RDMA
 		if (poll_count > poll_max)
@@ -347,6 +357,13 @@ void DynamicReduceWorkerMain(Datum main_arg)
 			base = GetWaitEventData(dr_wait_event_set, nevent);
 			if (base->OnPreWait)
 				(*base->OnPreWait)(base, (int)nevent);
+		}
+
+		if (dr_backend_is_query_error &&
+			DRIsIdleStatus())
+		{
+			DRSendConfirmToBackend(false);
+			dr_backend_is_query_error = false;
 		}
 
 		CHECK_FOR_INTERRUPTS();
@@ -692,7 +709,8 @@ static void TryBackendMessage(void)
 	Size				size;
 	int					msgtype;
 
-	if (DRRecvMsgFromBackend(&size, (void**)&buf.data, true) == false)
+	if (dr_backend_is_query_error ||
+		DRRecvMsgFromBackend(&size, (void**)&buf.data, true) == false)
 		return;
 	buf.cursor = 0;
 	buf.len = buf.maxlen = (int)size;
@@ -705,6 +723,7 @@ static void TryBackendMessage(void)
 		switch(msgtype)
 		{
 		case ADB_DR_MQ_MSG_STARTUP:
+		case ADB_DR_MQ_MSG_QUERY_ERROR:
 		case ADB_DR_MQ_MSG_CONNECT:
 		case ADB_DR_MQ_MSG_RESET:
 			ReThrowError(dr_error_data);
@@ -733,6 +752,13 @@ static void TryBackendMessage(void)
 		memcpy(&port_msg[1], &listen_event->port, 2);
 		DRSendMsgToBackend(port_msg, sizeof(port_msg), false);
 		MemoryContextSwitchTo(oldcontext);
+	}else if (msgtype == ADB_DR_MQ_MSG_QUERY_ERROR)
+	{
+		Assert(dr_error_data == NULL);
+		if (DRIsIdleStatus())
+			DRSendConfirmToBackend(false);
+		else
+			dr_backend_is_query_error = true;
 	}else if (msgtype == ADB_DR_MQ_MSG_CONNECT)
 	{
 		DRConnectNetMsg(&buf);
@@ -851,4 +877,46 @@ int DRKeepError(void)
 {
 	dr_keep_error = true;
 	return 0;
+}
+
+static bool DRIsIdleStatus(void)
+{
+	DRNodeEventData *ned;
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
+	HASH_SEQ_STATUS seq;
+	if (HaveConnectingNode())
+		return false;
+	DRNodeSeqInit(&seq);
+	while ((ned=hash_seq_search(&seq)) != NULL)
+	{
+		Assert(ned->base.type == DR_EVENT_DATA_NODE);
+		if (ned->status == DRN_ACCEPTED ||
+			ned->status == DRN_CONNECTING ||
+			ned->sendBuf.len > 0 ||
+			ned->recvBuf.len > 0)
+		{
+			hash_seq_term(&seq);
+			return false;
+		}
+	}
+#else
+	Size nevent;
+	for (nevent=dr_wait_count;nevent>0;)
+	{
+		--nevent;
+		ned = GetWaitEventData(dr_wait_event_set, nevent);
+		if (ned->base.type == DR_EVENT_DATA_NODE)
+		{
+			if (ned->status == DRN_ACCEPTED ||
+				ned->status == DRN_CONNECTING ||
+				ned->sendBuf.len > 0 ||
+				ned->recvBuf.len > 0)
+				return false;
+		}
+	}
+#endif
+	if (DRCurrentPlanCount() > 0)
+		return false;
+
+	return true;
 }

@@ -261,7 +261,7 @@ void exec_cluster_plan(const void *splan, int length)
 	}
 
 	if (reduce_info_data != NULL)
-		ResetDynamicReduceWork();
+		DynamicReduceQueryError();
 
 	/* send stat */
 	if ((!custom_fun) || (custom_fun->flag != CLUSTER_CUSTOM_NO_NEED_SEND_STAT))

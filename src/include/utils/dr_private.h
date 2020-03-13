@@ -43,6 +43,7 @@
 /* worker and reduce MQ message */
 #define ADB_DR_MQ_MSG_CONFIRM			'\x01'
 #define ADB_DR_MQ_MSG_PORT				'\x02'
+#define ADB_DR_MQ_MSG_QUERY_ERROR		'\x03'
 #define ADB_DR_MQ_MSG_RESET				'\x10'
 #define ADB_DR_MQ_MSG_STARTUP			'\x11'
 #define ADB_DR_MQ_MSG_CONNECT			'\x12'
@@ -389,12 +390,14 @@ void ConnectToAllNode(const DynamicReduceNodeInfo *info, uint32 count);
 DRListenEventData* GetListenEventData(void);
 #ifdef DR_USING_EPOLL
 void DRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, int ctl);
-void CallConnectingOnError(void);
 #endif /* DR_USING_EPOLL */
+#if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
+void CallConnectingOnError(void);
+bool HaveConnectingNode(void);
+#endif
 
 #ifdef WITH_REDUCE_RDMA
 void RDRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, RPOLL_EVENTS ctl);
-void CallConnectingOnError(void);
 void dr_create_rhandle_list(void);
 void dr_rhandle_print(void);
 DRNodeEventData* dr_rhandle_find(int fd);

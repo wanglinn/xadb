@@ -645,6 +645,13 @@ reget_reset_msg_:
 		goto reget_reset_msg_;
 }
 
+void DynamicReduceQueryError(void)
+{
+	static const char query_msg[1] = {ADB_DR_MQ_MSG_QUERY_ERROR};
+	DRSendMsgToReduce(query_msg, sizeof(query_msg), false);
+	DRRecvConfirmFromReduce(false);
+}
+
 void SerializeDynamicReducePlanData(StringInfo buf, const void *data, uint32 len, struct OidBufferData *target)
 {
 	uint32		count;
