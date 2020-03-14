@@ -2933,7 +2933,7 @@ static struct config_int ConfigureNamesInt[] =
 			GUC_UNIT_MS
 		},
 		&WaitGlobalTransaction,
-		5000, 0, INT_MAX,
+		60000, 0, INT_MAX,
 		NULL, NULL, NULL
 	},
 #endif
