@@ -199,6 +199,8 @@ void DynamicReduceWorkerMain(Datum main_arg)
 			return;
 		}
 
+		HOLD_INTERRUPTS();
+
 		dr_keep_error = false;	/* reset keep error */
 		if (dr_error_data == NULL)
 		{
@@ -243,6 +245,7 @@ void DynamicReduceWorkerMain(Datum main_arg)
 	}
 	/* We can now handle ereport(ERROR) */
 	PG_exception_stack = &local_sigjmp_buf;
+	InterruptHoldoffCount = 0;
 
 	for(;;)
 	{
