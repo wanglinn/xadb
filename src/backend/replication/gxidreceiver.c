@@ -764,11 +764,12 @@ static void GxidRcvProcessAssign(char *buf, Size len)
 	PGPROC					*proc;				
 	proclist_mutable_iter	iter;
 	bool					found;
+	int						finish_num;
 
 	msg.data = buf;
-
 	msg.len = msg.maxlen = len;
 	msg.cursor = 0;
+	finish_num = 0;
 
 	LOCK_GXID_RCV();
 	while(msg.cursor < msg.len)
@@ -793,9 +794,24 @@ static void GxidRcvProcessAssign(char *buf, Size len)
 				break;
 			}
 		}
-		Assert(found);
+		/* when there is no dn/dn wait transaction id, we should finish this transaction id.*/
+		if (!found)
+		{
+			if (finish_num == 0)
+			{
+				resetStringInfo(&reply_message);
+				pq_sendbyte(&reply_message, 'c');
+				pq_sendstring(&reply_message, PGXCNodeName);
+			}
+			finish_num++;
+			pq_sendint32(&reply_message, 0);
+			pq_sendint32(&reply_message, txid);
+		}
 	}
 	UNLOCK_GXID_RCV();
+
+	if (finish_num > 0)
+		walrcv_send(wrconn, reply_message.data, reply_message.len);
 }
 
 static void GxidRcvProcessPreAssign(char *buf, Size len)
