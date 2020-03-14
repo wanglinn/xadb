@@ -2796,7 +2796,7 @@ static struct config_int ConfigureNamesInt[] =
 			GUC_UNIT_MS
 		},
 		&snapshot_sync_waittime,
-		10000, 0, INT_MAX,
+		60000, 0, INT_MAX,
 		NULL, NULL, NULL
 	},
 
