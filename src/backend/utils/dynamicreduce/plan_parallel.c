@@ -43,7 +43,8 @@ static void ClearParallelPlanInfo(PlanInfo *pi)
 		return;
 
 	DR_PLAN_DEBUG((errmsg("clean parallel plan %d(%p)", pi->plan_id, pi)));
-	DRPlanSearch(pi->plan_id, HASH_REMOVE, NULL);
+	if (DRPlanSearch(pi->plan_id, HASH_FIND, NULL) == pi)
+		DRPlanSearch(pi->plan_id, HASH_REMOVE, NULL);
 	if (pi->pwi)
 	{
 		uint32 i;
