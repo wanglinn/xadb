@@ -1664,6 +1664,7 @@ Snapshot GetSnapshotDataExt(Snapshot snapshot, bool isCatelog)
 	/*
 	 * Obtain a global snapshot for a Postgres-XC session
 	 */
+	global_snap_xmin = InvalidTransactionId;
 	if (try_agtm_snap)
 	{
 		snap = GetGlobalSnapshot(snapshot, &global_snap_xmin, isCatelog);
