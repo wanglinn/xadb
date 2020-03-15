@@ -34,7 +34,8 @@ static void DestroyNormalPlan(PlanInfo *pi)
 	if (pi == NULL)
 		return;
 	DR_PLAN_DEBUG((errmsg("destroy normal plan %d(%p)", pi->plan_id, pi)));
-	DRPlanSearch(pi->plan_id, HASH_REMOVE, NULL);
+	if (DRPlanSearch(pi->plan_id, HASH_FIND, NULL) == pi)
+		DRPlanSearch(pi->plan_id, HASH_REMOVE, NULL);
 	if (pi->pwi)
 	{
 		DRClearPlanWorkInfo(pi, pi->pwi);
@@ -208,7 +209,7 @@ void DRStartNormalPlanMessage(StringInfo msg)
 		DR_PLAN_DEBUG((errmsg("normal plan %d(%p) stared", pi->plan_id, pi)));
 	}PG_CATCH();
 	{
-		DestroyNormalSharedFile(pi);
+		DestroyNormalPlan(pi);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
