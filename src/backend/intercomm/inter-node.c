@@ -82,7 +82,11 @@ ResetNodeExecutor(void)
 
 		hash_seq_init(&status, NodeHandleCacheHash);
 		while ((handle = (NodeHandle *) hash_seq_search(&status)) != NULL)
-			HandleDetachPGconn(handle);
+		{
+			handle->node_owner = NULL;
+			handle->node_conn = NULL;
+			handle->node_context = NULL;
+		}
 	}
 }
 
