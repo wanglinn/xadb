@@ -416,6 +416,17 @@ void DynamicReduceCloseSharedTuplestore(struct SharedTuplestoreAccessor *stsa, d
 {
 	DynamicReduceSharedTuplestore	*sts_mem;
 
+	if (dr_dsa == NULL)
+	{
+		/*
+		 * maybe dynamic reduce shared memory already detached,
+		 * in AtEOXact_Parallel function call DestroyParallelContext
+		 */
+		if (dr_mem_seg != NULL)	/* should not happen */
+			ereport(WARNING,
+					(errmsg("maybe should not delete shared file for shared tuplestore")));
+		return;
+	}
 	sts_mem = dsa_get_address(dr_dsa, ptr);
 	Assert(pg_atomic_read_u32(&sts_mem->attached) > 0);
 	sts_detach(stsa);
