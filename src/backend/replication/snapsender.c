@@ -94,7 +94,6 @@ typedef struct SnapClientData
 
 /* GUC variables */
 extern char *AGtmHost;
-extern int snap_receiver_timeout;
 
 int force_snapshot_consistent = FORCE_SNAP_CON_SESSION;
 int snapshot_sync_waittime = 10000;
