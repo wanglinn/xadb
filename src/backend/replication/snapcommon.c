@@ -376,7 +376,6 @@ void SnapReleaseSnapshotTxidLocks(SnapCommonLock *comm_lock, TransactionId *xip,
 				
 			SnapReleaseLock(comm_lock, lock);
 			dsa_free(lock_area, dp);
-			prev_dp = dp;
 			dp = next;
 		}else
 		{
@@ -421,7 +420,6 @@ void SnapReleaseAllTxidLocks(SnapCommonLock *comm_lock)
 			
 		SnapReleaseLock(comm_lock, lock);
 		dsa_free(lock_area, dp);
-		prev_dp = dp;
 		dp = next;
 	}
 	LWLockRelease(&comm_lock->lock_lock_info);
