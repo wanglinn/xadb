@@ -2927,6 +2927,17 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
+		{"snap_receiver_timeout", PGC_SIGHUP, COORDINATORS,
+			gettext_noop("For coordinators and datanode with gtmcoordinator heartbeat time."),
+			gettext_noop("minimum time is 30ms"),
+			GUC_UNIT_MS
+		},
+		&snap_receiver_timeout,
+		60000, 30000, INT_MAX,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"waitglobaltransaction", PGC_USERSET, CLIENT_CONN_STATEMENT,
 			gettext_noop("Sets the maximum allowed duration of any wait for the global transaction id committed on agtm."),
 			gettext_noop("A value of 0 turns off the wait."),
