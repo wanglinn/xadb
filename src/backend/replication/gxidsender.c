@@ -832,11 +832,11 @@ static void GxidProcessFinishGxid(GxidClientData *client)
 
 		pq_sendint32(&gxid_send_output_buffer, procno);
 		pq_sendint32(&gxid_send_output_buffer, xid);
-
+#ifdef SNAP_SYNC_DEBUG
 		found = IsXidInPreparedState(xid);
 		/* comman commite, xid should not left in Prepared*/
 		Assert(!found);
-		SnapSendTransactionFinish(xid);
+#endif
 		GxidDropXidClientItem(xid, clientitem);
 		GxidDropXidItem(xid);
 #ifdef SNAP_SYNC_DEBUG
@@ -851,6 +851,7 @@ static void GxidProcessFinishGxid(GxidClientData *client)
 	{
 		procno = pq_getmsgint(&gxid_send_input_buffer, sizeof(procno));
 		xid = pq_getmsgint(&gxid_send_input_buffer, sizeof(xid));
+		SnapSendTransactionFinish(xid);
 		SnapReleaseTransactionLocks(&GxidSender->comm_lock, xid);
 	}
 
