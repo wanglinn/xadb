@@ -26,7 +26,7 @@
 #include "utils/varlena.h"
 #include "utils/hsearch.h"
 
-#define	MAX_CNT_SHMEM_XID_BUF	100
+#define	MAX_CNT_SHMEM_XID_BUF	1024
 
 /* define SNAP_SYNC_DEBUG 1 */
 typedef struct SnapSenderData
