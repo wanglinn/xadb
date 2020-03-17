@@ -178,8 +178,8 @@ static List* MakeExpansionArg(AlterNodeStmt *stmt, ParseState *pstate)
 			if (!OidIsValid(oid))
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("node \"%s\" not exist", def_from->defname),
-						 parser_errposition(pstate, def_from->location)));
+						 errmsg("node \"%s\" not exist", def_to->defname),
+						 parser_errposition(pstate, def_to->location)));
 			CheckExistDatanode(list_expan, oid, def_to, pstate);
 			lappend_oid(llast(list_expan), oid);
 		}

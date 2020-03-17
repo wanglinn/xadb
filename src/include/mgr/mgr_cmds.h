@@ -29,6 +29,42 @@
 #define MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK	0
 #define MGR_PGEXEC_DIRECT_EXE_UTI_RET_TUPLES_TRUE	1
 
+#define ClosePgConn(co_pg_conn)\
+{\
+	if(co_pg_conn)\
+	{\
+		PQfinish(co_pg_conn);\
+		co_pg_conn = NULL;\
+	}\
+}
+
+#define MgrFree(val)\
+{\
+	if (val != NULL)\
+	{\
+		pfree(val);\
+		val = NULL;\
+	}\
+}
+
+#define CheckNull(val)\
+{\
+	if (NULL == val)\
+	{\
+	    ereport(LOG, (errmsg("NULL == val.")));\
+		return;\
+	}\
+}
+
+#define CheckNullRetrunRet(val, ret)\
+{\
+	if (NULL == val)\
+	{\
+	    ereport(LOG, (errmsg("NULL == val, and return.")));\
+		return ret;\
+	}\
+}
+
 typedef struct GetAgentCmdRst
 {
 	NameData nodename;
@@ -562,7 +598,7 @@ extern uint64 updateDoctorStatusOfMgrNodes(List *nodenames, char nodetype, bool 
 extern uint64 updateDoctorStatusOfMgrNode(char *nodename, char nodetype, bool allowcure, char *curestatus);
 extern uint64 updateAllowcureOfMgrHosts(List *hostnames, bool allowcure);
 extern uint64 updateAllowcureOfMgrHost(char *hostname, bool allowcure);
-extern void MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *src_name, char* dst_name);
+extern void MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *nodes_slq);
 extern void MgrSendDataCleanToGtm(PGconn *pg_conn);
 extern int MgrSendSelectMsg(PGconn *pg_conn, StringInfoData* psql);
 extern void MgrSendAlterMsg(PGconn *pg_conn, StringInfoData *psql);

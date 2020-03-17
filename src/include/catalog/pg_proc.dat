@@ -11341,7 +11341,7 @@
 { oid => '4702', row_macros => 'ADBMGRD',
   descr => 'mgr expand activate datanode master',
   proname => 'mgr_expand_activate_dnmaster', provolatile => 'v',
-  proparallel => 'r', prorettype => 'record', proargtypes => 'cstring',
+  proparallel => 'r', prorettype => 'record', proargtypes => '',
   proallargtypes => '{name,bool,text}', proargmodes => '{o,o,o}',
   proargnames => '{nodename,status,description}',
   prosrc => 'mgr_expand_activate_dnmaster' },
