@@ -13982,7 +13982,7 @@ void MgrSendAlterMsg(PGconn *pg_conn, StringInfoData *psql)
 {
 	int num = 2;
 	PGresult *res = NULL;
-	Assert(pg_conn);
+	CheckNull(pg_conn);
 	
 	while (num-- > 0)
 	{
@@ -14013,8 +14013,8 @@ int MgrSendSelectMsg(PGconn *pg_conn, StringInfoData* psql)
 	PGresult *res;
 	int count = 0;
 
-	Assert(pg_conn);
-	Assert(psql);
+	CheckNullRetrunRet(pg_conn, 0);
+	CheckNullRetrunRet(psql, 0);
 
 	res = PQexec(pg_conn, psql->data);
 	status = PQresultStatus(res);
@@ -14038,15 +14038,15 @@ int MgrSendSelectMsg(PGconn *pg_conn, StringInfoData* psql)
     return count;
 }
 
-void MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *src_name, char* dst_name)
+void MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *nodes_slq)
 {
 	StringInfoData sql;
-	Assert(pg_conn);
-	Assert(src_name);
-	Assert(dst_name);
+	CheckNull(pg_conn);
+	CheckNull(nodes_slq);
 
 	initStringInfo(&sql);
-	appendStringInfo(&sql, "ALTER NODE DATA (\"%s\" TO \"%s\");", src_name,	dst_name);
+	appendStringInfo(&sql, "ALTER NODE DATA (%s);", nodes_slq);
+	
 	ereport(LOG, (errmsg("on gtm execute \"%s\".", sql.data)));
 	MgrSendAlterMsg(pg_conn, &sql);
 	return;					
@@ -14055,7 +14055,7 @@ void MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *src_name, char* dst_name)
 void MgrSendDataCleanToGtm(PGconn *pg_conn)
 {
 	StringInfoData sql;
-	Assert(pg_conn);
+	CheckNull(pg_conn);
 
 	initStringInfo(&sql);
 	appendStringInfo(&sql, ALTER_NODE_DATA_CLEAN);
@@ -14067,7 +14067,7 @@ void MgrSendDataCleanToGtm(PGconn *pg_conn)
 int MgrGetAdbcleanNum(PGconn *pg_conn)
 {
 	StringInfoData sql;
-	Assert(pg_conn);
+	CheckNullRetrunRet(pg_conn, 0);
 
 	initStringInfo(&sql);
 	appendStringInfo(&sql, SELECT_ADB_CLEANL_NUM);

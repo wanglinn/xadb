@@ -493,12 +493,11 @@ ExpandNodeStmt:
 			$$ = (Node*)stmt;
 		}
 		|
-		EXPAND ACTIVATE DATANODE MASTER Ident
+		EXPAND ACTIVATE
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
-			List *args = list_make1(makeStringConst($5, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_activate_dnmaster", args));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_expand_activate_dnmaster", NULL));
 			$$ = (Node*)stmt;
 		}
 		|

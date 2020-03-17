@@ -1228,7 +1228,7 @@ alter table pg_catalog.monitor_job add primary key (name);
 
 --expand
 revoke execute on function mgr_expand_dnmaster(cstring, cstring) from public;
-revoke execute on function mgr_expand_activate_dnmaster(cstring) from public;
+revoke execute on function mgr_expand_activate_dnmaster() from public;
 
 --expand
 revoke execute on function
@@ -1238,7 +1238,7 @@ mgr_checkout_dnslave_status(),
 mgr_expand_dnmaster(cstring, cstring),
 mgr_expand_recover_backup_fail(cstring, cstring),
 mgr_expand_recover_backup_suc(cstring, cstring),
-mgr_expand_activate_dnmaster(cstring),
+mgr_expand_activate_dnmaster(),
 mgr_expand_activate_recover_promote_suc(cstring),
 mgr_expand_clean()
 from public;

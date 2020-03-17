@@ -47,6 +47,8 @@ char *DefaultDatabaseName = DEFAULT_DB;
 
 #define ExpandStatusExpanding  	"Expanding"
 #define ExpandStatusOnline  	"Online"
+#define SELECT_LAST_LSN 		"select pg_last_wal_replay_lsn();"
+#define SELECT_CUR_LSN			"select pg_current_wal_lsn();"
 
 typedef struct DN_STATUS
 {
@@ -58,276 +60,86 @@ typedef struct DN_STATUS
 	NameData	pgxc_node_name;
 } DN_STATUS;
 
+typedef struct SRC_DST_NODENAME
+{
+	NameData	srcnodename;
+	NameData	dstnodename;
+	bool        used;
+}SRC_DST_NODENAME; 
 
 /*hot expansion definition end*/
 static bool hexp_get_nodeinfo_from_table(char *node_name, char node_type, AppendNodeInfo *nodeinfo);
-static void hexp_create_dm_on_all_node(PGconn *pg_conn, AppendNodeInfo *nodeinfo);
+static void hexp_create_dm_on_all_coord(PGconn *pg_conn, AppendNodeInfo *nodeinfo);
 static void hexp_create_dm_on_itself(PGconn *pg_conn, AppendNodeInfo *nodeinfo);
 static void hexp_set_expended_node_state(char *nodename, bool search_init, bool search_incluster, bool value_init, bool value_incluster, Oid src_oid);
 static bool hexp_get_nodeinfo_from_table_byoid(Oid tupleOid, AppendNodeInfo *nodeinfo);
-static void hexp_mgr_pqexec_getlsn(PGconn **pg_conn, char *sqlstr, int* phvalue, int* plvalue);
+static void hexp_mgr_pqexec_getlsn(PGconn *pg_conn, char *sqlstr, int* phvalue, int* plvalue);
 static void hexp_parse_pair_lsn(char* strvalue, int* phvalue, int* plvalue);
 static List *hexp_get_all_dn_status(void);
 static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* pdn_status, char* cnpath);
 static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnpath);
-static void hexp_update_conf_pgxc_node_name(AppendNodeInfo node, char* newname);
-static void hexp_restart_node(AppendNodeInfo node);
+static void hexp_update_conf_pgxc_node_name(AppendNodeInfo *node, char* newname);
+static void hexp_restart_node(AppendNodeInfo *node);
 static void hexp_pgxc_pool_reload_on_all_node(PGconn *pg_conn);
 static void hexp_get_allnodes_serialize(StringInfoData *pserialize);
-static void hexp_check_expand();
+static void hexp_check_expand(void);
+static void MgrSetAppendNodeInfo(AppendNodeInfo  *nodeinfo, Form_mgr_node mgr_node, HeapTuple tuple, InitNodeInfo *info);
+static List* MgrGetAllAppendNodeInfo(void);
+static bool MgrGetConn(char* database, AppendNodeInfo *node, PGconn **pg_conn, StringInfoData  *infosendmsg);
+static void MgrCheckSynaLsn(PGconn * src_pg_conn, PGconn * dst_pg_conn);
+static void MgrCheckRestartRunning(AppendNodeInfo *dst_node);
+static List* MgrActivateStep1(char* database, List *nodeinfo_list);
+static void MgrCreateGtmSql(List *src_dst_list, char *nodes_slq, int len);
+static void MgrActivateStep2(List *dst_node_list, List *src_dst_list);
+static HeapTuple MgrGetTupleResult(List *nodeinfo_list);
+static void MgrFreeNodeList(List *dst_node_list, List *src_dst_list);
 
 /*
  * expand sourcenode to destnode
  */
 Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 {
-	AppendNodeInfo appendnodeinfo;
-	AppendNodeInfo srcnodeinfo;
-	StringInfoData  infosendmsgsrc;
-	StringInfoData  infosendmsgdst;
-	StringInfoData  strinfo;
-	NameData nodename;
-	const int max_pingtry = 60;
-	char nodeport_buf[10];
-	HeapTuple tup_result;
-	char srcport_buf[10];
-	char dstport_buf[10];
-	GetAgentCmdRst getAgentCmdRst;
-	bool result = true;
-	bool findtuple = false;
-	bool isAddHbaSrc = false;
-	bool isAddHbaDst = false;
-	PGconn * src_pg_conn = NULL;
-	PGconn * dst_pg_conn = NULL;
-	PGconn * co_pg_conn = NULL;
-	int src_lsn_high = 0;
-	int src_lsn_low = 0;
-	int dst_lsn_high = 0;
-	int dst_lsn_low = 0;
-	int try = 0;
-	Oid cnoid;
-	char phase1_msg[100];
-	char phase2_msg[256];
-	char* database ;
+	NameData 	nodename;
+	HeapTuple 	tup_result = NULL;
+	char		*database ;
+	List 		*dst_node_list = NIL;
+	List 	    *src_dst_list  = NIL;
+
+	namestrcpy(&nodename, "all node");
 
 	if(0!=strcmp(MGRDatabaseName,""))
 		database = MGRDatabaseName;
 	else
 		database = DEFAULT_DB;
 
-	strcpy(phase1_msg, "phase1--if this step failed, there's nothing need to do. the command:");
-	strcpy(phase2_msg, "phase2--if this step failed, use the command 'EXPAND ACTIVATE RECOVER DOPROMOTE SUCCESS DST' to recover.");
-																	  
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
 
-	memset(&appendnodeinfo, 0, sizeof(AppendNodeInfo));
+	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
+	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
 
-	initStringInfo(&(getAgentCmdRst.description));
-	initStringInfo(&infosendmsgsrc);
-	initStringInfo(&infosendmsgdst);
-	initStringInfo(&strinfo);
-	appendnodeinfo.nodename = PG_GETARG_CSTRING(0);
-	Assert(appendnodeinfo.nodename);
+	hexp_check_expand();
 
-	namestrcpy(&nodename, appendnodeinfo.nodename);
-
-	PG_TRY();
+	if ((dst_node_list = MgrGetAllAppendNodeInfo()) == NIL)
 	{
-		ereport(INFO, (errmsg("%s%s", phase1_msg, "check src node and dst node status.")));
-		/*	1.1 check dst node status.it exists and is inicilized but not in cluster */
-		findtuple = hexp_get_nodeinfo_from_table(appendnodeinfo.nodename, CNDN_TYPE_DATANODE_MASTER, &appendnodeinfo);
-		if(!findtuple)
-			ereport(ERROR, (errmsg("The node %s does not exist.", appendnodeinfo.nodename)));
-
-		if(!((appendnodeinfo.init) && (!appendnodeinfo.incluster)))
-			ereport(ERROR, (errmsg("The node %s status is error. It should be initialized and not in cluster.", appendnodeinfo.nodename)));
-
-		/* 1.2 check src node status. */
-		findtuple = hexp_get_nodeinfo_from_table_byoid(appendnodeinfo.nodemasteroid, &srcnodeinfo);
-		if(!findtuple)
-			ereport(ERROR, (errmsg("The node %s does not exist.tuple id is %d", appendnodeinfo.nodename, appendnodeinfo.nodemasteroid)));
-
-		/*	1.3 check all dn and co are running.*/
-		ereport(LOG, (errmsg("%s%s", phase1_msg, "check all dn and co are running.")));
-		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
-		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
-
-		ereport(LOG, (errmsg("%s%s", phase1_msg, "expand check status.")));
-		hexp_check_expand();
-
-		/* 2.1 get dst lsn	*/
-		ereport(LOG, (errmsg("%s%s", phase1_msg, "get dst lsn.")));
-		sprintf(dstport_buf, "%d", appendnodeinfo.nodeport);
-		dst_pg_conn = PQsetdbLogin(appendnodeinfo.nodeaddr,
-						dstport_buf,
-						NULL, NULL,database,
-						appendnodeinfo.nodeusername,NULL);
-		if (dst_pg_conn == NULL || PQstatus((PGconn*)dst_pg_conn) != CONNECTION_OK)
-		{
-			/* update dst pg_hba.conf */
-			isAddHbaSrc = AddHbaIsValid(&appendnodeinfo, &infosendmsgdst);
-			dst_pg_conn = PQsetdbLogin(appendnodeinfo.nodeaddr,
-						dstport_buf,
-						NULL, NULL,database,
-						appendnodeinfo.nodeusername,NULL);
-			if (dst_pg_conn == NULL || PQstatus((PGconn*)dst_pg_conn) != CONNECTION_OK)
-				ereport(ERROR,
-					(errmsg("Fail to connect to expend dst datanode %s", PQerrorMessage((PGconn*)dst_pg_conn)),
-						errhint("info(host=%s port=%d dbname=%s user=%s)",
-						appendnodeinfo.nodeaddr, appendnodeinfo.nodeport, DEFAULT_DB, appendnodeinfo.nodeusername)));
-		}
-
-		hexp_mgr_pqexec_getlsn(&dst_pg_conn, "select pg_last_wal_replay_lsn();",&dst_lsn_high, &dst_lsn_low);
-
-		/* 2.2 get src lsn */
-		ereport(LOG, (errmsg("%s%s", phase1_msg, "get src lsn.")));
-		sprintf(srcport_buf, "%d", srcnodeinfo.nodeport);
-		src_pg_conn = PQsetdbLogin(srcnodeinfo.nodeaddr,
-						srcport_buf,
-						NULL, NULL,database,
-						srcnodeinfo.nodeusername,NULL);
-		if (src_pg_conn == NULL || PQstatus((PGconn*)src_pg_conn) != CONNECTION_OK)
-		{
-			/* update src pg_hba.conf */
-			isAddHbaSrc = AddHbaIsValid(&srcnodeinfo, &infosendmsgsrc);
-			src_pg_conn = PQsetdbLogin(srcnodeinfo.nodeaddr,
-						srcport_buf,
-						NULL, NULL,database,
-						srcnodeinfo.nodeusername,NULL);
-			if (src_pg_conn == NULL || PQstatus((PGconn*)src_pg_conn) != CONNECTION_OK)
-				ereport(ERROR,
-					(errmsg("Fail to connect to expend src datanode %s", PQerrorMessage((PGconn*)src_pg_conn)),
-						errhint("info(host=%s port=%d dbname=%s user=%s)",
-						srcnodeinfo.nodeaddr, srcnodeinfo.nodeport, DEFAULT_DB, srcnodeinfo.nodeusername)));
-		}
-		hexp_mgr_pqexec_getlsn(&src_pg_conn, "select pg_current_wal_lsn();",&src_lsn_high, &src_lsn_low);
-
-		/* 2.3 check lsn lag between src and dst is 8M.*/
-		ereport(LOG, (errmsg("%s%s", phase1_msg, "check lsn lag between src and dst is 8M.")));
-		if(!((src_lsn_high==dst_lsn_high) && ((src_lsn_low-dst_lsn_low)>=0) &&((src_lsn_low-dst_lsn_low)<=8388608)))
-			ereport(ERROR, (errmsg("the lsn lag between src node and dst node is longer than 8M.src lsn is %x/%x, dst lsn is %x/%x", src_lsn_high,src_lsn_low,dst_lsn_high,dst_lsn_low)));
-
-		ereport(LOG, (errmsg("%s%s", phase1_msg, "expand check status.")));
-		hexp_check_expand();
-
-		/*	2.4 wait 20s for sync */
-		ereport(LOG, (errmsg("%s%s", phase1_msg, "lock cluster and wait 20s for sync.")));
-		try=20;
-		for(;;)
-		{
-			if((src_lsn_high==dst_lsn_high) && (src_lsn_low==dst_lsn_low))
-				break;
-			hexp_mgr_pqexec_getlsn(&dst_pg_conn, "select pg_last_wal_replay_lsn();",&dst_lsn_high, &dst_lsn_low);
-			hexp_mgr_pqexec_getlsn(&src_pg_conn, "select pg_current_wal_lsn();",&src_lsn_high, &src_lsn_low);
-
-			pg_usleep(1000000L);
-			try--;
-			if(try==0)
-				break;
-		}
-
-		if(!((src_lsn_high==dst_lsn_high) && (src_lsn_low==dst_lsn_low)))
-			ereport(ERROR, (errmsg("expend src node and dst node can not sync in %d seconds", try)));
-		
-		/* 3.promote&check connect	*/
-		ereport(INFO, (errmsg("phase1--promote dst node. if it fails, check dst status by hand.it cann't be revoked if promotion really fails.you have to drop the node and directory, then do expand from beginning.")));
-		mgr_failover_one_dn_inner_func(appendnodeinfo.nodename,
-			AGT_CMD_DN_MASTER_PROMOTE,
-			CNDN_TYPE_DATANODE_MASTER,
-			true, false);
-
-		/*	4.update pgxc node name in postgresql.conf in dst node.	*/
-		ereport(LOG, (errmsg("update pgxc node name in postgresql.conf in dst node.if this step fails, do it by hand, then restart the node")));
-		hexp_update_conf_pgxc_node_name(appendnodeinfo, appendnodeinfo.nodename);
-
-		/* wait 60s for restart */
-		ereport(INFO, (errmsg("phase2--restart dst node. if this step fails, do it by hand.")));
-		hexp_restart_node(appendnodeinfo);
-		try=60;
-		for(;;)
-		{
-			if (is_node_running(appendnodeinfo.nodeaddr, appendnodeinfo.nodeport, appendnodeinfo.nodeusername, appendnodeinfo.nodetype))
-				break;
-			pg_usleep(1000000L);
-			try--;
-			if(try==0)
-				break;
-		}
-		if (!is_node_running(appendnodeinfo.nodeaddr, appendnodeinfo.nodeport, appendnodeinfo.nodeusername, appendnodeinfo.nodetype))
-			ereport(ERROR, (errmsg("expend dst node %s can not restart in %d seconds",appendnodeinfo.nodename, 60)));
-
-		/* 5.add dst node to all other node's pgxc_node. */
-		mgr_lock_cluster_involve_gtm_coord(&co_pg_conn, &cnoid);
-	 	hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		
-		ereport(INFO, (errmsg("%s %s", phase2_msg, "add dst node to all other node's pgxc_node.")));
-		hexp_create_dm_on_all_node(co_pg_conn, &appendnodeinfo);
-		hexp_create_dm_on_itself(co_pg_conn, &appendnodeinfo);
-		hexp_pgxc_pool_reload_on_all_node(co_pg_conn);
-		
-		MgrSendAlterNodeDataToGtm(co_pg_conn, srcnodeinfo.nodename, appendnodeinfo.nodename);
-		
-		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-       	mgr_unlock_cluster_involve_gtm_coord(&co_pg_conn);
-
-		/* 5.update dst node init and in cluster. */
-		ereport(INFO, (errmsg("%s %s", phase2_msg, "update dst node init and in cluster.")));
-		hexp_set_expended_node_state(appendnodeinfo.nodename, true, false,  true, true, 0);
-
-		PQfinish(dst_pg_conn);
-		dst_pg_conn = NULL;
-		PQfinish(src_pg_conn);
-		src_pg_conn = NULL;
-	}PG_CATCH();
-	{
-		if(dst_pg_conn)
-		{
-			PQfinish(dst_pg_conn);
-			dst_pg_conn = NULL;
-		}
-		if(src_pg_conn)
-		{
-			PQfinish(src_pg_conn);
-			src_pg_conn = NULL;
-		}
-		if(co_pg_conn)
-		{
-			PQfinish(co_pg_conn);
-			co_pg_conn = NULL;
-		}
-		PG_RE_THROW();
-	}PG_END_TRY();
-
-	/* wait the node can accept connections */
-	sprintf(nodeport_buf, "%d", appendnodeinfo.nodeport);
-	if (!mgr_try_max_pingnode(appendnodeinfo.nodeaddr, nodeport_buf, appendnodeinfo.nodeusername, max_pingtry))
-	{
-		if (!result)
-			appendStringInfoCharMacro(&(getAgentCmdRst.description), '\n');
-		result = false;
-		appendStringInfo(&(getAgentCmdRst.description), "waiting %d seconds for the new node can accept connections failed", max_pingtry);
+		tup_result = build_common_command_tuple(&nodename, true, " no node need activate");
+		return HeapTupleGetDatum(tup_result);
 	}
 
-    if (result){
-		tup_result = build_common_command_tuple(&nodename, true, "success");
-	}else{
-		tup_result = build_common_command_tuple(&nodename, result, getAgentCmdRst.description.data);
+	if ((src_dst_list = MgrActivateStep1(database, dst_node_list)) == NIL)
+	{
+		tup_result = build_common_command_tuple(&nodename, true, " no node need activate");
+		return HeapTupleGetDatum(tup_result);
 	}
+	
+	MgrActivateStep2(dst_node_list, src_dst_list);	
 
-	if (isAddHbaSrc)
-		RemoveHba(&appendnodeinfo, &infosendmsgsrc);
-	if (isAddHbaDst)
-		RemoveHba(&appendnodeinfo, &infosendmsgdst);
-	pfree(infosendmsgsrc.data);
-	pfree(infosendmsgdst.data);
-	pfree(getAgentCmdRst.description.data);
-	pfree_AppendNodeInfo(appendnodeinfo);
-	pfree(strinfo.data);
+	tup_result = MgrGetTupleResult(dst_node_list);
+	
+	MgrFreeNodeList(dst_node_list, src_dst_list);
 
 	return HeapTupleGetDatum(tup_result);
 }
-
 /*
  * expand sourcenode to destnode
  */
@@ -346,8 +158,8 @@ Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS)
 	PGconn * co_pg_conn = NULL;
 	Oid cnoid;
 
-	char phase1_msg[100];
-	strcpy(phase1_msg, "phase1--if this step fails, nothing to revoke. step command:");
+	char step1_msg[100];
+	strcpy(step1_msg, "step1--if this step fails, nothing to revoke. step command:");
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
@@ -364,7 +176,7 @@ Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS)
 	PG_TRY();
 	{
 		//phase 1. if errors occur, doesn't need rollback.
-		ereport(INFO, (errmsg("%s%s", phase1_msg, "check src node and dst node status.")));
+		ereport(INFO, (errmsg("%s%s", step1_msg, "check src node and dst node status.")));
 		
 		findtuple = hexp_get_nodeinfo_from_table(appendnodeinfo.nodename, CNDN_TYPE_DATANODE_MASTER, &appendnodeinfo);
 		if(!findtuple)
@@ -379,7 +191,7 @@ Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errmsg("The node does not exist.tuple id is %d", appendnodeinfo.nodemasteroid)));
 
 		/*	2. check all dn and co are running.*/
-		ereport(INFO, (errmsg("%s%s", phase1_msg, "check all dn and co are running.")));
+		ereport(INFO, (errmsg("%s%s", step1_msg, "check all dn and co are running.")));
 		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
 
@@ -389,7 +201,7 @@ Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS)
 		ereport(INFO, (errmsg("add dst node to all other node's pgxc_node.if this step fails, do it by hand.")));		
 		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);		
 		//create new node on all node which is initilized and incluster
-		hexp_create_dm_on_all_node(co_pg_conn, &appendnodeinfo);
+		hexp_create_dm_on_all_coord(co_pg_conn, &appendnodeinfo);
 		hexp_create_dm_on_itself(co_pg_conn, &appendnodeinfo);
 		hexp_pqexec_direct_execute_utility(co_pg_conn,SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 
@@ -451,17 +263,17 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 	const int max_pingtry = 60;
 	char nodeport_buf[10];
 	bool findtuple;
-	char phase1_msg[100];
-	char phase2_msg[100];
-	char phase3_msg[256];
+	char step1_msg[100];
+	char step2_msg[100];
+	char step3_msg[256];
 	char *gtmMasterName;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
 
-	strcpy(phase1_msg, "phase1--if this step failed, there's nothing need to do. the command:");
-	strcpy(phase2_msg, "phase2--If this step failed, use the command 'EXPAND RECOVER BASEBACKUP FAIL SRC TO DST'.");
-	strcpy(phase3_msg, "phase3--if this step failed, use the command 'EXPAND RECOVER BASEBACKUP SUCCESS SRC TO DST' to recover.");
+	strcpy(step1_msg, "step1--if this step failed, there's nothing need to do. the command:");
+	strcpy(step2_msg, "step2--If this step failed, use the command 'EXPAND RECOVER BASEBACKUP FAIL SRC TO DST'.");
+	strcpy(step3_msg, "step3--if this step failed, use the command 'EXPAND RECOVER BASEBACKUP SUCCESS SRC TO DST' to recover.");
 
 	memset(&destnodeinfo, 0, sizeof(AppendNodeInfo));
 	memset(&sourcenodeinfo, 0, sizeof(AppendNodeInfo));
@@ -479,7 +291,7 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 	PG_TRY();
 	{
 		//1.check src node and dst node status. if the process can start.
-		ereport(INFO, (errmsg("%s %s", phase1_msg, "check src node and dst node status.")));
+		ereport(INFO, (errmsg("%s %s", step1_msg, "check src node and dst node status.")));
 		
 		/*1.1 check src node state.src node is initialized and in cluster.*/
 		get_nodeinfo_byname(sourcenodeinfo.nodename, CNDN_TYPE_DATANODE_MASTER,
@@ -509,34 +321,29 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		hexp_check_expand();
 
 		/*2. check gtmcoord status and add dst info into gtmcoord hba.*/
-		ereport(LOG, (errmsg("%s %s", phase1_msg, "check gtm status and add dst info into gtmcoord hba.")));
+		ereport(LOG, (errmsg("%s %s", step1_msg, "check gtm status and add dst info into gtmcoord hba.")));
 
 		gtmMasterName = mgr_get_agtm_name();
 		namestrcpy(&gtmMasterNameData, gtmMasterName);
 		pfree(gtmMasterName);
 		get_nodeinfo(gtmMasterNameData.data, CNDN_TYPE_GTM_COOR_MASTER, &agtm_m_is_exist, &agtm_m_is_running, &agtm_m_nodeinfo);
-
 		if (agtm_m_is_exist)
 		{
 			if (agtm_m_is_running)
 			{
 				/* append "host all postgres  ip/32" for agtm master pg_hba.conf and reload it. */
 				mgr_add_hbaconf(CNDN_TYPE_GTM_COOR_MASTER, "all", destnodeinfo.nodeaddr);
-			}
-			else
-			{	
+			}else{	
 				ereport(ERROR, (errmsg("gtmcoord master is not running")));
 			}
-		}
-		else
-		{	
+		}else{	
 			ereport(ERROR, (errmsg("gtmcoord master is not initialized")));
 		}
 
 		mgr_add_hbaconf(CNDN_TYPE_GTM_COOR_SLAVE, "all", destnodeinfo.nodeaddr);
 
 		/*3.add dst node ip and account into src node hba*/
-		ereport(LOG, (errmsg("%s %s", phase1_msg, "add dst node ip and account into src node hba.")));
+		ereport(LOG, (errmsg("%s %s", step1_msg, "add dst node ip and account into src node hba.")));
 		resetStringInfo(&infosendmsg);
 		mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", destnodeinfo.nodeusername, destnodeinfo.nodeaddr, 32, "trust", &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF,
@@ -550,17 +357,17 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		mgr_reload_conf(sourcenodeinfo.nodehost, sourcenodeinfo.nodepath);
 
 		/*	4.check dst node basebackup dir does not exist.	*/
-		ereport(LOG, (errmsg("%s %s", phase1_msg, "check dst node basebackup dir does not exist.if this step fails , you should check the dir.")));
+		ereport(LOG, (errmsg("%s %s", step1_msg, "check dst node basebackup dir does not exist.if this step fails , you should check the dir.")));
 		mgr_check_dir_exist_and_priv(destnodeinfo.nodehost, destnodeinfo.nodepath);
 
 		/* 5.basebackup	*/
-		ereport(INFO, (errmsg("%s %s", phase2_msg, "this step is basebackup, if the command failed, you must delete dst directory by hand.")));
-		ereport(INFO, (errmsg("phase2--basebackup begin, please wait for a moment.")));
+		ereport(INFO, (errmsg("%s %s", step2_msg, "this step is basebackup, if the command failed, you must delete dst directory by hand.")));
+		ereport(INFO, (errmsg("step2--basebackup begin, please wait for a moment.")));
 		mgr_pgbasebackup(CNDN_TYPE_DATANODE_MASTER, &destnodeinfo, &sourcenodeinfo);
-		ereport(INFO, (errmsg("phase2--basebackup suceess.")));
+		ereport(INFO, (errmsg("step2--basebackup suceess.")));
 
 		/*6.update dst node postgres.conf*/
-		ereport(LOG, (errmsg("%s %s", phase3_msg, "this step is update dst node postgres.conf.")));
+		ereport(LOG, (errmsg("%s %s", step3_msg, "this step is update dst node postgres.conf.")));
 		resetStringInfo(&infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("archive_command", "", &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("log_directory", "pg_log", &infosendmsg);
@@ -577,7 +384,7 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
 
 		/*7. update dst node recovery.conf*/
-		ereport(LOG, (errmsg("%s %s", phase3_msg, "this step is update dst node recovery.conf.")));
+		ereport(LOG, (errmsg("%s %s", step3_msg, "this step is update dst node recovery.conf.")));
 		resetStringInfo(&infosendmsg);
 		initStringInfo(&primary_conninfo_value);
 
@@ -600,11 +407,11 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		  async rep, don't need to update src node postgres.conf
 		  8. start datanode
 		*/
-		ereport(LOG, (errmsg("%s %s", phase3_msg, "this step is start datanode.")));
+		ereport(LOG, (errmsg("%s %s", step3_msg, "this step is start datanode.")));
 		mgr_start_node(CNDN_TYPE_DATANODE_MASTER, destnodeinfo.nodepath, destnodeinfo.nodehost);
 
 		/*9.update node status initialized but not in cluster.*/
-		ereport(INFO, (errmsg("%s %s", phase3_msg, "the last step to update mgr info.")));
+		ereport(INFO, (errmsg("%s %s", step3_msg, "the last step to update mgr info.")));
 		hexp_set_expended_node_state(destnodeinfo.nodename, false, false,  true, false, sourcenodeinfo.tupleoid);
 
 		ereport(INFO, (errmsg("expend success.")));
@@ -652,14 +459,14 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 	const int max_pingtry = 60;
 	char nodeport_buf[10];
 	bool findtuple;
-	char phase1_msg[100];
-	char phase3_msg[100];
+	char step1_msgs[100];
+	char step3_msgs[100];
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
 
-	strcpy(phase1_msg, "phase1--if this step fails, nothing to revoke. step command:");
-	strcpy(phase3_msg, "phase3--if this step fails, use XXX. step command:");
+	strcpy(step1_msgs, "phase1--if this step fails, nothing to revoke. step command:");
+	strcpy(step3_msgs, "phase3--if this step fails, use XXX. step command:");
 
 	memset(&destnodeinfo, 0, sizeof(AppendNodeInfo));
 	memset(&sourcenodeinfo, 0, sizeof(AppendNodeInfo));
@@ -678,7 +485,7 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 		//phase 1. if errors occur, doesn't need rollback.
 
 		//1.check src node and dst node status. if the process can start.
-		ereport(INFO, (errmsg("%s.%s", phase1_msg, "check src node and dst node status.")));
+		ereport(INFO, (errmsg("%s.%s", step1_msgs, "check src node and dst node status.")));
 		/*
 		1.1 check src node state.src node is initialized and in cluster.
 		*/
@@ -713,7 +520,7 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 		/*
 		7.update dst node postgres.conf
 		*/
-		ereport(INFO, (errmsg("%s.%s", phase3_msg, "update dst node postgres.conf.")));
+		ereport(INFO, (errmsg("%s.%s", step3_msgs, "update dst node postgres.conf.")));
 		resetStringInfo(&infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("archive_command", "", &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("log_directory", "pg_log", &infosendmsg);
@@ -732,7 +539,7 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 		/*
 		8. update dst node recovery.conf
 		*/
-		ereport(INFO, (errmsg("%s.%s", phase3_msg, "update dst node recovery.conf.")));
+		ereport(INFO, (errmsg("%s.%s", step3_msgs, "update dst node recovery.conf.")));
 		resetStringInfo(&infosendmsg);
 		initStringInfo(&primary_conninfo_value);
 
@@ -756,7 +563,7 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 		/*
 		9. start datanode
 		*/
-		ereport(INFO, (errmsg("%s.%s", phase3_msg, "start datanode.")));
+		ereport(INFO, (errmsg("%s.%s", step3_msgs, "start datanode.")));
 		mgr_start_node(CNDN_TYPE_DATANODE_MASTER, destnodeinfo.nodepath, destnodeinfo.nodehost);
 
 		/*
@@ -804,11 +611,11 @@ Datum mgr_expand_recover_backup_fail(PG_FUNCTION_ARGS)
 	HeapTuple tup_result;
 	GetAgentCmdRst getAgentCmdRst;
 	bool findtuple;
-	char phase1_msg[100];
+	char step1_msgs[100];
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
 
-	strcpy(phase1_msg, "if this step fails, nothing to revoke. step command:");
+	strcpy(step1_msgs, "if this step fails, nothing to revoke. step command:");
 
 	memset(&destnodeinfo, 0, sizeof(AppendNodeInfo));
 	memset(&sourcenodeinfo, 0, sizeof(AppendNodeInfo));
@@ -825,7 +632,7 @@ Datum mgr_expand_recover_backup_fail(PG_FUNCTION_ARGS)
 	PG_TRY();
 	{
 		//1.check src node and dst node status. if the process can start.
-		ereport(INFO, (errmsg("%s.%s", phase1_msg, "check src node and dst node status.")));
+		ereport(INFO, (errmsg("%s.%s", step1_msgs, "check src node and dst node status.")));
 		/*
 		1.1 check src node state.src node is initialized and in cluster.
 		*/
@@ -1125,7 +932,433 @@ Datum mgr_expand_show_status(PG_FUNCTION_ARGS)
 	return HeapTupleGetDatum(tup_result);
 }
 
+static void MgrSetAppendNodeInfo(AppendNodeInfo  *nodeinfo, Form_mgr_node mgr_node, HeapTuple tuple, InitNodeInfo *info)
+{
+	bool is_null = false;
+	Datum datumPath;
 
+	CheckNull(nodeinfo);
+	CheckNull(mgr_node);
+	CheckNull(tuple);
+	CheckNull(info);
+
+	nodeinfo->nodename = pstrdup(NameStr(mgr_node->nodename));
+	nodeinfo->nodetype = mgr_node->nodetype;
+	nodeinfo->nodeaddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
+	nodeinfo->nodeusername = get_hostuser_from_hostoid(mgr_node->nodehost);
+	nodeinfo->nodeport = mgr_node->nodeport;
+	nodeinfo->nodehost = mgr_node->nodehost;
+	nodeinfo->nodemasteroid = mgr_node->nodemasternameoid;
+	nodeinfo->init = mgr_node->nodeinited;
+	nodeinfo->incluster = mgr_node->nodeincluster;
+
+	/*get nodepath from tuple*/
+	datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(info->rel_node), &is_null);
+	if (is_null)
+	{
+		heap_endscan(info->rel_scan);
+		heap_close(info->rel_node, AccessShareLock);
+		pfree(info);
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
+			, errmsg("column nodepath is null")));
+	}
+	nodeinfo->nodepath = pstrdup(TextDatumGetCString(datumPath));
+	return;
+}	
+static List* MgrGetAllAppendNodeInfo(void)
+{
+	InitNodeInfo *info;
+	ScanKeyData key[3];
+	HeapTuple tuple;
+	Form_mgr_node mgr_node;
+	AppendNodeInfo  *nodeinfo = NULL;
+	List 			*nodeinfo_list = NIL;
+
+	ScanKeyInit(&key[0]
+			,Anum_mgr_node_nodetype
+			,BTEqualStrategyNumber
+			,F_CHAREQ
+			,CharGetDatum(CNDN_TYPE_DATANODE_MASTER));
+	ScanKeyInit(&key[1]
+				,Anum_mgr_node_nodeinited
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
+	ScanKeyInit(&key[2]
+				,Anum_mgr_node_nodeincluster
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(false));
+
+	info = palloc(sizeof(*info));
+	info->rel_node = table_open(NodeRelationId, AccessShareLock);
+	info->rel_scan = table_beginscan_catalog(info->rel_node, 3, key);
+	info->lcp = NULL;
+
+	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+
+		nodeinfo = (AppendNodeInfo *) palloc(sizeof(AppendNodeInfo));
+		MgrSetAppendNodeInfo(nodeinfo, mgr_node, tuple, info);
+		nodeinfo_list = lappend(nodeinfo_list, nodeinfo);	
+	}
+
+	heap_endscan(info->rel_scan);
+	heap_close(info->rel_node, AccessShareLock);
+	pfree(info);
+
+	return nodeinfo_list;
+}
+
+static bool MgrGetConn(char* database, AppendNodeInfo *node, PGconn **pg_conn, StringInfoData  *infosendmsg)
+{
+	bool is_addhba = false;
+	char port_buf[10] = {0};
+
+    CheckNullRetrunRet(database,false);
+	CheckNullRetrunRet(node,false);
+	CheckNullRetrunRet(infosendmsg,false);
+
+	sprintf(port_buf, "%d", node->nodeport);
+	*pg_conn = PQsetdbLogin(node->nodeaddr,
+					port_buf,
+					NULL, NULL,database,
+					node->nodeusername,NULL);					
+	if (*pg_conn == NULL || PQstatus((PGconn*)*pg_conn) != CONNECTION_OK)
+	{
+		/* update dst pg_hba.conf */
+		is_addhba = AddHbaIsValid(node, infosendmsg);
+		*pg_conn = PQsetdbLogin(node->nodeaddr,
+					port_buf,
+					NULL, NULL,database,
+					node->nodeusername,NULL);
+		if (*pg_conn == NULL || PQstatus((PGconn*)*pg_conn) != CONNECTION_OK)
+			ereport(ERROR,
+				(errmsg("Fail to connect to expend datanode %s", PQerrorMessage((PGconn*)*pg_conn)),
+					errhint("info(host=%s port=%d dbname=%s user=%s)",
+					node->nodeaddr, node->nodeport, DEFAULT_DB, node->nodeusername)));
+	}
+
+	return is_addhba;
+}
+static void MgrCheckSynaLsn(PGconn *src_pg_conn, PGconn *dst_pg_conn)
+{
+	int src_lsn_high = 0;
+	int src_lsn_low = 0;
+	int dst_lsn_high = 0;
+	int dst_lsn_low = 0;
+	int try = 0;
+
+	CheckNull(src_pg_conn);
+	CheckNull(dst_pg_conn);
+	
+	/*	2.4 wait 20s for sync */
+	try=20;
+	for(;;)
+	{
+		hexp_mgr_pqexec_getlsn(dst_pg_conn, SELECT_LAST_LSN, &dst_lsn_high, &dst_lsn_low);
+		hexp_mgr_pqexec_getlsn(src_pg_conn, SELECT_CUR_LSN, &src_lsn_high, &src_lsn_low);
+		if((src_lsn_high==dst_lsn_high) && (src_lsn_low==dst_lsn_low))
+			break;
+
+		pg_usleep(1000000L);
+		try--;
+		if(try==0)
+			break;
+	}
+	if(!((src_lsn_high==dst_lsn_high) && (src_lsn_low==dst_lsn_low)))
+		ereport(ERROR, (errmsg("expend src node and dst node can not sync in %d seconds", try)));
+	
+	return;
+}
+static void MgrCheckRestartRunning(AppendNodeInfo *dst_node)
+{
+	int try=60;
+	CheckNull(dst_node);
+
+	hexp_restart_node(dst_node);	
+	for(;;)
+	{
+		if (is_node_running(dst_node->nodeaddr, dst_node->nodeport, dst_node->nodeusername, dst_node->nodetype))
+			break;
+		pg_usleep(1000000L);
+		try--;
+		if(try==0)
+			break;
+	}
+	
+	if (!is_node_running(dst_node->nodeaddr, dst_node->nodeport, dst_node->nodeusername, dst_node->nodetype))
+		ereport(ERROR, (errmsg("expend dst node %s can not restart in %d seconds",dst_node->nodename, 60)));
+
+	return;
+}
+static List* MgrActivateStep1(char* database, List *nodeinfo_list)
+{
+	AppendNodeInfo  src_node;
+	AppendNodeInfo	*dst_node = NULL;
+	StringInfoData  sendmsg_src;
+	StringInfoData  sendmsg_dst;
+	bool 		is_addhba_src = false;
+	bool 		is_addhba_dst = false;
+	PGconn 		*src_pg_conn = NULL;
+	PGconn 		*dst_pg_conn = NULL;
+	int 		src_lsn_high = 0;
+	int 		src_lsn_low = 0;
+	int 		dst_lsn_high = 0;
+	int 		dst_lsn_low = 0;
+	char 		step1_msg[100];
+	ListCell	*lc;
+	List 	    *src_dst_list = NIL;
+	SRC_DST_NODENAME *src_dst_nodename = NULL;
+	
+	CheckNullRetrunRet(database, NIL);
+	CheckNullRetrunRet(nodeinfo_list, NIL);
+
+	strcpy(step1_msg, "step1--if this step failed, there's nothing need to do. the command:");
+	
+	PG_TRY();
+	{		
+		foreach (lc, nodeinfo_list)
+		{
+			initStringInfo(&sendmsg_src);
+			initStringInfo(&sendmsg_dst);
+
+			dst_node = (AppendNodeInfo *)lfirst(lc);
+			ereport(INFO, (errmsg("%s%s", step1_msg, "check src node and dst node status.")));
+
+			if(!((dst_node->init) && (!dst_node->incluster)))
+				ereport(ERROR, (errmsg("The dst node %s status is error. It should be initialized and not in cluster.", dst_node->nodename)));
+
+			if(!hexp_get_nodeinfo_from_table_byoid(dst_node->nodemasteroid, &src_node))
+				ereport(ERROR, (errmsg("The src node %s does not exist.tuple id is %d", dst_node->nodename, dst_node->nodemasteroid)));
+			
+			src_dst_nodename = (SRC_DST_NODENAME *)palloc(sizeof(SRC_DST_NODENAME));
+			namestrcpy(&src_dst_nodename->srcnodename, src_node.nodename);
+			namestrcpy(&src_dst_nodename->dstnodename, dst_node->nodename);
+			src_dst_nodename->used = false;
+			src_dst_list = lappend(src_dst_list, src_dst_nodename);
+
+			ereport(LOG, (errmsg("%s%s", step1_msg, "get dst lsn.")));
+			is_addhba_dst = MgrGetConn(database, dst_node, &dst_pg_conn, &sendmsg_dst);
+			if (dst_pg_conn != NULL)
+				hexp_mgr_pqexec_getlsn(dst_pg_conn, SELECT_LAST_LSN, &dst_lsn_high, &dst_lsn_low);
+
+			ereport(LOG, (errmsg("%s%s", step1_msg, "get src lsn.")));
+			is_addhba_src = MgrGetConn(database, &src_node, &src_pg_conn, &sendmsg_src);
+			if (src_pg_conn != NULL)
+				hexp_mgr_pqexec_getlsn(src_pg_conn, SELECT_CUR_LSN, &src_lsn_high, &src_lsn_low);
+
+			if(!((src_lsn_high==dst_lsn_high) && ((src_lsn_low-dst_lsn_low)>=0) &&((src_lsn_low-dst_lsn_low)<=(8*1024*1024))))
+				ereport(ERROR, (errmsg("the lsn lag between src node(%s) and dst node(%s) is longer than 8M.src lsn is %x/%x, dst lsn is %x/%x", 
+				src_node.nodename, dst_node->nodename, src_lsn_high,src_lsn_low,dst_lsn_high,dst_lsn_low)));
+			
+			MgrCheckSynaLsn(src_pg_conn, dst_pg_conn);
+
+			/* 3.promote&check connect	*/
+			ereport(INFO, (errmsg("step1--promote dst node. if it fails, check dst status by hand. you have to drop the node and directory, then do expand from beginning.")));
+			mgr_failover_one_dn_inner_func(dst_node->nodename, AGT_CMD_DN_MASTER_PROMOTE, CNDN_TYPE_DATANODE_MASTER, true, false);
+
+			if (is_addhba_src)
+				RemoveHba(dst_node, &sendmsg_src);
+			if (is_addhba_dst)
+				RemoveHba(dst_node, &sendmsg_dst);
+
+			ClosePgConn(dst_pg_conn);
+			ClosePgConn(src_pg_conn);
+			MgrFree(sendmsg_src.data);
+			MgrFree(sendmsg_dst.data);
+		}
+	}PG_CATCH();
+	{
+		ClosePgConn(dst_pg_conn);
+		ClosePgConn(src_pg_conn);
+		MgrFree(sendmsg_src.data);
+		MgrFree(sendmsg_dst.data);
+
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	return src_dst_list;
+}
+static void MgrCreateGtmSql(List *src_dst_list, char *nodes_slq, int len)
+{
+	ListCell*			lc;
+	ListCell*			la;
+	SRC_DST_NODENAME*	nodename = NULL;
+	SRC_DST_NODENAME*	nodename2 = NULL;
+	char 				one_node[512] = {0};
+	int 				offset_total = 0;
+	int 				offset_one = 0;
+
+	CheckNull(src_dst_list);
+	CheckNull(nodes_slq);
+	
+	foreach (lc, src_dst_list)
+	{		
+		nodename = (SRC_DST_NODENAME*)lfirst(lc);
+		if (nodename->used){
+			continue;
+		}
+
+		offset_one = 0;
+		memset(one_node, 0x00, sizeof(one_node));
+		offset_one = sprintf(one_node, "%s TO (%s", NameStr(nodename->srcnodename), NameStr(nodename->dstnodename));
+		nodename->used = true;
+		foreach (la, src_dst_list)
+		{
+			nodename2 = (SRC_DST_NODENAME*)lfirst(la);
+			if ((0 == strcasecmp(NameStr(nodename->srcnodename), NameStr(nodename2->srcnodename))) && (!nodename2->used))
+			{
+				if (offset_one + 1 + strlen(NameStr(nodename2->dstnodename)) < sizeof(one_node))
+				{
+					offset_one += sprintf(one_node, "%s,%s", one_node, NameStr(nodename2->dstnodename));	
+					nodename2->used = true;
+				}						
+			}
+		}
+
+		if (offset_one + 1 < sizeof(one_node)){
+			offset_one += sprintf(one_node, "%s)", one_node);
+		}
+
+		if (offset_total + strlen(one_node) < len)
+		{
+			if (0 == offset_total){
+				offset_total += sprintf(nodes_slq, "%s,", one_node);		
+			}else{
+				offset_total += sprintf(nodes_slq, "%s%s,", nodes_slq, one_node);		
+			}
+		}
+	}
+	
+	if (strlen(nodes_slq) > 0){
+		nodes_slq[strlen(nodes_slq)-1] = '\0';
+	}
+    
+	return;
+}
+static void MgrActivateStep2(List *dst_node_list, List *src_dst_list)
+{
+	PGconn 			*gtm_conn = NULL;
+	AppendNodeInfo	*dst_node = NULL;
+	ListCell		*lc;
+	Oid 			cnoid;
+	char 			step2_msg[256];
+	char            nodes_slq[2048] = {0};
+	strcpy(step2_msg, "step2--if this step failed, use the command 'EXPAND ACTIVATE RECOVER DOPROMOTE SUCCESS DST' to recover.");
+
+	PG_TRY();
+	{
+		foreach (lc, dst_node_list)
+		{
+			dst_node = (AppendNodeInfo *)lfirst(lc);
+			/* update pgxc node name in postgresql.conf in dst node. */
+			ereport(LOG, (errmsg("update pgxc node name in (%s) postgresql.conf in dst node.if this step fails, do it by hand, then restart the node", dst_node->nodename)));
+			hexp_update_conf_pgxc_node_name(dst_node, dst_node->nodename);
+
+			/* wait 60s for restart */
+			ereport(INFO, (errmsg("step2--restart dst node(%s). if this step fails, do it by hand.", dst_node->nodename)));
+			MgrCheckRestartRunning(dst_node);
+		}	
+		
+		MgrCreateGtmSql(src_dst_list, nodes_slq, sizeof(nodes_slq));
+		/* add dst node to all other node's pgxc_node. */
+		mgr_lock_cluster_involve_gtm_coord(&gtm_conn, &cnoid);		
+		ereport(INFO, (errmsg("%s %s", step2_msg, "add dst node to all other node's pgxc_node.")));
+		foreach (lc, dst_node_list)
+		{
+			hexp_pqexec_direct_execute_utility(gtm_conn, SQL_BEGIN_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+			dst_node = (AppendNodeInfo *)lfirst(lc);
+			hexp_create_dm_on_all_coord(gtm_conn, dst_node);
+			hexp_create_dm_on_itself(gtm_conn, dst_node);
+			hexp_pgxc_pool_reload_on_all_node(gtm_conn);
+			hexp_pqexec_direct_execute_utility(gtm_conn, SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+		}		
+		
+		MgrSendAlterNodeDataToGtm(gtm_conn, nodes_slq);
+		
+		//hexp_pqexec_direct_execute_utility(gtm_conn, SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
+		mgr_unlock_cluster_involve_gtm_coord(&gtm_conn);
+
+		/* update dst node init and in cluster. */
+		ereport(INFO, (errmsg("%s %s", step2_msg, "update dst node init and in cluster.")));
+		foreach (lc, dst_node_list)
+		{
+			dst_node = (AppendNodeInfo *)lfirst(lc);
+			hexp_set_expended_node_state(dst_node->nodename, true, false,  true, true, 0);
+		}
+	
+		ClosePgConn(gtm_conn);
+	}PG_CATCH();
+	{
+		ClosePgConn(gtm_conn);
+		PG_RE_THROW();
+	}PG_END_TRY();
+	return;
+}
+
+static HeapTuple MgrGetTupleResult(List *nodeinfo_list)
+{
+	ListCell		*lc;
+	AppendNodeInfo	*dst_node = NULL;
+	char 			nodeport_buf[10];
+	bool			result = true;
+	GetAgentCmdRst  success_rst;
+	GetAgentCmdRst  fail_rst;
+	const int 		max_pingtry = 60;
+	NameData 		nodename;
+	HeapTuple 		tup_result = NULL;
+
+    initStringInfo(&(success_rst.description));
+	initStringInfo(&(fail_rst.description));
+	appendStringInfo(&(success_rst.description), "expand activate success, the nodes:");	
+	namestrcpy(&nodename, "");
+
+	foreach (lc, nodeinfo_list)
+	{		
+		dst_node = (AppendNodeInfo *)lfirst(lc);
+		sprintf(nodeport_buf, "%d", dst_node->nodeport);
+		if (!mgr_try_max_pingnode(dst_node->nodeaddr, nodeport_buf, dst_node->nodeusername, max_pingtry))
+		{
+			result = false;
+			namestrcpy(&nodename, dst_node->nodename);
+			appendStringInfo(&(fail_rst.description), "waiting %d seconds for the new node can accept connections failed", max_pingtry);
+			break;
+		}
+		appendStringInfo(&(success_rst.description), "%s ", dst_node->nodename);		
+	}
+
+    if (result){
+		tup_result = build_common_command_tuple(&nodename, result, success_rst.description.data);
+	}else{
+		tup_result = build_common_command_tuple(&nodename, result, fail_rst.description.data);
+	}
+
+	MgrFree(success_rst.description.data);
+	MgrFree(fail_rst.description.data);
+	return tup_result;
+}
+static void MgrFreeNodeList(List *dst_node_list, List *src_dst_list)
+{
+	ListCell		*lc;
+	AppendNodeInfo	*dst_node = NULL;
+
+	if (NIL == dst_node_list)
+		return;
+
+	foreach (lc, dst_node_list)
+	{		
+		dst_node = (AppendNodeInfo *)lfirst(lc);
+		pfree_AppendNodeInfo(*dst_node);
+	}
+
+    if (NIL == src_dst_list)
+		return;
+    list_free(src_dst_list);
+}
 static void hexp_get_allnodes_serialize(StringInfoData *pserialize)
 {
 	ListCell	*lc;
@@ -1147,7 +1380,7 @@ static void hexp_get_allnodes_serialize(StringInfoData *pserialize)
 	}
 	return;
 }
-static void hexp_update_conf_pgxc_node_name(AppendNodeInfo node, char* newname)
+static void hexp_update_conf_pgxc_node_name(AppendNodeInfo *node, char* newname)
 {
 	GetAgentCmdRst getAgentCmdRst;
 	StringInfoData infosendmsg;
@@ -1156,7 +1389,7 @@ static void hexp_update_conf_pgxc_node_name(AppendNodeInfo node, char* newname)
 	initStringInfo(&(getAgentCmdRst.description));
 
 	mgr_append_pgconf_paras_str_quotastr("pgxc_node_name", newname, &infosendmsg);
-	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, node.nodepath, &infosendmsg, node.nodehost, &getAgentCmdRst);
+	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, node->nodepath, &infosendmsg, node->nodehost, &getAgentCmdRst);
 
 	if (!getAgentCmdRst.ret)
 	{
@@ -1164,7 +1397,7 @@ static void hexp_update_conf_pgxc_node_name(AppendNodeInfo node, char* newname)
 	}
 }
 
-static void hexp_restart_node(AppendNodeInfo node)
+static void hexp_restart_node(AppendNodeInfo *node)
 {
 	GetAgentCmdRst getAgentCmdRst;
 	StringInfoData infosendmsg;
@@ -1176,11 +1409,11 @@ static void hexp_restart_node(AppendNodeInfo node)
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
 
-	appendStringInfo(&infosendmsg, " restart -D %s", node.nodepath);
-	appendStringInfo(&infosendmsg, " -Z datanode -m fast -o -i -w -c -l %s/logfile", node.nodepath);
+	appendStringInfo(&infosendmsg, " restart -D %s", node->nodepath);
+	appendStringInfo(&infosendmsg, " -Z datanode -m fast -o -i -w -c -l %s/logfile", node->nodepath);
 
 	/* connection agent */
-	ma = ma_connect_hostoid(node.nodehost);
+	ma = ma_connect_hostoid(node->nodehost);
 	if(!ma_isconnected(ma))
 	{
 		/* report error message */
@@ -1215,9 +1448,8 @@ static void hexp_restart_node(AppendNodeInfo node)
 
 	if (!exec_result)
 	{
-		ereport(ERROR, (errmsg("restart %s fail\n", node.nodename)));
+		ereport(ERROR, (errmsg("restart %s fail\n", node->nodename)));
 	}
-
 }
 
 static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnpath)
@@ -1411,7 +1643,7 @@ hexp_get_all_dn_status(void)
 	return dn_status_list;
 }
 
-static void hexp_check_expand()
+static void hexp_check_expand(void)
 {
 	PGconn *pg_conn = NULL;
 	Oid cnoid;
@@ -1430,25 +1662,25 @@ static void hexp_parse_pair_lsn(char* strvalue, int* phvalue, int* plvalue)
 {
     char* t = NULL;
     char* d = "/";
+
     t = strtok(strvalue, d);
-    Assert(t);
+	CheckNull(t);
     sscanf(t, "%x", phvalue);
     t = strtok(NULL, d);
-    Assert(t);
+	CheckNull(t);
     sscanf(t, "%x", plvalue);
 }
-
-/*
-* execute the sql, the result of sql is lsn
-*/
-static void hexp_mgr_pqexec_getlsn(PGconn **pg_conn, char *sqlstr, int* phvalue, int* plvalue)
+static void hexp_mgr_pqexec_getlsn(PGconn *pg_conn, char *sqlstr, int* phvalue, int* plvalue)
 {
-	PGresult *res;
-	char pair_value[50];
+	PGresult *res = NULL;
+	char pair_value[50]= {0};
 
-	Assert((*pg_conn)!= 0);
+	CheckNull(pg_conn);
+	CheckNull(sqlstr);
+	CheckNull(phvalue);
+	CheckNull(plvalue);
 
-	res = PQexec(*pg_conn, sqlstr);
+	res = PQexec(pg_conn, sqlstr);
 	if (PQresultStatus(res) != PGRES_TUPLES_OK)
 		ereport(ERROR, (errmsg("%s runs error", sqlstr)));
 	if (0==PQntuples(res))
@@ -1460,8 +1692,6 @@ static void hexp_mgr_pqexec_getlsn(PGconn **pg_conn, char *sqlstr, int* phvalue,
 	PQclear(res);
 	return;
 }
-
-
 void hexp_pqexec_direct_execute_utility(PGconn *pg_conn, char *sqlstr, int ret_type)
 {
 	PGresult *res;
@@ -1526,7 +1756,7 @@ static void hexp_create_dm_on_itself(PGconn *pg_conn, AppendNodeInfo *nodeinfo)
 	}
 }
 
-static void hexp_create_dm_on_all_node(PGconn *pg_conn, AppendNodeInfo *nodeinfo)
+static void hexp_create_dm_on_all_coord(PGconn *pg_conn, AppendNodeInfo *nodeinfo)
 {
 	InitNodeInfo *info;
 	ScanKeyData key[2];
@@ -1930,6 +2160,4 @@ Datum mgr_failover_one_dn_inner_func(char *nodename, char cmdtype, char nodetype
 	heap_close(rel_node, RowExclusiveLock);
 	return HeapTupleGetDatum(tup_result);
 }
-
-
 
