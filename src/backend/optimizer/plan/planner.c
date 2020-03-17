@@ -4638,7 +4638,9 @@ create_grouping_paths(PlannerInfo *root,
 			bool hashable = (gd ? gd->any_hashable : grouping_is_hashable(parse->groupClause));
 #ifdef ADB_EXT
 			if (hashable &&
-				parse->groupingSets == NIL)
+				parse->groupingSets == NIL &&
+				/* each group clause maybe in where clause have "caluse=xxx" */
+				!((flags & GROUPING_CAN_USE_SORT) && root->group_pathkeys == NIL))
 				flags |= GROUPING_CAN_USE_BATCH;
 #endif /* ADB_EXT */
 			if (hashable &&
