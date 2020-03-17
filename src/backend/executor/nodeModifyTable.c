@@ -313,6 +313,10 @@ ExecInsert(ModifyTableState *mtstate,
 	resultRelInfo = estate->es_result_relation_info;
 	resultRelationDesc = resultRelInfo->ri_RelationDesc;
 #ifdef ADB
+	if (resultRelationDesc == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("can not insert into a not exist relation")));
 	if (mtstate->mt_partition_tuple_routing &&
 		resultRelationDesc->rd_auxlist != NIL)
 		ereport(ERROR,
@@ -806,6 +810,10 @@ ExecDelete(ModifyTableState *mtstate,
 	resultRelationDesc = resultRelInfo->ri_RelationDesc;
 #ifdef ADB
 	resultRemoteRel = (RemoteQueryState *) estate->es_result_remoterel;
+	if (resultRelationDesc == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("can not delete row from a not exist relation")));
 #endif
 
 	/* BEFORE ROW DELETE Triggers */
@@ -1223,6 +1231,12 @@ ExecUpdate(ModifyTableState *mtstate,
 	 */
 	resultRelInfo = estate->es_result_relation_info;
 	resultRelationDesc = resultRelInfo->ri_RelationDesc;
+#ifdef ADB
+	if (resultRelationDesc == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("can not update for a not exist relation")));
+#endif
 
 	/* BEFORE ROW UPDATE Triggers */
 	if (resultRelInfo->ri_TrigDesc &&
