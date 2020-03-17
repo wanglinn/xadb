@@ -1270,8 +1270,6 @@ static void revertClusterSetting(dlist_head *coordinators,
 	bool execOk = true;
 
 	Assert(coordinators != NULL);	
-	Assert(siblingMasters != NULL);
-
 	if ((NULL == oldMaster) || (NULL == newMaster))
 	{
 		ereport(LOG,(errmsg("oldMaster = NULL || newMaster==NULL")));
