@@ -419,7 +419,21 @@ static void RxactLoop(void)
 				continue;
 			case PGRES_POLLING_OK:
 				if(pconn->doing_gid[0] == '\0')
+				{
+					pos = getNodeConnPos(pconn);
+					if (pos)
+					{
+						user_data = (RxactWaitEventData *)GetWaitEventData(rxact_wait_event_set, pos);
+						/* 
+						 * If the connection exists in the event set, 
+						 * move it out only, but do not close it.
+						 */
+						RemoveWaitEvent(rxact_wait_event_set, pos);
+						--rxact_event_cur_count;
+						closesocket(user_data->pconn_fd_dup);
+					}
 					continue;
+				}
 				wait_write = false;
 				break;
 			case PGRES_POLLING_WRITING:
