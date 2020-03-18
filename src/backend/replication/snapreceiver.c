@@ -1058,7 +1058,7 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid)
 	if (snap->xip == NULL)
 		EnlargeSnapshotXip(snap, GetMaxSnapshotXidCount());
 
-	if (IsCnMaster() && force_snapshot_consistent == FORCE_SNAP_CON_SESSION &&
+	if (force_snapshot_consistent == FORCE_SNAP_CON_SESSION &&
 			TransactionIdIsNormal(last_mxid))
 	{
 		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
