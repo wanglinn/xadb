@@ -630,6 +630,7 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 		break;
 	case 'u':				/* heartbeat response */
 		SnapRcvProcessUpdateXid(buf, len);
+		break;
 	case 't':				/* heartbeat response */
 		SnapRcvProcessSyncXminResp(buf, len);
 		break;
