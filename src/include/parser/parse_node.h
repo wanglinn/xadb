@@ -95,7 +95,7 @@ typedef Node *(*PreParseExprHook) (ParseState *pstate, Node *expr);
 typedef Node *(*PostParseExprHook)(ParseState *pstate, Node *expr, Node *node);
 typedef Node *(*PreParseFromClauseItemHook)(ParseState *pstate, Node *n,
 											RangeTblEntry **top_rte, int *top_rti,
-											List **namespace, void *hook_state);
+											List **name_space, void *hook_state);
 #endif /* ADB_MULTI_GRAM */
 #ifdef ADB_GRAM_ORA
 #define IsOracleParseGram(pstate) \
