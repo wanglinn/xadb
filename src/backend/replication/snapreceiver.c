@@ -55,6 +55,7 @@ typedef struct SnapRcvData
 	uint32			xcnt;
 	TransactionId	latestCompletedXid;
 	pg_atomic_uint32	global_xmin;
+	pg_atomic_uint32	last_ddl_finish_id;
 	TransactionId	xip[MAX_BACKENDS];
 }SnapRcvData;
 
@@ -254,6 +255,7 @@ void SnapReceiverMain(void)
 
 	UNLOCK_SNAP_RCV();
 	pg_atomic_write_u32(&SnapRcv->global_xmin, FirstNormalTransactionId);
+	pg_atomic_write_u32(&SnapRcv->last_ddl_finish_id, InvalidTransactionId);
 
 	/* Arrange to clean up at walreceiver exit */
 	on_shmem_exit(SnapRcvDie, (Datum)0);
@@ -444,6 +446,7 @@ void SnapRcvShmemInit(void)
 		LWLockInitialize(&SnapRcv->comm_lock.lock_lock_info, LWTRANCHE_SNAPSHOT_COMMON_DSA);
 		LWLockInitialize(&SnapRcv->comm_lock.lock_proc_link, LWTRANCHE_SNAPSHOT_COMMON_DSA);
 		pg_atomic_init_u32(&SnapRcv->global_xmin, FirstNormalTransactionId);
+		pg_atomic_init_u32(&SnapRcv->last_ddl_finish_id, InvalidTransactionId);
 	}
 }
 
@@ -1049,7 +1052,8 @@ static void WakeupTransaction(TransactionId txid)
 	}
 }
 
-Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid)
+Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
+			TransactionId last_finish_xid, bool isCatalog)
 {
 	TransactionId	xid,xmax,xmin;
 	uint32			i,count,xcnt;
@@ -1059,7 +1063,19 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid)
 	if (snap->xip == NULL)
 		EnlargeSnapshotXip(snap, GetMaxSnapshotXidCount());
 
-	if (force_snapshot_consistent == FORCE_SNAP_CON_SESSION &&
+	if (isCatalog && TransactionIdIsValid(last_finish_xid))
+	{
+		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
+		if (SnapRcvWaitTopTransactionEnd(last_finish_xid, end) == false)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+					errmsg("wait last ddl finish xid sync time out, which version is %u", last_finish_xid),
+					errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
+		}
+		pg_atomic_compare_exchange_u32(&SnapRcv->last_ddl_finish_id, &last_finish_xid, InvalidTransactionId);
+	}
+	else if (force_snapshot_consistent == FORCE_SNAP_CON_SESSION &&
 			TransactionIdIsNormal(last_mxid))
 	{
 		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
@@ -1208,7 +1224,15 @@ TransactionId SnapRcvGetGlobalXmin(void)
 	return xmin;
 }
 
+TransactionId SnapRcvGetLastDdlFinishXid(void)
+{
+	TransactionId 	xid;
+	xid = pg_atomic_read_u32(&SnapRcv->last_ddl_finish_id);
+	return xid;
+}
+
 void SnapRcvTransferLock(void **param, TransactionId xid, struct PGPROC *from)
 {
 	SnapTransferLock(&SnapRcv->comm_lock, param, xid, from);
+	pg_atomic_write_u32(&SnapRcv->last_ddl_finish_id, xid);
 }
