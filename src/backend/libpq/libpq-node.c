@@ -194,15 +194,6 @@ static List* apply_for_node_use_oid(List *oid_list)
 	{
 		List * volatile conn_list = NIL;
 		pgsocket * volatile fds = NULL;
-/*#ifdef WITH_RDMA
-		conn_list = PoolManagerGetRsConnectionsOid(need_list);
-		if(conn_list == NIL)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
-					 errmsg("Failed to get rs connections")));
-		}
-#else*/
 		fds = PoolManagerGetConnectionsOid(need_list);
 		if(fds == NULL)
 		{
@@ -211,16 +202,14 @@ static List* apply_for_node_use_oid(List *oid_list)
 					(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
 					 errmsg("Failed to get pooled connections")));
 		}
-//#endif
 
 		PG_TRY();
 		{
-//#ifndef WITH_RDMA
 			conn_list = pg_conn_attach_socket(fds, list_length(need_list));
 			/* at here don't need fds */
 			pfree(fds);
 			fds = NULL;
-//#endif
+
 			Assert(list_length(conn_list) == list_length(need_list));
 			PQNListExecFinish(conn_list, NULL, &PQNDefaultHookFunctions, true);
 
