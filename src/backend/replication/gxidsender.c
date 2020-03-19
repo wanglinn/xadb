@@ -401,21 +401,32 @@ static void GxidDropXidList(ClientHashItemInfo	*clientitem)
 {
 	slist_mutable_iter	siter;
 	ClientXidItemInfo	*xiditem;
+	TransactionId		*xids;
+	int					i, count;
 
 	if (!slist_is_empty(&clientitem->gxid_assgin_xid_list))
 	{
+		xids = palloc0(clientitem->xcnt * sizeof(TransactionId));
+		i = 0;
+		count = 0;
 		SpinLockAcquire(&GxidSender->mutex);
 		slist_foreach_modify(siter, &clientitem->gxid_assgin_xid_list)
 		{
 			xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
 			clientitem->xcnt--;
-			SnapSendTransactionFinish(xiditem->xid);
-			SnapReleaseTransactionLocks(&GxidSender->comm_lock, xiditem->xid);
+			xids[count++] = xiditem->xid;
 			slist_delete(&clientitem->gxid_assgin_xid_list, &xiditem->snode);
 			GxidDropXidItem(xiditem->xid);
 			pfree(xiditem);
 		}
 		SpinLockRelease(&GxidSender->mutex);
+
+		for (i = 0; i < count; i++)
+		{
+			SnapSendTransactionFinish(xids[i]);
+			SnapReleaseTransactionLocks(&GxidSender->comm_lock, xids[i]);
+		}
+		pfree(xids);
 	}
 	Assert(clientitem->xcnt == 0);
 }
@@ -698,6 +709,7 @@ static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 	TransactionId				xid, xidmax;
 	ClientHashItemInfo			*clientitem;
 	ClientXidItemInfo			*xiditem;
+	ClientXidItemInfo			*xiditemArray;
 	bool						found;
 	int							i, xid_num;
 
@@ -723,6 +735,7 @@ static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 
 	xidmax = GetNewTransactionIdExt(false, xid_num, false);
 
+	xiditemArray = palloc0(xid_num * sizeof(xiditem));
 	SpinLockAcquire(&GxidSender->mutex);
 	for (i = 0; i < xid_num; i++)
 	{
@@ -733,7 +746,7 @@ static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 		else if (i == xid_num-1)
 			ereport(LOG,(errmsg(" %d\n", xid)));
 #endif
-		xiditem = palloc0(sizeof(*xiditem));
+		xiditem = &xiditemArray[i];
 		xiditem->xid = xid;
 		xiditem->procno = 0;
 		slist_push_head(&clientitem->gxid_assgin_xid_list, &xiditem->snode);
@@ -816,6 +829,7 @@ static void GxidProcessFinishGxid(GxidClientData *client)
 	TransactionId				xid; 
 	ClientHashItemInfo			*clientitem;
 	bool						found;
+	size_t						input_buf_free_len, out_buf_free_len;
 
 	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_FIND, &found);
 	Assert(found);
@@ -824,7 +838,19 @@ static void GxidProcessFinishGxid(GxidClientData *client)
 	pq_sendbyte(&gxid_send_output_buffer, 'f');
 
 	start_cursor = gxid_send_input_buffer.cursor;
+
+re_lock_:
+	input_buf_free_len = gxid_send_input_buffer.maxlen - gxid_send_input_buffer.len;
+	out_buf_free_len = gxid_send_output_buffer.maxlen - gxid_send_output_buffer.len;
 	SpinLockAcquire(&GxidSender->mutex);
+
+	if (input_buf_free_len > out_buf_free_len)
+	{
+		SpinLockRelease(&GxidSender->mutex);
+		enlargeStringInfo(&gxid_send_output_buffer, input_buf_free_len - out_buf_free_len);
+		goto re_lock_;
+	}
+
 	while(gxid_send_input_buffer.cursor < gxid_send_input_buffer.len)
 	{
 		procno = pq_getmsgint(&gxid_send_input_buffer, sizeof(procno));
@@ -1065,32 +1091,30 @@ Snapshot GxidSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, Transactio
 /* like GetSnapshotData, but serialize all active transaction IDs */
 void SerializeFullAssignXid(StringInfo buf)
 {
-	TransactionId   *xids;
-	TransactionId	xid;
 	int				index;
-	uint32			i,count;
+	size_t			buf_free_size;
 
+re_lock_:
+	buf_free_size = buf->maxlen - buf->len;
 	SpinLockAcquire(&GxidSender->mutex);
-	xids = palloc(GxidSender->xcnt * sizeof(TransactionId));
-	count = 0;
+	if (buf_free_size < GxidSender->xcnt * sizeof(TransactionId))
+	{
+		SpinLockRelease(&GxidSender->mutex);
+		enlargeStringInfo(buf, GxidSender->xcnt * sizeof(TransactionId) - buf_free_size);
+		goto re_lock_;
+	}
 
 	/* get all Transaction IDs */
 	for (index = 0; index < GxidSender->xcnt; ++index)
 	{
-		xid = GxidSender->xip[index];
-		Assert(TransactionIdIsNormal(xid));
-		xids[count++] = xid;
+		pq_sendint32(buf, GxidSender->xip[index]);
+		Assert(TransactionIdIsNormal(GxidSender->xip[index]));
 #ifdef SNAP_SYNC_DEBUG	
 		ereport(LOG,(errmsg("SnapSend init sync xid %d\n",
-					xid)));
+					 GxidSender->xip[index])));
 #endif
 	}
 	SpinLockRelease(&GxidSender->mutex);
-
-	for(i=0;i<count;++i)
-		pq_sendint32(buf, xids[i]);
-
-	pfree(xids);
 }
 
 void GxidSendLockSendSock(void)
