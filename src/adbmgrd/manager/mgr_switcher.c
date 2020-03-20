@@ -146,10 +146,12 @@ static void batchSetGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 static void batchCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 									 dlist_head *nodes,
 									 SwitcherNodeWrapper *ignoreNode,
-									 int checkSeconds);
+									 int checkSeconds,
+									 bool complain);
 static void batchSetCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 										dlist_head *nodes,
-										SwitcherNodeWrapper *ignoreNode);
+										SwitcherNodeWrapper *ignoreNode,
+										bool complain);
 static bool isCurestatusForRunningOk(char *curestatus);
 static void checkTrackActivitiesForSwitchover(dlist_head *coordinators,
 											  SwitcherNodeWrapper *oldMaster);
@@ -595,7 +597,8 @@ void switchGtmCoordMaster(char *oldMasterName,
 									 spiContext);
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
 									&coordinators,
-									newMaster);
+									newMaster,
+									true);
 		refreshPgxcNodesOfCoordinators(NULL,
 									   &coordinators,
 									   oldMaster,
@@ -808,7 +811,7 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 									NULL,
 									newMaster->pgConn,
 									spiContext);
-		runningSlavesFollowNewMaster(newMaster,
+		runningSlavesFollowNewMaster(newMaster, 
 									 oldMaster,
 									 &runningSlaves,
 									 gtmMaster->mgrNode,
@@ -911,6 +914,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 	dlist_head failedSlaves = DLIST_STATIC_INIT(failedSlaves);
 	dlist_head dataNodes = DLIST_STATIC_INIT(dataNodes);
 	dlist_head isolatedNodes = DLIST_STATIC_INIT(isolatedNodes);
+	dlist_head siblingSlaveGtms = DLIST_STATIC_INIT(siblingSlaveGtms);
 	MemoryContext oldContext;
 	MemoryContext switchContext;
 	MemoryContext spiContext;
@@ -969,7 +973,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 		else
 		{
 			checkActiveConnectionsForSwitchover(&coordinators,
-												oldMaster);
+												oldMaster);												
 		}
 		checkActiveLocksForSwitchover(&coordinators,
 									  oldMaster);
@@ -984,7 +988,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 									  &runningSlaves,
 									  &failedSlaves,
 									  spiContext);
-		dlist_foreach(iter, &coordinators)
+		dlist_foreach(iter, &coordinators) 
 		{
 			node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 			if (node != oldMaster)
@@ -1017,7 +1021,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 		PQfinish(oldMaster->pgConn);
 		oldMaster->pgConn = NULL;
 		/* Delete the oldMaster, it is not a coordinator now. */
-		dlist_foreach_modify(miter, &coordinators)
+		dlist_foreach_modify(miter, &coordinators) 
 		{
 			node = dlist_container(SwitcherNodeWrapper, link, miter.cur);
 			if (node == oldMaster)
@@ -1045,21 +1049,17 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 		/* newMaster also is a coordinator */
 		newMaster->mgrNode->form.nodetype =
 			getMgrMasterNodetype(newMaster->mgrNode->form.nodetype);
-		dlist_push_head(&coordinators, &newMaster->link);
+		dlist_push_head(&coordinators, &newMaster->link);     			
 
-		appendSlaveNodeFollowMaster(newMaster->mgrNode,
-									oldMaster->mgrNode,
-									NULL,
-									newMaster->pgConn,
-									spiContext);
 		runningSlavesFollowNewMaster(newMaster,
-									 oldMaster,
+									 NULL,
 									 &runningSlaves,
 									 NULL,
 									 spiContext);
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
 									&coordinators,
-									newMaster);
+									newMaster,
+									true);
 		refreshPgxcNodesOfCoordinators(NULL,
 									   &coordinators,
 									   oldMaster,
@@ -1079,10 +1079,18 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 		 */
 		tryLockCluster(&coordinators);
 
-		batchSetGtmInfoOnNodes(newMaster->mgrNode,
-							   &dataNodes,
-							   newMaster,
-							   false);
+		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
+									&dataNodes,
+									newMaster,
+									false);					   
+
+		dlist_push_tail(&siblingSlaveGtms, &oldMaster->mgrNode->link);
+		appendSlaveNodeFollowMaster(newMaster->mgrNode,
+									oldMaster->mgrNode,
+									&siblingSlaveGtms,
+									newMaster->pgConn,
+									spiContext);
+
 		refreshOldMasterAfterSwitchover(oldMaster,
 										newMaster,
 										spiContext);
@@ -2036,14 +2044,25 @@ static void checkGetAllDataNodes(dlist_head *dataNodes,
 								 MemoryContext spiContext)
 {
 	dlist_head mgrNodes = DLIST_STATIC_INIT(mgrNodes);
+	SwitcherNodeWrapper *node;
+	dlist_iter iter;
 
 	selectMgrAllDataNodes(spiContext, &mgrNodes);
 	mgrNodesToSwitcherNodes(&mgrNodes, dataNodes);
 
+	dlist_foreach(iter, dataNodes)
+	{
+		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		if (!tryConnectNode(node, 10))
+		{
+			ereport(LOG, (errmsg("connect to %s failed",
+							NameStr(node->mgrNode->form.nodename))));
+		}
+	}
+
 	if (dlist_is_empty(dataNodes))
 	{
-		ereport(LOG,
-				(errmsg("can't find any datanode")));
+		ereport(LOG, (errmsg("can't find any datanode")));
 	}
 }
 
@@ -2399,7 +2418,8 @@ static void runningSlavesFollowNewMaster(SwitcherNodeWrapper *newMaster,
 								   true);
 
 	switcherNodesToMgrNodes(runningSlaves, &siblingSlaveNodes);
-	dlist_push_tail(&siblingSlaveNodes, &oldMaster->mgrNode->link);
+	if (oldMaster != NULL)
+		dlist_push_tail(&siblingSlaveNodes, &oldMaster->mgrNode->link);
 	dlist_foreach_modify(iter, runningSlaves)
 	{
 		slaveNode = dlist_container(SwitcherNodeWrapper,
@@ -2422,7 +2442,8 @@ static void runningSlavesFollowNewMaster(SwitcherNodeWrapper *newMaster,
 		batchCheckGtmInfoOnNodes(gtmMaster,
 								 runningSlaves,
 								 NULL,
-								 CHECK_GTM_INFO_SECONDS);
+								 CHECK_GTM_INFO_SECONDS,
+								 true);
 }
 
 static int walLsnDesc(const void *node1, const void *node2)
@@ -3327,14 +3348,14 @@ static void batchSetGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 static void batchCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 									 dlist_head *nodes,
 									 SwitcherNodeWrapper *ignoreNode,
-									 int checkSeconds)
+									 int checkSeconds,
+									 bool complain)
 {
 	dlist_mutable_iter iter;
 	SwitcherNodeWrapper *node;
 	SwitcherNodeWrapper *copyOfNode;
 	dlist_head copyOfNodes = DLIST_STATIC_INIT(copyOfNodes);
 	int seconds;
-	bool execOk = false;
 
 	dlist_foreach_modify(iter, nodes)
 	{
@@ -3352,11 +3373,10 @@ static void batchCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 		dlist_foreach_modify(iter, &copyOfNodes)
 		{
 			node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-			execOk = checkGtmInfoInPGSqlConf(node->pgConn,
-											 NameStr(node->mgrNode->form.nodename),
-											 true,
-											 gtmMaster);
-			if (execOk)
+			if (checkGtmInfoInPGSqlConf(node->pgConn,
+										NameStr(node->mgrNode->form.nodename),
+										true,
+										gtmMaster))
 			{
 				ereport(LOG,
 						(errmsg("the GTM information on %s is correct",
@@ -3381,7 +3401,7 @@ static void batchCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 		dlist_foreach_modify(iter, &copyOfNodes)
 		{
 			node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-			ereport(ERROR,
+			ereport(complain ? ERROR : LOG,
 					(errmsg("check GTM information on %s failed",
 							NameStr(node->mgrNode->form.nodename))));
 			dlist_delete(iter.cur);
@@ -3392,11 +3412,12 @@ static void batchCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 
 static void batchSetCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 										dlist_head *nodes,
-										SwitcherNodeWrapper *ignoreNode)
+										SwitcherNodeWrapper *ignoreNode,
+										bool complain)
 {
-	batchSetGtmInfoOnNodes(gtmMaster, nodes, ignoreNode, true);
+	batchSetGtmInfoOnNodes(gtmMaster, nodes, ignoreNode, complain);
 	batchCheckGtmInfoOnNodes(gtmMaster, nodes, ignoreNode,
-							 CHECK_GTM_INFO_SECONDS);
+							 CHECK_GTM_INFO_SECONDS, complain);
 }
 
 static bool isCurestatusForRunningOk(char *curestatus)
