@@ -378,11 +378,18 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 
 	int			nodeIndex;
 	int			slotstatus;
+	List		*tmp_nodeids = NIL;
+	ListCell	*lc;
 
 
 	if (rel_loc_info == NULL)
 		return NULL;
-
+	
+	/* Delete duplicate node information, avoid duplicate connection between poolmgr and datanode. */
+	if (rel_loc_info->nodeids)
+		foreach (lc, rel_loc_info->nodeids)
+			tmp_nodeids  = list_append_unique_oid(tmp_nodeids, lfirst_oid(lc));
+		
 	exec_nodes = makeNode(ExecNodes);
 	exec_nodes->baselocatortype = rel_loc_info->locatorType;
 	exec_nodes->accesstype = accessType;
@@ -399,7 +406,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 			 * deadlock.
 			 * For write access set primary node (if exists).
 			 */
-			exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
+			exec_nodes->nodeids = tmp_nodeids;
 			if (accessType == RELATION_ACCESS_UPDATE || accessType == RELATION_ACCESS_INSERT)
 			{
 				/* we need to write to all synchronously */
@@ -427,7 +434,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 						modulo = 0;
 					}else
 					{
-						exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
+						exec_nodes->nodeids = tmp_nodeids;
 						break;
 					}
 				}else
@@ -457,7 +464,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 			if (accessType == RELATION_ACCESS_INSERT)
 				exec_nodes->nodeids = list_make1_oid(GetRandomRelNodeId(rel_loc_info->relid));
 			else
-				exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
+				exec_nodes->nodeids = tmp_nodeids;
 			break;
 
 		case LOCATOR_TYPE_HASHMAP:
@@ -475,7 +482,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 						exec_nodes->nodeids = list_make1_oid(nodeIndex);
 					}else
 					{
-						exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
+						exec_nodes->nodeids = tmp_nodeids;
 						break;
 					}
 				}else

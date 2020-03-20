@@ -1470,6 +1470,7 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 		RangeTblEntry  *dummy_rte;			/* RTE for the remote query node */
 		Plan		   *sourceDataPlan;	/* plan producing source data */
 		char		   *relname;
+		ListCell	   *lc;
 
 		relcount++;
 		if (have_cluster_path(lfirst(lc_subpath)))
@@ -1528,7 +1529,11 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 			fstep->exec_nodes = makeNode(ExecNodes);
 			fstep->exec_nodes->accesstype = accessType;
 			fstep->exec_nodes->baselocatortype = rel_loc_info->locatorType;
-			fstep->exec_nodes->nodeids = list_copy(rel_loc_info->nodeids);
+			fstep->exec_nodes->nodeids = NIL;
+			/* Delete duplicate node information, avoid duplicate connection between poolmgr and datanode. */
+			if (rel_loc_info->nodeids)
+				foreach (lc, rel_loc_info->nodeids)
+					fstep->exec_nodes->nodeids  = list_append_unique_oid(fstep->exec_nodes->nodeids, lfirst_oid(lc));
 		}
 		else
 		{
