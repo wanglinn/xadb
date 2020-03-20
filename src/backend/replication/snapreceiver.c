@@ -45,6 +45,7 @@ typedef struct SnapRcvData
 	int				sender_port;
 
 	proclist_head	waiters;	/* list of waiting event */
+	proclist_head	ss_waiters;	/* snap sync waiters */
 
 	slock_t			mutex;
 
@@ -56,6 +57,11 @@ typedef struct SnapRcvData
 	pg_atomic_uint32	global_xmin;
 	pg_atomic_uint32	last_ddl_finish_id;
 	TransactionId	xip[MAX_BACKENDS];
+	uint64			last_client_req_key; /* last client rquest snap sync key num*/
+	uint64			last_ss_req_key; 	/* last snaprcv rquest snap sync key num*/
+	uint64			last_ss_resp_key; /* last snaprcv rquest snap sync ken num*/
+	uint64			req_has_send_num; /* snaprcv has send reuest and has not get the reponse num*/
+	uint64			ss_req_num;				
 }SnapRcvData;
 
 /* GUC variables */
@@ -118,7 +124,10 @@ static void SnapRcvQuickDieHandler(SIGNAL_ARGS);
 typedef bool (*WaitSnapRcvCond)(void *context);
 static bool WaitSnapRcvCondStreaming(void *context);
 static bool WaitSnapRcvCondTransactionComplate(void *context);
-static bool WaitSnapRcvEvent(TimestampTz end, WaitSnapRcvCond test, void *context);
+static bool WaitSnapRcvEvent(TimestampTz end, proclist_head *waiters, bool is_ss,
+				WaitSnapRcvCond test, void *context);
+static bool WaitSnapRcvSyncSnap(void *context);
+static void WakeupSnapSync(uint64_t req_key);
 
 static void
 ProcessSnapRcvInterrupts(void)
@@ -181,6 +190,28 @@ SnapRcvSendHeartbeat(void)
 	/* Send it */
 	walrcv_send(wrconn, reply_message.data, reply_message.len);
 	last_gxmin_stime = last_heat_beat_sendtime;
+}
+
+static void SnapRcvProcessSnapSync(void)
+{
+	/* Construct a new message */
+	LOCK_SNAP_RCV();
+	//ereport(LOG,(errmsg("SnapRcv->ss_req_num %d, SnapRcv->last_client_req_key %lld, SnapRcv->last_ss_req_key %lld\n",
+				 //SnapRcv->ss_req_num,SnapRcv->last_client_req_key,SnapRcv->last_ss_req_key)));
+	if (SnapRcv->ss_req_num > 0 && SnapRcv->last_client_req_key > SnapRcv->last_ss_req_key)
+	{
+		//ereport(LOG,(errmsg("SnapRcvProcessSnapSync send SnapSync request last_ss_req_key %lld\n", SnapRcv->last_client_req_key)));
+		/* Construct a new message */
+		resetStringInfo(&reply_message);
+		pq_sendbyte(&reply_message, 'p');
+		pq_sendint64(&reply_message, SnapRcv->last_client_req_key);
+		walrcv_send(wrconn, reply_message.data, reply_message.len);
+		SnapRcv->last_ss_req_key = SnapRcv->last_client_req_key;
+		SnapRcv->req_has_send_num++;
+	}
+	else if (SnapRcv->ss_req_num == 0 && SnapRcv->req_has_send_num == 0)
+		SnapRcv->last_client_req_key = 0;
+	UNLOCK_SNAP_RCV();
 }
 
 static void
@@ -384,7 +415,7 @@ void SnapReceiverMain(void)
 									   snap_receiver_timeout,
 									   PG_WAIT_EXTENSION);
 				ResetLatch(&MyProc->procLatch);
-
+				SnapRcvProcessSnapSync();
 				if (rc & WL_POSTMASTER_DEATH)
 				{
 					/*
@@ -436,6 +467,12 @@ void SnapRcvShmemInit(void)
 		MemSet(SnapRcv, 0, SnapRcvShmemSize());
 		SnapRcv->state = WALRCV_STOPPED;
 		proclist_init(&SnapRcv->waiters);
+		proclist_init(&SnapRcv->ss_waiters);
+		SnapRcv->last_client_req_key = 0;
+		SnapRcv->last_ss_req_key = 0;
+		SnapRcv->last_ss_resp_key = 0;
+		SnapRcv->req_has_send_num = 0;
+		SnapRcv->ss_req_num = 0;
 		SnapRcv->procno = INVALID_PGPROCNO;
 		SpinLockInit(&SnapRcv->mutex);
 
@@ -611,6 +648,24 @@ void SnapRcvUpdateShmemConnInfo(void)
 		pfree(sender_host);
 }
 
+static void SnapRcvProcessSyncSnap(char *buf, Size len)
+{
+	uint64_t 	key;
+	StringInfoData	msg;
+
+	if (len != sizeof(key))
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("invalid sync response key length")));
+
+	msg.data = buf;
+	msg.len = msg.maxlen = len;
+	msg.cursor = 0;
+	key = pq_getmsgint64(&msg);
+	//ereport(LOG,(errmsg("SnapRcvProcessSyncSnap key %lld\n", key)));
+	WakeupSnapSync(key);
+}
+
 static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 {
 	TimestampTz now;
@@ -636,6 +691,9 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 		break;
 	case 't':				/* heartbeat response */
 		SnapRcvProcessSyncXminResp(buf, len);
+		break;
+	case 'p':				/* heartbeat response */
+		SnapRcvProcessSyncSnap(buf, len);
 		break;
 	default:
 		ereport(ERROR,
@@ -931,7 +989,7 @@ static void SnapRcvProcessHeartBeat(char *buf, Size len)
  *   when end == 0 not block
  * mutex must be locked
  */
-static bool WaitSnapRcvEvent(TimestampTz end, WaitSnapRcvCond test, void *context)
+static bool WaitSnapRcvEvent(TimestampTz end, proclist_head *waiters, bool is_ss, WaitSnapRcvCond test, void *context)
 {
 	Latch				   *latch = &MyProc->procLatch;
 	long					timeout;
@@ -943,7 +1001,7 @@ static bool WaitSnapRcvEvent(TimestampTz end, WaitSnapRcvCond test, void *contex
 	while ((*test)(context))
 	{
 		bool in_list = false;
-		proclist_foreach_modify(iter, &SnapRcv->waiters, GTMWaitLink)
+		proclist_foreach_modify(iter, waiters, GTMWaitLink)
 		{
 			if (iter.cur == procno)
 			{
@@ -954,7 +1012,12 @@ static bool WaitSnapRcvEvent(TimestampTz end, WaitSnapRcvCond test, void *contex
 		if (!in_list)
 		{
 			pg_write_barrier();
-			proclist_push_tail(&SnapRcv->waiters, procno, GTMWaitLink);
+			proclist_push_tail(waiters, procno, GTMWaitLink);
+			if (is_ss)
+			{
+				SnapRcv->ss_req_num++;
+				SNAP_RCV_SET_LATCH();
+			}
 		}
 		UNLOCK_SNAP_RCV();
 
@@ -988,11 +1051,11 @@ static bool WaitSnapRcvEvent(TimestampTz end, WaitSnapRcvCond test, void *contex
 	}
 
 	/* check if we still in waiting list, remove */
-	proclist_foreach_modify(iter, &SnapRcv->waiters, GTMWaitLink)
+	proclist_foreach_modify(iter, waiters, GTMWaitLink)
 	{
 		if (iter.cur == procno)
 		{
-			proclist_delete(&SnapRcv->waiters, procno, GTMWaitLink);
+			proclist_delete(waiters, procno, GTMWaitLink);
 			break;
 		}
 	}
@@ -1039,6 +1102,38 @@ static bool WaitSnapRcvCondTransactionComplate(void *context)
 	return false;
 }
 
+static bool WaitSnapRcvSyncSnap(void *context)
+{
+	uint64_t req_key = (uint64_t)(context);
+	if (req_key < SnapRcv->last_ss_resp_key)
+		return false;
+	else
+		return true;
+}
+
+/* mutex must be locked */
+static void WakeupSnapSync(uint64_t req_key)
+{
+	proclist_mutable_iter	iter;
+	PGPROC					*proc;
+
+	proclist_foreach_modify(iter, &SnapRcv->ss_waiters, GTMWaitLink)
+	{
+		proc = GetPGProcByNumber(iter.cur);
+		//ereport(LOG,(errmsg("proc->ss_req_key  %lld\n", proc->ss_req_key)));
+		if (proc->ss_req_key <= req_key)
+		{
+			//ereport(LOG,(errmsg("snaprcv wake up process %d\n", proc->pgprocno)));
+			proclist_delete(&SnapRcv->ss_waiters, proc->pgprocno, GTMWaitLink);
+			SetLatch(&proc->procLatch);
+			SnapRcv->ss_req_num--;
+		}
+	}
+	//ereport(LOG,(errmsg("snaprcv last_ss_resp_key up to %lld\n", req_key)));
+	SnapRcv->last_ss_resp_key = req_key;
+	SnapRcv->req_has_send_num--;
+}
+
 /* mutex must be locked */
 static void WakeupTransaction(TransactionId txid)
 {
@@ -1064,6 +1159,7 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 	uint32			i,count,xcnt;
 	bool			is_wait_ok;
 	TimestampTz		end;
+	uint64_t		req_key;
 
 	if (snap->xip == NULL)
 		EnlargeSnapshotXip(snap, GetMaxSnapshotXidCount());
@@ -1100,7 +1196,7 @@ re_lock_:
 		/* InvalidTransactionId for wait streaming */
 		MyProc->waitGlobalTransaction = InvalidTransactionId;
 		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snap_sender_connect_timeout);
-		is_wait_ok = WaitSnapRcvEvent(end, WaitSnapRcvCondStreaming, NULL);
+		is_wait_ok = WaitSnapRcvEvent(end, &SnapRcv->waiters, false, WaitSnapRcvCondStreaming, NULL);
 
 		if (!is_wait_ok)
 		{
@@ -1111,6 +1207,18 @@ re_lock_:
 	}
 
 	Assert(SnapRcv->state == WALRCV_STREAMING);
+
+	if (force_snapshot_consistent == FORCE_SNAP_CON_ON)
+	{
+		SnapRcv->last_client_req_key++;
+		req_key = SnapRcv->last_client_req_key;
+		MyProc->ss_req_key = req_key;
+		//ereport(LOG,(errmsg("Add proce %d to wait snap sync list, req_key %lld\n", MyProc->pgprocno, req_key)));
+
+		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snap_receiver_timeout);
+		WaitSnapRcvEvent(end, &SnapRcv->ss_waiters, true, WaitSnapRcvSyncSnap, (void*)(req_key));
+		MyProc->ss_req_key = 0;
+	}
 
 	if (snap->max_xcnt < SnapRcv->xcnt)
 	{
@@ -1179,7 +1287,7 @@ bool SnapRcvWaitTopTransactionEnd(TransactionId txid, TimestampTz end)
 
 	MyProc->waitGlobalTransaction = txid;
 	LOCK_SNAP_RCV();
-	result = WaitSnapRcvEvent(end,
+	result = WaitSnapRcvEvent(end, &SnapRcv->waiters, false,
 							  WaitSnapRcvCondTransactionComplate,
 							  (void*)((size_t)txid));
 	UNLOCK_SNAP_RCV();
