@@ -1751,6 +1751,7 @@ static void rxact_2pc_do(void)
 	StringInfoData buf;
 	int i;
 	bool cmd_is_ok;
+	bool wait_block = true;
 #ifdef USE_AGTM
 	bool node_is_ok;	/* except AGTM nodes is ok? */
 #endif	/* USE_AGTM */
@@ -1803,7 +1804,14 @@ static void rxact_2pc_do(void)
 			/* get node connection, skip if not connectiond */
 			node_conn = rxact_get_node_conn(rinfo->db_oid, rinfo->remote_nodes[i], time(NULL));
 			if(node_conn == NULL || node_conn->conn == NULL || node_conn->doing_gid[0] != '\0')
+			{
+				/*
+				* Avoid rxact blocking the wait event, 
+				* resulting in two-phase transactions not being executed.
+				*/
+				wait_block = false;
 				continue;
+			}
 
 			/* when SQL not maked, make it */
 			if(cmd_is_ok == false)
@@ -1824,6 +1832,11 @@ static void rxact_2pc_do(void)
 			}
 		}
 	}
+
+	if (wait_block)
+		waiting_time = -1L;
+	else
+		waiting_time = 1000L;
 
 	/*if(all_finish == true)
 		rxact_has_filed_gid = false;*/
