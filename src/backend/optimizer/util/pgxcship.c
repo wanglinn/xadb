@@ -1676,6 +1676,26 @@ pgxc_merge_exec_nodes(ExecNodes *en1, ExecNodes *en2)
 {
 	ExecNodes	*merged_en = makeNode(ExecNodes);
 	ExecNodes	*tmp_en;
+	List		*tmp_nodeids;
+	ListCell	*lc;
+
+	/* Delete duplicate node information, avoid duplicate connection between poolmgr and datanode. */
+	if (en1 && en1->nodeids)
+	{
+		tmp_nodeids = NIL;
+		foreach (lc, en1->nodeids)
+			tmp_nodeids  = list_append_unique_oid(tmp_nodeids, lfirst_oid(lc));
+		list_free(en1->nodeids);
+		en1->nodeids = tmp_nodeids;
+	}
+	if (en2 && en2->nodeids)
+	{
+		tmp_nodeids = NIL;
+		foreach (lc, en2->nodeids)
+			tmp_nodeids  = list_append_unique_oid(tmp_nodeids, lfirst_oid(lc));
+		list_free(en2->nodeids);
+		en2->nodeids = tmp_nodeids;
+	}
 
 	/* If either of exec_nodes are NULL, return the copy of other one */
 	if (!en1)
