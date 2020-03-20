@@ -224,6 +224,7 @@ struct PGPROC
 
 	TransactionId getGlobalTransaction;
 	proclist_head GxidWaitLink;
+	uint64_t	  ss_req_key;
 #endif /* ADB */
 };
 
