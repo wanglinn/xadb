@@ -67,6 +67,7 @@
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
 #include "optimizer/pgxcplan.h"
+#include "optimizer/reduceinfo.h"
 #include "pgxc/execRemote.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_namespace.h"
@@ -567,20 +568,66 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	if (!stmt->distributeby &&
 		!stmt->inhRelations &&
 		stmt->relation->relpersistence != RELPERSISTENCE_TEMP &&
-		default_distribute_by == LOCATOR_TYPE_INVALID &&
 		cxt.fallback_dist_col)
 	{
 		PartitionElem *elem = makeNode(PartitionElem);
 		PartitionSpec *spec = makeNode(PartitionSpec);
+		ListCell	*lc;
+		int32		typmod;
+		char		*typstr;
+		Oid			typId;
 
 		elem->name = cxt.fallback_dist_col;
 		elem->location = -1;
 
-		if(default_distribute_by == LOCATOR_TYPE_HASHMAP)
-			spec->strategy = pstrdup("hashmap");
-		else
-			spec->strategy = pstrdup("hash");
-		spec->partParams = list_make1(elem);
+		switch (default_distribute_by)
+		{
+			case LOCATOR_TYPE_HASHMAP:
+				spec->strategy = pstrdup("hashmap");
+				spec->partParams = list_make1(elem);
+				break;
+			case LOCATOR_TYPE_REPLICATED:
+				spec->strategy = pstrdup("replication");
+				spec->partParams = NIL;
+				break;
+			case LOCATOR_TYPE_RANDOM:
+					spec->strategy = pstrdup("random");
+					spec->partParams = NIL;
+				break;
+			case LOCATOR_TYPE_MODULO:
+				foreach (lc, cxt.columns)
+				{
+					ColumnDef *def = (ColumnDef*)lfirst(lc);
+
+					if (strcmp(def->colname, cxt.fallback_dist_col) != 0)
+						continue;
+					typstr = TypeNameToString(def->typeName);
+					parseTypeString(typstr, &typId, &typmod, false);
+					pfree(typstr);
+					if (CanModuloType(typId, true) == false)
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_UNDEFINED_OBJECT),
+								errmsg("data type %s can not using by modulo", format_type_be(typId))));
+					}
+					spec->strategy = pstrdup("modulo");
+					spec->partParams = list_make1(elem);
+				}
+				break;
+			case LOCATOR_TYPE_HASH:
+			case LOCATOR_TYPE_RANGE:
+			case LOCATOR_TYPE_LIST:
+			case LOCATOR_TYPE_NONE:
+			case LOCATOR_TYPE_DISTRIBUTED:
+				spec->strategy = pstrdup("hash");
+				spec->partParams = list_make1(elem);
+				break;
+			default:
+				ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("not supported locator type %d", default_distribute_by)));
+				break;
+		}
 		spec->location = -1;
 		stmt->distributeby = spec;
 	}
