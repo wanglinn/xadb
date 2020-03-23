@@ -1,0 +1,30 @@
+<!--
+doc/src/sgml/ref/mgr_expand_clean.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-EXPANDCLEAN">
+  <refmeta>
+    <refentrytitle>EXPAND CLEAN</refentrytitle>
+    <manvolnum>2</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+  <refnamediv>
+    <refname>EXPAND CLEAN</refname>
+    <refpurpose>clean the datanodes, delete surplus data of the source datanode and append datanodes.</refpurpose>
+  </refnamediv>
+  <indexterm zone="mgr-expandclean">
+    <primary>EXPAND CLEAN</primary>
+  </indexterm>
+  <refsynopsisdiv>
+    <synopsis>
+      EXPAND CLEAN
+    </synopsis>
+  </refsynopsisdiv>
+  <refsect1>
+    <title>Description</title>
+    <para>
+    <command>EXPAND CLEAN</command> clean the datanodes, delete surplus data of the source datanode and append datanodes.
+    </para>
+  </refsect1>
+</refentry>

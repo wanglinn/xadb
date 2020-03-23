@@ -331,6 +331,9 @@
    &mgrDropHba;
    &mgrDropHost;
    &mgrDropUser;
+   &mgrExpandDatanode;
+   &mgrExpandActivate;
+   &mgrExpandClean;
    &mgrFailoverDatanode;
    &mgrFailoverGtm;
    &mgrFlushHost;

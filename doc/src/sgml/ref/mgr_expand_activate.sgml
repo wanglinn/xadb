@@ -1,0 +1,30 @@
+<!--
+doc/src/sgml/ref/mgr_expand_activate.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-EXPANDACTIVATE">
+  <refmeta>
+    <refentrytitle>EXPAND ACTIVATE</refentrytitle>
+    <manvolnum>2</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+  <refnamediv>
+    <refname>EXPAND ACTIVATE</refname>
+    <refpurpose>activate the append datanodes, put the append datanodes in cluster</refpurpose>
+  </refnamediv>
+  <indexterm zone="mgr-expandactivate">
+    <primary>EXPAND ACTIVATE</primary>
+  </indexterm>
+  <refsynopsisdiv>
+    <synopsis>
+      EXPAND ACTIVATE
+    </synopsis>
+  </refsynopsisdiv>
+  <refsect1>
+    <title>Description</title>
+    <para>
+    <command>EXPAND ACTIVATE</command> activate the append datanodes, put the append datanodes in cluster
+    </para>
+  </refsect1>
+</refentry>
