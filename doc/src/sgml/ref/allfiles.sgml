@@ -253,6 +253,9 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY mgrDropHba         SYSTEM "mgr_drop_hba.sgml">
 <!ENTITY mgrDropHost        SYSTEM "mgr_drop_host.sgml">
 <!ENTITY mgrDropUser        SYSTEM "mgr_drop_user.sgml">
+<!ENTITY mgrExpandDatanode  SYSTEM "mgr_expand_datanode.sgml">
+<!ENTITY mgrExpandActivate  SYSTEM "mgr_expand_activate.sgml">
+<!ENTITY mgrExpandClean     SYSTEM "mgr_expand_clean.sgml">
 <!ENTITY mgrFailoverDatanode SYSTEM "mgr_failover_datanode.sgml">
 <!ENTITY mgrFailoverGtm     SYSTEM "mgr_failover_gtm.sgml">
 <!ENTITY mgrFlushHost       SYSTEM "mgr_flush_host.sgml">

@@ -1,0 +1,79 @@
+<!--
+doc/src/sgml/ref/mgr_expand_datanode.sgml
+ADB documentation
+-->
+
+<refentry id="mgr-expanddatanode">
+  <refmeta>
+    <refentrytitle>EXPAND DATANODE</refentrytitle>
+    <manvolnum>6</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>EXPAND DATANODE</refname>
+    <refpurpose>backup datanode from the source master datanode</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-expanddatanode">
+    <primary>EXPAND DATANODE</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+EXPAND DATANODE MASTER <replaceable class="parameter">source_name</replaceable> TO <replaceable class="parameter">append_name</replaceable>
+
+<phrase>where source_name and append_name must be the following:</phrase>
+source_name = <replaceable class="parameter">it must a master datanode</replaceable>,
+append_name = <replaceable class="parameter">it must a append datanode</replaceable>
+</synopsis>
+  </refsynopsisdiv>
+
+  <refsect1>
+    <title>Description</title>
+
+    <para>
+<command>EXPAND DATANODE</command> backup datanode from the source master datanode.
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>Parameters</title>
+    <variablelist>
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">source_name</replaceable>
+        </term>
+        <listitem>
+          <para>
+    source_name, the datanode master name in the node table.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
+          <replaceable class="parameter">append_name</replaceable>
+        </term>
+        <listitem>
+          <para>
+    Node name, the append datanode name in the node table.
+          </para>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+  </refsect1>
+
+  <refsect1>
+    <title>Examples</title>
+    <para>
+ datanode append_name in the node table:
+      <programlisting>
+ADD DATANODE MASTER datanode_name1(HOST=localhost1, PORT=15535, PATH='/opt/ADB/db1/datanode_name1');
+</programlisting>
+    </para>
+  </refsect1>
+  <refsect1>
+
+  </refsect1>
+</refentry>
