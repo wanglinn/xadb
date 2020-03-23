@@ -1425,6 +1425,7 @@ static void rxact_agent_get_running(RxactAgent *agent)
 			rxact_put_bytes(&buf, info->remote_nodes
 				, sizeof(info->remote_nodes[0]) * (info->count_nodes-1), false);
 		}
+		rxact_put_bytes(&buf, &oid, sizeof(oid), false);
 #else
 		if(info->count_nodes > 0)
 		{
@@ -1433,7 +1434,6 @@ static void rxact_agent_get_running(RxactAgent *agent)
 				, sizeof(info->remote_nodes[0]) * (info->count_nodes), false);
 		}
 #endif	/* USE_AGTM */
-		rxact_put_bytes(&buf, &oid, sizeof(oid), false);
 		rxact_put_bytes(&buf, info->remote_success
 			, sizeof(info->remote_success[0]) * info->count_nodes, false);
 		StaticAssertStmt(sizeof(info->db_oid) == sizeof(int), "change code off get");
