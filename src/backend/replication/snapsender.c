@@ -732,6 +732,7 @@ void SnapSenderMain(void)
 			pq_switch_to_none();
 		}
 
+		OnLatchSetEvent(NULL);
 		SnapSendCheckTimeoutSocket();
 		if (got_SIGHUP)
 		{
