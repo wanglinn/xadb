@@ -5847,16 +5847,29 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 			 */
 			estate->es_result_relation_info = resultRelInfo;
 
-			/*
-			 * If we're capturing transition tuples, we might need to convert
-			 * from the partition rowtype to parent rowtype.
-			 * And if there are any BEFORE triggers on the partition
-			 */
-			if (cstate->transition_capture != NULL &&
-				resultRelInfo->ri_TrigDesc &&
-				resultRelInfo->ri_TrigDesc->trig_insert_before_row)
+			/* we need to convert from the partition rowtype to parent rowtype. */
+			tcmap = TupConvMapForLeaf(proute, saved_resultRelInfo, leaf_part_index);
+			if (cstate->transition_capture != NULL)
 			{
-				tcmap = TupConvMapForLeaf(proute, saved_resultRelInfo, leaf_part_index);
+				if (resultRelInfo->ri_TrigDesc &&
+					resultRelInfo->ri_TrigDesc->trig_insert_before_row)
+				{
+					/*
+					 * If there are any BEFORE triggers on the partition,
+					 * we'll have to be ready to convert their result back to
+					 * tuplestore format.
+					 */
+					cstate->transition_capture->tcs_original_insert_tuple = NULL;
+					cstate->transition_capture->tcs_map = tcmap;
+				}else
+				{
+					/*
+					 * Otherwise, just remember the original unconverted
+					 * tuple, to avoid a needless round trip conversion.
+					 */
+					cstate->transition_capture->tcs_original_insert_tuple = tuple;
+					cstate->transition_capture->tcs_map = NULL;
+				}
 			}
 
 			/*
@@ -5905,6 +5918,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 			if (desc->tdhasoid)
 				HeapTupleSetOid(tstuple, HeapTupleGetOid(tuple));
 			tuplestore_puttuple(store, tstuple);
+			ExecClearTuple(slot);
 		}
 		++processed;
 
