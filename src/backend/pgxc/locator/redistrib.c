@@ -1398,7 +1398,11 @@ distrib_get_remote_reduce_nodelist(RelationLocInfo *oldLocInfo
 
 	Assert(oldLocInfo && newLocInfo);
 
-	nodeOids = list_copy(oldLocInfo->nodeids);
+	/* Delete duplicate node information, avoid duplicate connection between poolmgr and datanode. */
+	if (oldLocInfo->nodeids)
+		foreach (lc, oldLocInfo->nodeids)
+			nodeOids  = list_append_unique_oid(nodeOids, lfirst_oid(lc));
+
 
 	foreach(lc, newLocInfo->nodeids)
 	{
