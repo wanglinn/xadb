@@ -181,8 +181,8 @@ extern bool IsReduceInfoListRandom(List *list);
 #define IsReduceInfoCoordinator(r)	((r)->type == REDUCE_TYPE_COORDINATOR)
 extern bool IsReduceInfoListCoordinator(List *list);
 
-#define IsReduceInfoInOneNode(r) (list_length(r->storage_nodes) - list_length(r->exclude_exec) == 1 && \
-								  !IsReduceInfoFinalReplicated(r))
+extern Oid GetNodeOidIfExecOnlyInOneNode(ReduceInfo *ri);
+#define IsReduceInfoInOneNode(r) OidIsValid(GetNodeOidIfExecOnlyInOneNode(r))
 extern bool IsReduceInfoListInOneNode(List *list);
 
 #define IsReduceInfoExclude(r, oid) list_member_oid(r->exclude_exec, oid)
