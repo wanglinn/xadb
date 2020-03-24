@@ -1195,6 +1195,30 @@ bool IsReduceInfoListCoordinator(List *list)
 	return false;
 }
 
+Oid GetNodeOidIfExecOnlyInOneNode(ReduceInfo *ri)
+{
+	ListCell   *lc;
+	Oid			oid;
+	if (IsReduceInfoFinalReplicated(ri))
+		return InvalidOid;
+
+	oid = InvalidOid;
+	foreach(lc, ri->storage_nodes)
+	{
+		Assert(OidIsValid(lfirst_oid(lc)));
+		if (list_member_oid(ri->exclude_exec, lfirst_oid(lc)) == false)
+		{
+			if (OidIsValid(oid) &&
+				oid != lfirst_oid(lc))
+				return InvalidOid;
+			else
+				oid = lfirst_oid(lc);
+		}
+	}
+
+	return oid;
+}
+
 bool IsReduceInfoListInOneNode(List *list)
 {
 	ReduceInfo *info;
@@ -1708,6 +1732,7 @@ bool IsReduceInfoListCanInnerJoin(List *outer_reduce_list,
 	ListCell *outer_lc,*inner_lc;
 	ReduceInfo *outer_reduce;
 	ReduceInfo *inner_reduce;
+	Oid			only_nodeid;
 
 	foreach(outer_lc, outer_reduce_list)
 	{
@@ -1716,12 +1741,18 @@ bool IsReduceInfoListCanInnerJoin(List *outer_reduce_list,
 		if(IsReduceInfoReplicated(outer_reduce))
 			return IsReduceInfoListExecuteSubsetReduceInfo(inner_reduce_list, outer_reduce);
 
+		only_nodeid = GetNodeOidIfExecOnlyInOneNode(outer_reduce);
 		foreach(inner_lc, inner_reduce_list)
 		{
 			inner_reduce = lfirst(inner_lc);
 			AssertArg(inner_reduce);
 			if (IsReduceInfoReplicated(inner_reduce) ||
 				(IsReduceInfoCoordinator(outer_reduce) && IsReduceInfoCoordinator(inner_reduce)))
+				return true;
+
+			/* in same one node */
+			if (OidIsValid(only_nodeid) &&
+				GetNodeOidIfExecOnlyInOneNode(inner_reduce) == only_nodeid)
 				return true;
 
 			if (!IsReduceInfoCoordinator(outer_reduce) &&
@@ -1768,14 +1799,15 @@ bool IsReduceInfoListCanUniqueJoin(List *reduce_list, List *restrictlist)
 
 bool IsReduceInfoCanInnerJoin(ReduceInfo *outer_rinfo, ReduceInfo *inner_rinfo, List *restrictlist)
 {
-	Expr *left_expr;
-	Expr *right_expr;
-	Expr *left_param;
-	Expr *right_param;
-	OpExpr *opexpr;
-	ListCell *lc;
-	uint32 i,nkey;
-	bool found;
+	Expr	   *left_expr;
+	Expr	   *right_expr;
+	Expr	   *left_param;
+	Expr	   *right_param;
+	OpExpr	   *opexpr;
+	ListCell   *lc;
+	uint32		i,nkey;
+	Oid			only_nodeid;
+	bool		found;
 
 	AssertArg(outer_rinfo && inner_rinfo);
 
@@ -1785,6 +1817,12 @@ bool IsReduceInfoCanInnerJoin(ReduceInfo *outer_rinfo, ReduceInfo *inner_rinfo, 
 	if (IsReduceInfoCoordinator(outer_rinfo) &&
 		IsReduceInfoCoordinator(inner_rinfo))
 		return true;
+
+	only_nodeid = GetNodeOidIfExecOnlyInOneNode(outer_rinfo);
+	if (OidIsValid(only_nodeid) &&
+		GetNodeOidIfExecOnlyInOneNode(inner_rinfo) == only_nodeid)
+		return true;
+
 	if (IsReduceInfoSame(outer_rinfo, inner_rinfo) == false ||
 		!IsReduceInfoByValue(outer_rinfo) ||
 		!IsReduceInfoByValue(inner_rinfo))
