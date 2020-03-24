@@ -110,10 +110,6 @@ static void refreshPgxcNodesOfNewDataNodeMaster(SwitcherNodeWrapper *holdLockNod
 												dlist_head *runningSlaves,
 												dlist_head *failedSlaves,
 												bool complain);
-static void refreshPgxcNodesOfSiblingMasters(SwitcherNodeWrapper *holdLockNode,
-											 SwitcherNodeWrapper *oldMaster,
-											 SwitcherNodeWrapper *newMaster,
-											 dlist_head *siblingMasters);
 static void checkCreateDataNodeSlaveOnPgxcNodeOfMaster(PGconn *activeConn,
 													   char *masterNodeName,
 													   bool localExecute,
@@ -169,8 +165,7 @@ static void checkXlogDiffForSwitchover(SwitcherNodeWrapper *oldMaster,
 									   SwitcherNodeWrapper *newMaster);
 static void revertClusterSetting(dlist_head *coordinators,
 								 SwitcherNodeWrapper *oldMaster,
-								 SwitcherNodeWrapper *newMaster,
-								 dlist_head *siblingMasters);
+								 SwitcherNodeWrapper *newMaster);
 static void revertGtmInfoSetting(SwitcherNodeWrapper *oldGtmMaster,
 								 SwitcherNodeWrapper *newGtmMaster,
 								 dlist_head *coordinators,
@@ -291,7 +286,6 @@ void switchDataNodeMaster(char *oldMasterName,
 	dlist_head coordinators = DLIST_STATIC_INIT(coordinators);
 	dlist_head runningSlaves = DLIST_STATIC_INIT(runningSlaves);
 	dlist_head failedSlaves = DLIST_STATIC_INIT(failedSlaves);
-	dlist_head siblingMasters = DLIST_STATIC_INIT(siblingMasters);
 	MemoryContext oldContext;
 	MemoryContext switchContext;
 	MemoryContext spiContext;
@@ -299,7 +293,6 @@ void switchDataNodeMaster(char *oldMasterName,
 	ErrorData *edata = NULL;
 	PGconn *pg_conn = NULL;
 	Oid 	cnoid;
-	int 	count = 0;
 
 	oldContext = CurrentMemoryContext;
 	switchContext = AllocSetContextCreate(oldContext,
@@ -346,12 +339,6 @@ void switchDataNodeMaster(char *oldMasterName,
 		
 		mgr_get_gtmcoord_conn(&pg_conn, &cnoid);
 		Assert(pg_conn);
-	    count = MgrGetAdbcleanNum(pg_conn);
-		if (count > 0)
-			checkGetSiblingMasterNodes(spiContext,
-									   oldMaster,
-									   &siblingMasters);
-
 		CHECK_FOR_INTERRUPTS();
 
 		/**
@@ -420,24 +407,6 @@ void switchDataNodeMaster(char *oldMasterName,
 										newMaster->mgrNode,
 										spiContext,
 										kickOutOldMaster);
-		if (count > 0)
-		{
-			refreshPgxcNodesOfSiblingMasters(holdLockCoordinator,
-												oldMaster,
-												newMaster,
-												&siblingMasters);
-				
-			/* In the last active/standby switching of other nodes, this node may 
-			* have been bypassed, Therefore diff PGXC_NODE is very necessary.
-			*/
-			diffPgxcNodesOfDataNode(holdLockCoordinator->pgConn,
-									false,
-									newMaster,
-									&siblingMasters,
-									spiContext,
-									true);
-		}
-		
 		commitSwitcherNodeTransaction(holdLockCoordinator,
 									  true);
 		tryUnlockCluster(&coordinators, true);
@@ -463,7 +432,7 @@ void switchDataNodeMaster(char *oldMasterName,
 		edata = CopyErrorData();
 		FlushErrorState();
 
-		revertClusterSetting(&coordinators, oldMaster, newMaster, &siblingMasters);
+		revertClusterSetting(&coordinators, oldMaster, newMaster);
 	}
 	PG_END_TRY();
 
@@ -471,7 +440,6 @@ void switchDataNodeMaster(char *oldMasterName,
 	pfreeSwitcherNodeWrapperList(&failedSlaves, NULL);
 	pfreeSwitcherNodeWrapperList(&runningSlaves, newMaster);
 	pfreeSwitcherNodeWrapperList(&coordinators, NULL);
-	pfreeSwitcherNodeWrapperList(&siblingMasters, oldMaster);
 	pfreeSwitcherNodeWrapper(oldMaster);
 	pfreeSwitcherNodeWrapper(newMaster);
 
@@ -672,7 +640,7 @@ void switchGtmCoordMaster(char *oldMasterName,
 		edata = CopyErrorData();
 		FlushErrorState();
 
-		revertClusterSetting(&coordinators, oldMaster, newMaster, NULL);
+		revertClusterSetting(&coordinators, oldMaster, newMaster);
 		revertGtmInfoSetting(oldMaster, newMaster, &coordinators, &dataNodes);
 	}
 	PG_END_TRY();
@@ -703,7 +671,6 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 	dlist_head coordinators = DLIST_STATIC_INIT(coordinators);
 	dlist_head runningSlaves = DLIST_STATIC_INIT(runningSlaves);
 	dlist_head failedSlaves = DLIST_STATIC_INIT(failedSlaves);
-	dlist_head siblingMasters = DLIST_STATIC_INIT(siblingMasters);
 	MemoryContext oldContext;
 	MemoryContext switchContext;
 	MemoryContext spiContext;
@@ -712,7 +679,6 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 	SwitcherNodeWrapper *holdLockCoordinator = NULL;
 	PGconn *pg_conn = NULL;
 	Oid 	cnoid;
-	int 	count = 0;
 
 	oldContext = CurrentMemoryContext;
 	switchContext = AllocSetContextCreate(oldContext,
@@ -754,11 +720,6 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 
 		mgr_get_gtmcoord_conn(&pg_conn, &cnoid);
 		Assert(pg_conn);
-	    count = MgrGetAdbcleanNum(pg_conn);
-		if (count > 0)
-			checkGetSiblingMasterNodes(spiContext,
-									   oldMaster,
-									   &siblingMasters);						   
 		
 		checkTrackActivitiesForSwitchover(&coordinators,
 										  oldMaster);
@@ -843,24 +804,6 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 										newMaster->mgrNode,
 										spiContext,
 										false);
-		if (count > 0)
-		{
-			refreshPgxcNodesOfSiblingMasters(holdLockCoordinator,
-											 oldMaster,
-											 newMaster,
-											 &siblingMasters);
-			/* 
-				* In the last active/standby switching of other nodes, this node may 
-				* have been bypassed, Therefore diff PGXC_NODE is very necessary.
-				*/
-			diffPgxcNodesOfDataNode(holdLockCoordinator->pgConn,
-									false,
-									newMaster,
-									&siblingMasters,
-									spiContext,
-									true);
-		}		
-		
 		commitSwitcherNodeTransaction(holdLockCoordinator,
 									  true);
 		tryUnlockCluster(&coordinators, true);
@@ -883,7 +826,7 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 		edata = CopyErrorData();
 		FlushErrorState();
 
-		revertClusterSetting(&coordinators, oldMaster, newMaster, &siblingMasters);
+		revertClusterSetting(&coordinators, oldMaster, newMaster);
 	}
 	PG_END_TRY();
 
@@ -891,7 +834,6 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 	pfreeSwitcherNodeWrapperList(&failedSlaves, NULL);
 	pfreeSwitcherNodeWrapperList(&runningSlaves, newMaster);
 	pfreeSwitcherNodeWrapperList(&coordinators, NULL);
-	pfreeSwitcherNodeWrapperList(&siblingMasters, oldMaster);
 	pfreeSwitcherNodeWrapper(oldMaster);
 	pfreeSwitcherNodeWrapper(newMaster);
 
@@ -1136,7 +1078,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch)
 		edata = CopyErrorData();
 		FlushErrorState();
 
-		revertClusterSetting(&coordinators, oldMaster, newMaster, NULL);
+		revertClusterSetting(&coordinators, oldMaster, newMaster);
 		revertGtmInfoSetting(oldMaster, newMaster, &coordinators, &dataNodes);
 	}
 	PG_END_TRY();
@@ -1269,8 +1211,7 @@ void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 
 static void revertClusterSetting(dlist_head *coordinators,
 								 SwitcherNodeWrapper *oldMaster,
-								 SwitcherNodeWrapper *newMaster,
-								 dlist_head *siblingMasters)
+								 SwitcherNodeWrapper *newMaster)
 {
 	dlist_iter iter;
 	SwitcherNodeWrapper *node;
@@ -1306,34 +1247,6 @@ static void revertClusterSetting(dlist_head *coordinators,
 					(errmsg("%s revert pgxc_node failed",
 							NameStr(newMaster->mgrNode->form.nodename))));
 			execOk = false;
-		}
-	}
-	if (siblingMasters)
-	{
-		dlist_foreach(iter, siblingMasters)
-		{
-			node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-			if (node->pgxcNodeChanged)
-			{
-				if (updatePgxcNodeForSwitch(holdLockCoordinator,
-											node,
-											newMaster,
-											oldMaster,
-											false))
-				{
-					node->pgxcNodeChanged = false;
-				}
-				else
-				{
-					ereport(NOTICE,
-							(errmsg("%s revert pgxc_node failed",
-									NameStr(node->mgrNode->form.nodename))));
-					ereport(LOG,
-							(errmsg("%s revert pgxc_node failed",
-									NameStr(node->mgrNode->form.nodename))));
-					execOk = false;
-				}
-			}
 		}
 	}
 	dlist_foreach(iter, coordinators)
