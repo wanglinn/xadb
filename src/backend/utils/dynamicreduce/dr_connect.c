@@ -72,8 +72,7 @@ static void OnNodeEventConnectFrom(DROnEventArgs)
 		   ned->recvBuf.data + ned->recvBuf.cursor + (1+sizeof(ned->nodeoid)),
 		   sizeof(ned->owner_pid));
 	ned->recvBuf.cursor += CONNECT_MSG_LENGTH;
-	if (ned->nodeoid == InvalidOid ||
-		ned->nodeoid == PGXCNodeOid)
+	if (SetNodeInfo(ned) == false)
 	{
 		ned->status = DRN_WAIT_CLOSE; /* on PreWait will destory it */
 		ereport(ERROR,
@@ -259,6 +258,7 @@ static void ConnectToOneNode(const DynamicReduceNodeInfo *info, const struct add
 	MemSet(ned, 0, sizeof(*ned));
 	ned->nodeoid = info->node_oid;
 	ned->owner_pid = info->pid;
+	ned->remote_port = info->port;
 	ned->base.type = DR_EVENT_DATA_NODE;
 	ned->base.OnEvent = OnNodeEventConnectTo;
 	ned->base.OnError = OnConnectError;
@@ -360,10 +360,11 @@ void ConnectToAllNode(const DynamicReduceNodeInfo *info, uint32 count)
 	{
 		newdata = DRSearchNodeEventData(info[i].node_oid, HASH_FIND, NULL);
 		if (newdata != NULL &&
-			newdata->owner_pid != info[i].pid)
+			(newdata->owner_pid != info[i].pid ||
+			 newdata->remote_port != info[i].port))
 		{
-			DR_CONNECT_DEBUG((errmsg("node %u owner pid %d is not equal last, close it",
-									 newdata->nodeoid, newdata->owner_pid)));
+			DR_CONNECT_DEBUG((errmsg("node %u owner pid %d or port %d is not equal last, close it",
+									 newdata->nodeoid, newdata->owner_pid, newdata->remote_port)));
 			FreeNodeEventInfo(newdata);
 		}
 	}
