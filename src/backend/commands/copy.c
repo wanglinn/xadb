@@ -5744,13 +5744,10 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 			ExecSetupPartitionTupleRouting(NULL, cstate->rel);
 
 		/*
-		 * If we are capturing transition tuples, they may need to be
-		 * converted from partition format back to partitioned table format
-		 * (this is only ever necessary if a BEFORE trigger modifies the
-		 * tuple).
+		 * we need to be converted from partition format back to partitioned
+		 * table format for send tuple to datanode
 		 */
-		if (cstate->transition_capture != NULL)
-			ExecSetupChildParentMapForLeaf(proute);
+		ExecSetupChildParentMapForLeaf(proute);
 
 		mtstate = makeNode(ModifyTableState);
 		mtstate->ps.plan = NULL;
