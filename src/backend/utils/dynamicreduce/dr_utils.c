@@ -173,3 +173,24 @@ void DRUtilsReset(void)
 	if (cur_working_nodes)
 		resetOidBuffer(cur_working_nodes);
 }
+
+bool SetNodeInfo(DRNodeEventData *ned)
+{
+	uint32	i;
+	if (ned->nodeoid == InvalidOid ||
+		ned->nodeoid == PGXCNodeOid)
+	{
+		return false;
+	}
+
+	for (i=0;i<cur_net_count;++i)
+	{
+		if (cur_net_info[i].node_oid == ned->nodeoid)
+		{
+			ned->remote_port = cur_net_info[i].port;
+			return true;
+		}
+	}
+
+	return false;
+}

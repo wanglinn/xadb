@@ -202,6 +202,7 @@ typedef struct DRNodeEventData
 	StringInfoData	recvBuf;
 	Oid				nodeoid;
 	int				owner_pid;	/* remote owner */
+	uint16			remote_port;
 
 	/*
 	 * when it is not INVALID_PLAN_ID,
@@ -425,6 +426,7 @@ void DropNodeAllPlanCacheData(DRNodeEventData *ned, bool delete_file);
 bool DynamicReduceHandleMessage(void *data, Size len);
 void DRConnectNetMsg(StringInfo msg);
 void DRUtilsReset(void);
+bool SetNodeInfo(DRNodeEventData *ned);
 
 /* dynamic reduce shared memory functions in dr_shm.c */
 void DRSetupShmem(void);
