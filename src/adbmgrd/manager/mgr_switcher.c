@@ -2882,37 +2882,6 @@ static void refreshPgxcNodesOfNewDataNodeMaster(SwitcherNodeWrapper *holdLockNod
 												   complain);
 	}
 }
-
-static void refreshPgxcNodesOfSiblingMasters(SwitcherNodeWrapper *holdLockNode,
-											 SwitcherNodeWrapper *oldMaster,
-											 SwitcherNodeWrapper *newMaster,
-											 dlist_head *siblingMasters)
-{
-	dlist_iter iter;
-	SwitcherNodeWrapper *node;
-
-	dlist_foreach(iter, siblingMasters)
-	{
-		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		if (pg_strcasecmp(NameStr(node->mgrNode->form.curestatus),
-						  CURE_STATUS_NORMAL) == 0 ||
-			pg_strcasecmp(NameStr(node->mgrNode->form.curestatus),
-						  CURE_STATUS_SWITCHED) == 0)
-		{
-			node->pgxcNodeChanged =
-				updatePgxcNodeForSwitch(holdLockNode,
-										node,
-										oldMaster,
-										newMaster,
-										true);
-		}
-		else
-		{
-			/* bypass running abnormal sibling node */
-		}
-	}
-}
-
 /**
  * update curestatus can avoid adb doctor monitor this node
  */
