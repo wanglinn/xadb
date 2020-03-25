@@ -12,6 +12,7 @@
 #include "postmaster/postmaster.h"
 #include "replication/walreceiver.h"
 #include "replication/snapreceiver.h"
+#include "replication/gxidreceiver.h"
 #include "replication/snapcommon.h"
 #include "storage/ipc.h"
 #include "storage/latch.h"
@@ -1148,9 +1149,9 @@ static void WakeupTransaction(TransactionId txid)
 }
 
 Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
-			TransactionId last_finish_xid, bool isCatalog)
+					bool isCatalog)
 {
-	TransactionId	xid,xmax,xmin;
+	TransactionId	xid,xmax,xmin,gfxid,last_finish_xid;
 	uint32			i,count,xcnt;
 	bool			is_wait_ok;
 	TimestampTz		end;
@@ -1159,6 +1160,7 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 	if (snap->xip == NULL)
 		EnlargeSnapshotXip(snap, GetMaxSnapshotXidCount());
 
+	last_finish_xid = pg_atomic_read_u32(&SnapRcv->last_ddl_finish_id);
 	if (isCatalog && TransactionIdIsValid(last_finish_xid))
 	{
 		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
@@ -1170,6 +1172,23 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 					errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
 		}
 		pg_atomic_compare_exchange_u32(&SnapRcv->last_ddl_finish_id, &last_finish_xid, InvalidTransactionId);
+	}
+
+	if(force_snapshot_consistent == FORCE_SNAP_CON_ON)
+	{
+		gfxid = GxidGetGlobalFinishXid();
+		if (TransactionIdIsNormal(gfxid))
+		{
+			end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
+			if (SnapRcvWaitTopTransactionEnd(gfxid, end) == false)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("wait last xid commit time out, which version is %u", gfxid),
+						errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
+			}
+		}
+		GxidSetGlobalFinishXid(gfxid);
 	}
 	else if (force_snapshot_consistent == FORCE_SNAP_CON_SESSION &&
 			TransactionIdIsNormal(last_mxid))
@@ -1330,13 +1349,6 @@ TransactionId SnapRcvGetGlobalXmin(void)
 	TransactionId 	xmin;
 	xmin = pg_atomic_read_u32(&SnapRcv->global_xmin);
 	return xmin;
-}
-
-TransactionId SnapRcvGetLastDdlFinishXid(void)
-{
-	TransactionId 	xid;
-	xid = pg_atomic_read_u32(&SnapRcv->last_ddl_finish_id);
-	return xid;
 }
 
 void SnapRcvTransferLock(void **param, TransactionId xid, struct PGPROC *from)

@@ -13,4 +13,6 @@ extern bool GxidRcvStreaming(void);
 extern TransactionId GixRcvGetGlobalTransactionId(bool isSubXact);
 extern void GixRcvCommitTransactionId(TransactionId txid, bool isCommit);
 extern void GxidRcvGetStat(StringInfo buf);
+extern TransactionId GxidGetGlobalFinishXid(void);
+extern void GxidSetGlobalFinishXid(TransactionId xid);
 #endif							/* GXID_RECEIVER_H_ */
