@@ -335,6 +335,7 @@ static int PorcessNodeEventData(DRNodeEventData *ned)
 	int				plan_id;
 	int				msg_count = 0;
 	bool			pause_recv = false;
+	bool			need_more = false;
 	Assert(OidIsValid(ned->nodeoid));
 
 	ned->waiting_plan_id = INVALID_PLAN_ID;
@@ -344,7 +345,10 @@ static int PorcessNodeEventData(DRNodeEventData *ned)
 	{
 		buf = ned->recvBuf;
 		if (buf.len - buf.cursor < NODE_MSG_HEAD_LEN)
+		{
+			need_more = true;
 			break;
+		}
 
 		pq_copymsgbytes(&buf, (char*)&msglen, sizeof(msglen));
 		msgtype = pq_getmsgbyte(&buf);
@@ -354,6 +358,7 @@ static int PorcessNodeEventData(DRNodeEventData *ned)
 		{
 			DR_NODE_DEBUG((errmsg("node %u need message data length %u, but now is only %d",
 								  ned->nodeoid, msglen, buf.len-buf.cursor)));
+			need_more = true;
 			break;
 		}
 
@@ -421,7 +426,7 @@ static int PorcessNodeEventData(DRNodeEventData *ned)
 		ned->recvBuf.cursor = buf.cursor;
 	}
 
-	if (msg_count == 0 &&
+	if ((msg_count == 0 || need_more) &&
 		pause_recv == false &&
 		ned->waiting_plan_id == INVALID_PLAN_ID &&
 		ned->recvBuf.len == ned->recvBuf.maxlen)
