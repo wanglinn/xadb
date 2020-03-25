@@ -247,7 +247,7 @@ void DynamicReduceWorkerMain(Datum main_arg)
 	PG_exception_stack = &local_sigjmp_buf;
 	InterruptHoldoffCount = 0;
 
-	for(;;)
+	while(!ProcDiePending)
 	{
 		CHECK_FOR_INTERRUPTS();
 
@@ -395,6 +395,7 @@ re_wait_:
 		}
 #endif /* DR_USING_EPOLL */
 	}
+	ereport(DEBUG1, (errmsg("dynamic reduce shutting down")));
 }
 
 uint16 StartDynamicReduceWorker(void)
