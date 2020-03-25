@@ -115,6 +115,7 @@
 #include "optimizer/pgxcship.h"
 #include "optimizer/pgxcplan.h"
 #include "optimizer/reduceinfo.h" /* for CanModuloType */
+#include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/redistrib.h"
@@ -1611,6 +1612,8 @@ RemoveRelations(DropStmt *drop)
 
 			add_exact_object_address(&obj, objects);
 		}
+		/* Delete expansion cleanup information. */
+		RemoveCleanInfoFromExpansionClean(relOid);
 #endif
 
 		/* OK, we're ready to delete this one */
@@ -1837,6 +1840,8 @@ TruncateRelation(Relation rel, SubTransactionId mySubid)
 	}
 
 	pgstat_count_truncate(rel);
+	/* Delete expansion cleanup information. */
+	RemoveCleanInfoFromExpansionClean(rel->rd_id);
 }
 #endif
 

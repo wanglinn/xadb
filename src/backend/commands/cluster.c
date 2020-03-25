@@ -1706,7 +1706,10 @@ finish_heap_swap(Oid OIDOldHeap, Oid OIDNewHeap,
 						(OIDOldHeap == RelationRelationId),
 						swap_toast_by_content, is_internal,
 						frozenXid, cutoffMulti, mapped_tables);
-
+#ifdef ADB
+	/* Delete expansion cleanup information. */
+	RemoveCleanInfoFromExpansionClean(OIDOldHeap);
+#endif /* ADB */
 	/*
 	 * If it's a system catalog, queue a sinval message to flush all catcaches
 	 * on the catalog when we reach CommandCounterIncrement.
