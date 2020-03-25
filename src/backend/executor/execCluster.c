@@ -1,7 +1,11 @@
 #include "postgres.h"
 
+#include "access/htup_details.h"
 #include "access/transam.h"
 #include "access/xact.h"
+#include "catalog/catalog.h"
+#include "catalog/namespace.h"
+#include "catalog/pg_class.h"
 #include "catalog/pgxc_node.h"
 #include "catalog/ora_convert.h"
 #include "commands/copy.h"
@@ -38,6 +42,7 @@
 #include "utils/ps_status.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
+#include "utils/syscache.h"
 
 #include "executor/clusterReceiver.h"
 #include "executor/execCluster.h"
@@ -1668,10 +1673,23 @@ static bool serialize_table_pgstate(PgStat_TableStatus *status, StringInfo buf)
 	ClusterTabStatInfo info;
 	int saved_len;
 	cluster_tab_stat_mark_type mark;
+	HeapTuple classtup;
+	Oid relnamespace;
 
 	trans = status->trans;
-	if (status->t_system || /* ignore system relation, include toast relation */
+	if (status->t_id < FirstNormalObjectId || /* only normal relation */
 		trans == NULL)
+		return false;
+
+	/* no toast and temp relation */
+	classtup = SearchSysCache1(RELOID, ObjectIdGetDatum(status->t_id));
+	if (!HeapTupleIsValid(classtup))
+		return false;
+	relnamespace = ((Form_pg_class) GETSTRUCT(classtup))->relnamespace;
+	ReleaseSysCache(classtup);
+	if (IsSystemNamespace(relnamespace) ||	/* do we need this? */
+		IsToastNamespace(relnamespace) ||
+		isTempNamespace(relnamespace))
 		return false;
 
 	/* get first trans */
@@ -1771,8 +1789,10 @@ void ClusterRecvTableStat(const char *data, int length)
 		RESTORE(deleted_pre_trunc,	CLSUTER_TAB_STAT_DELETED_PRE_TRUNC);
 #undef RESTORE
 
-		info.key.oid = load_oid_class(&buf);
+		info.key.oid = load_oid_class_extend(&buf, true);
 		pq_copymsgbytes(&buf, (char*)&info.key.nest_level, sizeof(info.key.nest_level));
+		if (info.key.oid == InvalidOid)
+			continue;
 
 		if (rel == NULL ||
 			RelationGetRelid(rel) != info.key.oid)
