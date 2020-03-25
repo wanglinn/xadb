@@ -913,9 +913,12 @@ Oid load_oid_class_extend(StringInfoData *buf, bool missok)
 		pq_copymsgbytes(buf, (char*)&oid, sizeof(oid));
 	}else
 	{
-		nsp = load_namespace(buf);
+		nsp = load_namespace_extend(buf, missok);
 		relname = load_node_string(buf, false);
-		oid = get_relname_relid(relname, nsp);
+		if (OidIsValid(nsp))
+			oid = get_relname_relid(relname, nsp);
+		else
+			oid = InvalidOid;
 		if (!OidIsValid(oid) && missok == false)
 			elog(ERROR, "relation \"%s\" not exists in schema %u", relname, nsp);
 	}
