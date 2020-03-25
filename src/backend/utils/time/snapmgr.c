@@ -2593,24 +2593,13 @@ GetGlobalSnapshot(Snapshot snapshot, TransactionId *gs_xmin, bool isCatelog)
 {
 	Snapshot		snap;
 	CommandId		cid;
-	TransactionId	last_finish_xid;
 
 	if (IsCnMaster() || isCatelog)
 	{
 		/*
 	 	 * Master-Coordinator get snapshot from AGTM.
 	 	 */
-		if (!IsCnMaster() && isCatelog && GlobalSnapshot && GlobalSnapshotSet)
-		{
-			last_finish_xid = SnapRcvGetLastDdlFinishXid();
-			if (!TransactionIdIsValid(last_finish_xid) ||
-				(TransactionIdIsValid(last_finish_xid) && !XidInMVCCSnapshot(last_finish_xid, GlobalSnapshot)))
-				snap = CopyGlobalSnapshot(snapshot);
-			else
-				snap = SnapRcvGetSnapshot(snapshot, adb_last_fxid, last_finish_xid, isCatelog);
-		}
-		else 
-			snap = SnapRcvGetSnapshot(snapshot, adb_last_fxid, InvalidTransactionId, isCatelog);
+		snap = SnapRcvGetSnapshot(snapshot, adb_last_fxid, isCatelog);
 		
 		if (GlobalSnapshot)
 			*gs_xmin = GlobalSnapshot->xmin;
@@ -2623,7 +2612,7 @@ GetGlobalSnapshot(Snapshot snapshot, TransactionId *gs_xmin, bool isCatelog)
 		 * from AGTM when GlobalSnapshot is invalid or
 		 * current process is AutoVacuum process.
 		 */
-		snap = SnapRcvGetSnapshot(snapshot, adb_last_fxid, InvalidTransactionId, isCatelog);
+		snap = SnapRcvGetSnapshot(snapshot, adb_last_fxid, isCatelog);
 		if (GlobalSnapshot)
 			*gs_xmin = GlobalSnapshot->xmin;
 #ifdef SHOW_GLOBAL_SNAPSHOT

@@ -17,12 +17,11 @@ extern void ShutdownSnapRcv(void);
 extern bool SnapRcvStreaming(void);
 extern bool SnapRcvRunning(void);
 
-extern Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid, TransactionId last_finish_xid, bool isCatalog);
+extern Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid, bool isCatalog);
 extern bool SnapRcvWaitTopTransactionEnd(TransactionId txid, TimestampTz end);
 
 struct PGPROC;
 extern void SnapRcvTransferLock(void **param, TransactionId xid, struct PGPROC *from);
 extern TransactionId SnapRcvGetGlobalXmin(void);
-extern TransactionId SnapRcvGetLastDdlFinishXid(void);
 extern void SnapRcvGetStat(StringInfo buf);
 #endif							/* SNAP_RECEIVER_H_ */

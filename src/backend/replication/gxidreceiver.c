@@ -57,6 +57,7 @@ typedef struct GxidRcvData
 	TransactionId	wait_xid_finish[MAX_BACKENDS];
 
 	uint32			is_send_realloc_num;  /* is need realloc from gc*/ 
+	pg_atomic_uint32	global_finish_id;
 }GxidRcvData;
 
 /* item in  slist_client */
@@ -325,6 +326,7 @@ void GxidReceiverMain(void)
 			GxidRcv->cur_pre_alloc = 0;
 			GxidRcv->wait_finish_cnt = 0;
 			GxidRcv->is_send_realloc_num = 0;
+			pg_atomic_write_u32(&GxidRcv->global_finish_id, InvalidTransactionId);
 			GxidRcvCheckPreAssignArray();
 			heartbeat_sent = true;
 			for(;;)
@@ -439,6 +441,7 @@ void GxidRcvShmemInit(void)
 		GxidRcv->wait_finish_cnt = 0;
 		GxidRcv->is_send_realloc_num = 0;
 		SpinLockInit(&GxidRcv->mutex);
+		pg_atomic_write_u32(&GxidRcv->global_finish_id, InvalidTransactionId);
 	}
 }
 
@@ -1338,7 +1341,10 @@ void GixRcvCommitTransactionId(TransactionId txid, bool isCommit)
 	}
 
 	if (isCommit)
+	{
 		UpdateAdbLastFinishXid(txid);
+		pg_atomic_write_u32(&GxidRcv->global_finish_id, txid);
+	}
 
 	MyProc->getGlobalTransaction = txid;
 	if (force_snapshot_consistent == FORCE_SNAP_CON_ON)
@@ -1365,6 +1371,17 @@ void GixRcvCommitTransactionId(TransactionId txid, bool isCommit)
 	MyProc->getGlobalTransaction = InvalidTransactionId;
 
 	return;
+}
+
+TransactionId GxidGetGlobalFinishXid(void)
+{
+	TransactionId xid = pg_atomic_read_u32(&GxidRcv->global_finish_id);
+	return xid;
+}
+
+void GxidSetGlobalFinishXid(TransactionId xid)
+{
+	pg_atomic_compare_exchange_u32(&GxidRcv->global_finish_id, &xid, InvalidTransactionId);
 }
 
 void GxidRcvGetStat(StringInfo buf)
