@@ -1697,3 +1697,25 @@ void ClusterExpansionClean(StringInfo mem_toc)
 	CacheInvalidateRelcacheAll();
 	InvalidateSystemCaches();
 }
+
+/* Delete the expansion cleanup information of the specified relation. */
+void RemoveCleanInfoFromExpansionClean(Oid relOid)
+{
+	HeapTuple		tuple;
+	Relation		rel_clean = relation_open(AdbCleanRelationId, RowExclusiveLock);
+	HeapScanDesc	scan = heap_beginscan_catalog(rel_clean, 0, NULL);
+	Form_adb_clean	form_clean;
+
+	heap_rescan(scan, NULL);
+	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{
+		CHECK_FOR_INTERRUPTS();
+		form_clean = (Form_adb_clean) GETSTRUCT(tuple);
+
+		if (form_clean->clndb != MyDatabaseId || relOid != form_clean->clnrel)
+			continue;	
+		simple_heap_delete(rel_clean, &(tuple->t_self));
+	}
+	heap_endscan(scan);
+	relation_close(rel_clean, RowExclusiveLock);
+}

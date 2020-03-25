@@ -45,5 +45,6 @@ extern void AlterNodeExpansionClean(AlterNodeStmt *stmt, struct ParseState *psta
 extern void ExpansionWorkerMain(Datum arg);
 extern void ClusterExpansion(StringInfo mem_toc);
 extern void ClusterExpansionClean(StringInfo mem_toc);
+extern void RemoveCleanInfoFromExpansionClean(Oid relOid);
 
 #endif	/* NODEMGR_H */
