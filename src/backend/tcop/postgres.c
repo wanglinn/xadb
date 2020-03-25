@@ -5292,7 +5292,7 @@ PostgresMain(int argc, char *argv[],
 				 * when coordinator call PQbeginAttach, the last backend is exited,
 				 * then reduce network maybe not work, so we let it exit.
 				 */
-				StopDynamicReduceWorker();
+				TerminateDynamicReduceWorker();
 
 				/* report server info */
 				BeginReportingGUCOptions();

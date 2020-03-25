@@ -118,6 +118,7 @@ extern PGDLLIMPORT bool is_reduce_worker;
 extern void DynamicReduceWorkerMain(Datum main_arg);
 extern uint16 StartDynamicReduceWorker(void);
 extern void StopDynamicReduceWorker(void);
+extern void TerminateDynamicReduceWorker(void);
 extern void ResetDynamicReduceWork(void);
 extern void DynamicReduceQueryError(void);
 extern void DynamicReduceStartParallel(void);
