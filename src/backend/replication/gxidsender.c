@@ -706,7 +706,7 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 
 static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 {
-	TransactionId				xid, xidmax;
+	TransactionId				xid, xidmax; 
 	ClientHashItemInfo			*clientitem;
 	ClientXidItemInfo			**xiditem;
 	bool						found;
@@ -1145,4 +1145,52 @@ void GxidSendUnlockSendSock(void)
 void GxidSenderTransferLock(void **param, TransactionId xid, struct PGPROC *from)
 {
 	SnapTransferLock(&GxidSender->comm_lock, param, xid, from);
+}
+
+
+void GxidSenderGetStat(StringInfo buf)
+{
+	int				i;
+	TransactionId	*assign_xids;
+	uint32			assign_len;
+
+	assign_len = XID_ARRAY_STEP_SIZE;
+	assign_xids = NULL;
+
+re_lock_:
+	if (!assign_xids)
+		assign_xids = palloc0(sizeof(TransactionId) * assign_len);
+	else
+		assign_xids = repalloc(assign_xids, sizeof(TransactionId) * assign_len);
+	
+	SpinLockAcquire(&GxidSender->mutex);
+
+	if (assign_len <  GxidSender->xcnt)
+	{
+		SpinLockRelease(&GxidSender->mutex);
+		assign_len += XID_ARRAY_STEP_SIZE;
+		goto re_lock_;
+	}
+
+	assign_len = GxidSender->xcnt;
+	for (i = 0; i < GxidSender->xcnt; i++)
+	{
+		assign_xids[i] = GxidSender->xip[i];
+		if (i > 0 && i % XID_PRINT_XID_LINE_NUM == 0)
+			appendStringInfo(buf, "\n  ");
+	}
+	SpinLockRelease(&GxidSender->mutex);
+
+	appendStringInfo(buf, " xcnt: %u \n", assign_len);
+	appendStringInfo(buf, "  xid_assign: [");
+
+	qsort(assign_xids, assign_len, sizeof(TransactionId), xidComparator);
+	for (i = 0; i < assign_len; i++)
+	{
+		appendStringInfo(buf, "%u ", assign_xids[i]);
+		if (i > 0 && i % XID_PRINT_XID_LINE_NUM == 0)
+			appendStringInfo(buf, "\n  ");
+	}
+	appendStringInfo(buf, "]");
+	pfree(assign_xids);
 }

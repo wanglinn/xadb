@@ -1486,3 +1486,75 @@ TransactionId SnapSendGetGlobalXmin(void)
 	//ereport(LOG,(errmsg("SnapSendGetGlobalXmin  get xid %d\n", xmin)));
 	return xmin;
 }
+
+void SnapSenderGetStat(StringInfo buf)
+{
+	int				i;
+	TransactionId	*assign_xids;
+	uint32			assign_len;
+	TransactionId	*finish_xids;
+	uint32			finish_len;
+
+	assign_len = finish_len = XID_ARRAY_STEP_SIZE;
+	assign_xids = NULL;
+	finish_xids = NULL;
+re_lock_:
+	if (!assign_xids)
+		assign_xids = palloc0(sizeof(TransactionId) * assign_len);
+	else
+		assign_xids = repalloc(assign_xids, sizeof(TransactionId) * assign_len);
+	
+	if (!finish_xids)
+		finish_xids = palloc0(sizeof(TransactionId) * finish_len);
+	else
+		finish_xids = repalloc(finish_xids, sizeof(TransactionId) * finish_len);
+	
+	SpinLockAcquire(&SnapSender->mutex);
+	if (assign_len <  SnapSender->cur_cnt_assign || finish_len < SnapSender->cur_cnt_complete)
+	{
+		SpinLockRelease(&SnapSender->mutex);
+		assign_len += XID_ARRAY_STEP_SIZE;
+		finish_len += XID_ARRAY_STEP_SIZE;
+		goto re_lock_;
+	}
+
+	assign_len = SnapSender->cur_cnt_assign;
+	for (i = 0; i < SnapSender->cur_cnt_assign; i++)
+	{
+		assign_xids[i] = SnapSender->xid_assign[i];
+	}
+
+	finish_len = SnapSender->cur_cnt_complete;
+	for (i = 0; i < SnapSender->cur_cnt_complete; i++)
+	{
+		finish_xids[i] = SnapSender->xid_complete[i];
+	}
+	SpinLockRelease(&SnapSender->mutex);
+
+	appendStringInfo(buf, " cur_cnt_assign: %u \n", assign_len);
+	appendStringInfo(buf, "  xid_assign: [");
+
+	qsort(assign_xids, assign_len, sizeof(TransactionId), xidComparator);
+	for (i = 0; i < assign_len; i++)
+	{
+		appendStringInfo(buf, "%u ", assign_xids[i]);
+		if (i > 0 && i % XID_PRINT_XID_LINE_NUM == 0)
+			appendStringInfo(buf, "\n  ");
+	}
+	appendStringInfo(buf, "]");
+
+	appendStringInfo(buf, "\n cur_cnt_complete: %u \n", finish_len);
+	appendStringInfo(buf, "  xid_complete: [");
+
+	qsort(finish_xids, finish_len, sizeof(TransactionId), xidComparator);
+	for (i = 0; i < finish_len; i++)
+	{
+		appendStringInfo(buf, "%u ", finish_xids[i]);
+		if (i > 0 && i % XID_PRINT_XID_LINE_NUM == 0)
+			appendStringInfo(buf, "\n  ");
+	}
+	appendStringInfo(buf, "]");
+
+	pfree(assign_xids);
+	pfree(finish_xids);
+}

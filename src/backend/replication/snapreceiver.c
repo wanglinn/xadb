@@ -1344,3 +1344,57 @@ void SnapRcvTransferLock(void **param, TransactionId xid, struct PGPROC *from)
 	SnapTransferLock(&SnapRcv->comm_lock, param, xid, from);
 	pg_atomic_write_u32(&SnapRcv->last_ddl_finish_id, xid);
 }
+
+void SnapRcvGetStat(StringInfo buf)
+{
+	int				i;
+	TransactionId	*assign_xids;
+	uint32			assign_len;
+	TransactionId	last_finish_xid;
+	WalRcvState		state;
+
+	assign_len = XID_ARRAY_STEP_SIZE;
+	assign_xids = NULL;
+
+re_lock_:
+	if (!assign_xids)
+		assign_xids = palloc0(sizeof(TransactionId) * assign_len);
+	else
+		assign_xids = repalloc(assign_xids, sizeof(TransactionId) * assign_len);
+	LOCK_SNAP_RCV();
+
+	if (assign_len <  SnapRcv->xcnt)
+	{
+		UNLOCK_SNAP_RCV();
+		assign_len += XID_ARRAY_STEP_SIZE;
+		goto re_lock_;
+	}
+
+	assign_len = SnapRcv->xcnt;
+	last_finish_xid = SnapRcv->latestCompletedXid;
+	for (i = 0; i < SnapRcv->xcnt; i++)
+	{
+		assign_xids[i] = SnapRcv->xip[i];
+	}
+	state = SnapRcv->state;
+	UNLOCK_SNAP_RCV();
+
+	appendStringInfo(buf, " status: %d \n", state);
+	appendStringInfo(buf, "  latestCompletedXid: %d\n", last_finish_xid);
+
+	appendStringInfo(buf, "  global_xmin: %u\n", pg_atomic_read_u32(&SnapRcv->global_xmin));
+	appendStringInfo(buf, "  last_ddl_finish_id: %u\n", pg_atomic_read_u32(&SnapRcv->last_ddl_finish_id));
+	appendStringInfo(buf, "  xcn: %u\n", assign_len);
+	appendStringInfo(buf, "  xid_assign: [");
+
+	qsort(assign_xids, assign_len, sizeof(TransactionId), xidComparator);
+	for (i = 0; i < assign_len; i++)
+	{
+		appendStringInfo(buf, "%u ", assign_xids[i]);
+		if (i > 0 && i % XID_PRINT_XID_LINE_NUM == 0)
+			appendStringInfo(buf, "\n  ");
+	}
+	appendStringInfo(buf, "]");
+
+	pfree(assign_xids);
+}

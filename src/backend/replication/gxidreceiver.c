@@ -1360,3 +1360,79 @@ void GixRcvCommitTransactionId(TransactionId txid, bool isCommit)
 
 	return;
 }
+
+void GxidRcvGetStat(StringInfo buf)
+{
+	int				i;
+	TransactionId	*assign_xids;
+	uint32			assign_len;
+	TransactionId	*finish_xids;
+	uint32			finish_len;
+	WalRcvState		state;
+
+	assign_len = finish_len = XID_ARRAY_STEP_SIZE;
+	assign_xids = NULL;
+	finish_xids = NULL;
+
+re_lock_:
+	if (!assign_xids)
+		assign_xids = palloc0(sizeof(TransactionId) * assign_len);
+	else
+		assign_xids = repalloc(assign_xids, sizeof(TransactionId) * assign_len);
+	
+	if (!finish_xids)
+		finish_xids = palloc0(sizeof(TransactionId) * finish_len);
+	else
+		finish_xids = repalloc(finish_xids, sizeof(TransactionId) * finish_len);
+	LOCK_GXID_RCV();
+
+	if (assign_len <  GxidRcv->cur_pre_alloc || finish_len < GxidRcv->wait_finish_cnt)
+	{
+		UNLOCK_GXID_RCV();
+		assign_len += XID_ARRAY_STEP_SIZE;
+		finish_len += XID_ARRAY_STEP_SIZE;
+		goto re_lock_;
+	}
+
+	state = GxidRcv->state;
+	assign_len = GxidRcv->cur_pre_alloc;
+	for (i = 0; i < GxidRcv->cur_pre_alloc; i++)
+	{
+		assign_xids[i] = GxidRcv->xid_alloc[i];
+	}
+
+	finish_len = GxidRcv->wait_finish_cnt;
+	for (i = 0; i < GxidRcv->wait_finish_cnt; i++)
+	{
+		finish_xids[i] = GxidRcv->wait_xid_finish[i];
+	}
+	UNLOCK_GXID_RCV();
+
+	appendStringInfo(buf, " status: %d \n", state);
+	appendStringInfo(buf, "  cur_pre_alloc: %d\n", assign_len);
+	appendStringInfo(buf, "   xid_alloc:[");
+
+	qsort(assign_xids, assign_len, sizeof(TransactionId), xidComparator);
+	for (i = 0; i < assign_len; i++)
+	{
+		appendStringInfo(buf, "%u ", assign_xids[i]);
+		if (i > 0 && i % XID_PRINT_XID_LINE_NUM == 0)
+			appendStringInfo(buf, "\n   ");
+	}
+	appendStringInfo(buf, "]\n");
+
+	appendStringInfo(buf, "  wait_finish_cnt: %d\n", finish_len);
+	appendStringInfo(buf, "   wait_xid_finish: [");
+
+	qsort(finish_xids, finish_len, sizeof(TransactionId), xidComparator);
+	for (i = 0; i < finish_len; i++)
+	{
+		appendStringInfo(buf, "%u ", finish_xids[i]);
+		if (i > 0 && i % XID_PRINT_XID_LINE_NUM == 0)
+			appendStringInfo(buf, "\n   ");
+	}
+	appendStringInfo(buf, "]");
+	
+	pfree(assign_xids);
+	pfree(finish_xids);
+}

@@ -89,6 +89,7 @@ endif
 
 ifeq ($(enable_cluster),yes)
 SUBDIRS += adb_doctor
+SUBDIRS += adb_snap_state
 SUBDIRS += adb_stat_statements
 endif
 
