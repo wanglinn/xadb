@@ -565,6 +565,12 @@ void StopDynamicReduceWorker(void)
 	DRDetachShmem();
 }
 
+void TerminateDynamicReduceWorker(void)
+{
+	if (dr_bghandle)
+		TerminateBackgroundWorker(dr_bghandle);
+}
+
 void DynamicReduceStartParallel(void)
 {
 	Assert(IsParallelWorker());
