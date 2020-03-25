@@ -1,0 +1,5 @@
+# adb_snap_state extension
+comment = 'only adb_snap_state publication'
+default_version = '1.0'
+module_pathname = '$libdir/adb_snap_state'
+relocatable = true

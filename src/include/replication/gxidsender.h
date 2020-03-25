@@ -16,4 +16,5 @@ extern Snapshot GxidSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, Tra
 extern void GxidSendLockSendSock(void);
 extern void GxidSendUnlockSendSock(void);
 extern void GxidSenderTransferLock(void **param, TransactionId xid, struct PGPROC *from);
+extern void GxidSenderGetStat(StringInfo buf);
 #endif /* TRANS_SENDER_H_ */

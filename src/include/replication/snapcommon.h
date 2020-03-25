@@ -8,6 +8,7 @@
 #include "utils/snapshot.h"
 #include "lib/ilist.h"
 #include "utils/dsa.h"
+#include "utils/builtins.h"
 
 typedef struct SnapCommonLock
 {
@@ -46,6 +47,8 @@ typedef struct SnapLockIvdInfo
 							+ SNAP_IVDMSG_SIZE(ivd_msg_count) \
 							+ (sizeof(SnapHoldLock)*(lock_count))))
 
+#define XID_ARRAY_STEP_SIZE 1024
+#define XID_PRINT_XID_LINE_NUM 50
 struct LOCKTAG;
 extern void
 SnapCollcectInvalidMsgItem(void **param,
