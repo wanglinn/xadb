@@ -595,6 +595,11 @@ static TupleTableSlot* ExecParallelReduceFirstPrepare(PlanState *pstate)
 	return ExecParallelReduceFirstLocal(pstate);
 }
 
+static void IgnoreSlot(TupleTableSlot *slot, void *context)
+{
+	/* ignore slot */
+}
+
 static void DriveParallelReduceFirst(ClusterReduceState *node)
 {
 	ParallelReduceFirstState   *state = node->private_state;
@@ -606,7 +611,10 @@ static void DriveParallelReduceFirst(ClusterReduceState *node)
 		DynamicReduceAttachPallel(&state->normal.drio);
 		if (BarrierAttach(state->barrier) == 0)
 		{
-			/* not write tuple to shared tuplestore anymore, so call end write */
+			/* send to remote and ignore local */
+			DynamicReduceFetchAllLocalAndSend(&state->normal.drio, NULL, IgnoreSlot);
+			Assert(state->normal.drio.eof_local == true);
+			Assert(state->normal.drio.send_buf.len == 0);
 			sts_end_write(state->sta);
 			/* don't need wait */
 			BarrierArriveAndDetach(state->barrier);
