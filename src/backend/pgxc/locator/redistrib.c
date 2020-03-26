@@ -1123,7 +1123,7 @@ DoReduceDataForShadowRel(Relation masterRel,
 	Assert(redistcopy);
 	Assert(list_length(rnodes) > 0);
 
-	PushActiveSnapshot(GetTransactionSnapshot());
+	PushActiveSnapshot(GetCatalogSnapshot(RelationGetRelid(masterRel)));
 
 	shadow_context = AllocSetContextCreate(CurrentMemoryContext,
 											"DoReduceDataForShadowRel",
