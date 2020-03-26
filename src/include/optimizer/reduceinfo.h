@@ -245,7 +245,6 @@ extern bool reduce_info_list_is_one_node_can_join(List *outer_reduce_list,
 												  List *inner_reduce_list,
 												  List **new_reduce_list,
 												  JoinType jointype,
-												  bool *is_dummy,
 												  List *restrictlist);
 extern bool CanOnceGroupingClusterPath(PathTarget *target, Path *path);
 extern bool CanOnceDistinctReduceInfoList(List *distinct, List *reduce_list);

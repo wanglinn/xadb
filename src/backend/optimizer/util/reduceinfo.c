@@ -39,13 +39,6 @@
 static oidvector *makeOidVector(List *list);
 static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const, bool use_coalesce);
 static int CompareOid(const void *a, const void *b);
-static bool reduce_info_in_one_node_can_join(ReduceInfo *outer_info,
-											 ReduceInfo *inner_info,
-											 List **new_reduce_list,
-											 JoinType jointype,
-											 bool *is_dummy,
-											 List *restrictlist);
-static bool IsRetrictListIncludeEqualExpr(List *list);
 static inline Const* MakeInt4Const(int32 value)
 {
 	return makeConst(INT4OID,
@@ -1733,7 +1726,6 @@ bool IsReduceInfoListCanInnerJoin(List *outer_reduce_list,
 	ListCell *outer_lc,*inner_lc;
 	ReduceInfo *outer_reduce;
 	ReduceInfo *inner_reduce;
-	Oid			only_nodeid;
 
 	foreach(outer_lc, outer_reduce_list)
 	{
@@ -1742,18 +1734,12 @@ bool IsReduceInfoListCanInnerJoin(List *outer_reduce_list,
 		if(IsReduceInfoReplicated(outer_reduce))
 			return IsReduceInfoListExecuteSubsetReduceInfo(inner_reduce_list, outer_reduce);
 
-		only_nodeid = GetNodeOidIfExecOnlyInOneNode(outer_reduce);
 		foreach(inner_lc, inner_reduce_list)
 		{
 			inner_reduce = lfirst(inner_lc);
 			AssertArg(inner_reduce);
 			if (IsReduceInfoReplicated(inner_reduce) ||
 				(IsReduceInfoCoordinator(outer_reduce) && IsReduceInfoCoordinator(inner_reduce)))
-				return true;
-
-			/* in same one node */
-			if (OidIsValid(only_nodeid) &&
-				GetNodeOidIfExecOnlyInOneNode(inner_reduce) == only_nodeid)
 				return true;
 
 			if (!IsReduceInfoCoordinator(outer_reduce) &&
@@ -1807,7 +1793,6 @@ bool IsReduceInfoCanInnerJoin(ReduceInfo *outer_rinfo, ReduceInfo *inner_rinfo, 
 	OpExpr	   *opexpr;
 	ListCell   *lc;
 	uint32		i,nkey;
-	Oid			only_nodeid;
 	bool		found;
 
 	AssertArg(outer_rinfo && inner_rinfo);
@@ -1817,11 +1802,6 @@ bool IsReduceInfoCanInnerJoin(ReduceInfo *outer_rinfo, ReduceInfo *inner_rinfo, 
 
 	if (IsReduceInfoCoordinator(outer_rinfo) &&
 		IsReduceInfoCoordinator(inner_rinfo))
-		return true;
-
-	only_nodeid = GetNodeOidIfExecOnlyInOneNode(outer_rinfo);
-	if (OidIsValid(only_nodeid) &&
-		GetNodeOidIfExecOnlyInOneNode(inner_rinfo) == only_nodeid)
 		return true;
 
 	if (IsReduceInfoSame(outer_rinfo, inner_rinfo) == false ||
@@ -2180,7 +2160,6 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 												 inner_reduce_list,
 												 new_reduce_list,
 												 jointype,
-												 NULL,
 												 restrictlist);
 }
 
@@ -2188,136 +2167,53 @@ bool reduce_info_list_is_one_node_can_join(List *outer_reduce_list,
 										   List *inner_reduce_list,
 										   List **new_reduce_list,
 										   JoinType jointype,
-										   bool *is_dummy,
 										   List *restrictlist)
 {
 	ListCell   *olc;
 	ListCell   *ilc;
-	ReduceInfo *orinfo;
-	ReduceInfo *irinfo;
-	bool		can_join = false;
+	ReduceInfo *outer_info;
+	Oid			outer_at_oid;
 
-	/* test outer and inner is in one node */
-	if (new_reduce_list)
-		*new_reduce_list = NIL;
 	foreach(olc, outer_reduce_list)
 	{
-		orinfo = lfirst(olc);
-		if (!IsReduceInfoInOneNode(orinfo))
+		outer_info = lfirst(olc);
+		outer_at_oid = GetNodeOidIfExecOnlyInOneNode(outer_info);
+		if (!OidIsValid(outer_at_oid))
 			continue;
 
 		foreach(ilc, inner_reduce_list)
 		{
-			irinfo = lfirst(ilc);
-			if (IsReduceInfoInOneNode(irinfo) &&
-				reduce_info_in_one_node_can_join(orinfo, irinfo, new_reduce_list, jointype, is_dummy, restrictlist))
-				can_join = true;
-		}
-	}
-	return can_join;
-}
-
-static bool reduce_info_in_one_node_can_join(ReduceInfo *outer_info,
-											 ReduceInfo *inner_info,
-											 List **new_reduce_list,
-											 JoinType jointype,
-											 bool *is_dummy,
-											 List *restrictlist)
-{
-	ListCell *lc;
-	Oid outer_at_oid = InvalidOid;
-	Oid inner_at_oid = InvalidOid;
-
-	Assert(IsReduceInfoInOneNode(outer_info) &&
-		   IsReduceInfoInOneNode(inner_info));
-
-	foreach(lc, outer_info->storage_nodes)
-	{
-		if (list_member_oid(outer_info->exclude_exec, lfirst_oid(lc)) == false)
-		{
-			outer_at_oid = lfirst_oid(lc);
-			break;
-		}
-	}
-	foreach(lc, inner_info->storage_nodes)
-	{
-		if (list_member_oid(inner_info->exclude_exec, lfirst_oid(lc)) == false)
-		{
-			inner_at_oid = lfirst_oid(lc);
-			break;
-		}
-	}
-
-	Assert(OidIsValid(outer_at_oid) && OidIsValid(inner_at_oid));
-	if (outer_at_oid == inner_at_oid ||
-		(CompReduceInfo(outer_info, inner_info, REDUCE_MARK_STORAGE|REDUCE_MARK_TYPE) &&
-		 IsRetrictListIncludeEqualExpr(restrictlist)))
-	{
-		/* in same node */
-		if (is_dummy)
-			*is_dummy = (outer_at_oid != inner_at_oid);
-
-		if (new_reduce_list)
-		{
-			switch (jointype)
+			if (GetNodeOidIfExecOnlyInOneNode(lfirst(ilc)) == outer_at_oid)
 			{
-			case JOIN_INNER:
-			case JOIN_UNIQUE_OUTER:
-			case JOIN_UNIQUE_INNER:
-				if (IsReduceInfoByValue(outer_info))
+				if (new_reduce_list)
 				{
-					*new_reduce_list = lappend(*new_reduce_list, outer_info);
-					if (IsReduceInfoByValue(inner_info))
-						*new_reduce_list = lappend(*new_reduce_list, inner_info);
-				}else if(IsReduceInfoByValue(inner_info))
-				{
-					*new_reduce_list = lappend(*new_reduce_list, inner_info);
-					if (IsReduceInfoByValue(outer_info))
-						*new_reduce_list = lappend(*new_reduce_list, outer_info);
-				}else
-				{
-					List *storage = list_make1_oid(outer_at_oid);
-					if (outer_at_oid != inner_at_oid)
-						storage = lappend_oid(storage, inner_at_oid);
-					*new_reduce_list = lappend(*new_reduce_list, MakeRandomReduceInfo(storage));
-					list_free(storage);
+					switch (jointype)
+					{
+					case JOIN_INNER:
+					case JOIN_UNIQUE_OUTER:
+					case JOIN_UNIQUE_INNER:
+						*new_reduce_list = union_reduce_info_list(outer_reduce_list, inner_reduce_list);
+						break;
+					case JOIN_LEFT:
+					case JOIN_SEMI:
+					case JOIN_ANTI:
+						*new_reduce_list = union_reduce_info_list(outer_reduce_list, NIL);
+						break;
+					case JOIN_FULL:
+						{
+							List *storage = list_make1_oid(outer_at_oid);
+							*new_reduce_list = list_make1(MakeRandomReduceInfo(storage));
+							list_free(storage);
+						}
+						break;
+					case JOIN_RIGHT:
+						*new_reduce_list = union_reduce_info_list(NIL, inner_reduce_list);
+						break;
+					}
 				}
-				break;
-			case JOIN_LEFT:
-			case JOIN_SEMI:
-			case JOIN_ANTI:
-				*new_reduce_list = lappend(*new_reduce_list, outer_info);
-				break;
-			case JOIN_FULL:
-				{
-					List *storage = list_make1_oid(outer_at_oid);
-					if (outer_at_oid != inner_at_oid)
-						storage = lappend_oid(storage, inner_at_oid);
-					*new_reduce_list = lappend(*new_reduce_list, MakeRandomReduceInfo(storage));
-					list_free(storage);
-				}
-				break;
-			case JOIN_RIGHT:
-				*new_reduce_list = lappend(*new_reduce_list, inner_info);
-				break;
+				return true;
 			}
 		}
-		return true;
-	}
-
-	return false;
-}
-
-static bool IsRetrictListIncludeEqualExpr(List *list)
-{
-	ListCell	   *lc;
-	RestrictInfo   *ri;
-	foreach (lc, list)
-	{
-		ri = lfirst_node(RestrictInfo, lc);
-		if (is_opclause(ri->clause) &&
-			op_is_equivalence(((OpExpr*)ri->clause)->opno))
-			return true;
 	}
 	return false;
 }
