@@ -1702,20 +1702,19 @@ void ClusterExpansionClean(StringInfo mem_toc)
 void RemoveCleanInfoFromExpansionClean(Oid relOid)
 {
 	HeapTuple		tuple;
-	Relation		rel_clean = relation_open(AdbCleanRelationId, RowExclusiveLock);
-	HeapScanDesc	scan = heap_beginscan_catalog(rel_clean, 0, NULL);
+	Relation		rel_clean;
 	Form_adb_clean	form_clean;
 
-	heap_rescan(scan, NULL);
-	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	tuple = SearchSysCache2(ADBCLEANOID, ObjectIdGetDatum(MyDatabaseId), ObjectIdGetDatum(relOid));
+	if (tuple)
 	{
-		CHECK_FOR_INTERRUPTS();
 		form_clean = (Form_adb_clean) GETSTRUCT(tuple);
+		Assert(form_clean->clndb == MyDatabaseId && 
+			   form_clean->clnrel == relOid);
 
-		if (form_clean->clndb != MyDatabaseId || relOid != form_clean->clnrel)
-			continue;	
+		rel_clean = relation_open(AdbCleanRelationId, RowExclusiveLock);
 		simple_heap_delete(rel_clean, &(tuple->t_self));
+		relation_close(rel_clean, RowExclusiveLock);
+		ReleaseSysCache(tuple);
 	}
-	heap_endscan(scan);
-	relation_close(rel_clean, RowExclusiveLock);
 }
