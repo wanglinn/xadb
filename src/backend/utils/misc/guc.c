@@ -2803,11 +2803,22 @@ static struct config_int ConfigureNamesInt[] =
 
 	{
 		{"snap_receiver_timeout", PGC_SIGHUP, COORDINATORS,
-			gettext_noop("For coordinators and datanode with gtmcoordinator heartbeat time."),
+			gettext_noop("For coordinators and datanode with gtmcoordinator snapsender heartbeat time."),
 			gettext_noop("minimum time is 30ms"),
 			GUC_UNIT_MS
 		},
 		&snap_receiver_timeout,
+		60000, 30000, INT_MAX,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"gxid_receiver_timeout", PGC_SIGHUP, COORDINATORS,
+			gettext_noop("For coordinators and datanode with gtmcoordinator gxidsender heartbeat time."),
+			gettext_noop("minimum time is 30ms"),
+			GUC_UNIT_MS
+		},
+		&gxid_receiver_timeout,
 		60000, 30000, INT_MAX,
 		NULL, NULL, NULL
 	},
