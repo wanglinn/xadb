@@ -2007,6 +2007,50 @@ List *FindJoinEqualExprs(ReduceInfo *rinfo, List *restrictlist, RelOptInfo *inne
 	return NIL;
 }
 
+static List *union_reduce_info_list(List *outer, List *inner)
+{
+	ListCell   *lc,*lc2;
+	ReduceInfo *rinfo;
+	List	   *list = NIL;
+
+	if (IsReduceInfoListByValue(outer))
+		list = CopyReduceInfoList(outer);
+	if (IsReduceInfoListByValue(inner))
+		list = ReduceInfoListConcat(list, inner);
+	if (list != NIL)
+		return list;
+
+	if (IsReduceInfoListReplicated(outer) &&
+		IsReduceInfoListReplicated(inner))
+	{
+		Assert(CompReduceInfoList(outer, inner, REDUCE_MARK_TYPE|REDUCE_MARK_STORAGE));
+		return CopyReduceInfoList(outer);
+	}
+
+	foreach (lc, outer)
+	{
+		rinfo = lfirst(lc);
+		foreach (lc2, rinfo->storage_nodes)
+		{
+			if (list_member_oid(rinfo->exclude_exec, lfirst_oid(lc2)) == false)
+				list = list_append_unique_oid(list, lfirst_oid(lc2));
+		}
+	}
+	foreach (lc, inner)
+	{
+		rinfo = lfirst(lc);
+		foreach (lc2, rinfo->storage_nodes)
+		{
+			if (list_member_oid(rinfo->exclude_exec, lfirst_oid(lc2)) == false)
+				list = list_append_unique_oid(list, lfirst_oid(lc2));
+		}
+	}
+	rinfo = MakeRandomReduceInfo(list);
+	list_free(list);
+
+	return list_make1(rinfo);
+}
+
 /*
  * when can join return new ReduceInfo list,
  * else return NIL
@@ -2071,13 +2115,7 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 		if(IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist))
 		{
 			if (new_reduce_list)
-			{
-				*new_reduce_list = NIL;
-				if(!IsReduceInfoListReplicated(outer_reduce_list))
-					*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
-				if(!IsReduceInfoListReplicated(inner_reduce_list))
-					*new_reduce_list = ReduceInfoListConcat(*new_reduce_list, inner_reduce_list);
-			}
+				*new_reduce_list = union_reduce_info_list(outer_reduce_list, inner_reduce_list);
 			return true;
 		}
 		break;
