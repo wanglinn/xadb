@@ -234,7 +234,8 @@ typedef enum
 #ifdef ADB
 #define FORCE_SNAP_CON_SESSION 	0
 #define FORCE_SNAP_CON_OFF		1
-#define FORCE_SNAP_CON_ON		2
+#define FORCE_SNAP_CON_NODE		2
+#define FORCE_SNAP_CON_ON		3
 #endif
 
 /* GUC vars that are actually declared in guc.c, rather than elsewhere */

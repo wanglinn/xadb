@@ -319,6 +319,7 @@ static const struct config_enum_entry server_message_level_options[] = {
 static const struct config_enum_entry fsc_level_options[] = {
 	{"session", FORCE_SNAP_CON_SESSION, false},
 	{"off", FORCE_SNAP_CON_OFF, false},
+	{"node", FORCE_SNAP_CON_NODE, false},
 	{"on", FORCE_SNAP_CON_ON, false},
 	{NULL, 0, false}
 };
