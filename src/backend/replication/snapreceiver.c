@@ -1174,7 +1174,7 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 		pg_atomic_compare_exchange_u32(&SnapRcv->last_ddl_finish_id, &last_finish_xid, InvalidTransactionId);
 	}
 
-	if(force_snapshot_consistent == FORCE_SNAP_CON_ON)
+	if(force_snapshot_consistent == FORCE_SNAP_CON_NODE)
 	{
 		gfxid = GxidGetGlobalFinishXid();
 		if (TransactionIdIsNormal(gfxid))
