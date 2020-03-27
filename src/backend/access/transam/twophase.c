@@ -1942,10 +1942,13 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 	if (TransactionIdIsValid(latestXid) && (IsCnMaster() || proc->getGlobalTransaction == latestXid))
 	{
 		if (IsGTMNode())
-			SnapSendTransactionFinish(latestXid);
+			SnapSendTransactionFinish(latestXid, isCommit);
 		else
 			GixRcvCommitTransactionId(latestXid, is_need_ts_xid, isCommit);
 	}
+
+	if (TransactionIdIsValid(latestXid) && IsConnFromCoord() && !IsGTMNode())
+		UpdateAdbLastFinishXid(latestXid);
 #endif
 	RESUME_INTERRUPTS();
 

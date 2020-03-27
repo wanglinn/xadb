@@ -25,6 +25,7 @@
 #include "utils/timestamp.h"
 #include "utils/varlena.h"
 #include "utils/hsearch.h"
+#include "utils/snapmgr.h"
 
 #define	MAX_CNT_SHMEM_XID_BUF	1024
 
@@ -41,6 +42,7 @@ typedef struct SnapSenderData
 	pg_atomic_flag	lock;				/* locks receive client sock */
 
 	pg_atomic_uint32		global_xmin;
+	pg_atomic_uint32		global_finish_id;
 	volatile uint32			cur_cnt_assign;
 	TransactionId	xid_assign[MAX_CNT_SHMEM_XID_BUF];
 
@@ -92,6 +94,7 @@ typedef struct SnapClientData
 	TransactionId	global_xmin;
 }SnapClientData;
 
+typedef bool (*WaitSnapSenderCond)(void *context);
 /* GUC variables */
 extern char *AGtmHost;
 
@@ -181,6 +184,7 @@ void SnapSenderShmemInit(void)
 		proclist_init(&SnapSender->waiters_finish);
 		SpinLockInit(&SnapSender->mutex);
 		pg_atomic_init_u32(&SnapSender->global_xmin, FirstNormalTransactionId);
+		pg_atomic_init_u32(&SnapSender->global_finish_id, InvalidTransactionId);
 		pg_atomic_init_flag(&SnapSender->lock);
 	}
 }
@@ -1427,7 +1431,151 @@ void SnapSendTransactionAssignArray(TransactionId* xids, int xid_num, Transactio
 	SpinLockRelease(&SnapSender->mutex);
 }
 
-void SnapSendTransactionFinish(TransactionId txid)
+static bool WaitSnapSenderCondTransactionComplate(void *context)
+{
+	TransactionId	txid;
+	TransactionId	xid;
+	uint32			xcnt;
+
+	txid = (TransactionId)((size_t)context);
+	xcnt = SnapSender->cur_cnt_complete;
+
+	while(xcnt>0)
+	{
+		xid = SnapSender->xid_complete[--xcnt];
+
+		/* active, wait */
+		if (TransactionIdEquals(xid, txid))
+			return true;
+	}
+
+	/* in streaming and not active, do not wait */
+	return false;
+}
+
+static bool WaitSnapSenderEvent(TimestampTz end, proclist_head *waiters, WaitSnapSenderCond test, void *context)
+{
+	Latch				   *latch = &MyProc->procLatch;
+	long					timeout;
+	proclist_mutable_iter	iter;
+	int						procno = MyProc->pgprocno;
+	int						rc;
+	int						waitEvent;
+
+	while ((*test)(context))
+	{
+		bool in_list = false;
+		proclist_foreach_modify(iter, waiters, GTMWaitLink)
+		{
+			if (iter.cur == procno)
+			{
+				in_list = true;
+				break;
+			}
+		}
+		if (!in_list)
+		{
+			pg_write_barrier();
+			proclist_push_tail(waiters, procno, GTMWaitLink);
+		}
+		SpinLockRelease(&SnapSender->mutex);
+
+		waitEvent = WL_POSTMASTER_DEATH | WL_LATCH_SET;
+		if (end > 0)
+		{
+			long secs;
+			int microsecs;
+			TimestampDifference(GetCurrentTimestamp(), end, &secs, &microsecs);
+			timeout = secs*1000 + microsecs/1000;
+			waitEvent |= WL_TIMEOUT;
+		}else if (end == 0)
+		{
+			timeout = 0;
+			waitEvent |= WL_TIMEOUT;
+		}else
+		{
+			timeout = -1;
+		}
+		rc = WaitLatch(latch, waitEvent, timeout, PG_WAIT_EXTENSION);
+		ResetLatch(latch);
+		if (rc & WL_POSTMASTER_DEATH)
+		{
+			exit(1);
+		}else if(rc & WL_TIMEOUT)
+		{
+			return false;
+		}
+
+		SpinLockAcquire(&SnapSender->mutex);
+	}
+
+	/* check if we still in waiting list, remove */
+	proclist_foreach_modify(iter, waiters, GTMWaitLink)
+	{
+		if (iter.cur == procno)
+		{
+			proclist_delete(waiters, procno, GTMWaitLink);
+			break;
+		}
+	}
+
+	return true;
+}
+
+static bool SnapSenderWaitTopTransactionEnd(TransactionId txid, TimestampTz end)
+{
+	bool result;
+	Assert(TransactionIdIsNormal(txid));
+
+	SpinLockAcquire(&SnapSender->mutex);
+	result = WaitSnapSenderEvent(end, &SnapSender->waiters_complete,
+							  WaitSnapSenderCondTransactionComplate,
+							  (void*)((size_t)txid));
+	SpinLockRelease(&SnapSender->mutex);
+	return result;
+}
+
+void SnapSenderWaitXid(TransactionId xid)
+{
+	TransactionId gfxid;
+	TimestampTz end;
+
+	if(!TransactionIdIsValid(xid) || !IsGTMNode())
+		return;
+
+	if(force_snapshot_consistent == FORCE_SNAP_CON_NODE)
+	{
+		//ereport(LOG,(errmsg("SnapSenderWaitXid wait global_finish_id %d\n", xid)));
+		gfxid = pg_atomic_read_u32(&SnapSender->global_finish_id);
+		if (TransactionIdIsNormal(gfxid))
+		{
+			end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
+			if (SnapSenderWaitTopTransactionEnd(gfxid, end) == false)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("wait last xid commit time out, which version is %u", gfxid),
+						errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
+			}
+		}
+		pg_atomic_compare_exchange_u32(&SnapSender->global_finish_id, &xid, InvalidTransactionId);
+	}
+	else if (force_snapshot_consistent == FORCE_SNAP_CON_SESSION &&
+			TransactionIdIsNormal(xid))
+	{
+		//ereport(LOG,(errmsg("SnapSenderWaitXid wait xid %d\n", xid)));
+		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
+		if (SnapSenderWaitTopTransactionEnd(xid, end) == false)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+					errmsg("wait last xid commit time out, which version is %u", xid),
+					errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
+		}
+	}
+}
+
+void SnapSendTransactionFinish(TransactionId txid, bool is_commit)
 {
 	if(!TransactionIdIsValid(txid) || !IsGTMNode())
 		return;
@@ -1446,6 +1594,13 @@ void SnapSendTransactionFinish(TransactionId txid)
 	ereport(LOG,(errmsg("Call SnapSend finish xid %d\n",
 			 			txid)));
 #endif
+
+	if (is_commit)
+	{
+		UpdateAdbLastFinishXid(txid);
+		//ereport(LOG,(errmsg("UpdateAdbLastFinishXid xid %d\n", txid)));
+		pg_atomic_write_u32(&SnapSender->global_finish_id, txid);
+	}
 
 	if(SnapSender->cur_cnt_complete == MAX_CNT_SHMEM_XID_BUF)
 		WaitSnapSendShmemSpace(&SnapSender->mutex,

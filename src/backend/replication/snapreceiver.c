@@ -1148,6 +1148,62 @@ static void WakeupTransaction(TransactionId txid)
 	}
 }
 
+void SnapRcvWaithGlobalXidFinish(TransactionId last_mxid)
+{
+	TimestampTz		end;
+	uint64_t		req_key;
+	TransactionId	gfxid;
+
+	/*if (force_snapshot_consistent == FORCE_SNAP_CON_ON)
+	{
+		LOCK_SNAP_RCV();
+		if (SnapRcv->state != WALRCV_STREAMING)
+		{
+			UNLOCK_SNAP_RCV();
+			return;
+		}
+		SnapRcv->last_client_req_key++;
+		req_key = SnapRcv->last_client_req_key;
+		MyProc->ss_req_key = req_key;
+		//ereport(LOG,(errmsg("Add proce %d to wait snap sync list, req_key %lld\n", MyProc->pgprocno, req_key)));
+
+		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snap_receiver_timeout);
+		WaitSnapRcvEvent(end, &SnapRcv->ss_waiters, true, WaitSnapRcvSyncSnap, (void*)(req_key));
+		MyProc->ss_req_key = 0;
+		UNLOCK_SNAP_RCV();
+	}
+	else if(force_snapshot_consistent == FORCE_SNAP_CON_NODE)
+	{
+		gfxid = GxidGetGlobalFinishXid();
+		//ereport(LOG,(errmsg("wait last DDL finish %d\n", gfxid)));
+		if (TransactionIdIsNormal(gfxid))
+		{
+			end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
+			if (SnapRcvWaitTopTransactionEnd(gfxid, end) == false)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("wait last xid commit time out, which version is %u", gfxid),
+						errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
+			}
+		}
+		GxidSetGlobalFinishXid(gfxid);
+	}
+	else*/ if (force_snapshot_consistent != FORCE_SNAP_CON_OFF &&
+			TransactionIdIsNormal(last_mxid))
+	{
+		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
+		//ereport(LOG,(errmsg("wait last global last_mxid %d\n", last_mxid)));
+		if (SnapRcvWaitTopTransactionEnd(last_mxid, end) == false)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+					errmsg("wait last xid commit time out, which version is %u", last_mxid),
+					errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
+		}
+	}
+}
+
 Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 					bool isCatalog)
 {
@@ -1177,6 +1233,7 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 	if(force_snapshot_consistent == FORCE_SNAP_CON_NODE)
 	{
 		gfxid = GxidGetGlobalFinishXid();
+		//ereport(LOG,(errmsg("wait last DDL finish %d\n", gfxid)));
 		if (TransactionIdIsNormal(gfxid))
 		{
 			end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
@@ -1194,6 +1251,7 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 			TransactionIdIsNormal(last_mxid))
 	{
 		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
+		//ereport(LOG,(errmsg("wait last global last_mxid %d\n", last_mxid)));
 		if (SnapRcvWaitTopTransactionEnd(last_mxid, end) == false)
 		{
 			ereport(ERROR,

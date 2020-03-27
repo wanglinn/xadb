@@ -2459,6 +2459,10 @@ GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin,
 	return snap;
 }
 
+void WaitSnapSenderXid()
+{
+	SnapSenderWaitXid(adb_last_fxid);
+}
 /*
  * Entry of snapshot obtention for Postgres-XC node
  */
@@ -2502,6 +2506,8 @@ GetGlobalSnapshot(Snapshot snapshot, TransactionId *gs_xmin, bool isCatelog)
 		 * Datanode or NoMaster-Coordinator copy snapshot
 		 * from Master-Coordinator.
 		 */
+		if (!IsGTMNode())
+			SnapRcvWaithGlobalXidFinish(adb_last_fxid);
 		snap = CopyGlobalSnapshot(snapshot);
 	}
 
