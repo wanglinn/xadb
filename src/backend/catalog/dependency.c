@@ -93,6 +93,7 @@
 #include "intercomm/inter-comm.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/locator.h"
 #endif
 
 /*
@@ -225,7 +226,12 @@ static bool stack_address_present_add_flags(const ObjectAddress *object,
 								int flags,
 								ObjectAddressStack *stack);
 static void DeleteInitPrivs(const ObjectAddress *object);
-
+#ifdef ADB
+static void reportPartitionObjects(const ObjectAddresses *targetObjects,
+									DropBehavior behavior,
+									int flags,
+									const ObjectAddress *origObject);
+#endif
 
 /*
  * Go through the objects given running the final actions on them, and execute
@@ -421,6 +427,12 @@ performMultipleDeletions(const ObjectAddresses *objects,
 							 &depRel);
 	}
 
+#ifdef ADB    
+    reportPartitionObjects(targetObjects,
+						   behavior,
+						   flags,
+						   (objects->numrefs == 1 ? objects->refs : NULL));
+#endif
 	/*
 	 * Check if deletion is allowed, and report about cascaded deletes.
 	 *
@@ -906,6 +918,68 @@ findDependentObjects(const ObjectAddress *object,
 		memset(&extra.dependee, 0, sizeof(extra.dependee));
 	add_exact_object_address_extra(object, &extra, targetObjects);
 }
+#ifdef ADB
+static void 
+reportPartitionObjects(const ObjectAddresses *targetObjects,
+						DropBehavior behavior,
+						int flags,
+						const ObjectAddress *origObject)
+{
+	int				msglevel = (flags & PERFORM_DELETION_QUIETLY) ? DEBUG2 : NOTICE;
+	int				i;
+	RelationLocInfo *rel_loc_info;
+
+	if (behavior == DROP_CASCADE &&
+		msglevel < client_min_messages &&
+		(msglevel < log_min_messages || log_min_messages == LOG))
+		return;
+
+	for (i = targetObjects->numrefs - 1; i >= 0; i--)
+	{
+		const ObjectAddress *obj = &targetObjects->refs[i];
+		const ObjectAddressExtra *extra = &targetObjects->extras[i];
+		char	   *objDesc;
+
+		/* Ignore the original deletion target(s) */
+		if (extra->flags & DEPFLAG_ORIGINAL)
+			continue;
+
+		objDesc = getObjectDescription(obj);	
+
+		if (extra->flags & (DEPFLAG_AUTO |
+							DEPFLAG_INTERNAL |
+							DEPFLAG_EXTENSION))
+		{
+			/*
+			 * auto-cascades are reported at DEBUG2, not msglevel.  We don't
+			 * try to combine them with the regular message because the
+			 * results are too confusing when client_min_messages and
+			 * log_min_messages are different.
+			 */
+			ereport(DEBUG2,
+					(errmsg("drop auto-cascades to %s",
+							objDesc)));
+		}
+		else
+		{
+			if((rel_loc_info = GetRelationLocInfo(obj->objectId)) == NULL)
+				return;
+
+			AttributeNumberIsValid(obj->objectSubId);
+			if(LocatorKeyIncludeColumn(rel_loc_info->keys, obj->objectSubId, true) && origObject)
+			{	
+				ereport(ERROR,
+					(errmsg("cannot drop %s because other objects depend on it",
+							getObjectDescription(origObject)),
+					errdetail("cannot drop partition col, %s", getObjectDescription(obj))));
+					
+			}
+		}
+
+		pfree(objDesc);		
+	}
+}
+#endif
 
 /*
  * reportDependentObjects - report about dependencies, and fail if RESTRICT
