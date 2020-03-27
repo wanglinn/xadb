@@ -529,15 +529,17 @@ void StopDynamicReduceWorker(void)
 #if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 		DREventData		   *base;
 
-		DRNodeSeqInit(&seq);
-		while ((base=hash_seq_search(&seq)) != NULL)
+		if (DRNodeSeqInit(&seq))
 		{
-			if (base->fd != PGINVALID_SOCKET)
+			while ((base=hash_seq_search(&seq)) != NULL)
+			{
+				if (base->fd != PGINVALID_SOCKET)
 #ifdef WITH_REDUCE_RDMA
-				adb_rclose(base->fd);
+					adb_rclose(base->fd);
 #else
-				closesocket(base->fd);
+					closesocket(base->fd);
 #endif
+			}
 		}
 #else
 		pgsocket	fd;
@@ -550,9 +552,11 @@ void StopDynamicReduceWorker(void)
 		}
 #endif
 
-		DRPlanSeqInit(&seq);
-		while ((pi=hash_seq_search(&seq)) != NULL)
-			(*pi->OnDestroy)(pi);
+		if (DRPlanSeqInit(&seq))
+		{
+			while ((pi=hash_seq_search(&seq)) != NULL)
+				(*pi->OnDestroy)(pi);
+		}
 	}
 
 	if (dr_bghandle)
