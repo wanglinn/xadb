@@ -425,10 +425,14 @@ PlanInfo* DRPlanSearch(int planid, HASHACTION action, bool *found)
 	return hash_search(htab_plan_info, &planid, action, found);
 }
 
-void DRPlanSeqInit(HASH_SEQ_STATUS *seq)
+bool DRPlanSeqInit(HASH_SEQ_STATUS *seq)
 {
-	Assert(htab_plan_info);
-	hash_seq_init(seq, htab_plan_info);
+	if(htab_plan_info)
+	{
+		hash_seq_init(seq, htab_plan_info);
+		return true;
+	}
+	return false;
 }
 
 long DRCurrentPlanCount(void)

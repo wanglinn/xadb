@@ -359,7 +359,7 @@ PlanInfo* DRRestorePlanInfo(StringInfo buf, void **shm, Size size, void(*clear)(
 void DRSetupPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi, DynamicReduceMQ mq, int worker_id, uint8 recv_state);
 void DRInitPlanSearch(void);
 PlanInfo* DRPlanSearch(int planid, HASHACTION action, bool *found);
-void DRPlanSeqInit(HASH_SEQ_STATUS *seq);
+bool DRPlanSeqInit(HASH_SEQ_STATUS *seq);
 long DRCurrentPlanCount(void);
 
 void DRClearPlanWorkInfo(PlanInfo *pi, PlanWorkerInfo *pwi);
@@ -418,7 +418,7 @@ void DRInitNodeSearch(void);
 DRNodeEventData* DRSearchNodeEventData(Oid nodeoid, HASHACTION action, bool *found);
 
 #if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
-void DRNodeSeqInit(HASH_SEQ_STATUS *seq);
+bool DRNodeSeqInit(HASH_SEQ_STATUS *seq);
 #endif /* DR_USING_EPOLL */
 void CleanNodePlanCacheData(DRPlanCacheData *cache, bool delete_file);
 void DropNodeAllPlanCacheData(DRNodeEventData *ned, bool delete_file);

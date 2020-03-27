@@ -796,10 +796,14 @@ void dr_rhandle_mod(int fd, void *info)
 #endif /* WITH_REDUCE_RDMA */
 
 #if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
-void DRNodeSeqInit(HASH_SEQ_STATUS *seq)
+bool DRNodeSeqInit(HASH_SEQ_STATUS *seq)
 {
-	Assert(htab_node_info);
-	hash_seq_init(seq, htab_node_info);
+	if(htab_node_info)
+	{
+		hash_seq_init(seq, htab_node_info);
+		return true;
+	}
+	return false;
 }
 #endif /* DR_USING_EPOLL || WITH_REDUCE_RDMA*/
 
