@@ -432,7 +432,7 @@ ProcArrayRemove(PGPROC *proc, TransactionId latestXid)
  * incomplete.)
  */
 void
-ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid ADB_ONLY_COMMA_ARG(bool isCommit))
+ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid ADB_ONLY_COMMA_ARG2(bool isCommit, bool is_need_ts_xid))
 {
 	PGXACT	   *pgxact = &allPgXact[proc->pgprocno];
 
@@ -475,7 +475,7 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid ADB_ONLY_COMMA_ARG
 			if (IsGTMNode())
 				SnapSendTransactionFinish(latestXid);
 			else
-				GixRcvCommitTransactionId(latestXid, isCommit);
+				GixRcvCommitTransactionId(latestXid, is_need_ts_xid, isCommit);
 		}
 #endif /* ADB */
 	}

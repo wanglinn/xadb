@@ -1354,6 +1354,10 @@ TransactionId SnapRcvGetGlobalXmin(void)
 void SnapRcvTransferLock(void **param, TransactionId xid, struct PGPROC *from)
 {
 	SnapTransferLock(&SnapRcv->comm_lock, param, xid, from);
+}
+
+void SnapRcvUpdateLastDdlXid(TransactionId xid)
+{
 	pg_atomic_write_u32(&SnapRcv->last_ddl_finish_id, xid);
 }
 

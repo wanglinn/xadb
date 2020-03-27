@@ -2479,6 +2479,7 @@ CommitTransaction(void)
 #ifdef ADB
 	bool		use_2pc_commit = true;
 	Oid			generated_tx_node = InvalidOid;
+	bool		need_tf_xid = false;
 #endif /* ADB */
 
 	is_parallel_worker = (s->blockState == TBLOCK_PARALLEL_INPROGRESS);
@@ -2651,6 +2652,7 @@ CommitTransaction(void)
 	{
 		void *param = NULL;
 		SnapCollectAllInvalidMsgs(&param);
+		need_tf_xid = true;
 		if (!IsGTMNode())
 			SnapRcvTransferLock(&param, latestXid, MyProc);
 		else if (IsConnFromCoord())
@@ -2665,7 +2667,7 @@ CommitTransaction(void)
 	 * must be done _before_ releasing locks we hold and _after_
 	 * RecordTransactionCommit.
 	 */
-	ProcArrayEndTransaction(MyProc, latestXid ADB_ONLY_COMMA_ARG(true));
+	ProcArrayEndTransaction(MyProc, latestXid ADB_ONLY_COMMA_ARG2(true, need_tf_xid));
 
 	/*
 	 * This is all post-commit cleanup.  Note that if an error is raised here,
@@ -3365,7 +3367,7 @@ AbortTransaction(void)
 	 * must be done _before_ releasing locks we hold and _after_
 	 * RecordTransactionAbort.
 	 */
-	ProcArrayEndTransaction(MyProc, latestXid ADB_ONLY_COMMA_ARG(false));
+	ProcArrayEndTransaction(MyProc, latestXid ADB_ONLY_COMMA_ARG2(false, false));
 
 	/*
 	 * Post-abort cleanup.  See notes in CommitTransaction() concerning
