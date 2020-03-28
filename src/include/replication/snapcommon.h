@@ -49,6 +49,7 @@ typedef struct SnapLockIvdInfo
 
 #define XID_ARRAY_STEP_SIZE 1024
 #define XID_PRINT_XID_LINE_NUM 50
+#define SYNC_KEY_SAFE_GAP 2147483647
 struct LOCKTAG;
 extern void
 SnapCollcectInvalidMsgItem(void **param,

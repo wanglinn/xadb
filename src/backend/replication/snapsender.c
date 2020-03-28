@@ -488,8 +488,13 @@ static void snapsenderProcessHeartBeat(SnapClientData *client)
 static void snapsenderProcessSyncRequest(SnapClientData *client)
 {
 	uint64_t key;
+	StringInfoData	msg;
 
-	key = pq_getmsgint64(&input_buffer);
+	msg.data = input_buffer.data;
+	msg.len = msg.maxlen = input_buffer.len;
+	msg.cursor = 1; /* skip msgtype */
+
+	key = pq_getmsgint64(&msg);
 	//ereport(LOG,(errmsg("snapsenderProcessSyncRequest get key %lld\n", key)));
 	/* Send a HEARTBEAT Response message */
 	resetStringInfo(&output_buffer);
