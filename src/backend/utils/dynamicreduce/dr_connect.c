@@ -60,6 +60,7 @@ static void OnNodeEventConnectFrom(DROnEventArgs)
 		ned->status = DRN_WAIT_CLOSE; /* on PreWait will destory it */
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 DRKeepError(),
 				 errmsg("invalid message type %d from remote",
 						ned->recvBuf.data[ned->recvBuf.cursor])));
 		return;
@@ -77,14 +78,16 @@ static void OnNodeEventConnectFrom(DROnEventArgs)
 		ned->status = DRN_WAIT_CLOSE; /* on PreWait will destory it */
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
-				 errmsg("invalid node oid %u from remote", ned->nodeoid)));
+				 DRKeepError(),
+				 errmsg("invalid node oid %u from remote dr status %d", ned->nodeoid, dr_status)));
 	}
 
 	if (oidBufferMember(&dr_latch_data->work_oid_buf, ned->nodeoid, &index) &&
 		dr_latch_data->work_pid_buf.oids[index] != ned->owner_pid)
 	{
-		ereport(LOG_SERVER_ONLY,
+		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 DRKeepError(),
 				 errmsg("invalid pid %d for node %u", ned->owner_pid, ned->nodeoid)));
 		FreeNodeEventInfo(ned);
 		return;
@@ -97,7 +100,9 @@ static void OnNodeEventConnectFrom(DROnEventArgs)
 		{
 			ned->status = DRN_WAIT_CLOSE;
 			ereport(ERROR,
-					(errmsg("replicate node oid %u from remote", ned->nodeoid)));
+					(errcode(ERRCODE_DUPLICATE_OBJECT),
+					 DRKeepError(),
+					 errmsg("replicate node oid %u from remote", ned->nodeoid)));
 		}
 		DR_CONNECT_DEBUG((errmsg("node %u from remote accept successed", ned->nodeoid)));
 #ifdef WITH_REDUCE_RDMA
@@ -148,7 +153,6 @@ resend_:
 		if (errno == EINTR)
 			goto resend_;
 
-		elog(LOG, "send fd  %d errno %m", event_fd);
 		new_fd = PGINVALID_SOCKET;
 		ned->addr_cur = ned->addr_cur->ai_next;
 		while (ned->addr_cur != NULL)
@@ -161,7 +165,9 @@ resend_:
 		{
 			ned->status = DRN_WAIT_CLOSE;
 			ereport(ERROR,
-					(errmsg("could not connect to any addres for remote node %u", ned->nodeoid)));
+					(errcode(ERRCODE_CONNECTION_FAILURE),
+					 DRKeepError(),
+					 errmsg("could not connect to any addres for remote node %u", ned->nodeoid)));
 		}
 #ifdef WITH_REDUCE_RDMA
 		RDRCtlWaitEvent(event_fd, 0, NULL, RPOLL_EVENT_DEL);
@@ -270,7 +276,9 @@ static void ConnectToOneNode(const DynamicReduceNodeInfo *info, const struct add
 		ned->addrlist == NULL)
 	{
 		ereport(ERROR,
-				(errmsg("could not translate host name \"%s\" to address: %s\n",
+				(errcode_for_socket_access(),
+				 DRKeepError(),
+				 errmsg("could not translate host name \"%s\" to address: %s\n",
 						NameStr(info->host), gai_strerror(ret))));
 	}
 	ned->status = DRN_CONNECTING;
@@ -297,7 +305,9 @@ static void ConnectToOneNode(const DynamicReduceNodeInfo *info, const struct add
 	if (fd == PGINVALID_SOCKET)
 	{
 		ereport(ERROR,
-				(errmsg("could not connect to any addres for remote node %u(%s:%d)",
+				(errcode(ERRCODE_CONNECTION_FAILURE),
+				 DRKeepError(),
+				 errmsg("could not connect to any addres for remote node %u(%s:%d)",
 						info->node_oid, NameStr(info->host), info->port)));
 	}
 	INSERT_CONNECTING_NODE(ned);
@@ -330,6 +340,7 @@ void ConnectToAllNode(const DynamicReduceNodeInfo *info, uint32 count)
 	if (count < 2)
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 DRKeepError(),
 				 errmsg("too few node for reduce connect:%u", count)));
 
 	resetOidBuffer(&dr_latch_data->work_oid_buf);
@@ -349,10 +360,12 @@ void ConnectToAllNode(const DynamicReduceNodeInfo *info, uint32 count)
 	if (my_index == count)
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 DRKeepError(),
 				 errmsg("can not found our node info in dynamic reduce info")));
 	if (dr_latch_data->work_oid_buf.len != count -1)
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 DRKeepError(),
 				 errmsg("replicate node oid for reduce connect")));
 
 	/* check is last owner pid is same this time? */
@@ -432,6 +445,7 @@ static void OnListenEvent(DROnEventArgs)
 					break;
 				ereport(ERROR,
 						(errcode_for_socket_access(),
+						 dr_status == DRS_WORKING ? DRKeepError():0,
 						 errmsg("can not accept new socket:%m")));
 			}
 			if (dr_status != DRS_WORKING)
@@ -653,6 +667,7 @@ static pgsocket ConnectToAddress(const struct addrinfo *addr)
 	{
 		ereport(ERROR,
 				(errcode_for_socket_access(),
+				 DRKeepError(),
 				 errmsg("could not create socket: %m, addr->ai_family is %d", addr->ai_family)));
 	}
 #ifdef WITH_REDUCE_RDMA
@@ -755,6 +770,7 @@ void DRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, int ctl)
 	{
 		ereport(ERROR,
 				(errcode_for_socket_access(),
+				 DRKeepError(),
 				 errmsg("dynamic reduce epoll_ctl() failed: %m")));
 	}
 }
