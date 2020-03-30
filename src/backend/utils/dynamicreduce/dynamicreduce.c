@@ -261,6 +261,7 @@ void DynamicReduceWorkerMain(Datum main_arg)
 			if (base->OnPreWait)
 				(*base->OnPreWait)(base);
 		}
+		CallConnectiongPreWait();
 
 		DRPlanSeqInit(&seq_state);
 		while ((pi=hash_seq_search(&seq_state)) != NULL)

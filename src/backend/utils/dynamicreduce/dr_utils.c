@@ -174,7 +174,7 @@ void DRUtilsReset(void)
 		resetOidBuffer(cur_working_nodes);
 }
 
-bool SetNodeInfo(DRNodeEventData *ned)
+bool DRSetNodeInfo(DRNodeEventData *ned)
 {
 	uint32	i;
 	if (ned->nodeoid == InvalidOid ||
@@ -193,4 +193,9 @@ bool SetNodeInfo(DRNodeEventData *ned)
 	}
 
 	return false;
+}
+
+bool DRGotNodeInfo(void)
+{
+	return cur_net_count > 0;
 }

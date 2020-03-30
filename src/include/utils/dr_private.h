@@ -394,6 +394,7 @@ void DRCtlWaitEvent(pgsocket fd, uint32_t events, void *ptr, int ctl);
 #endif /* DR_USING_EPOLL */
 #if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 void CallConnectingOnError(void);
+void CallConnectiongPreWait(void);
 bool HaveConnectingNode(void);
 #endif
 
@@ -427,7 +428,8 @@ void DropNodeAllPlanCacheData(DRNodeEventData *ned, bool delete_file);
 bool DynamicReduceHandleMessage(void *data, Size len);
 void DRConnectNetMsg(StringInfo msg);
 void DRUtilsReset(void);
-bool SetNodeInfo(DRNodeEventData *ned);
+bool DRSetNodeInfo(DRNodeEventData *ned);
+bool DRGotNodeInfo(void);
 
 /* dynamic reduce shared memory functions in dr_shm.c */
 void DRSetupShmem(void);

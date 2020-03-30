@@ -38,6 +38,31 @@ static int dr_listen_pos = INVALID_EVENT_SET_POS;
 #endif /* DR_USING_EPOLL || WITH_REDUCE_RDMA */
 static pgsocket ConnectToAddress(const struct addrinfo *addr);
 
+static void OnNodeConnectFromPreWait(DROnPreWaitArgs)
+{
+	DRNodeEventData *ned = (DRNodeEventData*)base;
+	if (ned->status == DRN_WAIT_CLOSE)
+	{
+		FreeNodeEventInfo(ned);
+	}else if (DRGotNodeInfo())
+	{
+		base->OnPreWait = NULL;
+#ifdef WITH_REDUCE_RDMA
+		RDRCtlWaitEvent(base->fd, POLLIN, base, RPOLL_EVENT_MOD);
+		ned->waiting_events = POLLIN;
+#elif defined DR_USING_EPOLL
+		DRCtlWaitEvent(base->fd, EPOLLIN, base, EPOLL_CTL_MOD);
+		ned->waiting_events = EPOLLIN;
+#else
+		ModifyWaitEvent(dr_wait_event_set,
+						pos,
+						WL_SOCKET_READABLE,
+						NULL);
+#endif
+		DR_CONNECT_DEBUG((errmsg("node %p set wait read events", base)));
+	}
+}
+
 static void OnNodeEventConnectFrom(DROnEventArgs)
 {
 #if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
@@ -73,7 +98,7 @@ static void OnNodeEventConnectFrom(DROnEventArgs)
 		   ned->recvBuf.data + ned->recvBuf.cursor + (1+sizeof(ned->nodeoid)),
 		   sizeof(ned->owner_pid));
 	ned->recvBuf.cursor += CONNECT_MSG_LENGTH;
-	if (SetNodeInfo(ned) == false)
+	if (DRSetNodeInfo(ned) == false)
 	{
 		ned->status = DRN_WAIT_CLOSE; /* on PreWait will destory it */
 		ereport(ERROR,
@@ -230,6 +255,19 @@ void CallConnectingOnError(void)
 		((DRNodeEventData*)base)->status = DRN_WAIT_CLOSE;
 		if (base->OnError)
 			(*base->OnError)(base);
+	}
+}
+void CallConnectiongPreWait(void)
+{
+	ListCell	   *lc;
+	DREventData	   *base;
+	for (lc=list_head(dr_connecting_node_list);lc != NULL;)
+	{
+		base = lfirst(lc);
+		Assert(base->type == DR_EVENT_DATA_NODE);
+		lc = lnext(lc);
+		if (base->OnPreWait)
+			(*base->OnPreWait)(base);
 	}
 }
 bool HaveConnectingNode(void)
@@ -476,23 +514,33 @@ static void OnListenEvent(DROnEventArgs)
 
 			newdata->nodeoid = InvalidOid;
 			newdata->status = DRN_ACCEPTED;
+			if (DRGotNodeInfo() == false)
+			{
+				/*
+				 * when we not got others node info, don't try receive message
+				 * from remote, because OnNodeEventConnectFrom function call
+				 * function DRSetNodeInfo() will failed
+				 */
+				newdata->base.OnPreWait = OnNodeConnectFromPreWait;
+				DR_CONNECT_DEBUG((errmsg("ned %p set prewait OnNodeConnectFromPreWait", newdata)));
+			}
 #ifdef WITH_REDUCE_RDMA
 			newdata->base.fd = newfd;
-			RDRCtlWaitEvent(newfd, POLLIN, newdata, RPOLL_EVENT_ADD);
-			newdata->waiting_events = POLLIN;
+			newdata->waiting_events = DRGotNodeInfo() ? POLLIN : 0;
+			RDRCtlWaitEvent(newfd, newdata->waiting_events, newdata, RPOLL_EVENT_ADD);
 			if (!pg_set_rnoblock(newfd))
 				ereport(LOG_SERVER_ONLY,(errmsg("could not set rsocket noblocking %m")));
 #elif defined DR_USING_EPOLL
 			newdata->base.fd = newfd;
-			DRCtlWaitEvent(newfd, EPOLLIN, newdata, EPOLL_CTL_ADD);
-			newdata->waiting_events = EPOLLIN;
+			newdata->waiting_events = DRGotNodeInfo() ? EPOLLIN : 0;
+			DRCtlWaitEvent(newfd, newdata->waiting_events, newdata, EPOLL_CTL_ADD);
 			if (!pg_set_noblock(newfd))
 				ereport(LOG_SERVER_ONLY,(errmsg("could not set socket noblocking %m")));
 #else
 			if (!pg_set_noblock(newfd))
 				ereport(LOG_SERVER_ONLY,(errmsg("could not set socket noblocking %m")));
 			AddWaitEventToSet(dr_wait_event_set,
-							  WL_SOCKET_READABLE,
+							  DRGotNodeInfo() ? WL_SOCKET_READABLE:0,
 							  newfd,
 							  NULL,
 							  (void*)newdata);
