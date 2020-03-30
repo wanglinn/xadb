@@ -115,9 +115,9 @@ typedef struct ReadonlyUpdateparm
 #define SYNC            't'
 #define ASYNC           'f'
 #define SPACE           ' '
-
+#define CHECK_NODE_MAX_TIMES                        90
 #define ALTER_NODE_DATA_CLEAN						"ALTER NODE DATA CLEAN"
-#define SELECT_ADB_CLEANL_NUM       				"SELECT COUNT(*) FROM adb_clean;"
+#define SELECT_ADB_CLEANL_NUM       				"SELECT COUNT(*) FROM adb_clean;" 
 
 bool with_data_checksums = false;
 Oid specHostOid = 0;
@@ -175,6 +175,8 @@ static Datum mgr_prepare_clean_all(PG_FUNCTION_ARGS);
 static bool mgr_node_has_slave(Relation rel, Oid mastertupleoid);
 static void mgr_set_master_sync(void);
 static void mgr_check_appendnodeinfo(char node_type, char *append_node_name);
+static bool mgr_check_node_inited_maxtimes(char node_type, char *node_name, bool is_init, int max_times);
+static bool mgr_check_node_inited(char node_type, char *node_name, bool is_init);
 static struct tuple_cndn *get_new_pgxc_node(pgxc_node_operator cmd, char *node_name, char node_type);
 static bool mgr_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *dnname, GetAgentCmdRst *getAgentCmdRst);
 static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, char *nodename, char nodetype, int32 newport);
@@ -1165,7 +1167,7 @@ mgr_init_cn_master(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	if (PG_ARGISNULL(0))
-		return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CNDN_CNDN_INIT, TAKEPLAPARM_N, fcinfo);
+			return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CNDN_CNDN_INIT, TAKEPLAPARM_N, fcinfo);
 	else
 		return mgr_runmode_cndn(nodenames_supplier_of_argidx_0, NULL, CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CNDN_CNDN_INIT, TAKEPLAPARM_N, fcinfo);
 }
@@ -1252,7 +1254,7 @@ mgr_init_dn_slave_all(PG_FUNCTION_ARGS)
 			, errmsg("datanode master \"%s\" does not exist", NameStr(mgr_node->nodename))));
 	}
 	mgr_node = (Form_mgr_node)GETSTRUCT(mastertuple);
-	Assert(mastertuple);
+	Assert(mgr_node);
 	masterport = mgr_node->nodeport;
 	masterhostOid = mgr_node->nodehost;
 	mastername = NameStr(mgr_node->nodename);
@@ -1342,6 +1344,15 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 			ereport(ERROR,
 				(errmsg("start datanode master \"%s\" fail", mastername)));
 	}
+
+	if(!mgr_check_node_inited_maxtimes(CNDN_TYPE_DATANODE_MASTER, mastername, true, CHECK_NODE_MAX_TIMES))
+	{
+		ereport(WARNING,
+				(errmsg("datanode master(%s) is not inited, can't init slave datanode(%s)", mastername, NameStr(mgr_node->nodename))));
+		pfree(infosendmsg.data);
+		return;		
+	}
+
 	cndnPath = TextDatumGetCString(datumPath);
 	appendStringInfo(&infosendmsg, " -p %u", masterport);
 	appendStringInfo(&infosendmsg, " -h %s", masterhostaddress);
@@ -1384,9 +1395,7 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 	}
 	/*update node system table's column to set initial is true*/
 	if (initdone)
-	{
-		mgr_node->nodeinited = true;
-		heap_inplace_update(noderel, aimtuple);
+	{		
 		/*refresh postgresql.conf of this node*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
@@ -1400,6 +1409,9 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 		resetStringInfo(&infosendmsg);
 		mgr_add_parameters_recoveryconf(nodetype, NameStr(mgr_node->nodename), masteroid, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+
+		mgr_node->nodeinited = true;
+		heap_inplace_update(noderel, aimtuple);
 	}
 	pfree(infosendmsg.data);
 }
@@ -1828,6 +1840,14 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			ereport(WARNING, (errmsg("gtmcoord master \"%s\" is not running normal", mastername)));
 			goto end;
 		}
+        
+		if(!mgr_check_node_inited_maxtimes(CNDN_TYPE_GTM_COOR_MASTER, mastername, true, CHECK_NODE_MAX_TIMES))
+		{
+			appendStringInfo(&(getAgentCmdRst->description), "gtmcoord master \"%s\" is not inited", mastername);
+			getAgentCmdRst->ret = false;
+			ereport(WARNING, (errmsg("gtmcoord master \"%s\" is not inited", mastername)));
+			goto end;	
+		}
 	}
 	/*stop coordinator/datanode*/
 	else if(AGT_CMD_CN_STOP == cmdtype || AGT_CMD_DN_STOP == cmdtype ||
@@ -1958,10 +1978,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 
 	/*when init, 1. update gtm system table's column to set initial is true 2. refresh postgresql.conf*/
 	if (execRes && AGT_CMD_GTMCOORD_SLAVE_INIT == cmdtype)
-	{
-		/*update node system table's column to set initial is true when cmd is init*/
-		mgr_node->nodeinited = true;
-		heap_inplace_update(noderel, aimtuple);
+	{		
 		/*refresh postgresql.conf of this node*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
@@ -1980,13 +1997,15 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		resetStringInfo(&infosendmsg);
 		mgr_add_parameters_recoveryconf(nodetype, cndnname, nodemasternameoid, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+
+		/*update node system table's column to set initial is true when cmd is init*/
+		mgr_node->nodeinited = true;
+		heap_inplace_update(noderel, aimtuple);
 	}
 
 	/*update node system table's column to set initial is true when cmd is init*/
 	if ((AGT_CMD_CNDN_CNDN_INIT == cmdtype ||  AGT_CMD_GTMCOORD_INIT == cmdtype) && execRes)
-	{
-		mgr_node->nodeinited = true;
-		heap_inplace_update(noderel, aimtuple);
+	{		
 		/*refresh postgresql.conf of this node*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
@@ -1999,6 +2018,9 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		mgr_add_parameters_hbaconf((mgr_node->nodemasternameoid == 0)? HeapTupleGetOid(aimtuple):mgr_node->nodemasternameoid
 			, nodetype, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+
+		mgr_node->nodeinited = true;
+		heap_inplace_update(noderel, aimtuple);
 	}
 
 	/*failover execute success*/
@@ -8367,6 +8389,72 @@ static void mgr_check_appendnodeinfo(char node_type, char *append_node_name)
 	pfree(info);
 }
 
+static bool mgr_check_node_inited_maxtimes(char node_type, char *node_name, bool is_init, int max_times)
+{
+	int  loop  = 0;
+	bool found = false;
+
+	while(1)
+	{
+		found = mgr_check_node_inited(node_type, node_name, is_init);
+        if (found){
+			break;
+		}
+		else{
+			ereport(LOG, (errmsg("wait for master node(%s) change to init status, loop(%d).", node_name, loop)));
+			pg_usleep(1 * 1000000L);
+		}
+
+		loop++;
+		if (loop >= max_times){
+			break;
+		}
+	}
+	return found;
+}
+
+static bool mgr_check_node_inited(char node_type, char *node_name, bool is_init)
+{
+	InitNodeInfo *info;
+	ScanKeyData key[3];
+	HeapTuple tuple;
+
+	ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodetype
+				,BTEqualStrategyNumber
+				,F_CHAREQ
+				,CharGetDatum(node_type));
+
+	ScanKeyInit(&key[1]
+				,Anum_mgr_node_nodename
+				,BTEqualStrategyNumber
+				,F_NAMEEQ
+				,CStringGetDatum(node_name)); 
+    
+	ScanKeyInit(&key[2]
+			,Anum_mgr_node_nodeinited
+			,BTEqualStrategyNumber
+			,F_BOOLEQ
+			,BoolGetDatum(is_init));
+		
+	info = palloc(sizeof(*info));	
+	info->rel_node = heap_open(NodeRelationId, AccessShareLock);
+	info->rel_scan = heap_beginscan_catalog(info->rel_node, 3, key);
+	info->lcp = NULL;
+
+	if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+	{
+		heap_endscan(info->rel_scan);
+		heap_close(info->rel_node, AccessShareLock);
+		MgrFree(info);
+		return true;
+	}
+	
+	heap_endscan(info->rel_scan);
+	heap_close(info->rel_node, AccessShareLock);
+	MgrFree(info);	
+	return false;
+}
 static bool mgr_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *dnname, GetAgentCmdRst *getAgentCmdRst)
 {
 	struct tuple_cndn *prefer_cndn;
