@@ -34,4 +34,5 @@ extern void SaveTableStatSnapshot(void);
 extern bool SerializeTableStat(StringInfo buf);
 extern void DestroyTableStateSnapshot(void);
 
+extern void execLocalFinishActiveBackend(StringInfo mem_toc);
 #endif /* EXEC_CLUSTER_H */

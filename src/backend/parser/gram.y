@@ -571,7 +571,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 		BarrierStmt AlterSlotStmt CreateSlotStmt DropSlotStmt FlushSlotStmt CleanSlotStmt
 		CleanConnStmt CreateAuxStmt CreateNodeGroupStmt CreateNodeStmt
 		DropNodeGroupStmt DropNodeStmt
-		ExecDirectStmt
+		ExecDirectStmt FinishActiveBackendStmt
 		NodeSplit
 		OptIndex
 
@@ -613,11 +613,11 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
  */
 
 /* ordinary key words in alphabetical order */
-%token <keyword> ABORT_P ABSOLUTE_P ACCESS ACTION ADD_P ADMIN AFTER
+%token <keyword> ABORT_P ABSOLUTE_P ACCESS ACTION ACTIVE ADD_P ADMIN AFTER
 	AGGREGATE ALL ALSO ALTER ALWAYS ANALYSE ANALYZE AND ANY ARRAY AS ASC
 	ASSERTION ASSIGNMENT ASYMMETRIC AT ATTACH ATTRIBUTE AUTHORIZATION
 
-	BACKWARD BEFORE BEGIN_P BETWEEN BIGINT BINARY BIT
+	BACKEND BACKWARD BEFORE BEGIN_P BETWEEN BIGINT BINARY BIT
 	BOOLEAN_P BOTH BY
 
 	CACHE CALL CALLED CASCADE CASCADED CASE CAST CATALOG_P CHAIN CHAR_P
@@ -639,7 +639,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 	EXTENSION EXTERNAL EXTRACT
 
 	/* added FLUSH token */
-	FALSE_P FAMILY FETCH FILTER FIRST_P FLOAT_P FLUSH FOLLOWING FOR
+	FALSE_P FAMILY FETCH FILTER FINISH FIRST_P FLOAT_P FLUSH FOLLOWING FOR
 	FORCE FOREIGN FORWARD FREEZE FROM FULL FUNCTION FUNCTIONS
 
 	GENERATED GLOBAL GRANT GRANTED GREATEST GROUP_P GROUPING GROUPS
@@ -957,6 +957,7 @@ stmt :
 			| ExplainStmt
 			| FetchStmt
 /* ADB_BEGIN */
+			| FinishActiveBackendStmt
 			| FlushSlotStmt
 /* ADB_END */
 			| GrantStmt
@@ -11620,6 +11621,20 @@ opt_force:
 			| /*EMPTY*/ 						{ $$ = false; }
 		;
 
+/*****************************************************************************
+ *
+ *		Close all active backend connections.
+ *
+ *****************************************************************************/
+FinishActiveBackendStmt:
+			FINISH ACTIVE BACKEND
+			{
+				FinishActiveBackendStmt *node = makeNode(FinishActiveBackendStmt);
+				node->remote_list = NIL;
+				$$ = (Node *) node;
+			}
+		;
+
 /* ADB_END */
 
 /*****************************************************************************
@@ -16010,6 +16025,9 @@ unreserved_keyword:
 			| ABSOLUTE_P
 			| ACCESS
 			| ACTION
+/* ADB_BEGIN */
+			| ACTIVE
+/* ADB_END */
 			| ADD_P
 			| ADMIN
 			| AFTER
@@ -16024,6 +16042,7 @@ unreserved_keyword:
 			| ATTRIBUTE
 /* ADB_BEGIN */
 			| AUXILIARY
+			| BACKEND
 /* ADB_END */
 			| BACKWARD
 /* ADB_BEGIN */
@@ -16111,6 +16130,9 @@ unreserved_keyword:
 			| EXTERNAL
 			| FAMILY
 			| FILTER
+/* ADB BEGIN */
+			| FINISH
+/* ADB END */
 			| FIRST_P
 /* ADB BEGIN */
 			| FLUSH
