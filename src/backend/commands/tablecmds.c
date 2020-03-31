@@ -10545,6 +10545,13 @@ ATPrepAlterColumnType(List **wqueue,
 				(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
 				 errmsg("cannot alter inherited column \"%s\"",
 						colName)));
+#ifdef ADB
+	if (RelationGetLocInfo(rel) && LocatorIncludeColumn(RelationGetLocInfo(rel), attnum, true))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+				 errmsg("cannot alter distribution field \"%s\" because it is part of the partition key of relation \"%s\"",
+						colName, RelationGetRelationName(rel))));
+#endif
 
 	/* Don't alter columns used in the partition key */
 	if (has_partition_attrs(rel,
