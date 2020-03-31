@@ -1548,7 +1548,7 @@ void SnapSenderWaitXid(TransactionId xid)
 	if(!TransactionIdIsValid(xid) || !IsGTMNode())
 		return;
 
-	if(force_snapshot_consistent == FORCE_SNAP_CON_NODE)
+	if(force_snapshot_consistent == FORCE_SNAP_CON_NODE || force_snapshot_consistent == FORCE_SNAP_CON_ON)
 	{
 		//ereport(LOG,(errmsg("SnapSenderWaitXid wait global_finish_id %d\n", xid)));
 		gfxid = pg_atomic_read_u32(&SnapSender->global_finish_id);
