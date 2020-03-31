@@ -87,7 +87,12 @@
 #include "utils/snapmgr.h"
 #ifdef ADB
 #include "agtm/agtm.h"
+#include "nodes/plannodes.h"
+#include "executor/execCluster.h"
+#include "intercomm/inter-node.h"
 #include "libpq/pqformat.h"
+#include "libpq/libpq-node.h"
+#include "storage/mem_toc.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
 #include "postmaster/autovacuum.h"
@@ -208,6 +213,11 @@ static inline void ProcArrayEndTransactionInternal(PGPROC *proc,
 								PGXACT *pgxact, TransactionId latestXid);
 static void ProcArrayGroupClearXid(PGPROC *proc, TransactionId latestXid);
 
+#ifdef ADB
+bool execClusterFinishActiveBackend(FinishActiveBackendStmt *stmt);
+void execLocalFinishActiveBackend(StringInfo mem_toc);
+#define FINISH_ACTIVE_BACKEND	1
+#endif	/* ADB*/
 /*
  * Report shared-memory space needed by CreateSharedProcArray.
  */
@@ -4440,5 +4450,96 @@ void SerializeActiveTransactionIds(StringInfo buf)
 		pq_sendint32(buf, xids[i]);
 
 	pfree(xids);
+}
+
+bool execClusterFinishActiveBackend(FinishActiveBackendStmt *stmt)
+{
+	List		*nodeOids = NIL;
+	List		*remoteList = NIL;
+	ListCell	*lc;
+	Oid			oid;
+	bool		include_myself = false;
+
+	if (!superuser())
+		ereport(ERROR, (errmsg("Please use the administrator to execute the command.")));
+
+	if (stmt->remote_list == NIL)
+	{
+		stmt->remote_list = GetAllCnIDL(true);
+		include_myself = true;
+	}
+
+	foreach(lc, stmt->remote_list)
+	{
+		oid = lfirst_oid(lc);
+		if (oid == PGXCNodeOid)
+		{
+			include_myself = true;
+			continue;
+		}
+		if (IsConnFromApp())
+			nodeOids = list_append_unique_oid(nodeOids, oid);
+	}
+
+	if (nodeOids != NIL)
+	{
+		StringInfoData msg;
+		initStringInfo(&msg);
+
+		ClusterTocSetCustomFun(&msg, execLocalFinishActiveBackend);
+		remoteList = ExecClusterCustomFunction(nodeOids, &msg, 0);
+		pfree(msg.data);
+	}
+
+	if (remoteList)
+	{
+		PQNListExecFinish(remoteList, NULL, &PQNDefaultHookFunctions, true);
+		list_free(remoteList);
+	}
+
+	if (include_myself)
+		execLocalFinishActiveBackend(NULL);
+	list_free(nodeOids);
+	return true;
+}
+
+/*
+ * Finish the active backend connection in the transaction,
+ * avoid data inconsistency during cluster expansion. 
+ */
+void execLocalFinishActiveBackend(StringInfo mem_toc)
+{
+	ProcArrayStruct *arrayP = procArray;
+	int				*pgprocnos;
+	int				numProcs;
+	int				index;
+	int				bpid;
+
+	if (!LWLockAcquire(ProcArrayLock, LW_SHARED))
+		ereport(ERROR, (errmsg("Failed to get process array lock.")));
+
+	pgprocnos = arrayP->pgprocnos;
+	numProcs = arrayP->numProcs;
+	for (index = numProcs - 1; index >= 0; --index)
+	{
+		int				pgprocno = pgprocnos[index];
+		volatile PGXACT	*pgxact = &allPgXact[pgprocno];
+		TransactionId xid = (TransactionId)(*((volatile TransactionId*)&pgxact->xid));
+
+		bpid = BackendXidGetPid(xid);
+		/* Invalid backend process */
+		if (bpid == 0 || pgxact == MyPgXact)
+			continue;
+		if (!IsBackendPid(bpid))
+			continue;
+		/* Send an end signal to the backend process. */
+		if (kill(bpid, SIGTERM) < 0)
+		{
+			LWLockRelease(ProcArrayLock);
+			ereport(ERROR,
+				(errmsg("Failed to end process %d, error number: %d", bpid, errno)));
+		}
+	}
+	LWLockRelease(ProcArrayLock);
 }
 #endif /* ADB */

@@ -466,6 +466,7 @@ typedef enum NodeTag
 #ifdef ADB
 	T_ExecDirectStmt,
 	T_CleanConnStmt,
+	T_FinishActiveBackendStmt,
 #endif
 	T_AlterTableSpaceOptionsStmt,
 	T_AlterTableMoveAllStmt,

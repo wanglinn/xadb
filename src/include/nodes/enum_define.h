@@ -413,6 +413,7 @@ BEGIN_ENUM(NodeTag)
 #ifdef ADB
 	ENUM_VALUE(T_ExecDirectStmt)
 	ENUM_VALUE(T_CleanConnStmt)
+	ENUM_VALUE(T_FinishActiveBackendStmt)
 #endif
 	ENUM_VALUE(T_AlterTableSpaceOptionsStmt)
 	ENUM_VALUE(T_AlterTableMoveAllStmt)

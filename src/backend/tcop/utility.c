@@ -124,6 +124,9 @@ static bool IsStmtAllowedInLockedMode(Node *parsetree, const char *queryString);
 
 #endif
 
+#ifdef ADB
+extern bool execClusterFinishActiveBackend(FinishActiveBackendStmt *stmt);
+#endif
 /* Hook for plugins to get control in ProcessUtility() */
 ProcessUtility_hook_type ProcessUtility_hook = NULL;
 
@@ -1159,6 +1162,9 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 
 			if (IS_PGXC_COORDINATOR)
 				ExecRemoteUtilityStmt(&utilityContext);
+			break;
+		case T_FinishActiveBackendStmt:
+			execClusterFinishActiveBackend((FinishActiveBackendStmt *) parsetree);
 			break;
 #endif
 
@@ -4441,6 +4447,9 @@ CreateCommandTag(Node *parsetree)
 		case T_CleanSlotStmt:
 			tag = "CLEAN SLOT";
 			break;
+		case T_FinishActiveBackendStmt:
+			tag = "FINISH BACKEND";
+			break;
 #endif
 #ifdef ADB_GRAM_ORA
 		case T_OraImplicitConvertStmt:
@@ -5008,6 +5017,7 @@ GetCommandLogLevel(Node *parsetree)
 		case T_DropSlotStmt:
 		case T_FlushSlotStmt:
 		case T_CleanSlotStmt:
+		case T_FinishActiveBackendStmt:
 			lev = LOGSTMT_DDL;
 			break;
 #endif

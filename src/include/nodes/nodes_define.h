@@ -3188,6 +3188,12 @@ BEGIN_NODE(CleanConnStmt)
 END_NODE(CleanConnStmt)
 #endif /* NO_NODE_CleanConnStmt */
 
+#ifndef NO_NODE_FinishActiveBackendStmt
+BEGIN_NODE(FinishActiveBackendStmt)
+	NODE_NODE(List,remote_list)
+END_NODE(FinishActiveBackendStmt)
+#endif /* NO_NODE_FinishActiveBackendStmt */
+
 #endif
 
 #ifndef NO_NODE_AlterTableSpaceOptionsStmt
@@ -4254,7 +4260,6 @@ BEGIN_NODE(MonitorDeleteData)
 	NODE_SCALAR(int32,days)
 END_NODE(MonitorDeleteData)
 #endif /* NO_NODE_MonitorDeleteData */
-
 
 #ifndef NO_NODE_MGRFlushParam
 BEGIN_NODE(MGRFlushParam)

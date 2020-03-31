@@ -3468,6 +3468,12 @@ typedef struct CleanSlotStmt
 	char		*schema_name;
 	char		*table_name;
 } CleanSlotStmt;
+
+typedef struct FinishActiveBackendStmt
+{
+	NodeTag		type;
+	List		*remote_list;
+}FinishActiveBackendStmt;
 #endif /* ADB */
 
 
