@@ -3359,7 +3359,7 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&max_worker_processes,
 #if defined(ADBMGRD)
-		58, 0, MAX_BACKENDS,
+		128, 0, MAX_BACKENDS,
 #elif defined(ADB)
 		108, 0, MAX_BACKENDS,
 #else
