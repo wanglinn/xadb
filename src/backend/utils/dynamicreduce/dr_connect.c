@@ -21,6 +21,7 @@
  * sizeof(node pid)
  */
 #define CONNECT_MSG_LENGTH	9
+#define TRY_CONNECT_COUNT	3
 
 #if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 static DRListenEventData *dr_listen_event = NULL;
@@ -180,18 +181,26 @@ resend_:
 
 		new_fd = PGINVALID_SOCKET;
 		ned->addr_cur = ned->addr_cur->ai_next;
+re_connect_:
 		while (ned->addr_cur != NULL)
 		{
 			new_fd = ConnectToAddress(ned->addr_cur);
 			if (new_fd != PGINVALID_SOCKET)
 				break;
+			else
+				ned->addr_cur = ned->addr_cur->ai_next;
 		}
 		if (new_fd == PGINVALID_SOCKET)
 		{
+			if (ned->try_count < TRY_CONNECT_COUNT)
+			{
+				++(ned->try_count);
+				ned->addr_cur = ned->addrlist;
+				goto re_connect_;
+			}
 			ned->status = DRN_WAIT_CLOSE;
 			ereport(ERROR,
 					(errcode(ERRCODE_CONNECTION_FAILURE),
-					 DRKeepError(),
 					 errmsg("could not connect to any addres for remote node %u", ned->nodeoid)));
 		}
 #ifdef WITH_REDUCE_RDMA
@@ -315,7 +324,6 @@ static void ConnectToOneNode(const DynamicReduceNodeInfo *info, const struct add
 	{
 		ereport(ERROR,
 				(errcode_for_socket_access(),
-				 DRKeepError(),
 				 errmsg("could not translate host name \"%s\" to address: %s\n",
 						NameStr(info->host), gai_strerror(ret))));
 	}
@@ -344,7 +352,6 @@ static void ConnectToOneNode(const DynamicReduceNodeInfo *info, const struct add
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_CONNECTION_FAILURE),
-				 DRKeepError(),
 				 errmsg("could not connect to any addres for remote node %u(%s:%d)",
 						info->node_oid, NameStr(info->host), info->port)));
 	}
@@ -378,7 +385,6 @@ void ConnectToAllNode(const DynamicReduceNodeInfo *info, uint32 count)
 	if (count < 2)
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
-				 DRKeepError(),
 				 errmsg("too few node for reduce connect:%u", count)));
 
 	resetOidBuffer(&dr_latch_data->work_oid_buf);
@@ -398,12 +404,10 @@ void ConnectToAllNode(const DynamicReduceNodeInfo *info, uint32 count)
 	if (my_index == count)
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
-				 DRKeepError(),
 				 errmsg("can not found our node info in dynamic reduce info")));
 	if (dr_latch_data->work_oid_buf.len != count -1)
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
-				 DRKeepError(),
 				 errmsg("replicate node oid for reduce connect")));
 
 	/* check is last owner pid is same this time? */
@@ -715,7 +719,6 @@ static pgsocket ConnectToAddress(const struct addrinfo *addr)
 	{
 		ereport(ERROR,
 				(errcode_for_socket_access(),
-				 DRKeepError(),
 				 errmsg("could not create socket: %m, addr->ai_family is %d", addr->ai_family)));
 	}
 #ifdef WITH_REDUCE_RDMA
