@@ -429,6 +429,7 @@ void DRConnectNetMsg(StringInfo msg);
 void DRUtilsReset(void);
 bool DRSetNodeInfo(DRNodeEventData *ned);
 bool DRGotNodeInfo(void);
+const DynamicReduceNodeInfo* DRFindNodeInfo(Oid oid);
 
 /* dynamic reduce shared memory functions in dr_shm.c */
 void DRSetupShmem(void);
