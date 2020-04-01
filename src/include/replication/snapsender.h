@@ -8,11 +8,10 @@ extern void SnapSenderShmemInit(void);
 
 extern void SnapSendTransactionAssignArray(TransactionId* xids, int xid_num, TransactionId parent);
 extern void SnapSendTransactionAssign(TransactionId txid, int txidnum, TransactionId parent);
-extern void SnapSendTransactionFinish(TransactionId txid, bool is_commit);
+extern void SnapSendTransactionFinish(TransactionId txid);
 
 extern void SnapSendLockSendSock(void);
 extern void SnapSendUnlockSendSock(void);
 extern TransactionId SnapSendGetGlobalXmin(void);
 extern void SnapSenderGetStat(StringInfo buf);
-extern void SnapSenderWaitXid(TransactionId xid);
 #endif /* SNAP_SENDER_H_ */

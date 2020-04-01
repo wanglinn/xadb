@@ -423,7 +423,7 @@ static void GxidDropXidList(ClientHashItemInfo	*clientitem)
 
 		for (i = 0; i < count; i++)
 		{
-			SnapSendTransactionFinish(xids[i], false);
+			SnapSendTransactionFinish(xids[i]);
 			SnapReleaseTransactionLocks(&GxidSender->comm_lock, xids[i]);
 		}
 		pfree(xids);
@@ -881,7 +881,7 @@ re_lock_:
 	{
 		procno = pq_getmsgint(&gxid_send_input_buffer, sizeof(procno));
 		xid = pq_getmsgint(&gxid_send_input_buffer, sizeof(xid));
-		SnapSendTransactionFinish(xid, true);
+		SnapSendTransactionFinish(xid);
 		SnapReleaseTransactionLocks(&GxidSender->comm_lock, xid);
 	}
 

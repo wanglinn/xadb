@@ -483,13 +483,18 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid ADB_ONLY_COMMA_ARG
 		if (TransactionIdIsValid(latestXid) && (IsCnMaster() || proc->getGlobalTransaction == latestXid))
 		{
 			if (IsGTMNode())
-				SnapSendTransactionFinish(latestXid, isCommit);
+				SnapSendTransactionFinish(latestXid);
 			else
 				GixRcvCommitTransactionId(latestXid, is_need_ts_xid, isCommit);
 		}
 
 		if (TransactionIdIsValid(latestXid) && IsConnFromCoord() && !IsGTMNode())
+		{
 			UpdateAdbLastFinishXid(latestXid);
+			//if (is_need_ts_xid)
+				//SnapRcvUpdateLastDdlXid(latestXid);
+		}
+			
 #endif /* ADB */
 	}
 	else
@@ -1735,7 +1740,6 @@ Snapshot GetSnapshotDataExt(Snapshot snapshot, bool isCatelog)
 	}
 	else
 	{
-		WaitSnapSenderXid();
 		xmin = xmax;
 		snap = GetGlobalSnapshotGxid(snapshot, &xmin, &xmax, &count, isCatelog);
 		Assert(snap == snapshot);

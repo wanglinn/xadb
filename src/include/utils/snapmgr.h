@@ -113,7 +113,6 @@ extern void RestoreTransactionSnapshot(Snapshot snapshot, void *master_pgproc);
 extern void UpdateAdbLastFinishXid(TransactionId xid);
 extern void SetGlobalSnapshot(StringInfo input_message);
 extern void UnsetGlobalSnapshot(void);
-extern void WaitSnapSenderXid(void);
 extern Snapshot GetGlobalSnapshot(Snapshot snapshot, TransactionId *gs_xmin, bool isCatelog);
 extern Snapshot
 GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin,

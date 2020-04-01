@@ -1338,11 +1338,8 @@ void GixRcvCommitTransactionId(TransactionId txid, bool is_need_fs, bool isCommi
 	{
 		UpdateAdbLastFinishXid(txid);
 		pg_atomic_write_u32(&GxidRcv->global_finish_id, txid);
-		if (is_need_fs)
-		{
-			//ereport(LOG,(errmsg("update last DDL finish xid %d\n", txid)));
-			SnapRcvUpdateLastDdlXid(txid);
-		}
+		//if (is_need_fs)
+			//SnapRcvUpdateLastDdlXid(txid);
 	}
 
 	MyProc->getGlobalTransaction = txid;
