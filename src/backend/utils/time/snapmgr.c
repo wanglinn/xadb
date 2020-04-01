@@ -2585,10 +2585,6 @@ GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin,
 	return snap;
 }
 
-void WaitSnapSenderXid()
-{
-	SnapSenderWaitXid(adb_last_fxid);
-}
 /*
  * Entry of snapshot obtention for Postgres-XC node
  */
