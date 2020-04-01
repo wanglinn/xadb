@@ -199,3 +199,14 @@ bool DRGotNodeInfo(void)
 {
 	return cur_net_count > 0;
 }
+
+const DynamicReduceNodeInfo* DRFindNodeInfo(Oid oid)
+{
+	uint32 i;
+	for (i=0;i<cur_net_count;++i)
+	{
+		if (cur_net_info[i].node_oid == oid)
+			return &cur_net_info[i];
+	}
+	return NULL;
+}

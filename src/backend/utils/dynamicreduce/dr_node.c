@@ -272,6 +272,10 @@ rerecv_:
 		ned->status = DRN_WAIT_CLOSE;
 		if (dr_status == DRS_STARTUPED)
 			return 0;
+		/* is in working nodes? */
+		if (ned->nodeoid != InvalidOid &&
+			DRFindNodeInfo(ned->nodeoid) == NULL)
+			return 0;
 		ereport(ERROR,
 				(errmsg("could not recv message from node %u:%m", ned->nodeoid),
 				 DRKeepError()));
@@ -279,6 +283,10 @@ rerecv_:
 	{
 		ned->status = DRN_WAIT_CLOSE;
 		if (dr_status == DRS_STARTUPED)
+			return 0;
+		/* is in working nodes? */
+		if (ned->nodeoid != InvalidOid &&
+			DRFindNodeInfo(ned->nodeoid) == NULL)
 			return 0;
 
 		ereport(ERROR,
