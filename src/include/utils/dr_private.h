@@ -203,6 +203,7 @@ typedef struct DRNodeEventData
 	Oid				nodeoid;
 	int				owner_pid;	/* remote owner */
 	uint16			remote_port;
+	uint16			try_count;	/* for reconnect */
 
 	/*
 	 * when it is not INVALID_PLAN_ID,
