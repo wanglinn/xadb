@@ -102,8 +102,6 @@ static GxidRcvData *GxidRcv = NULL;
 
 /* like WalRcvImmediateInterruptOK */
 static volatile bool TransRcvImmediateInterruptOK = false;
-static slist_head	slist_all_proc = SLIST_STATIC_INIT(slist_all_proc);
-
 typedef bool (*WaitGxidRcvCond)(void *context, proclist_head *reters);
 
 /* Prototypes for private functions */
@@ -119,7 +117,6 @@ static void GxidRcvMainProcess(void);
 static void GxidRcvProcessAssignList(void);
 static void GxidRcvProcessFinishList(void);
 static void GxidRcvCheckPreAssignArray(void);
-static void GxidRcvProcessEmptyProcList(void);
 static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test,
 			proclist_head *reters, proclist_head *geters, void *context);
 static void GxidRcvSendHeartbeat(void);
@@ -127,7 +124,6 @@ static void GxidRcvSendLocalNextXid(void);
 static void GxidRcvSendPreAssginXid(int xid_num);
 static void GxidRcvProcessPreAssign(char *buf, Size len);
 static void GxidRcvProcessAssign(char *buf, Size len);
-static void GxidRcvClaerAllClientInfo(void);
 static bool GxidRcvFoundWaitFinishList(TransactionId xid);
 static void GxidRcvRemoveWaitFinishList(TransactionId xid, bool is_miss_ok);
 static void GxidRcvDeleteProcList(proclist_head *reters, int procno);
@@ -322,7 +318,6 @@ void GxidReceiverMain(void)
 			//walrcv_endstreaming(wrconn, &primaryTLI);
 			/* loop until end-of-streaming or error */
 			GxidRcvSendLocalNextXid();
-			GxidRcvClaerAllClientInfo();
 			GxidRcv->cur_pre_alloc = 0;
 			GxidRcv->wait_finish_cnt = 0;
 			GxidRcv->is_send_realloc_num = 0;
@@ -607,38 +602,6 @@ void GxidRcvUpdateShmemConnInfo(void)
 		pfree(sender_host);
 }
 
-static void GxidRcvFinishLocalXid(TransactionId	txid, int procno)
-{
-	slist_mutable_iter			siter;
-	bool						found_proc;
-	GxiRcvAssginXidItemInfo		*xidinfo;
-	GxiRcvAssginXidClientInfo	*client;
-
-	found_proc = false;
-	slist_foreach_modify(siter, &slist_all_proc)
-	{
-		client = slist_container(GxiRcvAssginXidClientInfo, snode, siter.cur);
-		if (client->procno == procno)
-		{
-			found_proc = true;
-			break;
-		}
-	}
-
-	if (!found_proc)
-		return;
-
-	slist_foreach_modify(siter, &client->slist_xid)
-	{
-		xidinfo = slist_container(GxiRcvAssginXidItemInfo, snode, siter.cur);
-		if (xidinfo->xid == txid)
-		{
-			slist_delete(&client->slist_xid, &xidinfo->snode);
-			break;
-		}
-	}
-}
-
 static void GxidRcvSendLocalNextXid(void)
 {
 	TransactionId xid; 
@@ -660,29 +623,6 @@ static void GxidRcvSendLocalNextXid(void)
 
 	/* Send it */
 	walrcv_send(wrconn, reply_message.data, reply_message.len);
-}
-
-static void GxidRcvClaerAllClientInfo(void)
-{
-	slist_mutable_iter			siter;
-	slist_mutable_iter			siter_xid;
-	GxiRcvAssginXidItemInfo		*xidinfo;
-	GxiRcvAssginXidClientInfo	*client;
-
-	LOCK_GXID_RCV();
-	slist_foreach_modify(siter, &slist_all_proc)
-	{
-		client = slist_container(GxiRcvAssginXidClientInfo, snode, siter.cur);
-		slist_foreach_modify(siter_xid, &client->slist_xid)
-		{
-			xidinfo = slist_container(GxiRcvAssginXidItemInfo, snode, siter_xid.cur);
-			slist_delete(&client->slist_xid, &xidinfo->snode);
-			pfree(xidinfo);
-		}
-		slist_delete(&slist_all_proc, &client->snode);
-		pfree(client);
-	}
-	UNLOCK_GXID_RCV();
 }
 
 static void GxidRcvProcessCommit(char *buf, Size len)
@@ -707,7 +647,6 @@ static void GxidRcvProcessCommit(char *buf, Size len)
 #ifdef SNAP_SYNC_DEBUG
 		ereport(LOG,(errmsg("GxidRcv  rcv finish xid %d for %d\n", txid, procno)));
 #endif
-		GxidRcvFinishLocalXid(txid, procno);
 		GxidRcvRemoveWaitFinishList(txid, true);
 		Assert(TransactionIdIsValid(txid));
 
@@ -1074,7 +1013,6 @@ static void GxidRcvMainProcess(void)
 	GxidRcvCheckPreAssignArray();
 	GxidRcvProcessFinishList();
 	GxidRcvProcessAssignList();
-	GxidRcvProcessEmptyProcList();
 }
 
 static void
@@ -1162,24 +1100,6 @@ static void GxidRcvCheckPreAssignArray(void)
 #endif
 		}
 		
-	}
-	UNLOCK_GXID_RCV();
-}
-
-static void GxidRcvProcessEmptyProcList(void)
-{			
-	slist_mutable_iter			siter;
-	GxiRcvAssginXidClientInfo	*client;
-
-	LOCK_GXID_RCV();
-	slist_foreach_modify(siter, &slist_all_proc)
-	{
-		client = slist_container(GxiRcvAssginXidClientInfo, snode, siter.cur);
-		if (slist_is_empty(&client->slist_xid))
-		{
-			slist_delete(&slist_all_proc, &client->snode);
-			pfree(client);
-		}
 	}
 	UNLOCK_GXID_RCV();
 }
