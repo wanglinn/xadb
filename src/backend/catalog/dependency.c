@@ -1105,8 +1105,9 @@ reportPartitionObjects(const ObjectAddresses *targetObjects,
 			if((rel_loc_info = GetRelationLocInfo(obj->objectId)) == NULL)
 				return;
 
-			AttributeNumberIsValid(obj->objectSubId);
-			if(LocatorKeyIncludeColumn(rel_loc_info->keys, obj->objectSubId, true) && origObject)
+			if (origObject &&
+				AttributeNumberIsValid(obj->objectSubId) &&
+				LocatorKeyIncludeColumn(rel_loc_info->keys, obj->objectSubId, true))
 			{	
 				ereport(ERROR,
 					(errmsg("cannot drop %s because other objects depend on it",
