@@ -4949,8 +4949,8 @@ static struct config_enum ConfigureNamesEnum[] =
 	},
 #ifdef ADB
 	{
-		{"force_snapshot_consistent", PGC_POSTMASTER, GTM,
-			gettext_noop("force muptiple cn/gc data consistent level, set in gtmcoord and coordinators"),
+		{"force_snapshot_consistent", PGC_SIGHUP, COORDINATORS,
+			gettext_noop("force muptiple cn/gc data consistent level, set in coordinators and datanode"),
 			NULL
 		},
 		&force_snapshot_consistent,
