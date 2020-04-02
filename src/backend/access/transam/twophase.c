@@ -1736,7 +1736,6 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 #ifdef ADB
 	Oid		   *nodeIds;
 	void		*param = NULL;
-	bool		is_need_ts_xid = false;
 #endif
 
 	/*
@@ -1899,14 +1898,8 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 
 	/* And now do the callbacks */
 	if (isCommit)
-	{
-#ifdef ADB
-		if (IsUnderAGTM() && hdr->ninvalmsgs > 0)
-			is_need_ts_xid = true;
-#endif
 		ProcessRecords(bufptr, xid, twophase_postcommit_callbacks
 					   ADB_ONLY_COMMA_ARG2((IsUnderAGTM() && hdr->ninvalmsgs > 0), &param));
-	}
 	else
 		ProcessRecords(bufptr, xid, twophase_postabort_callbacks ADB_ONLY_COMMA_ARG2(false, NULL));
 
@@ -1944,14 +1937,12 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 		if (IsGTMNode())
 			SnapSendTransactionFinish(latestXid);
 		else
-			GixRcvCommitTransactionId(latestXid, is_need_ts_xid, isCommit);
+			GixRcvCommitTransactionId(latestXid, isCommit);
 	}
 
 	if (TransactionIdIsValid(latestXid) && IsConnFromCoord() && !IsGTMNode())
 	{
 		UpdateAdbLastFinishXid(latestXid);
-		//if (is_need_ts_xid)
-			//SnapRcvUpdateLastDdlXid(latestXid);
 	}
 		
 #endif

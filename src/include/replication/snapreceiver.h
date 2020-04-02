@@ -19,11 +19,9 @@ extern bool SnapRcvRunning(void);
 
 extern Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid, bool isCatalog);
 extern bool SnapRcvWaitTopTransactionEnd(TransactionId txid, TimestampTz end);
-extern void SnapRcvWaithGlobalXidFinish(TransactionId last_mxid);
 
 struct PGPROC;
 extern void SnapRcvTransferLock(void **param, TransactionId xid, struct PGPROC *from);
 extern TransactionId SnapRcvGetGlobalXmin(void);
 extern void SnapRcvGetStat(StringInfo buf);
-extern void SnapRcvUpdateLastDdlXid(TransactionId xid);
 #endif							/* SNAP_RECEIVER_H_ */

@@ -97,7 +97,6 @@
 #endif
 
 //#define SNAP_SYNC_DEBUG 1
-//#define FORCE_SNAP_DEBUG 1
 
 /* ----------------------------------------------------------------
  *				Section 1: compiler characteristics

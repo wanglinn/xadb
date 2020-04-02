@@ -52,7 +52,7 @@ typedef struct SnapSenderData
 
 typedef struct WaitEventData
 {
-	void (*fun)(WaitEvent *event);
+	void (*fun)(WaitEvent *event, time_t* time_last_latch);
 }WaitEventData;
 
 /* in hash table snapsender_xid_htab */
@@ -125,11 +125,11 @@ static void SnapSenderStartup(void);
 static void SnapSenderCheckXactPrepareList(void);
 
 /* event handlers */
-static void OnLatchSetEvent(WaitEvent *event);
-static void OnPostmasterDeathEvent(WaitEvent *event);
-static void OnListenEvent(WaitEvent *event);
-static void OnClientMsgEvent(WaitEvent *event);
-static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node);
+static void OnLatchSetEvent(WaitEvent *event, time_t* time_last_latch);
+static void OnPostmasterDeathEvent(WaitEvent *event, time_t* time_last_latch);
+static void OnListenEvent(WaitEvent *event, time_t* time_last_latch);
+static void OnClientMsgEvent(WaitEvent *event, time_t* time_last_latch);
+static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* time_last_latch);
 static void OnClientSendMsg(SnapClientData *client, pq_comm_node *node);
 
 static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char msgtype);
@@ -495,7 +495,7 @@ static void snapsenderProcessSyncRequest(SnapClientData *client)
 	msg.cursor = 1; /* skip msgtype */
 
 	key = pq_getmsgint64(&msg);
-	//ereport(LOG,(errmsg("snapsenderProcessSyncRequest get key %lld\n", key)));
+	SNAP_FORCE_DEBUG_LOG((errmsg("snapsenderProcessSyncRequest get key %lld\n", key)));
 	/* Send a HEARTBEAT Response message */
 	resetStringInfo(&output_buffer);
 	pq_sendbyte(&output_buffer, 'p');
@@ -633,6 +633,7 @@ void SnapSenderMain(void)
 	WaitEventData * volatile wed = NULL;
 	sigjmp_buf		local_sigjmp_buf;
 	int				rc;
+	time_t			time_now,time_last_latch = 0;
 
 	Assert(SnapSender != NULL);
 
@@ -733,14 +734,22 @@ void SnapSenderMain(void)
 							  cur_wait_event,
 							  PG_WAIT_CLIENT);
 
-		OnLatchSetEvent(NULL);
+		time_now = time(NULL);
+		if (rc == 0 ||	/* timeout */
+			time_now != time_last_latch)
+		{
+			pg_memory_barrier();
+			MyLatch->is_set = true;
+		}
 		while(rc > 0)
 		{
 			event = &wait_event[--rc];
 			wed = event->user_data;
-			(*wed->fun)(event); //
+			(*wed->fun)(event, &time_last_latch); //
 			pq_switch_to_none();
 		}
+		if (MyLatch->is_set)
+			OnLatchSetEvent(NULL, &time_last_latch);
 
 		SnapSendCheckTimeoutSocket();
 		if (got_SIGHUP)
@@ -802,7 +811,7 @@ static void SnapSenderStartup(void)
 }
 
 /* event handlers */
-static void OnLatchSetEvent(WaitEvent *event)
+static void OnLatchSetEvent(WaitEvent *event, time_t* time_last_latch)
 {
 	TransactionId			xid_assgin[MAX_CNT_SHMEM_XID_BUF];
 	TransactionId			xid_finish[MAX_CNT_SHMEM_XID_BUF];
@@ -811,7 +820,12 @@ static void OnLatchSetEvent(WaitEvent *event)
 	proclist_mutable_iter	proc_iter_assgin;
 	proclist_mutable_iter	proc_iter_finish;
 	PGPROC				   *proc;
+	time_t					time_now;
 
+	if (!MyLatch->is_set)
+		return;
+
+	time_now = time(NULL);
 	ResetLatch(&MyProc->procLatch);
 
 	SpinLockAcquire(&SnapSender->mutex);
@@ -858,6 +872,7 @@ static void OnLatchSetEvent(WaitEvent *event)
 	/* check finish transaction */
 	if (finish_cnt > 0)
 		ProcessShmemXidMsg(&xid_finish[0], finish_cnt, 'c');
+	*time_last_latch = time_now;
 }
 
 static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char msgtype)
@@ -1033,12 +1048,12 @@ static bool AppendMsgToClient(SnapClientData *client, char msgtype, const char *
 	return true;
 }
 
-static void OnPostmasterDeathEvent(WaitEvent *event)
+static void OnPostmasterDeathEvent(WaitEvent *event, time_t* time_last_latch)
 {
 	exit(1);
 }
 
-void OnListenEvent(WaitEvent *event)
+void OnListenEvent(WaitEvent *event, time_t* time_last_latch)
 {
 	MemoryContext volatile oldcontext = CurrentMemoryContext;
 	MemoryContext volatile newcontext = NULL;
@@ -1099,7 +1114,7 @@ void OnListenEvent(WaitEvent *event)
 	}PG_END_TRY();
 }
 
-static void OnClientMsgEvent(WaitEvent *event)
+static void OnClientMsgEvent(WaitEvent *event, time_t* time_last_latch)
 {
 	SnapClientData *volatile client = event->user_data;
 	pq_comm_node   *node;
@@ -1119,7 +1134,7 @@ static void OnClientMsgEvent(WaitEvent *event)
 			if (client->status == CLIENT_STATUS_EXITING)
 				ModifyWaitEvent(wait_event_set, event->pos, 0, NULL);
 			else
-				OnClientRecvMsg(client, node);
+				OnClientRecvMsg(client, node, time_last_latch);
 		}
 		if (event->events & (WL_SOCKET_WRITEABLE|WL_SOCKET_CONNECTED))
 			OnClientSendMsg(client, node);
@@ -1147,7 +1162,7 @@ static void OnClientMsgEvent(WaitEvent *event)
 	}PG_END_TRY();
 }
 
-static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node)
+static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* time_last_latch)
 {
 	int msgtype;
 
@@ -1222,6 +1237,7 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node)
 				}
 				else if (strcasecmp(input_buffer.data, "p") == 0)
 				{
+					OnLatchSetEvent(NULL, time_last_latch);
 					snapsenderProcessSyncRequest(client);
 				}
 			}

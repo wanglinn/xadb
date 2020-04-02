@@ -57,7 +57,6 @@ typedef struct SnapRcvData
 	uint32			xcnt;
 	TransactionId	latestCompletedXid;
 	pg_atomic_uint32	global_xmin;
-	pg_atomic_uint32	last_ddl_finish_id;
 	TransactionId	xip[MAX_BACKENDS];
 	pg_atomic_uint32	last_client_req_key; /* last client rquest snap sync key num*/
 	pg_atomic_uint32	last_ss_req_key; 	/* last snaprcv rquest snap sync key num*/
@@ -283,7 +282,6 @@ void SnapReceiverMain(void)
 
 	UNLOCK_SNAP_RCV();
 	pg_atomic_write_u32(&SnapRcv->global_xmin, FirstNormalTransactionId);
-	pg_atomic_write_u32(&SnapRcv->last_ddl_finish_id, InvalidTransactionId);
 	pg_atomic_write_u32(&SnapRcv->last_client_req_key, 0);
 	pg_atomic_write_u32(&SnapRcv->last_ss_req_key, 0);
 	pg_atomic_write_u32(&SnapRcv->last_ss_resp_key, 0);
@@ -478,7 +476,6 @@ void SnapRcvShmemInit(void)
 		LWLockInitialize(&SnapRcv->comm_lock.lock_lock_info, LWTRANCHE_SNAPSHOT_COMMON_DSA);
 		LWLockInitialize(&SnapRcv->comm_lock.lock_proc_link, LWTRANCHE_SNAPSHOT_COMMON_DSA);
 		pg_atomic_init_u32(&SnapRcv->global_xmin, FirstNormalTransactionId);
-		pg_atomic_init_u32(&SnapRcv->last_ddl_finish_id, InvalidTransactionId);
 		pg_atomic_init_u32(&SnapRcv->last_client_req_key, 0);
 		pg_atomic_init_u32(&SnapRcv->last_ss_req_key, 0);
 		pg_atomic_init_u32(&SnapRcv->last_ss_resp_key, 0);
@@ -661,7 +658,7 @@ static void SnapRcvProcessSyncSnap(char *buf, Size len)
 	msg.len = msg.maxlen = len;
 	msg.cursor = 0;
 	key = pq_getmsgint64(&msg);
-	//ereport(LOG,(errmsg("SnapRcvProcessSyncSnap key %lld\n", key)));
+	SNAP_FORCE_DEBUG_LOG((errmsg("SnapRcvProcessSyncSnap key %lld\n", key)));
 	WakeupSnapSync(key);
 }
 
@@ -1145,26 +1142,6 @@ static void WakeupTransaction(TransactionId txid)
 	}
 }
 
-void SnapRcvWaithGlobalXidFinish(TransactionId last_mxid)
-{
-	TimestampTz		end;
-	if (force_snapshot_consistent != FORCE_SNAP_CON_OFF &&
-			TransactionIdIsNormal(last_mxid))
-	{
-		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
-#ifdef FORCE_SNAP_DEBUG
-		ereport(LOG,(errmsg("wait last global last_mxid %d\n", last_mxid)));
-#endif
-		if (SnapRcvWaitTopTransactionEnd(last_mxid, end) == false)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-					errmsg("wait last xid commit time out, which version is %u", last_mxid),
-					errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
-		}
-	}
-}
-
 Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 					bool isCatalog)
 {
@@ -1177,31 +1154,12 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 	if (snap->xip == NULL)
 		EnlargeSnapshotXip(snap, GetMaxSnapshotXidCount());
 
-	/*last_finish_xid = pg_atomic_read_u32(&SnapRcv->last_ddl_finish_id);
-	if (isCatalog && TransactionIdIsValid(last_finish_xid))
-	{
-#ifdef FORCE_SNAP_DEBUG
-		ereport(LOG,(errmsg("SnapRcvGetSnapshot wait last DDL finish %d\n", last_finish_xid)));
-#endif
-		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
-		if (SnapRcvWaitTopTransactionEnd(last_finish_xid, end) == false)
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-					errmsg("wait last ddl finish xid sync time out, which version is %u", last_finish_xid),
-					errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
-		}
-		pg_atomic_compare_exchange_u32(&SnapRcv->last_ddl_finish_id, &last_finish_xid, InvalidTransactionId);
-	}*/
-
 	if (force_snapshot_consistent == FORCE_SNAP_CON_ON || (IsConnFromCoord() && RecoveryInProgress()))
 	{
-#ifdef FORCE_SNAP_DEBUG
-		ereport(LOG,(errmsg("Add proce %d to wait snap sync list, req_key %lld,  SnapRcv->last_ss_resp_key %lld\n", 
-				MyProc->pgprocno, req_key, pg_atomic_read_u32(&SnapRcv->last_ss_resp_key))));
-#endif
 		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snap_receiver_timeout);
 		req_key = pg_atomic_add_fetch_u32(&SnapRcv->last_client_req_key, 1);
+		SNAP_FORCE_DEBUG_LOG((errmsg("Add proce %d to wait snap sync list, req_key %lld,  SnapRcv->last_ss_resp_key %lld\n", 
+				MyProc->pgprocno, req_key, pg_atomic_read_u32(&SnapRcv->last_ss_resp_key))));
 		MyProc->ss_req_key = req_key;
 		LOCK_SNAP_RCV();
 		WaitSnapRcvEvent(end, &SnapRcv->ss_waiters, true, WaitSnapRcvSyncSnap, (void*)((size_t)req_key));
@@ -1212,9 +1170,7 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 		if (IsCnMaster())
 		{
 			gfxid = GxidGetGlobalFinishXid();
-#ifdef FORCE_SNAP_DEBUG
-			ereport(LOG,(errmsg("wait gfxid finish %d\n", gfxid)));
-#endif
+			SNAP_FORCE_DEBUG_LOG((errmsg("wait gfxid finish %d\n", gfxid)));
 			if (TransactionIdIsNormal(gfxid))
 			{
 				end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
@@ -1231,11 +1187,9 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 
 		if (TransactionIdIsNormal(last_mxid))
 		{
-#ifdef FORCE_SNAP_DEBUG
-			elog(LOG, "SnapRcvGetSnapshot wait session xid %u", last_mxid);
-#endif
+			SNAP_FORCE_DEBUG_LOG((errmsg("SnapRcvGetSnapshot wait session xid %u", last_mxid)));
 			end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), WaitGlobalTransaction);
-			ereport(LOG,(errmsg("wait last global last_mxid %d\n", last_mxid)));
+			SNAP_FORCE_DEBUG_LOG((errmsg("wait last global last_mxid %d\n", last_mxid)));
 			if (SnapRcvWaitTopTransactionEnd(last_mxid, end) == false)
 			{
 				ereport(ERROR,
@@ -1387,14 +1341,6 @@ void SnapRcvTransferLock(void **param, TransactionId xid, struct PGPROC *from)
 	SnapTransferLock(&SnapRcv->comm_lock, param, xid, from);
 }
 
-void SnapRcvUpdateLastDdlXid(TransactionId xid)
-{
-#ifdef FORCE_SNAP_DEBUG
-	ereport(LOG,(errmsg("update last DDL finish xid %d\n", xid)));
-#endif
-	pg_atomic_write_u32(&SnapRcv->last_ddl_finish_id, xid);
-}
-
 void SnapRcvGetStat(StringInfo buf)
 {
 	int				i;
@@ -1433,7 +1379,6 @@ re_lock_:
 	appendStringInfo(buf, "  latestCompletedXid: %d\n", last_finish_xid);
 
 	appendStringInfo(buf, "  global_xmin: %u\n", pg_atomic_read_u32(&SnapRcv->global_xmin));
-	//appendStringInfo(buf, "  last_ddl_finish_id: %u\n", pg_atomic_read_u32(&SnapRcv->last_ddl_finish_id));
 	appendStringInfo(buf, "  last_client_req_key: %u\n", pg_atomic_read_u32(&SnapRcv->last_client_req_key));
 	appendStringInfo(buf, "  last_ss_req_key: %u\n", pg_atomic_read_u32(&SnapRcv->last_ss_req_key));
 	appendStringInfo(buf, "  last_ss_resp_key: %u\n", pg_atomic_read_u32(&SnapRcv->last_ss_resp_key));
