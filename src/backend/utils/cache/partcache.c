@@ -274,14 +274,12 @@ RelationBuildPartitionDesc(Relation rel)
 			   *partoids;
 	List	   *boundspecs = NIL;
 	ListCell   *cell;
-	int			i;
 	PartitionKey key = RelationGetPartitionKey(rel);
 
 	/* Get partition oids from pg_inherits */
 	inhoids = find_inheritance_children(RelationGetRelid(rel), NoLock);
 
 	/* Collect bound spec nodes in a list */
-	i = 0;
 	partoids = NIL;
 	foreach(cell, inhoids)
 	{

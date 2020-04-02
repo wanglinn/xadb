@@ -94,7 +94,6 @@ typedef struct SnapClientData
 	TransactionId	global_xmin;
 }SnapClientData;
 
-typedef bool (*WaitSnapSenderCond)(void *context);
 /* GUC variables */
 extern char *AGtmHost;
 

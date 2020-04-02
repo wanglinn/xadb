@@ -190,7 +190,7 @@ IsDistribOnlyOneColumn(Oid relid, AttrNumber attNum)
 	}
 	FreeRelationLocInfo(locInfo);
 
-	return false;
+	return result;
 }
 
 bool LocatorIncludeColumn(RelationLocInfo *loc, AttrNumber attno, bool include_expr)

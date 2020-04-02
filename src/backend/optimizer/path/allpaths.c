@@ -4680,6 +4680,7 @@ void add_paths_to_connect_by_rel(PlannerInfo *root,
 	Path		   *subpath;
 	List		   *hash_quals = NIL;
 	JoinCostWorkspace workspace;
+	JoinPathExtraData extra;
 
 	foreach (lc, connect_rel->joininfo)
 	{
@@ -4689,7 +4690,6 @@ void add_paths_to_connect_by_rel(PlannerInfo *root,
 			hash_quals = lappend(hash_quals, ri);
 	}
 
-	JoinPathExtraData extra;
 	MemSet(&extra, 0, sizeof(extra));
 	extra.restrictlist = connect_rel->joininfo;
 
