@@ -126,6 +126,10 @@ extern bool ADB_DEBUG;
 #define ereport(elevel, rest)	\
 	ereport_domain(elevel, TEXTDOMAIN, rest)
 
+#define ereportNoticeLog(rest) \
+		ereport(NOTICE, (rest)); \
+		ereport(LOG, (rest));	
+
 #ifdef DEBUG_ADB
 
 #ifdef HAVE__BUILTIN_CONSTANT_P

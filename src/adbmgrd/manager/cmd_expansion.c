@@ -1654,7 +1654,7 @@ static void hexp_check_expand(void)
 
 	if ((count = MgrGetAdbcleanNum(pg_conn)) > 0)
 	{
-		ereport(ERROR, (errmsg("abd_clean num(%d), expand cann't be started.", count)));
+		ereport(ERROR, (errmsg("There is also data num(%d) in the table adb_clean, and the cleaning operation has not been completed since the last expansion, so you cann't start expand operation again.", count)));
 	}
     return;
 }
