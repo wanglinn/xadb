@@ -1141,7 +1141,8 @@ mgr_init_gtmcoord_master(PG_FUNCTION_ARGS)
 {
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
-
+    
+	ereportNoticeLog(errmsg("init_gtmcoord_master begin"));
 	return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOORD_INIT, TAKEPLAPARM_N, fcinfo);
 }
 
@@ -1154,6 +1155,7 @@ mgr_init_gtmcoord_slave(PG_FUNCTION_ARGS)
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
+    ereportNoticeLog(errmsg("init_gtmcoord_slave begin"));
 	return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOORD_SLAVE_INIT, TAKEPLAPARM_N, fcinfo);
 }
 
@@ -1167,6 +1169,7 @@ mgr_init_cn_master(PG_FUNCTION_ARGS)
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
+    ereportNoticeLog(errmsg("init_cn_master begin"));
 	if (PG_ARGISNULL(0))
 			return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CNDN_CNDN_INIT, TAKEPLAPARM_N, fcinfo);
 	else
@@ -1183,6 +1186,7 @@ mgr_init_dn_master(PG_FUNCTION_ARGS)
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
+    ereportNoticeLog(errmsg("init_dn_master begin"));
 	if (PG_ARGISNULL(0))
 		return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_DATANODE_MASTER, AGT_CMD_CNDN_CNDN_INIT, TAKEPLAPARM_N, fcinfo);
 	else
@@ -1210,6 +1214,8 @@ mgr_init_dn_slave_all(PG_FUNCTION_ARGS)
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
+
+    ereportNoticeLog(errmsg("init_dn_slave_all begin."));
 
 	/*output the exec result: col1 hostname,col2 SUCCESS(t/f),col3 description*/
 	if (SRF_IS_FIRSTCALL())
@@ -1385,6 +1391,16 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 	/*check the receive msg*/
 	initdone = mgr_recv_msg(ma, getAgentCmdRst);
 	ma_close(ma);
+
+	if (initdone){
+		ereportNoticeLog(errmsg("[SUCCESS] init_dn_slave, hostOid(%u), nodename(%s), nodehost(%u), nodeport(%d), command(%s).", 
+			hostOid, NameStr(mgr_node->nodename), mgr_node->nodehost, mgr_node->nodeport, infosendmsg.data));
+	}
+	else{
+		ereportNoticeLog(errmsg("[ERROR] init_dn_slave, hostOid(%u), nodename(%s), nodehost(%u), nodeport(%d), command(%s).", 
+			hostOid, NameStr(mgr_node->nodename), mgr_node->nodehost, mgr_node->nodeport, infosendmsg.data));
+	}
+
 	/*stop datanode master if we start it*/
 	if(ismasterrunning != PQPING_OK && ismasterrunning != PQPING_REJECT)
 	{
@@ -1444,6 +1460,7 @@ get_fcinfo_namelist(const char *sepstr, int argidx, FunctionCallInfo fcinfo)
 */
 Datum mgr_start_gtmcoord_master(PG_FUNCTION_ARGS)
 {
+	ereportNoticeLog(errmsg("start_gtmcoord_master begin."));
 	mgr_check_job_in_updateparam("monitor_handle_gtm");
 	if (PG_ARGISNULL(0))
 	{
@@ -1470,6 +1487,7 @@ Datum mgr_start_gtmcoord_master(PG_FUNCTION_ARGS)
 */
 Datum mgr_start_gtmcoord_slave(PG_FUNCTION_ARGS)
 {
+	ereportNoticeLog(errmsg("start_gtmcoord_slave begin."));
 	if (PG_ARGISNULL(0))
 	{
 		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
@@ -1496,6 +1514,7 @@ Datum mgr_start_gtmcoord_slave(PG_FUNCTION_ARGS)
 */
 Datum mgr_start_cn_master(PG_FUNCTION_ARGS)
 {
+	ereportNoticeLog(errmsg("start_cn_master begin."));
 	mgr_check_job_in_updateparam("monitor_handle_coordinator");
 
 	if (PG_ARGISNULL(0))
@@ -1524,8 +1543,9 @@ Datum mgr_start_cn_master(PG_FUNCTION_ARGS)
 */
 Datum mgr_start_cn_slave(PG_FUNCTION_ARGS)
 {
+	ereportNoticeLog(errmsg("start_cn_slave begin."));
 	mgr_check_job_in_updateparam("monitor_handle_coordinator");
-
+    
 	if (PG_ARGISNULL(0))
 	{
 		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
@@ -1552,6 +1572,7 @@ Datum mgr_start_cn_slave(PG_FUNCTION_ARGS)
 */
 Datum mgr_start_dn_master(PG_FUNCTION_ARGS)
 {
+	ereportNoticeLog(errmsg("start_dn_master begin."));
 	mgr_check_job_in_updateparam("monitor_handle_datanode");
 	if (PG_ARGISNULL(0))
 	{
@@ -1615,6 +1636,7 @@ Datum mgr_start_one_dn_master(PG_FUNCTION_ARGS)
 */
 Datum mgr_start_dn_slave(PG_FUNCTION_ARGS)
 {
+	ereportNoticeLog(errmsg("start_dn_slave begin.")); 
 	if (PG_ARGISNULL(0))
 	{
 		return mgr_typenode_cmd_run_backend_result(nodenames_supplier_of_db,
@@ -1935,21 +1957,21 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 
 	PG_TRY();
 	{
-	if (-1 != cmdtype_s)
-		execRes= mgr_ma_send_cmd(cmdtype_s, infosendmsg.data, hostOid, &(getAgentCmdRst->description));
-	else
-	{
-		if (AGT_CMD_CLEAN_NODE == cmdtype)
+		if (-1 != cmdtype_s)
+			execRes= mgr_ma_send_cmd(cmdtype_s, infosendmsg.data, hostOid, &(getAgentCmdRst->description));
+		else
 		{
-			StringInfoData	cleanSlinksendmsg;
-			initStringInfo(&cleanSlinksendmsg);
-			/* parameters are used to delete the tablespace folder */
-			appendStringInfo(&cleanSlinksendmsg, "%s/pg_tblspc|%s_%s", cndnPath, TABLESPACE_VERSION_DIRECTORY, cndnname);
-			/* clean tablespace dir*/
-			execRes= mgr_ma_send_cmd_get_original_result(cmdtype, cleanSlinksendmsg.data, hostOid, &(getAgentCmdRst->description), AGENT_RESULT_MESSAGE);
+			if (AGT_CMD_CLEAN_NODE == cmdtype)
+			{
+				StringInfoData	cleanSlinksendmsg;
+				initStringInfo(&cleanSlinksendmsg);
+				/* parameters are used to delete the tablespace folder */
+				appendStringInfo(&cleanSlinksendmsg, "%s/pg_tblspc|%s_%s", cndnPath, TABLESPACE_VERSION_DIRECTORY, cndnname);
+				/* clean tablespace dir*/
+				execRes= mgr_ma_send_cmd_get_original_result(cmdtype, cleanSlinksendmsg.data, hostOid, &(getAgentCmdRst->description), AGENT_RESULT_MESSAGE);
+			}
+			execRes= mgr_ma_send_cmd(cmdtype, infosendmsg.data, hostOid, &(getAgentCmdRst->description));
 		}
-		execRes= mgr_ma_send_cmd(cmdtype, infosendmsg.data, hostOid, &(getAgentCmdRst->description));
-	}
 	}PG_CATCH();
 	{
 		if (AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTMCOORD_SLAVE_FAILOVER == cmdtype)
@@ -1960,6 +1982,13 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 
 		PG_RE_THROW();
 	}PG_END_TRY();
+
+    if (execRes){
+		ereportNoticeLog(errmsg("[SUCCESS] hostOid(%u) cmdname(%s) command(%s).", hostOid, mgr_get_cmdname(cmdtype), infosendmsg.data));
+	}
+	else{
+		ereportNoticeLog(errmsg("[ERROR] hostOid(%u) cmdname(%s) command(%s).", hostOid, mgr_get_cmdname(cmdtype), infosendmsg.data));
+	}
 
 	getAgentCmdRst->ret = execRes;
 	if (!execRes && pg_conn)
@@ -6337,6 +6366,8 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 		mgr_node_out = (Form_mgr_node)GETSTRUCT(tuple_out);
 		Assert(mgr_node_out);
 
+        ereportNoticeLog(errmsg("configure_nodes_all_begin, nodename(%s).", NameStr(mgr_node_out->nodename)));
+
 		if (CNDN_TYPE_GTM_COOR_MASTER != mgr_node_out->nodetype && CNDN_TYPE_COORDINATOR_MASTER != mgr_node_out->nodetype)
 			continue;
 
@@ -6504,6 +6535,8 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 			tup_result = build_common_command_tuple( &(getAgentCmdRst.nodename)
 					,getAgentCmdRst.ret
 					,getAgentCmdRst.ret == true ? "success":getAgentCmdRst.description.data);
+
+        ereportNoticeLog(errmsg("configure_nodes_all_end, nodename(%s).", NameStr(mgr_node_out->nodename)));
 
 		ma_close(ma);
 		pfree(cnAddress);
@@ -8402,7 +8435,6 @@ static bool mgr_check_node_inited_maxtimes(char node_type, char *node_name, bool
 			break;
 		}
 		else{
-			ereport(LOG, (errmsg("wait for master node(%s) change to init status, loop(%d).", node_name, loop)));
 			pg_usleep(1 * 1000000L);
 		}
 

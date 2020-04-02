@@ -174,6 +174,12 @@ typedef enum PGXC_NODE_MANIPULATE_TYPE
 	PGXC_NODE_MANIPULATE_TYPE_DROP
 } PGXC_NODE_MANIPULATE_TYPE;
 
+typedef struct CmdTypeName
+{
+	int     	cmdtype;
+	char		cmdname[NAMEDATALEN];
+}CmdTypeName;
+
 typedef List * (*nodenames_supplier) (PG_FUNCTION_ARGS, char nodetype);
 typedef void (nodenames_consumer)(List *nodenames, char nodetype);
 /* host commands, in cmd_host.c */
@@ -604,4 +610,5 @@ extern int MgrSendSelectMsg(PGconn *pg_conn, StringInfoData* psql);
 extern void MgrSendAlterMsg(PGconn *pg_conn, StringInfoData *psql);
 extern void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, GetAgentCmdRst *getAgentCmdRst);
 extern int MgrGetAdbcleanNum(PGconn *pg_conn);
+extern char* mgr_get_cmdname(int cmdtype);
 #endif /* MGR_CMDS_H */
