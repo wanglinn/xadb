@@ -42,6 +42,13 @@ typedef struct SnapLockIvdInfo
 	/* SnapHoldLock [FLEXIBLE_ARRAY_MEMBER] in the end of struct*/
 }SnapLockIvdInfo;
 
+//#define FORCE_SNAP_DEBUG 1
+#ifdef SNAP_FORCE_DEBUG_LOG
+#define SNAP_FORCE_DEBUG_LOG(rest) ereport_domain(LOG, PG_TEXTDOMAIN("Snap"), rest)
+#else
+#define SNAP_FORCE_DEBUG_LOG(rest)	((void)true)
+#endif
+
 #define SNAP_IVDMSG_SIZE(count)	(sizeof(SharedInvalidationMessage)*(count))
 #define SNAP_LOCK_IVDMSG_SIZE(lock_count, ivd_msg_count) (MAXALIGN(offsetof(SnapLockIvdInfo,msgs) \
 							+ SNAP_IVDMSG_SIZE(ivd_msg_count) \
