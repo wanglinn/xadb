@@ -1162,8 +1162,15 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 				MyProc->pgprocno, req_key, pg_atomic_read_u32(&SnapRcv->last_ss_resp_key))));
 		MyProc->ss_req_key = req_key;
 		LOCK_SNAP_RCV();
-		WaitSnapRcvEvent(end, &SnapRcv->ss_waiters, true, WaitSnapRcvSyncSnap, (void*)((size_t)req_key));
+		is_wait_ok = WaitSnapRcvEvent(end, &SnapRcv->ss_waiters, true, WaitSnapRcvSyncSnap, (void*)((size_t)req_key));
 		UNLOCK_SNAP_RCV();
+		if (!is_wait_ok)
+		{
+			ereport(ERROR,
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+						errmsg("Wait sync response msg from gtmc time out, which key number is %u", req_key),
+						errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
+		}
 	}
 	else if(force_snapshot_consistent == FORCE_SNAP_CON_NODE || force_snapshot_consistent == FORCE_SNAP_CON_SESSION)
 	{
