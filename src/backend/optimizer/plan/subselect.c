@@ -1977,6 +1977,7 @@ SS_charge_for_initplans(PlannerInfo *root, RelOptInfo *final_rel)
 	 * they're not usable if we attached an initPlan.
 	 */
 	final_rel->partial_pathlist = NIL;
+	ADB_ONLY_CODE(final_rel->cluster_partial_pathlist = NIL);
 	final_rel->consider_parallel = false;
 
 	/* We needn't do set_cheapest() here, caller will do it */
