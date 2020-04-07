@@ -193,9 +193,18 @@ static void OnParallelPlanLatch(PlanInfo *pi)
 				SHOW_PLAN_INFO_STATE("got attach", pi);
 				/* clear last message */
 				pwi->last_msg_type = ADB_DR_MSG_INVALID;
-				appendStringInfoCharMacro(&pwi->sendBuffer, ADB_DR_MSG_ATTACH_PLAN);
-				appendStringInfoCharMacro(&pwi->sendBuffer, pi->local_eof);
-				DRSendPlanWorkerMessage(pwi, pi);
+
+				/* maybe sended end of message */
+				if (pwi->plan_send_state == DR_PLAN_SEND_WORKING)
+				{
+					appendStringInfoCharMacro(&pwi->sendBuffer, ADB_DR_MSG_ATTACH_PLAN);
+					appendStringInfoCharMacro(&pwi->sendBuffer, pi->local_eof);
+					DRSendPlanWorkerMessage(pwi, pi);
+				}
+
+				/* do not need receive message if we got EOF message */
+				if (pi->local_eof)
+					pwi->plan_recv_state = DR_PLAN_RECV_ENDED;
 
 				if (pi->remote_eof)
 				{
