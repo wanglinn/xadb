@@ -1050,8 +1050,18 @@ pqSocketCheck(PGconn *conn, int forRead, int forWrite, time_t end_time)
 		return -1;
 	if (conn->sock == PGINVALID_SOCKET)
 	{
+#ifdef ADB
+		if (conn->errorMessage.len > 0)
+		{
+			char buf[1024];
+			snprintf(buf,  sizeof(buf), "%s", conn->errorMessage.data);
+			printfPQExpBuffer(&conn->errorMessage,
+						  libpq_gettext("invalid socket: %s\n"), buf);
+		}
+		else
+#endif
 		printfPQExpBuffer(&conn->errorMessage,
-						  libpq_gettext("invalid socket\n"));
+						  libpq_gettext("invalid socket\n"));	
 		return -1;
 	}
 
