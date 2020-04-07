@@ -1845,6 +1845,9 @@ ExecutePlan(EState *estate,
 		current_tuple_count++;
 		if (numberTuples && numberTuples == current_tuple_count)
 		{
+			/* we must drive cluster reduce, before ExecShutdownNode */
+			ADB_ONLY_CODE(TopDownDriveClusterReduce(planstate));
+
 			/*
 			 * If we know we won't need to back up, we can release resources
 			 * at this point.
