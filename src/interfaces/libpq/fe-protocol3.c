@@ -12,6 +12,7 @@
  *
  *-------------------------------------------------------------------------
  */
+#include "postgres.h"
 #include "postgres_fe.h"
 
 #include <ctype.h>
@@ -37,8 +38,11 @@
  * This macro lists the backend message types that could be "long" (more
  * than a couple of kilobytes).
  */
+
+/* Temp fix add id type 'U' for log msg type. When update table stats with long msg, it will report error*/
 #define VALID_LONG_MESSAGE_TYPE(id) \
 	((id) == 'T' || (id) == 'D' || (id) == 'd' || (id) == 'V' || \
+	ADB_ONLY_CODE((id) == 'U' ||) \
 	 (id) == 'E' || (id) == 'N' || (id) == 'A')
 
 
