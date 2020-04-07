@@ -342,7 +342,7 @@ extern bool mgr_lock_cluster_deprecated(PGconn **pg_conn, Oid *cnoid);
 extern bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid);
 extern void mgr_unlock_cluster_deprecated(PGconn **pg_conn);
 extern void mgr_unlock_cluster_involve_gtm_coord(PGconn **pg_conn);
-extern void mgr_get_gtmcoord_conn(PGconn **pg_conn, Oid *cnoid);
+extern void mgr_get_gtmcoord_conn(char *dbname, PGconn **pg_conn, Oid *cnoid);
 extern int mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam);
 extern bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *dnname
 		, GetAgentCmdRst *getAgentCmdRst, PGconn **pg_conn, Oid cnoid, char *newSyncSlaveName);
@@ -611,4 +611,5 @@ extern void MgrSendAlterMsg(PGconn *pg_conn, StringInfoData *psql);
 extern void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, GetAgentCmdRst *getAgentCmdRst);
 extern int MgrGetAdbcleanNum(PGconn *pg_conn);
 extern char* mgr_get_cmdname(int cmdtype);
+extern char *MgrGetDefDbName(void);
 #endif /* MGR_CMDS_H */
