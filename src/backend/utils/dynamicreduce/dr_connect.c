@@ -451,7 +451,8 @@ void ConnectToAllNode(const DynamicReduceNodeInfo *info, uint32 count)
 		}
 	}PG_CATCH();
 	{
-		FreeNodeEventInfo(newdata);
+		if (newdata)
+			FreeNodeEventInfo(newdata);
 		PG_RE_THROW();
 	}PG_END_TRY();
 }
