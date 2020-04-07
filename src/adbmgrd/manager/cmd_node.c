@@ -3900,7 +3900,7 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 								,coordport_buf
 								,NULL, NULL
 								,appendnodeinfo.nodeusername
-								,NULL);
+								,NULL);						
 
 		if (pg_conn == NULL || PQstatus((PGconn*)pg_conn) != CONNECTION_OK)
 		{
@@ -11139,7 +11139,7 @@ bool mgr_lock_cluster_deprecated(PGconn **pg_conn, Oid *cnoid)
 	return ret;
 }
 
-void mgr_get_gtmcoord_conn(PGconn **pg_conn, Oid *cnoid)
+void mgr_get_gtmcoord_conn(char *dbname, PGconn **pg_conn, Oid *cnoid)
 {
 	Oid coordhostoid = InvalidOid;
 	int32 coordport = -1;
@@ -11238,10 +11238,11 @@ void mgr_get_gtmcoord_conn(PGconn **pg_conn, Oid *cnoid)
 	sprintf(coordport_buf, "%d", coordport);
 	for (try = 0; try < 2; try++)
 	{
-		*pg_conn = ExpPQsetdbLogin(coordhost
+		*pg_conn = PQsetdbLogin(coordhost
 								,coordport_buf
-								,NULL, NULL
-								,connect_user
+								,NULL, NULL,
+								dbname, 
+								connect_user
 								,NULL);
 		if (try != 0)
 			break;
@@ -13015,10 +13016,10 @@ bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg)
 	do
 	{
 		pg_conn = ExpPQsetdbLogin(nodeinfo->nodeaddr
-									,NameStr(node_port)
-									,NULL, NULL
-									,nodeinfo->nodeusername
-									,NULL);
+								,NameStr(node_port)
+								,NULL, NULL
+								,nodeinfo->nodeusername
+								,NULL);
 		if ((try--) <= 0)
 			break;
 	}while(PQstatus((PGconn*)pg_conn) != CONNECTION_OK);

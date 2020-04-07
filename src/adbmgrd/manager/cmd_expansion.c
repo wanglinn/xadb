@@ -44,12 +44,12 @@
 #include "access/xlog.h"
 
 char *MGRDatabaseName = NULL;
-char *DefaultDatabaseName = DEFAULT_DB;
 
 #define ExpandStatusExpanding  	"Expanding"
 #define ExpandStatusOnline  	"Online"
-#define SELECT_LAST_LSN 		"select pg_last_wal_replay_lsn();"
-#define SELECT_CUR_LSN			"select pg_current_wal_lsn();"
+#define SELECT_LAST_LSN 		"SELECT pg_last_wal_replay_lsn();"
+#define SELECT_CUR_LSN			"SELECT pg_current_wal_lsn();"
+#define SELECT_DBNAME_ADBCLEAN  "SELECT DISTINCT datname FROM pg_database,adb_clean WHERE pg_database.oid=adb_clean.clndb;"
 
 typedef struct DN_STATUS
 {
@@ -94,7 +94,9 @@ static void MgrCreateGtmSql(List *src_dst_list, char *nodes_slq, int len);
 static void MgrActivateStep2(List *dst_node_list, List *src_dst_list);
 static HeapTuple MgrGetTupleResult(List *nodeinfo_list);
 static void MgrFreeNodeList(List *dst_node_list, List *src_dst_list);
-
+static List* MgrGetAdbCleanDbName(PGconn *pg_conn);
+static void MgrFreeDBName(List *dbname_list);
+static void MgrFreeClean(PGconn *co_pg_conn, PGconn *other_conn, List *dbname_list);
 /*
  * expand sourcenode to destnode
  */
@@ -108,7 +110,7 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 
 	namestrcpy(&nodename, "all node");
 
-	if(0!=strcmp(MGRDatabaseName,""))
+    if(0!=strcmp(MGRDatabaseName,""))
 		database = MGRDatabaseName;
 	else
 		database = DEFAULT_DB;
@@ -196,7 +198,7 @@ Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS)
 		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
 
-		mgr_get_gtmcoord_conn(&co_pg_conn, &cnoid);
+		mgr_get_gtmcoord_conn(MgrGetDefDbName(), &co_pg_conn, &cnoid);
 
 		/*	3.add dst node to all other node's pgxc_node. */
 		ereport(INFO, (errmsg("add dst node to all other node's pgxc_node.if this step fails, do it by hand.")));		
@@ -670,14 +672,17 @@ Datum mgr_expand_recover_backup_fail(PG_FUNCTION_ARGS)
 
 	return HeapTupleGetDatum(tup_result);
 }
-
 Datum mgr_expand_clean(PG_FUNCTION_ARGS)
 {	
 	PGconn *co_pg_conn = NULL;
+	PGconn *other_conn = NULL;
 	Oid cnoid;
 	HeapTuple tup_result = NULL;
 	char ret_msg[100];
+	Name dbname;
 	NameData nodename;
+	List *dbname_list = NIL;
+	ListCell	*lc;
 	
 	strcpy(nodename.data, "---");
 	strcpy(ret_msg, "expand clean success.");
@@ -686,23 +691,29 @@ Datum mgr_expand_clean(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		mgr_get_gtmcoord_conn(&co_pg_conn, &cnoid);
+		mgr_get_gtmcoord_conn(MgrGetDefDbName(), &co_pg_conn, &cnoid);
 		Assert(cnoid);
+		if (MgrGetAdbcleanNum(co_pg_conn) > 0)
+		{
+			if ((dbname_list = MgrGetAdbCleanDbName(co_pg_conn)) == NIL)
+				ereport(ERROR, (errmsg("No database need expand clean.")));
 
-		MgrSendDataCleanToGtm(co_pg_conn);
-		
-		PQfinish(co_pg_conn);
-		co_pg_conn = NULL;	
+			foreach (lc, dbname_list)
+			{
+				dbname = (Name)lfirst(lc);
+				mgr_get_gtmcoord_conn(dbname->data, &other_conn, &cnoid);
+				MgrSendDataCleanToGtm(other_conn);
+				PQfinish(other_conn);
+				other_conn = NULL;	
+			}	
+		}	
 	}PG_CATCH();
 	{
-		if(co_pg_conn)
-		{
-			PQfinish(co_pg_conn);
-			co_pg_conn = NULL;
-		}
+		MgrFreeClean(co_pg_conn, other_conn, dbname_list);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
+    MgrFreeClean(co_pg_conn, other_conn, dbname_list);
 	tup_result = build_common_command_tuple(&nodename, true, ret_msg);
 	return HeapTupleGetDatum(tup_result);
 }
@@ -863,7 +874,7 @@ Datum mgr_expand_check_status(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		mgr_get_gtmcoord_conn(&pg_conn, &cnoid);
+		mgr_get_gtmcoord_conn(MgrGetDefDbName(), &pg_conn, &cnoid);
 		Assert(cnoid);
 
 		appendStringInfo(&serialize,"pgxc node info in cluster is consistent.\n");
@@ -904,7 +915,7 @@ Datum mgr_expand_show_status(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		mgr_get_gtmcoord_conn(&pg_conn, &cnoid);
+		mgr_get_gtmcoord_conn(MgrGetDefDbName(), &pg_conn, &cnoid);
 		Assert(cnoid);
 
 		hexp_pgxc_pool_reload_on_all_node(pg_conn);
@@ -1465,9 +1476,9 @@ static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnp
 	GetAgentCmdRst getAgentCmdRst;
 	StringInfoData infosendmsg;
 	char* database ;
-
+	
 	bool breload = false;
-
+	
 	if(0!=strcmp(MGRDatabaseName,""))
 		database = MGRDatabaseName;
 	else
@@ -1650,7 +1661,7 @@ static void hexp_check_expand(void)
 	Oid cnoid;
 	int count = 0;
 
-	mgr_get_gtmcoord_conn(&pg_conn, &cnoid);
+	mgr_get_gtmcoord_conn(MgrGetDefDbName(), &pg_conn, &cnoid);
 
 	if ((count = MgrGetAdbcleanNum(pg_conn)) > 0)
 	{
@@ -2161,4 +2172,64 @@ Datum mgr_failover_one_dn_inner_func(char *nodename, char cmdtype, char nodetype
 	heap_close(rel_node, RowExclusiveLock);
 	return HeapTupleGetDatum(tup_result);
 }
+static List* MgrGetAdbCleanDbName(PGconn *pg_conn)
+{
+	int loop = 0;
+	ExecStatusType status;
+	PGresult *res;
+	NameData *dbname;
+	List 	 *dbname_list = NIL;
 
+	CheckNullRetrunRet(pg_conn, NIL);
+
+	res = PQexec(pg_conn, SELECT_DBNAME_ADBCLEAN);
+	status = PQresultStatus(res);
+	switch(status)
+	{
+		case PGRES_TUPLES_OK:
+			break;
+		default:
+			ereport(ERROR, (errmsg("\"%s\" runs error. result is %s.", SELECT_DBNAME_ADBCLEAN, PQresultErrorMessage(res))));
+	}
+
+	if (0==PQntuples(res))
+	{
+		PQclear(res);
+		ereport(ERROR, (errmsg("No database need expand clean. \"%s\" runs result is null.", SELECT_DBNAME_ADBCLEAN)));
+	}
+    for (loop=0; loop<PQntuples(res); loop++)
+	{
+		dbname = (Name)palloc0(sizeof(NameData));
+		namestrcpy(dbname, PQgetvalue(res, loop, 0));
+		dbname_list = lappend(dbname_list, dbname);
+	}
+
+	PQclear(res);
+    return dbname_list;
+}
+static void MgrFreeDBName(List *dbname_list)
+{
+	ListCell	*lc;
+	Name 		dbname;
+
+	foreach (lc, dbname_list)
+	{
+		dbname = (Name)lfirst(lc);
+		MgrFree(dbname);
+	}
+}
+static void MgrFreeClean(PGconn *co_pg_conn, PGconn *other_conn, List *dbname_list)
+{
+	ClosePgConn(co_pg_conn);
+	ClosePgConn(other_conn);
+	MgrFreeDBName(dbname_list);
+}
+char *MgrGetDefDbName(void)
+{
+	char* database;
+	if(0!=strcmp(MGRDatabaseName,""))
+		database = MGRDatabaseName;
+	else
+		database = DEFAULT_DB;
+	return database;
+}

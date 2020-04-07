@@ -337,7 +337,7 @@ void switchDataNodeMaster(char *oldMasterName,
 									  &failedSlaves,
 									  forceSwitch);
 		
-		mgr_get_gtmcoord_conn(&pg_conn, &cnoid);
+		mgr_get_gtmcoord_conn(MgrGetDefDbName(), &pg_conn, &cnoid);
 		Assert(pg_conn);
 		CHECK_FOR_INTERRUPTS();
 
@@ -718,7 +718,7 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch)
 								   &coordinators,
 								   true, true);
 
-		mgr_get_gtmcoord_conn(&pg_conn, &cnoid);
+		mgr_get_gtmcoord_conn(MgrGetDefDbName(), &pg_conn, &cnoid);
 		Assert(pg_conn);
 		
 		checkTrackActivitiesForSwitchover(&coordinators,
