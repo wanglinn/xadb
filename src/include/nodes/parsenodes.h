@@ -3498,6 +3498,7 @@ typedef struct FinishActiveBackendStmt
 {
 	NodeTag		type;
 	List		*remote_list;
+	List		*options;
 }FinishActiveBackendStmt;
 #endif /* ADB */
 

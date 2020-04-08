@@ -605,6 +605,7 @@ extern uint64 updateDoctorStatusOfMgrNode(char *nodename, char nodetype, bool al
 extern uint64 updateAllowcureOfMgrHosts(List *hostnames, bool allowcure);
 extern uint64 updateAllowcureOfMgrHost(char *hostname, bool allowcure);
 extern void MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *nodes_slq);
+extern void MgrSendFinishActiveBackendToGtm(PGconn *pg_conn);
 extern void MgrSendDataCleanToGtm(PGconn *pg_conn);
 extern int MgrSendSelectMsg(PGconn *pg_conn, StringInfoData* psql);
 extern void MgrSendAlterMsg(PGconn *pg_conn, StringInfoData *psql);
