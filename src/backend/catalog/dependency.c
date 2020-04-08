@@ -431,7 +431,7 @@ performMultipleDeletions(const ObjectAddresses *objects,
     reportPartitionObjects(targetObjects,
 						   behavior,
 						   flags,
-						   (objects->numrefs == 1 ? objects->refs : NULL));
+						   (objects->numrefs == 1 ? objects->refs : NULL));						   
 #endif
 	/*
 	 * Check if deletion is allowed, and report about cascaded deletes.
@@ -945,38 +945,34 @@ reportPartitionObjects(const ObjectAddresses *targetObjects,
 			continue;
 
 		objDesc = getObjectDescription(obj);	
-
+		
 		if (extra->flags & (DEPFLAG_AUTO |
 							DEPFLAG_INTERNAL |
 							DEPFLAG_EXTENSION))
-		{
-			/*
-			 * auto-cascades are reported at DEBUG2, not msglevel.  We don't
-			 * try to combine them with the regular message because the
-			 * results are too confusing when client_min_messages and
-			 * log_min_messages are different.
-			 */
+		{			
 			ereport(DEBUG2,
 					(errmsg("drop auto-cascades to %s",
 							objDesc)));
 		}
 		else
 		{
-			if((rel_loc_info = GetRelationLocInfo(obj->objectId)) == NULL)
-				return;
+			if (getObjectClass(obj) == OCLASS_CLASS)
+			{
+				if((rel_loc_info = GetRelationLocInfo(obj->objectId)) == NULL)
+					return;
 
-			if (origObject &&
-				AttributeNumberIsValid(obj->objectSubId) &&
-				LocatorKeyIncludeColumn(rel_loc_info->keys, obj->objectSubId, true))
-			{	
-				ereport(ERROR,
-					(errmsg("cannot drop %s because other objects depend on it",
-							getObjectDescription(origObject)),
-					errdetail("cannot drop partition col, %s", getObjectDescription(obj))));
-					
+				if (origObject &&
+					AttributeNumberIsValid(obj->objectSubId) &&
+					LocatorKeyIncludeColumn(rel_loc_info->keys, obj->objectSubId, true))
+				{	
+					ereport(ERROR,
+						(errmsg("cannot drop %s because other objects depend on it",
+								getObjectDescription(origObject)),
+						errdetail("cannot drop partition col, %s", getObjectDescription(obj))));
+						
+				}
 			}
-		}
-
+		}		
 		pfree(objDesc);		
 	}
 }
