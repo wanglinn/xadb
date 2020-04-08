@@ -1581,16 +1581,6 @@ PostmasterMain(int argc, char *argv[])
 		MemoryContextSwitchTo(oldcontext);
 	}
 
-	if (IsGTMNode() && pmState == PM_RUN)
-	{
-		SnapSenderPID = StartSnapSender();
-		GxidSenderPID = StartGxidSender();
-	}
-	else if(!IsGTMNode())
-	{
-		SnapReceiverPID = StartSnapReceiver();
-		GxidReceiverPID = StartGxidReceiver();
-	}
 #endif
 
 	/* Some workers may be scheduled to start now */
@@ -2005,7 +1995,7 @@ ServerLoop(void)
 				GxidSenderPID = StartGxidSender();
 		}
 
-		if (!IsGTMNode())
+		if (!IsGTMNode() && (pmState == PM_RUN || pmState == PM_HOT_STANDBY))
 		{
 			if (SnapReceiverPID == 0)
 				SnapReceiverPID = StartSnapReceiver();
@@ -3378,11 +3368,11 @@ reaper(SIGNAL_ARGS)
 				RemoteXactMgrPID = StartRemoteXactMgr();
 			if (IsGTMNode() && pmState == PM_RUN && SnapSenderPID == 0)
 				SnapSenderPID = StartSnapSender();
-			if (!IsGTMNode() && SnapReceiverPID == 0)
+			if (!IsGTMNode() && SnapReceiverPID == 0 && (pmState == PM_RUN || pmState == PM_HOT_STANDBY))
 				SnapReceiverPID = StartSnapReceiver();
 			if (IsGTMNode() && pmState == PM_RUN && GxidSenderPID == 0)
 				GxidSenderPID = StartGxidSender();
-			if (!IsGTMNode() && GxidReceiverPID == 0)
+			if (!IsGTMNode() && GxidReceiverPID == 0 && (pmState == PM_RUN || pmState == PM_HOT_STANDBY))
 				GxidReceiverPID = StartGxidReceiver();
 #endif
 #if defined(ADBMGRD)

@@ -768,65 +768,6 @@ static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 	}
 }
 
-/*static void GxidSenderUpdateNextXidAllClient(TransactionId xid, GxidClientData *exclude_client)
-{
-	slist_iter siter;
-	GxidClientData *client;
-
-	slist_foreach(siter, &gxid_send_all_client)
-	{
-		client = slist_container(GxidClientData, snode, siter.cur);
-		resetStringInfo(&gxid_send_output_buffer);
-		pq_sendbyte(&gxid_send_output_buffer, 'u');
-		pq_sendint64(&gxid_send_output_buffer, xid);
-		GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false);
-	}
-}*/
-
-static void GxidsenderUpdateNextXid(TransactionId xid, GxidClientData *client)
-{
-	if (!TransactionIdIsValid(xid))
-		return;
-
-	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	if (NormalTransactionIdFollows(xid, ShmemVariableCache->nextXid))
-	{
- 		ShmemVariableCache->nextXid = xid;
- 		TransactionIdAdvance(ShmemVariableCache->nextXid);
-
-		ShmemVariableCache->latestCompletedXid = ShmemVariableCache->nextXid;
-		TransactionIdRetreat(ShmemVariableCache->latestCompletedXid);
-	}
-	LWLockRelease(XidGenLock);
-}
-
-static void GxidProcessUpdateMaxXid(GxidClientData *client)
-{
-	TransactionId				xid; 
-	ClientHashItemInfo			*clientitem;
-	bool						found;
-
-	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_ENTER, &found);
-	if(found == false)
-	{
-		MemSet(clientitem, 0, sizeof(*clientitem));
-		memcpy(clientitem->client_name, client->client_name, NAMEDATALEN);
-		slist_init(&(clientitem->gxid_assgin_xid_list));
-		clientitem->xcnt = 0;
-	}
-
-	while(gxid_send_input_buffer.cursor < gxid_send_input_buffer.len)
-	{
-		xid = pq_getmsgint(&gxid_send_input_buffer, sizeof(xid));
-		GxidsenderUpdateNextXid(xid, client);
-
-#ifdef SNAP_SYNC_DEBUG
-		ereport(LOG,(errmsg("GxidSend update max xid %d for client %s\n",
-			 			xid, clientitem->client_name)));
-#endif
-	}
-}
-
 static void GxidProcessFinishGxid(GxidClientData *client)
 {
 	int							procno, start_cursor;
@@ -965,12 +906,6 @@ static void GxidSenderOnClientRecvMsg(GxidClientData *client, pq_comm_node *node
 					client_name = pq_getmsgstring(&gxid_send_input_buffer);
 					memcpy(client->client_name, client_name, NAMEDATALEN);
 					GxidProcessFinishGxid(client);
-				}
-				else if (cmdtype == 'u')
-				{
-					client_name = pq_getmsgstring(&gxid_send_input_buffer);
-					memcpy(client->client_name, client_name, NAMEDATALEN);
-					GxidProcessUpdateMaxXid(client);
 				}
 				else if (cmdtype == 'h')
 				{

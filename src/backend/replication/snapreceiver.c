@@ -214,11 +214,12 @@ static void SnapRcvProcessSnapSync(void)
 static void
 SnapRcvSendLocalNextXid(void)
 {
-	TransactionId xid; 
+	TransactionId xid;
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 	xid = ShmemVariableCache->nextXid;
 	LWLockRelease(XidGenLock);
 
+	//ereport(LOG,(errmsg("SnapRcvSendLocalNextXid ShmemVariableCache->nextXid %d\n", xid)));
 	if (!TransactionIdIsValid(xid))
 		return;
 
@@ -789,7 +790,7 @@ static void SnapRcvProcessUpdateXid(char *buf, Size len)
 	xid = pq_getmsgint64(&msg);
 	
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	ereport(DEBUG2, (errmsg("SnapRcvProcessUpdateXid  %d, ShmemVariableCache->nextXid is %d\n", xid, ShmemVariableCache->nextXid)));
+	//ereport(LOG, (errmsg("SnapRcvProcessUpdateXid  %d, ShmemVariableCache->nextXid is %d\n", xid, ShmemVariableCache->nextXid)));
 	if (!NormalTransactionIdPrecedes(xid, ShmemVariableCache->nextXid))
 	{
  		ShmemVariableCache->nextXid = xid;
@@ -1161,8 +1162,10 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 		SNAP_FORCE_DEBUG_LOG((errmsg("Add proce %d to wait snap sync list, req_key %lld,  SnapRcv->last_ss_resp_key %lld\n", 
 				MyProc->pgprocno, req_key, pg_atomic_read_u32(&SnapRcv->last_ss_resp_key))));
 		MyProc->ss_req_key = req_key;
+		is_wait_ok = true;
 		LOCK_SNAP_RCV();
-		is_wait_ok = WaitSnapRcvEvent(end, &SnapRcv->ss_waiters, true, WaitSnapRcvSyncSnap, (void*)((size_t)req_key));
+		if (SnapRcv->state == WALRCV_STREAMING)
+			is_wait_ok = WaitSnapRcvEvent(end, &SnapRcv->ss_waiters, true, WaitSnapRcvSyncSnap, (void*)((size_t)req_key));
 		UNLOCK_SNAP_RCV();
 		if (!is_wait_ok)
 		{

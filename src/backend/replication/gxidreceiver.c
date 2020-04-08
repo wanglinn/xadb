@@ -120,7 +120,6 @@ static void GxidRcvCheckPreAssignArray(void);
 static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test,
 			proclist_head *reters, proclist_head *geters, void *context);
 static void GxidRcvSendHeartbeat(void);
-static void GxidRcvSendLocalNextXid(void);
 static void GxidRcvSendPreAssginXid(int xid_num);
 static void GxidRcvProcessPreAssign(char *buf, Size len);
 static void GxidRcvProcessAssign(char *buf, Size len);
@@ -317,7 +316,6 @@ void GxidReceiverMain(void)
 		{
 			//walrcv_endstreaming(wrconn, &primaryTLI);
 			/* loop until end-of-streaming or error */
-			GxidRcvSendLocalNextXid();
 			GxidRcv->cur_pre_alloc = 0;
 			GxidRcv->wait_finish_cnt = 0;
 			GxidRcv->is_send_realloc_num = 0;
@@ -602,29 +600,6 @@ void GxidRcvUpdateShmemConnInfo(void)
 		pfree(sender_host);
 }
 
-static void GxidRcvSendLocalNextXid(void)
-{
-	TransactionId xid; 
-	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	xid = ShmemVariableCache->nextXid;
-	LWLockRelease(XidGenLock);
-
-	if (!TransactionIdIsValid(xid))
-	{
-		GxidRcvSendHeartbeat();
-		return;
-	}
-
-	/* Construct a new message */
-	resetStringInfo(&reply_message);
-	pq_sendbyte(&reply_message, 'u');
-	pq_sendstring(&reply_message, PGXCNodeName);
-	pq_sendint64(&reply_message, xid);
-
-	/* Send it */
-	walrcv_send(wrconn, reply_message.data, reply_message.len);
-}
-
 static void GxidRcvProcessCommit(char *buf, Size len)
 {
 	StringInfoData				msg;
@@ -665,31 +640,6 @@ static void GxidRcvProcessCommit(char *buf, Size len)
 		//Assert(found);
 	}
 	UNLOCK_GXID_RCV();
-}
-
-static void GxidRcvProcessUpdateXid(char *buf, Size len)
-{
-	StringInfoData			msg;
-	TransactionId			txid;
-
-	msg.data = buf;
-
-	msg.len = msg.maxlen = len;
-	msg.cursor = 0;
-
-	txid = pq_getmsgint(&msg, sizeof(txid));
-
-	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	ereport(DEBUG2, (errmsg("GxidRcvProcessUpdateXid  %d, ShmemVariableCache->nextXid is %d\n", txid, ShmemVariableCache->nextXid)));
-	if (!NormalTransactionIdPrecedes(txid, ShmemVariableCache->nextXid))
-	{
- 		ShmemVariableCache->nextXid = txid;
- 		TransactionIdAdvance(ShmemVariableCache->nextXid);
-
-		ShmemVariableCache->latestCompletedXid = ShmemVariableCache->nextXid;
-		TransactionIdRetreat(ShmemVariableCache->latestCompletedXid);
-	}
-	LWLockRelease(XidGenLock);
 }
 
 static void GxidRcvProcessAssign(char *buf, Size len)
@@ -810,9 +760,6 @@ static void GxidRcvProcessMessage(unsigned char type, char *buf, Size len)
 		break;
 	case 'f':
 		GxidRcvProcessCommit(buf, len);
-		break;
-	case 'u':
-		GxidRcvProcessUpdateXid(buf, len);
 		break;
 	case 'h':				/* heart beat msg */
 		break;
