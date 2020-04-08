@@ -5007,7 +5007,7 @@ PostgresMain(int argc, char *argv[],
 		 * If the session has invoked a PAUSE CLUSTER earlier, then this lock
 		 * will be held already in exclusive mode. No need to lock in that case
 		 */
-		if (IsUnderPostmaster && IS_PGXC_COORDINATOR && !cluster_ex_lock_held && !cluster_lock_held)
+		if (IsUnderPostmaster && IS_PGXC_COORDINATOR && !cluster_ex_lock_held && !cluster_lock_held && !am_walsender)
 		{
 			bool exclusive = false;
 			AcquireClusterLock(exclusive);
