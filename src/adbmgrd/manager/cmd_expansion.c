@@ -91,7 +91,7 @@ static void MgrCheckSynaLsn(PGconn * src_pg_conn, PGconn * dst_pg_conn);
 static void MgrCheckRestartRunning(AppendNodeInfo *dst_node);
 static List* MgrActivateStep1(char* database, List *nodeinfo_list);
 static void MgrCreateGtmSql(List *src_dst_list, char *nodes_slq, int len);
-static void MgrActivateStep2(List *dst_node_list, List *src_dst_list);
+static void MgrActivateStep2(PGconn *gtm_conn, List *dst_node_list, List *src_dst_list);
 static HeapTuple MgrGetTupleResult(List *nodeinfo_list);
 static void MgrFreeNodeList(List *dst_node_list, List *src_dst_list);
 static List* MgrGetAdbCleanDbName(PGconn *pg_conn);
@@ -107,6 +107,9 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 	char		*database ;
 	List 		*dst_node_list = NIL;
 	List 	    *src_dst_list  = NIL;
+	PGconn 		*gtm_conn = NULL;
+	Oid 		cnoid;
+	int			finish_try = 3;
 
 	namestrcpy(&nodename, "all node");
 
@@ -128,6 +131,28 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		tup_result = build_common_command_tuple(&nodename, true, " no node need activate");
 		return HeapTupleGetDatum(tup_result);
 	}
+retry:
+	/* lock cluster */
+	PG_TRY();
+	{
+		mgr_lock_cluster_involve_gtm_coord(&gtm_conn, &cnoid);
+		/* finish active client backend connect */		
+		MgrSendFinishActiveBackendToGtm(gtm_conn);
+	}
+	PG_CATCH();
+	{
+		mgr_unlock_cluster_involve_gtm_coord(&gtm_conn);
+		if (finish_try)
+		{
+			ereport(LOG, (errmsg("Failed to execute \"FINISH ACTIVE BACKEND\", Try again now.")));
+			finish_try --;
+			pg_usleep(2000000L);
+			goto retry;
+		}
+		ereport(ERROR,
+			(errmsg("End active backend failed, please try to reactivate the expansion.")));
+	}
+	PG_END_TRY();
 
 	if ((src_dst_list = MgrActivateStep1(database, dst_node_list)) == NIL)
 	{
@@ -135,10 +160,11 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 		return HeapTupleGetDatum(tup_result);
 	}
 	
-	MgrActivateStep2(dst_node_list, src_dst_list);	
+	MgrActivateStep2(gtm_conn, dst_node_list, src_dst_list);	
 
 	tup_result = MgrGetTupleResult(dst_node_list);
-	
+	/* unlock cluster */
+	mgr_unlock_cluster_involve_gtm_coord(&gtm_conn);
 	MgrFreeNodeList(dst_node_list, src_dst_list);
 
 	return HeapTupleGetDatum(tup_result);
@@ -257,7 +283,6 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 	bool sn_is_exist, sn_is_running; /*src node status */
 	bool result = true;
 	StringInfoData  infosendmsg;
-	StringInfoData primary_conninfo_value;
 	StringInfoData recorderr;
 	NameData nodename;
 	NameData gtmMasterNameData;
@@ -389,12 +414,6 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		/*7. update dst node recovery.conf*/
 		ereport(LOG, (errmsg("%s %s", step3_msg, "this step is update dst node recovery.conf.")));
 		resetStringInfo(&infosendmsg);
-		initStringInfo(&primary_conninfo_value);
-
-		appendStringInfo(&primary_conninfo_value, "host=%s port=%d user=%s ",
-						get_hostaddress_from_hostoid(sourcenodeinfo.nodehost),
-						sourcenodeinfo.nodeport,
-						get_hostuser_from_hostoid(sourcenodeinfo.nodehost));
 
 		mgr_append_pgconf_paras_str_quotastr("standby_mode", "on", &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("recovery_target_timeline", "latest", &infosendmsg);
@@ -1041,7 +1060,7 @@ static bool MgrGetConn(char* database, AppendNodeInfo *node, PGconn **pg_conn, S
 					node->nodeusername,NULL);					
 	if (*pg_conn == NULL || PQstatus((PGconn*)*pg_conn) != CONNECTION_OK)
 	{
-		/* update dst pg_hba.conf */
+		/* update pg_hba.conf */
 		is_addhba = AddHbaIsValid(node, infosendmsg);
 		*pg_conn = PQsetdbLogin(node->nodeaddr,
 					port_buf,
@@ -1252,12 +1271,10 @@ static void MgrCreateGtmSql(List *src_dst_list, char *nodes_slq, int len)
     
 	return;
 }
-static void MgrActivateStep2(List *dst_node_list, List *src_dst_list)
+static void MgrActivateStep2(PGconn *gtm_conn, List *dst_node_list, List *src_dst_list)
 {
-	PGconn 			*gtm_conn = NULL;
 	AppendNodeInfo	*dst_node = NULL;
 	ListCell		*lc;
-	Oid 			cnoid;
 	char 			step2_msg[256];
 	char            nodes_slq[2048] = {0};
 	strcpy(step2_msg, "step2--if this step failed, use the command 'EXPAND ACTIVATE RECOVER DOPROMOTE SUCCESS DST' to recover.");
@@ -1275,10 +1292,9 @@ static void MgrActivateStep2(List *dst_node_list, List *src_dst_list)
 			ereport(INFO, (errmsg("step2--restart dst node(%s). if this step fails, do it by hand.", dst_node->nodename)));
 			MgrCheckRestartRunning(dst_node);
 		}	
-		
+
 		MgrCreateGtmSql(src_dst_list, nodes_slq, sizeof(nodes_slq));
 		/* add dst node to all other node's pgxc_node. */
-		mgr_lock_cluster_involve_gtm_coord(&gtm_conn, &cnoid);		
 		ereport(INFO, (errmsg("%s %s", step2_msg, "add dst node to all other node's pgxc_node.")));
 		foreach (lc, dst_node_list)
 		{
@@ -1293,7 +1309,6 @@ static void MgrActivateStep2(List *dst_node_list, List *src_dst_list)
 		MgrSendAlterNodeDataToGtm(gtm_conn, nodes_slq);
 		
 		//hexp_pqexec_direct_execute_utility(gtm_conn, SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		mgr_unlock_cluster_involve_gtm_coord(&gtm_conn);
 
 		/* update dst node init and in cluster. */
 		ereport(INFO, (errmsg("%s %s", step2_msg, "update dst node init and in cluster.")));
@@ -1302,11 +1317,8 @@ static void MgrActivateStep2(List *dst_node_list, List *src_dst_list)
 			dst_node = (AppendNodeInfo *)lfirst(lc);
 			hexp_set_expended_node_state(dst_node->nodename, true, false,  true, true, 0);
 		}
-	
-		ClosePgConn(gtm_conn);
 	}PG_CATCH();
 	{
-		ClosePgConn(gtm_conn);
 		PG_RE_THROW();
 	}PG_END_TRY();
 	return;

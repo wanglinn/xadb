@@ -125,7 +125,7 @@ static bool IsStmtAllowedInLockedMode(Node *parsetree, const char *queryString);
 #endif
 
 #ifdef ADB
-extern bool execClusterFinishActiveBackend(FinishActiveBackendStmt *stmt);
+extern void execFinishActiveBackend(FinishActiveBackendStmt *stmt);
 #endif
 /* Hook for plugins to get control in ProcessUtility() */
 ProcessUtility_hook_type ProcessUtility_hook = NULL;
@@ -1164,7 +1164,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				ExecRemoteUtilityStmt(&utilityContext);
 			break;
 		case T_FinishActiveBackendStmt:
-			execClusterFinishActiveBackend((FinishActiveBackendStmt *) parsetree);
+			execFinishActiveBackend((FinishActiveBackendStmt *) parsetree);
 			break;
 #endif
 

@@ -568,10 +568,12 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 		ExecDirectStmt FinishActiveBackendStmt
 		NodeSplit
 		OptIndex
+		finish_active_backend_opt_item
 
 
 %type <range>	opt_aux_name
 %type <list>	pgxcnode_list pgxcnodes NodeNameList NodeSplitList SubClusterNodeList
+				finish_active_backend_opt_list
 %type <boolean> opt_force
 %type <str>		CleanConnDbName CleanConnUserName
 		DirectStmt
@@ -11586,9 +11588,30 @@ FinishActiveBackendStmt:
 			{
 				FinishActiveBackendStmt *node = makeNode(FinishActiveBackendStmt);
 				node->remote_list = NIL;
+				node->options = NIL;
+				$$ = (Node *) node;
+			}
+			| FINISH ACTIVE BACKEND '(' finish_active_backend_opt_list ')'
+			{
+				FinishActiveBackendStmt *node = makeNode(FinishActiveBackendStmt);
+				node->remote_list = NIL;
+				node->options = $5;
 				$$ = (Node *) node;
 			}
 		;
+finish_active_backend_opt_list:
+	  finish_active_backend_opt_item
+		{
+			$$ = list_make1($1);
+		}
+	| finish_active_backend_opt_list ',' finish_active_backend_opt_item
+		{
+			$$ = lappend($1, $3);
+		}
+	;
+finish_active_backend_opt_item:
+			ColLabel '=' def_arg		{ $$ = (Node*)makeDefElem($1, $3, @1); }
+			;
 
 /* ADB_END */
 

@@ -14173,6 +14173,19 @@ void MgrSendAlterNodeDataToGtm(PGconn *pg_conn, char *nodes_slq)
 	return;					
 }
 
+void MgrSendFinishActiveBackendToGtm(PGconn *pg_conn)
+{
+	StringInfoData sql;
+	CheckNull(pg_conn);
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql, "FINISH ACTIVE BACKEND (RETRY = 3);");
+	
+	ereport(LOG, (errmsg("on gtm execute \"%s\".", sql.data)));
+	MgrSendAlterMsg(pg_conn, &sql);
+	return;					
+}
+
 void MgrSendDataCleanToGtm(PGconn *pg_conn)
 {
 	StringInfoData sql;

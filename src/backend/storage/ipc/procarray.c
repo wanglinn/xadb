@@ -87,6 +87,7 @@
 #include "utils/snapmgr.h"
 #ifdef ADB
 #include "agtm/agtm.h"
+#include "commands/defrem.h"
 #include "nodes/plannodes.h"
 #include "executor/execCluster.h"
 #include "intercomm/inter-node.h"
@@ -214,8 +215,10 @@ static inline void ProcArrayEndTransactionInternal(PGPROC *proc,
 static void ProcArrayGroupClearXid(PGPROC *proc, TransactionId latestXid);
 
 #ifdef ADB
-bool execClusterFinishActiveBackend(FinishActiveBackendStmt *stmt);
-void execLocalFinishActiveBackend(StringInfo mem_toc);
+void execFinishActiveBackend(FinishActiveBackendStmt *stmt);
+void execClusterFinishActiveBackend(StringInfo mem_toc);
+bool execLocalFinishActiveBackend(void);
+static List *getActiveBackendList(void);
 #define FINISH_ACTIVE_BACKEND	1
 #endif	/* ADB*/
 /*
@@ -4454,13 +4457,15 @@ void SerializeActiveTransactionIds(StringInfo buf)
 	pfree(xids);
 }
 
-bool execClusterFinishActiveBackend(FinishActiveBackendStmt *stmt)
+void execFinishActiveBackend(FinishActiveBackendStmt *stmt)
 {
 	List		*nodeOids = NIL;
 	List		*remoteList = NIL;
 	ListCell	*lc;
 	Oid			oid;
 	bool		include_myself = false;
+	bool		execute;
+	int			retry = 0;
 
 	if (!superuser())
 		ereport(ERROR, (errmsg("Please use the administrator to execute the command.")));
@@ -4469,6 +4474,18 @@ bool execClusterFinishActiveBackend(FinishActiveBackendStmt *stmt)
 	{
 		stmt->remote_list = GetAllCnIDL(true);
 		include_myself = true;
+	}
+
+	if (stmt->options)
+	{
+		foreach(lc, stmt->options)
+		{
+			DefElem    *def = (DefElem *) lfirst(lc);
+			if (strcmp(def->defname, "retry") == 0)
+				retry = defGetInt32(def);
+			else
+				ereport(ERROR, (errmsg("Unknown parameter option.")));
+		}
 	}
 
 	foreach(lc, stmt->remote_list)
@@ -4483,65 +4500,153 @@ bool execClusterFinishActiveBackend(FinishActiveBackendStmt *stmt)
 			nodeOids = list_append_unique_oid(nodeOids, oid);
 	}
 
-	if (nodeOids != NIL)
+	if (include_myself || list_length(nodeOids))
+		execute = true;
+
+	while (execute)
 	{
-		StringInfoData msg;
-		initStringInfo(&msg);
+		if (nodeOids != NIL)
+		{
+			StringInfoData msg;
+			initStringInfo(&msg);
 
-		ClusterTocSetCustomFun(&msg, execLocalFinishActiveBackend);
-		remoteList = ExecClusterCustomFunction(nodeOids, &msg, 0);
-		pfree(msg.data);
+			ClusterTocSetCustomFun(&msg, execClusterFinishActiveBackend);
+			remoteList = ExecClusterCustomFunction(nodeOids, &msg, 0);
+			pfree(msg.data);
+		}
+
+		if (remoteList)
+		{
+			PQNListExecFinish(remoteList, NULL, &PQNDefaultHookFunctions, true);
+			list_free(remoteList);
+		}
+
+		if (include_myself)
+		{
+			if (execLocalFinishActiveBackend())
+				execute = false;
+			else
+			{
+				if (retry)
+					retry --;
+				else
+					ereport(ERROR,
+						(errmsg("finish active backend fail.")));
+			}
+
+		}
 	}
-
-	if (remoteList)
-	{
-		PQNListExecFinish(remoteList, NULL, &PQNDefaultHookFunctions, true);
-		list_free(remoteList);
-	}
-
-	if (include_myself)
-		execLocalFinishActiveBackend(NULL);
 	list_free(nodeOids);
-	return true;
+}
+
+void execClusterFinishActiveBackend(StringInfo mem_toc)
+{
+	execLocalFinishActiveBackend();
 }
 
 /*
  * Finish the active backend connection in the transaction,
  * avoid data inconsistency during cluster expansion. 
  */
-void execLocalFinishActiveBackend(StringInfo mem_toc)
+bool execLocalFinishActiveBackend(void)
+{
+	int				bpid;
+	int				stop_signal = SIGTERM;
+	List			*kill_list = NIL;
+	ListCell		*lc;
+	int				default_wait_time = 10;
+	int				wait_time;
+	bool			success = true;
+
+	kill_list = getActiveBackendList();
+
+	if (kill_list == NIL)
+		return success;
+	
+	foreach (lc, kill_list)
+	{
+		bpid = lfirst_int(lc);
+		/* Send an end signal to the backend process. */
+		if (kill(bpid, stop_signal) < 0)
+			ereport(ERROR,
+				(errmsg("Failed to end process %d, error number: %d", bpid, errno)));
+	}
+	
+	pg_usleep(1000000L * 1);
+	/* check  */
+	foreach (lc, kill_list)
+	{
+		wait_time = default_wait_time;
+		bpid = lfirst_int(lc);
+		
+		if (kill(bpid, 0))
+			continue;
+		else
+		{
+			while (wait_time)
+			{
+				if (kill(bpid, stop_signal) < 0)
+				{
+					LWLockRelease(ProcArrayLock);
+					ereport(ERROR,
+						(errmsg("Failed to end process %d, error number: %d", bpid, errno)));
+				}
+				if (wait_time > 0 )
+					wait_time--;
+				pg_usleep(1000L * 100);
+
+				if (kill(bpid, 0))
+					break;
+
+				if (wait_time == 0)
+					success = false;
+			}
+		}
+	}
+	list_free(kill_list);
+	return success;
+}
+static List *
+getActiveBackendList(void)
 {
 	ProcArrayStruct *arrayP = procArray;
 	int				*pgprocnos;
 	int				numProcs;
 	int				index;
 	int				bpid;
+	List			*result = NIL;
 
 	if (!LWLockAcquire(ProcArrayLock, LW_SHARED))
 		ereport(ERROR, (errmsg("Failed to get process array lock.")));
 
 	pgprocnos = arrayP->pgprocnos;
 	numProcs = arrayP->numProcs;
-	for (index = numProcs - 1; index >= 0; --index)
+	for (index = 0; index < numProcs; ++index)
 	{
 		int				pgprocno = pgprocnos[index];
+		volatile PGPROC *proc = &allProcs[pgprocno];
 		volatile PGXACT	*pgxact = &allPgXact[pgprocno];
-		TransactionId xid = (TransactionId)(*((volatile TransactionId*)&pgxact->xid));
 
-		bpid = BackendXidGetPid(xid);
-		/* Invalid backend process */
-		if (bpid == 0 || pgxact == MyPgXact)
-			continue;
+		bpid = proc->pid;
 		if (!IsBackendPid(bpid))
-			continue;
-		/* Send an end signal to the backend process. */
-		if (kill(bpid, SIGTERM) < 0)
 		{
-			LWLockRelease(ProcArrayLock);
-			ereport(ERROR,
-				(errmsg("Failed to end process %d, error number: %d", bpid, errno)));
+			continue;
 		}
+		/* Invalid backend process */
+		if (pgxact == MyPgXact)
+			continue;
+
+		/* Ignore procs running AUTOVACUUM */
+		if (pgxact->vacuumFlags & PROC_IS_AUTOVACUUM)
+			continue;
+
+		/* expansion worker use info as main(include transaction ID) */
+		if (pgxact->vacuumFlags & PROC_IS_EXPANSION_WORKER)
+			continue;
+
+		result = lappend_int(result, bpid);
 	}
 	LWLockRelease(ProcArrayLock);
+	return result;
 }
 #endif /* ADB */

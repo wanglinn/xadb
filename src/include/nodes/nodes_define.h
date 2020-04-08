@@ -3191,6 +3191,7 @@ END_NODE(CleanConnStmt)
 #ifndef NO_NODE_FinishActiveBackendStmt
 BEGIN_NODE(FinishActiveBackendStmt)
 	NODE_NODE(List,remote_list)
+	NODE_NODE(List,options)
 END_NODE(FinishActiveBackendStmt)
 #endif /* NO_NODE_FinishActiveBackendStmt */
 
