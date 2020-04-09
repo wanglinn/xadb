@@ -240,16 +240,10 @@ Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS)
 		ereport(INFO, (errmsg("update dst node init and in cluster, and expend node is empty.")));
 		hexp_set_expended_node_state(appendnodeinfo.nodename, true, false,  true, true, 0);
 
-		PQfinish(co_pg_conn);
-		co_pg_conn = NULL;
-
+		ClosePgConn(co_pg_conn);
 	}PG_CATCH();
 	{
-		if(co_pg_conn)
-		{
-			PQfinish(co_pg_conn);
-			co_pg_conn = NULL;
-		}
+		ClosePgConn(co_pg_conn);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
@@ -722,8 +716,7 @@ Datum mgr_expand_clean(PG_FUNCTION_ARGS)
 				dbname = (Name)lfirst(lc);
 				mgr_get_gtmcoord_conn(dbname->data, &other_conn, &cnoid);
 				MgrSendDataCleanToGtm(other_conn);
-				PQfinish(other_conn);
-				other_conn = NULL;	
+				ClosePgConn(other_conn);
 			}	
 		}	
 	}PG_CATCH();
@@ -904,15 +897,10 @@ Datum mgr_expand_check_status(PG_FUNCTION_ARGS)
 		}
 		
 		hexp_get_allnodes_serialize(&serialize);
-
-		if(pg_conn)
-			PQfinish(pg_conn);
-		pg_conn = NULL;
+        ClosePgConn(pg_conn);
 	}PG_CATCH();
 	{
-		if(pg_conn)
-			PQfinish(pg_conn);
-		pg_conn = NULL;
+		ClosePgConn(pg_conn);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
@@ -947,15 +935,10 @@ Datum mgr_expand_show_status(PG_FUNCTION_ARGS)
 		}
 
         hexp_get_allnodes_serialize(&serialize);
-
-		if(pg_conn)
-			PQfinish(pg_conn);
-		pg_conn = NULL;
+		ClosePgConn(pg_conn);
 	}PG_CATCH();
 	{
-		if(pg_conn)
-			PQfinish(pg_conn);
-		pg_conn = NULL;
+		ClosePgConn(pg_conn);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
@@ -1307,9 +1290,7 @@ static void MgrActivateStep2(PGconn *gtm_conn, List *dst_node_list, List *src_ds
 		}		
 		
 		MgrSendAlterNodeDataToGtm(gtm_conn, nodes_slq);
-		
-		//hexp_pqexec_direct_execute_utility(gtm_conn, SQL_COMMIT_TRANSACTION , MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-
+				
 		/* update dst node init and in cluster. */
 		ereport(INFO, (errmsg("%s %s", step2_msg, "update dst node init and in cluster.")));
 		foreach (lc, dst_node_list)
@@ -1319,6 +1300,9 @@ static void MgrActivateStep2(PGconn *gtm_conn, List *dst_node_list, List *src_ds
 		}
 	}PG_CATCH();
 	{
+		mgr_unlock_cluster_involve_gtm_coord(&gtm_conn);
+		ClosePgConn(gtm_conn);
+		MgrFreeNodeList(dst_node_list, src_dst_list);
 		PG_RE_THROW();
 	}PG_END_TRY();
 	return;
@@ -1677,8 +1661,10 @@ static void hexp_check_expand(void)
 
 	if ((count = MgrGetAdbcleanNum(pg_conn)) > 0)
 	{
+		ClosePgConn(pg_conn);
 		ereport(ERROR, (errmsg("There is also data num(%d) in the table adb_clean, and the cleaning operation has not been completed since the last expansion, so you cann't start expand operation again.", count)));
 	}
+	ClosePgConn(pg_conn);
     return;
 }
 
@@ -1823,7 +1809,7 @@ static void hexp_create_dm_on_all_coord(PGconn *pg_conn, AppendNodeInfo *nodeinf
 											 PGXC_NODE_MANIPULATE_TYPE_CREATE,
 											 NULL))
 		{
-			ereport(ERROR, (errmsg("on coordinator \"%s\" create node \"%s\" fail", NameStr(mgr_node->nodename), nodeinfo->nodename)));
+			ereport(ERROR, (errmsg("on coordinator \"%s\" create node \"%s\" fail", NameStr(mgr_node->nodename), nodeinfo->nodename)));  
 		}
 	}
 
