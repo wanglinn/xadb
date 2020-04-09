@@ -4982,6 +4982,15 @@ _copyRemoteQuery(const RemoteQuery *from)
 	return newnode;
 }
 
+static FinishActiveBackendStmt * _copyFinishActiveBackendStmt(const FinishActiveBackendStmt *from)
+{
+	FinishActiveBackendStmt *newnode = makeNode(FinishActiveBackendStmt);
+
+	COPY_NODE_FIELD(remote_list);
+
+	return newnode;
+}
+
 /*
  * _copyExecNodes
  */
@@ -6294,6 +6303,9 @@ copyObjectImpl(const void *from)
 			break;
 		case T_RemoteQuery:
 			retval = _copyRemoteQuery(from);
+			break;
+		case T_FinishActiveBackendStmt:
+			retval = _copyFinishActiveBackendStmt(from);
 			break;
 		case T_ExecNodes:
 			retval = _copyExecNodes(from);
