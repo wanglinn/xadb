@@ -448,13 +448,19 @@ static TupleTableSlot* ExecReduceFirstLocal(PlanState *pstate)
 		return ExecReduceFirstWaitRemote(pstate);
 	}
 
+	if (state->file_remote &&
+		BufFileSeek(state->file_remote, 0, 0, SEEK_SET) != 0)
+	{
+		ereport(ERROR,
+			(errcode_for_file_access(),
+			 errmsg("can not seek buffer file to head")));
+	}
 	ExecSetExecProcNode(pstate, ExecReduceFirstRemote);
 	return ExecReduceFirstRemote(pstate);
 }
 
-static TupleTableSlot* ExecReduceFirstPrepare(PlanState *pstate)
+static void ExecReduceFirstSend(NormalReduceFirstState *state)
 {
-	NormalReduceFirstState *state = castNode(ClusterReduceState, pstate)->private_state;
 	MemoryContext			oldcontext;
 
 	Assert(state->normal.drio.eof_local == false);
@@ -469,6 +475,16 @@ static TupleTableSlot* ExecReduceFirstPrepare(PlanState *pstate)
 									  state->file_local,
 									  DRFetchSaveSFS);
 	state->ready_local = true;
+}
+
+static TupleTableSlot* ExecReduceFirstPrepare(PlanState *pstate)
+{
+	NormalReduceFirstState *state = castNode(ClusterReduceState, pstate)->private_state;
+
+	ExecReduceFirstSend(state);
+	Assert(state->normal.drio.eof_local &&
+		   state->ready_local &&
+		   state->file_local);
 
 	if (BufFileSeek(state->file_local, 0, 0, SEEK_SET) != 0)
 		ereport(ERROR,
@@ -481,18 +497,13 @@ static TupleTableSlot* ExecReduceFirstPrepare(PlanState *pstate)
 static void DriveReduceFirst(ClusterReduceState *node)
 {
 	NormalReduceFirstState *state = node->private_state;
-	TupleTableSlot *slot;
 
-	/*
-	 * send local and eat remote tuple.
-	 * if not eat remote tuple dynamic reduce maybe get MQ deatched result,
-	 * when send MQ message to us
-	 */
-	do
-	{
-		CHECK_FOR_INTERRUPTS();
-		slot = DynamicReduceFetchSlot(&state->normal.drio);
-	}while(!TupIsNull(slot));
+	if (state->file_local == NULL)
+		ExecReduceFirstSend(state);
+
+	/* maybe rescan this paln, so open remote data */
+	while (state->ready_remote == false)
+		(void)ExecReduceFirstWaitRemote(&node->ps);
 }
 
 static void InitReduceFirst(ClusterReduceState *crstate)
@@ -758,6 +769,43 @@ static void EndParallelReduceFirst(ParallelReduceFirstState *state)
 }
 
 /* ========================= advance reduce ========================= */
+static void ExecAdvanceReduceWaitRemote(ClusterReduceState *node, AdvanceReduceState *state)
+{
+	char name[MAXPGPATH];
+	MemoryContext oldcontext;
+	AdvanceNodeInfo *info;
+	DynamicReduceSFS sfs;
+	uint32 i;
+	uint8 flag PG_USED_FOR_ASSERTS_ONLY;
+	Assert(state->normal.drio.eof_remote == false);
+
+	/* wait dynamic reduce end of plan */
+	flag = DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
+								  state->normal.drio.slot_local,
+								  &state->normal.drio.recv_buf,
+								  NULL,
+								  false);
+	Assert(flag == DR_MSG_RECV && TupIsNull(state->normal.drio.slot_local));
+	state->got_remote = true;
+
+	/* open remote SFS files */
+	sfs = dsm_segment_address(state->normal.dsm_seg);
+	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state));
+	for (i=0;i<state->nnodes;++i)
+	{
+		info = &state->nodes[i];
+		if (info->file == NULL)
+		{
+			info->file = BufFileOpenShared(&sfs->sfs,
+										   DynamicReduceSFSFileName(name, info->nodeoid));
+		}else
+		{
+			Assert(info->nodeoid == PGXCNodeOid);
+		}
+	}
+	MemoryContextSwitchTo(oldcontext);
+}
+
 static TupleTableSlot *ExecAdvanceReduce(PlanState *pstate)
 {
 	AdvanceReduceState *state = castNode(ClusterReduceState, pstate)->private_state;
@@ -765,8 +813,8 @@ static TupleTableSlot *ExecAdvanceReduce(PlanState *pstate)
 	TupleTableSlot *slot;
 
 re_get_:
-	if (cur_info->nodeoid != PGXCNodeOid &&
-		state->normal.drio.convert)
+	if (state->normal.drio.convert &&
+		cur_info->nodeoid != PGXCNodeOid)
 		slot = DynamicReduceFetchBufFile(&state->normal.drio, cur_info->file);
 	else
 		slot = DynamicReduceReadSFSTuple(pstate->ps_ResultTupleSlot, cur_info->file, &state->read_buf);
@@ -774,39 +822,7 @@ re_get_:
 	{
 		if (cur_info->nodeoid == PGXCNodeOid &&
 			state->got_remote == false)
-		{
-			char name[MAXPGPATH];
-			MemoryContext oldcontext;
-			AdvanceNodeInfo *info;
-			DynamicReduceSFS sfs = dsm_segment_address(state->normal.dsm_seg);
-			uint32 i;
-			uint8 flag PG_USED_FOR_ASSERTS_ONLY;
-
-			/* wait dynamic reduce end of plan */
-			flag = DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
-										  slot,
-										  &state->normal.drio.recv_buf,
-										  NULL,
-										  false);
-			Assert(flag == DR_MSG_RECV && TupIsNull(slot));
-			state->got_remote = true;
-
-			/* open remote SFS files */
-			oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state));
-			for (i=0;i<state->nnodes;++i)
-			{
-				info = &state->nodes[i];
-				if (info->file == NULL)
-				{
-					info->file = BufFileOpenShared(&sfs->sfs,
-												   DynamicReduceSFSFileName(name, info->nodeoid));
-				}else
-				{
-					Assert(info->nodeoid == PGXCNodeOid);
-				}
-			}
-			MemoryContextSwitchTo(oldcontext);
-		}
+			ExecAdvanceReduceWaitRemote((ClusterReduceState*)pstate, state);
 
 		/* next node */
 		cur_info = &cur_info[1];
@@ -1354,7 +1370,18 @@ static void EndMergeReduce(MergeReduceState *merge)
 	EndNormalReduce(&merge->normal);
 	pfree(merge->sortkeys);
 }
-#define DriveMergeReduce(node) DriveNormalReduce(node)
+
+static void DriveMergeReduce(ClusterReduceState *node)
+{
+	MergeReduceState *merge = node->private_state;
+
+	if (merge->normal.drio.eof_local == false)
+	{
+		ExecMergeReduceLocal(node);
+		Assert(merge->normal.drio.eof_local);
+		ExecSetExecProcNode(&node->ps, ExecMergeReduceFinal);
+	}
+}
 
 static void BeginAdvanceMerge(ClusterReduceState *crstate)
 {
@@ -1745,14 +1772,9 @@ ExecReScanClusterReduce(ClusterReduceState *node)
 						(errcode_for_file_access(),
 						 errmsg("can not seek buffer file to head")));
 				ExecSetExecProcNode(&node->ps, ExecReduceFirstLocal);
-			}
-			if (state->ready_remote &&
-				state->file_remote &&
-				BufFileSeek(state->file_remote, 0, 0, SEEK_SET) != 0)
+			}else
 			{
-				ereport(ERROR,
-					(errcode_for_file_access(),
-					 errmsg("can not seek buffer file to head")));
+				ExecSetExecProcNode(&node->ps, ExecReduceFirstPrepare);
 			}
 		}
 		break;
