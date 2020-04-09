@@ -481,11 +481,8 @@ uint16 StartDynamicReduceWorker(void)
 						errmsg("dynamic reduce restart failed")));
 		}
 
-		TerminateBackgroundWorker(dr_bghandle);
-		WaitForBackgroundWorkerShutdown(dr_bghandle);
+		TerminateDynamicReduceWorker();
 		DRResetShmem();
-		pfree(dr_bghandle);
-		dr_bghandle = NULL;
 	}
 
 	initStringInfo(&buf);
@@ -504,10 +501,7 @@ uint16 StartDynamicReduceWorker(void)
 		shm_mq_set_handle(dr_mq_backend_sender, NULL);
 		shm_mq_set_handle(dr_mq_worker_sender, NULL);
 
-		TerminateBackgroundWorker(dr_bghandle);
-		WaitForBackgroundWorkerShutdown(dr_bghandle);
-		pfree(dr_bghandle);
-		dr_bghandle = NULL;
+		TerminateDynamicReduceWorker();
 
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
@@ -560,6 +554,12 @@ void StopDynamicReduceWorker(void)
 		}
 	}
 
+	TerminateDynamicReduceWorker();
+	DRDetachShmem();
+}
+
+void TerminateDynamicReduceWorker(void)
+{
 	if (dr_bghandle)
 	{
 		TerminateBackgroundWorker(dr_bghandle);
@@ -567,13 +567,6 @@ void StopDynamicReduceWorker(void)
 		pfree(dr_bghandle);
 		dr_bghandle = NULL;
 	}
-	DRDetachShmem();
-}
-
-void TerminateDynamicReduceWorker(void)
-{
-	if (dr_bghandle)
-		TerminateBackgroundWorker(dr_bghandle);
 }
 
 void DynamicReduceStartParallel(void)
