@@ -585,6 +585,11 @@ SnapRcvShutdownHandler(SIGNAL_ARGS)
 static void
 SnapRcvQuickDieHandler(SIGNAL_ARGS)
 {
+	if (proc_exit_inprogress)
+		return;
+
+	proc_exit_inprogress = true;
+
 	PG_SETMASK(&BlockSig);
 
 	/*

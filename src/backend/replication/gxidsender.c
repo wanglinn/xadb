@@ -960,6 +960,11 @@ static void GxidSenderSigTermHandler(SIGNAL_ARGS)
 
 static void GxidSenderQuickDieHander(SIGNAL_ARGS)
 {
+	if (proc_exit_inprogress)
+		return;
+
+	proc_exit_inprogress = true;
+
 	PG_SETMASK(&BlockSig);
 
 	on_exit_reset();
