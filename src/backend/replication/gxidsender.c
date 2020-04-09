@@ -1027,33 +1027,36 @@ Snapshot GxidSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, Transactio
 	return snap;
 }
 
-/* like GetSnapshotData, but serialize all active transaction IDs */
-void SerializeFullAssignXid(StringInfo buf)
+TransactionId *GxidSenderGetAllXip(uint32 *cnt_num)
 {
-	int				index;
-	size_t			buf_free_size;
+	TransactionId	*assign_xids;
+	uint32			assign_len;
+
+	assign_len = XID_ARRAY_STEP_SIZE;
+	assign_xids = NULL;
 
 re_lock_:
-	buf_free_size = buf->maxlen - buf->len;
+	if (!assign_xids)
+		assign_xids = palloc0(sizeof(TransactionId) * assign_len);
+	else
+		assign_xids = repalloc(assign_xids, sizeof(TransactionId) * assign_len);
+
 	SpinLockAcquire(&GxidSender->mutex);
-	if (buf_free_size < GxidSender->xcnt * sizeof(TransactionId))
+
+	if (assign_len <  GxidSender->xcnt)
 	{
 		SpinLockRelease(&GxidSender->mutex);
-		enlargeStringInfo(buf, GxidSender->xcnt * sizeof(TransactionId) - buf_free_size);
+		assign_len += XID_ARRAY_STEP_SIZE;
 		goto re_lock_;
 	}
 
-	/* get all Transaction IDs */
-	for (index = 0; index < GxidSender->xcnt; ++index)
-	{
-		pq_sendint32(buf, GxidSender->xip[index]);
-		Assert(TransactionIdIsNormal(GxidSender->xip[index]));
-#ifdef SNAP_SYNC_DEBUG	
-		ereport(LOG,(errmsg("SnapSend init sync xid %d\n",
-					 GxidSender->xip[index])));
-#endif
-	}
+	assign_len = GxidSender->xcnt;
+	if (assign_len > 0)
+		memcpy(assign_xids, GxidSender->xip, sizeof(TransactionId)*assign_len);
 	SpinLockRelease(&GxidSender->mutex);
+
+	*cnt_num = assign_len;
+	return assign_xids;
 }
 
 void GxidSendLockSendSock(void)

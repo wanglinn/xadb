@@ -9,7 +9,7 @@ extern void GxidSenderMain(void) pg_attribute_noreturn();
 extern Size GxidSenderShmemSize(void);
 extern void GxidSenderShmemInit(void);
 
-extern void SerializeFullAssignXid(StringInfo buf);
+extern TransactionId *GxidSenderGetAllXip(uint32 *cnt_num);
 extern Snapshot GxidSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, TransactionId* xmaxOld,
 			int *countOld);
 

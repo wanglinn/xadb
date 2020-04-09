@@ -1055,9 +1055,45 @@ static void OnClientMsgEvent(WaitEvent *event, time_t* time_last_latch)
 	}PG_END_TRY();
 }
 
+/* like GetSnapshotData, but serialize all active transaction IDs */
+static void SerializeFullAssignXid(TransactionId *gs_xip, uint32 gs_cnt, TransactionId *ss_xip, uint32 ss_cnt, StringInfo buf)
+{
+	int index,i;
+	TransactionId xid;
+	bool	skip;
+
+	/* get all Transaction IDs */
+	for (index = 0; index < gs_cnt; ++index)
+	{
+		xid = gs_xip[index];
+		skip = false;
+		for (i = 0; i < ss_cnt ; i ++)
+		{
+			if (xid == ss_xip[i])
+			{
+				skip = true;
+				break;
+			}
+		}
+
+		if (skip)
+			continue;
+
+		pq_sendint32(buf, xid);
+		Assert(TransactionIdIsNormal(xid));
+#ifdef SNAP_SYNC_DEBUG	
+		ereport(LOG,(errmsg("SnapSend init sync xid %d\n", xid)));
+#endif
+	}
+}
+
 static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* time_last_latch)
 {
-	int msgtype;
+	int						msgtype;
+	TransactionId			ss_xid_assgin[MAX_CNT_SHMEM_XID_BUF];
+	uint32					ss_cnt_assign;
+	TransactionId			*gs_xip;
+	uint32					gs_cnt_assign;
 
 	if (pq_node_recvbuf(node) != 0)
 	{
@@ -1092,7 +1128,18 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 			appendStringInfoChar(&output_buffer, 's');
 			pq_sendint32(&output_buffer, snapsenderGetSenderGlobalXmin());
 			SerializeActiveTransactionIds(&output_buffer);
-			SerializeFullAssignXid(&output_buffer);
+
+			gs_xip = GxidSenderGetAllXip(&gs_cnt_assign);
+			SpinLockAcquire(&SnapSender->mutex);
+			pg_memory_barrier();
+			ss_cnt_assign = SnapSender->cur_cnt_assign;
+			if (ss_cnt_assign > 0)
+				memcpy(ss_xid_assgin, SnapSender->xid_assign, sizeof(TransactionId)*ss_cnt_assign);
+			
+			SpinLockRelease(&SnapSender->mutex);
+
+			SerializeFullAssignXid(gs_xip, gs_cnt_assign, ss_xid_assgin, ss_cnt_assign, &output_buffer);
+			pfree(gs_xip);
 			AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false);
 
 			client->status = CLIENT_STATUS_STREAMING;
