@@ -488,10 +488,10 @@ uint16 StartDynamicReduceWorker(void)
 	initStringInfo(&buf);
 	pq_sendbyte(&buf, ADB_DR_MQ_MSG_STARTUP);
 
-	DRSendMsgToReduce(buf.data, buf.len, false);
+	DRSendMsgToReduce(buf.data, buf.len, false, false);
 	pfree(buf.data);
 
-	DRRecvMsgFromReduce(&size, (void**)&buf.data, false);
+	DRRecvMsgFromReduce(&size, (void**)&buf.data, false, false);
 	buf.len = buf.maxlen = (int)size;
 	buf.cursor = 0;
 

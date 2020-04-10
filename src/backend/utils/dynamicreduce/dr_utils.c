@@ -108,7 +108,7 @@ void DynamicReduceConnectNet(const DynamicReduceNodeInfo *info, uint32 count)
 	initStringInfo(&buf);
 	pq_sendbyte(&buf, ADB_DR_MQ_MSG_CONNECT);
 	SerializeDynamicReduceNodeInfo(&buf, info, count);
-	DRSendMsgToReduce(buf.data, buf.len, false);
+	DRSendMsgToReduce(buf.data, buf.len, false, false);
 	pfree(buf.data);
 
 	if (cur_working_nodes == NULL)
@@ -121,7 +121,7 @@ void DynamicReduceConnectNet(const DynamicReduceNodeInfo *info, uint32 count)
 	for (i=0;i<count;++i)
 		appendOidBufferOid(cur_working_nodes, info[i].node_oid);
 
-	DRRecvConfirmFromReduce(false);
+	DRRecvConfirmFromReduce(false, false);
 }
 
 void DRConnectNetMsg(StringInfo msg)

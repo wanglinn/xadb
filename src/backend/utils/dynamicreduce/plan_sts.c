@@ -202,10 +202,10 @@ void DynamicReduceStartSharedTuplestorePlan(int plan_id, struct dsm_segment *seg
 						DRSTSD_SIZE(npart, list_length(work_nodes)),
 						work_nodes, &buf);
 
-	DRSendMsgToReduce(buf.data, buf.len, false);
+	DRSendMsgToReduce(buf.data, buf.len, false, false);
 	pfree(buf.data);
 
-	DRRecvConfirmFromReduce(false);
+	DRRecvConfirmFromReduce(false, false);
 }
 
 static void CreateOidAccessor(PlanInfo *pi, DynamicReduceSTS sts, int npart, int mypart)

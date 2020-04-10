@@ -394,7 +394,7 @@ re_get_:
 	return iov.data[1];
 }
 
-bool DRSendMsgToReduce(const char *data, Size len, bool nowait)
+bool DRSendMsgToReduce(const char *data, Size len, bool nowait, bool detach_ok)
 {
 #if (!defined DR_USING_EPOLL) && (!defined WITH_REDUCE_RDMA)
 	WaitEvent		event;
@@ -413,6 +413,8 @@ bool DRSendMsgToReduce(const char *data, Size len, bool nowait)
 	{
 		if (result == SHM_MQ_DETACHED)
 		{
+			if (detach_ok)
+				return false;
 			ereport(ERROR,
 					(errmsg("send message to dynamic reduce failed: MQ detached")));
 		}
@@ -435,7 +437,7 @@ bool DRSendMsgToReduce(const char *data, Size len, bool nowait)
 	return true;
 }
 
-bool DRRecvMsgFromReduce(Size *sizep, void **datap, bool nowait)
+bool DRRecvMsgFromReduce(Size *sizep, void **datap, bool nowait, bool detach_ok)
 {
 #if (!defined DR_USING_EPOLL) && (!defined WITH_REDUCE_RDMA)
 	WaitEvent		event;
@@ -451,6 +453,8 @@ re_get_:
 	{
 		if (result == SHM_MQ_DETACHED)
 		{
+			if (detach_ok)
+				return false;
 			ereport(ERROR,
 					(errmsg("receive message from dynamic reduce failed: MQ detached")));
 		}
@@ -522,12 +526,12 @@ bool DRSendConfirmToBackend(bool nowait)
 	return DRSendMsgToBackend(confirm_msg, sizeof(confirm_msg), nowait);
 }
 
-bool DRRecvConfirmFromReduce(bool nowait)
+bool DRRecvConfirmFromReduce(bool nowait, bool detach_ok)
 {
 	void   *data;
 	Size	size;
 
-	if (DRRecvMsgFromReduce(&size, &data, nowait) == false)
+	if (DRRecvMsgFromReduce(&size, &data, nowait, detach_ok) == false)
 		return false;
 	
 	if (size != 1)
@@ -648,8 +652,8 @@ reget_reset_msg_:
 void DynamicReduceQueryError(void)
 {
 	static const char query_msg[1] = {ADB_DR_MQ_MSG_QUERY_ERROR};
-	DRSendMsgToReduce(query_msg, sizeof(query_msg), false);
-	DRRecvConfirmFromReduce(false);
+	if (DRSendMsgToReduce(query_msg, sizeof(query_msg), false, true))
+		DRRecvConfirmFromReduce(false, true);
 }
 
 void SerializeDynamicReducePlanData(StringInfo buf, const void *data, uint32 len, struct OidBufferData *target)
