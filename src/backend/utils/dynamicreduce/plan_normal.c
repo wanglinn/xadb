@@ -232,8 +232,8 @@ void DynamicReduceStartNormalPlan(int plan_id, dsm_segment *seg, DynamicReduceMQ
 	DRSerializePlanInfo(plan_id, seg, mq, sizeof(*mq), work_nodes, &buf);
 	pq_sendbyte(&buf, cache_flag);
 
-	DRSendMsgToReduce(buf.data, buf.len, false);
+	DRSendMsgToReduce(buf.data, buf.len, false, false);
 	pfree(buf.data);
 
-	DRRecvConfirmFromReduce(false);
+	DRRecvConfirmFromReduce(false, false);
 }

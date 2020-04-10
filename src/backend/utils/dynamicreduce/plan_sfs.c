@@ -234,10 +234,10 @@ void DynamicReduceStartSharedFileSetPlan(int plan_id, struct dsm_segment *seg, D
 
 	DRSerializePlanInfo(plan_id, seg, sfs, sizeof(*sfs), work_nodes, &buf);
 
-	DRSendMsgToReduce(buf.data, buf.len, false);
+	DRSendMsgToReduce(buf.data, buf.len, false, false);
 	pfree(buf.data);
 
-	DRRecvConfirmFromReduce(false);
+	DRRecvConfirmFromReduce(false, false);
 }
 
 char* DynamicReduceSFSFileName(char *name, Oid nodeoid)

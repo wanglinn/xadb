@@ -507,8 +507,8 @@ void DynamicReduceStartParallelPlan(int plan_id, struct dsm_segment *seg,
 	pq_sendbyte(&buf, cache_flag);
 	DRSerializePlanInfo(plan_id, seg, mq, sizeof(*mq)*parallel_max, work_nodes, &buf);
 
-	DRSendMsgToReduce(buf.data, buf.len, false);
+	DRSendMsgToReduce(buf.data, buf.len, false, false);
 	pfree(buf.data);
 
-	DRRecvConfirmFromReduce(false);
+	DRRecvConfirmFromReduce(false, false);
 }

@@ -441,12 +441,12 @@ void DRDetachShmem(void);
 uint32 DRNextSharedFileSetNumber(void);
 void DRShmemResetSharedFile(void);
 
-bool DRSendMsgToReduce(const char *data, Size len, bool nowait);
-bool DRRecvMsgFromReduce(Size *sizep, void **datap, bool nowait);
+bool DRSendMsgToReduce(const char *data, Size len, bool nowait, bool detach_ok);
+bool DRRecvMsgFromReduce(Size *sizep, void **datap, bool nowait, bool detach_ok);
 bool DRSendMsgToBackend(const char *data, Size len, bool nowait);
 bool DRRecvMsgFromBackend(Size *sizep, void **datap, bool nowait);
 
 bool DRSendConfirmToBackend(bool nowait);
-bool DRRecvConfirmFromReduce(bool nowait);
+bool DRRecvConfirmFromReduce(bool nowait, bool detach_ok);
 
 #endif							/* DR_PRIVATE_H_ */
