@@ -8,24 +8,28 @@
 #include "utils/dynamicreduce.h"
 #include "utils/dr_private.h"
 
-void DynamicReduceInitFetch(DynamicReduceIOBuffer *io, dsm_segment *seg, TupleDesc desc,
+void DynamicReduceInitFetch(DynamicReduceIOBuffer *io, dsm_segment *seg, TupleDesc desc, uint32 flags,
 							void *send_addr, Size send_size, void *recv_addr, Size recv_size)
 {
 	shm_mq	   *mq;
 
-	if (send_size == 0)
-		mq = (shm_mq*)send_addr;
-	else
-		mq = shm_mq_create(send_addr, send_size);
-	shm_mq_set_sender(mq, MyProc);
-	io->mqh_sender = shm_mq_attach(mq, seg, NULL);
+	io->mqh_sender = io->mqh_receiver = NULL;
 
-	if (recv_size == 0)
-		mq = (shm_mq*)recv_addr;
-	else
-		mq = shm_mq_create(recv_addr, recv_size);
-	shm_mq_set_receiver(mq, MyProc);
-	io->mqh_receiver = shm_mq_attach(mq, seg, NULL);
+	if (flags & DR_MQ_INIT_SEND)
+		shm_mq_create(send_addr, send_size);
+	if (flags & DR_MQ_ATTACH_SEND)
+	{
+		shm_mq_set_sender((shm_mq*)send_addr, MyProc);
+		io->mqh_sender = shm_mq_attach((shm_mq*)send_addr, seg, NULL);
+	}
+
+	if (flags & DR_MQ_INIT_RECV)
+		shm_mq_create(recv_addr, recv_size);
+	if (flags & DR_MQ_ATTACH_RECV)
+	{
+		shm_mq_set_receiver((shm_mq*)recv_addr, MyProc);
+		io->mqh_receiver = shm_mq_attach((shm_mq*)recv_addr, seg, NULL);
+	}
 
 	io->shared_file = NULL;
 	io->sts = NULL;
