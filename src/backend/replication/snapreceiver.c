@@ -993,7 +993,9 @@ static bool WaitSnapRcvEvent(TimestampTz end, proclist_head *waiters, bool is_ss
 	int						procno = MyProc->pgprocno;
 	int						rc;
 	int						waitEvent;
+	bool					ret;
 
+	ret = true;
 	while ((*test)(context))
 	{
 		bool in_list = false;
@@ -1037,7 +1039,7 @@ static bool WaitSnapRcvEvent(TimestampTz end, proclist_head *waiters, bool is_ss
 			exit(1);
 		}else if(rc & WL_TIMEOUT)
 		{
-			return false;
+			ret = false;
 		}
 
 		LOCK_SNAP_RCV();
@@ -1053,7 +1055,7 @@ static bool WaitSnapRcvEvent(TimestampTz end, proclist_head *waiters, bool is_ss
 		}
 	}
 
-	return true;
+	return ret;
 }
 
 static bool WaitSnapRcvCondStreaming(void *context)
@@ -1163,14 +1165,17 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 	if (force_snapshot_consistent == FORCE_SNAP_CON_ON || (IsConnFromCoord() && RecoveryInProgress()))
 	{
 		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snap_receiver_timeout);
-		req_key = pg_atomic_add_fetch_u32(&SnapRcv->last_client_req_key, 1);
-		SNAP_FORCE_DEBUG_LOG((errmsg("Add proce %d to wait snap sync list, req_key %lld,  SnapRcv->last_ss_resp_key %lld\n", 
-				MyProc->pgprocno, req_key, pg_atomic_read_u32(&SnapRcv->last_ss_resp_key))));
-		MyProc->ss_req_key = req_key;
+		
 		is_wait_ok = true;
 		LOCK_SNAP_RCV();
 		if (SnapRcv->state == WALRCV_STREAMING)
+		{
+			req_key = pg_atomic_add_fetch_u32(&SnapRcv->last_client_req_key, 1);
+			SNAP_FORCE_DEBUG_LOG((errmsg("Add proce %d to wait snap sync list, req_key %lld,  SnapRcv->last_ss_resp_key %lld\n", 
+					MyProc->pgprocno, req_key, pg_atomic_read_u32(&SnapRcv->last_ss_resp_key))));
+			MyProc->ss_req_key = req_key;
 			is_wait_ok = WaitSnapRcvEvent(end, &SnapRcv->ss_waiters, true, WaitSnapRcvSyncSnap, (void*)((size_t)req_key));
+		}
 		UNLOCK_SNAP_RCV();
 		if (!is_wait_ok)
 		{
