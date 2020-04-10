@@ -1775,6 +1775,24 @@ ProcessUtilitySlow(ParseState *pstate,
 
 							NewRelationCreateToastTable(address.objectId,
 														toast_options);
+#ifdef ADB_GRAM_ORA
+							/* create partition child toast table */
+							if (((CreateStmt *) stmt)->grammar == PARSE_GRAM_ORACLE && ((CreateStmt *) stmt)->child_rels != NIL)
+							{
+								List		*childs;
+								ListCell	*cell;
+
+								childs = find_inheritance_children(address.objectId, NoLock);
+								if (list_length(childs) > 0)
+								{
+									foreach(cell, childs)
+									{
+										Oid child_objectId = lfirst_oid(cell);
+										NewRelationCreateToastTable(child_objectId, toast_options);
+									}
+								}
+							}
+#endif /* ADB_GRAM_ORA */
 						}
 						else if (IsA(stmt, CreateForeignTableStmt))
 						{
