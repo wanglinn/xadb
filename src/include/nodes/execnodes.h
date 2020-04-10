@@ -2438,11 +2438,7 @@ typedef struct ReduceScanState
 	bool				cur_hash_is_null;
 } ReduceScanState;
 
-typedef struct EmptyResultState
-{
-	PlanState			ps;
-	Node			   *special;
-}EmptyResultState;
+typedef PlanState EmptyResultState;
 
 typedef struct ParamTuplestoreScanState
 {
