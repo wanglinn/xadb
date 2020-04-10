@@ -6309,7 +6309,7 @@ static void InitCopyFromReduce(CopyFromReduceState *state, TupleDesc desc, Expr 
 	drmq = dsm_segment_address(state->dsm_seg);
 	DynamicReduceInitFetch(&state->drio,
 						   state->dsm_seg,
-						   desc,
+						   desc, DR_MQ_INIT_ATTACH_SEND_RECV,
 						   drmq->worker_sender_mq, sizeof(drmq->worker_sender_mq),
 						   drmq->reduce_sender_mq, sizeof(drmq->reduce_sender_mq));
 	state->drio.expr_state = ExecInitReduceExpr(reduce);

@@ -84,11 +84,15 @@ typedef struct AdvanceReduceState
 typedef struct AdvanceParallelSharedMemory
 {
 	ConditionVariable	cv;
-	pg_atomic_flag		got_remote;
-	char				padding[(sizeof(ConditionVariable)+sizeof(pg_atomic_flag))%MAXIMUM_ALIGNOF ? 
-								MAXIMUM_ALIGNOF-(sizeof(ConditionVariable)+sizeof(pg_atomic_flag))%MAXIMUM_ALIGNOF : 0];
+	pg_atomic_uint32	remote_state;
+	char				padding[(sizeof(ConditionVariable)+sizeof(pg_atomic_uint32))%MAXIMUM_ALIGNOF ? 
+								MAXIMUM_ALIGNOF-(sizeof(ConditionVariable)+sizeof(pg_atomic_uint32))%MAXIMUM_ALIGNOF : 0];
 	DynamicReduceSTSData sts;
 }AdvanceParallelSharedMemory;
+#define APSM_REMOTE_WAIT_GET	0
+#define APSM_REMOTE_GETTING		1
+#define APSM_REMOTE_GOT			2
+#define APSM_REMOTE_FAILED		3
 
 typedef struct AdvanceParallelNode
 {
@@ -202,14 +206,7 @@ static TupleTableSlot* ExecReduceFetchLocal(void *pstate, ExprContext *econtext)
 }
 
 static void SetupNormalReduceState(NormalReduceState *normal, DynamicReduceMQ drmq,
-								   ClusterReduceState *crstate, bool init);
-static void InitNormalReduceState(NormalReduceState *normal, Size shm_size, ClusterReduceState *crstate)
-{
-	normal->dsm_seg = dsm_create(shm_size, 0);
-	SetupNormalReduceState(normal, dsm_segment_address(normal->dsm_seg), crstate, true);
-}
-static void SetupNormalReduceState(NormalReduceState *normal, DynamicReduceMQ drmq,
-								   ClusterReduceState *crstate, bool init)
+								   ClusterReduceState *crstate, uint32 flags)
 {
 	Expr			   *expr;
 	ClusterReduce	   *plan;
@@ -217,8 +214,9 @@ static void SetupNormalReduceState(NormalReduceState *normal, DynamicReduceMQ dr
 	DynamicReduceInitFetch(&normal->drio,
 						   normal->dsm_seg,
 						   crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
-						   drmq->worker_sender_mq, init ? sizeof(drmq->worker_sender_mq):0,
-						   drmq->reduce_sender_mq, init ? sizeof(drmq->reduce_sender_mq):0);
+						   flags,
+						   drmq->worker_sender_mq, sizeof(drmq->worker_sender_mq),
+						   drmq->reduce_sender_mq, sizeof(drmq->reduce_sender_mq));
 	normal->drio.econtext = crstate->ps.ps_ExprContext;
 	normal->drio.FetchLocal = ExecReduceFetchLocal;
 	normal->drio.user_data = outerPlanState(crstate);
@@ -236,6 +234,13 @@ static void SetupNormalReduceState(NormalReduceState *normal, DynamicReduceMQ dr
 	Assert(expr != NULL);
 	normal->drio.expr_state = ExecInitReduceExpr(expr);
 }
+
+static void InitNormalReduceState(NormalReduceState *normal, Size shm_size, ClusterReduceState *crstate)
+{
+	normal->dsm_seg = dsm_create(shm_size, 0);
+	SetupNormalReduceState(normal, dsm_segment_address(normal->dsm_seg), crstate, DR_MQ_INIT_ATTACH_SEND_RECV);
+}
+
 static void InitNormalReduce(ClusterReduceState *crstate)
 {
 	MemoryContext		oldcontext;
@@ -278,7 +283,7 @@ static void InitParallelReduce(ClusterReduceState *crstate, ParallelContext *pcx
 
 	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
 	normal = palloc0(sizeof(NormalReduceState));
-	SetupNormalReduceState(normal, drmq, crstate, false);
+	SetupNormalReduceState(normal, drmq, crstate, DR_MQ_ATTACH_SEND_RECV);
 	crstate->private_state = normal;
 	ExecSetExecProcNode(&crstate->ps, ExecParallelReduceAttach);
 	DynamicReduceStartParallelPlan(crstate->ps.plan->plan_node_id,
@@ -303,7 +308,7 @@ static void InitParallelReduceWorker(ClusterReduceState *crstate, ParallelWorker
 
 	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
 	normal = palloc0(sizeof(NormalReduceState));
-	SetupNormalReduceState(normal, drmq, crstate, false);
+	SetupNormalReduceState(normal, drmq, crstate, DR_MQ_ATTACH_SEND_RECV);
 	crstate->private_state = normal;
 	ExecSetExecProcNode(&crstate->ps, ExecParallelReduceAttach);
 	MemoryContextSwitchTo(oldcontext);
@@ -730,7 +735,7 @@ static void InitParallelReduceFirstCommon(ClusterReduceState *node, ParallelCont
 			shm_mq_create(drmq[i].worker_sender_mq, sizeof(drmq->worker_sender_mq));
 		}
 
-		SetupNormalReduceState(&state->normal, drmq, node, false);
+		SetupNormalReduceState(&state->normal, drmq, node, DR_MQ_ATTACH_SEND_RECV);
 		DynamicReduceStartParallelPlan(node->ps.plan->plan_node_id,
 									   pcxt->seg,
 									   drmq,
@@ -740,7 +745,7 @@ static void InitParallelReduceFirstCommon(ClusterReduceState *node, ParallelCont
 		on_dsm_detach(pcxt->seg, OnDsmDatchShutdownReduce, PointerGetDatum(node));
 	}else
 	{
-		SetupNormalReduceState(&state->normal, &drmq[ParallelWorkerNumber+1], node, false);
+		SetupNormalReduceState(&state->normal, &drmq[ParallelWorkerNumber+1], node, DR_MQ_ATTACH_SEND_RECV);
 	}
 	ExecSetExecProcNode(&node->ps, ExecParallelReduceFirstPrepare);
 
@@ -931,6 +936,66 @@ static void EndAdvanceReduce(AdvanceReduceState *state, ClusterReduceState *crs)
 }
 
 /* ========================= advance parallel ======================= */
+static void ExecAdvanceParallelReduceWaitRemote(AdvanceParallelSharedMemory *shm, dsm_segment *dsm_seg, TupleTableSlot *slot)
+{
+	shm_mq_handle  *mqh;
+	StringInfoData	buf;
+	uint32			state;
+	uint8			flag PG_USED_FOR_ASSERTS_ONLY;
+
+	state = pg_atomic_read_u32(&shm->remote_state);
+re_switch:
+	CHECK_FOR_INTERRUPTS();
+	switch(state)
+	{
+	case APSM_REMOTE_WAIT_GET:
+		if(pg_atomic_compare_exchange_u32(&shm->remote_state, &state, APSM_REMOTE_GETTING) == false)
+			goto re_switch;
+
+		PG_TRY();
+		{
+			initStringInfo(&buf);
+			shm_mq_set_receiver((shm_mq*)shm->sts.sfs.mq.reduce_sender_mq, MyProc);
+			mqh = shm_mq_attach((shm_mq*)shm->sts.sfs.mq.reduce_sender_mq, dsm_seg, NULL);
+			flag = DynamicReduceRecvTuple(mqh, slot, &buf, NULL, false);
+			Assert(flag == DR_MSG_RECV && TupIsNull(slot));
+		}PG_CATCH();
+		{
+			/* set remote state to failed */
+			state = APSM_REMOTE_GETTING;
+			flag = pg_atomic_compare_exchange_u32(&shm->remote_state, &state, APSM_REMOTE_FAILED);
+			Assert(flag == true);
+			ConditionVariableBroadcast(&shm->cv);
+			PG_RE_THROW();
+		}PG_END_TRY();
+
+		state = APSM_REMOTE_GETTING;
+		flag = pg_atomic_compare_exchange_u32(&shm->remote_state, &state, APSM_REMOTE_GOT);
+		Assert(flag == true);
+		ConditionVariableBroadcast(&shm->cv);
+		pfree(buf.data);
+		shm_mq_detach(mqh);
+		break;
+	case APSM_REMOTE_GETTING:
+		do
+		{
+			ConditionVariableSleep(&shm->cv, WAIT_EVENT_DATA_FILE_READ);
+		}while ((state = pg_atomic_read_u32(&shm->remote_state)) == APSM_REMOTE_GETTING);
+		ConditionVariableCancelSleep();
+		goto re_switch;
+	case APSM_REMOTE_GOT:
+		break;
+	case APSM_REMOTE_FAILED:
+		ereport(ERROR,
+				(errmsg("other worker set advance parallel reduce to failed")));
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknown advance parallel reduce remote state %u", state)));
+	}
+}
+
 static TupleTableSlot* ExecAdvanceParallelReduce(PlanState *ps)
 {
 	AdvanceParallelState   *state = castNode(ClusterReduceState, ps)->private_state;
@@ -952,34 +1017,7 @@ re_get_:
 
 	sts_end_parallel_scan(cur_node->accessor);
 	if (cur_node->nodeoid == PGXCNodeOid)
-	{
-		AdvanceParallelSharedMemory *shm = state->shm;
-		if (IsParallelWorker())
-		{
-			while(pg_atomic_unlocked_test_flag(&shm->got_remote))
-				ConditionVariableSleep(&shm->cv, WAIT_EVENT_DATA_FILE_READ);
-
-			ConditionVariableCancelSleep();
-		}else
-		{
-			uint8 flag PG_USED_FOR_ASSERTS_ONLY;
-			Assert(pg_atomic_unlocked_test_flag(&shm->got_remote));
-			/* wait dynamic reduce end of plan */
-			flag = DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
-										  ps->ps_ResultTupleSlot,
-										  &state->normal.drio.recv_buf,
-										  NULL,
-										  false);
-			Assert(flag == DR_MSG_RECV && TupIsNull(ps->ps_ResultTupleSlot));
-
-			if (pg_atomic_test_set_flag(&shm->got_remote) == false)
-				ereport(ERROR,
-						(errcode(ERRCODE_DATA_CORRUPTED),
-						 errmsg("set got remote flag failed")));
-
-			ConditionVariableBroadcast(&shm->cv);
-		}
-	}
+		ExecAdvanceParallelReduceWaitRemote(state->shm, state->normal.dsm_seg, ps->ps_ResultTupleSlot);
 
 	cur_node = &cur_node[1];
 	if (cur_node >= &state->nodes[state->nnodes])
@@ -992,6 +1030,17 @@ re_get_:
 	}
 
 	return ExecClearTuple(ps->ps_ResultTupleSlot);
+}
+
+static void DriveAdvanceParallelReduce(ClusterReduceState *node)
+{
+	AdvanceParallelState   *state = node->private_state;
+	if (!IsParallelWorker())
+	{
+		ExecAdvanceParallelReduceWaitRemote(state->shm,
+											state->normal.dsm_seg,
+											node->ps.ps_ResultTupleSlot);
+	}
 }
 
 static AdvanceParallelNode* BeginAdvanceSharedTuplestore(AdvanceParallelNode *arr, DynamicReduceSTS sts,
@@ -1099,11 +1148,11 @@ static void BeginAdvanceParallelReduce(ClusterReduceState *crstate)
 	state->nnodes = count;
 	state->normal.dsm_seg = dsm_create(offsetof(AdvanceParallelSharedMemory, sts) + DRSTSD_SIZE(APR_NPART, count), 0);
 	state->shm = shm = dsm_segment_address(state->normal.dsm_seg);
-	SetupNormalReduceState(&state->normal, &shm->sts.sfs.mq, crstate, true);
+	SetupNormalReduceState(&state->normal, &shm->sts.sfs.mq, crstate, DR_MQ_INIT_ATTACH_SEND|DR_MQ_INIT_RECV);
 	SharedFileSetInit(&shm->sts.sfs.sfs, state->normal.dsm_seg);
 	state->cur_node = BeginAdvanceSharedTuplestore(state->nodes, &shm->sts, oid_list, true);
 	Assert(state->cur_node->nodeoid == PGXCNodeOid);
-	pg_atomic_init_flag(&shm->got_remote);
+	pg_atomic_init_u32(&shm->remote_state, APSM_REMOTE_WAIT_GET);
 	ConditionVariableInit(&shm->cv);
 
 	DynamicReduceStartSharedTuplestorePlan(crstate->ps.plan->plan_node_id,
@@ -1806,8 +1855,9 @@ ExecReScanClusterReduce(ClusterReduceState *node)
 		{
 			AdvanceParallelState   *state = node->private_state;
 			AdvanceParallelNode	   *node;
-			uint32					i;
+			uint32					i,remote_state;
 
+			remote_state = pg_atomic_read_u32(&state->shm->remote_state);
 			state->cur_node = NULL;
 			for (i=0;i<state->nnodes;++i)
 			{
@@ -1815,7 +1865,9 @@ ExecReScanClusterReduce(ClusterReduceState *node)
 				if (node->accessor)
 				{
 					sts_end_parallel_scan(node->accessor);
-					sts_reinitialize(node->accessor);	/* rescan */
+					if (node->nodeoid == PGXCNodeOid ||
+						remote_state == APSM_REMOTE_GOT)
+						sts_reinitialize(node->accessor);	/* rescan */
 				}
 				if (node->nodeoid == PGXCNodeOid)
 				{
@@ -1877,7 +1929,9 @@ DriveClusterReduceState(ClusterReduceState *node)
 	{
 	case RT_NOTHING:
 	case RT_ADVANCE:
+		break;
 	case RT_ADVANCE_PARALLEL:
+		DriveAdvanceParallelReduce(node);
 		break;
 	case RT_NORMAL:
 		DriveNormalReduce(node);

@@ -33,6 +33,15 @@
 #define DR_CACHE_ON_DISK_AUTO		0x1
 #define DR_CACHE_ON_DISK_ALWAYS		0x2
 
+#define DR_MQ_INIT_SEND				0x01
+#define DR_MQ_ATTACH_SEND			0x02
+#define DR_MQ_INIT_ATTACH_SEND		(DR_MQ_INIT_SEND|DR_MQ_ATTACH_SEND)
+#define DR_MQ_INIT_RECV				0x04
+#define DR_MQ_ATTACH_RECV			0x08
+#define DR_MQ_INIT_ATTACH_RECV		(DR_MQ_INIT_RECV|DR_MQ_ATTACH_RECV)
+#define DR_MQ_ATTACH_SEND_RECV		(DR_MQ_ATTACH_SEND|DR_MQ_ATTACH_RECV)
+#define DR_MQ_INIT_ATTACH_SEND_RECV	(DR_MQ_INIT_ATTACH_SEND|DR_MQ_INIT_ATTACH_RECV)
+
 typedef struct DynamicReduceNodeInfo
 {
 	Oid			node_oid;
@@ -159,7 +168,7 @@ extern void SerializeDynamicReduceNodeInfo(StringInfo buf, const DynamicReduceNo
 extern uint32 RestoreDynamicReduceNodeInfo(StringInfo buf, DynamicReduceNodeInfo **info);
 
 /* in dr_fetch.c */
-extern void DynamicReduceInitFetch(DynamicReduceIOBuffer *io, dsm_segment *seg, TupleDesc desc,
+extern void DynamicReduceInitFetch(DynamicReduceIOBuffer *io, dsm_segment *seg, TupleDesc desc, uint32 flags,
 								   void *send_addr, Size send_size, void *recv_addr, Size recv_size);
 extern void DynamicReduceClearFetch(DynamicReduceIOBuffer *io);
 extern TupleTableSlot* DynamicReduceFetchSlot(DynamicReduceIOBuffer *io);
