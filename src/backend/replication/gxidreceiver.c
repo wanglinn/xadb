@@ -830,7 +830,9 @@ static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test,
 	int						procno = MyProc->pgprocno;
 	int						rc;
 	int						waitEvent;
+	bool					ret;
 
+	ret = true;
 	while ((*test)(context, reters))
 	{
 		bool in_ret_list = false;
@@ -888,8 +890,7 @@ static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test,
 			exit(1);
 		}else if(rc & WL_TIMEOUT)
 		{
-			LOCK_GXID_RCV();
-			return false;
+			ret = false;
 		}
 
 		LOCK_GXID_RCV();
@@ -906,7 +907,7 @@ static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test,
 		}
 	}
 
-	return true;
+	return ret;
 }
 
 static void
