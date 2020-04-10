@@ -11,8 +11,6 @@
 void DynamicReduceInitFetch(DynamicReduceIOBuffer *io, dsm_segment *seg, TupleDesc desc, uint32 flags,
 							void *send_addr, Size send_size, void *recv_addr, Size recv_size)
 {
-	shm_mq	   *mq;
-
 	io->mqh_sender = io->mqh_receiver = NULL;
 
 	if (flags & DR_MQ_INIT_SEND)

@@ -13,9 +13,9 @@ EmptyResultState *ExecInitEmptyResult(EmptyResult *node, EState *estate, int efl
 	ListCell *lc;
 	EmptyResultState *ers = makeNode(EmptyResultState);
 
-	ers->ps.plan = (Plan*) node;
-	ers->ps.state = estate;
-	ers->ps.ExecProcNode = ExecEmptyResult;
+	ers->plan = (Plan*) node;
+	ers->state = estate;
+	ers->ExecProcNode = ExecEmptyResult;
 
 	/*
 	 * initialize outer and inner nodes if exist
@@ -28,7 +28,7 @@ EmptyResultState *ExecInitEmptyResult(EmptyResult *node, EState *estate, int efl
 	/*
 	 * initialize tuple table and tuple type
 	 */
-	ExecInitResultTupleSlotTL(estate, &ers->ps);
+	ExecInitResultTupleSlotTL(estate, ers);
 
 	foreach (lc, node->subPlan)
 	{
@@ -37,18 +37,7 @@ EmptyResultState *ExecInitEmptyResult(EmptyResult *node, EState *estate, int efl
 		 * just init it, let it save in PlanState::subPlan
 		 * so AdvanceReduce known it
 		 */
-		ExecInitExpr(lfirst(lc), &ers->ps);
-	}
-
-	/* initialize special node if need */
-	switch(node->typeFrom)
-	{
-	case T_BitmapAnd:
-	case T_BitmapOr:
-	case T_BitmapIndexScan:
-		ers->special = (Node*)tbm_create(64*1024, node->isshared ? estate->es_query_dsa : NULL);
-	default:
-		break;
+		ExecInitExpr(lfirst(lc), ers);
 	}
 
 	return ers;
@@ -56,15 +45,19 @@ EmptyResultState *ExecInitEmptyResult(EmptyResult *node, EState *estate, int efl
 
 static TupleTableSlot *ExecEmptyResult(PlanState *pstate)
 {
-	EmptyResultState *node = castNode(EmptyResultState, pstate);
-	if (node->special)
+	switch(castNode(EmptyResult, pstate->plan)->typeFrom)
 	{
+	case T_BitmapAnd:
+	case T_BitmapOr:
+	case T_BitmapIndexScan:
 		elog(ERROR,
 			 "Empty result node does not support ExecProcNode call convention when from %d",
-			 ((EmptyResult*)(node->ps.plan))->typeFrom);
+			 ((EmptyResult*)(pstate->plan))->typeFrom);
+	default:
+		break;
 	}
 
-	return ExecClearTuple(node->ps.ps_ResultTupleSlot);
+	return ExecClearTuple(pstate->ps_ResultTupleSlot);
 }
 
 void ExecEndEmptyResult(EmptyResultState *node)
@@ -89,13 +82,20 @@ void ExecReScanEmptyResult(EmptyResultState *node)
 
 Node* MultiExecEmptyResult(EmptyResultState *node)
 {
-	if (node->special == NULL)
+	EmptyResult *er = castNode(EmptyResult, node->plan);
+	switch(er->typeFrom)
 	{
+	case T_BitmapAnd:
+	case T_BitmapOr:
+	case T_BitmapIndexScan:
+		return (Node*)tbm_create(64*1024, er->isshared ? node->state->es_query_dsa : NULL);
+	default:
 		elog(ERROR,
 			 "Empty result node does not MultiExecProcNode call when from %d",
-			 ((EmptyResult*)(node->ps.plan))->typeFrom);
+			 ((EmptyResult*)(node->plan))->typeFrom);
+		break;
 	}
-	return node->special;
+	return NULL;	/* never run, keep compiler quiet */
 }
 
 static bool FindSubPlanWalker(Node *node, EmptyResult *result)
