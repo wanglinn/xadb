@@ -1198,7 +1198,7 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-							errmsg("wait last xid commit time out, which version is %u", gfxid),
+							errmsg("wait global last xid commit time out, which version is %u", gfxid),
 							errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
 				}
 			}
@@ -1214,7 +1214,7 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-						errmsg("wait last xid commit time out, which version is %u", last_mxid),
+						errmsg("wait session last xid commit time out, which version is %u", last_mxid),
 						errhint("you can modfiy guc parameter \"waitglobaltransaction\" on coordinators to wait the global transaction id committed on agtm")));
 			}
 		}
