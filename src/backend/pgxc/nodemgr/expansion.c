@@ -715,40 +715,84 @@ static List* GetHashNodesValues(oidvector *oids, HeapTuple tup, TupleDesc desc)
 	return result;
 }
 
-static uint32 GetLeastCommonMultiple(List *factor)
+static uint32 GetOldModulus(List *old_values, oidvector *old_nodeoids, Oid nodeoid)
+{
+	List	   *list;
+	int			n;
+
+	Assert(list_length(old_values) == old_nodeoids->dim1);
+	n = old_nodeoids->dim1;
+	while (n>0)
+	{
+		if (old_nodeoids->values[--n] == nodeoid)
+		{
+			list = list_nth(old_values, n);
+			Assert(IsA(list, IntList));
+			return list_length(list);
+		}
+	}
+
+	ereport(ERROR,
+			(errcode(ERRCODE_INTERNAL_ERROR),
+			 errmsg("can not found old node info for %u", nodeoid)));
+	return 0;	/* never run, keep compiler quiet */
+}
+
+static uint32 GetBestMultiple(List *old_values, oidvector *old_nodeoids, List *expansion)
 {
 	ListCell   *lc;
-	uint32		max_val;
-	uint32		n;
-	uint32		multiple;
-	bool		hint;
-	Assert(IsA(factor, IntList));
+	List	   *list;
+	List	   *multiple = NIL;
+	uint32		new_modulus;
+	uint32		old_modulus;
+	uint32		least_common;
+	uint32		max,min;
 
-	/* find max factor */
-	max_val = 0;
-	foreach (lc, factor)
+	foreach (lc, expansion)
 	{
-		n = lfirst_int(lc);
-		if (n>max_val)
-			max_val = n;
-	}
-
-	for(multiple=max_val;;multiple+=max_val)
-	{
-		hint = false;
-		foreach (lc, factor)
+		list = lfirst(lc);
+		Assert(IsA(list, OidList));
+		new_modulus = list_length(list);
+		old_modulus = GetOldModulus(old_values, old_nodeoids, linitial_oid(list));
+		if (new_modulus >= old_modulus)
 		{
-			n = lfirst_int(lc);
-			if (multiple%n != 0)
-			{
-				hint = true;
-				break;
-			}
+			max = new_modulus;
+			min = old_modulus;
+		}else
+		{
+			max = old_modulus;
+			min = new_modulus;
 		}
-		if (hint == false)
-			break;
+		least_common = max;
+		while (least_common % min != 0)
+			least_common += max;
+		Assert(least_common % old_modulus == 0);
+		multiple = list_append_unique_int(multiple, least_common/old_modulus);
 	}
-	return multiple;
+
+	/* find max value */
+	lc = list_head(multiple);
+	least_common = lfirst_int(lc);
+	for_each_cell (lc, lnext(lc))
+	{
+		if (least_common < lfirst_int(lc))
+			least_common = lfirst_int(lc);
+	}
+	max = least_common;
+	multiple = list_delete_int(multiple, least_common);
+
+re_loop_:
+	foreach (lc, multiple)
+	{
+		if (least_common % lfirst_int(lc) != 0)
+		{
+			least_common += max;
+			goto re_loop_;
+		}
+	}
+
+	list_free(multiple);
+	return least_common;
 }
 
 static void ReplaceHashExpansionNode(Oid *oids, uint32 count, List *expansion)
@@ -758,7 +802,6 @@ static void ReplaceHashExpansionNode(Oid *oids, uint32 count, List *expansion)
 	Oid				oid;
 	uint32			n;
 	Assert(count > 0 && list_length(expansion) > 0);
-	Assert(count % list_length(expansion) == 0);
 
 	bms = NULL;
 	oid = linitial_oid(expansion);
@@ -791,8 +834,6 @@ static HeapTuple ExpansionHashUpdate(Form_pgxc_class form_class, HeapTuple tup, 
 								Relation rel_class, CatalogIndexState indstate, List **new_values)
 {
 	ListCell	   *lc;
-	List		   *list;
-	List		   *factor;
 	List		   *old_values;
 	Oid			   *new_oid_remainder;
 	Oid			   *new_oids;
@@ -803,27 +844,16 @@ static HeapTuple ExpansionHashUpdate(Form_pgxc_class form_class, HeapTuple tup, 
 	old_values = GetHashNodesValues(&form_class->nodeoids, tup, RelationGetDescr(rel_class));
 	Assert(list_length(old_values) == form_class->nodeoids.dim1);
 
-	/* get all old factor and modulus */
-	factor = NIL;
+	/* get old modulu */
 	old_modulus = 0;
 	foreach (lc, old_values)
 	{
-		list = lfirst(lc);
-		Assert(IsA(list, IntList));
-		n = list_length(list);
-		factor = list_append_unique_int(factor, n);
-		old_modulus += n;
-	}
-	/* append new all factor */
-	foreach (lc, expansion)
-	{
-		list = lfirst(lc);
-		Assert(IsA(list, OidList));
-		factor = list_append_unique_int(factor, list_length(list));
+		Assert(IsA(lfirst(lc), IntList));
+		old_modulus += list_length(lfirst(lc));
 	}
 
 	/* get best new modulus */
-	new_modulus = GetLeastCommonMultiple(factor) * old_modulus;
+	new_modulus = GetBestMultiple(old_values, &form_class->nodeoids, expansion) * old_modulus;
 
 	/* expansion old modulus to new modulus */
 	new_oid_remainder = palloc(sizeof(Oid)*new_modulus);
