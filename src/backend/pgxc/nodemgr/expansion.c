@@ -1622,6 +1622,7 @@ static int ProcessClusterCleanCommand(ClusterCleanContext *context, const char *
 	int				msgtype;
 	Oid				relid;
 	BlockNumber		block;
+	XLogRecPtr		recptr;
 	OffsetNumber	clean_items[MaxHeapTuplesPerPage];
 	int				clean_nitem;
 
@@ -1636,6 +1637,7 @@ static int ProcessClusterCleanCommand(ClusterCleanContext *context, const char *
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
 				 errmsg("unexpected cluster command 0x%02X during COPY from coordinator", msgtype)));
 	}
+	recptr = InvalidXLogRecPtr;
 	rel = NULL;
 	relid = load_oid_class_extend(&buf, true);
 	if (!OidIsValid(relid))
@@ -1657,7 +1659,6 @@ static int ProcessClusterCleanCommand(ClusterCleanContext *context, const char *
 		OffsetNumber	lineoff;
 		ItemId			lpp;
 		HeapTupleData	loctup;
-		XLogRecPtr		recptr;
 		Buffer			buffer = ReadBuffer(rel, block);
 		Page			page = BufferGetPage(buffer);
 
@@ -1707,6 +1708,8 @@ end_clean_rel_:
 		HeapTuple tup = SearchSysCache2(ADBCLEANOID, ObjectIdGetDatum(MyDatabaseId), relid);
 		if (HeapTupleIsValid(tup))
 		{
+			if (recptr != InvalidXLogRecPtr)
+				XLogFlush(recptr);	/* before clean rel info, flush last XLOG */
 			finish_clean_rel(context->rel_clean, &tup->t_self, InvalidBuffer);
 			ReleaseSysCache(tup);
 		}
