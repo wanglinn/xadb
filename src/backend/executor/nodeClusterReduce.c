@@ -417,6 +417,19 @@ static TupleTableSlot* ExecReduceFirstWaitRemote(PlanState *pstate)
 		state->file_no = info.u32;
 		state->ready_remote = true;
 		MemoryContextSwitchTo(oldcontext);
+		/* should get EOF message */
+		flags = DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
+									   slot,
+									   &state->normal.drio.recv_buf,
+									   NULL,
+									   false);
+		if (flags != DR_MSG_RECV || !TupIsNull(slot))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("got message %d and slot empty is %d", flags, TupIsNull(slot)),
+					 errdetail("expect %d and slot empty is %d", DR_MSG_RECV, true)));
+		}
 		ExecSetExecProcNode(pstate, ExecReduceFirstRemote);
 		return ExecReduceFirstRemote(pstate);
 	}else if (flags == DR_MSG_RECV_STS)
