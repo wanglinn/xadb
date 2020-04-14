@@ -1309,11 +1309,10 @@ static void ExecMergeReduceLocal(ClusterReduceState *node)
 									  DRFetchSaveSFS);
 }
 
-static TupleTableSlot* ExecMergeReduceFinal(PlanState *pstate)
+static inline void ExecMergeReduceWaitRemote(ClusterReduceState *node, MergeReduceState *merge)
 {
-	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
-	MergeReduceState   *merge = node->private_state;
 	uint8				flag PG_USED_FOR_ASSERTS_ONLY;
+	Assert(merge->normal.drio.eof_remote == false);
 
 	/* wait dynamic reduce end of plan */
 	flag = DynamicReduceRecvTuple(merge->normal.drio.mqh_receiver,
@@ -1324,10 +1323,18 @@ static TupleTableSlot* ExecMergeReduceFinal(PlanState *pstate)
 	Assert(flag = DR_MSG_RECV && TupIsNull(node->ps.ps_ResultTupleSlot));
 	merge->normal.drio.eof_remote = true;
 
-	ExecSetExecProcNode(&node->ps, ExecMergeReduce);
-
 	OpenMergeBufFiles(merge);
 	BuildMergeBinaryHeap(merge);
+}
+
+static TupleTableSlot* ExecMergeReduceFinal(PlanState *pstate)
+{
+	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
+	MergeReduceState   *merge = node->private_state;
+
+	ExecMergeReduceWaitRemote(node, merge);
+
+	ExecSetExecProcNode(&node->ps, ExecMergeReduce);
 	return GetMergeReduceResult(merge, node);
 }
 
@@ -1443,6 +1450,8 @@ static void DriveMergeReduce(ClusterReduceState *node)
 		Assert(merge->normal.drio.eof_local);
 		ExecSetExecProcNode(&node->ps, ExecMergeReduceFinal);
 	}
+	if (merge->normal.drio.eof_remote == false)
+		ExecMergeReduceWaitRemote(node, merge);
 }
 
 static void BeginAdvanceMerge(ClusterReduceState *crstate)
