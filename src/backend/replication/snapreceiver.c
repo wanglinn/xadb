@@ -1043,6 +1043,8 @@ static bool WaitSnapRcvEvent(TimestampTz end, proclist_head *waiters, bool is_ss
 		}
 
 		LOCK_SNAP_RCV();
+		if (ret == false)
+			break;
 	}
 
 	/* check if we still in waiting list, remove */
