@@ -424,6 +424,7 @@ InitProcess(void)
 	MyProc->isBackgroundWorker = IsBackgroundWorker;
 #ifdef ADB
 	MyProc->isPooler = IsPGXCPoolerProcess();
+	MyPgXact->isClusterVacuum = false;
 #endif
 	MyPgXact->delayChkpt = false;
 	MyPgXact->vacuumFlags = 0;
@@ -640,6 +641,7 @@ found_free_:
 	MyProc->roleId = InvalidOid;
 #ifdef ADB
 	MyProc->isPooler = IsPGXCPoolerProcess();
+	MyPgXact->isClusterVacuum = false;
 #endif
 	MyProc->tempNamespaceId = InvalidOid;
 	MyProc->isBackgroundWorker = IsBackgroundWorker;
