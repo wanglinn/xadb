@@ -894,9 +894,11 @@ static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test,
 		}
 
 		LOCK_GXID_RCV();
+		if (ret == false)
+			break;
 	}
 
-	
+
 	/* check if we still in waiting list, remove */
 	proclist_foreach_modify(iter, reters, GxidWaitLink)
 	{
