@@ -1820,6 +1820,7 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 		(params->options & VACOPT_IN_CLUSTER))
 	{
 		relid = RangeVarGetRelid(relation, AccessShareLock, true);
+		MyPgXact->isClusterVacuum = true;
 	}
 #endif /* ADB */
 

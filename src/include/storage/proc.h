@@ -259,6 +259,9 @@ typedef struct PGXACT
 								 * previously called InCommit */
 
 	uint8		nxids;
+#ifdef ADB
+	bool		isClusterVacuum;
+#endif
 } PGXACT;
 
 /*

@@ -491,7 +491,8 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid ADB_ONLY_COMMA_ARG
 				GixRcvCommitTransactionId(latestXid, isCommit);
 		}
 
-		if (TransactionIdIsValid(latestXid) && IsConnFromCoord() && !IsGTMNode())
+		if (TransactionIdIsValid(latestXid) && IsConnFromCoord() &&
+			!IsGTMNode() && !pgxact->isClusterVacuum)
 		{
 			UpdateAdbLastFinishXid(latestXid);
 		}
@@ -513,7 +514,9 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid ADB_ONLY_COMMA_ARG
 		pgxact->vacuumFlags &= ~PROC_VACUUM_STATE_MASK;
 		pgxact->delayChkpt = false; /* be sure this is cleared in abort */
 		proc->recoveryConflictPending = false;
-
+#ifdef ADB
+		pgxact->isClusterVacuum = false;
+#endif
 		Assert(pgxact->nxids == 0);
 		Assert(pgxact->overflowed == false);
 	}
