@@ -586,7 +586,7 @@ static TupleTableSlot* ExecParallelReduceFirstPrepare(PlanState *pstate)
 		 */
 		if (state->normal.drio.eof_local == false)
 		{
-			TupleTableSlot *slot = DynamicReduceFetchLocal(&state->normal.drio);
+			TupleTableSlot *slot PG_USED_FOR_ASSERTS_ONLY = DynamicReduceFetchLocal(&state->normal.drio);
 			Assert(TupIsNull(slot));	/* should no more tuple */
 			Assert(state->normal.drio.eof_local == true);	/* should set eof_local */
 			Assert(state->normal.drio.send_buf.len > 0);	/* and should have an eof message */
