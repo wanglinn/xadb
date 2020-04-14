@@ -13467,8 +13467,6 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 	if (updateAll)
 	{
 		readonlySqlSlaveInfoRefreshComplete = true;
-		ereport(NOTICE, 
-				(errmsg("Updating pgxc_node successfully at all datanode master.")));
 	}
 	else
 	{
@@ -13630,9 +13628,6 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 			return false;
 		}
 		PQclear(res);
-		ereport(NOTICE, 
-				(errmsg("Update pgxc_node successfully in '%s'.", 
-						cn_master_node->nodename.data)));
 	}
 	else
 		ereport(WARNING, 
