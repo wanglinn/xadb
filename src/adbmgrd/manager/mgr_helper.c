@@ -2033,6 +2033,7 @@ bool callAgentRewindNode(MgrNodeWrapper *masterNode,
 						   &cmdMessage,
 						   slaveNode->host->hostaddr,
 						   slaveNode->host->form.hostagentport);
+	setSlaveNodeRecoveryConf(masterNode, slaveNode);
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
@@ -2422,6 +2423,51 @@ void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
 	}
 }
 
+void dn_master_replication_slot(char *nodename, char *slot_name, char operate)
+{
+	
+	char *sql ;
+	bool is_exist, is_running;
+	AppendNodeInfo nodeinfo;
+	char *address;
+	char *user;
+	int agentPort;
+	int max_try = 3;
+	StringInfoData restmsg;
+
+	
+	if (operate == 'c')
+		sql = psprintf("select pg_create_physical_replication_slot('%s')",slot_name);
+	else if (operate == 'd')
+		sql = psprintf("select pg_drop_replication_slot('%s')",slot_name);
+
+	memset(&nodeinfo, 0, sizeof(AppendNodeInfo));
+	mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_MASTER,true,
+							&is_exist, &is_running, &nodeinfo);	
+	if (!nodeinfo.nodehost)
+		mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_SLAVE,true,
+							&is_exist, &is_running, &nodeinfo);
+	if (!nodeinfo.nodehost)
+		mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_MASTER,false,
+							&is_exist, &is_running, &nodeinfo);
+
+	agentPort = get_agentPort_from_hostoid(nodeinfo.nodehost);
+	user = get_hostuser_from_hostoid(nodeinfo.nodehost);
+	address = get_hostaddress_from_hostoid(nodeinfo.nodehost);
+	
+	initStringInfo(&restmsg);
+	resetStringInfo(&restmsg);
+	while (max_try--  >= 0)
+	{
+		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sql, user, address, nodeinfo.nodeport, DEFAULT_DB, &restmsg);
+		if (restmsg.data)
+			break;
+
+	}
+	pfree(restmsg.data);
+}
+
+
 void setSlaveNodeRecoveryConf(MgrNodeWrapper *masterNode,
 							  MgrNodeWrapper *slaveNode)
 {
@@ -2438,6 +2484,11 @@ void setSlaveNodeRecoveryConf(MgrNodeWrapper *masterNode,
 									  NameStr(slaveNode->form.nodename));
 	items->next->next = newPGConfParameterItem("primary_conninfo",
 											   primary_conninfo_value, true);
+	/* if node is datanode slave , then update primary_slot_name in recovery.conf*/ 
+	if (slaveNode->form.nodetype == CNDN_TYPE_DATANODE_SLAVE)
+		dn_master_replication_slot(NameStr(masterNode->form.nodename),NameStr(slaveNode->form.nodename),'c');
+		items->next->next->next = newPGConfParameterItem("primary_slot_name",
+											   NameStr(slaveNode->form.nodename), false);
 	pfree(primary_conninfo_value);
 
 	callAgentRefreshRecoveryConf(slaveNode, items, true);
@@ -3704,3 +3755,4 @@ bool setPGHbaTrustMyself(MgrNodeWrapper *mgrNode)
 	}
 	return true;
 }
+
