@@ -1602,6 +1602,18 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 					 master_nodeinfo.nodename);
 
 	res = mgr_ma_send_cmd_get_original_result(cmdtype, infosendmsg.data, slave_nodeinfo.nodehost, strinfo, AGENT_RESULT_LOG);
+	/*connect to master create replication slot*/
+	dn_master_replication_slot(master_nodeinfo.nodename,slave_nodeinfo.nodename,'c');
+	/*update primary_slot_name of slave node's recovery.conf*/
+	resetStringInfo(&infosendmsg);
+	mgr_append_pgconf_paras_str_quotastr("primary_slot_name", slave_nodeinfo.nodename, &infosendmsg);
+	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF,
+								slave_nodeinfo.nodepath,
+								&infosendmsg,
+								slave_nodeinfo.nodehost,
+								&getAgentCmdRst);
+	if (!getAgentCmdRst.ret)
+		ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
 	pfree(restmsg.data);
 	pfree(infosendmsg.data);
 	pfree_AppendNodeInfo(master_nodeinfo);

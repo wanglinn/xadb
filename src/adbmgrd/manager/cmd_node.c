@@ -24,6 +24,8 @@
 #include "mgr/mgr_cmds.h"
 #include "mgr/mgr_agent.h"
 #include "mgr/mgr_msg_type.h"
+#include "mgr/mgr_helper.h"
+#include "mgr/mgr_switcher.h"
 #include "miscadmin.h"
 #include "nodes/parsenodes.h"
 #include "parser/mgr_node.h"
@@ -1196,7 +1198,7 @@ mgr_init_dn_slave_all(PG_FUNCTION_ARGS)
 {
 	InitNodeInfo *info;
 	GetAgentCmdRst getAgentCmdRst;
-	Form_mgr_node mgr_node;
+	Form_mgr_node mgr_node,slave_node;
 	FuncCallContext *funcctx;
 	HeapTuple tuple
 			,tup_result,
@@ -1206,6 +1208,8 @@ mgr_init_dn_slave_all(PG_FUNCTION_ARGS)
 	Oid masterhostOid;
 	char *masterhostaddress;
 	char *mastername;
+	char *slave_nodepath;
+	StringInfoData infosendmsg;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
@@ -1242,6 +1246,8 @@ mgr_init_dn_slave_all(PG_FUNCTION_ARGS)
 	}
 	/*get nodename*/
 	mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+	slave_node = (Form_mgr_node)GETSTRUCT(tuple);
+	slave_nodepath=get_nodepath_from_tupleoid(HeapTupleGetOid(tuple));
 	Assert(mgr_node);
 	/*get the master port, master host address*/
 	mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(mgr_node->nodemasternameoid));
@@ -1262,6 +1268,21 @@ mgr_init_dn_slave_all(PG_FUNCTION_ARGS)
 	ReleaseSysCache(mastertuple);
 	initStringInfo(&(getAgentCmdRst.description));
 	mgr_init_dn_slave_get_result(AGT_CMD_CNDN_SLAVE_INIT, &getAgentCmdRst, info->rel_node, tuple, masterhostaddress, masterport, mastername);
+	/*connect to master create replication slot*/
+	dn_master_replication_slot(mastername,NameStr(slave_node->nodename),'c');
+	/*update primary_slot_name of slave node's recovery.conf*/
+	initStringInfo(&infosendmsg);
+	getAgentCmdRst.ret = false;
+	mgr_append_pgconf_paras_str_quotastr("primary_slot_name", NameStr(slave_node->nodename), &infosendmsg);
+	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF,
+								slave_nodepath,
+								&infosendmsg,
+								slave_node->nodehost,
+								&getAgentCmdRst);
+	// if (!getAgentCmdRst.ret)
+	// 	ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
+	pfree(infosendmsg.data);
+	pfree(slave_nodepath);
 	pfree(masterhostaddress);
 	tup_result = build_common_command_tuple(
 		&(getAgentCmdRst.nodename)
@@ -4114,6 +4135,9 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 		mgr_append_pgconf_paras_str_quotastr("standby_mode", "on", &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("primary_conninfo", primary_conninfo_value.data, &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("recovery_target_timeline", "latest", &infosendmsg);
+		/*connect to master create slot and update primary_slot_name of datanode slave's recovery.conf*/
+		dn_master_replication_slot(parentnodeinfo.nodename,appendnodeinfo.nodename,'c');
+		mgr_append_pgconf_paras_str_quotastr("primary_slot_name", appendnodeinfo.nodename, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF,
 								appendnodeinfo.nodepath,
 								&infosendmsg,
@@ -12565,6 +12589,8 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 		/*update the tuple*/
 		mgr_node->nodeinited = false;
 		mgr_node->nodeincluster = false;
+		if (CNDN_TYPE_DATANODE_SLAVE == nodetype)
+			dn_master_replication_slot(NameStr(mgr_masternode->nodename),NameStr(mgr_node->nodename),'d');
 		namestrcpy(&(mgr_node->nodesync), sync_state_tab[SYNC_STATE_ASYNC].name);
 		heap_inplace_update(rel, tuple);
 		heap_endscan(rel_scan);

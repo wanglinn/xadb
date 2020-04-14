@@ -599,5 +599,6 @@ extern void removeFromSyncStandbyNames(MgrNodeWrapper *masterNode,
 									   PGconn *masterPGconn,
 									   MemoryContext spiContext);
 extern bool setPGHbaTrustMyself(MgrNodeWrapper *mgrNode);
+extern void dn_master_replication_slot(char *nodename, char *slot_name, char operate);
 
 #endif /* MGR_HELPER_H */
