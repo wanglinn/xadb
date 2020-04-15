@@ -1269,6 +1269,7 @@ mgr_init_dn_slave_all(PG_FUNCTION_ARGS)
 	initStringInfo(&(getAgentCmdRst.description));
 	mgr_init_dn_slave_get_result(AGT_CMD_CNDN_SLAVE_INIT, &getAgentCmdRst, info->rel_node, tuple, masterhostaddress, masterport, mastername);
 	if (slave_node->nodetype == CNDN_TYPE_DATANODE_SLAVE)
+	{
 		/*connect to master create replication slot*/
 		dn_master_replication_slot(mastername,NameStr(slave_node->nodename),'c');
 		/*update primary_slot_name of slave node's recovery.conf*/
@@ -1282,8 +1283,12 @@ mgr_init_dn_slave_all(PG_FUNCTION_ARGS)
 									slave_node->nodehost,
 									&setrecvrst);
 		if (!setrecvrst.ret)
-			ereport(ERROR, (errmsg("%s", setrecvrst.description.data)));
+		{
+			ereport(WARNING, (errmsg("%s", setrecvrst.description.data)));
+		}
 		pfree(setrecvrst.description.data);
+	}
+		
 	pfree(infosendmsg.data);
 	pfree(slave_nodepath);
 	pfree(masterhostaddress);
@@ -12592,8 +12597,11 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 		/*update the tuple*/
 		mgr_node->nodeinited = false;
 		mgr_node->nodeincluster = false;
+		/*drop slot from datanode master*/
 		if (CNDN_TYPE_DATANODE_SLAVE == nodetype)
+		{
 			dn_master_replication_slot(NameStr(mgr_masternode->nodename),NameStr(mgr_node->nodename),'d');
+		}
 		namestrcpy(&(mgr_node->nodesync), sync_state_tab[SYNC_STATE_ASYNC].name);
 		heap_inplace_update(rel, tuple);
 		heap_endscan(rel_scan);

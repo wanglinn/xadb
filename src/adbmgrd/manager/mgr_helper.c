@@ -2451,19 +2451,30 @@ void dn_master_replication_slot(char *nodename, char *slot_name, char operate)
 
 	
 	if (operate == 'c')
+	{
 		sql = psprintf("select pg_create_physical_replication_slot('%s')",slot_name);
+	} 
 	else if (operate == 'd')
+	{
 		sql = psprintf("select pg_drop_replication_slot('%s')",slot_name);
+	}
+		
 
 	memset(&nodeinfo, 0, sizeof(AppendNodeInfo));
 	mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_MASTER,true,
 							&is_exist, &is_running, &nodeinfo);	
 	if (!nodeinfo.nodehost)
+	{
 		mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_SLAVE,true,
 							&is_exist, &is_running, &nodeinfo);
+	}
+		
 	if (!nodeinfo.nodehost)
+	{
 		mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_MASTER,false,
 							&is_exist, &is_running, &nodeinfo);
+	}
+		
 
 	agentPort = get_agentPort_from_hostoid(nodeinfo.nodehost);
 	user = get_hostuser_from_hostoid(nodeinfo.nodehost);
@@ -2502,9 +2513,12 @@ void setSlaveNodeRecoveryConf(MgrNodeWrapper *masterNode,
 	if (slaveNode->form.nodetype == CNDN_TYPE_DATANODE_SLAVE || 
 		(slaveNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER && 
 		strcmp(NameStr(slaveNode->form.curestatus),"switching") == 0))
+	{
 		dn_master_replication_slot(NameStr(masterNode->form.nodename),NameStr(slaveNode->form.nodename),'c');
 		items->next->next->next = newPGConfParameterItem("primary_slot_name",
 											   NameStr(slaveNode->form.nodename), false);
+	}
+		
 	pfree(primary_conninfo_value);
 
 	callAgentRefreshRecoveryConf(slaveNode, items, true);
