@@ -28,13 +28,25 @@ CREATE OR REPLACE FUNCTION adb_doctor_list(OUT k pg_catalog.text,
     RETURNS SETOF record STRICT
 	AS 'MODULE_PATHNAME' LANGUAGE C;
 
--- Store the configuration variables needed
+-- Store the doctor log
+CREATE TABLE IF NOT EXISTS adb_doctor_log (
+    id              SERIAL PRIMARY KEY,
+    begintime       timestamp with time zone,
+    endtime         timestamp with time zone,
+    faultnode       varchar,
+    promotednode    varchar,
+    strategy        varchar,
+    status          varchar,
+    errormsg        varchar
+);
+
+-- Store required configuration variables
 CREATE TABLE IF NOT EXISTS adb_doctor_conf (
-    k       	varchar(64) PRIMARY KEY, -- k is not case sensitive
-    v       	varchar(256) NOT NULL,
-	editable	boolean NOT NULL,
-	sortnumber  int,
-	comment		varchar
+    k             varchar(64) PRIMARY KEY, -- k is not case sensitive
+    v             varchar(256) NOT NULL,
+    editable      boolean NOT NULL,
+    sortnumber    int,
+    comment       varchar
 );
 
 -- user editable configuration variables
