@@ -1197,7 +1197,7 @@ Datum
 mgr_init_dn_slave_all(PG_FUNCTION_ARGS)
 {
 	InitNodeInfo *info;
-	GetAgentCmdRst getAgentCmdRst;
+	GetAgentCmdRst getAgentCmdRst,setrecvrst;
 	Form_mgr_node mgr_node,slave_node;
 	FuncCallContext *funcctx;
 	HeapTuple tuple
@@ -1268,19 +1268,22 @@ mgr_init_dn_slave_all(PG_FUNCTION_ARGS)
 	ReleaseSysCache(mastertuple);
 	initStringInfo(&(getAgentCmdRst.description));
 	mgr_init_dn_slave_get_result(AGT_CMD_CNDN_SLAVE_INIT, &getAgentCmdRst, info->rel_node, tuple, masterhostaddress, masterport, mastername);
-	/*connect to master create replication slot*/
-	dn_master_replication_slot(mastername,NameStr(slave_node->nodename),'c');
-	/*update primary_slot_name of slave node's recovery.conf*/
-	initStringInfo(&infosendmsg);
-	getAgentCmdRst.ret = false;
-	mgr_append_pgconf_paras_str_quotastr("primary_slot_name", NameStr(slave_node->nodename), &infosendmsg);
-	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF,
-								slave_nodepath,
-								&infosendmsg,
-								slave_node->nodehost,
-								&getAgentCmdRst);
-	// if (!getAgentCmdRst.ret)
-	// 	ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
+	if (slave_node->nodetype == CNDN_TYPE_DATANODE_SLAVE)
+		/*connect to master create replication slot*/
+		dn_master_replication_slot(mastername,NameStr(slave_node->nodename),'c');
+		/*update primary_slot_name of slave node's recovery.conf*/
+		initStringInfo(&infosendmsg);
+		initStringInfo(&(setrecvrst.description));
+		setrecvrst.ret = false;
+		mgr_append_pgconf_paras_str_quotastr("primary_slot_name", NameStr(slave_node->nodename), &infosendmsg);
+		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF,
+									slave_nodepath,
+									&infosendmsg,
+									slave_node->nodehost,
+									&setrecvrst);
+		if (!setrecvrst.ret)
+			ereport(ERROR, (errmsg("%s", setrecvrst.description.data)));
+		pfree(setrecvrst.description.data);
 	pfree(infosendmsg.data);
 	pfree(slave_nodepath);
 	pfree(masterhostaddress);
