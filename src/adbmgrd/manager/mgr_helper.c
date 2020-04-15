@@ -2499,7 +2499,9 @@ void setSlaveNodeRecoveryConf(MgrNodeWrapper *masterNode,
 	items->next->next = newPGConfParameterItem("primary_conninfo",
 											   primary_conninfo_value, true);
 	/* if node is datanode slave , then update primary_slot_name in recovery.conf*/ 
-	if (slaveNode->form.nodetype == CNDN_TYPE_DATANODE_SLAVE)
+	if (slaveNode->form.nodetype == CNDN_TYPE_DATANODE_SLAVE || 
+		(slaveNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER && 
+		strcmp(NameStr(slaveNode->form.curestatus),"switching") == 0))
 		dn_master_replication_slot(NameStr(masterNode->form.nodename),NameStr(slaveNode->form.nodename),'c');
 		items->next->next->next = newPGConfParameterItem("primary_slot_name",
 											   NameStr(slaveNode->form.nodename), false);
