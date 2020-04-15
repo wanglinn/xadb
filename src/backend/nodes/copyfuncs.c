@@ -5319,6 +5319,33 @@ _copyMGRUpdateparm(const MGRUpdateparm *from)
 	return newnode;
 }
 
+static MonitorJobAdd *
+_copyMonitorJobAdd(const MonitorJobAdd *from)
+{
+	MonitorJobAdd *newnode = makeNode(MonitorJobAdd);
+	COPY_SCALAR_FIELD(if_not_exists);
+	COPY_STRING_FIELD(name);
+	COPY_NODE_FIELD(options);
+	return newnode;
+}
+
+static MonitorJobAlter *
+_copyMonitorJobAlter(const MonitorJobAlter *from)
+{
+	MonitorJobAlter *newnode = makeNode(MonitorJobAlter);
+	COPY_STRING_FIELD(name);
+	COPY_NODE_FIELD(options);
+	return newnode;
+}
+
+static MonitorJobDrop *
+_copyMonitorJobDrop(const MonitorJobDrop *from)
+{
+	MonitorJobDrop *newnode = makeNode(MonitorJobDrop);
+	COPY_SCALAR_FIELD(if_exists);
+	COPY_NODE_FIELD(namelist);
+	return newnode;
+}
 #endif /* ADBMGRD */
 
 #ifdef ADB_EXT
@@ -6350,6 +6377,15 @@ copyObjectImpl(const void *from)
 			break;
 		case T_MGRUpdateparm:
 			retval = _copyMGRUpdateparm(from);
+			break;
+		case T_MonitorJobAdd:
+			retval = _copyMonitorJobAdd(from);
+			break;
+		case T_MonitorJobAlter:
+			retval = _copyMonitorJobAlter(from);
+			break;
+		case T_MonitorJobDrop:
+			retval = _copyMonitorJobDrop(from);
 			break;
 #endif
 #ifdef ADB_EXT
