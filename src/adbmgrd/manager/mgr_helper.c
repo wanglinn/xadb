@@ -1253,7 +1253,19 @@ bool PQexecBoolQuery(PGconn *pgConn, char *sql,
 		ereport(DEBUG1,
 				(errmsg("execute %s successfully",
 						sql)));
+		if (PQntuples(pgResult) < 1)
+		{
+			return false;
+		}
+		if (PQgetisnull(pgResult, 0, 0))
+		{
+			return false;
+		}
 		value = PQgetvalue(pgResult, 0, 0);
+		if (!value)
+		{
+			return false;
+		}
 		if (pg_strcasecmp(value, "t") == 0)
 		{
 			boolResult = expectedValue == true;
