@@ -83,12 +83,12 @@ static void OnNodeEventConnectFrom(DROnEventArgs)
 		return;
 	if (ned->recvBuf.data[ned->recvBuf.cursor] != ADB_DR_MSG_NODEOID)
 	{
-		ned->status = DRN_WAIT_CLOSE; /* on PreWait will destory it */
-		ereport(ERROR,
+		ereport(LOG_SERVER_ONLY,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
 				 DRKeepError(),
 				 errmsg("invalid message type %d from remote",
 						ned->recvBuf.data[ned->recvBuf.cursor])));
+		FreeNodeEventInfo(ned);
 		return;
 	}
 
@@ -115,7 +115,6 @@ static void OnNodeEventConnectFrom(DROnEventArgs)
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
 				 DRKeepError(),
 				 errmsg("invalid pid %d for node %u", ned->owner_pid, ned->nodeoid)));
-		FreeNodeEventInfo(ned);
 		return;
 	}else
 	{
