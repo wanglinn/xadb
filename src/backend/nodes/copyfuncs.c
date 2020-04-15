@@ -5307,6 +5307,18 @@ _copyMGRAlterHost(const MGRAlterHost *from)
 	return newnode;
 }
 
+static MGRUpdateparm *
+_copyMGRUpdateparm(const MGRUpdateparm *from)
+{
+	MGRUpdateparm *newnode = makeNode(MGRUpdateparm);
+	COPY_SCALAR_FIELD(parmtype);
+	COPY_STRING_FIELD(nodename);
+	COPY_SCALAR_FIELD(nodetype);
+	COPY_SCALAR_FIELD(is_force);
+	COPY_NODE_FIELD(options);
+	return newnode;
+}
+
 #endif /* ADBMGRD */
 
 #ifdef ADB_EXT
@@ -6335,6 +6347,9 @@ copyObjectImpl(const void *from)
 			break;
 		case T_MGRAlterHost:
 			retval = _copyMGRAlterHost(from);
+			break;
+		case T_MGRUpdateparm:
+			retval = _copyMGRUpdateparm(from);
 			break;
 #endif
 #ifdef ADB_EXT
