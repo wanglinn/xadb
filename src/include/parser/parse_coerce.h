@@ -73,6 +73,13 @@ extern Oid select_common_type(ParseState *pstate, List *exprs,
 extern Node *coerce_to_common_type(ParseState *pstate, Node *node,
 					  Oid targetTypeId,
 					  const char *context);
+#ifdef ADB_GRAM_ORA
+extern Node *coerce_to_common_type_extend(ParseState *pstate, Node *node,
+										  Oid targetTypeId,
+										  const char *context,
+										  CoercionContext coercion,
+										  CoercionForm display);
+#endif /* ADB_GRAM_ORA */
 
 extern bool check_generic_type_consistency(Oid *actual_arg_types,
 							   Oid *declared_arg_types,

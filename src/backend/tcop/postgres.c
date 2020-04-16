@@ -1501,10 +1501,12 @@ exec_simple_query(const char *query_string)
 		oldcontext = MemoryContextSwitchTo(MessageContext);
 
 #ifdef ADB_MULTI_GRAM
+		current_grammar = grammar;
 		querytree_list = pg_analyze_and_rewrite_for_gram(parsetree,
 														 query_string,
 														 NULL, 0, NULL,
 														 grammar);
+		current_grammar = grammar;	/* maybe changed */
 #else
 		querytree_list = pg_analyze_and_rewrite(parsetree, query_string,
 												NULL, 0, NULL);

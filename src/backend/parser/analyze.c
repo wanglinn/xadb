@@ -72,6 +72,7 @@
 #endif
 #ifdef ADB_GRAM_ORA
 #include "catalog/namespace.h"
+#include "catalog/ora_convert_d.h"
 #include "catalog/pg_operator.h"
 #include "parser/parser.h"
 #include "parser/parse_expr.h"
@@ -2319,6 +2320,16 @@ transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
 			Oid			rescolcoll;
 
 			/* select common type, same as CASE et al */
+#ifdef ADB_GRAM_ORA
+			if (IsOracleParseGram(pstate))
+				rescoltype=select_oracle_type(pstate,
+											   list_make2(lcolnode, rcolnode),
+											   context,
+											   &bestexpr,
+											   ORA_CONVERT_KIND_COMMON,
+											   "");
+			else
+#endif /* ADB_GRAM_ORA */
 			rescoltype = select_common_type(pstate,
 											list_make2(lcolnode, rcolnode),
 											context,
@@ -2358,22 +2369,46 @@ transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
 			 * cases that might work.
 			 */
 			if (lcoltype != UNKNOWNOID)
+#ifdef ADB_GRAM_ORA
+				if (IsOracleParseGram(pstate))
+					lcolnode = coerce_to_common_type_extend(pstate, lcolnode, rescoltype,
+															context, COERCION_EXPLICIT, COERCE_EXPLICIT_CAST);
+				else
+#endif
 				lcolnode = coerce_to_common_type(pstate, lcolnode,
 												 rescoltype, context);
 			else if (IsA(lcolnode, Const) ||
 					 IsA(lcolnode, Param))
 			{
+#ifdef ADB_GRAM_ORA
+				if (IsOracleParseGram(pstate))
+					lcolnode = coerce_to_common_type_extend(pstate, lcolnode, rescoltype,
+															context, COERCION_EXPLICIT, COERCE_EXPLICIT_CAST);
+				else
+#endif
 				lcolnode = coerce_to_common_type(pstate, lcolnode,
 												 rescoltype, context);
 				ltle->expr = (Expr *) lcolnode;
 			}
 
 			if (rcoltype != UNKNOWNOID)
+#ifdef ADB_GRAM_ORA
+				if (IsOracleParseGram(pstate))
+					rcolnode = coerce_to_common_type_extend(pstate, rcolnode, rescoltype,
+															context, COERCION_EXPLICIT, COERCE_EXPLICIT_CAST);
+				else
+#endif
 				rcolnode = coerce_to_common_type(pstate, rcolnode,
 												 rescoltype, context);
 			else if (IsA(rcolnode, Const) ||
 					 IsA(rcolnode, Param))
 			{
+#ifdef ADB_GRAM_ORA
+				if (IsOracleParseGram(pstate))
+					rcolnode = coerce_to_common_type_extend(pstate, rcolnode, rescoltype,
+															context, COERCION_EXPLICIT, COERCE_EXPLICIT_CAST);
+				else
+#endif
 				rcolnode = coerce_to_common_type(pstate, rcolnode,
 												 rescoltype, context);
 				rtle->expr = (Expr *) rcolnode;

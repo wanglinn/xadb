@@ -974,6 +974,12 @@ BuildCachedPlan(CachedPlanSource *plansource, List *qlist,
 	MemoryContext plan_context;
 	MemoryContext oldcxt = CurrentMemoryContext;
 	ListCell   *lc;
+#ifdef ADB_MULTI_GRAM
+	volatile ParseGrammar saved_grammar = current_grammar;
+	current_grammar = plansource->grammar;
+	PG_TRY();
+	{
+#endif
 
 	/*
 	 * Normally the querytree should be valid already, but if it's not,
@@ -1027,6 +1033,14 @@ BuildCachedPlan(CachedPlanSource *plansource, List *qlist,
 #else
 	plist = pg_plan_queries(qlist, plansource->cursor_options, boundParams);
 #endif /* ADB */
+
+#ifdef ADB_MULTI_GRAM
+	}PG_CATCH();
+	{
+		current_grammar = saved_grammar;
+		PG_RE_THROW();
+	}PG_END_TRY();
+#endif
 
 	/* Release snapshot if we got one */
 	if (snapshot_set)

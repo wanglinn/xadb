@@ -727,6 +727,7 @@ execute_sql_string(const char *sql, const char *filename)
 										   NULL,
 										   0,
 										   NULL);
+		ADB_MULTI_GRAM_CODE(current_grammar = PARSE_GRAM_POSTGRES);
 		stmt_list = pg_plan_queries(stmt_list, CURSOR_OPT_PARALLEL_OK, NULL);
 
 		foreach(lc2, stmt_list)

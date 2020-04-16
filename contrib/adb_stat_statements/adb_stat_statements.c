@@ -105,6 +105,7 @@ Datum explain_rtable_of_query(PG_FUNCTION_ARGS)
 														 query_string,
 														 NULL, 0, NULL,
 														 grammar);
+		current_grammar = grammar;
 #else
 		querytree_list = pg_analyze_and_rewrite(parsetree, query_string,
 												NULL, 0, NULL);
@@ -220,6 +221,7 @@ Datum explain_rtable_plan_of_query(PG_FUNCTION_ARGS)
 														 query_string,
 														 NULL, 0, NULL,
 														 grammar);
+		current_grammar = grammar;
 #else
 		querytree_list = pg_analyze_and_rewrite(parsetree, query_string,
 												NULL, 0, NULL);

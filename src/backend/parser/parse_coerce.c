@@ -1445,13 +1445,26 @@ Node *
 coerce_to_common_type(ParseState *pstate, Node *node,
 					  Oid targetTypeId, const char *context)
 {
+#ifdef ADB_GRAM_ORA
+	return coerce_to_common_type_extend(pstate, node, targetTypeId, context, COERCION_IMPLICIT, COERCE_IMPLICIT_CAST);
+}
+Node *coerce_to_common_type_extend(ParseState *pstate, Node *node,
+								   Oid targetTypeId,
+								   const char *context,
+								   CoercionContext coercion,
+								   CoercionForm display)
+{
+#else
+	#define coercion COERCION_IMPLICIT
+	#define display COERCE_IMPLICIT_CAST
+#endif /* ADB_GRAM_ORA */
 	Oid			inputTypeId = exprType(node);
 
 	if (inputTypeId == targetTypeId)
 		return node;			/* no work */
-	if (can_coerce_type(1, &inputTypeId, &targetTypeId, COERCION_IMPLICIT))
+	if (can_coerce_type(1, &inputTypeId, &targetTypeId, coercion))
 		node = coerce_type(pstate, node, inputTypeId, targetTypeId, -1,
-						   COERCION_IMPLICIT, COERCE_IMPLICIT_CAST, -1);
+						   coercion, display, -1);
 	else
 		ereport(ERROR,
 				(errcode(ERRCODE_CANNOT_COERCE),
@@ -2569,8 +2582,6 @@ Oid select_oracle_type(ParseState *pstate, List *exprs,
 			else
 				llast(list) = nexpr;
 			from[0] = select_common_type(pstate, list, context, which_expr);
-			if (from[0] == InvalidOid)
-				break;
 		}else
 		{
 			from[0] = to[0];
