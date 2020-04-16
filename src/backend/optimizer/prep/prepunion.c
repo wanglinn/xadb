@@ -50,6 +50,9 @@
 #include "pgxc/locator.h"
 #endif
 
+#ifdef ADB_MULTI_GRAM
+extern PGDLLIMPORT int current_grammar;	/* avoid include tcopprot.h */
+#endif
 #ifdef ADB
 static int get_reduce_union_path(PlannerInfo *root, Path *path, void *context);
 #endif /* ADB */
@@ -1316,6 +1319,16 @@ generate_setop_tlist(List *colTypes, List *colCollations,
 			 * It would likely be best to make the parser generate the correct
 			 * output tlist for every set-op to begin with, though.
 			 */
+#ifdef ADB_MULTI_GRAM
+			if (current_grammar == PARSE_GRAM_ORACLE)
+				expr = coerce_to_common_type_extend(NULL,
+													expr,
+													colType,
+													"UNION/INTERSECT/EXCEPT",
+													COERCION_EXPLICIT,
+													COERCE_EXPLICIT_CAST);
+			else
+#endif
 			expr = coerce_to_common_type(NULL,	/* no UNKNOWNs here */
 										 expr,
 										 colType,
