@@ -792,7 +792,7 @@ re_lock_:
 	if (input_buf_free_len > out_buf_free_len)
 	{
 		SpinLockRelease(&GxidSender->mutex);
-		enlargeStringInfo(&gxid_send_output_buffer, input_buf_free_len - out_buf_free_len);
+		enlargeStringInfo(&gxid_send_output_buffer, gxid_send_output_buffer.maxlen + input_buf_free_len - out_buf_free_len);
 		goto re_lock_;
 	}
 
