@@ -248,6 +248,7 @@ void exec_cluster_plan(const void *splan, int length)
 			ereport(ERROR,
 					(errcode(ERRCODE_PROTOCOL_VIOLATION),
 					 errmsg("Can not found valid plan info")));
+		GetTransactionSnapshot();
 		set_cluster_display(custom_fun->FuncString, false, info);
 		(*custom_fun->func)(&msg);
 		break;
