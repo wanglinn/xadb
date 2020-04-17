@@ -2254,10 +2254,12 @@ ExplainNode(PlanState *planstate, List *ancestors,
 					ExplainCloseGroup("Worker", NULL, true, es);
 				}
 			}
+			if (opened_group)
+				ExplainCloseGroup("Workers", "Workers", false, es);
 			es->indent--;
+			if (es->format != EXPLAIN_FORMAT_TEXT)
+				ExplainCloseGroup("Node", "Node", false, es);
 		}
-
-		ExplainCloseGroup("Node", "Node", false, es);
 	}
 #endif /* ADB */
 
