@@ -26,6 +26,7 @@
 #include "mgr/mgr_helper.h"
 #include "mgr/mgr_switcher.h"
 #include "adb_doctor.h"
+#include "adb_doctor_log.h"
 
 typedef struct RepairerConfiguration
 {
@@ -203,6 +204,7 @@ static void repairGtmCoordSlaveNodes(dlist_head *mgrNodes)
 	MgrNodeWrapper *mgrNode;
 	bool repaired;
 	MemoryContext oldContext;
+	AdbDoctorLogRow *logRow;
 
 	oldContext = CurrentMemoryContext;
 	dlist_foreach_modify(iter, mgrNodes)
@@ -211,11 +213,22 @@ static void repairGtmCoordSlaveNodes(dlist_head *mgrNodes)
 		CHECK_FOR_INTERRUPTS();
 		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
 		Assert(mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE);
+
+		logRow = beginAdbDoctorLog(NameStr(mgrNode->form.nodename),
+								   ADBDOCTORLOG_STRATEGY_ISOLATE_REPAIR);
+		BEGIN_CATCH_ERR_MSG();
 		repaired = repairSlaveNode(mgrNode);
+		END_CATCH_ERR_MSG();
 		if (repaired)
 		{
 			dlist_delete(iter.cur);
 			pfreeMgrNodeWrapper(mgrNode);
+			endAdbDoctorLog(logRow, true);
+		}
+		else
+		{
+			logRow->errormsg = ereport_message;
+			endAdbDoctorLog(logRow, false);
 		}
 	}
 }
@@ -226,6 +239,7 @@ static void repairDataNodeSlaveNodes(dlist_head *mgrNodes)
 	MgrNodeWrapper *mgrNode;
 	bool repaired;
 	MemoryContext oldContext;
+	AdbDoctorLogRow *logRow;
 
 	oldContext = CurrentMemoryContext;
 
@@ -239,11 +253,22 @@ static void repairDataNodeSlaveNodes(dlist_head *mgrNodes)
 			CHECK_FOR_INTERRUPTS();
 			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
 			Assert(mgrNode->form.nodetype == CNDN_TYPE_DATANODE_SLAVE);
+
+			logRow = beginAdbDoctorLog(NameStr(mgrNode->form.nodename),
+									   ADBDOCTORLOG_STRATEGY_ISOLATE_REPAIR);
+			BEGIN_CATCH_ERR_MSG();
 			repaired = repairSlaveNode(mgrNode);
+			END_CATCH_ERR_MSG();
 			if (repaired)
 			{
 				dlist_delete(iter.cur);
 				pfreeMgrNodeWrapper(mgrNode);
+				endAdbDoctorLog(logRow, true);
+			}
+			else
+			{
+				logRow->errormsg = ereport_message;
+				endAdbDoctorLog(logRow, false);
 			}
 		}
 	}
@@ -255,6 +280,7 @@ static void repairCoordinatorMasterNodes(dlist_head *mgrNodes)
 	MgrNodeWrapper *mgrNode;
 	bool repaired;
 	MemoryContext oldContext;
+	AdbDoctorLogRow *logRow;
 
 	oldContext = CurrentMemoryContext;
 
@@ -268,11 +294,22 @@ static void repairCoordinatorMasterNodes(dlist_head *mgrNodes)
 			CHECK_FOR_INTERRUPTS();
 			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
 			Assert(mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER);
+
+			logRow = beginAdbDoctorLog(NameStr(mgrNode->form.nodename),
+									   ADBDOCTORLOG_STRATEGY_CLEAN_REBUILD);
+			BEGIN_CATCH_ERR_MSG();
 			repaired = repairCoordinatorNode(mgrNode);
+			END_CATCH_ERR_MSG();
 			if (repaired)
 			{
 				dlist_delete(iter.cur);
 				pfreeMgrNodeWrapper(mgrNode);
+				endAdbDoctorLog(logRow, true);
+			}
+			else
+			{
+				logRow->errormsg = ereport_message;
+				endAdbDoctorLog(logRow, false);
 			}
 		}
 	}

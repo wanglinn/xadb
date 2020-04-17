@@ -336,7 +336,9 @@ void switchDataNodeMaster(char *oldMasterName,
 									  newMaster->mgrNode,
 									  &failedSlaves,
 									  forceSwitch);
-		
+		namestrcpy(newMasterName,
+				   NameStr(newMaster->mgrNode->form.nodename));
+
 		mgr_get_gtmcoord_conn(MgrGetDefDbName(), &pg_conn, &cnoid);
 		Assert(pg_conn);
 		CHECK_FOR_INTERRUPTS();
@@ -421,9 +423,6 @@ void switchDataNodeMaster(char *oldMasterName,
 						"has been successfully completed",
 						NameStr(oldMaster->mgrNode->form.nodename),
 						NameStr(newMaster->mgrNode->form.nodename))));
-
-		namestrcpy(newMasterName,
-				   NameStr(newMaster->mgrNode->form.nodename));
 	}
 	PG_CATCH();
 	{
@@ -515,6 +514,9 @@ void switchGtmCoordMaster(char *oldMasterName,
 									  newMaster->mgrNode,
 									  &failedSlaves,
 									  forceSwitch);
+		namestrcpy(newMasterName,
+				   NameStr(newMaster->mgrNode->form.nodename));
+
 		CHECK_FOR_INTERRUPTS();
 
 		/**
@@ -629,9 +631,6 @@ void switchGtmCoordMaster(char *oldMasterName,
 						"has been successfully completed",
 						NameStr(oldMaster->mgrNode->form.nodename),
 						NameStr(newMaster->mgrNode->form.nodename))));
-
-		namestrcpy(newMasterName,
-				   NameStr(newMaster->mgrNode->form.nodename));
 	}
 	PG_CATCH();
 	{

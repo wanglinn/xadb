@@ -24,6 +24,7 @@
 #include "mgr/mgr_helper.h"
 #include "mgr/mgr_switcher.h"
 #include "adb_doctor.h"
+#include "adb_doctor_log.h"
 
 typedef struct SwitcherConfiguration
 {
@@ -39,8 +40,16 @@ typedef enum CoordinatorHoldMgrNode
 	COORDINATOR_HOLD_MGRNODE_NO
 } CoordinatorHoldMgrNode;
 
+typedef struct SwitchMasterResult
+{
+	bool done;
+	bool abortSwitch;
+	NameData newMasterName;
+} SwitchMasterResult;
+
 static void switcherMainLoop(dlist_head *oldMasters);
-static bool checkAndSwitchMaster(MgrNodeWrapper *oldMaster);
+static void checkAndSwitchSpecifiedTypeMaster(dlist_head *oldMasters, char nodetype);
+static SwitchMasterResult *checkAndSwitchMaster(MgrNodeWrapper *oldMaster);
 static bool checkIfOldMasterCanReign(MgrNodeWrapper *oldMaster,
 									 bool forceSwitch);
 static bool checkIfDataNodeOldMasterCanReign(MgrNodeWrapper *oldMaster,
@@ -51,7 +60,7 @@ static bool checkIfGtmCoordOldMasterCanReign(MgrNodeWrapper *oldMaster,
 											 MemoryContext spiContext);
 static void oldGtmCoordMasterContinueToReign(MgrNodeWrapper *oldMaster);
 static void oldDataNodeMasterContinueToReign(MgrNodeWrapper *oldMaster);
-static void failoverOldMaster(MgrNodeWrapper *oldMaster);
+static void failoverOldMaster(MgrNodeWrapper *oldMaster, Name newMasterName);
 static bool isAllCoordinatorsHoldOldMaster(MgrNodeWrapper *oldMaster,
 										   MemoryContext spiContext);
 static bool isAllCoordinatorsHoldDataNodeMaster(MgrNodeWrapper *dataNodeMaster,
@@ -132,42 +141,11 @@ void adbDoctorSwitcherMain(Datum main_arg)
 static void switcherMainLoop(dlist_head *oldMasters)
 {
 	int rc;
-	dlist_mutable_iter miter;
-	MgrNodeWrapper *oldMaster;
 
 	while (!gotSigterm)
 	{
-		/* treat gtmcoord master first */
-		dlist_foreach_modify(miter, oldMasters)
-		{
-			oldMaster = dlist_container(MgrNodeWrapper, link, miter.cur);
-			if (oldMaster->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER)
-			{
-				/* do switch */
-				if (checkAndSwitchMaster(oldMaster))
-				{
-					dlist_delete(miter.cur);
-					pfreeMgrNodeWrapper(oldMaster);
-				}
-				CHECK_FOR_INTERRUPTS();
-				examineAdbDoctorConf(oldMasters);
-			}
-		}
-		dlist_foreach_modify(miter, oldMasters)
-		{
-			oldMaster = dlist_container(MgrNodeWrapper, link, miter.cur);
-			if (oldMaster->form.nodetype == CNDN_TYPE_DATANODE_MASTER)
-			{
-				/* do switch */
-				if (checkAndSwitchMaster(oldMaster))
-				{
-					dlist_delete(miter.cur);
-					pfreeMgrNodeWrapper(oldMaster);
-				}
-				CHECK_FOR_INTERRUPTS();
-				examineAdbDoctorConf(oldMasters);
-			}
-		}
+		checkAndSwitchSpecifiedTypeMaster(oldMasters, CNDN_TYPE_GTM_COOR_MASTER);
+		checkAndSwitchSpecifiedTypeMaster(oldMasters, CNDN_TYPE_DATANODE_MASTER);
 		if (dlist_is_empty(oldMasters))
 		{
 			/* The switch task was completed, the process should exits */
@@ -196,13 +174,55 @@ static void switcherMainLoop(dlist_head *oldMasters)
 	}
 }
 
-static bool checkAndSwitchMaster(MgrNodeWrapper *oldMaster)
+static void checkAndSwitchSpecifiedTypeMaster(dlist_head *oldMasters, char nodetype)
+{
+	dlist_mutable_iter miter;
+	MgrNodeWrapper *oldMaster;
+	SwitchMasterResult *switchMasterResult;
+	AdbDoctorLogRow *logRow;
+
+	dlist_foreach_modify(miter, oldMasters)
+	{
+		oldMaster = dlist_container(MgrNodeWrapper, link, miter.cur);
+		if (oldMaster->form.nodetype == nodetype)
+		{
+			logRow = beginAdbDoctorLog(NameStr(oldMaster->form.nodename),
+									   ADBDOCTORLOG_STRATEGY_SWITCH);
+			BEGIN_CATCH_ERR_MSG();
+			switchMasterResult = checkAndSwitchMaster(oldMaster);
+			END_CATCH_ERR_MSG();
+
+			logRow->assistnode = NameStr(switchMasterResult->newMasterName);
+			if (switchMasterResult->abortSwitch)
+				logRow->strategy = ADBDOCTORLOG_STRATEGY_ABORT_SWITCH;
+
+			if (switchMasterResult->done)
+			{
+				dlist_delete(miter.cur);
+				pfreeMgrNodeWrapper(oldMaster);
+				endAdbDoctorLog(logRow, true);
+			}
+			else
+			{
+				logRow->errormsg = ereport_message;
+				endAdbDoctorLog(logRow, false);
+			}
+
+			CHECK_FOR_INTERRUPTS();
+			examineAdbDoctorConf(oldMasters);
+		}
+	}
+}
+
+static SwitchMasterResult *checkAndSwitchMaster(MgrNodeWrapper *oldMaster)
 {
 	volatile bool done = false;
 	MemoryContext oldContext;
 	MemoryContext doctorContext;
 	MgrNodeWrapper mgrNodeBackup;
+	SwitchMasterResult *switchMasterResult = NULL;
 
+	switchMasterResult = palloc0(sizeof(SwitchMasterResult));
 	set_ps_display(NameStr(oldMaster->form.nodename), false);
 	memcpy(&mgrNodeBackup, oldMaster, sizeof(MgrNodeWrapper));
 
@@ -220,6 +240,7 @@ static bool checkAndSwitchMaster(MgrNodeWrapper *oldMaster)
 			if (checkIfOldMasterCanReign(oldMaster,
 										 switcherConfiguration->forceSwitch))
 			{
+				switchMasterResult->abortSwitch = true;
 				if (oldMaster->form.nodetype == CNDN_TYPE_DATANODE_MASTER)
 				{
 					oldDataNodeMasterContinueToReign(oldMaster);
@@ -231,13 +252,16 @@ static bool checkAndSwitchMaster(MgrNodeWrapper *oldMaster)
 			}
 			else
 			{
-				failoverOldMaster(oldMaster);
+				switchMasterResult->abortSwitch = false;
+				failoverOldMaster(oldMaster, &switchMasterResult->newMasterName);
 			}
 		}
 		else
 		{
 			/* mgr_node data may be changed in database */
 			pg_usleep(5L * 1000000L);
+			pfree(switchMasterResult);
+			switchMasterResult = NULL;
 			resetSwitcher();
 		}
 		done = true;
@@ -258,7 +282,8 @@ static bool checkAndSwitchMaster(MgrNodeWrapper *oldMaster)
 	{
 		memcpy(oldMaster, &mgrNodeBackup, sizeof(MgrNodeWrapper));
 	}
-	return done;
+	switchMasterResult->done = done;
+	return switchMasterResult;
 }
 
 static bool checkIfOldMasterCanReign(MgrNodeWrapper *oldMaster,
@@ -877,7 +902,6 @@ static void oldDataNodeMasterContinueToReign(MgrNodeWrapper *oldMaster)
 		switcherOldMaster->pgConn = oldMasterConn;
 		switcherOldMaster->runningMode = NODE_RUNNING_MODE_MASTER;
 
-	
 		{
 			checkGetSiblingMasterNodes(spiContext,
 									   switcherOldMaster,
@@ -891,7 +915,7 @@ static void oldDataNodeMasterContinueToReign(MgrNodeWrapper *oldMaster)
 									&siblingMasters,
 									spiContext,
 									true);
-			
+
 			commitSwitcherNodeTransaction(holdLockCoordinator,
 										  true);
 			tryUnlockCluster(&coordinators, true);
@@ -962,12 +986,11 @@ static void oldDataNodeMasterContinueToReign(MgrNodeWrapper *oldMaster)
 	}
 }
 
-static void failoverOldMaster(MgrNodeWrapper *oldMaster)
+static void failoverOldMaster(MgrNodeWrapper *oldMaster, Name newMasterName)
 {
 	ErrorData *edata = NULL;
 	int spiRes;
 	MemoryContext oldContext;
-	NameData newMasterName;
 
 	oldContext = CurrentMemoryContext;
 	SPI_CONNECT_TRANSACTIONAL_START(spiRes, true);
@@ -979,14 +1002,14 @@ static void failoverOldMaster(MgrNodeWrapper *oldMaster)
 			switchGtmCoordMaster(NameStr(oldMaster->form.nodename),
 								 switcherConfiguration->forceSwitch,
 								 !switcherConfiguration->rewindOldMaster,
-								 &newMasterName);
+								 newMasterName);
 		}
 		else if (isDataNodeMgrNode(oldMaster->form.nodetype))
 		{
 			switchDataNodeMaster(NameStr(oldMaster->form.nodename),
 								 switcherConfiguration->forceSwitch,
 								 !switcherConfiguration->rewindOldMaster,
-								 &newMasterName);
+								 newMasterName);
 		}
 		else
 		{
@@ -999,7 +1022,7 @@ static void failoverOldMaster(MgrNodeWrapper *oldMaster)
 				(errmsg("From now on, the master node %s begin to reign. "
 						"The old master %s become slave and wait for rewind. "
 						"Switching completed",
-						NameStr(newMasterName),
+						NameStr(*newMasterName),
 						NameStr(oldMaster->form.nodename))));
 	}
 	PG_CATCH();
