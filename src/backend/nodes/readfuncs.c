@@ -2567,6 +2567,9 @@ _readClusterReduce(void)
 	READ_OID_ARRAY(collations, local_node->numCols);
 	READ_BOOL_ARRAY(nullsFirst, local_node->numCols);
 
+	READ_INT_FIELD(reduce_flags);
+	READ_INT_FIELD(gather_param);
+
 	READ_DONE();
 }
 

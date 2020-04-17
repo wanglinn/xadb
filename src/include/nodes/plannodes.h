@@ -1050,6 +1050,7 @@ typedef struct ClusterReduce
 	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
 
 	uint32		reduce_flags;	/* clsuter reduce plan flags, see CRF_XXX */
+	int			gather_param;	/* from parent of Gather or GatherMerge */
 } ClusterReduce;
 
 typedef struct ReduceScan

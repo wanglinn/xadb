@@ -663,6 +663,9 @@ _outClusterReduce(StringInfo str, const ClusterReduce *node)
 	appendStringInfoString(str, " :nullsFirst");
 	for (i = 0; i < node->numCols; i++)
 		appendStringInfo(str, " %s", booltostr(node->nullsFirst[i]));
+
+	WRITE_INT_FIELD(reduce_flags);
+	WRITE_INT_FIELD(gather_param);
 }
 
 static void

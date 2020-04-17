@@ -2644,19 +2644,19 @@ finalize_plan(PlannerInfo *root, Plan *plan,
 		case T_Unique:
 		case T_SetOp:
 		case T_Group:
-#ifdef ADB_EXT
-#endif /* ADB_EXT */
 		case T_BatchSort:
 #ifdef ADB
 		case T_ClusterGather:
 		case T_ClusterMergeGather:
-		case T_ClusterReduce:
 		case T_ReduceScan:
 #endif /* ADB */
 			/* no node-type-specific fields need fixing */
 			break;
 
 #ifdef ADB
+		case T_ClusterReduce:
+			((ClusterReduce*)plan)->gather_param = gather_param;
+			break;
 		case T_ParamTuplestoreScan:
 			context.paramids = bms_add_members(context.paramids, scan_params);
 			break;
