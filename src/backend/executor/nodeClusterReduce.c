@@ -138,6 +138,23 @@ static bool DriveClusterReduceWalker(PlanState *node);
 static bool IsThereClusterReduce(PlanState *node);
 static void OnDsmDatchShutdownReduce(dsm_segment *seg, Datum arg);
 
+static inline void WaitFetchEOFMessage(DynamicReduceIOBuffer *io, int plan_id, ReduceType type)
+{
+	uint8 flags = DynamicReduceRecvTuple(io->mqh_receiver,
+										 io->slot_local,
+										 &io->recv_buf,
+										 NULL,
+										 false);
+	if (flags != DR_MSG_RECV || !TupIsNull(io->slot_local))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("got message %d and slot empty is %d", flags, TupIsNull(io->slot_local)),
+				 errdetail("plan %d method %d expect %d and slot is empty", plan_id, type, DR_MSG_RECV)));
+	}
+	io->eof_remote = true;
+}
+
 /* ======================= nothing reduce========================== */
 static TupleTableSlot* ExecNothingReduce(PlanState *pstate)
 {
@@ -152,8 +169,7 @@ static TupleTableSlot* ExecNormalReduce(PlanState *pstate)
 	TupleTableSlot *slot;
 	Assert(normal != NULL);
 	Assert(node->reduce_method == RT_NORMAL ||
-		   node->reduce_method == RT_REDUCE_FIRST ||
-		   node->reduce_method == RT_PARALLEL_REDUCE_FIRST);
+		   node->reduce_method == RT_REDUCE_FIRST);
 
 	slot = DynamicReduceFetchSlot(&normal->drio);
 	if (TupIsNull(slot))
@@ -418,18 +434,7 @@ static TupleTableSlot* ExecReduceFirstWaitRemote(PlanState *pstate)
 		state->ready_remote = true;
 		MemoryContextSwitchTo(oldcontext);
 		/* should get EOF message */
-		flags = DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
-									   slot,
-									   &state->normal.drio.recv_buf,
-									   NULL,
-									   false);
-		if (flags != DR_MSG_RECV || !TupIsNull(slot))
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("got message %d and slot empty is %d", flags, TupIsNull(slot)),
-					 errdetail("expect %d and slot empty is %d", DR_MSG_RECV, true)));
-		}
+		WaitFetchEOFMessage(&state->normal.drio, pstate->plan->plan_node_id, RT_REDUCE_FIRST);
 		ExecSetExecProcNode(pstate, ExecReduceFirstRemote);
 		return ExecReduceFirstRemote(pstate);
 	}else if (flags == DR_MSG_RECV_STS)
@@ -559,7 +564,45 @@ static void EndReduceFirst(NormalReduceFirstState *state)
 	EndNormalReduce(&state->normal);
 }
 
-/* ========================= parallel reduce first ================== */
+static TupleTableSlot* ExecParallelReduceFirstRemote(PlanState *pstate)
+{
+	ParallelReduceFirstState *state = castNode(ClusterReduceState, pstate)->private_state;
+	return DynamicReduceFetchSTS(&state->normal.drio, state->normal.drio.sts);
+}
+
+static void ExecParallelReduceFirstWaitRemote(ParallelReduceFirstState *state, int plan_id)
+{
+	MemoryContext			oldcontext;
+	DynamicReduceRecvInfo	info;
+	uint8					flags;
+	Assert(state->normal.drio.eof_remote == false);
+
+	if (state->normal.drio.sts_dsa_ptr == InvalidDsaPointer)
+	{
+		flags = DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
+									   state->normal.drio.slot_local,
+									   &state->normal.drio.recv_buf,
+									   &info,
+									   false);
+		if (flags == DR_MSG_RECV_STS)
+		{
+			oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state));
+			state->normal.drio.sts = DynamicReduceOpenSharedTuplestore(info.dp);
+			state->normal.drio.sts_dsa_ptr = info.dp;
+			sts_begin_parallel_scan(state->normal.drio.sts);
+			MemoryContextSwitchTo(oldcontext);
+		}else
+		{
+			ereport(ERROR,
+					(errmsg("parallel reduce first %d got message %d", plan_id, flags),
+					 errdetail("expect message %d", DR_MSG_RECV_STS)));
+		}
+	}
+
+	if (state->normal.drio.eof_remote == false)
+		WaitFetchEOFMessage(&state->normal.drio, plan_id, RT_PARALLEL_REDUCE_FIRST);
+}
+
 static TupleTableSlot* ExecParallelReduceFirstLocal(PlanState *pstate)
 {
 	ParallelReduceFirstState   *state = castNode(ClusterReduceState, pstate)->private_state;
@@ -568,14 +611,19 @@ static TupleTableSlot* ExecParallelReduceFirstLocal(PlanState *pstate)
 	if (mtup != NULL)
 		return ExecStoreMinimalTuple(mtup, pstate->ps_ResultTupleSlot, false);
 
-	ExecSetExecProcNode(pstate, ExecNormalReduce);
-	return ExecNormalReduce(pstate);
+	if (state->normal.drio.eof_remote == false)
+		ExecParallelReduceFirstWaitRemote(state, pstate->plan->plan_node_id);
+	else
+		sts_begin_parallel_scan(state->normal.drio.sts);
+	Assert(state->normal.drio.eof_remote &&
+		   state->normal.drio.sts);
+
+	ExecSetExecProcNode(pstate, ExecParallelReduceFirstRemote);
+	return ExecParallelReduceFirstRemote(pstate);
 }
 
-static TupleTableSlot* ExecParallelReduceFirstPrepare(PlanState *pstate)
+static void ExecParallelReduceFirstSendLocal(ParallelReduceFirstState *state)
 {
-	ParallelReduceFirstState   *state = castNode(ClusterReduceState, pstate)->private_state;
-
 	Assert(state->normal.drio.eof_local == false);
 	DynamicReduceAttachPallel(&state->normal.drio);
 	if (BarrierAttach(state->barrier) > 0)
@@ -620,19 +668,18 @@ static TupleTableSlot* ExecParallelReduceFirstPrepare(PlanState *pstate)
 
 	BarrierDetach(state->barrier);
 	sts_begin_parallel_scan(state->sta);
-	ExecSetExecProcNode(pstate, ExecParallelReduceFirstLocal);
-	return ExecParallelReduceFirstLocal(pstate);
 }
 
-static void IgnoreSlot(TupleTableSlot *slot, void *context)
+static TupleTableSlot* ExecParallelReduceFirstPrepare(PlanState *pstate)
 {
-	/* ignore slot */
+	ExecParallelReduceFirstSendLocal(castNode(ClusterReduceState, pstate)->private_state);
+	ExecSetExecProcNode(pstate, ExecParallelReduceFirstLocal);
+	return ExecParallelReduceFirstLocal(pstate);
 }
 
 static void DriveParallelReduceFirst(ClusterReduceState *node)
 {
 	ParallelReduceFirstState   *state = node->private_state;
-	TupleTableSlot			   *slot;
 
 	if (state->normal.drio.eof_local == false)
 	{
@@ -640,8 +687,10 @@ static void DriveParallelReduceFirst(ClusterReduceState *node)
 		DynamicReduceAttachPallel(&state->normal.drio);
 		if (BarrierAttach(state->barrier) == 0)
 		{
-			/* send to remote and ignore local */
-			DynamicReduceFetchAllLocalAndSend(&state->normal.drio, NULL, IgnoreSlot);
+			/* send to remote and save local */
+			DynamicReduceFetchAllLocalAndSend(&state->normal.drio,
+											  state->sta,
+											  DRFetchSaveSTS);
 			Assert(state->normal.drio.eof_local == true);
 			Assert(state->normal.drio.send_buf.len == 0);
 			sts_end_write(state->sta);
@@ -660,21 +709,15 @@ static void DriveParallelReduceFirst(ClusterReduceState *node)
 		}
 	}
 
-	/*
-	 * send local and eat remote tuple.
-	 * if not eat remote tuple dynamic reduce maybe get MQ deatched result,
-	 * when send MQ message to us
-	 */
-	do
-	{
-		CHECK_FOR_INTERRUPTS();
-		slot = DynamicReduceFetchSlot(&state->normal.drio);
-	}while(!TupIsNull(slot));
+	/* wait remote if not got EOF */
+	if (state->normal.drio.eof_remote == false)
+		ExecParallelReduceFirstWaitRemote(state, node->ps.plan->plan_node_id);
 }
 
 static Size GetReduceFirstShmSize(ParallelContext *pcxt)
 {
 	Size size = sizeof(Size) * 2;		/* reduce method and shared tuplestore size */
+	size = add_size(size, MAXALIGN(SIZEOF_DSA_POINTER));				/* remote dsa pointer */
 	size = add_size(size, MAXALIGN(sizeof(SharedFileSet)));				/* shared fileset */
 	size = add_size(size, MAXALIGN(sizeof(Barrier)));					/* barrier */
 	size = add_size(size, MAXALIGN(sts_estimate(pcxt->nworkers + 1)));	/* shared tuplestore */
@@ -689,12 +732,40 @@ static void EstimateReduceFirst(ParallelContext *pcxt)
 	shm_toc_estimate_keys(&pcxt->estimator, 1);
 }
 
+static void ReinitParallelReduceFirst(ClusterReduceState *node, ParallelContext *pcxt)
+{
+	ParallelReduceFirstState   *state = node->private_state;
+	char					   *addr;
+
+	if (state->normal.drio.eof_local == false)
+		ExecParallelReduceFirstSendLocal(state);
+	if (state->normal.drio.eof_remote == false)
+		ExecParallelReduceFirstWaitRemote(state, node->ps.plan->plan_node_id);
+	Assert(state->normal.drio.eof_local &&
+		   state->normal.drio.eof_remote);
+	Assert(DsaPointerIsValid(state->normal.drio.sts_dsa_ptr));
+
+	addr = shm_toc_lookup(pcxt->toc, node->ps.plan->plan_node_id, false);
+	Assert(*(Size*)addr == RT_PARALLEL_REDUCE_FIRST);	/* reduce method */
+	addr += sizeof(Size)*2;				/* skip reduce method and shared tuplestore size */
+
+	/* save dsa pointer to shared memory, let worker now */
+	*(dsa_pointer*)addr = state->normal.drio.sts_dsa_ptr;
+
+	sts_reinitialize(state->sta);
+	sts_begin_parallel_scan(state->sta);
+	sts_reinitialize(state->normal.drio.sts);
+
+	ExecSetExecProcNode(&node->ps, ExecParallelReduceFirstLocal);
+}
+
 static void InitParallelReduceFirstCommon(ClusterReduceState *node, ParallelContext *pcxt,
 										  ParallelWorkerContext *pwcxt, char *addr)
 {
 	MemoryContext				oldcontext;
 	ParallelReduceFirstState   *state;
 	Size						sts_size;
+	dsa_pointer					dp;
 	DynamicReduceMQ				drmq;
 	Assert(node->private_state == NULL);
 
@@ -704,6 +775,13 @@ static void InitParallelReduceFirstCommon(ClusterReduceState *node, ParallelCont
 	else
 		sts_size = *(Size*)addr;
 	addr += sizeof(Size);
+
+	/* dsa of remote sharedtuplestore */
+	if (pcxt)
+		*(dsa_pointer*)addr = dp = InvalidDsaPointer;
+	else
+		dp = *(dsa_pointer*)addr;
+	addr += MAXALIGN(SIZEOF_DSA_POINTER);
 
 	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(node));
 	node->private_state = state = palloc0(sizeof(*state));
@@ -759,8 +837,20 @@ static void InitParallelReduceFirstCommon(ClusterReduceState *node, ParallelCont
 	}else
 	{
 		SetupNormalReduceState(&state->normal, &drmq[ParallelWorkerNumber+1], node, DR_MQ_ATTACH_SEND_RECV);
+		if (DsaPointerIsValid(dp))
+		{
+			/* rescan, got remote */
+			sts_begin_parallel_scan(state->sta);
+			state->normal.drio.eof_local = state->normal.drio.eof_remote = true;
+			state->normal.drio.sts = DynamicReduceOpenSharedTuplestore(dp);
+			state->normal.drio.sts_dsa_ptr = dp;
+			sts_begin_parallel_scan(state->normal.drio.sts);
+		}
 	}
-	ExecSetExecProcNode(&node->ps, ExecParallelReduceFirstPrepare);
+	if (pwcxt && DsaPointerIsValid(dp))
+		ExecSetExecProcNode(&node->ps, ExecParallelReduceFirstLocal);
+	else
+		ExecSetExecProcNode(&node->ps, ExecParallelReduceFirstPrepare);
 
 	MemoryContextSwitchTo(oldcontext);
 }
@@ -1574,12 +1664,7 @@ void ExecClusterReduceInitializeDSM(ClusterReduceState *node, ParallelContext *p
 	}
 	node->initialized = true;
 }
-void ExecClusterReduceReInitializeDSM(ClusterReduceState *node, ParallelContext *pcxt)
-{
-	ereport(ERROR,
-			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			 errmsg("parallel reduce not support reinitialize dsm")));
-}
+
 void ExecClusterReduceInitializeWorker(ClusterReduceState *node, ParallelWorkerContext *pwcxt)
 {
 	char *addr = shm_toc_lookup(pwcxt->toc, node->ps.plan->plan_node_id, false);
@@ -1595,6 +1680,10 @@ void ExecClusterReduceInitializeWorker(ClusterReduceState *node, ParallelWorkerC
 		InitParallelReduceWorker(node, pwcxt, addr);
 		break;
 	case RT_REDUCE_FIRST:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("reduce first not support parallel yet")));
+		break;
 	case RT_PARALLEL_REDUCE_FIRST:
 		InitParallelReduceFirstCommon(node, NULL, pwcxt, addr);
 		break;
@@ -1615,12 +1704,27 @@ void ExecClusterReduceInitializeWorker(ClusterReduceState *node, ParallelWorkerC
 	node->initialized = true;
 }
 
+void ExecClusterReduceReInitializeDSM(ClusterReduceState *node, ParallelContext *pcxt)
+{
+	switch(node->reduce_method)
+	{
+	case RT_NOTHING:
+		break;
+	case RT_PARALLEL_REDUCE_FIRST:
+		ReinitParallelReduceFirst(node, pcxt);
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("reduce method %u not support reinitialize dsm", node->reduce_method)));
+	}
+}
+
 ClusterReduceState *
 ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 {
 	ClusterReduceState *crstate;
 	Plan			   *outerPlan;
-	//TupleDesc			tupDesc;
 
 	Assert(outerPlan(node) != NULL);
 	Assert(innerPlan(node) == NULL);
@@ -1811,11 +1915,15 @@ ExecClusterReduceRestrPos(ClusterReduceState *node)
 void
 ExecReScanClusterReduce(ClusterReduceState *node)
 {
+	Bitmapset *chgParam;
 	/* Just return if not start yet! */
 	if (node->private_state == NULL)
 		return;
 
-	if (outerPlanState(node)->chgParam != NULL)
+	chgParam = outerPlanState(node)->chgParam;
+	if (chgParam != NULL &&
+		(bms_membership(chgParam) == BMS_MULTIPLE ||
+		 bms_next_member(chgParam, -1) != castNode(ClusterReduce, node->ps.plan)->gather_param))
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -1828,10 +1936,17 @@ ExecReScanClusterReduce(ClusterReduceState *node)
 		break;
 	case RT_NORMAL:
 	case RT_PARALLEL_REDUCE_FIRST:
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("normal cluster reduce %d not support rescan",
-						node->ps.plan->plan_node_id)));
+		{
+			ParallelReduceFirstState *state = node->private_state;
+			if (state->normal.drio.eof_local == false)
+				ExecParallelReduceFirstSendLocal(state);
+			if (state->normal.drio.eof_remote == false)
+				ExecParallelReduceFirstWaitRemote(state, node->ps.plan->plan_node_id);
+			sts_reinitialize(state->sta);
+			sts_begin_parallel_scan(state->sta);
+			sts_reinitialize(state->normal.drio.sts);
+			ExecSetExecProcNode(&node->ps, ExecParallelReduceFirstLocal);
+		}
 		break;
 	case RT_REDUCE_FIRST:
 		{

@@ -319,7 +319,7 @@ static bool OnParallelPlanMessage(PlanInfo *pi, const char *data, int len, Oid n
 
 		CHECK_WORKER_IN_WROKING(pwi, pi);
 
-		DR_PLAN_DEBUG((errmsg("parallel plan %d(%p) worker %u got a tuple from %u length %d",
+		DR_PLAN_DEBUG((errmsg("parallel plan %d(%p) worker %d got a tuple from %u length %d",
 							  pi->plan_id, pi, pwi->worker_id, nodeoid, len)));
 		appendStringInfoChar(&pwi->sendBuffer, ADB_DR_MSG_TUPLE);
 		appendStringInfoSpaces(&pwi->sendBuffer, sizeof(nodeoid)-sizeof(char));	/* for align */
@@ -445,7 +445,7 @@ void DRStartParallelPlanMessage(StringInfo msg)
 		pq_copymsgbytes(msg, (char*)&parallel_max, sizeof(parallel_max));
 		if (parallel_max <= 1)
 			elog(ERROR, "invalid parallel count");
-		cache_flag = (bool)pq_getmsgbyte(msg);
+		cache_flag = (uint8)pq_getmsgbyte(msg);
 
 		pi = DRRestorePlanInfo(msg, (void**)&mq, sizeof(*mq)*parallel_max, ClearParallelPlanInfo);
 		pi->pwi = MemoryContextAllocZero(TopMemoryContext, sizeof(PlanWorkerInfo)*parallel_max);
@@ -463,6 +463,8 @@ void DRStartParallelPlanMessage(StringInfo msg)
 			enlargeStringInfo(&private->tup_buf, MINIMAL_TUPLE_DATA_OFFSET);
 			MemSet(private->tup_buf.data, 0, MINIMAL_TUPLE_DATA_OFFSET);
 			pi->GenerateCacheMsg = GenerateParallelCacheMessage;
+			if (cache_flag == DR_CACHE_ON_DISK_ALWAYS)
+				(void)ParallelPlanGetCacheSTS(private, pi->count_pwi);
 		}
 
 		pi->OnLatchSet = OnParallelPlanLatch;
