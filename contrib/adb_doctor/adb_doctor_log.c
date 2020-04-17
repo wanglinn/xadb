@@ -250,8 +250,9 @@ void updateAdbDoctorLogByKey(AdbDoctorLogRow *logRow)
 	rows = SPI_processed;
 	if (rows != 1)
 	{
-		appendStringInfo(&sql,
-						 "updated rows is not 1, row data: %s",
-						 toStringAdbDoctorLogRow(logRow));
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("updated rows is not 1, row data: %s",
+						toStringAdbDoctorLogRow(logRow))));
 	}
 }
