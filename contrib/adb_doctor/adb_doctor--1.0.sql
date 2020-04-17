@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS adb_doctor_log (
     begintime       timestamp with time zone,
     endtime         timestamp with time zone,
     faultnode       varchar,
-    promotednode    varchar,
+    assistnode      varchar,
     strategy        varchar,
     status          varchar,
     errormsg        varchar

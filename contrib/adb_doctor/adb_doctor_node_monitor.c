@@ -25,6 +25,7 @@
 #include "adb_doctor_utils.h"
 #include "mgr/mgr_helper.h"
 #include "mgr/mgr_switcher.h"
+#include "adb_doctor_log.h"
 
 #define IS_EMPTY_STRING(str) (str == NULL || strlen(str) == 0)
 #define SHUTDOWN_NODE_SECONDS_ON_REWIND 90
@@ -154,6 +155,7 @@ static bool tryStartupNode(MonitorNodeInfo *nodeInfo);
 static bool tryTreatNodeByStartup(MonitorNodeInfo *nodeInfo);
 static bool startupNode(MonitorNodeInfo *nodeInfo);
 static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo);
+static bool treatNodeByRestart(MonitorNodeInfo *nodeInfo);
 
 static void startConnection(MonitorNodeInfo *nodeInfo);
 static void resetConnection(MonitorNodeInfo *nodeInfo);
@@ -871,23 +873,10 @@ static void nodeWaitSwitch(MonitorNodeInfo *nodeInfo)
 static bool tryRestartNode(MonitorNodeInfo *nodeInfo)
 {
 	bool done;
-	MemoryContext spiContext;
+
 	if (beyondRestartDelay(nodeInfo))
 	{
-		spiContext = beginCureOperation(nodeInfo->mgrNode);
-		done = shutdownNodeWithinSeconds(nodeInfo->mgrNode,
-										 SHUTDOWN_NODE_FAST_SECONDS,
-										 SHUTDOWN_NODE_IMMEDIATE_SECONDS,
-										 false) &&
-			   startupNode(nodeInfo);
-		endCureOperation(nodeInfo->mgrNode, CURE_STATUS_NORMAL, spiContext);
-		if (done)
-		{
-			ereport(LOG,
-					(errmsg("%s, restart node successfully",
-							MyBgworkerEntry->bgw_name)));
-			resetNodeMonitor();
-		}
+		done = treatNodeByRestart(nodeInfo);
 	}
 	else
 	{
@@ -902,26 +891,10 @@ static bool tryRestartNode(MonitorNodeInfo *nodeInfo)
 static bool tryStartupNode(MonitorNodeInfo *nodeInfo)
 {
 	bool done;
-	MemoryContext spiContext;
 
 	if (beyondRestartDelay(nodeInfo))
 	{
-		spiContext = beginCureOperation(nodeInfo->mgrNode);
-		done = startupNode(nodeInfo);
-		endCureOperation(nodeInfo->mgrNode, CURE_STATUS_NORMAL, spiContext);
-		if (done)
-		{
-			ereport(LOG,
-					(errmsg("%s, start node successfully",
-							MyBgworkerEntry->bgw_name)));
-			resetNodeMonitor();
-		}
-		else
-		{
-			ereport(LOG,
-					(errmsg("%s, start node failed",
-							MyBgworkerEntry->bgw_name)));
-		}
+		done = treatNodeByStartup(nodeInfo);
 	}
 	else
 	{
@@ -993,13 +966,17 @@ static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo)
 {
 	bool done;
 	MemoryContext spiContext;
+	AdbDoctorLogRow *logRow;
 
+	logRow = beginAdbDoctorLog(NameStr(nodeInfo->mgrNode->form.nodename),
+							   ADBDOCTORLOG_STRATEGY_STARTUP);
 	spiContext = beginCureOperation(nodeInfo->mgrNode);
 	ereport(LOG,
 			(errmsg("%s, try to startup node",
 					MyBgworkerEntry->bgw_name)));
 	done = startupNode(nodeInfo);
 	endCureOperation(nodeInfo->mgrNode, CURE_STATUS_NORMAL, spiContext);
+
 	if (done)
 	{
 		if (pingNodeWaitinSeconds(nodeInfo->mgrNode,
@@ -1008,6 +985,7 @@ static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo)
 			ereport(LOG,
 					(errmsg("%s, startup node successfully",
 							MyBgworkerEntry->bgw_name)));
+			endAdbDoctorLog(logRow, true);
 			resetNodeMonitor();
 		}
 		else
@@ -1016,6 +994,8 @@ static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo)
 					(errmsg("%s, get node running status failed",
 							MyBgworkerEntry->bgw_name)));
 			done = false;
+			logRow->errormsg = "Failed to detect the running status of the node";
+			endAdbDoctorLog(logRow, false);
 		}
 	}
 	else
@@ -1024,6 +1004,61 @@ static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo)
 				(errmsg("%s, startup node failed",
 						MyBgworkerEntry->bgw_name)));
 		done = false;
+		logRow->errormsg = "Failed to startup the node";
+		endAdbDoctorLog(logRow, false);
+	}
+	return done;
+}
+
+static bool treatNodeByRestart(MonitorNodeInfo *nodeInfo)
+{
+	bool done;
+	MemoryContext spiContext;
+	AdbDoctorLogRow *logRow;
+
+	logRow = beginAdbDoctorLog(NameStr(nodeInfo->mgrNode->form.nodename),
+							   ADBDOCTORLOG_STRATEGY_RESTART);
+	spiContext = beginCureOperation(nodeInfo->mgrNode);
+	ereport(LOG,
+			(errmsg("%s, try to restart node",
+					MyBgworkerEntry->bgw_name)));
+
+	done = shutdownNodeWithinSeconds(nodeInfo->mgrNode,
+									 SHUTDOWN_NODE_FAST_SECONDS,
+									 SHUTDOWN_NODE_IMMEDIATE_SECONDS,
+									 false) &&
+		   startupNode(nodeInfo);
+	endCureOperation(nodeInfo->mgrNode, CURE_STATUS_NORMAL, spiContext);
+
+	if (done)
+	{
+		if (pingNodeWaitinSeconds(nodeInfo->mgrNode,
+								  PQPING_OK, STARTUP_NODE_SECONDS))
+		{
+			ereport(LOG,
+					(errmsg("%s, restart node successfully",
+							MyBgworkerEntry->bgw_name)));
+			endAdbDoctorLog(logRow, true);
+			resetNodeMonitor();
+		}
+		else
+		{
+			ereport(LOG,
+					(errmsg("%s, get node running status failed",
+							MyBgworkerEntry->bgw_name)));
+			done = false;
+			logRow->errormsg = "Failed to detect the running status of the node";
+			endAdbDoctorLog(logRow, false);
+		}
+	}
+	else
+	{
+		ereport(LOG,
+				(errmsg("%s, restart node failed",
+						MyBgworkerEntry->bgw_name)));
+		done = false;
+		logRow->errormsg = "Failed to restart the node";
+		endAdbDoctorLog(logRow, false);
 	}
 	return done;
 }
@@ -1886,6 +1921,7 @@ static void treatFollowFailAfterSwitch(MgrNodeWrapper *followFail)
 	int ret;
 	bool done;
 	int rc;
+	AdbDoctorLogRow *logRow;
 
 	/* Wait for a while, let the cluster fully return to normal */
 	pg_usleep(10L * 1000000L);
@@ -1912,6 +1948,9 @@ static void treatFollowFailAfterSwitch(MgrNodeWrapper *followFail)
 							NameStr(followFail->form.curestatus))));
 		}
 
+		logRow = beginAdbDoctorLog(NameStr(followFail->form.nodename),
+								   ADBDOCTORLOG_STRATEGY_FOLLOW);
+
 		oldContext = CurrentMemoryContext;
 		workerContext = AllocSetContextCreate(oldContext,
 											  "workerContext",
@@ -1920,7 +1959,9 @@ static void treatFollowFailAfterSwitch(MgrNodeWrapper *followFail)
 		spiContext = CurrentMemoryContext;
 		MemoryContextSwitchTo(workerContext);
 
+		BEGIN_CATCH_ERR_MSG();
 		done = treatSlaveNodeFollowMaster(followFail, spiContext);
+		END_CATCH_ERR_MSG();
 
 		(void)MemoryContextSwitchTo(oldContext);
 		MemoryContextDelete(workerContext);
@@ -1928,11 +1969,14 @@ static void treatFollowFailAfterSwitch(MgrNodeWrapper *followFail)
 		if (done)
 		{
 			SPI_FINISH_TRANSACTIONAL_COMMIT();
+			endAdbDoctorLog(logRow, true);
 			break;
 		}
 		else
 		{
 			SPI_FINISH_TRANSACTIONAL_ABORT();
+			logRow->errormsg = ereport_message;
+			endAdbDoctorLog(logRow, false);
 			CHECK_FOR_INTERRUPTS();
 			rc = WaitLatchOrSocket(MyLatch,
 								   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
@@ -1964,6 +2008,7 @@ static void treatOldMasterAfterSwitch(MgrNodeWrapper *oldMaster)
 	int ret;
 	bool done;
 	int rc;
+	AdbDoctorLogRow *logRow;
 
 	/* Wait for a while, let the cluster fully return to normal */
 	pg_usleep(10L * 1000000L);
@@ -1990,6 +2035,9 @@ static void treatOldMasterAfterSwitch(MgrNodeWrapper *oldMaster)
 							NameStr(oldMaster->form.curestatus))));
 		}
 
+		logRow = beginAdbDoctorLog(NameStr(oldMaster->form.nodename),
+								   ADBDOCTORLOG_STRATEGY_REWIND);
+
 		oldContext = CurrentMemoryContext;
 		workerContext = AllocSetContextCreate(oldContext,
 											  "workerContext",
@@ -1998,7 +2046,9 @@ static void treatOldMasterAfterSwitch(MgrNodeWrapper *oldMaster)
 		spiContext = CurrentMemoryContext;
 		MemoryContextSwitchTo(workerContext);
 
+		BEGIN_CATCH_ERR_MSG();
 		done = rewindSlaveNodeFollowMaster(oldMaster, spiContext);
+		END_CATCH_ERR_MSG();
 
 		(void)MemoryContextSwitchTo(oldContext);
 		MemoryContextDelete(workerContext);
@@ -2006,11 +2056,14 @@ static void treatOldMasterAfterSwitch(MgrNodeWrapper *oldMaster)
 		if (done)
 		{
 			SPI_FINISH_TRANSACTIONAL_COMMIT();
+			endAdbDoctorLog(logRow, true);
 			break;
 		}
 		else
 		{
 			SPI_FINISH_TRANSACTIONAL_ABORT();
+			logRow->errormsg = ereport_message;
+			endAdbDoctorLog(logRow, false);
 			CHECK_FOR_INTERRUPTS();
 			rc = WaitLatchOrSocket(MyLatch,
 								   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,

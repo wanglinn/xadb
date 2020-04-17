@@ -9,6 +9,8 @@
 
 #include "postgres.h"
 #include "utils/timestamp.h"
+#include "access/xact.h"
+#include "utils/snapmgr.h"
 
 /* Limit the value to the range between the minimum and maximum. */
 #define LIMIT_VALUE_RANGE(min, max, val) Min(max, Max(min, val))
