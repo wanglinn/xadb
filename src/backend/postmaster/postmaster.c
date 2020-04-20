@@ -3614,7 +3614,7 @@ reaper(SIGNAL_ARGS)
 			if (EXIT_STATUS_0(exitstatus) ||
 				EXIT_STATUS_1(exitstatus))
 			{
-				LogChildExit(LOG,
+				LogChildExit(WARNING,
 							 pgstat_get_backend_desc(B_ADB_SNAP_SENDER), pid, exitstatus);
 				SnapReceiverPID = StartSnapSender();
 			}else
@@ -3631,7 +3631,7 @@ reaper(SIGNAL_ARGS)
 			if (EXIT_STATUS_0(exitstatus) ||
 				EXIT_STATUS_1(exitstatus))
 			{
-				LogChildExit(LOG,
+				LogChildExit(WARNING,
 							 pgstat_get_backend_desc(B_ADB_GXID_SENDER), pid, exitstatus);
 				GxidSenderPID = StartGxidSender();
 			}else
@@ -3648,7 +3648,7 @@ reaper(SIGNAL_ARGS)
 			if (EXIT_STATUS_0(exitstatus) ||
 				EXIT_STATUS_1(exitstatus))
 			{
-				LogChildExit(LOG,
+				LogChildExit(WARNING,
 							 pgstat_get_backend_desc(B_ADB_SNAP_RECEIVER), pid, exitstatus);
 				SnapReceiverPID = StartSnapReceiver();
 			}else
@@ -3665,7 +3665,7 @@ reaper(SIGNAL_ARGS)
 			if (EXIT_STATUS_0(exitstatus) ||
 				EXIT_STATUS_1(exitstatus))
 			{
-				LogChildExit(LOG,
+				LogChildExit(WARNING,
 							 pgstat_get_backend_desc(B_ADB_GXID_RECEIVER), pid, exitstatus);
 				GxidReceiverPID = StartGxidReceiver();
 			}else
