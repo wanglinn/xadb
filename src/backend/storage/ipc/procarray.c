@@ -1583,6 +1583,35 @@ GetMaxSnapshotSubxidCount(void)
 	return TOTAL_MAX_CACHED_SUBXIDS;
 }
 
+#ifdef ADB
+void
+ExitedAllGxidRcvXidProcess(void)
+{
+	int			numProcs;
+	int			*pgprocnos;
+	int			index, pgprocno;
+	volatile 	PGPROC *proc;
+	if (!RecoveryInProgress())
+	{
+		LWLockAcquire(ProcArrayLock, LW_SHARED);
+
+		pgprocnos = procArray->pgprocnos;
+		numProcs = procArray->numProcs;
+		for (index = 0; index < numProcs; index++)
+		{
+			pgprocno = pgprocnos[index];
+			proc = &allProcs[pgprocno];
+			if (TransactionIdIsNormal(proc->getGlobalTransaction))
+			{
+				ereport(WARNING, (errmsg("terminal PID(%d) as gxidrcv exited\n", proc->pid)));
+				kill(proc->pid, SIGTERM);
+			}
+		}
+		LWLockRelease(ProcArrayLock);
+	}
+}
+#endif /* ADB */
+
 /*
  * GetSnapshotData -- returns information about running transactions.
  *
