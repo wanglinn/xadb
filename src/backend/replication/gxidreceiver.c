@@ -704,6 +704,19 @@ static void GxidRcvProcessAssign(char *buf, Size len)
 		walrcv_send(wrconn, reply_message.data, reply_message.len);
 }
 
+static int
+GxidRcvXidComparator(const void *arg1, const void *arg2)
+{
+	TransactionId xid1 = *(const TransactionId *) arg1;
+	TransactionId xid2 = *(const TransactionId *) arg2;
+
+	if (xid1 < xid2)
+		return 1;
+	if (xid1 > xid2)
+		return -1;
+	return 0;
+}
+
 static void GxidRcvProcessPreAssign(char *buf, Size len)
 {
 	StringInfoData			msg;
@@ -739,6 +752,8 @@ static void GxidRcvProcessPreAssign(char *buf, Size len)
 	}
 	GxidRcv->is_send_realloc_num = 0;
 	Assert(GxidRcv->cur_pre_alloc <= MAX_XID_PRE_ALLOC_NUM);
+
+	qsort(GxidRcv->xid_alloc, GxidRcv->cur_pre_alloc, sizeof(TransactionId), GxidRcvXidComparator);
 	UNLOCK_GXID_RCV();
 
 	Assert(num == 0);	
