@@ -207,6 +207,7 @@ static void checkAndSwitchSpecifiedTypeMaster(dlist_head *oldMasters, char nodet
 				logRow->errormsg = ereport_message;
 				endAdbDoctorLog(logRow, false);
 			}
+			pfree(switchMasterResult);
 
 			CHECK_FOR_INTERRUPTS();
 			examineAdbDoctorConf(oldMasters);
