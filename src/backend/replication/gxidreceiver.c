@@ -197,9 +197,17 @@ void GxidReceiverMain(void)
 {
 	TimestampTz now;
 	TimestampTz last_recv_timestamp;
+	sigjmp_buf	local_sigjmp_buf;
 	TimestampTz timeout;
 	bool		heartbeat_sent;
 
+	if (sigsetjmp(local_sigjmp_buf, 1) != 0)
+	{
+		ExitedAllGxidRcvXidProcess();
+		EmitErrorReport();
+		exit(1);
+	}
+	PG_exception_stack = &local_sigjmp_buf;
 	Assert(GxidRcv != NULL);
 
 	now = GetCurrentTimestamp();
@@ -1217,10 +1225,10 @@ void GixRcvCommitTransactionId(TransactionId txid, bool isCommit)
 	ret = GxidRcvFoundWaitFinishList(txid);
 	if (!ret)
 	{
-		//UNLOCK_GXID_RCV();
-		//MyProc->getGlobalTransaction = InvalidTransactionId;
-		ereport(LOG,(errmsg("xid %d is gone in gxidrcv, maybe gtmcoord restart\n", txid)));
-		//return;
+		UNLOCK_GXID_RCV();
+		MyProc->getGlobalTransaction = InvalidTransactionId;
+		ereport(WARNING,(errmsg("xid %d is gone in gxidrcv, maybe gxidsender/gxidrecv restart\n", txid)));
+		return;
 	}
 
 	if (isCommit)
