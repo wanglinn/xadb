@@ -5322,6 +5322,17 @@ _copyMGRUpdateparm(const MGRUpdateparm *from)
 	return newnode;
 }
 
+static MGRDoctorSet *
+_copyMGRDoctorSet(const MGRDoctorSet *from)
+{
+	MGRDoctorSet *newnode = makeNode(MGRDoctorSet);
+	COPY_NODE_FIELD(options);
+	COPY_STRING_FIELD(nodename);
+	COPY_STRING_FIELD(hostname);
+	COPY_SCALAR_FIELD(enable);
+	return newnode;
+}
+
 static MonitorJobAdd *
 _copyMonitorJobAdd(const MonitorJobAdd *from)
 {
@@ -6380,6 +6391,9 @@ copyObjectImpl(const void *from)
 			break;
 		case T_MGRUpdateparm:
 			retval = _copyMGRUpdateparm(from);
+			break;
+		case T_MGRDoctorSet:
+			retval = _copyMGRDoctorSet(from);
 			break;
 		case T_MonitorJobAdd:
 			retval = _copyMonitorJobAdd(from);
