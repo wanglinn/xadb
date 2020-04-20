@@ -349,24 +349,9 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		/* check the node exist */
-		if (CNDN_TYPE_COORDINATOR_MASTER == nodetype || CNDN_TYPE_COORDINATOR_SLAVE == nodetype)
-		{
-			checktuple = mgr_get_nodetuple_by_name_zone(rel, NameStr(name), zoneData.data);
-			if (HeapTupleIsValid(checktuple))
-			{
-				heap_freetuple(checktuple);
-				ereport(ERROR, (errcode(ERRCODE_DUPLICATE_OBJECT)
-						, errmsg("the name \"%s\" is already exist in zone \"%s\"", NameStr(name), zoneData.data)));
-			}
-
-		}
-		else
-		{
-			if (mgr_check_nodename_repeate(rel, NameStr(name)))
-				ereport(ERROR, (errcode(ERRCODE_DUPLICATE_OBJECT)
-						, errmsg("the name \"%s\" is already exist in node table", NameStr(name))));
-		}
+		if (mgr_check_nodename_repeate(rel, NameStr(name)))
+			ereport(ERROR, (errcode(ERRCODE_DUPLICATE_OBJECT), errmsg("the name \"%s\" is already exist in node table", NameStr(name))));
+	
 		/* check the master exist */
 		if (mastertype != nodetype)
 		{			

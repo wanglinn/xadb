@@ -3952,3 +3952,18 @@ char* mgr_get_cmdname(int cmdtype)
 	}
 	return "";
 }
+bool mgr_check_nodetype_exist(char nodeType, char nodeTypeList[8])
+{
+	int 	loop = 0;
+	bool 	found = false;
+
+	for (loop = 0; loop < 8; loop++)
+	{
+		if (nodeType == nodeTypeList[loop])
+		{
+			found = true;
+			break;
+		}
+	}
+	return found;
+}
