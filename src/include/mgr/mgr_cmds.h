@@ -65,6 +65,17 @@
 	}\
 }
 
+#define IsGTMMaster(nodetype)  	(nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+#define IsCOORDMaster(nodetype) (nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+#define IsDNMaster(nodetype)  	(nodetype == CNDN_TYPE_DATANODE_MASTER)
+
+#define EndScan(relScan)\
+{\
+	if (relScan != NULL){\
+		heap_endscan(relScan);\
+	}\
+}
+
 typedef struct GetAgentCmdRst
 {
 	NameData nodename;
@@ -598,6 +609,7 @@ extern Datum mgr_zone_clear(PG_FUNCTION_ARGS);
 extern bool mgr_node_has_slave_inzone(Relation rel, char *zone, Oid mastertupleoid);
 extern bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync, Node *node);
 extern void mgr_clean_cn_pgxcnode_readonlysql_slave(void);
+extern bool mgr_check_nodetype_exist(char nodeType, char nodeTypeList[8]);
 
 extern char *getMgrNodeSyncStateValue(sync_state state);
 extern uint64 updateDoctorStatusOfMgrNodes(List *nodenames, char nodetype, bool allowcure, char *curestatus);
@@ -613,4 +625,5 @@ extern void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, Get
 extern int MgrGetAdbcleanNum(PGconn *pg_conn);
 extern char* mgr_get_cmdname(int cmdtype);
 extern char *MgrGetDefDbName(void);
+
 #endif /* MGR_CMDS_H */
