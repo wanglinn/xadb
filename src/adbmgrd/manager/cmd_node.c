@@ -3986,6 +3986,32 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
  */
 Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 {
+	bool 		result = true;
+	NameData 	nodeName;
+	HeapTuple 	tup_result;
+	char 		*dnName = PG_GETARG_CSTRING(0);
+	namestrcpy(&nodeName, dnName);
+
+	PG_TRY();
+	{
+		result = mgr_append_dn_slave(dnName);
+	}PG_CATCH();
+	{
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	if (result){
+		tup_result = build_common_command_tuple(&nodeName, true, "success");
+	}
+	else{
+		tup_result = build_common_command_tuple(&nodeName, false, "fail");
+	}
+
+	return HeapTupleGetDatum(tup_result);
+}
+
+bool mgr_append_dn_slave(char *dnName)
+{
 	AppendNodeInfo appendnodeinfo;
 	AppendNodeInfo parentnodeinfo;
 	AppendNodeInfo agtm_m_nodeinfo;
@@ -4000,7 +4026,6 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 	StringInfoData infostrparamtmp;
 	NameData nodename;
 	NameData gtmMasterNameData;
-	HeapTuple tup_result;
 	GetAgentCmdRst getAgentCmdRst;
 	const int max_pingtry = 60;
 	char nodeport_buf[10];
@@ -4018,9 +4043,8 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
-	appendnodeinfo.nodename = PG_GETARG_CSTRING(0);
+	appendnodeinfo.nodename = dnName;
 	Assert(appendnodeinfo.nodename);
-
 	namestrcpy(&nodename, appendnodeinfo.nodename);
 
 	PG_TRY();
@@ -4195,21 +4219,13 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 	if (!mgr_try_max_pingnode(appendnodeinfo.nodeaddr, nodeport_buf, appendnodeinfo.nodeusername, max_pingtry))
 	{
 		result = false;
-		appendStringInfo(&recorderr, "waiting %d seconds for the new node can accept connections failed", max_pingtry);
+		ereportWarningLog(errmsg("waiting %d seconds for the new node can accept connections failed", max_pingtry));
 	}
-	if (result)
-		tup_result = build_common_command_tuple(&nodename, true, "success");
-	else
-	{
-		tup_result = build_common_command_tuple(&nodename, result, recorderr.data);
-	}
-
-	pfree(recorderr.data);
 	pfree_AppendNodeInfo(appendnodeinfo);
 	pfree_AppendNodeInfo(parentnodeinfo);
 	pfree_AppendNodeInfo(agtm_m_nodeinfo);
 
-	return HeapTupleGetDatum(tup_result);
+	return result;
 }
 
 /*
@@ -4412,6 +4428,31 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 
 Datum mgr_append_agtmslave(PG_FUNCTION_ARGS)
 {
+	bool 		result = true;
+	NameData 	nodename;
+	HeapTuple 	tup_result;
+	char 		*gtmname = PG_GETARG_CSTRING(0);
+	namestrcpy(&nodename, gtmname);
+
+	PG_TRY();
+	{
+		result = mgr_append_agtm_slave(gtmname);
+	}PG_CATCH();
+	{
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	if (result){
+		tup_result = build_common_command_tuple(&nodename, true, "success");
+	}
+	else{
+		tup_result = build_common_command_tuple(&nodename, false, "fail");
+	}
+
+	return HeapTupleGetDatum(tup_result);
+}
+bool mgr_append_agtm_slave(char *gtmname)
+{
 	AppendNodeInfo appendnodeinfo;
 	AppendNodeInfo agtm_m_nodeinfo;
 	bool agtm_m_is_exist;
@@ -4420,12 +4461,10 @@ Datum mgr_append_agtmslave(PG_FUNCTION_ARGS)
 	bool bsyncnode = false;
 	StringInfoData infosendmsg;
 	StringInfoData primary_conninfo_value;
-	StringInfoData recorderr;
 	StringInfoData infostrparam;
 	StringInfoData infostrparamtmp;
 	NameData nodename;
 	NameData gtmMasterNameData;
-	HeapTuple tup_result;
 	HeapTuple gtmMasterTuple;
 	GetAgentCmdRst getAgentCmdRst;
 	char nodeport_buf[10];
@@ -4444,7 +4483,7 @@ Datum mgr_append_agtmslave(PG_FUNCTION_ARGS)
 
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
-	appendnodeinfo.nodename = PG_GETARG_CSTRING(0);
+	appendnodeinfo.nodename = gtmname;
 	Assert(appendnodeinfo.nodename);
 
 	namestrcpy(&nodename, appendnodeinfo.nodename);
@@ -4596,24 +4635,15 @@ Datum mgr_append_agtmslave(PG_FUNCTION_ARGS)
 	}PG_END_TRY();
 	/*wait the node can accept connections*/
 	sprintf(nodeport_buf, "%d", appendnodeinfo.nodeport);
-	initStringInfo(&recorderr);
 	if (!mgr_try_max_pingnode(appendnodeinfo.nodeaddr, nodeport_buf, appendnodeinfo.nodeusername, max_pingtry))
 	{
 		result = false;
-		appendStringInfo(&recorderr, "waiting %d seconds for the new node can accept connections failed", max_pingtry);
+		ereportWarningLog(errmsg("waiting %d seconds for the new node can accept connections failed", max_pingtry));
 	}
-	if (result)
-		tup_result = build_common_command_tuple(&nodename, true, "success");
-	else
-	{
-		tup_result = build_common_command_tuple(&nodename, false, recorderr.data);
-	}
-
-	pfree(recorderr.data);
 	pfree_AppendNodeInfo(appendnodeinfo);
 	pfree_AppendNodeInfo(agtm_m_nodeinfo);
 
-	return HeapTupleGetDatum(tup_result);
+	return result;
 }
 
 void pfree_AppendNodeInfo(AppendNodeInfo nodeinfo)
