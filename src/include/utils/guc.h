@@ -245,6 +245,7 @@ extern bool Debug_print_grammar;
 extern int force_snapshot_consistent;
 extern int snapshot_sync_waittime;
 extern int snap_receiver_timeout;
+extern int snap_force_globalxmin_sync_time;
 extern int gxid_receiver_timeout;
 extern int max_cn_prealloc_xid_size;
 #endif /* defined(ADB) || defined(ADB_MULTI_GRAM) */

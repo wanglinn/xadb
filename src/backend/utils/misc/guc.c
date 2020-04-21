@@ -2780,17 +2780,6 @@ static struct config_int ConfigureNamesInt[] =
 
 #ifdef ADB
 	{
-		{"sync_global_xmin_time", PGC_USERSET, CUSTOM_OPTIONS,
-			gettext_noop("Sets the minimum time for sync recent global xmin."),
-			gettext_noop("minimum time is 100000ms."),
-			GUC_UNIT_MS
-		},
-		&snap_receiver_sxmin_time,
-		10000, 10000, INT_MAX,
-		NULL, NULL, NULL
-	},
-
-	{
 		{"snapshot_sync_waittime", PGC_SIGHUP, COORDINATORS,
 			gettext_noop("For coordinators sync snapshot wait timeout."),
 			gettext_noop("minimum time is 0ms, means no wait"),
@@ -2809,6 +2798,17 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&snap_receiver_timeout,
 		60000, 30000, INT_MAX,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"snap_force_globalxmin_sync_time", PGC_SIGHUP, COORDINATORS,
+			gettext_noop("Force coordinators and datanode sync global xmin time."),
+			gettext_noop("minimum time is 1s"),
+			GUC_UNIT_MS
+		},
+		&snap_receiver_timeout,
+		10000, 1000, INT_MAX,
 		NULL, NULL, NULL
 	},
 

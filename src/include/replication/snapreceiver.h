@@ -7,7 +7,6 @@
 #include "lib/ilist.h"
 #include "replication/snapcommon.h"
 
-extern int snap_receiver_sxmin_time;
 /* prototypes for functions in snapreceiver.c */
 extern void SnapReceiverMain(void) pg_attribute_noreturn();
 
