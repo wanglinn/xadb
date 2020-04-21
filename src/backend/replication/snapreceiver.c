@@ -30,7 +30,7 @@
 
 int snap_receiver_timeout = 60 * 1000L;
 int snap_sender_connect_timeout = 5000L;
-int snap_receiver_sxmin_time;
+int snap_force_globalxmin_sync_time = 10000L;
 
 
 typedef struct SnapRcvData
@@ -59,7 +59,8 @@ typedef struct SnapRcvData
 	TransactionId	xip[MAX_BACKENDS];
 	pg_atomic_uint32	last_client_req_key; /* last client rquest snap sync key num*/
 	pg_atomic_uint32	last_ss_req_key; 	/* last snaprcv rquest snap sync key num*/
-	pg_atomic_uint32	last_ss_resp_key; /* last snaprcv reponse snap sync ken num*/	
+	pg_atomic_uint32	last_ss_resp_key; /* last snaprcv reponse snap sync ken num*/
+	pg_atomic_uint64	last_heartbeat_sync_time;
 }SnapRcvData;
 
 /* GUC variables */
@@ -73,7 +74,6 @@ static StringInfoData reply_message;
 static StringInfoData incoming_message;
 
 static TimestampTz last_heat_beat_sendtime;
-static TimestampTz last_gxmin_stime;
 
 static bool finish_xid_ack_send = false;
 
@@ -110,7 +110,6 @@ static void SnapRcvProcessHeartBeat(char *buf, Size len);
 static void SnapRcvProcessUpdateXid(char *buf, Size len);
 static void WakeupTransaction(TransactionId);
 static void SnapRcvSendLocalNextXid(void);
-static void SnapRcvProcessSyncXminResp(char *buf, Size len);
 static TransactionId SnapRcvGetLocalXmin(void);
 
 /* Signal handlers */
@@ -156,38 +155,26 @@ DisableSnapRcvImmediateExit(void)
 	ProcessSnapRcvInterrupts();
 }
 
-static void
-SnapRcvSendLocalGlobalXmin(void)
-{
-	TransactionId xmin;
-
-	last_gxmin_stime = GetCurrentTimestamp();
-	/* Construct a new message */
-	resetStringInfo(&reply_message);
-	pq_sendbyte(&reply_message, 't');
-	xmin = SnapRcvGetLocalXmin();
-	pq_sendint64(&reply_message, xmin);
-
-	/* Send it */
-	walrcv_send(wrconn, reply_message.data, reply_message.len);
-}
-
-static void
+static bool
 SnapRcvSendHeartbeat(void)
 {
-	TransactionId xmin;
-	
-	last_heat_beat_sendtime = GetCurrentTimestamp();
+	TransactionId 	xmin;
+
+	xmin = SnapRcvGetLocalXmin();
+	if (!TransactionIdIsNormal(xmin))
+		return false;
 	/* Construct a new message */
+	last_heat_beat_sendtime = GetCurrentTimestamp();
 	resetStringInfo(&reply_message);
 	pq_sendbyte(&reply_message, 'h');
 	pq_sendint64(&reply_message, last_heat_beat_sendtime);
-	xmin = SnapRcvGetLocalXmin();
 	pq_sendint64(&reply_message, xmin);
 
 	/* Send it */
 	walrcv_send(wrconn, reply_message.data, reply_message.len);
-	last_gxmin_stime = last_heat_beat_sendtime;
+	pg_atomic_write_u64(&SnapRcv->last_heartbeat_sync_time, last_heat_beat_sendtime);
+
+	return true;
 }
 
 static void SnapRcvProcessSnapSync(void)
@@ -232,10 +219,11 @@ SnapRcvSendLocalNextXid(void)
 
 void SnapReceiverMain(void)
 {
-	TimestampTz now;
 	TimestampTz last_recv_timestamp;
 	TimestampTz timeout;
-	bool		heartbeat_sent;
+	TimestampTz last_hb_st, now;
+	bool		heartbeat_sent, force_send;
+	int 		loop_time;
 
 	Assert(SnapRcv != NULL);
 
@@ -277,13 +265,13 @@ void SnapReceiverMain(void)
 	/* Advertise our PID so that the startup process can kill us */
 	SnapRcv->pid = MyProcPid;
 	SnapRcv->procno = MyProc->pgprocno;
-	last_gxmin_stime = 0;
 
 	UNLOCK_SNAP_RCV();
 	pg_atomic_write_u32(&SnapRcv->global_xmin, FirstNormalTransactionId);
 	pg_atomic_write_u32(&SnapRcv->last_client_req_key, 0);
 	pg_atomic_write_u32(&SnapRcv->last_ss_req_key, 0);
 	pg_atomic_write_u32(&SnapRcv->last_ss_resp_key, 0);
+	pg_atomic_write_u64(&SnapRcv->last_heartbeat_sync_time, 0);
 
 	/* Arrange to clean up at walreceiver exit */
 	on_shmem_exit(SnapRcvDie, (Datum)0);
@@ -378,6 +366,13 @@ void SnapReceiverMain(void)
 					ProcessConfigFile(PGC_SIGHUP);
 				}
 
+				loop_time = snap_sender_connect_timeout;
+				if (snap_receiver_timeout < loop_time)
+					loop_time = snap_receiver_timeout;
+				if (snap_force_globalxmin_sync_time < loop_time)
+					loop_time = snap_force_globalxmin_sync_time;
+
+				Assert(loop_time > 0);
 				len = walrcv_receive(wrconn, &buf, &wait_fd);
 				if (len != 0)
 				{
@@ -410,7 +405,7 @@ void SnapReceiverMain(void)
 				rc = WaitLatchOrSocket(&MyProc->procLatch,
 									   WL_POSTMASTER_DEATH | WL_SOCKET_READABLE | WL_LATCH_SET | WL_TIMEOUT,
 									   wait_fd,
-									   snap_receiver_timeout,
+									   loop_time,
 									   PG_WAIT_EXTENSION);
 				ResetLatch(&MyProc->procLatch);
 				SnapRcvProcessSnapSync();
@@ -424,16 +419,21 @@ void SnapReceiverMain(void)
 					exit(1);
 				}
 
-				if ((rc & WL_TIMEOUT) && snap_receiver_timeout > 0 && !heartbeat_sent)
+				force_send = false;
+
+				last_hb_st = pg_atomic_read_u64(&SnapRcv->last_heartbeat_sync_time);
+				now = GetCurrentTimestamp();
+				if (now >= TimestampTzPlusMilliseconds(last_hb_st, snap_force_globalxmin_sync_time))
+					force_send = true;
+
+				if (((rc & WL_TIMEOUT) && snap_receiver_timeout > 0 && !heartbeat_sent) || force_send)
 				{
-					now = GetCurrentTimestamp();
 					timeout = TimestampTzPlusMilliseconds(last_recv_timestamp,
 								snap_receiver_timeout);
 
-					if (now >= timeout)
+					if ((now >= timeout || force_send) && SnapRcvSendHeartbeat())
 					{
 						heartbeat_sent = true;
-						SnapRcvSendHeartbeat();
 					}
 				}
 			}
@@ -478,6 +478,7 @@ void SnapRcvShmemInit(void)
 		pg_atomic_init_u32(&SnapRcv->last_client_req_key, 0);
 		pg_atomic_init_u32(&SnapRcv->last_ss_req_key, 0);
 		pg_atomic_init_u32(&SnapRcv->last_ss_resp_key, 0);
+		pg_atomic_init_u64(&SnapRcv->last_heartbeat_sync_time, 0);
 	}
 }
 
@@ -529,6 +530,7 @@ static void SnapRcvDie(int code, Datum arg)
 	SnapRcv->pid = 0;
 	SnapRcv->procno = INVALID_PGPROCNO;
 	SnapRcv->xcnt = 0;
+	pg_atomic_write_u64(&SnapRcv->last_heartbeat_sync_time, 0);
 	SnapRcv->next_try_time = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), RESTART_STEP_MS);	/* 3 seconds */
 	UNLOCK_SNAP_RCV();
 
@@ -668,14 +670,13 @@ static void SnapRcvProcessSyncSnap(char *buf, Size len)
 
 static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 {
-	TimestampTz now;
 	resetStringInfo(&incoming_message);
 
 	switch (type)
 	{
 	case 's':				/* snapshot */
 		SnapRcvProcessSnapshot(buf, len);
-		SnapRcvSendLocalGlobalXmin();
+		SnapRcvSendHeartbeat();
 		break;
 	case 'a':
 		SnapRcvProcessAssign(buf, len);
@@ -689,9 +690,6 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 	case 'u':				/* heartbeat response */
 		SnapRcvProcessUpdateXid(buf, len);
 		break;
-	case 't':				/* heartbeat response */
-		SnapRcvProcessSyncXminResp(buf, len);
-		break;
 	case 'p':				/* heartbeat response */
 		SnapRcvProcessSyncSnap(buf, len);
 		break;
@@ -701,10 +699,6 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 				 errmsg_internal("invalid replication message type %d",
 								 type)));
 	}
-
-	now = GetCurrentTimestamp();
-	if (now - last_gxmin_stime >= snap_receiver_sxmin_time)
-		SnapRcvSendLocalGlobalXmin();
 }
 
 static void SnapRcvProcessSnapshot(char *buf, Size len)
@@ -939,19 +933,6 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	}
 }
 
-static void SnapRcvProcessSyncXminResp(char *buf, Size len)
-{
-	StringInfoData	msg;
-	TransactionId 	xmin;
-
-	msg.data = buf;
-	msg.len = msg.maxlen = len;
-	msg.cursor = 0;
-
-	xmin = pq_getmsgint64(&msg);
-	pg_atomic_write_u32(&SnapRcv->global_xmin, xmin);
-}
-
 static void SnapRcvProcessHeartBeat(char *buf, Size len)
 {
 	StringInfoData	msg;
@@ -969,16 +950,17 @@ static void SnapRcvProcessHeartBeat(char *buf, Size len)
 	msg.cursor = 0;
 
 	t1 = pq_getmsgint64(&msg);
-	Assert(t1 == last_heat_beat_sendtime);
 	t2 = pq_getmsgint64(&msg);
 	t3 = pq_getmsgint64(&msg);
 	xmin = pq_getmsgint64(&msg);
+	if (t1 == last_heat_beat_sendtime)
+	{
+		deltatime = ((t2-t1)+(t3-t4))/2;
 
-	deltatime = ((t2-t1)+(t3-t4))/2;
-
-	LOCK_SNAP_RCV();
-	SnapRcv->gtm_delta_time = deltatime;
-	UNLOCK_SNAP_RCV();
+		LOCK_SNAP_RCV();
+		SnapRcv->gtm_delta_time = deltatime;
+		UNLOCK_SNAP_RCV();
+	}
 
 	pg_atomic_write_u32(&SnapRcv->global_xmin, xmin);
 }
@@ -1326,6 +1308,12 @@ static TransactionId SnapRcvGetLocalXmin(void)
 	uint32			i,count;
 
 	LOCK_SNAP_RCV();
+	if (SnapRcv->state != WALRCV_STREAMING)
+	{
+		UNLOCK_SNAP_RCV();
+		return InvalidTransactionId;
+	}
+
 	Assert(SnapRcv->state == WALRCV_STREAMING);
 	count = SnapRcv->xcnt;
 	xmin = xmax = SnapRcv->latestCompletedXid;
@@ -1345,7 +1333,7 @@ static TransactionId SnapRcvGetLocalXmin(void)
 	UNLOCK_SNAP_RCV();
 	if (!RecoveryInProgress())
 	{
-		oldxmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_DEFAULT);
+		oldxmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_VACUUM);
 		if (NormalTransactionIdPrecedes(oldxmin, xmin))
 			xmin = oldxmin;
 	}
@@ -1418,6 +1406,9 @@ re_lock_:
 			appendStringInfo(buf, "\n  ");
 	}
 	appendStringInfo(buf, "]");
+
+	pg_atomic_write_u64(&SnapRcv->last_heartbeat_sync_time, 0);
+	SNAP_RCV_SET_LATCH();
 
 	pfree(assign_xids);
 }
