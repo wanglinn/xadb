@@ -300,8 +300,11 @@ extern Datum mgr_monitor_agent_hostlist(PG_FUNCTION_ARGS);
 
 extern Datum mgr_append_dnmaster(PG_FUNCTION_ARGS);
 extern Datum mgr_append_dnslave(PG_FUNCTION_ARGS);
+extern bool mgr_append_dn_slave(char *dnName);
 extern Datum mgr_append_coordmaster(PG_FUNCTION_ARGS);
 extern Datum mgr_append_agtmslave(PG_FUNCTION_ARGS);
+
+extern bool mgr_append_agtm_slave(char *gtmname);
 
 extern Datum mgr_list_acl_all(PG_FUNCTION_ARGS);
 extern Datum mgr_priv_manage(PG_FUNCTION_ARGS);
@@ -500,6 +503,7 @@ extern Datum mgr_failover_manual_promote_func(PG_FUNCTION_ARGS);
 extern Datum mgr_failover_manual_pgxcnode_func(PG_FUNCTION_ARGS);
 extern Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS);
 extern Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS);
+extern bool mgr_append_coord_slave(char *m_coordname, char *s_coordname, StringInfoData *strerr);
 extern Datum mgr_append_activate_coord(PG_FUNCTION_ARGS);
 extern Datum mgr_switchover_func(PG_FUNCTION_ARGS);
 extern Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS);
@@ -606,6 +610,7 @@ extern Datum mgr_zone_promote(PG_FUNCTION_ARGS);
 extern Datum mgr_zone_config_all(PG_FUNCTION_ARGS);
 extern HeapTuple mgr_get_nodetuple_by_name_zone(Relation rel, char *nodename, char *nodezone);
 extern Datum mgr_zone_clear(PG_FUNCTION_ARGS);
+extern Datum mgr_zone_init(PG_FUNCTION_ARGS);
 extern bool mgr_node_has_slave_inzone(Relation rel, char *zone, Oid mastertupleoid);
 extern bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync, Node *node);
 extern void mgr_clean_cn_pgxcnode_readonlysql_slave(void);

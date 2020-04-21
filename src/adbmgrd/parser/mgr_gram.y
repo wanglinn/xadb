@@ -3039,6 +3039,14 @@ ZoneStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_zone_clear", args));
 			$$ = (Node*)stmt;
 		}
+	|	ZONE INIT Ident
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($3, @3));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_zone_init", args));
+			$$ = (Node*)stmt;
+		}	
 	;
 /* ADB DOCTOR BEGIN */
 StartDoctorStmt: 

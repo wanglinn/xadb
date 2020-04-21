@@ -1,0 +1,56 @@
+<!--
+doc/src/sgml/ref/mgr_zone_init.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-ZONEINIT">
+  <refmeta>
+    <refentrytitle>ZONE INIT</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>ZONE INIT</refname>
+    <refpurpose>init the gtm slave, coord slave, datanode slave of the input zone.</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-zoneinit">
+    <primary>ZONE INIT</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+ZONE INIT <replaceable class="parameter">zone_name</replaceable>
+</synopsis>
+  </refsynopsisdiv>
+
+  <refsect1>
+    <title>Description</title>
+
+    <para>
+<command>ZONE INIT</command> init the gtm slave, coord slave, datanode slave of the input zone..
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>Parameters</title>
+  <variablelist>
+    
+   <varlistentry>
+    <term><replaceable class="parameter">zone_name</replaceable></term>
+    <listitem>
+      <para>
+      Data center name.
+      </para>
+    </listitem>
+   </varlistentry>
+
+  </variablelist>
+  </refsect1>
+  
+ <refsect1>
+  <title>See Also</title>  
+ </refsect1>
+ 
+</refentry>

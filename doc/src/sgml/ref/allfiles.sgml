@@ -312,7 +312,7 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY mgrZoneClear       SYSTEM "mgr_zone_clear.sgml">
 <!ENTITY mgrZoneConfig      SYSTEM "mgr_zone_config.sgml">
 <!ENTITY mgrZonePromote     SYSTEM "mgr_zone_promote.sgml">
-
+<!ENTITY mgrZoneInit        SYSTEM "mgr_zone_init.sgml">
 
 <!-- ADB monitor command -->
 <!ENTITY monitorAddJob      SYSTEM "monitor_add_job.sgml">

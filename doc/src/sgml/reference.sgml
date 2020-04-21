@@ -383,6 +383,7 @@
    &mgrZonePromote
    &mgrZoneConfig
    &mgrZoneClear
+   &mgrZoneInit
 </reference>
 
 <reference id="reference-monitor">

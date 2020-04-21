@@ -708,24 +708,46 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 */
 Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 {
+	bool 			res = false;
+	StringInfoData 	strerr;
+	HeapTuple 		tup_result;
+	NameData 		nodename;
+
+	char *m_coordname = PG_GETARG_CSTRING(0);
+	char *s_coordname = PG_GETARG_CSTRING(1);
+	Assert(m_coordname && s_coordname);	
+
+	initStringInfo(&strerr);
+	namestrcpy(&nodename, s_coordname);
+
+	PG_TRY();
+	{
+		res = mgr_append_coord_slave(m_coordname, s_coordname, &strerr);
+	}PG_CATCH();
+	{
+		PG_RE_THROW();
+	}PG_END_TRY();
+	
+	tup_result = build_common_command_tuple(&nodename, res, strerr.data);
+	MgrFree(strerr.data);
+	return HeapTupleGetDatum(tup_result);
+}
+bool mgr_append_coord_slave(char *m_coordname, char *s_coordname, StringInfoData *strerr)
+{
 	GetAgentCmdRst getAgentCmdRst;
 	AppendNodeInfo src_nodeinfo;
 	AppendNodeInfo dest_nodeinfo;
 	StringInfoData infosendmsg;
 	StringInfoData restmsg;
-	StringInfoData strerr;
-	HeapTuple tup_result;
 	HeapTuple tuple;
-	NameData nodename;
 	Relation rel_node;
 	Form_mgr_node mgr_node;
 	HeapScanDesc rel_scan;
 	ScanKeyData key[1];
 	Datum datumPath;
 	char s_nodetype;
-	char port_buf[10];
-	char *m_coordname;
-	char *s_coordname;
+	char port_buf[10];	
+	NameData nodename;
 	char *nodepath;
 	char *nodetypestr;
 	bool b_exist_src = false;
@@ -737,10 +759,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	int pingNodeRet;
 
 	/* get the input variable */
-	m_coordname = PG_GETARG_CSTRING(0);
-	s_coordname = PG_GETARG_CSTRING(1);
-	Assert(m_coordname && s_coordname);
-
+	Assert(m_coordname && s_coordname);	
 	namestrcpy(&nodename, s_coordname);
 	s_nodetype = mgr_get_nodetype(&nodename);
 	/* check the source coordinator status */
@@ -828,7 +847,6 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	}
 
 	/* change the dest coordiantor port and hot_standby*/
-	initStringInfo(&strerr);
 	resetStringInfo(&infosendmsg);
 	resetStringInfo(&(getAgentCmdRst.description));
 	mgr_add_parm(s_coordname, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
@@ -841,7 +859,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, dest_nodeinfo.nodepath, &infosendmsg, dest_nodeinfo.nodehost, &getAgentCmdRst);
 	if (!getAgentCmdRst.ret)
 	{
-		appendStringInfo(&strerr, "update \"port=%d, hot_standby=on\" in postgresql.conf of coordinator \"%s\" fail, %s\n"
+		appendStringInfo(strerr, "update \"port=%d, hot_standby=on\" in postgresql.conf of coordinator \"%s\" fail, %s\n"
 		, dest_nodeinfo.nodeport, s_coordname, getAgentCmdRst.description.data);
 		ereport(WARNING, (errmsg("update port=%d, hot_standby=on\" in postgresql.conf of coordinator \"%s\" fail, %s"
 		, dest_nodeinfo.nodeport, s_coordname, getAgentCmdRst.description.data)));
@@ -861,7 +879,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	pfree_AppendNodeInfo(src_nodeinfo);
 	if (!getAgentCmdRst.ret)
 	{
-		appendStringInfo(&strerr, "update \"standby_mode=on, recovery_target_timeline=latest\n,primary_conninfo='%s'\" \n in recovery.conf of coordinator \"%s\" fail, %s\n"
+		appendStringInfo(strerr, "update \"standby_mode=on, recovery_target_timeline=latest\n,primary_conninfo='%s'\" \n in recovery.conf of coordinator \"%s\" fail, %s\n"
 			, restmsg.data, s_coordname, getAgentCmdRst.description.data);
 		ereport(WARNING, (errmsg("update recovery.conf of coordinator \"%s\" fail, %s", s_coordname
 			, getAgentCmdRst.description.data)));
@@ -875,7 +893,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	res = mgr_ma_send_cmd(AGT_CMD_CN_START, infosendmsg.data, dest_nodeinfo.nodehost, &restmsg);
 	if (!res)
 	{
-		appendStringInfo(&strerr, "pg_ctl %s fail\n, %s", infosendmsg.data, restmsg.data);
+		appendStringInfo(strerr, "pg_ctl %s fail\n, %s", infosendmsg.data, restmsg.data);
 		ereport(WARNING, (errmsg("pg_ctl %s fail, %s", infosendmsg.data, restmsg.data)));
 	}
 
@@ -912,7 +930,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 		{
 			ereport(WARNING, (errmsg("add address coordinator \"%s\" on \"%s\" pg_hba.conf fail, %s", s_coordname
 				, NameStr(mgr_node->nodename), getAgentCmdRst.description.data)));
-			appendStringInfo(&strerr, "add address coordinator \"%s\" on \"%s\" pg_hba.conf fail\n, %s\n"
+			appendStringInfo(strerr, "add address coordinator \"%s\" on \"%s\" pg_hba.conf fail\n, %s\n"
 				, s_coordname, NameStr(mgr_node->nodename), getAgentCmdRst.description.data);
 		}
 		mgr_reload_conf(mgr_node->nodehost, nodepath);
@@ -940,17 +958,14 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	pfree_AppendNodeInfo(dest_nodeinfo);
 	pfree(getAgentCmdRst.description.data);
 
-	if (strerr.len == 0)
+	if (strerr->len == 0)
 	{
 		res = true;
-		appendStringInfo(&strerr, "success");
+		appendStringInfo(strerr, "success");
 	}
 	ereport(LOG, (errmsg("the command of append coordinator %s to %s, result is %s, description is: %s"
-		, m_coordname, s_coordname, res == true ? "true":"false", strerr.data)));
-	tup_result = build_common_command_tuple(&nodename, res, strerr.data);
-	pfree(strerr.data);
-
-	return HeapTupleGetDatum(tup_result);
+		, m_coordname, s_coordname, res == true ? "true":"false", strerr->data)));
+	return res;
 }
 
 /*

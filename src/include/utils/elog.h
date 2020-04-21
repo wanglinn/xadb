@@ -130,6 +130,10 @@ extern bool ADB_DEBUG;
 		ereport(NOTICE, (rest)); \
 		ereport(LOG, (rest));	
 
+#define ereportWarningLog(rest) \
+		ereport(WARNING, (rest)); \
+		ereport(LOG, (rest));
+
 #ifdef DEBUG_ADB
 
 #ifdef HAVE__BUILTIN_CONSTANT_P

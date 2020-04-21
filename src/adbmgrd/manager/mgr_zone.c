@@ -81,8 +81,6 @@ Datum mgr_zone_promote(PG_FUNCTION_ARGS)
 	char 			*agtmHost = NULL;
 	int 			agtmPort = 0;
 	char 			nodeTypeList[8] = {0};
-	// PGconn 			*gtm_conn = NULL;
-	// Oid 			cnoid;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot do the command during recovery")));
@@ -106,7 +104,6 @@ Datum mgr_zone_promote(PG_FUNCTION_ARGS)
 			,F_NAMEEQ
 			,CStringGetDatum(currentZone));	
 
-	// mgr_lock_cluster_involve_gtm_coord(&gtm_conn, &cnoid);
 	PG_TRY();
 	{
 		relNode = heap_open(NodeRelationId, RowExclusiveLock);
@@ -140,17 +137,15 @@ Datum mgr_zone_promote(PG_FUNCTION_ARGS)
 		MgrFree(resultmsg.data);
 		MgrFree(agtmHost);	
 		heap_close(relNode, RowExclusiveLock);	
-		// mgr_unlock_cluster_involve_gtm_coord(&gtm_conn);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
     MgrFree(agtmHost);
 	heap_close(relNode, RowExclusiveLock);
-	// mgr_unlock_cluster_involve_gtm_coord(&gtm_conn);	
 
 	ereportNoticeLog(errmsg("the command of \"ZONE PROMOTE %s\" result is %s, description is %s", currentZone
 		,bres ? "true":"false", resultmsg.len == 0 ? "success":resultmsg.data));
-	namestrcpy(&name, "promote master node");
+	namestrcpy(&name, "zone promote");
 	tupResult = build_common_command_tuple(&name, bres, resultmsg.len == 0 ? "success":resultmsg.data);
 	MgrFree(resultmsg.data);
 	return HeapTupleGetDatum(tupResult);
@@ -174,7 +169,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot do the command during recovery")));
 	
-	namestrcpy(&name, "config all");
+	namestrcpy(&name, "zone config");
 	currentZone  = PG_GETARG_CSTRING(0);
 	Assert(currentZone);
 
@@ -302,6 +297,98 @@ Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 	heap_close(relNode, RowExclusiveLock);
 
 	PG_RETURN_BOOL(true);
+}
+
+Datum mgr_zone_init(PG_FUNCTION_ARGS)
+{
+	Relation 		relNode  = NULL;
+	HeapTuple 		tuple    = NULL;
+	HeapTuple 		tupResult= NULL;
+	HeapScanDesc 	relScan  = NULL;
+	char            *coordMaster = NULL;
+	char 			*currentZone= NULL;
+	NameData 		name;
+	Form_mgr_node   mgrNode;
+	ScanKeyData 	key[3];
+	StringInfoData 	strerr;
+	bool            res = true;
+
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot do the command during recovery")));
+
+	namestrcpy(&name, "zone init");
+	currentZone = PG_GETARG_CSTRING(0);
+	initStringInfo(&strerr);
+	
+	ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodeinited
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(false));
+	ScanKeyInit(&key[1]
+				,Anum_mgr_node_nodeincluster
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(false));
+	ScanKeyInit(&key[2]
+			,Anum_mgr_node_nodezone
+			,BTEqualStrategyNumber
+			,F_NAMEEQ
+			,CStringGetDatum(currentZone));
+	PG_TRY();
+	{
+		relNode = heap_open(NodeRelationId, RowExclusiveLock);
+		relScan = heap_beginscan_catalog(relNode, 1, key);
+		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+		{
+			mgrNode = (Form_mgr_node)GETSTRUCT(tuple);
+			Assert(mgrNode);
+			if (mgrNode->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+			{
+				if (mgr_append_agtm_slave(NameStr(mgrNode->nodename))){
+					ereportNoticeLog(errmsg("append gtmcoord slave %s success.", NameStr(mgrNode->nodename)));		
+				}
+				else{
+					res = false;
+					ereportWarningLog(errmsg("append gtmcoord slave %s failed.", NameStr(mgrNode->nodename)));		
+				}
+			}
+			else if (mgrNode->nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
+			{
+				coordMaster = mgr_get_mastername_by_nodename_type(NameStr(mgrNode->nodename), CNDN_TYPE_COORDINATOR_SLAVE);
+				if (mgr_append_coord_slave(coordMaster, NameStr(mgrNode->nodename), &strerr)){
+					ereportNoticeLog(errmsg("append coordinator slave %s success.", NameStr(mgrNode->nodename)));		
+				}
+				else{
+					res = false;
+					ereportWarningLog(errmsg("append coordinator slave %s failed.", NameStr(mgrNode->nodename)));
+				}
+				MgrFree(coordMaster);
+			}
+			else if (mgrNode->nodetype == CNDN_TYPE_DATANODE_SLAVE)
+			{
+				if (mgr_append_dn_slave(NameStr(mgrNode->nodename))){
+					ereportNoticeLog(errmsg("append datanode slave %s success.", NameStr(mgrNode->nodename)));		
+				}
+				else{
+					res = false;
+					ereportWarningLog(errmsg("append datanode slave %s failed.", NameStr(mgrNode->nodename)));
+				}
+			}		
+		}
+	}PG_CATCH();
+	{
+		MgrFree(strerr.data);
+		EndScan(relScan);
+		heap_close(relNode, RowExclusiveLock);
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	MgrFree(strerr.data);
+	EndScan(relScan);
+	heap_close(relNode, RowExclusiveLock);
+	tupResult = build_common_command_tuple(&name, res, res ? "success" : "failed");
+	return HeapTupleGetDatum(tupResult);
 }
 /*
 * mgr_checknode_in_currentzone
