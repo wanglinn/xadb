@@ -235,7 +235,7 @@ static bool mgr_check_syncstate_node_exist(Relation rel, Oid masterTupleOid, int
 static bool mgr_check_node_path(Relation rel, Oid hostoid, char *path);
 static bool mgr_check_node_port(Relation rel, Oid hostoid, int port);
 static void mgr_update_one_potential_to_sync(Relation rel, Oid mastertupleoid, bool bincluster, bool excludeoid);
-static bool exec_remove_coordinator(char *nodename);
+static bool exec_remove_coordinator(char nodetype, char *nodename);
 static bool mgr_get_async_slave_readonly_state(List **parms);
 static bool mgr_get_sync_slave_readonly_state(void);
 static bool check_all_cn_sync_slave_is_active(void);
@@ -3993,7 +3993,7 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		result = mgr_append_dn_slave(dnName);
+		result = mgr_append_dn_slave_func(dnName);
 	}PG_CATCH();
 	{
 		PG_RE_THROW();
@@ -4009,7 +4009,7 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 	return HeapTupleGetDatum(tup_result);
 }
 
-bool mgr_append_dn_slave(char *dnName)
+bool mgr_append_dn_slave_func(char *dnName)
 {
 	AppendNodeInfo appendnodeinfo;
 	AppendNodeInfo parentnodeinfo;
@@ -4435,7 +4435,7 @@ Datum mgr_append_agtmslave(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		result = mgr_append_agtm_slave(gtmname);
+		result = mgr_append_agtm_slave_func(gtmname);
 	}PG_CATCH();
 	{
 		PG_RE_THROW();
@@ -4450,7 +4450,7 @@ Datum mgr_append_agtmslave(PG_FUNCTION_ARGS)
 
 	return HeapTupleGetDatum(tup_result);
 }
-bool mgr_append_agtm_slave(char *gtmname)
+bool mgr_append_agtm_slave_func(char *gtmname)
 {
 	AppendNodeInfo appendnodeinfo;
 	AppendNodeInfo agtm_m_nodeinfo;
@@ -12385,9 +12385,9 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 	Form_mgr_node mgr_masternode;
 	ScanKeyData key[3];
 	int iloop = 0;
-	int num = 0;
+	int coordMasterNum = 0;
 	int syncNum = 0;
-	int removeNode = 0;
+	int removeCoordMasterNum = 0;
 	bool bsync_exist;
 	bool isNull;
 	bool res;
@@ -12408,7 +12408,7 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 	nodetype = PG_GETARG_CHAR(0);
 	if (CNDN_TYPE_DATANODE_MASTER == nodetype || CNDN_TYPE_GTM_COOR_MASTER == nodetype)
 		ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
-			, errmsg("it does not support remove master node now execpt for coordinator")));
+			, errmsg("it can't remove gtmcoord master, datanode master, only can remove coordinator master.")));
 	nodenamelist = (List *)PG_GETARG_POINTER(1);
 
 	/*check the node in the cluster*/
@@ -12431,9 +12431,9 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 		while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 		{
 			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-			num++;
+			coordMasterNum++;
 		}
-		if (1 == num)
+		if (1 == coordMasterNum)
 		{
 			heap_endscan(rel_scan);
 			heap_close(rel, RowExclusiveLock);
@@ -12473,7 +12473,7 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 		}
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		if (CNDN_TYPE_COORDINATOR_MASTER == nodetype)
-			removeNode++;
+			removeCoordMasterNum++;
 		address = get_hostaddress_from_hostoid(mgr_node->nodehost);
 		sprintf(port_buf, "%d", mgr_node->nodeport);
 		iloop = 0;
@@ -12496,17 +12496,17 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 	}
 
 	/* the cluster must has at least one read-write coordinator */
-	if (CNDN_TYPE_COORDINATOR_MASTER == nodetype && (num <= removeNode))
+	if (CNDN_TYPE_COORDINATOR_MASTER == nodetype && (coordMasterNum <= removeCoordMasterNum))
 		ereport(ERROR, (errmsg("the cluster must has at least one read-write coordinator, cannot be removed")));
 
 	/*if coordinator is remove, just to remove it directly*/
-	if (CNDN_TYPE_COORDINATOR_MASTER == nodetype)
+	if (CNDN_TYPE_COORDINATOR_MASTER == nodetype || CNDN_TYPE_COORDINATOR_SLAVE == nodetype)
 	{
 		foreach(cell, nodenamelist)
 		{
 			val = lfirst(cell);
 			Assert(val && IsA(val, String));
-			res = exec_remove_coordinator(strVal(val));
+			res = exec_remove_coordinator(nodetype, strVal(val));
 			if (!hasFailOnce && !res)
 				hasFailOnce = true;
 		}
@@ -12635,7 +12635,7 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 * exec_remove_coordinator
 * 	remove coordinator
 */
-static bool exec_remove_coordinator(char *nodename)
+static bool exec_remove_coordinator(char nodetype, char *nodename)
 {
 	HeapTuple tuple;
 	Relation relNode;
@@ -12677,11 +12677,14 @@ static bool exec_remove_coordinator(char *nodename)
 		ereport(ERROR, (errmsg("coordinator master \"%s\" , stop it first", nodename)));
 	}
 	/* modify the pgxc_node table, because the coordinator has stoppend so it's not need to add ddl lock */
-	res1 = mgr_drop_node_on_all_coord(CNDN_TYPE_COORDINATOR_MASTER, nodename);
-	res2 = mgr_drop_node_on_all_coord(CNDN_TYPE_GTM_COOR_MASTER, nodename);
+	if (CNDN_TYPE_COORDINATOR_MASTER == nodetype)
+	{
+		res1 = mgr_drop_node_on_all_coord(CNDN_TYPE_COORDINATOR_MASTER, nodename);
+		res2 = mgr_drop_node_on_all_coord(CNDN_TYPE_GTM_COOR_MASTER, nodename);
+	}
 
 	/* modify the mgr_node table */
-	mgr_set_inited_incluster(nodename, CNDN_TYPE_COORDINATOR_MASTER, true, false);
+	mgr_set_inited_incluster(nodename, nodetype, true, false);
 
 	return res1 && res2;
 }

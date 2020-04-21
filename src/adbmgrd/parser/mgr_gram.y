@@ -2910,10 +2910,10 @@ RemoveNodeStmt:
 			node->names = $4;
 			$$ = (Node*)node;
 		}
-	|	REMOVE COORDINATOR MASTER ObjList
+	|	REMOVE COORDINATOR opt_cn_inner_type ObjList
 		{
 			MgrRemoveNode *node = makeNode(MgrRemoveNode);
-			node->nodetype = CNDN_TYPE_COORDINATOR_MASTER;
+			node->nodetype = $3;
 			node->names = $4;
 			$$ = (Node*)node;
 		}

@@ -300,11 +300,11 @@ extern Datum mgr_monitor_agent_hostlist(PG_FUNCTION_ARGS);
 
 extern Datum mgr_append_dnmaster(PG_FUNCTION_ARGS);
 extern Datum mgr_append_dnslave(PG_FUNCTION_ARGS);
-extern bool mgr_append_dn_slave(char *dnName);
+extern bool mgr_append_dn_slave_func(char *dnName);
 extern Datum mgr_append_coordmaster(PG_FUNCTION_ARGS);
 extern Datum mgr_append_agtmslave(PG_FUNCTION_ARGS);
 
-extern bool mgr_append_agtm_slave(char *gtmname);
+extern bool mgr_append_agtm_slave_func(char *gtmname);
 
 extern Datum mgr_list_acl_all(PG_FUNCTION_ARGS);
 extern Datum mgr_priv_manage(PG_FUNCTION_ARGS);
@@ -503,7 +503,7 @@ extern Datum mgr_failover_manual_promote_func(PG_FUNCTION_ARGS);
 extern Datum mgr_failover_manual_pgxcnode_func(PG_FUNCTION_ARGS);
 extern Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS);
 extern Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS);
-extern bool mgr_append_coord_slave(char *m_coordname, char *s_coordname, StringInfoData *strerr);
+extern bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, StringInfoData *strerr);
 extern Datum mgr_append_activate_coord(PG_FUNCTION_ARGS);
 extern Datum mgr_switchover_func(PG_FUNCTION_ARGS);
 extern Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS);

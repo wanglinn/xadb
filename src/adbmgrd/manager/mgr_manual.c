@@ -722,7 +722,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		res = mgr_append_coord_slave(m_coordname, s_coordname, &strerr);
+		res = mgr_append_coord_slave_func(m_coordname, s_coordname, &strerr);
 	}PG_CATCH();
 	{
 		PG_RE_THROW();
@@ -732,7 +732,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	MgrFree(strerr.data);
 	return HeapTupleGetDatum(tup_result);
 }
-bool mgr_append_coord_slave(char *m_coordname, char *s_coordname, StringInfoData *strerr)
+bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, StringInfoData *strerr)
 {
 	GetAgentCmdRst getAgentCmdRst;
 	AppendNodeInfo src_nodeinfo;
