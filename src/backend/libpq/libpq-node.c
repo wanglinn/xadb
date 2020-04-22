@@ -56,6 +56,7 @@ extern char *PGXCNodeName;	/* GUC */
 static HTAB *htab_oid_pgconn = NULL;
 bool auto_release_connect = false;	/* guc */
 static bool force_release_connect = false;
+static bool force_close_connect = false;
 
 static void init_htab_oid_pgconn(void);
 static List* apply_for_node_use_oid(List *oid_list);
@@ -194,17 +195,18 @@ static List* apply_for_node_use_oid(List *oid_list)
 	{
 		List * volatile conn_list = NIL;
 		pgsocket * volatile fds = NULL;
-		fds = PoolManagerGetConnectionsOid(need_list);
-		if(fds == NULL)
-		{
-			/* this error message copy from pgxcnode.c */
-			ereport(ERROR,
-					(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
-					 errmsg("Failed to get pooled connections")));
-		}
 
 		PG_TRY();
 		{
+			fds = PoolManagerGetConnectionsOid(need_list);
+			if(fds == NULL)
+			{
+				/* this error message copy from pgxcnode.c */
+				ereport(ERROR,
+						(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+						errmsg("Failed to get pooled connections")));
+			}
+
 			conn_list = pg_conn_attach_socket(fds, list_length(need_list));
 			/* at here don't need fds */
 			pfree(fds);
@@ -252,6 +254,7 @@ static List* apply_for_node_use_oid(List *oid_list)
 					conn_list = list_delete_first(conn_list);
 				}
 			}
+			force_release_connect = force_close_connect = true;
 			PG_RE_THROW();
 		}PG_END_TRY();
 		list_free(need_list);
@@ -815,7 +818,14 @@ void PQNReleaseAllConnect(int request_cancel_after)
 
 	if (htab_oid_pgconn == NULL ||
 		hash_get_num_entries(htab_oid_pgconn) == 0)
+	{
+		if (force_close_connect)
+		{
+			PoolManagerReleaseConnections(force_close_connect);
+			force_close_connect = false;
+		}
 		return;
+	}
 
 	if (request_cancel_after == 0)
 		PQNRequestCancelAllconnect();
@@ -869,8 +879,9 @@ re_check_:
 			PQdetach(op->conn);
 		hash_destroy(htab_oid_pgconn);
 		htab_oid_pgconn = NULL;
-		PoolManagerReleaseConnections(force_close);
+		PoolManagerReleaseConnections(force_close || force_close_connect);
 		force_release_connect = false;
+		force_close_connect = false;
 		StopDynamicReduceWorker();
 	}
 }
