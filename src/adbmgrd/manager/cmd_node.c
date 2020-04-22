@@ -653,7 +653,6 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 	NameData sync_state_name;
 	NameData mastername;
 	NameData name;
-	NameData zoneData;
 	char new_sync = SYNC_STATE_SYNC;
 	char nodetype;
 	char mastertype;
@@ -706,7 +705,6 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 		else
 			masterTupleOid = mgr_node->nodemasternameoid;
 		bnodeInCluster = mgr_node->nodeincluster;
-		namestrcpy(&zoneData, NameStr(mgr_node->nodezone));
 		memset(datum, 0, sizeof(datum));
 		memset(isnull, 0, sizeof(isnull));
 		memset(got, 0, sizeof(got));
@@ -804,11 +802,6 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 				}
 				do
 				{
-					if (strcmp(zoneData.data, mgr_zone) !=0)
-					{
-						ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
-						,errmsg("not support alter sync_state if the node not in current zone \"%s\"", mgr_zone)));
-					}
 					/*sync state*/
 					if(strcmp(str, sync_state_tab[SYNC_STATE_SYNC].name) == 0)
 					{
@@ -4073,18 +4066,18 @@ bool mgr_append_dn_slave_func(char *dnName)
 		if (!dnmaster_is_running)
 			ereport(ERROR, (errmsg("datanode master \"%s\" is not running", parentnodeinfo.nodename)));
 
-		if (agtm_m_is_exist)
-		{
-			if (agtm_m_is_running)
-			{
+		if (agtm_m_is_exist){
+			if (agtm_m_is_running){
 				/* append "host all postgres  ip/32" for agtm master pg_hba.conf and reload it. */
 				mgr_add_hbaconf(CNDN_TYPE_GTM_COOR_MASTER, appendnodeinfo.nodeusername, appendnodeinfo.nodeaddr);
 			}
-			else
-				{	ereport(ERROR, (errmsg("gtm master is not running")));}
+			else{
+				ereport(ERROR, (errmsg("gtm master is not running")));
+			}
 		}
-		else
-		{	ereport(ERROR, (errmsg("gtm master is not initialized")));}
+		else{	
+			ereport(ERROR, (errmsg("gtm master is not initialized")));
+		}
 
 		/* append "host all postgres ip/32" for agtm slave pg_hba.conf and reload it. */
 		mgr_add_hbaconf_by_masteroid(agtm_m_nodeinfo.tupleoid, "all", appendnodeinfo.nodeusername, appendnodeinfo.nodeaddr);
@@ -4279,18 +4272,18 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 		mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER);
 		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 		
-		if (agtm_m_is_exist)
-		{
-			if (agtm_m_is_running)
-			{
+		if (agtm_m_is_exist){
+			if (agtm_m_is_running){
 				/* append "host all postgres  ip/32" for agtm master pg_hba.conf and reload it. */
 				mgr_add_hbaconf(CNDN_TYPE_GTM_COOR_MASTER, "all", appendnodeinfo.nodeaddr);
 			}
-			else
-				{	ereport(ERROR, (errmsg("gtmcoord master is not running")));}
+			else{	
+				ereport(ERROR, (errmsg("gtmcoord master is not running")));
+			}
 		}
-		else
-		{	ereport(ERROR, (errmsg("gtm master is not initialized")));}
+		else{	
+			ereport(ERROR, (errmsg("gtm master is not initialized")));
+		}
 
 		/* append "host all postgres ip/32" for agtm slave pg_hba.conf and reload it. */
 		mgr_add_hbaconf_by_masteroid(agtm_m_nodeinfo.tupleoid, "all", "all", appendnodeinfo.nodeaddr);
@@ -4516,10 +4509,10 @@ bool mgr_append_agtm_slave_func(char *gtmname)
 		get_nodeinfo(gtmMasterNameData.data, mastertype, &agtm_m_is_exist, &agtm_m_is_running, &agtm_m_nodeinfo);
 		mastertupleoid = appendnodeinfo.nodemasteroid;
 		if (!agtm_m_is_exist)
-			ereport(ERROR, (errmsg("the master of node is not initialized")));
+			ereport(ERROR, (errmsg("the master of node(%s) is not initialized", gtmMasterNameData.data)));
 
 		if (!agtm_m_is_running)
-			ereport(ERROR, (errmsg("the master of node is not running")));
+			ereport(ERROR, (errmsg("the master of node(%s) is not running", gtmMasterNameData.data)));
 
 		/* flush agtm slave's pg_hba.conf "host replication postgres slave_ip/32 trust" if agtm slave exist */
 		mgr_add_hbaconf_by_masteroid(mastertupleoid, "replication", appendnodeinfo.nodeusername, appendnodeinfo.nodeaddr);

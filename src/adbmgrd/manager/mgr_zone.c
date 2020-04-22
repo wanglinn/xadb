@@ -61,7 +61,7 @@ static void mgr_zone_update_allcoord_xcnode(PGconn *pgConn, Relation relNode, Sc
 static char mgr_zone_get_restart_cmd(char nodetype);
 static void mgr_zone_restart_master_node(Relation relNode, ScanKeyData key[3], char *currentZone, StringInfoData *resultmsg);
 static void mgr_zone_clear_sync_masternameoid(Relation relNode, char *currentZone);
-static void mgr_zone_delete_otherzone(Relation relNode, char *currentZone);
+static void mgr_zone_delete_otherzone_from_nodetable(Relation relNode, char *currentZone);
 
 
 /*
@@ -207,7 +207,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 		mgr_zone_restart_master_node(relNode, key, currentZone, &resultmsg);
 
 		ereportNoticeLog(errmsg("ZONE CONFIG %s, step4:on the mgr node table, drop the node which is not in zone", currentZone));
-		mgr_zone_delete_otherzone(relNode, currentZone);
+		mgr_zone_delete_otherzone_from_nodetable(relNode, currentZone);
 	}PG_CATCH();
 	{
 		ClosePgConn(gtm_conn);
@@ -230,13 +230,12 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 */
 Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 {
-	Relation relNode;
-	HeapScanDesc relScan;
-	ScanKeyData key[2];
-	HeapTuple tuple =NULL;
-	Form_mgr_node mgr_node;
-	char *zone;
-	char *nodetypestr;
+	Relation 		relNode = NULL;
+	HeapScanDesc 	relScan  = NULL;
+	ScanKeyData 	key[2];
+	HeapTuple 		tuple = NULL;
+	Form_mgr_node 	mgr_node = NULL;
+	char 			*zone = NULL;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot do the command during recovery")));
@@ -247,8 +246,7 @@ Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 	if (strcmp(zone, mgr_zone) !=0)
 		ereport(ERROR, (errmsg("the given zone name \"%s\" is not the same wtih guc parameter mgr_zone \"%s\" in postgresql.conf", zone, mgr_zone)));
 
-	ereport(LOG, (errmsg("make the special node as master type and set its master name is null, sync_state is null on node table in zone \"%s\"", zone)));
-	ereport(NOTICE, (errmsg("make the special node as master type and set its master name is null, sync_state is null on node table in zone \"%s\"", zone)));
+	ereportNoticeLog(errmsg("make the special node as master type and set its master name is null, sync_state is null on node table in zone \"%s\"", zone));
 	ScanKeyInit(&key[0]
 				,Anum_mgr_node_nodeincluster
 				,BTEqualStrategyNumber
@@ -260,42 +258,34 @@ Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 			,F_NAMEEQ
 			,CStringGetDatum(zone));
 
-	relNode = heap_open(NodeRelationId, RowExclusiveLock);
-	relScan = heap_beginscan_catalog(relNode, 2, key);
-	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+	PG_TRY();
 	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		if (mgr_checknode_in_currentzone(zone, mgr_node->nodemasternameoid))
-			continue;
-		ereport(LOG, (errmsg("make the node \"%s\" as master type on node table in zone \"%s\"", NameStr(mgr_node->nodename), zone)));
-		ereport(NOTICE, (errmsg("make the node \"%s\" as master type on node table in zone \"%s\"", NameStr(mgr_node->nodename), zone)));
-		mgr_node->nodetype = mgr_get_master_type(mgr_node->nodetype);
-		namestrcpy(&(mgr_node->nodesync), "");
-		mgr_node->nodemasternameoid = 0;
-		heap_inplace_update(relNode, tuple);
-	}
-	heap_endscan(relScan);
+		relNode = heap_open(NodeRelationId, RowExclusiveLock);
+		relScan = heap_beginscan_catalog(relNode, 2, key);
+		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+		{
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			Assert(mgr_node);
+			if (mgr_checknode_in_currentzone(zone, mgr_node->nodemasternameoid))
+				continue;
+			ereportNoticeLog(errmsg("make the node \"%s\" as master type on node table in zone \"%s\"", NameStr(mgr_node->nodename), zone));
+			mgr_node->nodetype = mgr_get_master_type(mgr_node->nodetype);
+			namestrcpy(&(mgr_node->nodesync), "");
+			mgr_node->nodemasternameoid = 0;
+			heap_inplace_update(relNode, tuple);
+		}
+		EndScan(relScan);
 
-	ereport(LOG, (errmsg("on node table, drop the node which is not in zone \"%s\"", zone)));
-	ereport(NOTICE, (errmsg("on node table, drop the node which is not in zone \"%s\"", zone)));
-	relScan = heap_beginscan_catalog(relNode, 0, NULL);
-	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+		ereportNoticeLog(errmsg("on node table, drop the node which is not in zone \"%s\"", zone));
+		mgr_zone_delete_otherzone_from_nodetable(relNode, zone);
+	}PG_CATCH();
 	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		if (strcmp(NameStr(mgr_node->nodezone), zone) == 0)
-			continue;
-		nodetypestr = mgr_nodetype_str(mgr_node->nodetype);
-		ereport(LOG, (errmsg("drop %s \"%s\" on node table in zone \"%s\"", nodetypestr, NameStr(mgr_node->nodename), NameStr(mgr_node->nodezone))));
-		ereport(NOTICE, (errmsg("drop %s \"%s\" on node table in zone \"%s\"", nodetypestr, NameStr(mgr_node->nodename), NameStr(mgr_node->nodezone))));
-		pfree(nodetypestr);
-		CatalogTupleDelete(relNode, &(tuple->t_self));
-	}
+		EndScan(relScan);	
+		heap_close(relNode, RowExclusiveLock);	
+		PG_RE_THROW();
+	}PG_END_TRY();
 
-	heap_endscan(relScan);
 	heap_close(relNode, RowExclusiveLock);
-
 	PG_RETURN_BOOL(true);
 }
 
@@ -887,11 +877,12 @@ static void mgr_zone_clear_sync_masternameoid(Relation relNode, char *currentZon
 		PG_RE_THROW();
 	}PG_END_TRY();
 }
-static void mgr_zone_delete_otherzone(Relation relNode, char *currentZone)
+static void mgr_zone_delete_otherzone_from_nodetable(Relation relNode, char *currentZone)
 {
 	HeapScanDesc 	relScan = NULL;
 	HeapTuple 		tuple;
 	Form_mgr_node 	mgr_node;
+	char 			*nodetypestr;
 
 	PG_TRY();
 	{
@@ -902,7 +893,9 @@ static void mgr_zone_delete_otherzone(Relation relNode, char *currentZone)
 			Assert(mgr_node);
 			if (strcasecmp(NameStr(mgr_node->nodezone), currentZone) == 0)
 				continue;
-
+			nodetypestr = mgr_nodetype_str(mgr_node->nodetype);
+			ereportNoticeLog(errmsg("drop %s \"%s\" on node table in zone \"%s\"", nodetypestr, NameStr(mgr_node->nodename), NameStr(mgr_node->nodezone)));
+			MgrFree(nodetypestr);
 			CatalogTupleDelete(relNode, &(tuple->t_self));
 		}
 		EndScan(relScan);
