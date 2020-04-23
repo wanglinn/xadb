@@ -527,7 +527,7 @@ extern void mgr_start_node(char nodetype, const char *nodepath, Oid hostoid);
 extern HeapTuple build_common_command_tuple_for_boottime(const Name name, char type, bool status, const char *description,
 						const char *starttime ,const Name hostaddr);
 extern HeapTuple build_common_command_tuple_for_monitor(const Name name, char type, bool status, const char *description
-                                                        ,const char *starttime, const Name hostaddr, const int port, const Name recoveryStatus);
+                                                        ,const char *starttime, const Name hostaddr, const int port, const Name recoveryStatus, const Name zone);
 extern bool mgr_get_self_address(char *server_address, int server_port, Name self_address);
 
 extern Datum monitor_handle_coordinator(PG_FUNCTION_ARGS);
