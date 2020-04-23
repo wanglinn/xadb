@@ -2610,7 +2610,8 @@ Datum mgr_monitor_all(PG_FUNCTION_ARGS)
 				,starttime.data
 				,&host
 				,mgr_node->nodeport
-				,&recoveryStatus);
+				,&recoveryStatus
+				,&(mgr_node->nodezone));
 	pfree(resultstrdata.data);
 	pfree(starttime.data);
 	pfree(host_addr);
@@ -2699,7 +2700,8 @@ Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS)
 						,starttime.data
 						,&host
 						,mgr_node->nodeport
-						,&recoveryStatus);
+						,&recoveryStatus
+						,&(mgr_node->nodezone));
 
 			pfree(host_addr);
 			pfree(resultstrdata.data);
@@ -2802,7 +2804,8 @@ Datum mgr_monitor_gtmcoord_all(PG_FUNCTION_ARGS)
 						,starttime.data
 						,&host
 						,mgr_node->nodeport
-						,&recoveryStatus);
+						,&recoveryStatus
+						,&(mgr_node->nodezone));
 
 			pfree(host_addr);
 			pfree(resultstrdata.data);
@@ -3372,7 +3375,8 @@ Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
 				,starttime.data
 				,&host
 				,mgr_node->nodeport
-				,&recoveryStatus);
+				,&recoveryStatus
+				,&(mgr_node->nodezone));
 
 	pfree(host_addr);
 	pfree(resultstrdata.data);
@@ -3588,7 +3592,8 @@ Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS)
 				,starttime.data
 				,&host
 				,mgr_node->nodeport
-				,&recoveryStatus);
+				,&recoveryStatus
+				,&(mgr_node->nodezone));
 
 	pfree(host_addr);
 	pfree(resultstrdata.data);
@@ -3650,16 +3655,16 @@ HeapTuple build_common_command_tuple_for_boottime(const Name name, char type, bo
 }
 
 HeapTuple build_common_command_tuple_for_monitor(const Name name, char type, bool status, const char *description,
-						const char *starttime ,const Name hostaddr, const int port, const Name recoveryStatus)
+						const char *starttime ,const Name hostaddr, const int port, const Name recoveryStatus, const Name zone)
 {
-	Datum datums[8];
-	bool nulls[8];
+	Datum datums[9];
+	bool nulls[9];
 	TupleDesc desc;
 	NameData typestr;
 	AssertArg(name && description);
 	desc = get_common_command_tuple_desc_for_monitor();
 
-	AssertArg(desc && desc->natts == 8
+	AssertArg(desc && desc->natts == 9
 		&& TupleDescAttr(desc, 0)->atttypid == NAMEOID
 		&& TupleDescAttr(desc, 1)->atttypid == NAMEOID
 		&& TupleDescAttr(desc, 2)->atttypid == BOOLOID
@@ -3667,7 +3672,8 @@ HeapTuple build_common_command_tuple_for_monitor(const Name name, char type, boo
 		&& TupleDescAttr(desc, 4)->atttypid == NAMEOID
 		&& TupleDescAttr(desc, 5)->atttypid == INT4OID
 		&& TupleDescAttr(desc, 6)->atttypid == NAMEOID
-		&& TupleDescAttr(desc, 7)->atttypid == TEXTOID);
+		&& TupleDescAttr(desc, 7)->atttypid == TEXTOID
+		&& TupleDescAttr(desc, 8)->atttypid == NAMEOID);
 
 	switch(type)
 	{
@@ -3703,7 +3709,8 @@ HeapTuple build_common_command_tuple_for_monitor(const Name name, char type, boo
 	datums[5] = Int32GetDatum(port);
 	datums[6] = NameGetDatum(recoveryStatus);
 	datums[7] = CStringGetTextDatum(starttime);
-	nulls[0] = nulls[1] = nulls[2] = nulls[3] = nulls[4] = nulls[5] = nulls[6] = nulls[7] = false;
+	datums[8] = NameGetDatum(zone);
+	nulls[0] = nulls[1] = nulls[2] = nulls[3] = nulls[4] = nulls[5] = nulls[6] = nulls[7] = nulls[8] = false;
 	return heap_form_tuple(desc, datums, nulls);
 }
 
@@ -3749,7 +3756,7 @@ static TupleDesc get_common_command_tuple_desc_for_monitor(void)
 		TupleDesc volatile desc = NULL;
 		PG_TRY();
 		{
-			desc = CreateTemplateTupleDesc(8, false);
+			desc = CreateTemplateTupleDesc(9, false);
 			TupleDescInitEntry(desc, (AttrNumber) 1, "nodename",
 						NAMEOID, -1, 0);
 			TupleDescInitEntry(desc, (AttrNumber) 2, "nodetype",
@@ -3766,6 +3773,8 @@ static TupleDesc get_common_command_tuple_desc_for_monitor(void)
 						NAMEOID, -1, 0);
 			TupleDescInitEntry(desc, (AttrNumber) 8, "boot time",
 						TEXTOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 9, "nodezone",
+						NAMEOID, -1, 0);			
 			common_command_tuple_desc = BlessTupleDesc(desc);
 		}PG_CATCH();
 		{

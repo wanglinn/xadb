@@ -56,8 +56,8 @@ static bool mgr_zone_modify_allnodes_agtm_host_port(const char *zone, int agtmPo
 static bool mgr_zone_has_node(const char *zonename, char nodetype);
 static char *mgr_zone_get_node_type(char nodetype);
 static void mgr_zone_has_all_masternode(char *currentZone);
-static void mgr_make_sure_allmaster_running();
-static void mgr_make_sure_allslave_running();
+static void mgr_make_sure_allmaster_running(void);
+static void mgr_make_sure_allslave_running(void);
 static void mgr_zone_update_allcoord_xcnode(PGconn *pgConn, Relation relNode, ScanKeyData key[3], char *currentZone);
 static char mgr_zone_get_restart_cmd(char nodetype);
 static void mgr_zone_restart_master_node(Relation relNode, ScanKeyData key[3], char *currentZone, StringInfoData *resultmsg);
@@ -650,13 +650,13 @@ static void mgr_zone_has_all_masternode(char *currentZone)
 	if (!mgr_zone_has_node(currentZone, CNDN_TYPE_DATANODE_MASTER))
 		ereport(ERROR, (errmsg("the zone \"%s\" has not DATANODE MASTER in cluster", currentZone)));
 }
-static void mgr_make_sure_allmaster_running()
+static void mgr_make_sure_allmaster_running(void)
 {
 	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER);
 	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
 }
-static void mgr_make_sure_allslave_running()
+static void mgr_make_sure_allslave_running(void)
 {
 	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_SLAVE);
 	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_SLAVE);

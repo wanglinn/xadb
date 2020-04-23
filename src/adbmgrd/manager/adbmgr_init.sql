@@ -98,7 +98,7 @@ CREATE VIEW adbmgr.ha as
 
 --monitor all
 CREATE VIEW adbmgr.monitor_all AS
-        select * from mgr_monitor_all() order by 1,
+        select * from mgr_monitor_all() order by nodezone,
 			(case nodetype
 				when 'gtmcoord master' then 0
 				when 'gtmcoord slave' then 1
