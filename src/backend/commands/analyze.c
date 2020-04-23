@@ -448,15 +448,39 @@ end_if_:
 	 * tables, which don't contain any rows.
 	 */
 	if (onerel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
+	{
 		do_analyze_rel(onerel, params, va_cols, acquirefunc,
 					   relpages, false, in_outer_xact, elevel);
+#ifdef ADB
+		if (cnlist)
+			analyze_cluster_recv_exec_end(cnlist);
+
+		if (dnlist)
+			analyze_cluster_recv_exec_end(dnlist);
+
+		if (IsConnFromCoord())
+			put_executor_end_msg(true);
+#endif
+	}
 
 	/*
 	 * If there are child tables, do recursive ANALYZE.
 	 */
 	if (onerel->rd_rel->relhassubclass ADB_ONLY_CODE(|| (params->options & VACOPT_ANALYZE_FORCE_INH) == VACOPT_ANALYZE_FORCE_INH))
+	{
 		do_analyze_rel(onerel, params, va_cols, acquirefunc, relpages,
-					   true, in_outer_xact, elevel);
+					true, in_outer_xact, elevel);
+#ifdef ADB
+		if (cnlist)
+			analyze_cluster_recv_exec_end(cnlist);
+
+		if (dnlist)
+			analyze_cluster_recv_exec_end(dnlist);
+
+		if (IsConnFromCoord())
+			put_executor_end_msg(true);
+#endif
+	}
 
 #ifdef ADB
 	if (cnlist)
