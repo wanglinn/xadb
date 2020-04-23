@@ -10,6 +10,7 @@
 #include "utils/relcache.h"
 #include "access/heapam.h"
 #include "mgr/mgr_agent.h"
+#include "mgr/mgr_helper.h"
 #include "utils/timestamp.h"
 #include "../../interfaces/libpq/libpq-fe.h"
 #include "catalog/mgr_node.h"
@@ -73,6 +74,7 @@
 {\
 	if (relScan != NULL){\
 		heap_endscan(relScan);\
+		relScan = NULL;\
 	}\
 }
 
@@ -379,6 +381,7 @@ extern void mgr_recv_sql_stringvalues_msg(ManagerAgent	*ma, StringInfo resultstr
 char *get_hostaddress_from_hostoid(Oid hostOid);
 char *get_hostname_from_hostoid(Oid hostOid);
 char *get_hostuser_from_hostoid(Oid hostOid);
+void get_hostinfo_from_hostoid(Oid hostOid, MgrHostWrapper *host);
 
 /* get msg from agent */
 bool mgr_recv_msg(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst);

@@ -23,6 +23,7 @@
 #include "mgr/mgr_cmds.h"
 #include "mgr/mgr_agent.h"
 #include "mgr/mgr_msg_type.h"
+#include "mgr/mgr_helper.h"
 #include "miscadmin.h"
 #include "nodes/parsenodes.h"
 #include "parser/mgr_node.h"
@@ -61,8 +62,8 @@ static void mgr_zone_update_allcoord_xcnode(PGconn *pgConn, Relation relNode, Sc
 static char mgr_zone_get_restart_cmd(char nodetype);
 static void mgr_zone_restart_master_node(Relation relNode, ScanKeyData key[3], char *currentZone, StringInfoData *resultmsg);
 static void mgr_zone_clear_sync_masternameoid(Relation relNode, char *currentZone);
-static void mgr_zone_delete_otherzone_from_nodetable(Relation relNode, char *currentZone);
-
+static void mgr_zone_update_otherzone_mgrnode(Relation relNode, char *currentZone);
+static void mgr_shutdown_otherzone_node(Relation relNode, char *currentZone);
 
 /*
 * mgr_zone_promote
@@ -196,18 +197,21 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 		relNode = heap_open(NodeRelationId, RowExclusiveLock);
 		mgr_get_gtmcoord_conn(MgrGetDefDbName(), &gtm_conn, &cnoid);
 		hexp_pqexec_direct_execute_utility(gtm_conn, SQL_BEGIN_TRANSACTION, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		ereportNoticeLog(errmsg("ZONE CONFIG %s, step1:in zone, update master node pgxc_node.", currentZone));
+		ereportNoticeLog(errmsg("ZONE CONFIG %s, step1:update master node pgxc_node.", currentZone));
 		mgr_zone_update_allcoord_xcnode(gtm_conn, relNode, key, currentZone);
 
-		ereportNoticeLog(errmsg("ZONE CONFIG %s, step2:in zone make the node of master type clear: the column mastername is null, sync_stat is null", currentZone));
+		ereportNoticeLog(errmsg("ZONE CONFIG %s, step2:update node info of mgr node table.", currentZone));
 		mgr_zone_clear_sync_masternameoid(relNode, currentZone);
+
+		ereportNoticeLog(errmsg("ZONE CONFIG %s, step3:update other zone's node info of mgr node table.", currentZone));
+		mgr_zone_update_otherzone_mgrnode(relNode, currentZone);
  	    hexp_pqexec_direct_execute_utility(gtm_conn, SQL_COMMIT_TRANSACTION, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 		
-        ereportNoticeLog(errmsg("ZONE CONFIG %s, step3:pdate PGSQLCONF pgxc_node_name, then restart node.", currentZone));
-		mgr_zone_restart_master_node(relNode, key, currentZone, &resultmsg);
+        ereportNoticeLog(errmsg("ZONE CONFIG %s, step4:shutdown other zone's gtmcoord, coordinator, datanode.", currentZone));							  
+        mgr_shutdown_otherzone_node(relNode, currentZone); 	
 
-		ereportNoticeLog(errmsg("ZONE CONFIG %s, step4:on the mgr node table, drop the node which is not in zone", currentZone));
-		mgr_zone_delete_otherzone_from_nodetable(relNode, currentZone);
+		ereportNoticeLog(errmsg("ZONE CONFIG %s, step5:update PGSQLCONF pgxc_node_name, then restart node.", currentZone));
+		mgr_zone_restart_master_node(relNode, key, currentZone, &resultmsg);
 	}PG_CATCH();
 	{
 		ClosePgConn(gtm_conn);
@@ -277,7 +281,7 @@ Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 		EndScan(relScan);
 
 		ereportNoticeLog(errmsg("on node table, drop the node which is not in zone \"%s\"", zone));
-		mgr_zone_delete_otherzone_from_nodetable(relNode, zone);
+		mgr_zone_update_otherzone_mgrnode(relNode, zone);
 	}PG_CATCH();
 	{
 		EndScan(relScan);	
@@ -678,9 +682,6 @@ static void mgr_zone_update_allcoord_xcnode(PGconn *pgConn, Relation relNode, Sc
     PG_TRY();
 	{
 		initStringInfo(&infosendmsg);
-		// mgr_get_gtmcoord_conn(MgrGetDefDbName(), &pgConn, &cnoid);
-		// hexp_pqexec_direct_execute_utility(pgConn, SQL_BEGIN_TRANSACTION, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-
 		relScanout = heap_beginscan_catalog(relNode, 2, key);
 		while((tupleout = heap_getnext(relScanout, ForwardScanDirection)) != NULL)
 		{
@@ -734,8 +735,6 @@ static void mgr_zone_update_allcoord_xcnode(PGconn *pgConn, Relation relNode, Sc
 			EndScan(relScanin);
 		}
 		EndScan(relScanout);
-
-		// hexp_pqexec_direct_execute_utility(pgConn,SQL_COMMIT_TRANSACTION, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);		
 	}PG_CATCH();
 	{
 		MgrFree(infosendmsg.data);
@@ -827,20 +826,24 @@ static void mgr_zone_restart_master_node(Relation relNode, ScanKeyData key[3], c
 					, NameStr(mgr_node->nodename), getAgentCmdRst.description.data)));
 				break;	
 			}
+			else{
+				ereport(LOG, (errmsg("in zone %s restart %s \"%s\" success.\n"
+					,currentZone, mgr_zone_get_node_type(mgr_node->nodetype), NameStr(mgr_node->nodename))));
+			}
 		}
-		heap_endscan(relScan);
 	}PG_CATCH();
 	{
 		MgrFree(cndnPath);
 		MgrFree(infosendmsg.data);	
 		MgrFree(getAgentCmdRst.description.data);	
-		heap_endscan(relScan);
+		EndScan(relScan);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
 	MgrFree(cndnPath);
 	MgrFree(infosendmsg.data);	
 	MgrFree(getAgentCmdRst.description.data);
+	EndScan(relScan);
 	return;
 }
 static void mgr_zone_clear_sync_masternameoid(Relation relNode, char *currentZone)
@@ -868,6 +871,8 @@ static void mgr_zone_clear_sync_masternameoid(Relation relNode, char *currentZon
 				namestrcpy(&(mgr_node->nodesync), "");
 				mgr_node->nodemasternameoid = 0;
 				heap_inplace_update(relNode, tuple);
+				ereport(LOG, (errmsg("in zone(%s), make the node(%s) of mgr node table: the column nodemasternameoid is null, sync_stat is null", 
+					currentZone, NameStr(mgr_node->nodename))));
 			}
 		}
 		EndScan(relScan);
@@ -877,12 +882,64 @@ static void mgr_zone_clear_sync_masternameoid(Relation relNode, char *currentZon
 		PG_RE_THROW();
 	}PG_END_TRY();
 }
-static void mgr_zone_delete_otherzone_from_nodetable(Relation relNode, char *currentZone)
+static void mgr_shutdown_otherzone_node(Relation relNode, char *currentZone)
 {
 	HeapScanDesc 	relScan = NULL;
 	HeapTuple 		tuple;
 	Form_mgr_node 	mgr_node;
-	char 			*nodetypestr;
+	MgrNodeWrapper 	*mgrNodeWrapper = NULL;
+	Datum 			datumPath;
+	bool 			isNull = false;
+	MgrHostWrapper  host;
+
+	PG_TRY();
+	{
+		mgrNodeWrapper = (MgrNodeWrapper*)palloc0(sizeof(MgrNodeWrapper));
+		memset(&host, 0x00, sizeof(MgrHostWrapper));
+		mgrNodeWrapper->host = &host;
+		relScan = heap_beginscan_catalog(relNode, 0, NULL);
+		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+		{
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			Assert(mgr_node);
+			if (strcasecmp(NameStr(mgr_node->nodezone), currentZone) == 0)
+				continue; 
+
+			memcpy(&mgrNodeWrapper->form, mgr_node, sizeof(FormData_mgr_node));
+			datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(relNode), &isNull);
+			if(isNull){
+				ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR), err_generic_string(PG_DIAG_TABLE_NAME, "mgr_nodetmp"), errmsg("column nodepath is null")));
+			}
+			mgrNodeWrapper->nodepath = TextDatumGetCString(datumPath);
+
+			datumPath = heap_getattr(tuple, Anum_mgr_node_nodehost, RelationGetDescr(relNode), &isNull);
+			if(isNull){
+				ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR), err_generic_string(PG_DIAG_TABLE_NAME, "mgr_nodetmp"), errmsg("column nodehost is null")));
+			}		
+			get_hostinfo_from_hostoid(DatumGetObjectId(datumPath), &host);
+
+			if(shutdownNodeWithinSeconds(mgrNodeWrapper, SHUTDOWN_NODE_FAST_SECONDS, SHUTDOWN_NODE_IMMEDIATE_SECONDS, false)){
+				ereportNoticeLog(errmsg("shutdown %s success in zone \"%s\"", NameStr(mgr_node->nodename), NameStr(mgr_node->nodezone)));		
+			}
+			else{
+				ereportWarningLog(errmsg("shutdown %s failed in zone \"%s\"", NameStr(mgr_node->nodename), NameStr(mgr_node->nodezone)));
+			}			
+		}
+	}PG_CATCH();
+	{
+		MgrFree(mgrNodeWrapper);
+		EndScan(relScan);		
+		PG_RE_THROW();
+	}PG_END_TRY();	
+
+	MgrFree(mgrNodeWrapper);
+	EndScan(relScan);
+}
+static void mgr_zone_update_otherzone_mgrnode(Relation relNode, char *currentZone)
+{
+	HeapScanDesc 	relScan = NULL;
+	HeapTuple 		tuple;
+	Form_mgr_node 	mgr_node;
 
 	PG_TRY();
 	{
@@ -890,13 +947,15 @@ static void mgr_zone_delete_otherzone_from_nodetable(Relation relNode, char *cur
 		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 		{
 			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-			Assert(mgr_node);
+			Assert(mgr_node);			
 			if (strcasecmp(NameStr(mgr_node->nodezone), currentZone) == 0)
-				continue;
-			nodetypestr = mgr_nodetype_str(mgr_node->nodetype);
-			ereportNoticeLog(errmsg("drop %s \"%s\" on node table in zone \"%s\"", nodetypestr, NameStr(mgr_node->nodename), NameStr(mgr_node->nodezone)));
-			MgrFree(nodetypestr);
-			CatalogTupleDelete(relNode, &(tuple->t_self));
+				continue;            
+			namestrcpy(&(mgr_node->nodesync), "");
+			mgr_node->nodetype      = getMgrSlaveNodetype(mgr_node->nodetype);	
+			mgr_node->nodeinited    = false;
+			mgr_node->nodeincluster = false;			
+			heap_inplace_update(relNode, tuple);
+			ereport(LOG, (errmsg("set %s to not inited, not incluster on mgr node table in zone \"%s\"", NameStr(mgr_node->nodename), NameStr(mgr_node->nodezone))));
 		}
 		EndScan(relScan);
 	}PG_CATCH();

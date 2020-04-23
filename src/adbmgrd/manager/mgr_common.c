@@ -386,7 +386,61 @@ char *get_hostuser_from_hostoid(Oid hostOid)
 	heap_close(rel, AccessShareLock);
 	return hostuser;
 }
+void get_hostinfo_from_hostoid(Oid hostOid, MgrHostWrapper *host)
+{
+	Relation rel;
+	HeapTuple tuple;
+	Datum hostUser;
+	Datum hostAgentport;
+	Datum hostAddr;
+	bool isNull = false;
 
+	rel = heap_open(HostRelationId, AccessShareLock);
+	tuple = SearchSysCache1(HOSTHOSTOID, ObjectIdGetDatum(hostOid));
+	/*check the host exists*/
+	if (!HeapTupleIsValid(tuple))
+	{
+		heap_close(rel, AccessShareLock);
+		ereport(ERROR, (errcode(ERRCODE_DATA_EXCEPTION),errmsg("cache lookup failed for relation %u", hostOid)));
+	}
+
+	hostUser = heap_getattr(tuple, Anum_mgr_host_hostuser, RelationGetDescr(rel), &isNull);
+	if(isNull)
+	{
+		ReleaseSysCache(tuple);
+		heap_close(rel, AccessShareLock);
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
+			, errmsg("column hostuser is null")));
+	}
+	namestrcpy(&host->form.hostuser, NameStr(*DatumGetName(hostUser)));
+
+	hostAgentport = heap_getattr(tuple, Anum_mgr_host_hostagentport, RelationGetDescr(rel), &isNull);
+	if(isNull)
+	{
+		ReleaseSysCache(tuple);
+		heap_close(rel, AccessShareLock);
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
+			, errmsg("column hostagentport is null")));
+	}
+	host->form.hostagentport = DatumGetInt32(hostAgentport);
+
+	hostAddr = heap_getattr(tuple, Anum_mgr_host_hostaddr, RelationGetDescr(rel), &isNull);
+	if(isNull)
+	{
+		ReleaseSysCache(tuple);
+		heap_close(rel, AccessShareLock);
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
+			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
+			, errmsg("column hostaddr is null")));
+	}
+	host->hostaddr = TextDatumGetCString(hostAddr);
+
+	ReleaseSysCache(tuple);
+	heap_close(rel, AccessShareLock);
+	return;
+}
 /*
 * get msg from agent
 */
