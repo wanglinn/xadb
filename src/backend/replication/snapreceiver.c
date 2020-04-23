@@ -31,7 +31,7 @@
 
 int snap_receiver_timeout = 60 * 1000L;
 int snap_sender_connect_timeout = 5000L;
-int snap_force_globalxmin_sync_time = 10000L;
+int snap_force_globalxmin_sync_time = 30000L;
 
 
 typedef struct SnapRcvData
@@ -57,6 +57,7 @@ typedef struct SnapRcvData
 	uint32			xcnt;
 	TransactionId	latestCompletedXid;
 	pg_atomic_uint32	global_xmin;
+	pg_atomic_uint32	local_global_xmin;
 	TransactionId	xip[MAX_BACKENDS];
 	pg_atomic_uint32	last_client_req_key; /* last client rquest snap sync key num*/
 	pg_atomic_uint32	last_ss_req_key; 	/* last snaprcv rquest snap sync key num*/
@@ -77,6 +78,7 @@ static StringInfoData incoming_message;
 static TimestampTz last_heat_beat_sendtime;
 
 static bool finish_xid_ack_send = false;
+static bool	heartbeat_sent = false;
 
 /*
  * Flags set by interrupt handlers of walreceiver for later service in the
@@ -156,14 +158,14 @@ DisableSnapRcvImmediateExit(void)
 	ProcessSnapRcvInterrupts();
 }
 
-static bool
+static void
 SnapRcvSendHeartbeat(void)
 {
 	TransactionId 	xmin;
 
 	xmin = SnapRcvGetLocalXmin();
 	if (!TransactionIdIsNormal(xmin))
-		return false;
+		return;
 	/* Construct a new message */
 	last_heat_beat_sendtime = GetCurrentTimestamp();
 	resetStringInfo(&reply_message);
@@ -174,8 +176,10 @@ SnapRcvSendHeartbeat(void)
 	/* Send it */
 	walrcv_send(wrconn, reply_message.data, reply_message.len);
 	pg_atomic_write_u64(&SnapRcv->last_heartbeat_sync_time, last_heat_beat_sendtime);
+	pg_atomic_write_u32(&SnapRcv->local_global_xmin, xmin);
+	heartbeat_sent = true;
 
-	return true;
+	return;
 }
 
 static void SnapRcvProcessSnapSync(void)
@@ -224,7 +228,7 @@ void SnapReceiverMain(void)
 	TimestampTz last_recv_timestamp;
 	TimestampTz timeout;
 	TimestampTz last_hb_st, now;
-	bool		heartbeat_sent, force_send;
+	bool		force_send;
 	int 		loop_time;
 
 	Assert(SnapRcv != NULL);
@@ -422,21 +426,18 @@ void SnapReceiverMain(void)
 				}
 
 				force_send = false;
-
 				last_hb_st = pg_atomic_read_u64(&SnapRcv->last_heartbeat_sync_time);
 				now = GetCurrentTimestamp();
-				if (now >= TimestampTzPlusMilliseconds(last_hb_st, snap_force_globalxmin_sync_time))
+				if ((now >= TimestampTzPlusMilliseconds(last_hb_st, snap_force_globalxmin_sync_time) && !heartbeat_sent) || last_hb_st == 0)
 					force_send = true;
 
-				if (((rc & WL_TIMEOUT) && snap_receiver_timeout > 0 && !heartbeat_sent) || force_send)
+				if (((rc & WL_TIMEOUT) && !heartbeat_sent) || force_send)
 				{
 					timeout = TimestampTzPlusMilliseconds(last_recv_timestamp,
 								snap_receiver_timeout);
 
-					if ((now >= timeout || force_send) && SnapRcvSendHeartbeat())
-					{
-						heartbeat_sent = true;
-					}
+					if ((now >= timeout || force_send))
+						SnapRcvSendHeartbeat();
 				}
 			}
 		}else
@@ -1389,6 +1390,7 @@ re_lock_:
 	appendStringInfo(buf, "  latestCompletedXid: %d\n", last_finish_xid);
 
 	appendStringInfo(buf, "  global_xmin: %u\n", pg_atomic_read_u32(&SnapRcv->global_xmin));
+	appendStringInfo(buf, "  local global_xmin: %u\n", pg_atomic_read_u32(&SnapRcv->local_global_xmin));
 	appendStringInfo(buf, "  last_client_req_key: %u\n", pg_atomic_read_u32(&SnapRcv->last_client_req_key));
 	appendStringInfo(buf, "  last_ss_req_key: %u\n", pg_atomic_read_u32(&SnapRcv->last_ss_req_key));
 	appendStringInfo(buf, "  last_ss_resp_key: %u\n", pg_atomic_read_u32(&SnapRcv->last_ss_resp_key));

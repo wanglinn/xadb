@@ -2808,7 +2808,7 @@ static struct config_int ConfigureNamesInt[] =
 			GUC_UNIT_MS
 		},
 		&snap_receiver_timeout,
-		10000, 1000, INT_MAX,
+		30000, 5000, INT_MAX,
 		NULL, NULL, NULL
 	},
 
