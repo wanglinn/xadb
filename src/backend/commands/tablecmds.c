@@ -102,6 +102,8 @@
 #include "utils/typcache.h"
 #if defined(ADB_GRAM_ORA) || defined(ADB_GRAM_DB2)
 #include "mb/pg_wchar.h"
+#include "oraschema/oracoerce.h"
+#include "catalog/ora_cast.h"
 #endif /* defined(ADB_GRAM_ORA) || defined(ADB_GRAM_DB2) */
 #ifdef ADB
 #include "agtm/agtm.h"
@@ -4492,11 +4494,29 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 			pass = AT_PASS_DROP;
 			break;
 		case AT_AlterColumnType:	/* ALTER COLUMN TYPE */
-			ATSimplePermissions(rel,
-								ATT_TABLE | ATT_COMPOSITE_TYPE | ATT_FOREIGN_TABLE);
-			/* Performs own recursion */
-			ATPrepAlterColumnType(wqueue, tab, rel, recurse, recursing, cmd, lockmode);
-			pass = AT_PASS_ALTER_TYPE;
+#ifdef ADB_GRAM_ORA
+		{
+			OraCoercionContext oldContext = 
+				OraCoercionContextSwitchTo(ORA_COERCE_SPECIAL_FUNCTION);
+			PG_TRY();
+			{
+#endif/* ADB_GRAM_ORA */
+				ATSimplePermissions(rel,
+									ATT_TABLE | ATT_COMPOSITE_TYPE | ATT_FOREIGN_TABLE);
+				/* Performs own recursion */
+				ATPrepAlterColumnType(wqueue, tab, rel, recurse, recursing, cmd, lockmode);
+				pass = AT_PASS_ALTER_TYPE;
+#ifdef ADB_GRAM_ORA
+				(void) OraCoercionContextSwitchTo(oldContext);
+			}
+			PG_CATCH();
+			{
+				(void) OraCoercionContextSwitchTo(oldContext);
+				PG_RE_THROW();
+			}
+			PG_END_TRY();
+		}
+#endif /* ADB_GRAM_ORA */
 			break;
 		case AT_AlterColumnGenericOptions:
 			ATSimplePermissions(rel, ATT_FOREIGN_TABLE);
