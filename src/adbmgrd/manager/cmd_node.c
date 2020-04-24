@@ -184,7 +184,7 @@ static bool mgr_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, char *nodename, char nodetype, int32 newport);
 static bool mgr_modify_node_parameter_after_initd(Relation rel_node, HeapTuple nodetuple, StringInfo infosendmsg, bool brestart);
 static void mgr_modify_port_recoveryconf(Relation rel_node, HeapTuple aimtuple, int32 master_newport);
-static bool mgr_modify_coord_pgxc_node(Relation rel_node, StringInfo infostrdata, char *nodename, int newport);
+static bool mgr_modify_coord_pgxc_node(Relation rel_node, char nodetype, StringInfo infostrdata, char *nodename, int newport);
 static bool mgr_add_extension_sqlcmd(char *sqlstr);
 static char *get_username_list_str(List *user_list);
 static void mgr_manage_flush(char command_type, char *user_list_str);
@@ -387,10 +387,10 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 						, NameStr(mastername), mgr_nodetype_str(mastertype))));
 			}
 			if ((strcmp(zoneData.data, NameStr(mgr_node->nodezone))!=0)
-				&& mgr_node_has_slave_inzone(rel, zoneData.data, masterTupleOid))
-				ereport(ERROR, (errcode(ERRCODE_DUPLICATE_OBJECT)
-					,errmsg("%s \"%s\" already has slave node in zone \"%s\"", mgr_nodetype_str(mastertype)
-					, NameStr(mgr_node->nodename), zoneData.data)));
+			 	&& mgr_node_has_slave_inzone(rel, zoneData.data, masterTupleOid))
+			 	ereport(ERROR, (errcode(ERRCODE_DUPLICATE_OBJECT)
+			 		,errmsg("%s \"%s\" already has slave node in zone \"%s\"", mgr_nodetype_str(mastertype)
+			 		, NameStr(mgr_node->nodename), zoneData.data)));
 			heap_freetuple(checktuple);
 
 			hasSyncNode = mgr_check_syncstate_node_exist(rel, masterTupleOid, SYNC_STATE_SYNC, InvalidOid, false);
@@ -8729,8 +8729,9 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 								,nodename
 								,"port"
 								,newport);
-			mgr_modify_coord_pgxc_node(rel_node, &infosendmsg, NULL, 0);
+			mgr_modify_coord_pgxc_node(rel_node, CNDN_TYPE_COORDINATOR_MASTER,&infosendmsg, NULL, 0);
 			mgr_modify_readonly_coord_pgxc_node(rel_node, &infosendmsg, nodename, newport);
+			mgr_modify_coord_pgxc_node(rel_node, CNDN_TYPE_GTM_COOR_MASTER,&infosendmsg, nodename, newport);
 		}
 	}
 	else if (CNDN_TYPE_COORDINATOR_MASTER == nodetype)
@@ -8742,14 +8743,15 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 		resetStringInfo(&infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", newport, &infosendmsg);
 		mgr_modify_node_parameter_after_initd(rel_node, nodetuple, &infosendmsg, true);
-
+		
 		resetStringInfo(&infosendmsg);
 		appendStringInfo(&infosendmsg, "ALTER NODE \\\"%s\\\" WITH (%s=%d);"
 							,nodename
 							,"port"
 							,newport);
-		mgr_modify_coord_pgxc_node(rel_node, &infosendmsg, nodename, newport);
+		mgr_modify_coord_pgxc_node(rel_node, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg, nodename, newport);
 		mgr_modify_readonly_coord_pgxc_node(rel_node, &infosendmsg, nodename, newport);
+		mgr_modify_coord_pgxc_node(rel_node, CNDN_TYPE_GTM_COOR_MASTER,&infosendmsg, nodename, newport);
 	}
 	else
 	{
@@ -8932,7 +8934,7 @@ static void mgr_modify_port_recoveryconf(Relation rel_node, HeapTuple aimtuple, 
 /*
 * modify coordinators port of pgxc_node
 */
-static bool mgr_modify_coord_pgxc_node(Relation rel_node, StringInfo infostrdata, char *nodename, int newport)
+static bool mgr_modify_coord_pgxc_node(Relation rel_node, char nodetype, StringInfo infostrdata, char *nodename, int newport)
 {
 	StringInfoData infosendmsg;
 	StringInfoData buf;
@@ -8955,7 +8957,7 @@ static bool mgr_modify_coord_pgxc_node(Relation rel_node, StringInfo infostrdata
 		,Anum_mgr_node_nodetype
 		,BTEqualStrategyNumber
 		,F_CHAREQ
-		,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
+		,CharGetDatum(nodetype));
 	ScanKeyInit(&key[1]
 				,Anum_mgr_node_nodeincluster
 				,BTEqualStrategyNumber
@@ -9224,7 +9226,7 @@ Datum mgr_flush_host(PG_FUNCTION_ARGS)
 	heap_endscan(rel_scan);
 
 	/*refresh all pgxc_node of all coordinators*/
-	if(!mgr_modify_coord_pgxc_node(rel_node, &infosqlsendmsg, NULL, 0))
+	if(!mgr_modify_coord_pgxc_node(rel_node, CNDN_TYPE_COORDINATOR_MASTER, &infosqlsendmsg, NULL, 0))
 		bgetwarning = true;
 
 	heap_close(rel_node, RowExclusiveLock);
