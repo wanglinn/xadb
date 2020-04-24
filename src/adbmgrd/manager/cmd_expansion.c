@@ -1219,7 +1219,7 @@ static void MgrCreateGtmSql(List *src_dst_list, char *nodes_slq, int len)
 
 		offset_one = 0;
 		memset(one_node, 0x00, sizeof(one_node));
-		offset_one = snprintf(one_node, sizeof(one_node), "%s TO (%s", NameStr(nodename->srcnodename), NameStr(nodename->dstnodename));
+		offset_one = sprintf(one_node, "%s TO (%s", NameStr(nodename->srcnodename), NameStr(nodename->dstnodename));
 		nodename->used = true;
 		foreach (la, src_dst_list)
 		{
@@ -1228,22 +1228,22 @@ static void MgrCreateGtmSql(List *src_dst_list, char *nodes_slq, int len)
 			{
 				if (offset_one + 1 + strlen(NameStr(nodename2->dstnodename)) < sizeof(one_node))
 				{
-					offset_one += snprintf(one_node, sizeof(one_node), "%s,%s", one_node, NameStr(nodename2->dstnodename));	
+					offset_one += sprintf(one_node, "%s,%s", one_node, NameStr(nodename2->dstnodename));	
 					nodename2->used = true;
 				}						
 			}
 		}
 
 		if (offset_one + 1 < sizeof(one_node)){
-			offset_one += snprintf(one_node, sizeof(one_node), "%s)", one_node);
+			offset_one += sprintf(one_node, "%s)", one_node);
 		}
 
 		if (offset_total + strlen(one_node) < len)
 		{
 			if (0 == offset_total){
-				offset_total += snprintf(nodes_slq, len, "%s,", one_node);		
+				offset_total += sprintf(nodes_slq, "%s,", one_node);		
 			}else{
-				offset_total += snprintf(nodes_slq, len, "%s%s,", nodes_slq, one_node);		
+				offset_total += sprintf(nodes_slq, "%s%s,", nodes_slq, one_node);		
 			}
 		}
 	}
