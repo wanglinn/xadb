@@ -977,6 +977,7 @@ Snapshot GxidSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, Transactio
 {
 	TransactionId	xid,xmax,xmin;
 	uint32			i,xcnt;
+	bool			update_xmin = false;
 
 	if (snap->xip == NULL)
 		EnlargeSnapshotXip(snap, GetMaxSnapshotXidCount());
@@ -1014,12 +1015,14 @@ Snapshot GxidSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, Transactio
 		
 		/* Add XID to snapshot. */
 		snap->xip[xcnt++] = xid;
+		update_xmin = true;
 	}
 
-	*countOld = xcnt;
-	if ((GxidSender->xcnt > 0 && NormalTransactionIdPrecedes(xmin, *xminOld))
+	if ((update_xmin && NormalTransactionIdPrecedes(xmin, *xminOld))
 			|| (*countOld == 0 && *xmaxOld == xmax))
 		*xminOld = xmin;
+
+	*countOld = xcnt;
 	SpinLockRelease(&GxidSender->mutex);
 
 #ifdef USE_ASSERT_CHECKING
