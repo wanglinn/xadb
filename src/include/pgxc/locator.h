@@ -98,7 +98,6 @@ extern RelationLocInfo *GetRelationLocInfo(Oid relid);
 extern RelationLocInfo *CopyRelationLocInfo(RelationLocInfo *srcInfo);
 extern void FreeRelationLocInfo(RelationLocInfo *relationLocInfo);
 extern char *GetRelationDistribColumn(RelationLocInfo *locInfo);
-extern char GetLocatorType(Oid relid);
 extern List *GetPreferredRepNodeIds(List *nodeids);
 extern bool IsTableDistOnPrimary(RelationLocInfo *locInfo);
 extern bool IsLocatorInfoEqual(const RelationLocInfo *a, const RelationLocInfo *b);

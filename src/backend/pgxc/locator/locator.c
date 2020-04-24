@@ -588,22 +588,6 @@ GetRelationNodesByQuals(Oid reloid, Index varno, Node *quals,
 }
 
 /*
- * GetLocatorType
- * Returns the locator type of the table.
- */
-char
-GetLocatorType(Oid relid)
-{
-	char		ret = LOCATOR_TYPE_NONE;
-	RelationLocInfo *locInfo = GetRelationLocInfo(relid);
-
-	if (locInfo != NULL)
-		ret = locInfo->locatorType;
-
-	return ret;
-}
-
-/*
  * HasRelationLocator
  *
  * return true if the specified relation has locator, otherwise
