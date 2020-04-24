@@ -325,7 +325,8 @@ static void separate_rowmarks(PlannerInfo *root);
 static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *path);
 static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subpath, List **exec_nodes);
 static bool set_modifytable_path_reduceinfo(PlannerInfo *root, ModifyTablePath *modify);
-static bool is_remote_relation(PlannerInfo *root, Index relid);
+static char get_rel_distribute_type(PlannerInfo *root, Index relid);
+#define is_remote_relation(root, relid) (get_rel_distribute_type(root, relid) != LOCATOR_TYPE_INVALID)
 static bool modify_have_auxiliary(PlannerInfo *root, Index relid);
 static Bitmapset *find_cte_planid(PlannerInfo *root, Bitmapset *bms);
 static int create_cluster_distinct_path(PlannerInfo *root, Path *subpath, void *context);
@@ -2864,7 +2865,7 @@ not_cluster_insert_path_:
 				/* not support update a replicate table when "on conflict do ..." */
 				if (parse->onConflict != NULL &&
 					parse->onConflict->action != ONCONFLICT_NONE &&
-					IsRelationReplicated(root->simple_rel_array[parse->resultRelation]->loc_info))
+					IsLocatorReplicated(get_rel_distribute_type(root, parse->resultRelation)))
 					break;
 
 				if (parse->commandType == CMD_INSERT)
@@ -2888,25 +2889,8 @@ not_cluster_insert_path_:
 					   when update or delete replication table and subpath have join
 					   maybe have some
 					 */
-					Index relid = parse->resultRelation;
-					if (relid < root->simple_rel_array_size &&
-						root->simple_rel_array[relid] != NULL)
-					{
-						if (root->simple_rel_array[relid]->loc_info &&
-							IsRelationReplicated(root->simple_rel_array[relid]->loc_info))
-							continue;
-					}else
-					{
-						RangeTblEntry *rte = planner_rt_fetch(relid, root);
-						Relation rel;
-						bool replicated;
-						Assert(rte->rtekind == RTE_RELATION);
-						rel = relation_open(rte->relid, NoLock);
-						replicated = (rel->rd_locator_info != NULL && IsRelationReplicated(rel->rd_locator_info));
-						relation_close(rel, NoLock);
-						if(replicated)
-							continue;
-					}
+					if (IsLocatorReplicated(get_rel_distribute_type(root, parse->resultRelation)))
+						continue;
 				}
 			}else
 			{
@@ -9907,22 +9891,20 @@ failed_:
 	return false;
 }
 
-static bool is_remote_relation(PlannerInfo *root, Index relid)
+static char get_rel_distribute_type(PlannerInfo *root, Index relid)
 {
 	if (relid < root->simple_rel_array_size &&
 		root->simple_rel_array[relid] != NULL)
 	{
-		return root->simple_rel_array[relid]->loc_info != NULL;
+		RelationLocInfo *loc_info = root->simple_rel_array[relid]->loc_info;
+		if (loc_info == NULL)
+			return LOCATOR_TYPE_INVALID;
+		return loc_info->locatorType;
 	}else
 	{
 		RangeTblEntry *rte = planner_rt_fetch(relid, root);
-		Relation rel;
-		bool result;
 		Assert(rte->rtekind == RTE_RELATION);
-		rel = relation_open(rte->relid, NoLock);
-		result = rel->rd_locator_info != NULL;
-		relation_close(rel, NoLock);
-		return result;
+		return get_pgxc_class_loc_type(rte->relid, true);
 	}
 }
 
