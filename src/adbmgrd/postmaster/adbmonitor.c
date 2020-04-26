@@ -183,6 +183,7 @@ static bool get_latest_job_time(TimestampTz *tzstamp);
 static void print_work_job(void);
 static void print_workers(void);
 static void adbmonitor_exec_job(Oid jobid);
+static TimestampTz get_monitor_job_next_time(HeapTuple tup, TupleDesc tupdesc);
 
 /*
  * Main entry point for adb monitor launcher process, to be called from the
@@ -622,7 +623,7 @@ launcher_obtain_amljob(void)
 			continue;
 
 		/* Find the latest monitor job */
-		timetz = monitor_job->next_time;
+		timetz = get_monitor_job_next_time(tuple, RelationGetDescr(rel_node));
 		if (!timetzMin)
 		{
 			timetzMin = timetz;
@@ -881,7 +882,7 @@ get_latest_job_time(TimestampTz *tzstamp)
 	Relation			rel_node;
 	TableScanDesc		rel_scan;
 	HeapTuple			tuple;
-	Form_monitor_job	monitor_job;
+	TimestampTz			next_time;
 	TimestampTz			latest_jobtime = 0;
 	ScanKeyData			entry[1];
 
@@ -897,18 +898,16 @@ get_latest_job_time(TimestampTz *tzstamp)
 
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
-		monitor_job = (Form_monitor_job) GETSTRUCT(tuple);
-		Assert(monitor_job);
-
 		/* Ignore the running job  */
-		if (monitor_job_running(monitor_job->oid))
+		if (monitor_job_running(((Form_monitor_job) GETSTRUCT(tuple))->oid))
 			continue;
 
+		next_time = get_monitor_job_next_time(tuple, RelationGetDescr(rel_node));
 		/* Get the latest work time */
 		if (latest_jobtime == 0)
-			latest_jobtime = monitor_job->next_time;
-		else if(latest_jobtime > monitor_job->next_time)
-			latest_jobtime = monitor_job->next_time;
+			latest_jobtime = next_time;
+		else if(latest_jobtime > next_time)
+			latest_jobtime = next_time;
 	}
 
 	table_endscan(rel_scan);
@@ -1455,4 +1454,21 @@ print_workers(void)
 		LWLockRelease(AdbmonitorLock);
 	}
 #endif
+}
+
+static TimestampTz get_monitor_job_next_time(HeapTuple tup, TupleDesc tupdesc)
+{
+	Datum				datum;
+	bool				datumIsNull;
+
+	datum = fastgetattr(tup,
+						Anum_monitor_job_next_time,
+						tupdesc,
+						&datumIsNull);
+	if(datumIsNull)
+		ereport(ERROR, 
+				(errcode(ERRCODE_DATA_EXCEPTION),
+				(errmsg("The attribute %s can not be null",
+						NameStr(TupleDescAttr(tupdesc, Anum_monitor_job_next_time - 1)->attname)))));
+	return DatumGetTimestampTz(datum);
 }
