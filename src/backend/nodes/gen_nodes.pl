@@ -11,7 +11,7 @@ my $same_node;
 my %all_enum;
 my %ident_if_defined;
 my $ident = '[a-zA-Z_][a-zA-Z0-9_]*';
-my $scalar_ident = 'char|bool|int|uint8|int16|uint16|int32|uint32|bits32|uint64|double|long|Cost|AttrNumber|Index|Oid|BlockNumber|Selectivity|Size|float8|TimeLineID|Buffer|AclMode|TriggerEvent|XLogRecPtr|StrategyNumber';
+my $scalar_ident = 'char|bool|int|uint8|int16|uint16|int32|uint32|bits32|uint64|size_t|double|long|Cost|AttrNumber|Index|Oid|BlockNumber|Selectivity|Size|float8|TimeLineID|Buffer|AclMode|TriggerEvent|XLogRecPtr|StrategyNumber';
 my $reg_args = "\\s*$ident\\s*(,\\s*$ident\\s*)*";
 my %special_node;
 my %special_member;
@@ -263,7 +263,7 @@ qq|
 #	define ENUM_VALUE(v)
 #endif
 |;
-foreach my $key (sort{ $all_enum{$a} <=> $all_enum{$b} } keys %all_enum)
+foreach my $key (sort keys %all_enum)
 {
 	if(defined $ident_if_defined{$key})
 	{
@@ -274,10 +274,6 @@ foreach my $key (sort{ $all_enum{$a} <=> $all_enum{$b} } keys %all_enum)
 			$tmp_str = " ||";
 		}
 	}
-#	if ($key eq 'CostSelector' || $key eq 'CommandMode' || $key eq 'DomainConstraintType' || $key eq 'SetFunctionReturnMode' || $key eq 'ExprDoneCond' || $key eq 'UpperRelationKind' || $key eq 'LimitStateCond' || $key eq 'TableLikeOption' || $key eq 'VacuumOption')
-#	{
-#		next;
-#	}
 	print H "\n#ifndef NO_ENUM_$key\nBEGIN_ENUM($key)\n";
 	foreach my $item (@{$all_enum{$key}})
 	{
@@ -432,7 +428,7 @@ foreach $item (@struct_head)
 	print H $item;
 }
 
-foreach $struct_name (sort{ $all_node{$a} <=> $all_node{$b} } keys %all_node)
+foreach $struct_name (sort keys %all_node)
 {
 	next if defined $map_except_node{$struct_name}
 		or defined $map_node_tag{$struct_name}
@@ -470,7 +466,7 @@ close H;
 
 open H,'>',$output_path . 'undef_no_all_struct.h' or die "can not open $output_path" . "undef_no_all_struct.h:$!";
 open H2,'>',$output_path . 'def_no_all_struct.h' or die "can not open $output_path" . "def_no_all_struct.h:$!";
-foreach $struct_name (sort{ $all_node{$a} <=> $all_node{$b} } keys %all_node)
+foreach $struct_name (sort keys %all_node)
 {
 	next if defined $map_except_node{$struct_name}
 		or defined $map_node_tag{$struct_name}
