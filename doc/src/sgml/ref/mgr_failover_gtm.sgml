@@ -21,7 +21,7 @@ ADB documentation
 
   <refsynopsisdiv>
 <synopsis>
-FAILOVER GTMCOORD <replaceable class="parameter">node_name</replaceable> [ FORCE ]
+FAILOVER GTMCOORD <replaceable class="parameter">master_node_name</replaceable> [ TO  <replaceable class="parameter">slave_node_name</replaceable> ] [ FORCE ]
 </synopsis>
   </refsynopsisdiv>
   <refsect1>

@@ -1110,7 +1110,7 @@ revoke execute on function mgr_clean_all() from public;
 revoke execute on function mgr_clean_node("any") from public;
 revoke execute on function monitor_delete_data_interval_days(int) from public;
 -- failover
-revoke execute on function mgr_failover_gtm(cstring, bool), mgr_failover_one_dn(cstring, bool) from public;
+revoke execute on function mgr_failover_gtm(cstring, bool, cstring), mgr_failover_one_dn(cstring, bool, cstring) from public;
 
 -- show
 revoke execute on function mgr_show_var_param( "any") from public;

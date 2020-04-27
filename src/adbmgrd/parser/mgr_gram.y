@@ -2469,26 +2469,50 @@ StopNodeMasterStmt:
 	;
 FailoverStmt:
 		FAILOVER DATANODE Ident opt_general_force
-	{
-			SelectStmt *stmt = makeNode(SelectStmt);
-			List *args = list_make1(makeStringConst($3, -1));
-			mgr_check_job_in_updateparam("monitor_handle_datanode");
-			args = lappend(args, makeBoolAConst($4, -1));
-			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_failover_one_dn", args));
-			$$ = (Node*)stmt;
-	}
-	| FAILOVER GTMCOORD Ident opt_general_force
-		{
-			SelectStmt *stmt = makeNode(SelectStmt);
-			List *args = list_make1(makeStringConst($3, -1));
-			args = lappend(args, makeBoolAConst($4, -1));
-			mgr_check_job_in_updateparam("monitor_handle_gtm");
-			stmt->targetList = list_make1(make_star_target(-1));
-			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_failover_gtm", args));
-			$$ = (Node*)stmt;
-		}
-	;
+			{
+				SelectStmt *stmt = makeNode(SelectStmt);
+				List *args = list_make1(makeStringConst($3, -1));
+				mgr_check_job_in_updateparam("monitor_handle_datanode");
+				args = lappend(args, makeBoolAConst($4, -1));
+				args = lappend(args, makeNullAConst(-1));
+				stmt->targetList = list_make1(make_star_target(-1));
+				stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_failover_one_dn", args));
+				$$ = (Node*)stmt;
+			}
+		| FAILOVER GTMCOORD Ident opt_general_force
+			{
+				SelectStmt *stmt = makeNode(SelectStmt);
+				List *args = list_make1(makeStringConst($3, -1));
+				args = lappend(args, makeBoolAConst($4, -1));
+				args = lappend(args, makeNullAConst(-1));
+				mgr_check_job_in_updateparam("monitor_handle_gtm");
+				stmt->targetList = list_make1(make_star_target(-1));
+				stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_failover_gtm", args));
+				$$ = (Node*)stmt;
+			}
+		| FAILOVER DATANODE Ident TO Ident opt_general_force
+			{
+					SelectStmt *stmt = makeNode(SelectStmt);
+					List *args = list_make1(makeStringConst($3, -1));
+					mgr_check_job_in_updateparam("monitor_handle_datanode");
+					args = lappend(args, makeBoolAConst($6, -1));
+					args = lappend(args, makeStringConst($5, -1));
+					stmt->targetList = list_make1(make_star_target(-1));
+					stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_failover_one_dn", args));
+					$$ = (Node*)stmt;
+			}
+		| FAILOVER GTMCOORD  Ident TO Ident opt_general_force
+			{
+				SelectStmt *stmt = makeNode(SelectStmt);
+				List *args = list_make1(makeStringConst($3, -1));
+				args = lappend(args, makeBoolAConst($6, -1));
+				args = lappend(args, makeStringConst($5, -1));
+				mgr_check_job_in_updateparam("monitor_handle_gtm");
+				stmt->targetList = list_make1(make_star_target(-1));
+				stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_failover_gtm", args));
+				$$ = (Node*)stmt;
+			}
+		;
 opt_general_force:
 	FORCE		{$$ = true;}
 	|/*empty*/	{$$ = false;}
