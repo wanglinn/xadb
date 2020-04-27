@@ -97,7 +97,8 @@ extern void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 								dlist_head *runningSlaves,
 								dlist_head *failedSlaves,
 								MemoryContext spiContext,
-								bool forceSwitch);
+								bool forceSwitch,
+								char *newMasterName);
 extern void tryLockCluster(dlist_head *coordinators);
 extern bool tryUnlockCluster(dlist_head *coordinators, bool complain);
 extern void mgrNodesToSwitcherNodes(dlist_head *mgrNodes,

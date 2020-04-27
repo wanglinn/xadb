@@ -174,6 +174,9 @@ static MgrNodeWrapper *checkGetMasterNodeBySlaveNodename(char *slaveNodename,
 														 char slaveNodetype,
 														 MemoryContext spiContext,
 														 bool complain);
+static SwitcherNodeWrapper *getNewMasterNodeByNodename(dlist_head *runningSlaves,
+													   dlist_head *failedSlaves,
+													   char *newMasterName);
 
 /**
  * system function of failover datanode
@@ -183,10 +186,11 @@ Datum mgr_failover_one_dn(PG_FUNCTION_ARGS)
 	HeapTuple tup_result;
 	char *nodename;
 	bool force;
-	NameData newMasterName;
+	NameData newMasterName = {{0}};
 
 	nodename = PG_GETARG_CSTRING(0);
 	force = PG_GETARG_BOOL(1);
+	namestrcpy(&newMasterName, PG_GETARG_CSTRING(2));
 
 	if (RecoveryInProgress())
 		ereport(ERROR,
@@ -208,10 +212,11 @@ Datum mgr_failover_gtm(PG_FUNCTION_ARGS)
 	HeapTuple tup_result;
 	char *nodename;
 	bool force;
-	NameData newMasterName;
+	NameData newMasterName = {{0}};
 
 	nodename = PG_GETARG_CSTRING(0);
 	force = PG_GETARG_BOOL(1);
+	namestrcpy(&newMasterName, PG_GETARG_CSTRING(2));
 
 	if (RecoveryInProgress())
 		ereport(ERROR,
@@ -331,7 +336,8 @@ void switchDataNodeMaster(char *oldMasterName,
 							&runningSlaves,
 							&failedSlaves,
 							spiContext,
-							forceSwitch);
+							forceSwitch,
+							NameStr(*newMasterName));
 		validateFailedSlavesForSwitch(oldMaster->mgrNode,
 									  newMaster->mgrNode,
 									  &failedSlaves,
@@ -509,7 +515,8 @@ void switchGtmCoordMaster(char *oldMasterName,
 							&runningSlaves,
 							&failedSlaves,
 							spiContext,
-							forceSwitch);
+							forceSwitch,
+							NameStr(*newMasterName));
 		validateFailedSlavesForSwitch(oldMaster->mgrNode,
 									  newMaster->mgrNode,
 									  &failedSlaves,
@@ -1156,7 +1163,8 @@ void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 						 dlist_head *runningSlaves,
 						 dlist_head *failedSlaves,
 						 MemoryContext spiContext,
-						 bool forceSwitch)
+						 bool forceSwitch,
+						 char *newMasterName)
 {
 	SwitcherNodeWrapper *node;
 	SwitcherNodeWrapper *newMaster;
@@ -1170,9 +1178,20 @@ void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 							  SHUTDOWN_NODE_FAST_SECONDS,
 							  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
 							  true);
-	newMaster = getBestWalLsnSlaveNode(runningSlaves,
-									   failedSlaves,
-									   NameStr(oldMaster->mgrNode->form.nodezone));
+	/* given new master node? */
+	if(newMasterName && strlen(newMasterName) > 0)
+	{
+		newMaster = getNewMasterNodeByNodename(runningSlaves,
+											   failedSlaves,
+											   newMasterName);
+	}
+	else
+	{
+		newMaster = getBestWalLsnSlaveNode(runningSlaves,
+										   failedSlaves,
+										   NameStr(oldMaster->mgrNode->form.nodezone));
+	}
+	
 	*newMasterP = newMaster;
 	if (newMaster)
 	{
@@ -3810,4 +3829,43 @@ void rollbackSwitcherNodeTransaction(SwitcherNodeWrapper *switcherNode,
 		if (PQexecCommandSql(switcherNode->pgConn, SQL_ROLLBACK_TRANSACTION, complain))
 			switcherNode->inTransactionBlock = false;
 	}
+}
+
+static SwitcherNodeWrapper *getNewMasterNodeByNodename(dlist_head *runningSlaves,
+													   dlist_head *failedSlaves,
+													   char *newMasterName)
+{
+	SwitcherNodeWrapper *node;
+	SwitcherNodeWrapper *newMaster = NULL;
+	dlist_mutable_iter miter;
+
+	dlist_foreach_modify(miter, runningSlaves)
+	{
+		node = dlist_container(SwitcherNodeWrapper, link, miter.cur);
+		node->walLsn = getNodeWalLsn(node->pgConn, node->runningMode);
+		if (strcmp(newMasterName, NameStr(node->mgrNode->form.nodename)) == 0)
+		{
+			newMaster = node;
+			dlist_delete(miter.cur);
+			node->walLsn = getNodeWalLsn(node->pgConn, node->runningMode);
+			if (node->walLsn <= InvalidXLogRecPtr)
+			{
+				ereport(ERROR,
+						(errmsg("%s get wal lsn failed",
+								NameStr(node->mgrNode->form.nodename))));
+			}
+		}
+		else
+		{
+			if (node->walLsn <= InvalidXLogRecPtr)
+			{
+				dlist_delete(miter.cur);
+				dlist_push_tail(failedSlaves, &node->link);
+				ereport(WARNING,
+						(errmsg("%s get wal lsn failed",
+								NameStr(node->mgrNode->form.nodename))));
+			}
+		}
+	}
+	return newMaster;
 }
