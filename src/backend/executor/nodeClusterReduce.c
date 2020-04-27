@@ -155,6 +155,17 @@ static inline void WaitFetchEOFMessage(DynamicReduceIOBuffer *io, int plan_id, R
 	io->eof_remote = true;
 }
 
+static List *GetReduceOids(ClusterReduce *cr)
+{
+	ListCell   *lc;
+	List	   *list = NIL;
+	foreach (lc, cr->reduce_oids)
+		list = list_append_unique_oid(list, lfirst_oid(lc));
+	return list;
+}
+
+#define FreeReduceOids(list_) list_free(list_)
+
 /* ======================= nothing reduce========================== */
 static TupleTableSlot* ExecNothingReduce(PlanState *pstate)
 {
@@ -953,7 +964,7 @@ static void BeginAdvanceReduce(ClusterReduceState *crstate)
 	ListCell		   *lc;
 	uint32 				i,count;
 
-	reduce_oids = castNode(ClusterReduce, crstate->ps.plan)->reduce_oids;
+	reduce_oids = GetReduceOids(castNode(ClusterReduce, crstate->ps.plan));
 	count = list_length(reduce_oids);
 	if (count == 0)
 	{
@@ -1008,6 +1019,7 @@ static void BeginAdvanceReduce(ClusterReduceState *crstate)
 	ExecSetExecProcNode(&crstate->ps, ExecAdvanceReduce);
 
 	MemoryContextSwitchTo(oldcontext);
+	FreeReduceOids(reduce_oids);
 }
 
 static void EndAdvanceReduce(AdvanceReduceState *state, ClusterReduceState *crs)
@@ -1205,7 +1217,7 @@ static AdvanceParallelNode* BeginAdvanceSharedTuplestore(AdvanceParallelNode *ar
 static void InitAdvanceParallelReduceWorker(ClusterReduceState *crstate, ParallelWorkerContext *pwcxt, char *addr)
 {
 	MemoryContext			oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
-	List				   *oid_list = castNode(ClusterReduce, crstate->ps.plan)->reduce_oids;
+	List				   *oid_list = GetReduceOids(castNode(ClusterReduce, crstate->ps.plan));
 	AdvanceParallelState   *state;
 	AdvanceParallelSharedMemory *shm;
 	uint32					count;
@@ -1225,6 +1237,7 @@ static void InitAdvanceParallelReduceWorker(ClusterReduceState *crstate, Paralle
 	ExecSetExecProcNode(&crstate->ps, ExecAdvanceParallelReduce);
 
 	MemoryContextSwitchTo(oldcontext);
+	FreeReduceOids(oid_list);
 }
 
 static void BeginAdvanceParallelReduce(ClusterReduceState *crstate)
@@ -1236,7 +1249,7 @@ static void BeginAdvanceParallelReduce(ClusterReduceState *crstate)
 	List						   *oid_list;
 	uint32 							count;
 
-	oid_list = castNode(ClusterReduce, crstate->ps.plan)->reduce_oids;
+	oid_list = GetReduceOids(castNode(ClusterReduce, crstate->ps.plan));
 	count = list_length(oid_list);
 	if (count == 0)
 	{
@@ -1275,6 +1288,7 @@ static void BeginAdvanceParallelReduce(ClusterReduceState *crstate)
 	ExecSetExecProcNode(&crstate->ps, ExecAdvanceParallelReduce);
 
 	MemoryContextSwitchTo(oldcontext);
+	FreeReduceOids(oid_list);
 }
 
 static void EndAdvanceParallelReduce(AdvanceParallelState *state)
@@ -1445,7 +1459,7 @@ static void InitMergeReduceState(ClusterReduceState *state, MergeReduceState *me
 	uint32			i,count;
 	Assert(plan->numCols > 0);
 
-	reduce_oids = castNode(ClusterReduce, state->ps.plan)->reduce_oids;
+	reduce_oids = GetReduceOids(castNode(ClusterReduce, state->ps.plan));
 	count = list_length(reduce_oids);
 	if (count == 0)
 	{
@@ -1492,6 +1506,7 @@ static void InitMergeReduceState(ClusterReduceState *state, MergeReduceState *me
 
 		PrepareSortSupportFromOrderingOp(plan->sortOperators[i], sort);
 	}
+	FreeReduceOids(reduce_oids);
 }
 static void InitMergeReduce(ClusterReduceState *crstate)
 {
