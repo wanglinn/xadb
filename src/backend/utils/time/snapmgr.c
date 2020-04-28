@@ -2417,6 +2417,8 @@ GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin,
 	{
 		if (IsCnMaster() || isCatelog)
 		{
+			//elog(LOG, "Before GxidSenderGetSnapshot, xmin %d, xmax %d, count %d",
+					//*xmin, *xmax, *count);
 			snap = GxidSenderGetSnapshot(snapshot, xmin, xmax, count);
 			snap->global_xmin = SnapSendGetGlobalXmin();
 		}
@@ -2429,6 +2431,8 @@ GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin,
 			* from AGTM when GlobalSnapshot is invalid or
 			* current process is AutoVacuum process.
 			*/
+			//elog(LOG, "Before GxidSenderGetSnapshot 22, xmin %d, xmax %d, count %d",
+					//*xmin, *xmax, *count);
 			snap = GxidSenderGetSnapshot(snapshot, xmin, xmax, count);
 			snap->global_xmin = SnapSendGetGlobalXmin();
 	#ifdef SHOW_GLOBAL_SNAPSHOT
@@ -2445,13 +2449,16 @@ GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin,
 			* from Master-Coordinator.
 			*/
 			snap = CopyGlobalSnapshot(snapshot);
+			*xmin = snap->xmin;
+			*xmax = snap->xmax;
+			*count = snap->xcnt;
 		}
 	} else
 	{
 		return snapshot;
 	}
 
-#ifdef SHOW_GLOBAL_SNAPSHOT
+	#ifdef SHOW_GLOBAL_SNAPSHOT
 	OutputGlobalSnapshot(snap);
 #endif
 
