@@ -683,6 +683,7 @@ int			tcp_user_timeout;
 char	   *nls_date_format;
 char	   *nls_timestamp_format;
 char	   *nls_timestamp_tz_format;
+bool		auto_rename_sub_partition = false;
 #endif
 #ifdef ADB
 char	   *adb_ha_param_delimiter;
@@ -2438,6 +2439,16 @@ static struct config_bool ConfigureNamesBool[] =
 		},
 		&upper_out_oracle_target,
 		true,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"auto_rename_sub_partition", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Oracle syntax, rename the sub table name of partition table"),
+			NULL
+		},
+		&auto_rename_sub_partition,
+		false,
 		NULL, NULL, NULL
 	},
 #endif /* ADB_GRAM_ORA */

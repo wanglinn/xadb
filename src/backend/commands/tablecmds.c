@@ -137,6 +137,9 @@ typedef struct PostAlterTableEntry
 static List *post_alter_table_actions = NIL;
 #endif
 
+#ifdef ADB_GRAM_ORA
+extern bool auto_rename_sub_partition;
+#endif /* ADB_GRAM_ORA */
 /*
  * ON COMMIT action list
  */
@@ -1366,6 +1369,27 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		foreach(lc, stmt->child_rels)
 		{
 			child = lfirst_node(CreateStmt, lc);
+#ifdef ADB_GRAM_ORA
+			/*
+			 * automatically rename the sub partition name of partition table.
+			 * fmt: pare_tbl_name + "_" + child_tbl_name
+			 */
+			if (auto_rename_sub_partition && 
+				stmt->grammar == PARSE_GRAM_ORACLE && 
+				child->relation)
+			{
+				MemoryContext oldcontext;
+				char *relname;
+
+				oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(child->relation->relname));
+				relname = child->relation->relname;
+				child->relation->relname = psprintf("%s_%s", 
+													stmt->relation->relname, 
+													child->relation->relname);
+				pfree(relname);
+				MemoryContextSwitchTo(oldcontext);
+			}
+#endif	/* ADB_GRAM_ORA */
 #ifdef ADB
 			/* 
 			 * Keep the distribution keys of the child table 
