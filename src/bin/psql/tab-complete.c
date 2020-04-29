@@ -569,7 +569,6 @@ static const SchemaQuery Query_for_list_of_sequences = {
 	NULL
 };
 
-#ifndef ADB
 static const SchemaQuery Query_for_list_of_foreign_tables = {
 	/* min_server_version */
 	0,
@@ -586,7 +585,6 @@ static const SchemaQuery Query_for_list_of_foreign_tables = {
 	/* qualresult */
 	NULL
 };
-#endif /* ADB */
 
 static const SchemaQuery Query_for_list_of_tables = {
 	/* min_server_version */
@@ -2042,11 +2040,9 @@ psql_completion(const char *text, int start, int end)
 	/* ALTER SEQUENCE <name> NO */
 	else if (Matches4("ALTER", "SEQUENCE", MatchAny, "NO"))
 		COMPLETE_WITH_LIST3("MINVALUE", "MAXVALUE", "CYCLE");
-#ifndef ADB
 	/* ALTER SERVER <name> */
 	else if (Matches3("ALTER", "SERVER", MatchAny))
 		COMPLETE_WITH_LIST4("VERSION", "OPTIONS", "OWNER TO", "RENAME TO");
-#endif/* RELEASE SAVEPOINT */
 	/* ALTER SERVER <name> VERSION <version> */
 	else if (Matches5("ALTER", "SERVER", MatchAny, "VERSION", MatchAny))
 		COMPLETE_WITH_CONST("OPTIONS");
@@ -2422,35 +2418,59 @@ psql_completion(const char *text, int start, int end)
 /* ROLLBACK */
 	else if (Matches1("ROLLBACK"))
 		COMPLETE_WITH_LIST4("WORK", "TRANSACTION", "TO SAVEPOINT", "PREPARED");
-#ifdef ADB
-	/* CLEAN CONNECTION */
-	else if (Matches2("CLEAN", "CONNECTION"))
-		COMPLETE_WITH_CONST("TO");
-	else if (Matches3("CLEAN", "CONNECTION", "TO"))
-	/* CLEAN CONNECTION TO */
-	{
-		static const char *const list_CLEANCONNECTIONOPT[] =
-			{"ALL", "COORDINATOR", "NODE", NULL};
-
-		COMPLETE_WITH_LIST(list_CLEANCONNECTIONOPT);
-	}
-	else if (Matches4("CLEAN", "CONNECTION", "TO", "ALL"))
-		COMPLETE_WITH_CONST("FORCE");
-	else if (Matches4("CLEAN", "CONNECTION", "TO", "COORDINATOR"))
-		COMPLETE_WITH_QUERY(Query_for_list_of_available_coordinators);
-	else if (Matches4("CLEAN", "CONNECTION", "TO", "NODE"))
-		COMPLETE_WITH_QUERY(Query_for_list_of_available_datanodes);
-	else if (Matches2("TO", "USER"))
-		COMPLETE_WITH_QUERY(Query_for_list_of_roles);
-	else if (Matches2("FOR", "DATABASE"))
-		COMPLETE_WITH_QUERY(Query_for_list_of_databases);
-#endif
-
 /* CALL */
 	else if (Matches1("CALL"))
 		COMPLETE_WITH_VERSIONED_SCHEMA_QUERY(Query_for_list_of_procedures, NULL);
 	else if (Matches2("CALL", MatchAny))
 		COMPLETE_WITH_CONST("(");
+#ifdef ADB
+/* CLEAN */
+	else if (Matches1("CLEAN"))
+		COMPLETE_WITH_CONST("CONNECTION");
+	/* CLEAN CONNECTION */
+	else if (Matches2("CLEAN", "CONNECTION"))
+		COMPLETE_WITH_CONST("TO");
+	/* CLEAN CONNECTION TO */
+	else if (Matches3("CLEAN", "CONNECTION", "TO"))
+		COMPLETE_WITH_LIST3("ALL", "COORDINATOR", "NODE");
+	/* CLEAN CONNECTION TO ALL */
+	else if (Matches4("CLEAN", "CONNECTION", "TO", "ALL"))
+		COMPLETE_WITH_LIST3("FOR DATABASE", "TO USER", "FORCE");
+	/* CLEAN CONNECTION TO ALL FORCE */
+	else if (Matches5("CLEAN", "CONNECTION", "TO", "ALL", "FORCE"))
+		COMPLETE_WITH_LIST2("FOR DATABASE", "TO USER");
+	/* CLEAN CONNECTION TO ALL [FORCE] FOR */
+	else if (Matches6("CLEAN", "CONNECTION", "TO", "ALL", "FORCE", "FOR") ||
+			 Matches5("CLEAN", "CONNECTION", "TO", "ALL", "FOR"))
+		COMPLETE_WITH_CONST("DATABASE");
+	/* CLEAN CONNECTION TO ALL [FORCE] FOR DATABASE */
+	else if (Matches7("CLEAN", "CONNECTION", "TO", "ALL", "FORCE", "FOR", "DATABASE") ||
+			 Matches6("CLEAN", "CONNECTION", "TO", "ALL", "FOR", "DATABASE"))
+		COMPLETE_WITH_QUERY(Query_for_list_of_databases);
+	/* CLEAN CONNECTION TO ALL [FORCE] FOR DATABASE name */
+	else if (Matches8("CLEAN", "CONNECTION", "TO", "ALL", "FORCE", "FOR", "DATABASE", MatchAny) ||
+			 Matches7("CLEAN", "CONNECTION", "TO", "ALL", "FOR", "DATABASE", MatchAny))
+		COMPLETE_WITH_CONST("TO USER");
+	/* ... FOR DATABASE name TO USER */
+	else if (TailMatches5("FOR", "DATABASE", MatchAny, "TO", "USER"))
+		COMPLETE_WITH_QUERY(Query_for_list_of_roles);
+	/* CLEAN CONNECTION TO ALL [FORCE] TO USER */
+	else if (Matches7("CLEAN", "CONNECTION", "TO", "ALL", "FORCE", "TO", "USER") ||
+			 Matches6("CLEAN", "CONNECTION", "TO", "ALL", "TO", "USER"))
+		COMPLETE_WITH_QUERY(Query_for_list_of_roles);
+	/* CLEAN CONNECTION TO COORDINATOR */
+	else if (Matches4("CLEAN", "CONNECTION", "TO", "COORDINATOR"))
+		COMPLETE_WITH_CONST("(");
+	/* CLEAN CONNECTION TO COORDINATOR ( */
+	else if (Matches5("CLEAN", "CONNECTION", "TO", "COORDINATOR", "("))
+		COMPLETE_WITH_QUERY(Query_for_list_of_available_coordinators);
+	/* CLEAN CONNECTION TO NODE */
+	else if (Matches4("CLEAN", "CONNECTION", "TO", "NODE"))
+		COMPLETE_WITH_CONST("(");
+	/* CLEAN CONNECTION TO NODE ( */
+	else if (Matches5("CLEAN", "CONNECTION", "TO", "NODE", "("))
+		COMPLETE_WITH_QUERY(Query_for_list_of_available_datanodes);
+#endif
 /* CLUSTER */
 	else if (Matches1("CLUSTER"))
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_tm, "UNION SELECT 'VERBOSE'");
@@ -2586,7 +2606,6 @@ psql_completion(const char *text, int start, int end)
 		COMPLETE_WITH_QUERY(Query_for_list_of_available_extension_versions);
 	}
 
-#ifndef ADB
 	/* CREATE FOREIGN */
 	else if (Matches2("CREATE", "FOREIGN"))
 		COMPLETE_WITH_LIST2("DATA WRAPPER", "TABLE");
@@ -2594,7 +2613,6 @@ psql_completion(const char *text, int start, int end)
 	/* CREATE FOREIGN DATA WRAPPER */
 	else if (Matches5("CREATE", "FOREIGN", "DATA", "WRAPPER", MatchAny))
 		COMPLETE_WITH_LIST3("HANDLER", "VALIDATOR", "OPTIONS");
-#endif
 
 	/* CREATE INDEX --- is allowed inside CREATE SCHEMA, so use TailMatches */
 	/* First off we complete CREATE UNIQUE with "INDEX" */
@@ -2698,11 +2716,7 @@ psql_completion(const char *text, int start, int end)
 	else if (Matches4("CREATE", "NODE", MatchAny, "WITH"))
 		COMPLETE_WITH_CONST("(");
 	else if (Matches5("CREATE", "NODE", MatchAny, "WITH", MatchAny))
-	{
-		static const char *const list_NODEOPT[] =
-		{"TYPE", "HOST", "PORT", "PRIMARY", "PREFERRED", NULL};
-		COMPLETE_WITH_LIST(list_NODEOPT);
-	}
+		COMPLETE_WITH_LIST5("TYPE", "HOST", "PORT", "PRIMARY", "PREFERRED");
 	/* CREATE NODEGROUP */
 	else if (Matches4("CREATE", "NODE", "GROUP", MatchAny))
 		COMPLETE_WITH_CONST("WITH");
@@ -2788,11 +2802,9 @@ psql_completion(const char *text, int start, int end)
 			 TailMatches5("CREATE", "TEMP|TEMPORARY", "SEQUENCE", MatchAny, "NO"))
 		COMPLETE_WITH_LIST3("MINVALUE", "MAXVALUE", "CYCLE");
 
-#ifndef ADB
 /* CREATE SERVER <name> */
 	else if (Matches3("CREATE", "SERVER", MatchAny))
 		COMPLETE_WITH_LIST3("TYPE", "VERSION", "FOREIGN DATA WRAPPER");
-#endif
 
 /* CREATE STATISTICS <name> */
 	else if (Matches3("CREATE", "STATISTICS", MatchAny))
@@ -3064,10 +3076,8 @@ psql_completion(const char *text, int start, int end)
 			 (Matches4("DROP", "AGGREGATE|FUNCTION|PROCEDURE|ROUTINE", MatchAny, MatchAny) &&
 			  ends_with(prev_wd, ')')) ||
 			 Matches4("DROP", "EVENT", "TRIGGER", MatchAny) ||
-#ifndef ADB
 			 Matches5("DROP", "FOREIGN", "DATA", "WRAPPER", MatchAny) ||
 			 Matches4("DROP", "FOREIGN", "TABLE", MatchAny) ||
-#endif
 			 Matches5("DROP", "TEXT", "SEARCH", "CONFIGURATION|DICTIONARY|PARSER|TEMPLATE", MatchAny))
 		COMPLETE_WITH_LIST2("CASCADE", "RESTRICT");
 
@@ -3076,10 +3086,8 @@ psql_completion(const char *text, int start, int end)
 		COMPLETE_WITH_CONST("(");
 	else if (Matches4("DROP", "AGGREGATE|FUNCTION|PROCEDURE|ROUTINE", MatchAny, "("))
 		COMPLETE_WITH_FUNCTION_ARG(prev2_wd);
-#ifndef ADB
 	else if (Matches2("DROP", "FOREIGN"))
 		COMPLETE_WITH_LIST2("DATA WRAPPER", "TABLE");
-#endif
 
 	/* DROP INDEX */
 	else if (Matches2("DROP", "INDEX"))
@@ -3203,7 +3211,6 @@ psql_completion(const char *text, int start, int end)
 	else if (Matches3("FETCH|MOVE", MatchAny, MatchAny))
 		COMPLETE_WITH_LIST2("FROM", "IN");
 
-#ifndef ADB
 /* FOREIGN DATA WRAPPER */
 	/* applies in ALTER/DROP FDW and in CREATE SERVER */
 	else if (TailMatches3("FOREIGN", "DATA", "WRAPPER") &&
@@ -3222,7 +3229,6 @@ psql_completion(const char *text, int start, int end)
 /* FOREIGN SERVER */
 	else if (TailMatches2("FOREIGN", "SERVER"))
 		COMPLETE_WITH_QUERY(Query_for_list_of_servers);
-#endif
 
 /*
  * GRANT and REVOKE are allowed inside CREATE SCHEMA and
@@ -3877,10 +3883,8 @@ psql_completion(const char *text, int start, int end)
 		COMPLETE_WITH_QUERY(Query_for_list_of_extensions);
 	else if (TailMatchesCS1("\\dm*"))
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_matviews, NULL);
-#ifndef ADB
 	else if (TailMatchesCS1("\\dE*"))
 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_foreign_tables, NULL);
-#endif
 	else if (TailMatchesCS1("\\dy*"))
 		COMPLETE_WITH_QUERY(Query_for_list_of_event_triggers);
 
