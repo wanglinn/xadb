@@ -1546,7 +1546,6 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 
 	heap_endscan(rel_scan);
 	heap_close(rel_node, AccessShareLock);
-	pfree(getAgentCmdRst.description.data);
 
 	/* send checkpoint sql command to master */
 	rel_host = heap_open(HostRelationId, AccessShareLock);
@@ -1673,8 +1672,8 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 		{
 			ereport(WARNING, (errmsg("%s", getAgentCmdRst.description.data)));
 		}
-		pfree(getAgentCmdRst.description.data);
 	}
+	pfree(getAgentCmdRst.description.data);
 	pfree(restmsg.data);
 	pfree(infosendmsg.data);
 	pfree_AppendNodeInfo(master_nodeinfo);
