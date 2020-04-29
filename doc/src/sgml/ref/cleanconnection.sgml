@@ -20,7 +20,7 @@ ADB documentation
 
   <refsynopsisdiv>
 <synopsis>
- CLEAN CONNECTION TO { COORDINATOR ( nodename ) | NODE ( nodename ) | ALL {FORCE} } [ FOR DATABASE dbname ] [ TO USER username ]
+ CLEAN CONNECTION TO { COORDINATOR ( nodename [,...] ) | NODE ( nodename [,...] ) | ALL [FORCE] } [ FOR DATABASE dbname ] [ TO USER username ]
 </synopsis>
   </refsynopsisdiv>
   <refsect1>

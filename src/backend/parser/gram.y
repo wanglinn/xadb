@@ -11568,7 +11568,7 @@ DirectStmt:
  *
  *		QUERY:
  *
- *		CLEAN CONNECTION TO { COORDINATOR ( nodename ) | NODE ( nodename ) | ALL {FORCE} }
+ *		CLEAN CONNECTION TO { COORDINATOR ( nodename [,...] ) | NODE ( nodename [,...] ) | ALL [FORCE] }
  *				[ FOR DATABASE dbname ]
  *				[ TO USER username ]
  *
