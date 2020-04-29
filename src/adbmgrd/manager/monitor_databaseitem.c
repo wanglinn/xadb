@@ -238,7 +238,7 @@ Datum monitor_databaseitem_insert_data(PG_FUNCTION_ARGS)
 	rel = heap_open(MdatabaseitemRelationId, RowExclusiveLock);
 	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
 	/*get database list*/
-	monitor_get_one_node_user_address_port(rel_node, &agentport, &user, &hostaddress, &coordport, CNDN_TYPE_COORDINATOR_MASTER);
+	monitor_get_one_node_user_address_port(rel_node, &agentport, &user, &hostaddress, &coordport, CNDN_TYPE_GTM_COOR_MASTER);
 	if (!user)
 		ereport(ERROR, (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED)
 			,errmsg("cannot get user name in host table")));
@@ -272,7 +272,7 @@ Datum monitor_databaseitem_insert_data(PG_FUNCTION_ARGS)
 		/* get database size on coordinator*/
 		appendStringInfo(&sqldbsizeStrData, "select round(pg_database_size(datname)::numeric(18,4)/1024/1024) from pg_database where datname=\'%s\';", dbname);
 		/*dbsize, unit MB*/
-		dbsize = monitor_get_result_one_node(rel_node, sqldbsizeStrData.data, DEFAULT_DB, CNDN_TYPE_COORDINATOR_MASTER);
+		dbsize = monitor_get_result_one_node(rel_node, sqldbsizeStrData.data, DEFAULT_DB, CNDN_TYPE_GTM_COOR_MASTER);
 		for (iloop=0; iloop<3; iloop++)
 		{
 			iarray_heaphit_read_indexsize[iloop] = 0;
@@ -309,7 +309,7 @@ Datum monitor_databaseitem_insert_data(PG_FUNCTION_ARGS)
 			iarray_commit_connect_longidle_prepare[iloop] = 0;
 		}
 		appendStringInfo(&sqlstr_commit_connect_longidle_prepare,"select (xact_commit/100.0)::bigint from pg_stat_database where datname = \'%s\' union all select (xact_rollback/100.0)::bigint from pg_stat_database where datname = \'%s\' union all select numbackends from pg_stat_database where datname = \'%s\' union all select count(*) from  pg_stat_activity where extract(epoch from (query_start-now())) > %d and datname=\'%s\' union all select count(*) from pg_stat_activity where state='idle' and datname = \'%s\' union all select count(*) from pg_prepared_xacts where database= \'%s\';", dbname, dbname, dbname, longtransmintime, dbname, dbname, dbname);
-		monitor_get_sum_all_onetypenode_onedb(rel_node, sqlstr_commit_connect_longidle_prepare.data, dbname, CNDN_TYPE_COORDINATOR_MASTER, iarray_commit_connect_longidle_prepare, 6);
+		monitor_get_sum_all_onetypenode_onedb(rel_node, sqlstr_commit_connect_longidle_prepare.data, dbname, CNDN_TYPE_GTM_COOR_MASTER, iarray_commit_connect_longidle_prepare, 6);
 
 		/*xact_commit_rate on coordinator*/
 		commit = iarray_commit_connect_longidle_prepare[0];
@@ -336,7 +336,7 @@ Datum monitor_databaseitem_insert_data(PG_FUNCTION_ARGS)
 		/*get locks on coordinator, get max*/
 		appendStringInfo(&sqllocksStrData, "select count(*) from pg_locks ,pg_database where pg_database.Oid = pg_locks.database and pg_database.datname=\'%s\';", dbname);
 		locksnum = monitor_all_typenode_usedbname_locksnum(rel_node, sqllocksStrData.data
-				, dbname, CNDN_TYPE_COORDINATOR_MASTER, GET_MAX);
+				, dbname, CNDN_TYPE_GTM_COOR_MASTER, GET_MAX);
 
 		/* check warning threshold */
 		clustertime = timestamptz_to_str(GetCurrentTimestamp());
@@ -489,7 +489,7 @@ Datum monitor_databasetps_insert_data(PG_FUNCTION_ARGS)
 	rel = heap_open(MdatabasetpsRelationId, RowExclusiveLock);
 	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
 	/*get user, address, port of coordinator*/
-	monitor_get_one_node_user_address_port(rel_node, &agentport, &user, &hostaddress, &coordport, CNDN_TYPE_COORDINATOR_MASTER);
+	monitor_get_one_node_user_address_port(rel_node, &agentport, &user, &hostaddress, &coordport, CNDN_TYPE_GTM_COOR_MASTER);
 	if (!user)
 		ereport(ERROR, (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED)
 			,errmsg("cannot get user name in host table")));
@@ -538,9 +538,9 @@ Datum monitor_databasetps_insert_data(PG_FUNCTION_ARGS)
 			appendStringInfo(&sqltpsStrData, "select xact_commit+xact_rollback from pg_stat_database where datname = \'%s\';",  dbname);
 			appendStringInfo(&sqlqpsStrData, "select sum(calls)from pg_stat_statements, pg_database where dbid = pg_database.oid and pg_database.datname=\'%s\';",  dbname);
 			/*get given database tps first*/
-			dbtps[idex][iloop] = monitor_get_sqlres_all_typenode_usedbname(rel_node, sqltpsStrData.data, DEFAULT_DB, CNDN_TYPE_COORDINATOR_MASTER, GET_SUM);
+			dbtps[idex][iloop] = monitor_get_sqlres_all_typenode_usedbname(rel_node, sqltpsStrData.data, DEFAULT_DB, CNDN_TYPE_GTM_COOR_MASTER, GET_SUM);
 			/*get given database qps first*/
-			dbqps[idex][iloop] = monitor_get_sqlres_all_typenode_usedbname(rel_node, sqlqpsStrData.data, DEFAULT_DB, CNDN_TYPE_COORDINATOR_MASTER, GET_SUM);
+			dbqps[idex][iloop] = monitor_get_sqlres_all_typenode_usedbname(rel_node, sqlqpsStrData.data, DEFAULT_DB, CNDN_TYPE_GTM_COOR_MASTER, GET_SUM);
 			resetStringInfo(&sqltpsStrData);
 			resetStringInfo(&sqlqpsStrData);
 			idex++;
@@ -557,7 +557,7 @@ Datum monitor_databasetps_insert_data(PG_FUNCTION_ARGS)
 		tps = labs(dbtps[idex][1] - dbtps[idex][0])/sleepTime;
 		qps = labs(dbqps[idex][1] - dbqps[idex][0])/sleepTime;
 		appendStringInfo(&sqldbruntimeStrData, "select case when  stats_reset IS NULL then  0 else  round(abs(extract(epoch from now())- extract(epoch from  stats_reset))) end from pg_stat_database where datname = \'%s\';", dbname);
-		pgdbruntime = monitor_get_result_one_node(rel_node, sqldbruntimeStrData.data, DEFAULT_DB, CNDN_TYPE_COORDINATOR_MASTER);
+		pgdbruntime = monitor_get_result_one_node(rel_node, sqldbruntimeStrData.data, DEFAULT_DB, CNDN_TYPE_GTM_COOR_MASTER);
 		tup_result = monitor_build_databasetps_qps_tuple(rel, time, dbname, tps, qps, pgdbruntime);
 		CatalogTupleInsert(rel, tup_result);
 		heap_freetuple(tup_result);
@@ -691,7 +691,7 @@ static void monitor_get_sum_all_onetypenode_onedb(Relation rel_node, char *sqlst
 			}
 
 			/* check warn threshold */
-			if (nodetype == CNDN_TYPE_COORDINATOR_MASTER && len == 6)
+			if ((nodetype == CNDN_TYPE_COORDINATOR_MASTER || nodetype == CNDN_TYPE_GTM_COOR_MASTER) && len == 6)
 			{
 				nodetime = monitor_get_timestamptz_onenode(agentport, user, address, port);
 				if(nodetime == NULL)
