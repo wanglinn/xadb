@@ -1067,10 +1067,7 @@ setup_regexp_matches(text *orig_str, text *pattern, pg_re_flags *re_flags,
 	Assert(start_position >= 0);
 #endif
 
-#ifdef ADB
 	prev_valid_match_end = 0;
-#endif
-
 	/* save original string --- we'll extract result substrings from it */
 	matchctx->orig_str = orig_str;
 
