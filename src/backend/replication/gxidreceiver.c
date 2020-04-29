@@ -377,7 +377,7 @@ void GxidReceiverMain(void)
 				rc = WaitLatchOrSocket(&MyProc->procLatch,
 									   WL_POSTMASTER_DEATH | WL_SOCKET_READABLE | WL_LATCH_SET | WL_TIMEOUT,
 									   wait_fd,
-									   gxid_receiver_timeout,
+									   10000L,
 									   PG_WAIT_EXTENSION);
 
 				ResetLatch(&MyProc->procLatch);
@@ -397,7 +397,7 @@ void GxidReceiverMain(void)
 				{
 					now = GetCurrentTimestamp();
 					timeout = TimestampTzPlusMilliseconds(last_recv_timestamp,
-								gxid_receiver_timeout);
+								30000L);
 
 					if (now >= timeout)
 					{
