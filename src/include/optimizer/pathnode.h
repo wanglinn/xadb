@@ -343,6 +343,7 @@ extern bool path_tree_have_upper_reference(Path *path, PlannerInfo *root);
 extern bool expression_have_reduce_plan(Expr *expr, PlannerGlobal *glob);
 extern bool expr_have_node(Expr *expr, ...);
 extern bool expr_have_upper_reference(Expr *expr, PlannerInfo *root);
+extern bool targetlist_have_upper_reference(List *list, PlannerInfo *root);
 extern bool restrict_list_have_upper_reference(List *list, PlannerInfo *root);
 #define expression_have_subplan(expr) expr_have_node(expr, T_SubPlan, T_Invalid)
 

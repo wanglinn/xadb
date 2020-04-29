@@ -2466,6 +2466,16 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 #endif /* ADB_GRAM_ORA */
 		}
 
+#ifdef ADB
+		if (root->must_replicate == false &&
+			(targetlist_have_upper_reference(scanjoin_targets, root) ||
+			 ADB_GRAM_ORA_CODE(targetlist_have_upper_reference(connect_by_targets, root) ||)
+			 targetlist_have_upper_reference(sort_input_targets, root) ||
+			 targetlist_have_upper_reference(grouping_targets, root) ||
+			 targetlist_have_upper_reference(final_targets, root)))
+			root->must_replicate = true;
+#endif /* ADB */
+
 		/* Apply scan/join target. */
 		scanjoin_target_same_exprs = list_length(scanjoin_targets) == 1
 			&& equal(scanjoin_target->exprs, current_rel->reltarget->exprs);
@@ -9060,7 +9070,8 @@ apply_scanjoin_target_to_paths(PlannerInfo *root,
 				continue;
 
 			if (try_reduce &&
-				!IsA(subpath, ReduceScanPath))
+				!IsA(subpath, ReduceScanPath) &&
+				!IsReduceInfoListReplicated(get_reduce_info_list(subpath)))
 			{
 				if (PATH_REQ_OUTER(subpath))
 					subpath = NULL;

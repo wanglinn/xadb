@@ -2984,6 +2984,13 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 		return;
 	}
 
+#ifdef ADB
+	if (rel->have_upper_reference == false &&
+		(sub_final_rel->have_upper_reference ||
+		 expr_have_upper_reference((Expr*)subquery->targetList, rel->subroot)))
+		rel->have_upper_reference = true;
+#endif /* ADB */
+
 	/*
 	 * Mark rel with estimated output rows, width, etc.  Note that we have to
 	 * do this before generating outer-query paths, else cost_subqueryscan is

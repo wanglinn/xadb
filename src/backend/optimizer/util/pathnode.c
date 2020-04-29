@@ -5248,6 +5248,21 @@ bool expr_have_upper_reference(Expr *expr, PlannerInfo *root)
 	return expression_tree_walker((Node*)expr, expr_have_upper_reference, root);
 }
 
+bool targetlist_have_upper_reference(List *list, PlannerInfo *root)
+{
+	ListCell *lc,*lc2;
+	foreach (lc, list)
+	{
+		foreach (lc2, lfirst_node(PathTarget, lc)->exprs)
+		{
+			if (expr_have_upper_reference(lfirst(lc2), root))
+				return true;
+		}
+	}
+
+	return false;
+}
+
 bool restrict_list_have_upper_reference(List *list, PlannerInfo *root)
 {
 	ListCell *lc;
