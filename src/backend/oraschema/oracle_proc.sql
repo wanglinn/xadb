@@ -862,3 +862,30 @@ create or replace function dbms_lock.sleep(sleep_second in double precision)
   IMMUTABLE
 --ADBONLY CLUSTER SAFE
 LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION round(interval, int default 0)
+RETURNS float8 AS 
+$$select round(EXTRACT(EPOCH FROM $1)::numeric/86400, $2)::float8;$$
+  IMMUTABLE
+--ADBONLY CLUSTER SAFE
+LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION trunc(interval, int default 0)
+RETURNS float8 AS
+  $$ select trunc(EXTRACT(EPOCH FROM $1)::numeric/86400, $2)::float8; $$
+  IMMUTABLE
+--ADBONLY CLUSTER SAFE
+LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION sign(interval)
+RETURNS float8 AS 
+  $$ select sign(EXTRACT(EPOCH FROM $1)::numeric/86400)::float8; $$
+  IMMUTABLE
+--ADBONLY CLUSTER SAFE
+LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION mod(text, numeric) RETURNS numeric AS
+  $$ select mod($1::numeric, $2); $$
+  IMMUTABLE
+--ADBONLY CLUSTER SAFE
+LANGUAGE SQL;
