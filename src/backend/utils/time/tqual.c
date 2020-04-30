@@ -1581,14 +1581,6 @@ HeapTupleIsSurelyDead(HeapTuple htup, TransactionId OldestXmin)
 	return TransactionIdPrecedes(HeapTupleHeaderGetRawXmax(tuple), OldestXmin);
 }
 
-#ifdef ADB
-bool
-XidInMVCCSnapshotExtern(TransactionId xid, Snapshot snapshot)
-{
-	return XidInMVCCSnapshot(xid, snapshot);
-}
-#endif
-
 /*
  * XidInMVCCSnapshot
  *		Is the given XID still-in-progress according to the snapshot?

@@ -3312,7 +3312,7 @@ l1:
 	{
 		TransactionId xwait = HeapTupleHeaderGetRawXmax(tp.t_data);
 
-		if (XidInMVCCSnapshotExtern(xwait, globalcheck))
+		if (XidInMVCCSnapshot(xwait, globalcheck))
 		{
 			UnlockReleaseBuffer(buffer);
 			ereport(ERROR,
@@ -3983,7 +3983,7 @@ l2:
 	{
 		TransactionId xwait = HeapTupleHeaderGetRawXmax(oldtup.t_data);
 
-		if (XidInMVCCSnapshotExtern(xwait, globalcheck))
+		if (XidInMVCCSnapshot(xwait, globalcheck))
 		{
 			UnlockReleaseBuffer(buffer);
 			ereport(ERROR,
