@@ -73,6 +73,11 @@
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'int4 unknown', cvtto => 'numeric numeric' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'int4 bpchar', cvtto => 'numeric numeric' },
 
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timestamptz float4', cvtto => 'timestamptz numeric' },
+{ cvtkind => 'o', cvtname => '-', cvtfrom => 'timestamptz float4', cvtto => 'timestamptz numeric' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timestamptz float8', cvtto => 'timestamptz numeric' },
+{ cvtkind => 'o', cvtname => '-', cvtfrom => 'timestamptz float8', cvtto => 'timestamptz numeric' },
+
 # to date + interval
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.varchar2 interval', cvtto => 'oracle.date interval' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.varchar2 oracle.date', cvtto => 'interval oracle.date' },
