@@ -8107,10 +8107,8 @@ type_list:	Typename								{ $$ = list_make1($1); }
 
 opt_function_or_common:
 			FUNCTION								{ $$ = ORA_CONVERT_KIND_FUNCTION; }
-			/*
 			| SPECIAL FUNCTION						{ $$ = ORA_CONVERT_KIND_SPECIAL_FUN; }
 			| COMMON								{ $$ = ORA_CONVERT_KIND_COMMON; }
-			*/
 		;
 
 /* object types taking any_name */
