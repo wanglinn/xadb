@@ -379,7 +379,28 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 			break;
 
 		case T_CaseExpr:
+#ifdef ADB_GRAM_ORA
+		{
+			OraCoercionContext oldContext;
+			if (((CaseExpr *) expr)->isdecode)
+				oldContext = OraCoercionContextSwitchTo(ORA_COERCE_SPECIAL_FUNCTION);
+			PG_TRY();
+			{
+#endif/* ADB_GRAM_ORA */
 			result = transformCaseExpr(pstate, (CaseExpr *) expr);
+#ifdef ADB_GRAM_ORA
+				if (((CaseExpr *) expr)->isdecode)
+					(void) OraCoercionContextSwitchTo(oldContext);
+			}
+			PG_CATCH();
+			{
+				if (((CaseExpr *) expr)->isdecode)
+					(void) OraCoercionContextSwitchTo(oldContext);
+				PG_RE_THROW();
+			}
+			PG_END_TRY();
+		}
+#endif /* ADB_GRAM_ORA */
 			break;
 
 		case T_RowExpr:
