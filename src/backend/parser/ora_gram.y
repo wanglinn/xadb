@@ -195,7 +195,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 
 %type <node>	TableConstraint TableLikeClause
 
-%type <node>	columnOptions convert_type
+%type <node>	columnOptions
 
 %type <alias>	alias_clause opt_alias_clause
 
@@ -8047,7 +8047,7 @@ OraImplicitConvertStmt:
 					$$ = (Node *) c;
 				}
 			/* implicit convert operator */
-			| CREATE opt_or_replace CONVERT OPERATOR convert_type all_Op convert_type AS convert_type all_Op convert_type
+			| CREATE opt_or_replace CONVERT OPERATOR Typename all_Op Typename AS Typename all_Op Typename
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
 					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
@@ -8062,7 +8062,7 @@ OraImplicitConvertStmt:
 					c->node_list = NIL;
 					$$ = (Node *) c;
 				}
-			| DROP CONVERT OPERATOR convert_type all_Op convert_type
+			| DROP CONVERT OPERATOR Typename all_Op Typename
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
 					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
@@ -8074,7 +8074,7 @@ OraImplicitConvertStmt:
 					c->node_list = NIL;
 					$$ = (Node *) c;
 				}
-			| DROP CONVERT OPERATOR IF_P EXISTS convert_type all_Op convert_type
+			| DROP CONVERT OPERATOR IF_P EXISTS Typename all_Op Typename
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
 					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
@@ -8093,13 +8093,10 @@ convert_functon_name:
 			;
 
 convert_type_list:
-			convert_type							{ $$ = list_make1($1); }
-			| convert_type_list ',' convert_type 	{ $$ = lappend($1, $3); }
+			Typename							{ $$ = list_make1($1); }
+			| convert_type_list ',' Typename 	{ $$ = lappend($1, $3); }
 		;
 
-convert_type:
-			ColLabel								{ $$ = (Node*) makeString($1); }
-		;
 
 type_list:	Typename								{ $$ = list_make1($1); }
 			| type_list ',' Typename				{ $$ = lappend($1, $3); }

@@ -21,6 +21,8 @@
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/rel.h"
+#include "utils/lsyscache.h"
+#include "utils/syscache.h"
 
 #ifdef ADB
 #include "catalog/pgxc_node.h"
@@ -36,6 +38,7 @@
 
 void ExecImplicitConvert(OraImplicitConvertStmt *stmt);
 static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt);
+Oid TypenameGetTypOid(TypeName *typname);
 
 #ifdef ADB
 void ClusterExecImplicitConvert(StringInfo mem_toc);
@@ -154,8 +157,8 @@ static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt)
 		cell = list_head(stmt->cvtfrom);
 		for (i = 0; i < cvtfromList_count; i++)
 		{
-			Assert(nodeTag(lfirst(cell)) == T_String);
-			fromOids[i] = TypenameGetTypid(strVal(lfirst(cell)));
+			Assert(nodeTag(lfirst(cell)) == T_TypeName);
+			fromOids[i] = TypenameGetTypOid(lfirst(cell));
 			if (fromOids[i] == InvalidOid)
 				elog(ERROR, "Added data type not included.");
 			cell = lnext(cell);
@@ -169,8 +172,8 @@ static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt)
 			cell = list_head(stmt->cvtto);
 			for (i = 0; i < cvttoList_count; i++)
 			{
-				Assert(nodeTag(lfirst(cell)) == T_String);
-				toOids[i] = TypenameGetTypid(strVal(lfirst(cell)));
+				Assert(nodeTag(lfirst(cell)) == T_TypeName);
+				toOids[i] = TypenameGetTypOid(lfirst(cell));
 				if (toOids[i] == InvalidOid)
 					elog(ERROR, "Added data type not included.");
 				cell = lnext(cell);
@@ -384,3 +387,37 @@ getMasterNodeOid(void)
 	return nodeOid_list;
 }
 #endif 
+
+Oid
+TypenameGetTypOid(TypeName *typname)
+{
+	char		*typeName;
+	char		*schemaname;
+	Oid			typeNamespace;
+	Oid			typoid;
+
+
+	/* deconstruct the name list */
+	DeconstructQualifiedName(typname->names, &schemaname, &typeName);
+
+	if (schemaname)
+	{
+		/* Convert list of names to a name and namespace */
+		typeNamespace = QualifiedNameGetCreationNamespace(typname->names, &typeName);
+
+		typoid = GetSysCacheOid2(TYPENAMENSP,
+										CStringGetDatum(typeName),
+										ObjectIdGetDatum(typeNamespace));
+	}
+	else
+	{
+		/* Unqualified type name, so search the search path */
+		typoid = TypenameGetTypidExtended(typeName, true);
+	}
+
+	if (OidIsValid(typoid) && get_typisdefined(typoid))
+		return typoid;
+	else
+		return InvalidOid;
+	
+}
