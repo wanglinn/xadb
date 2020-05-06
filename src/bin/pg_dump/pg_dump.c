@@ -1410,8 +1410,14 @@ expand_table_name_patterns(Archive *fout,
 							"select i.inhrelid"
 							"\nfrom pg_catalog.pg_inherits i"
 							"\nleft join pg_catalog.pg_class c on i.inhparent = c.oid"
-							"\nwhere c.relname='%s'\n",
-							cell->val);
+                            "\n LEFT JOIN pg_catalog.pg_namespace n"
+                            "\n ON n.oid OPERATOR(pg_catalog.=) c.relnamespace"
+							"\nwhere c.relkind in ('%c')",
+							RELKIND_PARTITIONED_TABLE);
+			processSQLNamePattern(GetConnection(fout), query, cell->val, true,
+							  false, "n.nspname", "c.relname", NULL,
+							  "pg_catalog.pg_table_is_visible(c.oid)");
+			ExecuteSqlStatement(fout, "RESET search_path");
 			res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
 			for (i = 0; i < PQntuples(res); i++)
 			{
