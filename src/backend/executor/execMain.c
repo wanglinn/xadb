@@ -1823,7 +1823,13 @@ ExecutePlan(EState *estate,
 			 * end the loop.
 			 */
 			if (!dest->receiveSlot(slot, dest))
+			{
+				ADB_ONLY_CODE(TopDownDriveClusterReduce(planstate));
+
+				if (!(estate->es_top_eflags & EXEC_FLAG_BACKWARD))
+					ExecShutdownNode(planstate);
 				break;
+			}
 		}
 
 		/*

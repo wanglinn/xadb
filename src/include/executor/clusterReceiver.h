@@ -32,7 +32,6 @@ extern ClusterRecvState *createClusterRecvState(PlanState *ps, bool need_copy);
 extern ClusterRecvState *createClusterRecvStateFromSlot(TupleTableSlot *slot, bool need_copy);
 extern void freeClusterRecvState(ClusterRecvState *state);
 extern bool clusterRecvSetCheckEndMsg(DestReceiver *r, bool check);
-extern void clusterRecvSetTopPlanState(DestReceiver *r, PlanState *ps);
 extern bool clusterRecvRdcListenPort(struct pg_conn *conn, const char *msg, int len, uint16 *port);
 extern bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len,
 							 PlanState *ps, struct pg_conn *conn);

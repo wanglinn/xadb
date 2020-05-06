@@ -319,7 +319,6 @@ static void ExecClusterPlanStmt(StringInfo buf, ClusterCoordInfo *info)
 		eflags |= EXEC_FLAG_UPDATE_CMD_ID;
 
 	ExecutorStart(query_desc, eflags);
-	clusterRecvSetTopPlanState(receiver, query_desc->planstate);
 
 	set_cluster_display("<advance reduce>", false, info);
 	if (query_desc->totaltime)

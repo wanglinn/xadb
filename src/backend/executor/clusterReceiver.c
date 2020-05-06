@@ -28,7 +28,6 @@ typedef struct ClusterPlanReceiver
 	time_t lastCheckTime;	/* last check client message time */
 	TupleTableSlot *convert_slot;
 	TupleTypeConvert *convert;
-	PlanState	   *ps;
 	bool check_end_msg;
 }ClusterPlanReceiver;
 
@@ -267,15 +266,6 @@ static bool cluster_receive_slot(TupleTableSlot *slot, DestReceiver *self)
 		}
 	}
 
-	/*
-	 * in parallel mode function ExecutePlan call ExitParallelMode
-	 * ExitParallelMode check ParallelContextActive
-	 * when we not call ExecShutdownNode, we get a Assert core
-	 */
-	if (need_more_slot == false &&
-		r->ps != NULL)
-		ExecShutdownNode(r->ps);
-
 	return need_more_slot;
 }
 
@@ -400,15 +390,6 @@ bool clusterRecvSetCheckEndMsg(DestReceiver *r, bool check)
 	self->check_end_msg = check ? true:false;
 
 	return old_check;
-}
-
-void clusterRecvSetTopPlanState(DestReceiver *r, PlanState *ps)
-{
-	ClusterPlanReceiver *self;
-	Assert(r->mydest == DestClusterOut);
-
-	self = (ClusterPlanReceiver*)r;
-	self->ps = ps;
 }
 
 void serialize_instrument_message(PlanState *ps, StringInfo buf)
