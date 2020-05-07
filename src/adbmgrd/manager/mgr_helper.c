@@ -395,7 +395,33 @@ void selectActiveMgrSlaveNodes(Oid masterOid,
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
+void selectActiveMgrSlaveNodesInZone(Oid masterOid,
+							   char nodetype,
+							   char *zone,
+							   MemoryContext spiContext,
+							   dlist_head *resultList)
+{
+	StringInfoData sql;
 
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * "
+					 "FROM pg_catalog.mgr_node "
+					 "WHERE nodetype = '%c' "
+					 "AND nodeinited = %d::boolean "
+					 "AND nodeincluster = %d::boolean "
+					 "AND nodemasternameoid = %u "
+					 "AND curestatus != '%s' "
+					 "AND nodezone = '%s' ",
+					 nodetype,
+					 true,
+					 true,
+					 masterOid,
+					 CURE_STATUS_ISOLATED,
+					 zone);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
 void selectSiblingActiveNodes(MgrNodeWrapper *faultNode,
 							  dlist_head *resultList,
 							  MemoryContext spiContext)
@@ -435,10 +461,12 @@ void selectIsolatedMgrSlaveNodes(Oid masterOid,
 					 "FROM pg_catalog.mgr_node "
 					 "WHERE nodetype = '%c' "
 					 "AND nodemasternameoid = %u "
-					 "AND curestatus = '%s' ",
+					 "AND curestatus = '%s' "
+					 "AND nodezone = '%s' ",
 					 nodetype,
 					 masterOid,
-					 CURE_STATUS_ISOLATED);
+					 CURE_STATUS_ISOLATED,
+					 mgr_zone);
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
@@ -572,7 +600,53 @@ void selectIsolatedMgrNodes(MemoryContext spiContext,
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
+void selectNodeNotZone(MemoryContext spiContext, 
+							char *zone, 
+							char nodetype, 
+							dlist_head *resultList)
+{
+	StringInfoData sql;
 
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node \n"
+					 "WHERE nodeinited = %d::boolean \n"
+					 "AND nodeincluster = %d::boolean \n"
+					 "AND nodetype = '%c' \n"
+					 "AND nodezone != '%s' \n",
+					 true,
+					 true,
+					 nodetype,
+					 zone);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
+void selectNodeZoneOid(MemoryContext spiContext, 
+							char nodetype,
+							char *nodezone,
+							Oid  oid, 
+							dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node \n"
+					 "WHERE nodeinited = %d::boolean \n"
+					 "AND nodeincluster = %d::boolean \n"
+					 "AND nodetype = '%c' \n"
+					 "AND nodezone = '%s' \n"
+					 "AND nodemasternameoid = %u \n",
+					 true,
+					 true,
+					 nodetype,
+					 nodezone,
+					 oid);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
 MgrNodeWrapper *selectMgrGtmCoordNode(MemoryContext spiContext)
 {
 	dlist_head nodes = DLIST_STATIC_INIT(nodes);
@@ -1699,8 +1773,10 @@ bool callAgentPromoteNode(MgrNodeWrapper *node, bool complain)
 	AgentCommand cmd;
 
 	if (node->form.nodetype == CNDN_TYPE_DATANODE_MASTER ||
-		node->form.nodetype == CNDN_TYPE_DATANODE_SLAVE)
-	{
+		node->form.nodetype == CNDN_TYPE_DATANODE_SLAVE ||
+		node->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER ||
+		node->form.nodetype == CNDN_TYPE_COORDINATOR_SLAVE )
+	{   
 		cmd = AGT_CMD_DN_FAILOVER;
 	}
 	else if (node->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER ||

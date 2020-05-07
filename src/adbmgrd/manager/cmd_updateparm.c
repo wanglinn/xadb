@@ -2401,7 +2401,7 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 		* guc name set '*' to '#', which in the coordinator pg_settings but not in gtm pg_settings,
 		* set 'G' which just in gtm master pg_settings.
 		*/
-		if (!mgr_get_active_node(&cnName, CNDN_TYPE_GTM_COOR_MASTER, InvalidOid))
+		if (!mgr_get_active_node(&cnName, CNDN_TYPE_GTM_COOR_MASTER, mgr_zone, InvalidOid))
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 				,errmsg("get active coordinator fail in cluster")));
 		/* get node info */

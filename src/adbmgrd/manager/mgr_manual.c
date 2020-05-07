@@ -849,7 +849,7 @@ bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, StringInf
 	/* change the dest coordiantor port and hot_standby*/
 	resetStringInfo(&infosendmsg);
 	resetStringInfo(&(getAgentCmdRst.description));
-	mgr_add_parm(s_coordname, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
+	mgr_add_parm(s_coordname, CNDN_TYPE_COORDINATOR_SLAVE, &infosendmsg);
 	mgr_append_pgconf_paras_str_int("port", dest_nodeinfo.nodeport, &infosendmsg);
 	mgr_append_pgconf_paras_str_str("hot_standby", "on", &infosendmsg);
 	ereport(LOG, (errmsg("update port=%d, hot_standby=on in postgresql.conf of coordinator \"%s\""
@@ -871,7 +871,7 @@ bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, StringInf
 	ereport(LOG, (errmsg("update recovery.conf of coordinator \"%s\"", s_coordname)));
 	ereport(NOTICE, (errmsg("update recovery.conf of coordinator \"%s\"", s_coordname)));
 	appendStringInfo(&restmsg, "host=%s port=%d user=%s application_name=%s", src_nodeinfo.nodeaddr
-		, src_nodeinfo.nodeport, dest_nodeinfo.nodeusername, dest_nodeinfo.nodename);
+		, src_nodeinfo.nodeport, dest_nodeinfo.nodeusername, dest_nodeinfo.nodename);		
 	mgr_append_pgconf_paras_str_str("recovery_target_timeline", "latest", &infosendmsg);
 	mgr_append_pgconf_paras_str_str("standby_mode", "on", &infosendmsg);
 	mgr_append_pgconf_paras_str_quotastr("primary_conninfo", restmsg.data, &infosendmsg);

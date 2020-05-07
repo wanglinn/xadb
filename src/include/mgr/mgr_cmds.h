@@ -358,7 +358,7 @@ extern bool mgr_lock_cluster_deprecated(PGconn **pg_conn, Oid *cnoid);
 extern bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid);
 extern void mgr_unlock_cluster_deprecated(PGconn **pg_conn);
 extern void mgr_unlock_cluster_involve_gtm_coord(PGconn **pg_conn);
-extern void mgr_get_gtmcoord_conn(char *dbname, PGconn **pg_conn, Oid *cnoid);
+extern void mgr_get_gtmcoord_conn(char *zone, char *dbname, PGconn **pg_conn, Oid *cnoid);
 extern int mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam);
 extern bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *dnname
 		, GetAgentCmdRst *getAgentCmdRst, PGconn **pg_conn, Oid cnoid, char *newSyncSlaveName);
@@ -591,7 +591,7 @@ extern void mgr_doctor_set_param(MGRDoctorSet *node,
 //void mgr_cluster_slot_init(ClusterSlotInitStmt *node, ParamListInfo params, DestReceiver *dest, const char *query);
 bool get_agent_info_from_hostoid(const Oid hostOid, char *agent_addr, int *agent_port);
 Datum mgr_failover_one_dn_inner_func(char *nodename, char cmdtype, char nodetype, bool nodetypechange, bool bforce);
-bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid);
+bool mgr_get_active_node(Name nodename, char nodetype, char *zone, Oid lowPriorityOid);
 
 extern bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg);
 extern bool RemoveHba(const AppendNodeInfo *nodeinfo, const StringInfo infosendmsg);
@@ -609,7 +609,7 @@ extern void hexp_pqexec_direct_execute_utility(PGconn *pg_conn, char *sqlstr, in
 /* zone */
 extern bool mgr_check_nodename_repeate(Relation rel, char *nodename);
 extern bool mgr_checknode_in_currentzone(const char *zone, const Oid TupleOid);
-extern Datum mgr_zone_promote(PG_FUNCTION_ARGS);
+extern Datum mgr_zone_failover(PG_FUNCTION_ARGS);
 extern Datum mgr_zone_config_all(PG_FUNCTION_ARGS);
 extern HeapTuple mgr_get_nodetuple_by_name_zone(Relation rel, char *nodename, char *nodezone);
 extern Datum mgr_zone_clear(PG_FUNCTION_ARGS);
@@ -633,5 +633,7 @@ extern void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, Get
 extern int MgrGetAdbcleanNum(PGconn *pg_conn);
 extern char* mgr_get_cmdname(int cmdtype);
 extern char *MgrGetDefDbName(void);
-
+extern char mgr_zone_get_restart_cmd(char nodetype);
+extern void hexp_restart_node(AppendNodeInfo *node);
+extern void hexp_update_conf_pgxc_node_name(AppendNodeInfo *node, char* newname);
 #endif /* MGR_CMDS_H */

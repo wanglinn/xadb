@@ -359,6 +359,11 @@ extern void selectActiveMgrSlaveNodes(Oid masterOid,
 									  char nodetype,
 									  MemoryContext spiContext,
 									  dlist_head *resultList);
+extern void selectActiveMgrSlaveNodesInZone(Oid masterOid,
+							   char nodetype,
+							   char *zone,
+							   MemoryContext spiContext,
+							   dlist_head *resultList);																			  
 extern void selectSiblingActiveNodes(MgrNodeWrapper *faultNode,
 									 dlist_head *resultList,
 									 MemoryContext spiContext);
@@ -381,6 +386,15 @@ extern void selectMgrNodesForRepairerDoctor(MemoryContext spiContext,
 											dlist_head *resultList);
 extern void selectIsolatedMgrNodes(MemoryContext spiContext,
 								   dlist_head *resultList);
+extern void selectNodeNotZone(MemoryContext spiContext, 
+									char *zone, 
+									char nodetype,
+									dlist_head *resultList);
+extern void selectNodeZoneOid(MemoryContext spiContext, 
+							char nodetype,
+							char *nodezone,
+							Oid  oid, 
+							dlist_head *resultList);							
 extern MgrNodeWrapper *selectMgrGtmCoordNode(MemoryContext spiContext);
 extern int updateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 								   char *newCurestatus,

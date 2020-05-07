@@ -79,8 +79,6 @@ static void hexp_parse_pair_lsn(char* strvalue, int* phvalue, int* plvalue);
 static List *hexp_get_all_dn_status(void);
 static void hexp_get_dn_status(Form_mgr_node mgr_node, Oid tuple_id, DN_STATUS* pdn_status, char* cnpath);
 static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnpath);
-static void hexp_update_conf_pgxc_node_name(AppendNodeInfo *node, char* newname);
-static void hexp_restart_node(AppendNodeInfo *node);
 static void hexp_pgxc_pool_reload_on_all_node(PGconn *pg_conn);
 static void hexp_get_allnodes_serialize(StringInfoData *pserialize);
 static void hexp_check_expand(void);
@@ -224,7 +222,7 @@ Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS)
 		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
 
-		mgr_get_gtmcoord_conn(MgrGetDefDbName(), &co_pg_conn, &cnoid);
+		mgr_get_gtmcoord_conn(mgr_zone, MgrGetDefDbName(), &co_pg_conn, &cnoid);
 
 		/*	3.add dst node to all other node's pgxc_node. */
 		ereport(INFO, (errmsg("add dst node to all other node's pgxc_node.if this step fails, do it by hand.")));		
@@ -704,7 +702,7 @@ Datum mgr_expand_clean(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		mgr_get_gtmcoord_conn(MgrGetDefDbName(), &co_pg_conn, &cnoid);
+		mgr_get_gtmcoord_conn(mgr_zone, MgrGetDefDbName(), &co_pg_conn, &cnoid);
 		Assert(cnoid);
 		if (MgrGetAdbcleanNum(co_pg_conn) > 0)
 		{
@@ -714,7 +712,7 @@ Datum mgr_expand_clean(PG_FUNCTION_ARGS)
 			foreach (lc, dbname_list)
 			{
 				dbname = (Name)lfirst(lc);
-				mgr_get_gtmcoord_conn(dbname->data, &other_conn, &cnoid);
+				mgr_get_gtmcoord_conn(mgr_zone, dbname->data, &other_conn, &cnoid);
 				MgrSendDataCleanToGtm(other_conn);
 				ClosePgConn(other_conn);
 			}	
@@ -886,7 +884,7 @@ Datum mgr_expand_check_status(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		mgr_get_gtmcoord_conn(MgrGetDefDbName(), &pg_conn, &cnoid);
+		mgr_get_gtmcoord_conn(mgr_zone, MgrGetDefDbName(), &pg_conn, &cnoid);
 		Assert(cnoid);
 
 		appendStringInfo(&serialize,"pgxc node info in cluster is consistent.\n");
@@ -922,7 +920,7 @@ Datum mgr_expand_show_status(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		mgr_get_gtmcoord_conn(MgrGetDefDbName(), &pg_conn, &cnoid);
+		mgr_get_gtmcoord_conn(mgr_zone, MgrGetDefDbName(), &pg_conn, &cnoid);
 		Assert(cnoid);
 
 		hexp_pgxc_pool_reload_on_all_node(pg_conn);
@@ -1388,77 +1386,6 @@ static void hexp_get_allnodes_serialize(StringInfoData *pserialize)
 	}
 	return;
 }
-static void hexp_update_conf_pgxc_node_name(AppendNodeInfo *node, char* newname)
-{
-	GetAgentCmdRst getAgentCmdRst;
-	StringInfoData infosendmsg;
-
-	initStringInfo(&infosendmsg);
-	initStringInfo(&(getAgentCmdRst.description));
-
-	mgr_append_pgconf_paras_str_quotastr("pgxc_node_name", newname, &infosendmsg);
-	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, node->nodepath, &infosendmsg, node->nodehost, &getAgentCmdRst);
-
-	if (!getAgentCmdRst.ret)
-	{
-		ereport(ERROR, (errmsg("update datanode %s's pgxc_node_name param fail\n", newname)));
-	}
-}
-
-static void hexp_restart_node(AppendNodeInfo *node)
-{
-	GetAgentCmdRst getAgentCmdRst;
-	StringInfoData infosendmsg;
-	StringInfoData buf;
-	ManagerAgent *ma;
-	bool exec_result;
-
-	initStringInfo(&buf);
-	initStringInfo(&(getAgentCmdRst.description));
-	initStringInfo(&infosendmsg);
-
-	appendStringInfo(&infosendmsg, " restart -D %s", node->nodepath);
-	appendStringInfo(&infosendmsg, " -Z datanode -m fast -o -i -w -c -l %s/logfile", node->nodepath);
-
-	/* connection agent */
-	ma = ma_connect_hostoid(node->nodehost);
-	if(!ma_isconnected(ma))
-	{
-		/* report error message */
-		getAgentCmdRst.ret = false;
-		appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
-		ma_close(ma);
-		return;
-	}
-
-	ma_beginmessage(&buf, AGT_MSG_COMMAND);
-	ma_sendbyte(&buf, AGT_CMD_DN_RESTART);
-	ma_sendstring(&buf,infosendmsg.data);
-	ma_endmessage(&buf, ma);
-	if (! ma_flush(ma, true))
-	{
-		getAgentCmdRst.ret = false;
-		appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
-		ma_close(ma);
-		return;
-	}
-
-	/*check the receive msg*/
-	exec_result = mgr_recv_msg(ma, &getAgentCmdRst);
-	ma_close(ma);
-
-	if(buf.data)
-		pfree(buf.data);
-	if(getAgentCmdRst.description.data)
-		pfree(getAgentCmdRst.description.data);
-	if(infosendmsg.data)
-		pfree(infosendmsg.data);
-
-	if (!exec_result)
-	{
-		ereport(ERROR, (errmsg("restart %s fail\n", node->nodename)));
-	}
-}
 
 static void hexp_get_dn_conn(PGconn **pg_conn, Form_mgr_node mgr_node, char* cnpath)
 {
@@ -1657,7 +1584,7 @@ static void hexp_check_expand(void)
 	Oid cnoid;
 	int count = 0;
 
-	mgr_get_gtmcoord_conn(MgrGetDefDbName(), &pg_conn, &cnoid);
+	mgr_get_gtmcoord_conn(mgr_zone, MgrGetDefDbName(), &pg_conn, &cnoid);
 
 	if ((count = MgrGetAdbcleanNum(pg_conn)) > 0)
 	{

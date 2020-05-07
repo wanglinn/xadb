@@ -82,14 +82,28 @@ static inline void pfreeSwitcherNodeWrapperList(dlist_head *nodes,
 	}
 }
 
-extern void switchDataNodeMaster(char *oldMasterName,
+extern void FailOverDataNodeMaster(char *oldMasterName,
 								 bool forceSwitch,
 								 bool kickOutOldMaster,
-								 Name newMasterName);
-extern void switchGtmCoordMaster(char *oldMasterName,
+								 Name newMasterName,
+								 char *zone);
+void FailOverCoordMaster(char *oldMasterName,
+						  bool forceSwitch,
+						  bool kickOutOldMaster,
+						  Name newMasterName,
+						  char *zone);								 
+extern void FailOverGtmCoordMaster(char *oldMasterName,
 								 bool forceSwitch,
 								 bool kickOutOldMaster,
-								 Name newMasterName);
+								 Name newMasterName,
+								 char *zone);
+extern void switcherGtmCoordMasterFunc(MemoryContext spiContext,
+										char *oldMasterName,
+										bool forceSwitch,
+										bool kickOutOldMaster,
+										Name newMasterName,
+										char* zone,
+										ErrorData **edata);								 
 extern void switchoverDataNode(char *newMasterName, bool forceSwitch);
 extern void switchoverGtmCoord(char *newMasterName, bool forceSwitch);
 extern void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
@@ -98,7 +112,8 @@ extern void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 								dlist_head *failedSlaves,
 								MemoryContext spiContext,
 								bool forceSwitch,
-								char *newMasterName);
+								char *newMasterName,
+								char *zone);
 extern void tryLockCluster(dlist_head *coordinators);
 extern bool tryUnlockCluster(dlist_head *coordinators, bool complain);
 extern void mgrNodesToSwitcherNodes(dlist_head *mgrNodes,
@@ -114,6 +129,9 @@ extern void checkGetMasterCoordinators(MemoryContext spiContext,
 									   dlist_head *coordinators,
 									   bool includeGtmCoord,
 									   bool checkRunningMode);
+extern void checkGetSlaveCoordinators(MemoryContext spiContext,
+								dlist_head *coordinators,
+								bool checkRunningMode);
 extern SwitcherNodeWrapper *getHoldLockCoordinator(dlist_head *coordinators);
 extern void updateCureStatusForSwitch(MgrNodeWrapper *mgrNode,
 									  char *newCurestatus,
