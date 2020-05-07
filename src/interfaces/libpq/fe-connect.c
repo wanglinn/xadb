@@ -6473,16 +6473,6 @@ PQsocket(const PGconn *conn)
 	return (conn->sock != PGINVALID_SOCKET) ? conn->sock : -1;
 }
 
-#ifdef WITH_RDMA
-bool
-PQisrs(const PGconn *conn)
-{
-	if (!conn)
-		return -1;
-	return conn->is_rs;
-}
-#endif
-
 int
 PQbackendPID(const PGconn *conn)
 {
@@ -6972,69 +6962,6 @@ PGconn *PQattach(pgsocket sock, void *custom, int close_sock_on_end, int pgversi
 		(void)connectDBCompleteFlag(conn, PGRES_POLLING_READING);
 	return conn;
 }
-
-#ifdef WITH_RDMA
-/* async interface, use PQconnectPoll finish connection */
-int PQbeginRsAttach(PGconn *conn)
-{
-	char		sebuf[256];
-
-	Assert(conn);
-	conn->custom = NULL;
-	conn->is_attached = true;
-	conn->close_sock_on_end = true;
-	conn->pversion = PG_PROTOCOL_LATEST;
-	conn->auth_req_received = true;
-
-	/* Fill in the client address */
-	conn->laddr.salen = sizeof(conn->laddr.addr);
-
-	if ((adb_rgetsockname(conn->sock,
-					(struct sockaddr *) & conn->laddr.addr,
-					&conn->laddr.salen)) < 0)
-	{
-		appendPQExpBuffer(&conn->errorMessage,
-						  libpq_gettext("could not get client address from socket: %s\n"),
-				SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
-		goto error_return;
-	}
-
-	conn->raddr.salen = sizeof(conn->raddr.addr);
-
-	if (adb_rgetpeername(conn->sock,
-					(struct sockaddr *) & conn->raddr.addr,
-					&conn->raddr.salen) < 0)
-	{
-		appendPQExpBuffer(&conn->errorMessage,
-						  libpq_gettext("could not get peer address from socket: %s\n"),
-				SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
-		goto error_return;
-	}
-
-	/* get block status */
-	conn->nonblocking = pg_set_rnoblock(conn->sock);
-
-	if(!conn->nonblocking)
-		pg_set_rblock(conn->sock);
-
-	/* make a query info message */
-	if(pqPacketSend(conn, 'I', NULL, 0) != STATUS_OK)
-	{
-		appendPQExpBuffer(&conn->errorMessage,
-			libpq_gettext("could not send query info packet: %s\n"),
-				SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)));
-		goto error_return;
-	}
-
-	conn->status = CONNECTION_AUTH_OK;
-	conn->asyncStatus = PGASYNC_BUSY;
-
-	return 0;
-
-error_return:
-	return -1;
-}
-#endif
 
 /* async interface, use PQconnectPoll finish connection */
 PGconn *PQbeginAttach(pgsocket sock, void *custom, int close_sock_on_end, int pgversion)

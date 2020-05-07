@@ -202,7 +202,3 @@ pqResultStrdup            198
 pqGetc                    199
 pqGetInt                  200
 # ADB_END
-# RDMA_BEGIN
-PQisrs                    201
-PQbeginRsAttach           202
-# RDMA_END
