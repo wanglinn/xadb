@@ -1024,7 +1024,7 @@ void mgr_recv_sql_stringvalues_msg(ManagerAgent	*ma, StringInfo resultstrdata)
 /*
 * get active coordinator node name
 */
-bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid)
+bool mgr_get_active_node(Name nodename, char nodetype, char *zone, Oid lowPriorityOid)
 {
 	ScanKeyData key[4];
 	Form_mgr_node mgr_node;
@@ -1057,7 +1057,7 @@ bool mgr_get_active_node(Name nodename, char nodetype, Oid lowPriorityOid)
 				,Anum_mgr_node_nodezone
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
-				,CStringGetDatum(mgr_zone));	
+				,CStringGetDatum(zone));	
 	relNode = table_open(NodeRelationId, AccessShareLock);
 	relScan = table_beginscan_catalog(relNode, 4, key);
 	for (iloop = 0; iloop < 2; iloop++)

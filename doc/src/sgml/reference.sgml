@@ -380,7 +380,7 @@
    &mgrStopGtm;
    &mgrSwitchoverDatanode
    &mgrSwitchoverGtm
-   &mgrZonePromote
+   &mgrZoneFailover
    &mgrZoneConfig
    &mgrZoneClear
    &mgrZoneInit

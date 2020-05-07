@@ -992,7 +992,7 @@ static void failoverOldMaster(MgrNodeWrapper *oldMaster, Name newMasterName)
 	ErrorData *edata = NULL;
 	int spiRes;
 	MemoryContext oldContext;
-
+	NameData zone = {{0}};
 	oldContext = CurrentMemoryContext;
 	SPI_CONNECT_TRANSACTIONAL_START(spiRes, true);
 
@@ -1000,17 +1000,19 @@ static void failoverOldMaster(MgrNodeWrapper *oldMaster, Name newMasterName)
 	{
 		if (isGtmCoordMgrNode(oldMaster->form.nodetype))
 		{
-			switchGtmCoordMaster(NameStr(oldMaster->form.nodename),
+			FailOverGtmCoordMaster(NameStr(oldMaster->form.nodename),
 								 switcherConfiguration->forceSwitch,
 								 !switcherConfiguration->rewindOldMaster,
-								 newMasterName);
+								 newMasterName,
+								 NameStr(zone));
 		}
 		else if (isDataNodeMgrNode(oldMaster->form.nodetype))
 		{
-			switchDataNodeMaster(NameStr(oldMaster->form.nodename),
+			FailOverDataNodeMaster(NameStr(oldMaster->form.nodename),
 								 switcherConfiguration->forceSwitch,
 								 !switcherConfiguration->rewindOldMaster,
-								 newMasterName);
+								 newMasterName,
+								 NameStr(zone));
 		}
 		else
 		{
