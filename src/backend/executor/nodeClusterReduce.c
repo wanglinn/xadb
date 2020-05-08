@@ -177,20 +177,11 @@ static TupleTableSlot* ExecNormalReduce(PlanState *pstate)
 {
 	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
 	NormalReduceState  *normal = node->private_state;
-	TupleTableSlot *slot;
 	Assert(normal != NULL);
 	Assert(node->reduce_method == RT_NORMAL ||
 		   node->reduce_method == RT_REDUCE_FIRST);
 
-	slot = DynamicReduceFetchSlot(&normal->drio);
-	if (TupIsNull(slot))
-	{
-		shm_mq_detach(normal->drio.mqh_receiver);
-		normal->drio.mqh_receiver = NULL;
-		shm_mq_detach(normal->drio.mqh_sender);
-		normal->drio.mqh_sender = NULL;
-	}
-	return slot;
+	return DynamicReduceFetchSlot(&normal->drio);
 }
 
 static TupleTableSlot* ExecParallelReduceAttach(PlanState *pstate)
