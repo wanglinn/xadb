@@ -3533,6 +3533,26 @@ static void checkIfNodesyncChangedAndUpdateIt(MgrNodeWrapper *masterNode,
 								NameStr(newNodesync))));
 		}
 	}
+	else
+	{
+		if (is_equal_string(NameStr(mgrNode->form.nodesync), ""))
+		{
+			namestrcpy(&newNodesync, getMgrNodeSyncStateValue(SYNC_STATE_ASYNC));
+			if (updateMgrNodeNodesync(mgrNode, NameStr(newNodesync), spiContext) == 1)
+			{
+				namecpy(&mgrNode->form.nodesync, &newNodesync);
+			}
+			else{
+				ereport(ERROR,
+						(errmsg("%s try to change nodesync from '%s' to '%s' failed",
+								NameStr(mgrNode->form.nodename),
+								NameStr(mgrNode->form.nodesync),
+								NameStr(newNodesync))));
+			}
+				
+		}
+	}
+	
 }
 
 /**

@@ -60,9 +60,6 @@ static void MgrCheckMasterHasSlave(MemoryContext spiContext, char *currentZone);
 static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext, char *currentZone, char nodeType);
 static void MgrMakesureAllSlaveRunning(void);
 static void MgrZoneUpdateOtherZoneMgrNode(Relation relNode, char *currentZone);
-static bool mgr_zone_has_node(const char *zonename, char nodetype);
-static void mgr_zone_has_all_masternode(char *currentZone);
-static void mgr_make_sure_allmaster_running(void);
 
 Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 {
@@ -80,7 +77,7 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 	if (strcmp(currentZone, mgr_zone) != 0)
 		ereport(ERROR, (errmsg("the given zone name \"%s\" is not the same wtih guc parameter mgr_zone \"%s\" in postgresql.conf", currentZone, mgr_zone)));	
 
-	namestrcpy(&name, "zone promote");
+	namestrcpy(&name, "ZONE FAILOVER");
 	PG_TRY();
 	{
 		if ((spiRes = SPI_connect()) != SPI_OK_CONNECT){
@@ -110,64 +107,49 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 	return HeapTupleGetDatum(tupResult);
 }
 
-Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
+Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 {
-	Relation 		relNode  = NULL;
-	HeapTuple 		tupResult= NULL;
-	StringInfoData 	resultmsg;
-	ScanKeyData 	key[3];
-	NameData 		name;	
-	char 			*currentZone= NULL;
-	bool 			bres 	    = true;
-	PGconn 			*gtm_conn   = NULL;
-	Oid 			cnoid;
-	
+	HeapTuple 		tupResult = NULL;
+	NameData 		name;
+	char 			*currentZone;
+	int 			spiRes = 0;	
+	MemoryContext 	spiContext = NULL;
+
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot do the command during recovery")));
-	
-	namestrcpy(&name, "zone config");
+
 	currentZone  = PG_GETARG_CSTRING(0);
 	Assert(currentZone);
+	if (strcmp(currentZone, mgr_zone) != 0)
+		ereport(ERROR, (errmsg("the given zone name \"%s\" is not the same wtih guc parameter mgr_zone \"%s\" in postgresql.conf", currentZone, mgr_zone)));	
 
-	if (strcmp(currentZone, mgr_zone) !=0)
-		ereport(ERROR, (errmsg("the given zone name \"%s\" is not the same wtih guc parameter mgr_zone \"%s\" in postgresql.conf", currentZone, mgr_zone)));
-	
-	mgr_zone_has_all_masternode(currentZone);
-    mgr_make_sure_allmaster_running();
-	
-	initStringInfo(&resultmsg);
-	ScanKeyInit(&key[0]
-				,Anum_mgr_node_nodeincluster
-				,BTEqualStrategyNumber
-				,F_BOOLEQ
-				,BoolGetDatum(true));
-	ScanKeyInit(&key[1]
-			,Anum_mgr_node_nodezone
-			,BTEqualStrategyNumber
-			,F_NAMEEQ
-			,CStringGetDatum(currentZone));
-
+	namestrcpy(&name, "ZONE SWITCHOVER");
 	PG_TRY();
 	{
-		relNode = heap_open(NodeRelationId, RowExclusiveLock);
-		mgr_get_gtmcoord_conn(mgr_zone, MgrGetDefDbName(), &gtm_conn, &cnoid);
-		hexp_pqexec_direct_execute_utility(gtm_conn, SQL_BEGIN_TRANSACTION, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
- 	    hexp_pqexec_direct_execute_utility(gtm_conn, SQL_COMMIT_TRANSACTION, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
-		
+		if ((spiRes = SPI_connect()) != SPI_OK_CONNECT){
+			ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
+		}
+		spiContext = CurrentMemoryContext; 		
+		MgrFailoverCheck(spiContext, currentZone);
+
+		ereportNoticeLog(errmsg("ZONE SWITCHOVER %s, step1:switchover gtmcoord slave in zone(%s).", currentZone, currentZone));
+		MgrZoneSwitchoverGtm(spiContext, currentZone);
+
+		// ereportNoticeLog(errmsg("ZONE SWITCHOVER %s, step2:switchover coordinator slave in zone(%s).", currentZone, currentZone));
+		// MgrZoneFailoverCoord(spiContext, currentZone);
+
+		// ereportNoticeLog(errmsg("ZONE SWITCHOVER %s, step3:switchover datanode slave in zone(%s).", currentZone, currentZone));
+		// MgrZoneFailoverDN(spiContext, currentZone);
 	}PG_CATCH();
 	{
-		ClosePgConn(gtm_conn);
-		heap_close(relNode, RowExclusiveLock);
-		MgrFree(resultmsg.data);
+		SPI_finish();
+		ereport(ERROR, (errmsg(" ZONE SWITCHOVER zone(%s) failed.", currentZone)));
 		PG_RE_THROW();
 	}PG_END_TRY();
 
-	ClosePgConn(gtm_conn);
-	heap_close(relNode, RowExclusiveLock);	
-	tupResult = build_common_command_tuple(&name, bres, resultmsg.len == 0 ? "success":resultmsg.data);
-	MgrFree(resultmsg.data);
-	ereport(LOG, (errmsg("the command of \"ZONE CONFIG %s\" result is %s, description is %s", currentZone
-		,bres ? "true":"false", resultmsg.len == 0 ? "success":resultmsg.data)));
+	SPI_finish();
+	ereportNoticeLog(errmsg("the command of \"ZONE SWITCHOVER %s\" result is %s, description is %s", currentZone,"true", "success"));
+	tupResult = build_common_command_tuple(&name, true, "success");
 	return HeapTupleGetDatum(tupResult);
 }
 /*
@@ -378,15 +360,8 @@ static void MgrCheckMasterHasSlave(MemoryContext spiContext, char *currentZone)
 }
 static void MgrFailoverCheck(MemoryContext spiContext, char *currentZone)
 {
-	PG_TRY();
-	{
-		MgrCheckMasterHasSlave(spiContext, currentZone);
-		MgrMakesureAllSlaveRunning();
-	}
-	PG_CATCH();
-	{
-		PG_RE_THROW();
-	}PG_END_TRY();
+	MgrCheckMasterHasSlave(spiContext, currentZone);
+	MgrMakesureAllSlaveRunning();
 }
 static MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char *currentZone)
 {
@@ -500,6 +475,7 @@ static void MgrZoneFailoverDN(MemoryContext spiContext, char *currentZone)
 	return;
 }
 
+
 /*
 * mgr_checknode_in_currentzone
 * 
@@ -602,32 +578,11 @@ bool mgr_node_has_slave_inzone(Relation rel, char *zone, Oid mastertupleoid)
 	heap_endscan(scan);
 	return false;
 }
-static void mgr_zone_has_all_masternode(char *currentZone)
-{
-	if (!mgr_zone_has_node(currentZone, CNDN_TYPE_GTM_COOR_MASTER))
-		ereport(ERROR, (errmsg("the zone \"%s\" has not GTMCOORD MASTER in cluster", currentZone)));
-	if (!mgr_zone_has_node(currentZone, CNDN_TYPE_COORDINATOR_MASTER))
-		ereport(ERROR, (errmsg("the zone \"%s\" has not COORDINATOR MASTER in cluster", currentZone)));
-	if (!mgr_zone_has_node(currentZone, CNDN_TYPE_DATANODE_MASTER))
-		ereport(ERROR, (errmsg("the zone \"%s\" has not DATANODE MASTER in cluster", currentZone)));
-}
-static void mgr_make_sure_allmaster_running(void)
-{
-	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER);
-	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
-	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
-}
 static void MgrMakesureAllSlaveRunning(void)
 {
-	PG_TRY();
-	{
-		mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_SLAVE);
-		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_SLAVE);
-		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_SLAVE);
-	}PG_CATCH();
-	{
-		PG_RE_THROW();
-	}PG_END_TRY();
+	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_SLAVE);
+	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_SLAVE);
+	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_SLAVE);
 }
 static void MgrZoneUpdateOtherZoneMgrNode(Relation relNode, char *currentZone)
 {
@@ -658,43 +613,3 @@ static void MgrZoneUpdateOtherZoneMgrNode(Relation relNode, char *currentZone)
 		PG_RE_THROW();
 	}PG_END_TRY();
 }
-/*
-* mgr_zone_has_node
-* check the zone has given the type of node in cluster
-*/
-static bool mgr_zone_has_node(const char *zonename, char nodetype)
-{
-	bool bres = false;
-	Relation relNode;
-	HeapScanDesc relScan;
-	ScanKeyData key[3];
-	HeapTuple tuple =NULL;
-
-	ScanKeyInit(&key[0]
-				,Anum_mgr_node_nodeincluster
-				,BTEqualStrategyNumber
-				,F_BOOLEQ
-				,BoolGetDatum(true));
-	ScanKeyInit(&key[1]
-			,Anum_mgr_node_nodezone
-			,BTEqualStrategyNumber
-			,F_NAMEEQ
-			,CStringGetDatum(zonename));
-	ScanKeyInit(&key[2]
-		,Anum_mgr_node_nodetype
-		,BTEqualStrategyNumber
-		,F_CHAREQ
-		,CharGetDatum(nodetype));
-	relNode = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(relNode, 3, key);
-	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
-	{	
-		bres = true;
-		break;
-	}
-	heap_endscan(relScan);
-	heap_close(relNode, AccessShareLock);
-
-	return bres;
-}
-

@@ -237,11 +237,13 @@ Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS)
 		/* 4.update dst node init and in cluster, and expend node is empty. */
 		ereport(INFO, (errmsg("update dst node init and in cluster, and expend node is empty.")));
 		hexp_set_expended_node_state(appendnodeinfo.nodename, true, false,  true, true, 0);
-
-		ClosePgConn(co_pg_conn);
 	}PG_CATCH();
 	{
-		ClosePgConn(co_pg_conn);
+		ClosePgConn(co_pg_conn); 
+		MgrFree(infosendmsg.data); 
+		MgrFree(getAgentCmdRst.description.data);
+		pfree_AppendNodeInfo(appendnodeinfo);
+		ereportNoticeLog(errmsg("[Error] expand activate recover promote nodename(%s) failed.", appendnodeinfo.nodename));
 		PG_RE_THROW();
 	}PG_END_TRY();
 
@@ -256,8 +258,10 @@ Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS)
 	}
 
 	tup_result = build_common_command_tuple(&nodename, result, getAgentCmdRst.description.data);
-
-	pfree(getAgentCmdRst.description.data);
+    
+	ClosePgConn(co_pg_conn); 
+    MgrFree(infosendmsg.data); 
+	MgrFree(getAgentCmdRst.description.data);
 	pfree_AppendNodeInfo(appendnodeinfo);
 
 	return HeapTupleGetDatum(tup_result);
@@ -301,6 +305,7 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
+	initStringInfo(&recorderr);
 	sourcenodeinfo.nodename = PG_GETARG_CSTRING(0);
 	destnodeinfo.nodename = PG_GETARG_CSTRING(1);
 	Assert(sourcenodeinfo.nodename);
@@ -417,10 +422,6 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		if (!getAgentCmdRst.ret)
 			ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
 
-		/*
-		  async rep, don't need to update src node postgres.conf
-		  8. start datanode
-		*/
 		ereport(LOG, (errmsg("%s %s", step3_msg, "this step is start datanode.")));
 		mgr_start_node(CNDN_TYPE_DATANODE_MASTER, destnodeinfo.nodepath, destnodeinfo.nodehost);
 
@@ -428,16 +429,21 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		ereport(INFO, (errmsg("%s %s", step3_msg, "the last step to update mgr info.")));
 		hexp_set_expended_node_state(destnodeinfo.nodename, false, false,  true, false, sourcenodeinfo.tupleoid);
 
-		ereport(INFO, (errmsg("expend success.")));
-
+		ereportNoticeLog(errmsg("expand dnmaster source datanode(%s) to dest datanode(%s) success.", sourcenodeinfo.nodename, destnodeinfo.nodename));
 	}PG_CATCH();
 	{
+		MgrFree(infosendmsg.data); 
+		MgrFree(getAgentCmdRst.description.data);
+		MgrFree(recorderr.data);
+		pfree_AppendNodeInfo(destnodeinfo);
+		pfree_AppendNodeInfo(sourcenodeinfo);
+		pfree_AppendNodeInfo(agtm_m_nodeinfo);
+		ereportNoticeLog(errmsg("[Error] expand dnmaster source datanode(%s) to dest datanode(%s) failed.", sourcenodeinfo.nodename, destnodeinfo.nodename));
 		PG_RE_THROW();
 	}PG_END_TRY();
 
 	/*wait the node can accept connections*/
-	sprintf(nodeport_buf, "%d", destnodeinfo.nodeport);
-	initStringInfo(&recorderr);
+	sprintf(nodeport_buf, "%d", destnodeinfo.nodeport);	
 	if (!mgr_try_max_pingnode(destnodeinfo.nodeaddr, nodeport_buf, destnodeinfo.nodeusername, max_pingtry))
 	{
 		result = false;
@@ -450,7 +456,9 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		tup_result = build_common_command_tuple(&nodename, result, recorderr.data);
 	}
 
-	pfree(recorderr.data);
+    MgrFree(infosendmsg.data); 
+	MgrFree(getAgentCmdRst.description.data);
+	MgrFree(recorderr.data);
 	pfree_AppendNodeInfo(destnodeinfo);
 	pfree_AppendNodeInfo(sourcenodeinfo);
 	pfree_AppendNodeInfo(agtm_m_nodeinfo);
@@ -496,13 +504,8 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		//phase 1. if errors occur, doesn't need rollback.
-
-		//1.check src node and dst node status. if the process can start.
 		ereport(INFO, (errmsg("%s.%s", step1_msgs, "check src node and dst node status.")));
-		/*
-		1.1 check src node state.src node is initialized and in cluster.
-		*/
+		
 		get_nodeinfo_byname(sourcenodeinfo.nodename, CNDN_TYPE_DATANODE_MASTER,
 							&sn_is_exist, &sn_is_running, &sourcenodeinfo);
 		if (!sn_is_running)
@@ -511,9 +514,6 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 		if (!sn_is_exist)
 			ereport(ERROR, (errmsg("source datanode master \"%s\" is not initialized", sourcenodeinfo.nodename)));
 
-		/*
-		1.2 check dst node state.it exists and is not inicilized nor in cluster
-		*/
 		findtuple = hexp_get_nodeinfo_from_table(destnodeinfo.nodename, CNDN_TYPE_DATANODE_MASTER, &destnodeinfo);
 		if(!findtuple)
 		{
@@ -524,16 +524,9 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errmsg("The node status is error. It should be not initialized and not in cluster.")));
 		}
 
-		/*
-		1.3 all dn and co are running.
-		*/
 		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
 
-		//phase 3. if errors occur, redo those.
-		/*
-		7.update dst node postgres.conf
-		*/
 		ereport(INFO, (errmsg("%s.%s", step3_msgs, "update dst node postgres.conf.")));
 		resetStringInfo(&infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("archive_command", "", &infosendmsg);
@@ -550,9 +543,6 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 		if (!getAgentCmdRst.ret)
 			ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
 
-		/*
-		8. update dst node recovery.conf
-		*/
 		ereport(INFO, (errmsg("%s.%s", step3_msgs, "update dst node recovery.conf.")));
 		resetStringInfo(&infosendmsg);
 		initStringInfo(&primary_conninfo_value);
@@ -572,17 +562,9 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 		if (!getAgentCmdRst.ret)
 			ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
 
-		//async rep, don't need to update src node postgres.conf
-
-		/*
-		9. start datanode
-		*/
 		ereport(INFO, (errmsg("%s.%s", step3_msgs, "start datanode.")));
 		mgr_start_node(CNDN_TYPE_DATANODE_MASTER, destnodeinfo.nodepath, destnodeinfo.nodehost);
 
-		/*
-		10.update node status initialized but not in cluster.
-		*/
 		ereport(INFO, (errmsg("last step to update mgr info.if failed, can update by ***")));
 		hexp_set_expended_node_state(destnodeinfo.nodename, false, false,  true, false, sourcenodeinfo.tupleoid);
 
@@ -590,6 +572,12 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 
 	}PG_CATCH();
 	{
+		MgrFree(infosendmsg.data); 
+		MgrFree(primary_conninfo_value.data);
+		MgrFree(getAgentCmdRst.description.data);
+		pfree_AppendNodeInfo(destnodeinfo);
+		pfree_AppendNodeInfo(sourcenodeinfo);
+		ereportNoticeLog(errmsg("[Error] expand recover backup datanode(%s) to dest datanode(%s) failed.", sourcenodeinfo.nodename, destnodeinfo.nodename));
 		PG_RE_THROW();
 	}PG_END_TRY();
 
@@ -608,7 +596,10 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 		tup_result = build_common_command_tuple(&nodename, result, recorderr.data);
 	}
 
-	pfree(recorderr.data);
+    MgrFree(infosendmsg.data); 
+	MgrFree(primary_conninfo_value.data);
+	MgrFree(getAgentCmdRst.description.data); 
+	MgrFree(recorderr.data);
 	pfree_AppendNodeInfo(destnodeinfo);
 	pfree_AppendNodeInfo(sourcenodeinfo);
 
@@ -672,19 +663,25 @@ Datum mgr_expand_recover_backup_fail(PG_FUNCTION_ARGS)
 		}
 	}PG_CATCH();
 	{
+		MgrFree(infosendmsg.data); 
+		MgrFree(getAgentCmdRst.description.data); 
+		pfree_AppendNodeInfo(destnodeinfo);
+		pfree_AppendNodeInfo(sourcenodeinfo);
+		ereportNoticeLog(errmsg("[Error] expand recover backup datanode (%s) to dest datanode(%s) failed.", sourcenodeinfo.nodename, destnodeinfo.nodename));
 		PG_RE_THROW();
 	}PG_END_TRY();
 
-
 	tup_result = build_common_command_tuple(&nodename, true, "success");
 
+	MgrFree(infosendmsg.data); 
+	MgrFree(getAgentCmdRst.description.data);
 	pfree_AppendNodeInfo(destnodeinfo);
 	pfree_AppendNodeInfo(sourcenodeinfo);
 
 	return HeapTupleGetDatum(tup_result);
 }
 Datum mgr_expand_clean(PG_FUNCTION_ARGS)
-{	
+{
 	PGconn *co_pg_conn = NULL;
 	PGconn *other_conn = NULL;
 	Oid cnoid;
@@ -720,6 +717,7 @@ Datum mgr_expand_clean(PG_FUNCTION_ARGS)
 	}PG_CATCH();
 	{
 		MgrFreeClean(co_pg_conn, other_conn, dbname_list);
+		ereportNoticeLog(errmsg("[Error] expand clean failed."));
 		PG_RE_THROW();
 	}PG_END_TRY();
 
@@ -731,7 +729,7 @@ Datum mgr_expand_clean(PG_FUNCTION_ARGS)
 Datum mgr_checkout_dnslave_status(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
-	InitNodeInfo *info;
+	InitNodeInfo *info = NULL;
 	ScanKeyData key[1];
 	HeapTuple tuple_node;
 	HeapTuple tuple_result;
@@ -750,114 +748,126 @@ Datum mgr_checkout_dnslave_status(PG_FUNCTION_ARGS)
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
 
-	if (SRF_IS_FIRSTCALL())
+	PG_TRY();
 	{
-		MemoryContext oldcontext;
-
-		funcctx = SRF_FIRSTCALL_INIT();
-		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-
-		info = palloc(sizeof(*info));
-		ScanKeyInit(&key[0]
-				,Anum_mgr_node_nodeinited
-				,BTEqualStrategyNumber
-				,F_BOOLEQ
-				,BoolGetDatum(true));
-		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
-		info->rel_scan = heap_beginscan_catalog(info->rel_node, 1, key);
-		info->lcp =NULL;
-		/* save info */
-		funcctx->user_fctx = info;
-
-		MemoryContextSwitchTo(oldcontext);
-	}
-
-	funcctx = SRF_PERCALL_SETUP();
-	Assert(funcctx);
-	info = funcctx->user_fctx;
-	Assert(info);
-	/*select the datanode slave node from cluster*/
-	while(1)
-	{
-		tuple_node = heap_getnext(info->rel_scan, ForwardScanDirection);
-		if(tuple_node == NULL)
+		if (SRF_IS_FIRSTCALL())
 		{
-			/* end of row */
-			heap_endscan(info->rel_scan);
-			heap_close(info->rel_node, AccessShareLock);
-			pfree(info);
-			SRF_RETURN_DONE(funcctx);
+			MemoryContext oldcontext;
+
+			funcctx = SRF_FIRSTCALL_INIT();
+			oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+			info = palloc(sizeof(*info));
+			ScanKeyInit(&key[0]
+					,Anum_mgr_node_nodeinited
+					,BTEqualStrategyNumber
+					,F_BOOLEQ
+					,BoolGetDatum(true));
+			info->rel_node = heap_open(NodeRelationId, AccessShareLock);
+			info->rel_scan = heap_beginscan_catalog(info->rel_node, 1, key);
+			info->lcp =NULL;
+			/* save info */
+			funcctx->user_fctx = info;
+
+			MemoryContextSwitchTo(oldcontext);
 		}
 
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple_node);
-		Assert(mgr_node);
-		/*find the type is slave and the node is datanode*/
-		if ((mgr_node->nodemasternameoid != 0)
-			&& (CNDN_TYPE_DATANODE_SLAVE == mgr_node->nodetype
-			|| CNDN_TYPE_DATANODE_MASTER == mgr_node->nodetype))
-			break;
-	}
+		funcctx = SRF_PERCALL_SETUP();
+		Assert(funcctx);
+		info = funcctx->user_fctx;
+		Assert(info);
+		/*select the datanode slave node from cluster*/
+		while(1)
+		{
+			tuple_node = heap_getnext(info->rel_scan, ForwardScanDirection);
+			if(tuple_node == NULL)
+			{
+				/* end of row */
+				heap_endscan(info->rel_scan);
+				heap_close(info->rel_node, AccessShareLock);
+				pfree(info);
+				SRF_RETURN_DONE(funcctx);
+			}
 
-	/*get the datanode info*/
-	node_port = mgr_node->nodeport;
-	node_user = get_hostuser_from_hostoid(mgr_node->nodehost);
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple_node);
+			Assert(mgr_node);
+			/*find the type is slave and the node is datanode*/
+			if ((mgr_node->nodemasternameoid != 0)
+				&& (CNDN_TYPE_DATANODE_SLAVE == mgr_node->nodetype
+				|| CNDN_TYPE_DATANODE_MASTER == mgr_node->nodetype))
+				break;
+		}
 
-	/*get agent info to connect */
-	get_agent_info_from_hostoid(ObjectIdGetDatum(mgr_node->nodehost), NameStr(agent_addr), &agent_port);
+		/*get the datanode info*/
+		node_port = mgr_node->nodeport;
+		node_user = get_hostuser_from_hostoid(mgr_node->nodehost);
 
-	/*check node is running */
-	execok = is_node_running(NameStr(agent_addr), node_port, node_user, mgr_node->nodetype);
-	if (!execok)
-	{
-		get_node_type_str(mgr_node->nodetype, &node_type_str);
-		ereport(ERROR, (errmsg("%s \"%s\" is not running", NameStr(node_type_str), NameStr(mgr_node->nodename))));
-	}
-	/* connect to agent and send msg */
-	initStringInfo(&sendstrmsg);
-	initStringInfo(&(getAgentCmdRst.description));
-	appendStringInfo(&sendstrmsg, "%s", NameStr(agent_addr));
-	appendStringInfoChar(&sendstrmsg, '\0');
-	appendStringInfo(&sendstrmsg, "%d", node_port);
-	appendStringInfoChar(&sendstrmsg, '\0');
-	appendStringInfo(&sendstrmsg, "%s", node_user);
-	appendStringInfoChar(&sendstrmsg, '\0');
+		/*get agent info to connect */
+		get_agent_info_from_hostoid(ObjectIdGetDatum(mgr_node->nodehost), NameStr(agent_addr), &agent_port);
 
-	ma = ma_connect(NameStr(agent_addr), agent_port);;
-	if (!ma_isconnected(ma))
-	{
-		/*report error message*/
+		/*check node is running */
+		execok = is_node_running(NameStr(agent_addr), node_port, node_user, mgr_node->nodetype);
+		if (!execok)
+		{
+			get_node_type_str(mgr_node->nodetype, &node_type_str);
+			ereport(ERROR, (errmsg("%s \"%s\" is not running", NameStr(node_type_str), NameStr(mgr_node->nodename))));
+		}
+		/* connect to agent and send msg */
+		initStringInfo(&sendstrmsg);
+		initStringInfo(&(getAgentCmdRst.description));
+		appendStringInfo(&sendstrmsg, "%s", NameStr(agent_addr));
+		appendStringInfoChar(&sendstrmsg, '\0');
+		appendStringInfo(&sendstrmsg, "%d", node_port);
+		appendStringInfoChar(&sendstrmsg, '\0');
+		appendStringInfo(&sendstrmsg, "%s", node_user);
+		appendStringInfoChar(&sendstrmsg, '\0');
+
+		ma = ma_connect(NameStr(agent_addr), agent_port);;
+		if (!ma_isconnected(ma))
+		{
+			/*report error message*/
+			getAgentCmdRst.ret = false;
+			appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
+			ma_close(ma);
+			ereport(ERROR, (errmsg("could not connect socket for agent \"%s\".",
+							NameStr(agent_addr))));
+		}
 		getAgentCmdRst.ret = false;
-		appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
+		initStringInfo(&buf);
+		ma_beginmessage(&buf, AGT_MSG_COMMAND);
+		ma_sendbyte(&buf, AGT_CMD_CHECKOUT_NODE);
+		mgr_append_infostr_infostr(&buf, &sendstrmsg);
+		pfree(sendstrmsg.data);
+		ma_endmessage(&buf, ma);
+		if (! ma_flush(ma, true))
+		{
+			getAgentCmdRst.ret = false;
+			appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
+			ma_close(ma);
+			return -1;
+		}
+		/*check the receive msg*/
+		mgr_recv_msg_for_monitor(ma, &execok, &getAgentCmdRst.description);
 		ma_close(ma);
-		ereport(ERROR, (errmsg("could not connect socket for agent \"%s\".",
-						NameStr(agent_addr))));
-	}
-	getAgentCmdRst.ret = false;
-	initStringInfo(&buf);
-	ma_beginmessage(&buf, AGT_MSG_COMMAND);
-	ma_sendbyte(&buf, AGT_CMD_CHECKOUT_NODE);
-	mgr_append_infostr_infostr(&buf, &sendstrmsg);
-	pfree(sendstrmsg.data);
-	ma_endmessage(&buf, ma);
-	if (! ma_flush(ma, true))
+		if (!execok)
+		{
+			ereport(WARNING, (errmsg("execute checkout datanode slave by agent(host=%s port=%d) fail.\n \"%s\"",
+				NameStr(agent_addr), agent_port, getAgentCmdRst.description.data)));
+		}
+		if (getAgentCmdRst.description.len == 1){
+			ret = getAgentCmdRst.description.data[0];
+		}	
+		else{
+			ereport(ERROR, (errmsg("receive msg from agent \"%s\" error.", NameStr(agent_addr))));
+		}
+	}PG_CATCH();
 	{
-		getAgentCmdRst.ret = false;
-		appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
-		ma_close(ma);
-		return -1;
-	}
-	/*check the receive msg*/
-	mgr_recv_msg_for_monitor(ma, &execok, &getAgentCmdRst.description);
-	ma_close(ma);
-	if (!execok)
-	{
-		ereport(WARNING, (errmsg("execute checkout datanode slave by agent(host=%s port=%d) fail.\n \"%s\"",
-			NameStr(agent_addr), agent_port, getAgentCmdRst.description.data)));
-	}
-	if (getAgentCmdRst.description.len == 1)
-		ret = getAgentCmdRst.description.data[0];
-	else
-		ereport(ERROR, (errmsg("receive msg from agent \"%s\" error.", NameStr(agent_addr))));
+		MgrFree(sendstrmsg.data);
+		MgrFree(buf.data);
+		MgrFree(info);		
+		MgrFree(getAgentCmdRst.description.data);
+		PG_RE_THROW();
+	}PG_END_TRY();
 
 	/*return */
 	tuple_result = build_common_command_tuple_four_col(
@@ -866,7 +876,10 @@ Datum mgr_checkout_dnslave_status(PG_FUNCTION_ARGS)
 				,ret == 't' ? true : false
 				,"pg_is_in_recovery");
 
-	pfree(getAgentCmdRst.description.data);
+	MgrFree(sendstrmsg.data);
+	MgrFree(buf.data);
+	MgrFree(info);	
+	MgrFree(getAgentCmdRst.description.data);
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple_result));
 }
 
@@ -898,11 +911,13 @@ Datum mgr_expand_check_status(PG_FUNCTION_ARGS)
         ClosePgConn(pg_conn);
 	}PG_CATCH();
 	{
+		MgrFree(serialize.data);
 		ClosePgConn(pg_conn);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
 	tup_result = build_common_command_tuple(&nodename, true, serialize.data);
+	MgrFree(serialize.data);
 	return HeapTupleGetDatum(tup_result);
 }
 
@@ -936,11 +951,13 @@ Datum mgr_expand_show_status(PG_FUNCTION_ARGS)
 		ClosePgConn(pg_conn);
 	}PG_CATCH();
 	{
+		MgrFree(serialize.data);
 		ClosePgConn(pg_conn);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
 	tup_result = build_common_command_tuple(&nodename, true, serialize.data);
+	MgrFree(serialize.data);
 	return HeapTupleGetDatum(tup_result);
 }
 
@@ -1209,7 +1226,7 @@ static void MgrCreateGtmSql(List *src_dst_list, char *nodes_slq, int len)
 	CheckNull(nodes_slq);
 	
 	foreach (lc, src_dst_list)
-	{		
+	{
 		nodename = (SRC_DST_NODENAME*)lfirst(lc);
 		if (nodename->used){
 			continue;
