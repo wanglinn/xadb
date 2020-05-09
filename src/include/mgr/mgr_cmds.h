@@ -511,7 +511,7 @@ extern Datum mgr_append_activate_coord(PG_FUNCTION_ARGS);
 extern Datum mgr_switchover_func(PG_FUNCTION_ARGS);
 extern Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS);
 extern bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport, Oid cnoid, StringInfo recorderr);
-
+extern void MgrZoneSwitchoverGtm(MemoryContext spiContext, char *currentZone);
 /*expansion calls*/
 extern void	mgr_make_sure_all_running(char node_type);
 extern bool is_node_running(char *hostaddr, int32 hostport, char *user, char nodetype);
@@ -610,7 +610,7 @@ extern void hexp_pqexec_direct_execute_utility(PGconn *pg_conn, char *sqlstr, in
 extern bool mgr_check_nodename_repeate(Relation rel, char *nodename);
 extern bool mgr_checknode_in_currentzone(const char *zone, const Oid TupleOid);
 extern Datum mgr_zone_failover(PG_FUNCTION_ARGS);
-extern Datum mgr_zone_config_all(PG_FUNCTION_ARGS);
+extern Datum mgr_zone_switchover(PG_FUNCTION_ARGS);
 extern HeapTuple mgr_get_nodetuple_by_name_zone(Relation rel, char *nodename, char *nodezone);
 extern Datum mgr_zone_clear(PG_FUNCTION_ARGS);
 extern Datum mgr_zone_init(PG_FUNCTION_ARGS);

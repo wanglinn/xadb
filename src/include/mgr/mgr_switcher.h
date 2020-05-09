@@ -105,7 +105,7 @@ extern void switcherGtmCoordMasterFunc(MemoryContext spiContext,
 										char* zone,
 										ErrorData **edata);								 
 extern void switchoverDataNode(char *newMasterName, bool forceSwitch);
-extern void switchoverGtmCoord(char *newMasterName, bool forceSwitch);
+extern void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *zone);
 extern void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 								SwitcherNodeWrapper **newMasterP,
 								dlist_head *runningSlaves,
@@ -114,6 +114,11 @@ extern void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 								bool forceSwitch,
 								char *newMasterName,
 								char *zone);
+extern void chooseNewMasterNodeForZone(SwitcherNodeWrapper *oldMaster,
+										SwitcherNodeWrapper **newMasterP,
+										dlist_head *runningSlaves,
+										bool forceSwitch,
+										char *zone);								
 extern void tryLockCluster(dlist_head *coordinators);
 extern bool tryUnlockCluster(dlist_head *coordinators, bool complain);
 extern void mgrNodesToSwitcherNodes(dlist_head *mgrNodes,
