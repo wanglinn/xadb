@@ -5140,7 +5140,9 @@ _copyCreateNodeStmt(const CreateNodeStmt *from)
 
 
 	COPY_STRING_FIELD(node_name);
+	COPY_STRING_FIELD(node_mastername);
 	COPY_NODE_FIELD(options);
+	COPY_NODE_FIELD(node_list);
 
 	return newnode;
 }
@@ -5152,6 +5154,7 @@ _copyDropNodeStmt(const DropNodeStmt *from)
 
 
 	COPY_STRING_FIELD(node_name);
+	COPY_NODE_FIELD(node_list);
 
 	return newnode;
 }
