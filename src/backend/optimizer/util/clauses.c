@@ -1599,6 +1599,16 @@ max_parallel_hazard_walker(Node *node, max_parallel_hazard_context *context)
 								 context, 0);
 	}
 
+#ifdef ADB_GRAM_ORA
+	/* rownum is parallel unsafe, it like limit */
+	else if (IsA(node, RownumExpr))
+	{
+		if (likely(max_parallel_hazard_test(PROPARALLEL_UNSAFE, context)))
+			return true;
+	}
+#endif /* ADB_GRAM_ORA */
+
+
 	/* Recurse to check arguments */
 	return expression_tree_walker(node,
 								  max_parallel_hazard_walker,
