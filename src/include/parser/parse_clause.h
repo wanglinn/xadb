@@ -51,8 +51,4 @@ extern List *addTargetToSortList(ParseState *pstate, TargetEntry *tle,
 extern Index assignSortGroupRef(TargetEntry *tle, List *tlist);
 extern bool targetIsInSortList(TargetEntry *tle, Oid sortop, List *sortList);
 
-#ifdef ADB_GRAM_ORA
-extern Node* searchFromClauseItem(ParseState *pstate, List *frmList, int rtindex);
-#endif /* ADB_GRAM_ORA */
-
 #endif							/* PARSE_CLAUSE_H */
