@@ -219,4 +219,10 @@
 { cvtkind => 's', cvtname => 'decode', cvtfrom => 'numeric varchar',				cvtto => 'numeric' },
 { cvtkind => 's', cvtname => 'decode', cvtfrom => 'numeric oracle.varchar2',		cvtto => 'numeric' },
 { cvtkind => 's', cvtname => 'decode', cvtfrom => 'numeric oracle.nvarchar2',		cvtto => 'numeric' },
+{ cvtkind => 's', cvtname => 'decode', cvtfrom => 'numeric int2',					cvtto => 'numeric' },
+{ cvtkind => 's', cvtname => 'decode', cvtfrom => 'numeric int4',					cvtto => 'numeric' },
+{ cvtkind => 's', cvtname => 'decode', cvtfrom => 'numeric int8',					cvtto => 'numeric' },
+{ cvtkind => 's', cvtname => 'decode', cvtfrom => 'int2 numeric',					cvtto => 'numeric' },
+{ cvtkind => 's', cvtname => 'decode', cvtfrom => 'int4 numeric',					cvtto => 'numeric' },
+{ cvtkind => 's', cvtname => 'decode', cvtfrom => 'int8 numeric',					cvtto => 'numeric' },
 ]
