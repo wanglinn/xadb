@@ -4281,9 +4281,11 @@ static void rewrite_rownum_query(Query *query)
 	int64 v64;
 
 	Assert(query);
-	if(query->jointree == NULL
+	if (query->jointree == NULL
 		|| query->limitOffset != NULL
 		|| query->limitCount != NULL
+		|| query->hasAggs
+		|| query->hasWindowFuncs
 		|| contain_rownum(query->jointree->quals) == false)
 		return;
 
