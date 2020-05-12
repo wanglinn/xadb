@@ -156,7 +156,8 @@ BuildNodeHandleCacheHash(void)
 	systable_endscan(scan);
 	heap_close(rel, AccessShareLock);
 
-	Assert(OidIsValid(SelfNodeID));
+	if(!OidIsValid(SelfNodeID))
+		elog(FATAL, "SelfNodeID(%d) is InvalidOid.", SelfNodeID);
 }
 
 /*

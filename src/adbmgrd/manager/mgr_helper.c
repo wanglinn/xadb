@@ -3881,4 +3881,10 @@ bool setPGHbaTrustMyself(MgrNodeWrapper *mgrNode)
 	}
 	return true;
 }
-
+void MgrGetOldDnMasterNotZone(MemoryContext spiContext, char *currentZone, char nodeType, dlist_head *masterList)
+{
+	selectNodeNotZone(spiContext, currentZone, nodeType, masterList);
+	if (dlist_is_empty(masterList)){
+		ereport(ERROR, (errmsg("no %s in other zone, current zone(%s).", mgr_nodetype_str(nodeType), currentZone)));
+	}
+}

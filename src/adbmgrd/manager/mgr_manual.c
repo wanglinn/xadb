@@ -816,7 +816,6 @@ bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, StringInf
 	/* make source coordinator to allow build stream replication */
 	initStringInfo(&infosendmsg);
 	ereport(LOG, (errmsg("update pg_hba.conf of coordinator \"%s\"", m_coordname)));
-	ereport(NOTICE, (errmsg("update pg_hba.conf of coordinator \"%s\"", m_coordname)));
 	mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", dest_nodeinfo.nodeusername, dest_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
 	initStringInfo(&(getAgentCmdRst.description));
 	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF
@@ -910,7 +909,7 @@ bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, StringInf
 		nodetypestr = mgr_nodetype_str(mgr_node->nodetype);
 		resetStringInfo(&(getAgentCmdRst.description));
 		resetStringInfo(&infosendmsg);
-		ereport(NOTICE, (errmsg("update pg_hba.conf of %s \"%s\"", nodetypestr, NameStr(mgr_node->nodename))));
+		ereport(LOG, (errmsg("update pg_hba.conf of %s \"%s\"", nodetypestr, NameStr(mgr_node->nodename))));
 		pfree(nodetypestr);
 		mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", dest_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
 		datumPath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(rel_node), &isNull);

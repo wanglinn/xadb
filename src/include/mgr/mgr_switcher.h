@@ -106,6 +106,7 @@ extern void switcherGtmCoordMasterFunc(MemoryContext spiContext,
 										ErrorData **edata);								 
 extern void switchoverDataNode(char *newMasterName, bool forceSwitch);
 extern void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *zone);
+extern void switchoverCoord(char *newMasterName, bool forceSwitch, char *zone);
 extern void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 								SwitcherNodeWrapper **newMasterP,
 								dlist_head *runningSlaves,

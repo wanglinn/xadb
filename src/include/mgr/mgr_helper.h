@@ -614,5 +614,6 @@ extern void removeFromSyncStandbyNames(MgrNodeWrapper *masterNode,
 									   MemoryContext spiContext);
 extern bool setPGHbaTrustMyself(MgrNodeWrapper *mgrNode);
 extern void dn_master_replication_slot(char *nodename, char *slot_name, char operate);
+extern void MgrGetOldDnMasterNotZone(MemoryContext spiContext, char *currentZone, char nodeType, dlist_head *masterList);
 
 #endif /* MGR_HELPER_H */

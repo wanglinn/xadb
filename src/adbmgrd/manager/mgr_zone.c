@@ -53,7 +53,6 @@ char *mgr_zone;
 static void MgrZoneFailoverGtm(MemoryContext spiContext, char *currentZone);
 static void MgrZoneFailoverCoord(MemoryContext spiContext, char *currentZone);
 static void MgrZoneFailoverDN(MemoryContext spiContext, char *currentZone);
-static void MgrGetOldDnMasterNotZone(MemoryContext spiContext, char *currentZone, char nodeType, dlist_head *masterList);
 static MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char *currentZone);
 static void MgrFailoverCheck(MemoryContext spiContext, char *currentZone);
 static void MgrCheckMasterHasSlave(MemoryContext spiContext, char *currentZone);
@@ -135,11 +134,11 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 		ereportNoticeLog(errmsg("ZONE SWITCHOVER %s, step1:switchover gtmcoord slave in zone(%s).", currentZone, currentZone));
 		MgrZoneSwitchoverGtm(spiContext, currentZone);
 
-		// ereportNoticeLog(errmsg("ZONE SWITCHOVER %s, step2:switchover coordinator slave in zone(%s).", currentZone, currentZone));
-		// MgrZoneFailoverCoord(spiContext, currentZone);
+		ereportNoticeLog(errmsg("ZONE SWITCHOVER %s, step2:switchover coordinator slave in zone(%s).", currentZone, currentZone));
+		MgrZoneSwitchoverCoord(spiContext, currentZone);
 
-		// ereportNoticeLog(errmsg("ZONE SWITCHOVER %s, step3:switchover datanode slave in zone(%s).", currentZone, currentZone));
-		// MgrZoneFailoverDN(spiContext, currentZone);
+		ereportNoticeLog(errmsg("ZONE SWITCHOVER %s, step3:switchover datanode slave in zone(%s).", currentZone, currentZone));
+		// MgrZoneSwitchoverDn(spiContext, currentZone);
 	}PG_CATCH();
 	{
 		SPI_finish();
@@ -390,13 +389,7 @@ static MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char 
 	oldMaster = dlist_container(MgrNodeWrapper, link, node);
 	return oldMaster;
 }
-static void MgrGetOldDnMasterNotZone(MemoryContext spiContext, char *currentZone, char nodeType, dlist_head *masterList)
-{
-	selectNodeNotZone(spiContext, currentZone, nodeType, masterList);
-	if (dlist_is_empty(masterList)){
-		ereport(ERROR, (errmsg("no %s in other zone, current zone(%s).", mgr_nodetype_str(nodeType), currentZone)));
-	}
-}
+
 static void MgrZoneFailoverGtm(MemoryContext spiContext, char *currentZone)
 {
 	MgrNodeWrapper 	*oldGtmMaster = NULL;
