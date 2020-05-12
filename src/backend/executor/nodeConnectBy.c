@@ -1000,12 +1000,19 @@ re_connect_by_:
 										state->base.cur_skewno,
 										state->base.cur_bucketno,
 										hjt,
-										inner_slot) &&
-				  (cbstate->joinclause == NULL ||
-				   ExecQualAndReset(cbstate->joinclause, econtext)))
+										inner_slot))
 			{
 				MemoryContext oldcontext = CurrentMemoryContext;
 				CHECK_FOR_INTERRUPTS();
+
+				if (cbstate->joinclause)
+				{
+					bool qual = ExecQualAndReset(cbstate->joinclause, econtext);
+					CHECK_FOR_INTERRUPTS();
+					if (qual == false)
+						continue;
+				}
+
 				++(state->cur_num);
 				if (save_siblings == NULL)
 				{
