@@ -601,6 +601,7 @@ extern void TryReleaseLock(LOCKTAG *locktag, LOCKMODE mode, PGPROC *proc);
 extern void EnumProcLocks(PGPROC *proc,
 						  void(*callback)(void *context, const LOCKTAG *tag, LOCKMASK holdMask),
 						  void *context);
+extern void AdbPrepareTransferLock(void);
 #endif /* ADB */
 
 #endif							/* LOCK_H */

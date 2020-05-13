@@ -2651,6 +2651,7 @@ CommitTransaction(void)
 	{
 		void *param = NULL;
 		SnapCollectAllInvalidMsgs(&param);
+		AdbPrepareTransferLock();
 		if (!IsGTMNode())
 			SnapRcvTransferLock(&param, latestXid, MyProc);
 		else if (IsConnFromCoord())
