@@ -513,7 +513,7 @@ extern Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS);
 extern bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport, Oid cnoid, StringInfo recorderr);
 extern void MgrZoneSwitchoverGtm(MemoryContext spiContext, char *currentZone);
 extern void MgrZoneSwitchoverCoord(MemoryContext spiContext, char *currentZone);
-extern void MgrZoneSwitchoverDn(MemoryContext spiContext, char *currentZone);
+extern void MgrZoneSwitchoverDataNode(MemoryContext spiContext, char *currentZone);
 /*expansion calls*/
 extern void	mgr_make_sure_all_running(char node_type);
 extern bool is_node_running(char *hostaddr, int32 hostport, char *user, char nodetype);
