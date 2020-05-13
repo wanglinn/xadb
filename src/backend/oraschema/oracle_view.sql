@@ -41,6 +41,13 @@ WHERE owner=upper(CURRENT_USER);
 
 GRANT SELECT ON oracle.user_tables TO PUBLIC;
 
+CREATE OR REPLACE VIEW oracle.all_tables
+AS
+SELECT *
+FROM oracle.dba_tables;
+
+GRANT SELECT ON oracle.all_tables TO PUBLIC;
+
 CREATE OR REPLACE VIEW  oracle.dba_tab_columns
 AS
 SELECT
@@ -74,6 +81,13 @@ FROM oracle.dba_tab_columns
 WHERE owner=upper(CURRENT_USER);
 
 GRANT SELECT ON oracle.user_tab_columns TO PUBLIC;
+
+CREATE OR REPLACE VIEW oracle.all_tab_columns
+AS
+SELECT *
+FROM oracle.dba_tab_columns;
+
+GRANT SELECT ON oracle.all_tab_columns TO PUBLIC;
 
 CREATE OR REPLACE VIEW  oracle.dba_ind_columns
 AS
@@ -113,6 +127,13 @@ FROM oracle.dba_ind_columns
 WHERE INDEX_OWNER=upper(CURRENT_USER);
 
 GRANT SELECT ON oracle.user_ind_columns TO PUBLIC;
+
+CREATE OR REPLACE VIEW oracle.all_ind_columns
+AS
+SELECT *
+FROM oracle.dba_ind_columns;
+
+GRANT SELECT ON oracle.all_ind_columns TO PUBLIC;
 
 CREATE OR REPLACE VIEW  oracle.dba_indexes
 AS
@@ -157,6 +178,13 @@ WHERE OWNER=upper(CURRENT_USER);
 
 GRANT SELECT ON oracle.user_indexes TO PUBLIC;
 
+CREATE OR REPLACE VIEW oracle.all_indexes
+AS
+SELECT *
+FROM oracle.dba_indexes;
+
+GRANT SELECT ON oracle.all_indexes TO PUBLIC;
+
 CREATE OR REPLACE VIEW  oracle.dba_constraints
 AS
 SELECT upper(con.table_schema::text) AS OWNER,
@@ -180,6 +208,13 @@ FROM oracle.dba_constraints
 WHERE OWNER=upper(CURRENT_USER);
 
 GRANT SELECT ON oracle.user_constraints TO PUBLIC;
+
+CREATE OR REPLACE VIEW oracle.all_constraints
+AS
+SELECT *
+FROM oracle.dba_constraints;
+
+GRANT SELECT ON oracle.all_constraints TO PUBLIC;
 
 CREATE OR REPLACE VIEW  oracle.dba_objects
 AS
@@ -223,6 +258,13 @@ WHERE OWNER=upper(CURRENT_USER);
 
 GRANT SELECT ON oracle.user_objects TO PUBLIC;
 
+CREATE OR REPLACE VIEW oracle.all_objects
+AS
+SELECT *
+FROM oracle.dba_objects;
+
+GRANT SELECT ON oracle.all_objects TO PUBLIC;
+
 CREATE OR REPLACE VIEW  oracle.dba_cons_columns AS
     SELECT UPPER(conclm.table_schema) AS owner,
         UPPER(conclm.table_name) AS table_name,
@@ -265,3 +307,10 @@ CREATE OR REPLACE FUNCTION oracle.raise_application_error(error_number int, erro
     STRICT;
 
 GRANT EXECUTE   ON FUNCTION  oracle.raise_application_error  TO PUBLIC;
+
+CREATE OR REPLACE VIEW oracle.all_cons_columns
+AS
+SELECT *
+FROM oracle.dba_cons_columns;
+
+GRANT SELECT ON oracle.all_cons_columns TO PUBLIC;
