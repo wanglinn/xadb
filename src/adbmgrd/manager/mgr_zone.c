@@ -85,13 +85,13 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 		spiContext = CurrentMemoryContext; 		
 		MgrFailoverCheck(spiContext, currentZone);
 
-		ereportNoticeLog(errmsg("ZONE FAILOVER %s, step1:failover gtmcoord slave in zone(%s).", currentZone, currentZone));
+		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s, step1:failover gtmcoord slave in zone(%s) ========.", currentZone, currentZone));
 		MgrZoneFailoverGtm(spiContext, currentZone);
 
-		ereportNoticeLog(errmsg("ZONE FAILOVER %s, step2:failover coordinator slave in zone(%s).", currentZone, currentZone));
+		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s, step2:failover coordinator slave in zone(%s) ========.", currentZone, currentZone));
 		MgrZoneFailoverCoord(spiContext, currentZone);
 
-		ereportNoticeLog(errmsg("ZONE FAILOVER %s, step3:failover datanode slave in zone(%s).", currentZone, currentZone));
+		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s, step3:failover datanode slave in zone(%s) ========.", currentZone, currentZone));
 		MgrZoneFailoverDN(spiContext, currentZone);
 	}PG_CATCH();
 	{
@@ -131,14 +131,14 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 		spiContext = CurrentMemoryContext; 		
 		MgrFailoverCheck(spiContext, currentZone);
 
-		ereportNoticeLog(errmsg("ZONE SWITCHOVER %s, step1:switchover gtmcoord slave in zone(%s).", currentZone, currentZone));
+		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s, step1:switchover gtmcoord slave in zone(%s) ========.", currentZone, currentZone));
 		MgrZoneSwitchoverGtm(spiContext, currentZone);
 
-		ereportNoticeLog(errmsg("ZONE SWITCHOVER %s, step2:switchover coordinator slave in zone(%s).", currentZone, currentZone));
+		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s, step2:switchover coordinator slave in zone(%s) ========.", currentZone, currentZone));
 		MgrZoneSwitchoverCoord(spiContext, currentZone);
 
-		ereportNoticeLog(errmsg("ZONE SWITCHOVER %s, step3:switchover datanode slave in zone(%s).", currentZone, currentZone));
-		// MgrZoneSwitchoverDn(spiContext, currentZone);
+		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s, step3:switchover datanode slave in zone(%s) ========.", currentZone, currentZone));
+		MgrZoneSwitchoverDataNode(spiContext, currentZone);
 	}PG_CATCH();
 	{
 		SPI_finish();
