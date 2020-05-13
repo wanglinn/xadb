@@ -1793,7 +1793,9 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 {
 	LOCKMODE	lmode;
 	Relation	onerel;
+#ifndef ADB
 	LockRelId	onerelid;
+#endif
 	Oid			toast_relid;
 	Oid			save_userid;
 	int			save_sec_context;
@@ -1967,8 +1969,13 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 	 * because the lock manager knows that both lock requests are from the
 	 * same process.
 	 */
+#ifndef ADB 
+	/* for transfer lock, we cannot accquire session lock. As session lock is only for toast table,
+	 *autovacuum will do toast table seprseparatelyeatly
+	 */
 	onerelid = onerel->rd_lockInfo.lockRelId;
 	LockRelationIdForSession(&onerelid, lmode);
+#endif
 
 	/* Set index cleanup option based on reloptions if not yet */
 	if (params->index_cleanup == VACOPT_TERNARY_DEFAULT)
@@ -2043,9 +2050,11 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 	 * us to process it.  In VACUUM FULL, though, the toast table is
 	 * automatically rebuilt by cluster_rel so we shouldn't recurse to it.
 	 */
+#ifndef ADB
 	if (!(params->options & VACOPT_SKIPTOAST) && !(params->options & VACOPT_FULL))
 		toast_relid = onerel->rd_rel->reltoastrelid;
 	else
+#endif
 		toast_relid = InvalidOid;
 
 	/*
@@ -2116,7 +2125,9 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 	/*
 	 * Now release the session-level lock on the master table.
 	 */
+#ifndef ADB
 	UnlockRelationIdForSession(&onerelid, lmode);
+#endif
 
 	/* Report that we really did it. */
 	return true;
