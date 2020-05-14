@@ -27,12 +27,3 @@ CREATE OPERATOR oracle.- (
   RIGHTARG  = numeric,
   PROCEDURE = oracle.subtract
 );
-
-DROP OPERATOR IF EXISTS oracle.- (oracle.date, oracle.date);
-CREATE OPERATOR oracle.- (
-  LEFTARG   = oracle.date,
-  RIGHTARG  = oracle.date,
-  PROCEDURE = oracle.subtract
-);
-
-

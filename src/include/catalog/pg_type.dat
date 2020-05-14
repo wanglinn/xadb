@@ -610,7 +610,7 @@
   typanalyze => 'array_typanalyze', typalign => 'i', typstorage => 'x' },
 { oid => '9009', row_macros => 'ADB_GRAM_ORA', oid_symbol => 'ORADATEOID',
   descr => 'oracle\'s date',
-  typname => 'date', typnamespace => 'ORANSP', typlen => '8', typbyval => 't',
+  typname => 'date', typnamespace => 'ORANSP', typlen => '8', typbyval => 'FLOAT8PASSBYVAL',
   typtype => 'd', typcategory => 'D', typarray => 'oracle._date',
   typinput => 'domain_in', typoutput => 'oracle.ora_date_out',
   typreceive => 'domain_recv', typsend => 'timestamptz_send', typalign => 'd',

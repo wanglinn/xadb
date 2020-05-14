@@ -3316,9 +3316,14 @@
   oprname => '-', oprnamespace => 'ORANSP', oprleft => 'oracle.date',
   oprright => 'interval', oprresult => 'oracle.date',
   oprcode => 'oracle.ora_date_mi_interval' },
-{ oid => '9027', row_macros => 'ADB_GRAM_ORA', descr => 'matches LIKE expression',
+{ oid => '9027', row_macros => 'ADB_GRAM_ORA',
+  descr => 'matches LIKE expression',
   oprname => '~~', oprnamespace => 'ORANSP', oprleft => 'numeric',
-  oprright => 'text', oprresult => 'bool',
-  oprcode => 'numericlike' },
+  oprright => 'text', oprresult => 'bool', oprcode => 'numericlike' },
+{ oid => '9151', row_macros => 'ADB_GRAM_ORA',
+  descr => 'oracle\'s date minus date',
+  oprname => '-', oprnamespace => 'ORANSP', oprleft => 'oracle.date',
+  oprright => 'oracle.date', oprresult => 'numeric',
+  oprcode => 'ora_date_mi_date' },
 # ADB_END
 ]

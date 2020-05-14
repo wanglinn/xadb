@@ -5764,3 +5764,19 @@ int try_decode_date_time(const char *str, struct pg_tm *tm, fsec_t *fsec, int *t
 	return rval;
 }
 #endif
+
+#ifdef ADB_GRAM_ORA
+
+Datum ora_date_mi_date(PG_FUNCTION_ARGS)
+{
+	int64 diff = PG_GETARG_TIMESTAMPTZ(0) - PG_GETARG_TIMESTAMPTZ(1);
+	Datum num_diff = DirectFunctionCall1(int8_numeric, Int64GetDatumFast(diff));
+	Datum num_div = DirectFunctionCall1(int8_numeric, Int64GetDatum(USECS_PER_DAY));
+	Datum result = DirectFunctionCall2(numeric_div, num_diff, num_div);
+	pfree(DatumGetPointer(num_diff));
+	pfree(DatumGetPointer(num_div));
+
+	PG_RETURN_DATUM(result);
+}
+
+#endif /* ADB_GRAM_ORA */
