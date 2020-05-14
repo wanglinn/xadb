@@ -3419,6 +3419,7 @@ _outAExpr(StringInfo str, const A_Expr *node)
 	WRITE_NODE_FIELD(lexpr);
 	WRITE_NODE_FIELD(rexpr);
 	WRITE_LOCATION_FIELD(location);
+	ADB_GRAM_ORA_CODE(WRITE_BOOL_FIELD(is_decode));
 }
 
 static void
