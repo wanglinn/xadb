@@ -2711,6 +2711,7 @@ _copyAExpr(const A_Expr *from)
 	COPY_NODE_FIELD(lexpr);
 	COPY_NODE_FIELD(rexpr);
 	COPY_LOCATION_FIELD(location);
+	ADB_GRAM_ORA_CODE(COPY_SCALAR_FIELD(is_decode));
 
 	return newnode;
 }

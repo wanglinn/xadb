@@ -1154,19 +1154,19 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 					int typmod;
 					typmod = exprTypmod(lexpr);
 					rexpr = coerce_to_target_type(pstate, rexpr, from[1], from[0], typmod,
-														COERCION_EXPLICIT,
-														COERCE_EXPLICIT_CAST,
-														-1);
+												  COERCION_EXPLICIT,
+												  COERCE_EXPLICIT_CAST,
+												  -1);
 				}
 			}
 			else
 			{
 
 				to = find_ora_convert(ORA_CONVERT_KIND_OPERATOR,
-									name,
-									from,
-									lengthof(from),
-									lengthof(from));
+									  name,
+									  from,
+									  lengthof(from),
+									  lengthof(from));
 				if (to != NULL)
 				{
 					int typmod;
@@ -1182,9 +1182,9 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 						}
 
 						lexpr = coerce_to_target_type(pstate, lexpr, from[0], to[0], typmod,
-													COERCION_EXPLICIT,
-													COERCE_EXPLICIT_CAST,
-													-1);
+													  COERCION_EXPLICIT,
+													  COERCE_EXPLICIT_CAST,
+													  -1);
 					}
 					if (from[1] != to[1])
 					{
@@ -1197,9 +1197,9 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 							(void)getBaseTypeAndTypmod(to[1], &typmod);
 						}
 						rexpr = coerce_to_target_type(pstate, rexpr, from[1], to[1], typmod,
-													COERCION_EXPLICIT,
-													COERCE_EXPLICIT_CAST,
-													-1);
+													  COERCION_EXPLICIT,
+													  COERCE_EXPLICIT_CAST,
+													  -1);
 					}
 					pfree(to);
 				}
