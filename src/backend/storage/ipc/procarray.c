@@ -99,6 +99,7 @@
 #include "postmaster/autovacuum.h"
 #include "replication/snapsender.h"
 #include "replication/gxidreceiver.h"
+#include "replication/snapcommon.h"
 #include "storage/ipc.h"
 #endif
 
@@ -4407,12 +4408,10 @@ void SerializeActiveTransactionIds(StringInfo buf)
 
 		TransactionId xid = (TransactionId)(*((volatile TransactionId*)&pgxact->xid));
 		if (TransactionIdIsNormal(xid))
+		{
 			xids[count++] = xid;
-#ifdef SNAP_SYNC_DEBUG	
-		if (TransactionIdIsNormal(xid))
-			ereport(LOG,(errmsg("SnapSend init sync xid %d\n",
-			 			xid)));
-#endif
+			SNAP_SYNC_DEBUG_LOG();
+		}
 	}
 	LWLockRelease(ProcArrayLock);
 
