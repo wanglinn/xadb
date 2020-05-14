@@ -60,6 +60,9 @@ extern bool numeric_is_nan(Numeric num);
 int32		numeric_maximum_size(int32 typmod);
 extern char *numeric_out_sci(Numeric num, int scale);
 extern char *numeric_normalize(Numeric num);
+#ifdef ADB_GRAM_ORA
+extern int64 numeric_mul_int64_ret_int64(Datum num, int64 mul);
+#endif /* ADB_GRAM_ORA */
 
 extern Numeric numeric_add_opt_error(Numeric num1, Numeric num2,
 									 bool *have_error);

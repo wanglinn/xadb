@@ -9569,3 +9569,33 @@ accum_sum_combine(NumericSumAccum *accum, NumericSumAccum *accum2)
 
 	free_var(&tmp_var);
 }
+
+#ifdef ADB_GRAM_ORA
+/* (int64)(num * (NUMERIC)nul) */
+int64 numeric_mul_int64_ret_int64(Datum num, int64 mul)
+{
+	Numeric 	num1 = DatumGetNumeric(num);
+	NumericVar	arg1;
+	NumericVar	arg2;
+	NumericVar	result_num;
+	int64		result_i64;
+
+	if (NUMERIC_IS_NAN(num1))
+		return 0;
+	init_var_from_num(num1, &arg1);
+
+	init_var(&arg2);
+	int64_to_numericvar(mul, &arg2);
+
+	init_var(&result_num);
+	mul_var(&arg1, &arg2, &result_num, arg1.dscale + arg2.dscale);
+
+	if (!numericvar_to_int64(&result_num, &result_i64))
+		ereport(ERROR,
+				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+				 errmsg("bigint out of range")));
+
+	free_var(&result_num);
+	return result_i64;
+}
+#endif /* ADB_GRAM_ORA */

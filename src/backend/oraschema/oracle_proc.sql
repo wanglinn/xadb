@@ -285,30 +285,6 @@ CREATE OR REPLACE FUNCTION oracle.last(str text)
     STRICT;
 
 /*
- * For date's operator +/-
- */
-CREATE OR REPLACE FUNCTION oracle.date_pl_numeric(oracle.date,numeric)
-    RETURNS oracle.date
-    AS $$SELECT ($1 + interval '1 day' * $2)::oracle.date;$$
-    LANGUAGE SQL
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-
-CREATE OR REPLACE FUNCTION oracle.numeric_pl_date(numeric, oracle.date)
-    RETURNS oracle.date
-    AS $$SELECT ($2 + interval '1 day' * $1)::oracle.date;$$
-    LANGUAGE SQL
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-
-CREATE OR REPLACE FUNCTION oracle.subtract (oracle.date, numeric)
-    RETURNS oracle.date
-    AS $$SELECT ($1 - interval '1 day' * $2)::oracle.date;$$
-    LANGUAGE SQL
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-
-/*
  * Function: to_date
  * Parameter Type: (text)
  * Parameter Type: (text, text)
