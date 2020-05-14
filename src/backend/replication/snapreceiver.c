@@ -744,14 +744,6 @@ static void SnapRcvProcessSnapshot(char *buf, Size len)
 		xid = NULL;
 	}
 
-#ifdef SNAP_SYNC_DEBUG
-	for(i =0 ; i < count; i++)
-	{
-		ereport(LOG,(errmsg("snaprcv init sync get xid %d\n", xid[i])));
-	}
-	ereport(LOG,(errmsg("snaprcv init sync toal %d xid\n", count)));
-#endif
-
 	LOCK_SNAP_RCV();
 	SnapRcv->latestCompletedXid = latestCompletedXid;
 	if (count > 0)
@@ -824,9 +816,8 @@ static void SnapRcvProcessAssign(char *buf, Size len)
 	while(msg.cursor < msg.len)
 	{
 		txid = pq_getmsgint(&msg, sizeof(txid));
-#ifdef SNAP_SYNC_DEBUG
-	ereport(LOG,(errmsg("SanpRcv recv assging xid %d\n", txid)));
-#endif
+
+		SNAP_SYNC_DEBUG_LOG((errmsg("SanpRcv recv assging xid %d\n", txid)));
 		if (SnapRcv->xcnt < MAX_BACKENDS)
 		{
 			SnapRcv->xip[SnapRcv->xcnt++] = txid;
@@ -888,9 +879,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 		{
 			if (SnapRcv->xip[i] == txid)
 			{
-#ifdef SNAP_SYNC_DEBUG
-				ereport(LOG,(errmsg("SanpRcv recv finish xid %d\n", txid)));
-#endif
+				SNAP_SYNC_DEBUG_LOG((errmsg("SanpRcv recv finish xid %d\n", txid)));
 				memmove(&SnapRcv->xip[i],
 						&SnapRcv->xip[i+1],
 						(count-i-1) * sizeof(txid));
@@ -915,9 +904,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	SnapRcv->xcnt = count;
 
 	UNLOCK_SNAP_RCV();
-#ifdef SNAP_SYNC_DEBUG
-	ereport(LOG,(errmsg("SanpRcv xcnt now is %d\n", count)));
-#endif
+	SNAP_SYNC_DEBUG_LOG((errmsg("SanpRcv xcnt now is %d\n", count)));
 
 	if (finish_xid_ack_send)
 		walrcv_send(wrconn, xidmsg.data, xidmsg.len);

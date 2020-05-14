@@ -96,8 +96,6 @@
 #define ADB_RDMA_COMMA_ARG(v)
 #endif
 
-//#define SNAP_SYNC_DEBUG 1
-
 /* ----------------------------------------------------------------
  *				Section 1: compiler characteristics
  *

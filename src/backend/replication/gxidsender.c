@@ -679,10 +679,8 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 		xiditem = palloc0(sizeof(*xiditem));
 		xiditem->xid = xid;
 		slist_push_head(&xid_slist, &xiditem->snode);
-#ifdef SNAP_SYNC_DEBUG
-		ereport(LOG,(errmsg("GxidSend assging xid %d to %d\n",
+		SNAP_SYNC_DEBUG_LOG((errmsg("GxidSend assging xid %d to %d\n",
 			 			xid, procno)));
-#endif
 	}
 
 	if (GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false) == false)
@@ -734,22 +732,13 @@ static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 		xiditem[i] = palloc0(sizeof(ClientXidItemInfo));
 	}
 
-#ifdef SNAP_SYNC_DEBUG
-	ereport(LOG,(errmsg("GxidSend assging xid for %s\n", client->client_name)));
-#endif
-
+	SNAP_SYNC_DEBUG_LOG((errmsg("GxidSend assging xid for %s\n", client->client_name)));
 	xidmax = GetNewTransactionIdExt(false, xid_num, false);
 
 	SpinLockAcquire(&GxidSender->mutex);
 	for (i = 0; i < xid_num; i++)
 	{
 		xid = xidmax - xid_num + i + 1;
-#ifdef SNAP_SYNC_DEBUG
-		if (i == 0)
-			ereport(LOG,(errmsg(" %d --\n", xid)));
-		else if (i == xid_num-1)
-			ereport(LOG,(errmsg(" %d\n", xid)));
-#endif
 		xiditem[i]->xid = xid;
 		xiditem[i]->procno = 0;
 		slist_push_head(&clientitem->gxid_assgin_xid_list, &xiditem[i]->snode);
@@ -802,18 +791,18 @@ re_lock_:
 		xid = pq_getmsgint(&gxid_send_input_buffer, sizeof(xid));
 
 		pq_sendint32(&gxid_send_output_buffer, procno);
-		pq_sendint32(&gxid_send_output_buffer, xid);
-#ifdef SNAP_SYNC_DEBUG
-		found = IsXidInPreparedState(xid);
+		pq_sendint32(&gxid_send_output_buffer, xid);\
 		/* comman commite, xid should not left in Prepared*/
+/*
+#ifdef SNAP_SYNC_DEBUG_LOG
+		found = IsXidInPreparedState(xid);
 		Assert(!found);
-#endif
+#endif*/
 		GxidDropXidClientItem(xid, clientitem);
 		GxidDropXidItem(xid);
-#ifdef SNAP_SYNC_DEBUG
-		ereport(LOG,(errmsg("GxidSend finish xid %d for client %s\n",
+
+		SNAP_SYNC_DEBUG_LOG((errmsg("GxidSend finish xid %d for client %s\n",
 			 			xid, clientitem->client_name)));
-#endif
 	}
 	SpinLockRelease(&GxidSender->mutex);
 

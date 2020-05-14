@@ -44,9 +44,16 @@ typedef struct SnapLockIvdInfo
 
 //#define FORCE_SNAP_DEBUG 1
 #ifdef SNAP_FORCE_DEBUG_LOG
-#define SNAP_FORCE_DEBUG_LOG(rest) ereport_domain(LOG, PG_TEXTDOMAIN("Snap"), rest)
+#define SNAP_FORCE_DEBUG_LOG(rest) ereport_domain(LOG, PG_TEXTDOMAIN("SnapForce"), rest)
 #else
 #define SNAP_FORCE_DEBUG_LOG(rest)	((void)true)
+#endif
+
+//#define SNAP_SYNC_DEBUG_LOG 1
+#ifdef SNAP_SYNC_DEBUG_LOG
+#define SNAP_SYNC_DEBUG_LOG(rest) ereport_domain(LOG, PG_TEXTDOMAIN("SnapSync"), rest)
+#else
+#define SNAP_SYNC_DEBUG_LOG(rest)	((void)true)
 #endif
 
 #define SNAP_IVDMSG_SIZE(count)	(sizeof(SharedInvalidationMessage)*(count))

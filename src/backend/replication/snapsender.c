@@ -29,7 +29,6 @@
 
 #define	MAX_CNT_SHMEM_XID_BUF	1024
 
-/* define SNAP_SYNC_DEBUG 1 */
 typedef struct SnapSenderData
 {
 	proclist_head	waiters_assign;		/* list of waiting event space of xid_assign */
@@ -762,14 +761,8 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 			for(i=0;i<xid_cnt;++i)
 			{
 				pq_sendint32(&output_buffer, xid[i]);
-#ifdef SNAP_SYNC_DEBUG
-				if (msgtype == 'c')
-					ereport(LOG,(errmsg("SnapSend rel finsih xid %d\n",
-			 			xid[i])));
-				else
-					ereport(LOG,(errmsg("SnapSend rel assign xid %d\n",
-			 			xid[i])));
-#endif
+				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend rel finsih/assing %c xid %d\n",
+					msgtype, xid[i])));
 			}
 			output_buffer.cursor = true;
 		}
@@ -777,10 +770,9 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 
 		if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false) == false)
 		{
-#ifdef SNAP_SYNC_DEBUG
-			ereport(LOG,(errmsg("SnapSend send to client event_pos %d error\n",
+					
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend send to client event_pos %d error\n",
 			 			client->event_pos)));
-#endif
 			client->status = CLIENT_STATUS_EXITING;
 		}
 	}
@@ -839,10 +831,8 @@ static void DropClient(SnapClientData *client, bool drop_in_slist)
 	bool found;
 
 	Assert(GetWaitEventData(wait_event_set, client->event_pos) == client);
-#ifdef SNAP_SYNC_DEBUG
-	ereport(LOG,(errmsg("SnapSend DropClient event_pos %d with drop_in_slist %d\n",
+	SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend DropClient event_pos %d with drop_in_slist %d\n",
 			 			client->event_pos, drop_in_slist)));
-#endif
 	if (drop_in_slist)
 	{
 		slist_delete(&slist_all_client, &client->snode);
@@ -1041,9 +1031,7 @@ static void SerializeFullAssignXid(TransactionId *gs_xip, uint32 gs_cnt, Transac
 
 		pq_sendint32(buf, xid);
 		Assert(TransactionIdIsNormal(xid));
-#ifdef SNAP_SYNC_DEBUG	
-		ereport(LOG,(errmsg("SnapSend init sync xid %d\n", xid)));
-#endif
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync xid %d\n", xid)));
 	}
 }
 
@@ -1294,10 +1282,8 @@ void SnapSendTransactionAssign(TransactionId txid, int txidnum, TransactionId pa
 
 	for (i = txidnum; i > 0; i--)
 	{
-#ifdef SNAP_SYNC_DEBUG
-		ereport(LOG,(errmsg("Call SnapSend assging xid %d\n",
+		SNAP_SYNC_DEBUG_LOG((errmsg("Call SnapSend assging xid %d\n",
 							txid)));
-#endif
 		if(SnapSender->cur_cnt_assign == MAX_CNT_SHMEM_XID_BUF)
 			WaitSnapSendShmemSpace(&SnapSender->mutex,
 								&SnapSender->cur_cnt_assign,
@@ -1337,10 +1323,8 @@ void SnapSendTransactionAssignArray(TransactionId* xids, int xid_num, Transactio
 		Assert(TransactionIdIsValid(txid));
 		Assert(TransactionIdIsNormal(txid));
 
-#ifdef SNAP_SYNC_DEBUG
-		ereport(LOG,(errmsg("Call SnapSend assging xid %d\n",
+		SNAP_SYNC_DEBUG_LOG((errmsg("Call SnapSend assging xid %d\n",
 			 			txid)));
-#endif
 		if(SnapSender->cur_cnt_assign == MAX_CNT_SHMEM_XID_BUF)
 			WaitSnapSendShmemSpace(&SnapSender->mutex,
 								&SnapSender->cur_cnt_assign,
@@ -1367,11 +1351,8 @@ void SnapSendTransactionFinish(TransactionId txid)
 		return;
 	}
 
-#ifdef SNAP_SYNC_DEBUG
-	ereport(LOG,(errmsg("Call SnapSend finish xid %d\n",
+	SNAP_SYNC_DEBUG_LOG((errmsg("Call SnapSend finish xid %d\n",
 			 			txid)));
-#endif
-
 	if(SnapSender->cur_cnt_complete == MAX_CNT_SHMEM_XID_BUF)
 		WaitSnapSendShmemSpace(&SnapSender->mutex,
 							   &SnapSender->cur_cnt_complete,
