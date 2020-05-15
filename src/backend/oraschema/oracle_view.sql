@@ -91,22 +91,45 @@ GRANT SELECT ON oracle.all_tab_columns TO PUBLIC;
 
 CREATE OR REPLACE VIEW oracle.dba_tab_cols
 AS
-SELECT *
-FROM oracle.dba_tab_columns;
+SELECT
+    upper(clm.table_schema::text) AS owner,
+    upper(clm.table_name::text) AS table_name,
+    upper(clm.column_name::text) AS column_name,
+    clm.ordinal_position AS COLUMN_ID,
+    CASE 
+       WHEN clm.UDT_SCHEMA = 'oracle' AND clm.UDT_NAME = 'varchar2' AND clm.DATA_TYPE = 'USER-DEFINED' THEN upper('varchar2') 
+       ELSE upper(clm.data_type) 
+    END AS DATA_TYPE,
+    clm.numeric_precision AS data_precision,
+    clm.numeric_scale AS data_scale,
+    COALESCE(clm.character_maximum_length,clm.numeric_precision) AS  DATA_LENGTH,
+    CASE  clm.is_nullable
+       WHEN 'YES'::TEXT then 'Y'::TEXT
+       WHEN 'NO'::TEXT then 'N'::TEXT
+       ELSE NULL::text
+    END AS NULLABLE,
+    --COALESCE(clm.is_nullable,'Y','N') AS NULLABLE,
+    clm.column_default AS DATA_DEFAULT
+   FROM information_schema.columns clm
+     JOIN pg_roles rol ON rol.rolname = clm.table_schema::name
+  WHERE (clm.table_schema::text <> ALL (ARRAY['information_schema'::name, 'pg_catalog'::name,'oracle'::name]))
+  AND clm.table_schema::text !~~ 'pg_toast%'::text
+  ORDER BY clm.table_schema, clm.table_name,clm.ordinal_position;
 
 GRANT SELECT ON oracle.dba_tab_cols TO PUBLIC;
 
 CREATE OR REPLACE VIEW oracle.user_tab_cols
 AS
 SELECT *
-FROM oracle.user_tab_columns;
+FROM oracle.dba_tab_cols
+WHERE owner=upper(CURRENT_USER);
 
 GRANT SELECT ON oracle.user_tab_cols TO PUBLIC;
 
 CREATE OR REPLACE VIEW oracle.all_tab_cols
 AS
 SELECT *
-FROM oracle.dba_tab_columns;
+FROM oracle.dba_tab_cols;
 
 GRANT SELECT ON oracle.all_tab_cols TO PUBLIC;
 
