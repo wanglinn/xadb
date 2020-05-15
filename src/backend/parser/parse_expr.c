@@ -1927,14 +1927,18 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 			 * transform arguments of oracle's function NVL before
 			 * transforming the NVL function.
 			 */
-			if (objname && strcasecmp(objname, "nvl") == 0)
+			if (objname &&
+				strcasecmp(objname, "nvl") == 0 &&
+				list_length(targs) == 2)
 				targs = transformNvlArgs(pstate, targs);
 			else
 			/*
 			 * transform arguments of oracle's function NVL2 before
 			 * transforming the NVL2 function.
 			 */
-			if (objname && strcasecmp(objname, "nvl2") == 0)
+			if (objname &&
+				strcasecmp(objname, "nvl2") == 0 &&
+				list_length(targs) == 3)
 				targs = transformNvl2Args(pstate, targs);
 			/*
 			 * avoid parameter ignoring decimal part of string
