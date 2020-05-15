@@ -89,6 +89,27 @@ FROM oracle.dba_tab_columns;
 
 GRANT SELECT ON oracle.all_tab_columns TO PUBLIC;
 
+CREATE OR REPLACE VIEW oracle.dba_tab_cols
+AS
+SELECT *
+FROM oracle.dba_tab_columns;
+
+GRANT SELECT ON oracle.dba_tab_cols TO PUBLIC;
+
+CREATE OR REPLACE VIEW oracle.user_tab_cols
+AS
+SELECT *
+FROM oracle.user_tab_columns;
+
+GRANT SELECT ON oracle.user_tab_cols TO PUBLIC;
+
+CREATE OR REPLACE VIEW oracle.all_tab_cols
+AS
+SELECT *
+FROM oracle.dba_tab_columns;
+
+GRANT SELECT ON oracle.all_tab_cols TO PUBLIC;
+
 CREATE OR REPLACE VIEW  oracle.dba_ind_columns
 AS
 select
