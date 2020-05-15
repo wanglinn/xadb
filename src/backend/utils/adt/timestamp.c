@@ -5782,7 +5782,7 @@ Datum ora_date_mi_date(PG_FUNCTION_ARGS)
 	PG_RETURN_DATUM(result);
 }
 
-Datum ora_date_pl_numeric(PG_FUNCTION_ARGS)
+Datum ora_timestamp_pl_numeric(PG_FUNCTION_ARGS)
 {
 	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(0);
 
@@ -5791,7 +5791,7 @@ Datum ora_date_pl_numeric(PG_FUNCTION_ARGS)
 	PG_RETURN_DATUM(timestamp);
 }
 
-Datum ora_numeric_pl_date(PG_FUNCTION_ARGS)
+Datum ora_numeric_pl_timestamp(PG_FUNCTION_ARGS)
 {
 	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(1);
 
@@ -5800,7 +5800,7 @@ Datum ora_numeric_pl_date(PG_FUNCTION_ARGS)
 	PG_RETURN_DATUM(timestamp);
 }
 
-Datum ora_date_mi_numeric(PG_FUNCTION_ARGS)
+Datum ora_timestamp_mi_numeric(PG_FUNCTION_ARGS)
 {
 	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(0);
 
@@ -5809,30 +5809,30 @@ Datum ora_date_mi_numeric(PG_FUNCTION_ARGS)
 	PG_RETURN_DATUM(timestamp);
 }
 
-#define DEFINE_ORA_DATE_OP(type, ARG, cvt1, cvt2)						\
-Datum ora_date_pl_##type(PG_FUNCTION_ARGS)								\
+#define DEFINE_ORA_TIMESTAMP_OP(type, ARG, cvt1, cvt2)					\
+Datum ora_timestamp_pl_##type(PG_FUNCTION_ARGS)							\
 {																		\
 	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(0);					\
 	timestamp += ((cvt1)PG_GETARG_##ARG(1)) * (cvt2)(USECS_PER_DAY);	\
 	PG_RETURN_TIMESTAMPTZ(timestamp);									\
 }																		\
-Datum ora_##type## _pl_date(PG_FUNCTION_ARGS)							\
+Datum ora_##type## _pl_timestamp(PG_FUNCTION_ARGS)						\
 {																		\
 	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(1);					\
 	timestamp += ((cvt1)PG_GETARG_##ARG(0)) * (cvt2)(USECS_PER_DAY);	\
 	PG_RETURN_TIMESTAMPTZ(timestamp);									\
 }																		\
-Datum ora_date_mi_##type(PG_FUNCTION_ARGS)								\
+Datum ora_timestamp_mi_##type(PG_FUNCTION_ARGS)							\
 {																		\
 	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(0);					\
 	timestamp -= ((cvt1)PG_GETARG_##ARG(1)) * (cvt2)(USECS_PER_DAY);	\
 	PG_RETURN_TIMESTAMPTZ(timestamp);									\
 }
-DEFINE_ORA_DATE_OP(int2, INT16, int64, int64)
-DEFINE_ORA_DATE_OP(int4, INT32, int64, int64)
-DEFINE_ORA_DATE_OP(int8, INT64, int64, int64)
-DEFINE_ORA_DATE_OP(float4, FLOAT4, float8, float8)
-DEFINE_ORA_DATE_OP(float8, FLOAT8, float8, float8)
+DEFINE_ORA_TIMESTAMP_OP(int2, INT16, int64, int64)
+DEFINE_ORA_TIMESTAMP_OP(int4, INT32, int64, int64)
+DEFINE_ORA_TIMESTAMP_OP(int8, INT64, int64, int64)
+DEFINE_ORA_TIMESTAMP_OP(float4, FLOAT4, float8, float8)
+DEFINE_ORA_TIMESTAMP_OP(float8, FLOAT8, float8, float8)
 #undef DEFINE_ORA_OP
 
 #endif /* ADB_GRAM_ORA */

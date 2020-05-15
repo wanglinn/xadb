@@ -162,15 +162,6 @@ INSERT INTO ora_convert
   FROM ora_convert
   WHERE cvtkind = 'o' AND cvtname = '+' AND 'oracle.date'::regtype = ANY(cvtto);
 
-/* COPY "type1 - type2 AS date - date" TO "type2 - typ1 AS date - date" */
-INSERT INTO ora_convert
-  SELECT 'o', '-',
-    cast(concat(cvtfrom[1], ' ', cvtfrom[0]) as oidvector),
-    cvtto
-  FROM ora_convert
-  WHERE cvtkind = 'o' AND cvtname = '-' AND cvtfrom[0] != cvtfrom[1]
-    AND cvtto[0] = 'oracle.date'::regtype AND cvtto[1] = 'oracle.date'::regtype;
-
 /* COPY "type1 = type2 AS type3 = type4" TO "type2 = type1 AS type4 + type3" */
 INSERT INTO ora_convert
   SELECT 'o', '=',
