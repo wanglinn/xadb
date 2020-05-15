@@ -64,7 +64,7 @@
 #define EXEC_FLAG_WITHOUT_OIDS	0x0040	/* force no OIDs in returned tuples */
 #define EXEC_FLAG_WITH_NO_DATA	0x0080	/* rel scannability doesn't matter */
 #ifdef ADB
-#define EXEC_FLAG_IN_SUBPLAN	0x0100	/* at subplan */
+#define EXEC_FLAG_IN_EPQ		0x0100	/* in EPQ flag, will set reduce method to do notinong  */
 #define EXEC_FLAG_UPDATE_CMD_ID	0x0200	/* force update command id */
 #endif /* ADB */
 

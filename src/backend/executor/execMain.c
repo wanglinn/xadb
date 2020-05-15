@@ -1078,9 +1078,6 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 			& (EXEC_FLAG_EXPLAIN_ONLY | EXEC_FLAG_WITH_NO_DATA);
 		if (bms_is_member(i, plannedstmt->rewindPlanIDs))
 			sp_eflags |= EXEC_FLAG_REWIND;
-#ifdef ADB
-		sp_eflags |= EXEC_FLAG_IN_SUBPLAN;
-#endif /* ADB */
 
 		subplanstate = ExecInitNode(subplan, estate, sp_eflags);
 
@@ -3348,7 +3345,7 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
 		Plan	   *subplan = (Plan *) lfirst(l);
 		PlanState  *subplanstate;
 
-		subplanstate = ExecInitNode(subplan, estate, 0);
+		subplanstate = ExecInitNode(subplan, estate, 0 ADB_ONLY_CODE(|EXEC_FLAG_IN_EPQ));
 		estate->es_subplanstates = lappend(estate->es_subplanstates,
 										   subplanstate);
 	}
@@ -3358,7 +3355,7 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
 	 * of the plan tree we need to run.  This opens files, allocates storage
 	 * and leaves us ready to start processing tuples.
 	 */
-	epqstate->planstate = ExecInitNode(planTree, estate, 0);
+	epqstate->planstate = ExecInitNode(planTree, estate, 0 ADB_ONLY_CODE(|EXEC_FLAG_IN_EPQ));
 
 	MemoryContextSwitchTo(oldcontext);
 }
