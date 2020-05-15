@@ -858,3 +858,42 @@ CREATE OR REPLACE FUNCTION mod(text, numeric) RETURNS numeric AS
   IMMUTABLE
 --ADBONLY CLUSTER SAFE
 LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION oracle.is_prefix(varchar, varchar)
+RETURNS boolean AS
+  $$select oracle.is_prefix($1,$2,true)$$
+  IMMUTABLE PARALLEL SAFE STRICT
+--ADBONLY CLUSTER SAFE
+LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION oracle.rvrs(varchar, integer DEFAULT 1)
+RETURNS varchar AS
+  $$select oracle.rvrs($1,$2,NULL)$$
+  IMMUTABLE PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION oracle.swap(varchar, varchar, integer DEFAULT 1)
+RETURNS varchar AS
+  $$select oracle.swap($1,$2,$3,NULL)$$
+  IMMUTABLE PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION oracle.betwn(varchar, integer, integer)
+RETURNS varchar AS
+  $$select oracle.betwn($1,$2,$3,true)$$
+  IMMUTABLE PARALLEL SAFE STRICT
+--ADBONLY CLUSTER SAFE
+LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION oracle.betwn(varchar, varchar,
+  varchar DEFAULT NULL,
+  INTEGER DEFAULT 1,
+  INTEGER DEFAULT 1,
+  BOOLEAN DEFAULT true)
+RETURNS varchar AS
+  $$select oracle.betwn($1,$2,$3,$4,$5,$6,false)$$
+  IMMUTABLE PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+LANGUAGE SQL;

@@ -96,27 +96,10 @@ extern int	xidComparator(const void *arg1, const void *arg2);
 
 #ifdef ADB_GRAM_ORA
 /* orastr.c */
-extern Datum orastr_instr2(PG_FUNCTION_ARGS);
-extern Datum orastr_instr3(PG_FUNCTION_ARGS);
-extern Datum orastr_instr4(PG_FUNCTION_ARGS);
-extern Datum orastr_normalize(PG_FUNCTION_ARGS);
-extern Datum orastr_is_prefix_text(PG_FUNCTION_ARGS);
-extern Datum orastr_is_prefix_int(PG_FUNCTION_ARGS);
-extern Datum orastr_is_prefix_int64(PG_FUNCTION_ARGS);
-extern Datum orastr_rvrs(PG_FUNCTION_ARGS);
 extern Datum orastr_left(PG_FUNCTION_ARGS);
 extern Datum orastr_right(PG_FUNCTION_ARGS);
-extern Datum orachr_nth(PG_FUNCTION_ARGS);
-extern Datum orachr_first(PG_FUNCTION_ARGS);
-extern Datum orachr_last(PG_FUNCTION_ARGS);
-extern Datum orachr_is_kind_i(PG_FUNCTION_ARGS);
-extern Datum orachr_is_kind_a(PG_FUNCTION_ARGS);
-extern Datum orachr_char_name(PG_FUNCTION_ARGS);
 extern Datum orastr_substr3(PG_FUNCTION_ARGS);
 extern Datum orastr_substr2(PG_FUNCTION_ARGS);
-extern Datum orastr_swap(PG_FUNCTION_ARGS);
-extern Datum orastr_betwn_i(PG_FUNCTION_ARGS);
-extern Datum orastr_betwn_c(PG_FUNCTION_ARGS);
 extern Datum orastr_bpcharlen(PG_FUNCTION_ARGS);
 extern Datum orastr_soundex(PG_FUNCTION_ARGS);
 extern Datum orastr_convert2(PG_FUNCTION_ARGS);
@@ -128,8 +111,6 @@ extern Datum orastr_nls_charset_name(PG_FUNCTION_ARGS);
 /* others.c */
 extern Datum ora_lnnvl(PG_FUNCTION_ARGS);
 extern Datum ora_concat(PG_FUNCTION_ARGS);
-extern Datum ora_nvl(PG_FUNCTION_ARGS);
-extern Datum ora_nvl2(PG_FUNCTION_ARGS);
 extern Datum ora_set_nls_sort(PG_FUNCTION_ARGS);
 extern Datum ora_nlssort(PG_FUNCTION_ARGS);
 extern Datum ora_dump(PG_FUNCTION_ARGS);
