@@ -148,19 +148,19 @@ INSERT INTO ora_convert
   FROM ora_convert
   WHERE cvtkind='o' AND cvtname = '+' AND cvtto[0] = cvtto[1];
 
-/* COPY "type1 + date AS type2 + date" TO "date + type1 AS date + type2" */
+/* COPY "type1 + timestamp AS type2 + timestamp" TO "timestamp + type1 AS timestamp + type2" */
 INSERT INTO ora_convert
   SELECT 'o', '+',
     cast(concat(cvtfrom[1], ' ', cvtfrom[0]) as oidvector),
     cast(concat(cvtto[1], ' ', cvtto[0]) as oidvector)
   FROM ora_convert
-  WHERE cvtkind = 'o' AND cvtname = '+' AND 'oracle.date'::regtype = ANY(cvtto);
+  WHERE cvtkind = 'o' AND cvtname = '+' AND 'timestamp'::regtype = ANY(cvtto);
 
-/* COPY "type1 + date AS type2 + date" TO "type1 - date AS type2 - date" */
+/* COPY "type1 + timestamp AS type2 + timestamp" TO "type1 - timestamp AS type2 - timestamp" */
 INSERT INTO ora_convert
   SELECT 'o', '-', cvtfrom, cvtto
   FROM ora_convert
-  WHERE cvtkind = 'o' AND cvtname = '+' AND 'oracle.date'::regtype = ANY(cvtto);
+  WHERE cvtkind = 'o' AND cvtname = '+' AND 'timestamp'::regtype = ANY(cvtto);
 
 /* COPY "type1 = type2 AS type3 = type4" TO "type2 = type1 AS type4 + type3" */
 INSERT INTO ora_convert
