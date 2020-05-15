@@ -59,7 +59,7 @@
 #define EXEC_FLAG_SKIP_TRIGGERS 0x0010	/* skip AfterTrigger calls */
 #define EXEC_FLAG_WITH_NO_DATA	0x0020	/* rel scannability doesn't matter */
 #ifdef ADB
-#define EXEC_FLAG_IN_SUBPLAN	0x0040	/* at subplan */
+#define EXEC_FLAG_IN_EPQ		0x0040	/* in EPQ flag, will set reduce method to do notinong  */
 #define EXEC_FLAG_UPDATE_CMD_ID	0x0080	/* force update command id */
 #endif /* ADB */
 

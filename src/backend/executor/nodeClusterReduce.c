@@ -1764,7 +1764,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	if (eflags & EXEC_FLAG_BACKWARD)
 		crstate->eflags |= EXEC_FLAG_REWIND;
 
-	if (list_member_oid(node->reduce_oids, PGXCNodeOid) == false)
+	if (list_member_oid(node->reduce_oids, PGXCNodeOid) == false || eflags & EXEC_FLAG_IN_EPQ)
 		crstate->reduce_method = (uint8)RT_NOTHING;
 	else if (node->numCols > 0)
 		crstate->reduce_method = (uint8)RT_MERGE;

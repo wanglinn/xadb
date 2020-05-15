@@ -21,9 +21,9 @@ EmptyResultState *ExecInitEmptyResult(EmptyResult *node, EState *estate, int efl
 	 * initialize outer and inner nodes if exist
 	 */
 	if (outerPlan(node))
-		outerPlanState(ers) = ExecInitNode(outerPlan(node), estate, 0);
+		outerPlanState(ers) = ExecInitNode(outerPlan(node), estate, eflags);
 	if (innerPlan(node))
-		innerPlanState(ers) = ExecInitNode(innerPlan(node), estate, 0);
+		innerPlanState(ers) = ExecInitNode(innerPlan(node), estate, eflags);
 
 	/*
 	 * initialize tuple table and tuple type
