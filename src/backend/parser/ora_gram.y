@@ -8018,7 +8018,7 @@ OraImplicitConvertStmt:
 						c->action = ICONVERT_UPDATE;
 					else
 						c->action = ICONVERT_CREATE;
-					c->if_exists = false;
+					c->if_exists = $2;
 					c->node_list = NIL;
 					$$ = (Node *) c;
 				}
@@ -8058,7 +8058,7 @@ OraImplicitConvertStmt:
 						c->action = ICONVERT_UPDATE;
 					else
 						c->action = ICONVERT_CREATE;
-					c->if_exists = false;
+					c->if_exists = $2;
 					c->node_list = NIL;
 					$$ = (Node *) c;
 				}

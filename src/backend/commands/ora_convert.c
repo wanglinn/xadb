@@ -262,6 +262,10 @@ static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt)
 			compareCvtfrom = compareCvtto = true;
 	}
 	
+	/* Create if rule does not exist */
+	if (!tuple && stmt->if_exists && stmt->action == ICONVERT_UPDATE)
+		stmt->action = ICONVERT_CREATE;
+
 	switch (stmt->action)
 	{
 		case ICONVERT_CREATE:
