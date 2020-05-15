@@ -614,7 +614,7 @@
   typtype => 'd', typcategory => 'D', typarray => 'oracle._date',
   typinput => 'domain_in', typoutput => 'oracle.ora_date_out',
   typreceive => 'domain_recv', typsend => 'timestamptz_send', typalign => 'd',
-  typbasetype => 'timestamptz', typtypmod => '6' },
+  typbasetype => 'timestamptz', typtypmod => '0' },
 { oid => '3998', row_macros => 'ADB_GRAM_ORA',
   typname => '_date', typnamespace => 'ORANSP', typlen => '-1', typbyval => 'f',
   typcategory => 'A', typelem => 'oracle.date', typinput => 'array_in',
