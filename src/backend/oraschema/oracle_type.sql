@@ -170,9 +170,9 @@ INSERT INTO ora_convert
   FROM ora_convert
   WHERE cvtkind = 'o' AND cvtname = '=';
 
-/* >, >=, <, <=, <> and != from = */
+/* >, >=, <, <=, <> from = */
 INSERT INTO ora_convert
-  SELECT 'o', unnest('{>, >=, <, <=, <>, !=}'::name[]), cvtfrom, cvtto
+  SELECT 'o', unnest('{>, >=, <, <=, <>}'::name[]), cvtfrom, cvtto
   FROM ora_convert
   WHERE cvtkind = 'o' AND cvtname = '=';
 
