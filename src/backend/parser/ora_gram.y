@@ -6588,7 +6588,7 @@ SimpleTypename:
 			$$ = makeTypeName($1);
 			$$->location = @1;
 		}
-	| IDENT '.' IDENT
+	| IDENT '.' attr_name
 		{
 			$$ = makeTypeNameFromNameList(list_make2(makeString($1),makeString($3)));
 			$$->location = @1;
@@ -6599,7 +6599,7 @@ SimpleTypename:
 			$$->typmods = $3;
 			$$->location = @1;
 		}
-	| IDENT '.' IDENT '(' expr_list ')'
+	| IDENT '.' attr_name '(' expr_list ')'
 		{
 			$$ = makeTypeNameFromNameList(list_make2(makeString($1),makeString($3)));
 			$$->typmods = $5;
