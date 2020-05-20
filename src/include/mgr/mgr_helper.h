@@ -371,6 +371,9 @@ extern void selectIsolatedMgrSlaveNodes(Oid masterOid,
 										char nodetype,
 										MemoryContext spiContext,
 										dlist_head *resultList);
+extern void selectIsolatedMgrSlaveNodesByNodeType(char nodetype,
+										MemoryContext spiContext,
+										dlist_head *resultList);										
 extern void selectAllMgrSlaveNodes(Oid masterOid,
 								   char nodetype,
 								   MemoryContext spiContext,

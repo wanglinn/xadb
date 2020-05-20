@@ -199,7 +199,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 	/* set new master synchronous_standby_names */
 	resetStringInfo(&strinfo);
 	resetStringInfo(&infosendmsg);
-	syncNum = mgr_get_master_sync_string(oldMasterTupleOid, true, slave_nodeinfo.tupleoid, &strinfo);
+	syncNum = mgr_get_master_sync_string(oldMasterTupleOid, true, slave_nodeinfo.tupleoid, &strinfo, NameStr(master_nodeinfo.nodezone));
 	if(strinfo.len != 0)
 	{
 		int i = 0;
@@ -538,7 +538,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 	/*get the master info*/
 	get_nodeinfo_byname(nodemasternamedata.data, mastertype, &master_is_exist, &master_is_running, &master_nodeinfo);
 	/*get master old sync*/
-	syncNum = mgr_get_master_sync_string(master_nodeinfo.tupleoid, true, InvalidOid, &strinfo_sync);
+	syncNum = mgr_get_master_sync_string(master_nodeinfo.tupleoid, true, InvalidOid, &strinfo_sync, NameStr(master_nodeinfo.nodezone));
 
 	/*update the slave's masteroid, sync_state in its tuple*/
 	slavetuple = SearchSysCache1(NODENODEOID, slave_nodeinfo.tupleoid);
@@ -1012,9 +1012,9 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	List *dnList = NIL;
 
 	/*check all gtm, coordinator, datanode master running normal*/
-	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER);
-	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
-	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
+	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, mgr_zone);
+	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER, mgr_zone);
+	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER, mgr_zone);
 
 	/* get the input variable */
 	s_coordname = PG_GETARG_CSTRING(0);
@@ -1772,8 +1772,8 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 	 * avoid repeating node names and causing subsequent work to fail */
 	mgr_clean_cn_pgxcnode_readonlysql_slave();
 
-	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER);
-	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
+	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, mgr_zone);
+	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER, mgr_zone);
 
 	/* get the input variable */
 	nodeType = PG_GETARG_INT32(0);
@@ -1898,7 +1898,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 	initStringInfo(&restmsg);
 	initStringInfo(&syncStateData);
 	newSyncSlaveName.data[0] = '\0';
-	syncNum = mgr_get_master_sync_string(nodeInfoM.tupleoid, true, nodeInfoS.tupleoid, &restmsg);
+	syncNum = mgr_get_master_sync_string(nodeInfoM.tupleoid, true, nodeInfoS.tupleoid, &restmsg, NameStr(nodeInfoM.nodezone));
 	if(restmsg.len != 0 && syncNum > 0)
 	{
 		int i = 0;

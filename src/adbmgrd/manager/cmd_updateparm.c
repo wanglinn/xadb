@@ -2373,7 +2373,7 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 	/*check agent running normal*/
 	mgr_check_all_agent();
 	/*check all master nodes running normal*/
-	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER);
+	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, mgr_zone);
 	//mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 
 	/* check connect adbmgr */

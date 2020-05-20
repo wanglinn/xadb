@@ -99,6 +99,7 @@ typedef struct AppendNodeInfo
 	NameData sync_state;
 	bool init;
 	bool incluster;
+	NameData	nodezone;
 }AppendNodeInfo;
 
 /* for table: monitor_alarm */
@@ -359,7 +360,7 @@ extern bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid);
 extern void mgr_unlock_cluster_deprecated(PGconn **pg_conn);
 extern void mgr_unlock_cluster_involve_gtm_coord(PGconn **pg_conn);
 extern void mgr_get_gtmcoord_conn(char *zone, char *dbname, PGconn **pg_conn, Oid *cnoid);
-extern int mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam);
+extern int mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam, char *zone);
 extern bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *dnname
 		, GetAgentCmdRst *getAgentCmdRst, PGconn **pg_conn, Oid cnoid, char *newSyncSlaveName);
 /* mgr_common.c */
@@ -515,7 +516,7 @@ extern void MgrZoneSwitchoverGtm(MemoryContext spiContext, char *currentZone);
 extern void MgrZoneSwitchoverCoord(MemoryContext spiContext, char *currentZone);
 extern void MgrZoneSwitchoverDataNode(MemoryContext spiContext, char *currentZone);
 /*expansion calls*/
-extern void	mgr_make_sure_all_running(char node_type);
+extern void	mgr_make_sure_all_running(char node_type, char *zone);
 extern bool is_node_running(char *hostaddr, int32 hostport, char *user, char nodetype);
 extern bool mgr_try_max_pingnode(char *host, char *port, char *user, const int max_times);
 extern char mgr_get_master_type(char nodetype);

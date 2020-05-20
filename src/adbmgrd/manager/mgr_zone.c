@@ -85,13 +85,13 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 		spiContext = CurrentMemoryContext; 		
 		MgrFailoverCheck(spiContext, currentZone);
 
-		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s, step1:failover gtmcoord slave in zone(%s) ========.", currentZone, currentZone));
+		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s, step1:failover gtmcoord slave in %s ========.", currentZone, currentZone));
 		MgrZoneFailoverGtm(spiContext, currentZone);
 
-		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s, step2:failover coordinator slave in zone(%s) ========.", currentZone, currentZone));
+		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s, step2:failover coordinator slave in %s ========.", currentZone, currentZone));
 		MgrZoneFailoverCoord(spiContext, currentZone);
 
-		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s, step3:failover datanode slave in zone(%s) ========.", currentZone, currentZone));
+		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s, step3:failover datanode slave in %s ========.", currentZone, currentZone));
 		MgrZoneFailoverDN(spiContext, currentZone);
 	}PG_CATCH();
 	{
@@ -113,15 +113,17 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 	char 			*currentZone;
 	int 			spiRes = 0;	
 	MemoryContext 	spiContext = NULL;
+	ErrorData 		*edata = NULL;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot do the command during recovery")));
 
 	currentZone  = PG_GETARG_CSTRING(0);
 	Assert(currentZone);
-	if (strcmp(currentZone, mgr_zone) != 0)
-		ereport(ERROR, (errmsg("the given zone name \"%s\" is not the same wtih guc parameter mgr_zone \"%s\" in postgresql.conf", currentZone, mgr_zone)));	
-
+	if (strcmp(currentZone, mgr_zone) != 0){
+		ereport(ERROR, (errmsg("the given zone name \"%s\" is not the same wtih guc parameter mgr_zone \"%s\" in postgresql.conf", currentZone, mgr_zone)));
+	}
+		
 	namestrcpy(&name, "ZONE SWITCHOVER");
 	PG_TRY();
 	{
@@ -131,22 +133,24 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 		spiContext = CurrentMemoryContext; 		
 		MgrFailoverCheck(spiContext, currentZone);
 
-		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s, step1:switchover gtmcoord slave in zone(%s) ========.", currentZone, currentZone));
+		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s, step1:switchover gtmcoord slave in %s ========.", currentZone, currentZone));
 		MgrZoneSwitchoverGtm(spiContext, currentZone);
 
-		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s, step2:switchover coordinator slave in zone(%s) ========.", currentZone, currentZone));
+		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s, step2:switchover coordinator slave in %s ========.", currentZone, currentZone));
 		MgrZoneSwitchoverCoord(spiContext, currentZone);
 
-		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s, step3:switchover datanode slave in zone(%s) ========.", currentZone, currentZone));
+		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s, step3:switchover datanode slave in %s ========.", currentZone, currentZone));
 		MgrZoneSwitchoverDataNode(spiContext, currentZone);
 	}PG_CATCH();
 	{
 		SPI_finish();
-		ereport(ERROR, (errmsg(" ZONE SWITCHOVER zone(%s) failed.", currentZone)));
-		PG_RE_THROW();
+		EmitErrorReport();
+		FlushErrorState();
+		ereport(ERROR, (errmsg(" ZONE SWITCHOVER %s failed.", currentZone)));
 	}PG_END_TRY();
 
 	SPI_finish();
+
 	ereportNoticeLog(errmsg("the command of \"ZONE SWITCHOVER %s\" result is %s, description is %s", currentZone,"true", "success"));
 	tupResult = build_common_command_tuple(&name, true, "success");
 	return HeapTupleGetDatum(tupResult);
@@ -326,7 +330,7 @@ static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext, char *currentZo
 			dlist_init(&slaveList);
 			selectActiveMgrSlaveNodesInZone(mgrNode->oid, getMgrSlaveNodetype(mgrNode->form.nodetype), currentZone, spiContext, &slaveList);
 			if (dlist_is_empty(&slaveList)){
-				ereport(ERROR, (errmsg("no %s in zone(%s) can't promote.", mgr_nodetype_str(mgrNode->form.nodetype), currentZone)));
+				ereport(ERROR, (errmsg("because %s node(%s) has no slave node in zone(%s), so can't zone switch.",  NameStr(mgrNode->form.nodename), mgr_nodetype_str(mgrNode->form.nodetype), currentZone)));
 			}
 			pfreeMgrNodeWrapperList(&slaveList, NULL);
 		}
@@ -573,9 +577,12 @@ bool mgr_node_has_slave_inzone(Relation rel, char *zone, Oid mastertupleoid)
 }
 static void MgrMakesureAllSlaveRunning(void)
 {
-	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_SLAVE);
-	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_SLAVE);
-	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_SLAVE);
+	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, NULL);
+	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER, NULL);
+	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER, NULL);
+	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_SLAVE, NULL);
+	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_SLAVE, NULL);
+	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_SLAVE, NULL);
 }
 static void MgrZoneUpdateOtherZoneMgrNode(Relation relNode, char *currentZone)
 {
@@ -606,3 +613,5 @@ static void MgrZoneUpdateOtherZoneMgrNode(Relation relNode, char *currentZone)
 		PG_RE_THROW();
 	}PG_END_TRY();
 }
+
+

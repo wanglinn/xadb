@@ -470,6 +470,27 @@ void selectIsolatedMgrSlaveNodes(Oid masterOid,
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
+void selectIsolatedMgrSlaveNodesByNodeType(char nodetype,
+										MemoryContext spiContext,
+										dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node "
+					 "WHERE nodeinited = %d::boolean \n"
+					 "AND nodeincluster = %d::boolean \n"
+					 "AND nodetype = '%c' \n"
+					 "AND curestatus = '%s' \n",
+					 true,
+					 true,
+					 nodetype,
+					 CURE_STATUS_ISOLATED);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
 
 void selectAllMgrSlaveNodes(Oid masterOid,
 							char nodetype,
@@ -1937,6 +1958,7 @@ bool callAgentStopNode(MgrNodeWrapper *node, char *shutdownMode,
 	else
 		cmd = AGT_CMD_DN_STOP;
 
+	ereportNoticeLog(errmsg("stop %s %s.", mgr_nodetype_str(node->form.nodetype), NameStr(node->form.nodename)));
 	res = callAgentSendCmd(cmd, &cmdMessage,
 						   node->host->hostaddr,
 						   node->host->form.hostagentport);
@@ -2012,6 +2034,7 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool wait, bool complain)
 	else
 		cmd = AGT_CMD_DN_START; /* pg_ctl  */
 
+	ereportNoticeLog(errmsg("start %s %s.", mgr_nodetype_str(node->form.nodetype), NameStr(node->form.nodename)));
 	res = callAgentSendCmd(cmd, &cmdMessage,
 						   node->host->hostaddr,
 						   node->host->form.hostagentport);
