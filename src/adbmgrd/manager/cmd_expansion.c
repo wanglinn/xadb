@@ -118,8 +118,8 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot execute this command during recovery")));
 
-	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
-	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
+	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER, mgr_zone);
+	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER, mgr_zone);
 
 	hexp_check_expand();
 
@@ -218,8 +218,8 @@ Datum mgr_expand_activate_recover_promote_suc(PG_FUNCTION_ARGS)
 
 		/*	2. check all dn and co are running.*/
 		ereport(INFO, (errmsg("%s%s", step1_msg, "check all dn and co are running.")));
-		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
-		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
+		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER, mgr_zone);
+		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER, mgr_zone);
 
 		mgr_get_gtmcoord_conn(mgr_zone, MgrGetDefDbName(), &co_pg_conn, &cnoid);
 
@@ -338,8 +338,8 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		}
 
 		/*1.3 all dn and co are running.*/
-		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
-		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
+		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER, mgr_zone);
+		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER, mgr_zone);
 
 		//check src node status
 		hexp_check_expand();
@@ -523,8 +523,8 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errmsg("The node status is error. It should be not initialized and not in cluster.")));
 		}
 
-		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
-		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER);
+		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER, mgr_zone);
+		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER, mgr_zone);
 
 		ereport(INFO, (errmsg("%s.%s", step3_msgs, "update dst node postgres.conf.")));
 		resetStringInfo(&infosendmsg);

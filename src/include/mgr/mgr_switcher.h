@@ -86,27 +86,27 @@ extern void FailOverDataNodeMaster(char *oldMasterName,
 								 bool forceSwitch,
 								 bool kickOutOldMaster,
 								 Name newMasterName,
-								 char *zone);
+								 char *curZone);
 void FailOverCoordMaster(char *oldMasterName,
 						  bool forceSwitch,
 						  bool kickOutOldMaster,
 						  Name newMasterName,
-						  char *zone);								 
+						  char *curZone);								 
 extern void FailOverGtmCoordMaster(char *oldMasterName,
 								 bool forceSwitch,
 								 bool kickOutOldMaster,
 								 Name newMasterName,
-								 char *zone);
+								 char *curZone);
 extern void switcherGtmCoordMasterFunc(MemoryContext spiContext,
 										char *oldMasterName,
 										bool forceSwitch,
 										bool kickOutOldMaster,
 										Name newMasterName,
-										char* zone,
+										char* curZone,
 										ErrorData **edata);								 
-extern void switchoverDataNode(char *newMasterName, bool forceSwitch, char *zone);
-extern void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *zone);
-extern void switchoverCoord(char *newMasterName, bool forceSwitch, char *zone);
+extern void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone);
+extern void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone);
+extern void switchoverCoord(char *newMasterName, bool forceSwitch, char *curZone);
 extern void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 								SwitcherNodeWrapper **newMasterP,
 								dlist_head *runningSlaves,
@@ -114,12 +114,13 @@ extern void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 								MemoryContext spiContext,
 								bool forceSwitch,
 								char *newMasterName,
-								char *zone);
+								char *curZone);
+extern void PrintMgrNodeList(MemoryContext spiContext);
 extern void chooseNewMasterNodeForZone(SwitcherNodeWrapper *oldMaster,
 										SwitcherNodeWrapper **newMasterP,
 										dlist_head *runningSlaves,
 										bool forceSwitch,
-										char *zone);								
+										char *curZone);								
 extern void tryLockCluster(dlist_head *coordinators);
 extern bool tryUnlockCluster(dlist_head *coordinators, bool complain);
 extern void mgrNodesToSwitcherNodes(dlist_head *mgrNodes,
