@@ -2568,7 +2568,7 @@ _readClusterReduce(void)
 	READ_BOOL_ARRAY(nullsFirst, local_node->numCols);
 
 	READ_INT_FIELD(reduce_flags);
-	READ_INT_FIELD(gather_param);
+	READ_BITMAPSET_FIELD(ignore_params);
 
 	READ_DONE();
 }

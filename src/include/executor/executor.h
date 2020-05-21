@@ -249,6 +249,7 @@ extern void ExecSetTupleBound(int64 tuples_needed, PlanState *child_node);
 extern bool ExecFinishNode(PlanState *node);
 /* functions in nodeClusterReduce.c */
 extern void AdvanceClusterReduce(PlanState *pstate);
+extern void StartEPQClusterReduce(EPQState *epq);
 extern TupleTableSlot* ExecFakeProcNode(PlanState *pstate);
 #endif /* ADB */
 

@@ -2918,6 +2918,7 @@ EvalPlanQualInit(EPQState *epqstate, EState *estate,
 	epqstate->plan = subplan;
 	epqstate->arowMarks = auxrowmarks;
 	epqstate->epqParam = epqParam;
+	ADB_ONLY_CODE(epqstate->owner = NULL);
 }
 
 /*
@@ -3256,7 +3257,7 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
 #endif	/* es_result_relation_info must NOT be copied */
 	/* es_trig_target_relations must NOT be copied */
 	estate->es_rowMarks = parentestate->es_rowMarks;
-	estate->es_top_eflags = parentestate->es_top_eflags;
+	estate->es_top_eflags = parentestate->es_top_eflags ADB_ONLY_CODE(|EXEC_FLAG_IN_EPQ);
 	estate->es_instrument = parentestate->es_instrument;
 	/* es_auxmodifytables must NOT be copied */
 
@@ -3356,6 +3357,7 @@ EvalPlanQualStart(EPQState *epqstate, EState *parentestate, Plan *planTree)
 	 * and leaves us ready to start processing tuples.
 	 */
 	epqstate->planstate = ExecInitNode(planTree, estate, 0 ADB_ONLY_CODE(|EXEC_FLAG_IN_EPQ));
+	ADB_ONLY_CODE(StartEPQClusterReduce(epqstate));
 
 	MemoryContextSwitchTo(oldcontext);
 }

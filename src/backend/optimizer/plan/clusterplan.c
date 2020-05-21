@@ -114,23 +114,6 @@ static bool OptimizeClusterReduceWalker(Plan *plan, PlannedStmt *stmt, void *con
 			list_free(inner_reduce);
 			list_free(init_reduce);
 		}
-	}else if(outerPlan(plan) &&
-			 IsA(outerPlan(plan), ClusterReduce) &&
-			 (IsA(plan, Hash) ||
-			  IsA(plan, Sort)))
-	{
-		List	   *init_reduce = FindReduceInSubPlan(plan->initPlan, stmt);
-		List	   *outer_reduce = FindReducePlan(outerPlan(outerPlan(plan)), stmt);
-		if (init_reduce == NIL &&
-			outer_reduce == NIL)
-		{
-			((ClusterReduce*)outerPlan(plan))->reduce_flags |= CRF_DISK_UNNECESSARY;
-			((ClusterReduce*)outerPlan(plan))->reduce_flags &= ~(CRF_FETCH_LOCAL_FIRST|CRF_DISK_ALWAYS);
-		}else
-		{
-			list_free(init_reduce);
-			list_free(outer_reduce);
-		}
 	}else if (IsA(plan, ClusterReduce))
 	{
 		List	   *outer_reduce = FindReducePlan(outerPlan(plan), stmt);
@@ -138,6 +121,26 @@ static bool OptimizeClusterReduceWalker(Plan *plan, PlannedStmt *stmt, void *con
 		foreach (lc, outer_reduce)
 			lfirst_node(ClusterReduce, lc)->reduce_flags |= CRF_FETCH_LOCAL_FIRST;
 		list_free(outer_reduce);
+	}else if (IsA(plan, ModifyTable) &&
+			  ((ModifyTable*)plan)->operation != CMD_INSERT)
+	{
+		/* maybe execute EPQ for CMD_DELETE and CMD_UPDATE */
+		ListCell   *lc,*lc2;
+		List	   *outer_reduce;
+		int			epq_param = ((ModifyTable*)plan)->epqParam;
+		Assert(epq_param >= 0);
+
+		foreach (lc, ((ModifyTable*)plan)->plans)
+		{
+			outer_reduce = FindReducePlan(lfirst(lc), stmt);
+			foreach (lc2, outer_reduce)
+			{
+				ClusterReduce *cr = lfirst_node(ClusterReduce, lc2);
+				cr->reduce_flags |= (CRF_FETCH_LOCAL_FIRST|CRF_MAYBE_EPQ);
+				cr->ignore_params = bms_add_member(cr->ignore_params, epq_param);
+			}
+			list_free(outer_reduce);
+		}
 	}
 
 	return plan_tree_walker(plan, (Node*)stmt, OptimizeClusterReduceWalker, context);

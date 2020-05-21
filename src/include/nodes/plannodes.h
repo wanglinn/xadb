@@ -1033,6 +1033,7 @@ typedef Plan ClusterGetCopyData;
 #define CRF_FETCH_LOCAL_FIRST	0x0001	/* fetch all local first */
 #define CRF_DISK_UNNECESSARY	0x0002	/* don't need cache on disk */
 #define CRF_DISK_ALWAYS			0x0004	/* always cache tuples on disk */
+#define CRF_MAYBE_EPQ			0x0008	/* maybe execute in EPQ */
 
 typedef struct ClusterReduce
 {
@@ -1050,7 +1051,7 @@ typedef struct ClusterReduce
 	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
 
 	uint32		reduce_flags;	/* clsuter reduce plan flags, see CRF_XXX */
-	int			gather_param;	/* from parent of Gather or GatherMerge */
+	Bitmapset  *ignore_params;	/* some special param, eg. gather and epq */
 } ClusterReduce;
 
 typedef struct ReduceScan

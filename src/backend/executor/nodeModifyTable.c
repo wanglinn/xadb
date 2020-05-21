@@ -2746,6 +2746,7 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 
 	/* set up epqstate with dummy subplan data for the moment */
 	EvalPlanQualInit(&mtstate->mt_epqstate, estate, NULL, NIL, node->epqParam);
+	ADB_ONLY_CODE(mtstate->mt_epqstate.owner = (PlanState*)mtstate);
 	mtstate->fireBSTriggers = true;
 
 	/*

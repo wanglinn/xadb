@@ -1042,6 +1042,9 @@ typedef struct EPQState
 	Plan	   *plan;			/* plan tree to be executed */
 	List	   *arowMarks;		/* ExecAuxRowMarks (non-locking only) */
 	int			epqParam;		/* ID of Param to force scan node re-eval */
+#ifdef ADB
+	PlanState  *owner;			/* creater PlanState */
+#endif /* ADB */
 } EPQState;
 
 
@@ -2334,6 +2337,8 @@ typedef struct ClusterReduceState
 {
 	PlanState		ps;
 	void		   *private_state;
+	struct ClusterReduceState
+				   *origin_state;	/* using in EPQ */
 	int				eflags;			/* capability flags to pass to tuplestore */
 	uint8			reduce_method;
 	bool			initialized;

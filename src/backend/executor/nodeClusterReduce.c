@@ -30,6 +30,7 @@ typedef enum ReduceType
 	RT_NOTHING = 1,
 	RT_NORMAL,
 	RT_REDUCE_FIRST,
+	RT_REDUCE_FIRST_EPQ,
 	RT_PARALLEL_REDUCE_FIRST,
 	RT_ADVANCE,
 	RT_ADVANCE_PARALLEL,
@@ -52,6 +53,16 @@ typedef struct NormalReduceFirstState
 	bool				ready_local;
 	bool				ready_remote;
 }NormalReduceFirstState;
+
+typedef struct ReduceFirstEPQState
+{
+	BufFile			   *file_local;
+	BufFile			   *file_remote;
+	TupleTypeConvert   *convert;
+	TupleTableSlot	   *slot_remote;
+	StringInfoData		recv_buf;
+	bool				got_remote;
+}ReduceFirstEPQState;
 
 typedef struct ParallelReduceFirstState
 {
@@ -389,14 +400,56 @@ static TupleTableSlot* ExecReduceFirstRemote(PlanState *pstate)
 	return DynamicReduceFetchBufFile(&state->normal.drio, state->file_remote);
 }
 
+static TupleTableSlot* ExecReduceFirstRemoteEPQConvert(PlanState *pstate)
+{
+	ReduceFirstEPQState *state = castNode(ClusterReduceState, pstate)->private_state;
+	resetStringInfo(&state->recv_buf);
+	DynamicReduceReadSFSTuple(state->slot_remote, state->file_remote, &state->recv_buf);
+	if (unlikely(TupIsNull(state->slot_remote)))
+		return ExecClearTuple(pstate->ps_ResultTupleSlot);
+
+	return do_type_convert_slot_in(state->convert,
+								   state->slot_remote,
+								   pstate->ps_ResultTupleSlot,
+								   false);
+}
+
+static TupleTableSlot* ExecReduceFirstRemoteEPQ(PlanState *pstate)
+{
+	ReduceFirstEPQState *state = castNode(ClusterReduceState, pstate)->private_state;
+	resetStringInfo(&state->recv_buf);
+	return DynamicReduceReadSFSTuple(pstate->ps_ResultTupleSlot, state->file_remote, &state->recv_buf);
+}
+
+static void ExecReduceFirstGetRemote(NormalReduceFirstState *state, DynamicReduceRecvInfo *info, PlanState *pstate)
+{
+	char name[MAXPGPATH];
+	MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state));
+	Assert(state->ready_remote == false);
+	state->file_remote = BufFileOpenShared(DynamicReduceGetSharedFileSet(),
+										   DynamicReduceSharedFileName(name, info->u32));
+	state->file_no = info->u32;
+	state->ready_remote = true;
+	MemoryContextSwitchTo(oldcontext);
+	/* should get EOF message */
+	WaitFetchEOFMessage(&state->normal.drio, pstate->plan->plan_node_id, RT_REDUCE_FIRST);
+	ExecSetExecProcNode(pstate, ExecReduceFirstRemote);
+}
+
+static inline void ExecReduceFirstEndRemote(NormalReduceFirstState *state, PlanState *pstate)
+{
+	Assert(state->ready_remote == false);
+	state->ready_remote = true;
+	state->normal.drio.eof_remote = true;
+	ExecSetExecProcNode(pstate, ExecReduceFirstRemote);
+}
+
 static TupleTableSlot* ExecReduceFirstWaitRemote(PlanState *pstate)
 {
 	NormalReduceFirstState *state = castNode(ClusterReduceState, pstate)->private_state;
 	TupleTableSlot		   *slot;
-	MemoryContext			oldcontext;
 	DynamicReduceRecvInfo	info;
 	int						flags;
-	char					name[MAXPGPATH];
 	Assert(state->ready_remote == false && state->file_remote == NULL);
 
 	resetStringInfo(&state->normal.drio.recv_buf);
@@ -414,10 +467,14 @@ static TupleTableSlot* ExecReduceFirstWaitRemote(PlanState *pstate)
 		if (TupIsNull(slot))
 		{
 			/* end of remote, and no cached tuple */
-			state->ready_remote = true;
-			state->normal.drio.eof_remote = true;
-			ExecSetExecProcNode(pstate, ExecReduceFirstRemote);
+			ExecReduceFirstEndRemote(state, pstate);
 			return ExecClearTuple(pstate->ps_ResultTupleSlot);
+		}
+		if (unlikely(castNode(ClusterReduce, pstate->plan)->reduce_flags & CRF_MAYBE_EPQ))
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("reduce first reduce get a tuple, should not get a tuple")));
 		}
 		if (state->normal.drio.convert)
 			slot = do_type_convert_slot_in(state->normal.drio.convert,
@@ -429,15 +486,8 @@ static TupleTableSlot* ExecReduceFirstWaitRemote(PlanState *pstate)
 		return slot;
 	}else if (flags == DR_MSG_RECV_SF)
 	{
-		oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state));
-		state->file_remote = BufFileOpenShared(DynamicReduceGetSharedFileSet(),
-											   DynamicReduceSharedFileName(name, info.u32));
-		state->file_no = info.u32;
-		state->ready_remote = true;
-		MemoryContextSwitchTo(oldcontext);
-		/* should get EOF message */
-		WaitFetchEOFMessage(&state->normal.drio, pstate->plan->plan_node_id, RT_REDUCE_FIRST);
-		ExecSetExecProcNode(pstate, ExecReduceFirstRemote);
+		ExecReduceFirstGetRemote(state, &info, pstate);
+		Assert(pstate->ExecProcNodeReal == ExecReduceFirstRemote);
 		return ExecReduceFirstRemote(pstate);
 	}else if (flags == DR_MSG_RECV_STS)
 	{
@@ -484,37 +534,135 @@ static TupleTableSlot* ExecReduceFirstLocal(PlanState *pstate)
 	return ExecReduceFirstRemote(pstate);
 }
 
-static void ExecReduceFirstSend(NormalReduceFirstState *state)
+static TupleTableSlot* ExecReduceFirstEPQLocal(PlanState *pstate)
 {
-	MemoryContext			oldcontext;
+	ReduceFirstEPQState *state = castNode(ClusterReduceState, pstate)->private_state;
+	TupleTableSlot *slot = pstate->ps_ResultTupleSlot;
+
+	resetStringInfo(&state->recv_buf);
+	DynamicReduceReadSFSTuple(slot, state->file_local, &state->recv_buf);
+	if (unlikely(TupIsNull(slot)))
+	{
+		ClusterReduceState	   *origin_pstate = ((ClusterReduceState*)pstate)->origin_state;
+		NormalReduceFirstState *origin_state = origin_pstate->private_state;
+		DynamicReduceRecvInfo	info;
+		int						flags;
+
+		if (state->got_remote == false)
+		{
+			if (origin_state->ready_remote == false)
+			{
+				resetStringInfo(&state->recv_buf);
+				flags = DynamicReduceRecvTuple(origin_state->normal.drio.mqh_receiver,
+											   pstate->ps_ResultTupleSlot,
+											   &state->recv_buf,	/* don't use origin buffer, maybe in using */
+											   &info,
+											   false);
+				if (flags == DR_MSG_RECV_SF)
+				{
+					if(likely(TupIsNull(pstate->ps_ResultTupleSlot)))
+						ExecReduceFirstEndRemote(origin_state, &origin_pstate->ps);
+					else
+						ereport(ERROR,
+								(errcode(ERRCODE_INTERNAL_ERROR),
+								 errmsg("origin reduce first reduce get a tuple, should not get a tuple")));
+				}else if (flags == DR_MSG_RECV_SF)
+				{
+					ExecReduceFirstGetRemote(origin_state, &info, &origin_pstate->ps);
+				}else if (flags == DR_MSG_RECV_STS)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("reduce first reduce get a sharedtuple, should got a shared file")));
+				}else
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_INTERNAL_ERROR),
+							 errmsg("reduce first reduce got unknown message from dynamic reduce %u", flags)));
+				}
+			}
+
+			Assert(origin_state->ready_remote);
+			if (origin_state->file_remote)
+			{
+				char name[MAXPGPATH];
+				MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state));
+				state->file_remote = BufFileOpenShared(DynamicReduceGetSharedFileSet(),
+													   DynamicReduceSharedFileName(name, origin_state->file_no));
+				MemoryContextSwitchTo(oldcontext);
+			}
+			state->got_remote = true;
+		}
+		Assert(state->got_remote);
+		if (state->file_remote == NULL)
+		{
+			ExecSetExecProcNode(pstate, ExecNothingReduce);
+			return ExecClearTuple(pstate->ps_ResultTupleSlot);
+		}
+
+		if (BufFileSeek(state->file_remote, 0, 0, SEEK_SET) != 0)
+			ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("can not seek buffer file to head")));
+
+		if (state->convert)
+		{
+			ExecSetExecProcNode(pstate, ExecReduceFirstRemoteEPQConvert);
+			slot = ExecReduceFirstRemoteEPQConvert(pstate);
+		}else
+		{
+			ExecSetExecProcNode(pstate, ExecReduceFirstRemoteEPQ);
+			slot = ExecReduceFirstRemoteEPQ(pstate);
+		}
+	}
+
+	return slot;
+}
+
+static inline char* GetReduceFirstSFName(char *name, int plan_id)
+{
+	sprintf(name, "rf_plan_%d", plan_id);
+	return name;
+}
+
+static void ExecReduceFirstSend(NormalReduceFirstState *state, int plan_id, bool seek_to_head)
+{
+	MemoryContext	oldcontext;
+	char			name[MAXPGPATH];
 
 	Assert(state->normal.drio.eof_local == false);
 	Assert(state->ready_local == false && state->file_local == NULL);
 
 	/* create local file */
 	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state));
-	state->file_local = BufFileCreateTemp(false);
+	state->file_local = BufFileCreateShared(DynamicReduceGetSharedFileSet(),
+											GetReduceFirstSFName(name, plan_id));
 	MemoryContextSwitchTo(oldcontext);
 
 	DynamicReduceFetchAllLocalAndSend(&state->normal.drio,
 									  state->file_local,
 									  DRFetchSaveSFS);
+	BufFileExportShared(state->file_local);
 	state->ready_local = true;
+
+	if (seek_to_head &&
+		BufFileSeek(state->file_local, 0, 0, SEEK_SET) != 0)
+	{
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("can not seek buffer file to head")));
+	}
 }
 
 static TupleTableSlot* ExecReduceFirstPrepare(PlanState *pstate)
 {
 	NormalReduceFirstState *state = castNode(ClusterReduceState, pstate)->private_state;
 
-	ExecReduceFirstSend(state);
+	ExecReduceFirstSend(state, pstate->plan->plan_node_id, true);
 	Assert(state->normal.drio.eof_local &&
 		   state->ready_local &&
 		   state->file_local);
 
-	if (BufFileSeek(state->file_local, 0, 0, SEEK_SET) != 0)
-		ereport(ERROR,
-				(errcode_for_file_access(),
-				errmsg("can not seek buffer file to head")));
 	ExecSetExecProcNode(pstate, ExecReduceFirstLocal);
 	return ExecReduceFirstLocal(pstate);
 }
@@ -524,7 +672,7 @@ static void DriveReduceFirst(ClusterReduceState *node)
 	NormalReduceFirstState *state = node->private_state;
 
 	if (state->file_local == NULL)
-		ExecReduceFirstSend(state);
+		ExecReduceFirstSend(state, node->ps.plan->plan_node_id, false);
 
 	/* maybe rescan this paln, so open remote data */
 	while (state->ready_remote == false)
@@ -546,17 +694,21 @@ static void InitReduceFirst(ClusterReduceState *crstate)
 								 state->normal.dsm_seg,
 								 dsm_segment_address(state->normal.dsm_seg),
 								 plan->reduce_oids,
-								 plan->reduce_flags & CRF_DISK_ALWAYS ? DR_CACHE_ON_DISK_ALWAYS:DR_CACHE_ON_DISK_AUTO);
+								 (plan->reduce_flags & (CRF_DISK_ALWAYS|CRF_MAYBE_EPQ)) ? DR_CACHE_ON_DISK_ALWAYS:DR_CACHE_ON_DISK_AUTO);
 	ExecSetExecProcNode(&crstate->ps, ExecReduceFirstPrepare);
 
 	MemoryContextSwitchTo(oldcontext);
 }
 
-static void EndReduceFirst(NormalReduceFirstState *state)
+static void EndReduceFirst(NormalReduceFirstState *state, int plan_id)
 {
 	char name[MAXPGPATH];
 	if (state->file_local)
+	{
 		BufFileClose(state->file_local);
+		BufFileDeleteShared(DynamicReduceGetSharedFileSet(),
+							GetReduceFirstSFName(name, plan_id));
+	}
 	if (state->file_remote)
 	{
 		BufFileClose(state->file_remote);
@@ -564,6 +716,50 @@ static void EndReduceFirst(NormalReduceFirstState *state)
 							DynamicReduceSharedFileName(name, state->file_no));
 	}
 	EndNormalReduce(&state->normal);
+}
+
+static void InitEPQReduceFirst(ClusterReduceState *crstate, ClusterReduceState *origin)
+{
+	MemoryContext			oldcontext;
+	ReduceFirstEPQState	   *state;
+	NormalReduceFirstState *origin_state = origin->private_state;
+	char					name[MAXPGPATH];
+	Assert(crstate->private_state == NULL);
+
+	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
+
+	crstate->reduce_method = RT_REDUCE_FIRST_EPQ;
+	crstate->private_state = state = palloc0(sizeof(*state));
+	if (origin_state->ready_local == false)
+	{
+		ExecReduceFirstSend(origin_state, origin->ps.plan->plan_node_id, true);
+		ExecSetExecProcNode(&origin->ps, ExecReduceFirstLocal);
+	}
+
+	state->file_local = BufFileOpenShared(DynamicReduceGetSharedFileSet(),
+										  GetReduceFirstSFName(name, origin->ps.plan->plan_node_id));
+	initStringInfo(&state->recv_buf);
+	MemSet(state->recv_buf.data, 0, state->recv_buf.maxlen);
+	state->convert = create_type_convert(crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor, false, true);
+	if (state->convert)
+		state->slot_remote = MakeTupleTableSlot(state->convert->out_desc);
+	ExecSetExecProcNode(&crstate->ps, ExecReduceFirstEPQLocal);
+
+	MemoryContextSwitchTo(oldcontext);
+}
+
+static void EndEPQReduceFirst(ReduceFirstEPQState *state)
+{
+	if (state->convert)
+		free_type_convert(state->convert);
+	if (state->slot_remote)
+		ExecDropSingleTupleTableSlot(state->slot_remote);
+	if (state->recv_buf.data)
+		pfree(state->recv_buf.data);
+	if (state->file_remote)
+		BufFileClose(state->file_remote);
+	if (state->file_local)
+		BufFileClose(state->file_local);
 }
 
 static TupleTableSlot* ExecParallelReduceFirstRemote(PlanState *pstate)
@@ -1602,6 +1798,41 @@ static TupleTableSlot* ExecDefaultClusterReduce(PlanState *pstate)
 	return pstate->ExecProcNodeReal(pstate);
 }
 
+static TupleTableSlot* ExecEPQDefaultClusterReduce(PlanState *pstate)
+{
+	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
+	ClusterReduceState *origin;
+	if (node->origin_state == NULL)
+	{
+		ereport(ERROR,
+				(errmsg("ClusterReduce plan %d not set origin plan state", pstate->plan->plan_node_id),
+				 errcode(ERRCODE_INTERNAL_ERROR)));
+	}
+	origin = castNode(ClusterReduceState, node->origin_state);
+
+	if (origin->initialized == false)
+	{
+		/* we can initialize origin cluster reduce, for now we just report an error */
+		ereport(ERROR,
+				(errmsg("Origin cluster reduce plan %d not initialized", origin->ps.plan->plan_node_id),
+				 errcode(ERRCODE_INTERNAL_ERROR)));
+	}
+
+	switch(origin->reduce_method)
+	{
+	case RT_REDUCE_FIRST:
+		InitEPQReduceFirst(node, origin);
+		break;
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("unknown origin reduce method %u", origin->reduce_method)));
+		break;
+	}
+
+	return pstate->ExecProcNodeReal(pstate);
+}
+
 void ExecClusterReduceEstimate(ClusterReduceState *node, ParallelContext *pcxt)
 {
 	switch(node->reduce_method)
@@ -1764,7 +1995,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	if (eflags & EXEC_FLAG_BACKWARD)
 		crstate->eflags |= EXEC_FLAG_REWIND;
 
-	if (list_member_oid(node->reduce_oids, PGXCNodeOid) == false || eflags & EXEC_FLAG_IN_EPQ)
+	if (list_member_oid(node->reduce_oids, PGXCNodeOid) == false)
 		crstate->reduce_method = (uint8)RT_NOTHING;
 	else if (node->numCols > 0)
 		crstate->reduce_method = (uint8)RT_MERGE;
@@ -1773,6 +2004,10 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 		crstate->reduce_method = (uint8)RT_REDUCE_FIRST;
 	else
 		crstate->reduce_method = (uint8)RT_NORMAL;
+
+	if ((eflags & EXEC_FLAG_IN_EPQ) &&
+		crstate->reduce_method != RT_NOTHING)
+		crstate->ps.ExecProcNode = ExecEPQDefaultClusterReduce;
 
 	/*
 	 * Miscellaneous initialization
@@ -1798,7 +2033,6 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 
 	outerPlan = outerPlan(node);
 	outerPlanState(crstate) = ExecInitNode(outerPlan, estate, eflags);
-	//tupDesc = ExecGetResultType(outerPlanState(crstate));
 
 	estate->es_reduce_plan_inited = true;
 
@@ -1853,7 +2087,10 @@ static void ExecShutdownClusterReduce(ClusterReduceState *node)
 			EndNormalReduce(node->private_state);
 			break;
 		case RT_REDUCE_FIRST:
-			EndReduceFirst(node->private_state);
+			EndReduceFirst(node->private_state, node->ps.plan->plan_node_id);
+			break;
+		case RT_REDUCE_FIRST_EPQ:
+			EndEPQReduceFirst(node->private_state);
 			break;
 		case RT_PARALLEL_REDUCE_FIRST:
 			EndParallelReduceFirst(node->private_state);
@@ -1921,15 +2158,12 @@ ExecClusterReduceRestrPos(ClusterReduceState *node)
 void
 ExecReScanClusterReduce(ClusterReduceState *node)
 {
-	Bitmapset *chgParam;
 	/* Just return if not start yet! */
 	if (node->private_state == NULL)
 		return;
 
-	chgParam = outerPlanState(node)->chgParam;
-	if (chgParam != NULL &&
-		(bms_membership(chgParam) == BMS_MULTIPLE ||
-		 bms_next_member(chgParam, -1) != castNode(ClusterReduce, node->ps.plan)->gather_param))
+	if (bms_is_subset(outerPlanState(node)->chgParam,
+					  castNode(ClusterReduce, node->ps.plan)->ignore_params) == false)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -1941,6 +2175,10 @@ ExecReScanClusterReduce(ClusterReduceState *node)
 	case RT_NOTHING:
 		break;
 	case RT_NORMAL:
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("clsuter reduce normal method not support rescan")));
+		break;	/* should never run */
 	case RT_PARALLEL_REDUCE_FIRST:
 		{
 			ParallelReduceFirstState *state = node->private_state;
@@ -1968,6 +2206,16 @@ ExecReScanClusterReduce(ClusterReduceState *node)
 			{
 				ExecSetExecProcNode(&node->ps, ExecReduceFirstPrepare);
 			}
+		}
+		break;
+	case RT_REDUCE_FIRST_EPQ:
+		{
+			ReduceFirstEPQState *state = node->private_state;
+			if (BufFileSeek(state->file_local, 0, 0, SEEK_SET) != 0)
+				ereport(ERROR,
+					(errcode_for_file_access(),
+					 errmsg("can not seek buffer file to head")));
+			ExecSetExecProcNode(&node->ps, ExecReduceFirstEPQLocal);
 		}
 		break;
 	case RT_ADVANCE:
@@ -2081,6 +2329,8 @@ DriveClusterReduceState(ClusterReduceState *node)
 		break;
 	case RT_REDUCE_FIRST:
 		DriveReduceFirst(node);
+		break;
+	case RT_REDUCE_FIRST_EPQ:
 		break;
 	case RT_PARALLEL_REDUCE_FIRST:
 		DriveParallelReduceFirst(node);
@@ -2228,7 +2478,9 @@ IsThereClusterReduce(PlanState *node)
 void
 TopDownDriveClusterReduce(PlanState *node)
 {
-	if (!enable_cluster_plan || !IsUnderPostmaster)
+	if (!enable_cluster_plan ||
+		!IsUnderPostmaster ||
+		node->state->es_top_eflags & EXEC_FLAG_IN_EPQ)
 		return ;
 
 	/* just return if there is no ClusterReduce plan */
@@ -2245,6 +2497,59 @@ TopDownDriveClusterReduce(PlanState *node)
 static void OnDsmDatchShutdownReduce(dsm_segment *seg, Datum arg)
 {
 	ExecShutdownClusterReduce((ClusterReduceState*)DatumGetPointer(arg));
+}
+
+static bool SetClusterReduceOriginWorker(PlanState *ps, ClusterReduceState *node)
+{
+	if (ps == NULL)
+		return false;
+	if (IsA(ps, ClusterReduceState) &&
+		ps->plan->plan_node_id == node->ps.plan->plan_node_id)
+	{
+		ClusterReduceState *origin_state = (ClusterReduceState*)ps;
+		if (origin_state->origin_state)
+			node->origin_state = origin_state->origin_state;
+		else
+			node->origin_state = origin_state;
+		Assert((node->origin_state->eflags & EXEC_FLAG_IN_EPQ) == 0);
+		return true;
+	}
+
+	return planstate_tree_walker(ps, SetClusterReduceOriginWorker, node);
+}
+
+static inline bool SetClusterReduceOrigin(EPQState *epq, PlanState *ps, bool (*fun)())
+{
+	ListCell *lc;
+	if ((*fun)(epq->owner, ps))
+		return true;
+	foreach(lc, epq->estate->es_subplanstates)
+	{
+		if ((*fun)(lfirst(lc), ps))
+			return true;
+	}
+	return false;
+}
+
+static bool EnumClusterReduceWorker(PlanState *ps, EPQState *epq)
+{
+	if (ps == NULL)
+		return false;
+	if (IsA(ps, ClusterReduceState))
+	{
+		if (SetClusterReduceOrigin(epq, ps, SetClusterReduceOriginWorker) == false)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Can not found origin plan state for cluster reduce plan %d",
+							ps->plan->plan_node_id)));
+		Assert(((ClusterReduceState*)ps)->origin_state != NULL);
+	}
+	return planstate_tree_walker(ps, EnumClusterReduceWorker, epq);
+}
+
+void StartEPQClusterReduce(EPQState *epq)
+{
+	(void)EnumClusterReduceWorker(epq->planstate, epq);
 }
 
 /* =========================================================================== */

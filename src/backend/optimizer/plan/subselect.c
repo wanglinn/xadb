@@ -2655,7 +2655,11 @@ finalize_plan(PlannerInfo *root, Plan *plan,
 
 #ifdef ADB
 		case T_ClusterReduce:
-			((ClusterReduce*)plan)->gather_param = gather_param;
+			if (gather_param >= 0)
+			{
+				ClusterReduce *cr = (ClusterReduce*)plan;
+				cr->ignore_params = bms_add_member(cr->ignore_params, gather_param);
+			}
 			break;
 		case T_ParamTuplestoreScan:
 			context.paramids = bms_add_members(context.paramids, scan_params);

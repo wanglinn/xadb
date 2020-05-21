@@ -665,7 +665,7 @@ _outClusterReduce(StringInfo str, const ClusterReduce *node)
 		appendStringInfo(str, " %s", booltostr(node->nullsFirst[i]));
 
 	WRITE_INT_FIELD(reduce_flags);
-	WRITE_INT_FIELD(gather_param);
+	WRITE_BITMAPSET_FIELD(ignore_params);
 }
 
 static void
