@@ -173,6 +173,9 @@ BEGIN_STRUCT(EPQState)
 	NODE_NODE(Plan,plan)
 	NODE_NODE(List,arowMarks)
 	NODE_SCALAR(int,epqParam)
+#ifdef ADB
+	NODE_NODE(PlanState,owner)
+#endif
 END_STRUCT(EPQState)
 #endif /* NO_STRUCT_EPQState */
 
