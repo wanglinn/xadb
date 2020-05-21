@@ -113,7 +113,6 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 	char 			*currentZone;
 	int 			spiRes = 0;	
 	MemoryContext 	spiContext = NULL;
-	ErrorData 		*edata = NULL;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot do the command during recovery")));

@@ -39,6 +39,7 @@
 
 /* Myself node id */
 Oid SelfNodeID = InvalidOid;
+Oid GtmMasterNodeID = InvalidOid;
 
 /* The primary NodeHandle */
 static NodeHandle *PrimaryHandle = NULL;
@@ -157,7 +158,7 @@ BuildNodeHandleCacheHash(void)
 	heap_close(rel, AccessShareLock);
 
 	if(!OidIsValid(SelfNodeID))
-		elog(FATAL, "SelfNodeID(%d) is InvalidOid.", SelfNodeID);
+		elog(ERROR, "SelfNodeID(%d) is InvalidOid.", SelfNodeID);
 }
 
 /*
@@ -266,10 +267,10 @@ MakeNodeHandleEntry(Oid node_id, Name node_name, NodeType node_type,
 	if (node_primary)
 		PrimaryHandle = handle;
 
-	if (pg_strcasecmp(PGXCNodeName, NameStr(*node_name)) == 0)
+	if (pg_strcasecmp(PGXCNodeName, NameStr(*node_name)) == 0){
 		SelfNodeID = PGXCNodeOid = node_id;
-	else
-	{
+	}		
+	else{
 		/* If I am a gtmcoord slave node, I have the same nodeid as my master node. */
 		if ((nodeis_gtm && node_type == TYPE_CN_NODE) && /* It is a gtmcoord master */
 			IsGTMCnNode())	/* I am a gtmcorod slave */
@@ -277,6 +278,15 @@ MakeNodeHandleEntry(Oid node_id, Name node_name, NodeType node_type,
 			SelfNodeID = PGXCNodeOid = node_id;
 		}
 	}
+	
+	if (nodeis_gtm){
+		GtmMasterNodeID = node_id;
+	}
+	if (IsCnNode() && OidIsValid(GtmMasterNodeID) && !OidIsValid(SelfNodeID))
+	{
+		SelfNodeID = PGXCNodeOid = GtmMasterNodeID;
+	}
+
 	return handle;
 }
 
