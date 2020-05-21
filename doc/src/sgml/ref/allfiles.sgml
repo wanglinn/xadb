@@ -310,7 +310,7 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY mgrSwitchoverDatanode      SYSTEM "mgr_switchover_datanode.sgml">
 <!ENTITY mgrSwitchoverGtm   SYSTEM "mgr_switchover_gtm.sgml">
 <!ENTITY mgrZoneClear       SYSTEM "mgr_zone_clear.sgml">
-<!ENTITY mgrZoneConfig      SYSTEM "mgr_zone_config.sgml">
+<!ENTITY mgrZoneSwitchover  SYSTEM "mgr_zone_switchover.sgml">
 <!ENTITY mgrZoneFailover    SYSTEM "mgr_zone_failover.sgml">
 <!ENTITY mgrZoneInit        SYSTEM "mgr_zone_init.sgml">
 

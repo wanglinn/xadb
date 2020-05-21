@@ -381,7 +381,7 @@
    &mgrSwitchoverDatanode
    &mgrSwitchoverGtm
    &mgrZoneFailover
-   &mgrZoneConfig
+   &mgrZoneSwitchover
    &mgrZoneClear
    &mgrZoneInit
 </reference>
