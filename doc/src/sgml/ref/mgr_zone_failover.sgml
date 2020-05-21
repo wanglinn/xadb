@@ -12,7 +12,7 @@ ADB documentation
 
   <refnamediv>
     <refname>ZONE FAILOVER</refname>
-    <refpurpose>failover the nodes whose zone is different from its master and change the type as master type</refpurpose>
+    <refpurpose>failover from source zone to dest zone, include failover gtmcoord, failover coordinators, failover datanodes</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-zonefailover">
@@ -29,7 +29,7 @@ ZONE FAILOVER <replaceable class="parameter">zone_name</replaceable>
     <title>Description</title>
 
     <para>
-<command>ZONE FAILOVER</command> do the "PG_CTL PROMOTE -D path" command on the nodes whose zone is different from its master, then change the type of these nodes as master in the node table.
+<command>ZONE FAILOVER</command> failover from source zone to dest zone, include failover gtmcoord, failover coordinators, failover datanodes.
     </para>
   </refsect1>
 
@@ -53,7 +53,6 @@ ZONE FAILOVER <replaceable class="parameter">zone_name</replaceable>
     <title>Examples</title>
 
     <para>
-      Pomote the nodes to master in zone "zone_second":
 <programlisting>
 zone failover zone_name;
 </programlisting>
@@ -63,10 +62,6 @@ zone failover zone_name;
  <refsect1>
   <title>See Also</title>
 
-  <simplelist type="inline">
-   <member><xref linkend="mgr-zoneconfig"></member>
-   <member><xref linkend="mgr-zoneclear"></member>
-  </simplelist>
  </refsect1>
  
 </refentry>

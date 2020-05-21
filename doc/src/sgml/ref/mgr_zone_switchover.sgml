@@ -1,27 +1,27 @@
 <!--
-doc/src/sgml/ref/mgr_zone_clear.sgml
+doc/src/sgml/ref/mgr_zone_switchover.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-ZONECLEAR">
+<refentry id="MGR-ZONESWITCHOVER">
   <refmeta>
-    <refentrytitle>ZONE CLEAR</refentrytitle>
+    <refentrytitle>ZONE SWITCHOVER</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>ZONE CLEAR</refname>
-    <refpurpose>keep the nodes whose zone is given zone_name and make the node clear</refpurpose>
+    <refname>ZONE SWITCHOVER</refname>
+    <refpurpose>switchover from source zone to dest zone, include switchover gtmcoord, switchover coordinators, switchover datanodes</refpurpose>
   </refnamediv>
 
-  <indexterm zone="mgr-clear">
-    <primary>ZONE CLEAR</primary>
+  <indexterm zone="mgr-zoneswitchover">
+    <primary>ZONE SWITCHOVER</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-ZONE CLEAR <replaceable class="parameter">zone_name</replaceable>
+    ZONE SWITCHOVER <replaceable class="parameter">zone_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
 
@@ -29,7 +29,7 @@ ZONE CLEAR <replaceable class="parameter">zone_name</replaceable>
     <title>Description</title>
 
     <para>
-<command>ZONE PROMOTE</command> in the given node, the nodes whose zone is different from its master, change the type of these nodes as master in the node table; then change the master type of nodes' mastername and sync_state to null.
+<command>ZONE SWITCHOVER</command> switchover from source zone to dest zone, include switchover gtmcoord, switchover coordinators, switchover datanodes.
     </para>
   </refsect1>
 
@@ -53,10 +53,9 @@ ZONE CLEAR <replaceable class="parameter">zone_name</replaceable>
     <title>Examples</title>
 
     <para>
-      make the node table clear and keep back the node whose zone is given zone:
-<programlisting>
-zone clear zone_name;
-</programlisting>
+      <programlisting>
+      ZONE SWITCHOVER zone_name;
+      </programlisting>
     </para>
   </refsect1>
   
