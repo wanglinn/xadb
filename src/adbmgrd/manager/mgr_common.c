@@ -1655,7 +1655,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 					 master_nodeinfo.nodename);
 
 	res = mgr_ma_send_cmd_get_original_result(cmdtype, infosendmsg.data, slave_nodeinfo.nodehost, strinfo, AGENT_RESULT_LOG);
-	if (slave_nodeinfo.nodetype  == CNDN_TYPE_DATANODE_SLAVE)
+	if (res && slave_nodeinfo.nodetype  == CNDN_TYPE_DATANODE_SLAVE)
 	{
 		/*connect to master create replication slot*/
 		dn_master_replication_slot(master_nodeinfo.nodename,slave_nodeinfo.nodename,'c');
