@@ -113,7 +113,7 @@ INSERT INTO adb_doctor_conf VALUES (
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_connect_timeout_ms_min',
-	'1000',
+	'5000',
 	'f',
 	9,
 	'In milliseconds. The value of node_connect_timeout is calculated based on nodedeadline. In order to make this value reasonable, it needs to be limited in the range of node_connect_timeout_ms_min and node_connect_timeout_ms_max. Other similar parameters(suffixes such as _min and _max) are also this strategy.'
@@ -141,7 +141,7 @@ INSERT INTO adb_doctor_conf VALUES (
 );
 INSERT INTO adb_doctor_conf VALUES (
 	'node_query_timeout_ms_min',
-	'2000',
+	'5000',
 	'f',
 	13,
 	'In milliseconds. The minimum time of getting query result from node.'

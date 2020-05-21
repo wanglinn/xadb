@@ -1466,35 +1466,24 @@ static bool isShouldResetConnection(MonitorNodeInfo *nodeInfo)
 static bool beyondReconnectDelay(MonitorNodeInfo *nodeInfo)
 {
 	long realReconnectDelayMs;
-	int errorCount;
-	int *errornos;
-	int nErrornos;
+	int nerrors;
 	AdbDoctorError *lastError;
 	TimestampTz lastErrorTime;
 
-	nErrornos = 2;
-	errornos = palloc(sizeof(int) * nErrornos);
-	errornos[0] = (int)NODE_ERROR_CONNECT_TIMEDOUT;
-	errornos[1] = (int)NODE_ERROR_CONNECT_FAIL;
-	errorCount = countAdbDoctorErrorRecorder(nodeInfo->connectionErrors,
-											 errornos,
-											 nErrornos);
-	if (errorCount < 1)
+	nerrors = nodeInfo->connectionErrors->nerrors;
+	if (nerrors < 1)
 	{
 		lastErrorTime = 0;
 		realReconnectDelayMs = nodeConfiguration->reconnectDelayMs;
 	}
 	else
 	{
-		lastError = findLastAdbDoctorError(nodeInfo->connectionErrors,
-										   errornos,
-										   nErrornos);
+		lastError = &nodeInfo->connectionErrors->errors[nerrors - 1];
 		lastErrorTime = lastError->time;
 		realReconnectDelayMs = nodeConfiguration->reconnectDelayMs *
-							   (1 << Min(errorCount,
+							   (1 << Min(nerrors,
 										 nodeConfiguration->connectionErrorNumMax));
 	}
-	pfree(errornos);
 	return TimestampDifferenceExceeds(Max(lastErrorTime,
 										  nodeInfo->connectTime),
 									  GetCurrentTimestamp(),
@@ -1607,54 +1596,51 @@ static void occurredError(MonitorNodeInfo *nodeInfo, NodeError error)
 						error)));
 	}
 }
+static bool isCriticalError(int errorno)
+{
+	return errorno == (int)NODE_ERROR_CONNECT_FAIL ||
+		   errorno == (int)NODE_ERROR_CONNECT_TIMEDOUT;
+}
 
 static bool reachedCrashedCondition(MonitorNodeInfo *nodeInfo)
 {
-	int errorCount;
-	AdbDoctorError *firstError;
-	AdbDoctorError *lastError;
-	int *errornos;
-	int nErrornos;
-	bool res;
+	int i = 0;
+	int nContinuousCriticalErrors = 0;
+	AdbDoctorErrorRecorder *recorder = NULL;
+	TimestampTz firstErrorTime = 0;
+	TimestampTz lastErrorTime = 0;
+
 	if (nodeInfo->connectionErrors->nerrors < 1)
+		return false;
+
+	recorder = nodeInfo->connectionErrors;
+	if (!recorder->errors)
+		return false;
+
+	if (!isCriticalError(recorder->errors[recorder->nerrors - 1].errorno))
 	{
-		res = false;
+		return false;
 	}
-	else
+
+	for (i = recorder->nerrors - 1; i >= 0; i--)
 	{
-		nErrornos = 2;
-		errornos = palloc(sizeof(int) * nErrornos);
-		errornos[0] = (int)NODE_ERROR_CONNECT_TIMEDOUT;
-		errornos[1] = (int)NODE_ERROR_CONNECT_FAIL;
-		firstError = findFirstAdbDoctorError(nodeInfo->connectionErrors,
-											 errornos, nErrornos);
-		if (!firstError)
+		if (isCriticalError(recorder->errors[i].errorno))
 		{
-			res = false;
+			nContinuousCriticalErrors++;
+			firstErrorTime = recorder->errors[i].time;
+
+			if (i == recorder->nerrors - 1)
+				lastErrorTime = recorder->errors[i].time;
 		}
 		else
 		{
-			lastError = findLastAdbDoctorError(nodeInfo->connectionErrors,
-											   errornos,
-											   nErrornos);
-			if (TimestampDifferenceExceeds(firstError->time,
-										   lastError->time,
-										   nodeConfiguration->deadlineMs))
-			{
-				/* reached dead line, node crashed */
-				res = true;
-			}
-			else
-			{
-				errorCount = countAdbDoctorErrorRecorder(nodeInfo->connectionErrors,
-														 errornos,
-														 nErrornos);
-				res = errorCount >= nodeConfiguration->connectionErrorNumMax;
-			}
+			break;
 		}
-		pfree(errornos);
 	}
-	return res;
+	return TimestampDifferenceExceeds(firstErrorTime,
+									  lastErrorTime,
+									  nodeConfiguration->deadlineMs) ||
+		   nContinuousCriticalErrors >= nodeConfiguration->connectionErrorNumMax;
 }
 
 static int getLastNodeErrorno(MonitorNodeInfo *nodeInfo)
