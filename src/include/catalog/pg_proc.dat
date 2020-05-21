@@ -11309,7 +11309,7 @@
 { oid => '4897', row_macros => 'ADBMGRD', descr => 'mgr switchover',
   proname => 'mgr_switchover_func', procost => '10', prorows => '400',
   proretset => 't', provolatile => 's', prorettype => 'record',
-  proargtypes => 'int4 cstring int4', proallargtypes => '{name,bool,text}',
+  proargtypes => 'int4 cstring int4 int4', proallargtypes => '{name,bool,text}',
   proargmodes => '{o,o,o}', proargnames => '{nodename,status,description}',
   prosrc => 'mgr_switchover_func' },
 { oid => '4896', row_macros => 'ADBMGRD',

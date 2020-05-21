@@ -12,7 +12,14 @@ ADB documentation
 
   <refnamediv>
     <refname>SWITCHOVER GTMCOORD</refname>
-    <refpurpose>gtmcoord master, gtmcoord slave switchover, the original master changes to slave and the original slave changes to master</refpurpose>
+    <refpurpose>gtmcoord master, gtmcoord slave switchover, the original master changes to slave and the original slave changes to master,\n
+    Option maxTrys represents the number of executions to check whether the node has active connections. One execution cycle is 1 second.\n
+    Use like this:\n
+    SWITCHOVER GTMCOORD SLAVE ${nodename}\n
+    SWITCHOVER GTMCOORD SLAVE ${nodename} 30\n
+    SWITCHOVER GTMCOORD SLAVE ${nodename} FORCE\n
+    SWITCHOVER GTMCOORD SLAVE ${nodename} FORCE 30\n
+    </refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-switchovergtm">
@@ -20,9 +27,7 @@ ADB documentation
   </indexterm>
 
   <refsynopsisdiv>
-    <synopsis>
-SWITCHOVER GTMCOORD SLAVE <replaceable class="parameter">gtm_name</replaceable>
-</synopsis>
+    <synopsis>SWITCHOVER GTMCOORD SLAVE <replaceable class="parameter">${nodename}</replaceable> [FORCE] [maxTrys]</synopsis>
   </refsynopsisdiv>
 
   <refsect1>

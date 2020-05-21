@@ -186,7 +186,8 @@ static bool isCurestatusForRunningOk(char *curestatus);
 static void checkTrackActivitiesForSwitchover(dlist_head *coordinators,
 											  SwitcherNodeWrapper *oldMaster);
 static void checkActiveConnectionsForSwitchover(dlist_head *coordinators,
-												SwitcherNodeWrapper *oldMaster);
+												SwitcherNodeWrapper *oldMaster,
+												int maxTrys);
 static bool checkActiveConnections(PGconn *activePGcoon,
 								   bool localExecute,
 								   char *nodename);
@@ -297,11 +298,18 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	char nodetype;
 	NameData nodeNameData;
 	bool force;
+	int maxTrys;
 
 	/* get the input variable */
 	nodetype = PG_GETARG_INT32(0);
 	namestrcpy(&nodeNameData, PG_GETARG_CSTRING(1));
 	force = PG_GETARG_INT32(2);
+	maxTrys = PG_GETARG_INT32(3);
+
+	if (maxTrys < 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("the value of maxTrys must be positive")));
 	/* check the type */
 	if (CNDN_TYPE_DATANODE_MASTER == nodetype ||
 		CNDN_TYPE_GTM_COOR_MASTER == nodetype)
@@ -313,11 +321,11 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	}
 	if (CNDN_TYPE_DATANODE_SLAVE == nodetype)
 	{
-		switchoverDataNode(NameStr(nodeNameData), force, mgr_zone);			
+		switchoverDataNode(NameStr(nodeNameData), force, mgr_zone, maxTrys);			
 	}
 	else if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
 	{
-		switchoverGtmCoord(NameStr(nodeNameData), force, mgr_zone);
+		switchoverGtmCoord(NameStr(nodeNameData), force, mgr_zone, maxTrys);
 	}
 	else
 	{
@@ -364,7 +372,7 @@ void MgrZoneSwitchoverGtm(MemoryContext spiContext, char *currentZone)
 								forceSwitch,
 								currentZone);
 
-	switchoverGtmCoord(NameStr(newMaster->mgrNode->form.nodename), forceSwitch, currentZone);
+	switchoverGtmCoord(NameStr(newMaster->mgrNode->form.nodename), forceSwitch, currentZone, 10);
 
 	pfreeSwitcherNodeWrapperList(&coordMasters, NULL);
 	pfreeSwitcherNodeWrapperList(&gtmSlaves, NULL);
@@ -457,7 +465,7 @@ void MgrZoneSwitchoverDataNode(MemoryContext spiContext, char *currentZone)
 									forceSwitch,
 									currentZone);
 
-		switchoverDataNode(NameStr(newDnMaster->mgrNode->form.nodename), forceSwitch, currentZone);	
+		switchoverDataNode(NameStr(newDnMaster->mgrNode->form.nodename), forceSwitch, currentZone, 10);	
 	}
 
 	pfreeSwitcherNodeWrapperList(&dnMasters, NULL);
@@ -1071,7 +1079,7 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 		ReThrowError(edata);	
 }
 
-void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone)
+void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, int maxTrys)
 {
 	int spiRes;
 	SwitcherNodeWrapper *oldMaster = NULL;
@@ -1143,6 +1151,10 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone)
 		checkTrackActivitiesForSwitchover(&coordinators,
 										  oldMaster);
 		refreshPgxcNodeBeforeSwitchDataNode(&coordinators);
+
+		/* check interrupt before lock the cluster */
+		CHECK_FOR_INTERRUPTS();
+
 		if (forceSwitch)
 		{
 			tryLockCluster(&coordinators);
@@ -1150,7 +1162,8 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone)
 		else
 		{
 			checkActiveConnectionsForSwitchover(&coordinators,
-												oldMaster);
+												oldMaster,
+												maxTrys);
 		}
 		checkActiveLocksForSwitchover(&coordinators,
 									  oldMaster);
@@ -1276,7 +1289,7 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone)
 		ReThrowError(edata);
 }
 
-void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone)
+void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, int maxTrys)
 {
 	int spiRes;
 	SwitcherNodeWrapper *oldMaster = NULL;
@@ -1357,6 +1370,9 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone)
 		/* oldMaster also is a coordinator */
 		dlist_push_head(&coordinators, &oldMaster->link);
 
+		/* check interrupt before lock the cluster */
+		CHECK_FOR_INTERRUPTS();
+
 		if (forceSwitch)
 		{
 			tryLockCluster(&coordinators);
@@ -1364,7 +1380,8 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone)
 		else
 		{
 			checkActiveConnectionsForSwitchover(&coordinators,
-												oldMaster);												
+												oldMaster,
+												maxTrys);												
 		}
 		checkActiveLocksForSwitchover(&coordinators,
 									  oldMaster);
@@ -1608,7 +1625,7 @@ void switchoverCoord(char *newMasterName, bool forceSwitch, char *curZone)
 			tryLockCluster(&coordinators);
 		}
 		else{
-			checkActiveConnectionsForSwitchover(&coordinators, oldMaster);
+			checkActiveConnectionsForSwitchover(&coordinators, oldMaster, 10);
 		}		
 		holdLockCoordinator = getHoldLockCoordinator(&coordinators);
 		Assert(holdLockCoordinator);
@@ -4332,10 +4349,10 @@ static void checkTrackActivitiesForSwitchover(dlist_head *coordinators,
 }
 
 static void checkActiveConnectionsForSwitchover(dlist_head *coordinators,
-												SwitcherNodeWrapper *oldMaster)
+												SwitcherNodeWrapper *oldMaster,
+												int maxTrys)
 {
 	int iloop;
-	int maxTrys = 10;
 	bool execOk = false;
 	SwitcherNodeWrapper *holdLockCoordinator = NULL;
 	SwitcherNodeWrapper *node;

@@ -3024,6 +3024,19 @@ SwitchoverStmt:
 			mgr_check_job_in_updateparam("monitor_handle_gtm");
 			args = lappend(args, makeStringConst($4, @4));
 			args = lappend(args, makeIntConst(0, -1));
+			args = lappend(args, makeIntConst(10, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_switchover_func", args));
+			$$ = (Node*)stmt;
+		}
+	| SWITCHOVER GTMCOORD opt_gtm_inner_type Ident Iconst
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeIntConst($3, @3));
+			mgr_check_job_in_updateparam("monitor_handle_gtm");
+			args = lappend(args, makeStringConst($4, @4));
+			args = lappend(args, makeIntConst(0, -1));
+			args = lappend(args, makeIntConst($5, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_switchover_func", args));
 			$$ = (Node*)stmt;
@@ -3035,6 +3048,19 @@ SwitchoverStmt:
 			mgr_check_job_in_updateparam("monitor_handle_gtm");
 			args = lappend(args, makeStringConst($4, @4));
 			args = lappend(args, makeIntConst(1, -1));
+			args = lappend(args, makeIntConst(10, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_switchover_func", args));
+			$$ = (Node*)stmt;
+		}
+	| SWITCHOVER GTMCOORD opt_gtm_inner_type Ident FORCE Iconst
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeIntConst($3, @3));
+			mgr_check_job_in_updateparam("monitor_handle_gtm");
+			args = lappend(args, makeStringConst($4, @4));
+			args = lappend(args, makeIntConst(1, -1));
+			args = lappend(args, makeIntConst($6, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_switchover_func", args));
 			$$ = (Node*)stmt;
@@ -3046,6 +3072,19 @@ SwitchoverStmt:
 			mgr_check_job_in_updateparam("monitor_handle_datanode");
 			args = lappend(args, makeStringConst($4, @4));
 			args = lappend(args, makeIntConst(0, -1));
+			args = lappend(args, makeIntConst(10, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_switchover_func", args));
+			$$ = (Node*)stmt;
+		}
+	| SWITCHOVER DATANODE opt_dn_inner_type Ident Iconst
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeIntConst($3, @3));
+			mgr_check_job_in_updateparam("monitor_handle_datanode");
+			args = lappend(args, makeStringConst($4, @4));
+			args = lappend(args, makeIntConst(0, -1));
+			args = lappend(args, makeIntConst($5, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_switchover_func", args));
 			$$ = (Node*)stmt;
@@ -3057,6 +3096,19 @@ SwitchoverStmt:
 			mgr_check_job_in_updateparam("monitor_handle_datanode");
 			args = lappend(args, makeStringConst($4, @4));
 			args = lappend(args, makeIntConst(1, -1));
+			args = lappend(args, makeIntConst(10, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_switchover_func", args));
+			$$ = (Node*)stmt;
+		}
+	| SWITCHOVER DATANODE opt_dn_inner_type Ident FORCE Iconst
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeIntConst($3, @3));
+			mgr_check_job_in_updateparam("monitor_handle_datanode");
+			args = lappend(args, makeStringConst($4, @4));
+			args = lappend(args, makeIntConst(1, -1));
+			args = lappend(args, makeIntConst($6, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_switchover_func", args));
 			$$ = (Node*)stmt;

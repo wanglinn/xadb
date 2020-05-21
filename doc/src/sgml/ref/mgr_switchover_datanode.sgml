@@ -12,7 +12,13 @@ ADB documentation
 
   <refnamediv>
     <refname>SWITCHOVER DATANODE</refname>
-    <refpurpose>datanode master, datanode slave switchover, the original master changes to slave and the original slave changes to master</refpurpose>
+    <refpurpose>datanode master, datanode slave switchover, the original master changes to slave and the original slave changes to master\n
+    Option maxTrys represents the number of executions to check whether the node has active connections. One execution cycle is 1 second.\n
+    Use like this:\n
+    SWITCHOVER DATANODE SLAVE ${nodename}\n
+    SWITCHOVER DATANODE SLAVE ${nodename} 30\n
+    SWITCHOVER DATANODE SLAVE ${nodename} FORCE\n
+    SWITCHOVER DATANODE SLAVE ${nodename} FORCE 30\n</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-switchoverdatanode">
@@ -20,9 +26,7 @@ ADB documentation
   </indexterm>
 
   <refsynopsisdiv>
-    <synopsis>
-SWITCHOVER DATANODE SLAVE <replaceable class="parameter">datanode_name</replaceable>
-</synopsis>
+    <synopsis>SWITCHOVER DATANODE SLAVE <replaceable class="parameter">${nodename}</replaceable> [FORCE] [maxTrys]</synopsis>
   </refsynopsisdiv>
 
   <refsect1>

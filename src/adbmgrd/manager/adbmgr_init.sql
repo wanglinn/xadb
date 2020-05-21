@@ -1169,7 +1169,7 @@ from public;
 
 --switchover
 revoke execute on function
-mgr_switchover_func(int, cstring, int)
+mgr_switchover_func(int, cstring, int, int)
 from public;
 
 
