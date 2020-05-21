@@ -1075,13 +1075,8 @@ static void EndParallelReduceFirst(ParallelReduceFirstState *state)
 }
 
 /* ========================= advance reduce ========================= */
-static void ExecAdvanceReduceWaitRemote(ClusterReduceState *node, AdvanceReduceState *state)
+static void ExecAdvanceReduceWaitRemote(AdvanceReduceState *state)
 {
-	char name[MAXPGPATH];
-	MemoryContext oldcontext;
-	AdvanceNodeInfo *info;
-	DynamicReduceSFS sfs;
-	uint32 i;
 	uint8 flag PG_USED_FOR_ASSERTS_ONLY;
 	Assert(state->normal.drio.eof_remote == false);
 
@@ -1093,9 +1088,16 @@ static void ExecAdvanceReduceWaitRemote(ClusterReduceState *node, AdvanceReduceS
 								  false);
 	Assert(flag == DR_MSG_RECV && TupIsNull(state->normal.drio.slot_local));
 	state->got_remote = true;
+}
+
+static void ExecAdvanceReduceOpenRemote(AdvanceReduceState *state, DynamicReduceSFS sfs)
+{
+	char name[MAXPGPATH];
+	MemoryContext oldcontext;
+	AdvanceNodeInfo *info;
+	uint32 i;
 
 	/* open remote SFS files */
-	sfs = dsm_segment_address(state->normal.dsm_seg);
 	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(state));
 	for (i=0;i<state->nnodes;++i)
 	{
@@ -1128,20 +1130,42 @@ re_get_:
 	{
 		if (cur_info->nodeoid == PGXCNodeOid &&
 			state->got_remote == false)
-			ExecAdvanceReduceWaitRemote((ClusterReduceState*)pstate, state);
+		{
+			DynamicReduceSFS sfs;
+			if (((ClusterReduceState*)pstate)->eflags & EXEC_FLAG_IN_EPQ)
+			{
+				AdvanceReduceState *origin_state = ((ClusterReduceState*)pstate)->origin_state->private_state;
+				sfs = dsm_segment_address(origin_state->normal.dsm_seg);
+				if (origin_state->got_remote == false)
+				{
+					ExecAdvanceReduceWaitRemote(origin_state);
+					ExecAdvanceReduceOpenRemote(origin_state, sfs);
+				}
+				Assert(origin_state->got_remote);
+				state->got_remote = true;
+			}else
+			{
+				sfs = dsm_segment_address(state->normal.dsm_seg);
+				ExecAdvanceReduceWaitRemote(state);
+			}
+			ExecAdvanceReduceOpenRemote(state, sfs);
+		}
 
 		/* next node */
 		cur_info = &cur_info[1];
 		if (cur_info >= &state->nodes[state->nnodes])
 			cur_info = state->nodes;
 		if (cur_info->nodeoid != PGXCNodeOid)
+		{
+			state->cur_node = cur_info;
 			goto re_get_;
+		}
 	}
 
 	return slot;
 }
 
-static void BeginAdvanceReduce(ClusterReduceState *crstate)
+static void BeginAdvanceReduce(ClusterReduceState *crstate, dsm_segment *seg)
 {
 	MemoryContext		oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
 	AdvanceReduceState *state;
@@ -1165,9 +1189,22 @@ static void BeginAdvanceReduce(ClusterReduceState *crstate)
 	crstate->reduce_method = RT_ADVANCE;
 	state->nnodes = count;
 	initStringInfo(&state->read_buf);
-	InitNormalReduceState(&state->normal, sizeof(*sfs), crstate);
-	sfs = dsm_segment_address(state->normal.dsm_seg);
-	SharedFileSetInit(&sfs->sfs, state->normal.dsm_seg);
+
+	if (seg == NULL)
+	{
+		InitNormalReduceState(&state->normal, sizeof(*sfs), crstate);
+		sfs = dsm_segment_address(state->normal.dsm_seg);
+		SharedFileSetInit(&sfs->sfs, state->normal.dsm_seg);
+	}else
+	{
+		sfs = dsm_segment_address(seg);
+		DynamicReduceInitFetch(&state->normal.drio,
+							   seg,
+							   crstate->ps.ps_ResultTupleSlot->tts_tupleDescriptor,
+							   0,
+							   NULL, 0,
+							   NULL, 0);
+	}
 
 	myinfo = NULL;
 	lc = list_head(reduce_oids);
@@ -1179,27 +1216,34 @@ static void BeginAdvanceReduce(ClusterReduceState *crstate)
 		if (info->nodeoid == PGXCNodeOid)
 		{
 			char name[MAXPGPATH];
-			info->file = BufFileCreateShared(&sfs->sfs,
-											 DynamicReduceSFSFileName(name, info->nodeoid));
+			if (seg == NULL)
+				info->file = BufFileCreateShared(&sfs->sfs,
+												 DynamicReduceSFSFileName(name, info->nodeoid));
+			else
+				info->file = BufFileOpenShared(&sfs->sfs,
+											   DynamicReduceSFSFileName(name, info->nodeoid));
 			Assert(myinfo == NULL);
 			myinfo = info;
 		}
 	}
 	Assert(myinfo != NULL);
 
-	DynamicReduceStartSharedFileSetPlan(crstate->ps.plan->plan_node_id,
-										state->normal.dsm_seg,
-										dsm_segment_address(state->normal.dsm_seg),
-										reduce_oids);
-
-	DynamicReduceFetchAllLocalAndSend(&state->normal.drio,
-									  myinfo->file,
-									  DRFetchSaveSFS);
-	if (BufFileSeek(myinfo->file, 0, 0, SEEK_SET) != 0)
+	if (seg == NULL)
 	{
-		ereport(ERROR,
-				(errcode_for_file_access(),
-				 errmsg("can not seek SFS file to head")));
+		DynamicReduceStartSharedFileSetPlan(crstate->ps.plan->plan_node_id,
+											state->normal.dsm_seg,
+											dsm_segment_address(state->normal.dsm_seg),
+											reduce_oids);
+
+		DynamicReduceFetchAllLocalAndSend(&state->normal.drio,
+										  myinfo->file,
+										  DRFetchSaveSFS);
+		if (BufFileSeek(myinfo->file, 0, 0, SEEK_SET) != 0)
+		{
+			ereport(ERROR,
+					(errcode_for_file_access(),
+					 errmsg("can not seek SFS file to head")));
+		}
 	}
 	state->cur_node = myinfo;
 
@@ -1209,14 +1253,24 @@ static void BeginAdvanceReduce(ClusterReduceState *crstate)
 	FreeReduceOids(reduce_oids);
 }
 
+static void InitEPQAdvanceReduce(ClusterReduceState *node, ClusterReduceState *origin)
+{
+	AdvanceReduceState *origin_state = origin->private_state;
+	BeginAdvanceReduce(node, origin_state->normal.dsm_seg);
+}
+
 static void EndAdvanceReduce(AdvanceReduceState *state, ClusterReduceState *crs)
 {
 	uint32				i,count;
 	AdvanceNodeInfo	   *info;
-	DynamicReduceSFS	sfs = dsm_segment_address(state->normal.dsm_seg);
+	DynamicReduceSFS	sfs;
 	char				name[MAXPGPATH];
+	bool				in_epq = (crs->eflags & EXEC_FLAG_IN_EPQ) ? true:false;
 
-	if (state->got_remote == false)
+	sfs = in_epq ? NULL:dsm_segment_address(state->normal.dsm_seg);
+
+	if (state->got_remote == false &&
+		in_epq == false)
 	{
 		uint8 flag PG_USED_FOR_ASSERTS_ONLY;
 		flag = DynamicReduceRecvTuple(state->normal.drio.mqh_receiver,
@@ -1232,7 +1286,8 @@ static void EndAdvanceReduce(AdvanceReduceState *state, ClusterReduceState *crs)
 		info = &state->nodes[i];
 		if(info->file)
 			BufFileClose(info->file);
-		BufFileDeleteShared(&sfs->sfs, DynamicReduceSFSFileName(name, info->nodeoid));
+		if (in_epq == false)
+			BufFileDeleteShared(&sfs->sfs, DynamicReduceSFSFileName(name, info->nodeoid));
 	}
 	EndNormalReduce(&state->normal);
 }
@@ -1896,11 +1951,14 @@ static TupleTableSlot* ExecEPQDefaultClusterReduce(PlanState *pstate)
 	case RT_MERGE:
 		InitEPQMergeReduce(node, origin);
 		break;
+	case RT_ADVANCE:
+		InitEPQAdvanceReduce(node, origin);
+		break;
 	default:
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("unknown origin reduce method %u", origin->reduce_method)));
-		break;
+				 errmsg("unknown support origin reduce method %u", origin->reduce_method)));
+		break;	/* should never run */
 	}
 	node->initialized = true;
 
@@ -2666,7 +2724,7 @@ static inline void AdvanceReduce(ClusterReduceState *crs, PlanState *parent, uin
 		if (plan->plan.parallel_safe)
 			BeginAdvanceParallelReduce(crs);
 		else
-			BeginAdvanceReduce(crs);
+			BeginAdvanceReduce(crs, NULL);
 		break;
 	case RT_ADVANCE:
 	case RT_ADVANCE_PARALLEL:
