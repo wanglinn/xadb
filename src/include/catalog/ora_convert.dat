@@ -90,10 +90,15 @@
 
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'timestamp text', cvtto => 'timestamp numeric' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'timestamp bpchar', cvtto => 'timestamp numeric' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timestamp varchar', cvtto => 'timestamp numeric' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'timestamp oracle.varchar2', cvtto => 'timestamp numeric' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timestamp oracle.nvarchar2', cvtto => 'timestamp numeric' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timestamp unknown', cvtto => 'timestamp numeric' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'text bpchar', cvtto => 'numeric numeric' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.varchar2 text', cvtto => 'numeric numeric' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.date bpchar', cvtto => 'timestamp numeric' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.date unknown', cvtto => 'timestamp numeric' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.date varchar', cvtto => 'timestamp numeric' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'int2 bpchar', cvtto => 'numeric numeric' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'char timestamp', cvtto => 'numeric timestamp' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'char text', cvtto => 'numeric numeric' },
@@ -106,6 +111,27 @@
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'int2 oracle.date', cvtto => 'int4 timestamp' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'int4 oracle.date', cvtto => 'int4 timestamp' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'numeric oracle.date', cvtto => 'int4 timestamp' },
+
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timetz bpchar', cvtto => 'timetz interval' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timetz varchar', cvtto => 'timetz interval' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timetz oracle.varchar2', cvtto => 'timetz interval' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timetz oracle.nvarchar2', cvtto => 'timetz interval' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timetz text', cvtto => 'timetz interval' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timetz unknown', cvtto => 'timetz interval' },
+
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'time bpchar', cvtto => 'time interval' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'time varchar', cvtto => 'time interval' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'time oracle.varchar2', cvtto => 'time interval' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'time oracle.nvarchar2', cvtto => 'time interval' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'time text', cvtto => 'time interval' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'time unknown', cvtto => 'time interval' },
+
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timestamptz bpchar', cvtto => 'timestamptz numeric' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timestamptz varchar', cvtto => 'timestamptz numeric' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timestamptz oracle.varchar2', cvtto => 'timestamptz numeric' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timestamptz oracle.nvarchar2', cvtto => 'timestamptz numeric' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timestamptz text', cvtto => 'timestamptz numeric' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'timestamptz unknown', cvtto => 'timestamptz numeric' },
 
 # date - date
 { cvtkind => 'o', cvtname => '-', cvtfrom => 'oracle.date date', cvtto => 'timestamp timestamp'},
