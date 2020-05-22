@@ -143,6 +143,7 @@ void ExecFinishClusterGather(ClusterGatherState *node)
 				node->remote_run_end = lappend(node->remote_run_end, node->last_run_end);
 				MemoryContextSwitchTo(oldcontext);
 			}
+			CHECK_FOR_INTERRUPTS();
 		}
 	}
 
