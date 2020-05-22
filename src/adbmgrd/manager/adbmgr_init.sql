@@ -144,10 +144,14 @@ CREATE VIEW adbmgr.initall AS
 	UNION ALL
 	SELECT 'start gtmcoord slave' AS "operation type", * FROM mgr_start_gtmcoord_slave(NULL)
 	UNION ALL
-	SELECT 'init coordinator' AS "operation type",* FROM mgr_init_cn_master(NULL)
+        SELECT 'init coordinator master' AS "operation type",* FROM mgr_init_cn_master(NULL)
 	UNION ALL
 	SELECT 'start coordinator master' AS "operation type", * FROM mgr_start_cn_master(NULL)
 	UNION ALL
+        SELECT 'init coordinator slave' AS "operation type",* FROM mgr_init_cn_slave()
+        UNION ALL
+        SELECT 'start coordinator slave' AS "operation type", * FROM mgr_start_cn_slave(NULL)
+        UNION ALL
 	SELECT 'init datanode master' AS "operation type", * FROM mgr_init_dn_master(NULL)
 	UNION ALL
 	SELECT 'start datanode master' AS "operation type", * FROM mgr_start_dn_master(NULL)
@@ -221,7 +225,7 @@ CREATE VIEW adbmgr.stop_coordinator_all AS
     UNION all
     SELECT 'stop coordinator master' AS "operation type", * FROM mgr_stop_cn_master('smart', NULL);
 
-CREATE VIEW adbmgr.stop_coordinator_all_f AS
+CREATE VIEW adbmgr.stop_coordinator_all_f AS            
     SELECT 'stop coordinator slave' AS "operation type", * FROM mgr_stop_cn_slave('fast', NULL)
     UNION all
     SELECT 'stop coordinator master' AS "operation type", * FROM mgr_stop_cn_master('fast', NULL);
@@ -230,6 +234,26 @@ CREATE VIEW adbmgr.stop_coordinator_all_i AS
     SELECT 'stop coordinator slave' AS "operation type", * FROM mgr_stop_cn_slave('immediate', NULL)
     UNION all
     SELECT 'stop coordinator master' AS "operation type", * FROM mgr_stop_cn_master('immediate', NULL);
+
+--stop coordinator master all
+CREATE VIEW adbmgr.stop_coordinator_master_all AS
+    SELECT 'stop coordinator master' AS "operation type", * FROM mgr_stop_cn_master('smart', NULL);
+
+CREATE VIEW adbmgr.stop_coordinator_master_all_f AS                   
+    SELECT 'stop coordinator master' AS "operation type", * FROM mgr_stop_cn_master('fast', NULL);
+
+CREATE VIEW adbmgr.stop_coordinator_master_all_i AS
+    SELECT 'stop coordinator master' AS "operation type", * FROM mgr_stop_cn_master('immediate', NULL);
+
+--stop coordinator slave all
+CREATE VIEW adbmgr.stop_coordinator_slave_all AS
+    SELECT 'stop coordinator slave' AS "operation type", * FROM mgr_stop_cn_slave('smart', NULL);
+
+CREATE VIEW adbmgr.stop_coordinator_slave_all_f AS                   
+    SELECT 'stop coordinator slave' AS "operation type", * FROM mgr_stop_cn_slave('fast', NULL);
+
+CREATE VIEW adbmgr.stop_coordinator_slave_all_i AS
+    SELECT 'stop coordinator slave' AS "operation type", * FROM mgr_stop_cn_slave('immediate', NULL);
 
 --stop datanode all
 CREATE VIEW adbmgr.stop_datanode_all AS

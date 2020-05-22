@@ -258,6 +258,7 @@ extern void mgr_drop_node(MGRDropNode *node, ParamListInfo params, DestReceiver 
 extern Datum mgr_drop_node_func(PG_FUNCTION_ARGS);
 extern Datum mgr_init_all(PG_FUNCTION_ARGS);
 extern Datum mgr_init_cn_master(PG_FUNCTION_ARGS);
+extern Datum mgr_init_cn_slave(PG_FUNCTION_ARGS);
 extern void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmdRst, Relation noderel, HeapTuple aimtuple, const char *shutdown_mode);
 extern Datum mgr_init_dn_master(PG_FUNCTION_ARGS);
 extern Datum mgr_init_dn_slave_all(PG_FUNCTION_ARGS);
