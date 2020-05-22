@@ -158,6 +158,8 @@ static List *coord_paths_for_join(PlannerInfo *root, RelOptInfo *rel, bool paral
 static bool get_cluster_join_exprs(RelOptInfo *outerrel, RelOptInfo *innerrel,
 								   List **outer_exprs, List **inner_exprs,
 								   List *restrictlist);
+static List *union_reduce_exec_oid_list(List *a, List *b);
+static bool pathlist_have_reduce_by_value(List *pathlist);
 #endif /* ADB */
 
 /*
@@ -2739,11 +2741,13 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 	}
 
 	/* reduce inner and outer both when modify(if) target not in inner and outer rel */
-	if (tried_join == false &&
-		all_outer_reduce != NIL &&
+	if (all_outer_reduce != NIL &&
 		all_inner_reduce != NIL &&
 		(jointype == JOIN_INNER || jointype == JOIN_SEMI) &&
-		(resultRelation == 0 || bms_is_member(resultRelation, joinrel->relids) == false))
+		(resultRelation == 0 || bms_is_member(resultRelation, joinrel->relids) == false) &&
+		(tried_join == false ||
+		 (pathlist_have_reduce_by_value(base_outer_pathlist) == false &&
+		  pathlist_have_reduce_by_value(base_inner_pathlist) == false)))
 	{
 		List *outer_exprs;
 		List *inner_exprs;
@@ -2753,11 +2757,8 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 		{
 			List *outer_pathlist = NIL;
 			List *inner_pathlist = NIL;
-			List *outer_exec = ReduceInfoListGetExecuteOidList(all_outer_reduce);
-			List *inner_exec = ReduceInfoListGetExecuteOidList(all_inner_reduce);
-			List *storage = list_union_oid(outer_exec, inner_exec);
+			List *storage = union_reduce_exec_oid_list(all_outer_reduce, all_inner_reduce);
 			bool no_coord_oid = !list_member_oid(storage, PGXCNodeOid);
-			storage = SortOidList(storage);
 			if(storage)
 			{
 				List *reduce_outer_pathlist;
@@ -2811,8 +2812,6 @@ re_reduce_join_:
 				no_coord_oid = false;
 				goto re_reduce_join_;
 			}
-			list_free(outer_exec);
-			list_free(inner_exec);
 			list_free(storage);
 			list_free(outer_exprs);
 			list_free(inner_exprs);
@@ -2940,9 +2939,9 @@ re_reduce_join_:
 				}
 			}
 
-			/* try parallel reduce outer */
 			if (tried_join == false)
 			{
+				/* try parallel reduce outer */
 				all_inner_reduce = GetPathListReduceInfoList(innerrel->cluster_partial_pathlist);
 				need_reduce_list = create_outer_reduce_info_for_join(all_inner_reduce,
 																	 outerrel,
@@ -2962,14 +2961,136 @@ re_reduce_join_:
 					set_all_join_inner_path(&jcontext, outer_path, innerrel->cluster_partial_pathlist);
 					inner_path = get_cheapest_join_path(&jcontext, outer_path, TOTAL_COST, true, &reduce_list);
 					if (inner_path)
+					{
 						try_partial_hashjoin_path(root, joinrel,
 												  outer_path, inner_path,
 												  jcontext.hashclauses, jointype,
 												  reduce_list, extra,
 												  true);
+						tried_join = true;
+					}
 				}
 				list_free(need_reduce_list);
 				list_free(outer_pathlist);
+
+				/* try parallel reduce inner */
+				all_outer_reduce = GetPathListReduceInfoList(outerrel->cluster_partial_pathlist);
+				need_reduce_list = create_inner_reduce_info_for_join(all_outer_reduce,
+																	 innerrel,
+																	 jcontext.jointype,
+																	 extra);
+				inner_pathlist = reduce_paths_for_join(root,
+													   innerrel,
+													   innerrel->cluster_partial_pathlist,
+													   need_reduce_list,
+													   true);
+				foreach(lc1, outerrel->cluster_partial_pathlist)
+				{
+					outer_path = lfirst(lc1);
+					if (PATH_PARAM_BY_REL(outer_path, innerrel))
+						continue;
+					
+					set_all_join_inner_path(&jcontext, outer_path, inner_pathlist);
+					inner_path = get_cheapest_join_path(&jcontext, outer_path, TOTAL_COST, true, &reduce_list);
+					if (inner_path)
+					{
+						try_partial_hashjoin_path(root, joinrel,
+												  outer_path, inner_path,
+												  jcontext.hashclauses, jointype,
+												  reduce_list, extra,
+												  true);
+						tried_join = true;
+					}
+				}
+				list_free(need_reduce_list);
+				list_free(inner_pathlist);
+
+				/* try parallel reduce both outer and inner */
+				if (all_outer_reduce != NIL &&
+					all_inner_reduce != NIL &&
+					(jointype == JOIN_INNER || jointype == JOIN_SEMI) &&
+					(tried_join == false ||
+					 (pathlist_have_reduce_by_value(outerrel->cluster_partial_pathlist) == false &&
+					  pathlist_have_reduce_by_value(innerrel->cluster_partial_pathlist) == false)))
+				{
+					Path *path;
+					List *outer_exprs;
+					List *inner_exprs;
+					List *storage = NIL;
+					List *reduce_outer_pathlist = NIL;
+					List *reduce_inner_pathlist = NIL;
+					outer_pathlist = inner_pathlist = NIL;
+
+					get_cluster_join_exprs(outerrel, innerrel, &outer_exprs, &inner_exprs, extra->restrictlist);
+					Assert(list_length(outer_exprs) == list_length(inner_exprs));
+					if (outer_exprs == NIL ||
+						inner_exprs == NIL ||
+						(storage = union_reduce_exec_oid_list(all_outer_reduce, all_inner_reduce)) == NIL)
+						goto end_reduce_parallel_outer_inner_;
+
+					/* ready for reduce */
+					reduce_outer_pathlist = GetCheapestReducePathList(outerrel,
+																	  outerrel->cluster_partial_pathlist,
+																	  NULL,
+																	  &path);
+					if(path && list_member_ptr(reduce_outer_pathlist, path) == false)
+						reduce_outer_pathlist = lappend(reduce_outer_pathlist, path);
+					reduce_inner_pathlist = GetCheapestReducePathList(innerrel,
+																	  innerrel->cluster_partial_pathlist,
+																	  NULL,
+																	  &path);
+					if(path && list_member_ptr(reduce_inner_pathlist, path) == false)
+						reduce_inner_pathlist = lappend(reduce_inner_pathlist, path);
+
+					ReducePathListByExpr((Expr*)outer_exprs,
+										 root,
+										 outerrel,
+										 reduce_outer_pathlist,
+										 storage,
+										 NIL,
+										 ReducePathSave2List,
+										 (void*)&outer_pathlist,
+										 REDUCE_TYPE_HASH,
+										 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
+										 REDUCE_TYPE_NONE);
+					ReducePathListByExpr((Expr*)inner_exprs,
+										 root,
+										 innerrel,
+										 reduce_inner_pathlist,
+										 storage,
+										 NIL,
+										 ReducePathSave2List,
+										 (void*)&inner_pathlist,
+										 REDUCE_TYPE_HASH,
+										 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
+										 REDUCE_TYPE_NONE);
+
+					/* try add paths */
+					foreach (lc1, outer_pathlist)
+					{
+						outer_path = lfirst(lc1);
+						if (PATH_PARAM_BY_REL(outer_path, innerrel))
+							continue;
+						
+						set_all_join_inner_path(&jcontext, outer_path, inner_pathlist);
+						inner_path = get_cheapest_join_path(&jcontext, outer_path, TOTAL_COST, true, &reduce_list);
+						if (inner_path)
+							try_partial_hashjoin_path(root, joinrel,
+													  outer_path, inner_path,
+													  jcontext.hashclauses, jointype,
+													  reduce_list, extra,
+													  true);
+					}
+
+end_reduce_parallel_outer_inner_:
+					list_free(reduce_inner_pathlist);
+					list_free(reduce_outer_pathlist);
+					list_free(inner_pathlist);
+					list_free(outer_pathlist);
+					list_free(storage);
+				}
+				list_free(all_outer_reduce);
+				list_free(all_inner_reduce);
 			}
 		}
 	}
@@ -3690,5 +3811,33 @@ static bool get_cluster_join_exprs(RelOptInfo *outerrel, RelOptInfo *innerrel,
 	*outer_exprs = outer;
 	*inner_exprs = inner;
 	return outer != NIL;
+}
+
+static List *union_reduce_exec_oid_list(List *a, List *b)
+{
+	List *a_exec = ReduceInfoListGetExecuteOidList(a);
+	List *b_exec = ReduceInfoListGetExecuteOidList(b);
+	List *result = list_union_oid(a_exec, b_exec);
+	result = SortOidList(result);
+
+	list_free(a_exec);
+	list_free(b_exec);
+
+	return result;
+}
+
+static bool pathlist_have_reduce_by_value(List *pathlist)
+{
+	ListCell   *lc;
+	List	   *reduce_list;
+
+	foreach (lc, pathlist)
+	{
+		reduce_list = get_reduce_info_list(lfirst(lc));
+		if (IsReduceInfoListByValue(reduce_list))
+			return true;
+	}
+
+	return false;
 }
 #endif /* ADB */
