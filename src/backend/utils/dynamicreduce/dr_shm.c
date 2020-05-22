@@ -30,13 +30,20 @@ static void dr_wait_latch(void)
 
 	if (MyLatch->is_set)
 		return;
+	pgstat_report_wait_start(WAIT_EVENT_MQ_INTERNAL);
 	sigprocmask(0, NULL, &sigmask);
 	sigaddset(&sigmask, SIGUSR1);
+	sigaddset(&sigmask, SIGINT);
+	sigaddset(&sigmask, SIGTERM);
 	sigprocmask(SIG_SETMASK, &sigmask, &origmask);
 	while(MyLatch->is_set == false)
+	{
 		sigsuspend(&origmask);
+		CHECK_FOR_INTERRUPTS();
+	}
 
 	sigprocmask(SIG_SETMASK, &origmask, NULL);
+	pgstat_report_wait_end();
 }
 #endif
 
