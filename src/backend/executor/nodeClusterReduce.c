@@ -1520,6 +1520,15 @@ static TupleTableSlot* ExecMergeReduce(PlanState *pstate)
 	return GetMergeReduceResult(merge, node);
 }
 
+static TupleTableSlot* ExecMergeReduceFirstTuple(PlanState *pstate)
+{
+	ClusterReduceState *crstate = castNode(ClusterReduceState, pstate);
+	TupleTableSlot *slot = GetMergeReduceResult(crstate->private_state, crstate);
+	if (!TupIsNull(slot))
+		ExecSetExecProcNode(pstate, ExecMergeReduce);
+	return slot;
+}
+
 static BufFile* GetMergeBufFile(MergeReduceState *merge, Oid nodeoid)
 {
 	uint32	i,count;
@@ -1533,16 +1542,14 @@ static BufFile* GetMergeBufFile(MergeReduceState *merge, Oid nodeoid)
 	return NULL;
 }
 
-static void OpenMergeBufFiles(MergeReduceState *merge)
+static void OpenMergeBufFiles(MergeReduceState *merge, DynamicReduceSFS sfs)
 {
 	MemoryContext		oldcontext;
 	MergeNodeInfo	   *info;
-	DynamicReduceSFS	sfs;
 	uint32				i;
 	char				name[MAXPGPATH];
 
 	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(merge));
-	sfs = dsm_segment_address(merge->normal.dsm_seg);
 	for(i=0;i<merge->nnodes;++i)
 	{
 		info = &merge->nodes[i];
@@ -1614,7 +1621,7 @@ static inline void ExecMergeReduceWaitRemote(ClusterReduceState *node, MergeRedu
 	Assert(flag = DR_MSG_RECV && TupIsNull(node->ps.ps_ResultTupleSlot));
 	merge->normal.drio.eof_remote = true;
 
-	OpenMergeBufFiles(merge);
+	OpenMergeBufFiles(merge, dsm_segment_address(merge->normal.dsm_seg));
 	BuildMergeBinaryHeap(merge);
 }
 
@@ -1625,8 +1632,8 @@ static TupleTableSlot* ExecMergeReduceFinal(PlanState *pstate)
 
 	ExecMergeReduceWaitRemote(node, merge);
 
-	ExecSetExecProcNode(&node->ps, ExecMergeReduce);
-	return GetMergeReduceResult(merge, node);
+	ExecSetExecProcNode(&node->ps, ExecMergeReduceFirstTuple);
+	return ExecMergeReduceFirstTuple(pstate);
 }
 
 static TupleTableSlot* ExecMergeReduceFirst(PlanState *pstate)
@@ -1636,7 +1643,7 @@ static TupleTableSlot* ExecMergeReduceFirst(PlanState *pstate)
 	return ExecMergeReduceFinal(pstate);
 }
 
-static void InitMergeReduceState(ClusterReduceState *state, MergeReduceState *merge)
+static void InitMergeReduceState(ClusterReduceState *state, MergeReduceState *merge, dsm_segment *seg)
 {
 	TupleDesc		desc = state->ps.ps_ResultTupleSlot->tts_tupleDescriptor;
 	ClusterReduce  *plan = castNode(ClusterReduce, state->ps.plan);
@@ -1654,9 +1661,22 @@ static void InitMergeReduceState(ClusterReduceState *state, MergeReduceState *me
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("Can not find working nodes")));
 	}
-	InitNormalReduceState(&merge->normal, sizeof(*sfs), state);
-	sfs = dsm_segment_address(merge->normal.dsm_seg);
-	SharedFileSetInit(&sfs->sfs, merge->normal.dsm_seg);
+
+	if (seg == NULL)
+	{
+		InitNormalReduceState(&merge->normal, sizeof(*sfs), state);
+		sfs = dsm_segment_address(merge->normal.dsm_seg);
+		SharedFileSetInit(&sfs->sfs, merge->normal.dsm_seg);
+	}else
+	{
+		sfs = dsm_segment_address(seg);
+		DynamicReduceInitFetch(&merge->normal.drio,
+							   seg,
+							   desc,
+							   0,
+							   NULL,0,
+							   NULL,0);
+	}
 
 	merge->nodes = palloc0(sizeof(merge->nodes[0]) * count);
 	merge->nnodes = count;
@@ -1670,7 +1690,8 @@ static void InitMergeReduceState(ClusterReduceState *state, MergeReduceState *me
 		MemSet(info->read_buf.data, SizeofMinimalTupleHeader, 0);
 		info->nodeoid = lfirst_oid(lc);
 		lc = lnext(lc);
-		if (info->nodeoid == PGXCNodeOid)
+		if (info->nodeoid == PGXCNodeOid &&
+			seg == NULL)
 		{
 			char name[MAXPGPATH];
 			info->file = BufFileCreateShared(&sfs->sfs,
@@ -1703,7 +1724,7 @@ static void InitMergeReduce(ClusterReduceState *crstate)
 
 	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
 	merge = palloc0(sizeof(MergeReduceState));
-	InitMergeReduceState(crstate, merge);
+	InitMergeReduceState(crstate, merge, NULL);
 	crstate->private_state = merge;
 	ExecSetExecProcNode(&crstate->ps, ExecMergeReduceFirst);
 
@@ -1718,15 +1739,21 @@ static void EndMergeReduce(MergeReduceState *merge)
 {
 	uint32				i,count;
 	MergeNodeInfo	   *info;
-	DynamicReduceSFS	sfs = dsm_segment_address(merge->normal.dsm_seg);
+	DynamicReduceSFS	sfs;
 	char				name[MAXPGPATH];
+
+	if (merge->normal.dsm_seg)
+		sfs = dsm_segment_address(merge->normal.dsm_seg);
+	else
+		sfs = NULL;
 
 	for (i=0,count=merge->nnodes;i<count;++i)
 	{
 		info = &merge->nodes[i];
 		if(info->file)
 			BufFileClose(info->file);
-		BufFileDeleteShared(&sfs->sfs, DynamicReduceSFSFileName(name, info->nodeoid));
+		if (sfs)
+			BufFileDeleteShared(&sfs->sfs, DynamicReduceSFSFileName(name, info->nodeoid));
 	}
 	EndNormalReduce(&merge->normal);
 	pfree(merge->sortkeys);
@@ -1735,6 +1762,9 @@ static void EndMergeReduce(MergeReduceState *merge)
 static void DriveMergeReduce(ClusterReduceState *node)
 {
 	MergeReduceState *merge = node->private_state;
+
+	if (node->eflags & EXEC_FLAG_IN_EPQ)
+		return;
 
 	if (merge->normal.drio.eof_local == false)
 	{
@@ -1756,6 +1786,39 @@ static void BeginAdvanceMerge(ClusterReduceState *crstate)
 	ExecSetExecProcNode(&crstate->ps, ExecMergeReduceFinal);
 
 	MemoryContextSwitchTo(oldcontext);
+}
+
+static void InitEPQMergeReduce(ClusterReduceState *crstate, ClusterReduceState *origin)
+{
+	MemoryContext		oldcontext;
+	MergeReduceState   *merge;
+	MergeReduceState   *origin_merge = origin->private_state;
+	Assert(crstate->private_state == NULL);
+
+	if (origin_merge->normal.drio.eof_local == false)
+	{
+		ExecMergeReduceLocal(origin);
+		ExecSetExecProcNode(&origin->ps, ExecMergeReduceFinal);
+	}
+	if (origin_merge->normal.drio.eof_remote == false)
+	{
+		ExecMergeReduceWaitRemote(origin, origin_merge);
+		ExecSetExecProcNode(&origin->ps, ExecMergeReduce);
+	}
+	Assert(origin_merge->normal.drio.eof_local &&
+		   origin_merge->normal.drio.eof_remote);
+
+	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(crstate));
+	crstate->private_state = merge = palloc0(sizeof(MergeReduceState));
+	crstate->initialized = true;
+	InitMergeReduceState(crstate, merge, origin_merge->normal.dsm_seg);
+	merge->normal.drio.eof_remote = merge->normal.drio.eof_local = true;
+	OpenMergeBufFiles(merge, dsm_segment_address(origin_merge->normal.dsm_seg));
+	BuildMergeBinaryHeap(merge);
+
+	MemoryContextSwitchTo(oldcontext);
+
+	ExecSetExecProcNode(&crstate->ps, ExecMergeReduceFirstTuple);
 }
 
 /* ======================================================== */
@@ -1802,6 +1865,13 @@ static TupleTableSlot* ExecEPQDefaultClusterReduce(PlanState *pstate)
 {
 	ClusterReduceState *node = castNode(ClusterReduceState, pstate);
 	ClusterReduceState *origin;
+	if (node->private_state != NULL ||
+		node->initialized)
+	{
+		ereport(ERROR,
+				(errmsg("ClusterReduce plan %d alredy initialized", pstate->plan->plan_node_id),
+				 errcode(ERRCODE_INTERNAL_ERROR)));
+	}
 	if (node->origin_state == NULL)
 	{
 		ereport(ERROR,
@@ -1823,12 +1893,16 @@ static TupleTableSlot* ExecEPQDefaultClusterReduce(PlanState *pstate)
 	case RT_REDUCE_FIRST:
 		InitEPQReduceFirst(node, origin);
 		break;
+	case RT_MERGE:
+		InitEPQMergeReduce(node, origin);
+		break;
 	default:
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("unknown origin reduce method %u", origin->reduce_method)));
 		break;
 	}
+	node->initialized = true;
 
 	return pstate->ExecProcNodeReal(pstate);
 }
@@ -1983,6 +2057,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	crstate->eflags = (eflags & (EXEC_FLAG_REWIND |
 								 EXEC_FLAG_BACKWARD |
 								 EXEC_FLAG_MARK |
+								 EXEC_FLAG_IN_EPQ |
 								 EXEC_FLAG_EXPLAIN_ONLY));
 
 	/*
@@ -2274,17 +2349,17 @@ ExecReScanClusterReduce(ClusterReduceState *node)
 	case RT_MERGE:
 		{
 			MergeReduceState   *state = node->private_state;
-			MergeNodeInfo	   *node;
+			MergeNodeInfo	   *info;
 			uint32				i;
 			if (state->normal.drio.eof_remote == true)
 			{
 				binaryheap_reset(state->binheap);
 				for (i=0;i<state->nnodes;++i)
 				{
-					node = &state->nodes[i];
-					ExecClearTuple(node->slot);
-					resetStringInfo(&node->read_buf);
-					if (BufFileSeek(node->file, 0, 0, SEEK_SET) != 0)
+					info = &state->nodes[i];
+					ExecClearTuple(info->slot);
+					resetStringInfo(&info->read_buf);
+					if (BufFileSeek(info->file, 0, 0, SEEK_SET) != 0)
 					{
 						ereport(ERROR,
 								(errcode_for_file_access(),
@@ -2292,6 +2367,7 @@ ExecReScanClusterReduce(ClusterReduceState *node)
 					}
 				}
 				BuildMergeBinaryHeap(state);
+				ExecSetExecProcNode(&node->ps, ExecMergeReduceFirstTuple);
 			}
 		}
 		break;
@@ -2306,7 +2382,10 @@ ExecReScanClusterReduce(ClusterReduceState *node)
 static bool
 DriveClusterReduceState(ClusterReduceState *node)
 {
-	if (node->initialized == false)
+	if (node->eflags & EXEC_FLAG_IN_EPQ)
+	{
+		return false;
+	}else if (node->initialized == false)
 	{
 		if (node->private_state == NULL)
 			InitReduceMethod(node);
