@@ -1176,6 +1176,23 @@ mgr_init_cn_master(PG_FUNCTION_ARGS)
 		return mgr_runmode_cndn(nodenames_supplier_of_argidx_0, NULL, CNDN_TYPE_COORDINATOR_MASTER, AGT_CMD_CNDN_CNDN_INIT, TAKEPLAPARM_N, fcinfo);
 }
 
+Datum
+mgr_init_cn_slave(PG_FUNCTION_ARGS)
+{
+	HeapTuple tup_result;
+	char *nodename;
+	bool force;
+	NameData newMasterName = {{0}};
+
+	if (RecoveryInProgress())
+		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
+
+	if (PG_ARGISNULL(0))
+			return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CNDN_SLAVE_INIT, TAKEPLAPARM_N, fcinfo);
+	else
+		return mgr_runmode_cndn(nodenames_supplier_of_argidx_0, NULL, CNDN_TYPE_COORDINATOR_SLAVE, AGT_CMD_CNDN_SLAVE_INIT, TAKEPLAPARM_N, fcinfo);
+}
+
 /*
 * init datanode master dn1,dn2...
 * init datanode master all
@@ -1709,6 +1726,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	NameData cndnnamedata;
 	HeapTuple mastertuple;
 	PGconn *pg_conn = NULL;
+	char    masterType;
 
 	getAgentCmdRst->ret = false;
 	initStringInfo(&infosendmsg);
@@ -1732,13 +1750,15 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	if (AGT_CMD_GTMCOORD_SLAVE_FAILOVER == cmdtype || AGT_CMD_DN_FAILOVER == cmdtype)
 		mgr_clean_cn_pgxcnode_readonlysql_slave();
 	/*check node init or not*/
-	if ((AGT_CMD_CNDN_CNDN_INIT == cmdtype || AGT_CMD_GTMCOORD_INIT == cmdtype || AGT_CMD_GTMCOORD_SLAVE_INIT == cmdtype ) && mgr_node->nodeinited)
+	if ((AGT_CMD_CNDN_CNDN_INIT == cmdtype || AGT_CMD_CNDN_SLAVE_INIT == cmdtype || AGT_CMD_GTMCOORD_INIT == cmdtype || AGT_CMD_GTMCOORD_SLAVE_INIT == cmdtype) 
+		&& mgr_node->nodeinited)
 	{
 		appendStringInfo(&(getAgentCmdRst->description), "%s \"%s\" has been initialized", nodetypestr, cndnname);
 		getAgentCmdRst->ret = false;
 		goto end;
 	}
-	if(AGT_CMD_CNDN_CNDN_INIT != cmdtype && AGT_CMD_GTMCOORD_INIT != cmdtype && AGT_CMD_GTMCOORD_SLAVE_INIT != cmdtype
+	
+	if(AGT_CMD_CNDN_CNDN_INIT != cmdtype && AGT_CMD_CNDN_SLAVE_INIT != cmdtype && AGT_CMD_GTMCOORD_INIT != cmdtype && AGT_CMD_GTMCOORD_SLAVE_INIT != cmdtype
 		&& AGT_CMD_CLEAN_NODE != cmdtype && AGT_CMD_GTMCOORD_STOP_MASTER != cmdtype && AGT_CMD_GTMCOORD_STOP_SLAVE != cmdtype
 		&& AGT_CMD_CN_STOP != cmdtype && AGT_CMD_DN_STOP != cmdtype && !mgr_node->nodeinited
 		&& AGT_CMD_DN_RESTART != cmdtype && AGT_CMD_CN_RESTART != cmdtype && AGT_CMD_AGTM_RESTART != cmdtype
@@ -1844,7 +1864,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		else
 			appendStringInfo(&infosendmsg, " --nodename %s -E UTF8 --locale=C", cndnname);
 	}  /*init gtmcoord slave*/
-	else if (AGT_CMD_GTMCOORD_SLAVE_INIT == cmdtype)
+	else if (AGT_CMD_GTMCOORD_SLAVE_INIT == cmdtype || AGT_CMD_CNDN_SLAVE_INIT == cmdtype)
 	{
 		user = get_hostuser_from_hostoid(hostOid);
 		/*get gtmcoord masterport, masterhostaddress*/
@@ -1863,6 +1883,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		masterhostOid = mgr_node_gtm->nodehost;
 		mastername = NameStr(mgr_node_gtm->nodename);
 		masterhostaddress = get_hostaddress_from_hostoid(masterhostOid);
+		masterType = getMgrMasterNodetype(mgr_node_gtm->nodetype);
 		appendStringInfo(&infosendmsg, " -p %u", masterport);
 		appendStringInfo(&infosendmsg, " -h %s", masterhostaddress);
 		appendStringInfo(&infosendmsg, " -D %s", cndnPath);
@@ -1882,9 +1903,9 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			goto end;
 		}
         
-		if(!mgr_check_node_inited_maxtimes(CNDN_TYPE_GTM_COOR_MASTER, mastername, true, CHECK_NODE_MAX_TIMES))
+		if(!mgr_check_node_inited_maxtimes(masterType, mastername, true, CHECK_NODE_MAX_TIMES))
 		{
-			appendStringInfo(&(getAgentCmdRst->description), "gtmcoord master \"%s\" is not inited", mastername);
+			appendStringInfo(&(getAgentCmdRst->description), "%s \"%s\" is not inited", mgr_nodetype_str(masterType), mastername);
 			getAgentCmdRst->ret = false;
 			ereport(WARNING, (errmsg("gtmcoord master \"%s\" is not inited", mastername)));
 			goto end;	
@@ -2025,8 +2046,8 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	}
 
 	/*when init, 1. update gtm system table's column to set initial is true 2. refresh postgresql.conf*/
-	if (execRes && AGT_CMD_GTMCOORD_SLAVE_INIT == cmdtype)
-	{		
+	if (execRes && (AGT_CMD_GTMCOORD_SLAVE_INIT == cmdtype || AGT_CMD_CNDN_SLAVE_INIT == cmdtype))
+	{
 		/*refresh postgresql.conf of this node*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
@@ -2038,7 +2059,8 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
 		mgr_add_parameters_hbaconf((mgr_node->nodemasternameoid == 0)? HeapTupleGetOid(aimtuple):mgr_node->nodemasternameoid
-			, CNDN_TYPE_GTM_COOR_MASTER, &infosendmsg);
+			, getMgrMasterNodetype(mgr_node->nodetype), &infosendmsg);
+
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
 		/*refresh recovry.conf*/
 		resetStringInfo(&(getAgentCmdRst->description));
@@ -2053,7 +2075,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 
 	/*update node system table's column to set initial is true when cmd is init*/
 	if ((AGT_CMD_CNDN_CNDN_INIT == cmdtype ||  AGT_CMD_GTMCOORD_INIT == cmdtype) && execRes)
-	{		
+	{
 		/*refresh postgresql.conf of this node*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
@@ -6834,72 +6856,53 @@ void mgr_add_parameters_hbaconf(Oid mastertupleoid, char nodetype, StringInfo in
 	bool bgetAddress;
 
 	rel_node = heap_open(NodeRelationId, AccessShareLock);
-	/*get all coordinator master ip*/
-	if (CNDN_TYPE_COORDINATOR_MASTER == nodetype)
+	
+	/*for datanode or gtm or coordinator replication*/
+	rel_scan = heap_beginscan_catalog(rel_node, 0, NULL);
+	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
-		ScanKeyInit(&key[0]
-				,Anum_mgr_node_nodezone
-				,BTEqualStrategyNumber
-				,F_NAMEEQ
-				,CStringGetDatum(mgr_zone));
-		rel_scan = heap_beginscan_catalog(rel_node, 1, key);
-		while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		if (mastertupleoid != 0 && (mastertupleoid == mgr_node->nodemasternameoid))
 		{
-			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-			Assert(mgr_node);
+			/*database user*/
+			cnuser = get_hostuser_from_hostoid(mgr_node->nodehost);
 			/*get address*/
 			cnaddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
-			if (CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype || 
-				CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype ||
-				CNDN_TYPE_GTM_COOR_SLAVE == mgr_node->nodetype)
-				mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", cnaddress, 32, "trust", infosendhbamsg);
+			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", cnuser, cnaddress, 32, "trust", infosendhbamsg);
+
+			pfree(cnuser);
 			pfree(cnaddress);
 		}
-		heap_endscan(rel_scan);
 	}
-	else
+	heap_endscan(rel_scan);
+	/*for allow connect*/
+	rel_scan = heap_beginscan_catalog(rel_node, 0, NULL);
+	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
-		/*for datanode or gtm replication*/
-		rel_scan = heap_beginscan_catalog(rel_node, 0, NULL);
-		while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		cnaddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
+		if (CNDN_TYPE_GTM_COOR_MASTER == nodetype || CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
 		{
-			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-			Assert(mgr_node);
-			if (mastertupleoid != 0 && (mastertupleoid == mgr_node->nodemasternameoid))
+			if (mgr_node->nodetype != CNDN_TYPE_GTM_COOR_SLAVE)
 			{
-				/*database user*/
-				cnuser = get_hostuser_from_hostoid(mgr_node->nodehost);
-				/*get address*/
-				cnaddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
-				mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", cnuser, cnaddress, 32, "trust", infosendhbamsg);
-				pfree(cnuser);
-				pfree(cnaddress);
-			}
+				mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", cnaddress, 32, "trust", infosendhbamsg);
+			}					
 		}
-		heap_endscan(rel_scan);
-		/*for allow connect*/
-		rel_scan = heap_beginscan_catalog(rel_node, 0, NULL);
-		while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+		else
 		{
-			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-			Assert(mgr_node);
-			cnaddress = get_hostaddress_from_hostoid(mgr_node->nodehost);
-			if (CNDN_TYPE_GTM_COOR_MASTER == nodetype || CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
+			if (CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype || CNDN_TYPE_COORDINATOR_SLAVE == mgr_node->nodetype  ||
+				CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype    || CNDN_TYPE_GTM_COOR_SLAVE == mgr_node->nodetype)
 			{
-				if (mgr_node->nodetype != CNDN_TYPE_GTM_COOR_SLAVE)
-					mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", cnaddress, 32, "trust", infosendhbamsg);
+				mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", cnaddress, 32, "trust", infosendhbamsg);
 			}
-			else
-			{
-				if (CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype ||
-					CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype ||
-					CNDN_TYPE_GTM_COOR_SLAVE == mgr_node->nodetype)
-					mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", cnaddress, 32, "trust", infosendhbamsg);
-			}
-			pfree(cnaddress);
+				
 		}
-		heap_endscan(rel_scan);
+		pfree(cnaddress);
 	}
+	heap_endscan(rel_scan);
+
 	/*get the adbmanager ip*/
 	memset(self_address.data, 0, NAMEDATALEN);
 	bgetAddress = get_local_ip(&self_address);

@@ -2401,6 +2401,31 @@ StopNodeMasterStmt:
 				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stop_coordinator_all_i"), -1));
 			$$ = (Node*)stmt;
 		}
+	|	STOP COORDINATOR MASTER ALL opt_stop_mode
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			if (strcmp($5, SHUTDOWN_S) == 0)
+				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stop_coordinator_master_all"), -1));
+			else if (strcmp($5, SHUTDOWN_F) == 0)
+				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stop_coordinator_master_all_f"), -1));
+			else
+				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stop_coordinator_master_all_i"), -1));
+			$$ = (Node*)stmt;
+		}
+	|	STOP COORDINATOR SLAVE ALL opt_stop_mode
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			if (strcmp($5, SHUTDOWN_S) == 0)
+				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stop_coordinator_slave_all"), -1));
+			else if (strcmp($5, SHUTDOWN_F) == 0)
+				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stop_coordinator_slave_all_f"), -1));
+			else
+				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stop_coordinator_slave_all_i"), -1));
+			$$ = (Node*)stmt;
+		}	
+
 	|	STOP DATANODE MASTER NodeConstList opt_stop_mode
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
