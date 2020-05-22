@@ -2655,6 +2655,20 @@ static bool SetClusterReduceOriginWorker(PlanState *ps, ClusterReduceState *node
 	return planstate_tree_walker(ps, SetClusterReduceOriginWorker, node);
 }
 
+static bool SetReduceScanOriginWorker(PlanState *ps, ReduceScanState *node)
+{
+	if (ps == NULL)
+		return false;
+	if (IsA(ps, ReduceScanState) &&
+		ps->plan->plan_node_id == node->ps.plan->plan_node_id)
+	{
+		ExecSetReduceScanEPQOrigin(node, (ReduceScanState*)ps);
+		return true;
+	}
+
+	return planstate_tree_walker(ps, SetReduceScanOriginWorker, node);
+}
+
 static inline bool SetClusterReduceOrigin(EPQState *epq, PlanState *ps, bool (*fun)())
 {
 	ListCell *lc;
@@ -2680,7 +2694,16 @@ static bool EnumClusterReduceWorker(PlanState *ps, EPQState *epq)
 					 errmsg("Can not found origin plan state for cluster reduce plan %d",
 							ps->plan->plan_node_id)));
 		Assert(((ClusterReduceState*)ps)->origin_state != NULL);
+	}else if(IsA(ps, ReduceScanState))
+	{
+		if (SetClusterReduceOrigin(epq, ps, SetReduceScanOriginWorker) == false)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Can not found origin plan state for reduce scan plan %d",
+							ps->plan->plan_node_id)));
+		return true;	/* ignore sub reduce, they never execute in EPQ */
 	}
+
 	return planstate_tree_walker(ps, EnumClusterReduceWorker, epq);
 }
 

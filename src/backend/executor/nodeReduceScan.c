@@ -30,16 +30,51 @@ typedef struct RedcueScanSharedMemory
 int reduce_scan_bucket_size = 1024*1024;	/* 1MB */
 int reduce_scan_max_buckets = 1024;
 
-static TupleTableSlot *ExecSeqReduceScan(PlanState *pstate);
-static TupleTableSlot* ExecHashReduceScan(PlanState *pstate);
-static TupleTableSlot *ExecEmptyReduceScan(PlanState *pstate);
-static TupleTableSlot* SeqReduceScanNext(ReduceScanState *node);
-static TupleTableSlot* HashReduceScanNext(ReduceScanState *node);
-static bool ReduceScanRecheck(ReduceScanState *node, TupleTableSlot *slot);
 static uint32 ExecReduceScanGetHashValue(ExprContext *econtext, List *exprs, FmgrInfo *fmgr, bool *isnull);
 static inline SharedTuplestoreAccessor* ExecGetReduceScanBatch(ReduceScanState *node, uint32 hashval)
 {
 	return node->batchs[hashval%node->nbatchs];
+}
+
+static TupleTableSlot *ExecReduceScan(PlanState *pstate)
+{
+	ReduceScanState *node = castNode(ReduceScanState, pstate);
+	TupleTableSlot *scan_slot = node->scan_slot;
+	ExprContext	   *econtext = pstate->ps_ExprContext;
+	ProjectionInfo *projInfo = pstate->ps_ProjInfo;
+	ExprState	   *qual = pstate->qual;
+	MinimalTuple	mtup;
+	uint32			hashval;
+
+	if (unlikely(node->cur_batch == NULL))
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("reduce scan plan %d not ready to scan", pstate->plan->plan_node_id)));
+
+	ResetExprContext(econtext);
+	for (;;)
+	{
+		/* when no hash, sts_scan_next ignore "&hashval" argument */
+		mtup = sts_scan_next(node->cur_batch, &hashval);
+		if (mtup == NULL)
+			return ExecClearTuple(pstate->ps_ResultTupleSlot);
+
+		if (node->scan_hash_exprs != NIL &&
+			hashval != node->cur_hashval)
+		{
+			/* using hash and hash value not equal */
+			InstrCountFiltered1(node, 1);
+			continue;
+		}
+
+		ExecStoreMinimalTuple(mtup, scan_slot, false);
+		econtext->ecxt_outertuple = econtext->ecxt_scantuple = scan_slot;
+		if (ExecQual(qual, econtext))
+			return projInfo ? ExecProject(projInfo) : scan_slot;
+
+		InstrCountFiltered1(node, 1);
+		ResetExprContext(econtext);
+	}
 }
 
 ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags)
@@ -48,20 +83,21 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 	TupleDesc	tupDesc;
 	ReduceScanState *rcs = makeNode(ReduceScanState);
 
-	rcs->ss.ps.plan = (Plan*)node;
-	rcs->ss.ps.state = estate;
+	rcs->ps.plan = (Plan*)node;
+	rcs->ps.state = estate;
+	rcs->ps.ExecProcNode = ExecReduceScan;
 
 	/*
 	 * Miscellaneous initialization
 	 *
 	 * create expression context for node
 	 */
-	ExecAssignExprContext(estate, &rcs->ss.ps);
+	ExecAssignExprContext(estate, &rcs->ps);
 
 	/*
 	 * initialize child expressions
 	 */
-	rcs->ss.ps.qual = ExecInitQual(node->plan.qual, (PlanState *) rcs);
+	rcs->ps.qual = ExecInitQual(node->plan.qual, (PlanState *) rcs);
 
 	outer_plan = outerPlan(node);
 	outerPlanState(rcs) = ExecInitNode(outer_plan, estate, eflags & ~(EXEC_FLAG_REWIND|EXEC_FLAG_BACKWARD));
@@ -71,9 +107,9 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 	 * initialize tuple type.  no need to initialize projection info because
 	 * this node doesn't do projections.
 	 */
-	ExecInitScanTupleSlot(estate, &rcs->ss, tupDesc);
-	ExecInitResultTupleSlotTL(estate, &rcs->ss.ps);
-	ExecConditionalAssignProjectionInfo(&rcs->ss.ps, tupDesc, OUTER_VAR);
+	rcs->scan_slot = ExecAllocTableSlot(&estate->es_tupleTable, tupDesc);
+	ExecInitResultTupleSlotTL(estate, &rcs->ps);
+	ExecConditionalAssignProjectionInfo(&rcs->ps, tupDesc, OUTER_VAR);
 
 	if(node->param_hash_keys != NIL)
 	{
@@ -121,36 +157,12 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 			fmgr_info(typeCache->hash_proc, &rcs->scan_hash_funs[i]);
 			++i;
 		}
-		rcs->ss.ps.ExecProcNode = ExecHashReduceScan;
 	}else
 	{
 		rcs->nbatchs = 1;
-		rcs->ss.ps.ExecProcNode = ExecSeqReduceScan;
 	}
 
 	return rcs;
-}
-
-static TupleTableSlot *ExecSeqReduceScan(PlanState *pstate)
-{
-	ReduceScanState *node = castNode(ReduceScanState, pstate);
-	/* call FetchReduceScanOuter first */
-	Assert(node->cur_batch != NULL);
-
-	return ExecScan(&node->ss,
-					(ExecScanAccessMtd)SeqReduceScanNext,
-					(ExecScanRecheckMtd)ReduceScanRecheck);
-}
-
-static TupleTableSlot* ExecHashReduceScan(PlanState *pstate)
-{
-	ReduceScanState *node = castNode(ReduceScanState, pstate);
-	/* call FetchReduceScanOuter first */
-	Assert(node->cur_batch != NULL);
-
-	return ExecScan(&node->ss,
-					(ExecScanAccessMtd)HashReduceScanNext,
-					(ExecScanRecheckMtd)ReduceScanRecheck);
 }
 
 static TupleTableSlot *ExecEmptyReduceScan(PlanState *pstate)
@@ -176,8 +188,8 @@ void FetchReduceScanOuter(ReduceScanState *node)
 	if(node->batchs)
 		return;
 
-	if (node->ss.ps.instrument)
-		InstrStartNode(node->ss.ps.instrument);
+	if (node->ps.instrument)
+		InstrStartNode(node->ps.instrument);
 
 	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(node));
 
@@ -189,7 +201,7 @@ void FetchReduceScanOuter(ReduceScanState *node)
 	for (i=0;i<node->nbatchs;++i)
 	{
 		char name[64];
-		sprintf(name, "reduce-scan-%d-b%d", node->ss.ps.plan->plan_node_id, i);
+		sprintf(name, "reduce-scan-%d-b%d", node->ps.plan->plan_node_id, i);
 		node->batchs[i] = sts_initialize(REDUCE_SCAN_STS_ADDR(shm->sts_mem, i),
 										 1,
 										 0,
@@ -201,7 +213,7 @@ void FetchReduceScanOuter(ReduceScanState *node)
 
 	/* we need read all outer slot first */
 	outer_ps = outerPlanState(node);
-	econtext = node->ss.ps.ps_ExprContext;
+	econtext = node->ps.ps_ExprContext;
 	if(node->scan_hash_exprs)
 	{
 		uint32 hashvalue;
@@ -245,17 +257,22 @@ void FetchReduceScanOuter(ReduceScanState *node)
 	if (node->cur_batch)
 		sts_begin_scan(node->cur_batch);
 
-	econtext->ecxt_outertuple = node->ss.ss_ScanTupleSlot;
 	MemoryContextSwitchTo(oldcontext);
 
-	if (node->ss.ps.instrument)
-		InstrStopNode(node->ss.ps.instrument, 0.0);
+	if (node->ps.instrument)
+		InstrStopNode(node->ps.instrument, 0.0);
 }
 
 void ExecEndReduceScan(ReduceScanState *node)
 {
+	int i;
 	if (node->batchs)
 	{
+		for (i=0;i<node->nbatchs;++i)
+		{
+			if (node->batchs[i])
+				sts_detach(node->batchs[i]);
+		}
 		pfree(node->batchs);
 		node->batchs = NULL;
 		node->nbatchs = 0;
@@ -287,9 +304,31 @@ void ExecReScanReduceScan(ReduceScanState *node)
 		node->cur_batch = NULL;
 	}
 
+	if (node->origin_state &&
+		node->batchs == NULL)
+	{
+		ReduceScanState *origin = node->origin_state;
+		MemoryContext	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(node));
+		RedcueScanSharedMemory *shm = dsm_segment_address(origin->dsm_seg);
+		int				i;
+		node->nbatchs = origin->nbatchs;
+		node->batchs = palloc0(sizeof(node->batchs[0]) * node->nbatchs);
+		for (i=0;i<node->nbatchs;++i)
+		{
+			node->batchs[i] = sts_attach_read_only(REDUCE_SCAN_STS_ADDR(shm->sts_mem, i),
+												   &shm->sfs);
+		}
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	if (node->batchs == NULL)
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("reduce scan %d not fetch outer yet", node->ps.plan->plan_node_id)));
+
 	if(node->param_hash_exprs)
 	{
-		ExprContext *econtext = node->ss.ps.ps_ExprContext;
+		ExprContext *econtext = node->ps.ps_ExprContext;
 		node->cur_hashval = ExecReduceScanGetHashValue(econtext,
 													   node->param_hash_exprs,
 													   node->param_hash_funs,
@@ -297,52 +336,21 @@ void ExecReScanReduceScan(ReduceScanState *node)
 		if (node->cur_hash_is_null)
 		{
 			node->cur_batch = NULL;
-			ExecSetExecProcNode(&node->ss.ps, ExecEmptyReduceScan);
+			ExecSetExecProcNode(&node->ps, ExecEmptyReduceScan);
 		}else
 		{
 			node->cur_batch = ExecGetReduceScanBatch(node, node->cur_hashval);
-			ExecSetExecProcNode(&node->ss.ps, ExecHashReduceScan);
 		}
 	}else
 	{
 		node->cur_batch = node->batchs[0];
-		ExecSetExecProcNode(&node->ss.ps, ExecSeqReduceScan);
 	}
 
 	if (node->cur_batch)
-		sts_begin_scan(node->cur_batch);
-}
-
-static TupleTableSlot* SeqReduceScanNext(ReduceScanState *node)
-{
-	MinimalTuple mtup = sts_scan_next(node->cur_batch, NULL);
-
-	if (mtup == NULL)
-		return SetAndExecEmptyReduceScan(&node->ss.ps);
-	else
-		return ExecStoreMinimalTuple(mtup, node->ss.ss_ScanTupleSlot, false);
-}
-
-static TupleTableSlot* HashReduceScanNext(ReduceScanState *node)
-{
-	uint32			hashval;
-	MinimalTuple	mtup;
-	
-	for (;;)
 	{
-		mtup = sts_scan_next(node->cur_batch, &hashval);
-		if (mtup == NULL)
-			return SetAndExecEmptyReduceScan(&node->ss.ps);
-		else if (hashval == node->cur_hashval)
-			return ExecStoreMinimalTuple(mtup, node->ss.ss_ScanTupleSlot, false);
+		ExecSetExecProcNode(&node->ps, ExecReduceScan);
+		sts_begin_scan(node->cur_batch);
 	}
-
-	return NULL;	/* keep compler quiet */
-}
-
-static bool ReduceScanRecheck(ReduceScanState *node, TupleTableSlot *slot)
-{
-	return true;
 }
 
 static uint32 ExecReduceScanGetHashValue(ExprContext *econtext, List *exprs, FmgrInfo *fmgr, bool *isnull)
@@ -377,8 +385,7 @@ static bool SetEmptyResultWalker(ReduceScanState *state, void *context)
 
 	if (IsA(state, ReduceScanState))
 	{
-		Assert(state->batchs != NULL);
-		ExecSetExecProcNode(&state->ss.ps, ExecEmptyReduceScan);
+		ExecSetExecProcNode(&state->ps, ExecEmptyReduceScan);
 		if (state->cur_batch)
 		{
 			sts_end_scan(state->cur_batch);
@@ -387,10 +394,21 @@ static bool SetEmptyResultWalker(ReduceScanState *state, void *context)
 		return false;
 	}
 
-	return planstate_tree_walker(&state->ss.ps, SetEmptyResultWalker, context);
+	return planstate_tree_walker(&state->ps, SetEmptyResultWalker, context);
 }
 
 void BeginDriveClusterReduce(PlanState *node)
 {
 	SetEmptyResultWalker((ReduceScanState*)node, NULL);
+}
+
+void ExecSetReduceScanEPQOrigin(ReduceScanState *node, ReduceScanState *origin)
+{
+	Assert(IsA(node, ReduceScanState) && IsA(origin, ReduceScanState));
+	Assert(node->ps.plan->plan_node_id == origin->ps.plan->plan_node_id);
+
+	if (origin->origin_state)
+		node->origin_state = origin->origin_state;
+	else
+		node->origin_state = origin;
 }

@@ -2346,7 +2346,7 @@ typedef struct ClusterReduceState
 
 typedef struct ReduceScanState
 {
-	ScanState			ss;
+	PlanState			ps;
 	List			   *param_hash_exprs;
 	List			   *scan_hash_exprs;
 	FmgrInfo		   *param_hash_funs;
@@ -2355,6 +2355,9 @@ typedef struct ReduceScanState
 	struct SharedTuplestoreAccessor
 					  **batchs,
 					   *cur_batch;
+	struct ReduceScanState
+					   *origin_state;
+	TupleTableSlot	   *scan_slot;
 	uint32				cur_hashval;
 	int					nbatchs;
 	int					ncols_hash;
