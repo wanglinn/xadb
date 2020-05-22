@@ -372,12 +372,8 @@ shm_mq_result shm_mq_sendv_ext(shm_mq_handle *mqh, shm_mq_iovec *iov, int iovcnt
 	Size		offset;
 
 #ifdef ADB
-	uint64		rb;
-	uint64		wb;
-	rb = pg_atomic_read_u64(&mq->mq_bytes_read);
-	wb = pg_atomic_read_u64(&mq->mq_bytes_written);
-
-	if (!setlatchforce && rb == wb)
+	if (!setlatchforce &&
+		pg_atomic_read_u64(&mq->mq_bytes_written) == pg_atomic_read_u64(&mq->mq_bytes_read))
 	{
 		setlatchforce = true;
 	}
@@ -518,7 +514,9 @@ shm_mq_result shm_mq_sendv_ext(shm_mq_handle *mqh, shm_mq_iovec *iov, int iovcnt
 	mqh->mqh_length_word_complete = false;
 
 	/* If queue has been detached, let caller know. */
-	if (mq->mq_detached)
+	if (mq->mq_detached
+		/* The receiver may have finished receiving */
+		ADB_ONLY_CODE(&& pg_atomic_read_u64(&mq->mq_bytes_written) != pg_atomic_read_u64(&mq->mq_bytes_read)))
 		return SHM_MQ_DETACHED;
 
 	/*
@@ -655,6 +653,7 @@ shm_mq_receive(shm_mq_handle *mqh, Size *nbytesp, void **datap, bool nowait)
 			if (rb >= needed)
 			{
 				mqh->mqh_consume_pending += needed;
+				ADB_ONLY_CODE(mqh->mqh_expected_bytes = 0);
 				*nbytesp = nbytes;
 				*datap = ((char *) rawdata) + MAXALIGN(sizeof(Size));
 				return SHM_MQ_SUCCESS;
@@ -826,6 +825,13 @@ void
 shm_mq_detach(shm_mq_handle *mqh)
 {
 	/* Notify counterparty that we're outta here. */
+#ifdef ADB
+	if (mqh->mqh_queue->mq_receiver == MyProc &&
+		mqh->mqh_length_word_complete == false &&
+		mqh->mqh_consume_pending > 0 &&
+		mqh->mqh_expected_bytes == 0)
+		pg_atomic_add_fetch_u64(&mqh->mqh_queue->mq_bytes_read, mqh->mqh_consume_pending);
+#endif /* ADB */
 	shm_mq_detach_internal(mqh->mqh_queue);
 
 	/* Cancel on_dsm_detach callback, if any. */
