@@ -11,4 +11,5 @@ extern void ExecReScanReduceScan(ReduceScanState *node);
 
 extern void FetchReduceScanOuter(ReduceScanState *node);
 extern void BeginDriveClusterReduce(PlanState *node);
+extern void ExecSetReduceScanEPQOrigin(ReduceScanState *node, ReduceScanState *origin);
 #endif /* REDUCE_SCAN_H_ */
