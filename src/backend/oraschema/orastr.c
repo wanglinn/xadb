@@ -1136,6 +1136,11 @@ orastr_convert(PG_FUNCTION_ARGS)
 	if (src_encoding_Name)
 	{
 		src_encoding = pg_char_to_encoding(NameStr(*src_encoding_Name));
+		if (src_encoding < 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						errmsg("invalid source encoding name \"%s\"",
+							NameStr(*src_encoding_Name))));
 	} else
 	{
 		src_encoding = GetDatabaseEncoding();
