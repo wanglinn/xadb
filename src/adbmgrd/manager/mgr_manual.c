@@ -722,7 +722,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		res = mgr_append_coord_slave_func(m_coordname, s_coordname, &strerr);
+		res = mgr_append_coord_slave_func(m_coordname, s_coordname, false, &strerr);
 	}PG_CATCH();
 	{
 		PG_RE_THROW();
@@ -732,7 +732,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	MgrFree(strerr.data);
 	return HeapTupleGetDatum(tup_result);
 }
-bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, StringInfoData *strerr)
+bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, bool zoneAppend, StringInfoData *strerr)
 {
 	GetAgentCmdRst getAgentCmdRst;
 	AppendNodeInfo src_nodeinfo;
@@ -848,11 +848,10 @@ bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, StringInf
 	/* change the dest coordiantor port and hot_standby*/
 	resetStringInfo(&infosendmsg);
 	resetStringInfo(&(getAgentCmdRst.description));
-	mgr_append_pgconf_paras_str_quotastr("pgxc_node_name", dest_nodeinfo.nodename, &infosendmsg);
-	mgr_append_pgconf_paras_str_quotastr("archive_command", "", &infosendmsg);
-	mgr_append_pgconf_paras_str_quotastr("log_directory", "pg_log", &infosendmsg);
-	mgr_add_parm(dest_nodeinfo.nodename, CNDN_TYPE_COORDINATOR_SLAVE, &infosendmsg);
-	mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", "", &infosendmsg);
+	if (zoneAppend){
+		mgr_append_pgconf_paras_str_quotastr("pgxc_node_name", dest_nodeinfo.nodename, &infosendmsg);		
+	}
+	mgr_add_parm(s_coordname, CNDN_TYPE_COORDINATOR_SLAVE, &infosendmsg);
 	mgr_append_pgconf_paras_str_int("port", dest_nodeinfo.nodeport, &infosendmsg);
 	mgr_append_pgconf_paras_str_str("hot_standby", "on", &infosendmsg);	
 	ereportNoticeLog(errmsg("update port=%d, hot_standby=on in postgresql.conf of coordinator \"%s\""
