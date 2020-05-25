@@ -20,7 +20,6 @@ typedef enum BatchMethod
 
 typedef struct BatchStoreParallelHashData
 {
-	SharedFileSet		fileset;
 	pg_atomic_uint32	cur_batches;
 	uint32				num_batches;
 	uint32				num_participants;
@@ -101,12 +100,13 @@ size_t bs_parallel_hash_estimate(uint32 num_batches, uint32 nparticipants)
 
 static BatchStore bs_begin_parallel_hash(BatchStoreParallelHash bsph,
 										 uint32 my_participant_num, bool init,
+										 SharedFileSet *fileset, const char *name,
 										 dsm_segment *dsm_seg)
 {
 	uint32			i;
 	MemoryContext	oldcontext;
 	char		   *addr;
-	char			name[24];
+	char			buffer[24];
 	Size			sts_size = MAXALIGN(sts_estimate(bsph->num_participants));
 	BatchStore		bs = make_empty_batch_store(bsph->num_batches);
 
@@ -123,19 +123,19 @@ static BatchStore bs_begin_parallel_hash(BatchStoreParallelHash bsph,
 		--i;
 		if (init)
 		{
-			sprintf(name, "bsph%u", i);
+			sprintf(buffer, "%s_%u", name, i);
 			bs->all_batches[i] = sts_initialize((SharedTuplestore*)addr,
 												bsph->num_participants,
 												my_participant_num,
 												sizeof(uint32),
 												0,
-												&bsph->fileset,
-												name);
+												fileset,
+												buffer);
 		}else
 		{
 			bs->all_batches[i] = sts_attach((SharedTuplestore*)addr,
 											my_participant_num,
-											&bsph->fileset);
+											fileset);
 		}
 		addr += sts_size;
 	}
@@ -150,22 +150,21 @@ static BatchStore bs_begin_parallel_hash(BatchStoreParallelHash bsph,
 
 BatchStore bs_init_parallel_hash(uint32 num_batches,
 								 uint32 nparticipants, uint32 my_participant_num,
-								 BatchStoreParallelHash bsph, dsm_segment *dsm_seg)
+								 BatchStoreParallelHash bsph, dsm_segment *dsm_seg,
+								 SharedFileSet *fileset, const char *name)
 {
+	Assert(name != NULL && fileset != NULL);
 	bsph->num_batches = num_batches;
 	bsph->num_participants = nparticipants;
 	pg_atomic_init_u32(&bsph->cur_batches, InvalidBatch);
-	SharedFileSetInit(&bsph->fileset, dsm_seg);
 
-	return bs_begin_parallel_hash(bsph, my_participant_num, true, dsm_seg);
+	return bs_begin_parallel_hash(bsph, my_participant_num, true, fileset, name, dsm_seg);
 }
 
 BatchStore bs_attach_parallel_hash(BatchStoreParallelHash bsph, dsm_segment *dsm_seg,
-								   uint32 my_participant_num)
+								   SharedFileSet *fileset, uint32 my_participant_num)
 {
-	SharedFileSetAttach(&bsph->fileset, dsm_seg);
-
-	return bs_begin_parallel_hash(bsph, my_participant_num, false, dsm_seg);
+	return bs_begin_parallel_hash(bsph, my_participant_num, false, fileset, NULL, dsm_seg);
 }
 
 void bs_destory(BatchStore bs)
@@ -188,7 +187,9 @@ void bs_destory(BatchStore bs)
 		{
 			BatchStoreParallelHash bsph = (BatchStoreParallelHash)(((char*)bs->shm_ph_batch_num) -
 											offsetof(BatchStoreParallelHashData, cur_batches));
-			SharedFileSetDetach(&bsph->fileset, bs->dsm_seg);
+			uint32 count = bsph->num_batches;
+			while (count > 0)
+				sts_detach(bs->all_batches[--count]);
 			MemoryContextDelete(bs->accessor_mcontext);
 		}
 		break;
