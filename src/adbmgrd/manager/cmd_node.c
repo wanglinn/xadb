@@ -1179,11 +1179,6 @@ mgr_init_cn_master(PG_FUNCTION_ARGS)
 Datum
 mgr_init_cn_slave(PG_FUNCTION_ARGS)
 {
-	HeapTuple tup_result;
-	char *nodename;
-	bool force;
-	NameData newMasterName = {{0}};
-
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
@@ -6851,7 +6846,6 @@ void mgr_add_parameters_hbaconf(Oid mastertupleoid, char nodetype, StringInfo in
 	char *cnaddress;
 	Form_mgr_node mgr_node;
 	HeapTuple tuple;
-	ScanKeyData key[1];
 	NameData self_address;
 	bool bgetAddress;
 

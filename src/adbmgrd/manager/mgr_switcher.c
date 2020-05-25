@@ -3541,7 +3541,9 @@ static void refreshSlaveNodesAfterSwitch(SwitcherNodeWrapper *newMaster,
 		    (pg_strcasecmp(NameStr(node->mgrNode->form.nodezone), curZone) != 0))
 		{
 			node->mgrNode->form.nodeinited    = false;
-			node->mgrNode->form.nodeincluster = false;	
+			node->mgrNode->form.nodeincluster = false;
+			ereport(LOG, (errmsg("failover node(%s) is set to not inited, not incluster. nodezone(%s),oldMaster nodezone(%s), curZone(%s)", 
+				NameStr(node->mgrNode->form.nodename), NameStr(node->mgrNode->form.nodezone), NameStr(oldMaster->mgrNode->form.nodezone), curZone)));	
 		}
 		updateMgrNodeAfterSwitch(node->mgrNode, CURE_STATUS_SWITCHED, spiContext);
 	}
@@ -3556,7 +3558,9 @@ static void refreshSlaveNodesAfterSwitch(SwitcherNodeWrapper *newMaster,
 				(pg_strcasecmp(NameStr(node->mgrNode->form.nodezone), curZone) != 0))
 			{
 				node->mgrNode->form.nodeinited    = false;
-				node->mgrNode->form.nodeincluster = false;	
+				node->mgrNode->form.nodeincluster = false;
+				ereport(LOG, (errmsg("failover node(%s) is set to not inited, not incluster. nodezone(%s),oldMaster nodezone(%s), curZone(%s)", 
+					NameStr(node->mgrNode->form.nodename), NameStr(node->mgrNode->form.nodezone), NameStr(oldMaster->mgrNode->form.nodezone), curZone)));	
 			}
 			updateMgrNodeAfterSwitch(node->mgrNode, CURE_STATUS_SWITCHED, spiContext);
 		}
@@ -3573,6 +3577,9 @@ static void refreshSlaveNodesAfterSwitch(SwitcherNodeWrapper *newMaster,
 		{	
 			node->mgrNode->form.nodeinited    = false;
 			node->mgrNode->form.nodeincluster = false;	
+			ereport(LOG, (errmsg("failover node(%s) is set to not inited, not incluster. nodezone(%s),oldMaster nodezone(%s), curZone(%s)", 
+				NameStr(node->mgrNode->form.nodename), NameStr(node->mgrNode->form.nodezone), NameStr(oldMaster->mgrNode->form.nodezone), curZone)));
+			
 		}
 		/* Update other failure slave node follow the new master, 
 		 * Then, The node "follow the new master node" task is handed over 
@@ -3605,6 +3612,8 @@ static void refreshSlaveNodesAfterSwitch(SwitcherNodeWrapper *newMaster,
 			{
 				node->mgrNode->form.nodeinited    = false;
 				node->mgrNode->form.nodeincluster = false;
+				ereport(LOG, (errmsg("failover node(%s) is set to not inited, not incluster. nodezone(%s),oldMaster nodezone(%s), curZone(%s)", 
+					NameStr(node->mgrNode->form.nodename), NameStr(node->mgrNode->form.nodezone), NameStr(oldMaster->mgrNode->form.nodezone), curZone)));
 			}
 			/* Update other failure slave node follow the new master, 
 			* Then, The node "follow the new master node" task is handed over 
