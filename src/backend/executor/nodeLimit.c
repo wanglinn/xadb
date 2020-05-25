@@ -140,7 +140,10 @@ ExecLimit(PlanState *pstate)
 					 * resources at this point.
 					 */
 					if (!(node->ps.state->es_top_eflags & EXEC_FLAG_BACKWARD))
+					{
+						ADB_ONLY_CODE(TopDownDriveClusterReduce(outerPlan));
 						(void) ExecShutdownNode(outerPlan);
+					}
 
 					return NULL;
 				}
