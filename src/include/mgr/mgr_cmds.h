@@ -508,7 +508,7 @@ extern Datum mgr_failover_manual_promote_func(PG_FUNCTION_ARGS);
 extern Datum mgr_failover_manual_pgxcnode_func(PG_FUNCTION_ARGS);
 extern Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS);
 extern Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS);
-extern bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, StringInfoData *strerr);
+extern bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, bool zoneAppend, StringInfoData *strerr);
 extern Datum mgr_append_activate_coord(PG_FUNCTION_ARGS);
 extern Datum mgr_switchover_func(PG_FUNCTION_ARGS);
 extern Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS);
