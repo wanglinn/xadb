@@ -3635,6 +3635,11 @@ ExecReScanAgg(AggState *node)
 			node->batch_store = NULL;
 			node->batch_filled = false;
 			ExecSetExecProcNode(&node->ss.ps, ExecBatchHashAggFirst);
+			if (node->batch_barrier)
+			{
+				char *ptr = ((char*)node->batch_barrier) + MAXALIGN(sizeof(*node->batch_barrier));
+				SharedFileSetDeleteAll((SharedFileSet*)ptr);
+			}
 		}
 	}
 #endif /* ADB_EXT */
@@ -4115,7 +4120,7 @@ re_loop_:
 
 static inline Size batch_agg_estime_size(uint32 nbatches, uint32 nworkers)
 {
-	return add_size(MAXALIGN(sizeof(Barrier)),
+	return add_size(MAXALIGN(sizeof(Barrier)) + MAXALIGN(sizeof(SharedFileSet)),
 					bs_parallel_hash_estimate(nbatches, nworkers+1));
 }
 
@@ -4134,14 +4139,23 @@ void ExecAggInitializeDSM(AggState *node, ParallelContext *pcxt)
 	Size size = batch_agg_estime_size(num_batches,
 									  pcxt->nworkers);
 	char *ptr = shm_toc_allocate(pcxt->toc, size);
+	SharedFileSet *fileset;
+	char name[NAMEDATALEN];
 	shm_toc_insert(pcxt->toc, node->ss.ps.plan->plan_node_id, ptr);
 
 	node->batch_barrier = (Barrier*)ptr;
 	ptr += MAXALIGN(sizeof(Barrier));
 	BarrierInit(node->batch_barrier, 0);
+
+	fileset = (SharedFileSet*)ptr;
+	ptr += MAXALIGN(sizeof(SharedFileSet));
+	SharedFileSetInit(fileset, pcxt->seg);
+
+	sprintf(name, "BatchAgg%d", node->ss.ps.plan->plan_node_id);
 	node->batch_store = bs_init_parallel_hash(num_batches, pcxt->nworkers+1,
 											  0, (BatchStoreParallelHash)ptr,
-											  pcxt->seg);
+											  pcxt->seg,
+											  fileset, name);
 	MemoryContextSwitchTo(old_context);
 }
 
@@ -4156,11 +4170,18 @@ void ExecAggInitializeWorker(AggState *node, ParallelWorkerContext *pwcxt)
 {
 	MemoryContext old_context = MemoryContextSwitchTo(GetMemoryChunkContext(node));
 	char *ptr = shm_toc_lookup(pwcxt->toc, node->ss.ps.plan->plan_node_id, false);
+	SharedFileSet *fileset;
 
 	node->batch_barrier = (Barrier*)ptr;
 	ptr += MAXALIGN(sizeof(Barrier));
+
+	fileset = (SharedFileSet*)ptr;
+	ptr += MAXALIGN(sizeof(SharedFileSet));
+	SharedFileSetAttach(fileset, pwcxt->seg);
+
 	node->batch_store = bs_attach_parallel_hash((BatchStoreParallelHash)ptr,
 												pwcxt->seg,
+												fileset,
 												ParallelWorkerNumber+1);
 	MemoryContextSwitchTo(old_context);
 }

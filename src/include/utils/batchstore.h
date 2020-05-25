@@ -3,6 +3,7 @@
 
 #include "access/htup.h"
 #include "storage/dsm.h"
+#include "storage/sharedfileset.h"
 
 #define BATCH_STORE_MIN_BATCH	2
 #define BATCH_STORE_MAX_BATCH	1024
@@ -24,9 +25,10 @@ extern BatchStore bs_begin_hash(uint32 num_batches);
 extern size_t bs_parallel_hash_estimate(uint32 num_batches, uint32 nparticipants);
 extern BatchStore bs_init_parallel_hash(uint32 num_batches,
 										uint32 nparticipants, uint32 my_participant_num,
-										BatchStoreParallelHash bsph, dsm_segment *dsm_seg);
+										BatchStoreParallelHash bsph, dsm_segment *dsm_seg,
+										SharedFileSet *fileset, const char *name);
 extern BatchStore bs_attach_parallel_hash(BatchStoreParallelHash bsph, dsm_segment *dsm_seg,
-										  uint32 my_participant_num);
+										  SharedFileSet *fileset, uint32 my_participant_num);
 
 extern void bs_destory(BatchStore bs);
 
