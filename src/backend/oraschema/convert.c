@@ -283,48 +283,34 @@ trunc_text_toint8(PG_FUNCTION_ARGS)
 	text	*txt = PG_GETARG_TEXT_PP_IF_NULL(0);
 	char	*txtstr = NULL;
 	Datum	result = (Datum)0;
+	int64	i64;
 
 	if (!txt)
 		PG_RETURN_NULL();
 
 	txtstr = text_to_cstring(txt);
-	PG_TRY();
+
+	/* second try to trunc(text::numeric)::int8 */
+	if (!scanint8(txtstr, true, &i64))
 	{
-		volatile bool err = false;
+		/* 1.text -> numeric */
+		Datum txtnum = DirectFunctionCall3(numeric_in,
+											CStringGetDatum(txtstr),
+											0,
+											-1);
+		/* 2. trunc(txtnum) */
+		txtnum = DirectFunctionCall2(numeric_trunc,
+										txtnum,
+										Int32GetDatum(0));
 
-		/* first call int8in to convert text to int8 */
-		PG_TRY_HOLD();
-		{
-			result = DirectFunctionCall1(int8in, CStringGetDatum(txtstr));
-		} PG_CATCH_HOLD();
-		{
-			FlushErrorState();
-			err = true;
-		} PG_END_TRY_HOLD();
-
-		/* second try to trunc(text::numeric)::int8 */
-		if (err)
-		{
-			/* 1.text -> numeric */
-			Datum txtnum = DirectFunctionCall3(numeric_in,
-												CStringGetDatum(txtstr),
-												0,
-												-1);
-			/* 2. trunc(txtnum) */
-			txtnum = DirectFunctionCall2(numeric_trunc,
-										 txtnum,
-										 Int32GetDatum(0));
-
-			/* 3. numeric -> int2 */
-			result = DirectFunctionCall1(numeric_int8,
-										 txtnum);
-		}
-	} PG_CATCH();
+		/* 3. numeric -> int2 */
+		result = DirectFunctionCall1(numeric_int8,
+										txtnum);
+	}
+	else
 	{
-		pfree(txtstr);
-		PG_RE_THROW();
-	} PG_END_TRY();
-	pfree(txtstr);
+		result = Int64GetDatum(i64);
+	}
 
 	return result;
 }
