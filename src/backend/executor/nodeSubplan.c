@@ -1423,7 +1423,7 @@ static void buildSubPlanHashstore(SubPlanState *node, ExprContext *econtext)
 	{
 		UnregisterExprContextCallback(econtext,
 									  callback_clean_hashstore,
-									  PointerGetDatum(node->hashstore));
+									  PointerGetDatum(node));
 		hashstore_end(node->hashstore);
 		node->hashstore = NULL;
 	}
@@ -1443,7 +1443,7 @@ static void buildSubPlanHashstore(SubPlanState *node, ExprContext *econtext)
 	node->hashstore = hashstore_begin_heap(false, nbuckets);
 	RegisterExprContextCallback(econtext,
 								callback_clean_hashstore,
-								PointerGetDatum(node->hashstore));
+								PointerGetDatum(node));
 
 	/*
 	 * We are probably in a short-lived expression-evaluation context. Switch
@@ -1567,7 +1567,9 @@ static bool findHashstoreMatch(SubPlanState *node, TupleTableSlot *slot)
 
 static void callback_clean_hashstore(Datum datum)
 {
-	hashstore_end((Hashstorestate*)DatumGetPointer(datum));
+	SubPlanState *node = (SubPlanState *)DatumGetPointer(datum);
+	hashstore_end(node->hashstore);
+	node->hashstore = NULL;
 }
 #endif /* ADB */
 
