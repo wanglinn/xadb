@@ -7954,12 +7954,7 @@ static Datum mgr_prepare_clean_all(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 		info = palloc(sizeof(*info));
 		info->rel_node = heap_open(NodeRelationId, RowExclusiveLock);
-		ScanKeyInit(&key[0]
-				,Anum_mgr_node_nodezone
-				,BTEqualStrategyNumber
-				,F_NAMEEQ
-				,CStringGetDatum(mgr_zone));
-		info->rel_scan = heap_beginscan_catalog(info->rel_node, 1, key);
+		info->rel_scan = heap_beginscan_catalog(info->rel_node, 0, key);
 		info->lcp =NULL;
 
 		/* save info */
