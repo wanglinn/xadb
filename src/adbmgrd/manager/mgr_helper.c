@@ -2566,14 +2566,17 @@ void dn_master_replication_slot(char *nodename, char *slot_name, char operate)
 	{
 		mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_SLAVE,true,
 							&is_exist, &is_running, &nodeinfo);
-	}
-		
+	}		
 	if (!nodeinfo.nodehost)
 	{
 		mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_MASTER,false,
 							&is_exist, &is_running, &nodeinfo);
 	}
-		
+	if (!nodeinfo.nodehost)
+	{
+		mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_SLAVE,false,
+							&is_exist, &is_running, &nodeinfo);
+	}
 
 	agentPort = get_agentPort_from_hostoid(nodeinfo.nodehost);
 	user = get_hostuser_from_hostoid(nodeinfo.nodehost);

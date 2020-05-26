@@ -262,6 +262,8 @@ extern Datum mgr_init_cn_slave(PG_FUNCTION_ARGS);
 extern void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmdRst, Relation noderel, HeapTuple aimtuple, const char *shutdown_mode);
 extern Datum mgr_init_dn_master(PG_FUNCTION_ARGS);
 extern Datum mgr_init_dn_slave_all(PG_FUNCTION_ARGS);
+extern Datum mgr_init_start_gtmcoord_slave_all(PG_FUNCTION_ARGS);
+extern Datum mgr_init_start_dn_slave_all(PG_FUNCTION_ARGS);
 extern void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmdRst, Relation noderel, HeapTuple aimtuple, char *masterhostaddress, uint32 masterport, char *mastername);
 
 extern Datum mgr_boottime_nodetype_all(PG_FUNCTION_ARGS);;

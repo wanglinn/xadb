@@ -140,9 +140,7 @@ CREATE VIEW adbmgr.initall AS
 	UNION ALL
 	SELECT 'start gtmcoord master' AS "operation type", * FROM mgr_start_gtmcoord_master(NULL)
 	UNION ALL
-	SELECT 'init gtmcoord slave' AS "operation type",* FROM mgr_init_gtmcoord_slave()
-	UNION ALL
-	SELECT 'start gtmcoord slave' AS "operation type", * FROM mgr_start_gtmcoord_slave(NULL)
+	SELECT 'init gtmcoord slave' AS "operation type",* FROM mgr_init_start_gtmcoord_slave_all()
 	UNION ALL
         SELECT 'init coordinator master' AS "operation type",* FROM mgr_init_cn_master(NULL)
 	UNION ALL
@@ -156,9 +154,7 @@ CREATE VIEW adbmgr.initall AS
 	UNION ALL
 	SELECT 'start datanode master' AS "operation type", * FROM mgr_start_dn_master(NULL)
 	UNION ALL
-	SELECT 'init datanode slave' AS "operation type", * FROM mgr_init_dn_slave_all()
-	UNION ALL
-	SELECT 'start datanode slave' AS "operation type", * FROM mgr_start_dn_slave(NULL)
+	SELECT 'init datanode slave' AS "operation type", * FROM mgr_init_start_dn_slave_all()
 	UNION ALL
 	SELECT 'config gtmcoord and coordinator' AS "operation type", * FROM mgr_configure_nodes_all(NULL);
 
