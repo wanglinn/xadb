@@ -494,7 +494,8 @@ static void GxidRcvDie(int code, Datum arg)
 	GxidRcv->state = WALRCV_STOPPED;
 	GxidRcv->pid = 0;
 	GxidRcv->procno = INVALID_PGPROCNO;
-	//GxidRcv->xcnt = 0;
+	GxidRcv->cur_pre_alloc = 0;
+	GxidRcv->wait_finish_cnt = 0;
 	GxidRcv->next_try_time = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), RESTART_STEP_MS);	/* 3 seconds */
 	UNLOCK_GXID_RCV();
 
@@ -818,7 +819,7 @@ static bool WaitGxidRcvCommitReturn(void *context, proclist_head *wait_commiters
 
 	/* not in streaming, wait */
 	if (GxidRcv->state != WALRCV_STREAMING)
-		return true;
+		return false;
 
 	proclist_foreach_modify(iter, wait_commiters, GxidWaitLink)
 	{
@@ -908,6 +909,7 @@ static bool WaitGxidRcvEvent(TimestampTz end, WaitGxidRcvCond test,
 			ret = false;
 		}
 
+		ProcessGxidRcvInterrupts();
 		LOCK_GXID_RCV();
 		if (ret == false)
 			break;
@@ -933,6 +935,7 @@ GxidRcvProcessAssignList(void)
 	proclist_mutable_iter	iter_gets;
 	proclist_mutable_iter	iter_rets;
 
+	ProcessGxidRcvInterrupts();
 	LOCK_GXID_RCV();
 	if (proclist_is_empty(&GxidRcv->geters))
 	{
@@ -989,6 +992,7 @@ GxidRcvProcessFinishList(void)
 	proclist_mutable_iter	iter_rets;
 	PGPROC					*proc;
 
+	ProcessGxidRcvInterrupts();
 	LOCK_GXID_RCV();
 	if (proclist_is_empty(&GxidRcv->send_commiters))
 	{
@@ -1040,6 +1044,7 @@ static void GxidRcvCheckPreAssignArray(void)
 	if (!IS_PGXC_COORDINATOR || max_cn_prealloc_xid_size == 0)
 		return;
 
+	ProcessGxidRcvInterrupts();
 	LOCK_GXID_RCV();
 	if (GxidRcv->is_send_realloc_num == 0)
 	{
@@ -1138,6 +1143,7 @@ TransactionId GixRcvGetGlobalTransactionId(bool isSubXact)
 	if(isSubXact)
 		ereport(ERROR, (errmsg("cannot assign XIDs in child transaction")));
 
+	ProcessGxidRcvInterrupts();
 	MyProc->getGlobalTransaction = InvalidTransactionId;
 	LOCK_GXID_RCV();
 
@@ -1193,6 +1199,7 @@ void GixRcvCommitTransactionId(TransactionId txid, bool isCommit)
 	SNAP_SYNC_DEBUG_LOG((errmsg("Proce %d finish xid %d\n",
 			MyProc->pgprocno, MyProc->getGlobalTransaction)));
 
+	ProcessGxidRcvInterrupts();
 	LOCK_GXID_RCV();
 
 	if (GxidRcv->state != WALRCV_STREAMING)
