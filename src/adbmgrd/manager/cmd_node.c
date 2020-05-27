@@ -687,6 +687,7 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 	NameData sync_state_name;
 	NameData mastername;
 	NameData name;
+	NameData zoneName;
 	char new_sync = SYNC_STATE_SYNC;
 	char nodetype;
 	char mastertype;
@@ -733,8 +734,7 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 				,errmsg("%s \"%s\" does not exist, check the node table", mgr_nodetype_str(nodetype), NameStr(name))));
 
 		hostoid = mgr_node->nodehost;
-		if (CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype || CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype
-			|| CNDN_TYPE_DATANODE_MASTER == mgr_node->nodetype)
+		if (isMasterNode(mgr_node->nodetype, true))
 			masterTupleOid = selftupleoid;
 		else
 			masterTupleOid = mgr_node->nodemasternameoid;
@@ -743,10 +743,10 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 		memset(isnull, 0, sizeof(isnull));
 		memset(got, 0, sizeof(got));
 
-		hasSyncNode = mgr_check_syncstate_node_exist(rel, masterTupleOid, SYNC_STATE_SYNC, selftupleoid, false, NameStr(mgr_node->nodezone));
-		hasSyncNodeInCluster = mgr_check_syncstate_node_exist(rel, masterTupleOid, SYNC_STATE_SYNC, selftupleoid, true, NameStr(mgr_node->nodezone));
-		hasPotenNode = mgr_check_syncstate_node_exist(rel, masterTupleOid, SYNC_STATE_POTENTIAL, selftupleoid, false, NameStr(mgr_node->nodezone));
-		hasPotenNodeInCluster = mgr_check_syncstate_node_exist(rel, masterTupleOid, SYNC_STATE_POTENTIAL, selftupleoid, true, NameStr(mgr_node->nodezone));
+		hasSyncNode 			= mgr_check_syncstate_node_exist(rel, masterTupleOid, SYNC_STATE_SYNC, selftupleoid, false, NameStr(mgr_node->nodezone));
+		hasSyncNodeInCluster 	= mgr_check_syncstate_node_exist(rel, masterTupleOid, SYNC_STATE_SYNC, selftupleoid, true, NameStr(mgr_node->nodezone));
+		hasPotenNode 			= mgr_check_syncstate_node_exist(rel, masterTupleOid, SYNC_STATE_POTENTIAL, selftupleoid, false, NameStr(mgr_node->nodezone));
+		hasPotenNodeInCluster 	= mgr_check_syncstate_node_exist(rel, masterTupleOid, SYNC_STATE_POTENTIAL, selftupleoid, true, NameStr(mgr_node->nodezone));
 		/* check master node */
 		mastertype = mgr_get_master_type(nodetype);
 		if (mastertype != nodetype)
@@ -818,7 +818,23 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 						,errmsg("invalid absoulte path: \"%s\"", str)));
 				datum[Anum_mgr_node_nodepath-1] = PointerGetDatum(cstring_to_text(str));
 				got[Anum_mgr_node_nodepath-1] = true;
-			}else if(strcmp(def->defname, "sync_state") == 0)
+			}else if(strcmp(def->defname, "zone") == 0)
+			{
+				if(got[Anum_mgr_node_nodezone-1])
+					ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
+						,errmsg("conflicting or redundant options")));
+				if (bnodeInCluster)
+					ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
+					 ,errmsg("%s \"%s\" has been initialized in the cluster, zone cannot be changed"
+					 , mgr_nodetype_str(nodetype), NameStr(name))));
+				str = defGetString(def);
+				if(strlen(str) == 0)
+					ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR), errmsg("zone cannot equal to 0")));
+				namestrcpy(&zoneName, str);
+				datum[Anum_mgr_node_nodezone-1] = NameGetDatum(&zoneName);
+				got[Anum_mgr_node_nodezone-1] = true;
+			}
+			else if(strcmp(def->defname, "sync_state") == 0)
 			{
 				if(got[Anum_mgr_node_nodesync-1])
 					ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
