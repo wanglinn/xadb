@@ -219,12 +219,12 @@ extern void AtSubAbort_Portals(SubTransactionId mySubid,
 				   ResourceOwner myXactOwner,
 				   ResourceOwner parentXactOwner);
 extern void AtSubCleanup_Portals(SubTransactionId mySubid);
-#if defined(ADB_MULTI_GRAM)
-extern Portal CreatePortal(const char *name, bool allowDup, bool dupSilent, ParseGrammar grammar);
-#else
 extern Portal CreatePortal(const char *name, bool allowDup, bool dupSilent);
-#endif
 extern Portal CreateNewPortal(void);
+#if defined(ADB_MULTI_GRAM)
+extern Portal CreatePortalGram(const char *name, bool allowDup, bool dupSilent, ParseGrammar grammar);
+extern Portal CreateNewPortalGram(ParseGrammar grammar);
+#endif
 extern void PinPortal(Portal portal);
 extern void UnpinPortal(Portal portal);
 extern void MarkPortalActive(Portal portal);

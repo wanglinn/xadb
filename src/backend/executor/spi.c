@@ -1478,7 +1478,7 @@ SPI_cursor_open_internal(const char *name, SPIPlanPtr plan,
 	else
 	{
 #if defined(ADB_MULTI_GRAM)
-		portal = CreatePortal(name, false, false, plansource->grammar);
+		portal = CreatePortalGram(name, false, false, plansource->grammar);
 #else
 		/* In this path, error if portal of same name already exists */
 		portal = CreatePortal(name, false, false);

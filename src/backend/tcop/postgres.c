@@ -1543,7 +1543,7 @@ exec_simple_query(const char *query_string)
 		 * already is one, silently drop it.
 		 */
 #if defined(ADB_MULTI_GRAM)
-		portal = CreatePortal("", true, true, grammar);
+		portal = CreatePortalGram("", true, true, grammar);
 #else
 		portal = CreatePortal("", true, true);
 #endif
@@ -2186,13 +2186,13 @@ exec_bind_message(StringInfo input_message)
 	 */
 	if (portal_name[0] == '\0')
 #if defined(ADB_MULTI_GRAM)
-		portal = CreatePortal(portal_name, true, true, psrc->grammar);
+		portal = CreatePortalGram(portal_name, true, true, psrc->grammar);
 #else
 		portal = CreatePortal(portal_name, true, true);
 #endif
 	else
 #if defined(ADB_MULTI_GRAM)
-		portal = CreatePortal(portal_name, false, false, psrc->grammar);
+		portal = CreatePortalGram(portal_name, false, false, psrc->grammar);
 #else
 		portal = CreatePortal(portal_name, false, false);
 #endif

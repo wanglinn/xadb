@@ -179,11 +179,7 @@ PortalGetPrimaryStmt(Portal portal)
  * dupSilent: if true, don't even emit a WARNING.
  */
 Portal
-#if defined(ADB_MULTI_GRAM)
-CreatePortal(const char *name, bool allowDup, bool dupSilent, ParseGrammar grammar)
-#else
 CreatePortal(const char *name, bool allowDup, bool dupSilent)
-#endif
 {
 	Portal		portal;
 
@@ -231,10 +227,6 @@ CreatePortal(const char *name, bool allowDup, bool dupSilent)
 	/* put portal in table (sets portal->name) */
 	PortalHashTableInsert(portal, name);
 
-#if defined(ADB_MULTI_GRAM)
-	portal->grammar = grammar;
-#endif
-
 	/* reuse portal->name copy */
 	MemoryContextSetIdentifier(portal->portalContext, portal->name);
 
@@ -261,12 +253,24 @@ CreateNewPortal(void)
 			break;
 	}
 
-#if defined(ADB_MULTI_GRAM)
-	return CreatePortal(portalname, false, false, PARSE_GRAM_POSTGRES);
-#else
 	return CreatePortal(portalname, false, false);
-#endif
 }
+
+#ifdef ADB_MULTI_GRAM
+Portal CreatePortalGram(const char *name, bool allowDup, bool dupSilent, ParseGrammar grammar)
+{
+	Portal result = CreatePortal(name, allowDup, dupSilent);
+	result->grammar = grammar;
+	return result;
+}
+
+Portal CreateNewPortalGram(ParseGrammar grammar)
+{
+	Portal result = CreateNewPortal();
+	result->grammar = grammar;
+	return result;
+}
+#endif
 
 /*
  * PortalDefineQuery
