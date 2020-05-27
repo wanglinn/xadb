@@ -98,9 +98,6 @@ PerformCursorOpen(DeclareCursorStmt *cstmt, ParamListInfo params,
 	/*
 	 * Create a portal and copy the plan and queryString into its memory.
 	 */
-
-#if defined(ADB_MULTI_GRAM)
-	portal = CreatePortal(cstmt->portalname, false, false, PARSE_GRAM_POSTGRES);
 #if defined(ADB)
 	/*
 	 * Consume the command id of the command creating the cursor
@@ -108,9 +105,7 @@ PerformCursorOpen(DeclareCursorStmt *cstmt, ParamListInfo params,
 	if (IsCnMaster())
 		GetCurrentCommandId(true);
 #endif
-#else
 	portal = CreatePortal(cstmt->portalname, false, false);
-#endif
 
 	oldContext = MemoryContextSwitchTo(portal->portalContext);
 
