@@ -10,7 +10,7 @@ subdir = src/backend/oraschema
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = convert.o nvarchar2.o orastr.o oradate.o others.o random.o varchar2.o oracoerce.o
+OBJS = convert.o nvarchar2.o orastr.o oradate.o others.o random.o varchar2.o oracoerce.o oraraw.o
 ORA_SCHEMA = oracle_schema.sql
 ORA_SQL_FILES = oracle_type.sql \
 				oracle_proc.sql \

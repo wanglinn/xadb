@@ -650,5 +650,16 @@
   typsend => 'array_send', typmodin => 'varchartypmodin',
   typmodout => 'varchartypmodout', typanalyze => 'array_typanalyze',
   typalign => 'i', typstorage => 'x', typcollation => 'default' },
+{ oid => '8903', row_macros => 'ADB_GRAM_ORA', descr => 'raw(length)',
+  typname => 'raw', typnamespace => 'ORANSP', typlen => '-1', typbyval => 'f',
+  typcategory => 'U', typarray => 'oracle._raw',
+  typinput => 'oracle.ora_raw_in', typoutput => 'oracle.ora_raw_out',
+  typreceive => 'bytearecv', typsend => 'byteasend', typalign => 'i',
+  typstorage => 'x' },
+{ oid => '8904', row_macros => 'ADB_GRAM_ORA',
+  typname => '_raw', typnamespace => 'ORANSP', typlen => '-1', typbyval => 'f',
+  typcategory => 'A', typelem => 'oracle.raw', typinput => 'array_in',
+  typoutput => 'array_out', typreceive => 'array_recv', typsend => 'array_send',
+  typanalyze => 'array_typanalyze', typalign => 'i', typstorage => 'x' },
 # ADB_END_GRAM_ORA
 ]

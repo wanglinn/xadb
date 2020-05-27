@@ -11265,6 +11265,13 @@
   prorettype => 'varchar',
   proargtypes => 'varchar varchar varchar int4 int4 bool bool',
   prosrc => 'orastr_betwn_c' },
+{ oid => '8905', row_macros => 'ADB_GRAM_ORA',
+  proname => 'ora_raw_in', pronamespace => 'ORANSP', proisstrict => 'f',
+  prorettype => 'bytea', proargtypes => 'cstring', prosrc => 'ora_raw_in' },
+{ oid => '8906', row_macros => 'ADB_GRAM_ORA',
+  proname => 'ora_raw_out', pronamespace => 'ORANSP', proisstrict => 'f',
+  prorettype => 'cstring', proargtypes => 'bytea', prosrc => 'ora_raw_out' },
+
 { oid => '9140', row_macros => 'ADB', descr => 'pause cluster',
   proname => 'pg_pause_cluster', provolatile => 'v', prorettype => 'bool',
   proargtypes => '', prosrc => 'pg_pause_cluster' },

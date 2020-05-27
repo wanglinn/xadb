@@ -2860,8 +2860,7 @@ Bit:  BFILE					{ $$ = SystemTypeNameLocation("bytea", @1); }
 	| LONG_P RAW			{ $$ = SystemTypeNameLocation("bytea", @1); }
 	| RAW '(' Iconst ')'
 		{
-			$$ = SystemTypeNameLocation("bytea", @1);
-			$$->typmods = list_make1(makeIntConst($3, @3));
+			$$ = OracleTypeNameLocation("raw", @1);
 		}
 	;
 
@@ -6594,7 +6593,8 @@ SimpleTypename:
 	| IDENT '.' attr_name '(' expr_list ')'
 		{
 			$$ = makeTypeNameFromNameList(list_make2(makeString($1),makeString($3)));
-			$$->typmods = $5;
+			if (strcmp($1, "oracle") != 0 && strcmp($3, "raw") != 0)
+				$$->typmods = $5;
 			$$->location = @1;
 		}
 	| type_func_name_keyword
