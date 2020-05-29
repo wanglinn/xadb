@@ -329,7 +329,7 @@ static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext, char *currentZo
 			dlist_init(&slaveList);
 			selectActiveMgrSlaveNodesInZone(mgrNode->oid, getMgrSlaveNodetype(mgrNode->form.nodetype), currentZone, spiContext, &slaveList);
 			if (dlist_is_empty(&slaveList)){
-				ereport(ERROR, (errmsg("because %s node(%s) has no slave node in zone(%s), so can't zone switch.",  NameStr(mgrNode->form.nodename), mgr_nodetype_str(mgrNode->form.nodetype), currentZone)));
+				ereport(ERROR, (errmsg("because %s node(%s) has no slave node in zone(%s), so can't switchover or failover.",  NameStr(mgrNode->form.nodename), mgr_nodetype_str(mgrNode->form.nodetype), currentZone)));
 			}
 			pfreeMgrNodeWrapperList(&slaveList, NULL);
 		}
@@ -352,7 +352,7 @@ static void MgrCheckMasterHasSlave(MemoryContext spiContext, char *currentZone)
 	Assert(oldMaster);
 	selectActiveMgrSlaveNodesInZone(oldMaster->oid, getMgrSlaveNodetype(oldMaster->form.nodetype), currentZone, spiContext, &activeNodes);
 	if (dlist_is_empty(&activeNodes)){
-		ereport(ERROR, (errmsg("no gtmcoord slave in zone(%s) can't promote.", currentZone)));
+		ereport(ERROR, (errmsg("because no gtmcoord slave in zone(%s), so can't switchover or failover.", currentZone)));
 	}
 
 	MgrCheckMasterHasSlaveCnDn(spiContext, currentZone, CNDN_TYPE_COORDINATOR_MASTER);
@@ -375,7 +375,7 @@ static MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char 
 
 	selectNodeNotZone(spiContext, currentZone, CNDN_TYPE_GTM_COOR_MASTER, &masterList);
 	if (dlist_is_empty(&masterList)){
-		ereport(ERROR, (errmsg("no master gtmcoord in other zone, current zone(%s).", currentZone)));
+		ereport(ERROR, (errmsg("current zone is %s, because no gtmcoord master in other zone, so can't switchover or failover.", currentZone)));
 	}
 
 	dlist_foreach(iter, &masterList)
@@ -385,7 +385,8 @@ static MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char 
 		gtmMasterNum++;	
 	}	
 	if (gtmMasterNum != 1){
-		ereport(ERROR, (errmsg("master gtmcoord num should be equal to 1, in not zone(%s).", currentZone)));
+		ereport(ERROR, (errmsg("because gtmcoord master number(%d) is not be equal to 1 in not zone(%s), so can't switchover or failover.", 
+				gtmMasterNum, currentZone)));
 	}
 
 	node = dlist_tail_node(&masterList);

@@ -1123,7 +1123,7 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, in
 		{
 			ereport(ERROR, (errmsg("the new datanode(%s) is not in current zone(%s), can't switchover it.",	
 					NameStr(newMaster->mgrNode->form.nodename), curZone)));
-		}										
+		}		
 		oldMaster = checkGetSwitchoverOldMaster(newMaster->mgrNode->form.nodemasternameoid,
 												CNDN_TYPE_DATANODE_MASTER,
 												spiContext);
@@ -3150,13 +3150,13 @@ static SwitcherNodeWrapper *checkGetSwitchoverOldMaster(Oid oldMasterOid,
 	if (!mgrNode)
 	{
 		ereport(ERROR,
-				(errmsg("master node does not exist")));
+				(errmsg("node oid(%d) does not exist", oldMasterOid)));
 	}
 	if (mgrNode->form.nodetype != nodetype)
 	{
 		ereport(ERROR,
-				(errmsg("%s is not a master node",
-						NameStr(mgrNode->form.nodename))));
+				(errmsg("%s type(%s) is not a %s node",
+						NameStr(mgrNode->form.nodename), mgr_nodetype_str(mgrNode->form.nodetype), mgr_nodetype_str(nodetype))));
 	}
 	if (!mgrNode->form.nodeinited)
 	{
@@ -3167,7 +3167,7 @@ static SwitcherNodeWrapper *checkGetSwitchoverOldMaster(Oid oldMasterOid,
 	if (!mgrNode->form.nodeincluster)
 	{
 		ereport(ERROR,
-				(errmsg("%s has been kicked out of the cluster",
+				(errmsg("%s is not incluster",
 						NameStr(mgrNode->form.nodename))));
 	}
 	oldMaster = palloc0(sizeof(SwitcherNodeWrapper));
@@ -3175,7 +3175,7 @@ static SwitcherNodeWrapper *checkGetSwitchoverOldMaster(Oid oldMasterOid,
 	if (tryConnectNode(oldMaster, 10))
 	{
 		oldMaster->runningMode = getNodeRunningMode(oldMaster->pgConn);
-		if (oldMaster->runningMode != NODE_RUNNING_MODE_MASTER)
+		if (oldMaster->runningMode != NODE_RUNNING_MODE_MASTER && isMasterNode(nodetype, true))
 		{
 			pfreeSwitcherNodeWrapperPGconn(oldMaster);
 			ereport(ERROR,
@@ -5078,3 +5078,47 @@ void PrintMgrNodeList(MemoryContext spiContext)
 	PrintMgrNode(spiContext, &masterDataNodes);
 	ereport(LOG, (errmsg("---------------------------- mgr_node datanode ----------------------------.")));
 }
+void MgrChildNodeFollowParentNode(MemoryContext spiContext, 
+									Form_mgr_node childMgrNode, 
+									Oid childNodeOid, 
+									Form_mgr_node parentMgrNode, 
+									Oid parentOid)
+{
+	SwitcherNodeWrapper *curSlave;
+	SwitcherNodeWrapper *newParent;
+	MgrNodeWrapper 		*ParentNode;
+ 	MgrNodeWrapper 		*slaveNode;
+
+	Assert(childMgrNode);
+	Assert(parentMgrNode);
+
+	curSlave  = checkGetSwitchoverOldMaster(childNodeOid, childMgrNode->nodetype, spiContext);
+	newParent = checkGetSwitchoverOldMaster(parentOid, parentMgrNode->nodetype, spiContext);
+	Assert(curSlave);
+	Assert(newParent);
+	ParentNode = newParent->mgrNode;
+	slaveNode  = curSlave->mgrNode;
+	Assert(ParentNode);
+	Assert(slaveNode);
+
+	setPGHbaTrustSlaveReplication(ParentNode, slaveNode);
+
+	setSlaveNodeRecoveryConf(ParentNode, slaveNode);
+
+	shutdownNodeWithinSeconds(slaveNode,
+							  SHUTDOWN_NODE_FAST_SECONDS,
+							  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
+							  true);
+
+	callAgentStartNode(slaveNode, true, true);
+
+	waitForNodeRunningOk(slaveNode, false, NULL, NULL);
+
+	appendToSyncStandbyNames(ParentNode,
+							 slaveNode,
+							 NULL,
+							 newParent->pgConn,
+							 spiContext);
+
+}
+

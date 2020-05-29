@@ -261,7 +261,21 @@ static void mgr_run_gtm_dn_slave(HeapTuple tuple,
 									char cmdtype,
 									char nodetype, 
 									char *shutdown_mode, 
-									GetAgentCmdRst *getAgentCmdRst);									
+									GetAgentCmdRst *getAgentCmdRst);	
+static void MgrCheckParentNodeBeforeAlterNode(Form_mgr_node curMgrNode, 
+												Oid curNodeOid,
+												Oid oldParentOid,
+												Form_mgr_node newParentMgrNode, 
+												Oid newParentOid);
+static void MgrModifyParentNode(Relation rel, 
+								Form_mgr_node curMgrNode, 
+								Oid curNodeOid, 
+								Form_mgr_node newParentMgrNode,
+								Oid newParentOid);
+static void RemoveSlaveNodeFromParent(Relation rel, Form_mgr_node curMgrNode, Oid curOid);
+static Oid MgrGetRootNodeOid(Oid curOid);	
+static bool MgrCheckChildAndParent(Oid childOid, Oid parentOid);
+
 #if (Natts_mgr_node != 12)
 #error "need change code"
 #endif
@@ -666,6 +680,7 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 	HeapTuple oldtuple = NULL;
 	HeapTuple new_tuple;
 	HeapTuple masterTuple;
+	HeapTuple newParentTuple = NULL;
 	ListCell *lc;
 	DefElem *def;
 	Datum datum[Natts_mgr_node];
@@ -702,7 +717,9 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 	StringInfoData infosendmsg;
 	StringInfoData infoSyncStrTmp;
 	GetAgentCmdRst getAgentCmdRst;
-
+	Form_mgr_node 	newParentMgrNode;
+	Oid             newParentOid;
+	
 	nodetype = PG_GETARG_CHAR(0);
 	name_str = PG_GETARG_CSTRING(1);
 	options = (List *)PG_GETARG_POINTER(2);
@@ -829,10 +846,30 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 					 , mgr_nodetype_str(nodetype), NameStr(name))));
 				str = defGetString(def);
 				if(strlen(str) == 0)
-					ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR), errmsg("zone cannot equal to 0")));
+					ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR), errmsg("zonename cannot equal to NULL.")));
 				namestrcpy(&zoneName, str);
 				datum[Anum_mgr_node_nodezone-1] = NameGetDatum(&zoneName);
 				got[Anum_mgr_node_nodezone-1] = true;
+			}else if(pg_strcasecmp(def->defname, "parent") == 0)
+			{
+				if(got[Anum_mgr_node_nodemasternameoid-1])
+					ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
+						,errmsg("conflicting or redundant options")));
+				str = defGetString(def);
+				if(strlen(str) == 0){
+					ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR), errmsg("parentnode name cannot equal to NULL.")));
+				}
+				newParentTuple = mgr_get_tuple_node_from_name_type(rel, str);
+				if(!(HeapTupleIsValid(newParentTuple))){
+					ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT), errmsg("%s does not exist", str)));
+				}
+				newParentMgrNode = (Form_mgr_node)GETSTRUCT(newParentTuple);
+				Assert(newParentMgrNode);
+				newParentOid = HeapTupleGetOid(newParentTuple);
+				MgrCheckParentNodeBeforeAlterNode(mgr_node, selftupleoid, masterTupleOid, newParentMgrNode, newParentOid);	
+
+				datum[Anum_mgr_node_nodemasternameoid-1] = ObjectIdGetDatum(newParentOid);;
+				got[Anum_mgr_node_nodemasternameoid-1] = true;
 			}
 			else if(strcmp(def->defname, "sync_state") == 0)
 			{
@@ -1007,12 +1044,12 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 				else if (CNDN_TYPE_DATANODE_MASTER == nodetype)
 					mgr_check_job_in_updateparam("monitor_handle_datanode");
 				mgr_modify_port_after_initd(rel, oldtuple, name.data, nodetype, newport);
-			}
+			}	
 		}
 	}PG_CATCH();
 	{
-		if (HeapTupleIsValid(oldtuple))
-			heap_freetuple(oldtuple);
+		MgrFree(oldtuple);
+		MgrFree(newParentTuple);
 		heap_close(rel, RowExclusiveLock);
 		PG_RE_THROW();
 	}PG_END_TRY();
@@ -1020,7 +1057,12 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 	new_tuple = heap_modify_tuple(oldtuple, cndn_dsc, datum,isnull, got);
 	CatalogTupleUpdate(rel, &oldtuple->t_self, new_tuple);
 
-	heap_freetuple(oldtuple);
+	if (got[Anum_mgr_node_nodemasternameoid-1] == true)
+	{
+		MgrModifyParentNode(rel, mgr_node, selftupleoid, newParentMgrNode, newParentOid);
+	}
+	MgrFree(oldtuple);
+	MgrFree(newParentTuple);
 	heap_close(rel, RowExclusiveLock);
 
 	PG_RETURN_BOOL(true);
@@ -3994,6 +4036,9 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 		mgr_get_active_hostoid_and_port(CNDN_TYPE_DATANODE_MASTER, &dnhostoid, &dnport, &appendnodeinfo, true);
 
 		temp_file = get_temp_file_name();
+		
+		
+
 		mgr_pg_dumpall(dnhostoid, dnport, appendnodeinfo.nodehost, temp_file);
 
 		/* step 6: start the datanode master with restoremode mode, and input all catalog message */
@@ -7880,6 +7925,26 @@ char *mgr_nodetype_str(char nodetype)
 	return retstr;
 }
 
+char *mgr_get_nodetype_name(char nodetype)
+{
+	switch(nodetype)
+	{
+		case CNDN_TYPE_GTM_COOR_MASTER:
+			return GTMCOORD_MASTER_NAME;
+		case CNDN_TYPE_GTM_COOR_SLAVE:
+			return GTMCOORD_SLAVE_NAME;
+		case CNDN_TYPE_COORDINATOR_MASTER:
+			return COORD_MASTER_NAME;
+		case CNDN_TYPE_COORDINATOR_SLAVE:
+			return COORD_SLAVE_NAME;
+		case CNDN_TYPE_DATANODE_MASTER:
+			return DATANODE_MASTER_NAME;
+		case CNDN_TYPE_DATANODE_SLAVE:
+			return DATANODE_SLAVE_NAME;
+		default:
+			return "";
+	}
+}
 /*
 * clean all: 1. check the database cluster running, if it running(check gtm master), give the tip: stop cluster first; if not
 * running, clean node. clean gtm, clean coordinator, clean datanode master, clean datanode slave
@@ -8720,7 +8785,7 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 	nodetupleoid = HeapTupleGetOid(nodetuple);
 	initStringInfo(&infosendmsg);
 	/*if nodetype is slave, need modfify its postgresql.conf for port*/
-	if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype)
+	if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype || CNDN_TYPE_COORDINATOR_SLAVE == nodetype)
 	{
 		resetStringInfo(&infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", newport, &infosendmsg);
@@ -14448,14 +14513,6 @@ mgr_init_start_gtmcoord_slave_all(PG_FUNCTION_ARGS)
 		SRF_RETURN_DONE(funcctx);
 	}
 
-	// return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_GTM_COOR_SLAVE, AGT_CMD_GTMCOORD_SLAVE_INIT, TAKEPLAPARM_N, fcinfo);
-	// return mgr_runmode_cndn(nodenames_supplier_of_argidx_0,
-	// 							enable_doctor_consulting,
-	// 							CNDN_TYPE_GTM_COOR_SLAVE,
-	// 							AGT_CMD_GTMCOORD_START_SLAVE,
-	// 							TAKEPLAPARM_N,
-	// 							fcinfo);
-
 	mgr_run_gtm_dn_slave(tuple, info, AGT_CMD_GTMCOORD_SLAVE_INIT, CNDN_TYPE_GTM_COOR_SLAVE, shutdown_mode, &getAgentCmdRst);
 	if (!getAgentCmdRst.ret)
 	{
@@ -14663,3 +14720,248 @@ static void mgr_run_gtm_dn_slave( HeapTuple tuple,
 	mgr_runmode_cndn_get_result(cmdtype, getAgentCmdRst, info->rel_node, aimtuple, shutdown_mode);
 	heap_freetuple(aimtuple);
 }
+static void MgrCheckParentNodeBeforeAlterNode(Form_mgr_node curMgrNode, Oid curNodeOid, Oid oldParentOid, Form_mgr_node newParentMgrNode, Oid newParentOid)
+{
+	Oid           	curNodeRootOid;
+	Oid           	newParentRootOid;
+	char          	*curNodeType = NULL;
+	char          	*parentNodeType = NULL;
+	 
+	Assert(curMgrNode);
+	Assert(newParentMgrNode);
+
+	curNodeType    = mgr_get_nodetype_name(curMgrNode->nodetype);
+	parentNodeType = mgr_get_nodetype_name(newParentMgrNode->nodetype);
+
+	if (!((curMgrNode->nodetype == CNDN_TYPE_DATANODE_SLAVE) || (curMgrNode->nodetype == CNDN_TYPE_GTM_COOR_SLAVE))){		
+		ereport(ERROR, (errmsg("the nodetype of %s is %s, cannot alter the parent node, the support nodetype are gtmcoord slave, datanode slave.",
+				NameStr(curMgrNode->nodename), curNodeType)));
+	}
+	
+	if (!((newParentMgrNode->nodetype == CNDN_TYPE_DATANODE_SLAVE) || (newParentMgrNode->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)||
+	      (newParentMgrNode->nodetype == CNDN_TYPE_DATANODE_MASTER) || (newParentMgrNode->nodetype == CNDN_TYPE_GTM_COOR_MASTER))){
+		ereport(ERROR, (errmsg("the nodetype of %s is %s, it cannot be a parent node, the support nodetype are gtmcoord master, gtmcoord slave, datanode master, datanode slave.", 
+				NameStr(newParentMgrNode->nodename), parentNodeType)));
+	}
+	
+	if (curNodeOid == newParentOid){
+		ereport(ERROR, (errmsg("cannot alter the parent node to itself.")));
+	}
+
+	if (pg_strcasecmp(NameStr(curMgrNode->nodezone), NameStr(newParentMgrNode->nodezone)) != 0){
+		ereport(ERROR, (errmsg("%s %s is in zone %s, %s %s is in zone %s, cannot support alter parent node in different zone.",	curNodeType, 
+				NameStr(curMgrNode->nodename), NameStr(curMgrNode->nodezone), parentNodeType, NameStr(newParentMgrNode->nodename), NameStr(newParentMgrNode->nodezone))));
+	}
+	
+	if (oldParentOid == newParentOid){
+		ereport(ERROR, (errmsg("the parent node of %s is %s now, you need not alter parent node to %s again.", 
+				NameStr(curMgrNode->nodename), NameStr(newParentMgrNode->nodename), NameStr(newParentMgrNode->nodename))));
+	}
+     
+	curNodeRootOid   = MgrGetRootNodeOid(curNodeOid);
+	newParentRootOid = MgrGetRootNodeOid(newParentOid);
+    if (curNodeRootOid != newParentRootOid){
+		ereport(ERROR, (errmsg("%s %s and %s %s are not in the same group, so cannot alter parent node of them.", 
+			curNodeType, NameStr(curMgrNode->nodename), parentNodeType, NameStr(newParentMgrNode->nodename))));
+	}
+    
+	if (MgrCheckChildAndParent(newParentOid, curNodeOid)){
+		ereport(ERROR, (errmsg("%s %s is parent of %s %s now, cannot support to revert child and parent relationship of them.", 
+				curNodeType, NameStr(curMgrNode->nodename), parentNodeType, NameStr(newParentMgrNode->nodename))));
+	}
+}
+static Oid MgrGetRootNodeOid(Oid curOid)
+{
+	HeapTuple 		curTuple;
+	Form_mgr_node 	curMgrNode;
+	Oid 			nodemasternameoid = 0;
+
+	curTuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(curOid));
+	if(!HeapTupleIsValid(curTuple))
+	{
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+			, errmsg("curOid(%d) cannot get valid tuple from mgr_node.", curOid)));
+	}
+	curMgrNode = (Form_mgr_node)GETSTRUCT(curTuple);
+	Assert(curMgrNode);
+	nodemasternameoid = curMgrNode->nodemasternameoid;
+	ReleaseSysCache(curTuple);
+
+	if (nodemasternameoid == 0){
+		return curOid;
+	}
+	else{
+		return MgrGetRootNodeOid(nodemasternameoid);
+	}
+}
+static bool MgrCheckChildAndParent(Oid childOid, Oid parentOid)
+{
+	HeapTuple 		childTuple;
+	Form_mgr_node 	childMgrNode;
+	Oid 			nodemasternameoid = 0;
+
+	childTuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(childOid));
+	if(!HeapTupleIsValid(childTuple))
+	{
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+			, errmsg("childOid(%d) cannot get valid tuple from mgr_node.", childOid)));
+	}
+	childMgrNode = (Form_mgr_node)GETSTRUCT(childTuple);
+	Assert(childMgrNode);
+	nodemasternameoid = childMgrNode->nodemasternameoid;
+	ReleaseSysCache(childTuple);
+
+	if (nodemasternameoid == 0)
+	{
+		if (parentOid == 0)
+			return true;
+		else
+			return false;
+	}
+	else
+	{
+	 	if (nodemasternameoid == parentOid)
+			return true;
+		else
+			return MgrCheckChildAndParent(nodemasternameoid, parentOid);
+	}   
+}
+static void MgrModifyParentNode(Relation rel, Form_mgr_node curMgrNode, Oid curNodeOid, Form_mgr_node newParentMgrNode, Oid newParentOid)
+{
+	MemoryContext 		oldContext;
+	MemoryContext 		switchContext;
+	MemoryContext 		spiContext;
+	int 				spiRes = 0;
+	MgrNodeWrapper 		*mgrNode;
+	ErrorData 			*edata = NULL;
+
+	Assert(curMgrNode);
+	Assert(newParentMgrNode);
+	
+	oldContext = CurrentMemoryContext;
+	switchContext = AllocSetContextCreate(oldContext, "MgrModifyParentNode", ALLOCSET_DEFAULT_SIZES);
+	spiRes = SPI_connect();
+	if (spiRes != SPI_OK_CONNECT)
+	{
+		ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
+	}
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(switchContext);
+
+	PG_TRY();
+	{
+		mgrNode = selectMgrNodeByOid(curNodeOid, spiContext);
+		Assert(mgrNode);
+		callAgentStopNode(mgrNode, SHUTDOWN_F, false, false);
+		RemoveSlaveNodeFromParent(rel, curMgrNode, curNodeOid);
+		callAgentStartNode(mgrNode, true, true);
+
+		MgrChildNodeFollowParentNode(spiContext, curMgrNode, curNodeOid, newParentMgrNode, newParentOid);
+
+		ereportNoticeLog(errmsg("the parent node of %s %s has altered to %s %s.", mgr_get_nodetype_name(curMgrNode->nodetype), 
+			NameStr(curMgrNode->nodename), mgr_get_nodetype_name(newParentMgrNode->nodetype), NameStr(newParentMgrNode->nodename)));
+	}
+	PG_CATCH();
+	{
+		/* Save error info in our stmt_mcontext */
+		MemoryContextSwitchTo(oldContext);
+		edata = CopyErrorData();
+		FlushErrorState();
+	}
+	PG_END_TRY();
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(switchContext);
+	SPI_finish();
+}
+static void RemoveSlaveNodeFromParent(Relation rel, Form_mgr_node curMgrNode, Oid curOid)
+{
+	Form_mgr_node 		oldParentMgrNode;
+	bool				syncExist = false;
+	int 				syncNum = 0;
+	StringInfoData 		infostrparam;
+	StringInfoData 		infostrparamtmp;
+	char 				*nodestring;
+	char 				*oldParentPath;
+	NameData 			oldParentName;
+	HeapTuple 			oldParentTuple;
+	bool 				isNull;
+	Datum 				datumPath;
+	GetAgentCmdRst 		getAgentCmdRst;
+	StringInfoData 		infosendmsg;
+	
+	syncExist = mgr_check_syncstate_node_exist(rel, curMgrNode->nodemasternameoid, SYNC_STATE_SYNC, curOid, true, mgr_zone);
+	if (!syncExist){
+		mgr_update_one_potential_to_sync(rel, curMgrNode->nodemasternameoid, true, curOid);
+	}
+
+    initStringInfo(&infostrparam);
+	initStringInfo(&infostrparamtmp);
+	if (  (pg_strcasecmp(NameStr(curMgrNode->nodesync), sync_state_tab[SYNC_STATE_SYNC].name) == 0)
+		||(pg_strcasecmp(NameStr(curMgrNode->nodesync), sync_state_tab[SYNC_STATE_POTENTIAL].name) == 0)){
+		syncNum = mgr_get_master_sync_string(curMgrNode->nodemasternameoid, true, curOid, &infostrparam, NameStr(curMgrNode->nodezone));
+	}
+
+	if (infostrparam.len == 0){
+		appendStringInfoString(&infostrparam, "");	
+	}
+	else{
+		if (syncNum > 0)
+		{
+			resetStringInfo(&infostrparamtmp);
+			appendStringInfo(&infostrparamtmp, "%d(%s)", syncNum, infostrparam.data);
+			resetStringInfo(&infostrparam);
+			appendStringInfo(&infostrparam, "%s", infostrparamtmp.data);
+		}
+	}
+
+	oldParentTuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(curMgrNode->nodemasternameoid));
+	if(!HeapTupleIsValid(oldParentTuple))
+	{
+		MgrFree(infostrparam.data);
+		MgrFree(infostrparamtmp.data);
+		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+			, errmsg("the master \"%s\" does not exist", NameStr(curMgrNode->nodename))));
+	}
+	oldParentMgrNode = (Form_mgr_node)GETSTRUCT(oldParentTuple);
+	namestrcpy(&oldParentName, NameStr(oldParentMgrNode->nodename));
+	datumPath = heap_getattr(oldParentTuple, Anum_mgr_node_nodepath, RelationGetDescr(rel), &isNull);
+	if (isNull)
+	{
+		MgrFree(infostrparam.data);
+		MgrFree(infostrparamtmp.data); 
+		ReleaseSysCache(oldParentTuple);
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR), 
+				err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node"), 
+				errmsg("column nodepath is null")));
+	}
+	oldParentPath = TextDatumGetCString(datumPath);
+	
+	initStringInfo(&infosendmsg);
+	initStringInfo(&(getAgentCmdRst.description));
+	mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", infostrparam.data, &infosendmsg);
+	nodestring = mgr_get_nodetype_name(oldParentMgrNode->nodetype);
+	ereport(LOG, (errmsg("set \"synchronous_standby_names = '%s' in postgresql.conf of the %s \"%s\""
+			,infostrparam.data, nodestring, NameStr(oldParentMgrNode->nodename))));
+	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, oldParentPath, &infosendmsg, oldParentMgrNode->nodehost, &getAgentCmdRst);
+	if (!getAgentCmdRst.ret){
+		ereportWarningLog(errmsg("set synchronous_standby_names = '%s' in postgresql.conf of %s \"%s\"fail"
+			, infostrparam.data, nodestring, NameStr(oldParentMgrNode->nodename)));
+	}
+	ReleaseSysCache(oldParentTuple);
+
+	if (pg_strcasecmp(infostrparam.data, "") == 0){
+		ereportWarningLog(errmsg("the %s %s has no synchronous slave node",	mgr_get_nodetype_name(oldParentMgrNode->nodetype), oldParentName.data));
+	}
+	
+	if (CNDN_TYPE_DATANODE_SLAVE == curMgrNode->nodetype){
+		dn_master_replication_slot(NameStr(oldParentMgrNode->nodename), NameStr(curMgrNode->nodename),'d');
+	}
+
+    ereport(LOG, (errmsg("remove node(%s) 's parent node from node(%s).", NameStr(curMgrNode->nodename), NameStr(oldParentName))));
+
+	MgrFree(infostrparam.data);
+	MgrFree(infostrparamtmp.data);
+	MgrFree(infosendmsg.data);
+	MgrFree(getAgentCmdRst.description.data);
+}
+

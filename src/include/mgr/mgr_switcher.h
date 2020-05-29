@@ -162,5 +162,10 @@ extern void commitSwitcherNodeTransaction(SwitcherNodeWrapper *switcherNode,
 										  bool complain);
 extern void rollbackSwitcherNodeTransaction(SwitcherNodeWrapper *switcherNode,
 											bool complain);
+extern void MgrChildNodeFollowParentNode(MemoryContext spiContext, 
+										Form_mgr_node childMgrNode, 
+										Oid childNodeOid, 
+										Form_mgr_node parentMgrNode, 
+										Oid parentOid);
 
 #endif /* MGR_SWITCHER_H */

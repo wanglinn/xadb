@@ -157,4 +157,11 @@ NameData clusterLockCoordNodeName;
 #define CURE_STATUS_ISOLATED "isolated"
 
 
+#define GTMCOORD_MASTER_NAME		"gtmcoord master"
+#define GTMCOORD_SLAVE_NAME			"gtmcoord slave"
+#define COORD_MASTER_NAME			"coordinator master"
+#define COORD_SLAVE_NAME			"coordinator slave"
+#define DATANODE_MASTER_NAME		"datanode master"
+#define DATANODE_SLAVE_NAME			"datanode slave"
+
 #endif /* MGR_CNDNNODE_H */
