@@ -1132,6 +1132,9 @@ typedef enum RowMarkType
 	ROW_MARK_KEYSHARE,			/* obtain keyshare tuple lock */
 	ROW_MARK_REFERENCE,			/* just fetch the TID, don't lock it */
 	ROW_MARK_COPY				/* physically copy the row value */
+#ifdef ADB
+	,ROW_MARK_ADBSPECIAL		/* when relation dose not exist in some datamodes */
+#endif
 } RowMarkType;
 
 #define RowMarkRequiresRowShareLock(marktype)  ((marktype) <= ROW_MARK_KEYSHARE)

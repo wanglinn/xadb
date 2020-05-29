@@ -1015,6 +1015,7 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 				relation = heap_open(relid, AccessShareLock);
 				break;
 			case ROW_MARK_COPY:
+			ADB_ONLY_CODE(case ROW_MARK_ADBSPECIAL:);
 				/* no physical table access is required */
 				relation = NULL;
 				break;
@@ -2515,7 +2516,7 @@ ExecBuildAuxRowMark(ExecRowMark *erm, List *targetlist)
 	aerm->rowmark = erm;
 
 	/* Look up the resjunk columns associated with this rowmark */
-	if (erm->markType != ROW_MARK_COPY)
+	if (erm->markType != ROW_MARK_COPY ADB_ONLY_CODE(|| erm->markType == ROW_MARK_ADBSPECIAL))
 	{
 		/* need ctid for all methods other than COPY */
 		snprintf(resname, sizeof(resname), "ctid%u", erm->rowmarkId);

@@ -1059,7 +1059,7 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 		{
 			PlanRowMark *prm = (PlanRowMark*)node;
 			if (((Relation*)context)[prm->rti-1] == NULL)
-				prm->markType = ROW_MARK_COPY;
+				prm->markType = ROW_MARK_ADBSPECIAL;
 		}
 		break;
 #if 0
