@@ -12,7 +12,7 @@ ADB documentation
 
   <refnamediv>
     <refname>ZONE CLEAR</refname>
-    <refpurpose>keep the nodes whose zone is given zone_name and make the node clear</refpurpose>
+    <refpurpose>drop node if the node is not inited or not in this zone</refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-clear">
@@ -29,7 +29,7 @@ ZONE CLEAR <replaceable class="parameter">zone_name</replaceable>
     <title>Description</title>
 
     <para>
-<command>ZONE PROMOTE</command> in the given node, the nodes whose zone is different from its master, change the type of these nodes as master in the node table; then change the master type of nodes' mastername and sync_state to null.
+<command>ZONE CLEAR</command> drop node if the node is not inited or not in this zone.
     </para>
   </refsect1>
 

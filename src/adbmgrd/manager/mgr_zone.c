@@ -58,7 +58,6 @@ static void MgrFailoverCheck(MemoryContext spiContext, char *currentZone);
 static void MgrCheckMasterHasSlave(MemoryContext spiContext, char *currentZone);
 static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext, char *currentZone, char nodeType);
 static void MgrMakesureAllSlaveRunning(void);
-static void MgrZoneUpdateOtherZoneMgrNode(Relation relNode, char *currentZone);
 
 Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 {
@@ -164,7 +163,7 @@ Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 	HeapScanDesc 	relScan  = NULL;
 	ScanKeyData 	key[2];
 	HeapTuple 		tuple = NULL;
-	Form_mgr_node 	mgr_node = NULL;
+	Form_mgr_node 	mgrNode = NULL;
 	char 			*zone = NULL;
 
 	if (RecoveryInProgress())
@@ -173,19 +172,20 @@ Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 	zone  = PG_GETARG_CSTRING(0);
 	Assert(zone);
 
-	if (strcmp(zone, mgr_zone) !=0)
+	if (pg_strcasecmp(zone, mgr_zone) != 0)
 		ereport(ERROR, (errmsg("the given zone name \"%s\" is not the same wtih guc parameter mgr_zone \"%s\" in postgresql.conf", zone, mgr_zone)));
 
-	ereportNoticeLog(errmsg("make the special node as master type and set its master name is null, sync_state is null on node table in zone \"%s\"", zone));
+	ereportNoticeLog(errmsg("drop node if the node is not inited or not in this zone(%s).", zone));
+
 	ScanKeyInit(&key[0]
-				,Anum_mgr_node_nodeincluster
+				,Anum_mgr_node_nodeinited
 				,BTEqualStrategyNumber
 				,F_BOOLEQ
-				,BoolGetDatum(true));
+				,BoolGetDatum(false));
 	ScanKeyInit(&key[1]
 			,Anum_mgr_node_nodezone
 			,BTEqualStrategyNumber
-			,F_NAMEEQ
+			,F_NAMENE
 			,CStringGetDatum(zone));
 
 	PG_TRY();
@@ -194,20 +194,16 @@ Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 		relScan = heap_beginscan_catalog(relNode, 2, key);
 		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 		{
-			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-			Assert(mgr_node);
-			if (mgr_checknode_in_currentzone(zone, mgr_node->nodemasternameoid))
-				continue;
-			ereportNoticeLog(errmsg("make the node \"%s\" as master type on node table in zone \"%s\"", NameStr(mgr_node->nodename), zone));
-			mgr_node->nodetype = mgr_get_master_type(mgr_node->nodetype);
-			namestrcpy(&(mgr_node->nodesync), "");
-			mgr_node->nodemasternameoid = 0;
-			heap_inplace_update(relNode, tuple);
+			mgrNode = (Form_mgr_node)GETSTRUCT(tuple);
+			Assert(mgrNode);
+			ereport(LOG, (errmsg("zone clear %s, drop node %s.", zone, NameStr(mgrNode->nodename))));
+
+			if(HeapTupleIsValid(tuple))
+			{
+				simple_heap_delete(relNode, &(tuple->t_self));
+			}
 		}
 		EndScan(relScan);
-
-		ereportNoticeLog(errmsg("on node table, drop the node which is not in zone \"%s\"", zone));
-		MgrZoneUpdateOtherZoneMgrNode(relNode, zone);
 	}PG_CATCH();
 	{
 		EndScan(relScan);	
@@ -583,35 +579,6 @@ static void MgrMakesureAllSlaveRunning(void)
 	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_SLAVE, NULL);
 	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_SLAVE, NULL);
 	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_SLAVE, NULL);
-}
-static void MgrZoneUpdateOtherZoneMgrNode(Relation relNode, char *currentZone)
-{
-	HeapScanDesc 	relScan = NULL;
-	HeapTuple 		tuple;
-	Form_mgr_node 	mgr_node;
-
-	PG_TRY();
-	{
-		relScan = heap_beginscan_catalog(relNode, 0, NULL);
-		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
-		{
-			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-			Assert(mgr_node);			
-			if (strcasecmp(NameStr(mgr_node->nodezone), currentZone) == 0)
-				continue;            
-			namestrcpy(&(mgr_node->nodesync), "");
-			mgr_node->nodetype      = getMgrSlaveNodetype(mgr_node->nodetype);	
-			mgr_node->nodeinited    = false;
-			mgr_node->nodeincluster = false;			
-			heap_inplace_update(relNode, tuple);
-			ereport(LOG, (errmsg("set %s to not inited, not incluster on mgr node table in zone \"%s\"", NameStr(mgr_node->nodename), NameStr(mgr_node->nodezone))));
-		}
-		EndScan(relScan);
-	}PG_CATCH();
-	{
-		EndScan(relScan);		
-		PG_RE_THROW();
-	}PG_END_TRY();
 }
 
 
