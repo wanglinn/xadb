@@ -28,7 +28,9 @@ ALTER DATANODE { MASTER | SLAVE } <replaceable class="parameter">node_name</repl
     HOST = <replaceable class="parameter">IP_address</replaceable>,
     PORT = <replaceable class="parameter">port_number</replaceable>,
     PATH = <replaceable class="parameter">pg_data</replaceable>,
-    SYNC_STATE = <replaceable class="parameter">sync_mode</replaceable>   
+    SYNC_STATE = <replaceable class="parameter">sync_mode</replaceable>
+    ZONE = <replaceable class="parameter">zone_name</replaceable> 
+    PARENT = <replaceable class="parameter">parent_node_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
 
