@@ -114,7 +114,8 @@ static bool OptimizeClusterReduceWalker(Plan *plan, PlannedStmt *stmt, void *con
 			list_free(inner_reduce);
 			list_free(init_reduce);
 		}
-	}else if (IsA(plan, ClusterReduce))
+	}else if (IsA(plan, ClusterReduce) ||
+		(IsA(plan, Hash) && plan->parallel_aware))
 	{
 		List	   *outer_reduce = FindReducePlan(outerPlan(plan), stmt);
 		ListCell   *lc;
