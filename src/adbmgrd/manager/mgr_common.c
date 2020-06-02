@@ -3867,7 +3867,7 @@ int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
 				}
 				else 
 				{
-				     appendStringInfoString(starttime, "unknow");
+				     appendStringInfoString(starttime, "unknown");
 				}
 				break;
 			case PQPING_REJECT:
@@ -3903,20 +3903,20 @@ int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
 				}
 				if(conn)
 					PQfinish(conn);
-				appendStringInfoString(starttime, "unknow");
+				appendStringInfoString(starttime, "unknown");
 				break;
 			case PQPING_NO_RESPONSE:
 				appendStringInfoString(strinfo, "not running");
-				appendStringInfoString(starttime, "unknow");
+				appendStringInfoString(starttime, "unknown");
 				break;
 			case PQPING_NO_ATTEMPT:
 				appendStringInfoString(strinfo, "connection not attempted (bad params)");
-				appendStringInfoString(starttime, "unknow");
+				appendStringInfoString(starttime, "unknown");
 				break;
 			case AGENT_DOWN:
 			{
 				appendStringInfo(strinfo, "could not connect socket for agent \"%s\"", hostAddr);
-				appendStringInfoString(starttime, "unknow");
+				appendStringInfoString(starttime, "unknown");
 				break;
 			}
 			default:

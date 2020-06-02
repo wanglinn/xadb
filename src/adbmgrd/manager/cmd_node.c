@@ -1959,9 +1959,9 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		pfree(user);
 		if(ismasterrunning != 0)
 		{
-			appendStringInfo(&(getAgentCmdRst->description), "gtmcoord master \"%s\" is not running normal", mastername);
+			appendStringInfo(&(getAgentCmdRst->description), "%s \"%s\" is not running normal", mgr_get_nodetype_name(mgr_node_gtm->nodetype), mastername);
 			getAgentCmdRst->ret = false;
-			ereport(WARNING, (errmsg("gtmcoord master \"%s\" is not running normal", mastername)));
+			ereport(WARNING, (errmsg("%s %s is not running normal", mgr_get_nodetype_name(mgr_node_gtm->nodetype), mastername)));
 			goto end;
 		}
         

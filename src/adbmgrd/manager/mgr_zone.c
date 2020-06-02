@@ -228,6 +228,8 @@ Datum mgr_zone_init(PG_FUNCTION_ARGS)
 	ScanKeyData 	key[3];
 	StringInfoData 	strerr;
 	bool            res = true;
+	int             total = 0;
+	int             num = 0;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot do the command during recovery")));
@@ -259,36 +261,47 @@ Datum mgr_zone_init(PG_FUNCTION_ARGS)
 		{
 			mgrNode = (Form_mgr_node)GETSTRUCT(tuple);
 			Assert(mgrNode);
+			total++;
+		}
+		EndScan(relScan);
+
+		relScan = heap_beginscan_catalog(relNode, 3, key);
+		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+		{
+			mgrNode = (Form_mgr_node)GETSTRUCT(tuple);
+			Assert(mgrNode);
+			num++;
+			
 			if (mgrNode->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
 			{
 				if (mgr_append_agtm_slave_func(NameStr(mgrNode->nodename))){
-					ereportNoticeLog(errmsg("append gtmcoord slave %s success.", NameStr(mgrNode->nodename)));		
+					ereportNoticeLog(errmsg("append gtmcoord slave %s success, progress is %d/%d.", NameStr(mgrNode->nodename), num, total));		
 				}
 				else{
 					res = false;
-					ereportWarningLog(errmsg("append gtmcoord slave %s failed.", NameStr(mgrNode->nodename)));		
+					ereportWarningLog(errmsg("append gtmcoord slave %s failed, progress is %d/%d.", NameStr(mgrNode->nodename), num, total));		
 				}
 			}
 			else if (mgrNode->nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
 			{
 				coordMaster = mgr_get_mastername_by_nodename_type(NameStr(mgrNode->nodename), CNDN_TYPE_COORDINATOR_SLAVE);
 				if (mgr_append_coord_slave_func(coordMaster, NameStr(mgrNode->nodename), true, &strerr)){
-					ereportNoticeLog(errmsg("append coordinator slave %s success.", NameStr(mgrNode->nodename)));		
+					ereportNoticeLog(errmsg("append coordinator slave %s success, progress is %d/%d.", NameStr(mgrNode->nodename), num, total));		
 				}
 				else{
 					res = false;
-					ereportWarningLog(errmsg("append coordinator slave %s failed.", NameStr(mgrNode->nodename)));
+					ereportWarningLog(errmsg("append coordinator slave %s failed, progress is %d/%d.", NameStr(mgrNode->nodename), num, total));
 				}
 				MgrFree(coordMaster);
 			}
 			else if (mgrNode->nodetype == CNDN_TYPE_DATANODE_SLAVE)
 			{
 				if (mgr_append_dn_slave_func(NameStr(mgrNode->nodename))){
-					ereportNoticeLog(errmsg("append datanode slave %s success.", NameStr(mgrNode->nodename)));		
+					ereportNoticeLog(errmsg("append datanode slave %s success, progress is %d/%d.", NameStr(mgrNode->nodename), num, total));		
 				}
 				else{
 					res = false;
-					ereportWarningLog(errmsg("append datanode slave %s failed.", NameStr(mgrNode->nodename)));
+					ereportWarningLog(errmsg("append datanode slave %s failed, progress is %d/%d.", NameStr(mgrNode->nodename), num, total));
 				}
 			}		
 		}
