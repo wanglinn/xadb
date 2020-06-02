@@ -8132,13 +8132,8 @@ bool mgr_check_node_exist_incluster(Name nodename, bool bincluster)
 				,BTEqualStrategyNumber
 				,F_BOOLEQ
 				,BoolGetDatum(bincluster));
-	ScanKeyInit(&key[2]
-				,Anum_mgr_node_nodezone
-				,BTEqualStrategyNumber
-				,F_NAMEEQ
-				,CStringGetDatum(mgr_zone));
 	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
-	rel_scan = heap_beginscan_catalog(rel_node, 3, key);
+	rel_scan = heap_beginscan_catalog(rel_node, 2, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		getnode = true;

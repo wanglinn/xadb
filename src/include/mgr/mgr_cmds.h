@@ -421,7 +421,7 @@ extern char mgr_change_cmdtype_unbackend(char cmdtype);
 extern HeapTuple build_common_command_tuple_four_col(const Name name, char type, bool status, const char *description);
 extern bool mgr_check_param_reload_postgresqlconf(char nodetype, Oid hostoid, int nodeport, char *address, char *check_param, char *expect_result);
 extern char mgr_get_nodetype(Name nodename);
-extern char* mgr_get_nodezone(Name nodename);
+extern void mgr_get_nodezone(Name nodename, Name zone);
 extern int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport , StringInfo strinfo, StringInfo starttime, Name recoveryStrInfo);
 
 /* monitor_hostpage.c */
