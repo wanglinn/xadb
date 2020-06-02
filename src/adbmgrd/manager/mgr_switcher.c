@@ -1858,7 +1858,7 @@ void chooseNewMasterNodeForZone(SwitcherNodeWrapper *oldMaster,
 										zone);
 	if (NULL == newMaster){
 		ereport(ERROR,(errmsg("no %s is choose as a candidate for promotion",
-				 mgr_nodetype_str(getMgrSlaveNodetype(oldMaster->mgrNode->form.nodetype)))));
+				 mgr_get_nodetype_desc(getMgrSlaveNodetype(oldMaster->mgrNode->form.nodetype)))));
 	}									
 	*newMasterP = newMaster;
 
@@ -2925,13 +2925,13 @@ static SwitcherNodeWrapper *checkGetOldMaster(char *oldMasterName,
 	{
 		ereport(ERROR,
 				(errmsg("%s does not exist or is not a %s node",
-						oldMasterName, mgr_nodetype_str(nodeType))));
+						oldMasterName, mgr_get_nodetype_desc(nodeType))));
 	}
 	if (mgrNode->form.nodetype != nodeType)
 	{
 		ereport(ERROR,
 				(errmsg("%s is not a %s node",
-						oldMasterName, mgr_nodetype_str(nodeType))));
+						oldMasterName, mgr_get_nodetype_desc(nodeType))));
 	}
 	if (!mgrNode->form.nodeinited)
 	{
@@ -3089,7 +3089,7 @@ static SwitcherNodeWrapper *checkGetSwitchoverNewMaster(char *newMasterName,
 		ereport(ERROR,
 				(errmsg("%s does not exist or is not a %s node",
 						newMasterName,
-						mgr_nodetype_str(nodeType))));
+						mgr_get_nodetype_desc(nodeType))));
 	}
 	if (mgrNode->form.nodetype != nodeType)
 	{
@@ -3156,7 +3156,7 @@ static SwitcherNodeWrapper *checkGetSwitchoverOldMaster(Oid oldMasterOid,
 	{
 		ereport(ERROR,
 				(errmsg("%s type(%s) is not a %s node",
-						NameStr(mgrNode->form.nodename), mgr_nodetype_str(mgrNode->form.nodetype), mgr_nodetype_str(nodetype))));
+						NameStr(mgrNode->form.nodename), mgr_get_nodetype_desc(mgrNode->form.nodetype), mgr_get_nodetype_desc(nodetype))));
 	}
 	if (!mgrNode->form.nodeinited)
 	{

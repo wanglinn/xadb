@@ -389,7 +389,7 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 			if (!HeapTupleIsValid(checktuple))
 			{
 				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-					, errmsg("%s \"%s\" does not exist in mgr_node.", mgr_nodetype_str(mastertype), NameStr(mastername))));
+					, errmsg("%s \"%s\" does not exist in mgr_node.", mgr_get_nodetype_desc(mastertype), NameStr(mastername))));
 			}
 			masterTupleOid = HeapTupleGetOid(checktuple);
 			mgr_node = (Form_mgr_node)GETSTRUCT(checktuple);
@@ -404,7 +404,7 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 			 	&& mgr_node_has_slave_inzone(rel, zoneData.data, masterTupleOid))
 			{
 				ereport(ERROR, (errcode(ERRCODE_DUPLICATE_OBJECT)
-			 		,errmsg("%s \"%s\" already has slave node in zone \"%s\"", mgr_nodetype_str(mastertype)
+			 		,errmsg("%s \"%s\" already has slave node in zone \"%s\"", mgr_get_nodetype_desc(mastertype)
 			 		, NameStr(mgr_node->nodename), zoneData.data)));		 
 			}
 			namestrcpy(&forNodeZoneData, NameStr(mgr_node->nodezone));
@@ -795,7 +795,7 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 				if (bnodeInCluster)
 					ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 					 ,errmsg("%s \"%s\" has been initialized in the cluster, cannot be changed"
-					 , mgr_nodetype_str(nodetype), NameStr(name))));
+					 , mgr_get_nodetype_desc(nodetype), NameStr(name))));
 				/* find host oid */
 				namestrcpy(&hostname, defGetString(def));
 				hostTuple = SearchSysCache1(HOSTHOSTNAME, NameGetDatum(&hostname));
@@ -1959,9 +1959,9 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		pfree(user);
 		if(ismasterrunning != 0)
 		{
-			appendStringInfo(&(getAgentCmdRst->description), "%s \"%s\" is not running normal", mgr_get_nodetype_name(mgr_node_gtm->nodetype), mastername);
+			appendStringInfo(&(getAgentCmdRst->description), "%s \"%s\" is not running normal", mgr_get_nodetype_desc(mgr_node_gtm->nodetype), mastername);
 			getAgentCmdRst->ret = false;
-			ereport(WARNING, (errmsg("%s %s is not running normal", mgr_get_nodetype_name(mgr_node_gtm->nodetype), mastername)));
+			ereport(WARNING, (errmsg("%s %s is not running normal", mgr_get_nodetype_desc(mgr_node_gtm->nodetype), mastername)));
 			goto end;
 		}
         
@@ -7925,7 +7925,7 @@ char *mgr_nodetype_str(char nodetype)
 	return retstr;
 }
 
-char *mgr_get_nodetype_name(char nodetype)
+char *mgr_get_nodetype_desc(char nodetype)
 {
 	switch(nodetype)
 	{
@@ -14725,8 +14725,8 @@ static void MgrCheckParentNodeBeforeAlterNode(Form_mgr_node curMgrNode, Oid curN
 	Assert(curMgrNode);
 	Assert(newParentMgrNode);
 
-	curNodeType    = mgr_get_nodetype_name(curMgrNode->nodetype);
-	parentNodeType = mgr_get_nodetype_name(newParentMgrNode->nodetype);
+	curNodeType    = mgr_get_nodetype_desc(curMgrNode->nodetype);
+	parentNodeType = mgr_get_nodetype_desc(newParentMgrNode->nodetype);
 
 	if (!((curMgrNode->nodetype == CNDN_TYPE_DATANODE_SLAVE) || (curMgrNode->nodetype == CNDN_TYPE_GTM_COOR_SLAVE))){		
 		ereport(ERROR, (errmsg("the nodetype of %s is %s, cannot alter the parent node, the support nodetype are gtmcoord slave, datanode slave.",
@@ -14853,8 +14853,8 @@ static void MgrModifyParentNode(Relation rel, Form_mgr_node curMgrNode, Oid curN
 
 		MgrChildNodeFollowParentNode(spiContext, curMgrNode, curNodeOid, newParentMgrNode, newParentOid);
 
-		ereportNoticeLog(errmsg("the parent node of %s %s has altered to %s %s.", mgr_get_nodetype_name(curMgrNode->nodetype), 
-			NameStr(curMgrNode->nodename), mgr_get_nodetype_name(newParentMgrNode->nodetype), NameStr(newParentMgrNode->nodename)));
+		ereportNoticeLog(errmsg("the parent node of %s %s has altered to %s %s.", mgr_get_nodetype_desc(curMgrNode->nodetype), 
+			NameStr(curMgrNode->nodename), mgr_get_nodetype_desc(newParentMgrNode->nodetype), NameStr(newParentMgrNode->nodename)));
 	}
 	PG_CATCH();
 	{
@@ -14934,7 +14934,7 @@ static void RemoveSlaveNodeFromParent(Relation rel, Form_mgr_node curMgrNode, Oi
 	initStringInfo(&infosendmsg);
 	initStringInfo(&(getAgentCmdRst.description));
 	mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", infostrparam.data, &infosendmsg);
-	nodestring = mgr_get_nodetype_name(oldParentMgrNode->nodetype);
+	nodestring = mgr_get_nodetype_desc(oldParentMgrNode->nodetype);
 	ereport(LOG, (errmsg("set \"synchronous_standby_names = '%s' in postgresql.conf of the %s \"%s\""
 			,infostrparam.data, nodestring, NameStr(oldParentMgrNode->nodename))));
 	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, oldParentPath, &infosendmsg, oldParentMgrNode->nodehost, &getAgentCmdRst);
@@ -14945,7 +14945,7 @@ static void RemoveSlaveNodeFromParent(Relation rel, Form_mgr_node curMgrNode, Oi
 	ReleaseSysCache(oldParentTuple);
 
 	if (pg_strcasecmp(infostrparam.data, "") == 0){
-		ereportWarningLog(errmsg("the %s %s has no synchronous slave node",	mgr_get_nodetype_name(oldParentMgrNode->nodetype), oldParentName.data));
+		ereportWarningLog(errmsg("the %s %s has no synchronous slave node",	mgr_get_nodetype_desc(oldParentMgrNode->nodetype), oldParentName.data));
 	}
 	
 	if (CNDN_TYPE_DATANODE_SLAVE == curMgrNode->nodetype){

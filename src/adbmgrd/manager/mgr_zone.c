@@ -338,7 +338,8 @@ static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext, char *currentZo
 			dlist_init(&slaveList);
 			selectActiveMgrSlaveNodesInZone(mgrNode->oid, getMgrSlaveNodetype(mgrNode->form.nodetype), currentZone, spiContext, &slaveList);
 			if (dlist_is_empty(&slaveList)){
-				ereport(ERROR, (errmsg("because %s node(%s) has no slave node in zone(%s), so can't switchover or failover.",  NameStr(mgrNode->form.nodename), mgr_nodetype_str(mgrNode->form.nodetype), currentZone)));
+				ereport(ERROR, (errmsg("because %s node(%s) has no slave node in zone(%s), so can't switchover or failover.", 
+					NameStr(mgrNode->form.nodename), mgr_get_nodetype_desc(mgrNode->form.nodetype), currentZone)));
 			}
 			pfreeMgrNodeWrapperList(&slaveList, NULL);
 		}

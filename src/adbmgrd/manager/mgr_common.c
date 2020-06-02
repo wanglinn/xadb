@@ -1867,7 +1867,7 @@ Datum mgr_typenode_cmd_run_backend_result(nodenames_supplier supplier,
 					{
 						heap_close(rel_node, AccessShareLock);
 						ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT),
-							errmsg("%s \"%s\" does not exist", mgr_nodetype_str(nodetype), nodestrname)));
+							errmsg("%s \"%s\" does not exist", mgr_get_nodetype_desc(nodetype), nodestrname)));
 					}
 					mgr_node = (Form_mgr_node)GETSTRUCT(aimtuple);
 					Assert(mgr_node);

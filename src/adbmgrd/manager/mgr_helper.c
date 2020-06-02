@@ -1958,7 +1958,7 @@ bool callAgentStopNode(MgrNodeWrapper *node, char *shutdownMode,
 	else
 		cmd = AGT_CMD_DN_STOP;
 
-	ereportNoticeLog(errmsg("stop %s %s.", mgr_nodetype_str(node->form.nodetype), NameStr(node->form.nodename)));
+	ereportNoticeLog(errmsg("stop %s %s.", mgr_get_nodetype_desc(node->form.nodetype), NameStr(node->form.nodename)));
 	res = callAgentSendCmd(cmd, &cmdMessage,
 						   node->host->hostaddr,
 						   node->host->form.hostagentport);
@@ -2034,7 +2034,7 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool wait, bool complain)
 	else
 		cmd = AGT_CMD_DN_START; /* pg_ctl  */
 
-	ereportNoticeLog(errmsg("start %s %s.", mgr_nodetype_str(node->form.nodetype), NameStr(node->form.nodename)));
+	ereportNoticeLog(errmsg("start %s %s.", mgr_get_nodetype_desc(node->form.nodetype), NameStr(node->form.nodename)));
 	res = callAgentSendCmd(cmd, &cmdMessage,
 						   node->host->hostaddr,
 						   node->host->form.hostagentport);
@@ -3911,6 +3911,6 @@ void MgrGetOldDnMasterNotZone(MemoryContext spiContext, char *currentZone, char 
 {
 	selectNodeNotZone(spiContext, currentZone, nodeType, masterList);
 	if (dlist_is_empty(masterList)){
-		ereport(ERROR, (errmsg("no %s in other zone, current zone(%s).", mgr_nodetype_str(nodeType), currentZone)));
+		ereport(ERROR, (errmsg("no %s in other zone, current zone(%s).", mgr_get_nodetype_desc(nodeType), currentZone)));
 	}
 }
