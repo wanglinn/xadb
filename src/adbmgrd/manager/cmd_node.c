@@ -13293,7 +13293,7 @@ static bool get_local_ip(Name local_ip)
 	success return true;
 	failed return false;
 */
-bool get_active_node_info(const char node_type, const char *node_name, AppendNodeInfo *nodeinfo)
+bool get_active_node_info(const char node_type, const char *node_name, char *zone, AppendNodeInfo *nodeinfo)
 {
 	InitNodeInfo *info = NULL;
 	ScanKeyData key[5];
@@ -13324,7 +13324,7 @@ bool get_active_node_info(const char node_type, const char *node_name, AppendNod
 				,Anum_mgr_node_nodezone
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
-				,CStringGetDatum(mgr_zone));
+				,CStringGetDatum(zone));
 	if (node_name)
 		ScanKeyInit(&key[4]
 				,Anum_mgr_node_nodename

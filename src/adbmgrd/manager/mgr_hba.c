@@ -82,7 +82,7 @@ void add_hba_table_to_file(char *coord_name);
 //extern HbaInfo* parse_hba_file(const char *filename);
 /*--------------------------------------------------------------------*/
 static void mgr_add_hba_all(char type, char *hbastr, GetAgentCmdRst *err_msg);
-static void mgr_add_hba_one(char nodetype, char *nodename, char *hbastr, bool record_err_msg,bool is_check_value, GetAgentCmdRst *err_msg);
+static void mgr_add_hba_one(char nodetype, char *nodename, char *zone, char *hbastr, bool record_err_msg,bool is_check_value, GetAgentCmdRst *err_msg);
 static void drop_hba_all(GetAgentCmdRst *err_msg);
 static void drop_hba_nodename_all(char *coord_name, GetAgentCmdRst *err_msg);
 static void drop_hba_all_value(List *args_list, GetAgentCmdRst *err_msg);
@@ -486,7 +486,7 @@ Datum mgr_add_hba(PG_FUNCTION_ARGS)
 		if (!mgr_type_include(nodetype, type))
 			ereport(ERROR, (errmsg("the node's type is not right")));
 
-		mgr_add_hba_one(nodetype, nodename, hbastr, true, true, &err_msg);
+		mgr_add_hba_one(nodetype, nodename, NameStr(mgr_node->nodezone), hbastr, true, true, &err_msg);
 	}
 	/*step 3: show the state of operating drop hba commands */
 	tup_result = tuple_form_table_hba(&nodedataname
@@ -512,7 +512,7 @@ static void mgr_add_hba_all(char type, char *hbastr, GetAgentCmdRst *err_msg)
 		Assert(mgr_node);
 		if (!mgr_type_include(mgr_node->nodetype, type))
 			continue;
-		mgr_add_hba_one(mgr_node->nodetype, NameStr(mgr_node->nodename)
+		mgr_add_hba_one(mgr_node->nodetype, NameStr(mgr_node->nodename), NameStr(mgr_node->nodezone)
 			, hbastr, record_err_msg, true, err_msg);
 		record_err_msg = false;
 	}
@@ -521,7 +521,7 @@ static void mgr_add_hba_all(char type, char *hbastr, GetAgentCmdRst *err_msg)
 	heap_close(rel, AccessShareLock);
 }
 
-static void mgr_add_hba_one(char nodetype, char *nodename, char *hbastr, bool record_err_msg, bool is_check_exist, GetAgentCmdRst *err_msg)
+static void mgr_add_hba_one(char nodetype, char *nodename, char *zone, char *hbastr, bool record_err_msg, bool is_check_exist, GetAgentCmdRst *err_msg)
 {
 	AppendNodeInfo nodeinfo;
 
@@ -544,7 +544,7 @@ static void mgr_add_hba_one(char nodetype, char *nodename, char *hbastr, bool re
 	Assert(hbastr);
 	initStringInfo(&getAgentCmdRst.description);
 	/*step1: check the nodename is exist in the mgr_node table and make sure it has been initialized*/
-	is_valid = get_active_node_info(nodetype, nodename, &nodeinfo);
+	is_valid = get_active_node_info(nodetype, nodename, zone, &nodeinfo);
 	if (!is_valid)
 	{
 		ereport(ERROR, (errmsg("%s \"%s\" is not running normal"
@@ -1060,6 +1060,7 @@ void add_hba_table_to_file(char *coord_name)
 	char nodetype;
 	GetAgentCmdRst err_msg;
 	NameData nodenamedata;
+	char  *zone = NULL;
 
 	Assert(coord_name);
 	initStringInfo(&(err_msg.description));
@@ -1084,11 +1085,12 @@ void add_hba_table_to_file(char *coord_name)
 		hba_value = TextDatumGetCString(&(mgr_hba->hbavalue));
 		namestrcpy(&nodenamedata, coord_name);
 		nodetype = mgr_get_nodetype(&nodenamedata);
+		zone = mgr_get_nodezone(&nodenamedata);
 		if (nodetype == CNDN_TYPE_NONE)
 		{
 			ereport(ERROR, (errmsg("illegal hba info \"%s\" of \"%s\", please check table mgr_hba", hba_value, NameStr(mgr_hba->nodename))));
 		}
-		mgr_add_hba_one(nodetype, (char *)coord_name, hba_value, true, false, &err_msg);
+		mgr_add_hba_one(nodetype, (char *)coord_name, zone, hba_value, true, false, &err_msg);
 		if (!err_msg.ret)
 		{
 			ereport(ERROR, (errmsg("add hba info \"%s\" to coordinator \"%s\"", hba_value, coord_name)));

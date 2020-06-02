@@ -239,7 +239,7 @@ extern void mgr_alter_parm(MGRAlterParm *node, ParamListInfo params, DestReceive
 
 /*in cmd_node.c */
 extern void mgr_reload_conf(Oid hostoid, char *nodepath);
-extern bool get_active_node_info(const char node_type, const char *node_name, AppendNodeInfo *nodeinfo);
+extern bool get_active_node_info(const char node_type, const char *node_name, char *zone, AppendNodeInfo *nodeinfo);
 /*coordinator datanode parse cmd*/
 extern Datum mgr_init_gtmcoord_master(PG_FUNCTION_ARGS);
 extern Datum mgr_start_gtmcoord_master(PG_FUNCTION_ARGS);
@@ -421,6 +421,7 @@ extern char mgr_change_cmdtype_unbackend(char cmdtype);
 extern HeapTuple build_common_command_tuple_four_col(const Name name, char type, bool status, const char *description);
 extern bool mgr_check_param_reload_postgresqlconf(char nodetype, Oid hostoid, int nodeport, char *address, char *check_param, char *expect_result);
 extern char mgr_get_nodetype(Name nodename);
+extern char* mgr_get_nodezone(Name nodename);
 extern int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport , StringInfo strinfo, StringInfo starttime, Name recoveryStrInfo);
 
 /* monitor_hostpage.c */
