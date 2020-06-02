@@ -3810,15 +3810,13 @@ char mgr_get_nodetype(Name nodename)
 	return nodetype;
 }
 
-char* mgr_get_nodezone(Name nodename)
+void mgr_get_nodezone(Name nodename, Name zone)
 {
 	Relation rel_node;
 	TableScanDesc rel_scan;
 	ScanKeyData key[1];
 	HeapTuple tuple;
-	Form_mgr_node mgr_node;
-	char nodetype = CNDN_TYPE_NONE;
-	NameData nodeZone;
+	Form_mgr_node mgr_node = NULL;
 
 	Assert(nodename && nodename->data);
 	ScanKeyInit(&key[0]
@@ -3833,14 +3831,12 @@ char* mgr_get_nodezone(Name nodename)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
-		namestrcpy(&nodeZone, NameStr(mgr_node->nodezone));
+		namestrcpy(zone, NameStr(mgr_node->nodezone));
 		break;
 	}
 
 	table_endscan(rel_scan);
 	table_close(rel_node, AccessShareLock);
-
-	return NameStr(nodeZone);
 }
 
 int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
