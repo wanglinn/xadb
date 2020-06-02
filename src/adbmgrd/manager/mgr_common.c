@@ -394,12 +394,12 @@ void get_hostinfo_from_hostoid(Oid hostOid, MgrHostWrapper *host)
 	Datum hostAddr;
 	bool isNull = false;
 
-	rel = heap_open(HostRelationId, AccessShareLock);
+	rel = table_open(HostRelationId, AccessShareLock);
 	tuple = SearchSysCache1(HOSTHOSTOID, ObjectIdGetDatum(hostOid));
 	/*check the host exists*/
 	if (!HeapTupleIsValid(tuple))
 	{
-		heap_close(rel, AccessShareLock);
+		table_close(rel, AccessShareLock);
 		ereport(ERROR, (errcode(ERRCODE_DATA_EXCEPTION),errmsg("cache lookup failed for relation %u", hostOid)));
 	}
 
@@ -407,7 +407,7 @@ void get_hostinfo_from_hostoid(Oid hostOid, MgrHostWrapper *host)
 	if(isNull)
 	{
 		ReleaseSysCache(tuple);
-		heap_close(rel, AccessShareLock);
+		table_close(rel, AccessShareLock);
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
 			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
 			, errmsg("column hostuser is null")));
@@ -418,7 +418,7 @@ void get_hostinfo_from_hostoid(Oid hostOid, MgrHostWrapper *host)
 	if(isNull)
 	{
 		ReleaseSysCache(tuple);
-		heap_close(rel, AccessShareLock);
+		table_close(rel, AccessShareLock);
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
 			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
 			, errmsg("column hostagentport is null")));
@@ -429,7 +429,7 @@ void get_hostinfo_from_hostoid(Oid hostOid, MgrHostWrapper *host)
 	if(isNull)
 	{
 		ReleaseSysCache(tuple);
-		heap_close(rel, AccessShareLock);
+		table_close(rel, AccessShareLock);
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
 			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
 			, errmsg("column hostaddr is null")));
@@ -437,7 +437,7 @@ void get_hostinfo_from_hostoid(Oid hostOid, MgrHostWrapper *host)
 	host->hostaddr = TextDatumGetCString(hostAddr);
 
 	ReleaseSysCache(tuple);
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 	return;
 }
 /*
@@ -3808,6 +3808,39 @@ char mgr_get_nodetype(Name nodename)
 	table_close(rel_node, AccessShareLock);
 
 	return nodetype;
+}
+
+char* mgr_get_nodezone(Name nodename)
+{
+	Relation rel_node;
+	TableScanDesc rel_scan;
+	ScanKeyData key[1];
+	HeapTuple tuple;
+	Form_mgr_node mgr_node;
+	char nodetype = CNDN_TYPE_NONE;
+	NameData nodeZone;
+
+	Assert(nodename && nodename->data);
+	ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodename
+				,BTEqualStrategyNumber
+				,F_NAMEEQ
+				,CStringGetDatum(nodename));
+
+	rel_node = table_open(NodeRelationId, AccessShareLock);
+	rel_scan = table_beginscan_catalog(rel_node, 1, key);
+	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		namestrcpy(&nodeZone, NameStr(mgr_node->nodezone));
+		break;
+	}
+
+	table_endscan(rel_scan);
+	table_close(rel_node, AccessShareLock);
+
+	return NameStr(nodeZone);
 }
 
 int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
