@@ -349,7 +349,7 @@ extern char *mgr_get_slavename(Oid tupleOid, char nodetype);
 extern void mgr_rename_recovery_to_conf(char cmdtype, Oid hostOid, char* cndnpath, GetAgentCmdRst *getAgentCmdRst);
 extern HeapTuple mgr_get_tuple_node_from_name_type(Relation rel, char *nodename);
 extern char *mgr_nodetype_str(char nodetype);
-extern char *mgr_get_nodetype_name(char nodetype);
+extern char *mgr_get_nodetype_desc(char nodetype);
 extern Datum mgr_clean_all(PG_FUNCTION_ARGS);
 extern Datum mgr_clean_node(PG_FUNCTION_ARGS);
 extern bool mgr_check_node_exist_incluster(Name nodename, bool bincluster);
