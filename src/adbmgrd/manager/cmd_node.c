@@ -173,7 +173,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnname, int cndnport, char *hostaddress, Relation noderel, GetAgentCmdRst *getAgentCmdRst, HeapTuple aimtuple, char *cndnPath, char aimtuplenodetype, PGconn **pg_conn, Oid cnoid);
 static void mgr_get_parent_appendnodeinfo(Oid parentOid, AppendNodeInfo *parentnodeinfo);
 static char *get_temp_file_name(void);
-static Datum mgr_prepare_clean_all(PG_FUNCTION_ARGS);
+static Datum mgr_prepare_clean_all(PG_FUNCTION_ARGS, char *zone);
 static bool mgr_node_has_slave(Relation rel, Oid mastertupleoid);
 static void mgr_set_master_sync(void);
 static void mgr_check_appendnodeinfo(char node_type, char *append_node_name);
@@ -8049,13 +8049,26 @@ Datum mgr_clean_all(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	/*check all node stop*/
-	if (!mgr_check_cluster_stop(&resnamedata, &restypedata))
+	if (!mgr_check_cluster_stop(NULL, &resnamedata, &restypedata))
 		ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 			,errmsg("%s \"%s\" still running, please stop it before clean all", restypedata.data, resnamedata.data)
 			,errhint("try \"monitor all;\" for more information")));
 
 	/*clean gtm master/slave, clean coordinator, clean datanode master/slave*/
-	return mgr_prepare_clean_all(fcinfo);
+	return mgr_prepare_clean_all(fcinfo, NULL);
+}
+Datum mgr_clean_zone_all(PG_FUNCTION_ARGS)
+{
+	NameData resnamedata;
+	NameData restypedata;
+	char 	*zone = PG_GETARG_CSTRING(0);
+
+	if (!mgr_check_cluster_stop(zone, &resnamedata, &restypedata))
+		ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
+			,errmsg("%s \"%s\" still running, please stop it before clean all", restypedata.data, resnamedata.data)
+			,errhint("try \"monitor all;\" for more information")));
+
+	return mgr_prepare_clean_all(fcinfo, zone);
 }
 /*
 * clean the given node: the command format: clean nodetype nodename
@@ -8104,7 +8117,7 @@ void mgr_clean_node_folder(char cmdtype, Oid hostoid, char *nodepath, GetAgentCm
 }
 
 /*clean all node: gtm/datanode/coordinator which in cluster*/
-static Datum mgr_prepare_clean_all(PG_FUNCTION_ARGS)
+static Datum mgr_prepare_clean_all(PG_FUNCTION_ARGS, char *zone)
 {
 	FuncCallContext *funcctx;
 	InitNodeInfo *info;
@@ -8118,6 +8131,13 @@ static Datum mgr_prepare_clean_all(PG_FUNCTION_ARGS)
 	bool isNull;
 	char cmdtype = AGT_CMD_CLEAN_NODE;
 
+	if (zone != NULL)
+		ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodezone
+				,BTEqualStrategyNumber
+				,F_NAMEEQ
+				,CStringGetDatum(zone));
+
 	if (SRF_IS_FIRSTCALL())
 	{
 		MemoryContext oldcontext;
@@ -8126,7 +8146,10 @@ static Datum mgr_prepare_clean_all(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 		info = palloc(sizeof(*info));
 		info->rel_node = heap_open(NodeRelationId, RowExclusiveLock);
-		info->rel_scan = heap_beginscan_catalog(info->rel_node, 0, key);
+		if (zone != NULL)
+			info->rel_scan = heap_beginscan_catalog(info->rel_node, 1, key);
+		else
+			info->rel_scan = heap_beginscan_catalog(info->rel_node, 0, key);
 		info->lcp =NULL;
 
 		/* save info */

@@ -1,0 +1,44 @@
+<!--
+doc/src/sgml/ref/mgr_clean_zone_all.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-CLEANZONEALL">
+  <refmeta>
+    <refentrytitle>CLEAN ZONE ALL</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>CLEAN ZONE ALL</refname>
+    <refpurpose>clean all the data of the cluster in zone_name</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-cleanall">
+    <primary>CLEAN ZONE zone_name ALL</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+<synopsis>
+CLEAN ZONE zone_name ALL
+</synopsis>
+  </refsynopsisdiv>
+  <refsect1>
+    <title>Description</title>
+    <para>
+    <command>CLEAN ZONE zone_name ALL</command> clean all the data of the cluster in zone_name. If the cluster is running, it needs to be stopped first.
+    </para>
+  </refsect1>
+
+  <refsect1>
+  <title>Examples</title>
+ <para>
+Clean all the data of cluster:
+<programlisting>
+CLEAN ZONE zone_name ALL;
+</programlisting>
+</para>
+  </refsect1>
+
+</refentry>

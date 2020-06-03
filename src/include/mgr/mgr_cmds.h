@@ -232,7 +232,7 @@ extern bool ssh2_deplory_tar(const char *hostname,
 							const char *path,
 							FILE *tar,
 							StringInfo message);
-extern bool mgr_check_cluster_stop(Name nodename, Name nodetypestr);
+extern bool mgr_check_cluster_stop(char *zone, Name nodename, Name nodetypestr);
 
 /*parm commands, in cmd_parm.c*/
 extern void mgr_alter_parm(MGRAlterParm *node, ParamListInfo params, DestReceiver *dest);
@@ -353,6 +353,7 @@ extern char *mgr_nodetype_str(char nodetype);
 extern char *mgr_get_nodetype_desc(char nodetype);
 extern Datum mgr_clean_all(PG_FUNCTION_ARGS);
 extern Datum mgr_clean_node(PG_FUNCTION_ARGS);
+extern Datum mgr_clean_zone_all(PG_FUNCTION_ARGS);
 extern bool mgr_check_node_exist_incluster(Name nodename, bool bincluster);
 extern List* mgr_get_nodetype_namelist(char nodetype);
 extern Datum mgr_remove_node_func(PG_FUNCTION_ARGS);

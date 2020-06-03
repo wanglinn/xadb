@@ -1774,6 +1774,14 @@ CleanAllStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_clean_all", NULL));
 			$$ = (Node*)stmt;
 		}
+	| CLEAN ZONE Ident ALL
+		{
+			List *arg = list_make1(makeStringConst($3, @3));
+			SelectStmt *stmt = makeNode(SelectStmt);
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_clean_zone_all", arg));
+			$$ = (Node*)stmt;
+		}	
 	| CLEAN GTMCOORD opt_gtm_inner_type Ident
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
