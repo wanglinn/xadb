@@ -19,6 +19,9 @@
 #include "utils/builtins.h"
 #include "utils/formatting.h"
 #include "mb/pg_wchar.h"
+#ifdef ADB_GRAM_ORA
+#include "tcop/tcopprot.h"
+#endif
 
 
 static text *dotrim(const char *string, int stringlen,
@@ -995,7 +998,11 @@ chr			(PG_FUNCTION_ARGS)
 		 * Error out on arguments that make no sense or that we can't validly
 		 * represent in the encoding.
 		 */
+#ifdef ADB_GRAM_ORA
+		if (cvalue == 0 && current_grammar != PARSE_GRAM_ORACLE)
+#else
 		if (cvalue == 0)
+#endif
 			ereport(ERROR,
 					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
 					 errmsg("null character not permitted")));
