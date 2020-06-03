@@ -272,6 +272,7 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY mgrListParam       SYSTEM "mgr_list_param.sgml">
 <!ENTITY mgrMonitorAgent    SYSTEM "mgr_monitor_agent.sgml">
 <!ENTITY mgrMonitorAll      SYSTEM "mgr_monitor_all.sgml">
+<!ENTITY mgrMonitorZoneAll  SYSTEM "mgr_monitor_zone_all.sgml">
 <!ENTITY mgrMonitorCoordinator SYSTEM "mgr_monitor_coordinator.sgml">
 <!ENTITY mgrMonitorDatanode SYSTEM "mgr_monitor_datanode.sgml">
 <!ENTITY mgrMonitorGtm      SYSTEM "mgr_monitor_gtm.sgml">

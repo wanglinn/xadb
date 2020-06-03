@@ -3689,8 +3689,6 @@ bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrda
 
 	return bnormal;
 }
-
-
 void check_node_incluster(void)
 {
 	Relation relNode;
@@ -3745,6 +3743,34 @@ void check_node_incluster(void)
 
 	table_endscan(scan);
 	UnregisterSnapshot(snapshot);
+	table_close(relNode, AccessShareLock);
+}
+void check_zone_node_incluster(char *zone)
+{
+	Relation relNode;
+	Form_mgr_node mgr_node;
+	HeapTuple tuple;
+	TableScanDesc scan;
+	ScanKeyData key[1];
+
+	ScanKeyInit(&key[0]
+			,Anum_mgr_node_nodezone
+			,BTEqualStrategyNumber
+			,F_NAMEEQ
+			,CStringGetDatum(zone));
+	relNode = table_open(NodeRelationId, AccessShareLock);
+	scan = table_beginscan_catalog(relNode,1, key);
+	while((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		if (!mgr_node->nodeincluster)
+		{
+			ereport(WARNING, (errmsg("%s %s does not in the cluster"
+						, mgr_get_nodetype_desc(mgr_node->nodetype), NameStr(mgr_node->nodename))));
+		}
+	}
+	EndScan(scan);
 	table_close(relNode, AccessShareLock);
 }
 
