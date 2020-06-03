@@ -609,7 +609,7 @@ Datum mgr_deploy_all(PG_FUNCTION_ARGS)
 	if (SRF_IS_FIRSTCALL())
 	{
 		/*check all node stop*/
-		if (!mgr_check_cluster_stop(&resnamedata, &restypedata))
+		if (!mgr_check_cluster_stop(NULL, &resnamedata, &restypedata))
 			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 				,errmsg("%s \"%s\" still running, please stop it before deploy", restypedata.data, resnamedata.data)
 				,errhint("try \"monitor all;\" for more information")));
@@ -1925,7 +1925,7 @@ static void check_host_name_isvaild(List *host_name_list)
 /*
 * check all node stop in cluster
 */
-bool mgr_check_cluster_stop(Name nodename, Name nodetypestr)
+bool mgr_check_cluster_stop(char *zone, Name nodename, Name nodetypestr)
 {
 	Relation rel;
 	TableScanDesc rel_scan;
@@ -1933,9 +1933,22 @@ bool mgr_check_cluster_stop(Name nodename, Name nodetypestr)
 	Form_mgr_node mgr_node;
 	char *ip_addr;
 	int port;
+	ScanKeyData 	key[1];
+
+	if (zone != NULL)
+		ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodezone
+				,BTEqualStrategyNumber
+				,F_NAMEEQ
+				,CStringGetDatum(zone));
+
 	/*check all node stop*/
 	rel = table_open(NodeRelationId, AccessShareLock);
-	rel_scan = table_beginscan_catalog(rel, 0, NULL);
+	if (zone != NULL)
+		rel_scan = table_beginscan_catalog(rel, 1, key);
+	else
+		rel_scan = table_beginscan_catalog(rel, 0, key);
+	
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection))!= NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);

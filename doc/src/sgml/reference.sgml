@@ -319,6 +319,7 @@
    &mgrAppendGtm;
    &mgrCheckoutDnSatus;
    &mgrCleanAll;
+   &mgrCleanZoneAll;
    &mgrCleanCoordinator;
    &mgrCleanDatanode;
    &mgrCleanGtm;
