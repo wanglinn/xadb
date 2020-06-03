@@ -2726,6 +2726,97 @@ Datum mgr_monitor_all(PG_FUNCTION_ARGS)
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 }
 
+Datum mgr_monitor_zone_all(PG_FUNCTION_ARGS)
+{
+	FuncCallContext *funcctx;
+	InitNodeInfo *info;
+	HeapTuple tup;
+	HeapTuple tup_result;
+	Form_mgr_node mgr_node;
+	StringInfoData resultstrdata;
+	StringInfoData starttime;
+	NameData host;
+	NameData recoveryStatus;
+	char 	nodetype;
+	char 	*host_addr = NULL;
+	int 	ret = PQPING_REJECT;
+	char	*zoneName = PG_GETARG_CSTRING(0);
+
+	if (SRF_IS_FIRSTCALL())
+	{
+		MemoryContext oldcontext;
+
+		funcctx = SRF_FIRSTCALL_INIT();
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		info = palloc(sizeof(*info));
+		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
+		info->rel_scan = heap_beginscan_catalog(info->rel_node, 0, NULL);
+		info->lcp =NULL;
+		/* save info */
+		funcctx->user_fctx = info;
+
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	funcctx = SRF_PERCALL_SETUP();
+	Assert(funcctx);
+	info = funcctx->user_fctx;
+	Assert(info);
+
+	while ((tup = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tup);
+		Assert(mgr_node);
+		if (pg_strcasecmp(NameStr(mgr_node->nodezone), zoneName) != 0){
+			continue;
+		}
+
+		nodetype = mgr_node->nodetype;
+		host_addr = get_hostaddress_from_hostoid(mgr_node->nodehost);
+		initStringInfo(&resultstrdata);
+		initStringInfo(&starttime);
+		ret = mgr_get_monitor_node_result(nodetype, mgr_node->nodehost, mgr_node->nodeport
+		, &resultstrdata, &starttime, &recoveryStatus);
+
+		/* check the node recovery status */
+		if (nodetype == CNDN_TYPE_COORDINATOR_MASTER || nodetype == CNDN_TYPE_DATANODE_MASTER
+			|| nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+		{
+			if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
+				ereport(WARNING, (errmsg("%s %s recovery status is %s", mgr_get_nodetype_desc(nodetype)
+					, NameStr(mgr_node->nodename), recoveryStatus.data)));
+		}
+		else
+		{
+			if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
+				ereport(WARNING, (errmsg("%s %s recovery status is %s", mgr_get_nodetype_desc(nodetype)
+					, NameStr(mgr_node->nodename), recoveryStatus.data)));
+		}
+
+		namestrcpy(&host, host_addr);
+		tup_result = build_common_command_tuple_for_monitor(
+					&(mgr_node->nodename)
+					,nodetype
+					,ret == PQPING_OK ? true:false
+					,resultstrdata.data
+					,starttime.data
+					,&host
+					,mgr_node->nodeport
+					,&recoveryStatus
+					,&(mgr_node->nodezone));
+		MgrFree(resultstrdata.data);
+		MgrFree(starttime.data);
+		MgrFree(host_addr);
+		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
+	}
+
+	heap_endscan(info->rel_scan);
+	heap_close(info->rel_node, AccessShareLock);
+	MgrFree(info);
+	SRF_RETURN_DONE(funcctx);
+}
+
 /*
  * MONITOR DATANODE ALL;
  */

@@ -348,6 +348,7 @@
    &mgrListParam;
    &mgrMonitorAgent;
    &mgrMonitorAll;
+   &mgrMonitorZoneAll;
    &mgrMonitorCoordinator;
    &mgrMonitorDatanode;
    &mgrMonitorGtm;

@@ -1,0 +1,70 @@
+<!--
+doc/src/sgml/ref/mgr_monitor_all.sgml
+ADB documentation
+-->
+
+<refentry id="MGR-MONITORZONEALL">
+  <refmeta>
+    <refentrytitle>MONITOR ZONE ALL</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>MONITOR ZONE ALL</refname>
+    <refpurpose>monitor the current state in zone for all cluster node</refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-monitorzoneall">
+    <primary>MONITOR ZONE ALL</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+MONITOR ZONE zone_name [ ALL ]
+</synopsis>
+  </refsynopsisdiv>
+
+  <refsect1>
+    <title>Description</title>
+
+    <para>
+<command>MONITOR ZONE zone_name ALL</command> monitor the current state in zone for all cluster node.
+    </para>
+    <para>
+Node has three operating conditions: running, not running and reject connection.
+    </para>
+
+    <para>
+    Running means is server is accepting connections.
+    </para>
+
+    <para>
+    Not running means is could not establish connection.
+    </para>
+
+    <para>
+    Reject connection means is server is alive but rejecting connections(e.g., recovery model or startup model).
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>Examples</title>
+
+    <para>
+Monitor the state for all node:
+<programlisting>
+MONITOR ZONE ALL;
+</programlisting>
+    </para>
+  </refsect1>
+
+      <refsect1>
+    <title>See Also</title>
+
+    <simplelist type="inline">
+      <member><xref linkend="mgr-startall"></member>
+      <member><xref linkend="mgr-stopall"></member>
+    </simplelist>
+  </refsect1>
+</refentry>

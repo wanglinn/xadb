@@ -1154,6 +1154,7 @@ mgr_monitor_gtmcoord_all(),
 mgr_monitor_datanode_all(),
 mgr_monitor_nodetype_namelist(bigint, "any"),
 mgr_monitor_nodetype_all(bigint),
+mgr_monitor_zone_all(cstring),
 mgr_monitor_ha()
 from public;
 

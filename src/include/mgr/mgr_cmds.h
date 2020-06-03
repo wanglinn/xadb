@@ -293,6 +293,7 @@ extern Datum mgr_boottime_datanode_all(PG_FUNCTION_ARGS);
 extern Datum mgr_boottime_coordinator_all(PG_FUNCTION_ARGS);
 
 extern Datum mgr_monitor_all(PG_FUNCTION_ARGS);
+extern Datum mgr_monitor_zone_all(PG_FUNCTION_ARGS);
 extern Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS);
 extern Datum mgr_monitor_gtmcoord_all(PG_FUNCTION_ARGS);
 
@@ -571,6 +572,7 @@ extern bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo in
 extern void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *dest);
 extern void mgr_check_all_agent(void);
 extern void check_node_incluster(void);
+extern void check_zone_node_incluster(char *zone);
 
 /*online expand external function*/
 extern Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS);

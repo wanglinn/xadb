@@ -914,6 +914,16 @@ MonitorStmt:
 			$$ = (Node*)stmt;
 			check__name_isvaild($6);
 		}
+		|
+		MONITOR ZONE Ident opt_general_all
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);;
+			check_zone_node_incluster($3);
+			List *arg = list_make1(makeStringConst($3, @3));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_monitor_zone_all", arg));
+			$$ = (Node*)stmt;
+		}
 		;
 
 hostname_list:
