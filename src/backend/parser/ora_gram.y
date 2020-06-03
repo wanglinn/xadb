@@ -4499,6 +4499,8 @@ from_list: table_ref				{ $$ = $1 ? list_make1($1):NIL; }
 		;
 
 func_arg_expr: a_expr				{ $$ = $1; }
+		/* Only syntactically supports the keyword "USING ... ", but in fact does nothing. */
+		| a_expr USING ColId		{ $$ = $1; }
 		| TRUE_P					{ $$ = makeBoolAConst(true, @1); }
 		| FALSE_P					{ $$ = makeBoolAConst(false, @1); }
 		| param_name COLON_EQUALS a_expr
