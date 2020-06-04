@@ -782,7 +782,6 @@ static void SnapRcvProcessUpdateXid(char *buf, Size len)
 	xid = pq_getmsgint64(&msg);
 	
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	//ereport(LOG, (errmsg("SnapRcvProcessUpdateXid  %d, ShmemVariableCache->nextXid is %d\n", xid, ShmemVariableCache->nextXid)));
 	if (!NormalTransactionIdPrecedes(xid, ShmemVariableCache->nextXid))
 	{
  		ShmemVariableCache->nextXid = xid;

@@ -1834,8 +1834,8 @@ static int mgr_get_fd_noblock(fdCtl *fdHandle, int totalNum)
 		}
 		if (fcntl(fdHandle[i].fd, F_SETFL, flags | O_NONBLOCK) == -1)
 		{
-			return i;
 			ereport(WARNING, (errmsg("set the file handle noblock fail : %s", strerror(errno))));
+			return i;
 		}
 		i++;
 	}

@@ -366,13 +366,9 @@ void freeClusterRecvState(ClusterRecvState *state)
 {
 	if(state)
 	{
-		if(state->convert_slot)
-		{
-			if(state->convert_slot_is_single)
-				ExecDropSingleTupleTableSlot(state->convert_slot);
-			else
-				state->convert_slot->tts_tupleDescriptor = NULL;
-		}
+		if (state->convert_slot &&
+			state->convert_slot_is_single)
+			ExecDropSingleTupleTableSlot(state->convert_slot);
 		if(state->convert)
 			free_type_convert(state->convert);
 		pfree(state);

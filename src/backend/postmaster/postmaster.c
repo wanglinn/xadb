@@ -1549,14 +1549,16 @@ PostmasterMain(int argc, char *argv[])
 	{
 		if(socketpair(AF_UNIX, SOCK_STREAM, 0, socket_gxid_pair) == -1 )
 		{
-			ereport(FATAL, (errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg(" socketpair create failed, errno(%d): %s", errno, strerror(errno))));
+			ereport(FATAL,
+					(errcode_for_socket_access(),
+					 errmsg("socketpair create failed: %m")));
 		}
 
 		if(socketpair(AF_UNIX, SOCK_STREAM, 0, socket_snap_pair) == -1 )
 		{
-			ereport(FATAL, (errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg(" socketpair create failed, errno(%d): %s", errno, strerror(errno))));
+			ereport(FATAL,
+					(errcode_for_socket_access(),
+					 errmsg("socketpair create failed: %m")));
 		}
 	}
 
