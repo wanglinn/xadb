@@ -1,5 +1,6 @@
 #include "postgres.h"
 
+#include "access/heapam.h"
 #include "access/rmgr.h"
 #include "access/xact.h"
 #include "access/xlogrecord.h"
@@ -22,7 +23,6 @@
 #include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"
-#include "utils/tqual.h"
 #include "pgxc/pgxc.h"
 
 static void* SnapBeginTransferLock(void);

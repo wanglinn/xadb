@@ -3,7 +3,7 @@
  * parse_clause.c
  *	  handle clauses in parser
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -17,9 +17,9 @@
 
 #include "miscadmin.h"
 
-#include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/nbtree.h"
+#include "access/table.h"
 #include "access/tsmapi.h"
 #include "catalog/catalog.h"
 #include "catalog/heap.h"
@@ -31,8 +31,7 @@
 #include "commands/defrem.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
-#include "optimizer/tlist.h"
-#include "optimizer/var.h"
+#include "optimizer/optimizer.h"
 #include "parser/analyze.h"
 #include "parser/parsetree.h"
 #include "parser/parser.h"
@@ -63,51 +62,51 @@ extern bool enable_aux_dml;
 #define makeDefaultNSItem(rte)	makeNamespaceItem(rte, true, true, false, true)
 
 static void extractRemainingColumns(List *common_colnames,
-						List *src_colnames, List *src_colvars,
-						List **res_colnames, List **res_colvars);
+									List *src_colnames, List *src_colvars,
+									List **res_colnames, List **res_colvars);
 static Node *transformJoinUsingClause(ParseState *pstate,
-						 RangeTblEntry *leftRTE, RangeTblEntry *rightRTE,
-						 List *leftVars, List *rightVars);
+									  RangeTblEntry *leftRTE, RangeTblEntry *rightRTE,
+									  List *leftVars, List *rightVars);
 static Node *transformJoinOnClause(ParseState *pstate, JoinExpr *j,
-					  List *namespace);
+								   List *namespace);
 static RangeTblEntry *getRTEForSpecialRelationTypes(ParseState *pstate,
-							  RangeVar *rv);
+													RangeVar *rv);
 static RangeTblEntry *transformTableEntry(ParseState *pstate, RangeVar *r);
 static RangeTblEntry *transformRangeSubselect(ParseState *pstate,
-						RangeSubselect *r);
+											  RangeSubselect *r);
 static RangeTblEntry *transformRangeFunction(ParseState *pstate,
-					   RangeFunction *r);
+											 RangeFunction *r);
 static RangeTblEntry *transformRangeTableFunc(ParseState *pstate,
-						RangeTableFunc *t);
+											  RangeTableFunc *t);
 static TableSampleClause *transformRangeTableSample(ParseState *pstate,
-						  RangeTableSample *rts);
+													RangeTableSample *rts);
 static Node *transformFromClauseItem(ParseState *pstate, Node *n,
-						RangeTblEntry **top_rte, int *top_rti,
-						List **namespace);
+									 RangeTblEntry **top_rte, int *top_rti,
+									 List **namespace);
 static Node *buildMergedJoinVar(ParseState *pstate, JoinType jointype,
-				   Var *l_colvar, Var *r_colvar);
+								Var *l_colvar, Var *r_colvar);
 static ParseNamespaceItem *makeNamespaceItem(RangeTblEntry *rte,
-				  bool rel_visible, bool cols_visible,
-				  bool lateral_only, bool lateral_ok);
+											 bool rel_visible, bool cols_visible,
+											 bool lateral_only, bool lateral_ok);
 static void setNamespaceColumnVisibility(List *namespace, bool cols_visible);
 static void setNamespaceLateralState(List *namespace,
-						 bool lateral_only, bool lateral_ok);
+									 bool lateral_only, bool lateral_ok);
 static void checkExprIsVarFree(ParseState *pstate, Node *n,
-				   const char *constructName);
+							   const char *constructName);
 static TargetEntry *findTargetlistEntrySQL92(ParseState *pstate, Node *node,
-						 List **tlist, ParseExprKind exprKind);
+											 List **tlist, ParseExprKind exprKind);
 static TargetEntry *findTargetlistEntrySQL99(ParseState *pstate, Node *node,
-						 List **tlist, ParseExprKind exprKind);
-static int get_matching_location(int sortgroupref,
-					  List *sortgrouprefs, List *exprs);
+											 List **tlist, ParseExprKind exprKind);
+static int	get_matching_location(int sortgroupref,
+								  List *sortgrouprefs, List *exprs);
 static List *resolve_unique_index_expr(ParseState *pstate, InferClause *infer,
-						  Relation heapRel);
+									   Relation heapRel);
 static List *addTargetToGroupList(ParseState *pstate, TargetEntry *tle,
-					 List *grouplist, List *targetlist, int location);
+								  List *grouplist, List *targetlist, int location);
 static WindowClause *findWindowClause(List *wclist, const char *name);
 static Node *transformFrameOffset(ParseState *pstate, int frameOptions,
-					 Oid rangeopfamily, Oid rangeopcintype, Oid *inRangeFunc,
-					 Node *clause);
+								  Oid rangeopfamily, Oid rangeopcintype, Oid *inRangeFunc,
+								  Node *clause);
 
 
 /*
@@ -206,13 +205,13 @@ setTargetTable(ParseState *pstate, RangeVar *relation,
 
 	/* Close old target; this could only happen for multi-action rules */
 	if (pstate->p_target_relation != NULL)
-		heap_close(pstate->p_target_relation, NoLock);
+		table_close(pstate->p_target_relation, NoLock);
 
 	/*
 	 * Open target rel and grab suitable lock (which we will hold till end of
 	 * transaction).
 	 *
-	 * free_parsestate() will eventually do the corresponding heap_close(),
+	 * free_parsestate() will eventually do the corresponding table_close(),
 	 * but *not* release the lock.
 	 */
 	pstate->p_target_relation = parserOpenTable(pstate, relation,
@@ -235,6 +234,7 @@ setTargetTable(ParseState *pstate, RangeVar *relation,
 	 * Now build an RTE.
 	 */
 	rte = addRangeTableEntryForRelation(pstate, pstate->p_target_relation,
+										RowExclusiveLock,
 										relation->alias, inh, false);
 	pstate->p_target_rangetblentry = rte;
 
@@ -264,46 +264,6 @@ setTargetTable(ParseState *pstate, RangeVar *relation,
 		addRTEtoQuery(pstate, rte, true, true, true);
 
 	return rtindex;
-}
-
-/*
- * Given a relation-options list (of DefElems), return true iff the specified
- * table/result set should be created with OIDs. This needs to be done after
- * parsing the query string because the return value can depend upon the
- * default_with_oids GUC var.
- *
- * In some situations, we want to reject an OIDS option even if it's present.
- * That's (rather messily) handled here rather than reloptions.c, because that
- * code explicitly punts checking for oids to here.
- */
-bool
-interpretOidsOption(List *defList, bool allowOids)
-{
-	ListCell   *cell;
-
-	/* Scan list to see if OIDS was included */
-	foreach(cell, defList)
-	{
-		DefElem    *def = (DefElem *) lfirst(cell);
-
-		if (def->defnamespace == NULL &&
-			strcmp(def->defname, "oids") == 0)
-		{
-			if (!allowOids)
-				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-						 errmsg("unrecognized parameter \"%s\"",
-								def->defname)));
-			return defGetBoolean(def);
-		}
-	}
-
-	/* Force no-OIDS result if caller disallows OIDS. */
-	if (!allowOids)
-		return false;
-
-	/* OIDS option was not specified, so use default. */
-	return default_with_oids;
 }
 
 /*
@@ -806,7 +766,7 @@ transformRangeTableFunc(ParseState *pstate, RangeTableFunc *rtf)
 	/* undef ordinality column number */
 	tf->ordinalitycol = -1;
 
-
+	/* Process column specs */
 	names = palloc(sizeof(char *) * list_length(rtf->columns));
 
 	colno = 0;
@@ -854,7 +814,7 @@ transformRangeTableFunc(ParseState *pstate, RangeTableFunc *rtf)
 		tf->coltypes = lappend_oid(tf->coltypes, typid);
 		tf->coltypmods = lappend_int(tf->coltypmods, typmod);
 		tf->colcollations = lappend_oid(tf->colcollations,
-										type_is_collatable(typid) ? DEFAULT_COLLATION_OID : InvalidOid);
+										get_typcollation(typid));
 
 		/* Transform the PATH and DEFAULT expressions */
 		if (rawc->colexpr)
@@ -927,15 +887,15 @@ transformRangeTableFunc(ParseState *pstate, RangeTableFunc *rtf)
 			{
 				foreach(lc2, ns_names)
 				{
-					char	   *name = strVal(lfirst(lc2));
+					Value	   *ns_node = (Value *) lfirst(lc2);
 
-					if (name == NULL)
+					if (ns_node == NULL)
 						continue;
-					if (strcmp(name, r->name) == 0)
+					if (strcmp(strVal(ns_node), r->name) == 0)
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
 								 errmsg("namespace name \"%s\" is not unique",
-										name),
+										r->name),
 								 parser_errposition(pstate, r->location)));
 				}
 			}
@@ -949,8 +909,9 @@ transformRangeTableFunc(ParseState *pstate, RangeTableFunc *rtf)
 				default_ns_seen = true;
 			}
 
-			/* Note the string may be NULL */
-			ns_names = lappend(ns_names, makeString(r->name));
+			/* We represent DEFAULT by a null pointer */
+			ns_names = lappend(ns_names,
+							   r->name ? makeString(r->name) : NULL);
 		}
 
 		tf->ns_uris = ns_uris;
@@ -1573,108 +1534,6 @@ transformFromClauseItem(ParseState *pstate, Node *n,
 		elog(ERROR, "unrecognized node type: %d", (int) nodeTag(n));
 	return NULL;				/* can't get here, keep compiler quiet */
 }
-
-#ifdef ADB_GRAM_ORA
-static Node* searchFromClauseItemWalker(Node *node, int final_rtindex, int *cur_rtindex)
-{
-	check_stack_depth();
-	if (node == NULL)
-		return NULL;
-
-	/* must same as transformFromClauseItem */
-	switch(nodeTag(node))
-	{
-	case T_RangeVar:
-	case T_RangeSubselect:
-	case T_RangeFunction:
-	case T_RangeTableFunc:
-	case T_RangeTableSample:
-		if (*cur_rtindex == final_rtindex)
-			return node;
-		break;
-	case T_JoinExpr:
-		{
-			Node	   *found;
-			JoinExpr   *join = (JoinExpr*)node;
-
-			if ((found = searchFromClauseItemWalker(join->larg, final_rtindex, cur_rtindex)) != NULL)
-				return found;
-
-			if ((found = searchFromClauseItemWalker(join->rarg, final_rtindex, cur_rtindex)) != NULL)
-				return found;
-
-			if (*cur_rtindex == final_rtindex)
-				return node;
-		}
-		break;
-	default:
-		elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
-		break;
-	}
-
-	++(*cur_rtindex);
-
-	return NULL;
-}
-
-Node* searchFromClauseItem(ParseState *pstate, List *frmList, int rtindex)
-{
-	Node		   *node;
-	ListCell	   *lc;
-	RangeTblEntry  *rte;
-	int				loop_rtindex;
-
-	if (rtindex < 0 ||
-		rtindex > list_length(pstate->p_rtable))
-		return NULL;
-	rte = rt_fetch(rtindex, pstate->p_rtable);
-
-	loop_rtindex = 1;
-	foreach (lc, frmList)
-	{
-		node = searchFromClauseItemWalker(lfirst(lc), rtindex, &loop_rtindex);
-		if (node != NULL)
-		{
-			NodeTag should_be = T_Invalid;
-			switch(rte->rtekind)
-			{
-			case RTE_RELATION:
-			case RTE_CTE:
-			case RTE_NAMEDTUPLESTORE:
-				should_be = T_RangeVar;
-				break;
-			case RTE_SUBQUERY:
-				should_be = T_RangeSubselect;
-				break;
-			case RTE_FUNCTION:
-				should_be = T_RangeFunction;
-				break;
-			case RTE_TABLEFUNC:
-				should_be = T_RangeTableFunc;
-				break;
-			case RTE_JOIN:
-				should_be = T_JoinExpr;
-				break;
-			case RTE_VALUES:
-#ifdef ADB
-			case RTE_PARAMTS:
-			case RTE_REMOTE_DUMMY:
-#endif /* ADB */
-				break;
-			}
-			if (nodeTag(node) != should_be)
-			{
-				ereport(ERROR,
-						(errcode(ERRCODE_INTERNAL_ERROR),
-						 errmsg("found a wrong node for RTE")));
-			}
-			return node;
-		}
-	}
-
-	return NULL;
-}
-#endif /* ADB_GRAM_ORA */
 
 /*
  * buildMergedJoinVar -
@@ -2932,6 +2791,16 @@ transformWindowDefinitions(ParseState *pstate,
 			wc->inRangeColl = exprCollation(sortkey);
 			wc->inRangeAsc = (rangestrategy == BTLessStrategyNumber);
 			wc->inRangeNullsFirst = sortcl->nulls_first;
+		}
+
+		/* Per spec, GROUPS mode requires an ORDER BY clause */
+		if (wc->frameOptions & FRAMEOPTION_GROUPS)
+		{
+			if (wc->orderClause == NIL)
+				ereport(ERROR,
+						(errcode(ERRCODE_WINDOWING_ERROR),
+						 errmsg("GROUPS mode requires an ORDER BY clause"),
+						 parser_errposition(pstate, windef->location)));
 		}
 
 		/* Process frame offset expressions */

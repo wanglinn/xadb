@@ -11,7 +11,7 @@
 #include "catalog/genbki.h"
 #include "catalog/pgxc_class_d.h"
 
-CATALOG(pgxc_class,9020,PgxcClassRelationId) BKI_WITHOUT_OIDS
+CATALOG(pgxc_class,9020,PgxcClassRelationId)
 {
 	/* Table Oid */
 	Oid			pcrelid;

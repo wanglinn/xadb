@@ -3,6 +3,14 @@
 <chapter id="indexam">
  <title>Index Access Method Interface Definition</title>
 
+ <indexterm>
+  <primary>Index Access Method</primary>
+ </indexterm>
+ <indexterm>
+  <primary>indexam</primary>
+  <secondary>Index Access Method</secondary>
+ </indexterm>
+
   <para>
    This chapter defines the interface between the core
    <productname>PostgreSQL</productname> system and <firstterm>index access
@@ -50,8 +58,8 @@
    Each index access method is described by a row in the
    <link linkend="catalog-pg-am"><structname>pg_am</structname></link>
    system catalog.  The <structname>pg_am</structname> entry
-   specifies a name and a <firstterm>handler function</firstterm> for the access
-   method.  These entries can be created and deleted using the
+   specifies a name and a <firstterm>handler function</firstterm> for the index
+   access method.  These entries can be created and deleted using the
    <xref linkend="sql-create-access-method"/> and
    <xref linkend="sql-drop-access-method"/> SQL commands.
   </para>
@@ -112,10 +120,10 @@ typedef struct IndexAmRoutine
     bool        ampredlocks;
     /* does AM support parallel scan? */
     bool        amcanparallel;
-    /* type of data stored in index, or InvalidOid if variable */
-    Oid         amkeytype;
     /* does AM support columns included with clause INCLUDE? */
     bool        amcaninclude;
+    /* type of data stored in index, or InvalidOid if variable */
+    Oid         amkeytype;
 
     /* interface functions */
     ambuild_function ambuild;
@@ -127,6 +135,7 @@ typedef struct IndexAmRoutine
     amcostestimate_function amcostestimate;
     amoptions_function amoptions;
     amproperty_function amproperty;     /* can be NULL */
+    ambuildphasename_function ambuildphasename;   /* can be NULL */
     amvalidate_function amvalidate;
     ambeginscan_function ambeginscan;
     amrescan_function amrescan;
@@ -238,7 +247,7 @@ ambuild (Relation heapRelation,
    but is empty.  It must be filled in with whatever fixed data the
    access method requires, plus entries for all tuples already existing
    in the table.  Ordinarily the <function>ambuild</function> function will call
-   <function>IndexBuildHeapScan()</function> to scan the table for existing tuples
+   <function>table_index_build_scan()</function> to scan the table for existing tuples
    and compute the keys that need to be inserted into the index.
    The function must return a palloc'd struct containing statistics about
    the new index.
@@ -385,7 +394,8 @@ amcostestimate (PlannerInfo *root,
                 Cost *indexStartupCost,
                 Cost *indexTotalCost,
                 Selectivity *indexSelectivity,
-                double *indexCorrelation);
+                double *indexCorrelation,
+                double *indexPages);
 </programlisting>
    Estimate the costs of an index scan.  This function is described fully
    in <xref linkend="index-cost-estimation"/>, below.
@@ -463,6 +473,18 @@ amproperty (Oid index_oid, int attno,
    <structfield>amcanreturn</structfield>, which is the core code's default behavior.
    The default behavior should be satisfactory for all other standard
    properties.
+  </para>
+
+  <para>
+<programlisting>
+char *
+ambuildphasename (int64 phasenum);
+</programlisting>
+   Return the textual name of the given build phase number.
+   The phase numbers are those reported during an index build via the
+   <function>pgstat_progress_update_param</function> interface.
+   The phase names are then exposed in the
+   <structname>pg_stat_progress_create_index</structname> view.
   </para>
 
   <para>
@@ -613,7 +635,8 @@ amendscan (IndexScanDesc scan);
 </programlisting>
    End a scan and release resources.  The <literal>scan</literal> struct itself
    should not be freed, but any locks or pins taken internally by the
-   access method must be released.
+   access method must be released, as well as any other memory allocated
+   by <function>ambeginscan</function> and other scan-related functions.
   </para>
 
   <para>
@@ -718,7 +741,7 @@ amparallelrescan (IndexScanDesc scan);
    the TIDs of all the tuples it has been told about that match the
    <firstterm>scan keys</firstterm>.  The access method is <emphasis>not</emphasis> involved in
    actually fetching those tuples from the index's parent table, nor in
-   determining whether they pass the scan's time qualification test or other
+   determining whether they pass the scan's visibility test or other
    conditions.
   </para>
 
@@ -987,8 +1010,9 @@ amparallelrescan (IndexScanDesc scan);
    using <firstterm>unique indexes</firstterm>, which are indexes that disallow
    multiple entries with identical keys.  An access method that supports this
    feature sets <structfield>amcanunique</structfield> true.
-   (At present, only b-tree supports it.) Columns listed in the
-    <literal>INCLUDE</literal> clause are not used to enforce uniqueness.
+   (At present, only b-tree supports it.)  Columns listed in the
+   <literal>INCLUDE</literal> clause are not considered when enforcing
+   uniqueness.
   </para>
 
   <para>
@@ -1154,7 +1178,8 @@ amcostestimate (PlannerInfo *root,
                 Cost *indexStartupCost,
                 Cost *indexTotalCost,
                 Selectivity *indexSelectivity,
-                double *indexCorrelation);
+                double *indexCorrelation,
+                double *indexPages);
 </programlisting>
 
    The first three parameters are inputs:
@@ -1196,7 +1221,7 @@ amcostestimate (PlannerInfo *root,
   </para>
 
   <para>
-   The last four parameters are pass-by-reference outputs:
+   The last five parameters are pass-by-reference outputs:
 
    <variablelist>
     <varlistentry>
@@ -1232,6 +1257,15 @@ amcostestimate (PlannerInfo *root,
       <para>
        Set to correlation coefficient between index scan order and
        underlying table's order
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><parameter>*indexPages</parameter></term>
+     <listitem>
+      <para>
+       Set to number of index leaf pages
       </para>
      </listitem>
     </varlistentry>
@@ -1280,6 +1314,11 @@ amcostestimate (PlannerInfo *root,
    -1.0 and 1.0) between the index order and the table order.  This is used
    to adjust the estimate for the cost of fetching rows from the parent
    table.
+  </para>
+
+  <para>
+   The <parameter>indexPages</parameter> should be set to the number of leaf pages.
+   This is used to estimate the number of workers for parallel index scan.
   </para>
 
   <para>

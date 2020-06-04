@@ -7,6 +7,8 @@
 
 CATALOG(mgr_hba,4800,HbaRelationId)
 {
+	Oid			oid;
+
 	/* node name */
 	NameData	nodename;
 

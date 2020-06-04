@@ -12,8 +12,9 @@ subdir = src/backend/optimizer/util
 top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = clauses.o joininfo.o orclauses.o pathnode.o placeholder.o \
-       plancat.o predtest.o relnode.o restrictinfo.o tlist.o var.o
+OBJS = appendinfo.o clauses.o inherit.o joininfo.o orclauses.o \
+       paramassign.o pathnode.o placeholder.o plancat.o predtest.o \
+       relnode.o restrictinfo.o tlist.o var.o
 
 ifeq ($(enable_cluster), yes)
   OBJS += pgxcship.o reduceinfo.o remotetest.o

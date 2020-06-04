@@ -1,4 +1,7 @@
+/* Layout and location of TZif files.  */
+
 #ifndef TZFILE_H
+
 #define TZFILE_H
 
 /*
@@ -21,14 +24,17 @@
  * Information about time zone files.
  */
 
-#define TZDEFAULT	"localtime"
+#define TZDEFAULT	"/etc/localtime"
 #define TZDEFRULES	"posixrules"
+
+
+/* See Internet RFC 8536 for more details about the following format.  */
 
 /*
  * Each file begins with. . .
  */
 
-#define TZ_MAGIC	"TZif"
+#define	TZ_MAGIC	"TZif"
 
 struct tzhead
 {

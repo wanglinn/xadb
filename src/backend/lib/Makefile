@@ -13,7 +13,7 @@ top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
 OBJS = binaryheap.o bipartite_match.o bloomfilter.o dshash.o hyperloglog.o \
-       ilist.o knapsack.o pairingheap.o rbtree.o stringinfo.o
+       ilist.o integerset.o knapsack.o pairingheap.o rbtree.o stringinfo.o
 ifeq ($(enable_cluster),yes)
   OBJS += oidbuffer.o
 endif

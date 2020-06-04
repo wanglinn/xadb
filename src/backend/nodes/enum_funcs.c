@@ -6,7 +6,6 @@
 #include "nodes/primnodes.h"
 #include "nodes/parsenodes.h"
 #include "nodes/plannodes.h"
-#include "nodes/relation.h"
 #include "nodes/replnodes.h"
 #ifdef ADB
 #include "pgxc/locator.h"
@@ -22,7 +21,7 @@
 		switch(value)												\
 		{
 #define ENUM_VALUE(value)											\
-		case value:												\
+		case value:													\
 			return #value;
 #define END_ENUM(enum_type)											\
 		default:													\

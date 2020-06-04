@@ -13,10 +13,9 @@
 #include "nodes/nodeFuncs.h"
 #include "nodes/pg_list.h"
 #include "nodes/primnodes.h"
-#include "nodes/relation.h"
 #include "optimizer/clauses.h"
+#include "optimizer/optimizer.h"
 #include "optimizer/pathnode.h"
-#include "optimizer/var.h"
 #include "optimizer/paths.h"
 #include "optimizer/planmain.h"
 #include "optimizer/tlist.h"
@@ -2665,7 +2664,7 @@ static oidvector *makeOidVector(List *list)
  */
 static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const, bool use_coalesce)
 {
-	ArrayRef *aref;
+	SubscriptingRef *sref;
 	if(try_const)
 	{
 		Node *node = eval_const_expressions(NULL, (Node*)modulo);
@@ -2718,23 +2717,23 @@ static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const, bo
 	/* when "modulo" return NULL, then return 0 */
 	Assert(exprType((Node*)modulo) == INT4OID);
 
-	aref = makeNode(ArrayRef);
-	aref->refarraytype = OIDARRAYOID;
-	aref->refelemtype = OIDOID;
-	aref->reftypmod = -1;
-	aref->refcollid = InvalidOid;
-	aref->refupperindexpr = list_make1(modulo);
-	aref->reflowerindexpr = NIL;
-	aref->refexpr = (Expr*)makeConst(OIDARRAYOID,
+	sref = makeNode(SubscriptingRef);
+	sref->refcontainertype = OIDARRAYOID;
+	sref->refelemtype = OIDOID;
+	sref->reftypmod = -1;
+	sref->refcollid = InvalidOid;
+	sref->refupperindexpr = list_make1(modulo);
+	sref->reflowerindexpr = NIL;
+	sref->refexpr = (Expr*)makeConst(OIDARRAYOID,
 									 -1,
 									 InvalidOid,
 									 -1,
 									 PointerGetDatum(makeOidVector(oid_list)),
 									 false,
 									 false);
-	aref->refassgnexpr = NULL;
+	sref->refassgnexpr = NULL;
 
-	return (Expr*)aref;
+	return (Expr*)sref;
 }
 
 static int CompareOid(const void *a, const void *b)

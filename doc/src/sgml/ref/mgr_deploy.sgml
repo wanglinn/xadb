@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_deploy.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-DEPLOY">
+<refentry id="mgr-deploy">
   <refmeta>
     <refentrytitle>DEPLOY</refentrytitle>
     <manvolnum>7</manvolnum>

@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_monitor_all.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-MONITORALL">
+<refentry id="mgr-monitorall">
   <refmeta>
     <refentrytitle>MONITOR ALL</refentrytitle>
     <manvolnum>7</manvolnum>

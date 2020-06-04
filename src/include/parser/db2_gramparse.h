@@ -30,8 +30,9 @@ extern void db2_parser_init(db2_yy_extra_type *yyext);
 extern int	db2_yyparse(core_yyscan_t yyscanner);
 
 /* from db2_keywords.c */
-struct ScanKeyword;
-extern PGDLLIMPORT const struct ScanKeyword db2ScanKeywords[];
-extern PGDLLIMPORT const int db2NumScanKeywords;
+struct ScanKeywordList;
+extern const struct ScanKeywordList db2ScanKeywords;
+/* from db2_gram.y */
+extern const uint16 db2ScanKeywordTokens[];
 
 #endif /* ORA_GRAMPARSE_H */

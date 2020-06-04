@@ -333,7 +333,7 @@ bool get_disk_iops_info(StringInfo hostinfostring)
     snprintf(cmd,sizeof(cmd),"iostat  -x -d | grep -v -i -E \"linux|device|^$\"|awk '{sum += $4+$5 } END {print sum}'");
     if(NULL == (fstream=popen(cmd,"r")))
     {
-        ereport(ERROR, (errmsg("execute command failed: %s", strerror(errno))));
+        ereport(ERROR, (errmsg("execute command failed: %m")));
         return false;
     }
     if(NULL != fgets(cmd_output, sizeof(cmd_output), fstream))
@@ -360,7 +360,7 @@ bool get_system_info(StringInfo hostinfostring)
     snprintf(cmd, sizeof(cmd), "lsb_release -d | awk 'BEGIN { FS=\":\"} { print $2}' | sed 's/^[ \t]*//g'");
     if(NULL == (fstream=popen(cmd, "r")))
     {
-        ereport(ERROR, (errmsg("execute command failed: %s", strerror(errno))));
+        ereport(ERROR, (errmsg("execute command failed: %m")));
         return false;
     }
     if(NULL != fgets(cmd_output, sizeof(cmd_output), fstream))
@@ -388,7 +388,7 @@ bool get_platform_type_info(StringInfo hostinfostring)
     snprintf(cmd, sizeof(cmd), "uname -m");
     if(NULL == (fstream=popen(cmd, "r")))
     {
-        ereport(ERROR, (errmsg("execute command failed: %s", strerror(errno))));
+        ereport(ERROR, (errmsg("execute command failed: %m")));
         return false;
     }
     if(NULL != fgets(cmd_output, sizeof(cmd_output), fstream))
@@ -416,7 +416,7 @@ bool get_cpu_freq(StringInfo hostinfostring)
     snprintf(cmd, sizeof(cmd), "cat /proc/cpuinfo | grep GHz | uniq -c | awk ' BEGIN { FS=\"@\"} { print $2}' | sed 's/^[ \t]*//g'");
     if(NULL == (fstream=popen(cmd, "r")))
     {
-        ereport(ERROR, (errmsg("execute command failed: %s", strerror(errno))));
+        ereport(ERROR, (errmsg("execute command failed: %m")));
         return false;
     }
     if(NULL != fgets(cmd_output, sizeof(cmd_output), fstream))

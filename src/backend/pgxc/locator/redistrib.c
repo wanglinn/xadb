@@ -73,7 +73,7 @@ extern bool enable_cluster_plan;
 typedef struct ShadowReduceState
 {
 	Relation		redist_currentRelation;
-	HeapScanDesc	redist_currentScanDesc;
+	TableScanDesc	redist_currentScanDesc;
 	TupleTableSlot *redist_ScanTupleSlot;
 	TupleTableSlot *redist_ResultTupleSlot;
 	ExprContext	   *redist_ExprContext;
@@ -576,7 +576,7 @@ distrib_copy_from(RedistribState *distribState, ExecNodes *exec_nodes)
 	econtext = CreateStandaloneExprContext();
 
 	/* Build table slot for this relation */
-	slot = MakeSingleTupleTableSlot(RelationGetDescr(rel));
+	slot = MakeSingleTupleTableSlot(RelationGetDescr(rel), &TTSOpsMinimalTuple);
 	/* initinalize line buffer for each slot */
 	initStringInfo(&line_buf);
 
@@ -968,7 +968,7 @@ distrib_build_shadow_relation(RedistribState *distribState
 		ClusterTocSetCustomFun(&msg, ClusterRedistributeRelation);
 		childOID = lfirst_oid(lc);
 		childOids = find_all_inheritors(childOID, AccessExclusiveLock, NULL);
-		childRel = heap_open(childOID, AccessExclusiveLock);
+		childRel = table_open(childOID, AccessExclusiveLock);
 		relnamespace = childRel->rd_rel->relnamespace;
 		reltablespace = childRel->rd_rel->reltablespace;
 		relpersistence = childRel->rd_rel->relpersistence;
@@ -978,7 +978,7 @@ distrib_build_shadow_relation(RedistribState *distribState
 		if (list_length(childOids) > 1
 			&& childRel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 		{
-			heap_close(childRel, AccessExclusiveLock);
+			table_close(childRel, AccessExclusiveLock);
 			continue;
 		}
 		remoteList = ExecClusterCustomFunction(nodeOids, &msg, flag);
@@ -1021,7 +1021,7 @@ distrib_build_shadow_relation(RedistribState *distribState
 		PQNputCopyData(remoteList, msg.data, msg.len);
 		WaitExecutorEndMessage(remoteList);
 
-		heap_close(childRel, NoLock);
+		table_close(childRel, NoLock);
 
 		GetCurrentCommandId(true);
 		CommandCounterIncrement();
@@ -1132,13 +1132,13 @@ DoReduceDataForShadowRel(Relation masterRel,
 
 	scan_desc = RelationGetDescr(masterRel);
 	state.redist_currentRelation = masterRel;
-	state.redist_currentScanDesc = heap_beginscan(masterRel,
+	state.redist_currentScanDesc = table_beginscan(masterRel,
 											   GetActiveSnapshot(),
 											   0, NULL);
-	state.redist_ScanTupleSlot = MakeSingleTupleTableSlot(scan_desc);
+	state.redist_ScanTupleSlot = table_slot_create(masterRel, NULL);
 	result_desc = RelationGetDescr(shadowRel);
 
-	state.redist_ResultTupleSlot = MakeSingleTupleTableSlot(result_desc);
+	state.redist_ResultTupleSlot = table_slot_create(shadowRel, NULL);
 	state.redist_ExprContext = CreateStandaloneExprContext();
 	state.redist_ProjInfo = ExecBuildProjectionInfo(redistcopy->targetList,
 													state.redist_ExprContext,
@@ -1173,7 +1173,7 @@ DoReduceDataForShadowRel(Relation masterRel,
 	ExecDropSingleTupleTableSlot(state.redist_ScanTupleSlot);
 	ExecDropSingleTupleTableSlot(state.redist_ResultTupleSlot);
 	if (state.redist_currentScanDesc != NULL)
-		heap_endscan(state.redist_currentScanDesc);
+		table_endscan(state.redist_currentScanDesc);
 
 	MemoryContextSwitchTo(old_context);
 	MemoryContextDelete(shadow_context);
@@ -1229,7 +1229,7 @@ void distrib_rewrite_catalog_swap_file(RedistribState *distribState
 		{
 			childOID = lfirst_oid(lc);
 			childOids = find_all_inheritors(childOID, AccessExclusiveLock, NULL);
-			childRel = heap_open(childOID, AccessExclusiveLock);
+			childRel = table_open(childOID, AccessExclusiveLock);
 			childRelname = get_rel_name(childOID);
 
 			relnamespace = RelationGetNamespace(childRel);
@@ -1257,7 +1257,7 @@ void distrib_rewrite_catalog_swap_file(RedistribState *distribState
 				CommandCounterIncrement();
 			}
 
-			heap_close(childRel, NoLock);
+			table_close(childRel, NoLock);
 			pfree(childRelname);
 			pfree(childNspname);
 		}
@@ -1285,7 +1285,7 @@ void distrib_rewrite_catalog_swap_file(RedistribState *distribState
 	{
 		childOID = lfirst_oid(lc);
 		childOids = find_all_inheritors(childOID, AccessExclusiveLock, NULL);
-		childRel = heap_open(childOID, AccessExclusiveLock);
+		childRel = table_open(childOID, AccessExclusiveLock);
 		childRelname = get_rel_name(childOID);
 
 		relnamespace = RelationGetNamespace(childRel);
@@ -1296,7 +1296,7 @@ void distrib_rewrite_catalog_swap_file(RedistribState *distribState
 		if (list_length(childOids) > 1
 				&& childRel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 		{
-			heap_close(childRel, NoLock);
+			table_close(childRel, NoLock);
 			pfree(childRelname);
 			pfree(childNspname);
 			continue;
@@ -1314,7 +1314,7 @@ void distrib_rewrite_catalog_swap_file(RedistribState *distribState
 		PQNputCopyData(remoteList, msg.data, msg.len);
 		WaitExecutorEndMessage(remoteList);
 
-		heap_close(childRel, NoLock);
+		table_close(childRel, NoLock);
 		pfree(childRelname);
 		pfree(childNspname);
 
@@ -1469,10 +1469,10 @@ static int process_distrib_cmd(void *context, const char *data, int len)
 			OIDNewHeap = make_new_heap(masterRelid, reltablespace
 										, relpersistence, AccessExclusiveLock);
 
-			relRelation = heap_open(RelationRelationId, RowExclusiveLock);
+			relRelation = table_open(RelationRelationId, RowExclusiveLock);
 			shadowTuple = SearchSysCacheCopy1(RELOID, ObjectIdGetDatum(OIDNewHeap));
 			heap_freetuple(shadowTuple);
-			heap_close(relRelation, RowExclusiveLock);
+			table_close(relRelation, RowExclusiveLock);
 
 			break;
 		case REMOTE_KEY_REDIST_SHADOW_DATA:
@@ -1490,8 +1490,8 @@ static int process_distrib_cmd(void *context, const char *data, int len)
 			sprintf(shadowRelName, "%s%d", SHADOW_RELATION_PREFIX, masterRelid);
 			shadowRelid = get_relname_relid(shadowRelName, relnamespace);
 			redistcopy = (AuxiliaryRelCopy *)linitial(redistcopylist);
-			masterRel = heap_open(masterRelid, AccessExclusiveLock);
-			shadowRel = heap_open(shadowRelid, AccessExclusiveLock);
+			masterRel = table_open(masterRelid, AccessExclusiveLock);
+			shadowRel = table_open(shadowRelid, AccessExclusiveLock);
 
 			ereport(DEBUG1,
 				(errmsg("reduce source relation \"%s.%s\" data to shadow relation\"%s.%s\""
@@ -1511,14 +1511,14 @@ static int process_distrib_cmd(void *context, const char *data, int len)
 									preferred);
 			}PG_CATCH();
 			{
-				heap_close(masterRel, AccessExclusiveLock);
-				heap_close(shadowRel, AccessExclusiveLock);
+				table_close(masterRel, AccessExclusiveLock);
+				table_close(shadowRel, AccessExclusiveLock);
 
 				PG_RE_THROW();
 			}PG_END_TRY();
 
-			heap_close(masterRel, AccessExclusiveLock);
-			heap_close(shadowRel, AccessExclusiveLock);
+			table_close(masterRel, AccessExclusiveLock);
+			table_close(shadowRel, AccessExclusiveLock);
 			break;
 		case REMOTE_KEY_SWAP_SHADOW_SOURCE_TABLE:
 			/* swap shadow relation file with source relation file */
@@ -1552,10 +1552,10 @@ static int process_distrib_cmd(void *context, const char *data, int len)
 			cmd = (AlterTableCmd *)loadNode(&buf);
 
 			masterRelid = get_relname_relid(masterRelname, relnamespace);
-			masterRel = heap_open(masterRelid, AccessExclusiveLock);
+			masterRel = table_open(masterRelid, AccessExclusiveLock);
 
 			DistribRewriteCatalogs(cmd, masterRelid, lockmode);
-			heap_close(masterRel, AccessExclusiveLock);
+			table_close(masterRel, AccessExclusiveLock);
 			break;
 		default:
 			ereport(ERROR,

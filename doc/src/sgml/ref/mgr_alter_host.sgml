@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_alter_host.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-ALTERHOST">
+<refentry id="mgr-alterhost">
   <refmeta>
     <refentrytitle>ALTER HOST</refentrytitle>
     <manvolnum>7</manvolnum>

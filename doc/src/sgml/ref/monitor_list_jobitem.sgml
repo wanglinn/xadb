@@ -3,7 +3,7 @@ doc/src/sgml/ref/monitor_list_jobitem.sgml
 ADB documentation
 -->
 
-<refentry id="MONITOR-LISTJOBITEM">
+<refentry id="monitor-listjobitem">
   <refmeta>
     <refentrytitle>LIST ITEM</refentrytitle>
     <manvolnum>7</manvolnum>

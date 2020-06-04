@@ -9,6 +9,7 @@
 
 CATALOG(monitor_job,4803,MjobRelationId)
 {
+	Oid				oid;
 	NameData		name;
 	timestamptz		next_time;
 	int32			interval;

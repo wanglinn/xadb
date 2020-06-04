@@ -14,6 +14,7 @@
  */
 #include "postgres.h"
 #include "access/sysattr.h"
+#include "access/table.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "catalog/pg_inherits.h"
@@ -28,6 +29,7 @@
 #include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"
 #include "optimizer/cost.h"
+#include "optimizer/optimizer.h"
 #include "optimizer/pgxcplan.h"
 #include "optimizer/pgxcship.h"
 #include "optimizer/planmain.h"
@@ -35,7 +37,6 @@
 #include "optimizer/reduceinfo.h"
 #include "optimizer/restrictinfo.h"
 #include "optimizer/tlist.h"
-#include "optimizer/var.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/plancat.h"
 #include "parser/parse_coerce.h"
@@ -55,7 +56,6 @@
 #include "utils/syscache.h"
 #include "utils/fmgroids.h"
 #include "utils/ruleutils.h"
-#include "utils/tqual.h"
 #include "access/htup_details.h"
 
 /* Context for collecting range tables in a Query tree */
@@ -1481,12 +1481,12 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 		if (res_rte == NULL || res_rte->rtekind != RTE_RELATION)
 			continue;
 
-		res_rel = heap_open(res_rte->relid, NoLock);
+		res_rel = table_open(res_rte->relid, NoLock);
 		relname = RelationGetRelationName(res_rel);
 		rel_loc_info = RelationGetLocInfo(res_rel);
 		if (rel_loc_info == NULL)
 		{
-			heap_close(res_rel, NoLock);
+			table_close(res_rel, NoLock);
 			continue;
 		}
 

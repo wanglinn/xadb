@@ -16,7 +16,6 @@
 #include "utils/fmgroids.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
-#include "utils/tqual.h"
 #include "utils/ps_status.h"
 #include "utils/memutils.h"
 #include "libpq/pqformat.h"
@@ -68,7 +67,7 @@ static TupleTableSlot* get_agtm_command_slot(void)
 		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
 		PG_TRY();
 		{
-			temp = CreateTemplateTupleDesc(1, false);
+			temp = CreateTemplateTupleDesc(1);
 			TupleDescInitEntry((TupleDesc)temp, 1, "result", BYTEAOID, -1, 0);
 		}PG_CATCH();
 		{
@@ -82,8 +81,7 @@ static TupleTableSlot* get_agtm_command_slot(void)
 	if(slot == NULL)
 	{
 		oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-		slot = MakeSingleTupleTableSlot(NULL);
-		ExecSetSlotDescriptor(slot, desc);
+		slot = MakeSingleTupleTableSlot(desc, &TTSOpsVirtual);
 		MemoryContextSwitchTo(oldcontext);
 	}
 	return slot;

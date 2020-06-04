@@ -3,7 +3,7 @@ doc/src/sgml/ref/monitor_alter_job.sgml
 ADB documentation
 -->
 
-<refentry id="MONITOR-ALTERJOB">
+<refentry id="monitor-alterjob">
   <refmeta>
     <refentrytitle>ALTER JOB</refentrytitle>
     <manvolnum>7</manvolnum>

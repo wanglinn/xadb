@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_flush_param.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-FLUSHPARAM">
+<refentry id="mgr-flushparam">
   <refmeta>
     <refentrytitle>FLUSH PARAM</refentrytitle>
     <manvolnum>7</manvolnum>

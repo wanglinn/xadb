@@ -46,7 +46,7 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 	/*
 	 * Initialize result slot, type and projection.
 	 */
-	ExecInitResultTupleSlotTL(estate, &gatherstate->ps);
+	ExecInitResultTupleSlotTL(&gatherstate->ps, &TTSOpsMinimalTuple);
 	ExecConditionalAssignProjectionInfo(&gatherstate->ps, tupDesc, OUTER_VAR);
 
 	if((flags & EXEC_FLAG_EXPLAIN_ONLY) == 0)

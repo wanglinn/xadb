@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_stop_datanode.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-STOPDATANODE">
+<refentry id="mgr-stopdatanode">
   <refmeta>
     <refentrytitle>STOP DATANODE</refentrytitle>
     <manvolnum>7</manvolnum>

@@ -2,7 +2,7 @@
 doc/src/sgml/cleanconnection.sgml
 ADB documentation
 -->
-<refentry id="SQL-CLEANCONNECTION">
+<refentry id="sql-cleanconnection">
  <indexterm zone="sql-cleanconnection">
   <primary>CLEAN CONNECTION</primary>
  </indexterm>

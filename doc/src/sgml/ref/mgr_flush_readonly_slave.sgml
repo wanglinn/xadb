@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_flush_readonly_slave.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-FLUSHREADONLYSLAVE"> mgrFlushReadonlySlave FLUSHREADONLYSLAVE
+<refentry id="mgr-flushreadonlyslave"> mgrFlushReadonlySlave FLUSHREADONLYSLAVE
   <refmeta>
     <refentrytitle>FLUSH READONLY SLAVE</refentrytitle>
     <manvolnum>7</manvolnum>

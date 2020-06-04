@@ -2516,3 +2516,61 @@ static int db2_yylex(union YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanne
 {
 	return core_yylex(&(lvalp->core_yystype), lloc, yyscanner);
 }
+
+#define PG_KEYWORD(kwname, value, category) value,
+const uint16 db2ScanKeywordTokens[] = {
+#include "parser/db2_kwlist.h"
+};
+
+static List* db2_yyparse_internal(const char *str, core_yyscan_t yyscanner)
+{
+	List *stmts = NIL;
+	MemoryContext volatile oldcontext = CurrentMemoryContext;
+
+	PG_TRY();
+	{
+		if (db2_yyparse(yyscanner) != 0)
+			stmts = NIL;
+		else
+			stmts = db2_yyget_extra(yyscanner)->parsetree;
+	}PG_CATCH();
+	{
+		ErrorData  *edata;
+
+		/* Save error info in our stmt_mcontext */
+		MemoryContextSwitchTo(oldcontext);
+		edata = CopyErrorData();
+		FlushErrorState();
+
+		if (edata->sqlerrcode != ERRCODE_SYNTAX_ERROR)
+			ReThrowError(edata);
+
+		stmts = raw_parser(str);
+	}PG_END_TRY();
+
+	return stmts;
+}
+
+List* db2_raw_parser(const char *str)
+{
+	List *stmts;
+	core_yyscan_t yyscanner;
+	db2_yy_extra_type yyextra;
+
+	/* initialize the flex scanner */
+	Assert(lengthof(db2ScanKeywordTokens) == db2ScanKeywords.num_keywords);
+	yyscanner = scanner_init(str, &yyextra.core_yy_extra,
+							 &db2ScanKeywords, db2ScanKeywordTokens);
+
+	/* initialize the bison parser */
+	db2_parser_init(&yyextra);
+
+	/* Parse! */
+	//yyresult = db2_yyparse(yyscanner);
+	stmts = db2_yyparse_internal(str, yyscanner);
+
+	/* Clean up (release memory) */
+	scanner_finish(yyscanner);
+
+	return stmts;
+}

@@ -3,7 +3,7 @@
  * explain.c
  *	  Explain query execution plans
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994-5, Regents of the University of California
  *
  * IDENTIFICATION
@@ -14,7 +14,6 @@
 #include "postgres.h"
 
 #include "access/xact.h"
-#include "catalog/pg_collation.h"
 #include "catalog/pg_type.h"
 #include "commands/createas.h"
 #include "commands/defrem.h"
@@ -23,14 +22,14 @@
 #include "foreign/fdwapi.h"
 #include "jit/jit.h"
 #include "nodes/extensible.h"
+#include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
-#include "optimizer/clauses.h"
-#include "optimizer/planmain.h"
 #include "parser/parsetree.h"
 #include "rewrite/rewriteHandler.h"
 #include "storage/bufmgr.h"
 #include "tcop/tcopprot.h"
 #include "utils/builtins.h"
+#include "utils/guc_tables.h"
 #include "utils/json.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
@@ -61,34 +60,34 @@ explain_get_index_name_hook_type explain_get_index_name_hook = NULL;
 #define X_NOWHITESPACE 4
 
 static void ExplainOneQuery(Query *query, int cursorOptions,
-				IntoClause *into, ExplainState *es,
-				const char *queryString, ParamListInfo params,
-				QueryEnvironment *queryEnv);
+							IntoClause *into, ExplainState *es,
+							const char *queryString, ParamListInfo params,
+							QueryEnvironment *queryEnv);
 static void report_triggers(ResultRelInfo *rInfo, bool show_relname,
-				ExplainState *es);
+							ExplainState *es);
 static double elapsed_time(instr_time *starttime);
 static bool ExplainPreScanNode(PlanState *planstate, Bitmapset **rels_used);
 static void ExplainNode(PlanState *planstate, List *ancestors,
-			const char *relationship, const char *plan_name,
-			ExplainState *es);
+						const char *relationship, const char *plan_name,
+						ExplainState *es);
 static void show_plan_tlist(PlanState *planstate, List *ancestors,
-				ExplainState *es);
+							ExplainState *es);
 static void show_expression(Node *node, const char *qlabel,
-				PlanState *planstate, List *ancestors,
-				bool useprefix, ExplainState *es);
+							PlanState *planstate, List *ancestors,
+							bool useprefix, ExplainState *es);
 static void show_qual(List *qual, const char *qlabel,
-		  PlanState *planstate, List *ancestors,
-		  bool useprefix, ExplainState *es);
+					  PlanState *planstate, List *ancestors,
+					  bool useprefix, ExplainState *es);
 static void show_scan_qual(List *qual, const char *qlabel,
-			   PlanState *planstate, List *ancestors,
-			   ExplainState *es);
+						   PlanState *planstate, List *ancestors,
+						   ExplainState *es);
 static void show_upper_qual(List *qual, const char *qlabel,
-				PlanState *planstate, List *ancestors,
-				ExplainState *es);
+							PlanState *planstate, List *ancestors,
+							ExplainState *es);
 static void show_sort_keys(SortState *sortstate, List *ancestors,
-			   ExplainState *es);
+						   ExplainState *es);
 static void show_merge_append_keys(MergeAppendState *mstate, List *ancestors,
-					   ExplainState *es);
+								   ExplainState *es);
 #ifdef ADB
 static void show_merge_gather_keys(ClusterMergeGatherState *mgstate, List *ancestors,
 					   ExplainState *es);
@@ -96,52 +95,52 @@ static void show_cluster_reduce_keys(ClusterReduceState *crstate, List *ancestor
 					   ExplainState *es);
 #endif /* ADB */
 static void show_agg_keys(AggState *astate, List *ancestors,
-			  ExplainState *es);
+						  ExplainState *es);
 static void show_grouping_sets(PlanState *planstate, Agg *agg,
-				   List *ancestors, ExplainState *es);
+							   List *ancestors, ExplainState *es);
 static void show_grouping_set_keys(PlanState *planstate,
-					   Agg *aggnode, Sort *sortnode,
-					   List *context, bool useprefix,
-					   List *ancestors, ExplainState *es);
+								   Agg *aggnode, Sort *sortnode,
+								   List *context, bool useprefix,
+								   List *ancestors, ExplainState *es);
 static void show_group_keys(GroupState *gstate, List *ancestors,
-				ExplainState *es);
+							ExplainState *es);
 static void show_sort_group_keys(PlanState *planstate, const char *qlabel,
-					 int nkeys, AttrNumber *keycols,
-					 Oid *sortOperators, Oid *collations, bool *nullsFirst,
-					 List *ancestors, ExplainState *es);
+								 int nkeys, AttrNumber *keycols,
+								 Oid *sortOperators, Oid *collations, bool *nullsFirst,
+								 List *ancestors, ExplainState *es);
 static void show_sortorder_options(StringInfo buf, Node *sortexpr,
-					   Oid sortOperator, Oid collation, bool nullsFirst);
+								   Oid sortOperator, Oid collation, bool nullsFirst);
 static void show_tablesample(TableSampleClause *tsc, PlanState *planstate,
-				 List *ancestors, ExplainState *es);
+							 List *ancestors, ExplainState *es);
 static void show_sort_info(SortState *sortstate, ExplainState *es);
 static void show_hash_info(HashState *hashstate, ExplainState *es);
 static void show_tidbitmap_info(BitmapHeapScanState *planstate,
-					ExplainState *es);
+								ExplainState *es);
 static void show_instrumentation_count(const char *qlabel, int which,
-						   PlanState *planstate, ExplainState *es);
+									   PlanState *planstate, ExplainState *es);
 static void show_foreignscan_info(ForeignScanState *fsstate, ExplainState *es);
 static void show_eval_params(Bitmapset *bms_params, ExplainState *es);
 static const char *explain_get_index_name(Oid indexId);
 static void show_buffer_usage(ExplainState *es, const BufferUsage *usage);
 static void ExplainIndexScanDetails(Oid indexid, ScanDirection indexorderdir,
-						ExplainState *es);
+									ExplainState *es);
 static void ExplainScanTarget(Scan *plan, ExplainState *es);
 static void ExplainModifyTarget(ModifyTable *plan, ExplainState *es);
 static void ExplainTargetRel(Plan *plan, Index rti, ExplainState *es);
 #ifndef ADB
 static void show_modifytable_info(ModifyTableState *mtstate, List *ancestors,
-					  ExplainState *es);
+								  ExplainState *es);
 #endif
 static void ExplainMemberNodes(PlanState **planstates, int nsubnodes,
-				   int nplans, List *ancestors, ExplainState *es);
+							   int nplans, List *ancestors, ExplainState *es);
 static void ExplainSubPlans(List *plans, List *ancestors,
-				const char *relationship, ExplainState *es);
+							const char *relationship, ExplainState *es);
 static void ExplainCustomChildren(CustomScanState *css,
-					  List *ancestors, ExplainState *es);
+								  List *ancestors, ExplainState *es);
 static void ExplainProperty(const char *qlabel, const char *unit,
-				const char *value, bool numeric, ExplainState *es);
+							const char *value, bool numeric, ExplainState *es);
 static void ExplainDummyGroup(const char *objtype, const char *labelname,
-				  ExplainState *es);
+							  ExplainState *es);
 #ifdef ADB
 static void ExplainExecNodes(ExecNodes *en, ExplainState *es);
 static void ExplainRemoteList(List *rnode, ExplainState *es);
@@ -184,6 +183,8 @@ ExplainQuery(ParseState *pstate, ExplainStmt *stmt, const char *queryString,
 			es->costs = defGetBoolean(opt);
 		else if (strcmp(opt->defname, "buffers") == 0)
 			es->buffers = defGetBoolean(opt);
+		else if (strcmp(opt->defname, "settings") == 0)
+			es->settings = defGetBoolean(opt);
 #ifdef ADB
 		else if (strcmp(opt->defname, "nodes") == 0)
 			es->nodes = defGetBoolean(opt);
@@ -192,7 +193,6 @@ ExplainQuery(ParseState *pstate, ExplainStmt *stmt, const char *queryString,
 		else if (strcmp(opt->defname, "plan_id") == 0)
 			es->plan_id = defGetBoolean(opt);
 #endif /* ADB */
-
 		else if (strcmp(opt->defname, "timing") == 0)
 		{
 			timing_set = true;
@@ -303,7 +303,8 @@ ExplainQuery(ParseState *pstate, ExplainStmt *stmt, const char *queryString,
 	Assert(es->indent == 0);
 
 	/* output tuples */
-	tstate = begin_tup_output_tupdesc(dest, ExplainResultDesc(stmt));
+	tstate = begin_tup_output_tupdesc(dest, ExplainResultDesc(stmt),
+									  &TTSOpsVirtual);
 	if (es->format == EXPLAIN_FORMAT_TEXT)
 		do_text_output_multiline(tstate, es->str->data);
 	else
@@ -363,7 +364,7 @@ ExplainResultDesc(ExplainStmt *stmt)
 	}
 
 	/* Need a tuple descriptor representing a single TEXT or XML column */
-	tupdesc = CreateTemplateTupleDesc(1, false);
+	tupdesc = CreateTemplateTupleDesc(1);
 	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "QUERY PLAN",
 					   result_type, -1, 0);
 	return tupdesc;
@@ -623,9 +624,8 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 	 * depending on build options.  Might want to separate that out from COSTS
 	 * at a later stage.
 	 */
-	if (queryDesc->estate->es_jit && es->costs &&
-		queryDesc->estate->es_jit->created_functions > 0)
-		ExplainPrintJIT(es, queryDesc);
+	if (es->costs)
+		ExplainPrintJITSummary(es, queryDesc);
 
 	/*
 	 * Close down the query and free resources.  Include time for this in the
@@ -656,6 +656,73 @@ ExplainOnePlan(PlannedStmt *plannedstmt, IntoClause *into, ExplainState *es,
 							 es);
 
 	ExplainCloseGroup("Query", NULL, true, es);
+}
+
+/*
+ * ExplainPrintSettings -
+ *    Print summary of modified settings affecting query planning.
+ */
+static void
+ExplainPrintSettings(ExplainState *es)
+{
+	int			num;
+	struct config_generic **gucs;
+
+	/* bail out if information about settings not requested */
+	if (!es->settings)
+		return;
+
+	/* request an array of relevant settings */
+	gucs = get_explain_guc_options(&num);
+
+	/* also bail out of there are no options */
+	if (!num)
+		return;
+
+	if (es->format != EXPLAIN_FORMAT_TEXT)
+	{
+		int			i;
+
+		ExplainOpenGroup("Settings", "Settings", true, es);
+
+		for (i = 0; i < num; i++)
+		{
+			char	   *setting;
+			struct config_generic *conf = gucs[i];
+
+			setting = GetConfigOptionByName(conf->name, NULL, true);
+
+			ExplainPropertyText(conf->name, setting, es);
+		}
+
+		ExplainCloseGroup("Settings", "Settings", true, es);
+	}
+	else
+	{
+		int			i;
+		StringInfoData str;
+
+		initStringInfo(&str);
+
+		for (i = 0; i < num; i++)
+		{
+			char	   *setting;
+			struct config_generic *conf = gucs[i];
+
+			if (i > 0)
+				appendStringInfoString(&str, ", ");
+
+			setting = GetConfigOptionByName(conf->name, NULL, true);
+
+			if (setting)
+				appendStringInfo(&str, "%s = '%s'", conf->name, setting);
+			else
+				appendStringInfo(&str, "%s = NULL", conf->name);
+		}
+
+		if (num > 0)
+			ExplainPropertyText("Settings", str.data, es);
+	}
 }
 
 /*
@@ -695,6 +762,12 @@ ExplainPrintPlan(ExplainState *es, QueryDesc *queryDesc)
 	if (IsA(ps, GatherState) &&((Gather *) ps->plan)->invisible)
 		ps = outerPlanState(ps);
 	ExplainNode(ps, NIL, NULL, NULL, es);
+
+	/*
+	 * If requested, include information about GUC parameters with values that
+	 * don't match the built-in defaults.
+	 */
+	ExplainPrintSettings(es);
 }
 
 /*
@@ -749,51 +822,128 @@ ExplainPrintTriggers(ExplainState *es, QueryDesc *queryDesc)
 }
 
 /*
- * ExplainPrintJIT -
- *	  Append information about JITing to es->str.
+ * ExplainPrintJITSummary -
+ *    Print summarized JIT instrumentation from leader and workers
  */
 void
-ExplainPrintJIT(ExplainState *es, QueryDesc *queryDesc)
+ExplainPrintJITSummary(ExplainState *es, QueryDesc *queryDesc)
 {
-	JitContext *jc = queryDesc->estate->es_jit;
+	JitInstrumentation ji = {0};
+
+	if (!(queryDesc->estate->es_jit_flags & PGJIT_PERFORM))
+		return;
+
+	/*
+	 * Work with a copy instead of modifying the leader state, since this
+	 * function may be called twice
+	 */
+	if (queryDesc->estate->es_jit)
+		InstrJitAgg(&ji, &queryDesc->estate->es_jit->instr);
+
+	/* If this process has done JIT in parallel workers, merge stats */
+	if (queryDesc->estate->es_jit_worker_instr)
+		InstrJitAgg(&ji, queryDesc->estate->es_jit_worker_instr);
+
+	ExplainPrintJIT(es, queryDesc->estate->es_jit_flags, &ji, -1);
+}
+
+/*
+ * ExplainPrintJIT -
+ *	  Append information about JITing to es->str.
+ *
+ * Can be used to print the JIT instrumentation of the backend (worker_num =
+ * -1) or that of a specific worker (worker_num = ...).
+ */
+void
+ExplainPrintJIT(ExplainState *es, int jit_flags,
+				JitInstrumentation *ji, int worker_num)
+{
+	instr_time	total_time;
+	bool		for_workers = (worker_num >= 0);
+
+	/* don't print information if no JITing happened */
+	if (!ji || ji->created_functions == 0)
+		return;
+
+	/* calculate total time */
+	INSTR_TIME_SET_ZERO(total_time);
+	INSTR_TIME_ADD(total_time, ji->generation_counter);
+	INSTR_TIME_ADD(total_time, ji->inlining_counter);
+	INSTR_TIME_ADD(total_time, ji->optimization_counter);
+	INSTR_TIME_ADD(total_time, ji->emission_counter);
 
 	ExplainOpenGroup("JIT", "JIT", true, es);
 
+	/* for higher density, open code the text output format */
 	if (es->format == EXPLAIN_FORMAT_TEXT)
 	{
+		appendStringInfoSpaces(es->str, es->indent * 2);
+		if (for_workers)
+			appendStringInfo(es->str, "JIT for worker %u:\n", worker_num);
+		else
+			appendStringInfo(es->str, "JIT:\n");
 		es->indent += 1;
-		appendStringInfo(es->str, "JIT:\n");
-	}
 
-	ExplainPropertyInteger("Functions", NULL, jc->created_functions, es);
-	if (es->analyze && es->timing)
-		ExplainPropertyFloat("Generation Time", "ms",
-							 1000.0 * INSTR_TIME_GET_DOUBLE(jc->generation_counter),
-							 3, es);
+		ExplainPropertyInteger("Functions", NULL, ji->created_functions, es);
 
-	ExplainPropertyBool("Inlining", jc->flags & PGJIT_INLINE, es);
+		appendStringInfoSpaces(es->str, es->indent * 2);
+		appendStringInfo(es->str, "Options: %s %s, %s %s, %s %s, %s %s\n",
+						 "Inlining", jit_flags & PGJIT_INLINE ? "true" : "false",
+						 "Optimization", jit_flags & PGJIT_OPT3 ? "true" : "false",
+						 "Expressions", jit_flags & PGJIT_EXPR ? "true" : "false",
+						 "Deforming", jit_flags & PGJIT_DEFORM ? "true" : "false");
 
-	if (es->analyze && es->timing)
-		ExplainPropertyFloat("Inlining Time", "ms",
-							 1000.0 * INSTR_TIME_GET_DOUBLE(jc->inlining_counter),
-							 3, es);
+		if (es->analyze && es->timing)
+		{
+			appendStringInfoSpaces(es->str, es->indent * 2);
+			appendStringInfo(es->str,
+							 "Timing: %s %.3f ms, %s %.3f ms, %s %.3f ms, %s %.3f ms, %s %.3f ms\n",
+							 "Generation", 1000.0 * INSTR_TIME_GET_DOUBLE(ji->generation_counter),
+							 "Inlining", 1000.0 * INSTR_TIME_GET_DOUBLE(ji->inlining_counter),
+							 "Optimization", 1000.0 * INSTR_TIME_GET_DOUBLE(ji->optimization_counter),
+							 "Emission", 1000.0 * INSTR_TIME_GET_DOUBLE(ji->emission_counter),
+							 "Total", 1000.0 * INSTR_TIME_GET_DOUBLE(total_time));
+		}
 
-	ExplainPropertyBool("Optimization", jc->flags & PGJIT_OPT3, es);
-	if (es->analyze && es->timing)
-		ExplainPropertyFloat("Optimization Time", "ms",
-							 1000.0 * INSTR_TIME_GET_DOUBLE(jc->optimization_counter),
-							 3, es);
-
-	if (es->analyze && es->timing)
-		ExplainPropertyFloat("Emission Time", "ms",
-							 1000.0 * INSTR_TIME_GET_DOUBLE(jc->emission_counter),
-							 3, es);
-
-	ExplainCloseGroup("JIT", "JIT", true, es);
-	if (es->format == EXPLAIN_FORMAT_TEXT)
-	{
 		es->indent -= 1;
 	}
+	else
+	{
+		ExplainPropertyInteger("Worker Number", NULL, worker_num, es);
+		ExplainPropertyInteger("Functions", NULL, ji->created_functions, es);
+
+		ExplainOpenGroup("Options", "Options", true, es);
+		ExplainPropertyBool("Inlining", jit_flags & PGJIT_INLINE, es);
+		ExplainPropertyBool("Optimization", jit_flags & PGJIT_OPT3, es);
+		ExplainPropertyBool("Expressions", jit_flags & PGJIT_EXPR, es);
+		ExplainPropertyBool("Deforming", jit_flags & PGJIT_DEFORM, es);
+		ExplainCloseGroup("Options", "Options", true, es);
+
+		if (es->analyze && es->timing)
+		{
+			ExplainOpenGroup("Timing", "Timing", true, es);
+
+			ExplainPropertyFloat("Generation", "ms",
+								 1000.0 * INSTR_TIME_GET_DOUBLE(ji->generation_counter),
+								 3, es);
+			ExplainPropertyFloat("Inlining", "ms",
+								 1000.0 * INSTR_TIME_GET_DOUBLE(ji->inlining_counter),
+								 3, es);
+			ExplainPropertyFloat("Optimization", "ms",
+								 1000.0 * INSTR_TIME_GET_DOUBLE(ji->optimization_counter),
+								 3, es);
+			ExplainPropertyFloat("Emission", "ms",
+								 1000.0 * INSTR_TIME_GET_DOUBLE(ji->emission_counter),
+								 3, es);
+			ExplainPropertyFloat("Total", "ms",
+								 1000.0 * INSTR_TIME_GET_DOUBLE(total_time),
+								 3, es);
+
+			ExplainCloseGroup("Timing", "Timing", true, es);
+		}
+	}
+
+	ExplainCloseGroup("JIT", "JIT", true, es);
 }
 
 /*
@@ -1673,6 +1823,25 @@ ExplainNode(PlanState *planstate, List *ancestors,
 					ExplainPropertyInteger("Workers Launched", NULL,
 										   nworkers, es);
 				}
+
+				/*
+				 * Print per-worker Jit instrumentation. Use same conditions
+				 * as for the leader's JIT instrumentation, see comment there.
+				 */
+				if (es->costs && es->verbose &&
+					outerPlanState(planstate)->worker_jit_instrument)
+				{
+					PlanState  *child = outerPlanState(planstate);
+					int			n;
+					SharedJitInstrumentation *w = child->worker_jit_instrument;
+
+					for (n = 0; n < w->num_workers; ++n)
+					{
+						ExplainPrintJIT(es, child->state->es_jit_flags,
+										&w->jit_instr[n], n);
+					}
+				}
+
 				if (gather->single_copy || es->format != EXPLAIN_FORMAT_TEXT)
 					ExplainPropertyBool("Single Copy", gather->single_copy, es);
 			}
@@ -2683,11 +2852,13 @@ show_sortorder_options(StringInfo buf, Node *sortexpr,
 								 TYPECACHE_LT_OPR | TYPECACHE_GT_OPR);
 
 	/*
-	 * Print COLLATE if it's not default.  There are some cases where this is
-	 * redundant, eg if expression is a column whose declared collation is
-	 * that collation, but it's hard to distinguish that here.
+	 * Print COLLATE if it's not default for the column's type.  There are
+	 * some cases where this is redundant, eg if expression is a column whose
+	 * declared collation is that collation, but it's hard to distinguish that
+	 * here (and arguably, printing COLLATE explicitly is a good idea anyway
+	 * in such cases).
 	 */
-	if (OidIsValid(collation) && collation != DEFAULT_COLLATION_OID)
+	if (OidIsValid(collation) && collation != get_typcollation(sortcoltype))
 	{
 		char	   *collname = get_collation_name(collation);
 
@@ -3787,7 +3958,7 @@ ExplainPropertyListNested(const char *qlabel, List *data, ExplainState *es)
  * If "numeric" is true, the value is a number (or other value that
  * doesn't need quoting in JSON).
  *
- * If unit is is non-NULL the text format will display it after the value.
+ * If unit is non-NULL the text format will display it after the value.
  *
  * This usually should not be invoked directly, but via one of the datatype
  * specific routines ExplainPropertyText, ExplainPropertyInteger, etc.

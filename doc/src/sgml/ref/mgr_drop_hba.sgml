@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_drop_hba.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-DROPHBA">
+<refentry id="mgr-drophba">
   <refmeta>
     <refentrytitle>DROP HBA</refentrytitle>
     <manvolnum>7</manvolnum>

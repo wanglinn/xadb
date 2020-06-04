@@ -7,7 +7,7 @@
  *	 ExecProcNode, or ExecEndNode on its subnodes and do the appropriate
  *	 processing.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -841,11 +841,7 @@ ExecEndNode(PlanState *node)
  * ExecShutdownNode
  *
  * Give execution nodes a chance to stop asynchronous resource consumption
- * and release any resources still held.  Currently, this is only used for
- * parallel query, but we might want to extend it to other cases also (e.g.
- * FDW).  We might also want to call it sooner, as soon as it's evident that
- * no more rows will be needed (e.g. when a Limit is filled) rather than only
- * at the end of ExecutorRun.
+ * and release any resources still held.
  */
 bool
 ExecShutdownNode(PlanState *node)
@@ -856,6 +852,19 @@ ExecShutdownNode(PlanState *node)
 	check_stack_depth();
 
 	planstate_tree_walker(node, ExecShutdownNode, NULL);
+
+	/*
+	 * Treat the node as running while we shut it down, but only if it's run
+	 * at least once already.  We don't expect much CPU consumption during
+	 * node shutdown, but in the case of Gather or Gather Merge, we may shut
+	 * down workers at this stage.  If so, their buffer usage will get
+	 * propagated into pgBufferUsage at this point, and we want to make sure
+	 * that it gets associated with the Gather node.  We skip this if the node
+	 * has never been executed, so as to avoid incorrectly making it appear
+	 * that it has.
+	 */
+	if (node->instrument && node->instrument->running)
+		InstrStartNode(node->instrument);
 
 	switch (nodeTag(node))
 	{
@@ -893,6 +902,10 @@ ExecShutdownNode(PlanState *node)
 		default:
 			break;
 	}
+
+	/* Stop the node if we started it above, reporting 0 tuples. */
+	if (node->instrument && node->instrument->running)
+		InstrStopNode(node->instrument, 0);
 
 	return false;
 }
@@ -943,6 +956,19 @@ ExecSetTupleBound(int64 tuples_needed, PlanState *child_node)
 			sortState->bounded = true;
 			sortState->bound = tuples_needed;
 		}
+	}
+	else if (IsA(child_node, AppendState))
+	{
+		/*
+		 * If it is an Append, we can apply the bound to any nodes that are
+		 * children of the Append, since the Append surely need read no more
+		 * than that many tuples from any one input.
+		 */
+		AppendState *aState = (AppendState *) child_node;
+		int			i;
+
+		for (i = 0; i < aState->as_nplans; i++)
+			ExecSetTupleBound(tuples_needed, aState->appendplans[i]);
 	}
 	else if (IsA(child_node, MergeAppendState))
 	{

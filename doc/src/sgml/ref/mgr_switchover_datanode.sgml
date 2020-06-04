@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_switchover_datanode.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-SWITCHOVERDATANODE">
+<refentry id="mgr-switchoverdatanode">
   <refmeta>
     <refentrytitle>SWITCHOVER DATANODE</refentrytitle>
     <manvolnum>7</manvolnum>

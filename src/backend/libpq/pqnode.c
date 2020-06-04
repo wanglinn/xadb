@@ -482,7 +482,7 @@ int pq_node_get_msg(StringInfo s, pq_comm_node *node)
 
 static void pq_node_proc_start_msg(pq_comm_node *node)
 {
-	PQcommMethods *save_methods = PqCommMethods;
+	const PQcommMethods *save_methods = PqCommMethods;
 	AssertArg(node);
 
 	if(node->write_only)

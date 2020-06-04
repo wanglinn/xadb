@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_remove_datanode.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-REMOVEDATANODE">
+<refentry id="mgr-removedatanode">
   <refmeta>
     <refentrytitle>REMOVE DATTANODE</refentrytitle>
     <manvolnum>7</manvolnum>

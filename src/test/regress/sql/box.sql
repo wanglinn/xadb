@@ -25,6 +25,9 @@ INSERT INTO BOX_TBL (f1) VALUES ('(2.0,2.0,0.0,0.0)');
 
 INSERT INTO BOX_TBL (f1) VALUES ('(1.0,1.0,3.0,3.0)');
 
+INSERT INTO BOX_TBL (f1) VALUES ('((-8, 2), (-2, -10))');
+
+
 -- degenerate cases where the box is a line or a point
 -- note that lines and points boxes all have zero area
 INSERT INTO BOX_TBL (f1) VALUES ('(2.5, 2.5, 2.5,3.5)');
@@ -33,6 +36,12 @@ INSERT INTO BOX_TBL (f1) VALUES ('(3.0, 3.0,3.0,3.0)');
 
 -- badly formatted box inputs
 INSERT INTO BOX_TBL (f1) VALUES ('(2.3, 4.5)');
+
+INSERT INTO BOX_TBL (f1) VALUES ('[1, 2, 3, 4)');
+
+INSERT INTO BOX_TBL (f1) VALUES ('(1, 2, 3, 4]');
+
+INSERT INTO BOX_TBL (f1) VALUES ('(1, 2, 3, 4) x');
 
 INSERT INTO BOX_TBL (f1) VALUES ('asdfasdf(ad');
 
@@ -80,7 +89,7 @@ SELECT '' AS two, b.f1
 -- area >
 SELECT '' AS two, b.f1
    FROM BOX_TBL b				-- zero area 
-   WHERE b.f1 > box '(3.5,3.0,4.5,3.0)' ORDER BY (b.f1[0])[0], (b.f1[0])[1], (b.f1[2])[0], (b.f1[2])[1];	
+   WHERE b.f1 > box '(3.5,3.0,4.5,3.0)' ORDER BY (b.f1[0])[0], (b.f1[0])[1], (b.f1[2])[0], (b.f1[2])[1];
 
 -- area >=
 SELECT '' AS four, b.f1

@@ -4,7 +4,7 @@
  *	  per-process shared memory data structures
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/storage/proc.h
@@ -63,7 +63,7 @@ struct XidCache
 	(PROC_IN_VACUUM | PROC_IN_ANALYZE | PROC_VACUUM_FOR_WRAPAROUND)
 
 /*
- * We allow a small number of "weak" relation locks (AccesShareLock,
+ * We allow a small number of "weak" relation locks (AccessShareLock,
  * RowShareLock, RowExclusiveLock) to be recorded in the PGPROC structure
  * rather than the main lock table.  This eases contention on the lock
  * manager LWLocks.  See storage/lmgr/README for additional details.
@@ -113,6 +113,9 @@ struct PGPROC
 	BackendId	backendId;		/* This backend's backend ID (if assigned) */
 	Oid			databaseId;		/* OID of database this backend is using */
 	Oid			roleId;			/* OID of role using this backend */
+
+	Oid			tempNamespaceId;	/* OID of temp schema this backend is
+									 * using */
 
 	bool		isBackgroundWorker; /* true if background worker. */
 
@@ -280,6 +283,8 @@ typedef struct PROC_HDR
 #endif /* ADB */
 	/* Head of list of bgworker free PGPROC structures */
 	PGPROC	   *bgworkerFreeProcs;
+	/* Head of list of walsender free PGPROC structures */
+	PGPROC	   *walsenderFreeProcs;
 	/* First pgproc waiting for group XID clear */
 	pg_atomic_uint32 procArrayGroupFirst;
 	/* First pgproc waiting for group transaction status update */

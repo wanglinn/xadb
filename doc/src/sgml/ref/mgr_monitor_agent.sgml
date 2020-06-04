@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_monitor_agent.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-MONITORAGENT">
+<refentry id="mgr-monitoragent">
   <refmeta>
     <refentrytitle>MONITOR AGENT</refentrytitle>
     <manvolnum>7</manvolnum>

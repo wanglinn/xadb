@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_set_cluster_init.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-SETCLUSTERINIT">
+<refentry id="mgr-setclusterinit">
   <refmeta>
     <refentrytitle>SET CLUSTER INIT</refentrytitle>
     <manvolnum>7</manvolnum>

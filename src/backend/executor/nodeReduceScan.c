@@ -71,8 +71,8 @@ ReduceScanState *ExecInitReduceScan(ReduceScan *node, EState *estate, int eflags
 	 * initialize tuple type.  no need to initialize projection info because
 	 * this node doesn't do projections.
 	 */
-	ExecInitScanTupleSlot(estate, &rcs->ss, tupDesc);
-	ExecInitResultTupleSlotTL(estate, &rcs->ss.ps);
+	ExecInitScanTupleSlot(estate, &rcs->ss, tupDesc, &TTSOpsMinimalTuple);
+	ExecInitResultTupleSlotTL(&rcs->ss.ps, &TTSOpsVirtual);
 	ExecConditionalAssignProjectionInfo(&rcs->ss.ps, tupDesc, OUTER_VAR);
 
 	if(node->param_hash_keys != NIL)
@@ -171,7 +171,9 @@ void FetchReduceScanOuter(ReduceScanState *node)
 	ExprContext		   *econtext;
 	MemoryContext		oldcontext;
 	RedcueScanSharedMemory *shm;
+	MinimalTuple		mtup;
 	int					i;
+	bool				bool_val;
 
 	if(node->batchs)
 		return;
@@ -205,7 +207,6 @@ void FetchReduceScanOuter(ReduceScanState *node)
 	if(node->scan_hash_exprs)
 	{
 		uint32 hashvalue;
-		bool isnull;
 		for(;;)
 		{
 			slot = ExecProcNode(outer_ps);
@@ -217,13 +218,15 @@ void FetchReduceScanOuter(ReduceScanState *node)
 			hashvalue = ExecReduceScanGetHashValue(econtext,
 												   node->scan_hash_exprs,
 												   node->scan_hash_funs,
-												   &isnull);
-			if (isnull)
+												   &bool_val);
+			if (bool_val)	/* is null */
 				continue;
 
+			mtup = ExecFetchSlotMinimalTuple(slot, &bool_val);
 			sts_puttuple(ExecGetReduceScanBatch(node, hashvalue),
 						 &hashvalue,
-						 ExecFetchSlotMinimalTuple(slot));
+						 ExecFetchSlotMinimalTuple(slot, &bool_val));
+			
 		}
 	}else
 	{
@@ -234,7 +237,10 @@ void FetchReduceScanOuter(ReduceScanState *node)
 			if(TupIsNull(slot))
 				break;
 
-			sts_puttuple(accessor, NULL, ExecFetchSlotMinimalTuple(slot));
+			mtup = ExecFetchSlotMinimalTuple(slot, &bool_val);
+			sts_puttuple(accessor, NULL, mtup);
+			if(bool_val)	/* is null */
+				pfree(mtup);
 		}
 		node->cur_batch = node->batchs[0];
 	}

@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_set_doctor.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-SETDOCTOR">
+<refentry id="mgr-setdoctor">
 
  <refmeta>
   <refentrytitle>SET DOCTOR</refentrytitle>

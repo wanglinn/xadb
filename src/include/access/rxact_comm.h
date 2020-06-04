@@ -47,6 +47,7 @@ extern void rxact_log_write_int(RXactLog rlog, int n);
 extern void rxact_log_write_bytes(RXactLog rlog, const void *p, int n);
 extern void rxact_log_write_string(RXactLog rlog, const char *str);
 extern void rxact_log_simple_write(File fd, const void *p, int n);
+extern void rxact_log_simple_pwrite(File fd, off_t offset, const void *p, int n);
 
 extern void rxact_report_log_error(File fd, int elevel);
 

@@ -16,7 +16,7 @@
 #include "catalog/genbki.h"
 #include "catalog/pg_aux_class_d.h"
 
-CATALOG(pg_aux_class,5320,AuxClassRelationId) BKI_WITHOUT_OIDS
+CATALOG(pg_aux_class,5320,AuxClassRelationId)
 {
 	/* Auxiliary table Oid */
 	Oid			auxrelid;

@@ -12,6 +12,7 @@
 #include<arpa/inet.h>
 
 #include "access/htup_details.h"
+#include "catalog/catalog.h"
 #include "catalog/indexing.h"
 #include "catalog/mgr_host.h"
 #include "catalog/mgr_node.h"
@@ -30,7 +31,6 @@
 #include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
-#include "utils/tqual.h"
 #include "utils/fmgroids.h"    /* For F_NAMEEQ	*/
 #include "executor/spi.h"
 #include "access/xlog.h"
@@ -39,38 +39,38 @@
 typedef struct StartAgentInfo
 {
 	Relation		rel_host;
-	HeapScanDesc	rel_scan;
+	TableScanDesc	rel_scan;
 }StartAgentInfo;
 
 typedef struct StopAgentInfo
 {
 	Relation		rel_host;
-	HeapScanDesc	rel_scan;
+	TableScanDesc	rel_scan;
     ListCell  **lcp;
 }StopAgentInfo;
 /*
 typedef struct InitNodeInfo
 {
 	Relation rel_node;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	ListCell  **lcp;
 }InitNodeInfo;
 */
 typedef struct InitHostInfo
 {
 	Relation rel_host;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	ListCell  **lcp;
 }InitHostInfo;
 
 typedef struct InitDeployInfo
 {
 	Relation rel_host;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	ListCell  **lcp;
 }InitDeployInfo;
 
-#if (Natts_mgr_host != 8)
+#if (Natts_mgr_host != 9)
 #error "need change code"
 #endif
 
@@ -125,7 +125,7 @@ Datum mgr_add_host_func(PG_FUNCTION_ARGS)
 	char *hostname = PG_GETARG_CSTRING(1);
 	List *options = (List *)PG_GETARG_POINTER(2);
 
-	rel = heap_open(HostRelationId, RowExclusiveLock);
+	rel = table_open(HostRelationId, RowExclusiveLock);
 	namestrcpy(&name, hostname);
 	/* check exists */
 	if(SearchSysCacheExists1(HOSTHOSTNAME, NameGetDatum(&name)))
@@ -134,7 +134,7 @@ Datum mgr_add_host_func(PG_FUNCTION_ARGS)
 		{
 			ereport(NOTICE,  (errcode(ERRCODE_DUPLICATE_OBJECT),
 				errmsg("host \"%s\" already exists, skipping", NameStr(name))));
-			heap_close(rel, RowExclusiveLock);
+			table_close(rel, RowExclusiveLock);
 			PG_RETURN_BOOL(false);
 		}
 		ereport(ERROR, (errcode(ERRCODE_DUPLICATE_OBJECT)
@@ -289,10 +289,12 @@ Datum mgr_add_host_func(PG_FUNCTION_ARGS)
 	res = mgr_check_address_repeate(address);
 	if (res)
 	{
-		heap_close(rel, RowExclusiveLock);
+		table_close(rel, RowExclusiveLock);
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
 			,errmsg("address \"%s\" is already in host table", address)));
 	}
+	datum[Anum_mgr_host_oid-1] = ObjectIdGetDatum(GetNewOidWithIndex(rel, HostOidIndexId, Anum_mgr_host_oid));
+	isnull[Anum_mgr_host_oid-1] = false;
 	/* ADB DOCTOR BEGIN */
 	datum[Anum_mgr_host_allowcure-1] = BoolGetDatum(true);
 	/* ADB DOCTOR END */
@@ -302,7 +304,7 @@ Datum mgr_add_host_func(PG_FUNCTION_ARGS)
 	heap_freetuple(tuple);
 
 	/* at end, close relation */
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 	PG_RETURN_BOOL(true);
 }
 
@@ -336,7 +338,7 @@ Datum mgr_drop_host_func(PG_FUNCTION_ARGS)
 	context = AllocSetContextCreate(CurrentMemoryContext,
 									"DROP HOST",
 									ALLOCSET_DEFAULT_SIZES);
-	rel = heap_open(HostRelationId, RowExclusiveLock);
+	rel = table_open(HostRelationId, RowExclusiveLock);
 	old_context = MemoryContextSwitchTo(context);
 
 	/* first we need check is it all exists and used by other */
@@ -360,7 +362,7 @@ Datum mgr_drop_host_func(PG_FUNCTION_ARGS)
 					,errmsg("host \"%s\" dose not exist", NameStr(name))));
 		}
 		/*check the tuple has been used or not*/
-		if(mgr_check_host_in_use(HeapTupleGetOid(tuple), false))
+		if(mgr_check_host_in_use(((Form_mgr_host)GETSTRUCT(tuple))->oid, false))
 		{
 			ReleaseSysCache(tuple);
 			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
@@ -385,7 +387,7 @@ Datum mgr_drop_host_func(PG_FUNCTION_ARGS)
 		}
 	}
 
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 	(void)MemoryContextSwitchTo(old_context);
 	MemoryContextDelete(context);
 	PG_RETURN_BOOL(true);
@@ -425,7 +427,7 @@ Datum mgr_alter_host_func(PG_FUNCTION_ARGS)
 	bool got[Natts_mgr_host];
 	Form_mgr_node mgr_node;
 	TupleDesc host_dsc;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	ScanKeyData key[1];
 	List *options = (List *)PG_GETARG_POINTER(2);
 	bool if_not_exists = PG_GETARG_BOOL(0);
@@ -435,7 +437,7 @@ Datum mgr_alter_host_func(PG_FUNCTION_ARGS)
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
-	rel = heap_open(HostRelationId, RowExclusiveLock);
+	rel = table_open(HostRelationId, RowExclusiveLock);
 	host_dsc = RelationGetDescr(rel);
 	namestrcpy(&name, name_str);
 	/* check whether exists */
@@ -444,7 +446,7 @@ Datum mgr_alter_host_func(PG_FUNCTION_ARGS)
 	{
 		if(if_not_exists)
 		{
-			heap_close(rel, RowExclusiveLock);
+			table_close(rel, RowExclusiveLock);
 			PG_RETURN_BOOL(false);
 		}
 
@@ -544,23 +546,23 @@ Datum mgr_alter_host_func(PG_FUNCTION_ARGS)
 	}
 
 	/*check the tuple has been used or not*/
-	if(mgr_check_host_in_use(HeapTupleGetOid(tuple), true))
+	if(mgr_check_host_in_use(((Form_mgr_host)GETSTRUCT(tuple))->oid, true))
 	{
 		if (got[Anum_mgr_host_hostadbhome-1] || got[Anum_mgr_host_hostuser-1]
 			|| got[Anum_mgr_host_hostport-1] || got[Anum_mgr_host_hostproto-1] || got[Anum_mgr_host_hostagentport-1])
 		{
 			ReleaseSysCache(tuple);
-			heap_close(rel, RowExclusiveLock);
+			table_close(rel, RowExclusiveLock);
 			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 					 ,errmsg("\"%s\" has been used, cannot be changed", NameStr(name))));
 		}
-		rel_node = heap_open(NodeRelationId, AccessShareLock);
+		rel_node = table_open(NodeRelationId, AccessShareLock);
 		ScanKeyInit(&key[0]
 			,Anum_mgr_node_nodeincluster
 			,BTEqualStrategyNumber
 			,F_BOOLEQ
 			,BoolGetDatum(true));
-		relScan = heap_beginscan_catalog(rel_node, 1, key);
+		relScan = table_beginscan_catalog(rel_node, 1, key);
 		checktuple = heap_getnext(relScan, ForwardScanDirection);
 		if (HeapTupleIsValid(checktuple))
 		{
@@ -570,14 +572,15 @@ Datum mgr_alter_host_func(PG_FUNCTION_ARGS)
 				ereport(WARNING, (errcode(ERRCODE_OBJECT_IN_USE)
 					 ,errmsg("the cluster has been initialized, after command \"alter host\" to modify address, need using the command \"flush host\" to flush address information of all nodes")));
 		}
-		heap_close(rel_node, AccessShareLock);
+		table_endscan(relScan);
+		table_close(rel_node, AccessShareLock);
 	}
 
 	new_tuple = heap_modify_tuple(tuple, host_dsc, datum,isnull, got);
 	CatalogTupleUpdate(rel, &tuple->t_self, new_tuple);
 	ReleaseSysCache(tuple);
 	/* at end, close relation */
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 	PG_RETURN_BOOL(true);
 }
 
@@ -633,9 +636,9 @@ Datum mgr_deploy_all(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		info = palloc(sizeof(*info));
-		info->rel_host = heap_open(HostRelationId, AccessShareLock);
+		info->rel_host = table_open(HostRelationId, AccessShareLock);
 
-		info->rel_scan = heap_beginscan_catalog(info->rel_host, 0, NULL);
+		info->rel_scan = table_beginscan_catalog(info->rel_host, 0, NULL);
 		info->lcp = NULL;
 
 		funcctx->user_fctx = info;
@@ -650,8 +653,8 @@ Datum mgr_deploy_all(PG_FUNCTION_ARGS)
 	tuple = heap_getnext(info->rel_scan,ForwardScanDirection);
 	if (tuple == NULL)
 	{
-		heap_endscan(info->rel_scan);
-		heap_close(info->rel_host, AccessShareLock);
+		table_endscan(info->rel_scan);
+		table_close(info->rel_host, AccessShareLock);
 		pfree(info);
 		if(tar)
 			fclose((FILE*)tar);
@@ -748,8 +751,8 @@ Datum mgr_deploy_hostnamelist(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 		info = palloc(sizeof(*info));
-		info->rel_host = heap_open(HostRelationId, AccessShareLock);
-		info->rel_scan = heap_beginscan_catalog(info->rel_host, 0, NULL);
+		info->rel_host = table_open(HostRelationId, AccessShareLock);
+		info->rel_scan = table_beginscan_catalog(info->rel_host, 0, NULL);
 		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
 
 		hostname_list = DecodeTextArrayToValueList(PG_GETARG_DATUM(1));
@@ -767,8 +770,8 @@ Datum mgr_deploy_hostnamelist(PG_FUNCTION_ARGS)
 	lcp = info->lcp;
 	if (*lcp == NULL)
 	{
-		heap_endscan(info->rel_scan);
-		heap_close(info->rel_host, AccessShareLock);
+		table_endscan(info->rel_scan);
+		table_close(info->rel_host, AccessShareLock);
 		pfree(info);
 		if(tar)
 			fclose((FILE*)tar);
@@ -785,8 +788,8 @@ Datum mgr_deploy_hostnamelist(PG_FUNCTION_ARGS)
 	if (tuple == NULL)
 	{
 		/* end of row */
-		heap_endscan(info->rel_scan);
-		heap_close(info->rel_host, AccessShareLock);
+		table_endscan(info->rel_scan);
+		table_close(info->rel_host, AccessShareLock);
 		pfree(info);
 		ReleaseSysCache(tuple);
 		SRF_RETURN_DONE(funcctx);
@@ -1179,8 +1182,8 @@ Datum mgr_start_agent_hostnamelist(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 		info = palloc(sizeof(*info));
 		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
-		info->rel_node = heap_open(HostRelationId, AccessShareLock);
-		info->rel_scan = heap_beginscan_catalog(info->rel_node, 0, NULL);
+		info->rel_node = table_open(HostRelationId, AccessShareLock);
+		info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
 
 		datum_hostname_list = PG_GETARG_DATUM(1);
 		listhost = DecodeTextArrayToValueList(datum_hostname_list);
@@ -1197,8 +1200,8 @@ Datum mgr_start_agent_hostnamelist(PG_FUNCTION_ARGS)
 	lcp = info->lcp;
 	if (*lcp == NULL)
 	{
-		heap_endscan(info->rel_scan);
-		heap_close(info->rel_node, AccessShareLock);
+		table_endscan(info->rel_scan);
+		table_close(info->rel_node, AccessShareLock);
 		SRF_RETURN_DONE(funcctx);
 	}
 	hostname = (Value *) lfirst(*lcp);
@@ -1213,7 +1216,7 @@ Datum mgr_start_agent_hostnamelist(PG_FUNCTION_ARGS)
 		Assert(mgr_host);
 		updateAllowcureOfMgrHost(NameStr(mgr_host->hostname), true);
 
-		ma = ma_connect_hostoid(HeapTupleGetOid(tup));
+		ma = ma_connect_hostoid(((Form_mgr_host)GETSTRUCT(tup))->oid);
 		if (ma_isconnected(ma))
 		{
 			appendStringInfoString(&message, "success");
@@ -1312,8 +1315,8 @@ Datum mgr_start_agent_all(PG_FUNCTION_ARGS)
 		info = palloc(sizeof(*info));
 		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
 		listhost = NIL;
-		info->rel_node = heap_open(HostRelationId, AccessShareLock);
-		info->rel_scan = heap_beginscan_catalog(info->rel_node, 0, NULL);
+		info->rel_node = table_open(HostRelationId, AccessShareLock);
+		info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
 		/*get host list*/
 		while ((tup = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 		{
@@ -1332,8 +1335,8 @@ Datum mgr_start_agent_all(PG_FUNCTION_ARGS)
 	lcp = info->lcp;
 	if (*lcp == NULL)
 	{
-		heap_endscan(info->rel_scan);
-		heap_close(info->rel_node, AccessShareLock);
+		table_endscan(info->rel_scan);
+		table_close(info->rel_node, AccessShareLock);
 		SRF_RETURN_DONE(funcctx);
 	}
 	hostname = (char *) lfirst(*lcp);
@@ -1348,7 +1351,7 @@ Datum mgr_start_agent_all(PG_FUNCTION_ARGS)
 		Assert(mgr_host);
 		updateAllowcureOfMgrHost(NameStr(mgr_host->hostname), true);
 
-		ma = ma_connect_hostoid(HeapTupleGetOid(tup));
+		ma = ma_connect_hostoid(((Form_mgr_host)GETSTRUCT(tup))->oid);
 		if (ma_isconnected(ma))
 		{
 			appendStringInfoString(&message, "success");
@@ -1503,8 +1506,8 @@ Datum mgr_stop_agent_all(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		info = palloc(sizeof(*info));
-		info->rel_host = heap_open(HostRelationId, AccessShareLock);
-		info->rel_scan = heap_beginscan_catalog(info->rel_host, 0, NULL);
+		info->rel_host = table_open(HostRelationId, AccessShareLock);
+		info->rel_scan = table_beginscan_catalog(info->rel_host, 0, NULL);
         info->lcp = NULL;
 
 		/* save info */
@@ -1521,8 +1524,8 @@ Datum mgr_stop_agent_all(PG_FUNCTION_ARGS)
 	if(tup == NULL)
 	{
 		/* end of row */
-		heap_endscan(info->rel_scan);
-		heap_close(info->rel_host, AccessShareLock);
+		table_endscan(info->rel_scan);
+		table_close(info->rel_host, AccessShareLock);
 		pfree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
@@ -1532,7 +1535,7 @@ Datum mgr_stop_agent_all(PG_FUNCTION_ARGS)
 	updateAllowcureOfMgrHost(NameStr(mgr_host->hostname), false);
 
 	/* test is running ? */
-	ma = ma_connect_hostoid(HeapTupleGetOid(tup));
+	ma = ma_connect_hostoid(mgr_host->oid);
 	if(!ma_isconnected(ma))
 	{
 		tup_result = build_common_command_tuple(&(mgr_host->hostname), true, _("success"));
@@ -1566,7 +1569,7 @@ Datum mgr_stop_agent_all(PG_FUNCTION_ARGS)
 			{
 				/*sleep 0.2s, wait the agent process to be killed, max try retrymax times*/
 				usleep(200000);
-				ma = ma_connect_hostoid(HeapTupleGetOid(tup));
+				ma = ma_connect_hostoid(mgr_host->oid);
 				if(!ma_isconnected(ma))
 				{
 					getAgentCmdRst.ret = 1;
@@ -1629,7 +1632,7 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 		info = palloc(sizeof(*info));
 		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
 		*(info->lcp) = list_head(hostname_list);
-		info->rel_host = heap_open(HostRelationId, AccessShareLock);
+		info->rel_host = table_open(HostRelationId, AccessShareLock);
 
 		/* save info */
 		funcctx->user_fctx = info;
@@ -1644,7 +1647,7 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 	lcp = info->lcp;
 	if (*lcp == NULL)
 	{
-		heap_close(info->rel_host, AccessShareLock);
+		table_close(info->rel_host, AccessShareLock);
 		pfree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
@@ -1657,8 +1660,8 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 	if(tup == NULL)
 	{
 		/* end of row */
-		heap_endscan(info->rel_scan);
-		heap_close(info->rel_host, AccessShareLock);
+		table_endscan(info->rel_scan);
+		table_close(info->rel_host, AccessShareLock);
 		pfree(info);
 		ReleaseSysCache(tup);
 		SRF_RETURN_DONE(funcctx);
@@ -1668,7 +1671,7 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 	Assert(mgr_host);
 	updateAllowcureOfMgrHost(NameStr(mgr_host->hostname), false);
 	/* test is running ? */
-	ma = ma_connect_hostoid(HeapTupleGetOid(tup));
+	ma = ma_connect_hostoid(mgr_host->oid);
 	if(!ma_isconnected(ma))
 	{
 		tup_result = build_common_command_tuple(&(mgr_host->hostname), true, _("success"));
@@ -1705,7 +1708,7 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 			{
 				/*sleep 0.2s, wait the agent process to be killed, max try retrymax times*/
 				usleep(200000);
-				ma = ma_connect_hostoid(HeapTupleGetOid(tup));
+				ma = ma_connect_hostoid(mgr_host->oid);
 				if(!ma_isconnected(ma))
 				{
 					getAgentCmdRst.ret = 1;
@@ -1755,9 +1758,9 @@ Datum mgr_monitor_agent_all(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		info = palloc(sizeof(*info));
-		info->rel_host = heap_open(HostRelationId, AccessShareLock);
+		info->rel_host = table_open(HostRelationId, AccessShareLock);
 
-		info->rel_scan = heap_beginscan_catalog(info->rel_host, 0, NULL);
+		info->rel_scan = table_beginscan_catalog(info->rel_host, 0, NULL);
 		info->lcp = NULL;
 
 		funcctx->user_fctx = info;
@@ -1773,8 +1776,8 @@ Datum mgr_monitor_agent_all(PG_FUNCTION_ARGS)
 	tup = heap_getnext(info->rel_scan,ForwardScanDirection);
 	if (tup == NULL)
 	{
-		heap_endscan(info->rel_scan);
-		heap_close(info->rel_host, AccessShareLock);
+		table_endscan(info->rel_scan);
+		table_close(info->rel_host, AccessShareLock);
 		pfree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
@@ -1786,7 +1789,7 @@ Datum mgr_monitor_agent_all(PG_FUNCTION_ARGS)
 	resetStringInfo(&buf);
 
 	/* test is running ? */
-	ma = ma_connect_hostoid(HeapTupleGetOid(tup));
+	ma = ma_connect_hostoid(mgr_host->oid);
 	if(ma_isconnected(ma))
 	{
 		success = true;
@@ -1834,7 +1837,7 @@ Datum mgr_monitor_agent_hostlist(PG_FUNCTION_ARGS)
 		info = palloc(sizeof(*info));
 		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
 		*(info->lcp) = list_head(hostname_list);
-		info->rel_host = heap_open(HostRelationId, AccessShareLock);
+		info->rel_host = table_open(HostRelationId, AccessShareLock);
 
 		funcctx->user_fctx = info;
 		MemoryContextSwitchTo(oldcontext);
@@ -1848,7 +1851,7 @@ Datum mgr_monitor_agent_hostlist(PG_FUNCTION_ARGS)
 	lcp = info->lcp;
 	if (*lcp == NULL)
 	{
-		heap_close(info->rel_host, AccessShareLock);
+		table_close(info->rel_host, AccessShareLock);
 		pfree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
@@ -1863,7 +1866,7 @@ Datum mgr_monitor_agent_hostlist(PG_FUNCTION_ARGS)
 	if (HeapTupleIsValid(tup))
 	{
 		/* test is running ? */
-		ma = ma_connect_hostoid(HeapTupleGetOid(tup));
+		ma = ma_connect_hostoid(((Form_mgr_host)GETSTRUCT(tup))->oid);
 		if(ma_isconnected(ma))
 		{
 			success = true;
@@ -1896,9 +1899,9 @@ static void check_host_name_isvaild(List *host_name_list)
 	TupleDesc host_desc;
 
 	info = palloc(sizeof(*info));
-	info->rel_node = heap_open(HostRelationId, AccessShareLock);
+	info->rel_node = table_open(HostRelationId, AccessShareLock);
 	host_desc = CreateTupleDescCopy(RelationGetDescr(info->rel_node));
-	heap_close(info->rel_node, AccessShareLock);
+	table_close(info->rel_node, AccessShareLock);
 
 	foreach(lc, host_name_list)
 	{
@@ -1925,14 +1928,14 @@ static void check_host_name_isvaild(List *host_name_list)
 bool mgr_check_cluster_stop(Name nodename, Name nodetypestr)
 {
 	Relation rel;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	HeapTuple tuple;
 	Form_mgr_node mgr_node;
 	char *ip_addr;
 	int port;
 	/*check all node stop*/
-	rel = heap_open(NodeRelationId, AccessShareLock);
-	rel_scan = heap_beginscan_catalog(rel, 0, NULL);
+	rel = table_open(NodeRelationId, AccessShareLock);
+	rel_scan = table_beginscan_catalog(rel, 0, NULL);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection))!= NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1946,8 +1949,8 @@ bool mgr_check_cluster_stop(Name nodename, Name nodetypestr)
 			return false;
 		}
 	}
-	heap_endscan(rel_scan);
-	heap_close(rel, AccessShareLock);
+	table_endscan(rel_scan);
+	table_close(rel, AccessShareLock);
 	return true;
 }
 bool get_node_type_str(int node_type, Name node_type_str)
@@ -2020,15 +2023,15 @@ static bool mgr_check_address_repeate(char *address)
 	Form_mgr_host mgr_host;
 	Datum addressDatum;
 	Relation relHost;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	bool isNull = false;
 	bool rest = false;
 	char *addr;
 
 	Assert(address);
 
-	relHost = heap_open(HostRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(relHost, 0, NULL);
+	relHost = table_open(HostRelationId, AccessShareLock);
+	relScan = table_beginscan_catalog(relHost, 0, NULL);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_host = (Form_mgr_host)GETSTRUCT(tuple);
@@ -2048,8 +2051,8 @@ static bool mgr_check_address_repeate(char *address)
 		}
 
 	}
-	heap_endscan(relScan);
-	heap_close(relHost, AccessShareLock);
+	table_endscan(relScan);
+	table_close(relHost, AccessShareLock);
 
 	return rest;
 }
@@ -2057,7 +2060,7 @@ static bool mgr_check_address_repeate(char *address)
 static bool mgr_check_can_deploy(char *hostname)
 {
 	Relation rel;
-	HeapScanDesc scan;
+	TableScanDesc scan;
 	Datum host_addr;
 	HeapTuple tuple;
 	Form_mgr_host mgr_host;
@@ -2073,8 +2076,8 @@ static bool mgr_check_can_deploy(char *hostname)
 	Oid hostOid;
 
 	Assert(hostname);
-	rel = heap_open(HostRelationId, AccessShareLock);
-	scan = heap_beginscan_catalog(rel, 0, NULL);
+	rel = table_open(HostRelationId, AccessShareLock);
+	scan = table_beginscan_catalog(rel, 0, NULL);
 	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_host= (Form_mgr_host)GETSTRUCT(tuple);
@@ -2084,8 +2087,8 @@ static bool mgr_check_can_deploy(char *hostname)
 
 		if(isNull)
 		{
-			heap_endscan(scan);
-			heap_close(rel, AccessShareLock);
+			table_endscan(scan);
+			table_close(rel, AccessShareLock);
 			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
 				, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
 				, errmsg("column hostaddr is null")));
@@ -2093,15 +2096,15 @@ static bool mgr_check_can_deploy(char *hostname)
 		if (strcasecmp(NameStr(mgr_host->hostname), hostname) == 0)
 		{
 			bget = true;
-			hostOid = HeapTupleGetOid(tuple);
+			hostOid = ((Form_mgr_host)GETSTRUCT(tuple))->oid;
 			agentPort = mgr_host->hostagentport;
 			address = pstrdup(TextDatumGetCString(host_addr));
 			Assert(address);
 			break;
 		}
 	}
-	heap_endscan(scan);
-	heap_close(rel, AccessShareLock);
+	table_endscan(scan);
+	table_close(rel, AccessShareLock);
 
 	/*check agent*/
 	if (!bget)
@@ -2122,8 +2125,8 @@ static bool mgr_check_can_deploy(char *hostname)
 		,BTEqualStrategyNumber
 		,F_OIDEQ
 		,ObjectIdGetDatum(hostOid));
-	rel = heap_open(NodeRelationId, AccessShareLock);
-	scan = heap_beginscan_catalog(rel, 1, key);
+	rel = table_open(NodeRelationId, AccessShareLock);
+	scan = table_beginscan_catalog(rel, 1, key);
 	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node= (Form_mgr_node)GETSTRUCT(tuple);
@@ -2142,8 +2145,8 @@ static bool mgr_check_can_deploy(char *hostname)
 	}
 
 	pfree(address);
-	heap_endscan(scan);
-	heap_close(rel, AccessShareLock);
+	table_endscan(scan);
+	table_close(rel, AccessShareLock);
 
 	return rest;
 }

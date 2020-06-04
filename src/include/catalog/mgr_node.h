@@ -7,6 +7,8 @@
 
 CATALOG(mgr_node,4813,NodeRelationId)
 {
+	Oid			oid;			/* oid */
+
 	/* node name */
 	NameData	nodename;
 

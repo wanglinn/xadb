@@ -17,8 +17,10 @@
 #include "postgres.h"
 #include "miscadmin.h"
 
+#include "access/genam.h"
 #include "access/htup.h"
 #include "access/htup_details.h"
+#include "access/table.h"
 #include "access/xact.h"
 #include "utils/inval.h"
 #include "catalog/indexing.h"
@@ -144,13 +146,13 @@ BuildNodeHandleCacheHash(void)
 									 	  &ctl, HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
 	}
 
-	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
+	rel = table_open(PgxcNodeRelationId, AccessShareLock);
 	scan = systable_beginscan(rel, PgxcNodeOidIndexId, true,
 							  NULL, 0, NULL);
 	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
 		(void) MakeNodeHandleEntryByTuple(tuple);
 	systable_endscan(scan);
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 
 	Assert(OidIsValid(SelfNodeID));
 }
@@ -280,22 +282,20 @@ MakeNodeHandleEntryByTuple(HeapTuple htup)
 {
 	Form_pgxc_node	tuple;
 	NodeType		node_type;
-	Oid				node_id;
 	NodeHandle	   *handle;
 
 	if (!htup)
 		return NULL;
 
-	node_id = HeapTupleGetOid(htup);
+	tuple = (Form_pgxc_node) GETSTRUCT(htup);
 	handle = (NodeHandle *) hash_search(NodeHandleCacheHash,
-										(const void *) &node_id,
+										(const void *) &tuple->oid,
 										HASH_FIND,
 										NULL);
 	/* return if handle exists and is valid */
 	if (handle && handle->isvalid)
 		return handle;
 
-	tuple = (Form_pgxc_node) GETSTRUCT(htup);
 	switch (tuple->node_type)
 	{
 		case PGXC_NODE_COORDINATOR:
@@ -312,7 +312,7 @@ MakeNodeHandleEntryByTuple(HeapTuple htup)
 			break;
 	}
 
-	return MakeNodeHandleEntry(node_id,
+	return MakeNodeHandleEntry(tuple->oid,
 							   &(tuple->node_name),
 							   node_type,
 							   tuple->nodeis_primary,

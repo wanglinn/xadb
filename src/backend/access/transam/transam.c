@@ -3,7 +3,7 @@
  * transam.c
  *	  postgres transaction (commit) log interface routines
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -30,7 +30,6 @@
 #include "replication/snapreceiver.h"
 #include "storage/proc.h"
 #include "utils/timestamp.h"
-#include "utils/tqual.h"
 #include <time.h>
 #endif /* ADB */
 #if defined(ADB) || defined(ADB_MULTI_GRAM)
@@ -293,8 +292,8 @@ TransactionIdDidAbort(TransactionId transactionId)
  * (and so it's not named TransactionIdDidComplete, which would be the
  * appropriate name for a function that worked that way).  The intended
  * use is just to short-circuit TransactionIdIsInProgress calls when doing
- * repeated tqual.c checks for the same XID.  If this isn't extremely fast
- * then it will be counterproductive.
+ * repeated heapam_visibility.c checks for the same XID.  If this isn't
+ * extremely fast then it will be counterproductive.
  *
  * Note:
  *		Assumes transaction identifier is valid.

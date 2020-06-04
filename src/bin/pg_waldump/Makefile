@@ -76,4 +76,11 @@ ifeq ($(enable_cluster),yes)
 endif
 
 clean distclean maintainer-clean:
-	rm -f pg_waldump$(X) $(PG_OBJS) $(RMGRDESCSOURCES) xlogreader.c adb_waldump$(X) $(ADB_OBJS)
+	rm -f pg_waldump$(X) $(OBJS) $(RMGRDESCSOURCES) xlogreader.c adb_waldump$(X) $(ADB_OBJS)
+	rm -rf tmp_check
+
+check:
+	$(prove_check)
+
+installcheck:
+	$(prove_installcheck)

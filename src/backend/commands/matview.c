@@ -3,7 +3,7 @@
  * matview.c
  *	  materialized view support
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -14,8 +14,11 @@
  */
 #include "postgres.h"
 
+#include "access/genam.h"
+#include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/multixact.h"
+#include "access/tableam.h"
 #include "access/xact.h"
 #include "access/xlog.h"
 #include "catalog/catalog.h"
@@ -63,7 +66,6 @@
 #include "pgxc/execRemote.h"
 #include "pgxc/remotecopy.h"
 #include "pgxc/copyops.h"
-#include "utils/tqual.h"
 #include "catalog/pg_type.h"
 #include "funcapi.h"
 
@@ -78,7 +80,7 @@ typedef struct
 	/* These fields are filled by transientrel_startup: */
 	Relation	transientrel;	/* relation to write to */
 	CommandId	output_cid;		/* cmin to insert in output tuples */
-	int			hi_options;		/* heap_insert performance options */
+	int			ti_options;		/* table_tuple_insert performance options */
 	BulkInsertState bistate;	/* bulk insert state */
 } DR_transientrel;
 
@@ -89,10 +91,10 @@ static bool transientrel_receive(TupleTableSlot *slot, DestReceiver *self);
 static void transientrel_shutdown(DestReceiver *self);
 static void transientrel_destroy(DestReceiver *self);
 static uint64 refresh_matview_datafill(DestReceiver *dest, Query *query,
-						 const char *queryString);
+									   const char *queryString);
 static char *make_temptable_name_n(char *tempname, int n);
 static void refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
-					   int save_sec_context ADB_ONLY_COMMA_ARG(Tuplestorestate *tstore));
+								   int save_sec_context ADB_ONLY_COMMA_ARG(Tuplestorestate *tstore));
 static void refresh_by_heap_swap(Oid matviewOid, Oid OIDNewHeap, char relpersistence);
 static bool is_usable_unique_index(Relation indexRel);
 static void OpenMatViewIncrementalMaintenance(void);
@@ -124,7 +126,7 @@ SetMatViewPopulatedState(Relation relation, bool newstate)
 	 * (and this one too!) are sent SI message to make them rebuild relcache
 	 * entries.
 	 */
-	pgrel = heap_open(RelationRelationId, RowExclusiveLock);
+	pgrel = table_open(RelationRelationId, RowExclusiveLock);
 	tuple = SearchSysCacheCopy1(RELOID,
 								ObjectIdGetDatum(RelationGetRelid(relation)));
 	if (!HeapTupleIsValid(tuple))
@@ -136,7 +138,7 @@ SetMatViewPopulatedState(Relation relation, bool newstate)
 	CatalogTupleUpdate(pgrel, &tuple->t_self, tuple);
 
 	heap_freetuple(tuple);
-	heap_close(pgrel, RowExclusiveLock);
+	table_close(pgrel, RowExclusiveLock);
 
 	/*
 	 * Advance command counter to make the updated pg_class row locally
@@ -262,7 +264,7 @@ ExecRefreshMatView_adb(RefreshMatViewStmt *stmt, const char *queryString,
 	matviewOid = RangeVarGetRelidExtended(stmt->relation,
 										  lockmode, 0,
 										  RangeVarCallbackOwnsTable, NULL);
-	matviewRel = heap_open(matviewOid, NoLock);
+	matviewRel = table_open(matviewOid, NoLock);
 
 	/* Make sure it is a materialized view. */
 	if (matviewRel->rd_rel->relkind != RELKIND_MATVIEW)
@@ -282,9 +284,6 @@ ExecRefreshMatView_adb(RefreshMatViewStmt *stmt, const char *queryString,
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("CONCURRENTLY and WITH NO DATA options cannot be used together")));
-
-	/* We don't allow an oid column for a materialized view. */
-	Assert(!matviewRel->rd_rel->relhasoids);
 
 	/*
 	 * Check that everything is correct for a refresh. Problems at this point
@@ -357,7 +356,7 @@ ExecRefreshMatView_adb(RefreshMatViewStmt *stmt, const char *queryString,
 	 * as open scans.
 	 *
 	 * NB: We count on this to protect us against problems with refreshing the
-	 * data using HEAP_INSERT_FROZEN.
+	 * data using TABLE_INSERT_FROZEN.
 	 */
 	CheckTableNotInUse(matviewRel, "REFRESH MATERIALIZED VIEW");
 
@@ -423,7 +422,7 @@ ExecRefreshMatView_adb(RefreshMatViewStmt *stmt, const char *queryString,
 #endif /* ADB */
 	if (concurrent)
 	{
-		tableSpace = GetDefaultTablespace(RELPERSISTENCE_TEMP);
+		tableSpace = GetDefaultTablespace(RELPERSISTENCE_TEMP, false);
 		relpersistence = RELPERSISTENCE_TEMP;
 	}
 	else
@@ -504,7 +503,7 @@ ExecRefreshMatView_adb(RefreshMatViewStmt *stmt, const char *queryString,
 			pgstat_count_heap_insert(matviewRel, processed);
 	}
 
-	heap_close(matviewRel, NoLock);
+	table_close(matviewRel, NoLock);
 
 	/* Roll back any GUC changes */
 	AtEOXact_GUC(false, save_nestlevel);
@@ -576,7 +575,7 @@ refresh_matview_datafill(DestReceiver *dest, Query *query,
 								dest, NULL, NULL, 0);
 
 	/* call ExecutorStart to prepare the plan for execution */
-	ExecutorStart(queryDesc, EXEC_FLAG_WITHOUT_OIDS);
+	ExecutorStart(queryDesc, 0);
 
 	/* run the plan */
 	ExecutorRun(queryDesc, ForwardScanDirection, 0L, true);
@@ -618,7 +617,7 @@ transientrel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	DR_transientrel *myState = (DR_transientrel *) self;
 	Relation	transientrel;
 
-	transientrel = heap_open(myState->transientoid, NoLock);
+	transientrel = table_open(myState->transientoid, NoLock);
 
 	/*
 	 * Fill private fields of myState for use by later routines
@@ -630,9 +629,9 @@ transientrel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	 * We can skip WAL-logging the insertions, unless PITR or streaming
 	 * replication is in use. We can skip the FSM in any case.
 	 */
-	myState->hi_options = HEAP_INSERT_SKIP_FSM | HEAP_INSERT_FROZEN;
+	myState->ti_options = TABLE_INSERT_SKIP_FSM | TABLE_INSERT_FROZEN;
 	if (!XLogIsNeeded())
-		myState->hi_options |= HEAP_INSERT_SKIP_WAL;
+		myState->ti_options |= TABLE_INSERT_SKIP_WAL;
 	myState->bistate = GetBulkInsertState();
 
 	/* Not using WAL requires smgr_targblock be initially invalid */
@@ -646,19 +645,21 @@ static bool
 transientrel_receive(TupleTableSlot *slot, DestReceiver *self)
 {
 	DR_transientrel *myState = (DR_transientrel *) self;
-	HeapTuple	tuple;
 
 	/*
-	 * get the heap tuple out of the tuple table slot, making sure we have a
-	 * writable copy
+	 * Note that the input slot might not be of the type of the target
+	 * relation. That's supported by table_tuple_insert(), but slightly less
+	 * efficient than inserting with the right slot - but the alternative
+	 * would be to copy into a slot of the right type, which would not be
+	 * cheap either. This also doesn't allow accessing per-AM data (say a
+	 * tuple's xmin), but since we don't do that here...
 	 */
-	tuple = ExecMaterializeSlot(slot);
 
-	heap_insert(myState->transientrel,
-				tuple,
-				myState->output_cid,
-				myState->hi_options,
-				myState->bistate);
+	table_tuple_insert(myState->transientrel,
+					   slot,
+					   myState->output_cid,
+					   myState->ti_options,
+					   myState->bistate);
 
 	/* We know this is a newly created relation, so there are no indexes */
 
@@ -675,12 +676,10 @@ transientrel_shutdown(DestReceiver *self)
 
 	FreeBulkInsertState(myState->bistate);
 
-	/* If we skipped using WAL, must heap_sync before commit */
-	if (myState->hi_options & HEAP_INSERT_SKIP_WAL)
-		heap_sync(myState->transientrel);
+	table_finish_bulk_insert(myState->transientrel, myState->ti_options);
 
 	/* close transientrel, but keep lock until commit */
-	heap_close(myState->transientrel, NoLock);
+	table_close(myState->transientrel, NoLock);
 	myState->transientrel = NULL;
 }
 
@@ -769,7 +768,7 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 	Oid		   *opUsedForQual;
 
 	initStringInfo(&querybuf);
-	matviewRel = heap_open(matviewOid, NoLock);
+	matviewRel = table_open(matviewOid, NoLock);
 	matviewname = quote_qualified_identifier(get_namespace_name(RelationGetNamespace(matviewRel)),
 											 RelationGetRelationName(matviewRel));
 #ifdef ADB
@@ -781,7 +780,7 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 	}else
 	{
 #endif /* ADB */
-	tempRel = heap_open(tempOid, NoLock);
+	tempRel = table_open(tempOid, NoLock);
 	tempname = quote_qualified_identifier(get_namespace_name(RelationGetNamespace(tempRel)),
 										  RelationGetRelationName(tempRel));
 #ifdef ADB
@@ -1018,7 +1017,7 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 		if ( SPI_exec(querybuf.data, 0) != SPI_OK_SELECT)
 			elog(ERROR, "SPI_exec failed: %s", querybuf.data);
 
-		difftbldesc = CreateTemplateTupleDesc(2, false);
+		difftbldesc = CreateTemplateTupleDesc(2);
 		TupleDescInitEntry(difftbldesc, (AttrNumber) 1, "tid",
 						   TIDOID, -1, 0);
 		TupleDescInitEntry(difftbldesc, (AttrNumber) 2, "newdata",
@@ -1128,8 +1127,8 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 #ifdef ADB
 	if (tempRel != NULL)
 #endif /* ADB */
-	heap_close(tempRel, NoLock);
-	heap_close(matviewRel, NoLock);
+	table_close(tempRel, NoLock);
+	table_close(matviewRel, NoLock);
 
 	/* Clean up temp tables. */
 	resetStringInfo(&querybuf);
@@ -1190,7 +1189,7 @@ is_usable_unique_index(Relation indexRel)
 	if (indexStruct->indisunique &&
 		indexStruct->indimmediate &&
 		indexRel->rd_rel->relam == BTREE_AM_OID &&
-		IndexIsValid(indexStruct) &&
+		indexStruct->indisvalid &&
 		RelationGetIndexPredicate(indexRel) == NIL &&
 		indexStruct->indnatts > 0)
 	{
@@ -1305,15 +1304,14 @@ static void adb_send_copy_end(List *connList)
 static void adb_send_relation_data(List *connList, Oid reloid, LOCKMODE lockmode)
 {
 	Relation			rel = heap_open(reloid, lockmode);
-	HeapScanDesc		scandesc = heap_beginscan(rel, GetActiveSnapshot(), 0, NULL);
+	TableScanDesc		scandesc = table_beginscan(rel, GetActiveSnapshot(), 0, NULL);
 	TupleTypeConvert   *convert = create_type_convert(RelationGetDescr(rel), true, false);
-	TupleTableSlot	   *base_slot = MakeSingleTupleTableSlot(RelationGetDescr(rel));
+	TupleTableSlot	   *base_slot = table_slot_create(rel, NULL);
 	MemoryContext		context = AllocSetContextCreate(CurrentMemoryContext,
 														"SEND RELATION",
 														ALLOCSET_DEFAULT_SIZES);
 	MemoryContext		oldcontext;
 	TupleTableSlot	   *out_slot;
-	HeapTuple			tuple;
 	StringInfoData		buf;
 	char				msg_type;
 
@@ -1322,7 +1320,7 @@ static void adb_send_relation_data(List *connList, Oid reloid, LOCKMODE lockmode
 	send_copy_data(connList, buf.data, buf.len);
 	if (convert)
 	{
-		out_slot = MakeSingleTupleTableSlot(convert->out_desc);
+		out_slot = MakeSingleTupleTableSlot(convert->out_desc, &TTSOpsVirtual);
 		msg_type = CLUSTER_MSG_CONVERT_TUPLE;
 		resetStringInfo(&buf);
 		serialize_slot_convert_head(&buf, convert->out_desc);
@@ -1334,9 +1332,8 @@ static void adb_send_relation_data(List *connList, Oid reloid, LOCKMODE lockmode
 	}
 
 	oldcontext = MemoryContextSwitchTo(context);
-	while ((tuple = heap_getnext(scandesc, ForwardScanDirection)) != NULL)
+	while (table_scan_getnextslot(scandesc, ForwardScanDirection, base_slot))
 	{
-		ExecStoreTuple(tuple, base_slot, InvalidBuffer, false);
 		if (convert)
 			do_type_convert_slot_out(convert, base_slot, out_slot, false);
 
@@ -1352,8 +1349,8 @@ static void adb_send_relation_data(List *connList, Oid reloid, LOCKMODE lockmode
 	if (out_slot != base_slot)
 		ExecDropSingleTupleTableSlot(out_slot);
 	ExecDropSingleTupleTableSlot(base_slot);
-	heap_endscan(scandesc);
-	heap_close(rel, NoLock);
+	table_endscan(scandesc);
+	table_close(rel, NoLock);
 	MemoryContextSwitchTo(oldcontext);
 	MemoryContextDelete(context);
 }
@@ -1421,7 +1418,7 @@ readmessage:
 static uint64 adb_recv_relation_data(DestReceiver *self, TupleDesc desc, int operator)
 {
 	TupleTypeConvert   *convert = create_type_convert(desc, false, true);
-	TupleTableSlot	   *base_slot = MakeSingleTupleTableSlot(desc);
+	TupleTableSlot	   *base_slot = MakeSingleTupleTableSlot(desc, convert ? &TTSOpsVirtual : &TTSOpsMinimalTuple);
 	MemoryContext		context = AllocSetContextCreate(CurrentMemoryContext,
 														"RECV RELATION",
 														ALLOCSET_DEFAULT_SIZES);
@@ -1442,7 +1439,7 @@ static uint64 adb_recv_relation_data(DestReceiver *self, TupleDesc desc, int ope
 
 	if (convert)
 	{
-		in_slot = MakeSingleTupleTableSlot(convert->out_desc);
+		in_slot = MakeSingleTupleTableSlot(convert->out_desc, &TTSOpsMinimalTuple);
 		msg_type = CLUSTER_MSG_CONVERT_TUPLE;
 		if (recv_copy_data(&buf, CLUSTER_MSG_CONVERT_DESC) == false)
 		{
@@ -1503,10 +1500,7 @@ pgxc_fill_matview_by_copy(DestReceiver *mv_dest, bool skipdata, int operation,
 {
 	CopyState	cstate;
 	Relation	mv_rel = NULL;
-	TupleDesc	tupDesc;
-	Datum		*values;
-	bool		*isnulls;
-	TupleTableSlot	*slot = MakeTupleTableSlot(NULL);
+	TupleTableSlot	*slot = MakeTupleTableSlot(NULL, &TTSOpsVirtual);
 
 	Assert(IsCnCandidate());
 
@@ -1532,10 +1526,7 @@ pgxc_fill_matview_by_copy(DestReceiver *mv_dest, bool skipdata, int operation,
 			mv_rel = get_dest_into_rel(mv_dest);
 
 		AssertArg(mv_rel);
-		tupDesc = RelationGetDescr(mv_rel);
-		values = (Datum *) palloc0(sizeof(Datum) * tupDesc->natts);
-		isnulls = (bool *) palloc0(sizeof(bool) * tupDesc->natts);
-		ExecSetSlotDescriptor(slot, tupDesc);
+		ExecSetSlotDescriptor(slot, RelationGetDescr(mv_rel));
 		/*
 		 * Prepare structures to start receiving the data sent by the other
 		 * coordinator through COPY protocol.
@@ -1544,25 +1535,21 @@ pgxc_fill_matview_by_copy(DestReceiver *mv_dest, bool skipdata, int operation,
 		/* Read the rows one by one and insert into the materialized view */
 		for(;;)
 		{
-			Oid				tupleOid; /* Temporary variable passed to NextCopyFrom() */
-			HeapTuple		tuple;
 			ExecClearTuple(slot);
 			/*
 			 * Pull next row. The expression context is not used here, since there
 			 * are no default expressions expected. Tuple OID too is not expected
 			 * for materialized view.
 			 */
-			if (!NextCopyFrom(cstate, NULL, values, isnulls, &tupleOid))
+			if (!NextCopyFrom(cstate, NULL, slot->tts_values, slot->tts_isnull))
 				break;
 
 			/* Create the tuple and slot out of the values read */
-			tuple = heap_form_tuple(tupDesc, values, isnulls);
-			ExecStoreTuple(tuple, slot, 0, false);
+			ExecStoreVirtualTuple(slot);
 
 			/* Insert the row in the materialized view */
 			mv_dest->receiveSlot(slot, mv_dest);
 		}
-		ReleaseTupleDesc(tupDesc);
 		EndCopyFrom(cstate);
 	}
 
@@ -1587,10 +1574,8 @@ pgxc_send_matview_data(RangeVar *matview_rv, const char *query_string)
 	Relation		matviewRel;
 	RemoteCopyState*copyState;
 	TupleDesc 		tupdesc;
-	HeapScanDesc 	scandesc;
-	HeapTuple		tuple;
-	Datum		   *values;
-	bool		   *nulls;
+	TableScanDesc	scandesc;
+	TupleTableSlot *slot;
 	StringInfoData	line_buf;
 
 	/*
@@ -1623,29 +1608,27 @@ pgxc_send_matview_data(RangeVar *matview_rv, const char *query_string)
 	matviewOid = RangeVarGetRelidExtended(matview_rv,
 										  AccessShareLock, 0,
 										  RangeVarCallbackOwnsTable, NULL);
-	matviewRel = heap_open(matviewOid, NoLock);
+	matviewRel = table_open(matviewOid, NoLock);
 	tupdesc = RelationGetDescr(matviewRel);
-	values = (Datum *) palloc(tupdesc->natts * sizeof(Datum));
-	nulls = (bool *) palloc(tupdesc->natts * sizeof(bool));
+	slot = table_slot_create(matviewRel, NULL);
 
 	initStringInfo(&line_buf);
-	scandesc = heap_beginscan(matviewRel, SnapshotAny, 0, NULL);
+	scandesc = table_beginscan(matviewRel, SnapshotAny, 0, NULL);
 	/* Send each tuple to the other coordinators in COPY format */
-	while ((tuple = heap_getnext(scandesc, ForwardScanDirection)) != NULL)
+	while (table_scan_getnextslot(scandesc, ForwardScanDirection, slot))
 	{
 		CHECK_FOR_INTERRUPTS();
-		/* Deconstruct the tuple to get the values for the attributes */
-		heap_deform_tuple(tuple, tupdesc, values, nulls);
+		/* Deconstruct to get the values for the attributes */
+		slot_getallattrs(slot);
 
 		/* Format and send the data */
-		CopyOps_BuildOneRowTo(tupdesc, values, nulls, &line_buf);
+		CopyOps_BuildOneRowTo(tupdesc, slot->tts_values, slot->tts_isnull, &line_buf);
 
 		DoRemoteCopyFrom(copyState, &line_buf, copyState->exec_nodes->nodeids);
 	}
-	heap_endscan(scandesc);
+	table_endscan(scandesc);
+	ExecDropSingleTupleTableSlot(slot);
 	pfree(line_buf.data);
-	pfree(values);
-	pfree(nulls);
 
 	/*
 	 * Finish the redistribution process. There is no primary node for
@@ -1654,7 +1637,7 @@ pgxc_send_matview_data(RangeVar *matview_rv, const char *query_string)
 	EndRemoteCopy(copyState);
 
 	/* Lock is maintained until transaction commits */
-	relation_close(matviewRel, NoLock);
+	table_close(matviewRel, NoLock);
 	return;
 }
 #endif /* ADB */

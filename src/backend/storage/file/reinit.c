@@ -3,7 +3,7 @@
  * reinit.c
  *	  Reinitialization of unlogged relations
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -27,9 +27,9 @@
 #endif
 
 static void ResetUnloggedRelationsInTablespaceDir(const char *tsdirname,
-									  int op);
+												  int op);
 static void ResetUnloggedRelationsInDbspaceDir(const char *dbspacedirname,
-								   int op);
+											   int op);
 
 typedef struct
 {

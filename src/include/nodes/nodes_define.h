@@ -101,6 +101,7 @@
  *   TIDBitmap
  *   FdwRoutine
  *   IndexAmRoutine
+ *   TableAmRoutine
  *   TsmRoutine
  *   ForeignKeyCacheInfo
  *   RelationData
@@ -238,7 +239,7 @@ BEGIN_NODE(ModifyTable)
 	NODE_ENUM(CmdType,operation)
 	NODE_SCALAR(bool,canSetTag)
 	NODE_SCALAR(Index,nominalRelation)
-	NODE_NODE(List,partitioned_rels)
+	NODE_SCALAR(Index,rootRelation)
 	NODE_SCALAR(bool,partColsUpdated)
 	NODE_NODE(List,resultRelations)
 	NODE_SCALAR(int,resultRelIndex)
@@ -270,21 +271,20 @@ BEGIN_NODE(Append)
 	NODE_BASE2(Plan,plan)
 	NODE_NODE(List,appendplans)
 	NODE_SCALAR(int,first_partial_plan)
-	NODE_NODE(List,partitioned_rels)
-	NODE_NODE(List,part_prune_infos)
+	NODE_NODE(PartitionPruneInfo,part_prune_info)
 END_NODE(Append)
 #endif /* NO_NODE_Append */
 
 #ifndef NO_NODE_MergeAppend
 BEGIN_NODE(MergeAppend)
 	NODE_BASE2(Plan,plan)
-	NODE_NODE(List,partitioned_rels)
 	NODE_NODE(List,mergeplans)
 	NODE_SCALAR(int,numCols)
 	NODE_SCALAR_POINT(AttrNumber,sortColIdx,NODE_ARG_->numCols)
 	NODE_SCALAR_POINT(Oid,sortOperators,NODE_ARG_->numCols)
 	NODE_SCALAR_POINT(Oid,collations,NODE_ARG_->numCols)
 	NODE_SCALAR_POINT(bool,nullsFirst,NODE_ARG_->numCols)
+	NODE_NODE(PartitionPruneInfo,part_prune_info)
 END_NODE(MergeAppend)
 #endif /* NO_NODE_MergeAppend */
 
@@ -295,6 +295,7 @@ BEGIN_NODE(RecursiveUnion)
 	NODE_SCALAR(int,numCols)
 	NODE_SCALAR_POINT(AttrNumber,dupColIdx,NODE_ARG_->numCols)
 	NODE_SCALAR_POINT(Oid,dupOperators,NODE_ARG_->numCols)
+	NODE_SCALAR_POINT(Oid,dupCollations,NODE_ARG_->numCols)
 	NODE_SCALAR(long,numGroups)
 END_NODE(RecursiveUnion)
 #endif /* NO_NODE_RecursiveUnion */
@@ -512,6 +513,7 @@ BEGIN_NODE(Group)
 	NODE_SCALAR(int,numCols)
 	NODE_SCALAR_POINT(AttrNumber,grpColIdx,NODE_ARG_->numCols)
 	NODE_SCALAR_POINT(Oid,grpOperators,NODE_ARG_->numCols)
+	NODE_SCALAR_POINT(Oid,grpCollations,NODE_ARG_->numCols)
 END_NODE(Group)
 #endif /* NO_NODE_Group */
 
@@ -523,6 +525,7 @@ BEGIN_NODE(Agg)
 	NODE_SCALAR(int,numCols)
 	NODE_SCALAR_POINT(AttrNumber,grpColIdx,NODE_ARG_->numCols)
 	NODE_SCALAR_POINT(Oid,grpOperators,NODE_ARG_->numCols)
+	NODE_SCALAR_POINT(Oid,grpCollations,NODE_ARG_->numCols)
 	NODE_SCALAR(long,numGroups)
 	NODE_BITMAPSET(Bitmapset,aggParams)
 	NODE_NODE(List,groupingSets)
@@ -544,9 +547,11 @@ BEGIN_NODE(WindowAgg)
 	NODE_SCALAR(int,partNumCols)
 	NODE_SCALAR_POINT(AttrNumber,partColIdx,NODE_ARG_->partNumCols)
 	NODE_SCALAR_POINT(Oid,partOperators,NODE_ARG_->partNumCols)
+	NODE_SCALAR_POINT(Oid,partCollations,NODE_ARG_->partNumCols)
 	NODE_SCALAR(int,ordNumCols)
 	NODE_SCALAR_POINT(AttrNumber,ordColIdx,NODE_ARG_->ordNumCols)
 	NODE_SCALAR_POINT(Oid,ordOperators,NODE_ARG_->ordNumCols)
+	NODE_SCALAR_POINT(Oid,ordCollations,NODE_ARG_->ordNumCols)
 	NODE_SCALAR(int,frameOptions)
 	NODE_NODE(Node,startOffset)
 	NODE_NODE(Node,endOffset)
@@ -564,6 +569,7 @@ BEGIN_NODE(Unique)
 	NODE_SCALAR(int,numCols)
 	NODE_SCALAR_POINT(AttrNumber,uniqColIdx,NODE_ARG_->numCols)
 	NODE_SCALAR_POINT(Oid,uniqOperators,NODE_ARG_->numCols)
+	NODE_SCALAR_POINT(Oid,uniqCollations,NODE_ARG_->numCols)
 END_NODE(Unique)
 #endif /* NO_NODE_Unique */
 
@@ -610,6 +616,7 @@ BEGIN_NODE(SetOp)
 	NODE_SCALAR(int,numCols)
 	NODE_SCALAR_POINT(AttrNumber,dupColIdx,NODE_ARG_->numCols)
 	NODE_SCALAR_POINT(Oid,dupOperators,NODE_ARG_->numCols)
+	NODE_SCALAR_POINT(Oid,dupCollations,NODE_ARG_->numCols)
 	NODE_SCALAR(AttrNumber,flagColIdx)
 	NODE_SCALAR(int,firstFlag)
 	NODE_SCALAR(long,numGroups)
@@ -692,19 +699,24 @@ END_NODE(PlanRowMark)
 
 #ifndef NO_NODE_PartitionPruneInfo
 BEGIN_NODE(PartitionPruneInfo)
-	NODE_SCALAR(Oid,reloid)
-	NODE_NODE(List,pruning_steps)
-	NODE_BITMAPSET(Bitmapset,present_parts)
-	NODE_SCALAR(int,nparts)
-	NODE_SCALAR(int,nexprs)
-	NODE_SCALAR_POINT(int,subplan_map,NODE_ARG_->nparts)
-	NODE_SCALAR_POINT(int,subpart_map,NODE_ARG_->nparts)
-	NODE_SCALAR_POINT(bool,hasexecparam,NODE_ARG_->nexprs)
-	NODE_SCALAR(bool,do_initial_prune)
-	NODE_SCALAR(bool,do_exec_prune)
-	NODE_BITMAPSET(Bitmapset,execparamids)
+	NODE_NODE(List,prune_infos)
+	NODE_BITMAPSET(Bitmapset,other_subplans)
 END_NODE(PartitionPruneInfo)
 #endif /* NO_NODE_PartitionPruneInfo */
+
+#ifndef NO_NODE_PartitionedRelPruneInfo
+BEGIN_NODE(PartitionedRelPruneInfo)
+	NODE_SCALAR(Index,rtindex)
+	NODE_BITMAPSET(Bitmapset,present_parts)
+	NODE_SCALAR(int,nparts)
+	NODE_SCALAR_POINT(int,subplan_map,NODE_ARG_->nparts)
+	NODE_SCALAR_POINT(int,subpart_map,NODE_ARG_->nparts)
+	NODE_SCALAR_POINT(Oid,relid_map,NODE_ARG_->nparts)
+	NODE_NODE(List,initial_pruning_steps)
+	NODE_NODE(List,exec_pruning_steps)
+	NODE_BITMAPSET(Bitmapset,execparamids)
+END_NODE(PartitionedRelPruneInfo)
+#endif /* NO_NODE_PartitionedRelPruneInfo */
 
 #ifndef NO_NODE_PartitionPruneStepOp
 BEGIN_NODE(PartitionPruneStepOp)
@@ -1057,19 +1069,19 @@ BEGIN_NODE(WindowFunc)
 END_NODE(WindowFunc)
 #endif /* NO_NODE_WindowFunc */
 
-#ifndef NO_NODE_ArrayRef
-BEGIN_NODE(ArrayRef)
+#ifndef NO_NODE_SubscriptingRef
+BEGIN_NODE(SubscriptingRef)
 	NODE_BASE2(Expr,xpr)
-	NODE_OID(type,refarraytype)
-	NODE_OID(type,refelemtype)
+	NODE_SCALAR(Oid,refcontainertype)
+	NODE_SCALAR(Oid,refelemtype)
 	NODE_SCALAR(int32,reftypmod)
-	NODE_OID(collation,refcollid)
+	NODE_SCALAR(Oid,refcollid)
 	NODE_NODE(List,refupperindexpr)
 	NODE_NODE(List,reflowerindexpr)
 	NODE_NODE(Expr,refexpr)
 	NODE_NODE(Expr,refassgnexpr)
-END_NODE(ArrayRef)
-#endif /* NO_NODE_ArrayRef */
+END_NODE(SubscriptingRef)
+#endif /* NO_NODE_SubscriptingRef */
 
 #ifndef NO_NODE_FuncExpr
 BEGIN_NODE(FuncExpr)
@@ -1560,6 +1572,7 @@ END_NODE(OnConflictExpr)
 BEGIN_NODE(IntoClause)
 	NODE_NODE(RangeVar,rel)
 	NODE_NODE(List,colNames)
+	NODE_STRING(accessMethod)
 	NODE_NODE(List,options)
 	NODE_ENUM(OnCommitAction,onCommit)
 	NODE_STRING(tableSpaceName)
@@ -1681,8 +1694,6 @@ BEGIN_NODE(IndexPath)
 	NODE_BASE2(Path,path)
 	NODE_NODE(IndexOptInfo,indexinfo)
 	NODE_NODE(List,indexclauses)
-	NODE_NODE(List,indexquals)
-	NODE_NODE(List,indexqualcols)
 	NODE_NODE(List,indexorderbys)
 	NODE_NODE(List,indexorderbycols)
 	NODE_ENUM(ScanDirection,indexscandir)
@@ -1766,6 +1777,7 @@ BEGIN_NODE(AppendPath)
 	NODE_NODE(List,partitioned_rels)
 	NODE_NODE(List,subpaths)
 	NODE_SCALAR(int,first_partial_path)
+	NODE_SCALAR(double,limit_tuples)
 END_NODE(AppendPath)
 #endif /* NO_NODE_AppendPath */
 
@@ -1778,15 +1790,15 @@ BEGIN_NODE(MergeAppendPath)
 END_NODE(MergeAppendPath)
 #endif /* NO_NODE_MergeAppendPath */
 
-#ifndef NO_NODE_ResultPath
-BEGIN_NODE(ResultPath)
+#ifndef NO_NODE_GroupResultPath
+BEGIN_NODE(GroupResultPath)
 	NODE_BASE2(Path,path)
 	NODE_NODE(List,quals)
 #ifdef ADB
 	NODE_NODE(Path,subpath)
 #endif
-END_NODE(ResultPath)
-#endif /* NO_NODE_ResultPath */
+END_NODE(GroupResultPath)
+#endif /* NO_NODE_GroupResultPath */
 
 #ifndef NO_NODE_MaterialPath
 BEGIN_NODE(MaterialPath)
@@ -1899,7 +1911,6 @@ BEGIN_NODE(WindowAggPath)
 	NODE_BASE2(Path,path)
 	NODE_NODE(Path,subpath)
 	NODE_NODE(WindowClause,winclause)
-	NODE_NODE(List,winpathkeys)
 END_NODE(WindowAggPath)
 #endif /* NO_NODE_WindowAggPath */
 
@@ -1942,7 +1953,7 @@ BEGIN_NODE(ModifyTablePath)
 	NODE_ENUM(CmdType,operation)
 	NODE_SCALAR(bool,canSetTag)
 	NODE_SCALAR(Index,nominalRelation)
-	NODE_NODE(List,partitioned_rels)
+	NODE_SCALAR(Index,rootRelation)
 	NODE_SCALAR(bool,partColsUpdated)
 	NODE_NODE(List,resultRelations)
 	NODE_NODE(List,subpaths)
@@ -2030,7 +2041,7 @@ END_NODE(ReduceScanPath)
 #endif /* NO_NODE_ReduceScanPath */
 
 #ifndef NO_NODE_FilterPath
-NODE_SAME(FilterPath, ResultPath)
+NODE_SAME(FilterPath, GroupResultPath)
 #endif /* NO_NODE_FilterPath */
 
 #endif
@@ -2134,6 +2145,16 @@ BEGIN_NODE(RestrictInfo)
 	NODE_SCALAR(Selectivity,right_mcvfreq)
 END_NODE(RestrictInfo)
 #endif /* NO_NODE_RestrictInfo */
+
+#ifndef NO_NODE_IndexClause
+BEGIN_NODE(IndexClause)
+	NODE_NODE(RestrictInfo,rinfo)
+	NODE_NODE(List,indexquals)
+	NODE_SCALAR(bool,lossy)
+	NODE_SCALAR(AttrNumber,indexcol)
+	NODE_NODE(List,indexcols)
+END_NODE(IndexClause)
+#endif /* NO_NODE_IndexClause */
 
 #ifndef NO_NODE_PlaceHolderVar
 BEGIN_NODE(PlaceHolderVar)
@@ -2308,7 +2329,6 @@ BEGIN_NODE(PlannedStmt)
 	NODE_NODE(Plan,planTree)
 	NODE_NODE(List,rtable)
 	NODE_NODE(List,resultRelations)
-	NODE_NODE(List,nonleafResultRelations)
 	NODE_NODE(List,rootResultRelations)
 	NODE_NODE(List,subplans)
 	NODE_BITMAPSET(Bitmapset,rewindPlanIDs)
@@ -2470,7 +2490,7 @@ END_NODE(ClosePortalStmt)
 BEGIN_NODE(ClusterStmt)
 	NODE_NODE(RangeVar,relation)
 	NODE_STRING(indexname)
-	NODE_SCALAR(bool,verbose)
+	NODE_SCALAR(int,options)
 END_NODE(ClusterStmt)
 #endif /* NO_NODE_ClusterStmt */
 
@@ -2483,6 +2503,7 @@ BEGIN_NODE(CopyStmt)
 	NODE_SCALAR(bool,is_program)
 	NODE_STRING(filename)
 	NODE_NODE(List,options)
+	NODE_NODE(Node,whereClause)
 END_NODE(CopyStmt)
 #endif /* NO_NODE_CopyStmt */
 
@@ -2501,6 +2522,7 @@ BEGIN_NODE(CreateStmt)
 	NODE_NODE(List,options)
 	NODE_ENUM(OnCommitAction,oncommit)
 	NODE_STRING(tablespacename)
+	NODE_STRING(accessMethod)
 	NODE_SCALAR(bool,if_not_exists)
 #ifdef ADB
 	NODE_SCALAR(bool,auxiliary)
@@ -2523,6 +2545,7 @@ BEGIN_NODE(DefineStmt)
 	NODE_NODE(List,args)
 	NODE_NODE(List,definition)
 	NODE_SCALAR(bool,if_not_exists)
+	NODE_SCALAR(bool,replace)
 END_NODE(DefineStmt)
 #endif /* NO_NODE_DefineStmt */
 
@@ -2571,7 +2594,6 @@ BEGIN_NODE(IndexStmt)
 #endif
 	NODE_STRING(idxname)
 	NODE_NODE(RangeVar,relation)
-	NODE_SCALAR(Oid,relationId)
 	NODE_STRING(accessMethod)
 	NODE_STRING(tableSpace)
 	NODE_NODE(List,indexParams)
@@ -2590,6 +2612,7 @@ BEGIN_NODE(IndexStmt)
 	NODE_SCALAR(bool,transformed)
 	NODE_SCALAR(bool,concurrent)
 	NODE_SCALAR(bool,if_not_exists)
+	NODE_SCALAR(bool,reset_default_tblspc)
 END_NODE(IndexStmt)
 #endif /* NO_NODE_IndexStmt */
 
@@ -2671,6 +2694,7 @@ BEGIN_NODE(TransactionStmt)
 	NODE_NODE(List,options)
 	NODE_STRING(savepoint_name)
 	NODE_STRING(gid)
+	NODE_SCALAR(bool,chain)
 END_NODE(TransactionStmt)
 #endif /* NO_NODE_TransactionStmt */
 
@@ -2719,8 +2743,9 @@ END_NODE(DropdbStmt)
 
 #ifndef NO_NODE_VacuumStmt
 BEGIN_NODE(VacuumStmt)
-	NODE_SCALAR(int,options)
+	NODE_NODE(List,options)
 	NODE_NODE(List,rels)
+	NODE_SCALAR(bool,is_vacuumcmd)
 END_NODE(VacuumStmt)
 #endif /* NO_NODE_VacuumStmt */
 
@@ -2864,6 +2889,7 @@ BEGIN_NODE(ReindexStmt)
 	NODE_NODE(RangeVar,relation)
 	NODE_STRING(name)
 	NODE_SCALAR(int,options)
+	NODE_SCALAR(bool,concurrent)
 END_NODE(ReindexStmt)
 #endif /* NO_NODE_ReindexStmt */
 
@@ -3659,12 +3685,12 @@ BEGIN_NODE(ColumnDef)
 	NODE_SCALAR(bool,is_local)
 	NODE_SCALAR(bool,is_not_null)
 	NODE_SCALAR(bool,is_from_type)
-	NODE_SCALAR(bool,is_from_parent)
 	NODE_SCALAR(char,storage)
 	NODE_NODE(Node,raw_default)
 	NODE_NODE(Node,cooked_default)
 	NODE_SCALAR(char,identity)
 	NODE_NODE(RangeVar,identitySequence)
+	NODE_SCALAR(char,generated)
 	NODE_NODE(CollateClause,collClause)
 	NODE_OID(collation,collOid)
 	NODE_NODE(List,constraints)
@@ -3702,6 +3728,7 @@ BEGIN_NODE(Constraint)
 	NODE_NODE(List,options)
 	NODE_STRING(indexname)
 	NODE_STRING(indexspace)
+	NODE_SCALAR(bool,reset_default_tblspc)
 	NODE_STRING(access_method)
 	NODE_NODE(Node,where_clause)
 	NODE_NODE(RangeVar,pktable)
@@ -3735,6 +3762,7 @@ BEGIN_NODE(RangeTblEntry)
 #endif
 	NODE_OID(class, relid)
 	NODE_SCALAR(char,relkind)
+	NODE_SCALAR(int,rellockmode)
 	NODE_NODE(TableSampleClause,tablesample)
 	NODE_NODE(Query,subquery)
 	NODE_SCALAR(bool,security_barrier)
@@ -3769,6 +3797,7 @@ BEGIN_NODE(RangeTblEntry)
 	NODE_BITMAPSET(Bitmapset,selectedCols)
 	NODE_BITMAPSET(Bitmapset,insertedCols)
 	NODE_BITMAPSET(Bitmapset,updatedCols)
+	NODE_BITMAPSET(Bitmapset,extraUpdatedCols)
 	NODE_NODE(List,securityQuals)
 END_NODE(RangeTblEntry)
 #endif /* NO_NODE_RangeTblEntry */
@@ -3939,6 +3968,7 @@ END_NODE(OnConflictClause)
 BEGIN_NODE(CommonTableExpr)
 	NODE_STRING(ctename)
 	NODE_NODE(List,aliascolnames)
+	NODE_ENUM(CTEMaterialize,ctematerialized)
 	NODE_NODE(Node,ctequery)
 	NODE_SCALAR(int,location)
 	NODE_SCALAR(bool,cterecursive)
@@ -4075,6 +4105,60 @@ BEGIN_NODE(CallContext)
 	NODE_SCALAR(bool,atomic)
 END_NODE(CallContext)
 #endif /* NO_NODE_CallContext */
+
+#ifndef NO_NODE_SupportRequestSimplify
+BEGIN_NODE(SupportRequestSimplify)
+	NODE_NODE(PlannerInfo,root)
+	NODE_NODE(FuncExpr,fcall)
+END_NODE(SupportRequestSimplify)
+#endif /* NO_NODE_SupportRequestSimplify */
+
+#ifndef NO_NODE_SupportRequestSelectivity
+BEGIN_NODE(SupportRequestSelectivity)
+	NODE_NODE(PlannerInfo,root)
+	NODE_SCALAR(Oid,funcid)
+	NODE_NODE(List,args)
+	NODE_SCALAR(Oid,inputcollid)
+	NODE_SCALAR(bool,is_join)
+	NODE_SCALAR(int,varRelid)
+	NODE_ENUM(JoinType,jointype)
+	NODE_NODE(SpecialJoinInfo,sjinfo)
+	NODE_SCALAR(Selectivity,selectivity)
+END_NODE(SupportRequestSelectivity)
+#endif /* NO_NODE_SupportRequestSelectivity */
+
+#ifndef NO_NODE_SupportRequestCost
+BEGIN_NODE(SupportRequestCost)
+	NODE_NODE(PlannerInfo,root)
+	NODE_SCALAR(Oid,funcid)
+	NODE_NODE(Node,node)
+	NODE_SCALAR(Cost,startup)
+	NODE_SCALAR(Cost,per_tuple)
+END_NODE(SupportRequestCost)
+#endif /* NO_NODE_SupportRequestCost */
+
+#ifndef NO_NODE_SupportRequestRows
+BEGIN_NODE(SupportRequestRows)
+	NODE_NODE(PlannerInfo,root)
+	NODE_SCALAR(Oid,funcid)
+	NODE_NODE(Node,node)
+	NODE_SCALAR(double,rows)
+END_NODE(SupportRequestRows)
+#endif /* NO_NODE_SupportRequestRows */
+
+#ifndef NO_NODE_SupportRequestIndexCondition
+BEGIN_NODE(SupportRequestIndexCondition)
+	NODE_NODE(PlannerInfo,root)
+	NODE_SCALAR(Oid,funcid)
+	NODE_NODE(Node,node)
+	NODE_SCALAR(int,indexarg)
+	NODE_NODE(IndexOptInfo,index)
+	NODE_SCALAR(int,indexcol)
+	NODE_SCALAR(Oid,opfamily)
+	NODE_SCALAR(Oid,indexcollation)
+	NODE_SCALAR(bool,lossy)
+END_NODE(SupportRequestIndexCondition)
+#endif /* NO_NODE_SupportRequestIndexCondition */
 
 #ifdef ADBMGRD
 

@@ -10,7 +10,7 @@
  * analyze.c and related files.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -61,7 +61,7 @@ raw_parser(const char *str)
 
 	/* initialize the flex scanner */
 	yyscanner = scanner_init(str, &yyextra.core_yy_extra,
-							 ScanKeywords, NumScanKeywords);
+							 &ScanKeywords, ScanKeywordTokens);
 
 	/* base_yylex() only needs this much initialization */
 	yyextra.have_lookahead = false;
@@ -81,86 +81,6 @@ raw_parser(const char *str)
 	return yyextra.parsetree;
 }
 
-#ifdef ADB_GRAM_ORA
-List* ora_raw_parser(const char *str)
-{
-	core_yyscan_t yyscanner;
-	ora_yy_extra_type yyextra;
-	int yyresult;
-
-	/* initialize the flex scanner */
-	yyscanner = scanner_init(str, &yyextra.core_yy_extra,
-							 OraScanKeywords, OraNumScanKeywords);
-
-	/* initialize the bison parser */
-	ora_parser_init(&yyextra);
-
-	/* Parse! */
-	yyresult = ora_yyparse(yyscanner);
-
-	/* Clean up (release memory) */
-	scanner_finish(yyscanner);
-
-	if (yyresult)				/* error */
-		return NIL;
-
-	return yyextra.parsetree;
-}
-#endif /* ADB_GRAM_ORA */
-
-#ifdef ADB_GRAM_DB2
-static List* db2_yyparse_internal(const char *str, core_yyscan_t yyscanner)
-{
-	List *stmts = NIL;
-	MemoryContext volatile oldcontext = CurrentMemoryContext;
-
-	PG_TRY();
-	{
-		if (db2_yyparse(yyscanner) != 0)
-			stmts = NIL;
-		else
-			stmts = db2_yyget_extra(yyscanner)->parsetree;
-	}PG_CATCH();
-	{
-		ErrorData  *edata;
-
-		/* Save error info in our stmt_mcontext */
-		MemoryContextSwitchTo(oldcontext);
-		edata = CopyErrorData();
-		FlushErrorState();
-
-		if (edata->sqlerrcode != ERRCODE_SYNTAX_ERROR)
-			ReThrowError(edata);
-
-		stmts = raw_parser(str);
-	}PG_END_TRY();
-
-	return stmts;
-}
-
-List* db2_raw_parser(const char *str)
-{
-	List *stmts;
-	core_yyscan_t yyscanner;
-	db2_yy_extra_type yyextra;
-
-	/* initialize the flex scanner */
-	yyscanner = scanner_init(str, &yyextra.core_yy_extra,
-							 db2ScanKeywords, db2NumScanKeywords);
-
-	/* initialize the bison parser */
-	db2_parser_init(&yyextra);
-
-	/* Parse! */
-	//yyresult = db2_yyparse(yyscanner);
-	stmts = db2_yyparse_internal(str, yyscanner);
-
-	/* Clean up (release memory) */
-	scanner_finish(yyscanner);
-
-	return stmts;
-}
-#endif /* ADB_GRAM_ORA */
 
 /*
  * Intermediate filter between parser and core lexer (core_yylex in scan.l).
@@ -1022,6 +942,7 @@ makeRecursiveViewSelect(char *relname, List *aliases, Node *query)
 	/* create common table expression */
 	cte->ctename = relname;
 	cte->aliascolnames = aliases;
+	cte->ctematerialized = CTEMaterializeDefault;
 	cte->ctequery = query;
 	cte->location = -1;
 

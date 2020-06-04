@@ -94,7 +94,6 @@ int			restoreCommandType;
 
 #define XLOG_DATA			 0
 #define XLOG_HISTORY		 1
-#define XLOG_BACKUP_LABEL	 2
 int			nextWALFileType;
 
 #define SET_RESTORE_COMMAND(cmd, arg1, arg2) \
@@ -116,7 +115,7 @@ static bool SetWALSegSize(void);
  *	accessible directory. If you want to make other assumptions,
  *	such as using a vendor-specific archive and access API, these
  *	routines are the ones you'll need to change. You're
- *	encouraged to submit any changes to pgsql-hackers@postgresql.org
+ *	encouraged to submit any changes to pgsql-hackers@lists.postgresql.org
  *	or personally to the current maintainer. Those changes may be
  *	folded in to later versions of this program.
  */
@@ -211,15 +210,9 @@ CustomizableNextWALFileReady(void)
 		}
 
 		/*
-		 * If it's a backup file, return immediately. If it's a regular file
-		 * return only if it's the right size already.
+		 * Return only if it's the right size already.
 		 */
-		if (IsBackupHistoryFileName(nextWALFileName))
-		{
-			nextWALFileType = XLOG_BACKUP_LABEL;
-			return true;
-		}
-		else if (WalSegSz > 0 && stat_buf.st_size == WalSegSz)
+		if (WalSegSz > 0 && stat_buf.st_size == WalSegSz)
 		{
 #ifdef WIN32
 
@@ -412,9 +405,7 @@ SetWALSegSize(void)
 {
 	bool		ret_val = false;
 	int			fd;
-
-	/* malloc this buffer to ensure sufficient alignment: */
-	char	   *buf = (char *) pg_malloc(XLOG_BLCKSZ);
+	PGAlignedXLogBlock buf;
 
 	Assert(WalSegSz == -1);
 
@@ -422,14 +413,13 @@ SetWALSegSize(void)
 	{
 		fprintf(stderr, "%s: could not open WAL file \"%s\": %s\n",
 				progname, WALFilePath, strerror(errno));
-		pg_free(buf);
 		return false;
 	}
 
 	errno = 0;
-	if (read(fd, buf, XLOG_BLCKSZ) == XLOG_BLCKSZ)
+	if (read(fd, buf.data, XLOG_BLCKSZ) == XLOG_BLCKSZ)
 	{
-		XLogLongPageHeader longhdr = (XLogLongPageHeader) buf;
+		XLogLongPageHeader longhdr = (XLogLongPageHeader) buf.data;
 
 		WalSegSz = longhdr->xlp_seg_size;
 
@@ -466,7 +456,6 @@ SetWALSegSize(void)
 	fflush(stderr);
 
 	close(fd);
-	pg_free(buf);
 	return ret_val;
 }
 
@@ -626,11 +615,11 @@ usage(void)
 	printf("  -w MAXWAITTIME     max seconds to wait for a file (0=no limit) (default=0)\n");
 	printf("  -?, --help         show this help, then exit\n");
 	printf("\n"
-		   "Main intended use as restore_command in recovery.conf:\n"
+		   "Main intended use as restore_command in postgresql.conf:\n"
 		   "  restore_command = 'pg_standby [OPTION]... ARCHIVELOCATION %%f %%p %%r'\n"
 		   "e.g.\n"
 		   "  restore_command = 'pg_standby /mnt/server/archiverdir %%f %%p %%r'\n");
-	printf("\nReport bugs to <pgsql-bugs@postgresql.org>.\n");
+	printf("\nReport bugs to <pgsql-bugs@lists.postgresql.org>.\n");
 }
 
 #ifndef WIN32

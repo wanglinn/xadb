@@ -27,6 +27,9 @@
 #include "access/relscan.h"
 #include "access/skey.h"
 #include "access/sysattr.h"
+#include "access/heapam.h"
+#include "access/table.h"
+#include "access/tableam.h"
 #include "access/transam.h"
 #include "catalog/namespace.h"
 #include "catalog/indexing.h"
@@ -50,10 +53,9 @@
 #include "utils/rel.h"
 #include "utils/relcache.h"
 #include "utils/syscache.h"
-#include "utils/tqual.h"
 #include "optimizer/clauses.h"
+#include "optimizer/optimizer.h"
 #include "optimizer/paths.h"
-#include "optimizer/var.h"
 #include "parser/parse_coerce.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/locator.h"
@@ -61,6 +63,7 @@
 #include "pgxc/pgxcnode.h"
 #include "pgxc/slot.h"
 #include "postmaster/autovacuum.h"
+#include "utils/fmgrprotos.h"
 #include "utils/typcache.h"
 #include "pgxc/slot.h"
 #include "tcop/tcopprot.h"
@@ -246,7 +249,7 @@ IsTypeDistributable(Oid col_type)
 Oid
 GetRandomRelNodeId(Oid relid)
 {
-	Relation	rel = relation_open(relid, AccessShareLock);
+	Relation	rel = table_open(relid, AccessShareLock);
 	Datum		n;
 	Oid			ret_node;
 
@@ -257,7 +260,7 @@ GetRandomRelNodeId(Oid relid)
 	n = DirectFunctionCall1(int4random_max, Int32GetDatum(list_length(rel->rd_locator_info->nodeids)));
 	ret_node = list_nth_oid(rel->rd_locator_info->nodeids, DatumGetInt32(n));
 
-	relation_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 
 	return ret_node;
 }
@@ -525,11 +528,11 @@ GetRelationNodesByQuals(Oid reloid, Index varno, Node *quals,
 	{
 		Oid				disttype;
 		int32			disttypmod;
+		Oid				collation;
 		AttrNumber		attno;
 
 		attno = GetFirstLocAttNumIfOnlyOne(rel_loc_info);
-		disttype = get_atttype(reloid, attno);
-		disttypmod = get_atttypmod(reloid, attno);
+		get_atttypetypmodcoll(reloid, attno, &disttype, &disttypmod, &collation);
 		distcol_expr = pgxc_find_distcol_expr(varno, attno, quals);
 
 		/*
@@ -1267,7 +1270,7 @@ adbGetSlaveNodeid(Oid masterid)
 {
 	const char *masterName;
 	Relation rel;
-	HeapScanDesc scan;
+	TableScanDesc scan;
 	HeapTuple tuple;
 	ScanKeyData key[1];
 	Oid slaveid = InvalidOid;
@@ -1287,16 +1290,16 @@ adbGetSlaveNodeid(Oid masterid)
 		, BTEqualStrategyNumber
 		, F_OIDEQ
 		, ObjectIdGetDatum(masterid));
-	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
-	scan = heap_beginscan_catalog(rel, 1, key);
+	rel = table_open(PgxcNodeRelationId, AccessShareLock);
+	scan = table_beginscan_catalog(rel, 1, key);
 	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
-		slaveid = HeapTupleGetOid(tuple);
+		slaveid = ((Form_pgxc_node)GETSTRUCT(tuple))->oid;
 		break;
 	}
 
-	heap_endscan(scan);
-	heap_close(rel, AccessShareLock);
+	table_endscan(scan);
+	table_close(rel, AccessShareLock);
 
 	return slaveid;
 }
@@ -1316,7 +1319,7 @@ adbGetRelationNodeids(Oid relid)
 				Anum_pgxc_class_pcrelid,
 				BTEqualStrategyNumber, F_OIDEQ,
 				ObjectIdGetDatum(relid));
-	pcrel = heap_open(PgxcClassRelationId, AccessShareLock);
+	pcrel = table_open(PgxcClassRelationId, AccessShareLock);
 	pcscan = systable_beginscan(pcrel, PgxcClassPgxcRelIdIndexId, true,
 								NULL, 1, &skey);
 	htup = systable_getnext(pcscan);
@@ -1343,7 +1346,7 @@ adbGetRelationNodeids(Oid relid)
 	}
 
 	systable_endscan(pcscan);
-	heap_close(pcrel, AccessShareLock);
+	table_close(pcrel, AccessShareLock);
 
 	return nodeids;
 }

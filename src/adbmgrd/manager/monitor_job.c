@@ -58,7 +58,6 @@
 #include "utils/syscache.h"
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
-#include "utils/tqual.h"
 #include "access/heapam.h"
 #include "catalog/monitor_jobitem.h"
 #include "catalog/monitor_job.h"
@@ -155,7 +154,7 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 
 	Assert(jobname);
 	namestrcpy(&jobnamedata, jobname);
-	rel = heap_open(MjobRelationId, AccessShareLock);
+	rel = table_open(MjobRelationId, AccessShareLock);
 	/* check exists */
 	checktuple = montiot_job_get_item_tuple(rel, &jobnamedata);
 	if (HeapTupleIsValid(checktuple))
@@ -271,7 +270,7 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 		ereport(WARNING, (errmsg("in postgresql.conf of ADBMGR adbmonitor=off and all jobs cannot be running, you should change adbmonitor=on which can be made effect by mgr_ctl reload ")));
 
 	/* now, we can insert record */
-	rel = heap_open(MjobRelationId, RowExclusiveLock);
+	rel = table_open(MjobRelationId, RowExclusiveLock);
 	newtuple = heap_form_tuple(RelationGetDescr(rel), datum, isnull);
 	CatalogTupleInsert(rel, newtuple);
 	heap_freetuple(newtuple);
@@ -325,7 +324,7 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 	bool status = false;
 	bool bAlterAll = false;
 	Datum datumtime;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	pid_t ppid;
 
 	jobname = PG_GETARG_CSTRING(0);
@@ -335,7 +334,7 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 	namestrcpy(&jobnamedata, jobname);
 	if (strcmp(jobnamedata.data, MACRO_STAND_FOR_ALL_JOB) ==0)
 		bAlterAll = true;
-	rel = heap_open(MjobRelationId, RowExclusiveLock);
+	rel = table_open(MjobRelationId, RowExclusiveLock);
 	/* check exists, MACRO_STAND_FOR_ALL_JOB stand for all jobs */
 	if (!bAlterAll)
 	{
@@ -428,7 +427,7 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 			heap_close(rel, RowExclusiveLock);
 			ereport(ERROR, (errmsg("the command of \"ALTER JOB ALL\" not support modify the column \"comamnd\" and \"desc\"")));
 		}
-		relScan = heap_beginscan_catalog(rel, 0, NULL);
+		relScan = table_beginscan_catalog(rel, 0, NULL);
 		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 		{
 			newtuple = heap_modify_tuple(tuple, job_dsc, datum,isnull, got);
@@ -488,7 +487,7 @@ Datum monitor_job_drop_func(PG_FUNCTION_ARGS)
 	context = AllocSetContextCreate(CurrentMemoryContext,
 									"DROP JOB",
 									ALLOCSET_DEFAULT_SIZES);
-	rel = heap_open(MjobRelationId, RowExclusiveLock);
+	rel = table_open(MjobRelationId, RowExclusiveLock);
 	old_context = MemoryContextSwitchTo(context);
 
 	/* first we need check is it all exists and used by other */
@@ -545,14 +544,14 @@ static HeapTuple montiot_job_get_item_tuple(Relation rel_job, Name jobname)
 	ScanKeyData key[1];
 	HeapTuple tupleret = NULL;
 	HeapTuple tuple = NULL;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 
 	ScanKeyInit(&key[0]
 				,Anum_monitor_job_name
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,NameGetDatum(jobname));
-	rel_scan = heap_beginscan_catalog(rel_job, 1, key);
+	rel_scan = table_beginscan_catalog(rel_job, 1, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		tupleret = heap_copytuple(tuple);
@@ -571,7 +570,7 @@ static HeapTuple montiot_job_get_item_tuple(Relation rel_job, Name jobname)
 Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 {
 	Relation relNode;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	HeapTuple tuple;
 	HeapTuple mastertuple;
 	HeapTuple tupResult;
@@ -653,7 +652,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 	/* check the input value */
 	mgr_check_handle_node_func_arg(&nodeArg);
 
-	relNode = heap_open(NodeRelationId, AccessShareLock);
+	relNode = table_open(NodeRelationId, AccessShareLock);
 	ScanKeyInit(&key[0],
 		Anum_mgr_node_nodeincluster
 		,BTEqualStrategyNumber
@@ -669,7 +668,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
-	relScan = heap_beginscan_catalog(relNode, 3, key);
+	relScan = table_beginscan_catalog(relNode, 3, key);
 
 	/* get total coordinator master num */
 	totalMasterNode = mgr_nodeType_Num_incluster(0, relNode, CNDN_TYPE_COORDINATOR_MASTER);
@@ -692,16 +691,16 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 
 		fdHandle = (fdCtl *)palloc0(sizeof(fdCtl) * nmasterNum);
 		if (!fdHandle)
-			ereport(ERROR, (errmsg("malloc %lu byte fail: %s", sizeof(fdCtl) * nmasterNum, strerror(errno))));
+			ereport(ERROR, (errmsg("malloc %lu byte fail: %m", sizeof(fdCtl) * nmasterNum)));
 
 		serv_addr = (struct sockaddr_in *)palloc0(sizeof(struct sockaddr_in) * nmasterNum);
 		if (!serv_addr)
-			ereport(ERROR, (errmsg("malloc %lu byte fail: %s", sizeof(struct sockaddr_in) * nmasterNum, strerror(errno))));
+			ereport(ERROR, (errmsg("malloc %lu byte fail: %m", sizeof(struct sockaddr_in) * nmasterNum)));
 
 		/* create nmasterNum socket noblock fd */
 		createFdNum = mgr_get_fd_noblock(fdHandle, nmasterNum);
 		if (createFdNum != nmasterNum)
-			ereport(ERROR, (errmsg("create noblock socket fd fail: %s", strerror(errno))));
+			ereport(ERROR, (errmsg("create noblock socket fd fail: %m")));
 
 		/* traversal the coordinator master */
 		i = 0;
@@ -750,7 +749,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 				ereport(ERROR, (errmsg("all coordinators in cluster are not running normal")));
 
 			/* get one running normal coordinator */
-			heap_rescan(relScan, key);
+			table_rescan(relScan, key);
 			while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 			{
 				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -785,7 +784,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 			Assert(user);
 
 			/* get one running unnormal coordinator */
-			heap_rescan(relScan, key);
+			table_rescan(relScan, key);
 			while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 			{
 				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -803,7 +802,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 					continue;
 				}
 				namestrcpy(&masterName, NameStr(mgr_node->nodename));
-				unNormalNodeTupleOid= HeapTupleGetOid(tuple);
+				unNormalNodeTupleOid= mgr_node->oid;
 				break;
 			}
 
@@ -856,7 +855,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 				, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 			/* on all running normal coordinators to drop unNormal node */
 			i = 0;
-			heap_rescan(relScan, key);
+			table_rescan(relScan, key);
 			while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 			{
 				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -913,7 +912,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 			/* on all normal coordinators execute select pgxc_pool_reload() */
 			resetStringInfo(&infosendmsg);
 			appendStringInfo(&infosendmsg, "select pgxc_pool_reload();");
-			heap_rescan(relScan, key);
+			table_rescan(relScan, key);
 			while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 			{
 				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1070,7 +1069,7 @@ bool mgr_check_job_in_updateparam(const char *subjobstr)
 {
 	HeapTuple tuple = NULL;
 	Relation relJob;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	Datum datumCommand;
 	ScanKeyData key[1];
 	NameData jobname;
@@ -1091,8 +1090,8 @@ bool mgr_check_job_in_updateparam(const char *subjobstr)
 				,BTEqualStrategyNumber
 				,F_BOOLEQ
 				,BoolGetDatum(true));
-	relJob = heap_open(MjobRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(relJob, 1, key);
+	relJob = table_open(MjobRelationId, AccessShareLock);
+	relScan = table_beginscan_catalog(relJob, 1, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		/*get the command string*/
@@ -1139,7 +1138,7 @@ bool mgr_check_job_in_updateparam(const char *subjobstr)
 Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 {
 	Relation relNode;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	HeapTuple tuple;
 	HeapTuple tupResult;
 	Form_mgr_node mgr_node;
@@ -1203,7 +1202,7 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 	/* check the input value */
 	mgr_check_handle_node_func_arg(&nodeArg);
 
-	relNode = heap_open(NodeRelationId, AccessShareLock);
+	relNode = table_open(NodeRelationId, AccessShareLock);
 	/* get total datanode master num */
 	if (!bnameNull)
 		nmasterNum = 1;
@@ -1218,16 +1217,16 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 
 		fdHandle = (fdCtl *)palloc0(sizeof(fdCtl) * nmasterNum);
 		if (!fdHandle)
-			ereport(ERROR, (errmsg("malloc %lu byte fail: %s", sizeof(fdCtl) * nmasterNum, strerror(errno))));
+			ereport(ERROR, (errmsg("malloc %lu byte fail: %m", sizeof(fdCtl) * nmasterNum)));
 
 		serv_addr = (struct sockaddr_in *)palloc0(sizeof(struct sockaddr_in) * nmasterNum);
 		if (!serv_addr)
-			ereport(ERROR, (errmsg("malloc %lu byte fail: %s", sizeof(struct sockaddr_in) * nmasterNum, strerror(errno))));
+			ereport(ERROR, (errmsg("malloc %lu byte fail: %m", sizeof(struct sockaddr_in) * nmasterNum)));
 
 		/* create nmasterNum socket noblock fd */
 		createFdNum = mgr_get_fd_noblock(fdHandle, nmasterNum);
 		if (createFdNum != nmasterNum)
-			ereport(ERROR, (errmsg("create noblock socket fd fail: %s", strerror(errno))));
+			ereport(ERROR, (errmsg("create noblock socket fd fail: %m")));
 
 		/* traversal the datanode master */
 		i = 0;
@@ -1246,7 +1245,7 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 			,BTEqualStrategyNumber
 			,F_CHAREQ
 			,CharGetDatum(CNDN_TYPE_DATANODE_MASTER));
-		relScan = heap_beginscan_catalog(relNode, 3, key);
+		relScan = table_beginscan_catalog(relNode, 3, key);
 		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 		{
 			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1291,7 +1290,7 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 			/* do fail command */
 			i = 0;
 			/* check the datanode master has slave node */
-			relScan = heap_beginscan_catalog(relNode, 3, key);
+			relScan = table_beginscan_catalog(relNode, 3, key);
 			while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 			{
 				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1309,7 +1308,7 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 					if(strcmp(NameStr(fdHandle[i-1].nodename), NameStr(mgr_node->nodename)) != 0)
 						continue;
 				}
-				pingres = mgr_get_normal_slave_node(relNode, HeapTupleGetOid(tuple)
+				pingres = mgr_get_normal_slave_node(relNode, mgr_node->oid
 													, SYNC_STATE_SYNC, InvalidOid, &slaveNodeName);
 				bexec = true;
 				if (pingres != PQPING_OK)
@@ -1322,11 +1321,11 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 					}
 					else
 					{
-						pingres = mgr_get_normal_slave_node(relNode, HeapTupleGetOid(tuple)
+						pingres = mgr_get_normal_slave_node(relNode, mgr_node->oid
 													, SYNC_STATE_POTENTIAL, InvalidOid, &slaveNodeName);
 						if (pingres != PQPING_OK)
 						{
-							pingres = mgr_get_normal_slave_node(relNode, HeapTupleGetOid(tuple)
+							pingres = mgr_get_normal_slave_node(relNode, mgr_node->oid
 													, SYNC_STATE_ASYNC, InvalidOid, &slaveNodeName);
 							if (pingres != PQPING_OK)
 							{
@@ -1442,7 +1441,7 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 
 static int mgr_nodeType_Num_incluster(const int masterNodeOid, Relation relNode, const char nodeType)
 {
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	HeapTuple tuple;
 	ScanKeyData key[4];
 	int nSlaveNum = 0;
@@ -1468,7 +1467,7 @@ static int mgr_nodeType_Num_incluster(const int masterNodeOid, Relation relNode,
 		,BTEqualStrategyNumber
 		,F_OIDEQ
 		,ObjectIdGetDatum(masterNodeOid));
-	relScan = heap_beginscan_catalog(relNode, 4, key);
+	relScan = table_beginscan_catalog(relNode, 4, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		nSlaveNum++;
@@ -1534,7 +1533,7 @@ static int mgr_get_async_connect_result(fdCtl *fdHandle, int totalFd, int select
 		res = select(maxFd + 1, &rset, &wset, NULL, &tval);
 		if (res < 0)
 		{
-			ereport(ERROR, (errmsg("network error in connect : %s\n", strerror(errno))));
+			ereport(ERROR, (errmsg("network error in connect : %m\n")));
 		}
 		else if (res == 0)
 		{
@@ -1588,7 +1587,7 @@ static int mgr_get_async_connect_result(fdCtl *fdHandle, int totalFd, int select
 Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 {
 	Relation relNode;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	HeapTuple tuple;
 	HeapTuple tupResult;
 	Form_mgr_node mgr_node;
@@ -1651,7 +1650,7 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 
 	ereport(DEBUG1, (errmsg("check gtm master status start")));
 
-	relNode = heap_open(NodeRelationId, AccessShareLock);
+	relNode = table_open(NodeRelationId, AccessShareLock);
 	/* get total gtm master num */
 	if (!bnameNull)
 		nmasterNum = 1;
@@ -1665,16 +1664,16 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 
 		fdHandle = (fdCtl *)palloc0(sizeof(fdCtl) * nmasterNum);
 		if (!fdHandle)
-			ereport(ERROR, (errmsg("malloc %lu byte fail: %s", sizeof(fdCtl) * nmasterNum, strerror(errno))));
+			ereport(ERROR, (errmsg("malloc %lu byte fail: %m", sizeof(fdCtl) * nmasterNum)));
 
 		serv_addr = (struct sockaddr_in *)palloc0(sizeof(struct sockaddr_in) * nmasterNum);
 		if (!serv_addr)
-			ereport(ERROR, (errmsg("malloc %lu byte fail: %s", sizeof(struct sockaddr_in) * nmasterNum, strerror(errno))));
+			ereport(ERROR, (errmsg("malloc %lu byte fail: %m", sizeof(struct sockaddr_in) * nmasterNum)));
 
 		/* create 1 socket fd */
 		createFdNum = mgr_get_fd_noblock(fdHandle, 1);
 		if (!createFdNum)
-			ereport(ERROR, (errmsg("create noblock socket fd fail : %s", strerror(errno))));
+			ereport(ERROR, (errmsg("create noblock socket fd fail : %m")));
 
 		/* traversal the gtm master */
 		ScanKeyInit(&key[0],
@@ -1692,7 +1691,7 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 			,BTEqualStrategyNumber
 			,F_CHAREQ
 			,CharGetDatum(CNDN_TYPE_GTM_COOR_MASTER));
-		relScan = heap_beginscan_catalog(relNode, 3, key);
+		relScan = table_beginscan_catalog(relNode, 3, key);
 		if((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 		{
 			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1736,7 +1735,7 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 			/* check the gtm master has slave node */
 			ereport(LOG, (errmsg("check gtm slave status in job start")));
 
-			relScan = heap_beginscan_catalog(relNode, 3, key);
+			relScan = table_beginscan_catalog(relNode, 3, key);
 			if((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 			{
 				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1829,13 +1828,13 @@ static int mgr_get_fd_noblock(fdCtl *fdHandle, int totalNum)
 		flags = fcntl(fdHandle[i].fd, F_GETFL, 0);
 		if (flags < 0)
 		{
-			ereport(WARNING, (errmsg("get the file handle status fail : %s", strerror(errno))));
+			ereport(WARNING, (errmsg("get the file handle status fail : %m")));
 			return i;
 		}
 		if (fcntl(fdHandle[i].fd, F_SETFL, flags | O_NONBLOCK) == -1)
 		{
+			ereport(WARNING, (errmsg("set the file handle noblock fail : %m")));
 			return i;
-			ereport(WARNING, (errmsg("set the file handle noblock fail : %s", strerror(errno))));
 		}
 		i++;
 	}

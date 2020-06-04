@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_list_node.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-LISTNODE">
+<refentry id="mgr-listnode">
   <refmeta>
     <refentrytitle>LIST NODE</refentrytitle>
     <manvolnum>7</manvolnum>

@@ -1,6 +1,8 @@
 #ifndef REDUCEINFO_H
 #define REDUCEINFO_H
 
+#include "nodes/pathnodes.h"
+
 #define REDUCE_TYPE_NONE		'\0'
 #define REDUCE_TYPE_HASHMAP		'B'
 #define REDUCE_TYPE_HASH		'H'

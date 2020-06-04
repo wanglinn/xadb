@@ -365,7 +365,6 @@ static void GxidSenderStartup(void)
 	MyProcPort->remote_hostname = MyProcPort->remote_host;
 	MyProcPort->database_name = MemoryContextStrdup(TopMemoryContext, "gxid sender");
 	MyProcPort->user_name = MyProcPort->database_name;
-	MyProcPort->SessionStartTime = GetCurrentTimestamp();
 }
 
 /* event handlers */
@@ -635,6 +634,7 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 	slist_mutable_iter			siter;
 	ClientHashItemInfo			*clientitem;
 	ClientXidItemInfo			*xiditem;
+	FullTransactionId			full_xid;
 	bool						found;
 	slist_head					xid_slist =  SLIST_STATIC_INIT(xid_slist);
 
@@ -653,7 +653,8 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 	while(gxid_send_input_buffer.cursor < gxid_send_input_buffer.len)
 	{
 		procno = pq_getmsgint(&gxid_send_input_buffer, sizeof(procno));
-		xid = GetNewTransactionIdExt(false, 1, false);
+		full_xid = GetNewTransactionIdExt(false, 1, false);
+		xid = XidFromFullTransactionId(full_xid);
 
 		xiditem = palloc0(sizeof(*xiditem));
 		xiditem->procno = procno;
@@ -695,6 +696,7 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 {
 	TransactionId				xid, xidmax;
+	FullTransactionId			full_xidmax;
 	ClientHashItemInfo			*clientitem;
 	ClientXidItemInfo			*xiditem;
 	bool						found;
@@ -720,7 +722,8 @@ static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 	ereport(LOG,(errmsg("GxidSend assging xid for %s\n", client->client_name)));
 #endif
 
-	xidmax = GetNewTransactionIdExt(false, xid_num, false);
+	full_xidmax = GetNewTransactionIdExt(false, xid_num, false);
+	xidmax = XidFromFullTransactionId(full_xidmax);
 
 	SpinLockAcquire(&GxidSender->mutex);
 	for (i = 0; i < xid_num; i++)
@@ -767,16 +770,23 @@ static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 
 static void GxidsenderUpdateNextXid(TransactionId xid, GxidClientData *client)
 {
+	TransactionId		nextXid;
+	uint32				epoch;
+
 	if (!TransactionIdIsValid(xid))
 		return;
 
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	if (NormalTransactionIdFollows(xid, ShmemVariableCache->nextXid))
+	nextXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid); 
+	if (NormalTransactionIdFollows(xid, nextXid))
 	{
- 		ShmemVariableCache->nextXid = xid;
- 		TransactionIdAdvance(ShmemVariableCache->nextXid);
+		epoch = EpochFromFullTransactionId(ShmemVariableCache->nextFullXid);
+		if (unlikely(xid < nextXid))
+			++epoch;
+		ShmemVariableCache->nextFullXid = FullTransactionIdFromEpochAndXid(epoch, nextXid);
+		FullTransactionIdAdvance(&ShmemVariableCache->nextFullXid);
 
-		ShmemVariableCache->latestCompletedXid = ShmemVariableCache->nextXid;
+		ShmemVariableCache->latestCompletedXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
 		TransactionIdRetreat(ShmemVariableCache->latestCompletedXid);
 	}
 	LWLockRelease(XidGenLock);

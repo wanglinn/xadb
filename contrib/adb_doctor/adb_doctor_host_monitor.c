@@ -755,7 +755,7 @@ static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper)
 	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
 	spiContext = CurrentMemoryContext;
 	MemoryContextSwitchTo(oldContext);
-	hostDataInDB = selectMgrHostByOid(agentWrapper->mgrHost->oid, spiContext);
+	hostDataInDB = selectMgrHostByOid(agentWrapper->mgrHost->form.oid, spiContext);
 	SPI_FINISH_TRANSACTIONAL_COMMIT();
 	if (hostDataInDB == NULL)
 	{
@@ -763,7 +763,7 @@ static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper)
 				(errmsg("%s:%s, oid:%u not exists in the table.",
 						NameStr(agentWrapper->mgrHost->form.hostname),
 						agentWrapper->mgrHost->hostaddr,
-						agentWrapper->mgrHost->oid)));
+						agentWrapper->mgrHost->form.oid)));
 	}
 	allowcure = hostDataInDB->form.allowcure;
 	if (!allowcure)
@@ -780,7 +780,7 @@ static bool allowRestartAgent(ManagerAgentWrapper *agentWrapper)
 				(errmsg("%s:%s, oid:%u has changed in the table.",
 						NameStr(agentWrapper->mgrHost->form.hostname),
 						agentWrapper->mgrHost->hostaddr,
-						agentWrapper->mgrHost->oid)));
+						agentWrapper->mgrHost->form.oid)));
 		pfreeMgrHostWrapper(hostDataInDB);
 		resetHostMonitor();
 	}

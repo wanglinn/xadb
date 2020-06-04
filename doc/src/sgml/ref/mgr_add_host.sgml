@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_add_host.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-ADDHOST">
+<refentry id="mgr-addhost">
   <refmeta>
     <refentrytitle>ADD HOST</refentrytitle>
     <manvolnum>7</manvolnum>

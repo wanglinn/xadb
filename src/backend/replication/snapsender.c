@@ -328,16 +328,22 @@ static void snapsenderUpdateNextXidAllClient(TransactionId xid, SnapClientData *
 
 static void snapsenderUpdateNextXid(TransactionId xid, SnapClientData *client)
 {
+	TransactionId	nextXid;
+	uint32			epoch;
 	if (!TransactionIdIsValid(xid))
 		return;
 
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	if (NormalTransactionIdFollows(xid, ShmemVariableCache->nextXid))
+	nextXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
+	if (NormalTransactionIdFollows(xid, nextXid))
 	{
- 		ShmemVariableCache->nextXid = xid;
- 		TransactionIdAdvance(ShmemVariableCache->nextXid);
+		epoch = EpochFromFullTransactionId(ShmemVariableCache->nextFullXid);
+		if (unlikely(xid < nextXid))
+			++epoch;
+		ShmemVariableCache->nextFullXid = FullTransactionIdFromEpochAndXid(epoch, xid);
+		FullTransactionIdAdvance(&ShmemVariableCache->nextFullXid);
 
-		ShmemVariableCache->latestCompletedXid = ShmemVariableCache->nextXid;
+		ShmemVariableCache->latestCompletedXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
 		TransactionIdRetreat(ShmemVariableCache->latestCompletedXid);
 
 		snapsenderUpdateNextXidAllClient(xid, client);
@@ -776,7 +782,6 @@ static void SnapSenderStartup(void)
 	MyProcPort->remote_hostname = MyProcPort->remote_host;
 	MyProcPort->database_name = MemoryContextStrdup(TopMemoryContext, "snapshot sender");
 	MyProcPort->user_name = MyProcPort->database_name;
-	MyProcPort->SessionStartTime = GetCurrentTimestamp();
 }
 
 /* event handlers */

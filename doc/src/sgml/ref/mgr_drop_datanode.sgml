@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_drop_datanode.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-DROPDATANODE">
+<refentry id="mgr-dropdatanode">
   <refmeta>
     <refentrytitle>DROP DATANODE</refentrytitle>
     <manvolnum>7</manvolnum>

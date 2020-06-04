@@ -50,10 +50,13 @@ void DynamicReduceWriteSFSMsgTuple(struct BufFile *file, const char *data, int l
 
 void DynamicReduceWriteSFSTuple(TupleTableSlot *slot, BufFile *file)
 {
-	MinimalTuple	mtup = ExecFetchSlotMinimalTuple(slot);
+	bool			shouldFree;
+	MinimalTuple	mtup = ExecFetchSlotMinimalTuple(slot, &shouldFree);
 	SFSWriteTupleData(file,
 					  mtup->t_len - MINIMAL_TUPLE_DATA_OFFSET,
 					  (char*)mtup + MINIMAL_TUPLE_DATA_OFFSET);
+	if (shouldFree)
+		pfree(mtup);
 }
 
 void DynamicReduceWriteSFSMinTuple(struct BufFile *file, MinimalTuple mtup)

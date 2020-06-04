@@ -17,6 +17,7 @@
 
 #include "postgres.h"
 
+#include "access/relation.h"
 #include "catalog/pg_class.h"
 #include "catalog/pg_inherits.h"
 #include "catalog/pg_namespace.h"
@@ -26,8 +27,8 @@
 #include "commands/trigger.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
-#include "nodes/relation.h"
 #include "optimizer/clauses.h"
+#include "optimizer/optimizer.h"
 #include "optimizer/pgxcplan.h"
 #include "optimizer/pgxcship.h"
 #include "optimizer/plancat.h"
@@ -740,7 +741,7 @@ pgxc_shippability_walker(Node *node, Shippability_context *sc_context)
 		case T_RangeTblRef:
 			break;
 
-		case T_ArrayRef:
+		case T_SubscriptingRef:
 			/*
 			 * When multiple values of of an array are updated at once
 			 * FQS planner cannot yet handle SQL representation correctly.

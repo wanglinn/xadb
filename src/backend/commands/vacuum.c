@@ -9,7 +9,7 @@
  * in cluster.c.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -28,6 +28,7 @@
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/multixact.h"
+#include "access/tableam.h"
 #include "access/transam.h"
 #include "access/xact.h"
 #include "catalog/namespace.h"
@@ -35,6 +36,7 @@
 #include "catalog/pg_inherits.h"
 #include "catalog/pg_namespace.h"
 #include "commands/cluster.h"
+#include "commands/defrem.h"
 #include "commands/vacuum.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
@@ -50,7 +52,6 @@
 #include "utils/memutils.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
-#include "utils/tqual.h"
 
 #ifdef ADB
 #include "access/visibilitymap.h"
@@ -87,7 +88,6 @@ typedef struct ClusterVacuumHookFuncs
 typedef struct ClusterVacuumCmdContext
 {
 	VacuumParams   *params;
-	int				options;
 	bool			use_own_xacts;
 	bool			in_outer_xact;
 }ClusterVacuumCmdContext;
@@ -108,20 +108,20 @@ static BufferAccessStrategy vac_strategy;
 
 
 /* non-export function prototypes */
-static List *expand_vacuum_rel(VacuumRelation *vrel);
-static List *get_all_vacuum_rels(void);
+static List *expand_vacuum_rel(VacuumRelation *vrel, int options);
+static List *get_all_vacuum_rels(int options);
 static void vac_truncate_clog(TransactionId frozenXID,
-				  MultiXactId minMulti,
-				  TransactionId lastSaneFrozenXid,
-				  MultiXactId lastSaneMinMulti);
+							  MultiXactId minMulti,
+							  TransactionId lastSaneFrozenXid,
+							  MultiXactId lastSaneMinMulti);
+static bool vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params);
+static VacOptTernaryValue get_vacopt_ternary_value(DefElem *def);
 #ifdef ADB
 static List* get_vacuum_all_node(List *relations, MemoryContext context, bool need_vacuum);
 static List* get_vacuum_all_coord(List *relations, MemoryContext context);
 static void cluster_recv_exec_end(List *conns);
 static int process_master_vacuum_cmd(ClusterVacuumCmdContext *context, const char *data, int len);
 #endif /* ADB */
-static bool vacuum_rel(Oid relid, RangeVar *relation, int options,
-		   VacuumParams *params);
 
 /*
  * Primary entry point for manual VACUUM and ANALYZE commands
@@ -130,20 +130,77 @@ static bool vacuum_rel(Oid relid, RangeVar *relation, int options,
  * happen in vacuum().
  */
 void
-ExecVacuum(VacuumStmt *vacstmt, bool isTopLevel)
+ExecVacuum(ParseState *pstate, VacuumStmt *vacstmt, bool isTopLevel)
 {
 	VacuumParams params;
+	bool		verbose = false;
+	bool		skip_locked = false;
+	bool		analyze = false;
+	bool		freeze = false;
+	bool		full = false;
+	bool		disable_page_skipping = false;
+	ListCell   *lc;
+
+	/* Set default value */
+	params.index_cleanup = VACOPT_TERNARY_DEFAULT;
+	params.truncate = VACOPT_TERNARY_DEFAULT;
+
+	/* Parse options list */
+	foreach(lc, vacstmt->options)
+	{
+		DefElem    *opt = (DefElem *) lfirst(lc);
+
+		/* Parse common options for VACUUM and ANALYZE */
+		if (strcmp(opt->defname, "verbose") == 0)
+			verbose = defGetBoolean(opt);
+		else if (strcmp(opt->defname, "skip_locked") == 0)
+			skip_locked = defGetBoolean(opt);
+		else if (!vacstmt->is_vacuumcmd)
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("unrecognized ANALYZE option \"%s\"", opt->defname),
+					 parser_errposition(pstate, opt->location)));
+
+		/* Parse options available on VACUUM */
+		else if (strcmp(opt->defname, "analyze") == 0)
+			analyze = defGetBoolean(opt);
+		else if (strcmp(opt->defname, "freeze") == 0)
+			freeze = defGetBoolean(opt);
+		else if (strcmp(opt->defname, "full") == 0)
+			full = defGetBoolean(opt);
+		else if (strcmp(opt->defname, "disable_page_skipping") == 0)
+			disable_page_skipping = defGetBoolean(opt);
+		else if (strcmp(opt->defname, "index_cleanup") == 0)
+			params.index_cleanup = get_vacopt_ternary_value(opt);
+		else if (strcmp(opt->defname, "truncate") == 0)
+			params.truncate = get_vacopt_ternary_value(opt);
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_SYNTAX_ERROR),
+					 errmsg("unrecognized VACUUM option \"%s\"", opt->defname),
+					 parser_errposition(pstate, opt->location)));
+	}
+
+	/* Set vacuum options */
+	params.options =
+		(vacstmt->is_vacuumcmd ? VACOPT_VACUUM : VACOPT_ANALYZE) |
+		(verbose ? VACOPT_VERBOSE : 0) |
+		(skip_locked ? VACOPT_SKIP_LOCKED : 0) |
+		(analyze ? VACOPT_ANALYZE : 0) |
+		(freeze ? VACOPT_FREEZE : 0) |
+		(full ? VACOPT_FULL : 0) |
+		(disable_page_skipping ? VACOPT_DISABLE_PAGE_SKIPPING : 0);
 
 	/* sanity checks on options */
-	Assert(vacstmt->options & (VACOPT_VACUUM | VACOPT_ANALYZE));
-	Assert((vacstmt->options & VACOPT_VACUUM) ||
-		   !(vacstmt->options & (VACOPT_FULL | VACOPT_FREEZE)));
-	Assert(!(vacstmt->options & VACOPT_SKIPTOAST));
+	Assert(params.options & (VACOPT_VACUUM | VACOPT_ANALYZE));
+	Assert((params.options & VACOPT_VACUUM) ||
+		   !(params.options & (VACOPT_FULL | VACOPT_FREEZE)));
+	Assert(!(params.options & VACOPT_SKIPTOAST));
 
 	/*
 	 * Make sure VACOPT_ANALYZE is specified if any column lists are present.
 	 */
-	if (!(vacstmt->options & VACOPT_ANALYZE))
+	if (!(params.options & VACOPT_ANALYZE))
 	{
 		ListCell   *lc;
 
@@ -162,7 +219,7 @@ ExecVacuum(VacuumStmt *vacstmt, bool isTopLevel)
 	 * All freeze ages are zero if the FREEZE option is given; otherwise pass
 	 * them as -1 which means to use the default values.
 	 */
-	if (vacstmt->options & VACOPT_FREEZE)
+	if (params.options & VACOPT_FREEZE)
 	{
 		params.freeze_min_age = 0;
 		params.freeze_table_age = 0;
@@ -184,13 +241,11 @@ ExecVacuum(VacuumStmt *vacstmt, bool isTopLevel)
 	params.log_min_duration = -1;
 
 	/* Now go through the common routine */
-	vacuum(vacstmt->options, vacstmt->rels, &params, NULL, isTopLevel);
+	vacuum(vacstmt->rels, &params, NULL, isTopLevel);
 }
 
 /*
  * Internal entry point for VACUUM and ANALYZE commands.
- *
- * options is a bitmask of VacuumOption flags, indicating what to do.
  *
  * relations, if not NIL, is a list of VacuumRelation to process; otherwise,
  * we process all relevant tables in the database.  For each VacuumRelation,
@@ -209,7 +264,7 @@ ExecVacuum(VacuumStmt *vacstmt, bool isTopLevel)
  * memory context that will not disappear at transaction commit.
  */
 void
-vacuum(int options, List *relations, VacuumParams *params,
+vacuum(List *relations, VacuumParams *params,
 	   BufferAccessStrategy bstrategy, bool isTopLevel)
 {
 	static bool in_vacuum = false;
@@ -226,7 +281,7 @@ vacuum(int options, List *relations, VacuumParams *params,
 
 	Assert(params != NULL);
 
-	stmttype = (options & VACOPT_VACUUM) ? "VACUUM" : "ANALYZE";
+	stmttype = (params->options & VACOPT_VACUUM) ? "VACUUM" : "ANALYZE";
 
 	/*
 	 * We cannot run VACUUM inside a user transaction block; if we were inside
@@ -236,7 +291,7 @@ vacuum(int options, List *relations, VacuumParams *params,
 	 *
 	 * ANALYZE (without VACUUM) can run either way.
 	 */
-	if (options & VACOPT_VACUUM)
+	if (params->options & VACOPT_VACUUM)
 	{
 		PreventInTransactionBlock(isTopLevel, stmttype);
 		in_outer_xact = false;
@@ -258,8 +313,8 @@ vacuum(int options, List *relations, VacuumParams *params,
 	/*
 	 * Sanity check DISABLE_PAGE_SKIPPING option.
 	 */
-	if ((options & VACOPT_FULL) != 0 &&
-		(options & VACOPT_DISABLE_PAGE_SKIPPING) != 0)
+	if ((params->options & VACOPT_FULL) != 0 &&
+		(params->options & VACOPT_DISABLE_PAGE_SKIPPING) != 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("VACUUM option DISABLE_PAGE_SKIPPING cannot be used with FULL")));
@@ -269,9 +324,9 @@ vacuum(int options, List *relations, VacuumParams *params,
 	 * in autovacuum --- autovacuum.c does this for itself.
 	 */
 #ifdef ADB
-	if ((options & VACOPT_IN_CLUSTER) == 0)
+	if ((params->options & VACOPT_IN_CLUSTER) == 0)
 #endif /* ADB */
-	if ((options & VACOPT_VACUUM) && !IsAutoVacuumWorkerProcess())
+	if ((params->options & VACOPT_VACUUM) && !IsAutoVacuumWorkerProcess())
 		pgstat_vacuum_stat();
 
 	/*
@@ -302,7 +357,7 @@ vacuum(int options, List *relations, VacuumParams *params,
 	 * vac_context for safekeeping.
 	 */
 #ifdef ADB
-	if (options & VACOPT_IN_CLUSTER)
+	if (params->options & VACOPT_IN_CLUSTER)
 		relations = NIL;	/* waiting coordinator send relations */
 	else
 #endif /* ADB */
@@ -317,7 +372,7 @@ vacuum(int options, List *relations, VacuumParams *params,
 			List	   *sublist;
 			MemoryContext old_context;
 
-			sublist = expand_vacuum_rel(vrel);
+			sublist = expand_vacuum_rel(vrel, params->options);
 			old_context = MemoryContextSwitchTo(vac_context);
 			newrels = list_concat(newrels, sublist);
 			MemoryContextSwitchTo(old_context);
@@ -325,7 +380,7 @@ vacuum(int options, List *relations, VacuumParams *params,
 		relations = newrels;
 	}
 	else
-		relations = get_all_vacuum_rels();
+		relations = get_all_vacuum_rels(params->options);
 
 	/*
 	 * Decide whether we need to start/commit our own transactions.
@@ -341,17 +396,17 @@ vacuum(int options, List *relations, VacuumParams *params,
 	 * transaction block, and also in an autovacuum worker, use own
 	 * transactions so we can release locks sooner.
 	 */
-	if (options & VACOPT_VACUUM)
+	if (params->options & VACOPT_VACUUM)
 		use_own_xacts = true;
 	else
 	{
-		Assert(options & VACOPT_ANALYZE);
+		Assert(params->options & VACOPT_ANALYZE);
 		if (IsAutoVacuumWorkerProcess())
 			use_own_xacts = true;
 		else if (in_outer_xact)
 			use_own_xacts = false;
 #ifdef ADB
-		else if (options & VACOPT_IN_CLUSTER)
+		else if (params->options & VACOPT_IN_CLUSTER)
 			use_own_xacts = true;
 #endif /* ADB */
 		else if (list_length(relations) > 1)
@@ -361,12 +416,12 @@ vacuum(int options, List *relations, VacuumParams *params,
 	}
 
 #ifdef ADB
-	if ((options & VACOPT_IN_CLUSTER) || !under_agtm || IS_PGXC_DATANODE)
+	if ((params->options & VACOPT_IN_CLUSTER) || !under_agtm || IS_PGXC_DATANODE)
 		list_datanode = NIL;
 	else
 		list_datanode = get_vacuum_all_node(relations,
 											vac_context,
-											(options & VACOPT_VACUUM) ? true:false);
+											(params->options & VACOPT_VACUUM) ? true:false);
 
 	if (!under_agtm || IS_PGXC_DATANODE)
 	{
@@ -391,7 +446,6 @@ vacuum(int options, List *relations, VacuumParams *params,
 		ClusterTocSetCustomFun(&buf, cluster_vacuum);
 
 		begin_mem_toc_insert(&buf, REMOTE_KEY_VACUUM_INFO);
-		appendBinaryStringInfo(&buf, (char*)&options, sizeof(options));
 		appendBinaryStringInfo(&buf, (char*)params, sizeof(*params));
 		end_mem_toc_insert(&buf, REMOTE_KEY_VACUUM_INFO);
 
@@ -456,13 +510,13 @@ vacuum(int options, List *relations, VacuumParams *params,
 		{
 			VacuumRelation *vrel = lfirst_node(VacuumRelation, cur);
 
-			if (options & VACOPT_VACUUM)
+			if (params->options & VACOPT_VACUUM)
 			{
-				if (!vacuum_rel(vrel->oid, vrel->relation, options, params))
+				if (!vacuum_rel(vrel->oid, vrel->relation, params))
 					continue;
 			}
 
-			if (options & VACOPT_ANALYZE)
+			if (params->options & VACOPT_ANALYZE)
 			{
 				/*
 				 * If using separate xacts, start one for analyze. Otherwise,
@@ -477,11 +531,15 @@ vacuum(int options, List *relations, VacuumParams *params,
 
 #ifdef ADB
 				if (under_agtm)
-					analyze_rel(vrel->oid, vrel->relation, options|VACOPT_IN_CLUSTER, params,
+				{
+					int options = params->options;
+					params->options |= VACOPT_IN_CLUSTER;
+					analyze_rel(vrel->oid, vrel->relation, params,
 								vrel->va_cols, in_outer_xact, vac_strategy);
-				else
+					params->options = options;
+				}else
 #endif /* ADB */
-				analyze_rel(vrel->oid, vrel->relation, options, params,
+				analyze_rel(vrel->oid, vrel->relation, params,
 							vrel->va_cols, in_outer_xact, vac_strategy);
 
 				if (use_own_xacts)
@@ -492,11 +550,10 @@ vacuum(int options, List *relations, VacuumParams *params,
 			}
 		}
 #ifdef ADB
-		if (options & VACOPT_IN_CLUSTER)
+		if (params->options & VACOPT_IN_CLUSTER)
 		{
 			ClusterVacuumCmdContext context;
 			context.params = params;
-			context.options = options;
 			context.use_own_xacts = use_own_xacts;
 			context.in_outer_xact = in_outer_xact;
 
@@ -529,7 +586,7 @@ vacuum(int options, List *relations, VacuumParams *params,
 		StartTransactionCommand();
 	}
 
-	if ((options & VACOPT_VACUUM) && !IsAutoVacuumWorkerProcess())
+	if ((params->options & VACOPT_VACUUM) && !IsAutoVacuumWorkerProcess())
 	{
 		/*
 		 * Update pg_database.datfrozenxid, and truncate pg_xact if possible.
@@ -562,6 +619,204 @@ vacuum(int options, List *relations, VacuumParams *params,
 }
 
 /*
+ * Check if a given relation can be safely vacuumed or analyzed.  If the
+ * user is not the relation owner, issue a WARNING log message and return
+ * false to let the caller decide what to do with this relation.  This
+ * routine is used to decide if a relation can be processed for VACUUM or
+ * ANALYZE.
+ */
+bool
+vacuum_is_relation_owner(Oid relid, Form_pg_class reltuple, int options)
+{
+	char	   *relname;
+
+	Assert((options & (VACOPT_VACUUM | VACOPT_ANALYZE)) != 0);
+
+	/*
+	 * Check permissions.
+	 *
+	 * We allow the user to vacuum or analyze a table if he is superuser, the
+	 * table owner, or the database owner (but in the latter case, only if
+	 * it's not a shared relation).  pg_class_ownercheck includes the
+	 * superuser case.
+	 *
+	 * Note we choose to treat permissions failure as a WARNING and keep
+	 * trying to vacuum or analyze the rest of the DB --- is this appropriate?
+	 */
+	if (pg_class_ownercheck(relid, GetUserId()) ||
+		(pg_database_ownercheck(MyDatabaseId, GetUserId()) && !reltuple->relisshared))
+		return true;
+
+	relname = NameStr(reltuple->relname);
+
+	if ((options & VACOPT_VACUUM) != 0)
+	{
+		if (reltuple->relisshared)
+			ereport(WARNING,
+					(errmsg("skipping \"%s\" --- only superuser can vacuum it",
+							relname)));
+		else if (reltuple->relnamespace == PG_CATALOG_NAMESPACE)
+			ereport(WARNING,
+					(errmsg("skipping \"%s\" --- only superuser or database owner can vacuum it",
+							relname)));
+		else
+			ereport(WARNING,
+					(errmsg("skipping \"%s\" --- only table or database owner can vacuum it",
+							relname)));
+
+		/*
+		 * For VACUUM ANALYZE, both logs could show up, but just generate
+		 * information for VACUUM as that would be the first one to be
+		 * processed.
+		 */
+		return false;
+	}
+
+	if ((options & VACOPT_ANALYZE) != 0)
+	{
+		if (reltuple->relisshared)
+			ereport(WARNING,
+					(errmsg("skipping \"%s\" --- only superuser can analyze it",
+							relname)));
+		else if (reltuple->relnamespace == PG_CATALOG_NAMESPACE)
+			ereport(WARNING,
+					(errmsg("skipping \"%s\" --- only superuser or database owner can analyze it",
+							relname)));
+		else
+			ereport(WARNING,
+					(errmsg("skipping \"%s\" --- only table or database owner can analyze it",
+							relname)));
+	}
+
+	return false;
+}
+
+
+/*
+ * vacuum_open_relation
+ *
+ * This routine is used for attempting to open and lock a relation which
+ * is going to be vacuumed or analyzed.  If the relation cannot be opened
+ * or locked, a log is emitted if possible.
+ */
+Relation
+vacuum_open_relation(Oid relid, RangeVar *relation, int options,
+					 bool verbose, LOCKMODE lmode)
+{
+	Relation	onerel;
+	bool		rel_lock = true;
+	int			elevel;
+
+	Assert((options & (VACOPT_VACUUM | VACOPT_ANALYZE)) != 0);
+
+	/*
+	 * Open the relation and get the appropriate lock on it.
+	 *
+	 * There's a race condition here: the relation may have gone away since
+	 * the last time we saw it.  If so, we don't need to vacuum or analyze it.
+	 *
+	 * If we've been asked not to wait for the relation lock, acquire it first
+	 * in non-blocking mode, before calling try_relation_open().
+	 */
+	if (!(options & VACOPT_SKIP_LOCKED))
+		onerel = try_relation_open(relid, lmode);
+	else if (ConditionalLockRelationOid(relid, lmode))
+		onerel = try_relation_open(relid, NoLock);
+	else
+	{
+		onerel = NULL;
+		rel_lock = false;
+	}
+
+	/* if relation is opened, leave */
+	if (onerel)
+		return onerel;
+
+#ifdef ADB
+		if ((options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER &&
+			IsConnFromCoord())
+		{
+			/* we report an error, let master known we not locked the relation */
+			Assert(relation);
+			if (!rel_lock)
+				ereport(ERROR,
+						(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
+						 errmsg("Can not analyze of \"%s\" --- lock not available",
+								relation->relname)));
+			else
+				ereport(ERROR,
+						(errcode(ERRCODE_UNDEFINED_TABLE),
+						 errmsg("Can not analyze of \"%s\" --- relation no longer exists",
+								relation->relname)));
+		}
+#endif /* ADB */
+
+	/*
+	 * Relation could not be opened, hence generate if possible a log
+	 * informing on the situation.
+	 *
+	 * If the RangeVar is not defined, we do not have enough information to
+	 * provide a meaningful log statement.  Chances are that the caller has
+	 * intentionally not provided this information so that this logging is
+	 * skipped, anyway.
+	 */
+	if (relation == NULL)
+		return NULL;
+
+	/*
+	 * Determine the log level.
+	 *
+	 * For manual VACUUM or ANALYZE, we emit a WARNING to match the log
+	 * statements in the permission checks; otherwise, only log if the caller
+	 * so requested.
+	 */
+	if (!IsAutoVacuumWorkerProcess())
+		elevel = WARNING;
+	else if (verbose)
+		elevel = LOG;
+	else
+		return NULL;
+
+	if ((options & VACOPT_VACUUM) != 0)
+	{
+		if (!rel_lock)
+			ereport(elevel,
+					(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
+					 errmsg("skipping vacuum of \"%s\" --- lock not available",
+							relation->relname)));
+		else
+			ereport(elevel,
+					(errcode(ERRCODE_UNDEFINED_TABLE),
+					 errmsg("skipping vacuum of \"%s\" --- relation no longer exists",
+							relation->relname)));
+
+		/*
+		 * For VACUUM ANALYZE, both logs could show up, but just generate
+		 * information for VACUUM as that would be the first one to be
+		 * processed.
+		 */
+		return NULL;
+	}
+
+	if ((options & VACOPT_ANALYZE) != 0)
+	{
+		if (!rel_lock)
+			ereport(elevel,
+					(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
+					 errmsg("skipping analyze of \"%s\" --- lock not available",
+							relation->relname)));
+		else
+			ereport(elevel,
+					(errcode(ERRCODE_UNDEFINED_TABLE),
+					 errmsg("skipping analyze of \"%s\" --- relation no longer exists",
+							relation->relname)));
+	}
+
+	return NULL;
+}
+
+
+/*
  * Given a VacuumRelation, fill in the table OID if it wasn't specified,
  * and optionally add VacuumRelations for partitions of the table.
  *
@@ -576,7 +831,7 @@ vacuum(int options, List *relations, VacuumParams *params,
  * are made in vac_context.
  */
 static List *
-expand_vacuum_rel(VacuumRelation *vrel)
+expand_vacuum_rel(VacuumRelation *vrel, int options)
 {
 	List	   *vacrels = NIL;
 	MemoryContext oldcontext;
@@ -595,31 +850,67 @@ expand_vacuum_rel(VacuumRelation *vrel)
 		HeapTuple	tuple;
 		Form_pg_class classForm;
 		bool		include_parts;
+		int			rvr_opts;
+
+		/*
+		 * Since autovacuum workers supply OIDs when calling vacuum(), no
+		 * autovacuum worker should reach this code.
+		 */
+		Assert(!IsAutoVacuumWorkerProcess());
 
 		/*
 		 * We transiently take AccessShareLock to protect the syscache lookup
 		 * below, as well as find_all_inheritors's expectation that the caller
 		 * holds some lock on the starting relation.
 		 */
-		relid = RangeVarGetRelid(vrel->relation, AccessShareLock, false);
+		rvr_opts = (options & VACOPT_SKIP_LOCKED) ? RVR_SKIP_LOCKED : 0;
+		relid = RangeVarGetRelidExtended(vrel->relation,
+										 AccessShareLock,
+										 rvr_opts,
+										 NULL, NULL);
 
 		/*
-		 * Make a returnable VacuumRelation for this rel.
+		 * If the lock is unavailable, emit the same log statement that
+		 * vacuum_rel() and analyze_rel() would.
 		 */
-		oldcontext = MemoryContextSwitchTo(vac_context);
-		vacrels = lappend(vacrels, makeVacuumRelation(vrel->relation,
-													  relid,
-													  vrel->va_cols));
-		MemoryContextSwitchTo(oldcontext);
+		if (!OidIsValid(relid))
+		{
+			if (options & VACOPT_VACUUM)
+				ereport(WARNING,
+						(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
+						 errmsg("skipping vacuum of \"%s\" --- lock not available",
+								vrel->relation->relname)));
+			else
+				ereport(WARNING,
+						(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
+						 errmsg("skipping analyze of \"%s\" --- lock not available",
+								vrel->relation->relname)));
+			return vacrels;
+		}
 
 		/*
-		 * To check whether the relation is a partitioned table, fetch its
-		 * syscache entry.
+		 * To check whether the relation is a partitioned table and its
+		 * ownership, fetch its syscache entry.
 		 */
 		tuple = SearchSysCache1(RELOID, ObjectIdGetDatum(relid));
 		if (!HeapTupleIsValid(tuple))
 			elog(ERROR, "cache lookup failed for relation %u", relid);
 		classForm = (Form_pg_class) GETSTRUCT(tuple);
+
+		/*
+		 * Make a returnable VacuumRelation for this rel if user is a proper
+		 * owner.
+		 */
+		if (vacuum_is_relation_owner(relid, classForm, options))
+		{
+			oldcontext = MemoryContextSwitchTo(vac_context);
+			vacrels = lappend(vacrels, makeVacuumRelation(vrel->relation,
+														  relid,
+														  vrel->va_cols));
+			MemoryContextSwitchTo(oldcontext);
+		}
+
+
 		include_parts = (classForm->relkind == RELKIND_PARTITIONED_TABLE);
 		ReleaseSysCache(tuple);
 
@@ -628,7 +919,9 @@ expand_vacuum_rel(VacuumRelation *vrel)
 		 * the list returned by find_all_inheritors() includes the passed-in
 		 * OID, so we have to skip that.  There's no point in taking locks on
 		 * the individual partitions yet, and doing so would just add
-		 * unnecessary deadlock risk.
+		 * unnecessary deadlock risk.  For this last reason we do not check
+		 * yet the ownership of the partitions, which get added to the list to
+		 * process.  Ownership will be checked later on anyway.
 		 */
 		if (include_parts)
 		{
@@ -677,21 +970,26 @@ expand_vacuum_rel(VacuumRelation *vrel)
  * the current database.  The list is built in vac_context.
  */
 static List *
-get_all_vacuum_rels(void)
+get_all_vacuum_rels(int options)
 {
 	List	   *vacrels = NIL;
 	Relation	pgclass;
-	HeapScanDesc scan;
+	TableScanDesc scan;
 	HeapTuple	tuple;
 
-	pgclass = heap_open(RelationRelationId, AccessShareLock);
+	pgclass = table_open(RelationRelationId, AccessShareLock);
 
-	scan = heap_beginscan_catalog(pgclass, 0, NULL);
+	scan = table_beginscan_catalog(pgclass, 0, NULL);
 
 	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
 		Form_pg_class classForm = (Form_pg_class) GETSTRUCT(tuple);
 		MemoryContext oldcontext;
+		Oid			relid = classForm->oid;
+
+		/* check permissions of relation */
+		if (!vacuum_is_relation_owner(relid, classForm, options))
+			continue;
 
 		/*
 		 * We include partitioned tables here; depending on which operation is
@@ -710,13 +1008,13 @@ get_all_vacuum_rels(void)
 		 */
 		oldcontext = MemoryContextSwitchTo(vac_context);
 		vacrels = lappend(vacrels, makeVacuumRelation(NULL,
-													  HeapTupleGetOid(tuple),
+													  relid,
 													  NIL));
 		MemoryContextSwitchTo(oldcontext);
 	}
 
-	heap_endscan(scan);
-	heap_close(pgclass, AccessShareLock);
+	table_endscan(scan);
+	table_close(pgclass, AccessShareLock);
 
 	return vacrels;
 }
@@ -1027,7 +1325,7 @@ vac_update_relstats(Relation relation,
 	Form_pg_class pgcform;
 	bool		dirty;
 
-	rd = heap_open(RelationRelationId, RowExclusiveLock);
+	rd = table_open(RelationRelationId, RowExclusiveLock);
 
 	/* Fetch a copy of the tuple to scribble on */
 	ctup = SearchSysCacheCopy1(RELOID, ObjectIdGetDatum(relid));
@@ -1123,7 +1421,7 @@ vac_update_relstats(Relation relation,
 	if (dirty)
 		heap_inplace_update(rd, ctup);
 
-	heap_close(rd, RowExclusiveLock);
+	table_close(rd, RowExclusiveLock);
 }
 
 
@@ -1186,7 +1484,7 @@ vac_update_datfrozenxid(void)
 	 * We must seqscan pg_class to find the minimum Xid, because there is no
 	 * index that can help us here.
 	 */
-	relation = heap_open(RelationRelationId, AccessShareLock);
+	relation = table_open(RelationRelationId, AccessShareLock);
 
 	scan = systable_beginscan(relation, InvalidOid, false,
 							  NULL, 0, NULL);
@@ -1197,41 +1495,66 @@ vac_update_datfrozenxid(void)
 
 		/*
 		 * Only consider relations able to hold unfrozen XIDs (anything else
-		 * should have InvalidTransactionId in relfrozenxid anyway.)
+		 * should have InvalidTransactionId in relfrozenxid anyway).
 		 */
 		if (classForm->relkind != RELKIND_RELATION &&
 			classForm->relkind != RELKIND_MATVIEW &&
 			classForm->relkind != RELKIND_TOASTVALUE)
+		{
+			Assert(!TransactionIdIsValid(classForm->relfrozenxid));
+			Assert(!MultiXactIdIsValid(classForm->relminmxid));
 			continue;
-
-		Assert(TransactionIdIsNormal(classForm->relfrozenxid));
-		Assert(MultiXactIdIsValid(classForm->relminmxid));
+		}
 
 		/*
+		 * Some table AMs might not need per-relation xid / multixid horizons.
+		 * It therefore seems reasonable to allow relfrozenxid and relminmxid
+		 * to not be set (i.e. set to their respective Invalid*Id)
+		 * independently. Thus validate and compute horizon for each only if
+		 * set.
+		 *
 		 * If things are working properly, no relation should have a
 		 * relfrozenxid or relminmxid that is "in the future".  However, such
 		 * cases have been known to arise due to bugs in pg_upgrade.  If we
 		 * see any entries that are "in the future", chicken out and don't do
-		 * anything.  This ensures we won't truncate clog before those
-		 * relations have been scanned and cleaned up.
+		 * anything.  This ensures we won't truncate clog & multixact SLRUs
+		 * before those relations have been scanned and cleaned up.
 		 */
-		if (TransactionIdPrecedes(lastSaneFrozenXid, classForm->relfrozenxid) ||
-			MultiXactIdPrecedes(lastSaneMinMulti, classForm->relminmxid))
+
+		if (TransactionIdIsValid(classForm->relfrozenxid))
 		{
-			bogus = true;
-			break;
+			Assert(TransactionIdIsNormal(classForm->relfrozenxid));
+
+			/* check for values in the future */
+			if (TransactionIdPrecedes(lastSaneFrozenXid, classForm->relfrozenxid))
+			{
+				bogus = true;
+				break;
+			}
+
+			/* determine new horizon */
+			if (TransactionIdPrecedes(classForm->relfrozenxid, newFrozenXid))
+				newFrozenXid = classForm->relfrozenxid;
 		}
 
-		if (TransactionIdPrecedes(classForm->relfrozenxid, newFrozenXid))
-			newFrozenXid = classForm->relfrozenxid;
+		if (MultiXactIdIsValid(classForm->relminmxid))
+		{
+			/* check for values in the future */
+			if (MultiXactIdPrecedes(lastSaneMinMulti, classForm->relminmxid))
+			{
+				bogus = true;
+				break;
+			}
 
-		if (MultiXactIdPrecedes(classForm->relminmxid, newMinMulti))
-			newMinMulti = classForm->relminmxid;
+			/* determine new horizon */
+			if (MultiXactIdPrecedes(classForm->relminmxid, newMinMulti))
+				newMinMulti = classForm->relminmxid;
+		}
 	}
 
 	/* we're done with pg_class */
 	systable_endscan(scan);
-	heap_close(relation, AccessShareLock);
+	table_close(relation, AccessShareLock);
 
 	/* chicken out if bogus data found */
 	if (bogus)
@@ -1241,7 +1564,7 @@ vac_update_datfrozenxid(void)
 	Assert(MultiXactIdIsValid(newMinMulti));
 
 	/* Now fetch the pg_database tuple we need to update. */
-	relation = heap_open(DatabaseRelationId, RowExclusiveLock);
+	relation = table_open(DatabaseRelationId, RowExclusiveLock);
 
 	/* Fetch a copy of the tuple to scribble on */
 	tuple = SearchSysCacheCopy1(DATABASEOID, ObjectIdGetDatum(MyDatabaseId));
@@ -1283,7 +1606,7 @@ vac_update_datfrozenxid(void)
 		heap_inplace_update(relation, tuple);
 
 	heap_freetuple(tuple);
-	heap_close(relation, RowExclusiveLock);
+	table_close(relation, RowExclusiveLock);
 
 	/*
 	 * If we were able to advance datfrozenxid or datminmxid, see if we can
@@ -1321,7 +1644,7 @@ vac_truncate_clog(TransactionId frozenXID,
 {
 	TransactionId nextXID = ReadNewTransactionId();
 	Relation	relation;
-	HeapScanDesc scan;
+	TableScanDesc scan;
 	HeapTuple	tuple;
 	Oid			oldestxid_datoid;
 	Oid			minmulti_datoid;
@@ -1350,9 +1673,9 @@ vac_truncate_clog(TransactionId frozenXID,
 	 * worst possible outcome is that pg_xact is not truncated as aggressively
 	 * as it could be.
 	 */
-	relation = heap_open(DatabaseRelationId, AccessShareLock);
+	relation = table_open(DatabaseRelationId, AccessShareLock);
 
-	scan = heap_beginscan_catalog(relation, 0, NULL);
+	scan = table_beginscan_catalog(relation, 0, NULL);
 
 	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
@@ -1381,19 +1704,19 @@ vac_truncate_clog(TransactionId frozenXID,
 		else if (TransactionIdPrecedes(datfrozenxid, frozenXID))
 		{
 			frozenXID = datfrozenxid;
-			oldestxid_datoid = HeapTupleGetOid(tuple);
+			oldestxid_datoid = dbform->oid;
 		}
 
 		if (MultiXactIdPrecedes(datminmxid, minMulti))
 		{
 			minMulti = datminmxid;
-			minmulti_datoid = HeapTupleGetOid(tuple);
+			minmulti_datoid = dbform->oid;
 		}
 	}
 
-	heap_endscan(scan);
+	table_endscan(scan);
 
-	heap_close(relation, AccessShareLock);
+	table_close(relation, AccessShareLock);
 
 	/*
 	 * Do not truncate CLOG if we seem to have suffered wraparound already;
@@ -1466,7 +1789,7 @@ vac_truncate_clog(TransactionId frozenXID,
  *		At entry and exit, we are not inside a transaction.
  */
 static bool
-vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
+vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 {
 	LOCKMODE	lmode;
 	Relation	onerel;
@@ -1475,7 +1798,6 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	Oid			save_userid;
 	int			save_sec_context;
 	int			save_nestlevel;
-	bool		rel_lock = true;
 #ifdef ADB
 	StringInfoData	buf;
 	List		   *conns;
@@ -1495,13 +1817,13 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 #ifdef ADB
 	if (!OidIsValid(relid) &&
 		relation != NULL &&
-		(options & VACOPT_IN_CLUSTER))
+		(params->options & VACOPT_IN_CLUSTER))
 	{
 		relid = RangeVarGetRelid(relation, AccessShareLock, true);
 	}
 #endif /* ADB */
 
-	if (!(options & VACOPT_FULL))
+	if (!(params->options & VACOPT_FULL))
 	{
 		/*
 		 * In lazy vacuum, we can set the PROC_IN_VACUUM flag, which lets
@@ -1541,77 +1863,23 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	 * vacuum, but just ShareUpdateExclusiveLock for concurrent vacuum. Either
 	 * way, we can be sure that no other backend is vacuuming the same table.
 	 */
-	lmode = (options & VACOPT_FULL) ? AccessExclusiveLock : ShareUpdateExclusiveLock;
+	lmode = (params->options & VACOPT_FULL) ?
+		AccessExclusiveLock : ShareUpdateExclusiveLock;
 
-	/*
-	 * Open the relation and get the appropriate lock on it.
-	 *
-	 * There's a race condition here: the rel may have gone away since the
-	 * last time we saw it.  If so, we don't need to vacuum it.
-	 *
-	 * If we've been asked not to wait for the relation lock, acquire it first
-	 * in non-blocking mode, before calling try_relation_open().
-	 */
-	if (!(options & VACOPT_NOWAIT))
-		onerel = try_relation_open(relid, lmode);
-	else if (ConditionalLockRelationOid(relid, lmode))
-		onerel = try_relation_open(relid, NoLock);
-	else
-	{
-		onerel = NULL;
-		rel_lock = false;
-	}
+	/* open the relation and get the appropriate lock on it */
+	onerel = vacuum_open_relation(relid, relation, params->options,
+								  params->log_min_duration >= 0, lmode);
 
-	/*
-	 * If we failed to open or lock the relation, emit a log message before
-	 * exiting.
-	 */
+	/* leave if relation could not be opened or locked */
 	if (!onerel)
 	{
-		int			elevel = 0;
-
-		/*
-		 * Determine the log level.
-		 *
-		 * If the RangeVar is not defined, we do not have enough information
-		 * to provide a meaningful log statement.  Chances are that
-		 * vacuum_rel's caller has intentionally not provided this information
-		 * so that this logging is skipped, anyway.
-		 *
-		 * Otherwise, for autovacuum logs, we emit a LOG if
-		 * log_autovacuum_min_duration is not disabled.  For manual VACUUM, we
-		 * emit a WARNING to match the log statements in the permission
-		 * checks.
-		 */
-		if (relation != NULL)
-		{
-			if (!IsAutoVacuumWorkerProcess())
-				elevel = WARNING;
-			else if (params->log_min_duration >= 0)
-				elevel = LOG;
-		}
-
-		if (elevel != 0)
-		{
-			if (!rel_lock)
-				ereport(elevel,
-						(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
-						 errmsg("skipping vacuum of \"%s\" --- lock not available",
-								relation->relname)));
-			else
-				ereport(elevel,
-						(errcode(ERRCODE_UNDEFINED_TABLE),
-						 errmsg("skipping vacuum of \"%s\" --- relation no longer exists",
-								relation->relname)));
-		}
-
 		PopActiveSnapshot();
 		CommitTransactionCommand();
 		return false;
 	}
 
 #ifdef ADB
-	if ((options & VACOPT_FULL) != 0 &&
+	if ((params->options & VACOPT_FULL) != 0 &&
 		onerel->rd_auxlist != NIL)
 	{
 		ereport(LOG,
@@ -1625,30 +1893,17 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 #endif /* ADB */
 
 	/*
-	 * Check permissions.
-	 *
-	 * We allow the user to vacuum a table if he is superuser, the table
-	 * owner, or the database owner (but in the latter case, only if it's not
-	 * a shared relation).  pg_class_ownercheck includes the superuser case.
-	 *
-	 * Note we choose to treat permissions failure as a WARNING and keep
-	 * trying to vacuum the rest of the DB --- is this appropriate?
+	 * Check if relation needs to be skipped based on ownership.  This check
+	 * happens also when building the relation list to vacuum for a manual
+	 * operation, and needs to be done additionally here as VACUUM could
+	 * happen across multiple transactions where relation ownership could have
+	 * changed in-between.  Make sure to only generate logs for VACUUM in this
+	 * case.
 	 */
-	if (!(pg_class_ownercheck(RelationGetRelid(onerel), GetUserId()) ||
-		  (pg_database_ownercheck(MyDatabaseId, GetUserId()) && !onerel->rd_rel->relisshared)))
+	if (!vacuum_is_relation_owner(RelationGetRelid(onerel),
+								  onerel->rd_rel,
+								  params->options & VACOPT_VACUUM))
 	{
-		if (onerel->rd_rel->relisshared)
-			ereport(WARNING,
-					(errmsg("skipping \"%s\" --- only superuser can vacuum it",
-							RelationGetRelationName(onerel))));
-		else if (onerel->rd_rel->relnamespace == PG_CATALOG_NAMESPACE)
-			ereport(WARNING,
-					(errmsg("skipping \"%s\" --- only superuser or database owner can vacuum it",
-							RelationGetRelationName(onerel))));
-		else
-			ereport(WARNING,
-					(errmsg("skipping \"%s\" --- only table or database owner can vacuum it",
-							RelationGetRelationName(onerel))));
 		relation_close(onerel, lmode);
 		PopActiveSnapshot();
 		CommitTransactionCommand();
@@ -1714,6 +1969,26 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	onerelid = onerel->rd_lockInfo.lockRelId;
 	LockRelationIdForSession(&onerelid, lmode);
 
+	/* Set index cleanup option based on reloptions if not yet */
+	if (params->index_cleanup == VACOPT_TERNARY_DEFAULT)
+	{
+		if (onerel->rd_options == NULL ||
+			((StdRdOptions *) onerel->rd_options)->vacuum_index_cleanup)
+			params->index_cleanup = VACOPT_TERNARY_ENABLED;
+		else
+			params->index_cleanup = VACOPT_TERNARY_DISABLED;
+	}
+
+	/* Set truncate option based on reloptions if not yet */
+	if (params->truncate == VACOPT_TERNARY_DEFAULT)
+	{
+		if (onerel->rd_options == NULL ||
+			((StdRdOptions *) onerel->rd_options)->vacuum_truncate)
+			params->truncate = VACOPT_TERNARY_ENABLED;
+		else
+			params->truncate = VACOPT_TERNARY_DISABLED;
+	}
+
 #ifdef ADB
 	conns = NIL;
 	if (IsCnMaster() &&
@@ -1767,7 +2042,7 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	 * us to process it.  In VACUUM FULL, though, the toast table is
 	 * automatically rebuilt by cluster_rel so we shouldn't recurse to it.
 	 */
-	if (!(options & VACOPT_SKIPTOAST) && !(options & VACOPT_FULL))
+	if (!(params->options & VACOPT_SKIPTOAST) && !(params->options & VACOPT_FULL))
 		toast_relid = onerel->rd_rel->reltoastrelid;
 	else
 		toast_relid = InvalidOid;
@@ -1786,18 +2061,22 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	/*
 	 * Do the actual work --- either FULL or "lazy" vacuum
 	 */
-	if (options & VACOPT_FULL)
+	if (params->options & VACOPT_FULL)
 	{
+		int			cluster_options = 0;
+
 		/* close relation before vacuuming, but hold lock until commit */
 		relation_close(onerel, NoLock);
 		onerel = NULL;
 
+		if ((params->options & VACOPT_VERBOSE) != 0)
+			cluster_options |= CLUOPT_VERBOSE;
+
 		/* VACUUM FULL is now a variant of CLUSTER; see cluster.c */
-		cluster_rel(relid, InvalidOid, false,
-					(options & VACOPT_VERBOSE) != 0);
+		cluster_rel(relid, InvalidOid, cluster_options);
 	}
 	else
-		lazy_vacuum_rel(onerel, options, params, vac_strategy);
+		table_relation_vacuum(onerel, params, vac_strategy);
 
 	/* Roll back any GUC changes executed by index functions */
 	AtEOXact_GUC(false, save_nestlevel);
@@ -1831,7 +2110,7 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	 * totally unimportant for toast relations.
 	 */
 	if (toast_relid != InvalidOid)
-		vacuum_rel(toast_relid, NULL, options, params);
+		vacuum_rel(toast_relid, NULL, params);
 
 	/*
 	 * Now release the session-level lock on the master table.
@@ -1848,7 +2127,7 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
  * specified kind of lock on each.  Return an array of Relation pointers for
  * the indexes into *Irel, and the number of indexes into *nindexes.
  *
- * We consider an index vacuumable if it is marked insertable (IndexIsReady).
+ * We consider an index vacuumable if it is marked insertable (indisready).
  * If it isn't, probably a CREATE INDEX CONCURRENTLY command failed early in
  * execution, and what we have is too corrupt to be processable.  We will
  * vacuum even if the index isn't indisvalid; this is important because in a
@@ -1883,7 +2162,7 @@ vac_open_indexes(Relation relation, LOCKMODE lockmode,
 		Relation	indrel;
 
 		indrel = index_open(indexoid, lockmode);
-		if (IndexIsReady(indrel->rd_index))
+		if (indrel->rd_index->indisready)
 			(*Irel)[i++] = indrel;
 		else
 			index_close(indrel, lockmode);
@@ -1929,13 +2208,13 @@ vacuum_delay_point(void)
 	if (VacuumCostActive && !InterruptPending &&
 		VacuumCostBalance >= VacuumCostLimit)
 	{
-		int			msec;
+		double		msec;
 
 		msec = VacuumCostDelay * VacuumCostBalance / VacuumCostLimit;
 		if (msec > VacuumCostDelay * 4)
 			msec = VacuumCostDelay * 4;
 
-		pg_usleep(msec * 1000L);
+		pg_usleep((long) (msec * 1000));
 
 		VacuumCostBalance = 0;
 
@@ -1947,11 +2226,22 @@ vacuum_delay_point(void)
 	}
 }
 
+/*
+ * A wrapper function of defGetBoolean().
+ *
+ * This function returns VACOPT_TERNARY_ENABLED and VACOPT_TERNARY_DISABLED
+ * instead of true and false.
+ */
+static VacOptTernaryValue
+get_vacopt_ternary_value(DefElem *def)
+{
+	return defGetBoolean(def) ? VACOPT_TERNARY_ENABLED : VACOPT_TERNARY_DISABLED;
+}
+
 #ifdef ADB
 void cluster_vacuum(struct StringInfoData *msg)
 {
 	StringInfoData	buf;
-	int				options;
 	VacuumParams	params;
 
 	buf.data = mem_toc_lookup(msg, REMOTE_KEY_VACUUM_INFO, &buf.maxlen);
@@ -1964,11 +2254,9 @@ void cluster_vacuum(struct StringInfoData *msg)
 	buf.cursor = 0;
 	buf.len = buf.maxlen;
 
-	pq_copymsgbytes(&buf, (char*)&options, sizeof(options));
 	pq_copymsgbytes(&buf, (char*)&params, sizeof(params));
 
-	vacuum(options | VACOPT_IN_CLUSTER,
-		   NIL,
+	vacuum(NIL,
 		   &params,
 		   NULL,
 		   true);
@@ -2134,6 +2422,7 @@ static int process_master_vacuum_cmd(ClusterVacuumCmdContext *context, const cha
 	char *relname;
 	RangeVar *range = NULL;
 	List *va_cols;
+	VacuumParams params;
 	int mtype;
 	Oid relid;
 
@@ -2149,7 +2438,7 @@ static int process_master_vacuum_cmd(ClusterVacuumCmdContext *context, const cha
 		namespace = load_node_string(&buf, false);
 		relname = load_node_string(&buf, false);
 		range = makeRangeVar(namespace, relname, -1);
-		vacuum_rel(InvalidOid, range, context->options, context->params);
+		vacuum_rel(InvalidOid, range, context->params);
 		put_executor_end_msg(true);
 		break;
 	case CLUSTER_VACUUM_CMD_ANALYZE:
@@ -2169,8 +2458,10 @@ static int process_master_vacuum_cmd(ClusterVacuumCmdContext *context, const cha
 			PushActiveSnapshot(GetTransactionSnapshot());
 		}
 		relid = RangeVarGetRelid(range, AccessShareLock, false);
-		analyze_rel(relid, range, context->options|(mtype == CLUSTER_VACUUM_CMD_ANALYZE_FORCE_INH ? VACOPT_ANALYZE_FORCE_INH:0),
-					context->params, va_cols, context->in_outer_xact, vac_strategy);
+		params = *context->params;
+		if (mtype == CLUSTER_VACUUM_CMD_ANALYZE_FORCE_INH)
+			params.options |= VACOPT_ANALYZE_FORCE_INH;
+		analyze_rel(relid, range, &params, va_cols, context->in_outer_xact, vac_strategy);
 		if (context->use_own_xacts)
 		{
 			PopActiveSnapshot();

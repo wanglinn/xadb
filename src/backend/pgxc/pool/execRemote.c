@@ -34,7 +34,6 @@
 #include "libpq/libpq.h"
 #include "nodes/nodes.h"
 #include "nodes/nodeFuncs.h"
-#include "optimizer/var.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_type.h"
 #include "parser/parsetree.h"
@@ -298,16 +297,16 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 
 	rqstate->eof_underlying = false;
 
-	scan_type = ExecTypeFromTL(node->base_tlist, false);
-	ExecInitScanTupleSlot(estate, &rqstate->ss, scan_type);
+	scan_type = ExecTypeFromTL(node->base_tlist);
+	ExecInitScanTupleSlot(estate, &rqstate->ss, scan_type, &TTSOpsMinimalTuple);
 
-	rqstate->iterSlot = ExecInitExtraTupleSlot(estate, scan_type);
+	rqstate->iterSlot = ExecInitExtraTupleSlot(estate, scan_type, &TTSOpsMinimalTuple);
 
 	/*
 	 * convert slot maybe change descripor when need convert,
 	 * so we can not create an fixed slot
 	 */
-	rqstate->convertSlot = ExecInitExtraTupleSlot(estate, NULL);
+	rqstate->convertSlot = ExecInitExtraTupleSlot(estate, NULL, &TTSOpsMinimalTuple);
 	ExecSetSlotDescriptor(rqstate->convertSlot, scan_type);
 
 	/*
@@ -326,7 +325,7 @@ ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags)
 	/*
 	 * Initialize result tuple type and projection info.
 	 */
-	ExecInitResultTupleSlotTL(estate, &rqstate->ss.ps);
+	ExecInitResultTupleSlotTL(&rqstate->ss.ps, &TTSOpsMinimalTuple);
 	ExecAssignScanProjectionInfo(&rqstate->ss);
 
 	if (node->reduce_expr)
@@ -604,9 +603,6 @@ ExecEndRemoteQuery(RemoteQueryState *node)
 		node->rqs_param_types = NULL;
 		node->rqs_num_params = 0;
 	}
-
-	if (node->ss.ss_currentRelation)
-		ExecCloseScanRelation(node->ss.ss_currentRelation);
 
 	HandleListResetOwner(node->all_handles);
 
@@ -992,7 +988,7 @@ ExecProcNodeDMLInXC(EState *estate,
 			if (returningResultSlot == NULL)
 			{
 				/* Copy the received tuple to be returned later */
-				returningResultSlot = MakeSingleTupleTableSlot(temp_slot->tts_tupleDescriptor);
+				returningResultSlot = MakeSingleTupleTableSlot(temp_slot->tts_tupleDescriptor, temp_slot->tts_ops);
 				returningResultSlot = ExecCopySlot(returningResultSlot, temp_slot);
 			}
 			/* Clear the received tuple, the copy required has already been saved */

@@ -15,7 +15,7 @@
  * re-perform the status update on redo; so we need make no additional XLOG
  * entry here.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/backend/access/transam/commit_ts.c
@@ -108,10 +108,10 @@ CommitTimestampShared *commitTsShared;
 bool		track_commit_timestamp;
 
 static void SetXidCommitTsInPage(TransactionId xid, int nsubxids,
-					 TransactionId *subxids, TimestampTz ts,
-					 RepOriginId nodeid, int pageno);
+								 TransactionId *subxids, TimestampTz ts,
+								 RepOriginId nodeid, int pageno);
 static void TransactionIdSetCommitTs(TransactionId xid, TimestampTz ts,
-						 RepOriginId nodeid, int slotno);
+									 RepOriginId nodeid, int slotno);
 static void error_commit_ts_disabled(void);
 static int	ZeroCommitTsPage(int pageno, bool writeXlog);
 static bool CommitTsPagePrecedes(int page1, int page2);
@@ -120,8 +120,8 @@ static void DeactivateCommitTs(void);
 static void WriteZeroPageXlogRec(int pageno);
 static void WriteTruncateXlogRec(int pageno, TransactionId oldestXid);
 static void WriteSetTimestampXlogRec(TransactionId mainxid, int nsubxids,
-						 TransactionId *subxids, TimestampTz timestamp,
-						 RepOriginId nodeid);
+									 TransactionId *subxids, TimestampTz timestamp,
+									 RepOriginId nodeid);
 
 /*
  * TransactionTreeSetCommitTsData
@@ -439,7 +439,7 @@ pg_last_committed_xact(PG_FUNCTION_ARGS)
 	 * Construct a tuple descriptor for the result row.  This must match this
 	 * function's pg_proc entry!
 	 */
-	tupdesc = CreateTemplateTupleDesc(2, false);
+	tupdesc = CreateTemplateTupleDesc(2);
 	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "xid",
 					   XIDOID, -1, 0);
 	TupleDescInitEntry(tupdesc, (AttrNumber) 2, "timestamp",
@@ -558,7 +558,7 @@ ZeroCommitTsPage(int pageno, bool writeXlog)
 
 /*
  * This must be called ONCE during postmaster or standalone-backend startup,
- * after StartupXLOG has initialized ShmemVariableCache->nextXid.
+ * after StartupXLOG has initialized ShmemVariableCache->nextFullXid.
  */
 void
 StartupCommitTs(void)
@@ -578,10 +578,9 @@ CompleteCommitTsInitialization(void)
 	 * any leftover data.
 	 *
 	 * Conversely, we activate the module if the feature is enabled.  This is
-	 * not necessary in a master system because we already did it earlier, but
-	 * if we're in a standby server that got promoted which had the feature
-	 * enabled and was following a master that had the feature disabled, this
-	 * is where we turn it on locally.
+	 * necessary for primary and standby as the activation depends on the
+	 * control file contents at the beginning of recovery or when a
+	 * XLOG_PARAMETER_CHANGE is replayed.
 	 */
 	if (!track_commit_timestamp)
 		DeactivateCommitTs();
@@ -591,7 +590,7 @@ CompleteCommitTsInitialization(void)
 
 /*
  * Activate or deactivate CommitTs' upon reception of a XLOG_PARAMETER_CHANGE
- * XLog record in a standby.
+ * XLog record during recovery.
  */
 void
 CommitTsParameterChange(bool newvalue, bool oldvalue)
@@ -649,7 +648,7 @@ ActivateCommitTs(void)
 	}
 	LWLockRelease(CommitTsLock);
 
-	xid = ShmemVariableCache->nextXid;
+	xid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
 	pageno = TransactionIdToCTsPage(xid);
 
 	/*

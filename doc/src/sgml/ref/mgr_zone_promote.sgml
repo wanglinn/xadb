@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_zone_promote.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-ZONEPROMOTE">
+<refentry id="mgr-zonepromote">
   <refmeta>
     <refentrytitle>ZONE PROMOTE</refentrytitle>
     <manvolnum>7</manvolnum>

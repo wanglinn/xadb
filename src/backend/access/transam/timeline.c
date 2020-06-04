@@ -21,7 +21,7 @@
  * The fields are separated by tabs. Lines beginning with # are comments, and
  * are ignored. Empty lines are also ignored.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/backend/access/transam/timeline.c
@@ -370,7 +370,11 @@ writeTimeLineHistory(TimeLineID newTLI, TimeLineID parentTLI,
 			}
 			pgstat_report_wait_end();
 		}
-		CloseTransientFile(srcfd);
+
+		if (CloseTransientFile(srcfd))
+			ereport(ERROR,
+					(errcode_for_file_access(),
+					 errmsg("could not close file \"%s\": %m", path)));
 	}
 
 	/*
@@ -406,7 +410,7 @@ writeTimeLineHistory(TimeLineID newTLI, TimeLineID parentTLI,
 
 	pgstat_report_wait_start(WAIT_EVENT_TIMELINE_HISTORY_SYNC);
 	if (pg_fsync(fd) != 0)
-		ereport(ERROR,
+		ereport(data_sync_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not fsync file \"%s\": %m", tmppath)));
 	pgstat_report_wait_end();
@@ -415,7 +419,6 @@ writeTimeLineHistory(TimeLineID newTLI, TimeLineID parentTLI,
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not close file \"%s\": %m", tmppath)));
-
 
 	/*
 	 * Now move the completed history file into place with its final name.
@@ -485,7 +488,7 @@ writeTimeLineHistoryFile(TimeLineID tli, char *content, int size)
 
 	pgstat_report_wait_start(WAIT_EVENT_TIMELINE_HISTORY_FILE_SYNC);
 	if (pg_fsync(fd) != 0)
-		ereport(ERROR,
+		ereport(data_sync_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not fsync file \"%s\": %m", tmppath)));
 	pgstat_report_wait_end();
@@ -494,7 +497,6 @@ writeTimeLineHistoryFile(TimeLineID tli, char *content, int size)
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not close file \"%s\": %m", tmppath)));
-
 
 	/*
 	 * Now move the completed history file into place with its final name.

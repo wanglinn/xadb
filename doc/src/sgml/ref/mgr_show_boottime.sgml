@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_show_boottime.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-SHOW-BOOTTIME">
+<refentry id="mgr-show-boottime">
   <refmeta>
     <refentrytitle>SHOW BOOTTIME</refentrytitle>mgr_show_boottime.sgml
     <manvolnum>7</manvolnum>

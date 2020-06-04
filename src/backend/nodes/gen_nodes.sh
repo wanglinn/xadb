@@ -8,8 +8,9 @@ cat \
 	$inc_dir/nodes/nodes.h \
 	$inc_dir/nodes/primnodes.h \
 	$inc_dir/nodes/parsenodes.h \
+	$inc_dir/nodes/pathnodes.h \
 	$inc_dir/nodes/plannodes.h \
-	$inc_dir/nodes/relation.h \
+	$inc_dir/nodes/supportnodes.h \
 	$inc_dir/nodes/execnodes.h \
 	$inc_dir/nodes/extensible.h \
 	$inc_dir/nodes/replnodes.h \

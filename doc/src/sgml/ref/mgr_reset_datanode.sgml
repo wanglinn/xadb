@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_reset_datanode.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-RESETDATANODE">
+<refentry id="mgr-resetdatanode">
   <refmeta>
     <refentrytitle>RESET DATANODE</refentrytitle>
     <manvolnum>7</manvolnum>

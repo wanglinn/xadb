@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_alter_gtm.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-ALTERGTM">
+<refentry id="mgr-altergtm">
   <refmeta>
     <refentrytitle>ALTER GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>

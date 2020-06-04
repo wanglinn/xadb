@@ -32,6 +32,7 @@ struct RXactLogData
 {
 	StringInfoData buf;
 	File fd;
+	off_t read_offset;
 };
 
 #ifdef HAVE_UNIX_SOCKETS
@@ -330,6 +331,7 @@ RXactLog rxact_begin_read_log(File fd)
 	rlog = palloc(sizeof(*rlog));
 	initStringInfo(&(rlog->buf));
 	rlog->fd = fd;
+	rlog->read_offset = 0;
 	return rlog;
 }
 
@@ -415,8 +417,11 @@ static bool rxact_log_read_internal(RXactLog rlog)
 		rlog->buf.data = repalloc(rlog->buf.data, rlog->buf.maxlen);
 	}
 
-	read_res = FileRead(rlog->fd, rlog->buf.data + rlog->buf.len
-						, rlog->buf.maxlen - rlog->buf.len, WAIT_EVENT_DATA_FILE_READ);
+	read_res = FileRead(rlog->fd,
+						rlog->buf.data + rlog->buf.len,
+						rlog->buf.maxlen - rlog->buf.len,
+						rlog->read_offset,
+						WAIT_EVENT_DATA_FILE_READ);
 	if(read_res < 0)
 	{
 		ereport(FATAL,
@@ -427,6 +432,7 @@ static bool rxact_log_read_internal(RXactLog rlog)
 		return false;
 	}
 	rlog->buf.len += read_res;
+	rlog->read_offset += read_res;
 	return true;
 }
 
@@ -479,8 +485,7 @@ void rxact_log_seek_bytes(RXactLog rlog, int n)
 		rlog->buf.cursor = rlog->buf.len;
 	}
 	Assert(rlog->buf.cursor == rlog->buf.len);
-	if(FileSeek(rlog->fd, n, SEEK_CUR) < 0)
-		rxact_report_log_error(rlog->fd, ERROR);
+	rlog->read_offset += n;
 }
 
 RXactLog rxact_begin_write_log(File fd)
@@ -541,10 +546,10 @@ void rxact_log_simple_write(File fd, const void *p, int n)
 	volatile off_t cur;
 	int res;
 	AssertArg(fd != -1 && p && n > 0);
-	cur = FileSeek(fd, 0, SEEK_END);
+	cur = FileSize(fd);
 	PG_TRY();
 	{
-		res = FileWrite(fd, (char*)p, n, WAIT_EVENT_DATA_FILE_WRITE);
+		res = FileWrite(fd, (char*)p, n, cur, WAIT_EVENT_DATA_FILE_WRITE);
 		if(res != n)
 		{
 			ereport(ERROR, (errcode_for_file_access(),
@@ -555,6 +560,27 @@ void rxact_log_simple_write(File fd, const void *p, int n)
 		FileTruncate(fd, cur, WAIT_EVENT_DATA_FILE_TRUNCATE);
 		PG_RE_THROW();
 	}PG_END_TRY();
+}
+
+void rxact_log_simple_pwrite(File fd, off_t offset, const void *p, int n)
+{
+	volatile off_t cur = offset;
+	int res;
+	AssertArg(fd != -1 && p && n > 0);
+	PG_TRY();
+	{
+		res = FileWrite(fd, (char*)p, n, offset, WAIT_EVENT_DATA_FILE_WRITE);
+		if(res != n)
+		{
+			ereport(ERROR, (errcode_for_file_access(),
+				errmsg("could not write rlog to file \"%s\":%m", FilePathName(fd))));
+		}
+	}PG_CATCH();
+	{
+		FileTruncate(fd, cur, WAIT_EVENT_DATA_FILE_TRUNCATE);
+		PG_RE_THROW();
+	}PG_END_TRY();
+
 }
 
 void rxact_report_log_error(File fd, int elevel)
@@ -583,7 +609,7 @@ Datum rxact_get_running(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		tupdesc = CreateTemplateTupleDesc(6, false);
+		tupdesc = CreateTemplateTupleDesc(6);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "gid",
 						   TEXTOID, -1, 0);
 		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "dbid",

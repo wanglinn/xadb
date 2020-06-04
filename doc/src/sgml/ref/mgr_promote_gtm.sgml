@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_promote_gtm.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-PROMOTEGTM">
+<refentry id="mgr-promotegtm">
   <refmeta>
     <refentrytitle>PROMOTE GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>

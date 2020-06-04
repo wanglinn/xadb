@@ -4,7 +4,7 @@
 #include "catalog/genbki.h"
 #include "catalog/adb_clean_d.h"
 
-CATALOG(adb_clean,9031,AdbCleanRelationId) BKI_SHARED_RELATION BKI_WITHOUT_OIDS
+CATALOG(adb_clean,9031,AdbCleanRelationId) BKI_SHARED_RELATION
 {
 	/* database Oid */
 	Oid				clndb;

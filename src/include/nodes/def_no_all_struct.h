@@ -1,12 +1,3 @@
-#define NO_STRUCT_GenericIndexOpts
-#define NO_STRUCT_AutoVacOpts
-#define NO_STRUCT_StdRdOptions
-#define NO_STRUCT_ViewOptions
-#define NO_STRUCT_ParamExternData
-#define NO_STRUCT_ParamListInfoData
-#define NO_STRUCT_ReduceKeyInfo
-#define NO_STRUCT_ReduceInfo
-#define NO_STRUCT_PartitionPruneStep
 #define NO_STRUCT_QualCost
 #define NO_STRUCT_AggClauseCosts
 #define NO_STRUCT_PartitionSchemeData
@@ -14,6 +5,7 @@
 #define NO_STRUCT_SemiAntiJoinFactors
 #define NO_STRUCT_JoinPathExtraData
 #define NO_STRUCT_JoinCostWorkspace
+#define NO_STRUCT_PartitionPruneStep
 #define NO_STRUCT_ExprContext_CB
 #define NO_STRUCT_ExecRowMark
 #define NO_STRUCT_ExecAuxRowMark
@@ -35,3 +27,10 @@
 #define NO_STRUCT_RelationLocInfo
 #define NO_STRUCT_LockRelId
 #define NO_STRUCT_LockInfoData
+#define NO_STRUCT_AutoVacOpts
+#define NO_STRUCT_StdRdOptions
+#define NO_STRUCT_ViewOptions
+#define NO_STRUCT_ParamExternData
+#define NO_STRUCT_ParamListInfoData
+#define NO_STRUCT_ReduceKeyInfo
+#define NO_STRUCT_ReduceInfo

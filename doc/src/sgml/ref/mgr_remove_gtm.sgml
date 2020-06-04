@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_remove_gtm.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-REMOVEGTM">
+<refentry id="mgr-removegtm">
   <refmeta>
     <refentrytitle>REMOVE GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>

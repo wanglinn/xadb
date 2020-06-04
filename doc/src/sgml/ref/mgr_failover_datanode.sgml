@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_failover_datanode.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-FAILOVERDATANODE">
+<refentry id="mgr-failoverdatanode">
   <refmeta>
     <refentrytitle>FAILOVER DATANODE</refentrytitle>
     <manvolnum>7</manvolnum>

@@ -34,7 +34,6 @@
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
-#include "utils/tqual.h"
 #include "funcapi.h"
 #include "fmgr.h"
 #include "utils/lsyscache.h"
@@ -44,7 +43,7 @@
 typedef struct InitHostInfo
 {
     Relation rel_host;
-    HeapScanDesc rel_scan;
+    TableScanDesc rel_scan;
     ListCell  **lcp;
 }InitHostInfo;
 
@@ -172,8 +171,8 @@ monitor_get_hostinfo(PG_FUNCTION_ARGS)
         oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
         info = palloc(sizeof(*info));
-        info->rel_host = heap_open(HostRelationId, AccessShareLock);
-        info->rel_scan = heap_beginscan_catalog(info->rel_host, 0, NULL);
+        info->rel_host = table_open(HostRelationId, AccessShareLock);
+        info->rel_scan = table_beginscan_catalog(info->rel_host, 0, NULL);
         info->lcp =NULL;
 
         /* save info */
@@ -191,8 +190,8 @@ monitor_get_hostinfo(PG_FUNCTION_ARGS)
     if (tup == NULL)
     {
         /* end of row */
-        heap_endscan(info->rel_scan);
-        heap_close(info->rel_host, AccessShareLock);
+        table_endscan(info->rel_scan);
+        table_close(info->rel_host, AccessShareLock);
         pfree(info);
         SRF_RETURN_DONE(funcctx);
     }
@@ -210,7 +209,7 @@ monitor_get_hostinfo(PG_FUNCTION_ARGS)
     appendStringInfoString(&monitor_alarm.alarm_source, host_addr);
 
 		namestrcpy(&hostname, NameStr(mgr_host->hostname));
-    ma = ma_connect_hostoid(HeapTupleGetOid(tup));
+    ma = ma_connect_hostoid(mgr_host->oid);
 
     if (!ma_isconnected(ma))
     {
@@ -228,8 +227,8 @@ monitor_get_hostinfo(PG_FUNCTION_ARGS)
         ret = false;
         appendStringInfoString(&agentRstStr, ma_last_error_msg(ma));
         ma_close(ma);
-        heap_endscan(info->rel_scan);
-        heap_close(info->rel_host, RowExclusiveLock);
+        table_endscan(info->rel_scan);
+        table_close(info->rel_host, RowExclusiveLock);
     }
 
     /*check the receive msg*/
@@ -398,12 +397,12 @@ static void insert_into_monotor_cpu(const char *hostname, Monitor_Cpu *monitor_c
 
     memset(isnull, 0, sizeof(isnull));
 
-    monitorcpu = heap_open(MonitorCpuRelationId, RowExclusiveLock);
+    monitorcpu = table_open(MonitorCpuRelationId, RowExclusiveLock);
     newtuple = heap_form_tuple(RelationGetDescr(monitorcpu), datum, isnull);
     simple_heap_insert(monitorcpu, newtuple);
 
     heap_freetuple(newtuple);
-    heap_close(monitorcpu, RowExclusiveLock);
+    table_close(monitorcpu, RowExclusiveLock);
 }
 
 static void insert_into_monotor_mem(const char *hostname, Monitor_Mem *monitor_mem)
@@ -422,12 +421,12 @@ static void insert_into_monotor_mem(const char *hostname, Monitor_Mem *monitor_m
 
     memset(isnull, 0, sizeof(isnull));
 
-    monitormem = heap_open(MonitorMemRelationId, RowExclusiveLock);
+    monitormem = table_open(MonitorMemRelationId, RowExclusiveLock);
     newtuple = heap_form_tuple(RelationGetDescr(monitormem), datum, isnull);
     simple_heap_insert(monitormem, newtuple);
 
     heap_freetuple(newtuple);
-    heap_close(monitormem, RowExclusiveLock);
+    table_close(monitormem, RowExclusiveLock);
 }
 
 static void insert_into_monotor_disk(const char *hostname, Monitor_Disk *monitor_disk)
@@ -449,12 +448,12 @@ static void insert_into_monotor_disk(const char *hostname, Monitor_Disk *monitor
 
     memset(isnull, 0, sizeof(isnull));
 
-    monitordisk = heap_open(MonitorDiskRelationId, RowExclusiveLock);
+    monitordisk = table_open(MonitorDiskRelationId, RowExclusiveLock);
     newtuple = heap_form_tuple(RelationGetDescr(monitordisk), datum, isnull);
     simple_heap_insert(monitordisk, newtuple);
 
     heap_freetuple(newtuple);
-    heap_close(monitordisk, RowExclusiveLock);
+    table_close(monitordisk, RowExclusiveLock);
 }
 
 static void insert_into_monotor_net(const char *hostname, Monitor_Net *monitor_net)
@@ -472,12 +471,12 @@ static void insert_into_monotor_net(const char *hostname, Monitor_Net *monitor_n
 
     memset(isnull, 0, sizeof(isnull));
 
-    monitornet = heap_open(MonitorNetRelationId, RowExclusiveLock);
+    monitornet = table_open(MonitorNetRelationId, RowExclusiveLock);
     newtuple = heap_form_tuple(RelationGetDescr(monitornet), datum, isnull);
     simple_heap_insert(monitornet, newtuple);
 
     heap_freetuple(newtuple);
-    heap_close(monitornet, RowExclusiveLock);
+    table_close(monitornet, RowExclusiveLock);
 }
 
 static void insert_into_monotor_host(const char *hostname, Monitor_Host *monitor_host)
@@ -499,12 +498,12 @@ static void insert_into_monotor_host(const char *hostname, Monitor_Host *monitor
 
     memset(isnull, 0, sizeof(isnull));
 
-    monitorhost = heap_open(MonitorHostRelationId, RowExclusiveLock);
+    monitorhost = table_open(MonitorHostRelationId, RowExclusiveLock);
     newtuple = heap_form_tuple(RelationGetDescr(monitorhost), datum, isnull);
     simple_heap_insert(monitorhost, newtuple);
 
     heap_freetuple(newtuple);
-    heap_close(monitorhost, RowExclusiveLock);
+    table_close(monitorhost, RowExclusiveLock);
 }
 void insert_into_monitor_alarm(Monitor_Alarm *monitor_alarm)
 {
@@ -523,18 +522,18 @@ void insert_into_monitor_alarm(Monitor_Alarm *monitor_alarm)
 
     memset(isnull, 0, sizeof(isnull));
 
-    monitoralarm = heap_open(MonitorAlarmRelationId, RowExclusiveLock);
+    monitoralarm = table_open(MonitorAlarmRelationId, RowExclusiveLock);
     newtuple = heap_form_tuple(RelationGetDescr(monitoralarm), datum, isnull);
     simple_heap_insert(monitoralarm, newtuple);
 
     heap_freetuple(newtuple);
-    heap_close(monitoralarm, RowExclusiveLock);
+    table_close(monitoralarm, RowExclusiveLock);
 }
 
 void get_threshold(int16 type, Monitor_Threshold *monitor_threshold)
 {
     Relation rel;
-    HeapScanDesc scan;
+    TableScanDesc scan;
     HeapTuple tuple;
     ScanKeyData key[1];
     Form_monitor_host_threshold monitor_host_threshold;
@@ -544,13 +543,13 @@ void get_threshold(int16 type, Monitor_Threshold *monitor_threshold)
         ,BTEqualStrategyNumber, F_INT2EQ
         ,Int16GetDatum(type));
 
-    rel = heap_open(MonitorHostThresholdRelationId, RowExclusiveLock);
-    scan = heap_beginscan_catalog(rel, 1, key);
+    rel = table_open(MonitorHostThresholdRelationId, RowExclusiveLock);
+    scan = table_beginscan_catalog(rel, 1, key);
 
     if ((tuple = heap_getnext(scan, ForwardScanDirection)) == NULL)
     {
-        heap_endscan(scan);
-        heap_close(rel, RowExclusiveLock);
+        table_endscan(scan);
+        table_close(rel, RowExclusiveLock);
 
         ereport(ERROR, (errmsg("could not find tuple for relation: monitor_host_threshold")));
         return ;
@@ -561,8 +560,8 @@ void get_threshold(int16 type, Monitor_Threshold *monitor_threshold)
     monitor_threshold->threshold_critical = monitor_host_threshold->mt_critical_threshold;
     monitor_threshold->threshold_emergency = monitor_host_threshold->mt_emergency_threshold;
 
-    heap_endscan(scan);
-    heap_close(rel, RowExclusiveLock);
+    table_endscan(scan);
+    table_close(rel, RowExclusiveLock);
 
     return ;
 }

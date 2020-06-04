@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_drop_host.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-DROPHOST">
+<refentry id="mgr-drophost">
   <refmeta>
     <refentrytitle>DROP HOST</refentrytitle>
     <manvolnum>7</manvolnum>

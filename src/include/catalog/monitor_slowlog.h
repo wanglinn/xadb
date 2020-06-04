@@ -7,7 +7,7 @@
 
 #include "utils/timestamp.h"
 
-CATALOG(monitor_slowlog,4817,MslowlogRelationId) BKI_WITHOUT_OIDS
+CATALOG(monitor_slowlog,4817,MslowlogRelationId)
 {
 	/*the database name*/
 	NameData	slowlogdbname;

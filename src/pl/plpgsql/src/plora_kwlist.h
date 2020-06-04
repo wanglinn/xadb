@@ -1,6 +1,9 @@
-#include "common/keywords.h"
+#ifndef PLORA_KWLIST_H
+#define PLORA_KWLIST_H
 
-extern const ScanKeyword plora_reserved_keywords[];
-extern const ScanKeyword plora_unreserved_keywords[];
-extern const int num_plora_reserved_keywords;
-extern const int num_plora_unreserved_keywords;
+extern const ScanKeywordList UnreservedPLORAKeywords;
+extern const ScanKeywordList ReservedPLORAKeywords;
+extern const uint16 ReservedPLORAKeywordTokens[];
+extern const uint16 UnreservedPLORAKeywordTokens[];
+
+#endif /* PLORA_KWLIST_H */

@@ -91,6 +91,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_NestLoopParam)
 	ENUM_VALUE(T_PlanRowMark)
 	ENUM_VALUE(T_PartitionPruneInfo)
+	ENUM_VALUE(T_PartitionedRelPruneInfo)
 	ENUM_VALUE(T_PartitionPruneStepOp)
 	ENUM_VALUE(T_PartitionPruneStepCombine)
 	ENUM_VALUE(T_PlanInvalItem)
@@ -180,7 +181,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_Aggref)
 	ENUM_VALUE(T_GroupingFunc)
 	ENUM_VALUE(T_WindowFunc)
-	ENUM_VALUE(T_ArrayRef)
+	ENUM_VALUE(T_SubscriptingRef)
 	ENUM_VALUE(T_FuncExpr)
 	ENUM_VALUE(T_NamedArgExpr)
 	ENUM_VALUE(T_OpExpr)
@@ -259,7 +260,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_HashPath)
 	ENUM_VALUE(T_AppendPath)
 	ENUM_VALUE(T_MergeAppendPath)
-	ENUM_VALUE(T_ResultPath)
+	ENUM_VALUE(T_GroupResultPath)
 	ENUM_VALUE(T_MaterialPath)
 	ENUM_VALUE(T_UniquePath)
 	ENUM_VALUE(T_GatherPath)
@@ -297,6 +298,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_PathKey)
 	ENUM_VALUE(T_PathTarget)
 	ENUM_VALUE(T_RestrictInfo)
+	ENUM_VALUE(T_IndexClause)
 	ENUM_VALUE(T_PlaceHolderVar)
 	ENUM_VALUE(T_SpecialJoinInfo)
 	ENUM_VALUE(T_AppendRelInfo)
@@ -516,9 +518,15 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_InlineCodeBlock)
 	ENUM_VALUE(T_FdwRoutine)
 	ENUM_VALUE(T_IndexAmRoutine)
+	ENUM_VALUE(T_TableAmRoutine)
 	ENUM_VALUE(T_TsmRoutine)
 	ENUM_VALUE(T_ForeignKeyCacheInfo)
 	ENUM_VALUE(T_CallContext)
+	ENUM_VALUE(T_SupportRequestSimplify)
+	ENUM_VALUE(T_SupportRequestSelectivity)
+	ENUM_VALUE(T_SupportRequestCost)
+	ENUM_VALUE(T_SupportRequestRows)
+	ENUM_VALUE(T_SupportRequestIndexCondition)
 #ifdef ADBMGRD
 	ENUM_VALUE(T_MGRAddHost)
 	ENUM_VALUE(T_MGRDropHost)
@@ -843,6 +851,7 @@ BEGIN_ENUM(TableLikeOption)
 	ENUM_VALUE(CREATE_TABLE_LIKE_COMMENTS)
 	ENUM_VALUE(CREATE_TABLE_LIKE_CONSTRAINTS)
 	ENUM_VALUE(CREATE_TABLE_LIKE_DEFAULTS)
+	ENUM_VALUE(CREATE_TABLE_LIKE_GENERATED)
 	ENUM_VALUE(CREATE_TABLE_LIKE_IDENTITY)
 	ENUM_VALUE(CREATE_TABLE_LIKE_INDEXES)
 	ENUM_VALUE(CREATE_TABLE_LIKE_STATISTICS)
@@ -878,6 +887,7 @@ BEGIN_ENUM(RTEKind)
 	ENUM_VALUE(RTE_VALUES)
 	ENUM_VALUE(RTE_CTE)
 	ENUM_VALUE(RTE_NAMEDTUPLESTORE)
+	ENUM_VALUE(RTE_RESULT)
 #ifdef ADB
 	ENUM_VALUE(RTE_PARAMTS)
 	ENUM_VALUE(RTE_REMOTE_DUMMY)
@@ -903,6 +913,14 @@ BEGIN_ENUM(GroupingSetKind)
 	ENUM_VALUE(GROUPING_SET_SETS)
 END_ENUM(GroupingSetKind)
 #endif /* NO_ENUM_GroupingSetKind */
+
+#ifndef NO_ENUM_CTEMaterialize
+BEGIN_ENUM(CTEMaterialize)
+	ENUM_VALUE(CTEMaterializeDefault)
+	ENUM_VALUE(CTEMaterializeAlways)
+	ENUM_VALUE(CTEMaterializeNever)
+END_ENUM(CTEMaterialize)
+#endif /* NO_ENUM_CTEMaterialize */
 
 #ifndef NO_ENUM_SetOperation
 BEGIN_ENUM(SetOperation)
@@ -986,6 +1004,7 @@ BEGIN_ENUM(AlterTableType)
 	ENUM_VALUE(AT_ColumnDefault)
 	ENUM_VALUE(AT_DropNotNull)
 	ENUM_VALUE(AT_SetNotNull)
+	ENUM_VALUE(AT_CheckNotNull)
 	ENUM_VALUE(AT_SetStatistics)
 	ENUM_VALUE(AT_SetOptions)
 	ENUM_VALUE(AT_ResetOptions)
@@ -1013,8 +1032,6 @@ BEGIN_ENUM(AlterTableType)
 	ENUM_VALUE(AT_DropCluster)
 	ENUM_VALUE(AT_SetLogged)
 	ENUM_VALUE(AT_SetUnLogged)
-	ENUM_VALUE(AT_AddOids)
-	ENUM_VALUE(AT_AddOidsRecurse)
 	ENUM_VALUE(AT_DropOids)
 	ENUM_VALUE(AT_SetTableSpace)
 	ENUM_VALUE(AT_SetRelOptions)
@@ -1081,6 +1098,7 @@ BEGIN_ENUM(ConstrType)
 	ENUM_VALUE(CONSTR_NOTNULL)
 	ENUM_VALUE(CONSTR_DEFAULT)
 	ENUM_VALUE(CONSTR_IDENTITY)
+	ENUM_VALUE(CONSTR_GENERATED)
 	ENUM_VALUE(CONSTR_CHECK)
 	ENUM_VALUE(CONSTR_PRIMARY)
 	ENUM_VALUE(CONSTR_UNIQUE)
@@ -1151,22 +1169,12 @@ BEGIN_ENUM(ViewCheckOption)
 END_ENUM(ViewCheckOption)
 #endif /* NO_ENUM_ViewCheckOption */
 
-#ifndef NO_ENUM_VacuumOption
-BEGIN_ENUM(VacuumOption)
-	ENUM_VALUE(VACOPT_VACUUM)
-	ENUM_VALUE(VACOPT_ANALYZE)
-	ENUM_VALUE(VACOPT_VERBOSE)
-	ENUM_VALUE(VACOPT_FREEZE)
-	ENUM_VALUE(VACOPT_FULL)
-	ENUM_VALUE(VACOPT_NOWAIT)
-	ENUM_VALUE(VACOPT_SKIPTOAST)
-	ENUM_VALUE(VACOPT_DISABLE_PAGE_SKIPPING)
-#ifdef ADB
-	ENUM_VALUE(VACOPT_IN_CLUSTER)
-	ENUM_VALUE(VACOPT_ANALYZE_FORCE_INH)
-#endif
-END_ENUM(VacuumOption)
-#endif /* NO_ENUM_VacuumOption */
+#ifndef NO_ENUM_ClusterOption
+BEGIN_ENUM(ClusterOption)
+	ENUM_VALUE(CLUOPT_RECHECK)
+	ENUM_VALUE(CLUOPT_VERBOSE)
+END_ENUM(ClusterOption)
+#endif /* NO_ENUM_ClusterOption */
 
 #ifndef NO_ENUM_DiscardMode
 BEGIN_ENUM(DiscardMode)
@@ -1216,34 +1224,6 @@ BEGIN_ENUM(IConvertAction)
 END_ENUM(IConvertAction)
 #endif /* NO_ENUM_IConvertAction */
 #endif
-
-#if defined(ADB)
-#ifndef NO_ENUM_ClusterGatherType
-BEGIN_ENUM(ClusterGatherType)
-	ENUM_VALUE(CLUSTER_GATHER_COORD)
-	ENUM_VALUE(CLUSTER_GATHER_DATANODE)
-	ENUM_VALUE(CLUSTER_GATHER_ALL)
-END_ENUM(ClusterGatherType)
-#endif /* NO_ENUM_ClusterGatherType */
-#endif
-
-#ifndef NO_ENUM_RowMarkType
-BEGIN_ENUM(RowMarkType)
-	ENUM_VALUE(ROW_MARK_EXCLUSIVE)
-	ENUM_VALUE(ROW_MARK_NOKEYEXCLUSIVE)
-	ENUM_VALUE(ROW_MARK_SHARE)
-	ENUM_VALUE(ROW_MARK_KEYSHARE)
-	ENUM_VALUE(ROW_MARK_REFERENCE)
-	ENUM_VALUE(ROW_MARK_COPY)
-END_ENUM(RowMarkType)
-#endif /* NO_ENUM_RowMarkType */
-
-#ifndef NO_ENUM_PartitionPruneCombineOp
-BEGIN_ENUM(PartitionPruneCombineOp)
-	ENUM_VALUE(PARTPRUNE_COMBINE_UNION)
-	ENUM_VALUE(PARTPRUNE_COMBINE_INTERSECT)
-END_ENUM(PartitionPruneCombineOp)
-#endif /* NO_ENUM_PartitionPruneCombineOp */
 
 #ifndef NO_ENUM_CostSelector
 BEGIN_ENUM(CostSelector)
@@ -1302,6 +1282,34 @@ BEGIN_ENUM(PartitionwiseAggregateType)
 	ENUM_VALUE(PARTITIONWISE_AGGREGATE_PARTIAL)
 END_ENUM(PartitionwiseAggregateType)
 #endif /* NO_ENUM_PartitionwiseAggregateType */
+
+#if defined(ADB)
+#ifndef NO_ENUM_ClusterGatherType
+BEGIN_ENUM(ClusterGatherType)
+	ENUM_VALUE(CLUSTER_GATHER_COORD)
+	ENUM_VALUE(CLUSTER_GATHER_DATANODE)
+	ENUM_VALUE(CLUSTER_GATHER_ALL)
+END_ENUM(ClusterGatherType)
+#endif /* NO_ENUM_ClusterGatherType */
+#endif
+
+#ifndef NO_ENUM_RowMarkType
+BEGIN_ENUM(RowMarkType)
+	ENUM_VALUE(ROW_MARK_EXCLUSIVE)
+	ENUM_VALUE(ROW_MARK_NOKEYEXCLUSIVE)
+	ENUM_VALUE(ROW_MARK_SHARE)
+	ENUM_VALUE(ROW_MARK_KEYSHARE)
+	ENUM_VALUE(ROW_MARK_REFERENCE)
+	ENUM_VALUE(ROW_MARK_COPY)
+END_ENUM(RowMarkType)
+#endif /* NO_ENUM_RowMarkType */
+
+#ifndef NO_ENUM_PartitionPruneCombineOp
+BEGIN_ENUM(PartitionPruneCombineOp)
+	ENUM_VALUE(PARTPRUNE_COMBINE_UNION)
+	ENUM_VALUE(PARTPRUNE_COMBINE_INTERSECT)
+END_ENUM(PartitionPruneCombineOp)
+#endif /* NO_ENUM_PartitionPruneCombineOp */
 
 #ifndef NO_ENUM_ExprDoneCond
 BEGIN_ENUM(ExprDoneCond)
@@ -1372,6 +1380,15 @@ BEGIN_ENUM(LockWaitPolicy)
 END_ENUM(LockWaitPolicy)
 #endif /* NO_ENUM_LockWaitPolicy */
 
+#ifndef NO_ENUM_LockTupleMode
+BEGIN_ENUM(LockTupleMode)
+	ENUM_VALUE(LockTupleKeyShare)
+	ENUM_VALUE(LockTupleShare)
+	ENUM_VALUE(LockTupleNoKeyExclusive)
+	ENUM_VALUE(LockTupleExclusive)
+END_ENUM(LockTupleMode)
+#endif /* NO_ENUM_LockTupleMode */
+
 #ifndef NO_ENUM_ScanDirection
 BEGIN_ENUM(ScanDirection)
 	ENUM_VALUE(BackwardScanDirection)
@@ -1426,11 +1443,3 @@ BEGIN_ENUM(ExecDirectType)
 END_ENUM(ExecDirectType)
 #endif /* NO_ENUM_ExecDirectType */
 #endif
-
-#ifndef NO_ENUM_ForceParallelMode
-BEGIN_ENUM(ForceParallelMode)
-	ENUM_VALUE(FORCE_PARALLEL_OFF)
-	ENUM_VALUE(FORCE_PARALLEL_ON)
-	ENUM_VALUE(FORCE_PARALLEL_REGRESS)
-END_ENUM(ForceParallelMode)
-#endif /* NO_ENUM_ForceParallelMode */

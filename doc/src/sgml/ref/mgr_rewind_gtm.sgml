@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_rewind_gtm.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-REWINDGTM">
+<refentry id="mgr-rewindgtm">
   <refmeta>
     <refentrytitle>REWIND GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>

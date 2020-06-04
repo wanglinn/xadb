@@ -4,7 +4,7 @@
  *	  POSTGRES error reporting/logging definitions.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/elog.h
@@ -74,6 +74,23 @@ extern bool ADB_DEBUG;
 /* SQLSTATE codes for errors are defined in a separate file */
 #include "utils/errcodes.h"
 
+/*
+ * Provide a way to prevent "errno" from being accidentally used inside an
+ * elog() or ereport() invocation.  Since we know that some operating systems
+ * define errno as something involving a function call, we'll put a local
+ * variable of the same name as that function in the local scope to force a
+ * compile error.  On platforms that don't define errno in that way, nothing
+ * happens, so we get no warning ... but we can live with that as long as it
+ * happens on some popular platforms.
+ */
+#if defined(errno) && defined(__linux__)
+#define pg_prevent_errno_in_scope() int __errno_location pg_attribute_unused()
+#elif defined(errno) && (defined(__darwin__) || defined(__freebsd__))
+#define pg_prevent_errno_in_scope() int __error pg_attribute_unused()
+#else
+#define pg_prevent_errno_in_scope()
+#endif
+
 
 /*----------
  * New-style error reporting API: to be used in this way:
@@ -107,6 +124,7 @@ extern bool ADB_DEBUG;
 #ifdef HAVE__BUILTIN_CONSTANT_P
 #define ereport_domain(elevel, domain, rest)	\
 	do { \
+		pg_prevent_errno_in_scope(); \
 		if (errstart(elevel, __FILE__, __LINE__, PG_FUNCNAME_MACRO, domain)) \
 			errfinish rest; \
 		if (__builtin_constant_p(elevel) && (elevel) >= ERROR) \
@@ -116,6 +134,7 @@ extern bool ADB_DEBUG;
 #define ereport_domain(elevel, domain, rest)	\
 	do { \
 		const int elevel_ = (elevel); \
+		pg_prevent_errno_in_scope(); \
 		if (errstart(elevel_, __FILE__, __LINE__, PG_FUNCNAME_MACRO, domain)) \
 			errfinish rest; \
 		if (elevel_ >= ERROR) \
@@ -161,7 +180,7 @@ extern bool ADB_DEBUG;
 #define TEXTDOMAIN NULL
 
 extern bool errstart(int elevel, const char *filename, int lineno,
-		 const char *funcname, const char *domain);
+					 const char *funcname, const char *domain);
 extern void errfinish(int dummy,...);
 
 extern int	errcode(int sqlerrcode);
@@ -172,20 +191,20 @@ extern int	errcode_for_socket_access(void);
 extern int	errmsg(const char *fmt,...) pg_attribute_printf(1, 2);
 extern int	errmsg_internal(const char *fmt,...) pg_attribute_printf(1, 2);
 
-extern int errmsg_plural(const char *fmt_singular, const char *fmt_plural,
-			  unsigned long n,...) pg_attribute_printf(1, 4) pg_attribute_printf(2, 4);
+extern int	errmsg_plural(const char *fmt_singular, const char *fmt_plural,
+						  unsigned long n,...) pg_attribute_printf(1, 4) pg_attribute_printf(2, 4);
 
 extern int	errdetail(const char *fmt,...) pg_attribute_printf(1, 2);
 extern int	errdetail_internal(const char *fmt,...) pg_attribute_printf(1, 2);
 
 extern int	errdetail_log(const char *fmt,...) pg_attribute_printf(1, 2);
 
-extern int errdetail_log_plural(const char *fmt_singular,
-					 const char *fmt_plural,
-					 unsigned long n,...) pg_attribute_printf(1, 4) pg_attribute_printf(2, 4);
+extern int	errdetail_log_plural(const char *fmt_singular,
+								 const char *fmt_plural,
+								 unsigned long n,...) pg_attribute_printf(1, 4) pg_attribute_printf(2, 4);
 
-extern int errdetail_plural(const char *fmt_singular, const char *fmt_plural,
-				 unsigned long n,...) pg_attribute_printf(1, 4) pg_attribute_printf(2, 4);
+extern int	errdetail_plural(const char *fmt_singular, const char *fmt_plural,
+							 unsigned long n,...) pg_attribute_printf(1, 4) pg_attribute_printf(2, 4);
 
 extern int	errhint(const char *fmt,...) pg_attribute_printf(1, 2);
 
@@ -235,9 +254,8 @@ extern int errnode(const char *node);
  *		elog(ERROR, "portal \"%s\" not found", stmt->portalname);
  *----------
  */
-#ifdef HAVE__VA_ARGS
 /*
- * If we have variadic macros, we can give the compiler a hint about the
+ * Using variadic macros, we can give the compiler a hint about the
  * call not returning when elevel >= ERROR.  See comments for ereport().
  * Note that historically elog() has called elog_start (which saves errno)
  * before evaluating "elevel", so we preserve that behavior here.
@@ -245,6 +263,7 @@ extern int errnode(const char *node);
 #ifdef HAVE__BUILTIN_CONSTANT_P
 #define elog(elevel, ...)  \
 	do { \
+		pg_prevent_errno_in_scope(); \
 		elog_start(__FILE__, __LINE__, PG_FUNCNAME_MACRO); \
 		elog_finish(elevel, __VA_ARGS__); \
 		if (__builtin_constant_p(elevel) && (elevel) >= ERROR) \
@@ -253,6 +272,7 @@ extern int errnode(const char *node);
 #else							/* !HAVE__BUILTIN_CONSTANT_P */
 #define elog(elevel, ...)  \
 	do { \
+		pg_prevent_errno_in_scope(); \
 		elog_start(__FILE__, __LINE__, PG_FUNCNAME_MACRO); \
 		{ \
 			const int elevel_ = (elevel); \
@@ -262,11 +282,6 @@ extern int errnode(const char *node);
 		} \
 	} while(0)
 #endif							/* HAVE__BUILTIN_CONSTANT_P */
-#else							/* !HAVE__VA_ARGS */
-#define elog  \
-	elog_start(__FILE__, __LINE__, PG_FUNCNAME_MACRO), \
-	elog_finish
-#endif							/* HAVE__VA_ARGS */
 
 /* adb_elog */
 #if defined(ADB) || defined(ADBMGRD)
@@ -325,8 +340,10 @@ extern PGDLLIMPORT ErrorContextCallback *error_context_stack;
  *		PG_END_TRY();
  *
  * (The braces are not actually necessary, but are recommended so that
- * pgindent will indent the construct nicely.)	The error recovery code
- * can optionally do PG_RE_THROW() to propagate the same error outwards.
+ * pgindent will indent the construct nicely.)  The error recovery code
+ * can either do PG_RE_THROW to propagate the error outwards, or do a
+ * (sub)transaction abort. Failure to do so may leave the system in an
+ * inconsistent state for further processing.
  *
  * Note: while the system will correctly propagate any new ereport(ERROR)
  * occurring in the recovery section, there is a small limit on the number

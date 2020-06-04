@@ -188,6 +188,7 @@ PgxcGroupCreateLocal(CreateGroupStmt *stmt)
 
 	/* Open the relation for insertion */
 	rel = heap_open(PgxcGroupRelationId, RowExclusiveLock);
+	values[Anum_pgxc_group_oid-1] = ObjectIdGetDatum(GetNewOidWithIndex(rel, PgxcGroupOidIndexId, Anum_pgxc_group_oid));
 	tup = heap_form_tuple(rel->rd_att, values, nulls);
 
 	/* Do the insertion */
@@ -311,7 +312,7 @@ getCoordOid(bool *include_myself)
 	HeapTuple		tuple;
 	ScanKeyData		skey[1];
 	Relation		rel;
-	HeapScanDesc	scan;
+	TableScanDesc	scan;
 	Oid				nodeOid;
 	List 			*nodeOid_list = NIL;
 	bool			include_current_node = false;;
@@ -321,11 +322,11 @@ getCoordOid(bool *include_myself)
 				Anum_pgxc_node_node_type,
 				BTEqualStrategyNumber, F_CHAREQ,
 				CharGetDatum(PGXC_NODE_COORDINATOR));
-	scan = heap_beginscan_catalog(rel, 1, skey);
+	scan = table_beginscan_catalog(rel, 1, skey);
 
 	while ((tuple=heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
-		nodeOid = HeapTupleGetOid(tuple);
+		nodeOid = ((Form_pgxc_node)GETSTRUCT(tuple))->oid;
 		if (nodeOid == PGXCNodeOid)
 		{
 			include_current_node = true;
@@ -333,8 +334,8 @@ getCoordOid(bool *include_myself)
 		}
 		nodeOid_list = list_append_unique_oid(nodeOid_list, nodeOid);
 	}
-	heap_endscan(scan);
-	heap_close(rel, AccessShareLock);
+	table_endscan(scan);
+	table_close(rel, AccessShareLock);
 
 	*include_myself = include_current_node;
 	return nodeOid_list;

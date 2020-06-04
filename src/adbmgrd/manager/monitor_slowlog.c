@@ -29,7 +29,6 @@
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
-#include "utils/tqual.h"
 #include "utils/lsyscache.h"
 #include "access/xact.h"
 #include "utils/date.h"
@@ -253,15 +252,15 @@ Datum monitor_slowlog_insert_data(PG_FUNCTION_ARGS)
 	List *dbnamelist = NIL;
 	ListCell *cell;
 	bool haveget = false;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	ScanKeyData key[4];
 	Form_mgr_node mgr_node;
 	Form_mgr_host mgr_host;
 	HeapTuple tuple;
 	HeapTuple tup;
 
-	rel_slowlog = heap_open(MslowlogRelationId, RowExclusiveLock);
-	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
+	rel_slowlog = table_open(MslowlogRelationId, RowExclusiveLock);
+	rel_node = table_open(NodeRelationId, RowExclusiveLock);
 	ScanKeyInit(&key[0],
 		Anum_mgr_node_nodetype
 		,BTEqualStrategyNumber
@@ -283,7 +282,7 @@ Datum monitor_slowlog_insert_data(PG_FUNCTION_ARGS)
 		,F_BOOLEQ
 		,BoolGetDatum(true));
 
-	rel_scan = heap_beginscan_catalog(rel_node, 4, key);
+	rel_scan = table_beginscan_catalog(rel_node, 4, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -378,7 +377,7 @@ HeapTuple monitor_build_slowlog_tuple(Relation rel, TimestampTz time, char *dbna
 */
 HeapTuple check_record_yestoday_today(Relation rel, int *callstoday, int *callsyestd, bool *gettoday, bool *getyesdt, char *query, char *user, char *dbname, pg_time_t ptimenow)
 {
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	HeapTuple tuple;
 	HeapTuple tupleret = NULL;
 	Form_monitor_slowlog monitor_slowlog;
@@ -396,7 +395,7 @@ HeapTuple check_record_yestoday_today(Relation rel, int *callstoday, int *callsy
 
 	pgtimetoday = GETTODAYSTARTTIME(ptimenow);
 	pgtimetomarrow = GETTOMARROWSTARTTIME(ptimenow);
-	rel_scan = heap_beginscan_catalog(rel, 0, NULL);
+	rel_scan = table_beginscan_catalog(rel, 0, NULL);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		/*check the time*/

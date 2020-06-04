@@ -32,7 +32,7 @@
  * input group.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -126,17 +126,19 @@ build_hash_table(SetOpState *setopstate)
 	Assert(node->strategy == SETOP_HASHED);
 	Assert(node->numGroups > 0);
 
-	setopstate->hashtable = BuildTupleHashTable(&setopstate->ps,
-												desc,
-												node->numCols,
-												node->dupColIdx,
-												setopstate->eqfuncoids,
-												setopstate->hashfunctions,
-												node->numGroups,
-												0,
-												setopstate->tableContext,
-												econtext->ecxt_per_tuple_memory,
-												false);
+	setopstate->hashtable = BuildTupleHashTableExt(&setopstate->ps,
+												   desc,
+												   node->numCols,
+												   node->dupColIdx,
+												   setopstate->eqfuncoids,
+												   setopstate->hashfunctions,
+												   node->dupCollations,
+												   node->numGroups,
+												   0,
+												   setopstate->ps.state->es_query_cxt,
+												   setopstate->tableContext,
+												   econtext->ecxt_per_tuple_memory,
+												   false);
 }
 
 /*
@@ -252,7 +254,7 @@ setop_retrieve_direct(SetOpState *setopstate)
 			if (!TupIsNull(outerslot))
 			{
 				/* Make a copy of the first input tuple */
-				setopstate->grp_firstTuple = ExecCopySlotTuple(outerslot);
+				setopstate->grp_firstTuple = ExecCopySlotHeapTuple(outerslot);
 			}
 			else
 			{
@@ -267,10 +269,9 @@ setop_retrieve_direct(SetOpState *setopstate)
 		 * for it.  The tuple will be deleted when it is cleared from the
 		 * slot.
 		 */
-		ExecStoreTuple(setopstate->grp_firstTuple,
-					   resultTupleSlot,
-					   InvalidBuffer,
-					   true);
+		ExecStoreHeapTuple(setopstate->grp_firstTuple,
+						   resultTupleSlot,
+						   true);
 		setopstate->grp_firstTuple = NULL;	/* don't keep two pointers */
 
 		/* Initialize working state for a new input tuple group */
@@ -304,7 +305,7 @@ setop_retrieve_direct(SetOpState *setopstate)
 				/*
 				 * Save the first input tuple of the next group.
 				 */
-				setopstate->grp_firstTuple = ExecCopySlotTuple(outerslot);
+				setopstate->grp_firstTuple = ExecCopySlotHeapTuple(outerslot);
 				break;
 			}
 
@@ -533,7 +534,9 @@ ExecInitSetOp(SetOp *node, EState *estate, int eflags)
 	 * Initialize result slot and type. Setop nodes do no projections, so
 	 * initialize projection info for this node appropriately.
 	 */
-	ExecInitResultTupleSlotTL(estate, &setopstate->ps);
+	ExecInitResultTupleSlotTL(&setopstate->ps,
+							  node->strategy == SETOP_HASHED ?
+							  &TTSOpsMinimalTuple : &TTSOpsHeapTuple);
 	setopstate->ps.ps_ProjInfo = NULL;
 
 	/*
@@ -552,6 +555,7 @@ ExecInitSetOp(SetOp *node, EState *estate, int eflags)
 								   node->numCols,
 								   node->dupColIdx,
 								   node->dupOperators,
+								   node->dupCollations,
 								   &setopstate->ps);
 
 	if (node->strategy == SETOP_HASHED)
@@ -634,7 +638,7 @@ ExecReScanSetOp(SetOpState *node)
 	/* And rebuild empty hashtable if needed */
 	if (((SetOp *) node->ps.plan)->strategy == SETOP_HASHED)
 	{
-		build_hash_table(node);
+		ResetTupleHashTable(node->hashtable);
 		node->table_filled = false;
 	}
 

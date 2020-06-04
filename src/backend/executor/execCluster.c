@@ -1,5 +1,7 @@
 #include "postgres.h"
 
+#include "access/relation.h"
+#include "access/table.h"
 #include "access/transam.h"
 #include "access/xact.h"
 #include "catalog/pgxc_node.h"
@@ -469,7 +471,7 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 	{
 		rte = lfirst(lc);
 		if(rte->rtekind == RTE_RELATION)
-			base_rels[i] = heap_open(rte->relid, NoLock);
+			base_rels[i] = table_open(rte->relid, NoLock);
 		else
 			base_rels[i] = NULL;
 	}
@@ -487,7 +489,7 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 	for(i=0;i<n;++i)
 	{
 		if(base_rels[i])
-			heap_close(base_rels[i], NoLock);
+			table_close(base_rels[i], NoLock);
 	}
 	pfree(base_rels);
 
@@ -1509,7 +1511,7 @@ static void RestoreClusterHook(ClusterErrorHookContext *context)
 
 static bool RelationIsCoordOnly(Oid relid)
 {
-	Relation rel = heap_open(relid, NoLock);
+	Relation rel = table_open(relid, NoLock);
 	Form_pg_class form = RelationGetForm(rel);
 	bool result = false;
 	if (form->relkind == RELKIND_VIEW ||
@@ -1518,7 +1520,7 @@ static bool RelationIsCoordOnly(Oid relid)
 		form->relpersistence == RELPERSISTENCE_TEMP)
 		result = true;
 
-	heap_close(rel, NoLock);
+	table_close(rel, NoLock);
 	return result;
 }
 

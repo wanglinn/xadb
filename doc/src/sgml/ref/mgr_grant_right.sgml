@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_grant_right.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-GRANT">
+<refentry id="mgr-grant">
   <refmeta>
     <refentrytitle>GRANT</refentrytitle>
     <manvolnum>7</manvolnum>

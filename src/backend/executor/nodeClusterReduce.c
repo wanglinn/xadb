@@ -1246,7 +1246,7 @@ static void InitMergeReduceState(ClusterReduceState *state, MergeReduceState *me
 	for (i=0;i<count;++i)
 	{
 		MergeNodeInfo *info = &merge->nodes[i];
-		info->slot = ExecInitExtraTupleSlot(state->ps.state, desc);
+		info->slot = ExecInitExtraTupleSlot(state->ps.state, desc, &TTSOpsMinimalTuple);
 		initStringInfo(&info->read_buf);
 		info->nodeoid = lfirst_oid(lc);
 		lc = lnext(lc);
@@ -1533,7 +1533,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	/*
 	 * Initialize result slot, type and projection.
 	 */
-	ExecInitResultTupleSlotTL(estate, &crstate->ps);
+	ExecInitResultTupleSlotTL(&crstate->ps, &TTSOpsMinimalTuple);
 
 	/*
 	 * initialize child nodes

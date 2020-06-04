@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_stop_gtm.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-STOPGTM">
+<refentry id="mgr-stopgtm">
   <refmeta>
     <refentrytitle>STOP GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>

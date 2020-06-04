@@ -5,7 +5,7 @@
  *	  commands.  At one time acted as an interface between the Lisp and C
  *	  systems.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2012, Postgres-XC Development Group
  * Portions Copyright (c) 2014-2017, ADB Development Group
@@ -78,6 +78,7 @@
 
 
 #ifdef ADB
+#include "access/relation.h"
 #include "agtm/agtm.h"
 #include "catalog/index.h"
 #include "nodes/nodes.h"
@@ -129,22 +130,15 @@ ProcessUtility_hook_type ProcessUtility_hook = NULL;
 
 /* local function declarations */
 static void ProcessUtilitySlow(ParseState *pstate,
-				   PlannedStmt *pstmt,
-				   const char *queryString,
-				   ProcessUtilityContext context,
-				   ParamListInfo params,
-				   QueryEnvironment *queryEnv,
-				   DestReceiver *dest,
-#ifdef ADB
-				   const char *this_query_str,
-				   bool sentToRemote,
-#endif
-				   char *completionTag);
-#ifdef ADB
-static void ExecDropStmt(DropStmt *stmt, bool isTopLevel, const char *queryString, bool sentToRemote);
-#else
-static void ExecDropStmt(DropStmt *stmt, bool isTopLevel);
-#endif
+							   PlannedStmt *pstmt,
+							   const char *queryString,
+							   ProcessUtilityContext context,
+							   ParamListInfo params,
+							   QueryEnvironment *queryEnv,
+							   DestReceiver *dest,
+							   ADB_ONLY_ARG2_COMMA(const char *this_query_str, bool sentToRemote)
+							   char *completionTag);
+static void ExecDropStmt(DropStmt *stmt, bool isTopLevel ADB_ONLY_COMMA_ARG2(const char *queryString, bool sentToRemote));
 
 /*
  * CommandIsReadOnly: is an executable query read-only?
@@ -520,6 +514,9 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 	}
 #endif
 
+	/* This can recurse, so check for excessive recursion */
+	check_stack_depth();
+
 	check_xact_readonly(parsetree);
 
 	if (completionTag)
@@ -570,7 +567,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 						break;
 
 					case TRANS_STMT_COMMIT:
-						if (!EndTransactionBlock())
+						if (!EndTransactionBlock(stmt->chain))
 						{
 							/* report unsuccessful commit in completionTag */
 							if (completionTag)
@@ -613,7 +610,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 						break;
 
 					case TRANS_STMT_ROLLBACK:
-						UserAbortTransactionBlock();
+						UserAbortTransactionBlock(stmt->chain);
 						break;
 
 					case TRANS_STMT_SAVEPOINT:
@@ -842,7 +839,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			{
 				UnlistenStmt *stmt = (UnlistenStmt *) parsetree;
 
-				PreventCommandDuringRecovery("UNLISTEN");
+				/* we allow UNLISTEN during recovery, as it's a noop */
 				CheckRestrictedOperation("UNLISTEN");
 				if (stmt->conditionname)
 					Async_Unlisten(stmt->conditionname);
@@ -883,10 +880,10 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				VacuumStmt *stmt = (VacuumStmt *) parsetree;
 
 				/* we choose to allow this during "read only" transactions */
-				PreventCommandDuringRecovery((stmt->options & VACOPT_VACUUM) ?
+				PreventCommandDuringRecovery(stmt->is_vacuumcmd ?
 											 "VACUUM" : "ANALYZE");
 				/* forbidden in parallel mode due to CommandIsReadOnly */
-				ExecVacuum(stmt, isTopLevel);
+				ExecVacuum(pstate, stmt, isTopLevel);
 			}
 			break;
 
@@ -1141,16 +1138,20 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 				bool send_to_remote = true;
 #endif /* ADB */
 
+				if (stmt->concurrent)
+					PreventInTransactionBlock(isTopLevel,
+											  "REINDEX CONCURRENTLY");
+
 				/* we choose to allow this during "read only" transactions */
 				PreventCommandDuringRecovery("REINDEX");
 				/* forbidden in parallel mode due to CommandIsReadOnly */
 				switch (stmt->kind)
 				{
 					case REINDEX_OBJECT_INDEX:
-						ReindexIndex(stmt->relation, stmt->options);
+						ReindexIndex(stmt->relation, stmt->options, stmt->concurrent);
 						break;
 					case REINDEX_OBJECT_TABLE:
-						ReindexTable(stmt->relation, stmt->options);
+						ReindexTable(stmt->relation, stmt->options, stmt->concurrent);
 						break;
 					case REINDEX_OBJECT_SCHEMA:
 					case REINDEX_OBJECT_SYSTEM:
@@ -1166,7 +1167,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 												  (stmt->kind == REINDEX_OBJECT_SCHEMA) ? "REINDEX SCHEMA" :
 												  (stmt->kind == REINDEX_OBJECT_SYSTEM) ? "REINDEX SYSTEM" :
 												  "REINDEX DATABASE");
-						ReindexMultipleTables(stmt->name, stmt->kind, stmt->options);
+						ReindexMultipleTables(stmt->name, stmt->kind, stmt->options, stmt->concurrent);
 						break;
 					default:
 						elog(ERROR, "unrecognized object type: %d",
@@ -1541,6 +1542,13 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 #endif /* ADB */
 
 	free_parsestate(pstate);
+
+	/*
+	 * Make effects of commands visible, for instance so that
+	 * PreCommit_on_commit_actions() can see them (see for example bug
+	 * #15631).
+	 */
+	CommandCounterIncrement();
 }
 
 /*
@@ -1564,7 +1572,7 @@ ProcessUtilitySlow(ParseState *pstate,
 {
 	Node	   *parsetree = pstmt->utilityStmt;
 	bool		isTopLevel = (context == PROCESS_UTILITY_TOPLEVEL);
-	bool		isCompleteQuery = (context <= PROCESS_UTILITY_QUERY);
+	bool		isCompleteQuery = (context != PROCESS_UTILITY_SUBCOMMAND);
 	bool		needCleanup;
 	bool		commandCollected = false;
 	ObjectAddress address;
@@ -1985,7 +1993,8 @@ ProcessUtilitySlow(ParseState *pstate,
 							address =
 								DefineAggregate(pstate, stmt->defnames, stmt->args,
 												stmt->oldstyle,
-												stmt->definition);
+												stmt->definition,
+												stmt->replace);
 							break;
 						case OBJECT_OPERATOR:
 							Assert(stmt->args == NIL);
@@ -2107,10 +2116,16 @@ ProcessUtilitySlow(ParseState *pstate,
 
 							if (relkind != RELKIND_RELATION &&
 								relkind != RELKIND_MATVIEW &&
-								relkind != RELKIND_PARTITIONED_TABLE)
+								relkind != RELKIND_PARTITIONED_TABLE &&
+								relkind != RELKIND_FOREIGN_TABLE)
+								elog(ERROR, "unexpected relkind \"%c\" on partition \"%s\"",
+									 relkind, stmt->relation->relname);
+
+							if (relkind == RELKIND_FOREIGN_TABLE &&
+								(stmt->unique || stmt->primary))
 								ereport(ERROR,
-										(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-										 errmsg("cannot create index on partitioned table \"%s\"",
+										(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+										 errmsg("cannot create unique index on partitioned table \"%s\"",
 												stmt->relation->relname),
 										 errdetail("Table \"%s\" contains partitions that are foreign tables.",
 												   stmt->relation->relname)));
@@ -2264,7 +2279,7 @@ ProcessUtilitySlow(ParseState *pstate,
 				break;
 
 			case T_AlterEnumStmt:	/* ALTER TYPE (enum) */
-				address = AlterEnum((AlterEnumStmt *) parsetree, isTopLevel);
+				address = AlterEnum((AlterEnumStmt *) parsetree);
 #ifdef ADB
 				/*
 				 * In this case force autocommit, this transaction cannot be launched
@@ -2291,9 +2306,9 @@ ProcessUtilitySlow(ParseState *pstate,
 				if (((ViewStmt *) parsetree)->view->relpersistence != RELPERSISTENCE_TEMP)
 				{
 					/* sometimes force be a temporary view, we need test again */
-					Relation rel = heap_open(address.objectId, NoLock);
+					Relation rel = relation_open(address.objectId, NoLock);
 					bool need_remote = RelationUsesLocalBuffers(rel) ? false:true;
-					heap_close(rel, NoLock);
+					relation_close(rel, NoLock);
 					if(need_remote)
 					{
 						utilityContext.exec_type = EXEC_ON_COORDS;
@@ -2750,11 +2765,7 @@ ProcessUtilitySlow(ParseState *pstate,
  * Dispatch function for DropStmt
  */
 static void
-#ifdef ADB
-ExecDropStmt(DropStmt *stmt, bool isTopLevel, const char *queryString, bool sentToRemote)
-#else
-ExecDropStmt(DropStmt *stmt, bool isTopLevel)
-#endif
+ExecDropStmt(DropStmt *stmt, bool isTopLevel ADB_ONLY_COMMA_ARG2(const char *queryString, bool sentToRemote))
 {
 #ifdef ADB
 	RemoteUtilityContext utilityContext = {
@@ -3164,6 +3175,12 @@ UtilityReturnsTuples(Node *parsetree)
 {
 	switch (nodeTag(parsetree))
 	{
+		case T_CallStmt:
+			{
+				CallStmt   *stmt = (CallStmt *) parsetree;
+
+				return (stmt->funcexpr->funcresulttype == RECORDOID);
+			}
 		case T_FetchStmt:
 			{
 				FetchStmt  *stmt = (FetchStmt *) parsetree;
@@ -3214,6 +3231,9 @@ UtilityTupleDescriptor(Node *parsetree)
 {
 	switch (nodeTag(parsetree))
 	{
+		case T_CallStmt:
+			return CallStmtResultDesc((CallStmt *) parsetree);
+
 		case T_FetchStmt:
 			{
 				FetchStmt  *stmt = (FetchStmt *) parsetree;
@@ -3986,7 +4006,7 @@ CreateCommandTag(Node *parsetree)
 			break;
 
 		case T_VacuumStmt:
-			if (((VacuumStmt *) parsetree)->options & VACOPT_VACUUM)
+			if (((VacuumStmt *) parsetree)->is_vacuumcmd)
 				tag = "VACUUM";
 			else
 				tag = "ANALYZE";

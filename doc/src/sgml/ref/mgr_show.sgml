@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_show.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-SHOW-PARAM">
+<refentry id="mgr-show-param">
   <refmeta>
     <refentrytitle>SHOW PARAM</refentrytitle>
     <manvolnum>7</manvolnum>

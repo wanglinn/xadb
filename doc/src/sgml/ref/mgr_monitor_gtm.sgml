@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_monitor_gtm.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-MONITORGTM">
+<refentry id="mgr-monitorgtm">
   <refmeta>
     <refentrytitle>MONITOR GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>

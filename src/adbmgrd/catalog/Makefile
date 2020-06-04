@@ -100,7 +100,8 @@ generated-header-symlinks: $(top_builddir)/src/include/catalog/mgr-header-stamp
 # instead is cheating a bit, but it will achieve the goal of updating the
 # version number when it changes.
 bki-stamp: genbki.pl Catalog.pm $(POSTGRES_BKI_SRCS) $(POSTGRES_BKI_DATA) $(top_srcdir)/configure.in
-	$(PERL) -I $(catalogdir) $< --set-version=$(MAJORVERSION) $(POSTGRES_BKI_SRCS) $(MYCPPFLAGS)
+	$(PERL) $< --include-path=$(top_srcdir)/src/include/ \
+		--set-version=$(MAJORVERSION) "--defines=$(MYCPPFLAGS)" $(POSTGRES_BKI_SRCS)
 	mv postgres.bki adbmgrd.bki
 	mv postgres.description adbmgrd.description
 	mv postgres.shdescription adbmgrd.shdescription

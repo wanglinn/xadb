@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_start_gtm.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-STARTGTM">
+<refentry id="mgr-startgtm">
   <refmeta>
     <refentrytitle>START GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>

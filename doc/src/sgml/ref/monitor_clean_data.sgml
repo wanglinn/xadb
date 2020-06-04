@@ -3,7 +3,7 @@ doc/src/sgml/ref/monitor_clean_data.sgml
 ADB documentation
 -->
 
-<refentry id="MONITOR-CLEANDATA">
+<refentry id="monitor-cleandata">
   <refmeta>
     <refentrytitle>CLEAN MONITOR</refentrytitle>
     <manvolnum>7</manvolnum>

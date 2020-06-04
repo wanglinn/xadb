@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_stop_coordinator.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-STOPCOORDINATOR">
+<refentry id="mgr-stopcoordinator">
   <refmeta>
     <refentrytitle>STOP COORDINATOR</refentrytitle>
     <manvolnum>7</manvolnum>

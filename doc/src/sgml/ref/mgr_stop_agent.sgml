@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_stop_agent.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-STOPAGENT">
+<refentry id="mgr-stopagent">
   <refmeta>
     <refentrytitle>STOP AGENT</refentrytitle>
     <manvolnum>7</manvolnum>

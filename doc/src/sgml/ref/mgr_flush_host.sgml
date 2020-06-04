@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_flush_host.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-FLUSHHOST">
+<refentry id="mgr-flushhost">
   <refmeta>
     <refentrytitle>FLUSH HOST</refentrytitle>
     <manvolnum>7</manvolnum>

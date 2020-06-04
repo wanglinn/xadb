@@ -10,6 +10,7 @@
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/htup.h"
+#include "catalog/catalog.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/mgr_host.h"
@@ -32,7 +33,6 @@
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
-#include "utils/tqual.h"
 #include "funcapi.h"
 #include "utils/lsyscache.h"
 #include "../../interfaces/libpq/libpq-fe.h"
@@ -63,11 +63,11 @@ typedef enum OperateHbaType
 typedef struct TableInfo
 {
 	Relation rel;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	ListCell  **lcp;
 }TableInfo;
 
-#if (Natts_mgr_hba != 2)
+#if (Natts_mgr_hba != 3)
 #error "need change hba code"
 #endif
 static TupleDesc common_command_tuple_desc = NULL;
@@ -184,7 +184,7 @@ static TupleDesc get_hba_conf_tuple_desc(void)
 		TupleDesc volatile desc = NULL;
 		PG_TRY();
 		{
-			desc = CreateTemplateTupleDesc(3, false);
+			desc = CreateTemplateTupleDesc(3);
 			TupleDescInitEntry(desc, (AttrNumber) 1, "nodetype", NAMEOID, -1, 0);
 			TupleDescInitEntry(desc, (AttrNumber) 2, "nodename", NAMEOID, -1, 0);
 			TupleDescInitEntry(desc, (AttrNumber) 3, "hbavalue", TEXTOID, -1, 0);
@@ -300,7 +300,7 @@ Datum mgr_show_hba_all(PG_FUNCTION_ARGS)
 
 		info = palloc(sizeof(*info));
 
-		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
+		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 		if(!PG_ARGISNULL(0))
 		{
 			nodenamelist = get_fcinfo_namelist("", 0, fcinfo);
@@ -310,11 +310,11 @@ Datum mgr_show_hba_all(PG_FUNCTION_ARGS)
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,CStringGetDatum(nodestrname));
-			info->rel_scan = heap_beginscan_catalog(info->rel_node, 1, key);
+			info->rel_scan = table_beginscan_catalog(info->rel_node, 1, key);
 		}
 		else
 		{
-			info->rel_scan = heap_beginscan_catalog(info->rel_node, 0, NULL);
+			info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
 		}
 
 		info->lcp = NULL;
@@ -389,8 +389,8 @@ Datum mgr_list_hba_by_name(PG_FUNCTION_ARGS)
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,CStringGetDatum(nodestrname));
-		info->rel = heap_open(HbaRelationId, AccessShareLock);
-		info->rel_scan = heap_beginscan_catalog(info->rel, 1, key);
+		info->rel = table_open(HbaRelationId, AccessShareLock);
+		info->rel_scan = table_beginscan_catalog(info->rel, 1, key);
 
 		funcctx->user_fctx = info;
 		MemoryContextSwitchTo(oldcontext);
@@ -432,7 +432,7 @@ Datum mgr_add_hba(PG_FUNCTION_ARGS)
 	HeapTuple tuple;
 	Form_mgr_node mgr_node;
 	Relation rel_node;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 
 	err_msg.ret = true;
 	initStringInfo(&err_msg.description);
@@ -462,7 +462,7 @@ Datum mgr_add_hba(PG_FUNCTION_ARGS)
 	}
 	else if(HBA_NODENAME_ALL == handle_type)
 	{
-		rel_node = heap_open(NodeRelationId, AccessShareLock);
+		rel_node = table_open(NodeRelationId, AccessShareLock);
 		namestrcpy(&nodedataname, nodename);
 		ScanKeyInit(&key[0]
 			,Anum_mgr_node_nodename
@@ -474,7 +474,7 @@ Datum mgr_add_hba(PG_FUNCTION_ARGS)
 			,BTEqualStrategyNumber
 			,F_BOOLEQ
 			,BoolGetDatum(true));
-		rel_scan = heap_beginscan_catalog(rel_node, 2, key);
+		rel_scan = table_beginscan_catalog(rel_node, 2, key);
 		tuple = heap_getnext(rel_scan, ForwardScanDirection);
 		if (!HeapTupleIsValid(tuple))
 			ereport(ERROR, (errmsg("the node does not exist in cluster")));
@@ -499,13 +499,13 @@ Datum mgr_add_hba(PG_FUNCTION_ARGS)
 static void mgr_add_hba_all(char type, char *hbastr, GetAgentCmdRst *err_msg)
 {
 	Relation rel;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	Form_mgr_node mgr_node;
 	HeapTuple tuple;
 	bool record_err_msg = true;
 
-	rel = heap_open(NodeRelationId, AccessShareLock);
-	rel_scan = heap_beginscan_catalog(rel, 0, NULL);
+	rel = table_open(NodeRelationId, AccessShareLock);
+	rel_scan = table_beginscan_catalog(rel, 0, NULL);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -656,10 +656,12 @@ static Oid tuple_insert_table_hba(Datum *values, bool *isnull)
 	Oid hba_oid;
 	Assert(values && isnull);
 	/* now, we can insert record */
-	rel = heap_open(HbaRelationId, RowExclusiveLock);
+	rel = table_open(HbaRelationId, RowExclusiveLock);
 
+	hba_oid = GetNewOidWithIndex(rel, HbaOidIndexId, Anum_mgr_hba_oid);
+	values[Anum_mgr_hba_oid-1] = ObjectIdGetDatum(hba_oid);
+	isnull[Anum_mgr_hba_oid-1] = false;
 	newtuple = heap_form_tuple(RelationGetDescr(rel), values, isnull);
-	hba_oid = CatalogTupleInsert(rel, newtuple);
 	heap_close(rel, RowExclusiveLock);
 	heap_freetuple(newtuple);
 	return hba_oid;
@@ -673,7 +675,7 @@ static TupleDesc get_tuple_desc_for_hba(void)
 		TupleDesc volatile desc = NULL;
 		PG_TRY();
 		{
-			desc = CreateTemplateTupleDesc(HBA_RESULT_COLUMN, false);
+			desc = CreateTemplateTupleDesc(HBA_RESULT_COLUMN);
 
 			TupleDescInitEntry(desc, (AttrNumber) 1, "nodename",
 							NAMEOID, -1, 0);
@@ -778,13 +780,13 @@ static void drop_hba_all(GetAgentCmdRst *err_msg)
 {
 	Relation rel;
 	HeapTuple tuple;
-	HeapScanDesc  rel_scan;
+	TableScanDesc  rel_scan;
 	Form_mgr_hba mgr_hba;
 	char *coord_name;
 	char *hbavalue;
 	/*Traverse all the coordinator in the node table*/
-	rel = heap_open(HbaRelationId, RowExclusiveLock);
-	rel_scan = heap_beginscan_catalog(rel, 0, NULL);
+	rel = table_open(HbaRelationId, RowExclusiveLock);
+	rel_scan = table_beginscan_catalog(rel, 0, NULL);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_hba = (Form_mgr_hba)GETSTRUCT(tuple);
@@ -805,7 +807,7 @@ static void drop_hba_nodename_all(char *coord_name, GetAgentCmdRst *err_msg)
 	Relation rel;
 	ScanKeyData key[1];
 	HeapTuple tuple;
-	HeapScanDesc  rel_scan;
+	TableScanDesc  rel_scan;
 	Form_mgr_hba mgr_hba;
 	char *hbavalue;
 	Assert(coord_name);
@@ -816,8 +818,8 @@ static void drop_hba_nodename_all(char *coord_name, GetAgentCmdRst *err_msg)
 				,F_NAMEEQ
 				,CStringGetDatum(coord_name));
 
-	rel = heap_open(HbaRelationId, RowExclusiveLock);
-	rel_scan = heap_beginscan_catalog(rel, 1, key);
+	rel = table_open(HbaRelationId, RowExclusiveLock);
+	rel_scan = table_beginscan_catalog(rel, 1, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_hba = (Form_mgr_hba)GETSTRUCT(tuple);
@@ -833,7 +835,7 @@ static void drop_hba_all_value(List *args_list, GetAgentCmdRst *err_msg)
 {
 	Relation rel;
 	HeapTuple tuple;
-	HeapScanDesc  rel_scan;
+	TableScanDesc  rel_scan;
 	Form_mgr_hba mgr_hba;
 	char *coord_name;
 	bool is_exist = false;
@@ -841,8 +843,8 @@ static void drop_hba_all_value(List *args_list, GetAgentCmdRst *err_msg)
 	List *name_list = NIL;
 	ListCell *lc_value, *lc_name;
 	/*Traverse all the coordinator in the node table*/
-	rel = heap_open(HbaRelationId, AccessShareLock);
-	rel_scan = heap_beginscan_catalog(rel, 0, NULL);
+	rel = table_open(HbaRelationId, AccessShareLock);
+	rel_scan = table_beginscan_catalog(rel, 0, NULL);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_hba = (Form_mgr_hba)GETSTRUCT(tuple);
@@ -915,7 +917,7 @@ static void drop_hba_nodename_value(char *coord_name, char *hbavalue, GetAgentCm
 	Assert(coord_name);
 	initStringInfo(&getAgentCmdRst.description);
 	/*step1: check the nodename is exist in the mgr_node table and make sure it has been initialized*/
-	rel = heap_open(NodeRelationId, AccessShareLock);
+	rel = table_open(NodeRelationId, AccessShareLock);
 	tuple = mgr_get_tuple_node_from_name_type(rel, coord_name);
 	if(!(HeapTupleIsValid(tuple)))
 	{
@@ -992,7 +994,7 @@ else
 static void delete_table_hba(char *coord_name, char *values)
 {
 	Relation rel;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	HeapTuple tuple;
 	ScanKeyData scankey[2];
 	bool is_check_value = false;
@@ -1012,20 +1014,20 @@ static void delete_table_hba(char *coord_name, char *values)
 				,F_TEXTEQ
 				,CStringGetTextDatum(values));
 	}
-	rel = heap_open(HbaRelationId, RowExclusiveLock);
+	rel = table_open(HbaRelationId, RowExclusiveLock);
 	if(strcmp(coord_name, "*") == 0)
 	{
 		if(true == is_check_value)
-			rel_scan = heap_beginscan_catalog(rel, 1, &scankey[1]);
+			rel_scan = table_beginscan_catalog(rel, 1, &scankey[1]);
 		else
-			rel_scan = heap_beginscan_catalog(rel, 0, NULL);
+			rel_scan = table_beginscan_catalog(rel, 0, NULL);
 	}
 	else
 	{
 		if(true == is_check_value)
-			rel_scan = heap_beginscan_catalog(rel, 2, scankey);
+			rel_scan = table_beginscan_catalog(rel, 2, scankey);
 		else
-			rel_scan = heap_beginscan_catalog(rel, 1, &scankey[0]);
+			rel_scan = table_beginscan_catalog(rel, 1, &scankey[0]);
 
 	}
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
@@ -1053,7 +1055,7 @@ void add_hba_table_to_file(char *coord_name)
 {
 	Relation rel;
 	HeapTuple tuple;
-	HeapScanDesc  rel_scan;
+	TableScanDesc  rel_scan;
 	Form_mgr_hba mgr_hba;
 	ScanKeyData scankey[1];
 	char *hba_value;
@@ -1070,11 +1072,11 @@ void add_hba_table_to_file(char *coord_name)
 			,BTEqualStrategyNumber
 			,F_NAMEEQ
 			,CStringGetDatum(coord_name));
-	rel = heap_open(HbaRelationId, AccessShareLock);
+	rel = table_open(HbaRelationId, AccessShareLock);
 	if(strcmp(coord_name, "*") == 0)
-		rel_scan = heap_beginscan_catalog(rel, 0, NULL);
+		rel_scan = table_beginscan_catalog(rel, 0, NULL);
 	else
-		rel_scan = heap_beginscan_catalog(rel, 1, &scankey[0]);
+		rel_scan = table_beginscan_catalog(rel, 1, &scankey[0]);
 
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -1109,7 +1111,7 @@ void add_hba_table_to_file(char *coord_name)
 static bool check_hba_tuple_exist(char *coord_name, char *values)
 {
 	Relation rel;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	HeapTuple tuple;
 	ScanKeyData scankey[2];
 	bool ret = false;
@@ -1128,20 +1130,20 @@ static bool check_hba_tuple_exist(char *coord_name, char *values)
 			,BTEqualStrategyNumber
 			,F_TEXTEQ
 			,CStringGetTextDatum(values));
-	rel = heap_open(HbaRelationId, AccessShareLock);
+	rel = table_open(HbaRelationId, AccessShareLock);
 	if(strcmp(coord_name, "*") == 0)
 	{
 		if(true == is_check_value)
-			rel_scan = heap_beginscan_catalog(rel, 1, &scankey[1]);
+			rel_scan = table_beginscan_catalog(rel, 1, &scankey[1]);
 		else
-			rel_scan = heap_beginscan_catalog(rel, 0, NULL);
+			rel_scan = table_beginscan_catalog(rel, 0, NULL);
 	}
 	else
 	{
 		if(true == is_check_value)
-			rel_scan = heap_beginscan_catalog(rel, 2, scankey);
+			rel_scan = table_beginscan_catalog(rel, 2, scankey);
 		else
-			rel_scan = heap_beginscan_catalog(rel, 1, &scankey[0]);
+			rel_scan = table_beginscan_catalog(rel, 1, &scankey[0]);
 
 	}
 

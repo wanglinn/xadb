@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_add_gtm.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-ADDGTM">
+<refentry id="mgr-addgtm">
   <refmeta>
     <refentrytitle>ADD GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>

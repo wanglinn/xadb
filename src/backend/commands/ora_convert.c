@@ -23,6 +23,7 @@
 #include "utils/rel.h"
 
 #ifdef ADB
+#include "access/heapam.h"
 #include "catalog/pgxc_node.h"
 #include "executor/execCluster.h"
 #include "libpq/libpq-node.h"
@@ -116,7 +117,7 @@ static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt)
 {
 	Relation			convert_rel;
 	TupleDesc			rel_dsc;
-	HeapScanDesc		rel_scan;
+	TableScanDesc		rel_scan;
 	ScanKeyData			key[2];
 	HeapTuple			tuple, newtuple;
 	Form_ora_convert	ora_convert;
@@ -192,8 +193,8 @@ static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt)
 			,F_NAMEEQ
 			,CStringGetDatum(stmt->cvtname));
 			
-	convert_rel = heap_open(OraConvertRelationId, RowExclusiveLock);
-	rel_scan = heap_beginscan_catalog(convert_rel, 2, key);
+	convert_rel = table_open(OraConvertRelationId, RowExclusiveLock);
+	rel_scan = table_beginscan_catalog(convert_rel, 2, key);
 	rel_dsc = RelationGetDescr(convert_rel);
 
 	
@@ -293,8 +294,6 @@ static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt)
 			}
 			else
 			{
-				heap_endscan(rel_scan);
-				heap_close(convert_rel, RowExclusiveLock);
 				elog(ERROR, "UPDATE 0");
 			}
 			
@@ -308,8 +307,6 @@ static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt)
 			{
 				if (!stmt->if_exists)
 				{
-					heap_endscan(rel_scan);
-					heap_close(convert_rel, RowExclusiveLock);
 					elog(ERROR, "DELETE 0");
 				}
 			}
@@ -320,8 +317,8 @@ static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt)
 					(int) stmt->action);
 			break;
 	}
-	heap_endscan(rel_scan);
-	heap_close(convert_rel, RowExclusiveLock);
+	table_endscan(rel_scan);
+	table_close(convert_rel, RowExclusiveLock);
 }
 
 #ifdef ADB
@@ -358,13 +355,12 @@ getMasterNodeOid(void)
 {
 	HeapTuple		tuple;
 	Relation		rel;
-	HeapScanDesc	scan;
+	TableScanDesc	scan;
 	Form_pgxc_node	xc_node;
-	Oid				nodeOid;
 	List 			*nodeOid_list = NIL;
 
-	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
-	scan = heap_beginscan_catalog(rel, 0, NULL);
+	rel = table_open(PgxcNodeRelationId, AccessShareLock);
+	scan = table_beginscan_catalog(rel, 0, NULL);
 
 	while ((tuple=heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{	
@@ -372,14 +368,13 @@ getMasterNodeOid(void)
 		if (xc_node->node_type == PGXC_NODE_COORDINATOR || 
 			xc_node->node_type == PGXC_NODE_DATANODE)
 		{
-			nodeOid = HeapTupleGetOid(tuple);
-			if (nodeOid == PGXCNodeOid)
+			if (xc_node->oid == PGXCNodeOid)
 				continue;
-			nodeOid_list = list_append_unique_oid(nodeOid_list, nodeOid);
+			nodeOid_list = list_append_unique_oid(nodeOid_list, xc_node->oid);
 		}
 	}
-	heap_endscan(scan);
-	heap_close(rel, AccessShareLock);
+	table_endscan(scan);
+	table_close(rel, AccessShareLock);
 
 	return nodeOid_list;
 }

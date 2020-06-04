@@ -7,7 +7,7 @@
 
 #include "utils/timestamp.h"
 
-CATALOG(monitor_databasetps,4814,MdatabasetpsRelationId) BKI_WITHOUT_OIDS
+CATALOG(monitor_databasetps,4814,MdatabasetpsRelationId)
 {
 	/* monitor tps timestamp */
 	timestamptz		monitor_databasetps_time;

@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_stop_doctor.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-STOPDOCTOR">
+<refentry id="mgr-stopdoctor">
  <refmeta>
   <refentrytitle>STOP DOCTOR</refentrytitle>
   <manvolnum>7</manvolnum>

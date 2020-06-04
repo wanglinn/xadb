@@ -36,8 +36,8 @@ void DynamicReduceInitFetch(DynamicReduceIOBuffer *io, dsm_segment *seg, TupleDe
 
 	io->convert = create_type_convert(desc, true, true);
 	if (io->convert != NULL)
-		io->slot_remote = MakeSingleTupleTableSlot(io->convert->out_desc);
-	io->slot_local = MakeSingleTupleTableSlot(desc);
+		io->slot_remote = MakeSingleTupleTableSlot(io->convert->out_desc, &TTSOpsMinimalTuple);
+	io->slot_local = MakeSingleTupleTableSlot(desc, &TTSOpsMinimalTuple);
 
 	io->eof_local = io->eof_remote = false;
 }
@@ -374,7 +374,11 @@ void DRFetchSaveNothing(TupleTableSlot *slot, void *context)
 
 void DRFetchSaveSTS(TupleTableSlot *slot, void *context)
 {
-	sts_puttuple(context, NULL, ExecFetchSlotMinimalTuple(slot));
+	bool shouldFree;
+	MinimalTuple mtup = ExecFetchSlotMinimalTuple(slot, &shouldFree);
+	sts_puttuple(context, NULL, mtup);
+	if (shouldFree)
+		pfree(mtup);
 }
 
 void DynamicReduceFetchAllLocalAndSend(DynamicReduceIOBuffer *io, const void *context, FetchSaveFunc func)

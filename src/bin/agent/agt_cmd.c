@@ -410,14 +410,14 @@ static void cmd_check_dir_exist(StringInfo msg)
 	{
 		if ((chmod(dir_path, 0700))!= 0)
 			ereport(ERROR,
-				(errmsg("append the node: chmod \"%s\" 0700 fail, %s", dir_path, strerror(errno))));
+				(errmsg("append the node: chmod \"%s\" 0700 fail: %m", dir_path)));
 	}
 	/* data directory exists and not empty*/
 	chkdir = opendir(dir_path);
 	if (chkdir == NULL)
 	{
 		ereport(ERROR,
-			(errmsg("append the node: open directory \"%s\" fail, %s", dir_path, strerror(errno))));
+			(errmsg("append the node: open directory \"%s\" fail: %m", dir_path)));
 	}
 	else
 	{
@@ -453,7 +453,7 @@ static void cmd_rm_temp_file(StringInfo msg)
 	unlink(rec_msg_string);
 	if (errno != 0)
 	{
-		ereport(ERROR, (errmsg("do command \"unlink %s\" fail: %s",  rec_msg_string, strerror(errno))));
+		ereport(ERROR, (errmsg("do command \"unlink %s\" fail: %m",  rec_msg_string)));
 	}
 	else
 		appendStringInfoString(&output, "success");

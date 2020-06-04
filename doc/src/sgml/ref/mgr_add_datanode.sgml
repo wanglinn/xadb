@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_add_datanode.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-ADDDATANODE">
+<refentry id="mgr-adddatanode">
   <refmeta>
     <refentrytitle>ADD DATANODE</refentrytitle>
     <manvolnum>7</manvolnum>

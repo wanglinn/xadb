@@ -89,14 +89,14 @@ typedef enum AGENT_RESULT_MsgTYPE
 typedef struct InitNodeInfo
 {
 	Relation rel_node;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	ListCell  **lcp;
 }InitNodeInfo;
 
 typedef struct InitAclInfo
 {
 	Relation rel_authid;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	ListCell  **lcp;
 }InitAclInfo;
 

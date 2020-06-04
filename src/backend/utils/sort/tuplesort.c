@@ -83,7 +83,7 @@
  * produce exactly one output run from their partial input.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -96,9 +96,9 @@
 
 #include <limits.h>
 
+#include "access/hash.h"
 #include "access/htup_details.h"
 #include "access/nbtree.h"
-#include "access/hash.h"
 #include "catalog/index.h"
 #include "catalog/pg_am.h"
 #include "commands/tablespace.h"
@@ -602,8 +602,8 @@ struct Sharedsort
 
 
 static Tuplesortstate *tuplesort_begin_common(int workMem,
-					   SortCoordinate coordinate,
-					   bool randomAccess);
+											  SortCoordinate coordinate,
+											  bool randomAccess);
 static void puttuple_common(Tuplesortstate *state, SortTuple *tuple);
 static bool consider_abort_common(Tuplesortstate *state);
 static void inittapes(Tuplesortstate *state, bool mergeruns);
@@ -625,36 +625,36 @@ static void reversedirection(Tuplesortstate *state);
 static unsigned int getlen(Tuplesortstate *state, int tapenum, bool eofOK);
 static void markrunend(Tuplesortstate *state, int tapenum);
 static void *readtup_alloc(Tuplesortstate *state, Size tuplen);
-static int comparetup_heap(const SortTuple *a, const SortTuple *b,
-				Tuplesortstate *state);
+static int	comparetup_heap(const SortTuple *a, const SortTuple *b,
+							Tuplesortstate *state);
 static void copytup_heap(Tuplesortstate *state, SortTuple *stup, void *tup);
 static void writetup_heap(Tuplesortstate *state, int tapenum,
-			  SortTuple *stup);
+						  SortTuple *stup);
 static void readtup_heap(Tuplesortstate *state, SortTuple *stup,
-			 int tapenum, unsigned int len);
-static int comparetup_cluster(const SortTuple *a, const SortTuple *b,
-				   Tuplesortstate *state);
+						 int tapenum, unsigned int len);
+static int	comparetup_cluster(const SortTuple *a, const SortTuple *b,
+							   Tuplesortstate *state);
 static void copytup_cluster(Tuplesortstate *state, SortTuple *stup, void *tup);
 static void writetup_cluster(Tuplesortstate *state, int tapenum,
-				 SortTuple *stup);
+							 SortTuple *stup);
 static void readtup_cluster(Tuplesortstate *state, SortTuple *stup,
-				int tapenum, unsigned int len);
-static int comparetup_index_btree(const SortTuple *a, const SortTuple *b,
-					   Tuplesortstate *state);
-static int comparetup_index_hash(const SortTuple *a, const SortTuple *b,
-					  Tuplesortstate *state);
+							int tapenum, unsigned int len);
+static int	comparetup_index_btree(const SortTuple *a, const SortTuple *b,
+								   Tuplesortstate *state);
+static int	comparetup_index_hash(const SortTuple *a, const SortTuple *b,
+								  Tuplesortstate *state);
 static void copytup_index(Tuplesortstate *state, SortTuple *stup, void *tup);
 static void writetup_index(Tuplesortstate *state, int tapenum,
-			   SortTuple *stup);
+						   SortTuple *stup);
 static void readtup_index(Tuplesortstate *state, SortTuple *stup,
-			  int tapenum, unsigned int len);
-static int comparetup_datum(const SortTuple *a, const SortTuple *b,
-				 Tuplesortstate *state);
+						  int tapenum, unsigned int len);
+static int	comparetup_datum(const SortTuple *a, const SortTuple *b,
+							 Tuplesortstate *state);
 static void copytup_datum(Tuplesortstate *state, SortTuple *stup, void *tup);
 static void writetup_datum(Tuplesortstate *state, int tapenum,
-			   SortTuple *stup);
+						   SortTuple *stup);
 static void readtup_datum(Tuplesortstate *state, SortTuple *stup,
-			  int tapenum, unsigned int len);
+						  int tapenum, unsigned int len);
 static int	worker_get_identifier(Tuplesortstate *state);
 static void worker_freeze_result_tape(Tuplesortstate *state);
 static void worker_nomergeruns(Tuplesortstate *state);
@@ -897,7 +897,7 @@ tuplesort_begin_cluster(TupleDesc tupDesc,
 {
 	Tuplesortstate *state = tuplesort_begin_common(workMem, coordinate,
 												   randomAccess);
-	ScanKey		indexScanKey;
+	BTScanInsert indexScanKey;
 	MemoryContext oldcontext;
 	int			i;
 
@@ -932,7 +932,7 @@ tuplesort_begin_cluster(TupleDesc tupDesc,
 
 	state->tupDesc = tupDesc;	/* assume we need not copy tupDesc */
 
-	indexScanKey = _bt_mkscankey_nodata(indexRel);
+	indexScanKey = _bt_mkscankey(indexRel, NULL);
 
 	if (state->indexInfo->ii_Expressions != NULL)
 	{
@@ -946,7 +946,7 @@ tuplesort_begin_cluster(TupleDesc tupDesc,
 		 * scantuple has to point to that slot, too.
 		 */
 		state->estate = CreateExecutorState();
-		slot = MakeSingleTupleTableSlot(tupDesc);
+		slot = MakeSingleTupleTableSlot(tupDesc, &TTSOpsVirtual);
 		econtext = GetPerTupleExprContext(state->estate);
 		econtext->ecxt_scantuple = slot;
 	}
@@ -958,7 +958,7 @@ tuplesort_begin_cluster(TupleDesc tupDesc,
 	for (i = 0; i < state->nKeys; i++)
 	{
 		SortSupport sortKey = state->sortKeys + i;
-		ScanKey		scanKey = indexScanKey + i;
+		ScanKey		scanKey = indexScanKey->scankeys + i;
 		int16		strategy;
 
 		sortKey->ssup_cxt = CurrentMemoryContext;
@@ -977,7 +977,7 @@ tuplesort_begin_cluster(TupleDesc tupDesc,
 		PrepareSortSupportFromIndexRel(indexRel, strategy, sortKey);
 	}
 
-	_bt_freeskey(indexScanKey);
+	pfree(indexScanKey);
 
 	MemoryContextSwitchTo(oldcontext);
 
@@ -994,7 +994,7 @@ tuplesort_begin_index_btree(Relation heapRel,
 {
 	Tuplesortstate *state = tuplesort_begin_common(workMem, coordinate,
 												   randomAccess);
-	ScanKey		indexScanKey;
+	BTScanInsert indexScanKey;
 	MemoryContext oldcontext;
 	int			i;
 
@@ -1027,7 +1027,7 @@ tuplesort_begin_index_btree(Relation heapRel,
 	state->indexRel = indexRel;
 	state->enforceUnique = enforceUnique;
 
-	indexScanKey = _bt_mkscankey_nodata(indexRel);
+	indexScanKey = _bt_mkscankey(indexRel, NULL);
 
 	/* Prepare SortSupport data for each column */
 	state->sortKeys = (SortSupport) palloc0(state->nKeys *
@@ -1036,7 +1036,7 @@ tuplesort_begin_index_btree(Relation heapRel,
 	for (i = 0; i < state->nKeys; i++)
 	{
 		SortSupport sortKey = state->sortKeys + i;
-		ScanKey		scanKey = indexScanKey + i;
+		ScanKey		scanKey = indexScanKey->scankeys + i;
 		int16		strategy;
 
 		sortKey->ssup_cxt = CurrentMemoryContext;
@@ -1055,7 +1055,7 @@ tuplesort_begin_index_btree(Relation heapRel,
 		PrepareSortSupportFromIndexRel(indexRel, strategy, sortKey);
 	}
 
-	_bt_freeskey(indexScanKey);
+	pfree(indexScanKey);
 
 	MemoryContextSwitchTo(oldcontext);
 
@@ -1272,11 +1272,11 @@ tuplesort_end(Tuplesortstate *state)
 	if (trace_sort)
 	{
 		if (state->tapeset)
-			elog(LOG, "%s of %d ended, %ld disk blocks used: %s",
+			elog(LOG, "%s of worker %d ended, %ld disk blocks used: %s",
 				 SERIAL(state) ? "external sort" : "parallel external sort",
 				 state->worker, spaceUsed, pg_rusage_show(&state->ru_start));
 		else
-			elog(LOG, "%s of %d ended, %ld KB used: %s",
+			elog(LOG, "%s of worker %d ended, %ld KB used: %s",
 				 SERIAL(state) ? "internal sort" : "unperformed parallel sort",
 				 state->worker, spaceUsed, pg_rusage_show(&state->ru_start));
 	}
@@ -1840,7 +1840,7 @@ tuplesort_performsort(Tuplesortstate *state)
 
 #ifdef TRACE_SORT
 	if (trace_sort)
-		elog(LOG, "performsort of %d starting: %s",
+		elog(LOG, "performsort of worker %d starting: %s",
 			 state->worker, pg_rusage_show(&state->ru_start));
 #endif
 
@@ -1925,11 +1925,11 @@ tuplesort_performsort(Tuplesortstate *state)
 	if (trace_sort)
 	{
 		if (state->status == TSS_FINALMERGE)
-			elog(LOG, "performsort of %d done (except %d-way final merge): %s",
+			elog(LOG, "performsort of worker %d done (except %d-way final merge): %s",
 				 state->worker, state->activeTapes,
 				 pg_rusage_show(&state->ru_start));
 		else
-			elog(LOG, "performsort of %d done: %s",
+			elog(LOG, "performsort of worker %d done: %s",
 				 state->worker, pg_rusage_show(&state->ru_start));
 	}
 #endif
@@ -2457,7 +2457,7 @@ inittapes(Tuplesortstate *state, bool mergeruns)
 
 #ifdef TRACE_SORT
 	if (trace_sort)
-		elog(LOG, "%d switching to external sort with %d tapes: %s",
+		elog(LOG, "worker %d switching to external sort with %d tapes: %s",
 			 state->worker, maxTapes, pg_rusage_show(&state->ru_start));
 #endif
 
@@ -2707,7 +2707,7 @@ mergeruns(Tuplesortstate *state)
 	 */
 #ifdef TRACE_SORT
 	if (trace_sort)
-		elog(LOG, "%d using " INT64_FORMAT " KB of memory for read buffers among %d input tapes",
+		elog(LOG, "worker %d using " INT64_FORMAT " KB of memory for read buffers among %d input tapes",
 			 state->worker, state->availMem / 1024, numInputTapes);
 #endif
 
@@ -2883,7 +2883,7 @@ mergeonerun(Tuplesortstate *state)
 
 #ifdef TRACE_SORT
 	if (trace_sort)
-		elog(LOG, "%d finished %d-way merge step: %s", state->worker,
+		elog(LOG, "worker %d finished %d-way merge step: %s", state->worker,
 			 state->activeTapes, pg_rusage_show(&state->ru_start));
 #endif
 }
@@ -3033,7 +3033,7 @@ dumptuples(Tuplesortstate *state, bool alltuples)
 
 #ifdef TRACE_SORT
 	if (trace_sort)
-		elog(LOG, "%d starting quicksort of run %d: %s",
+		elog(LOG, "worker %d starting quicksort of run %d: %s",
 			 state->worker, state->currentRun,
 			 pg_rusage_show(&state->ru_start));
 #endif
@@ -3046,7 +3046,7 @@ dumptuples(Tuplesortstate *state, bool alltuples)
 
 #ifdef TRACE_SORT
 	if (trace_sort)
-		elog(LOG, "%d finished quicksort of run %d: %s",
+		elog(LOG, "worker %d finished quicksort of run %d: %s",
 			 state->worker, state->currentRun,
 			 pg_rusage_show(&state->ru_start));
 #endif
@@ -3074,7 +3074,7 @@ dumptuples(Tuplesortstate *state, bool alltuples)
 
 #ifdef TRACE_SORT
 	if (trace_sort)
-		elog(LOG, "%d finished writing run %d to tape %d: %s",
+		elog(LOG, "worker %d finished writing run %d to tape %d: %s",
 			 state->worker, state->currentRun, state->destTape,
 			 pg_rusage_show(&state->ru_start));
 #endif
@@ -3854,11 +3854,11 @@ comparetup_cluster(const SortTuple *a, const SortTuple *b,
 
 		ecxt_scantuple = GetPerTupleExprContext(state->estate)->ecxt_scantuple;
 
-		ExecStoreTuple(ltup, ecxt_scantuple, InvalidBuffer, false);
+		ExecStoreHeapTuple(ltup, ecxt_scantuple, false);
 		FormIndexDatum(state->indexInfo, ecxt_scantuple, state->estate,
 					   l_index_values, l_index_isnull);
 
-		ExecStoreTuple(rtup, ecxt_scantuple, InvalidBuffer, false);
+		ExecStoreHeapTuple(rtup, ecxt_scantuple, false);
 		FormIndexDatum(state->indexInfo, ecxt_scantuple, state->estate,
 					   r_index_values, r_index_isnull);
 
@@ -4123,9 +4123,10 @@ comparetup_index_btree(const SortTuple *a, const SortTuple *b,
 	}
 
 	/*
-	 * If key values are equal, we sort on ItemPointer.  This does not affect
-	 * validity of the finished index, but it may be useful to have index
-	 * scans in physical order.
+	 * If key values are equal, we sort on ItemPointer.  This is required for
+	 * btree indexes, since heap TID is treated as an implicit last key
+	 * attribute in order to ensure that all keys in the index are physically
+	 * unique.
 	 */
 	{
 		BlockNumber blk1 = ItemPointerGetBlockNumber(&tuple1->t_tid);
@@ -4141,6 +4142,9 @@ comparetup_index_btree(const SortTuple *a, const SortTuple *b,
 		if (pos1 != pos2)
 			return (pos1 < pos2) ? -1 : 1;
 	}
+
+	/* ItemPointer values should never be equal */
+	Assert(false);
 
 	return 0;
 }
@@ -4193,6 +4197,9 @@ comparetup_index_hash(const SortTuple *a, const SortTuple *b,
 		if (pos1 != pos2)
 			return (pos1 < pos2) ? -1 : 1;
 	}
+
+	/* ItemPointer values should never be equal */
+	Assert(false);
 
 	return 0;
 }

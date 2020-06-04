@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_set_datanode.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-SETDATANODE">
+<refentry id="mgr-setdatanode">
   <refmeta>
     <refentrytitle>SET DATANODE</refentrytitle>
     <manvolnum>7</manvolnum>

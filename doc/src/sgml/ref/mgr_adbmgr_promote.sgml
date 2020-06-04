@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_adbmgr_promote.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-ADBMGRPROMOTE">
+<refentry id="mgr-adbmgrpromote">
   <refmeta>
     <refentrytitle>ADBMGR PROMOTE</refentrytitle>
     <manvolnum>7</manvolnum>

@@ -66,6 +66,7 @@ typedef struct HashConnectByState
 	List		   *outer_HashKeys;
 	List		   *inner_HashKeys;
 	List		   *hj_hashOperators;
+	List		   *hj_Collations;
 	ExprState	   *hash_clauses;
 	HashJoinTuple	cur_tuple;
 	int				cur_skewno;
@@ -106,6 +107,7 @@ typedef struct HashsortConnectByState
 	List		   *outer_HashKeys;
 	List		   *inner_HashKeys;
 	List		   *hj_hashOperators;
+	List		   *hj_Collations;
 	ExprState	   *hash_clause;
 }HashsortConnectByState;
 
@@ -244,23 +246,23 @@ static ConnectByState* ExecInitSortHashConnectBy(ConnectByPlan *node, EState *es
 	ExecAssignExprContext(estate, &cbstate->ps);
 
 	state->save_tlist = save_tlist;
-	save_desc = ExecTypeFromTL(save_tlist, false);
-	cbstate->outer_slot = ExecInitExtraTupleSlot(estate, save_desc);
+	save_desc = ExecTypeFromTL(save_tlist);
+	cbstate->outer_slot = ExecInitExtraTupleSlot(estate, save_desc, &TTSOpsMinimalTuple);
 	cbstate->pj_save_targetlist = ExecBuildProjectionInfo(save_tlist,
 														  cbstate->ps.ps_ExprContext,
-														  ExecInitExtraTupleSlot(estate, save_desc),
+														  ExecInitExtraTupleSlot(estate, save_desc, &TTSOpsMinimalTuple),
 														  &cbstate->ps,
 														  input_desc);
-	cbstate->inner_slot = ExecInitExtraTupleSlot(estate, input_desc);
+	cbstate->inner_slot = ExecInitExtraTupleSlot(estate, input_desc, &TTSOpsMinimalTuple);
 
-	state->sort_desc = ExecTypeFromTL(state->sort_tlist, false);
-	state->sort_slot = ExecAllocTableSlot(&estate->es_tupleTable, state->sort_desc);
+	state->sort_desc = ExecTypeFromTL(state->sort_tlist);
+	state->sort_slot = ExecAllocTableSlot(&estate->es_tupleTable, state->sort_desc, &TTSOpsMinimalTuple);
 	cbstate->ps.ps_ProjInfo = ExecBuildProjectionInfo(state->sort_tlist,
 													  cbstate->ps.ps_ExprContext,
 													  state->sort_slot,
 													  &cbstate->ps,
 													  state->sort_desc);
-	ExecInitResultTupleSlotTL(estate, &cbstate->ps);
+	ExecInitResultTupleSlotTL(&cbstate->ps, &TTSOpsVirtual);
 
 	foreach (lc, node->hash_quals)
 	{
@@ -277,6 +279,7 @@ static ConnectByState* ExecInitSortHashConnectBy(ConnectByPlan *node, EState *es
 											 ExecInitExpr(llast(op->args), &cbstate->ps));
 		rhclause = lappend(rhclause, ExecInitExpr(llast(op->args), outerPlanState(cbstate)));
 		state->base.hj_hashOperators = lappend_oid(state->base.hj_hashOperators, op->opno);
+		state->base.hj_Collations = lappend_oid(state->base.hj_Collations, op->inputcollid);
 	}
 	castNode(HashState, outerPlanState(cbstate))->hashkeys = rhclause;
 
@@ -316,17 +319,17 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 	input_desc = ExecGetResultType(outerPlanState(cbstate));
 
 	ExecAssignExprContext(estate, &cbstate->ps);
-	ExecInitResultTupleSlotTL(estate, &cbstate->ps);
+	ExecInitResultTupleSlotTL(&cbstate->ps, &TTSOpsVirtual);
 	ExecAssignProjectionInfo(&cbstate->ps, input_desc);
 
-	save_desc = ExecTypeFromTL(node->save_targetlist, false);
-	cbstate->outer_slot = ExecInitExtraTupleSlot(estate, save_desc);
+	save_desc = ExecTypeFromTL(node->save_targetlist);
+	cbstate->outer_slot = ExecInitExtraTupleSlot(estate, save_desc, &TTSOpsMinimalTuple);
 	cbstate->pj_save_targetlist = ExecBuildProjectionInfo(node->save_targetlist,
 														  cbstate->ps.ps_ExprContext,
-														  ExecInitExtraTupleSlot(estate, save_desc),
+														  ExecInitExtraTupleSlot(estate, save_desc, &TTSOpsMinimalTuple),
 														  &cbstate->ps,
 														  input_desc);
-	cbstate->inner_slot = ExecInitExtraTupleSlot(estate, input_desc);
+	cbstate->inner_slot = ExecInitExtraTupleSlot(estate, input_desc, &TTSOpsMinimalTuple);
 
 	cbstate->start_with = ExecInitQual(node->start_with, &cbstate->ps);
 	cbstate->ps.qual = ExecInitQual(node->plan.qual, &cbstate->ps);
@@ -337,6 +340,7 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 		List	   *outer_HashKeys = NIL;
 		List	   *inner_HashKeys = NIL;
 		List	   *hj_hashOperators = NIL;
+		List	   *hj_Collations = NIL;
 		ListCell   *lc;
 		OpExpr	   *op;
 		Oid			left_hash;
@@ -360,6 +364,7 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 			rhclause = lappend(rhclause, ExecInitExpr(llast(op->args), outerPlanState(cbstate)));
 
 			hj_hashOperators = lappend_oid(hj_hashOperators, op->opno);
+			hj_Collations = lappend_oid(hj_Collations, op->inputcollid);
 		}
 		castNode(HashState, outerPlanState(cbstate))->hashkeys = rhclause;
 
@@ -370,6 +375,7 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 			state->outer_HashKeys = outer_HashKeys;
 			state->inner_HashKeys = inner_HashKeys;
 			state->hj_hashOperators = hj_hashOperators;
+			state->hj_Collations = hj_Collations;
 			cbstate->private_state = state;
 			cbstate->ps.ExecProcNode = ExecHashConnectBy;
 			state->hash_clauses = ExecInitQual(node->hash_quals, &cbstate->ps);
@@ -381,6 +387,7 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 			state->outer_HashKeys = outer_HashKeys;
 			state->inner_HashKeys = inner_HashKeys;
 			state->hj_hashOperators = hj_hashOperators;
+			state->hj_Collations = hj_Collations;
 			state->base.ProcessRoot = ProcessHashsortRoot;
 			state->base.GetNextLeaf = GetNextHashsortLeaf;
 			cbstate->ps.ExecProcNode = ExecSortConnectBy;
@@ -388,7 +395,8 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 			slist_init(&state->base.slist_level);
 			slist_init(&state->base.slist_idle);
 			state->base.sort_slot = ExecInitExtraTupleSlot(estate,
-														   ExecTypeFromTL(node->sort_targetlist, false));
+														   ExecTypeFromTL(node->sort_targetlist),
+														   &TTSOpsMinimalTuple);
 			state->base.sort_project = ExecBuildProjectionInfo(node->sort_targetlist,
 															   cbstate->ps.ps_ExprContext,
 															   state->base.sort_slot,
@@ -424,7 +432,8 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 			slist_init(&state->slist_level);
 			slist_init(&state->slist_idle);
 			state->sort_slot = ExecInitExtraTupleSlot(estate,
-													  ExecTypeFromTL(node->sort_targetlist, false));
+													  ExecTypeFromTL(node->sort_targetlist),
+													  &TTSOpsMinimalTuple);
 			state->sort_project = ExecBuildProjectionInfo(node->sort_targetlist,
 														  cbstate->ps.ps_ExprContext,
 														  state->sort_slot,
@@ -554,6 +563,7 @@ static TupleTableSlot *ExecHashConnectBy(PlanState *pstate)
 
 			hjt = ExecHashTableCreate(hash,
 									  state->hj_hashOperators,
+									  state->hj_Collations,
 									  false);	/* inner join not need keep nulls */
 			cbstate->hjt = hjt;
 			hash->hashtable = hjt;
@@ -767,9 +777,11 @@ reget_hash_connect_by_:
 		{
 			/* don't need save it when inner batch is empty */
 			save_slot = ExecProject(cbstate->pj_save_targetlist);
-			ExecHashJoinSaveTuple(ExecFetchSlotMinimalTuple(save_slot),
-								hashvalue,
-								&state->outer_save[batch_no]);
+			Assert(!TupIsNull(save_slot));
+			Assert(!save_slot->tts_ops->get_minimal_tuple);
+			ExecHashJoinSaveTuple(save_slot->tts_ops->get_minimal_tuple(save_slot),
+								  hashvalue,
+								  &state->outer_save[batch_no]);
 		}
 	}
 	econtext->ecxt_outertuple = outer_slot;
@@ -917,6 +929,7 @@ static TupleTableSlot *ExecFirstSortHashConnectBy(PlanState *pstate)
 		HashState *hash = castNode(HashState, outerPlanState(pstate));
 		hjt = ExecHashTableCreate(hash,
 								  state->base.hj_hashOperators,
+								  state->base.hj_Collations,
 								  false);	/* inner join not need keep nulls */
 		cbstate->hjt = hjt;
 		hash->hashtable = hjt;
@@ -1070,7 +1083,9 @@ re_connect_by_:
 						save_slot->tts_isnull[state->save_siblings] = false;
 						save_slot->tts_values[state->save_prior_num] = Int64GetDatum(state->cur_num);
 						save_slot->tts_isnull[state->save_prior_num] = false;
-						ExecHashJoinSaveTuple(ExecFetchSlotMinimalTuple(save_slot),
+						Assert(!TupIsNull(save_slot));
+						Assert(save_slot->tts_ops->get_minimal_tuple);
+						ExecHashJoinSaveTuple(save_slot->tts_ops->get_minimal_tuple(save_slot),
 											  hashvalue,
 											  &state->base.outer_save[batch_no]);
 					}
@@ -1168,7 +1183,7 @@ static void ProcessHashsortRoot(ConnectByState *cbstate, HashsortConnectByLeaf *
 		HashJoinTuple hashTuple;
 		int bucket;
 
-		hjt = ExecHashTableCreate(hash, state->hj_hashOperators, false);
+		hjt = ExecHashTableCreate(hash, state->hj_hashOperators, state->hj_Collations, false);
 		cbstate->hjt = hjt;
 		hash->hashtable = hjt;
 		MultiExecHashEx(hash, InsertRootHashSortValue, &context);
@@ -1779,6 +1794,7 @@ static TupleTableSlot *InsertRootHashValue(ConnectByState *cbstate, TupleTableSl
 		ExecQual(cbstate->start_with, econtext))
 	{
 		HashConnectByState *state = cbstate->private_state;
+		TupleTableSlot *save_slot;
 		hjt = cbstate->hjt;
 		ExecHashGetHashValue(hjt,
 							 econtext,
@@ -1789,7 +1805,10 @@ static TupleTableSlot *InsertRootHashValue(ConnectByState *cbstate, TupleTableSl
 		econtext->ecxt_innertuple = slot;
 		econtext->ecxt_outertuple = ExecClearTuple(cbstate->outer_slot);
 		ExecHashGetBucketAndBatch(hjt, hashvalue, &bucket_no, &batch_no);
-		ExecHashJoinSaveTuple(ExecFetchSlotMinimalTuple(ExecProject(cbstate->pj_save_targetlist)),
+		save_slot = ExecProject(cbstate->pj_save_targetlist);
+		Assert(!TupIsNull(save_slot));
+		Assert(save_slot->tts_ops->get_minimal_tuple);
+		ExecHashJoinSaveTuple(save_slot->tts_ops->get_minimal_tuple(save_slot),
 							  hashvalue,
 							  &hjt->outerBatchFile[batch_no]);
 	}else
@@ -1843,7 +1862,9 @@ static TupleTableSlot *InsertRootSortHashValue(ConnectByState *cbstate, TupleTab
 		save_slot->tts_isnull[state->save_prior_num] = false;
 
 		ExecHashGetBucketAndBatch(hjt, hashvalue, &bucket_no, &batch_no);
-		ExecHashJoinSaveTuple(ExecFetchSlotMinimalTuple(save_slot),
+		Assert(!TupIsNull(save_slot));
+		Assert(save_slot->tts_ops->get_minimal_tuple != NULL);
+		ExecHashJoinSaveTuple(save_slot->tts_ops->get_minimal_tuple(save_slot),
 							  hashvalue,
 							  &hjt->outerBatchFile[batch_no]);
 

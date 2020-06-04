@@ -9,6 +9,7 @@
 #include "nodes/primnodes.h"
 #include "nodes/extensible.h"
 #include "nodes/replnodes.h"
+#include "nodes/supportnodes.h"
 #include "commands/event_trigger.h"
 #include "foreign/fdwapi.h"
 #ifdef ADB

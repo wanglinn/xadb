@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_clean_coordinator.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-CLEANCOORDINATOR">
+<refentry id="mgr-cleancoordinator">
   <refmeta>
     <refentrytitle>CLEAN COORDINATOR</refentrytitle>
     <manvolnum>7</manvolnum>

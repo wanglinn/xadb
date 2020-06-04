@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_config_datanode_slave.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-CONFIGDATANODESLAVE">
+<refentry id="mgr-configdatanodeslave">
   <refmeta>
     <refentrytitle>CONFIG DATANODE</refentrytitle>
     <manvolnum>7</manvolnum>

@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_rewind_datanode.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-REWINDDATANODE">
+<refentry id="mgr-rewinddatanode">
   <refmeta>
     <refentrytitle>REWIND DATANODE</refentrytitle>
     <manvolnum>7</manvolnum>

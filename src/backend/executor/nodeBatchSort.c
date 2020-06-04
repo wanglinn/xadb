@@ -175,7 +175,7 @@ static TupleTableSlot *ExecBatchSortFirst(PlanState *pstate)
 			if (slot->tts_isnull[att] == false)
 			{
 				fcinfo = lfirst(lc);
-				fcinfo->arg[0] = slot->tts_values[att];
+				fcinfo->args[0].value = slot->tts_values[att];
 				hash = hash_combine(hash, DatumGetUInt32(FunctionCallInvoke(fcinfo)));
 				Assert(fcinfo->isnull == false);
 			}
@@ -244,13 +244,13 @@ BatchSortState* ExecInitBatchSort(BatchSort *node, EState *estate, int eflags)
 	/*
 	 * Initialize scan slot and type.
 	 */
-	ExecCreateScanSlotFromOuterPlan(estate, &state->ss);
+	ExecCreateScanSlotFromOuterPlan(estate, &state->ss, &TTSOpsVirtual);
 
 	/*
 	 * Initialize return slot and type. No need to initialize projection info
 	 * because this node doesn't do projections.
 	 */
-	ExecInitResultTupleSlotTL(estate, &state->ss.ps);
+	ExecInitResultTupleSlotTL(&state->ss.ps, &TTSOpsMinimalTuple);
 	state->ss.ps.ps_ProjInfo = NULL;
 
 	Assert(node->numGroupCols > 0);
@@ -258,7 +258,7 @@ BatchSortState* ExecInitBatchSort(BatchSort *node, EState *estate, int eflags)
 	for (i=0;i<node->numGroupCols;++i)
 	{
 		FmgrInfo			   *flinfo;
-		FunctionCallInfoData   *fcinfo;
+		FunctionCallInfo		fcinfo;
 		Oid typid = TupleDescAttr(desc, node->grpColIdx[i]-1)->atttypid;
 		typentry = lookup_type_cache(typid, TYPECACHE_HASH_PROC);
 		if (!OidIsValid(typentry->hash_proc))
@@ -267,10 +267,10 @@ BatchSortState* ExecInitBatchSort(BatchSort *node, EState *estate, int eflags)
 					 errmsg("could not identify an extended hash function for type %s",
 							format_type_be(typid))));
 		flinfo = palloc0(sizeof(*flinfo));
-		fcinfo = palloc0(sizeof(*fcinfo));
+		fcinfo = palloc0(SizeForFunctionCallInfo(1));
 		fmgr_info(typentry->hash_proc, flinfo);
 		InitFunctionCallInfoData(*fcinfo, flinfo, 1, InvalidOid, NULL, NULL);
-		fcinfo->argnull[0] = false;
+		fcinfo->args[0].isnull = false;
 		state->groupFuns = lappend(state->groupFuns, fcinfo);
 	}
 

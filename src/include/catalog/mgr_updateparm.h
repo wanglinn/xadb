@@ -5,7 +5,7 @@
 #include "catalog/genbki.h"
 #include "catalog/mgr_updateparm_d.h"
 
-CATALOG(mgr_updateparm,4801,UpdateparmRelationId) BKI_WITHOUT_OIDS
+CATALOG(mgr_updateparm,4801,UpdateparmRelationId)
 {
 	/* updateparm nodename */
 	NameData	updateparmnodename;

@@ -9,7 +9,7 @@
  * context's MemoryContextMethods struct.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -54,10 +54,10 @@ MemoryContext PortalContext = NULL;
 
 static void MemoryContextCallResetCallbacks(MemoryContext context);
 static void MemoryContextStatsInternal(MemoryContext context, int level,
-						   bool print, int max_children,
-						   MemoryContextCounters *totals);
+									   bool print, int max_children,
+									   MemoryContextCounters *totals);
 static void MemoryContextStatsPrint(MemoryContext context, void *passthru,
-						const char *stats_string);
+									const char *stats_string);
 #ifdef ADB
 static void *current_memcontext(void);
 static void *allocTopCxt(size_t s);
@@ -123,11 +123,11 @@ MemoryContextInit(void)
 	 * This should be the last step in this function, as elog.c assumes memory
 	 * management works once ErrorContext is non-null.
 	 */
-	ErrorContext = AllocSetContextCreateExtended(TopMemoryContext,
-												 "ErrorContext",
-												 8 * 1024,
-												 8 * 1024,
-												 8 * 1024);
+	ErrorContext = AllocSetContextCreate(TopMemoryContext,
+										 "ErrorContext",
+										 8 * 1024,
+										 8 * 1024,
+										 8 * 1024);
 	MemoryContextAllowInCriticalSection(ErrorContext, true);
 }
 

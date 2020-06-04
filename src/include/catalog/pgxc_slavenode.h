@@ -25,6 +25,8 @@
 
 CATALOG(pgxc_slavenode,4993,PgxcSlaveNodeRelationId) BKI_SHARED_RELATION
 {
+	Oid			oid;			/* oid */
+
 	NameData	node_name;
 
 	/*

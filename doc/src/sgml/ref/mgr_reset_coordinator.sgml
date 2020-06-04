@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_reset_coordinator.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-RESETCOORDINATOR">
+<refentry id="mgr-resetcoordinator">
   <refmeta>
     <refentrytitle>RESET COORDINATOR</refentrytitle>
     <manvolnum>7</manvolnum>

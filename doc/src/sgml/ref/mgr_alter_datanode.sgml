@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_alter_datanode.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-ALTERDATANODE">
+<refentry id="mgr-alterdatanode">
   <refmeta>
     <refentrytitle>ALTER DATANODE</refentrytitle>
     <manvolnum>7</manvolnum>

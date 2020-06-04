@@ -32,7 +32,6 @@
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
-#include "utils/tqual.h"
 #include "funcapi.h"
 #include "fmgr.h"
 #include "utils/lsyscache.h"
@@ -1810,8 +1809,8 @@ Datum mgr_checkout_dnslave_status(PG_FUNCTION_ARGS)
 				,BTEqualStrategyNumber
 				,F_BOOLEQ
 				,BoolGetDatum(true));
-		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
-		info->rel_scan = heap_beginscan_catalog(info->rel_node, 1, key);
+		info->rel_node = table_open(NodeRelationId, AccessShareLock);
+		info->rel_scan = table_beginscan_catalog(info->rel_node, 1, key);
 		info->lcp =NULL;
 		/* save info */
 		funcctx->user_fctx = info;
@@ -2641,8 +2640,8 @@ hexp_get_all_dn_status(void)
 				,BoolGetDatum(true));
 
 	info = palloc(sizeof(*info));
-	info->rel_node = heap_open(NodeRelationId, AccessShareLock);
-	info->rel_scan = heap_beginscan_catalog(info->rel_node, 1, key);
+	info->rel_node = table_open(NodeRelationId, AccessShareLock);
+	info->rel_scan = table_beginscan_catalog(info->rel_node, 1, key);
 	info->lcp = NULL;
 
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
@@ -2668,7 +2667,7 @@ hexp_get_all_dn_status(void)
 		strncpy(cnpath, TextDatumGetCString(datumPath), 1024);
 
 		dn_status = (DN_STATUS *) palloc(sizeof(DN_STATUS));
-		hexp_get_dn_status(mgr_node, HeapTupleGetOid(tuple), dn_status, cnpath);
+		hexp_get_dn_status(mgr_node, mgr_node->oid, dn_status, cnpath);
 		dn_status_list = lappend(dn_status_list, dn_status);
 	}
 
@@ -3046,8 +3045,8 @@ static void hexp_init_dns_pgxcnode_addnode(List *dn_node_list)
 				,BoolGetDatum(true));
 
 	info = palloc(sizeof(*info));
-	info->rel_node = heap_open(NodeRelationId, AccessShareLock);
-	info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, key);
+	info->rel_node = table_open(NodeRelationId, AccessShareLock);
+	info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
 	info->lcp = NULL;
 
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
@@ -3103,8 +3102,8 @@ static void hexp_init_dns_pgxcnode_check(void)
 				,BoolGetDatum(true));
 
 	info = palloc(sizeof(*info));
-	info->rel_node = heap_open(NodeRelationId, AccessShareLock);
-	info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, key);
+	info->rel_node = table_open(NodeRelationId, AccessShareLock);
+	info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
 	info->lcp = NULL;
 
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
@@ -3259,8 +3258,8 @@ static void hexp_check_cluster_pgxcnode(void)
 					,BoolGetDatum(true));
 
 		info = palloc(sizeof(*info));
-		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
-		info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, key);
+		info->rel_node = table_open(NodeRelationId, AccessShareLock);
+		info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
 		info->lcp = NULL;
 
 		while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
@@ -3634,7 +3633,7 @@ static void hexp_get_coordinator_conn_output(PGconn **pg_conn, Oid *cnoid, char*
 	/*get active coordinator to connect*/
 	if (!mgr_get_active_node(&nodename, CNDN_TYPE_COORDINATOR_MASTER, 0))
 		ereport(ERROR, (errmsg("can not get active coordinator in cluster")));
-	rel_node = heap_open(NodeRelationId, AccessShareLock);
+	rel_node = table_open(NodeRelationId, AccessShareLock);
 	//tuple = mgr_get_tuple_node_from_name_type(rel_node, nodename.data, CNDN_TYPE_COORDINATOR_MASTER);
 	tuple = mgr_get_tuple_node_from_name_type(rel_node, nodename.data);
 	if(!(HeapTupleIsValid(tuple)))
@@ -3648,7 +3647,7 @@ static void hexp_get_coordinator_conn_output(PGconn **pg_conn, Oid *cnoid, char*
 	coordport = mgr_node->nodeport;
 	coordhost = get_hostaddress_from_hostoid(coordhostoid);
 	connect_user = get_hostuser_from_hostoid(coordhostoid);
-	*cnoid = HeapTupleGetOid(tuple);
+	*cnoid = mgr_node->oid;
 
 	/*get the adbmanager ip*/
 	mgr_get_self_address(coordhost, coordport, &self_address);
@@ -3763,7 +3762,7 @@ static void hexp_get_coordinator_conn(PGconn **pg_conn, Oid *cnoid)
 	/*get active coordinator to connect*/
 	if (!mgr_get_active_node(&nodename, CNDN_TYPE_COORDINATOR_MASTER, 0))
 		ereport(ERROR, (errmsg("can not get active coordinator in cluster")));
-	rel_node = heap_open(NodeRelationId, AccessShareLock);
+	rel_node = table_open(NodeRelationId, AccessShareLock);
 	//tuple = mgr_get_tuple_node_from_name_type(rel_node, nodename.data, CNDN_TYPE_COORDINATOR_MASTER);
 	tuple = mgr_get_tuple_node_from_name_type(rel_node, nodename.data);
 	if(!(HeapTupleIsValid(tuple)))
@@ -3777,7 +3776,7 @@ static void hexp_get_coordinator_conn(PGconn **pg_conn, Oid *cnoid)
 	coordport = mgr_node->nodeport;
 	coordhost = get_hostaddress_from_hostoid(coordhostoid);
 	connect_user = get_hostuser_from_hostoid(coordhostoid);
-	*cnoid = HeapTupleGetOid(tuple);
+	*cnoid = mgr_node->oid;
 
 	/*get the adbmanager ip*/
 	mgr_get_self_address(coordhost, coordport, &self_address);
@@ -4009,8 +4008,8 @@ static void hexp_create_dm_on_all_node(PGconn *pg_conn, AppendNodeInfo *nodeinfo
 				,BoolGetDatum(true));
 
 	info = palloc(sizeof(*info));
-	info->rel_node = heap_open(NodeRelationId, AccessShareLock);
-	info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, key);
+	info->rel_node = table_open(NodeRelationId, AccessShareLock);
+	info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
 	info->lcp = NULL;
 
 	//todo rollback
@@ -4077,8 +4076,8 @@ static void hexp_pgxc_pool_reload_on_all_node(PGconn *pg_conn)
 				,BoolGetDatum(true));
 
 	info = palloc(sizeof(*info));
-	info->rel_node = heap_open(NodeRelationId, AccessShareLock);
-	info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, key);
+	info->rel_node = table_open(NodeRelationId, AccessShareLock);
+	info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
 	info->lcp = NULL;
 
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
@@ -4123,8 +4122,8 @@ static bool hexp_get_nodeinfo_from_table(char *node_name, char node_type, Append
 				,CStringGetDatum(node_name));
 
 	info = (InitNodeInfo *)palloc0(sizeof(InitNodeInfo));
-	info->rel_node = heap_open(NodeRelationId, AccessShareLock);
-	info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, key);
+	info->rel_node = table_open(NodeRelationId, AccessShareLock);
+	info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
 	info->lcp =NULL;
 
 	if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) == NULL)
@@ -4182,14 +4181,14 @@ static bool hexp_get_nodeinfo_from_table_byoid(Oid tupleOid, AppendNodeInfo *nod
 	bool isNull = false;
 
 	ScanKeyInit(&key[0]
-		,ObjectIdAttributeNumber
+		,Anum_mgr_node_oid
 		,BTEqualStrategyNumber
 		,F_OIDEQ
 		,ObjectIdGetDatum(tupleOid));
 
 	info = (InitNodeInfo *)palloc0(sizeof(InitNodeInfo));
-	info->rel_node = heap_open(NodeRelationId, AccessShareLock);
-	info->rel_scan = heap_beginscan_catalog(info->rel_node, 1, key);
+	info->rel_node = table_open(NodeRelationId, AccessShareLock);
+	info->rel_scan = table_beginscan_catalog(info->rel_node, 1, key);
 	info->lcp =NULL;
 
 	if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) == NULL)
@@ -4268,8 +4267,8 @@ static void hexp_set_expended_node_state(char *nodename, bool search_init, bool 
 				,BoolGetDatum(search_incluster));
 
 	info = palloc(sizeof(*info));
-	info->rel_node = heap_open(NodeRelationId, AccessShareLock);
-	info->rel_scan = heap_beginscan_catalog(info->rel_node, 4, key);
+	info->rel_node = table_open(NodeRelationId, AccessShareLock);
+	info->rel_scan = table_beginscan_catalog(info->rel_node, 4, key);
 	info->lcp =NULL;
 
 	tuple = heap_getnext(info->rel_scan, ForwardScanDirection);
@@ -4489,7 +4488,7 @@ bool get_agent_info_from_hostoid(const Oid hostOid, char *agent_addr, int *agent
 	Datum datum_port;
 	bool isNull = false;
 	Assert(agent_addr);
-	rel = heap_open(HostRelationId, AccessShareLock);
+	rel = table_open(HostRelationId, AccessShareLock);
 	tuple = SearchSysCache1(HOSTHOSTOID, ObjectIdGetDatum(hostOid));
 	/*check the host exists*/
 	if (!HeapTupleIsValid(tuple))
@@ -4539,7 +4538,7 @@ Datum mgr_failover_one_dn_inner_func(char *nodename, char cmdtype, char nodetype
 	StringInfoData port;
 	int ret;
 
-	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
+	rel_node = table_open(NodeRelationId, RowExclusiveLock);
 	nodestring = mgr_nodetype_str(nodetype);
 	//aimtuple = mgr_get_tuple_node_from_name_type(rel_node, nodename, nodetype);
 	aimtuple = mgr_get_tuple_node_from_name_type(rel_node, nodename);

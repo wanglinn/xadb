@@ -15,6 +15,7 @@
 #include "postgres.h"
 
 #include "access/sysattr.h"
+#include "access/table.h"
 #include "access/tuptypeconvert.h"
 #include "catalog/heap.h"
 #include "catalog/pg_aux_class.h"
@@ -29,17 +30,16 @@
 #include "nodes/execnodes.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
-#include "nodes/relation.h"
 #include "optimizer/clauses.h"
+#include "optimizer/optimizer.h"
 #include "optimizer/pgxcplan.h"
 #include "optimizer/plancat.h"
-#include "optimizer/predtest.h"
 #include "optimizer/reduceinfo.h"
 #include "optimizer/restrictinfo.h"
-#include "optimizer/var.h"
 #include "parser/parser.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_oper.h"
+#include "partitioning/partdesc.h"
 #include "partitioning/partprune.h"
 #include "pgxc/locator.h"
 #include "pgxc/nodemgr.h"
@@ -197,12 +197,12 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel, bool mo
 
 	/* have auxiliary table ? */
 	rte = root->simple_rte_array[rel->relid];
-	relation = relation_open(rte->relid, AccessShareLock);
+	relation = table_open(rte->relid, AccessShareLock);
 	if (relation->rd_auxatt == NULL ||
 		/* quals have auxiliary var ? */
 		(new_quals = get_auxiary_quals(rel->baserestrictinfo, rel->relid, relation->rd_auxatt)) == NULL)
 	{
-		relation_close(relation, AccessShareLock);
+		table_close(relation, AccessShareLock);
 		return result;
 	}
 
@@ -264,7 +264,7 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel, bool mo
 	foreach(lc, gather.list_info)
 		free_aux_col_info(lfirst(lc));
 	FreeExprContext(gather.econtext, true);
-	relation_close(relation, AccessShareLock);
+	table_close(relation, AccessShareLock);
 	MemoryContextSwitchTo(old_mctx);
 	result = list_copy(result);
 	MemoryContextDelete(main_mctx);
@@ -316,7 +316,7 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 		List	   *clauses;
 		Bitmapset  *bms;
 
-		rel = relation_open(loc_info->relid, NoLock);
+		rel = table_open(loc_info->relid, NoLock);
 		part_key = RelationGenerateDistributeKeyFromLocInfo(rel, loc_info);
 		part_scheme = build_partschema_from_partkey(part_key);
 		part_desc = DistributeRelationGenerateDesc(part_key, loc_info->nodeids, loc_info->values);
@@ -326,7 +326,7 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 		else
 			clauses = list_make1(quals);
 		bms = prune_distribute_rel(varno, clauses, part_scheme, part_desc, part_key);
-		relation_close(rel, NoLock);
+		table_close(rel, NoLock);
 
 		result = NIL;
 		if (bms_is_empty(bms) == false)
@@ -350,7 +350,7 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 		null_test_list = list_make1(makeNotNullTest((Expr*)context.var_expr, false));
 	}
 
-	constraint_pred = get_relation_constraints_base(root, loc_info->relid, varno, true);
+	constraint_pred = get_relation_constraints_base(root, loc_info->relid, varno, true, true, false);
 	safe_constraints = NIL;
 	foreach(lc, constraint_pred)
 	{
@@ -1099,7 +1099,7 @@ static void free_aux_col_info(GatherAuxColumnInfo *info)
 	if (info->reduce_expr)
 		pfree(info->reduce_expr);
 	if (info->rel)
-		relation_close(info->rel, AccessShareLock);
+		table_close(info->rel, AccessShareLock);
 	if (info->datum)
 		pfree(info->datum);
 	list_free(info->list_exec);
@@ -1178,7 +1178,7 @@ static bool gather_aux_info(Node *node, GatherAuxInfoContext *context)
 	GatherAuxColumnInfo *info;
 
 	if (node == NULL ||
-		not_clause(node))
+		is_notclause(node))
 		return false;
 
 	/* check_stack_depth(); */
@@ -1217,7 +1217,7 @@ static bool gather_aux_info(Node *node, GatherAuxInfoContext *context)
 				context->hint = true;
 			return false;
 		}
-	}else if (or_clause(node))
+	}else if (is_orclause(node))
 	{
 		BoolExpr *bexpr = (BoolExpr*)node;
 		ListCell *lc;
@@ -1284,10 +1284,10 @@ static void init_auxiliary_info_if_need(GatherAuxInfoContext *context)
 
 			reloid = LookupAuxRelation(RelationGetRelid(context->rel),
 									   info->attno);
-			info->rel = relation_open(reloid, AccessShareLock);
+			info->rel = table_open(reloid, AccessShareLock);
 			if (RELATION_IS_OTHER_TEMP(info->rel))
 			{
-				relation_close(info->rel, AccessShareLock);
+				table_close(info->rel, AccessShareLock);
 				info->rel = NULL;
 				continue;
 			}
@@ -1454,7 +1454,7 @@ static GatherMainRelExecOn* get_main_table_execute_on(GatherAuxInfoContext *cont
 									info->datum,
 									info->cur_size,
 									info->has_null);
-	result_desc = CreateTemplateTupleDesc(2, false);
+	result_desc = CreateTemplateTupleDesc(2);
 #if (Anum_aux_table_auxnodeid < Anum_aux_table_auxctid)
 	attrs[0] = TupleDescAttr(RelationGetDescr(info->rel), Anum_aux_table_auxnodeid-1);
 	attrs[1] = TupleDescAttr(RelationGetDescr(info->rel), Anum_aux_table_auxctid-1);
@@ -1463,12 +1463,12 @@ static GatherMainRelExecOn* get_main_table_execute_on(GatherAuxInfoContext *cont
 #else
 #error change result_desc
 #endif
-	result_desc = CreateTupleDesc(lengthof(attrs), false, attrs);
+	result_desc = CreateTupleDesc(lengthof(attrs), attrs);
 	if (create_type_convert(result_desc, false, true) != NULL)
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("integer and tid should not need convert")));
-	exec_on->slot = MakeSingleTupleTableSlot(result_desc);
+	exec_on->slot = MakeSingleTupleTableSlot(result_desc, &TTSOpsMinimalTuple);
 	exec_on->tids = palloc(sizeof(ItemPointerData)*AUX_SCAN_INFO_SIZE_STEP);
 	exec_on->max_tid_size = AUX_SCAN_INFO_SIZE_STEP;
 	exec_on->cur_tid_size = 0;
@@ -1523,7 +1523,7 @@ static void push_tid_to_exec_on(GatherMainRelExecOn *context, Datum datum)
 static Expr* make_ctid_in_expr(Index relid, ItemPointer tids, uint32 count)
 {
 	Const *c;
-	Form_pg_attribute attr PG_USED_FOR_ASSERTS_ONLY;
+	const FormData_pg_attribute *attr PG_USED_FOR_ASSERTS_ONLY;
 	Expr *expr;
 	Var *var = makeVar(relid,
 					   SelfItemPointerAttributeNumber,
@@ -1532,7 +1532,7 @@ static Expr* make_ctid_in_expr(Index relid, ItemPointer tids, uint32 count)
 					   InvalidOid,
 					   0);
 	Assert(count > 0);
-	Assert((attr = SystemAttributeDefinition(SelfItemPointerAttributeNumber, false)) != NULL &&
+	Assert((attr = SystemAttributeDefinition(SelfItemPointerAttributeNumber)) != NULL &&
 		   attr->atttypid == TIDOID &&
 		   attr->attbyval == false &&
 		   attr->attlen == sizeof(ItemPointerData));

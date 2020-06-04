@@ -52,6 +52,7 @@ OBJS= agent.o agent_elog.o globals.o \
 	agent_utility.o agent_cmd_python.o\
 	assert.o aset.o mcxt.o stringinfo.o \
 	conf_scan.o hba_scan.o get_uptime.o \
+	pgstrsignal.o \
 	$(top_builddir)/src/port/libpgport_srv.a \
 	$(top_builddir)/src/common/libpgcommon_srv.a
 
@@ -82,6 +83,9 @@ aset.c mcxt.c: % : $(top_srcdir)/src/backend/utils/mmgr/%
 	rm -f $@ && $(LN_S) $< .
 
 stringinfo.c: % : $(top_srcdir)/src/backend/lib/%
+	rm -f $@ && $(LN_S) $< .
+
+pgstrsignal.c: % : $(top_srcdir)/src/port/%
 	rm -f $@ && $(LN_S) $< .
 
 agent:	$(OBJS) | submake-libpgport

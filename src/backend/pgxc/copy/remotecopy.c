@@ -16,6 +16,7 @@
 #include "postgres.h"
 #include "miscadmin.h"
 #include "lib/stringinfo.h"
+#include "optimizer/optimizer.h"
 #include "optimizer/pgxcship.h"
 #include "optimizer/planner.h"
 #include "pgxc/pgxcnode.h"

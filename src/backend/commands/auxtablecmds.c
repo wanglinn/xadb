@@ -834,7 +834,8 @@ Bitmapset *MakeAuxMainRelResultAttnos(Relation rel)
 
 List *MakeMainRelTargetForAux(Relation main_rel, Relation aux_rel, Index relid, bool target_entry)
 {
-	Form_pg_attribute	main_attr;
+	const FormData_pg_attribute
+					   *main_attr;
 	Form_pg_attribute	aux_attr;
 	TupleDesc			main_desc = RelationGetDescr(main_rel);
 	TupleDesc			aux_desc = RelationGetDescr(aux_rel);
@@ -855,12 +856,10 @@ List *MakeMainRelTargetForAux(Relation main_rel, Relation aux_rel, Index relid, 
 		attname = NameStr(aux_attr->attname);
 		if (anum == Anum_aux_table_auxnodeid)
 		{
-			main_attr = SystemAttributeDefinition(XC_NodeIdAttributeNumber,
-												  RelationGetForm(main_rel)->relhasoids);
+			main_attr = SystemAttributeDefinition(XC_NodeIdAttributeNumber);
 		}else if (anum == Anum_aux_table_auxctid)
 		{
-			main_attr = SystemAttributeDefinition(SelfItemPointerAttributeNumber,
-												  RelationGetForm(main_rel)->relhasoids);
+			main_attr = SystemAttributeDefinition(SelfItemPointerAttributeNumber);
 		}else
 		{
 			for(j=0;j<main_desc->natts;++j)

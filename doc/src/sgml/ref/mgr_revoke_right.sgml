@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_revoke_right.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-REVOKE">
+<refentry id="mgr-revoke">
   <refmeta>
     <refentrytitle>REVOKE</refentrytitle>
     <manvolnum>7</manvolnum>

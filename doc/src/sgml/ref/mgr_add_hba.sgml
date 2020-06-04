@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_add_hba.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-ADDHBA">
+<refentry id="mgr-addhba">
   <refmeta>
     <refentrytitle>ADD HBA</refentrytitle>
     <manvolnum>7</manvolnum>

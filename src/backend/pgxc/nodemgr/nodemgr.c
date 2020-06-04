@@ -50,13 +50,17 @@ typedef struct NodeOidInfo
 	Oid	   *oids;
 }NodeOidInfo;
 
-typedef struct XCNodeScanDesc
+typedef struct XCNodeScanDesc XCNodeScanDesc;
+struct XCNodeScanDesc
 {
-	Relation	xcnode_rel;
-	Relation	index_rel;
-	void	   *scan_desc;
-	HeapTuple (*getnext_fun)();
-}XCNodeScanDesc;
+	Relation		xcnode_rel;
+	Relation		index_rel;
+	void		   *scan_desc;
+	HeapTuple		tuple;
+	bool			free_tup;
+	TupleTableSlot *slot;
+	HeapTuple	  (*getnext_fun)(XCNodeScanDesc*, ScanDirection dir);
+};
 
 int				MaxCoords = 16;
 int				MaxDataNodes = 16;
@@ -67,7 +71,7 @@ static uint32 adb_get_all_type_oid_array(Oid **pparr, char type, bool order_name
 static List* adb_get_all_type_oid_list(char type, bool order_name);
 
 static void xcnode_beginscan(XCNodeScanDesc *desc, bool order_name);
-#define xcnodescan_getnext(desc, dir) (*((desc)->getnext_fun))((desc)->scan_desc, dir)
+#define xcnodescan_getnext(desc, dir) (*((desc)->getnext_fun))(desc, dir)
 static void xcnode_endscan(XCNodeScanDesc *desc);
 
 /*
@@ -105,6 +109,7 @@ static uint32 adb_get_all_type_oid_array(Oid **pparr, char type, bool order_name
 	HeapTuple tuple;
 	NodeOidInfo info;
 	XCNodeScanDesc scan;
+	Form_pgxc_node node_form;
 
 	if (pparr)
 	{
@@ -118,11 +123,12 @@ static uint32 adb_get_all_type_oid_array(Oid **pparr, char type, bool order_name
 	xcnode_beginscan(&scan, order_name);
 	while ((tuple = xcnodescan_getnext(&scan, ForwardScanDirection)) != NULL)
 	{
-		if (((Form_pgxc_node)GETSTRUCT(tuple))->node_type != type)
+		node_form = (Form_pgxc_node)GETSTRUCT(tuple);
+		if (node_form->node_type != type)
 			continue;
 
 		if (pparr)
-			appendNodeOidInfo(&info, HeapTupleGetOid(tuple));
+			appendNodeOidInfo(&info, node_form->oid);
 		else
 			++info.oid_count;
 	}
@@ -138,19 +144,48 @@ static List* adb_get_all_type_oid_list(char type, bool order_name)
 	HeapTuple tuple;
 	List *list;
 	XCNodeScanDesc scan;
+	Form_pgxc_node node_form;
 
 	list = NIL;
 	xcnode_beginscan(&scan, order_name);
 	while ((tuple = xcnodescan_getnext(&scan, ForwardScanDirection)) != NULL)
 	{
-		if (((Form_pgxc_node)GETSTRUCT(tuple))->node_type != type)
+		node_form = (Form_pgxc_node)GETSTRUCT(tuple);
+		if (node_form->node_type != type)
 			continue;
 
-		list = lappend_oid(list, HeapTupleGetOid(tuple));
+		list = lappend_oid(list, node_form->oid);
 	}
 	xcnode_endscan(&scan);
 
 	return list;
+}
+
+static HeapTuple xcnode_heap_scan(XCNodeScanDesc *desc, ScanDirection dir)
+{
+	return heap_getnext(desc->scan_desc, dir);
+}
+
+static HeapTuple xcnode_table_scan(XCNodeScanDesc *desc, ScanDirection dir)
+{
+	if (desc->free_tup)
+		pfree(desc->tuple);
+	if (table_scan_getnextslot(desc->scan_desc, dir, desc->slot))
+		desc->tuple = ExecFetchSlotHeapTuple(desc->slot, false, &desc->free_tup);
+	else
+		desc->tuple = NULL;
+	return desc->tuple;
+}
+
+static HeapTuple xcnode_index_scan(XCNodeScanDesc *desc, ScanDirection dir)
+{
+	if (desc->free_tup)
+		pfree(desc->tuple);
+	if (index_getnext_slot(desc->scan_desc, dir, desc->slot))
+		desc->tuple = ExecFetchSlotHeapTuple(desc->slot, false, &desc->free_tup);
+	else
+		desc->tuple = NULL;
+	return desc->tuple;
 }
 
 static void xcnode_beginscan(XCNodeScanDesc *desc, bool order_name)
@@ -165,23 +200,36 @@ static void xcnode_beginscan(XCNodeScanDesc *desc, bool order_name)
 										  RegisterSnapshot(GetCatalogSnapshot(PgxcNodeRelationId)),
 										  0,
 										  0);
-		desc->getnext_fun = index_getnext;
+		desc->getnext_fun = xcnode_index_scan;
+		desc->slot = table_slot_create(desc->xcnode_rel, NULL);
 	}else
 	{
-		desc->scan_desc = heap_beginscan_catalog(desc->xcnode_rel, 0, NULL);
-		desc->getnext_fun = heap_getnext;
+		desc->scan_desc = table_beginscan_catalog(desc->xcnode_rel, 0, NULL);
+		if (desc->xcnode_rel->rd_tableam == GetHeapamTableAmRoutine())
+		{
+			desc->getnext_fun = xcnode_heap_scan;
+		}else
+		{
+			desc->getnext_fun = xcnode_table_scan;
+			desc->slot = table_slot_create(desc->xcnode_rel, NULL);
+		}
 	}
 }
 
 static void xcnode_endscan(XCNodeScanDesc *desc)
 {
+	if (desc->free_tup &&
+		desc->tuple)
+		pfree(desc->tuple);
+	if (desc->slot)
+		ExecDropSingleTupleTableSlot(desc->slot);
 	if (desc->index_rel)
 	{
 		index_endscan(desc->scan_desc);
 		index_close(desc->index_rel, AccessShareLock);
 	}else
 	{
-		heap_endscan(desc->scan_desc);
+		table_endscan(desc->scan_desc);
 	}
 	heap_close(desc->xcnode_rel, AccessShareLock);
 }
@@ -212,6 +260,7 @@ void adb_get_all_node_oid_array(Oid **pparr, uint32 *ncoord, uint32 *ndatanode, 
 	NodeOidInfo cn_info;
 	NodeOidInfo dn_info;
 	XCNodeScanDesc scan;
+	Form_pgxc_node node_form;
 
 	AssertArg(ncoord && ndatanode);
 	if (pparr)
@@ -226,23 +275,23 @@ void adb_get_all_node_oid_array(Oid **pparr, uint32 *ncoord, uint32 *ndatanode, 
 	xcnode_beginscan(&scan, order_name);
 	while ((tuple = xcnodescan_getnext(&scan, ForwardScanDirection)) != NULL)
 	{
-		char type = ((Form_pgxc_node)GETSTRUCT(tuple))->node_type;
+		node_form = (Form_pgxc_node)GETSTRUCT(tuple);
 
-		if (type == PGXC_NODE_COORDINATOR)
+		if (node_form->node_type == PGXC_NODE_COORDINATOR)
 		{
 			if (pparr)
-				appendNodeOidInfo(&cn_info, HeapTupleGetOid(tuple));
+				appendNodeOidInfo(&cn_info, node_form->oid);
 			else
 				++(cn_info.oid_count);
-		}else if (type == PGXC_NODE_DATANODE)
+		}else if (node_form->node_type == PGXC_NODE_DATANODE)
 		{
 			if (pparr)
-				appendNodeOidInfo(&dn_info, HeapTupleGetOid(tuple));
+				appendNodeOidInfo(&dn_info, node_form->oid);
 			else
 				++(dn_info.oid_count);
 		}else
 		{
-			elog(ERROR, "unknown xcnode type %d", type);
+			elog(ERROR, "unknown xcnode type %d", node_form->node_type);
 		}
 	}
 	xcnode_endscan(&scan);
@@ -265,17 +314,18 @@ void adb_get_all_node_oid_list(List **list_coord, List **list_datanode, bool ord
 	XCNodeScanDesc scan;
 	List *list_cn = NIL;
 	List *list_dn = NIL;
+	Form_pgxc_node node_form;
 
 	xcnode_beginscan(&scan, order_name);
 	while ((tuple = xcnodescan_getnext(&scan, ForwardScanDirection)) != NULL)
 	{
-		char type = ((Form_pgxc_node)GETSTRUCT(tuple))->node_type;
-		if (type == PGXC_NODE_COORDINATOR)
-			list_cn = lappend_oid(list_cn, HeapTupleGetOid(tuple));
-		else if (type == PGXC_NODE_DATANODE)
-			list_dn = lappend_oid(list_dn, HeapTupleGetOid(tuple));
+		node_form = (Form_pgxc_node)GETSTRUCT(tuple);
+		if (node_form->node_type == PGXC_NODE_COORDINATOR)
+			list_cn = lappend_oid(list_cn, node_form->oid);
+		else if (node_form->node_type == PGXC_NODE_DATANODE)
+			list_dn = lappend_oid(list_dn, node_form->oid);
 		else
-			elog(ERROR, "unknown xcnode type %d", type);
+			elog(ERROR, "unknown xcnode type %d", node_form->node_type);
 	}
 	xcnode_endscan(&scan);
 
@@ -574,6 +624,7 @@ PgxcNodeCreateLocal(CreateNodeStmt *stmt)
 	values[Anum_pgxc_node_nodeis_gtm - 1] = BoolGetDatum(is_gtm);
 	values[Anum_pgxc_node_node_id - 1] = node_id;
 	values[Anum_pgxc_node_node_master_oid - 1] = ObjectIdGetDatum(node_mastername ? get_pgxc_nodeoid(node_mastername) : 0);
+	values[Anum_pgxc_node_oid - 1] = ObjectIdGetDatum(GetNewOidWithIndex(pgxcnodesrel, PgxcNodeOidIndexId, Anum_pgxc_node_oid));
 
 	htup = heap_form_tuple(pgxcnodesrel->rd_att, values, nulls);
 
@@ -709,9 +760,9 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 	if (!HeapTupleIsValid(oldtup))
 		elog(ERROR, "cache lookup failed for PGXC node \"%s\"", node_name);
 
-	node_oid = HeapTupleGetOid(oldtup);
-	Assert(OidIsValid(node_oid));
 	node_form = (Form_pgxc_node) GETSTRUCT(oldtup);
+	node_oid = node_form->oid;
+	Assert(OidIsValid(node_oid));
 	node_host_old = pstrdup(NameStr(node_form->node_host));
 	node_port_old = node_port_new = node_form->node_port;
 	node_type_old = node_type_new = node_form->node_type;

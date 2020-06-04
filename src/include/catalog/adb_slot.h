@@ -4,7 +4,7 @@
 #include "catalog/genbki.h"
 #include "catalog/adb_slot_d.h"
 
-CATALOG(adb_slot,9030,AdbSlotRelationId) BKI_SHARED_RELATION BKI_WITHOUT_OIDS
+CATALOG(adb_slot,9030,AdbSlotRelationId) BKI_SHARED_RELATION
 {
 	int32		slotid;
 	int32		slotstatus;

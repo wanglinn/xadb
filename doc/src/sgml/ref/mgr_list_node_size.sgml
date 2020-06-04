@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_list_node_size.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-LIST-NODE-size">
+<refentry id="mgr-list-node-size">
   <refmeta>
     <refentrytitle>LIST NODE SIZE</refentrytitle>
     <manvolnum>7</manvolnum>

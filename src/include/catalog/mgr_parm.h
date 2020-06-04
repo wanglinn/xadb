@@ -5,7 +5,7 @@
 #include "catalog/genbki.h"
 #include "catalog/mgr_parm_d.h"
 
-CATALOG(mgr_parm,4812,ParmRelationId) BKI_WITHOUT_OIDS
+CATALOG(mgr_parm,4812,ParmRelationId)
 {
 	/* parm type:c/d/g/'*' for all/'#' for datanode and coordinator*/
 	char		parmtype;

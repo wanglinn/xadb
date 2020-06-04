@@ -30,6 +30,7 @@
 #include "utils/syscache.h"
 #include "nodes/extensible.h"
 #include "nodes/replnodes.h"
+#include "nodes/supportnodes.h"
 #include "commands/event_trigger.h"
 #ifdef ADB
 #include "miscadmin.h"
@@ -721,7 +722,6 @@ Oid load_namespace_extend(struct StringInfoData *buf, bool missok)
 Oid load_oid_type(StringInfo buf)
 {
 	const char *str_type;
-	HeapTuple tup;
 	Oid typid,namespaceId;
 
 	if(LOAD_IS_NULL())
@@ -732,15 +732,15 @@ Oid load_oid_type(StringInfo buf)
 		ereport(ERROR, (errmsg("Load an invalid namespace id")));
 
 	str_type = load_node_string(buf, false);
-	tup = SearchSysCache2(TYPENAMENSP, CStringGetDatum(str_type)
-		, ObjectIdGetDatum(namespaceId));
-	if(!HeapTupleIsValid(tup))
+	typid = GetSysCacheOid2(TYPENAMENSP, Anum_pg_type_oid,
+							CStringGetDatum(str_type),
+							ObjectIdGetDatum(namespaceId));
+	if(!OidIsValid(typid))
 	{
-		ereport(ERROR, (errmsg("Can not found type \"%s\" at namespace %u", str_type, (unsigned)namespaceId)));
+		ereport(ERROR,
+				(errmsg("Can not found type \"%s\" at namespace %u", str_type, (unsigned)namespaceId)));
 	}
 
-	typid = HeapTupleGetOid(tup);
-	ReleaseSysCache(tup);
 	return typid;
 }
 
@@ -756,24 +756,23 @@ Oid load_oid_collation(StringInfo buf)
 		NameData name;
 		Oid nsp;
 		int32 encoding;
-		HeapTuple tup;
 
 		nsp = load_namespace(buf);
 		coll_name = load_node_string(buf, false);
 		namestrcpy(&name, coll_name);
 		encoding = pq_getmsgint(buf, sizeof(encoding));
 
-		tup = SearchSysCache3(COLLNAMEENCNSP
-				, NameGetDatum(&name)
-				, Int32GetDatum(encoding)
-				, ObjectIdGetDatum(nsp));
-		if(!HeapTupleIsValid(tup))
+		oid = GetSysCacheOid3(COLLNAMEENCNSP,
+							  Anum_pg_collation_oid,
+							  NameGetDatum(&name),
+							  Int32GetDatum(encoding),
+							  ObjectIdGetDatum(nsp));
+		if(!OidIsValid(oid))
 		{
-			ereport(ERROR, (errmsg("Can not collation \"%s\" for encoding \"%s\" in namespace \"%s\""
-				, NameStr(name), pg_encoding_to_char(encoding), get_namespace_name(nsp))));
+			ereport(ERROR,
+					(errmsg("Can not collation \"%s\" for encoding \"%s\" in namespace \"%s\"",
+							NameStr(name), pg_encoding_to_char(encoding), get_namespace_name(nsp))));
 		}
-		oid = HeapTupleGetOid(tup);
-		ReleaseSysCache(tup);
 	}
 	return oid;
 }
@@ -793,7 +792,6 @@ Oid load_oid_proc(StringInfo buf)
 		int16 i,nargs;
 		const char *proc_name;
 		Oid *args;
-		HeapTuple tup;
 
 		nsp = load_namespace(buf);
 		proc_name = load_node_string(buf, false);
@@ -817,17 +815,16 @@ Oid load_oid_proc(StringInfo buf)
 		}
 		vector = buildoidvector(args, nargs);
 
-		tup = SearchSysCache3(PROCNAMEARGSNSP
-			, NameGetDatum(&name)
-			, PointerGetDatum(vector)
-			, ObjectIdGetDatum(nsp));
-		if(!HeapTupleIsValid(tup))
+		oid = GetSysCacheOid3(PROCNAMEARGSNSP,
+							  Anum_pg_proc_oid,
+							  NameGetDatum(&name),
+							  PointerGetDatum(vector),
+							  ObjectIdGetDatum(nsp));
+		if(!OidIsValid(oid))
 		{
 			ereport(ERROR, (errmsg("Can not load function %s at namespace %s"
 				, funcname_signature_string(NameStr(name), nargs, NIL, args), get_namespace_name(nsp))));
 		}
-		oid = HeapTupleGetOid(tup);
-		ReleaseSysCache(tup);
 
 		/* test return type */
 		if(rettype != get_func_rettype(oid))
@@ -854,10 +851,7 @@ Oid load_oid_operator(StringInfo buf)
 		pq_copymsgbytes(buf, (char*)&oid, sizeof(oid));
 	}else
 	{
-		HeapTuple tup;
-		Form_pg_operator form_oper;
 		const char *opr_name;
-		NameData name;
 		Oid nsp;
 		Oid rettype;
 		Oid left;
@@ -866,33 +860,26 @@ Oid load_oid_operator(StringInfo buf)
 		rettype = load_oid_type(buf);
 		nsp = load_namespace(buf);
 		opr_name = load_node_string(buf, false);
-		namestrcpy(&name, opr_name);
 
 		left = load_oid_type(buf);
 		right = load_oid_type(buf);
 
-		tup = SearchSysCache4(OPERNAMENSP
-			, NameGetDatum(&name)
-			, ObjectIdGetDatum(left)
-			, ObjectIdGetDatum(right)
-			, ObjectIdGetDatum(nsp));
-		if(!HeapTupleIsValid(tup))
-		{
-			ereport(ERROR, (errmsg("Can not load opeator %s", NameStr(name))
-				,errhint("left %s, right %s"
-					, OidIsValid(left) ? format_type_be(left) : "invalid"
-					, OidIsValid(right) ? format_type_be(right) : "invalid")));
-		}
-		oid = HeapTupleGetOid(tup);
-
-		form_oper = (Form_pg_operator)GETSTRUCT(tup);
-		if(rettype != form_oper->oprresult)
+		oid = get_operid(opr_name, left, right, nsp);
+		if(!OidIsValid(oid))
 		{
 			ereport(ERROR,
-				(errmsg("operator %u result type is not %s", oid, format_type_be(rettype))
-				,errhint("it result type %s", format_type_be(form_oper->oprresult))));
+					(errmsg("Can not load opeator %s", opr_name),
+					 errdetail("left %s, right %s",
+							   OidIsValid(left) ? format_type_be(left) : "invalid",
+							   OidIsValid(right) ? format_type_be(right) : "invalid")));
 		}
-		ReleaseSysCache(tup);
+
+		if(rettype != oid)
+		{
+			ereport(ERROR,
+				(errmsg("operator %u result type is not %s", oid, format_type_be(rettype)),
+				 errdetail("it result type %s", format_type_be(oid))));
+		}
 	}
 
 	return oid;
@@ -943,7 +930,7 @@ Oid load_oid_ts_config(struct StringInfoData *buf)
 	{
 		nsp = load_namespace(buf);
 		tsname = load_node_string(buf, false);
-		result = GetSysCacheOid2(TSCONFIGNAMENSP, PointerGetDatum(tsname), ObjectIdGetDatum(nsp));
+		result = GetSysCacheOid2(TSCONFIGNAMENSP, Anum_pg_ts_config_oid, PointerGetDatum(tsname), ObjectIdGetDatum(nsp));
 		if (!OidIsValid(result))
 		{
 			ereport(ERROR,
@@ -967,7 +954,7 @@ Oid load_oid_authid(struct StringInfoData *buf)
 	}else
 	{
 		name = load_node_string(buf, false);
-		result = GetSysCacheOid1(AUTHNAME, CStringGetDatum(name));	/* CString compatible Name */
+		result = get_role_oid(name, false);
 		if (!OidIsValid(result))
 			ereport(ERROR,
 					(errcode(ERRCODE_UNDEFINED_OBJECT),

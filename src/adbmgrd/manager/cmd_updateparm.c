@@ -26,7 +26,6 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #include "miscadmin.h"
-#include "utils/tqual.h"
 #include "utils/fmgroids.h"
 #include "utils/guc.h"
 #include "utils/guc_tables.h"
@@ -77,7 +76,7 @@ typedef enum CheckInsertParmStatus
 typedef struct InitNodeInfo
 {
 	Relation rel_node;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	ListCell  **lcp;
 }InitNodeInfo;
 */
@@ -137,7 +136,7 @@ Datum mgr_add_updateparm_func(PG_FUNCTION_ARGS)
 	Relation rel_node;
 	NameData nodename;
 	ScanKeyData scankey[1];
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	HeapTuple tuple;
 	HeapTuple checktuple;
 	Form_mgr_node mgr_node;
@@ -159,14 +158,14 @@ Datum mgr_add_updateparm_func(PG_FUNCTION_ARGS)
 	namestrcpy(&nodename, parm_node->nodename);
 
 	/*open systbl: mgr_parm*/
-	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
+	rel_node = table_open(NodeRelationId, RowExclusiveLock);
 	/* check node */
 	if (strcmp(nodename.data, MACRO_STAND_FOR_ALL_NODENAME) != 0)
 	{
 		checktuple = mgr_get_tuple_node_from_name_type(rel_node, NameStr(nodename));
 		if (!HeapTupleIsValid(checktuple))
 		{
-			heap_close(rel_node, RowExclusiveLock);
+			table_close(rel_node, RowExclusiveLock);
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 				, errmsg("the node \"%s\" does not exist", NameStr(nodename))));
 		}
@@ -175,15 +174,15 @@ Datum mgr_add_updateparm_func(PG_FUNCTION_ARGS)
 		if (parm_node->nodetype != mgr_nodemaster->nodetype)
 		{
 			heap_freetuple(checktuple);
-			heap_close(rel_node, RowExclusiveLock);
+			table_close(rel_node, RowExclusiveLock);
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 				, errmsg("the type of node \"%s\" is not %s", NameStr(nodename), mgr_nodetype_str(parm_node->nodetype))));
 		}
 		heap_freetuple(checktuple);
 	}
 
-	rel_updateparm = heap_open(UpdateparmRelationId, RowExclusiveLock);
-	rel_parm = heap_open(ParmRelationId, RowExclusiveLock);
+	rel_updateparm = table_open(UpdateparmRelationId, RowExclusiveLock);
+	rel_parm = table_open(ParmRelationId, RowExclusiveLock);
 
 	/*set datanode master/slave all (key=value,...)*/
 	PG_TRY();
@@ -198,7 +197,7 @@ Datum mgr_add_updateparm_func(PG_FUNCTION_ARGS)
 					,BTEqualStrategyNumber
 					,F_CHAREQ
 					,CharGetDatum(nodetype));
-			rel_scan = heap_beginscan_catalog(rel_node, 1, scankey);
+			rel_scan = table_beginscan_catalog(rel_node, 1, scankey);
 			while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 			{
 				if(!HeapTupleIsValid(tuple))
@@ -208,7 +207,7 @@ Datum mgr_add_updateparm_func(PG_FUNCTION_ARGS)
 				mgr_add_givenname_updateparm(parm_node, &(mgr_node->nodename), mgr_node->nodetype, rel_node, rel_updateparm, rel_parm, bneednotice);
 				bneednotice = false;
 			}
-			heap_endscan(rel_scan);
+			table_endscan(rel_scan);
 		}
 		/*set datanode/gtmcoord all (key=value,...), set nodetype nodname (key=value,...)*/
 		else
@@ -218,16 +217,16 @@ Datum mgr_add_updateparm_func(PG_FUNCTION_ARGS)
 		}
 	}PG_CATCH();
 	{
-		heap_close(rel_updateparm, RowExclusiveLock);
-		heap_close(rel_parm, RowExclusiveLock);
-		heap_close(rel_node, RowExclusiveLock);
+		table_close(rel_updateparm, RowExclusiveLock);
+		table_close(rel_parm, RowExclusiveLock);
+		table_close(rel_node, RowExclusiveLock);
 		pfree(parm_node);
 		PG_RE_THROW();
 	}PG_END_TRY();
 	/*close relation */
-	heap_close(rel_updateparm, RowExclusiveLock);
-	heap_close(rel_parm, RowExclusiveLock);
-	heap_close(rel_node, RowExclusiveLock);
+	table_close(rel_updateparm, RowExclusiveLock);
+	table_close(rel_parm, RowExclusiveLock);
+	table_close(rel_node, RowExclusiveLock);
 	pfree(parm_node);
 	PG_RETURN_BOOL(true);
 }
@@ -643,8 +642,8 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 	Form_mgr_updateparm mgr_updateparm_alltype;
 	NameData name_standall;
 	NameDataLocal valuedata;
-	HeapScanDesc rel_scan;
-	HeapScanDesc rel_scanall;
+	TableScanDesc rel_scan;
+	TableScanDesc rel_scanall;
 	ScanKeyData scankey[3];
 	TupleDesc tupledsc;
 	Datum datum[Natts_mgr_updateparm];
@@ -682,13 +681,13 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 			,BTEqualStrategyNumber
 			,F_NAMEEQ
 			,NameGetDatum(key));
-		rel_scan = heap_beginscan_catalog(noderel, 3, scankey);
+		rel_scan = table_beginscan_catalog(noderel, 3, scankey);
 		tuple = heap_getnext(rel_scan, ForwardScanDirection);
 		/*1.does not exist in mgr_updateparm*/
 		if (!HeapTupleIsValid(tuple))
 		{
 			mgr_delete_tuple_not_all(noderel, nodetype, key);
-			heap_endscan(rel_scan);
+			table_endscan(rel_scan);
 			return PARM_NEED_INSERT;
 		}
 		else
@@ -701,7 +700,7 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 			{
 				pfree(kValue);
 				delnum += mgr_delete_tuple_not_all(noderel, nodetype, key);
-				heap_endscan(rel_scan);
+				table_endscan(rel_scan);
 				if (delnum > 0)
 					return PARM_NEED_UPDATE;
 				else
@@ -721,7 +720,7 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 				tupledsc = RelationGetDescr(noderel);
 				newtuple = heap_modify_tuple(tuple, tupledsc, datum,isnull, got);
 				CatalogTupleUpdate(noderel, &tuple->t_self, newtuple);
-				heap_endscan(rel_scan);
+				table_endscan(rel_scan);
 				return PARM_NEED_UPDATE;
 			}
 		}
@@ -744,7 +743,7 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 			,BTEqualStrategyNumber
 			,F_NAMEEQ
 			,NameGetDatum(key));
-		rel_scanall = heap_beginscan_catalog(noderel, 3, scankey);
+		rel_scanall = table_beginscan_catalog(noderel, 3, scankey);
 		alltype_tuple = heap_getnext(rel_scanall, ForwardScanDirection);
 		ScanKeyInit(&scankey[0]
 			,Anum_mgr_updateparm_updateparmnodetype
@@ -761,7 +760,7 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 			,BTEqualStrategyNumber
 			,F_NAMEEQ
 			,NameGetDatum(key));
-		rel_scan = heap_beginscan_catalog(noderel, 3, scankey);
+		rel_scan = table_beginscan_catalog(noderel, 3, scankey);
 		tuple = heap_getnext(rel_scan, ForwardScanDirection);
 		if (HeapTupleIsValid(alltype_tuple))
 		{
@@ -783,14 +782,14 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 						ret = PARM_NEED_NONE;
 					pfree(kValue);
 					CatalogTupleDelete(noderel, &tuple->t_self);
-					heap_endscan(rel_scan);
-					heap_endscan(rel_scanall);
+					table_endscan(rel_scan);
+					table_endscan(rel_scanall);
 					return ret;
 				}
 				else
 				{
-					heap_endscan(rel_scanall);
-					heap_endscan(rel_scan);
+					table_endscan(rel_scanall);
+					table_endscan(rel_scan);
 					return PARM_NEED_NONE;
 				}
 			}
@@ -808,8 +807,8 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 			if (strcmp(kValue, value) == 0)
 			{
 				pfree(kValue);
-				heap_endscan(rel_scan);
-				heap_endscan(rel_scanall);
+				table_endscan(rel_scan);
+				table_endscan(rel_scanall);
 				return PARM_NEED_NONE;
 			}
 			else
@@ -825,15 +824,15 @@ static int mgr_check_parm_in_updatetbl(Relation noderel, char nodetype, Name nod
 				tupledsc = RelationGetDescr(noderel);
 				newtuple = heap_modify_tuple(tuple, tupledsc, datum,isnull, got);
 				CatalogTupleUpdate(noderel, &tuple->t_self, newtuple);
-				heap_endscan(rel_scan);
-				heap_endscan(rel_scanall);
+				table_endscan(rel_scan);
+				table_endscan(rel_scanall);
 				return PARM_NEED_UPDATE;
 			}
 		}
 		else
 		{
-			heap_endscan(rel_scan);
-			heap_endscan(rel_scanall);
+			table_endscan(rel_scan);
+			table_endscan(rel_scanall);
 			return PARM_NEED_INSERT;
 		}
 	}
@@ -849,7 +848,7 @@ void mgr_add_parm(char *nodename, char nodetype, StringInfo infosendparamsg)
 	Form_mgr_updateparm mgr_updateparm;
 	Form_mgr_updateparm mgr_updateparm_check;
 	ScanKeyData key[2];
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	HeapTuple tuple;
 	HeapTuple checktuple;
 	NameDataLocal parmvalue;
@@ -878,8 +877,8 @@ void mgr_add_parm(char *nodename, char nodetype, StringInfo infosendparamsg)
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,NameGetDatum(&nodenamedata));
-	rel_updateparm = heap_open(UpdateparmRelationId, RowExclusiveLock);
-	rel_scan = heap_beginscan_catalog(rel_updateparm, 2, key);
+	rel_updateparm = table_open(UpdateparmRelationId, RowExclusiveLock);
+	rel_scan = table_beginscan_catalog(rel_updateparm, 2, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_updateparm = (Form_mgr_updateparm)GETSTRUCT(tuple);
@@ -906,7 +905,7 @@ void mgr_add_parm(char *nodename, char nodetype, StringInfo infosendparamsg)
 		pfree(kValue);
 		mgr_append_pgconf_paras_str_str(parmkey, parmvalue.data, infosendparamsg);
 	}
-	heap_endscan(rel_scan);
+	table_endscan(rel_scan);
 	/*second: add the parameter for given name with given nodetype*/
 	namestrcpy(&nodenamedata, nodename);
 	ScanKeyInit(&key[0],
@@ -919,7 +918,7 @@ void mgr_add_parm(char *nodename, char nodetype, StringInfo infosendparamsg)
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,NameGetDatum(&nodenamedata));
-	rel_scan = heap_beginscan_catalog(rel_updateparm, 2, key);
+	rel_scan = table_beginscan_catalog(rel_updateparm, 2, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_updateparm = (Form_mgr_updateparm)GETSTRUCT(tuple);
@@ -939,8 +938,8 @@ void mgr_add_parm(char *nodename, char nodetype, StringInfo infosendparamsg)
 		pfree(kValue);
 		mgr_append_pgconf_paras_str_str(parmkey, parmvalue.data, infosendparamsg);
 	}
-	heap_endscan(rel_scan);
-	heap_close(rel_updateparm, RowExclusiveLock);
+	table_endscan(rel_scan);
+	table_close(rel_updateparm, RowExclusiveLock);
 }
 
 /*
@@ -955,7 +954,7 @@ static void mgr_reload_parm(Relation noderel, char *nodename, char nodetype, Str
 	Form_mgr_node mgr_node;
 	GetAgentCmdRst getAgentCmdRst;
 	Datum datumpath;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	char *nodepath;
 	char *nodetypestr;
 	bool isNull;
@@ -964,7 +963,7 @@ static void mgr_reload_parm(Relation noderel, char *nodename, char nodetype, Str
 	/*nodename is MACRO_STAND_FOR_ALL_NODENAME*/
 	if (strcmp(nodename, MACRO_STAND_FOR_ALL_NODENAME) == 0)
 	{
-		rel_scan = heap_beginscan_catalog(noderel, 0, NULL);
+		rel_scan = table_beginscan_catalog(noderel, 0, NULL);
 		while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 		{
 			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1005,7 +1004,7 @@ static void mgr_reload_parm(Relation noderel, char *nodename, char nodetype, Str
 				(errmsg("send parameter %s ... to %s", paramstrdata->data, nodepath)));
 			mgr_updateparm_send_parm(&getAgentCmdRst, mgr_node->nodehost, nodepath, paramstrdata, effectparmstatus, bforce);
 		}
-		heap_endscan(rel_scan);
+		table_endscan(rel_scan);
 	}
 	else	/*for given nodename*/
 	{
@@ -1075,11 +1074,11 @@ static int mgr_delete_tuple_not_all(Relation noderel, char nodetype, Name key)
 {
 	HeapTuple looptuple;
 	Form_mgr_updateparm mgr_updateparm;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	int delnum = 0;
 
 	/*check the nodename in mgr_updateparm nodetype and key are not the same with MACRO_STAND_FOR_ALL_NODENAME*/
-	rel_scan = heap_beginscan_catalog(noderel, 0, NULL);
+	rel_scan = table_beginscan_catalog(noderel, 0, NULL);
 	while((looptuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_updateparm = (Form_mgr_updateparm)GETSTRUCT(looptuple);
@@ -1113,7 +1112,7 @@ static int mgr_delete_tuple_not_all(Relation noderel, char nodetype, Name key)
 		delnum++;
 		CatalogTupleDelete(noderel, &looptuple->t_self);
 	}
-	heap_endscan(rel_scan);
+	table_endscan(rel_scan);
 	return delnum;
 }
 
@@ -1163,7 +1162,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 	NameData allnodevalue;
 	NameData parmunit;
 	ScanKeyData scankey[3];
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	Form_mgr_node mgr_node;
 	Form_mgr_node mgr_nodemaster;
 	StringInfoData enumvalue;
@@ -1199,9 +1198,9 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 	namestrcpy(&nodename, parm_node->nodename);
 
 	/*open systbl: mgr_parm*/
-	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
-	rel_updateparm = heap_open(UpdateparmRelationId, RowExclusiveLock);
-	rel_parm = heap_open(ParmRelationId, RowExclusiveLock);
+	rel_node = table_open(NodeRelationId, RowExclusiveLock);
+	rel_updateparm = table_open(UpdateparmRelationId, RowExclusiveLock);
+	rel_parm = table_open(ParmRelationId, RowExclusiveLock);
 
 	PG_TRY();
 	{
@@ -1286,7 +1285,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 					,BTEqualStrategyNumber
 					,F_NAMEEQ
 					,NameGetDatum(&key));
-				rel_scan = heap_beginscan_catalog(rel_updateparm, 1, scankey);
+				rel_scan = table_beginscan_catalog(rel_updateparm, 1, scankey);
 				while((looptuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 				{
 					mgr_updateparm = (Form_mgr_updateparm)GETSTRUCT(looptuple);
@@ -1313,7 +1312,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 					/*delete the tuple which nodetype is the given nodetype*/
 					CatalogTupleDelete(rel_updateparm, &looptuple->t_self);
 				}
-				heap_endscan(rel_scan);
+				table_endscan(rel_scan);
 			}
 			/*the nodename is not MACRO_STAND_FOR_ALL_NODENAME or nodetype is datanode master/slave, refresh the postgresql.conf
 			* of the node, and delete the tuple in mgr_updateparm which nodetype and nodename is given;if MACRO_STAND_FOR_ALL_NODENAME
@@ -1345,7 +1344,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 					,BTEqualStrategyNumber
 					,F_NAMEEQ
 					,NameGetDatum(&key));
-				rel_scan = heap_beginscan_catalog(rel_updateparm, 3, scankey);
+				rel_scan = table_beginscan_catalog(rel_updateparm, 3, scankey);
 				while((looptuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 				{
 					mgr_updateparm = (Form_mgr_updateparm)GETSTRUCT(looptuple);
@@ -1359,7 +1358,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 						bneedinsert = true;
 					break;
 				}
-				heap_endscan(rel_scan);
+				table_endscan(rel_scan);
 
 				/*delete the tuple*/
 				ScanKeyInit(&scankey[0],
@@ -1372,7 +1371,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 					,BTEqualStrategyNumber
 					,F_NAMEEQ
 					,NameGetDatum(&key));
-				rel_scan = heap_beginscan_catalog(rel_updateparm, 2, scankey);
+				rel_scan = table_beginscan_catalog(rel_updateparm, 2, scankey);
 				while((looptuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 				{
 					mgr_updateparm = (Form_mgr_updateparm)GETSTRUCT(looptuple);
@@ -1391,7 +1390,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 						/*do nothing*/
 					}
 				}
-				heap_endscan(rel_scan);
+				table_endscan(rel_scan);
 
 				/*insert tuple*/
 				if (bneedinsert)
@@ -1401,7 +1400,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 						,BTEqualStrategyNumber
 						,F_CHAREQ
 						,CharGetDatum(nodetype));
-					rel_scan = heap_beginscan_catalog(rel_node, 1, scankey);
+					rel_scan = table_beginscan_catalog(rel_node, 1, scankey);
 					while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 					{
 						mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1420,7 +1419,7 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 						CatalogTupleInsert(rel_updateparm, newtuple);
 						heap_freetuple(newtuple);
 					}
-					heap_endscan(rel_scan);
+					table_endscan(rel_scan);
 				}
 			}
 		}
@@ -1436,9 +1435,9 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 		pfree(enumvalue.data);
 		pfree(paramstrdata.data);
 		/*close relation */
-		heap_close(rel_updateparm, RowExclusiveLock);
-		heap_close(rel_parm, RowExclusiveLock);
-		heap_close(rel_node, RowExclusiveLock);
+		table_close(rel_updateparm, RowExclusiveLock);
+		table_close(rel_parm, RowExclusiveLock);
+		table_close(rel_node, RowExclusiveLock);
 		pfree(parm_node);
 		PG_RE_THROW();
 	}PG_END_TRY();
@@ -1446,9 +1445,9 @@ Datum mgr_reset_updateparm_func(PG_FUNCTION_ARGS)
 	pfree(enumvalue.data);
 	pfree(paramstrdata.data);
 	/*close relation */
-	heap_close(rel_updateparm, RowExclusiveLock);
-	heap_close(rel_parm, RowExclusiveLock);
-	heap_close(rel_node, RowExclusiveLock);
+	table_close(rel_updateparm, RowExclusiveLock);
+	table_close(rel_parm, RowExclusiveLock);
+	table_close(rel_node, RowExclusiveLock);
 	pfree(parm_node);
 	PG_RETURN_BOOL(true);
 }
@@ -1544,7 +1543,7 @@ static int mgr_check_parm_value(char *name, char *value, int vartype, char *parm
 
 				if (value)
 				{
-					if (!parse_real(value, &newval))
+					if (!parse_real(value, &newval, 0, NULL))
 					{
 						ereport(elevel,
 								(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -1722,7 +1721,7 @@ void mgr_parmr_delete_tuple_nodename_nodetype(Relation noderel, Name nodename, c
 {
 	HeapTuple looptuple;
 	ScanKeyData scankey[2];
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 
 	/*for nodename is MACRO_STAND_FOR_ALL_NODENAME, only when type if master then delete the tuple*/
 	if (strcmp(MACRO_STAND_FOR_ALL_NODENAME, nodename->data) == 0)
@@ -1749,12 +1748,12 @@ void mgr_parmr_delete_tuple_nodename_nodetype(Relation noderel, Name nodename, c
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(nodetype));
-	rel_scan = heap_beginscan_catalog(noderel, 2, scankey);
+	rel_scan = table_beginscan_catalog(noderel, 2, scankey);
 	while((looptuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		CatalogTupleDelete(noderel, &looptuple->t_self);
 	}
-	heap_endscan(rel_scan);
+	table_endscan(rel_scan);
 }
 
 /*update the tuple for given nodename and nodetype*/
@@ -1763,7 +1762,7 @@ void mgr_parmr_update_tuple_nodename_nodetype(Relation noderel, Name nodename, c
 	HeapTuple looptuple;
 	HeapTuple newtuple;
 	ScanKeyData scankey[2];
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	TupleDesc tupledsc;
 	Datum datum[Natts_mgr_updateparm];
 	bool isnull[Natts_mgr_updateparm];
@@ -1779,7 +1778,7 @@ void mgr_parmr_update_tuple_nodename_nodetype(Relation noderel, Name nodename, c
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(oldnodetype));
-	rel_scan = heap_beginscan_catalog(noderel, 2, scankey);
+	rel_scan = table_beginscan_catalog(noderel, 2, scankey);
 	tupledsc = RelationGetDescr(noderel);
 	while((looptuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -1792,7 +1791,7 @@ void mgr_parmr_update_tuple_nodename_nodetype(Relation noderel, Name nodename, c
 		newtuple = heap_modify_tuple(looptuple, tupledsc, datum,isnull, got);
 		CatalogTupleUpdate(noderel, &looptuple->t_self, newtuple);
 	}
-	heap_endscan(rel_scan);
+	table_endscan(rel_scan);
 }
 
 /*update mgr_updateparm, change * to newmaster name and change its nodetype to mastertype*/
@@ -1800,13 +1799,13 @@ void mgr_update_parm_after_dn_failover(Name oldmastername, char oldmastertype, N
 {
 	Relation rel_updateparm;
 
-	rel_updateparm = heap_open(UpdateparmRelationId, RowExclusiveLock);
+	rel_updateparm = table_open(UpdateparmRelationId, RowExclusiveLock);
 	/*delete old master parameters*/
 	mgr_parmr_delete_tuple_nodename_nodetype(rel_updateparm, oldmastername, oldmastertype);
 	/*update the old slave parameters to new master type*/
 	mgr_parmr_update_tuple_nodename_nodetype(rel_updateparm, oldslavename, oldslavetype, oldmastertype);
 
-	heap_close(rel_updateparm, RowExclusiveLock);
+	table_close(rel_updateparm, RowExclusiveLock);
 }
 
 /*when gtm failover, the mgr_updateparm need modify: delete oldmaster parm and update slavetype to master for new master*/
@@ -1814,13 +1813,13 @@ void mgr_parm_after_gtm_failover_handle(Name mastername, char mastertype, Name s
 {
 	Relation rel_updateparm;
 
-	rel_updateparm = heap_open(UpdateparmRelationId, RowExclusiveLock);
+	rel_updateparm = table_open(UpdateparmRelationId, RowExclusiveLock);
 	/*delete old master parameters*/
 	mgr_parmr_delete_tuple_nodename_nodetype(rel_updateparm, mastername, mastertype);
 	/*update the old slave parameters to new master type*/
 	mgr_parmr_update_tuple_nodename_nodetype(rel_updateparm, slavename, slavetype, mastertype);
 
-	heap_close(rel_updateparm, RowExclusiveLock);
+	table_close(rel_updateparm, RowExclusiveLock);
 }
 
 /*
@@ -1853,11 +1852,11 @@ Datum mgr_show_var_param(PG_FUNCTION_ARGS)
 	namestrcpy(&nodename, PG_GETARG_CSTRING(0));
 	namestrcpy(&param, PG_GETARG_CSTRING(1));
 
-	relNode = heap_open(NodeRelationId, AccessShareLock);
+	relNode = table_open(NodeRelationId, AccessShareLock);
 	checkTuple = mgr_get_nodetuple_by_name_zone(relNode, nodename.data, mgr_zone);
 	if (!HeapTupleIsValid(checkTuple))
 	{
-		heap_close(relNode, AccessShareLock);
+		table_close(relNode, AccessShareLock);
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT),
 			errmsg("the node \"%s\" does not exist", nodename.data)));
 	}
@@ -1866,11 +1865,11 @@ Datum mgr_show_var_param(PG_FUNCTION_ARGS)
 	checkNodeType = mgr_node->nodetype;
 	if (CNDN_TYPE_GTM_COOR_MASTER == checkNodeType || CNDN_TYPE_COORDINATOR_MASTER == checkNodeType
 					|| CNDN_TYPE_DATANODE_MASTER == checkNodeType)
-		masterTupleOid = HeapTupleGetOid(checkTuple);
+		masterTupleOid = mgr_node->oid;
 	else
 		masterTupleOid = mgr_node->nodemasternameoid;
 	heap_freetuple(checkTuple);
-	heap_close(relNode, AccessShareLock);
+	table_close(relNode, AccessShareLock);
 
 
 
@@ -1882,13 +1881,13 @@ Datum mgr_show_var_param(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		info = palloc(sizeof(*info));
-		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
+		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 		ScanKeyInit(&key[0]
 				,Anum_mgr_node_nodeincluster
 				,BTEqualStrategyNumber
 				,F_BOOLEQ
 				,BoolGetDatum(true));
-		info->rel_scan = heap_beginscan_catalog(info->rel_node, 1, key);
+		info->rel_scan = table_beginscan_catalog(info->rel_node, 1, key);
 		info->lcp =NULL;
 
 		/* save info */
@@ -1912,10 +1911,12 @@ Datum mgr_show_var_param(PG_FUNCTION_ARGS)
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
 
-		if (CNDN_TYPE_GTM_COOR_MASTER == checkNodeType || CNDN_TYPE_COORDINATOR_MASTER == checkNodeType
-					|| CNDN_TYPE_DATANODE_MASTER == checkNodeType)
+		if (CNDN_TYPE_GTM_COOR_MASTER == checkNodeType ||
+			CNDN_TYPE_COORDINATOR_MASTER == checkNodeType ||
+			CNDN_TYPE_DATANODE_MASTER == checkNodeType)
 		{
-			if (masterTupleOid != HeapTupleGetOid(tuple) && masterTupleOid != mgr_node->nodemasternameoid)
+			if (masterTupleOid != mgr_node->oid &&
+				masterTupleOid != mgr_node->nodemasternameoid)
 				continue;
 		}
 		else
@@ -1941,8 +1942,8 @@ Datum mgr_show_var_param(PG_FUNCTION_ARGS)
 		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(out));
 	}
 
-	heap_endscan(info->rel_scan);
-	heap_close(info->rel_node, AccessShareLock);
+	table_endscan(info->rel_scan);
+	table_close(info->rel_node, AccessShareLock);
 	pfree(infosendmsg.data);
 	pfree(getAgentCmdRst.description.data);
 
@@ -2189,7 +2190,7 @@ mgr_set_all_nodetype_param(const char nodetype, char *paramName, char *paramValu
 	Relation nodeRel;
 	ScanKeyData key[2];
 	HeapTuple tuple;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	Form_mgr_node mgr_node;
 	Datum datumPath;
 	char *cndnPath;
@@ -2204,7 +2205,7 @@ mgr_set_all_nodetype_param(const char nodetype, char *paramName, char *paramValu
 
 	initStringInfo(&infosendmsg);
 	initStringInfo(&(getAgentCmdRst.description));
-	nodeRel = heap_open(NodeRelationId, AccessShareLock);
+	nodeRel = table_open(NodeRelationId, AccessShareLock);
 	mgr_append_pgconf_paras_str_quotastr(paramName, paramValue, &infosendmsg);
 
 	ScanKeyInit(&key[0],
@@ -2217,7 +2218,7 @@ mgr_set_all_nodetype_param(const char nodetype, char *paramName, char *paramValu
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(nodetype));
-	relScan = heap_beginscan_catalog(nodeRel, 2, key);
+	relScan = table_beginscan_catalog(nodeRel, 2, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -2228,8 +2229,8 @@ mgr_set_all_nodetype_param(const char nodetype, char *paramName, char *paramValu
 		if(isNull)
 		{
 			pfree(infosendmsg.data);
-			heap_endscan(relScan);
-			heap_close(nodeRel, AccessShareLock);
+			table_endscan(relScan);
+			table_close(nodeRel, AccessShareLock);
 			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
 				, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
 				, errmsg("column cndnpath is null")));
@@ -2260,8 +2261,8 @@ mgr_set_all_nodetype_param(const char nodetype, char *paramName, char *paramValu
 	}
 
 	pfree(infosendmsg.data);
-	heap_endscan(relScan);
-	heap_close(nodeRel, AccessShareLock);
+	table_endscan(relScan);
+	table_close(nodeRel, AccessShareLock);
 
 	return result;
 }
@@ -2298,7 +2299,7 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 	Relation relParm;
 	Relation relNode;
 	Relation relUpdateparm;
-	HeapScanDesc relUpParmScan;
+	TableScanDesc relUpParmScan;
 	Form_mgr_updateparm mgr_updateparm;
 	HeapTuple tuple;
 	StringInfoData sqlStrmsg;
@@ -2389,8 +2390,8 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 	SPI_freetuptable(SPI_tuptable);
 	SPI_finish();
 
-	relNode = heap_open(NodeRelationId, AccessShareLock);
-	relParm = heap_open(ParmRelationId, RowExclusiveLock);
+	relNode = table_open(NodeRelationId, AccessShareLock);
+	relParm = table_open(ParmRelationId, RowExclusiveLock);
 	initStringInfo(&conStr);
 	initStringInfo(&sqlStrmsg);
 	initStringInfo(&cnInfoSendMsg);
@@ -2562,8 +2563,8 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 		pfree(cnInfoSendMsg.data);
 		pfree(gtmInfoSendMsg.data);
 		pfree(getAgentCmdRst.description.data);
-		heap_close(relNode, AccessShareLock);
-		heap_close(relParm, RowExclusiveLock);
+		table_close(relNode, AccessShareLock);
+		table_close(relParm, RowExclusiveLock);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
@@ -2572,8 +2573,8 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 	pfree(cnInfoSendMsg.data);
 	pfree(gtmInfoSendMsg.data);
 	pfree(getAgentCmdRst.description.data);
-	heap_close(relNode, AccessShareLock);
-	heap_close(relParm, RowExclusiveLock);
+	table_close(relNode, AccessShareLock);
+	table_close(relParm, RowExclusiveLock);
 
 	/* check connect adbmgr */
 	if ((ret = SPI_connect()) < 0)
@@ -2597,9 +2598,9 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 	/* check the parameters in mgr_updateparm table, if the parameters not in mgr_parm, give notice
 	* message
 	*/
-	relParm = heap_open(ParmRelationId, AccessShareLock);
-	relUpdateparm = heap_open(UpdateparmRelationId, AccessShareLock);
-	relUpParmScan = heap_beginscan_catalog(relUpdateparm, 0, NULL);
+	relParm = table_open(ParmRelationId, AccessShareLock);
+	relUpdateparm = table_open(UpdateparmRelationId, AccessShareLock);
+	relUpParmScan = table_beginscan_catalog(relUpdateparm, 0, NULL);
 	initStringInfo(&enumValue);
 
 	PG_TRY();
@@ -2665,16 +2666,16 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 	}PG_CATCH();
 	{
 		pfree(enumValue.data);
-		heap_endscan(relUpParmScan);
-		heap_close(relUpdateparm, AccessShareLock);
-		heap_close(relParm, AccessShareLock);
+		table_endscan(relUpParmScan);
+		table_close(relUpdateparm, AccessShareLock);
+		table_close(relParm, AccessShareLock);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
 	pfree(enumValue.data);
-	heap_endscan(relUpParmScan);
-	heap_close(relUpdateparm, AccessShareLock);
-	heap_close(relParm, AccessShareLock);
+	table_endscan(relUpParmScan);
+	table_close(relUpdateparm, AccessShareLock);
+	table_close(relParm, AccessShareLock);
 }
 
 /*

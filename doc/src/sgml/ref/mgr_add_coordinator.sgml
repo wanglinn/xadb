@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_add_coordinator.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-ADDCOORDINATOR">
+<refentry id="mgr-addcoordinator">
   <refmeta>
     <refentrytitle>ADD COORDINATOR</refentrytitle>
     <manvolnum>7</manvolnum>

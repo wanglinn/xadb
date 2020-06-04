@@ -7,7 +7,7 @@
  *	  stuff - checking the qualification and projecting the tuple
  *	  appropriately.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -40,7 +40,7 @@ ExecScanFetch(ScanState *node,
 
 	CHECK_FOR_INTERRUPTS();
 
-	if (estate->es_epqTuple != NULL)
+	if (estate->es_epqTupleSlot != NULL)
 	{
 		/*
 		 * We are inside an EvalPlanQual recheck.  Return the test tuple if
@@ -63,7 +63,7 @@ ExecScanFetch(ScanState *node,
 				ExecClearTuple(slot);	/* would not be returned by scan */
 			return slot;
 		}
-		else if (estate->es_epqTupleSet[scanrelid - 1])
+		else if (estate->es_epqTupleSlot[scanrelid - 1] != NULL)
 		{
 			TupleTableSlot *slot = node->ss_ScanTupleSlot;
 
@@ -73,17 +73,16 @@ ExecScanFetch(ScanState *node,
 			/* Else mark to remember that we shouldn't return more */
 			estate->es_epqScanDone[scanrelid - 1] = true;
 
-			/* Return empty slot if we haven't got a test tuple */
-			if (estate->es_epqTuple[scanrelid - 1] == NULL)
-				return ExecClearTuple(slot);
+			slot = estate->es_epqTupleSlot[scanrelid - 1];
 
-			/* Store test tuple in the plan node's scan slot */
-			ExecStoreTuple(estate->es_epqTuple[scanrelid - 1],
-						   slot, InvalidBuffer, false);
+			/* Return empty slot if we haven't got a test tuple */
+			if (TupIsNull(slot))
+				return NULL;
 
 			/* Check if it meets the access-method conditions */
 			if (!(*recheckMtd) (node, slot))
-				ExecClearTuple(slot);	/* would not be returned by scan */
+				return ExecClearTuple(slot);	/* would not be returned by
+												 * scan */
 
 			return slot;
 		}
@@ -269,6 +268,12 @@ void
 ExecScanReScan(ScanState *node)
 {
 	EState	   *estate = node->ps.state;
+
+	/*
+	 * We must clear the scan tuple so that observers (e.g., execCurrent.c)
+	 * can tell that this plan node is not positioned on a tuple.
+	 */
+	ExecClearTuple(node->ss_ScanTupleSlot);
 
 	/* Rescan EvalPlanQual tuple if we're inside an EvalPlanQual recheck */
 	if (estate->es_epqScanDone != NULL)

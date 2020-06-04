@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_alter_coordinator.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-ALTERCOORDINATOR">
+<refentry id="mgr-altercoordinator">
   <refmeta>
     <refentrytitle>ALTER COORDINATOR</refentrytitle>
     <manvolnum>7</manvolnum>

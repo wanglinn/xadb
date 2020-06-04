@@ -27,7 +27,7 @@ EmptyResultState *ExecInitEmptyResult(EmptyResult *node, EState *estate, int efl
 	/*
 	 * initialize tuple table and tuple type
 	 */
-	ExecInitResultTupleSlotTL(estate, &ers->ps);
+	ExecInitResultTupleSlotTL(&ers->ps, &TTSOpsVirtual);
 
 	/* initialize special node if need */
 	switch(node->typeFrom)

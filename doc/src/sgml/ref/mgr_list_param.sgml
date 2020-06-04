@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_list_param.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-LISTPARAM">
+<refentry id="mgr-listparam">
   <refmeta>
     <refentrytitle>LIST PARAM</refentrytitle>
     <manvolnum>7</manvolnum>

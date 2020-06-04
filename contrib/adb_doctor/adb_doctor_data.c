@@ -118,7 +118,7 @@ bool isIdenticalDoctorMgrNode(MgrNodeWrapper *data1, MgrNodeWrapper *data2)
 
 bool isIdenticalDoctorMgrHost(MgrHostWrapper *data1, MgrHostWrapper *data2)
 {
-	return data1->oid == data2->oid &&
+	return data1->form.oid == data2->form.oid &&
 		   strcmp(NameStr(data1->form.hostname),
 				  NameStr(data2->form.hostname)) == 0 &&
 		   strcmp(NameStr(data1->form.hostuser),

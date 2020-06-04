@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_reset_gtm.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-RESETGTM">
+<refentry id="mgr-resetgtm">
   <refmeta>
     <refentrytitle>RESET GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>

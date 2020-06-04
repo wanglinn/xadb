@@ -27,7 +27,6 @@
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
-#include "utils/tqual.h"
 #include "funcapi.h"
 #include "fmgr.h"
 #include "utils/lsyscache.h"

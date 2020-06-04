@@ -3,7 +3,7 @@
  * pquery.c
  *	  POSTGRES process query command code
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -42,27 +42,27 @@ Portal		ActivePortal = NULL;
 
 
 static void ProcessQuery(PlannedStmt *plan,
-			 const char *sourceText,
-			 ParamListInfo params,
-			 QueryEnvironment *queryEnv,
-			 DestReceiver *dest,
-			 char *completionTag);
+						 const char *sourceText,
+						 ParamListInfo params,
+						 QueryEnvironment *queryEnv,
+						 DestReceiver *dest,
+						 char *completionTag);
 static void FillPortalStore(Portal portal, bool isTopLevel);
 static uint64 RunFromStore(Portal portal, ScanDirection direction, uint64 count,
-			 DestReceiver *dest);
+						   DestReceiver *dest);
 static uint64 PortalRunSelect(Portal portal, bool forward, long count,
-				DestReceiver *dest);
+							  DestReceiver *dest);
 static void PortalRunUtility(Portal portal, PlannedStmt *pstmt,
-				 bool isTopLevel, bool setHoldSnapshot,
-				 DestReceiver *dest, char *completionTag);
+							 bool isTopLevel, bool setHoldSnapshot,
+							 DestReceiver *dest, char *completionTag);
 static void PortalRunMulti(Portal portal,
-			   bool isTopLevel, bool setHoldSnapshot,
-			   DestReceiver *dest, DestReceiver *altdest,
-			   char *completionTag);
+						   bool isTopLevel, bool setHoldSnapshot,
+						   DestReceiver *dest, DestReceiver *altdest,
+						   char *completionTag);
 static uint64 DoPortalRunFetch(Portal portal,
-				 FetchDirection fdirection,
-				 long count,
-				 DestReceiver *dest);
+							   FetchDirection fdirection,
+							   long count,
+							   DestReceiver *dest);
 static void DoPortalRewind(Portal portal);
 
 
@@ -181,10 +181,8 @@ ProcessQuery(PlannedStmt *plan,
 						 queryDesc->estate->es_processed);
 				break;
 			case CMD_INSERT:
-				if (queryDesc->estate->es_processed == 1)
-					lastOid = queryDesc->estate->es_lastoid;
-				else
-					lastOid = InvalidOid;
+				/* lastoid doesn't exist anymore */
+				lastOid = InvalidOid;
 				snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
 						 "INSERT %u " UINT64_FORMAT,
 						 lastOid, queryDesc->estate->es_processed);
@@ -617,8 +615,7 @@ PortalStart(Portal portal, ParamListInfo params,
 
 					pstmt = PortalGetPrimaryStmt(portal);
 					portal->tupDesc =
-						ExecCleanTypeFromTL(pstmt->planTree->targetlist,
-											false);
+						ExecCleanTypeFromTL(pstmt->planTree->targetlist);
 				}
 
 				/*
@@ -1008,15 +1005,17 @@ PortalRunSelect(Portal portal,
 				 * a fetch) to the corresponding remote node with the command
 				 * id of the command that created the cursor.
 				 */
-				HeapScanDesc scan;
+				TableScanDesc scan;
 				RemoteQueryState *rqs = (RemoteQueryState *)queryDesc->planstate;
 
-				/* Allocate and initialize scan descriptor */
-				scan = (HeapScanDesc) palloc0(sizeof(HeapScanDescData));
+				if (rqs->ss.ss_currentScanDesc == NULL)
+				{
+					/* Allocate and initialize scan descriptor */
+					rqs->ss.ss_currentScanDesc = palloc0(sizeof(*scan));
+				}
+				scan = rqs->ss.ss_currentScanDesc;
 				/* Copy snap shot into the scan descriptor */
 				scan->rs_snapshot = queryDesc->snapshot;
-				/* Copy scan descriptor in remote query state */
-				rqs->ss.ss_currentScanDesc = scan;
 
 				rqs->cursor = pstrdup(portal->name);
 			}
@@ -1163,7 +1162,7 @@ RunFromStore(Portal portal, ScanDirection direction, uint64 count,
 	uint64		current_tuple_count = 0;
 	TupleTableSlot *slot;
 
-	slot = MakeSingleTupleTableSlot(portal->tupDesc);
+	slot = MakeSingleTupleTableSlot(portal->tupDesc, &TTSOpsMinimalTuple);
 
 	dest->rStartup(dest, CMD_SELECT, portal->tupDesc);
 

@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_zone_config.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-ZONECONFIG">
+<refentry id="mgr-zoneconfig">
   <refmeta>
     <refentrytitle>ZONE CONFIG</refentrytitle>
     <manvolnum>7</manvolnum>

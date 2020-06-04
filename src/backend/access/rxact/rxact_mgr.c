@@ -25,7 +25,6 @@
 #include "utils/hsearch.h"
 #include "utils/memutils.h"
 #include "utils/syscache.h"
-#include "utils/tqual.h"
 
 #include <unistd.h>
 #include <sys/stat.h>
@@ -797,15 +796,12 @@ static void RxactSaveLog(bool flush)
 	/* save remote node */
 	Assert(rxlf_remote_node != -1);
 	hash_seq_init(&hash_status, htab_remote_node);
-	cursor = FileSeek(rxlf_remote_node, 0, SEEK_SET);
-	if(cursor != 0)
-	{
-		ereport(ERROR, (errcode_for_file_access(),
-			errmsg("Can not seek file \"%s\" to start", FilePathName(rxlf_remote_node))));
-	}
+	cursor = 0;
 	while((p=hash_seq_search(&hash_status))!=NULL)
+	{
 		rxact_log_simple_write(rxlf_remote_node, p, sizeof(RemoteNode));
-	cursor = FileSeek(rxlf_remote_node, 0, SEEK_CUR);
+		cursor += sizeof(RemoteNode);
+	}
 	if (FileTruncate(rxlf_remote_node, cursor, WAIT_EVENT_DATA_FILE_TRUNCATE) < 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
@@ -815,15 +811,12 @@ static void RxactSaveLog(bool flush)
 	/* save database node file*/
 	Assert(rxlf_db_node != -1);
 	hash_seq_init(&hash_status, htab_db_node);
-	cursor = FileSeek(rxlf_db_node, 0, SEEK_SET);
-	if(cursor != 0)
-	{
-		ereport(ERROR, (errcode_for_file_access(),
-			errmsg("Can not seek file \"%s\" to start", FilePathName(rxlf_db_node))));
-	}
+	cursor = 0;
 	while((p=hash_seq_search(&hash_status))!=NULL)
+	{
 		rxact_log_simple_write(rxlf_db_node, p, sizeof(DatabaseNode));
-	cursor = FileSeek(rxlf_db_node, 0, SEEK_CUR);
+		cursor += sizeof(DatabaseNode);
+	}
 	if (FileTruncate(rxlf_db_node, cursor, WAIT_EVENT_DATA_FILE_TRUNCATE) < 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
@@ -2647,7 +2640,7 @@ void RemoteXactReloadNode(void)
 {
 	Form_pgxc_node xc_node;
 	HeapTuple tuple;
-	HeapScanDesc scan;
+	TableScanDesc scan;
 	Relation rel;
 	StringInfoData buf;
 	int count,offset;
@@ -2655,8 +2648,8 @@ void RemoteXactReloadNode(void)
 	connect_rxact(false);
 	Assert(rxact_client_fd != PGINVALID_SOCKET);
 
-	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
-	scan = heap_beginscan(rel, SnapshotSelf, 0, NULL);
+	rel = table_open(PgxcNodeRelationId, AccessShareLock);
+	scan = table_beginscan(rel, SnapshotSelf, 0, NULL);
 
 	rxact_begin_msg(&buf, RXACT_MSG_UPDATE_NODE, false);
 	offset = buf.len;
@@ -2665,13 +2658,13 @@ void RemoteXactReloadNode(void)
 	while((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
 		xc_node = (Form_pgxc_node)GETSTRUCT(tuple);
-		rxact_put_int(&buf, (int)HeapTupleGetOid(tuple), false);
+		rxact_put_int(&buf, (int)xc_node->oid, false);
 		rxact_put_short(&buf, (short)(xc_node->node_port), false);
 		rxact_put_string(&buf, NameStr(xc_node->node_host), false);
 		++count;
 	}
-	heap_endscan(scan);
-	heap_close(rel, AccessShareLock);
+	table_endscan(scan);
+	table_close(rel, AccessShareLock);
 	memcpy(buf.data + offset, &count, 4);
 	send_msg_to_rxact(&buf, false);
 

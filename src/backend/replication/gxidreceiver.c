@@ -636,9 +636,9 @@ static void GxidRcvFinishLocalXid(TransactionId	txid, int procno)
 
 static void GxidRcvSendLocalNextXid(void)
 {
-	TransactionId xid; 
-	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	xid = ShmemVariableCache->nextXid;
+	TransactionId xid;
+	LWLockAcquire(XidGenLock, LW_SHARED);
+	xid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
 	LWLockRelease(XidGenLock);
 
 	if (!TransactionIdIsValid(xid))
@@ -727,6 +727,8 @@ static void GxidRcvProcessUpdateXid(char *buf, Size len)
 {
 	StringInfoData			msg;
 	TransactionId			txid;
+	TransactionId			nextXid;
+	uint32					epoch;
 
 	msg.data = buf;
 
@@ -736,13 +738,17 @@ static void GxidRcvProcessUpdateXid(char *buf, Size len)
 	txid = pq_getmsgint(&msg, sizeof(txid));
 
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	ereport(DEBUG2, (errmsg("GxidRcvProcessUpdateXid  %d, ShmemVariableCache->nextXid is %d\n", txid, ShmemVariableCache->nextXid)));
-	if (!NormalTransactionIdPrecedes(txid, ShmemVariableCache->nextXid))
+	nextXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
+	ereport(DEBUG2, (errmsg("GxidRcvProcessUpdateXid  %d, ShmemVariableCache->nextXid is %d\n", txid, nextXid)));
+	if (!NormalTransactionIdPrecedes(txid, nextXid))
 	{
- 		ShmemVariableCache->nextXid = txid;
- 		TransactionIdAdvance(ShmemVariableCache->nextXid);
+		epoch = EpochFromFullTransactionId(ShmemVariableCache->nextFullXid);
+		if (unlikely(txid < nextXid))
+			++epoch;
+		ShmemVariableCache->nextFullXid = FullTransactionIdFromEpochAndXid(epoch, nextXid);
+		FullTransactionIdAdvance(&ShmemVariableCache->nextFullXid);
 
-		ShmemVariableCache->latestCompletedXid = ShmemVariableCache->nextXid;
+		ShmemVariableCache->latestCompletedXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
 		TransactionIdRetreat(ShmemVariableCache->latestCompletedXid);
 	}
 	LWLockRelease(XidGenLock);

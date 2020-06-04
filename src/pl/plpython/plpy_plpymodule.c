@@ -29,8 +29,8 @@ HTAB	   *PLy_spi_exceptions = NULL;
 
 static void PLy_add_exceptions(PyObject *plpy);
 static PyObject *PLy_create_exception(char *name,
-					 PyObject *base, PyObject *dict,
-					 const char *modname, PyObject *mod);
+									  PyObject *base, PyObject *dict,
+									  const char *modname, PyObject *mod);
 static void PLy_generate_spi_exceptions(PyObject *mod, PyObject *base);
 
 /* module functions */
@@ -115,23 +115,17 @@ static PyMethodDef PLy_exc_methods[] = {
 
 #if PY_MAJOR_VERSION >= 3
 static PyModuleDef PLy_module = {
-	PyModuleDef_HEAD_INIT,		/* m_base */
-	"plpy",						/* m_name */
-	NULL,						/* m_doc */
-	-1,							/* m_size */
-	PLy_methods,				/* m_methods */
+	PyModuleDef_HEAD_INIT,
+	.m_name = "plpy",
+	.m_size = -1,
+	.m_methods = PLy_methods,
 };
 
 static PyModuleDef PLy_exc_module = {
-	PyModuleDef_HEAD_INIT,		/* m_base */
-	"spiexceptions",			/* m_name */
-	NULL,						/* m_doc */
-	-1,							/* m_size */
-	PLy_exc_methods,			/* m_methods */
-	NULL,						/* m_reload */
-	NULL,						/* m_traverse */
-	NULL,						/* m_clear */
-	NULL						/* m_free */
+	PyModuleDef_HEAD_INIT,
+	.m_name = "spiexceptions",
+	.m_size = -1,
+	.m_methods = PLy_exc_methods,
 };
 
 /*
@@ -304,7 +298,7 @@ PLy_generate_spi_exceptions(PyObject *mod, PyObject *base)
  * don't confuse these with PLy_elog
  */
 static PyObject *PLy_output(volatile int level, PyObject *self,
-		   PyObject *args, PyObject *kw);
+							PyObject *args, PyObject *kw);
 
 static PyObject *
 PLy_debug(PyObject *self, PyObject *args, PyObject *kw)
@@ -594,8 +588,6 @@ PLy_commit(PyObject *self, PyObject *args)
 {
 	PLyExecutionContext *exec_ctx = PLy_current_execution_context();
 
-	HoldPinnedPortals();
-
 	SPI_commit();
 	SPI_start_transaction();
 
@@ -609,8 +601,6 @@ static PyObject *
 PLy_rollback(PyObject *self, PyObject *args)
 {
 	PLyExecutionContext *exec_ctx = PLy_current_execution_context();
-
-	HoldPinnedPortals();
 
 	SPI_rollback();
 	SPI_start_transaction();

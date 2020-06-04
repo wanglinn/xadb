@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_failover_gtm.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-FAILOVERGTM">
+<refentry id="mgr-failovergtm">
   <refmeta>
     <refentrytitle>FAILOVER GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>

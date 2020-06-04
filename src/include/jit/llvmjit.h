@@ -2,7 +2,7 @@
  * llvmjit.h
  *	  LLVM JIT provider.
  *
- * Copyright (c) 2016-2018, PostgreSQL Global Development Group
+ * Copyright (c) 2016-2019, PostgreSQL Global Development Group
  *
  * src/include/jit/llvmjit.h
  *
@@ -11,9 +11,11 @@
 #ifndef LLVMJIT_H
 #define LLVMJIT_H
 
-#ifndef USE_LLVM
-#error "llvmjit.h should only be included by code dealing with llvm"
-#endif
+/*
+ * To avoid breaking cpluspluscheck, allow including the file even when LLVM
+ * is not available.
+ */
+#ifdef USE_LLVM
 
 #include <llvm-c/Types.h>
 
@@ -62,9 +64,12 @@ extern LLVMTypeRef TypePGFunction;
 extern LLVMTypeRef TypeSizeT;
 extern LLVMTypeRef TypeStorageBool;
 
-extern LLVMTypeRef StructtupleDesc;
+extern LLVMTypeRef StructNullableDatum;
+extern LLVMTypeRef StructTupleDescData;
 extern LLVMTypeRef StructHeapTupleData;
 extern LLVMTypeRef StructTupleTableSlot;
+extern LLVMTypeRef StructHeapTupleTableSlot;
+extern LLVMTypeRef StructMinimalTupleTableSlot;
 extern LLVMTypeRef StructMemoryContextData;
 extern LLVMTypeRef StructFunctionCallInfoData;
 extern LLVMTypeRef StructExprContext;
@@ -77,11 +82,11 @@ extern LLVMTypeRef StructAggStatePerGroupData;
 extern LLVMValueRef AttributeTemplate;
 extern LLVMValueRef FuncStrlen;
 extern LLVMValueRef FuncVarsizeAny;
-extern LLVMValueRef FuncSlotGetsomeattrs;
 extern LLVMValueRef FuncSlotGetmissingattrs;
-extern LLVMValueRef FuncHeapGetsysattr;
+extern LLVMValueRef FuncSlotGetsomeattrsInt;
 extern LLVMValueRef FuncMakeExpandedObjectReadOnlyInternal;
-extern LLVMValueRef FuncExecEvalArrayRefSubscript;
+extern LLVMValueRef FuncExecEvalSubscriptingRef;
+extern LLVMValueRef FuncExecEvalSysVar;
 extern LLVMValueRef FuncExecAggTransReparent;
 extern LLVMValueRef FuncExecAggInitGroup;
 
@@ -111,7 +116,9 @@ extern void llvm_inline(LLVMModuleRef mod);
  ****************************************************************************
  */
 extern bool llvm_compile_expr(struct ExprState *state);
-extern LLVMValueRef slot_compile_deform(struct LLVMJitContext *context, TupleDesc desc, int natts);
+struct TupleTableSlotOps;
+extern LLVMValueRef slot_compile_deform(struct LLVMJitContext *context, TupleDesc desc,
+										const struct TupleTableSlotOps *ops, int natts);
 
 /*
  ****************************************************************************
@@ -125,12 +132,15 @@ extern LLVMValueRef slot_compile_deform(struct LLVMJitContext *context, TupleDes
 extern char *LLVMGetHostCPUName(void);
 #endif
 
+#if defined(HAVE_DECL_LLVMGETHOSTCPUFEATURES) && !HAVE_DECL_LLVMGETHOSTCPUFEATURES
 /** Get the host CPU features as a string. The result needs to be disposed
   with LLVMDisposeMessage. */
 extern char *LLVMGetHostCPUFeatures(void);
+#endif
 
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
 
+#endif							/* USE_LLVM */
 #endif							/* LLVMJIT_H */

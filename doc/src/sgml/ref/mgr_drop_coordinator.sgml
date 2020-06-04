@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_drop_coordinator.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-DROPCOORDINATOR">
+<refentry id="mgr-dropcoordinator">
   <refmeta>
     <refentrytitle>DROP COORDINATOR</refentrytitle>
     <manvolnum>7</manvolnum>

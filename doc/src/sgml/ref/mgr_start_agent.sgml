@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_start_agent.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-STARTAGENT">
+<refentry id="mgr-startagent">
   <refmeta>
     <refentrytitle>START AGENT</refentrytitle>
     <manvolnum>7</manvolnum>

@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_promote_datanode.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-PROMOTEDATANODE">
+<refentry id="mgr-promotedatanode">
   <refmeta>
     <refentrytitle>PROMOTE DATANODE</refentrytitle>
     <manvolnum>7</manvolnum>

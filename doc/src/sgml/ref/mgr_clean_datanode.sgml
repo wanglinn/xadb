@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_clean_coorinator.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-CLEANDATANODE">
+<refentry id="mgr-cleandatanode">
   <refmeta>
     <refentrytitle>CLEAN DATANODE</refentrytitle>
     <manvolnum>7</manvolnum>

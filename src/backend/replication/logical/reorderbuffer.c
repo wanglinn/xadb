@@ -4,7 +4,7 @@
  *	  PostgreSQL logical replay/reorder buffer management
  *
  *
- * Copyright (c) 2012-2018, PostgreSQL Global Development Group
+ * Copyright (c) 2012-2019, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
@@ -56,6 +56,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
+#include "access/heapam.h"
 #include "access/rewriteheap.h"
 #include "access/transam.h"
 #include "access/tuptoaster.h"
@@ -78,7 +79,6 @@
 #include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/relfilenodemap.h"
-#include "utils/tqual.h"
 
 
 /* entry for a hash table we use to map from xid to our transaction state */
@@ -163,10 +163,10 @@ static const Size max_changes_in_memory = 4096;
 static ReorderBufferTXN *ReorderBufferGetTXN(ReorderBuffer *rb);
 static void ReorderBufferReturnTXN(ReorderBuffer *rb, ReorderBufferTXN *txn);
 static ReorderBufferTXN *ReorderBufferTXNByXid(ReorderBuffer *rb,
-					  TransactionId xid, bool create, bool *is_new,
-					  XLogRecPtr lsn, bool create_as_top);
+											   TransactionId xid, bool create, bool *is_new,
+											   XLogRecPtr lsn, bool create_as_top);
 static void ReorderBufferTransferSnapToParent(ReorderBufferTXN *txn,
-								  ReorderBufferTXN *subtxn);
+											  ReorderBufferTXN *subtxn);
 
 static void AssertTXNLsnOrder(ReorderBuffer *rb);
 
@@ -181,7 +181,7 @@ static void AssertTXNLsnOrder(ReorderBuffer *rb);
 static ReorderBufferIterTXNState *ReorderBufferIterTXNInit(ReorderBuffer *rb, ReorderBufferTXN *txn);
 static ReorderBufferChange *ReorderBufferIterTXNNext(ReorderBuffer *rb, ReorderBufferIterTXNState *state);
 static void ReorderBufferIterTXNFinish(ReorderBuffer *rb,
-						   ReorderBufferIterTXNState *state);
+									   ReorderBufferIterTXNState *state);
 static void ReorderBufferExecuteInvalidations(ReorderBuffer *rb, ReorderBufferTXN *txn);
 
 /*
@@ -192,19 +192,19 @@ static void ReorderBufferExecuteInvalidations(ReorderBuffer *rb, ReorderBufferTX
 static void ReorderBufferCheckSerializeTXN(ReorderBuffer *rb, ReorderBufferTXN *txn);
 static void ReorderBufferSerializeTXN(ReorderBuffer *rb, ReorderBufferTXN *txn);
 static void ReorderBufferSerializeChange(ReorderBuffer *rb, ReorderBufferTXN *txn,
-							 int fd, ReorderBufferChange *change);
+										 int fd, ReorderBufferChange *change);
 static Size ReorderBufferRestoreChanges(ReorderBuffer *rb, ReorderBufferTXN *txn,
-							int *fd, XLogSegNo *segno);
+										int *fd, XLogSegNo *segno);
 static void ReorderBufferRestoreChange(ReorderBuffer *rb, ReorderBufferTXN *txn,
-						   char *change);
+									   char *change);
 static void ReorderBufferRestoreCleanup(ReorderBuffer *rb, ReorderBufferTXN *txn);
 static void ReorderBufferCleanupSerializedTXNs(const char *slotname);
 static void ReorderBufferSerializedPath(char *path, ReplicationSlot *slot,
-							TransactionId xid, XLogSegNo segno);
+										TransactionId xid, XLogSegNo segno);
 
 static void ReorderBufferFreeSnap(ReorderBuffer *rb, Snapshot snap);
 static Snapshot ReorderBufferCopySnap(ReorderBuffer *rb, Snapshot orig_snap,
-					  ReorderBufferTXN *txn, CommandId cid);
+									  ReorderBufferTXN *txn, CommandId cid);
 
 /* ---------------------------------------
  * toast reassembly support
@@ -213,9 +213,9 @@ static Snapshot ReorderBufferCopySnap(ReorderBuffer *rb, Snapshot orig_snap,
 static void ReorderBufferToastInitHash(ReorderBuffer *rb, ReorderBufferTXN *txn);
 static void ReorderBufferToastReset(ReorderBuffer *rb, ReorderBufferTXN *txn);
 static void ReorderBufferToastReplace(ReorderBuffer *rb, ReorderBufferTXN *txn,
-						  Relation relation, ReorderBufferChange *change);
+									  Relation relation, ReorderBufferChange *change);
 static void ReorderBufferToastAppendChunk(ReorderBuffer *rb, ReorderBufferTXN *txn,
-							  Relation relation, ReorderBufferChange *change);
+										  Relation relation, ReorderBufferChange *change);
 
 
 /*
@@ -409,10 +409,16 @@ ReorderBufferReturnChange(ReorderBuffer *rb, ReorderBufferChange *change)
 			}
 			break;
 			/* no data in addition to the struct itself */
+		case REORDER_BUFFER_CHANGE_TRUNCATE:
+			if (change->data.truncate.relids != NULL)
+			{
+				ReorderBufferReturnRelids(rb, change->data.truncate.relids);
+				change->data.truncate.relids = NULL;
+			}
+			break;
 		case REORDER_BUFFER_CHANGE_INTERNAL_SPEC_CONFIRM:
 		case REORDER_BUFFER_CHANGE_INTERNAL_COMMAND_ID:
 		case REORDER_BUFFER_CHANGE_INTERNAL_TUPLECID:
-		case REORDER_BUFFER_CHANGE_TRUNCATE:
 			break;
 	}
 
@@ -448,6 +454,37 @@ void
 ReorderBufferReturnTupleBuf(ReorderBuffer *rb, ReorderBufferTupleBuf *tuple)
 {
 	pfree(tuple);
+}
+
+/*
+ * Get an array for relids of truncated relations.
+ *
+ * We use the global memory context (for the whole reorder buffer), because
+ * none of the existing ones seems like a good match (some are SLAB, so we
+ * can't use those, and tup_context is meant for tuple data, not relids). We
+ * could add yet another context, but it seems like an overkill - TRUNCATE is
+ * not particularly common operation, so it does not seem worth it.
+ */
+Oid *
+ReorderBufferGetRelids(ReorderBuffer *rb, int nrelids)
+{
+	Oid		   *relids;
+	Size		alloc_len;
+
+	alloc_len = sizeof(Oid) * nrelids;
+
+	relids = (Oid *) MemoryContextAlloc(rb->context, alloc_len);
+
+	return relids;
+}
+
+/*
+ * Free an array of relids.
+ */
+void
+ReorderBufferReturnRelids(ReorderBuffer *rb, Oid *relids)
+{
+	pfree(relids);
 }
 
 /*
@@ -1232,7 +1269,7 @@ ReorderBufferCleanupTXN(ReorderBuffer *rb, ReorderBufferTXN *txn)
 
 /*
  * Build a hash with a (relfilenode, ctid) -> (cmin, cmax) mapping for use by
- * tqual.c's HeapTupleSatisfiesHistoricMVCC.
+ * HeapTupleSatisfiesHistoricMVCC.
  */
 static void
 ReorderBufferBuildTupleCidHash(ReorderBuffer *rb, ReorderBufferTXN *txn)
@@ -1289,15 +1326,19 @@ ReorderBufferBuildTupleCidHash(ReorderBuffer *rb, ReorderBufferTXN *txn)
 		}
 		else
 		{
+			/*
+			 * Maybe we already saw this tuple before in this transaction, but
+			 * if so it must have the same cmin.
+			 */
 			Assert(ent->cmin == change->data.tuplecid.cmin);
-			Assert(ent->cmax == InvalidCommandId ||
-				   ent->cmax == change->data.tuplecid.cmax);
 
 			/*
-			 * if the tuple got valid in this transaction and now got deleted
-			 * we already have a valid cmin stored. The cmax will be
-			 * InvalidCommandId though.
+			 * cmax may be initially invalid, but once set it can only grow,
+			 * and never become invalid again.
 			 */
+			Assert((ent->cmax == InvalidCommandId) ||
+				   ((change->data.tuplecid.cmax != InvalidCommandId) &&
+					(change->data.tuplecid.cmax > ent->cmax)));
 			ent->cmax = change->data.tuplecid.cmax;
 		}
 	}
@@ -1474,6 +1515,8 @@ ReorderBufferCommit(ReorderBuffer *rb, TransactionId xid,
 					 * use as a normal record. It'll be cleaned up at the end
 					 * of INSERT processing.
 					 */
+					if (specinsert == NULL)
+						elog(ERROR, "invalid ordering of speculative insertion changes");
 					Assert(specinsert->data.tp.oldtuple == NULL);
 					change = specinsert;
 					change->action = REORDER_BUFFER_CHANGE_INSERT;
@@ -1488,8 +1531,16 @@ ReorderBufferCommit(ReorderBuffer *rb, TransactionId xid,
 												change->data.tp.relnode.relNode);
 
 					/*
-					 * Catalog tuple without data, emitted while catalog was
-					 * in the process of being rewritten.
+					 * Mapped catalog tuple without data, emitted while
+					 * catalog table was in the process of being rewritten. We
+					 * can fail to look up the relfilenode, because the
+					 * relmapper has no "historic" view, in contrast to normal
+					 * the normal catalog during decoding. Thus repeated
+					 * rewrites can cause a lookup failure. That's OK because
+					 * we do not decode catalog changes anyway. Normally such
+					 * tuples would be skipped over below, but we can't
+					 * identify whether the table should be logically logged
+					 * without mapping the relfilenode to the oid.
 					 */
 					if (reloid == InvalidOid &&
 						change->data.tp.newtuple == NULL &&
@@ -1552,6 +1603,8 @@ ReorderBufferCommit(ReorderBuffer *rb, TransactionId xid,
 						 * freed/reused while restoring spooled data from
 						 * disk.
 						 */
+						Assert(change->data.tp.newtuple != NULL);
+
 						dlist_delete(&change->node);
 						ReorderBufferToastAppendChunk(rb, txn, relation,
 													  change);
@@ -1871,7 +1924,7 @@ ReorderBufferAbortOld(ReorderBuffer *rb, TransactionId oldestRunningXid)
 }
 
 /*
- * Forget the contents of a transaction if we aren't interested in it's
+ * Forget the contents of a transaction if we aren't interested in its
  * contents. Needs to be first called for subtransactions and then for the
  * toplevel xid.
  *
@@ -2410,6 +2463,26 @@ ReorderBufferSerializeChange(ReorderBuffer *rb, ReorderBufferTXN *txn,
 				break;
 			}
 		case REORDER_BUFFER_CHANGE_TRUNCATE:
+			{
+				Size		size;
+				char	   *data;
+
+				/* account for the OIDs of truncated relations */
+				size = sizeof(Oid) * change->data.truncate.nrelids;
+				sz += size;
+
+				/* make sure we have enough space */
+				ReorderBufferSerializeReserve(rb, sz);
+
+				data = ((char *) rb->outbuf) + sizeof(ReorderBufferDiskChange);
+				/* might have been reallocated above */
+				ondisk = (ReorderBufferDiskChange *) rb->outbuf;
+
+				memcpy(data, change->data.truncate.relids, size);
+				data += size;
+
+				break;
+			}
 		case REORDER_BUFFER_CHANGE_INTERNAL_SPEC_CONFIRM:
 		case REORDER_BUFFER_CHANGE_INTERNAL_COMMAND_ID:
 		case REORDER_BUFFER_CHANGE_INTERNAL_TUPLECID:
@@ -2419,6 +2492,7 @@ ReorderBufferSerializeChange(ReorderBuffer *rb, ReorderBufferTXN *txn,
 
 	ondisk->size = sz;
 
+	errno = 0;
 	pgstat_report_wait_start(WAIT_EVENT_REORDER_BUFFER_WRITE);
 	if (write(fd, rb->outbuf, ondisk->size) != ondisk->size)
 	{
@@ -2692,6 +2766,16 @@ ReorderBufferRestoreChange(ReorderBuffer *rb, ReorderBufferTXN *txn,
 			}
 			/* the base struct contains all the data, easy peasy */
 		case REORDER_BUFFER_CHANGE_TRUNCATE:
+			{
+				Oid		   *relids;
+
+				relids = ReorderBufferGetRelids(rb,
+												change->data.truncate.nrelids);
+				memcpy(relids, data, change->data.truncate.nrelids * sizeof(Oid));
+				change->data.truncate.relids = relids;
+
+				break;
+			}
 		case REORDER_BUFFER_CHANGE_INTERNAL_SPEC_CONFIRM:
 		case REORDER_BUFFER_CHANGE_INTERNAL_COMMAND_ID:
 		case REORDER_BUFFER_CHANGE_INTERNAL_TUPLECID:
@@ -2762,7 +2846,7 @@ ReorderBufferCleanupSerializedTXNs(const char *slotname)
 			if (unlink(path) != 0)
 				ereport(ERROR,
 						(errcode_for_file_access(),
-						 errmsg("could not remove file \"%s\" during removal of pg_replslot/%s/*.xid: %m",
+						 errmsg("could not remove file \"%s\" during removal of pg_replslot/%s/xid*: %m",
 								path, slotname)));
 		}
 	}
@@ -2780,9 +2864,9 @@ ReorderBufferSerializedPath(char *path, ReplicationSlot *slot, TransactionId xid
 {
 	XLogRecPtr	recptr;
 
-	XLogSegNoOffsetToRecPtr(segno, 0, recptr, wal_segment_size);
+	XLogSegNoOffsetToRecPtr(segno, 0, wal_segment_size, recptr);
 
-	snprintf(path, MAXPGPATH, "pg_replslot/%s/xid-%u-lsn-%X-%X.snap",
+	snprintf(path, MAXPGPATH, "pg_replslot/%s/xid-%u-lsn-%X-%X.spill",
 			 NameStr(MyReplicationSlot->data.name),
 			 xid,
 			 (uint32) (recptr >> 32), (uint32) recptr);
@@ -3275,11 +3359,16 @@ ApplyLogicalMappingFile(HTAB *tuplecid_data, Oid relid, const char *fname)
 			new_ent->combocid = ent->combocid;
 		}
 	}
+
+	if (CloseTransientFile(fd))
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not close file \"%s\": %m", path)));
 }
 
 
 /*
- * Check whether the TransactionOId 'xid' is in the pre-sorted array 'xip'.
+ * Check whether the TransactionOid 'xid' is in the pre-sorted array 'xip'.
  */
 static bool
 TransactionIdInArray(TransactionId xid, TransactionId *xip, Size num)

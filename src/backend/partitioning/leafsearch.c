@@ -9,7 +9,6 @@
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "nodes/primnodes.h"
-#include "nodes/relation.h"
 #include "optimizer/reduceinfo.h"
 #include "partitioning/partbounds.h"
 #include "port/pg_crc32c.h"
@@ -184,7 +183,7 @@ typedef struct CompareListData
 {
 	MemoryContext context;
 	FmgrInfo	supfunc;
-	Datum		arg[2];
+	NullableDatum args[2];
 	pg_crc32c	crc_kv;
 	Oid			collation;
 	uint32		count;
@@ -302,7 +301,7 @@ Datum array_bsearch(PG_FUNCTION_ARGS)
 		!EQ_CRC32C(crc_kv, my_extra->crc_kv) ||
 		my_extra->supfunc.fn_oid != comp_fn ||
 		my_extra->collation != collation ||
-		memcmp(fcinfo->arg, my_extra->arg, sizeof(my_extra->arg)) != 0)
+		memcmp(fcinfo->args, my_extra->args, sizeof(my_extra->args)) != 0)
 	{
 		if (my_extra)
 			MemoryContextDelete(my_extra->context);
@@ -312,7 +311,7 @@ Datum array_bsearch(PG_FUNCTION_ARGS)
 		fcinfo->flinfo->fn_extra = my_extra;
 		my_extra->crc_kv = crc_kv;
 		my_extra->collation = collation;
-		memcpy(my_extra->arg, fcinfo->arg, sizeof(my_extra->arg));
+		memcpy(my_extra->args, fcinfo->args, sizeof(my_extra->args));
 
 		fmgr_info_cxt(comp_fn, &my_extra->supfunc, fcinfo->flinfo->fn_mcxt);
 
@@ -368,7 +367,7 @@ static TupleDesc* create_range_bsearch_desc(ReduceInfo *rinfo, TupleDesc *range_
 	TupleDesc	desc;
 	uint32		i;
 
-	top_desc = CreateTemplateTupleDesc(rinfo->nkey, false);
+	top_desc = CreateTemplateTupleDesc(rinfo->nkey);
 	key_desc = palloc(sizeof(key_desc[0])*rinfo->nkey);
 	for (i=0;i<rinfo->nkey;++i)
 	{
@@ -380,7 +379,7 @@ static TupleDesc* create_range_bsearch_desc(ReduceInfo *rinfo, TupleDesc *range_
 		 *	}
 		 */
 		ReduceKeyInfo *key = &rinfo->keys[i];
-		desc = CreateTemplateTupleDesc(2, false);
+		desc = CreateTemplateTupleDesc(2);
 		TupleDescInitEntry(desc, RANGE_DATUM_KIND_ATTNO, NULL, INT2OID, -1, 0);
 		TupleDescInitEntry(desc,
 						   RANGE_DATUM_VALUE_ATTNO,
@@ -614,7 +613,7 @@ typedef struct CompareRangeData
 	pg_crc32c		crc_args;
 	int				partnatts;
 	uint32			val_count;
-	Datum			args[4];
+	NullableDatum	args[4];
 	FmgrInfo	   *partsupfunc;					/* length partnatts */
 	Oid			   *collation;						/* length partnatts */
 	Oid			   *typid;							/* length partnatts */
@@ -717,6 +716,9 @@ static void fill_range_bsearch_part_support(CompareRangeData *range, Datum datum
 		pfree(arr_coll);
 }
 
+#if 1
+#warning change code
+#else
 static PartitionRangeBound* make_partition_rbound_from_datum(CompareRangeData *extra, Datum *datum, int index, bool lower)
 {
 	PartitionRangeBound *result;
@@ -788,6 +790,7 @@ static PartitionRangeBound* make_partition_rbound_from_datum(CompareRangeData *e
 
 	return result;
 }
+#endif
 
 static bool simple_equal_desc(TupleDesc tupdesc1, TupleDesc tupdesc2)
 {
@@ -797,8 +800,6 @@ static bool simple_equal_desc(TupleDesc tupdesc1, TupleDesc tupdesc2)
 		return true;
 
 	if (tupdesc1->natts != tupdesc2->natts)
-		return false;
-	if (tupdesc1->tdhasoid != tupdesc2->tdhasoid)
 		return false;
 
 	for (i = 0; i < tupdesc1->natts; i++)
@@ -813,6 +814,7 @@ static bool simple_equal_desc(TupleDesc tupdesc1, TupleDesc tupdesc2)
 	return true;
 }
 
+#if 0
 static int32
 qsort_range_bound_cmp(const void *a, const void *b, void *arg)
 {
@@ -1030,6 +1032,15 @@ static void fill_range_bsearch_keys(CompareRangeData *extra, Datum datum_keys)
 	}
 	pfree(mapping);
 }
+#else
+static void fill_range_bsearch_keys(CompareRangeData *extra, Datum datum_keys)
+{
+#warning change code
+ereport(ERROR,
+		(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+		 errmsg("need change code")));
+}
+#endif
 
 /*
  * range_bsearch(val[],			--anyarray
@@ -1070,7 +1081,7 @@ Datum range_bsearch(PG_FUNCTION_ARGS)
 
 	if (my_extra == NULL ||
 		!EQ_CRC32C(my_extra->crc_args, crc_args) ||
-		memcmp(fcinfo->arg, my_extra->args, sizeof(my_extra->args)) != 0)
+		memcmp(fcinfo->args, my_extra->args, sizeof(my_extra->args)) != 0)
 	{
 		MemoryContext	oldcontext;
 		int				i;
@@ -1080,13 +1091,13 @@ Datum range_bsearch(PG_FUNCTION_ARGS)
 		my_extra = create_range_data(PG_GETARG_DATUM(0), fcinfo->flinfo->fn_mcxt);
 		fcinfo->flinfo->fn_extra = my_extra;
 		my_extra->crc_args = crc_args;
-		memcpy(my_extra->args, fcinfo->arg, sizeof(my_extra->args));
+		memcpy(my_extra->args, fcinfo->args, sizeof(my_extra->args));
 
 		fill_range_bsearch_part_support(my_extra, PG_GETARG_DATUM(2), PG_GETARG_DATUM(3));
 		fill_range_bsearch_keys(my_extra, PG_GETARG_DATUM(1));
 
 		oldcontext = MemoryContextSwitchTo(my_extra->context);
-		my_extra->comp_desc = CreateTemplateTupleDesc(my_extra->partnatts, false);
+		my_extra->comp_desc = CreateTemplateTupleDesc(my_extra->partnatts);
 		for (i=0;i<my_extra->partnatts;++i)
 		{
 			TupleDescInitEntry(my_extra->comp_desc,

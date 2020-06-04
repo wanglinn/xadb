@@ -34,7 +34,6 @@
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
-#include "utils/tqual.h"
 #include "funcapi.h"
 #include "fmgr.h"
 #include "utils/lsyscache.h"
@@ -61,7 +60,7 @@ Datum mgr_zone_promote(PG_FUNCTION_ARGS)
 	Relation relNode;
 	HeapTuple tuple;
 	HeapTuple tupResult;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	Form_mgr_node mgr_node;
 	Datum datumPath;
 	StringInfoData infosendmsg;
@@ -110,8 +109,8 @@ Datum mgr_zone_promote(PG_FUNCTION_ARGS)
 			,F_NAMEEQ
 			,CStringGetDatum(currentZone));
 
-	relNode = heap_open(NodeRelationId, RowExclusiveLock);
-	relScan = heap_beginscan_catalog(relNode, 2, key);
+	relNode = table_open(NodeRelationId, RowExclusiveLock);
+	relScan = table_beginscan_catalog(relNode, 2, key);
 	PG_TRY();
 	{
 		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
@@ -168,7 +167,7 @@ Datum mgr_zone_promote(PG_FUNCTION_ARGS)
 		}
 
 		heap_endscan(relScan);
-		relScan = heap_beginscan_catalog(relNode, 2, key);
+		relScan = table_beginscan_catalog(relNode, 2, key);
 		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 		{
 			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -208,7 +207,7 @@ Datum mgr_zone_promote(PG_FUNCTION_ARGS)
 
 		/* check the node has allow connect */
 		heap_endscan(relScan);
-		relScan = heap_beginscan_catalog(relNode, 2, key);
+		relScan = table_beginscan_catalog(relNode, 2, key);
 		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 		{
 			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -293,9 +292,9 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 	HeapTuple tuplein;
 	HeapTuple masterTuple;
 	HeapTuple tupResult;
-	HeapScanDesc relScan;
-	HeapScanDesc relScanout;
-	HeapScanDesc relScanin;
+	TableScanDesc relScan;
+	TableScanDesc relScanout;
+	TableScanDesc relScanin;
 	Form_mgr_node mgr_node;
 	Form_mgr_node mgr_node_out;
 	Form_mgr_node mgr_node_in;
@@ -375,8 +374,8 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 			,F_NAMEEQ
 			,CStringGetDatum(currentZone));
 
-	relNode = heap_open(NodeRelationId, RowExclusiveLock);
-	relScanout = heap_beginscan_catalog(relNode, 2, key);
+	relNode = table_open(NodeRelationId, RowExclusiveLock);
+	relScanout = table_beginscan_catalog(relNode, 2, key);
 	PG_TRY();
 	{
 		mgr_get_active_node(&cnName, CNDN_TYPE_COORDINATOR_MASTER, InvalidOid);
@@ -482,7 +481,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 			, infosendmsg.data, MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK);
 
 		/* out the other coordinator */
-		relScanout = heap_beginscan_catalog(relNode, 2, key);
+		relScanout = table_beginscan_catalog(relNode, 2, key);
 		while((tupleout = heap_getnext(relScanout, ForwardScanDirection)) != NULL)
 		{
 			mgr_node_out = (Form_mgr_node)GETSTRUCT(tupleout);
@@ -494,7 +493,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 			if (mgr_checknode_in_currentzone(currentZone, mgr_node_out->nodemasternameoid))
 				continue;
 			resetStringInfo(&infosendmsg);
-			relScanin = heap_beginscan_catalog(relNode, 2, key);
+			relScanin = table_beginscan_catalog(relNode, 2, key);
 			while((tuplein = heap_getnext(relScanin, ForwardScanDirection)) != NULL)
 			{
 				mgr_node_in = (Form_mgr_node)GETSTRUCT(tuplein);
@@ -532,7 +531,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 		/* update datanode master pgxc_node */
 		if (!bexpandStatus)
 		{
-			relScanin = heap_beginscan_catalog(relNode, 2, key);
+			relScanin = table_beginscan_catalog(relNode, 2, key);
 			while((tuplein = heap_getnext(relScanin, ForwardScanDirection)) != NULL)
 			{
 				mgr_node_in = (Form_mgr_node)GETSTRUCT(tuplein);
@@ -567,7 +566,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 		}
 		else
 		{
-			relScanout = heap_beginscan_catalog(relNode, 2, key);
+			relScanout = table_beginscan_catalog(relNode, 2, key);
 			while((tupleout = heap_getnext(relScanout, ForwardScanDirection)) != NULL)
 			{
 				mgr_node_out = (Form_mgr_node)GETSTRUCT(tupleout);
@@ -579,7 +578,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 				if (mgr_checknode_in_currentzone(currentZone, mgr_node_out->nodemasternameoid))
 					continue;
 				resetStringInfo(&infosendmsg);
-				relScanin = heap_beginscan_catalog(relNode, 2, key);
+				relScanin = table_beginscan_catalog(relNode, 2, key);
 				while((tuplein = heap_getnext(relScanin, ForwardScanDirection)) != NULL)
 				{
 					mgr_node_in = (Form_mgr_node)GETSTRUCT(tuplein);
@@ -630,7 +629,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,CStringGetDatum(currentZone));	
-		relScan = heap_beginscan_catalog(relNode, 2, key);
+		relScan = table_beginscan_catalog(relNode, 2, key);
 		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 		{
 			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -746,7 +745,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,CStringGetDatum(currentZone));
-			relScan = heap_beginscan_catalog(relNode, 1, key);
+			relScan = table_beginscan_catalog(relNode, 1, key);
 			while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 			{
 				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -764,7 +763,7 @@ Datum mgr_zone_config_all(PG_FUNCTION_ARGS)
 			heap_endscan(relScan);
 			ereport(LOG, (errmsg("on node table, drop the node which is not in zone \"%s\"", currentZone)));
 			ereport(NOTICE, (errmsg("on node table, drop the node which is not in zone \"%s\"", currentZone)));
-			relScan = heap_beginscan_catalog(relNode, 0, NULL);
+			relScan = table_beginscan_catalog(relNode, 0, NULL);
 			while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 			{
 				mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -813,7 +812,7 @@ bool mgr_checknode_in_currentzone(const char *zone, const Oid TupleOid)
 {
 	Relation relNode;
 	HeapTuple tuple;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	ScanKeyData key[1];
 	bool res = false;
 
@@ -824,11 +823,11 @@ bool mgr_checknode_in_currentzone(const char *zone, const Oid TupleOid)
 		,F_NAMEEQ
 		,CStringGetDatum(zone));
 
-	relNode = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(relNode, 1, key);
+	relNode = table_open(NodeRelationId, AccessShareLock);
+	relScan = table_beginscan_catalog(relNode, 1, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
-		if (TupleOid == HeapTupleGetOid(tuple))
+		if (TupleOid == ((Form_mgr_node)GETSTRUCT(tuple))->oid)
 		{
 			res = true;
 			break;
@@ -851,7 +850,7 @@ static bool mgr_zone_modify_conf_agtm_host_port(const char *zone, int agtmPort, 
 {
 	Relation relNode;
 	HeapTuple tuple;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	StringInfoData infosendmsg;
 	GetAgentCmdRst getAgentCmdRst;
 	Datum datumPath;
@@ -878,8 +877,8 @@ static bool mgr_zone_modify_conf_agtm_host_port(const char *zone, int agtmPort, 
 		,BTEqualStrategyNumber
 		,F_BOOLEQ
 		,BoolGetDatum(true));
-	relNode = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(relNode, 2, key);
+	relNode = table_open(NodeRelationId, AccessShareLock);
+	relScan = table_beginscan_catalog(relNode, 2, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -922,7 +921,7 @@ static bool mgr_zone_modify_conf_agtm_host_port(const char *zone, int agtmPort, 
 HeapTuple mgr_get_nodetuple_by_name_zone(Relation rel, char *nodename, char *nodezone)
 {
 	ScanKeyData key[2];
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	HeapTuple tuple = NULL;
 	HeapTuple tupleret = NULL;
 	NameData nodenamedata;
@@ -941,7 +940,7 @@ HeapTuple mgr_get_nodetuple_by_name_zone(Relation rel, char *nodename, char *nod
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,NameGetDatum(&nodezonedata));
-	rel_scan = heap_beginscan_catalog(rel, 2, key);
+	rel_scan = table_beginscan_catalog(rel, 2, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		break;
@@ -961,7 +960,7 @@ HeapTuple mgr_get_nodetuple_by_name_zone(Relation rel, char *nodename, char *nod
 Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 {
 	Relation relNode;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	ScanKeyData key[2];
 	HeapTuple tuple =NULL;
 	Form_mgr_node mgr_node;
@@ -990,8 +989,8 @@ Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 			,F_NAMEEQ
 			,CStringGetDatum(zone));
 
-	relNode = heap_open(NodeRelationId, RowExclusiveLock);
-	relScan = heap_beginscan_catalog(relNode, 2, key);
+	relNode = table_open(NodeRelationId, RowExclusiveLock);
+	relScan = table_beginscan_catalog(relNode, 2, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1009,7 +1008,7 @@ Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 
 	ereport(LOG, (errmsg("on node table, drop the node which is not in zone \"%s\"", zone)));
 	ereport(NOTICE, (errmsg("on node table, drop the node which is not in zone \"%s\"", zone)));
-	relScan = heap_beginscan_catalog(relNode, 0, NULL);
+	relScan = table_beginscan_catalog(relNode, 0, NULL);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1038,7 +1037,7 @@ bool mgr_node_has_slave_inzone(Relation rel, char *zone, Oid mastertupleoid)
 {
 	ScanKeyData key[2];
 	HeapTuple tuple;
-	HeapScanDesc scan;
+	TableScanDesc scan;
 
 	ScanKeyInit(&key[0]
 		,Anum_mgr_node_nodemasternameoid
@@ -1050,7 +1049,7 @@ bool mgr_node_has_slave_inzone(Relation rel, char *zone, Oid mastertupleoid)
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,CStringGetDatum(zone));
-	scan = heap_beginscan_catalog(rel, 2, key);
+	scan = table_beginscan_catalog(rel, 2, key);
 	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
 		heap_endscan(scan);
@@ -1070,7 +1069,7 @@ static bool mgr_zone_has_node(const char *zonename, char nodetype)
 {
 	bool bres = false;
 	Relation relNode;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	ScanKeyData key[3];
 	HeapTuple tuple =NULL;
 
@@ -1089,8 +1088,8 @@ static bool mgr_zone_has_node(const char *zonename, char nodetype)
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(nodetype));
-	relNode = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(relNode, 3, key);
+	relNode = table_open(NodeRelationId, AccessShareLock);
+	relScan = table_beginscan_catalog(relNode, 3, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{	
 		bres = true;

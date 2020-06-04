@@ -7,7 +7,7 @@
  * already seen.  The hash key is computed from the grouping columns.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -37,17 +37,19 @@ build_hash_table(RecursiveUnionState *rustate)
 	Assert(node->numCols > 0);
 	Assert(node->numGroups > 0);
 
-	rustate->hashtable = BuildTupleHashTable(&rustate->ps,
-											 desc,
-											 node->numCols,
-											 node->dupColIdx,
-											 rustate->eqfuncoids,
-											 rustate->hashfunctions,
-											 node->numGroups,
-											 0,
-											 rustate->tableContext,
-											 rustate->tempContext,
-											 false);
+	rustate->hashtable = BuildTupleHashTableExt(&rustate->ps,
+												desc,
+												node->numCols,
+												node->dupColIdx,
+												rustate->eqfuncoids,
+												rustate->hashfunctions,
+												node->dupCollations,
+												node->numGroups,
+												0,
+												rustate->ps.state->es_query_cxt,
+												rustate->tableContext,
+												rustate->tempContext,
+												false);
 }
 
 
@@ -229,7 +231,7 @@ ExecInitRecursiveUnion(RecursiveUnion *node, EState *estate, int eflags)
 	 * RecursiveUnion nodes still have Result slots, which hold pointers to
 	 * tuples, so we have to initialize them.
 	 */
-	ExecInitResultTupleSlotTL(estate, &rustate->ps);
+	ExecInitResultTypeTL(&rustate->ps);
 
 	/*
 	 * Initialize result tuple type.  (Note: we have to set up the result type
@@ -280,11 +282,6 @@ ExecEndRecursiveUnion(RecursiveUnionState *node)
 		MemoryContextDelete(node->tableContext);
 
 	/*
-	 * clean out the upper tuple table
-	 */
-	ExecClearTuple(node->ps.ps_ResultTupleSlot);
-
-	/*
 	 * close down subplans
 	 */
 	ExecEndNode(outerPlanState(node));
@@ -322,9 +319,9 @@ ExecReScanRecursiveUnion(RecursiveUnionState *node)
 	if (node->tableContext)
 		MemoryContextResetAndDeleteChildren(node->tableContext);
 
-	/* And rebuild empty hashtable if needed */
+	/* Empty hashtable if needed */
 	if (plan->numCols > 0)
-		build_hash_table(node);
+		ResetTupleHashTable(node->hashtable);
 
 	/* reset processing state */
 	node->recursing = false;

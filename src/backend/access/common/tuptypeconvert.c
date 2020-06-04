@@ -92,8 +92,6 @@ static void free_range_convert(RangeConvert *ac);
 static Datum convert_ts_config_send(PG_FUNCTION_ARGS);
 static Datum convert_ts_config_recv(PG_FUNCTION_ARGS);
 
-static TupleTableSlot* convert_copy_tuple_oid(TupleTableSlot *dest, TupleTableSlot *src, bool use_min);
-
 #ifdef USE_ASSERT_CHECKING
 static bool convert_equal_tuple_desc(TupleDesc desc1, TupleDesc desc2);
 #endif /* USE_ASSERT_CHECKING */
@@ -210,8 +208,7 @@ TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlo
 	}PG_END_TRY();
 	pop_client_encoding();
 
-	ExecStoreVirtualTuple(dest);
-	return convert_copy_tuple_oid(dest, src, false);
+	return ExecStoreVirtualTuple(dest);
 }
 
 TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSlot *src, TupleTableSlot *dest, bool need_copy)
@@ -261,8 +258,7 @@ TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSl
 		lc = lnext(lc);
 	}
 
-	ExecStoreVirtualTuple(dest);
-	return convert_copy_tuple_oid(dest, src, true);
+	return ExecStoreVirtualTuple(dest);
 }
 
 void do_type_convert_slot_out_ex(TupleDesc base_desc, void *context_next, void *context_save, int flags,
@@ -277,7 +273,7 @@ void do_type_convert_slot_out_ex(TupleDesc base_desc, void *context_next, void *
 
 	if (convert)
 	{
-		slot_convert = MakeSingleTupleTableSlot(convert->out_desc);
+		slot_convert = MakeSingleTupleTableSlot(convert->out_desc, &TTSOpsVirtual);
 		if ((flags & CONVERT_SAVE_SKIP_CONVERT_HEAD) == 0)
 		{
 			serialize_slot_convert_head(&buf, convert->out_desc);
@@ -420,7 +416,7 @@ static TupleDesc create_convert_desc_if_need(TupleDesc indesc)
 	if(need_convert == false)
 		return NULL;	/* don't need convert */
 
-	outdesc = CreateTemplateTupleDesc(indesc->natts, indesc->tdhasoid);
+	outdesc = CreateTemplateTupleDesc(indesc->natts);
 	for(i=0;i<indesc->natts;++i)
 	{
 		attr = TupleDescAttr(indesc, i);
@@ -768,7 +764,7 @@ static Datum convert_record_recv(PG_FUNCTION_ARGS)
 		restore_slot_message(buf->data + buf->cursor, buf->len - buf->cursor, my_extra->slot_base);
 	}
 
-	PG_RETURN_DATUM(ExecFetchSlotTupleDatum(my_extra->slot_base));
+	PG_RETURN_DATUM(ExecFetchSlotHeapTupleDatum(my_extra->slot_base));
 }
 
 static Datum convert_record_send(PG_FUNCTION_ARGS)
@@ -804,7 +800,9 @@ static Datum convert_record_send(PG_FUNCTION_ARGS)
 	tuple.t_xc_node_id = 0;
 	tuple.t_data = record;
 
-	ExecStoreTuple(&tuple, my_extra->slot_base, InvalidBuffer, false);
+	ExecClearTuple(my_extra->slot_base);
+	heap_deform_tuple(&tuple, tupdesc, my_extra->slot_base->tts_values, my_extra->slot_base->tts_isnull);
+	ExecStoreVirtualTuple(my_extra->slot_base);
 
 	pq_begintypsend(&buf);
 	serialize_slot_head_message(&buf, tupdesc);
@@ -831,7 +829,7 @@ static RecordConvert* set_record_convert_tuple_desc(RecordConvert *rc, TupleDesc
 		if(rc == NULL)
 		{
 			rc = palloc(sizeof(*rc));
-			rc->slot_base = MakeSingleTupleTableSlot(desc);
+			rc->slot_base = MakeSingleTupleTableSlot(desc, &TTSOpsMinimalTuple);
 			rc->slot_temp = NULL;
 		}else
 		{
@@ -843,7 +841,7 @@ static RecordConvert* set_record_convert_tuple_desc(RecordConvert *rc, TupleDesc
 			free_type_convert(rc->convert);
 			/* update slot */
 			ExecDropSingleTupleTableSlot(rc->slot_base);
-			rc->slot_base = MakeSingleTupleTableSlot(desc);
+			rc->slot_base = MakeSingleTupleTableSlot(desc, &TTSOpsMinimalTuple);
 		}
 
 		if(is_send)
@@ -854,7 +852,7 @@ static RecordConvert* set_record_convert_tuple_desc(RecordConvert *rc, TupleDesc
 		if (rc->convert)
 		{
 			if(rc->slot_temp == NULL)
-				rc->slot_temp = MakeSingleTupleTableSlot(rc->convert->out_desc);
+				rc->slot_temp = MakeSingleTupleTableSlot(rc->convert->out_desc, &TTSOpsMinimalTuple);
 			else
 				ExecSetSlotDescriptor(rc->slot_temp, rc->convert->out_desc);
 			if(is_send)
@@ -1320,8 +1318,6 @@ static bool convert_equal_tuple_desc(TupleDesc desc1, TupleDesc desc2)
 
 	if (desc1->natts != desc2->natts)
 		return false;
-	if (desc1->tdhasoid != desc2->tdhasoid)
-		return false;
 
 	for (i=0;i<desc1->natts;++i)
 	{
@@ -1339,24 +1335,3 @@ static bool convert_equal_tuple_desc(TupleDesc desc1, TupleDesc desc2)
 	return true;
 }
 #endif /* USE_ASSERT_CHECKING */
-
-static TupleTableSlot* convert_copy_tuple_oid(TupleTableSlot *dest, TupleTableSlot *src, bool use_min)
-{
-	if(src->tts_tupleDescriptor->tdhasoid)
-	{
-		HeapTupleHeader header;
-		Oid oid;
-		Assert(dest->tts_tupleDescriptor->tdhasoid);
-		oid = ExecFetchSlotTupleOid(src);
-		if (OidIsValid(oid))
-		{
-			if (use_min)
-				header = (HeapTupleHeader) ((char*)ExecFetchSlotMinimalTuple(dest) - MINIMAL_TUPLE_OFFSET);
-			else
-				header = ExecMaterializeSlot(dest)->t_data;
-			HeapTupleHeaderSetOid(header, oid);
-		}
-	}
-
-	return dest;
-}

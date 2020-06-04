@@ -171,6 +171,7 @@ while(<>)
 					or $1 eq 'TimeLineHistoryCmd'
 					or $1 eq 'GenerationContext'
 					or $1 eq 'RelOptInfo'
+					or $1 eq 'TableAmRoutine'
 					or $1 =~ '^(FdwRoutine|TIDBitmap|IndexAmRoutine)$'
 					or $1 =~ '^(Value|Integer|Float|String|BitString|Null)$'
 					or $1 =~ '^(List|IntList|OidList)$'

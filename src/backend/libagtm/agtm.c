@@ -377,7 +377,7 @@ static void agtmcoord_send_message(AGTM_MessageType msg, const char* dbname, con
 	if(PQsendQueryStart(conn) == false
 		|| pqPutMsgStart('A', true, conn) < 0)
 	{
-		pqHandleSendFailure(conn);
+		/* error message should be set up already */
 		ereport(ERROR, (errmsg("Start message for agtm failed:%s", PQerrorMessage(conn))));
 	}
 
@@ -468,7 +468,7 @@ static void agtmcoord_send_message(AGTM_MessageType msg, const char* dbname, con
 
 	if(pqPutMsgEnd(conn) < 0)
 	{
-		pqHandleSendFailure(conn);
+		/* error message should be set up already */
 		ereport(ERROR, (errmsg("End message for agtm failed:%s", PQerrorMessage(conn))));
 	}
 
@@ -477,14 +477,12 @@ static void agtmcoord_send_message(AGTM_MessageType msg, const char* dbname, con
 
 format_error_:
 	va_end(args);
-	pqHandleSendFailure(conn);
 	ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
 		, errmsg("format message error for agtmcoord")));
 	return;
 
 put_error_:
 	va_end(args);
-	pqHandleSendFailure(conn);
 	ereport(ERROR, (errmsg("put message to AGTM error:%s", PQerrorMessage(conn))));
 	return;
 }
@@ -534,7 +532,7 @@ static PGresult* agtmcoord_get_result(AGTM_MessageType msg_type, const char* dbn
 		; /* nothing todo */
 	if(res < 0)
 	{
-		pqHandleSendFailure(conn);
+		/* error message should be set up already */
 		ereport(ERROR,
 			(errmsg("flush message to AGTM error:%s, message type:%s",
 			PQerrorMessage(conn), gtm_util_message_name(msg_type))));

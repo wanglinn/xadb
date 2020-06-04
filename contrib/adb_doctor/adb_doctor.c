@@ -239,7 +239,7 @@ Datum adb_doctor_list(PG_FUNCTION_ARGS)
 
 		funcctx->max_calls = rows;
 		funcctx->user_fctx = rowData;
-		tupdesc = CreateTemplateTupleDesc(3, false);
+		tupdesc = CreateTemplateTupleDesc(3);
 		TupleDescInitEntry(tupdesc, (AttrNumber)1,
 						   ADB_DOCTOR_CONF_ATTR_KEY,
 						   TEXTOID, -1, 0);

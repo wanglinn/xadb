@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_drop_gtm.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-DROPGTM">
+<refentry id="mgr-dropgtm">
   <refmeta>
     <refentrytitle>DROP GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>

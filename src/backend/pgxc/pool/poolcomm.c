@@ -461,7 +461,6 @@ pool_putmessage(PoolPort *port, char msgtype, const char *s, size_t len)
 #define SEND_MSG_BUFFER_SIZE 9
 /* message code('s'), result */
 #define SEND_RES_BUFFER_SIZE 5
-#define SEND_PID_BUFFER_SIZE (5 + (MaxConnections - 1) * 4)
 
 #ifndef CMSG_LEN
 #       define CMSG_LEN(l)      (sizeof(struct cmsghdr) + (l))
@@ -776,9 +775,21 @@ failure:
 int
 pool_sendpids(PoolPort *port, int *pids, int count)
 {
-	int res = 0;
-	char		buf[SEND_PID_BUFFER_SIZE];
-	uint		n32;
+	int			res = 0;
+	uint32		n32;
+	uint32		need_size = sizeof(pids[0]) * count + 5;
+	static char *buf = NULL;
+	static uint32 buf_size = 0;
+
+	if (buf_size == 0)
+	{
+		buf = MemoryContextAlloc(TopMemoryContext, count * sizeof(pids[0]) + 5);
+		buf_size = need_size;
+	}else if (buf_size < need_size)
+	{
+		buf = repalloc(buf, need_size);
+		buf_size = need_size;
+	}
 
 	buf[0] = 'p';
 	n32 = htonl((uint32) count);

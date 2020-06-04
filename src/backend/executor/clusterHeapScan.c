@@ -3,6 +3,9 @@
 #include "access/amapi.h"
 #include "access/genam.h"
 #include "access/htup_details.h"
+#include "access/relation.h"
+#include "access/table.h"
+#include "access/tableam.h"
 #include "access/transam.h"
 #include "access/tuptypeconvert.h"
 #include "access/sysattr.h"
@@ -114,7 +117,7 @@ void DoClusterHeapScan(StringInfo mem_toc)
 	buf.cursor = 0;
 
 	/* relation */
-	rel = heap_open(load_oid_class(&buf), AccessShareLock);
+	rel = table_open(load_oid_class(&buf), AccessShareLock);
 	if (rel->rd_rel->relkind != RELKIND_RELATION)
 		ereport(ERROR,
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
@@ -161,13 +164,13 @@ void DoClusterHeapScan(StringInfo mem_toc)
 	econtext = CreateStandaloneExprContext();
 
 	/* create slot and convert */
-	scan_slot = MakeSingleTupleTableSlot(RelationGetDescr(rel));
-	result_desc = ExecTypeFromTL(tlist, false);
-	result_slot = MakeSingleTupleTableSlot(result_desc);
+	scan_slot = table_slot_create(rel, NULL);
+	result_desc = ExecTypeFromTL(tlist);
+	result_slot = MakeSingleTupleTableSlot(result_desc, &TTSOpsVirtual);
 	convert = create_type_convert(result_desc, true, false);
 	if (convert)
 	{
-		convert_slot = MakeSingleTupleTableSlot(convert->out_desc);
+		convert_slot = MakeSingleTupleTableSlot(convert->out_desc, &TTSOpsVirtual);
 		serialize_slot_convert_head(&buf, convert->out_desc);
 	}else
 	{
@@ -211,7 +214,7 @@ void DoClusterHeapScan(StringInfo mem_toc)
 	}
 
 	/* index scan */
-	if (index_rel->rd_amroutine->amsearcharray)
+	if (index_rel->rd_indam->amsearcharray)
 	{
 		ScanKeyEntryInitialize(&key,
 							   SK_SEARCHARRAY,
@@ -289,14 +292,12 @@ void DoClusterHeapScan(StringInfo mem_toc)
 
 static void index_scan_send(IndexScanDesc scan, ProjectionInfo *project, TupleTypeConvert *convert, TupleTableSlot *convert_slot, StringInfo buf)
 {
-	HeapTuple tup;
 	ExprContext *econtext = project->pi_exprContext;
 	TupleTableSlot *slot = econtext->ecxt_scantuple;
-	while ((tup = index_getnext(scan, ForwardScanDirection)) != NULL)
+	while (index_getnext_slot(scan, ForwardScanDirection, slot))
 	{
 		CHECK_FOR_INTERRUPTS();
 		resetStringInfo(buf);
-		ExecStoreTuple(tup, slot, InvalidBuffer, false);
 		MemoryContextReset(econtext->ecxt_per_tuple_memory);
 		ExecProject(project);
 		if (convert)
@@ -316,7 +317,8 @@ static List* make_tlist_from_bms(Relation rel, Bitmapset *bms)
 	Var				   *var;
 	TargetEntry		   *te;
 	List			   *tlist = NIL;
-	Form_pg_attribute	attr;
+	const FormData_pg_attribute
+					   *attr;
 	int					x = -1;
 	int					resno = 0;
 	AttrNumber			attno;
@@ -332,8 +334,7 @@ static List* make_tlist_from_bms(Relation rel, Bitmapset *bms)
 					 		attno,
 							RelationGetRelationName(rel))));
 		if (attno < 0)
-			attr = SystemAttributeDefinition(attno,
-											 RelationGetForm(rel)->relhasoids);
+			attr = SystemAttributeDefinition(attno);
 		else
 			attr = TupleDescAttr(RelationGetDescr(rel), attno-1);
 
@@ -364,7 +365,7 @@ static Relation find_index_for_attno(Relation rel, AttrNumber attno, LOCKMODE lo
 		 * still needs to insert into "invalid" indexes, if they're marked
 		 * IndexIsReady.
 		 */
-		if (!IndexIsValid(index))
+		if (index->indisvalid == false)
 		{
 			index_close(indexRelation, NoLock);
 			continue;
@@ -383,7 +384,7 @@ static Relation find_index_for_attno(Relation rel, AttrNumber attno, LOCKMODE lo
 
 		if (index->indkey.values[0] == attno)
 		{
-			if (indexRelation->rd_amroutine->amsearcharray)
+			if (indexRelation->rd_indam->amsearcharray)
 			{
 				if (result)
 					index_close(result, NoLock);

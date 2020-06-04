@@ -4,7 +4,7 @@
 #include "catalog/genbki.h"
 #include "catalog/adb_proc_d.h"
 
-CATALOG(adb_proc,9018,AdbProcRelationId) BKI_WITHOUT_OIDS
+CATALOG(adb_proc,9018,AdbProcRelationId)
 {
 	/* oid of pg_proc */
 	Oid			proowner BKI_LOOKUP(pg_proc);

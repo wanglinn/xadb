@@ -362,7 +362,7 @@ HandleSendCID(NodeHandle *handle, CommandId cid)
 		pqPutInt((int) cid, sizeof(cid), conn) < 0 ||
 		pqPutMsgEnd(conn) < 0)
 	{
-		pqHandleSendFailure(conn);
+		/* error message should be set up already */
 		return 0;
 	}
 
@@ -396,7 +396,7 @@ HandleSendGXID(NodeHandle *handle, GlobalTransactionId xid)
 		pqPutInt((int) xid, sizeof(xid), conn) < 0 ||
 		pqPutMsgEnd(conn) < 0)
 	{
-		pqHandleSendFailure(conn);
+		/* error message should be set up already */
 		return 0;
 	}
 
@@ -443,7 +443,7 @@ HandleSendTimestamp(NodeHandle *handle, TimestampTz timestamp)
 		pqPutInt((int) lo, sizeof(lo), conn) < 0 ||
 		pqPutMsgEnd(conn) < 0)
 	{
-		pqHandleSendFailure(conn);
+		/* error message should be set up already */
 		return 0;
 	}
 
@@ -480,7 +480,7 @@ HandleSendSnapshot(NodeHandle *handle, Snapshot snapshot)
 		pqPutnchar(buf.data, buf.len, conn) < 0 ||
 		pqPutMsgEnd(conn) < 0)
 	{
-		pqHandleSendFailure(conn);
+		/* error message should be set up already */
 		return 0;
 	}
 
@@ -625,7 +625,7 @@ HandleSendClusterBarrier(NodeHandle *handle, char cmd_type, const char *barrierI
 		pqPutnchar(barrierID, strlen(barrierID) + 1, conn) < 0 ||
 		pqPutMsgEnd(conn) < 0)
 	{
-		pqHandleSendFailure(conn);
+		/* error message should be set up already */
 		return 0;
 	}
 

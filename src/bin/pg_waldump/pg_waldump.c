@@ -2,7 +2,7 @@
  *
  * pg_waldump.c - decode and display WAL
  *
- * Copyright (c) 2013-2018, PostgreSQL Global Development Group
+ * Copyright (c) 2013-2019, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *		  src/bin/pg_waldump/pg_waldump.c
@@ -21,6 +21,7 @@
 #include "access/xlog_internal.h"
 #include "access/transam.h"
 #include "common/fe_memutils.h"
+#include "common/logging.h"
 #include "getopt_long.h"
 #include "rmgrdesc.h"
 
@@ -73,26 +74,7 @@ typedef struct XLogDumpStats
 	Stats		record_stats[RM_NEXT_ID][MAX_XLINFO_TYPES];
 } XLogDumpStats;
 
-static void fatal_error(const char *fmt,...) pg_attribute_printf(1, 2);
-
-/*
- * Big red button to push when things go horribly wrong.
- */
-static void
-fatal_error(const char *fmt,...)
-{
-	va_list		args;
-
-	fflush(stdout);
-
-	fprintf(stderr, _("%s: FATAL:  "), progname);
-	va_start(args, fmt);
-	vfprintf(stderr, _(fmt), args);
-	va_end(args);
-	fputc('\n', stderr);
-
-	exit(EXIT_FAILURE);
-}
+#define fatal_error(...) do { pg_log_fatal(__VA_ARGS__); exit(EXIT_FAILURE); } while(0)
 
 static void
 print_rmgr_list(void)
@@ -212,11 +194,13 @@ search_directory(const char *directory, const char *fname)
 	/* set WalSegSz if file is successfully opened */
 	if (fd >= 0)
 	{
-		char		buf[XLOG_BLCKSZ];
+		PGAlignedXLogBlock buf;
+		int			r;
 
-		if (read(fd, buf, XLOG_BLCKSZ) == XLOG_BLCKSZ)
+		r = read(fd, buf.data, XLOG_BLCKSZ);
+		if (r == XLOG_BLCKSZ)
 		{
-			XLogLongPageHeader longhdr = (XLogLongPageHeader) buf;
+			XLogLongPageHeader longhdr = (XLogLongPageHeader) buf.data;
 
 			WalSegSz = longhdr->xlp_seg_size;
 
@@ -232,7 +216,8 @@ search_directory(const char *directory, const char *fname)
 				fatal_error("could not read file \"%s\": %s",
 							fname, strerror(errno));
 			else
-				fatal_error("not enough data in file \"%s\"", fname);
+				fatal_error("could not read file \"%s\": read %d of %zu",
+							fname, r, (Size) XLOG_BLCKSZ);
 		}
 		close(fd);
 		return true;
@@ -265,7 +250,7 @@ identify_target_directory(XLogDumpPrivate *private, char *directory,
 	{
 		if (search_directory(directory, fname))
 		{
-			private->inpath = strdup(directory);
+			private->inpath = pg_strdup(directory);
 			return;
 		}
 
@@ -273,7 +258,7 @@ identify_target_directory(XLogDumpPrivate *private, char *directory,
 		snprintf(fpath, MAXPGPATH, "%s/%s", directory, XLOGDIR);
 		if (search_directory(fpath, fname))
 		{
-			private->inpath = strdup(fpath);
+			private->inpath = pg_strdup(fpath);
 			return;
 		}
 	}
@@ -284,13 +269,13 @@ identify_target_directory(XLogDumpPrivate *private, char *directory,
 		/* current directory */
 		if (search_directory(".", fname))
 		{
-			private->inpath = strdup(".");
+			private->inpath = pg_strdup(".");
 			return;
 		}
 		/* XLOGDIR */
 		if (search_directory(XLOGDIR, fname))
 		{
-			private->inpath = strdup(XLOGDIR);
+			private->inpath = pg_strdup(XLOGDIR);
 			return;
 		}
 
@@ -301,7 +286,7 @@ identify_target_directory(XLogDumpPrivate *private, char *directory,
 			snprintf(fpath, MAXPGPATH, "%s/%s", datadir, XLOGDIR);
 			if (search_directory(fpath, fname))
 			{
-				private->inpath = strdup(fpath);
+				private->inpath = pg_strdup(fpath);
 				return;
 			}
 		}
@@ -414,11 +399,17 @@ XLogDumpXLogRead(const char *directory, TimeLineID timeline_id,
 		{
 			int			err = errno;
 			char		fname[MAXPGPATH];
+			int			save_errno = errno;
 
 			XLogFileName(fname, timeline_id, sendSegNo, WalSegSz);
+			errno = save_errno;
 
-			fatal_error("could not read from log file %s, offset %u, length %d: %s",
-						fname, sendOff, segbytes, strerror(err));
+			if (readbytes < 0)
+				fatal_error("could not read from log file %s, offset %u, length %d: %s",
+							fname, sendOff, segbytes, strerror(err));
+			else if (readbytes == 0)
+				fatal_error("could not read from log file %s, offset %u: read %d of %zu",
+							fname, sendOff, readbytes, (Size) segbytes);
 		}
 
 		/* Update state for read */
@@ -821,6 +812,7 @@ usage(void)
 	printf(_("  -z, --stats[=record]   show statistics instead of records\n"
 			 "                         (optionally, show per-record statistics)\n"));
 	printf(_("  -?, --help             show this help, then exit\n"));
+	printf(_("\nReport bugs to <pgsql-bugs@lists.postgresql.org>.\n"));
 }
 
 int
@@ -858,8 +850,27 @@ main(int argc, char **argv)
 	int			option;
 	int			optindex = 0;
 
+	pg_logging_init(argv[0]);
 	set_pglocale_pgservice(argv[0], PG_TEXTDOMAIN("pg_waldump"));
 	progname = get_progname(argv[0]);
+
+	if (argc > 1)
+	{
+		if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-?") == 0)
+		{
+			usage();
+			exit(0);
+		}
+		if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-V") == 0)
+		{
+#ifdef ADB
+			puts("adb_waldump (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
+#else
+			puts("pg_waldump (PostgreSQL) " PG_VERSION);
+#endif
+			exit(0);
+		}
+	}
 
 	memset(&private, 0, sizeof(XLogDumpPrivate));
 	memset(&config, 0, sizeof(XLogDumpConfig));
@@ -882,15 +893,15 @@ main(int argc, char **argv)
 
 	if (argc <= 1)
 	{
-		fprintf(stderr, _("%s: no arguments specified\n"), progname);
+		pg_log_error("no arguments specified");
 		goto bad_argument;
 	}
 
 #ifdef ADB
-	while ((option = getopt_long(argc, argv, "be:?fN:n:p:r:s:t:Vx:z",
+	while ((option = getopt_long(argc, argv, "be:fN:n:p:r:s:t:x:z",
 								 long_options, &optindex)) != -1)
 #else
-	while ((option = getopt_long(argc, argv, "be:?fn:p:r:s:t:Vx:z",
+	while ((option = getopt_long(argc, argv, "be:fn:p:r:s:t:x:z",
 								 long_options, &optindex)) != -1)
 #endif
 	{
@@ -902,18 +913,14 @@ main(int argc, char **argv)
 			case 'e':
 				if (sscanf(optarg, "%X/%X", &xlogid, &xrecoff) != 2)
 				{
-					fprintf(stderr, _("%s: could not parse end WAL location \"%s\"\n"),
-							progname, optarg);
+					pg_log_error("could not parse end WAL location \"%s\"",
+								 optarg);
 					goto bad_argument;
 				}
 				private.endptr = (uint64) xlogid << 32 | xrecoff;
 				break;
 			case 'f':
 				config.follow = true;
-				break;
-			case '?':
-				usage();
-				exit(EXIT_SUCCESS);
 				break;
 #ifdef ADB
 			case 'N':
@@ -928,8 +935,7 @@ main(int argc, char **argv)
 			case 'n':
 				if (sscanf(optarg, "%d", &config.stop_after_records) != 1)
 				{
-					fprintf(stderr, _("%s: could not parse limit \"%s\"\n"),
-							progname, optarg);
+					pg_log_error("could not parse limit \"%s\"", optarg);
 					goto bad_argument;
 				}
 				break;
@@ -957,8 +963,8 @@ main(int argc, char **argv)
 
 					if (config.filter_by_rmgr == -1)
 					{
-						fprintf(stderr, _("%s: resource manager \"%s\" does not exist\n"),
-								progname, optarg);
+						pg_log_error("resource manager \"%s\" does not exist",
+									 optarg);
 						goto bad_argument;
 					}
 				}
@@ -966,8 +972,8 @@ main(int argc, char **argv)
 			case 's':
 				if (sscanf(optarg, "%X/%X", &xlogid, &xrecoff) != 2)
 				{
-					fprintf(stderr, _("%s: could not parse start WAL location \"%s\"\n"),
-							progname, optarg);
+					pg_log_error("could not parse start WAL location \"%s\"",
+								 optarg);
 					goto bad_argument;
 				}
 				else
@@ -976,24 +982,15 @@ main(int argc, char **argv)
 			case 't':
 				if (sscanf(optarg, "%d", &private.timeline) != 1)
 				{
-					fprintf(stderr, _("%s: could not parse timeline \"%s\"\n"),
-							progname, optarg);
+					pg_log_error("could not parse timeline \"%s\"", optarg);
 					goto bad_argument;
 				}
-				break;
-			case 'V':
-#ifdef ADB
-				puts("adb_waldump (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
-#else
-				puts("pg_waldump (PostgreSQL) " PG_VERSION);
-#endif
-				exit(EXIT_SUCCESS);
 				break;
 			case 'x':
 				if (sscanf(optarg, "%u", &config.filter_by_xid) != 1)
 				{
-					fprintf(stderr, _("%s: could not parse \"%s\" as a transaction ID\n"),
-							progname, optarg);
+					pg_log_error("could not parse \"%s\" as a transaction ID",
+								 optarg);
 					goto bad_argument;
 				}
 				config.filter_by_xid_enabled = true;
@@ -1007,8 +1004,8 @@ main(int argc, char **argv)
 						config.stats_per_record = true;
 					else if (strcmp(optarg, "rmgr") != 0)
 					{
-						fprintf(stderr, _("%s: unrecognized argument to --stats: %s\n"),
-								progname, optarg);
+						pg_log_error("unrecognized argument to --stats: %s",
+									 optarg);
 						goto bad_argument;
 					}
 				}
@@ -1020,9 +1017,8 @@ main(int argc, char **argv)
 
 	if ((optind + 2) < argc)
 	{
-		fprintf(stderr,
-				_("%s: too many command-line arguments (first is \"%s\")\n"),
-				progname, argv[optind + 2]);
+		pg_log_error("too many command-line arguments (first is \"%s\")",
+					 argv[optind + 2]);
 		goto bad_argument;
 	}
 
@@ -1039,9 +1035,8 @@ main(int argc, char **argv)
 		/* validate path points to directory */
 		if (!verify_directory(private.inpath))
 		{
-			fprintf(stderr,
-					_("%s: path \"%s\" could not be opened: %s\n"),
-					progname, private.inpath, strerror(errno));
+			pg_log_error("path \"%s\" could not be opened: %s",
+						 private.inpath, strerror(errno));
 			goto bad_argument;
 		}
 	}
@@ -1075,21 +1070,19 @@ main(int argc, char **argv)
 		XLogFromFileName(fname, &private.timeline, &segno, WalSegSz);
 
 		if (XLogRecPtrIsInvalid(private.startptr))
-			XLogSegNoOffsetToRecPtr(segno, 0, private.startptr, WalSegSz);
+			XLogSegNoOffsetToRecPtr(segno, 0, WalSegSz, private.startptr);
 		else if (!XLByteInSeg(private.startptr, segno, WalSegSz))
 		{
-			fprintf(stderr,
-					_("%s: start WAL location %X/%X is not inside file \"%s\"\n"),
-					progname,
-					(uint32) (private.startptr >> 32),
-					(uint32) private.startptr,
-					fname);
+			pg_log_error("start WAL location %X/%X is not inside file \"%s\"",
+						 (uint32) (private.startptr >> 32),
+						 (uint32) private.startptr,
+						 fname);
 			goto bad_argument;
 		}
 
 		/* no second file specified, set end position */
 		if (!(optind + 1 < argc) && XLogRecPtrIsInvalid(private.endptr))
-			XLogSegNoOffsetToRecPtr(segno + 1, 0, private.endptr, WalSegSz);
+			XLogSegNoOffsetToRecPtr(segno + 1, 0, WalSegSz, private.endptr);
 
 		/* parse ENDSEG if passed */
 		if (optind + 1 < argc)
@@ -1112,8 +1105,8 @@ main(int argc, char **argv)
 							argv[optind + 1], argv[optind]);
 
 			if (XLogRecPtrIsInvalid(private.endptr))
-				XLogSegNoOffsetToRecPtr(endsegno + 1, 0, private.endptr,
-										WalSegSz);
+				XLogSegNoOffsetToRecPtr(endsegno + 1, 0, WalSegSz,
+										private.endptr);
 
 			/* set segno to endsegno for check of --end */
 			segno = endsegno;
@@ -1123,12 +1116,10 @@ main(int argc, char **argv)
 		if (!XLByteInSeg(private.endptr, segno, WalSegSz) &&
 			private.endptr != (segno + 1) * WalSegSz)
 		{
-			fprintf(stderr,
-					_("%s: end WAL location %X/%X is not inside file \"%s\"\n"),
-					progname,
-					(uint32) (private.endptr >> 32),
-					(uint32) private.endptr,
-					argv[argc - 1]);
+			pg_log_error("end WAL location %X/%X is not inside file \"%s\"",
+						 (uint32) (private.endptr >> 32),
+						 (uint32) private.endptr,
+						 argv[argc - 1]);
 			goto bad_argument;
 		}
 	}
@@ -1138,7 +1129,7 @@ main(int argc, char **argv)
 	/* we don't know what to print */
 	if (XLogRecPtrIsInvalid(private.startptr))
 	{
-		fprintf(stderr, _("%s: no start WAL location given\n"), progname);
+		pg_log_error("no start WAL location given");
 		goto bad_argument;
 	}
 

@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_checkout_dn_status.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-CHECKOUTDNSTATUS">
+<refentry id="mgr-checkoutdnstatus">
   <refmeta>
     <refentrytitle>CHECKOUT DN SLAVE STATUS</refentrytitle>
     <manvolnum>7</manvolnum>

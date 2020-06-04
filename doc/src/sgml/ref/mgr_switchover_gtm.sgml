@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_switchover_gtm.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-SWITCHOVERGTM">
+<refentry id="mgr-switchovergtm">
   <refmeta>
     <refentrytitle>SWITCHOVER GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>

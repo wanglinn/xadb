@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_start_datanode.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-STARTDATANODE">
+<refentry id="mgr-startdatanode">
   <refmeta>
     <refentrytitle>START DATANODE</refentrytitle>
     <manvolnum>7</manvolnum>

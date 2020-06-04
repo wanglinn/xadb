@@ -25,7 +25,9 @@
 
 CATALOG(pgxc_group,9014,PgxcGroupRelationId) BKI_SHARED_RELATION
 {
-		/* Group name */
+	Oid			oid;			/* oid */
+
+	/* Group name */
 	NameData	group_name;
 
 	/* VARIABLE LENGTH FIELDS: */

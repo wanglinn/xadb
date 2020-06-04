@@ -17,6 +17,19 @@
  *	 by the SASLprep profile, we skip the SASLprep pre-processing and use
  *	 the raw bytes in calculating the hash.
  *
+ * - If channel binding is used, the channel binding type is always
+ *	 "tls-server-end-point".  The spec says the default is "tls-unique"
+ *	 (RFC 5802, section 6.1. Default Channel Binding), but there are some
+ *	 problems with that.  Firstly, not all SSL libraries provide an API to
+ *	 get the TLS Finished message, required to use "tls-unique".  Secondly,
+ *	 "tls-unique" is not specified for TLS v1.3, and as of this writing,
+ *	 it's not clear if there will be a replacement.  We could support both
+ *	 "tls-server-end-point" and "tls-unique", but for our use case,
+ *	 "tls-unique" doesn't really have any advantages.  The main advantage
+ *	 of "tls-unique" would be that it works even if the server doesn't
+ *	 have a certificate, but PostgreSQL requires a server certificate
+ *	 whenever SSL is used, anyway.
+ *
  *
  * The password stored in pg_authid consists of the iteration count, salt,
  * StoredKey and ServerKey.
@@ -67,7 +80,7 @@
  * general, after logging in, but let's do what we can here.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/backend/libpq/auth-scram.c
@@ -89,7 +102,6 @@
 #include "libpq/crypt.h"
 #include "libpq/scram.h"
 #include "miscadmin.h"
-#include "utils/backend_random.h"
 #include "utils/builtins.h"
 #include "utils/timestamp.h"
 
@@ -111,8 +123,7 @@ typedef struct
 	const char *username;		/* username from startup packet */
 
 	Port	   *port;
-	char		cbind_flag;
-	char	   *channel_binding_type;
+	bool		channel_binding_in_use;
 
 	int			iterations;
 	char	   *salt;			/* base64-encoded */
@@ -120,6 +131,7 @@ typedef struct
 	uint8		ServerKey[SCRAM_KEY_LEN];
 
 	/* Fields of the first message from client */
+	char		cbind_flag;
 	char	   *client_first_message_bare;
 	char	   *client_username;
 	char	   *client_nonce;
@@ -143,19 +155,47 @@ typedef struct
 	char	   *logdetail;
 } scram_state;
 
-static void read_client_first_message(scram_state *state, char *input);
-static void read_client_final_message(scram_state *state, char *input);
+static void read_client_first_message(scram_state *state, const char *input);
+static void read_client_final_message(scram_state *state, const char *input);
 static char *build_server_first_message(scram_state *state);
 static char *build_server_final_message(scram_state *state);
 static bool verify_client_proof(scram_state *state);
 static bool verify_final_nonce(scram_state *state);
-static bool parse_scram_verifier(const char *verifier, int *iterations,
-					 char **salt, uint8 *stored_key, uint8 *server_key);
 static void mock_scram_verifier(const char *username, int *iterations,
-					char **salt, uint8 *stored_key, uint8 *server_key);
+								char **salt, uint8 *stored_key, uint8 *server_key);
 static bool is_scram_printable(char *p);
 static char *sanitize_char(char c);
+static char *sanitize_str(const char *s);
 static char *scram_mock_salt(const char *username);
+
+/*
+ * pg_be_scram_get_mechanisms
+ *
+ * Get a list of SASL mechanisms that this module supports.
+ *
+ * For the convenience of building the FE/BE packet that lists the
+ * mechanisms, the names are appended to the given StringInfo buffer,
+ * separated by '\0' bytes.
+ */
+void
+pg_be_scram_get_mechanisms(Port *port, StringInfo buf)
+{
+	/*
+	 * Advertise the mechanisms in decreasing order of importance.  So the
+	 * channel-binding variants go first, if they are supported.  Channel
+	 * binding is only supported with SSL, and only if the SSL implementation
+	 * has a function to get the certificate's hash.
+	 */
+#ifdef HAVE_BE_TLS_GET_CERTIFICATE_HASH
+	if (port->ssl_in_use)
+	{
+		appendStringInfoString(buf, SCRAM_SHA_256_PLUS_NAME);
+		appendStringInfoChar(buf, '\0');
+	}
+#endif
+	appendStringInfoString(buf, SCRAM_SHA_256_NAME);
+	appendStringInfoChar(buf, '\0');
+}
 
 /*
  * pg_be_scram_init
@@ -164,13 +204,19 @@ static char *scram_mock_salt(const char *username);
  * needs to be called before doing any exchange.  It will be filled later
  * after the beginning of the exchange with verifier data.
  *
- * 'username' is the username provided by the client in the startup message.
+ * 'selected_mech' identifies the SASL mechanism that the client selected.
+ * It should be one of the mechanisms that we support, as returned by
+ * pg_be_scram_get_mechanisms().
+ *
  * 'shadow_pass' is the role's password verifier, from pg_authid.rolpassword.
- * If 'shadow_pass' is NULL, we still perform an authentication exchange, but
- * it will fail, as if an incorrect password was given.
+ * The username was provided by the client in the startup message, and is
+ * available in port->user_name.  If 'shadow_pass' is NULL, we still perform
+ * an authentication exchange, but it will fail, as if an incorrect password
+ * was given.
  */
 void *
 pg_be_scram_init(Port *port,
+				 const char *selected_mech,
 				 const char *shadow_pass)
 {
 	scram_state *state;
@@ -179,7 +225,27 @@ pg_be_scram_init(Port *port,
 	state = (scram_state *) palloc0(sizeof(scram_state));
 	state->port = port;
 	state->state = SCRAM_AUTH_INIT;
-	state->channel_binding_type = NULL;
+
+	/*
+	 * Parse the selected mechanism.
+	 *
+	 * Note that if we don't support channel binding, either because the SSL
+	 * implementation doesn't support it or we're not using SSL at all, we
+	 * would not have advertised the PLUS variant in the first place.  If the
+	 * client nevertheless tries to select it, it's a protocol violation like
+	 * selecting any other SASL mechanism we don't support.
+	 */
+#ifdef HAVE_BE_TLS_GET_CERTIFICATE_HASH
+	if (strcmp(selected_mech, SCRAM_SHA_256_PLUS_NAME) == 0 && port->ssl_in_use)
+		state->channel_binding_in_use = true;
+	else
+#endif
+	if (strcmp(selected_mech, SCRAM_SHA_256_NAME) == 0)
+		state->channel_binding_in_use = false;
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("client selected an invalid SASL authentication mechanism")));
 
 	/*
 	 * Parse the stored password verifier.
@@ -259,7 +325,7 @@ pg_be_scram_init(Port *port,
  * the client).
  */
 int
-pg_be_scram_exchange(void *opaq, char *input, int inputlen,
+pg_be_scram_exchange(void *opaq, const char *input, int inputlen,
 					 char **output, int *outputlen, char **logdetail)
 {
 	scram_state *state = (scram_state *) opaq;
@@ -384,7 +450,7 @@ pg_be_scram_exchange(void *opaq, char *input, int inputlen,
 char *
 pg_be_scram_build_verifier(const char *password)
 {
-	char	   *prep_password = NULL;
+	char	   *prep_password;
 	pg_saslprep_rc rc;
 	char		saltbuf[SCRAM_DEFAULT_SALT_LEN];
 	char	   *result;
@@ -399,7 +465,7 @@ pg_be_scram_build_verifier(const char *password)
 		password = (const char *) prep_password;
 
 	/* Generate random salt */
-	if (!pg_backend_random(saltbuf, SCRAM_DEFAULT_SALT_LEN))
+	if (!pg_strong_random(saltbuf, SCRAM_DEFAULT_SALT_LEN))
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("could not generate random salt")));
@@ -430,7 +496,7 @@ scram_verify_plain_password(const char *username, const char *password,
 	uint8		stored_key[SCRAM_KEY_LEN];
 	uint8		server_key[SCRAM_KEY_LEN];
 	uint8		computed_key[SCRAM_KEY_LEN];
-	char	   *prep_password = NULL;
+	char	   *prep_password;
 	pg_saslprep_rc rc;
 
 	if (!parse_scram_verifier(verifier, &iterations, &encoded_salt,
@@ -476,9 +542,15 @@ scram_verify_plain_password(const char *username, const char *password,
 /*
  * Parse and validate format of given SCRAM verifier.
  *
+ * On success, the iteration count, salt, stored key, and server key are
+ * extracted from the verifier, and returned to the caller.  For 'stored_key'
+ * and 'server_key', the caller must pass pre-allocated buffers of size
+ * SCRAM_KEY_LEN.  Salt is returned as a base64-encoded, null-terminated
+ * string.  The buffer for the salt is palloc'd by this function.
+ *
  * Returns true if the SCRAM verifier has been parsed, and false otherwise.
  */
-static bool
+bool
 parse_scram_verifier(const char *verifier, int *iterations, char **salt,
 					 uint8 *stored_key, uint8 *server_key)
 {
@@ -491,6 +563,8 @@ parse_scram_verifier(const char *verifier, int *iterations, char **salt,
 	char	   *serverkey_str;
 	int			decoded_len;
 	char	   *decoded_salt_buf;
+	char	   *decoded_stored_buf;
+	char	   *decoded_server_buf;
 
 	/*
 	 * The verifier is of form:
@@ -523,7 +597,8 @@ parse_scram_verifier(const char *verifier, int *iterations, char **salt,
 	 * although we return the encoded version to the caller.
 	 */
 	decoded_salt_buf = palloc(pg_b64_dec_len(strlen(salt_str)));
-	decoded_len = pg_b64_decode(salt_str, strlen(salt_str), decoded_salt_buf);
+	decoded_len = pg_b64_decode(salt_str, strlen(salt_str),
+								decoded_salt_buf);
 	if (decoded_len < 0)
 		goto invalid_verifier;
 	*salt = pstrdup(salt_str);
@@ -531,28 +606,38 @@ parse_scram_verifier(const char *verifier, int *iterations, char **salt,
 	/*
 	 * Decode StoredKey and ServerKey.
 	 */
-	if (pg_b64_dec_len(strlen(storedkey_str) != SCRAM_KEY_LEN))
-		goto invalid_verifier;
+	decoded_stored_buf = palloc(pg_b64_dec_len(strlen(storedkey_str)));
 	decoded_len = pg_b64_decode(storedkey_str, strlen(storedkey_str),
-								(char *) stored_key);
+								decoded_stored_buf);
 	if (decoded_len != SCRAM_KEY_LEN)
 		goto invalid_verifier;
+	memcpy(stored_key, decoded_stored_buf, SCRAM_KEY_LEN);
 
-	if (pg_b64_dec_len(strlen(serverkey_str) != SCRAM_KEY_LEN))
-		goto invalid_verifier;
+	decoded_server_buf = palloc(pg_b64_dec_len(strlen(serverkey_str)));
 	decoded_len = pg_b64_decode(serverkey_str, strlen(serverkey_str),
-								(char *) server_key);
+								decoded_server_buf);
 	if (decoded_len != SCRAM_KEY_LEN)
 		goto invalid_verifier;
+	memcpy(server_key, decoded_server_buf, SCRAM_KEY_LEN);
 
 	return true;
 
 invalid_verifier:
-	pfree(v);
 	*salt = NULL;
 	return false;
 }
 
+/*
+ * Generate plausible SCRAM verifier parameters for mock authentication.
+ *
+ * In a normal authentication, these are extracted from the verifier
+ * stored in the server.  This function generates values that look
+ * realistic, for when there is no stored verifier.
+ *
+ * Like in parse_scram_verifier(), for 'stored_key' and 'server_key', the
+ * caller must pass pre-allocated buffers of size SCRAM_KEY_LEN, and
+ * the buffer for the salt is palloc'd by this function.
+ */
 static void
 mock_scram_verifier(const char *username, int *iterations, char **salt,
 					uint8 *stored_key, uint8 *server_key)
@@ -656,6 +741,36 @@ sanitize_char(char c)
 }
 
 /*
+ * Convert an arbitrary string to printable form, for error messages.
+ *
+ * Anything that's not a printable ASCII character is replaced with
+ * '?', and the string is truncated at 30 characters.
+ *
+ * The returned pointer points to a static buffer.
+ */
+static char *
+sanitize_str(const char *s)
+{
+	static char buf[30 + 1];
+	int			i;
+
+	for (i = 0; i < sizeof(buf) - 1; i++)
+	{
+		char		c = s[i];
+
+		if (c == '\0')
+			break;
+
+		if (c >= 0x21 && c <= 0x7E)
+			buf[i] = c;
+		else
+			buf[i] = '?';
+	}
+	buf[i] = '\0';
+	return buf;
+}
+
+/*
  * Read the next attribute and value in a SCRAM exchange message.
  *
  * Returns NULL if there is attribute.
@@ -713,9 +828,11 @@ read_any_attr(char **input, char *attr_p)
  * At this stage, any errors will be reported directly with ereport(ERROR).
  */
 static void
-read_client_first_message(scram_state *state, char *input)
+read_client_first_message(scram_state *state, const char *input)
 {
-	input = pstrdup(input);
+	char	   *p = pstrdup(input);
+	char	   *channel_binding_type;
+
 
 	/*------
 	 * The syntax for the client-first-message is: (RFC 5802)
@@ -781,8 +898,8 @@ read_client_first_message(scram_state *state, char *input)
 	 * Read gs2-cbind-flag.  (For details see also RFC 5802 Section 6 "Channel
 	 * Binding".)
 	 */
-	state->cbind_flag = *input;
-	switch (*input)
+	state->cbind_flag = *p;
+	switch (*p)
 	{
 		case 'n':
 
@@ -790,105 +907,99 @@ read_client_first_message(scram_state *state, char *input)
 			 * The client does not support channel binding or has simply
 			 * decided to not use it.  In that case just let it go.
 			 */
-			input++;
-			if (*input != ',')
+			if (state->channel_binding_in_use)
+				ereport(ERROR,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("malformed SCRAM message"),
+						 errdetail("The client selected SCRAM-SHA-256-PLUS, but the SCRAM message does not include channel binding data.")));
+
+			p++;
+			if (*p != ',')
 				ereport(ERROR,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
 						 errmsg("malformed SCRAM message"),
 						 errdetail("Comma expected, but found character \"%s\".",
-								   sanitize_char(*input))));
-			input++;
+								   sanitize_char(*p))));
+			p++;
 			break;
 		case 'y':
 
 			/*
 			 * The client supports channel binding and thinks that the server
 			 * does not.  In this case, the server must fail authentication if
-			 * it supports channel binding, which in this implementation is
-			 * the case if a connection is using SSL.
+			 * it supports channel binding.
 			 */
+			if (state->channel_binding_in_use)
+				ereport(ERROR,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("malformed SCRAM message"),
+						 errdetail("The client selected SCRAM-SHA-256-PLUS, but the SCRAM message does not include channel binding data.")));
+
+#ifdef HAVE_BE_TLS_GET_CERTIFICATE_HASH
 			if (state->port->ssl_in_use)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
 						 errmsg("SCRAM channel binding negotiation error"),
 						 errdetail("The client supports SCRAM channel binding but thinks the server does not.  "
 								   "However, this server does support channel binding.")));
-			input++;
-			if (*input != ',')
+#endif
+			p++;
+			if (*p != ',')
 				ereport(ERROR,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
 						 errmsg("malformed SCRAM message"),
 						 errdetail("Comma expected, but found character \"%s\".",
-								   sanitize_char(*input))));
-			input++;
+								   sanitize_char(*p))));
+			p++;
 			break;
 		case 'p':
 
 			/*
 			 * The client requires channel binding.  Channel binding type
-			 * follows, e.g., "p=tls-unique".
+			 * follows, e.g., "p=tls-server-end-point".
 			 */
-			{
-				char	   *channel_binding_type;
+			if (!state->channel_binding_in_use)
+				ereport(ERROR,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("malformed SCRAM message"),
+						 errdetail("The client selected SCRAM-SHA-256 without channel binding, but the SCRAM message includes channel binding data.")));
 
-				if (!state->port->ssl_in_use)
-				{
-					/*
-					 * Without SSL, we don't support channel binding.
-					 *
-					 * RFC 5802 specifies a particular error code,
-					 * e=server-does-support-channel-binding, for this.  But
-					 * it can only be sent in the server-final message, and we
-					 * don't want to go through the motions of the
-					 * authentication, knowing it will fail, just to send that
-					 * error message.
-					 */
-					ereport(ERROR,
-							(errcode(ERRCODE_PROTOCOL_VIOLATION),
-							 errmsg("client requires SCRAM channel binding, but it is not supported")));
-				}
+			channel_binding_type = read_attr_value(&p, 'p');
 
-				/*
-				 * Read value provided by client.  (It is not safe to print
-				 * the name of an unsupported binding type in the error
-				 * message.  Pranksters could print arbitrary strings into the
-				 * log that way.)
-				 */
-				channel_binding_type = read_attr_value(&input, 'p');
-				if (strcmp(channel_binding_type, SCRAM_CHANNEL_BINDING_TLS_UNIQUE) != 0 &&
-					strcmp(channel_binding_type, SCRAM_CHANNEL_BINDING_TLS_END_POINT) != 0)
-					ereport(ERROR,
-							(errcode(ERRCODE_PROTOCOL_VIOLATION),
-							 (errmsg("unsupported SCRAM channel-binding type"))));
-
-				/* Save the name for handling of subsequent messages */
-				state->channel_binding_type = pstrdup(channel_binding_type);
-			}
+			/*
+			 * The only channel binding type we support is
+			 * tls-server-end-point.
+			 */
+			if (strcmp(channel_binding_type, "tls-server-end-point") != 0)
+				ereport(ERROR,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 (errmsg("unsupported SCRAM channel-binding type \"%s\"",
+								 sanitize_str(channel_binding_type)))));
 			break;
 		default:
 			ereport(ERROR,
 					(errcode(ERRCODE_PROTOCOL_VIOLATION),
 					 errmsg("malformed SCRAM message"),
 					 errdetail("Unexpected channel-binding flag \"%s\".",
-							   sanitize_char(*input))));
+							   sanitize_char(*p))));
 	}
 
 	/*
 	 * Forbid optional authzid (authorization identity).  We don't support it.
 	 */
-	if (*input == 'a')
+	if (*p == 'a')
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("client uses authorization identity, but it is not supported")));
-	if (*input != ',')
+	if (*p != ',')
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
 				 errmsg("malformed SCRAM message"),
 				 errdetail("Unexpected attribute \"%s\" in client-first-message.",
-						   sanitize_char(*input))));
-	input++;
+						   sanitize_char(*p))));
+	p++;
 
-	state->client_first_message_bare = pstrdup(input);
+	state->client_first_message_bare = pstrdup(p);
 
 	/*
 	 * Any mandatory extensions would go here.  We don't support any.
@@ -897,7 +1008,7 @@ read_client_first_message(scram_state *state, char *input)
 	 * but it can only be sent in the server-final message.  We prefer to fail
 	 * immediately (which the RFC also allows).
 	 */
-	if (*input == 'm')
+	if (*p == 'm')
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("client requires an unsupported SCRAM extension")));
@@ -907,10 +1018,10 @@ read_client_first_message(scram_state *state, char *input)
 	 * startup message instead, still it is kept around if provided as it
 	 * proves to be useful for debugging purposes.
 	 */
-	state->client_username = read_attr_value(&input, 'n');
+	state->client_username = read_attr_value(&p, 'n');
 
 	/* read nonce and check that it is made of only printable characters */
-	state->client_nonce = read_attr_value(&input, 'r');
+	state->client_nonce = read_attr_value(&p, 'r');
 	if (!is_scram_printable(state->client_nonce))
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
@@ -920,8 +1031,8 @@ read_client_first_message(scram_state *state, char *input)
 	 * There can be any number of optional extensions after this.  We don't
 	 * support any extensions, so ignore them.
 	 */
-	while (*input != '\0')
-		read_any_attr(&input, NULL);
+	while (*p != '\0')
+		read_any_attr(&p, NULL);
 
 	/* success! */
 }
@@ -1028,7 +1139,7 @@ build_server_first_message(scram_state *state)
 	char		raw_nonce[SCRAM_RAW_NONCE_LEN];
 	int			encoded_len;
 
-	if (!pg_backend_random(raw_nonce, SCRAM_RAW_NONCE_LEN))
+	if (!pg_strong_random(raw_nonce, SCRAM_RAW_NONCE_LEN))
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
 				 errmsg("could not generate random nonce")));
@@ -1050,7 +1161,7 @@ build_server_first_message(scram_state *state)
  * Read and parse the final message received from client.
  */
 static void
-read_client_final_message(scram_state *state, char *input)
+read_client_final_message(scram_state *state, const char *input)
 {
 	char		attr;
 	char	   *channel_binding;
@@ -1096,8 +1207,9 @@ read_client_final_message(scram_state *state, char *input)
 	 * then followed by the actual binding data depending on the type.
 	 */
 	channel_binding = read_attr_value(&p, 'c');
-	if (state->channel_binding_type)
+	if (state->channel_binding_in_use)
 	{
+#ifdef HAVE_BE_TLS_GET_CERTIFICATE_HASH
 		const char *cbind_data = NULL;
 		size_t		cbind_data_len = 0;
 		size_t		cbind_header_len;
@@ -1108,39 +1220,18 @@ read_client_final_message(scram_state *state, char *input)
 
 		Assert(state->cbind_flag == 'p');
 
-		/*
-		 * Fetch data appropriate for channel binding type
-		 */
-		if (strcmp(state->channel_binding_type, SCRAM_CHANNEL_BINDING_TLS_UNIQUE) == 0)
-		{
-#ifdef USE_SSL
-			cbind_data = be_tls_get_peer_finished(state->port, &cbind_data_len);
-#endif
-		}
-		else if (strcmp(state->channel_binding_type,
-						SCRAM_CHANNEL_BINDING_TLS_END_POINT) == 0)
-		{
-			/* Fetch hash data of server's SSL certificate */
-#ifdef USE_SSL
-			cbind_data = be_tls_get_certificate_hash(state->port,
-													 &cbind_data_len);
-#endif
-		}
-		else
-		{
-			/* should not happen */
-			elog(ERROR, "invalid channel binding type");
-		}
+		/* Fetch hash data of server's SSL certificate */
+		cbind_data = be_tls_get_certificate_hash(state->port,
+												 &cbind_data_len);
 
 		/* should not happen */
 		if (cbind_data == NULL || cbind_data_len == 0)
-			elog(ERROR, "empty channel binding data for channel binding type \"%s\"",
-				 state->channel_binding_type);
+			elog(ERROR, "could not get server certificate hash");
 
-		cbind_header_len = 4 + strlen(state->channel_binding_type); /* p=type,, */
+		cbind_header_len = strlen("p=tls-server-end-point,,");	/* p=type,, */
 		cbind_input_len = cbind_header_len + cbind_data_len;
 		cbind_input = palloc(cbind_input_len);
-		snprintf(cbind_input, cbind_input_len, "p=%s,,", state->channel_binding_type);
+		snprintf(cbind_input, cbind_input_len, "p=tls-server-end-point,,");
 		memcpy(cbind_input + cbind_header_len, cbind_data, cbind_data_len);
 
 		b64_message = palloc(pg_b64_enc_len(cbind_input_len) + 1);
@@ -1156,6 +1247,10 @@ read_client_final_message(scram_state *state, char *input)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
 					 (errmsg("SCRAM channel binding check failed"))));
+#else
+		/* shouldn't happen, because we checked this earlier already */
+		elog(ERROR, "channel binding not supported by this build");
+#endif
 	}
 	else
 	{

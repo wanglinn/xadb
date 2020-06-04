@@ -36,7 +36,7 @@ FMGR_DATA := $(addprefix $(top_srcdir)/src/include/catalog/,\
 # the timestamps of the individual output files, because the Perl script
 # won't update them if they didn't change (to avoid unnecessary recompiles).
 fmgr-stamp: Gen_fmgrtab.pl $(catalogdir)/Catalog.pm $(FMGR_DATA) $(top_srcdir)/src/include/access/transam.h
-	$(PERL) -I $(catalogdir) $< -I $(top_srcdir)/src/include/ $(FMGR_DATA) -DADBMGRD
+	$(PERL) -I $(catalogdir) $< --include-path=$(top_srcdir)/src/include/ "--defines=-DADBMGRD" $(top_srcdir)/src/include/catalog/pg_proc.dat
 	touch $@
 
 $(top_builddir)/src/include/utils/errcodes.h: $(top_builddir)/src/include/utils/header-stamp

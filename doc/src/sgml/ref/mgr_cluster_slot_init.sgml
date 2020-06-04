@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_cluster_slot_init.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-CLUSTER-SLOT-INIT">
+<refentry id="mgr-cluster-slot-init">
   <refmeta>
     <refentrytitle>CLUSTER SLOT INIT</refentrytitle>
     <manvolnum>7</manvolnum>

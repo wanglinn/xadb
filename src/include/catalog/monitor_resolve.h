@@ -5,7 +5,7 @@
 #include "catalog/genbki.h"
 #include "catalog/monitor_resolve_d.h"
 
-CATALOG(monitor_resolve,5021,MonitorResolveRelationId)
+CATALOG(monitor_resolve,8902,MonitorResolveRelationId)
 {
 	/* table monitor alarm oid */
 	Oid		mr_alarm_oid;

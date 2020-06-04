@@ -12,6 +12,6 @@ subdir = src/adbmgrd/storage/smgr
 top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = md.o smgr.o smgrtype.o
+OBJS = md.o smgr.o
 
 include $(top_srcdir)/src/adbmgrd/common.mk

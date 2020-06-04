@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_remove_coordinator.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-REMOVECOORDINATOR">
+<refentry id="mgr-removecoordinator">
   <refmeta>
     <refentrytitle>REMOVE COORDINATOR</refentrytitle>
     <manvolnum>7</manvolnum>

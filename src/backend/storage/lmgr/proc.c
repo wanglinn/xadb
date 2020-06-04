@@ -3,7 +3,7 @@
  * proc.c
  *	  routines to manage per-process shared memory data structure
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -46,6 +46,7 @@
 #include "postmaster/autovacuum.h"
 #include "replication/slot.h"
 #include "replication/syncrep.h"
+#include "replication/walsender.h"
 #include "storage/condition_variable.h"
 #include "storage/standby.h"
 #include "storage/ipc.h"
@@ -160,8 +161,9 @@ ProcGlobalSemas(void)
  *	  running out when trying to start another backend is a common failure.
  *	  So, now we grab enough semaphores to support the desired max number
  *	  of backends immediately at initialization --- if the sysadmin has set
- *	  MaxConnections, max_worker_processes, or autovacuum_max_workers higher
- *	  than his kernel will support, he'll find out sooner rather than later.
+ *	  MaxConnections, max_worker_processes, max_wal_senders, or
+ *	  autovacuum_max_workers higher than his kernel will support, he'll
+ *	  find out sooner rather than later.
  *
  *	  Another reason for creating semaphores here is that the semaphore
  *	  implementation typically requires us to create semaphores in the
@@ -196,6 +198,7 @@ InitProcGlobal(void)
 	ProcGlobal->adbmntFreeProcs = NULL;
 #endif
 	ProcGlobal->bgworkerFreeProcs = NULL;
+	ProcGlobal->walsenderFreeProcs = NULL;
 	ProcGlobal->startupProc = NULL;
 	ProcGlobal->startupProcPid = 0;
 	ProcGlobal->startupBufferPinWaitBufId = -1;
@@ -269,8 +272,15 @@ InitProcGlobal(void)
 			ProcGlobal->autovacFreeProcs = &procs[i];
 			procs[i].procgloballist = &ProcGlobal->autovacFreeProcs;
 		}
+		else if (i < MaxConnections + autovacuum_max_workers + 1 + max_worker_processes)
+		{
+			/* PGPROC for bgworker, add to bgworkerFreeProcs list */
+			procs[i].links.next = (SHM_QUEUE *) ProcGlobal->bgworkerFreeProcs;
+			ProcGlobal->bgworkerFreeProcs = &procs[i];
+			procs[i].procgloballist = &ProcGlobal->bgworkerFreeProcs;
+		}
 #if defined(ADBMGRD)
-		else if (i < MaxConnections + autovacuum_max_workers + 1 +
+		else if (i < MaxConnections + autovacuum_max_workers + 1 + max_worker_processes +
 					 adbmonitor_max_workers + 1)
 		{
 			/* PGPROC for adb monitor launcher/worker, add to adbmntFreeProcs list */
@@ -281,10 +291,10 @@ InitProcGlobal(void)
 #endif
 		else if (i < MaxBackends)
 		{
-			/* PGPROC for bgworker, add to bgworkerFreeProcs list */
-			procs[i].links.next = (SHM_QUEUE *) ProcGlobal->bgworkerFreeProcs;
-			ProcGlobal->bgworkerFreeProcs = &procs[i];
-			procs[i].procgloballist = &ProcGlobal->bgworkerFreeProcs;
+			/* PGPROC for walsender, add to walsenderFreeProcs list */
+			procs[i].links.next = (SHM_QUEUE *) ProcGlobal->walsenderFreeProcs;
+			ProcGlobal->walsenderFreeProcs = &procs[i];
+			procs[i].procgloballist = &ProcGlobal->walsenderFreeProcs;
 		}
 
 		/* Initialize myProcLocks[] shared memory queues. */
@@ -293,6 +303,13 @@ InitProcGlobal(void)
 
 		/* Initialize lockGroupMembers list. */
 		dlist_init(&procs[i].lockGroupMembers);
+
+		/*
+		 * Initialize the atomic variables, otherwise, it won't be safe to
+		 * access them for backends that aren't currently in use.
+		 */
+		pg_atomic_init_u32(&(procs[i].procArrayGroupNext), INVALID_PGPROCNO);
+		pg_atomic_init_u32(&(procs[i].clogGroupNext), INVALID_PGPROCNO);
 	}
 
 	/*
@@ -341,6 +358,8 @@ InitProcess(void)
 #endif
 	else if (IsBackgroundWorker)
 		procgloballist = &ProcGlobal->bgworkerFreeProcs;
+	else if (am_walsender)
+		procgloballist = &ProcGlobal->walsenderFreeProcs;
 	else
 		procgloballist = &ProcGlobal->freeProcs;
 
@@ -370,6 +389,11 @@ InitProcess(void)
 		 * in the autovacuum case?
 		 */
 		SpinLockRelease(ProcStructLock);
+		if (am_walsender)
+			ereport(FATAL,
+					(errcode(ERRCODE_TOO_MANY_CONNECTIONS),
+					 errmsg("number of requested standby connections exceeds max_wal_senders (currently %d)",
+							max_wal_senders)));
 		ereport(FATAL,
 				(errcode(ERRCODE_TOO_MANY_CONNECTIONS),
 				 errmsg("sorry, too many clients already")));
@@ -413,6 +437,7 @@ InitProcess(void)
 	MyProc->backendId = InvalidBackendId;
 	MyProc->databaseId = InvalidOid;
 	MyProc->roleId = InvalidOid;
+	MyProc->tempNamespaceId = InvalidOid;
 	MyProc->isBackgroundWorker = IsBackgroundWorker;
 #ifdef ADB
 	MyProc->isPooler = IsPGXCPoolerProcess();
@@ -445,7 +470,7 @@ InitProcess(void)
 	/* Initialize fields for group XID clearing. */
 	MyProc->procArrayGroupMember = false;
 	MyProc->procArrayGroupMemberXid = InvalidTransactionId;
-	pg_atomic_init_u32(&MyProc->procArrayGroupNext, INVALID_PGPROCNO);
+	Assert(pg_atomic_read_u32(&MyProc->procArrayGroupNext) == INVALID_PGPROCNO);
 
 	/* Check that group locking fields are in a proper initial state. */
 	Assert(MyProc->lockGroupLeader == NULL);
@@ -460,7 +485,7 @@ InitProcess(void)
 	MyProc->clogGroupMemberXidStatus = TRANSACTION_STATUS_IN_PROGRESS;
 	MyProc->clogGroupMemberPage = -1;
 	MyProc->clogGroupMemberLsn = InvalidXLogRecPtr;
-	pg_atomic_init_u32(&MyProc->clogGroupNext, INVALID_PGPROCNO);
+	Assert(pg_atomic_read_u32(&MyProc->clogGroupNext) == INVALID_PGPROCNO);
 
 	/*
 	 * Acquire ownership of the PGPROC's latch, so that we can use WaitLatch
@@ -630,6 +655,7 @@ found_free_:
 	MyProc->backendId = InvalidBackendId;
 	MyProc->databaseId = InvalidOid;
 	MyProc->roleId = InvalidOid;
+	MyProc->tempNamespaceId = InvalidOid;
 #ifdef ADB
 	MyProc->isPooler = IsPGXCPoolerProcess();
 #endif
@@ -641,15 +667,13 @@ found_free_:
 	MyProc->waitLock = NULL;
 	MyProc->waitProcLock = NULL;
 #ifdef USE_ASSERT_CHECKING
+	ADB_ONLY_CODE(if(MyAuxProcType != SnapReceiverProcess))
 	{
-		ADB_ONLY_CODE(if(MyAuxProcType != SnapReceiverProcess))
-		{
-			int			i;
+		int			i;
 
-			/* Last process should have released all locks. */
-			for (i = 0; i < NUM_LOCK_PARTITIONS; i++)
-				Assert(SHMQueueEmpty(&(MyProc->myProcLocks[i])));
-		}
+		/* Last process should have released all locks. */
+		for (i = 0; i < NUM_LOCK_PARTITIONS; i++)
+			Assert(SHMQueueEmpty(&(MyProc->myProcLocks[i])));
 	}
 #endif
 
@@ -1265,8 +1289,7 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable)
 
 	/*
 	 * If we detected deadlock, give up without waiting.  This must agree with
-	 * CheckDeadLock's recovery code, except that we shouldn't release the
-	 * semaphore since we haven't tried to lock it yet.
+	 * CheckDeadLock's recovery code.
 	 */
 	if (early_deadlock)
 	{
@@ -1302,9 +1325,9 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable)
 
 	/*
 	 * Set timer so we can wake up after awhile and check for a deadlock. If a
-	 * deadlock is detected, the handler releases the process's semaphore and
-	 * sets MyProc->waitStatus = STATUS_ERROR, allowing us to know that we
-	 * must report failure rather than success.
+	 * deadlock is detected, the handler sets MyProc->waitStatus =
+	 * STATUS_ERROR, allowing us to know that we must report failure rather
+	 * than success.
 	 *
 	 * By delaying the check until we've waited for a bit, we can avoid
 	 * running the rather expensive deadlock-check code in most cases.
@@ -1356,8 +1379,8 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable)
 		}
 		else
 		{
-			WaitLatch(MyLatch, WL_LATCH_SET, 0,
-					  PG_WAIT_LOCK | locallock->tag.lock.locktag_type);
+			(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
+							 PG_WAIT_LOCK | locallock->tag.lock.locktag_type);
 			ResetLatch(MyLatch);
 			/* check for deadlocks first, as that's probably log-worthy */
 			if (got_deadlock_timeout)
@@ -1647,7 +1670,7 @@ ProcSleep(LOCALLOCK *locallock, LockMethod lockMethodTable)
 
 
 /*
- * ProcWakeup -- wake up a process by releasing its private semaphore.
+ * ProcWakeup -- wake up a process by setting its latch.
  *
  *	 Also remove the process from the wait queue and set its links invalid.
  *	 RETURN: the next process in the wait queue.
@@ -1782,8 +1805,7 @@ CheckDeadLock(void)
 	 * we know that we don't have to wait anymore.
 	 *
 	 * We check by looking to see if we've been unlinked from the wait queue.
-	 * This is quicker than checking our semaphore's state, since no kernel
-	 * call is needed, and it is safe because we hold the lock partition lock.
+	 * This is safe because we hold the lock partition lock.
 	 */
 	if (MyProc->links.prev == NULL ||
 		MyProc->links.next == NULL)
@@ -1869,7 +1891,8 @@ CheckDeadLockAlert(void)
 void
 ProcWaitForSignal(uint32 wait_event_info)
 {
-	WaitLatch(MyLatch, WL_LATCH_SET, 0, wait_event_info);
+	(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
+					 wait_event_info);
 	ResetLatch(MyLatch);
 	CHECK_FOR_INTERRUPTS();
 }

@@ -48,8 +48,9 @@ extern void ora_parser_init(ora_yy_extra_type *yyext);
 extern int	ora_yyparse(core_yyscan_t yyscanner);
 
 /* from ora_keywords.c */
-struct ScanKeyword;
-extern PGDLLIMPORT const struct ScanKeyword OraScanKeywords[];
-extern PGDLLIMPORT const int OraNumScanKeywords;
+struct ScanKeywordList;
+extern const struct ScanKeywordList OraScanKeywords;
+/* from ora_gram.y */
+extern const uint16 OraScanKeywordTokens[];
 
 #endif /* ORA_GRAMPARSE_H */

@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_start_all.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-STARTALL">
+<refentry id="mgr-startall">
   <refmeta>
     <refentrytitle>START All</refentrytitle>
     <manvolnum>7</manvolnum>

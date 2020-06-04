@@ -49,7 +49,7 @@ void logMgrHostWrapper(MgrHostWrapper *src, char *title, int elevel)
 	ereport(elevel,
 			(errmsg("%s oid:%u,hostname:%s,hostuser:%s,hostport:%d,hostaddr:%s,hostagentport:%d,hostadbhome:%s",
 					rTitle,
-					src->oid,
+					src->form.oid,
 					NameStr(src->form.hostname),
 					NameStr(src->form.hostuser),
 					src->form.hostport,
@@ -226,7 +226,6 @@ void selectMgrNodes(char *sql,
 			dlist_push_tail(resultList, &node->link);
 
 			nodeTuple = tupTable->vals[i];
-			node->oid = HeapTupleGetOid(nodeTuple);
 			node->form = *((Form_mgr_node)GETSTRUCT(nodeTuple));
 			datum = heap_getattr(nodeTuple, Anum_mgr_node_nodepath,
 								 nodeTupdesc, &isNull);
@@ -804,7 +803,6 @@ void selectMgrHosts(char *sql,
 			dlist_push_tail(resultList, &host->link);
 			tuple = tupTable->vals[i];
 
-			host->oid = HeapTupleGetOid(tuple);
 			/* copy struct */
 			host->form = *((Form_mgr_host)GETSTRUCT(tuple));
 

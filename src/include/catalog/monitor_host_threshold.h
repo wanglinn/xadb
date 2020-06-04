@@ -10,7 +10,7 @@
 #include "utils/portal.h"
 #include "utils/timestamp.h"
 
-CATALOG(monitor_host_threshold,4811,MonitorHostThresholdRelationId) BKI_WITHOUT_OIDS
+CATALOG(monitor_host_threshold,4811,MonitorHostThresholdRelationId)
 {
 	/* host alarm type */
 	int16		mt_type;

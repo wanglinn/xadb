@@ -118,7 +118,12 @@ Hashstorestate *hashstore_begin_heap(bool interXact, int nbuckets)
 
 void hashstore_put_tupleslot(Hashstorestate *state, TupleTableSlot *slot, uint32 hashvalue)
 {
-	hashstore_put_mintuple(state, ExecFetchSlotMinimalTuple(slot), hashvalue);
+	MinimalTuple mtup;
+	bool shouldFree;
+	mtup = ExecFetchSlotMinimalTuple(slot, &shouldFree);
+	hashstore_put_mintuple(state, mtup, hashvalue);
+	if (shouldFree)
+		pfree(mtup);
 }
 
 static int hashstore_alloc_reader(Hashstorestate *state)

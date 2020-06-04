@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_clean_gtm.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-CLEANGTM">
+<refentry id="mgr-cleangtm">
   <refmeta>
     <refentrytitle>CLEAN GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>

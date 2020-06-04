@@ -1452,13 +1452,6 @@ alter_table_cmd:
 					n->missing_ok = false;
 					$$ = (Node *)n;
 				}
-			/* ALTER TABLE <name> SET WITH OIDS  */
-			| SET WITH OIDS
-				{
-					AlterTableCmd *n = makeNode(AlterTableCmd);
-					n->subtype = AT_AddOids;
-					$$ = (Node *)n;
-				}
 			/* ALTER TABLE <name> SET WITHOUT OIDS  */
 			| SET WITHOUT OIDS
 				{
@@ -5591,7 +5584,6 @@ TableFuncElement:	ColId Typename opt_collate_clause
 					n->is_local = true;
 					n->is_not_null = false;
 					n->is_from_type = false;
-					n->is_from_parent = false;
 					n->storage = 0;
 					n->raw_default = NULL;
 					n->cooked_default = NULL;
@@ -8774,4 +8766,35 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc)
 		return listToIndirection(sub_in, lnext(lc));
 	}
 	return in;
+}
+
+#define PG_KEYWORD(kwname, value, category) value,
+const uint16 OraScanKeywordTokens[] = {
+#include "parser/ora_kwlist.h"
+};
+
+List* ora_raw_parser(const char *str)
+{
+	core_yyscan_t yyscanner;
+	ora_yy_extra_type yyextra;
+	int yyresult;
+
+	/* initialize the flex scanner */
+	Assert(lengthof(OraScanKeywordTokens) == OraScanKeywords.num_keywords);
+	yyscanner = scanner_init(str, &yyextra.core_yy_extra,
+							 &OraScanKeywords, OraScanKeywordTokens);
+
+	/* initialize the bison parser */
+	ora_parser_init(&yyextra);
+
+	/* Parse! */
+	yyresult = ora_yyparse(yyscanner);
+
+	/* Clean up (release memory) */
+	scanner_finish(yyscanner);
+
+	if (yyresult)				/* error */
+		return NIL;
+
+	return yyextra.parsetree;
 }

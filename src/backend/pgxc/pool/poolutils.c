@@ -39,6 +39,7 @@
 
 #ifdef ADB
 #include "access/rxact_mgr.h"
+#include "access/heapam.h"
 #include "catalog/namespace.h"
 #include "intercomm/inter-comm.h"
 #include "pgxc/execRemote.h"
@@ -229,7 +230,7 @@ CleanConnection(CleanConnStmt *stmt)
 					 errmsg("%s node \"%s\" not exist", is_coord ? "coordinator":"datanode", strVal(value))));
 		}
 
-		stmt_nodes = lappend_oid(stmt_nodes, HeapTupleGetOid(tuple));
+		stmt_nodes = lappend_oid(stmt_nodes, xcnode->oid);
 		ReleaseSysCache(tuple);
 	}
 
@@ -285,16 +286,17 @@ static List* get_all_xcnode_oid(void)
 {
 	HeapTuple tuple;
 	Relation rel = heap_open(PgxcNodeRelationId, AccessShareLock);
-	HeapScanDesc scan = heap_beginscan_catalog(rel, 0, NULL);
+	TableScanDesc scan = table_beginscan_catalog(rel, 0, NULL);
 	List *list = NIL;
 
 	while ((tuple=heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
-		list = lappend_oid(list, HeapTupleGetOid(tuple));
+		Form_pgxc_node node = (Form_pgxc_node)GETSTRUCT(tuple);
+		list = lappend_oid(list, node->oid);
 	}
 
-	heap_endscan(scan);
-	heap_close(rel, AccessShareLock);
+	table_endscan(scan);
+	table_close(rel, AccessShareLock);
 
 	return list;
 }

@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_set_gtm.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-SETGTM">
+<refentry id="mgr-setgtm">
   <refmeta>
     <refentrytitle>SET GTMCOORD</refentrytitle>
     <manvolnum>7</manvolnum>

@@ -35,7 +35,6 @@
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
-#include "utils/tqual.h"
 #include "funcapi.h"
 #include "fmgr.h"
 #include "utils/lsyscache.h"
@@ -97,7 +96,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 	Relation rel_node;
 	GetAgentCmdRst getAgentCmdRst;
 	ScanKeyData key[3];
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	Oid oldMasterTupleOid;
 	int syncNum = 0;
 
@@ -160,7 +159,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 	oldMasterTupleOid = master_nodeinfo.tupleoid;
 	pfree_AppendNodeInfo(master_nodeinfo);
 
-	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
+	rel_node = table_open(NodeRelationId, RowExclusiveLock);
 
 	/*delete the old master tuple in node table*/
 	nodetypestr = mgr_nodetype_str(mastertype);
@@ -216,7 +215,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 	}
 	else
 	{
-		rel_node = heap_open(NodeRelationId, AccessShareLock);
+		rel_node = table_open(NodeRelationId, AccessShareLock);
 		res = mgr_get_normal_slave_node(rel_node, oldMasterTupleOid, SYNC_STATE_ASYNC, slave_nodeinfo.tupleoid, &slaveNodeName);
 		if (!res)
 			res = mgr_get_slave_node(rel_node, oldMasterTupleOid, SYNC_STATE_ASYNC, slave_nodeinfo.tupleoid, &slaveNodeName);
@@ -250,7 +249,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 		ereport(WARNING, (errmsg("the master \"%s\" has no slave node, it is better to append a new datanode slave node", masternodenamedata.data)));
 
 	/*update the other slave nodes with the same master: masteroid, and sync_stat*/
-	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
+	rel_node = table_open(NodeRelationId, RowExclusiveLock);
 	ScanKeyInit(&key[0],
 		Anum_mgr_node_nodetype
 		,BTEqualStrategyNumber
@@ -266,13 +265,13 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,CStringGetDatum(mgr_zone));
-	relScan = heap_beginscan_catalog(rel_node, 3, key);
+	relScan = table_beginscan_catalog(rel_node, 3, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
-		if (slave_nodeinfo.tupleoid == HeapTupleGetOid(tuple))
-			continue;
 		mgr_nodetmp = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_nodetmp);
+		if (slave_nodeinfo.tupleoid == mgr_nodetmp->oid)
+			continue;
 		/* update datanode slave nodemasternameoid */
 		mgr_nodetmp->nodemasternameoid = slave_nodeinfo.tupleoid;
 		if (strcmp(NameStr(mgr_nodetmp->nodename), slaveNodeName.data) == 0)
@@ -381,7 +380,7 @@ Datum mgr_failover_manual_pgxcnode_func(PG_FUNCTION_ARGS)
 	AppendNodeInfo cn_nodeinfo;
 	ScanKeyData key[3];
 	Relation rel_node;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	Form_mgr_node mgr_node;
 	HeapTuple tuple;
 	GetAgentCmdRst getAgentCmdRst;
@@ -426,8 +425,8 @@ Datum mgr_failover_manual_pgxcnode_func(PG_FUNCTION_ARGS)
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,CStringGetDatum(mgr_zone));
-	rel_node = heap_open(NodeRelationId, AccessShareLock);
-	rel_scan = heap_beginscan_catalog(rel_node, 3, key);
+	rel_node = table_open(NodeRelationId, AccessShareLock);
+	rel_scan = table_beginscan_catalog(rel_node, 3, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -543,7 +542,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 	/*update the slave's masteroid, sync_state in its tuple*/
 	slavetuple = SearchSysCache1(NODENODEOID, slave_nodeinfo.tupleoid);
 	ereport(NOTICE, (errmsg("refresh mastername of %s \"%s\" in the node table", nodetypestr, nodenamedata.data)));
-	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
+	rel_node = table_open(NodeRelationId, RowExclusiveLock);
 	if(HeapTupleIsValid(slavetuple))
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(slavetuple);
@@ -719,7 +718,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	NameData nodename;
 	Relation rel_node;
 	Form_mgr_node mgr_node;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	ScanKeyData key[1];
 	Datum datumPath;
 	char s_nodetype;
@@ -881,13 +880,13 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 
 	/* set all node's pg_hba.conf to allow the new coordiantor to connect */
 	ereport(NOTICE, (errmsg("add address of coordinator \"%s\" on all nodes pg_hba.conf in cluster", s_coordname)));
-	rel_node = heap_open(NodeRelationId, AccessShareLock);
-	rel_scan = heap_beginscan_catalog(rel_node, 0, key);
+	rel_node = table_open(NodeRelationId, AccessShareLock);
+	rel_scan = table_beginscan_catalog(rel_node, 0, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
-		if ((mgr_node->nodeincluster != true) && (HeapTupleGetOid(tuple) != dest_nodeinfo.tupleoid))
+		if ((mgr_node->nodeincluster != true) && (mgr_node->oid != dest_nodeinfo.tupleoid))
 			continue;
 		nodetypestr = mgr_nodetype_str(mgr_node->nodetype);
 		resetStringInfo(&(getAgentCmdRst.description));
@@ -1235,7 +1234,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 
 		/*restart the coordinator*/
 		resetStringInfo(&(getAgentCmdRst.description));
-		rel_node = heap_open(NodeRelationId, AccessShareLock);
+		rel_node = table_open(NodeRelationId, AccessShareLock);
 		tuple = mgr_get_tuple_node_from_name_type(rel_node, s_coordname);
 		mgr_runmode_cndn_get_result(AGT_CMD_CN_RESTART, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_I);
 		heap_freetuple(tuple);
@@ -1288,7 +1287,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	/*set coordinator s_coordname in cluster*/
 	ereport(LOG, (errmsg("set coordinator master \"%s\" in cluster", s_coordname)));
 	ereport(NOTICE, (errmsg("set coordinator master \"%s\" in cluster", s_coordname)));
-	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
+	rel_node = table_open(NodeRelationId, RowExclusiveLock);
 	tuple = mgr_get_tuple_node_from_name_type(rel_node, s_coordname);
 	mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 	Assert(mgr_node);
@@ -1363,7 +1362,7 @@ bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const in
 	StringInfoData restmsg;
 	ScanKeyData key[4];
 	Relation rel_node;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	Form_mgr_node mgr_node;
 	HeapTuple tuple;
 	PGresult *res = NULL;
@@ -1392,8 +1391,8 @@ bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const in
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,CStringGetDatum(mgr_zone));
-	rel_node = heap_open(NodeRelationId, AccessShareLock);
-	rel_scan = heap_beginscan_catalog(rel_node, 4, key);
+	rel_node = table_open(NodeRelationId, AccessShareLock);
+	rel_scan = table_beginscan_catalog(rel_node, 4, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1436,7 +1435,7 @@ bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const in
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(CNDN_TYPE_GTM_COOR_MASTER));
-	rel_scan = heap_beginscan_catalog(rel_node, 4, key);
+	rel_scan = table_beginscan_catalog(rel_node, 4, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1624,7 +1623,7 @@ bool mgr_manipulate_pgxc_node_on_all_coord(PGconn **pg_conn,
 	StringInfoData sql;
 	ScanKeyData key[4];
 	Relation rel_node;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	Form_mgr_node mgr_node;
 	HeapTuple tuple;
 	bool rest = true;
@@ -1651,8 +1650,8 @@ bool mgr_manipulate_pgxc_node_on_all_coord(PGconn **pg_conn,
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,CStringGetDatum(mgr_zone));
-	rel_node = heap_open(NodeRelationId, AccessShareLock);
-	rel_scan = heap_beginscan_catalog(rel_node, 4, key);
+	rel_node = table_open(NodeRelationId, AccessShareLock);
+	rel_scan = table_beginscan_catalog(rel_node, 4, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1660,7 +1659,7 @@ bool mgr_manipulate_pgxc_node_on_all_coord(PGconn **pg_conn,
 											 iloop,
 											 nodeinfo,
 											 mgr_node,
-											 cnoidOfConn == HeapTupleGetOid(tuple),
+											 cnoidOfConn == mgr_node->oid,
 											 manipulateType,
 											 strinfo))
 		{
@@ -1674,7 +1673,7 @@ bool mgr_manipulate_pgxc_node_on_all_coord(PGconn **pg_conn,
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(CNDN_TYPE_GTM_COOR_MASTER));
-	rel_scan = heap_beginscan_catalog(rel_node, 4, key);
+	rel_scan = table_beginscan_catalog(rel_node, 4, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1683,7 +1682,7 @@ bool mgr_manipulate_pgxc_node_on_all_coord(PGconn **pg_conn,
 											 iloop,
 											 nodeinfo,
 											 mgr_node,
-											 cnoidOfConn == HeapTupleGetOid(tuple),
+											 cnoidOfConn == mgr_node->oid,
 											 manipulateType,
 											 strinfo))
 		{
@@ -1749,7 +1748,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 	StringInfoData strerr;
 	StringInfoData syncStateData;
 	Relation nodeRel;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	ScanKeyData key[3];
 	GetAgentCmdRst getAgentCmdRst;
 	Datum datumPath;
@@ -2070,7 +2069,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 			, nodeNameData.data)));
 			/* start the old master node */
 			resetStringInfo(&(getAgentCmdRst.description));
-			nodeRel = heap_open(NodeRelationId, AccessShareLock);
+			nodeRel = table_open(NodeRelationId, AccessShareLock);
 			if (!bgtmKind)
 				tuple = mgr_get_tuple_node_from_name_type(nodeRel, nodeNameData.data);
 			else
@@ -2106,7 +2105,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 			}
 			/*restart the given slave node*/
 			resetStringInfo(&(getAgentCmdRst.description));
-			nodeRel = heap_open(NodeRelationId, AccessShareLock);
+			nodeRel = table_open(NodeRelationId, AccessShareLock);
 			tuple = mgr_get_tuple_node_from_name_type(nodeRel, nodeNameData.data);
 			if (!bgtmKind)
 				mgr_runmode_cndn_get_result(AGT_CMD_DN_RESTART, &getAgentCmdRst, nodeRel, tuple, SHUTDOWN_F);
@@ -2245,7 +2244,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 		ereport(NOTICE, (errmsg("exchange the node type for %s \"%s\" and %s \"%s\" in node table", masterTypeStrData.data, nodeMasterNameData.data, nodeTypeStrData.data, nodeNameData.data)));
 
 		/* refresh new master info in node table */
-		nodeRel = heap_open(NodeRelationId, RowExclusiveLock);
+		nodeRel = table_open(NodeRelationId, RowExclusiveLock);
 
 		tuple = SearchSysCache1(NODENODEOID, nodeInfoS.tupleoid);
 		if(!(HeapTupleIsValid(tuple)))
@@ -2304,7 +2303,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 	}PG_END_TRY();
 
 	/* update the param set in mgr_updateparm table */
-	rel_updateparm = heap_open(UpdateparmRelationId, RowExclusiveLock);
+	rel_updateparm = table_open(UpdateparmRelationId, RowExclusiveLock);
 	mgr_parmr_update_tuple_nodename_nodetype(rel_updateparm, &nodeNameData, nodeType, masterType);
 	mgr_parmr_update_tuple_nodename_nodetype(rel_updateparm, &nodeMasterNameData, masterType, nodeType);
 	heap_close(rel_updateparm, RowExclusiveLock);
@@ -2344,7 +2343,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 
 	/* start the new slave node */
 	resetStringInfo(&(getAgentCmdRst.description));
-	nodeRel = heap_open(NodeRelationId, AccessShareLock);
+	nodeRel = table_open(NodeRelationId, AccessShareLock);
 	tuple = mgr_get_tuple_node_from_name_type(nodeRel, nodeMasterNameData.data);
 	if (!bgtmKind)
 		mgr_runmode_cndn_get_result(AGT_CMD_DN_START, &getAgentCmdRst, nodeRel, tuple, TAKEPLAPARM_N);
@@ -2379,13 +2378,13 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 		,BTEqualStrategyNumber
 		,F_OIDEQ
 		,ObjectIdGetDatum(nodeInfoS.nodemasteroid));
-	nodeRel = heap_open(NodeRelationId, RowExclusiveLock);
-	relScan = heap_beginscan_catalog(nodeRel, 3, key);
+	nodeRel = table_open(NodeRelationId, RowExclusiveLock);
+	relScan = table_beginscan_catalog(nodeRel, 3, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
-		if (mgr_node->nodemasternameoid != nodeInfoM.tupleoid || (nodeInfoS.tupleoid == HeapTupleGetOid(tuple)))
+		if (mgr_node->nodemasternameoid != nodeInfoM.tupleoid || (nodeInfoS.tupleoid == mgr_node->oid))
 			continue;
 		typestr = mgr_nodetype_str(mgr_node->nodetype);
 
@@ -2462,7 +2461,7 @@ static void mgr_get_hba_replication_info(Oid masterTupleOid, StringInfo infosend
 {
 	ScanKeyData key[3];
 	Relation nodeRel;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	HeapTuple tuple;
 	Form_mgr_node mgr_node;
 	char *hostAddr;
@@ -2483,13 +2482,13 @@ static void mgr_get_hba_replication_info(Oid masterTupleOid, StringInfo infosend
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,CStringGetDatum(mgr_zone));
-	nodeRel = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(nodeRel, 3, key);
+	nodeRel = table_open(NodeRelationId, AccessShareLock);
+	relScan = table_beginscan_catalog(nodeRel, 3, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
-		if ((masterTupleOid != mgr_node->nodemasternameoid) && (masterTupleOid != HeapTupleGetOid(tuple)))
+		if ((masterTupleOid != mgr_node->nodemasternameoid) && (masterTupleOid != mgr_node->oid))
 			continue;
 		hostAddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
 		userName = get_hostuser_from_hostoid(mgr_node->nodehost);
@@ -2572,7 +2571,7 @@ static bool mgr_check_active_locks_in_cluster(PGconn *pgConn, const Oid cnOid)
 {
 	ScanKeyData key[3];
 	Relation nodeRel;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	HeapTuple tuple;
 	Form_mgr_node mgr_node;
 	StringInfoData cmdstring;
@@ -2600,8 +2599,8 @@ static bool mgr_check_active_locks_in_cluster(PGconn *pgConn, const Oid cnOid)
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,CStringGetDatum(mgr_zone));
-	nodeRel = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(nodeRel, 3, key);
+	nodeRel = table_open(NodeRelationId, AccessShareLock);
+	relScan = table_beginscan_catalog(nodeRel, 3, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -2614,7 +2613,7 @@ static bool mgr_check_active_locks_in_cluster(PGconn *pgConn, const Oid cnOid)
 		ereport(NOTICE, (errmsg("check active locks on %s %s", nodeTypeStr, NameStr(mgr_node->nodename))));
 		resetStringInfo(&cmdstring);
 		pfree(nodeTypeStr);
-		if (cnOid == HeapTupleGetOid(tuple))
+		if (cnOid == mgr_node->oid)
 			appendStringInfoString(&cmdstring, "select count(*)  from pg_locks where pid !=  pg_backend_pid();");
 		else
 			appendStringInfo(&cmdstring, "EXECUTE DIRECT ON (\"%s\") 'select count(*)  from pg_locks where pid !=  pg_backend_pid();'"
@@ -2654,7 +2653,7 @@ static bool mgr_check_active_connect_in_coordinator(PGconn *pgConn, const Oid cn
 {
 	ScanKeyData key[3];
 	Relation nodeRel;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	HeapTuple tuple;
 	Form_mgr_node mgr_node;
 	StringInfoData cmdstring;
@@ -2682,8 +2681,8 @@ static bool mgr_check_active_connect_in_coordinator(PGconn *pgConn, const Oid cn
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,CStringGetDatum(mgr_zone));
-	nodeRel = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(nodeRel, 3, key);
+	nodeRel = table_open(NodeRelationId, AccessShareLock);
+	relScan = table_beginscan_catalog(nodeRel, 3, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -2698,7 +2697,7 @@ static bool mgr_check_active_connect_in_coordinator(PGconn *pgConn, const Oid cn
 		resetStringInfo(&cmdstring);
 		if (CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype)
 		{
-			if (cnOid == HeapTupleGetOid(tuple))
+			if (cnOid == mgr_node->oid)
 				appendStringInfoString(&cmdstring, "SELECT count(*)-1  FROM pg_stat_activity WHERE state = \'active\';");
 			else
 				appendStringInfo(&cmdstring, "EXECUTE DIRECT ON (\"%s\") 'SELECT count(*)-1  FROM pg_stat_activity WHERE state = ''active'''"
@@ -2706,7 +2705,7 @@ static bool mgr_check_active_connect_in_coordinator(PGconn *pgConn, const Oid cn
 		}
 		else
 		{
-			if (cnOid == HeapTupleGetOid(tuple))
+			if (cnOid == mgr_node->oid)
 				appendStringInfoString(&cmdstring, "select  sum(numbackends)-1  from pg_stat_database where datname != \'template1\' and datname != \'template0\';");
 			else
 				appendStringInfo(&cmdstring, "EXECUTE DIRECT ON (\"%s\") 'select  sum(numbackends)-1  from pg_stat_database where datname != ''template1'' and datname != ''template0'';'"
@@ -2753,7 +2752,7 @@ bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport
 	HeapTuple tuple;
 	ScanKeyData key[3];
 	Relation nodeRel;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	Form_mgr_node mgr_node;
 	Form_mgr_node mgr_nodecn;
 	Datum datumPath;
@@ -2796,8 +2795,8 @@ bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport
 		,BTEqualStrategyNumber
 		,F_BOOLEQ
 		,BoolGetDatum(true));
-	nodeRel = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(nodeRel, 2, key);
+	nodeRel = table_open(NodeRelationId, AccessShareLock);
+	relScan = table_beginscan_catalog(nodeRel, 2, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -2882,7 +2881,7 @@ bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport
 		,BTEqualStrategyNumber
 		,F_BOOLEQ
 		,BoolGetDatum(true));
-	relScan = heap_beginscan_catalog(nodeRel, 3, key);
+	relScan = table_beginscan_catalog(nodeRel, 3, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -2949,7 +2948,7 @@ bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport
 	heap_endscan(relScan);
 
 	/*send sync agtm xid*/
-	relScan = heap_beginscan_catalog(nodeRel, 3, key);
+	relScan = table_beginscan_catalog(nodeRel, 3, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -2998,7 +2997,7 @@ static bool mgr_check_track_activities_on_coordinator(void)
 	StringInfoData infosendmsg;
 	GetAgentCmdRst getAgentCmdRst;
 	ScanKeyData key[4];
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	Form_mgr_node mgr_node;
 
 	initStringInfo(&infosendmsg);
@@ -3025,8 +3024,8 @@ static bool mgr_check_track_activities_on_coordinator(void)
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,CStringGetDatum(mgr_zone));
-	nodeRel = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(nodeRel, 4, key);
+	nodeRel = table_open(NodeRelationId, AccessShareLock);
+	relScan = table_beginscan_catalog(nodeRel, 4, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -3051,7 +3050,7 @@ static bool mgr_check_track_activities_on_coordinator(void)
 static Oid mgr_get_tupleoid_from_nodename_type(char *nodename, char nodetype)
 {
 	Relation nodeRel;
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	NameData nodenamedata;
 	ScanKeyData key[5];
 	HeapTuple tuple;
@@ -3084,13 +3083,13 @@ static Oid mgr_get_tupleoid_from_nodename_type(char *nodename, char nodetype)
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,CStringGetDatum(mgr_zone));
-	nodeRel = heap_open(NodeRelationId, AccessShareLock);
-	relScan = heap_beginscan_catalog(nodeRel, 5, key);
+	nodeRel = table_open(NodeRelationId, AccessShareLock);
+	relScan = table_beginscan_catalog(nodeRel, 5, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
-		tupleOid = HeapTupleGetOid(tuple);
+		tupleOid = mgr_node->oid;
 		break;
 	}
 	heap_endscan(relScan);

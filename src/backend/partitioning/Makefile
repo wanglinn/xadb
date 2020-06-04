@@ -12,7 +12,7 @@ subdir = src/backend/partitioning
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = partprune.o partbounds.o
+OBJS = partbounds.o partdesc.o partprune.o
 ifeq ($(enable_cluster), yes)
   OBJS += leafsearch.o
 endif

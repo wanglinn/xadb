@@ -8,13 +8,13 @@
 #include "nodes/pg_list.h"
 #include "nodes/plannodes.h"
 #include "nodes/primnodes.h"
+#include "nodes/supportnodes.h"
 #ifdef ADB
 #include "optimizer/pgxcplan.h"
 #endif /* ADB */
 #include "nodes/execnodes.h"
 #include "nodes/extensible.h"
 #include "nodes/replnodes.h"
-#include "nodes/relation.h"
 #include "commands/trigger.h"
 #include "commands/event_trigger.h"
 #include "utils/rel.h"

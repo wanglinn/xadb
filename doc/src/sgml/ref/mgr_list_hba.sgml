@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_list_hba.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-LISTHBA">
+<refentry id="mgr-listhba">
   <refmeta>
     <refentrytitle>LIST HBA</refentrytitle>
     <manvolnum>7</manvolnum>

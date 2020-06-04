@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_monitor_ha.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-MONITORHA">
+<refentry id="mgr-monitorha">
   <refmeta>
     <refentrytitle>MONITOR HA</refentrytitle>
     <manvolnum>7</manvolnum>

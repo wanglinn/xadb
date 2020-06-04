@@ -13,6 +13,7 @@
 #ifdef ADB
 
 #include "postgres.h"
+#include "access/table.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pause.h"
 #include "pgxc/pgxc.h"
@@ -481,7 +482,7 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 				 errmsg("must be superuser to change cluster nodes")));
 
 	/* Look at the node tuple, and take exclusive lock on it */
-	rel = heap_open(PgxcNodeRelationId, RowExclusiveLock);
+	rel = table_open(PgxcNodeRelationId, RowExclusiveLock);
 
 	/* Check that node exists */
 	if (!OidIsValid(nodeOid))
@@ -567,7 +568,7 @@ Datum pg_alter_node(PG_FUNCTION_ARGS)
 	CatalogTupleUpdate(rel, &oldtup->t_self, newtup);
 
 	/* Release lock at Commit */
-	heap_close(rel, NoLock);
+	table_close(rel, NoLock);
 
 	PG_RETURN_BOOL(true);
 }

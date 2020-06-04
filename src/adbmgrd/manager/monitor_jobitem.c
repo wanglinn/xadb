@@ -50,7 +50,6 @@
 #include "utils/syscache.h"
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
-#include "utils/tqual.h"
 #include "access/heapam.h"
 #include "catalog/monitor_job.h"
 #include "catalog/monitor_jobitem.h"
@@ -109,7 +108,7 @@ Datum monitor_jobitem_add_func(PG_FUNCTION_ARGS)
 
 	Assert(itemname);
 	namestrcpy(&itemnamedata, itemname);
-	rel = heap_open(MjobitemRelationId, AccessShareLock);
+	rel = table_open(MjobitemRelationId, AccessShareLock);
 	/* check exists */
 	checktuple = montiot_jobitem_get_item_tuple(rel, &itemnamedata);
 	if (HeapTupleIsValid(checktuple))
@@ -188,7 +187,7 @@ Datum monitor_jobitem_add_func(PG_FUNCTION_ARGS)
 		datum[Anum_monitor_jobitem_jobitem_desc-1] = PointerGetDatum(cstring_to_text(""));
 	}
 	/* now, we can insert record */
-	rel = heap_open(MjobitemRelationId, RowExclusiveLock);
+	rel = table_open(MjobitemRelationId, RowExclusiveLock);
 	newtuple = heap_form_tuple(RelationGetDescr(rel), datum, isnull);
 	CatalogTupleInsert(rel, newtuple);
 	heap_freetuple(newtuple);
@@ -237,7 +236,7 @@ Datum monitor_jobitem_alter_func(PG_FUNCTION_ARGS)
 
 	Assert(itemname);
 	namestrcpy(&itemnamedata, itemname);
-	rel = heap_open(MjobitemRelationId, RowExclusiveLock);
+	rel = table_open(MjobitemRelationId, RowExclusiveLock);
 	/* check exists */
 	checktuple = montiot_jobitem_get_item_tuple(rel, &itemnamedata);
 	if (!HeapTupleIsValid(checktuple))
@@ -342,7 +341,7 @@ Datum monitor_jobitem_drop_func(PG_FUNCTION_ARGS)
 	context = AllocSetContextCreate(CurrentMemoryContext,
 									"DROP ITEM",
 									ALLOCSET_DEFAULT_SIZES);
-	rel = heap_open(MjobitemRelationId, RowExclusiveLock);
+	rel = table_open(MjobitemRelationId, RowExclusiveLock);
 	old_context = MemoryContextSwitchTo(context);
 
 	/* first we need check is it all exists and used by other */
@@ -399,14 +398,14 @@ static HeapTuple montiot_jobitem_get_item_tuple(Relation rel_jobitem, Name itemn
 	ScanKeyData key[1];
 	HeapTuple tupleret = NULL;
 	HeapTuple tuple = NULL;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 
 	ScanKeyInit(&key[0]
 				,Anum_monitor_jobitem_jobitem_itemname
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,NameGetDatum(itemname));
-	rel_scan = heap_beginscan_catalog(rel_jobitem, 1, key);
+	rel_scan = table_beginscan_catalog(rel_jobitem, 1, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		tupleret = heap_copytuple(tuple);

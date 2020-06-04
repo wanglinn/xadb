@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_list_doctor.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-LISTDOCTOR">
+<refentry id="mgr-listdoctor">
  <refmeta>
   <refentrytitle>LIST DOCTOR</refentrytitle>
   <manvolnum>7</manvolnum>

@@ -3,7 +3,7 @@ doc/src/sgml/ref/monitor_drop_jobitem.sgml
 ADB documentation
 -->
 
-<refentry id="MONITOR-DROPJOBITEM">
+<refentry id="monitor-dropjobitem">
   <refmeta>
     <refentrytitle>DROP ITEM</refentrytitle>
     <manvolnum>7</manvolnum>

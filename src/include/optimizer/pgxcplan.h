@@ -22,7 +22,7 @@
 #include "nodes/primnodes.h"
 #include "pgxc/locator.h"
 #include "tcop/dest.h"
-#include "nodes/relation.h"
+#include "nodes/pathnodes.h"
 
 
 typedef enum CombineType

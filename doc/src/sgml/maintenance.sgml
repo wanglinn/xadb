@@ -869,19 +869,10 @@ analyze threshold = analyze base threshold + analyze scale factor * number of tu
 
   <para>
    <xref linkend="sql-reindex"/> can be used safely and easily in all cases.
-   But since the command requires an exclusive table lock, it is
-   often preferable to execute an index rebuild with a sequence of
-   creation and replacement steps.  Index types that support
-   <xref linkend="sql-createindex"/> with the <literal>CONCURRENTLY</literal>
-   option can instead be recreated that way. If that is successful and the
-   resulting index is valid, the original index can then be replaced by
-   the newly built one using a combination of <xref linkend="sql-alterindex"/>
-   and <xref linkend="sql-dropindex"/>. When an index is used to enforce
-   uniqueness or other constraints, <xref linkend="sql-altertable"/> might
-   be necessary to swap the existing constraint with one enforced by
-   the new index. Review this alternate multistep rebuild approach
-   carefully before using it as there are limitations on which
-   indexes can be reindexed this way, and errors must be handled.
+   This command requires an <literal>ACCESS EXCLUSIVE</literal> lock by
+   default, hence it is often preferable to execute it with its
+   <literal>CONCURRENTLY</literal> option which requires only a
+   <literal>SHARE UPDATE EXCLUSIVE</literal> lock.
   </para>
  </sect1>
 
@@ -932,8 +923,8 @@ analyze threshold = analyze base threshold + analyze scale factor * number of tu
    program if you have one that you are already using with other
    server software. For example, the <application>rotatelogs</application>
    tool included in the <productname>Apache</productname> distribution
-   can be used with <productname>PostgreSQL</productname>.  To do this,
-   just pipe the server's
+   can be used with <productname>PostgreSQL</productname>.  One way to
+   do this is to pipe the server's
    <systemitem>stderr</systemitem> output to the desired program.
    If you start the server with
    <command>pg_ctl</command>, then <systemitem>stderr</systemitem>
@@ -944,6 +935,36 @@ analyze threshold = analyze base threshold + analyze scale factor * number of tu
 pg_ctl start | rotatelogs /var/log/pgsql_log 86400
 </programlisting>
   </para>
+
+  <para>
+   You can combine these approaches by setting up <application>logrotate</application>
+   to collect log files produced by <productname>PostgreSQL</productname> built-in
+   logging collector.  In this case, the logging collector defines the names and
+   location of the log files, while <application>logrotate</application>
+   periodically archives these files.  When initiating log rotation,
+   <application>logrotate</application> must ensure that the application
+   sends further output to the new file.  This is commonly done with a
+   <literal>postrotate</literal> script that sends a <literal>SIGHUP</literal>
+   signal to the application, which then reopens the log file.
+   In <productname>PostgreSQL</productname>, you can run <command>pg_ctl</command>
+   with the <literal>logrotate</literal> option instead.  When the server receives
+   this command, the server either switches to a new log file or reopens the
+   existing file, depending on the logging configuration
+   (see <xref linkend="runtime-config-logging-where"/>).
+  </para>
+
+  <note>
+   <para>
+    When using static log file names, the server might fail to reopen the log
+    file if the max open file limit is reached or a file table overflow occurs.
+    In this case, log messages are sent to the old log file until a
+    successful log rotation. If <application>logrotate</application> is
+    configured to compress the log file and delete it, the server may lose
+    the messages logged in this timeframe. To avoid this issue, you can
+    configure the logging collector to dynamically assign log file names
+    and use a <literal>prerotate</literal> script to ignore open log files.
+    </para>
+  </note>
 
   <para>
    Another production-grade approach to managing log output is to
@@ -978,7 +999,7 @@ pg_ctl start | rotatelogs /var/log/pgsql_log 86400
   </para>
 
   <para>
-   <ulink url="http://dalibo.github.io/pgbadger/"><productname>pgBadger</productname></ulink>
+   <ulink url="https://pgbadger.darold.net/"><productname>pgBadger</productname></ulink>
    is an external project that does sophisticated log file analysis.
    <ulink
    url="https://bucardo.org/check_postgres/"><productname>check_postgres</productname></ulink>

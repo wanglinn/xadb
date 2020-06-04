@@ -189,25 +189,6 @@ void DRSendWorkerMsgToNode(PlanWorkerInfo *pwi, PlanInfo *pi, DRNodeEventData *n
 	pi->waiting_node = pwi->waiting_node = InvalidOid;
 }
 
-TupleTableSlot* DRStoreTypeConvertTuple(TupleTableSlot *slot, const char *data, uint32 len, HeapTuple head)
-{
-	MinimalTuple mtup;
-	if (((Size)data - MINIMAL_TUPLE_DATA_OFFSET) % MAXIMUM_ALIGNOF == 0)
-	{
-		head->t_len = len - (MINIMAL_TUPLE_OFFSET + MINIMAL_TUPLE_DATA_OFFSET);
-		head->t_data = (HeapTupleHeader)((char*)data - (MINIMAL_TUPLE_OFFSET + MINIMAL_TUPLE_DATA_OFFSET));
-		ExecStoreTuple(head, slot, InvalidBuffer, false);
-	}else
-	{
-		mtup = palloc(len + MINIMAL_TUPLE_DATA_OFFSET);
-		mtup->t_len = len + MINIMAL_TUPLE_DATA_OFFSET;
-		memcpy((char*)mtup + MINIMAL_TUPLE_DATA_OFFSET, data, len);
-		ExecStoreMinimalTuple(mtup, slot, false);
-	}
-
-	return slot;
-}
-
 void DRSerializePlanInfo(int plan_id, dsm_segment *seg, void *addr, Size size, List *work_nodes, StringInfo buf)
 {
 	Size		offset;

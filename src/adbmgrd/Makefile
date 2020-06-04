@@ -60,7 +60,7 @@ ifneq ($(PORTNAME), win32)
 ifneq ($(PORTNAME), aix)
 
 adbmgrd: $(OBJS) | submake-libpq
-	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) $(call expand_subsys,$^) $(LIBS) -o $@
+	$(CC) $(CFLAGS) $(call expand_subsys,$^) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) $(LIBS) -o $@
 
 endif
 endif
@@ -69,7 +69,7 @@ endif
 ifeq ($(PORTNAME), cygwin)
 
 adbmgrd: $(OBJS) | submake-libpq
-	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) -Wl,--stack,$(WIN32_STACK_RLIMIT) -Wl,--export-all-symbols -Wl,--out-implib=libadbmgrd.a $(call expand_subsys,$^) $(LIBS) -o $@
+	$(CC) $(CFLAGS) $(call expand_subsys,$^) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) -Wl,--stack,$(WIN32_STACK_RLIMIT) -Wl,--export-all-symbols -Wl,--out-implib=libadbmgrd.a $(LIBS) -o $@
 
 # libpostgres.a is actually built in the preceding rule, but we need this to
 # ensure it's newer than postgres; see notes in src/backend/parser/Makefile
@@ -82,7 +82,7 @@ ifeq ($(PORTNAME), win32)
 LIBS += -lsecur32
 
 adbmgrd: $(OBJS) $(WIN32RES) | submake-libpq
-	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) -Wl,--stack=$(WIN32_STACK_RLIMIT) -Wl,--export-all-symbols -Wl,--out-implib=libadbmgrd.a $(call expand_subsys,$(OBJS)) $(WIN32RES) $(LIBS) -o $@$(X)
+	$(CC) $(CFLAGS) $(call expand_subsys,$(OBJS)) $(LDFLAGS) $(LDFLAGS_EX) -Wl,--stack=$(WIN32_STACK_RLIMIT) -Wl,--export-all-symbols -Wl,--out-implib=libadbmgrd.a $(WIN32RES) $(LIBS) -o $@$(X)
 
 # libpostgres.a is actually built in the preceding rule, but we need this to
 # ensure it's newer than postgres; see notes in src/backend/parser/Makefile
@@ -94,7 +94,7 @@ endif # win32
 ifeq ($(PORTNAME), aix)
 
 adbmgrd: $(AGTM_IMP) | submake-libpq
-	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(call expand_subsys,$(OBJS)) -Wl,-bE:$(top_builddir)/src/adbmgrd/$(AGTM_IMP) $(LIBS) -Wl,-brtllib -o $@
+	$(CC) $(CFLAGS) $(call expand_subsys,$(OBJS)) $(LDFLAGS) $(LDFLAGS_EX) -Wl,-bE:$(top_builddir)/src/adbmgrd/$(AGTM_IMP) $(LIBS) -Wl,-brtllib -o $@
 
 $(AGTM_IMP): $(OBJS)
 	$(LD) $(LDREL) $(LDOUT) SUBSYS.o $(call expand_subsys,$^)
@@ -117,7 +117,7 @@ $(top_builddir)/src/port/libpgport_srv.a: | submake-libpgport
 # The postgres.o target is needed by the rule in Makefile.global that
 # creates the exports file when MAKE_EXPORTS = true.
 adbmgrd.o: $(OBJS)
-	$(CC) $(LDREL) $(LDFLAGS) $(LDFLAGS_EX) $(call expand_subsys,$^) $(LIBS) -o $@
+	$(CC) $(LDREL) $(call expand_subsys,$^) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@
 
 
 # The following targets are specified in make commands that appear in
@@ -292,4 +292,4 @@ maintainer-clean: distclean
 # are up to date.  It saves the time of doing all the submakes.
 .PHONY: quick
 quick: $(OBJS)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) $(call expand_subsys,$^) $(LIBS) -o adbmgrd
+	$(CC) $(CFLAGS) $(call expand_subsys,$^) $(LDFLAGS) $(LDFLAGS_EX) $(export_dynamic) $(LIBS) -o adbmgrd

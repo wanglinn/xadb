@@ -3,7 +3,7 @@
  * nodeHash.c
  *	  Routines to hash relations for hashjoin
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -48,17 +48,17 @@ static void ExecHashIncreaseNumBuckets(HashJoinTable hashtable);
 static void ExecParallelHashIncreaseNumBatches(HashJoinTable hashtable);
 static void ExecParallelHashIncreaseNumBuckets(HashJoinTable hashtable);
 static void ExecHashBuildSkewHash(HashJoinTable hashtable, Hash *node,
-					  int mcvsToUse);
+								  int mcvsToUse);
 static void ExecHashSkewTableInsert(HashJoinTable hashtable,
-						TupleTableSlot *slot,
-						uint32 hashvalue,
-						int bucketNumber);
+									TupleTableSlot *slot,
+									uint32 hashvalue,
+									int bucketNumber);
 static void ExecHashRemoveNextSkewBucket(HashJoinTable hashtable);
 
 static void *dense_alloc(HashJoinTable hashtable, Size size);
 static HashJoinTuple ExecParallelHashTupleAlloc(HashJoinTable hashtable,
-						   size_t size,
-						   dsa_pointer *shared);
+												size_t size,
+												dsa_pointer *shared);
 static void MultiExecPrivateHash(HashState *node);
 static void MultiExecParallelHash(HashState *node);
 #ifdef ADB_EXT
@@ -66,21 +66,21 @@ static void MultiExecPrivateHashExt(HashState *node, TupleTableSlot *(*call_back
 static void MultiExecParallelHashExt(HashState *node, TupleTableSlot *(*call_back)(), void *user_data);
 #endif /* ADB_EXT */
 static inline HashJoinTuple ExecParallelHashFirstTuple(HashJoinTable table,
-						   int bucketno);
+													   int bucketno);
 static inline HashJoinTuple ExecParallelHashNextTuple(HashJoinTable table,
-						  HashJoinTuple tuple);
+													  HashJoinTuple tuple);
 static inline void ExecParallelHashPushTuple(dsa_pointer_atomic *head,
-						  HashJoinTuple tuple,
-						  dsa_pointer tuple_shared);
+											 HashJoinTuple tuple,
+											 dsa_pointer tuple_shared);
 static void ExecParallelHashJoinSetUpBatches(HashJoinTable hashtable, int nbatch);
 static void ExecParallelHashEnsureBatchAccessors(HashJoinTable hashtable);
 static void ExecParallelHashRepartitionFirst(HashJoinTable hashtable);
 static void ExecParallelHashRepartitionRest(HashJoinTable hashtable);
 static HashMemoryChunk ExecParallelHashPopChunkQueue(HashJoinTable table,
-							  dsa_pointer *shared);
+													 dsa_pointer *shared);
 static bool ExecParallelHashTuplePrealloc(HashJoinTable hashtable,
-							  int batchno,
-							  size_t size);
+										  int batchno,
+										  size_t size);
 static void ExecParallelHashMergeCounters(HashJoinTable hashtable);
 static void ExecParallelHashCloseBatchAccessors(HashJoinTable hashtable);
 
@@ -424,7 +424,7 @@ ExecInitHash(Hash *node, EState *estate, int eflags)
 	 * initialize our result slot and type. No need to build projection
 	 * because this node doesn't do projections.
 	 */
-	ExecInitResultTupleSlotTL(estate, &hashstate->ps);
+	ExecInitResultTupleSlotTL(&hashstate->ps, &TTSOpsMinimalTuple);
 	hashstate->ps.ps_ProjInfo = NULL;
 
 	/*
@@ -467,7 +467,7 @@ ExecEndHash(HashState *node)
  * ----------------------------------------------------------------
  */
 HashJoinTable
-ExecHashTableCreate(HashState *state, List *hashOperators, bool keepNulls)
+ExecHashTableCreate(HashState *state, List *hashOperators, List *hashCollations, bool keepNulls)
 {
 	Hash	   *node;
 	HashJoinTable hashtable;
@@ -481,6 +481,7 @@ ExecHashTableCreate(HashState *state, List *hashOperators, bool keepNulls)
 	int			nkeys;
 	int			i;
 	ListCell   *ho;
+	ListCell   *hc;
 	MemoryContext oldcxt;
 
 	/*
@@ -583,8 +584,9 @@ ExecHashTableCreate(HashState *state, List *hashOperators, bool keepNulls)
 	hashtable->inner_hashfunctions =
 		(FmgrInfo *) palloc(nkeys * sizeof(FmgrInfo));
 	hashtable->hashStrict = (bool *) palloc(nkeys * sizeof(bool));
+	hashtable->collations = (Oid *) palloc(nkeys * sizeof(Oid));
 	i = 0;
-	foreach(ho, hashOperators)
+	forboth(ho, hashOperators, hc, hashCollations)
 	{
 		Oid			hashop = lfirst_oid(ho);
 		Oid			left_hashfn;
@@ -596,6 +598,7 @@ ExecHashTableCreate(HashState *state, List *hashOperators, bool keepNulls)
 		fmgr_info(left_hashfn, &hashtable->outer_hashfunctions[i]);
 		fmgr_info(right_hashfn, &hashtable->inner_hashfunctions[i]);
 		hashtable->hashStrict[i] = op_strict(hashop);
+		hashtable->collations[i] = lfirst_oid(hc);
 		i++;
 	}
 
@@ -1088,8 +1091,8 @@ ExecHashIncreaseNumBatches(HashJoinTable hashtable)
 
 /*
  * ExecParallelHashIncreaseNumBatches
- *		Every participant attached to grow_barrier must run this function
- *		when it observes growth == PHJ_GROWTH_NEED_MORE_BATCHES.
+ *		Every participant attached to grow_batches_barrier must run this
+ *		function when it observes growth == PHJ_GROWTH_NEED_MORE_BATCHES.
  */
 static void
 ExecParallelHashIncreaseNumBatches(HashJoinTable hashtable)
@@ -1145,7 +1148,7 @@ ExecParallelHashIncreaseNumBatches(HashJoinTable hashtable)
 					 * The combined work_mem of all participants wasn't
 					 * enough. Therefore one batch per participant would be
 					 * approximately equivalent and would probably also be
-					 * insufficient.  So try two batches per particiant,
+					 * insufficient.  So try two batches per participant,
 					 * rounded up to a power of two.
 					 */
 					new_nbatch = 1 << my_log2(pstate->nparticipants * 2);
@@ -1632,7 +1635,8 @@ ExecHashTableInsert(HashJoinTable hashtable,
 					TupleTableSlot *slot,
 					uint32 hashvalue)
 {
-	MinimalTuple tuple = ExecFetchSlotMinimalTuple(slot);
+	bool		shouldFree;
+	MinimalTuple tuple = ExecFetchSlotMinimalTuple(slot, &shouldFree);
 	int			bucketno;
 	int			batchno;
 
@@ -1706,10 +1710,13 @@ ExecHashTableInsert(HashJoinTable hashtable,
 							  hashvalue,
 							  &hashtable->innerBatchFile[batchno]);
 	}
+
+	if (shouldFree)
+		heap_free_minimal_tuple(tuple);
 }
 
 /*
- * ExecHashTableParallelInsert
+ * ExecParallelHashTableInsert
  *		insert a tuple into a shared hash table or shared batch tuplestore
  */
 void
@@ -1717,7 +1724,8 @@ ExecParallelHashTableInsert(HashJoinTable hashtable,
 							TupleTableSlot *slot,
 							uint32 hashvalue)
 {
-	MinimalTuple tuple = ExecFetchSlotMinimalTuple(slot);
+	bool		shouldFree;
+	MinimalTuple tuple = ExecFetchSlotMinimalTuple(slot, &shouldFree);
 	dsa_pointer shared;
 	int			bucketno;
 	int			batchno;
@@ -1765,6 +1773,9 @@ retry:
 					 tuple);
 	}
 	++hashtable->batches[batchno].ntuples;
+
+	if (shouldFree)
+		heap_free_minimal_tuple(tuple);
 }
 
 /*
@@ -1778,7 +1789,8 @@ ExecParallelHashTableInsertCurrentBatch(HashJoinTable hashtable,
 										TupleTableSlot *slot,
 										uint32 hashvalue)
 {
-	MinimalTuple tuple = ExecFetchSlotMinimalTuple(slot);
+	bool		shouldFree;
+	MinimalTuple tuple = ExecFetchSlotMinimalTuple(slot, &shouldFree);
 	HashJoinTuple hashTuple;
 	dsa_pointer shared;
 	int			batchno;
@@ -1794,6 +1806,9 @@ ExecParallelHashTableInsertCurrentBatch(HashJoinTable hashtable,
 	HeapTupleHeaderClearMatch(HJTUPLE_MINTUPLE(hashTuple));
 	ExecParallelHashPushTuple(&hashtable->buckets.shared[bucketno],
 							  hashTuple, shared);
+
+	if (shouldFree)
+		heap_free_minimal_tuple(tuple);
 }
 
 /*
@@ -1877,7 +1892,7 @@ ExecHashGetHashValue(HashJoinTable hashtable,
 			/* Compute the hash function */
 			uint32		hkey;
 
-			hkey = DatumGetUInt32(FunctionCall1(&hashfunctions[i], keyval));
+			hkey = DatumGetUInt32(FunctionCall1Coll(&hashfunctions[i], hashtable->collations[i], keyval));
 			hashkey ^= hkey;
 		}
 
@@ -2377,8 +2392,9 @@ ExecHashBuildSkewHash(HashJoinTable hashtable, Hash *node, int mcvsToUse)
 			uint32		hashvalue;
 			int			bucket;
 
-			hashvalue = DatumGetUInt32(FunctionCall1(&hashfunctions[0],
-													 sslot.values[i]));
+			hashvalue = DatumGetUInt32(FunctionCall1Coll(&hashfunctions[0],
+														 hashtable->collations[0],
+														 sslot.values[i]));
 
 			/*
 			 * While we have not hit a hole in the hashtable and have not hit
@@ -2477,7 +2493,8 @@ ExecHashSkewTableInsert(HashJoinTable hashtable,
 						uint32 hashvalue,
 						int bucketNumber)
 {
-	MinimalTuple tuple = ExecFetchSlotMinimalTuple(slot);
+	bool		shouldFree;
+	MinimalTuple tuple = ExecFetchSlotMinimalTuple(slot, &shouldFree);
 	HashJoinTuple hashTuple;
 	int			hashTupleSize;
 
@@ -2505,6 +2522,9 @@ ExecHashSkewTableInsert(HashJoinTable hashtable,
 	/* Check we are not over the total spaceAllowed, either */
 	if (hashtable->spaceUsed > hashtable->spaceAllowed)
 		ExecHashIncreaseNumBatches(hashtable);
+
+	if (shouldFree)
+		heap_free_minimal_tuple(tuple);
 }
 
 /*

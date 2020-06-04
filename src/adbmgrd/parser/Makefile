@@ -20,6 +20,17 @@ OBJS= analyze.o gram.o scan.o parser.o \
 
 include $(top_srcdir)/src/adbmgrd/common.mk
 
+# where to find gen_keywordlist.pl and subsidiary files
+TOOLSDIR = $(top_srcdir)/src/tools
+GEN_KEYWORDLIST = $(PERL) -I $(TOOLSDIR) $(TOOLSDIR)/gen_keywordlist.pl
+GEN_KEYWORDLIST_DEPS = $(TOOLSDIR)/gen_keywordlist.pl $(TOOLSDIR)/PerfectHash.pm
+
+mgr_kwlist.o: mgr_kwlist_d.h
+
+mgr_kwlist_d.h: $(top_srcdir)/src/include/parser/mgr_kwlist.h $(GEN_KEYWORDLIST_DEPS)
+	$(CC) $(CFLAGS) -E $< -o mgr_kwlist.h
+	$(GEN_KEYWORDLIST) --varname=ManagerKeywords --extern mgr_kwlist.h
+	rm -f mgr_kwlist.h
 
 # scan is compiled as part of gram
 gram.o mgr_gram.o: scan.c
@@ -69,7 +80,7 @@ clean:
 	rm -f gram.c gram.h scan.c mgr_gram.c mgr_gram.h lex.backup
 
 distclean maintainer-clean:
-	rm -f lex.backup
+	rm -f lex.backup mgr_kwlist_d.h
 
 keywords.c:$(top_srcdir)/src/common/keywords.c
 	$(LN_S) $<

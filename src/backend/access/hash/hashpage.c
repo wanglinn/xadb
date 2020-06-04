@@ -3,7 +3,7 @@
  * hashpage.c
  *	  Hash table page management code for the Postgres hash access method
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -37,25 +37,15 @@
 
 
 static bool _hash_alloc_buckets(Relation rel, BlockNumber firstblock,
-					uint32 nblocks);
+								uint32 nblocks);
 static void _hash_splitbucket(Relation rel, Buffer metabuf,
-				  Bucket obucket, Bucket nbucket,
-				  Buffer obuf,
-				  Buffer nbuf,
-				  HTAB *htab,
-				  uint32 maxbucket,
-				  uint32 highmask, uint32 lowmask);
+							  Bucket obucket, Bucket nbucket,
+							  Buffer obuf,
+							  Buffer nbuf,
+							  HTAB *htab,
+							  uint32 maxbucket,
+							  uint32 highmask, uint32 lowmask);
 static void log_split_page(Relation rel, Buffer buf);
-
-
-/*
- * We use high-concurrency locking on hash indexes (see README for an overview
- * of the locking rules).  However, we can skip taking lmgr locks when the
- * index is local to the current backend (ie, either temp or new in the
- * current transaction).  No one else can see it, so there's no reason to
- * take locks.  We still take buffer-level locks, but not lmgr locks.
- */
-#define USELOCKING(rel)		(!RELATION_IS_LOCAL(rel))
 
 
 /*
@@ -1000,7 +990,7 @@ static bool
 _hash_alloc_buckets(Relation rel, BlockNumber firstblock, uint32 nblocks)
 {
 	BlockNumber lastblock;
-	char		zerobuf[BLCKSZ];
+	PGAlignedBlock zerobuf;
 	Page		page;
 	HashPageOpaque ovflopaque;
 
@@ -1013,7 +1003,7 @@ _hash_alloc_buckets(Relation rel, BlockNumber firstblock, uint32 nblocks)
 	if (lastblock < firstblock || lastblock == InvalidBlockNumber)
 		return false;
 
-	page = (Page) zerobuf;
+	page = (Page) zerobuf.data;
 
 	/*
 	 * Initialize the page.  Just zeroing the page won't work; see
@@ -1034,11 +1024,12 @@ _hash_alloc_buckets(Relation rel, BlockNumber firstblock, uint32 nblocks)
 		log_newpage(&rel->rd_node,
 					MAIN_FORKNUM,
 					lastblock,
-					zerobuf,
+					zerobuf.data,
 					true);
 
 	RelationOpenSmgr(rel);
-	smgrextend(rel->rd_smgr, MAIN_FORKNUM, lastblock, zerobuf, false);
+	PageSetChecksumInplace(page, lastblock);
+	smgrextend(rel->rd_smgr, MAIN_FORKNUM, lastblock, zerobuf.data, false);
 
 	return true;
 }

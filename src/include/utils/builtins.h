@@ -4,7 +4,7 @@
  *	  Declarations for operations on built-in types.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/builtins.h
@@ -25,7 +25,7 @@ extern bool parse_bool_with_len(const char *value, size_t len, bool *result);
 
 /* domains.c */
 extern void domain_check(Datum value, bool isnull, Oid domainType,
-			 void **extra, MemoryContext mcxt);
+						 void **extra, MemoryContext mcxt);
 extern int	errdatatype(Oid datatypeOid);
 extern int	errdomainconstraint(Oid datatypeOid, const char *conname);
 
@@ -41,32 +41,20 @@ extern unsigned pg_base64_decode(const char *src, unsigned len, char *dst);
 extern int2vector *buildint2vector(const int16 *int2s, int n);
 
 /* name.c */
-extern int	namecpy(Name n1, Name n2);
+extern int	namecpy(Name n1, const NameData *n2);
 extern int	namestrcpy(Name name, const char *str);
 extern int	namestrcmp(Name name, const char *str);
 
 /* numutils.c */
 extern int32 pg_atoi(const char *s, int size, int c);
+extern int16 pg_strtoint16(const char *s);
+extern int32 pg_strtoint32(const char *s);
 extern void pg_itoa(int16 i, char *a);
 extern void pg_ltoa(int32 l, char *a);
 extern void pg_lltoa(int64 ll, char *a);
 extern char *pg_ltostr_zeropad(char *str, int32 value, int32 minwidth);
 extern char *pg_ltostr(char *str, int32 value);
 extern uint64 pg_strtouint64(const char *str, char **endptr, int base);
-
-/* float.c */
-extern PGDLLIMPORT int extra_float_digits;
-
-extern double get_float8_infinity(void);
-extern float get_float4_infinity(void);
-extern double get_float8_nan(void);
-extern float get_float4_nan(void);
-extern int	is_infinite(double val);
-extern double float8in_internal(char *num, char **endptr_p,
-				  const char *type_name, const char *orig_string);
-extern char *float8out_internal(double num);
-extern int	float4_cmp_internal(float4 a, float4 b);
-extern int	float8_cmp_internal(float8 a, float8 b);
 
 /* oid.c */
 extern oidvector *buildoidvector(const Oid *oids, int n);
@@ -79,40 +67,17 @@ extern int	oid_cmp(const void *p1, const void *p2);
 
 /* regexp.c */
 extern char *regexp_fixed_prefix(text *text_re, bool case_insensitive,
-					Oid collation, bool *exact);
-#if defined(ADB_GRAM_ORA)
-extern Datum ora_regexp_count2(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_count3(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_count(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_replace2(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_replace3(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_replace4(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_replace5(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_replace(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_substr2(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_substr3(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_substr4(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_substr5(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_substr(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_instr2(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_instr3(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_instr4(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_instr5(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_instr6(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_instr(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_like2(PG_FUNCTION_ARGS);
-extern Datum ora_regexp_like(PG_FUNCTION_ARGS);
-#endif
+								 Oid collation, bool *exact);
 
 /* ruleutils.c */
 extern bool quote_all_identifiers;
 extern const char *quote_identifier(const char *ident);
 extern char *quote_qualified_identifier(const char *qualifier,
-						   const char *ident);
+										const char *ident);
 extern void generate_operator_clause(fmStringInfo buf,
-						 const char *leftop, Oid leftoptype,
-						 Oid opoid,
-						 const char *rightop, Oid rightoptype);
+									 const char *leftop, Oid leftoptype,
+									 Oid opoid,
+									 const char *rightop, Oid rightoptype);
 
 /* varchar.c */
 extern int	bpchartruelen(char *s, int len);
@@ -160,23 +125,6 @@ extern Datum orastr_translate(PG_FUNCTION_ARGS);
 extern Datum orastr_nls_charset_id(PG_FUNCTION_ARGS);
 extern Datum orastr_nls_charset_name(PG_FUNCTION_ARGS);
 
-/* oradate.c */
-extern Datum ora_next_day(PG_FUNCTION_ARGS);
-extern Datum last_day(PG_FUNCTION_ARGS);
-extern Datum months_between(PG_FUNCTION_ARGS);
-extern Datum add_months(PG_FUNCTION_ARGS);
-extern Datum ora_date_trunc(PG_FUNCTION_ARGS);
-extern Datum ora_timestamptz_trunc(PG_FUNCTION_ARGS);
-extern Datum ora_date_round(PG_FUNCTION_ARGS);
-extern Datum ora_timestamptz_round(PG_FUNCTION_ARGS);
-extern Datum ora_sys_now(PG_FUNCTION_ARGS);
-extern Datum ora_dbtimezone(PG_FUNCTION_ARGS);
-extern Datum ora_session_timezone(PG_FUNCTION_ARGS);
-extern Datum ora_numtoyminterval(PG_FUNCTION_ARGS);
-extern Datum ora_numtodsinterval(PG_FUNCTION_ARGS);
-extern Datum ora_to_yminterval(PG_FUNCTION_ARGS);
-extern Datum ora_to_dsinterval(PG_FUNCTION_ARGS);
-
 /* others.c */
 extern Datum ora_lnnvl(PG_FUNCTION_ARGS);
 extern Datum ora_concat(PG_FUNCTION_ARGS);
@@ -185,82 +133,15 @@ extern Datum ora_nvl2(PG_FUNCTION_ARGS);
 extern Datum ora_set_nls_sort(PG_FUNCTION_ARGS);
 extern Datum ora_nlssort(PG_FUNCTION_ARGS);
 extern Datum ora_dump(PG_FUNCTION_ARGS);
-
-/* convert.c */
-extern Datum int4_tochar(PG_FUNCTION_ARGS);
-extern Datum int8_tochar(PG_FUNCTION_ARGS);
-extern Datum float4_tochar(PG_FUNCTION_ARGS);
-extern Datum float8_tochar(PG_FUNCTION_ARGS);
-extern Datum numeric_tochar(PG_FUNCTION_ARGS);
-extern Datum text_tochar(PG_FUNCTION_ARGS);
-extern Datum timestamp_tochar(PG_FUNCTION_ARGS);
-extern Datum timestamptz_tochar(PG_FUNCTION_ARGS);
-extern Datum interval_tochar(PG_FUNCTION_ARGS);
-
-extern Datum trunc_text_toint2(PG_FUNCTION_ARGS);
-extern Datum trunc_text_toint4(PG_FUNCTION_ARGS);
-extern Datum trunc_text_toint8(PG_FUNCTION_ARGS);
-extern Datum text_toint2(PG_FUNCTION_ARGS);
-extern Datum text_toint4(PG_FUNCTION_ARGS);
-extern Datum text_toint8(PG_FUNCTION_ARGS);
-extern Datum text_tofloat4(PG_FUNCTION_ARGS);
-extern Datum text_tofloat8(PG_FUNCTION_ARGS);
-extern Datum text_todate(PG_FUNCTION_ARGS);
-extern Datum text_totimestamp(PG_FUNCTION_ARGS);
-extern Datum text_totimestamptz(PG_FUNCTION_ARGS);
-extern Datum text_tocstring(PG_FUNCTION_ARGS);
-extern Datum text_tonumber(PG_FUNCTION_ARGS);
-extern Datum float4_tonumber(PG_FUNCTION_ARGS);
-extern Datum float8_tonumber(PG_FUNCTION_ARGS);
-
-extern Datum ora_to_multi_byte(PG_FUNCTION_ARGS);
-extern Datum ora_to_single_byte(PG_FUNCTION_ARGS);
-
-/* varchar2.c */
-extern Datum varchar2in(PG_FUNCTION_ARGS);
-extern Datum varchar2out(PG_FUNCTION_ARGS);
-extern Datum varchar2recv(PG_FUNCTION_ARGS);
-extern Datum varchar2(PG_FUNCTION_ARGS);
-
-/* nvarchar2.c */
-extern Datum nvarchar2in(PG_FUNCTION_ARGS);
-extern Datum nvarchar2out(PG_FUNCTION_ARGS);
-extern Datum nvarchar2recv(PG_FUNCTION_ARGS);
-extern Datum nvarchar2(PG_FUNCTION_ARGS);
-
-/* random.c */
-extern Datum dbms_random_initialize(PG_FUNCTION_ARGS);
-extern Datum dbms_random_normal(PG_FUNCTION_ARGS);
-extern Datum dbms_random_random(PG_FUNCTION_ARGS);
-extern Datum dbms_random_seed_int(PG_FUNCTION_ARGS);
-extern Datum dbms_random_seed_varchar(PG_FUNCTION_ARGS);
-extern Datum dbms_random_string(PG_FUNCTION_ARGS);
-extern Datum dbms_random_terminate(PG_FUNCTION_ARGS);
-extern Datum dbms_random_value(PG_FUNCTION_ARGS);
-extern Datum dbms_random_value_range(PG_FUNCTION_ARGS);
-
-/* rowid.c */
-extern Datum rowid_in(PG_FUNCTION_ARGS);
-extern Datum rowid_out(PG_FUNCTION_ARGS);
-extern Datum rowid_recv(PG_FUNCTION_ARGS);
-extern Datum rowid_send(PG_FUNCTION_ARGS);
-extern Datum rowid_eq(PG_FUNCTION_ARGS);
-extern Datum rowid_ne(PG_FUNCTION_ARGS);
-extern Datum rowid_lt(PG_FUNCTION_ARGS);
-extern Datum rowid_le(PG_FUNCTION_ARGS);
-extern Datum rowid_gt(PG_FUNCTION_ARGS);
-extern Datum rowid_ge(PG_FUNCTION_ARGS);
-extern Datum rowid_larger(PG_FUNCTION_ARGS);
-extern Datum rowid_smaller(PG_FUNCTION_ARGS);
 #endif
 
 /* inet_cidr_ntop.c */
 extern char *inet_cidr_ntop(int af, const void *src, int bits,
-			   char *dst, size_t size);
+							char *dst, size_t size);
 
 /* inet_net_pton.c */
-extern int inet_net_pton(int af, const char *src,
-			  void *dst, size_t size);
+extern int	inet_net_pton(int af, const char *src,
+						  void *dst, size_t size);
 
 /* network.c */
 extern double convert_network_to_scalar(Datum value, Oid typid, bool *failure);

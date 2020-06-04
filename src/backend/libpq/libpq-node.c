@@ -642,6 +642,7 @@ static int PQNIsConnecting(PGconn *conn)
 						errmsg("No support protocol 2.0 version for remote node")));
 		break;
 	case CONNECTION_SSL_STARTUP:
+	case CONNECTION_GSS_STARTUP:
 	case CONNECTION_CHECK_WRITABLE:
 	case CONNECTION_CONSUME:
 		return -1;

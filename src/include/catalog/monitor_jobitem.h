@@ -7,7 +7,7 @@
 
 #include "utils/timestamp.h"
 
-CATALOG(monitor_jobitem,4804,MjobitemRelationId) BKI_WITHOUT_OIDS
+CATALOG(monitor_jobitem,4804,MjobitemRelationId)
 {
 	NameData				jobitem_itemname;
 #ifdef CATALOG_VARLEN

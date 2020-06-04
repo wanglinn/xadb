@@ -23,7 +23,6 @@
 #include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/resowner.h"
-#include "utils/tqual.h"
 
 #define RESTART_STEP_MS		3000	/* 2 second */
 
@@ -185,18 +184,18 @@ SnapRcvSendHeartbeat(void)
 static void
 SnapRcvSendLocalNextXid(void)
 {
-	TransactionId xid; 
+	FullTransactionId full_xid; 
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	xid = ShmemVariableCache->nextXid;
+	full_xid = ShmemVariableCache->nextFullXid;
 	LWLockRelease(XidGenLock);
 
-	if (!TransactionIdIsValid(xid))
+	if (!FullTransactionIdIsValid(full_xid))
 		return;
 
 	/* Construct a new message */
 	resetStringInfo(&reply_message);
 	pq_sendbyte(&reply_message, 'u');
-	pq_sendint64(&reply_message, xid);
+	pq_sendint64(&reply_message, XidFromFullTransactionId(full_xid));
 
 	/* Send it */
 	walrcv_send(wrconn, reply_message.data, reply_message.len);
@@ -723,6 +722,8 @@ static void SnapRcvProcessUpdateXid(char *buf, Size len)
 {
 	StringInfoData	msg;
 	TransactionId	xid;
+	TransactionId	nextXid;
+	uint32			epoch;
 
 	msg.data = buf;
 	msg.len = msg.maxlen = len;
@@ -731,13 +732,17 @@ static void SnapRcvProcessUpdateXid(char *buf, Size len)
 	xid = pq_getmsgint64(&msg);
 	
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
-	ereport(DEBUG2, (errmsg("SnapRcvProcessUpdateXid  %d, ShmemVariableCache->nextXid is %d\n", xid, ShmemVariableCache->nextXid)));
-	if (!NormalTransactionIdPrecedes(xid, ShmemVariableCache->nextXid))
+	nextXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
+	ereport(DEBUG2, (errmsg("SnapRcvProcessUpdateXid  %d, ShmemVariableCache->nextXid is %d\n", xid, nextXid)));
+	if (!NormalTransactionIdPrecedes(xid, nextXid))
 	{
- 		ShmemVariableCache->nextXid = xid;
- 		TransactionIdAdvance(ShmemVariableCache->nextXid);
+		epoch = EpochFromFullTransactionId(ShmemVariableCache->nextFullXid);
+		if (unlikely(xid < nextXid))
+			++epoch;
+		ShmemVariableCache->nextFullXid = FullTransactionIdFromEpochAndXid(epoch, xid);
+		FullTransactionIdAdvance(&ShmemVariableCache->nextFullXid);
 
-		ShmemVariableCache->latestCompletedXid = ShmemVariableCache->nextXid;
+		ShmemVariableCache->latestCompletedXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
 		TransactionIdRetreat(ShmemVariableCache->latestCompletedXid);
 
 		LOCK_SNAP_RCV();

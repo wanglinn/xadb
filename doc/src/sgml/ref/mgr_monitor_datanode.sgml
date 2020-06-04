@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_monitor_datanode.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-MONITORDATANODE">
+<refentry id="mgr-monitordatanode">
   <refmeta>
     <refentrytitle>MONITOR DATANODE</refentrytitle>
     <manvolnum>7</manvolnum>

@@ -16,7 +16,6 @@
 #include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
-#include "utils/tqual.h"
 #include "utils/fmgroids.h"    /* For F_NAMEEQ	*/
 #include "access/htup_details.h"
 #include "catalog/indexing.h"
@@ -3398,6 +3397,11 @@ reserved_keyword:
 	;
 
 %%
+#define PG_KEYWORD(kwname, value, category) value,
+static const uint16 MgrScanKeywordTokens[] = {
+#include "parser/mgr_kwlist.h"
+};
+
 /*
  * The signature of this function is required by bison.  However, we
  * ignore the passed yylloc and instead use the last token position
@@ -3421,9 +3425,10 @@ List *mgr_parse_query(const char *query_string)
 	mgr_yy_extra_type yyextra;
 	int			yyresult;
 
+	Assert(lengthof(MgrScanKeywordTokens) == ManagerKeywords.num_keywords);
 	/* initialize the flex scanner */
 	yyscanner = scanner_init(query_string, &yyextra.core_yy_extra,
-							 ManagerKeywords, NumManagerKeywords);
+							 &ManagerKeywords, MgrScanKeywordTokens);
 
 	yyextra.parsetree = NIL;
 
@@ -3592,39 +3597,41 @@ static Node* make_whereClause_for_gtm(char* node_type_str, List* node_name_list,
 
 static void check_node_name_isvaild(char node_type, List* node_name_list)
 {
-	ListCell *lc = NULL;
-	A_Const *node_name  = NULL;
+	ListCell *lc;
+	A_Const *node_name;
 	NameData name;
 	Relation rel_node;
-	HeapScanDesc scan;
+	TableScanDesc scan;
 	ScanKeyData key[2];
-	HeapTuple tuple;
+	TupleTableSlot *slot;
 
+	if (node_name_list == NIL)
+		return;
+
+	rel_node = table_open(NodeRelationId, AccessShareLock);
+	slot = table_slot_create(rel_node, NULL);
 	foreach(lc, node_name_list)
 	{
 		node_name = (A_Const *) lfirst(lc);
 		Assert(node_name && IsA(&(node_name->val), String));
 
 		namestrcpy(&name, strVal(&(node_name->val)));
-		ScanKeyInit(&key[0]
-			,Anum_mgr_node_nodename
-			,BTEqualStrategyNumber, F_NAMEEQ
-			,NameGetDatum(&name));
+		ScanKeyInit(&key[0],
+					Anum_mgr_node_nodename,
+					BTEqualStrategyNumber,
+					F_NAMEEQ,
+					NameGetDatum(&name));
 
-		ScanKeyInit(&key[1]
-			,Anum_mgr_node_nodetype
-			,BTEqualStrategyNumber
-			,F_CHAREQ
-			,CharGetDatum(node_type));
+		ScanKeyInit(&key[1],
+					Anum_mgr_node_nodetype,
+					BTEqualStrategyNumber,
+					F_CHAREQ,
+					CharGetDatum(node_type));
 
-		rel_node = heap_open(NodeRelationId, AccessShareLock);
-		scan = heap_beginscan_catalog(rel_node, 2, key);
+		scan = table_beginscan_catalog(rel_node, lengthof(key), key);
 
-		if ((tuple = heap_getnext(scan, ForwardScanDirection)) == NULL)
+		if (table_scan_getnextslot(scan, ForwardScanDirection, slot) == false)
 		{
-			heap_endscan(scan);
-			heap_close(rel_node, AccessShareLock);
-
 			switch (node_type)
 			{
 				case CNDN_TYPE_COORDINATOR_MASTER:
@@ -3651,22 +3658,30 @@ static void check_node_name_isvaild(char node_type, List* node_name_list)
 			}
 		}
 
-		heap_endscan(scan);
-		heap_close(rel_node, AccessShareLock);
+		ExecClearTuple(slot);
+		table_endscan(scan);
 	}
+	ExecDropSingleTupleTableSlot(slot);
+	table_close(rel_node, AccessShareLock);
 
 	return;
 }
 
 static void check_host_name_isvaild(List *node_name_list)
 {
-	ListCell *lc = NULL;
-	A_Const *host_name  = NULL;
+	ListCell *lc;
+	A_Const *host_name;
 	NameData name;
 	Relation rel_node;
-	HeapScanDesc scan;
+	TableScanDesc scan;
 	ScanKeyData key[1];
-	HeapTuple tuple;
+	TupleTableSlot *slot;
+
+	if (node_name_list == NIL)
+		return;
+
+	rel_node = table_open(HostRelationId, AccessShareLock);
+	slot = table_slot_create(rel_node, NULL);
 
 	foreach(lc, node_name_list)
 	{
@@ -3674,27 +3689,25 @@ static void check_host_name_isvaild(List *node_name_list)
 		Assert(host_name && IsA(&(host_name->val), String));
 		namestrcpy(&name, strVal(&(host_name->val)));
 
-		ScanKeyInit(&key[0]
-			,Anum_mgr_node_nodename
-			,BTEqualStrategyNumber, F_NAMEEQ
-			,NameGetDatum(&name));
+		ScanKeyInit(&key[0],
+					Anum_mgr_node_nodename,
+					BTEqualStrategyNumber,
+					F_NAMEEQ,
+					NameGetDatum(&name));
 
-		rel_node = heap_open(HostRelationId, AccessShareLock);
-		scan = heap_beginscan_catalog(rel_node, 1, key);
+		scan = table_beginscan_catalog(rel_node, 1, key);
 
-		if ((tuple = heap_getnext(scan, ForwardScanDirection)) == NULL)
+		if (table_scan_getnextslot(scan, ForwardScanDirection, slot) == false)
 		{
-			heap_endscan(scan);
-			heap_close(rel_node, AccessShareLock);
-
 			ereport(ERROR, (errmsg("host name \"%s\" does not exist", NameStr(name))));
 		}
 
-		heap_endscan(scan);
-		heap_close(rel_node, AccessShareLock);
+		ExecClearTuple(slot);
+		table_endscan(scan);
 	}
 
-	return;
+	ExecDropSingleTupleTableSlot(slot);
+	table_close(rel_node, AccessShareLock);
 }
 
 static void check__name_isvaild(List *node_name_list)
@@ -3703,9 +3716,15 @@ static void check__name_isvaild(List *node_name_list)
 	A_Const *host_name  = NULL;
 	NameData name;
 	Relation rel_node;
-	HeapScanDesc scan;
+	TableScanDesc scan;
 	ScanKeyData key[1];
-	HeapTuple tuple;
+	TupleTableSlot *slot;
+
+	if (node_name_list == NIL)
+		return;
+
+	rel_node = table_open(NodeRelationId, AccessShareLock);
+	slot = table_slot_create(rel_node, NULL);
 
 	foreach(lc, node_name_list)
 	{
@@ -3713,27 +3732,25 @@ static void check__name_isvaild(List *node_name_list)
 		Assert(host_name && IsA(&(host_name->val), String));
 		namestrcpy(&name, strVal(&(host_name->val)));
 
-		ScanKeyInit(&key[0]
-			,Anum_mgr_node_nodename
-			,BTEqualStrategyNumber, F_NAMEEQ
-			,NameGetDatum(&name));
+		ScanKeyInit(&key[0],
+					Anum_mgr_node_nodename,
+					BTEqualStrategyNumber,
+					F_NAMEEQ,
+					NameGetDatum(&name));
 
-		rel_node = heap_open(NodeRelationId, AccessShareLock);
-		scan = heap_beginscan_catalog(rel_node, 1, key);
+		scan = table_beginscan_catalog(rel_node, 1, key);
 
-		if ((tuple = heap_getnext(scan, ForwardScanDirection)) == NULL)
+		if (table_scan_getnextslot(scan, ForwardScanDirection, slot) == false)
 		{
-			heap_endscan(scan);
-			heap_close(rel_node, AccessShareLock);
-
 			ereport(ERROR, (errmsg("node name \"%s\" does not exist", NameStr(name))));
 		}
 
-		heap_endscan(scan);
-		heap_close(rel_node, AccessShareLock);
+		ExecClearTuple(slot);
+		table_endscan(scan);
 	}
 
-	return;
+	ExecDropSingleTupleTableSlot(slot);
+	table_close(rel_node, AccessShareLock);
 }
 
 static void check_job_name_isvaild(List *node_name_list)
@@ -3742,9 +3759,15 @@ static void check_job_name_isvaild(List *node_name_list)
 	A_Const *job_name  = NULL;
 	NameData name;
 	Relation rel_job;
-	HeapScanDesc scan;
+	TableScanDesc scan;
 	ScanKeyData key[1];
-	HeapTuple tuple;
+	TupleTableSlot *slot;
+
+	if (node_name_list == NIL)
+		return;
+
+	rel_job = table_open(MjobRelationId, AccessShareLock);
+	slot = table_slot_create(rel_job, NULL);
 
 	foreach(lc, node_name_list)
 	{
@@ -3752,27 +3775,25 @@ static void check_job_name_isvaild(List *node_name_list)
 		Assert(job_name && IsA(&(job_name->val), String));
 		namestrcpy(&name, strVal(&(job_name->val)));
 
-		ScanKeyInit(&key[0]
-			,Anum_monitor_job_name
-			,BTEqualStrategyNumber, F_NAMEEQ
-			,NameGetDatum(&name));
+		ScanKeyInit(&key[0],
+					Anum_monitor_job_name,
+					BTEqualStrategyNumber,
+					F_NAMEEQ,
+					NameGetDatum(&name));
 
-		rel_job = heap_open(MjobRelationId, AccessShareLock);
-		scan = heap_beginscan_catalog(rel_job, 1, key);
+		scan = table_beginscan_catalog(rel_job, 1, key);
 
-		if ((tuple = heap_getnext(scan, ForwardScanDirection)) == NULL)
+		if (table_scan_getnextslot(scan, ForwardScanDirection, slot) == false)
 		{
-			heap_endscan(scan);
-			heap_close(rel_job, AccessShareLock);
-
 			ereport(ERROR, (errmsg("job name \"%s\" does not exist", NameStr(name))));
 		}
 
-		heap_endscan(scan);
-		heap_close(rel_job, AccessShareLock);
+		ExecClearTuple(slot);
+		table_endscan(scan);
 	}
 
-	return;
+	ExecDropSingleTupleTableSlot(slot);
+	table_close(rel_job, AccessShareLock);
 }
 
 static void check_jobitem_name_isvaild(List *node_name_list)
@@ -3781,9 +3802,15 @@ static void check_jobitem_name_isvaild(List *node_name_list)
 	A_Const *jobitem_name  = NULL;
 	NameData name;
 	Relation rel_jobitem;
-	HeapScanDesc scan;
+	TableScanDesc scan;
 	ScanKeyData key[1];
-	HeapTuple tuple;
+	TupleTableSlot *slot;
+
+	if (node_name_list == NIL)
+		return;
+
+	rel_jobitem = table_open(MjobitemRelationId, AccessShareLock);
+	slot = table_slot_create(rel_jobitem, NULL);
 
 	foreach(lc, node_name_list)
 	{
@@ -3791,53 +3818,53 @@ static void check_jobitem_name_isvaild(List *node_name_list)
 		Assert(jobitem_name && IsA(&(jobitem_name->val), String));
 		namestrcpy(&name, strVal(&(jobitem_name->val)));
 
-		ScanKeyInit(&key[0]
-			,Anum_monitor_jobitem_jobitem_itemname
-			,BTEqualStrategyNumber, F_NAMEEQ
-			,NameGetDatum(&name));
+		ScanKeyInit(&key[0],
+					Anum_monitor_jobitem_jobitem_itemname,
+					BTEqualStrategyNumber,
+					F_NAMEEQ,
+					NameGetDatum(&name));
 
-		rel_jobitem = heap_open(MjobitemRelationId, AccessShareLock);
-		scan = heap_beginscan_catalog(rel_jobitem, 1, key);
+		scan = table_beginscan_catalog(rel_jobitem, 1, key);
 
-		if ((tuple = heap_getnext(scan, ForwardScanDirection)) == NULL)
+		if (table_scan_getnextslot(scan, ForwardScanDirection, slot) == false)
 		{
-			heap_endscan(scan);
-			heap_close(rel_jobitem, AccessShareLock);
-
 			ereport(ERROR, (errmsg("job item name \"%s\" does not exist", NameStr(name))));
 		}
 
-		heap_endscan(scan);
-		heap_close(rel_jobitem, AccessShareLock);
+		ExecClearTuple(slot);
+		table_endscan(scan);
 	}
 
-	return;
+	ExecDropSingleTupleTableSlot(slot);
+	table_close(rel_jobitem, AccessShareLock);
 }
 
 static void check_job_status_intbl(void)
 {
 	Relation rel_job;
-	HeapScanDesc scan;
+	TableScanDesc scan;
 	ScanKeyData key[1];
-	HeapTuple tuple;
+	TupleTableSlot *slot;
 	bool bget = false;
 
+	ScanKeyInit(&key[0],
+				Anum_monitor_job_status,
+				BTEqualStrategyNumber,
+				F_BOOLEQ,
+				BoolGetDatum(true));
+	rel_job = table_open(MjobRelationId, AccessShareLock);
+	slot = table_slot_create(rel_job, NULL);
+	scan = table_beginscan_catalog(rel_job, 1, key);
 
-	ScanKeyInit(&key[0]
-		,Anum_monitor_job_status
-		,BTEqualStrategyNumber
-		,F_BOOLEQ
-		,BoolGetDatum(true));
-	rel_job = heap_open(MjobRelationId, AccessShareLock);
-	scan = heap_beginscan_catalog(rel_job, 1, key);
-
-	while((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	while (table_scan_getnextslot(scan, ForwardScanDirection, slot))
 	{
 		bget = true;
+		ExecClearTuple(slot);
 		break;
 	}
-	heap_endscan(scan);
-	heap_close(rel_job, AccessShareLock);
+	table_endscan(scan);
+	ExecDropSingleTupleTableSlot(slot);
+	table_close(rel_job, AccessShareLock);
 
 	if (bget && (adbmonitor_start_daemon==false))
 		ereport(WARNING, (errmsg("in postgresql.conf of ADBMGR adbmonitor=off and all jobs cannot be running, you should change adbmonitor=on which can be made effect by mgr_ctl reload ")));

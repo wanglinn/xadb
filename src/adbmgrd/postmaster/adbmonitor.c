@@ -57,7 +57,6 @@
 #include "utils/syscache.h"
 #include "utils/timeout.h"
 #include "utils/timestamp.h"
-#include "utils/tqual.h"
 #include "access/heapam.h"
 #include "catalog/monitor_job.h"
 #include "catalog/monitor_jobitem.h"
@@ -588,7 +587,7 @@ static AmlJob
 launcher_obtain_amljob(void)
 {
 	Relation			rel_node;
-	HeapScanDesc		rel_scan;
+	TableScanDesc		rel_scan;
 	HeapTuple 			tuple;
 	Form_monitor_job	monitor_job;
 	TimestampTz			timetz;
@@ -602,7 +601,7 @@ launcher_obtain_amljob(void)
 	StartTransactionCommand();
 	(void) GetTransactionSnapshot();
 
-	rel_node = heap_open(MjobRelationId, AccessShareLock);
+	rel_node = table_open(MjobRelationId, AccessShareLock);
 	ScanKeyInit(&entry[0],
 				Anum_monitor_job_status,
 				BTEqualStrategyNumber, F_BOOLEQ,
@@ -612,14 +611,14 @@ launcher_obtain_amljob(void)
 				Anum_monitor_job_next_time,
 				BTLessEqualStrategyNumber, F_TIMESTAMP_LE,
 				TimestampTzGetDatum(current_time));
-	rel_scan = heap_beginscan_catalog(rel_node, 2, entry);
+	rel_scan = table_beginscan_catalog(rel_node, 2, entry);
 	while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		monitor_job = (Form_monitor_job) GETSTRUCT(tuple);
 		Assert(monitor_job);
 
 		/* The job is running? */
-		if (monitor_job_running(HeapTupleGetOid(tuple)))
+		if (monitor_job_running(monitor_job->oid))
 			continue;
 
 		/* Find the latest monitor job */
@@ -627,15 +626,15 @@ launcher_obtain_amljob(void)
 		if (!timetzMin)
 		{
 			timetzMin = timetz;
-			amjobOid = HeapTupleGetOid(tuple);
+			amjobOid = monitor_job->oid;
 		} else if (timetz < timetzMin)
 		{
 			timetzMin = timetz;
-			amjobOid = HeapTupleGetOid(tuple);
+			amjobOid = monitor_job->oid;
 		}
 	}
-	heap_endscan(rel_scan);
-	heap_close(rel_node, AccessShareLock);
+	table_endscan(rel_scan);
+	table_close(rel_node, AccessShareLock);
 	CommitTransactionCommand();
 
 	if (OidIsValid(amjobOid))
@@ -880,7 +879,7 @@ static bool
 get_latest_job_time(TimestampTz *tzstamp)
 {
 	Relation			rel_node;
-	HeapScanDesc		rel_scan;
+	TableScanDesc		rel_scan;
 	HeapTuple			tuple;
 	Form_monitor_job	monitor_job;
 	TimestampTz			latest_jobtime = 0;
@@ -889,12 +888,12 @@ get_latest_job_time(TimestampTz *tzstamp)
 	StartTransactionCommand();
 	(void) GetTransactionSnapshot();
 
-	rel_node = heap_open(MjobRelationId, AccessShareLock);
+	rel_node = table_open(MjobRelationId, AccessShareLock);
 	ScanKeyInit(&entry[0],
 				Anum_monitor_job_status,
 				BTEqualStrategyNumber, F_BOOLEQ,
 				BoolGetDatum(true));
-	rel_scan = heap_beginscan_catalog(rel_node, 1, entry);
+	rel_scan = table_beginscan_catalog(rel_node, 1, entry);
 
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -902,7 +901,7 @@ get_latest_job_time(TimestampTz *tzstamp)
 		Assert(monitor_job);
 
 		/* Ignore the running job  */
-		if (monitor_job_running(HeapTupleGetOid(tuple)))
+		if (monitor_job_running(monitor_job->oid))
 			continue;
 
 		/* Get the latest work time */
@@ -912,8 +911,8 @@ get_latest_job_time(TimestampTz *tzstamp)
 			latest_jobtime = monitor_job->next_time;
 	}
 
-	heap_endscan(rel_scan);
-	heap_close(rel_node, AccessShareLock);
+	table_endscan(rel_scan);
+	table_close(rel_node, AccessShareLock);
 	CommitTransactionCommand();
 
 	if (latest_jobtime != 0)
@@ -1249,20 +1248,20 @@ static void
 update_next_work_time(Oid jobid)
 {
 	Relation			rel_job;
-	HeapScanDesc		rel_scan;
+	TableScanDesc		rel_scan;
 	HeapTuple 			tuple;
 	TupleDesc			tupledsc;
 	ScanKeyData			entry[1];
 
 	(void) GetTransactionSnapshot();
 
-	rel_job = heap_open(MjobRelationId, RowExclusiveLock);
+	rel_job = table_open(MjobRelationId, RowExclusiveLock);
 	tupledsc = RelationGetDescr(rel_job);
 	ScanKeyInit(&entry[0],
-				ObjectIdAttributeNumber,
+				Anum_monitor_job_oid,
 				BTEqualStrategyNumber, F_OIDEQ,
 				ObjectIdGetDatum(jobid));
-	rel_scan = heap_beginscan_catalog(rel_job, 1, entry);
+	rel_scan = table_beginscan_catalog(rel_job, 1, entry);
 	tuple = heap_getnext(rel_scan, ForwardScanDirection);
 	if (HeapTupleIsValid(tuple))
 	{
@@ -1275,7 +1274,7 @@ update_next_work_time(Oid jobid)
 		bool				attrDatumIsNull;
 		int32				interval;
 
-		Assert(HeapTupleGetOid(tuple) == jobid);
+		Assert(((Form_monitor_job)(GETSTRUCT(tuple)))->oid == jobid);
 		
 		MemSet(datum, 0, sizeof(datum));
 		MemSet(isnull, 0, sizeof(isnull));
@@ -1298,8 +1297,8 @@ update_next_work_time(Oid jobid)
 		CatalogTupleUpdate(rel_job, &(tuple->t_self), newtuple);
 	}
 
-	heap_endscan(rel_scan);
-	heap_close(rel_job, RowExclusiveLock);
+	table_endscan(rel_scan);
+	table_close(rel_job, RowExclusiveLock);
 
 }
 
@@ -1322,7 +1321,7 @@ adbmonitor_job(PG_FUNCTION_ARGS)
 	StringInfoData resultstrinfo;
 	Relation rel_jobitem;
 	ScanKeyData key[1];
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	Datum	datumpath = (Datum) 0;
 
 	/*get input*/
@@ -1336,23 +1335,23 @@ adbmonitor_job(PG_FUNCTION_ARGS)
 		ereport(ERROR,  (errcode(ERRCODE_UNDEFINED_OBJECT),
 			errmsg("host \"%s\" dose not exist", hostname.data)));
 	}
-	hostoid = HeapTupleGetOid(hosttuple);
+	hostoid = ((Form_mgr_host)(GETSTRUCT(hosttuple)))->oid;
 	ReleaseSysCache(hosttuple);
 	/*get batch path*/
-	rel_jobitem = heap_open(MjobitemRelationId, AccessShareLock);
+	rel_jobitem = table_open(MjobitemRelationId, AccessShareLock);
 	ScanKeyInit(&key[0],
 				Anum_monitor_jobitem_jobitem_itemname,
 				BTEqualStrategyNumber,
 				F_NAMEEQ,
 				NameGetDatum(&itemname));
-	rel_scan = heap_beginscan_catalog(rel_jobitem, 1, key);
+	rel_scan = table_beginscan_catalog(rel_jobitem, 1, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		datumpath = heap_getattr(tuple, Anum_monitor_jobitem_jobitem_path, RelationGetDescr(rel_jobitem), &isNull);
 		break;
 	}
-	heap_endscan(rel_scan);
-	heap_close(rel_jobitem, AccessShareLock);
+	table_endscan(rel_scan);
+	table_close(rel_jobitem, AccessShareLock);
 	if(isNull)
 	{
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)

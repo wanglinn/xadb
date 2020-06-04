@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_start_doctor.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-STARTDOCTOR">
+<refentry id="mgr-startdoctor">
  <refmeta>
   <refentrytitle>START DOCTOR</refentrytitle>
   <manvolnum>7</manvolnum>

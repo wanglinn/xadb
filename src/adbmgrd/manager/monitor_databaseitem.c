@@ -32,7 +32,6 @@
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
-#include "utils/tqual.h"
 #include "funcapi.h"
 #include "utils/lsyscache.h"
 #include "access/xact.h"
@@ -111,7 +110,7 @@ int64 monitor_get_result_one_node(Relation rel_node, char *sqlstr, char *dbname,
 int64 monitor_get_sqlres_all_typenode_usedbname(Relation rel_node, char *sqlstr, char *dbname, char nodetype, int gettype)
 {
 	/*get datanode master user, port*/
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	ScanKeyData key[4];
 	HeapTuple tuple;
 	HeapTuple tup;
@@ -145,7 +144,7 @@ int64 monitor_get_sqlres_all_typenode_usedbname(Relation rel_node, char *sqlstr,
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,CStringGetDatum(mgr_zone));
-	rel_scan = heap_beginscan_catalog(rel_node, 4, key);
+	rel_scan = table_beginscan_catalog(rel_node, 4, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -235,8 +234,8 @@ Datum monitor_databaseitem_insert_data(PG_FUNCTION_ARGS)
 	const char *clustertime = NULL;
 	Monitor_Threshold monitor_threshold;
 
-	rel = heap_open(MdatabaseitemRelationId, RowExclusiveLock);
-	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
+	rel = table_open(MdatabaseitemRelationId, RowExclusiveLock);
+	rel_node = table_open(NodeRelationId, RowExclusiveLock);
 	/*get database list*/
 	monitor_get_one_node_user_address_port(rel_node, &agentport, &user, &hostaddress, &coordport, CNDN_TYPE_COORDINATOR_MASTER);
 	if (!user)
@@ -486,8 +485,8 @@ Datum monitor_databasetps_insert_data(PG_FUNCTION_ARGS)
 	StringInfoData sqldbruntimeStrData;
 	Monitor_Threshold monitor_threshold;
 
-	rel = heap_open(MdatabasetpsRelationId, RowExclusiveLock);
-	rel_node = heap_open(NodeRelationId, RowExclusiveLock);
+	rel = table_open(MdatabasetpsRelationId, RowExclusiveLock);
+	rel_node = table_open(NodeRelationId, RowExclusiveLock);
 	/*get user, address, port of coordinator*/
 	monitor_get_one_node_user_address_port(rel_node, &agentport, &user, &hostaddress, &coordport, CNDN_TYPE_COORDINATOR_MASTER);
 	if (!user)
@@ -620,7 +619,7 @@ HeapTuple monitor_build_databasetps_qps_tuple(Relation rel, const TimestampTz ti
 static void monitor_get_sum_all_onetypenode_onedb(Relation rel_node, char *sqlstr, char *dbname, char nodetype, int64 iarray[], int len)
 {
 	/*get node user, port*/
-	HeapScanDesc rel_scan = NULL;
+	TableScanDesc rel_scan = NULL;
 	ScanKeyData key[4];
 	HeapTuple tuple;
 	HeapTuple tup;
@@ -659,7 +658,7 @@ static void monitor_get_sum_all_onetypenode_onedb(Relation rel_node, char *sqlst
 			,BTEqualStrategyNumber
 			,F_NAMEEQ
 			,CStringGetDatum(mgr_zone));
-		rel_scan = heap_beginscan_catalog(rel_node, 4, key);
+		rel_scan = table_beginscan_catalog(rel_node, 4, key);
 		while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 		{
 			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -805,8 +804,8 @@ static int64 monitor_standbydelay(char nodetype)
 {
 	Relation hostrel;
 	Relation noderel;
-	HeapScanDesc hostrel_scan;
-	HeapScanDesc noderel_scan;
+	TableScanDesc hostrel_scan;
+	TableScanDesc noderel_scan;
 	Form_mgr_host mgr_host;
 	Form_mgr_node mgr_node;
 	HeapTuple hosttuple;
@@ -827,9 +826,9 @@ static int64 monitor_standbydelay(char nodetype)
 	const char *clustertime;
 	//bool getnode = false;
 
-	hostrel = heap_open(HostRelationId, AccessShareLock);
-	hostrel_scan = heap_beginscan_catalog(hostrel, 0, NULL);
-	noderel = heap_open(NodeRelationId, AccessShareLock);
+	hostrel = table_open(HostRelationId, AccessShareLock);
+	hostrel_scan = table_beginscan_catalog(hostrel, 0, NULL);
+	noderel = table_open(NodeRelationId, AccessShareLock);
 
 	PG_TRY();
 	{
@@ -847,7 +846,7 @@ static int64 monitor_standbydelay(char nodetype)
 			}
 			address = TextDatumGetCString(datumaddress);
 			namestrcpy(&ndatauser, NameStr(mgr_host->hostuser));
-			hostoid = HeapTupleGetOid(hosttuple);
+			hostoid = mgr_host->oid;
 			/*find datanode master in node systbl, which hosttuple's nodehost is hostoid*/
 			ScanKeyInit(&key[0]
 				,Anum_mgr_node_nodehost
@@ -858,7 +857,7 @@ static int64 monitor_standbydelay(char nodetype)
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,CStringGetDatum(mgr_zone));
-			noderel_scan = heap_beginscan_catalog(noderel, 2, key);
+			noderel_scan = table_beginscan_catalog(noderel, 2, key);
 			while((nodetuple = heap_getnext(noderel_scan, ForwardScanDirection)) != NULL)
 			{
 				mgr_node = (Form_mgr_node)GETSTRUCT(nodetuple);
@@ -921,7 +920,7 @@ static int64 monitor_standbydelay(char nodetype)
 static int64 monitor_all_typenode_usedbname_locksnum(Relation rel_node, char *sqlstr, char *dbname, char nodetype, int gettype)
 {
 	/*get datanode master user, port*/
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	ScanKeyData key[4];
 	HeapTuple tuple;
 	HeapTuple tup;
@@ -956,7 +955,7 @@ static int64 monitor_all_typenode_usedbname_locksnum(Relation rel_node, char *sq
 		,BTEqualStrategyNumber
 		,F_NAMEEQ
 		,CStringGetDatum(mgr_zone));
-	rel_scan = heap_beginscan_catalog(rel_node, 4, key);
+	rel_scan = table_beginscan_catalog(rel_node, 4, key);
 	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);

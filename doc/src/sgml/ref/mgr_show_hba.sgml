@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_show_hba.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-SHOW-HBA">
+<refentry id="mgr-show-hba">
   <refmeta>
     <refentrytitle>SHOW HBA</refentrytitle>
     <manvolnum>7</manvolnum>

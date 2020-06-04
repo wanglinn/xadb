@@ -136,7 +136,7 @@ ExecInitParamTuplestoreScan(ParamTuplestoreScan *node, EState *estate, int eflag
 	scanstate->ScanNext = (ExecScanAccessMtd)ParamTuplestoreScanInit;
 	scanstate->ss.ps.ExecProcNode = ExecParamTuplestoreScan;
 
-	scanstate->tupdesc = CreateTemplateTupleDesc(list_length(node->vars), false);
+	scanstate->tupdesc = CreateTemplateTupleDesc(list_length(node->vars));
 	attno = 0;
 	foreach(lc, node->vars)
 	{
@@ -158,7 +158,7 @@ ExecInitParamTuplestoreScan(ParamTuplestoreScan *node, EState *estate, int eflag
 	ExecAssignExprContext(estate, &scanstate->ss.ps);
 
 	/* and create slot with the appropriate rowtype */
-	ExecInitScanTupleSlot(estate, &scanstate->ss, scanstate->tupdesc);
+	ExecInitScanTupleSlot(estate, &scanstate->ss, scanstate->tupdesc, &TTSOpsMinimalTuple);
 
 	/*
 	 * initialize child expressions
@@ -169,7 +169,7 @@ ExecInitParamTuplestoreScan(ParamTuplestoreScan *node, EState *estate, int eflag
 	 * Initialize result tuple type and projection info.
 	 * The scan tuple type is specified for the tuplestore.
 	 */
-	ExecInitResultTupleSlotTL(estate, &scanstate->ss.ps);
+	ExecInitResultTupleSlotTL(&scanstate->ss.ps, &TTSOpsVirtual);
 	ExecConditionalAssignProjectionInfo(&scanstate->ss.ps, scanstate->tupdesc, node->scan.scanrelid);
 
 	return scanstate;

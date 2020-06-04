@@ -8,7 +8,7 @@
  *
  * This code is released under the terms of the PostgreSQL License.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/test/regress/pg_regress.c
@@ -31,11 +31,13 @@
 
 #include "pg_regress.h"
 
+#include "common/logging.h"
 #include "common/restricted_token.h"
 #include "common/username.h"
 #include "getopt_long.h"
 #include "libpq/pqcomm.h"		/* needed for UNIXSOCK_PATH() */
 #include "pg_config_paths.h"
+#include "portability/instr_time.h"
 
 #ifdef ADB
 /*
@@ -81,10 +83,10 @@ static char *shellprog = SHELLPROG;
  */
 #ifndef WIN32
 const char *basic_diff_opts = "";
-const char *pretty_diff_opts = "-C3";
+const char *pretty_diff_opts = "-U3";
 #else
 const char *basic_diff_opts = "-w";
-const char *pretty_diff_opts = "-w -C3";
+const char *pretty_diff_opts = "-w -U3";
 #endif
 
 /* options settable from command line */
@@ -1632,7 +1634,9 @@ initialize_environment(void)
 	load_resultmap();
 }
 
-pg_attribute_unused()
+#ifdef ENABLE_SSPI
+
+/* support for config_sspi_auth() */
 static const char *
 fmtHba(const char *raw)
 {
@@ -1655,7 +1659,6 @@ fmtHba(const char *raw)
 	return ret;
 }
 
-#ifdef ENABLE_SSPI
 /*
  * Get account and domain/realm names for the current user.  This is based on
  * pg_SSPI_recvauth().  The returned strings use static storage.
@@ -1715,13 +1718,15 @@ current_windows_user(const char **acct, const char **dom)
  * Rewrite pg_hba.conf and pg_ident.conf to use SSPI authentication.  Permit
  * the current OS user to authenticate as the bootstrap superuser and as any
  * user named in a --create-role option.
+ *
+ * In --config-auth mode, the --user switch can be used to specify the
+ * bootstrap superuser's name, otherwise we assume it is the default.
  */
 static void
-config_sspi_auth(const char *pgdata)
+config_sspi_auth(const char *pgdata, const char *superuser_name)
 {
 	const char *accountname,
 			   *domainname;
-	const char *username;
 	char	   *errstr;
 	bool		have_ipv6;
 	char		fname[MAXPGPATH];
@@ -1730,17 +1735,25 @@ config_sspi_auth(const char *pgdata)
 			   *ident;
 	_stringlist *sl;
 
-	/*
-	 * "username", the initdb-chosen bootstrap superuser name, may always
-	 * match "accountname", the value SSPI authentication discovers.  The
-	 * underlying system functions do not clearly guarantee that.
-	 */
+	/* Find out the name of the current OS user */
 	current_windows_user(&accountname, &domainname);
-	username = get_user_name(&errstr);
-	if (username == NULL)
+
+	/* Determine the bootstrap superuser's name */
+	if (superuser_name == NULL)
 	{
-		fprintf(stderr, "%s: %s\n", progname, errstr);
-		exit(2);
+		/*
+		 * Compute the default superuser name the same way initdb does.
+		 *
+		 * It's possible that this result always matches "accountname", the
+		 * value SSPI authentication discovers.  But the underlying system
+		 * functions do not clearly guarantee that.
+		 */
+		superuser_name = get_user_name(&errstr);
+		if (superuser_name == NULL)
+		{
+			fprintf(stderr, "%s: %s\n", progname, errstr);
+			exit(2);
+		}
 	}
 
 	/*
@@ -1777,7 +1790,7 @@ config_sspi_auth(const char *pgdata)
 	} while (0)
 
 	res = snprintf(fname, sizeof(fname), "%s/pg_hba.conf", pgdata);
-	if (res < 0 || res >= sizeof(fname) - 1)
+	if (res < 0 || res >= sizeof(fname))
 	{
 		/*
 		 * Truncating this name is a fatal error, because we must not fail to
@@ -1817,13 +1830,14 @@ config_sspi_auth(const char *pgdata)
 	 * bother escaping embedded double-quote characters.
 	 */
 	CW(fprintf(ident, "regress  \"%s@%s\"  %s\n",
-			   accountname, domainname, fmtHba(username)) >= 0);
+			   accountname, domainname, fmtHba(superuser_name)) >= 0);
 	for (sl = extraroles; sl; sl = sl->next)
 		CW(fprintf(ident, "regress  \"%s@%s\"  %s\n",
 				   accountname, domainname, fmtHba(sl->str)) >= 0);
 	CW(fclose(ident) == 0);
 }
-#endif
+
+#endif							/* ENABLE_SSPI */
 
 /*
  * Issue a command via psql, connecting to the specified database
@@ -1926,7 +1940,7 @@ spawn_process(const char *cmdline)
 	cmdline2 = psprintf("cmd /c \"%s\"", cmdline);
 
 	if ((restrictedToken =
-		 CreateRestrictedProcess(cmdline2, &pi, progname)) == 0)
+		 CreateRestrictedProcess(cmdline2, &pi)) == 0)
 		exit(2);
 
 	CloseHandle(pi.hThread);
@@ -2206,19 +2220,22 @@ results_differ(const char *testname, const char *resultsfile, const char *defaul
 	 * Use the best comparison file to generate the "pretty" diff, which we
 	 * append to the diffs summary file.
 	 */
-	snprintf(cmd, sizeof(cmd),
-			 "diff %s \"%s\" \"%s\" >> \"%s\"",
-			 pretty_diff_opts, best_expect_file, resultsfile, difffilename);
-	run_diff(cmd, difffilename);
 
-	/* And append a separator */
+	/* Write diff header */
 	difffile = fopen(difffilename, "a");
 	if (difffile)
 	{
 		fprintf(difffile,
-				"\n======================================================================\n\n");
+				"diff %s %s %s\n",
+				pretty_diff_opts, best_expect_file, resultsfile);
 		fclose(difffile);
 	}
+
+	/* Run diff */
+	snprintf(cmd, sizeof(cmd),
+			 "diff %s \"%s\" \"%s\" >> \"%s\"",
+			 pretty_diff_opts, best_expect_file, resultsfile, difffilename);
+	run_diff(cmd, difffilename);
 
 	unlink(diff);
 	return true;
@@ -2226,14 +2243,15 @@ results_differ(const char *testname, const char *resultsfile, const char *defaul
 
 /*
  * Wait for specified subprocesses to finish, and return their exit
- * statuses into statuses[]
+ * statuses into statuses[] and stop times into stoptimes[]
  *
  * If names isn't NULL, print each subprocess's name as it finishes
  *
  * Note: it's OK to scribble on the pids array, but not on the names array
  */
 static void
-wait_for_tests(PID_TYPE * pids, int *statuses, char **names, int num_tests)
+wait_for_tests(PID_TYPE * pids, int *statuses, instr_time *stoptimes,
+			   char **names, int num_tests)
 {
 	int			tests_left;
 	int			i;
@@ -2286,6 +2304,7 @@ wait_for_tests(PID_TYPE * pids, int *statuses, char **names, int num_tests)
 #endif
 				pids[i] = INVALID_PID;
 				statuses[i] = (int) exit_status;
+				INSTR_TIME_SET_CURRENT(stoptimes[i]);
 				if (names)
 					status(" %s", names[i]);
 				tests_left--;
@@ -2313,14 +2332,9 @@ log_child_failure(int exitstatus)
 #if defined(WIN32)
 		status(_(" (test process was terminated by exception 0x%X)"),
 			   WTERMSIG(exitstatus));
-#elif defined(HAVE_DECL_SYS_SIGLIST) && HAVE_DECL_SYS_SIGLIST
-		status(_(" (test process was terminated by signal %d: %s)"),
-			   WTERMSIG(exitstatus),
-			   WTERMSIG(exitstatus) < NSIG ?
-			   sys_siglist[WTERMSIG(exitstatus)] : "(unknown))");
 #else
-		status(_(" (test process was terminated by signal %d)"),
-			   WTERMSIG(exitstatus));
+		status(_(" (test process was terminated by signal %d: %s)"),
+			   WTERMSIG(exitstatus), pg_strsignal(WTERMSIG(exitstatus)));
 #endif
 	}
 	else
@@ -2340,6 +2354,8 @@ run_schedule(const char *schedule, test_function tfunc)
 	_stringlist *expectfiles[MAX_PARALLEL_TESTS];
 	_stringlist *tags[MAX_PARALLEL_TESTS];
 	PID_TYPE	pids[MAX_PARALLEL_TESTS];
+	instr_time	starttimes[MAX_PARALLEL_TESTS];
+	instr_time	stoptimes[MAX_PARALLEL_TESTS];
 	int			statuses[MAX_PARALLEL_TESTS];
 	_stringlist *ignorelist = NULL;
 	char		scbuf[1024];
@@ -2445,7 +2461,8 @@ run_schedule(const char *schedule, test_function tfunc)
 		{
 			status(_("test %-28s ... "), tests[0]);
 			pids[0] = (tfunc) (tests[0], &resultfiles[0], &expectfiles[0], &tags[0]);
-			wait_for_tests(pids, statuses, NULL, 1);
+			INSTR_TIME_SET_CURRENT(starttimes[0]);
+			wait_for_tests(pids, statuses, stoptimes, NULL, 1);
 			/* status line is finished below */
 		}
 		else if (max_concurrent_tests > 0 && max_concurrent_tests < num_tests)
@@ -2465,12 +2482,15 @@ run_schedule(const char *schedule, test_function tfunc)
 				if (i - oldest >= max_connections)
 				{
 					wait_for_tests(pids + oldest, statuses + oldest,
+								   stoptimes + oldest,
 								   tests + oldest, i - oldest);
 					oldest = i;
 				}
 				pids[i] = (tfunc) (tests[i], &resultfiles[i], &expectfiles[i], &tags[i]);
+				INSTR_TIME_SET_CURRENT(starttimes[i]);
 			}
 			wait_for_tests(pids + oldest, statuses + oldest,
+						   stoptimes + oldest,
 						   tests + oldest, i - oldest);
 			status_end();
 		}
@@ -2480,8 +2500,9 @@ run_schedule(const char *schedule, test_function tfunc)
 			for (i = 0; i < num_tests; i++)
 			{
 				pids[i] = (tfunc) (tests[i], &resultfiles[i], &expectfiles[i], &tags[i]);
+				INSTR_TIME_SET_CURRENT(starttimes[i]);
 			}
-			wait_for_tests(pids, statuses, tests, num_tests);
+			wait_for_tests(pids, statuses, stoptimes, tests, num_tests);
 			status_end();
 		}
 
@@ -2544,12 +2565,15 @@ run_schedule(const char *schedule, test_function tfunc)
 			}
 			else
 			{
-				status(_("ok"));
+				status(_("ok    "));	/* align with FAILED */
 				success_count++;
 			}
 
 			if (statuses[i] != 0)
 				log_child_failure(statuses[i]);
+
+			INSTR_TIME_SUBTRACT(stoptimes[i], starttimes[i]);
+			status(_(" %8.0f ms"), INSTR_TIME_GET_MILLISEC(stoptimes[i]));
 
 			status_end();
 		}
@@ -2576,6 +2600,8 @@ static void
 run_single_test(const char *test, test_function tfunc)
 {
 	PID_TYPE	pid;
+	instr_time	starttime;
+	instr_time	stoptime;
 	int			exit_status;
 	_stringlist *resultfiles = NULL;
 	_stringlist *expectfiles = NULL;
@@ -2587,7 +2613,8 @@ run_single_test(const char *test, test_function tfunc)
 
 	status(_("test %-28s ... "), test);
 	pid = (tfunc) (test, &resultfiles, &expectfiles, &tags);
-	wait_for_tests(&pid, &exit_status, NULL, 1);
+	INSTR_TIME_SET_CURRENT(starttime);
+	wait_for_tests(&pid, &exit_status, &stoptime, NULL, 1);
 
 	/*
 	 * Advance over all three lists simultaneously.
@@ -2618,12 +2645,15 @@ run_single_test(const char *test, test_function tfunc)
 	}
 	else
 	{
-		status(_("ok"));
+		status(_("ok    "));	/* align with FAILED */
 		success_count++;
 	}
 
 	if (exit_status != 0)
 		log_child_failure(exit_status);
+
+	INSTR_TIME_SUBTRACT(stoptime, starttime);
+	status(_(" %8.0f ms"), INSTR_TIME_GET_MILLISEC(stoptime));
 
 	status_end();
 }
@@ -2790,7 +2820,7 @@ help(void)
 	printf(_("The exit status is 0 if all tests passed, 1 if some tests failed, and 2\n"));
 	printf(_("if the tests could not be run for some reason.\n"));
 	printf(_("\n"));
-	printf(_("Report bugs to <pgsql-bugs@postgresql.org>.\n"));
+	printf(_("Report bugs to <pgsql-bugs@lists.postgresql.org>.\n"));
 }
 
 int
@@ -2833,8 +2863,11 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 	char		buf2[MAXPGPATH * 4];
 #endif
 
+	pg_logging_init(argv[0]);
 	progname = get_progname(argv[0]);
 	set_pglocale_pgservice(argv[0], PG_TEXTDOMAIN("pg_regress"));
+
+	get_restricted_token();
 
 	atexit(stop_postmaster);
 
@@ -2963,7 +2996,7 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 	if (config_auth_datadir)
 	{
 #ifdef ENABLE_SSPI
-		config_sspi_auth(config_auth_datadir);
+		config_sspi_auth(config_auth_datadir, user);
 #endif
 		exit(0);
 	}
@@ -3122,7 +3155,7 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 		 * "initdb" command, this can't truncate.
 		 */
 		snprintf(buf, sizeof(buf), "%s/data", temp_instance);
-		config_sspi_auth(buf);
+		config_sspi_auth(buf, NULL);
 #elif !defined(HAVE_UNIX_SOCKETS)
 #error Platform has no means to secure the test installation.
 #endif
@@ -3244,7 +3277,7 @@ regression_main(int argc, char *argv[], init_function ifunc, test_function tfunc
 			 * Fail immediately if postmaster has exited
 			 */
 #ifndef WIN32
-			if (kill(postmaster_pid, 0) != 0)
+			if (waitpid(postmaster_pid, NULL, WNOHANG) == postmaster_pid)
 #else
 			if (WaitForSingleObject(postmaster_pid, 0) == WAIT_OBJECT_0)
 #endif

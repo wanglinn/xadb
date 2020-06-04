@@ -59,7 +59,7 @@ ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, ES
 	/*
 	 * Initialize result slot, type and projection.
 	 */
-	ExecInitResultTupleSlotTL(estate, &ps->ps);
+	ExecInitResultTupleSlotTL(&ps->ps, &TTSOpsMinimalTuple);
 	ExecConditionalAssignProjectionInfo(&ps->ps, tupDesc, OUTER_VAR);
 
 	ps->nkeys = node->numCols;
@@ -86,7 +86,7 @@ ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, ES
 	ps->slots = palloc0(sizeof(ps->slots[0]) * (nremote+1));
 	for(i=0;i<nremote;++i)
 	{
-		ps->slots[i] = ExecAllocTableSlot(&estate->es_tupleTable, tupDesc);
+		ps->slots[i] = ExecAllocTableSlot(&estate->es_tupleTable, tupDesc, &TTSOpsMinimalTuple);
 	}
 
 	if((eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0)

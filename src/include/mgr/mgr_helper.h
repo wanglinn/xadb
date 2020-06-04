@@ -91,7 +91,6 @@ typedef struct PGConfParameterItem
 typedef struct MgrHostWrapper
 {
 	FormData_mgr_host form;
-	Oid oid;
 	char *hostaddr;
 	char *hostadbhome;
 	dlist_node link;

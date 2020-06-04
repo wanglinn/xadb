@@ -1,12 +1,3 @@
-#undef NO_STRUCT_GenericIndexOpts
-#undef NO_STRUCT_AutoVacOpts
-#undef NO_STRUCT_StdRdOptions
-#undef NO_STRUCT_ViewOptions
-#undef NO_STRUCT_ParamExternData
-#undef NO_STRUCT_ParamListInfoData
-#undef NO_STRUCT_ReduceKeyInfo
-#undef NO_STRUCT_ReduceInfo
-#undef NO_STRUCT_PartitionPruneStep
 #undef NO_STRUCT_QualCost
 #undef NO_STRUCT_AggClauseCosts
 #undef NO_STRUCT_PartitionSchemeData
@@ -14,6 +5,7 @@
 #undef NO_STRUCT_SemiAntiJoinFactors
 #undef NO_STRUCT_JoinPathExtraData
 #undef NO_STRUCT_JoinCostWorkspace
+#undef NO_STRUCT_PartitionPruneStep
 #undef NO_STRUCT_ExprContext_CB
 #undef NO_STRUCT_ExecRowMark
 #undef NO_STRUCT_ExecAuxRowMark
@@ -35,3 +27,10 @@
 #undef NO_STRUCT_RelationLocInfo
 #undef NO_STRUCT_LockRelId
 #undef NO_STRUCT_LockInfoData
+#undef NO_STRUCT_AutoVacOpts
+#undef NO_STRUCT_StdRdOptions
+#undef NO_STRUCT_ViewOptions
+#undef NO_STRUCT_ParamExternData
+#undef NO_STRUCT_ParamListInfoData
+#undef NO_STRUCT_ReduceKeyInfo
+#undef NO_STRUCT_ReduceInfo

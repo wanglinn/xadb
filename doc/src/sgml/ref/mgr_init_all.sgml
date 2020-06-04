@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_init_all.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-INITALL">
+<refentry id="mgr-initall">
   <refmeta>
     <refentrytitle>INIT ALL</refentrytitle>
     <manvolnum>7</manvolnum>

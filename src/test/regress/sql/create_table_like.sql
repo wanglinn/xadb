@@ -51,6 +51,20 @@ INSERT INTO test_like_id_3 (b) VALUES ('b3');
 SELECT * FROM test_like_id_3;  -- identity was copied and applied
 DROP TABLE test_like_id_1, test_like_id_2, test_like_id_3;
 
+CREATE TABLE test_like_gen_1 (a int, b int GENERATED ALWAYS AS (a * 2) STORED);
+\d test_like_gen_1
+INSERT INTO test_like_gen_1 (a) VALUES (1);
+SELECT * FROM test_like_gen_1;
+CREATE TABLE test_like_gen_2 (LIKE test_like_gen_1);
+\d test_like_gen_2
+INSERT INTO test_like_gen_2 (a) VALUES (1);
+SELECT * FROM test_like_gen_2;
+CREATE TABLE test_like_gen_3 (LIKE test_like_gen_1 INCLUDING GENERATED);
+\d test_like_gen_3
+INSERT INTO test_like_gen_3 (a) VALUES (1);
+SELECT * FROM test_like_gen_3;
+DROP TABLE test_like_gen_1, test_like_gen_2, test_like_gen_3;
+
 CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, y text) DISTRIBUTE BY REPLICATION; /* copies indexes */
 INSERT INTO inhg VALUES (5, 10);
 INSERT INTO inhg VALUES (20, 10); -- should fail
@@ -136,19 +150,3 @@ DROP SEQUENCE ctlseq1;
 DROP TYPE ctlty1;
 DROP VIEW ctlv1;
 DROP TABLE IF EXISTS ctlt4, ctlt10, ctlt11, ctlt11a, ctlt12;
-
-/* LIKE WITH OIDS */
-CREATE TABLE has_oid (x INTEGER) WITH OIDS;
-CREATE TABLE no_oid (y INTEGER);
-CREATE TABLE like_test (z INTEGER, LIKE has_oid);
-SELECT oid FROM like_test;
-CREATE TABLE like_test2 (z INTEGER, LIKE no_oid);
-SELECT oid FROM like_test2; -- fail
-CREATE TABLE like_test3 (z INTEGER, LIKE has_oid, LIKE no_oid);
-SELECT oid FROM like_test3;
-CREATE TABLE like_test4 (z INTEGER, PRIMARY KEY(oid), LIKE has_oid) distribute by replication;
-SELECT oid FROM like_test4;
-CREATE TABLE like_test5 (z INTEGER, LIKE no_oid) WITH OIDS;
-SELECT oid FROM like_test5;
-DROP TABLE has_oid, no_oid, like_test, like_test2, like_test3,
-  like_test4, like_test5;

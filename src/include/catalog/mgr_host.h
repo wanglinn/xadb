@@ -5,10 +5,10 @@
 #include "catalog/genbki.h"
 #include "catalog/mgr_host_d.h"
 
-#define HostRelationId 4802
-
 CATALOG(mgr_host,4802,HostRelationId)
 {
+	Oid			oid;			/* oid */
+
 	/* host name */
 	NameData	hostname;
 

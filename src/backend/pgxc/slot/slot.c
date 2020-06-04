@@ -9,7 +9,9 @@
 
 #include "postgres.h"
 
+#include "access/genam.h"
 #include "access/htup_details.h"
+#include "access/table.h"
 #include "catalog/adb_slot.h"
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
@@ -320,7 +322,7 @@ SlotCreate(CreateSlotStmt *stmt)
 		values[i] = (Datum) 0;
 	}
 
-	adbslotsrel = heap_open(AdbSlotRelationId, RowExclusiveLock);
+	adbslotsrel = table_open(AdbSlotRelationId, RowExclusiveLock);
 	if (!RelationIsValid(adbslotsrel))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_TABLE),
@@ -342,7 +344,7 @@ SlotCreate(CreateSlotStmt *stmt)
 	CatalogTupleInsert(adbslotsrel, htup);
 
 	/* lock relation until transaction end */
-	heap_close(adbslotsrel, NoLock);
+	table_close(adbslotsrel, NoLock);
 }
 
 
@@ -368,7 +370,7 @@ SlotAlter(AlterSlotStmt *stmt)
 				 errmsg("must be superuser to change slot")));
 
 	/* Look at the node tuple, and take exclusive lock on it */
-	rel = heap_open(AdbSlotRelationId, RowExclusiveLock);
+	rel = table_open(AdbSlotRelationId, RowExclusiveLock);
 	if (!RelationIsValid(rel))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_TABLE),
@@ -412,7 +414,7 @@ SlotAlter(AlterSlotStmt *stmt)
 	CatalogTupleUpdate(rel, &oldtup->t_self, newtup);
 
 	/* lock relation until transaction end */
-	heap_close(rel, NoLock);
+	table_close(rel, NoLock);
 }
 
 
@@ -430,7 +432,7 @@ SlotRemove(DropSlotStmt *stmt)
 				 errmsg("must be superuser to change slot")));
 
 	/* Look at the node tuple, and take exclusive lock on it */
-	rel = heap_open(AdbSlotRelationId, RowExclusiveLock);
+	rel = table_open(AdbSlotRelationId, RowExclusiveLock);
 	if (!RelationIsValid(rel))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_TABLE),
@@ -443,7 +445,7 @@ SlotRemove(DropSlotStmt *stmt)
 	CatalogTupleDelete(rel, &tup->t_self);
 
 	/* lock relation until transaction end */
-	heap_close(rel, NoLock);
+	table_close(rel, NoLock);
 }
 
 void SlotFlush(FlushSlotStmt* stmt)
@@ -607,7 +609,7 @@ SlotUploadFromCurrentDB(void)
 	load_slotnode = palloc(sizeof(*load_slotnode)*HASHMAP_SLOTSIZE);
 	load_slotstatus = palloc(sizeof(*load_slotstatus)*HASHMAP_SLOTSIZE);
 
-	rel = heap_open(AdbSlotRelationId, AccessShareLock);
+	rel = table_open(AdbSlotRelationId, AccessShareLock);
 	if (!RelationIsValid(rel))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_TABLE),
@@ -654,7 +656,7 @@ SlotUploadFromCurrentDB(void)
 	systable_endscan(scan);
 
 	/* lock relation until transaction end */
-	heap_close(rel, NoLock);
+	table_close(rel, NoLock);
 
 	if (last_slotid != HASHMAP_SLOTSIZE)
 	{

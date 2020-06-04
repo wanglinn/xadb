@@ -157,10 +157,11 @@ bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struc
 			desc = restore_slot_head_message(msg+1, len-1);
 			if(state->ps)
 			{
-				state->convert_slot = ExecInitExtraTupleSlot(state->ps->state, desc);
+				state->convert_slot = ExecInitExtraTupleSlot(state->ps->state, desc, &TTSOpsMinimalTuple);
+				state->convert_slot_is_single = false;
 			}else
 			{
-				state->convert_slot = MakeSingleTupleTableSlot(desc);
+				state->convert_slot = MakeSingleTupleTableSlot(desc, &TTSOpsMinimalTuple);
 				state->convert_slot_is_single = true;
 			}
 			state->convert = create_type_convert(state->base_slot->tts_tupleDescriptor,
@@ -293,7 +294,7 @@ static void cluster_receive_startup(DestReceiver *self, int operation, TupleDesc
 	r->convert = create_type_convert(typeinfo, true, false);
 	if(r->convert)
 	{
-		r->convert_slot = MakeSingleTupleTableSlot(r->convert->out_desc);
+		r->convert_slot = MakeSingleTupleTableSlot(r->convert->out_desc, &TTSOpsVirtual);
 		resetStringInfo(&r->buf);
 		serialize_slot_convert_head(&r->buf, r->convert->out_desc);
 		pq_putmessage('d', r->buf.data, r->buf.len);
@@ -349,11 +350,14 @@ static ClusterRecvState *createClusterRecvStateEx(TupleTableSlot *slot, PlanStat
 		state->slot_need_copy_datum = need_copy;
 		if (ps)
 		{
-			state->convert_slot = ExecInitExtraTupleSlot(ps->state, state->convert->out_desc);
+			state->convert_slot = ExecInitExtraTupleSlot(ps->state,
+														 state->convert->out_desc,
+														 &TTSOpsMinimalTuple);
 			state->convert_slot_is_single = false;
 		}else
 		{
-			state->convert_slot = MakeSingleTupleTableSlot(state->convert->out_desc);
+			state->convert_slot = MakeSingleTupleTableSlot(state->convert->out_desc,
+														   &TTSOpsMinimalTuple);
 			state->convert_slot_is_single = true;
 		}
 	}
@@ -376,13 +380,9 @@ void freeClusterRecvState(ClusterRecvState *state)
 {
 	if(state)
 	{
-		if(state->convert_slot)
-		{
-			if(state->convert_slot_is_single)
-				ExecDropSingleTupleTableSlot(state->convert_slot);
-			else
-				state->convert_slot->tts_tupleDescriptor = NULL;
-		}
+		if (state->convert_slot &&
+			state->convert_slot_is_single)
+			ExecDropSingleTupleTableSlot(state->convert_slot);
 		if(state->convert)
 			free_type_convert(state->convert);
 		pfree(state);
@@ -449,7 +449,6 @@ void serialize_tuple_desc(StringInfo buf, TupleDesc desc, char msg_type)
 
 	natts = desc->natts;
 	appendStringInfoChar(buf, msg_type);
-	appendStringInfoChar(buf, desc->tdhasoid);
 	appendBinaryStringInfo(buf, (char*)&desc->natts, sizeof(desc->natts));
 	for(i=0;i<natts;++i)
 	{
@@ -487,15 +486,7 @@ void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 				 errmsg("invalid message length")));
 	}
 
-	if(desc->tdhasoid != (bool)msg[0])
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_DATA_CORRUPTED),
-				 errmsg("diffent TupleDesc of has Oid"),
-				 errdetail("local is %d, remote is %d", desc->tdhasoid, msg[0])));
-	}
-
-	memcpy(&nattr, msg+1, sizeof(nattr));
+	memcpy(&nattr, msg, sizeof(nattr));
 	if (desc->natts != nattr)
 	{
 		ereport(ERROR,
@@ -506,7 +497,7 @@ void compare_slot_head_message(const char *msg, int len, TupleDesc desc)
 
 	buf.data = (char*)msg;
 	buf.maxlen = buf.len = len;
-	buf.cursor = (sizeof(bool)+sizeof(int));
+	buf.cursor = sizeof(int);
 	for(i=0;i<desc->natts;++i)
 	{
 		isdropped = (bool)pq_getmsgbyte(&buf);
@@ -556,18 +547,17 @@ TupleDesc restore_slot_head_message_str(StringInfo buf)
 	const char *attributeName;
 	int32 typmod;
 	int attdim;
-	bool bval;
+	bool isdropped;
 
-	bval = (bool)pq_getmsgbyte(buf);
 	pq_copymsgbytes(buf, (char*)&i, sizeof(i));
 
-	desc = CreateTemplateTupleDesc(i, bval);
+	desc = CreateTemplateTupleDesc(i);
 
 	for(i=1;i<=desc->natts;++i)
 	{
-		bval = (bool)pq_getmsgbyte(buf);
+		isdropped = (bool)pq_getmsgbyte(buf);
 
-		if (bval)
+		if (isdropped)
 		{
 			/* like function RemoveAttributeById */
 			Form_pg_attribute attr = TupleDescAttr(desc, i-1);
@@ -654,16 +644,6 @@ MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup)
 			}
 		}
 		tup = heap_form_minimal_tuple(desc, values, slot->tts_isnull);
-		if (slot->tts_tupleDescriptor->tdhasoid)
-		{
-			HeapTupleHeader header;
-			Oid oid = ExecFetchSlotTupleOid(slot);
-			if (OidIsValid(oid))
-			{
-				header = (HeapTupleHeader)((char*)tup - MINIMAL_TUPLE_OFFSET);
-				HeapTupleHeaderSetOid(header, oid);
-			}
-		}
 		*need_free_tup = true;
 
 		/* clear resource */
@@ -676,8 +656,7 @@ MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup)
 		MemoryContextSwitchTo(old_context);
 	}else
 	{
-		tup = ExecFetchSlotMinimalTuple(slot);
-		*need_free_tup = false;
+		tup = ExecFetchSlotMinimalTuple(slot, need_free_tup);
 	}
 	return tup;
 }

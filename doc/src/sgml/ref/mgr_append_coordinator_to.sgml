@@ -3,7 +3,7 @@ doc/src/sgml/ref/mgr_append_coordinator_to.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-APPENDCOORDINATORTO">
+<refentry id="mgr-appendcoordinatorto">
   <refmeta>
     <refentrytitle>APPEND COORDINATOR FOR</refentrytitle>
     <manvolnum>7</manvolnum>
