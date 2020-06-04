@@ -47,6 +47,12 @@ RelationPutHeapTuple(Relation relation,
 	 */
 	Assert(!token || HeapTupleHeaderIsSpeculative(tuple->t_data));
 
+#ifdef ADB
+	if (relation->rd_clean &&
+		CanInsertIntoExpansionRel(relation->rd_clean, BufferGetBlockNumber(buffer)) == false)
+		elog(PANIC, "can not into before expansion block for relation \"%s\"", RelationGetRelationName(relation));
+#endif /* ADB */
+
 	/* Add the tuple to the page */
 	pageHeader = BufferGetPage(buffer);
 
@@ -323,6 +329,9 @@ RelationGetBufferForTuple(Relation relation, Size len,
 	BlockNumber targetBlock,
 				otherBlock;
 	bool		needLock;
+#ifdef ADB
+	BlockNumber skip_bn;
+#endif
 
 	len = MAXALIGN(len);		/* be conservative */
 
@@ -384,12 +393,20 @@ RelationGetBufferForTuple(Relation relation, Size len,
 		 * give up and extend.  This avoids one-tuple-per-page syndrome during
 		 * bootstrapping or in a recently-started system.
 		 */
+#ifdef ADB
+		skip_bn = GetExpansionInsertLimitBlock(relation->rd_clean);
+#endif
 		if (targetBlock == InvalidBlockNumber)
 		{
 			BlockNumber nblocks = RelationGetNumberOfBlocks(relation);
 
 			if (nblocks > 0)
 				targetBlock = nblocks - 1;
+			
+#ifdef ADB
+			if (skip_bn != InvalidBlockNumber && targetBlock < skip_bn)
+				targetBlock = InvalidBlockNumber;
+#endif
 		}
 	}
 
@@ -514,6 +531,16 @@ loop:
 													targetBlock,
 													pageFreeSpace,
 													len + saveFreeSpace);
+		
+#ifdef ADB
+		skip_bn = GetExpansionInsertLimitBlock(relation->rd_clean);
+		if (skip_bn != InvalidBlockNumber && (targetBlock < skip_bn || targetBlock == InvalidBlockNumber))
+		{
+			targetBlock = GetPageWithFreeSpace(relation, len + saveFreeSpace);
+			if (targetBlock == InvalidBlockNumber)
+				break;
+		}
+#endif
 	}
 
 	/*

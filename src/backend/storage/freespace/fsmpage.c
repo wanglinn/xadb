@@ -156,7 +156,7 @@ fsm_get_max_avail(Page page)
  */
 int
 fsm_search_avail(Buffer buf, uint8 minvalue, bool advancenext,
-				 bool exclusive_lock_held)
+				 bool exclusive_lock_held ADB_GRAM_ORA_COMMA_ARG(bool skip_flag))
 {
 	Page		page = BufferGetPage(buf);
 	FSMPage		fsmpage = (FSMPage) PageGetContents(page);
@@ -244,7 +244,15 @@ restart:
 	 */
 	while (nodeno < NonLeafNodesPerPage)
 	{
+#ifdef ADB
+		int			childnodeno;
+		if (skip_flag)
+			childnodeno = rightchild(nodeno);
+		else
+			childnodeno = leftchild(nodeno);
+#else
 		int			childnodeno = leftchild(nodeno);
+#endif
 
 		if (childnodeno < NodesPerPage &&
 			fsmpage->fp_nodes[childnodeno] >= minvalue)
@@ -252,6 +260,11 @@ restart:
 			nodeno = childnodeno;
 			continue;
 		}
+#ifdef ADB
+		if(skip_flag)
+			childnodeno--;		/* point to left child */
+		else
+#endif
 		childnodeno++;			/* point to right child */
 		if (childnodeno < NodesPerPage &&
 			fsmpage->fp_nodes[childnodeno] >= minvalue)

@@ -4,6 +4,7 @@
 #include "access/heapam_xlog.h"
 #include "access/htup_details.h"
 #include "access/relscan.h"
+#include "access/sysattr.h"
 #include "access/xact.h"
 #include "catalog/adb_clean.h"
 #include "catalog/indexing.h"
@@ -28,7 +29,8 @@
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/reduceinfo.h"
-#include "parser/parse_node.h"
+#include "optimizer/var.h"
+#include "parser/parse_coerce.h"
 #include "postmaster/bgworker.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
@@ -95,6 +97,7 @@ typedef struct ExpansionClean
 	ExprContext	   *econtext;
 	TupleTableSlot *slot;
 	BlockNumber		max_block;
+	bool			limit_insert;
 }ExpansionClean;
 
 static void CreateSHMQPipe(dsm_segment *seg, shm_mq_handle** mqh_sender, shm_mq_handle **mqh_receiver, bool is_worker)
@@ -924,6 +927,22 @@ static OpExpr* makeInt4Equal(Expr *l, int32 n)
 	return op;
 }
 
+static void SendCleanExprMsg(shm_mq_handle *mq, StringInfo buf, Expr *clean_expr, Oid reloid, Oid dboid)
+{
+	Assert(OidIsValid(reloid) && OidIsValid(dboid));
+	Assert(clean_expr != NULL);
+
+	resetStringInfo(buf);
+	appendStringInfoChar(buf, EW_KEY_CLASS_RELATION);
+	appendBinaryStringInfoNT(buf, (char*)&dboid, sizeof(Oid));
+	appendStringInfoChar(buf, EW_KEY_CLASS_RELATION);
+	save_oid_class(buf, reloid);
+
+	saveNode(buf, (Node*)clean_expr);
+	if (shm_mq_send(mq, buf->len, buf->data, false) != SHM_MQ_SUCCESS)
+		ereport(ERROR, (errmsg("send clean message to main worker result detached")));
+}
+
 static void ExpansionHashMakeClean(Form_pgxc_class new_class, List *new_values, List *expansion, shm_mq_handle *mq)
 {
 	Relation		rel;
@@ -956,12 +975,6 @@ static void ExpansionHashMakeClean(Form_pgxc_class new_class, List *new_values, 
 		{
 			oid = lfirst_oid(lc2);
 
-			resetStringInfo(&msg);
-			appendStringInfoChar(&msg, EW_KEY_CLASS_RELATION);
-			appendBinaryStringInfoNT(&msg, (char*)&oid, sizeof(oid));	/* datanode Oid */
-			appendStringInfoChar(&msg, EW_KEY_CLASS_RELATION);
-			save_oid_class(&msg, new_class->pcrelid);
-
 			clean_expr = NULL;
 			for (i=0;i<new_class->nodeoids.dim1;++i)
 			{
@@ -983,9 +996,7 @@ static void ExpansionHashMakeClean(Form_pgxc_class new_class, List *new_values, 
 			}
 			Assert(i<new_class->nodeoids.dim1);
 			Assert(clean_expr != NULL);
-			saveNode(&msg, (Node*)clean_expr);
-			if (shm_mq_send(mq, msg.len, msg.data, false) != SHM_MQ_SUCCESS)
-				ereport(ERROR, (errmsg("send clean message to main worker result detached")));
+			SendCleanExprMsg(mq, &msg, clean_expr, new_class->pcrelid, oid);
 		}
 	}
 
@@ -1004,9 +1015,68 @@ static void ExpansionHash(Form_pgxc_class form_class, HeapTuple tup, List *expan
 	heap_freetuple(new_tup);
 }
 
-static void ExpansionRandom(Form_pgxc_class form_class, HeapTuple tup, List *expansion, shm_mq_handle *mq)
+static void ExpansionRandom(Form_pgxc_class form_class, HeapTuple tup, List *expansion,
+							Relation rel_class, CatalogIndexState indstate, shm_mq_handle *mq)
 {
+	Expr		   *clean_expr;
+	Const		   *modulo_expr;
+	Const		   *equal_value;
+	ListCell	   *lc,*lc2;
+	List		   *list;
+	StringInfoData	msg;
+	int				i;
 
+	ExpansionReplicated(form_class, tup, expansion, rel_class, indstate);
+	if (!IsGTMNode())
+		return;
+
+	/* hashtext(ctid::text) */
+	clean_expr = (Expr*)makeVar(1, SelfItemPointerAttributeNumber, TIDOID, -1, InvalidOid, 0);
+	clean_expr = (Expr*)coerce_to_target_type(NULL,
+											  (Node*)clean_expr,
+											  TIDOID,
+											  TEXTOID,
+											  -1,
+											  COERCION_EXPLICIT,
+											  COERCE_EXPLICIT_CAST,
+											  -1);
+	clean_expr = (Expr*)makeFuncExpr(F_HASHTEXT,
+									 INT4OID,
+									 list_make1(clean_expr),
+									 InvalidOid,
+									 InvalidOid,
+									 COERCE_EXPLICIT_CALL);
+
+	/* modulo value, for now set 0, change when using */
+	modulo_expr = makeConst(INT4OID, -1, InvalidOid, sizeof(int32), Int32GetDatum(0), false, true);
+
+	/* hash_combin_mod(0, hash(ctid::text)) */
+	clean_expr = (Expr*)makeFuncExpr(F_HASH_COMBIN_MOD,
+									 INT4OID,
+									 list_make2(modulo_expr, clean_expr),
+									 InvalidOid,
+									 InvalidOid,
+									 COERCE_EXPLICIT_CALL);
+
+	/* hash_combin_mod(0, hash(ctid::text)) = 0 */
+	clean_expr = (Expr*)makeInt4Equal(clean_expr, 0);
+	equal_value = castNode(Const, llast(castNode(OpExpr, clean_expr)->args));
+
+	initStringInfo(&msg);
+	foreach (lc, expansion)
+	{
+		list = lfirst(lc);
+		Assert(IsA(list, OidList));
+		modulo_expr->constvalue = Int32GetDatum(list_length(list));
+		i = 0;
+		foreach (lc2, list)
+		{
+			resetStringInfo(&msg);
+			equal_value->constvalue = Int32GetDatum(i);
+			++i;
+			SendCleanExprMsg(mq, &msg, clean_expr, form_class->pcrelid, lfirst_oid(lc2));
+		}
+	}
 }
 
 static void ExpansionList(Form_pgxc_class form_class, HeapTuple tup, List *expansion, shm_mq_handle *mq)
@@ -1090,7 +1160,7 @@ static void ExpansionWorkerCoord(List *expansion_node, shm_mq_handle *mq, Memory
 			ExpansionRange(form_class, tup, expansion_rel_node, mq);
 			break;
 		case LOCATOR_TYPE_RANDOM:
-			ExpansionRandom(form_class, tup, expansion_rel_node, mq);
+			ExpansionRandom(form_class, tup, expansion_rel_node, rel_class, class_index_state, mq);
 			break;
 		case LOCATOR_TYPE_HASHMAP:
 			ExpansionHashmap(form_class, tup, expansion_rel_node, mq);
@@ -1365,6 +1435,18 @@ void ClusterExpansion(StringInfo mem_toc)
 	InvalidateSystemCaches();
 }
 
+static bool HaveItemPointerVar(Node *node, void *context)
+{
+	if (node == NULL)
+		return false;
+
+	if (IsA(node, Var) &&
+		((Var*)node)->varattno == SelfItemPointerAttributeNumber)
+		return true;
+
+	return expression_tree_walker(node, HaveItemPointerVar, NULL);
+}
+
 void RelationBuildExpansionClean(Relation rel)
 {
 	MemoryContext volatile context;
@@ -1403,6 +1485,12 @@ void RelationBuildExpansionClean(Relation rel)
 		clean->slot = MakeSingleTupleTableSlot(desc);
 		ResourceOwnerForgetTupleDesc(CurrentResourceOwner, desc);
 		clean->econtext->ecxt_scantuple = clean->slot;
+
+		/*
+		 * for now, only clean "distribute by random" relation using "ctid" system column,
+		 * so if have ctid column, mark need limit insert blocks
+		 */
+		clean->limit_insert = HaveItemPointerVar((Node*)clean->expr, NULL);
 	}PG_CATCH();
 	{
 		MemoryContextSwitchTo(oldcontext);
@@ -1459,6 +1547,22 @@ bool ExecTestExpansionClean(struct ExpansionClean *clean, void *tup)
 	}
 
 	return DatumGetBool(datum);
+}
+
+BlockNumber GetExpansionInsertLimitBlock(struct ExpansionClean *clean)
+{
+	if (clean && clean->limit_insert)
+		return clean->max_block;
+	return InvalidBlockNumber;
+}
+
+bool CanInsertIntoExpansionRel(struct ExpansionClean *clean, BlockNumber blk)
+{
+	if (clean &&
+		clean->limit_insert &&
+		blk < clean->max_block)
+		return false;
+	return true;
 }
 
 static void finish_clean_rel(Relation rel_clean, ItemPointer tid, Buffer buffer)

@@ -675,6 +675,16 @@ fsm_set_and_search(Relation rel, FSMAddress addr, uint16 slot,
 	Page		page;
 	int			newslot = -1;
 
+#ifdef ADB
+	bool skip_flag = false;
+	BlockNumber skip_bn = InvalidBlockNumber;
+	if (rel->rd_clean)
+		skip_bn = GetExpansionInsertLimitBlock(rel->rd_clean);
+	
+	if (skip_bn != InvalidBlockNumber)
+		skip_flag = true;
+#endif
+
 	buf = fsm_readbuf(rel, addr, true);
 	LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
 
@@ -688,7 +698,7 @@ fsm_set_and_search(Relation rel, FSMAddress addr, uint16 slot,
 		/* Search while we still hold the lock */
 		newslot = fsm_search_avail(buf, minValue,
 								   addr.level == FSM_BOTTOM_LEVEL,
-								   true);
+								   true ADB_GRAM_ORA_COMMA_ARG(skip_flag));
 	}
 
 	UnlockReleaseBuffer(buf);
@@ -705,6 +715,17 @@ fsm_search(Relation rel, uint8 min_cat)
 	int			restarts = 0;
 	FSMAddress	addr = FSM_ROOT_ADDRESS;
 
+#ifdef ADB
+	bool skip_flag = false;
+	BlockNumber ret_blk;
+	BlockNumber skip_bn = InvalidBlockNumber;
+	if (rel->rd_clean)
+		skip_bn = GetExpansionInsertLimitBlock(rel->rd_clean);
+	
+	if (skip_bn != InvalidBlockNumber)
+		skip_flag = true;
+#endif
+
 	for (;;)
 	{
 		int			slot;
@@ -720,7 +741,7 @@ fsm_search(Relation rel, uint8 min_cat)
 			LockBuffer(buf, BUFFER_LOCK_SHARE);
 			slot = fsm_search_avail(buf, min_cat,
 									(addr.level == FSM_BOTTOM_LEVEL),
-									false);
+									false ADB_GRAM_ORA_COMMA_ARG(skip_flag));
 			if (slot == -1)
 				max_avail = fsm_get_max_avail(BufferGetPage(buf));
 			UnlockReleaseBuffer(buf);
@@ -735,11 +756,21 @@ fsm_search(Relation rel, uint8 min_cat)
 			 * bottom.
 			 */
 			if (addr.level == FSM_BOTTOM_LEVEL)
+			{
+#ifdef ADB
+				ret_blk = fsm_get_heap_blk(addr, slot);
+				if (skip_bn != InvalidBlockNumber && ret_blk < skip_bn)
+					return InvalidBlockNumber;
+				else
+					return ret_blk;
+#else
 				return fsm_get_heap_blk(addr, slot);
+#endif
+			}
 
 			addr = fsm_get_child(addr, slot);
 		}
-		else if (addr.level == FSM_ROOT_LEVEL)
+		else if (addr.level == FSM_ROOT_LEVEL ADB_ONLY_CODE( || skip_flag))
 		{
 			/*
 			 * At the root, failure means there's no page with enough free
