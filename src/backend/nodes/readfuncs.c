@@ -38,6 +38,7 @@
 #ifdef ADB
 #include "access/htup.h"
 #include "catalog/pg_type.h"
+#include "optimizer/pgxcplan.h"
 #endif
 
 
@@ -1634,6 +1635,13 @@ _readModifyTable(void)
 	READ_UINT_FIELD(exclRelRTI);
 	READ_NODE_FIELD(exclRelTlist);
 
+#ifdef ADB
+	READ_NODE_FIELD(remote_plans);
+	READ_NODE_FIELD(resultAttnos);
+	READ_NODE_FIELD(param_new);
+	READ_NODE_FIELD(param_old);
+#endif
+
 	READ_DONE();
 }
 
@@ -2549,6 +2557,91 @@ _readExtensibleNode(void)
 }
 
 #ifdef ADB
+
+static RemoteQuery *
+_readRemoteQuery(void)
+{
+	READ_LOCALS(RemoteQuery);
+
+	ReadCommonScan(&local_node->scan);
+
+	READ_ENUM_FIELD(exec_direct_type, ExecDirectType);
+	READ_STRING_FIELD(sql_statement);
+	READ_NODE_FIELD(exec_nodes);
+	READ_NODE_FIELD(reduce_expr);
+	READ_ENUM_FIELD(combine_type, CombineType);
+	READ_BOOL_FIELD(read_only);
+	READ_BOOL_FIELD(force_autocommit);
+	READ_STRING_FIELD(statement);
+	READ_STRING_FIELD(cursor);
+	READ_INT_FIELD(rq_num_params);
+	READ_OID_ARRAY(rq_param_types, local_node->rq_num_params);
+	READ_BOOL_FIELD(rq_params_internal);
+	READ_ENUM_FIELD(exec_type, RemoteQueryExecType);
+	READ_BOOL_FIELD(is_temp);
+	READ_BOOL_FIELD(rq_finalise_aggs);
+	READ_BOOL_FIELD(rq_sortgroup_colno);
+	READ_NODE_FIELD(remote_query);
+	READ_NODE_FIELD(base_tlist);
+	READ_NODE_FIELD(coord_var_tlist);
+	READ_NODE_FIELD(query_var_tlist);
+	READ_BOOL_FIELD(has_row_marks);
+	READ_BOOL_FIELD(rq_save_command_id);
+	READ_BOOL_FIELD(rq_use_pk_for_rep_change);
+	READ_INT_FIELD(rq_max_param_num);
+
+	READ_DONE();
+}
+
+static ExecNodes *
+_readExecNodes(void)
+{
+	READ_LOCALS(ExecNodes);
+
+	READ_ENUM_FIELD(accesstype, RelationAccessType);
+	READ_CHAR_FIELD(baselocatortype);
+	READ_OID_FIELD(en_relid);
+	READ_OID_FIELD(en_funcid);
+	READ_NODE_FIELD(en_expr);
+	READ_NODE_FIELD(en_dist_vars);
+	READ_NODE_FIELD(nodeids);
+
+	READ_DONE();
+}
+
+static ClusterGather *
+_readClusterGather(void)
+{
+	READ_LOCALS(ClusterGather);
+
+	ReadCommonPlan(&local_node->plan);
+
+	READ_NODE_FIELD(rnodes);
+	READ_ENUM_FIELD(gatherType, ClusterGatherType);
+	READ_BOOL_FIELD(check_rep_processed);
+
+	READ_DONE();
+}
+
+static ClusterMergeGather *
+_readClusterMergeGather(void)
+{
+	READ_LOCALS(ClusterMergeGather);
+
+	ReadCommonPlan(&local_node->plan);
+
+	READ_NODE_FIELD(rnodes);
+	READ_ENUM_FIELD(gatherType, ClusterGatherType);
+
+	READ_INT_FIELD(numCols);
+	READ_ATTRNUMBER_ARRAY(sortColIdx, local_node->numCols);
+	READ_OID_ARRAY(sortOperators, local_node->numCols);
+	READ_OID_ARRAY(collations, local_node->numCols);
+	READ_BOOL_ARRAY(nullsFirst, local_node->numCols);
+
+	READ_DONE();
+}
+
 static ClusterReduce *
 _readClusterReduce(void)
 {
@@ -2974,6 +3067,14 @@ parseNodeString(void)
 	else if (MATCH("PARTITIONRANGEDATUM", 19))
 		return_value = _readPartitionRangeDatum();
 #ifdef ADB
+	else if (MATCH("REMOTEQUERY", 11))
+		return_value = _readRemoteQuery();
+	else if (MATCH("EXEC_NODES", 10))
+		return_value = _readExecNodes();
+	else if (MATCH("CLUSTERGATHER", 13))
+		return_value = _readClusterGather();
+	else if (MATCH("CLUSTERMERGEGATHER", 18))
+		return_value = _readClusterMergeGather();
 	else if (MATCH("CLUSTERREDUCE", 13))
 		return_value = _readClusterReduce();
 	else if (MATCH("EMPTYRESULT", 11))

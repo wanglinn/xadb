@@ -595,6 +595,7 @@ _outRemoteQuery(StringInfo str, const RemoteQuery *node)
 	WRITE_ENUM_FIELD(exec_direct_type, ExecDirectType);
 	WRITE_STRING_FIELD(sql_statement);
 	WRITE_NODE_FIELD(exec_nodes);
+	WRITE_NODE_FIELD(reduce_expr);
 	WRITE_ENUM_FIELD(combine_type, CombineType);
 	WRITE_BOOL_FIELD(read_only);
 	WRITE_BOOL_FIELD(force_autocommit);
@@ -606,18 +607,19 @@ _outRemoteQuery(StringInfo str, const RemoteQuery *node)
 	for (i = 0; i < node->rq_num_params; i++)
 		appendStringInfo(str, " %d", node->rq_param_types[i]);
 
+	WRITE_BOOL_FIELD(rq_params_internal);
 	WRITE_ENUM_FIELD(exec_type, RemoteQueryExecType);
 	WRITE_BOOL_FIELD(is_temp);
-	WRITE_BOOL_FIELD(has_row_marks);
 	WRITE_BOOL_FIELD(rq_finalise_aggs);
 	WRITE_BOOL_FIELD(rq_sortgroup_colno);
 	WRITE_NODE_FIELD(remote_query);
+	WRITE_NODE_FIELD(base_tlist);
 	WRITE_NODE_FIELD(coord_var_tlist);
 	WRITE_NODE_FIELD(query_var_tlist);
+	WRITE_BOOL_FIELD(has_row_marks);
 	WRITE_BOOL_FIELD(rq_save_command_id);
-	WRITE_BOOL_FIELD(rq_params_internal);
 	WRITE_BOOL_FIELD(rq_use_pk_for_rep_change);
-	WRITE_BOOL_FIELD(rq_max_param_num);
+	WRITE_INT_FIELD(rq_max_param_num);
 }
 
 static void
@@ -632,6 +634,48 @@ _outExecNodes(StringInfo str, const ExecNodes *node)
 	WRITE_NODE_FIELD(en_expr);
 	WRITE_NODE_FIELD(en_dist_vars);
 	WRITE_NODE_FIELD(nodeids);
+}
+
+static void
+_outClusterGather(StringInfo str, const ClusterGather *node)
+{
+	WRITE_NODE_TYPE("CLUSTERGATHER");
+
+	_outPlanInfo(str, &node->plan);
+
+	WRITE_NODE_FIELD(rnodes);
+	WRITE_ENUM_FIELD(gatherType, ClusterGatherType);
+	WRITE_BOOL_FIELD(check_rep_processed);
+}
+
+static void
+_outClusterMergeGather(StringInfo str, const ClusterMergeGather *node)
+{
+	int i;
+
+	WRITE_NODE_TYPE("CLUSTERMERGEGATHER");
+
+	_outPlanInfo(str, &node->plan);
+
+	WRITE_NODE_FIELD(rnodes);
+	WRITE_ENUM_FIELD(gatherType, ClusterGatherType);
+	WRITE_INT_FIELD(numCols);
+
+	appendStringInfoString(str, " :sortColIdx");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %d", node->sortColIdx[i]);
+
+	appendStringInfoString(str, " :sortOperators");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %u", node->sortOperators[i]);
+
+	appendStringInfoString(str, " :collations");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %u", node->collations[i]);
+
+	appendStringInfoString(str, " :nullsFirst");
+	for (i = 0; i < node->numCols; i++)
+		appendStringInfo(str, " %s", booltostr(node->nullsFirst[i]));
 }
 
 static void
@@ -4050,6 +4094,12 @@ outNode(StringInfo str, const void *obj)
 #ifdef ADB
 			case T_RemoteQuery:
 				_outRemoteQuery(str, obj);
+				break;
+			case T_ClusterGather:
+				_outClusterGather(str, obj);
+				break;
+			case T_ClusterMergeGather:
+				_outClusterMergeGather(str, obj);
 				break;
 			case T_ClusterReduce:
 				_outClusterReduce(str, obj);
