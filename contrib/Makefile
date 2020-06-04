@@ -5,6 +5,7 @@ top_builddir = ..
 include $(top_builddir)/src/Makefile.global
 
 SUBDIRS = \
+		adb_stat_statements	\
 		adminpack	\
 		amcheck		\
 		auth_delay	\
@@ -90,7 +91,6 @@ endif
 ifeq ($(enable_cluster),yes)
 SUBDIRS += adb_doctor
 SUBDIRS += adb_snap_state
-SUBDIRS += adb_stat_statements
 SUBDIRS += adb_global_views
 endif
 

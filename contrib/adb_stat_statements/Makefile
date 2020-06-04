@@ -2,9 +2,10 @@
 
 MODULE_big = adb_stat_statements
 OBJS = adb_stat_statements.o $(WIN32RES)
+
 EXTENSION = adb_stat_statements
 DATA = adb_stat_statements--1.0.sql
-PGFILEDESC = "adb_stat_statements - execution statistics of SQL statements"
+PGFILEDESC = "adb_stat_statements - execution plan statistics of SQL statements"
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config
