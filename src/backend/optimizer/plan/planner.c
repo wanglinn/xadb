@@ -9560,7 +9560,8 @@ static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subp
 		List *exprs = NIL;
 		List *quals;
 
-		if (((ResultPath*)subpath)->subpath == NULL &&
+		if (IsA(subpath, ResultPath) &&
+			((ResultPath*)subpath)->subpath == NULL &&
 			((ResultPath*)subpath)->quals == NIL &&
 			not_only_const((Node*)subpath->pathtarget->exprs) == false)
 		{

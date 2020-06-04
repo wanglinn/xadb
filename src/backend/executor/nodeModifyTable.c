@@ -1030,14 +1030,13 @@ ldelete:;
 		TupleTableSlot *tts_ts;
 		HeapTuple		deltuple = oldtuple;
 		Buffer			delbuffer = InvalidBuffer;
+		HeapTupleData	deltupdata;
 
 		Assert(econtext != NULL);
 
 		/* extract old tuple from local if oldtuple is null */
 		if (oldtuple == NULL)
 		{
-			HeapTupleData	deltupdata;
-
 			deltupdata.t_self = *tupleid;
 			if (!heap_fetch(resultRelationDesc, SnapshotAny,
 							&deltupdata, &delbuffer, false, NULL))
@@ -1048,7 +1047,6 @@ ldelete:;
 		/* old tuple */
 		econtext->ecxt_scantuple = ExecClearTuple(resultRelInfo->ri_ttsScan);
 		ExecStoreTuple(deltuple, econtext->ecxt_scantuple, InvalidBuffer, false);
-		econtext->ecxt_outertuple = resultRelInfo->ri_ttsTuplestore;
 		tts_ts = ExecProject(resultRelInfo->ri_projectTuplestore);
 		Assert(!TupIsNull(tts_ts));
 		tuplestore_puttupleslot(resultRelInfo->ts_old, tts_ts);
@@ -1669,14 +1667,13 @@ lreplace:;
 		TupleTableSlot *tts_ts;
 		HeapTuple		deltuple = oldtuple;
 		Buffer			delbuffer = InvalidBuffer;
+		HeapTupleData	deltupdata;
 
 		Assert(econtext != NULL);
 
 		/* extract old tuple from local if oldtuple is null */
 		if (oldtuple == NULL)
 		{
-			HeapTupleData	deltupdata;
-
 			deltupdata.t_self = *tupleid;
 			if (!heap_fetch(resultRelationDesc, SnapshotAny,
 							&deltupdata, &delbuffer, false, NULL))
@@ -1685,7 +1682,6 @@ lreplace:;
 		}
 
 		econtext->ecxt_scantuple = ExecClearTuple(resultRelInfo->ri_ttsScan);
-		econtext->ecxt_outertuple = ExecClearTuple(resultRelInfo->ri_ttsTuplestore);
 
 		/* old tuple */
 		ExecStoreTuple(deltuple, econtext->ecxt_scantuple, InvalidBuffer, false);
