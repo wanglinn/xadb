@@ -55,9 +55,11 @@ static void MgrZoneFailoverCoord(MemoryContext spiContext, char *currentZone);
 static void MgrZoneFailoverDN(MemoryContext spiContext, char *currentZone);
 static MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char *currentZone);
 static void MgrFailoverCheck(MemoryContext spiContext, char *currentZone);
+static void MgrSwitchoverCheck(MemoryContext spiContext, char *currentZone);
 static void MgrCheckMasterHasSlave(MemoryContext spiContext, char *currentZone);
 static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext, char *currentZone, char nodeType);
 static void MgrMakesureAllSlaveRunning(void);
+static void MgrMakesureZoneAllSlaveRunning(char *zone);
 
 Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 {
@@ -129,7 +131,7 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
 		}
 		spiContext = CurrentMemoryContext; 		
-		MgrFailoverCheck(spiContext, currentZone);
+		MgrSwitchoverCheck(spiContext, currentZone);
 
 		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s, step1:switchover gtmcoord slave in %s ========.", currentZone, currentZone));
 		MgrZoneSwitchoverGtm(spiContext, currentZone);
@@ -375,6 +377,11 @@ static void MgrFailoverCheck(MemoryContext spiContext, char *currentZone)
 	MgrCheckMasterHasSlave(spiContext, currentZone);
 	MgrMakesureAllSlaveRunning();
 }
+static void MgrSwitchoverCheck(MemoryContext spiContext, char *currentZone)
+{
+	MgrCheckMasterHasSlave(spiContext, currentZone);
+	MgrMakesureZoneAllSlaveRunning(currentZone);
+}
 static MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char *currentZone)
 {
 	dlist_head 			masterList = DLIST_STATIC_INIT(masterList);
@@ -593,6 +600,15 @@ static void MgrMakesureAllSlaveRunning(void)
 	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_SLAVE, NULL);
 	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_SLAVE, NULL);
 	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_SLAVE, NULL);
+}
+static void MgrMakesureZoneAllSlaveRunning(char *zone)
+{
+	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, zone);
+	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER, zone);
+	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER, zone);
+	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_SLAVE, zone);
+	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_SLAVE, zone);
+	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_SLAVE, zone);
 }
 
 
