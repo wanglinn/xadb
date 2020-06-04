@@ -1,0 +1,7 @@
+# adb_global_views extension
+comment = 'Global Views of AntDB Cluster'
+default_version = '1.0'
+module_pathname = '$libdir/adb_global_views'
+requires = 'postgres_fdw'
+superuser = true
+relocatable = true

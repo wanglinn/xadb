@@ -91,6 +91,7 @@ ifeq ($(enable_cluster),yes)
 SUBDIRS += adb_doctor
 SUBDIRS += adb_snap_state
 SUBDIRS += adb_stat_statements
+SUBDIRS += adb_global_views
 endif
 
 # Missing:
