@@ -153,12 +153,13 @@ struct PlanState;
 extern bool planstate_tree_walker(struct PlanState *planstate, bool (*walker) (),
 								  void *context);
 
+struct Plan;
+extern bool plan_tree_walker(struct Plan *plan, Node *GlobOrStmt, bool (*walker)(), void *context);
+
 #ifdef ADB
 extern bool planstate_tree_exec_walker(struct PlanState *planstate, bool (*walker) (),
 											  void *context);
 
-struct Plan;
-extern bool plan_tree_walker(struct Plan *plan, Node *GlobOrStmt, bool (*walker)(), void *context);
 extern bool have_cluster_plan_walker(struct Plan *plan, Node *GlobOrStmt, void *notUse);
 struct Path;
 extern bool path_tree_walker(struct Path *path, bool (*walker)(), void *context);
