@@ -2301,6 +2301,28 @@ find_coercion_pathway(Oid targetTypeId, Oid sourceTypeId,
 	if (sourceTypeId == targetTypeId)
 		return COERCION_PATH_RELABELTYPE;
 
+#ifdef ADB_GRAM_ORA
+	/*
+	 * If current grammar is oracle grammar and we still haven't found a
+	 * possibilty to the last, check out coeicion function explicitly by
+	 * oracle coerce function map.
+	 */
+	if (result == COERCION_PATH_NONE &&
+		IsOraFunctionCoercionContext())
+	{
+		if (TypeCategory(targetTypeId) == TYPCATEGORY_STRING)
+			result = COERCION_PATH_COERCEVIAIO;
+		else
+		{
+			*funcid = OraFindCoercionFunction(sourceTypeId, targetTypeId);
+			if (*funcid != InvalidOid)
+				result = COERCION_PATH_ORA_FUNC;
+		}
+		if (result != COERCION_PATH_NONE)
+			return result;
+	}
+#endif /* ADB_GRAM_ORA */
+
 	/* Look in pg_cast */
 	tuple = SearchSysCache2(CASTSOURCETARGET,
 							ObjectIdGetDatum(sourceTypeId),
@@ -2410,26 +2432,6 @@ find_coercion_pathway(Oid targetTypeId, Oid sourceTypeId,
 				result = COERCION_PATH_COERCEVIAIO;
 		}
 	}
-
-#ifdef ADB_GRAM_ORA
-	/*
-	 * If current grammar is oracle grammar and we still haven't found a
-	 * possibilty to the last, check out coeicion function explicitly by
-	 * oracle coerce function map.
-	 */
-	if (result == COERCION_PATH_NONE &&
-		IsOraFunctionCoercionContext())
-	{
-		if (TypeCategory(targetTypeId) == TYPCATEGORY_STRING)
-			result = COERCION_PATH_COERCEVIAIO;
-		else
-		{
-			*funcid = OraFindCoercionFunction(sourceTypeId, targetTypeId);
-			if (*funcid != InvalidOid)
-				result = COERCION_PATH_ORA_FUNC;
-		}
-	}
-#endif /* ADB_GRAM_ORA */
 
 	return result;
 }
