@@ -5735,10 +5735,10 @@ Numeric:
 	| SMALLINT					{ $$ = SystemTypeNameLocation("int2", @1); }
 	| BIGINT					{ $$ = SystemTypeNameLocation("int8", @1); }
 	| LONG_P					{ $$ = SystemTypeNameLocation("text", @1); }
-	| BINARY_FLOAT				{ $$ = SystemTypeNameLocation("float4", @1); }
-	| REAL						{ $$ = SystemTypeNameLocation("float4", @1); }
-	| BINARY_DOUBLE				{ $$ = SystemTypeNameLocation("float8", @1); }
-	| FLOAT_P					{ $$ = SystemTypeNameLocation("float8", @1); }
+	| BINARY_FLOAT				{ $$ = SystemTypeNameLocation("numeric", @1); }
+	| REAL						{ $$ = SystemTypeNameLocation("numeric", @1); }
+	| BINARY_DOUBLE				{ $$ = SystemTypeNameLocation("numeric", @1); }
+	| FLOAT_P					{ $$ = SystemTypeNameLocation("numeric", @1); }
 	| FLOAT_P '(' Iconst ')'
 		{
 			/*
@@ -5751,16 +5751,16 @@ Numeric:
 						 errmsg("precision for type float must be at least 1 bit"),
 						 parser_errposition(@3)));
 			else if ($3 <= 24)
-				$$ = SystemTypeNameLocation("float4", @1);
+				$$ = SystemTypeNameLocation("numeric", @1);
 			else if ($3 <= 53)
-				$$ = SystemTypeNameLocation("float8", @2);
+				$$ = SystemTypeNameLocation("numeric", @2);
 			else
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("precision for type float must be less than 54 bits"),
 						 parser_errposition(@3)));
 		}
-	| DOUBLE_P PRECISION		{ $$ = SystemTypeNameLocation("float8", @1); }
+	| DOUBLE_P PRECISION		{ $$ = SystemTypeNameLocation("numeric", @1); }
 	| DECIMAL_P opt_type_modifiers
 		{
 			$$ = SystemTypeNameLocation("numeric", @1);
@@ -6764,7 +6764,22 @@ connect_by_clause:
 	;
 
 TableElement:
-	  columnDef							{ $$ = $1; }
+	  columnDef							
+		{
+			if (IsA($1, ColumnDef))
+			{
+				ColumnDef	*def = (ColumnDef *) $1;
+				TypeName	*typeName = def->typeName;
+				char		*name = TypeNameToString(typeName);
+
+				if (strcmp(name, "float4") == 0 || strcmp(name, "float8") == 0)
+				{
+					def->typeName = SystemTypeNameLocation("numeric", typeName->location);
+					pfree(typeName);
+				}
+			}
+			$$ = $1;
+		}
 	| TableLikeClause					{ $$ = $1; }
 	| TableConstraint					{ $$ = $1; }
 	;
