@@ -698,7 +698,7 @@ fsm_set_and_search(Relation rel, FSMAddress addr, uint16 slot,
 		/* Search while we still hold the lock */
 		newslot = fsm_search_avail(buf, minValue,
 								   addr.level == FSM_BOTTOM_LEVEL,
-								   true ADB_GRAM_ORA_COMMA_ARG(skip_flag));
+								   true ADB_ONLY_COMMA_ARG(skip_flag));
 	}
 
 	UnlockReleaseBuffer(buf);
@@ -741,7 +741,7 @@ fsm_search(Relation rel, uint8 min_cat)
 			LockBuffer(buf, BUFFER_LOCK_SHARE);
 			slot = fsm_search_avail(buf, min_cat,
 									(addr.level == FSM_BOTTOM_LEVEL),
-									false ADB_GRAM_ORA_COMMA_ARG(skip_flag));
+									false ADB_ONLY_COMMA_ARG(skip_flag));
 			if (slot == -1)
 				max_avail = fsm_get_max_avail(BufferGetPage(buf));
 			UnlockReleaseBuffer(buf);

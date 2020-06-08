@@ -156,7 +156,7 @@ fsm_get_max_avail(Page page)
  */
 int
 fsm_search_avail(Buffer buf, uint8 minvalue, bool advancenext,
-				 bool exclusive_lock_held ADB_GRAM_ORA_COMMA_ARG(bool skip_flag))
+				 bool exclusive_lock_held ADB_ONLY_COMMA_ARG(bool skip_flag))
 {
 	Page		page = BufferGetPage(buf);
 	FSMPage		fsmpage = (FSMPage) PageGetContents(page);

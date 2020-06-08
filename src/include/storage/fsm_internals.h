@@ -62,7 +62,7 @@ typedef FSMPageData *FSMPage;
 
 /* Prototypes for functions in fsmpage.c */
 extern int fsm_search_avail(Buffer buf, uint8 min_cat, bool advancenext,
-				 bool exclusive_lock_held ADB_GRAM_ORA_COMMA_ARG(bool skip_flag));
+				 bool exclusive_lock_held ADB_ONLY_COMMA_ARG(bool skip_flag));
 extern uint8 fsm_get_avail(Page page, int slot);
 extern uint8 fsm_get_max_avail(Page page);
 extern bool fsm_set_avail(Page page, int slot, uint8 value);
