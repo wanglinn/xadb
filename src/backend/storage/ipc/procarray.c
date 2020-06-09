@@ -4438,7 +4438,7 @@ void execFinishActiveBackend(FinishActiveBackendStmt *stmt)
 	ListCell	*lc;
 	Oid			oid;
 	bool		include_myself = false;
-	bool		execute;
+	bool		execute = false;
 	int			retry = 0;
 
 	if (!superuser())

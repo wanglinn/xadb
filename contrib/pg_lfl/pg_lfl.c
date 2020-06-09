@@ -1,5 +1,7 @@
 #include "postgres.h"
 
+#include <time.h>
+
 #include "access/hash.h"
 #include "lib/dshash.h"
 #include "libpq/auth.h"
