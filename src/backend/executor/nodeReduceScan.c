@@ -170,12 +170,6 @@ static TupleTableSlot *ExecEmptyReduceScan(PlanState *pstate)
 	return ExecClearTuple(pstate->ps_ResultTupleSlot);
 }
 
-static inline TupleTableSlot* SetAndExecEmptyReduceScan(PlanState *pstate)
-{
-	ExecSetExecProcNode(pstate, ExecEmptyReduceScan);
-	return ExecClearTuple(pstate->ps_ResultTupleSlot);
-}
-
 void FetchReduceScanOuter(ReduceScanState *node)
 {
 	TupleTableSlot	   *slot;
