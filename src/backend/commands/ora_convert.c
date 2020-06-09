@@ -12,6 +12,7 @@
 #include "postgres.h"
 
 
+#include "access/heapam.h"
 #include "access/relscan.h"
 #include "catalog/pg_type_d.h"
 #include "catalog/indexing.h"
@@ -26,7 +27,6 @@
 #include "utils/syscache.h"
 
 #ifdef ADB
-#include "access/heapam.h"
 #include "catalog/pgxc_node.h"
 #include "executor/execCluster.h"
 #include "libpq/libpq-node.h"
