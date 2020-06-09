@@ -6327,20 +6327,25 @@ float8_to_char(PG_FUNCTION_ARGS)
  * ---------------------
  */
 Datum
-ora_to_timestamp(text *date_txt, text *fmt)
+ora_to_timestamp(text *date_txt, text *fmt, bool withtz)
 {
 	Timestamp	result;
 	int			tz;
 	struct pg_tm tm;
 	fsec_t		fsec;
+	int		   *ptz = NULL;
 
 	AssertArg(fmt);
 
 	do_to_timestamp_internal(date_txt, fmt, &tm, &fsec, ora_DCH_from_char);
 
-	tz = DetermineTimeZoneOffset(&tm, session_timezone);
+	if (withtz)
+	{
+		tz = DetermineTimeZoneOffset(&tm, session_timezone);
+		ptz = &tz;
+	}
 
-	if (tm2timestamp(&tm, fsec, &tz, &result) != 0)
+	if (tm2timestamp(&tm, fsec, ptz, &result) != 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
 				 errmsg("timestamp out of range")));

@@ -247,35 +247,6 @@ timestamp_out(PG_FUNCTION_ARGS)
 	PG_RETURN_CSTRING(result);
 }
 
-#ifdef ADB_GRAM_ORA
-Datum
-ora_date_out(PG_FUNCTION_ARGS)
-{
-	Timestamp	timestamp = PG_GETARG_TIMESTAMP(0);
-	char	   *result;
-	struct pg_tm tt,
-			   *tm = &tt;
-	fsec_t		fsec;
-	char		buf[MAXDATELEN + 1];
-	int			tzp;
-
-	if (TIMESTAMP_NOT_FINITE(timestamp))
-		EncodeSpecialTimestamp(timestamp, buf);
-	else if (timestamp2tm(timestamp, &tzp, tm, &fsec, NULL, NULL) == 0)
-	{
-		/* oracle date will ignore fractional second */
-		EncodeDateTimeExtend(tm, 0, false, tzp, NULL, DateStyle, buf, true);
-	}
-	else
-		ereport(ERROR,
-				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
-				 errmsg("timestamp out of range")));
-
-	result = pstrdup(buf);
-	PG_RETURN_CSTRING(result);
-}
-#endif
-
 /*
  *		timestamp_recv			- converts external binary format to timestamp
  */
