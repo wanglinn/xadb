@@ -210,7 +210,7 @@ monitor_get_hostinfo(PG_FUNCTION_ARGS)
     appendStringInfoString(&monitor_alarm.alarm_source, host_addr);
 
 		namestrcpy(&hostname, NameStr(mgr_host->hostname));
-    ma = ma_connect_hostoid(HeapTupleGetOid(tup));
+    ma = ma_connect_hostoid_with_timeout(HeapTupleGetOid(tup), 60, 60);
 
     if (!ma_isconnected(ma))
     {

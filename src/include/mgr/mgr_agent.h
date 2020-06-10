@@ -23,8 +23,10 @@
 typedef struct ManagerAgent ManagerAgent;
 
 extern ManagerAgent* ma_connect(const char *host, unsigned short port);
+extern ManagerAgent* ma_connect_with_timeout(const char *host, unsigned short port, int sndtimeo_s, int rcvtimeos);
 extern ManagerAgent* ma_connect_noblock(const char *host, unsigned short port);
 extern ManagerAgent* ma_connect_hostoid(Oid hostoid);
+extern ManagerAgent* ma_connect_hostoid_with_timeout(Oid hostoid, int sndtimeo_s, int rcvtimeos);
 extern bool ma_isconnected(const ManagerAgent *ma);
 extern const char* ma_last_error_msg(const ManagerAgent *ma);
 extern void ma_close(ManagerAgent *ma);
