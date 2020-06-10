@@ -3486,8 +3486,12 @@ BEGIN_NODE(OraImplicitConvertStmt)
 	NODE_NODE(List,cvtfrom)
 	NODE_NODE(List,cvtto)
 	NODE_ENUM(IConvertAction,action)
-	NODE_SCALAR(bool,if_exists)
+	NODE_SCALAR(bool,exists)
+	NODE_SCALAR(bool,replace)
+#ifdef ADB
 	NODE_NODE(List,node_list)
+#endif
+	NODE_SCALAR(int,location)
 END_NODE(OraImplicitConvertStmt)
 #endif /* NO_NODE_OraImplicitConvertStmt */
 

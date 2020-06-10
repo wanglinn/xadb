@@ -7,7 +7,8 @@
 #include "catalog/ora_convert_d.h"
 
 struct OraImplicitConvertStmt;	/* avoid include parsenode.h */
-void ExecImplicitConvert(struct OraImplicitConvertStmt *stmt);
+struct ParseState;
+void ExecImplicitConvert(struct OraImplicitConvertStmt *stmt, struct ParseState *pstate);
 #ifdef ADB
 struct StringInfoData;
 void ClusterExecImplicitConvert(struct StringInfoData *mem_toc);
@@ -15,6 +16,9 @@ void ClusterExecImplicitConvert(struct StringInfoData *mem_toc);
 
 CATALOG(ora_convert,6116,OraConvertRelationId)
 {
+	/* convert id */
+	Oid			cvtid;
+
 	/* implicit convert kind, ORA_CONVERT_KIND_XXX */
 	char		cvtkind;
 

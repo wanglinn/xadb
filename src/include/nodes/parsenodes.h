@@ -3907,7 +3907,6 @@ typedef struct PaddingAuxDataStmt
 typedef enum IConvertAction
 {
 	ICONVERT_CREATE,		/* exec create */
-	ICONVERT_UPDATE,		/* exec modify */
 	ICONVERT_DELETE			/* exec delete */
 }IConvertAction;
 
@@ -3922,8 +3921,12 @@ typedef struct OraImplicitConvertStmt
 	List			*cvtfrom;		/* Primitive type */
 	List			*cvtto;			/* Target type */
 	IConvertAction	action;			/* Create or modify or delete */
-	bool			if_exists;		/* IF EXISTS clause*/
-	List			*node_list;		
+	bool			exists;			/* if [not] exists clause*/
+	bool			replace;		/* replace for create */
+#ifdef ADB
+	List			*node_list;
+#endif /* ADB */
+	int				location;
 }OraImplicitConvertStmt;
 
 #endif /* ADB_GRAM_ORA */

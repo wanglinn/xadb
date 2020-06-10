@@ -136,7 +136,8 @@ CREATE CAST (bpchar AS oracle.rid) WITH INOUT AS IMPLICIT;
 
 /* COPY "type1 + type2 AS type3 + type3" TO "type2 + type1 AS type3 + type3" */
 INSERT INTO ora_convert
-  SELECT 'o','+',CAST(concat(cvtfrom[1], ' ', cvtfrom[0]) AS oidvector),cvtto
+  SELECT ((select max(cvtid) from ora_convert)::int + .row)::oid,
+    'o','+',CAST(concat(cvtfrom[1], ' ', cvtfrom[0]) AS oidvector),cvtto
   FROM ora_convert
   WHERE cvtkind='o' AND cvtname = '+' AND cvtto[0] = cvtto[1] AND cvtfrom[0] != cvtfrom[1];
 
@@ -144,13 +145,14 @@ INSERT INTO ora_convert
    COPY "type1 + type2 AS type3 + type3" TO "type1 * type2 AS type3 + type3"
    COPY "type1 + type2 AS type3 + type3" TO "type1 / type2 AS type3 + type3" */
 INSERT INTO ora_convert
-  SELECT 'o', unnest('{-,*,/}'::name[]), cvtfrom, cvtto
+  SELECT ((select max(cvtid) from ora_convert)::int + .row)::oid,
+    'o', unnest('{-,*,/}'::name[]), cvtfrom, cvtto
   FROM ora_convert
   WHERE cvtkind='o' AND cvtname = '+' AND cvtto[0] = cvtto[1];
 
 /* COPY "type1 + timestamp AS type2 + timestamp" TO "timestamp + type1 AS timestamp + type2" */
 INSERT INTO ora_convert
-  SELECT 'o', '+',
+  SELECT ((select max(cvtid) from ora_convert)::int + .row)::oid, 'o', '+',
     cast(concat(cvtfrom[1], ' ', cvtfrom[0]) as oidvector),
     cast(concat(cvtto[1], ' ', cvtto[0]) as oidvector)
   FROM ora_convert
@@ -158,13 +160,13 @@ INSERT INTO ora_convert
 
 /* COPY "type1 + timestamp AS type2 + timestamp" TO "type1 - timestamp AS type2 - timestamp" */
 INSERT INTO ora_convert
-  SELECT 'o', '-', cvtfrom, cvtto
+  SELECT ((select max(cvtid) from ora_convert)::int + .row)::oid, 'o', '-', cvtfrom, cvtto
   FROM ora_convert
   WHERE cvtkind = 'o' AND cvtname = '+' AND 'timestamp'::regtype = ANY(cvtto);
 
 /* COPY "type1 = type2 AS type3 = type4" TO "type2 = type1 AS type4 + type3" */
 INSERT INTO ora_convert
-  SELECT 'o', '=',
+  SELECT ((select max(cvtid) from ora_convert)::int + .row)::oid, 'o', '=',
     cast(concat(cvtfrom[1], ' ', cvtfrom[0]) as oidvector),
     cast(concat(cvtto[1], ' ', cvtto[0]) as oidvector)
   FROM ora_convert
@@ -172,13 +174,15 @@ INSERT INTO ora_convert
 
 /* >, >=, <, <=, <> from = */
 INSERT INTO ora_convert
-  SELECT 'o', unnest('{>, >=, <, <=, <>}'::name[]), cvtfrom, cvtto
+  SELECT ((select max(cvtid) from ora_convert)::int + .row)::oid,
+    'o', unnest('{>, >=, <, <=, <>}'::name[]), cvtfrom, cvtto
   FROM ora_convert
   WHERE cvtkind = 'o' AND cvtname = '=';
 
 /* common combin */
 INSERT INTO ora_convert
-  SELECT 'c', '', CAST(concat(cvtfrom[1], ' ', cvtfrom[0]) AS oidvector), cvtto
+  SELECT ((select max(cvtid) from ora_convert)::int + .row)::oid,
+    'c', '', CAST(concat(cvtfrom[1], ' ', cvtfrom[0]) AS oidvector), cvtto
   FROM ora_convert
   WHERE cvtkind = 'c' AND cvtname = '';
 

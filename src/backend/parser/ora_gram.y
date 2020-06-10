@@ -179,7 +179,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %type <ielem>	index_elem
 
 %type <list>	stmtblock stmtmulti opt_column_list columnList alter_table_cmds
-				OptRoleList convert_type_list  type_list convert_typename
+				OptRoleList convert_type_list  type_list
 
 %type <list>	OptSeqOptList SeqOptList
 /* %type <list>	NumericOnly_list */
@@ -328,7 +328,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %type <target>	insert_column_item single_set_clause set_target target_item
 
 %type <typnam>	Bit Character ConstDatetime ConstInterval ConstTypename
-				Numeric SimpleTypename Typename func_type
+				Numeric SimpleTypename Typename func_type convert_typename
 
 %type <value>	NumericOnly
 
@@ -8023,12 +8023,9 @@ OraImplicitConvertStmt:
 					c->cvtname = $5;
 					c->cvtfrom = $7;
 					c->cvtto = $12;
-					if ($2)
-						c->action = ICONVERT_UPDATE;
-					else
-						c->action = ICONVERT_CREATE;
-					c->if_exists = $2;
-					c->node_list = NIL;
+					c->action = ICONVERT_CREATE;
+					c->replace = $2;
+					c->location = @1;
 					$$ = (Node *) c;
 				}
 			| DROP CONVERT opt_function_or_common convert_functon_name '(' convert_type_list ')'
@@ -8039,8 +8036,7 @@ OraImplicitConvertStmt:
 					c->cvtfrom = $6;
 					c->cvtto = NIL;
 					c->action = ICONVERT_DELETE;
-					c->if_exists = false;
-					c->node_list = NIL;
+					c->location = @1;
 					$$ = (Node *) c;
 				}
 			| DROP CONVERT opt_function_or_common IF_P EXISTS convert_functon_name '(' convert_type_list ')'
@@ -8051,8 +8047,8 @@ OraImplicitConvertStmt:
 					c->cvtfrom = $8;
 					c->cvtto = NIL;
 					c->action = ICONVERT_DELETE;
-					c->if_exists = true;
-					c->node_list = NIL;
+					c->exists = true;
+					c->location = @1;
 					$$ = (Node *) c;
 				}
 			/* implicit convert operator */
@@ -8063,12 +8059,9 @@ OraImplicitConvertStmt:
 					c->cvtname = $6;
 					c->cvtfrom = list_make2($5, $7);
 					c->cvtto = list_make2($9, $11);
-					if ($2)
-						c->action = ICONVERT_UPDATE;
-					else
-						c->action = ICONVERT_CREATE;
-					c->if_exists = $2;
-					c->node_list = NIL;
+					c->action = ICONVERT_CREATE;
+					c->replace = $2;
+					c->location = @1;
 					$$ = (Node *) c;
 				}
 			| DROP CONVERT OPERATOR convert_typename all_Op convert_typename
@@ -8079,8 +8072,7 @@ OraImplicitConvertStmt:
 					c->cvtfrom = list_make2($4, $6);
 					c->cvtto = NIL;
 					c->action = ICONVERT_DELETE;
-					c->if_exists = false;
-					c->node_list = NIL;
+					c->location = @1;
 					$$ = (Node *) c;
 				}
 			| DROP CONVERT OPERATOR IF_P EXISTS convert_typename all_Op convert_typename
@@ -8091,8 +8083,8 @@ OraImplicitConvertStmt:
 					c->cvtfrom = list_make2($6, $8);
 					c->cvtto = NIL;
 					c->action = ICONVERT_DELETE;
-					c->if_exists = true;
-					c->node_list = NIL;
+					c->exists = true;
+					c->location = @1;
 					$$ = (Node *) c;
 				}
 		;
@@ -8102,18 +8094,19 @@ convert_functon_name:
 			;
 
 convert_type_list:
-			convert_typename							{ $$ = $1; }
+			convert_typename							{ $$ = list_make1($1); }
 			| convert_type_list ',' convert_typename 	{ $$ = lappend($1, $3); }
 		;
 
 convert_typename:
-			Typename							{ $$ = list_make1($1);}
+			  Typename
 			| ANY								
-			{
-				TypeName *n = makeTypeName("any");
-				n->location = @1;
-				$$ = list_make1(n);
-			}
+				{
+					TypeName *n = makeTypeName("any");
+					n->location = @1;
+					$$ = n;
+				}
+			;
 
 type_list:	Typename								{ $$ = list_make1($1); }
 			| type_list ',' Typename				{ $$ = lappend($1, $3); }

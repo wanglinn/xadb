@@ -1556,7 +1556,7 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 #endif
 #ifdef ADB_GRAM_ORA
 		case T_OraImplicitConvertStmt:
-			ExecImplicitConvert((OraImplicitConvertStmt *) parsetree);
+			ExecImplicitConvert((OraImplicitConvertStmt *) parsetree, pstate);
 			break;
 #endif /* ADB_GRAM_ORA */
 		default:
@@ -4473,14 +4473,12 @@ CreateCommandTag(Node *parsetree)
 					case ICONVERT_CREATE:
 						tag = "CREATE CONVERT";	/* CREATE CONVERT */
 						break;
-					case ICONVERT_UPDATE:
-						tag = "CREATE CONVERT";	/* CREATE CONVERT */
-						break;
 					case ICONVERT_DELETE:
 						tag = "DROP CONVERT";	/* DROP CONVERT */
 						break;
 					default:
-						elog(WARNING, "unrecognized commandType: %d",
+						elog(WARNING,
+							 "unrecognized convert commandType: %d",
 							 (int) stmt->action);
 						tag = "???";
 						break;
