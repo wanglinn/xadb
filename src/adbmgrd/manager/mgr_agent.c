@@ -14,6 +14,8 @@
 #include "utils/memutils.h"
 #include "utils/syscache.h"
 #include "datatype/timestamp.h"
+#include <time.h>
+#include <sys/time.h>
 
 /*
  * These macros are needed to let error-handling code be portable between
@@ -51,9 +53,16 @@ static void ma_set_error(ManagerAgent *ma, const char *fmt, ...) __attribute__((
 
 ManagerAgent* ma_connect(const char *host, unsigned short port)
 {
+	return ma_connect_with_timeout(host, port, 0, 0);
+}
+
+ManagerAgent* ma_connect_with_timeout(const char *host, unsigned short port, int sndtimeo_s, int rcvtimeo_s)
+{
 	struct addrinfo *addr;
 	ManagerAgent *agent;
 	int ret;
+	struct timeval sndtimeout;
+	struct timeval rcvtimeout;
 
 	AssertArg(host != NULL && port != 0);
 
@@ -93,6 +102,28 @@ re_connect_:
 
 			ma_set_error(agent, "could not connect socket for agent \"%s\":%m", host);
 			return agent;
+		}
+
+		if (sndtimeo_s > 0)
+		{
+			memset(&sndtimeout, 0, sizeof(sndtimeout));
+			sndtimeout.tv_sec = sndtimeo_s;
+			if (setsockopt(agent->sock, SOL_SOCKET, SO_SNDTIMEO, &sndtimeout, sizeof(sndtimeout)) == -1)
+			{
+				ma_set_error(agent, "could not setsockopt SO_SNDTIMEO for agent \"%s\":%m", host);
+				return agent;
+			}
+		}
+		
+		if (rcvtimeo_s > 0)
+		{
+			memset(&rcvtimeout, 0, sizeof(rcvtimeout));
+			rcvtimeout.tv_sec = rcvtimeo_s;
+			if (setsockopt(agent->sock, SOL_SOCKET, SO_RCVTIMEO, &rcvtimeout, sizeof(rcvtimeout)) == -1)
+			{
+				ma_set_error(agent, "could not setsockopt SO_RCVTIMEO for agent \"%s\":%m", host);
+				return agent;
+			}
 		}
 
 		/* wait idle message */
@@ -206,6 +237,11 @@ ManagerAgent* ma_connect_noblock(const char *host, unsigned short port)
 
 ManagerAgent* ma_connect_hostoid(Oid hostoid)
 {
+	return ma_connect_hostoid_with_timeout(hostoid, 0, 0);
+}
+
+ManagerAgent* ma_connect_hostoid_with_timeout(Oid hostoid, int sndtimeo_s, int rcvtimeo_s)
+{
 	ManagerAgent *ma;
 	Datum host_addr;
 	Form_mgr_host mgr_host;
@@ -224,7 +260,7 @@ ManagerAgent* ma_connect_hostoid(Oid hostoid)
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
 			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
 			, errmsg("column hostaddr is null")));
-	ma = ma_connect(TextDatumGetCString(host_addr), mgr_host->hostagentport);
+	ma = ma_connect_with_timeout(TextDatumGetCString(host_addr), mgr_host->hostagentport, sndtimeo_s, rcvtimeo_s);
 	ReleaseSysCache(tup);
 	return ma;
 }
@@ -537,6 +573,9 @@ static bool ma_recv_data(ManagerAgent *ma)
 	StringInfo buf;
 	fd_set rfd;
 	int rval;
+	socklen_t optlen;
+	struct timeval timeoutopt;
+	struct timeval *timeout;
 	AssertArg(ma);
 
 	if(ma->sock == PGINVALID_SOCKET)
@@ -548,10 +587,20 @@ static bool ma_recv_data(ManagerAgent *ma)
 	buf = &(ma->in_buf);
 	left_stringbuf(buf);
 
+	optlen = sizeof(timeoutopt);
+	memset(&timeoutopt, 0, sizeof(timeoutopt));
+	if (getsockopt(ma->sock, SOL_SOCKET, SO_RCVTIMEO, &timeoutopt, &optlen) != 0)
+		memset(&timeoutopt, 0, sizeof(timeoutopt));
+
+	if (timeoutopt.tv_sec > 0)
+		timeout = &timeoutopt;
+	else
+		timeout = NULL;
+
 re_select_:
 	FD_ZERO(&rfd);
 	FD_SET(ma->sock, &rfd);
-	rval = select(ma->sock + 1, &rfd, NULL, NULL, NULL);
+	rval = select(ma->sock + 1, &rfd, NULL, NULL, timeout);
 	if(rval < 0)
 	{
 		CHECK_FOR_INTERRUPTS();

@@ -209,7 +209,7 @@ monitor_get_hostinfo(PG_FUNCTION_ARGS)
     appendStringInfoString(&monitor_alarm.alarm_source, host_addr);
 
 		namestrcpy(&hostname, NameStr(mgr_host->hostname));
-    ma = ma_connect_hostoid(mgr_host->oid);
+    ma = ma_connect_hostoid_with_timeout(mgr_host->oid, 60, 60);
 
     if (!ma_isconnected(ma))
     {
