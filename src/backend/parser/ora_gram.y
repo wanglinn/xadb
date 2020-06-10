@@ -179,7 +179,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %type <ielem>	index_elem
 
 %type <list>	stmtblock stmtmulti opt_column_list columnList alter_table_cmds
-				OptRoleList convert_type_list  type_list
+				OptRoleList convert_type_list  type_list convert_typename
 
 %type <list>	OptSeqOptList SeqOptList
 /* %type <list>	NumericOnly_list */
@@ -8056,7 +8056,7 @@ OraImplicitConvertStmt:
 					$$ = (Node *) c;
 				}
 			/* implicit convert operator */
-			| CREATE opt_or_replace CONVERT OPERATOR Typename all_Op Typename AS Typename all_Op Typename
+			| CREATE opt_or_replace CONVERT OPERATOR convert_typename all_Op convert_typename AS convert_typename all_Op convert_typename
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
 					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
@@ -8071,7 +8071,7 @@ OraImplicitConvertStmt:
 					c->node_list = NIL;
 					$$ = (Node *) c;
 				}
-			| DROP CONVERT OPERATOR Typename all_Op Typename
+			| DROP CONVERT OPERATOR convert_typename all_Op convert_typename
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
 					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
@@ -8083,7 +8083,7 @@ OraImplicitConvertStmt:
 					c->node_list = NIL;
 					$$ = (Node *) c;
 				}
-			| DROP CONVERT OPERATOR IF_P EXISTS Typename all_Op Typename
+			| DROP CONVERT OPERATOR IF_P EXISTS convert_typename all_Op convert_typename
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
 					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
@@ -8102,10 +8102,18 @@ convert_functon_name:
 			;
 
 convert_type_list:
-			Typename							{ $$ = list_make1($1); }
-			| convert_type_list ',' Typename 	{ $$ = lappend($1, $3); }
+			convert_typename							{ $$ = $1; }
+			| convert_type_list ',' convert_typename 	{ $$ = lappend($1, $3); }
 		;
 
+convert_typename:
+			Typename							{ $$ = list_make1($1);}
+			| ANY								
+			{
+				TypeName *n = makeTypeName("any");
+				n->location = @1;
+				$$ = list_make1(n);
+			}
 
 type_list:	Typename								{ $$ = list_make1($1); }
 			| type_list ',' Typename				{ $$ = lappend($1, $3); }

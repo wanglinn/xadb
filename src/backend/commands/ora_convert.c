@@ -40,7 +40,7 @@
 
 void ExecImplicitConvert(OraImplicitConvertStmt *stmt);
 static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt);
-Oid TypenameGetTypOid(TypeName *typname);
+Oid TypenameGetTypOid(TypeName *typname, bool *find);
 
 #ifdef ADB
 void ClusterExecImplicitConvert(StringInfo mem_toc);
@@ -136,6 +136,7 @@ static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt)
 	int					i;
 	bool				compareCvtfrom = true;
 	bool				compareCvtto = true;
+	bool				find_oid;
 
 
 	cvtfromList_count = list_length(stmt->cvtfrom);
@@ -160,8 +161,8 @@ static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt)
 		for (i = 0; i < cvtfromList_count; i++)
 		{
 			Assert(nodeTag(lfirst(cell)) == T_TypeName);
-			fromOids[i] = TypenameGetTypOid(lfirst(cell));
-			if (fromOids[i] == InvalidOid)
+			fromOids[i] = TypenameGetTypOid(lfirst(cell), &find_oid);
+			if (!find_oid)
 				elog(ERROR, "Added data type not included.");
 			cell = lnext(cell);
 		}
@@ -175,8 +176,8 @@ static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt)
 			for (i = 0; i < cvttoList_count; i++)
 			{
 				Assert(nodeTag(lfirst(cell)) == T_TypeName);
-				toOids[i] = TypenameGetTypOid(lfirst(cell));
-				if (toOids[i] == InvalidOid)
+				toOids[i] = TypenameGetTypOid(lfirst(cell), &find_oid);
+				if (!find_oid)
 					elog(ERROR, "Added data type not included.");
 				cell = lnext(cell);
 			}
@@ -389,7 +390,7 @@ getMasterNodeOid(void)
 #endif 
 
 Oid
-TypenameGetTypOid(TypeName *typname)
+TypenameGetTypOid(TypeName *typname, bool *find)
 {
 	char		*typeName;
 	char		*schemaname;
@@ -399,6 +400,12 @@ TypenameGetTypOid(TypeName *typname)
 
 	/* deconstruct the name list */
 	DeconstructQualifiedName(typname->names, &schemaname, &typeName);
+
+	if (strcmp(typeName, "any") == 0)
+	{
+		*find = true;
+		return (Oid) 0;
+	}
 
 	if (schemaname)
 	{
@@ -416,8 +423,14 @@ TypenameGetTypOid(TypeName *typname)
 	}
 
 	if (OidIsValid(typoid) && get_typisdefined(typoid))
+	{
+		*find = true;
 		return typoid;
+	}
 	else
+	{
+		*find = false;
 		return InvalidOid;
+	}
 	
 }
