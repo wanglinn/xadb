@@ -156,8 +156,16 @@ fsm_get_max_avail(Page page)
  */
 int
 fsm_search_avail(Buffer buf, uint8 minvalue, bool advancenext,
-				 bool exclusive_lock_held ADB_ONLY_COMMA_ARG(bool skip_flag))
+				 bool exclusive_lock_held)
 {
+#ifdef ADB
+	return fsm_search_avail_ext(buf, minvalue, advancenext, exclusive_lock_held, false);
+}
+int
+fsm_search_avail_ext(Buffer buf, uint8 minvalue, bool advancenext,
+				 bool exclusive_lock_held, bool skip_flag)
+{
+#endif
 	Page		page = BufferGetPage(buf);
 	FSMPage		fsmpage = (FSMPage) PageGetContents(page);
 	int			nodeno;

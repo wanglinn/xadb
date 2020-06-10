@@ -696,9 +696,15 @@ fsm_set_and_search(Relation rel, FSMAddress addr, uint16 slot,
 	if (minValue != 0)
 	{
 		/* Search while we still hold the lock */
+#ifdef ADB
+		newslot = fsm_search_avail_ext(buf, minValue,
+								   addr.level == FSM_BOTTOM_LEVEL,
+								   true, skip_flag);
+#else
 		newslot = fsm_search_avail(buf, minValue,
 								   addr.level == FSM_BOTTOM_LEVEL,
-								   true ADB_ONLY_COMMA_ARG(skip_flag));
+								   true);
+#endif
 	}
 
 	UnlockReleaseBuffer(buf);
@@ -739,9 +745,15 @@ fsm_search(Relation rel, uint8 min_cat)
 		if (BufferIsValid(buf))
 		{
 			LockBuffer(buf, BUFFER_LOCK_SHARE);
+#ifdef ADB
+			slot = fsm_search_avail_ext(buf, min_cat,
+									(addr.level == FSM_BOTTOM_LEVEL),
+									false, skip_flag);
+#else
 			slot = fsm_search_avail(buf, min_cat,
 									(addr.level == FSM_BOTTOM_LEVEL),
-									false ADB_ONLY_COMMA_ARG(skip_flag));
+									false);
+#endif
 			if (slot == -1)
 				max_avail = fsm_get_max_avail(BufferGetPage(buf));
 			UnlockReleaseBuffer(buf);
