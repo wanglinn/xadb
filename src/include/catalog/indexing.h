@@ -349,6 +349,8 @@ DECLARE_UNIQUE_INDEX(adb_clean_index, 9032, on adb_clean using btree(clndb oid_o
 #endif
 
 #ifdef ADB_GRAM_ORA
+DECLARE_UNIQUE_INDEX(ora_cast_id_index, 9016, on ora_cast using btree(castid oid_ops));
+#define OraCastIdIndexId	9016
 DECLARE_UNIQUE_INDEX(ora_cast_source_target_index, 9017, on ora_cast using btree(castsource oid_ops, casttarget oid_ops, castcontext char_ops));
 #define OraCastSourceTargetIndexId  9017
 DECLARE_UNIQUE_INDEX(ora_convert_index, 6103, on ora_convert using btree(cvtkind char_ops, cvtname name_ops, cvtfrom oidvector_ops));

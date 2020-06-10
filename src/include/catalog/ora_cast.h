@@ -30,6 +30,9 @@
 
 CATALOG(ora_cast,9121,OraCastRelationId)
 {
+	/* cast id */
+	Oid			castid;
+
 	/* source datatype for cast */
 	Oid			castsource BKI_LOOKUP(pg_type);
 
@@ -37,10 +40,10 @@ CATALOG(ora_cast,9121,OraCastRelationId)
 	Oid			casttarget BKI_LOOKUP(pg_type);
 
 	/* cast function; 0 = binary coercible */
-	Oid			castfunc BKI_LOOKUP(pg_proc);
+	regproc		castfunc BKI_LOOKUP(pg_proc);
 
 	/* cast truncate function */
-	Oid			casttruncfunc BKI_LOOKUP(pg_proc);
+	regproc		casttruncfunc BKI_LOOKUP(pg_proc);
 
 	/* contexts in which cast can be used */
 	char		castcontext;
