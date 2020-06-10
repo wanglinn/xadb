@@ -3,6 +3,7 @@
 #include "access/heapam.h"
 #include "access/heapam_xlog.h"
 #include "access/htup_details.h"
+#include "access/nbtree.h"
 #include "access/relscan.h"
 #include "access/sysattr.h"
 #include "access/xact.h"
@@ -31,6 +32,7 @@
 #include "optimizer/reduceinfo.h"
 #include "optimizer/var.h"
 #include "parser/parse_coerce.h"
+#include "parser/parse_node.h"
 #include "postmaster/bgworker.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
@@ -50,6 +52,10 @@
 #include "utils/resowner_private.h"
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
+
+static void makeListNodeAndValues(Oid oid, List *values, List *expand_oids, List **new_oids, List **new_values);
+void RemoveCleanInfoFromExpansionClean(Oid relOid);
+static Expr* makeListValEqual(Relation rel, List *list, bool is_first_node);
 
 #define EXPANSION_QUEUE_SIZE	(16*1024)
 
@@ -880,6 +886,107 @@ static HeapTuple ExpansionHashUpdate(Form_pgxc_class form_class, HeapTuple tup, 
 	return UpdateClassNodeoidsValues(new_oids, n, *new_values, tup, rel_class, indstate);
 }
 
+static HeapTuple ExpansionListUpdate(Form_pgxc_class form_class, HeapTuple tup, List *expansion,
+								Relation rel_class, CatalogIndexState indstate, List **new_values)
+{
+	List			*old_oids = NIL;
+	List			*old_values = NIL;
+	List			*new_oids = NIL;
+	ListCell		*lc_old_oid, *lc_old_value, *lc;
+	Oid				old_oid;
+	Oid				*nodeoids;
+	List			*old_value;
+	text			*txt;
+	char			*str;
+	int				i;
+	uint32			n;
+	bool			isnull;
+
+	for (i=0; i<form_class->nodeoids.dim1; ++i)
+			old_oids = lappend_oid(old_oids, form_class->nodeoids.values[i]);
+	Assert(list_length(old_oids) == form_class->nodeoids.dim1);
+
+	txt = (text*)DatumGetPointer(heap_getattr(tup, Anum_pgxc_class_pcvalues, RelationGetDescr(rel_class), &isnull));
+	str = text_to_cstring(txt);
+	old_values = stringToNode(str);
+
+	lc_old_oid = list_head(old_oids);
+	lc_old_value = list_head(old_values);
+	for (i=0; i<list_length(old_oids); i++)
+	{
+		foreach (lc, expansion)
+		{
+			List *expand_oids = lfirst(lc);
+			old_oid = lfirst_oid(lc_old_oid);
+			old_value = lfirst(lc_old_value);
+			if (old_oid == linitial_oid(expand_oids) && list_length(old_value) > 1)
+			{
+				makeListNodeAndValues(old_oid, old_value, expand_oids, &new_oids, new_values);
+			}
+			else
+			{
+				new_oids = lappend_oid(new_oids, old_oid);
+				*new_values = lappend(*new_values, old_value);
+			}
+		}
+		lc_old_oid = lnext(lc_old_oid);
+		lc_old_value = lnext(lc_old_value);
+	}
+
+	n = list_length(new_oids);
+	if (list_length(old_oids) == n)
+	{
+		list_free(new_oids);
+	}
+	else
+	{
+		Assert(list_length(old_oids) < n);
+		nodeoids = (Oid *) palloc0(n * sizeof(Oid));
+		lc = list_head(new_oids);
+		for (i=0; i<n; i++)
+		{
+			nodeoids[i] = lfirst_oid(lc);
+			lc = lnext(lc);
+		}
+		list_free(new_oids);
+
+		return UpdateClassNodeoidsValues(nodeoids, n, *new_values, tup, rel_class, indstate);
+	}
+	return NULL;
+}
+
+static void makeListNodeAndValues(Oid oid, List *values, List *expand_oids, List **new_oids, List **new_values)
+{
+	List		**expand_value;
+	ListCell	*lc;
+	int			n;
+	int			i;
+
+	n = list_length(expand_oids);
+	expand_value = palloc0(n * sizeof(List *));
+	for (i=0; i<n; i++)
+		expand_value[i] = NIL;
+
+	i = 0;
+	foreach (lc, values)
+	{
+		expand_value[i] = lappend(expand_value[i], lfirst_node(Const, lc));
+		if (++i == n )
+			i = 0;
+	}
+
+	i = 0;
+	foreach(lc, expand_oids)
+	{
+		if (expand_value[i])
+		{
+			*new_oids = lappend_oid(*new_oids, lfirst_oid(lc));
+			*new_values = lappend(*new_values, expand_value[i]);
+		}
+		i++;
+	}
+}
+
 static ScalarArrayOpExpr* makeExprInAnyInt(Expr *expr, List *list)
 {
 	ListCell		   *lc;
@@ -1003,6 +1110,109 @@ static void ExpansionHashMakeClean(Form_pgxc_class new_class, List *new_values, 
 	relation_close(rel, NoLock);
 }
 
+static void ExpansionListMakeClean(Form_pgxc_class new_class, List *new_values, List *expansion, shm_mq_handle *mq)
+{
+	Relation		rel;
+	ListCell	   *lc,*lc2;
+	Expr		   *clean_expr;
+	StringInfoData	msg;
+	int				i;
+	Oid				oid;
+
+	rel = relation_open(new_class->pcrelid, NoLock);
+	initStringInfo(&msg);
+
+	foreach (lc, expansion)
+	{
+		foreach (lc2, lfirst(lc))
+		{
+			oid = lfirst_oid(lc2);
+
+			resetStringInfo(&msg);
+			appendStringInfoChar(&msg, EW_KEY_CLASS_RELATION);
+			appendBinaryStringInfoNT(&msg, (char*)&oid, sizeof(oid));
+			appendStringInfoChar(&msg, EW_KEY_CLASS_RELATION);
+			save_oid_class(&msg, new_class->pcrelid);
+
+			clean_expr = NULL;
+			for (i=0;i<new_class->nodeoids.dim1;++i)
+			{
+				if (new_class->nodeoids.values[i] != oid)
+					continue;
+
+				if (new_values)
+				{
+					List *list = list_nth(new_values, i);
+					clean_expr = makeListValEqual(rel, list,i == 0 ? true: false);
+				}
+				break;
+			}
+			Assert(i<new_class->nodeoids.dim1);
+			Assert(clean_expr != NULL);
+			saveNode(&msg, (Node*)clean_expr);
+			if (shm_mq_send(mq, msg.len, msg.data, false) != SHM_MQ_SUCCESS)
+				ereport(ERROR, (errmsg("send clean message to main worker result detached")));
+		}
+	}
+
+	relation_close(rel, NoLock);
+}
+
+static Expr* makeListValEqual(Relation rel, List *list, bool is_first_node)
+{
+	ReduceInfo			*rinfo;
+	NullTest			*null_test;
+	ScalarArrayOpExpr	*sao;
+	BoolExpr			*expr;
+	ArrayExpr			*newa;
+	Oid					oper_no;
+	Var					*key_var;
+
+	rinfo = MakeReduceInfoFromLocInfo(rel->rd_locator_info, NIL, RelationGetRelid(rel), 1);
+
+	if (is_first_node)
+	{
+		null_test = makeNode(NullTest);
+		null_test->arg = rinfo->keys[0].key;
+		null_test->nulltesttype = IS_NULL;
+		null_test->argisrow = false;
+		null_test->location = -1;
+	}
+
+	newa = makeNode(ArrayExpr);
+	newa->multidims = false;
+	newa->elements = list;
+	newa->element_typeid = exprType((Node *) linitial(list));
+	newa->array_typeid = get_array_type(newa->element_typeid);
+	newa->location = -1;
+
+	sao = makeNode(ScalarArrayOpExpr);
+	key_var = (Var*)(rinfo->keys[0].key);
+	oper_no = get_opfamily_member(rinfo->keys[0].opfamily,
+								key_var->vartype,
+								key_var->vartype,
+								BTEqualStrategyNumber);
+	sao->opno = oper_no;
+	sao->opfuncid = get_opcode(oper_no);
+	sao->useOr = true;
+	sao->inputcollid = InvalidOid;
+	sao->args = list_make2(rinfo->keys[0].key, newa);
+	sao->location = -1;
+
+	if (is_first_node)
+	{
+		expr = makeNode(BoolExpr);
+		expr->boolop = OR_EXPR;
+		expr->args = list_make2(null_test, sao);
+		expr->location = -1;
+	}
+
+	if (is_first_node)
+		return (Expr*)expr;
+	else
+		return (Expr*)sao;
+}
+
 static void ExpansionHash(Form_pgxc_class form_class, HeapTuple tup, List *expansion,
 						  Relation rel_class, CatalogIndexState indstate, shm_mq_handle *mq)
 {
@@ -1079,9 +1289,17 @@ static void ExpansionRandom(Form_pgxc_class form_class, HeapTuple tup, List *exp
 	}
 }
 
-static void ExpansionList(Form_pgxc_class form_class, HeapTuple tup, List *expansion, shm_mq_handle *mq)
+static void ExpansionList(Form_pgxc_class form_class, HeapTuple tup, List *expansion, 
+						  Relation rel_class, CatalogIndexState indstate, shm_mq_handle *mq)
 {
+	HeapTuple	new_tup = NULL;
+	List	   *new_values = NIL;
 
+	new_tup = ExpansionListUpdate(form_class, tup, expansion, rel_class, indstate, &new_values);
+	if (IsGTMNode())
+		ExpansionListMakeClean((Form_pgxc_class)GETSTRUCT(new_tup), new_values, expansion, mq);
+	if (new_tup)
+		heap_freetuple(new_tup);
 }
 
 static void ExpansionRange(Form_pgxc_class form_class, HeapTuple tup, List *expansion, shm_mq_handle *mq)
@@ -1154,7 +1372,7 @@ static void ExpansionWorkerCoord(List *expansion_node, shm_mq_handle *mq, Memory
 			ExpansionHash(form_class, tup, expansion_rel_node, rel_class, class_index_state, mq);
 			break;
 		case LOCATOR_TYPE_LIST:
-			ExpansionList(form_class, tup, expansion_rel_node, mq);
+			ExpansionList(form_class, tup, expansion_rel_node, rel_class, class_index_state, mq);
 			break;
 		case LOCATOR_TYPE_RANGE:
 			ExpansionRange(form_class, tup, expansion_rel_node, mq);
