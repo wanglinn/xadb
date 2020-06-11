@@ -1435,6 +1435,9 @@ func_get_detail(List *funcname,
 {
 	FuncCandidateList raw_candidates;
 	FuncCandidateList best_candidate;
+#ifdef ADB_GRAM_ORA
+	bool	ora_try_any = false;
+#endif
 
 	/* initialize output arguments to silence compiler warnings */
 	*funcid = InvalidOid;
@@ -1455,10 +1458,12 @@ func_get_detail(List *funcname,
 									strVal(linitial(funcname)),
 									argtypes,
 									nargs,
-									nargs);
+									nargs,
+									false);
 		if (to != NULL)
 			argtypes = to;
 	}
+ora_retry:
 #endif
 
 	/* Get list of possible candidates from namespace search */
@@ -1477,6 +1482,28 @@ func_get_detail(List *funcname,
 		if (memcmp(argtypes, best_candidate->args, nargs * sizeof(Oid)) == 0)
 			break;
 	}
+
+#ifdef ADB_GRAM_ORA
+	/* Try Oracle to implicitly convert wildcard rules. */
+	if (!ora_try_any &&
+		best_candidate == NULL &&
+		current_grammar == PARSE_GRAM_ORACLE &&
+		list_length(funcname) == 1)
+	{
+		Oid *to = find_ora_convert(ORA_CONVERT_KIND_FUNCTION,
+										strVal(linitial(funcname)),
+										argtypes,
+										nargs,
+										nargs,
+										true);
+		if (to != NULL)
+		{
+			argtypes = to;
+			ora_try_any = true;
+			goto ora_retry;
+		}
+	}
+#endif
 
 	if (best_candidate == NULL)
 	{

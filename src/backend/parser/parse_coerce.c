@@ -2553,6 +2553,7 @@ Oid select_oracle_type(ParseState *pstate, List *exprs,
 					   char kind, const char *name)
 {
 	Oid			from[2];
+	Oid			retryfrom[2];
 	Oid		   *to;
 	Node	   *pexpr;
 	ListCell   *lc;
@@ -2567,10 +2568,13 @@ Oid select_oracle_type(ParseState *pstate, List *exprs,
 	{
 		Node	   *nexpr = lfirst(lc);
 		from[1] = exprType(nexpr);
-		to = find_ora_convert(kind, name, from, lengthof(from), 1);
+		/* Record the original state of variable 'from' */
+		retryfrom[0] = from[0] ;
+		retryfrom[1] = from[1];
+		to = find_ora_convert(kind, name, from, lengthof(from), 1, false);
 		if (to == NULL &&
 			kind != ORA_CONVERT_KIND_COMMON)
-			to = find_ora_convert(ORA_CONVERT_KIND_COMMON, "", from, lengthof(from), 1);
+			to = find_ora_convert(ORA_CONVERT_KIND_COMMON, "", from, lengthof(from), 1, false);
 		
 		if (to == NULL)
 		{
@@ -2584,7 +2588,18 @@ Oid select_oracle_type(ParseState *pstate, List *exprs,
 			else
 				llast(list) = nexpr;
 			from[0] = select_common_type(pstate, list, context, which_expr);
-		}else
+		}
+
+		/* Try Oracle to implicitly convert wildcard rules. */
+		if (from[0] == InvalidOid)
+		{
+			to = find_ora_convert(kind, name, retryfrom, lengthof(retryfrom), 1, true);
+			if (to == NULL &&
+				kind != ORA_CONVERT_KIND_COMMON)
+				to = find_ora_convert(ORA_CONVERT_KIND_COMMON, "", retryfrom, lengthof(retryfrom), 1, true);
+		}
+
+		if (to != NULL)
 		{
 			from[0] = to[0];
 			if (which_expr)

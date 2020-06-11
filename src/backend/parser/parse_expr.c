@@ -1244,7 +1244,16 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 									  name,
 									  from,
 									  lengthof(from),
-									  lengthof(from));
+									  lengthof(from),
+									  false);
+				/* Try Oracle to implicitly convert wildcard rules. */
+				if (to == NULL)
+					to = find_ora_convert(ORA_CONVERT_KIND_OPERATOR,
+										  name,
+										  from,
+										  lengthof(from),
+										  lengthof(from),
+										  true);
 				if (to != NULL)
 				{
 					lexpr = coerce_to_target_type(pstate, lexpr, from[0], to[0], -1,

@@ -60,6 +60,9 @@
 /* Hook for plugins to get control in get_attavgwidth() */
 get_attavgwidth_hook_type get_attavgwidth_hook = NULL;
 
+#ifdef ADB_GRAM_ORA
+static HeapTuple func_comm_convert(char kind, const char *name, const Oid *from, int count, int outcount);
+#endif /* ADB_GRAM_ORA */
 
 /*				---------- AMOP CACHES ----------						 */
 
@@ -3913,18 +3916,25 @@ get_funcid(const char *funcname, oidvector *argtypes, Oid funcnsp)
 #endif /* ADB_MULTI_GRAM */
 
 #ifdef ADB_GRAM_ORA
-Oid* find_ora_convert(char kind, const char *name, const Oid *from, int count, int outcount)
+Oid* find_ora_convert(char kind, const char *name, const Oid *from, int count, int outcount, bool tryAnytype)
 {
 	bool			isnull;
 	Datum			datum;
 	HeapTuple		tup;
 	ArrayType	   *vto;
 	oidvector	   *vfrom = buildoidvector(from, count);
+	Oid			   *to;
 
-	tup = SearchSysCache3(ORACONVERTSCID,
-						  CharGetDatum(kind),
-						  CStringGetDatum(name),
-						  PointerGetDatum(vfrom));
+	if (!tryAnytype)
+	{
+		tup = SearchSysCache3(ORACONVERTSCID,
+							CharGetDatum(kind),
+							CStringGetDatum(name),
+							PointerGetDatum(vfrom));
+	}
+	else
+		tup = func_comm_convert(kind, name, from, count, outcount);
+
 	if (!HeapTupleIsValid(tup))
 		return NULL;
 	
@@ -3940,10 +3950,14 @@ Oid* find_ora_convert(char kind, const char *name, const Oid *from, int count, i
 		ARR_DIMS(vto)[0] != outcount)
 		goto data_corrupted_;
 
+	to = palloc(sizeof(Oid)*outcount);
 	/* we not use vfrom again, so we can reuse it for return */
-	memcpy(vfrom, ARR_DATA_PTR(vto), sizeof(Oid)*outcount);
-	ReleaseSysCache(tup);
-	return (Oid*)vfrom;
+	memcpy(to, ARR_DATA_PTR(vto), sizeof(Oid)*outcount);
+	if (tryAnytype)
+		heap_freetuple(tup);
+	else
+		ReleaseSysCache(tup);
+	return to;
 
 data_corrupted_:
 	ereport(ERROR,
@@ -3951,5 +3965,60 @@ data_corrupted_:
 			 errmsg("corrupted data"),
 			 err_generic_string(PG_DIAG_TABLE_NAME, "ora_convert")));
 	return NULL;	/* keep compiler quiet */
+}
+
+
+static HeapTuple
+func_comm_convert(char kind, const char *name, const Oid *from, int count, int outcount)
+{
+	HeapTuple			tup = NULL;
+	CatCList		   *catlist;
+	Form_ora_convert	convert;
+	oidvector		   *vfrom;
+	int					any;
+	int					i, j;
+	int					anycount, match;
+
+	catlist = SearchSysCacheList2(ORACONVERTSCID,
+								CharGetDatum(kind),
+								CStringGetDatum(name));
+
+	if (catlist->n_members > 0)
+	{
+		for (any = 1; any <= count; any++)
+		{
+			for (i = 0; i < catlist->n_members; i++)
+			{
+				HeapTuple cvttup = &catlist->members[i]->tuple;
+				convert = (Form_ora_convert) GETSTRUCT(cvttup);
+				vfrom = &(convert->cvtfrom);
+
+				/* The number of parameters does not meet the requirements */
+				if (convert->cvtfrom.dim1 != count)
+					continue;
+
+				anycount = match = 0;
+				for (j = 0; j < count; j++)
+				{
+					if (from[j] == vfrom->values[j])
+						match ++;
+					/* Count the number of 'ANY'. */
+					else if (vfrom->values[j] == 0)
+						anycount ++;
+				}
+				/* Find rules that contain the specified number of ‘ANY'. */
+				if (anycount == any && (match + anycount) == count)
+				{
+					tup = heap_copytuple(cvttup);
+					break;
+				}
+			}
+			if (HeapTupleIsValid(tup))
+				break;
+		}
+	}
+
+	ReleaseCatCacheList(catlist);
+	return tup;
 }
 #endif /* ADB_GRAM_ORA */
