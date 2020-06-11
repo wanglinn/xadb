@@ -30,140 +30,63 @@
 { cvtid => 27,  cvtkind => 'f', cvtname => 'sum', cvtfrom => 'unknown', cvtto => 'numeric' },
 { cvtid => 28,  cvtkind => 'f', cvtname => 'tanh', cvtfrom => 'text', cvtto => 'numeric' },
 { cvtid => 29,  cvtkind => 'f', cvtname => 'to_char', cvtfrom => 'unknown unknown', cvtto => 'int8 text' },
-
-{ cvtid => 30,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int8 bpchar', cvtto => 'numeric numeric' }
-{ cvtid => 31,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int8 numeric', cvtto => 'numeric numeric' }
-{ cvtid => 32,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int8 float8', cvtto => 'numeric numeric' }
-{ cvtid => 33,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int8 float4', cvtto => 'numeric numeric' }
-{ cvtid => 34,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int8 int4', cvtto => 'numeric numeric' }
-{ cvtid => 35,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int8 int2', cvtto => 'numeric numeric' }
-{ cvtid => 36,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int8 unknown', cvtto => 'numeric numeric' }
-{ cvtid => 37,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int8 text', cvtto => 'numeric numeric' }
-{ cvtid => 38,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int8 oracle.nvarchar2', cvtto => 'numeric numeric' }
-{ cvtid => 39,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int8 oracle.varchar2', cvtto => 'numeric numeric' }
-{ cvtid => 40,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int8 varchar', cvtto => 'numeric numeric' }
-{ cvtid => 41,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int2 numeric', cvtto => 'numeric numeric' }
-{ cvtid => 42,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int2 bpchar', cvtto => 'numeric numeric' }
-{ cvtid => 43,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int2 varchar', cvtto => 'numeric numeric' }
-{ cvtid => 44,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int2 oracle.varchar2', cvtto => 'numeric numeric' }
-{ cvtid => 45,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int2 oracle.nvarchar2', cvtto => 'numeric numeric' }
-{ cvtid => 46,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int2 text', cvtto => 'numeric numeric' }
-{ cvtid => 47,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int2 unknown', cvtto => 'numeric numeric' }
-{ cvtid => 48,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int2 int4', cvtto => 'numeric numeric' }
-{ cvtid => 49,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int2 int8', cvtto => 'numeric numeric' }
-{ cvtid => 50,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int2 float4', cvtto => 'numeric numeric' }
-{ cvtid => 51,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int2 float8', cvtto => 'numeric numeric' }
-{ cvtid => 52,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int4 bpchar', cvtto => 'numeric numeric' }
-{ cvtid => 53,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int4 varchar', cvtto => 'numeric numeric' }
-{ cvtid => 54,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int4 oracle.varchar2', cvtto => 'numeric numeric' }
-{ cvtid => 55,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int4 oracle.nvarchar2', cvtto => 'numeric numeric' }
-{ cvtid => 56,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int4 text', cvtto => 'numeric numeric' }
-{ cvtid => 57,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int4 unknown', cvtto => 'numeric numeric' }
-{ cvtid => 58,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int4 int2', cvtto => 'numeric numeric' }
-{ cvtid => 59,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int4 int8', cvtto => 'numeric numeric' }
-{ cvtid => 60,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int4 float4', cvtto => 'numeric numeric' }
-{ cvtid => 61,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'int4 float8', cvtto => 'numeric numeric' }
-{ cvtid => 62,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'text numeric', cvtto => 'numeric numeric' }
-{ cvtid => 63,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'text bpchar', cvtto => 'numeric numeric' }
-{ cvtid => 64,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'text varchar', cvtto => 'numeric numeric' }
-{ cvtid => 65,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'text oracle.varchar2', cvtto => 'numeric numeric' }
-{ cvtid => 66,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'text oracle.nvarchar2', cvtto => 'numeric numeric' }
-{ cvtid => 67,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'text text', cvtto => 'numeric numeric' }
-{ cvtid => 68,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'text unknown', cvtto => 'numeric numeric' }
-{ cvtid => 69,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'text int2', cvtto => 'numeric numeric' }
-{ cvtid => 70,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'text int4', cvtto => 'numeric numeric' }
-{ cvtid => 71,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'text int8', cvtto => 'numeric numeric' }
-{ cvtid => 72,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'text float4', cvtto => 'numeric numeric' }
-{ cvtid => 73,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'text float8', cvtto => 'numeric numeric' }
-{ cvtid => 74,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float4 float8', cvtto => 'numeric numeric' }
-{ cvtid => 75,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float4 varchar', cvtto => 'numeric numeric' }
-{ cvtid => 76,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float4 oracle.varchar2', cvtto => 'numeric numeric' }
-{ cvtid => 77,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float4 oracle.nvarchar2', cvtto => 'numeric numeric' }
-{ cvtid => 78,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float4 text', cvtto => 'numeric numeric' }
-{ cvtid => 79,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float4 unknown', cvtto => 'numeric numeric' }
-{ cvtid => 80,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float4 int2', cvtto => 'numeric numeric' }
-{ cvtid => 81,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float4 int4', cvtto => 'numeric numeric' }
-{ cvtid => 82,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float4 int8', cvtto => 'numeric numeric' }
-{ cvtid => 83,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float4 float4', cvtto => 'numeric numeric' }
-{ cvtid => 84,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float4 numeric', cvtto => 'numeric numeric' }
-{ cvtid => 85,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float4 bpchar', cvtto => 'numeric numeric' }
-{ cvtid => 86,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float8 bpchar', cvtto => 'numeric numeric' }
-{ cvtid => 87,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float8 varchar', cvtto => 'numeric numeric' }
-{ cvtid => 88,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float8 oracle.varchar2', cvtto => 'numeric numeric' }
-{ cvtid => 89,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float8 oracle.nvarchar2', cvtto => 'numeric numeric' }
-{ cvtid => 90,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float8 text', cvtto => 'numeric numeric' }
-{ cvtid => 91,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float8 unknown', cvtto => 'numeric numeric' }
-{ cvtid => 92,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float8 int2', cvtto => 'numeric numeric' }
-{ cvtid => 93,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float8 int8', cvtto => 'numeric numeric' }
-{ cvtid => 94,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float8 float4', cvtto => 'numeric numeric' }
-{ cvtid => 95,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'float8 numeric', cvtto => 'numeric numeric' }
-{ cvtid => 96,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'unknown oracle.varchar2', cvtto => 'numeric numeric' }
-{ cvtid => 97,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'unknown bpchar', cvtto => 'numeric numeric' }
-{ cvtid => 98,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'unknown varchar', cvtto => 'numeric numeric' }
-{ cvtid => 99,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'unknown oracle.nvarchar2', cvtto => 'numeric numeric' }
-{ cvtid => 100,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'unknown text', cvtto => 'numeric numeric' }
-{ cvtid => 101,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'unknown int2', cvtto => 'numeric numeric' }
-{ cvtid => 102,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'unknown int4', cvtto => 'numeric numeric' }
-{ cvtid => 103,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'unknown int8', cvtto => 'numeric numeric' }
-{ cvtid => 104,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'unknown float4', cvtto => 'numeric numeric' }
-{ cvtid => 105,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'unknown float8', cvtto => 'numeric numeric' }
-{ cvtid => 106,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'bpchar numeric', cvtto => 'numeric numeric' }
-{ cvtid => 107,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'bpchar bpchar', cvtto => 'numeric numeric' }
-{ cvtid => 108,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'bpchar varchar', cvtto => 'numeric numeric' }
-{ cvtid => 109,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'bpchar oracle.varchar2', cvtto => 'numeric numeric' }
-{ cvtid => 110,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'bpchar oracle.nvarchar2', cvtto => 'numeric numeric' }
-{ cvtid => 111,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'bpchar text', cvtto => 'numeric numeric' }
-{ cvtid => 112,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'bpchar unknown', cvtto => 'numeric numeric' }
-{ cvtid => 113,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'bpchar int2', cvtto => 'numeric numeric' }
-{ cvtid => 114,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'bpchar int4', cvtto => 'numeric numeric' }
-{ cvtid => 115,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'bpchar int8', cvtto => 'numeric numeric' }
-{ cvtid => 116,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'bpchar float4', cvtto => 'numeric numeric' }
-{ cvtid => 117,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'bpchar float8', cvtto => 'numeric numeric' }
-{ cvtid => 118,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'varchar float8', cvtto => 'numeric numeric' }
-{ cvtid => 119,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'varchar bpchar', cvtto => 'numeric numeric' }
-{ cvtid => 120,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'varchar varchar', cvtto => 'numeric numeric' }
-{ cvtid => 121,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'varchar oracle.varchar2', cvtto => 'numeric numeric' }
-{ cvtid => 122,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'varchar oracle.nvarchar2', cvtto => 'numeric numeric' }
-{ cvtid => 123,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'varchar text', cvtto => 'numeric numeric' }
-{ cvtid => 124,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'varchar unknown', cvtto => 'numeric numeric' }
-{ cvtid => 125,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'varchar int2', cvtto => 'numeric numeric' }
-{ cvtid => 126,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'varchar int4', cvtto => 'numeric numeric' }
-{ cvtid => 127,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'varchar int8', cvtto => 'numeric numeric' }
-{ cvtid => 128,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'varchar float4', cvtto => 'numeric numeric' }
-{ cvtid => 129,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'varchar numeric', cvtto => 'numeric numeric' }
-{ cvtid => 130,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'numeric float8', cvtto => 'numeric numeric' }
-{ cvtid => 131,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'numeric bpchar', cvtto => 'numeric numeric' }
-{ cvtid => 132,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'numeric varchar', cvtto => 'numeric numeric' }
-{ cvtid => 133,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'numeric oracle.varchar2', cvtto => 'numeric numeric' }
-{ cvtid => 134,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'numeric oracle.nvarchar2', cvtto => 'numeric numeric' }
-{ cvtid => 135,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'numeric text', cvtto => 'numeric numeric' }
-{ cvtid => 136,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'numeric int2', cvtto => 'numeric numeric' }
-{ cvtid => 137,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'numeric int8', cvtto => 'numeric numeric' }
-{ cvtid => 138,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'numeric float4', cvtto => 'numeric numeric' }
-{ cvtid => 139,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.varchar2 int8', cvtto => 'numeric numeric' }
-{ cvtid => 140,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.varchar2 float4', cvtto => 'numeric numeric' }
-{ cvtid => 141,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.varchar2 float8', cvtto => 'numeric numeric' }
-{ cvtid => 142,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.varchar2 numeric', cvtto => 'numeric numeric' }
-{ cvtid => 143,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.varchar2 bpchar', cvtto => 'numeric numeric' }
-{ cvtid => 144,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.varchar2 varchar', cvtto => 'numeric numeric' }
-{ cvtid => 145,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.varchar2 oracle.varchar2', cvtto => 'numeric numeric' }
-{ cvtid => 146,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.varchar2 oracle.nvarchar2', cvtto => 'numeric numeric' }
-{ cvtid => 147,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.varchar2 text', cvtto => 'numeric numeric' }
-{ cvtid => 148,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.varchar2 unknown', cvtto => 'numeric numeric' }
-{ cvtid => 149,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.varchar2 int2', cvtto => 'numeric numeric' }
-{ cvtid => 150,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.varchar2 int4', cvtto => 'numeric numeric' }
-{ cvtid => 151,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.nvarchar2 int4', cvtto => 'numeric numeric' }
-{ cvtid => 152,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.nvarchar2 float4', cvtto => 'numeric numeric' }
-{ cvtid => 153,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.nvarchar2 float8', cvtto => 'numeric numeric' }
-{ cvtid => 154,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.nvarchar2 oracle.varchar2', cvtto => 'numeric numeric' }
-{ cvtid => 155,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.nvarchar2 oracle.nvarchar2', cvtto => 'numeric numeric' }
-{ cvtid => 156,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.nvarchar2 text', cvtto => 'numeric numeric' }
-{ cvtid => 157,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.nvarchar2 unknown', cvtto => 'numeric numeric' }
-{ cvtid => 158,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.nvarchar2 int2', cvtto => 'numeric numeric' }
-{ cvtid => 159,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.nvarchar2 int8', cvtto => 'numeric numeric' }
-{ cvtid => 160,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.nvarchar2 numeric', cvtto => 'numeric numeric' }
-{ cvtid => 161,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.nvarchar2 bpchar', cvtto => 'numeric numeric' }
-{ cvtid => 162,  cvtkind => 'f', cvtname => 'mod', cvtfrom => 'oracle.nvarchar2 varchar', cvtto => 'numeric numeric' }
+{ cvtid => 30,  cvtkind => 'f', cvtname => 'cosh', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 31,  cvtkind => 'f', cvtname => 'mod', cvtfrom => '0 0', cvtto => 'numeric numeric' },
+{ cvtid => 32,  cvtkind => 'f', cvtname => 'abs', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 33,  cvtkind => 'f', cvtname => 'avg', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 34,  cvtkind => 'f', cvtname => 'ceil', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 35,  cvtkind => 'f', cvtname => 'floor', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 36,  cvtkind => 'f', cvtname => 'instr', cvtfrom => '0 0', cvtto => 'varchar varchar' },
+{ cvtid => 37,  cvtkind => 'f', cvtname => 'instr', cvtfrom => '0 0 0', cvtto => 'varchar varchar int4' },
+{ cvtid => 38,  cvtkind => 'f', cvtname => 'instr', cvtfrom => '0 0 0 0', cvtto => 'text text int4 int4' },
+{ cvtid => 39,  cvtkind => 'f', cvtname => 'last_day', cvtfrom => '0', cvtto => 'timestamptz' },
+{ cvtid => 40,  cvtkind => 'f', cvtname => 'length', cvtfrom => 'oracle.raw', cvtto => 'bytea' },
+{ cvtid => 41,  cvtkind => 'f', cvtname => 'length', cvtfrom => '0', cvtto => 'text' },
+{ cvtid => 42,  cvtkind => 'f', cvtname => 'ln', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 43,  cvtkind => 'f', cvtname => 'lpad', cvtfrom => '0 0', cvtto => 'text int4' },
+{ cvtid => 44,  cvtkind => 'f', cvtname => 'lpad', cvtfrom => '0 0 0', cvtto => 'text numeric text' },
+{ cvtid => 45,  cvtkind => 'f', cvtname => 'months_between', cvtfrom => '0 0', cvtto => 'date date' },
+{ cvtid => 46,  cvtkind => 'f', cvtname => 'nanvl', cvtfrom => '0 0', cvtto => 'numeric numeric' },
+{ cvtid => 47,  cvtkind => 'f', cvtname => 'next_day', cvtfrom => '0 0', cvtto => 'timestamptz timestamptz' },
+{ cvtid => 48,  cvtkind => 'f', cvtname => 'power', cvtfrom => '0 0', cvtto => 'numeric numeric' },
+{ cvtid => 49,  cvtkind => 'f', cvtname => 'regexp_replace', cvtfrom => '0 0', cvtto => 'text text' },
+{ cvtid => 50,  cvtkind => 'f', cvtname => 'regexp_replace', cvtfrom => '0 0 0', cvtto => 'text text text' },
+{ cvtid => 51,  cvtkind => 'f', cvtname => 'regexp_replace', cvtfrom => '0 0 0 0', cvtto => 'text text text int4' },
+{ cvtid => 52,  cvtkind => 'f', cvtname => 'regexp_replace', cvtfrom => '0 0 0 0 0', cvtto => 'text text text int4 int4' },
+{ cvtid => 53,  cvtkind => 'f', cvtname => 'regexp_replace', cvtfrom => '0 0 0 0 0 0', cvtto => 'text text text int4 int4 text' },
+{ cvtid => 54,  cvtkind => 'f', cvtname => 'regr_avgx', cvtfrom => '0 0', cvtto => 'float8 float8' },
+{ cvtid => 55,  cvtkind => 'f', cvtname => 'regr_avgy', cvtfrom => '0 0', cvtto => 'float8 float8' },
+{ cvtid => 56,  cvtkind => 'f', cvtname => 'regr_count', cvtfrom => '0 0', cvtto => 'float8 float8' },
+{ cvtid => 57,  cvtkind => 'f', cvtname => 'regr_r2', cvtfrom => '0 0', cvtto => 'float8 float8' },
+{ cvtid => 58,  cvtkind => 'f', cvtname => 'regr_slope', cvtfrom => '0 0', cvtto => 'float8 float8' },
+{ cvtid => 59,  cvtkind => 'f', cvtname => 'regr_sxx', cvtfrom => '0 0', cvtto => 'float8 float8' },
+{ cvtid => 60,  cvtkind => 'f', cvtname => 'regr_sxy', cvtfrom => '0 0', cvtto => 'float8 float8' },
+{ cvtid => 61,  cvtkind => 'f', cvtname => 'regr_syy', cvtfrom => '0 0', cvtto => 'float8 float8' },
+{ cvtid => 62,  cvtkind => 'f', cvtname => 'round', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 63,  cvtkind => 'f', cvtname => 'round', cvtfrom => '0 0', cvtto => 'numeric int4' },
+{ cvtid => 64,  cvtkind => 'f', cvtname => 'round', cvtfrom => 'timestamp 0', cvtto => 'timestamptz text' },
+{ cvtid => 65,  cvtkind => 'f', cvtname => 'round', cvtfrom => 'timestamptz 0', cvtto => 'timestamptz text' },
+{ cvtid => 66,  cvtkind => 'f', cvtname => 'round', cvtfrom => 'date 0', cvtto => 'timestamptz text' },
+{ cvtid => 67,  cvtkind => 'f', cvtname => 'round', cvtfrom => 'oracle.date 0', cvtto => 'timestamptz text' },
+{ cvtid => 69,  cvtkind => 'f', cvtname => 'rpad', cvtfrom => '0 0', cvtto => 'text int4' },
+{ cvtid => 70,  cvtkind => 'f', cvtname => 'rpad', cvtfrom => '0 0 0', cvtto => 'text numeric text' },
+{ cvtid => 71,  cvtkind => 'f', cvtname => 'sign', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 72,  cvtkind => 'f', cvtname => 'sinh', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 73,  cvtkind => 'f', cvtname => 'sqrt', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 74,  cvtkind => 'f', cvtname => 'stddev', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 75,  cvtkind => 'f', cvtname => 'stddev_pop', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 76,  cvtkind => 'f', cvtname => 'stddev_samp', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 77,  cvtkind => 'f', cvtname => 'sum', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 78,  cvtkind => 'f', cvtname => 'tanh', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 79,  cvtkind => 'f', cvtname => 'trunc', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 80,  cvtkind => 'f', cvtname => 'trunc', cvtfrom => '0 0', cvtto => 'numeric int4' },
+{ cvtid => 81,  cvtkind => 'f', cvtname => 'trunc', cvtfrom => 'timestamp 0', cvtto => 'timestamptz text' },
+{ cvtid => 82,  cvtkind => 'f', cvtname => 'trunc', cvtfrom => 'timestamptz 0', cvtto => 'timestamptz text' },
+{ cvtid => 83,  cvtkind => 'f', cvtname => 'trunc', cvtfrom => 'date 0', cvtto => 'timestamptz text' },
+{ cvtid => 84,  cvtkind => 'f', cvtname => 'trunc', cvtfrom => 'oracle.date 0', cvtto => 'timestamptz text' },
+{ cvtid => 85,  cvtkind => 'f', cvtname => 'var_pop', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 86,  cvtkind => 'f', cvtname => 'var_samp', cvtfrom => '0', cvtto => 'numeric' },
+{ cvtid => 87,  cvtkind => 'f', cvtname => 'variance', cvtfrom => '0', cvtto => 'numeric' },
 
 # type + type
 { cvtid => 163,  cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.varchar2 int2', cvtto => 'numeric numeric' },
