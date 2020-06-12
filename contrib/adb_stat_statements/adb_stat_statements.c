@@ -136,7 +136,7 @@ static void adbss_ExecutorEnd(QueryDesc *queryDesc);
 
 static inline Size adbss_memsize(void);
 
-static bool adbssTrackable(QueryDesc *queryDesc);
+static bool canStoreInTable(void);
 static void adbssStoreToTable(QueryDesc *queryDesc);
 static bool checkAdbssAttrs(TupleDesc adbssRelDesc);
 static void insertAdbssPlan(Relation adbssRel,
@@ -175,7 +175,6 @@ static Datum ParamList2TextArr(const ParamListInfo from);
 static bool is_alter_extension_cmd(Node *stmt);
 static bool is_drop_extension_stmt(Node *stmt);
 static bool is_create_extension_stmt(Node *stmt);
-static bool useTableForStorage(void);
 static void initializeAdbssOids(void);
 static void invalidateAdbssOids(void);
 static Oid getAdbssRelOid(Oid schemaOid, const char *relName);
@@ -209,7 +208,6 @@ static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
 static AdbssSharedState *adbssState = NULL;
 static HTAB *adbssHtab = NULL;
 static dsa_area *adbssDsaArea = NULL;
-static bool adbssEnabled = true;
 static bool adbssDropped = false;
 static AdbssOids adbssOids = {
 	InvalidOid, /* schema_oid */
@@ -221,17 +219,27 @@ static AdbssOids adbssOids = {
 
 typedef enum
 {
+	ADBSS_STORE_PLACE_SHM,	/* store these plan statistics in table */
+	ADBSS_STORE_PLACE_TABLE /* store these plan statistics in shared memory */
+} ADBSS_STORE_PLACE;
+
+typedef enum
+{
 	ADBSS_TRACK_NONE, /* track no statements */
 	ADBSS_TRACK_TOP,  /* only top level statements */
 	ADBSS_TRACK_ALL	  /* all statements, including nested ones */
 } AdbssTrackLevel;
 
-static const struct config_enum_entry adbss_track_options[] =
-	{
-		{"none", ADBSS_TRACK_NONE, false},
-		{"top", ADBSS_TRACK_TOP, false},
-		{"all", ADBSS_TRACK_ALL, false},
-		{NULL, 0, false}};
+static const struct config_enum_entry adbss_adbss_store_places[] = {
+	{"shm", ADBSS_STORE_PLACE_SHM, false},
+	{"table", ADBSS_STORE_PLACE_TABLE, false},
+	{NULL, 0, false}};
+
+static const struct config_enum_entry adbss_track_options[] = {
+	{"none", ADBSS_TRACK_NONE, false},
+	{"top", ADBSS_TRACK_TOP, false},
+	{"all", ADBSS_TRACK_ALL, false},
+	{NULL, 0, false}};
 
 static const struct config_enum_entry adbss_format_options[] = {
 	{"text", EXPLAIN_FORMAT_TEXT, false},
@@ -240,9 +248,11 @@ static const struct config_enum_entry adbss_format_options[] = {
 	{"yaml", EXPLAIN_FORMAT_YAML, false},
 	{NULL, 0, false}};
 
+static bool adbssEnabled = true;
+static int adbssStorePlace = ADBSS_STORE_PLACE_SHM;
 static int adbssMaxRecord = ADBSS_DEFAULT_MAX_RECORD;
 static int adbssMaxLength = ADBSS_DEFAULT_MAX_LENGTH;
-static int adbssTrackLevel; /* tracking level */
+static int adbssTrackLevel = ADBSS_TRACK_TOP; /* tracking level */
 static bool adbssExplainAnalyze = true;
 static bool adbssExplainVerbose = false;
 static bool adbssExplainBuffers = false;
@@ -251,12 +261,17 @@ static bool adbssExplainTiming = true;
 static int adbssExplainFormat = EXPLAIN_FORMAT_TEXT;
 
 #define adbssAvailable()                    \
-	(adbssEnabled && !adbssDropped &&       \
+	(adbssEnabled &&                        \
 	 (adbssTrackLevel == ADBSS_TRACK_ALL || \
 	  (adbssTrackLevel == ADBSS_TRACK_TOP && nested_level == 0)))
 
-#define adbssOidValid() \
-	(adbssOids.schemaOid != InvalidOid)
+#define storePlaceIsShm() \
+	(adbssStorePlace == ADBSS_STORE_PLACE_SHM)
+
+#define adbssOidValid()                   \
+	(adbssOids.schemaOid != InvalidOid && \
+	 adbssOids.tableOid != InvalidOid &&  \
+	 adbssOids.queryidIndexOid != InvalidOid)
 
 #ifdef ADB
 #define transactionAllowed()                                    \
@@ -276,12 +291,24 @@ void _PG_init(void)
 	if (!process_shared_preload_libraries_in_progress)
 		return;
 
-	DefineCustomBoolVariable("adb_stat_statements.enabled",
+	DefineCustomBoolVariable("adb_stat_statements.enable",
 							 "enable adb_stat_statements.",
 							 NULL,
 							 &adbssEnabled,
 							 true,
-							 PGC_SUSET,
+							 PGC_SIGHUP,
+							 0,
+							 NULL,
+							 NULL,
+							 NULL);
+
+	DefineCustomEnumVariable("adb_stat_statements.store",
+							 "Selects where(shm or table) adb_stat_statements stores these plans.",
+							 NULL,
+							 &adbssStorePlace,
+							 ADBSS_STORE_PLACE_SHM,
+							 adbss_adbss_store_places,
+							 PGC_POSTMASTER,
 							 0,
 							 NULL,
 							 NULL,
@@ -301,13 +328,13 @@ void _PG_init(void)
 							NULL);
 
 	DefineCustomIntVariable("adb_stat_statements.max_length",
-							"Sets the maximum length of one plan tracked by adb_stat_statements.",
+							"Sets the maximum length of a single plan tracked by adb_stat_statements.",
 							NULL,
 							&adbssMaxLength,
 							ADBSS_DEFAULT_MAX_LENGTH,
 							100 * 1024,
 							INT_MAX,
-							PGC_POSTMASTER,
+							PGC_SUSET,
 							0,
 							NULL,
 							NULL,
@@ -564,7 +591,7 @@ static PlannedStmt *adbss_planner_hook(Query *parse,
 static void adbss_ExecutorStart(QueryDesc *queryDesc, int eflags)
 {
 	if (queryDesc->plannedstmt->queryId != UINT64CONST(0) &&
-		adbssTrackable(queryDesc))
+		adbssAvailable())
 	{
 		/* Enable per-node instrumentation iff analyze is required. */
 		if (adbssExplainAnalyze && (eflags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
@@ -633,7 +660,7 @@ adbss_ExecutorFinish(QueryDesc *queryDesc)
 static void adbss_ExecutorEnd(QueryDesc *queryDesc)
 {
 	if (queryDesc->plannedstmt->queryId == UINT64CONST(0) ||
-		!adbssTrackable(queryDesc))
+		!adbssAvailable())
 		goto done;
 
 	if (isAdbssDummyQuery(queryDesc->sourceText))
@@ -650,15 +677,17 @@ static void adbss_ExecutorEnd(QueryDesc *queryDesc)
 	if (queryDesc->totaltime)
 		InstrEndLoop(queryDesc->totaltime);
 
-	if (useTableForStorage())
+	if (storePlaceIsShm())
 	{
-		if (!transactionAllowed())
-			goto done;
-
-		adbssStoreToTable(queryDesc);
+		adbssStoreToDsa(queryDesc);
 	}
 	else
-		adbssStoreToDsa(queryDesc);
+	{
+		if (canStoreInTable())
+			adbssStoreToTable(queryDesc);
+		else
+			goto done;
+	}
 
 done:
 	if (prev_ExecutorEnd)
@@ -667,16 +696,13 @@ done:
 		standard_ExecutorEnd(queryDesc);
 }
 
-static bool adbssTrackable(QueryDesc *queryDesc)
+static bool canStoreInTable()
 {
-	if (!adbssAvailable())
+	if (adbssDropped)
 		return false;
 	if (!adbssOidValid())
-	{
 		initializeAdbssOids();
-		return adbssOidValid();
-	}
-	return true;
+	return adbssOidValid() && transactionAllowed();
 }
 
 static void adbssStoreToTable(QueryDesc *queryDesc)
@@ -1502,21 +1528,14 @@ static bool is_create_extension_stmt(Node *stmt)
 	return false;
 }
 
-static bool useTableForStorage(void)
-{
-	return adbssOids.schemaOid != InvalidOid &&
-		   adbssOids.tableOid != InvalidOid &&
-		   adbssOids.queryidIndexOid != InvalidOid;
-}
-
 static void initializeAdbssOids(void)
 {
 	static bool relcache_callback_hooked = false;
 
 	adbssOids.schemaOid = getAdbssExtensionSchemaOid();
-	adbssOids.tableOid = getAdbssTableOid(adbssOids.schemaOid, ADBSS_NAME);
-	adbssOids.queryidIndexOid = getAdbssIndexOid(adbssOids.schemaOid, ADBSS_QUERYID_INDEX_NAME);
-	if (adbssOids.schemaOid != InvalidOid)
+	adbssOids.tableOid = getAdbssTableOid(adbssOids.schemaOid, ADBSS_TABLE_NAME);
+	adbssOids.queryidIndexOid = getAdbssIndexOid(adbssOids.schemaOid, ADBSS_TABLE_QUERYID_INDEX_NAME);
+	if (adbssOidValid())
 		ereport(LOG, (errmsg(ADBSS_NAME " extension initialized successfully")));
 	if (!relcache_callback_hooked)
 	{

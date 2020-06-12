@@ -4,7 +4,8 @@
 #include "postgres.h"
 
 #define ADBSS_NAME "adb_stat_statements"
-#define ADBSS_QUERYID_INDEX_NAME "adb_stat_statements_queryid"
+#define ADBSS_TABLE_NAME "adb_stat_statements_internal"
+#define ADBSS_TABLE_QUERYID_INDEX_NAME "adb_stat_statements_internal_queryid"
 
 #define ADBSS_DUMMY_QUERY "<adbss dummy query>"
 #define isAdbssDummyQuery(query) \
