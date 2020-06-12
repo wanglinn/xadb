@@ -31,6 +31,9 @@
 #include "utils/timestamp.h"
 
 
+#ifdef ADB_GRAM_ORA
+extern PGDLLIMPORT int current_grammar;	/* avoid include tcopprot.h */
+#endif
 /*
  * Configurable GUC parameter
  *
@@ -3901,6 +3904,17 @@ width_bucket_float8(PG_FUNCTION_ARGS)
 	}
 	else
 	{
+#ifdef ADB_GRAM_ORA
+		if (current_grammar == PARSE_GRAM_ORACLE)
+		{
+			if (operand < bound1)
+				result = 0;
+			else
+				result = count + 1;
+
+			PG_RETURN_INT32(result);
+		}	
+#endif
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_ARGUMENT_FOR_WIDTH_BUCKET_FUNCTION),
 				 errmsg("lower bound cannot equal upper bound")));

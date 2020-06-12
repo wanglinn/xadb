@@ -45,6 +45,7 @@
 
 #ifdef ADB_GRAM_ORA
 #include "nodes/makefuncs.h"
+extern PGDLLIMPORT int current_grammar;	/* avoid include tcopprot.h */
 #endif /* ADB_GRAM_ORA */
 /* ----------
  * Uncomment the following to enable compilation of dump_numeric()
@@ -1589,6 +1590,21 @@ width_bucket_numeric(PG_FUNCTION_ARGS)
 	switch (cmp_numerics(bound1, bound2))
 	{
 		case 0:
+#ifdef ADB_GRAM_ORA
+			if (current_grammar == PARSE_GRAM_ORACLE)
+			{
+				int cmp_ret;
+				cmp_ret = cmp_numerics(operand, bound1);
+				if (cmp_ret < 0)
+					result = 0;
+				else
+					result = count + 1;
+				free_var(&count_var);
+				free_var(&result_var);
+
+				PG_RETURN_INT32(result);
+			}
+#endif
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_ARGUMENT_FOR_WIDTH_BUCKET_FUNCTION),
 					 errmsg("lower bound cannot equal upper bound")));
