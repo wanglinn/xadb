@@ -13,30 +13,41 @@ as
 $$
 declare
   l_item_found  int;
+  l_srv_host    text;
+  l_srv_port    int;
 begin
 
-  select count(*)
-    into l_item_found
-    from pg_foreign_server
-   where srvname = 'gvsrv_'||pi_node_name
-     and srvoptions[0] != '{host='||pi_node_host||',port='||pi_node_port||',dbname='||current_database()||'}';
-
-  if l_item_found > 0
-  then
-    -- raise notice 'Found server with wrong options for node [%]', pi_node_name;
-    return false;
-  end if;
-
   -- Check server
-  select count(*)
+  select sum(case when srvoptions::text not like '{host=%,port=%,dbname=%}' then -1
+                  when srvoptions::text != '{host='||pi_node_host||',port='||pi_node_port||',dbname='||current_database()||'}' then 1
+                  else 0
+             end
+            )
     into l_item_found
     from pg_foreign_server
    where srvname = 'gvsrv_'||pi_node_name;
 
-  if l_item_found > 0
+  if l_item_found = -1
+  then
+    raise exception 'Found wrong server, which is not created by global view [%]', pi_node_name;
+    return false;
+  elsif l_item_found = 1
+  then
+    raise notice 'Found server with wrong option, automatic modify [%]', pi_node_name;
+    select node_host, node_port
+      into l_srv_host, l_srv_port
+      from pgxc_node
+     where node_name = pi_node_name;
+
+    execute 'alter server gvsrv_'||pi_node_name||' options (set host '''||l_srv_host||''')';
+    execute 'alter server gvsrv_'||pi_node_name||' options (set port '''||l_srv_port||''')';
+    return true;
+  end if;
+
+  if l_item_found = 0
   then
     -- raise notice 'Server found, skip creation for node [%]', pi_node_name;
-  else
+  else   -- l_item_found is null
     -- raise notice 'Create server and user mapping';
     -- Create Foreign Server
     execute 'create server if not exists gvsrv_'||pi_node_name||' foreign data wrapper postgres_fdw OPTIONS (host '''||pi_node_host||''', port '''||pi_node_port||''', dbname '''||current_database()||''')';
@@ -207,3 +218,13 @@ as
 t(node_oid oid,node_name name,node_type "char"
  ,userid oid, dbid oid, queryid bigint, query text, calls bigint, total_time double precision, min_time double precision, max_time double precision, mean_time double precision, stddev_time double precision, rows bigint, shared_blks_hit bigint, shared_blks_read bigint, shared_blks_dirtied bigint, shared_blks_written bigint, local_blks_hit bigint, local_blks_read bigint, local_blks_dirtied bigint, local_blks_written bigint, temp_blks_read bigint, temp_blks_written bigint, blk_read_time double precision, blk_write_time double precision
  );
+
+-- Create global view for adb_stat_statements.
+drop view if exists gv_adb_stat_statements;
+create or replace view gv_adb_stat_statements
+as
+select * from query_gv_views('adb_stat_statements','antdb')
+as
+t(node_oid oid,node_name name,node_type "char"
+	,userid oid, dbid oid, queryid bigint, planid bigint, calls bigint, rows bigint, total_time double precision, min_time double precision, max_time double precision, mean_time double precision, last_execution timestamp with time zone, query text, plan text, explain_format int, explain_plan text, bound_params text[]
+);
