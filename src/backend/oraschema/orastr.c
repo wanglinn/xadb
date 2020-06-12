@@ -191,7 +191,7 @@ ora_instr_mb(text *txt, text *pattern, int start, int nth)
 		if (beg >= end)
 			return 0;	/* out of range */
 	}
-	else
+	else if (start < 0)
 	{
 		dx = -1;
 		beg = Min(c_len_txt + start, c_len_txt - c_len_pat);
@@ -199,6 +199,9 @@ ora_instr_mb(text *txt, text *pattern, int start, int nth)
 		if (beg <= end)
 			return 0;	/* out of range */
 	}
+	else /* start == 0 */
+		return 0;
+	
 
 	for (i = beg; i != end; i += dx)
 	{
