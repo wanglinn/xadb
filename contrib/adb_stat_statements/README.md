@@ -11,12 +11,6 @@ If you need to work in an AntDB cluster, first make sure that the plugin **adb_g
 psql -U antdb -h localhost -d postgres
 create extension if not exists adb_stat_statements cascade;
 ```
-If you want to work in AntDB, Execute some commands like:  
-```shell
-psql -U antdb -h localhost -d postgres
-create extension if not exists adb_global_views cascade;
-create extension if not exists adb_stat_statements cascade;
-```
 This extension will be created in the antdb schema  
 
 4. Show all statement statistics.  
@@ -37,15 +31,16 @@ drop extension adb_stat_statements cascade;
 ```
 
 # GUC Options:  
-| name | default value | description |
-| :- | :-: | :- | 
-| adb_stat_statements.enabled | true | enable adb_stat_statements. |
-| adb_stat_statements.max_plans | 5000 | Sets the maximum number of plans tracked by adb_stat_statements. |
-| adb_stat_statements.max_length | 1048579 (1M) | Sets the maximum length of one plan tracked by adb_stat_statements. |
-| adb_stat_statements.track  | top | Selects which statements are tracked by adb_stat_statements. |
-| adb_stat_statements.explain_analyze | true | Sets EXPLAIN ANALYZE of plans tracked by adb_stat_statements. |
-| adb_stat_statements.explain_verbose | false | Sets EXPLAIN VERBOSE of plans tracked by adb_stat_statements. |
-| adb_stat_statements.explain_buffers | false | Sets EXPLAIN buffers usage of plans tracked by adb_stat_statements. |
-| adb_stat_statements.explain_triggers | false | Sets Include trigger statistics of plans tracked by adb_stat_statements. |
-| adb_stat_statements.explain_timing | true | Sets EXPLAIN TIMING of plans tracked by adb_stat_statements. |
-| adb_stat_statements.explain_format | text | Sets EXPLAIN format of plan tracked by adb_stat_statements. |
+| name | default value | context | description |
+| :- | :- | :- | :- | 
+| adb_stat_statements.enable | true | sighup | enable adb_stat_statements. |
+| adb_stat_statements.store | shm | postmaster | Selects where(shm or table) adb_stat_statements stores these plans. Note that, it is NOT recommended to set to 'table' in AntDB environment. |
+| adb_stat_statements.max_plans | 5000 | postmaster | Sets the maximum number of plans tracked by adb_stat_statements. |
+| adb_stat_statements.max_length | 1048579 (1M) | superuser | Sets the maximum length of a single plan tracked by adb_stat_statements. |
+| adb_stat_statements.track  | top | superuser | Selects which statements are tracked by adb_stat_statements. |
+| adb_stat_statements.explain_analyze | true | superuser | Sets EXPLAIN ANALYZE of plans tracked by adb_stat_statements. |
+| adb_stat_statements.explain_verbose | false | superuser | Sets EXPLAIN VERBOSE of plans tracked by adb_stat_statements. |
+| adb_stat_statements.explain_buffers | false | superuser | Sets EXPLAIN buffers usage of plans tracked by adb_stat_statements. |
+| adb_stat_statements.explain_triggers | false | superuser | Sets Include trigger statistics of plans tracked by adb_stat_statements. |
+| adb_stat_statements.explain_timing | true | superuser | Sets EXPLAIN TIMING of plans tracked by adb_stat_statements. |
+| adb_stat_statements.explain_format | text | superuser | Sets EXPLAIN format of plan tracked by adb_stat_statements. |
