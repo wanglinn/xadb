@@ -3145,10 +3145,42 @@ ZoneStmt:
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($3, @3));
+			args = lappend(args, makeIntConst(0, -1));
+			args = lappend(args, makeIntConst(10, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_zone_switchover", args));
 			$$ = (Node*)stmt;
 		}
+	|	ZONE SWITCHOVER Ident Iconst
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($3, @3));
+			args = lappend(args, makeIntConst(0, -1));
+			args = lappend(args, makeIntConst($4, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_zone_switchover", args));
+			$$ = (Node*)stmt;
+		}	
+	|	ZONE SWITCHOVER Ident FORCE
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($3, @3));
+			args = lappend(args, makeIntConst(1, -1));
+			args = lappend(args, makeIntConst(10, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_zone_switchover", args));
+			$$ = (Node*)stmt;
+		}		
+	|	ZONE SWITCHOVER Ident FORCE Iconst
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($3, @3));
+			args = lappend(args, makeIntConst(1, -1));
+			args = lappend(args, makeIntConst($5, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_zone_switchover", args));
+			$$ = (Node*)stmt;
+		}			
 	|	ZONE CLEAR Ident
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);

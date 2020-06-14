@@ -82,6 +82,23 @@ static inline void pfreeSwitcherNodeWrapperList(dlist_head *nodes,
 	}
 }
 
+static inline void pfreeSwitcherNodeWrapperListEx(dlist_head *nodes,
+												SwitcherNodeWrapper *exclude, 
+												SwitcherNodeWrapper *exclude2)
+{
+	dlist_mutable_iter miter;
+	SwitcherNodeWrapper *node;
+
+	dlist_foreach_modify(miter, nodes)
+	{
+		node = dlist_container(SwitcherNodeWrapper, link, miter.cur);
+		dlist_delete(miter.cur);
+		if (node != exclude && node != exclude2)
+		{
+			pfreeSwitcherNodeWrapper(node);
+		}
+	}
+}
 extern void FailOverDataNodeMaster(char *oldMasterName,
 								 bool forceSwitch,
 								 bool kickOutOldMaster,
@@ -132,6 +149,10 @@ extern void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 										dlist_head *siblingSlaveNodes,
 										PGconn *masterPGconn,
 										MemoryContext spiContext);
+extern void appendSlaveNodeFollowMasterEx(MemoryContext spiContext,
+										SwitcherNodeWrapper *master,
+										SwitcherNodeWrapper *slave,
+										dlist_head *siblingSlaveNodes);								
 extern void checkGetMasterCoordinators(MemoryContext spiContext,
 									   dlist_head *coordinators,
 									   bool includeGtmCoord,
