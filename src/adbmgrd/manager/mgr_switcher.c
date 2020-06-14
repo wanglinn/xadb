@@ -175,7 +175,6 @@ static bool pgxcPoolReloadOnNode(SwitcherNodeWrapper *holdLockNode,
 								 SwitcherNodeWrapper *executeOnNode,
 								 bool complain);
 static SwitcherNodeWrapper *getGtmCoordMaster(dlist_head *coordinators);
-// static void getNodesNotZone(dlist_head *coordMasters, char *currentZone);
 static void batchSetGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 								   dlist_head *nodes,
 								   SwitcherNodeWrapper *ignoreNode,
@@ -255,9 +254,6 @@ static void RevertZoneSwitchoverDataNode(MemoryContext spiContext,
 										SODataNodeList	*nodeList);
 static void RevertZoneSwitchoverGtm(MemoryContext spiContext, 
 									SwitchoverGtmMalloc *soGtmMalloc);
-// static void RevertGtmMgrNodeList(MemoryContext spiContext, SwitchoverGtmMalloc *soGtmMalloc, char *curZone);
-// static void RevertMgrNodeCoords(MemoryContext spiContext, dlist_head *nodes, SwitcherNodeWrapper *oldMaster, SwitcherNodeWrapper *newMaster);
-// static void RevertMgrNodeDataNodes(MemoryContext spiContext, dlist_head *nodes);
 static void SetGtmInfoSettingToList(dlist_head *nodes, 
 									SwitcherNodeWrapper *gtmMaster);
 static void switchoverGtmCoordForZone(MemoryContext spiContext, 
@@ -266,19 +262,12 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 										char *curZone,
 										int maxTrys, 
 										SwitchoverGtmMalloc *soGtmMalloc);
-// static void RevertMgrNodeOldMaster(MemoryContext spiContext, SwitcherNodeWrapper *oldMaster);
-// static void RevertMgrNodeNewMaster(MemoryContext spiContext, SwitcherNodeWrapper *oldMaster, SwitcherNodeWrapper *newMaster);
 static void SwitchoverGtmFreeMalloc(SwitchoverGtmMalloc *soGtmMalloc);
 static void SwitchoverCoordFreeMalloc(dlist_head *coordMallocs);
 static void SwitchoverDataNodeFreeMalloc(dlist_head *dataNodeMallocs);
 static void RevertZoneSwitchoverDataNodes(MemoryContext spiContext, 
 										SwitchoverGtmMalloc *soGtmMalloc, 
 										dlist_head *datanodeMallocs);
-// static void RevertPgxcNodeGtmForZone(dlist_head *coordinators,
-// 									SwitcherNodeWrapper *oldMaster,
-// 									SwitcherNodeWrapper *newMaster);
-// static void RevertPgxcNodeDataNodeForZone(SwitchoverGtmMalloc *soGtmMalloc, 
-											// SODataNodeList *nodeList);	
 static bool RevertRefreshPgxcNodeList(SwitcherNodeWrapper *holdLockCoordinator,
 										dlist_head *nodeList,
 										SwitcherNodeWrapper *oldMaster,
@@ -312,9 +301,6 @@ static NodeRunningMode getNodeRunningModeEx(SwitcherNodeWrapper *holdLockNode,
 static void SetXcMaintenanceModeOn(PGconn *pgConn);
 static void CheckpointCoord(PGconn *pgConn,
 							SwitcherNodeWrapper *node);
-// static void CheckpointCoords(PGconn *pgConn, 
-// 							 dlist_head *nodes, 
-// 							 SwitcherNodeWrapper *excludeNode);
 static void DelNodeFromSwitcherNodeWrappers(dlist_head  *nodes, 
 											SwitcherNodeWrapper *delNode);
 static void RevertZoneSwitchoverCoord(MemoryContext spiContext,
@@ -5784,11 +5770,6 @@ static void switchoverDataNodeForZone(MemoryContext spiContext,
 
 	promoteNewMasterStartReign(oldMaster, newMaster);
 
-	// if (pg_strcasecmp(NameStr(newMaster->mgrNode->form.nodename), "dm3_z") == 0)
-	// {
-	// 	ereport(ERROR, (errmsg("------------- switchoverDataNode newMasterName(%s) success -------------", newMasterName)));
-	// }
-
 	appendSlaveNodeFollowMasterEx(spiContext,
 									newMaster,
 									oldMaster, 
@@ -6143,108 +6124,33 @@ static bool RevertRefreshPgxcNodeList(SwitcherNodeWrapper *holdLockCoordinator,
 	dlist_foreach(iter, nodeList)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		// if (node->pgxcNodeChanged)
-		// {
-			if (updatePgxcNodeForSwitch(holdLockCoordinator,
-										node,
-										oldMaster,
-										newMaster,								
-										false))
-			{
-				ereportNoticeLog(errmsg("revert pgxc_node on node(%s) from %s to %s success", 
-								NameStr(node->mgrNode->form.nodename), 
-								NameStr(oldMaster->mgrNode->form.nodename), 
-								NameStr(newMaster->mgrNode->form.nodename)));
-			}
-			else
-			{
-				ereportNoticeLog(errmsg("revert pgxc_node on node(%s) from %s to %s failed", 
-								NameStr(node->mgrNode->form.nodename),
-								NameStr(oldMaster->mgrNode->form.nodename), 
-								NameStr(newMaster->mgrNode->form.nodename)));
-				execOk = false;
-			}
-			pgxcPoolReloadOnNode(holdLockCoordinator, node, false);
-		// }
+		if (updatePgxcNodeForSwitch(holdLockCoordinator,
+									node,
+									oldMaster,
+									newMaster,								
+									false))
+		{
+			ereportNoticeLog(errmsg("revert pgxc_node on node(%s) from %s to %s success", 
+							NameStr(node->mgrNode->form.nodename), 
+							NameStr(oldMaster->mgrNode->form.nodename), 
+							NameStr(newMaster->mgrNode->form.nodename)));
+		}
+		else
+		{
+			ereportNoticeLog(errmsg("revert pgxc_node on node(%s) from %s to %s failed", 
+							NameStr(node->mgrNode->form.nodename),
+							NameStr(oldMaster->mgrNode->form.nodename), 
+							NameStr(newMaster->mgrNode->form.nodename)));
+			execOk = false;
+		}
+		pgxcPoolReloadOnNode(holdLockCoordinator, node, false);
 	}
 	return execOk;
 }
-// static void RevertGtmMgrNodeList(MemoryContext spiContext, SwitchoverGtmMalloc *soGtmMalloc, char *curZone)
-// {
-// 	SwitcherNodeWrapper *oldGtmMaster = soGtmMalloc->oldMaster;
-// 	SwitcherNodeWrapper *newGtmMaster = soGtmMalloc->newMaster;
-
-// 	RevertMgrNodeOldMaster(spiContext, oldGtmMaster);
-// 	RevertMgrNodeNewMaster(spiContext, oldGtmMaster, newGtmMaster);
-// 	RevertMgrNodeRunningSlaves(spiContext, soGtmMalloc->runningSlaves, oldGtmMaster, OVERTYPE_SWITCHOVER, curZone);
-// 	RevertMgrNodeRunningSlaves(spiContext, soGtmMalloc->failedSlaves, oldGtmMaster, OVERTYPE_SWITCHOVER, curZone);
-// 	RevertMgrNodeRunningSlaves(spiContext, soGtmMalloc->runningSlavesSecond, oldGtmMaster, OVERTYPE_SWITCHOVER, curZone);
-// 	RevertMgrNodeRunningSlaves(spiContext, soGtmMalloc->failedSlavesSecond, oldGtmMaster, OVERTYPE_SWITCHOVER, curZone);
-// 	RevertMgrNodeCoords(spiContext, soGtmMalloc->coordinators, oldGtmMaster, newGtmMaster);
-// 	RevertMgrNodeCoords(spiContext, soGtmMalloc->coordinatorSlaves, NULL, NULL);
-// 	RevertMgrNodeDataNodes(spiContext, soGtmMalloc->dataNodes);
-// }
-// static void RevertMgrNodeOldMaster(MemoryContext spiContext, SwitcherNodeWrapper *oldMaster)
-// {
-// 	memcpy(&oldMaster->mgrNode->form.curestatus, &oldMaster->oldCurestatus, sizeof(NameData));
-// 	refreshNewMasterAfterSwitchover(oldMaster, spiContext);
-// }
-// static void RevertMgrNodeNewMaster(MemoryContext spiContext, SwitcherNodeWrapper *oldMaster, SwitcherNodeWrapper *newMaster)
-// {
-// 	memcpy(&newMaster->mgrNode->form.curestatus, &newMaster->oldCurestatus, sizeof(NameData));
-// 	refreshOldMasterAfterSwitchover(newMaster, oldMaster, spiContext);
-// }
-// static void RevertMgrNodeRunningSlaves(MemoryContext spiContext, dlist_head *nodes, SwitcherNodeWrapper *oldMaster, char *operType, char *curZone)
-// {
-// 	dlist_iter 			iter;
-// 	SwitcherNodeWrapper *node;
-
-// 	dlist_foreach(iter, nodes)
-// 	{								  
-// 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);		
-// 		if ((pg_strcasecmp(NameStr(oldMaster->mgrNode->form.nodezone), curZone) != 0) &&
-// 			(pg_strcasecmp(operType, OVERTYPE_FAILOVER) == 0) &&
-// 		    (pg_strcasecmp(NameStr(node->mgrNode->form.nodezone), curZone) != 0))
-// 		{
-// 			node->mgrNode->form.nodeinited    = true;
-// 			node->mgrNode->form.nodeincluster = true;
-// 			ereport(LOG, (errmsg("revert failover node(%s) is set to inited, incluster. nodezone(%s),oldMaster nodezone(%s), curZone(%s)", 
-// 				NameStr(node->mgrNode->form.nodename), NameStr(node->mgrNode->form.nodezone), NameStr(oldMaster->mgrNode->form.nodezone), curZone)));	
-// 		}
-// 		updateMgrNodeAfterSwitch(node->mgrNode, NameStr(node->oldCurestatus), spiContext);
-// 	}
-// }
-// static void RevertMgrNodeCoords(MemoryContext spiContext, dlist_head *nodes, SwitcherNodeWrapper *oldMaster, SwitcherNodeWrapper *newMaster)
-// {
-// 	dlist_iter 			iter;
-// 	SwitcherNodeWrapper *node;
-
-// 	dlist_foreach(iter, nodes)
-// 	{
-// 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);		
-// 		Assert(node);
-// 		if (node != oldMaster && node != newMaster)
-// 			updateCureStatusForSwitch(node->mgrNode, NameStr(node->oldCurestatus), spiContext);
-// 	}
-// }
-// static void RevertMgrNodeDataNodes(MemoryContext spiContext, dlist_head *nodes)
-// {
-// 	dlist_iter 			iter;
-// 	SwitcherNodeWrapper *node;
-
-// 	dlist_foreach(iter, nodes)
-// 	{
-// 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);		
-// 		Assert(node);
-// 		updateCureStatusForSwitch(node->mgrNode, NameStr(node->oldCurestatus), spiContext);
-// 	}
-// }
-
 static void InitSwitchoverCoordMalloc(SwitchoverCoordMalloc *soCoordMalloc)
 {
 	soCoordMalloc->oldMaster = NULL;
 	soCoordMalloc->newMaster = NULL;
-	// dlist_init(&soCoordMalloc->coordinators);
 	dlist_init(&soCoordMalloc->runningSlaves);
 	dlist_init(&soCoordMalloc->failedSlaves);
 }
@@ -6329,23 +6235,6 @@ static void CheckpointCoord(PGconn *pgConn, SwitcherNodeWrapper *node)
 					   NameStr(node->mgrNode->form.nodename));
 	PQexecCommandSql(pgConn, sql, true);
 }
-// static void CheckpointCoords(PGconn *pgConn, dlist_head *nodes, SwitcherNodeWrapper *excludeNode)
-// {
-// 	SwitcherNodeWrapper *node;
-// 	dlist_iter 			iter;
-
-// 	dlist_foreach(iter, nodes)
-// 	{
-// 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);		
-// 		Assert(node);
-// 		if (excludeNode != NULL){
-// 			if (pg_strcasecmp(NameStr(node->mgrNode->form.nodename), NameStr(excludeNode->mgrNode->form.nodename)) == 0){
-// 				continue;
-// 			}
-// 		}
-// 		CheckpointCoord(pgConn, node);
-// 	}
-// }
 static void DelNodeFromSwitcherNodeWrappers(dlist_head *nodes, 
 											SwitcherNodeWrapper *delNode)
 {
