@@ -45,6 +45,7 @@
 #include "nodes/makefuncs.h"
 #include "access/xlog.h"
 #include "nodes/nodes.h"
+#include "lib/ilist.h"
 
 char *mgr_zone;
 
@@ -60,6 +61,7 @@ static void MgrCheckMasterHasSlave(MemoryContext spiContext, char *currentZone);
 static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext, char *currentZone, char nodeType);
 static void MgrMakesureAllSlaveRunning(void);
 static void MgrMakesureZoneAllSlaveRunning(char *zone);
+static void SetSwitchoverGtmMalloc(SwitchoverGtmMalloc *soGtmMalloc);
 
 Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 {
@@ -112,53 +114,100 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 	HeapTuple 		tupResult = NULL;
 	NameData 		name;
 	char 			*currentZone;
+	bool 			force = false;
+	int 			maxTrys = 0;
 	int 			spiRes = 0;	
+	MemoryContext 	oldContext;
 	MemoryContext 	spiContext = NULL;
+	MemoryContext   switchContext = NULL;
+	SwitchoverGtmMalloc soGtmMalloc;
+	dlist_head coordMallocs = DLIST_STATIC_INIT(coordMallocs);
+	dlist_head datanodeMallocs = DLIST_STATIC_INIT(datanodeMallocs);
+	ErrorData 	*edata = NULL;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot do the command during recovery")));
 
-	currentZone  = PG_GETARG_CSTRING(0);
+	currentZone = PG_GETARG_CSTRING(0);
+	force 		= PG_GETARG_INT32(1);
+	maxTrys 	= PG_GETARG_INT32(2);
+	
 	Assert(currentZone);
 	if (strcmp(currentZone, mgr_zone) != 0){
 		ereport(ERROR, (errmsg("the given zone name \"%s\" is not the same wtih guc parameter mgr_zone \"%s\" in postgresql.conf", currentZone, mgr_zone)));
 	}
+	
+	if (maxTrys < 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("the value of maxTrys must be positive")));
 		
 	namestrcpy(&name, "ZONE SWITCHOVER");
+	
+	SetSwitchoverGtmMalloc(&soGtmMalloc);
+
+	oldContext = CurrentMemoryContext;
+	switchContext = AllocSetContextCreate(CurrentMemoryContext, "mgr_zone_switchover", ALLOCSET_DEFAULT_SIZES);
+	if ((spiRes = SPI_connect()) != SPI_OK_CONNECT){
+		ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
+	}
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(switchContext);
+	
 	PG_TRY();
 	{
-		if ((spiRes = SPI_connect()) != SPI_OK_CONNECT){
-			ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
-		}
-		spiContext = CurrentMemoryContext; 		
 		MgrSwitchoverCheck(spiContext, currentZone);
 
-		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s, step1:switchover gtmcoord slave in %s ========.", currentZone, currentZone));
-		MgrZoneSwitchoverGtm(spiContext, currentZone);
+		ereportNoticeLog(errmsg("============ ZONE SWITCHOVER %s, step1:switchover gtmcoord slave in %s ============", currentZone, currentZone));
+		MgrZoneSwitchoverGtm(spiContext, 
+							currentZone,
+							force,
+							maxTrys, 
+							&soGtmMalloc);
 
-		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s, step2:switchover coordinator slave in %s ========.", currentZone, currentZone));
-		MgrZoneSwitchoverCoord(spiContext, currentZone);
+		ereportNoticeLog(errmsg("============ ZONE SWITCHOVER %s, step2:switchover coordinator slave in %s ============", currentZone, currentZone));
+		MgrZoneSwitchoverCoord(spiContext, 
+								currentZone, 
+								force,
+								&soGtmMalloc, 
+								&coordMallocs);
 
-		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s, step3:switchover datanode slave in %s ========.", currentZone, currentZone));
-		MgrZoneSwitchoverDataNode(spiContext, currentZone);
+		ereportNoticeLog(errmsg("============ ZONE SWITCHOVER %s, step3:switchover datanode slave in %s ============", currentZone, currentZone));
+		MgrZoneSwitchoverDataNode(spiContext, 
+									currentZone, 
+									force,
+									&soGtmMalloc, 
+									&datanodeMallocs);
 	}PG_CATCH();
 	{
+		ereportNoticeLog(errmsg("============ ZONE SWITCHOVER %s failed, revert it begin ============", currentZone));
+
+		RevertZoneSwitchover(spiContext, &soGtmMalloc, &coordMallocs, &datanodeMallocs);
+		ZoneSwitchoverFree(&soGtmMalloc, &coordMallocs, &datanodeMallocs);
+		
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
 		SPI_finish();
-		EmitErrorReport();
+
+		edata = CopyErrorData();
 		FlushErrorState();
+		if (edata)
+			ReThrowError(edata);
+
 		ereport(ERROR, (errmsg(" ZONE SWITCHOVER %s failed.", currentZone)));
 	}PG_END_TRY();
 
+	tryUnlockCluster(&soGtmMalloc.coordinators, true);
+	ZoneSwitchoverFree(&soGtmMalloc, &coordMallocs, &datanodeMallocs);
+
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(switchContext);
 	SPI_finish();
 
 	ereportNoticeLog(errmsg("the command of \"ZONE SWITCHOVER %s\" result is %s, description is %s", currentZone,"true", "success"));
 	tupResult = build_common_command_tuple(&name, true, "success");
 	return HeapTupleGetDatum(tupResult);
 }
-/*
-* mgr_zone_clear
-* clear the tuple which is not in the current zone
-*/
 Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 {
 	Relation 		relNode = NULL;
@@ -610,5 +659,16 @@ static void MgrMakesureZoneAllSlaveRunning(char *zone)
 	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_SLAVE, zone);
 	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_SLAVE, zone);
 }
-
-
+static void SetSwitchoverGtmMalloc(SwitchoverGtmMalloc *soGtmMalloc)
+{
+	soGtmMalloc->oldMaster          = NULL;
+	soGtmMalloc->newMaster          = NULL;	
+	dlist_init(&soGtmMalloc->coordinators);
+	dlist_init(&soGtmMalloc->coordinatorSlaves);
+	dlist_init(&soGtmMalloc->runningSlaves);
+	dlist_init(&soGtmMalloc->runningSlavesSecond);
+	dlist_init(&soGtmMalloc->failedSlaves);
+	dlist_init(&soGtmMalloc->failedSlavesSecond);
+	dlist_init(&soGtmMalloc->dataNodes);	
+}
+	
