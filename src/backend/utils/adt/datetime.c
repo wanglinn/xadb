@@ -30,6 +30,9 @@
 #include "utils/datetime.h"
 #include "utils/memutils.h"
 #include "utils/tzparser.h"
+#ifdef ADB_GRAM_ORA
+#include "tcop/tcopprot.h"
+#endif
 
 
 static int	DecodeNumber(int flen, char *field, bool haveTextMonth,
@@ -3854,6 +3857,14 @@ EncodeTimezone(char *str, int tz, int style)
 	min -= hour * MINS_PER_HOUR;
 
 	/* TZ is negated compared to sign we wish to display ... */
+#ifdef ADB_GRAM_ORA
+	if (current_grammar == PARSE_GRAM_ORACLE)
+	{
+		*str++ = ' ';
+		*str++ = (tz <= 0 ? '+' : '-');
+	}
+	else
+#endif	/* ADB_GRAM_ORA */
 	*str++ = (tz <= 0 ? '+' : '-');
 
 	if (sec != 0)
@@ -3864,7 +3875,11 @@ EncodeTimezone(char *str, int tz, int style)
 		*str++ = ':';
 		str = pg_ltostr_zeropad(str, sec, 2);
 	}
+#ifdef ADB_GRAM_ORA
+	else if (min != 0 || style == USE_XSD_DATES || current_grammar == PARSE_GRAM_ORACLE)
+#else
 	else if (min != 0 || style == USE_XSD_DATES)
+#endif	/* ADB_GRAM_ORA */
 	{
 		str = pg_ltostr_zeropad(str, hour, 2);
 		*str++ = ':';
