@@ -1120,6 +1120,37 @@ exprIsNullConstant(Node *arg)
 	return false;
 }
 
+#ifdef ADB_GRAM_ORA
+static Expr* get_rowid_op_const_or_param(OpExpr* op, Var **var)
+{
+	Expr *lexpr;
+	Expr *rexpr;
+	if (list_length(op->args) != 2)
+		return NULL;
+
+	lexpr = linitial(op->args);
+	rexpr = lsecond(op->args);
+
+	if (IsA(lexpr, Var) &&
+		((Var*)lexpr)->varattno == ADB_RowIdAttributeNumber &&
+		(IsA(rexpr, Const) || IsA(rexpr, Param)))
+	{
+		*var = (Var*)lexpr;
+		return rexpr;
+	}
+
+	if (IsA(rexpr, Var) &&
+		((Var*)rexpr)->varattno == ADB_RowIdAttributeNumber &&
+		(IsA(lexpr, Const) || IsA(lexpr, Param)))
+	{
+		*var = (Var*)rexpr;
+		return lexpr;
+	}
+
+	return NULL;
+}
+#endif /* ADB_GRAM_OR */
+
 static Node *
 transformAExprOp(ParseState *pstate, A_Expr *a)
 {
@@ -1283,94 +1314,63 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 		result && IsA(result, OpExpr) &&
 		((OpExpr*)result)->opfuncid == F_ROWID_EQ)
 	{
-		lexpr = get_leftop((Expr*)result);
-		rexpr = get_rightop((Expr*)result);
-		if ((IsA(lexpr, Var) && ((Var*)lexpr)->varattno == ADB_RowIdAttributeNumber &&
-			 IsA(rexpr, Const) /*&& ((Const*)rexpr)->consttype == RIDOID*/) ||
-			(IsA(rexpr, Var) && ((Var*)rexpr)->varattno == ADB_RowIdAttributeNumber &&
-			 IsA(lexpr, Const) /*&& ((Const*)lexpr)->consttype == RIDOID*/))
+		Var	   *var;
+		Expr   *expr;
+		int		location;
+		if ((expr = get_rowid_op_const_or_param((OpExpr*)result, &var)) != NULL)
 		{
-			/* rowid=const OR const=rowid */
-			Expr *expr;
-#ifdef ADB
-			uint32 xc_node_id;
-#endif /* ADB */
-			Index varno;
-			Index level;
-			ItemPointer ctid = palloc(sizeof(ItemPointerData));
-			if(IsA(lexpr, Const))
+			location = ((OpExpr*)result)->location;
+			if (IsA(expr, Const))
 			{
-#if defined(ADB_GRAM_ORA)
-				/* Oracle syntax: Avoid null pointer caused by null value 
-				 * in expression 'ROWID = null'.
-				 * */
-				if(((Const*)lexpr)->constisnull && 
-					((Const*)lexpr)->consttype == ORACLE_RIDOID)
-				{
-					lexpr = (Node *)makeConst(UNKNOWNOID,
-											 -1,
-											 InvalidOid,
-											 -2,
-											 CStringGetDatum(""),
-											 false,
-											 false);
-				}
-#endif	/* ADB_GRAM_ORA */
 #ifdef ADB
-				xc_node_id = rowid_get_data(((Const*)lexpr)->constvalue, ctid);
-#else
-				rowid_get_data(((Const*)lexpr)->constvalue, ctid);
+				uint32 xc_node_id;
 #endif /* ADB */
-				varno = ((Var*)rexpr)->varno;
-				level = ((Var*)rexpr)->varlevelsup;
-			}else
-			{
-#if defined(ADB_GRAM_ORA)
-				/* Oracle syntax: Avoid null pointer caused by null value 
-				* in expression 'ROWID = null'.
-				*/
-				if(((Const*)rexpr)->constisnull && 
-					((Const*)rexpr)->consttype == ORACLE_RIDOID)
+				ItemPointer ctid;
+				if (((Const*)expr)->constisnull)
 				{
-					rexpr = (Node *)makeConst(UNKNOWNOID,
-											 -1,
-											 InvalidOid,
-											 -2,
-											 CStringGetDatum(""),
-											 false,
-											 false);
-				}
-#endif	/* ADB_GRAM_ORA */
-#ifdef ADB
-				xc_node_id = rowid_get_data(((Const*)rexpr)->constvalue, ctid);
-#else
-				rowid_get_data(((Const*)rexpr)->constvalue, ctid);
-#endif /* ADB */
-				varno = ((Var*)lexpr)->varno;
-				level = ((Var*)lexpr)->varlevelsup;
-			}
+					/* column rowid always not null, so we can return 'false'::const */
+					result = makeBoolConst(false, false);
+				}else
+				{
+					ctid = palloc(sizeof(*ctid));
+					ADB_ONLY_CODE(xc_node_id=) rowid_get_data(((Const*)expr)->constvalue, ctid);
 
-			/* ctid=const */
-			expr = make_op(pstate,
-						   SystemFuncName((char*)"="),
-						   (Node*)makeVar(varno, SelfItemPointerAttributeNumber, TIDOID, -1, InvalidOid, level),
-						   (Node*)makeConst(TIDOID, -1, InvalidOid, sizeof(*ctid), PointerGetDatum(ctid), false, false),
-						   pstate->p_last_srf,
-						   ((OpExpr*)result)->location);
+					/* ctid=const */
+					result = (Node*)make_op(pstate,
+											SystemFuncName((char*)"="),
+											(Node*)makeVar(var->varno, SelfItemPointerAttributeNumber, TIDOID, -1, InvalidOid, var->varlevelsup),
+											(Node*)makeConst(TIDOID, -1, InvalidOid, sizeof(*ctid), PointerGetDatum(ctid), false, false),
+											pstate->p_last_srf,
+											location);
 #ifdef ADB
-			/* and xc_node_id=const */
-			result = (Node*)makeBoolExpr(AND_EXPR,
-										 list_make2(make_op(pstate,
-															SystemFuncName((char*)"="),
-															(Node*)makeVar(varno, XC_NodeIdAttributeNumber, INT4OID, -1, InvalidOid, level),
-															(Node*)makeConst(INT4OID, -1, InvalidOid, sizeof(int32), Int32GetDatum(xc_node_id), false, true),
-															pstate->p_last_srf,
-															((OpExpr*)result)->location),
-													expr),
-										 ((OpExpr*)result)->location);
-#else
-			result = (Node*)expr;
+					/* and xc_node_id=const */
+					result = (Node*)makeBoolExpr(AND_EXPR,
+												 list_make2(make_op(pstate,
+																	SystemFuncName((char*)"="),
+																	(Node*)makeVar(var->varno, XC_NodeIdAttributeNumber, INT4OID, -1, InvalidOid, var->varlevelsup),
+																	(Node*)makeConst(INT4OID, -1, InvalidOid, sizeof(int32), Int32GetDatum(xc_node_id), false, true),
+																	pstate->p_last_srf,
+																	location),
+															result),
+												 location);
 #endif /* ADB */
+				}
+			}
+#ifndef ADB
+			else if (IsA(expr, Param))
+			{
+				/*
+				 * in single version, rowid is same as ctid.
+				 * so we can simple convert from "rowid = $?" to "ctid = $?"
+				 */
+				result = (Node*)make_op(pstate,
+										SystemFuncName((char*)"="),
+										(Node*)makeVar(var->varno, SelfItemPointerAttributeNumber, TIDOID, -1, InvalidOid, var->varlevelsup),
+										(Node*)makeRelabelType(expr, TIDOID, -1, InvalidOid, COERCE_EXPLICIT_CAST),
+										pstate->p_last_srf,
+										((OpExpr*)result)->location);
+			}
+#endif /* !defined(ADB) */
 		}
 	}
 #endif /* ADB_GRAM_ORA */
