@@ -1129,6 +1129,7 @@ orastr_convert(PG_FUNCTION_ARGS)
 	const char *src_str;
 	char	*dest_str;
 	int		len;
+	text 	*ret_text = NULL;
 
 	if (dest_encoding < 0)
 		ereport(ERROR,
@@ -1159,10 +1160,11 @@ orastr_convert(PG_FUNCTION_ARGS)
 	if (dest_str != src_str)
 		len = strlen(dest_str);
 
+	ret_text = cstring_to_text_with_len((const char *)dest_str, len);
 	/* free memory if allocated by the toaster */
 	PG_FREE_IF_COPY(src, 0);
 
-	PG_RETURN_TEXT_P(cstring_to_text_with_len((const char *)dest_str, len));
+	PG_RETURN_TEXT_P(ret_text);
 }
 
 /*
