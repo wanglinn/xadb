@@ -280,8 +280,8 @@ execute_pagemap(datapagemap_t *pagemap, const char *path)
 static bool
 is_target_other_node_tablespace_directory(const char *directory_name)
 {
-	char	include_path[strlen(TABLESPACE_VERSION_DIRECTORY)];
-	char	include_nodename[1024];
+	char	include_path[sizeof(TABLESPACE_VERSION_DIRECTORY)];
+	char	include_nodename[MAXPGPATH];
 
 	if (strlen(directory_name) <= strlen(TABLESPACE_VERSION_DIRECTORY))
 		return false;
