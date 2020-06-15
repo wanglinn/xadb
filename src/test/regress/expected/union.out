@@ -15,14 +15,14 @@ SELECT 1 AS one UNION SELECT 1 ORDER BY 1;
    1
 (1 row)
 
-SELECT 1 AS two UNION ALL SELECT 2 ORDER BY 1;
+SELECT 1 AS two UNION ALL SELECT 2;
  two 
 -----
    1
    2
 (2 rows)
 
-SELECT 1 AS two UNION ALL SELECT 1 ORDER BY 1;
+SELECT 1 AS two UNION ALL SELECT 1;
  two 
 -----
    1
@@ -142,20 +142,19 @@ ORDER BY 1;
 
 SELECT f1 AS ten FROM FLOAT8_TBL
 UNION ALL
-SELECT f1 FROM FLOAT8_TBL 
-ORDER BY 1;
+SELECT f1 FROM FLOAT8_TBL;
           ten          
 -----------------------
- -1.2345678901234e+200
- -1.2345678901234e+200
-               -1004.3
-               -1004.3
+                     0
                 -34.84
-                -34.84
- -1.2345678901234e-200
+               -1004.3
+ -1.2345678901234e+200
  -1.2345678901234e-200
                      0
-                     0
+                -34.84
+               -1004.3
+ -1.2345678901234e+200
+ -1.2345678901234e-200
 (10 rows)
 
 SELECT f1 AS nine FROM FLOAT8_TBL
@@ -177,20 +176,19 @@ ORDER BY 1;
 
 SELECT f1 AS ten FROM FLOAT8_TBL
 UNION ALL
-SELECT f1 FROM INT4_TBL 
-ORDER BY 1;
+SELECT f1 FROM INT4_TBL;
           ten          
 -----------------------
- -1.2345678901234e+200
-           -2147483647
-               -123456
-               -1004.3
+                     0
                 -34.84
+               -1004.3
+ -1.2345678901234e+200
  -1.2345678901234e-200
                      0
-                     0
                 123456
+               -123456
             2147483647
+           -2147483647
 (10 rows)
 
 SELECT f1 AS five FROM FLOAT8_TBL
@@ -232,16 +230,15 @@ ORDER BY 1;
 
 SELECT f1 AS eight FROM VARCHAR_TBL
 UNION ALL
-SELECT f1 FROM CHAR_TBL 
-ORDER BY 1;
+SELECT f1 FROM CHAR_TBL;
  eight 
 -------
  a
+ ab
+ abcd
+ abcd
  a
  ab
- ab
- abcd
- abcd
  abcd
  abcd
 (8 rows)
@@ -485,8 +482,9 @@ SELECT q1 FROM int8_tbl INTERSECT (((SELECT q2 FROM int8_tbl UNION ALL SELECT q2
   4567890123456789
                456
   4567890123456789
+               123
   4567890123456789
-  4567890123456789
+ -4567890123456789
 (7 rows)
 
 SELECT q1 FROM int8_tbl UNION ALL SELECT q2 FROM int8_tbl EXCEPT SELECT q1 FROM int8_tbl ORDER BY 1;
@@ -496,16 +494,16 @@ SELECT q1 FROM int8_tbl UNION ALL SELECT q2 FROM int8_tbl EXCEPT SELECT q1 FROM 
                456
 (2 rows)
 
-SELECT q1 FROM int8_tbl UNION ALL (((SELECT q2 FROM int8_tbl EXCEPT SELECT q1 FROM int8_tbl ORDER BY 1))) ORDER BY 1;
+SELECT q1 FROM int8_tbl UNION ALL (((SELECT q2 FROM int8_tbl EXCEPT SELECT q1 FROM int8_tbl ORDER BY 1)));
         q1         
 -------------------
+               123
+               123
+  4567890123456789
+  4567890123456789
+  4567890123456789
  -4567890123456789
-               123
-               123
                456
-  4567890123456789
-  4567890123456789
-  4567890123456789
 (7 rows)
 
 (((SELECT q1 FROM int8_tbl UNION ALL SELECT q2 FROM int8_tbl))) EXCEPT SELECT q1 FROM int8_tbl ORDER BY 1;
@@ -544,14 +542,14 @@ SELECT q1 FROM int8_tbl EXCEPT (((SELECT q2 FROM int8_tbl ORDER BY q2 LIMIT 1)))
 --
 -- New syntaxes (7.1) permit new tests
 --
-(((((select * from int8_tbl  ORDER BY q1, q2)))));
+(((((select * from int8_tbl)))));
         q1        |        q2         
 ------------------+-------------------
               123 |               456
               123 |  4567890123456789
- 4567890123456789 | -4567890123456789
  4567890123456789 |               123
  4567890123456789 |  4567890123456789
+ 4567890123456789 | -4567890123456789
 (5 rows)
 
 --

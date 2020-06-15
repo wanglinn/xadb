@@ -3316,10 +3316,10 @@ pgstat_progress_end_command(void)
 {
 	volatile PgBackendStatus *beentry = MyBEEntry;
 
-	if (!beentry)
+	if (!beentry || !pgstat_track_activities)
 		return;
-	if (!pgstat_track_activities
-		&& beentry->st_progress_command == PROGRESS_COMMAND_INVALID)
+
+	if (beentry->st_progress_command == PROGRESS_COMMAND_INVALID)
 		return;
 
 	PGSTAT_BEGIN_WRITE_ACTIVITY(beentry);
@@ -3748,6 +3748,9 @@ pgstat_get_wait_client(WaitEventClient w)
 		case WAIT_EVENT_CLIENT_WRITE:
 			event_name = "ClientWrite";
 			break;
+		case WAIT_EVENT_GSS_OPEN_SERVER:
+			event_name = "GSSOpenServer";
+			break;
 		case WAIT_EVENT_LIBPQWALRECEIVER_CONNECT:
 			event_name = "LibPQWalReceiverConnect";
 			break;
@@ -3765,9 +3768,6 @@ pgstat_get_wait_client(WaitEventClient w)
 			break;
 		case WAIT_EVENT_WAL_SENDER_WRITE_DATA:
 			event_name = "WalSenderWriteData";
-			break;
-		case WAIT_EVENT_GSS_OPEN_SERVER:
-			event_name = "GSSOpenServer";
 			break;
 			/* no default case, so that compiler will warn */
 	}

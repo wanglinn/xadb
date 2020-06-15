@@ -524,8 +524,6 @@ buildSubPlanHash(SubPlanState *node, ExprContext *econtext)
 	 * need to store subplan output rows that contain NULL.
 	 */
 	MemoryContextReset(node->hashtablecxt);
-	node->hashtable = NULL;
-	node->hashnulls = NULL;
 	node->havehashrows = false;
 	node->havenullrows = false;
 
@@ -562,7 +560,7 @@ buildSubPlanHash(SubPlanState *node, ExprContext *econtext)
 		}
 
 		if (node->hashnulls)
-			ResetTupleHashTable(node->hashtable);
+			ResetTupleHashTable(node->hashnulls);
 		else
 			node->hashnulls = BuildTupleHashTableExt(node->parent,
 													 node->descRight,
@@ -578,6 +576,8 @@ buildSubPlanHash(SubPlanState *node, ExprContext *econtext)
 													 node->hashtempcxt,
 													 false);
 	}
+	else
+		node->hashnulls = NULL;
 
 	/*
 	 * We are probably in a short-lived expression-evaluation context. Switch
@@ -888,6 +888,7 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
 					i;
 		TupleDesc	tupDescLeft;
 		TupleDesc	tupDescRight;
+		Oid		   *cross_eq_funcoids;
 		TupleTableSlot *slot;
 		List	   *oplist,
 				   *lefttlist,
@@ -951,6 +952,9 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
 		sstate->tab_collations = (Oid *) palloc(ncols * sizeof(Oid));
 		sstate->lhs_hash_funcs = (FmgrInfo *) palloc(ncols * sizeof(FmgrInfo));
 		sstate->cur_eq_funcs = (FmgrInfo *) palloc(ncols * sizeof(FmgrInfo));
+		/* we'll need the cross-type equality fns below, but not in sstate */
+		cross_eq_funcoids = (Oid *) palloc(ncols * sizeof(Oid));
+
 		i = 1;
 		foreach(l, oplist)
 		{
@@ -980,7 +984,7 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
 			righttlist = lappend(righttlist, tle);
 
 			/* Lookup the equality function (potentially cross-type) */
-			sstate->tab_eq_funcoids[i - 1] = opexpr->opfuncid;
+			cross_eq_funcoids[i - 1] = opexpr->opfuncid;
 			fmgr_info(opexpr->opfuncid, &sstate->cur_eq_funcs[i - 1]);
 			fmgr_info_set_expr((Node *) opexpr, &sstate->cur_eq_funcs[i - 1]);
 
@@ -989,7 +993,9 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
 											   NULL, &rhs_eq_oper))
 				elog(ERROR, "could not find compatible hash operator for operator %u",
 					 opexpr->opno);
-			fmgr_info(get_opcode(rhs_eq_oper), &sstate->tab_eq_funcs[i - 1]);
+			sstate->tab_eq_funcoids[i - 1] = get_opcode(rhs_eq_oper);
+			fmgr_info(sstate->tab_eq_funcoids[i - 1],
+					  &sstate->tab_eq_funcs[i - 1]);
 
 			/* Lookup the associated hash functions */
 			if (!get_op_hash_functions(opexpr->opno,
@@ -1031,16 +1037,15 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
 
 		/*
 		 * Create comparator for lookups of rows in the table (potentially
-		 * across-type comparison).
+		 * cross-type comparisons).
 		 */
 		sstate->cur_eq_comp = ExecBuildGroupingEqual(tupDescLeft, tupDescRight,
 													 &TTSOpsVirtual, &TTSOpsMinimalTuple,
 													 ncols,
 													 sstate->keyColIdx,
-													 sstate->tab_eq_funcoids,
+													 cross_eq_funcoids,
 													 sstate->tab_collations,
 													 parent);
-
 	}
 
 	return sstate;

@@ -11,7 +11,7 @@ CREATE SCHEMA test_ns_schema_1
        CREATE TABLE abc (
               a serial,
               b int UNIQUE
-       ) distribute by replication;
+       );
 
 -- verify that the objects were created
 SELECT COUNT(*) FROM pg_class WHERE relnamespace =
@@ -21,8 +21,8 @@ INSERT INTO test_ns_schema_1.abc DEFAULT VALUES;
 INSERT INTO test_ns_schema_1.abc DEFAULT VALUES;
 INSERT INTO test_ns_schema_1.abc DEFAULT VALUES;
 
-SELECT * FROM test_ns_schema_1.abc ORDER BY a;
-SELECT * FROM test_ns_schema_1.abc_view ORDER BY a;
+SELECT * FROM test_ns_schema_1.abc;
+SELECT * FROM test_ns_schema_1.abc_view;
 
 ALTER SCHEMA test_ns_schema_1 RENAME TO test_ns_schema_renamed;
 SELECT COUNT(*) FROM pg_class WHERE relnamespace =

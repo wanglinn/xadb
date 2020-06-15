@@ -811,7 +811,7 @@ BEGIN;
 INSERT INTO mytable VALUES(1);
 COMMIT;
 INSERT INTO mytable VALUES(2);
-SELECT 1/0;
+SELCT 1/0;<!-- this typo is intentional -->
 </programlisting>
      then none of the statements would get run, resulting in the visible
      difference that the first <command>INSERT</command> is not committed.
@@ -1610,7 +1610,7 @@ ErrorMessage.
 </para>
 
  <sect2 id="sasl-scram-sha-256">
-  <title>SCRAM-SHA-256 authentication</title>
+  <title>SCRAM-SHA-256 Authentication</title>
 
   <para>
    The implemented SASL mechanisms at the moment

@@ -26,14 +26,14 @@ select * from inserttest;
 insert into inserttest values(10, 20, '40'), (-1, 2, DEFAULT),
     ((select 2), (select i from (values(3)) as foo (i)), 'values are fun!');
 
-select * from inserttest order by 1,2,3;
+select * from inserttest;
 
 --
 -- TOASTed value test
 --
 insert into inserttest values(30, 50, repeat('x', 10000));
 
-select col1, col2, char_length(col3) from inserttest order by 1,2,3;
+select col1, col2, char_length(col3) from inserttest;
 
 drop table inserttest;
 

@@ -1249,7 +1249,7 @@ postgresql://%2Fvar%2Flib%2Fpostgresql/dbname
       </listitem>
      </varlistentry>
 
-     <varlistentry id="libpq-tcp-user-timeout" xreflabel="libpq_tcp_user_timeout">
+     <varlistentry id="libpq-tcp-user-timeout" xreflabel="tcp_user_timeout">
       <term><literal>tcp_user_timeout</literal></term>
       <listitem>
        <para>
@@ -1625,8 +1625,10 @@ postgresql://%2Fvar%2Flib%2Fpostgresql/dbname
       <term><literal>gsslib</literal></term>
       <listitem>
        <para>
-        GSS library to use for GSSAPI authentication. Only used on Windows.
-        Set to <literal>gssapi</literal> to force libpq to use the GSSAPI
+        GSS library to use for GSSAPI authentication.
+        Currently this is disregarded except on Windows builds that include
+        both GSSAPI and SSPI support.  In that case, set
+        this to <literal>gssapi</literal> to cause libpq to use the GSSAPI
         library for authentication instead of the default SSPI.
        </para>
       </listitem>
@@ -4988,7 +4990,7 @@ int PQflush(PGconn *conn);
  </sect1>
 
  <sect1 id="libpq-single-row-mode">
-  <title>Retrieving Query Results Row-By-Row</title>
+  <title>Retrieving Query Results Row-by-Row</title>
 
   <indexterm zone="libpq-single-row-mode">
    <primary>libpq</primary>
@@ -5913,7 +5915,7 @@ int PQendcopy(PGconn *conn);
        It should either be issued when the  last  string  has  been sent
        to  the  server using <function>PQputline</function> or when the
        last string has been  received  from  the  server using
-       <function>PGgetline</function>.  It must be issued or the server
+       <function>PQgetline</function>.  It must be issued or the server
        will get <quote>out of sync</quote> with  the client.   Upon return
        from this function, the server is ready to receive the next SQL
        command.  The return value is 0  on  successful  completion,
@@ -6039,13 +6041,13 @@ PGVerbosity PQsetErrorVerbosity(PGconn *conn, PGVerbosity verbosity);
       returning the connection's previous setting.
       In <firstterm>TERSE</firstterm> mode, returned messages include
       severity, primary text, and position only; this will normally fit on a
-      single line.  The default mode produces messages that include the above
-      plus any detail, hint, or context fields (these might span multiple
-      lines).  The <firstterm>VERBOSE</firstterm> mode includes all available
-      fields.  The <firstterm>SQLSTATE</firstterm> mode includes only the
-      error severity and the <symbol>SQLSTATE</symbol> error code, if one is
-      available (if not, the output is like <firstterm>TERSE</firstterm>
-      mode).
+      single line.  The <firstterm>DEFAULT</firstterm> mode produces messages
+      that include the above plus any detail, hint, or context fields (these
+      might span multiple lines).  The <firstterm>VERBOSE</firstterm> mode
+      includes all available fields.  The <firstterm>SQLSTATE</firstterm>
+      mode includes only the error severity and the <symbol>SQLSTATE</symbol>
+      error code, if one is available (if not, the output is like
+      <firstterm>TERSE</firstterm> mode).
      </para>
 
      <para>
@@ -8123,7 +8125,7 @@ ldap://ldap.acme.com/cn=dbserver,cn=hosts?pgconnectinfo?base?(objectclass=*)
      <row>
       <entry><literal>verify-ca</literal></entry>
       <entry>Yes</entry>
-      <entry><literal>Depends on CA</literal>-policy</entry>
+      <entry>Depends on CA policy</entry>
       <entry>I want my data encrypted, and I accept the overhead. I want to be
        sure that I connect to a server that I trust.
       </entry>

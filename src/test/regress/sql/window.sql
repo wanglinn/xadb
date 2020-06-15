@@ -21,56 +21,56 @@ INSERT INTO empsalary VALUES
 ('develop', 8, 6000, '2006-10-01'),
 ('develop', 11, 5200, '2007-08-15');
 
-SELECT depname, empno, salary, sum(salary) OVER (PARTITION BY depname) FROM empsalary ORDER BY 1, 2, 3, 4;
+SELECT depname, empno, salary, sum(salary) OVER (PARTITION BY depname) FROM empsalary ORDER BY depname, salary;
 
-SELECT depname, empno, salary, rank() OVER (PARTITION BY depname ORDER BY salary) FROM empsalary ORDER BY 1, 2, 3, 4;
+SELECT depname, empno, salary, rank() OVER (PARTITION BY depname ORDER BY salary) FROM empsalary;
 
 -- with GROUP BY
 SELECT four, ten, SUM(SUM(four)) OVER (PARTITION BY four), AVG(ten) FROM tenk1
 GROUP BY four, ten ORDER BY four, ten;
 
-SELECT depname, empno, salary, sum(salary) OVER w FROM empsalary WINDOW w AS (PARTITION BY depname) ORDER BY empno,salary;
+SELECT depname, empno, salary, sum(salary) OVER w FROM empsalary WINDOW w AS (PARTITION BY depname);
 
-SELECT depname, empno, salary, rank() OVER w FROM empsalary WINDOW w AS (PARTITION BY depname ORDER BY salary) ORDER BY rank() OVER w,empno;
+SELECT depname, empno, salary, rank() OVER w FROM empsalary WINDOW w AS (PARTITION BY depname ORDER BY salary) ORDER BY rank() OVER w;
 
 -- empty window specification
-SELECT COUNT(*) OVER () FROM tenk1 WHERE unique2 < 10 ORDER BY 1;
+SELECT COUNT(*) OVER () FROM tenk1 WHERE unique2 < 10;
 
-SELECT COUNT(*) OVER w FROM tenk1 WHERE unique2 < 10 WINDOW w AS () ORDER BY 1;
+SELECT COUNT(*) OVER w FROM tenk1 WHERE unique2 < 10 WINDOW w AS ();
 
 -- no window operation
 SELECT four FROM tenk1 WHERE FALSE WINDOW w AS (PARTITION BY ten);
 
 -- cumulative aggregate
-SELECT sum(four) OVER (PARTITION BY ten ORDER BY unique2) AS sum_1, ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3;
+SELECT sum(four) OVER (PARTITION BY ten ORDER BY unique2) AS sum_1, ten, four FROM tenk1 WHERE unique2 < 10;
 
-SELECT row_number() OVER (ORDER BY unique2) FROM tenk1 WHERE unique2 < 10 ORDER BY 1;
+SELECT row_number() OVER (ORDER BY unique2) FROM tenk1 WHERE unique2 < 10;
 
-SELECT rank() OVER (PARTITION BY four ORDER BY ten) AS rank_1, ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3;
+SELECT rank() OVER (PARTITION BY four ORDER BY ten) AS rank_1, ten, four FROM tenk1 WHERE unique2 < 10;
 
-SELECT dense_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3;
+SELECT dense_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10;
 
-SELECT percent_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3;
+SELECT percent_rank() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10;
 
-SELECT cume_dist() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3;
+SELECT cume_dist() OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10;
 
-SELECT ntile(3) OVER (ORDER BY ten, four), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3;
+SELECT ntile(3) OVER (ORDER BY ten, four), ten, four FROM tenk1 WHERE unique2 < 10;
 
 SELECT ntile(NULL) OVER (ORDER BY ten, four), ten, four FROM tenk1 LIMIT 2;
 
-SELECT lag(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3;
+SELECT lag(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10;
 
-SELECT lag(ten, four) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3;
+SELECT lag(ten, four) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10;
 
-SELECT lag(ten, four, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3;
+SELECT lag(ten, four, 0) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10;
 
-SELECT lead(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3;
+SELECT lead(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10;
 
-SELECT lead(ten * 2, 1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3;
+SELECT lead(ten * 2, 1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10;
 
-SELECT lead(ten * 2, 1, -1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3;
+SELECT lead(ten * 2, 1, -1) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10;
 
-SELECT first_value(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10 ORDER BY 1, 2, 3;
+SELECT first_value(ten) OVER (PARTITION BY four ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10;
 
 -- last_value returns the last row of the frame, which is CURRENT ROW in ORDER BY window.
 SELECT last_value(four) OVER (ORDER BY ten), ten, four FROM tenk1 WHERE unique2 < 10;
@@ -80,18 +80,16 @@ SELECT last_value(ten) OVER (PARTITION BY four), ten, four FROM
 	ORDER BY four, ten;
 
 SELECT nth_value(ten, four + 1) OVER (PARTITION BY four), ten, four
-	FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten)s
-	ORDER BY four, ten;
+	FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten)s;
 
-SELECT ten, two, sum(hundred) AS gsum, sum(sum(hundred)) OVER (PARTITION BY two ORDER BY ten) AS wsum 
-FROM tenk1 GROUP BY ten, two
-ORDER BY ten, two;
+SELECT ten, two, sum(hundred) AS gsum, sum(sum(hundred)) OVER (PARTITION BY two ORDER BY ten) AS wsum
+FROM tenk1 GROUP BY ten, two;
 
-SELECT count(*) OVER (PARTITION BY four), four FROM (SELECT * FROM tenk1 WHERE two = 1)s WHERE unique2 < 10 ORDER BY 1, 2;
+SELECT count(*) OVER (PARTITION BY four), four FROM (SELECT * FROM tenk1 WHERE two = 1)s WHERE unique2 < 10;
 
-SELECT (count(*) OVER (PARTITION BY four ORDER BY ten) + 
-  sum(hundred) OVER (PARTITION BY four ORDER BY ten))::varchar AS cntsum 
-  FROM tenk1 WHERE unique2 < 10 ORDER BY 1;
+SELECT (count(*) OVER (PARTITION BY four ORDER BY ten) +
+  sum(hundred) OVER (PARTITION BY four ORDER BY ten))::varchar AS cntsum
+  FROM tenk1 WHERE unique2 < 10;
 
 -- opexpr with different windows evaluation.
 SELECT * FROM(
@@ -103,10 +101,10 @@ SELECT * FROM(
 )sub
 WHERE total <> fourcount + twosum;
 
-SELECT avg(four) OVER (PARTITION BY four ORDER BY thousand / 100) FROM tenk1 WHERE unique2 < 10 ORDER BY 1;
+SELECT avg(four) OVER (PARTITION BY four ORDER BY thousand / 100) FROM tenk1 WHERE unique2 < 10;
 
-SELECT ten, two, sum(hundred) AS gsum, sum(sum(hundred)) OVER win AS wsum 
-FROM tenk1 GROUP BY ten, two WINDOW win AS (PARTITION BY two ORDER BY ten) ORDER BY 1, 2, 3, 4;
+SELECT ten, two, sum(hundred) AS gsum, sum(sum(hundred)) OVER win AS wsum
+FROM tenk1 GROUP BY ten, two WINDOW win AS (PARTITION BY two ORDER BY ten);
 
 -- more than one window with GROUP BY
 SELECT sum(salary),
@@ -116,17 +114,17 @@ FROM empsalary GROUP BY depname;
 
 -- identical windows with different names
 SELECT sum(salary) OVER w1, count(*) OVER w2
-FROM empsalary WINDOW w1 AS (ORDER BY salary), w2 AS (ORDER BY salary) ORDER BY 1, 2;
+FROM empsalary WINDOW w1 AS (ORDER BY salary), w2 AS (ORDER BY salary);
 
 -- subplan
 SELECT lead(ten, (SELECT two FROM tenk1 WHERE s.unique2 = unique2)) OVER (PARTITION BY four ORDER BY ten)
-FROM tenk1 s WHERE unique2 < 10 ORDER BY 1;
+FROM tenk1 s WHERE unique2 < 10;
 
 -- empty table
 SELECT count(*) OVER (PARTITION BY four) FROM (SELECT * FROM tenk1 WHERE FALSE)s;
 
 -- mixture of agg/wfunc in the same window
-SELECT sum(salary) OVER w, rank() OVER w FROM empsalary WINDOW w AS (PARTITION BY depname ORDER BY salary DESC) ORDER BY 1, 2;
+SELECT sum(salary) OVER w, rank() OVER w FROM empsalary WINDOW w AS (PARTITION BY depname ORDER BY salary DESC);
 
 -- strict aggs
 SELECT empno, depname, salary, bonus, depadj, MIN(bonus) OVER (ORDER BY empno), MAX(depadj) OVER () FROM(
@@ -135,7 +133,7 @@ SELECT empno, depname, salary, bonus, depadj, MIN(bonus) OVER (ORDER BY empno), 
 		CASE WHEN
 			AVG(salary) OVER (PARTITION BY depname) < salary
 		THEN 200 END AS depadj FROM empsalary
-)s ORDER BY empno;
+)s;
 
 -- window function over ungrouped agg over empty row set (bug before 9.1)
 SELECT SUM(COUNT(f1)) OVER () FROM int4_tbl WHERE f1=42;
@@ -157,27 +155,27 @@ select first_value(max(x)) over (), y
 SELECT four, ten,
 	sum(ten) over (partition by four order by ten),
 	last_value(ten) over (partition by four order by ten)
-FROM (select distinct ten, four from tenk1) ss ORDER BY 1, 2, 3, 4;
+FROM (select distinct ten, four from tenk1) ss;
 
 SELECT four, ten,
 	sum(ten) over (partition by four order by ten range between unbounded preceding and current row),
 	last_value(ten) over (partition by four order by ten range between unbounded preceding and current row)
-FROM (select distinct ten, four from tenk1) ss ORDER BY 1, 2, 3, 4;
+FROM (select distinct ten, four from tenk1) ss;
 
 SELECT four, ten,
 	sum(ten) over (partition by four order by ten range between unbounded preceding and unbounded following),
 	last_value(ten) over (partition by four order by ten range between unbounded preceding and unbounded following)
-FROM (select distinct ten, four from tenk1) ss ORDER BY 1, 2, 3, 4;
+FROM (select distinct ten, four from tenk1) ss;
 
 SELECT four, ten/4 as two,
 	sum(ten/4) over (partition by four order by ten/4 range between unbounded preceding and current row),
 	last_value(ten/4) over (partition by four order by ten/4 range between unbounded preceding and current row)
-FROM (select distinct ten, four from tenk1) ss ORDER BY 1, 2, 3, 4;
+FROM (select distinct ten, four from tenk1) ss;
 
 SELECT four, ten/4 as two,
 	sum(ten/4) over (partition by four order by ten/4 rows between unbounded preceding and current row),
 	last_value(ten/4) over (partition by four order by ten/4 rows between unbounded preceding and current row)
-FROM (select distinct ten, four from tenk1) ss ORDER BY 1, 2, 3, 4;
+FROM (select distinct ten, four from tenk1) ss;
 
 SELECT sum(unique1) over (order by four range between current row and unbounded following),
 	unique1, four
@@ -1259,3 +1257,22 @@ SELECT to_char(SUM(n::float8) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FO
 SELECT i, b, bool_and(b) OVER w, bool_or(b) OVER w
   FROM (VALUES (1,true), (2,true), (3,false), (4,false), (5,true)) v(i,b)
   WINDOW w AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING);
+
+-- Tests for problems with failure to walk or mutate expressions
+-- within window frame clauses.
+
+-- test walker (fails with collation error if expressions are not walked)
+SELECT array_agg(i) OVER w
+  FROM generate_series(1,5) i
+WINDOW w AS (ORDER BY i ROWS BETWEEN (('foo' < 'foobar')::integer) PRECEDING AND CURRENT ROW);
+
+-- test mutator (fails when inlined if expressions are not mutated)
+CREATE FUNCTION pg_temp.f(group_size BIGINT) RETURNS SETOF integer[]
+AS $$
+    SELECT array_agg(s) OVER w
+      FROM generate_series(1,5) s
+    WINDOW w AS (ORDER BY s ROWS BETWEEN CURRENT ROW AND GROUP_SIZE FOLLOWING)
+$$ LANGUAGE SQL STABLE;
+
+EXPLAIN (costs off) SELECT * FROM pg_temp.f(2);
+SELECT * FROM pg_temp.f(2);

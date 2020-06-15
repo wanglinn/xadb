@@ -5480,9 +5480,9 @@ InsertStmt:
 				if(res->indirection)
 				{
 					ereport(ERROR,
-						(ERRCODE_SYNTAX_ERROR,
-						errmsg("%s at or near \"%s\"", _("syntax error"), res->name),
-						parser_errposition(res->location)));
+						(errcode(ERRCODE_SYNTAX_ERROR),
+						 errmsg("%s at or near \"%s\"", _("syntax error"), res->name),
+						 parser_errposition(res->location)));
 				}
 				alias_col = lappend(alias_col, makeString(res->name));
 			}

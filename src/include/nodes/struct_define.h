@@ -167,12 +167,17 @@ END_STRUCT(CustomScanMethods)
 
 #ifndef NO_STRUCT_EPQState
 BEGIN_STRUCT(EPQState)
-	NODE_NODE(EState,estate)
-	NODE_NODE(PlanState,planstate)
-	NODE_NODE(TupleTableSlot,origslot)
+	NODE_NODE(EState,parentestate)
+	NODE_SCALAR(int,epqParam)
+	NODE_NODE(List,tuple_table)
+TupleTableSlot **relsubs_slot
 	NODE_NODE(Plan,plan)
 	NODE_NODE(List,arowMarks)
-	NODE_SCALAR(int,epqParam)
+	NODE_NODE(TupleTableSlot,origslot)
+	NODE_NODE(EState,recheckestate)
+ExecAuxRowMark **relsubs_rowmark
+	NODE_SCALAR_POINT(bool,relsubs_done,NODE_ARG_->------)
+	NODE_NODE(PlanState,recheckplanstate)
 #ifdef ADB
 	NODE_NODE(PlanState,owner)
 #endif

@@ -29,7 +29,7 @@ WITH RECURSIVE t(n) AS (
 UNION ALL
     SELECT n+1 FROM t WHERE n < 5
 )
-SELECT * FROM t ORDER BY n;
+SELECT * FROM t;
 
 -- recursive view
 CREATE RECURSIVE VIEW nums (n) AS
@@ -51,7 +51,7 @@ WITH RECURSIVE t(n) AS (
     SELECT 1
 UNION
     SELECT 10-n FROM t)
-SELECT * FROM t ORDER BY n;
+SELECT * FROM t;
 
 -- This'd be an infinite loop, but outside query reads only as much as needed
 WITH RECURSIVE t(n) AS (
@@ -76,7 +76,7 @@ WITH RECURSIVE t(n) AS (
 UNION ALL
     SELECT n || ' bar' FROM t WHERE length(n) < 20
 )
-SELECT n, n IS OF (text) AS is_text FROM t ORDER BY n;
+SELECT n, n IS OF (text) AS is_text FROM t;
 
 -- In a perfect world, this would work and resolve the literal as int ...
 -- but for now, we have to be content with resolving to text too soon.
@@ -101,7 +101,7 @@ CREATE TEMP TABLE department (
 	id INTEGER PRIMARY KEY,  -- department ID
 	parent_department INTEGER REFERENCES department, -- upper department ID
 	name TEXT -- department name
-) distribute by replication;
+);
 
 INSERT INTO department VALUES (0, NULL, 'ROOT');
 INSERT INTO department VALUES (1, 0, 'A');
@@ -214,16 +214,16 @@ SELECT sum(n) FROM t;
 \d+ sums_1_100
 
 -- corner case in which sub-WITH gets initialized first
-select * from (with recursive q as (
-      (select * from department order by id)
+with recursive q as (
+      select * from department
     union all
       (with x as (select * from q)
        select * from x)
     )
-select * from q limit 24) rel_alias order by 1, 2, 3;
+select * from q limit 24;
 
-select * from (with recursive q as (
-      (select * from department order by id)
+with recursive q as (
+      select * from department
     union all
       (with recursive x as (
            select * from department
@@ -232,7 +232,7 @@ select * from (with recursive q as (
         )
        select * from x)
     )
-select * from q limit 32) rel_alias order by 1, 2, 3;
+select * from q limit 32;
 
 -- recursive term has sub-UNION
 WITH RECURSIVE t(i,j) AS (
@@ -242,7 +242,7 @@ WITH RECURSIVE t(i,j) AS (
 		(SELECT 2 AS i UNION ALL SELECT 3 AS i) AS t2
 		JOIN t ON (t2.i = t.i+1))
 
-	SELECT * FROM t order by i;
+	SELECT * FROM t;
 
 --
 -- different tree example
@@ -250,7 +250,7 @@ WITH RECURSIVE t(i,j) AS (
 CREATE TEMPORARY TABLE tree(
     id INTEGER PRIMARY KEY,
     parent_id INTEGER REFERENCES tree(id)
-) distribute by replication;
+);
 
 INSERT INTO tree
 VALUES (1, NULL), (2, 1), (3,1), (4,2), (5,2), (6,2), (7,3), (8,3),
@@ -293,7 +293,7 @@ UNION ALL
     FROM tree JOIN t ON (tree.parent_id = t.id)
 )
 SELECT t1.id, t2.path, t2 FROM t AS t1 JOIN t AS t2 ON
-(t1.id=t2.id) ORDER BY id;
+(t1.id=t2.id);
 
 --
 -- test cycle detection
@@ -315,7 +315,7 @@ with recursive search_graph(f, t, label, path, cycle) as (
 	from graph g, search_graph sg
 	where g.f = sg.t and not cycle
 )
-select * from search_graph order by path;
+select * from search_graph;
 
 -- ordering by the path column has same effect as SEARCH DEPTH FIRST
 with recursive search_graph(f, t, label, path, cycle) as (
@@ -333,27 +333,27 @@ select * from search_graph order by path;
 WITH RECURSIVE
   y (id) AS (VALUES (1)),
   x (id) AS (SELECT * FROM y UNION ALL SELECT id+1 FROM x WHERE id < 5)
-SELECT * FROM x ORDER BY id;
+SELECT * FROM x;
 
 -- forward reference OK
 WITH RECURSIVE
     x(id) AS (SELECT * FROM y UNION ALL SELECT id+1 FROM x WHERE id < 5),
     y(id) AS (values (1))
- SELECT * FROM x ORDER BY id;
+ SELECT * FROM x;
 
 WITH RECURSIVE
    x(id) AS
      (VALUES (1) UNION ALL SELECT id+1 FROM x WHERE id < 5),
    y(id) AS
      (VALUES (1) UNION ALL SELECT id+1 FROM y WHERE id < 10)
- SELECT y.*, x.* FROM y LEFT JOIN x USING (id) ORDER BY 1;
+ SELECT y.*, x.* FROM y LEFT JOIN x USING (id);
 
 WITH RECURSIVE
    x(id) AS
      (VALUES (1) UNION ALL SELECT id+1 FROM x WHERE id < 5),
    y(id) AS
      (VALUES (1) UNION ALL SELECT id+1 FROM x WHERE id < 10)
- SELECT y.*, x.* FROM y LEFT JOIN x USING (id) ORDER BY 1;
+ SELECT y.*, x.* FROM y LEFT JOIN x USING (id);
 
 WITH RECURSIVE
    x(id) AS
@@ -362,7 +362,7 @@ WITH RECURSIVE
      (SELECT * FROM x UNION ALL SELECT * FROM x),
    z(id) AS
      (SELECT * FROM x UNION ALL SELECT id+1 FROM z WHERE id < 10)
- SELECT * FROM z ORDER BY id;
+ SELECT * FROM z;
 
 WITH RECURSIVE
    x(id) AS
@@ -371,29 +371,29 @@ WITH RECURSIVE
      (SELECT * FROM x UNION ALL SELECT * FROM x),
    z(id) AS
      (SELECT * FROM y UNION ALL SELECT id+1 FROM z WHERE id < 10)
- SELECT * FROM z ORDER BY id;
+ SELECT * FROM z;
 
 --
 -- Test WITH attached to a data-modifying statement
 --
 
-CREATE TEMPORARY TABLE y (a INTEGER) DISTRIBUTE BY REPLICATION;
+CREATE TEMPORARY TABLE y (a INTEGER);
 INSERT INTO y SELECT generate_series(1, 10);
 
 WITH t AS (
 	SELECT a FROM y
 )
 INSERT INTO y
-SELECT a+20 FROM t order by 1 RETURNING *;
+SELECT a+20 FROM t RETURNING *;
 
-SELECT * FROM y order by 1;
+SELECT * FROM y;
 
 WITH t AS (
 	SELECT a FROM y
 )
 UPDATE y SET a = y.a-10 FROM t WHERE y.a > 20 AND t.a = y.a RETURNING y.a;
 
-SELECT * FROM y order by 1;
+SELECT * FROM y;
 
 WITH RECURSIVE t(a) AS (
 	SELECT 11
@@ -402,7 +402,7 @@ WITH RECURSIVE t(a) AS (
 )
 DELETE FROM y USING t WHERE t.a = y.a RETURNING y.a;
 
-SELECT * FROM y order by 1;
+SELECT * FROM y;
 
 DROP TABLE y;
 
@@ -432,7 +432,7 @@ WITH RECURSIVE x(n) AS (SELECT n FROM x)
 WITH RECURSIVE x(n) AS (SELECT n FROM x UNION ALL SELECT 1)
 	SELECT * FROM x;
 
-CREATE TEMPORARY TABLE y (a INTEGER) DISTRIBUTE BY REPLICATION;
+CREATE TEMPORARY TABLE y (a INTEGER);
 INSERT INTO y SELECT generate_series(1, 10);
 
 -- LEFT JOIN
@@ -553,11 +553,11 @@ with cte(foo) as ( select 42 ) select * from ((select foo from cte)) q;
 -- signaling still works properly after fixing this bug)
 select ( with cte(foo) as ( values(f1) )
          select (select foo from cte) )
-from int4_tbl order by 1;
+from int4_tbl;
 
 select ( with cte(foo) as ( values(f1) )
           values((select foo from cte)) )
-from int4_tbl order by 1;
+from int4_tbl;
 
 --
 -- test for nested-recursive-WITH bug
@@ -572,7 +572,7 @@ WITH RECURSIVE t(j) AS (
     UNION ALL
     SELECT j+1 FROM t WHERE j < 10
 )
-SELECT * FROM t order by 1;
+SELECT * FROM t;
 
 --
 -- test WITH attached to intermediate-level set operation
@@ -621,7 +621,7 @@ with
 A as ( select q2 as id, (select q1) as x from int8_tbl ),
 B as ( select id, row_number() over (partition by id) as r from A ),
 C as ( select A.id, array(select B.id from B where B.id = A.id) from A )
-select * from C order by 1,2;
+select * from C;
 
 --
 -- Test CTEs read in non-initialization orders
@@ -699,9 +699,9 @@ WITH t AS (
         (20)
     RETURNING *
 )
-SELECT * FROM t order by 1;
+SELECT * FROM t;
 
-SELECT * FROM y order by 1;
+SELECT * FROM y;
 
 -- UPDATE ... RETURNING
 WITH t AS (
@@ -709,9 +709,9 @@ WITH t AS (
     SET a=a+1
     RETURNING *
 )
-SELECT * FROM t order by 1;
+SELECT * FROM t;
 
-SELECT * FROM y order by 1;
+SELECT * FROM y;
 
 -- DELETE ... RETURNING
 WITH t AS (
@@ -719,9 +719,9 @@ WITH t AS (
     WHERE a <= 10
     RETURNING *
 )
-SELECT * FROM t order by 1;
+SELECT * FROM t;
 
-SELECT * FROM y order by 1;
+SELECT * FROM y;
 
 -- forward reference
 WITH RECURSIVE t AS (
@@ -733,9 +733,9 @@ WITH RECURSIVE t AS (
 )
 SELECT * FROM t
 UNION ALL
-SELECT * FROM t2 order by 1;
+SELECT * FROM t2;
 
-SELECT * FROM y order by 1;
+SELECT * FROM y;
 
 -- unconditional DO INSTEAD rule
 CREATE RULE y_rule AS ON DELETE TO y DO INSTEAD
@@ -746,7 +746,7 @@ WITH t AS (
 )
 SELECT * FROM t;
 
-SELECT * FROM y order by 1;
+SELECT * FROM y;
 
 DROP RULE y_rule ON y;
 
@@ -754,12 +754,12 @@ DROP RULE y_rule ON y;
 CREATE TEMP TABLE bug6051 AS
   select i from generate_series(1,3) as t(i);
 
-SELECT * FROM bug6051 ORDER BY 1;
+SELECT * FROM bug6051;
 
 WITH t1 AS ( DELETE FROM bug6051 RETURNING * )
 INSERT INTO bug6051 SELECT * FROM t1;
 
-SELECT * FROM bug6051 ORDER BY 1;
+SELECT * FROM bug6051;
 
 CREATE TEMP TABLE bug6051_2 (i int);
 
@@ -770,8 +770,8 @@ CREATE RULE bug6051_ins AS ON INSERT TO bug6051 DO INSTEAD
 WITH t1 AS ( DELETE FROM bug6051 RETURNING * )
 INSERT INTO bug6051 SELECT * FROM t1;
 
-SELECT * FROM bug6051 ORDER BY 1;
-SELECT * FROM bug6051_2 ORDER BY 1;
+SELECT * FROM bug6051;
+SELECT * FROM bug6051_2;
 
 -- a truly recursive CTE in the same list
 WITH RECURSIVE t(a) AS (
@@ -784,7 +784,7 @@ WITH RECURSIVE t(a) AS (
 )
 SELECT * FROM t2 JOIN y USING (a) ORDER BY a;
 
-SELECT * FROM y order by 1;
+SELECT * FROM y;
 
 -- data-modifying WITH in a modifying statement
 WITH t AS (
@@ -792,17 +792,17 @@ WITH t AS (
     WHERE a <= 10
     RETURNING *
 )
-INSERT INTO y SELECT -a FROM t ORDER BY 1 RETURNING *;
+INSERT INTO y SELECT -a FROM t RETURNING *;
 
-SELECT * FROM y order by 1;
+SELECT * FROM y;
 
 -- check that WITH query is run to completion even if outer query isn't
 WITH t AS (
     UPDATE y SET a = a * 100 RETURNING *
 )
-SELECT * FROM t ORDER BY 1 LIMIT 10;
+SELECT * FROM t LIMIT 10;
 
-SELECT * FROM y order by 1;
+SELECT * FROM y;
 
 -- data-modifying WITH containing INSERT...ON CONFLICT DO UPDATE
 CREATE TABLE withz AS SELECT i AS k, (i || ' v')::text v FROM generate_series(1, 16, 3) i;
@@ -875,8 +875,8 @@ WITH RECURSIVE t1 AS (
 )
 SELECT 1;
 
-SELECT * FROM y order by 1;
-SELECT * FROM yy order by 1;
+SELECT * FROM y;
+SELECT * FROM yy;
 
 WITH RECURSIVE t1 AS (
   INSERT INTO yy SELECT * FROM t2 RETURNING *
@@ -885,8 +885,8 @@ WITH RECURSIVE t1 AS (
 )
 SELECT 1;
 
-SELECT * FROM y order by 1;
-SELECT * FROM yy order by 1;
+SELECT * FROM y;
+SELECT * FROM yy;
 
 -- triggers
 
@@ -913,7 +913,7 @@ WITH t AS (
 )
 SELECT * FROM t;
 
-SELECT * FROM y order by 1;
+SELECT * FROM y;
 
 DROP TRIGGER y_trig ON y;
 
@@ -930,7 +930,7 @@ WITH t AS (
 )
 SELECT * FROM t LIMIT 1;
 
-SELECT * FROM y order by 1;
+SELECT * FROM y;
 
 DROP TRIGGER y_trig ON y;
 
@@ -954,16 +954,16 @@ WITH t AS (
 )
 SELECT * FROM t;
 
-SELECT * FROM y order by 1;
+SELECT * FROM y;
 
 DROP TRIGGER y_trig ON y;
 DROP FUNCTION y_trigger();
 
 -- WITH attached to inherited UPDATE or DELETE
 
-CREATE TEMP TABLE parent ( id int, val text ) DISTRIBUTE BY REPLICATION;
-CREATE TEMP TABLE child1 ( ) INHERITS ( parent ) DISTRIBUTE BY REPLICATION;
-CREATE TEMP TABLE child2 ( ) INHERITS ( parent ) DISTRIBUTE BY REPLICATION;
+CREATE TEMP TABLE parent ( id int, val text );
+CREATE TEMP TABLE child1 ( ) INHERITS ( parent );
+CREATE TEMP TABLE child2 ( ) INHERITS ( parent );
 
 INSERT INTO parent VALUES ( 1, 'p1' );
 INSERT INTO child1 VALUES ( 11, 'c11' ),( 12, 'c12' );
@@ -972,22 +972,22 @@ INSERT INTO child2 VALUES ( 23, 'c21' ),( 24, 'c22' );
 WITH rcte AS ( SELECT sum(id) AS totalid FROM parent )
 UPDATE parent SET id = id + totalid FROM rcte;
 
-SELECT * FROM parent ORDER BY id;
+SELECT * FROM parent;
 
 WITH wcte AS ( INSERT INTO child1 VALUES ( 42, 'new' ) RETURNING id AS newid )
 UPDATE parent SET id = id + newid FROM wcte;
 
-SELECT * FROM parent ORDER BY id;
+SELECT * FROM parent;
 
 WITH rcte AS ( SELECT max(id) AS maxid FROM parent )
 DELETE FROM parent USING rcte WHERE id = maxid;
 
-SELECT * FROM parent ORDER BY id;
+SELECT * FROM parent;
 
 WITH wcte AS ( INSERT INTO child2 VALUES ( 42, 'new2' ) RETURNING id AS newid )
 DELETE FROM parent USING wcte WHERE id = newid;
 
-SELECT * FROM parent ORDER BY id;
+SELECT * FROM parent;
 
 -- check EXPLAIN VERBOSE for a wCTE with RETURNING
 

@@ -241,9 +241,12 @@ static NestLoop *make_nestloop(List *tlist,
 static HashJoin *make_hashjoin(List *tlist,
 							   List *joinclauses, List *otherclauses,
 							   List *hashclauses,
+							   List *hashoperators, List *hashcollations,
+							   List *hashkeys,
 							   Plan *lefttree, Plan *righttree,
 							   JoinType jointype, bool inner_unique);
 static Hash *make_hash(Plan *lefttree,
+					   List *hashkeys,
 					   Oid skewTable,
 					   AttrNumber skewColumn,
 					   bool skewInherit);
@@ -2645,10 +2648,13 @@ create_windowagg_plan(PlannerInfo *root, WindowAggPath *best_path)
 	ListCell   *lc;
 
 	/*
-	 * WindowAgg can project, so no need to be terribly picky about child
-	 * tlist, but we do need grouping columns to be available
+	 * Choice of tlist here is motivated by the fact that WindowAgg will be
+	 * storing the input rows of window frames in a tuplestore; it therefore
+	 * behooves us to request a small tlist to avoid wasting space. We do of
+	 * course need grouping columns to be available.
 	 */
-	subplan = create_plan_recurse(root, best_path->subpath, CP_LABEL_TLIST);
+	subplan = create_plan_recurse(root, best_path->subpath,
+								  CP_LABEL_TLIST | CP_SMALL_TLIST);
 
 	tlist = build_path_tlist(root, &best_path->path);
 
@@ -4720,9 +4726,14 @@ create_hashjoin_plan(PlannerInfo *root,
 	List	   *joinclauses;
 	List	   *otherclauses;
 	List	   *hashclauses;
+	List	   *hashoperators = NIL;
+	List	   *hashcollations = NIL;
+	List	   *inner_hashkeys = NIL;
+	List	   *outer_hashkeys = NIL;
 	Oid			skewTable = InvalidOid;
 	AttrNumber	skewColumn = InvalidAttrNumber;
 	bool		skewInherit = false;
+	ListCell   *lc;
 
 	/*
 	 * HashJoin can project, so we don't have to demand exact tlists from the
@@ -4815,9 +4826,28 @@ create_hashjoin_plan(PlannerInfo *root,
 	}
 
 	/*
+	 * Collect hash related information. The hashed expressions are
+	 * deconstructed into outer/inner expressions, so they can be computed
+	 * separately (inner expressions are used to build the hashtable via Hash,
+	 * outer expressions to perform lookups of tuples from HashJoin's outer
+	 * plan in the hashtable). Also collect operator information necessary to
+	 * build the hashtable.
+	 */
+	foreach(lc, hashclauses)
+	{
+		OpExpr	   *hclause = lfirst_node(OpExpr, lc);
+
+		hashoperators = lappend_oid(hashoperators, hclause->opno);
+		hashcollations = lappend_oid(hashcollations, hclause->inputcollid);
+		outer_hashkeys = lappend(outer_hashkeys, linitial(hclause->args));
+		inner_hashkeys = lappend(inner_hashkeys, lsecond(hclause->args));
+	}
+
+	/*
 	 * Build the hash node and hash join node.
 	 */
 	hash_plan = make_hash(inner_plan,
+						  inner_hashkeys,
 						  skewTable,
 						  skewColumn,
 						  skewInherit);
@@ -4844,6 +4874,9 @@ create_hashjoin_plan(PlannerInfo *root,
 							  joinclauses,
 							  otherclauses,
 							  hashclauses,
+							  hashoperators,
+							  hashcollations,
+							  outer_hashkeys,
 							  outer_plan,
 							  (Plan *) hash_plan,
 							  best_path->jpath.jointype,
@@ -5893,6 +5926,9 @@ make_hashjoin(List *tlist,
 			  List *joinclauses,
 			  List *otherclauses,
 			  List *hashclauses,
+			  List *hashoperators,
+			  List *hashcollations,
+			  List *hashkeys,
 			  Plan *lefttree,
 			  Plan *righttree,
 			  JoinType jointype,
@@ -5906,6 +5942,9 @@ make_hashjoin(List *tlist,
 	plan->lefttree = lefttree;
 	plan->righttree = righttree;
 	node->hashclauses = hashclauses;
+	node->hashoperators = hashoperators;
+	node->hashcollations = hashcollations;
+	node->hashkeys = hashkeys;
 	node->join.jointype = jointype;
 	node->join.inner_unique = inner_unique;
 	node->join.joinqual = joinclauses;
@@ -5915,6 +5954,7 @@ make_hashjoin(List *tlist,
 
 static Hash *
 make_hash(Plan *lefttree,
+		  List *hashkeys,
 		  Oid skewTable,
 		  AttrNumber skewColumn,
 		  bool skewInherit)
@@ -5927,6 +5967,7 @@ make_hash(Plan *lefttree,
 	plan->lefttree = lefttree;
 	plan->righttree = NULL;
 
+	node->hashkeys = hashkeys;
 	node->skewTable = skewTable;
 	node->skewColumn = skewColumn;
 	node->skewInherit = skewInherit;
@@ -7811,6 +7852,7 @@ static ConnectByPlan *create_connect_by_plan(PlannerInfo *root, ConnectByPath *p
 		}
 
 		hash_plan = make_hash(outerPlan(plan),
+							  list_make1(lsecond(clause->args)),
 							  skewTable,
 							  skewColumn,
 							  skewInherit);

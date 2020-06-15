@@ -67,39 +67,53 @@ INSERT INTO rw_view14 VALUES (null, 3, 'Row 3'); -- should fail
 INSERT INTO rw_view14 (a, b) VALUES (3, 'Row 3'); -- should be OK
 UPDATE rw_view14 SET ctid=null WHERE a=3; -- should fail
 UPDATE rw_view14 SET b='ROW 3' WHERE a=3; -- should be OK
-SELECT * FROM base_tbl order by 1, 2;
+SELECT * FROM base_tbl;
 DELETE FROM rw_view14 WHERE a=3; -- should be OK
 -- Partially updatable view
 INSERT INTO rw_view15 VALUES (3, 'ROW 3'); -- should fail
 INSERT INTO rw_view15 (a) VALUES (3); -- should be OK
 INSERT INTO rw_view15 (a) VALUES (3) ON CONFLICT DO NOTHING; -- succeeds
-SELECT * FROM rw_view15 order by 1, 2;
+SELECT * FROM rw_view15;
 INSERT INTO rw_view15 (a) VALUES (3) ON CONFLICT (a) DO NOTHING; -- succeeds
-SELECT * FROM rw_view15 order by 1, 2;
+SELECT * FROM rw_view15;
 INSERT INTO rw_view15 (a) VALUES (3) ON CONFLICT (a) DO UPDATE set a = excluded.a; -- succeeds
-SELECT * FROM rw_view15 order by 1, 2;
+SELECT * FROM rw_view15;
 INSERT INTO rw_view15 (a) VALUES (3) ON CONFLICT (a) DO UPDATE set upper = 'blarg'; -- fails
-SELECT * FROM rw_view15 order by 1, 2;
-SELECT * FROM rw_view15 order by 1, 2;
+SELECT * FROM rw_view15;
+SELECT * FROM rw_view15;
 ALTER VIEW rw_view15 ALTER COLUMN upper SET DEFAULT 'NOT SET';
 INSERT INTO rw_view15 (a) VALUES (4); -- should fail
 UPDATE rw_view15 SET upper='ROW 3' WHERE a=3; -- should fail
 UPDATE rw_view15 SET upper=DEFAULT WHERE a=3; -- should fail
 UPDATE rw_view15 SET a=4 WHERE a=3; -- should be OK
-SELECT * FROM base_tbl order by 1,2;
+SELECT * FROM base_tbl;
 DELETE FROM rw_view15 WHERE a=4; -- should be OK
 -- Partially updatable view
 INSERT INTO rw_view16 VALUES (3, 'Row 3', 3); -- should fail
 INSERT INTO rw_view16 (a, b) VALUES (3, 'Row 3'); -- should be OK
 UPDATE rw_view16 SET a=3, aa=-3 WHERE a=3; -- should fail
 UPDATE rw_view16 SET aa=-3 WHERE a=3; -- should be OK
-SELECT * FROM base_tbl order by 1,2;
+SELECT * FROM base_tbl;
 DELETE FROM rw_view16 WHERE a=-3; -- should be OK
 -- Read-only views
 INSERT INTO ro_view17 VALUES (3, 'ROW 3');
 DELETE FROM ro_view18;
 UPDATE ro_view19 SET last_value=1000;
 UPDATE ro_view20 SET b=upper(b);
+
+-- A view with a conditional INSTEAD rule but no unconditional INSTEAD rules
+-- or INSTEAD OF triggers should be non-updatable and generate useful error
+-- messages with appropriate detail
+CREATE RULE rw_view16_ins_rule AS ON INSERT TO rw_view16
+  WHERE NEW.a > 0 DO INSTEAD INSERT INTO base_tbl VALUES (NEW.a, NEW.b);
+CREATE RULE rw_view16_upd_rule AS ON UPDATE TO rw_view16
+  WHERE OLD.a > 0 DO INSTEAD UPDATE base_tbl SET b=NEW.b WHERE a=OLD.a;
+CREATE RULE rw_view16_del_rule AS ON DELETE TO rw_view16
+  WHERE OLD.a > 0 DO INSTEAD DELETE FROM base_tbl WHERE a=OLD.a;
+
+INSERT INTO rw_view16 (a, b) VALUES (3, 'Row 3'); -- should fail
+UPDATE rw_view16 SET b='ROW 2' WHERE a=2; -- should fail
+DELETE FROM rw_view16 WHERE a=2; -- should fail
 
 DROP TABLE base_tbl CASCADE;
 DROP VIEW ro_view10, ro_view12, ro_view18;
@@ -129,7 +143,7 @@ INSERT INTO rw_view1 VALUES (3, 'Row 3');
 INSERT INTO rw_view1 (a) VALUES (4);
 UPDATE rw_view1 SET a=5 WHERE a=4;
 DELETE FROM rw_view1 WHERE b='Row 2';
-SELECT * FROM base_tbl order by 1;
+SELECT * FROM base_tbl;
 
 EXPLAIN (costs off) UPDATE rw_view1 SET a=6 WHERE a=5;
 EXPLAIN (costs off) DELETE FROM rw_view1 WHERE a=5;
@@ -159,10 +173,10 @@ SELECT table_name, column_name, is_updatable
 
 INSERT INTO rw_view2 VALUES (3, 'Row 3');
 INSERT INTO rw_view2 (aaa) VALUES (4);
-SELECT * FROM rw_view2 order by 1;
+SELECT * FROM rw_view2;
 UPDATE rw_view2 SET bbb='Row 4' WHERE aaa=4;
 DELETE FROM rw_view2 WHERE aaa=2;
-SELECT * FROM rw_view2 order by 1;
+SELECT * FROM rw_view2;
 
 EXPLAIN (costs off) UPDATE rw_view2 SET aaa=5 WHERE aaa=4;
 EXPLAIN (costs off) DELETE FROM rw_view2 WHERE aaa=4;
@@ -248,9 +262,9 @@ SELECT table_name, column_name, is_updatable
 
 INSERT INTO rw_view2 VALUES (3, 'Row 3') RETURNING *;
 UPDATE rw_view2 SET b='Row three' WHERE a=3 RETURNING *;
-SELECT * FROM rw_view2 order by 1;
+SELECT * FROM rw_view2;
 DELETE FROM rw_view2 WHERE a=3 RETURNING *;
-SELECT * FROM rw_view2 order by 1;
+SELECT * FROM rw_view2;
 
 EXPLAIN (costs off) UPDATE rw_view2 SET a=3 WHERE a=2;
 EXPLAIN (costs off) DELETE FROM rw_view2 WHERE a=2;
@@ -362,9 +376,9 @@ SELECT table_name, column_name, is_updatable
 
 INSERT INTO rw_view2 VALUES (3, 'Row 3') RETURNING *;
 UPDATE rw_view2 SET b='Row three' WHERE a=3 RETURNING *;
-SELECT * FROM rw_view2 order by 1;
+SELECT * FROM rw_view2;
 DELETE FROM rw_view2 WHERE a=3 RETURNING *;
-SELECT * FROM rw_view2 order by 1;
+SELECT * FROM rw_view2;
 
 EXPLAIN (costs off) UPDATE rw_view2 SET a=3 WHERE a=2;
 EXPLAIN (costs off) DELETE FROM rw_view2 WHERE a=2;
@@ -384,7 +398,7 @@ CREATE FUNCTION rw_view1_aa(x rw_view1)
 
 UPDATE rw_view1 v SET bb='Updated row 2' WHERE rw_view1_aa(v)=2
   RETURNING rw_view1_aa(v), v.bb;
-SELECT * FROM base_tbl order by 1;
+SELECT * FROM base_tbl;
 
 EXPLAIN (costs off)
 UPDATE rw_view1 v SET bb='Updated row 2' WHERE rw_view1_aa(v)=2
@@ -398,7 +412,7 @@ CREATE USER regress_view_user1;
 CREATE USER regress_view_user2;
 
 SET SESSION AUTHORIZATION regress_view_user1;
-CREATE TABLE base_tbl(a int, b text, c float) distribute by replication;
+CREATE TABLE base_tbl(a int, b text, c float);
 INSERT INTO base_tbl VALUES (1, 'Row 1', 1.0);
 CREATE VIEW rw_view1 AS SELECT b AS bb, c AS cc, a AS aa FROM base_tbl;
 INSERT INTO rw_view1 VALUES ('Row 2', 2.0, 2);
@@ -411,9 +425,9 @@ RESET SESSION AUTHORIZATION;
 
 SET SESSION AUTHORIZATION regress_view_user2;
 CREATE VIEW rw_view2 AS SELECT b AS bb, c AS cc, a AS aa FROM base_tbl;
-SELECT * FROM base_tbl order by 1; -- ok
-SELECT * FROM rw_view1 order by 1; -- ok
-SELECT * FROM rw_view2 order by 1; -- ok
+SELECT * FROM base_tbl; -- ok
+SELECT * FROM rw_view1; -- ok
+SELECT * FROM rw_view2; -- ok
 
 INSERT INTO base_tbl VALUES (3, 'Row 3', 3.0); -- not allowed
 INSERT INTO rw_view1 VALUES ('Row 3', 3.0, 3); -- not allowed
@@ -442,7 +456,7 @@ INSERT INTO rw_view2 VALUES ('Row 4', 4.0, 4); -- ok
 DELETE FROM base_tbl WHERE a=1; -- ok
 DELETE FROM rw_view1 WHERE aa=2; -- not allowed
 DELETE FROM rw_view2 WHERE aa=2; -- ok
-SELECT * FROM base_tbl order by 1;
+SELECT * FROM base_tbl;
 RESET SESSION AUTHORIZATION;
 
 SET SESSION AUTHORIZATION regress_view_user1;
@@ -457,7 +471,7 @@ INSERT INTO rw_view2 VALUES ('Row 6', 6.0, 6); -- not allowed
 DELETE FROM base_tbl WHERE a=3; -- not allowed
 DELETE FROM rw_view1 WHERE aa=3; -- ok
 DELETE FROM rw_view2 WHERE aa=4; -- not allowed
-SELECT * FROM base_tbl order by 1 ,2;
+SELECT * FROM base_tbl;
 RESET SESSION AUTHORIZATION;
 
 DROP TABLE base_tbl CASCADE;
@@ -554,7 +568,7 @@ ALTER VIEW rw_view1 ALTER COLUMN bb SET DEFAULT 'View default';
 INSERT INTO rw_view1 VALUES (4, 'Row 4');
 INSERT INTO rw_view1 (aa) VALUES (5);
 
-SELECT * FROM base_tbl order by 1;
+SELECT * FROM base_tbl;
 
 DROP TABLE base_tbl CASCADE;
 
@@ -583,7 +597,7 @@ CREATE TRIGGER rw_view1_ins_trig AFTER INSERT ON base_tbl
 CREATE VIEW rw_view1 AS SELECT a AS aa, b AS bb FROM base_tbl;
 
 INSERT INTO rw_view1 VALUES (3, 'Row 3');
-select * from base_tbl order by 1;
+select * from base_tbl;
 
 DROP VIEW rw_view1;
 DROP TRIGGER rw_view1_ins_trig on base_tbl;
@@ -603,10 +617,7 @@ INSERT INTO rw_view1 VALUES (7,-8);
 SELECT * FROM rw_view1;
 
 EXPLAIN (verbose, costs off) UPDATE rw_view1 SET b = b + 1 RETURNING *;
-WITH t AS
-(
-UPDATE rw_view1 SET b = b + 1 RETURNING *
-) SELECT * FROM t ORDER BY 1,2;
+UPDATE rw_view1 SET b = b + 1 RETURNING *;
 SELECT * FROM rw_view1;
 
 DROP TABLE base_tbl CASCADE;
@@ -620,7 +631,7 @@ CREATE VIEW rw_view1 AS SELECT * FROM base_tbl;
 
 UPDATE rw_view1 SET arr[1] = 42, arr[2] = 77 WHERE a = 3;
 
-SELECT * FROM rw_view1 ORDER BY 1;
+SELECT * FROM rw_view1;
 
 DROP TABLE base_tbl CASCADE;
 
@@ -688,8 +699,8 @@ DROP TABLE base_tbl CASCADE;
 
 -- inheritance tests
 
-CREATE TABLE base_tbl_parent (a int) distribute by replication;
-CREATE TABLE base_tbl_child (CHECK (a > 0)) INHERITS (base_tbl_parent) distribute by replication;
+CREATE TABLE base_tbl_parent (a int);
+CREATE TABLE base_tbl_child (CHECK (a > 0)) INHERITS (base_tbl_parent);
 INSERT INTO base_tbl_parent SELECT * FROM generate_series(-8, -1);
 INSERT INTO base_tbl_child SELECT * FROM generate_series(1, 8);
 
@@ -748,7 +759,7 @@ UPDATE rw_view1 SET b = 5 WHERE a = 3; -- ok
 UPDATE rw_view1 SET b = -5 WHERE a = 3; -- should fail
 INSERT INTO rw_view1(a) VALUES (9); -- ok
 INSERT INTO rw_view1(a) VALUES (10); -- should fail
-SELECT * FROM base_tbl order by 1, 2;
+SELECT * FROM base_tbl;
 
 DROP TABLE base_tbl CASCADE;
 
@@ -913,14 +924,14 @@ INSERT INTO rw_view2 VALUES (-5); -- should fail
 INSERT INTO rw_view2 VALUES (5); -- ok
 INSERT INTO rw_view2 VALUES (50); -- ok, but not in view
 UPDATE rw_view2 SET a = a - 10; -- should fail
-SELECT * FROM base_tbl order by 1, 2;
+SELECT * FROM base_tbl;
 
 -- Check option won't cascade down to base view with INSTEAD OF triggers
 
 ALTER VIEW rw_view2 SET (check_option=cascaded);
 INSERT INTO rw_view2 VALUES (100); -- ok, but not in view (doesn't fail rw_view1's check)
 UPDATE rw_view2 SET a = 200 WHERE a = 5; -- ok, but not in view (doesn't fail rw_view1's check)
-SELECT * FROM base_tbl order by 1, 2;
+SELECT * FROM base_tbl;
 
 -- Neither local nor cascaded check options work with INSTEAD rules
 
@@ -935,7 +946,7 @@ INSERT INTO rw_view2 VALUES (20); -- ok, but not in view (doesn't fail rw_view1'
 UPDATE rw_view2 SET a = 30 WHERE a = 5; -- ok, but not in view (doesn't fail rw_view1's check)
 INSERT INTO rw_view2 VALUES (5); -- ok
 UPDATE rw_view2 SET a = -5 WHERE a = 5; -- ok, but not in view (doesn't fail rw_view2's check)
-SELECT * FROM base_tbl order by 1, 2;
+SELECT * FROM base_tbl;
 
 DROP TABLE base_tbl CASCADE;
 DROP FUNCTION rw_view1_trig_fn();
@@ -1058,7 +1069,7 @@ DELETE FROM rw_view1 WHERE id = 1 AND snoop(data);
 EXPLAIN (costs off) INSERT INTO rw_view1 VALUES (2, 'New row 2');
 INSERT INTO rw_view1 VALUES (2, 'New row 2');
 
-SELECT * FROM base_tbl order by 1, 2;
+SELECT * FROM base_tbl;
 
 DROP TABLE base_tbl CASCADE;
 

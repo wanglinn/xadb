@@ -312,30 +312,21 @@ static const internalPQconninfoOption PQconninfoOptions[] = {
 	offsetof(struct pg_conn, requirepeer)},
 
 	/*
-	 * Expose gssencmode similarly to sslmode - we can still handle "disable"
-	 * and "prefer".
+	 * As with SSL, all GSS options are exposed even in builds that don't have
+	 * support.
 	 */
 	{"gssencmode", "PGGSSENCMODE", DefaultGSSMode, NULL,
-		"GSSENC-Mode", "", 7,	/* sizeof("disable") == 7 */
+		"GSSENC-Mode", "", 8,	/* sizeof("disable") == 8 */
 	offsetof(struct pg_conn, gssencmode)},
 
-#if defined(ENABLE_GSS) || defined(ENABLE_SSPI)
 	/* Kerberos and GSSAPI authentication support specifying the service name */
 	{"krbsrvname", "PGKRBSRVNAME", PG_KRB_SRVNAM, NULL,
 		"Kerberos-service-name", "", 20,
 	offsetof(struct pg_conn, krbsrvname)},
-#endif
 
-#if defined(ENABLE_GSS) && defined(ENABLE_SSPI)
-
-	/*
-	 * GSSAPI and SSPI both enabled, give a way to override which is used by
-	 * default
-	 */
 	{"gsslib", "PGGSSLIB", NULL, NULL,
-		"GSS-library", "", 7,	/* sizeof("gssapi") = 7 */
+		"GSS-library", "", 7,	/* sizeof("gssapi") == 7 */
 	offsetof(struct pg_conn, gsslib)},
-#endif
 
 	{"replication", NULL, NULL, NULL,
 		"Replication", "D", 5,
@@ -487,7 +478,7 @@ pqDropConnection(PGconn *conn, bool flushInput)
 	/* Always discard any unsent data */
 	conn->outCount = 0;
 
-	/* Free authentication state */
+	/* Free authentication/encryption state */
 #ifdef ENABLE_GSS
 	{
 		OM_uint32	min_s;
@@ -496,6 +487,21 @@ pqDropConnection(PGconn *conn, bool flushInput)
 			gss_delete_sec_context(&min_s, &conn->gctx, GSS_C_NO_BUFFER);
 		if (conn->gtarg_nam)
 			gss_release_name(&min_s, &conn->gtarg_nam);
+		if (conn->gss_SendBuffer)
+		{
+			free(conn->gss_SendBuffer);
+			conn->gss_SendBuffer = NULL;
+		}
+		if (conn->gss_RecvBuffer)
+		{
+			free(conn->gss_RecvBuffer);
+			conn->gss_RecvBuffer = NULL;
+		}
+		if (conn->gss_ResultBuffer)
+		{
+			free(conn->gss_ResultBuffer);
+			conn->gss_ResultBuffer = NULL;
+		}
 	}
 #endif
 #ifdef ENABLE_SSPI
@@ -1311,9 +1317,9 @@ connectOptions2(PGconn *conn)
 		if (strcmp(conn->gssencmode, "require") == 0)
 		{
 			conn->status = CONNECTION_BAD;
-			printfPQExpBuffer(
-							  &conn->errorMessage,
-							  libpq_gettext("no GSSAPI support; cannot require GSSAPI\n"));
+			printfPQExpBuffer(&conn->errorMessage,
+							  libpq_gettext("gssencmode value \"%s\" invalid when GSSAPI support is not compiled in\n"),
+							  conn->gssencmode);
 			return false;
 		}
 #endif
@@ -1708,7 +1714,7 @@ useKeepalives(PGconn *conn)
 /*
  * Parse and try to interpret "value" as an integer value, and if successful,
  * store it in *result, complaining if there is any trailing garbage or an
- * overflow.
+ * overflow.  This allows any number of leading and trailing whitespaces.
  */
 static bool
 parse_int_param(const char *value, int *result, PGconn *conn,
@@ -1717,18 +1723,37 @@ parse_int_param(const char *value, int *result, PGconn *conn,
 	char	   *end;
 	long		numval;
 
+	Assert(value != NULL);
+
 	*result = 0;
 
+	/* strtol(3) skips leading whitespaces */
 	errno = 0;
 	numval = strtol(value, &end, 10);
-	if (errno == 0 && *end == '\0' && numval == (int) numval)
-	{
-		*result = numval;
-		return true;
-	}
 
+	/*
+	 * If no progress was done during the parsing or an error happened, fail.
+	 * This tests properly for overflows of the result.
+	 */
+	if (value == end || errno != 0 || numval != (int) numval)
+		goto error;
+
+	/*
+	 * Skip any trailing whitespace; if anything but whitespace remains before
+	 * the terminating character, fail
+	 */
+	while (*end != '\0' && isspace((unsigned char) *end))
+		end++;
+
+	if (*end != '\0')
+		goto error;
+
+	*result = numval;
+	return true;
+
+error:
 	appendPQExpBuffer(&conn->errorMessage,
-					  libpq_gettext("invalid integer value \"%s\" for keyword \"%s\"\n"),
+					  libpq_gettext("invalid integer value \"%s\" for connection option \"%s\"\n"),
 					  value, context);
 	return false;
 }
@@ -2050,7 +2075,11 @@ static int	connectDBCompleteFlag(PGconn *conn, PostgresPollingStatusType flag)
 	{
 		if (!parse_int_param(conn->connect_timeout, &timeout, conn,
 							 "connect_timeout"))
+		{
+			/* mark the connection as bad to report the parsing failure */
+			conn->status = CONNECTION_BAD;
 			return 0;
+		}
 
 		if (timeout > 0)
 		{
@@ -2951,13 +2980,13 @@ keep_going:						/* We will come back to here until there is
 #ifdef ENABLE_GSS
 
 				/*
-				 * If GSSAPI is enabled and we have a ccache, try to set it up
-				 * before sending startup messages.  If it's already
+				 * If GSSAPI is enabled and we have a credential cache, try to
+				 * set it up before sending startup messages.  If it's already
 				 * operating, don't try SSL and instead just build the startup
 				 * packet.
 				 */
 				if (conn->try_gss && !conn->gctx)
-					conn->try_gss = pg_GSS_have_ccache(&conn->gcred);
+					conn->try_gss = pg_GSS_have_cred_cache(&conn->gcred);
 				if (conn->try_gss && !conn->gctx)
 				{
 					ProtocolVersion pv = pg_hton32(NEGOTIATE_GSS_CODE);
@@ -2977,7 +3006,7 @@ keep_going:						/* We will come back to here until there is
 				else if (!conn->gctx && conn->gssencmode[0] == 'r')
 				{
 					appendPQExpBuffer(&conn->errorMessage,
-									  libpq_gettext("GSSAPI encryption required, but was impossible (possibly no ccache, no server support, or using a local socket)\n"));
+									  libpq_gettext("GSSAPI encryption required but was impossible (possibly no credential cache, no server support, or using a local socket)\n"));
 					goto error_return;
 				}
 #endif
@@ -4170,14 +4199,14 @@ freePGconn(PGconn *conn)
 		free(conn->sslcompression);
 	if (conn->requirepeer)
 		free(conn->requirepeer);
-	if (conn->connip)
-		free(conn->connip);
 	if (conn->gssencmode)
 		free(conn->gssencmode);
-#if defined(ENABLE_GSS) || defined(ENABLE_SSPI)
 	if (conn->krbsrvname)
 		free(conn->krbsrvname);
-#endif
+	if (conn->gsslib)
+		free(conn->gsslib);
+	if (conn->connip)
+		free(conn->connip);
 #ifdef ENABLE_GSS
 	if (conn->gcred != GSS_C_NO_CREDENTIAL)
 	{
@@ -4193,10 +4222,6 @@ freePGconn(PGconn *conn)
 		gss_delete_sec_context(&minor, &conn->gctx, GSS_C_NO_BUFFER);
 		conn->gctx = NULL;
 	}
-#endif
-#if defined(ENABLE_GSS) && defined(ENABLE_SSPI)
-	if (conn->gsslib)
-		free(conn->gsslib);
 #endif
 	/* Note that conn->Pfdebug is not ours to close or free */
 	if (conn->last_query)
@@ -5259,6 +5284,8 @@ parseServiceFile(const char *serviceFile,
 
 	while ((line = fgets(buf, sizeof(buf), f)) != NULL)
 	{
+		int			len;
+
 		linenr++;
 
 		if (strlen(line) >= sizeof(buf) - 1)
@@ -5271,16 +5298,18 @@ parseServiceFile(const char *serviceFile,
 			return 2;
 		}
 
-		/* ignore EOL at end of line */
-		if (strlen(line) && line[strlen(line) - 1] == '\n')
-			line[strlen(line) - 1] = 0;
+		/* ignore EOL at end of line, including \r in case it's a DOS file */
+		len = strlen(line);
+		while (len > 0 && (line[len - 1] == '\n' ||
+						   line[len - 1] == '\r'))
+			line[--len] = '\0';
 
 		/* ignore leading blanks */
 		while (*line && isspace((unsigned char) line[0]))
 			line++;
 
 		/* ignore comments and empty lines */
-		if (strlen(line) == 0 || line[0] == '#')
+		if (line[0] == '\0' || line[0] == '#')
 			continue;
 
 		/* Check for right groupname */

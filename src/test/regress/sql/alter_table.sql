@@ -238,8 +238,8 @@ RESET ROLE;
 -- hack to ensure we get an indexscan here
 set enable_seqscan to off;
 set enable_bitmapscan to off;
--- 5 values, sorted 
-SELECT unique1 FROM tenk1 WHERE unique1 < 5 ORDER BY unique1;
+-- 5 values, sorted
+SELECT unique1 FROM tenk1 WHERE unique1 < 5;
 reset enable_seqscan;
 reset enable_bitmapscan;
 
@@ -305,9 +305,9 @@ DROP TABLE like_constraint_rename_cache;
 
 -- FOREIGN KEY CONSTRAINT adding TEST
 
-CREATE TABLE attmp2 (a int primary key) DISTRIBUTE BY REPLICATION;
+CREATE TABLE attmp2 (a int primary key);
 
-CREATE TABLE attmp3 (a int, b int) DISTRIBUTE BY REPLICATION;
+CREATE TABLE attmp3 (a int, b int);
 
 CREATE TABLE attmp4 (a int, b int, unique(a,b));
 
@@ -440,9 +440,9 @@ alter table nv_parent add check (d between '2001-01-01'::date and '2099-12-31'::
 -- Note: these tables are TEMP to avoid name conflicts when this test
 -- is run in parallel with foreign_key.sql.
 
-CREATE TEMP TABLE PKTABLE (ptest1 int PRIMARY KEY) DISTRIBUTE BY REPLICATION;
+CREATE TEMP TABLE PKTABLE (ptest1 int PRIMARY KEY);
 INSERT INTO PKTABLE VALUES(42);
-CREATE TEMP TABLE FKTABLE (ftest1 inet) DISTRIBUTE BY REPLICATION;
+CREATE TEMP TABLE FKTABLE (ftest1 inet);
 -- This next should fail, because int=inet does not exist
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1) references pktable;
 -- This should also fail for the same reason, but here we
@@ -451,7 +451,7 @@ ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1) references pktable(ptest1);
 DROP TABLE FKTABLE;
 -- This should succeed, even though they are different types,
 -- because int=int8 exists and is a member of the integer opfamily
-CREATE TEMP TABLE FKTABLE (ftest1 int8) DISTRIBUTE BY REPLICATION;
+CREATE TEMP TABLE FKTABLE (ftest1 int8);
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1) references pktable;
 -- Check it actually works
 INSERT INTO FKTABLE VALUES(42);		-- should succeed
@@ -460,13 +460,13 @@ DROP TABLE FKTABLE;
 -- This should fail, because we'd have to cast numeric to int which is
 -- not an implicit coercion (or use numeric=numeric, but that's not part
 -- of the integer opfamily)
-CREATE TEMP TABLE FKTABLE (ftest1 numeric) DISTRIBUTE BY REPLICATION;
+CREATE TEMP TABLE FKTABLE (ftest1 numeric);
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1) references pktable;
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 -- On the other hand, this should work because int implicitly promotes to
 -- numeric, and we allow promotion on the FK side
-CREATE TEMP TABLE PKTABLE (ptest1 numeric PRIMARY KEY) DISTRIBUTE BY REPLICATION;
+CREATE TEMP TABLE PKTABLE (ptest1 numeric PRIMARY KEY);
 INSERT INTO PKTABLE VALUES(42);
 CREATE TEMP TABLE FKTABLE (ftest1 int);
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1) references pktable;
@@ -479,16 +479,16 @@ DROP TABLE PKTABLE;
 CREATE TEMP TABLE PKTABLE (ptest1 int, ptest2 inet,
                            PRIMARY KEY(ptest1, ptest2));
 -- This should fail, because we just chose really odd types
-CREATE TEMP TABLE FKTABLE (ftest1 cidr, ftest2 timestamp) DISTRIBUTE BY REPLICATION;
+CREATE TEMP TABLE FKTABLE (ftest1 cidr, ftest2 timestamp);
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1, ftest2) references pktable;
 DROP TABLE FKTABLE;
 -- Again, so should this...
-CREATE TEMP TABLE FKTABLE (ftest1 cidr, ftest2 timestamp) DISTRIBUTE BY REPLICATION;
+CREATE TEMP TABLE FKTABLE (ftest1 cidr, ftest2 timestamp);
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1, ftest2)
      references pktable(ptest1, ptest2);
 DROP TABLE FKTABLE;
 -- This fails because we mixed up the column ordering
-CREATE TEMP TABLE FKTABLE (ftest1 int, ftest2 inet) DISTRIBUTE BY REPLICATION;
+CREATE TEMP TABLE FKTABLE (ftest1 int, ftest2 inet);
 ALTER TABLE FKTABLE ADD FOREIGN KEY(ftest1, ftest2)
      references pktable(ptest2, ptest1);
 -- As does this...
@@ -640,7 +640,7 @@ drop table atacc1;
 
 -- test unique constraint adding
 
-create table atacc1 ( test int ) distribute by replication;
+create table atacc1 ( test int ) ;
 -- add a unique constraint
 alter table atacc1 add constraint atacc_test1 unique (test);
 -- insert first value
@@ -654,7 +654,7 @@ alter table atacc1 alter column test type integer using 0;
 drop table atacc1;
 
 -- let's do one where the unique constraint fails when added
-create table atacc1 ( test int ) distribute by replication;
+create table atacc1 ( test int );
 -- insert soon to be failing rows
 insert into atacc1 (test) values (2);
 insert into atacc1 (test) values (2);
@@ -665,7 +665,7 @@ drop table atacc1;
 
 -- let's do one where the unique constraint fails
 -- because the column doesn't exist
-create table atacc1 ( test int ) distribute by roundrobin;
+create table atacc1 ( test int );
 -- add a unique constraint (fails)
 alter table atacc1 add constraint atacc_test1 unique (test1);
 drop table atacc1;
@@ -685,7 +685,7 @@ insert into atacc1 (test,test2) values (5,5);
 drop table atacc1;
 
 -- lets do some naming tests
-create table atacc1 (test int, test2 int, unique(test)) distribute by replication;
+create table atacc1 (test int, test2 int, unique(test));
 alter table atacc1 add unique (test2);
 -- should fail for @@ second one @@
 insert into atacc1 (test2, test) values (3, 3);
@@ -694,7 +694,7 @@ drop table atacc1;
 
 -- test primary key constraint adding
 
-create table atacc1 ( id serial, test int) distribute by replication;
+create table atacc1 ( id serial, test int) ;
 -- add a primary key constraint
 alter table atacc1 add constraint atacc_test1 primary key (test);
 -- insert first value
@@ -734,14 +734,14 @@ drop table atacc1;
 
 -- let's do one where the primary key constraint fails
 -- because the column doesn't exist
-create table atacc1 ( test int ) distribute by replication;
+create table atacc1 ( test int );
 -- add a primary key constraint (fails)
 alter table atacc1 add constraint atacc_test1 primary key (test1);
 drop table atacc1;
 
 -- adding a new column as primary key to a non-empty table.
 -- should fail unless the column has a non-null default value.
-create table atacc1 ( test int ) distribute by replication;
+create table atacc1 ( test int );
 insert into atacc1 (test) values (0);
 -- add a primary key column without a default (fails).
 alter table atacc1 add column test2 int primary key;
@@ -888,7 +888,7 @@ insert into def_test default values;
 alter table def_test alter column c1 set default 10;
 alter table def_test alter column c2 set default 'new_default';
 insert into def_test default values;
-select * from def_test order by 1, 2;
+select * from def_test;
 
 -- set defaults to an incorrect type: this should fail
 alter table def_test alter column c1 set default 'wrong_datatype';
@@ -909,7 +909,7 @@ alter table def_view_test alter column c1 set default 45;
 insert into def_view_test default values;
 alter table def_view_test alter column c2 set default 'view_default';
 insert into def_view_test default values;
-select * from def_view_test order by 1, 2;
+select * from def_view_test;
 
 drop rule def_view_test_ins on def_view_test;
 drop view def_view_test;
@@ -923,7 +923,7 @@ alter table pg_class drop column relname;
 alter table nosuchtable drop column bar;
 
 -- test dropping columns
-create table atacc1 (a int4 not null, b int4, c int4 not null, d int4) distribute by replication;
+create table atacc1 (a int4 not null, b int4, c int4 not null, d int4);
 insert into atacc1 values (1, 2, 3, 4);
 alter table atacc1 drop a;
 alter table atacc1 drop a;
@@ -1015,7 +1015,7 @@ alter table atacc1 add unique(a);
 alter table atacc1 add unique("........pg.dropped.1........");
 alter table atacc1 add check (a > 3);
 alter table atacc1 add check ("........pg.dropped.1........" > 3);
-create table atacc2 (id int4 unique) distribute by replication;
+create table atacc2 (id int4 unique);
 alter table atacc1 add foreign key (a) references atacc2(id);
 alter table atacc1 add foreign key ("........pg.dropped.1........") references atacc2(id);
 alter table atacc2 add foreign key (id) references atacc1(a);
@@ -1051,16 +1051,16 @@ insert into atacc1(id, value) values (null, 0);
 drop table atacc1;
 
 -- test inheritance
-create table parent (a int, b int, c int) distribute by replication;
+create table parent (a int, b int, c int);
 insert into parent values (1, 2, 3);
 alter table parent drop a;
 create table child (d varchar(255)) inherits (parent);
 insert into child values (12, 13, 'testing');
 
-select * from parent order by b;
+select * from parent;
 select * from child;
 alter table parent drop c;
-select * from parent order by b;
+select * from parent;
 select * from child;
 
 drop table child;
@@ -1078,7 +1078,7 @@ drop table child;
 drop table parent;
 
 -- test copy in/out
-create table attest (a int4, b int4, c int4) distribute by replication;
+create table attest (a int4, b int4, c int4);
 insert into attest values (1,2,3);
 alter table attest drop a;
 copy attest to stdout;
@@ -1087,23 +1087,23 @@ copy attest("........pg.dropped.1........") to stdout;
 copy attest from stdin;
 10	11	12
 \.
-select * from attest order by b;
+select * from attest;
 copy attest from stdin;
 21	22
 \.
 select * from attest;
-copy attest(a) from stdin order by b;
+copy attest(a) from stdin;
 copy attest("........pg.dropped.1........") from stdin;
 copy attest(b,c) from stdin;
 31	32
 \.
-select * from attest order by b;
+select * from attest;
 drop table attest;
 
 -- test inheritance
 
-create table dropColumn (a int, b int, e int) distribute by replication;
-create table dropColumnChild (c int) inherits (dropColumn) distribute by replication;
+create table dropColumn (a int, b int, e int);
+create table dropColumnChild (c int) inherits (dropColumn);
 create table dropColumnAnother (d int) inherits (dropColumnChild);
 
 -- these two should fail
@@ -1143,8 +1143,8 @@ alter table only renameColumn add column x int;
 
 -- Test corner cases in dropping of inherited columns
 
-create table p1 (f1 int, f2 int) distribute by replication;
-create table c1 (f1 int not null) inherits(p1) distribute by replication;
+create table p1 (f1 int, f2 int);
+create table c1 (f1 int not null) inherits(p1);
 
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;
@@ -1157,8 +1157,8 @@ select f1 from c1;
 
 drop table p1 cascade;
 
-create table p1 (f1 int, f2 int) distribute by replication;
-create table c1 () inherits(p1) distribute by replication;
+create table p1 (f1 int, f2 int);
+create table c1 () inherits(p1);
 
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;
@@ -1168,8 +1168,8 @@ select f1 from c1;
 
 drop table p1 cascade;
 
-create table p1 (f1 int, f2 int) distribute by replication;
-create table c1 () inherits(p1) distribute by replication;
+create table p1 (f1 int, f2 int);
+create table c1 () inherits(p1);
 
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;
@@ -1179,8 +1179,8 @@ alter table c1 drop column f1;
 
 drop table p1 cascade;
 
-create table p1 (f1 int, f2 int) distribute by replication;
-create table c1 (f1 int not null) inherits(p1) distribute by replication;
+create table p1 (f1 int, f2 int);
+create table c1 (f1 int not null) inherits(p1);
 
 -- should be rejected since c1.f1 is inherited
 alter table c1 drop column f1;
@@ -1190,10 +1190,10 @@ alter table c1 drop column f1;
 
 drop table p1 cascade;
 
-create table p1(id int, name text) distribute by replication;
-create table p2(id2 int, name text, height int) distribute by replication;
-create table c1(age int) inherits(p1,p2) distribute by replication;
-create table gc1() inherits (c1) distribute by replication;
+create table p1(id int, name text);
+create table p2(id2 int, name text, height int);
+create table c1(age int) inherits(p1,p2);
+create table gc1() inherits (c1);
 
 select relname, attname, attinhcount, attislocal
 from pg_class join pg_attribute on (pg_class.oid = pg_attribute.attrelid)
@@ -1249,9 +1249,9 @@ insert into p1 values (1,2,'abc');
 insert into c1 values(11,'xyz',33,0); -- should fail
 insert into c1 values(11,'xyz',33,22);
 
-select * from p1 order by f1;
+select * from p1;
 update p1 set a1 = a1 + 1, f2 = upper(f2);
-select * from p1 order by f1;
+select * from p1;
 
 drop table p1 cascade;
 
@@ -1262,15 +1262,15 @@ create domain mytype as text;
 create temp table foo (f1 text, f2 mytype, f3 text);
 
 insert into foo values('bb','cc','dd');
-select * from foo order by f1;
+select * from foo;
 
 drop domain mytype cascade;
 
-select * from foo order by f1;
+select * from foo;
 insert into foo values('qq','rr');
-select * from foo order by f1;
+select * from foo;
 update foo set f3 = 'zz';
-select * from foo order by f1;
+select * from foo;
 select f3,max(f1) from foo group by f3;
 
 -- Simple tests for alter table column type
@@ -1282,25 +1282,25 @@ create table anothertab (atcol1 serial8, atcol2 boolean,
 
 insert into anothertab (atcol1, atcol2) values (default, true);
 insert into anothertab (atcol1, atcol2) values (default, false);
-select * from anothertab order by atcol1, atcol2;
+select * from anothertab;
 
 alter table anothertab alter column atcol1 type boolean; -- fails
 alter table anothertab alter column atcol1 type boolean using atcol1::int; -- fails
 alter table anothertab alter column atcol1 type integer;
 
-select * from anothertab order by atcol1, atcol2;
+select * from anothertab;
 
 insert into anothertab (atcol1, atcol2) values (45, null); -- fails
 insert into anothertab (atcol1, atcol2) values (default, null);
 
-select * from anothertab order by atcol1, atcol2;
+select * from anothertab;
 
 alter table anothertab alter column atcol2 type text
       using case when atcol2 is true then 'IT WAS TRUE'
                  when atcol2 is false then 'IT WAS FALSE'
                  else 'IT WAS NULL!' end;
 
-select * from anothertab order by atcol1, atcol2;
+select * from anothertab;
 alter table anothertab alter column atcol1 type boolean
         using case when atcol1 % 2 = 0 then true else false end; -- fails
 alter table anothertab alter column atcol1 drop default;
@@ -1313,7 +1313,7 @@ alter table anothertab drop constraint IF EXISTS anothertab_chk; -- succeeds
 alter table anothertab alter column atcol1 type boolean
         using case when atcol1 % 2 = 0 then true else false end;
 
-select * from anothertab order by atcol1, atcol2;
+select * from anothertab;
 
 drop table anothertab;
 
@@ -1348,13 +1348,13 @@ insert into another values(1, 'one');
 insert into another values(2, 'two');
 insert into another values(3, 'three');
 
-select * from another order by f1, f2;
+select * from another;
 
 alter table another
   alter f1 type text using f2 || ' more',
   alter f2 type bigint using f1 * 10;
 
-select * from another order by f1, f2;
+select * from another;
 
 drop table another;
 
@@ -1463,6 +1463,12 @@ select reltoastrelid <> 0 as has_toast_table
 from pg_class
 where oid = 'test_storage'::regclass;
 
+-- test that SET STORAGE propagates to index correctly
+create index test_storage_idx on test_storage (b, a);
+alter table test_storage alter column a set storage external;
+\d+ test_storage
+\d+ test_storage_idx
+
 -- ALTER COLUMN TYPE with a check constraint and a child table (bug #13779)
 CREATE TABLE test_inh_check (a float check (a > 10.2), b float);
 CREATE TABLE test_inh_check_child() INHERITS(test_inh_check);
@@ -1550,6 +1556,69 @@ drop view at_view_2;
 drop view at_view_1;
 drop table at_base_table;
 
+-- check adding a column not iself requiring a rewrite, together with
+-- a column requiring a default (bug #16038)
+
+-- ensure that rewrites aren't silently optimized away, removing the
+-- value of the test
+CREATE FUNCTION check_ddl_rewrite(p_tablename regclass, p_ddl text)
+RETURNS boolean
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_relfilenode oid;
+BEGIN
+    v_relfilenode := relfilenode FROM pg_class WHERE oid = p_tablename;
+
+    EXECUTE p_ddl;
+
+    RETURN v_relfilenode <> (SELECT relfilenode FROM pg_class WHERE oid = p_tablename);
+END;
+$$;
+
+CREATE TABLE rewrite_test(col text);
+INSERT INTO rewrite_test VALUES ('something');
+INSERT INTO rewrite_test VALUES (NULL);
+
+-- empty[12] don't need rewrite, but notempty[12]_rewrite will force one
+SELECT check_ddl_rewrite('rewrite_test', $$
+  ALTER TABLE rewrite_test
+      ADD COLUMN empty1 text,
+      ADD COLUMN notempty1_rewrite serial;
+$$);
+SELECT check_ddl_rewrite('rewrite_test', $$
+    ALTER TABLE rewrite_test
+        ADD COLUMN notempty2_rewrite serial,
+        ADD COLUMN empty2 text;
+$$);
+-- also check that fast defaults cause no problem, first without rewrite
+SELECT check_ddl_rewrite('rewrite_test', $$
+    ALTER TABLE rewrite_test
+        ADD COLUMN empty3 text,
+        ADD COLUMN notempty3_norewrite int default 42;
+$$);
+SELECT check_ddl_rewrite('rewrite_test', $$
+    ALTER TABLE rewrite_test
+        ADD COLUMN notempty4_norewrite int default 42,
+        ADD COLUMN empty4 text;
+$$);
+-- then with rewrite
+SELECT check_ddl_rewrite('rewrite_test', $$
+    ALTER TABLE rewrite_test
+        ADD COLUMN empty5 text,
+        ADD COLUMN notempty5_norewrite int default 42,
+        ADD COLUMN notempty5_rewrite serial;
+$$);
+SELECT check_ddl_rewrite('rewrite_test', $$
+    ALTER TABLE rewrite_test
+        ADD COLUMN notempty6_rewrite serial,
+        ADD COLUMN empty6 text,
+        ADD COLUMN notempty6_norewrite int default 42;
+$$);
+
+-- cleanup
+DROP FUNCTION check_ddl_rewrite(regclass, text);
+DROP TABLE rewrite_test;
+
 --
 -- lock levels
 --
@@ -1579,9 +1648,9 @@ and relnamespace != (select oid from pg_namespace where nspname = 'pg_catalog')
 and c.relname != 'my_locks'
 group by c.relname;
 
-create table alterlock (f1 int primary key, f2 text) distribute by replication;
+create table alterlock (f1 int primary key, f2 text);
 insert into alterlock values (1, 'foo');
-create table alterlock2 (f3 int primary key, f1 int) distribute by replication;
+create table alterlock2 (f3 int primary key, f1 int);
 insert into alterlock2 values (1, 1);
 
 begin; alter table alterlock alter column f2 set statistics 150;
@@ -1768,9 +1837,9 @@ drop schema alter1;
 insert into alter2.t1(f2) values(13);
 insert into alter2.t1(f2) values(14);
 
-select * from alter2.t1 order by f1, f2;
+select * from alter2.t1;
 
-select * from alter2.v1 order by f1, f2;
+select * from alter2.v1;
 
 select alter2.plus1(41);
 
@@ -1912,7 +1981,7 @@ ALTER TABLE IF EXISTS tt8 ALTER COLUMN f SET DEFAULT 0;
 ALTER TABLE IF EXISTS tt8 RENAME COLUMN f TO f1;
 ALTER TABLE IF EXISTS tt8 SET SCHEMA alter2;
 
-CREATE TABLE tt8(a int) distribute by replication;
+CREATE TABLE tt8(a int);
 CREATE SCHEMA alter2;
 
 ALTER TABLE IF EXISTS tt8 ADD COLUMN f int;
@@ -2025,7 +2094,7 @@ SHOW allow_system_table_mods;
 -- disallowed because of search_path issues with pg_dump
 CREATE TABLE pg_catalog.new_system_table();
 -- instead create in public first, move to catalog
-CREATE TABLE new_system_table(id serial primary key, othercol text) distribute by replication;
+CREATE TABLE new_system_table(id serial primary key, othercol text);
 ALTER TABLE new_system_table SET SCHEMA pg_catalog;
 ALTER TABLE new_system_table SET SCHEMA public;
 ALTER TABLE new_system_table SET SCHEMA pg_catalog;
@@ -2042,7 +2111,7 @@ ALTER TABLE old_system_table DROP COLUMN othercol;
 DROP TABLE old_system_table;
 
 -- set logged
-CREATE UNLOGGED TABLE unlogged1(f1 SERIAL PRIMARY KEY, f2 TEXT) distribute by replication;
+CREATE UNLOGGED TABLE unlogged1(f1 SERIAL PRIMARY KEY, f2 TEXT);
 -- check relpersistence of an unlogged table
 SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^unlogged1'
 UNION ALL
@@ -2050,8 +2119,8 @@ SELECT 'toast table', t.relkind, t.relpersistence FROM pg_class r JOIN pg_class 
 UNION ALL
 SELECT 'toast index', ri.relkind, ri.relpersistence FROM pg_class r join pg_class t ON t.oid = r.reltoastrelid JOIN pg_index i ON i.indrelid = t.oid JOIN pg_class ri ON ri.oid = i.indexrelid WHERE r.relname ~ '^unlogged1'
 ORDER BY relname;
-CREATE UNLOGGED TABLE unlogged2(f1 SERIAL PRIMARY KEY, f2 INTEGER REFERENCES unlogged1) distribute by replication; -- foreign key
-CREATE UNLOGGED TABLE unlogged3(f1 SERIAL PRIMARY KEY, f2 INTEGER REFERENCES unlogged3) distribute by replication; -- self-referencing foreign key
+CREATE UNLOGGED TABLE unlogged2(f1 SERIAL PRIMARY KEY, f2 INTEGER REFERENCES unlogged1); -- foreign key
+CREATE UNLOGGED TABLE unlogged3(f1 SERIAL PRIMARY KEY, f2 INTEGER REFERENCES unlogged3); -- self-referencing foreign key
 ALTER TABLE unlogged3 SET LOGGED; -- skip self-referencing foreign key
 ALTER TABLE unlogged2 SET LOGGED; -- fails because a foreign key to an unlogged table exists
 ALTER TABLE unlogged1 SET LOGGED;
@@ -2067,7 +2136,7 @@ DROP TABLE unlogged3;
 DROP TABLE unlogged2;
 DROP TABLE unlogged1;
 -- set unlogged
-CREATE TABLE logged1(f1 SERIAL PRIMARY KEY, f2 TEXT) distribute by replication;
+CREATE TABLE logged1(f1 SERIAL PRIMARY KEY, f2 TEXT);
 -- check relpersistence of a permanent table
 SELECT relname, relkind, relpersistence FROM pg_class WHERE relname ~ '^logged1'
 UNION ALL
@@ -2075,8 +2144,8 @@ SELECT 'toast table', t.relkind, t.relpersistence FROM pg_class r JOIN pg_class 
 UNION ALL
 SELECT 'toast index', ri.relkind, ri.relpersistence FROM pg_class r join pg_class t ON t.oid = r.reltoastrelid JOIN pg_index i ON i.indrelid = t.oid JOIN pg_class ri ON ri.oid = i.indexrelid WHERE r.relname ~ '^logged1'
 ORDER BY relname;
-CREATE TABLE logged2(f1 SERIAL PRIMARY KEY, f2 INTEGER REFERENCES logged1) distribute by replication; -- foreign key
-CREATE TABLE logged3(f1 SERIAL PRIMARY KEY, f2 INTEGER REFERENCES logged3) distribute by replication; -- self-referencing foreign key
+CREATE TABLE logged2(f1 SERIAL PRIMARY KEY, f2 INTEGER REFERENCES logged1); -- foreign key
+CREATE TABLE logged3(f1 SERIAL PRIMARY KEY, f2 INTEGER REFERENCES logged3); -- self-referencing foreign key
 ALTER TABLE logged1 SET UNLOGGED; -- fails because a foreign key from a permanent table exists
 ALTER TABLE logged3 SET UNLOGGED; -- skip self-referencing foreign key
 ALTER TABLE logged2 SET UNLOGGED;
@@ -2712,3 +2781,67 @@ alter table at_test_sql_partop attach partition at_test_sql_partop_1 for values 
 drop table at_test_sql_partop;
 drop operator class at_test_sql_partop using btree;
 drop function at_test_sql_partop;
+
+
+/* Test case for bug #16242 */
+
+-- We create a parent and child where the child has missing
+-- non-null attribute values, and arrange to pass them through
+-- tuple conversion from the child to the parent tupdesc
+create table bar1 (a integer, b integer not null default 1)
+  partition by range (a);
+create table bar2 (a integer);
+insert into bar2 values (1);
+alter table bar2 add column b integer not null default 1;
+-- (at this point bar2 contains tuple with natts=1)
+alter table bar1 attach partition bar2 default;
+
+-- this works:
+select * from bar1;
+
+-- this exercises tuple conversion:
+create function xtrig()
+  returns trigger language plpgsql
+as $$
+  declare
+    r record;
+  begin
+    for r in select * from old loop
+      raise info 'a=%, b=%', r.a, r.b;
+    end loop;
+    return NULL;
+  end;
+$$;
+create trigger xtrig
+  after update on bar1
+  referencing old table as old
+  for each statement execute procedure xtrig();
+
+update bar1 set a = a + 1;
+
+/* End test case for bug #16242 */
+
+-- Test that ALTER TABLE rewrite preserves a clustered index
+-- for normal indexes and indexes on constraints.
+create table alttype_cluster (a int);
+alter table alttype_cluster add primary key (a);
+create index alttype_cluster_ind on alttype_cluster (a);
+alter table alttype_cluster cluster on alttype_cluster_ind;
+-- Normal index remains clustered.
+select indexrelid::regclass, indisclustered from pg_index
+  where indrelid = 'alttype_cluster'::regclass
+  order by indexrelid::regclass::text;
+alter table alttype_cluster alter a type bigint;
+select indexrelid::regclass, indisclustered from pg_index
+  where indrelid = 'alttype_cluster'::regclass
+  order by indexrelid::regclass::text;
+-- Constraint index remains clustered.
+alter table alttype_cluster cluster on alttype_cluster_pkey;
+select indexrelid::regclass, indisclustered from pg_index
+  where indrelid = 'alttype_cluster'::regclass
+  order by indexrelid::regclass::text;
+alter table alttype_cluster alter a type int;
+select indexrelid::regclass, indisclustered from pg_index
+  where indrelid = 'alttype_cluster'::regclass
+  order by indexrelid::regclass::text;
+drop table alttype_cluster;

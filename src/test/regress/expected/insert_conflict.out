@@ -1,7 +1,7 @@
 --
 -- insert...on conflict do unique index inference
 --
-create table insertconflicttest(key int4, fruit text) distribute by replication;
+create table insertconflicttest(key int4, fruit text);
 --
 -- Test unique index inference with operator class specifications and
 -- named collations
@@ -456,7 +456,7 @@ drop table syscolconflicttest;
 -- Previous tests all managed to not test any expressions requiring
 -- planner preprocessing ...
 --
-create table insertconflict (a bigint, b bigint) distribute by replication;
+create table insertconflict (a bigint, b bigint);
 create unique index insertconflicti1 on insertconflict(coalesce(a, 0));
 create unique index insertconflicti2 on insertconflict(b)
   where coalesce(a, 1) > 0;
@@ -516,11 +516,11 @@ insert into cities values ('Mariposa', 1200, 1953);
 insert into capitals values ('Sacramento', 3.694E+5, 30, 'CA');
 insert into capitals values ('Madison', 1.913E+5, 845, 'WI');
 -- Tests proper for inheritance:
-select * from capitals order by 1, 2;
+select * from capitals;
     name    | population | altitude | state 
 ------------+------------+----------+-------
- Madison    |     191300 |      845 | WI
  Sacramento |     369400 |       30 | CA
+ Madison    |     191300 |      845 | WI
 (2 rows)
 
 -- Succeeds:
@@ -528,7 +528,7 @@ insert into cities values ('Las Vegas', 2.583E+5, 2174) on conflict do nothing;
 insert into capitals values ('Sacramento', 4664.E+5, 30, 'CA') on conflict (name) do update set population = excluded.population;
 -- Wrong "Sacramento", so do nothing:
 insert into capitals values ('Sacramento', 50, 2267, 'NE') on conflict (name) do nothing;
-select * from capitals order by 1, 2;
+select * from capitals;
     name    | population | altitude | state 
 ------------+------------+----------+-------
  Madison    |     191300 |      845 | WI
@@ -536,7 +536,7 @@ select * from capitals order by 1, 2;
 (2 rows)
 
 insert into cities values ('Las Vegas', 5.83E+5, 2001) on conflict (name) do update set population = excluded.population, altitude = excluded.altitude;
-select tableoid::regclass, * from cities order by 1, 2;
+select tableoid::regclass, * from cities;
  tableoid |     name      | population | altitude 
 ----------+---------------+------------+----------
  cities   | San Francisco |     724000 |       63
@@ -548,7 +548,7 @@ select tableoid::regclass, * from cities order by 1, 2;
 
 insert into capitals values ('Las Vegas', 5.83E+5, 2222, 'NV') on conflict (name) do update set population = excluded.population;
 -- Capitals will contain new capital, Las Vegas:
-select * from capitals order by 1, 2;
+select * from capitals;
     name    | population | altitude | state 
 ------------+------------+----------+-------
  Madison    |     191300 |      845 | WI
@@ -558,7 +558,7 @@ select * from capitals order by 1, 2;
 
 -- Cities contains two instances of "Las Vegas", since unique constraints don't
 -- work across inheritance:
-select tableoid::regclass, * from cities order by 1, 2;
+select tableoid::regclass, * from cities;
  tableoid |     name      | population | altitude 
 ----------+---------------+------------+----------
  cities   | San Francisco |     724000 |       63
@@ -571,7 +571,7 @@ select tableoid::regclass, * from cities order by 1, 2;
 
 -- This only affects "cities" version of "Las Vegas":
 insert into cities values ('Las Vegas', 5.86E+5, 2223) on conflict (name) do update set population = excluded.population, altitude = excluded.altitude;
-select tableoid::regclass, * from cities order by 1, 2;
+select tableoid::regclass, * from cities;
  tableoid |     name      | population | altitude 
 ----------+---------------+------------+----------
  cities   | San Francisco |     724000 |       63

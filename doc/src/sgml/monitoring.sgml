@@ -1249,11 +1249,15 @@ postgres   27093  0.0  0.0  30096  2752 ?        Ss   11:34   0:00 postgres: ser
         </row>
         <row>
          <entry><literal>RecoveryWalAll</literal></entry>
-         <entry>Waiting for WAL from any kind of source (local, archive or stream) at recovery.</entry>
+         <entry>Waiting for WAL from a stream at recovery.</entry>
         </row>
         <row>
          <entry><literal>RecoveryWalStream</literal></entry>
-         <entry>Waiting for WAL from a stream at recovery.</entry>
+         <entry>
+          Waiting when WAL data is not available from any kind of sources
+          (local, archive or stream) before trying again to retrieve WAL data,
+          at recovery.
+         </entry>
         </row>
         <row>
          <entry><literal>SysLoggerMain</literal></entry>
@@ -1272,13 +1276,17 @@ postgres   27093  0.0  0.0  30096  2752 ?        Ss   11:34   0:00 postgres: ser
          <entry>Waiting in main loop of WAL writer process.</entry>
         </row>
         <row>
-         <entry morerows="7"><literal>Client</literal></entry>
+         <entry morerows="8"><literal>Client</literal></entry>
          <entry><literal>ClientRead</literal></entry>
          <entry>Waiting to read data from the client.</entry>
         </row>
         <row>
          <entry><literal>ClientWrite</literal></entry>
          <entry>Waiting to write data to the client.</entry>
+        </row>
+        <row>
+         <entry><literal>GSSOpenServer</literal></entry>
+         <entry>Waiting to read data from the client while establishing the GSSAPI session.</entry>
         </row>
         <row>
          <entry><literal>LibPQWalReceiverConnect</literal></entry>
@@ -1472,7 +1480,7 @@ postgres   27093  0.0  0.0  30096  2752 ?        Ss   11:34   0:00 postgres: ser
          <entry>Waiting to apply WAL at recovery because it is delayed.</entry>
         </row>
         <row>
-         <entry morerows="66"><literal>IO</literal></entry>
+         <entry morerows="67"><literal>IO</literal></entry>
          <entry><literal>BufFileRead</literal></entry>
          <entry>Waiting for a read from a buffered file.</entry>
         </row>
@@ -1587,6 +1595,10 @@ postgres   27093  0.0  0.0  30096  2752 ?        Ss   11:34   0:00 postgres: ser
         <row>
          <entry><literal>LogicalRewriteSync</literal></entry>
          <entry>Waiting for logical rewrite mappings to reach stable storage.</entry>
+        </row>
+        <row>
+         <entry><literal>LogicalRewriteTruncate</literal></entry>
+         <entry>Waiting for truncate of mapping data during a logical rewrite.</entry>
         </row>
         <row>
          <entry><literal>LogicalRewriteWrite</literal></entry>
@@ -3620,7 +3632,7 @@ SELECT pg_stat_get_backend_pid(s.backendid) AS pid,
   </table>
 
   <table id="create-index-phases">
-   <title>CREATE INDEX phases</title>
+   <title>CREATE INDEX Phases</title>
    <tgroup cols="2">
     <thead>
      <row>
@@ -3849,7 +3861,7 @@ SELECT pg_stat_get_backend_pid(s.backendid) AS pid,
   </table>
 
   <table id="vacuum-phases">
-   <title>VACUUM phases</title>
+   <title>VACUUM Phases</title>
    <tgroup cols="2">
     <thead>
     <row>
@@ -4043,7 +4055,7 @@ SELECT pg_stat_get_backend_pid(s.backendid) AS pid,
   </table>
 
   <table id="cluster-phases">
-   <title>CLUSTER and VACUUM FULL phases</title>
+   <title>CLUSTER and VACUUM FULL Phases</title>
    <tgroup cols="2">
     <thead>
     <row>
@@ -4076,6 +4088,12 @@ SELECT pg_stat_get_backend_pid(s.backendid) AS pid,
      <entry><literal>sorting tuples</literal></entry>
      <entry>
        <command>CLUSTER</command> is currently sorting tuples.
+     </entry>
+    </row>
+    <row>
+     <entry><literal>writing new heap</literal></entry>
+     <entry>
+       <command>CLUSTER</command> is currently writing the new heap.
      </entry>
     </row>
     <row>
@@ -4632,7 +4650,7 @@ SELECT pg_stat_get_backend_pid(s.backendid) AS pid,
     </row>
     <row>
      <entry><type>bool</type></entry>
-     <entry><type>char</type></entry>
+     <entry><type>unsigned char</type></entry>
     </row>
 
    </tbody>

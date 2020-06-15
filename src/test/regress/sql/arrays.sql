@@ -35,34 +35,29 @@ INSERT INTO arrtest (a, b[1:2], c, d[1:2])
    VALUES ('{}', '{3,4}', '{foo,bar}', '{bar,foo}');
 
 
-SELECT * FROM arrtest ORDER BY a, b, c;
+SELECT * FROM arrtest;
 
 SELECT arrtest.a[1],
           arrtest.b[1][1][1],
           arrtest.c[1],
           arrtest.d[1][1],
           arrtest.e[0]
-   FROM arrtest 
-   ORDER BY a, b, c;
+   FROM arrtest;
 
 SELECT a[1], b[1][1][1], c[1], d[1][1], e[0]
-   FROM arrtest
-   ORDER BY a, b, c;
+   FROM arrtest;
 
 SELECT a[1:3],
           b[1:1][1:2][1:2],
           c[1:2],
           d[1:1][1:2]
-   FROM arrtest
-   ORDER BY a, b, c;
+   FROM arrtest;
 
 SELECT array_ndims(a) AS a,array_ndims(b) AS b,array_ndims(c) AS c
-   FROM arrtest 
-   ORDER BY b;
+   FROM arrtest;
 
 SELECT array_dims(a) AS a,array_dims(b) AS b,array_dims(c) AS c
-   FROM arrtest 
-   ORDER BY b;
+   FROM arrtest;
 
 -- returns nothing
 SELECT *
@@ -83,24 +78,24 @@ UPDATE arrtest
   SET c[2:2] = '{"new_word"}'
   WHERE array_dims(c) is not null;
 
-SELECT a,b,c FROM arrtest ORDER BY a, b, c;
+SELECT a,b,c FROM arrtest;
 
 SELECT a[1:3],
           b[1:1][1:2][1:2],
           c[1:2],
           d[1:1][2:2]
-   FROM arrtest 
-   ORDER BY a, b, c;
+   FROM arrtest;
+
 SELECT b[1:1][2][2],
        d[1:1][2]
-   FROM arrtest order by b;
+   FROM arrtest;
 
 INSERT INTO arrtest(a) VALUES('{1,null,3}');
-SELECT a FROM arrtest ORDER BY 1;
+SELECT a FROM arrtest;
 UPDATE arrtest SET a[4] = NULL WHERE a[2] IS NULL;
-SELECT a FROM arrtest WHERE a[2] IS NULL ORDER BY 1;
+SELECT a FROM arrtest WHERE a[2] IS NULL;
 DELETE FROM arrtest WHERE a[2] IS NULL AND b IS NULL;
-SELECT a,b,c FROM arrtest ORDER BY a, b, c;
+SELECT a,b,c FROM arrtest;
 
 -- test mixed slice/scalar subscripting
 select '{{1,2,3},{4,5,6},{7,8,9}}'::int[];
@@ -136,19 +131,19 @@ CREATE TEMP TABLE arrtest_s (
 INSERT INTO arrtest_s VALUES ('{1,2,3,4,5}', '{{1,2,3}, {4,5,6}, {7,8,9}}');
 INSERT INTO arrtest_s VALUES ('[0:4]={1,2,3,4,5}', '[0:2][0:2]={{1,2,3}, {4,5,6}, {7,8,9}}');
 
-SELECT * FROM arrtest_s order by a;
-SELECT a[:3], b[:2][:2] FROM arrtest_s order by a;
-SELECT a[2:], b[2:][2:] FROM arrtest_s order by a;
-SELECT a[:], b[:] FROM arrtest_s order by a;
+SELECT * FROM arrtest_s;
+SELECT a[:3], b[:2][:2] FROM arrtest_s;
+SELECT a[2:], b[2:][2:] FROM arrtest_s;
+SELECT a[:], b[:] FROM arrtest_s;
 
 -- updates
 UPDATE arrtest_s SET a[:3] = '{11, 12, 13}', b[:2][:2] = '{{11,12}, {14,15}}'
   WHERE array_lower(a,1) = 1;
-SELECT * FROM arrtest_s order by a;
+SELECT * FROM arrtest_s;
 UPDATE arrtest_s SET a[3:] = '{23, 24, 25}', b[2:][2:] = '{{25,26}, {28,29}}';
-SELECT * FROM arrtest_s order by a;
+SELECT * FROM arrtest_s;
 UPDATE arrtest_s SET a[:] = '{11, 12, 13, 14, 15}';
-SELECT * FROM arrtest_s order by a;
+SELECT * FROM arrtest_s;
 UPDATE arrtest_s SET a[:] = '{23, 24, 25}';  -- fail, too small
 INSERT INTO arrtest_s VALUES(NULL, NULL);
 UPDATE arrtest_s SET a[:] = '{11, 12, 13, 14, 15}';  -- fail, no good with null
@@ -381,7 +376,7 @@ select 33 = all ('{33,null,33}');
 SELECT -1 != ALL(ARRAY(SELECT NULLIF(g.i, 900) FROM generate_series(1,1000) g(i)));
 
 -- test indexes on arrays
-create temp table arr_tbl (f1 int[] unique) distribute by replication;
+create temp table arr_tbl (f1 int[] unique);
 insert into arr_tbl values ('{1,2,3}');
 insert into arr_tbl values ('{1,2}');
 -- failure expected:
@@ -392,8 +387,8 @@ insert into arr_tbl values ('{1,2,10}');
 
 set enable_seqscan to off;
 set enable_bitmapscan to off;
-select * from arr_tbl where f1 > '{1,2,3}' and f1 <= '{1,5,3}' ORDER BY 1;
-select * from arr_tbl where f1 >= '{1,2,3}' and f1 < '{1,5,3}' ORDER BY 1;
+select * from arr_tbl where f1 > '{1,2,3}' and f1 <= '{1,5,3}';
+select * from arr_tbl where f1 >= '{1,2,3}' and f1 < '{1,5,3}';
 
 -- test ON CONFLICT DO UPDATE with arrays
 create temp table arr_pk_tbl (pk int4 primary key, f1 int[]);

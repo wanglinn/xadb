@@ -25,34 +25,34 @@ INSERT INTO CHAR_TBL (f1) VALUES ('');
 INSERT INTO CHAR_TBL (f1) VALUES ('cd');
 ERROR:  value too long for type character(1)
 INSERT INTO CHAR_TBL (f1) VALUES ('c     ');
-SELECT '' AS seven, * FROM CHAR_TBL order by f1;
+SELECT '' AS seven, * FROM CHAR_TBL;
  seven | f1 
 -------+----
-       |  
+       | a
+       | A
        | 1
        | 2
        | 3
-       | A
-       | a
+       |  
        | c
 (7 rows)
 
 SELECT '' AS six, c.*
    FROM CHAR_TBL c
-   WHERE c.f1 <> 'a' order by f1;
+   WHERE c.f1 <> 'a';
  six | f1 
 -----+----
-     |  
+     | A
      | 1
      | 2
      | 3
-     | A
+     |  
      | c
 (6 rows)
 
 SELECT '' AS one, c.*
    FROM CHAR_TBL c
-   WHERE c.f1 = 'a' order by f1;
+   WHERE c.f1 = 'a';
  one | f1 
 -----+----
      | a
@@ -60,32 +60,32 @@ SELECT '' AS one, c.*
 
 SELECT '' AS five, c.*
    FROM CHAR_TBL c
-   WHERE c.f1 < 'a' order by f1;
+   WHERE c.f1 < 'a';
  five | f1 
 ------+----
-      |  
+      | A
       | 1
       | 2
       | 3
-      | A
+      |  
 (5 rows)
 
 SELECT '' AS six, c.*
    FROM CHAR_TBL c
-   WHERE c.f1 <= 'a' order by f1;
+   WHERE c.f1 <= 'a';
  six | f1 
 -----+----
-     |  
+     | a
+     | A
      | 1
      | 2
      | 3
-     | A
-     | a
+     |  
 (6 rows)
 
 SELECT '' AS one, c.*
    FROM CHAR_TBL c
-   WHERE c.f1 > 'a' order by f1;
+   WHERE c.f1 > 'a';
  one | f1 
 -----+----
      | c
@@ -93,7 +93,7 @@ SELECT '' AS one, c.*
 
 SELECT '' AS two, c.*
    FROM CHAR_TBL c
-   WHERE c.f1 >= 'a' order by f1;
+   WHERE c.f1 >= 'a';
  two | f1 
 -----+----
      | a
@@ -111,7 +111,7 @@ INSERT INTO CHAR_TBL (f1) VALUES ('abcd');
 INSERT INTO CHAR_TBL (f1) VALUES ('abcde');
 ERROR:  value too long for type character(4)
 INSERT INTO CHAR_TBL (f1) VALUES ('abcd    ');
-SELECT '' AS four, * FROM CHAR_TBL order by f1;
+SELECT '' AS four, * FROM CHAR_TBL;
  four |  f1  
 ------+------
       | a   

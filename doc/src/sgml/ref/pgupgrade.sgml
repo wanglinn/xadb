@@ -113,8 +113,8 @@
      </varlistentry>
 
      <varlistentry>
-      <term><option>-j</option></term>
-      <term><option>--jobs</option></term>
+      <term><option>-j <replaceable class="parameter">njobs</replaceable></option></term>
+      <term><option>--jobs=<replaceable class="parameter">njobs</replaceable></option></term>
       <listitem><para>number of simultaneous processes or threads to use
       </para></listitem>
      </varlistentry>
@@ -206,8 +206,7 @@
         systems.  If it is selected but not supported, the
         <application>pg_upgrade</application> run will error.  At present, it
         is supported on Linux (kernel 4.5 or later) with Btrfs and XFS (on
-        file systems created with reflink support, which is not the default
-        for XFS at this writing), and on macOS with APFS.
+        file systems created with reflink support), and on macOS with APFS.
        </para>
       </listitem>
      </varlistentry>
@@ -450,7 +449,7 @@ pg_upgrade.exe
    </step>
 
    <step id="pgupgrade-step-replicas">
-    <title>Upgrade Streaming Replication and Log-Shipping standby servers</title>
+    <title>Upgrade streaming replication and log-shipping standby servers</title>
 
     <para>
      If you used link mode and have Streaming Replication (see <xref
@@ -617,7 +616,7 @@ rsync --archive --delete --hard-links --size-only --no-inc-recursive /vol1/pg_tb
    </step>
 
    <step>
-    <title>Post-Upgrade processing</title>
+    <title>Post-upgrade processing</title>
 
     <para>
      If any post-upgrade processing is required, pg_upgrade will issue

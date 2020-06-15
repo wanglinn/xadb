@@ -2941,6 +2941,11 @@ do_connect(enum trivalue reuse_previous_specification,
 			reuse_previous = !has_connection_string;
 			break;
 	}
+
+	/* If the old connection does not exist, there is nothing to reuse. */
+	if (!o_conn)
+		reuse_previous = false;
+
 	/* Silently ignore arguments subsequent to a connection string. */
 	if (has_connection_string)
 	{
@@ -3117,8 +3122,14 @@ do_connect(enum trivalue reuse_previous_specification,
 			pg_log_error("\\connect: %s", PQerrorMessage(n_conn));
 			if (o_conn)
 			{
+				/*
+				 * Transition to having no connection.  Keep this bit in sync
+				 * with CheckConnection().
+				 */
 				PQfinish(o_conn);
 				pset.db = NULL;
+				ResetCancelConn();
+				UnsyncVariables();
 			}
 		}
 
@@ -3132,7 +3143,8 @@ do_connect(enum trivalue reuse_previous_specification,
 
 	/*
 	 * Replace the old connection with the new one, and update
-	 * connection-dependent variables.
+	 * connection-dependent variables.  Keep the resynchronization logic in
+	 * sync with CheckConnection().
 	 */
 	PQsetNoticeProcessor(n_conn, NoticeProcessor, NULL);
 	pset.db = n_conn;
@@ -3226,7 +3238,8 @@ connection_warnings(bool in_startup)
 										 sverbuf, sizeof(sverbuf)));
 
 #ifdef WIN32
-		checkWin32Codepage();
+		if (in_startup)
+			checkWin32Codepage();
 #endif
 		printSSLInfo();
 		printGSSInfo();
@@ -3273,7 +3286,7 @@ printGSSInfo(void)
 	if (!PQgssEncInUse(pset.db))
 		return;					/* no GSSAPI encryption in use */
 
-	printf(_("GSSAPI Encrypted connection\n"));
+	printf(_("GSSAPI-encrypted connection\n"));
 }
 
 

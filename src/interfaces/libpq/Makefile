@@ -29,7 +29,7 @@ endif
 
 OBJS=	fe-auth.o fe-auth-scram.o fe-connect.o fe-exec.o fe-misc.o fe-print.o fe-lobj.o \
 	fe-protocol2.o fe-protocol3.o pqexpbuffer.o fe-secure.o \
-	libpq-events.o
+	legacy-pqsignal.o libpq-events.o
 
 # src/backend/utils/mb
 OBJS += encnames.o wchar.o
@@ -72,6 +72,7 @@ endif
 ifeq ($(PORTNAME), win32)
 SHLIB_LINK += -lshell32 -lws2_32 -lsecur32 $(filter -leay32 -lssleay32 -lcomerr32 -lkrb5_32, $(LIBS))
 endif
+SHLIB_PREREQS = submake-libpgport
 
 ifeq ($(enable_cluster),yes)
 SHLIB_EXPORTS = exports.txt
@@ -82,8 +83,6 @@ SHLIB_EXPORTS = new_exports.txt
 endif
 
 all: all-lib
-
-all-lib: | submake-libpgport
 
 # Shared library stuff
 include $(top_srcdir)/src/Makefile.shlib

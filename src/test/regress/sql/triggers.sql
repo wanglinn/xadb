@@ -2,7 +2,7 @@
 -- TRIGGERS
 --
 
-create table pkeys (pkey1 int4 not null, pkey2 text not null) distribute by roundrobin;
+create table pkeys (pkey1 int4 not null, pkey2 text not null);
 create table fkeys (fkey1 int4, fkey2 text, fkey3 int);
 create table fkeys2 (fkey21 int4, fkey22 text, pkey23 int not null);
 
@@ -117,12 +117,46 @@ select * from trigtest;
 delete from trigtest;
 select * from trigtest;
 
+-- Also check what happens when such a trigger runs before or after others
+create function f1_times_10() returns trigger as
+$$ begin new.f1 := new.f1 * 10; return new; end $$ language plpgsql;
+
+create trigger trigger_alpha
+	before insert or update on trigtest
+	for each row execute procedure f1_times_10();
+
+insert into trigtest values(1, 'foo');
+select * from trigtest;
+update trigtest set f2 = f2 || 'bar';
+select * from trigtest;
+delete from trigtest;
+select * from trigtest;
+
+create trigger trigger_zed
+	before insert or update on trigtest
+	for each row execute procedure f1_times_10();
+
+insert into trigtest values(1, 'foo');
+select * from trigtest;
+update trigtest set f2 = f2 || 'bar';
+select * from trigtest;
+delete from trigtest;
+select * from trigtest;
+
+drop trigger trigger_alpha on trigtest;
+
+insert into trigtest values(1, 'foo');
+select * from trigtest;
+update trigtest set f2 = f2 || 'bar';
+select * from trigtest;
+delete from trigtest;
+select * from trigtest;
+
 drop table trigtest;
 
 create sequence ttdummy_seq increment 10 start 0 minvalue 0;
 
 create table tttest (
-    id          int4,
 	price_id	int4,
 	price_val	int4,
 	price_on	int4,
@@ -141,36 +175,36 @@ create trigger ttserial
 	execute procedure
 	autoinc (price_on, ttdummy_seq);
 
-insert into tttest values (1, 1, 1, null);
-insert into tttest values (2, 2, 2, null);
-insert into tttest values (3, 3, 3, 0);
+insert into tttest values (1, 1, null);
+insert into tttest values (2, 2, null);
+insert into tttest values (3, 3, 0);
 
-select price_id, price_val, price_on, price_off from tttest order by 1,2,3,4;
+select * from tttest;
 delete from tttest where price_id = 2;
-select price_id, price_val, price_on, price_off from tttest order by 1,2,3,4;
+select * from tttest;
 -- what do we see ?
 
 -- get current prices
-select price_id, price_val, price_on, price_off from tttest where price_off = 999999 order by 1,2,3,4;
+select * from tttest where price_off = 999999;
 
 -- change price for price_id == 3
 update tttest set price_val = 30 where price_id = 3;
-select price_id, price_val, price_on, price_off from tttest order by 1,2,3,4;
+select * from tttest;
 
 -- now we want to change pric_id in ALL tuples
 -- this gets us not what we need
 update tttest set price_id = 5 where price_id = 3;
-select price_id, price_val, price_on, price_off from tttest order by 1,2,3,4;
+select * from tttest;
 
 -- restore data as before last update:
 select set_ttdummy(0);
 delete from tttest where price_id = 5;
 update tttest set price_off = 999999 where price_val = 30;
-select price_id, price_val, price_on, price_off from tttest order by 1,2,3,4;
+select * from tttest;
 
 -- and try change price_id now!
 update tttest set price_id = 5 where price_id = 3;
-select price_id, price_val, price_on, price_off from tttest order by 1,2,3,4;
+select * from tttest;
 -- isn't it what we need ?
 
 select set_ttdummy(1);
@@ -182,11 +216,11 @@ update tttest set price_on = -1 where price_id = 1;
 -- try in this way
 select set_ttdummy(0);
 update tttest set price_on = -1 where price_id = 1;
-select price_id, price_val, price_on, price_off from tttest order by 1,2,3,4;
+select * from tttest;
 -- isn't it what we need ?
 
 -- get price for price_id == 5 as it was @ "date" 35
-select price_id, price_val, price_on, price_off from tttest where price_on <= 35 and price_off > 35 and price_id = 5 order by 1,2,3,4;
+select * from tttest where price_on <= 35 and price_off > 35 and price_id = 5;
 
 drop table tttest;
 drop sequence ttdummy_seq;
@@ -197,7 +231,7 @@ drop sequence ttdummy_seq;
 
 CREATE TABLE log_table (tstamp timestamp default timeofday()::timestamp);
 
-CREATE TABLE main_table (a int unique, b int) distribute by replication;
+CREATE TABLE main_table (a int unique, b int);
 
 COPY main_table (a,b) FROM stdin;
 5	10
@@ -332,7 +366,7 @@ UPDATE main_table SET b = 10;
 -- Test case for bug with BEFORE trigger followed by AFTER trigger with WHEN
 --
 
-CREATE TABLE some_t (some_col boolean NOT NULL) distribute by replication;
+CREATE TABLE some_t (some_col boolean NOT NULL);
 CREATE FUNCTION dummy_update_func() RETURNS trigger AS $$
 BEGIN
   RAISE NOTICE 'dummy_update_func(%) called: action = %, old = %, new = %',
@@ -420,13 +454,13 @@ reset session_replication_role;
 insert into trigtest2 values(1);
 insert into trigtest2 values(2);
 delete from trigtest where i=2;
-select * from trigtest2 order by 1;
+select * from trigtest2;
 alter table trigtest disable trigger all;
 delete from trigtest where i=1;
-select * from trigtest2 order by 1;
+select * from trigtest2;
 -- ensure we still insert, even when all triggers are disabled
 insert into trigtest default values;
-select *  from trigtest order by 1;
+select *  from trigtest;
 drop table trigtest2;
 drop table trigtest;
 
@@ -567,7 +601,7 @@ CREATE TABLE serializable_update_tab (
 	id int,
 	filler  text,
 	description text
-) distribute by replication;
+);
 
 CREATE TRIGGER serializable_update_trig BEFORE UPDATE ON serializable_update_tab
 	FOR EACH ROW EXECUTE PROCEDURE serializable_update_trig();
@@ -587,7 +621,7 @@ DROP TABLE serializable_update_tab;
 CREATE TABLE min_updates_test (
 	f1	text,
 	f2 int,
-	f3 int) distribute by roundrobin;
+	f3 int);
 
 INSERT INTO min_updates_test VALUES ('a',1,2),('b','2',null);
 
@@ -605,7 +639,7 @@ UPDATE min_updates_test SET f3 = 2 WHERE f3 is null;
 
 \set QUIET true
 
-SELECT * FROM min_updates_test ORDER BY 1,2,3;
+SELECT * FROM min_updates_test;
 
 DROP TABLE min_updates_test;
 
@@ -775,7 +809,7 @@ CREATE TABLE country_table (
     country_id        serial primary key,
     country_name    text unique not null,
     continent        text not null
-) distribute by replication;
+);
 
 INSERT INTO country_table (country_name, continent)
     VALUES ('Japan', 'Asia'),
@@ -954,7 +988,7 @@ UPDATE city_view v SET population = 599657
 
 \set QUIET true
 
-SELECT * FROM city_view order by 1;
+SELECT * FROM city_view;
 
 DROP TABLE city_table CASCADE;
 DROP TABLE country_table;
@@ -1130,7 +1164,7 @@ create temp table self_ref_trigger (
     parent int references self_ref_trigger,
     data text,
     nchildren int not null default 0
-) distribute by replication;
+);
 
 create function self_ref_trigger_ins_func()
   returns trigger language plpgsql as
@@ -1332,6 +1366,10 @@ create trigger trg1 after insert on trigpart for each row execute procedure trig
 create table trigpart2 partition of trigpart for values from (1000) to (2000);
 create table trigpart3 (like trigpart);
 alter table trigpart attach partition trigpart3 for values from (2000) to (3000);
+create table trigpart4 partition of trigpart for values from (3000) to (4000) partition by range (a);
+create table trigpart41 partition of trigpart4 for values from (3000) to (3500);
+create table trigpart42 (like trigpart);
+alter table trigpart4 attach partition trigpart42 for values from (3500) to (4000);
 select tgrelid::regclass, tgname, tgfoid::regproc from pg_trigger
   where tgrelid::regclass::text like 'trigpart%' order by tgrelid::regclass::text;
 drop trigger trg1 on trigpart1;	-- fail
@@ -1343,6 +1381,27 @@ select tgrelid::regclass, tgname, tgfoid::regproc from pg_trigger
 drop trigger trg1 on trigpart;		-- ok, all gone
 select tgrelid::regclass, tgname, tgfoid::regproc from pg_trigger
   where tgrelid::regclass::text like 'trigpart%' order by tgrelid::regclass::text;
+
+-- check detach behavior
+create trigger trg1 after insert on trigpart for each row execute procedure trigger_nothing();
+\d trigpart3
+alter table trigpart detach partition trigpart3;
+drop trigger trg1 on trigpart3; -- fail due to "does not exist"
+alter table trigpart detach partition trigpart4;
+drop trigger trg1 on trigpart41; -- fail due to "does not exist"
+drop table trigpart4;
+alter table trigpart attach partition trigpart3 for values from (2000) to (3000);
+alter table trigpart detach partition trigpart3;
+alter table trigpart attach partition trigpart3 for values from (2000) to (3000);
+drop table trigpart3;
+
+select tgrelid::regclass::text, tgname, tgfoid::regproc, tgenabled, tgisinternal from pg_trigger
+  where tgname ~ '^trg1' order by 1;
+create table trigpart3 (like trigpart);
+create trigger trg1 after insert on trigpart3 for each row execute procedure trigger_nothing();
+\d trigpart3
+alter table trigpart attach partition trigpart3 FOR VALUES FROM (2000) to (3000); -- fail
+drop table trigpart3;
 
 drop table trigpart;
 drop function trigger_nothing();
@@ -1459,6 +1518,29 @@ create trigger aaa after insert on parted_trig_1 for each row execute procedure 
 create trigger bbb after insert on parted_trig for each row execute procedure trigger_notice();
 create trigger qqq after insert on parted_trig_1_1 for each row execute procedure trigger_notice();
 insert into parted_trig values (50), (1500);
+drop table parted_trig;
+
+-- Verify propagation of trigger arguments to partitions
+create table parted_trig (a int) partition by list (a);
+create table parted_trig1 partition of parted_trig for values in (1);
+create or replace function trigger_notice() returns trigger as $$
+  declare
+    arg1 text = TG_ARGV[0];
+    arg2 integer = TG_ARGV[1];
+  begin
+    raise notice 'trigger % on % % % for % args % %',
+		TG_NAME, TG_TABLE_NAME, TG_WHEN, TG_OP, TG_LEVEL, arg1, arg2;
+    return null;
+  end;
+  $$ language plpgsql;
+create trigger aaa after insert on parted_trig
+   for each row execute procedure trigger_notice('quirky', 1);
+
+-- Verify propagation of trigger arguments to partitions attached after creating trigger
+create table parted_trig2 partition of parted_trig for values in (2);
+create table parted_trig3 (like parted_trig);
+alter table parted_trig attach partition parted_trig3 for values in (3);
+insert into parted_trig values (1), (2), (3);
 drop table parted_trig;
 
 -- test irregular partitions (i.e., different column definitions),

@@ -328,7 +328,7 @@ ScanPgRelation(Oid targetRelId, bool indexOK, bool force_non_historic)
 	Relation	pg_class_desc;
 	SysScanDesc pg_class_scan;
 	ScanKeyData key[1];
-	Snapshot	snapshot;
+	Snapshot	snapshot = NULL;
 
 	/*
 	 * If something goes wrong during backend startup, we might find ourselves
@@ -358,12 +358,12 @@ ScanPgRelation(Oid targetRelId, bool indexOK, bool force_non_historic)
 	/*
 	 * The caller might need a tuple that's newer than the one the historic
 	 * snapshot; currently the only case requiring to do so is looking up the
-	 * relfilenode of non mapped system relations during decoding.
+	 * relfilenode of non mapped system relations during decoding. That
+	 * snapshot cant't change in the midst of a relcache build, so there's no
+	 * need to register the snapshot.
 	 */
 	if (force_non_historic)
 		snapshot = GetNonHistoricCatalogSnapshot(RelationRelationId);
-	else
-		snapshot = GetCatalogSnapshot(RelationRelationId);
 
 	pg_class_scan = systable_beginscan(pg_class_desc, ClassOidIndexId,
 									   indexOK && criticalRelcachesBuilt,
@@ -2415,6 +2415,10 @@ RelationDestroyRelation(Relation relation, bool remember_tupdesc)
 		pfree(relation->rd_options);
 	if (relation->rd_indextuple)
 		pfree(relation->rd_indextuple);
+	if (relation->rd_amcache)
+		pfree(relation->rd_amcache);
+	if (relation->rd_fdwroutine)
+		pfree(relation->rd_fdwroutine);
 	if (relation->rd_indexcxt)
 		MemoryContextDelete(relation->rd_indexcxt);
 	if (relation->rd_rulescxt)
@@ -2427,8 +2431,6 @@ RelationDestroyRelation(Relation relation, bool remember_tupdesc)
 		MemoryContextDelete(relation->rd_pdcxt);
 	if (relation->rd_partcheckcxt)
 		MemoryContextDelete(relation->rd_partcheckcxt);
-	if (relation->rd_fdwroutine)
-		pfree(relation->rd_fdwroutine);
 #ifdef ADB
 	if (relation->rd_locator_info)
 	{
@@ -2485,6 +2487,11 @@ RelationClearRelation(Relation relation, bool rebuild)
 	 * truncation.
 	 */
 	RelationCloseSmgr(relation);
+
+	/* Free AM cached data, if any */
+	if (relation->rd_amcache)
+		pfree(relation->rd_amcache);
+	relation->rd_amcache = NULL;
 
 	/*
 	 * Treat nailed-in system relations separately, they always need to be
@@ -3129,10 +3136,7 @@ AtEOXact_cleanup(Relation relation, bool isCommit)
 	 *
 	 * During commit, reset the flag to zero, since we are now out of the
 	 * creating transaction.  During abort, simply delete the relcache entry
-	 * --- it isn't interesting any longer.  (NOTE: if we have forgotten the
-	 * new-ness of a new relation due to a forced cache flush, the entry will
-	 * get deleted anyway by shared-cache-inval processing of the aborted
-	 * pg_class insertion.)
+	 * --- it isn't interesting any longer.
 	 */
 	if (relation->rd_createSubid != InvalidSubTransactionId)
 	{
@@ -4757,6 +4761,57 @@ RelationGetIndexExpressions(Relation relation)
 }
 
 /*
+ * RelationGetDummyIndexExpressions -- get dummy expressions for an index
+ *
+ * Return a list of dummy expressions (just Const nodes) with the same
+ * types/typmods/collations as the index's real expressions.  This is
+ * useful in situations where we don't want to run any user-defined code.
+ */
+List *
+RelationGetDummyIndexExpressions(Relation relation)
+{
+	List	   *result;
+	Datum		exprsDatum;
+	bool		isnull;
+	char	   *exprsString;
+	List	   *rawExprs;
+	ListCell   *lc;
+
+	/* Quick exit if there is nothing to do. */
+	if (relation->rd_indextuple == NULL ||
+		heap_attisnull(relation->rd_indextuple, Anum_pg_index_indexprs, NULL))
+		return NIL;
+
+	/* Extract raw node tree(s) from index tuple. */
+	exprsDatum = heap_getattr(relation->rd_indextuple,
+							  Anum_pg_index_indexprs,
+							  GetPgIndexDescriptor(),
+							  &isnull);
+	Assert(!isnull);
+	exprsString = TextDatumGetCString(exprsDatum);
+	rawExprs = (List *) stringToNode(exprsString);
+	pfree(exprsString);
+
+	/* Construct null Consts; the typlen and typbyval are arbitrary. */
+	result = NIL;
+	foreach(lc, rawExprs)
+	{
+		Node	   *rawExpr = (Node *) lfirst(lc);
+
+		result = lappend(result,
+						 makeConst(exprType(rawExpr),
+								   exprTypmod(rawExpr),
+								   exprCollation(rawExpr),
+								   1,
+								   (Datum) 0,
+								   true,
+								   true));
+	}
+
+	return result;
+}
+
+/*
  * RelationGetIndexPredicate -- get the index predicate for an index
  *
  * We cache the result of transforming pg_index.indpred into an implicit-AND
@@ -6037,48 +6092,6 @@ RelationIdIsInInitFile(Oid relationId)
 		return true;
 	}
 	return RelationSupportsSysCache(relationId);
-}
-
-/*
- * Tells whether any index for the relation is unlogged.
- *
- * Note: There doesn't seem to be any way to have an unlogged index attached
- * to a permanent table, but it seems best to keep this general so that it
- * returns sensible results even when they seem obvious (like for an unlogged
- * table) and to handle possible future unlogged indexes on permanent tables.
- */
-bool
-RelationHasUnloggedIndex(Relation rel)
-{
-	List	   *indexoidlist;
-	ListCell   *indexoidscan;
-	bool		result = false;
-
-	indexoidlist = RelationGetIndexList(rel);
-
-	foreach(indexoidscan, indexoidlist)
-	{
-		Oid			indexoid = lfirst_oid(indexoidscan);
-		HeapTuple	tp;
-		Form_pg_class reltup;
-
-		tp = SearchSysCache1(RELOID, ObjectIdGetDatum(indexoid));
-		if (!HeapTupleIsValid(tp))
-			elog(ERROR, "cache lookup failed for relation %u", indexoid);
-		reltup = (Form_pg_class) GETSTRUCT(tp);
-
-		if (reltup->relpersistence == RELPERSISTENCE_UNLOGGED)
-			result = true;
-
-		ReleaseSysCache(tp);
-
-		if (result == true)
-			break;
-	}
-
-	list_free(indexoidlist);
-
-	return result;
 }
 
 /*

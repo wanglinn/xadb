@@ -481,6 +481,9 @@ END_NODE(MergeJoin)
 BEGIN_NODE(HashJoin)
 	NODE_BASE2(Join,join)
 	NODE_NODE(List,hashclauses)
+	NODE_NODE(List,hashoperators)
+	NODE_NODE(List,hashcollations)
+	NODE_NODE(List,hashkeys)
 #ifdef ADB
 	NODE_SCALAR(bool,cluster_hashtable_first)
 #endif
@@ -601,6 +604,7 @@ END_NODE(GatherMerge)
 #ifndef NO_NODE_Hash
 BEGIN_NODE(Hash)
 	NODE_BASE2(Plan,plan)
+	NODE_NODE(List,hashkeys)
 	NODE_OID(class,skewTable)
 	NODE_SCALAR(AttrNumber,skewColumn)
 	NODE_SCALAR(bool,skewInherit)

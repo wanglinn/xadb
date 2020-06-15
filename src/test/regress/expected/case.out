@@ -3,25 +3,23 @@
 -- Test the case statement
 --
 CREATE TABLE CASE_TBL (
-  id int,
   i integer,
   f double precision
 );
 CREATE TABLE CASE2_TBL (
-  id int,
   i integer,
   j integer
 );
-INSERT INTO CASE_TBL(i,f) VALUES (1, 10.1);
-INSERT INTO CASE_TBL(i,f) VALUES (2, 20.2);
-INSERT INTO CASE_TBL(i,f) VALUES (3, -30.3);
-INSERT INTO CASE_TBL(i,f) VALUES (4, NULL);
-INSERT INTO CASE2_TBL(i,j) VALUES (1, -1);
-INSERT INTO CASE2_TBL(i,j) VALUES (2, -2);
-INSERT INTO CASE2_TBL(i,j) VALUES (3, -3);
-INSERT INTO CASE2_TBL(i,j) VALUES (2, -4);
-INSERT INTO CASE2_TBL(i,j) VALUES (1, NULL);
-INSERT INTO CASE2_TBL(i,j) VALUES (NULL, -6);
+INSERT INTO CASE_TBL VALUES (1, 10.1);
+INSERT INTO CASE_TBL VALUES (2, 20.2);
+INSERT INTO CASE_TBL VALUES (3, -30.3);
+INSERT INTO CASE_TBL VALUES (4, NULL);
+INSERT INTO CASE2_TBL VALUES (1, -1);
+INSERT INTO CASE2_TBL VALUES (2, -2);
+INSERT INTO CASE2_TBL VALUES (3, -3);
+INSERT INTO CASE2_TBL VALUES (2, -4);
+INSERT INTO CASE2_TBL VALUES (1, NULL);
+INSERT INTO CASE2_TBL VALUES (NULL, -6);
 --
 -- Simplest examples without tables
 --
@@ -113,22 +111,20 @@ SELECT '' AS "Five",
   CASE
     WHEN i >= 3 THEN i
   END AS ">= 3 or Null"
-  FROM CASE_TBL 
-  ORDER BY 2;
+  FROM CASE_TBL;
  Five | >= 3 or Null 
 ------+--------------
+      |             
+      |             
       |            3
       |            4
-      |             
-      |             
 (4 rows)
 
 SELECT '' AS "Five",
   CASE WHEN i >= 3 THEN (i + i)
        ELSE i
   END AS "Simplest Math"
-  FROM CASE_TBL 
-  ORDER BY 2;
+  FROM CASE_TBL;
  Five | Simplest Math 
 ------+---------------
       |             1
@@ -144,8 +140,7 @@ SELECT '' AS "Five", i AS "Value",
        WHEN (i = 2) THEN 'two'
        ELSE 'big'
   END AS "Category"
-  FROM CASE_TBL 
-  ORDER BY 2, 3;
+  FROM CASE_TBL;
  Five | Value | Category 
 ------+-------+----------
       |     1 | one
@@ -161,14 +156,13 @@ SELECT '' AS "Five",
        WHEN ((i = 2) or (i = 2)) THEN 'two'
        ELSE 'big'
   END AS "Category"
-  FROM CASE_TBL
-  ORDER BY 2;
+  FROM CASE_TBL;
  Five | Category 
 ------+----------
-      | big
-      | big
       | one
       | two
+      | big
+      | big
 (4 rows)
 
 --
@@ -180,97 +174,93 @@ SELECT '' AS "Five",
 --  defined in the SQL standard.
 --
 SELECT * FROM CASE_TBL WHERE COALESCE(f,i) = 4;
- id | i | f 
-----+---+---
-    | 4 |  
+ i | f 
+---+---
+ 4 |  
 (1 row)
 
 SELECT * FROM CASE_TBL WHERE NULLIF(f,i) = 2;
- id | i | f 
-----+---+---
+ i | f 
+---+---
 (0 rows)
 
 SELECT COALESCE(a.f, b.i, b.j)
-  FROM CASE_TBL a, CASE2_TBL b 
-  ORDER BY coalesce;
+  FROM CASE_TBL a, CASE2_TBL b;
  coalesce 
 ----------
+     10.1
+     20.2
     -30.3
-    -30.3
-    -30.3
-    -30.3
-    -30.3
-    -30.3
-       -6
         1
-        1
+     10.1
+     20.2
+    -30.3
         2
-        2
+     10.1
+     20.2
+    -30.3
         3
      10.1
+     20.2
+    -30.3
+        2
      10.1
+     20.2
+    -30.3
+        1
      10.1
-     10.1
-     10.1
-     10.1
      20.2
-     20.2
-     20.2
-     20.2
-     20.2
-     20.2
+    -30.3
+       -6
 (24 rows)
 
 SELECT *
   FROM CASE_TBL a, CASE2_TBL b
-  WHERE COALESCE(a.f, b.i, b.j) = 2 
-  ORDER BY a.i, a.f, b.i, b.j;
- id | i | f | id | i | j  
-----+---+---+----+---+----
-    | 4 |   |    | 2 | -4
-    | 4 |   |    | 2 | -2
+  WHERE COALESCE(a.f, b.i, b.j) = 2;
+ i | f | i | j  
+---+---+---+----
+ 4 |   | 2 | -2
+ 4 |   | 2 | -4
 (2 rows)
 
 SELECT '' AS Five, NULLIF(a.i,b.i) AS "NULLIF(a.i,b.i)",
   NULLIF(b.i, 4) AS "NULLIF(b.i,4)"
-  FROM CASE_TBL a, CASE2_TBL b 
-  ORDER BY 2, 3;
+  FROM CASE_TBL a, CASE2_TBL b;
  five | NULLIF(a.i,b.i) | NULLIF(b.i,4) 
 ------+-----------------+---------------
+      |                 |             1
+      |               2 |             1
+      |               3 |             1
+      |               4 |             1
       |               1 |             2
-      |               1 |             2
+      |                 |             2
+      |               3 |             2
+      |               4 |             2
       |               1 |             3
-      |               1 |              
-      |               2 |             1
-      |               2 |             1
       |               2 |             3
-      |               2 |              
-      |               3 |             1
-      |               3 |             1
-      |               3 |             2
-      |               3 |             2
-      |               3 |              
-      |               4 |             1
-      |               4 |             1
-      |               4 |             2
-      |               4 |             2
-      |               4 |             3
-      |               4 |              
-      |                 |             1
-      |                 |             1
-      |                 |             2
-      |                 |             2
       |                 |             3
+      |               4 |             3
+      |               1 |             2
+      |                 |             2
+      |               3 |             2
+      |               4 |             2
+      |                 |             1
+      |               2 |             1
+      |               3 |             1
+      |               4 |             1
+      |               1 |              
+      |               2 |              
+      |               3 |              
+      |               4 |              
 (24 rows)
 
 SELECT '' AS "Two", *
   FROM CASE_TBL a, CASE2_TBL b
-  WHERE COALESCE(f,b.i) = 2 
-  ORDER BY a.i, a.f, b.i, b.j;
- Two | id | i | f | id | i | j  
------+----+---+---+----+---+----
-     |    | 4 |   |    | 2 | -4
-     |    | 4 |   |    | 2 | -2
+  WHERE COALESCE(f,b.i) = 2;
+ Two | i | f | i | j  
+-----+---+---+---+----
+     | 4 |   | 2 | -2
+     | 4 |   | 2 | -4
 (2 rows)
 
 --
@@ -279,25 +269,25 @@ SELECT '' AS "Two", *
 UPDATE CASE_TBL
   SET i = CASE WHEN i >= 3 THEN (- i)
                 ELSE (2 * i) END;
-SELECT * FROM CASE_TBL ORDER BY i, f;
- id | i  |   f   
-----+----+-------
-    | -4 |      
-    | -3 | -30.3
-    |  2 |  10.1
-    |  4 |  20.2
+SELECT * FROM CASE_TBL;
+ i  |   f   
+----+-------
+  2 |  10.1
+  4 |  20.2
+ -3 | -30.3
+ -4 |      
 (4 rows)
 
 UPDATE CASE_TBL
   SET i = CASE WHEN i >= 2 THEN (2 * i)
                 ELSE (3 * i) END;
-SELECT * FROM CASE_TBL ORDER BY i, f;
- id |  i  |   f   
-----+-----+-------
-    | -12 |      
-    |  -9 | -30.3
-    |   4 |  10.1
-    |   8 |  20.2
+SELECT * FROM CASE_TBL;
+  i  |   f   
+-----+-------
+   4 |  10.1
+   8 |  20.2
+  -9 | -30.3
+ -12 |      
 (4 rows)
 
 UPDATE CASE_TBL
@@ -305,13 +295,13 @@ UPDATE CASE_TBL
                 ELSE (3 * j) END
   FROM CASE2_TBL b
   WHERE j = -CASE_TBL.i;
-SELECT * FROM CASE_TBL ORDER BY i, f;
- id |  i  |   f   
-----+-----+-------
-    | -12 |      
-    |  -9 | -30.3
-    |  -8 |  10.1
-    |   8 |  20.2
+SELECT * FROM CASE_TBL;
+  i  |   f   
+-----+-------
+   8 |  20.2
+  -9 | -30.3
+ -12 |      
+  -8 |  10.1
 (4 rows)
 
 --

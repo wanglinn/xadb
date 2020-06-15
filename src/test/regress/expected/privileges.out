@@ -41,13 +41,13 @@ SELECT session_user, current_user;
  regress_priv_user1 | regress_priv_user1
 (1 row)
 
-CREATE TABLE atest1 (id int, a int, b text );
+CREATE TABLE atest1 ( a int, b text );
 SELECT * FROM atest1;
- id | a | b 
-----+---+---
+ a | b 
+---+---
 (0 rows)
 
-INSERT INTO atest1(a,b) VALUES (1, 'one');
+INSERT INTO atest1 VALUES (1, 'one');
 DELETE FROM atest1;
 UPDATE atest1 SET a = 1 WHERE b = 'blech';
 TRUNCATE atest1;
@@ -56,15 +56,15 @@ LOCK atest1 IN ACCESS EXCLUSIVE MODE;
 COMMIT;
 REVOKE ALL ON atest1 FROM PUBLIC;
 SELECT * FROM atest1;
- id | a | b 
-----+---+---
+ a | b 
+---+---
 (0 rows)
 
 GRANT ALL ON atest1 TO regress_priv_user2;
 GRANT SELECT ON atest1 TO regress_priv_user3, regress_priv_user4;
 SELECT * FROM atest1;
- id | a | b 
-----+---+---
+ a | b 
+---+---
 (0 rows)
 
 CREATE TABLE atest2 (col1 varchar(10), col2 boolean);
@@ -81,8 +81,8 @@ SELECT session_user, current_user;
 
 -- try various combinations of queries on atest1 and atest2
 SELECT * FROM atest1; -- ok
- id | a | b 
-----+---+---
+ a | b 
+---+---
 (0 rows)
 
 SELECT * FROM atest2; -- ok
@@ -90,21 +90,21 @@ SELECT * FROM atest2; -- ok
 ------+------
 (0 rows)
 
-INSERT INTO atest1(a,b) VALUES (2, 'two'); -- ok
+INSERT INTO atest1 VALUES (2, 'two'); -- ok
 INSERT INTO atest2 VALUES ('foo', true); -- fail
 ERROR:  permission denied for table atest2
 INSERT INTO atest1 SELECT 1, b FROM atest1; -- ok
 UPDATE atest1 SET a = 1 WHERE a = 2; -- ok
 UPDATE atest2 SET col2 = NOT col2; -- fail
 ERROR:  permission denied for table atest2
-SELECT * FROM atest1 ORDER BY 1 FOR UPDATE; -- ok
+SELECT * FROM atest1 FOR UPDATE; -- ok
  a |  b  
 ---+-----
  1 | two
  1 | two
 (2 rows)
 
-SELECT * FROM atest2 ORDER BY 1 FOR UPDATE; -- fail
+SELECT * FROM atest2 FOR UPDATE; -- fail
 ERROR:  permission denied for table atest2
 DELETE FROM atest2; -- fail
 ERROR:  permission denied for table atest2
@@ -177,11 +177,11 @@ SELECT * FROM atest2 WHERE ( col1 IN ( SELECT b FROM atest1 ) );
 ERROR:  permission denied for table atest2
 SET SESSION AUTHORIZATION regress_priv_user4;
 COPY atest2 FROM stdin; -- ok
-SELECT * FROM atest1 ORDER BY 1; -- ok
- id | a |  b  
-----+---+-----
-    | 1 | two
-    | 1 | two
+SELECT * FROM atest1; -- ok
+ a |  b  
+---+-----
+ 1 | two
+ 1 | two
 (2 rows)
 
 -- test leaky-function protections in selfuncs
@@ -355,10 +355,10 @@ CREATE VIEW atestv3 AS SELECT * FROM atest3; -- ok
 /* Empty view is a corner case that failed in 9.2. */
 CREATE VIEW atestv0 AS SELECT 0 as x WHERE false; -- ok
 SELECT * FROM atestv1; -- ok
- id | a |  b  
-----+---+-----
-    | 1 | two
-    | 1 | two
+ a |  b  
+---+-----
+ 1 | two
+ 1 | two
 (2 rows)
 
 SELECT * FROM atestv2; -- fail
@@ -367,10 +367,10 @@ GRANT SELECT ON atestv1, atestv3 TO regress_priv_user4;
 GRANT SELECT ON atestv2 TO regress_priv_user2;
 SET SESSION AUTHORIZATION regress_priv_user4;
 SELECT * FROM atestv1; -- ok
- id | a |  b  
-----+---+-----
-    | 1 | two
-    | 1 | two
+ a |  b  
+---+-----
+ 1 | two
+ 1 | two
 (2 rows)
 
 SELECT * FROM atestv2; -- fail
@@ -470,17 +470,17 @@ ERROR:  permission denied for table atest5
 SELECT * FROM atest1, atest5; -- fail
 ERROR:  permission denied for table atest5
 SELECT atest1.* FROM atest1, atest5; -- ok
- id | a |  b  
-----+---+-----
-    | 1 | two
-    | 1 | two
+ a |  b  
+---+-----
+ 1 | two
+ 1 | two
 (2 rows)
 
-SELECT atest1.*,atest5.one FROM atest1, atest5; -- ok 
- id | a |  b  | one 
-----+---+-----+-----
-    | 1 | two |   1
-    | 1 | two |   1
+SELECT atest1.*,atest5.one FROM atest1, atest5; -- ok
+ a |  b  | one 
+---+-----+-----
+ 1 | two |   1
+ 1 | two |   1
 (2 rows)
 
 SELECT atest1.*,atest5.one FROM atest1 JOIN atest5 ON (atest1.a = atest5.two); -- fail

@@ -1046,6 +1046,7 @@ IndexList
 IndexOnlyScan
 IndexOnlyScanState
 IndexOptInfo
+IndexOrderByDistance
 IndexPath
 IndexRuntimeKeyInfo
 IndexScan

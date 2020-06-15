@@ -3,7 +3,7 @@
 -- test the views defined in CREATE_VIEWS
 --
 
-SELECT * FROM street ORDER BY name using ~<~, cname using ~<~,thepath::text using ~<~ ;
+SELECT * FROM street;
 
 SELECT name, #thepath FROM iexit ORDER BY name COLLATE "C", 2;
 

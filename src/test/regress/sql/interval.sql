@@ -34,25 +34,25 @@ INSERT INTO INTERVAL_TBL (f1) VALUES ('@ 30 eons ago');
 
 -- test interval operators
 
-SELECT '' AS ten, * FROM INTERVAL_TBL ORDER BY f1;
+SELECT '' AS ten, * FROM INTERVAL_TBL;
 
 SELECT '' AS nine, * FROM INTERVAL_TBL
-   WHERE INTERVAL_TBL.f1 <> interval '@ 10 days' ORDER BY f1;
+   WHERE INTERVAL_TBL.f1 <> interval '@ 10 days';
 
 SELECT '' AS three, * FROM INTERVAL_TBL
-   WHERE INTERVAL_TBL.f1 <= interval '@ 5 hours' ORDER BY f1;
+   WHERE INTERVAL_TBL.f1 <= interval '@ 5 hours';
 
 SELECT '' AS three, * FROM INTERVAL_TBL
-   WHERE INTERVAL_TBL.f1 < interval '@ 1 day' ORDER BY f1;
+   WHERE INTERVAL_TBL.f1 < interval '@ 1 day';
 
 SELECT '' AS one, * FROM INTERVAL_TBL
-   WHERE INTERVAL_TBL.f1 = interval '@ 34 years' ORDER BY f1;
+   WHERE INTERVAL_TBL.f1 = interval '@ 34 years';
 
-SELECT '' AS five, * FROM INTERVAL_TBL 
-   WHERE INTERVAL_TBL.f1 >= interval '@ 1 month' ORDER BY f1;
+SELECT '' AS five, * FROM INTERVAL_TBL
+   WHERE INTERVAL_TBL.f1 >= interval '@ 1 month';
 
 SELECT '' AS nine, * FROM INTERVAL_TBL
-   WHERE INTERVAL_TBL.f1 > interval '@ 3 seconds ago' ORDER BY f1;
+   WHERE INTERVAL_TBL.f1 > interval '@ 3 seconds ago';
 
 SELECT '' AS fortyfive, r1.*, r2.*
    FROM INTERVAL_TBL r1, INTERVAL_TBL r2
@@ -72,6 +72,9 @@ INSERT INTO INTERVAL_TBL_OF (f1) VALUES ('2147483648 days');
 INSERT INTO INTERVAL_TBL_OF (f1) VALUES ('-2147483649 days');
 INSERT INTO INTERVAL_TBL_OF (f1) VALUES ('2147483647 years');
 INSERT INTO INTERVAL_TBL_OF (f1) VALUES ('-2147483648 years');
+
+-- Test edge-case overflow detection in interval multiplication
+select extract(epoch from '256 microseconds'::interval * (2^55)::float8);
 
 SELECT r1.*, r2.*
    FROM INTERVAL_TBL_OF r1, INTERVAL_TBL_OF r2
@@ -108,23 +111,23 @@ COPY INTERVAL_MULDIV_TBL FROM STDIN;
 \.
 
 SELECT span * 0.3 AS product
-FROM INTERVAL_MULDIV_TBL ORDER BY span;
+FROM INTERVAL_MULDIV_TBL;
 
 SELECT span * 8.2 AS product
-FROM INTERVAL_MULDIV_TBL ORDER BY span;
+FROM INTERVAL_MULDIV_TBL;
 
 SELECT span / 10 AS quotient
-FROM INTERVAL_MULDIV_TBL ORDER BY span;
+FROM INTERVAL_MULDIV_TBL;
 
 SELECT span / 100 AS quotient
-FROM INTERVAL_MULDIV_TBL ORDER BY span;
+FROM INTERVAL_MULDIV_TBL;
 
 DROP TABLE INTERVAL_MULDIV_TBL;
 
 SET DATESTYLE = 'postgres';
 SET IntervalStyle to postgres_verbose;
 
-SELECT '' AS ten, * FROM INTERVAL_TBL ORDER BY f1;
+SELECT '' AS ten, * FROM INTERVAL_TBL;
 
 -- test avg(interval), which is somewhat fragile since people have been
 -- known to change the allowed input syntax for type interval without
@@ -226,7 +229,7 @@ SELECT interval '1 2:03:04.5678' minute to second(2);
 -- test casting to restricted precision (bug #14479)
 SELECT f1, f1::INTERVAL DAY TO MINUTE AS "minutes",
   (f1 + INTERVAL '1 month')::INTERVAL MONTH::INTERVAL YEAR AS "years"
-  FROM interval_tbl order by f1;
+  FROM interval_tbl;
 
 -- test inputting and outputting SQL standard interval literals
 SET IntervalStyle TO sql_standard;

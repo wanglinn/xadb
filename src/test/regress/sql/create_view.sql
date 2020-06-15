@@ -54,12 +54,12 @@ CREATE OR REPLACE VIEW viewtest AS
 CREATE OR REPLACE VIEW viewtest AS
 	SELECT * FROM viewtest_tbl WHERE a > 10;
 
-SELECT * FROM viewtest ORDER BY a;
+SELECT * FROM viewtest;
 
 CREATE OR REPLACE VIEW viewtest AS
 	SELECT a, b FROM viewtest_tbl WHERE a > 5 ORDER BY b DESC;
 
-SELECT * FROM viewtest ORDER BY a;
+SELECT * FROM viewtest;
 
 -- should fail
 CREATE OR REPLACE VIEW viewtest AS

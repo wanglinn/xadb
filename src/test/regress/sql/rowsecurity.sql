@@ -58,7 +58,7 @@ INSERT INTO uaccount VALUES
 CREATE TABLE category (
     cid        int primary key,
     cname      text
-) distribute by replication;
+);
 GRANT ALL ON category TO public;
 INSERT INTO category VALUES
     (11, 'novel'),
@@ -72,7 +72,7 @@ CREATE TABLE document (
     dlevel      int not null,
     dauthor     name,
     dtitle      text
-) distribute by replication;
+);
 GRANT ALL ON document TO public;
 INSERT INTO document VALUES
     ( 1, 11, 1, 'regress_rls_bob', 'my first novel'),
@@ -1809,6 +1809,25 @@ DROP OPERATOR <<< (int, int);
 DROP FUNCTION op_leak(int, int);
 RESET SESSION AUTHORIZATION;
 DROP TABLE rls_tbl;
+
+-- Bug #16006: whole-row Vars in a policy don't play nice with sub-selects
+SET SESSION AUTHORIZATION regress_rls_alice;
+CREATE TABLE rls_tbl (a int, b int, c int);
+CREATE POLICY p1 ON rls_tbl USING (rls_tbl >= ROW(1,1,1));
+
+ALTER TABLE rls_tbl ENABLE ROW LEVEL SECURITY;
+ALTER TABLE rls_tbl FORCE ROW LEVEL SECURITY;
+
+INSERT INTO rls_tbl SELECT 10, 20, 30;
+EXPLAIN (VERBOSE, COSTS OFF)
+INSERT INTO rls_tbl
+  SELECT * FROM (SELECT b, c FROM rls_tbl ORDER BY a) ss;
+INSERT INTO rls_tbl
+  SELECT * FROM (SELECT b, c FROM rls_tbl ORDER BY a) ss;
+SELECT * FROM rls_tbl;
+
+DROP TABLE rls_tbl;
+RESET SESSION AUTHORIZATION;
 
 --
 -- Clean up objects

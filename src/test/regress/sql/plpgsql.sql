@@ -25,7 +25,7 @@
 create table Room (
     roomno	char(8),
     comment	text
-) distribute by replication;
+);
 
 create unique index Room_rno on Room using btree (roomno bpchar_ops);
 
@@ -35,7 +35,7 @@ create table WSlot (
     roomno	char(8),
     slotlink	char(20),
     backlink	char(20)
-) distribute by replication;
+);
 
 create unique index WSlot_name on WSlot using btree (slotname bpchar_ops);
 
@@ -43,7 +43,7 @@ create unique index WSlot_name on WSlot using btree (slotname bpchar_ops);
 create table PField (
     name	text,
     comment	text
-) distribute by replication;
+);
 
 create unique index PField_name on PField using btree (name text_ops);
 
@@ -53,7 +53,7 @@ create table PSlot (
     pfname	text,
     slotlink	char(20),
     backlink	char(20)
-) distribute by replication;
+);
 
 create unique index PSlot_name on PSlot using btree (slotname bpchar_ops);
 
@@ -63,7 +63,7 @@ create table PLine (
     phonenumber	char(20),
     comment	text,
     backlink	char(20)
-) distribute by replication;
+);
 
 create unique index PLine_name on PLine using btree (slotname bpchar_ops);
 
@@ -72,7 +72,7 @@ create table Hub (
     name	char(14),
     comment	text,
     nslots	integer
-) distribute by replication;
+);
 
 create unique index Hub_name on Hub using btree (name bpchar_ops);
 
@@ -82,7 +82,7 @@ create table HSlot (
     hubname	char(14),
     slotno	integer,
     slotlink	char(20)
-) distribute by replication;
+);
 
 create unique index HSlot_name on HSlot using btree (slotname bpchar_ops);
 create index HSlot_hubname on HSlot using btree (hubname bpchar_ops);
@@ -91,7 +91,7 @@ create index HSlot_hubname on HSlot using btree (hubname bpchar_ops);
 create table System (
     name	text,
     comment	text
-) distribute by replication;
+);
 
 create unique index System_name on System using btree (name text_ops);
 
@@ -101,7 +101,7 @@ create table IFace (
     sysname	text,
     ifname	text,
     slotlink	char(20)
-) distribute by replication;
+);
 
 create unique index IFace_name on IFace using btree (slotname bpchar_ops);
 
@@ -110,7 +110,7 @@ create table PHone (
     slotname	char(20),
     comment	text,
     slotlink	char(20)
-) distribute by replication;
+);
 
 create unique index PHone_name on PHone using btree (slotname bpchar_ops);
 
@@ -1442,7 +1442,7 @@ SELECT recursion_test(4,3);
 --
 -- Test the FOUND magic variable
 --
-CREATE TABLE found_test_tbl (a int unique) distribute by replication;
+CREATE TABLE found_test_tbl (a int);
 
 create function test_found()
   returns boolean as '
@@ -1481,7 +1481,7 @@ create function test_found()
   end;' language plpgsql;
 
 select test_found();
-select * from found_test_tbl order by 1;
+select * from found_test_tbl;
 
 --
 -- Test set-returning functions for PL/pgSQL
@@ -1497,7 +1497,7 @@ BEGIN
 	RETURN;
 END;' language plpgsql;
 
-select * from test_table_func_rec() order by 1;
+select * from test_table_func_rec();
 
 create function test_table_func_row() returns setof found_test_tbl as '
 DECLARE
@@ -1509,7 +1509,7 @@ BEGIN
 	RETURN;
 END;' language plpgsql;
 
-select * from test_table_func_row() order by 1;
+select * from test_table_func_row();
 
 create function test_ret_set_scalar(int,int) returns setof int as '
 DECLARE
@@ -1521,7 +1521,7 @@ BEGIN
 	RETURN;
 END;' language plpgsql;
 
-select * from test_ret_set_scalar(1,10) order by 1;
+select * from test_ret_set_scalar(1,10);
 
 create function test_ret_set_rec_dyn(int) returns setof record as '
 DECLARE
@@ -1539,8 +1539,8 @@ BEGIN
 	RETURN;
 END;' language plpgsql;
 
-SELECT * FROM test_ret_set_rec_dyn(1500) AS (a int, b int, c int) order by a, b, c;
-SELECT * FROM test_ret_set_rec_dyn(5) AS (a int, b numeric, c text) order by a, b, c;
+SELECT * FROM test_ret_set_rec_dyn(1500) AS (a int, b int, c int);
+SELECT * FROM test_ret_set_rec_dyn(5) AS (a int, b numeric, c text);
 
 create function test_ret_rec_dyn(int) returns record as '
 DECLARE
@@ -1555,8 +1555,8 @@ BEGIN
 	END IF;
 END;' language plpgsql;
 
-SELECT * FROM test_ret_rec_dyn(1500) AS (a int, b int, c int) order by a, b, c;
-SELECT * FROM test_ret_rec_dyn(5) AS (a int, b numeric, c text) order by a, b, c;
+SELECT * FROM test_ret_rec_dyn(1500) AS (a int, b int, c int);
+SELECT * FROM test_ret_rec_dyn(5) AS (a int, b numeric, c text);
 
 --
 -- Test handling of OUT parameters, including polymorphic cases.
@@ -1597,7 +1597,7 @@ begin
   return;
 end$$ language plpgsql;
 
-select * from f1(42) order by 1;
+select * from f1(42);
 
 drop function f1(int);
 
@@ -1623,7 +1623,7 @@ begin
   return next;
 end$$ language plpgsql;
 
-select * from f1(42) order by j, k;;
+select * from f1(42);
 
 drop function f1(int);
 
@@ -1680,7 +1680,7 @@ BEGIN
 END;' language plpgsql;
 
 SELECT perform_test_func();
-SELECT * FROM perform_test order by a, b;
+SELECT * FROM perform_test;
 
 drop table perform_test;
 
@@ -2199,7 +2199,7 @@ end$$ language plpgsql;
 
 select stricttest();
 
-select * from foo order by 1, 2;
+select * from foo;
 
 create or replace function stricttest() returns void as $$
 declare x record;
@@ -2560,7 +2560,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from sc_test() order by 1;
+select * from sc_test();
 
 create or replace function sc_test() returns setof integer as $$
 declare
@@ -2577,7 +2577,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from sc_test() order by 1;  -- fails because of NO SCROLL specification
+select * from sc_test();  -- fails because of NO SCROLL specification
 
 create or replace function sc_test() returns setof integer as $$
 declare
@@ -2594,14 +2594,14 @@ begin
 end;
 $$ language plpgsql;
 
-select * from sc_test() order by 1;
+select * from sc_test();
 
 create or replace function sc_test() returns setof integer as $$
 declare
   c refcursor;
   x integer;
 begin
-  open c scroll for execute 'select f1 from int4_tbl order by 1';
+  open c scroll for execute 'select f1 from int4_tbl';
   fetch last from c into x;
   while found loop
     return next x;
@@ -2618,7 +2618,7 @@ declare
   c refcursor;
   x integer;
 begin
-  open c scroll for execute 'select f1 from int4_tbl order by 1';
+  open c scroll for execute 'select f1 from int4_tbl';
   fetch last from c into x;
   while found loop
     return next x;
@@ -2651,7 +2651,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from sc_test() order by 1;
+select * from sc_test();
 
 create or replace function sc_test() returns setof integer as $$
 declare
@@ -2668,7 +2668,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from sc_test() order by 1;
+select * from sc_test();
 
 drop function sc_test();
 
@@ -2706,7 +2706,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from ret_query1() order by 1, 2;
+select * from ret_query1();
 
 create type record_type as (x text, y int, z boolean);
 
@@ -2717,7 +2717,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from ret_query2(8) order by 1;
+select * from ret_query2(8);
 
 -- test EXECUTE USING
 create function exc_using(int, text) returns int as $$
@@ -2802,7 +2802,7 @@ create temp table forc_test as
 
 create or replace function forc01() returns void as $$
 declare
-  c cursor for select * from forc_test order by 1;
+  c cursor for select * from forc_test;
 begin
   for r in c loop
     raise notice '%, %', r.i, r.j;
@@ -2813,7 +2813,7 @@ $$ language plpgsql;
 
 select forc01();
 
-select * from forc_test order by 1, 2;
+select * from forc_test;
 
 -- same, with a cursor whose portal name doesn't match variable name
 create or replace function forc01() returns void as $$
@@ -2821,7 +2821,7 @@ declare
   c refcursor := 'fooled_ya';
   r record;
 begin
-  open c for select * from forc_test order by 1;
+  open c for select * from forc_test;
   loop
     fetch c into r;
     exit when not found;
@@ -2833,7 +2833,7 @@ $$ language plpgsql;
 
 select forc01();
 
-select * from forc_test order by 1;
+select * from forc_test;
 
 drop function forc01();
 
@@ -2859,7 +2859,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from return_dquery() order by 1;
+select * from return_dquery();
 
 drop function return_dquery();
 
@@ -2876,19 +2876,19 @@ begin
 end;
 $$ language plpgsql;
 
-select * from returnqueryf() order by 1,2,3,4;
+select * from returnqueryf();
 
 alter table tabwithcols drop column b;
 
-select * from returnqueryf() order by 1,2,3;
+select * from returnqueryf();
 
 alter table tabwithcols drop column d;
 
-select * from returnqueryf() order by 1,2;
+select * from returnqueryf();
 
 alter table tabwithcols add column d int;
 
-select * from returnqueryf() order by 1,2,3;
+select * from returnqueryf();
 
 drop function returnqueryf();
 drop table tabwithcols;
@@ -3338,7 +3338,7 @@ begin
 end;
 $$ language plpgsql immutable strict;
 
-select * from tftest(10) order by 1, 2;
+select * from tftest(10);
 
 create or replace function tftest(a1 int) returns table(a int, b int) as $$
 begin
@@ -3349,7 +3349,7 @@ begin
 end;
 $$ language plpgsql immutable strict;
 
-select * from tftest(10) order by 1, 2;
+select * from tftest(10);
 
 drop function tftest(int);
 
@@ -3374,7 +3374,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from rttest() order by 1;
+select * from rttest();
 
 drop function rttest();
 
@@ -3665,7 +3665,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from conflict_test() order by 1,2;
+select * from conflict_test();
 
 create or replace function conflict_test() returns setof int8_tbl as $$
 #variable_conflict use_variable
@@ -3678,7 +3678,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from conflict_test() order by 1,2;
+select * from conflict_test();
 
 create or replace function conflict_test() returns setof int8_tbl as $$
 #variable_conflict use_column
@@ -3691,7 +3691,7 @@ begin
 end;
 $$ language plpgsql;
 
-select * from conflict_test() order by 1,2;
+select * from conflict_test();
 
 drop function conflict_test();
 

@@ -15,7 +15,7 @@
 --	0 1 2 3
 --
 -- boxes are specified by two points, given by four floats x1,y1,x2,y2
-CREATE TABLE BOX_TBL (f1 box) DISTRIBUTE BY REPLICATION;
+CREATE TABLE BOX_TBL (f1 box);
 INSERT INTO BOX_TBL (f1) VALUES ('(2.0,2.0,0.0,0.0)');
 INSERT INTO BOX_TBL (f1) VALUES ('(1.0,1.0,3.0,3.0)');
 INSERT INTO BOX_TBL (f1) VALUES ('((-8, 2), (-2, -10))');
@@ -55,31 +55,31 @@ SELECT '' AS four, * FROM BOX_TBL;
 (5 rows)
 
 SELECT '' AS four, b.*, area(b.f1) as barea
-   FROM BOX_TBL b ORDER BY (b.f1[0])[0], (b.f1[0])[1], (b.f1[2])[0], (b.f1[2])[1];
+   FROM BOX_TBL b;
  four |         f1          | barea 
 ------+---------------------+-------
-      | (-2,2),(-8,-10)     |    72
       | (2,2),(0,0)         |     4
-      | (2.5,3.5),(2.5,2.5) |     0
       | (3,3),(1,1)         |     4
+      | (-2,2),(-8,-10)     |    72
+      | (2.5,3.5),(2.5,2.5) |     0
       | (3,3),(3,3)         |     0
 (5 rows)
 
 -- overlap
 SELECT '' AS three, b.f1
-   FROM BOX_TBL b  
-   WHERE b.f1 && box '(2.5,2.5,1.0,1.0)' ORDER BY (b.f1[0])[0], (b.f1[0])[1], (b.f1[2])[0], (b.f1[2])[1];
+   FROM BOX_TBL b
+   WHERE b.f1 && box '(2.5,2.5,1.0,1.0)';
  three |         f1          
 -------+---------------------
        | (2,2),(0,0)
-       | (2.5,3.5),(2.5,2.5)
        | (3,3),(1,1)
+       | (2.5,3.5),(2.5,2.5)
 (3 rows)
 
 -- left-or-overlap (x only)
 SELECT '' AS two, b1.*
    FROM BOX_TBL b1
-   WHERE b1.f1 &< box '(2.0,2.0,2.5,2.5)' ORDER BY (b1.f1[0])[0], (b1.f1[0])[1], (b1.f1[2])[0], (b1.f1[2])[1];
+   WHERE b1.f1 &< box '(2.0,2.0,2.5,2.5)';
  two |         f1          
 -----+---------------------
      | (2,2),(0,0)
@@ -90,7 +90,7 @@ SELECT '' AS two, b1.*
 -- right-or-overlap (x only)
 SELECT '' AS two, b1.*
    FROM BOX_TBL b1
-   WHERE b1.f1 &> box '(2.0,2.0,2.5,2.5)' ORDER BY (b1.f1[0])[0], (b1.f1[0])[1], (b1.f1[2])[0], (b1.f1[2])[1];
+   WHERE b1.f1 &> box '(2.0,2.0,2.5,2.5)';
  two |         f1          
 -----+---------------------
      | (2.5,3.5),(2.5,2.5)
@@ -100,7 +100,7 @@ SELECT '' AS two, b1.*
 -- left of
 SELECT '' AS two, b.f1
    FROM BOX_TBL b
-   WHERE b.f1 << box '(3.0,3.0,5.0,5.0)' ORDER BY (b.f1[0])[0], (b.f1[0])[1], (b.f1[2])[0], (b.f1[2])[1];
+   WHERE b.f1 << box '(3.0,3.0,5.0,5.0)';
  two |         f1          
 -----+---------------------
      | (2,2),(0,0)
@@ -111,19 +111,19 @@ SELECT '' AS two, b.f1
 -- area <=
 SELECT '' AS four, b.f1
    FROM BOX_TBL b
-   WHERE b.f1 <= box '(3.0,3.0,5.0,5.0)' ORDER BY (b.f1[0])[0], (b.f1[0])[1], (b.f1[2])[0], (b.f1[2])[1];
+   WHERE b.f1 <= box '(3.0,3.0,5.0,5.0)';
  four |         f1          
 ------+---------------------
       | (2,2),(0,0)
-      | (2.5,3.5),(2.5,2.5)
       | (3,3),(1,1)
+      | (2.5,3.5),(2.5,2.5)
       | (3,3),(3,3)
 (4 rows)
 
 -- area <
 SELECT '' AS two, b.f1
    FROM BOX_TBL b
-   WHERE b.f1 < box '(3.0,3.0,5.0,5.0)' ORDER BY (b.f1[0])[0], (b.f1[0])[1], (b.f1[2])[0], (b.f1[2])[1];
+   WHERE b.f1 < box '(3.0,3.0,5.0,5.0)';
  two |         f1          
 -----+---------------------
      | (2.5,3.5),(2.5,2.5)
@@ -133,7 +133,7 @@ SELECT '' AS two, b.f1
 -- area =
 SELECT '' AS two, b.f1
    FROM BOX_TBL b
-   WHERE b.f1 = box '(3.0,3.0,5.0,5.0)' ORDER BY (b.f1[0])[0], (b.f1[0])[1], (b.f1[2])[0], (b.f1[2])[1];
+   WHERE b.f1 = box '(3.0,3.0,5.0,5.0)';
  two |     f1      
 -----+-------------
      | (2,2),(0,0)
@@ -143,7 +143,7 @@ SELECT '' AS two, b.f1
 -- area >
 SELECT '' AS two, b.f1
    FROM BOX_TBL b				-- zero area
-   WHERE b.f1 > box '(3.5,3.0,4.5,3.0)' ORDER BY (b.f1[0])[0], (b.f1[0])[1], (b.f1[2])[0], (b.f1[2])[1];
+   WHERE b.f1 > box '(3.5,3.0,4.5,3.0)';
  two |       f1        
 -----+-----------------
      | (2,2),(0,0)
@@ -153,21 +153,21 @@ SELECT '' AS two, b.f1
 
 -- area >=
 SELECT '' AS four, b.f1
-   FROM BOX_TBL b				-- zero area 
-   WHERE b.f1 >= box '(3.5,3.0,4.5,3.0)' ORDER BY (b.f1[0])[0], (b.f1[0])[1], (b.f1[2])[0], (b.f1[2])[1];
+   FROM BOX_TBL b				-- zero area
+   WHERE b.f1 >= box '(3.5,3.0,4.5,3.0)';
  four |         f1          
 ------+---------------------
-      | (-2,2),(-8,-10)
       | (2,2),(0,0)
-      | (2.5,3.5),(2.5,2.5)
       | (3,3),(1,1)
+      | (-2,2),(-8,-10)
+      | (2.5,3.5),(2.5,2.5)
       | (3,3),(3,3)
 (5 rows)
 
 -- right of
 SELECT '' AS two, b.f1
    FROM BOX_TBL b
-   WHERE box '(3.0,3.0,5.0,5.0)' >> b.f1 ORDER BY (b.f1[0])[0], (b.f1[0])[1], (b.f1[2])[0], (b.f1[2])[1];
+   WHERE box '(3.0,3.0,5.0,5.0)' >> b.f1;
  two |         f1          
 -----+---------------------
      | (2,2),(0,0)
@@ -178,7 +178,7 @@ SELECT '' AS two, b.f1
 -- contained in
 SELECT '' AS three, b.f1
    FROM BOX_TBL b
-   WHERE b.f1 <@ box '(0,0,3,3)' ORDER BY (b.f1[0])[0], (b.f1[0])[1], (b.f1[2])[0], (b.f1[2])[1];
+   WHERE b.f1 <@ box '(0,0,3,3)';
  three |     f1      
 -------+-------------
        | (2,2),(0,0)
@@ -189,7 +189,7 @@ SELECT '' AS three, b.f1
 -- contains
 SELECT '' AS three, b.f1
    FROM BOX_TBL b
-   WHERE box '(0,0,3,3)' @> b.f1 ORDER BY (b.f1[0])[0], (b.f1[0])[1], (b.f1[2])[0], (b.f1[2])[1];
+   WHERE box '(0,0,3,3)' @> b.f1;
  three |     f1      
 -------+-------------
        | (2,2),(0,0)
@@ -200,7 +200,7 @@ SELECT '' AS three, b.f1
 -- box equality
 SELECT '' AS one, b.f1
    FROM BOX_TBL b
-   WHERE box '(1,1,3,3)' ~= b.f1 ORDER BY (b.f1[0])[0], (b.f1[0])[1], (b.f1[2])[0], (b.f1[2])[1];
+   WHERE box '(1,1,3,3)' ~= b.f1;
  one |     f1      
 -----+-------------
      | (3,3),(1,1)
@@ -208,33 +208,32 @@ SELECT '' AS one, b.f1
 
 -- center of box, left unary operator
 SELECT '' AS four, @@(b1.f1) AS p
-   FROM BOX_TBL b1 ORDER BY (b1.f1[0])[0], (b1.f1[0])[1], (b1.f1[2])[0], (b1.f1[2])[1];
+   FROM BOX_TBL b1;
  four |    p    
 ------+---------
-      | (-5,-4)
       | (1,1)
-      | (2.5,3)
       | (2,2)
+      | (-5,-4)
+      | (2.5,3)
       | (3,3)
 (5 rows)
 
 -- wholly-contained
 SELECT '' AS one, b1.*, b2.*
-   FROM BOX_TBL b1, BOX_TBL b2 
-   WHERE b1.f1 @> b2.f1 and not b1.f1 ~= b2.f1 
-   ORDER BY (b1.f1[0])[0], (b1.f1[0])[1], (b1.f1[2])[0], (b1.f1[2])[1], (b2.f1[0])[0], (b2.f1[0])[1], (b2.f1[2])[0], (b2.f1[2])[1]; 
+   FROM BOX_TBL b1, BOX_TBL b2
+   WHERE b1.f1 @> b2.f1 and not b1.f1 ~= b2.f1;
  one |     f1      |     f1      
 -----+-------------+-------------
      | (3,3),(1,1) | (3,3),(3,3)
 (1 row)
 
-SELECT '' AS four, height(f1), width(f1) FROM BOX_TBL ORDER BY (f1[0])[0], (f1[0])[1], (f1[2])[0], (f1[2])[1];
+SELECT '' AS four, height(f1), width(f1) FROM BOX_TBL;
  four | height | width 
 ------+--------+-------
+      |      2 |     2
+      |      2 |     2
       |     12 |     6
-      |      2 |     2
       |      1 |     0
-      |      2 |     2
       |      0 |     0
 (5 rows)
 
@@ -254,16 +253,16 @@ INSERT INTO box_temp
 		   ('(-infinity,0)(0,infinity)'),
 		   ('(-infinity,-infinity)(infinity,infinity)');
 SET enable_seqscan = false;
-SELECT * FROM box_temp WHERE f1 << '(10,20),(30,40)' order by (f1[0])[0],(f1[0])[0],(f1[1])[0],(f1[1])[1];
+SELECT * FROM box_temp WHERE f1 << '(10,20),(30,40)';
              f1             
 ----------------------------
- (0,Infinity),(-Infinity,0)
- (0,100),(0,0)
- (0,Infinity),(0,100)
  (2,2),(1,1)
  (4,4),(2,2)
  (6,6),(3,3)
  (8,8),(4,4)
+ (0,100),(0,0)
+ (0,Infinity),(0,100)
+ (0,Infinity),(-Infinity,0)
 (7 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 << '(10,20),(30,40)';
@@ -273,17 +272,17 @@ EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 << '(10,20),(30,40)';
    Index Cond: (f1 << '(30,40),(10,20)'::box)
 (2 rows)
 
-SELECT * FROM box_temp WHERE f1 &< '(10,4.333334),(5,100)' order by (f1[0])[0],(f1[0])[0],(f1[1])[0],(f1[1])[1];
+SELECT * FROM box_temp WHERE f1 &< '(10,4.333334),(5,100)';
              f1             
 ----------------------------
- (0,Infinity),(-Infinity,0)
- (0,100),(0,0)
- (0,Infinity),(0,100)
  (2,2),(1,1)
  (4,4),(2,2)
  (6,6),(3,3)
  (8,8),(4,4)
  (10,10),(5,5)
+ (0,100),(0,0)
+ (0,Infinity),(0,100)
+ (0,Infinity),(-Infinity,0)
 (8 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 &< '(10,4.333334),(5,100)';
@@ -293,7 +292,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 &< '(10,4.333334),(5,100)';
    Index Cond: (f1 &< '(10,100),(5,4.333334)'::box)
 (2 rows)
 
-SELECT * FROM box_temp WHERE f1 && '(15,20),(25,30)' order by (f1[0])[0],(f1[0])[0],(f1[1])[0],(f1[1])[1];
+SELECT * FROM box_temp WHERE f1 && '(15,20),(25,30)';
                     f1                     
 -------------------------------------------
  (20,20),(10,10)
@@ -322,7 +321,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 && '(15,20),(25,30)';
    Index Cond: (f1 && '(25,30),(15,20)'::box)
 (2 rows)
 
-SELECT * FROM box_temp WHERE f1 &> '(40,30),(45,50)' order by (f1[0])[0],(f1[0])[0],(f1[1])[0],(f1[1])[1];
+SELECT * FROM box_temp WHERE f1 &> '(40,30),(45,50)';
         f1         
 -------------------
  (80,80),(40,40)
@@ -345,7 +344,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 &> '(40,30),(45,50)';
    Index Cond: (f1 &> '(45,50),(40,30)'::box)
 (2 rows)
 
-SELECT * FROM box_temp WHERE f1 >> '(30,40),(40,30)' order by (f1[0])[0],(f1[0])[0],(f1[1])[0],(f1[1])[1];
+SELECT * FROM box_temp WHERE f1 >> '(30,40),(40,30)';
         f1         
 -------------------
  (82,82),(41,41)
@@ -367,7 +366,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 >> '(30,40),(40,30)';
    Index Cond: (f1 >> '(40,40),(30,30)'::box)
 (2 rows)
 
-SELECT * FROM box_temp WHERE f1 <<| '(10,4.33334),(5,100)' order by (f1[0])[0],(f1[0])[0],(f1[1])[0],(f1[1])[1];
+SELECT * FROM box_temp WHERE f1 <<| '(10,4.33334),(5,100)';
             f1            
 --------------------------
  (2,2),(1,1)
@@ -382,7 +381,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 <<| '(10,4.33334),(5,100)';
    Index Cond: (f1 <<| '(10,100),(5,4.33334)'::box)
 (2 rows)
 
-SELECT * FROM box_temp WHERE f1 &<| '(10,4.3333334),(5,1)' order by (f1[0])[0],(f1[0])[0],(f1[1])[0],(f1[1])[1];
+SELECT * FROM box_temp WHERE f1 &<| '(10,4.3333334),(5,1)';
             f1            
 --------------------------
  (2,2),(1,1)
@@ -397,11 +396,11 @@ EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 &<| '(10,4.3333334),(5,1)';
    Index Cond: (f1 &<| '(10,4.3333334),(5,1)'::box)
 (2 rows)
 
-SELECT * FROM box_temp WHERE f1 |&> '(49.99,49.99),(49.99,49.99)' order by (f1[0])[0],(f1[0])[0],(f1[1])[0],(f1[1])[1];
+SELECT * FROM box_temp WHERE f1 |&> '(49.99,49.99),(49.99,49.99)';
           f1          
 ----------------------
- (0,Infinity),(0,100)
  (100,100),(50,50)
+ (0,Infinity),(0,100)
 (2 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 |&> '(49.99,49.99),(49.99,49.99)';
@@ -411,10 +410,9 @@ EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 |&> '(49.99,49.99),(49.99,49
    Index Cond: (f1 |&> '(49.99,49.99),(49.99,49.99)'::box)
 (2 rows)
 
-SELECT * FROM box_temp WHERE f1 |>> '(37,38),(39,40)' order by (f1[0])[0],(f1[0])[0],(f1[1])[0],(f1[1])[1];
+SELECT * FROM box_temp WHERE f1 |>> '(37,38),(39,40)';
           f1          
 ----------------------
- (0,Infinity),(0,100)
  (82,82),(41,41)
  (84,84),(42,42)
  (86,86),(43,43)
@@ -425,6 +423,7 @@ SELECT * FROM box_temp WHERE f1 |>> '(37,38),(39,40)' order by (f1[0])[0],(f1[0]
  (96,96),(48,48)
  (98,98),(49,49)
  (100,100),(50,50)
+ (0,Infinity),(0,100)
 (11 rows)
 
 EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 |>> '(37,38),(39,40)';
@@ -434,7 +433,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 |>> '(37,38),(39,40)';
    Index Cond: (f1 |>> '(39,40),(37,38)'::box)
 (2 rows)
 
-SELECT * FROM box_temp WHERE f1 @> '(10,11),(15,16)' order by (f1[0])[0],(f1[0])[0],(f1[1])[0],(f1[1])[1];
+SELECT * FROM box_temp WHERE f1 @> '(10,11),(15,16)';
                     f1                     
 -------------------------------------------
  (16,16),(8,8)
@@ -450,7 +449,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 @> '(10,11),(15,15)';
    Index Cond: (f1 @> '(15,15),(10,11)'::box)
 (2 rows)
 
-SELECT * FROM box_temp WHERE f1 <@ '(10,15),(30,35)' order by (f1[0])[0],(f1[0])[0],(f1[1])[0],(f1[1])[1];
+SELECT * FROM box_temp WHERE f1 <@ '(10,15),(30,35)';
        f1        
 -----------------
  (30,30),(15,15)
@@ -463,7 +462,7 @@ EXPLAIN (COSTS OFF) SELECT * FROM box_temp WHERE f1 <@ '(10,15),(30,35)';
    Index Cond: (f1 <@ '(30,35),(10,15)'::box)
 (2 rows)
 
-SELECT * FROM box_temp WHERE f1 ~= '(20,20),(40,40)' order by (f1[0])[0],(f1[0])[0],(f1[1])[0],(f1[1])[1];
+SELECT * FROM box_temp WHERE f1 ~= '(20,20),(40,40)';
        f1        
 -----------------
  (40,40),(20,20)

@@ -125,8 +125,9 @@ sub GetOpenSSLVersion
 
 	# Attempt to get OpenSSL version and location.  This assumes that
 	# openssl.exe is in the specified directory.
+	# Quote the .exe name in case it has spaces
 	my $opensslcmd =
-	  $self->{options}->{openssl} . "\\bin\\openssl.exe version 2>&1";
+	  qq("$self->{options}->{openssl}\\bin\\openssl.exe" version 2>&1);
 	my $sslout = `$opensslcmd`;
 
 	$? >> 8 == 0
@@ -964,6 +965,34 @@ sub new
 	$self->{vcver}                      = '15.00';
 	$self->{visualStudioName}           = 'Visual Studio 2017';
 	$self->{VisualStudioVersion}        = '15.0.26730.3';
+	$self->{MinimumVisualStudioVersion} = '10.0.40219.1';
+
+	return $self;
+}
+
+package VS2019Solution;
+
+#
+# Package that encapsulates a Visual Studio 2019 solution file
+#
+
+use Carp;
+use strict;
+use warnings;
+use base qw(Solution);
+
+no warnings qw(redefine);    ## no critic
+
+sub new
+{
+	my $classname = shift;
+	my $self      = $classname->SUPER::_new(@_);
+	bless($self, $classname);
+
+	$self->{solutionFileVersion}        = '12.00';
+	$self->{vcver}                      = '16.00';
+	$self->{visualStudioName}           = 'Visual Studio 2019';
+	$self->{VisualStudioVersion}        = '16.0.28729.10';
 	$self->{MinimumVisualStudioVersion} = '10.0.40219.1';
 
 	return $self;

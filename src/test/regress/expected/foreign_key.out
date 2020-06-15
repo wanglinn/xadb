@@ -5,7 +5,7 @@
 --
 -- First test, check and cascade
 --
-CREATE TABLE PKTABLE ( ptest1 int PRIMARY KEY, ptest2 text ) DISTRIBUTE BY REPLICATION;
+CREATE TABLE PKTABLE ( ptest1 int PRIMARY KEY, ptest2 text );
 CREATE TABLE FKTABLE ( ftest1 int REFERENCES PKTABLE MATCH FULL ON DELETE CASCADE ON UPDATE CASCADE, ftest2 int );
 -- Insert test data into PKTABLE
 INSERT INTO PKTABLE VALUES (1, 'Test1');
@@ -23,7 +23,7 @@ INSERT INTO FKTABLE VALUES (100, 2);
 ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_ftest1_fkey"
 DETAIL:  Key (ftest1)=(100) is not present in table "pktable".
 -- Check FKTABLE
-SELECT * FROM FKTABLE ORDER BY 1, 2;
+SELECT * FROM FKTABLE;
  ftest1 | ftest2 
 --------+--------
       1 |      2
@@ -35,7 +35,7 @@ SELECT * FROM FKTABLE ORDER BY 1, 2;
 -- Delete a row from PK TABLE
 DELETE FROM PKTABLE WHERE ptest1=1;
 -- Check FKTABLE for removal of matched row
-SELECT * FROM FKTABLE ORDER BY 1, 2;
+SELECT * FROM FKTABLE;
  ftest1 | ftest2 
 --------+--------
       2 |      3
@@ -46,12 +46,12 @@ SELECT * FROM FKTABLE ORDER BY 1, 2;
 -- Update a row from PK TABLE
 UPDATE PKTABLE SET ptest1=1 WHERE ptest1=2;
 -- Check FKTABLE for update of matched row
-SELECT * FROM FKTABLE ORDER BY 1, 2;
+SELECT * FROM FKTABLE;
  ftest1 | ftest2 
 --------+--------
-      1 |      3
       3 |      4
         |      1
+      1 |      3
 (3 rows)
 
 DROP TABLE FKTABLE;
@@ -59,7 +59,7 @@ DROP TABLE PKTABLE;
 --
 -- check set NULL and table constraint on multiple columns
 --
-CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 text, PRIMARY KEY(ptest1, ptest2) ) DISTRIBUTE BY REPLICATION;
+CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 text, PRIMARY KEY(ptest1, ptest2) );
 CREATE TABLE FKTABLE ( ftest1 int, ftest2 int, ftest3 int, CONSTRAINT constrname FOREIGN KEY(ftest1, ftest2)
                        REFERENCES PKTABLE MATCH FULL ON DELETE SET NULL ON UPDATE SET NULL);
 -- Test comments
@@ -94,7 +94,7 @@ INSERT INTO FKTABLE VALUES (1, NULL, 4);
 ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname"
 DETAIL:  MATCH FULL does not allow mixing of null and nonnull key values.
 -- Check FKTABLE
-SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
+SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
       1 |      2 |      4
@@ -107,7 +107,7 @@ SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
 -- Delete a row from PK TABLE
 DELETE FROM PKTABLE WHERE ptest1=1 and ptest2=2;
 -- Check FKTABLE for removal of matched row
-SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
+SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
       1 |      3 |      5
@@ -120,7 +120,7 @@ SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
 -- Delete another row from PK TABLE
 DELETE FROM PKTABLE WHERE ptest1=5 and ptest2=10;
 -- Check FKTABLE (should be no change)
-SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
+SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
       1 |      3 |      5
@@ -133,7 +133,7 @@ SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
 -- Update a row from PK TABLE
 UPDATE PKTABLE SET ptest1=1 WHERE ptest1=2;
 -- Check FKTABLE for update of matched row
-SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
+SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
       1 |      3 |      5
@@ -152,16 +152,16 @@ UPDATE FKTABLE SET ftest1 = 1 WHERE ftest1 = 1;
 -- Try altering the column type where foreign keys are involved
 ALTER TABLE PKTABLE ALTER COLUMN ptest1 TYPE bigint;
 ALTER TABLE FKTABLE ALTER COLUMN ftest1 TYPE bigint;
-SELECT * FROM PKTABLE ORDER BY 1, 2, 3;
+SELECT * FROM PKTABLE;
  ptest1 | ptest2 | ptest3  
 --------+--------+---------
       1 |      3 | Test1-2
-      1 |      4 | Test2
       3 |      6 | Test3
       4 |      8 | Test4
+      1 |      4 | Test2
 (4 rows)
 
-SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
+SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
       3 |      6 |     12
@@ -177,7 +177,7 @@ DROP TABLE FKTABLE;
 --
 -- check set default and table constraint on multiple columns
 --
-CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 text, PRIMARY KEY(ptest1, ptest2) ) DISTRIBUTE BY REPLICATION;
+CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 text, PRIMARY KEY(ptest1, ptest2) );
 CREATE TABLE FKTABLE ( ftest1 int DEFAULT -1, ftest2 int DEFAULT -2, ftest3 int, CONSTRAINT constrname2 FOREIGN KEY(ftest1, ftest2)
                        REFERENCES PKTABLE MATCH FULL ON DELETE SET DEFAULT ON UPDATE SET DEFAULT);
 -- Insert a value in PKTABLE for default
@@ -209,7 +209,7 @@ INSERT INTO FKTABLE VALUES (1, NULL, 4);
 ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname2"
 DETAIL:  MATCH FULL does not allow mixing of null and nonnull key values.
 -- Check FKTABLE
-SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
+SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
       1 |      2 |      4
@@ -222,40 +222,40 @@ SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
 -- Delete a row from PK TABLE
 DELETE FROM PKTABLE WHERE ptest1=1 and ptest2=2;
 -- Check FKTABLE to check for removal
-SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
+SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
-     -1 |     -2 |      4
       1 |      3 |      5
       2 |      4 |      8
       3 |      6 |     12
         |        |      0
+     -1 |     -2 |      4
 (5 rows)
 
 -- Delete another row from PK TABLE
 DELETE FROM PKTABLE WHERE ptest1=5 and ptest2=10;
 -- Check FKTABLE (should be no change)
-SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
+SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
-     -1 |     -2 |      4
       1 |      3 |      5
       2 |      4 |      8
       3 |      6 |     12
         |        |      0
+     -1 |     -2 |      4
 (5 rows)
 
 -- Update a row from PK TABLE
 UPDATE PKTABLE SET ptest1=1 WHERE ptest1=2;
 -- Check FKTABLE for update of matched row
-SELECT * FROM FKTABLE ORDER BY 1, 2, 3;
+SELECT * FROM FKTABLE;
  ftest1 | ftest2 | ftest3 
 --------+--------+--------
-     -1 |     -2 |      4
-     -1 |     -2 |      8
       1 |      3 |      5
       3 |      6 |     12
         |        |      0
+     -1 |     -2 |      4
+     -1 |     -2 |      8
 (5 rows)
 
 -- this should fail for lack of CASCADE
@@ -269,8 +269,8 @@ DROP TABLE FKTABLE;
 --
 -- First test, check with no on delete or on update
 --
-CREATE TABLE PKTABLE ( ptest1 int PRIMARY KEY, ptest2 text ) DISTRIBUTE BY REPLICATION;
-CREATE TABLE FKTABLE ( ftest1 int REFERENCES PKTABLE MATCH FULL, ftest2 int ) DISTRIBUTE BY REPLICATION;
+CREATE TABLE PKTABLE ( ptest1 int PRIMARY KEY, ptest2 text );
+CREATE TABLE FKTABLE ( ftest1 int REFERENCES PKTABLE MATCH FULL, ftest2 int );
 -- Insert test data into PKTABLE
 INSERT INTO PKTABLE VALUES (1, 'Test1');
 INSERT INTO PKTABLE VALUES (2, 'Test2');
@@ -287,7 +287,7 @@ INSERT INTO FKTABLE VALUES (100, 2);
 ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_ftest1_fkey"
 DETAIL:  Key (ftest1)=(100) is not present in table "pktable".
 -- Check FKTABLE
-SELECT * FROM FKTABLE ORDER BY 1, 2;
+SELECT * FROM FKTABLE;
  ftest1 | ftest2 
 --------+--------
       1 |      2
@@ -297,7 +297,7 @@ SELECT * FROM FKTABLE ORDER BY 1, 2;
 (4 rows)
 
 -- Check PKTABLE
-SELECT * FROM PKTABLE ORDER BY 1, 2;
+SELECT * FROM PKTABLE;
  ptest1 | ptest2 
 --------+--------
       1 | Test1
@@ -314,7 +314,7 @@ DETAIL:  Key (ptest1)=(1) is still referenced from table "fktable".
 -- Delete a row from PK TABLE (should succeed)
 DELETE FROM PKTABLE WHERE ptest1=5;
 -- Check PKTABLE for deletes
-SELECT * FROM PKTABLE ORDER BY 1, 2;
+SELECT * FROM PKTABLE;
  ptest1 | ptest2 
 --------+--------
       1 | Test1
@@ -330,13 +330,13 @@ DETAIL:  Key (ptest1)=(2) is still referenced from table "fktable".
 -- Update a row from PK TABLE (should succeed)
 UPDATE PKTABLE SET ptest1=0 WHERE ptest1=4;
 -- Check PKTABLE for updates
-SELECT * FROM PKTABLE ORDER BY 1, 2;
+SELECT * FROM PKTABLE;
  ptest1 | ptest2 
 --------+--------
-      0 | Test4
       1 | Test1
       2 | Test2
       3 | Test3
+      0 | Test4
 (4 rows)
 
 DROP TABLE FKTABLE;
@@ -355,9 +355,9 @@ DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 -- MATCH SIMPLE
 -- Base test restricting update/delete
-CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) ) DISTRIBUTE BY REPLICATION;
+CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) );
 CREATE TABLE FKTABLE ( ftest1 int, ftest2 int, ftest3 int, ftest4 int,  CONSTRAINT constrname3
-			FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE) DISTRIBUTE BY REPLICATION;
+			FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE);
 -- Insert Primary Key values
 INSERT INTO PKTABLE VALUES (1, 2, 3, 'test1');
 INSERT INTO PKTABLE VALUES (1, 3, 3, 'test2');
@@ -374,12 +374,12 @@ INSERT INTO FKTABLE VALUES (1, 2, 7, 6);
 ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname3"
 DETAIL:  Key (ftest1, ftest2, ftest3)=(1, 2, 7) is not present in table "pktable".
 -- Show FKTABLE
-SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
       1 |      2 |      3 |      1
-      2 |        |      3 |      3
         |      2 |      3 |      2
+      2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
 (5 rows)
@@ -397,7 +397,7 @@ DETAIL:  Key (ptest1, ptest2, ptest3)=(1, 2, 3) is still referenced from table "
 -- Try to delete something that should work
 DELETE FROM PKTABLE where ptest1=2;
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from PKTABLE;
  ptest1 | ptest2 | ptest3 | ptest4 
 --------+--------+--------+--------
       1 |      2 |      3 | test1
@@ -405,12 +405,12 @@ SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
       1 |      3 |      4 | test3
 (3 rows)
 
-SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
       1 |      2 |      3 |      1
-      2 |        |      3 |      3
         |      2 |      3 |      2
+      2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
 (5 rows)
@@ -442,7 +442,7 @@ SELECT * FROM FKTABLE;
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 -- cascade update/delete
-CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) ) DISTRIBUTE BY REPLICATION;
+CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) );
 CREATE TABLE FKTABLE ( ftest1 int, ftest2 int, ftest3 int, ftest4 int,  CONSTRAINT constrname3
 			FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE
 			ON DELETE CASCADE ON UPDATE CASCADE);
@@ -462,12 +462,12 @@ INSERT INTO FKTABLE VALUES (1, 2, 7, 6);
 ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname3"
 DETAIL:  Key (ftest1, ftest2, ftest3)=(1, 2, 7) is not present in table "pktable".
 -- Show FKTABLE
-SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
       1 |      2 |      3 |      1
-      2 |        |      3 |      3
         |      2 |      3 |      2
+      2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
 (5 rows)
@@ -477,41 +477,41 @@ UPDATE PKTABLE set ptest2=5 where ptest2=2;
 -- Try to update something that should not cascade
 UPDATE PKTABLE set ptest1=1 WHERE ptest2=3;
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from PKTABLE;
  ptest1 | ptest2 | ptest3 | ptest4 
 --------+--------+--------+--------
+      2 |      4 |      5 | test4
+      1 |      5 |      3 | test1
       1 |      3 |      3 | test2
       1 |      3 |      4 | test3
-      1 |      5 |      3 | test1
-      2 |      4 |      5 | test4
 (4 rows)
 
-SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
-      1 |      5 |      3 |      1
-      2 |        |      3 |      3
         |      2 |      3 |      2
+      2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
+      1 |      5 |      3 |      1
 (5 rows)
 
 -- Try to delete something that should cascade
 DELETE FROM PKTABLE where ptest1=1 and ptest2=5 and ptest3=3;
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from PKTABLE;
  ptest1 | ptest2 | ptest3 | ptest4 
 --------+--------+--------+--------
+      2 |      4 |      5 | test4
       1 |      3 |      3 | test2
       1 |      3 |      4 | test3
-      2 |      4 |      5 | test4
 (3 rows)
 
-SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
-      2 |        |      3 |      3
         |      2 |      3 |      2
+      2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
 (4 rows)
@@ -519,18 +519,18 @@ SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 -- Try to delete something that should not have a cascade
 DELETE FROM PKTABLE where ptest1=2;
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from PKTABLE;
  ptest1 | ptest2 | ptest3 | ptest4 
 --------+--------+--------+--------
       1 |      3 |      3 | test2
       1 |      3 |      4 | test3
 (2 rows)
 
-SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
-      2 |        |      3 |      3
         |      2 |      3 |      2
+      2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
 (4 rows)
@@ -538,7 +538,7 @@ SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 -- set null update / set default delete
-CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) ) distribute by replication;
+CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) );
 CREATE TABLE FKTABLE ( ftest1 int DEFAULT 0, ftest2 int, ftest3 int, ftest4 int,  CONSTRAINT constrname3
 			FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE
 			ON DELETE SET DEFAULT ON UPDATE SET NULL);
@@ -559,13 +559,13 @@ INSERT INTO FKTABLE VALUES (1, 2, 7, 6);
 ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname3"
 DETAIL:  Key (ftest1, ftest2, ftest3)=(1, 2, 7) is not present in table "pktable".
 -- Show FKTABLE
-SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
       1 |      2 |      3 |      1
       2 |      3 |      4 |      1
-      2 |        |      3 |      3
         |      2 |      3 |      2
+      2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
 (6 rows)
@@ -575,21 +575,21 @@ UPDATE PKTABLE set ptest2=5 where ptest2=2;
 -- Try to update something that should not set null
 UPDATE PKTABLE set ptest2=2 WHERE ptest2=3 and ptest1=1;
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from PKTABLE;
  ptest1 | ptest2 | ptest3 | ptest4 
 --------+--------+--------+--------
-      1 |      2 |      3 | test2
-      1 |      5 |      3 | test1
       2 |      3 |      4 | test3
       2 |      4 |      5 | test4
+      1 |      5 |      3 | test1
+      1 |      2 |      3 | test2
 (4 rows)
 
-SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
       2 |      3 |      4 |      1
-      2 |        |      3 |      3
         |      2 |      3 |      2
+      2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
         |        |        |      1
@@ -598,53 +598,53 @@ SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 -- Try to delete something that should set default
 DELETE FROM PKTABLE where ptest1=2 and ptest2=3 and ptest3=4;
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from PKTABLE;
  ptest1 | ptest2 | ptest3 | ptest4 
 --------+--------+--------+--------
-      1 |      2 |      3 | test2
-      1 |      5 |      3 | test1
       2 |      4 |      5 | test4
+      1 |      5 |      3 | test1
+      1 |      2 |      3 | test2
 (3 rows)
 
-SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
-      0 |        |        |      1
-      2 |        |      3 |      3
         |      2 |      3 |      2
+      2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
         |        |        |      1
+      0 |        |        |      1
 (6 rows)
 
 -- Try to delete something that should not set default
 DELETE FROM PKTABLE where ptest2=5;
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from PKTABLE;
  ptest1 | ptest2 | ptest3 | ptest4 
 --------+--------+--------+--------
-      1 |      2 |      3 | test2
       2 |      4 |      5 | test4
+      1 |      2 |      3 | test2
 (2 rows)
 
-SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
-      0 |        |        |      1
-      2 |        |      3 |      3
         |      2 |      3 |      2
+      2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
         |        |        |      1
+      0 |        |        |      1
 (6 rows)
 
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 -- set default update / set null delete
-CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) ) DISTRIBUTE BY REPLICATION;
+CREATE TABLE PKTABLE ( ptest1 int, ptest2 int, ptest3 int, ptest4 text, PRIMARY KEY(ptest1, ptest2, ptest3) );
 CREATE TABLE FKTABLE ( ftest1 int DEFAULT 0, ftest2 int DEFAULT -1, ftest3 int DEFAULT -2, ftest4 int, CONSTRAINT constrname3
 			FOREIGN KEY(ftest1, ftest2, ftest3) REFERENCES PKTABLE
-			ON DELETE SET NULL ON UPDATE SET DEFAULT) DISTRIBUTE BY REPLICATION;
+			ON DELETE SET NULL ON UPDATE SET DEFAULT);
 -- Insert Primary Key values
 INSERT INTO PKTABLE VALUES (1, 2, 3, 'test1');
 INSERT INTO PKTABLE VALUES (1, 3, 3, 'test2');
@@ -664,14 +664,14 @@ INSERT INTO FKTABLE VALUES (1, 2, 7, 6);
 ERROR:  insert or update on table "fktable" violates foreign key constraint "constrname3"
 DETAIL:  Key (ftest1, ftest2, ftest3)=(1, 2, 7) is not present in table "pktable".
 -- Show FKTABLE
-SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
       1 |      2 |      3 |      1
       2 |      3 |      4 |      1
       2 |      4 |      5 |      1
-      2 |        |      3 |      3
         |      2 |      3 |      2
+      2 |        |      3 |      3
         |      2 |      7 |      4
         |      3 |      4 |      5
 (7 rows)
@@ -686,7 +686,7 @@ UPDATE PKTABLE set ptest2=10 where ptest2=4;
 -- Try to update something that should not set default
 UPDATE PKTABLE set ptest2=2 WHERE ptest2=3 and ptest1=1;
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from PKTABLE;
  ptest1 | ptest2 | ptest3 | ptest4 
 --------+--------+--------+--------
       2 |      3 |      4 | test3
@@ -696,7 +696,7 @@ SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
       1 |      2 |      3 | test2
 (5 rows)
 
-SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
       2 |      3 |      4 |      1
@@ -711,7 +711,7 @@ SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 -- Try to delete something that should set null
 DELETE FROM PKTABLE where ptest1=2 and ptest2=3 and ptest3=4;
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from PKTABLE;
  ptest1 | ptest2 | ptest3 | ptest4 
 --------+--------+--------+--------
       2 |     -1 |      5 | test5
@@ -720,7 +720,7 @@ SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
       1 |      2 |      3 | test2
 (4 rows)
 
-SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
         |      2 |      3 |      2
@@ -735,7 +735,7 @@ SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 -- Try to delete something that should not set null
 DELETE FROM PKTABLE where ptest2=-1 and ptest3=5;
 -- Show PKTABLE and FKTABLE
-SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from PKTABLE;
  ptest1 | ptest2 | ptest3 | ptest4 
 --------+--------+--------+--------
       0 |     -1 |     -2 | test1
@@ -743,7 +743,7 @@ SELECT * from PKTABLE ORDER BY 1, 2, 3,4;
       1 |      2 |      3 | test2
 (3 rows)
 
-SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
+SELECT * from FKTABLE;
  ftest1 | ftest2 | ftest3 | ftest4 
 --------+--------+--------+--------
         |      2 |      3 |      2
@@ -757,7 +757,7 @@ SELECT * from FKTABLE ORDER BY 1, 2, 3,4;
 
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
-CREATE TABLE PKTABLE (ptest1 int PRIMARY KEY) distribute by replication;
+CREATE TABLE PKTABLE (ptest1 int PRIMARY KEY);
 CREATE TABLE FKTABLE_FAIL1 ( ftest1 int, CONSTRAINT fkfail1 FOREIGN KEY (ftest2) REFERENCES PKTABLE);
 ERROR:  column "ftest2" referenced in foreign key constraint does not exist
 CREATE TABLE FKTABLE_FAIL2 ( ftest1 int, CONSTRAINT fkfail1 FOREIGN KEY (ftest1) REFERENCES PKTABLE(ptest2));
@@ -778,7 +778,7 @@ DROP TABLE PKTABLE;
 -- Tests for mismatched types
 --
 -- Basic one column, two table setup
-CREATE TABLE PKTABLE (ptest1 int PRIMARY KEY) DISTRIBUTE BY REPLICATION;
+CREATE TABLE PKTABLE (ptest1 int PRIMARY KEY);
 INSERT INTO PKTABLE VALUES(42);
 -- This next should fail, because int=inet does not exist
 CREATE TABLE FKTABLE (ftest1 inet REFERENCES pktable);
@@ -786,12 +786,12 @@ ERROR:  foreign key constraint "fktable_ftest1_fkey" cannot be implemented
 DETAIL:  Key columns "ftest1" and "ptest1" are of incompatible types: inet and integer.
 -- This should also fail for the same reason, but here we
 -- give the column name
-CREATE TABLE FKTABLE (ftest1 inet REFERENCES pktable(ptest1)) DISTRIBUTE BY REPLICATION;
+CREATE TABLE FKTABLE (ftest1 inet REFERENCES pktable(ptest1));
 ERROR:  foreign key constraint "fktable_ftest1_fkey" cannot be implemented
 DETAIL:  Key columns "ftest1" and "ptest1" are of incompatible types: inet and integer.
 -- This should succeed, even though they are different types,
 -- because int=int8 exists and is a member of the integer opfamily
-CREATE TABLE FKTABLE (ftest1 int8 REFERENCES pktable) DISTRIBUTE BY REPLICATION;
+CREATE TABLE FKTABLE (ftest1 int8 REFERENCES pktable);
 -- Check it actually works
 INSERT INTO FKTABLE VALUES(42);		-- should succeed
 INSERT INTO FKTABLE VALUES(43);		-- should fail
@@ -805,15 +805,15 @@ DROP TABLE FKTABLE;
 -- This should fail, because we'd have to cast numeric to int which is
 -- not an implicit coercion (or use numeric=numeric, but that's not part
 -- of the integer opfamily)
-CREATE TABLE FKTABLE (ftest1 numeric REFERENCES pktable) DISTRIBUTE BY REPLICATION;
+CREATE TABLE FKTABLE (ftest1 numeric REFERENCES pktable);
 ERROR:  foreign key constraint "fktable_ftest1_fkey" cannot be implemented
 DETAIL:  Key columns "ftest1" and "ptest1" are of incompatible types: numeric and integer.
 DROP TABLE PKTABLE;
 -- On the other hand, this should work because int implicitly promotes to
 -- numeric, and we allow promotion on the FK side
-CREATE TABLE PKTABLE (ptest1 numeric PRIMARY KEY) DISTRIBUTE BY REPLICATION;
+CREATE TABLE PKTABLE (ptest1 numeric PRIMARY KEY);
 INSERT INTO PKTABLE VALUES(42);
-CREATE TABLE FKTABLE (ftest1 int REFERENCES pktable) DISTRIBUTE BY REPLICATION;
+CREATE TABLE FKTABLE (ftest1 int REFERENCES pktable);
 -- Check it actually works
 INSERT INTO FKTABLE VALUES(42);		-- should succeed
 INSERT INTO FKTABLE VALUES(43);		-- should fail
@@ -826,7 +826,7 @@ DETAIL:  Key (ftest1)=(43) is not present in table "pktable".
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 -- Two columns, two tables
-CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, PRIMARY KEY(ptest1, ptest2))  DISTRIBUTE BY REPLICATION;
+CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, PRIMARY KEY(ptest1, ptest2));
 -- This should fail, because we just chose really odd types
 CREATE TABLE FKTABLE (ftest1 cidr, ftest2 timestamp, FOREIGN KEY(ftest1, ftest2) REFERENCES pktable);
 ERROR:  foreign key constraint "fktable_ftest1_ftest2_fkey" cannot be implemented
@@ -848,20 +848,20 @@ CREATE TABLE FKTABLE (ftest1 int, ftest2 inet, FOREIGN KEY(ftest1, ftest2) REFER
 ERROR:  foreign key constraint "fktable_ftest1_ftest2_fkey" cannot be implemented
 DETAIL:  Key columns "ftest1" and "ptest2" are of incompatible types: integer and inet.
 -- This works...
-CREATE TABLE FKTABLE (ftest1 int, ftest2 inet, FOREIGN KEY(ftest2, ftest1) REFERENCES pktable(ptest2, ptest1)) DISTRIBUTE BY REPLICATION;
+CREATE TABLE FKTABLE (ftest1 int, ftest2 inet, FOREIGN KEY(ftest2, ftest1) REFERENCES pktable(ptest2, ptest1));
 DROP TABLE FKTABLE;
 -- As does this
-CREATE TABLE FKTABLE (ftest1 int, ftest2 inet, FOREIGN KEY(ftest1, ftest2) REFERENCES pktable(ptest1, ptest2)) DISTRIBUTE BY REPLICATION;
+CREATE TABLE FKTABLE (ftest1 int, ftest2 inet, FOREIGN KEY(ftest1, ftest2) REFERENCES pktable(ptest1, ptest2));
 DROP TABLE FKTABLE;
 DROP TABLE PKTABLE;
 -- Two columns, same table
 -- Make sure this still works...
 CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, ptest3 int, ptest4 inet, PRIMARY KEY(ptest1, ptest2), FOREIGN KEY(ptest3,
-ptest4) REFERENCES pktable(ptest1, ptest2)) distribute by replication;
+ptest4) REFERENCES pktable(ptest1, ptest2));
 DROP TABLE PKTABLE;
 -- And this,
 CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, ptest3 int, ptest4 inet, PRIMARY KEY(ptest1, ptest2), FOREIGN KEY(ptest3,
-ptest4) REFERENCES pktable) distribute by replication;
+ptest4) REFERENCES pktable);
 DROP TABLE PKTABLE;
 -- This shouldn't (mixed up columns)
 CREATE TABLE PKTABLE (ptest1 int, ptest2 inet, ptest3 int, ptest4 inet, PRIMARY KEY(ptest1, ptest2), FOREIGN KEY(ptest3,
@@ -881,8 +881,8 @@ DETAIL:  Key columns "ptest4" and "ptest1" are of incompatible types: inet and i
 --
 -- Now some cases with inheritance
 -- Basic 2 table case: 1 column of matching types.
-create table pktable_base (base1 int not null) DISTRIBUTE BY REPLICATION;
-create table pktable (ptest1 int, primary key(base1), unique(base1, ptest1)) inherits (pktable_base) DISTRIBUTE BY REPLICATION;
+create table pktable_base (base1 int not null);
+create table pktable (ptest1 int, primary key(base1), unique(base1, ptest1)) inherits (pktable_base);
 create table fktable (ftest1 int references pktable(base1));
 -- now some ins, upd, del
 insert into pktable(base1) values (1);
@@ -940,9 +940,9 @@ drop table fktable;
 drop table pktable;
 drop table pktable_base;
 -- Now we'll do one all in 1 table with 2 columns of matching types
-create table pktable_base(base1 int not null, base2 int) DISTRIBUTE BY REPLICATION;
+create table pktable_base(base1 int not null, base2 int);
 create table pktable(ptest1 int, ptest2 int, primary key(base1, ptest1), foreign key(base2, ptest2) references
-                                             pktable(base1, ptest1)) inherits (pktable_base) DISTRIBUTE BY REPLICATION;
+                                             pktable(base1, ptest1)) inherits (pktable_base);
 insert into pktable (base1, ptest1, base2, ptest2) values (1, 1, 1, 1);
 insert into pktable (base1, ptest1, base2, ptest2) values (2, 1, 1, 1);
 insert into pktable (base1, ptest1, base2, ptest2) values (2, 2, 2, 1);
@@ -965,7 +965,7 @@ delete from pktable where base1=2;
 drop table pktable;
 drop table pktable_base;
 -- 2 columns (2 tables), mismatched types
-create table pktable_base(base1 int not null) DISTRIBUTE BY REPLICATION;
+create table pktable_base(base1 int not null);
 create table pktable(ptest1 inet, primary key(base1, ptest1)) inherits (pktable_base);
 -- just generally bad types (with and without column references on the referenced table)
 create table fktable(ftest1 cidr, ftest2 int[], foreign key (ftest1, ftest2) references pktable);
@@ -987,7 +987,7 @@ DETAIL:  Key columns "ftest1" and "ptest1" are of incompatible types: integer an
 drop table pktable;
 drop table pktable_base;
 -- 2 columns (1 table), mismatched types
-create table pktable_base(base1 int not null, base2 int) distribute by replication;
+create table pktable_base(base1 int not null, base2 int);
 create table pktable(ptest1 inet, ptest2 inet[], primary key(base1, ptest1), foreign key(base2, ptest2) references
                                              pktable(base1, ptest1)) inherits (pktable_base);
 ERROR:  foreign key constraint "pktable_base2_ptest2_fkey" cannot be implemented
@@ -1014,11 +1014,11 @@ drop table pktable_base;
 CREATE TABLE pktable (
 	id		INT4 PRIMARY KEY,
 	other	INT4
-) DISTRIBUTE BY REPLICATION;
+);
 CREATE TABLE fktable (
 	id		INT4 PRIMARY KEY,
 	fk		INT4 REFERENCES pktable DEFERRABLE
-) DISTRIBUTE BY REPLICATION;
+);
 -- default to immediate: should fail
 INSERT INTO fktable VALUES (5, 10);
 ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_fk_fkey"
@@ -1034,11 +1034,11 @@ DROP TABLE fktable, pktable;
 CREATE TABLE pktable (
 	id		INT4 PRIMARY KEY,
 	other	INT4
-) DISTRIBUTE BY REPLICATION;
+);
 CREATE TABLE fktable (
 	id		INT4 PRIMARY KEY,
 	fk		INT4 REFERENCES pktable DEFERRABLE INITIALLY DEFERRED
-) DISTRIBUTE BY REPLICATION;
+);
 -- default to deferred, should succeed
 BEGIN;
 INSERT INTO fktable VALUES (100, 200);
@@ -1060,11 +1060,11 @@ DROP TABLE fktable, pktable;
 CREATE TABLE pktable (
 	id		INT4 PRIMARY KEY,
 	other	INT4
-) DISTRIBUTE BY REPLICATION;
+);
 CREATE TABLE fktable (
 	id		INT4 PRIMARY KEY,
 	fk		INT4 REFERENCES pktable DEFERRABLE
-) DISTRIBUTE BY REPLICATION;
+);
 BEGIN;
 SET CONSTRAINTS ALL DEFERRED;
 -- should succeed, for now
@@ -1081,11 +1081,11 @@ DROP TABLE fktable, pktable;
 CREATE TABLE pktable (
 	id		INT4 PRIMARY KEY,
 	other	INT4
-) DISTRIBUTE BY REPLICATION;
+);
 CREATE TABLE fktable (
 	id		INT4 PRIMARY KEY,
 	fk		INT4 REFERENCES pktable DEFERRABLE INITIALLY DEFERRED
-) DISTRIBUTE BY REPLICATION;
+);
 BEGIN;
 -- no error here
 INSERT INTO fktable VALUES (100, 200);
@@ -1101,14 +1101,14 @@ CREATE TEMP TABLE pktable (
         id2     VARCHAR(4) UNIQUE,
         id3     REAL UNIQUE,
         UNIQUE(id1, id2, id3)
-) DISTRIBUTE BY REPLICATION;
+);
 CREATE TEMP TABLE fktable (
         x1      INT4 REFERENCES pktable(id1),
         x2      VARCHAR(4) REFERENCES pktable(id2),
         x3      REAL REFERENCES pktable(id3),
         x4      TEXT,
         x5      INT2
-) DISTRIBUTE BY REPLICATION;
+);
 -- check individual constraints with alter table.
 -- should fail
 -- varchar does not promote to real
@@ -1168,11 +1168,11 @@ DROP TABLE pktable, fktable;
 CREATE TEMP TABLE pktable (
     id int primary key,
     other int
-) DISTRIBUTE BY REPLICATION;
+);
 CREATE TEMP TABLE fktable (
     id int primary key,
     fk int references pktable deferrable initially deferred
-) DISTRIBUTE BY REPLICATION;
+);
 INSERT INTO pktable VALUES (5, 10);
 BEGIN;
 -- doesn't match PK, but no error yet
@@ -1250,7 +1250,7 @@ LINE 1: ...e ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE INITIALLY ...
 CREATE TEMP TABLE users (
   id INT PRIMARY KEY,
   name VARCHAR NOT NULL
-) DISTRIBUTE BY REPLICATION;
+);
 INSERT INTO users VALUES (1, 'Jozko');
 INSERT INTO users VALUES (2, 'Ferko');
 INSERT INTO users VALUES (3, 'Samko');
@@ -1259,11 +1259,11 @@ CREATE TEMP TABLE tasks (
   owner INT REFERENCES users ON UPDATE CASCADE ON DELETE SET NULL,
   worker INT REFERENCES users ON UPDATE CASCADE ON DELETE SET NULL,
   checked_by INT REFERENCES users ON UPDATE CASCADE ON DELETE SET NULL
-) DISTRIBUTE BY REPLICATION;
+);
 INSERT INTO tasks VALUES (1,1,NULL,NULL);
 INSERT INTO tasks VALUES (2,2,2,NULL);
 INSERT INTO tasks VALUES (3,3,3,3);
-SELECT * FROM tasks ORDER BY 1, 2, 3,4;
+SELECT * FROM tasks;
  id | owner | worker | checked_by 
 ----+-------+--------+------------
   1 |     1 |        |           
@@ -1272,7 +1272,7 @@ SELECT * FROM tasks ORDER BY 1, 2, 3,4;
 (3 rows)
 
 UPDATE users SET id = 4 WHERE id = 3;
-SELECT * FROM tasks ORDER BY 1, 2, 3,4;
+SELECT * FROM tasks;
  id | owner | worker | checked_by 
 ----+-------+--------+------------
   1 |     1 |        |           
@@ -1281,7 +1281,7 @@ SELECT * FROM tasks ORDER BY 1, 2, 3,4;
 (3 rows)
 
 DELETE FROM users WHERE id = 4;
-SELECT * FROM tasks ORDER BY 1, 2, 3,4;
+SELECT * FROM tasks;
  id | owner | worker | checked_by 
 ----+-------+--------+------------
   1 |     1 |        |           
@@ -1292,21 +1292,21 @@ SELECT * FROM tasks ORDER BY 1, 2, 3,4;
 -- could fail with only 2 changes to make, if row was already updated
 BEGIN;
 UPDATE tasks set id=id WHERE id=2;
-SELECT * FROM tasks ORDER BY 1, 2, 3,4;
+SELECT * FROM tasks;
  id | owner | worker | checked_by 
 ----+-------+--------+------------
   1 |     1 |        |           
-  2 |     2 |      2 |           
   3 |       |        |           
+  2 |     2 |      2 |           
 (3 rows)
 
 DELETE FROM users WHERE id = 2;
-SELECT * FROM tasks ORDER BY 1, 2, 3,4;
+SELECT * FROM tasks;
  id | owner | worker | checked_by 
 ----+-------+--------+------------
   1 |     1 |        |           
-  2 |       |        |           
   3 |       |        |           
+  2 |       |        |           
 (3 rows)
 
 COMMIT;
@@ -1318,7 +1318,7 @@ create temp table selfref (
     b int,
     foreign key (b) references selfref (a)
         on update cascade on delete cascade
-) DISTRIBUTE BY REPLICATION;
+);
 insert into selfref (a, b)
 values
     (0, 0),
@@ -1344,7 +1344,7 @@ commit;
 --
 -- Test that SET DEFAULT actions recognize updates to default values
 --
-create temp table defp (f1 int primary key) distribute by replication;
+create temp table defp (f1 int primary key);
 create temp table defc (f1 int default 0
                         references defp on delete set default);
 insert into defp values (0), (1), (2);
@@ -1409,7 +1409,7 @@ drop table pp, cc;
 --
 -- Test interaction of foreign-key optimization with rules (bug #14219)
 --
-create temp table t1 (a integer primary key, b text) distribute by replication;
+create temp table t1 (a integer primary key, b text);
 create temp table t2 (a integer primary key, b integer references t1);
 create rule r1 as on delete to t1 do delete from t2 where t2.b = old.a;
 explain (costs off) delete from t1 where a = 1;
@@ -1464,7 +1464,7 @@ drop table pktable1, pktable2, fktable2;
 --
 -- Test deferred FK check on a tuple deleted by a rolled-back subtransaction
 --
-create table pktable2(f1 int primary key) distribute by replication;
+create table pktable2(f1 int primary key);
 create table fktable2(f1 int references pktable2 deferrable initially deferred);
 insert into pktable2 values(1);
 begin;
@@ -2040,9 +2040,28 @@ alter table fkpart2.fk_part detach partition fkpart2.fk_part_1;
 alter table fkpart2.fk_part_1 drop constraint fkey;	-- ok
 alter table fkpart2.fk_part_1_1 drop constraint my_fkey;	-- doesn't exist
 ERROR:  constraint "my_fkey" of relation "fk_part_1_1" does not exist
-drop schema fkpart0, fkpart1, fkpart2 cascade;
-NOTICE:  drop cascades to 8 other objects
-DETAIL:  drop cascades to table fkpart2.pkey
+-- verify constraint deferrability
+create schema fkpart3
+  create table pkey (a int primary key)
+  create table fk_part (a int, constraint fkey foreign key (a) references fkpart3.pkey deferrable initially immediate) partition by list (a)
+  create table fk_part_1 partition of fkpart3.fk_part for values in (1) partition by list (a)
+  create table fk_part_1_1 partition of fkpart3.fk_part_1 for values in (1)
+  create table fk_part_2 partition of fkpart3.fk_part for values in (2);
+begin;
+set constraints fkpart3.fkey deferred;
+insert into fkpart3.fk_part values (1);
+insert into fkpart3.pkey values (1);
+commit;
+begin;
+set constraints fkpart3.fkey deferred;
+delete from fkpart3.pkey;
+delete from fkpart3.fk_part;
+commit;
+drop schema fkpart0, fkpart1, fkpart2, fkpart3 cascade;
+NOTICE:  drop cascades to 10 other objects
+DETAIL:  drop cascades to table fkpart3.pkey
+drop cascades to table fkpart3.fk_part
+drop cascades to table fkpart2.pkey
 drop cascades to table fkpart2.fk_part
 drop cascades to table fkpart2.fk_part_1
 drop cascades to table fkpart1.pkey
@@ -2167,19 +2186,19 @@ INSERT into dropfk VALUES (1), (1000), (1500), (2000);
 -- these should all fail
 ALTER TABLE droppk DETACH PARTITION droppk_d;
 ERROR:  removing partition "droppk_d" violates foreign key constraint "dropfk_a_fkey5"
-DETAIL:  Key (a)=(2000) still referenced from table "dropfk".
+DETAIL:  Key (a)=(2000) is still referenced from table "dropfk".
 ALTER TABLE droppk2 DETACH PARTITION droppk2_d;
 ERROR:  removing partition "droppk2_d" violates foreign key constraint "dropfk_a_fkey4"
-DETAIL:  Key (a)=(1500) still referenced from table "dropfk".
+DETAIL:  Key (a)=(1500) is still referenced from table "dropfk".
 ALTER TABLE droppk DETACH PARTITION droppk1;
 ERROR:  removing partition "droppk1" violates foreign key constraint "dropfk_a_fkey1"
-DETAIL:  Key (a)=(1) still referenced from table "dropfk".
+DETAIL:  Key (a)=(1) is still referenced from table "dropfk".
 ALTER TABLE droppk DETACH PARTITION droppk2;
 ERROR:  removing partition "droppk2" violates foreign key constraint "dropfk_a_fkey2"
-DETAIL:  Key (a)=(1000) still referenced from table "dropfk".
+DETAIL:  Key (a)=(1000) is still referenced from table "dropfk".
 ALTER TABLE droppk2 DETACH PARTITION droppk21;
 ERROR:  removing partition "droppk21" violates foreign key constraint "dropfk_a_fkey3"
-DETAIL:  Key (a)=(1000) still referenced from table "dropfk".
+DETAIL:  Key (a)=(1000) is still referenced from table "dropfk".
 -- dropping partitions is disallowed
 DROP TABLE droppk_d;
 ERROR:  cannot drop table droppk_d because other objects depend on it
@@ -2267,6 +2286,37 @@ INSERT INTO fk4 VALUES (50);
 ALTER TABLE fk ATTACH PARTITION fk4 FOR VALUES IN (50);
 ERROR:  insert or update on table "fk4" violates foreign key constraint "fk_a_fkey"
 DETAIL:  Key (a)=(50) is not present in table "pk".
+-- Verify constraint deferrability
+CREATE SCHEMA fkpart9;
+SET search_path TO fkpart9;
+CREATE TABLE pk (a int PRIMARY KEY) PARTITION BY LIST (a);
+CREATE TABLE pk1 PARTITION OF pk FOR VALUES IN (1, 2) PARTITION BY LIST (a);
+CREATE TABLE pk11 PARTITION OF pk1 FOR VALUES IN (1);
+CREATE TABLE pk3 PARTITION OF pk FOR VALUES IN (3);
+CREATE TABLE fk (a int REFERENCES pk DEFERRABLE INITIALLY IMMEDIATE);
+INSERT INTO fk VALUES (1);		-- should fail
+ERROR:  insert or update on table "fk" violates foreign key constraint "fk_a_fkey"
+DETAIL:  Key (a)=(1) is not present in table "pk".
+BEGIN;
+SET CONSTRAINTS fk_a_fkey DEFERRED;
+INSERT INTO fk VALUES (1);
+COMMIT;							-- should fail
+ERROR:  insert or update on table "fk" violates foreign key constraint "fk_a_fkey"
+DETAIL:  Key (a)=(1) is not present in table "pk".
+BEGIN;
+SET CONSTRAINTS fk_a_fkey DEFERRED;
+INSERT INTO fk VALUES (1);
+INSERT INTO pk VALUES (1);
+COMMIT;							-- OK
+BEGIN;
+SET CONSTRAINTS fk_a_fkey DEFERRED;
+DELETE FROM pk WHERE a = 1;
+DELETE FROM fk WHERE a = 1;
+COMMIT;							-- OK
+DROP SCHEMA fkpart9 CASCADE;
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table pk
+drop cascades to table fk
 -- Verify ON UPDATE/DELETE behavior
 CREATE SCHEMA fkpart6;
 SET search_path TO fkpart6;
@@ -2379,3 +2429,44 @@ DROP SCHEMA fkpart7 CASCADE;
 NOTICE:  drop cascades to 2 other objects
 DETAIL:  drop cascades to table fkpart7.pkpart
 drop cascades to table fkpart7.fk
+-- ensure we check partitions are "not used" when dropping constraints
+CREATE SCHEMA fkpart8
+  CREATE TABLE tbl1(f1 int PRIMARY KEY)
+  CREATE TABLE tbl2(f1 int REFERENCES tbl1 DEFERRABLE INITIALLY DEFERRED) PARTITION BY RANGE(f1)
+  CREATE TABLE tbl2_p1 PARTITION OF tbl2 FOR VALUES FROM (minvalue) TO (maxvalue);
+INSERT INTO fkpart8.tbl1 VALUES(1);
+BEGIN;
+INSERT INTO fkpart8.tbl2 VALUES(1);
+ALTER TABLE fkpart8.tbl2 DROP CONSTRAINT tbl2_f1_fkey;
+ERROR:  cannot ALTER TABLE "tbl2_p1" because it has pending trigger events
+COMMIT;
+DROP SCHEMA fkpart8 CASCADE;
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table fkpart8.tbl1
+drop cascades to table fkpart8.tbl2
+-- ensure FK referencing a multi-level partitioned table are
+-- enforce reference to sub-children.
+CREATE SCHEMA fkpart9
+  CREATE TABLE pk (a INT PRIMARY KEY) PARTITION BY RANGE (a)
+  CREATE TABLE fk (
+    fk_a INT REFERENCES pk(a) ON DELETE CASCADE
+  )
+  CREATE TABLE pk1 PARTITION OF pk FOR VALUES FROM (30) TO (50) PARTITION BY RANGE (a)
+  CREATE TABLE pk11 PARTITION OF pk1 FOR VALUES FROM (30) TO (40);
+INSERT INTO fkpart9.pk VALUES (35);
+INSERT INTO fkpart9.fk VALUES (35);
+DELETE FROM fkpart9.pk WHERE a=35;
+SELECT * FROM fkpart9.pk;
+ a 
+---
+(0 rows)
+
+SELECT * FROM fkpart9.fk;
+ fk_a 
+------
+(0 rows)
+
+DROP SCHEMA fkpart9 CASCADE;
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to table fkpart9.pk
+drop cascades to table fkpart9.fk

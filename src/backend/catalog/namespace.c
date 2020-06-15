@@ -761,13 +761,23 @@ RelationIsVisible(Oid relid)
 
 /*
  * TypenameGetTypid
+ *		Wrapper for binary compatibility.
+ */
+Oid
+TypenameGetTypid(const char *typname)
+{
+	return TypenameGetTypidExtended(typname, true);
+}
+
+/*
+ * TypenameGetTypidExtended
  *		Try to resolve an unqualified datatype name.
  *		Returns OID if type found in search path, else InvalidOid.
  *
  * This is essentially the same as RelnameGetRelid.
  */
 Oid
-TypenameGetTypid(const char *typname)
+TypenameGetTypidExtended(const char *typname, bool temp_ok)
 {
 	Oid			typid;
 	ListCell   *l;
@@ -777,6 +787,9 @@ TypenameGetTypid(const char *typname)
 	foreach(l, activeSearchPath)
 	{
 		Oid			namespaceId = lfirst_oid(l);
+
+		if (!temp_ok && namespaceId == myTempNamespace)
+			continue;			/* do not look in temp namespace */
 
 		typid = GetSysCacheOid2(TYPENAMENSP, Anum_pg_type_oid,
 								PointerGetDatum(typname),
@@ -3237,7 +3250,7 @@ isOtherTempNamespace(Oid namespaceId)
 }
 
 /*
- * isTempNamespaceInUse - is the given namespace owned and actively used
+ * checkTempNamespaceStatus - is the given namespace owned and actively used
  * by a backend?
  *
  * Note: this can be used while scanning relations in pg_class to detect
@@ -3245,8 +3258,8 @@ isOtherTempNamespace(Oid namespaceId)
  * given database.  The result may be out of date quickly, so the caller
  * must be careful how to handle this information.
  */
-bool
-isTempNamespaceInUse(Oid namespaceId)
+TempNamespaceStatus
+checkTempNamespaceStatus(Oid namespaceId)
 {
 	PGPROC	   *proc;
 	int			backendId;
@@ -3255,25 +3268,35 @@ isTempNamespaceInUse(Oid namespaceId)
 
 	backendId = GetTempNamespaceBackendId(namespaceId);
 
-	if (backendId == InvalidBackendId ||
-		backendId == MyBackendId)
-		return false;
+	/* No such namespace, or its name shows it's not temp? */
+	if (backendId == InvalidBackendId)
+		return TEMP_NAMESPACE_NOT_TEMP;
 
 	/* Is the backend alive? */
 	proc = BackendIdGetProc(backendId);
 	if (proc == NULL)
-		return false;
+		return TEMP_NAMESPACE_IDLE;
 
 	/* Is the backend connected to the same database we are looking at? */
 	if (proc->databaseId != MyDatabaseId)
-		return false;
+		return TEMP_NAMESPACE_IDLE;
 
 	/* Does the backend own the temporary namespace? */
 	if (proc->tempNamespaceId != namespaceId)
-		return false;
+		return TEMP_NAMESPACE_IDLE;
 
-	/* all good to go */
-	return true;
+	/* Yup, so namespace is busy */
+	return TEMP_NAMESPACE_IN_USE;
+}
+
+/*
+ * isTempNamespaceInUse - oversimplified, deprecated version of
+ * checkTempNamespaceStatus
+ */
+bool
+isTempNamespaceInUse(Oid namespaceId)
+{
+	return checkTempNamespaceStatus(namespaceId) == TEMP_NAMESPACE_IN_USE;
 }
 
 /*

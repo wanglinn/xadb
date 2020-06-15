@@ -184,7 +184,7 @@ PostgreSQL documentation
         to be written safely to disk.  This option causes
         <command>pg_rewind</command> to return without waiting, which is
         faster, but means that a subsequent operating system crash can leave
-        the synchronized data folder corrupt.  Generally, this option is
+        the synchronized data directory corrupt.  Generally, this option is
         useful for testing but should not be used when creating a production
         installation.
        </para>
@@ -239,8 +239,8 @@ PostgreSQL documentation
 
   <para>
    The environment variable <envar>PG_COLOR</envar> specifies whether to use
-   color in diagnostics messages.  Possible values are
-   <literal>always</literal>, <literal>auto</literal>,
+   color in diagnostic messages. Possible values are
+   <literal>always</literal>, <literal>auto</literal> and
    <literal>never</literal>.
   </para>
  </refsect1>
@@ -273,7 +273,7 @@ GRANT EXECUTE ON function pg_catalog.pg_read_binary_file(text, bigint, bigint, b
   </para>
 
   <refsect2>
-   <title>How it works</title>
+   <title>How It Works</title>
 
    <para>
     The basic idea is to copy all file system-level changes from the source

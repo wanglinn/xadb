@@ -1,5 +1,3 @@
-SELECT name, setting FROM pg_settings WHERE name LIKE 'enable%' ORDER BY name;
-
 CREATE TABLE rngfunc2(rngfuncid int, f2 int);
 INSERT INTO rngfunc2 VALUES(1, 11);
 INSERT INTO rngfunc2 VALUES(2, 22);
@@ -366,13 +364,13 @@ AS 'select $1+1' LANGUAGE sql;
 
 CREATE OR REPLACE FUNCTION rngfuncr(in f1 int, out f2 int, out text)
 AS $$select $1-1, $1::text || 'z'$$ LANGUAGE sql;
-SELECT f1, foor(f1) FROM int4_tbl ORDER BY 1, 2;
-SELECT * FROM foor(42);
-SELECT * FROM foor(42) AS p(a,b);
+SELECT f1, rngfuncr(f1) FROM int4_tbl;
+SELECT * FROM rngfuncr(42);
+SELECT * FROM rngfuncr(42) AS p(a,b);
 
 CREATE OR REPLACE FUNCTION rngfuncb(in f1 int, inout f2 int, out text)
 AS $$select $2-1, $1::text || 'z'$$ LANGUAGE sql;
-SELECT f1, rngfuncb(f1, f1/2) FROM int4_tbl ORDER BY 1, 2;
+SELECT f1, rngfuncb(f1, f1/2) FROM int4_tbl;
 SELECT * FROM rngfuncb(42, 99);
 SELECT * FROM rngfuncb(42, 99) AS p(a,b);
 
@@ -416,7 +414,7 @@ AS 'select $1, array[$1,$1]' LANGUAGE sql;
 CREATE OR REPLACE FUNCTION rngfunc()
 RETURNS TABLE(a int)
 AS $$ SELECT a FROM generate_series(1,5) a(a) $$ LANGUAGE sql;
-SELECT * FROM rngfunc() ORDER BY 1;
+SELECT * FROM rngfunc();
 DROP FUNCTION rngfunc();
 
 CREATE OR REPLACE FUNCTION rngfunc(int)
@@ -424,7 +422,7 @@ RETURNS TABLE(a int, b int)
 AS $$ SELECT a, b
          FROM generate_series(1,$1) a(a),
               generate_series(1,$1) b(b) $$ LANGUAGE sql;
-SELECT * FROM rngfunc(3) ORDER BY 1, 2;
+SELECT * FROM rngfunc(3);
 DROP FUNCTION rngfunc(int);
 
 -- case that causes change of typmod knowledge during inlining
@@ -446,7 +444,7 @@ language sql;
 
 select insert_tt('foo');
 select insert_tt('bar');
-select * from tt order by 1, 2;
+select * from tt;
 
 -- insert will execute to completion even if function needs just 1 row
 create or replace function insert_tt(text) returns int as
@@ -454,7 +452,7 @@ $$ insert into tt(data) values($1),($1||$1) returning f1 $$
 language sql;
 
 select insert_tt('fool');
-select * from tt order by 1, 2;
+select * from tt;
 
 -- setof does what's expected
 create or replace function insert_tt2(text,text) returns setof int as
@@ -462,12 +460,12 @@ $$ insert into tt(data) values($1),($2) returning f1 $$
 language sql;
 
 select insert_tt2('foolish','barrish');
-select * from insert_tt2('baz','quux') order by 1;
-select * from tt order by 1, 2;
+select * from insert_tt2('baz','quux');
+select * from tt;
 
 -- limit doesn't prevent execution to completion
 select insert_tt2('foolish','barrish') limit 1;
-select * from tt order by 1, 2;
+select * from tt;
 
 -- triggers will fire, too
 create function noticetrigger() returns trigger as $$
@@ -479,7 +477,7 @@ create trigger tnoticetrigger after insert on tt for each row
 execute procedure noticetrigger();
 
 select insert_tt2('foolme','barme') limit 1;
-select * from tt order by 1, 2;
+select * from tt;
 
 -- and rules work
 create temp table tt_log(f1 int, data text);
@@ -488,10 +486,10 @@ create rule insert_tt_rule as on insert to tt do also
   insert into tt_log values(new.*);
 
 select insert_tt2('foollog','barlog') limit 1;
-select * from tt order by 1, 2;
+select * from tt;
 -- note that nextval() gets executed a second time in the rule expansion,
 -- which is expected.
-select * from tt_log order by 1, 2;
+select * from tt_log;
 
 -- test case for a whole-row-variable bug
 create function rngfunc1(n integer, out a text, out b text)
@@ -515,7 +513,7 @@ create function array_to_set(anyarray) returns setof record as $$
 $$ language sql strict immutable;
 
 select array_to_set(array['one', 'two']);
-select * from array_to_set(array['one', 'two']) as t(f1 int,f2 text) order by 1, 2;
+select * from array_to_set(array['one', 'two']) as t(f1 int,f2 text);
 select * from array_to_set(array['one', 'two']); -- fail
 
 create temp table rngfunc(f1 int8, f2 int8);
@@ -535,7 +533,7 @@ create function testrngfunc() returns setof record as $$
 $$ language sql;
 
 select testrngfunc();
-select * from testrngfunc() as t(f1 int8,f2 int8) order by 1, 2;
+select * from testrngfunc() as t(f1 int8,f2 int8);
 select * from testrngfunc(); -- fail
 
 drop function testrngfunc();
@@ -626,7 +624,7 @@ $$ language sql immutable;
 explain (verbose, costs off)
 select x from int8_tbl, extractq2(int8_tbl) f(x);
 
-select x from int8_tbl, extractq2(int8_tbl) f(x) ORDER BY X;
+select x from int8_tbl, extractq2(int8_tbl) f(x);
 
 create function extractq2_2(t int8_tbl) returns table(ret1 int8) as $$
   select extractq2(t) offset 0
@@ -635,7 +633,7 @@ $$ language sql immutable;
 explain (verbose, costs off)
 select x from int8_tbl, extractq2_2(int8_tbl) f(x);
 
-select x from int8_tbl, extractq2_2(int8_tbl) f(x) order by x;
+select x from int8_tbl, extractq2_2(int8_tbl) f(x);
 
 -- without the "offset 0", this function gets optimized quite differently
 
@@ -646,7 +644,7 @@ $$ language sql immutable;
 explain (verbose, costs off)
 select x from int8_tbl, extractq2_2_opt(int8_tbl) f(x);
 
-select x from int8_tbl, extractq2_2_opt(int8_tbl) f(x) order by x;
+select x from int8_tbl, extractq2_2_opt(int8_tbl) f(x);
 
 -- check handling of nulls in SRF results (bug #7808)
 

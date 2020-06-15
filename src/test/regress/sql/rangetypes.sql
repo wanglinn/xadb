@@ -56,27 +56,27 @@ INSERT INTO numrange_test VALUES(numrange(1.1, 2.2));
 INSERT INTO numrange_test VALUES('empty');
 INSERT INTO numrange_test VALUES(numrange(1.7, 1.7, '[]'));
 
-SELECT nr, isempty(nr), lower(nr), upper(nr) FROM numrange_test ORDER BY nr;
-SELECT nr, lower_inc(nr), lower_inf(nr), upper_inc(nr), upper_inf(nr) FROM numrange_test ORDER BY nr;
+SELECT nr, isempty(nr), lower(nr), upper(nr) FROM numrange_test;
+SELECT nr, lower_inc(nr), lower_inf(nr), upper_inc(nr), upper_inf(nr) FROM numrange_test;
 
-SELECT * FROM numrange_test WHERE range_contains(nr, numrange(1.9,1.91)) ORDER BY nr;
-SELECT * FROM numrange_test WHERE nr @> numrange(1.0,10000.1) ORDER BY nr;
-SELECT * FROM numrange_test WHERE range_contained_by(numrange(-1e7,-10000.1), nr) ORDER BY nr;
-SELECT * FROM numrange_test WHERE 1.9 <@ nr ORDER BY nr;
+SELECT * FROM numrange_test WHERE range_contains(nr, numrange(1.9,1.91));
+SELECT * FROM numrange_test WHERE nr @> numrange(1.0,10000.1);
+SELECT * FROM numrange_test WHERE range_contained_by(numrange(-1e7,-10000.1), nr);
+SELECT * FROM numrange_test WHERE 1.9 <@ nr;
 
-select * from numrange_test where nr = 'empty' ORDER BY nr;
-select * from numrange_test where nr = '(1.1, 2.2)' ORDER BY nr;
-select * from numrange_test where nr = '[1.1, 2.2)' ORDER BY nr;
-select * from numrange_test where nr < 'empty' ORDER BY nr;
-select * from numrange_test where nr < numrange(-1000.0, -1000.0,'[]') ORDER BY nr;
-select * from numrange_test where nr < numrange(0.0, 1.0,'[]') ORDER BY nr;
-select * from numrange_test where nr < numrange(1000.0, 1001.0,'[]') ORDER BY nr;
-select * from numrange_test where nr <= 'empty' ORDER BY nr;
-select * from numrange_test where nr >= 'empty' ORDER BY nr;
-select * from numrange_test where nr > 'empty' ORDER BY nr;
-select * from numrange_test where nr > numrange(-1001.0, -1000.0,'[]') ORDER BY nr;
-select * from numrange_test where nr > numrange(0.0, 1.0,'[]') ORDER BY nr;
-select * from numrange_test where nr > numrange(1000.0, 1000.0,'[]') ORDER BY nr;
+select * from numrange_test where nr = 'empty';
+select * from numrange_test where nr = '(1.1, 2.2)';
+select * from numrange_test where nr = '[1.1, 2.2)';
+select * from numrange_test where nr < 'empty';
+select * from numrange_test where nr < numrange(-1000.0, -1000.0,'[]');
+select * from numrange_test where nr < numrange(0.0, 1.0,'[]');
+select * from numrange_test where nr < numrange(1000.0, 1001.0,'[]');
+select * from numrange_test where nr <= 'empty';
+select * from numrange_test where nr >= 'empty';
+select * from numrange_test where nr > 'empty';
+select * from numrange_test where nr > numrange(-1001.0, -1000.0,'[]');
+select * from numrange_test where nr > numrange(0.0, 1.0,'[]');
+select * from numrange_test where nr > numrange(1000.0, 1000.0,'[]');
 
 select numrange(2.0, 1.0);
 
@@ -119,7 +119,7 @@ select numrange(1.0, 2.0) * numrange(1.5, 3.0);
 select numrange(1.0, 2.0) * numrange(2.5, 3.0);
 
 create table numrange_test2(nr numrange);
-create index numrange_test2_hash_idx on numrange_test2 (nr);
+create index numrange_test2_hash_idx on numrange_test2 using hash (nr);
 
 INSERT INTO numrange_test2 VALUES('[, 5)');
 INSERT INTO numrange_test2 VALUES(numrange(1.1, 2.2));
@@ -128,8 +128,8 @@ INSERT INTO numrange_test2 VALUES(numrange(1.1, 2.2,'()'));
 INSERT INTO numrange_test2 VALUES('empty');
 
 select * from numrange_test2 where nr = 'empty'::numrange;
-select * from numrange_test2 where nr = numrange(1.1, 2.2) ORDER BY nr;
-select * from numrange_test2 where nr = numrange(1.1, 2.3) ORDER BY nr;
+select * from numrange_test2 where nr = numrange(1.1, 2.2);
+select * from numrange_test2 where nr = numrange(1.1, 2.3);
 
 set enable_nestloop=t;
 set enable_hashjoin=f;
@@ -148,8 +148,36 @@ set enable_nestloop to default;
 set enable_hashjoin to default;
 set enable_mergejoin to default;
 
-DROP TABLE numrange_test;
+-- keep numrange_test around to help exercise dump/reload
 DROP TABLE numrange_test2;
+
+--
+-- Apply a subset of the above tests on a collatable type, too
+--
+
+CREATE TABLE textrange_test (tr textrange);
+create index textrange_test_btree on textrange_test(tr);
+
+INSERT INTO textrange_test VALUES('[,)');
+INSERT INTO textrange_test VALUES('["a",]');
+INSERT INTO textrange_test VALUES('[,"q")');
+INSERT INTO textrange_test VALUES(textrange('b', 'g'));
+INSERT INTO textrange_test VALUES('empty');
+INSERT INTO textrange_test VALUES(textrange('d', 'd', '[]'));
+
+SELECT tr, isempty(tr), lower(tr), upper(tr) FROM textrange_test;
+SELECT tr, lower_inc(tr), lower_inf(tr), upper_inc(tr), upper_inf(tr) FROM textrange_test;
+
+SELECT * FROM textrange_test WHERE range_contains(tr, textrange('f', 'fx'));
+SELECT * FROM textrange_test WHERE tr @> textrange('a', 'z');
+SELECT * FROM textrange_test WHERE range_contained_by(textrange('0','9'), tr);
+SELECT * FROM textrange_test WHERE 'e'::text <@ tr;
+
+select * from textrange_test where tr = 'empty';
+select * from textrange_test where tr = '("b","g")';
+select * from textrange_test where tr = '["b","g")';
+select * from textrange_test where tr < 'empty';
+
 
 -- test canonical form for int4range
 select int4range(1, 10, '[]');
@@ -165,6 +193,10 @@ select daterange('2000-01-10'::date, '2000-01-20'::date, '(]');
 select daterange('2000-01-10'::date, '2000-01-20'::date, '()');
 select daterange('2000-01-10'::date, '2000-01-11'::date, '()');
 select daterange('2000-01-10'::date, '2000-01-11'::date, '(]');
+select daterange('-infinity'::date, '2000-01-01'::date, '()');
+select daterange('-infinity'::date, '2000-01-01'::date, '[)');
+select daterange('2000-01-01'::date, 'infinity'::date, '[)');
+select daterange('2000-01-01'::date, 'infinity'::date, '[]');
 
 -- test GiST index that's been built incrementally
 create table test_range_gist(ir int4range);
@@ -320,7 +352,7 @@ create table test_range_excl(
   during tsrange,
   exclude using gist (room with =, during with &&),
   exclude using gist (speaker with =, during with &&)
-) distribute by replication;
+);
 
 insert into test_range_excl
   values(int4range(123, 123, '[]'), int4range(1, 1, '[]'), '[2010-01-02 10:00, 2010-01-02 11:00)');
@@ -459,6 +491,9 @@ select *, row_to_json(upper(t)) as u from
   (values (two_ints_range(row(1,2), row(3,4))),
           (two_ints_range(row(5,6), row(7,8)))) v(t);
 
+-- this must be rejected to avoid self-inclusion issues:
+alter type two_ints add attribute c two_ints_range;
+
 drop type two_ints cascade;
 
 --
@@ -482,15 +517,23 @@ create function outparam_succeed(i anyrange, out r anyrange, out t text)
 
 select * from outparam_succeed(int4range(1,2));
 
+create function outparam2_succeed(r anyrange, out lu anyarray, out ul anyarray)
+  as $$ select array[lower($1), upper($1)], array[upper($1), lower($1)] $$
+  language sql;
+
+select * from outparam2_succeed(int4range(1,11));
+
 create function inoutparam_succeed(out i anyelement, inout r anyrange)
   as $$ select upper($1), $1 $$ language sql;
 
 select * from inoutparam_succeed(int4range(1,2));
 
-create function table_succeed(i anyelement, r anyrange) returns table(i anyelement, r anyrange)
-  as $$ select $1, $2 $$ language sql;
+create function table_succeed(r anyrange)
+  returns table(l anyelement, u anyelement)
+  as $$ select lower($1), upper($1) $$
+  language sql;
 
-select * from table_succeed(123, int4range(1,11));
+select * from table_succeed(int4range(1,11));
 
 -- should fail
 create function outparam_fail(i anyelement, out r anyrange, out t text)

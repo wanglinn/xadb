@@ -330,6 +330,13 @@ ExecComputeStoredGenerated(EState *estate, TupleTableSlot *slot)
 
 			val = ExecEvalExpr(resultRelInfo->ri_GeneratedExprs[i], econtext, &isnull);
 
+			/*
+			 * We must make a copy of val as we have no guarantees about where
+			 * memory for a pass-by-reference Datum is located.
+			 */
+			if (!isnull)
+				val = datumCopy(val, attr->attbyval, attr->attlen);
+
 			values[i] = val;
 			nulls[i] = isnull;
 		}
@@ -446,7 +453,6 @@ ExecInsert(ModifyTableState *mtstate,
 		 * them.
 		 */
 		slot->tts_tableOid = RelationGetRelid(resultRelInfo->ri_RelationDesc);
-
 	}
 	else
 	{
@@ -1005,7 +1011,7 @@ ldelete:;
 					 * Already know that we're going to need to do EPQ, so
 					 * fetch tuple directly into the right slot.
 					 */
-					EvalPlanQualBegin(epqstate, estate);
+					EvalPlanQualBegin(epqstate);
 					inputslot = EvalPlanQualSlot(epqstate, resultRelationDesc,
 												 resultRelInfo->ri_RangeTableIndex);
 
@@ -1020,8 +1026,7 @@ ldelete:;
 					{
 						case TM_Ok:
 							Assert(tmfd.traversed);
-							epqslot = EvalPlanQual(estate,
-												   epqstate,
+							epqslot = EvalPlanQual(epqstate,
 												   resultRelationDesc,
 												   resultRelInfo->ri_RangeTableIndex,
 												   inputslot);
@@ -1690,7 +1695,6 @@ lreplace:;
 					 * Already know that we're going to need to do EPQ, so
 					 * fetch tuple directly into the right slot.
 					 */
-					EvalPlanQualBegin(epqstate, estate);
 					inputslot = EvalPlanQualSlot(epqstate, resultRelationDesc,
 												 resultRelInfo->ri_RangeTableIndex);
 
@@ -1706,8 +1710,7 @@ lreplace:;
 						case TM_Ok:
 							Assert(tmfd.traversed);
 
-							epqslot = EvalPlanQual(estate,
-												   epqstate,
+							epqslot = EvalPlanQual(epqstate,
 												   resultRelationDesc,
 												   resultRelInfo->ri_RangeTableIndex,
 												   inputslot);
@@ -2395,7 +2398,7 @@ ExecModifyTable(PlanState *pstate)
 	 * case it is within a CTE subplan.  Hence this test must be here, not in
 	 * ExecInitModifyTable.)
 	 */
-	if (estate->es_epqTupleSlot != NULL)
+	if (estate->es_epq_active != NULL)
 		elog(ERROR, "ModifyTable should not be called during EvalPlanQual");
 
 	/*
@@ -3138,11 +3141,16 @@ not_exists_rel_:
 			table_slot_create(resultRelInfo->ri_RelationDesc,
 							  &mtstate->ps.state->es_tupleTable);
 
-		/* create the tuple slot for the UPDATE SET projection */
+		/*
+		 * Create the tuple slot for the UPDATE SET projection. We want a slot
+		 * of the table's type here, because the slot will be used to insert
+		 * into the table, and for RETURNING processing - which may access
+		 * system attributes.
+		 */
 		tupDesc = ExecTypeFromTL((List *) node->onConflictSet);
 		resultRelInfo->ri_onConflict->oc_ProjSlot =
 			ExecInitExtraTupleSlot(mtstate->ps.state, tupDesc,
-								   &TTSOpsVirtual);
+								   table_slot_callbacks(resultRelInfo->ri_RelationDesc));
 
 		/* build UPDATE SET projection state */
 		resultRelInfo->ri_onConflict->oc_ProjInfo =

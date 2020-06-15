@@ -2,7 +2,7 @@
 -- PATH
 --
 --DROP TABLE PATH_TBL;
-CREATE TABLE PATH_TBL (f1 path) DISTRIBUTE BY REPLICATION;
+CREATE TABLE PATH_TBL (f1 path);
 INSERT INTO PATH_TBL VALUES ('[(1,2),(3,4)]');
 INSERT INTO PATH_TBL VALUES (' ( ( 1 , 2 ) , ( 3 , 4 ) ) ');
 INSERT INTO PATH_TBL VALUES ('[ (0,0),(3,0),(4,5),(1,6) ]');
@@ -19,9 +19,9 @@ LINE 1: INSERT INTO PATH_TBL VALUES ('[]');
                                      ^
 INSERT INTO PATH_TBL VALUES ('[(,2),(3,4)]');
 ERROR:  invalid input syntax for type path: "[(,2),(3,4)]"
-LINE 1: INSERT INTO PATH_TBL VALUES (9, '[(,2),(3,4)]');
-                                        ^
-INSERT INTO PATH_TBL VALUES (10, '[(1,2),(3,4)');
+LINE 1: INSERT INTO PATH_TBL VALUES ('[(,2),(3,4)]');
+                                     ^
+INSERT INTO PATH_TBL VALUES ('[(1,2),(3,4)');
 ERROR:  invalid input syntax for type path: "[(1,2),(3,4)"
 LINE 1: INSERT INTO PATH_TBL VALUES ('[(1,2),(3,4)');
                                      ^

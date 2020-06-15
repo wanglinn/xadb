@@ -2505,6 +2505,7 @@ ExecComputeSlotInfo(ExprState *state, ExprEvalStep *op)
 		{
 			isfixed = true;
 			tts_ops = parent->innerops;
+			desc = ExecGetResultType(is);
 		}
 		else if (is)
 		{
@@ -2524,6 +2525,7 @@ ExecComputeSlotInfo(ExprState *state, ExprEvalStep *op)
 		{
 			isfixed = true;
 			tts_ops = parent->outerops;
+			desc = ExecGetResultType(os);
 		}
 		else if (os)
 		{

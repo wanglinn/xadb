@@ -31,7 +31,7 @@ ABORT;
 SELECT oid FROM pg_class WHERE relname = 'disappear';
 
 -- should have members again
-SELECT * FROM aggtest order by a, b;
+SELECT * FROM aggtest;
 
 
 -- Read-only tests
@@ -138,8 +138,8 @@ BEGIN;
 	RELEASE SAVEPOINT three;
 	INSERT INTO trans_foo VALUES (3);
 COMMIT;
-SELECT * FROM trans_foo ORDER BY a;		-- should have 1 and 3
-SELECT * FROM trans_barbaz ORDER BY a;	-- should have 1
+SELECT * FROM trans_foo;		-- should have 1 and 3
+SELECT * FROM trans_barbaz;	-- should have 1
 
 -- test whole-tree commit
 BEGIN;
@@ -158,7 +158,7 @@ BEGIN;
 				ROLLBACK TO SAVEPOINT five;
 COMMIT;
 COMMIT;		-- should not be in a transaction block
-SELECT * FROM savepoints ORDER BY 1;
+SELECT * FROM savepoints;
 
 -- test whole-tree rollback
 BEGIN;
@@ -172,7 +172,7 @@ BEGIN;
 ROLLBACK;
 COMMIT;		-- should not be in a transaction block
 
-SELECT * FROM savepoints ORDER BY 1;
+SELECT * FROM savepoints;
 
 -- test whole-tree commit on an aborted subtransaction
 BEGIN;
@@ -181,7 +181,7 @@ BEGIN;
 		INSERT INTO savepoints VALUES (5);
 		SELECT trans_foo;
 COMMIT;
-SELECT * FROM savepoints ORDER BY a;
+SELECT * FROM savepoints;
 
 BEGIN;
 	INSERT INTO savepoints VALUES (6);
@@ -202,7 +202,7 @@ BEGIN;
 	ROLLBACK TO SAVEPOINT one;
 		INSERT INTO savepoints VALUES (11);
 COMMIT;
-SELECT a FROM savepoints WHERE a in (9, 10, 11) ORDER BY a;
+SELECT a FROM savepoints WHERE a in (9, 10, 11);
 -- rows 9 and 11 should have been created by different xacts
 SELECT a.xmin = b.xmin FROM savepoints a, savepoints b WHERE a.a=9 AND b.a=11;
 
@@ -219,7 +219,7 @@ BEGIN;
 			SAVEPOINT three;
 				INSERT INTO savepoints VALUES (17);
 COMMIT;
-SELECT a FROM savepoints WHERE a BETWEEN 12 AND 17 ORDER BY a;
+SELECT a FROM savepoints WHERE a BETWEEN 12 AND 17;
 
 BEGIN;
 	INSERT INTO savepoints VALUES (18);
@@ -232,7 +232,7 @@ BEGIN;
 	ROLLBACK TO SAVEPOINT one;
 		INSERT INTO savepoints VALUES (22);
 COMMIT;
-SELECT a FROM savepoints WHERE a BETWEEN 18 AND 22 ORDER BY a;
+SELECT a FROM savepoints WHERE a BETWEEN 18 AND 22;
 
 DROP TABLE savepoints;
 
@@ -279,14 +279,14 @@ COMMIT;
 -- also check that they don't see commits of concurrent transactions, but
 -- that's a mite hard to do within the limitations of pg_regress.)
 --
-select * from xacttest order by a, b;
+select * from xacttest;
 
 create or replace function max_xacttest() returns smallint language sql as
 'select max(a) from xacttest' stable;
 
 begin;
 update xacttest set a = max_xacttest() + 10 where a > 0;
-select * from xacttest order by a, b;
+select * from xacttest;
 rollback;
 
 -- But a volatile function can see the partial results of the calling query
@@ -295,7 +295,7 @@ create or replace function max_xacttest() returns smallint language sql as
 
 begin;
 update xacttest set a = max_xacttest() + 10 where a > 0;
-select * from xacttest order by a, b;
+select * from xacttest;
 rollback;
 
 -- Now the same test with plpgsql (since it depends on SPI which is different)
@@ -304,7 +304,7 @@ create or replace function max_xacttest() returns smallint language plpgsql as
 
 begin;
 update xacttest set a = max_xacttest() + 10 where a > 0;
-select * from xacttest order by a, b;
+select * from xacttest;
 rollback;
 
 create or replace function max_xacttest() returns smallint language plpgsql as
@@ -312,7 +312,7 @@ create or replace function max_xacttest() returns smallint language plpgsql as
 
 begin;
 update xacttest set a = max_xacttest() + 10 where a > 0;
-select * from xacttest order by a, b;
+select * from xacttest;
 rollback;
 
 
@@ -361,7 +361,7 @@ savepoint x;
 create table abc (a int);
 insert into abc values (5);
 insert into abc values (10);
-declare foo cursor for select * from abc order by a;
+declare foo cursor for select * from abc;
 fetch from foo;
 rollback to x;
 
@@ -375,7 +375,7 @@ create table abc (a int);
 insert into abc values (5);
 insert into abc values (10);
 insert into abc values (15);
-declare foo cursor for select * from abc order by a;
+declare foo cursor for select * from abc;
 
 fetch from foo;
 
@@ -404,7 +404,7 @@ BEGIN
 END $$;
 
 BEGIN;
-DECLARE ok CURSOR FOR SELECT * FROM int8_tbl ORDER BY 1,2;
+DECLARE ok CURSOR FOR SELECT * FROM int8_tbl;
 DECLARE ctt CURSOR FOR SELECT create_temp_tab();
 FETCH ok;
 SAVEPOINT s1;
@@ -475,6 +475,10 @@ SHOW transaction_read_only;
 SHOW transaction_deferrable;
 ROLLBACK;
 
+-- not allowed outside a transaction block
+COMMIT AND CHAIN;  -- error
+ROLLBACK AND CHAIN;  -- error
+
 SELECT * FROM abc ORDER BY 1;
 
 RESET default_transaction_read_only;
@@ -534,6 +538,45 @@ SELECT 2\; RELEASE SAVEPOINT sp\; SELECT 3;
 
 -- but this is OK, because the BEGIN converts it to a regular xact
 SELECT 1\; BEGIN\; SAVEPOINT sp\; ROLLBACK TO SAVEPOINT sp\; COMMIT;
+
+
+-- Tests for AND CHAIN in implicit transaction blocks
+
+SET TRANSACTION READ ONLY\; COMMIT AND CHAIN;  -- error
+SHOW transaction_read_only;
+
+SET TRANSACTION READ ONLY\; ROLLBACK AND CHAIN;  -- error
+SHOW transaction_read_only;
+
+CREATE TABLE abc (a int);
+
+-- COMMIT/ROLLBACK + COMMIT/ROLLBACK AND CHAIN
+INSERT INTO abc VALUES (7)\; COMMIT\; INSERT INTO abc VALUES (8)\; COMMIT AND CHAIN;  -- 7 commit, 8 error
+INSERT INTO abc VALUES (9)\; ROLLBACK\; INSERT INTO abc VALUES (10)\; ROLLBACK AND CHAIN;  -- 9 rollback, 10 error
+
+-- COMMIT/ROLLBACK AND CHAIN + COMMIT/ROLLBACK
+INSERT INTO abc VALUES (11)\; COMMIT AND CHAIN\; INSERT INTO abc VALUES (12)\; COMMIT;  -- 11 error, 12 not reached
+INSERT INTO abc VALUES (13)\; ROLLBACK AND CHAIN\; INSERT INTO abc VALUES (14)\; ROLLBACK;  -- 13 error, 14 not reached
+
+-- START TRANSACTION + COMMIT/ROLLBACK AND CHAIN
+START TRANSACTION ISOLATION LEVEL REPEATABLE READ\; INSERT INTO abc VALUES (15)\; COMMIT AND CHAIN;  -- 15 ok
+SHOW transaction_isolation;  -- transaction is active at this point
+COMMIT;
+
+START TRANSACTION ISOLATION LEVEL REPEATABLE READ\; INSERT INTO abc VALUES (16)\; ROLLBACK AND CHAIN;  -- 16 ok
+SHOW transaction_isolation;  -- transaction is active at this point
+ROLLBACK;
+
+-- START TRANSACTION + COMMIT/ROLLBACK + COMMIT/ROLLBACK AND CHAIN
+START TRANSACTION ISOLATION LEVEL REPEATABLE READ\; INSERT INTO abc VALUES (17)\; COMMIT\; INSERT INTO abc VALUES (18)\; COMMIT AND CHAIN;  -- 17 commit, 18 error
+SHOW transaction_isolation;  -- out of transaction block
+
+START TRANSACTION ISOLATION LEVEL REPEATABLE READ\; INSERT INTO abc VALUES (19)\; ROLLBACK\; INSERT INTO abc VALUES (20)\; ROLLBACK AND CHAIN;  -- 19 rollback, 20 error
+SHOW transaction_isolation;  -- out of transaction block
+
+SELECT * FROM abc ORDER BY 1;
+
+DROP TABLE abc;
 
 
 -- Test for successful cleanup of an aborted transaction at session exit.

@@ -3,7 +3,6 @@
 --
 
 CREATE TABLE update_test (
-	id  INT,
     a   INT DEFAULT 10,
     b   INT,
     c   TEXT
@@ -14,23 +13,23 @@ CREATE TABLE upsert_test (
     b   TEXT
 );
 
-INSERT INTO update_test(a,b,c) VALUES (5, 10, 'foo');
+INSERT INTO update_test VALUES (5, 10, 'foo');
 INSERT INTO update_test(b, a) VALUES (15, 10);
 
-SELECT * FROM update_test ORDER BY a, b, c;
+SELECT * FROM update_test;
 
 UPDATE update_test SET a = DEFAULT, b = DEFAULT;
 
-SELECT * FROM update_test  ORDER BY a, b, c;
+SELECT * FROM update_test;
 
 -- aliases for the UPDATE target table
 UPDATE update_test AS t SET b = 10 WHERE t.a = 10;
 
-SELECT * FROM update_test  ORDER BY a, b, c;
+SELECT * FROM update_test;
 
 UPDATE update_test t SET b = t.b + 10 WHERE t.a = 10;
 
-SELECT * FROM update_test  ORDER BY a, b, c;
+SELECT * FROM update_test;
 
 --
 -- Test VALUES in FROM
@@ -39,7 +38,7 @@ SELECT * FROM update_test  ORDER BY a, b, c;
 UPDATE update_test SET a=v.i FROM (VALUES(100, 20)) AS v(i, j)
   WHERE update_test.b = v.j;
 
-SELECT * FROM update_test  ORDER BY a, b, c;
+SELECT * FROM update_test;
 
 -- fail, wrong data type:
 UPDATE update_test SET a = v.* FROM (VALUES(100, 20)) AS v(i, j)
@@ -49,13 +48,13 @@ UPDATE update_test SET a = v.* FROM (VALUES(100, 20)) AS v(i, j)
 -- Test multiple-set-clause syntax
 --
 
-INSERT INTO update_test(a,b,c) SELECT a,b+1,c FROM update_test;
+INSERT INTO update_test SELECT a,b+1,c FROM update_test;
 SELECT * FROM update_test;
 
 UPDATE update_test SET (c,b,a) = ('bugle', b+11, DEFAULT) WHERE c = 'foo';
-SELECT * FROM update_test  ORDER BY a, b, c;
+SELECT * FROM update_test;
 UPDATE update_test SET (c,b) = ('car', a+b), a = a + 1 WHERE a = 10;
-SELECT * FROM update_test  ORDER BY a, b, c;
+SELECT * FROM update_test;
 -- fail, multi assignment to same column:
 UPDATE update_test SET (c,b) = ('car', a+b), b = a + 1 WHERE a = 10;
 
@@ -88,7 +87,7 @@ UPDATE update_test AS t SET b = update_test.b + 10 WHERE t.a = 10;
 
 -- Make sure that we can update to a TOASTed value.
 UPDATE update_test SET c = repeat('x', 10000) WHERE c = 'car';
-SELECT a, b, char_length(c) FROM update_test ORDER BY a;
+SELECT a, b, char_length(c) FROM update_test;
 
 -- Check multi-assignment with a Result node to handle a one-time filter.
 EXPLAIN (VERBOSE, COSTS OFF)
@@ -115,6 +114,21 @@ INSERT INTO upsert_test VALUES (1, 'Bat') ON CONFLICT(a)
   DO UPDATE SET (b, a) = (SELECT b || ', Excluded', a from upsert_test i WHERE i.a = excluded.a)
   RETURNING *;
 
+-- ON CONFLICT using system attributes in RETURNING, testing both the
+-- inserting and updating paths. See bug report at:
+-- https://www.postgresql.org/message-id/73436355-6432-49B1-92ED-1FE4F7E7E100%40finefun.com.au
+CREATE FUNCTION xid_current() RETURNS xid LANGUAGE SQL AS $$SELECT (txid_current() % ((1::int8<<32)))::text::xid;$$;
+INSERT INTO upsert_test VALUES (2, 'Beeble') ON CONFLICT(a)
+  DO UPDATE SET (b, a) = (SELECT b || ', Excluded', a from upsert_test i WHERE i.a = excluded.a)
+  RETURNING tableoid::regclass, xmin = xid_current() AS xmin_correct, xmax = 0 AS xmax_correct;
+-- currently xmax is set after a conflict - that's probably not good,
+-- but it seems worthwhile to have to be explicit if that changes.
+INSERT INTO upsert_test VALUES (2, 'Brox') ON CONFLICT(a)
+  DO UPDATE SET (b, a) = (SELECT b || ', Excluded', a from upsert_test i WHERE i.a = excluded.a)
+  RETURNING tableoid::regclass, xmin = xid_current() AS xmin_correct, xmax = xid_current() AS xmax_correct;
+
+
+DROP FUNCTION xid_current();
 DROP TABLE update_test;
 DROP TABLE upsert_test;
 

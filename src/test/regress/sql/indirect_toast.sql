@@ -6,7 +6,7 @@ INSERT INTO indtoasttest(descr, f1, f2) VALUES('one-compressed,one-null', NULL, 
 INSERT INTO indtoasttest(descr, f1, f2) VALUES('one-toasted,one-null', NULL, repeat('1234567890',50000));
 
 -- check whether indirect tuples works on the most basic level
-SELECT descr, substring(make_tuple_indirect(indtoasttest)::text, 1, 200) FROM indtoasttest order by descr;
+SELECT descr, substring(make_tuple_indirect(indtoasttest)::text, 1, 200) FROM indtoasttest;
 
 -- modification without changing varlenas
 UPDATE indtoasttest SET cnt = cnt +1 RETURNING substring(indtoasttest::text, 1, 200);
@@ -22,7 +22,7 @@ UPDATE indtoasttest SET cnt = cnt +1, f1 = '-'||f1||'-' RETURNING substring(indt
 SELECT substring(indtoasttest::text, 1, 200) FROM indtoasttest;
 -- check we didn't screw with main/toast tuple visibility
 VACUUM FREEZE indtoasttest;
-SELECT substring(indtoasttest::text, 1, 200) FROM indtoasttest order by s;
+SELECT substring(indtoasttest::text, 1, 200) FROM indtoasttest;
 
 -- now create a trigger that forces all Datums to be indirect ones
 CREATE FUNCTION update_using_indirect()
@@ -55,7 +55,7 @@ INSERT INTO indtoasttest(descr, f1, f2) VALUES('one-toasted,one-null, via indire
 SELECT substring(indtoasttest::text, 1, 200) FROM indtoasttest;
 -- check we didn't screw with main/toast tuple visibility
 VACUUM FREEZE indtoasttest;
-SELECT substring(indtoasttest::text, 1, 200) FROM indtoasttest order by 1;
+SELECT substring(indtoasttest::text, 1, 200) FROM indtoasttest;
 
 DROP TABLE indtoasttest;
 DROP FUNCTION update_using_indirect();

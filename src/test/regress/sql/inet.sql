@@ -29,24 +29,24 @@ INSERT INTO INET_TBL (c, i) VALUES ('1234::1234::1234', '::1.2.3.4');
 -- check that CIDR rejects invalid input when converting from text:
 INSERT INTO INET_TBL (c, i) VALUES (cidr('192.168.1.2/30'), '192.168.1.226');
 INSERT INTO INET_TBL (c, i) VALUES (cidr('ffff:ffff:ffff:ffff::/24'), '::192.168.1.226');
-SELECT '' AS ten, c AS cidr, i AS inet FROM INET_TBL ORDER BY cidr, inet;
+SELECT '' AS ten, c AS cidr, i AS inet FROM INET_TBL;
 
 -- now test some support functions
 
-SELECT '' AS ten, i AS inet, host(i), text(i), family(i) FROM INET_TBL ORDER BY i;
+SELECT '' AS ten, i AS inet, host(i), text(i), family(i) FROM INET_TBL;
 SELECT '' AS ten, c AS cidr, broadcast(c),
-  i AS inet, broadcast(i) FROM INET_TBL ORDER BY i, c;
+  i AS inet, broadcast(i) FROM INET_TBL;
 SELECT '' AS ten, c AS cidr, network(c) AS "network(cidr)",
-  i AS inet, network(i) AS "network(inet)" FROM INET_TBL ORDER BY i, c;
+  i AS inet, network(i) AS "network(inet)" FROM INET_TBL;
 SELECT '' AS ten, c AS cidr, masklen(c) AS "masklen(cidr)",
-  i AS inet, masklen(i) AS "masklen(inet)" FROM INET_TBL ORDER BY i, c;
+  i AS inet, masklen(i) AS "masklen(inet)" FROM INET_TBL;
 
 SELECT '' AS four, c AS cidr, masklen(c) AS "masklen(cidr)",
   i AS inet, masklen(i) AS "masklen(inet)" FROM INET_TBL
-  WHERE masklen(c) <= 8 ORDER BY i, c;
+  WHERE masklen(c) <= 8;
 
 SELECT '' AS six, c AS cidr, i AS inet FROM INET_TBL
-  WHERE c = i ORDER BY i, c;
+  WHERE c = i;
 
 SELECT '' AS ten, i, c,
   i < c AS lt, i <= c AS le, i = c AS eq,
@@ -54,22 +54,23 @@ SELECT '' AS ten, i, c,
   i << c AS sb, i <<= c AS sbe,
   i >> c AS sup, i >>= c AS spe,
   i && c AS ovr
-  FROM INET_TBL ORDER BY i, c;
+  FROM INET_TBL;
 
 SELECT max(i) AS max, min(i) AS min FROM INET_TBL;
 SELECT max(c) AS max, min(c) AS min FROM INET_TBL;
 
 -- check the conversion to/from text and set_netmask
-SELECT '' AS ten, set_masklen(inet(text(i)), 24) FROM INET_TBL ORDER BY i;
--- check that index works correctly
+SELECT '' AS ten, set_masklen(inet(text(i)), 24) FROM INET_TBL;
+
+-- check that btree index works correctly
 CREATE INDEX inet_idx1 ON inet_tbl(i);
 SET enable_seqscan TO off;
 EXPLAIN (COSTS OFF)
 SELECT * FROM inet_tbl WHERE i<<'192.168.1.0/24'::cidr;
-SELECT * FROM inet_tbl WHERE i<<'192.168.1.0/24'::cidr order by c, i;
+SELECT * FROM inet_tbl WHERE i<<'192.168.1.0/24'::cidr;
 EXPLAIN (COSTS OFF)
 SELECT * FROM inet_tbl WHERE i<<='192.168.1.0/24'::cidr;
-SELECT * FROM inet_tbl WHERE i<<='192.168.1.0/24'::cidr order by c, i;
+SELECT * FROM inet_tbl WHERE i<<='192.168.1.0/24'::cidr;
 EXPLAIN (COSTS OFF)
 SELECT * FROM inet_tbl WHERE '192.168.1.0/24'::cidr >>= i;
 SELECT * FROM inet_tbl WHERE '192.168.1.0/24'::cidr >>= i;
@@ -82,17 +83,17 @@ DROP INDEX inet_idx1;
 -- check that gist index works correctly
 CREATE INDEX inet_idx2 ON inet_tbl using gist (i inet_ops);
 SET enable_seqscan TO off;
-SELECT * FROM inet_tbl WHERE i<<'192.168.1.0/24'::cidr ORDER BY i, c;
-SELECT * FROM inet_tbl WHERE i<<='192.168.1.0/24'::cidr ORDER BY i;
+SELECT * FROM inet_tbl WHERE i << '192.168.1.0/24'::cidr ORDER BY i;
+SELECT * FROM inet_tbl WHERE i <<= '192.168.1.0/24'::cidr ORDER BY i;
 SELECT * FROM inet_tbl WHERE i && '192.168.1.0/24'::cidr ORDER BY i;
 SELECT * FROM inet_tbl WHERE i >>= '192.168.1.0/24'::cidr ORDER BY i;
 SELECT * FROM inet_tbl WHERE i >> '192.168.1.0/24'::cidr ORDER BY i;
-SELECT * FROM inet_tbl WHERE i < '192.168.1.0/24'::cidr ORDER BY i,c;
+SELECT * FROM inet_tbl WHERE i < '192.168.1.0/24'::cidr ORDER BY i;
 SELECT * FROM inet_tbl WHERE i <= '192.168.1.0/24'::cidr ORDER BY i;
 SELECT * FROM inet_tbl WHERE i = '192.168.1.0/24'::cidr ORDER BY i;
 SELECT * FROM inet_tbl WHERE i >= '192.168.1.0/24'::cidr ORDER BY i;
 SELECT * FROM inet_tbl WHERE i > '192.168.1.0/24'::cidr ORDER BY i;
-SELECT * FROM inet_tbl WHERE i <> '192.168.1.0/24'::cidr ORDER BY i, c;
+SELECT * FROM inet_tbl WHERE i <> '192.168.1.0/24'::cidr ORDER BY i;
 
 -- test index-only scans
 EXPLAIN (COSTS OFF)
@@ -126,12 +127,12 @@ SET enable_seqscan TO on;
 DROP INDEX inet_idx3;
 
 -- simple tests of inet boolean and arithmetic operators
-SELECT i, ~i AS "~i" FROM inet_tbl ORDER BY i;
-SELECT i, c, i & c AS "and" FROM inet_tbl ORDER BY i, c;
-SELECT i, c, i | c AS "or" FROM inet_tbl ORDER BY i, c;
-SELECT i, i + 500 AS "i+500" FROM inet_tbl ORDER BY i;
-SELECT i, i - 500 AS "i-500" FROM inet_tbl ORDER BY i;
-SELECT i, c, i - c AS "minus" FROM inet_tbl ORDER BY i, c;
+SELECT i, ~i AS "~i" FROM inet_tbl;
+SELECT i, c, i & c AS "and" FROM inet_tbl;
+SELECT i, c, i | c AS "or" FROM inet_tbl;
+SELECT i, i + 500 AS "i+500" FROM inet_tbl;
+SELECT i, i - 500 AS "i-500" FROM inet_tbl;
+SELECT i, c, i - c AS "minus" FROM inet_tbl;
 SELECT '127.0.0.1'::inet + 257;
 SELECT ('127.0.0.1'::inet + 257) - 257;
 SELECT '127::1'::inet + 257;
@@ -154,4 +155,4 @@ INSERT INTO INET_TBL (c, i) VALUES ('10', '10::/8');
 -- now, this one should fail
 SELECT inet_merge(c, i) FROM INET_TBL;
 -- fix it by inet_same_family() condition
-SELECT inet_merge(c, i) FROM INET_TBL WHERE inet_same_family(c, i) order by merge;
+SELECT inet_merge(c, i) FROM INET_TBL WHERE inet_same_family(c, i);

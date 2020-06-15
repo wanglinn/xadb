@@ -128,8 +128,7 @@ SELECT sum2(q1,q2) FROM int8_tbl;
 -- this should work
 select ten, sum(distinct four) from onek a
 group by ten
-having exists (select 1 from onek b where sum(distinct a.four) = b.four) 
-order by ten;
+having exists (select 1 from onek b where sum(distinct a.four) = b.four);
 
 -- this should fail because subquery has an agg of its own in WHERE
 select ten, sum(distinct four) from onek a
@@ -326,8 +325,7 @@ explain (costs off)
   select f1, (select min(unique1) from tenk1 where unique1 > f1) AS gt
     from int4_tbl;
 select f1, (select min(unique1) from tenk1 where unique1 > f1) AS gt
-from int4_tbl 
-order by f1;
+  from int4_tbl;
 
 -- check some cases that were handled incorrectly in 8.3.0
 explain (costs off)
@@ -408,9 +406,31 @@ group by t1.a,t1.b,t1.c,t1.d,t2.x,t2.z;
 -- Cannot optimize when PK is deferrable
 explain (costs off) select * from t3 group by a,b,c;
 
-drop table t1;
+create temp table t1c () inherits (t1);
+
+-- Ensure we don't remove any columns when t1 has a child table
+explain (costs off) select * from t1 group by a,b,c,d;
+
+-- Okay to remove columns if we're only querying the parent.
+explain (costs off) select * from only t1 group by a,b,c,d;
+
+create temp table p_t1 (
+  a int,
+  b int,
+  c int,
+  d int,
+  primary key(a,b)
+) partition by list(a);
+create temp table p_t1_1 partition of p_t1 for values in(1);
+create temp table p_t1_2 partition of p_t1 for values in(2);
+
+-- Ensure we can remove non-PK columns for partitioned tables.
+explain (costs off) select * from p_t1 group by a,b,c,d;
+
+drop table t1 cascade;
 drop table t2;
 drop table t3;
+drop table p_t1;
 
 --
 -- Test combinations of DISTINCT and/or ORDER BY

@@ -60,4 +60,6 @@ bool rewrite_rownum_query_enum(Node *node, void *context);
 extern List *BuildOnConflictExcludedTargetlist(Relation targetrel,
 											   Index exclRelIndex);
 
+extern void fill_extraUpdatedCols(RangeTblEntry *target_rte, TupleDesc tupdesc);
+
 #endif							/* ANALYZE_H */

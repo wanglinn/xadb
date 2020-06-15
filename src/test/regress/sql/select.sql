@@ -71,7 +71,7 @@ SET enable_sort TO off;
 --
 -- awk '{if($1<10){print $0;}else{next;}}' onek.data | sort +0n -1
 --
-SELECT onek2.* FROM onek2 WHERE onek2.unique1 < 10 ORDER BY unique1;
+SELECT onek2.* FROM onek2 WHERE onek2.unique1 < 10;
 
 --
 -- awk '{if($1<20){print $1,$14;}else{next;}}' onek.data | sort +0nr -1
@@ -84,8 +84,7 @@ SELECT onek2.unique1, onek2.stringu1 FROM onek2
 -- awk '{if($1>980){print $1,$14;}else{next;}}' onek.data | sort +1d -2
 --
 SELECT onek2.unique1, onek2.stringu1 FROM onek2
-   WHERE onek2.unique1 > 980 
-   ORDER BY unique1 using <;
+   WHERE onek2.unique1 > 980;
 
 RESET enable_seqscan;
 RESET enable_bitmapscan;
@@ -103,8 +102,7 @@ SELECT two, stringu1, ten, string4
 -- awk 'BEGIN{FS="      ";}{if(NF!=2){print $4,$5;}else{print;}}' - stud_emp.data
 --
 -- SELECT name, age FROM person*; ??? check if different
-SELECT p.name, p.age FROM person* p 
-    ORDER BY p.name, p.age;
+SELECT p.name, p.age FROM person* p;
 
 --
 -- awk '{print $1,$2;}' person.data |
@@ -126,8 +124,7 @@ select foo from (select 'xyzzy',1,null offset 0) as foo;
 -- Test VALUES lists
 --
 select * from onek, (values(147, 'RFAAAA'), (931, 'VJAAAA')) as v (i, j)
-    WHERE onek.unique1 = v.i and onek.stringu1 = v.j 
-    ORDER BY unique1;
+    WHERE onek.unique1 = v.i and onek.stringu1 = v.j;
 
 -- a more complex case
 -- looks like we're coding lisp :-)
@@ -135,8 +132,7 @@ select * from onek,
   (values ((select i from
     (values(10000), (2), (389), (1000), (2000), ((select 10029))) as foo(i)
     order by i asc limit 1))) bar (i)
-  where onek.unique1 = bar.i 
-  ORDER BY unique1;
+  where onek.unique1 = bar.i;
 
 -- try VALUES in a subquery
 select * from onek
@@ -150,8 +146,7 @@ VALUES (1,2), (3,4+4), (7,77.7)
 UNION ALL
 SELECT 2+2, 57
 UNION ALL
-TABLE int8_tbl 
-ORDER BY column1,column2;
+TABLE int8_tbl;
 
 --
 -- Test ORDER BY options
@@ -250,7 +245,7 @@ SELECT 1 AS x ORDER BY x;
 create function sillysrf(int) returns setof int as
   'values (1),(10),(2),($1)' language sql immutable;
 
-select sillysrf(42) order by 1;
+select sillysrf(42);
 select sillysrf(-1) order by 1;
 
 drop function sillysrf(int);
@@ -258,7 +253,7 @@ drop function sillysrf(int);
 -- X = X isn't a no-op, it's effectively X IS NOT NULL assuming = is strict
 -- (see bug #5084)
 select * from (values (2),(null),(1)) v(k) where k = k order by k;
-select * from (values (2),(null),(1)) v(k) where k = k order by k desc;
+select * from (values (2),(null),(1)) v(k) where k = k;
 
 -- Test partitioned tables with no partitions, which should be handled the
 -- same as the non-inheritance case when expanding its RTE.

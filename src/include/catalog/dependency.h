@@ -152,6 +152,10 @@ typedef enum ObjectClass
 
 /* in dependency.c */
 
+extern void AcquireDeletionLock(const ObjectAddress *object, int flags);
+
+extern void ReleaseDeletionLock(const ObjectAddress *object);
+
 extern void performDeletion(const ObjectAddress *object,
 							DropBehavior behavior, int flags);
 
@@ -171,7 +175,7 @@ extern void recordDependencyOnSingleRelExpr(const ObjectAddress *depender,
 											Node *expr, Oid relId,
 											DependencyType behavior,
 											DependencyType self_behavior,
-											bool ignore_self);
+											bool reverse_self);
 
 extern ObjectClass getObjectClass(const ObjectAddress *object);
 
@@ -222,6 +226,7 @@ extern long changeDependenciesOn(Oid refClassId, Oid oldRefObjectId,
 								 Oid newRefObjectId);
 
 extern Oid	getExtensionOfObject(Oid classId, Oid objectId);
+extern List *getAutoExtensionsOfObject(Oid classId, Oid objectId);
 
 extern bool sequenceIsOwned(Oid seqId, char deptype, Oid *tableId, int32 *colId);
 extern List *getOwnedSequences(Oid relid, AttrNumber attnum);

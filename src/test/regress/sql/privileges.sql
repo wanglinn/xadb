@@ -44,9 +44,9 @@ GRANT regress_priv_group2 TO regress_priv_user4 WITH ADMIN OPTION;
 SET SESSION AUTHORIZATION regress_priv_user1;
 SELECT session_user, current_user;
 
-CREATE TABLE atest1 (id int, a int, b text );
+CREATE TABLE atest1 ( a int, b text );
 SELECT * FROM atest1;
-INSERT INTO atest1(a,b) VALUES (1, 'one');
+INSERT INTO atest1 VALUES (1, 'one');
 DELETE FROM atest1;
 UPDATE atest1 SET a = 1 WHERE b = 'blech';
 TRUNCATE atest1;
@@ -75,13 +75,13 @@ SELECT session_user, current_user;
 
 SELECT * FROM atest1; -- ok
 SELECT * FROM atest2; -- ok
-INSERT INTO atest1(a,b) VALUES (2, 'two'); -- ok
+INSERT INTO atest1 VALUES (2, 'two'); -- ok
 INSERT INTO atest2 VALUES ('foo', true); -- fail
-INSERT INTO atest1(a,b) SELECT 1, b FROM atest1; -- ok
+INSERT INTO atest1 SELECT 1, b FROM atest1; -- ok
 UPDATE atest1 SET a = 1 WHERE a = 2; -- ok
 UPDATE atest2 SET col2 = NOT col2; -- fail
-SELECT * FROM atest1 ORDER BY 1 FOR UPDATE; -- ok
-SELECT * FROM atest2 ORDER BY 1 FOR UPDATE; -- fail
+SELECT * FROM atest1 FOR UPDATE; -- ok
+SELECT * FROM atest2 FOR UPDATE; -- fail
 DELETE FROM atest2; -- fail
 TRUNCATE atest2; -- fail
 BEGIN;
@@ -98,11 +98,11 @@ SELECT * FROM atest2 WHERE ( col1 IN ( SELECT b FROM atest1 ) );
 SET SESSION AUTHORIZATION regress_priv_user3;
 SELECT session_user, current_user;
 
-SELECT * FROM atest1 ORDER BY 1; -- ok
+SELECT * FROM atest1; -- ok
 SELECT * FROM atest2; -- fail
-INSERT INTO atest1(a,b) VALUES (2, 'two'); -- fail
+INSERT INTO atest1 VALUES (2, 'two'); -- fail
 INSERT INTO atest2 VALUES ('foo', true); -- fail
-INSERT INTO atest1(a,b) SELECT 1, b FROM atest1; -- fail
+INSERT INTO atest1 SELECT 1, b FROM atest1; -- fail
 UPDATE atest1 SET a = 1 WHERE a = 2; -- fail
 UPDATE atest2 SET col2 = NULL; -- ok
 UPDATE atest2 SET col2 = NOT col2; -- fails; requires SELECT on atest2
@@ -124,7 +124,7 @@ SET SESSION AUTHORIZATION regress_priv_user4;
 COPY atest2 FROM stdin; -- ok
 bar	true
 \.
-SELECT * FROM atest1 ORDER BY 1; -- ok
+SELECT * FROM atest1; -- ok
 
 
 -- test leaky-function protections in selfuncs
@@ -272,7 +272,7 @@ SELECT * FROM atestv2; -- fail (even though regress_priv_user2 can access underl
 -- Test column level permissions
 
 SET SESSION AUTHORIZATION regress_priv_user1;
-CREATE TABLE atest5 (one int, two int unique, three int, four int unique) distribute by replication;
+CREATE TABLE atest5 (one int, two int unique, three int, four int unique);
 CREATE TABLE atest6 (one int, two int, blue int);
 GRANT SELECT (one), INSERT (two), UPDATE (three) ON atest5 TO regress_priv_user4;
 GRANT ALL (one) ON atest5 TO regress_priv_user3;

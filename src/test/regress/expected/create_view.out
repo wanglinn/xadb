@@ -39,7 +39,7 @@ CREATE OR REPLACE VIEW viewtest AS
 	SELECT * FROM viewtest_tbl;
 CREATE OR REPLACE VIEW viewtest AS
 	SELECT * FROM viewtest_tbl WHERE a > 10;
-SELECT * FROM viewtest ORDER BY a;
+SELECT * FROM viewtest;
  a  | b  
 ----+----
  15 | 20
@@ -48,12 +48,12 @@ SELECT * FROM viewtest ORDER BY a;
 
 CREATE OR REPLACE VIEW viewtest AS
 	SELECT a, b FROM viewtest_tbl WHERE a > 5 ORDER BY b DESC;
-SELECT * FROM viewtest ORDER BY a;
+SELECT * FROM viewtest;
  a  | b  
 ----+----
- 10 | 15
- 15 | 20
  20 | 25
+ 15 | 20
+ 10 | 15
 (3 rows)
 
 -- should fail
@@ -1524,14 +1524,14 @@ rollback;
 -- check display of whole-row variables in some corner cases
 create type nestedcomposite as (x int8_tbl);
 create view tt15v as select row(i)::nestedcomposite from int8_tbl i;
-select * from tt15v order by 1;
+select * from tt15v;
                    row                    
 ------------------------------------------
  ("(123,456)")
  ("(123,4567890123456789)")
- ("(4567890123456789,-4567890123456789)")
  ("(4567890123456789,123)")
  ("(4567890123456789,4567890123456789)")
+ ("(4567890123456789,-4567890123456789)")
 (5 rows)
 
 select pg_get_viewdef('tt15v', true);
@@ -1541,14 +1541,14 @@ select pg_get_viewdef('tt15v', true);
     FROM int8_tbl i;
 (1 row)
 
-select row(i.*::int8_tbl)::nestedcomposite from int8_tbl i order by 1;
+select row(i.*::int8_tbl)::nestedcomposite from int8_tbl i;
                    row                    
 ------------------------------------------
  ("(123,456)")
  ("(123,4567890123456789)")
- ("(4567890123456789,-4567890123456789)")
  ("(4567890123456789,123)")
  ("(4567890123456789,4567890123456789)")
+ ("(4567890123456789,-4567890123456789)")
 (5 rows)
 
 create view tt16v as select * from int8_tbl i, lateral(values(i)) ss;
@@ -1583,14 +1583,14 @@ select * from int8_tbl i, lateral(values(i.*::int8_tbl)) ss;
 (5 rows)
 
 create view tt17v as select * from int8_tbl i where i in (values(i));
-select * from tt17v order by 1,2;
+select * from tt17v;
         q1        |        q2         
 ------------------+-------------------
               123 |               456
               123 |  4567890123456789
- 4567890123456789 | -4567890123456789
  4567890123456789 |               123
  4567890123456789 |  4567890123456789
+ 4567890123456789 | -4567890123456789
 (5 rows)
 
 select pg_get_viewdef('tt17v', true);
@@ -1602,14 +1602,14 @@ select pg_get_viewdef('tt17v', true);
    WHERE (i.* IN ( VALUES (i.*::int8_tbl)));
 (1 row)
 
-select * from int8_tbl i where i.* in (values(i.*::int8_tbl)) order by 1,2;
+select * from int8_tbl i where i.* in (values(i.*::int8_tbl));
         q1        |        q2         
 ------------------+-------------------
               123 |               456
               123 |  4567890123456789
- 4567890123456789 | -4567890123456789
  4567890123456789 |               123
  4567890123456789 |  4567890123456789
+ 4567890123456789 | -4567890123456789
 (5 rows)
 
 -- check unique-ification of overlength names

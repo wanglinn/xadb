@@ -1,4 +1,4 @@
-CREATE TABLE test_tablesample (id int, name text) WITH (fillfactor=10) distribute by replication;
+CREATE TABLE test_tablesample (id int, name text) WITH (fillfactor=10);
 -- use fillfactor so we don't have to load too much data to get multiple pages
 INSERT INTO test_tablesample
   SELECT i, repeat(i::text, 200) FROM generate_series(0, 9) s(i);

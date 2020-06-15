@@ -265,7 +265,7 @@ match_pattern_prefix(Node *leftop,
 	 * pattern-matching is not supported with nondeterministic collations. (We
 	 * could also error out here, but by doing it later we get more precise
 	 * error messages.)  (It should be possible to support at least
-	 * Pattern_Prefix_Exact, but no point as along as the actual
+	 * Pattern_Prefix_Exact, but no point as long as the actual
 	 * pattern-matching implementations don't support it.)
 	 *
 	 * expr_coll is not set for a non-collation-aware data type such as bytea.
@@ -357,13 +357,16 @@ match_pattern_prefix(Node *leftop,
 
 	/*
 	 * If we found an exact-match pattern, generate an "=" indexqual.
+	 *
+	 * (Despite the checks above, we might fail to find a suitable operator in
+	 * some cases with binary-compatible opclasses.  Just punt if so.)
 	 */
 	if (pstatus == Pattern_Prefix_Exact)
 	{
 		oproid = get_opfamily_member(opfamily, ldatatype, rdatatype,
 									 BTEqualStrategyNumber);
 		if (oproid == InvalidOid)
-			elog(ERROR, "no = operator for opfamily %u", opfamily);
+			return NIL;
 		expr = make_opclause(oproid, BOOLOID, false,
 							 (Expr *) leftop, (Expr *) prefix,
 							 InvalidOid, indexcollation);
@@ -379,7 +382,7 @@ match_pattern_prefix(Node *leftop,
 	oproid = get_opfamily_member(opfamily, ldatatype, rdatatype,
 								 BTGreaterEqualStrategyNumber);
 	if (oproid == InvalidOid)
-		elog(ERROR, "no >= operator for opfamily %u", opfamily);
+		return NIL;
 	expr = make_opclause(oproid, BOOLOID, false,
 						 (Expr *) leftop, (Expr *) prefix,
 						 InvalidOid, indexcollation);
@@ -396,7 +399,7 @@ match_pattern_prefix(Node *leftop,
 	oproid = get_opfamily_member(opfamily, ldatatype, rdatatype,
 								 BTLessStrategyNumber);
 	if (oproid == InvalidOid)
-		elog(ERROR, "no < operator for opfamily %u", opfamily);
+		return result;
 	fmgr_info(get_opcode(oproid), &ltproc);
 	greaterstr = make_greater_string(prefix, &ltproc, indexcollation);
 	if (greaterstr)
@@ -1437,8 +1440,9 @@ regex_selectivity(const char *patt, int pattlen, bool case_insensitive,
  * Check whether char is a letter (and, hence, subject to case-folding)
  *
  * In multibyte character sets or with ICU, we can't use isalpha, and it does
- * not seem worth trying to convert to wchar_t to use iswalpha.  Instead, just
- * assume any multibyte char is potentially case-varying.
+ * not seem worth trying to convert to wchar_t to use iswalpha or u_isalpha.
+ * Instead, just assume any non-ASCII char is potentially case-varying, and
+ * hard-wire knowledge of which ASCII chars are letters.
  */
 static int
 pattern_char_isalpha(char c, bool is_multibyte,
@@ -1449,7 +1453,8 @@ pattern_char_isalpha(char c, bool is_multibyte,
 	else if (is_multibyte && IS_HIGHBIT_SET(c))
 		return true;
 	else if (locale && locale->provider == COLLPROVIDER_ICU)
-		return IS_HIGHBIT_SET(c) ? true : false;
+		return IS_HIGHBIT_SET(c) ||
+			(c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
 #ifdef HAVE_LOCALE_T
 	else if (locale && locale->provider == COLLPROVIDER_LIBC)
 		return isalpha_l((unsigned char) c, locale->info.lt);

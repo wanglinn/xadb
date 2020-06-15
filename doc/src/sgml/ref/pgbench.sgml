@@ -474,10 +474,10 @@ pgbench <optional> <replaceable>options</replaceable> </optional> <replaceable>d
            </listitem>
           </itemizedlist>
 
-        Because in "prepared" mode <application>pgbench</application> reuses
-        the parse analysis result for the second and subsequent query
-        iteration, <application>pgbench</application> runs faster in the
-        prepared mode than in other modes.
+        In the <literal>prepared</literal> mode, <application>pgbench</application>
+        reuses the parse analysis result starting from the second query
+        iteration, so <application>pgbench</application> runs faster
+        than in other modes.
        </para>
        <para>
         The default is simple query protocol.  (See <xref linkend="protocol"/>
@@ -824,10 +824,34 @@ pgbench <optional> <replaceable>options</replaceable> </optional> <replaceable>d
  </refsect1>
 
  <refsect1>
+  <title>Environment</title>
+
+  <variablelist>
+   <varlistentry>
+    <term><envar>PGHOST</envar></term>
+    <term><envar>PGPORT</envar></term>
+    <term><envar>PGUSER</envar></term>
+
+    <listitem>
+     <para>
+      Default connection parameters.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist> 
+
+  <para>
+   This utility, like most other <productname>PostgreSQL</productname> utilities,
+   uses the environment variables supported by <application>libpq</application>
+   (see <xref linkend="libpq-envars"/>).
+  </para>
+ </refsect1>
+ 
+ <refsect1>
   <title>Notes</title>
 
  <refsect2>
-  <title>What is the <quote>Transaction</quote> Actually Performed in <application>pgbench</application>?</title>
+  <title>What Is the <quote>Transaction</quote> Actually Performed in <application>pgbench</application>?</title>
 
   <para>
    <application>pgbench</application> executes test scripts chosen randomly
@@ -843,7 +867,7 @@ pgbench <optional> <replaceable>options</replaceable> </optional> <replaceable>d
   <para>
    The default built-in transaction script (also invoked with <option>-b tpcb-like</option>)
    issues seven commands per transaction over randomly chosen <literal>aid</literal>,
-   <literal>tid</literal>, <literal>bid</literal> and <literal>balance</literal>.
+   <literal>tid</literal>, <literal>bid</literal> and <literal>delta</literal>.
    The scenario is inspired by the TPC-B benchmark, but is not actually TPC-B,
    hence the name.
   </para>
@@ -1142,7 +1166,7 @@ SELECT 2 AS two, 3 AS three \gset p_
  </refsect2>
 
  <refsect2 id="pgbench-builtin-operators">
-  <title>Built-In Operators</title>
+  <title>Built-in Operators</title>
 
   <para>
    The arithmetic, bitwise, comparison and logical operators listed in
@@ -1152,7 +1176,7 @@ SELECT 2 AS two, 3 AS three \gset p_
   </para>
 
   <table id="pgbench-operators">
-   <title>pgbench Operators by increasing precedence</title>
+   <title>pgbench Operators by Increasing Precedence</title>
    <tgroup cols="4">
     <thead>
      <row>
