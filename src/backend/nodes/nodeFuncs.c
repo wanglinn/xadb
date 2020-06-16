@@ -4187,6 +4187,96 @@ planstate_tree_walker(PlanState *planstate,
 	return false;
 }
 
+bool plan_tree_walker(struct Plan *plan, Node *GlobOrStmt, bool (*walker)(), void *context)
+{
+	ListCell *lc;
+	List *list;
+
+	if(plan == NULL)
+		return false;
+	check_stack_depth();
+
+	/* initPlan-s */
+	if(GlobOrStmt && plan->initPlan)
+	{
+		Node *node;
+		List *subplans = NIL;
+		if(IsA(GlobOrStmt, PlannerGlobal))
+			subplans = ((PlannerGlobal*)GlobOrStmt)->subplans;
+		else if(IsA(GlobOrStmt, PlannedStmt))
+			subplans = ((PlannedStmt*)GlobOrStmt)->subplans;
+		else if(IsA(GlobOrStmt, PlannerInfo))
+			subplans = ((PlannerInfo*)GlobOrStmt)->glob->subplans;
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("unknown node type %d", nodeTag(GlobOrStmt))));
+
+		foreach(lc, plan->initPlan)
+		{
+			node = lfirst(lc);
+			if(IsA(node, SubPlan))
+			{
+				Plan	   *initplan = list_nth(subplans, ((SubPlan*)node)->plan_id-1);
+				if((*walker)(initplan, GlobOrStmt, context))
+					return true;
+			}/*else if(IsA(node, Param))
+			{
+			}else if(IsA(node, SubLink))
+			{
+			}*/
+		}
+	}
+
+	/* lefttree */
+	if (outerPlan(plan) &&
+		(*walker)(outerPlan(plan), GlobOrStmt, context))
+		return true;
+
+	/* righttree */
+	if(innerPlan(plan) &&
+		(*walker)(innerPlan(plan), GlobOrStmt, context))
+		return true;
+
+	/* special child plans */
+	list = NIL;
+	switch(nodeTag(plan))
+	{
+	case T_ModifyTable:
+		list = ((ModifyTable*)plan)->plans;
+		break;
+	case T_Append:
+		list = ((Append*)plan)->appendplans;
+		break;
+	case T_MergeAppend:
+		list = ((MergeAppend*)plan)->mergeplans;
+		break;
+	case T_BitmapAnd:
+		list = ((BitmapAnd*)plan)->bitmapplans;
+		break;
+	case T_BitmapOr:
+		list = ((BitmapOr*)plan)->bitmapplans;
+		break;
+	case T_SubqueryScan:
+		if((*walker)(((SubqueryScan*)plan)->subplan, GlobOrStmt, context))
+			return true;
+		break;
+	case T_CustomScan:
+		list = ((CustomScan*)plan)->custom_plans;
+		break;
+	default:
+		break;
+	}
+
+	foreach(lc, list)
+	{
+		if((*walker)(lfirst(lc), GlobOrStmt, context))
+			return true;
+	}
+
+	return false;
+}
+
 #ifdef ADB
 static bool
 planstate_exec_walk_hashjoin(HashJoinState *node,
@@ -4343,96 +4433,6 @@ planstate_tree_exec_walker(PlanState *planstate,
 	/* initPlan-s */
 	if (planstate_walk_subplans(planstate->initPlan, walker, context))
 		return true;
-
-	return false;
-}
-
-bool plan_tree_walker(struct Plan *plan, Node *GlobOrStmt, bool (*walker)(), void *context)
-{
-	ListCell *lc;
-	List *list;
-
-	if(plan == NULL)
-		return false;
-	check_stack_depth();
-
-	/* initPlan-s */
-	if(GlobOrStmt && plan->initPlan)
-	{
-		Node *node;
-		List *subplans = NIL;
-		if(IsA(GlobOrStmt, PlannerGlobal))
-			subplans = ((PlannerGlobal*)GlobOrStmt)->subplans;
-		else if(IsA(GlobOrStmt, PlannedStmt))
-			subplans = ((PlannedStmt*)GlobOrStmt)->subplans;
-		else if(IsA(GlobOrStmt, PlannerInfo))
-			subplans = ((PlannerInfo*)GlobOrStmt)->glob->subplans;
-		else
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg("unknown node type %d", nodeTag(GlobOrStmt))));
-
-		foreach(lc, plan->initPlan)
-		{
-			node = lfirst(lc);
-			if(IsA(node, SubPlan))
-			{
-				Plan	   *initplan = list_nth(subplans, ((SubPlan*)node)->plan_id-1);
-				if((*walker)(initplan, GlobOrStmt, context))
-					return true;
-			}/*else if(IsA(node, Param))
-			{
-			}else if(IsA(node, SubLink))
-			{
-			}*/
-		}
-	}
-
-	/* lefttree */
-	if (outerPlan(plan) &&
-		(*walker)(outerPlan(plan), GlobOrStmt, context))
-		return true;
-
-	/* righttree */
-	if(innerPlan(plan) &&
-		(*walker)(innerPlan(plan), GlobOrStmt, context))
-		return true;
-
-	/* special child plans */
-	list = NIL;
-	switch(nodeTag(plan))
-	{
-	case T_ModifyTable:
-		list = ((ModifyTable*)plan)->plans;
-		break;
-	case T_Append:
-		list = ((Append*)plan)->appendplans;
-		break;
-	case T_MergeAppend:
-		list = ((MergeAppend*)plan)->mergeplans;
-		break;
-	case T_BitmapAnd:
-		list = ((BitmapAnd*)plan)->bitmapplans;
-		break;
-	case T_BitmapOr:
-		list = ((BitmapOr*)plan)->bitmapplans;
-		break;
-	case T_SubqueryScan:
-		if((*walker)(((SubqueryScan*)plan)->subplan, GlobOrStmt, context))
-			return true;
-		break;
-	case T_CustomScan:
-		list = ((CustomScan*)plan)->custom_plans;
-		break;
-	default:
-		break;
-	}
-
-	foreach(lc, list)
-	{
-		if((*walker)(lfirst(lc), GlobOrStmt, context))
-			return true;
-	}
 
 	return false;
 }
