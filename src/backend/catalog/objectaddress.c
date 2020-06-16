@@ -87,6 +87,9 @@
 #include "utils/memutils.h"
 #include "utils/regproc.h"
 #include "utils/syscache.h"
+#ifdef ADB_GRAM_ORA
+#include "catalog/ora_cast.h"
+#endif /* ADB_GRAM_ORA */
 #ifdef ADB
 #include "commands/defrem.h"
 #endif
@@ -3655,6 +3658,37 @@ getObjectDescription(const ObjectAddress *object)
 				break;
 			}
 
+#ifdef ADB_GRAM_ORA
+		case OCLASS_ORA_CAST:
+			{
+				Relation		rel;
+				HeapTuple		tup;
+				Form_ora_cast	cast;
+				ScanKeyData		key;
+				SysScanDesc		scan;
+
+				rel = table_open(OraCastRelationId, AccessShareLock);
+				ScanKeyInit(&key,
+							Anum_ora_cast_castid,
+							BTEqualStrategyNumber, F_OIDEQ,
+							ObjectIdGetDatum(object->objectId));
+				scan = systable_beginscan(rel, OraCastIdIndexId, true, NULL, 1, &key);
+				tup = systable_getnext(scan);
+				if (!HeapTupleIsValid(tup))
+					elog(ERROR, "could not find tuple for oracle cast %u", object->objectId);
+
+				cast = (Form_ora_cast)GETSTRUCT(tup);
+				appendStringInfo(&buffer, _("oracle cast from %s to %s with %s"),
+								 format_type_be(cast->castsource),
+								 format_type_be(cast->casttarget),
+								 GetOraCastCoercionName(cast->castcontext));
+
+				systable_endscan(scan);
+				table_close(rel, AccessShareLock);
+				break;
+			}
+#endif /* ADB_GRAM_ORA */
+
 #ifdef ADB
 		case OCLASS_PGXC_CLASS:
 			appendStringInfoString(&buffer, _("distributed "));
@@ -4193,6 +4227,12 @@ getObjectTypeDescription(const ObjectAddress *object)
 		case OCLASS_TRANSFORM:
 			appendStringInfoString(&buffer, "transform");
 			break;
+
+#ifdef ADB_GRAM_ORA
+		case OCLASS_ORA_CAST:
+			appendStringInfoString(&buffer, "oracle cast");
+			break;
+#endif /* ADB_GRAM_ORA */
 
 #ifdef ADB
 		case OCLASS_PGXC_CLASS:
@@ -5274,6 +5314,42 @@ getObjectIdentityParts(const ObjectAddress *object,
 				table_close(transformDesc, AccessShareLock);
 			}
 			break;
+
+#ifdef ADB_GRAM_ORA
+		case OCLASS_ORA_CAST:
+			{
+				Relation		rel;
+				HeapTuple		tup;
+				Form_ora_cast	cast;
+				ScanKeyData		key;
+				SysScanDesc		scan;
+
+				rel = table_open(OraCastRelationId, AccessShareLock);
+				ScanKeyInit(&key,
+							Anum_ora_cast_castid,
+							BTEqualStrategyNumber, F_OIDEQ,
+							ObjectIdGetDatum(object->objectId));
+				scan = systable_beginscan(rel, OraCastIdIndexId, true, NULL, 1, &key);
+				tup = systable_getnext(scan);
+				if (!HeapTupleIsValid(tup))
+					elog(ERROR, "could not find tuple for oracle cast %u", object->objectId);
+
+				cast = (Form_ora_cast)GETSTRUCT(tup);
+				appendStringInfo(&buffer, "(%s AS %s)",
+								 format_type_be_qualified(cast->castsource),
+								 format_type_be_qualified(cast->casttarget));
+
+				if (objname)
+				{
+					*objname = list_make1(format_type_be_qualified(cast->castsource));
+					*objargs = list_make1(format_type_be_qualified(cast->casttarget));
+				}
+
+				systable_endscan(scan);
+				table_close(rel, AccessShareLock);
+				break;
+			}
+#endif /* ADB_GRAM_ORA */
 
 #ifdef ADB
 		case OCLASS_PGXC_CLASS:

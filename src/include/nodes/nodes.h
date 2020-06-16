@@ -494,6 +494,10 @@ typedef enum NodeTag
 	T_CreateStatsStmt,
 	T_AlterCollationStmt,
 	T_CallStmt,
+#ifdef ADB_GRAM_ORA
+	T_OraImplicitConvertStmt,
+	T_CreateOracleCastStmt,
+#endif /* ADB_GRAM_ORA */
 #ifdef ADB
 	T_BarrierStmt,
 #endif
@@ -506,7 +510,6 @@ typedef enum NodeTag
 #ifdef ADB_GRAM_ORA
 	T_ColumnRefJoin,
 	T_PriorExpr,
-	T_OraImplicitConvertStmt,
 #endif
 #ifdef ADB_EXT
 	T_KeepClause,

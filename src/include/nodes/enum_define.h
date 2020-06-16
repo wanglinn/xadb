@@ -860,6 +860,10 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_CreateStatsStmt)
 	ENUM_VALUE(T_AlterCollationStmt)
 	ENUM_VALUE(T_CallStmt)
+#ifdef ADB_GRAM_ORA
+	ENUM_VALUE(T_OraImplicitConvertStmt)
+	ENUM_VALUE(T_CreateOracleCastStmt)
+#endif
 #ifdef ADB
 	ENUM_VALUE(T_BarrierStmt)
 #endif
@@ -868,7 +872,6 @@ BEGIN_ENUM(NodeTag)
 #ifdef ADB_GRAM_ORA
 	ENUM_VALUE(T_ColumnRefJoin)
 	ENUM_VALUE(T_PriorExpr)
-	ENUM_VALUE(T_OraImplicitConvertStmt)
 #endif
 #ifdef ADB_EXT
 	ENUM_VALUE(T_KeepClause)

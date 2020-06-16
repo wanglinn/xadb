@@ -657,6 +657,9 @@ AlterObjectNamespace_oid(Oid classId, Oid objid, Oid nspOid,
 		case OCLASS_PUBLICATION_REL:
 		case OCLASS_SUBSCRIPTION:
 		case OCLASS_TRANSFORM:
+#ifdef ADB_GRAM_ORA
+		case OCLASS_ORA_CAST:
+#endif /* ADB_GRAM_ORA */
 #ifdef ADB
 		case OCLASS_PGXC_NODE:
 		case OCLASS_PGXC_GROUP:

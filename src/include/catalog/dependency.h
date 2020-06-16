@@ -126,6 +126,9 @@ typedef enum ObjectClass
 	OCLASS_PUBLICATION_REL,		/* pg_publication_rel */
 	OCLASS_SUBSCRIPTION,		/* pg_subscription */
 	OCLASS_TRANSFORM			/* pg_transform */
+#ifdef ADB_GRAM_ORA
+	,OCLASS_ORA_CAST			/* ora_cast */
+#endif /* ADB_GRAM_ORA */
 #ifdef ADB
 	,OCLASS_PGXC_CLASS			/* pgxc_class */
 	,OCLASS_PGXC_NODE			/* pgxc_node */

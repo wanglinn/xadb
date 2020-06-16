@@ -1558,6 +1558,9 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 		case T_OraImplicitConvertStmt:
 			ExecImplicitConvert((OraImplicitConvertStmt *) parsetree, pstate);
 			break;
+		case T_CreateOracleCastStmt:
+			CreateOracleCast((CreateOracleCastStmt*)parsetree, pstate);
+			break;
 #endif /* ADB_GRAM_ORA */
 		default:
 			/* All other statement types have event trigger support */
@@ -4484,6 +4487,9 @@ CreateCommandTag(Node *parsetree)
 						break;
 				}
 			}
+			break;
+		case T_CreateOracleCastStmt:
+			tag = "CREATE ORACLE CAST";
 			break;
 #endif /* ADB_GRAM_ORA */
 		default:

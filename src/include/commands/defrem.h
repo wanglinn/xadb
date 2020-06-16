@@ -82,6 +82,11 @@ extern void interpret_function_parameter_list(ParseState *pstate,
 											  List **parameterDefaults,
 											  Oid *variadicArgType,
 											  Oid *requiredResultType);
+/* ADB EXT */
+extern int CheckCastFunction(Oid funcid, Oid sourcetypeid, Oid targettypeid);
+extern void CheckCastWithBinary(Oid sourcetypeid, Oid targettypeid,
+								char sourcetyptype, char targettyptype);
+/* ADB EXT */
 
 /* commands/operatorcmds.c */
 extern ObjectAddress DefineOperator(List *names, List *parameters);
@@ -214,5 +219,12 @@ extern List *MakeMainRelTargetForAux(Relation main_rel, Relation aux_rel, Index 
 	RelationIdGetAuxAttnum(RelationGetRelid(relation), (auxattnum))
 
 #endif
+
+#ifdef ADB_GRAM_ORA
+/* commands/ora_utils.c */
+extern void CreateOracleCast(CreateOracleCastStmt *stmt, ParseState *pstate);
+extern void DropOracleCastById(Oid castid);
+extern const char *GetOraCastCoercionName(char coerce);
+#endif /* ADB_GRAM_ORA */
 
 #endif   /* DEFREM_H */
