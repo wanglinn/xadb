@@ -691,7 +691,7 @@ CREATE OR REPLACE FUNCTION oracle.strposb(oracle.varchar2, oracle.varchar2)
  */
 CREATE OR REPLACE FUNCTION oracle.remainder(n2 numeric, n1 numeric)
     RETURNS numeric
-    AS $$select n2 - n1*round(n2/n1);$$
+    AS $$select abs(n2 - n1*round(n2/n1));$$
     LANGUAGE SQL
     IMMUTABLE
 --ADBONLY CLUSTER SAFE
