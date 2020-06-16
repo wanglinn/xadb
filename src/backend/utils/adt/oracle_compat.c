@@ -124,6 +124,289 @@ initcap(PG_FUNCTION_ARGS)
 	PG_RETURN_TEXT_P(result);
 }
 
+#ifdef ADB_GRAM_ORA
+/********************************************************************
+ *
+ * lpad
+ *
+ * Syntax:
+ *
+ *	 text lpad(text string1, int4 len, text string2)
+ *
+ * Purpose:
+ *
+ *	 Returns string1, left-padded to length len with the sequence of
+ *	 characters in string2.  If len is less than the length of string1,
+ *	 instead truncate (on the right) to len.
+ *
+ ********************************************************************/
+
+Datum
+ora_lpad(PG_FUNCTION_ARGS)
+{
+	text	   *string1 = PG_GETARG_TEXT_PP(0);
+	int32		len = PG_GETARG_INT32(1);
+	text	   *string2 = PG_GETARG_TEXT_PP(2);
+	text	   *ret;
+	char	   *ptr1,
+			   *ptr2,
+			   *ptr2start,
+			   *ptr2end,
+			   *ptr_ret;
+	int			m,
+				s1len,
+				s2len,
+				s1dsplen,
+				tmp;
+
+	int			bytelen;
+	int	 		mlen, dlen;
+	int			ret_dsp_len, ret_m_len;
+
+	ret_dsp_len = 0;
+	ret_m_len = 0;
+	/* Negative len is silently taken as zero */
+	if (len < 0)
+		len = 0;
+
+	s1len = VARSIZE_ANY_EXHDR(string1);
+	if (s1len < 0)
+		s1len = 0;				/* shouldn't happen */
+
+	s2len = VARSIZE_ANY_EXHDR(string2);
+	if (s2len < 0)
+		s2len = 0;				/* shouldn't happen */
+
+	s1len = pg_mbstrlen_with_len(VARDATA_ANY(string1), s1len);
+
+	/* get s1 dsp len*/
+	tmp = s1len;
+	s1dsplen = 0;
+	ptr1 = VARDATA_ANY(string1);
+	while (tmp--)
+	{
+		int	 mlen = pg_mblen(ptr1);
+		s1dsplen += pg_dsplen(ptr1);
+		ptr1 += mlen;
+	}
+
+	if (s1dsplen > len)
+		s1dsplen = len;
+
+	if (s1len > len)
+		s1len = len;			/* truncate string1 to len chars */
+
+	if (s2len <= 0)
+		len = s1len;			/* nothing to pad with, so don't pad */		
+	
+	bytelen = pg_database_encoding_max_length() * len;
+
+	/* check for integer overflow */
+	if (len != 0 && bytelen / pg_database_encoding_max_length() != len)
+		ereport(ERROR,
+				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+				 errmsg("requested length too large")));
+
+	ret = (text *) palloc(VARHDRSZ + bytelen);
+
+	m = len - s1dsplen;
+
+	ptr2 = ptr2start = VARDATA_ANY(string2);
+	ptr2end = ptr2 + s2len;
+	ptr_ret = VARDATA(ret);
+
+	while (m > 0)
+	{
+		mlen = pg_mblen(ptr2);
+		dlen = pg_dsplen(ptr2);
+
+		if (dlen > m)
+			break;
+
+		memcpy(ptr_ret, ptr2, mlen);
+		ptr_ret += mlen;
+		ptr2 += mlen;
+		if (ptr2 == ptr2end)	/* wrap around at end of s2 */
+			ptr2 = ptr2start;
+		m -= dlen;
+		ret_dsp_len += dlen;
+		ret_m_len += mlen;
+	}
+
+	ptr1 = VARDATA_ANY(string1);
+	while (s1dsplen > 0)
+	{
+		mlen = pg_mblen(ptr1);
+		dlen = pg_dsplen(ptr1);
+
+		if (dlen > s1dsplen)
+			break;
+
+		memcpy(ptr_ret, ptr1, mlen);
+		ptr_ret += mlen;
+		ptr1 += mlen;
+		s1dsplen -= dlen;
+		ret_dsp_len += dlen;
+		ret_m_len += mlen;
+	}
+
+	if (ret_dsp_len < len) /* add space pad in the front */
+	{
+		int pad_space_num = len - ret_dsp_len;
+		char *ptr_pad = VARDATA(ret);
+		ptr_ret += pad_space_num;
+		memmove(ptr_pad + pad_space_num, ptr_pad, ret_m_len);
+
+		while (pad_space_num > 0)
+		{
+			*ptr_pad = ' ';
+			ptr_pad++;
+			pad_space_num--;
+		}
+	}
+
+	SET_VARSIZE(ret, ptr_ret - (char *) ret);
+
+	PG_RETURN_TEXT_P(ret);
+}
+
+
+/********************************************************************
+ *
+ * rpad
+ *
+ * Syntax:
+ *
+ *	 text rpad(text string1, int4 len, text string2)
+ *
+ * Purpose:
+ *
+ *	 Returns string1, right-padded to length len with the sequence of
+ *	 characters in string2.  If len is less than the length of string1,
+ *	 instead truncate (on the right) to len.
+ *
+ ********************************************************************/
+
+Datum
+ora_rpad(PG_FUNCTION_ARGS)
+{
+	text	   *string1 = PG_GETARG_TEXT_PP(0);
+	int32		len = PG_GETARG_INT32(1);
+	text	   *string2 = PG_GETARG_TEXT_PP(2);
+	text	   *ret;
+	char	   *ptr1,
+			   *ptr2,
+			   *ptr2start,
+			   *ptr2end,
+			   *ptr_ret;
+	int			m,
+				s1len,
+				s2len,
+				s1dsplen,
+				tmp;
+
+	int			bytelen;
+	int	 		mlen, dlen, ret_dsp_len;
+
+	ret_dsp_len = 0;
+	/* Negative len is silently taken as zero */
+	if (len < 0)
+		len = 0;
+
+	s1len = VARSIZE_ANY_EXHDR(string1);
+	if (s1len < 0)
+		s1len = 0;				/* shouldn't happen */
+
+	s2len = VARSIZE_ANY_EXHDR(string2);
+	if (s2len < 0)
+		s2len = 0;				/* shouldn't happen */
+
+	s1len = pg_mbstrlen_with_len(VARDATA_ANY(string1), s1len);
+
+	/* get s1 dsp len*/
+	tmp = s1len;
+	s1dsplen = 0;
+	ptr1 = VARDATA_ANY(string1);
+	while (tmp--)
+	{
+		int	 mlen = pg_mblen(ptr1);
+		s1dsplen += pg_dsplen(ptr1);
+		ptr1 += mlen;
+	}
+
+	if (s1dsplen > len)
+		s1dsplen = len;
+
+	if (s1len > len)
+		s1len = len;			/* truncate string1 to len chars */
+
+	if (s2len <= 0)
+		len = s1len;			/* nothing to pad with, so don't pad */
+
+	bytelen = pg_database_encoding_max_length() * len;
+
+	/* Check for integer overflow */
+	if (len != 0 && bytelen / pg_database_encoding_max_length() != len)
+		ereport(ERROR,
+				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+				 errmsg("requested length too large")));
+
+	ret = (text *) palloc(VARHDRSZ + bytelen);
+	m = len - s1dsplen;
+
+	ptr1 = VARDATA_ANY(string1);
+	ptr_ret = VARDATA(ret);
+
+	while (s1dsplen > 0)
+	{
+		mlen = pg_mblen(ptr1);
+		dlen = pg_dsplen(ptr1);
+	
+		if (dlen > s1dsplen)
+			break;
+
+		memcpy(ptr_ret, ptr1, mlen);
+		ptr_ret += mlen;
+		ptr1 += mlen;
+		s1dsplen -= dlen;
+		ret_dsp_len += dlen;
+	}
+
+	ptr2 = ptr2start = VARDATA_ANY(string2);
+	ptr2end = ptr2 + s2len;
+
+	while (m > 0)
+	{
+		mlen = pg_mblen(ptr2);
+		dlen = pg_dsplen(ptr2);
+		if (dlen > m)
+			break;	
+
+		memcpy(ptr_ret, ptr2, mlen);
+		ptr_ret += mlen;
+		ptr2 += mlen;
+		if (ptr2 == ptr2end)	/* wrap around at end of s2 */
+			ptr2 = ptr2start;
+		m -=dlen;
+		ret_dsp_len += dlen;
+	}
+
+	if (ret_dsp_len < len) /* add space pad in the end */
+	{
+		int space_pad_num = len - ret_dsp_len;
+		while (space_pad_num > 0)
+		{
+			*ptr_ret = ' ';
+			ptr_ret++;
+			space_pad_num--;
+		}
+	}
+
+	SET_VARSIZE(ret, ptr_ret - (char *) ret);
+
+	PG_RETURN_TEXT_P(ret);
+}
+#endif
 
 /********************************************************************
  *
