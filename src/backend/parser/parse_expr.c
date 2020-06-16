@@ -1121,7 +1121,7 @@ exprIsNullConstant(Node *arg)
 }
 
 #ifdef ADB_GRAM_ORA
-static Expr* get_rowid_op_const_or_param(OpExpr* op, Var **var)
+static Expr* get_rowid_op_expr(OpExpr* op, Var **var)
 {
 	Expr *lexpr;
 	Expr *rexpr;
@@ -1132,16 +1132,14 @@ static Expr* get_rowid_op_const_or_param(OpExpr* op, Var **var)
 	rexpr = lsecond(op->args);
 
 	if (IsA(lexpr, Var) &&
-		((Var*)lexpr)->varattno == ADB_RowIdAttributeNumber &&
-		(IsA(rexpr, Const) || IsA(rexpr, Param)))
+		((Var*)lexpr)->varattno == ADB_RowIdAttributeNumber)
 	{
 		*var = (Var*)lexpr;
 		return rexpr;
 	}
 
 	if (IsA(rexpr, Var) &&
-		((Var*)rexpr)->varattno == ADB_RowIdAttributeNumber &&
-		(IsA(lexpr, Const) || IsA(lexpr, Param)))
+		((Var*)rexpr)->varattno == ADB_RowIdAttributeNumber)
 	{
 		*var = (Var*)rexpr;
 		return lexpr;
@@ -1317,7 +1315,7 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 		Var	   *var;
 		Expr   *expr;
 		int		location;
-		if ((expr = get_rowid_op_const_or_param((OpExpr*)result, &var)) != NULL)
+		if ((expr = get_rowid_op_expr((OpExpr*)result, &var)) != NULL)
 		{
 			location = ((OpExpr*)result)->location;
 			if (IsA(expr, Const))
@@ -1357,7 +1355,7 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 				}
 			}
 #ifndef ADB
-			else if (IsA(expr, Param))
+			else
 			{
 				/*
 				 * in single version, rowid is same as ctid.
