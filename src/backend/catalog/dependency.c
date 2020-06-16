@@ -83,6 +83,10 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 
+#ifdef ADB_GRAM_ORA
+#include "catalog/ora_cast_d.h"
+#endif /* ADB_GRAM_ORA */
+
 #ifdef ADB
 #include "access/relation.h"
 #include "agtm/agtm.h"
@@ -1707,6 +1711,12 @@ doDeletion(const ObjectAddress *object, int flags)
 			DropTransformById(object->objectId);
 			break;
 
+#ifdef ADB_GRAM_ORA
+		case OCLASS_ORA_CAST:
+			DropOracleCastById(object->objectId);
+			break;
+#endif /* ADB_GRAM_ORA */
+
 			/*
 			 * These global object types are not supported here.
 			 */
@@ -2992,6 +3002,26 @@ getObjectClass(const ObjectAddress *object)
 		case EventTriggerRelationId:
 			return OCLASS_EVENT_TRIGGER;
 
+		case PolicyRelationId:
+			return OCLASS_POLICY;
+
+		case PublicationRelationId:
+			return OCLASS_PUBLICATION;
+
+		case PublicationRelRelationId:
+			return OCLASS_PUBLICATION_REL;
+
+		case SubscriptionRelationId:
+			return OCLASS_SUBSCRIPTION;
+
+		case TransformRelationId:
+			return OCLASS_TRANSFORM;
+
+#ifdef ADB_GRAM_ORA
+		case OraCastRelationId:
+			return OCLASS_ORA_CAST;
+#endif /* ADB_GRAM_ORA */
+
 #ifdef ADB
 		case PgxcClassRelationId:
 			Assert(object->objectSubId == 0);
@@ -3007,20 +3037,6 @@ getObjectClass(const ObjectAddress *object)
 			Assert(object->objectSubId == 0);
 			return OCLASS_AUX_CLASS;
 #endif
-		case PolicyRelationId:
-			return OCLASS_POLICY;
-
-		case PublicationRelationId:
-			return OCLASS_PUBLICATION;
-
-		case PublicationRelRelationId:
-			return OCLASS_PUBLICATION_REL;
-
-		case SubscriptionRelationId:
-			return OCLASS_SUBSCRIPTION;
-
-		case TransformRelationId:
-			return OCLASS_TRANSFORM;
 	}
 
 	/* shouldn't get here */

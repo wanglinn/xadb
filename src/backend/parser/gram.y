@@ -71,6 +71,9 @@
 #include "pgxc/poolmgr.h"
 #include "miscadmin.h"
 #endif
+#ifdef ADB_GRAM_ORA
+#include "catalog/ora_cast_d.h"
+#endif /* ADB_GRAM_ORA */
 
 
 /*
@@ -564,6 +567,13 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 %type <partboundspec> PartitionBoundSpec
 %type <list>		hash_partbound
 %type <defelt>		hash_partbound_elem
+
+/* ORACLE_BEGIN */
+%type <node>		CreateOracleCast
+%type <ival>		OracleCoerceContext
+
+/* ORACLE_END */
+
 /* ADB_BEGIN */
 %type <defelt>	SubClusterNodeElem NodeName
 %type <partspec>	OptDistributeBy OptDistributeByInternal
@@ -667,7 +677,7 @@ static void processCASbits(int cas_bits, int location, const char *constrType,
 	NOT NOTHING NOTIFY NOTNULL NOWAIT NULL_P NULLIF
 	NULLS_P NUMERIC
 
-	OBJECT_P OF OFF OFFSET OIDS OLD ON ONLY OPERATOR OPTION OPTIONS OR
+	OBJECT_P OF OFF OFFSET OIDS OLD ON ONLY OPERATOR OPTION OPTIONS OR ORACLE
 	ORDER ORDINALITY OTHERS OUT_P OUTER_P
 	OVER OVERLAPS OVERLAY OVERRIDING OWNED OWNER
 
@@ -993,6 +1003,9 @@ stmt :
 			| VariableSetStmt
 			| VariableShowStmt
 			| ViewStmt
+/* ORACLE_BEGIN */
+			| CreateOracleCast
+/* ORACLE_END */
 			| /*EMPTY*/
 				{ $$ = NULL; }
 		;
@@ -8762,6 +8775,91 @@ opt_if_exists: IF_P EXISTS						{ $$ = true; }
 		| /*EMPTY*/								{ $$ = false; }
 		;
 
+/*****************************************************************************
+ *
+ *		CREATE / DROP ORACLE CAST
+ *
+ *****************************************************************************/
+
+CreateOracleCast:
+			  CREATE opt_or_replace ORACLE OracleCoerceContext CAST
+				'(' Typename AS Typename ')'
+				WITH FUNCTION function_with_argtypes
+				TRUNCATE FUNCTION function_with_argtypes
+				{
+#ifdef ADB_GRAM_ORA
+					CreateOracleCastStmt *n = makeNode(CreateOracleCastStmt);
+					n->replace = $2;
+					n->coerce_context = $4;
+					n->source_type = $7;
+					n->target_type = $9;
+					n->func = $13;
+					n->trunc_func = $16;
+					$$ = (Node*)n;
+#else
+					ereport_pos($1, @1);
+#endif
+				}
+			| CREATE opt_or_replace ORACLE OracleCoerceContext CAST
+				'(' Typename AS Typename ')'
+				WITHOUT FUNCTION
+				TRUNCATE FUNCTION function_with_argtypes
+				{
+#ifdef ADB_GRAM_ORA
+					CreateOracleCastStmt *n = makeNode(CreateOracleCastStmt);
+					n->replace = $2;
+					n->coerce_context = $4;
+					n->source_type = $7;
+					n->target_type = $9;
+					n->trunc_func = $15;
+					$$ = (Node*)n;
+#else
+					ereport_pos($1, @1);
+#endif
+				}
+			;
+
+OracleCoerceContext:
+				DEFAULT
+					{
+#ifdef ADB_GRAM_ORA
+						$$ = ORA_COERCE_DEFAULT;
+#else
+						ereport_pos($1, @1);
+#endif
+					}
+				| OPERATOR
+					{
+#ifdef ADB_GRAM_ORA
+						$$ = ORA_COERCE_OPERATOR;
+#else
+						ereport_pos($1, @1);
+#endif
+					}
+				| IDENT FUNCTION
+					{
+#ifdef ADB_GRAM_ORA
+						if (strcmp($1, "common") == 0)
+							$$ = ORA_COERCE_COMMON_FUNCTION;
+						else if (strcmp($1, "special") == 0)
+							$$ = ORA_COERCE_SPECIAL_FUNCTION;
+						else
+							ereport_pos($1, @1);
+#else
+						ereport_pos($1, @1);
+#endif
+					}
+				| /* empty */
+					{
+#ifdef ADB_GRAM_ORA
+						$$ = ORA_COERCE_DEFAULT;
+#else
+						$$ = 0;
+#endif
+					}
+				;
+
+
 
 /*****************************************************************************
  *
@@ -16237,6 +16335,7 @@ unreserved_keyword:
 			| OPERATOR
 			| OPTION
 			| OPTIONS
+			| ORACLE
 			| ORDINALITY
 			| OTHERS
 			| OVER

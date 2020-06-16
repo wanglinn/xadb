@@ -11800,6 +11800,9 @@ ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 			case OCLASS_PUBLICATION_REL:
 			case OCLASS_SUBSCRIPTION:
 			case OCLASS_TRANSFORM:
+#ifdef ADB_GRAM_ORA
+			case OCLASS_ORA_CAST:
+#endif
 #ifdef ADB
 			case OCLASS_PGXC_NODE:
 			case OCLASS_PGXC_GROUP:

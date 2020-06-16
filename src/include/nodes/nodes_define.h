@@ -3433,6 +3433,37 @@ BEGIN_NODE(CallStmt)
 END_NODE(CallStmt)
 #endif /* NO_NODE_CallStmt */
 
+#ifdef ADB_GRAM_ORA
+
+#ifndef NO_NODE_OraImplicitConvertStmt
+BEGIN_NODE(OraImplicitConvertStmt)
+	NODE_SCALAR(char,cvtkind)
+	NODE_STRING(cvtname)
+	NODE_NODE(List,cvtfrom)
+	NODE_NODE(List,cvtto)
+	NODE_ENUM(IConvertAction,action)
+	NODE_SCALAR(bool,exists)
+	NODE_SCALAR(bool,replace)
+#ifdef ADB
+	NODE_NODE(List,node_list)
+#endif
+	NODE_SCALAR(int,location)
+END_NODE(OraImplicitConvertStmt)
+#endif /* NO_NODE_OraImplicitConvertStmt */
+
+#ifndef NO_NODE_CreateOracleCastStmt
+BEGIN_NODE(CreateOracleCastStmt)
+	NODE_NODE(TypeName,source_type)
+	NODE_NODE(TypeName,target_type)
+	NODE_NODE(ObjectWithArgs,func)
+	NODE_NODE(ObjectWithArgs,trunc_func)
+	NODE_SCALAR(int,coerce_context)
+	NODE_SCALAR(bool,replace)
+END_NODE(CreateOracleCastStmt)
+#endif /* NO_NODE_CreateOracleCastStmt */
+
+#endif
+
 #ifdef ADB
 
 #ifndef NO_NODE_BarrierStmt
@@ -3478,22 +3509,6 @@ BEGIN_NODE(PriorExpr)
 	NODE_NODE(Node,expr)
 END_NODE(PriorExpr)
 #endif /* NO_NODE_PriorExpr */
-
-#ifndef NO_NODE_OraImplicitConvertStmt
-BEGIN_NODE(OraImplicitConvertStmt)
-	NODE_SCALAR(char,cvtkind)
-	NODE_STRING(cvtname)
-	NODE_NODE(List,cvtfrom)
-	NODE_NODE(List,cvtto)
-	NODE_ENUM(IConvertAction,action)
-	NODE_SCALAR(bool,exists)
-	NODE_SCALAR(bool,replace)
-#ifdef ADB
-	NODE_NODE(List,node_list)
-#endif
-	NODE_SCALAR(int,location)
-END_NODE(OraImplicitConvertStmt)
-#endif /* NO_NODE_OraImplicitConvertStmt */
 
 #endif
 

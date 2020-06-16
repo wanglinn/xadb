@@ -3929,6 +3929,17 @@ typedef struct OraImplicitConvertStmt
 	int				location;
 }OraImplicitConvertStmt;
 
+typedef struct CreateOracleCastStmt
+{
+	NodeTag			type;
+	TypeName	   *source_type;
+	TypeName	   *target_type;
+	ObjectWithArgs *func;
+	ObjectWithArgs *trunc_func;
+	int				coerce_context;
+	bool			replace;
+}CreateOracleCastStmt;
+
 #endif /* ADB_GRAM_ORA */
 
 #endif							/* PARSENODES_H */

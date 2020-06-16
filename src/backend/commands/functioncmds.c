@@ -1773,60 +1773,8 @@ CreateCast(CreateCastStmt *stmt)
 
 	if (castmethod == COERCION_METHOD_FUNCTION)
 	{
-		Form_pg_proc procstruct;
-
 		funcid = LookupFuncWithArgs(OBJECT_FUNCTION, stmt->func, false);
-
-		tuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
-		if (!HeapTupleIsValid(tuple))
-			elog(ERROR, "cache lookup failed for function %u", funcid);
-
-		procstruct = (Form_pg_proc) GETSTRUCT(tuple);
-		nargs = procstruct->pronargs;
-		if (nargs < 1 || nargs > 3)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-					 errmsg("cast function must take one to three arguments")));
-		if (!IsBinaryCoercible(sourcetypeid, procstruct->proargtypes.values[0]))
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-					 errmsg("argument of cast function must match or be binary-coercible from source data type")));
-		if (nargs > 1 && procstruct->proargtypes.values[1] != INT4OID)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-					 errmsg("second argument of cast function must be type %s",
-							"integer")));
-		if (nargs > 2 && procstruct->proargtypes.values[2] != BOOLOID)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-					 errmsg("third argument of cast function must be type %s",
-							"boolean")));
-		if (!IsBinaryCoercible(procstruct->prorettype, targettypeid))
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-					 errmsg("return data type of cast function must match or be binary-coercible to target data type")));
-
-		/*
-		 * Restricting the volatility of a cast function may or may not be a
-		 * good idea in the abstract, but it definitely breaks many old
-		 * user-defined types.  Disable this check --- tgl 2/1/03
-		 */
-#ifdef NOT_USED
-		if (procstruct->provolatile == PROVOLATILE_VOLATILE)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-					 errmsg("cast function must not be volatile")));
-#endif
-		if (procstruct->prokind != PROKIND_FUNCTION)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-					 errmsg("cast function must be a normal function")));
-		if (procstruct->proretset)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-					 errmsg("cast function must not return a set")));
-
-		ReleaseSysCache(tuple);
+		nargs = CheckCastFunction(funcid, sourcetypeid, targettypeid);
 	}
 	else
 	{
@@ -1836,63 +1784,8 @@ CreateCast(CreateCastStmt *stmt)
 
 	if (castmethod == COERCION_METHOD_BINARY)
 	{
-		int16		typ1len;
-		int16		typ2len;
-		bool		typ1byval;
-		bool		typ2byval;
-		char		typ1align;
-		char		typ2align;
-
-		/*
-		 * Must be superuser to create binary-compatible casts, since
-		 * erroneous casts can easily crash the backend.
-		 */
-		if (!superuser())
-			ereport(ERROR,
-					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-					 errmsg("must be superuser to create a cast WITHOUT FUNCTION")));
-
-		/*
-		 * Also, insist that the types match as to size, alignment, and
-		 * pass-by-value attributes; this provides at least a crude check that
-		 * they have similar representations.  A pair of types that fail this
-		 * test should certainly not be equated.
-		 */
-		get_typlenbyvalalign(sourcetypeid, &typ1len, &typ1byval, &typ1align);
-		get_typlenbyvalalign(targettypeid, &typ2len, &typ2byval, &typ2align);
-		if (typ1len != typ2len ||
-			typ1byval != typ2byval ||
-			typ1align != typ2align)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-					 errmsg("source and target data types are not physically compatible")));
-
-		/*
-		 * We know that composite, enum and array types are never binary-
-		 * compatible with each other.  They all have OIDs embedded in them.
-		 *
-		 * Theoretically you could build a user-defined base type that is
-		 * binary-compatible with a composite, enum, or array type.  But we
-		 * disallow that too, as in practice such a cast is surely a mistake.
-		 * You can always work around that by writing a cast function.
-		 */
-		if (sourcetyptype == TYPTYPE_COMPOSITE ||
-			targettyptype == TYPTYPE_COMPOSITE)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-					 errmsg("composite data types are not binary-compatible")));
-
-		if (sourcetyptype == TYPTYPE_ENUM ||
-			targettyptype == TYPTYPE_ENUM)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-					 errmsg("enum data types are not binary-compatible")));
-
-		if (OidIsValid(get_element_type(sourcetypeid)) ||
-			OidIsValid(get_element_type(targettypeid)))
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-					 errmsg("array data types are not binary-compatible")));
+		CheckCastWithBinary(sourcetypeid, targettypeid,
+							sourcetyptype, targettyptype);
 
 		/*
 		 * We also disallow creating binary-compatibility casts involving
@@ -2009,6 +1902,130 @@ CreateCast(CreateCastStmt *stmt)
 
 	return myself;
 }
+
+/* ADB EXT */
+int CheckCastFunction(Oid funcid, Oid sourcetypeid, Oid targettypeid)
+{
+	Form_pg_proc	procstruct;
+	HeapTuple		tuple;
+	int				nargs;
+
+	tuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
+	if (!HeapTupleIsValid(tuple))
+		elog(ERROR, "cache lookup failed for function %u", funcid);
+
+	procstruct = (Form_pg_proc) GETSTRUCT(tuple);
+	nargs = procstruct->pronargs;
+	if (nargs < 1 || nargs > 3)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("cast function must take one to three arguments")));
+	if (!IsBinaryCoercible(sourcetypeid, procstruct->proargtypes.values[0]))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("argument of cast function must match or be binary-coercible from source data type")));
+	if (nargs > 1 && procstruct->proargtypes.values[1] != INT4OID)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("second argument of cast function must be type %s",
+						"integer")));
+	if (nargs > 2 && procstruct->proargtypes.values[2] != BOOLOID)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("third argument of cast function must be type %s",
+						"boolean")));
+	if (!IsBinaryCoercible(procstruct->prorettype, targettypeid))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("return data type of cast function must match or be binary-coercible to target data type")));
+
+	/*
+	 * Restricting the volatility of a cast function may or may not be a
+	 * good idea in the abstract, but it definitely breaks many old
+	 * user-defined types.  Disable this check --- tgl 2/1/03
+	 */
+#ifdef NOT_USED
+	if (procstruct->provolatile == PROVOLATILE_VOLATILE)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("cast function must not be volatile")));
+#endif
+	if (procstruct->prokind != PROKIND_FUNCTION)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("cast function must be a normal function")));
+	if (procstruct->proretset)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("cast function must not return a set")));
+
+	ReleaseSysCache(tuple);
+
+	return nargs;
+}
+
+void CheckCastWithBinary(Oid sourcetypeid, Oid targettypeid,
+						 char sourcetyptype, char targettyptype)
+{
+	int16		typ1len;
+	int16		typ2len;
+	bool		typ1byval;
+	bool		typ2byval;
+	char		typ1align;
+	char		typ2align;
+
+	/*
+	 * Must be superuser to create binary-compatible casts, since
+	 * erroneous casts can easily crash the backend.
+	 */
+	if (!superuser())
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+				 errmsg("must be superuser to create a cast WITHOUT FUNCTION")));
+
+	/*
+	 * Also, insist that the types match as to size, alignment, and
+	 * pass-by-value attributes; this provides at least a crude check that
+	 * they have similar representations.  A pair of types that fail this
+	 * test should certainly not be equated.
+	 */
+	get_typlenbyvalalign(sourcetypeid, &typ1len, &typ1byval, &typ1align);
+	get_typlenbyvalalign(targettypeid, &typ2len, &typ2byval, &typ2align);
+	if (typ1len != typ2len ||
+		typ1byval != typ2byval ||
+		typ1align != typ2align)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("source and target data types are not physically compatible")));
+
+	/*
+	 * We know that composite, enum and array types are never binary-
+	 * compatible with each other.  They all have OIDs embedded in them.
+	 *
+	 * Theoretically you could build a user-defined base type that is
+	 * binary-compatible with a composite, enum, or array type.  But we
+	 * disallow that too, as in practice such a cast is surely a mistake.
+	 * You can always work around that by writing a cast function.
+	 */
+	if (sourcetyptype == TYPTYPE_COMPOSITE ||
+		targettyptype == TYPTYPE_COMPOSITE)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("composite data types are not binary-compatible")));
+
+	if (sourcetyptype == TYPTYPE_ENUM ||
+		targettyptype == TYPTYPE_ENUM)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("enum data types are not binary-compatible")));
+
+	if (OidIsValid(get_element_type(sourcetypeid)) ||
+		OidIsValid(get_element_type(targettypeid)))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+				 errmsg("array data types are not binary-compatible")));
+}
+/* ADB EXT END */
 
 /*
  * get_cast_oid - given two type OIDs, look up a cast OID
