@@ -2405,7 +2405,7 @@ static void rewindMgrNodeOperation(RewindMgrNodeObject *rewindObject,
 
 	setPGHbaTrustAddress(masterNode, slaveNode->host->hostaddr);
 
-	setPGHbaTrustSlaveReplication(masterNode, slaveNode);
+	setPGHbaTrustSlaveReplication(masterNode, slaveNode, true);
 
 	PQexecCommandSql(rewindObject->masterPGconn, "checkpoint;", true);
 

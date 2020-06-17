@@ -11948,7 +11948,7 @@
 { oid => '4893', row_macros => 'ADBMGRD', descr => 'zone promote',
   proname => 'mgr_zone_failover', procost => '400', prorows => '10',
   proretset => 't', provolatile => 's', prorettype => 'record',
-  proargtypes => 'cstring', proallargtypes => '{name,bool,text}',
+  proargtypes => 'cstring int4', proallargtypes => '{name,bool,text}',
   proargmodes => '{o,o,o}', proargnames => '{nodename,status,description}',
   prosrc => 'mgr_zone_failover' },
 { oid => '4892', row_macros => 'ADBMGRD', descr => 'zone config',

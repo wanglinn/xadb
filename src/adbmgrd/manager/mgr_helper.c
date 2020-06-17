@@ -2311,7 +2311,8 @@ bool setPGHbaTrustAddress(MgrNodeWrapper *mgrNode, char *address)
 }
 
 void setPGHbaTrustSlaveReplication(MgrNodeWrapper *masterNode,
-								   MgrNodeWrapper *slaveNode)
+								   MgrNodeWrapper *slaveNode,
+								   bool complain)
 {
 	PGHbaItem *hbaItems;
 
@@ -2319,8 +2320,8 @@ void setPGHbaTrustSlaveReplication(MgrNodeWrapper *masterNode,
 							NameStr(slaveNode->host->form.hostuser),
 							slaveNode->host->hostaddr,
 							32, "trust");
-	callAgentRefreshPGHbaConf(masterNode, hbaItems, true);
-	callAgentReloadNode(masterNode, true);
+	callAgentRefreshPGHbaConf(masterNode, hbaItems, complain);
+	callAgentReloadNode(masterNode, complain);
 	pfreePGHbaItem(hbaItems);
 }
 
@@ -2519,12 +2520,8 @@ void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
 
 	if (execOk)
 	{
-		ereport(NOTICE,
-				(errmsg("set GTM information on %s successfully",
-						NameStr(mgrNode->form.nodename))));
-		ereport(LOG,
-				(errmsg("set GTM information on %s successfully",
-						NameStr(mgrNode->form.nodename))));
+		ereportNoticeLog(errmsg("set GTM information on %s successfully",
+						NameStr(mgrNode->form.nodename)));
 	}
 	else
 	{

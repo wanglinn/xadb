@@ -195,50 +195,6 @@ typedef struct CmdTypeName
 	char		cmdname[NAMEDATALEN];
 }CmdTypeName;
 
-typedef struct SwitchoverGtmMalloc
-{
-	SwitcherNodeWrapper *oldMaster;
-	SwitcherNodeWrapper *newMaster;
-	SwitcherNodeWrapper *holdLockCoordinator;
-	dlist_head 			coordinators;
-	dlist_head 			coordinatorSlaves;
-	dlist_head 			runningSlaves;
-	dlist_head 			runningSlavesSecond;
-	dlist_head 			failedSlaves;
-	dlist_head 			failedSlavesSecond;
-	dlist_head 			dataNodes;
-}SwitchoverGtmMalloc;
-
-typedef struct SwitchoverCoordMalloc
-{
-	SwitcherNodeWrapper *oldMaster;
-	SwitcherNodeWrapper *newMaster;
-	dlist_head 			runningSlaves;
-	dlist_head 			failedSlaves;
-}SwitchoverCoordMalloc;
-
-typedef struct SwitchoverCoordMallocWrapper
-{
-	SwitchoverCoordMalloc 	*soCoordMalloc;	
-	dlist_node 				link;
-}SwitchoverCoordMallocWrapper;
-
-typedef struct SODataNodeList
-{
-	SwitcherNodeWrapper *oldMaster;
-	SwitcherNodeWrapper *newMaster;
-	dlist_head 			runningSlaves;
-	dlist_head 			runningSlavesSecond;
-	dlist_head 			failedSlaves;
-	dlist_head 			failedSlavesSecond;
-}SODataNodeList;
-
-typedef struct SODataNodeListWrapper
-{
-	SODataNodeList 	*soDataNodeList;
-	dlist_node 		link;
-}SODataNodeListWrapper;
-
 typedef List * (*nodenames_supplier) (PG_FUNCTION_ARGS, char nodetype);
 typedef void (nodenames_consumer)(List *nodenames, char nodetype);
 /* host commands, in cmd_host.c */
@@ -564,11 +520,6 @@ extern Datum mgr_append_activate_coord(PG_FUNCTION_ARGS);
 extern Datum mgr_switchover_func(PG_FUNCTION_ARGS);
 extern Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS);
 extern bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport, Oid cnoid, StringInfo recorderr);
-extern void MgrZoneSwitchoverGtm(MemoryContext spiContext, char *currentZone, bool forceSwitch, int maxTrys, SwitchoverGtmMalloc *soGtmMalloc);
-extern void RevertZoneSwitchover(MemoryContext spiContext, SwitchoverGtmMalloc *soGtmMalloc, dlist_head *coordMallocs, dlist_head *datanodeMallocs);
-extern void ZoneSwitchoverFree(SwitchoverGtmMalloc *soGtmMalloc, dlist_head *coordMallocs, dlist_head *dataNodeMallocs);
-extern void MgrZoneSwitchoverCoord(MemoryContext spiContext, char *currentZone, bool forceSwitch, SwitchoverGtmMalloc *soGtmMalloc, dlist_head *coordMallocs);
-extern void MgrZoneSwitchoverDataNode(MemoryContext spiContext, char *currentZone, bool forceSwitch, SwitchoverGtmMalloc *soGtmMalloc, dlist_head *datanodeMallocs);
 /*expansion calls*/
 extern void	mgr_make_sure_all_running(char node_type, char *zone);
 extern bool is_node_running(char *hostaddr, int32 hostport, char *user, char nodetype);
@@ -676,6 +627,16 @@ extern bool mgr_node_has_slave_inzone(Relation rel, char *zone, Oid mastertupleo
 extern bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync, Node *node);
 extern void mgr_clean_cn_pgxcnode_readonlysql_slave(void);
 extern bool mgr_check_nodetype_exist(char nodeType, char nodeTypeList[8]);
+extern MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char *currentZone);
+extern void MgrZoneSwitchoverGtm(MemoryContext spiContext, char *currentZone, bool forceSwitch, int maxTrys, ZoneOverGtm *zoGtm);
+extern void MgrZoneSwitchoverCoord(MemoryContext spiContext, char *currentZone, bool forceSwitch, ZoneOverGtm *zoGtm, dlist_head *zoCoordList);
+extern void MgrZoneSwitchoverDataNode(MemoryContext spiContext, char *currentZone, bool forceSwitch, ZoneOverGtm *zoGtm, dlist_head *zoDNList);
+extern void MgrZoneFailoverGtm(MemoryContext spiContext, char *currentZone, bool forceSwitch, int maxTrys, ZoneOverGtm *zoGtm);								
+extern void MgrZoneFailoverCoord(MemoryContext spiContext, char *currentZone, bool	forceSwitch, int	maxTrys, ZoneOverGtm *zoGtm, dlist_head *zoCoordList);
+extern void MgrZoneFailoverDN(MemoryContext spiContext, char *currentZone, bool forceSwitch, int maxTrys, ZoneOverGtm *zoGtm, dlist_head *zoDNList);	
+extern void RevertZoneSwitchover(MemoryContext spiContext, ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
+extern void RevertZoneFailover(MemoryContext spiContext, ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
+extern void ZoneSwitchoverFree(ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
 
 extern char *getMgrNodeSyncStateValue(sync_state state);
 extern uint64 updateDoctorStatusOfMgrNodes(List *nodenames, char nodetype, bool allowcure, char *curestatus);

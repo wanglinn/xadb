@@ -50,59 +50,105 @@ char *mgr_zone;
 
 #define MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK	0 
 
-static void MgrZoneFailoverGtm(MemoryContext spiContext, char *currentZone);
-static void MgrZoneFailoverCoord(MemoryContext spiContext, char *currentZone);
-static void MgrZoneFailoverDN(MemoryContext spiContext, char *currentZone);
-static MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char *currentZone);
+MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char *currentZone);
 static void MgrFailoverCheck(MemoryContext spiContext, char *currentZone);
 static void MgrSwitchoverCheck(MemoryContext spiContext, char *currentZone);
 static void MgrCheckMasterHasSlave(MemoryContext spiContext, char *currentZone);
-static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext, char *currentZone, char nodeType);
+static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext, 
+										char *currentZone, 
+										char nodeType);
 static void MgrMakesureAllSlaveRunning(void);
 static void MgrMakesureZoneAllSlaveRunning(char *zone);
-static void SetSwitchoverGtmMalloc(SwitchoverGtmMalloc *soGtmMalloc);
+static void SetZoneOverGtm(ZoneOverGtm *zoGtm);
 
 Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 {
 	HeapTuple 		tupResult = NULL;
 	NameData 		name;
 	char 			*currentZone;
+	bool 			force = false;
+	int 			maxTrys = 3;
 	int 			spiRes = 0;	
+	MemoryContext 	oldContext;
 	MemoryContext 	spiContext = NULL;
+	MemoryContext   switchContext = NULL;
+	ZoneOverGtm 	zoGtm;
+	ErrorData 		*edata = NULL;
+	dlist_head 		zoCoordList = DLIST_STATIC_INIT(zoCoordList);
+	dlist_head 		zoDNList = DLIST_STATIC_INIT(zoDNList);
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot do the command during recovery")));
 
 	currentZone  = PG_GETARG_CSTRING(0);
+	force 		 = PG_GETARG_INT32(1);
 	Assert(currentZone);
 	if (strcmp(currentZone, mgr_zone) != 0)
 		ereport(ERROR, (errmsg("the given zone name \"%s\" is not the same wtih guc parameter mgr_zone \"%s\" in postgresql.conf", currentZone, mgr_zone)));	
 
 	namestrcpy(&name, "ZONE FAILOVER");
+	SetZoneOverGtm(&zoGtm);
+
+	oldContext = CurrentMemoryContext;
+	switchContext = AllocSetContextCreate(CurrentMemoryContext, "mgr_zone_switchover", ALLOCSET_DEFAULT_SIZES);
+	if ((spiRes = SPI_connect()) != SPI_OK_CONNECT){
+		ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
+	}
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(switchContext);
+
 	PG_TRY();
 	{
-		if ((spiRes = SPI_connect()) != SPI_OK_CONNECT){
-			ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
-		}
-		spiContext = CurrentMemoryContext; 		
 		MgrFailoverCheck(spiContext, currentZone);
 
 		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s, step1:failover gtmcoord slave in %s ========.", currentZone, currentZone));
-		MgrZoneFailoverGtm(spiContext, currentZone);
+		MgrZoneFailoverGtm(spiContext, 
+							currentZone,
+							force,
+							maxTrys, 
+							&zoGtm);
 
 		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s, step2:failover coordinator slave in %s ========.", currentZone, currentZone));
-		MgrZoneFailoverCoord(spiContext, currentZone);
+		MgrZoneFailoverCoord(spiContext,
+							currentZone, 
+							force, 
+							maxTrys,
+							&zoGtm, 
+							&zoCoordList);
 
 		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s, step3:failover datanode slave in %s ========.", currentZone, currentZone));
-		MgrZoneFailoverDN(spiContext, currentZone);
+		MgrZoneFailoverDN(spiContext, 
+							currentZone,
+							force,
+							maxTrys,
+							&zoGtm,
+							&zoDNList);
 	}PG_CATCH();
 	{
+		ereportNoticeLog(errmsg("============ ZONE FAILOVER %s failed, revert it begin ============", currentZone));
+		RevertZoneFailover(spiContext, &zoGtm, &zoCoordList, &zoDNList);
+		ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
+		ereportNoticeLog(errmsg("============ ZONE FAILOVER %s failed, revert it end ============", currentZone));
+		
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
 		SPI_finish();
-		ereport(ERROR, (errmsg(" ZONE FAILOVER zone(%s) failed.", currentZone)));
-		PG_RE_THROW();
+
+		edata = CopyErrorData();
+		FlushErrorState();
+		if (edata)
+			ReThrowError(edata);
+
+		ereport(ERROR, (errmsg(" ZONE FAILOVER %s failed.", currentZone)));
 	}PG_END_TRY();
 
+	tryUnlockCluster(&zoGtm.coordinators, true);
+	ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
+
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(switchContext);
 	SPI_finish();
+
 	ereportNoticeLog(errmsg("the command of \"ZONE FAILOVER %s\" result is %s, description is %s", currentZone,"true", "success"));
 	tupResult = build_common_command_tuple(&name, true, "success");
 	return HeapTupleGetDatum(tupResult);
@@ -119,10 +165,10 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 	MemoryContext 	oldContext;
 	MemoryContext 	spiContext = NULL;
 	MemoryContext   switchContext = NULL;
-	SwitchoverGtmMalloc soGtmMalloc;
-	dlist_head coordMallocs = DLIST_STATIC_INIT(coordMallocs);
-	dlist_head datanodeMallocs = DLIST_STATIC_INIT(datanodeMallocs);
-	ErrorData 	*edata = NULL;
+	ZoneOverGtm 	zoGtm;
+	dlist_head 		zoCoordList = DLIST_STATIC_INIT(zoCoordList);
+	dlist_head 		zoDNList = DLIST_STATIC_INIT(zoDNList);
+	ErrorData 		*edata = NULL;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot do the command during recovery")));
@@ -143,7 +189,7 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 		
 	namestrcpy(&name, "ZONE SWITCHOVER");
 	
-	SetSwitchoverGtmMalloc(&soGtmMalloc);
+	SetZoneOverGtm(&zoGtm);
 
 	oldContext = CurrentMemoryContext;
 	switchContext = AllocSetContextCreate(CurrentMemoryContext, "mgr_zone_switchover", ALLOCSET_DEFAULT_SIZES);
@@ -162,28 +208,28 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 							currentZone,
 							force,
 							maxTrys, 
-							&soGtmMalloc);
+							&zoGtm);
 
 		ereportNoticeLog(errmsg("============ ZONE SWITCHOVER %s, step2:switchover coordinator slave in %s ============", currentZone, currentZone));
 		MgrZoneSwitchoverCoord(spiContext, 
 								currentZone, 
 								force,
-								&soGtmMalloc, 
-								&coordMallocs);
+								&zoGtm, 
+								&zoCoordList);
 
 		ereportNoticeLog(errmsg("============ ZONE SWITCHOVER %s, step3:switchover datanode slave in %s ============", currentZone, currentZone));
 		MgrZoneSwitchoverDataNode(spiContext, 
 									currentZone, 
 									force,
-									&soGtmMalloc, 
-									&datanodeMallocs);
+									&zoGtm, 
+									&zoDNList);
 	}PG_CATCH();
 	{
 		ereportNoticeLog(errmsg("============ ZONE SWITCHOVER %s failed, revert it begin ============", currentZone));
+		RevertZoneSwitchover(spiContext, &zoGtm, &zoCoordList, &zoDNList);
+		ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
+		ereportNoticeLog(errmsg("============ ZONE SWITCHOVER %s failed, revert it end ============", currentZone));
 
-		RevertZoneSwitchover(spiContext, &soGtmMalloc, &coordMallocs, &datanodeMallocs);
-		ZoneSwitchoverFree(&soGtmMalloc, &coordMallocs, &datanodeMallocs);
-		
 		(void)MemoryContextSwitchTo(oldContext);
 		MemoryContextDelete(switchContext);
 		SPI_finish();
@@ -196,8 +242,8 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errmsg(" ZONE SWITCHOVER %s failed.", currentZone)));
 	}PG_END_TRY();
 
-	tryUnlockCluster(&soGtmMalloc.coordinators, true);
-	ZoneSwitchoverFree(&soGtmMalloc, &coordMallocs, &datanodeMallocs);
+	tryUnlockCluster(&zoGtm.coordinators, true);
+	ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
 
 	(void)MemoryContextSwitchTo(oldContext);
 	MemoryContextDelete(switchContext);
@@ -370,7 +416,9 @@ Datum mgr_zone_init(PG_FUNCTION_ARGS)
 	return HeapTupleGetDatum(tupResult);
 }
 
-static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext, char *currentZone, char nodeType)
+static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext, 
+										char *currentZone, 
+										char nodeType)
 {
 	dlist_head 			masterList = DLIST_STATIC_INIT(masterList);
 	dlist_head 			slaveList  = DLIST_STATIC_INIT(slaveList);
@@ -423,14 +471,14 @@ static void MgrCheckMasterHasSlave(MemoryContext spiContext, char *currentZone)
 static void MgrFailoverCheck(MemoryContext spiContext, char *currentZone)
 {
 	MgrCheckMasterHasSlave(spiContext, currentZone);
-	MgrMakesureAllSlaveRunning();
+	MgrMakesureZoneAllSlaveRunning(currentZone);
 }
 static void MgrSwitchoverCheck(MemoryContext spiContext, char *currentZone)
 {
 	MgrCheckMasterHasSlave(spiContext, currentZone);
-	MgrMakesureZoneAllSlaveRunning(currentZone);
+	MgrMakesureAllSlaveRunning();
 }
-static MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char *currentZone)
+MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char *currentZone)
 {
 	dlist_head 			masterList = DLIST_STATIC_INIT(masterList);
 	dlist_iter 			iter;
@@ -458,86 +506,6 @@ static MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char 
 	oldMaster = dlist_container(MgrNodeWrapper, link, node);
 	return oldMaster;
 }
-
-static void MgrZoneFailoverGtm(MemoryContext spiContext, char *currentZone)
-{
-	MgrNodeWrapper 	*oldGtmMaster = NULL;
-	NameData       	newMasterName = {{0}};
-
-	Assert(spiContext);
-	Assert(currentZone);
-
-	oldGtmMaster = MgrGetOldGtmMasterNotZone(spiContext, currentZone);
-	Assert(oldGtmMaster);
-	
-	PG_TRY();
-	{
-		FailOverGtmCoordMaster(NameStr(oldGtmMaster->form.nodename), true, true, &newMasterName, currentZone);	
-	}
-	PG_CATCH();
-	{
-		pfreeMgrNodeWrapper(oldGtmMaster);
-		PG_RE_THROW();
-	}PG_END_TRY();
-	
-	pfreeMgrNodeWrapper(oldGtmMaster);
-	return;
-}
-static void MgrZoneFailoverCoord(MemoryContext spiContext, char *currentZone)
-{
-	dlist_head 			masterList = DLIST_STATIC_INIT(masterList);
-	MgrNodeWrapper 		*mgrNode;
-	dlist_iter 			iter;
-	NameData 			newMasterName = {{0}};
-	
-	PG_TRY();
-	{
-		MgrGetOldDnMasterNotZone(spiContext, currentZone, CNDN_TYPE_COORDINATOR_MASTER, &masterList);
-		dlist_foreach(iter, &masterList)
-		{
-			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-			Assert(mgrNode);
-            memset(&newMasterName, 0x00, sizeof(NameData));
-			FailOverCoordMaster(NameStr(mgrNode->form.nodename), true, true, &newMasterName, currentZone);
-		}
-	}
-	PG_CATCH();
-	{
-		pfreeMgrNodeWrapperList(&masterList, NULL);
-		PG_RE_THROW();
-	}PG_END_TRY();
-	
-	pfreeMgrNodeWrapperList(&masterList, NULL);
-	return;
-}
-static void MgrZoneFailoverDN(MemoryContext spiContext, char *currentZone)
-{
-	dlist_head 			masterList = DLIST_STATIC_INIT(masterList);
-	MgrNodeWrapper 		*mgrNode;
-	dlist_iter 			iter;
-	NameData 			newMasterName = {{0}};
-
-	PG_TRY();
-	{
-		MgrGetOldDnMasterNotZone(spiContext, currentZone, CNDN_TYPE_DATANODE_MASTER, &masterList);
-		dlist_foreach(iter, &masterList)
-		{
-			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-			Assert(mgrNode);
-			memset(&newMasterName, 0x00, sizeof(NameData));
-			FailOverDataNodeMaster(NameStr(mgrNode->form.nodename), true, true, &newMasterName, currentZone);
-		}
-	}PG_CATCH();
-	{
-		pfreeMgrNodeWrapperList(&masterList, NULL);
-		PG_RE_THROW();
-	}PG_END_TRY();
-
-	pfreeMgrNodeWrapperList(&masterList, NULL);
-	return;
-}
-
-
 /*
 * mgr_checknode_in_currentzone
 * 
@@ -658,16 +626,16 @@ static void MgrMakesureZoneAllSlaveRunning(char *zone)
 	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_SLAVE, zone);
 	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_SLAVE, zone);
 }
-static void SetSwitchoverGtmMalloc(SwitchoverGtmMalloc *soGtmMalloc)
+static void SetZoneOverGtm(ZoneOverGtm *zoGtm)
 {
-	soGtmMalloc->oldMaster          = NULL;
-	soGtmMalloc->newMaster          = NULL;	
-	dlist_init(&soGtmMalloc->coordinators);
-	dlist_init(&soGtmMalloc->coordinatorSlaves);
-	dlist_init(&soGtmMalloc->runningSlaves);
-	dlist_init(&soGtmMalloc->runningSlavesSecond);
-	dlist_init(&soGtmMalloc->failedSlaves);
-	dlist_init(&soGtmMalloc->failedSlavesSecond);
-	dlist_init(&soGtmMalloc->dataNodes);	
+	zoGtm->oldMaster          = NULL;
+	zoGtm->newMaster          = NULL;	
+	dlist_init(&zoGtm->coordinators);
+	dlist_init(&zoGtm->coordinatorSlaves);
+	dlist_init(&zoGtm->runningSlaves);
+	dlist_init(&zoGtm->runningSlavesSecond);
+	dlist_init(&zoGtm->failedSlaves);
+	dlist_init(&zoGtm->failedSlavesSecond);
+	dlist_init(&zoGtm->dataNodes);	
 }
 	
