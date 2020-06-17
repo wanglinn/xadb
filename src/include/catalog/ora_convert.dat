@@ -43,7 +43,7 @@
 { cvtid => 40,  cvtkind => 'f', cvtname => 'length', cvtfrom => 'oracle.raw', cvtto => 'varchar' },
 { cvtid => 41,  cvtkind => 'f', cvtname => 'length', cvtfrom => '0', cvtto => 'text' },
 { cvtid => 42,  cvtkind => 'f', cvtname => 'ln', cvtfrom => '0', cvtto => 'numeric' },
-{ cvtid => 43,  cvtkind => 'f', cvtname => 'lpad', cvtfrom => '0 0', cvtto => 'text int4' },
+{ cvtid => 43,  cvtkind => 'f', cvtname => 'lpad', cvtfrom => '0 0', cvtto => 'text numeric' },
 { cvtid => 44,  cvtkind => 'f', cvtname => 'lpad', cvtfrom => '0 0 0', cvtto => 'text numeric text' },
 { cvtid => 45,  cvtkind => 'f', cvtname => 'months_between', cvtfrom => '0 0', cvtto => 'date date' },
 { cvtid => 46,  cvtkind => 'f', cvtname => 'nanvl', cvtfrom => '0 0', cvtto => 'numeric numeric' },
