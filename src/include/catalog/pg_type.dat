@@ -610,7 +610,7 @@
   typanalyze => 'array_typanalyze', typalign => 'i', typstorage => 'x' },
 { oid => '9009', row_macros => 'ADB_GRAM_ORA', oid_symbol => 'ORADATEOID',
   descr => 'oracle\'s date',
-  typname => 'date', typnamespace => 'ORANSP', typlen => '8', typbyval => 'FLOAT8PASSBYVAL',
+   typname => 'date', typnamespace => 'ORANSP', typlen => '8', typbyval => 'FLOAT8PASSBYVAL',
   typtype => 'd', typcategory => 'D', typarray => 'oracle._date',
   typinput => 'domain_in', typoutput => 'timestamp_out',
   typreceive => 'domain_recv', typsend => 'timestamp_send', typalign => 'd',
@@ -660,6 +660,7 @@
   typname => '_raw', typnamespace => 'ORANSP', typlen => '-1', typbyval => 'f',
   typcategory => 'A', typelem => 'oracle.raw', typinput => 'array_in',
   typoutput => 'array_out', typreceive => 'array_recv', typsend => 'array_send',
-  typanalyze => 'array_typanalyze', typalign => 'i', typstorage => 'x' },
+  typanalyze => 'array_typanalyze', typalign => 'i', typstorage => 'x',
+  typbasetype => 'bytea' },
 # ADB_END_GRAM_ORA
 ]
