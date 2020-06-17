@@ -6800,10 +6800,6 @@ static void FailOverDataNodeMasterForZone(MemoryContext spiContext,
 								true,
 								CHECK_GTM_INFO_SECONDS,
 								complain);
-    if (pg_strcasecmp(NameStr(newMaster->mgrNode->form.nodename), "dm2_z") == 0)
-	{
-		ereport(ERROR,(errmsg("FailOverDataNodeMasterForZone failed.")));
-	}
 
 	refreshPgxcNodeBeforeSwitchDataNode(coordinators);
 
