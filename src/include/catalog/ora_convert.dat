@@ -90,6 +90,7 @@
 { cvtid => 88,  cvtkind => 'f', cvtname => 'exp', cvtfrom => '0', cvtto => 'numeric' },
 { cvtid => 89,  cvtkind => 'f', cvtname => 'max', cvtfrom => 'oracle.raw', cvtto => 'text' },
 { cvtid => 90,  cvtkind => 'f', cvtname => 'min', cvtfrom => 'oracle.raw', cvtto => 'text' },
+{ cvtid => 91,  cvtkind => 'f', cvtname => 'width_bucket', cvtfrom => '0 0 0 0', cvtto => 'numeric numeric numeric numeric'},
 
 # type + type
 { cvtid => 163,  cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.varchar2 int2', cvtto => 'numeric numeric' },
