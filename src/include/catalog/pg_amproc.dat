@@ -1238,16 +1238,16 @@
   amprocrighttype => 'box', amprocnum => '13', amproc => 'box_contain' },
 
 { row_macros => 'ADB_GRAM_ORA',
-  amprocfamily => 'btree/rid_ops', amproclefttype => 'oracle.rid',
-  amprocrighttype => 'oracle.rid', amprocnum => '1',
+  amprocfamily => 'btree/rowid_ops', amproclefttype => 'oracle.rowid',
+  amprocrighttype => 'oracle.rowid', amprocnum => '1',
   amproc => 'oracle.rowid_cmp' },
 { row_macros => 'ADB_GRAM_ORA',
-  amprocfamily => 'btree/rid_ops', amproclefttype => 'oracle.rid',
-  amprocrighttype => 'oracle.rid', amprocnum => '2',
+  amprocfamily => 'btree/rowid_ops', amproclefttype => 'oracle.rowid',
+  amprocrighttype => 'oracle.rowid', amprocnum => '2',
   amproc => 'oracle.rowid_sortsupport' },
 { row_macros => 'ADB_GRAM_ORA',
-  amprocfamily => 'hash/rid_ops', amproclefttype => 'oracle.rid',
-  amprocrighttype => 'oracle.rid', amprocnum => '1',
+  amprocfamily => 'hash/rowid_ops', amproclefttype => 'oracle.rowid',
+  amprocrighttype => 'oracle.rowid', amprocnum => '1',
   amproc => 'oracle.rowid_hash' },
 
 ]

@@ -1305,7 +1305,7 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 				 * in expression 'ROWID = null'.
 				 * */
 				if(((Const*)lexpr)->constisnull && 
-					((Const*)lexpr)->consttype == ORACLE_RIDOID)
+					((Const*)lexpr)->consttype == ORACLE_ROWIDOID)
 				{
 					lexpr = (Node *)makeConst(UNKNOWNOID,
 											 -1,
@@ -1330,7 +1330,7 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 				* in expression 'ROWID = null'.
 				*/
 				if(((Const*)rexpr)->constisnull && 
-					((Const*)rexpr)->consttype == ORACLE_RIDOID)
+					((Const*)rexpr)->consttype == ORACLE_ROWIDOID)
 				{
 					rexpr = (Node *)makeConst(UNKNOWNOID,
 											 -1,

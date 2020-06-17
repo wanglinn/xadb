@@ -344,10 +344,10 @@
 # no brin opclass for the geometric types except box
 
 { row_macros => 'ADB_GRAM_ORA',
-  opcmethod => 'btree', opcname => 'rid_ops', opcnamespace => 'ORANSP',
-  opcfamily => 'btree/rid_ops', opcintype => 'oracle.rid' },
+  opcmethod => 'btree', opcname => 'rowid_ops', opcnamespace => 'ORANSP',
+  opcfamily => 'btree/rowid_ops', opcintype => 'oracle.rowid' },
 { row_macros => 'ADB_GRAM_ORA',
-  opcmethod => 'hash', opcname => 'rid_ops', opcnamespace => 'ORANSP',
-  opcfamily => 'hash/rid_ops', opcintype => 'oracle.rid' },
+  opcmethod => 'hash', opcname => 'rowid_ops', opcnamespace => 'ORANSP',
+  opcfamily => 'hash/rowid_ops', opcintype => 'oracle.rowid' },
 
 ]

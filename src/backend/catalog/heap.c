@@ -284,7 +284,7 @@ static const FormData_pg_attribute a_xc_node_id = {
 #ifdef ADB_GRAM_ORA
 static const FormData_pg_attribute a_rowid = {
 	.attname = {"rowid"},
-	.atttypid = ORACLE_RIDOID,
+	.atttypid = ORACLE_ROWIDOID,
 	.attlen = RID_DATA_SIZE,
 	.attnum = ADB_RowIdAttributeNumber,
 	.attcacheoff = -1,
