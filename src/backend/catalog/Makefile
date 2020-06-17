@@ -57,8 +57,6 @@ ifeq ($(enable_cluster),yes)
   CATALOG_HEADERS += adb_proc.h pgxc_group.h pgxc_node.h pgxc_class.h \
     pg_aux_class.h adb_slot.h adb_clean.h
   MYCPPFLAGS += -DADB
-else
-  MYCPPFLAGS += -DNADB
 endif
 
 ifeq ($(adb_multi_gram),yes)

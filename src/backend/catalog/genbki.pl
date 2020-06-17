@@ -28,10 +28,10 @@ my $output_path = '';
 my $major_version;
 my $include_path;
 # ADB_BEGIN
-my $enable_cluster;
-my $enable_grammar_oracle;
-my $build_manager;
-my @arg_macros;
+my $enable_cluster = 'no';
+my $enable_grammar_oracle = 'no';
+my $build_manager = 'no';
+my %arg_macros;
 my $defines;
 # ADB_END
 
@@ -68,32 +68,17 @@ if (defined $defines)
 		if ($arg =~ /^-D/)
 		{
 			my $macro = substr($arg, 2);
-			push @arg_macros, $macro;
-			if ($macro eq 'ADB')
-			{
-				$enable_cluster = 'yes';
-			}
-			elsif ($macro eq 'ADB_GRAM_ORA')
-			{
-				$enable_grammar_oracle = 'yes';
-			}
-			elsif ($macro eq 'ADBMGRD')
-			{
-				$build_manager = 'yes';
-			}
-			elsif ($macro eq '')
-			{
-				usage();
-			}
+			usage() if $macro eq '';
+			$arg_macros{$macro} = 1;
 		}else
 		{
 			usage();
 		}
 	}
 }
-$enable_cluster = 'no'			if !defined $enable_cluster;
-$enable_grammar_oracle = 'no'	if !defined $enable_grammar_oracle;
-$build_manager = 'no'			if !defined $build_manager;
+$enable_cluster = 'yes'			if defined $arg_macros{ADB};
+$enable_grammar_oracle = 'yes'	if defined $arg_macros{ADB_GRAM_ORA};
+$build_manager = 'yes'			if defined $arg_macros{ADBMGRD};
 die 'conflict macro "ADBMGRD" and "ADB"'
 								if ($build_manager eq 'yes' && $enable_cluster eq 'yes');
 
@@ -166,20 +151,9 @@ foreach my $header (@ARGV)
 		{
 			if (defined $row->{row_macros})
 			{
-				my $drop = 1;
-				foreach my $row_macro (split(/\s+/, $row->{row_macros}))
-				{
-					foreach my $arg_macro (@arg_macros)
-					{
-						if ($row_macro eq $arg_macro)
-						{
-							$drop = 0;
-							last;
-						}
-					}
-					last if $drop eq 0;
-				}
-				if ($drop eq 0)
+				my $expr = $row->{row_macros};
+				$expr =~ s/(\w+)/ (defined \$arg_macros{$1}) /g;
+				if (eval($expr))
 				{
 					push @$data, $row;
 				}

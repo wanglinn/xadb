@@ -23,7 +23,7 @@ use Getopt::Long;
 my $output_path = '';
 my $include_path;
 #ADB_BEGIN
-my @arg_macros = ();
+my %arg_macros;
 my $defines;
 #ADB_END
 
@@ -52,11 +52,8 @@ if (defined $defines)
 		if ($arg =~ /^-D/)
 		{
 			my $macro = substr($arg, 2);
-			push @arg_macros, $macro;
-			if ($macro eq '')
-			{
-				usage();
-			}
+			usage() if $macro eq '';
+			$arg_macros{$macro} = 1;
 		}else
 		{
 			usage();
@@ -100,22 +97,11 @@ foreach my $row (@{ $catalog_data{pg_proc} })
 	next if $bki_values{prolang} ne 'internal';
 
 #ADB_BEGIN
-	if (defined $bki_values{row_macros} && $bki_values{proname} ne 'pg_prepared_xact')
+	if (defined $bki_values{row_macros})
 	{
-		my $drop = 1;
-		foreach my $row_macro (split(/\s+/, $bki_values{row_macros}))
-		{
-			foreach my $arg_macro (@arg_macros)
-			{
-				if ($row_macro eq $arg_macro)
-				{
-					$drop = 0;
-					last;
-				}
-			}
-			last if $drop eq 0;
-		}
-		next if $drop eq 1;
+		my $expr = $bki_values{row_macros};
+		$expr =~ s/(\w+)/ (defined \$arg_macros{$1}) /g;
+		next if !eval($expr);
 	}
 #ADB_END
 
