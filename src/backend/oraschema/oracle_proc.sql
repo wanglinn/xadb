@@ -825,3 +825,59 @@ RETURNS varchar AS
   IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
 LANGUAGE SQL;
+
+/*
+ * Function: oracle mod
+ * Parameter Type: (smallint, smallint)
+ */
+CREATE OR REPLACE FUNCTION oracle.mod(smallint, smallint)
+    RETURNS smallint
+    AS $$ 
+	    SELECT CASE WHEN $2 = 0 THEN $1 ELSE (SELECT pg_catalog.mod($1, $2)) END;
+    $$
+    LANGUAGE SQL
+    IMMUTABLE
+--ADBONLY CLUSTER SAFE
+    STRICT;
+
+/*
+ * Function: oracle mod
+ * Parameter Type: (integer, integer)
+ */
+CREATE OR REPLACE FUNCTION oracle.mod(integer, integer)
+    RETURNS integer
+    AS $$
+	    SELECT CASE WHEN $2 = 0 THEN $1 ELSE (SELECT pg_catalog.mod($1, $2)) END;
+    $$
+    LANGUAGE SQL
+    IMMUTABLE
+--ADBONLY CLUSTER SAFE
+    STRICT;
+
+/*
+ * Function: oracle od
+ * Parameter Type: (bigint, bigint)
+ */
+CREATE OR REPLACE FUNCTION oracle.mod(bigint, bigint)
+    RETURNS bigint
+    AS $$
+	    SELECT CASE WHEN $2 = 0 THEN $1 ELSE (SELECT pg_catalog.mod($1, $2)) END;
+    $$
+    LANGUAGE SQL
+    IMMUTABLE
+--ADBONLY CLUSTER SAFE
+    STRICT;
+
+/*
+ * Function: oracle od
+ * Parameter Type: (numeric, numeric)
+ */
+CREATE OR REPLACE FUNCTION oracle.mod(numeric, numeric)
+    RETURNS numeric
+    AS $$
+	    SELECT CASE WHEN $2 = 0 THEN $1 ELSE (SELECT pg_catalog.mod($1, $2)) END;
+    $$
+    LANGUAGE SQL
+    IMMUTABLE
+--ADBONLY CLUSTER SAFE
+    STRICT;
