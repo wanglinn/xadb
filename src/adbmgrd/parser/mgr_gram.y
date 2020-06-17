@@ -3138,6 +3138,16 @@ ZoneStmt:
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($3, @3));
+			args = lappend(args, makeIntConst(0, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_zone_failover", args));
+			$$ = (Node*)stmt;
+		}
+	|		ZONE FAILOVER Ident FORCE
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($3, @3));
+			args = lappend(args, makeIntConst(1, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_zone_failover", args));
 			$$ = (Node*)stmt;

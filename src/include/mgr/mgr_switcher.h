@@ -31,6 +31,50 @@ typedef struct SwitcherNodeWrapper
 	bool gtmInfoChanged;
 } SwitcherNodeWrapper;
 
+typedef struct ZoneOverGtm
+{
+	SwitcherNodeWrapper *oldMaster;
+	SwitcherNodeWrapper *newMaster;
+	SwitcherNodeWrapper *holdLockCoordinator;
+	dlist_head 			coordinators;
+	dlist_head 			coordinatorSlaves;
+	dlist_head 			runningSlaves;
+	dlist_head 			runningSlavesSecond;
+	dlist_head 			failedSlaves;
+	dlist_head 			failedSlavesSecond;
+	dlist_head 			dataNodes;
+}ZoneOverGtm;
+ 
+typedef struct ZoneOverCoord
+{
+	SwitcherNodeWrapper *oldMaster;
+	SwitcherNodeWrapper *newMaster;
+	dlist_head 			runningSlaves;
+	dlist_head 			failedSlaves;
+}ZoneOverCoord;
+
+typedef struct ZoneOverCoordWrapper
+{
+	ZoneOverCoord 		*zoCoord;	
+	dlist_node 			link;
+}ZoneOverCoordWrapper;
+
+typedef struct ZoneOverDN
+{
+	SwitcherNodeWrapper *oldMaster;
+	SwitcherNodeWrapper *newMaster;
+	dlist_head 			runningSlaves;
+	dlist_head 			runningSlavesSecond;
+	dlist_head 			failedSlaves;
+	dlist_head 			failedSlavesSecond;
+}ZoneOverDN;
+
+typedef struct ZoneOverDNWrapper
+{
+	ZoneOverDN 	    *zoDN;
+	dlist_node 		link;
+}ZoneOverDNWrapper;
+
 static inline void pfreeSwitcherNodeWrapperPGconn(SwitcherNodeWrapper *obj)
 {
 	if (obj && obj->pgConn)
@@ -152,7 +196,8 @@ extern void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 extern void appendSlaveNodeFollowMasterEx(MemoryContext spiContext,
 										SwitcherNodeWrapper *master,
 										SwitcherNodeWrapper *slave,
-										dlist_head *siblingSlaveNodes);								
+										dlist_head *siblingSlaveNodes,
+										bool complain);								
 extern void checkGetMasterCoordinators(MemoryContext spiContext,
 									   dlist_head *coordinators,
 									   bool includeGtmCoord,

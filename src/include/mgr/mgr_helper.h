@@ -496,7 +496,8 @@ extern XLogRecPtr callAgentGet_pg_last_wal_receive_lsn(MgrNodeWrapper *node);
 
 extern bool setPGHbaTrustAddress(MgrNodeWrapper *mgrNode, char *address);
 extern void setPGHbaTrustSlaveReplication(MgrNodeWrapper *masterNode,
-										  MgrNodeWrapper *slaveNode);
+										  MgrNodeWrapper *slaveNode,
+								   		  bool complain);
 extern void setSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 									   char *value);
 extern void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
