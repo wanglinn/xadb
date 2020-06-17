@@ -47,7 +47,7 @@ select max(rowid) from aa group by name;
 select * from aa where rowid not in(select max(rowid) from aa group by name) order by id;
 drop table aa;
 --设置rowid类型的列
-create table tt(id int,name varchar(20),rrid rid);
+create table tt(id int,name varchar(20),rrid rowid);
 insert into tt values(1,'345',null);
 insert into tt values(2,'ab',null);
 insert into tt values(3,'',null);

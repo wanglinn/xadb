@@ -127,12 +127,12 @@ foreach my $header (@ARGV)
 		my $alldata = Catalog::ParseData($datfile, $schema, 0);
 		my $data = [];
 
-		# set rid type size
+		# set rowid type size
 		if ($enable_grammar_oracle eq 'yes' && $catname eq 'pg_type')
 		{
 			foreach my $row (@$alldata)
 			{
-				if ($row->{typname} eq 'rid')
+				if ($row->{typname} eq 'rowid')
 				{
 					if ($enable_cluster eq 'yes')
 					{
@@ -900,7 +900,7 @@ sub gen_pg_attribute
 				if ($enable_grammar_oracle eq 'yes')
 				{
 					push @SYS_ATTRS,
-						{ name => 'rowid', type => 'rid' };
+						{ name => 'rowid', type => 'rowid' };
 				}
 
 				# add infomask system column
