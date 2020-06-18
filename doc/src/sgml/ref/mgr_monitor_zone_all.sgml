@@ -5,23 +5,26 @@ ADB documentation
 
 <refentry id="mgr-monitorzoneall">
   <refmeta>
-    <refentrytitle>MONITOR ZONE ALL</refentrytitle>
+    <refentrytitle>MONITOR ZONE</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>MONITOR ZONE ALL</refname>
-    <refpurpose>monitor the current state in zone for all cluster node</refpurpose>
+    <refname>MONITOR ZONE</refname>
+    <refpurpose>monitor the status of all nodes in zone \n
+    Use like this:\n
+    MONITOR ZONE ${zonename}\n
+    </refpurpose>
   </refnamediv>
 
-  <indexterm zone="mgr-monitorzoneall">
-    <primary>MONITOR ZONE ALL</primary>
+  <indexterm zone="mgr-monitorzone">
+    <primary>MONITOR ZONE</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-MONITOR ZONE zone_name [ ALL ]
+MONITOR ZONE ${zonename}
 </synopsis>
   </refsynopsisdiv>
 
@@ -29,7 +32,7 @@ MONITOR ZONE zone_name [ ALL ]
     <title>Description</title>
 
     <para>
-<command>MONITOR ZONE zone_name ALL</command> monitor the current state in zone for all cluster node.
+<command>MONITOR ZONE zone_name ALL</command> monitor the all cluster node current state in zone.
     </para>
     <para>
 Node has three operating conditions: running, not running and reject connection.
@@ -54,7 +57,7 @@ Node has three operating conditions: running, not running and reject connection.
     <para>
 Monitor the state for all node:
 <programlisting>
-MONITOR ZONE ALL;
+MONITOR ZONE zone_name;
 </programlisting>
     </para>
   </refsect1>

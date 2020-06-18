@@ -3708,24 +3708,6 @@ void check_node_incluster(void)
 		,CharGetDatum(CNDN_TYPE_GTM_COOR_MASTER));
 	relNode = table_open(NodeRelationId, AccessShareLock);
 	snapshot = RegisterSnapshot(GetLatestSnapshot());
-	scan = table_beginscan(relNode,snapshot,1, key);
-	while((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
-	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		gtmInCluster = mgr_node->nodeincluster;
-	}
-
-	if (!gtmInCluster)
-	{
-		table_endscan(scan);
-		UnregisterSnapshot(snapshot);
-		table_close(relNode, AccessShareLock);
-		return;
-	}
-
-	/* check node in mgr_node table */
-	table_endscan(scan);
 	scan = table_beginscan(relNode,snapshot,0, NULL);
 	while((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{

@@ -829,7 +829,6 @@ MonitorStmt:
 		MONITOR opt_general_all
 		{
 			SelectStmt *stmt;
-			check_node_incluster();
 			stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("monitor_all"), -1));
@@ -914,10 +913,9 @@ MonitorStmt:
 			check__name_isvaild($6);
 		}
 		|
-		MONITOR ZONE Ident opt_general_all
+		MONITOR ZONE Ident
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);;
-			check_zone_node_incluster($3);
 			List *arg = list_make1(makeStringConst($3, @3));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_monitor_zone_all", arg));
@@ -3281,7 +3279,6 @@ GetBoottimeStmt:
 		SHOW BOOTTIME opt_general_all
 		{
 			SelectStmt *stmt;
-			check_node_incluster();
 			stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("boottime_all"), -1));

@@ -2562,6 +2562,8 @@ Datum mgr_boottime_all(PG_FUNCTION_ARGS)
 	{
 		MemoryContext oldcontext;
 
+		check_node_incluster();
+
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
@@ -2655,6 +2657,8 @@ Datum mgr_monitor_all(PG_FUNCTION_ARGS)
 	{
 		MemoryContext oldcontext;
 
+		check_node_incluster();
+
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
@@ -2746,6 +2750,8 @@ Datum mgr_monitor_zone_all(PG_FUNCTION_ARGS)
 	if (SRF_IS_FIRSTCALL())
 	{
 		MemoryContext oldcontext;
+
+		check_zone_node_incluster(zoneName);
 
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
