@@ -51,13 +51,15 @@ char *mgr_zone;
 
 #define MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK	0 
 
-MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char *currentZone);
 static void MgrFailoverCheck(MemoryContext spiContext, char *currentZone);
 static void MgrSwitchoverCheck(MemoryContext spiContext, char *currentZone);
-static void MgrCheckMasterHasSlave(MemoryContext spiContext, char *currentZone);
+static void MgrCheckMasterHasSlave(MemoryContext spiContext, 
+									char *currentZone, 
+									char *overType);
 static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext, 
 										char *currentZone, 
-										char nodeType);
+										char nodeType,
+										char *overType);
 static void MgrMakesureAllSlaveRunning(void);
 static void MgrMakesureZoneAllSlaveRunning(char *zone);
 static void SetZoneOverGtm(ZoneOverGtm *zoGtm);
@@ -127,8 +129,15 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 	}PG_CATCH();
 	{
 		ereportNoticeLog(errmsg("============ ZONE FAILOVER %s failed, revert it begin ============", currentZone));
-		RevertZoneFailover(spiContext, &zoGtm, &zoCoordList, &zoDNList);
-		ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
+		RevertZoneFailover(spiContext, 
+							&zoGtm, 
+							&zoCoordList,
+							&zoDNList);
+		BatchShutdownNodesNotZone(&zoGtm, 
+								  currentZone);
+		ZoneSwitchoverFree(&zoGtm, 
+							&zoCoordList, 
+							&zoDNList);
 		ereportNoticeLog(errmsg("============ ZONE FAILOVER %s failed, revert it end ============", currentZone));
 		
 		(void)MemoryContextSwitchTo(oldContext);
@@ -419,7 +428,8 @@ Datum mgr_zone_init(PG_FUNCTION_ARGS)
 
 static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext, 
 										char *currentZone, 
-										char nodeType)
+										char nodeType,
+										char *overType)
 {
 	dlist_head 			masterList = DLIST_STATIC_INIT(masterList);
 	dlist_head 			slaveList  = DLIST_STATIC_INIT(slaveList);
@@ -430,7 +440,11 @@ static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext,
 
 	PG_TRY();
 	{
-		MgrGetOldDnMasterNotZone(spiContext, currentZone, nodeType, &masterList);
+		MgrGetOldDnMasterNotZone(spiContext, 
+								currentZone, 
+								nodeType, 
+								&masterList,
+								overType);
 		dlist_foreach(iter, &masterList)
 		{
 			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
@@ -450,36 +464,40 @@ static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext,
 	}PG_END_TRY();
 	pfreeMgrNodeWrapperList(&masterList, NULL);
 }
-static void MgrCheckMasterHasSlave(MemoryContext spiContext, char *currentZone)
+static void MgrCheckMasterHasSlave(MemoryContext spiContext, 
+									char *currentZone, 
+									char *overType)
 {
 	MgrNodeWrapper 	*oldMaster = NULL;
 	dlist_head 		activeNodes = DLIST_STATIC_INIT(activeNodes);
 	Assert(spiContext);
 	Assert(currentZone);
 
-	oldMaster = MgrGetOldGtmMasterNotZone(spiContext, currentZone);
+	oldMaster = MgrGetOldGtmMasterNotZone(spiContext, currentZone, overType);
 	Assert(oldMaster);
 	selectActiveMgrSlaveNodesInZone(oldMaster->oid, getMgrSlaveNodetype(oldMaster->form.nodetype), currentZone, spiContext, &activeNodes);
 	if (dlist_is_empty(&activeNodes)){
 		ereport(ERROR, (errmsg("because no gtmcoord slave in zone(%s), so can't switchover or failover.", currentZone)));
 	}
 
-	MgrCheckMasterHasSlaveCnDn(spiContext, currentZone, CNDN_TYPE_COORDINATOR_MASTER);
-	MgrCheckMasterHasSlaveCnDn(spiContext, currentZone, CNDN_TYPE_DATANODE_MASTER);	
+	MgrCheckMasterHasSlaveCnDn(spiContext, currentZone, CNDN_TYPE_COORDINATOR_MASTER, overType);
+	MgrCheckMasterHasSlaveCnDn(spiContext, currentZone, CNDN_TYPE_DATANODE_MASTER, overType);	
 
     pfreeMgrNodeWrapperList(&activeNodes, NULL);
 }
 static void MgrFailoverCheck(MemoryContext spiContext, char *currentZone)
 {
-	MgrCheckMasterHasSlave(spiContext, currentZone);
+	MgrCheckMasterHasSlave(spiContext, currentZone, OVERTYPE_FAILOVER);
 	MgrMakesureZoneAllSlaveRunning(currentZone);
 }
 static void MgrSwitchoverCheck(MemoryContext spiContext, char *currentZone)
 {
-	MgrCheckMasterHasSlave(spiContext, currentZone);
+	MgrCheckMasterHasSlave(spiContext, currentZone, OVERTYPE_SWITCHOVER);
 	MgrMakesureAllSlaveRunning();
 }
-MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char *currentZone)
+MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext,
+											char *currentZone, 
+											char *overType)
 {
 	dlist_head 			masterList = DLIST_STATIC_INIT(masterList);
 	dlist_iter 			iter;
@@ -487,7 +505,13 @@ MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char *curren
 	int                 gtmMasterNum = 0;
 	dlist_node 			*node = NULL; 
 
-	selectNodeNotZone(spiContext, currentZone, CNDN_TYPE_GTM_COOR_MASTER, &masterList);
+	if (pg_strcasecmp(overType, OVERTYPE_SWITCHOVER) == 0){
+		selectNodeNotZone(spiContext, currentZone, CNDN_TYPE_GTM_COOR_MASTER, &masterList);
+	}
+	else{
+		selectNodeNotZoneForFailover(spiContext, currentZone, CNDN_TYPE_GTM_COOR_MASTER, &masterList);
+	} 
+
 	if (dlist_is_empty(&masterList)){
 		ereport(ERROR, (errmsg("current zone is %s, because no gtmcoord master in other zone, so can't switchover or failover.", currentZone)));
 	}
