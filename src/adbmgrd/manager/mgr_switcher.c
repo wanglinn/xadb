@@ -23,9 +23,6 @@
 #include "catalog/pgxc_node.h"
 
 
-#define  OVERTYPE_FAILOVER 		"failover"
-#define  OVERTYPE_SWITCHOVER 	"switchover"
-
 static SwitcherNodeWrapper *checkGetOldMaster(char *oldMasterName,
 												char nodeType,	
 												int connectTimeout,
@@ -351,7 +348,7 @@ static void SetGtmInfoToList(dlist_head *nodes, SwitcherNodeWrapper *gtmMaster);
 static void RevertFailOverShutdownCoords(MemoryContext spiContext, 
 										 dlist_head *zoCoordList);
 
-										/**
+/**
  * system function of failover datanode
  */
 Datum mgr_failover_one_dn(PG_FUNCTION_ARGS)
@@ -4389,14 +4386,10 @@ static void batchSetGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 			if (setSucc)
 				node->gtmInfoChanged = true;
 			
-			ereportNoticeLog(errmsg("set GTM information on %s %s, gtmInfoChanged(%d).",
-								NameStr(node->mgrNode->form.nodename),
-								setSucc ? "successfully" : "failed", node->gtmInfoChanged));
-
-			// ereport(LOG,
-			// 		(errmsg("set GTM information on %s %s",
-			// 				NameStr(node->mgrNode->form.nodename),
-			// 				setSucc ? "successfully" : "failed")));
+			ereport(LOG,
+					(errmsg("set GTM information on %s %s",
+							NameStr(node->mgrNode->form.nodename),
+							setSucc ? "successfully" : "failed")));
 		}
 	}
 }
@@ -6142,7 +6135,6 @@ static void RevertZoneSwitchOverGtm(MemoryContext spiContext,
 								oldGtmMaster,								 
 								complain);
 
-
 	shutdownNodeWithinSeconds(newGtmMaster->mgrNode,
 								SHUTDOWN_NODE_FAST_SECONDS,
 								SHUTDOWN_NODE_IMMEDIATE_SECONDS,
@@ -6154,6 +6146,7 @@ static void RevertZoneSwitchOverGtm(MemoryContext spiContext,
 						NameStr(newGtmMaster->mgrNode->form.nodename)));
 	}
 	ClosePgConn(newGtmMaster->pgConn);
+	tryUnlockCluster(coordinators, true);
 
 	callAgentStartNode(oldGtmMaster->mgrNode, 
 						false, 
@@ -6328,7 +6321,7 @@ static void DelNodeFromSwitcherNodeWrappers(dlist_head *nodes,
 	}
 }
 void MgrZoneFailoverGtm(MemoryContext spiContext, 
-						char *currentZone,
+						char 	*currentZone,
 						bool 	forceSwitch,
 						int 	maxTrys, 
 						ZoneOverGtm *zoGtm)
@@ -6341,7 +6334,7 @@ void MgrZoneFailoverGtm(MemoryContext spiContext,
 	Assert(currentZone);
 	Assert(zoGtm);
 
-	oldGtmMaster = MgrGetOldGtmMasterNotZone(spiContext, currentZone);
+	oldGtmMaster = MgrGetOldGtmMasterNotZone(spiContext, currentZone, OVERTYPE_FAILOVER);
 	Assert(oldGtmMaster);
 	namestrcpy(&oldMasterName, NameStr(oldGtmMaster->form.nodename));
 	pfreeMgrNodeWrapper(oldGtmMaster);
@@ -6369,7 +6362,11 @@ void MgrZoneFailoverCoord(MemoryContext spiContext,
 	ZoneOverCoord 		   *zoCoord = NULL;
 	ZoneOverCoordWrapper   *zoCoordWrapper = NULL;
 	
-	MgrGetOldDnMasterNotZone(spiContext, currentZone, CNDN_TYPE_COORDINATOR_MASTER, &masterList);
+	MgrGetOldDnMasterNotZone(spiContext, 
+							currentZone, 
+							CNDN_TYPE_COORDINATOR_MASTER, 
+							&masterList, 
+							OVERTYPE_FAILOVER);
 	dlist_foreach(iter, &masterList)
 	{
 		PG_TRY();
@@ -6419,7 +6416,11 @@ void MgrZoneFailoverDN(MemoryContext spiContext,
 	ZoneOverDN        	*zoDN = NULL;
 	bool 				kickOutOldMaster = true;
 	
-	MgrGetOldDnMasterNotZone(spiContext, currentZone, CNDN_TYPE_DATANODE_MASTER, &masterList);
+	MgrGetOldDnMasterNotZone(spiContext, 
+							currentZone, 
+							CNDN_TYPE_DATANODE_MASTER, 
+							&masterList, 
+							OVERTYPE_FAILOVER);
 	dlist_foreach(iter, &masterList)
 	{
 		PG_TRY();
@@ -6854,9 +6855,9 @@ static void FailOverDataNodeMasterForZone(MemoryContext spiContext,
 	PrintMgrNodeList(spiContext);
 }
 void RevertZoneFailover(MemoryContext spiContext, 
-							ZoneOverGtm *zoGtm, 
-							dlist_head *zoCoordList,
-							dlist_head *zoDNList)
+						ZoneOverGtm *zoGtm, 
+						dlist_head *zoCoordList,
+						dlist_head *zoDNList)
 {
 	RevertZoneOverDataNodes(spiContext,
 							zoGtm,
@@ -6869,7 +6870,7 @@ void RevertZoneFailover(MemoryContext spiContext,
 	RevertZoneOverGtm(spiContext, 
 					   zoGtm,
 					   zoCoordList, 
-					   OVERTYPE_FAILOVER);
+					   OVERTYPE_FAILOVER);					   
 }
 static void RevertZoneFailOverDataNode(MemoryContext spiContext, 
 										ZoneOverGtm *zoGtm, 
@@ -6919,17 +6920,16 @@ static void RevertZoneFailOverCoord(MemoryContext spiContext,
 									SwitcherNodeWrapper *newMaster)
 {
 	bool complain = false;
-	dlist_head siblingSlave = DLIST_STATIC_INIT(siblingSlave);
 	dlist_head *coordinators = &zoGtm->coordinators;
 	CheckNull(oldMaster);
 	CheckNull(newMaster);
 
 	if (newMaster->runningMode == NODE_RUNNING_MODE_MASTER){
 		RevertRefreshPgxcNodeList(NULL, 
-									coordinators,
-									newMaster,  
-									oldMaster,  
-									complain);
+								coordinators,
+								newMaster,  
+								oldMaster,  
+								complain);
 	}
 }
 static void RevertZoneFailOverGtm(MemoryContext spiContext,
@@ -6945,17 +6945,19 @@ static void RevertZoneFailOverGtm(MemoryContext spiContext,
     CheckNull(oldGtmMaster);
 	CheckNull(newGtmMaster);
 
-	batchSetCheckGtmInfoOnAllNodes(zoGtm, oldGtmMaster);
-
-	RefreshOldNodeWrapperConfig(oldGtmMaster, newGtmMaster);
-	RevertRefreshPgxcNodeList(NULL, 
+    RevertRefreshPgxcNodeList(NULL, 
 							coordinators,
 							newGtmMaster,
 							oldGtmMaster,								 
 							complain);
 
 	RevertFailOverShutdownCoords(spiContext, 
-							     zoCoordList);						
+								 zoCoordList);
+
+	batchSetCheckGtmInfoOnAllNodes(zoGtm, oldGtmMaster);
+
+	RefreshOldNodeWrapperConfig(oldGtmMaster, newGtmMaster);
+								
 	shutdownNodeWithinSeconds(newGtmMaster->mgrNode,
 								SHUTDOWN_NODE_FAST_SECONDS,
 								SHUTDOWN_NODE_IMMEDIATE_SECONDS,
@@ -6967,13 +6969,14 @@ static void RevertZoneFailOverGtm(MemoryContext spiContext,
 						NameStr(newGtmMaster->mgrNode->form.nodename)));
 	}
 	ClosePgConn(newGtmMaster->pgConn);
+	tryUnlockCluster(coordinators, true);
 
 	oldGtmMaster->runningMode = NODE_RUNNING_MODE_UNKNOW;
 	appendSlaveNodeFollowMasterEx(spiContext,
 									oldGtmMaster,
 									newGtmMaster,								 
 									NULL,
-									complain);
+									complain);								
 }
 static void RefreshOldNodeWrapperConfig(SwitcherNodeWrapper *oldMaster,
 										SwitcherNodeWrapper *newMaster)
@@ -7027,3 +7030,15 @@ static void RevertFailOverShutdownCoords(MemoryContext spiContext,
 										complain);		
 	}
 }
+void BatchShutdownNodesNotZone(ZoneOverGtm *zoGtm,
+							   char *zone)
+{
+    ShutdownRunningNotZone(&zoGtm->coordinators, zone);
+	ShutdownRunningNotZone(&zoGtm->coordinatorSlaves, zone);
+	ShutdownRunningNotZone(&zoGtm->runningSlaves, zone);
+	ShutdownRunningNotZone(&zoGtm->runningSlavesSecond, zone);
+	ShutdownRunningNotZone(&zoGtm->failedSlaves, zone);
+	ShutdownRunningNotZone(&zoGtm->failedSlavesSecond, zone);
+	ShutdownRunningNotZone(&zoGtm->dataNodes, zone);
+}
+

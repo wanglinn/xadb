@@ -13,6 +13,11 @@
 #include "mgr/mgr_agent.h"
 #include "mgr/mgr_helper.h"
 
+
+#define  OVERTYPE_FAILOVER 		"failover"
+#define  OVERTYPE_SWITCHOVER 	"switchover"
+
+
 typedef struct SwitcherNodeWrapper
 {
 	MgrNodeWrapper *mgrNode;

@@ -642,6 +642,24 @@ void selectNodeNotZone(MemoryContext spiContext,
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
+void selectNodeNotZoneForFailover(MemoryContext spiContext, 
+								char *zone, 
+								char nodetype, 
+								dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node \n"
+					 "WHERE nodetype = '%c' \n"
+					 "AND nodezone != '%s' \n",
+					 nodetype,
+					 zone);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
 void selectNodeZoneOid(MemoryContext spiContext, 
 							char nodetype,
 							char *nodezone,
@@ -2520,8 +2538,9 @@ void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
 
 	if (execOk)
 	{
-		ereportNoticeLog(errmsg("set GTM information on %s successfully",
-						NameStr(mgrNode->form.nodename)));
+		ereport(LOG,
+				(errmsg("set GTM information on %s successfully",
+						NameStr(mgrNode->form.nodename))));				
 	}
 	else
 	{
@@ -3902,9 +3921,25 @@ bool setPGHbaTrustMyself(MgrNodeWrapper *mgrNode)
 	}
 	return true;
 }
-void MgrGetOldDnMasterNotZone(MemoryContext spiContext, char *currentZone, char nodeType, dlist_head *masterList)
+void MgrGetOldDnMasterNotZone(MemoryContext spiContext, 
+								char *currentZone, 
+								char nodeType,
+								dlist_head *masterList, 
+								char *overType)
 {
-	selectNodeNotZone(spiContext, currentZone, nodeType, masterList);
+	if (pg_strcasecmp(overType, OVERTYPE_SWITCHOVER) == 0){
+		selectNodeNotZone(spiContext, 
+							currentZone, 
+							nodeType, 
+							masterList);
+	}
+	else{
+		selectNodeNotZoneForFailover(spiContext, 
+									currentZone, 
+									nodeType, 
+									masterList);
+	}
+
 	if (dlist_is_empty(masterList)){
 		ereport(ERROR, (errmsg("no %s in other zone, current zone(%s).", mgr_get_nodetype_desc(nodeType), currentZone)));
 	}

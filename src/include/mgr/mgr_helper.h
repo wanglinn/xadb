@@ -392,6 +392,10 @@ extern void selectNodeNotZone(MemoryContext spiContext,
 									char *zone, 
 									char nodetype,
 									dlist_head *resultList);
+extern void selectNodeNotZoneForFailover(MemoryContext spiContext, 
+										char *zone, 
+										char nodetype, 
+										dlist_head *resultList);									
 extern void selectNodeZoneOid(MemoryContext spiContext, 
 							char nodetype,
 							char *nodezone,
@@ -617,6 +621,10 @@ extern void removeFromSyncStandbyNames(MgrNodeWrapper *masterNode,
 									   MemoryContext spiContext);
 extern bool setPGHbaTrustMyself(MgrNodeWrapper *mgrNode);
 extern void dn_master_replication_slot(char *nodename, char *slot_name, char operate);
-extern void MgrGetOldDnMasterNotZone(MemoryContext spiContext, char *currentZone, char nodeType, dlist_head *masterList);
+extern void MgrGetOldDnMasterNotZone(MemoryContext spiContext, 
+									char *currentZone, 
+									char nodeType, 
+									dlist_head *masterList, 
+									char *overType);
 
 #endif /* MGR_HELPER_H */

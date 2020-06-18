@@ -627,7 +627,7 @@ extern bool mgr_node_has_slave_inzone(Relation rel, char *zone, Oid mastertupleo
 extern bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync, Node *node);
 extern void mgr_clean_cn_pgxcnode_readonlysql_slave(void);
 extern bool mgr_check_nodetype_exist(char nodeType, char nodeTypeList[8]);
-extern MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char *currentZone);
+extern MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext, char *currentZone, char *overType);
 extern void MgrZoneSwitchoverGtm(MemoryContext spiContext, char *currentZone, bool forceSwitch, int maxTrys, ZoneOverGtm *zoGtm);
 extern void MgrZoneSwitchoverCoord(MemoryContext spiContext, char *currentZone, bool forceSwitch, ZoneOverGtm *zoGtm, dlist_head *zoCoordList);
 extern void MgrZoneSwitchoverDataNode(MemoryContext spiContext, char *currentZone, bool forceSwitch, ZoneOverGtm *zoGtm, dlist_head *zoDNList);
@@ -636,6 +636,7 @@ extern void MgrZoneFailoverCoord(MemoryContext spiContext, char *currentZone, bo
 extern void MgrZoneFailoverDN(MemoryContext spiContext, char *currentZone, bool forceSwitch, int maxTrys, ZoneOverGtm *zoGtm, dlist_head *zoDNList);	
 extern void RevertZoneSwitchover(MemoryContext spiContext, ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
 extern void RevertZoneFailover(MemoryContext spiContext, ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
+extern void BatchShutdownNodesNotZone(ZoneOverGtm *zoGtm, char *zone);
 extern void ZoneSwitchoverFree(ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
 
 extern char *getMgrNodeSyncStateValue(sync_state state);
