@@ -1428,7 +1428,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &coordinatorSlaves, NULL, true);
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &runningSlavesSecond, NULL, true);
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &failedSlavesSecond, NULL, true);	
-		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	&dataNodes,	NULL, false);
+		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	&dataNodes,	NULL, true);
 
 		/* isolated node in pgxc_node would block the cluster */
 		selectIsolatedMgrNodes(spiContext, &isolatedNodes);
@@ -1444,7 +1444,6 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 		 */
 		tryLockCluster(&coordinators);
 		holdLockCoordinator = getHoldLockCoordinator(&coordinators);
-		beginSwitcherNodeTransaction(holdLockCoordinator, false);
 
 		refreshPgxcNodesOfCoordinators(holdLockCoordinator,
 									   &coordinators,
