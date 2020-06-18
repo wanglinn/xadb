@@ -142,11 +142,6 @@ static void refreshPgxcNodesOfNewDataNodeMaster(SwitcherNodeWrapper *holdLockNod
 												SwitcherNodeWrapper *oldMaster,
 												SwitcherNodeWrapper *newMaster,
 												bool complain);
-// static void checkCreateDataNodeSlaveOnPgxcNodeOfMasterList(PGconn *activeConn,
-// 															char *masterNodeName,
-// 															bool localExecute,
-// 															dlist_head *runningSlaves,
-// 															bool complain);												
 static void checkCreateDataNodeSlaveOnPgxcNodeOfMaster(PGconn *activeConn,
 													   char *masterNodeName,
 													   bool localExecute,
@@ -503,6 +498,7 @@ void FailOverDataNodeMaster(char *oldMasterName,
 										(Oid)0,
 										&failedSlaves,
 										&runningSlaves);
+		precheckPromotionNode(&runningSlaves, forceSwitch);	
 		checkGetMasterCoordinators(spiContext,
 								   &coordinators,
 								   true, true);
@@ -872,6 +868,7 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 										(Oid)0,
 										&failedSlaves,
 										&runningSlaves);
+		precheckPromotionNode(&runningSlaves, forceSwitch);								
 		checkGetMasterCoordinators(spiContext,
 								   &coordinators,
 								   false, false);							   
@@ -3952,27 +3949,6 @@ static void refreshPgxcNodesOfCoordinators(SwitcherNodeWrapper *holdLockNode,
 							 true);
 	}
 }
-// static void checkCreateDataNodeSlaveOnPgxcNodeOfMasterList(PGconn *activeConn,
-// 															char *masterNodeName,
-// 															bool localExecute,
-// 															dlist_head *runningSlaves,
-// 															bool complain)
-// {
-// 	dlist_iter iter;
-// 	SwitcherNodeWrapper *node;
-
-// 	dlist_foreach(iter, runningSlaves)
-// 	{
-// 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-// 		Assert(node);
-// 		checkCreateDataNodeSlaveOnPgxcNodeOfMaster(activeConn,
-// 												   masterNodeName,
-// 												   localExecute,
-// 												   node->mgrNode,
-// 												   complain);
-// 	}
-// }													   
-
 static void checkCreateDataNodeSlaveOnPgxcNodeOfMaster(PGconn *activeConn,
 													   char *masterNodeName,
 													   bool localExecute,
@@ -5469,8 +5445,6 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 									newMaster->mgrNode->oid,
 									failedSlaves,
 									runningSlaves);
-	precheckPromotionNode(runningSlaves,
-							forceSwitch);								
 	checkGetSlaveNodesRunningSecondStatus(oldMaster,
 										spiContext,
 										newMaster->mgrNode->oid,
@@ -5774,8 +5748,6 @@ static void switchoverDataNodeForZone(MemoryContext spiContext,
 										failedSlaves,
 										runningSlavesSecond,
 										failedSlavesSecond);
-	precheckPromotionNode(runningSlaves,
-							forceSwitch);
 	validateFailedSlavesForSwitch(oldMaster->mgrNode,
 									newMaster->mgrNode,
 									failedSlaves,
@@ -6489,8 +6461,6 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 									(Oid)0,
 									failedSlaves,
 									runningSlaves);
-	precheckPromotionNode(runningSlaves,
-							forceSwitch);
 	checkGetMasterCoordinators(spiContext,
 								coordinators,
 								false, false);							   
@@ -6761,8 +6731,6 @@ static void FailOverDataNodeMasterForZone(MemoryContext spiContext,
 									(Oid)0,
 									failedSlaves,
 									runningSlaves);
-	precheckPromotionNode(runningSlaves, 
-							forceSwitch);
 	chooseNewMasterNode(oldMaster,
 						&newMaster,
 						runningSlaves,
@@ -7040,4 +7008,31 @@ void BatchShutdownNodesNotZone(ZoneOverGtm *zoGtm,
 	ShutdownRunningNotZone(&zoGtm->failedSlavesSecond, zone);
 	ShutdownRunningNotZone(&zoGtm->dataNodes, zone);
 }
+int GetSlaveNodeNumInZone(MemoryContext spiContext, 
+						MgrNodeWrapper *mgrNode, 
+						char slaveType, 
+						char *zone)
+{
+	dlist_head slaveNodes = DLIST_STATIC_INIT(slaveNodes);
+	SwitcherNodeWrapper *node;
+	dlist_iter iter;
+	int slaveNum = 0;
+
+	selectActiveMgrNodeChild(spiContext,
+							mgrNode,
+							slaveType,
+							&slaveNodes);
+	dlist_foreach(iter, &slaveNodes)
+	{
+		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		Assert(node);
+		if (pg_strcasecmp(NameStr(node->mgrNode->form.nodezone), zone) == 0){
+			slaveNum++;
+		}
+	}
+
+	pfreeSwitcherNodeWrapperList(&slaveNodes, NULL);
+	return slaveNum;
+}
+
 

@@ -63,6 +63,12 @@ static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext,
 static void MgrMakesureAllSlaveRunning(void);
 static void MgrMakesureZoneAllSlaveRunning(char *zone);
 static void SetZoneOverGtm(ZoneOverGtm *zoGtm);
+static void MgrCheckAllSlaveNum(MemoryContext spiContext, 
+								char *currentZone);
+static void MgrCheckSlaveNum(MemoryContext spiContext, 
+							char *currentZone,
+							char masterType);
+
 
 Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 {
@@ -154,6 +160,8 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 
 	tryUnlockCluster(&zoGtm.coordinators, true);
 	ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
+
+	MgrCheckAllSlaveNum(spiContext, currentZone);
 
 	(void)MemoryContextSwitchTo(oldContext);
 	MemoryContextDelete(switchContext);
@@ -254,6 +262,8 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 
 	tryUnlockCluster(&zoGtm.coordinators, true);
 	ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
+
+	MgrCheckAllSlaveNum(spiContext, currentZone);
 
 	(void)MemoryContextSwitchTo(oldContext);
 	MemoryContextDelete(switchContext);
@@ -663,4 +673,36 @@ static void SetZoneOverGtm(ZoneOverGtm *zoGtm)
 	dlist_init(&zoGtm->failedSlavesSecond);
 	dlist_init(&zoGtm->dataNodes);	
 }
-	
+static void MgrCheckAllSlaveNum(MemoryContext spiContext, 
+								char *currentZone)
+{
+	MgrCheckSlaveNum(spiContext, currentZone, CNDN_TYPE_GTM_COOR_MASTER);
+	MgrCheckSlaveNum(spiContext, currentZone, CNDN_TYPE_DATANODE_MASTER);
+}
+static void MgrCheckSlaveNum(MemoryContext spiContext, 
+							char *currentZone,
+							char masterType)
+{
+	dlist_iter 		iter;
+	char 			slaveType;
+	MgrNodeWrapper  *mgrNode;
+	dlist_head 		masterMgrNodes = DLIST_STATIC_INIT(masterMgrNodes);
+
+	selectActiveMgrNodeByNodetype(spiContext,
+									masterType,
+									&masterMgrNodes);	
+	dlist_foreach(iter, &masterMgrNodes)
+	{
+		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		Assert(mgrNode);
+		slaveType = getMgrSlaveNodetype(mgrNode->form.nodetype);
+		if (GetSlaveNodeNumInZone(spiContext, mgrNode, slaveType, currentZone) == 0){
+			ereport(WARNING, (errmsg("%s %s has no %s node in %s, it not highly available, please append slave node for the node.", 
+				mgr_get_nodetype_desc(mgrNode->form.nodetype), NameStr(mgrNode->form.nodename), 
+				mgr_get_nodetype_desc(slaveType), currentZone)));
+		}
+	}
+
+	pfreeMgrNodeWrapperList(&masterMgrNodes, NULL);
+}
+
