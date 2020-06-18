@@ -2674,7 +2674,7 @@ static inline bool SetClusterReduceOrigin(EPQState *epq, PlanState *ps, bool (*f
 	ListCell *lc;
 	if ((*fun)(epq->owner, ps))
 		return true;
-	foreach(lc, epq->estate->es_subplanstates)
+	foreach(lc, epq->recheckestate->es_subplanstates)
 	{
 		if ((*fun)(lfirst(lc), ps))
 			return true;
@@ -2709,7 +2709,7 @@ static bool EnumClusterReduceWorker(PlanState *ps, EPQState *epq)
 
 void StartEPQClusterReduce(EPQState *epq)
 {
-	(void)EnumClusterReduceWorker(epq->planstate, epq);
+	(void)EnumClusterReduceWorker(epq->recheckplanstate, epq);
 }
 
 /* =========================================================================== */

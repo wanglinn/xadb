@@ -6423,7 +6423,7 @@ StartAdbmonitorWorker(void)
 	 * we have to check to avoid race-condition problems during DB state
 	 * changes.
 	 */
-	if (canAcceptConnections() == CAC_OK)
+	if (canAcceptConnections(BACKEND_TYPE_BGWORKER) == CAC_OK)
 	{
 		bn = (Backend *) malloc(sizeof(Backend));
 		if (bn)

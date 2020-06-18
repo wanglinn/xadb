@@ -193,12 +193,6 @@ static const Oid object_classes[] = {
 	ForeignDataWrapperRelationId,	/* OCLASS_FDW */
 	ForeignServerRelationId,	/* OCLASS_FOREIGN_SERVER */
 	UserMappingRelationId,		/* OCLASS_USER_MAPPING */
-#ifdef ADB
-	PgxcClassRelationId,		/* OCLASS_PGXC_CLASS */
-	PgxcNodeRelationId,			/* OCLASS_PGXC_NODE */
-	PgxcGroupRelationId,		/* OCLASS_PGXC_GROUP */
-	AuxClassRelationId,			/* OCLASS_AUX_CLASS */
-#endif
 	DefaultAclRelationId,		/* OCLASS_DEFACL */
 	ExtensionRelationId,		/* OCLASS_EXTENSION */
 	EventTriggerRelationId,		/* OCLASS_EVENT_TRIGGER */
@@ -207,6 +201,15 @@ static const Oid object_classes[] = {
 	PublicationRelRelationId,	/* OCLASS_PUBLICATION_REL */
 	SubscriptionRelationId,		/* OCLASS_SUBSCRIPTION */
 	TransformRelationId			/* OCLASS_TRANSFORM */
+#ifdef ADB_GRAM_ORA
+	,OraCastRelationId			/* OCLASS_ORA_CAST */
+#endif /* ADB_GRAM_ORA */
+#ifdef ADB
+	,PgxcClassRelationId		/* OCLASS_PGXC_CLASS */
+	,PgxcNodeRelationId			/* OCLASS_PGXC_NODE */
+	,PgxcGroupRelationId		/* OCLASS_PGXC_GROUP */
+	,AuxClassRelationId			/* OCLASS_AUX_CLASS */
+#endif
 };
 
 

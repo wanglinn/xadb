@@ -2893,7 +2893,7 @@ EvalPlanQualStart(EPQState *epqstate, Plan *planTree)
 	}
 #ifdef ADB
 	/* XXX Check if this is OK */
-	estate->es_result_remoterel = parentestate->es_result_remoterel;
+	rcestate->es_result_remoterel = parentestate->es_result_remoterel;
 #endif	/* es_result_relation_info must NOT be copied */
 	/* es_trig_target_relations must NOT be copied */
 	rcestate->es_top_eflags = parentestate->es_top_eflags ADB_ONLY_CODE(|EXEC_FLAG_IN_EPQ);

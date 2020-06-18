@@ -139,6 +139,8 @@ typedef enum ObjectClass
 
 #ifdef ADB
 #define LAST_OCLASS		OCLASS_AUX_CLASS
+#elif defined(ADB_GRAM_ORA)
+#define LAST_OCLASS		OCLASS_ORA_CAST
 #else
 #define LAST_OCLASS		OCLASS_TRANSFORM
 #endif
