@@ -1239,15 +1239,13 @@
 
 { row_macros => 'ADB_GRAM_ORA',
   amprocfamily => 'btree/rowid_ops', amproclefttype => 'oracle.rowid',
-  amprocrighttype => 'oracle.rowid', amprocnum => '1',
-  amproc => 'oracle.rowid_cmp' },
+  amprocrighttype => 'oracle.rowid', amprocnum => '1', amproc => 'rowid_cmp' },
 { row_macros => 'ADB_GRAM_ORA',
   amprocfamily => 'btree/rowid_ops', amproclefttype => 'oracle.rowid',
   amprocrighttype => 'oracle.rowid', amprocnum => '2',
-  amproc => 'oracle.rowid_sortsupport' },
+  amproc => 'rowid_sortsupport' },
 { row_macros => 'ADB_GRAM_ORA',
   amprocfamily => 'hash/rowid_ops', amproclefttype => 'oracle.rowid',
-  amprocrighttype => 'oracle.rowid', amprocnum => '1',
-  amproc => 'oracle.rowid_hash' },
+  amprocrighttype => 'oracle.rowid', amprocnum => '1', amproc => 'rowid_hash' },
 
 ]
