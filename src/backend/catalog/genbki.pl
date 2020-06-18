@@ -33,6 +33,8 @@ my $enable_grammar_oracle = 'no';
 my $build_manager = 'no';
 my %arg_macros;
 my $defines;
+my $ora_castid = 1;
+my $ora_convertid = 1;
 # ADB_END
 
 GetOptions(
@@ -643,7 +645,22 @@ EOM
 				$bki_values{$attname} = $GenbkiNextOid;
 				$GenbkiNextOid++;
 			}
-
+# ADB_BEGIN
+			if ($catname eq "ora_cast" &&
+				$attname eq "castid" &&
+				not defined $bki_values{$attname})
+			{
+				$bki_values{$attname} = $ora_castid;
+				$ora_castid++;
+			}
+			if ($catname eq "ora_convert" &&
+				$attname eq "cvtid" &&
+				not defined $bki_values{$attname})
+			{
+				$bki_values{$attname} = $ora_convertid;
+				$ora_convertid++;
+			}
+# ADB_END
 			# Substitute constant values we acquired above.
 			# (It's intentional that this can apply to parts of a field).
 			$bki_values{$attname} =~ s/\bPGUID\b/$BOOTSTRAP_SUPERUSERID/g;
