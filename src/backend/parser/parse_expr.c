@@ -47,6 +47,7 @@
 #endif
 #ifdef ADB_GRAM_ORA
 #include "catalog/ora_convert_d.h"
+#include "catalog/pg_operator_d.h"
 #include "nodes/nodes.h"
 #include "oraschema/oracoerce.h"
 #include "parser/parse_cte.h"
@@ -1120,6 +1121,72 @@ exprIsNullConstant(Node *arg)
 	return false;
 }
 
+#if defined(ADB_GRAM_ORA) && defined(ADB)
+static Expr* get_rowid_op_expr(OpExpr* op, Var **var)
+{
+	Expr *lexpr;
+	Expr *rexpr;
+	if (list_length(op->args) != 2)
+		return NULL;
+
+	lexpr = linitial(op->args);
+	rexpr = lsecond(op->args);
+
+	if (IsA(lexpr, Var) &&
+		((Var*)lexpr)->varattno == ADB_RowIdAttributeNumber)
+	{
+		*var = (Var*)lexpr;
+		return rexpr;
+	}
+
+	if (IsA(rexpr, Var) &&
+		((Var*)rexpr)->varattno == ADB_RowIdAttributeNumber)
+	{
+		*var = (Var*)rexpr;
+		return lexpr;
+	}
+
+	return NULL;
+}
+
+static Node* tryTransformRowidOpExpr(Node *result, ParseState *pstate)
+{
+	Var	   *var;
+	Expr   *expr;
+	int		location;
+	if (result && IsA(result, OpExpr) &&
+		((OpExpr*)result)->opno == RowidEqualOperator &&
+		(expr = get_rowid_op_expr((OpExpr*)result, &var)) != NULL)
+	{
+		location = ((OpExpr*)result)->location;
+		if (IsA(expr, Const))
+		{
+			uint32 xc_node_id;
+			ItemPointer ctid;
+			if (((Const*)expr)->constisnull)
+			{
+				/* column rowid always not null, so we can return 'false'::const */
+				result = makeBoolConst(false, false);
+			}else
+			{
+				ctid = palloc(sizeof(*ctid));
+				ADB_ONLY_CODE(xc_node_id=) rowid_get_data(((Const*)expr)->constvalue, ctid);
+
+				/* ctid=const */
+				result = (Node*)make_op(pstate,
+										SystemFuncName((char*)"="),
+										(Node*)makeVar(var->varno, SelfItemPointerAttributeNumber, TIDOID, -1, InvalidOid, var->varlevelsup),
+										(Node*)makeConst(TIDOID, -1, InvalidOid, sizeof(*ctid), PointerGetDatum(ctid), false, false),
+										pstate->p_last_srf,
+										location);
+			}
+		}
+	}
+
+	return result;
+}
+#endif /* defined(ADB_GRAM_ORA) && defined(ADB) */
+
 static Node *
 transformAExprOp(ParseState *pstate, A_Expr *a)
 {
@@ -1278,102 +1345,9 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 								  a->location);
 	}
 
-#ifdef ADB_GRAM_ORA
-	if (pstate->p_expr_kind == EXPR_KIND_WHERE &&
-		result && IsA(result, OpExpr) &&
-		((OpExpr*)result)->opfuncid == F_ROWID_EQ)
-	{
-		lexpr = get_leftop((Expr*)result);
-		rexpr = get_rightop((Expr*)result);
-		if ((IsA(lexpr, Var) && ((Var*)lexpr)->varattno == ADB_RowIdAttributeNumber &&
-			 IsA(rexpr, Const) /*&& ((Const*)rexpr)->consttype == RIDOID*/) ||
-			(IsA(rexpr, Var) && ((Var*)rexpr)->varattno == ADB_RowIdAttributeNumber &&
-			 IsA(lexpr, Const) /*&& ((Const*)lexpr)->consttype == RIDOID*/))
-		{
-			/* rowid=const OR const=rowid */
-			Expr *expr;
-#ifdef ADB
-			uint32 xc_node_id;
-#endif /* ADB */
-			Index varno;
-			Index level;
-			ItemPointer ctid = palloc(sizeof(ItemPointerData));
-			if(IsA(lexpr, Const))
-			{
-#if defined(ADB_GRAM_ORA)
-				/* Oracle syntax: Avoid null pointer caused by null value 
-				 * in expression 'ROWID = null'.
-				 * */
-				if(((Const*)lexpr)->constisnull && 
-					((Const*)lexpr)->consttype == ORACLE_ROWIDOID)
-				{
-					lexpr = (Node *)makeConst(UNKNOWNOID,
-											 -1,
-											 InvalidOid,
-											 -2,
-											 CStringGetDatum(""),
-											 false,
-											 false);
-				}
-#endif	/* ADB_GRAM_ORA */
-#ifdef ADB
-				xc_node_id = rowid_get_data(((Const*)lexpr)->constvalue, ctid);
-#else
-				rowid_get_data(((Const*)lexpr)->constvalue, ctid);
-#endif /* ADB */
-				varno = ((Var*)rexpr)->varno;
-				level = ((Var*)rexpr)->varlevelsup;
-			}else
-			{
-#if defined(ADB_GRAM_ORA)
-				/* Oracle syntax: Avoid null pointer caused by null value 
-				* in expression 'ROWID = null'.
-				*/
-				if(((Const*)rexpr)->constisnull && 
-					((Const*)rexpr)->consttype == ORACLE_ROWIDOID)
-				{
-					rexpr = (Node *)makeConst(UNKNOWNOID,
-											 -1,
-											 InvalidOid,
-											 -2,
-											 CStringGetDatum(""),
-											 false,
-											 false);
-				}
-#endif	/* ADB_GRAM_ORA */
-#ifdef ADB
-				xc_node_id = rowid_get_data(((Const*)rexpr)->constvalue, ctid);
-#else
-				rowid_get_data(((Const*)rexpr)->constvalue, ctid);
-#endif /* ADB */
-				varno = ((Var*)lexpr)->varno;
-				level = ((Var*)lexpr)->varlevelsup;
-			}
-
-			/* ctid=const */
-			expr = make_op(pstate,
-						   SystemFuncName((char*)"="),
-						   (Node*)makeVar(varno, SelfItemPointerAttributeNumber, TIDOID, -1, InvalidOid, level),
-						   (Node*)makeConst(TIDOID, -1, InvalidOid, sizeof(*ctid), PointerGetDatum(ctid), false, false),
-						   pstate->p_last_srf,
-						   ((OpExpr*)result)->location);
-#ifdef ADB
-			/* and xc_node_id=const */
-			result = (Node*)makeBoolExpr(AND_EXPR,
-										 list_make2(make_op(pstate,
-															SystemFuncName((char*)"="),
-															(Node*)makeVar(varno, XC_NodeIdAttributeNumber, INT4OID, -1, InvalidOid, level),
-															(Node*)makeConst(INT4OID, -1, InvalidOid, sizeof(int32), Int32GetDatum(xc_node_id), false, true),
-															pstate->p_last_srf,
-															((OpExpr*)result)->location),
-													expr),
-										 ((OpExpr*)result)->location);
-#else
-			result = (Node*)expr;
-#endif /* ADB */
-		}
-	}
-#endif /* ADB_GRAM_ORA */
+#if defined(ADB_GRAM_ORA) && defined(ADB)
+	result = tryTransformRowidOpExpr(result, pstate);
+#endif /* defined(ADB_GRAM_ORA) && defined(ADB) */
 
 	return result;
 }
@@ -1567,6 +1541,41 @@ transformAExprOf(ParseState *pstate, A_Expr *a)
 	return (Node *) result;
 }
 
+#if defined(ADB_GRAM_ORA) && !defined(ADB)
+/* try convert "rowid in (...)" to "ctid in (...)" */
+static void tryTransformRowidIn(ScalarArrayOpExpr *saop, ParseState *pstate)
+{
+	Var		   *var;
+	ArrayExpr  *arr;
+	ListCell   *lc;
+
+	if (!IsA(saop, ScalarArrayOpExpr) ||
+		saop->useOr == false ||
+		saop->opno != RowidEqualOperator ||
+		list_length(saop->args) != 2)
+		return;
+
+	var = linitial(saop->args);
+	arr = llast(saop->args);
+	if (!IsA(var, Var) ||
+		!IsA(arr, ArrayExpr) ||
+		var->varattno != ADB_RowIdAttributeNumber ||
+		arr->element_typeid != ORACLE_ROWIDOID)
+		return;
+
+	/* can convert to ctid in (...) */
+	foreach (lc, arr->elements)
+	{
+		lfirst(lc) = makeRelabelType(lfirst(lc), TIDOID, -1, InvalidOid, COERCE_IMPLICIT_CAST);
+	}
+	var->varattno = SelfItemPointerAttributeNumber;
+	var->vartype = arr->element_typeid = TIDOID;
+	arr->array_typeid = TIDARRAYOID;
+	saop->opfuncid = F_TIDEQ;
+	saop->opno = TIDEqualOperator;
+}
+#endif /* defined(ADB_GRAM_ORA) && !defined(ADB) */
+
 static Node *
 transformAExprIn(ParseState *pstate, A_Expr *a)
 {
@@ -1759,6 +1768,9 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 								   rexpr,
 								   pstate->p_last_srf,
 								   a->location);
+#if defined(ADB_GRAM_ORA) && defined(ADB)
+			cmp = tryTransformRowidOpExpr(cmp, pstate);
+#endif /* defined(ADB_GRAM_ORA) && defined(ADB) */
 		}
 
 		cmp = coerce_to_boolean(pstate, cmp, "IN");
@@ -1769,6 +1781,10 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 										   list_make2(result, cmp),
 										   a->location);
 	}
+
+#if defined(ADB_GRAM_ORA) && !defined(ADB)
+	tryTransformRowidIn((ScalarArrayOpExpr*)result, pstate);
+#endif /* defined(ADB_GRAM_ORA) && !defined(ADB) */
 
 	return result;
 }

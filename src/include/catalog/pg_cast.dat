@@ -512,4 +512,11 @@
 { castsource => 'jsonb', casttarget => 'float8', castfunc => 'float8(jsonb)',
   castcontext => 'e', castmethod => 'f' },
 
+# oracle.rowid to/from tid
+{ row_macros => 'ADB_GRAM_ORA && !ADB',
+  castsource => 'oracle.rowid', casttarget => 'tid', castfunc => '0',
+  castcontext => 'a', castmethod => 'b' },
+{ row_macros => 'ADB_GRAM_ORA && !ADB',
+  castsource => 'tid', casttarget => 'oracle.rowid', castfunc => '0',
+  castcontext => 'a', castmethod => 'b' },
 ]
