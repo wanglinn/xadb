@@ -3265,7 +3265,8 @@
   oprrest => 'contsel', oprjoin => 'contjoinsel' },
 
 # ADB_BEGIN
-{ oid => '9001', row_macros => 'ADB_GRAM_ORA', descr => 'equal',
+{ oid => '9001', row_macros => 'ADB_GRAM_ORA',
+  oid_symbol => 'RowidEqualOperator', descr => 'equal',
   oprname => '=', oprnamespace => 'ORANSP', oprcanmerge => 't',
   oprcanhash => 't', oprleft => 'oracle.rowid', oprright => 'oracle.rowid',
   oprresult => 'bool', oprcom => 'oracle.=(oracle.rowid,oracle.rowid)',

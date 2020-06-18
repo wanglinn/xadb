@@ -32,6 +32,9 @@
 #include "storage/bufmgr.h"
 #include "utils/array.h"
 #include "utils/rel.h"
+#if defined(ADB) && defined(ADB_GRAM_ORA)
+#include "pgxc/pgxc.h"
+#endif
 
 
 #define IsCTIDVar(node)  \
@@ -39,12 +42,29 @@
 	 IsA((node), Var) && \
 	 ((Var *) (node))->varattno == SelfItemPointerAttributeNumber && \
 	 ((Var *) (node))->varlevelsup == 0)
+#ifdef ADB_GRAM_ORA
+static inline bool IsRowidVar(Var *var)
+{
+	return (var != NULL &&
+			IsA(var, Var) &&
+			var->varattno == ADB_RowIdAttributeNumber &&
+			var->varlevelsup == 0);
+}
+#endif /* ADB_GRAM_ORA */
 
 /* one element in tss_tidexprs */
 typedef struct TidExpr
 {
 	ExprState  *exprstate;		/* ExprState for a TID-yielding subexpr */
 	bool		isarray;		/* if true, it yields tid[] not just tid */
+#ifdef ADB_GRAM_ORA
+	/*
+	 * true if expr from rowid expr.
+	 * in single version(!defined(ADB)) rowid is same as ctid,
+	 * so we don't need change execute code
+	 */
+	bool		isrowid;		
+#endif
 	CurrentOfExpr *cexpr;		/* alternatively, we can have CURRENT OF */
 } TidExpr;
 
@@ -82,6 +102,19 @@ TidExprListCreate(TidScanState *tidstate)
 
 			arg1 = get_leftop(expr);
 			arg2 = get_rightop(expr);
+#ifdef ADB_GRAM_ORA
+			if (IsRowidVar((Var*)arg1))
+			{
+				tidexpr->exprstate = ExecInitExpr((Expr*)arg2,
+												  &tidstate->ss.ps);
+				tidexpr->isrowid = true;
+			}else if (IsRowidVar((Var*)arg2))
+			{
+				tidexpr->exprstate = ExecInitExpr((Expr *) arg1,
+												  &tidstate->ss.ps);
+				tidexpr->isrowid = true;
+			}else
+#endif /* ADB_GRAM_ORA */
 			if (IsCTIDVar(arg1))
 				tidexpr->exprstate = ExecInitExpr((Expr *) arg2,
 												  &tidstate->ss.ps);
@@ -96,6 +129,11 @@ TidExprListCreate(TidScanState *tidstate)
 		{
 			ScalarArrayOpExpr *saex = (ScalarArrayOpExpr *) expr;
 
+#ifdef ADB_GRAM_ORA
+			if (IsRowidVar(linitial(saex->args)))
+				tidexpr->isrowid = true;
+			else
+#endif
 			Assert(IsCTIDVar(linitial(saex->args)));
 			tidexpr->exprstate = ExecInitExpr(lsecond(saex->args),
 											  &tidstate->ss.ps);
@@ -134,6 +172,10 @@ TidListEval(TidScanState *tidstate)
 	int			numAllocTids;
 	int			numTids;
 	ListCell   *l;
+#if defined(ADB) && defined(ADB_GRAM_ORA)
+	Datum		datum;
+	ItemPointerData tid;
+#endif
 
 	/*
 	 * Start scan on-demand - initializing a scan isn't free (e.g. heap stats
@@ -165,6 +207,18 @@ TidListEval(TidScanState *tidstate)
 
 		if (tidexpr->exprstate && !tidexpr->isarray)
 		{
+#if defined(ADB) && defined(ADB_GRAM_ORA)
+			if (tidexpr->isrowid)
+			{
+				datum = ExecEvalExprSwitchContext(tidexpr->exprstate,
+												  econtext,
+												  &isNull);
+				itemptr = &tid;
+				if (isNull == false &&
+					rowid_get_data(datum, itemptr) != PGXCNodeIdentifier)
+					isNull = true;	/* set "is null" will ignore this datum */
+			}else
+#endif
 			itemptr = (ItemPointer)
 				DatumGetPointer(ExecEvalExprSwitchContext(tidexpr->exprstate,
 														  econtext,
@@ -206,6 +260,15 @@ TidListEval(TidScanState *tidstate)
 			if (isNull)
 				continue;
 			itemarray = DatumGetArrayTypeP(arraydatum);
+#if defined(ADB) && defined(ADB_GRAM_ORA)
+			if (tidexpr->isrowid)
+				deconstruct_array(itemarray,
+								  ORACLE_ROWIDOID,
+								  sizeof(ItemPointerData) + sizeof(uint32),
+								  false, 's',
+								  &ipdatums, &ipnulls, &ndatums);
+			else
+#endif
 			deconstruct_array(itemarray,
 							  TIDOID, sizeof(ItemPointerData), false, 's',
 							  &ipdatums, &ipnulls, &ndatums);
@@ -221,6 +284,14 @@ TidListEval(TidScanState *tidstate)
 				if (ipnulls[i])
 					continue;
 
+#if defined(ADB) && defined(ADB_GRAM_ORA)
+				if (tidexpr->isrowid)
+				{
+					itemptr = &tid;
+					if (rowid_get_data(ipdatums[i], itemptr) != PGXCNodeIdentifier)
+						continue;
+				}else
+#endif
 				itemptr = (ItemPointer) DatumGetPointer(ipdatums[i]);
 
 				if (!table_tuple_tid_valid(scan, itemptr))

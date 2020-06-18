@@ -45,12 +45,6 @@
 #include "optimizer/paths.h"
 #include "optimizer/restrictinfo.h"
 
-#ifdef ADB
-#include "optimizer/cost.h"
-#include "optimizer/restrictinfo.h"
-#include "parser/parsetree.h"
-#endif /* ADB */
-
 /*
  * Does this Var represent the CTID column of the specified baserel?
  */
@@ -63,6 +57,13 @@ IsCTIDVar(Var *var, RelOptInfo *rel)
 		var->varno == rel->relid &&
 		var->varlevelsup == 0)
 		return true;
+#ifdef ADB_GRAM_ORA
+	if (var->varattno == ADB_RowIdAttributeNumber &&
+		var->vartype == ORACLE_ROWIDOID &&
+		var->varno == rel->relid &&
+		var->varlevelsup == 0)
+		return true;
+#endif /* ADB_GRAM_ORA */
 	return false;
 }
 
@@ -89,7 +90,7 @@ IsTidEqualClause(RestrictInfo *rinfo, RelOptInfo *rel)
 	node = (OpExpr *) rinfo->clause;
 
 	/* Operator must be tideq */
-	if (node->opno != TIDEqualOperator)
+	if (node->opno != TIDEqualOperator ADB_GRAM_ORA_CODE(&& node->opno != RowidEqualOperator))
 		return false;
 	Assert(list_length(node->args) == 2);
 	arg1 = linitial(node->args);
