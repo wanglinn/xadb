@@ -190,7 +190,11 @@ sub strip_default_values
 		# It's okay if we have no oid value, since it will be assigned
 		# automatically before bootstrap.
 		die "strip_default_values: $catname.$attname undefined\n"
-		  if !defined $row->{$attname} and $attname ne 'oid';
+		  if !defined $row->{$attname} and $attname ne 'oid' 
+# ADB_BEGIN
+			and !($catname eq 'ora_cast' and $attname eq 'castid')
+			and !($catname eq 'ora_convert' and $attname eq 'cvtid');
+# ADB_END
 
 		if (defined $column->{default}
 			and ($row->{$attname} eq $column->{default}))

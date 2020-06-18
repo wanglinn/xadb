@@ -341,6 +341,16 @@ sub AddDefaultValues
 		{
 			;
 		}
+# ADB_BEGIN
+		elsif ($catname eq 'ora_cast' && $attname eq 'castid')
+		{
+			;
+		}
+		elsif ($catname eq 'ora_convert' && $attname eq 'cvtid')
+		{
+			;
+		}
+# ADB_END
 		elsif (defined $column->{default})
 		{
 			$row->{$attname} = $column->{default};
