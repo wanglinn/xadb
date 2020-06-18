@@ -1246,6 +1246,10 @@ EventTriggerSupportsObjectClass(ObjectClass objclass)
 		case OCLASS_SUBSCRIPTION:
 		case OCLASS_TRANSFORM:
 			return true;
+#ifdef ADB_GRAM_ORA
+		case OCLASS_ORA_CAST:
+			return false;
+#endif
 #ifdef ADB
 		case OCLASS_PGXC_CLASS:
 		case OCLASS_PGXC_NODE:
