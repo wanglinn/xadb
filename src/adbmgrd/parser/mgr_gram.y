@@ -1779,7 +1779,7 @@ CleanAllStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_clean_all", NULL));
 			$$ = (Node*)stmt;
 		}
-	| CLEAN ZONE Ident ALL
+	| CLEAN ZONE Ident
 		{
 			List *arg = list_make1(makeStringConst($3, @3));
 			SelectStmt *stmt = makeNode(SelectStmt);
