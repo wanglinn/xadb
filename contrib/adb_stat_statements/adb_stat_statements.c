@@ -659,9 +659,19 @@ adbss_ExecutorFinish(QueryDesc *queryDesc)
 
 static void adbss_ExecutorEnd(QueryDesc *queryDesc)
 {
+	char *queryText;
+
 	if (queryDesc->plannedstmt->queryId == UINT64CONST(0) ||
 		!adbssAvailable())
 		goto done;
+
+	queryText = getQueryText(queryDesc);
+	if (queryText &&
+		strncmp(queryText, "<cluster query>", strlen(queryText)) == 0)
+	{
+		/* Ignore <cluster query> because can not see the real query sql */
+		goto done;
+	}
 
 	if (isAdbssDummyQuery(queryDesc->sourceText))
 	{
@@ -1744,10 +1754,9 @@ Datum
 	MemoryContext oldcontext;
 	Oid userid;
 	bool is_allowed_role = false;
-
 	HASH_SEQ_STATUS hash_seq;
 	AdbssEntry *entry;
-
+	bool showtext = PG_GETARG_BOOL(0);
 	userid = GetUserId();
 	/* Superusers or members of pg_read_all_stats members are allowed */
 	is_allowed_role = is_member_of_role(userid, DEFAULT_ROLE_READ_ALL_STATS);
@@ -1827,7 +1836,7 @@ Datum
 			values[Anum_adbss_queryid - 1] = Int64GetDatumFast(entry->key.queryid);
 			values[Anum_adbss_planid - 1] = Int64GetDatumFast(entry->key.planid);
 
-			if (entry->tupleInDsa != InvalidDsaPointer)
+			if (showtext && entry->tupleInDsa != InvalidDsaPointer)
 			{
 				textTupleDesc = form_adbss_text_tuple_desc();
 				minimalTuple = (MinimalTuple)dsa_get_address(adbssDsaArea, entry->tupleInDsa);
