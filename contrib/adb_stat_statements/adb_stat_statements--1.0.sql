@@ -60,7 +60,7 @@ LANGUAGE C;
 -- If you change the structure of this field, the code should also be changed, 
 -- such as AdbssAttributes, checkAdbssAttrs, etc. 
 -- Note that these fields should be identical with TABLE adb_stat_statements_internal
-CREATE FUNCTION adb_stat_statements(
+CREATE FUNCTION adb_stat_statements(IN showtext boolean,
     OUT userid oid,
     OUT dbid oid,
     OUT queryid bigint,
@@ -109,10 +109,73 @@ CREATE TABLE adb_stat_statements_internal (
 CREATE INDEX adb_stat_statements_internal_queryid ON adb_stat_statements_internal (queryid);
 
 -- Register a view on the function for ease of use.
-CREATE OR REPLACE VIEW adb_stat_statements AS
-  SELECT * FROM adb_stat_statements();
+CREATE OR REPLACE
+VIEW adb_stat_statements AS
+SELECT
+	t1.userid,
+	t3.usename,
+	t1.dbid,
+	t4.datname as dbname,
+	t1.queryid,
+	t1.planid,
+	t1.calls,
+	t1.rows,
+	t1.total_time,
+	t1.min_time,
+	t1.max_time,
+	t1.mean_time,
+	t1.last_execution,
+	t2.query,
+	t1.plan,
+	t1.explain_format,
+	t1.explain_plan,
+	t1.bound_params
+FROM
+	adb_stat_statements(true) t1,
+	pg_stat_statements t2,
+	pg_user t3,
+	pg_database t4
+where
+	t1.userid = t2.userid
+	and t1.dbid = t2.dbid
+	and t1.queryid = t2.queryid
+	and t1.userid = t3.usesysid
+	and t1.dbid = t4.oid;
 
--- If you stored records in table, for convenience, replace the view adb_stat_statements as below.
+CREATE OR REPLACE
+VIEW adb_stat_statements_notext AS
+SELECT
+	t1.userid,
+	t3.usename,
+	t1.dbid,
+	t4.datname as dbname,
+	t1.queryid,
+	t1.planid,
+	t1.calls,
+	t1.rows,
+	t1.total_time,
+	t1.min_time,
+	t1.max_time,
+	t1.mean_time,
+	t1.last_execution,
+	t2.query,
+	t1.plan,
+	t1.explain_format,
+	t1.explain_plan,
+	t1.bound_params
+FROM
+	adb_stat_statements(false) t1,
+	pg_stat_statements t2,
+	pg_user t3,
+	pg_database t4
+where
+	t1.userid = t2.userid
+	and t1.dbid = t2.dbid
+	and t1.queryid = t2.queryid
+	and t1.userid = t3.usesysid
+	and t1.dbid = t4.oid;
+
+-- If you stored records in table, for convenience, replace the view adb_stat_statements like below.
 -- Note that, it is not recommended to do this in AntDB environment.
 /**
 CREATE OR REPLACE VIEW adb_stat_statements AS
