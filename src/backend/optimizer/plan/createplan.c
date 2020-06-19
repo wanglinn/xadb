@@ -7826,33 +7826,46 @@ static ConnectByPlan *create_connect_by_plan(PlannerInfo *root, ConnectByPath *p
 		++i;
 	}
 
-	if (list_length(plan->hash_quals) == 1)
+	if (plan->hash_quals != NIL)
 	{
-		OpExpr	   *clause = linitial_node(OpExpr, plan->hash_quals);
-		Node	   *node = linitial(clause->args);
+		OpExpr	   *clause;
+		Node	   *node;
 		Hash	   *hash_plan;
+		ListCell   *lc;
+		List	   *inner_keys = NIL;
 		Oid			skewTable = InvalidOid;
 		AttrNumber	skewColumn = InvalidAttrNumber;
 		bool		skewInherit = false;
 
-		while (IsA(node, RelabelType))
-			node = (Node*)((RelabelType*) node)->arg;
-		if (IsA(node, Var))
+		if (list_length(plan->hash_quals) == 1)
 		{
-			Var		   *var = (Var *) node;
-			RangeTblEntry *rte;
-
-			rte = root->simple_rte_array[var->varno];
-			if (rte->rtekind == RTE_RELATION)
+			clause = linitial_node(OpExpr, plan->hash_quals);
+			node = linitial(clause->args);
+			while (IsA(node, RelabelType))
+				node = (Node*)((RelabelType*) node)->arg;
+			if (IsA(node, Var))
 			{
-				skewTable = rte->relid;
-				skewColumn = var->varattno;
-				skewInherit = rte->inh;
+				Var		   *var = (Var *) node;
+				RangeTblEntry *rte;
+
+				rte = root->simple_rte_array[var->varno];
+				if (rte->rtekind == RTE_RELATION)
+				{
+					skewTable = rte->relid;
+					skewColumn = var->varattno;
+					skewInherit = rte->inh;
+				}
 			}
 		}
 
+		foreach (lc, plan->hash_quals)
+		{
+			clause = lfirst_node(OpExpr, lc);
+			inner_keys = lappend(inner_keys, llast(clause->args));
+		}
+
 		hash_plan = make_hash(outerPlan(plan),
-							  list_make1(lsecond(clause->args)),
+							  inner_keys,
 							  skewTable,
 							  skewColumn,
 							  skewInherit);

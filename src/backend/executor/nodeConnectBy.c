@@ -63,7 +63,6 @@ typedef struct HashConnectByState
 	CBMethod		method;
 	BufFile		  **outer_save;
 	List		   *outer_HashKeys;
-	List		   *inner_HashKeys;
 	List		   *hj_hashOperators;
 	List		   *hj_Collations;
 	ExprState	   *hash_clauses;
@@ -128,7 +127,6 @@ static void RestartBufFile(BufFile *file);
 static void ExecInitHashConnectBy(HashConnectByState *state, ConnectByState *pstate)
 {
 	ConnectByPlan  *node = castNode(ConnectByPlan, pstate->ps.plan);
-	List		   *rhclause = NIL;
 	ListCell	   *lc;
 	OpExpr		   *op;
 	Oid				left_hash;
@@ -146,22 +144,17 @@ static void ExecInitHashConnectBy(HashConnectByState *state, ConnectByState *pst
 		state->outer_HashKeys = lappend(state->outer_HashKeys,
 										ExecInitExpr(linitial(op->args), &pstate->ps));
 
-		state->inner_HashKeys = lappend(state->inner_HashKeys,
-										ExecInitExpr(llast(op->args), &pstate->ps));
-
-		rhclause = lappend(rhclause, ExecInitExpr(llast(op->args), outerPlanState(pstate)));
-
 		state->hj_hashOperators = lappend_oid(state->hj_hashOperators, op->opno);
 		state->hj_Collations = lappend_oid(state->hj_Collations, op->inputcollid);
 	}
 
 	state->hash_clauses = ExecInitQual(node->hash_quals, &pstate->ps);
-	castNode(HashState, outerPlanState(pstate))->hashkeys = rhclause;
 }
 
-static ConnectByState* ExecInitSortHashConnectBy(ConnectByPlan *node, EState *estate, int eflags)
+static ConnectByState* ExecInitSortHashConnectBy(ConnectByState *cbstate)
 {
-	ConnectByState		   *cbstate = makeNode(ConnectByState);
+	ConnectByPlan		   *node = castNode(ConnectByPlan, cbstate->ps.plan);
+	EState				   *estate = cbstate->ps.state;
 	TupleDesc				input_desc;
 	TupleDesc				save_desc;
 	SortHashConnectByState *state = palloc0(sizeof(SortHashConnectByState));
@@ -233,13 +226,7 @@ static ConnectByState* ExecInitSortHashConnectBy(ConnectByPlan *node, EState *es
 		++(state->numCols);
 	}
 
-	cbstate->ps.plan = (Plan*)node;
-	cbstate->ps.state = estate;
-	eflags &= ~(EXEC_FLAG_REWIND|EXEC_FLAG_MARK);
-	outerPlanState(cbstate) = ExecInitNode(outerPlan(node), estate, eflags);
 	input_desc = ExecGetResultType(outerPlanState(cbstate));
-
-	ExecAssignExprContext(estate, &cbstate->ps);
 
 	state->save_tlist = save_tlist;
 	save_desc = ExecTypeFromTL(save_tlist);
@@ -249,7 +236,6 @@ static ConnectByState* ExecInitSortHashConnectBy(ConnectByPlan *node, EState *es
 														  ExecInitExtraTupleSlot(estate, save_desc, &TTSOpsMinimalTuple),
 														  &cbstate->ps,
 														  input_desc);
-	cbstate->inner_slot = ExecInitExtraTupleSlot(estate, input_desc, &TTSOpsMinimalTuple);
 
 	state->sort_desc = ExecTypeFromTL(state->sort_tlist);
 	state->sort_slot = ExecAllocTableSlot(&estate->es_tupleTable, state->sort_desc, &TTSOpsMinimalTuple);
@@ -258,13 +244,8 @@ static ConnectByState* ExecInitSortHashConnectBy(ConnectByPlan *node, EState *es
 													  state->sort_slot,
 													  &cbstate->ps,
 													  state->sort_desc);
-	ExecInitResultTupleSlotTL(&cbstate->ps, &TTSOpsVirtual);
 
 	ExecInitHashConnectBy(&state->base, cbstate);
-
-	cbstate->start_with = ExecInitQual(node->start_with, &cbstate->ps);
-	cbstate->joinclause = ExecInitQual(node->join_quals, &cbstate->ps);
-	cbstate->ps.qual = ExecInitQual(node->plan.qual, &cbstate->ps);
 
 	state->base.method = CB_SORTHASH;
 	state->tmp_context = AllocSetContextCreate(CurrentMemoryContext,
@@ -283,22 +264,30 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 	TupleDesc input_desc;
 	TupleDesc save_desc;
 
-	if (innerPlan(node) == NULL &&
-		node->numCols != 0 &&
-		node->hash_quals != NIL)
-		return ExecInitSortHashConnectBy(node, estate, eflags);
-
 	cbstate = makeNode(ConnectByState);
 	cbstate->ps.plan = (Plan*)node;
 	cbstate->ps.state = estate;
+	cbstate->ps.outeropsset = true;
+	cbstate->ps.outeropsfixed = false;
 
 	if (node->hash_quals != NIL)
 		eflags &= ~(EXEC_FLAG_REWIND|EXEC_FLAG_MARK);
 	outerPlanState(cbstate) = ExecInitNode(outerPlan(node), estate, 0);
-	input_desc = ExecGetResultType(outerPlanState(cbstate));
 
 	ExecAssignExprContext(estate, &cbstate->ps);
 	ExecInitResultTupleSlotTL(&cbstate->ps, &TTSOpsVirtual);
+
+	input_desc = ExecGetResultType(outerPlanState(cbstate));
+	cbstate->inner_slot = ExecInitExtraTupleSlot(estate, input_desc, &TTSOpsMinimalTuple);
+	cbstate->start_with = ExecInitQual(node->start_with, &cbstate->ps);
+	cbstate->ps.qual = ExecInitQual(node->plan.qual, &cbstate->ps);
+	cbstate->joinclause = ExecInitQual(node->join_quals, &cbstate->ps);
+
+	if (innerPlan(node) == NULL &&
+		node->numCols != 0 &&
+		node->hash_quals != NIL)
+		return ExecInitSortHashConnectBy(cbstate);
+
 	ExecAssignProjectionInfo(&cbstate->ps, input_desc);
 
 	save_desc = ExecTypeFromTL(node->save_targetlist);
@@ -308,11 +297,7 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 														  ExecInitExtraTupleSlot(estate, save_desc, &TTSOpsMinimalTuple),
 														  &cbstate->ps,
 														  input_desc);
-	cbstate->inner_slot = ExecInitExtraTupleSlot(estate, input_desc, &TTSOpsMinimalTuple);
 
-	cbstate->start_with = ExecInitQual(node->start_with, &cbstate->ps);
-	cbstate->ps.qual = ExecInitQual(node->plan.qual, &cbstate->ps);
-	cbstate->joinclause = ExecInitQual(node->join_quals, &cbstate->ps);
 	if (node->hash_quals != NIL)
 	{
 		HashConnectByState *state;
@@ -694,7 +679,7 @@ reget_hash_connect_by_:
 			/* don't need save it when inner batch is empty */
 			save_slot = ExecProject(cbstate->pj_save_targetlist);
 			Assert(!TupIsNull(save_slot));
-			Assert(!save_slot->tts_ops->get_minimal_tuple);
+			Assert(save_slot->tts_ops->get_minimal_tuple);
 			ExecHashJoinSaveTuple(save_slot->tts_ops->get_minimal_tuple(save_slot),
 								  hashvalue,
 								  &state->outer_save[batch_no]);
