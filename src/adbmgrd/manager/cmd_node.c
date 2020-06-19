@@ -275,6 +275,7 @@ static void MgrModifyParentNode(Relation rel,
 static void RemoveSlaveNodeFromParent(Relation rel, Form_mgr_node curMgrNode, Oid curOid);
 static Oid MgrGetRootNodeOid(Oid curOid);	
 static bool MgrCheckChildAndParent(Oid childOid, Oid parentOid);
+static Datum mgr_monitor_ha_common(PG_FUNCTION_ARGS, char *zone);
 
 #if (Natts_mgr_node != 12)
 #error "need change code"
@@ -13119,6 +13120,16 @@ int mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeo
 /*monitor ha, get the diff between master and slave*/
 Datum mgr_monitor_ha(PG_FUNCTION_ARGS)
 {
+	return mgr_monitor_ha_common(fcinfo, "");	
+}
+
+Datum mgr_monitor_ha_zone(PG_FUNCTION_ARGS)
+{
+	char *zone = PG_GETARG_CSTRING(0);
+	return mgr_monitor_ha_common(fcinfo, zone);	
+}
+static Datum mgr_monitor_ha_common(PG_FUNCTION_ARGS, char *zone)
+{
 	InitNodeInfo *info;
 	StringInfoData sqlstrdata;
 	StringInfoData resultstrdata;
@@ -13129,7 +13140,7 @@ Datum mgr_monitor_ha(PG_FUNCTION_ARGS)
 	Form_mgr_node mgr_node;
 	Form_mgr_node mgr_node_m;
 	Form_mgr_host mgr_host;
-	NameData name[11];
+	NameData name[12];
 	FuncCallContext *funcctx;
 	ScanKeyData key[1];
 	int i = 0;
@@ -13171,6 +13182,9 @@ Datum mgr_monitor_ha(PG_FUNCTION_ARGS)
 		if (CNDN_TYPE_GTM_COOR_SLAVE != mgr_node->nodetype && CNDN_TYPE_DATANODE_SLAVE != mgr_node->nodetype 
 			&& CNDN_TYPE_COORDINATOR_SLAVE != mgr_node->nodetype)
 			continue;
+		if (pg_strcasecmp(NameStr(mgr_node->nodezone), zone) != 0 && strlen(zone) > 0)
+			continue;
+			
 		/*get master port, ip, and agent_port*/
 		mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(mgr_node->nodemasternameoid));
 		if (!HeapTupleIsValid(mastertuple))
@@ -13204,6 +13218,7 @@ Datum mgr_monitor_ha(PG_FUNCTION_ARGS)
 			namestrcpy(&name[0], "unknown nodetype");
 
 		namestrcpy(&name[1], NameStr(mgr_node->nodename));
+		namestrcpy(&name[11], NameStr(mgr_node->nodezone));
 		ptr = resultstrdata.data;
 		for(i=0; i<9; i++)
 		{
@@ -13216,7 +13231,7 @@ Datum mgr_monitor_ha(PG_FUNCTION_ARGS)
 		}
 		if (strcmp(NameStr(name[4]), "") == 0)
 			namestrcpy(&name[4], "down");
-		out = build_ha_replication_tuple(&name[0], &name[1],&name[2],&name[3],&name[4],&name[5],&name[6],&name[7],&name[8],&name[9],&name[10]);
+		out = build_ha_replication_tuple(&name[0], &name[1],&name[2],&name[3],&name[4],&name[5],&name[6],&name[7],&name[8],&name[9],&name[10],&name[11]);
 		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(out));
 	}
 
@@ -13226,6 +13241,7 @@ Datum mgr_monitor_ha(PG_FUNCTION_ARGS)
 	pfree(resultstrdata.data);
 	pfree(sqlstrdata.data);
 	SRF_RETURN_DONE(funcctx);
+
 }
 
 void release_append_node_info(AppendNodeInfo *node_info, bool is_release)

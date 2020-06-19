@@ -913,6 +913,14 @@ MonitorStmt:
 			$$ = (Node*)stmt;
 			check__name_isvaild($6);
 		}
+		| MONITOR HA ZONE Ident
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *arg = list_make1(makeStringConst($4, @4));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_monitor_ha_zone", arg));
+			$$ = (Node*)stmt;
+		}
 		|
 		MONITOR ZONE Ident
 		{

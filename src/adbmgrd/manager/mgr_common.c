@@ -223,18 +223,18 @@ TupleDesc get_list_acl_command_tuple_desc(void)
 /*hba replication tuple desc*/
 HeapTuple build_ha_replication_tuple(const Name type, const Name nodename, const Name app
 	, const Name client_addr, const Name state, const Name sent_location, const Name replay_location
-	, const Name sync_state, const Name master_location, const Name sent_delay, const Name replay_delay)
+	, const Name sync_state, const Name master_location, const Name sent_delay, const Name replay_delay, const Name zone)
 {
-	Datum datums[11];
-	bool nulls[11];
+	Datum datums[12];
+	bool nulls[12];
 	TupleDesc desc;
 	int i = 0;
 	AssertArg(type && nodename && app && client_addr && state && sent_location && replay_location && sync_state
-								&& master_location && sent_delay && replay_delay);
+								&& master_location && sent_delay && replay_delay && zone);
 	desc = get_ha_replication_tuple_desc();
 
-	AssertArg(desc && desc->natts == 11);
-	while(i<11)
+	AssertArg(desc && desc->natts == 12);
+	while(i<12)
 	{
 		AssertArg(TupleDescAttr(desc, i)->atttypid == NAMEOID);
 		nulls[i] = false;
@@ -252,6 +252,7 @@ HeapTuple build_ha_replication_tuple(const Name type, const Name nodename, const
 	datums[8] = NameGetDatum(master_location);
 	datums[9] = NameGetDatum(sent_delay);
 	datums[10] = NameGetDatum(replay_delay);
+	datums[11] = NameGetDatum(zone);
 	return heap_form_tuple(desc, datums, nulls);
 }
 
@@ -263,7 +264,7 @@ TupleDesc get_ha_replication_tuple_desc(void)
 		TupleDesc volatile desc = NULL;
 		PG_TRY();
 		{
-			desc = CreateTemplateTupleDesc(11, false);
+			desc = CreateTemplateTupleDesc(12, false);
 			TupleDescInitEntry(desc, (AttrNumber) 1, "type", NAMEOID, -1, 0);
 			TupleDescInitEntry(desc, (AttrNumber) 2, "nodename", NAMEOID, -1, 0);
 			TupleDescInitEntry(desc, (AttrNumber) 3, "application_name", NAMEOID, -1, 0);
@@ -275,6 +276,7 @@ TupleDesc get_ha_replication_tuple_desc(void)
 			TupleDescInitEntry(desc, (AttrNumber) 9, "master_lsn", NAMEOID, -1, 0);
 			TupleDescInitEntry(desc, (AttrNumber) 10, "sent_delay", NAMEOID, -1, 0);
 			TupleDescInitEntry(desc, (AttrNumber) 11, "replay_delay", NAMEOID, -1, 0);
+			TupleDescInitEntry(desc, (AttrNumber) 12, "zone", NAMEOID, -1, 0);
 			ha_replication_tuple_desc = BlessTupleDesc(desc);
 		}PG_CATCH();
 		{
@@ -3697,7 +3699,6 @@ void check_node_incluster(void)
 	HeapTuple tuple;
 	HeapScanDesc scan;
 	ScanKeyData key[1];
-	bool gtmInCluster = false;
 	char *nodetypeStr;
 	Snapshot snapshot;
 
