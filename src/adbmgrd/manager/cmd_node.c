@@ -252,10 +252,10 @@ static void mgr_get_nodesync_by_val(char *syncVal,
 									NameData *inputZoneData, 
 									NameData *forNodeZoneData, 
 									NameData *syncStateName);
-static void mgr_init_gtm_dn_slave(HeapTuple tuple, 
-									InitNodeInfo *info, 
-									char initCmdType, 
-									GetAgentCmdRst *getAgentCmdRst);									
+static void mgr_init_dn_slave(HeapTuple tuple, 
+								InitNodeInfo *info, 
+								char initCmdType, 
+								GetAgentCmdRst *getAgentCmdRst);									
 static void mgr_run_gtm_dn_slave(HeapTuple tuple,
 									InitNodeInfo *info, 
 									char cmdtype,
@@ -7024,7 +7024,7 @@ void mgr_add_parameters_hbaconf(Oid mastertupleoid, char nodetype, StringInfo in
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
-		if (mastertupleoid != 0 && (mastertupleoid == mgr_node->nodemasternameoid))
+		if (mastertupleoid == mgr_node->nodemasternameoid)
 		{
 			/*database user*/
 			cnuser = get_hostuser_from_hostoid(mgr_node->nodehost);
@@ -14688,7 +14688,7 @@ mgr_init_start_dn_slave_all(PG_FUNCTION_ARGS)
 		MgrFree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
-	mgr_init_gtm_dn_slave(tuple, info, AGT_CMD_CNDN_SLAVE_INIT, &getAgentCmdRst);
+	mgr_init_dn_slave(tuple, info, AGT_CMD_CNDN_SLAVE_INIT, &getAgentCmdRst);
 	if (!getAgentCmdRst.ret)
 	{
 		tup_result = build_common_command_tuple(&(getAgentCmdRst.nodename)
@@ -14706,10 +14706,10 @@ mgr_init_start_dn_slave_all(PG_FUNCTION_ARGS)
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 }
 
-static void mgr_init_gtm_dn_slave(HeapTuple tuple, 
-									InitNodeInfo *info, 
-									char initCmdType, 
-									GetAgentCmdRst *getAgentCmdRst)
+static void mgr_init_dn_slave(HeapTuple tuple, 
+								InitNodeInfo *info, 
+								char initCmdType, 
+								GetAgentCmdRst *getAgentCmdRst)
 {
 	Form_mgr_node parentNode;
 	Form_mgr_node slaveNode;
