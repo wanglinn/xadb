@@ -12,7 +12,12 @@ ADB documentation
 
   <refnamediv>
     <refname>MONITOR HA</refname>
-    <refpurpose>show all slave nodes streaming replication with master</refpurpose>
+    <refpurpose>show all slave nodes streaming replication with master \n
+    Use like this:\n
+    MONITOR HA \n
+    MONITOR HA ${nodename1}, ${nodename2} ... \n
+    MONITOR HA ZONE ${zonename}\n      
+    </refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-monitorha">
@@ -37,6 +42,7 @@ MONITOR HA [ ( <replaceable class="parameter">option</replaceable> ) ] [ <replac
     MASTER_LOCATION
     SENT_DELAY
     REPLAY_DEPLAY
+    ZONE
 </synopsis>
   </refsynopsisdiv>
 

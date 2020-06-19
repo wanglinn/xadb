@@ -295,6 +295,7 @@ extern Datum mgr_boottime_coordinator_all(PG_FUNCTION_ARGS);
 
 extern Datum mgr_monitor_all(PG_FUNCTION_ARGS);
 extern Datum mgr_monitor_zone_all(PG_FUNCTION_ARGS);
+extern Datum mgr_monitor_ha_zone(PG_FUNCTION_ARGS);
 extern Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS);
 extern Datum mgr_monitor_gtmcoord_all(PG_FUNCTION_ARGS);
 
@@ -397,7 +398,7 @@ bool mgr_recv_msg_for_nodesize(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst)
 bool mgr_recv_msg_for_monitor(ManagerAgent	*ma, bool *ret, StringInfo agentRstStr);
 extern List *monitor_get_dbname_list(char *user, char *address, int port);
 extern void monitor_get_one_node_user_address_port(Relation rel_node, int *agentport, char **user, char **address, int *coordport, char nodetype);
-extern HeapTuple build_ha_replication_tuple(const Name type, const Name nodename, const Name app, const Name client_addr, const Name state, const Name sent_location, const Name replay_location, const Name sync_state, const Name master_location, const Name sent_delay, const Name replay_delay);
+extern HeapTuple build_ha_replication_tuple(const Name type, const Name nodename, const Name app, const Name client_addr, const Name state, const Name sent_location, const Name replay_location, const Name sync_state, const Name master_location, const Name sent_delay, const Name replay_delay, const Name zone);
 extern TupleDesc get_ha_replication_tuple_desc(void);
 extern bool mgr_promote_node(char cmdtype, Oid hostOid, char *path, StringInfo strinfo);
 extern bool mgr_check_node_connect(char nodetype, Oid hostOid, int nodeport);
