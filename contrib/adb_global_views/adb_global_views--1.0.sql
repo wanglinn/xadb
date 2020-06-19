@@ -132,6 +132,22 @@ begin
 end;
 $$ language plpgsql;
 
+create or replace function query_gv_views_on_cn (pi_view_name  varchar, pi_schema  varchar default null)
+returns setof record
+as
+$$
+declare
+  l_node_record record;
+  l_create_node boolean;
+begin
+  for l_node_record in select oid as node_oid, node_name, node_type, node_port, node_host from pgxc_node where node_type in ('C')
+  loop
+    select create_node_server(l_node_record.node_name, l_node_record.node_port, l_node_record.node_host, pi_view_name, pi_schema) into l_create_node;
+    return query execute 'select $1 as node_oid, $2 as node_name, $3 as node_type, * from gvfdw_'||l_node_record.node_name||'.'||pi_view_name
+                   using l_node_record.node_oid, l_node_record.node_name, l_node_record.node_type;
+  end loop;
+end;
+$$ language plpgsql;
 
 -- =============================================================================
 -- Global view for pg_locks
@@ -223,8 +239,17 @@ t(node_oid oid,node_name name,node_type "char"
 drop view if exists gv_adb_stat_statements;
 create or replace view gv_adb_stat_statements
 as
-select * from query_gv_views('adb_stat_statements','antdb')
+select * from query_gv_views_on_cn('adb_stat_statements','antdb')
 as
 t(node_oid oid,node_name name,node_type "char"
-	,userid oid, dbid oid, queryid bigint, planid bigint, calls bigint, rows bigint, total_time double precision, min_time double precision, max_time double precision, mean_time double precision, last_execution timestamp with time zone, query text, plan text, explain_format int, explain_plan text, bound_params text[]
+	,userid oid, usename name, dbid oid, dbname name, queryid bigint, planid bigint, calls bigint, rows bigint, total_time double precision, min_time double precision, max_time double precision, mean_time double precision, last_execution timestamp with time zone, query text, plan text, explain_format int, explain_plan text, bound_params text[]
+);
+
+drop view if exists gv_adb_stat_statements_notext;
+create or replace view gv_adb_stat_statements_notext
+as
+select * from query_gv_views_on_cn('adb_stat_statements_notext','antdb')
+as
+t(node_oid oid,node_name name,node_type "char"
+	,userid oid, usename name, dbid oid, dbname name, queryid bigint, planid bigint, calls bigint, rows bigint, total_time double precision, min_time double precision, max_time double precision, mean_time double precision, last_execution timestamp with time zone, query text, plan text, explain_format int, explain_plan text, bound_params text[]
 );
