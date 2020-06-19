@@ -44,7 +44,6 @@ typedef enum CBMethod
 	CB_NEST = 1,
 	CB_HASH,
 	CB_TUPLESORT,
-	CB_HASHSORT,
 	CB_SORTHASH
 }CBMethod;
 #define CONNECT_BY_METHOD(state_) (*((CBMethod*)(state_)->private_state))
@@ -85,40 +84,11 @@ typedef struct TuplestoreConnectByLeaf
 typedef struct TuplesortConnectByState
 {
 	CBMethod		method;
-	void 		  (*ProcessRoot)();
-	TuplestoreConnectByLeaf *
-				  (*GetNextLeaf)();
 	slist_head		slist_level;
 	slist_head		slist_idle;
 	ProjectionInfo *sort_project;
 	TupleTableSlot *sort_slot;
 }TuplesortConnectByState;
-
-typedef struct HashsortConnectByLeaf
-{
-	TuplestoreConnectByLeaf
-					base;
-}HashsortConnectByLeaf;
-
-typedef struct HashsortConnectByState
-{
-	TuplesortConnectByState
-					base;
-	List		   *outer_HashKeys;
-	List		   *inner_HashKeys;
-	List		   *hj_hashOperators;
-	List		   *hj_Collations;
-	ExprState	   *hash_clause;
-}HashsortConnectByState;
-
-typedef struct InsertRootHashSortContext
-{
-	ExprContext	   *econtext;
-	ExprState	   *start_with;
-	ProjectionInfo *sort_project;
-	Tuplesortstate *tss;
-	ConnectByState *cbstate;
-}InsertRootHashSortContext;
 
 typedef struct SortHashConnectByState
 {
@@ -148,16 +118,46 @@ static TupleTableSlot *ExecSortHashConnectBy(PlanState *pstate);
 
 static TupleTableSlot* ExecNestConnectByStartWith(ConnectByState *ps);
 static TuplestoreConnectByLeaf* GetConnectBySortLeaf(ConnectByState *ps);
-static HashsortConnectByLeaf* GetConnectByHashSortLeaf(ConnectByState *ps);
 static TuplestoreConnectByLeaf *GetNextTuplesortLeaf(ConnectByState *cbstate, TupleTableSlot *parent_slot);
-static TuplestoreConnectByLeaf *GetNextHashsortLeaf(ConnectByState *cbstate, TupleTableSlot *parent_slot);
 static TupleTableSlot *InsertRootHashValue(ConnectByState *cbstate, TupleTableSlot *slot);
 static TupleTableSlot *InsertRootSortHashValue(ConnectByState *cbstate, TupleTableSlot *slot);
-static TupleTableSlot *InsertRootHashSortValue(InsertRootHashSortContext *context, TupleTableSlot *slot);
 static bool ExecHashNewBatch(HashJoinTable hashtable, HashConnectByState *state, TupleTableSlot *slot);
 static void ProcessTuplesortRoot(ConnectByState *cbstate, TuplestoreConnectByLeaf *leaf);
-static void ProcessHashsortRoot(ConnectByState *cbstate, HashsortConnectByLeaf *leaf);
 static void RestartBufFile(BufFile *file);
+
+static void ExecInitHashConnectBy(HashConnectByState *state, ConnectByState *pstate)
+{
+	ConnectByPlan  *node = castNode(ConnectByPlan, pstate->ps.plan);
+	List		   *rhclause = NIL;
+	ListCell	   *lc;
+	OpExpr		   *op;
+	Oid				left_hash;
+	Oid				right_hash;
+
+	foreach (lc, node->hash_quals)
+	{
+		/* make hash ExprState(s) */
+		op = lfirst_node(OpExpr, lc);
+		if (get_op_hash_functions(op->opno, &left_hash, &right_hash) == false)
+		{
+			ereport(ERROR,
+					(errmsg("could not find hash function for hash operator %u", op->opno)));
+		}
+		state->outer_HashKeys = lappend(state->outer_HashKeys,
+										ExecInitExpr(linitial(op->args), &pstate->ps));
+
+		state->inner_HashKeys = lappend(state->inner_HashKeys,
+										ExecInitExpr(llast(op->args), &pstate->ps));
+
+		rhclause = lappend(rhclause, ExecInitExpr(llast(op->args), outerPlanState(pstate)));
+
+		state->hj_hashOperators = lappend_oid(state->hj_hashOperators, op->opno);
+		state->hj_Collations = lappend_oid(state->hj_Collations, op->inputcollid);
+	}
+
+	state->hash_clauses = ExecInitQual(node->hash_quals, &pstate->ps);
+	castNode(HashState, outerPlanState(pstate))->hashkeys = rhclause;
+}
 
 static ConnectByState* ExecInitSortHashConnectBy(ConnectByPlan *node, EState *estate, int eflags)
 {
@@ -168,10 +168,6 @@ static ConnectByState* ExecInitSortHashConnectBy(ConnectByPlan *node, EState *es
 	List				   *save_tlist = list_copy(node->save_targetlist);
 	TargetEntry			   *te,*te2;
 	ListCell			   *lc;
-	List				   *rhclause = NIL;
-	OpExpr				   *op;
-	Oid						left_hash;
-	Oid						right_hash;
 	int						i,numCol = node->numCols;
 
 	++numCol;
@@ -264,26 +260,8 @@ static ConnectByState* ExecInitSortHashConnectBy(ConnectByPlan *node, EState *es
 													  state->sort_desc);
 	ExecInitResultTupleSlotTL(&cbstate->ps, &TTSOpsVirtual);
 
-	foreach (lc, node->hash_quals)
-	{
-		/* make hash ExprState(s) */
-		op = lfirst_node(OpExpr, lc);
-		if (get_op_hash_functions(op->opno, &left_hash, &right_hash) == false)
-		{
-			ereport(ERROR,
-					(errmsg("could not find hash function for hash operator %u", op->opno)));
-		}
-		state->base.outer_HashKeys = lappend(state->base.outer_HashKeys,
-											 ExecInitExpr(linitial(op->args), &cbstate->ps));
-		state->base.inner_HashKeys = lappend(state->base.inner_HashKeys,
-											 ExecInitExpr(llast(op->args), &cbstate->ps));
-		rhclause = lappend(rhclause, ExecInitExpr(llast(op->args), outerPlanState(cbstate)));
-		state->base.hj_hashOperators = lappend_oid(state->base.hj_hashOperators, op->opno);
-		state->base.hj_Collations = lappend_oid(state->base.hj_Collations, op->inputcollid);
-	}
-	castNode(HashState, outerPlanState(cbstate))->hashkeys = rhclause;
+	ExecInitHashConnectBy(&state->base, cbstate);
 
-	state->base.hash_clauses = ExecInitQual(node->hash_quals, &cbstate->ps);
 	cbstate->start_with = ExecInitQual(node->start_with, &cbstate->ps);
 	cbstate->joinclause = ExecInitQual(node->join_quals, &cbstate->ps);
 	cbstate->ps.qual = ExecInitQual(node->plan.qual, &cbstate->ps);
@@ -301,7 +279,7 @@ static ConnectByState* ExecInitSortHashConnectBy(ConnectByPlan *node, EState *es
 
 ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflags)
 {
-	ConnectByState *cbstate = makeNode(ConnectByState);
+	ConnectByState *cbstate;
 	TupleDesc input_desc;
 	TupleDesc save_desc;
 
@@ -310,6 +288,7 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 		node->hash_quals != NIL)
 		return ExecInitSortHashConnectBy(node, estate, eflags);
 
+	cbstate = makeNode(ConnectByState);
 	cbstate->ps.plan = (Plan*)node;
 	cbstate->ps.state = estate;
 
@@ -336,76 +315,15 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 	cbstate->joinclause = ExecInitQual(node->join_quals, &cbstate->ps);
 	if (node->hash_quals != NIL)
 	{
-		List	   *rhclause = NIL;
-		List	   *outer_HashKeys = NIL;
-		List	   *inner_HashKeys = NIL;
-		List	   *hj_hashOperators = NIL;
-		List	   *hj_Collations = NIL;
-		ListCell   *lc;
-		OpExpr	   *op;
-		Oid			left_hash;
-		Oid			right_hash;
+		HashConnectByState *state;
+		Assert(node->numCols == 0);
 
-		foreach (lc, node->hash_quals)
-		{
-			/* make hash ExprState(s) */
-			op = lfirst_node(OpExpr, lc);
-			if (get_op_hash_functions(op->opno, &left_hash, &right_hash) == false)
-			{
-				ereport(ERROR,
-						(errmsg("could not find hash function for hash operator %u", op->opno)));
-			}
-			outer_HashKeys = lappend(outer_HashKeys,
-									 ExecInitExpr(linitial(op->args), &cbstate->ps));
+		state = palloc0(sizeof(*state));
+		ExecInitHashConnectBy(state, cbstate);
 
-			inner_HashKeys = lappend(inner_HashKeys,
-									 ExecInitExpr(llast(op->args), &cbstate->ps));
-
-			rhclause = lappend(rhclause, ExecInitExpr(llast(op->args), outerPlanState(cbstate)));
-
-			hj_hashOperators = lappend_oid(hj_hashOperators, op->opno);
-			hj_Collations = lappend_oid(hj_Collations, op->inputcollid);
-		}
-		castNode(HashState, outerPlanState(cbstate))->hashkeys = rhclause;
-
-		if (node->numCols == 0)
-		{
-			HashConnectByState *state = palloc0(sizeof(HashConnectByState));
-			state->method = CB_HASH;
-			state->outer_HashKeys = outer_HashKeys;
-			state->inner_HashKeys = inner_HashKeys;
-			state->hj_hashOperators = hj_hashOperators;
-			state->hj_Collations = hj_Collations;
-			cbstate->private_state = state;
-			cbstate->ps.ExecProcNode = ExecHashConnectBy;
-			state->hash_clauses = ExecInitQual(node->hash_quals, &cbstate->ps);
-		}else
-		{
-			HashsortConnectByLeaf *leaf;
-			HashsortConnectByState *state = palloc0(sizeof(HashsortConnectByState));
-			state->base.method = CB_HASHSORT;
-			state->outer_HashKeys = outer_HashKeys;
-			state->inner_HashKeys = inner_HashKeys;
-			state->hj_hashOperators = hj_hashOperators;
-			state->hj_Collations = hj_Collations;
-			state->base.ProcessRoot = ProcessHashsortRoot;
-			state->base.GetNextLeaf = GetNextHashsortLeaf;
-			cbstate->ps.ExecProcNode = ExecSortConnectBy;
-			cbstate->private_state = state;
-			slist_init(&state->base.slist_level);
-			slist_init(&state->base.slist_idle);
-			state->base.sort_slot = ExecInitExtraTupleSlot(estate,
-														   ExecTypeFromTL(node->sort_targetlist),
-														   &TTSOpsMinimalTuple);
-			state->base.sort_project = ExecBuildProjectionInfo(node->sort_targetlist,
-															   cbstate->ps.ps_ExprContext,
-															   state->base.sort_slot,
-															   &cbstate->ps,
-															   input_desc);
-			state->hash_clause = ExecInitQual(node->hash_quals, &cbstate->ps);
-			leaf = GetConnectByHashSortLeaf(cbstate);
-			slist_push_head(&state->base.slist_level, &leaf->base.snode);
-		}
+		state->method = CB_HASH;
+		cbstate->private_state = state;
+		cbstate->ps.ExecProcNode = ExecHashConnectBy;
 	}else
 	{
 		cbstate->ts = tuplestore_begin_heap(false, false, work_mem);
@@ -425,8 +343,6 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 			TuplestoreConnectByLeaf *leaf;
 			TuplesortConnectByState *state = palloc0(sizeof(TuplesortConnectByState));
 			state->method = CB_TUPLESORT;
-			state->ProcessRoot = ProcessTuplesortRoot;
-			state->GetNextLeaf = GetNextTuplesortLeaf;
 			cbstate->ps.ExecProcNode = ExecSortConnectBy;
 			cbstate->private_state = state;
 			slist_init(&state->slist_level);
@@ -812,7 +728,7 @@ static TupleTableSlot *ExecSortConnectBy(PlanState *pstate)
 	{
 		leaf = slist_head_element(TuplestoreConnectByLeaf, snode, &state->slist_level);
 		Assert(leaf->snode.next == NULL);
-		(*state->ProcessRoot)(cbstate, leaf);
+		ProcessTuplesortRoot(cbstate, leaf);
 		tuplesort_performsort(leaf->scan_ts);
 		leaf->outer_tup = NULL;
 		cbstate->processing_root = false;
@@ -872,8 +788,8 @@ re_get_tuplesort_connect_by_:
 
 	save_slot = ExecProject(cbstate->pj_save_targetlist);
 	++(cbstate->level);
-	ExecMaterializeSlot(save_slot);		/* GetNextLeaf will reset memory context */
-	leaf = (*state->GetNextLeaf)(cbstate, save_slot);
+	ExecMaterializeSlot(save_slot);		/* GetNextTuplesortLeaf will reset memory context */
+	leaf = GetNextTuplesortLeaf(cbstate, save_slot);
 	if (leaf)
 	{
 		leaf->outer_tup = ExecCopySlotMinimalTuple(save_slot);
@@ -1172,94 +1088,6 @@ static void ProcessTuplesortRoot(ConnectByState *cbstate, TuplestoreConnectByLea
 	}
 }
 
-static void ProcessHashsortRoot(ConnectByState *cbstate, HashsortConnectByLeaf *leaf)
-{
-	HashsortConnectByState *state = cbstate->private_state;
-	HashJoinTable hjt = cbstate->hjt;
-	InsertRootHashSortContext context;
-
-	context.econtext = cbstate->ps.ps_ExprContext;
-	context.start_with = cbstate->start_with;
-	context.sort_project = state->base.sort_project;
-	context.tss = leaf->base.scan_ts;
-	context.cbstate = cbstate;
-
-	if (hjt == NULL)
-	{
-		HashState *hash = castNode(HashState, outerPlanState(cbstate));
-		HashJoinTuple hashTuple;
-		int bucket;
-
-		hjt = ExecHashTableCreate(hash, state->hj_hashOperators, state->hj_Collations, false);
-		cbstate->hjt = hjt;
-		hash->hashtable = hjt;
-		MultiExecHashEx(hash, InsertRootHashSortValue, &context);
-		hjt->growEnabled = false;
-		if (hjt->outerBatchFile == NULL)
-		{
-			Assert(hjt->nbatch == 1);
-			Assert(hjt->innerBatchFile == NULL);
-			hjt->outerBatchFile = MemoryContextAllocZero(hjt->hashCxt, sizeof(BufFile**));
-			hjt->innerBatchFile = MemoryContextAllocZero(hjt->hashCxt, sizeof(BufFile**));
-		}
-
-		/* save batch 0 to BufFile, we need reload */
-		for (bucket=hjt->nbuckets;--bucket>=0;)
-		{
-			hashTuple = hjt->buckets.unshared[bucket];
-			while(hashTuple != NULL)
-			{
-				ExecHashJoinSaveTuple(HJTUPLE_MINTUPLE(hashTuple),
-									  hashTuple->hashvalue,
-									  &hjt->innerBatchFile[0]);
-				hashTuple = hashTuple->next.unshared;
-			}
-		}
-	}else
-	{
-		TupleTableSlot *inner_slot = cbstate->inner_slot;
-		uint32 hashvalue;
-		int i;
-
-		for (i = hjt->nbatch;--i>=0;)
-		{
-			BufFile *file = hjt->innerBatchFile[i];
-			if (file)
-			{
-				RestartBufFile(file);
-				for(;;)
-				{
-					CHECK_FOR_INTERRUPTS();
-					ExecHashJoinReadTuple(file, &hashvalue, inner_slot);
-					if (TupIsNull(inner_slot))
-						break;
-					InsertRootHashSortValue(&context, inner_slot);
-					if (TupIsNull(inner_slot))
-						return;
-				}
-			}
-		}
-
-		for (i = hjt->nSkewBuckets;--i>=0;)
-		{
-			HashJoinTuple hashTuple;
-			if (hjt->skewBucket[i])
-			{
-				hashTuple = hjt->skewBucket[i]->tuples;
-				while (hashTuple != NULL)
-				{
-					CHECK_FOR_INTERRUPTS();
-					ExecStoreMinimalTuple(HJTUPLE_MINTUPLE(hashTuple),
-										  inner_slot,
-										  false);
-					InsertRootHashSortValue(&context, inner_slot);
-					hashTuple = hashTuple->next.unshared;
-				}
-			}
-		}
-	}
-}
-
 void ExecEndConnectBy(ConnectByState *node)
 {
 	ExecEndNode(outerPlanState(node));
@@ -1319,7 +1147,6 @@ void ExecEndConnectBy(ConnectByState *node)
 		}
 		break;
 	case CB_TUPLESORT:
-	case CB_HASHSORT:
 		{
 			TuplesortConnectByState *state = node->private_state;
 			TuplestoreConnectByLeaf *leaf;
@@ -1445,46 +1272,21 @@ static void ExecReScanTuplesortConnectBy(ConnectByState *cbstate, TuplesortConne
 		}
 	}
 
-	if (CONNECT_BY_METHOD(cbstate) == CB_TUPLESORT)
-	{
-		if (outerPlanState(cbstate)->chgParam != NULL)
-		{
-			if (cbstate->ts != NULL)
-				tuplestore_clear(cbstate->ts);
-			cbstate->is_rescan = false;
-			cbstate->eof_underlying = false;
-		}else
-		{
-			if (cbstate->ts)
-				tuplestore_rescan(cbstate->ts);
-			cbstate->is_rescan = true;
-		}
-		leaf = GetConnectBySortLeaf(cbstate);
-	}else
-	{
-		Assert(CONNECT_BY_METHOD(cbstate) == CB_HASHSORT);
-		leaf = (TuplestoreConnectByLeaf*)GetConnectByHashSortLeaf(cbstate);
-	}
-	slist_push_head(&state->slist_level, &leaf->snode);
-}
-
-static void ExecReScanHashsortConnectBy(ConnectByState *cbstate, HashsortConnectByState *state)
-{
-	HashJoinTable hjt = cbstate->hjt;
-	ExecReScanTuplesortConnectBy(cbstate, &state->base);
-
-	if (hjt == NULL)
-		return;
-
+	Assert(CONNECT_BY_METHOD(cbstate) == CB_TUPLESORT);
 	if (outerPlanState(cbstate)->chgParam != NULL)
 	{
-		if (hjt->outerBatchFile &&
-			hjt->outerBatchFile[0])
-			BufFileClose(hjt->outerBatchFile[0]);
-		ExecHashTableDestroy(hjt);
-		cbstate->hjt = NULL;
-		castNode(HashState, outerPlanState(cbstate))->hashtable = NULL;
+		if (cbstate->ts != NULL)
+			tuplestore_clear(cbstate->ts);
+		cbstate->is_rescan = false;
+		cbstate->eof_underlying = false;
+	}else
+	{
+		if (cbstate->ts)
+			tuplestore_rescan(cbstate->ts);
+		cbstate->is_rescan = true;
 	}
+	leaf = GetConnectBySortLeaf(cbstate);
+	slist_push_head(&state->slist_level, &leaf->snode);
 }
 
 static void ExecReScanSortHashConnectBy(ConnectByState *cbstate, SortHashConnectByState *state)
@@ -1516,9 +1318,6 @@ void ExecReScanConnectBy(ConnectByState *node)
 		break;
 	case CB_TUPLESORT:
 		ExecReScanTuplesortConnectBy(node, node->private_state);
-		break;
-	case CB_HASHSORT:
-		ExecReScanHashsortConnectBy(node, node->private_state);
 		break;
 	case CB_SORTHASH:
 		ExecReScanSortHashConnectBy(node, node->private_state);
@@ -1632,37 +1431,6 @@ static TuplestoreConnectByLeaf* GetConnectBySortLeaf(ConnectByState *ps)
 	return leaf;
 }
 
-static HashsortConnectByLeaf* GetConnectByHashSortLeaf(ConnectByState *ps)
-{
-	HashsortConnectByLeaf *leaf;
-	MemoryContext oldcontext;
-	HashsortConnectByState *state = ps->private_state;
-	ConnectByPlan *node = castNode(ConnectByPlan, ps->ps.plan);
-
-	if (slist_is_empty(&state->base.slist_idle))
-	{
-		leaf = MemoryContextAllocZero(GetMemoryChunkContext(ps), sizeof(*leaf));
-	}else
-	{
-		slist_node *node = slist_pop_head_node(&state->base.slist_idle);
-		leaf = slist_container(HashsortConnectByLeaf, base.snode, node);
-	}
-
-	oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(ps));
-	leaf->base.scan_ts = tuplesort_begin_heap(state->base.sort_slot->tts_tupleDescriptor,
-											  node->numCols,
-											  node->sortColIdx,
-											  node->sortOperators,
-											  node->collations,
-											  node->nullsFirst,
-											  0,
-											  NULL,
-											  false);
-	MemoryContextSwitchTo(oldcontext);
-
-	return leaf;
-}
-
 static TuplestoreConnectByLeaf *GetNextTuplesortLeaf(ConnectByState *cbstate, TupleTableSlot *outer_slot)
 {
 	TuplesortConnectByState *state = cbstate->private_state;
@@ -1694,91 +1462,6 @@ static TuplestoreConnectByLeaf *GetNextTuplesortLeaf(ConnectByState *cbstate, Tu
 	}
 
 	return leaf;
-}
-
-static TuplestoreConnectByLeaf *GetNextHashsortLeaf(ConnectByState *cbstate, TupleTableSlot *outer_slot)
-{
-	HashsortConnectByState *state = cbstate->private_state;
-	ExprContext *econtext = cbstate->ps.ps_ExprContext;
-	HashJoinTable hjt = cbstate->hjt;
-	TupleTableSlot *inner_slot = cbstate->inner_slot;
-	HashsortConnectByLeaf *leaf;
-	HashJoinTuple hashTuple;
-	uint32 hashvalue;
-	int skewno;
-	int bucketno;
-
-	econtext->ecxt_outertuple = outer_slot;
-	if (ExecHashGetHashValue(hjt,
-							 econtext,
-							 state->outer_HashKeys,
-							 true,
-							 false,&hashvalue) == false)
-		return NULL;
-
-	skewno = ExecHashGetSkewBucket(hjt, hashvalue);
-	if (skewno != INVALID_SKEW_BUCKET_NO)
-	{
-		bucketno = -1;
-	}else
-	{
-		int batchno;
-		ExecHashGetBucketAndBatch(hjt, hashvalue, &bucketno, &batchno);
-		if (batchno != hjt->curbatch ||
-			hjt->buckets.unshared[bucketno] == NULL)
-		{
-			/* load batch and bucketno */
-			BufFile *file = hjt->innerBatchFile[batchno];
-			uint32 hashval;
-			int batch,bucket;
-			if (file == NULL)
-				return NULL;	/* not match */
-
-			RestartBufFile(file);
-			if (hjt->curbatch != batchno)
-			{
-				hjt->curbatch = batchno;
-				ExecHashTableReset(hjt);
-			}
-
-			for(;;)
-			{
-				ExecHashJoinReadTuple(file, &hashval, inner_slot);
-				if (TupIsNull(inner_slot))
-					break;
-
-				ExecHashGetBucketAndBatch(hjt, hashval, &bucket, &batch);
-				Assert(batch == batchno);
-				if (bucket == bucketno)
-				{
-					/* only insert same bucket */
-					ExecHashTableInsert(hjt, inner_slot, hashval);
-				}
-			}
-		}
-	}
-
-	hashTuple = NULL;
-	leaf = NULL;
-	while(ExecScanHashBucketExt(econtext,
-								state->hash_clause,
-								&hashTuple,
-								hashvalue,
-								skewno,
-								bucketno,
-								hjt,
-								inner_slot))
-	{
-		if (cbstate->joinclause &&
-			ExecQualAndReset(cbstate->joinclause, econtext) == false)
-			continue;
-		if (leaf == NULL)
-			leaf = GetConnectByHashSortLeaf(cbstate);
-		tuplesort_puttupleslot(leaf->base.scan_ts,
-							   ExecProject(state->base.sort_project));
-	}
-
-	return (TuplestoreConnectByLeaf*)leaf;
 }
 
 static TupleTableSlot *InsertRootHashValue(ConnectByState *cbstate, TupleTableSlot *slot)
@@ -1894,37 +1577,6 @@ static TupleTableSlot *InsertRootSortHashValue(ConnectByState *cbstate, TupleTab
 	}
 
 	++(state->cur_num);
-	return slot;
-}
-
-static TupleTableSlot *InsertRootHashSortValue(InsertRootHashSortContext *context, TupleTableSlot *slot)
-{
-	ExprContext	   *econtext;
-
-	if (TupIsNull(slot))
-		return slot;
-
-	econtext = context->econtext;
-	ResetExprContext(econtext);
-	econtext->ecxt_outertuple = slot;
-	econtext->ecxt_innertuple = NULL;
-	if (context->start_with == NULL ||
-		ExecQual(context->start_with, econtext))
-	{
-		econtext->ecxt_outertuple = NULL;
-		econtext->ecxt_innertuple = slot;
-		tuplesort_puttupleslot(context->tss,
-							   ExecProject(context->sort_project));
-	}else
-	{
-		register ConnectByState *cbstate = context->cbstate;
-		CHECK_START_WITH(cbstate);
-		if (cbstate->check_start_state == START_WITH_HAS_EMPTY)
-			ExecClearTuple(slot);
-		else
-			InstrCountFiltered2(cbstate, 1);
-	}
-
 	return slot;
 }
 
