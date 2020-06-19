@@ -5,29 +5,32 @@ ADB documentation
 
 <refentry id="MGR-CLEANZONEALL">
   <refmeta>
-    <refentrytitle>CLEAN ZONE ALL</refentrytitle>
+    <refentrytitle>CLEAN ZONE</refentrytitle>
     <manvolnum>7</manvolnum>
     <refmiscinfo>Manage - Language Statements</refmiscinfo>
   </refmeta>
 
   <refnamediv>
-    <refname>CLEAN ZONE ALL</refname>
-    <refpurpose>clean all the data of the cluster in zone_name</refpurpose>
+    <refname>CLEAN ZONE</refname>
+    <refpurpose>clean all the data of the cluster in zonename \n
+    Use like this:\n
+    CLEAN ZONE ${zonename}\n
+    </refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-cleanall">
-    <primary>CLEAN ZONE zone_name ALL</primary>
+    <primary>CLEAN ZONE zonename</primary>
   </indexterm>
 
   <refsynopsisdiv>
 <synopsis>
-CLEAN ZONE zone_name ALL
+CLEAN ZONE zonename
 </synopsis>
   </refsynopsisdiv>
   <refsect1>
     <title>Description</title>
     <para>
-    <command>CLEAN ZONE zone_name ALL</command> clean all the data of the cluster in zone_name. If the cluster is running, it needs to be stopped first.
+    <command>CLEAN ZONE zonename</command> clean all the data of the cluster in zonename. If the cluster is running, it needs to be stopped first.
     </para>
   </refsect1>
 
@@ -36,7 +39,7 @@ CLEAN ZONE zone_name ALL
  <para>
 Clean all the data of cluster:
 <programlisting>
-CLEAN ZONE zone_name ALL;
+CLEAN ZONE zonename
 </programlisting>
 </para>
   </refsect1>
