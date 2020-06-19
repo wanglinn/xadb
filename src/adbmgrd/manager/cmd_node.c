@@ -7025,7 +7025,7 @@ void mgr_add_parameters_hbaconf(Oid mastertupleoid, char nodetype, StringInfo in
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 		Assert(mgr_node);
-		if (mastertupleoid != 0 && (mastertupleoid == mgr_node->nodemasternameoid))
+		if (mastertupleoid == mgr_node->nodemasternameoid)
 		{
 			/*database user*/
 			cnuser = get_hostuser_from_hostoid(mgr_node->nodehost);
