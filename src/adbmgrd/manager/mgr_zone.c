@@ -287,9 +287,6 @@ Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 	zone  = PG_GETARG_CSTRING(0);
 	Assert(zone);
 
-	if (pg_strcasecmp(zone, mgr_zone) != 0)
-		ereport(ERROR, (errmsg("the given zone name \"%s\" is not the same wtih guc parameter mgr_zone \"%s\" in postgresql.conf", zone, mgr_zone)));
-
 	ereportNoticeLog(errmsg("drop node if the node is not inited or not in this zone(%s).", zone));
 
 	ScanKeyInit(&key[0]
@@ -300,7 +297,7 @@ Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 	ScanKeyInit(&key[1]
 			,Anum_mgr_node_nodezone
 			,BTEqualStrategyNumber
-			,F_NAMENE
+			,F_NAMEEQ
 			,CStringGetDatum(zone));
 
 	PG_TRY();
