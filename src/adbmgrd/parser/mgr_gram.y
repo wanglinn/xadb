@@ -3198,7 +3198,7 @@ ZoneStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_zone_switchover", args));
 			$$ = (Node*)stmt;
 		}			
-	|	ZONE CLEAR Ident
+	|	DROP ZONE Ident
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($3, @3));
