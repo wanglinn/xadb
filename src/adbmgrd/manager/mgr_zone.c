@@ -288,7 +288,7 @@ Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 	zone  = PG_GETARG_CSTRING(0);
 	Assert(zone);
 
-	ereportNoticeLog(errmsg("drop node if the node is not inited or not in this zone(%s).", zone));
+	ereportNoticeLog(errmsg("drop node if the node is not inited."));
 
 	ScanKeyInit(&key[0]
 				,Anum_mgr_node_nodeinited
