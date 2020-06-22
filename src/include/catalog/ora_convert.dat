@@ -68,7 +68,7 @@
 { cvtkind => 'f', cvtname => 'round', cvtfrom => 'timestamptz 0', cvtto => 'timestamptz text' },
 { cvtkind => 'f', cvtname => 'round', cvtfrom => 'date 0', cvtto => 'timestamptz text' },
 { cvtkind => 'f', cvtname => 'round', cvtfrom => 'oracle.date 0', cvtto => 'timestamptz text' },
-{ cvtkind => 'f', cvtname => 'rpad', cvtfrom => '0 0', cvtto => 'text int4' },
+{ cvtkind => 'f', cvtname => 'rpad', cvtfrom => '0 0', cvtto => 'text numeric' },
 { cvtkind => 'f', cvtname => 'rpad', cvtfrom => '0 0 0', cvtto => 'text numeric text' },
 { cvtkind => 'f', cvtname => 'sign', cvtfrom => '0', cvtto => 'numeric' },
 { cvtkind => 'f', cvtname => 'sinh', cvtfrom => '0', cvtto => 'numeric' },
