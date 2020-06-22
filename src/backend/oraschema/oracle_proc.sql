@@ -20,6 +20,18 @@ CREATE OR REPLACE FUNCTION oracle.bitand(bigint, bigint)
     RETURNS NULL ON NULL INPUT;
 
 /*
+ * Function: bitand
+ * Parameter Type: : (numeric, numeric)
+ */
+CREATE OR REPLACE FUNCTION oracle.bitand(numeric, numeric)
+    RETURNS bigint
+    AS $$select trunc($1)::bigint & trunc($2)::bigint;$$
+    LANGUAGE SQL
+    IMMUTABLE
+--ADBONLY CLUSTER SAFE
+    RETURNS NULL ON NULL INPUT;
+
+/*
  * Function: nanvl
  * Parameter Type: (float8, float8)
  */

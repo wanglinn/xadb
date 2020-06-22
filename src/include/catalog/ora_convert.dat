@@ -1,7 +1,7 @@
 
 [
 # sum(string)
-{ cvtkind => 'f', cvtname => 'bitand', cvtfrom => 'unknown unknown', cvtto => 'int8 int8' },
+{ cvtkind => 'f', cvtname => 'bitand', cvtfrom => 'unknown unknown', cvtto => 'numeric numeric' },
 { cvtkind => 'f', cvtname => 'cosh', cvtfrom => 'text', cvtto => 'numeric' },
 { cvtkind => 'f', cvtname => 'length', cvtfrom => 'numeric', cvtto => 'char' },
 { cvtkind => 'f', cvtname => 'length', cvtfrom => 'float8', cvtto => 'char' },
@@ -94,6 +94,7 @@
 { cvtkind => 'f', cvtname => 'min', cvtfrom => 'oracle.date', cvtto => 'timestamp' },
 { cvtkind => 'f', cvtname => 'width_bucket', cvtfrom => '0 0 0 0', cvtto => 'numeric numeric numeric numeric'},
 { cvtkind => 'f', cvtname => 'months_between', cvtfrom => 'oracle.date oracle.date', cvtto => 'timestamptz timestamptz' },
+{ cvtkind => 'f', cvtname => 'bitand', cvtfrom => '0 0', cvtto => 'numeric numeric' },
 
 # type + type
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.varchar2 int2', cvtto => 'numeric numeric' },
