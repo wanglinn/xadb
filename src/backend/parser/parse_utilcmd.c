@@ -4810,6 +4810,7 @@ int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey ke
 			}else if (loc_type == LOCATOR_TYPE_REPLICATED ||
 					  loc_type == LOCATOR_TYPE_RANDOM ||
 					  loc_type == LOCATOR_TYPE_HASH ||
+					  loc_type == LOCATOR_TYPE_MODULO ||
 					  loc_type == LOCATOR_TYPE_HASHMAP)
 			{
 				if (bound)
