@@ -89,7 +89,9 @@
 { cvtkind => 'f', cvtname => 'variance', cvtfrom => '0', cvtto => 'numeric' },
 { cvtkind => 'f', cvtname => 'exp', cvtfrom => '0', cvtto => 'numeric' },
 { cvtkind => 'f', cvtname => 'max', cvtfrom => 'oracle.raw', cvtto => 'text' },
+{ cvtkind => 'f', cvtname => 'max', cvtfrom => 'oracle.date', cvtto => 'timestamp' },
 { cvtkind => 'f', cvtname => 'min', cvtfrom => 'oracle.raw', cvtto => 'text' },
+{ cvtkind => 'f', cvtname => 'min', cvtfrom => 'oracle.date', cvtto => 'timestamp' },
 { cvtkind => 'f', cvtname => 'width_bucket', cvtfrom => '0 0 0 0', cvtto => 'numeric numeric numeric numeric'},
 
 # type + type
