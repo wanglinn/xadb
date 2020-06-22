@@ -1526,6 +1526,13 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 		mgr_add_parm(cndnnametmp, nodetype, &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("pgxc_node_name", cndnnametmp, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+
+		/*refresh pg_hba.conf*/
+		resetStringInfo(&(getAgentCmdRst->description));
+		resetStringInfo(&infosendmsg);
+		mgr_add_parameters_hbaconf(HeapTupleGetOid(aimtuple), mgr_node->nodetype, &infosendmsg);
+		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+
 		/*refresh recovry.conf*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
@@ -2122,9 +2129,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		/*refresh pg_hba.conf*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
-		mgr_add_parameters_hbaconf((mgr_node->nodemasternameoid == 0)? mgr_node->oid:mgr_node->nodemasternameoid
-			, getMgrMasterNodetype(mgr_node->nodetype), &infosendmsg);
-
+		mgr_add_parameters_hbaconf(HeapTupleGetOid(aimtuple), getMgrMasterNodetype(mgr_node->nodetype), &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
 		/*refresh recovry.conf*/
 		resetStringInfo(&(getAgentCmdRst->description));
@@ -2139,7 +2144,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 
 	/*update node system table's column to set initial is true when cmd is init*/
 	if ((AGT_CMD_CNDN_CNDN_INIT == cmdtype ||  AGT_CMD_GTMCOORD_INIT == cmdtype) && execRes)
-	{
+	{      
 		/*refresh postgresql.conf of this node*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
@@ -2149,8 +2154,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		/*refresh pg_hba.conf*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
-		mgr_add_parameters_hbaconf((mgr_node->nodemasternameoid == 0)? mgr_node->oid:mgr_node->nodemasternameoid
-			, nodetype, &infosendmsg);
+		mgr_add_parameters_hbaconf(HeapTupleGetOid(aimtuple), nodetype, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
 
 		mgr_node->nodeinited = true;
@@ -4304,10 +4308,7 @@ bool mgr_append_dn_slave_func(char *dnName)
 		/* for datanode slave , which has the same datanode master */
 		mgr_add_hbaconf_by_masteroid(mastertupleoid, "replication", appendnodeinfo.nodeusername, appendnodeinfo.nodeaddr);
 
-		/* step 2: update datanode master's postgresql.conf. */
-		// to do nothing now
-
-		/* step 3: update datanode master's pg_hba.conf. */
+		/*refresh pg_hba.conf*/
 		resetStringInfo(&infosendmsg);
 		mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", appendnodeinfo.nodeusername, appendnodeinfo.nodeaddr, 32, "trust", &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF,
@@ -4736,7 +4737,7 @@ bool mgr_append_agtm_slave_func(char *gtmname)
 		/* flush agtm slave's pg_hba.conf "host replication postgres slave_ip/32 trust" if agtm slave exist */
 		mgr_add_hbaconf_by_masteroid(mastertupleoid, "replication", appendnodeinfo.nodeusername, appendnodeinfo.nodeaddr);
 
-		/* step 1: update agtm master's pg_hba.conf. */
+		/* step 1: update agtm master's pg_hba.conf. */	
 		resetStringInfo(&infosendmsg);
 		mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", appendnodeinfo.nodeusername, appendnodeinfo.nodeaddr, 32, "trust", &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF,
@@ -6790,8 +6791,6 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 			tup_result = build_common_command_tuple( &(getAgentCmdRst.nodename)
 					,getAgentCmdRst.ret
 					,getAgentCmdRst.ret == true ? "success":getAgentCmdRst.description.data);
-
-        ereportNoticeLog(errmsg("configure_nodes_all_end, nodename(%s).", NameStr(mgr_node_out->nodename)));
 
 		ma_close(ma);
 		pfree(cnAddress);
@@ -9344,8 +9343,7 @@ Datum mgr_flush_host(PG_FUNCTION_ARGS)
 		cndnpath = TextDatumGetCString(datumpath);
 		resetStringInfo(&(getAgentCmdRst.description));
 		resetStringInfo(&infosendmsg);
-		mgr_add_parameters_hbaconf((mgr_node->nodemasternameoid == 0)? mgr_node->oid:mgr_node->nodemasternameoid
-			, mgr_node->nodetype, &infosendmsg);
+		mgr_add_parameters_hbaconf(HeapTupleGetOid(tuple), mgr_node->nodetype, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnpath, &infosendmsg, hostoid, &getAgentCmdRst);
 		if (!getAgentCmdRst.ret)
 		{
