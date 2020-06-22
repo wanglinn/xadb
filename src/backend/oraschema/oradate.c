@@ -850,97 +850,89 @@ ora_sys_now(PG_FUNCTION_ARGS)
 							   TimestampTzGetDatum(tstz));
 }
 
-static Interval *
-timezone_get_interval(const char *tzname)
-{
-	char *lowzone;
-	int val;
-	pg_tz *tzp;
-	int type;
-	struct pg_tm tm;
-	Interval *resInterval;
-	int gmtoffset;
-
-	/* DecodeTimezoneAbbrev requires lowercase input */
-	lowzone = downcase_truncate_identifier(tzname,
-										   strlen(tzname),
-										   false);
-
-	type = DecodeTimezoneAbbrev(0, lowzone, &val, &tzp);
-	switch (type)
-	{
-		case TZ:
-		case DTZ:
-			gmtoffset = val;
-			break;
-		case DYNTZ:
-			{
-				/* Determine the current meaning of the abbrev */
-				TimestampTz now;
-				int			isdst;
-
-				now = GetCurrentTransactionStartTimestamp();
-				gmtoffset = -DetermineTimeZoneAbbrevOffsetTS(now,
-															 tzname,
-															 tzp,
-															 &isdst);
-				break;
-			}
-		default:
-			{
-				/* try it as a full zone name */
-				tzp = pg_tzset(tzname);
-				if (tzp)
-				{
-					/* Apply the timezone change */
-					struct pg_tm 	tm;
-					fsec_t			fsec;
-					int 			tz;
-
-					if (timestamp2tm(GetCurrentTransactionStartTimestamp(),
-									 &tz, &tm, &fsec, NULL, tzp) != 0)
-						ereport(ERROR,
-								(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
-								 errmsg("timestamp out of range")));
-					gmtoffset = tm.tm_gmtoff;
-				}
-				else
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-							 errmsg("time zone \"%s\" not recognized", tzname)));
-				}
-			}
-			break;
-	}
-
-	MemSet(&tm, 0, sizeof(struct pg_tm));
-	tm.tm_sec = gmtoffset;
-	resInterval = (Interval *) palloc(sizeof(Interval));
-	tm2interval(&tm, 0, resInterval);
-
-	return resInterval;
-}
-
 Datum
 ora_dbtimezone(PG_FUNCTION_ARGS)
 {
-	const char *tzval;
+	const char 		*tzval;
+	const char 		*tzn;
+	struct pg_tm	tm;
+	fsec_t			fsec;
+	int				tzoff, hour, minute;
+	pg_tz	 		*tzp;
+	char			buf[MAXDATELEN + 1];
+	char			*cp, *result;
 
 	tzval = GetConfigOptionResetString("TimeZone");
 	Assert(tzval != NULL);
+	/* try it as a full zone name */
+	tzp = pg_tzset(tzval);
+	if (tzp)
+	{
+		/* Apply the timezone change */
+		if (timestamp2tm(GetCurrentTransactionStartTimestamp(),
+							&tzoff, &tm, &fsec, &tzn, tzp) != 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+						errmsg("timestamp out of range")));
+		cp = buf;
+		if (strcmp(tm.tm_zone, "") != 0)
+			tzoff = tm.tm_gmtoff;
 
-	PG_RETURN_INTERVAL_P(timezone_get_interval(tzval));
+		if (tzoff < 0)
+			*cp++ = '-';
+		else
+			*cp++ = '+';
+
+		hour = abs(tzoff) / SECS_PER_HOUR;
+		minute = (abs(tzoff) - hour * SECS_PER_HOUR) / SECS_PER_MINUTE;
+		sprintf(cp, "%02d:%02d", hour, minute);
+		cp += strlen(cp);
+		*cp = '\0';
+		result = pstrdup(buf);
+		PG_RETURN_CSTRING(result);
+	}
+	PG_RETURN_NULL();
 }
 
 Datum
 ora_session_timezone(PG_FUNCTION_ARGS)
 {
-	const char *tzn;
-
+	const char 		*tzn;
+	struct pg_tm	tm;
+	fsec_t			fsec;
+	int				tzoff, hour, minute;
+	pg_tz	 		*tzp;
+	char			buf[MAXDATELEN + 1];
+	char			*cp, *result;
+	
 	tzn = pg_get_timezone_name(session_timezone);
 	if (tzn != NULL)
-		PG_RETURN_INTERVAL_P(timezone_get_interval(tzn));
+		tzp = pg_tzset(tzn);
+	else
+		PG_RETURN_NULL();
+	
+	if (tzp)
+	{
+		/* Apply the timezone change */
+		if (timestamp2tm(GetCurrentTransactionStartTimestamp(),
+							&tzoff, &tm, &fsec, NULL, tzp) != 0)
+			ereport(ERROR,
+					(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+						errmsg("timestamp out of range")));
+		cp = buf;
+		if (tzoff > 0)
+			*cp++ = '-';
+		else
+			*cp++ = '+';
+
+		hour = abs(tzoff) / SECS_PER_HOUR;
+		minute = (abs(tzoff) - hour * SECS_PER_HOUR) / SECS_PER_MINUTE;
+		sprintf(cp, "%02d:%02d", hour, minute);
+		cp += strlen(cp);
+		*cp = '\0';
+		result = pstrdup(buf);
+		PG_RETURN_CSTRING(result);
+	}
 
 	PG_RETURN_NULL();
 }
