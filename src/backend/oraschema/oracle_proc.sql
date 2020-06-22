@@ -143,6 +143,17 @@ CREATE OR REPLACE FUNCTION oracle.add_months(TIMESTAMP WITH TIME ZONE, INTEGER)
     RETURNS NULL ON NULL INPUT;
 
 /*
+ * Function: ADD_MONTHS
+ */
+CREATE OR REPLACE FUNCTION oracle.add_months(TIMESTAMP WITH TIME ZONE, NUMERIC)
+     RETURNS TIMESTAMP
+     AS $$SELECT oracle.add_months($1::pg_catalog.date, trunc($2)::int4) + $1::pg_catalog.time;$$
+     LANGUAGE SQL
+    IMMUTABLE
+--ADBONLY CLUSTER SAFE
+    RETURNS NULL ON NULL INPUT;
+
+/*
  * Function: LAST_DAY
  */
 CREATE OR REPLACE FUNCTION oracle.last_day(TIMESTAMP WITH TIME ZONE)
