@@ -704,7 +704,7 @@ static void ExpansionReplicated(Form_pgxc_class form_class, HeapTuple tup, List 
 	heap_freetuple(new_tup);
 }
 
-static List* GetHashNodesValues(oidvector *oids, HeapTuple tup, TupleDesc desc)
+static List* GetModuloNodesValues(oidvector *oids, HeapTuple tup, TupleDesc desc)
 {
 	List   *result = NIL;
 	Datum	datum;
@@ -804,7 +804,7 @@ re_loop_:
 	return least_common;
 }
 
-static void ReplaceHashExpansionNode(Oid *oids, uint32 count, List *expansion)
+static void ReplaceHashModuloExpansionNode(Oid *oids, uint32 count, List *expansion)
 {
 	ListCell	   *lc;
 	Bitmapset	   *bms;
@@ -839,7 +839,7 @@ static void ReplaceHashExpansionNode(Oid *oids, uint32 count, List *expansion)
 	bms_free(bms);
 }
 
-static HeapTuple ExpansionHashUpdate(Form_pgxc_class form_class, HeapTuple tup, List *expansion,
+static HeapTuple ExpansionHashModuloUpdate(Form_pgxc_class form_class, HeapTuple tup, List *expansion,
 								Relation rel_class, CatalogIndexState indstate, List **new_values)
 {
 	ListCell	   *lc;
@@ -850,7 +850,7 @@ static HeapTuple ExpansionHashUpdate(Form_pgxc_class form_class, HeapTuple tup, 
 	uint32			new_modulus;
 	uint32			n;
 
-	old_values = GetHashNodesValues(&form_class->nodeoids, tup, RelationGetDescr(rel_class));
+	old_values = GetModuloNodesValues(&form_class->nodeoids, tup, RelationGetDescr(rel_class));
 	Assert(list_length(old_values) == form_class->nodeoids.dim1);
 
 	/* get old modulu */
@@ -879,10 +879,10 @@ static HeapTuple ExpansionHashUpdate(Form_pgxc_class form_class, HeapTuple tup, 
 
 	/* replace each node to new nodes */
 	foreach (lc, expansion)
-		ReplaceHashExpansionNode(new_oid_remainder, new_modulus, lfirst(lc));
+		ReplaceHashModuloExpansionNode(new_oid_remainder, new_modulus, lfirst(lc));
 
 	/* update pgxc_class */
-	n = MakeHashNodesAndValues(new_oid_remainder, new_modulus, &new_oids, new_values);
+	n = MakeHashModuloNodesAndValues(new_oid_remainder, new_modulus, &new_oids, new_values);
 	return UpdateClassNodeoidsValues(new_oids, n, *new_values, tup, rel_class, indstate);
 }
 
@@ -1050,7 +1050,7 @@ static void SendCleanExprMsg(shm_mq_handle *mq, StringInfo buf, Expr *clean_expr
 		ereport(ERROR, (errmsg("send clean message to main worker result detached")));
 }
 
-static void ExpansionHashMakeClean(Form_pgxc_class new_class, List *new_values, List *expansion, shm_mq_handle *mq)
+static void ExpansionHashModuloMakeClean(Form_pgxc_class new_class, List *new_values, List *expansion, shm_mq_handle *mq)
 {
 	Relation		rel;
 	ListCell	   *lc,*lc2;
@@ -1213,15 +1213,15 @@ static Expr* makeListValEqual(Relation rel, List *list, bool is_first_node)
 		return (Expr*)sao;
 }
 
-static void ExpansionHash(Form_pgxc_class form_class, HeapTuple tup, List *expansion,
+static void ExpansionHashModulo(Form_pgxc_class form_class, HeapTuple tup, List *expansion,
 						  Relation rel_class, CatalogIndexState indstate, shm_mq_handle *mq)
 {
 	HeapTuple	new_tup;
 	List	   *new_values;
 
-	new_tup = ExpansionHashUpdate(form_class, tup, expansion, rel_class, indstate, &new_values);
+	new_tup = ExpansionHashModuloUpdate(form_class, tup, expansion, rel_class, indstate, &new_values);
 	if (IsGTMNode())
-		ExpansionHashMakeClean((Form_pgxc_class)GETSTRUCT(new_tup), new_values, expansion, mq);
+		ExpansionHashModuloMakeClean((Form_pgxc_class)GETSTRUCT(new_tup), new_values, expansion, mq);
 	heap_freetuple(new_tup);
 }
 
@@ -1369,7 +1369,8 @@ static void ExpansionWorkerCoord(List *expansion_node, shm_mq_handle *mq, Memory
 			ExpansionReplicated(form_class, tup, expansion_rel_node, rel_class, class_index_state);
 			break;
 		case LOCATOR_TYPE_HASH:
-			ExpansionHash(form_class, tup, expansion_rel_node, rel_class, class_index_state, mq);
+		case LOCATOR_TYPE_MODULO:
+			ExpansionHashModulo(form_class, tup, expansion_rel_node, rel_class, class_index_state, mq);
 			break;
 		case LOCATOR_TYPE_LIST:
 			ExpansionList(form_class, tup, expansion_rel_node, rel_class, class_index_state, mq);

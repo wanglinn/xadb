@@ -64,10 +64,7 @@ static void SetDistributeByDatums(Datum *datums, bool *nulls, bool *replace, Lis
 					 errmsg("invalid distribute by key length %d", list_length(keys))));
 		nkeys = list_length(keys);
 		attr_array = buildint2vector(NULL, nkeys);
-		if (loc_type == LOCATOR_TYPE_MODULO)
-			class_array = NULL;
-		else
-			class_array = buildoidvector(NULL, nkeys);
+		class_array = buildoidvector(NULL, nkeys);
 		if (loc_type == LOCATOR_TYPE_LIST ||
 			loc_type == LOCATOR_TYPE_RANGE)
 			collation_array = buildoidvector(NULL, nkeys);
@@ -156,6 +153,7 @@ static void SetDistributeToDatums(Datum *datums, bool *nulls, bool *replace, Lis
 		nulls[Anum_pgxc_class_pcvalues - 1] = false;
 		break;
 	case LOCATOR_TYPE_HASH:
+	case LOCATOR_TYPE_MODULO:
 		if (values != NIL)
 		{
 			if (list_length(values) != numnodes)
@@ -405,7 +403,7 @@ CreatePgxcRelationAttrDepend(Oid relid, AttrNumber attnum)
 	}
 }
 
-uint32 MakeHashNodesAndValues(Oid *remainder_node, uint32 modulus, Oid **nodeoids, List **values)
+uint32 MakeHashModuloNodesAndValues(Oid *remainder_node, uint32 modulus, Oid **nodeoids, List **values)
 {
 	OidBufferData	buf;
 	uint32			i;
