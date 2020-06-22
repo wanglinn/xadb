@@ -93,6 +93,7 @@
 { cvtkind => 'f', cvtname => 'min', cvtfrom => 'oracle.raw', cvtto => 'text' },
 { cvtkind => 'f', cvtname => 'min', cvtfrom => 'oracle.date', cvtto => 'timestamp' },
 { cvtkind => 'f', cvtname => 'width_bucket', cvtfrom => '0 0 0 0', cvtto => 'numeric numeric numeric numeric'},
+{ cvtkind => 'f', cvtname => 'months_between', cvtfrom => 'oracle.date oracle.date', cvtto => 'timestamptz timestamptz' },
 
 # type + type
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.varchar2 int2', cvtto => 'numeric numeric' },
