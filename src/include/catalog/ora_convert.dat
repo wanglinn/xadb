@@ -79,7 +79,7 @@
 { cvtkind => 'f', cvtname => 'sum', cvtfrom => '0', cvtto => 'numeric' },
 { cvtkind => 'f', cvtname => 'tanh', cvtfrom => '0', cvtto => 'numeric' },
 { cvtkind => 'f', cvtname => 'trunc', cvtfrom => '0', cvtto => 'numeric' },
-{ cvtkind => 'f', cvtname => 'trunc', cvtfrom => '0 0', cvtto => 'numeric int4' },
+{ cvtkind => 'f', cvtname => 'trunc', cvtfrom => '0 0', cvtto => 'numeric numeric' },
 { cvtkind => 'f', cvtname => 'trunc', cvtfrom => 'timestamp 0', cvtto => 'timestamp text' },
 { cvtkind => 'f', cvtname => 'trunc', cvtfrom => 'timestamptz 0', cvtto => 'timestamptz text' },
 { cvtkind => 'f', cvtname => 'trunc', cvtfrom => 'date 0', cvtto => 'date text' },
