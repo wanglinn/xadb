@@ -11305,6 +11305,10 @@
   proname => 'trunc', pronamespace => 'ORANSP', prolang => 'sql', 
   prorettype => 'numeric', proargtypes => 'numeric numeric',
   prosrc => 'select pg_catalog.trunc($1, trunc($2)::int4)' },
+{ oid => '8918', row_macros => 'ADB_GRAM_ORA',
+  proname => 'round', pronamespace => 'ORANSP', prolang => 'sql',
+  prorettype => 'numeric', proargtypes => 'numeric numeric',
+  prosrc => 'select pg_catalog.round($1, trunc($2)::int4)' },
 
 { oid => '9140', row_macros => 'ADB', descr => 'pause cluster',
   proname => 'pg_pause_cluster', provolatile => 'v', prorettype => 'bool',
