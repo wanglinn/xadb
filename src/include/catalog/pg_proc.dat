@@ -11301,6 +11301,10 @@
   proname => 'width_bucket', pronamespace => 'ORANSP', prolang => 'sql',
   prorettype => 'int4', proargtypes => 'numeric numeric numeric numeric',
   prosrc => 'select pg_catalog.width_bucket($1, $2, $3, trunc($4)::int4)' },
+{ oid => '8917', row_macros => 'ADB_GRAM_ORA',
+  proname => 'trunc', pronamespace => 'ORANSP', prolang => 'sql', 
+  prorettype => 'numeric', proargtypes => 'numeric numeric',
+  prosrc => 'select pg_catalog.trunc($1, trunc($2)::int4)' },
 
 { oid => '9140', row_macros => 'ADB', descr => 'pause cluster',
   proname => 'pg_pause_cluster', provolatile => 'v', prorettype => 'bool',
