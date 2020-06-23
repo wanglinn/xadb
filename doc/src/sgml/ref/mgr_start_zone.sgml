@@ -1,0 +1,71 @@
+<!--
+doc/src/sgml/ref/mgr_start_zone.sgml
+ADB documentation
+-->
+
+<refentry id="mgr-startzone">
+  <refmeta>
+    <refentrytitle>START ZONE</refentrytitle>
+    <manvolnum>7</manvolnum>
+    <refmiscinfo>Manage - Language Statements</refmiscinfo>
+  </refmeta>
+
+  <refnamediv>
+    <refname>START ZONE</refname>
+    <refpurpose>start the nodes in the zone \n
+    Use like this:\n
+    START ZONE ${zonename}\n
+    </refpurpose>
+  </refnamediv>
+
+  <indexterm zone="mgr-startzone">
+    <primary>START ZONE</primary>
+  </indexterm>
+
+  <refsynopsisdiv>
+    <synopsis>
+    START ZONE <replaceable class="parameter">zonename </replaceable>
+    START ZONE <replaceable class="parameter">${zonename}</replaceable>
+    </synopsis>
+  </refsynopsisdiv>
+
+  <refsect1>
+    <title>Description</title>
+
+    <para>
+<command>START ZONE</command> start the nodes in the zone.
+    </para>
+  </refsect1>
+
+  <refsect1>
+    <title>Parameters</title>
+  <variablelist>
+    
+   <varlistentry>
+    <term><replaceable class="parameter">zonename</replaceable></term>
+    <listitem>
+      <para>
+      Data center name.
+      </para>
+    </listitem>
+   </varlistentry>
+
+  </variablelist>
+  </refsect1>
+  
+  <refsect1>
+    <title>Examples</title>
+
+    <para>
+      <programlisting>
+      START ZONE;
+      </programlisting>
+    </para>
+  </refsect1>
+  
+ <refsect1>
+  <title>See Also</title>
+
+ </refsect1>
+ 
+</refentry>

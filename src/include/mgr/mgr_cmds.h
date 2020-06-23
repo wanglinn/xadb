@@ -279,6 +279,8 @@ extern Datum mgr_stop_dn_master_all(PG_FUNCTION_ARGS);
 extern Datum mgr_start_dn_slave(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_dn_slave(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_dn_slave_all(PG_FUNCTION_ARGS);
+extern Datum mgr_start_zone(PG_FUNCTION_ARGS);
+extern Datum mgr_stop_zone(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_agent_all(PG_FUNCTION_ARGS);
 extern Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS);
 extern Datum mgr_runmode_cndn(nodenames_supplier supplier,
