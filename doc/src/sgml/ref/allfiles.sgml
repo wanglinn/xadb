@@ -315,7 +315,8 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY mgrZoneSwitchover  SYSTEM "mgr_zone_switchover.sgml">
 <!ENTITY mgrZoneFailover    SYSTEM "mgr_zone_failover.sgml">
 <!ENTITY mgrZoneInit        SYSTEM "mgr_zone_init.sgml">
-
+<!ENTITY mgrStartZone       SYSTEM "mgr_start_zone.sgml">
+<!ENTITY mgrStopZone        SYSTEM "mgr_stop_zone.sgml">
 <!-- ADB monitor command -->
 <!ENTITY monitorAddJob      SYSTEM "monitor_add_job.sgml">
 <!ENTITY monitorAddJobItem  SYSTEM "monitor_add_jobitem.sgml">

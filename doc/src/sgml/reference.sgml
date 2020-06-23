@@ -386,6 +386,8 @@
    &mgrZoneSwitchover
    &mgrZoneClear
    &mgrZoneInit
+   &mgrStartZone
+   &mgrStopZone
 </reference>
 
 <reference id="reference-monitor">

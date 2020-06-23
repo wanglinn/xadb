@@ -276,6 +276,8 @@ static void RemoveSlaveNodeFromParent(Relation rel, Form_mgr_node curMgrNode, Oi
 static Oid MgrGetRootNodeOid(Oid curOid);	
 static bool MgrCheckChildAndParent(Oid childOid, Oid parentOid);
 static Datum mgr_monitor_ha_common(PG_FUNCTION_ARGS, char *zone);
+static void mgr_start_zone_nodes(char *zoneNameIn, char cmdType, char nodeType);
+static void mgr_stop_zone_nodes(char *zoneNameIn, const char *shutdownMode, char cmdType, char nodeType);
 
 #if (Natts_mgr_node != 12)
 #error "need change code"
@@ -2546,7 +2548,200 @@ Datum mgr_runmode_cndn(nodenames_supplier supplier,
 	pfree(getAgentCmdRst.description.data);
 	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 }
+Datum mgr_start_zone(PG_FUNCTION_ARGS)
+{
+	char 			*zoneName;
+	HeapTuple 		tup_result;
+	GetAgentCmdRst 	getAgentCmdRst;
+	NameData 		nodename;
+	
+	namestrcpy(&nodename, "start zone");
+	initStringInfo(&(getAgentCmdRst.description));
+	getAgentCmdRst.ret = true;
+	strcpy(getAgentCmdRst.description.data, "start zone success");
+	zoneName = PG_GETARG_CSTRING(0);
 
+	PG_TRY();
+	{
+		mgr_check_job_in_updateparam("monitor_handle_gtm");
+		mgr_check_job_in_updateparam("monitor_handle_coordinator");
+		mgr_check_job_in_updateparam("monitor_handle_datanode");
+		
+		mgr_start_zone_nodes(zoneName, AGT_CMD_GTMCOORD_START_MASTER, CNDN_TYPE_GTM_COOR_MASTER);
+		mgr_start_zone_nodes(zoneName, AGT_CMD_GTMCOORD_START_SLAVE, CNDN_TYPE_GTM_COOR_SLAVE);
+		mgr_start_zone_nodes(zoneName, AGT_CMD_CN_START, CNDN_TYPE_COORDINATOR_MASTER);
+		mgr_start_zone_nodes(zoneName, AGT_CMD_CN_START, CNDN_TYPE_COORDINATOR_SLAVE);
+		mgr_start_zone_nodes(zoneName, AGT_CMD_DN_START, CNDN_TYPE_DATANODE_MASTER);
+		mgr_start_zone_nodes(zoneName, AGT_CMD_DN_START, CNDN_TYPE_DATANODE_SLAVE);
+	}PG_CATCH();
+	{
+		getAgentCmdRst.ret = false;
+		strcpy(getAgentCmdRst.description.data, "start zone failed");
+	}PG_END_TRY();
+
+	tup_result = build_common_command_tuple(&nodename
+											,getAgentCmdRst.ret
+											,getAgentCmdRst.description.data);
+	return HeapTupleGetDatum(tup_result);
+}
+static void mgr_start_zone_nodes(char *zoneNameIn, char cmdType, char nodeType)
+{
+	InitNodeInfo 	*info = NULL;
+	Form_mgr_node 	mgrNode;
+	ScanKeyData 	key[2];
+	NameData 		zoneName;
+	HeapTuple 		aimtuple = NULL;
+	List 			*nodeNameList = NIL;
+	GetAgentCmdRst 	getAgentCmdRst;
+
+	namestrcpy(&zoneName, zoneNameIn);
+	ScanKeyInit(&key[0]
+		,Anum_mgr_node_nodezone
+		,BTEqualStrategyNumber
+		,F_NAMEEQ
+		,NameGetDatum(&zoneName));
+	ScanKeyInit(&key[1]
+		,Anum_mgr_node_nodetype
+		,BTEqualStrategyNumber
+		,F_CHAREQ
+		,CharGetDatum(nodeType));	
+		
+	PG_TRY();
+	{
+		info = palloc(sizeof(*info));
+		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
+		info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, key);
+		info->lcp = NULL;
+		while ((aimtuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+		{
+			mgrNode = (Form_mgr_node)GETSTRUCT(aimtuple);
+			Assert(mgrNode);
+			if(nodeType != mgrNode->nodetype)
+			{
+				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
+					errmsg("the type of  %s is not right, use \"list node\" to check",  NameStr(mgrNode->nodename))));
+			}
+
+			nodeNameList = NIL;
+			nodeNameList = lappend(nodeNameList, NameStr(mgrNode->nodename));
+			enable_doctor_consulting(nodeNameList, nodeType);
+
+			initStringInfo(&(getAgentCmdRst.description));
+			mgr_runmode_cndn_get_result(cmdType, &getAgentCmdRst, info->rel_node, aimtuple, TAKEPLAPARM_N);
+			MgrFree(getAgentCmdRst.description.data);
+		}
+	}PG_CATCH();
+	{
+		MgrFree(getAgentCmdRst.description.data);
+		heap_endscan(info->rel_scan);
+		heap_close(info->rel_node, AccessShareLock);
+		MgrFree(info);
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	heap_endscan(info->rel_scan);
+	heap_close(info->rel_node, AccessShareLock);
+	MgrFree(info);
+}
+Datum mgr_stop_zone(PG_FUNCTION_ARGS)
+{
+	char 			*stopMode;
+	char 			*zoneName;
+	HeapTuple 		tup_result;
+	GetAgentCmdRst 	getAgentCmdRst;
+	NameData 		nodename;
+
+	
+	namestrcpy(&nodename, "stop zone");
+	initStringInfo(&(getAgentCmdRst.description));
+	getAgentCmdRst.ret = true;
+	strcpy(getAgentCmdRst.description.data, "stop zone success");
+	zoneName = PG_GETARG_CSTRING(0);
+	stopMode = PG_GETARG_CSTRING(1);
+
+	PG_TRY();
+	{
+		mgr_check_job_in_updateparam("monitor_handle_gtm");
+		mgr_check_job_in_updateparam("monitor_handle_coordinator");
+		mgr_check_job_in_updateparam("monitor_handle_datanode");
+		
+		mgr_stop_zone_nodes(zoneName, stopMode, AGT_CMD_GTMCOORD_STOP_MASTER, CNDN_TYPE_GTM_COOR_MASTER);
+		mgr_stop_zone_nodes(zoneName, stopMode, AGT_CMD_GTMCOORD_STOP_SLAVE, CNDN_TYPE_GTM_COOR_SLAVE);
+		mgr_stop_zone_nodes(zoneName, stopMode, AGT_CMD_CN_STOP, CNDN_TYPE_COORDINATOR_MASTER);
+		mgr_stop_zone_nodes(zoneName, stopMode, AGT_CMD_CN_STOP, CNDN_TYPE_COORDINATOR_SLAVE);
+		mgr_stop_zone_nodes(zoneName, stopMode, AGT_CMD_DN_STOP, CNDN_TYPE_DATANODE_MASTER);
+		mgr_stop_zone_nodes(zoneName, stopMode, AGT_CMD_DN_STOP, CNDN_TYPE_DATANODE_SLAVE);
+	}PG_CATCH();
+	{
+		getAgentCmdRst.ret = false;
+		strcpy(getAgentCmdRst.description.data, "stop zone failed");
+	}PG_END_TRY();
+
+	tup_result = build_common_command_tuple(&nodename
+											,getAgentCmdRst.ret
+											,getAgentCmdRst.description.data);
+	return HeapTupleGetDatum(tup_result);
+}
+static void mgr_stop_zone_nodes(char *zoneNameIn, const char *shutdownMode, char cmdType, char nodeType)
+{
+	InitNodeInfo 	*info = NULL;
+	Form_mgr_node 	mgrNode;
+	ScanKeyData 	key[2];
+	NameData 		zoneName;
+	HeapTuple 		aimtuple = NULL;
+	List 			*nodeNameList = NIL;
+	GetAgentCmdRst 	getAgentCmdRst;
+
+	namestrcpy(&zoneName, zoneNameIn);
+	ScanKeyInit(&key[0]
+		,Anum_mgr_node_nodezone
+		,BTEqualStrategyNumber
+		,F_NAMEEQ
+		,NameGetDatum(&zoneName));
+	ScanKeyInit(&key[1]
+		,Anum_mgr_node_nodetype
+		,BTEqualStrategyNumber
+		,F_CHAREQ
+		,CharGetDatum(nodeType));	
+		
+	PG_TRY();
+	{
+		info = palloc(sizeof(*info));
+		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
+		info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, key);
+		info->lcp = NULL;
+		while ((aimtuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+		{
+			mgrNode = (Form_mgr_node)GETSTRUCT(aimtuple);
+			Assert(mgrNode);
+			if(nodeType != mgrNode->nodetype)
+			{
+				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR),
+					errmsg("the type of  %s is not right, use \"list node\" to check",  NameStr(mgrNode->nodename))));
+			}
+
+			nodeNameList = NIL;
+			nodeNameList = lappend(nodeNameList, NameStr(mgrNode->nodename));
+			disable_doctor_consulting(nodeNameList, nodeType);
+
+			/*get execute cmd result from agent*/
+			initStringInfo(&(getAgentCmdRst.description));
+			mgr_runmode_cndn_get_result(cmdType, &getAgentCmdRst, info->rel_node, aimtuple, shutdownMode);
+			MgrFree(getAgentCmdRst.description.data);
+		}
+	}PG_CATCH();
+	{
+		MgrFree(getAgentCmdRst.description.data);
+		heap_endscan(info->rel_scan);
+		heap_close(info->rel_node, AccessShareLock);
+		MgrFree(info);
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	heap_endscan(info->rel_scan);
+	heap_close(info->rel_node, AccessShareLock);
+	MgrFree(info);
+}
 Datum mgr_boottime_all(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;

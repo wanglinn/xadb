@@ -2363,6 +2363,14 @@ StartNodeMasterStmt:
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("startall"), -1));
 			$$ = (Node*)stmt;
 		}
+	|	START ZONE Ident
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($3, -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_start_zone", args));
+			$$ = (Node*)stmt;
+		}		
 	;
 StopNodeMasterStmt:
 		STOP GTMCOORD MASTER Ident opt_stop_mode
@@ -2515,6 +2523,20 @@ StopNodeMasterStmt:
 				stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("stopall_i"), -1));
 			$$ = (Node*)stmt;
 		}
+	|	STOP ZONE Ident opt_stop_mode
+		{
+			SelectStmt *stmt = makeNode(SelectStmt);
+			List *args = list_make1(makeStringConst($3, -1));
+			if (strcmp($4, SHUTDOWN_S) == 0)
+				args = lappend(args, makeStringConst("smart", -1));
+			else if (strcmp($4, SHUTDOWN_F) == 0)
+				args = lappend(args, makeStringConst("fast", -1));
+			else
+				args = lappend(args, makeStringConst("immediate", -1));
+			stmt->targetList = list_make1(make_star_target(-1));
+			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_stop_zone", args));
+			$$ = (Node*)stmt;
+		}	
 	;
 FailoverStmt:
 		FAILOVER DATANODE Ident opt_general_force
