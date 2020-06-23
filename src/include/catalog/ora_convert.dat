@@ -524,6 +524,7 @@
 { cvtkind => 'o', cvtname => '~~', cvtfrom => 'numeric bpchar', cvtto => 'text text' },
 { cvtkind => 'o', cvtname => '~~', cvtfrom => 'numeric float4', cvtto => 'numeric text' },
 { cvtkind => 'o', cvtname => '~~', cvtfrom => 'numeric int8', cvtto => 'numeric text' },
+{ cvtkind => 'o', cvtname => '~~', cvtfrom => '0 0', cvtto => 'text text' },
 
 { cvtkind => 'o', cvtname => '!~~', cvtfrom => 'char text', cvtto => 'bytea bytea' },
 { cvtkind => 'o', cvtname => '!~~', cvtfrom => 'char char', cvtto => 'bytea bytea' },
@@ -645,6 +646,7 @@
 { cvtkind => 'o', cvtname => '!~~', cvtfrom => 'oracle.date numeric', cvtto => 'text text' },
 { cvtkind => 'o', cvtname => '!~~', cvtfrom => 'oracle.date oracle.varchar2', cvtto => 'text text' },
 { cvtkind => 'o', cvtname => '!~~', cvtfrom => 'oracle.date oracle.date', cvtto => 'text text' },
+{ cvtkind => 'o', cvtname => '!~~', cvtfrom => '0 0', cvtto => 'text text' },
 
 # common combin
 { cvtkind => 'c', cvtname => '', cvtfrom => 'oracle.varchar2 varchar',			cvtto => 'oracle.varchar2' },
