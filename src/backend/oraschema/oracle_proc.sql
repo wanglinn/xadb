@@ -187,6 +187,14 @@ CREATE OR REPLACE FUNCTION oracle.months_between(TIMESTAMP WITH TIME ZONE, TIMES
 --ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
+CREATE OR REPLACE FUNCTION oracle.months_between(TIMESTAMP WITH TIME ZONE, oracle.varchar2)
+    RETURNS NUMERIC
+    AS $$SELECT oracle.months_between($1::pg_catalog.date, $2::pg_catalog.date);$$
+    LANGUAGE SQL
+    IMMUTABLE
+--ADBONLY CLUSTER SAFE
+    RETURNS NULL ON NULL INPUT;
+
 /*
  * Function: new_time
  * Parameter Type: (timestamp, text, text)
