@@ -381,7 +381,7 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 	List		*tmp_nodeids = NIL;
 	ListCell	*lc;
 
-	if (rel_loc_info == NULL)
+	if (rel_loc_info == NULL || rel_loc_info->locatorType == LOCATOR_TYPE_LIST)
 		return NULL;
 
 	/* Delete duplicate node information, avoid duplicate connection between poolmgr and datanode. */
