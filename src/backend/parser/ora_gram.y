@@ -314,7 +314,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	ColId ColLabel cursor_name
 	explain_option_name extract_arg
 	iso_level index_name
-	MathOp
+	MathOp convert_Op
 	name NonReservedWord NonReservedWord_or_Sconst
 	opt_boolean_or_string opt_encoding OptConsTableSpace opt_index_name
 	opt_existing_window_name
@@ -8052,7 +8052,7 @@ OraImplicitConvertStmt:
 					$$ = (Node *) c;
 				}
 			/* implicit convert operator */
-			| CREATE opt_or_replace CONVERT OPERATOR convert_typename all_Op convert_typename AS convert_typename all_Op convert_typename
+			| CREATE opt_or_replace CONVERT OPERATOR convert_typename convert_Op convert_typename AS convert_typename convert_Op convert_typename
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
 					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
@@ -8064,7 +8064,7 @@ OraImplicitConvertStmt:
 					c->location = @1;
 					$$ = (Node *) c;
 				}
-			| DROP CONVERT OPERATOR convert_typename all_Op convert_typename
+			| DROP CONVERT OPERATOR convert_typename convert_Op convert_typename
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
 					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
@@ -8075,7 +8075,7 @@ OraImplicitConvertStmt:
 					c->location = @1;
 					$$ = (Node *) c;
 				}
-			| DROP CONVERT OPERATOR IF_P EXISTS convert_typename all_Op convert_typename
+			| DROP CONVERT OPERATOR IF_P EXISTS convert_typename convert_Op convert_typename
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
 					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
@@ -8106,6 +8106,11 @@ convert_typename:
 					n->location = @1;
 					$$ = n;
 				}
+			;
+convert_Op:
+			  all_Op
+			| LIKE			{ $$ = "~~"; }
+			| NOT LIKE		{ $$ = "!~~"; }
 			;
 
 type_list:	Typename								{ $$ = list_make1($1); }
