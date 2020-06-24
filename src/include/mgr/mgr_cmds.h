@@ -257,6 +257,7 @@ extern void mgr_add_node(MGRAddNode *node, ParamListInfo params, DestReceiver *d
 extern void mgr_alter_node(MGRAlterNode *node, ParamListInfo params, DestReceiver *dest);
 extern void mgr_drop_node(MGRDropNode *node, ParamListInfo params, DestReceiver *dest);
 extern Datum mgr_drop_node_func(PG_FUNCTION_ARGS);
+extern void mgr_drop_all_nodes(dlist_head *mgrNodes);
 extern Datum mgr_init_all(PG_FUNCTION_ARGS);
 extern Datum mgr_init_cn_master(PG_FUNCTION_ARGS);
 extern Datum mgr_init_cn_slave(PG_FUNCTION_ARGS);

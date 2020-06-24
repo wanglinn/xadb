@@ -46,7 +46,7 @@
 #include "nodes/makefuncs.h"
 #include "access/xlog.h"
 #include "nodes/nodes.h"
-
+#include "access/xact.h"
 /*
 hot_expansion changes below functions:
 1.mgr_pgbasebackup:add dnmaster type.
@@ -1121,7 +1121,7 @@ Datum mgr_drop_node_func(PG_FUNCTION_ARGS)
 	{
 		heap_close(rel, RowExclusiveLock);
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-					,errmsg("%s \"%s\" does not exist", mgr_nodetype_str(nodetype), nodename)));
+					,errmsg("%s \"%s\" does not exist", mgr_get_nodetype_desc(nodetype), nodename)));
 	}
 	/*check this tuple initd or not, if it has inited and in cluster, cannot be dropped*/
 	mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -1131,21 +1131,17 @@ Datum mgr_drop_node_func(PG_FUNCTION_ARGS)
 		heap_freetuple(tuple);
 		heap_close(rel, RowExclusiveLock);
 		ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
-				 ,errmsg("%s \"%s\" has been initialized in the cluster, cannot be dropped"
-				 , mgr_nodetype_str(nodetype), nodename)));
+				,errmsg("%s \"%s\" has been initialized in the cluster, cannot be dropped"
+				, mgr_get_nodetype_desc(nodetype), nodename)));
 	}
-	/*check the node has been used by its slave*/
-	if (CNDN_TYPE_DATANODE_MASTER == mgr_node->nodetype|| CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype
-		|| CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype)
+    /*check the node has been used by its slave*/
+	if (mgr_node_has_slave(rel, HeapTupleGetOid(tuple)))
 	{
-		if (mgr_node_has_slave(rel, HeapTupleGetOid(tuple)))
-		{
-			heap_freetuple(tuple);
-			heap_close(rel, RowExclusiveLock);
-			ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
-					 ,errmsg("%s \"%s\" has been used by slave, cannot be dropped"
-						, mgr_nodetype_str(nodetype), nodename)));
-		}
+		heap_freetuple(tuple);
+		heap_close(rel, RowExclusiveLock);
+		ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
+				,errmsg("%s \"%s\" has been used by slave, cannot be dropped"
+					, mgr_get_nodetype_desc(nodetype), nodename)));
 	}
 	namestrcpy(&syncData, NameStr(mgr_node->nodesync));
 	mastertupleoid = mgr_node->nodemasternameoid;
@@ -1205,6 +1201,132 @@ Datum mgr_drop_node_func(PG_FUNCTION_ARGS)
 	(void)MemoryContextSwitchTo(old_context);
 	MemoryContextDelete(context);
 	PG_RETURN_BOOL(true);
+}
+
+void mgr_drop_all_nodes(dlist_head *mgrNodes)
+{
+	Relation rel = NULL;
+	Relation rel_updateparm = NULL;
+	HeapTuple tuple;
+	NameData nameall;
+	NameData syncData;
+	HeapScanDesc rel_scan = NULL;
+	ScanKeyData key[1];
+	Form_mgr_node mgr_node;
+	char mastertype;
+	int getnum = 0;
+	Oid selftupleoid;
+	Oid mastertupleoid;
+	char nodetype;
+	NameData nodename;
+	MgrNodeWrapper 		*mgrNode = NULL;
+	dlist_iter 			iter;
+
+	rel = heap_open(NodeRelationId, RowExclusiveLock);
+	rel_updateparm = heap_open(UpdateparmRelationId, RowExclusiveLock);
+	PG_TRY();
+	{
+		dlist_foreach(iter, mgrNodes)
+		{
+			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+			Assert(mgrNode);
+			nodetype = mgrNode->form.nodetype;
+			namestrcpy(&nodename, NameStr(mgrNode->form.nodename));
+
+			/* first we need check is it all exists and used by other */
+			tuple = mgr_get_tuple_node_from_name_type(rel, NameStr(nodename));
+			if(!HeapTupleIsValid(tuple))
+			{
+				heap_close(rel, RowExclusiveLock);
+				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+							,errmsg("%s \"%s\" does not exist", mgr_get_nodetype_desc(nodetype), NameStr(nodename))));
+			}
+			/*check this tuple initd or not, if it has inited and in cluster, cannot be dropped*/
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			Assert(mgr_node);
+			if(mgr_node->nodeincluster)
+			{
+				heap_freetuple(tuple);
+				heap_close(rel, RowExclusiveLock);
+				ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
+						,errmsg("%s \"%s\" has been initialized in the cluster, cannot be dropped"
+						, mgr_get_nodetype_desc(nodetype), NameStr(nodename))));
+			}
+			if (mgr_node_has_slave(rel, HeapTupleGetOid(tuple)))
+			{
+				heap_freetuple(tuple);
+				heap_close(rel, RowExclusiveLock);
+				ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
+						,errmsg("%s \"%s\" has been used by slave, cannot be dropped"
+							, mgr_get_nodetype_desc(nodetype), NameStr(nodename))));
+			}
+			namestrcpy(&syncData, NameStr(mgr_node->nodesync));
+			mastertupleoid = mgr_node->nodemasternameoid;
+			selftupleoid = HeapTupleGetOid(tuple);
+			CatalogTupleDelete(rel, &(tuple->t_self));
+			heap_freetuple(tuple);
+
+			CommandCounterIncrement();
+
+			/* now we can delete node(s) */
+			ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodetype
+				,BTEqualStrategyNumber
+				,F_CHAREQ
+				,CharGetDatum(nodetype));
+			rel_scan = heap_beginscan_catalog(rel, 1, key);
+			getnum = 0;
+			while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+			{
+				if(HeapTupleIsValid(tuple))
+				{
+					getnum++;
+				}
+			}
+			heap_endscan(rel_scan);
+
+			/*delete the parm in mgr_updateparm for this type of node*/
+			
+			mgr_parmr_delete_tuple_nodename_nodetype(rel_updateparm, &nodename, nodetype);
+
+			mastertype = mgr_get_master_type(nodetype);
+			if (mastertype != nodetype && (strcmp(syncData.data, sync_state_tab[SYNC_STATE_SYNC].name) == 0))
+			{
+				/*if the node is sync node, and its master has potential node, 
+				* we need update one potential node to sync node
+				*/
+				if (!mgr_check_syncstate_node_exist(rel, mastertupleoid, SYNC_STATE_SYNC, selftupleoid, false, mgr_zone))
+				{
+					mgr_update_one_potential_to_sync(rel, mastertupleoid, false, selftupleoid);
+				}
+			}
+
+			/*if the node is coordinator, so it's need to update the hba table*/
+			if (CNDN_TYPE_COORDINATOR_MASTER == nodetype ||
+				CNDN_TYPE_GTM_COOR_MASTER == nodetype ||
+				CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
+			{
+				mgr_clean_hba_table(NameStr(nodename), NULL);
+			}
+
+			/*delete the parm in mgr_updateparm for this type and nodename in mgr_updateparm is MACRO_STAND_FOR_ALL_NODENAME*/
+			if (getnum == 1)
+			{
+				namestrcpy(&nameall, MACRO_STAND_FOR_ALL_NODENAME);
+				mgr_parmr_delete_tuple_nodename_nodetype(rel_updateparm, &nameall, nodetype);
+			}
+		}
+	}
+	PG_CATCH();
+	{
+		heap_close(rel, RowExclusiveLock);
+		heap_close(rel_updateparm, RowExclusiveLock);
+	}
+	PG_END_TRY();
+
+	// heap_endscan(rel_scan);
+	heap_close(rel, RowExclusiveLock);
+	heap_close(rel_updateparm, RowExclusiveLock);
 }
 
 /*

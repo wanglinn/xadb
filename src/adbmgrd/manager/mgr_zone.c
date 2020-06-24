@@ -68,7 +68,12 @@ static void MgrCheckAllSlaveNum(MemoryContext spiContext,
 static void MgrCheckSlaveNum(MemoryContext spiContext, 
 							char *currentZone,
 							char masterType);
-
+static void MgrGetNodeAndChildsInZone(MemoryContext spiContext,
+										MgrNodeWrapper *mgrNode,
+										char *zone,
+										dlist_head *slaveNodes);
+static bool MgrCheckHasSlaveZoneNode(MemoryContext spiContext, 
+									char *zone);								
 
 Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 {
@@ -275,57 +280,67 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 }
 Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 {
-	Relation 		relNode = NULL;
-	HeapScanDesc 	relScan  = NULL;
-	ScanKeyData 	key[2];
-	HeapTuple 		tuple = NULL;
-	Form_mgr_node 	mgrNode = NULL;
-	char 			*zone = NULL;
+	int 				spiRes;
+	char 				*zone = NULL;
+	dlist_iter 			iter;
+	MgrNodeWrapper 		*mgrNode = NULL;
+	MemoryContext 		oldContext;
+	MemoryContext 		spiContext = NULL;
+	MemoryContext   	switchContext = NULL;
+	HeapTuple 			tupResult = NULL;
+	NameData 			name;
+	dlist_head 			mgrNodes = DLIST_STATIC_INIT(mgrNodes);
+	dlist_head 			mgrNodesNew = DLIST_STATIC_INIT(mgrNodesNew);
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot do the command during recovery")));
 
 	zone  = PG_GETARG_CSTRING(0);
 	Assert(zone);
+	namestrcpy(&name, "DROP ZONE");
 
-	ereportNoticeLog(errmsg("drop node if the node is not inited."));
-
-	ScanKeyInit(&key[0]
-				,Anum_mgr_node_nodeinited
-				,BTEqualStrategyNumber
-				,F_BOOLEQ
-				,BoolGetDatum(false));
-	ScanKeyInit(&key[1]
-			,Anum_mgr_node_nodezone
-			,BTEqualStrategyNumber
-			,F_NAMEEQ
-			,CStringGetDatum(zone));
+	oldContext = CurrentMemoryContext;
+	switchContext = AllocSetContextCreate(CurrentMemoryContext, "mgr_zone_clear", ALLOCSET_DEFAULT_SIZES);
+	if ((spiRes = SPI_connect()) != SPI_OK_CONNECT){
+		ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
+	}
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(switchContext);
 
 	PG_TRY();
 	{
-		relNode = heap_open(NodeRelationId, RowExclusiveLock);
-		relScan = heap_beginscan_catalog(relNode, 2, key);
-		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
-		{
-			mgrNode = (Form_mgr_node)GETSTRUCT(tuple);
-			Assert(mgrNode);
-			ereport(LOG, (errmsg("zone clear %s, drop node %s.", zone, NameStr(mgrNode->nodename))));
-
-			if(HeapTupleIsValid(tuple))
-			{
-				simple_heap_delete(relNode, &(tuple->t_self));
-			}
+		if(MgrCheckHasSlaveZoneNode(spiContext, zone)){
+			ereport(ERROR, (errmsg("zone %s has slave node in other zone, so can't drop zone %s.",	zone, zone)));
 		}
-		EndScan(relScan);
+		dlist_init(&mgrNodes);
+		selectChildNodes(spiContext,
+							0,
+							&mgrNodes);
+		dlist_foreach(iter, &mgrNodes)
+		{
+			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+			Assert(mgrNode);
+			MgrGetNodeAndChildsInZone(spiContext,
+									mgrNode,
+									zone,
+									&mgrNodesNew);		
+		}
+		mgr_drop_all_nodes(&mgrNodesNew);
 	}PG_CATCH();
 	{
-		EndScan(relScan);	
-		heap_close(relNode, RowExclusiveLock);	
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
+		SPI_finish();
 		PG_RE_THROW();
 	}PG_END_TRY();
 
-	heap_close(relNode, RowExclusiveLock);
-	PG_RETURN_BOOL(true);
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(switchContext);
+	SPI_finish();
+
+	ereportNoticeLog(errmsg("DROP ZONE %s success", zone));
+	tupResult = build_common_command_tuple(&name, true, "success");
+	return HeapTupleGetDatum(tupResult);
 }
 
 Datum mgr_zone_init(PG_FUNCTION_ARGS)
@@ -702,4 +717,69 @@ static void MgrCheckSlaveNum(MemoryContext spiContext,
 
 	pfreeMgrNodeWrapperList(&masterMgrNodes, NULL);
 }
+static void MgrGetNodeAndChildsInZone(MemoryContext spiContext,
+									MgrNodeWrapper *mgrNode,
+									char *zone,
+									dlist_head *slaveNodes)
+{
+	dlist_head 			mgrNodes = DLIST_STATIC_INIT(mgrNodes);
+	dlist_iter 			iter;
+	MgrNodeWrapper 		*slaveNode = NULL;
+	MgrNodeWrapper 		*mgrNodeTmp = NULL;
+
+	Assert(mgrNode);
+
+    if (pg_strcasecmp(NameStr(mgrNode->form.nodezone), zone) == 0){
+		mgrNodeTmp = (MgrNodeWrapper *)palloc0(sizeof(MgrNodeWrapper));
+		memcpy(mgrNodeTmp, mgrNode, sizeof(MgrNodeWrapper));
+		dlist_push_head(slaveNodes, &mgrNodeTmp->link);
+	}
+
+	dlist_init(&mgrNodes);
+	selectChildNodesInZone(spiContext,
+						   mgrNode->oid,
+						   zone,
+						   &mgrNodes);
+	dlist_foreach(iter, &mgrNodes)
+	{
+		slaveNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		Assert(slaveNode);
+		MgrGetNodeAndChildsInZone(spiContext,
+								slaveNode,
+								zone,
+								slaveNodes);
+	}
+}
+static bool MgrCheckHasSlaveZoneNode(MemoryContext spiContext, char *zone)
+{
+	dlist_head 			mgrNodes = DLIST_STATIC_INIT(mgrNodes);
+	dlist_head 			childNodes = DLIST_STATIC_INIT(childNodes);
+	MgrNodeWrapper 		*mgrNode = NULL;
+	MgrNodeWrapper 		*childNode = NULL;
+	dlist_iter 			iter;
+	dlist_iter 			childIter;
+	
+    selectAllNodesInZone(spiContext, zone, &mgrNodes);
+	dlist_foreach(iter, &mgrNodes)
+	{
+		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		Assert(mgrNode);
+		selectChildNodes(spiContext,
+                        mgrNode->oid,
+						&childNodes);
+		dlist_foreach(childIter, &childNodes)
+		{
+			childNode = dlist_container(MgrNodeWrapper, link, childIter.cur);
+			Assert(childNode);
+			if (pg_strcasecmp(NameStr(childNode->form.nodezone), NameStr(mgrNode->form.nodezone)) != 0){
+				ereport(LOG, (errmsg("node(%s) zone(%s) is not equal to node(%s) zone(%s).",
+				    NameStr(childNode->form.nodename), 	NameStr(childNode->form.nodezone),
+					NameStr(mgrNode->form.nodename), NameStr(mgrNode->form.nodezone))));
+				return true;	
+			}
+		}
+	}
+	return false;
+}
+
 
