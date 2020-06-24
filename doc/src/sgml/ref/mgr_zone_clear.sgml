@@ -24,7 +24,7 @@ ADB documentation
 
   <refsynopsisdiv>
     <synopsis>
-DROP ZONE<replaceable class="parameter">zone_name</replaceable>
+DROP ZONE<replaceable class="parameter"> zone_name</replaceable>
 </synopsis>
   </refsynopsisdiv>
 

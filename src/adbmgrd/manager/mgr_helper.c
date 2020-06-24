@@ -394,6 +394,54 @@ void selectActiveMgrSlaveNodes(Oid masterOid,
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
+void selectChildNodes(MemoryContext spiContext,
+                        Oid oid,
+						dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * "
+					 "FROM pg_catalog.mgr_node "
+					 "WHERE nodemasternameoid = %u ",
+					 oid);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
+void selectChildNodesInZone(MemoryContext spiContext,
+							Oid masterOid,
+							char *zone,
+						    dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * "
+					 "FROM pg_catalog.mgr_node "
+					 "WHERE nodemasternameoid = %u "
+					 "AND nodezone = '%s' ",
+					 masterOid,
+					 zone);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
+void selectAllNodesInZone(MemoryContext spiContext,
+							char *zone,
+						    dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * "
+					 "FROM pg_catalog.mgr_node "
+					 "WHERE nodezone = '%s' ",
+					 zone);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
 void selectActiveMgrSlaveNodesInZone(Oid masterOid,
 							   char nodetype,
 							   char *zone,
