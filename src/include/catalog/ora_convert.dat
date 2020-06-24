@@ -1,6 +1,7 @@
 
 [
 # sum(string)
+{ cvtkind => 'f', cvtname => 'add_months', cvtfrom => '0 0', cvtto => 'timestamp int4' },
 { cvtkind => 'f', cvtname => 'bitand', cvtfrom => 'unknown unknown', cvtto => 'numeric numeric' },
 { cvtkind => 'f', cvtname => 'cosh', cvtfrom => 'text', cvtto => 'numeric' },
 { cvtkind => 'f', cvtname => 'length', cvtfrom => 'numeric', cvtto => 'char' },
