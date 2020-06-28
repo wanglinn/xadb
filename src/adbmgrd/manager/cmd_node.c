@@ -1238,7 +1238,6 @@ void mgr_drop_all_nodes(dlist_head *mgrNodes)
 			tuple = mgr_get_tuple_node_from_name_type(rel, NameStr(nodename));
 			if(!HeapTupleIsValid(tuple))
 			{
-				heap_close(rel, RowExclusiveLock);
 				ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 							,errmsg("%s \"%s\" does not exist", mgr_get_nodetype_desc(nodetype), NameStr(nodename))));
 			}
@@ -1248,7 +1247,6 @@ void mgr_drop_all_nodes(dlist_head *mgrNodes)
 			if(mgr_node->nodeincluster)
 			{
 				heap_freetuple(tuple);
-				heap_close(rel, RowExclusiveLock);
 				ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 						,errmsg("%s \"%s\" has been initialized in the cluster, cannot be dropped"
 						, mgr_get_nodetype_desc(nodetype), NameStr(nodename))));
@@ -1256,7 +1254,6 @@ void mgr_drop_all_nodes(dlist_head *mgrNodes)
 			if (mgr_node_has_slave(rel, HeapTupleGetOid(tuple)))
 			{
 				heap_freetuple(tuple);
-				heap_close(rel, RowExclusiveLock);
 				ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 						,errmsg("%s \"%s\" has been used by slave, cannot be dropped"
 							, mgr_get_nodetype_desc(nodetype), NameStr(nodename))));
@@ -1322,10 +1319,10 @@ void mgr_drop_all_nodes(dlist_head *mgrNodes)
 	{
 		heap_close(rel, RowExclusiveLock);
 		heap_close(rel_updateparm, RowExclusiveLock);
+		PG_RE_THROW();
 	}
 	PG_END_TRY();
 
-	// heap_endscan(rel_scan);
 	heap_close(rel, RowExclusiveLock);
 	heap_close(rel_updateparm, RowExclusiveLock);
 }
