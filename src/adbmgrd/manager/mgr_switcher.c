@@ -3332,23 +3332,14 @@ static SwitcherNodeWrapper *checkGetSwitchoverOldMasterForZone(SwitcherNodeWrapp
 	}
 	oldMaster = palloc0(sizeof(SwitcherNodeWrapper));
 	oldMaster->mgrNode = mgrNode;
-	// if (tryConnectNode(oldMaster, 10))
-	// {
-		oldMaster->runningMode = getNodeRunningModeEx(holdLockCoordinator, oldMaster);
-		if (oldMaster->runningMode != NODE_RUNNING_MODE_MASTER && isMasterNode(nodetype, true))
-		{
-			pfreeSwitcherNodeWrapperPGconn(oldMaster);
-			ereport(ERROR,
-					(errmsg("%s expected running status is master mode, but actually is not",
-							NameStr(mgrNode->form.nodename))));
-		}
-	// }
-	// else
-	// {
-	// 	ereport(ERROR,
-	// 			(errmsg("%s connection failed",
-	// 					NameStr(mgrNode->form.nodename))));
-	// }
+	oldMaster->runningMode = getNodeRunningModeEx(holdLockCoordinator, oldMaster);
+	if (oldMaster->runningMode != NODE_RUNNING_MODE_MASTER && isMasterNode(nodetype, true))
+	{
+		pfreeSwitcherNodeWrapperPGconn(oldMaster);
+		ereport(ERROR,
+				(errmsg("%s expected running status is master mode, but actually is not",
+						NameStr(mgrNode->form.nodename))));
+	}
 	return oldMaster;
 }
 
@@ -3816,7 +3807,7 @@ static void refreshOldMasterAfterSwitch(SwitcherNodeWrapper *oldMaster,
 										MemoryContext spiContext,
 										bool kickOutOldMaster)
 {
-	namestrcpy(&oldMaster->mgrNode->form.nodesync, "");
+	namestrcpy(&oldMaster->mgrNode->form.nodesync, NameStr(newMaster->mgrNode->form.nodesync));
 	if (kickOutOldMaster)
 	{
 		/* Mark the data group to which the old master belongs */
@@ -3846,14 +3837,19 @@ static void refreshOldMasterAfterSwitch(SwitcherNodeWrapper *oldMaster,
 		updateMgrNodeAfterSwitch(oldMaster->mgrNode,
 								 CURE_STATUS_OLD_MASTER,
 								 spiContext);
-		ereport(LOG,
-				(errmsg("%s is waiting for rewinding. If the doctor is enabled, "
+
+		ereportNoticeLog(errmsg("%s is waiting for rewinding. If the doctor is enabled, "
 						"the doctor will automatically rewind it",
-						NameStr(oldMaster->mgrNode->form.nodename))));
-		ereport(NOTICE,
-				(errmsg("%s is waiting for rewinding. If the doctor is enabled, "
-						"the doctor will automatically rewind it",
-						NameStr(oldMaster->mgrNode->form.nodename))));
+						NameStr(oldMaster->mgrNode->form.nodename)));
+
+		// ereport(LOG,
+		// 		(errmsg("%s is waiting for rewinding. If the doctor is enabled, "
+		// 				"the doctor will automatically rewind it",
+		// 				NameStr(oldMaster->mgrNode->form.nodename))));
+		// ereport(NOTICE,
+		// 		(errmsg("%s is waiting for rewinding. If the doctor is enabled, "
+		// 				"the doctor will automatically rewind it",
+		// 				NameStr(oldMaster->mgrNode->form.nodename))));
 	}
 }
 
