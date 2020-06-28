@@ -180,10 +180,10 @@
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.nvarchar2 unknown', cvtto => 'numeric numeric' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.nvarchar2 oracle.varchar2', cvtto => 'numeric numeric' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'oracle.nvarchar2 oracle.nvarchar2', cvtto => 'numeric numeric' },
-{ cvtkind => 'o', cvtname => '+', cvtfrom => 'text oracle.date', cvtto => 'int4 timestamp' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'text oracle.date', cvtto => 'numeric timestamp' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'int2 oracle.date', cvtto => 'int4 timestamp' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'int4 oracle.date', cvtto => 'int4 timestamp' },
-{ cvtkind => 'o', cvtname => '+', cvtfrom => 'numeric oracle.date', cvtto => 'int4 timestamp' },
+{ cvtkind => 'o', cvtname => '+', cvtfrom => 'numeric oracle.date', cvtto => 'numeric timestamp' },
 
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'timetz bpchar', cvtto => 'timetz interval' },
 { cvtkind => 'o', cvtname => '+', cvtfrom => 'timetz varchar', cvtto => 'timetz interval' },
