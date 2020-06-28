@@ -8,6 +8,7 @@
 #include "access/heapam.h"
 #include "utils/rel.h"
 #include "catalog/indexing.h"
+#include "catalog/pg_type.h"
 #include "utils/resowner.h"
 #include "adb_doctor_log.h"
 #include "access/htup_details.h"
@@ -82,43 +83,75 @@ void insertAdbDoctorLogReturning(AdbDoctorLogRow *logRow)
 	HeapTuple tuple;
 	TupleDesc tupdesc;
 	SPITupleTable *tupTable;
+	int nargs = 0;
+	Oid argtypes[Natts_adbdlr] = {0};
+	Datum values[Natts_adbdlr] = {0};
+	char nulls[Natts_adbdlr] = {0};
 
 	initStringInfo(&columnNames);
 	initStringInfo(&columnValues);
 	if (logRow->begintime)
 	{
+		argtypes[nargs] = TIMESTAMPTZOID;
+		values[nargs] = TimestampTzGetDatum(logRow->begintime);
+		nulls[nargs] = ' ';
+		nargs++;
 		appendStringInfo(&columnNames, "begintime,");
-		appendStringInfo(&columnValues, "'%s',", DatumGetCString(DirectFunctionCall1(timestamptz_out, TimestampTzGetDatum(logRow->begintime))));
+		appendStringInfo(&columnValues, "$%d,", nargs);
 	}
 	if (logRow->endtime)
 	{
+		argtypes[nargs] = TIMESTAMPTZOID;
+		values[nargs] = TimestampTzGetDatum(logRow->endtime);
+		nulls[nargs] = ' ';
+		nargs++;
 		appendStringInfo(&columnNames, "endtime,");
-		appendStringInfo(&columnValues, "'%s',", DatumGetCString(DirectFunctionCall1(timestamptz_out, TimestampTzGetDatum(logRow->endtime))));
+		appendStringInfo(&columnValues, "$%d,", nargs);
 	}
 	if (logRow->faultnode)
 	{
+		argtypes[nargs] = TEXTOID;
+		values[nargs] = CStringGetTextDatum(logRow->faultnode);
+		nulls[nargs] = ' ';
+		nargs++;
 		appendStringInfo(&columnNames, "faultnode,");
-		appendStringInfo(&columnValues, "'%s',", logRow->faultnode);
+		appendStringInfo(&columnValues, "$%d,", nargs);
 	}
 	if (logRow->assistnode)
 	{
+		argtypes[nargs] = TEXTOID;
+		values[nargs] = CStringGetTextDatum(logRow->assistnode);
+		nulls[nargs] = ' ';
+		nargs++;
 		appendStringInfo(&columnNames, "assistnode,");
-		appendStringInfo(&columnValues, "'%s',", logRow->assistnode);
+		appendStringInfo(&columnValues, "$%d,", nargs);
 	}
 	if (logRow->strategy)
 	{
+		argtypes[nargs] = TEXTOID;
+		values[nargs] = CStringGetTextDatum(logRow->strategy);
+		nulls[nargs] = ' ';
+		nargs++;
 		appendStringInfo(&columnNames, "strategy,");
-		appendStringInfo(&columnValues, "'%s',", logRow->strategy);
+		appendStringInfo(&columnValues, "$%d,", nargs);
 	}
 	if (logRow->status)
 	{
+		argtypes[nargs] = TEXTOID;
+		values[nargs] = CStringGetTextDatum(logRow->status);
+		nulls[nargs] = ' ';
+		nargs++;
 		appendStringInfo(&columnNames, "status,");
-		appendStringInfo(&columnValues, "'%s',", logRow->status);
+		appendStringInfo(&columnValues, "$%d,", nargs);
 	}
 	if (logRow->errormsg)
 	{
+		argtypes[nargs] = TEXTOID;
+		values[nargs] = CStringGetTextDatum(logRow->errormsg);
+		nulls[nargs] = ' ';
+		nargs++;
 		appendStringInfo(&columnNames, "errormsg,");
-		appendStringInfo(&columnValues, "'%s',", logRow->errormsg);
+		appendStringInfo(&columnValues, "$%d,", nargs);
 	}
 	// delete last comma
 	if (columnNames.data[columnNames.len - 1] == ',')
@@ -148,7 +181,7 @@ void insertAdbDoctorLogReturning(AdbDoctorLogRow *logRow)
 					 columnNames.data,
 					 columnValues.data);
 
-	ret = SPI_execute(sql.data, false, 0);
+	ret = SPI_execute_with_args(sql.data, nargs, argtypes, values, nulls, false, 0);
 
 	pfree(columnNames.data);
 	pfree(columnValues.data);
@@ -196,27 +229,51 @@ void updateAdbDoctorLogByKey(AdbDoctorLogRow *logRow)
 	StringInfoData columns;
 	int ret;
 	uint64 rows;
+	int nargs = 0;
+	Oid argtypes[Natts_adbdlr] = {0};
+	Datum values[Natts_adbdlr] = {0};
+	char nulls[Natts_adbdlr] = {0};
 
 	initStringInfo(&columns);
 	if (logRow->endtime)
 	{
-		appendStringInfo(&columns, "endtime = '%s',", DatumGetCString(DirectFunctionCall1(timestamptz_out, TimestampTzGetDatum(logRow->endtime))));
+		argtypes[nargs] = TIMESTAMPTZOID;
+		values[nargs] = TimestampTzGetDatum(logRow->endtime);
+		nulls[nargs] = ' ';
+		nargs++;
+		appendStringInfo(&columns, "endtime = $%d,", nargs);
 	}
 	if (logRow->assistnode)
 	{
-		appendStringInfo(&columns, "assistnode = '%s',", logRow->assistnode);
+		argtypes[nargs] = TEXTOID;
+		values[nargs] = CStringGetTextDatum(logRow->assistnode);
+		nulls[nargs] = ' ';
+		nargs++;
+		appendStringInfo(&columns, "assistnode = $%d,", nargs);
 	}
 	if (logRow->strategy)
 	{
-		appendStringInfo(&columns, "strategy = '%s',", logRow->strategy);
+		argtypes[nargs] = TEXTOID;
+		values[nargs] = CStringGetTextDatum(logRow->strategy);
+		nulls[nargs] = ' ';
+		nargs++;
+		appendStringInfo(&columns, "strategy = $%d,", nargs);
 	}
 	if (logRow->status)
 	{
-		appendStringInfo(&columns, "status = '%s',", logRow->status);
+		argtypes[nargs] = TEXTOID;
+		values[nargs] = CStringGetTextDatum(logRow->status);
+		nulls[nargs] = ' ';
+		nargs++;
+		appendStringInfo(&columns, "status = $%d,", nargs);
 	}
 	if (logRow->errormsg)
 	{
-		appendStringInfo(&columns, "errormsg = '%s',", logRow->errormsg);
+		argtypes[nargs] = TEXTOID;
+		values[nargs] = CStringGetTextDatum(logRow->errormsg);
+		nulls[nargs] = ' ';
+		nargs++;
+		appendStringInfo(&columns, "errormsg = $%d,", nargs);
 	}
 	// delete last comma
 	if (columns.data[columns.len - 1] == ',')
@@ -236,7 +293,7 @@ void updateAdbDoctorLogByKey(AdbDoctorLogRow *logRow)
 					 columns.data,
 					 logRow->id);
 
-	ret = SPI_execute(sql.data, false, 0);
+	ret = SPI_execute_with_args(sql.data, nargs, argtypes, values, nulls, false, 0);
 
 	pfree(columns.data);
 	pfree(sql.data);
