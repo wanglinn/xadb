@@ -5773,7 +5773,8 @@ Numeric:
 		}
 	| NUMERIC opt_type_modifiers
 		{
-			$$ = SystemTypeNameLocation("numeric", @1);
+			/* Using Oracle namespace to distinguish numeric types of Oracle syntax. */
+			$$ = OracleTypeNameLocation("numeric", @1);
 			$$->typmods = $2;
 		}
 	| NUMBER_P opt_type_modifiers
@@ -6771,6 +6772,25 @@ TableElement:
 				ColumnDef	*def = (ColumnDef *) $1;
 				TypeName	*typeName = def->typeName;
 				char		*name = TypeNameToString(typeName);
+
+				if (strcmp(name, "oracle.numeric") == 0)
+				{
+					def->typeName = SystemTypeNameLocation("numeric", typeName->location);
+					if (typeName->typmods)
+					{
+						def->typeName->typmods = list_copy(typeName->typmods);
+						list_free(typeName->typmods);
+						typeName->typmods = NIL;
+					}
+					else
+					{
+						/* The default precision of numeric type is 38. */
+						Node *p = makeIntConst(38, typeName->location);
+						Node *s = makeIntConst(0, typeName->location);
+						def->typeName->typmods = list_make2(p, s);
+					}
+					pfree(typeName);
+				}
 
 				if (strcmp(name, "float4") == 0 || strcmp(name, "float8") == 0)
 				{
