@@ -5774,7 +5774,15 @@ Numeric:
 	| NUMERIC opt_type_modifiers
 		{
 			$$ = SystemTypeNameLocation("numeric", @1);
-			$$->typmods = $2;
+			if ($2)
+				$$->typmods = $2;
+			else
+			{
+				/* The default precision of numeric type is 38. */
+				Node *p = makeIntConst(38, @2);
+				Node *s = makeIntConst(0, @2);
+				$$->typmods = list_make2(p, s);
+			}
 		}
 	| NUMBER_P opt_type_modifiers
 		{
