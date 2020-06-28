@@ -24,6 +24,7 @@ typedef struct AdbDoctorLogRow
 	char *strategy;
 	char *status;
 	char *errormsg;
+#define Natts_adbdlr 8
 } AdbDoctorLogRow;
 
 #define ADBDOCTORLOG_STRATEGY_SWITCH "switch"
