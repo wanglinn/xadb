@@ -1253,7 +1253,7 @@ re_lock_:
 		snap->xip[xcnt++] = xid;
 	}
 
-	SetCurrentTransactionStartTimestamp(SnapRcv->gtm_delta_time + GetCurrentTimestamp());
+	SetGlobalDeltaTimeStamp(SnapRcv->gtm_delta_time);
 	UNLOCK_SNAP_RCV();
 
 	snap->xcnt = xcnt;
