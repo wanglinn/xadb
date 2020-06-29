@@ -5699,7 +5699,6 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 	MemoryContext tup_context = GetPerTupleMemoryContext(estate);
 	uint64 processed = 0L;
 	Oid loaded_oid;
-	int cur_lineno;
 
 	/*
 	 * We need a ResultRelInfo so we can use the regular executor's
@@ -5780,7 +5779,6 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 		MemoryContextReset(tup_context);
 		MemoryContextSwitchTo(tup_context);
 
-		cur_lineno = cstate->cur_lineno;
 		loaded_oid = InvalidOid;
 		if (!NextCopyFrom(cstate, econtext, values, isnull, &loaded_oid))
 			break;
@@ -5907,7 +5905,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 			memcpy(myslot->tts_values, slot->tts_values, sizeof(Datum) * desc->natts);
 			memcpy(myslot->tts_isnull, slot->tts_isnull, sizeof(bool) * desc->natts);
 			Assert(TupleDescAttr(myslot->tts_tupleDescriptor, desc->natts)->atttypid == INT4OID);
-			myslot->tts_values[desc->natts] = Int32GetDatum(cur_lineno);
+			myslot->tts_values[desc->natts] = Int32GetDatum(cstate->cur_lineno);
 			myslot->tts_isnull[desc->natts] = false;
 			ExecStoreVirtualTuple(myslot);
 
@@ -6028,7 +6026,6 @@ static TupleTableSlot* AddNumberNextCopyFrom(CopyState cstate, ExprContext *econ
 	HeapTuple tuple;
 	TupleTableSlot *slot = cstate->cs_tupleslot;
 	Oid loaded_oid = InvalidOid;
-	int cur_lineno = cstate->cur_lineno;
 
 	if (NextCopyFrom(cstate, econtext, slot->tts_values, slot->tts_isnull, &loaded_oid) == false)
 		return ExecClearTuple(slot);
@@ -6037,7 +6034,7 @@ static TupleTableSlot* AddNumberNextCopyFrom(CopyState cstate, ExprContext *econ
 	++(cstate->count_tuple);
 
 	Assert(TupleDescAttr(slot->tts_tupleDescriptor, slot->tts_tupleDescriptor->natts - 1)->atttypid == INT4OID);
-	slot->tts_values[slot->tts_tupleDescriptor->natts-1] = Int32GetDatum(cur_lineno);
+	slot->tts_values[slot->tts_tupleDescriptor->natts-1] = Int32GetDatum(cstate->cur_lineno);
 	slot->tts_isnull[slot->tts_tupleDescriptor->natts-1] = false;
 	if (OidIsValid(loaded_oid))
 	{
