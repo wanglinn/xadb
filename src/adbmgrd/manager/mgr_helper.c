@@ -22,6 +22,8 @@
 
 static MgrHostWrapper *popHeadMgrHostPfreeOthers(dlist_head *mgrHosts);
 static MgrNodeWrapper *popHeadMgrNodePfreeOthers(dlist_head *mgrNodes);
+static void CreateReplicationSlot(char *nodename, char *slot_name);
+static void DeleteReplicationSlot(char *nodename, char *slot_name);
 
 void logMgrNodeWrapper(MgrNodeWrapper *src, char *title, int elevel)
 {
@@ -2600,10 +2602,10 @@ void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
 	}
 }
 
-void dn_master_replication_slot(char *nodename, char *slot_name, char operate)
+static void CreateReplicationSlot(char *nodename, char *slot_name)
 {
-	
-	char *sql ;
+	char *qrySql;
+	char *createSql;
 	bool is_exist, is_running;
 	AppendNodeInfo nodeinfo;
 	char *address;
@@ -2612,53 +2614,97 @@ void dn_master_replication_slot(char *nodename, char *slot_name, char operate)
 	int max_try = 3;
 	StringInfoData restmsg;
 
-	
-	if (operate == 'c')
-	{
-		sql = psprintf("select pg_create_physical_replication_slot('%s')",slot_name);
-	} 
-	else if (operate == 'd')
-	{
-		sql = psprintf("select pg_drop_replication_slot('%s')",slot_name);
-	}
-		
+	qrySql = psprintf("SELECT slot_name FROM pg_replication_slots WHERE slot_name = '%s'", slot_name);
+	createSql = psprintf("SELECT pg_create_physical_replication_slot('%s')", slot_name);
 
 	memset(&nodeinfo, 0, sizeof(AppendNodeInfo));
-	mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_MASTER,true,
-							&is_exist, &is_running, &nodeinfo);	
-	if (!nodeinfo.nodehost)
-	{
-		mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_SLAVE,true,
-							&is_exist, &is_running, &nodeinfo);
-	}		
-	if (!nodeinfo.nodehost)
-	{
-		mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_MASTER,false,
-							&is_exist, &is_running, &nodeinfo);
-	}
-	if (!nodeinfo.nodehost)
+	mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_MASTER,false,
+								&is_exist, &is_running, &nodeinfo);	
+	if (nodeinfo.nodehost == 0)
 	{
 		mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_SLAVE,false,
-							&is_exist, &is_running, &nodeinfo);
+								&is_exist, &is_running, &nodeinfo);
+		if (nodeinfo.nodehost == 0)
+		{
+			ereport(ERROR, (errmsg("datanode %s is not exist.", nodename)));
+		}		
 	}
 
 	agentPort = get_agentPort_from_hostoid(nodeinfo.nodehost);
 	user = get_hostuser_from_hostoid(nodeinfo.nodehost);
 	address = get_hostaddress_from_hostoid(nodeinfo.nodehost);
-	
+
 	initStringInfo(&restmsg);
-	resetStringInfo(&restmsg);
 	while (max_try--  >= 0)
 	{
-		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, sql, user, address, nodeinfo.nodeport, DEFAULT_DB, &restmsg);
+		resetStringInfo(&restmsg);
+		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, qrySql, user, address, nodeinfo.nodeport, DEFAULT_DB, &restmsg);
+		if (strlen(restmsg.data) == 0)
+		{
+			ereport(LOG, (errmsg("CreateReplicationSlot datanode(%s) create slot_name(%s).", nodename, slot_name)));
+			resetStringInfo(&restmsg);
+			monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, createSql, user, address, nodeinfo.nodeport, DEFAULT_DB, &restmsg);
+			if (restmsg.data)
+				break;
+		}
+		else
+		{
+			ereport(LOG, (errmsg("CreateReplicationSlot datanode(%s) has exist slot_name(%s).", nodename, slot_name)));
+			break;
+		}		
+	}
+	MgrFree(restmsg.data);
+}
+static void DeleteReplicationSlot(char *nodename, char *slot_name)
+{
+	char *deleteSql;
+	bool is_exist, is_running;
+	AppendNodeInfo nodeinfo;
+	char *address;
+	char *user;
+	int agentPort;
+	int max_try = 3;
+	StringInfoData restmsg;
+
+	deleteSql = psprintf("select pg_drop_replication_slot('%s')",slot_name);
+
+	memset(&nodeinfo, 0, sizeof(AppendNodeInfo));
+	mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_MASTER,false,
+								&is_exist, &is_running, &nodeinfo);	
+	if (nodeinfo.nodehost == 0)
+	{
+		mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_SLAVE,false,
+								&is_exist, &is_running, &nodeinfo);
+		if (nodeinfo.nodehost == 0)
+		{
+			ereport(ERROR,
+				(errmsg("datanode %s is not exist.", nodename)));
+		}		
+	}
+
+	agentPort = get_agentPort_from_hostoid(nodeinfo.nodehost);
+	user = get_hostuser_from_hostoid(nodeinfo.nodehost);
+	address = get_hostaddress_from_hostoid(nodeinfo.nodehost);
+
+	initStringInfo(&restmsg);
+	while (max_try--  >= 0)
+	{
+		ereport(LOG, (errmsg("DeleteReplicationSlot datanode(%s) delete slot_name(%s).", nodename, slot_name)));
+		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, deleteSql, user, address, nodeinfo.nodeport, DEFAULT_DB, &restmsg);
 		if (restmsg.data)
 			break;
-
 	}
-	pfree(restmsg.data);
+	MgrFree(restmsg.data);
 }
-
-
+void dn_master_replication_slot(char *nodename, char *slot_name, char operate)
+{
+	if (operate == 'c'){
+		CreateReplicationSlot(nodename, slot_name);
+	} 
+	else if (operate == 'd'){
+		DeleteReplicationSlot(nodename, slot_name);
+	}
+}
 void setSlaveNodeRecoveryConf(MgrNodeWrapper *masterNode,
 							  MgrNodeWrapper *slaveNode)
 {
