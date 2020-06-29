@@ -1184,13 +1184,8 @@ Datum mgr_drop_node_func(PG_FUNCTION_ARGS)
 	}
 
 	/*if the node is coordinator, so it's need to update the hba table*/
-	if (CNDN_TYPE_COORDINATOR_MASTER == nodetype ||
-		CNDN_TYPE_GTM_COOR_MASTER == nodetype ||
-		CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
-	{
-		mgr_clean_hba_table(nodename, NULL);
-	}
-
+	mgr_clean_hba_table(nodename, NULL);
+	
 	/*delete the parm in mgr_updateparm for this type and nodename in mgr_updateparm is MACRO_STAND_FOR_ALL_NODENAME*/
 	if (getnum == 1)
 	{
@@ -1300,12 +1295,7 @@ void mgr_drop_all_nodes(dlist_head *mgrNodes)
 			}
 
 			/*if the node is coordinator, so it's need to update the hba table*/
-			if (CNDN_TYPE_COORDINATOR_MASTER == nodetype ||
-				CNDN_TYPE_GTM_COOR_MASTER == nodetype ||
-				CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
-			{
-				mgr_clean_hba_table(NameStr(nodename), NULL);
-			}
+			mgr_clean_hba_table(NameStr(nodename), NULL);
 
 			/*delete the parm in mgr_updateparm for this type and nodename in mgr_updateparm is MACRO_STAND_FOR_ALL_NODENAME*/
 			if (getnum == 1)
