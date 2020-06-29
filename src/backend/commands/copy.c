@@ -5995,7 +5995,6 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 	MemoryContext old_context = MemoryContextSwitchTo(query_context);
 	MemoryContext tup_context = GetPerTupleMemoryContext(estate);
 	uint64 processed = 0L;
-	int cur_lineno;
 
 	/*
 	 * We need a ResultRelInfo so we can use the regular executor's
@@ -6064,7 +6063,6 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 		MemoryContextReset(tup_context);
 		MemoryContextSwitchTo(tup_context);
 
-		cur_lineno = cstate->cur_lineno;
 		if (!NextCopyFrom(cstate, econtext, relslot->tts_values, relslot->tts_isnull))
 			break;
 
@@ -6145,7 +6143,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 			memcpy(myslot->tts_values, relslot->tts_values, sizeof(Datum) * desc->natts);
 			memcpy(myslot->tts_isnull, relslot->tts_isnull, sizeof(bool) * desc->natts);
 			Assert(TupleDescAttr(myslot->tts_tupleDescriptor, desc->natts)->atttypid == INT4OID);
-			myslot->tts_values[desc->natts] = Int32GetDatum(cur_lineno);
+			myslot->tts_values[desc->natts] = Int32GetDatum(cstate->cur_lineno);
 			myslot->tts_isnull[desc->natts] = false;
 			ExecStoreVirtualTuple(myslot);
 
