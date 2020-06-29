@@ -469,6 +469,7 @@ extern void SetCurrentXactPhase2(void);
 extern bool IsCurrentXactInPhase2(void);
 extern void MarkCurrentTransactionErrorAborted(void);
 extern void SetCurrentTransactionStartTimestamp(TimestampTz timestamp);
+extern void SetGlobalDeltaTimeStamp(TimestampTz deltaTimeStamp);
 
 extern PGDLLIMPORT volatile uint32 ClusterOwnerXactSectionCount;
 

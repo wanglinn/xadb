@@ -953,6 +953,12 @@ MarkCurrentTransactionErrorAborted(void)
 		s->error_abort = true;
 }
 
+void
+SetGlobalDeltaTimeStamp(TimestampTz deltaTimeStamp)
+{
+	globalDeltaTimestmap = deltaTimeStamp;
+}
+
 /*
  *  SetCurrentTransactionStartTimestamp
  *
@@ -969,8 +975,6 @@ SetCurrentTransactionStartTimestamp(TimestampTz timestamp)
 	 * ordinator.
 	 */
 	globalXactStartTimestamp = timestamp;
-	globalDeltaTimestmap = globalXactStartTimestamp - xactStartTimestamp;
-
 #ifdef DEBUG_ADB
 	adb_ereport(LOG,
 		(errmsg("[ADB] node %s session flag %lx.%x",
@@ -2349,10 +2353,10 @@ StartTransaction(void)
 		Assert(xactStartTimestamp != 0);
 #ifdef ADB
 	/*
-	 * For ADB, transaction start timestamp has to follow the AGTM timeline
+	 * For ADB, transaction start timestamp now get from coordinator master
 	 */
-	if (IsGTMNode())
-		globalXactStartTimestamp = xactStartTimestamp;
+	if (IsCnMaster())
+		globalXactStartTimestamp = xactStartTimestamp + globalDeltaTimestmap;
 #endif
 	pgstat_report_xact_timestamp(xactStartTimestamp);
 	/* Mark xactStopTimestamp as unset. */
