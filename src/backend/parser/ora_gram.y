@@ -6777,6 +6777,18 @@ TableElement:
 				ColumnDef	*def = (ColumnDef *) $1;
 				TypeName	*typeName = def->typeName;
 				char		*name = TypeNameToString(typeName);
+				const char	*scan_buf = ora_yyget_extra(yyscanner)->core_yy_extra.scanbuf;
+
+    			if (strncmp(scan_buf + typeName->location, "numeric", 7) == 0 && strcmp(name, "pg_catalog.numeric") == 0)
+				{
+					if (typeName->typmods == NIL)
+					{
+						/* The default precision of numeric type is 38. */
+						Node *p = makeIntConst(38, typeName->location);
+						Node *s = makeIntConst(0, typeName->location);
+						def->typeName->typmods = list_make2(p, s);
+					}
+				}
 
 				if (strcmp(name, "float4") == 0 || strcmp(name, "float8") == 0)
 				{
