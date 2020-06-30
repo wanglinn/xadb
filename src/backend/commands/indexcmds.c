@@ -71,6 +71,27 @@
 #include "optimizer/pgxcship.h"
 #include "parser/parse_utilcmd.h"
 #include "pgxc/pgxc.h"
+#include "pgxc/slot.h"
+#include "commands/copy.h"
+#include "catalog/pgxc_class.h"
+#include "libpq/libpq.h"
+#include "libpq/libpq-fe.h"
+#include "libpq/libpq-node.h"
+#include "libpq/pqformat.h"
+#include "executor/clusterReceiver.h"
+#include "executor/executor.h"
+#include "executor/execCluster.h"
+#include "storage/mem_toc.h"
+
+
+#define REMOTE_KEY_REINDEX_INFO	0x1
+#define CLUSTER_REINDEX_CMD		0x91
+
+typedef struct ClusterReindexHookFuncs
+{
+	PQNHookFunctions pub;
+	PGconn *conn;			/* last exec end PGconn* */
+}ClusterReindexHookFuncs;
 #endif
 
 /* non-export function prototypes */
@@ -2520,6 +2541,221 @@ ReindexTable(RangeVar *relation, int options, bool concurrent)
 	return heapOid;
 }
 
+#ifdef ADB
+static List* get_reindex_rel_datanode(List *nodes, Oid reloid)
+{
+	HeapTuple		tuple;
+	Form_pgxc_class	classForm;
+	Oid			   *oids;
+	int				i;
+	int				count;
+
+	tuple = SearchSysCache1(PGXCCLASSRELID, ObjectIdGetDatum(reloid));
+	if (!HeapTupleIsValid(tuple))
+		return nodes;
+
+	classForm = (Form_pgxc_class) GETSTRUCT(tuple);
+	oids = classForm->nodeoids.values;
+	count = classForm->nodeoids.dim1;
+	if (classForm->pclocatortype != LOCATOR_TYPE_REPLICATED)
+	{
+		if (classForm->pclocatortype == LOCATOR_TYPE_HASHMAP)
+		{
+			ListCell *lc;
+			List *slot_oids = GetSlotNodeOids();
+			foreach(lc, slot_oids)
+				nodes = list_append_unique_oid(nodes, lfirst_oid(lc));
+			list_free(slot_oids);
+		}else
+		{
+			for (i=0;i<count;++i)
+				nodes = list_append_unique_oid(nodes, oids[i]);
+		}
+	}else
+	{
+		for (i=0;i<count;++i)
+		{
+			if (is_pgxc_nodepreferred(oids[i]))
+			{
+				nodes = list_append_unique_oid(nodes, oids[i]);
+				break;
+			}
+		}
+		if (i>=count)
+			nodes = list_append_unique_oid(nodes, oids[0]);
+	}
+
+	ReleaseSysCache(tuple);
+
+	return nodes;
+}
+
+static int process_master_reindex_cmd(int *options_in,const char *data, int len)
+{
+	char *namespace;
+	char *relname;
+	RangeVar *range = NULL;
+	int mtype;
+	Oid tableOid;
+	int options;
+
+	StringInfoData buf;
+	buf.data = (char*)data;
+	buf.maxlen = buf.len = len;
+	buf.cursor = 0;
+	options = *options_in;
+
+	mtype = pq_getmsgbyte(&buf);
+	switch(mtype)
+	{
+	case CLUSTER_REINDEX_CMD:
+		namespace = load_node_string(&buf, false);
+		relname = load_node_string(&buf, false);
+		range = makeRangeVar(namespace, relname, -1);
+
+		tableOid = RangeVarGetRelid(range, AccessShareLock, true);
+
+		if (reindex_relation(tableOid,
+							 REINDEX_REL_PROCESS_TOAST |
+							 REINDEX_REL_CHECK_CONSTRAINTS,
+							 options))
+			if (options & REINDEXOPT_VERBOSE)
+				ereport(INFO,
+						(errmsg("table \"%s.%s\" was reindexed",
+								get_namespace_name(get_rel_namespace(tableOid)),
+								get_rel_name(tableOid))));
+
+		put_executor_end_msg(true);
+		break;
+
+	default:
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("unexpected cluster command 0x%02X during COPY from coordinator",
+						mtype)));
+		break;
+	}
+
+	if (range)
+		pfree(range);
+
+	return 0;
+}
+
+void cluster_reindex(struct StringInfoData *msg)
+{
+	StringInfoData	buf;
+	int options;
+
+	buf.data = mem_toc_lookup(msg, REMOTE_KEY_REINDEX_INFO, &buf.maxlen);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("Can not found cluster info")));
+	}
+	buf.cursor = 0;
+	buf.len = buf.maxlen;
+	pq_copymsgbytes(&buf, (char*)&options, sizeof(options));
+
+	SimpleNextCopyFromNewFE((SimpleCopyDataFunction)process_master_reindex_cmd, &options);
+}
+
+static void send_cluster_reindex_function(List *node_list, int flags, int options)
+{
+	StringInfoData buf;
+	List *list_conns;
+
+	initStringInfo(&buf);
+	ClusterTocSetCustomFun(&buf, cluster_reindex);
+
+	begin_mem_toc_insert(&buf, REMOTE_KEY_REINDEX_INFO);
+	appendBinaryStringInfo(&buf, (char*)&options, sizeof(options));
+	end_mem_toc_insert(&buf, REMOTE_KEY_REINDEX_INFO);
+
+	list_conns = ExecClusterCustomFunction(node_list, &buf, flags);
+
+	pfree(buf.data);
+	list_free(list_conns);
+}
+
+static void send_reindex_cmd(List *conns, Oid tableOid)
+{
+	StringInfoData	buf;
+	char	   *namespace;
+
+	initStringInfo(&buf);
+	appendStringInfoChar(&buf, CLUSTER_REINDEX_CMD);
+
+	namespace = get_namespace_name(get_rel_namespace(tableOid));
+	save_node_string(&buf, namespace);
+	save_node_string(&buf, get_rel_name(tableOid));
+
+	pfree(namespace);
+
+	PQNputCopyData(conns, buf.data, buf.len);
+	PQNFlush(conns, true);
+
+	pfree(buf.data);
+	return;
+}
+
+static List* send_cluster_reindex_rel(List *node_list, Oid tableOid)
+{
+	List *conn_list;
+	ListCell   *lc;
+
+	if (node_list == NIL)
+		return NIL;
+
+	conn_list = NIL;
+	foreach(lc, node_list)
+	{
+		PGconn *conn = PQNFindConnUseOid(lfirst_oid(lc));
+		if (conn == NULL)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					errmsg("remote node %u not connected", lfirst_oid(lc))));
+		}
+		conn_list = lappend(conn_list, conn);
+	}
+	send_reindex_cmd(conn_list, tableOid);
+	return conn_list;
+}
+
+static bool ClusterRIXExecEndHookCopyOut(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
+{
+	if (buf[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+	{
+		ClusterReindexHookFuncs *context = (ClusterReindexHookFuncs*)pub;
+		context->conn = conn;
+		return true;
+	}
+
+	return clusterRecvTuple(NULL, buf, len, NULL, conn);
+}
+
+static void cluster_reindex_recv_exec_end(List *conns)
+{
+	ClusterReindexHookFuncs context;
+	if (conns == NIL)
+		conns = PQNGetAllConns();
+	else
+		conns = list_copy(conns);
+
+	context.pub = PQNDefaultHookFunctions;
+	context.pub.HookCopyOut = ClusterRIXExecEndHookCopyOut;
+	while (conns)
+	{
+		context.conn = NULL;	
+		PQNListExecFinish(conns, NULL, &context.pub, true);
+		Assert(context.conn != NULL);
+		conns = list_delete_ptr(conns, context.conn);
+	}
+}
+#endif
+
 /*
  * ReindexMultipleTables
  *		Recreate indexes of tables selected by objectName/objectKind.
@@ -2543,6 +2779,13 @@ ReindexMultipleTables(const char *objectName, ReindexObjectType objectKind,
 	ListCell   *l;
 	int			num_keys;
 	bool		concurrent_warning = false;
+#ifdef ADB
+	ListCell	*lc;
+	List		*list_datanode = NIL;
+	List		*list_coordinator = NIL;
+	List		*list_all = NIL;
+	List 		*volatile list_conns = NIL;
+#endif /* ADB */
 
 	AssertArg(objectName);
 	Assert(objectKind == REINDEX_OBJECT_SCHEMA ||
@@ -2686,6 +2929,15 @@ ReindexMultipleTables(const char *objectName, ReindexObjectType objectKind,
 		else
 			relids = lappend_oid(relids, relid);
 
+#ifdef ADB
+		if (IsCnMaster())
+		{
+			list_datanode = get_reindex_rel_datanode(list_datanode, relid);
+			list_coordinator =  GetAllCnIDL(false);
+			
+			list_all = list_union_oid(list_coordinator, list_datanode);
+		}
+#endif
 		MemoryContextSwitchTo(old);
 	}
 	table_endscan(scan);
@@ -2702,6 +2954,21 @@ ReindexMultipleTables(const char *objectName, ReindexObjectType objectKind,
 		/* functions in indexes may want a snapshot set */
 		PushActiveSnapshot(GetTransactionSnapshot());
 
+#ifdef ADB
+		if (list_all != NULL)
+		{
+			send_cluster_reindex_function(list_all, EXEC_CLUSTER_FLAG_NOT_START_TRANS, options);
+			list_conns = send_cluster_reindex_rel(list_all, relid);
+
+			cluster_reindex_recv_exec_end(list_conns);
+
+			foreach(lc, list_conns)
+				PQputCopyEnd(lfirst(lc), NULL);
+
+			PQNListExecFinish(list_conns, NULL, &PQNFalseHookFunctions, true);
+			list_free(list_conns);
+		}
+#endif
 		if (concurrent)
 		{
 			(void) ReindexRelationConcurrently(relid, options);

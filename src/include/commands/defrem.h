@@ -176,6 +176,10 @@ extern int	defGetTypeLength(DefElem *def);
 extern List *defGetStringList(DefElem *def);
 
 #ifdef ADB
+
+/*commands/indexcmds.c*/
+extern void cluster_reindex(struct StringInfoData *msg);
+
 /* commands/auxiliarytablecmds.c */
 extern void InsertAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum);
 extern void RemoveAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum);
