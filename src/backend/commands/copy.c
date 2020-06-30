@@ -4291,7 +4291,7 @@ EndCopyFrom(CopyState cstate)
 	if (cstate->cs_tsConvert)
 		ExecDropSingleTupleTableSlot(cstate->cs_tsConvert);
 	if (cstate->cs_convert)
-		free_type_convert(cstate->cs_convert);
+		free_type_convert(cstate->cs_convert, true);
 	if (cstate->list_connect)
 	{
 		ListCell *lc;
