@@ -1215,11 +1215,12 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 					if (RelationUsesLocalBuffers(rel))
 						send_to_remote = false;
 					relation_close(rel, NoLock);
-				}
-				if(send_to_remote)
-				{
-					utilityContext.force_autocommit = (stmt->kind == REINDEX_OBJECT_DATABASE || stmt->kind == REINDEX_OBJECT_SCHEMA);
-					ExecRemoteUtilityStmt(&utilityContext);
+
+					if(send_to_remote)
+					{
+						utilityContext.force_autocommit = (stmt->kind == REINDEX_OBJECT_DATABASE || stmt->kind == REINDEX_OBJECT_SCHEMA);
+						ExecRemoteUtilityStmt(&utilityContext);
+					}
 				}
 #endif
 			}
