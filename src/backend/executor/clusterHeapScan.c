@@ -276,7 +276,7 @@ void DoClusterHeapScan(StringInfo mem_toc)
 	/* clean up */
 	if (convert)
 	{
-		free_type_convert(convert);
+		free_type_convert(convert, true);
 		ExecDropSingleTupleTableSlot(convert_slot);
 	}
 	ExecDropSingleTupleTableSlot(result_slot);

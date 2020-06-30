@@ -157,6 +157,7 @@ bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struc
 			if(state->ps)
 			{
 				state->convert_slot = ExecInitExtraTupleSlot(state->ps->state, desc);
+				state->convert_slot_is_single = false;
 			}else
 			{
 				state->convert_slot = MakeSingleTupleTableSlot(desc);
@@ -298,7 +299,7 @@ static void cluster_receive_shutdown(DestReceiver *self)
 	if(r->convert_slot)
 		ExecDropSingleTupleTableSlot(r->convert_slot);
 	if(r->convert)
-		free_type_convert(r->convert);
+		free_type_convert(r->convert, true);
 }
 
 static void cluster_receive_destroy(DestReceiver *self)
@@ -370,7 +371,7 @@ void freeClusterRecvState(ClusterRecvState *state)
 			state->convert_slot_is_single)
 			ExecDropSingleTupleTableSlot(state->convert_slot);
 		if(state->convert)
-			free_type_convert(state->convert);
+			free_type_convert(state->convert, state->convert_slot_is_single);
 		pfree(state);
 	}
 }

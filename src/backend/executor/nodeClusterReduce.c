@@ -751,7 +751,7 @@ static void InitEPQReduceFirst(ClusterReduceState *crstate, ClusterReduceState *
 static void EndEPQReduceFirst(ReduceFirstEPQState *state)
 {
 	if (state->convert)
-		free_type_convert(state->convert);
+		free_type_convert(state->convert, true);
 	if (state->slot_remote)
 		ExecDropSingleTupleTableSlot(state->slot_remote);
 	if (state->recv_buf.data)

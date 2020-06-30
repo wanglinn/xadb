@@ -69,7 +69,7 @@ void DynamicReduceClearFetch(DynamicReduceIOBuffer *io)
 
 	if (io->convert)
 	{
-		free_type_convert(io->convert);
+		free_type_convert(io->convert, true);
 		io->convert = NULL;
 	}
 

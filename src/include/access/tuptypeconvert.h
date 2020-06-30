@@ -30,6 +30,6 @@ extern void do_type_convert_slot_out_ex(TupleDesc base_desc, void *context_next,
 extern Datum do_datum_convert_in(StringInfo buf, Oid typid);
 extern void do_datum_convert_out(StringInfo buf, Oid typid, Datum datum);
 
-extern void free_type_convert(TupleTypeConvert *convert);
+extern void free_type_convert(TupleTypeConvert *convert, bool free_out_desc);
 
 #endif /* TUPTYPECONVERT_H */

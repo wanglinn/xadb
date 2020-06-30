@@ -325,7 +325,7 @@ void do_type_convert_slot_out_ex(TupleDesc base_desc, void *context_next, void *
 	if (convert)
 	{
 		ExecDropSingleTupleTableSlot(slot_convert);
-		free_type_convert(convert);
+		free_type_convert(convert, true);
 	}
 }
 
@@ -680,7 +680,7 @@ static Datum load_stringinfo_datum_io(StringInfo buf, ConvertIO *io)
 	return datum;
 }
 
-void free_type_convert(TupleTypeConvert *convert)
+void free_type_convert(TupleTypeConvert *convert, bool free_out_desc)
 {
 	ListCell *lc;
 	if(convert)
@@ -695,7 +695,7 @@ void free_type_convert(TupleTypeConvert *convert)
 			}
 		}
 		list_free(convert->io_state);
-		if(convert->out_desc)
+		if(convert->out_desc && free_out_desc)
 			FreeTupleDesc(convert->out_desc);
 		ReleaseTupleDesc(convert->base_desc);
 		pfree(convert);
@@ -710,7 +710,7 @@ static void free_record_convert(RecordConvert *rc)
 			ExecDropSingleTupleTableSlot(rc->slot_temp);
 		if(rc->slot_base)
 			ExecDropSingleTupleTableSlot(rc->slot_base);
-		free_type_convert(rc->convert);
+		free_type_convert(rc->convert, true);
 		pfree(rc);
 	}
 }
@@ -840,7 +840,7 @@ static RecordConvert* set_record_convert_tuple_desc(RecordConvert *rc, TupleDesc
 				ExecDropSingleTupleTableSlot(rc->slot_temp);
 				rc->slot_temp = NULL;
 			}
-			free_type_convert(rc->convert);
+			free_type_convert(rc->convert, true);
 			/* update slot */
 			ExecDropSingleTupleTableSlot(rc->slot_base);
 			rc->slot_base = MakeSingleTupleTableSlot(desc);

@@ -1348,7 +1348,7 @@ static void adb_send_relation_data(List *connList, Oid reloid, LOCKMODE lockmode
 	}
 
 	pfree(buf.data);
-	free_type_convert(convert);
+	free_type_convert(convert, true);
 	if (out_slot != base_slot)
 		ExecDropSingleTupleTableSlot(out_slot);
 	ExecDropSingleTupleTableSlot(base_slot);
@@ -1482,7 +1482,7 @@ static uint64 adb_recv_relation_data(DestReceiver *self, TupleDesc desc, int ope
 	if (convert)
 	{
 		Assert(in_slot != base_slot);
-		free_type_convert(convert);
+		free_type_convert(convert, true);
 		ExecDropSingleTupleTableSlot(in_slot);
 	}
 	ExecDropSingleTupleTableSlot(base_slot);
