@@ -7882,6 +7882,7 @@ static ConnectByPlan *create_connect_by_plan(PlannerInfo *root, ConnectByPath *p
 	plan->plan.qual = extract_actual_clauses(list, false);
 
 	plan->start_with = castNode(List, root->parse->connect_by->start_with);
+	plan->no_cycle = root->parse->connect_by->no_cycle;
 
 	if (path->path.param_info)
 	{

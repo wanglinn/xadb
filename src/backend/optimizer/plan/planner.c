@@ -4751,8 +4751,9 @@ static RelOptInfo *create_connect_by_paths(PlannerInfo *root,
 	connect_rel->reltarget = target;
 
 	/* avoid redundant sorting */
-	if (connect_by && (connect_by->sortClause != NIL || connect_by->sort_tlist != NIL) 
-			&& can_exempt_siblings_sort(root, true))
+	if (connect_by &&
+		(connect_by->sortClause != NIL || connect_by->sort_tlist != NIL) &&
+		can_exempt_siblings_sort(root, true))
 	{
 		connect_by->sortClause = NIL;
 		connect_by->sort_tlist = NIL;

@@ -1103,6 +1103,7 @@ typedef struct ConnectByPlan
 	List	   *hash_quals;			/* can using hash connect by join clauses */
 	List	   *join_quals;			/* connect by clauses */
 	List	   *start_with;			/* start with clauses */
+	bool		no_cycle;			/* user specify "no cycle" */
 	int			numCols;			/* number of sort-key columns */
 	AttrNumber *sortColIdx;			/* their indexes in the target list */
 	Oid		   *sortOperators;		/* OIDs of operators to sort them by */

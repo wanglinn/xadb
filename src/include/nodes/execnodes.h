@@ -2529,6 +2529,8 @@ typedef struct ConnectByState
 	ProjectionInfo	   *pj_save_targetlist;
 	void			   *private_state;
 	int64				level;
+	int64				cur_rownum;				/* for generate rownum chain with cycle check */
+	AttrNumber			rownum_chain_attr;		/* outer attribute number for cycle check */
 	int					check_start_state;		/* optimize for start with has subplan */
 	bool				is_rescan;
 	bool				eof_underlying;
