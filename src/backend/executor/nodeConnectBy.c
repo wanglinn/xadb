@@ -54,6 +54,7 @@ typedef struct NestConnectByState
 	CBMethod		method;
 	Tuplestorestate *scan_ts;
 	Tuplestorestate *save_ts;
+	uint32			input_rownum_index;
 	int				hash_reader;
 	bool			inner_ateof;
 }NestConnectByState;
@@ -66,10 +67,12 @@ typedef struct HashConnectByState
 	List		   *hj_hashOperators;
 	List		   *hj_Collations;
 	ExprState	   *hash_clauses;
+	TupleTableSlot *input_slot;
 	HashJoinTuple	cur_tuple;
 	int				cur_skewno;
 	int				cur_bucketno;
 	uint32			cur_hashvalue;
+	uint32			input_rownum_index;
 	bool			inner_ateof;
 }HashConnectByState;
 
@@ -87,6 +90,9 @@ typedef struct TuplesortConnectByState
 	slist_head		slist_idle;
 	ProjectionInfo *sort_project;
 	TupleTableSlot *sort_slot;
+	TupleDesc		sort_desc;
+	uint32			input_rownum_index;
+	uint32			sort_rownum_index;
 }TuplesortConnectByState;
 
 #define InvalidBatchNumber	-1
@@ -132,6 +138,7 @@ typedef struct SortHashConnectByState
 	uint32				sub_sort_row_space;
 	AttrNumber			final_sort_index;			/* final sort column, type is int8[] */
 	AttrNumber			outer_sort_index;			/* saved sort column, type is int8[] */
+	uint32				sub_sort_rownum_index;
 }SortHashConnectByState;
 #define HASH_SORT_ROW_STEP_SIZE		32
 
@@ -141,14 +148,16 @@ static TupleTableSlot *ExecSortConnectBy(PlanState *pstate);
 static TupleTableSlot *ExecFirstSortHashConnectBy(PlanState *state);
 static TupleTableSlot *ExecSortHashConnectBy(PlanState *pstate);
 
-static TupleTableSlot* ExecNestConnectByStartWith(ConnectByState *ps);
+static TupleTableSlot* ExecNestConnectByStartWith(ConnectByState *ps, uint32 input_rownum_index);
 static TuplestoreConnectByLeaf* GetConnectBySortLeaf(ConnectByState *ps);
-static TuplestoreConnectByLeaf *GetNextTuplesortLeaf(ConnectByState *cbstate, TupleTableSlot *parent_slot);
+static TuplestoreConnectByLeaf *GetNextTuplesortLeaf(ConnectByState *cbstate, TupleTableSlot *parent_slot,
+													 ArrayType *rownum_chain, uint32 input_rownum_index);
 static TupleTableSlot *InsertRootHashValue(ConnectByState *cbstate, TupleTableSlot *slot);
 static TupleTableSlot *InsertMaterialHashValue(ConnectByState *cbstate, TupleTableSlot *slot);
 static bool ExecHashNewBatch(HashJoinTable hashtable, HashConnectByState *state, TupleTableSlot *slot);
-static void ProcessTuplesortRoot(ConnectByState *cbstate, TuplestoreConnectByLeaf *leaf);
+static void ProcessTuplesortRoot(ConnectByState *cbstate, TuplestoreConnectByLeaf *leaf, uint32 input_rownum_index);
 static void RestartBufFile(BufFile *file);
+static Datum MakeInt8ArrayDatum(TupleTableSlot *outer_slot, AttrNumber prior_attno, int64 **last_ptr);
 
 static void ExecInitHashConnectBy(HashConnectByState *state, ConnectByState *pstate)
 {
@@ -177,12 +186,27 @@ static void ExecInitHashConnectBy(HashConnectByState *state, ConnectByState *pst
 	state->hash_clauses = ExecInitQual(node->hash_quals, &pstate->ps);
 }
 
+static TupleDesc MakeCycleCheckInputDesc(PlanState *ps)
+{
+	int i;
+	TupleDesc result;
+	TupleDesc input = ExecGetResultType(ps);
+
+	result = CreateTemplateTupleDesc(input->natts+1);
+	for (i=1;i<=input->natts;++i)
+		TupleDescCopyEntry(result, i, input, i);
+	TupleDescInitEntry(result, input->natts+1, NULL, INT8OID, -1, 0);
+
+	return result;
+}
+
 ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflags)
 {
 	ConnectByState *cbstate;
 	TupleDesc		input_desc;
 	TupleDesc		save_desc;
 	List		   *save_tlist;
+	Const		   *int8_arr_const;
 
 	cbstate = makeNode(ConnectByState);
 	cbstate->ps.plan = (Plan*)node;
@@ -197,14 +221,23 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 	ExecAssignExprContext(estate, &cbstate->ps);
 	ExecInitResultTupleSlotTL(&cbstate->ps, &TTSOpsVirtual);
 
-	input_desc = ExecGetResultType(outerPlanState(cbstate));
+	input_desc = MakeCycleCheckInputDesc(outerPlanState(cbstate));
 	cbstate->inner_slot = ExecInitExtraTupleSlot(estate, input_desc, &TTSOpsMinimalTuple);
 	cbstate->start_with = ExecInitQual(node->start_with, &cbstate->ps);
 	cbstate->ps.qual = ExecInitQual(node->plan.qual, &cbstate->ps);
 	cbstate->joinclause = ExecInitQual(node->join_quals, &cbstate->ps);
 
 	ExecAssignProjectionInfo(&cbstate->ps, input_desc);
+
+	/* make int8[] for cycle check */
+	int8_arr_const = makeNullConst(INT8ARRAYOID, -1, InvalidOid);
 	save_tlist = list_copy(node->save_targetlist);
+	cbstate->rownum_chain_attr = (AttrNumber)list_length(save_tlist)+1;
+	save_tlist = lappend(save_tlist,
+						 makeTargetEntry((Expr*)int8_arr_const,
+										 cbstate->rownum_chain_attr,
+										 NULL,
+										 true));
 
 	if (node->hash_quals != NIL)
 	{
@@ -214,19 +247,34 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 			ExecInitHashConnectBy(state, cbstate);
 
 			state->method = CB_HASH;
+			state->input_rownum_index = input_desc->natts-1;
 			cbstate->private_state = state;
 			cbstate->ps.ExecProcNode = ExecHashConnectBy;
 		}else
 		{
 			SortHashConnectByState *state = palloc0(sizeof(*state));
-			Const *sort_col;
+			List				   *sort_tlist;
+			Var					   *var;
 			int i;
 			ExecInitHashConnectBy(&state->base.base, cbstate);
-			state->sub_sort_desc = ExecTypeFromTL(node->sort_targetlist);
+
+			/* set input rownum column index */
+			state->base.base.input_rownum_index = input_desc->natts-1;
+
+			/* save rownum to sub sort */
+			var = makeVar(INNER_VAR, input_desc->natts, INT8OID, -1, InvalidOid, 0);
+			state->sub_sort_rownum_index = list_length(node->sort_targetlist);
+			sort_tlist = lappend(list_copy(node->sort_targetlist),
+								 makeTargetEntry((Expr*)var,
+												 state->sub_sort_rownum_index+1,
+												 NULL,
+												 true));
+
+			state->sub_sort_desc = ExecTypeFromTL(sort_tlist);
 			state->sub_sort_slot = ExecInitExtraTupleSlot(estate,
 														  state->sub_sort_desc,
 														  &TTSOpsMinimalTuple);
-			state->sub_sort_proj = ExecBuildProjectionInfo(node->sort_targetlist,
+			state->sub_sort_proj = ExecBuildProjectionInfo(sort_tlist,
 														   cbstate->ps.ps_ExprContext,
 														   state->sub_sort_slot,
 														   &cbstate->ps,
@@ -246,11 +294,10 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 			/*
 			 * make final sort target list, (target list) + int8[]
 			 */
-			sort_col = makeNullConst(INT8ARRAYOID, -1, InvalidOid);
 			state->final_sort_tlist = list_copy(node->plan.targetlist);
 			state->final_sort_index = list_length(state->final_sort_tlist);
 			state->final_sort_tlist = lappend(state->final_sort_tlist,
-											  makeTargetEntry((Expr*)sort_col,
+											  makeTargetEntry((Expr*)int8_arr_const,
 															  state->final_sort_index+1,
 															  NULL,
 															  true));
@@ -270,7 +317,7 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 			/* make save project, add a int8[] */
 			state->outer_sort_index = list_length(save_tlist);
 			save_tlist = lappend(save_tlist,
-								 makeTargetEntry((Expr*)sort_col,
+								 makeTargetEntry((Expr*)int8_arr_const,
 												 state->outer_sort_index,
 												 NULL,
 												 true));
@@ -284,6 +331,7 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 		{
 			NestConnectByState *state = palloc0(sizeof(NestConnectByState));
 			state->method = CB_NEST;
+			state->input_rownum_index = input_desc->natts-1;
 			cbstate->ps.ExecProcNode = ExecNestConnectBy;
 			cbstate->private_state = state;
 			state->inner_ateof = true;
@@ -291,17 +339,29 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 			state->save_ts = tuplestore_begin_heap(false, false, work_mem/2);
 		}else
 		{
+			List				   *sort_tlist;
+			Var					   *var;
 			TuplestoreConnectByLeaf *leaf;
 			TuplesortConnectByState *state = palloc0(sizeof(TuplesortConnectByState));
 			state->method = CB_TUPLESORT;
+			state->input_rownum_index = input_desc->natts-1;
 			cbstate->ps.ExecProcNode = ExecSortConnectBy;
 			cbstate->private_state = state;
 			slist_init(&state->slist_level);
 			slist_init(&state->slist_idle);
+
+			var = makeVar(INNER_VAR, input_desc->natts, INT8OID, -1, InvalidOid, 0);
+			state->sort_rownum_index = list_length(node->sort_targetlist);
+			sort_tlist = lappend(list_copy(node->sort_targetlist),
+								 makeTargetEntry((Expr*)var,
+												 state->sort_rownum_index+1,
+												 NULL,
+												 true));
+			state->sort_desc = ExecTypeFromTL(sort_tlist);
 			state->sort_slot = ExecInitExtraTupleSlot(estate,
-													  ExecTypeFromTL(node->sort_targetlist),
+													  state->sort_desc,
 													  &TTSOpsMinimalTuple);
-			state->sort_project = ExecBuildProjectionInfo(node->sort_targetlist,
+			state->sort_project = ExecBuildProjectionInfo(sort_tlist,
 														  cbstate->ps.ps_ExprContext,
 														  state->sort_slot,
 														  &cbstate->ps,
@@ -314,7 +374,7 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 
 	save_desc = ExecTypeFromTL(save_tlist);
 	cbstate->outer_slot = ExecInitExtraTupleSlot(estate, save_desc, &TTSOpsMinimalTuple);
-	cbstate->pj_save_targetlist = ExecBuildProjectionInfo(node->save_targetlist,
+	cbstate->pj_save_targetlist = ExecBuildProjectionInfo(save_tlist,
 														  cbstate->ps.ps_ExprContext,
 														  ExecInitExtraTupleSlot(estate, save_desc, &TTSOpsMinimalTuple),
 														  &cbstate->ps,
@@ -327,25 +387,53 @@ ConnectByState* ExecInitConnectBy(ConnectByPlan *node, EState *estate, int eflag
 	return cbstate;
 }
 
+static bool Int64InArray(ArrayType *arr, int64 v)
+{
+	int i;
+	int n = ARR_DIMS(arr)[0];
+	int64 *p = (int64*)ARR_DATA_PTR(arr);
+	for (i=0;i<n;++i)
+	{
+		if (unlikely(p[i] == v))
+			return true;
+	}
+	return false;
+}
+
 static TupleTableSlot *ExecNestConnectBy(PlanState *pstate)
 {
 	ConnectByState *cbstate = castNode(ConnectByState, pstate);
 	NestConnectByState *state = cbstate->private_state;
 	TupleTableSlot *outer_slot;
 	TupleTableSlot *inner_slot;
+	TupleTableSlot *save_slot;
 	ExprContext *econtext = cbstate->ps.ps_ExprContext;
+	int64		   *rownum_ptr;
+	Datum			rownum_chain;
 
 	if (cbstate->processing_root)
 	{
 reget_start_with_:
-		inner_slot = ExecNestConnectByStartWith(cbstate);
+		inner_slot = ExecNestConnectByStartWith(cbstate, state->input_rownum_index);
 		if (!TupIsNull(inner_slot))
 		{
 			CHECK_FOR_INTERRUPTS();
 			econtext->ecxt_innertuple = inner_slot;
 			econtext->ecxt_outertuple = ExecClearTuple(cbstate->outer_slot);
-			tuplestore_puttupleslot(state->save_ts,
-									ExecProject(cbstate->pj_save_targetlist));
+			save_slot = ExecProject(cbstate->pj_save_targetlist);
+
+			/* add rownum chain */
+			slot_getsomeattrs(inner_slot, state->input_rownum_index+1);
+			Assert(inner_slot->tts_isnull[state->input_rownum_index] == false);
+			rownum_chain = MakeInt8ArrayDatum(NULL, InvalidAttrNumber, &rownum_ptr);
+			*rownum_ptr = DatumGetInt64(inner_slot->tts_values[state->input_rownum_index]);
+			save_slot->tts_values[cbstate->rownum_chain_attr-1] = rownum_chain;
+			save_slot->tts_isnull[cbstate->rownum_chain_attr-1] = false;
+
+			tuplestore_puttupleslot(state->save_ts, save_slot);
+			ExecClearTuple(save_slot);
+			pfree(DatumGetPointer(rownum_chain));
+
 			if (pstate->qual == NULL ||
 				ExecQual(pstate->qual, econtext))
 			{
@@ -389,6 +477,8 @@ re_get_tuplestore_connect_by_:
 
 		tuplestore_rescan(cbstate->ts);
 		state->inner_ateof = false;
+		slot_getsomeattrs(outer_slot, cbstate->rownum_chain_attr);
+		Assert(outer_slot->tts_isnull[cbstate->rownum_chain_attr-1] == false);
 	}
 
 	for(;;)
@@ -398,12 +488,33 @@ re_get_tuplestore_connect_by_:
 		if (TupIsNull(inner_slot))
 			break;
 
+		slot_getsomeattrs(inner_slot, state->input_rownum_index+1);
+		Assert(inner_slot->tts_isnull[state->input_rownum_index] == false);
 		econtext->ecxt_innertuple = inner_slot;
 		econtext->ecxt_outertuple = outer_slot;
 		if (ExecQualAndReset(cbstate->joinclause, econtext))
 		{
-			tuplestore_puttupleslot(state->save_ts,
-									ExecProject(cbstate->pj_save_targetlist));
+			/* cycle check */
+			if (Int64InArray(DatumGetArrayTypeP(outer_slot->tts_values[cbstate->rownum_chain_attr-1]),
+							 DatumGetInt64(inner_slot->tts_values[state->input_rownum_index])))
+			{
+				if (castNode(ConnectByPlan, cbstate->ps.plan)->no_cycle == false)
+					ereport(ERROR,
+							(errcode(ERRCODE_DUPLICATE_OBJECT),
+							 errmsg("CONNECT BY loop in user data")));
+				continue;
+			}
+
+			save_slot = ExecProject(cbstate->pj_save_targetlist);
+			rownum_chain = MakeInt8ArrayDatum(outer_slot, cbstate->rownum_chain_attr, &rownum_ptr);
+			*rownum_ptr = DatumGetInt64(inner_slot->tts_values[state->input_rownum_index]);
+			save_slot->tts_values[cbstate->rownum_chain_attr-1] = rownum_chain;
+			save_slot->tts_isnull[cbstate->rownum_chain_attr-1] = false;
+
+			tuplestore_puttupleslot(state->save_ts, save_slot);
+			ExecClearTuple(save_slot);
+			pfree(DatumGetPointer(rownum_chain));
+
 			if (pstate->qual == NULL ||
 				ExecQual(pstate->qual, econtext))
 			{
@@ -450,6 +561,7 @@ static TupleTableSlot *ExecHashConnectBy(PlanState *pstate)
 			}
 			/* I am not sure about the impact of "grow", so disable it */
 			hjt->growEnabled = false;
+			cbstate->cur_rownum = 0;
 			MultiExecHashEx(hash, InsertRootHashValue, cbstate);
 
 			/* prepare for save joind tuple */
@@ -620,6 +732,8 @@ reget_hash_connect_by_:
 			Assert(batch_no == hjt->curbatch);
 		}
 		state->cur_tuple = NULL;
+		slot_getsomeattrs(outer_slot, cbstate->rownum_chain_attr);
+		Assert(outer_slot->tts_isnull[cbstate->rownum_chain_attr-1] == false);
 	}
 
 	econtext->ecxt_innertuple = inner_slot;
@@ -643,6 +757,19 @@ reget_hash_connect_by_:
 		goto reget_hash_connect_by_;
 	}
 
+	/* check is cycle */
+	slot_getsomeattrs(inner_slot, state->input_rownum_index+1);
+	Assert(inner_slot->tts_isnull[state->input_rownum_index] == false);
+	if (Int64InArray(DatumGetArrayTypeP(outer_slot->tts_values[cbstate->rownum_chain_attr-1]),
+					 DatumGetInt64(inner_slot->tts_values[state->input_rownum_index])))
+	{
+		if (castNode(ConnectByPlan, cbstate->ps.plan)->no_cycle == false)
+			ereport(ERROR,
+					(errcode(ERRCODE_DUPLICATE_OBJECT),
+					 errmsg("CONNECT BY loop in user data")));
+		goto reget_hash_connect_by_;
+	}
+
 	/* inner tuple is outer tuple at next level */
 	econtext->ecxt_outertuple = inner_slot;
 	if (ExecHashGetHashValue(hjt,
@@ -658,15 +785,27 @@ reget_hash_connect_by_:
 
 		econtext->ecxt_outertuple = outer_slot;
 		ExecHashGetBucketAndBatch(hjt, hashvalue, &bucket_no, &batch_no);
+
+		/* don't need save it when inner batch is empty */
 		if (hjt->innerBatchFile[batch_no] != NULL)
 		{
-			/* don't need save it when inner batch is empty */
+			Datum rownum_chain;
+			int64 *rownum_ptr;
+
 			save_slot = ExecProject(cbstate->pj_save_targetlist);
 			Assert(!TupIsNull(save_slot));
+			/* set rownum chain */
+			rownum_chain = MakeInt8ArrayDatum(outer_slot, cbstate->rownum_chain_attr, &rownum_ptr);
+			*rownum_ptr = DatumGetInt64(inner_slot->tts_values[state->input_rownum_index]);
+			save_slot->tts_values[cbstate->rownum_chain_attr-1] = rownum_chain;
+			save_slot->tts_isnull[cbstate->rownum_chain_attr-1] = false;
+
 			Assert(save_slot->tts_ops->get_minimal_tuple);
 			ExecHashJoinSaveTuple(save_slot->tts_ops->get_minimal_tuple(save_slot),
 								  hashvalue,
 								  &state->outer_save[batch_no]);
+			ExecClearTuple(save_slot);
+			pfree(DatumGetPointer(rownum_chain));
 		}
 	}
 	econtext->ecxt_outertuple = outer_slot;
@@ -692,12 +831,14 @@ static TupleTableSlot *ExecSortConnectBy(PlanState *pstate)
 	TupleTableSlot *save_slot;
 	TupleTableSlot *result_slot;
 	TuplestoreConnectByLeaf *leaf;
+	Datum			rownum_chain;
+	int64		   *rownum_ptr;
 
 	if (cbstate->processing_root)
 	{
 		leaf = slist_head_element(TuplestoreConnectByLeaf, snode, &state->slist_level);
 		Assert(leaf->snode.next == NULL);
-		ProcessTuplesortRoot(cbstate, leaf);
+		ProcessTuplesortRoot(cbstate, leaf, state->input_rownum_index);
 		tuplesort_performsort(leaf->scan_ts);
 		leaf->outer_tup = NULL;
 		cbstate->processing_root = false;
@@ -756,9 +897,22 @@ re_get_tuplesort_connect_by_:
 	}
 
 	save_slot = ExecProject(cbstate->pj_save_targetlist);
+	if (cbstate->level == 1L)
+		rownum_chain = MakeInt8ArrayDatum(NULL, InvalidOid, &rownum_ptr);
+	else
+		rownum_chain = MakeInt8ArrayDatum(outer_slot, cbstate->rownum_chain_attr, &rownum_ptr);
+	slot_getsomeattrs(sort_slot, state->sort_rownum_index+1);
+	Assert(sort_slot->tts_isnull[state->sort_rownum_index] == false);
+	*rownum_ptr = DatumGetInt64(sort_slot->tts_values[state->sort_rownum_index]);
+	save_slot->tts_values[cbstate->rownum_chain_attr-1] = rownum_chain;
+	save_slot->tts_isnull[cbstate->rownum_chain_attr-1] = false;
+
 	++(cbstate->level);
 	ExecMaterializeSlot(save_slot);		/* GetNextTuplesortLeaf will reset memory context */
-	leaf = GetNextTuplesortLeaf(cbstate, save_slot);
+	leaf = GetNextTuplesortLeaf(cbstate,
+								save_slot,
+								DatumGetArrayTypeP(rownum_chain),
+								state->sort_rownum_index);
 	if (leaf)
 	{
 		leaf->outer_tup = ExecCopySlotMinimalTuple(save_slot);
@@ -768,6 +922,8 @@ re_get_tuplesort_connect_by_:
 	{
 		--(cbstate->level);
 	}
+	ExecClearTuple(save_slot);
+	pfree(DatumGetPointer(rownum_chain));
 
 	if (TupIsNull(result_slot))
 		goto re_get_tuplesort_connect_by_;	/* removed by qual */
@@ -782,11 +938,13 @@ static void FirstMaterialHashConnectBy(ConnectByState *cbstate, MaterialHashConn
 	TupleTableSlot		   *inner_slot = cbstate->inner_slot;
 	TupleTableSlot		   *outer_slot = cbstate->outer_slot;
 	BufFile				   *file;
+	ArrayType			   *rownum_chain;
 	uint32					hashvalue;
 	int						i;
 
 	cbstate->processing_root = true;
 	cbstate->level = 1L;
+	cbstate->cur_rownum = 0;
 
 	if (hjt == NULL)
 	{
@@ -866,6 +1024,10 @@ re_connect_by_:
 			econtext->ecxt_innertuple = inner_slot;
 			econtext->ecxt_outertuple = outer_slot;
 
+			slot_getsomeattrs(outer_slot, cbstate->rownum_chain_attr);
+			Assert(outer_slot->tts_isnull[cbstate->rownum_chain_attr-1] == false);
+			rownum_chain = DatumGetArrayTypeP(outer_slot->tts_values[cbstate->rownum_chain_attr-1]);
+
 			while(ExecScanHashBucketExt(econtext,
 										state->base.hash_clauses,
 										&state->base.cur_tuple,
@@ -886,6 +1048,18 @@ re_connect_by_:
 					CHECK_FOR_INTERRUPTS();
 					if (qual == false)
 						continue;
+				}
+
+				slot_getsomeattrs(inner_slot, state->base.input_rownum_index+1);
+				Assert(inner_slot->tts_isnull[state->base.input_rownum_index] == false);
+				if (Int64InArray(rownum_chain,
+					DatumGetInt64(inner_slot->tts_values[state->base.input_rownum_index])))
+				{
+					if (castNode(ConnectByPlan, cbstate->ps.plan)->no_cycle == false)
+						ereport(ERROR,
+								(errcode(ERRCODE_DUPLICATE_OBJECT),
+								 errmsg("CONNECT BY loop in user data")));
+					continue;
 				}
 
 				if (cbstate->ps.qual == NULL ||
@@ -974,7 +1148,7 @@ static void SortHashSaveRootRow(ConnectByState *cbstate, TupleTableSlot *slot)
 	econtext->ecxt_innertuple = inner_slot;
 }
 
-static Datum MakeSortHashDatum(TupleTableSlot *outer_slot, AttrNumber prior_attno, int64 **cur_level)
+static Datum MakeInt8ArrayDatum(TupleTableSlot *outer_slot, AttrNumber prior_attno, int64 **cur_level)
 {
 	ArrayType  *cur_arr;
 	ArrayType  *prior_arr;
@@ -1023,12 +1197,15 @@ static void SortHashEndRootRow(ConnectByState *cbstate)
 	HashJoinTable	hjt = cbstate->hjt;
 	int64		   *sort_ptr;
 	Datum			sort_datum;
+	int64		   *rownum_ptr;
+	Datum			rownum_chain_datum;
 	uint64			filter1 = 0;
 	uint32			hashvalue;
 	int				bucket_no;
 	int				batch_no;
 
-	sort_datum = MakeSortHashDatum(NULL, InvalidAttrNumber, &sort_ptr);
+	sort_datum = MakeInt8ArrayDatum(NULL, InvalidAttrNumber, &sort_ptr);
+	rownum_chain_datum = MakeInt8ArrayDatum(NULL, InvalidAttrNumber, &rownum_ptr);
 	*sort_ptr = 0;
 
 	tuplesort_performsort(state->root_sort);
@@ -1053,7 +1230,14 @@ static void SortHashEndRootRow(ConnectByState *cbstate)
 			   TupleDescAttr(outer_slot->tts_tupleDescriptor, state->outer_sort_index)->atttypid == INT8ARRAYOID);
 		outer_slot->tts_values[state->outer_sort_index] = sort_datum;
 		outer_slot->tts_isnull[state->outer_sort_index] = false;
-		
+
+		/* set rownum chain value (int8[]) */
+		slot_getsomeattrs(sub_sort_slot, state->sub_sort_rownum_index+1);
+		Assert(sub_sort_slot->tts_isnull[state->sub_sort_rownum_index] == false);
+		*rownum_ptr = DatumGetInt64(sub_sort_slot->tts_values[state->sub_sort_rownum_index]);
+		outer_slot->tts_values[cbstate->rownum_chain_attr-1] = rownum_chain_datum;
+		outer_slot->tts_isnull[cbstate->rownum_chain_attr-1] = false;
+
 		ExecHashGetBucketAndBatch(hjt, hashvalue, &bucket_no, &batch_no);
 		Assert(!TupIsNull(outer_slot) &&
 			   TTS_IS_MINIMALTUPLE(outer_slot) &&
@@ -1177,6 +1361,8 @@ static void SortHashEndLevelRow(ConnectByState *cbstate)
 	int64				   *cur_num;
 	HashJoinTable			hjt;
 	Datum					cur_arr;
+	int64				   *rownum_val;
+	Datum					rownum_chain;
 	if (state->sub_sort_row_size == 0)
 		return;
 
@@ -1192,7 +1378,8 @@ static void SortHashEndLevelRow(ConnectByState *cbstate)
 
 	/* make current siblings sort values */
 	econtext = cbstate->ps.ps_ExprContext;
-	cur_arr = MakeSortHashDatum(econtext->ecxt_outertuple, state->outer_sort_index+1, &cur_num);
+	cur_arr = MakeInt8ArrayDatum(econtext->ecxt_outertuple, state->outer_sort_index+1, &cur_num);
+	rownum_chain = MakeInt8ArrayDatum(econtext->ecxt_outertuple, cbstate->rownum_chain_attr, &rownum_val);
 
 	/* save rows */
 	inner_slot = econtext->ecxt_innertuple;
@@ -1215,6 +1402,14 @@ static void SortHashEndLevelRow(ConnectByState *cbstate)
 				   ((MinimalTupleTableSlot*)save_slot)->mintuple == NULL);
 			save_slot->tts_values[state->outer_sort_index] = cur_arr;
 			save_slot->tts_isnull[state->outer_sort_index] = false;
+
+			/* set rownum chain values */
+			slot_getsomeattrs(inner_slot, state->base.base.input_rownum_index+1);
+			Assert(inner_slot->tts_isnull[state->base.base.input_rownum_index] == false);
+			*rownum_val = DatumGetInt64(inner_slot->tts_values[state->base.base.input_rownum_index]);
+			save_slot->tts_values[cbstate->rownum_chain_attr-1] = rownum_chain;
+			save_slot->tts_isnull[cbstate->rownum_chain_attr-1] = false;
+
 			ExecHashJoinSaveTuple(TTSOpsMinimalTuple.get_minimal_tuple(save_slot),
 								  row->hashval,
 								  &state->base.base.outer_save[row->batch_no]);
@@ -1240,6 +1435,7 @@ static void SortHashEndLevelRow(ConnectByState *cbstate)
 
 	/* clean */
 	state->sub_sort_row_size = 0;
+	pfree(DatumGetPointer(rownum_chain));
 	pfree(DatumGetPointer(cur_arr));
 }
 
@@ -1292,7 +1488,7 @@ static TupleTableSlot *ExecFirstSortHashConnectBy(PlanState *pstate)
 	return ExecSortHashConnectBy(pstate);
 }
 
-static void ProcessTuplesortRoot(ConnectByState *cbstate, TuplestoreConnectByLeaf *leaf)
+static void ProcessTuplesortRoot(ConnectByState *cbstate, TuplestoreConnectByLeaf *leaf, uint32 input_rownum_index)
 {
 	TupleTableSlot *inner_slot;
 	ExprContext *econtext = cbstate->ps.ps_ExprContext;
@@ -1302,7 +1498,7 @@ static void ProcessTuplesortRoot(ConnectByState *cbstate, TuplestoreConnectByLea
 	for(;;)
 	{
 		CHECK_FOR_INTERRUPTS();
-		inner_slot = ExecNestConnectByStartWith(cbstate);
+		inner_slot = ExecNestConnectByStartWith(cbstate, input_rownum_index);
 		if (TupIsNull(inner_slot))
 			break;
 
@@ -1430,6 +1626,7 @@ static void ExecReScanNestConnectBy(ConnectByState *cbstate, NestConnectByState 
 			tuplestore_clear(cbstate->ts);
 		cbstate->is_rescan = false;
 		cbstate->eof_underlying = false;
+		cbstate->cur_rownum = 0;
 	}else
 	{
 		cbstate->is_rescan = true;
@@ -1508,6 +1705,7 @@ static void ExecReScanTuplesortConnectBy(ConnectByState *cbstate, TuplesortConne
 			tuplestore_clear(cbstate->ts);
 		cbstate->is_rescan = false;
 		cbstate->eof_underlying = false;
+		cbstate->cur_rownum = 0;
 	}else
 	{
 		if (cbstate->ts)
@@ -1573,7 +1771,7 @@ void ExecReScanConnectBy(ConnectByState *node)
 	node->check_start_state = START_WITH_UNCHECK;
 }
 
-static TupleTableSlot* ExecNestConnectByStartWith(ConnectByState *ps)
+static TupleTableSlot* ExecNestConnectByStartWith(ConnectByState *ps, uint32 input_rownum_index)
 {
 	Tuplestorestate *outer_ts = ps->ts;
 	PlanState	   *outer_ps = outerPlanState(ps);
@@ -1599,6 +1797,7 @@ static TupleTableSlot* ExecNestConnectByStartWith(ConnectByState *ps)
 			}
 		}else if (ps->eof_underlying == false)
 		{
+			TupleTableSlot *inner_slot;
 			ResetExprContext(econtext);
 			slot = ExecProcNode(outer_ps);
 			if (TupIsNull(slot))
@@ -1607,7 +1806,19 @@ static TupleTableSlot* ExecNestConnectByStartWith(ConnectByState *ps)
 				break;
 			}
 
+			/* set unique rownum id */
+			slot_getallattrs(slot);
+			inner_slot = ExecClearTuple(ps->inner_slot);
+			Assert(inner_slot->tts_tupleDescriptor->natts > slot->tts_tupleDescriptor->natts);
+			memcpy(inner_slot->tts_values, slot->tts_values, sizeof(slot->tts_values[0]) * slot->tts_tupleDescriptor->natts);
+			memcpy(inner_slot->tts_isnull, slot->tts_isnull, sizeof(slot->tts_isnull[0]) * slot->tts_tupleDescriptor->natts);
+			Assert(inner_slot->tts_tupleDescriptor->natts > input_rownum_index);
+			inner_slot->tts_values[input_rownum_index] = Int64GetDatumFast(ps->cur_rownum);
+			inner_slot->tts_isnull[input_rownum_index] = false;
+			slot = ExecStoreVirtualTuple(inner_slot);
+
 			tuplestore_puttupleslot(outer_ts, slot);
+			++ps->cur_rownum;
 		}else
 		{
 			/* not in rescan and eof underlying */
@@ -1665,7 +1876,8 @@ static TuplestoreConnectByLeaf* GetConnectBySortLeaf(ConnectByState *ps)
 	return leaf;
 }
 
-static TuplestoreConnectByLeaf *GetNextTuplesortLeaf(ConnectByState *cbstate, TupleTableSlot *outer_slot)
+static TuplestoreConnectByLeaf *GetNextTuplesortLeaf(ConnectByState *cbstate, TupleTableSlot *outer_slot,
+													 ArrayType *rownum_chain, uint32 input_rownum_index)
 {
 	TuplesortConnectByState *state = cbstate->private_state;
 	ExprContext *econtext = cbstate->ps.ps_ExprContext;
@@ -1686,8 +1898,20 @@ static TuplestoreConnectByLeaf *GetNextTuplesortLeaf(ConnectByState *cbstate, Tu
 		if (TupIsNull(inner_slot))
 			break;
 		econtext->ecxt_innertuple = inner_slot;
+		slot_getsomeattrs(inner_slot, input_rownum_index+1);
+		Assert(inner_slot->tts_isnull[input_rownum_index] == false);
 		if (ExecQualAndReset(cbstate->joinclause, econtext))
 		{
+			/* check cycle */
+			if (Int64InArray(rownum_chain,
+							 DatumGetInt64(inner_slot->tts_values[input_rownum_index])))
+			{
+				if (castNode(ConnectByPlan, cbstate->ps.plan)->no_cycle == false)
+					ereport(ERROR,
+							(errcode(ERRCODE_DUPLICATE_OBJECT),
+							 errmsg("CONNECT BY loop in user data")));
+				continue;
+			}
 			if (leaf == NULL)
 				leaf = GetConnectBySortLeaf(cbstate);
 			tuplesort_puttupleslot(leaf->scan_ts,
@@ -1700,25 +1924,55 @@ static TuplestoreConnectByLeaf *GetNextTuplesortLeaf(ConnectByState *cbstate, Tu
 
 static TupleTableSlot *InsertRootHashValue(ConnectByState *cbstate, TupleTableSlot *slot)
 {
+	HashConnectByState *state;
 	ExprContext	   *econtext;
+	TupleTableSlot *input_slot;
+	TupleTableSlot *save_slot;
 	HashJoinTable	hjt;
 	uint32			hashvalue;
 	int				bucket_no;
 	int				batch_no;
+	uint32			rownum_chain_index;
+	int64		   *rownum_ptr;
 
 	if (TupIsNull(slot))
 		return slot;
 	if (cbstate->check_start_state == START_WITH_HAS_EMPTY)
 		return ExecClearTuple(slot);
 
+	state = cbstate->private_state;
+
+	/* make a same ops from slot */
+	if (unlikely(state->input_slot == NULL))
+	{
+		MemoryContext context = MemoryContextSwitchTo(GetMemoryChunkContext(cbstate->inner_slot));
+		state->input_slot = MakeTupleTableSlot(cbstate->inner_slot->tts_tupleDescriptor,
+											   slot->tts_ops);
+		MemoryContextSwitchTo(context);
+	}
+
+	/* append an unique id */
+	if (slot == cbstate->inner_slot)
+	{
+		/* calling from rescan */
+		input_slot = slot;
+	}else
+	{
+		input_slot = ExecClearTuple(state->input_slot);
+		slot_getallattrs(slot);
+		memcpy(input_slot->tts_values, slot->tts_values, sizeof(slot->tts_values[0])*slot->tts_nvalid);
+		memcpy(input_slot->tts_isnull, slot->tts_isnull, sizeof(slot->tts_isnull[0])*slot->tts_nvalid);
+		input_slot->tts_values[state->input_rownum_index] = Int64GetDatum(cbstate->cur_rownum);
+		input_slot->tts_isnull[state->input_rownum_index] = false;
+		ExecStoreVirtualTuple(input_slot);
+	}
+
 	econtext = cbstate->ps.ps_ExprContext;
 	ResetExprContext(econtext);
-	econtext->ecxt_outertuple = slot;
+	econtext->ecxt_outertuple = input_slot;
 	if (cbstate->start_with == NULL ||
 		ExecQual(cbstate->start_with, econtext))
 	{
-		HashConnectByState *state = cbstate->private_state;
-		TupleTableSlot *save_slot;
 		hjt = cbstate->hjt;
 		ExecHashGetHashValue(hjt,
 							 econtext,
@@ -1726,13 +1980,24 @@ static TupleTableSlot *InsertRootHashValue(ConnectByState *cbstate, TupleTableSl
 							 true,
 							 true,	/* we need return this tuple, when is null we also need a hashvalue */
 							 &hashvalue);
-		econtext->ecxt_innertuple = slot;
+		econtext->ecxt_innertuple = input_slot;
 		econtext->ecxt_outertuple = ExecClearTuple(cbstate->outer_slot);
 		ExecHashGetBucketAndBatch(hjt, hashvalue, &bucket_no, &batch_no);
 		save_slot = ExecProject(cbstate->pj_save_targetlist);
-		Assert(!TupIsNull(save_slot));
-		Assert(save_slot->tts_ops->get_minimal_tuple);
-		ExecHashJoinSaveTuple(save_slot->tts_ops->get_minimal_tuple(save_slot),
+		Assert(!TupIsNull(save_slot) &&
+			   TTS_IS_MINIMALTUPLE(save_slot) &&
+			   ((MinimalTupleTableSlot*)save_slot)->mintuple == NULL);
+
+		/* set rownum chain value (int8[]) */
+		rownum_chain_index = cbstate->rownum_chain_attr-1;
+		Assert(save_slot->tts_tupleDescriptor->natts > rownum_chain_index);
+		Assert(TupleDescAttr(save_slot->tts_tupleDescriptor, rownum_chain_index)->atttypid == INT8ARRAYOID);
+		save_slot->tts_values[rownum_chain_index] = MakeInt8ArrayDatum(NULL, InvalidAttrNumber, &rownum_ptr);
+		Assert(input_slot->tts_isnull[state->input_rownum_index] == false);
+		*rownum_ptr = DatumGetInt64(input_slot->tts_values[state->input_rownum_index]);
+		save_slot->tts_isnull[rownum_chain_index] = false;
+
+		ExecHashJoinSaveTuple(TTSOpsMinimalTuple.get_minimal_tuple(save_slot),
 							  hashvalue,
 							  &hjt->outerBatchFile[batch_no]);
 	}else
@@ -1741,33 +2006,55 @@ static TupleTableSlot *InsertRootHashValue(ConnectByState *cbstate, TupleTableSl
 		InstrCountFiltered2(cbstate, 1);
 	}
 
-	return slot;
+	++cbstate->cur_rownum;
+	return input_slot;
 }
 
 static TupleTableSlot *InsertMaterialHashValue(ConnectByState *cbstate, TupleTableSlot *slot)
 {
-	MaterialHashConnectByState *state = cbstate->private_state;
-	ExprContext	   *econtext;
+	MaterialHashConnectByState *state;
+	ExprContext				   *econtext;
+	TupleTableSlot			   *input_slot;
 
 	if (TupIsNull(slot))
 		return slot;
 	if (cbstate->check_start_state == START_WITH_HAS_EMPTY)
 		return ExecClearTuple(slot);
 
+	state = cbstate->private_state;
 	econtext = cbstate->ps.ps_ExprContext;
+
+	/* make a same ops from slot */
+	if (unlikely(state->base.input_slot == NULL))
+	{
+		MemoryContext context = MemoryContextSwitchTo(GetMemoryChunkContext(cbstate->inner_slot));
+		state->base.input_slot = MakeTupleTableSlot(cbstate->inner_slot->tts_tupleDescriptor,
+													slot->tts_ops);
+		MemoryContextSwitchTo(context);
+	}
+
+	/* append an unique id */
+	input_slot = ExecClearTuple(state->base.input_slot);
+	slot_getallattrs(slot);
+	memcpy(input_slot->tts_values, slot->tts_values, sizeof(slot->tts_values[0])*slot->tts_nvalid);
+	memcpy(input_slot->tts_isnull, slot->tts_isnull, sizeof(slot->tts_isnull[0])*slot->tts_nvalid);
+	input_slot->tts_values[state->base.input_rownum_index] = Int64GetDatum(cbstate->cur_rownum);
+	input_slot->tts_isnull[state->base.input_rownum_index] = false;
+
 	ResetExprContext(econtext);
-	econtext->ecxt_outertuple = slot;
+	econtext->ecxt_outertuple = ExecStoreVirtualTuple(input_slot);
 	if (cbstate->start_with == NULL ||
 		ExecQual(cbstate->start_with, econtext))
 	{
-		state->save_root(cbstate, slot);
+		state->save_root(cbstate, input_slot);
 	}else
 	{
 		CHECK_START_WITH(cbstate);
 		InstrCountFiltered2(cbstate, 1);
 	}
 
-	return slot;
+	++cbstate->cur_rownum;
+	return input_slot;
 }
 
 /* like ExecHashJoinNewBatch */
