@@ -1422,10 +1422,10 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 		}
 
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &coordinators, newMaster, true);
-		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &coordinatorSlaves, NULL, true);
-		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &runningSlavesSecond, NULL, true);
-		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &failedSlavesSecond, NULL, true);	
-		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	&dataNodes,	NULL, true);
+		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &coordinatorSlaves, NULL, false);
+		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &runningSlavesSecond, NULL, false);
+		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &failedSlavesSecond, NULL, false);	
+		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	&dataNodes,	NULL, false);
 
 		/* isolated node in pgxc_node would block the cluster */
 		selectIsolatedMgrNodes(spiContext, &isolatedNodes);
@@ -3183,69 +3183,7 @@ static SwitcherNodeWrapper *checkGetSwitchoverNewMaster(char *newMasterName,
 	}
 	return newMaster;
 }
-// static SwitcherNodeWrapper *checkGetSwitchoverNewMasterForZone(SwitcherNodeWrapper *holdLockCoordinator,
-// 																char *newMasterName,
-// 																char nodeType,
-// 																bool forceSwitch,
-// 																MemoryContext spiContext)
-// {
-// 	MgrNodeWrapper *mgrNode;
-// 	SwitcherNodeWrapper *newMaster;
 
-// 	mgrNode = selectMgrNodeByNodenameType(newMasterName,
-// 										  nodeType,
-// 										  spiContext);
-// 	if (!mgrNode)
-// 	{			
-// 		ereport(ERROR,
-// 				(errmsg("%s does not exist or is not a %s node",
-// 						newMasterName, mgr_get_nodetype_desc(nodeType))));
-// 	}
-// 	if (mgrNode->form.nodetype != nodeType)
-// 	{
-// 		ereport(ERROR,
-// 				(errmsg("%s is not a slave node", newMasterName)));
-// 	}
-// 	if (!mgrNode->form.nodeinited)
-// 	{
-// 		ereport(ERROR,
-// 				(errmsg("%s has not be initialized", newMasterName)));
-// 	}
-// 	if (!mgrNode->form.nodeincluster)
-// 	{
-// 		ereport(ERROR,
-// 				(errmsg("%s has been kicked out of the cluster", newMasterName)));
-// 	}
-// 	if (!isCurestatusForRunningOk(NameStr(mgrNode->form.curestatus)))
-// 	{
-// 		ereport(forceSwitch ? WARNING : ERROR,
-// 				(errmsg("%s illegal curestatus:%s, "
-// 						"switching is not recommended in this situation",
-// 						NameStr(mgrNode->form.nodename),
-// 						NameStr(mgrNode->form.curestatus))));
-// 	}
-// 	newMaster = palloc0(sizeof(SwitcherNodeWrapper));
-// 	newMaster->mgrNode = mgrNode;
-// 	if (tryConnectNode(newMaster, 10))
-// 	// {
-// 		newMaster->runningMode = getNodeRunningModeEx(holdLockCoordinator, newMaster);
-// 		// newMaster->runningMode = getNodeRunningMode(newMaster->pgConn);
-// 		if (newMaster->runningMode != NODE_RUNNING_MODE_SLAVE)
-// 		{
-// 			pfreeSwitcherNodeWrapperPGconn(newMaster);
-// 			ereport(ERROR,
-// 					(errmsg("%s expected running status is slave mode, but actually is not",
-// 							NameStr(mgrNode->form.nodename))));
-// 		}
-// 	// }
-// 	// else
-// 	// {
-// 	// 	ereport(ERROR,
-// 	// 			(errmsg("%s connection failed",
-// 	// 					NameStr(mgrNode->form.nodename))));
-// 	// }
-// 	return newMaster;
-// }
 static SwitcherNodeWrapper *checkGetSwitchoverOldMaster(Oid oldMasterOid,
 														char nodetype,
 														MemoryContext spiContext)
@@ -3841,15 +3779,6 @@ static void refreshOldMasterAfterSwitch(SwitcherNodeWrapper *oldMaster,
 		ereportNoticeLog(errmsg("%s is waiting for rewinding. If the doctor is enabled, "
 						"the doctor will automatically rewind it",
 						NameStr(oldMaster->mgrNode->form.nodename)));
-
-		// ereport(LOG,
-		// 		(errmsg("%s is waiting for rewinding. If the doctor is enabled, "
-		// 				"the doctor will automatically rewind it",
-		// 				NameStr(oldMaster->mgrNode->form.nodename))));
-		// ereport(NOTICE,
-		// 		(errmsg("%s is waiting for rewinding. If the doctor is enabled, "
-		// 				"the doctor will automatically rewind it",
-		// 				NameStr(oldMaster->mgrNode->form.nodename))));
 	}
 }
 
@@ -4399,10 +4328,16 @@ static void batchCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 										gtmMaster))
 			{
 				ereport(LOG,
-						(errmsg("the GTM information on %s is correct",
+						(errmsg("check GTM information on %s is correct",
 								NameStr(node->mgrNode->form.nodename))));
 				dlist_delete(iter.cur);
 				pfree(node);
+			}
+			else
+			{
+				ereport(LOG,
+						(errmsg("check GTM information on %s is error, sleep %d s",
+								NameStr(node->mgrNode->form.nodename), seconds+1)));
 			}
 		}
 		if (dlist_is_empty(&copyOfNodes))
@@ -4707,16 +4642,10 @@ static void checkXlogDiffForSwitchover(SwitcherNodeWrapper *oldMaster,
 	bool execOk = false;
 	char *sql;
 
-	ereport(LOG,
-			(errmsg("wait max %d seconds to check %s and %s have the same xlog position",
+	ereportNoticeLog((errmsg("wait max %d seconds to check %s and %s have the same xlog position",
 					maxTrys,
 					NameStr(oldMaster->mgrNode->form.nodename),
-					NameStr(newMaster->mgrNode->form.nodename))));
-	ereport(NOTICE,
-			(errmsg("wait max %d seconds to check %s and %s have the same xlog position",
-					maxTrys,
-					NameStr(oldMaster->mgrNode->form.nodename),
-					NameStr(newMaster->mgrNode->form.nodename))));
+					NameStr(newMaster->mgrNode->form.nodename))));				
 
 	PQexecCommandSql(oldMaster->pgConn, "checkpoint;", true);
 
@@ -5415,6 +5344,7 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 	dlist_head  *failedSlaves 		= &zoGtm->failedSlaves;
 	dlist_head  *failedSlavesSecond = &zoGtm->failedSlavesSecond;
 	dlist_head  *dataNodes 			= &zoGtm->dataNodes;
+	bool        complain = false;
 
 	ereport(LOG, (errmsg("------------- switchoverGtmCoord newMasterName(%s) before -------------", newMasterName)));				
 	PrintMgrNodeList(spiContext);
@@ -5423,7 +5353,6 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 											CNDN_TYPE_GTM_COOR_SLAVE,
 											forceSwitch,
 											spiContext);
-	zoGtm->newMaster = newMaster;	
 
 	if (pg_strcasecmp(NameStr(newMaster->mgrNode->form.nodezone), curZone) != 0)
 	{
@@ -5432,8 +5361,7 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 	}								
 	oldMaster = checkGetSwitchoverOldMaster(newMaster->mgrNode->form.nodemasternameoid,
 											CNDN_TYPE_GTM_COOR_MASTER,
-											spiContext);			
-	zoGtm->oldMaster = oldMaster;		
+											spiContext);
 
 	oldMaster->startupAfterException = false;
 	checkGetSlaveNodesRunningStatus(oldMaster,
@@ -5463,9 +5391,12 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 	checkTrackActivitiesForSwitchover(coordinatorSlaves, oldMaster);								  
 	/* oldMaster also is a coordinator */
 	dlist_push_head(coordinators, &oldMaster->link);
-
+     
 	/* check interrupt before lock the cluster */
 	CHECK_FOR_INTERRUPTS();
+
+	zoGtm->newMaster = newMaster;																
+	zoGtm->oldMaster = oldMaster;  
 
 	if (forceSwitch)
 	{
@@ -5521,16 +5452,16 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 
 	promoteNewMasterStartReign(oldMaster, newMaster);
 
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinators, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinatorSlaves, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	runningSlaves, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, runningSlavesSecond, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	failedSlaves, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, failedSlavesSecond, NULL, complain);	
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	dataNodes, NULL, complain);
+  
 	newMaster->mgrNode->form.nodetype =	getMgrMasterNodetype(newMaster->mgrNode->form.nodetype);
-	dlist_push_head(coordinators, &newMaster->link);     			
-
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinators, NULL, true);
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinatorSlaves, NULL, true);
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	runningSlaves, NULL, true);
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, runningSlavesSecond, NULL, true);
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	failedSlaves, NULL, true);
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, failedSlavesSecond, NULL, true);	
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	dataNodes, NULL, true);					 
+	dlist_push_head(coordinators, &newMaster->link);
 	
 	tryLockCluster(coordinators);
 	holdLockCoordinator = getHoldLockCoordinator(coordinators);
@@ -5540,13 +5471,12 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 									coordinators,
 									oldMaster,
 									newMaster);
-
-	appendSlaveNodeFollowMasterEx(spiContext,
+	
+    appendSlaveNodeFollowMasterEx(spiContext,
 									newMaster,
 									oldMaster, 
 									NULL,
 									true);
-
 	refreshOldMasterAfterSwitchover(oldMaster,
 									newMaster,
 									spiContext);
@@ -5610,9 +5540,6 @@ static void switchoverCoordForZone(MemoryContext spiContext,
 													spiContext);
 	oldMaster->startupAfterException = false;	
 
-	zoCoord->oldMaster = oldMaster;
-	zoCoord->newMaster = newMaster;
-
 	checkGetSlaveNodesRunningStatus(oldMaster,
 									spiContext,
 									newMaster->mgrNode->oid,
@@ -5630,6 +5557,9 @@ static void switchoverCoordForZone(MemoryContext spiContext,
 									oldMaster, 
 									newMaster);
 	CHECK_FOR_INTERRUPTS();
+
+	zoCoord->oldMaster = oldMaster;
+	zoCoord->newMaster = newMaster;
 
 	refreshMgrNodeBeforeSwitch(oldMaster, spiContext);
 	refreshMgrNodeBeforeSwitch(newMaster, spiContext);
@@ -6093,15 +6023,15 @@ static void RevertZoneSwitchOverGtm(MemoryContext spiContext,
     CheckNull(oldGtmMaster);
 	CheckNull(newGtmMaster);
 
-	batchSetCheckGtmInfoOnAllNodes(zoGtm, oldGtmMaster);
+    batchSetCheckGtmInfoOnAllNodes(zoGtm, oldGtmMaster);
 
 	RefreshOldNodeWrapperConfig(oldGtmMaster, newGtmMaster);
 	RevertRefreshPgxcNodeList(zoGtm->holdLockCoordinator, 
 								coordinators,
 								newGtmMaster,
 								oldGtmMaster,								 
-								complain);
-
+								complain); 
+								
 	shutdownNodeWithinSeconds(newGtmMaster->mgrNode,
 								SHUTDOWN_NODE_FAST_SECONDS,
 								SHUTDOWN_NODE_IMMEDIATE_SECONDS,
@@ -6115,15 +6045,17 @@ static void RevertZoneSwitchOverGtm(MemoryContext spiContext,
 	ClosePgConn(newGtmMaster->pgConn);
 	tryUnlockCluster(coordinators, true);
 
+	setGtmInfoInPGSqlConf(zoGtm->oldMaster->mgrNode, oldGtmMaster->mgrNode, false);
 	callAgentStartNode(oldGtmMaster->mgrNode, 
 						false, 
 						complain);
 	promoteNewMasterStartReign(newGtmMaster, oldGtmMaster);
 
+	dlist_push_tail(&siblingSlaveGtms, &newGtmMaster->mgrNode->link);
 	appendSlaveNodeFollowMasterEx(spiContext,
 								oldGtmMaster,
 								newGtmMaster,								 
-								NULL,
+								&siblingSlaveGtms,
 								complain);
 
 	DelNodeFromSwitcherNodeWrappers(coordinators, newGtmMaster);
@@ -6440,7 +6372,7 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 	dlist_head  *failedSlavesSecond = &zoGtm->failedSlavesSecond;
 	dlist_head  *dataNodes 			= &zoGtm->dataNodes;
 	SwitcherNodeWrapper *holdLockCoordinator = NULL;
-	bool 		complain = true;
+	bool 		complain = false;
 	NameData    newMasterName = {{0}};
 
 	ereport(LOG, (errmsg("------------- FailOverGtmCoordMaster oldMasterName(%s) before -------------", oldMasterName)));			
@@ -6503,7 +6435,7 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 								newMaster->pgConn,
 								true,
 								CHECK_GTM_INFO_SECONDS,
-								complain);
+								true);
 	newMaster->gtmInfoChanged = true;
 
 	promoteNewMasterStartReign(oldMaster, newMaster);
@@ -6512,8 +6444,16 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 	newMaster->mgrNode->form.nodetype =	getMgrMasterNodetype(newMaster->mgrNode->form.nodetype);
 	dlist_push_head(coordinators, &newMaster->link);
 
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinators, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinatorSlaves, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	runningSlaves, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, runningSlavesSecond, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	failedSlaves, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, failedSlavesSecond, NULL, complain);	
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	dataNodes, NULL, complain);
+
 	/* The better slave node is in front of the list */
-	sortNodesByWalLsnDesc(runningSlaves);
+	sortNodesByWalLsnDesc(runningSlaves);	
 	runningSlavesFollowNewMaster(newMaster,
 								oldMaster,
 								runningSlaves,
@@ -6521,19 +6461,6 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 								spiContext,
 								OVERTYPE_FAILOVER,
 								curZone);
-	
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
-								coordinators,
-								newMaster,
-								complain);
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
-								coordinatorSlaves,
-								newMaster,
-								complain);		
-	batchSetGtmInfoOnNodes(newMaster->mgrNode,
-							dataNodes,
-							newMaster,
-							complain);
 
 	tryLockCluster(coordinators);
 	holdLockCoordinator = getHoldLockCoordinator(coordinators);
