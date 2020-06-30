@@ -865,6 +865,10 @@ EnableDisableRule(Relation rel, const char *rulename,
 	Form_pg_rewrite ruleform;
 	bool		changed = false;
 
+#ifdef ADB
+	if (IsDnNode()) /* there is no rule in datanode*/
+		return;
+#endif
 	/*
 	 * Find the rule tuple to change.
 	 */
