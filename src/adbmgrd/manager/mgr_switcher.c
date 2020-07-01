@@ -191,8 +191,10 @@ static void checkActiveConnectionsForSwitchover(dlist_head *coordinators,
 static bool checkActiveConnections(PGconn *activePGcoon,
 								   bool localExecute,
 								   char *nodename);
-static void checkActiveLocksForSwitchover(dlist_head *coordinators, SwitcherNodeWrapper *holdLockCoordIn,
-										  SwitcherNodeWrapper *oldMaster);
+static void checkActiveLocksForSwitchover(dlist_head *coordinators, 
+										  SwitcherNodeWrapper *holdLockCoordIn,
+										  SwitcherNodeWrapper *oldMaster,
+										  int maxTrys);
 static bool checkActiveLocks(PGconn *activePGcoon,
 							 bool localExecute,
 							 MgrNodeWrapper *mgrNode);
@@ -349,7 +351,8 @@ static void checkGetCoordinatorsForZone(MemoryContext spiContext,
 											char *zone,
 											char nodeType,
 											dlist_head *coordinators);
-
+static void refreshReplicationSlots(SwitcherNodeWrapper *oldMaster,
+									SwitcherNodeWrapper *newMaster);
 
 /**
  * system function of failover datanode
@@ -1143,7 +1146,7 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, in
 												oldMaster,
 												maxTrys);
 		}
-		checkActiveLocksForSwitchover(&coordinators, NULL, oldMaster);
+		checkActiveLocksForSwitchover(&coordinators, NULL, oldMaster, maxTrys);
 		checkXlogDiffForSwitchover(oldMaster,
 								   newMaster);
 		CHECK_FOR_INTERRUPTS();
@@ -1219,6 +1222,8 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, in
 									 spiContext,
 									 OVERTYPE_SWITCHOVER,
 									 curZone);
+		refreshReplicationSlots(oldMaster, 
+								newMaster);							 
 		refreshMgrUpdateparmAfterSwitch(oldMaster->mgrNode,
 										newMaster->mgrNode,
 										spiContext,
@@ -1361,7 +1366,8 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 												maxTrys);												
 		}
 		checkActiveLocksForSwitchover(&coordinators, NULL,
-									  oldMaster);
+									  oldMaster,
+									  maxTrys);
 		checkXlogDiffForSwitchover(oldMaster,
 								   newMaster);
 		CHECK_FOR_INTERRUPTS();
@@ -1608,7 +1614,7 @@ void switchoverCoord(char *newMasterName, bool forceSwitch, char *curZone)
 		holdLockCoordinator = getHoldLockCoordinator(&coordinators);
 		Assert(holdLockCoordinator);
 
-		checkActiveLocksForSwitchover(&coordinators, NULL, oldMaster);
+		checkActiveLocksForSwitchover(&coordinators, NULL, oldMaster, 10);
 		checkXlogDiffForSwitchoverCoord(&coordinators, NULL, oldMaster, newMaster);
 		CHECK_FOR_INTERRUPTS();
 
@@ -4000,6 +4006,12 @@ static void refreshPgxcNodesOfNewDataNodeMaster(SwitcherNodeWrapper *holdLockNod
 											   &copyOfMgrNode,
 											   complain);
 }
+static void refreshReplicationSlots(SwitcherNodeWrapper *oldMaster,
+									SwitcherNodeWrapper *newMaster)
+{
+	dn_master_replication_slot(NameStr(oldMaster->mgrNode->form.nodename), NameStr(newMaster->mgrNode->form.nodename),'d');
+	dn_master_replication_slot(NameStr(newMaster->mgrNode->form.nodename), NameStr(oldMaster->mgrNode->form.nodename),'c');
+}
 /**
  * update curestatus can avoid adb doctor monitor this node
  */
@@ -4599,10 +4611,10 @@ static bool checkActiveConnections(PGconn *activePGcoon,
 
 static void checkActiveLocksForSwitchover(dlist_head *coordinators,
 										  SwitcherNodeWrapper *holdLockCoordIn,
-										  SwitcherNodeWrapper *oldMaster)
+										  SwitcherNodeWrapper *oldMaster,
+										  int maxTrys)
 {
 	int iloop;
-	int maxTrys = 10;
 	bool execOk = false;
 	SwitcherNodeWrapper *holdLockCoordinator = NULL;
 	SwitcherNodeWrapper *node;
@@ -4616,6 +4628,10 @@ static void checkActiveLocksForSwitchover(dlist_head *coordinators,
 			(errmsg("wait max %d seconds to check there are no active locks "
 					"in pg_locks except the locks on pg_locks table",
 					maxTrys)));
+
+	if (maxTrys == 0){
+		maxTrys = 10;
+	}			
     if (holdLockCoordIn == NULL){
 		holdLockCoordinator = getHoldLockCoordinator(coordinators);
 	}
@@ -5293,7 +5309,6 @@ void MgrZoneSwitchoverGtm(MemoryContext spiContext,
 								maxTrys,
 								zoGtm);
 }
-
 void MgrZoneSwitchoverCoord(MemoryContext spiContext, 
 							char 	*currentZone, 
 							bool	forceSwitch,
@@ -5479,7 +5494,7 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 											oldMaster,
 											maxTrys);												
 	}
-	checkActiveLocksForSwitchover(coordinators, NULL, oldMaster);
+	checkActiveLocksForSwitchover(coordinators, NULL, oldMaster, maxTrys);
 	checkXlogDiffForSwitchover(oldMaster, newMaster);
 	CHECK_FOR_INTERRUPTS();
 	/* Prevent doctor process from manipulating this node simultaneously. */
@@ -5623,7 +5638,8 @@ static void switchoverCoordForZone(MemoryContext spiContext,
 									forceSwitch);
 	checkActiveLocksForSwitchover(coordinators, 
 									holdLockCoordinator, 
-									oldMaster);
+									oldMaster,
+									10);
 	checkXlogDiffForSwitchoverCoord(coordinators, 
 									holdLockCoordinator, 
 									oldMaster, 
@@ -5757,9 +5773,6 @@ static void switchoverDataNodeForZone(MemoryContext spiContext,
 	/* check interrupt before lock the cluster */
 	CHECK_FOR_INTERRUPTS();
 
-	checkActiveLocksForSwitchover(coordinators, 
-									NULL, 
-									oldMaster);
 	checkXlogDiffForSwitchover(oldMaster, newMaster);
 	CHECK_FOR_INTERRUPTS();
 
@@ -5821,6 +5834,8 @@ static void switchoverDataNodeForZone(MemoryContext spiContext,
 									spiContext,
 									OVERTYPE_SWITCHOVER,
 									curZone);
+	refreshReplicationSlots(oldMaster,
+							newMaster);								
 	refreshMgrUpdateparmAfterSwitch(oldMaster->mgrNode,
 									newMaster->mgrNode,
 									spiContext,
@@ -6000,12 +6015,13 @@ static void RevertZoneSwitchoverDataNode(MemoryContext spiContext,
 	RevertRefreshPgxcNodeList(holdLockCoordinator, 
 								coordinators,
 								newMaster,
-								oldMaster,								 
+								oldMaster,					 
 								complain);
 	refreshPgxcNodesOfNewDataNodeMaster(holdLockCoordinator,
 										newMaster,
 										oldMaster,
 										complain);
+	refreshReplicationSlots(newMaster, oldMaster);									
 }
 static void RevertZoneOverGtm(MemoryContext spiContext, 
 								ZoneOverGtm *zoGtm, 
@@ -6762,7 +6778,7 @@ static void FailOverDataNodeMasterForZone(MemoryContext spiContext,
 								failedSlavesSecond,
 								spiContext,
 								OVERTYPE_FAILOVER,
-								curZone);		
+								curZone);
 	refreshMgrUpdateparmAfterSwitch(oldMaster->mgrNode,
 									newMaster->mgrNode,
 									spiContext,
