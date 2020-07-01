@@ -12,7 +12,11 @@ ADB documentation
 
   <refnamediv>
     <refname>ZONE FAILOVER</refname>
-    <refpurpose>failover from source zone to dest zone, include failover gtmcoord, failover coordinators, failover datanodes</refpurpose>
+    <refpurpose>failover from source zone to dest zone, include failover gtmcoord, failover coordinators, failover datanodes
+     Use like this:\n
+    ZONE FAILOVER zonename \n
+    ZONE FAILOVER zonename FORCE \n
+    </refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-zonefailover">
@@ -21,7 +25,7 @@ ADB documentation
 
   <refsynopsisdiv>
     <synopsis>
-ZONE FAILOVER <replaceable class="parameter">zone_name</replaceable>
+ZONE FAILOVER <replaceable class="parameter">zonename</replaceable>
 </synopsis>
   </refsynopsisdiv>
 
@@ -38,7 +42,7 @@ ZONE FAILOVER <replaceable class="parameter">zone_name</replaceable>
   <variablelist>
     
    <varlistentry>
-    <term><replaceable class="parameter">zone_name</replaceable></term>
+    <term><replaceable class="parameter">zonename</replaceable></term>
     <listitem>
       <para>
       Data center name.

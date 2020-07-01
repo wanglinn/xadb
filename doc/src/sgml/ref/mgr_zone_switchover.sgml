@@ -14,10 +14,10 @@ ADB documentation
     <refname>ZONE SWITCHOVER</refname>
     <refpurpose>switchover from source zone to dest zone, include switchover gtmcoord, switchover coordinators, switchover datanodes
     Use like this:\n
-    ZONE SWITCHOVER ${zonename}\n
-    ZONE SWITCHOVER ${zonename} 30\n
-    ZONE SWITCHOVER ${zonename} FORCE\n
-    ZONE SWITCHOVER ${zonename} FORCE 30\n
+    ZONE SWITCHOVER zonename \n
+    ZONE SWITCHOVER zonename 30 \n
+    ZONE SWITCHOVER zonename FORCE \n
+    ZONE SWITCHOVER zonename FORCE 30 \n
     </refpurpose>
   </refnamediv>
 
@@ -27,8 +27,8 @@ ADB documentation
 
   <refsynopsisdiv>
     <synopsis>
-    ZONE SWITCHOVER <replaceable class="parameter">zone_name</replaceable>
-    <synopsis>ZONE SWITCHOVER <replaceable class="parameter">${zonename}</replaceable> [FORCE] [maxTrys]</synopsis>
+    ZONE SWITCHOVER <replaceable class="parameter">zonename</replaceable>
+    <synopsis>ZONE SWITCHOVER <replaceable class="parameter">zonename</replaceable> [FORCE] [maxTrys]</synopsis>
 </synopsis>
   </refsynopsisdiv>
 
@@ -45,7 +45,7 @@ ADB documentation
   <variablelist>
     
    <varlistentry>
-    <term><replaceable class="parameter">zone_name</replaceable></term>
+    <term><replaceable class="parameter">zonename</replaceable></term>
     <listitem>
       <para>
       Data center name.
@@ -61,7 +61,7 @@ ADB documentation
 
     <para>
       <programlisting>
-      ZONE SWITCHOVER zone_name;
+      ZONE SWITCHOVER zonename;
       </programlisting>
     </para>
   </refsect1>
