@@ -84,7 +84,7 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 	NameData 		name;
 	char 			*currentZone;
 	bool 			force = false;
-	int 			maxTrys = 3;
+	int 			maxTrys = 10;
 	int 			spiRes = 0;	
 	MemoryContext 	oldContext;
 	MemoryContext 	spiContext = NULL;
