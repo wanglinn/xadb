@@ -72,7 +72,11 @@ static void MgrGetNodeAndChildsInZone(MemoryContext spiContext,
 										char *zone,
 										dlist_head *slaveNodes);
 static bool MgrCheckHasSlaveZoneNode(MemoryContext spiContext, 
-									char *zone);								
+									char *zone);				
+static void MgrShutdownNodesNotZone(MemoryContext spiContext,
+									char *currentZone);		
+static void MgrSetNodesNotZoneSwitched(MemoryContext spiContext,
+										char *currentZone);																				
 
 Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 {
@@ -97,7 +101,7 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 	force 		 = PG_GETARG_INT32(1);
 	Assert(currentZone);
 	if (strcmp(currentZone, mgr_zone) != 0)
-		ereport(ERROR, (errmsg("the given zone name \"%s\" is not the same wtih guc parameter mgr_zone \"%s\" in postgresql.conf", currentZone, mgr_zone)));	
+		ereport(ERROR, (errmsg("the given zone name \"%s\" is not same with guc parameter mgr_zone \"%s\" in postgresql.conf", currentZone, mgr_zone)));	
 
 	namestrcpy(&name, "ZONE FAILOVER");
 	SetZoneOverGtm(&zoGtm);
@@ -113,6 +117,8 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 	PG_TRY();
 	{
 		MgrFailoverCheck(spiContext, currentZone);
+
+		MgrShutdownNodesNotZone(spiContext, currentZone);
 
 		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s, step1:failover gtmcoord slave in %s ========.", currentZone, currentZone));
 		MgrZoneFailoverGtm(spiContext, 
@@ -136,6 +142,11 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 							maxTrys,
 							&zoGtm,
 							&zoDNList);
+		MgrRefreshAllPgxcNode(spiContext,
+							&zoGtm,
+							&zoCoordList, 
+							&zoDNList);
+		MgrSetNodesNotZoneSwitched(spiContext, currentZone);					
 	}PG_CATCH();
 	{
 		ereportNoticeLog(errmsg("============ ZONE FAILOVER %s failed, revert it begin ============", currentZone));
@@ -162,7 +173,7 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errmsg(" ZONE FAILOVER %s failed.", currentZone)));
 	}PG_END_TRY();
 
-	tryUnlockCluster(&zoGtm.coordinators, true);
+	
 	ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
 
 	MgrCheckAllSlaveNum(spiContext, currentZone);
@@ -201,7 +212,7 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 	
 	Assert(currentZone);
 	if (strcmp(currentZone, mgr_zone) != 0){
-		ereport(ERROR, (errmsg("the given zone name \"%s\" is not the same wtih guc parameter mgr_zone \"%s\" in postgresql.conf", currentZone, mgr_zone)));
+		ereport(ERROR, (errmsg("the given zone name \"%s\" is not same with guc parameter mgr_zone \"%s\" in postgresql.conf", currentZone, mgr_zone)));
 	}
 	
 	if (maxTrys < 1)
@@ -515,6 +526,71 @@ static void MgrSwitchoverCheck(MemoryContext spiContext, char *currentZone)
 {
 	MgrCheckMasterHasSlave(spiContext, currentZone, OVERTYPE_SWITCHOVER);
 	MgrMakesureAllSlaveRunning();
+}
+static void MgrShutdownNodeNotZone(MemoryContext spiContext,
+									char *currentZone,
+									char nodeType)
+{
+	dlist_head 			nodeList = DLIST_STATIC_INIT(nodeList);
+	dlist_iter 			iter;
+	MgrNodeWrapper 		*mgrNode = NULL;
+
+	selectNodeNotZoneForFailover(spiContext, currentZone, nodeType, &nodeList);
+	dlist_foreach(iter, &nodeList)
+	{
+		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		Assert(mgrNode);
+		shutdownNodeWithinSeconds(mgrNode,
+								SHUTDOWN_NODE_FAST_SECONDS,
+								SHUTDOWN_NODE_IMMEDIATE_SECONDS,
+								true);
+
+		mgrNode->form.nodeinited    = false;
+		mgrNode->form.nodeincluster = false;
+		updateMgrNodeAfterSwitch(mgrNode, CURE_STATUS_SWITCHING, spiContext);
+		ereport(LOG, (errmsg("failover node(%s) is set to not inited, not incluster. nodezone(%s)", 
+			NameStr(mgrNode->form.nodename), NameStr(mgrNode->form.nodezone))));						
+	}
+		
+	pfreeMgrNodeWrapperList(&nodeList, NULL);
+}
+static void MgrShutdownNodesNotZone(MemoryContext spiContext,
+									char *currentZone)
+{	
+	MgrShutdownNodeNotZone(spiContext, currentZone, CNDN_TYPE_GTM_COOR_MASTER);
+	MgrShutdownNodeNotZone(spiContext, currentZone, CNDN_TYPE_GTM_COOR_SLAVE);
+	MgrShutdownNodeNotZone(spiContext, currentZone, CNDN_TYPE_COORDINATOR_MASTER);
+	MgrShutdownNodeNotZone(spiContext, currentZone, CNDN_TYPE_COORDINATOR_SLAVE);
+	MgrShutdownNodeNotZone(spiContext, currentZone, CNDN_TYPE_DATANODE_MASTER);
+	MgrShutdownNodeNotZone(spiContext, currentZone, CNDN_TYPE_DATANODE_SLAVE);
+}
+static void MgrSetNodeNotZoneSwitched(MemoryContext spiContext,
+									char *currentZone,
+									char nodeType)
+{
+	dlist_head 			nodeList = DLIST_STATIC_INIT(nodeList);
+	dlist_iter 			iter;
+	MgrNodeWrapper 		*mgrNode = NULL;
+
+	selectNodeNotZoneForFailover(spiContext, currentZone, nodeType, &nodeList);
+	dlist_foreach(iter, &nodeList)
+	{
+		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		Assert(mgrNode);
+		updateMgrNodeAfterSwitch(mgrNode, CURE_STATUS_SWITCHED, spiContext);
+	}
+		
+	pfreeMgrNodeWrapperList(&nodeList, NULL);
+}
+static void MgrSetNodesNotZoneSwitched(MemoryContext spiContext,
+										char *currentZone)
+{	
+	MgrSetNodeNotZoneSwitched(spiContext, currentZone, CNDN_TYPE_GTM_COOR_MASTER);
+	MgrSetNodeNotZoneSwitched(spiContext, currentZone, CNDN_TYPE_GTM_COOR_SLAVE);
+	MgrSetNodeNotZoneSwitched(spiContext, currentZone, CNDN_TYPE_COORDINATOR_MASTER);
+	MgrSetNodeNotZoneSwitched(spiContext, currentZone, CNDN_TYPE_COORDINATOR_SLAVE);
+	MgrSetNodeNotZoneSwitched(spiContext, currentZone, CNDN_TYPE_DATANODE_MASTER);
+	MgrSetNodeNotZoneSwitched(spiContext, currentZone, CNDN_TYPE_DATANODE_SLAVE);
 }
 MgrNodeWrapper *MgrGetOldGtmMasterNotZone(MemoryContext spiContext,
 											char *currentZone, 

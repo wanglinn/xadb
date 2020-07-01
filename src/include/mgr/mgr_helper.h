@@ -354,6 +354,9 @@ extern void selectActiveMgrNodeByNodetype(MemoryContext spiContext,
 										  dlist_head *resultList);
 extern void selectMgrAllDataNodes(MemoryContext spiContext,
 								  dlist_head *resultList);
+extern void selectMgrAllDataNodesInZone(MemoryContext spiContext,
+										char *zone,	
+										dlist_head *resultList);								  
 extern void selectActiveMgrSlaveNodes(Oid masterOid,
 									  char nodetype,
 									  MemoryContext spiContext,
@@ -402,6 +405,10 @@ extern void selectNodeNotZone(MemoryContext spiContext,
 									char *zone, 
 									char nodetype,
 									dlist_head *resultList);
+extern void selectActiveNodeInZone(MemoryContext spiContext, 
+									char *zone, 
+									char nodetype, 
+									dlist_head *resultList);									
 extern void selectNodeNotZoneForFailover(MemoryContext spiContext, 
 										char *zone, 
 										char nodetype, 
