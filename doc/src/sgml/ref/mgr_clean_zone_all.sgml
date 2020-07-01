@@ -14,7 +14,7 @@ ADB documentation
     <refname>CLEAN ZONE</refname>
     <refpurpose>clean all the data of the cluster in zonename \n
     Use like this:\n
-    CLEAN ZONE ${zonename}\n
+    CLEAN ZONE zonename\n
     </refpurpose>
   </refnamediv>
 

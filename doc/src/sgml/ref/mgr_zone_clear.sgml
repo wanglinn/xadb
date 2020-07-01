@@ -14,7 +14,7 @@ ADB documentation
     <refname>DROP ZONE</refname>
     <refpurpose>drop node if the node is not inited or not in this zone \n
     Use like this:\n
-    DROP ZONE ${zonename}\n
+    DROP ZONE zonename\n
     </refpurpose>
   </refnamediv>
 
@@ -24,7 +24,7 @@ ADB documentation
 
   <refsynopsisdiv>
     <synopsis>
-DROP ZONE<replaceable class="parameter"> zone_name</replaceable>
+DROP ZONE<replaceable class="parameter"> zonename</replaceable>
 </synopsis>
   </refsynopsisdiv>
 
@@ -41,7 +41,7 @@ DROP ZONE<replaceable class="parameter"> zone_name</replaceable>
   <variablelist>
     
    <varlistentry>
-    <term><replaceable class="parameter">zone_name</replaceable></term>
+    <term><replaceable class="parameter">zonename</replaceable></term>
     <listitem>
       <para>
       Data center name.

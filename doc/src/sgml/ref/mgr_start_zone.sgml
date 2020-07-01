@@ -14,7 +14,7 @@ ADB documentation
     <refname>START ZONE</refname>
     <refpurpose>start the nodes in the zone \n
     Use like this:\n
-    START ZONE ${zonename}\n
+    START ZONE zonename\n
     </refpurpose>
   </refnamediv>
 
@@ -25,7 +25,7 @@ ADB documentation
   <refsynopsisdiv>
     <synopsis>
     START ZONE <replaceable class="parameter">zonename </replaceable>
-    START ZONE <replaceable class="parameter">${zonename}</replaceable>
+    START ZONE <replaceable class="parameter">zonename</replaceable>
     </synopsis>
   </refsynopsisdiv>
 

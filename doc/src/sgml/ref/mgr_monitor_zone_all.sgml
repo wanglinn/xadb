@@ -14,7 +14,7 @@ ADB documentation
     <refname>MONITOR ZONE</refname>
     <refpurpose>monitor the status of all nodes in zone \n
     Use like this:\n
-    MONITOR ZONE ${zonename}\n
+    MONITOR ZONE zonename \n
     </refpurpose>
   </refnamediv>
 
@@ -24,7 +24,7 @@ ADB documentation
 
   <refsynopsisdiv>
     <synopsis>
-MONITOR ZONE ${zonename}
+MONITOR ZONE zonename
 </synopsis>
   </refsynopsisdiv>
 
@@ -32,7 +32,7 @@ MONITOR ZONE ${zonename}
     <title>Description</title>
 
     <para>
-<command>MONITOR ZONE zone_name ALL</command> monitor the all cluster node current state in zone.
+    <command>MONITOR ZONE zonename</command> monitor the all cluster node current state in zone.
     </para>
     <para>
 Node has three operating conditions: running, not running and reject connection.
@@ -57,7 +57,7 @@ Node has three operating conditions: running, not running and reject connection.
     <para>
 Monitor the state for all node:
 <programlisting>
-MONITOR ZONE zone_name;
+MONITOR ZONE zonename;
 </programlisting>
     </para>
   </refsect1>
