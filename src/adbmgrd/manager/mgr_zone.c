@@ -395,8 +395,6 @@ Datum mgr_zone_init(PG_FUNCTION_ARGS)
 			,CStringGetDatum(currentZone));
 	PG_TRY();
 	{
-		// MgrCheckHasSlaveBeforeZoneInit(currentZone);
-
 		CheckZoneNodesBeforeInitAll();
 
 		relNode = heap_open(NodeRelationId, RowExclusiveLock);
