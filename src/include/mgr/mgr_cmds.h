@@ -639,6 +639,7 @@ extern void MgrZoneFailoverGtm(MemoryContext spiContext, char *currentZone, bool
 extern void MgrZoneFailoverCoord(MemoryContext spiContext, char *currentZone, bool	forceSwitch, int	maxTrys, ZoneOverGtm *zoGtm, dlist_head *zoCoordList);
 extern void MgrZoneFailoverDN(MemoryContext spiContext, char *currentZone, bool forceSwitch, int maxTrys, ZoneOverGtm *zoGtm, dlist_head *zoDNList);	
 extern void RevertZoneSwitchover(MemoryContext spiContext, ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
+extern void MgrRefreshAllPgxcNode(MemoryContext spiContext, ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
 extern void RevertZoneFailover(MemoryContext spiContext, ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
 extern void BatchShutdownNodesNotZone(ZoneOverGtm *zoGtm, char *zone);
 extern void ZoneSwitchoverFree(ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);

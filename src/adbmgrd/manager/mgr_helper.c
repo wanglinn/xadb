@@ -369,6 +369,28 @@ void selectMgrAllDataNodes(MemoryContext spiContext,
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
+void selectMgrAllDataNodesInZone(MemoryContext spiContext,
+								 char *zone,	
+						   		dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node \n"
+					 "WHERE nodetype in ('%c','%c') \n"
+					 "AND nodeinited = %d::boolean \n"
+					 "AND nodeincluster = %d::boolean \n"
+					 "AND nodezone = '%s' \n",
+					 CNDN_TYPE_DATANODE_MASTER,
+					 CNDN_TYPE_DATANODE_SLAVE,
+					 true,
+					 true,
+					 zone);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
 
 /**
  * the list link data type is MgrNodeWrapper
@@ -686,6 +708,28 @@ void selectNodeNotZone(MemoryContext spiContext,
 					 "AND nodeincluster = %d::boolean \n"
 					 "AND nodetype = '%c' \n"
 					 "AND nodezone != '%s' \n",
+					 true,
+					 true,
+					 nodetype,
+					 zone);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
+void selectActiveNodeInZone(MemoryContext spiContext, 
+							char *zone, 
+							char nodetype, 
+							dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node \n"
+					 "WHERE nodeinited = %d::boolean \n"
+					 "AND nodeincluster = %d::boolean \n"
+					 "AND nodetype = '%c' \n"
+					 "AND nodezone = '%s' \n",
 					 true,
 					 true,
 					 nodetype,

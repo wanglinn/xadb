@@ -217,6 +217,9 @@ extern SwitcherNodeWrapper *getHoldLockCoordinator(dlist_head *coordinators);
 extern void updateCureStatusForSwitch(MgrNodeWrapper *mgrNode,
 									  char *newCurestatus,
 									  MemoryContext spiContext);
+extern void updateMgrNodeAfterSwitch(MgrNodeWrapper *mgrNode,
+									 char *newCurestatus,
+									 MemoryContext spiContext);									  
 extern void checkGetSiblingMasterNodes(MemoryContext spiContext,
 									   SwitcherNodeWrapper *masterNode,
 									   dlist_head *siblingMasters);
