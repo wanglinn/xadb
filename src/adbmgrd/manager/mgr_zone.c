@@ -76,7 +76,9 @@ static bool MgrCheckHasSlaveZoneNode(MemoryContext spiContext,
 static void MgrShutdownNodesNotZone(MemoryContext spiContext,
 									char *currentZone);		
 static void MgrSetNodesNotZoneSwitched(MemoryContext spiContext,
-										char *currentZone);																				
+										char *currentZone);		
+static void MgrGetSlaveNodeZoneName(MemoryContext spiContext, 
+									NameData *zoneName);																										
 
 Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 {
@@ -352,7 +354,6 @@ Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 	tupResult = build_common_command_tuple(&name, true, "success");
 	return HeapTupleGetDatum(tupResult);
 }
-
 Datum mgr_zone_init(PG_FUNCTION_ARGS)
 {
 	Relation 		relNode  = NULL;
@@ -375,7 +376,7 @@ Datum mgr_zone_init(PG_FUNCTION_ARGS)
 	namestrcpy(&name, "zone init");
 	currentZone = PG_GETARG_CSTRING(0);
 	initStringInfo(&strerr);
-	
+
 	ScanKeyInit(&key[0]
 				,Anum_mgr_node_nodeinited
 				,BTEqualStrategyNumber
@@ -393,6 +394,8 @@ Datum mgr_zone_init(PG_FUNCTION_ARGS)
 			,CStringGetDatum(currentZone));
 	PG_TRY();
 	{
+		CheckZoneNodesBeforeInitAll();
+
 		relNode = table_open(NodeRelationId, RowExclusiveLock);
 		relScan = table_beginscan_catalog(relNode, 3, key);
 		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
@@ -447,13 +450,15 @@ Datum mgr_zone_init(PG_FUNCTION_ARGS)
 	{
 		MgrFree(strerr.data);
 		EndScan(relScan);
-		table_close(relNode, RowExclusiveLock);
+		if (relNode != NULL) 
+			table_close(relNode, RowExclusiveLock);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
 	MgrFree(strerr.data);
 	EndScan(relScan);
-	table_close(relNode, RowExclusiveLock);
+	if (relNode != NULL) 
+		table_close(relNode, RowExclusiveLock);
 	tupResult = build_common_command_tuple(&name, res, res ? "success" : "failed");
 	return HeapTupleGetDatum(tupResult);
 }
@@ -483,7 +488,7 @@ static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext,
 			dlist_init(&slaveList);
 			selectActiveMgrSlaveNodesInZone(mgrNode->oid, getMgrSlaveNodetype(mgrNode->form.nodetype), currentZone, spiContext, &slaveList);
 			if (dlist_is_empty(&slaveList)){
-				ereport(ERROR, (errmsg("because %s node(%s) has no slave node in zone(%s), so can't switchover or failover.", 
+				ereport(ERROR, (errmsg("because %s node(%s) has no slave node in zone(%s), please add slave node first.", 
 					NameStr(mgrNode->form.nodename), mgr_get_nodetype_desc(mgrNode->form.nodetype), currentZone)));
 			}
 			pfreeMgrNodeWrapperList(&slaveList, NULL);
@@ -509,7 +514,7 @@ static void MgrCheckMasterHasSlave(MemoryContext spiContext,
 	Assert(oldMaster);
 	selectActiveMgrSlaveNodesInZone(oldMaster->oid, getMgrSlaveNodetype(oldMaster->form.nodetype), currentZone, spiContext, &activeNodes);
 	if (dlist_is_empty(&activeNodes)){
-		ereport(ERROR, (errmsg("because no gtmcoord slave in zone(%s), so can't switchover or failover.", currentZone)));
+		ereport(ERROR, (errmsg("because no gtmcoord slave in zone(%s),  please add slave node first.", currentZone)));
 	}
 
 	MgrCheckMasterHasSlaveCnDn(spiContext, currentZone, CNDN_TYPE_COORDINATOR_MASTER, overType);
@@ -856,5 +861,90 @@ static bool MgrCheckHasSlaveZoneNode(MemoryContext spiContext, char *zone)
 	}
 	return false;
 }
+void CheckZoneNodesBeforeInitAll(void)
+{
+	MemoryContext 	oldContext;
+	MemoryContext 	spiContext = NULL;
+	MemoryContext   switchContext = NULL;
+	NameData 		slaveZone = {{0}};
+	dlist_head 	    masterList = DLIST_STATIC_INIT(masterList);
+	dlist_head 	    slaveList = DLIST_STATIC_INIT(slaveList);
+	MgrNodeWrapper  *masterNode = NULL;
+	dlist_iter		masterIter;
+	int 			spiRes;
+
+	oldContext = CurrentMemoryContext;
+	switchContext = AllocSetContextCreate(CurrentMemoryContext, "mgr_zone_init", ALLOCSET_DEFAULT_SIZES);
+	if ((spiRes = SPI_connect()) != SPI_OK_CONNECT){
+		ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
+	}
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(switchContext);
+	PG_TRY();
+	{
+		MgrGetSlaveNodeZoneName(spiContext, &slaveZone);
+		if (strlen(NameStr(slaveZone)) > 0)
+		{
+			selectChildNodesInZone(spiContext, 0, mgr_zone, &masterList);
+			dlist_foreach(masterIter, &masterList)
+			{
+				masterNode = dlist_container(MgrNodeWrapper, link, masterIter.cur);
+				Assert(masterNode);
+				dlist_init(&slaveList);
+				selectChildNodesInZone(spiContext, masterNode->oid, NameStr(slaveZone), &slaveList);
+				if (dlist_is_empty(&slaveList)){
+					ereport(ERROR, (errmsg("%s %s has no slave node in zone %s, please add slave node first.",	
+						 mgr_get_nodetype_desc(masterNode->form.nodetype), NameStr(masterNode->form.nodename), NameStr(slaveZone))));
+				}
+			}
+		}
+	}PG_CATCH();
+	{
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
+		SPI_finish();
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(switchContext);
+	SPI_finish();
+}
+static bool MgrGetSlaveNodeZoneNameByNodeType(MemoryContext spiContext, 
+										char 	nodeType, 
+										NameData *zoneName)
+{
+	dlist_head 			resultList = DLIST_STATIC_INIT(resultList);
+	dlist_node 			*node = NULL; 
+	MgrNodeWrapper 		*mgrNode = NULL;
+
+	selectNodeNotZoneForFailover(spiContext, 
+								mgr_zone, 
+								nodeType, 
+								&resultList);
+	if (!dlist_is_empty(&resultList))
+	{
+		node = dlist_tail_node(&resultList);
+		mgrNode = dlist_container(MgrNodeWrapper, link, node);
+		namestrcpy(zoneName, NameStr(mgrNode->form.nodezone));
+		return true;
+	}
+	return false;
+}
+static void MgrGetSlaveNodeZoneName(MemoryContext spiContext, NameData *zoneName)
+{
+	if (MgrGetSlaveNodeZoneNameByNodeType(spiContext, CNDN_TYPE_GTM_COOR_SLAVE, zoneName)){
+		return;
+	}
+
+	if (MgrGetSlaveNodeZoneNameByNodeType(spiContext, CNDN_TYPE_COORDINATOR_SLAVE, zoneName)){
+		return;
+	}
+
+	if (MgrGetSlaveNodeZoneNameByNodeType(spiContext, CNDN_TYPE_DATANODE_SLAVE, zoneName)){
+		return;
+	}
+}
+
 
 

@@ -1326,8 +1326,12 @@ mgr_init_gtmcoord_master(PG_FUNCTION_ARGS)
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
     
+	CheckZoneNodesBeforeInitAll();
+
 	return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOORD_INIT, TAKEPLAPARM_N, fcinfo);
 }
+
+
 
 /*
 * execute init gtm slave, send information to agent to init gtm slave
