@@ -661,4 +661,5 @@ extern char *MgrGetDefDbName(void);
 extern char mgr_zone_get_restart_cmd(char nodetype);
 extern void hexp_restart_node(AppendNodeInfo *node);
 extern void hexp_update_conf_pgxc_node_name(AppendNodeInfo *node, char* newname);
+extern void CheckZoneNodesBeforeInitAll(void);
 #endif /* MGR_CMDS_H */

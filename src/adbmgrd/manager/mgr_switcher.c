@@ -178,10 +178,6 @@ static void batchSetCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 										dlist_head *nodes,
 										SwitcherNodeWrapper *ignoreNode,
 										bool complain);
-static void batchSetCheckGtmInfoOnNodesForZone(MgrNodeWrapper *gtmMaster,
-											dlist_head *nodes,
-											SwitcherNodeWrapper *ignoreNode,
-											bool complain);										
 static bool isCurestatusForRunningOk(char *curestatus);
 static void checkTrackActivitiesForSwitchover(dlist_head *coordinators,
 											  SwitcherNodeWrapper *oldMaster);
@@ -4447,16 +4443,6 @@ static void batchSetCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 	batchCheckGtmInfoOnNodes(gtmMaster, nodes, ignoreNode,
 							 CHECK_GTM_INFO_SECONDS, complain);
 }
-static void batchSetCheckGtmInfoOnNodesForZone(MgrNodeWrapper *gtmMaster,
-											dlist_head *nodes,
-											SwitcherNodeWrapper *ignoreNode,
-											bool complain)
-{
-	batchSetGtmInfoOnNodes(gtmMaster, nodes, ignoreNode, complain);
-	batchCheckGtmInfoOnNodes(gtmMaster, nodes, ignoreNode,
-							 10, complain);
-}
-
 static bool isCurestatusForRunningOk(char *curestatus)
 {
 	return pg_strcasecmp(curestatus, CURE_STATUS_NORMAL) == 0 ||
@@ -6534,13 +6520,13 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 	/* newMaster also is a coordinator */
 	newMaster->mgrNode->form.nodetype =	getMgrMasterNodetype(newMaster->mgrNode->form.nodetype);
 	dlist_push_head(coordinators, &newMaster->link);
-	batchSetCheckGtmInfoOnNodesForZone(newMaster->mgrNode, coordinators, NULL, complain);
-	batchSetCheckGtmInfoOnNodesForZone(newMaster->mgrNode, coordinatorSlaves, NULL, complain);
-	batchSetCheckGtmInfoOnNodesForZone(newMaster->mgrNode,	runningSlaves, NULL, complain);
-	batchSetCheckGtmInfoOnNodesForZone(newMaster->mgrNode, runningSlavesSecond, NULL, complain);
-	batchSetCheckGtmInfoOnNodesForZone(newMaster->mgrNode,	failedSlaves, NULL, complain);
-	batchSetCheckGtmInfoOnNodesForZone(newMaster->mgrNode, failedSlavesSecond, NULL, complain);	
-	batchSetCheckGtmInfoOnNodesForZone(newMaster->mgrNode,	dataNodes, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinators, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinatorSlaves, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	runningSlaves, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, runningSlavesSecond, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	failedSlaves, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, failedSlavesSecond, NULL, complain);	
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	dataNodes, NULL, complain);
 
 	/* The better slave node is in front of the list */
 	sortNodesByWalLsnDesc(runningSlaves);	
