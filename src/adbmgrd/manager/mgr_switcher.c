@@ -7003,17 +7003,6 @@ static void RevertFailOverShutdownCoords(MemoryContext spiContext,
 										complain);		
 	}
 }
-void BatchShutdownNodesNotZone(ZoneOverGtm *zoGtm,
-							   char *zone)
-{
-    ShutdownRunningNotZone(&zoGtm->coordinators, zone);
-	ShutdownRunningNotZone(&zoGtm->coordinatorSlaves, zone);
-	ShutdownRunningNotZone(&zoGtm->runningSlaves, zone);
-	ShutdownRunningNotZone(&zoGtm->runningSlavesSecond, zone);
-	ShutdownRunningNotZone(&zoGtm->failedSlaves, zone);
-	ShutdownRunningNotZone(&zoGtm->failedSlavesSecond, zone);
-	ShutdownRunningNotZone(&zoGtm->dataNodes, zone);
-}
 int GetSlaveNodeNumInZone(MemoryContext spiContext, 
 						MgrNodeWrapper *mgrNode, 
 						char slaveType, 

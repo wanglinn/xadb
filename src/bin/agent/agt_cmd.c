@@ -1641,8 +1641,8 @@ static void mgr_execute_sqlstring(char cmdtype, char *user, int port, char *addr
 		/*get null*/
 		if (!nrow || !ncolumn)
 		{
-			ereport(WARNING,
-			(errmsg("adress=%s port=%d, the result is null, the sql string: %s" , address, port, sqlstring)));
+			ereport(LOG,
+			(errmsg("address=%s port=%d, the result is null, the sql string: %s" , address, port, sqlstring)));
 		}
 		for (iloop=0; iloop<nrow; iloop++)
 		{
