@@ -418,6 +418,11 @@ do_reverse_convert_tuple(HeapTuple tuple, TupleConversionMap *map)
 	int			i;
 
 	heap_deform_tuple(tuple, map->outdesc, outvalues, outisnull);
+
+	/* Initial all inisnull to true. When there is dropped column in outnatts, make sure according inisnull is true */
+	for (i = 0; i < innatts; i++)
+		inisnull[i] = true;
+
 	/*
 	 * Transpose into proper fields of the new tuple.
 	 */
