@@ -5037,10 +5037,10 @@ bool mgr_append_agtm_slave_func(char *gtmname)
 		get_nodeinfo(gtmMasterNameData.data, mastertype, &agtm_m_is_exist, &agtm_m_is_running, &agtm_m_nodeinfo);
 		mastertupleoid = appendnodeinfo.nodemasteroid;
 		if (!agtm_m_is_exist)
-			ereport(ERROR, (errmsg("the master of node(%s) is not initialized", gtmMasterNameData.data)));
+			ereport(ERROR, (errmsg(" %s %s is not initialized", mgr_get_nodetype_desc(mastertype), gtmMasterNameData.data)));
 
 		if (!agtm_m_is_running)
-			ereport(ERROR, (errmsg("the master of node(%s) is not running", gtmMasterNameData.data)));
+			ereport(ERROR, (errmsg("%s %s is not running",  mgr_get_nodetype_desc(mastertype), gtmMasterNameData.data)));
 
 		/* flush agtm slave's pg_hba.conf "host replication postgres slave_ip/32 trust" if agtm slave exist */
 		mgr_add_hbaconf_by_masteroid(mastertupleoid, "replication", appendnodeinfo.nodeusername, appendnodeinfo.nodeaddr);
