@@ -1136,7 +1136,7 @@ Datum mgr_drop_node_func(PG_FUNCTION_ARGS)
 				, mgr_get_nodetype_desc(nodetype), nodename)));
 	}
     /*check the node has been used by its slave*/
-	if (mgr_node_has_slave(rel, HeapTupleGetOid(tuple)))
+	if (mgr_node_has_slave(rel,mgr_node->oid))
 	{
 		heap_freetuple(tuple);
 		heap_close(rel, RowExclusiveLock);
@@ -1206,7 +1206,7 @@ void mgr_drop_all_nodes(dlist_head *mgrNodes)
 	HeapTuple tuple;
 	NameData nameall;
 	NameData syncData;
-	HeapScanDesc rel_scan = NULL;
+	TableScanDesc rel_scan = NULL;
 	ScanKeyData key[1];
 	Form_mgr_node mgr_node;
 	char mastertype;
@@ -1218,8 +1218,8 @@ void mgr_drop_all_nodes(dlist_head *mgrNodes)
 	MgrNodeWrapper 		*mgrNode = NULL;
 	dlist_iter 			iter;
 
-	rel = heap_open(NodeRelationId, RowExclusiveLock);
-	rel_updateparm = heap_open(UpdateparmRelationId, RowExclusiveLock);
+	rel = table_open(NodeRelationId, RowExclusiveLock);
+	rel_updateparm = table_open(UpdateparmRelationId, RowExclusiveLock);
 	PG_TRY();
 	{
 		dlist_foreach(iter, mgrNodes)
@@ -1246,7 +1246,7 @@ void mgr_drop_all_nodes(dlist_head *mgrNodes)
 						,errmsg("%s \"%s\" has been initialized in the cluster, cannot be dropped"
 						, mgr_get_nodetype_desc(nodetype), NameStr(nodename))));
 			}
-			if (mgr_node_has_slave(rel, HeapTupleGetOid(tuple)))
+			if (mgr_node_has_slave(rel, mgr_node->oid))
 			{
 				heap_freetuple(tuple);
 				ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
@@ -1255,7 +1255,7 @@ void mgr_drop_all_nodes(dlist_head *mgrNodes)
 			}
 			namestrcpy(&syncData, NameStr(mgr_node->nodesync));
 			mastertupleoid = mgr_node->nodemasternameoid;
-			selftupleoid = HeapTupleGetOid(tuple);
+			selftupleoid = mgr_node->oid;
 			CatalogTupleDelete(rel, &(tuple->t_self));
 			heap_freetuple(tuple);
 
@@ -1267,7 +1267,7 @@ void mgr_drop_all_nodes(dlist_head *mgrNodes)
 				,BTEqualStrategyNumber
 				,F_CHAREQ
 				,CharGetDatum(nodetype));
-			rel_scan = heap_beginscan_catalog(rel, 1, key);
+			rel_scan = table_beginscan_catalog(rel, 1, key);
 			getnum = 0;
 			while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 			{
@@ -1276,7 +1276,7 @@ void mgr_drop_all_nodes(dlist_head *mgrNodes)
 					getnum++;
 				}
 			}
-			heap_endscan(rel_scan);
+			table_endscan(rel_scan);
 
 			/*delete the parm in mgr_updateparm for this type of node*/
 			
@@ -1307,14 +1307,14 @@ void mgr_drop_all_nodes(dlist_head *mgrNodes)
 	}
 	PG_CATCH();
 	{
-		heap_close(rel, RowExclusiveLock);
-		heap_close(rel_updateparm, RowExclusiveLock);
+		table_close(rel, RowExclusiveLock);
+	    table_close(rel_updateparm, RowExclusiveLock);
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
 
-	heap_close(rel, RowExclusiveLock);
-	heap_close(rel_updateparm, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
+	table_close(rel_updateparm, RowExclusiveLock);
 }
 
 /*
@@ -1645,7 +1645,7 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 		/*refresh pg_hba.conf*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
-		mgr_add_parameters_hbaconf(HeapTupleGetOid(aimtuple), mgr_node->nodetype, &infosendmsg);
+		mgr_add_parameters_hbaconf(mgr_node->oid, mgr_node->nodetype, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
 
 		/*refresh recovry.conf*/
@@ -2244,7 +2244,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		/*refresh pg_hba.conf*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
-		mgr_add_parameters_hbaconf(HeapTupleGetOid(aimtuple), getMgrMasterNodetype(mgr_node->nodetype), &infosendmsg);
+		mgr_add_parameters_hbaconf(mgr_node->oid, getMgrMasterNodetype(mgr_node->nodetype), &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
 		/*refresh recovry.conf*/
 		resetStringInfo(&(getAgentCmdRst->description));
@@ -2269,7 +2269,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		/*refresh pg_hba.conf*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
-		mgr_add_parameters_hbaconf(HeapTupleGetOid(aimtuple), nodetype, &infosendmsg);
+		mgr_add_parameters_hbaconf(mgr_node->oid, nodetype, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
 
 		mgr_node->nodeinited = true;
@@ -2722,8 +2722,8 @@ static void mgr_start_zone_nodes(char *zoneNameIn, char cmdType, char nodeType)
 	PG_TRY();
 	{
 		info = palloc(sizeof(*info));
-		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
-		info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, key);
+		info->rel_node = table_open(NodeRelationId, AccessShareLock);
+		info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
 		info->lcp = NULL;
 		while ((aimtuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 		{
@@ -2747,13 +2747,13 @@ static void mgr_start_zone_nodes(char *zoneNameIn, char cmdType, char nodeType)
 	{
 		MgrFree(getAgentCmdRst.description.data);
 		heap_endscan(info->rel_scan);
-		heap_close(info->rel_node, AccessShareLock);
+		table_close(info->rel_node, AccessShareLock);
 		MgrFree(info);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
 	heap_endscan(info->rel_scan);
-	heap_close(info->rel_node, AccessShareLock);
+	table_close(info->rel_node, AccessShareLock);
 	MgrFree(info);
 }
 Datum mgr_stop_zone(PG_FUNCTION_ARGS)
@@ -2820,8 +2820,8 @@ static void mgr_stop_zone_nodes(char *zoneNameIn, const char *shutdownMode, char
 	PG_TRY();
 	{
 		info = palloc(sizeof(*info));
-		info->rel_node = heap_open(NodeRelationId, AccessShareLock);
-		info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, key);
+		info->rel_node = table_open(NodeRelationId, AccessShareLock);
+		info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
 		info->lcp = NULL;
 		while ((aimtuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 		{
@@ -2845,14 +2845,14 @@ static void mgr_stop_zone_nodes(char *zoneNameIn, const char *shutdownMode, char
 	}PG_CATCH();
 	{
 		MgrFree(getAgentCmdRst.description.data);
-		heap_endscan(info->rel_scan);
-		heap_close(info->rel_node, AccessShareLock);
+		table_endscan(info->rel_scan);
+		table_close(info->rel_node, AccessShareLock);
 		MgrFree(info);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
-	heap_endscan(info->rel_scan);
-	heap_close(info->rel_node, AccessShareLock);
+	table_endscan(info->rel_scan);
+	table_close(info->rel_node, AccessShareLock);
 	MgrFree(info);
 }
 Datum mgr_boottime_all(PG_FUNCTION_ARGS)
@@ -9651,7 +9651,7 @@ Datum mgr_flush_host(PG_FUNCTION_ARGS)
 		cndnpath = TextDatumGetCString(datumpath);
 		resetStringInfo(&(getAgentCmdRst.description));
 		resetStringInfo(&infosendmsg);
-		mgr_add_parameters_hbaconf(HeapTupleGetOid(tuple), mgr_node->nodetype, &infosendmsg);
+		mgr_add_parameters_hbaconf(mgr_node->oid, mgr_node->nodetype, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnpath, &infosendmsg, hostoid, &getAgentCmdRst);
 		if (!getAgentCmdRst.ret)
 		{
