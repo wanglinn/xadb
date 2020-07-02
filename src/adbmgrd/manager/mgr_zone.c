@@ -79,7 +79,18 @@ static void MgrShutdownNodesNotZone(MemoryContext spiContext,
 static void MgrSetNodesNotZoneSwitched(MemoryContext spiContext,
 										char *currentZone);		
 static void MgrGetSlaveNodeZoneName(MemoryContext spiContext, 
-									NameData *zoneName);																										
+									NameData *zoneName);
+static void MgrInitAllNodes(char *zone);
+static void MgrAppendNode(MgrNodeWrapper  *node, 
+							int *num, 
+							int total);
+static void MgrInitChildNodes(MemoryContext spiContext, 
+								MgrNodeWrapper *mgrNode, 
+								char *zone,
+								int *num,
+								int total);								
+static int MgrGetNotActiveCount(MemoryContext spiContext, 
+								char *zone);								
 
 Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 {
@@ -355,110 +366,28 @@ Datum mgr_zone_clear(PG_FUNCTION_ARGS)
 }
 Datum mgr_zone_init(PG_FUNCTION_ARGS)
 {
-	Relation 		relNode  = NULL;
-	HeapTuple 		tuple    = NULL;
-	HeapTuple 		tupResult= NULL;
-	HeapScanDesc 	relScan  = NULL;
-	char            *coordMaster = NULL;
 	char 			*currentZone= NULL;
 	NameData 		name;
-	Form_mgr_node   mgrNode;
-	ScanKeyData 	key[3];
-	StringInfoData 	strerr;
-	bool            res = true;
-	int             total = 0;
-	int             num = 0;
+	HeapTuple 		tupResult = NULL;
 
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot do the command during recovery")));
 
 	namestrcpy(&name, "zone init");
 	currentZone = PG_GETARG_CSTRING(0);
-	initStringInfo(&strerr);
-
-	ScanKeyInit(&key[0]
-				,Anum_mgr_node_nodeinited
-				,BTEqualStrategyNumber
-				,F_BOOLEQ
-				,BoolGetDatum(false));
-	ScanKeyInit(&key[1]
-				,Anum_mgr_node_nodeincluster
-				,BTEqualStrategyNumber
-				,F_BOOLEQ
-				,BoolGetDatum(false));
-	ScanKeyInit(&key[2]
-			,Anum_mgr_node_nodezone
-			,BTEqualStrategyNumber
-			,F_NAMEEQ
-			,CStringGetDatum(currentZone));
+	
 	PG_TRY();
 	{
 		CheckZoneNodesBeforeInitAll();
 
-		relNode = heap_open(NodeRelationId, RowExclusiveLock);
-		relScan = heap_beginscan_catalog(relNode, 3, key);
-		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
-		{
-			mgrNode = (Form_mgr_node)GETSTRUCT(tuple);
-			Assert(mgrNode);
-			total++;
-		}
-		EndScan(relScan);
+		MgrInitAllNodes(currentZone);
 
-		relScan = heap_beginscan_catalog(relNode, 3, key);
-		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
-		{
-			mgrNode = (Form_mgr_node)GETSTRUCT(tuple);
-			Assert(mgrNode);
-			num++;
-			
-			if (mgrNode->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-			{
-				if (mgr_append_agtm_slave_func(NameStr(mgrNode->nodename))){
-					ereportNoticeLog(errmsg("append gtmcoord slave %s success, progress is %d/%d.", NameStr(mgrNode->nodename), num, total));		
-				}
-				else{
-					res = false;
-					ereportWarningLog(errmsg("append gtmcoord slave %s failed, progress is %d/%d.", NameStr(mgrNode->nodename), num, total));		
-				}
-			}
-			else if (mgrNode->nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
-			{
-				coordMaster = mgr_get_mastername_by_nodename_type(NameStr(mgrNode->nodename), CNDN_TYPE_COORDINATOR_SLAVE);
-				if (mgr_append_coord_slave_func(coordMaster, NameStr(mgrNode->nodename), true, &strerr)){
-					ereportNoticeLog(errmsg("append coordinator slave %s success, progress is %d/%d.", NameStr(mgrNode->nodename), num, total));		
-				}
-				else{
-					res = false;
-					ereportWarningLog(errmsg("append coordinator slave %s failed, progress is %d/%d.", NameStr(mgrNode->nodename), num, total));
-				}
-				MgrFree(coordMaster);
-			}
-			else if (mgrNode->nodetype == CNDN_TYPE_DATANODE_SLAVE)
-			{
-				if (mgr_append_dn_slave_func(NameStr(mgrNode->nodename))){
-					ereportNoticeLog(errmsg("append datanode slave %s success, progress is %d/%d.", NameStr(mgrNode->nodename), num, total));		
-				}
-				else{
-					res = false;
-					ereportWarningLog(errmsg("append datanode slave %s failed, progress is %d/%d.", NameStr(mgrNode->nodename), num, total));
-				}
-			}		
-		}
 	}PG_CATCH();
 	{
-		MgrFree(strerr.data);
-		EndScan(relScan);
-		if (relNode != NULL) 
-			heap_close(relNode, RowExclusiveLock);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
-	MgrFree(strerr.data);
-	EndScan(relScan);
-	if (relNode != NULL)
-		heap_close(relNode, RowExclusiveLock);
-	tupResult = build_common_command_tuple(&name, res, res ? "success" : "failed");
+	tupResult = build_common_command_tuple(&name, true, "success");
 	return HeapTupleGetDatum(tupResult);
 }
 
@@ -944,6 +873,146 @@ static void MgrGetSlaveNodeZoneName(MemoryContext spiContext, NameData *zoneName
 		return;
 	}
 }
+static void MgrInitAllNodes(char *zone)
+{
+	MemoryContext 	oldContext;
+	MemoryContext 	spiContext = NULL;
+	MemoryContext   switchContext = NULL;
+	dlist_head 	    masterList = DLIST_STATIC_INIT(masterList);
+	dlist_head 	    slaveList = DLIST_STATIC_INIT(slaveList);
+	MgrNodeWrapper  *masterNode = NULL;
+	dlist_iter		masterIter;
+	int 			spiRes;
+	int             num = 1;
+	int             total = 0;
+
+	oldContext = CurrentMemoryContext;
+	switchContext = AllocSetContextCreate(CurrentMemoryContext, "MgrInitAllNodes", ALLOCSET_DEFAULT_SIZES);
+	if ((spiRes = SPI_connect()) != SPI_OK_CONNECT){
+		ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
+	}
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(switchContext);
+
+	PG_TRY();
+	{
+		total = MgrGetNotActiveCount(spiContext, zone);
+
+		selectChildNodesInZone(spiContext, 0, mgr_zone, &masterList);
+		dlist_foreach(masterIter, &masterList)
+		{
+			masterNode = dlist_container(MgrNodeWrapper, link, masterIter.cur);
+			Assert(masterNode);
+			MgrInitChildNodes(spiContext,
+								masterNode, 
+								zone,
+								&num,
+								total);
+		}
+	}PG_CATCH();
+	{
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
+		SPI_finish();
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(switchContext);
+	SPI_finish();
+}
+static void MgrInitChildNodes(MemoryContext spiContext, 
+								MgrNodeWrapper *mgrNode, 
+								char *zone,
+								int *num,
+								int total)
+{
+	dlist_head 			slaveNodes = DLIST_STATIC_INIT(slaveNodes);
+	dlist_iter 			iter;
+	MgrNodeWrapper 		*slaveNode = NULL;
+
+	dlist_init(&slaveNodes);
+	selectNotActiveChildInZoneOid(spiContext,
+									mgrNode->oid,
+									zone,
+									&slaveNodes);
+	dlist_foreach(iter, &slaveNodes)
+	{
+		slaveNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		Assert(slaveNode);
+		MgrAppendNode(slaveNode, num, total);
+		MgrInitChildNodes(spiContext, 
+						  slaveNode, 
+						  zone,
+						  num,
+						  total);
+	}
+}
+static void MgrAppendNode(MgrNodeWrapper  *node, 
+							int *num, 
+							int total)
+{
+	char            *coordMaster = NULL;
+	Form_mgr_node   mgrNode = NULL;
+	StringInfoData 	strerr;
+
+	Assert(node);
+	mgrNode = &(node->form);
+	Assert(mgrNode);
+	
+	if (mgrNode->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+	{
+		if (mgr_append_agtm_slave_func(NameStr(mgrNode->nodename))){
+			ereportNoticeLog(errmsg("append gtmcoord slave %s success, progress is %d/%d.", NameStr(mgrNode->nodename), *num, total));		
+		}
+		else{
+			ereportWarningLog(errmsg("append gtmcoord slave %s failed, progress is %d/%d.", NameStr(mgrNode->nodename), *num, total));		
+		}
+	}
+	else if (mgrNode->nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
+	{
+		initStringInfo(&strerr);
+		coordMaster = mgr_get_mastername_by_nodename_type(NameStr(mgrNode->nodename), CNDN_TYPE_COORDINATOR_SLAVE);
+		if (mgr_append_coord_slave_func(coordMaster, NameStr(mgrNode->nodename), true, &strerr)){
+			ereportNoticeLog(errmsg("append coordinator slave %s success, progress is %d/%d.", NameStr(mgrNode->nodename), *num, total));		
+		}
+		else{
+			ereportWarningLog(errmsg("append coordinator slave %s failed, progress is %d/%d.", NameStr(mgrNode->nodename), *num, total));
+		}
+		MgrFree(coordMaster);
+	}
+	else if (mgrNode->nodetype == CNDN_TYPE_DATANODE_SLAVE)
+	{
+		if (mgr_append_dn_slave_func(NameStr(mgrNode->nodename))){
+			ereportNoticeLog(errmsg("append datanode slave %s success, progress is %d/%d.", NameStr(mgrNode->nodename), *num, total));		
+		}
+		else{
+			ereportWarningLog(errmsg("append datanode slave %s failed, progress is %d/%d.", NameStr(mgrNode->nodename), *num, total));
+		}
+	}
+	(*num)++;
+}
+static int MgrGetNotActiveCount(MemoryContext spiContext, 
+								char *zone)
+{
+	dlist_head 			slaveNodes = DLIST_STATIC_INIT(slaveNodes);
+	dlist_iter 			iter;
+	MgrNodeWrapper 		*slaveNode = NULL;
+	int                 count = 0;
+
+	selectNotActiveChildInZone(spiContext, 
+								zone, 
+								&slaveNodes);
+	dlist_foreach(iter, &slaveNodes)
+	{
+		slaveNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		Assert(slaveNode);
+		count++;
+	}
+	return count;
+}
+
+
 
 
 
