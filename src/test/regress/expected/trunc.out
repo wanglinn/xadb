@@ -2,130 +2,134 @@ set grammar to oracle;
 set datestyle='ISO,YMD';
 set timezone=0;
 select trunc(123.67) from dual;
- trunc 
--------
-   123
+ TRUNC(123.67)  
+----------------
+            123
 (1 row)
 
 select trunc(2.809,2) from dual;
- trunc 
--------
-  2.80
+ TRUNC(2.809,2)  
+-----------------
+             2.8
 (1 row)
 
 select trunc(100.987,0) from dual;
- trunc 
--------
-   100
+ TRUNC(100.987,0)  
+-------------------
+               100
 (1 row)
 
 select trunc(111.987,-1) from dual;
- trunc 
--------
-   110
+ TRUNC(111.987,-1)  
+--------------------
+                110
 (1 row)
 
 select trunc(111.987,-3) from dual;
- trunc 
--------
-     0
+ TRUNC(111.987,-3)  
+--------------------
+                  0
 (1 row)
 
 select trunc(exp(2),2) from dual;
- trunc 
--------
-  7.38
+ TRUNC(EXP(2),2)  
+------------------
+             7.38
 (1 row)
 
 select trunc(100.984,'2') from dual;
- trunc  
---------
- 100.98
+ TRUNC(100.984,'2')  
+---------------------
+              100.98
 (1 row)
 
 select trunc('100.984','2') from dual;
-ERROR:  not a valid month: "984"
+ TRUNC('100.984','2')  
+-----------------------
+                100.98
+(1 row)
+
 select trunc(100.984,2.8) from dual;
- trunc  
---------
- 100.98
+ TRUNC(100.984,2.8)  
+---------------------
+              100.98
 (1 row)
 
 select trunc(100.984,-2.8) from dual;
- trunc 
--------
-   100
+ TRUNC(100.984,-2.8)  
+----------------------
+                  100
 (1 row)
 
 select trunc(-100.98467,3) from dual;
-  trunc   
-----------
- -100.984
+ TRUNC(-100.98467,3)  
+----------------------
+             -100.984
 (1 row)
 
 select trunc(1000000000000000000,3) from dual;
-          trunc          
--------------------------
- 1000000000000000000.000
+ TRUNC(1000000000000000000,3)  
+-------------------------------
+           1000000000000000000
 (1 row)
 
 select trunc(100,50) from dual;
-                         trunc                          
---------------------------------------------------------
- 100.00000000000000000000000000000000000000000000000000
+ TRUNC(100,50)  
+----------------
+            100
 (1 row)
 
 select trunc(sinh(5),3) from dual;
- trunc  
---------
- 74.203
+ TRUNC(SINH(5),3)  
+-------------------
+            74.203
 (1 row)
 
 select trunc(3.25,null) from dual;
- trunc 
--------
-      
+ TRUNC(3.25,NULL)  
+-------------------
+                  
 (1 row)
 
 select trunc(3.25,'') from dual;
- trunc 
--------
-      
+ TRUNC(3.25,'')  
+-----------------
+                
 (1 row)
 
 select trunc(date'2016-3-15','yyyy') from dual;
-        trunc        
----------------------
+ TRUNC(DATE'2016-3-15','YYYY')  
+--------------------------------
  2016-01-01 00:00:00
 (1 row)
 
 select trunc(date'2016-3-15','Mm') from dual;
-        trunc        
----------------------
+ TRUNC(DATE'2016-3-15','MM')  
+------------------------------
  2016-03-01 00:00:00
 (1 row)
 
 select trunc(date'2016-3-15','dd') from dual;
-        trunc        
----------------------
+ TRUNC(DATE'2016-3-15','DD')  
+------------------------------
  2016-03-15 00:00:00
 (1 row)
 
 select trunc(date'2016-3-15','d') from dual;
-        trunc        
----------------------
+ TRUNC(DATE'2016-3-15','D')  
+-----------------------------
  2016-03-13 00:00:00
 (1 row)
 
 select trunc(to_date('2016-3-15 12:25:59','yyyy-mm-dd hh:mi:ss'),'mi') from dual;
-        trunc        
----------------------
+ TRUNC(TO_DATE('2016-3-15 12:25:59','YYYY-MM-DD HH:MI:SS'),'MI')  
+------------------------------------------------------------------
  2016-03-15 00:25:00
 (1 row)
 
 select trunc(to_date('2016-3-15 12:25:59','yyyy-mm-dd hh:mi:ss'),'hh24') from dual;
-        trunc        
----------------------
+ TRUNC(TO_DATE('2016-3-15 12:25:59','YYYY-MM-DD HH:MI:SS'),'HH24')  
+--------------------------------------------------------------------
  2016-03-15 00:00:00
 (1 row)
 
@@ -134,26 +138,26 @@ ERROR:  invalid value for round/trunc format string
 select trunc(to_date('2016-3-15 12:25:59','yyyy-mm-dd hh:mi:ss'),'ss') from dual;
 ERROR:  invalid value for round/trunc format string
 select trunc(to_date('2016-3-15 9:25:59 pm','yyyy-mm-dd hh:mi:ss pm'),'hh24') from dual;
-        trunc        
----------------------
+ TRUNC(TO_DATE('2016-3-15 9:25:59 PM','YYYY-MM-DD HH:MI:SS PM'),'HH24')  
+-------------------------------------------------------------------------
  2016-03-15 21:00:00
 (1 row)
 
 select trunc(to_date('2016-3-15 9:25:59 pm','yyyy-mm-dd hh:mi:ss pm')) from dual;
-        trunc        
----------------------
+ TRUNC(TO_DATE('2016-3-15 9:25:59 PM','YYYY-MM-DD HH:MI:SS PM'))  
+------------------------------------------------------------------
  2016-03-15 00:00:00
 (1 row)
 
 select trunc(to_date('2016-3-15 9:25:59 pm','yyyy-mm-dd hh:mi:ss pm'),null) from dual;
- trunc 
--------
+ TRUNC(TO_DATE('2016-3-15 9:25:59 PM','YYYY-MM-DD HH:MI:SS PM'),NULL)  
+-----------------------------------------------------------------------
  
 (1 row)
 
 select trunc(to_date('2016-3-15 9:25:59 pm','yyyy-mm-dd hh:mi:ss pm'),'') from dual;
- trunc 
--------
+ TRUNC(TO_DATE('2016-3-15 9:25:59 PM','YYYY-MM-DD HH:MI:SS PM'),'')  
+---------------------------------------------------------------------
  
 (1 row)
 

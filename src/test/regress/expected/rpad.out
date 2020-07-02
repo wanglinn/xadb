@@ -2,125 +2,125 @@ set grammar to oracle;
 --select rpad('~！@#￥%er', 20) from dual;
 --select rpad('你好', 5) from dual;
 select rpad('cd  ae',5) from dual;
- rpad  
--------
+ RPAD('CD  AE',5)  
+-------------------
  cd  a
 (1 row)
 
 select rpad(to_char(45), 5) from dual;
- rpad  
--------
+ RPAD(TO_CHAR(45), 5)  
+-----------------------
  45   
 (1 row)
 
 select rpad(3.545, 5) from dual;
- rpad  
--------
+ RPAD(3.545, 5)  
+-----------------
  3.545
 (1 row)
 
 select rpad(4, 5) from dual;
- rpad  
--------
+ RPAD(4, 5)  
+-------------
  4    
 (1 row)
 
 select rpad('a','4') from dual;
- rpad 
-------
+ RPAD('A','4')  
+----------------
  a   
 (1 row)
 
 select rpad('a','4.84') from dual;
- rpad 
-------
+ RPAD('A','4.84')  
+-------------------
  a   
 (1 row)
 
 select rpad('abcdegf',3) from dual;
- rpad 
-------
+ RPAD('ABCDEGF',3)  
+--------------------
  abc
 (1 row)
 
 --select rpad('你好',3) from dual;
 select rpad('abcdegf',tan(1)) from dual;
- rpad 
-------
+ RPAD('ABCDEGF',TAN(1))  
+-------------------------
  a
 (1 row)
 
 --select rpad('abcdegf',100*100) from dual;
 select rpad('abc',-2) from dual;
- rpad 
-------
+ RPAD('ABC',-2)  
+-----------------
  
 (1 row)
 
 select rpad('abc',5,'*') from dual;
- rpad  
--------
+ RPAD('ABC',5,'*')  
+--------------------
  abc**
 (1 row)
 
 select rpad('abc',5,'123456') from dual;
- rpad  
--------
+ RPAD('ABC',5,'123456')  
+-------------------------
  abc12
 (1 row)
 
 select rpad('abc',5,' ') from dual;
- rpad  
--------
+ RPAD('ABC',5,' ')  
+--------------------
  abc  
 (1 row)
 
 select rpad('abc',5,6) from dual;
- rpad  
--------
+ RPAD('ABC',5,6)  
+------------------
  abc66
 (1 row)
 
 select rpad('abc',5,1.6) from dual;
- rpad  
--------
+ RPAD('ABC',5,1.6)  
+--------------------
  abc1.
 (1 row)
 
 select rpad('abc',5,to_char(2)) from dual;
- rpad  
--------
+ RPAD('ABC',5,TO_CHAR(2))  
+---------------------------
  abc22
 (1 row)
 
 select rpad('abc',5,to_number(2)) from dual;
- rpad  
--------
+ RPAD('ABC',5,TO_NUMBER(2))  
+-----------------------------
  abc22
 (1 row)
 
 select rpad('abc',5,3*2) from dual;
- rpad  
--------
+ RPAD('ABC',5,3*2)  
+--------------------
  abc66
 (1 row)
 
 select rpad('abc',5,tan(2)) from dual;
- rpad  
--------
+ RPAD('ABC',5,TAN(2))  
+-----------------------
  abc-2
 (1 row)
 
 --select rpad('abc',5,'你好') from dual;
 select rpad('',null) from dual;
- rpad 
-------
+ RPAD('',NULL)  
+----------------
  
 (1 row)
 
 select rpad(null,null,'') from dual;
- rpad 
-------
+ RPAD(NULL,NULL,'')  
+---------------------
  
 (1 row)
 

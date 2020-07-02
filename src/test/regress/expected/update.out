@@ -459,6 +459,7 @@ $$
     return null;
   end;
 $$;
+ERROR:  function "trans_updatetrigfunc" already exists with same argument types
 CREATE TRIGGER trans_updatetrig
   AFTER UPDATE ON range_parted REFERENCING OLD TABLE AS old_table NEW TABLE AS new_table
   FOR EACH STATEMENT EXECUTE PROCEDURE trans_updatetrigfunc();
@@ -654,6 +655,7 @@ $$
     return null;
   end;
 $$;
+ERROR:  function "trigfunc" already exists with same argument types
 -- Triggers on root partition
 CREATE TRIGGER parent_delete_trig
   AFTER DELETE ON range_parted for each statement execute procedure trigfunc();

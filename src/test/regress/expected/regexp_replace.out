@@ -1,163 +1,171 @@
 set grammar to oracle;
 SELECT regexp_replace('abc1def2', '[[:digit:]]','@',1,2) output  from dual;
-  output  
+  OUTPUT  
 ----------
  abc1def@
 (1 row)
 
 SELECT regexp_replace('abc1def2', '[[:digit:]]','@',1,'1') output  from dual;
-  output  
+  OUTPUT  
 ----------
  abc@def2
 (1 row)
 
 SELECT regexp_replace('abc1def2', '[[:digit:]]','@',1,to_number(2)) output  from dual;
-  output  
+  OUTPUT  
 ----------
  abc1def@
 (1 row)
 
 SELECT regexp_replace('abc1def2', '[[:digit:]]','@',1,2.1) output  from dual;
-  output  
+  OUTPUT  
 ----------
  abc1def@
 (1 row)
 
 SELECT regexp_replace('abc1def2', '[[:digit:]]','@',1,to_char(1)) output  from dual;
-  output  
+  OUTPUT  
 ----------
  abc@def2
 (1 row)
 
 SELECT regexp_replace('abc1def2', '[[:digit:]]','@',1,power(1,1)) output  from dual;
-  output  
+  OUTPUT  
 ----------
  abc@def2
 (1 row)
 
 SELECT regexp_replace('abc1def2', '[[:digit:]]','@',4) output  from dual;
-  output  
+  OUTPUT  
 ----------
  abc@def@
 (1 row)
 
 SELECT regexp_replace('abc1def2', '[[:digit:]]','@',5) output  from dual;
-  output  
+  OUTPUT  
 ----------
  abc1def@
 (1 row)
 
 SELECT regexp_replace('abc1def2', '[[:digit:]]','@',1000000) output  from dual;
-  output  
+  OUTPUT  
 ----------
  abc1def2
 (1 row)
 
 SELECT regexp_replace('abc1def2', '[[:digit:]]','@','5') output  from dual;
-ERROR:  invalid regexp option: "5"
+  OUTPUT  
+----------
+ abc1def@
+(1 row)
+
 SELECT regexp_replace('abc1def2', '[[:digit:]]','@',5.5) output  from dual;
-  output  
+  OUTPUT  
 ----------
  abc1def@
 (1 row)
 
 SELECT regexp_replace('abc1def2', '[[:digit:]]','@',to_char(5)) output  from dual;
-ERROR:  invalid regexp option: "5"
+  OUTPUT  
+----------
+ abc1def@
+(1 row)
+
 SELECT regexp_replace('abc1def2', '[[:digit:]]','@',power(1,1)) output  from dual;
-  output  
+  OUTPUT  
 ----------
  abc@def@
 (1 row)
 
 SELECT regexp_replace(1234, '[[:digit:]]','@',1) output  from dual;
- output 
+ OUTPUT 
 --------
  @@@@
 (1 row)
 
 SELECT regexp_replace('abc1def2', '[[:digit:]]D','@',1,1,'i') output  from dual;
- output  
+ OUTPUT  
 ---------
  abc@ef2
 (1 row)
 
 SELECT regexp_replace('abc1def2', '[[:digit:]]D','@',1,1,'c') output  from dual;
-  output  
+  OUTPUT  
 ----------
  abc1def2
 (1 row)
 
 SELECT regexp_replace('abc1
 def2', '[[:digit:]].d','@',1,1,'n') output  from dual;
- output  
+ OUTPUT  
 ---------
  abc@ef2
 (1 row)
 
 SELECT regexp_replace('abc1
 def2', '[[:digit:]].d','#',1,1,'xic') output  from dual;
- output 
+ OUTPUT 
 --------
  abc1  +
  def2
 (1 row)
 
 SELECT regexp_replace('abc1def2', '[[:digit:]] d','@',1,1,'x') output  from dual;
- output  
+ OUTPUT  
 ---------
  abc@ef2
 (1 row)
 
 select regexp_replace('abcxxx#%
 adfbc','^a','@',1,2,'m') from dual;
- regexp_replace 
-----------------
- abcxxx#%      +
+ REGEXP_REPLACE('ABCXXX#%ADFBC','^A','@',1,2,'M')  
+---------------------------------------------------
+ abcxxx#%                                         +
  @dfbc
 (1 row)
 
 select regexp_replace('abcxxx#%
 adfbc','^a','@',1,2,'n') from dual;
- regexp_replace 
-----------------
- abcxxx#%      +
+ REGEXP_REPLACE('ABCXXX#%ADFBC','^A','@',1,2,'N')  
+---------------------------------------------------
+ abcxxx#%                                         +
  adfbc
 (1 row)
 
 select regexp_replace('abcxxx#%
 adfbc','^a','@',1,2,'i') from dual;
- regexp_replace 
-----------------
- abcxxx#%      +
+ REGEXP_REPLACE('ABCXXX#%ADFBC','^A','@',1,2,'I')  
+---------------------------------------------------
+ abcxxx#%                                         +
  adfbc
 (1 row)
 
 select regexp_replace('abcxxx#%
 adfbc','^a','@',1,2,'x') from dual;
- regexp_replace 
-----------------
- abcxxx#%      +
+ REGEXP_REPLACE('ABCXXX#%ADFBC','^A','@',1,2,'X')  
+---------------------------------------------------
+ abcxxx#%                                         +
  adfbc
 (1 row)
 
 select regexp_replace('abcxxx#%
 adfbc','^a','@',1,2,'c') from dual;
- regexp_replace 
-----------------
- abcxxx#%      +
+ REGEXP_REPLACE('ABCXXX#%ADFBC','^A','@',1,2,'C')  
+---------------------------------------------------
+ abcxxx#%                                         +
  adfbc
 (1 row)
 
 SELECT regexp_replace('', '', 1, 1, 0) 
 regexp_replace FROM DUAL;
- regexp_replace 
+ REGEXP_REPLACE 
 ----------------
  
 (1 row)
 
 SELECT regexp_replace(null, null, null,1, 1) 
 regexp_replace FROM DUAL;
- regexp_replace 
+ REGEXP_REPLACE 
 ----------------
  
 (1 row)

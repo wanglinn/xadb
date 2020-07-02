@@ -4,10 +4,10 @@ insert into tt(id,name) values(1, 'mike');
 insert into tt(id,name) values(2, 'Jack');
 delete  from tt where id =2;
 savepoint tep;
-ERROR:  SAVEPOINT is not yet supported.
+ERROR:  SAVEPOINT can only be used in transaction blocks
 insert into tt(id,name) values(2, 'Jack');
 select * from tt;
- id | name 
+ ID | NAME 
 ----+------
   1 | mike
   2 | Jack
@@ -16,7 +16,7 @@ select * from tt;
 rollback to savepoint tep;
 ERROR:  ROLLBACK TO SAVEPOINT can only be used in transaction blocks
 select * from tt;
- id | name 
+ ID | NAME 
 ----+------
   1 | mike
   2 | Jack

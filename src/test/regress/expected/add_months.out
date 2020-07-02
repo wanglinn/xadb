@@ -4,131 +4,134 @@ create table aa(id int, dt timestamp);
 insert into aa values(1,to_date('2000-3-31','YYYY-MM-DD'));
 insert into aa values(2,to_date('2000-2-29','YYYY-MM-DD'));
 select add_months(to_date('2000-3-31','YYYY-MM-DD'),1) from dual; 
-     add_months      
----------------------
+ ADD_MONTHS(TO_DATE('2000-3-31','YYYY-MM-DD'),1)  
+--------------------------------------------------
  2000-04-30 00:00:00
 (1 row)
 
 select id, add_months(dt,1) from aa where id=1;
- id |     add_months      
+ ID |  ADD_MONTHS(DT,1)   
 ----+---------------------
   1 | 2000-04-30 00:00:00
 (1 row)
 
 select add_months(to_date('2000-3-31','YYYY-MM-DD'),-1) from dual; 
-     add_months      
----------------------
+ ADD_MONTHS(TO_DATE('2000-3-31','YYYY-MM-DD'),-1)  
+---------------------------------------------------
  2000-02-29 00:00:00
 (1 row)
 
 select id, add_months(dt,1) from aa where id=1;
- id |     add_months      
+ ID |  ADD_MONTHS(DT,1)   
 ----+---------------------
   1 | 2000-04-30 00:00:00
 (1 row)
 
 select add_months(to_date('2000-3-31','YYYY-MM-DD'),0) from dual; 
-     add_months      
----------------------
+ ADD_MONTHS(TO_DATE('2000-3-31','YYYY-MM-DD'),0)  
+--------------------------------------------------
  2000-03-31 00:00:00
 (1 row)
 
 select id, add_months(dt,0) from aa where id=1;
- id |     add_months      
+ ID |  ADD_MONTHS(DT,0)   
 ----+---------------------
   1 | 2000-03-31 00:00:00
 (1 row)
 
 select add_months(to_date('2000-2-29','YYYY-MM-DD'),12) from dual; 
-     add_months      
----------------------
+ ADD_MONTHS(TO_DATE('2000-2-29','YYYY-MM-DD'),12)  
+---------------------------------------------------
  2001-02-28 00:00:00
 (1 row)
 
 select id, add_months(dt,12) from aa where id=2;
- id |     add_months      
+ ID | ADD_MONTHS(DT,12)   
 ----+---------------------
   2 | 2001-02-28 00:00:00
 (1 row)
 
 select add_months(to_date('2000-2-29','YYYY-MM-DD'),-12) from dual; 
-     add_months      
----------------------
+ ADD_MONTHS(TO_DATE('2000-2-29','YYYY-MM-DD'),-12)  
+----------------------------------------------------
  1999-02-28 00:00:00
 (1 row)
 
 select id, add_months(dt,-12) from aa where id=2;
- id |     add_months      
+ ID | ADD_MONTHS(DT,-12)  
 ----+---------------------
   2 | 1999-02-28 00:00:00
 (1 row)
 
 select add_months(to_date('2000-2-29','YYYY-MM-DD'),12.1) from dual; 
-     add_months      
----------------------
+ ADD_MONTHS(TO_DATE('2000-2-29','YYYY-MM-DD'),12.1)  
+-----------------------------------------------------
  2001-02-28 00:00:00
 (1 row)
 
 select add_months(to_date('2000-2-29','YYYY-MM-DD'),-12.55) from dual; 
-     add_months      
----------------------
+ ADD_MONTHS(TO_DATE('2000-2-29','YYYY-MM-DD'),-12.55)  
+-------------------------------------------------------
  1999-02-28 00:00:00
 (1 row)
 
 select add_months(to_date('1-2-28','YYYY-MM-DD'),-300) from dual;
-ERROR:  date out of range
-CONTEXT:  SQL function "add_months" statement 1
+ ADD_MONTHS(TO_DATE('1-2-28','YYYY-MM-DD'),-300)  
+--------------------------------------------------
+ 0024-02-29 00:00:00
+(1 row)
+
 select add_months(to_date('6000-2-29','YYYY-MM-DD'),30000) from dual;
-     add_months      
----------------------
+ ADD_MONTHS(TO_DATE('6000-2-29','YYYY-MM-DD'),30000)  
+------------------------------------------------------
  8500-02-28 00:00:00
 (1 row)
 
 select add_months(to_date('2000-2-29','YYYY-MM-DD'),'3') from dual;
-     add_months      
----------------------
+ ADD_MONTHS(TO_DATE('2000-2-29','YYYY-MM-DD'),'3')  
+----------------------------------------------------
  2000-05-31 00:00:00
 (1 row)
 
 select add_months(to_date('2000-2-29','YYYY-MM-DD'),'') from dual;
- add_months 
-------------
+ ADD_MONTHS(TO_DATE('2000-2-29','YYYY-MM-DD'),'')  
+---------------------------------------------------
  
 (1 row)
 
 select add_months(to_date('2000-2-29','YYYY-MM-DD'),null) from dual;
- add_months 
-------------
+ ADD_MONTHS(TO_DATE('2000-2-29','YYYY-MM-DD'),NULL)  
+-----------------------------------------------------
  
 (1 row)
 
 select add_months(null,null) from dual;
- add_months 
-------------
+ ADD_MONTHS(NULL,NULL)  
+------------------------
  
 (1 row)
 
 select add_months('','') from dual;
- add_months 
-------------
+ ADD_MONTHS('','')  
+--------------------
  
 (1 row)
 
 select add_months('',null) from dual;
- add_months 
-------------
+ ADD_MONTHS('',NULL)  
+----------------------
  
 (1 row)
 
 select add_months(null,'') from dual;
- add_months 
-------------
+ ADD_MONTHS(NULL,'')  
+----------------------
  
 (1 row)
 
 select add_months('',3) from dual;
- add_months 
-------------
+ ADD_MONTHS('',3)  
+-------------------
  
 (1 row)
 

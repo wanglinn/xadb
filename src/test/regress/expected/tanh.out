@@ -1,49 +1,49 @@
 set grammar to oracle;
 select tanh(exp(2)) from dual;
-       tanh        
--------------------
- 0.999999236204229
+     TANH(EXP(2))       
+------------------------
+ 0.99999923620422918274
 (1 row)
 
 select tanh(-1) from dual;
-        tanh        
---------------------
- -0.761594155955765
+        TANH(-1)         
+-------------------------
+ -0.76159415595576489771
 (1 row)
 
 select tanh('0.9') from dual;
-       tanh        
--------------------
- 0.716297870199024
+      TANH('0.9')       
+------------------------
+ 0.71629787019902443151
 (1 row)
 
 select tanh(0) from dual;
- tanh 
-------
-    0
+ TANH(0)  
+----------
+        0
 (1 row)
 
 select tanh(to_char(0.5)) from dual;
-       tanh       
-------------------
- 0.46211715726001
+  TANH(TO_CHAR(0.5))    
+------------------------
+ 0.46211715726000976263
 (1 row)
 
 select tanh('0.9') from dual;
-       tanh        
--------------------
- 0.716297870199024
+      TANH('0.9')       
+------------------------
+ 0.71629787019902443151
 (1 row)
 
 select tanh(null) from dual;
- tanh 
-------
-     
+ TANH(NULL)  
+-------------
+            
 (1 row)
 
 select tanh('') from dual;
- tanh 
-------
-     
+ TANH('')  
+-----------
+          
 (1 row)
 

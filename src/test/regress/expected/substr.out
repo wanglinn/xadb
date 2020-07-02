@@ -1,139 +1,139 @@
 set grammar to oracle;
 set datestyle='ISO,YMD';
 SELECT SUBSTR('ABCDEFG',3,4) sub FROM DUAL;
- sub  
+ SUB  
 ------
  CDEF
 (1 row)
 
 SELECT SUBSTR('ABCDEFG',0,4) sub FROM DUAL;
- sub  
+ SUB  
 ------
  ABCD
 (1 row)
 
 SELECT SUBSTR('ABCDEFG',-2,4) sub FROM DUAL;
- sub 
+ SUB 
 -----
  FG
 (1 row)
 
 SELECT SUBSTR('ABCDEFG',-7,10) sub FROM DUAL;
-   sub   
+   SUB   
 ---------
  ABCDEFG
 (1 row)
 
 SELECT SUBSTR('ABCDEFG',-8,10) sub FROM DUAL;
- sub 
+ SUB 
 -----
  
 (1 row)
 
 SELECT SUBSTR('ABCDEFG',1,0) sub FROM DUAL;
- sub 
+ SUB 
 -----
  
 (1 row)
 
 SELECT SUBSTR('ABCDEFG',1,-1) sub FROM DUAL;
- sub 
+ SUB 
 -----
  
 (1 row)
 
 SELECT SUBSTR('ABCDEFG',1,10) sub FROM DUAL;
-   sub   
+   SUB   
 ---------
  ABCDEFG
 (1 row)
 
 SELECT SUBSTR('ABCDEFG',100000000,1) sub FROM DUAL;
- sub 
+ SUB 
 -----
  
 (1 row)
 
 SELECT SUBSTR('ABCDEFG',2,10000000) sub FROM DUAL;
-  sub   
+  SUB   
 --------
  BCDEFG
 (1 row)
 
 SELECT SUBSTR('ABCDEFG',2,10000000) sub FROM DUAL;
-  sub   
+  SUB   
 --------
  BCDEFG
 (1 row)
 
 SELECT SUBSTR('ABCDEFG','1','2') sub FROM DUAL;
- sub 
+ SUB 
 -----
  AB
 (1 row)
 
 SELECT SUBSTR(1234,'1','2') sub FROM DUAL;
- sub 
+ SUB 
 -----
  12
 (1 row)
 
 SELECT SUBSTR(1234.4,1.1,2.0) sub FROM DUAL;
- sub 
+ SUB 
 -----
  12
 (1 row)
 
 SELECT SUBSTR(to_char('abcd'),1,2) sub FROM DUAL;
- sub 
+ SUB 
 -----
  ab
 (1 row)
 
 SELECT SUBSTR(exp(2),1,6) sub FROM DUAL;
-  sub   
+  SUB   
 --------
  7.3890
 (1 row)
 
 SELECT SUBSTR('abcde',tanh(1),6) sub FROM DUAL;
-  sub  
+  SUB  
 -------
  abcde
 (1 row)
 
 SELECT SUBSTR(to_date('2015-06-06 20:50:30','yyyy-mm-dd hh24:mi:ss'),1,10) sub FROM DUAL;
-    sub     
+    SUB     
 ------------
  2015-06-06
 (1 row)
 
 SELECT SUBSTR(to_timestamp('2015-06-06 20:50:30','yyyy-mm-dd hh24:mi:ss'),1,10) sub FROM DUAL;
-    sub     
+    SUB     
 ------------
  2015-06-06
 (1 row)
 
 SELECT SUBSTR('ABCDEFG',2) sub FROM DUAL;
-  sub   
+  SUB   
 --------
  BCDEFG
 (1 row)
 
 SELECT SUBSTR('',2) sub FROM DUAL;
- sub 
+ SUB 
 -----
  
 (1 row)
 
 SELECT SUBSTR(null,2) sub FROM DUAL;
- sub 
+ SUB 
 -----
  
 (1 row)
 
 SELECT SUBSTR('abc','') sub FROM DUAL;
- sub 
+ SUB 
 -----
  
 (1 row)

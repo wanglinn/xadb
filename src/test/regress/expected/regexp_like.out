@@ -7,72 +7,72 @@ insert into aa values(4,'abc','abcd');
 insert into aa values(5,'mike',null);
 insert into aa values(6,null,null);
 select * from aa where regexp_like(name,'345');
- id |  name  | cont 
+ ID |  NAME  | CONT 
 ----+--------+------
   1 | 345    | 345
   2 | 345abc | 345
 (2 rows)
 
 select * from aa where regexp_like(name,to_char(345));
- id |  name  | cont 
+ ID |  NAME  | CONT 
 ----+--------+------
   1 | 345    | 345
   2 | 345abc | 345
 (2 rows)
 
 select * from aa where regexp_like(name,345);
- id |  name  | cont 
+ ID |  NAME  | CONT 
 ----+--------+------
   1 | 345    | 345
   2 | 345abc | 345
 (2 rows)
 
 select * from aa where regexp_like(name,to_number('345'));
- id |  name  | cont 
+ ID |  NAME  | CONT 
 ----+--------+------
   1 | 345    | 345
   2 | 345abc | 345
 (2 rows)
 
 select * from aa where regexp_like(name,exp(1));
- id | name | cont 
+ ID | NAME | CONT 
 ----+------+------
 (0 rows)
 
 select * from aa where regexp_like(name,cont);
- id |  name  | cont 
+ ID |  NAME  | CONT 
 ----+--------+------
   1 | 345    | 345
   2 | 345abc | 345
 (2 rows)
 
 select * from aa where regexp_like(name,'345abcd');
- id | name | cont 
+ ID | NAME | CONT 
 ----+------+------
 (0 rows)
 
 select * from aa where regexp_like(name,'');
- id | name | cont 
+ ID | NAME | CONT 
 ----+------+------
 (0 rows)
 
 select * from aa where regexp_like('',name);
- id | name | cont 
+ ID | NAME | CONT 
 ----+------+------
 (0 rows)
 
 select * from aa where regexp_like('','');
- id | name | cont 
+ ID | NAME | CONT 
 ----+------+------
 (0 rows)
 
 select * from aa where regexp_like(name,null);
- id | name | cont 
+ ID | NAME | CONT 
 ----+------+------
 (0 rows)
 
 select * from aa where regexp_like(null,name);
- id | name | cont 
+ ID | NAME | CONT 
 ----+------+------
 (0 rows)
 

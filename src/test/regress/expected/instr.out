@@ -1,121 +1,121 @@
 set grammar to oracle;
 set datestyle='ISO,YMD';
 select instr('abc','bc') from dual;
- instr 
--------
-     2
+ INSTR('ABC','BC')  
+--------------------
+                  2
 (1 row)
 
 select instr(to_char('abc'),to_char('bc')) from dual;
- instr 
--------
-     2
+ INSTR(TO_CHAR('ABC'),TO_CHAR('BC'))  
+--------------------------------------
+                                    2
 (1 row)
 
 select instr('爱存不存','存',1,2) from dual;
- instr 
--------
-     4
+ INSTR('爈孭不存',' 
+--------------------
+                  4
 (1 row)
 
 select instr(1234,23) from dual;
- instr 
--------
-     2
+ INSTR(1234,23)  
+-----------------
+               2
 (1 row)
 
 select instr(to_number(123.56),'.') from dual;
- instr 
--------
-     4
+ INSTR(TO_NUMBER(123.56),'.')  
+-------------------------------
+                             4
 (1 row)
 
 select instr(exp(2),0)  from dual;
- instr 
--------
-     6
+ INSTR(EXP(2),0)   
+-------------------
+                 6
 (1 row)
 
 select instr(exp(2),exp(2))  from dual;
- instr 
--------
-     1
+ INSTR(EXP(2),EXP(2))   
+------------------------
+                      1
 (1 row)
 
 select instr(to_date('2015-06-06 20:50:30','yyyy-mm-dd hh24:mi:ss'),'15') from dual;
- instr 
--------
-     3
+ INSTR(TO_DATE('2015-06-06 20:50:30','YYYY-MM-DD HH24:MI:SS'),'15')  
+---------------------------------------------------------------------
+                                                                   3
 (1 row)
 
 select instr('!@#$%^&*()~','^')  from dual;
- instr 
--------
-     6
+ INSTR('!@#$%^&*()~','^')   
+----------------------------
+                          6
 (1 row)
 
 select instr('abc
 sw','
 s') from dual;
- instr 
--------
-     4
+ INSTR('ABCSW','S')  
+---------------------
+                   4
 (1 row)
 
 select instr('abcswcs','cs',1,2) from dual;
- instr 
--------
-     6
+ INSTR('ABCSWCS','CS',1,2)  
+----------------------------
+                          6
 (1 row)
 
 select instr('abcswcs','cs',1000000000) from dual;
- instr 
--------
-     0
+ INSTR('ABCSWCS','CS',1000000000)  
+-----------------------------------
+                                 0
 (1 row)
 
 select instr('abcswcs','cs',-100) from dual;
- instr 
--------
-     0
+ INSTR('ABCSWCS','CS',-100)  
+-----------------------------
+                           0
 (1 row)
 
 select instr('abcswcs','cs',-1) from dual;
- instr 
--------
-     6
+ INSTR('ABCSWCS','CS',-1)  
+---------------------------
+                         6
 (1 row)
 
 select instr('abcswcs','cs','',-1) from dual;
- instr 
--------
-      
+ INSTR('ABCSWCS','CS','',-1)  
+------------------------------
+                             
 (1 row)
 
 select instr('abcswcs','cs',0) from dual;
- instr 
--------
-     6
+ INSTR('ABCSWCS','CS',0)  
+--------------------------
+                        0
 (1 row)
 
 select instr('abcswcs','cs',1,10000000000) from dual;
 ERROR:  integer out of range
 select instr('','')  from dual;
- instr 
--------
-      
+ INSTR('','')   
+----------------
+               
 (1 row)
 
 select instr(null,'a') from dual;
- instr 
--------
-      
+ INSTR(NULL,'A')  
+------------------
+                 
 (1 row)
 
 select instr('abc','') from dual;
- instr 
--------
-      
+ INSTR('ABC','')  
+------------------
+                 
 (1 row)
 
 create table tt (name varchar2(10));
@@ -124,7 +124,7 @@ insert into tt values('3cd');
 insert into tt values('mmd');
 insert into tt values('ccd');
 select * from tt where instr(name,'d')  >0 order by name;
- name 
+ NAME 
 ------
  1bd2
  3cd

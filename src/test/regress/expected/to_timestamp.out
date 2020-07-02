@@ -1,88 +1,88 @@
 set grammar to oracle;
 set datestyle='ISO,YMD';
 select to_timestamp('20150102','yyyymmdd') from dual;
-    to_timestamp     
----------------------
+ TO_TIMESTAMP('20150102','YYYYMMDD')  
+--------------------------------------
  2015-01-02 00:00:00
 (1 row)
 
 select to_timestamp('18000202 12:23:59','yyyymmdd hh:mi:ss') from dual;
-    to_timestamp     
----------------------
+ TO_TIMESTAMP('18000202 12:23:59','YYYYMMDD HH:MI:SS')  
+--------------------------------------------------------
  1800-02-02 00:23:59
 (1 row)
 
 select to_timestamp('20150102 12:23:59','yyyymmdd hh24:mi:ss') from dual;
-    to_timestamp     
----------------------
+ TO_TIMESTAMP('20150102 12:23:59','YYYYMMDD HH24:MI:SS')  
+----------------------------------------------------------
  2015-01-02 12:23:59
 (1 row)
 
 select to_timestamp('2015,01,02','yyyy,mm,dd') from dual;
-    to_timestamp     
----------------------
+ TO_TIMESTAMP('2015,01,02','YYYY,MM,DD')  
+------------------------------------------
  2015-01-02 00:00:00
 (1 row)
 
 select to_timestamp('01/02/2010','mm/dd/yyyy') from dual;
-    to_timestamp     
----------------------
+ TO_TIMESTAMP('01/02/2010','MM/DD/YYYY')  
+------------------------------------------
  2010-01-02 00:00:00
 (1 row)
 
 SELECT TO_timestamp('January 15, 1989, 11:00 A.M.','Month dd, YYYY, HH:MI A.M.') FROM DUAL;
-    to_timestamp     
----------------------
+ TO_TIMESTAMP('JANUARY 15, 1989, 11:00 A.M.','MONTH DD, YYYY, HH:MI A.M.')  
+----------------------------------------------------------------------------
  1989-01-15 11:00:00
 (1 row)
 
 SELECT TO_timestamp('Jan 15, 2010, 11:00 P.M.','Mon dd, YYYY, HH:MI P.M.') FROM DUAL;
-    to_timestamp     
----------------------
+ TO_TIMESTAMP('JAN 15, 2010, 11:00 P.M.','MON DD, YYYY, HH:MI P.M.')  
+----------------------------------------------------------------------
  2010-01-15 23:00:00
 (1 row)
 
 SELECT TO_timestamp('15, 10, 11:00 P.M.','ddd, YY, HH:MI P.M.') FROM DUAL;
-    to_timestamp     
----------------------
+ TO_TIMESTAMP('15, 10, 11:00 P.M.','DDD, YY, HH:MI P.M.')  
+-----------------------------------------------------------
  2010-01-15 23:00:00
 (1 row)
 
 SELECT TO_timestamp('January 15, 2010, 11:00 P.M.','Mon dd, YYYY, HH:MI P.M.') FROM DUAL;
-    to_timestamp     
----------------------
+ TO_TIMESTAMP('JANUARY 15, 2010, 11:00 P.M.','MON DD, YYYY, HH:MI P.M.')  
+--------------------------------------------------------------------------
  2010-01-15 23:00:00
 (1 row)
 
 select to_timestamp('2100-2-29','yyyy-mm-dd') from dual;
 ERROR:  the day must be between the first and the last day of the month
 select to_timestamp('2100-2-28',null) from dual;
- to_timestamp 
---------------
+ TO_TIMESTAMP('2100-2-28',NULL)  
+---------------------------------
  
 (1 row)
 
 select to_timestamp('2100-2-28','') from dual;
- to_timestamp 
---------------
+ TO_TIMESTAMP('2100-2-28','')  
+-------------------------------
  
 (1 row)
 
 select to_char(to_timestamp('2015,01,02 14:34:23.345','yyyy,mm,dd hh24:mi:ss.ff') - to_timestamp('2014,01,01 11:24:21','yyyy,mm,dd hh24:mi:ss'),'yyyy-mm-dd hh24:mi:ss') from dual;
-       to_char        
-----------------------
+ TO_CHAR(TO_TIMESTAMP('2015,01,02 14:34:23.345','YYYY,MM,DD HH24:MI:SS.FF') - TO_TIMESTAMP('2014,01,01 11:24:21','YYYY,MM,DD HH24:MI:SS'),'YYYY-MM-DD HH24:MI:SS')  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
  0000-00-366 03:10:02
 (1 row)
 
 select to_char(to_timestamp('2015-01-02','yyyy-mm-dd') - to_timestamp('2014-01-01','yyyy-mm-dd'),'yyyy-mm-dd hh24:mi:ss') from dual;
-       to_char        
-----------------------
+ TO_CHAR(TO_TIMESTAMP('2015-01-02','YYYY-MM-DD') - TO_TIMESTAMP('2014-01-01','YYYY-MM-DD'),'YYYY-MM-DD HH24:MI:SS')  
+---------------------------------------------------------------------------------------------------------------------
  0000-00-366 00:00:00
 (1 row)
 
 select to_timestamp('20160229 16:06:39.2161', 'yyyymmdd hh24:mi:ssxff4') FROM dual;
-       to_timestamp       
---------------------------
+ TO_TIMESTAMP('20160229 16:06:39.2161', 'YYYYMMDD HH24:MI:SSXFF4')  
+--------------------------------------------------------------------
  2016-02-29 16:06:39.2161
 (1 row)
 

@@ -1,107 +1,111 @@
 set grammar to oracle;
 select nanvl('nan'::numeric(5,2),100) from dual;
- nanvl 
--------
-   100
+ NANVL('NAN'::NUMERIC(5,2),100)  
+---------------------------------
+                             100
 (1 row)
 
 select nanvl('nan'::numeric(5,2),3.178) from dual;
- nanvl 
--------
- 3.178
+ NANVL('NAN'::NUMERIC(5,2),3.178)  
+-----------------------------------
+                             3.178
 (1 row)
 
 select nanvl('nan'::numeric(5,2),'20') from dual;
- nanvl 
--------
-    20
+ NANVL('NAN'::NUMERIC(5,2),'20')  
+----------------------------------
+                               20
 (1 row)
 
 select nanvl('nan'::numeric(5,2),'20.5') from dual;
- nanvl 
--------
-  20.5
+ NANVL('NAN'::NUMERIC(5,2),'20.5')  
+------------------------------------
+                               20.5
 (1 row)
 
 select nanvl('nan'::numeric(5,2),2*3) from dual;
- nanvl 
--------
-     6
+ NANVL('NAN'::NUMERIC(5,2),2*3)  
+---------------------------------
+                               6
 (1 row)
 
 select nanvl('nan'::numeric(5,2),exp(2)) from dual;
-      nanvl       
-------------------
- 7.38905609893065
+ NANVL('NAN'::NUMERIC(5,2),EXP(2))  
+------------------------------------
+                 7.3890560989306502
 (1 row)
 
 select nanvl('nan'::numeric(5,2),'s') from dual;
-ERROR:  invalid input syntax for type double precision: "s"
+ERROR:  invalid input syntax for type numeric: "s"
+LINE 1: select nanvl('nan'::numeric(5,2),'s') from dual;
+                                         ^
 select nanvl(5,4.7) from dual;
- nanvl 
--------
-     5
+ NANVL(5,4.7)  
+---------------
+             5
 (1 row)
 
 select nanvl(5.8,4.7) from dual;
- nanvl 
--------
-   5.8
+ NANVL(5.8,4.7)  
+-----------------
+             5.8
 (1 row)
 
 select nanvl('8',4.7) from dual;
- nanvl 
--------
-     8
+ NANVL('8',4.7)  
+-----------------
+               8
 (1 row)
 
 select nanvl('4.8',4.7) from dual;
- nanvl 
--------
-   4.8
+ NANVL('4.8',4.7)  
+-------------------
+               4.8
 (1 row)
 
 select nanvl('s',4.7) from dual;
-ERROR:  invalid input syntax for type double precision: "s"
+ERROR:  invalid input syntax for type numeric: "s"
+LINE 1: select nanvl('s',4.7) from dual;
+                     ^
 select nanvl(exp(2),4.7) from dual;
-      nanvl       
-------------------
- 7.38905609893065
+ NANVL(EXP(2),4.7)  
+--------------------
+ 7.3890560989306502
 (1 row)
 
 select nanvl(2*5.7,4.7) from dual;
- nanvl 
--------
-  11.4
+ NANVL(2*5.7,4.7)  
+-------------------
+              11.4
 (1 row)
 
 select nanvl(exp(2),sin(3)) from dual;
-      nanvl       
-------------------
- 7.38905609893065
+ NANVL(EXP(2),SIN(3))  
+-----------------------
+    7.3890560989306502
 (1 row)
 
 select nanvl('','') from dual;
- nanvl 
--------
-      
+ NANVL('','')  
+---------------
+              
 (1 row)
 
 select nanvl('',null) from dual;
- nanvl 
--------
-      
+ NANVL('',NULL)  
+-----------------
+                
 (1 row)
 
 select nanvl(null,4) from dual;
- nanvl 
--------
-      
+ NANVL(NULL,4)  
+----------------
+               
 (1 row)
 
 select nanvl(4.5,null) from dual;
- nanvl 
--------
-      
+ NANVL(4.5,NULL)  
+------------------
+                 
 (1 row)
 

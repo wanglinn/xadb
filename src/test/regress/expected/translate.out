@@ -1,148 +1,148 @@
 set grammar to oracle;
 set datestyle='ISO,YMD';
 SELECT TRANSLATE('abcdefghij','abcdef','123456') FROM dual; 
- translate  
-------------
+ TRANSLATE('ABCDEFGHIJ','ABCDEF','123456')  
+--------------------------------------------
  123456ghij
 (1 row)
 
 SELECT TRANSLATE('abcdefghij','a b','1 2') FROM dual;
- translate  
-------------
+ TRANSLATE('ABCDEFGHIJ','A B','1 2')  
+--------------------------------------
  12cdefghij
 (1 row)
 
 SELECT TRANSLATE('abcdefghij','a b','1  2') FROM dual;
- translate  
-------------
+ TRANSLATE('ABCDEFGHIJ','A B','1  2')  
+---------------------------------------
  1 cdefghij
 (1 row)
 
 SELECT TRANSLATE('abcdefghij','a b f j','1 3') FROM dual; 
- translate 
------------
+ TRANSLATE('ABCDEFGHIJ','A B F J','1 3')  
+------------------------------------------
  13cdeghi
 (1 row)
 
 SELECT TRANSLATE('abcdefghij','a b f j','13') FROM dual; 
- translate 
------------
+ TRANSLATE('ABCDEFGHIJ','A B F J','13')  
+-----------------------------------------
  1cdeghi
 (1 row)
 
 SELECT TRANSLATE('abcdefghij','','13') FROM dual;
- translate 
------------
+ TRANSLATE('ABCDEFGHIJ','','13')  
+----------------------------------
  
 (1 row)
 
 SELECT TRANSLATE('abcdefghij','a','') FROM dual; 
- translate 
------------
+ TRANSLATE('ABCDEFGHIJ','A','')  
+---------------------------------
  
 (1 row)
 
 SELECT TRANSLATE('','','b') FROM dual; 
- translate 
------------
+ TRANSLATE('','','B')  
+-----------------------
  
 (1 row)
 
 SELECT TRANSLATE('ab','a',null) FROM dual; 
- translate 
------------
+ TRANSLATE('AB','A',NULL)  
+---------------------------
  
 (1 row)
 
 SELECT TRANSLATE('!!!!@!!#$!!','!','a') FROM dual; 
-  translate  
--------------
+ TRANSLATE('!!!!@!!#$!!','!','A')  
+-----------------------------------
  aaaa@aa#$aa
 (1 row)
 
 SELECT TRANSLATE('!!!!@!!#$!!','!!','ab') FROM dual; 
-  translate  
--------------
+ TRANSLATE('!!!!@!!#$!!','!!','AB')  
+-------------------------------------
  aaaa@aa#$aa
 (1 row)
 
 SELECT TRANSLATE('!!!!@!!#$!!','!$@','ace') FROM dual;
-  translate  
--------------
+ TRANSLATE('!!!!@!!#$!!','!$@','ACE')  
+---------------------------------------
  aaaaeaa#caa
 (1 row)
 
 SELECT TRANSLATE('!!!!@!!#$!!','$@!','cea') FROM dual; 
-  translate  
--------------
+ TRANSLATE('!!!!@!!#$!!','$@!','CEA')  
+---------------------------------------
  aaaaeaa#caa
 (1 row)
 
 SELECT TRANSLATE('abc!!!!@!!#$!!','xabc!@#$','x') FROM dual; 
- translate 
------------
+ TRANSLATE('ABC!!!!@!!#$!!','XABC!@#$','X')  
+---------------------------------------------
  
 (1 row)
 
 SELECT TRANSLATE('SQL*Plus User''s Guide', ' *$''', '___') FROM DUAL;
-      translate       
-----------------------
+ TRANSLATE('SQL*PLUS USER''S GUIDE', ' *$''', '___')  
+------------------------------------------------------
  SQL_Plus_Users_Guide
 (1 row)
 
 SELECT TRANSLATE(121, 12, 3) FROM DUAL;
- translate 
------------
+ TRANSLATE(121, 12, 3)  
+------------------------
  33
 (1 row)
 
 SELECT TRANSLATE(exp(2), '.', ' ') FROM DUAL;
-    translate     
-------------------
- 7 38905609893065
+ TRANSLATE(EXP(2), '.', ' ')  
+------------------------------
+ 7 3890560989306502
 (1 row)
 
 SELECT TRANSLATE('999,999.99', '9', 0) FROM DUAL;
- translate  
-------------
+ TRANSLATE('999,999.99', '9', 0)  
+----------------------------------
  000,000.00
 (1 row)
 
 SELECT TRANSLATE(121.1, 1., 2) FROM DUAL;
- translate 
------------
+ TRANSLATE(121.1, 1., 2)  
+--------------------------
  222.2
 (1 row)
 
 SELECT TRANSLATE(121.1, 1.0, 2.2) FROM DUAL;
- translate 
------------
+ TRANSLATE(121.1, 1.0, 2.2)  
+-----------------------------
  222.2
 (1 row)
 
 SELECT TRANSLATE(to_char(123),'1', '2') FROM DUAL;
- translate 
------------
+ TRANSLATE(TO_CHAR(123),'1', '2')  
+-----------------------------------
  223
 (1 row)
 
 SELECT TRANSLATE(to_timestamp('2016-12-01 10:30:00.4534','yyyy-mm-dd hh:mi:ss.ff4'),'DEC', '12') FROM DUAL;
-        translate         
---------------------------
+ TRANSLATE(TO_TIMESTAMP('2016-12-01 10:30:00.4534','YYYY-MM-DD HH:MI:SS.FF4'),'DEC', '12')  
+--------------------------------------------------------------------------------------------
  2016-12-01 10:30:00.4534
 (1 row)
 
 SELECT TRANSLATE('你好','你','我') FROM DUAL;
- translate 
------------
+ TRANSLATE('佽好''','佽' 
+-------------------------
  我好
 (1 row)
 
 SELECT TRANSLATE('ab
 AB','Aa
 Bb','aA*bB') FROM DUAL;
- translate 
------------
+ TRANSLATE('ABAB','AABB','AA*BB')  
+-----------------------------------
  AB*ab
 (1 row)
 

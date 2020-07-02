@@ -1,46 +1,46 @@
 set grammar to oracle;
 select length('abcd!@#$^&*()') from dual;
- length 
---------
-     13
+ LENGTH('ABCD!@#$^&*()')  
+--------------------------
+                       13
 (1 row)
 
 select length('ab
 c') from dual;
- length 
---------
-      4
+ LENGTH('ABC')  
+----------------
+              4
 (1 row)
 
 select length('你好') from dual;
- length 
---------
-      2
+ LENGTH('佽 
+------------
+          2
 (1 row)
 
 select length('你
 好') from dual;
- length 
---------
-      3
+ LENGTH('佽 
+------------
+          3
 (1 row)
 
 select length(to_char(1234)) from dual;
- length 
---------
-      4
+ LENGTH(TO_CHAR(1234))  
+------------------------
+                      4
 (1 row)
 
 select length(exp(2)) from dual;
- length 
---------
-     16
+ LENGTH(EXP(2))  
+-----------------
+              18
 (1 row)
 
 select length(12.3456) from dual;
- length 
---------
-      7
+ LENGTH(12.3456)  
+------------------
+                7
 (1 row)
 
 create table tt (name varchar2(10));
@@ -49,7 +49,7 @@ insert into tt values('3csadfed');
 insert into tt values('mmsdeq4d');
 insert into tt values('ccd');
 select * from tt where length(name) >6 order by name;
-    name    
+    NAME    
 ------------
  1bd2sdfaef
  3csadfed
@@ -57,12 +57,12 @@ select * from tt where length(name) >6 order by name;
 (3 rows)
 
 select name,length(name) from tt order by name;
-    name    | length 
-------------+--------
- 1bd2sdfaef |     10
- 3csadfed   |      8
- ccd        |      3
- mmsdeq4d   |      8
+    NAME    | LENGTH(NAME)  
+------------+---------------
+ 1bd2sdfaef |            10
+ 3csadfed   |             8
+ ccd        |             3
+ mmsdeq4d   |             8
 (4 rows)
 
 drop table tt;

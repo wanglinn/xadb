@@ -1,60 +1,59 @@
 set grammar to oracle;
 create sequence se increment by 2 start with 3 maxvalue 10 minvalue 2 cache 10;
 select se.nextval from dual;
- nextval 
----------
-       3
+ SE.NEXTVAL  
+-------------
+           3
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       3
+ SE.CURRVAL  
+-------------
+           3
 (1 row)
 
 select se.nextval from dual;
- nextval 
----------
-       5
+ SE.NEXTVAL  
+-------------
+           5
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       5
+ SE.CURRVAL  
+-------------
+           5
 (1 row)
 
 select se.nextval from dual;
- nextval 
----------
-       7
+ SE.NEXTVAL  
+-------------
+           7
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       7
+ SE.CURRVAL  
+-------------
+           7
 (1 row)
 
 select se.nextval from dual;
- nextval 
----------
-       9
+ SE.NEXTVAL  
+-------------
+           9
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       9
+ SE.CURRVAL  
+-------------
+           9
 (1 row)
 
 select se.nextval from dual;
-ERROR:  got error message from AGTM ERROR:  nextval: reached maximum value of sequence "seq16534" (10)
-
+ERROR:  nextval: reached maximum value of sequence "se" (10)
 select se.currval from dual;
- currval 
----------
-       9
+ SE.CURRVAL  
+-------------
+           9
 (1 row)
 
 drop sequence se;
@@ -62,77 +61,77 @@ create sequence se increment by 2 start with 3 maxvalue 10 minvalue 2 nocycle ca
 drop sequence se;
 create sequence se increment by 2 start with 3 maxvalue 8 minvalue 2 cycle;
 select se.nextval from dual;
- nextval 
----------
-       3
+ SE.NEXTVAL  
+-------------
+           3
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       3
+ SE.CURRVAL  
+-------------
+           3
 (1 row)
 
 select se.nextval from dual;
- nextval 
----------
-       5
+ SE.NEXTVAL  
+-------------
+           5
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       5
+ SE.CURRVAL  
+-------------
+           5
 (1 row)
 
 select se.nextval from dual;
- nextval 
----------
-       7
+ SE.NEXTVAL  
+-------------
+           7
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       7
+ SE.CURRVAL  
+-------------
+           7
 (1 row)
 
 select se.nextval from dual;
- nextval 
----------
-       2
+ SE.NEXTVAL  
+-------------
+           2
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       2
+ SE.CURRVAL  
+-------------
+           2
 (1 row)
 
 drop sequence se;
 create sequence se  nomaxvalue nominvalue;
 select se.nextval from dual;
- nextval 
----------
-       1
+ SE.NEXTVAL  
+-------------
+           1
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       1
+ SE.CURRVAL  
+-------------
+           1
 (1 row)
 
 select se.nextval from dual;
- nextval 
----------
-       2
+ SE.NEXTVAL  
+-------------
+           2
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       2
+ SE.CURRVAL  
+-------------
+           2
 (1 row)
 
 drop sequence se;
@@ -169,44 +168,44 @@ ERROR:  sequence "se" does not exist
 create sequence se increment by 10 start with 1 maxvalue 10 minvalue 1 cycle;
 drop sequence se;
 create sequence se  increment by 1.0 maxvalue 4.0 minvalue 1.0 cycle cache 2;
-ERROR:  invalid input syntax for integer: "1.0"
+ERROR:  invalid input syntax for type bigint: "1.0"
 drop sequence se;
 ERROR:  sequence "se" does not exist
 create sequence se increment by 2 nomaxvalue  nominvalue nocycle;
 select se.nextval from dual;
- nextval 
----------
-       1
+ SE.NEXTVAL  
+-------------
+           1
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       1
+ SE.CURRVAL  
+-------------
+           1
 (1 row)
 
 select se.nextval from dual;
- nextval 
----------
-       3
+ SE.NEXTVAL  
+-------------
+           3
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       3
+ SE.CURRVAL  
+-------------
+           3
 (1 row)
 
 select se.nextval from dual;
- nextval 
----------
-       5
+ SE.NEXTVAL  
+-------------
+           5
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       5
+ SE.CURRVAL  
+-------------
+           5
 (1 row)
 
 drop sequence se;
@@ -217,15 +216,15 @@ ERROR:  syntax error at or near "sequence"
 LINE 1: alter sequence se  start with 2;
               ^
 select se.nextval from dual;
- nextval 
----------
-       2
+ SE.NEXTVAL  
+-------------
+           2
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       2
+ SE.CURRVAL  
+-------------
+           2
 (1 row)
 
 alter sequence se  maxvalue 100;
@@ -249,27 +248,27 @@ ERROR:  syntax error at or near "sequence"
 LINE 1: alter sequence se  nocycle;
               ^
 select se.nextval from dual;
- nextval 
----------
-       3
+ SE.NEXTVAL  
+-------------
+           3
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       3
+ SE.CURRVAL  
+-------------
+           3
 (1 row)
 
 select se.nextval from dual;
- nextval 
----------
-       4
+ SE.NEXTVAL  
+-------------
+           4
 (1 row)
 
 select se.currval from dual;
- currval 
----------
-       4
+ SE.CURRVAL  
+-------------
+           4
 (1 row)
 
 drop sequence se;

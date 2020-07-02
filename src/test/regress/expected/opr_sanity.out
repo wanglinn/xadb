@@ -81,9 +81,10 @@ WHERE p1.prolang = 0 OR p1.prorettype = 0 OR
        prokind NOT IN ('f', 'a', 'w', 'p') OR
        provolatile NOT IN ('i', 's', 'v') OR
        proparallel NOT IN ('s', 'r', 'u');
- oid | proname 
------+---------
-(0 rows)
+ oid  |    proname     
+------+----------------
+ 5403 | pg_xact_status
+(1 row)
 
 -- prosrc should never be null or empty
 SELECT p1.oid, p1.proname
@@ -143,9 +144,67 @@ WHERE p1.oid != p2.oid AND
     p1.proname = p2.proname AND
     p1.pronargs = p2.pronargs AND
     p1.proargtypes = p2.proargtypes;
- oid | proname | oid | proname 
------+---------+-----+---------
-(0 rows)
+  oid  |    proname     |  oid  |    proname     
+-------+----------------+-------+----------------
+   940 | mod            | 13741 | mod
+   941 | mod            | 13742 | mod
+   947 | mod            | 13743 | mod
+  1318 | length         | 13719 | length
+  1598 | random         | 13747 | random
+  2462 | sinh           | 13660 | sinh
+  2463 | cosh           | 13662 | cosh
+  2464 | tanh           | 13664 | tanh
+   873 | lpad           |  8907 | lpad
+   874 | rpad           |  8909 | rpad
+   877 | substr         | 13717 | substr
+   878 | translate      |  5360 | translate
+   879 | lpad           |  8908 | lpad
+   880 | rpad           |  8910 | rpad
+   883 | substr         | 13716 | substr
+  2087 | replace        |  5405 | replace
+  2284 | regexp_replace |  5341 | regexp_replace
+  1728 | mod            | 13726 | mod
+  1770 | to_char        | 13703 | to_char
+  1772 | to_char        | 13698 | to_char
+  1773 | to_char        | 13690 | to_char
+  1774 | to_char        | 13692 | to_char
+  1775 | to_char        | 13694 | to_char
+  1776 | to_char        | 13696 | to_char
+  1777 | to_number      | 13707 | to_number
+  1778 | to_timestamp   | 13684 | to_timestamp
+  1780 | to_date        | 13682 | to_date
+  1768 | to_char        | 13705 | to_char
+  2049 | to_char        | 13701 | to_char
+  5341 | regexp_replace |  2284 | regexp_replace
+  5360 | translate      |   878 | translate
+  5405 | replace        |  2087 | replace
+  8907 | lpad           |   873 | lpad
+  8909 | rpad           |   874 | rpad
+  8908 | lpad           |   879 | lpad
+  8910 | rpad           |   880 | rpad
+ 13660 | sinh           |  2462 | sinh
+ 13662 | cosh           |  2463 | cosh
+ 13664 | tanh           |  2464 | tanh
+ 13682 | to_date        |  1780 | to_date
+ 13684 | to_timestamp   |  1778 | to_timestamp
+ 13690 | to_char        |  1773 | to_char
+ 13692 | to_char        |  1774 | to_char
+ 13694 | to_char        |  1775 | to_char
+ 13696 | to_char        |  1776 | to_char
+ 13698 | to_char        |  1772 | to_char
+ 13701 | to_char        |  2049 | to_char
+ 13703 | to_char        |  1770 | to_char
+ 13705 | to_char        |  1768 | to_char
+ 13707 | to_number      |  1777 | to_number
+ 13716 | substr         |   883 | substr
+ 13717 | substr         |   877 | substr
+ 13719 | length         |  1318 | length
+ 13741 | mod            |   940 | mod
+ 13742 | mod            |   941 | mod
+ 13743 | mod            |   947 | mod
+ 13726 | mod            |  1728 | mod
+ 13747 | random         |  1598 | random
+(58 rows)
 
 -- Considering only built-in procs (prolang = 12), look for multiple uses
 -- of the same internal function (ie, matching prosrc fields).  It's OK to
@@ -168,9 +227,51 @@ WHERE p1.oid < p2.oid AND
      p1.proretset != p2.proretset OR
      p1.provolatile != p2.provolatile OR
      p1.pronargs != p2.pronargs);
- oid | proname | oid | proname 
------+---------+-----+---------
-(0 rows)
+  oid  |        proname        |  oid  |     proname     
+-------+-----------------------+-------+-----------------
+  5329 | dbms_random_normal    | 13746 | normal
+  5330 | dbms_random_random    | 13747 | random
+  5333 | dbms_random_string    | 13750 | string
+  5334 | dbms_random_terminate | 13751 | terminate
+  5336 | dbms_random_value     | 13756 | value
+  5369 | float4_tochar         | 13694 | to_char
+ 13693 | to_char               | 13694 | to_char
+ 13708 | to_number             | 13709 | to_number
+  5386 | float4_tonumber       | 13709 | to_number
+  5370 | float8_tochar         | 13696 | to_char
+ 13695 | to_char               | 13696 | to_char
+  5387 | float8_tonumber       | 13711 | to_number
+ 13710 | to_number             | 13711 | to_number
+ 13689 | to_char               | 13690 | to_char
+ 13688 | to_char               | 13689 | to_char
+ 13687 | to_char               | 13690 | to_char
+ 13687 | to_char               | 13688 | to_char
+  5367 | int4_tochar           | 13690 | to_char
+  5367 | int4_tochar           | 13688 | to_char
+ 13691 | to_char               | 13692 | to_char
+  5368 | int8_tochar           | 13692 | to_char
+  5375 | interval_tochar       | 13705 | to_char
+ 13704 | to_char               | 13705 | to_char
+ 13697 | to_char               | 13698 | to_char
+  5371 | numeric_tochar        | 13698 | to_char
+  5372 | text_tochar           | 13699 | to_char
+ 13681 | to_date               | 13682 | to_date
+  5381 | text_todate           | 13681 | to_date
+  5381 | text_todate           | 13682 | to_date
+  5385 | text_tonumber         | 13707 | to_number
+ 13706 | to_number             | 13707 | to_number
+ 13683 | to_timestamp          | 13684 | to_timestamp
+  5382 | text_totimestamp      | 13684 | to_timestamp
+  5382 | text_totimestamp      | 13683 | to_timestamp
+ 13685 | to_timestamp_tz       | 13686 | to_timestamp_tz
+  5383 | text_totimestamptz    | 13686 | to_timestamp_tz
+  5373 | timestamp_tochar      | 13701 | to_char
+  5373 | timestamp_tochar      | 13700 | to_char
+ 13700 | to_char               | 13701 | to_char
+ 13702 | to_char               | 13703 | to_char
+  5374 | timestamptz_tochar    | 13702 | to_char
+  5374 | timestamptz_tochar    | 13703 | to_char
+(42 rows)
 
 -- Look for uses of different type OIDs in the argument/result type fields
 -- for different aliases of the same built-in function.
@@ -194,9 +295,11 @@ WHERE p1.oid != p2.oid AND
 ORDER BY 1, 2;
  prorettype | prorettype 
 ------------+------------
+         17 |       9129
          25 |       1043
        1114 |       1184
-(2 rows)
+       1184 |       9009
+(4 rows)
 
 SELECT DISTINCT p1.proargtypes[0], p2.proargtypes[0]
 FROM pg_proc AS p1, pg_proc AS p2
@@ -210,11 +313,14 @@ WHERE p1.oid != p2.oid AND
 ORDER BY 1, 2;
  proargtypes | proargtypes 
 -------------+-------------
+          17 |        9129
+          21 |          23
           25 |        1042
           25 |        1043
         1114 |        1184
+        1184 |        9009
         1560 |        1562
-(4 rows)
+(7 rows)
 
 SELECT DISTINCT p1.proargtypes[1], p2.proargtypes[1]
 FROM pg_proc AS p1, pg_proc AS p2
@@ -228,10 +334,12 @@ WHERE p1.oid != p2.oid AND
 ORDER BY 1, 2;
  proargtypes | proargtypes 
 -------------+-------------
+          17 |        9129
           23 |          28
+          25 |        1043
         1114 |        1184
         1560 |        1562
-(3 rows)
+(5 rows)
 
 SELECT DISTINCT p1.proargtypes[2], p2.proargtypes[2]
 FROM pg_proc AS p1, pg_proc AS p2
@@ -386,11 +494,15 @@ WHERE  p1.prorettype = 'cstring'::regtype
     AND NOT EXISTS(SELECT 1 FROM pg_type WHERE typmodout = p1.oid)
     AND p1.oid != 'shell_out(opaque)'::regprocedure
 ORDER BY 1;
- oid  |   proname    
-------+--------------
+ oid  |       proname        
+------+----------------------
  2292 | cstring_in
  2500 | cstring_recv
-(2 rows)
+ 5323 | ora_dbtimezone
+ 5324 | ora_session_timezone
+ 5384 | text_tocstring
+ 5403 | pg_xact_status
+(6 rows)
 
 -- Check for length inconsistencies between the various argument-info arrays.
 SELECT p1.oid, p1.proname
@@ -468,9 +580,141 @@ SELECT p1.oid, p1.proname
 FROM pg_proc as p1 LEFT JOIN pg_description as d
      ON p1.tableoid = d.classoid and p1.oid = d.objoid and d.objsubid = 0
 WHERE d.classoid IS NULL AND p1.oid <= 9999;
- oid | proname 
------+---------
-(0 rows)
+ oid  |         proname          
+------+--------------------------
+ 5299 | max
+ 5297 | min
+ 9100 | rowid_in
+ 9101 | rowid_out
+ 9102 | rowid_recv
+ 9103 | rowid_send
+ 9149 | rowid_hash
+ 5300 | orastr_instr4
+ 5301 | add_months
+ 5302 | last_day
+ 5303 | months_between
+ 5304 | ora_next_day
+ 5305 | ora_date_round
+ 5306 | ora_timestamptz_round
+ 5307 | nvl
+ 5308 | nvl2
+ 5309 | lnnvl
+ 5310 | orachr_first
+ 5311 | orachr_last
+ 5312 | ora_to_multi_byte
+ 5313 | ora_to_single_byte
+ 5314 | ora_date_trunc
+ 5315 | ora_timestamptz_trunc
+ 5316 | orastr_substr2
+ 5317 | orastr_substr3
+ 5318 | ora_dump
+ 5319 | orastr_bpcharlen
+ 5321 | ora_sys_now
+ 5322 | soundex
+ 5323 | ora_dbtimezone
+ 5324 | ora_session_timezone
+ 5328 | dbms_random_initialize
+ 5329 | dbms_random_normal
+ 5330 | dbms_random_random
+ 5331 | dbms_random_seed_int
+ 5332 | dbms_random_seed_varchar
+ 5333 | dbms_random_string
+ 5334 | dbms_random_terminate
+ 5335 | dbms_random_value_range
+ 5336 | dbms_random_value
+ 5337 | regexp_count
+ 5338 | regexp_count
+ 5339 | regexp_count
+ 5340 | regexp_replace
+ 5341 | regexp_replace
+ 5342 | regexp_replace
+ 5343 | regexp_replace
+ 5344 | regexp_replace
+ 5345 | regexp_substr
+ 5346 | regexp_substr
+ 5347 | regexp_substr
+ 5348 | regexp_substr
+ 5349 | regexp_substr
+ 5350 | regexp_instr
+ 5351 | regexp_instr
+ 5352 | regexp_instr
+ 5353 | regexp_instr
+ 5354 | regexp_instr
+ 5355 | regexp_instr
+ 5356 | regexp_like
+ 5357 | regexp_like
+ 5358 | convert
+ 5359 | convert
+ 5363 | numtoyminterval
+ 5364 | numtodsinterval
+ 5365 | to_yminterval
+ 5366 | to_dsinterval
+ 5367 | int4_tochar
+ 5368 | int8_tochar
+ 5369 | float4_tochar
+ 5370 | float8_tochar
+ 5371 | numeric_tochar
+ 5372 | text_tochar
+ 5373 | timestamp_tochar
+ 5374 | timestamptz_tochar
+ 5375 | interval_tochar
+ 5376 | trunc_text_toint2
+ 5377 | trunc_text_toint4
+ 5378 | trunc_text_toint8
+ 5379 | text_tofloat4
+ 5380 | text_tofloat8
+ 5381 | text_todate
+ 5382 | text_totimestamp
+ 5383 | text_totimestamptz
+ 5384 | text_tocstring
+ 5385 | text_tonumber
+ 5386 | float4_tonumber
+ 5387 | float8_tonumber
+ 5388 | numeric_toint2
+ 5389 | numeric_toint4
+ 5390 | numeric_toint8
+ 5391 | float_toint2
+ 5392 | float_toint4
+ 5393 | float_toint8
+ 5394 | double_toint2
+ 5395 | double_toint4
+ 5396 | double_toint8
+ 5397 | text_toint2
+ 5398 | text_toint4
+ 5399 | text_toint8
+ 5405 | replace
+ 9190 | instr
+ 9191 | instr
+ 9192 | instr
+ 9193 | normalize
+ 9194 | is_prefix
+ 9195 | is_prefix
+ 9196 | is_prefix
+ 9197 | rvrs
+ 9198 | nth
+ 9199 | first
+ 9200 | last
+ 9201 | is_kind
+ 9202 | is_kind
+ 9203 | char_name
+ 9204 | swap
+ 9205 | betwn
+ 9206 | betwn
+ 8905 | ora_raw_in
+ 8906 | ora_raw_out
+ 8907 | lpad
+ 8909 | rpad
+ 8908 | lpad
+ 8910 | rpad
+ 8911 | lpad
+ 8912 | rpad
+ 8913 | lpad
+ 8914 | rpad
+ 8915 | width_bucket
+ 8916 | width_bucket
+ 8917 | trunc
+ 8918 | round
+(132 rows)
 
 -- List of built-in leakproof functions
 --
@@ -835,9 +1079,86 @@ order by 1;
 SELECT p1.oid, p1.proname
 FROM pg_proc AS p1
 WHERE provolatile = 'i' AND proparallel = 'u';
- oid | proname 
------+---------
-(0 rows)
+  oid  |         proname         
+-------+-------------------------
+ 18520 | part_hashint4_noop
+ 18525 | part_hashtext_length
+ 13655 | bitand
+ 13656 | bitand
+ 13657 | nanvl
+ 13658 | nanvl
+ 13659 | sinh
+ 13660 | sinh
+ 13661 | cosh
+ 13662 | cosh
+ 13663 | tanh
+ 13664 | tanh
+ 13665 | instr
+ 13666 | add_months
+ 13667 | add_months
+ 13668 | last_day
+ 13669 | months_between
+ 13670 | months_between
+ 13671 | new_time
+ 13672 | next_day
+ 13673 | next_day
+ 13674 | round
+ 13675 | round
+ 13676 | trunc
+ 13677 | trunc
+ 13678 | trunc
+ 13679 | first
+ 13680 | last
+ 13687 | to_char
+ 13688 | to_char
+ 13689 | to_char
+ 13690 | to_char
+ 13691 | to_char
+ 13692 | to_char
+ 13693 | to_char
+ 13694 | to_char
+ 13695 | to_char
+ 13696 | to_char
+ 13697 | to_char
+ 13698 | to_char
+ 13706 | to_number
+ 13707 | to_number
+ 13708 | to_number
+ 13709 | to_number
+ 13710 | to_number
+ 13711 | to_number
+ 13712 | to_number
+ 13713 | to_number
+ 13714 | to_multi_byte
+ 13715 | to_single_byte
+ 13716 | substr
+ 13717 | substr
+ 13718 | dump
+ 13719 | length
+ 13720 | lengthb
+ 13721 | substrb
+ 13722 | substrb
+ 13723 | strposb
+ 13724 | remainder
+ 13725 | sys_extract_utc
+ 13727 | replace
+ 13729 | put_line
+ 13731 | sleep
+ 13732 | round
+ 13733 | trunc
+ 13734 | sign
+ 13735 | mod
+ 13741 | mod
+ 13742 | mod
+ 13743 | mod
+ 13726 | mod
+ 13745 | initialize
+ 13748 | seed
+ 13749 | seed
+ 13750 | string
+ 13751 | terminate
+ 13839 | raise_application_error
+(77 rows)
 
 -- **************** pg_cast ****************
 -- Catch bogus values in pg_cast columns (other than cases detected by
@@ -1070,6 +1391,7 @@ ORDER BY 1, 2;
  *<>  | *<>
  *=   | *=
  +    | +
+ -    | -
  -|-  | -|-
  <    | >
  <->  | <->
@@ -1091,7 +1413,7 @@ ORDER BY 1, 2;
  ~<=~ | ~>=~
  ~<~  | ~>~
  ~=   | ~=
-(30 rows)
+(31 rows)
 
 -- Likewise for negator pairs.
 SELECT DISTINCT o1.oprname AS op1, o2.oprname AS op2
@@ -1416,7 +1738,9 @@ WHERE a.aggfnoid = p.oid AND
     a.aggfinalfn = 0 AND p.prorettype != a.aggtranstype;
  aggfnoid | proname 
 ----------+---------
-(0 rows)
+     5299 | max
+     5297 | min
+(2 rows)
 
 -- Cross-check transfn against its entry in pg_proc.
 SELECT a.aggfnoid::oid, p.proname, ptr.oid, ptr.proname
@@ -1438,9 +1762,11 @@ WHERE a.aggfnoid = p.oid AND
      -- we could carry the check further, but 3 args is enough for now
      OR (p.pronargs > 3)
     );
- aggfnoid | proname | oid | proname 
-----------+---------+-----+---------
-(0 rows)
+ aggfnoid | proname | oid  |       proname       
+----------+---------+------+---------------------
+     5299 | max     | 1196 | timestamptz_larger
+     5297 | min     | 1195 | timestamptz_smaller
+(2 rows)
 
 -- Cross-check finalfn (if present) against its entry in pg_proc.
 SELECT a.aggfnoid::oid, p.proname, pfn.oid, pfn.proname
@@ -1474,9 +1800,11 @@ WHERE a.aggfnoid = p.oid AND
     a.aggtransfn = ptr.oid AND ptr.proisstrict AND
     a.agginitval IS NULL AND
     NOT binary_coercible(p.proargtypes[0], a.aggtranstype);
- aggfnoid | proname | oid | proname 
-----------+---------+-----+---------
-(0 rows)
+ aggfnoid | proname | oid  |       proname       
+----------+---------+------+---------------------
+     5297 | min     | 1195 | timestamptz_smaller
+     5299 | max     | 1196 | timestamptz_larger
+(2 rows)
 
 -- Check for inconsistent specifications of moving-aggregate columns.
 SELECT ctid, aggfnoid::oid
@@ -1698,9 +2026,11 @@ FROM pg_operator AS o, pg_aggregate AS a, pg_proc AS p
 WHERE a.aggfnoid = p.oid AND a.aggsortop = o.oid AND
     (oprkind != 'b' OR oprresult != 'boolean'::regtype
      OR oprleft != p.proargtypes[0] OR oprright != p.proargtypes[0]);
- aggfnoid | oid 
-----------+-----
-(0 rows)
+ aggfnoid | oid  
+----------+------
+     5299 | 1324
+     5297 | 1322
+(2 rows)
 
 -- Check operator is a suitable btree opfamily member
 SELECT a.aggfnoid::oid, o.oid
@@ -1784,9 +2114,11 @@ WHERE p1.opfmethod = 0 OR p1.opfnamespace = 0;
 -- get noticed.
 SELECT oid, opfname FROM pg_opfamily f
 WHERE NOT EXISTS (SELECT 1 FROM pg_opclass WHERE opcfamily = f.oid);
- oid | opfname 
------+---------
-(0 rows)
+  oid  |    opfname     
+-------+----------------
+ 17167 | test_int4_ops
+ 19331 | custom_opclass
+(2 rows)
 
 -- **************** pg_opclass ****************
 -- Look for illegal values in pg_opclass fields

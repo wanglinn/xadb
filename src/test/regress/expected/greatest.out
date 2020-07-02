@@ -1,103 +1,103 @@
 set grammar to oracle;
 select greatest(1,2,3,4) from dual;
- greatest 
+ GREATEST 
 ----------
         4
 (1 row)
 
 select greatest(1.1,to_number(1.1),exp(2)) from dual;
-     greatest     
-------------------
- 7.38905609893065
+      GREATEST      
+--------------------
+ 7.3890560989306502
 (1 row)
 
 select greatest(5.2,to_number(1.1),to_char(1.1)) from dual;
- greatest 
+ GREATEST 
 ----------
       5.2
 (1 row)
 
 select greatest(5,2,to_char(1.1)) from dual;
- greatest 
+ GREATEST 
 ----------
         5
 (1 row)
 
 select greatest(exp(2),2,to_char(1.1)) from dual;
-     greatest     
-------------------
- 7.38905609893065
+      GREATEST      
+--------------------
+ 7.3890560989306502
 (1 row)
 
 select greatest(5.2,to_number(1.1),'1') from dual;
- greatest 
+ GREATEST 
 ----------
       5.2
 (1 row)
 
 select greatest(to_char(100),to_char(12),to_char(3.1)) from dual;
- greatest 
+ GREATEST 
 ----------
  3.1
 (1 row)
 
 select greatest(to_number(3),'100','12') from dual;
- greatest 
+ GREATEST 
 ----------
       100
 (1 row)
 
 select greatest('100',to_number(3),12) from dual;
- greatest 
+ GREATEST 
 ----------
  3
 (1 row)
 
 select greatest('100','12',to_number(3)) from dual;
- greatest 
+ GREATEST 
 ----------
  3
 (1 row)
 
 select greatest('100','12',exp(2)) from dual;
-     greatest     
-------------------
- 7.38905609893065
+      GREATEST      
+--------------------
+ 7.3890560989306502
 (1 row)
 
 select greatest('abc','ab','abcd') from dual;
- greatest 
+ GREATEST 
 ----------
  abcd
 (1 row)
 
 select greatest('abc','ab','1') from dual;
- greatest 
+ GREATEST 
 ----------
  abc
 (1 row)
 
 --select greatest('你好','加油') from dual;
 select greatest(100.1,'NaN'::binary_float,'3') from dual;
- greatest 
+ GREATEST 
 ----------
       NaN
 (1 row)
 
 select greatest('','a') from dual;
- greatest 
+ GREATEST 
 ----------
  
 (1 row)
 
 select greatest('a',null) from dual;
- greatest 
+ GREATEST 
 ----------
  
 (1 row)
 
 select greatest(null,'') from dual;
- greatest 
+ GREATEST 
 ----------
  
 (1 row)

@@ -1,55 +1,55 @@
 set grammar to oracle;
 select nls_initcap('ab cde') from dual;
- nls_initcap 
--------------
+ NLS_INITCAP('AB CDE')  
+------------------------
  Ab Cde
 (1 row)
 
 select nls_initcap('AAb  CDE') from dual;
- nls_initcap 
--------------
+ NLS_INITCAP('AAB  CDE')  
+--------------------------
  Aab  Cde
 (1 row)
 
 select nls_initcap('\?!@#$%^&*()sa') from dual;
-  nls_initcap   
-----------------
+ NLS_INITCAP('\?!@#$%^&*()SA')  
+--------------------------------
  \?!@#$%^&*()Sa
 (1 row)
 
 select nls_initcap('AA\?!@#$%^&*()AA') from dual;
-   nls_initcap    
-------------------
+ NLS_INITCAP('AA\?!@#$%^&*()AA')  
+----------------------------------
  Aa\?!@#$%^&*()Aa
 (1 row)
 
 select nls_initcap('\?!@#ss$%^&*()sC') from dual;
-   nls_initcap    
-------------------
+ NLS_INITCAP('\?!@#SS$%^&*()SC')  
+----------------------------------
  \?!@#Ss$%^&*()Sc
 (1 row)
 
 select nls_initcap('test你test好test') from dual;
-   nls_initcap    
-------------------
- Test你Test好Test
+ NLS_INITCAP('TEST佽TESTTT好TES 
+--------------------------------
+ Test你test好test
 (1 row)
 
 select nls_initcap('1234SOU') from dual;
- nls_initcap 
--------------
+ NLS_INITCAP('1234SOU')  
+-------------------------
  1234sou
 (1 row)
 
 select nls_initcap(to_char('suv')) from dual;
- nls_initcap 
--------------
+ NLS_INITCAP(TO_CHAR('SUV'))  
+------------------------------
  Suv
 (1 row)
 
 select nls_initcap(to_number('NaN')) from dual;
- nls_initcap 
--------------
+ NLS_INITCAP(TO_NUMBER('NAN'))  
+--------------------------------
  Nan
 (1 row)
 

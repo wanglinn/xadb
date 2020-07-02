@@ -95,6 +95,8 @@ num_result|f
 numrange_test|t
 onek|t
 onek2|t
+ora_cast|t
+ora_convert|t
 path_tbl|f
 person|f
 persons|f

@@ -1,97 +1,97 @@
 set grammar to oracle;
 SELECT regexp_substr('abc1def2', '[[:digit:]]',1,2) output  from dual;
- output 
+ OUTPUT 
 --------
  2
 (1 row)
 
 SELECT regexp_substr('abc1def2', '[[:digit:]]',1,'1') output  from dual;
- output 
+ OUTPUT 
 --------
  1
 (1 row)
 
 SELECT regexp_substr('abc1def2', '[[:digit:]]',1,to_number(2)) output  from dual;
- output 
+ OUTPUT 
 --------
  2
 (1 row)
 
 SELECT regexp_substr('abc1def2', '[[:digit:]]',1,2.1) output  from dual;
- output 
+ OUTPUT 
 --------
  2
 (1 row)
 
 SELECT regexp_substr('abc1def2', '[[:digit:]]',1,to_char(1)) output  from dual;
- output 
+ OUTPUT 
 --------
  1
 (1 row)
 
 SELECT regexp_substr('abc1def2', '[[:digit:]]',1,power(2,1)) output  from dual;
- output 
+ OUTPUT 
 --------
  2
 (1 row)
 
 SELECT regexp_substr('abc1def2', '[[:digit:]]',4) output  from dual;
- output 
+ OUTPUT 
 --------
  1
 (1 row)
 
 SELECT regexp_substr('abc1def2', '[[:digit:]]',5) output  from dual;
- output 
+ OUTPUT 
 --------
  2
 (1 row)
 
 SELECT regexp_substr('abc1def2', '[[:digit:]]',1000000) output  from dual;
- output 
+ OUTPUT 
 --------
  
 (1 row)
 
 SELECT regexp_substr('abc1def2', '[[:digit:]]','5') output  from dual;
- output 
+ OUTPUT 
 --------
  2
 (1 row)
 
 SELECT regexp_substr('abc1def2', '[[:digit:]]',5.5) output  from dual;
- output 
+ OUTPUT 
 --------
  2
 (1 row)
 
 SELECT regexp_substr('abc1def2', '[[:digit:]]',to_char(5)) output  from dual;
- output 
+ OUTPUT 
 --------
  2
 (1 row)
 
 SELECT regexp_substr('abc1def2', '[[:digit:]]',power(5,1)) output  from dual;
- output 
+ OUTPUT 
 --------
  2
 (1 row)
 
 SELECT regexp_substr('abc1def2', '[[:digit:]]D',1,1,'i') output  from dual;
- output 
+ OUTPUT 
 --------
  1d
 (1 row)
 
 SELECT regexp_substr('abc1def2', '[[:digit:]]D',1,1,'c') output  from dual;
- output 
+ OUTPUT 
 --------
  
 (1 row)
 
 SELECT regexp_substr('abc1
 def2', '[[:digit:]].d',1,1,'n') output  from dual;
- output 
+ OUTPUT 
 --------
  1     +
  d
@@ -99,103 +99,103 @@ def2', '[[:digit:]].d',1,1,'n') output  from dual;
 
 SELECT regexp_substr('abc1
 def2', '[[:digit:]].d',1,1,'i') output  from dual;
- output 
+ OUTPUT 
 --------
  
 (1 row)
 
 SELECT regexp_substr('abc1def2', '[[:digit:]] d',1,1,'x') output  from dual;
- output 
+ OUTPUT 
 --------
  1d
 (1 row)
 
 select regexp_substr('abcxxx#%
 adfbc','^a',1,2,'m') from dual;
- regexp_substr 
----------------
+ REGEXP_SUBSTR('ABCXXX#%ADFBC','^A',1,2,'M')  
+----------------------------------------------
  a
 (1 row)
 
 select regexp_substr('abcxxx#%
 adfbc','^a',1,2,'n') from dual;
- regexp_substr 
----------------
+ REGEXP_SUBSTR('ABCXXX#%ADFBC','^A',1,2,'N')  
+----------------------------------------------
  
 (1 row)
 
 select regexp_substr('abcxxx#%
 adfbc','^a',1,2,'i') from dual;
- regexp_substr 
----------------
+ REGEXP_SUBSTR('ABCXXX#%ADFBC','^A',1,2,'I')  
+----------------------------------------------
  
 (1 row)
 
 select regexp_substr('abcxxx#%
 adfbc','^a',1,2,'x') from dual;
- regexp_substr 
----------------
+ REGEXP_SUBSTR('ABCXXX#%ADFBC','^A',1,2,'X')  
+----------------------------------------------
  
 (1 row)
 
 select regexp_substr('abcxxx#%
 adfbc','^a',1,2,'c') from dual;
- regexp_substr 
----------------
+ REGEXP_SUBSTR('ABCXXX#%ADFBC','^A',1,2,'C')  
+----------------------------------------------
  
 (1 row)
 
 SELECT REGEXP_SUBSTR(123, 12, 1, 1)  FROM DUAL;
- regexp_substr 
----------------
+ REGEXP_SUBSTR(123, 12, 1, 1)   
+--------------------------------
  12
 (1 row)
 
 SELECT REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'i', 4)  FROM DUAL;
- regexp_substr 
----------------
+ REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'I', 4)   
+-----------------------------------------------------------------
  78
 (1 row)
 
 SELECT REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'i', 1)  FROM DUAL;
- regexp_substr 
----------------
+ REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'I', 1)   
+-----------------------------------------------------------------
  123
 (1 row)
 
 SELECT REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'i', 9)  FROM DUAL;
- regexp_substr 
----------------
+ REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'I', 9)   
+-----------------------------------------------------------------
  
 (1 row)
 
 SELECT REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'i', 0)  FROM DUAL;
- regexp_substr 
----------------
+ REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'I', 0)   
+-----------------------------------------------------------------
  12345678
 (1 row)
 
 SELECT REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'i', 4.5) FROM DUAL;
- regexp_substr 
----------------
- 78
+ REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'I', 4.5)  
+------------------------------------------------------------------
+ 
 (1 row)
 
 SELECT REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'i', to_char(4))  FROM DUAL;
- regexp_substr 
----------------
+ REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'I', TO_CHAR(4))   
+--------------------------------------------------------------------------
  78
 (1 row)
 
 SELECT REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'i',power(2,2))  FROM DUAL;
- regexp_substr 
----------------
+ REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'I',POWER(2,2))   
+-------------------------------------------------------------------------
  78
 (1 row)
 
 SELECT REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'i', '4')  FROM DUAL;
- regexp_substr 
----------------
+ REGEXP_SUBSTR('1234567890', '(123)(4(56)(78))', 1, 1, 'I', '4')   
+-------------------------------------------------------------------
  78
 (1 row)
 
@@ -203,14 +203,14 @@ SELECT REGEXP_SUBSTR('1234567890abcdefg', '(1)(2)(3)(4)(5)(6)(7)(8)(9)(0)(a)(b)'
 ERROR:  Invalid "subexpr" value (10) for "regexp_substr"
 HINT:  "subexpr" must be a nonnegative integer from 0 to 9
 SELECT REGEXP_SUBSTR('', '', 1, 1, 0) FROM DUAL;
- regexp_substr 
----------------
+ REGEXP_SUBSTR('', '', 1, 1, 0)  
+---------------------------------
  
 (1 row)
 
 SELECT REGEXP_SUBSTR(null, null, 1, 1, 0) FROM DUAL;
- regexp_substr 
----------------
+ REGEXP_SUBSTR(NULL, NULL, 1, 1, 0)  
+-------------------------------------
  
 (1 row)
 

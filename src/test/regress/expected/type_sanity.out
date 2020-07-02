@@ -166,10 +166,11 @@ WHERE p1.typinput = p2.oid AND p1.typtype in ('b', 'p') AND NOT
     (p1.typelem != 0 AND p1.typlen < 0) AND NOT
     (p2.prorettype = p1.oid AND NOT p2.proretset)
 ORDER BY 1;
- oid  |  typname  | oid | proname 
-------+-----------+-----+---------
- 1790 | refcursor |  46 | textin
-(1 row)
+ oid  |  typname  | oid  |  proname   
+------+-----------+------+------------
+ 1790 | refcursor |   46 | textin
+ 9129 | varchar2  | 9132 | varchar2in
+(2 rows)
 
 -- Varlena array types will point to array_in
 -- Exception as of 8.1: int2vector and oidvector have their own I/O routines
@@ -198,13 +199,14 @@ SELECT DISTINCT typtype, typinput
 FROM pg_type AS p1
 WHERE p1.typtype not in ('b', 'p')
 ORDER BY 1;
- typtype | typinput  
----------+-----------
+ typtype |     typinput      
+---------+-------------------
  c       | record_in
+ d       | oracle.ora_raw_in
  d       | domain_in
  e       | enum_in
  r       | range_in
-(4 rows)
+(5 rows)
 
 -- Check for bogus typoutput routines
 -- As of 8.0, this check finds refcursor, which is borrowing
@@ -217,10 +219,11 @@ WHERE p1.typoutput = p2.oid AND p1.typtype in ('b', 'p') AND NOT
       (p2.oid = 'array_out'::regproc AND
        p1.typelem != 0 AND p1.typlen = -1)))
 ORDER BY 1;
- oid  |  typname  | oid | proname 
-------+-----------+-----+---------
- 1790 | refcursor |  47 | textout
-(1 row)
+ oid  |  typname  | oid  |   proname   
+------+-----------+------+-------------
+ 1790 | refcursor |   47 | textout
+ 9129 | varchar2  | 9133 | varchar2out
+(2 rows)
 
 SELECT p1.oid, p1.typname, p2.oid, p2.proname
 FROM pg_type AS p1, pg_proc AS p2
@@ -254,9 +257,10 @@ ORDER BY 1;
 SELECT p1.oid, p1.typname, p2.oid, p2.typname
 FROM pg_type AS p1 LEFT JOIN pg_type AS p2 ON p1.typbasetype = p2.oid
 WHERE p1.typtype = 'd' AND p1.typoutput IS DISTINCT FROM p2.typoutput;
- oid | typname | oid | typname 
------+---------+-----+---------
-(0 rows)
+ oid  | typname | oid | typname 
+------+---------+-----+---------
+ 8903 | raw     |  17 | bytea
+(1 row)
 
 -- Check for bogus typreceive routines
 SELECT p1.oid, p1.typname, p2.oid, p2.proname
@@ -280,10 +284,11 @@ WHERE p1.typreceive = p2.oid AND p1.typtype in ('b', 'p') AND NOT
     (p1.typelem != 0 AND p1.typlen < 0) AND NOT
     (p2.prorettype = p1.oid AND NOT p2.proretset)
 ORDER BY 1;
- oid  |  typname  | oid  | proname  
-------+-----------+------+----------
+ oid  |  typname  | oid  |   proname    
+------+-----------+------+--------------
  1790 | refcursor | 2414 | textrecv
-(1 row)
+ 9129 | varchar2  | 9134 | varchar2recv
+(2 rows)
 
 -- Varlena array types will point to array_recv
 -- Exception as of 8.1: int2vector and oidvector have their own I/O routines
@@ -324,10 +329,11 @@ ORDER BY 1;
  typtype | typreceive  
 ---------+-------------
  c       | record_recv
+ d       | bytearecv
  d       | domain_recv
  e       | enum_recv
  r       | range_recv
-(4 rows)
+(5 rows)
 
 -- Check for bogus typsend routines
 -- As of 7.4, this check finds refcursor, which is borrowing
@@ -340,10 +346,12 @@ WHERE p1.typsend = p2.oid AND p1.typtype in ('b', 'p') AND NOT
       (p2.oid = 'array_send'::regproc AND
        p1.typelem != 0 AND p1.typlen = -1)))
 ORDER BY 1;
- oid  |  typname  | oid  | proname  
-------+-----------+------+----------
+ oid  |  typname  | oid  |   proname   
+------+-----------+------+-------------
  1790 | refcursor | 2415 | textsend
-(1 row)
+ 9025 | nvarchar2 | 2433 | varcharsend
+ 9129 | varchar2  | 2433 | varcharsend
+(3 rows)
 
 SELECT p1.oid, p1.typname, p2.oid, p2.proname
 FROM pg_type AS p1, pg_proc AS p2
@@ -442,9 +450,10 @@ FROM pg_type AS p1, pg_type AS p2
 WHERE p1.typarray = p2.oid AND
     p2.typalign != (CASE WHEN p1.typalign = 'd' THEN 'd'::"char"
                          ELSE 'i'::"char" END);
- oid | typname | typalign | typname | typalign 
------+---------+----------+---------+----------
-(0 rows)
+ oid  | typname | typalign | typname | typalign 
+------+---------+----------+---------+----------
+ 9009 | date    | d        | _date   | i
+(1 row)
 
 -- Check for bogus typanalyze routines
 SELECT p1.oid, p1.typname, p2.oid, p2.proname
@@ -507,9 +516,12 @@ SELECT p1.oid, p1.relname
 FROM pg_class as p1
 WHERE p1.relkind NOT IN ('S', 'v', 'f', 'c') and
     p1.relam = 0;
- oid | relname 
------+---------
-(0 rows)
+  oid  |   relname    
+-------+--------------
+ 18551 | mlparted
+ 18554 | mlparted1
+ 18619 | mlparted_def
+(3 rows)
 
 -- Conversely, sequences, views, types shouldn't have them
 SELECT p1.oid, p1.relname
@@ -545,9 +557,56 @@ FROM pg_attribute as p1
 WHERE p1.attrelid = 0 OR p1.atttypid = 0 OR p1.attnum = 0 OR
     p1.attcacheoff != -1 OR p1.attinhcount < 0 OR
     (p1.attinhcount = 0 AND NOT p1.attislocal);
- attrelid | attname 
-----------+---------
-(0 rows)
+ attrelid |           attname            
+----------+------------------------------
+    18557 | ........pg.dropped.2........
+    18557 | ........pg.dropped.3........
+    18581 | ........pg.dropped.1........
+    18557 | ........pg.dropped.7........
+    18572 | ........pg.dropped.5........
+    18554 | ........pg.dropped.5........
+    18575 | ........pg.dropped.5........
+    18578 | ........pg.dropped.5........
+    18581 | ........pg.dropped.6........
+    18622 | ........pg.dropped.5........
+    18628 | ........pg.dropped.5........
+    18634 | ........pg.dropped.5........
+    18619 | ........pg.dropped.5........
+    18551 | ........pg.dropped.5........
+    18557 | ........pg.dropped.6........
+    18572 | ........pg.dropped.4........
+    18554 | ........pg.dropped.4........
+    18575 | ........pg.dropped.4........
+    18578 | ........pg.dropped.4........
+    18581 | ........pg.dropped.5........
+    18622 | ........pg.dropped.4........
+    18628 | ........pg.dropped.4........
+    18634 | ........pg.dropped.4........
+    18619 | ........pg.dropped.4........
+    18551 | ........pg.dropped.4........
+    18557 | ........pg.dropped.9........
+    18572 | ........pg.dropped.7........
+    18554 | ........pg.dropped.7........
+    18575 | ........pg.dropped.7........
+    18578 | ........pg.dropped.7........
+    18551 | ........pg.dropped.7........
+    18557 | ........pg.dropped.8........
+    18572 | ........pg.dropped.6........
+    18554 | ........pg.dropped.6........
+    18575 | ........pg.dropped.6........
+    18578 | ........pg.dropped.6........
+    18581 | ........pg.dropped.7........
+    18622 | ........pg.dropped.6........
+    18628 | ........pg.dropped.6........
+    18634 | ........pg.dropped.6........
+    18619 | ........pg.dropped.6........
+    18551 | ........pg.dropped.6........
+    18581 | ........pg.dropped.8........
+    18622 | ........pg.dropped.7........
+    18628 | ........pg.dropped.7........
+    18634 | ........pg.dropped.7........
+    18619 | ........pg.dropped.7........
+(47 rows)
 
 -- Cross-check attnum against parent relation
 SELECT p1.attrelid, p1.attname, p2.oid, p2.relname
@@ -577,9 +636,253 @@ WHERE p1.atttypid = p2.oid AND
      p1.attalign != p2.typalign OR
      p1.attbyval != p2.typbyval OR
      (p1.attstorage != p2.typstorage AND p1.attstorage != 'p'));
- attrelid | attname | oid | typname 
-----------+---------+-----+---------
-(0 rows)
+ attrelid | attname | oid  | typname 
+----------+---------+------+---------
+     2604 | rowid   | 9122 | rowid
+     2606 | rowid   | 9122 | rowid
+     2611 | rowid   | 9122 | rowid
+     2610 | rowid   | 9122 | rowid
+     2617 | rowid   | 9122 | rowid
+     2753 | rowid   | 9122 | rowid
+     2616 | rowid   | 9122 | rowid
+     2601 | rowid   | 9122 | rowid
+     2602 | rowid   | 9122 | rowid
+     2603 | rowid   | 9122 | rowid
+     2612 | rowid   | 9122 | rowid
+     2995 | rowid   | 9122 | rowid
+     2613 | rowid   | 9122 | rowid
+     2600 | rowid   | 9122 | rowid
+     3381 | rowid   | 9122 | rowid
+     3429 | rowid   | 9122 | rowid
+     2619 | rowid   | 9122 | rowid
+     2618 | rowid   | 9122 | rowid
+     2620 | rowid   | 9122 | rowid
+     3466 | rowid   | 9122 | rowid
+     2609 | rowid   | 9122 | rowid
+     2605 | rowid   | 9122 | rowid
+     3501 | rowid   | 9122 | rowid
+     2615 | rowid   | 9122 | rowid
+     2607 | rowid   | 9122 | rowid
+     2608 | rowid   | 9122 | rowid
+     1262 | rowid   | 9122 | rowid
+     2964 | rowid   | 9122 | rowid
+     1213 | rowid   | 9122 | rowid
+     1136 | rowid   | 9122 | rowid
+     1260 | rowid   | 9122 | rowid
+     1261 | rowid   | 9122 | rowid
+     1214 | rowid   | 9122 | rowid
+     2396 | rowid   | 9122 | rowid
+     3602 | rowid   | 9122 | rowid
+     3603 | rowid   | 9122 | rowid
+     3600 | rowid   | 9122 | rowid
+     3601 | rowid   | 9122 | rowid
+     3764 | rowid   | 9122 | rowid
+     3079 | rowid   | 9122 | rowid
+     2328 | rowid   | 9122 | rowid
+     1417 | rowid   | 9122 | rowid
+     1418 | rowid   | 9122 | rowid
+     3118 | rowid   | 9122 | rowid
+     3256 | rowid   | 9122 | rowid
+     6000 | rowid   | 9122 | rowid
+      826 | rowid   | 9122 | rowid
+     3394 | rowid   | 9122 | rowid
+     3596 | rowid   | 9122 | rowid
+     3592 | rowid   | 9122 | rowid
+     3456 | rowid   | 9122 | rowid
+     3350 | rowid   | 9122 | rowid
+     3541 | rowid   | 9122 | rowid
+     3576 | rowid   | 9122 | rowid
+     2224 | rowid   | 9122 | rowid
+     6104 | rowid   | 9122 | rowid
+     6106 | rowid   | 9122 | rowid
+     6100 | rowid   | 9122 | rowid
+     6102 | rowid   | 9122 | rowid
+     9121 | rowid   | 9122 | rowid
+     6116 | rowid   | 9122 | rowid
+     4159 | rowid   | 9122 | rowid
+     2830 | rowid   | 9122 | rowid
+     4161 | rowid   | 9122 | rowid
+     2832 | rowid   | 9122 | rowid
+     4143 | rowid   | 9122 | rowid
+     2834 | rowid   | 9122 | rowid
+     4145 | rowid   | 9122 | rowid
+     4147 | rowid   | 9122 | rowid
+     4149 | rowid   | 9122 | rowid
+     4151 | rowid   | 9122 | rowid
+     4153 | rowid   | 9122 | rowid
+     4155 | rowid   | 9122 | rowid
+     4157 | rowid   | 9122 | rowid
+     4163 | rowid   | 9122 | rowid
+     4165 | rowid   | 9122 | rowid
+     4167 | rowid   | 9122 | rowid
+     2836 | rowid   | 9122 | rowid
+     2838 | rowid   | 9122 | rowid
+     3598 | rowid   | 9122 | rowid
+     2840 | rowid   | 9122 | rowid
+     3439 | rowid   | 9122 | rowid
+     3430 | rowid   | 9122 | rowid
+     2336 | rowid   | 9122 | rowid
+     4169 | rowid   | 9122 | rowid
+     4171 | rowid   | 9122 | rowid
+     4173 | rowid   | 9122 | rowid
+     4175 | rowid   | 9122 | rowid
+     4177 | rowid   | 9122 | rowid
+     2966 | rowid   | 9122 | rowid
+     4179 | rowid   | 9122 | rowid
+     4181 | rowid   | 9122 | rowid
+     2846 | rowid   | 9122 | rowid
+     4060 | rowid   | 9122 | rowid
+     4183 | rowid   | 9122 | rowid
+     4185 | rowid   | 9122 | rowid
+    16424 | rowid   | 9122 | rowid
+    16427 | rowid   | 9122 | rowid
+    16430 | rowid   | 9122 | rowid
+    13431 | rowid   | 9122 | rowid
+    13433 | rowid   | 9122 | rowid
+    13436 | rowid   | 9122 | rowid
+    13438 | rowid   | 9122 | rowid
+    13441 | rowid   | 9122 | rowid
+    13443 | rowid   | 9122 | rowid
+    13446 | rowid   | 9122 | rowid
+    13448 | rowid   | 9122 | rowid
+    13451 | rowid   | 9122 | rowid
+    13453 | rowid   | 9122 | rowid
+    13456 | rowid   | 9122 | rowid
+    13458 | rowid   | 9122 | rowid
+    13461 | rowid   | 9122 | rowid
+    13463 | rowid   | 9122 | rowid
+    16433 | rowid   | 9122 | rowid
+    16436 | rowid   | 9122 | rowid
+    16439 | rowid   | 9122 | rowid
+    16442 | rowid   | 9122 | rowid
+    16445 | rowid   | 9122 | rowid
+    16448 | rowid   | 9122 | rowid
+    16451 | rowid   | 9122 | rowid
+    16454 | rowid   | 9122 | rowid
+    16457 | rowid   | 9122 | rowid
+    16460 | rowid   | 9122 | rowid
+    16463 | rowid   | 9122 | rowid
+    16466 | rowid   | 9122 | rowid
+    16469 | rowid   | 9122 | rowid
+    16472 | rowid   | 9122 | rowid
+    16475 | rowid   | 9122 | rowid
+    16478 | rowid   | 9122 | rowid
+    16481 | rowid   | 9122 | rowid
+    16484 | rowid   | 9122 | rowid
+    16487 | rowid   | 9122 | rowid
+    16490 | rowid   | 9122 | rowid
+    16493 | rowid   | 9122 | rowid
+    16496 | rowid   | 9122 | rowid
+    16499 | rowid   | 9122 | rowid
+    16502 | rowid   | 9122 | rowid
+    16505 | rowid   | 9122 | rowid
+    16508 | rowid   | 9122 | rowid
+    16511 | rowid   | 9122 | rowid
+    16514 | rowid   | 9122 | rowid
+    16517 | rowid   | 9122 | rowid
+    16520 | rowid   | 9122 | rowid
+    16523 | rowid   | 9122 | rowid
+    16526 | rowid   | 9122 | rowid
+    16529 | rowid   | 9122 | rowid
+    16532 | rowid   | 9122 | rowid
+    16535 | rowid   | 9122 | rowid
+    16538 | rowid   | 9122 | rowid
+    16541 | rowid   | 9122 | rowid
+    16544 | rowid   | 9122 | rowid
+    16547 | rowid   | 9122 | rowid
+    16550 | rowid   | 9122 | rowid
+    16553 | rowid   | 9122 | rowid
+    16556 | rowid   | 9122 | rowid
+    16559 | rowid   | 9122 | rowid
+    16562 | rowid   | 9122 | rowid
+    16565 | rowid   | 9122 | rowid
+    16568 | rowid   | 9122 | rowid
+    16571 | rowid   | 9122 | rowid
+    16574 | rowid   | 9122 | rowid
+    16577 | rowid   | 9122 | rowid
+    16580 | rowid   | 9122 | rowid
+    16583 | rowid   | 9122 | rowid
+    16586 | rowid   | 9122 | rowid
+    16632 | rowid   | 9122 | rowid
+    16635 | rowid   | 9122 | rowid
+    17309 | rowid   | 9122 | rowid
+    17312 | rowid   | 9122 | rowid
+    17420 | rowid   | 9122 | rowid
+    17423 | rowid   | 9122 | rowid
+    17637 | rowid   | 9122 | rowid
+    18551 | rowid   | 9122 | rowid
+    18554 | rowid   | 9122 | rowid
+    18557 | rowid   | 9122 | rowid
+    18572 | rowid   | 9122 | rowid
+    18575 | rowid   | 9122 | rowid
+    18578 | rowid   | 9122 | rowid
+    18581 | rowid   | 9122 | rowid
+    18584 | rowid   | 9122 | rowid
+    18587 | rowid   | 9122 | rowid
+    18590 | rowid   | 9122 | rowid
+    18593 | rowid   | 9122 | rowid
+    18596 | rowid   | 9122 | rowid
+    18619 | rowid   | 9122 | rowid
+    18622 | rowid   | 9122 | rowid
+    18625 | rowid   | 9122 | rowid
+    18628 | rowid   | 9122 | rowid
+    18631 | rowid   | 9122 | rowid
+    18634 | rowid   | 9122 | rowid
+    18637 | rowid   | 9122 | rowid
+    20250 | rowid   | 9122 | rowid
+    20253 | rowid   | 9122 | rowid
+    20261 | rowid   | 9122 | rowid
+    20263 | rowid   | 9122 | rowid
+    20266 | rowid   | 9122 | rowid
+    20275 | rowid   | 9122 | rowid
+    20274 | rowid   | 9122 | rowid
+    20281 | rowid   | 9122 | rowid
+    20283 | rowid   | 9122 | rowid
+    20317 | rowid   | 9122 | rowid
+    20332 | rowid   | 9122 | rowid
+    20343 | rowid   | 9122 | rowid
+    20356 | rowid   | 9122 | rowid
+    20373 | rowid   | 9122 | rowid
+    20349 | rowid   | 9122 | rowid
+    20364 | rowid   | 9122 | rowid
+    20377 | rowid   | 9122 | rowid
+    20380 | rowid   | 9122 | rowid
+    20383 | rowid   | 9122 | rowid
+    20391 | rowid   | 9122 | rowid
+    20395 | rowid   | 9122 | rowid
+    20406 | rowid   | 9122 | rowid
+    20600 | rowid   | 9122 | rowid
+    20603 | rowid   | 9122 | rowid
+    20517 | rowid   | 9122 | rowid
+    20521 | rowid   | 9122 | rowid
+    20551 | rowid   | 9122 | rowid
+    20509 | rowid   | 9122 | rowid
+    20555 | rowid   | 9122 | rowid
+    20607 | rowid   | 9122 | rowid
+    20610 | rowid   | 9122 | rowid
+    20619 | rowid   | 9122 | rowid
+    20622 | rowid   | 9122 | rowid
+    20685 | rowid   | 9122 | rowid
+    20688 | rowid   | 9122 | rowid
+    20691 | rowid   | 9122 | rowid
+    20692 | rowid   | 9122 | rowid
+    20693 | rowid   | 9122 | rowid
+    20699 | rowid   | 9122 | rowid
+    20706 | rowid   | 9122 | rowid
+    20712 | rowid   | 9122 | rowid
+    20709 | rowid   | 9122 | rowid
+    20714 | rowid   | 9122 | rowid
+    20715 | rowid   | 9122 | rowid
+    20717 | rowid   | 9122 | rowid
+    20719 | rowid   | 9122 | rowid
+    20734 | rowid   | 9122 | rowid
+    20728 | rowid   | 9122 | rowid
+    20743 | rowid   | 9122 | rowid
+    20733 | rowid   | 9122 | rowid
+    20748 | rowid   | 9122 | rowid
+    20751 | rowid   | 9122 | rowid
+    20784 | rowid   | 9122 | rowid
+(244 rows)
 
 -- **************** pg_range ****************
 -- Look for illegal values in pg_range fields.

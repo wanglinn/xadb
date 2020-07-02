@@ -1,49 +1,49 @@
 set grammar to oracle;
 set datestyle='ISO,YMD';
 select to_date('1-31-2016','MM-DD-yyyy') + to_yminterval('0-1')  as ndate from dual;
-        ndate        
+        NDATE        
 ---------------------
  2016-02-29 00:00:00
 (1 row)
 
 select to_date('1-31-2016','MM-DD-yyyy') - to_yminterval('1-1')  as ndate from dual;
-        ndate        
+        NDATE        
 ---------------------
  2014-12-31 00:00:00
 (1 row)
 
 select to_date('1-31-2016','MM-DD-yyyy') - to_yminterval('2016-1')  as ndate from dual;
-         ndate          
+         NDATE          
 ------------------------
  0002-12-31 00:00:00 BC
 (1 row)
 
 select to_date('1-31-300','MM-DD-yyyy') - to_yminterval('320-0')  as ndate from dual;
-         ndate          
+         NDATE          
 ------------------------
  0021-01-31 00:00:00 BC
 (1 row)
 
 select to_char(to_yminterval('2016-1'),'yyyy-mm')  as ndate from dual;
-  ndate  
+  NDATE  
 ---------
  2016-01
 (1 row)
 
 select to_date('1-31-2016','MM-DD-yyyy') - to_yminterval('')  as ndate from dual;
- ndate 
+ NDATE 
 -------
  
 (1 row)
 
 select to_date('1-31-2016','MM-DD-yyyy') + to_yminterval(null)  as ndate from dual;
- ndate 
+ NDATE 
 -------
  
 (1 row)
 
 select to_date('01-03-2016 10:30:00','MM-DD-yyyy hh:mi:ss') + to_yminterval('-2-02') as ndate from dual;
-        ndate        
+        NDATE        
 ---------------------
  2013-11-03 10:30:00
 (1 row)
