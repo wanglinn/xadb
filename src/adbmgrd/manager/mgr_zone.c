@@ -156,8 +156,6 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 							&zoGtm, 
 							&zoCoordList,
 							&zoDNList);
-		BatchShutdownNodesNotZone(&zoGtm, 
-								  currentZone);
 		ZoneSwitchoverFree(&zoGtm, 
 							&zoCoordList, 
 							&zoDNList);

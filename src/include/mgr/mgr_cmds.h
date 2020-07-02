@@ -641,7 +641,6 @@ extern void MgrZoneFailoverDN(MemoryContext spiContext, char *currentZone, bool 
 extern void RevertZoneSwitchover(MemoryContext spiContext, ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
 extern void MgrRefreshAllPgxcNode(MemoryContext spiContext, ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
 extern void RevertZoneFailover(MemoryContext spiContext, ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
-extern void BatchShutdownNodesNotZone(ZoneOverGtm *zoGtm, char *zone);
 extern void ZoneSwitchoverFree(ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
 extern int GetSlaveNodeNumInZone(MemoryContext spiContext, MgrNodeWrapper *mgrNode, char slaveType, char *zone);
 extern char *getMgrNodeSyncStateValue(sync_state state);
