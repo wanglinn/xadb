@@ -306,7 +306,8 @@ check_ddl_tag(const char *tag)
 		pg_strcasecmp(tag, "REVOKE") == 0 ||
 		pg_strcasecmp(tag, "DROP OWNED") == 0 ||
 		pg_strcasecmp(tag, "IMPORT FOREIGN SCHEMA") == 0 ||
-		pg_strcasecmp(tag, "SECURITY LABEL") == 0)
+		pg_strcasecmp(tag, "SECURITY LABEL") == 0 ||
+		pg_strcasecmp(tag, "DROP CONVERT") == 0 )
 		return EVENT_TRIGGER_COMMAND_TAG_OK;
 
 	/*
@@ -1174,6 +1175,10 @@ EventTriggerSupportsObjectType(ObjectType obtype)
 #ifdef ADB
 		case OBJECT_AUX_TABLE:
 #endif
+#ifdef ADB_GRAM_ORA
+		case OBJECT_ORACLE_CAST:
+		case OBJECT_ORACLE_CONVERT:
+#endif	/* ADB_GRAM_ORA */
 		case OBJECT_TRANSFORM:
 		case OBJECT_TRIGGER:
 		case OBJECT_TSCONFIGURATION:
@@ -1248,6 +1253,7 @@ EventTriggerSupportsObjectClass(ObjectClass objclass)
 			return true;
 #ifdef ADB_GRAM_ORA
 		case OCLASS_ORA_CAST:
+		case OCLASS_ORA_CONVERT:
 			return false;
 #endif
 #ifdef ADB
@@ -2299,6 +2305,12 @@ stringify_grant_objtype(ObjectType objtype)
 			return "TABLESPACE";
 		case OBJECT_TYPE:
 			return "TYPE";
+#ifdef ADB_GRAM_ORA
+		case OBJECT_ORACLE_CAST:
+			return "ORACLE CAST";
+		case OBJECT_ORACLE_CONVERT:
+			return "ORACLE CONVERT";
+#endif	/* ADB_GRAM_ORA */
 			/* these currently aren't used */
 		case OBJECT_ACCESS_METHOD:
 		case OBJECT_AGGREGATE:
@@ -2385,6 +2397,12 @@ stringify_adefprivs_objtype(ObjectType objtype)
 			return "TABLESPACES";
 		case OBJECT_TYPE:
 			return "TYPES";
+#ifdef ADB_GRAM_ORA
+		case OBJECT_ORACLE_CAST:
+			return "ORACLE CAST";
+		case OBJECT_ORACLE_CONVERT:
+			return "ORACLE CONVERT";
+#endif	/* ADB_GRAM_ORA */
 			/* these currently aren't used */
 		case OBJECT_ACCESS_METHOD:
 		case OBJECT_AGGREGATE:

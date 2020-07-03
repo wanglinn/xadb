@@ -219,7 +219,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	OptTemp
 	SignedIconst sub_type
 
-%type <ival> ConstraintAttributeElem ConstraintAttributeSpec opt_function_or_common
+%type <ival> ConstraintAttributeElem ConstraintAttributeSpec ora_convert_func_or_common
 
 %type <ival>	cursor_options
 				key_actions key_delete key_match key_update key_action
@@ -8017,7 +8017,7 @@ comment_text:
 		;
 
 /*****************************************************************************
- *	Oracle Implicit Conversion:
+ *	Oracle Conversion:
  *		
  *		CREATE [ OR REPLACE ] CONVERT FUNCTION function_name (type1 [,type2 [, ...]]) 
  *				AS new_function_name (new_type1 [,new_type2 [, ...]]);
@@ -8027,77 +8027,75 @@ comment_text:
 
 OraImplicitConvertStmt:
 			/* implicit convert function or special function */
-			CREATE opt_or_replace CONVERT opt_function_or_common convert_functon_name '(' convert_type_list ')' 
+			CREATE opt_or_replace CONVERT ora_convert_func_or_common convert_functon_name '(' convert_type_list ')' 
 						AS convert_functon_name '(' convert_type_list ')'
 				{
-					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
+					CreateOracleConvertStmt *c = makeNode(CreateOracleConvertStmt);
 					c->cvtkind = $4;
 					c->cvtname = $5;
 					c->cvtfrom = $7;
 					c->cvtto = $12;
-					c->action = ICONVERT_CREATE;
 					c->replace = $2;
 					c->location = @1;
 					$$ = (Node *) c;
 				}
-			| DROP CONVERT opt_function_or_common convert_functon_name '(' convert_type_list ')'
+			| DROP CONVERT ora_convert_func_or_common convert_functon_name '(' convert_type_list ')'
 				{
-					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
-					c->cvtkind = $3;
-					c->cvtname = $4;
-					c->cvtfrom = $6;
-					c->cvtto = NIL;
-					c->action = ICONVERT_DELETE;
-					c->location = @1;
-					$$ = (Node *) c;
+					DropStmt *n = makeNode(DropStmt);
+					List *object = list_make2(makeInteger($3),
+											  makeString($4));
+					n->objects = list_concat(object, $6);
+					n->removeType = OBJECT_ORACLE_CONVERT;
+					n->behavior = DROP_RESTRICT;
+					n->missing_ok = false;
+					$$ = (Node *) n;
 				}
-			| DROP CONVERT opt_function_or_common IF_P EXISTS convert_functon_name '(' convert_type_list ')'
+			| DROP CONVERT ora_convert_func_or_common IF_P EXISTS convert_functon_name '(' convert_type_list ')'
 				{
-					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
-					c->cvtkind = $3;
-					c->cvtname = $6;
-					c->cvtfrom = $8;
-					c->cvtto = NIL;
-					c->action = ICONVERT_DELETE;
-					c->exists = true;
-					c->location = @1;
-					$$ = (Node *) c;
+					DropStmt *n = makeNode(DropStmt);
+					List *object = list_make2(makeInteger($3),
+											  makeString($6));
+					n->objects = list_concat(object, $8);
+					n->removeType = OBJECT_ORACLE_CONVERT;
+					n->behavior = DROP_RESTRICT;
+					n->missing_ok = true;
+					$$ = (Node *) n;
 				}
 			/* implicit convert operator */
 			| CREATE opt_or_replace CONVERT OPERATOR convert_typename convert_Op convert_typename AS convert_typename convert_Op convert_typename
 				{
-					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
+					CreateOracleConvertStmt *c = makeNode(CreateOracleConvertStmt);
 					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
 					c->cvtname = $6;
 					c->cvtfrom = list_make2($5, $7);
 					c->cvtto = list_make2($9, $11);
-					c->action = ICONVERT_CREATE;
 					c->replace = $2;
 					c->location = @1;
 					$$ = (Node *) c;
 				}
 			| DROP CONVERT OPERATOR convert_typename convert_Op convert_typename
 				{
-					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
-					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
-					c->cvtname = $5;
-					c->cvtfrom = list_make2($4, $6);
-					c->cvtto = NIL;
-					c->action = ICONVERT_DELETE;
-					c->location = @1;
-					$$ = (Node *) c;
+					DropStmt *n = makeNode(DropStmt);
+					n->removeType = OBJECT_ORACLE_CONVERT;
+					n->objects = list_make4(makeInteger(ORA_CONVERT_KIND_OPERATOR),
+													   makeString($5),
+													   $4,
+													   $6);
+					n->behavior = DROP_RESTRICT;
+					n->missing_ok = false;
+					$$ = (Node *) n;
 				}
 			| DROP CONVERT OPERATOR IF_P EXISTS convert_typename convert_Op convert_typename
 				{
-					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
-					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
-					c->cvtname = $7;
-					c->cvtfrom = list_make2($6, $8);
-					c->cvtto = NIL;
-					c->action = ICONVERT_DELETE;
-					c->exists = true;
-					c->location = @1;
-					$$ = (Node *) c;
+					DropStmt *n = makeNode(DropStmt);
+					n->removeType = OBJECT_ORACLE_CONVERT;
+					n->objects = list_make4(makeInteger(ORA_CONVERT_KIND_OPERATOR),
+													   makeString($7),
+													   $6,
+													   $8);
+					n->behavior = DROP_RESTRICT;
+					n->missing_ok = true;
+					$$ = (Node *) n;
 				}
 		;
 convert_functon_name:
@@ -8129,7 +8127,7 @@ type_list:	Typename								{ $$ = list_make1($1); }
 			| type_list ',' Typename				{ $$ = lappend($1, $3); }
 		;
 
-opt_function_or_common:
+ora_convert_func_or_common:
 			FUNCTION								{ $$ = ORA_CONVERT_KIND_FUNCTION; }
 			| SPECIAL FUNCTION						{ $$ = ORA_CONVERT_KIND_SPECIAL_FUN; }
 			| COMMON								{ $$ = ORA_CONVERT_KIND_COMMON; }

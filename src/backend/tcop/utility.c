@@ -24,9 +24,6 @@
 #include "access/xact.h"
 #include "access/xlog.h"
 #include "catalog/catalog.h"
-#ifdef ADB_GRAM_ORA
-#include "catalog/ora_convert.h"
-#endif /* ADB_GRAM_ORA */
 #include "catalog/namespace.h"
 #include "catalog/pg_inherits.h"
 #include "catalog/toasting.h"
@@ -76,6 +73,9 @@
 #include "utils/syscache.h"
 #include "utils/rel.h"
 
+#ifdef ADB_GRAM_ORA
+#include "nodes/nodes.h"
+#endif /* ADB_GRAM_ORA */
 
 #ifdef ADB
 #include "access/relation.h"
@@ -1556,8 +1556,8 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			break;
 #endif
 #ifdef ADB_GRAM_ORA
-		case T_OraImplicitConvertStmt:
-			ExecImplicitConvert((OraImplicitConvertStmt *) parsetree, pstate);
+		case T_CreateOracleConvertStmt:
+			CreateOracleConvert((CreateOracleConvertStmt *) parsetree, pstate);
 			break;
 		case T_CreateOracleCastStmt:
 			CreateOracleCast((CreateOracleCastStmt*)parsetree, pstate);
@@ -2881,6 +2881,11 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel ADB_ONLY_COMMA_ARG2(const char *que
 #endif
 
 			break;
+#ifdef ADB_GRAM_ORA
+		case OBJECT_ORACLE_CONVERT:
+			DropOracleConvert(stmt);
+			break;
+#endif
 		default:
 #ifdef ADB
 			{
@@ -3850,6 +3855,11 @@ CreateCommandTag(Node *parsetree)
 				case OBJECT_STATISTIC_EXT:
 					tag = "DROP STATISTICS";
 					break;
+#ifdef ADB_GRAM_ORA
+				case OBJECT_ORACLE_CONVERT:
+					tag = "DROP CONVERT";
+					break;
+#endif /* ADB_GRAM_ORA */
 				default:
 					tag = "???";
 			}
@@ -4469,25 +4479,8 @@ CreateCommandTag(Node *parsetree)
 			break;
 #endif
 #ifdef ADB_GRAM_ORA
-		case T_OraImplicitConvertStmt:
-			{
-				OraImplicitConvertStmt *stmt = (OraImplicitConvertStmt *)parsetree;
-				switch (stmt->action)
-				{
-					case ICONVERT_CREATE:
-						tag = "CREATE CONVERT";	/* CREATE CONVERT */
-						break;
-					case ICONVERT_DELETE:
-						tag = "DROP CONVERT";	/* DROP CONVERT */
-						break;
-					default:
-						elog(WARNING,
-							 "unrecognized convert commandType: %d",
-							 (int) stmt->action);
-						tag = "???";
-						break;
-				}
-			}
+		case T_CreateOracleConvertStmt:
+			tag = "CREATE CONVERT";	/* CREATE CONVERT */
 			break;
 		case T_CreateOracleCastStmt:
 			tag = "CREATE ORACLE CAST";

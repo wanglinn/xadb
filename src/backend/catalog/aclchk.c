@@ -3487,6 +3487,10 @@ aclcheck_error(AclResult aclerr, ObjectType objtype,
 					case OBJECT_TSPARSER:
 					case OBJECT_TSTEMPLATE:
 					case OBJECT_USER_MAPPING:
+#ifdef ADB_GRAM_ORA
+					case OBJECT_ORACLE_CAST:
+					case OBJECT_ORACLE_CONVERT:
+#endif /* ADB_GRAM_ORA */
 						elog(ERROR, "unsupported object type %d", objtype);
 				}
 
@@ -3628,6 +3632,10 @@ aclcheck_error(AclResult aclerr, ObjectType objtype,
 					case OBJECT_TSPARSER:
 					case OBJECT_TSTEMPLATE:
 					case OBJECT_USER_MAPPING:
+#ifdef ADB_GRAM_ORA
+					case OBJECT_ORACLE_CAST:
+					case OBJECT_ORACLE_CONVERT:
+#endif /* ADB_GRAM_ORA */
 						elog(ERROR, "unsupported object type %d", objtype);
 				}
 

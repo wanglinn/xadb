@@ -1870,9 +1870,6 @@ typedef enum ObjectType
 	OBJECT_STATISTIC_EXT,
 	OBJECT_TABCONSTRAINT,
 	OBJECT_TABLE,
-#ifdef ADB
-	OBJECT_AUX_TABLE,
-#endif
 	OBJECT_TABLESPACE,
 	OBJECT_TRANSFORM,
 	OBJECT_TRIGGER,
@@ -1883,6 +1880,13 @@ typedef enum ObjectType
 	OBJECT_TYPE,
 	OBJECT_USER_MAPPING,
 	OBJECT_VIEW
+#ifdef ADB_GRAM_ORA
+	,OBJECT_ORACLE_CAST
+	,OBJECT_ORACLE_CONVERT
+#endif /* ADB_GRAM_ORA */
+#ifdef ADB
+	,OBJECT_AUX_TABLE
+#endif
 } ObjectType;
 
 /* ----------------------
@@ -3904,31 +3908,24 @@ typedef struct PaddingAuxDataStmt
 
 
 #ifdef ADB_GRAM_ORA
-typedef enum IConvertAction
-{
-	ICONVERT_CREATE,		/* exec create */
-	ICONVERT_DELETE			/* exec delete */
-}IConvertAction;
 
 /*
- * 
+ * CREATE ORACLE CONVERT statement
  */
-typedef struct OraImplicitConvertStmt
+typedef struct CreateOracleConvertStmt
 {
 	NodeTag			type;
 	char			cvtkind;		/* types of implicit conversions */
-	char			*cvtname;		
-	List			*cvtfrom;		/* Primitive type */
-	List			*cvtto;			/* Target type */
-	IConvertAction	action;			/* Create or modify or delete */
-	bool			exists;			/* if [not] exists clause*/
+	char		   *cvtname;
+	List		   *cvtfrom;		/* Primitive type */
+	List		   *cvtto;			/* Target type */
 	bool			replace;		/* replace for create */
-#ifdef ADB
-	List			*node_list;
-#endif /* ADB */
 	int				location;
-}OraImplicitConvertStmt;
+}CreateOracleConvertStmt;
 
+/*
+ * CREATE ORACLE CAST statement
+ */
 typedef struct CreateOracleCastStmt
 {
 	NodeTag			type;

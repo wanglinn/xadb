@@ -90,6 +90,9 @@
 #include "utils/syscache.h"
 #ifdef ADB_GRAM_ORA
 #include "catalog/ora_cast.h"
+#include "catalog/ora_convert.h"
+#include "catalog/ora_convert_d.h"
+#include "commands/defrem.h"
 #endif /* ADB_GRAM_ORA */
 #ifdef ADB
 #include "commands/defrem.h"
@@ -1042,6 +1045,13 @@ get_object_address(ObjectType objtype, Node *object,
 															 missing_ok);
 				address.objectSubId = 0;
 				break;
+#ifdef ADB_GRAM_ORA
+			case OBJECT_ORACLE_CONVERT:
+				address.classId = OraConvertRelationId;
+				address.objectId = GetOracleConvertOid(castNode(List, object), missing_ok);
+				address.objectSubId = 0;
+				break;
+#endif /* ADB_GRAM_ORA */
 			default:
 				elog(ERROR, "unrecognized objtype: %d", (int) objtype);
 				/* placate compiler, in case it thinks elog might return */
@@ -2239,6 +2249,10 @@ pg_get_object_address(PG_FUNCTION_ARGS)
 				objnode = (Node *) owa;
 				break;
 			}
+#ifdef ADB_GRAM_ORA
+		case OBJECT_ORACLE_CAST:
+		case OBJECT_ORACLE_CONVERT:
+#endif /* ADB_GRAM_ORA */
 		case OBJECT_LARGEOBJECT:
 			/* already handled above */
 			break;
@@ -2305,6 +2319,9 @@ check_object_ownership(Oid roleid, ObjectType objtype, ObjectAddress address,
 				aclcheck_error(ACLCHECK_NOT_OWNER, objtype,
 							   strVal((Value *) object));
 			break;
+#ifdef ADB_GRAM_ORA
+		case OBJECT_ORACLE_CONVERT:
+#endif
 		case OBJECT_TYPE:
 		case OBJECT_DOMAIN:
 		case OBJECT_ATTRIBUTE:
@@ -3681,6 +3698,50 @@ getObjectDescription(const ObjectAddress *object)
 				table_close(rel, AccessShareLock);
 				break;
 			}
+		case OCLASS_ORA_CONVERT:
+			{
+				Relation			rel;
+				ScanKeyData			key;
+				SysScanDesc			scan;
+				HeapTuple			tuple;
+				Form_ora_convert	convert;
+				oidvector		   *cvtfrom;
+				char			   *buf;
+				int					i;
+
+				rel = table_open(OraConvertRelationId, RowExclusiveLock);
+				ScanKeyInit(&key,
+							Anum_ora_convert_cvtid,
+							BTEqualStrategyNumber,
+							F_OIDEQ,
+							ObjectIdGetDatum(object->objectId));
+				scan = systable_beginscan(rel, OraConvertIdIndexId, true, NULL, 1, &key);
+
+				tuple = systable_getnext(scan);
+				if (!HeapTupleIsValid(tuple))
+					elog(ERROR, "could not find tuple for oracle convert %u", object->objectId);
+				
+				convert = (Form_ora_convert)GETSTRUCT(tuple);
+
+				if (convert->cvtkind == ORA_CONVERT_KIND_OPERATOR)
+					buf = "operator";
+				else if (convert->cvtkind == ORA_CONVERT_KIND_COMMON)
+					buf = "common";
+				else
+					buf = "function";
+				appendStringInfo(&buffer, _("oracle convert %s %s from ("), buf, convert->cvtname.data);
+
+				cvtfrom = &convert->cvtfrom;
+				for (i = 0; i < cvtfrom->dim1; i++)
+				{
+					appendStringInfo(&buffer, _(" %d"), cvtfrom->values[i]);
+				}
+				appendStringInfo(&buffer, _(" )"));
+
+				systable_endscan(scan);
+				table_close(rel, RowExclusiveLock);
+				break;
+			}
 #endif /* ADB_GRAM_ORA */
 
 #ifdef ADB
@@ -4225,6 +4286,9 @@ getObjectTypeDescription(const ObjectAddress *object)
 #ifdef ADB_GRAM_ORA
 		case OCLASS_ORA_CAST:
 			appendStringInfoString(&buffer, "oracle cast");
+			break;
+		case OCLASS_ORA_CONVERT:
+			appendStringInfoString(&buffer, "oracle convert");
 			break;
 #endif /* ADB_GRAM_ORA */
 
@@ -5341,6 +5405,50 @@ getObjectIdentityParts(const ObjectAddress *object,
 
 				systable_endscan(scan);
 				table_close(rel, AccessShareLock);
+				break;
+			}
+		case OCLASS_ORA_CONVERT:
+			{
+				Relation			rel;
+				ScanKeyData			key;
+				SysScanDesc			scan;
+				HeapTuple			tuple;
+				Form_ora_convert	convert;
+				oidvector		   *cvtfrom;
+				char			   *buf;
+				int					i;
+
+				rel = table_open(OraConvertRelationId, RowExclusiveLock);
+				ScanKeyInit(&key,
+							Anum_ora_convert_cvtid,
+							BTEqualStrategyNumber,
+							F_OIDEQ,
+							ObjectIdGetDatum(object->objectId));
+				scan = systable_beginscan(rel, OraConvertIdIndexId, true, NULL, 1, &key);
+
+				tuple = systable_getnext(scan);
+				if (!HeapTupleIsValid(tuple))
+					elog(ERROR, "could not find tuple for oracle convert %u", object->objectId);
+				
+				convert = (Form_ora_convert)GETSTRUCT(tuple);
+
+				if (convert->cvtkind == ORA_CONVERT_KIND_OPERATOR)
+					buf = "operator";
+				else if (convert->cvtkind == ORA_CONVERT_KIND_COMMON)
+					buf = "common";
+				else
+					buf = "function";
+				appendStringInfo(&buffer, _("oracle convert %s %s from ("), buf, convert->cvtname.data);
+
+				cvtfrom = &convert->cvtfrom;
+				for (i = 0; i < cvtfrom->dim1; i++)
+				{
+					appendStringInfo(&buffer, _(" %d"), cvtfrom->values[i]);
+				}
+				appendStringInfo(&buffer, _(" )"));
+
+				systable_endscan(scan);
+				table_close(rel, RowExclusiveLock);
 				break;
 			}
 #endif /* ADB_GRAM_ORA */
