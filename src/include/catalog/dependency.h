@@ -128,6 +128,7 @@ typedef enum ObjectClass
 	OCLASS_TRANSFORM			/* pg_transform */
 #ifdef ADB_GRAM_ORA
 	,OCLASS_ORA_CAST			/* ora_cast */
+	,OCLASS_ORA_CONVERT			/* ora_convert */
 #endif /* ADB_GRAM_ORA */
 #ifdef ADB
 	,OCLASS_PGXC_CLASS			/* pgxc_class */
@@ -140,7 +141,7 @@ typedef enum ObjectClass
 #ifdef ADB
 #define LAST_OCLASS		OCLASS_AUX_CLASS
 #elif defined(ADB_GRAM_ORA)
-#define LAST_OCLASS		OCLASS_ORA_CAST
+#define LAST_OCLASS		OCLASS_ORA_CONVERT
 #else
 #define LAST_OCLASS		OCLASS_TRANSFORM
 #endif

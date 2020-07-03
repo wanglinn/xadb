@@ -14,12 +14,15 @@
 #include "access/genam.h"
 #include "access/heapam.h"
 #include "access/relscan.h"
+#include "catalog/dependency.h"
 #include "catalog/pg_type_d.h"
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
+#include "catalog/objectaccess.h"
 #include "catalog/ora_convert.h"
 #include "commands/defrem.h"
 #include "nodes/parsenodes.h"
+#include "parser/parse_type.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
@@ -35,17 +38,19 @@
 #include "pgxc/pgxc.h"
 #include "storage/mem_toc.h"
 
-#define REMOTE_KEY_IMPLICIT_CONVERT		1
+#define REMOTE_KEY_CREATE_CONVERT		1
 #define REMOTE_KEY_SOURCE_STRING		2
+#define REMOTE_KEY_DROP_CONVERT			3
 #endif /* ADB */
 
 
-void ExecImplicitConvert(OraImplicitConvertStmt *stmt, ParseState *pstate);
-static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt, ParseState *pstate);
-Oid TypenameGetTypOid(TypeName *typname, bool *find);
+static void CreateOracleConvertLocal(CreateOracleConvertStmt *stmt, ParseState *pstate);
+static void DropOracleConvertLocal(DropStmt *stmt);
+static oidvector* GetTypeOidVector(ListCell *lc, int count, bool missing_ok, ParseState *pstate);
 
 #ifdef ADB
-void ClusterExecImplicitConvert(StringInfo mem_toc);
+void ClusterCreateOracleConvert(StringInfo mem_toc);
+void ClusterDropOracleConvert(StringInfo mem_toc);
 static List* getMasterNodeOid(void);
 #endif	/* ADB */
 
@@ -53,23 +58,20 @@ static List* getMasterNodeOid(void);
 /* 
  * Oracle type implicit conversion creation.
  */
-void ExecImplicitConvert(OraImplicitConvertStmt *stmt, ParseState *pstate)
-#ifdef ADB
+void CreateOracleConvert(CreateOracleConvertStmt *stmt, ParseState *pstate)
 {
+#ifdef ADB
 	ListCell   *lc;
+	List	   *master_node_oid;
 	List	   *nodeOids;
 	List	   *remoteList;
 	Oid			oid;
 	bool		include_myself = false;
 
-	if (stmt->node_list == NIL)
-	{
-		include_myself = true;
-		stmt->node_list = getMasterNodeOid();
-	}
+	master_node_oid = getMasterNodeOid();
 
 	nodeOids = NIL;
-	foreach(lc, stmt->node_list)
+	foreach(lc, master_node_oid)
 	{
 		oid = lfirst_oid(lc);
 		if (oid == PGXCNodeOid)
@@ -89,11 +91,11 @@ void ExecImplicitConvert(OraImplicitConvertStmt *stmt, ParseState *pstate)
 		StringInfoData msg;
 		initStringInfo(&msg);
 
-		ClusterTocSetCustomFun(&msg, ClusterExecImplicitConvert);
+		ClusterTocSetCustomFun(&msg, ClusterCreateOracleConvert);
 
-		begin_mem_toc_insert(&msg, REMOTE_KEY_IMPLICIT_CONVERT);
+		begin_mem_toc_insert(&msg, REMOTE_KEY_CREATE_CONVERT);
 		saveNode(&msg, (Node*)stmt);
-		end_mem_toc_insert(&msg, REMOTE_KEY_IMPLICIT_CONVERT);
+		end_mem_toc_insert(&msg, REMOTE_KEY_CREATE_CONVERT);
 
 		begin_mem_toc_insert(&msg, REMOTE_KEY_SOURCE_STRING);
 		save_node_string(&msg, pstate->p_sourcetext);
@@ -105,7 +107,7 @@ void ExecImplicitConvert(OraImplicitConvertStmt *stmt, ParseState *pstate)
 
 	/* Create an implicit transform in local */
 	if (include_myself)
-		ExecImplicitConvertLocal(stmt, pstate);
+		CreateOracleConvertLocal(stmt, pstate);
 
 	if (remoteList)
 	{
@@ -113,81 +115,45 @@ void ExecImplicitConvert(OraImplicitConvertStmt *stmt, ParseState *pstate)
 		list_free(remoteList);
 	}
 	list_free(nodeOids);
-}
 #else
-{
-	ExecImplicitConvertLocal(stmt, pstate);
-}
+	CreateOracleConvertLocal(stmt, pstate);
 #endif	/* ADB */
+}
 
 /* 
  * Execute local Oracle type implicit conversion creation.
  */
-static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt, ParseState *pstate)
+static void CreateOracleConvertLocal(CreateOracleConvertStmt *stmt, ParseState *pstate)
 {
 	Relation			convert_rel;
 	HeapTuple			tuple, newtuple;
 	oidvector		   *cvtfrom;
 	oidvector		   *cvtto;
-	TypeName		   *typeName;
 	int					cvtfromList_count = 0;
 	int					cvttoList_count = 0;
 	int					i;
-	bool				find_oid;
+	ObjectAddress		myself;
+	ObjectAddress		referenced;
 
+	if (stmt->cvtto == NIL)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("convert to can not empty"),
+				 parser_errposition(pstate, stmt->location)));
 
 	cvtfromList_count = list_length(stmt->cvtfrom);
+	cvttoList_count = list_length(stmt->cvtto);
 	
-	if (stmt->cvtto)
-		cvttoList_count = list_length(stmt->cvtto);
-	
-	if (cvtfromList_count < 1  || (stmt->action != ICONVERT_DELETE && cvttoList_count < 1))
+	if (cvtfromList_count < 1)
 		elog(ERROR, "The number of unqualified parameters or inconsistent parameters.");
 
 	/* Check parameter */
-	if (stmt->action != ICONVERT_DELETE && cvtfromList_count != cvttoList_count && 
+	if (cvtfromList_count != cvttoList_count && 
 		(stmt->cvtkind == ORA_CONVERT_KIND_FUNCTION || stmt->cvtkind == ORA_CONVERT_KIND_OPERATOR))
 		elog(ERROR, "The number of unqualified parameters or inconsistent parameters.");
-	else
-	{
-		Oid			*fromOids, *toOids;
-		ListCell	*cell;
 
-		fromOids = palloc(cvtfromList_count * sizeof(Oid));
-		cell = list_head(stmt->cvtfrom);
-		for (i = 0; i < cvtfromList_count; i++)
-		{
-			typeName = lfirst_node(TypeName, cell);
-			fromOids[i] = TypenameGetTypOid(typeName, &find_oid);
-			if (!find_oid)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("Added data type not included."),
-						 parser_errposition(pstate, typeName->location)));
-			cell = lnext(cell);
-		}
-		cvtfrom = buildoidvector(fromOids, cvtfromList_count);
-		pfree(fromOids);
-
-		if (stmt->cvtto)
-		{
-			toOids = palloc(cvttoList_count * sizeof(Oid));
-			cell = list_head(stmt->cvtto);
-			for (i = 0; i < cvttoList_count; i++)
-			{
-				typeName = lfirst_node(TypeName, cell);
-				toOids[i] = TypenameGetTypOid(typeName, &find_oid);
-				if (!find_oid)
-					ereport(ERROR,
-							(errcode(ERRCODE_SYNTAX_ERROR),
-							 errmsg("Added data type not included."),
-							 parser_errposition(pstate, typeName->location)));
-				cell = lnext(cell);
-			}
-			cvtto = buildoidvector(toOids, cvttoList_count);
-			pfree(toOids);
-		}
-	}
+	cvtfrom = GetTypeOidVector(list_head(stmt->cvtfrom), cvtfromList_count, false, pstate);
+	cvtto = GetTypeOidVector(list_head(stmt->cvtto), cvttoList_count, false, pstate);
 
 	Assert(stmt->cvtname);
 	convert_rel = table_open(OraConvertRelationId, RowExclusiveLock);
@@ -196,107 +162,274 @@ static void ExecImplicitConvertLocal(OraImplicitConvertStmt *stmt, ParseState *p
 							CStringGetDatum(stmt->cvtname),
 							PointerGetDatum(cvtfrom));
 
-	if (stmt->action == ICONVERT_CREATE)
+	if (HeapTupleIsValid(tuple))
 	{
-		if (cvtto == NULL)
-		{
+		Datum		datum[Natts_ora_convert];
+		bool		nulls[Natts_ora_convert];
+		bool		reps[Natts_ora_convert];
+		if (stmt->replace == false)
 			ereport(ERROR,
-					(errcode(ERRCODE_SYNTAX_ERROR),
-					 errmsg("convert to can not empty"),
+					(errcode(ERRCODE_DUPLICATE_OBJECT),
+					 errmsg("convert already exists"),
 					 parser_errposition(pstate, stmt->location)));
-		}
-		if (HeapTupleIsValid(tuple))
-		{
-			Datum		datum[Natts_ora_convert];
-			bool		nulls[Natts_ora_convert];
-			bool		reps[Natts_ora_convert];
-			if (stmt->replace == false)
-				ereport(ERROR,
-						(errcode(ERRCODE_DUPLICATE_OBJECT),
-						 errmsg("convert already exists"),
-						 parser_errposition(pstate, stmt->location)));
-			
-			MemSet(reps, false, sizeof(reps));
-			datum[Anum_ora_convert_cvtto - 1] = PointerGetDatum(cvtto);
-			nulls[Anum_ora_convert_cvtto - 1] = false;
-			reps[Anum_ora_convert_cvtto - 1] = true;
-			newtuple = heap_modify_tuple(tuple, RelationGetDescr(convert_rel), datum, nulls, reps);
-			CatalogTupleUpdate(convert_rel, &tuple->t_self, newtuple);
-			heap_freetuple(newtuple);
-		}else
-		{
-			Relation		index_rel = index_open(OraConvertIdIndexId, AccessShareLock);
-			IndexScanDesc	scan = index_beginscan(convert_rel, index_rel, SnapshotAny, 0, 0);
-			TupleTableSlot *slot = table_slot_create(convert_rel, NULL);
-			Datum		datum[Natts_ora_convert];
-			bool		nulls[Natts_ora_convert];
 
-			MemSet(nulls, true, sizeof(nulls));
+		myself.objectId = ((Form_ora_convert)GETSTRUCT(tuple))->cvtid;
+		deleteDependencyRecordsFor(OraConvertRelationId, myself.objectId, false);
 
-			/* generate a new id */
-			index_rescan(scan, NULL, 0, NULL, 0);
-			if (index_getnext_slot(scan, BackwardScanDirection, slot) == false)
-			{
-				datum[Anum_ora_convert_cvtid - 1] = 1;
-				nulls[Anum_ora_convert_cvtid-1] = false;
-			}else
-			{
-				Datum d = slot_getattr(slot,
-									  Anum_ora_convert_cvtid,
-									  &nulls[Anum_ora_convert_cvtid-1]);
-				Assert(nulls[Anum_ora_convert_cvtid-1] == false);
-				datum[Anum_ora_convert_cvtid-1] = ObjectIdGetDatum(DatumGetObjectId(d) + 1);
-			}
-			ExecDropSingleTupleTableSlot(slot);
-			index_endscan(scan);
-			index_close(index_rel, NoLock);	/* lock until end of transaction */
-
-			datum[Anum_ora_convert_cvtkind - 1] = CharGetDatum(stmt->cvtkind);
-			nulls[Anum_ora_convert_cvtkind - 1] = false;
-			datum[Anum_ora_convert_cvtname - 1] = CStringGetDatum(stmt->cvtname);
-			nulls[Anum_ora_convert_cvtname - 1] = false;
-			datum[Anum_ora_convert_cvtfrom - 1] = PointerGetDatum(cvtfrom);
-			nulls[Anum_ora_convert_cvtfrom - 1] = false;
-			datum[Anum_ora_convert_cvtto - 1] = PointerGetDatum(cvtto);
-			nulls[Anum_ora_convert_cvtto - 1] = false;
-			tuple = heap_form_tuple(RelationGetDescr(convert_rel), datum, nulls);
-			CatalogTupleInsert(convert_rel, tuple);
-			heap_freetuple(tuple);
-			tuple = NULL;
-		}
-	}else if (stmt->action == ICONVERT_DELETE)
-	{
-		if (!HeapTupleIsValid(tuple))
-			ereport(ERROR,
-					(errcode(ERRCODE_UNDEFINED_OBJECT),
-					 errmsg("convert not exist"),
-					 parser_errposition(pstate, stmt->location)));
-		CatalogTupleDelete(convert_rel, &tuple->t_self);
+		MemSet(reps, false, sizeof(reps));
+		datum[Anum_ora_convert_cvtto - 1] = PointerGetDatum(cvtto);
+		nulls[Anum_ora_convert_cvtto - 1] = false;
+		reps[Anum_ora_convert_cvtto - 1] = true;
+		newtuple = heap_modify_tuple(tuple, RelationGetDescr(convert_rel), datum, nulls, reps);
+		CatalogTupleUpdate(convert_rel, &tuple->t_self, newtuple);
+		heap_freetuple(newtuple);
+		ReleaseSysCache(tuple);
 	}else
 	{
-		ereport(ERROR,
-				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("unknown convert command type %d", stmt->action),
-				 parser_errposition(pstate, stmt->location)));
+		Relation		index_rel = index_open(OraConvertIdIndexId, AccessShareLock);
+		IndexScanDesc	scan = index_beginscan(convert_rel, index_rel, SnapshotAny, 0, 0);
+		TupleTableSlot *slot = table_slot_create(convert_rel, NULL);
+		Datum		datum[Natts_ora_convert];
+		bool		nulls[Natts_ora_convert];
+
+		MemSet(nulls, true, sizeof(nulls));
+
+		/* generate a new id */
+		index_rescan(scan, NULL, 0, NULL, 0);
+		if (index_getnext_slot(scan, BackwardScanDirection, slot) == false)
+		{
+			datum[Anum_ora_convert_cvtid - 1] = 1;
+			nulls[Anum_ora_convert_cvtid-1] = false;
+
+			myself.objectId = 1;
+		}else
+		{
+			Datum d = slot_getattr(slot,
+								  Anum_ora_convert_cvtid,
+								  &nulls[Anum_ora_convert_cvtid-1]);
+			Assert(nulls[Anum_ora_convert_cvtid-1] == false);
+			datum[Anum_ora_convert_cvtid-1] = ObjectIdGetDatum(DatumGetObjectId(d) + 1);
+
+			myself.objectId = DatumGetObjectId(d) + 1;
+			datum[Anum_ora_convert_cvtid-1] = ObjectIdGetDatum(myself.objectId);
+		}
+		ExecDropSingleTupleTableSlot(slot);
+		index_endscan(scan);
+		index_close(index_rel, AccessShareLock);
+
+		datum[Anum_ora_convert_cvtkind - 1] = CharGetDatum(stmt->cvtkind);
+		nulls[Anum_ora_convert_cvtkind - 1] = false;
+		datum[Anum_ora_convert_cvtname - 1] = CStringGetDatum(stmt->cvtname);
+		nulls[Anum_ora_convert_cvtname - 1] = false;
+		datum[Anum_ora_convert_cvtfrom - 1] = PointerGetDatum(cvtfrom);
+		nulls[Anum_ora_convert_cvtfrom - 1] = false;
+		datum[Anum_ora_convert_cvtto - 1] = PointerGetDatum(cvtto);
+		nulls[Anum_ora_convert_cvtto - 1] = false;
+		tuple = heap_form_tuple(RelationGetDescr(convert_rel), datum, nulls);
+		CatalogTupleInsert(convert_rel, tuple);
+		heap_freetuple(tuple);
 	}
 
+	/* make dependency entries */
+	myself.classId = OraConvertRelationId;
+	Assert(OidIsValid(myself.objectId));
+	myself.objectSubId = 0;
+
+	for (i = 0; i < cvtfromList_count; i++)
+	{
+		/* dependency on convert from type */
+		referenced.classId = TypeRelationId;
+		referenced.objectId = cvtfrom->values[i];
+		referenced.objectSubId = 0;
+		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+	}
+
+	for (i = 0; i < cvttoList_count; i++)
+	{
+		/* dependency on convert to type */
+		referenced.classId = TypeRelationId;
+		referenced.objectId = cvtto->values[i];
+		referenced.objectSubId = 0;
+		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
+	}
+	/* dependency on extension */
+	recordDependencyOnCurrentExtension(&myself, false);
+	/* Post creation hook for new convert */
+	InvokeObjectPostCreateHook(OraConvertRelationId, myself.objectId, 0);
+
+	table_close(convert_rel, RowExclusiveLock);
+}
+
+Oid GetOracleConvertOid(List *objects, bool missing_ok)
+{
+	ListCell   *lc;
+	oidvector  *cvtfrom;
+	Datum		cvtkind;
+	Datum		cvtname;
+	Oid			result;
+
+	lc = list_head(objects);
+	Assert(IsA(lfirst(lc), Integer));
+	cvtkind = CharGetDatum(intVal(lfirst(lc)));
+
+	lc = lnext(lc);
+	Assert(IsA(lfirst(lc), String));
+	cvtname = CStringGetDatum(strVal(lfirst(lc)));
+
+	lc = lnext(lc);
+	cvtfrom = GetTypeOidVector(lc, list_length(objects)-2, missing_ok, NULL);
+	if (cvtfrom == NULL)
+	{
+		Assert(missing_ok);
+		return InvalidOid;
+	}
+
+	result = GetSysCacheOid3(ORACONVERTSCID, Anum_ora_convert_cvtid,
+							 cvtkind,
+							 cvtname,
+							 PointerGetDatum(cvtfrom));
+	pfree(cvtfrom);
+	if (!OidIsValid(result) &&
+		missing_ok == false)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("convert not exist")));
+
+	return result;
+}
+
+void DropOracleConvertById(Oid convertid)
+{
+	Relation	rel;
+	ScanKeyData	key;
+	SysScanDesc	scan;
+	HeapTuple	tuple;
+
+	rel = table_open(OraConvertRelationId, RowExclusiveLock);
+	ScanKeyInit(&key,
+				Anum_ora_convert_cvtid,
+				BTEqualStrategyNumber,
+				F_OIDEQ,
+				ObjectIdGetDatum(convertid));
+	scan = systable_beginscan(rel, OraConvertIdIndexId, true, NULL, 1, &key);
+
+	tuple = systable_getnext(scan);
+	if (!HeapTupleIsValid(tuple))
+		elog(ERROR, "could not find tuple for oracle convert %u", convertid);
+	CatalogTupleDelete(rel, &tuple->t_self);
+
+	systable_endscan(scan);
+	table_close(rel, RowExclusiveLock);
+}
+
+void DropOracleConvert(DropStmt *stmt)
+{
+#ifdef ADB
+	ListCell   *lc;
+	List	   *master_node_oid;
+	List	   *nodeOids;
+	List	   *remoteList;
+	Oid			oid;
+	bool		include_myself = false;
+
+	master_node_oid = getMasterNodeOid();
+
+	nodeOids = NIL;
+	foreach(lc, master_node_oid)
+	{
+		oid = lfirst_oid(lc);
+		if (oid == PGXCNodeOid)
+		{
+			include_myself = true;
+			continue;
+		}
+		
+		if (IsConnFromApp())
+			nodeOids = list_append_unique_oid(nodeOids, oid);
+	}
+
+	/* Execute settings on other nodes of the cluster */
+	remoteList = NIL;
+	if (nodeOids != NIL)
+	{
+		StringInfoData msg;
+		initStringInfo(&msg);
+
+		ClusterTocSetCustomFun(&msg, ClusterDropOracleConvert);
+
+		begin_mem_toc_insert(&msg, REMOTE_KEY_DROP_CONVERT);
+		saveNode(&msg, (Node*)stmt);
+		end_mem_toc_insert(&msg, REMOTE_KEY_DROP_CONVERT);
+
+		remoteList = ExecClusterCustomFunction(nodeOids, &msg, 0);
+		pfree(msg.data);
+	}
+
+	/* Create an implicit transform in local */
+	if (include_myself)
+		DropOracleConvertLocal(stmt);
+
+	if (remoteList)
+	{
+		PQNListExecFinish(remoteList, NULL, &PQNDefaultHookFunctions, true);
+		list_free(remoteList);
+	}
+	list_free(nodeOids);
+#else
+	DropOracleConvertLocal(stmt);
+#endif	/* ADB */
+}
+
+static void DropOracleConvertLocal(DropStmt *stmt)
+{
+	Relation		convert_rel;
+	HeapTuple		tuple;
+	ListCell	   *lc;
+	Datum			cvtkind;
+	Datum			cvtname;
+	oidvector	   *cvtfrom;
+
+	lc = list_head(stmt->objects);
+	Assert(IsA(lfirst(lc), Integer));
+	cvtkind = CharGetDatum(intVal(lfirst(lc)));
+
+	lc = lnext(lc);
+	Assert(IsA(lfirst(lc), String));
+	cvtname = CStringGetDatum(strVal(lfirst(lc)));
+
+	lc = lnext(lc);
+	cvtfrom = GetTypeOidVector(lc, list_length(stmt->objects)-2, true, NULL);
+
+	convert_rel = table_open(OraConvertRelationId, RowExclusiveLock);
+	tuple = SearchSysCache3(ORACONVERTSCID,
+							cvtkind,
+							cvtname,
+							PointerGetDatum(cvtfrom));
 	if (HeapTupleIsValid(tuple))
+	{
+		CatalogTupleDelete(convert_rel, &tuple->t_self);
 		ReleaseSysCache(tuple);
+	}
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+					errmsg("oracle convert not exist.")));
 
 	table_close(convert_rel, NoLock);	/* lock table until end of transaction */
 }
+
 
 #ifdef ADB
 /* 
  * Execute cluster Oracle type implicit conversion creation.
  */
-void ClusterExecImplicitConvert(StringInfo mem_toc)
+void ClusterCreateOracleConvert(StringInfo mem_toc)
 {
-	OraImplicitConvertStmt *stmt;
+	CreateOracleConvertStmt *stmt;
 	ParseState *pstate;
 	StringInfoData buf;
 
-	buf.data = mem_toc_lookup(mem_toc, REMOTE_KEY_IMPLICIT_CONVERT, &buf.maxlen);
+	buf.data = mem_toc_lookup(mem_toc, REMOTE_KEY_CREATE_CONVERT, &buf.maxlen);
 	if (buf.data == NULL)
 	{
 		ereport(ERROR,
@@ -306,12 +439,33 @@ void ClusterExecImplicitConvert(StringInfo mem_toc)
 	buf.len = buf.maxlen;
 	buf.cursor = 0;
 
-	stmt = castNode(OraImplicitConvertStmt, loadNode(&buf));
+	stmt = castNode(CreateOracleConvertStmt, loadNode(&buf));
 
 	pstate = make_parsestate(NULL);
 	pstate->p_sourcetext = mem_toc_lookup(mem_toc, REMOTE_KEY_SOURCE_STRING, NULL);
 
-	ExecImplicitConvertLocal(stmt, pstate);
+	CreateOracleConvertLocal(stmt, pstate);
+}
+
+
+void ClusterDropOracleConvert(StringInfo mem_toc)
+{
+	DropStmt *stmt;
+	StringInfoData buf;
+
+	buf.data = mem_toc_lookup(mem_toc, REMOTE_KEY_DROP_CONVERT, &buf.maxlen);
+	if (buf.data == NULL)
+	{
+		ereport(ERROR,
+				(errmsg("Can not found DropConvertStmt in cluster message"),
+				 errcode(ERRCODE_PROTOCOL_VIOLATION)));
+	}
+	buf.len = buf.maxlen;
+	buf.cursor = 0;
+
+	stmt = castNode(DropStmt, loadNode(&buf));
+
+	DropOracleConvertLocal(stmt);
 }
 
 
@@ -349,7 +503,7 @@ getMasterNodeOid(void)
 }
 #endif 
 
-Oid
+static Oid
 TypenameGetTypOid(TypeName *typname, bool *find)
 {
 	char		*typeName;
@@ -392,5 +546,35 @@ TypenameGetTypOid(TypeName *typname, bool *find)
 		*find = false;
 		return InvalidOid;
 	}
-	
+}
+
+static oidvector* GetTypeOidVector(ListCell *lc, int count, bool missing_ok, ParseState *pstate)
+{
+	bool		find_oid;
+	int			i;
+	Oid			oid;
+	oidvector  *ov = buildoidvector(NULL, count);
+	TypeName   *typeName;
+
+	for (i=0;i<count;++i)
+	{
+		typeName = lfirst_node(TypeName, lc);
+		oid = TypenameGetTypOid(typeName, &find_oid);
+		if (!find_oid)
+		{
+			if (missing_ok)
+			{
+				pfree(ov);
+				return NULL;
+			}
+			ereport(ERROR,
+					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+					 errmsg("type \"%s\" does not exist",TypeNameToString(typeName)),
+					 parser_errposition(pstate, typeName->location)));
+		}
+		ov->values[i] = oid;
+		lc = lnext(lc);
+	}
+
+	return ov;
 }

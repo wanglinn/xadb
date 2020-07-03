@@ -495,7 +495,7 @@ typedef enum NodeTag
 	T_AlterCollationStmt,
 	T_CallStmt,
 #ifdef ADB_GRAM_ORA
-	T_OraImplicitConvertStmt,
+	T_CreateOracleConvertStmt,
 	T_CreateOracleCastStmt,
 #endif /* ADB_GRAM_ORA */
 #ifdef ADB

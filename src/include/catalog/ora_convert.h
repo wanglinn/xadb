@@ -6,14 +6,6 @@
 #include "catalog/genbki.h"
 #include "catalog/ora_convert_d.h"
 
-struct OraImplicitConvertStmt;	/* avoid include parsenode.h */
-struct ParseState;
-void ExecImplicitConvert(struct OraImplicitConvertStmt *stmt, struct ParseState *pstate);
-#ifdef ADB
-struct StringInfoData;
-void ClusterExecImplicitConvert(struct StringInfoData *mem_toc);
-#endif /* ADB */
-
 CATALOG(ora_convert,6116,OraConvertRelationId)
 {
 	/* convert id */

@@ -221,10 +221,22 @@ extern List *MakeMainRelTargetForAux(Relation main_rel, Relation aux_rel, Index 
 #endif
 
 #ifdef ADB_GRAM_ORA
-/* commands/ora_utils.c */
+/* commands/ora_cast.c */
 extern void CreateOracleCast(CreateOracleCastStmt *stmt, ParseState *pstate);
+extern Oid GetOracleCastOid(List *objects, bool missing_ok);
 extern void DropOracleCastById(Oid castid);
 extern const char *GetOraCastCoercionName(char coerce);
+
+/* commands/ora_convert.c */
+extern void CreateOracleConvert(CreateOracleConvertStmt *stmt, ParseState *pstate);
+extern void DropOracleConvert(DropStmt *stmt);
+extern void DropOracleConvertById(Oid cvtid);
+extern Oid GetOracleConvertOid(List *objects, bool missing_ok);
+extern void DropOracleConvertById(Oid convertid);
+#ifdef ADB
+void ClusterCreateOracleConvert(StringInfoData *mem_toc);
+#endif /* ADB */
+
 #endif /* ADB_GRAM_ORA */
 
 #endif   /* DEFREM_H */

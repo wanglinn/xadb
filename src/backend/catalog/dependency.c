@@ -84,6 +84,7 @@
 
 #ifdef ADB_GRAM_ORA
 #include "catalog/ora_cast_d.h"
+#include "catalog/ora_convert_d.h"
 #endif /* ADB_GRAM_ORA */
 
 #ifdef ADB
@@ -203,6 +204,7 @@ static const Oid object_classes[] = {
 	TransformRelationId			/* OCLASS_TRANSFORM */
 #ifdef ADB_GRAM_ORA
 	,OraCastRelationId			/* OCLASS_ORA_CAST */
+	,OraConvertRelationId		/* OCLASS_ORA_CONVERT */
 #endif /* ADB_GRAM_ORA */
 #ifdef ADB
 	,PgxcClassRelationId		/* OCLASS_PGXC_CLASS */
@@ -1741,6 +1743,9 @@ doDeletion(const ObjectAddress *object, int flags)
 		case OCLASS_ORA_CAST:
 			DropOracleCastById(object->objectId);
 			break;
+		case OCLASS_ORA_CONVERT:
+			DropOracleConvertById(object->objectId);
+			break;
 #endif /* ADB_GRAM_ORA */
 
 			/*
@@ -3083,6 +3088,8 @@ getObjectClass(const ObjectAddress *object)
 #ifdef ADB_GRAM_ORA
 		case OraCastRelationId:
 			return OCLASS_ORA_CAST;
+		case OraConvertRelationId:
+			return OCLASS_ORA_CONVERT;
 #endif /* ADB_GRAM_ORA */
 
 #ifdef ADB
