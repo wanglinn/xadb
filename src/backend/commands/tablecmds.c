@@ -949,7 +949,7 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		CommandCounterIncrement();
 	}
 	/* Create partition key of partition sub table */
-	else if (IsCnNode() && stmt->inhRelations != NIL)
+	else if (IsCnNode() && stmt->inhRelations != NIL && stmt->relation->relpersistence != RELPERSISTENCE_TEMP)
 	{
 		RangeVar		*range;
 		HeapTuple		parent_tuple;
