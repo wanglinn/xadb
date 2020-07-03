@@ -9,6 +9,7 @@
 #include "catalog/index.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_class.h"
+#include "catalog/ora_cast_d.h"
 #include "catalog/ora_convert_d.h"
 #include "commands/defrem.h"
 #include "lib/stringinfo.h"
@@ -219,7 +220,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	OptTemp
 	SignedIconst sub_type
 
-%type <ival> ConstraintAttributeElem ConstraintAttributeSpec ora_convert_func_or_common
+%type <ival> ConstraintAttributeElem ConstraintAttributeSpec ora_convert_func_or_common OracleCoerceContext
 
 %type <ival>	cursor_options
 				key_actions key_delete key_match key_update key_action
@@ -290,7 +291,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	func_application func_application_normal func_expr_common_subexpr func_arg_expr
 	func_expr func_table for_locking_item func_expr_windowless
 	having_clause
-	indirection_el InsertStmt IndexStmt OraImplicitConvertStmt
+	indirection_el InsertStmt IndexStmt CreateOracleConvertStmt CreateOracleCast
 	join_outer
 	limit_clause
 	offset_clause opt_collate_clause opt_start_with_clause PrepareStmt PreparableStmt 
@@ -532,6 +533,8 @@ stmt:
 	| CommentStmt
 	| CreateAsStmt
 	| CreateMatViewStmt
+	| CreateOracleCast
+	| CreateOracleConvertStmt
 	| CreateStmt
 	| CreateSeqStmt
 	| CreateRoleStmt
@@ -546,7 +549,6 @@ stmt:
 	| FetchStmt
 	| InsertStmt
 	| IndexStmt
-	| OraImplicitConvertStmt
 	| RefreshMatViewStmt
 	| RenameStmt
 	| SelectStmt
@@ -8025,7 +8027,7 @@ comment_text:
  *
  *****************************************************************************/
 
-OraImplicitConvertStmt:
+CreateOracleConvertStmt:
 			/* implicit convert function or special function */
 			CREATE opt_or_replace CONVERT ora_convert_func_or_common convert_functon_name '(' convert_type_list ')' 
 						AS convert_functon_name '(' convert_type_list ')'
@@ -8132,6 +8134,79 @@ ora_convert_func_or_common:
 			| SPECIAL FUNCTION						{ $$ = ORA_CONVERT_KIND_SPECIAL_FUN; }
 			| COMMON								{ $$ = ORA_CONVERT_KIND_COMMON; }
 		;
+
+
+/*****************************************************************************
+ *
+ *		CREATE / DROP CAST
+ *
+ *****************************************************************************/
+
+CreateOracleCast:
+			  CREATE opt_or_replace OracleCoerceContext CAST
+				'(' Typename AS Typename ')'
+				WITH FUNCTION function_with_argtypes
+				TRUNCATE FUNCTION function_with_argtypes
+				{
+					CreateOracleCastStmt *n = makeNode(CreateOracleCastStmt);
+					n->replace = $2;
+					n->coerce_context = $3;
+					n->source_type = $6;
+					n->target_type = $8;
+					n->func = $12;
+					n->trunc_func = $15;
+					$$ = (Node*)n;
+				}
+			| CREATE opt_or_replace OracleCoerceContext CAST
+				'(' Typename AS Typename ')'
+				WITHOUT FUNCTION
+				TRUNCATE FUNCTION function_with_argtypes
+				{
+					CreateOracleCastStmt *n = makeNode(CreateOracleCastStmt);
+					n->replace = $2;
+					n->coerce_context = $3;
+					n->source_type = $6;
+					n->target_type = $8;
+					n->trunc_func = $14;
+					$$ = (Node*)n;
+				}
+			;
+
+CreateOracleCast:
+			  DROP opt_or_replace OracleCoerceContext CAST '(' Typename AS Typename ')'
+				{
+					DropStmt *n = makeNode(DropStmt);
+					n->objects = list_make3(makeInteger($3), $6, $8);
+					n->removeType = OBJECT_ORACLE_CAST;
+					n->behavior = DROP_RESTRICT;
+					n->missing_ok = false;
+					$$ = (Node *) n;
+				}
+
+OracleCoerceContext:
+				DEFAULT
+					{
+						$$ = ORA_COERCE_DEFAULT;
+					}
+				| OPERATOR
+					{
+						$$ = ORA_COERCE_OPERATOR;
+					}
+				| IDENT FUNCTION
+					{
+						if (strcmp($1, "common") == 0)
+							$$ = ORA_COERCE_COMMON_FUNCTION;
+						else if (strcmp($1, "special") == 0)
+							$$ = ORA_COERCE_SPECIAL_FUNCTION;
+						else
+							ereport_pos($1, @1);
+					}
+				| /* empty */
+					{
+						$$ = ORA_COERCE_DEFAULT;
+					}
+				;
+
 
 /* object types taking any_name */
 comment_type_any_name:

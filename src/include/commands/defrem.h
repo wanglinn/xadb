@@ -230,6 +230,7 @@ extern const char *GetOraCastCoercionName(char coerce);
 /* commands/ora_convert.c */
 extern void CreateOracleConvert(CreateOracleConvertStmt *stmt, ParseState *pstate);
 extern void DropOracleConvert(DropStmt *stmt);
+extern void DropOracleCast(DropStmt *stmt);
 extern void DropOracleConvertById(Oid cvtid);
 extern Oid GetOracleConvertOid(List *objects, bool missing_ok);
 extern void DropOracleConvertById(Oid convertid);
