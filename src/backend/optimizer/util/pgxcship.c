@@ -497,6 +497,9 @@ pgxc_FQS_get_relation_nodes(RangeTblEntry *rte, Index varno, Query *query)
 	 * tables in the query and we apply node reduction here, we may fail to ship
 	 * the entire join. We should apply node reduction transitively.
 	 */
+	/* list distribut table will not use FQS plan */
+	if (rel_loc_info->locatorType == LOCATOR_TYPE_LIST)
+		return NULL;
 
 	if (rel_access == RELATION_ACCESS_READ &&
 		list_length(query->rtable) == 1 &&

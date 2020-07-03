@@ -914,20 +914,24 @@ static HeapTuple ExpansionListUpdate(Form_pgxc_class form_class, HeapTuple tup, 
 	lc_old_value = list_head(old_values);
 	for (i=0; i<list_length(old_oids); i++)
 	{
+		bool found = false;
+		old_oid = lfirst_oid(lc_old_oid);
+		old_value = lfirst(lc_old_value);
 		foreach (lc, expansion)
 		{
 			List *expand_oids = lfirst(lc);
-			old_oid = lfirst_oid(lc_old_oid);
-			old_value = lfirst(lc_old_value);
 			if (old_oid == linitial_oid(expand_oids) && list_length(old_value) > 1)
 			{
 				makeListNodeAndValues(old_oid, old_value, expand_oids, &new_oids, new_values);
+				found = true;
+				break;
 			}
-			else
-			{
-				new_oids = lappend_oid(new_oids, old_oid);
-				*new_values = lappend(*new_values, old_value);
-			}
+		}
+
+		if (found == false)
+		{
+			new_oids = lappend_oid(new_oids, old_oid);
+			*new_values = lappend(*new_values, old_value);
 		}
 		lc_old_oid = lnext(lc_old_oid);
 		lc_old_value = lnext(lc_old_value);
