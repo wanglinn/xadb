@@ -569,7 +569,8 @@ static void launchRepairerDoctors(dlist_head *nodes)
 	dlist_foreach(iter, nodes)
 	{
 		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-		if (mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+		if (mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER || 
+			mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
 		{
 			launchRepairerDoctor(mgrNode->form.nodetype);
 			break;
@@ -597,6 +598,10 @@ static void launchRepairerDoctor(char nodetype)
 	else if (nodetype == CNDN_TYPE_COORDINATOR_MASTER)
 	{
 		customName = "coordinator";
+	}
+	else if (nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
+	{
+		customName = "coordinator slave";
 	}
 	else
 	{
@@ -1075,9 +1080,11 @@ static void tryRefreshRepairerDoctor(bool confChanged,
 	dlist_head staleGtmCoordSlaves = DLIST_STATIC_INIT(staleGtmCoordSlaves);
 	dlist_head staleDataNodeSlaves = DLIST_STATIC_INIT(staleDataNodeSlaves);
 	dlist_head staleCoordinators = DLIST_STATIC_INIT(staleCoordinators);
+	dlist_head staleCoordinatorSlaves = DLIST_STATIC_INIT(staleCoordinatorSlaves);
 	dlist_head freshGtmCoordSlaves = DLIST_STATIC_INIT(freshGtmCoordSlaves);
 	dlist_head freshDataNodeSlaves = DLIST_STATIC_INIT(freshDataNodeSlaves);
 	dlist_head freshCoordinators = DLIST_STATIC_INIT(freshCoordinators);
+	dlist_head freshCoordinatorSlaves = DLIST_STATIC_INIT(freshCoordinatorSlaves);
 	MemoryContext tempContext;
 	MemoryContext oldContext;
 
@@ -1089,9 +1096,11 @@ static void tryRefreshRepairerDoctor(bool confChanged,
 	copyMgrNodesByNodetype(staleNodes, CNDN_TYPE_GTM_COOR_SLAVE, &staleGtmCoordSlaves);
 	copyMgrNodesByNodetype(staleNodes, CNDN_TYPE_DATANODE_SLAVE, &staleDataNodeSlaves);
 	copyMgrNodesByNodetype(staleNodes, CNDN_TYPE_COORDINATOR_MASTER, &staleCoordinators);
+	copyMgrNodesByNodetype(staleNodes, CNDN_TYPE_COORDINATOR_SLAVE, &staleCoordinatorSlaves);
 	copyMgrNodesByNodetype(freshNodes, CNDN_TYPE_GTM_COOR_SLAVE, &freshGtmCoordSlaves);
 	copyMgrNodesByNodetype(freshNodes, CNDN_TYPE_DATANODE_SLAVE, &freshDataNodeSlaves);
 	copyMgrNodesByNodetype(freshNodes, CNDN_TYPE_COORDINATOR_MASTER, &freshCoordinators);
+	copyMgrNodesByNodetype(freshNodes, CNDN_TYPE_COORDINATOR_SLAVE, &freshCoordinatorSlaves);
 	(void)MemoryContextSwitchTo(oldContext);
 
 	compareAndManipulateRepairerDoctor(&staleGtmCoordSlaves,
@@ -1106,6 +1115,10 @@ static void tryRefreshRepairerDoctor(bool confChanged,
 									   &freshCoordinators,
 									   confChanged,
 									   CNDN_TYPE_COORDINATOR_MASTER);
+	compareAndManipulateRepairerDoctor(&staleCoordinatorSlaves,
+									   &freshCoordinatorSlaves,
+									   confChanged,
+									   CNDN_TYPE_COORDINATOR_SLAVE);								   
 
 	(void)MemoryContextSwitchTo(oldContext);
 	MemoryContextDelete(tempContext);
