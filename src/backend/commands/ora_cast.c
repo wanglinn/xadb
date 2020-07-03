@@ -21,6 +21,9 @@
 #include "utils/syscache.h"
 
 
+static void DropOracleCastLocal(DropStmt *stmt);
+static Oid TypenameGetTypOid(TypeName *typname, bool *find);
+
 static Oid GetCastType(TypeName *typeName, ParseState *pstate, char *typtype, const char *context)
 {
 	Oid			typeoid;
@@ -258,4 +261,164 @@ const char *GetOraCastCoercionName(char coerce)
 	}
 
 	return "unknown";
+}
+
+Oid GetOracleCastOid(List *objects, bool missing_ok)
+{
+	TypeName   *sourcetypename;
+	TypeName   *targettypename;
+	Datum		castcontext;
+	Datum		sourcetyptype;
+	Datum		targettyptype;
+	ListCell   *lc;
+	Oid			oid, result;
+	bool		find_oid;
+
+
+	lc = list_head(objects);
+	Assert(IsA(lfirst(lc), Integer));
+	castcontext = CharGetDatum(intVal(lfirst(lc)));
+
+	lc = lnext(lc);
+	Assert(IsA(lfirst(lc), TypeName));
+	sourcetypename = lfirst_node(TypeName, lc);
+	oid = TypenameGetTypOid(sourcetypename, &find_oid);
+	if (!find_oid)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("type \"%s\" does not exist",TypeNameToString(sourcetypename))));
+	sourcetyptype = ObjectIdGetDatum(oid);
+
+	lc = lnext(lc);
+	Assert(IsA(lfirst(lc), TypeName));
+	targettypename = lfirst_node(TypeName, lc);
+	oid = TypenameGetTypOid(targettypename, &find_oid);
+	if (!find_oid)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("type \"%s\" does not exist",TypeNameToString(targettypename))));
+	targettyptype = ObjectIdGetDatum(oid);
+
+	result = GetSysCacheOid3(ORACASTSOURCETARGET, Anum_ora_cast_castid,
+							 sourcetyptype,
+							 targettyptype,
+							 castcontext);
+
+	if (!OidIsValid(result) &&
+		missing_ok == false)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("convert not exist")));
+
+	return result;
+}
+
+
+void DropOracleCast(DropStmt *stmt)
+{
+	DropOracleCastLocal(stmt);
+}
+
+
+static void DropOracleCastLocal(DropStmt *stmt)
+{
+	TypeName   *sourcetypename;
+	TypeName   *targettypename;
+	Datum		castcontext;
+	Datum		sourcetyptype;
+	Datum		targettyptype;
+	HeapTuple	tuple;
+	Relation	oracast_rel;
+	ListCell   *lc;
+	Oid			oid;
+	bool		find_oid;
+
+
+	lc = list_head(stmt->objects);
+	Assert(IsA(lfirst(lc), Integer));
+	castcontext = CharGetDatum(intVal(lfirst(lc)));
+
+	lc = lnext(lc);
+	Assert(IsA(lfirst(lc), TypeName));
+	sourcetypename = lfirst_node(TypeName, lc);
+	oid = TypenameGetTypOid(sourcetypename, &find_oid);
+	if (!find_oid)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("type \"%s\" does not exist",TypeNameToString(sourcetypename))));
+	sourcetyptype = ObjectIdGetDatum(oid);
+
+	lc = lnext(lc);
+	Assert(IsA(lfirst(lc), TypeName));
+	targettypename = lfirst_node(TypeName, lc);
+	oid = TypenameGetTypOid(targettypename, &find_oid);
+	if (!find_oid)
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("type \"%s\" does not exist",TypeNameToString(targettypename))));
+	targettyptype = ObjectIdGetDatum(oid);
+
+	oracast_rel = table_open(OraCastRelationId, RowExclusiveLock);
+	tuple = SearchSysCache3(ORACASTSOURCETARGET,
+							sourcetyptype,
+							targettyptype,
+							castcontext);
+
+	if (HeapTupleIsValid(tuple))
+	{
+		CatalogTupleDelete(oracast_rel, &tuple->t_self);
+		ReleaseSysCache(tuple);
+	}
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+					errmsg("oracle convert not exist.")));
+
+	table_close(oracast_rel, NoLock);
+}
+
+
+static Oid
+TypenameGetTypOid(TypeName *typname, bool *find)
+{
+	char		*typeName;
+	char		*schemaname;
+	Oid			typeNamespace;
+	Oid			typoid;
+
+
+	/* deconstruct the name list */
+	DeconstructQualifiedName(typname->names, &schemaname, &typeName);
+
+	if (strcmp(typeName, "any") == 0)
+	{
+		*find = true;
+		return (Oid) 0;
+	}
+
+	if (schemaname)
+	{
+		/* Convert list of names to a name and namespace */
+		typeNamespace = QualifiedNameGetCreationNamespace(typname->names, &typeName);
+
+		typoid = GetSysCacheOid2(TYPENAMENSP, Anum_pg_type_oid,
+								 CStringGetDatum(typeName),
+								 ObjectIdGetDatum(typeNamespace));
+	}
+	else
+	{
+		/* Unqualified type name, so search the search path */
+		typoid = TypenameGetTypid(typeName);
+	}
+
+	if (OidIsValid(typoid) && get_typisdefined(typoid))
+	{
+		*find = true;
+		return typoid;
+	}
+	else
+	{
+		*find = false;
+		return InvalidOid;
+	}
 }

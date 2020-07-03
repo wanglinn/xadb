@@ -2882,6 +2882,9 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel ADB_ONLY_COMMA_ARG2(const char *que
 
 			break;
 #ifdef ADB_GRAM_ORA
+		case OBJECT_ORACLE_CAST:
+			DropOracleCast(stmt);
+			break;
 		case OBJECT_ORACLE_CONVERT:
 			DropOracleConvert(stmt);
 			break;
@@ -3856,6 +3859,9 @@ CreateCommandTag(Node *parsetree)
 					tag = "DROP STATISTICS";
 					break;
 #ifdef ADB_GRAM_ORA
+				case OBJECT_ORACLE_CAST:
+					tag = "DROP CAST";
+					break;
 				case OBJECT_ORACLE_CONVERT:
 					tag = "DROP CONVERT";
 					break;

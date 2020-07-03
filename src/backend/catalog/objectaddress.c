@@ -1046,6 +1046,11 @@ get_object_address(ObjectType objtype, Node *object,
 				address.objectSubId = 0;
 				break;
 #ifdef ADB_GRAM_ORA
+			case OBJECT_ORACLE_CAST:
+				address.classId = OraCastRelationId;
+				address.objectId = GetOracleCastOid(castNode(List, object), missing_ok);
+				address.objectSubId = 0;
+				break;
 			case OBJECT_ORACLE_CONVERT:
 				address.classId = OraConvertRelationId;
 				address.objectId = GetOracleConvertOid(castNode(List, object), missing_ok);
