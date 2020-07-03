@@ -946,6 +946,7 @@ bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, bool zone
 		Assert(mgr_node);
 		mgr_node->nodeinited = true;
 		mgr_node->nodeincluster = true;
+		mgr_node->allowcure = true;
 		heap_inplace_update(rel_node, tuple);
 		heap_freetuple(tuple);
 	}

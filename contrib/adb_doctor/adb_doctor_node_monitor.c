@@ -838,7 +838,8 @@ static void handleNodeCrashed(MonitorNodeInfo *nodeInfo)
 	{
 		masterNodeCrashed(nodeInfo);
 	}
-	else if (nodeInfo->mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+	else if (nodeInfo->mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER ||
+			 nodeInfo->mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
 	{
 		coordinatorCrashed(nodeInfo);
 	}
@@ -923,7 +924,8 @@ static bool tryTreatNodeByStartup(MonitorNodeInfo *nodeInfo)
 	{
 		restartIntervalMs = nodeConfiguration->restartSlaveIntervalMs;
 	}
-	else if (nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+	else if (nodetype == CNDN_TYPE_COORDINATOR_MASTER ||
+			 nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
 	{
 		restartIntervalMs = nodeConfiguration->restartCoordinatorIntervalMs;
 	}
