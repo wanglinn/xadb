@@ -13896,7 +13896,7 @@ mgr_get_gtm_host_snapsender_gxidsender_port(StringInfo infosendmsg)
 bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync, Node *node)
 {
 	InitNodeInfo	*info;
-	ScanKeyData		cnkey[1], ndkey[3], ndskey[4];
+	ScanKeyData		cnkey[1], ndkey[3], ndskey[5];
 	HeapTuple		tuple;
 	Form_mgr_node	cn_master_node, dn_master_node;
 	MgrDatanodeInfo	*mgr_datanode_info;
@@ -14037,6 +14037,11 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 				,F_OIDEQ
 				,ObjectIdGetDatum(mgr_datanode_info->masterOid));
 		ScanKeyInit(&ndskey[3]
+				,Anum_mgr_node_curestatus
+				,BTEqualStrategyNumber
+				,F_NAMEEQ
+				,CStringGetDatum(CURE_STATUS_NORMAL));
+		ScanKeyInit(&ndskey[4]
 				,Anum_mgr_node_nodesync
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
@@ -14044,7 +14049,7 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 
 		/* In read-write separation mode, synchronous slave node is used by default, 
 		 * and asynchronous slave node can be used if no synchronous slave node exists. */
-		info->rel_scan = heap_beginscan_catalog(info->rel_node, 4, ndskey);
+		info->rel_scan = heap_beginscan_catalog(info->rel_node, 5, ndskey);
 		if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 		{
 			mgr_datanode_info->slaveNode = (Form_mgr_node)GETSTRUCT(tuple);
@@ -14053,13 +14058,13 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 		else
 		{
 			heap_endscan(info->rel_scan);
-			ScanKeyInit(&ndskey[3]
+			ScanKeyInit(&ndskey[4]
 					,Anum_mgr_node_nodesync
 					,BTEqualStrategyNumber
 					,F_NAMENE
 					,NameGetDatum(&nodeSync));
 			
-			info->rel_scan = heap_beginscan_catalog(info->rel_node, 4, ndskey);
+			info->rel_scan = heap_beginscan_catalog(info->rel_node, 5, ndskey);
 			if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 			{
 				mgr_datanode_info->slaveNode = (Form_mgr_node)GETSTRUCT(tuple);
