@@ -340,7 +340,7 @@ ExecNodes *MakeExecNodesByOids(RelationLocInfo *loc_info, List *oids, RelationAc
 	exec_nodes->accesstype = accesstype;
 	exec_nodes->baselocatortype = loc_info->locatorType;
 	//exec_nodes->en_relid = loc_info->relid;
-	exec_nodes->nodeids = oids;
+	exec_nodes->nodeids = NIL;
 	foreach(lc, oids)
 		exec_nodes->nodeids = list_append_unique_oid(exec_nodes->nodeids, lfirst_oid(lc));
 
