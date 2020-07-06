@@ -13994,7 +13994,7 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 			,Anum_mgr_node_nodezone
 			,BTEqualStrategyNumber
 			,F_NAMEEQ
-			,CStringGetDatum("local"));
+			,CStringGetDatum(mgr_zone));
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 3, ndkey);
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -14025,7 +14025,7 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 			,Anum_mgr_node_nodezone
 			,BTEqualStrategyNumber
 			,F_NAMEEQ
-			,CStringGetDatum("local"));
+			,CStringGetDatum(mgr_zone));
 
 	/* get slave info */
 	foreach (cell, datanode_list)
@@ -14156,7 +14156,7 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 		{
 			PQfinish(conn);
 			pfree(connStr.data);
-			ereport(WARNING, 
+			ereport(LOG, 
 					(errmsg("%s, attempt to link to the node '%s' failed, please confirm that the cluster is running. %s", 
 							warningMassage,
 							cn_master_node->nodename.data, 
@@ -14198,7 +14198,7 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 				pfree(connStr.data);
 				pfree(checkSql.data);
 				pfree(execSql.data);
-				ereport(WARNING, 
+				ereport(LOG, 
 						(errmsg("%s, failed to query pgxc_node in '%s'.", 
 								warningMassage,
 								cn_master_node->nodename.data)));
@@ -14250,7 +14250,7 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 			pfree(connStr.data);
 			pfree(checkSql.data);
 			pfree(execSql.data);
-			ereport(WARNING, 
+			ereport(LOG, 
 					(errmsg("%s, Failed to update pgxc_node in '%s'.", 
 							warningMassage,
 							cn_master_node->nodename.data)));
@@ -14259,7 +14259,7 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 		PQclear(res);
 	}
 	else
-		ereport(WARNING, 
+		ereport(LOG, 
 			(errmsg("Node '%s' has no update task. HINT: Please check the read-write separation parameters or the synchronization status of datanode slave.", 
 					cn_master_node->nodename.data)));
 	
