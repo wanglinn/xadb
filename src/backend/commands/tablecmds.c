@@ -16576,7 +16576,8 @@ ATExecAttachPartition(List **wqueue, Relation rel, PartitionCmd *cmd)
 				 errdetail("ROW triggers with transition tables are not supported on partitions")));
 
 #ifdef ADB
-	checkTwoTblDistributebyType(attachrel, rel, true, false);
+	if (attachrel->rd_rel->relkind != RELKIND_FOREIGN_TABLE)
+		checkTwoTblDistributebyType(attachrel, rel, true, false);
 #endif
 
 	/*
