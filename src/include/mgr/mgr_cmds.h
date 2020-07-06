@@ -621,6 +621,7 @@ extern void hexp_pqexec_direct_execute_utility(PGconn *pg_conn, char *sqlstr, in
 
 /* zone */
 extern bool mgr_check_nodename_repeate(Relation rel, char *nodename);
+extern bool mgr_check_gtmmaster_repeate(Relation rel, char nodeType);
 extern bool mgr_checknode_in_currentzone(const char *zone, const Oid TupleOid);
 extern Datum mgr_zone_failover(PG_FUNCTION_ARGS);
 extern Datum mgr_zone_switchover(PG_FUNCTION_ARGS);

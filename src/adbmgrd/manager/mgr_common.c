@@ -3786,6 +3786,28 @@ bool mgr_check_nodename_repeate(Relation rel, char *nodename)
 
 	return bres;
 }
+bool mgr_check_gtmmaster_repeate(Relation rel, char nodeType)
+{
+	ScanKeyData key[1];
+	HeapScanDesc relScan;
+	HeapTuple tuple =NULL;
+	bool bres = false;
+
+	ScanKeyInit(&key[0],
+		Anum_mgr_node_nodetype
+		,BTEqualStrategyNumber
+		,F_CHAREQ
+		,CharGetDatum(nodeType));
+	relScan = heap_beginscan_catalog(rel, 1, key);
+	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
+	{
+		bres = true;
+		break;
+	}
+	heap_endscan(relScan);
+
+	return bres;
+}
 
 /* get the nodetype of given nodename */
 char mgr_get_nodetype(Name nodename)

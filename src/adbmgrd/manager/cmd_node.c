@@ -383,9 +383,14 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 		if (mgr_check_nodename_repeate(rel, NameStr(name)))
 			ereport(ERROR, (errcode(ERRCODE_DUPLICATE_OBJECT), errmsg("the name \"%s\" is already exist in node table", NameStr(name))));
 	
+		if ((CNDN_TYPE_GTM_COOR_MASTER == nodetype) && (mgr_check_gtmmaster_repeate(rel, nodetype))){
+			ereport(ERROR, (errcode(ERRCODE_DUPLICATE_OBJECT), 
+					errmsg("Only one gtm coordinator master is supported in the cluster, you can't add gtm coordinator master again.")));			
+		}
+		
 		/* check the master exist */
 		if (mastertype != nodetype)
-		{			
+		{
 			checktuple = mgr_get_tuple_node_from_name_type(rel, mastername.data);
 			if (!HeapTupleIsValid(checktuple))
 			{
