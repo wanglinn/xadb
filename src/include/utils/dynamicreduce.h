@@ -159,7 +159,6 @@ extern bool DynamicReduceNotifyAttach(shm_mq_handle *mq_send, shm_mq_handle *mq_
 
 extern void SerializeEndOfPlanMessage(StringInfo buf);
 extern bool SendEndOfPlanMessageToMQ(shm_mq_handle *mqh, bool nowait);
-extern bool SendRejectPlanMessageToMQ(shm_mq_handle *mqh, bool nowait);
 
 extern void SerializeDynamicReducePlanData(StringInfo buf, const void *data, uint32 len, struct OidBufferData *target);
 extern void SerializeDynamicReduceSlot(StringInfo buf, TupleTableSlot *slot, struct OidBufferData *target);

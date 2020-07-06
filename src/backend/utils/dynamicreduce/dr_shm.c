@@ -574,12 +574,6 @@ bool SendEndOfPlanMessageToMQ(shm_mq_handle *mqh, bool nowait)
 	return send_msg_to_plan(mqh, &iov);
 }
 
-bool SendRejectPlanMessageToMQ(shm_mq_handle *mqh, bool nowait)
-{
-#warning TODO SendRejectPlanMessageToMQ
-	return true;
-}
-
 void ResetDynamicReduceWork(void)
 {
 	static Size msg_magic = 0;
