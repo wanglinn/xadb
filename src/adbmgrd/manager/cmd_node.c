@@ -278,6 +278,10 @@ static bool MgrCheckChildAndParent(Oid childOid, Oid parentOid);
 static Datum mgr_monitor_ha_common(PG_FUNCTION_ARGS, char *zone);
 static void mgr_start_zone_nodes(char *zoneNameIn, char cmdType, char nodeType);
 static void mgr_stop_zone_nodes(char *zoneNameIn, const char *shutdownMode, char cmdType, char nodeType);
+static bool mgrCheckNodeIsExclude(List *nodeNamelist, char *excludeNodeName);
+static void mgr_make_sure_all_running_exclude(char node_type, 
+												char *zone, 
+												List *excludeNodeNamelist);
 
 #if (Natts_mgr_node != 12)
 #error "need change code"
@@ -5536,6 +5540,106 @@ void mgr_make_sure_all_running(char node_type, char *zone)
 			namestrcpy(&nodetypestr_data, nodetype_str);
 			pfree(nodetype_str);
 			ereport(ERROR, (errmsg("%s \"%s\" is not running", nodetypestr_data.data,nodename.data)));
+		} 
+		pfree(user);
+	}
+
+	heap_endscan(info->rel_scan);
+	heap_close(info->rel_node, AccessShareLock);
+	pfree(info);
+
+	if (hostaddr != NULL)
+		pfree(hostaddr);
+
+	return;
+}
+static bool mgrCheckNodeIsExclude(List *nodeNamelist, char *excludeNodeName)
+{
+	bool 		exclude = false;
+	ListCell   	*cell;
+	Value 		*val;
+
+	foreach(cell, nodeNamelist)
+	{
+		val = lfirst(cell);
+		Assert(val && IsA(val,String));
+		if (pg_strcasecmp(excludeNodeName, strVal(val)) == 0)
+		{
+			exclude = true;
+			break;
+		}
+	}
+	return exclude;
+}
+static void mgr_make_sure_all_running_exclude(char node_type, char *zone, List *excludeNodeNamelist)
+{
+	InitNodeInfo *info;
+	ScanKeyData key[4];
+	HeapTuple tuple;
+	Form_mgr_node mgr_node;
+	char * hostaddr = NULL;
+	char *nodetype_str = NULL;
+	char *user;
+	NameData nodetypestr_data;
+	NameData nodename;
+
+	ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodeinited
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
+
+	ScanKeyInit(&key[1]
+				,Anum_mgr_node_nodeincluster
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
+
+	ScanKeyInit(&key[2]
+				,Anum_mgr_node_nodetype
+				,BTEqualStrategyNumber
+				,F_CHAREQ
+				,CharGetDatum(node_type));
+    
+	if (zone != NULL){
+		ScanKeyInit(&key[3]
+			,Anum_mgr_node_nodezone
+			,BTEqualStrategyNumber
+			,F_NAMEEQ
+			,CStringGetDatum(zone));
+	}
+
+	info = (InitNodeInfo *)palloc0(sizeof(InitNodeInfo));
+	info->rel_node = heap_open(NodeRelationId, AccessShareLock);
+	if (zone != NULL){
+		info->rel_scan = heap_beginscan_catalog(info->rel_node, 4, key);
+	}
+	else{
+		info->rel_scan = heap_beginscan_catalog(info->rel_node, 3, key);
+	}
+	info->lcp = NULL;
+
+	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+		if (mgrCheckNodeIsExclude(excludeNodeNamelist, NameStr(mgr_node->nodename)))
+			continue;
+
+		hostaddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
+		user = get_hostuser_from_hostoid(mgr_node->nodehost);
+		if (!is_node_running(hostaddr, mgr_node->nodeport, user, mgr_node->nodetype))
+		{
+			nodetype_str = mgr_nodetype_str(mgr_node->nodetype);
+			namestrcpy(&nodename, NameStr(mgr_node->nodename));
+			heap_endscan(info->rel_scan);
+			heap_close(info->rel_node, AccessShareLock);
+			pfree(info);
+			pfree(hostaddr);
+			pfree(user);
+			namestrcpy(&nodetypestr_data, nodetype_str);
+			pfree(nodetype_str);
+			ereport(ERROR, (errmsg("%s \"%s\" is not running, so you can't perform the current operation.", nodetypestr_data.data,nodename.data)));
 		} 
 		pfree(user);
 	}
@@ -12997,6 +13101,9 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errmsg("the cluster only has one coordinator, cannot be removed")));
 		}
 		heap_endscan(rel_scan);
+
+		mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, mgr_zone);
+		mgr_make_sure_all_running_exclude(CNDN_TYPE_COORDINATOR_MASTER, mgr_zone, nodenamelist);
 	}
 
 	foreach(cell, nodenamelist)
