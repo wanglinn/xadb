@@ -5537,7 +5537,7 @@ void mgr_make_sure_all_running(char node_type, char *zone)
 			pfree(user);
 			namestrcpy(&nodetypestr_data, nodetype_str);
 			pfree(nodetype_str);
-			ereport(ERROR, (errmsg("%s \"%s\" is not running", nodetypestr_data.data,nodename.data)));
+			ereport(ERROR, (errmsg("%s \"%s\" is not running, so you can't perform the current operation.", nodetypestr_data.data,nodename.data)));
 		} 
 		pfree(user);
 	}
