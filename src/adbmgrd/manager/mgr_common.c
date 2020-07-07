@@ -3789,7 +3789,7 @@ bool mgr_check_nodename_repeate(Relation rel, char *nodename)
 bool mgr_check_gtmmaster_repeate(Relation rel, char nodeType)
 {
 	ScanKeyData key[1];
-	HeapScanDesc relScan;
+	TableScanDesc relScan;
 	HeapTuple tuple =NULL;
 	bool bres = false;
 
@@ -3798,13 +3798,13 @@ bool mgr_check_gtmmaster_repeate(Relation rel, char nodeType)
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(nodeType));
-	relScan = heap_beginscan_catalog(rel, 1, key);
+	relScan = table_beginscan_catalog(rel, 1, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		bres = true;
 		break;
 	}
-	heap_endscan(relScan);
+	table_endscan(relScan);
 
 	return bres;
 }
