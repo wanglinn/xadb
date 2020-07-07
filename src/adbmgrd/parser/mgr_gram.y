@@ -205,7 +205,7 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 %token<keyword> APPEND CONFIG MODE FAST SMART IMMEDIATE S I F FORCE SHOW FLUSH
 %token<keyword> GRANT REVOKE FROM ITEM JOB EXTENSION REMOVE DATA_CHECKSUMS
 %token<keyword> EXPAND ACTIVATE CHECKOUT STATUS RECOVER BASEBACKUP FAIL SUCCESS DOPROMOTE SLOT DOCHECK END SLEEP
-%token<keyword> HASH ZONE CLEAR
+%token<keyword> ZONE CLEAR
 %token<keyword> PROMOTE ADBMGR REWIND SWITCHOVER
 
 /* for ADB monitor*/
