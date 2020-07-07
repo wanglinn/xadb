@@ -1917,7 +1917,6 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	NameData cndnnamedata;
 	HeapTuple mastertuple;
 	PGconn *pg_conn = NULL;
-	char    masterType;
 
 	getAgentCmdRst->ret = false;
 	initStringInfo(&infosendmsg);
@@ -2074,7 +2073,6 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		masterhostOid = mgr_node_gtm->nodehost;
 		mastername = NameStr(mgr_node_gtm->nodename);
 		masterhostaddress = get_hostaddress_from_hostoid(masterhostOid);
-		masterType = getMgrMasterNodetype(mgr_node_gtm->nodetype);
 		appendStringInfo(&infosendmsg, " -p %u", masterport);
 		appendStringInfo(&infosendmsg, " -h %s", masterhostaddress);
 		appendStringInfo(&infosendmsg, " -D %s", cndnPath);
@@ -15385,7 +15383,6 @@ static void MgrModifyParentNode(Relation rel, Form_mgr_node curMgrNode, Oid curN
 	MemoryContext 		spiContext;
 	int 				spiRes = 0;
 	MgrNodeWrapper 		*mgrNode;
-	ErrorData 			*edata = NULL;
 
 	Assert(curMgrNode);
 	Assert(newParentMgrNode);
@@ -15415,10 +15412,10 @@ static void MgrModifyParentNode(Relation rel, Form_mgr_node curMgrNode, Oid curN
 	}
 	PG_CATCH();
 	{
-		/* Save error info in our stmt_mcontext */
 		MemoryContextSwitchTo(oldContext);
-		edata = CopyErrorData();
-		FlushErrorState();
+		MemoryContextDelete(switchContext);
+		SPI_finish();
+		PG_RE_THROW();
 	}
 	PG_END_TRY();
 	(void)MemoryContextSwitchTo(oldContext);
