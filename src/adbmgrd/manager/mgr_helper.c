@@ -452,28 +452,6 @@ void selectChildNodesInZone(MemoryContext spiContext,
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
-void selectNotActiveChildInZoneOid(MemoryContext spiContext,
-									Oid masterOid,
-									char *zone,
-									dlist_head *resultList)
-{
-	StringInfoData sql;
-
-	initStringInfo(&sql);
-	appendStringInfo(&sql,
-					 "SELECT * "
-					 "FROM pg_catalog.mgr_node "
-					 "WHERE nodemasternameoid = %u "
-					 "AND nodeinited = %d::boolean "
-					 "AND nodeincluster = %d::boolean "
-					 "AND nodezone = '%s' ",
-					 masterOid,
-					 false,
-					 false,
-					 zone);
-	selectMgrNodes(sql.data, spiContext, resultList);
-	pfree(sql.data);
-}
 void selectNotActiveChildInZone(MemoryContext spiContext,
 								char *zone,
 								dlist_head *resultList)

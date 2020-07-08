@@ -312,11 +312,11 @@ extern Datum mgr_monitor_agent_hostlist(PG_FUNCTION_ARGS);
 
 extern Datum mgr_append_dnmaster(PG_FUNCTION_ARGS);
 extern Datum mgr_append_dnslave(PG_FUNCTION_ARGS);
-extern bool mgr_append_dn_slave_func(char *dnName);
+extern bool mgr_append_dn_slave_func(char *dnName, bool needCheckIncluster);
 extern Datum mgr_append_coordmaster(PG_FUNCTION_ARGS);
 extern Datum mgr_append_agtmslave(PG_FUNCTION_ARGS);
 
-extern bool mgr_append_agtm_slave_func(char *gtmname);
+extern bool mgr_append_agtm_slave_func(char *gtmname, bool needCheckIncluster);
 
 extern Datum mgr_list_acl_all(PG_FUNCTION_ARGS);
 extern Datum mgr_priv_manage(PG_FUNCTION_ARGS);

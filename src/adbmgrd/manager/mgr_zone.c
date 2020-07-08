@@ -932,15 +932,17 @@ static void MgrInitChildNodes(MemoryContext spiContext,
 	MgrNodeWrapper 		*slaveNode = NULL;
 
 	dlist_init(&slaveNodes);
-	selectNotActiveChildInZoneOid(spiContext,
-									mgrNode->oid,
-									zone,
-									&slaveNodes);
+	selectChildNodesInZone(spiContext,
+							mgrNode->oid,
+							zone,
+							&slaveNodes);
 	dlist_foreach(iter, &slaveNodes)
 	{
 		slaveNode = dlist_container(MgrNodeWrapper, link, iter.cur);
 		Assert(slaveNode);
-		MgrAppendNode(slaveNode, num, total);
+		if (!slaveNode->form.nodeincluster){
+			MgrAppendNode(slaveNode, num, total);
+		}
 		MgrInitChildNodes(spiContext, 
 						  slaveNode, 
 						  zone,
@@ -962,7 +964,7 @@ static void MgrAppendNode(MgrNodeWrapper  *node,
 	
 	if (mgrNode->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
 	{
-		if (mgr_append_agtm_slave_func(NameStr(mgrNode->nodename))){
+		if (mgr_append_agtm_slave_func(NameStr(mgrNode->nodename), false)){
 			ereportNoticeLog(errmsg("append gtmcoord slave %s success, progress is %d/%d.", NameStr(mgrNode->nodename), *num, total));		
 		}
 		else{
@@ -983,7 +985,7 @@ static void MgrAppendNode(MgrNodeWrapper  *node,
 	}
 	else if (mgrNode->nodetype == CNDN_TYPE_DATANODE_SLAVE)
 	{
-		if (mgr_append_dn_slave_func(NameStr(mgrNode->nodename))){
+		if (mgr_append_dn_slave_func(NameStr(mgrNode->nodename), false)){
 			ereportNoticeLog(errmsg("append datanode slave %s success, progress is %d/%d.", NameStr(mgrNode->nodename), *num, total));		
 		}
 		else{
