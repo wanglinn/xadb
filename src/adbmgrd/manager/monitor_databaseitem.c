@@ -228,6 +228,7 @@ Datum monitor_databaseitem_insert_data(PG_FUNCTION_ARGS)
 	Relation rel;
 	Relation rel_node;
 	StringInfoData sqldbsizeStrData;
+	StringInfoData sqldbageStrData;
 	StringInfoData sqllocksStrData;
 	StringInfoData sqlstr_heaphit_read_indexsize;
 	StringInfoData sqlstr_commit_connect_longidle_prepare;
@@ -263,6 +264,7 @@ Datum monitor_databaseitem_insert_data(PG_FUNCTION_ARGS)
 		longtransmintime = monitor_threshold.threshold_warning;
 	}
 	initStringInfo(&sqldbsizeStrData);
+	initStringInfo(&sqldbageStrData);
 	initStringInfo(&sqllocksStrData);
 	initStringInfo(&sqlstr_heaphit_read_indexsize);
 	initStringInfo(&sqlstr_commit_connect_longidle_prepare);
@@ -359,24 +361,28 @@ Datum monitor_databaseitem_insert_data(PG_FUNCTION_ARGS)
 		if(bfrist)
 		{
 			/*these vars just need get one time, from coordinator*/
-			char *sqlstr_vacuum_archive_dbage = "select case when setting = \'on\' then 1 else 0 end from pg_settings where name=\'autovacuum\' union all select case when setting = \'on\' then 1 else 0 end from pg_settings where name=\'archive_mode\' union all select max(age(datfrozenxid)) from pg_database";
-			int64 iarray_vacuum_archive_dbage[3] = {0,0,0};
-			monitor_get_sqlvalues_one_node(agentport, sqlstr_vacuum_archive_dbage, user, hostaddress, coordport,DEFAULT_DB, iarray_vacuum_archive_dbage, 3);
+			char *sqlstr_vacuum_archive_dbage = "select case when setting = \'on\' then 1 else 0 end from pg_settings where name=\'autovacuum\' union all select case when setting = \'on\' then 1 else 0 end from pg_settings where name=\'archive_mode\'";
+			int64 iarray_vacuum_archive_dbage[2] = {0,0};
+			monitor_get_sqlvalues_one_node(agentport, sqlstr_vacuum_archive_dbage, user, hostaddress, coordport,DEFAULT_DB, iarray_vacuum_archive_dbage, 2);
 
 			bautovacuum = (iarray_vacuum_archive_dbage[0] == 0 ? false:true);
 			barchive = (iarray_vacuum_archive_dbage[1] == 0 ? false:true);
-			/*get database age*/
-			dbage = iarray_vacuum_archive_dbage[2];
 
 			/*standby delay*/
 			standbydelay = monitor_standbydelay(CNDN_TYPE_DATANODE_SLAVE);
 		}
+
+		/* get database transaction age on coordinator*/
+		appendStringInfo(&sqldbageStrData, "select age(datfrozenxid) from pg_database where datname=\'%s\';", dbname);
+		/*dbsize, unit MB*/
+		dbage = monitor_get_result_one_node(rel_node, sqldbageStrData.data, DEFAULT_DB, CNDN_TYPE_GTM_COOR_MASTER);
 
 		/*build tuple*/
 		tuple = monitor_build_database_item_tuple(rel, time, dbname, dbsize, barchive, bautovacuum, heaphitrate, commitrate, dbage, connectnum, standbydelay, locksnum, longquerynum, idlequerynum, preparenum, unusedindexnum, indexsize);
 		CatalogTupleInsert(rel, tuple);
 		heap_freetuple(tuple);
 		resetStringInfo(&sqldbsizeStrData);
+		resetStringInfo(&sqldbageStrData);
 		resetStringInfo(&sqllocksStrData);
 		resetStringInfo(&sqlstr_heaphit_read_indexsize);
 		resetStringInfo(&sqlstr_commit_connect_longidle_prepare);
