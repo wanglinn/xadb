@@ -2456,4 +2456,32 @@
   amoprighttype => 'oracle.rowid', amopstrategy => '1',
   amopopr => '=(oracle.rowid,oracle.rowid)', amopmethod => 'hash' },
 
+# btree raw_ops
+{ row_macros => 'ADB_GRAM_ORA',
+  amopfamily => 'btree/raw_ops', amoplefttype => 'oracle.raw',
+  amoprighttype => 'oracle.raw', amopstrategy => '1',
+  amopopr => '<(oracle.raw,oracle.raw)', amopmethod => 'btree' },
+{ row_macros => 'ADB_GRAM_ORA',
+  amopfamily => 'btree/raw_ops', amoplefttype => 'oracle.raw',
+  amoprighttype => 'oracle.raw', amopstrategy => '2',
+  amopopr => '<=(oracle.raw,oracle.raw)', amopmethod => 'btree' },
+{ row_macros => 'ADB_GRAM_ORA',
+  amopfamily => 'btree/raw_ops', amoplefttype => 'oracle.raw',
+  amoprighttype => 'oracle.raw', amopstrategy => '3',
+  amopopr => '=(oracle.raw,oracle.raw)', amopmethod => 'btree' },
+{ row_macros => 'ADB_GRAM_ORA',
+  amopfamily => 'btree/raw_ops', amoplefttype => 'oracle.raw',
+  amoprighttype => 'oracle.raw', amopstrategy => '4',
+  amopopr => '>=(oracle.raw,oracle.raw)', amopmethod => 'btree' },
+{ row_macros => 'ADB_GRAM_ORA',
+  amopfamily => 'btree/raw_ops', amoplefttype => 'oracle.raw',
+  amoprighttype => 'oracle.raw', amopstrategy => '5',
+  amopopr => '>(oracle.raw,oracle.raw)', amopmethod => 'btree' },
+
+# hash raw_ops
+{ row_macros => 'ADB_GRAM_ORA',
+  amopfamily => 'hash/raw_ops', amoplefttype => 'oracle.raw',
+  amoprighttype => 'oracle.raw', amopstrategy => '1',
+  amopopr => '=(oracle.raw,oracle.raw)', amopmethod => 'hash' },
+
 ]

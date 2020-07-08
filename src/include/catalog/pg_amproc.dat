@@ -1248,4 +1248,20 @@
   amprocfamily => 'hash/rowid_ops', amproclefttype => 'oracle.rowid',
   amprocrighttype => 'oracle.rowid', amprocnum => '1', amproc => 'rowid_hash' },
 
+{ row_macros => 'ADB_GRAM_ORA',
+  amprocfamily => 'btree/raw_ops', amproclefttype => 'oracle.raw',
+  amprocrighttype => 'oracle.raw', amprocnum => '1', amproc => 'byteacmp' },
+{ row_macros => 'ADB_GRAM_ORA',
+  amprocfamily => 'btree/raw_ops', amproclefttype => 'oracle.raw',
+  amprocrighttype => 'oracle.raw', amprocnum => '2',
+  amproc => 'bytea_sortsupport' },
+
+{ row_macros => 'ADB_GRAM_ORA',
+  amprocfamily => 'hash/raw_ops', amproclefttype => 'oracle.raw',
+  amprocrighttype => 'oracle.raw', amprocnum => '1', amproc => 'hashvarlena' },
+{ row_macros => 'ADB_GRAM_ORA',
+  amprocfamily => 'hash/raw_ops', amproclefttype => 'oracle.raw',
+  amprocrighttype => 'oracle.raw', amprocnum => '2',
+  amproc => 'hashvarlenaextended' },
+
 ]
