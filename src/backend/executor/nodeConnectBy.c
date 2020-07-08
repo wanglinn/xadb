@@ -1759,6 +1759,7 @@ void ExecReScanConnectBy(ConnectByState *node)
 	node->processing_root = true;
 	node->level = 1L;
 	node->check_start_state = START_WITH_UNCHECK;
+	node->cur_rownum = 0;
 }
 
 static TupleTableSlot* ExecNestConnectByStartWith(ConnectByState *ps, uint32 input_rownum_index)
@@ -1942,6 +1943,7 @@ static TupleTableSlot *InsertRootHashValue(ConnectByState *cbstate, TupleTableSl
 	}
 
 	/* append an unique id */
+	slot_getallattrs(slot);
 	if (slot == cbstate->inner_slot)
 	{
 		/* calling from rescan */
@@ -1949,7 +1951,6 @@ static TupleTableSlot *InsertRootHashValue(ConnectByState *cbstate, TupleTableSl
 	}else
 	{
 		input_slot = ExecClearTuple(state->input_slot);
-		slot_getallattrs(slot);
 		memcpy(input_slot->tts_values, slot->tts_values, sizeof(slot->tts_values[0])*slot->tts_nvalid);
 		memcpy(input_slot->tts_isnull, slot->tts_isnull, sizeof(slot->tts_isnull[0])*slot->tts_nvalid);
 		input_slot->tts_values[state->input_rownum_index] = Int64GetDatum(cbstate->cur_rownum);
