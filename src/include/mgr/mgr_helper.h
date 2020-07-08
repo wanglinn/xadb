@@ -368,10 +368,6 @@ extern void selectChildNodesInZone(MemoryContext spiContext,
 									Oid masterOid,
 									char *zone,
 									dlist_head *resultList);
-extern void selectNotActiveChildInZoneOid(MemoryContext spiContext,
-											Oid masterOid,
-											char *zone,
-											dlist_head *resultList);
 extern void selectNotActiveChildInZone(MemoryContext spiContext,
 									char *zone,
 									dlist_head *resultList);											

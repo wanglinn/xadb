@@ -4524,7 +4524,7 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		result = mgr_append_dn_slave_func(dnName);
+		result = mgr_append_dn_slave_func(dnName, true);
 	}PG_CATCH();
 	{
 		PG_RE_THROW();
@@ -4540,7 +4540,7 @@ Datum mgr_append_dnslave(PG_FUNCTION_ARGS)
 	return HeapTupleGetDatum(tup_result);
 }
 
-bool mgr_append_dn_slave_func(char *dnName)
+bool mgr_append_dn_slave_func(char *dnName, bool needCheckIncluster)
 {
 	AppendNodeInfo appendnodeinfo;
 	AppendNodeInfo parentnodeinfo;
@@ -4584,12 +4584,12 @@ bool mgr_append_dn_slave_func(char *dnName)
 		mgr_get_appendnodeinfo(CNDN_TYPE_DATANODE_SLAVE, nodename.data, &appendnodeinfo);
 		rel = table_open(NodeRelationId, AccessShareLock);
 		if (strcmp(NameStr(appendnodeinfo.sync_state), sync_state_tab[SYNC_STATE_POTENTIAL].name) == 0
-			&& (!mgr_check_syncstate_node_exist(rel, appendnodeinfo.nodemasteroid, SYNC_STATE_SYNC, appendnodeinfo.tupleoid, true, NameStr(appendnodeinfo.nodezone))))
+			&& (!mgr_check_syncstate_node_exist(rel, appendnodeinfo.nodemasteroid, SYNC_STATE_SYNC, appendnodeinfo.tupleoid, needCheckIncluster, NameStr(appendnodeinfo.nodezone))))
 		{
 			pfree(getAgentCmdRst.description.data);
 			pfree(infosendmsg.data);
 			table_close(rel, AccessShareLock);
-			ereport(ERROR, (errmsg("datanode master \"%s\" has no sync slave node, can not append this node as potential node", NameStr(nodename))));
+			ereport(ERROR, (errmsg("datanode \"%s\" has no sync slave node, can not append this node as potential node", NameStr(nodename))));
 		}
 		table_close(rel, AccessShareLock);
 		mgr_get_parent_appendnodeinfo(appendnodeinfo.nodemasteroid, &parentnodeinfo);
@@ -4963,7 +4963,7 @@ Datum mgr_append_agtmslave(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		result = mgr_append_agtm_slave_func(gtmname);
+		result = mgr_append_agtm_slave_func(gtmname, true);
 	}PG_CATCH();
 	{
 		PG_RE_THROW();
@@ -4978,7 +4978,7 @@ Datum mgr_append_agtmslave(PG_FUNCTION_ARGS)
 
 	return HeapTupleGetDatum(tup_result);
 }
-bool mgr_append_agtm_slave_func(char *gtmname)
+bool mgr_append_agtm_slave_func(char *gtmname, bool needCheckIncluster)
 {
 	AppendNodeInfo appendnodeinfo;
 	AppendNodeInfo agtm_m_nodeinfo;
@@ -5022,7 +5022,7 @@ bool mgr_append_agtm_slave_func(char *gtmname)
 		mgr_get_appendnodeinfo(CNDN_TYPE_GTM_COOR_SLAVE, nodename.data, &appendnodeinfo);
 		rel = table_open(NodeRelationId, AccessShareLock);
 		if (strcmp(NameStr(appendnodeinfo.sync_state), sync_state_tab[SYNC_STATE_POTENTIAL].name) == 0
-			&& (!mgr_check_syncstate_node_exist(rel, appendnodeinfo.nodemasteroid, SYNC_STATE_SYNC, appendnodeinfo.tupleoid, true, NameStr(appendnodeinfo.nodezone))))
+			&& (!mgr_check_syncstate_node_exist(rel, appendnodeinfo.nodemasteroid, SYNC_STATE_SYNC, appendnodeinfo.tupleoid, needCheckIncluster, NameStr(appendnodeinfo.nodezone))))
 		{
 			pfree(getAgentCmdRst.description.data);
 			pfree(infosendmsg.data);
