@@ -296,6 +296,8 @@
 { cvtkind => 'o', cvtname => '=', cvtfrom => 'numeric bpchar', cvtto => 'numeric numeric' },
 { cvtkind => 'o', cvtname => '=', cvtfrom => 'int2 bpchar ', cvtto => 'numeric numeric' },
 { cvtkind => 'o', cvtname => '=', cvtfrom => 'timestamptz oracle.varchar2', cvtto => 'timestamptz timestamptz' },
+{ cvtkind => 'o', cvtname => '=', cvtfrom => 'oracle.raw unknown', cvtto => 'oracle.raw oracle.raw' },
+{ cvtkind => 'o', cvtname => '=', cvtfrom => 'oracle.raw 0', cvtto => 'oracle.raw oracle.raw' },
 
 { cvtkind => 'o', cvtname => '!=', cvtfrom => 'char float4', cvtto => 'float4 float4' },
 { cvtkind => 'o', cvtname => '!=', cvtfrom => 'char int4', cvtto => 'numeric numeric' },
@@ -526,6 +528,9 @@
 { cvtkind => 'o', cvtname => '~~', cvtfrom => 'numeric float4', cvtto => 'numeric text' },
 { cvtkind => 'o', cvtname => '~~', cvtfrom => 'numeric int8', cvtto => 'numeric text' },
 { cvtkind => 'o', cvtname => '~~', cvtfrom => '0 0', cvtto => 'text text' },
+{ cvtkind => 'o', cvtname => '~~', cvtfrom => 'oracle.raw unknown', cvtto => 'oracle.raw oracle.raw' },
+{ cvtkind => 'o', cvtname => '~~', cvtfrom => 'oracle.raw 0', cvtto => 'oracle.raw oracle.raw' },
+{ cvtkind => 'o', cvtname => '~~', cvtfrom => '0 oracle.raw', cvtto => 'oracle.raw oracle.raw' },
 
 { cvtkind => 'o', cvtname => '!~~', cvtfrom => 'char text', cvtto => 'bytea bytea' },
 { cvtkind => 'o', cvtname => '!~~', cvtfrom => 'char char', cvtto => 'bytea bytea' },
@@ -648,6 +653,9 @@
 { cvtkind => 'o', cvtname => '!~~', cvtfrom => 'oracle.date oracle.varchar2', cvtto => 'text text' },
 { cvtkind => 'o', cvtname => '!~~', cvtfrom => 'oracle.date oracle.date', cvtto => 'text text' },
 { cvtkind => 'o', cvtname => '!~~', cvtfrom => '0 0', cvtto => 'text text' },
+{ cvtkind => 'o', cvtname => '!~~', cvtfrom => 'oracle.raw unknown', cvtto => 'oracle.raw oracle.raw' },
+{ cvtkind => 'o', cvtname => '!~~', cvtfrom => 'oracle.raw 0', cvtto => 'oracle.raw oracle.raw' },
+{ cvtkind => 'o', cvtname => '!~~', cvtfrom => '0 oracle.raw', cvtto => 'oracle.raw oracle.raw' },
 
 # common combin
 { cvtkind => 'c', cvtname => '', cvtfrom => 'oracle.varchar2 varchar',			cvtto => 'oracle.varchar2' },

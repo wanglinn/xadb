@@ -519,4 +519,11 @@
 { row_macros => 'ADB_GRAM_ORA && !ADB',
   castsource => 'tid', casttarget => 'oracle.rowid', castfunc => '0',
   castcontext => 'a', castmethod => 'b' },
+
+{ row_macros => 'ADB_GRAM_ORA',
+  castsource => 'oracle.raw', casttarget => 'bytea', castfunc => '0',
+  castcontext => 'a', castmethod => 'b' },
+{ row_macros => 'ADB_GRAM_ORA',
+  castsource => 'bytea', casttarget => 'oracle.raw', castfunc => '0',
+  castcontext => 'a', castmethod => 'b' },
 ]

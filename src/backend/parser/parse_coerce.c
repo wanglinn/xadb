@@ -289,7 +289,12 @@ coerce_type(ParseState *pstate, Node *node,
 		 * or it won't be able to obey the bizarre SQL-spec input rules. (Ugly
 		 * as sin, but so is this part of the spec...)
 		 */
-		if (baseTypeId == INTERVALOID)
+
+		if (baseTypeId == INTERVALOID
+#ifdef ADB_GRAM_ORA
+			|| baseTypeId == ORACLE_RAWOID
+#endif	/* ADB_GRAM_ORA */
+		)
 			inputTypeMod = baseTypeMod;
 		else
 			inputTypeMod = -1;

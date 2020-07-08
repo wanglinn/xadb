@@ -350,4 +350,11 @@
   opcmethod => 'hash', opcname => 'rowid_ops', opcnamespace => 'ORANSP',
   opcfamily => 'hash/rowid_ops', opcintype => 'oracle.rowid' },
 
+{ row_macros => 'ADB_GRAM_ORA',
+  opcmethod => 'btree', opcname => 'raw_ops', opcnamespace => 'ORANSP',
+  opcfamily => 'btree/raw_ops', opcintype => 'oracle.raw' },
+{ row_macros => 'ADB_GRAM_ORA',
+  opcmethod => 'hash', opcname => 'raw_ops', opcnamespace => 'ORANSP',
+  opcfamily => 'hash/raw_ops', opcintype => 'oracle.raw' },
+
 ]
