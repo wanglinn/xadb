@@ -596,7 +596,7 @@
   typreceive => '-', typsend => '-', typalign => 'd', typstorage => 'x' },
 
 # ADB_BEGIN_GRAM_ORA
-# rowid's typlen while change by genbki.pl
+# rowid's typlen and typalign while change by genbki.pl
 { oid => '9122', row_macros => 'ADB_GRAM_ORA',
   descr => 'physical location of tuple, like oracle\'s rowid',
   typname => 'rowid', typnamespace => 'ORANSP', typlen => '0', typbyval => 'f',
@@ -621,7 +621,7 @@
   typname => '_date', typnamespace => 'ORANSP', typlen => '-1', typbyval => 'f',
   typcategory => 'A', typelem => 'oracle.date', typinput => 'array_in',
   typoutput => 'array_out', typreceive => 'array_recv', typsend => 'array_send',
-  typanalyze => 'array_typanalyze', typalign => 'i', typstorage => 'x' },
+  typanalyze => 'array_typanalyze', typalign => 'd', typstorage => 'x' },
 { oid => '9129', row_macros => 'ADB_GRAM_ORA',
   descr => 'oracle varchar2(length)',
   typname => 'varchar2', typnamespace => 'ORANSP', typlen => '-1',
