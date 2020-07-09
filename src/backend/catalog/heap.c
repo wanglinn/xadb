@@ -290,7 +290,11 @@ static const FormData_pg_attribute a_rowid = {
 	.attcacheoff = -1,
 	.atttypmod = -1,
 	.attstorage = 'p',
+#ifdef ADB
 	.attalign = 'i',
+#else
+	.attalign = 's',
+#endif
 	.attnotnull = true,
 	.attislocal = true,
 };

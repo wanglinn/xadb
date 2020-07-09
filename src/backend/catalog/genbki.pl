@@ -139,9 +139,11 @@ foreach my $header (@ARGV)
 					if ($enable_cluster eq 'yes')
 					{
 						$row->{typlen} = 10;
+						$row->{typalign} = 'i';
 					}else
 					{
 						$row->{typlen} = 6;
+						$row->{typalign} = 's';
 					}
 					last;
 				}
