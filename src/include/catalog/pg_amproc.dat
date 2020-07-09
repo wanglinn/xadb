@@ -1250,18 +1250,18 @@
 
 { row_macros => 'ADB_GRAM_ORA',
   amprocfamily => 'btree/raw_ops', amproclefttype => 'oracle.raw',
-  amprocrighttype => 'oracle.raw', amprocnum => '1', amproc => 'byteacmp' },
+  amprocrighttype => 'oracle.raw', amprocnum => '1', amproc => 'oracle.rawcmp' },
 { row_macros => 'ADB_GRAM_ORA',
   amprocfamily => 'btree/raw_ops', amproclefttype => 'oracle.raw',
   amprocrighttype => 'oracle.raw', amprocnum => '2',
-  amproc => 'bytea_sortsupport' },
+  amproc => 'oracle.raw_sortsupport' },
 
 { row_macros => 'ADB_GRAM_ORA',
   amprocfamily => 'hash/raw_ops', amproclefttype => 'oracle.raw',
-  amprocrighttype => 'oracle.raw', amprocnum => '1', amproc => 'hashvarlena' },
+  amprocrighttype => 'oracle.raw', amprocnum => '1', amproc => 'oracle.raw_hashvarlena' },
 { row_macros => 'ADB_GRAM_ORA',
   amprocfamily => 'hash/raw_ops', amproclefttype => 'oracle.raw',
   amprocrighttype => 'oracle.raw', amprocnum => '2',
-  amproc => 'hashvarlenaextended' },
+  amproc => 'oracle.raw_hashvarlenaextended' },
 
 ]
