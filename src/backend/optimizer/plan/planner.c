@@ -2936,7 +2936,6 @@ not_cluster_insert_path_:
 		have_gather = have_cluster_gather_path(path);
 		/* create limit path if we can */
 		if (planner_need_limit &&				/* need limit */
-			parse->sortClause == NULL &&		/* have no order by */
 			parse->commandType == CMD_SELECT &&	/* not a modify sql */
 			!have_gather &&						/* limit at datanode */
 			parse->limitOffset == NULL)			/* must have no offset */
