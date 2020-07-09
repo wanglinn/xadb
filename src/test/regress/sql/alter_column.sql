@@ -16,10 +16,6 @@ drop table tt;
 create table tt(tid int,name varchar(2),tel char(10));
 alter table tt drop(name,tel);
 drop table tt;
---删除分片键列
-create table tt(name char(2),tid int);
-alter table tt drop column name;
-drop table tt;
 --修改列
 create table tt(tid int,name varchar(2));
 alter table tt modify name char(10);
