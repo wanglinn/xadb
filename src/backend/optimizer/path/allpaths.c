@@ -795,25 +795,6 @@ set_rel_consider_parallel(PlannerInfo *root, RelOptInfo *rel,
 	rel->consider_parallel = true;
 }
 
-#ifdef ADB
-static void recost_plain_path(Path *path, ReduceInfo *rinfo)
-{
-	if (rinfo->exclude_exec == NIL &&	/* not hin distribute key */
-		path->pathtype == T_SeqScan)	/* not IndexScan,TidScan... */
-	{
-		Cost run_cost = path->total_cost - path->startup_cost;
-		path->total_cost = path->startup_cost + run_cost / list_length(rinfo->storage_nodes);
-
-		if (path->rows >= 1.0)			/* avoid final rows is zero */
-		{
-			path->rows /= list_length(rinfo->storage_nodes);
-			if (path->rows < 1.0)
-				path->rows = 1.0;
-		}
-	}
-}
-#endif /* ADB */
-
 /*
  * set_plain_rel_pathlist
  *	  Build access paths for a plain relation (no subquery, no inheritance)
@@ -931,6 +912,16 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 		{
 			current_rel = rel;
 		}
+#ifdef ADB
+		if (current_rel->rows >= 1.0)			/* avoid final rows is zero */
+		{
+			current_rel->rows /= list_length(rinfo->storage_nodes);
+			if (current_rel->rows < 1.0)
+				current_rel->rows = 1.0;
+			
+			current_rel->rows = clamp_row_est(current_rel->rows);
+		}
+#endif
 
 		add_path(current_rel, create_seqscan_path(root, current_rel, required_outer, 0));
 
@@ -952,8 +943,6 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			path = lfirst(lc);
 
 			set_path_reduce_info_worker(path, reduce_info_list);
-
-			recost_plain_path(path, rinfo);
 		}
 
 		/* same idea to recost partial pathlist */
@@ -962,8 +951,6 @@ set_plain_rel_pathlist(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte)
 			path = lfirst(lc);
 
 			set_path_reduce_info_worker(path, reduce_info_list);
-
-			recost_plain_path(path, rinfo);
 		}
 
 		if (exec_param_clauses)
