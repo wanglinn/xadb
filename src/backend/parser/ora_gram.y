@@ -180,7 +180,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %type <ielem>	index_elem
 
 %type <list>	stmtblock stmtmulti opt_column_list columnList alter_table_cmds
-				OptRoleList convert_type_list  type_list
+				OptRoleList convert_type_list  type_list drop_col_list modify_col_list
 
 %type <list>	OptSeqOptList SeqOptList
 /* %type <list>	NumericOnly_list */
@@ -192,7 +192,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %type <str>		generic_option_name
 %type <node>	generic_option_arg
 
-%type <node>	stmt ViewStmt alter_table_cmd
+%type <node>	stmt ViewStmt alter_table_cmd drop_col_item modify_col_item
 
 %type <node>	TableConstraint TableLikeClause
 
@@ -1287,8 +1287,8 @@ AlterTableStmt:
 		;
 
 alter_table_cmds:
-			alter_table_cmd							{ $$ = list_make1($1); }
-			| alter_table_cmds ',' alter_table_cmd	{ $$ = lappend($1, $3); }
+			alter_table_cmd							{ $$ = IsA($1, List) ? (List*)$1 : list_make1($1); }
+			| alter_table_cmds ',' alter_table_cmd	{ $$ = IsA($3, List) ? list_concat($1, (List*)$3) : lappend($1, $3); }
 		;
 
 alter_table_cmd:
@@ -1389,6 +1389,10 @@ alter_table_cmd:
 					n->missing_ok = false;
 					$$ = (Node *)n;
 				}
+			| DROP opt_column '(' drop_col_list ')'
+				{
+					$$ = (Node*)$4;
+				}
 			/*
 			 * ALTER TABLE <name> ALTER [COLUMN] <colname> [SET DATA] TYPE <typename>
 			 *		[ USING <expression> ]
@@ -1406,18 +1410,21 @@ alter_table_cmd:
 					def->raw_default = $8;
 					$$ = (Node *)n;
 				}
-			| MODIFY opt_column ColId Typename opt_collate_clause alter_using
+			| MODIFY opt_column modify_col_item
+				{
+					$$ = $3;
+				}
+			| MODIFY opt_column '(' modify_col_list ')'
+				{
+					$$ = (Node*)$4;
+				}
+			| MODIFY opt_column ColId DEFAULT '(' a_expr ')'
 				{
 					AlterTableCmd *n = makeNode(AlterTableCmd);
-					ColumnDef *def = makeNode(ColumnDef);
-					n->subtype = AT_AlterColumnType;
+					n->subtype = AT_ColumnDefault;
 					n->name = $3;
-					n->def = (Node *) def;
-					/* We only use these three fields of the ColumnDef node */
-					def->typeName = $4;
-					def->collClause = (CollateClause *) $5;
-					def->raw_default = $6;
-					$$ = (Node *)n;
+					n->def = $6;
+					$$ = (Node*)n;
 				}
 			/* ALTER FOREIGN TABLE <name> ALTER [COLUMN] <colname> OPTIONS */
 			| ALTER opt_column ColId alter_generic_options
@@ -1748,6 +1755,52 @@ generic_option_name:
 generic_option_arg:
 				Sconst				{ $$ = (Node *) makeString($1); }
 		;
+
+drop_col_list:
+			drop_col_item							{ $$ = list_make1($1); }
+			| drop_col_list ',' drop_col_item		{ $$ = lappend($1, $3); }
+		;
+
+drop_col_item:
+			  IF_P EXISTS ColId opt_drop_behavior
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_DropColumn;
+					n->name = $3;
+					n->behavior = $4;
+					n->missing_ok = true;
+					$$ = (Node *)n;
+				}
+			| ColId opt_drop_behavior
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_DropColumn;
+					n->name = $1;
+					n->behavior = $2;
+					n->missing_ok = true;
+					$$ = (Node *)n;
+				}
+		;
+
+modify_col_list:
+			modify_col_item							{ $$ = list_make1($1); }
+			| modify_col_list ',' modify_col_item	{ $$ = lappend($1, $3); }
+		;
+
+modify_col_item: ColId Typename opt_collate_clause alter_using
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					ColumnDef *def = makeNode(ColumnDef);
+					n->subtype = AT_AlterColumnType;
+					n->name = $1;
+					n->def = (Node *) def;
+					/* We only use these three fields of the ColumnDef node */
+					def->typeName = $2;
+					def->collClause = (CollateClause *) $3;
+					def->raw_default = $4;
+					$$ = (Node *)n;
+				}
+			;
 
 opt_collate_clause:
 			COLLATE any_name
