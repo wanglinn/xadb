@@ -282,6 +282,11 @@ static bool mgrCheckNodeIsExclude(List *nodeNamelist, char *excludeNodeName);
 static void mgr_make_sure_all_running_exclude(char node_type, 
 												char *zone, 
 												List *excludeNodeNamelist);
+static void MgrQueryStatReplicationSlave(Form_mgr_node childNode, 
+										 NameData *name);									 
+static HeapTuple MgrQueryStatReplicationMaster(Oid masterOid, 
+												Form_mgr_node nodeSlave, 
+												NameData *nameSlave);																					
 
 #if (Natts_mgr_node != 12)
 #error "need change code"
@@ -13544,22 +13549,14 @@ Datum mgr_monitor_ha_zone(PG_FUNCTION_ARGS)
 }
 static Datum mgr_monitor_ha_common(PG_FUNCTION_ARGS, char *zone)
 {
-	InitNodeInfo *info;
-	StringInfoData sqlstrdata;
-	StringInfoData resultstrdata;
-	HeapTuple mastertuple;
-	HeapTuple out;
-	HeapTuple tuple;
-	HeapTuple hosttuple;
-	Form_mgr_node mgr_node;
-	Form_mgr_node mgr_node_m;
-	Form_mgr_host mgr_host;
-	NameData name[12];
+	InitNodeInfo 	*info;
+	HeapTuple 		out;
+	HeapTuple 		tuple;
+	Form_mgr_node 	nodeSlave;
 	FuncCallContext *funcctx;
-	ScanKeyData key[1];
-	int i = 0;
-	char *ptr;
-	char *address;
+	ScanKeyData 	key[1];
+	Oid             masterOid = 0;
+	NameData 		name[6];
 
 	if (SRF_IS_FIRSTCALL())
 	{
@@ -13587,75 +13584,166 @@ static Datum mgr_monitor_ha_common(PG_FUNCTION_ARGS, char *zone)
 	info = funcctx->user_fctx;
 	Assert(info);
 
-	initStringInfo(&resultstrdata);
-	initStringInfo(&sqlstrdata);
 	while((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		if (CNDN_TYPE_GTM_COOR_SLAVE != mgr_node->nodetype && CNDN_TYPE_DATANODE_SLAVE != mgr_node->nodetype 
-			&& CNDN_TYPE_COORDINATOR_SLAVE != mgr_node->nodetype)
+		nodeSlave = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(nodeSlave);		
+		if (pg_strcasecmp(NameStr(nodeSlave->nodezone), zone) != 0 && strlen(zone) > 0)
 			continue;
-		if (pg_strcasecmp(NameStr(mgr_node->nodezone), zone) != 0 && strlen(zone) > 0)
-			continue;
-			
-		/*get master port, ip, and agent_port*/
-		mastertuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(mgr_node->nodemasternameoid));
-		if (!HeapTupleIsValid(mastertuple))
-			continue;
-		mgr_node_m = (Form_mgr_node)GETSTRUCT(mastertuple);
-		Assert(mgr_node_m);
-		hosttuple = SearchSysCache1(HOSTHOSTOID, ObjectIdGetDatum(mgr_node_m->nodehost));
-		mgr_host = (Form_mgr_host)GETSTRUCT(hosttuple);
-		address = get_hostaddress_from_hostoid(mgr_node_m->nodehost);
-		resetStringInfo(&resultstrdata);
-		resetStringInfo(&sqlstrdata);
-		appendStringInfo(&sqlstrdata, "select application_name, client_addr, state, \
-		pg_walfile_name_offset(sent_lsn) as sent_lsn , pg_walfile_name_offset(replay_lsn) as \
-		replay_lsn, sync_state, pg_walfile_name_offset(pg_current_wal_insert_lsn()) as \
-		master_lsn, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_insert_lsn(),sent_lsn)) \
-		sent_delay,pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_insert_lsn(),replay_lsn)) \
-		replay_delay  from pg_stat_replication where application_name='%s';"
-			, NameStr(mgr_node->nodename));
-
-		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, mgr_host->hostagentport, sqlstrdata.data, NameStr(mgr_host->hostuser), address, mgr_node_m->nodeport, DEFAULT_DB, &resultstrdata);
-		pfree(address);
-		ReleaseSysCache(mastertuple);
-		ReleaseSysCache(hosttuple);
-		if (mgr_node->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-			namestrcpy(&name[0], "gtmcoord slave");
-		else if (mgr_node->nodetype == CNDN_TYPE_DATANODE_SLAVE)
-			namestrcpy(&name[0], "datanode slave");
-		else if (mgr_node->nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
-			namestrcpy(&name[0], "coordinator slave");
-		else
-			namestrcpy(&name[0], "unknown nodetype");
-
-		namestrcpy(&name[1], NameStr(mgr_node->nodename));
-		namestrcpy(&name[11], NameStr(mgr_node->nodezone));
-		ptr = resultstrdata.data;
-		for(i=0; i<9; i++)
+		if (isSlaveNode(nodeSlave->nodetype, true))
 		{
-			if (*ptr)
-				namestrcpy(&name[i+2], ptr);
-			else
-				namestrcpy(&name[i+2], "");
-			if (*ptr)
-				ptr = ptr+strlen(name[i+2].data)+1;
+			memset(&name, 0x00, sizeof(NameData)*6);
+			MgrQueryStatReplicationSlave(nodeSlave, name);
+
+			masterOid = MgrGetRootNodeOid(HeapTupleGetOid(tuple));
+			out = MgrQueryStatReplicationMaster(masterOid, nodeSlave, name);
+			SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(out));
 		}
-		if (strcmp(NameStr(name[4]), "") == 0)
-			namestrcpy(&name[4], "down");
-		out = build_ha_replication_tuple(&name[0], &name[1],&name[2],&name[3],&name[4],&name[5],&name[6],&name[7],&name[8],&name[9],&name[10],&name[11]);
-		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(out));
 	}
 
 	heap_endscan(info->rel_scan);
 	heap_close(info->rel_node, AccessShareLock);
 	pfree(info);
-	pfree(resultstrdata.data);
-	pfree(sqlstrdata.data);
 	SRF_RETURN_DONE(funcctx);
+}
+static void MgrQueryStatReplicationSlave(Form_mgr_node childNode, 
+										 NameData *name)
+{
+	StringInfoData 	sqlstrdata;
+	HeapTuple 		hosttuple;
+	Form_mgr_host 	mgrHost;
+	char 			*address;
+	char 			*ptr;
+	int          	i = 0;
+	Form_mgr_node 	parentNode = NULL;
+	StringInfoData 	resultstrdata;
+	HeapTuple 		parentTuple = NULL;
 
+	parentTuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(childNode->nodemasternameoid));
+	if (!HeapTupleIsValid(parentTuple))
+		ereport(ERROR, (errmsg("%s %s has no parent node, nodemasternameoid(%d).", 
+				mgr_get_nodetype_desc(childNode->nodetype), NameStr(childNode->nodename), childNode->nodemasternameoid)));
+	parentNode = (Form_mgr_node)GETSTRUCT(parentTuple);
+	Assert(parentNode);
+									
+	initStringInfo(&sqlstrdata);
+	appendStringInfo(&sqlstrdata, "select application_name, client_addr, state, sent_lsn, replay_lsn, sync_state  \
+								   from pg_stat_replication \
+								   where application_name='%s';" 
+								   ,NameStr(childNode->nodename));
+	hosttuple = SearchSysCache1(HOSTHOSTOID, ObjectIdGetDatum(parentNode->nodehost));
+	mgrHost = (Form_mgr_host)GETSTRUCT(hosttuple);
+	address = get_hostaddress_from_hostoid(parentNode->nodehost);
+	
+	initStringInfo(&resultstrdata);
+	monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, 
+							mgrHost->hostagentport, 
+							sqlstrdata.data,
+							NameStr(mgrHost->hostuser), 
+							address, 
+							parentNode->nodeport, 
+							DEFAULT_DB,
+							&resultstrdata);
+	ReleaseSysCache(parentTuple);
+	ReleaseSysCache(hosttuple);											
+	MgrFree(address);
+	ptr = resultstrdata.data;
+	for(i=0; i<6; i++)
+	{
+		if (*ptr)
+		{
+			namestrcpy(&name[i], ptr);
+			ptr = ptr+strlen(name[i].data)+1;
+		}			
+	}
+}
+static HeapTuple MgrQueryStatReplicationMaster(Oid masterOid,
+												Form_mgr_node nodeSlave, 
+												NameData *nameSlave)
+{
+	HeapTuple 		hosttuple;
+	Form_mgr_host 	mgrHost;
+	char 			*address;
+	char 			*ptr;
+	int          	i = 0;
+	NameData 		name[12];
+	StringInfoData 	sqlstrdata;
+	StringInfoData 	resultstrdata;
+	Form_mgr_node 	nodeMaster;
+	HeapTuple 		masterTuple = NULL;
+
+	initStringInfo(&sqlstrdata);
+	appendStringInfo(&sqlstrdata, "select application_name, client_addr, state, \
+					pg_walfile_name_offset(sent_lsn) as sent_lsn, \
+					pg_walfile_name_offset(replay_lsn) as replay_lsn, \
+					sync_state, \
+					pg_walfile_name_offset(pg_current_wal_insert_lsn()) as master_lsn, \
+					pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_insert_lsn(),sent_lsn)) sent_delay,\
+					pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_insert_lsn(),replay_lsn)) replay_delay \
+					from \
+					(select '%s' as application_name, \
+					'%s' as client_addr, \
+					'%s' as state, \
+					pg_lsn('%s') as sent_lsn, \
+					pg_lsn('%s') as replay_lsn, \
+					'%s' as sync_state) a \
+					where application_name='%s';", \
+					NameStr(nodeSlave->nodename),
+					NameStr(nameSlave[1]),
+					NameStr(nameSlave[2]),
+					NameStr(nameSlave[3]),
+					NameStr(nameSlave[4]),
+					NameStr(nameSlave[5]),
+					NameStr(nodeSlave->nodename));
+							
+	initStringInfo(&resultstrdata);
+	
+	masterTuple = SearchSysCache1(NODENODEOID, ObjectIdGetDatum(masterOid));
+	if (!HeapTupleIsValid(masterTuple))
+		ereport(ERROR, (errmsg("node(%d) is not exist.", masterOid)));
+	nodeMaster = (Form_mgr_node)GETSTRUCT(masterTuple);
+	Assert(nodeMaster);
+
+	hosttuple = SearchSysCache1(HOSTHOSTOID, ObjectIdGetDatum(nodeMaster->nodehost));
+	mgrHost = (Form_mgr_host)GETSTRUCT(hosttuple);
+	address = get_hostaddress_from_hostoid(nodeMaster->nodehost);
+
+	monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, 
+							mgrHost->hostagentport, 
+							sqlstrdata.data,
+							NameStr(mgrHost->hostuser), 
+							address, 
+							nodeMaster->nodeport,
+							DEFAULT_DB, 
+							&resultstrdata);
+	ReleaseSysCache(masterTuple);						
+	ReleaseSysCache(hosttuple);						
+	MgrFree(address);
+
+	if (nodeSlave->nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+		namestrcpy(&name[0], "gtmcoord slave");
+	else if (nodeSlave->nodetype == CNDN_TYPE_DATANODE_SLAVE)
+		namestrcpy(&name[0], "datanode slave");
+	else if (nodeSlave->nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
+		namestrcpy(&name[0], "coordinator slave");
+	else
+		namestrcpy(&name[0], "unknown nodetype");
+
+	namestrcpy(&name[1], NameStr(nodeSlave->nodename));
+	namestrcpy(&name[11], NameStr(nodeSlave->nodezone));
+	ptr = resultstrdata.data;
+	for(i=0; i<9; i++)
+	{
+		if (*ptr)
+			namestrcpy(&name[i+2], ptr);
+		else
+			namestrcpy(&name[i+2], "");
+		if (*ptr)
+			ptr = ptr+strlen(name[i+2].data)+1;
+	}
+	if (strcmp(NameStr(name[4]), "") == 0)
+		namestrcpy(&name[4], "down");
+	return build_ha_replication_tuple(&name[0], &name[1],&name[2],&name[3],&name[4],&name[5],&name[6],&name[7],&name[8],&name[9],&name[10],&name[11]);
 }
 
 void release_append_node_info(AppendNodeInfo *node_info, bool is_release)
