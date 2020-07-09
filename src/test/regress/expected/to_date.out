@@ -88,4 +88,4 @@ ERROR:  Date format picture ends before converting entire input string
 select to_date('20100202 10:23:59.890','yyyymmdd hh:mi:ss') from dual;
 ERROR:  Date format picture ends before converting entire input string
 select to_date('20100202 10:23:59.890','yyyymmdd hh:mi:ss.ff3') from dual;
-ERROR:  Date format not recognized
+ERROR:  The date format is not recognized.
