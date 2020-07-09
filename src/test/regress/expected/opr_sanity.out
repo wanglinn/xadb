@@ -145,8 +145,8 @@ WHERE p1.oid != p2.oid AND
     p1.pronargs = p2.pronargs AND
     p1.proargtypes = p2.proargtypes AND
     p1.pronamespace = p2.pronamespace;
-+ oid | proname | oid | proname 
-+-----+---------+-----+---------
+ oid | proname | oid | proname 
+-----+---------+-----+---------
 (0 rows)
 
 -- Considering only built-in procs (prolang = 12), look for multiple uses
@@ -1022,86 +1022,9 @@ order by 1;
 SELECT p1.oid, p1.proname
 FROM pg_proc AS p1
 WHERE provolatile = 'i' AND proparallel = 'u';
-  oid  |         proname         
--------+-------------------------
- 18520 | part_hashint4_noop
- 18525 | part_hashtext_length
- 13655 | bitand
- 13656 | bitand
- 13657 | nanvl
- 13658 | nanvl
- 13659 | sinh
- 13660 | sinh
- 13661 | cosh
- 13662 | cosh
- 13663 | tanh
- 13664 | tanh
- 13665 | instr
- 13666 | add_months
- 13667 | add_months
- 13668 | last_day
- 13669 | months_between
- 13670 | months_between
- 13671 | new_time
- 13672 | next_day
- 13673 | next_day
- 13674 | round
- 13675 | round
- 13676 | trunc
- 13677 | trunc
- 13678 | trunc
- 13679 | first
- 13680 | last
- 13687 | to_char
- 13688 | to_char
- 13689 | to_char
- 13690 | to_char
- 13691 | to_char
- 13692 | to_char
- 13693 | to_char
- 13694 | to_char
- 13695 | to_char
- 13696 | to_char
- 13697 | to_char
- 13698 | to_char
- 13706 | to_number
- 13707 | to_number
- 13708 | to_number
- 13709 | to_number
- 13710 | to_number
- 13711 | to_number
- 13712 | to_number
- 13713 | to_number
- 13714 | to_multi_byte
- 13715 | to_single_byte
- 13716 | substr
- 13717 | substr
- 13718 | dump
- 13719 | length
- 13720 | lengthb
- 13721 | substrb
- 13722 | substrb
- 13723 | strposb
- 13724 | remainder
- 13725 | sys_extract_utc
- 13727 | replace
- 13729 | put_line
- 13731 | sleep
- 13732 | round
- 13733 | trunc
- 13734 | sign
- 13735 | mod
- 13741 | mod
- 13742 | mod
- 13743 | mod
- 13726 | mod
- 13745 | initialize
- 13748 | seed
- 13749 | seed
- 13750 | string
- 13751 | terminate
- 13839 | raise_application_error
-(77 rows)
+ oid | proname 
+-----+---------
+(0 rows)
 
 -- **************** pg_cast ****************
 -- Catch bogus values in pg_cast columns (other than cases detected by
