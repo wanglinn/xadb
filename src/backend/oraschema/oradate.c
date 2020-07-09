@@ -841,7 +841,7 @@ ora_sys_now(PG_FUNCTION_ARGS)
 	TimestampTz tstz;
 	const char *tzval;
 
-	tstz = GetCurrentTransactionStartTimestamp();
+	tstz = GetCurrentTimestamp();
 	tzval = GetConfigOptionResetString("TimeZone");
 	Assert(tzval != NULL);
 
