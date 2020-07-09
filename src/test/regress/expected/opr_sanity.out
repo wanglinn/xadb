@@ -143,68 +143,11 @@ FROM pg_proc AS p1, pg_proc AS p2
 WHERE p1.oid != p2.oid AND
     p1.proname = p2.proname AND
     p1.pronargs = p2.pronargs AND
-    p1.proargtypes = p2.proargtypes;
-  oid  |    proname     |  oid  |    proname     
--------+----------------+-------+----------------
-   940 | mod            | 13741 | mod
-   941 | mod            | 13742 | mod
-   947 | mod            | 13743 | mod
-  1318 | length         | 13719 | length
-  1598 | random         | 13747 | random
-  2462 | sinh           | 13660 | sinh
-  2463 | cosh           | 13662 | cosh
-  2464 | tanh           | 13664 | tanh
-   873 | lpad           |  8907 | lpad
-   874 | rpad           |  8909 | rpad
-   877 | substr         | 13717 | substr
-   878 | translate      |  5360 | translate
-   879 | lpad           |  8908 | lpad
-   880 | rpad           |  8910 | rpad
-   883 | substr         | 13716 | substr
-  2087 | replace        |  5405 | replace
-  2284 | regexp_replace |  5341 | regexp_replace
-  1728 | mod            | 13726 | mod
-  1770 | to_char        | 13703 | to_char
-  1772 | to_char        | 13698 | to_char
-  1773 | to_char        | 13690 | to_char
-  1774 | to_char        | 13692 | to_char
-  1775 | to_char        | 13694 | to_char
-  1776 | to_char        | 13696 | to_char
-  1777 | to_number      | 13707 | to_number
-  1778 | to_timestamp   | 13684 | to_timestamp
-  1780 | to_date        | 13682 | to_date
-  1768 | to_char        | 13705 | to_char
-  2049 | to_char        | 13701 | to_char
-  5341 | regexp_replace |  2284 | regexp_replace
-  5360 | translate      |   878 | translate
-  5405 | replace        |  2087 | replace
-  8907 | lpad           |   873 | lpad
-  8909 | rpad           |   874 | rpad
-  8908 | lpad           |   879 | lpad
-  8910 | rpad           |   880 | rpad
- 13660 | sinh           |  2462 | sinh
- 13662 | cosh           |  2463 | cosh
- 13664 | tanh           |  2464 | tanh
- 13682 | to_date        |  1780 | to_date
- 13684 | to_timestamp   |  1778 | to_timestamp
- 13690 | to_char        |  1773 | to_char
- 13692 | to_char        |  1774 | to_char
- 13694 | to_char        |  1775 | to_char
- 13696 | to_char        |  1776 | to_char
- 13698 | to_char        |  1772 | to_char
- 13701 | to_char        |  2049 | to_char
- 13703 | to_char        |  1770 | to_char
- 13705 | to_char        |  1768 | to_char
- 13707 | to_number      |  1777 | to_number
- 13716 | substr         |   883 | substr
- 13717 | substr         |   877 | substr
- 13719 | length         |  1318 | length
- 13741 | mod            |   940 | mod
- 13742 | mod            |   941 | mod
- 13743 | mod            |   947 | mod
- 13726 | mod            |  1728 | mod
- 13747 | random         |  1598 | random
-(58 rows)
+    p1.proargtypes = p2.proargtypes AND
+    p1.pronamespace = p2.pronamespace;
++ oid | proname | oid | proname 
++-----+---------+-----+---------
+(0 rows)
 
 -- Considering only built-in procs (prolang = 12), look for multiple uses
 -- of the same internal function (ie, matching prosrc fields).  It's OK to
