@@ -409,6 +409,8 @@ text_todate(PG_FUNCTION_ARGS)
 	text *txt = PG_GETARG_TEXT_P_IF_NULL(0);
 	text *fmt = PG_GETARG_TEXT_P_IF_NULL(1);
 	Datum result;
+	char *cfmt;
+	char *p;
 
 	/* return null if input txt is null */
 	if (!txt)
@@ -426,6 +428,16 @@ text_todate(PG_FUNCTION_ARGS)
 
 	if(fmt)
 	{
+		cfmt = text_to_cstring(fmt);
+		p = cfmt;
+		/* check fmt */
+		while (*p != '\0')
+		{
+			if (*p == 'f' || *p++ == 'F')
+				ereport(ERROR,
+						(errmsg("The date format is not recognized.")));
+		}
+		pfree(cfmt);
 		/* it will return timestamp at GMT */
 		result = ora_to_timestamp(txt, fmt, false);
 	}
