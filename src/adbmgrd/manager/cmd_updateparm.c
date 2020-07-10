@@ -259,8 +259,8 @@ static void mgr_add_givenname_updateparm(MGRUpdateparm *parm_node, Name nodename
 	const int namemaxlen = NAMEDATALEN_LOCAL;
 	struct keyvalue
 	{
-		char key[namemaxlen];
-		char value[namemaxlen];
+		char key[NAMEDATALEN_LOCAL];
+		char value[NAMEDATALEN_LOCAL];
 	};
 	struct keyvalue *key_value = NULL;
 	Assert(parm_node && parm_node->parmtype);
