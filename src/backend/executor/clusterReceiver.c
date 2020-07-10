@@ -95,7 +95,7 @@ bool clusterRecvTuple(TupleTableSlot *slot, const char *msg, int len, PlanState 
 	}else if(*msg == CLUSTER_MSG_TUPLE_DESC)
 	{
 		if (slot)
-			compare_slot_head_message(msg+1, len-1, slot->tts_tupleDescriptor);
+			compare_slot_head_message(msg+1, len, slot->tts_tupleDescriptor);
 		return false;
 	}else if(*msg == CLUSTER_MSG_INSTRUMENT)
 	{
@@ -134,7 +134,7 @@ bool clusterRecvTupleEx(ClusterRecvState *state, const char *msg, int len, struc
 		restore_slot_message(msg+1, len-1, state->base_slot);
 		return true;
 	case CLUSTER_MSG_TUPLE_DESC:
-		compare_slot_head_message(msg+1, len-1, state->base_slot->tts_tupleDescriptor);
+		compare_slot_head_message(msg+1, len, state->base_slot->tts_tupleDescriptor);
 		break;
 	case CLUSTER_MSG_INSTRUMENT:
 		if(state->ps != NULL)
