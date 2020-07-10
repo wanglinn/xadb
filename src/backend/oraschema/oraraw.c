@@ -433,3 +433,27 @@ rawnlike(PG_FUNCTION_ARGS)
 							   PG_GETARG_DATUM(0),
 							   PG_GETARG_DATUM(1)));
 }
+
+Datum
+rawsend(PG_FUNCTION_ARGS)
+{
+	return byteasend(fcinfo);
+}
+
+Datum
+rawrecv(PG_FUNCTION_ARGS)
+{
+	return bytearecv(fcinfo);
+}
+
+Datum
+raw_hashvarlena(PG_FUNCTION_ARGS)
+{
+	return hashvarlena(fcinfo);
+}
+
+Datum
+raw_hashvarlenaextended(PG_FUNCTION_ARGS)
+{
+	return hashvarlenaextended(fcinfo);
+}
