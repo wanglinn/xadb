@@ -2268,6 +2268,7 @@ void cluster_vacuum(struct StringInfoData *msg)
 
 	pq_copymsgbytes(&buf, (char*)&params, sizeof(params));
 
+	params.options |= VACOPT_IN_CLUSTER;
 	vacuum(NIL,
 		   &params,
 		   NULL,
