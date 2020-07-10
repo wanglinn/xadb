@@ -1956,7 +1956,9 @@ CheckOpSlotCompatibility(ExprEvalStep *op, TupleTableSlot *slot)
 	if (slot->tts_ops == &TTSOpsVirtual)
 		return;
 
+#ifndef ADB
 	Assert(op->d.fetch.kind == slot->tts_ops);
+#endif /* ADB */
 #endif
 }
 
