@@ -1135,6 +1135,9 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, in
 		if (forceSwitch)
 		{
 			tryLockCluster(&coordinators);
+			holdLockCoordinator = getHoldLockCoordinator(&coordinators);
+			Assert(holdLockCoordinator);
+			MgrSendFinishActiveBackendToGtm(holdLockCoordinator->pgConn);
 		}
 		else
 		{
@@ -2350,9 +2353,6 @@ static void restoreCoordinatorSetting(SwitcherNodeWrapper *coordinator)
 
 	if (!exec_pool_close_idle_conn(coordinator->pgConn, false))
 	{
-		ereport(NOTICE,
-				(errmsg("%s exec pool_close_idle_conn failed",
-						NameStr(coordinator->mgrNode->form.nodename))));
 		ereport(LOG,
 				(errmsg("%s exec pool_close_idle_conn failed",
 						NameStr(coordinator->mgrNode->form.nodename))));
