@@ -994,7 +994,7 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 				initStringInfo(&(getAgentCmdRst.description));
 				initStringInfo(&infoSyncStrTmp);
 
-				syncNum = mgr_get_master_sync_string(masterTupleOid, true, selftupleoid, &infoSyncStr, NameStr(mgr_node->nodezone));
+				syncNum = mgr_get_master_sync_string(masterTupleOid, true, selftupleoid, &infoSyncStr);
 				if(infoSyncStr.len != 0 && syncNum > 0)
 				{
 					int i = 0;
@@ -4704,7 +4704,7 @@ bool mgr_append_dn_slave_func(char *dnName, bool needCheckIncluster)
 			bsyncnode = true;
 			appendStringInfo(&infostrparam, "%s", nodename.data);
 		}
-		syncNum = mgr_get_master_sync_string(mastertupleoid, true, InvalidOid, &infostrparam, NameStr(appendnodeinfo.nodezone));
+		syncNum = mgr_get_master_sync_string(mastertupleoid, true, InvalidOid, &infostrparam);
 
 		if (bsyncnode)
 			syncNum++;
@@ -5125,7 +5125,7 @@ bool mgr_append_agtm_slave_func(char *gtmname, bool needCheckIncluster)
 			appendStringInfo(&infostrparam, "%s", nodename.data);
 			bsyncnode = true;
 		}
-		syncNum = mgr_get_master_sync_string(mastertupleoid, true, InvalidOid, &infostrparam, NameStr(appendnodeinfo.nodezone));
+		syncNum = mgr_get_master_sync_string(mastertupleoid, true, InvalidOid, &infostrparam);
 		if (bsyncnode)
 			syncNum++;
 		if (strcmp(NameStr(appendnodeinfo.sync_state), sync_state_tab[SYNC_STATE_POTENTIAL].name) == 0)
@@ -7948,7 +7948,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 	/*refresh new master synchronous_standby_names*/
 	resetStringInfo(&infosendmsg);
 	resetStringInfo(&infosendsyncmsg);
-	syncNum = mgr_get_master_sync_string(nodemasternameoid, true, newGtmMasterTupleOid, &infosendsyncmsg, NameStr(mgr_node->nodezone));
+	syncNum = mgr_get_master_sync_string(nodemasternameoid, true, newGtmMasterTupleOid, &infosendsyncmsg);
 	if(infosendsyncmsg.len != 0)
 	{
 		int i = 0;
@@ -8186,7 +8186,7 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 
 		/* get the sync slave node for new datanode master */
 		namestrcpy(&slaveNodeName, "");
-		syncNum = mgr_get_master_sync_string(oldMasterTupleOid, true, newmastertupleoid, &infosendsyncmsg, NameStr(mgr_node->nodezone));
+		syncNum = mgr_get_master_sync_string(oldMasterTupleOid, true, newmastertupleoid, &infosendsyncmsg);
 		/*refresh master's postgresql.conf*/
 		if(infosendsyncmsg.len != 0)
 		{
@@ -8736,7 +8736,7 @@ static void mgr_set_master_sync(void)
 				, errmsg("column cndnpath is null")));
 		}
 		path = TextDatumGetCString(datumpath);
-		syncNum = mgr_get_master_sync_string(HeapTupleGetOid(tuple), true, InvalidOid, &infostrparam, NameStr(mgr_node->nodezone));
+		syncNum = mgr_get_master_sync_string(HeapTupleGetOid(tuple), true, InvalidOid, &infostrparam);
 		if (infostrparam.len == 0)
 			mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", "", &infosendmsg);
 		else
@@ -13210,11 +13210,7 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 			mgr_update_one_potential_to_sync(rel, mgr_node->nodemasternameoid, true, selftupleoid);
 		}
 
-		if (strcmp(NameStr(mgr_node->nodesync),sync_state_tab[SYNC_STATE_SYNC].name) == 0
-				|| strcmp(NameStr(mgr_node->nodesync), sync_state_tab[SYNC_STATE_POTENTIAL].name) == 0)
-		{
-				syncNum = mgr_get_master_sync_string(mgr_node->nodemasternameoid, true, selftupleoid, &infostrparam, NameStr(mgr_node->nodezone));
-		}
+		syncNum = mgr_get_master_sync_string(mgr_node->nodemasternameoid, true, selftupleoid, &infostrparam);
 
 		if (infostrparam.len == 0)
 			appendStringInfoString(&infostrparam, "");
@@ -13466,7 +13462,7 @@ static void mgr_update_one_potential_to_sync(Relation rel, Oid mastertupleoid, b
 * get the string "synchronous_standby_names" of master, but not include the tuple which oid is excludeoid
 * the get string record in infostrparam
 */
-int mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam, char *zone)
+int mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam)
 {
 	NameData sync_state_name;
 	Form_mgr_node mgr_node;
@@ -15517,10 +15513,7 @@ static void RemoveSlaveNodeFromParent(Relation rel, Form_mgr_node curMgrNode, Oi
 
     initStringInfo(&infostrparam);
 	initStringInfo(&infostrparamtmp);
-	if (  (pg_strcasecmp(NameStr(curMgrNode->nodesync), sync_state_tab[SYNC_STATE_SYNC].name) == 0)
-		||(pg_strcasecmp(NameStr(curMgrNode->nodesync), sync_state_tab[SYNC_STATE_POTENTIAL].name) == 0)){
-		syncNum = mgr_get_master_sync_string(curMgrNode->nodemasternameoid, true, curOid, &infostrparam, NameStr(curMgrNode->nodezone));
-	}
+	syncNum = mgr_get_master_sync_string(curMgrNode->nodemasternameoid, true, curOid, &infostrparam);
 
 	if (infostrparam.len == 0){
 		appendStringInfoString(&infostrparam, "");	

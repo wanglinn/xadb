@@ -199,7 +199,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 	/* set new master synchronous_standby_names */
 	resetStringInfo(&strinfo);
 	resetStringInfo(&infosendmsg);
-	syncNum = mgr_get_master_sync_string(oldMasterTupleOid, true, slave_nodeinfo.tupleoid, &strinfo, NameStr(master_nodeinfo.nodezone));
+	syncNum = mgr_get_master_sync_string(oldMasterTupleOid, true, slave_nodeinfo.tupleoid, &strinfo);
 	if(strinfo.len != 0)
 	{
 		int i = 0;
@@ -538,7 +538,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 	/*get the master info*/
 	get_nodeinfo_byname(nodemasternamedata.data, mastertype, &master_is_exist, &master_is_running, &master_nodeinfo);
 	/*get master old sync*/
-	syncNum = mgr_get_master_sync_string(master_nodeinfo.tupleoid, true, InvalidOid, &strinfo_sync, NameStr(master_nodeinfo.nodezone));
+	syncNum = mgr_get_master_sync_string(master_nodeinfo.tupleoid, true, InvalidOid, &strinfo_sync);
 
 	/*update the slave's masteroid, sync_state in its tuple*/
 	slavetuple = SearchSysCache1(NODENODEOID, slave_nodeinfo.tupleoid);
@@ -1899,7 +1899,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 	initStringInfo(&restmsg);
 	initStringInfo(&syncStateData);
 	newSyncSlaveName.data[0] = '\0';
-	syncNum = mgr_get_master_sync_string(nodeInfoM.tupleoid, true, nodeInfoS.tupleoid, &restmsg, NameStr(nodeInfoM.nodezone));
+	syncNum = mgr_get_master_sync_string(nodeInfoM.tupleoid, true, nodeInfoS.tupleoid, &restmsg);
 	if(restmsg.len != 0 && syncNum > 0)
 	{
 		int i = 0;
