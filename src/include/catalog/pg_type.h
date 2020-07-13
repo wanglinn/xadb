@@ -289,9 +289,9 @@ typedef FormData_pg_type *Form_pg_type;
 
 #ifdef ADB_GRAM_ORA
 #ifdef ADB
-#define RID_DATA_SIZE 10
+#define ROWID_DATA_SIZE 10
 #else
-#define RID_DATA_SIZE 6
+#define ROWID_DATA_SIZE 6
 # endif /* space for hack Catalog.pm */
 # endif /* space for hack Catalog.pm */
 
