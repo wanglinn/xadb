@@ -156,7 +156,7 @@ Datum rowid_ge(PG_FUNCTION_ARGS)
 
 Datum rowid_hash(PG_FUNCTION_ARGS)
 {
-	PG_RETURN_INT32(hash_any((unsigned char*)PG_GETARG_POINTER(0), RID_DATA_SIZE));
+	PG_RETURN_INT32(hash_any((unsigned char*)PG_GETARG_POINTER(0), ROWID_DATA_SIZE));
 }
 
 Datum rowid_cmp(PG_FUNCTION_ARGS)
