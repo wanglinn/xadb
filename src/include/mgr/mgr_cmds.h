@@ -371,7 +371,7 @@ extern bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid);
 extern void mgr_unlock_cluster_deprecated(PGconn **pg_conn);
 extern void mgr_unlock_cluster_involve_gtm_coord(PGconn **pg_conn);
 extern void mgr_get_gtmcoord_conn(char *zone, char *dbname, PGconn **pg_conn, Oid *cnoid);
-extern int mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam, char *zone);
+extern int mgr_get_master_sync_string(Oid mastertupleoid, bool bincluster, Oid excludeoid, StringInfo infostrparam);
 extern bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *dnname
 		, GetAgentCmdRst *getAgentCmdRst, PGconn **pg_conn, Oid cnoid, char *newSyncSlaveName);
 /* mgr_common.c */
