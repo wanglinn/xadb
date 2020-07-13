@@ -117,23 +117,6 @@ CREATE CAST (interval AS oracle.varchar2) WITH INOUT AS IMPLICIT;
 
 CREATE CAST (oracle.varchar2 AS oracle.varchar2) WITH FUNCTION pg_catalog.varchar2(oracle.varchar2, integer, boolean) AS IMPLICIT;
 
-/* CREATE CAST FOR RID */
-CREATE CAST (oracle.rowid AS varchar) WITH INOUT AS IMPLICIT;
-
-CREATE CAST (varchar AS oracle.rowid) WITH INOUT AS IMPLICIT;
-
-CREATE CAST (oracle.rowid AS oracle.varchar2) WITH INOUT AS IMPLICIT;
-
-CREATE CAST (oracle.varchar2 AS oracle.rowid) WITH INOUT AS IMPLICIT;
-
-CREATE CAST (oracle.rowid AS oracle.nvarchar2) WITH INOUT AS IMPLICIT;
-
-CREATE CAST (oracle.nvarchar2 AS oracle.rowid) WITH INOUT AS IMPLICIT;
-
-CREATE CAST (oracle.rowid AS bpchar) WITH INOUT AS IMPLICIT;
-
-CREATE CAST (bpchar AS oracle.rowid) WITH INOUT AS IMPLICIT;
-
 /* COPY "type1 + type2 AS type3 + type3" TO "type2 + type1 AS type3 + type3" */
 INSERT INTO ora_convert
   SELECT ((select max(cvtid) from ora_convert)::int + .row)::oid,
