@@ -287,14 +287,6 @@ typedef FormData_pg_type *Form_pg_type;
 	 (typid) == ANYENUMOID || \
 	 (typid) == ANYRANGEOID)
 
-#ifdef ADB_GRAM_ORA
-#ifdef ADB
-#define ROWID_DATA_SIZE 10
-#else
-#define ROWID_DATA_SIZE 6
-# endif /* space for hack Catalog.pm */
-# endif /* space for hack Catalog.pm */
-
 #endif							/* EXPOSE_TO_CLIENT_CODE */
 
 

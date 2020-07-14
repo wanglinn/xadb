@@ -129,27 +129,6 @@ foreach my $header (@ARGV)
 		my $alldata = Catalog::ParseData($datfile, $schema, 0);
 		my $data = [];
 
-		# set rowid type size
-		if ($enable_grammar_oracle eq 'yes' && $catname eq 'pg_type')
-		{
-			foreach my $row (@$alldata)
-			{
-				if ($row->{typname} eq 'rowid')
-				{
-					if ($enable_cluster eq 'yes')
-					{
-						$row->{typlen} = 10;
-						$row->{typalign} = 'i';
-					}else
-					{
-						$row->{typlen} = 6;
-						$row->{typalign} = 's';
-					}
-					last;
-				}
-			}
-		}
-
 		#delete not in macro
 		foreach my $row (@$alldata)
 		{

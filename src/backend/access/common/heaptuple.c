@@ -389,7 +389,7 @@ heap_attisnull(HeapTuple tup, int attnum, TupleDesc tupleDesc)
 #ifdef ADB
 		case XC_NodeIdAttributeNumber:
 #endif
-#ifdef ADB_GRAM_ORA
+#if defined(ADB_GRAM_ORA) && !defined(USE_SEQ_ROWID)
 		case ADB_RowIdAttributeNumber:
 #endif
 #if defined(ADB) || defined(ADB_MULTI_GRAM)
@@ -673,6 +673,7 @@ heap_getsysattr(HeapTuple tup, int attnum, TupleDesc tupleDesc, bool *isnull)
 			result = UInt32GetDatum(tup->t_xc_node_id);
 			break;
 #endif
+#ifndef USE_SEQ_ROWID
 #if defined(ADB) && defined(ADB_GRAM_ORA)
 		case ADB_RowIdAttributeNumber:
 			result = rowid_make(tup->t_xc_node_id, &tup->t_self);
@@ -682,6 +683,7 @@ heap_getsysattr(HeapTuple tup, int attnum, TupleDesc tupleDesc, bool *isnull)
 			result = rowid_make(&tup->t_self);
 			break;
 #endif
+#endif /* !USE_SEQ_ROWID */
 #if defined(ADB) || defined(ADB_MULTI_GRAM)
 		case ADB_InfoMaskAttributeNumber:
 			result = DatumGetUInt16(tup->t_data->t_infomask);

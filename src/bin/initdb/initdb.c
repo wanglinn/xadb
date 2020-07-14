@@ -1476,6 +1476,34 @@ bootstrap_template1(void)
 	bki_lines = replace_token(bki_lines, "FLOAT8PASSBYVAL",
 							  FLOAT8PASSBYVAL ? "true" : "false");
 
+#ifdef ADB_GRAM_ORA
+	StaticAssertStmt(ROWID_DATA_SIZE > 0, "wrong size of rowid");
+	sprintf(buf, "%d", ROWID_DATA_SIZE);
+	bki_lines = replace_token(bki_lines, "ROWID_DATA_SIZE", buf);
+
+	#ifdef USE_SEQ_ROWID
+		#ifdef ADB
+			#error cluster not support rowid as seq yet
+		#else
+			bki_lines = replace_token(bki_lines, "ROWID_PASS_BYVAL",
+									  FLOAT8PASSBYVAL ? "true" : "false");
+			bki_lines = replace_token(bki_lines, "ROWID_ALIGN", "d");
+		#endif /* ADB */
+	#else
+		bki_lines = replace_token(bki_lines, "ROWID_PASS_BYVAL", "false");
+		#ifdef ADB
+			bki_lines = replace_token(bki_lines, "ROWID_ALIGN", "i");
+		#else
+			bki_lines = replace_token(bki_lines, "ROWID_ALIGN", "s");
+		#endif
+	#endif /* USE_SEQ_ROWID */
+	#if defined(USE_SEQ_ROWID) && !defined(ADB)
+		bki_lines = replace_token(bki_lines, "ROWID_ARRAY_ALIGN", "d");
+	#else
+		bki_lines = replace_token(bki_lines, "ROWID_ARRAY_ALIGN", "i");
+	#endif
+#endif /* ADB_GRAM_ORA */
+
 	bki_lines = replace_token(bki_lines, "POSTGRES",
 							  escape_quotes_bki(username));
 

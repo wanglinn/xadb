@@ -281,7 +281,7 @@ static const FormData_pg_attribute a_xc_node_id = {
 	.attislocal = true,
 };
 #endif
-#ifdef ADB_GRAM_ORA
+#if defined(ADB_GRAM_ORA) && !defined(USE_SEQ_ROWID)
 static const FormData_pg_attribute a_rowid = {
 	.attname = {"rowid"},
 	.atttypid = ORACLE_ROWIDOID,
@@ -315,13 +315,17 @@ static const FormData_pg_attribute a_infomask = {
 };
 #endif /* ADB || ADB_GRAM_ORA */
 #ifdef ADB
-	#ifdef ADB_GRAM_ORA
+	#if defined(ADB_GRAM_ORA) && !defined(USE_SEQ_ROWID)
 		static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a_xc_node_id, &a_rowid, &a_infomask};
 	#else /* else ADB_GRAM_ORA */
 		static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a_xc_node_id, &a_infomask};
 	#endif /* ADB_GRAM_ORA */
 #elif defined(ADB_GRAM_ORA) /* else ADB */
-	static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a_rowid, &a_infomask};
+	#ifdef USE_SEQ_ROWID
+		static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a_infomask};
+	#else
+		static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6, &a_rowid, &a_infomask};
+	#endif
 #else	/* else ADB, else ADB_GRAM_ORA */
 	static const FormData_pg_attribute *SysAtt[] = {&a1, &a2, &a3, &a4, &a5, &a6};
 #endif

@@ -349,6 +349,9 @@
 { row_macros => 'ADB_GRAM_ORA',
   opcmethod => 'hash', opcname => 'rowid_ops', opcnamespace => 'ORANSP',
   opcfamily => 'hash/rowid_ops', opcintype => 'oracle.rowid' },
+{ row_macros => 'ADB_GRAM_ORA',
+  opcmethod => 'brin', opcname => 'rowid_minmax_ops', opcnamespace => 'ORANSP',
+  opcfamily => 'brin/rowid_minmax_ops', opcintype => 'oracle.rowid' },
 
 { row_macros => 'ADB_GRAM_ORA',
   opcmethod => 'btree', opcname => 'raw_ops', opcnamespace => 'ORANSP',

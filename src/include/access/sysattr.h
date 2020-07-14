@@ -26,7 +26,7 @@
 #define TableOidAttributeNumber					(-6)
 #ifdef ADB
 	#define XC_NodeIdAttributeNumber				(-7)
-	#ifdef ADB_GRAM_ORA
+	#if defined(ADB_GRAM_ORA) && !defined(USE_SEQ_ROWID)
 		#define ADB_RowIdAttributeNumber			(-8)
 		#define ADB_InfoMaskAttributeNumber			(-9)
 		#define FirstLowInvalidHeapAttributeNumber	(-10)
@@ -35,9 +35,14 @@
 		#define FirstLowInvalidHeapAttributeNumber	(-9)
 	#endif /* ADB_GRAM_ORA */
 #elif defined(ADB_GRAM_ORA) /* else adb */
-	#define ADB_RowIdAttributeNumber				(-7)
-	#define ADB_InfoMaskAttributeNumber				(-8)
-	#define FirstLowInvalidHeapAttributeNumber		(-9)
+	#ifdef USE_SEQ_ROWID
+		#define ADB_InfoMaskAttributeNumber				(-7)
+		#define FirstLowInvalidHeapAttributeNumber		(-8)
+	#else
+		#define ADB_RowIdAttributeNumber				(-7)
+		#define ADB_InfoMaskAttributeNumber				(-8)
+		#define FirstLowInvalidHeapAttributeNumber		(-9)
+	#endif
 #else /* else ADB, else ADB_GRAM_ORA */
 	#define FirstLowInvalidHeapAttributeNumber		(-7)
 #endif

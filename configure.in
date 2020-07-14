@@ -241,6 +241,36 @@ fi
 AC_SUBST(adb_multi_gram)
 
 #
+# rowid use sequence
+#
+AC_MSG_CHECKING([for sequence rowid])
+PGAC_ARG_BOOL(enable, seq-rowid, no,
+              [using rowid as sequence],
+              [AC_DEFINE(USE_SEQ_ROWID, 1, [Define to 1 to using rowid as sequence])])
+AC_MSG_RESULT([$enable_seq_rowid])
+AC_SUBST(enable_seq_rowid)
+if test x"$enable_seq_rowid" = x"yes" -a x"$enable_grammar_oracle" != x"yes"; then
+  AC_MSG_ERROR([enable-seq-rowid must enable-grammar-oracle also])
+fi
+
+if test x"$enable_grammar_oracle" != x"yes"; then
+  ROWID_DATA_SIZE=0
+elif test x"$enable_cluster" = x"yes"; then
+  if test x"$enable_seq_rowid" = x"yes"; then
+    AC_MSG_ERROR([use rowid as sequence not support yet for enable-cluster])
+  else
+    ROWID_DATA_SIZE=10
+  fi
+else
+  if test x"$enable_seq_rowid" = x"yes"; then
+    ROWID_DATA_SIZE=8
+  else
+    ROWID_DATA_SIZE=6
+  fi
+fi
+AC_DEFINE_UNQUOTED(ROWID_DATA_SIZE, ${ROWID_DATA_SIZE}, [Size of oracle.rowid type])
+
+#
 # '-rpath'-like feature can be disabled
 #
 PGAC_ARG_BOOL(enable, rpath, yes,

@@ -767,6 +767,7 @@ LCOV
 GCOV
 enable_debug
 enable_rpath
+enable_seq_rowid
 adb_multi_gram
 enable_grammar_db2
 enable_grammar_oracle
@@ -842,6 +843,7 @@ enable_rdma
 enable_reduce_rdma
 enable_grammar_oracle
 enable_grammar_db2
+enable_seq_rowid
 enable_rpath
 enable_spinlocks
 enable_atomics
@@ -1537,6 +1539,7 @@ Optional Features:
   --disable-grammar-oracle
                           enable oracle grammar
   --disable-grammar-db2   enable db2 grammar
+  --enable-seq-rowid      using rowid as sequence
   --disable-rpath         do not embed shared library search path in
                           executables
   --disable-spinlocks     do not use spinlocks
@@ -3408,6 +3411,64 @@ $as_echo "#define ADB_MULTI_GRAM 1" >>confdefs.h
 else
   adb_multi_gram="no"
 fi
+
+
+#
+# rowid use sequence
+#
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for sequence rowid" >&5
+$as_echo_n "checking for sequence rowid... " >&6; }
+
+
+# Check whether --enable-seq-rowid was given.
+if test "${enable_seq_rowid+set}" = set; then :
+  enableval=$enable_seq_rowid;
+  case $enableval in
+    yes)
+
+$as_echo "#define USE_SEQ_ROWID 1" >>confdefs.h
+
+      ;;
+    no)
+      :
+      ;;
+    *)
+      as_fn_error $? "no argument expected for --enable-seq-rowid option" "$LINENO" 5
+      ;;
+  esac
+
+else
+  enable_seq_rowid=no
+
+fi
+
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $enable_seq_rowid" >&5
+$as_echo "$enable_seq_rowid" >&6; }
+
+if test x"$enable_seq_rowid" = x"yes" -a x"$enable_grammar_oracle" != x"yes"; then
+  as_fn_error $? "enable-seq-rowid must enable-grammar-oracle also" "$LINENO" 5
+fi
+
+if test x"$enable_grammar_oracle" != x"yes"; then
+  ROWID_DATA_SIZE=0
+elif test x"$enable_cluster" = x"yes"; then
+  if test x"$enable_seq_rowid" = x"yes"; then
+    as_fn_error $? "use rowid as sequence not support yet for enable-cluster" "$LINENO" 5
+  else
+    ROWID_DATA_SIZE=10
+  fi
+else
+  if test x"$enable_seq_rowid" = x"yes"; then
+    ROWID_DATA_SIZE=8
+  else
+    ROWID_DATA_SIZE=6
+  fi
+fi
+
+cat >>confdefs.h <<_ACEOF
+#define ROWID_DATA_SIZE ${ROWID_DATA_SIZE}
+_ACEOF
 
 
 #

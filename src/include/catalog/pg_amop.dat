@@ -2430,6 +2430,7 @@
   amoprighttype => 'point', amopstrategy => '7', amopopr => '@>(box,point)',
   amopmethod => 'brin' },
 
+# btree oracle.rowid
 { row_macros => 'ADB_GRAM_ORA',
   amopfamily => 'btree/rowid_ops', amoplefttype => 'oracle.rowid',
   amoprighttype => 'oracle.rowid', amopstrategy => '1',
@@ -2450,11 +2451,27 @@
   amopfamily => 'btree/rowid_ops', amoplefttype => 'oracle.rowid',
   amoprighttype => 'oracle.rowid', amopstrategy => '5',
   amopopr => '>(oracle.rowid,oracle.rowid)', amopmethod => 'btree' },
-
+# hash oracle.rowid
 { row_macros => 'ADB_GRAM_ORA',
   amopfamily => 'hash/rowid_ops', amoplefttype => 'oracle.rowid',
   amoprighttype => 'oracle.rowid', amopstrategy => '1',
   amopopr => '=(oracle.rowid,oracle.rowid)', amopmethod => 'hash' },
+# minmax oracle.rowid
+{ amopfamily => 'brin/rowid_minmax_ops', amoplefttype => 'oracle.rowid',
+  amoprighttype => 'oracle.rowid', amopstrategy => '1',
+  amopopr => '<(oracle.rowid,oracle.rowid)', amopmethod => 'brin' },
+{ amopfamily => 'brin/rowid_minmax_ops', amoplefttype => 'oracle.rowid',
+  amoprighttype => 'oracle.rowid', amopstrategy => '2',
+  amopopr => '<=(oracle.rowid,oracle.rowid)', amopmethod => 'brin' },
+{ amopfamily => 'brin/rowid_minmax_ops', amoplefttype => 'oracle.rowid',
+  amoprighttype => 'oracle.rowid', amopstrategy => '3',
+  amopopr => '=(oracle.rowid,oracle.rowid)', amopmethod => 'brin' },
+{ amopfamily => 'brin/rowid_minmax_ops', amoplefttype => 'oracle.rowid',
+  amoprighttype => 'oracle.rowid', amopstrategy => '4',
+  amopopr => '>=(oracle.rowid,oracle.rowid)', amopmethod => 'brin' },
+{ amopfamily => 'brin/rowid_minmax_ops', amoplefttype => 'oracle.rowid',
+  amoprighttype => 'oracle.rowid', amopstrategy => '5',
+  amopopr => '>(oracle.rowid,oracle.rowid)', amopmethod => 'brin' },
 
 # btree raw_ops
 { row_macros => 'ADB_GRAM_ORA',
