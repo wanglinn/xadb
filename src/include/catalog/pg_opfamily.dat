@@ -231,6 +231,8 @@
   opfmethod => 'btree', opfname => 'rowid_ops' },
 { oid => '9146', row_macros => 'ADB_GRAM_ORA',
   opfmethod => 'hash', opfname => 'rowid_ops' },
+{ oid => '9210', row_macros => 'ADB_GRAM_ORA',
+  opfmethod => 'brin', opfname => 'rowid_minmax_ops' },
 { oid => '9034', row_macros => 'ADB_GRAM_ORA',
   opfmethod => 'btree', opfname => 'raw_ops' },
 { oid => '9035', row_macros => 'ADB_GRAM_ORA',

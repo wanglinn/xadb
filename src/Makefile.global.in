@@ -65,6 +65,7 @@ enable_cluster = @enable_cluster@
 enable_grammar_oracle = @enable_grammar_oracle@
 enable_grammar_db2 = @enable_grammar_db2@
 adb_multi_gram = @adb_multi_gram@
+enable_seq_rowid = @enable_seq_rowid@
 
 ifneq ($(vpath_build),yes)
 top_srcdir = $(top_builddir)

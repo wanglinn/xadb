@@ -57,13 +57,13 @@ IsCTIDVar(Var *var, RelOptInfo *rel)
 		var->varno == rel->relid &&
 		var->varlevelsup == 0)
 		return true;
-#ifdef ADB_GRAM_ORA
+#if defined(ADB_GRAM_ORA) && !defined(USE_SEQ_ROWID)
 	if (var->varattno == ADB_RowIdAttributeNumber &&
 		var->vartype == ORACLE_ROWIDOID &&
 		var->varno == rel->relid &&
 		var->varlevelsup == 0)
 		return true;
-#endif /* ADB_GRAM_ORA */
+#endif /* ADB_GRAM_ORA && !USE_SEQ_ROWID */
 	return false;
 }
 
@@ -90,7 +90,11 @@ IsTidEqualClause(RestrictInfo *rinfo, RelOptInfo *rel)
 	node = (OpExpr *) rinfo->clause;
 
 	/* Operator must be tideq */
-	if (node->opno != TIDEqualOperator ADB_GRAM_ORA_CODE(&& node->opno != RowidEqualOperator))
+	if (node->opno != TIDEqualOperator
+#if defined(ADB_GRAM_ORA) && !defined(USE_SEQ_ROWID)
+		&& node->opno != RowidEqualOperator
+#endif
+		)
 		return false;
 	Assert(list_length(node->args) == 2);
 	arg1 = linitial(node->args);

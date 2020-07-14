@@ -596,19 +596,20 @@
   typreceive => '-', typsend => '-', typalign => 'd', typstorage => 'x' },
 
 # ADB_BEGIN_GRAM_ORA
-# rowid's typlen and typalign while change by genbki.pl
+# ROWID_DATA_SIZE ROWID_PASS_BYVAL ROWID_ALIGN and ROWID_ARRAY_ALIGN while change by initdb.c
 { oid => '9122', row_macros => 'ADB_GRAM_ORA',
   descr => 'physical location of tuple, like oracle\'s rowid',
-  typname => 'rowid', typnamespace => 'ORANSP', typlen => '0', typbyval => 'f',
-  typcategory => 'U', typarray => 'oracle._rowid', typinput => 'rowid_in',
-  typoutput => 'rowid_out', typreceive => 'rowid_recv', typsend => 'rowid_send',
-  typalign => 's' },
+  typname => 'rowid', typnamespace => 'ORANSP', typlen => 'ROWID_DATA_SIZE',
+  typbyval => 'ROWID_PASS_BYVAL', typcategory => 'U',
+  typarray => 'oracle._rowid', typinput => 'rowid_in', typoutput => 'rowid_out',
+  typreceive => 'rowid_recv', typsend => 'rowid_send',
+  typalign => 'ROWID_ALIGN' },
 { oid => '9123', row_macros => 'ADB_GRAM_ORA',
   typname => '_rowid', typnamespace => 'ORANSP', typlen => '-1',
   typbyval => 'f', typcategory => 'A', typelem => 'oracle.rowid',
   typinput => 'array_in', typoutput => 'array_out', typreceive => 'array_recv',
-  typsend => 'array_send', typanalyze => 'array_typanalyze', typalign => 'i',
-  typstorage => 'x' },
+  typsend => 'array_send', typanalyze => 'array_typanalyze',
+  typalign => 'ROWID_ARRAY_ALIGN', typstorage => 'x' },
 { oid => '9009', row_macros => 'ADB_GRAM_ORA', oid_symbol => 'ORADATEOID',
   descr => 'oracle\'s date',
   typname => 'date', typnamespace => 'ORANSP', typlen => '8',

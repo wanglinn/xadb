@@ -4904,9 +4904,9 @@ get_variable_numdistinct(VariableStatData *vardata, bool *isdefault)
 			switch (((Var *) vardata->var)->varattno)
 			{
 				case SelfItemPointerAttributeNumber:
-#ifdef ADB_GRAM_ORA
+#if defined(ADB_GRAM_ORA) && !defined(USE_SEQ_ROWID)
 				case ADB_RowIdAttributeNumber:
-#endif
+#endif /* ADB_GRAM_ORA && !USE_SEQ_ROWID */
 					stadistinct = -1.0; /* unique (and all non null) */
 					break;
 				case TableOidAttributeNumber:

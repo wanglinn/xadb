@@ -1121,7 +1121,7 @@ exprIsNullConstant(Node *arg)
 	return false;
 }
 
-#if defined(ADB_GRAM_ORA) && defined(ADB)
+#if defined(ADB_GRAM_ORA) && defined(ADB) && !defined(USE_SEQ_ROWID)
 static Expr* get_rowid_op_expr(OpExpr* op, Var **var)
 {
 	Expr *lexpr;
@@ -1185,7 +1185,7 @@ static Node* tryTransformRowidOpExpr(Node *result, ParseState *pstate)
 
 	return result;
 }
-#endif /* defined(ADB_GRAM_ORA) && defined(ADB) */
+#endif /* defined(ADB_GRAM_ORA) && defined(ADB) && !defined(USE_SEQ_ROWID) */
 
 static Node *
 transformAExprOp(ParseState *pstate, A_Expr *a)
@@ -1345,7 +1345,7 @@ transformAExprOp(ParseState *pstate, A_Expr *a)
 								  a->location);
 	}
 
-#if defined(ADB_GRAM_ORA) && defined(ADB)
+#if defined(ADB_GRAM_ORA) && defined(ADB) && !defined(USE_SEQ_ROWID)
 	result = tryTransformRowidOpExpr(result, pstate);
 #endif /* defined(ADB_GRAM_ORA) && defined(ADB) */
 
@@ -1541,7 +1541,7 @@ transformAExprOf(ParseState *pstate, A_Expr *a)
 	return (Node *) result;
 }
 
-#if defined(ADB_GRAM_ORA) && !defined(ADB)
+#if defined(ADB_GRAM_ORA) && !defined(ADB) && !defined(USE_SEQ_ROWID)
 /* try convert "rowid in (...)" to "ctid in (...)" */
 static void tryTransformRowidIn(ScalarArrayOpExpr *saop, ParseState *pstate)
 {
@@ -1574,7 +1574,7 @@ static void tryTransformRowidIn(ScalarArrayOpExpr *saop, ParseState *pstate)
 	saop->opfuncid = F_TIDEQ;
 	saop->opno = TIDEqualOperator;
 }
-#endif /* defined(ADB_GRAM_ORA) && !defined(ADB) */
+#endif /* defined(ADB_GRAM_ORA) && !defined(ADB) && !defined(USE_SEQ_ROWID) */
 
 static Node *
 transformAExprIn(ParseState *pstate, A_Expr *a)
@@ -1768,9 +1768,9 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 								   rexpr,
 								   pstate->p_last_srf,
 								   a->location);
-#if defined(ADB_GRAM_ORA) && defined(ADB)
+#if defined(ADB_GRAM_ORA) && defined(ADB) && !defined(USE_SEQ_ROWID)
 			cmp = tryTransformRowidOpExpr(cmp, pstate);
-#endif /* defined(ADB_GRAM_ORA) && defined(ADB) */
+#endif /* defined(ADB_GRAM_ORA) && defined(ADB) && !defined(USE_SEQ_ROWID) */
 		}
 
 		cmp = coerce_to_boolean(pstate, cmp, "IN");
@@ -1782,9 +1782,9 @@ transformAExprIn(ParseState *pstate, A_Expr *a)
 										   a->location);
 	}
 
-#if defined(ADB_GRAM_ORA) && !defined(ADB)
+#if defined(ADB_GRAM_ORA) && !defined(ADB) && !defined(USE_SEQ_ROWID)
 	tryTransformRowidIn((ScalarArrayOpExpr*)result, pstate);
-#endif /* defined(ADB_GRAM_ORA) && !defined(ADB) */
+#endif /* defined(ADB_GRAM_ORA) && !defined(ADB) && !defined(USE_SEQ_ROWID) */
 
 	return result;
 }

@@ -513,12 +513,19 @@
   castcontext => 'e', castmethod => 'f' },
 
 # oracle.rowid to/from tid
-{ row_macros => 'ADB_GRAM_ORA && !ADB',
+{ row_macros => 'ADB_GRAM_ORA && !ADB && !USE_SEQ_ROWID',
   castsource => 'oracle.rowid', casttarget => 'tid', castfunc => '0',
   castcontext => 'a', castmethod => 'b' },
-{ row_macros => 'ADB_GRAM_ORA && !ADB',
+{ row_macros => 'ADB_GRAM_ORA && !ADB && !USE_SEQ_ROWID',
   castsource => 'tid', casttarget => 'oracle.rowid', castfunc => '0',
   castcontext => 'a', castmethod => 'b' },
+# rowid to/from int8
+{ row_macros => 'ADB_GRAM_ORA && !ADB && USE_SEQ_ROWID',
+  castsource => 'oracle.rowid', casttarget => 'int8', castfunc => '0',
+  castcontext => 'i', castmethod => 'b' },
+{ row_macros => 'ADB_GRAM_ORA && !ADB && USE_SEQ_ROWID',
+  castsource => 'int8', casttarget => 'oracle.rowid', castfunc => '0',
+  castcontext => 'i', castmethod => 'b' },
 # oracle.rowid to/from text
 { row_macros => 'ADB_GRAM_ORA',
   castsource => 'oracle.rowid', casttarget => 'varchar', castfunc => '0',
