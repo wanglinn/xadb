@@ -14549,7 +14549,7 @@ check_all_cn_sync_slave_is_active(void)
 {
 	Relation		rel_mgr_node;
 	Form_mgr_node	mgr_node;
-	ScanKeyData		key[1];
+	ScanKeyData		key[2];
 	HeapScanDesc	rel_scan;
 	HeapTuple		tuple;
 	NameData		nodesync;
@@ -14565,8 +14565,13 @@ check_all_cn_sync_slave_is_active(void)
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,NameGetDatum(&nodesync));
+	ScanKeyInit(&key[1]
+				,Anum_mgr_node_nodezone
+				,BTEqualStrategyNumber
+				,F_NAMEEQ
+				,CStringGetDatum(mgr_zone));
 	rel_mgr_node = heap_open(NodeRelationId, AccessShareLock);
-	rel_scan = heap_beginscan_catalog(rel_mgr_node, 1, key);
+	rel_scan = heap_beginscan_catalog(rel_mgr_node, 2, key);
 	while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL && is_all_active)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
