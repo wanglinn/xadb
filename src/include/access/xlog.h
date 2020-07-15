@@ -321,6 +321,9 @@ extern void InitXLOGAccess(void);
 extern void CreateCheckPoint(int flags);
 extern bool CreateRestartPoint(int flags);
 extern void XLogPutNextOid(Oid nextOid);
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+extern void XLogPutNextRowid(uint64 nextRowid);
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 extern XLogRecPtr XLogRestorePoint(const char *rpName);
 extern void UpdateFullPageWrites(void);
 extern void GetFullPageWriteInfo(XLogRecPtr *RedoRecPtr_p, bool *doPageWrites_p);

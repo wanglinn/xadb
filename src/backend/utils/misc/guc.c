@@ -554,6 +554,9 @@ static const struct config_enum_entry parse_grammer_options[] = {
 
 #ifdef ADB_GRAM_ORA
 extern bool upper_out_oracle_target;	/* in printtup.c */
+#ifdef USE_SEQ_ROWID
+#include "utils/rowid.h"
+#endif
 #endif /* ADB_GRAM_ORA */
 
 #ifdef ADBMGRD
@@ -2450,6 +2453,18 @@ static struct config_bool ConfigureNamesBool[] =
 		false,
 		NULL, NULL, NULL
 	},
+
+#ifdef USE_SEQ_ROWID
+	{
+		{"default_with_rowids", PGC_USERSET, COMPAT_OPTIONS,
+			gettext_noop("auto add rowid for create new table"),
+			NULL
+		},
+		&default_with_rowids,
+		false,
+		NULL, NULL, NULL
+	},
+#endif /* USE_SEQ_ROWID */
 #endif /* ADB_GRAM_ORA */
 
 	/* End-of-list marker */
@@ -3811,6 +3826,19 @@ static struct config_int ConfigureNamesInt[] =
 		4096, 64, MAX_KILOBYTES,
 		NULL, NULL, NULL
 	},
+
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	{
+		{"default_with_rowid_id", PGC_POSTMASTER, WAL_SETTINGS,
+			gettext_noop("set node ID for generate rowid"),
+			NULL,
+			GUC_REPORT
+		},
+		&default_with_rowid_id,
+		-1, -1, ROWID_NODE_MAX_VALUE-1,
+		NULL, GucAssignRowidNodeId, NULL
+	},
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 
 #ifdef ADB_EXT
 	{

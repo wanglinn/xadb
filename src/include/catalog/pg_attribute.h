@@ -199,6 +199,26 @@ CATALOG(pg_attribute,1249,AttributeRelationId) BKI_BOOTSTRAP BKI_ROWTYPE_OID(75,
  */
 typedef FormData_pg_attribute *Form_pg_attribute;
 
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+#include "catalog/pg_type_d.h"
+static inline bool IsOraRowidColumn(Form_pg_attribute att)
+{
+#ifdef WORDS_BIGENDIAN
+#define CHAR_ROWI_INT32	0x726f7769
+#define CHAR_D0_INT16	0x6400
+#else
+#define CHAR_ROWI_INT32	0x69776f72
+#define CHAR_D0_INT16	0x0064
+#endif
+	return att->attnum == 1 &&
+		   att->atttypid == ORACLE_ROWIDOID &&
+		   att->attnotnull &&
+		   att->attgenerated == ATTRIBUTE_GENERATED_STORED &&
+		   /* memcmp(NameStr(attr->attname), "rowid") == 0 */
+		   *(uint32*)(att->attname.data) == CHAR_ROWI_INT32 &&
+		   *(uint16*)(&att->attname.data[4]) == CHAR_D0_INT16;
+}
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 #ifdef EXPOSE_TO_CLIENT_CODE
 
 #define		  ATTRIBUTE_IDENTITY_ALWAYS		'a'

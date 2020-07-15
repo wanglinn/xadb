@@ -61,6 +61,10 @@ typedef struct CheckPoint
 	 * set to InvalidTransactionId.
 	 */
 	TransactionId oldestActiveXid;
+
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	uint64		nextRowid;		/* next free ROWID */
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 } CheckPoint;
 
 /* XLOG info values for XLOG rmgr */
@@ -76,7 +80,9 @@ typedef struct CheckPoint
 #define XLOG_END_OF_RECOVERY			0x90
 #define XLOG_FPI_FOR_HINT				0xA0
 #define XLOG_FPI						0xB0
-
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+#define XLOG_NEXT_ROWID					0xC0
+#endif /* defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID) */
 
 /*
  * System status indicator.  Note this is stored in pg_control; if you change

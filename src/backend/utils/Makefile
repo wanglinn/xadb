@@ -42,6 +42,9 @@ ifeq ($(enable_cluster),yes)
 endif
 ifeq ($(enable_grammar_oracle),yes)
   MYCFLAGS += -DADB_GRAM_ORA -DADB_MULTI_GRAM
+  ifeq ($(enable_seq_rowid),yes)
+    MYCFLAGS += -DUSE_SEQ_ROWID
+  endif
 endif
 fmgr-stamp: Gen_fmgrtab.pl $(catalogdir)/Catalog.pm $(top_srcdir)/src/include/catalog/pg_proc.dat $(top_srcdir)/src/include/access/transam.h
 	$(PERL) -I $(catalogdir) $< --include-path=$(top_srcdir)/src/include/ "--defines=$(MYCFLAGS)" $(top_srcdir)/src/include/catalog/pg_proc.dat

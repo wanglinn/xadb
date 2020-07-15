@@ -59,6 +59,9 @@
 #if defined(ADBMGRD)
 #include "postmaster/adbmonitor.h"
 #endif
+#ifdef ADB_GRAM_ORA
+#include "utils/rowid.h"
+#endif /* ADB_GRAM_ORA */
 
 /* GUCs */
 int			shared_memory_type = DEFAULT_SHARED_MEMORY_TYPE;
@@ -292,6 +295,10 @@ CreateSharedMemoryAndSemaphores(int port)
 	WalSndShmemInit();
 	WalRcvShmemInit();
 	ApplyLauncherShmemInit();
+
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	InitRowidShmem();
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 
 #ifdef ADB
 	if (IsGTMNode())

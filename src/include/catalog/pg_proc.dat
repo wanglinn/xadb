@@ -10749,6 +10749,12 @@
 { oid => '9147', row_macros => 'ADB_GRAM_ORA', descr => 'less-equal-greater',
   proname => 'rowid_cmp', prorettype => 'int4',
   proargtypes => 'oracle.rowid oracle.rowid', prosrc => 'rowid_cmp' },
+# generate new rowid
+{ oid => '9131', row_macros => 'ADB_GRAM_ORA && USE_SEQ_ROWID',
+  descr => 'generate new rowid',
+  proname => 'nextrowid', pronamespace => 'ORANSP', provolatile => 'v',
+  prorettype => 'oracle.rowid', proargtypes => 'regclass',
+  prosrc => 'nextval_rowid' },
 { oid => '9148', row_macros => 'ADB_GRAM_ORA', descr => 'sort support',
   proname => 'rowid_sortsupport', prorettype => 'void',
   proargtypes => 'internal', prosrc => 'rowid_sortsupport' },

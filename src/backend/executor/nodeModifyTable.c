@@ -265,7 +265,7 @@ ExecCheckTIDVisible(EState *estate,
  * Compute stored generated columns for a tuple
  */
 void
-ExecComputeStoredGenerated(EState *estate, TupleTableSlot *slot)
+ExecComputeStoredGenerated(EState *estate, TupleTableSlot *slot ADB_SEQ_ROWID_COMMA_ARGS(bool isinsert))
 {
 	ResultRelInfo *resultRelInfo = estate->es_result_relation_info;
 	Relation	rel = resultRelInfo->ri_RelationDesc;
@@ -274,6 +274,7 @@ ExecComputeStoredGenerated(EState *estate, TupleTableSlot *slot)
 	MemoryContext oldContext;
 	Datum	   *values;
 	bool	   *nulls;
+	ADB_SEQ_ROWID_CODE(bool generated = false);
 
 	Assert(tupdesc->constr && tupdesc->constr->has_generated_stored);
 
@@ -319,12 +320,14 @@ ExecComputeStoredGenerated(EState *estate, TupleTableSlot *slot)
 	{
 		Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
 
-		if (attr->attgenerated == ATTRIBUTE_GENERATED_STORED)
+		if (attr->attgenerated == ATTRIBUTE_GENERATED_STORED
+			ADB_SEQ_ROWID_CODE(&& (isinsert || !IsOraRowidColumn(attr))))
 		{
 			ExprContext *econtext;
 			Datum		val;
 			bool		isnull;
 
+			ADB_SEQ_ROWID_CODE(generated = true);
 			econtext = GetPerTupleExprContext(estate);
 			econtext->ecxt_scantuple = slot;
 
@@ -347,11 +350,13 @@ ExecComputeStoredGenerated(EState *estate, TupleTableSlot *slot)
 		}
 	}
 
+	ADB_SEQ_ROWID_CODE(if(generated) { )
 	ExecClearTuple(slot);
 	memcpy(slot->tts_values, values, sizeof(*values) * natts);
 	memcpy(slot->tts_isnull, nulls, sizeof(*nulls) * natts);
 	ExecStoreVirtualTuple(slot);
 	ExecMaterializeSlot(slot);
+	ADB_SEQ_ROWID_CODE(})
 
 	MemoryContextSwitchTo(oldContext);
 }
@@ -434,7 +439,7 @@ ExecInsert(ModifyTableState *mtstate,
 		 */
 		if (resultRelationDesc->rd_att->constr &&
 			resultRelationDesc->rd_att->constr->has_generated_stored)
-			ExecComputeStoredGenerated(estate, slot);
+			ExecComputeStoredGenerated(estate, slot ADB_SEQ_ROWID_COMMA_ARGS(true));
 
 		/*
 		 * insert into foreign table: let the FDW do it
@@ -469,7 +474,7 @@ ExecInsert(ModifyTableState *mtstate,
 		 */
 		if (resultRelationDesc->rd_att->constr &&
 			resultRelationDesc->rd_att->constr->has_generated_stored)
-			ExecComputeStoredGenerated(estate, slot);
+			ExecComputeStoredGenerated(estate, slot ADB_SEQ_ROWID_COMMA_ARGS(true));
 
 		/*
 		 * Check any RLS WITH CHECK policies.
@@ -1344,7 +1349,7 @@ ExecUpdate(ModifyTableState *mtstate,
 		 */
 		if (resultRelationDesc->rd_att->constr &&
 			resultRelationDesc->rd_att->constr->has_generated_stored)
-			ExecComputeStoredGenerated(estate, slot);
+			ExecComputeStoredGenerated(estate, slot ADB_SEQ_ROWID_COMMA_ARGS(false));
 
 		/*
 		 * update in foreign table: let the FDW do it
@@ -1381,7 +1386,7 @@ ExecUpdate(ModifyTableState *mtstate,
 		 */
 		if (resultRelationDesc->rd_att->constr &&
 			resultRelationDesc->rd_att->constr->has_generated_stored)
-			ExecComputeStoredGenerated(estate, slot);
+			ExecComputeStoredGenerated(estate, slot ADB_SEQ_ROWID_COMMA_ARGS(false));
 
 		/*
 		 * Check any RLS UPDATE WITH CHECK policies

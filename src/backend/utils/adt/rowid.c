@@ -2,11 +2,17 @@
 #include "postgres.h"
 
 #include "access/hash.h"
+#include "access/transam.h"
+#include "access/xlog.h"
 #include "catalog/pg_type.h"
 #include "funcapi.h"
 #include "libpq/pqformat.h"
+#include "miscadmin.h"
 #include "storage/itemptr.h"
+#include "storage/spin.h"
 #include "utils/builtins.h"
+#include "utils/rowid.h"
+#include "utils/sortsupport.h"
 
 #ifdef USE_SEQ_ROWID
 	#ifdef ADB
@@ -314,5 +320,94 @@ static int32 rowid_compare(const OraRowID *l, const OraRowID *r)
 	return 0;
 }
 #endif /* ADB */
+
+#else /* else !defined(USE_SEQ_ROWID) */
+#define INVALID_COMPARE_WITH_ROWID	UINT64CONST(-1)
+
+uint64 compare_with_rowid_id = INVALID_COMPARE_WITH_ROWID;
+int default_with_rowid_id = -1;
+bool default_with_rowids = false;
+
+void InitRowidShmem(void)
+{
+	if (IsUnderPostmaster)
+		return;
+
+	if (default_with_rowid_id >= 0)
+	{
+		Assert(default_with_rowid_id < ROWID_NODE_MAX_VALUE);
+		Assert((compare_with_rowid_id & ROWID_NODE_BITS_MASK) >> (64-ROWID_NODE_BITS_LENGTH) == default_with_rowid_id);
+		ShmemVariableCache->nextRowid = (compare_with_rowid_id | FirstNormalRowid);
+	}
+	StaticAssertStmt(sizeof(ShmemVariableCache->mutexRowid) >= sizeof(slock_t),
+					 "need enlare sizeof VariableCacheData::mutexRowid");
+	SpinLockInit((slock_t*)&ShmemVariableCache->mutexRowid);
+}
+
+uint64 GetNewRowid(void)
+{
+	uint64 newid;
+	if (compare_with_rowid_id == INVALID_COMPARE_WITH_ROWID)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("invalid value for parameter \"default_with_rowid_id\": %d", default_with_rowid_id),
+				 errhint("before use rowid must set it to a valid value")));
+	}
+
+	LockRowidGen(ShmemVariableCache);
+	newid = ShmemVariableCache->nextRowid;
+
+	if (RowidIsLocalInvalid(newid))
+	{
+		UnlockRowidGen(ShmemVariableCache);
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("invalid value for parameter \"default_with_rowid_id\": %d", default_with_rowid_id),
+				 errhint("must restore \"default_with_rowid_id\" to old value: %d", (int)RowidGetNodeID(newid)),
+				 errdetail("generating new rowid is: " UINT64_FORMAT, newid)));
+	}
+	if ((newid & ROWID_NODE_VALUE_MASK) == ROWID_NODE_VALUE_MASK)
+	{
+		UnlockRowidGen(ShmemVariableCache);
+		ereport(ERROR,
+				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+				 errmsg("rowid out of range")));
+	}
+
+	/* update shared memory */
+	++(ShmemVariableCache->nextRowid);
+	UnlockRowidGen(ShmemVariableCache);
+
+	/* write record and return */
+	XLogPutNextRowid(newid);
+	return newid;
+}
+
+void GucAssignRowidNodeId(int newval, void *extra)
+{
+	if (newval < 0)
+	{
+		compare_with_rowid_id = INVALID_COMPARE_WITH_ROWID;
+		return;
+	}
+
+	Assert(newval < ROWID_NODE_MAX_VALUE);
+	compare_with_rowid_id = (uint64)newval << (64-ROWID_NODE_BITS_LENGTH);
+}
+
+Datum nextval_rowid(PG_FUNCTION_ARGS)
+{
+#if NOT_USE
+	Oid		relid = PG_GETARG_OID(0);
+#endif
+	uint64	newrowid = GetNewRowid();
+
+	/*
+	 * we should check new value is exist, for now we not check
+	 */
+
+	PG_RETURN_UINT64(newrowid);
+}
 
 #endif /* !USE_SEQ_ROWID */

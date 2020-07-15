@@ -140,6 +140,14 @@ xlog_desc(StringInfo buf, XLogReaderState *record)
 						 xlrec.ThisTimeLineID, xlrec.PrevTimeLineID,
 						 timestamptz_to_str(xlrec.end_time));
 	}
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	else if (info == XLOG_NEXT_ROWID)
+	{
+		uint64 nextRowid;
+		memcpy(&nextRowid, rec, sizeof(nextRowid));
+		appendStringInfo(buf, UINT64_FORMAT, nextRowid);
+	}
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 }
 
 const char *
@@ -185,6 +193,11 @@ xlog_identify(uint8 info)
 		case XLOG_FPI_FOR_HINT:
 			id = "FPI_FOR_HINT";
 			break;
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+		case XLOG_NEXT_ROWID:
+			id = "NEXT_ROWID";
+			break;
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 	}
 
 	return id;
