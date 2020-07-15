@@ -31,6 +31,9 @@
 #include "utils/fmgroids.h"
 #include "utils/typcache.h"
 #endif /* ADB */
+#ifdef USE_SEQ_ROWID
+#include "parser/parser.h"
+#endif /* USE_SEQ_ROWID */
 
 /*
  * makeA_Expr -
@@ -521,6 +524,34 @@ makeColumnDef(const char *colname, Oid typeOid, int32 typmod, Oid collOid)
 
 	return n;
 }
+#ifdef USE_SEQ_ROWID
+ColumnDef *makeRowidColumnDef(bool only_def)
+{
+	Constraint *n;
+	ColumnDef *def = makeNode(ColumnDef);
+	def->location = -1;
+	def->colname = pstrdup("rowid");
+	def->typeName = OracleTypeName(def->colname);
+	def->is_not_null = true;
+
+	/* add generated always as (oracle.rowid(tableoid)) stored */
+	def->raw_default = (Node*)makeFuncCall(OracleFuncName("nextrowid"),
+										   list_make1(makeColumnRef("tableoid", NIL, -1, NULL)),
+										   -1);
+	def->generated = ATTRIBUTE_GENERATED_STORED;
+
+	if (only_def)
+		return def;
+
+	/* add unique */
+	n = makeNode(Constraint);
+	n->contype = CONSTR_UNIQUE;
+	n->location = -1;
+	def->constraints = lappend(def->constraints, n);
+
+	return def;
+}
+#endif /* USE_SEQ_ROWID */
 
 /*
  * makeFuncExpr -

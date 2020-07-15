@@ -53,7 +53,11 @@
 #include "utils/rel.h"
 #include "utils/rls.h"
 #include "utils/snapmgr.h"
-
+#ifdef USE_SEQ_ROWID
+#include "commands/defrem.h"
+#include "commands/event_trigger.h"
+#include "utils/rowid.h"
+#endif
 
 typedef struct
 {
@@ -65,15 +69,23 @@ typedef struct
 	CommandId	output_cid;		/* cmin to insert in output tuples */
 	int			ti_options;		/* table_tuple_insert performance options */
 	BulkInsertState bistate;	/* bulk insert state */
+#ifdef USE_SEQ_ROWID
+	ParseGrammar	grammar;
+	bool			generated_rowid;
+	TupleTableSlot *slot_insert;
+#endif /* USE_SEQ_ROWID */
 } DR_intorel;
 
 /* utility functions for CTAS definition creation */
-static ObjectAddress create_ctas_internal(List *attrList, IntoClause *into);
-static ObjectAddress create_ctas_nodata(List *tlist, IntoClause *into);
+static ObjectAddress create_ctas_internal(List *attrList, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(ParseGrammar grammar, bool *generated_rowid));
+static ObjectAddress create_ctas_nodata(List *tlist, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(ParseGrammar grammar, bool *generated_rowid));
 
 /* DestReceiver routines for collecting data */
 static void intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo);
 static bool intorel_receive(TupleTableSlot *slot, DestReceiver *self);
+#ifdef USE_SEQ_ROWID
+static bool intorel_rowid_receive(TupleTableSlot *slot, DestReceiver *self);
+#endif /* USE_SEQ_ROWID */
 static void intorel_shutdown(DestReceiver *self);
 static void intorel_destroy(DestReceiver *self);
 
@@ -86,7 +98,7 @@ static void intorel_destroy(DestReceiver *self);
  * provide a list of attributes (ColumnDef nodes).
  */
 static ObjectAddress
-create_ctas_internal(List *attrList, IntoClause *into)
+create_ctas_internal(List *attrList, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(ParseGrammar grammar, bool *generated_rowid))
 {
 	CreateStmt *create = makeNode(CreateStmt);
 	bool		is_matview;
@@ -113,6 +125,15 @@ create_ctas_internal(List *attrList, IntoClause *into)
 	create->tablespacename = into->tableSpaceName;
 	create->if_not_exists = false;
 	create->accessMethod = into->accessMethod;
+#ifdef USE_SEQ_ROWID
+	*generated_rowid = false;
+	if (grammar == PARSE_GRAM_ORACLE &&
+		default_with_rowids)
+	{
+		create->tableElts = lcons(makeRowidColumnDef(true), create->tableElts);
+		*generated_rowid = true;
+	}
+#endif /* USE_SEQ_ROWID */
 
 	/*
 	 * Create the relation.  (This will error out if there's an existing view,
@@ -159,7 +180,7 @@ create_ctas_internal(List *attrList, IntoClause *into)
  * the targetlist of the SELECT or view definition.
  */
 static ObjectAddress
-create_ctas_nodata(List *tlist, IntoClause *into)
+create_ctas_nodata(List *tlist, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(ParseGrammar grammar, bool *generated_rowid))
 {
 	List	   *attrList;
 	ListCell   *t,
@@ -219,9 +240,47 @@ create_ctas_nodata(List *tlist, IntoClause *into)
 				 errmsg("too many column names were specified")));
 
 	/* Create the relation definition using the ColumnDef list */
-	return create_ctas_internal(attrList, into);
+	return create_ctas_internal(attrList, into ADB_SEQ_ROWID_COMMA_ARGS(grammar, generated_rowid));
 }
 
+#ifdef USE_SEQ_ROWID
+static void ExecCreateTableRowidEnd(CreateTableAsStmt *stmt, Oid relid)
+{
+	IndexStmt index;
+	IndexElem elem;
+	ObjectAddress address;
+
+	MemSet(&index, 0, sizeof(index));
+	NodeSetTag(&index, T_IndexStmt);
+	/*index.relation = makeRangeVar(get_namespace_name(RelationGetNamespace(rel)),
+								  RelationGetRelationName(rel),
+								  -1);*/
+	index.accessMethod = "btree";
+	index.isconstraint = true;
+	index.unique = true;
+	index.indexParams = list_make1(&elem);
+
+	MemSet(&elem, 0, sizeof(elem));
+	NodeSetTag(&elem, T_IndexElem);
+	elem.name = "rowid";
+	elem.ordering = SORTBY_DEFAULT;
+	elem.nulls_ordering = SORTBY_NULLS_DEFAULT;
+
+	EventTriggerAlterTableStart((Node*)stmt);
+	address = DefineIndex(relid,
+						  &index,
+						  InvalidOid, /* no predefined OID */
+						  InvalidOid, /* no parent index */
+						  InvalidOid, /* no parent constraint */
+						  false,	/* is_alter_table */
+						  true,	/* check_rights */
+						  true,	/* check_not_in_use */
+						  false,	/* skip_build */
+						  false); /* quiet */
+	EventTriggerCollectSimpleCommand(address, InvalidObjectAddress, (Node*)stmt);
+	EventTriggerAlterTableEnd();
+}
+#endif /* USE_SEQ_ROWID */
 
 /*
  * ExecCreateTableAs -- execute a CREATE TABLE AS command
@@ -242,6 +301,9 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 	List	   *rewritten;
 	PlannedStmt *plan;
 	QueryDesc  *queryDesc;
+#ifdef USE_SEQ_ROWID
+	bool		generated_rowid;
+#endif /* USE_SEQ_ROWID */
 
 	if (stmt->if_not_exists)
 	{
@@ -263,6 +325,7 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 	 * Create the tuple receiver object and insert info it will need
 	 */
 	dest = CreateIntoRelDestReceiver(into);
+	ADB_SEQ_ROWID_CODE(((DR_intorel*)dest)->grammar = stmt->grammar);
 
 	/*
 	 * The contained Query could be a SELECT, or an EXECUTE utility command.
@@ -279,6 +342,10 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 		/* get object address that intorel_startup saved for us */
 		address = ((DR_intorel *) dest)->reladdr;
 
+#ifdef USE_SEQ_ROWID
+		if (((DR_intorel *) dest)->generated_rowid)
+			ExecCreateTableRowidEnd(stmt, address.objectId);
+#endif /* USE_SEQ_ROWID */
 		return address;
 	}
 	Assert(query->commandType == CMD_SELECT);
@@ -306,7 +373,7 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 		 * similar to CREATE VIEW.  This avoids dump/restore problems stemming
 		 * from running the planner before all dependencies are set up.
 		 */
-		address = create_ctas_nodata(query->targetList, into);
+		address = create_ctas_nodata(query->targetList, into ADB_SEQ_ROWID_COMMA_ARGS(stmt->grammar, &generated_rowid));
 	}
 	else
 	{
@@ -380,6 +447,7 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 
 		/* get object address that intorel_startup saved for us */
 		address = ((DR_intorel *) dest)->reladdr;
+		ADB_SEQ_ROWID_CODE(generated_rowid = ((DR_intorel*)dest)->generated_rowid);
 
 		/* and clean up */
 		ExecutorFinish(queryDesc);
@@ -403,6 +471,10 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 		SetUserIdAndSecContext(save_userid, save_sec_context);
 	}
 
+#ifdef USE_SEQ_ROWID
+	if (generated_rowid)
+		ExecCreateTableRowidEnd(stmt, address.objectId);
+#endif /* USE_SEQ_ROWID */
 	return address;
 }
 
@@ -524,12 +596,20 @@ intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	/*
 	 * Actually create the target table
 	 */
-	intoRelationAddr = create_ctas_internal(attrList, into);
+	intoRelationAddr = create_ctas_internal(attrList, into ADB_SEQ_ROWID_COMMA_ARGS(myState->grammar, &myState->generated_rowid));
 
 	/*
 	 * Finally we can open the target table
 	 */
 	intoRelationDesc = table_open(intoRelationAddr.objectId, AccessExclusiveLock);
+#ifdef USE_SEQ_ROWID
+	myState->pub.receiveSlot = intorel_receive;
+	if (myState->generated_rowid)
+	{
+		myState->slot_insert = table_slot_create(intoRelationDesc, NULL);
+		myState->pub.receiveSlot = intorel_rowid_receive;
+	}
+#endif /* USE_SEQ_ROWID */
 
 	/*
 	 * Check INSERT permission on the constructed table.
@@ -617,6 +697,36 @@ intorel_receive(TupleTableSlot *slot, DestReceiver *self)
 	return true;
 }
 
+#ifdef USE_SEQ_ROWID
+static bool intorel_rowid_receive(TupleTableSlot *slot, DestReceiver *self)
+{
+	DR_intorel *myState = (DR_intorel *) self;
+	TupleTableSlot *insert = myState->slot_insert;
+
+#ifdef USE_FLOAT8_BYVAL
+	uint64 v = GetNewRowid();
+	insert->tts_values[0] = Int64GetDatumFast(v);
+#else
+	insert->tts_values[0] = Int64GetDatum(GetNewRowid());
+#endif
+	insert->tts_isnull[0] = false;
+
+	slot_getallattrs(slot);
+	memcpy(&insert->tts_values[1], slot->tts_values, sizeof(slot->tts_values[0]) * slot->tts_nvalid);
+	memcpy(&insert->tts_isnull[1], slot->tts_isnull, sizeof(slot->tts_isnull[0]) * slot->tts_nvalid);
+	ExecStoreVirtualTuple(insert);
+
+	table_tuple_insert(myState->rel,
+					   insert,
+					   myState->output_cid,
+					   myState->ti_options,
+					   myState->bistate);
+
+	ExecClearTuple(insert);
+	return true;
+}
+#endif /* USE_SEQ_ROWID */
+
 /*
  * intorel_shutdown --- executor end
  */
@@ -632,6 +742,13 @@ intorel_shutdown(DestReceiver *self)
 	/* close rel, but keep lock until commit */
 	table_close(myState->rel, NoLock);
 	myState->rel = NULL;
+#ifdef USE_SEQ_ROWID
+	if (myState->slot_insert)
+	{
+		ExecDropSingleTupleTableSlot(myState->slot_insert);
+		myState->slot_insert = NULL;
+	}
+#endif /* USE_SEQ_ROWID */
 }
 
 /*
