@@ -89,6 +89,19 @@
 #define ADB_GRAM_ORA_CODE(c)
 #endif
 
+#ifdef USE_SEQ_ROWID
+#ifndef ADB_GRAM_ORA
+#error ADB_GRAM_ORA must be defined
+#endif
+#define ADB_SEQ_ROWID_ARGS_COMMA(...)			__VA_ARGS__ ,
+#define ADB_SEQ_ROWID_COMMA_ARGS(...)			, __VA_ARGS__
+#define ADB_SEQ_ROWID_CODE(c)					c
+#else
+#define ADB_SEQ_ROWID_ARGS_COMMA(...)
+#define ADB_SEQ_ROWID_COMMA_ARGS(...)
+#define ADB_SEQ_ROWID_CODE(c)
+#endif
+
 /* ----------------------------------------------------------------
  *				Section 1:	variable-length datatypes (TOAST support)
  * ----------------------------------------------------------------

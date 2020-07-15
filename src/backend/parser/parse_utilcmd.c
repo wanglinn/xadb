@@ -84,6 +84,9 @@
 #include "utils/ruleutils.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
+#ifdef ADB_GRAM_ORA
+#include "utils/rowid.h"
+#endif /* ADB_GRAM_ORA */
 
 
 /* State shared by transformCreateStmt and its subroutines */
@@ -368,6 +371,9 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	/* Set up pstate */
 	pstate = make_parsestate(NULL);
 	pstate->p_sourcetext = queryString;
+#ifdef ADB_MULTI_GRAM
+	pstate->p_grammar = stmt->grammar;
+#endif /* ADB_MULTI_GRAM */
 
 	/*
 	 * Look up the creation namespace.  This also checks permissions on the
@@ -456,6 +462,42 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
 					 errmsg("cannot create partitioned table as inheritance child")));
 	}
+
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	if (stmt->grammar == PARSE_GRAM_ORACLE &&
+		default_with_rowids &&
+		stmt->partbound == NULL)
+	{
+		Constraint *n;
+		ColumnDef *def = makeNode(ColumnDef);
+		def->location = -1;
+		def->colname = pstrdup("rowid");
+		def->typeName = OracleTypeName(def->colname);
+
+		/* add not null */
+		n = makeNode(Constraint);
+		n->contype = CONSTR_NOTNULL;
+		n->location = -1;
+		def->constraints = lappend(def->constraints, n);
+
+		/* add unique */
+		n = makeNode(Constraint);
+		n->contype = CONSTR_UNIQUE;
+		n->location = -1;
+		def->constraints = lappend(def->constraints, n);
+
+		/* add generated always as (oracle.rowid(tableoid)) stored */
+		n = makeNode(Constraint);
+		n->contype = CONSTR_GENERATED;
+		n->location = -1;
+		n->raw_expr = (Node*)makeFuncCall(OracleFuncName("nextrowid"),
+										  list_make1(makeColumnRef("tableoid", NIL, -1, NULL)),
+										  -1);
+		def->constraints = lappend(def->constraints, n);
+
+		stmt->tableElts = lcons(def, stmt->tableElts);
+	}
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 
 	/*
 	 * Run through each primary element in the table creation clause. Separate

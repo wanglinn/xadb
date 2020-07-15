@@ -2778,6 +2778,21 @@ expandRelAttrs(ParseState *pstate, RangeTblEntry *rte,
 		Var		   *varnode = (Var *) lfirst(var);
 		TargetEntry *te;
 
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+		if (varnode->varattno == 1 &&
+			varnode->vartype == ORACLE_ROWIDOID &&
+			(rte->relkind == RELKIND_RELATION ||
+			 rte->relkind == RELKIND_PARTITIONED_TABLE) &&
+			strcmp(label, "rowid") == 0)
+		{
+			Relation rel = table_open(rte->relid, AccessShareLock);
+			bool is_rowid = IsOraRowidColumn(TupleDescAttr(RelationGetDescr(rel), 0));
+			table_close(rel, AccessShareLock);
+			if (is_rowid)
+				continue;
+		}
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
+
 		te = makeTargetEntry((Expr *) varnode,
 							 (AttrNumber) pstate->p_next_resno++,
 							 label,

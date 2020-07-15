@@ -15,7 +15,7 @@
 
 #include "nodes/execnodes.h"
 
-extern void ExecComputeStoredGenerated(EState *estate, TupleTableSlot *slot);
+extern void ExecComputeStoredGenerated(EState *estate, TupleTableSlot *slot ADB_SEQ_ROWID_COMMA_ARGS(bool isinsert));
 
 extern ModifyTableState *ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags);
 extern void ExecEndModifyTable(ModifyTableState *node);

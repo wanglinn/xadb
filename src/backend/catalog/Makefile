@@ -65,12 +65,12 @@ endif
 ifeq ($(enable_grammar_oracle),yes)
   CATALOG_HEADERS += ora_cast.h ora_convert.h
   MYCPPFLAGS += -DADB_GRAM_ORA
+  ifeq ($(enable_seq_rowid),yes)
+    MYCPPFLAGS += -DUSE_SEQ_ROWID
+  endif
 endif
 ifeq ($(enable_grammar_db2),yes)
   MYCPPFLAGS += -DADB_GRAM_DB2
-endif
-ifeq ($(enable_seq_rowid),yes)
-  MYCPPFLAGS += -DUSE_SEQ_ROWID
 endif
 
 GENERATED_HEADERS := $(CATALOG_HEADERS:%.h=%_d.h) schemapg.h

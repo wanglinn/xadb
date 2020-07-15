@@ -81,6 +81,9 @@
 #include "utils/snapmgr.h"
 #include "utils/timestamp.h"
 #include "pg_trace.h"
+#ifdef ADB_GRAM_ORA
+#include "utils/rowid.h"
+#endif /* ADB_GRAM_ORA */
 
 extern uint32 bootstrap_data_checksum_version;
 
@@ -6711,6 +6714,21 @@ StartupXLOG(void)
 	SetCommitTsLimit(checkPoint.oldestCommitTsXid,
 					 checkPoint.newestCommitTsXid);
 	XLogCtl->ckptFullXid = checkPoint.nextFullXid;
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	if (default_with_rowid_id >= 0 &&
+		checkPoint.nextRowid &&
+		RowidIsLocalInvalid(checkPoint.nextRowid))
+	{
+		int old_rowid_id = (int)RowidGetNodeID(checkPoint.nextRowid);
+		ereport(FATAL,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("invalid value for parameter \"default_with_rowid_id\": %d", default_with_rowid_id),
+				 errhint("must restore \"default_with_rowid_id\" to old value: %d", old_rowid_id),
+				 errdetail("checkpoint next rowid is: " UINT64_FORMAT, checkPoint.nextRowid)));
+	}
+	if (checkPoint.nextRowid > ShmemVariableCache->nextRowid)
+		ShmemVariableCache->nextRowid = checkPoint.nextRowid;
+#endif
 
 	/*
 	 * Initialize replication slots, before there's a chance to remove
@@ -8802,6 +8820,12 @@ CreateCheckPoint(int flags)
 		checkPoint.nextOid += ShmemVariableCache->oidCount;
 	LWLockRelease(OidGenLock);
 
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	LockRowidGen(ShmemVariableCache);
+	checkPoint.nextRowid = ShmemVariableCache->nextRowid;
+	UnlockRowidGen(ShmemVariableCache);
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
+
 	MultiXactGetCheckptMulti(shutdown,
 							 &checkPoint.nextMulti,
 							 &checkPoint.nextMultiOffset,
@@ -9446,6 +9470,16 @@ XLogPutNextOid(Oid nextOid)
 	 */
 }
 
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+/* like XLogPutNextOid() we need not flush record immediately */
+void XLogPutNextRowid(uint64 nextRowid)
+{
+	XLogBeginInsert();
+	XLogRegisterData((char *) (&nextRowid), sizeof(nextRowid));
+	(void) XLogInsert(RM_XLOG_ID, XLOG_NEXT_ROWID);
+}
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
+
 /*
  * Write an XLOG SWITCH record.
  *
@@ -10002,6 +10036,29 @@ xlog_redo(XLogReaderState *record)
 		/* Keep track of full_page_writes */
 		lastFullPageWrites = fpw;
 	}
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	else if (info == XLOG_NEXT_ROWID)
+	{
+		uint64		nextRowid;
+
+		memcpy(&nextRowid, XLogRecGetData(record), sizeof(nextRowid));
+
+		if (RowidIsLocalInvalid(nextRowid))
+		{
+			int old_rowid_id = (int)RowidGetNodeID(nextRowid);
+			ereport(FATAL,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("invalid value for parameter \"default_with_rowid_id\": %d", default_with_rowid_id),
+					 errhint("must restore \"default_with_rowid_id\" to old value: %d", old_rowid_id),
+					 errdetail("redo next rowid is: " UINT64_FORMAT, nextRowid)));
+		}
+
+		LockRowidGen(ShmemVariableCache);
+		if (ShmemVariableCache->nextRowid < nextRowid)
+			ShmemVariableCache->nextRowid = nextRowid;
+		UnlockRowidGen(ShmemVariableCache);
+	}
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 }
 
 #ifdef WAL_DEBUG

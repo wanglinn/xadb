@@ -3192,6 +3192,16 @@ cookDefault(ParseState *pstate,
 	{
 		check_nested_generated(pstate, expr);
 
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+		if (attgenerated &&
+			expr != NULL &&
+			IsA(expr, FuncExpr) &&
+			((FuncExpr*)expr)->funcid == F_NEXTVAL_ROWID &&
+			contain_mutable_functions((Node*)((FuncExpr*)expr)->args) == false)
+		{
+			/* nothing todo, just don't report error */
+		}else
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 		if (contain_mutable_functions(expr))
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),

@@ -854,6 +854,14 @@ rewriteTargetListIU(List *targetList,
 
 		if (commandType == CMD_UPDATE)
 		{
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+			if (new_tle && IsOraRowidColumn(att_tup))
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot assign to system column \"%s\"",
+								NameStr(att_tup->attname))));
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
+
 			if (att_tup->attidentity == ATTRIBUTE_IDENTITY_ALWAYS && new_tle && !apply_default)
 				ereport(ERROR,
 						(errcode(ERRCODE_GENERATED_ALWAYS),

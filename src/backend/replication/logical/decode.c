@@ -203,6 +203,9 @@ DecodeXLogOp(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
 		case XLOG_FPW_CHANGE:
 		case XLOG_FPI_FOR_HINT:
 		case XLOG_FPI:
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+		case XLOG_NEXT_ROWID:
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 			break;
 		default:
 			elog(ERROR, "unexpected RM_XLOG_ID record type: %u", info);

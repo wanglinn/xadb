@@ -1096,7 +1096,11 @@ checkInsertTargets(ParseState *pstate, List *cols, List **attrnos)
 
 			attr = TupleDescAttr(pstate->p_target_relation->rd_att, i);
 
-			if (attr->attisdropped)
+			if (attr->attisdropped
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+				|| IsOraRowidColumn(attr)
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
+				)
 				continue;
 
 			col = makeNode(ResTarget);

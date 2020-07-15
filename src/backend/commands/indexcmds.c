@@ -885,7 +885,12 @@ DefineIndex(Oid relationId,
 	 * We could lift this limitation if we had global indexes, but those have
 	 * their own problems, so this is a useful feature combination.
 	 */
-	if (partitioned && (stmt->unique || stmt->primary))
+	if (partitioned && (stmt->unique || stmt->primary)
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+		&& !(indexInfo->ii_NumIndexAttrs == 1 &&
+			 IsOraRowidColumn(TupleDescAttr(RelationGetDescr(rel), indexInfo->ii_IndexAttrNumbers[0]-1)))
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
+		)
 	{
 		PartitionKey key = rel->rd_partkey;
 		int			i;
