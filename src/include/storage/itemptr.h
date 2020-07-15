@@ -204,12 +204,11 @@ extern bool ItemPointerEquals(ItemPointer pointer1, ItemPointer pointer2);
 extern int32 ItemPointerCompare(ItemPointer arg1, ItemPointer arg2);
 
 #ifndef USE_SEQ_ROWID
-#if defined(ADB) && defined(ADB_GRAM_ORA)
 /* in rowid.c */
-extern Datum rowid_make(uint32 node_id, ItemPointer const tid);
+extern Datum rowid_make(ADB_ONLY_ARG_COMMA(uint32 node_id) ItemPointer const tid);
+#if defined(ADB)
 extern uint32 rowid_get_data(Datum arg, ItemPointer tid);
-#elif defined(ADB_GRAM_ORA)
-extern Datum rowid_make(ItemPointer const tid);
+#else
 extern void rowid_get_data(Datum arg, ItemPointer tid);
 #endif /* ADB */
 #endif /* !USE_SEQ_ROWID */
