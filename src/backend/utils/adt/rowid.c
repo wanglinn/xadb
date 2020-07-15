@@ -1,8 +1,6 @@
 
 #include "postgres.h"
 
-#ifdef ADB_GRAM_ORA
-
 #include "access/hash.h"
 #include "catalog/pg_type.h"
 #include "funcapi.h"
@@ -263,18 +261,23 @@ Datum rowid_sortsupport(PG_FUNCTION_ARGS)
 }
 
 #ifndef USE_SEQ_ROWID
-#if defined(ADB) && defined(ADB_GRAM_ORA)
-Datum rowid_make(uint32 node_id, ItemPointer const tid)
+Datum rowid_make(ADB_ONLY_ARG_COMMA(uint32 node_id) ItemPointer const tid)
 {
+#ifdef ADB
 	OraRowID *rowid;
 	AssertArg(tid);
 	rowid = palloc(sizeof(*rowid));
 	rowid->node_id = node_id;
 	rowid->block = ItemPointerGetBlockNumber(tid);
 	rowid->offset = ItemPointerGetOffsetNumber(tid);
+#else
+	ItemPointer *rowid = palloc(sizeof(*rowid));
+	memcpy(rowid, tid, sizeof(*rowid));
+#endif
 	return PointerGetDatum(rowid);
 }
 
+#if defined(ADB)
 /* save ctid to tid and return xc_node_id */
 uint32 rowid_get_data(Datum arg, ItemPointer tid)
 {
@@ -284,14 +287,7 @@ uint32 rowid_get_data(Datum arg, ItemPointer tid)
 
 	return rowid->node_id;
 }
-#elif defined(ADB_GRAM_ORA)
-Datum rowid_make(ItemPointer const tid)
-{
-	ItemPointer *new_tid = palloc(sizeof(*new_tid));
-	memcpy(new_tid, tid, sizeof(*new_tid));
-	return PointerGetDatum(new_tid);
-}
-
+#else
 /* save ctid to tid */
 void rowid_get_data(Datum arg, ItemPointer tid)
 {
@@ -318,7 +314,5 @@ static int32 rowid_compare(const OraRowID *l, const OraRowID *r)
 	return 0;
 }
 #endif /* ADB */
-
-#endif /* ADB_GRAM_ORA */
 
 #endif /* !USE_SEQ_ROWID */
