@@ -15,8 +15,8 @@ ADB documentation
     <refpurpose>show all slave nodes streaming replication with master \n
     Use like this:\n
     MONITOR HA \n
-    MONITOR HA ${nodename1}, ${nodename2} ... \n
-    MONITOR HA ZONE ${zonename}\n      
+    MONITOR HA nodename1, nodename2 ... \n
+    MONITOR HA ZONE zonename\n      
     </refpurpose>
   </refnamediv>
 

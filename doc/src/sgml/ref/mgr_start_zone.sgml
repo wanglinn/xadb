@@ -25,7 +25,6 @@ ADB documentation
   <refsynopsisdiv>
     <synopsis>
     START ZONE <replaceable class="parameter">zonename </replaceable>
-    START ZONE <replaceable class="parameter">zonename</replaceable>
     </synopsis>
   </refsynopsisdiv>
 
