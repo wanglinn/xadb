@@ -7,7 +7,7 @@
 
 #include "utils/timestamp.h"
 
-CATALOG(monitor_slowlog,4817,MslowlogRelationId)
+CATALOG(monitor_slowlog,9797,MslowlogRelationId)
 {
 	/*the database name*/
 	NameData	slowlogdbname;

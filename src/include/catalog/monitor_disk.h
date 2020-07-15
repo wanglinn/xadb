@@ -10,7 +10,7 @@
 #include "utils/portal.h"
 #include "utils/timestamp.h"
 
-CATALOG(monitor_disk,4809,MonitorDiskRelationId)
+CATALOG(monitor_disk,9789,MonitorDiskRelationId)
 {
 	Oid			oid;
 	

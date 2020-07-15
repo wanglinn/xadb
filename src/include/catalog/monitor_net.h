@@ -10,7 +10,7 @@
 #include "utils/portal.h"
 #include "utils/timestamp.h"
 
-CATALOG(monitor_net,4808,MonitorNetRelationId)
+CATALOG(monitor_net,9795,MonitorNetRelationId)
 {
 	Oid			oid;
 	

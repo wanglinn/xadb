@@ -353,8 +353,8 @@ DECLARE_UNIQUE_INDEX(ora_cast_id_index, 9016, on ora_cast using btree(castid oid
 #define OraCastIdIndexId	9016
 DECLARE_UNIQUE_INDEX(ora_cast_source_target_index, 9017, on ora_cast using btree(castsource oid_ops, casttarget oid_ops, castcontext char_ops));
 #define OraCastSourceTargetIndexId  9017
-DECLARE_UNIQUE_INDEX(ora_convert_index, 6103, on ora_convert using btree(cvtkind char_ops, cvtname name_ops, cvtfrom oidvector_ops));
-#define OraConvertIndexId 6103
+DECLARE_UNIQUE_INDEX(ora_convert_index, 9029, on ora_convert using btree(cvtkind char_ops, cvtname name_ops, cvtfrom oidvector_ops));
+#define OraConvertIndexId 9029
 DECLARE_UNIQUE_INDEX(ora_convert_id_index, 9033, on ora_convert using btree(cvtid oid_ops));
 #define OraConvertIdIndexId 9033
 #endif
@@ -421,56 +421,56 @@ DECLARE_UNIQUE_INDEX(pg_subscription_rel_srrelid_srsubid_index, 6117, on pg_subs
 #define SubscriptionRelSrrelidSrsubidIndexId 6117
 
 #ifdef ADBMGRD
-DECLARE_UNIQUE_INDEX(mgr_host_oid_index, 4909, on mgr_host using btree(oid oid_ops));
-#define HostOidIndexId 4909
+DECLARE_UNIQUE_INDEX(mgr_host_oid_index, 9763, on mgr_host using btree(oid oid_ops));
+#define HostOidIndexId 9763
 
-DECLARE_UNIQUE_INDEX(mgr_host_hostname_index, 4910, on mgr_host using btree(hostname name_ops));
-#define HostHostnameIndexId					4910
+DECLARE_UNIQUE_INDEX(mgr_host_hostname_index, 9764, on mgr_host using btree(hostname name_ops));
+#define HostHostnameIndexId					9764
 
-DECLARE_UNIQUE_INDEX(mgr_parm_typename_index, 4951, on mgr_parm using btree(parmtype char_ops,parmname name_ops));
-#define ParmTypeNameIndexId 4951
+DECLARE_UNIQUE_INDEX(mgr_parm_typename_index, 9765, on mgr_parm using btree(parmtype char_ops,parmname name_ops));
+#define ParmTypeNameIndexId 9765
 
-DECLARE_UNIQUE_INDEX(mgr_node_oid_index, 4949, on mgr_node using btree(oid oid_ops));
-#define NodeOidIndexId 4949
+DECLARE_UNIQUE_INDEX(mgr_node_oid_index, 9766, on mgr_node using btree(oid oid_ops));
+#define NodeOidIndexId 9766
 
-DECLARE_UNIQUE_INDEX(mgr_hba_oid_index, 4971, on mgr_hba using btree(oid oid_ops));
-#define HbaOidIndexId 4971
+DECLARE_UNIQUE_INDEX(mgr_hba_oid_index, 9767, on mgr_hba using btree(oid oid_ops));
+#define HbaOidIndexId 9767
 
-DECLARE_UNIQUE_INDEX(monitor_cpu_oid_index, 4956, on monitor_cpu using btree(oid oid_ops));
-#define MonitorCpuOidIndexId 4956
+DECLARE_UNIQUE_INDEX(monitor_cpu_oid_index, 9768, on monitor_cpu using btree(oid oid_ops));
+#define MonitorCpuOidIndexId 9768
 
-DECLARE_UNIQUE_INDEX(monitor_mem_oid_index, 4957, on monitor_mem using btree(oid oid_ops));
-#define MonitorMemOidIndexId 4957
+DECLARE_UNIQUE_INDEX(monitor_mem_oid_index, 9769, on monitor_mem using btree(oid oid_ops));
+#define MonitorMemOidIndexId 9769
 
-DECLARE_UNIQUE_INDEX(monitor_disk_oid_index, 4958, on monitor_disk using btree(oid oid_ops));
-#define MonitorDiskOidIndexId 4958
+DECLARE_UNIQUE_INDEX(monitor_disk_oid_index, 9770, on monitor_disk using btree(oid oid_ops));
+#define MonitorDiskOidIndexId 9770
 
-DECLARE_UNIQUE_INDEX(monitor_net_oid_index, 4959, on monitor_net using btree(oid oid_ops));
-#define MonitorNetOidIndexId 4959
+DECLARE_UNIQUE_INDEX(monitor_net_oid_index, 9771, on monitor_net using btree(oid oid_ops));
+#define MonitorNetOidIndexId 9771
 
-DECLARE_UNIQUE_INDEX(monitor_host_oid_index, 4960, on monitor_host using btree(oid oid_ops));
-#define MonitorHostOidIndexId 4960
+DECLARE_UNIQUE_INDEX(monitor_host_oid_index, 9772, on monitor_host using btree(oid oid_ops));
+#define MonitorHostOidIndexId 9772
 
-DECLARE_UNIQUE_INDEX(monitor_varparm_oid_index, 4961, on monitor_varparm using btree(oid oid_ops));
-#define MonitorVarparmOidIndexId 4961
+DECLARE_UNIQUE_INDEX(monitor_varparm_oid_index, 9773, on monitor_varparm using btree(oid oid_ops));
+#define MonitorVarparmOidIndexId 9773
 
-DECLARE_UNIQUE_INDEX(monitor_alarm_oid_index, 4970, on monitor_alarm using btree(oid oid_ops));
-#define MonitorAlarmOidIndexId 4970
+DECLARE_UNIQUE_INDEX(monitor_alarm_oid_index, 9774, on monitor_alarm using btree(oid oid_ops));
+#define MonitorAlarmOidIndexId 9774
 
-DECLARE_UNIQUE_INDEX(monitor_resolve_oid_index, 5022, on monitor_resolve using btree(oid oid_ops));
-#define MonitorResolveOidIndexId 5022
+DECLARE_UNIQUE_INDEX(monitor_resolve_oid_index, 9775, on monitor_resolve using btree(oid oid_ops));
+#define MonitorResolveOidIndexId 9775
 
-DECLARE_UNIQUE_INDEX(monitor_user_oid_index, 4955, on monitor_user using btree(oid oid_ops));
-#define MonitorUserOidIndexId 4955
+DECLARE_UNIQUE_INDEX(monitor_user_oid_index, 9776, on monitor_user using btree(oid oid_ops));
+#define MonitorUserOidIndexId 9776
 
-DECLARE_UNIQUE_INDEX(mgr_updataparm_nodename_nodetype_key_index, 4972, on mgr_updateparm using btree(updateparmnodename name_ops, updateparmnodetype char_ops, updateparmkey name_ops));
-#define MgrUpdataparmNodenameNodetypeKeyIndexId 4972
+DECLARE_UNIQUE_INDEX(mgr_updataparm_nodename_nodetype_key_index, 9777, on mgr_updateparm using btree(updateparmnodename name_ops, updateparmnodetype char_ops, updateparmkey name_ops));
+#define MgrUpdataparmNodenameNodetypeKeyIndexId 9777
 
-DECLARE_UNIQUE_INDEX(monitor_job_oid_index, 4919, on monitor_job using btree(oid oid_ops));
-#define MonitorJobOidIndexId 4919
+DECLARE_UNIQUE_INDEX(monitor_job_oid_index, 9778, on monitor_job using btree(oid oid_ops));
+#define MonitorJobOidIndexId 9778
 
-DECLARE_UNIQUE_INDEX(monitor_jobitem_name_index, 4930, on monitor_jobitem using btree(jobitem_itemname name_ops));
-#define MonitorJobitemItemnameIndexId 4930
+DECLARE_UNIQUE_INDEX(monitor_jobitem_name_index, 9779, on monitor_jobitem using btree(jobitem_itemname name_ops));
+#define MonitorJobitemItemnameIndexId 9779
 
 #endif /* ADBMGRD */
 

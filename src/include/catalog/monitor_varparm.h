@@ -5,7 +5,7 @@
 #include "catalog/genbki.h"
 #include "catalog/monitor_varparm_d.h"
 
-CATALOG(monitor_varparm,4810,MonitorVarParmRelationId)
+CATALOG(monitor_varparm,9799,MonitorVarParmRelationId)
 {
 	Oid			oid;
 	

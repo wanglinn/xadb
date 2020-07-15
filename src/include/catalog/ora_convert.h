@@ -6,7 +6,7 @@
 #include "catalog/genbki.h"
 #include "catalog/ora_convert_d.h"
 
-CATALOG(ora_convert,6116,OraConvertRelationId)
+CATALOG(ora_convert,9316,OraConvertRelationId)
 {
 	/* convert id */
 	Oid			cvtid;

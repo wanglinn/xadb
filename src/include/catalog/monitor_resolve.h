@@ -5,7 +5,7 @@
 #include "catalog/genbki.h"
 #include "catalog/monitor_resolve_d.h"
 
-CATALOG(monitor_resolve,8902,MonitorResolveRelationId)
+CATALOG(monitor_resolve,9796,MonitorResolveRelationId)
 {
 	Oid			oid;
 	

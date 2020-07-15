@@ -7,7 +7,7 @@
 
 #include "utils/timestamp.h"
 
-CATALOG(monitor_databaseitem,4815,MdatabaseitemRelationId)
+CATALOG(monitor_databaseitem,9787,MdatabaseitemRelationId)
 {
 	/* monitor timestamp */
 	timestamptz		monitor_databaseitem_time;

@@ -23,7 +23,7 @@
 #include "catalog/genbki.h"
 #include "catalog/pgxc_slavenode_d.h"
 
-CATALOG(pgxc_slavenode,4993,PgxcSlaveNodeRelationId) BKI_SHARED_RELATION
+CATALOG(pgxc_slavenode,9901,PgxcSlaveNodeRelationId) BKI_SHARED_RELATION
 {
 	Oid			oid;			/* oid */
 

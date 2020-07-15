@@ -11,7 +11,7 @@
 #include "utils/portal.h"
 #include "utils/timestamp.h"
 
-CATALOG(monitor_host,4805,MonitorHostRelationId)
+CATALOG(monitor_host,9790,MonitorHostRelationId)
 {
 	Oid			oid;
 	
