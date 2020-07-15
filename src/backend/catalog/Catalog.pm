@@ -393,6 +393,11 @@ sub GenerateArrayTypes
 		# Set up column values derived from the element type.
 		$array_type{typname} = '_' . $elem_type->{typname};
 		$array_type{typelem} = $elem_type->{typname};
+		$array_type{typnamespace} = $elem_type->{typnamespace};
+		$array_type{typelem} = 'oracle.' . $array_type{typelem}
+			if ($elem_type->{typnamespace} eq 'ORANSP');
+		$array_type{row_macros} = $elem_type->{row_macros}
+			if defined($elem_type->{row_macros});
 
 		# Arrays require INT alignment, unless the element type requires
 		# DOUBLE alignment.
@@ -420,6 +425,8 @@ sub GenerateArrayTypes
 
 		# Lastly, cross-link the array to the element type.
 		$elem_type->{typarray} = $array_type{typname};
+		$elem_type->{typarray} = 'oracle.' . $elem_type->{typarray}
+			if ($elem_type->{typnamespace} eq 'ORANSP');
 
 		push @array_types, \%array_type;
 	}
