@@ -577,9 +577,7 @@ CreateAsStmt:
 		CREATE OptTemp TABLE create_as_target AS SelectStmt opt_with_data
 				{
 					CreateTableAsStmt *ctas = makeNode(CreateTableAsStmt);
-#ifdef ADB
-					ctas->grammar = PARSE_GRAM_POSTGRES;
-#endif /* ADB */
+					ctas->grammar = PARSE_GRAM_ORACLE;
 					ctas->query = $6;
 					ctas->into = $4;
 					ctas->relkind = OBJECT_TABLE;
@@ -592,6 +590,7 @@ CreateAsStmt:
 		| CREATE OptTemp TABLE IF_P NOT EXISTS create_as_target AS SelectStmt opt_with_data
 				{
 					CreateTableAsStmt *ctas = makeNode(CreateTableAsStmt);
+					ctas->grammar = PARSE_GRAM_ORACLE;
 					ctas->query = $9;
 					ctas->into = $7;
 					ctas->relkind = OBJECT_TABLE;

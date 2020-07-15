@@ -75,6 +75,9 @@ extern TypeName *makeTypeNameFromOid(Oid typeOid, int32 typmod);
 
 extern ColumnDef *makeColumnDef(const char *colname,
 								Oid typeOid, int32 typmod, Oid collOid);
+#ifdef USE_SEQ_ROWID
+extern ColumnDef *makeRowidColumnDef(bool only_def);
+#endif /* USE_SEQ_ROWID */
 
 extern FuncExpr *makeFuncExpr(Oid funcid, Oid rettype, List *args,
 							  Oid funccollid, Oid inputcollid, CoercionForm fformat);

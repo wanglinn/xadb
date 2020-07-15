@@ -467,34 +467,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 		default_with_rowids &&
 		stmt->partbound == NULL)
 	{
-		Constraint *n;
-		ColumnDef *def = makeNode(ColumnDef);
-		def->location = -1;
-		def->colname = pstrdup("rowid");
-		def->typeName = OracleTypeName(def->colname);
-
-		/* add not null */
-		n = makeNode(Constraint);
-		n->contype = CONSTR_NOTNULL;
-		n->location = -1;
-		def->constraints = lappend(def->constraints, n);
-
-		/* add unique */
-		n = makeNode(Constraint);
-		n->contype = CONSTR_UNIQUE;
-		n->location = -1;
-		def->constraints = lappend(def->constraints, n);
-
-		/* add generated always as (oracle.rowid(tableoid)) stored */
-		n = makeNode(Constraint);
-		n->contype = CONSTR_GENERATED;
-		n->location = -1;
-		n->raw_expr = (Node*)makeFuncCall(OracleFuncName("nextrowid"),
-										  list_make1(makeColumnRef("tableoid", NIL, -1, NULL)),
-										  -1);
-		def->constraints = lappend(def->constraints, n);
-
-		stmt->tableElts = lcons(def, stmt->tableElts);
+		stmt->tableElts = lcons(makeRowidColumnDef(false), stmt->tableElts);
 	}
 #endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 
