@@ -7,7 +7,7 @@
 
 #include "utils/timestamp.h"
 
-CATALOG(monitor_jobitem,4804,MjobitemRelationId)
+CATALOG(monitor_jobitem,9793,MjobitemRelationId)
 {
 	NameData				jobitem_itemname;
 #ifdef CATALOG_VARLEN

@@ -5,7 +5,7 @@
 #include "catalog/genbki.h"
 #include "catalog/monitor_varparm_d.h"
 
-CATALOG(monitor_varparm,4810,MonitorVarParmRelationId)
+CATALOG(monitor_varparm,9799,MonitorVarParmRelationId)
 {
 	/* CPU threshold,More than this value will alarm */
 	int16		mv_cpu_threshold;

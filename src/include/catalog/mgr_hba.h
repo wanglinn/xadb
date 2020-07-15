@@ -5,7 +5,7 @@
 #include "catalog/genbki.h"
 #include "catalog/mgr_hba_d.h"
 
-CATALOG(mgr_hba,4800,HbaRelationId)
+CATALOG(mgr_hba,9780,HbaRelationId)
 {
 	Oid			oid;
 

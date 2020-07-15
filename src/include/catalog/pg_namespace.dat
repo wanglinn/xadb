@@ -23,12 +23,12 @@
   nspname => 'public', nspowner => 'PGUID', nspacl => '_null_' },
 
 # ADB_BEGIN
-{ oid => '6130', oid_symbol => 'PG_ORACLE_NAMESPACE', row_macros => 'ADB_GRAM_ORA',
+{ oid => '9098', oid_symbol => 'PG_ORACLE_NAMESPACE', row_macros => 'ADB_GRAM_ORA',
   descr => 'compatible oracle schema',
   nspname => 'oracle', nspowner => 'PGUID', nspacl => '_null_' },
 
 #modify this oid, must modify PG_MANAGER_NAMESPACE macro in pg_namespace.h
-{ oid => '6105', oid_symbol => 'PG_MANAGER_NAMESPACE', row_macros => 'ADBMGRD',
+{ oid => '9099', oid_symbol => 'PG_MANAGER_NAMESPACE', row_macros => 'ADBMGRD',
   descr => 'ADB manager schema',
   nspname => 'adbmgr', nspowner => 'PGUID', nspacl => '_null_' },
 #ADB_END

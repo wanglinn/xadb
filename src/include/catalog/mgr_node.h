@@ -5,7 +5,7 @@
 #include "catalog/genbki.h"
 #include "catalog/mgr_node_d.h"
 
-CATALOG(mgr_node,4813,NodeRelationId)
+CATALOG(mgr_node,9782,NodeRelationId)
 {
 	Oid			oid;			/* oid */
 

@@ -61,7 +61,7 @@ if ($output_path ne '' && substr($output_path, -1) ne '/')
 }
 
 # Collect all the existing assigned OIDs (including those to be remapped).
-my @header_files = (glob("pg_*.h"), qw(indexing.h toasting.h));
+my @header_files = (glob("pg_*.h"), glob("adb_*.h"), glob("pgxc_*.h"), glob("mgr_*.h"), glob("ora_*.h"), glob("monitor_*.h"), qw(indexing.h toasting.h));
 my $oids = Catalog::FindAllOidsFromHeaders(@header_files);
 
 # Hash-ify the existing OIDs for convenient lookup.

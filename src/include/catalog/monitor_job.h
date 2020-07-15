@@ -7,7 +7,7 @@
 
 #include "utils/timestamp.h"
 
-CATALOG(monitor_job,4803,MjobRelationId)
+CATALOG(monitor_job,9792,MjobRelationId)
 {
 	Oid				oid;
 	NameData		name;

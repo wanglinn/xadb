@@ -10,7 +10,7 @@
 #include "utils/portal.h"
 #include "utils/timestamp.h"
 
-CATALOG(monitor_alarm,5209,MonitorAlarmRelationId)
+CATALOG(monitor_alarm,9785,MonitorAlarmRelationId)
 {
 	/* alarm level:1(warning),2(critical),3(emergency) */
 	int16		ma_alarm_level;

@@ -56,7 +56,7 @@ typedef FormData_pg_namespace *Form_pg_namespace;
 
 #ifdef EXPOSE_TO_CLIENT_CODE
 /* I have no good idea for auto generate to main pg_*_d.h */
-#define PG_MANAGER_NAMESPACE	6105
+#define PG_MANAGER_NAMESPACE	9099
 #endif							/* EXPOSE_TO_CLIENT_CODE */
 
 /*

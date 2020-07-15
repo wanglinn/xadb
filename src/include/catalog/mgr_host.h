@@ -5,7 +5,7 @@
 #include "catalog/genbki.h"
 #include "catalog/mgr_host_d.h"
 
-CATALOG(mgr_host,4802,HostRelationId)
+CATALOG(mgr_host,9781,HostRelationId)
 {
 	Oid			oid;			/* oid */
 

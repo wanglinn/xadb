@@ -7,7 +7,7 @@
 
 #include "utils/timestamp.h"
 
-CATALOG(monitor_user,4816,MuserRelationId)
+CATALOG(monitor_user,9798,MuserRelationId)
 {
 	/*the user name*/
 	NameData				username;

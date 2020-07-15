@@ -10,7 +10,7 @@
 #include "utils/portal.h"
 #include "utils/timestamp.h"
 
-CATALOG(monitor_mem,4807,MonitorMemRelationId)
+CATALOG(monitor_mem,9794,MonitorMemRelationId)
 {
 	/* host name */
 	NameData	hostname;
