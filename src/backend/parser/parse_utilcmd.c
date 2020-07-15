@@ -463,8 +463,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	}
 
 #if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
-	if (stmt->grammar == PARSE_GRAM_ORACLE &&
-		default_with_rowids &&
+	if (default_with_rowids &&
 		stmt->partbound == NULL)
 	{
 		stmt->tableElts = lcons(makeRowidColumnDef(false), stmt->tableElts);

@@ -70,15 +70,14 @@ typedef struct
 	int			ti_options;		/* table_tuple_insert performance options */
 	BulkInsertState bistate;	/* bulk insert state */
 #ifdef USE_SEQ_ROWID
-	ParseGrammar	grammar;
 	bool			generated_rowid;
 	TupleTableSlot *slot_insert;
 #endif /* USE_SEQ_ROWID */
 } DR_intorel;
 
 /* utility functions for CTAS definition creation */
-static ObjectAddress create_ctas_internal(List *attrList, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(ParseGrammar grammar, bool *generated_rowid));
-static ObjectAddress create_ctas_nodata(List *tlist, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(ParseGrammar grammar, bool *generated_rowid));
+static ObjectAddress create_ctas_internal(List *attrList, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(bool *generated_rowid));
+static ObjectAddress create_ctas_nodata(List *tlist, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(bool *generated_rowid));
 
 /* DestReceiver routines for collecting data */
 static void intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo);
@@ -98,7 +97,7 @@ static void intorel_destroy(DestReceiver *self);
  * provide a list of attributes (ColumnDef nodes).
  */
 static ObjectAddress
-create_ctas_internal(List *attrList, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(ParseGrammar grammar, bool *generated_rowid))
+create_ctas_internal(List *attrList, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(bool *generated_rowid))
 {
 	CreateStmt *create = makeNode(CreateStmt);
 	bool		is_matview;
@@ -127,8 +126,7 @@ create_ctas_internal(List *attrList, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(P
 	create->accessMethod = into->accessMethod;
 #ifdef USE_SEQ_ROWID
 	*generated_rowid = false;
-	if (grammar == PARSE_GRAM_ORACLE &&
-		default_with_rowids)
+	if (default_with_rowids)
 	{
 		create->tableElts = lcons(makeRowidColumnDef(true), create->tableElts);
 		*generated_rowid = true;
@@ -180,7 +178,7 @@ create_ctas_internal(List *attrList, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(P
  * the targetlist of the SELECT or view definition.
  */
 static ObjectAddress
-create_ctas_nodata(List *tlist, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(ParseGrammar grammar, bool *generated_rowid))
+create_ctas_nodata(List *tlist, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(bool *generated_rowid))
 {
 	List	   *attrList;
 	ListCell   *t,
@@ -240,7 +238,7 @@ create_ctas_nodata(List *tlist, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(ParseG
 				 errmsg("too many column names were specified")));
 
 	/* Create the relation definition using the ColumnDef list */
-	return create_ctas_internal(attrList, into ADB_SEQ_ROWID_COMMA_ARGS(grammar, generated_rowid));
+	return create_ctas_internal(attrList, into ADB_SEQ_ROWID_COMMA_ARGS(generated_rowid));
 }
 
 #ifdef USE_SEQ_ROWID
@@ -325,7 +323,6 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 	 * Create the tuple receiver object and insert info it will need
 	 */
 	dest = CreateIntoRelDestReceiver(into);
-	ADB_SEQ_ROWID_CODE(((DR_intorel*)dest)->grammar = stmt->grammar);
 
 	/*
 	 * The contained Query could be a SELECT, or an EXECUTE utility command.
@@ -373,7 +370,7 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 		 * similar to CREATE VIEW.  This avoids dump/restore problems stemming
 		 * from running the planner before all dependencies are set up.
 		 */
-		address = create_ctas_nodata(query->targetList, into ADB_SEQ_ROWID_COMMA_ARGS(stmt->grammar, &generated_rowid));
+		address = create_ctas_nodata(query->targetList, into ADB_SEQ_ROWID_COMMA_ARGS(&generated_rowid));
 	}
 	else
 	{
@@ -596,7 +593,7 @@ intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	/*
 	 * Actually create the target table
 	 */
-	intoRelationAddr = create_ctas_internal(attrList, into ADB_SEQ_ROWID_COMMA_ARGS(myState->grammar, &myState->generated_rowid));
+	intoRelationAddr = create_ctas_internal(attrList, into ADB_SEQ_ROWID_COMMA_ARGS(&myState->generated_rowid));
 
 	/*
 	 * Finally we can open the target table
