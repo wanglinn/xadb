@@ -2598,7 +2598,8 @@ bool checkGtmInfoInPGSqlConf(PGconn *pgConn,
 	{
 		execOk = false;
 		ereport(LOG,
-				(errmsg("check Gtm Info, execute %s failed:%s",
+				(errmsg("on node(%s) check Gtm Info, execute %s failed:%s ",
+						nodename,
 						sql,
 						PQerrorMessage(pgConn))));
 	}

@@ -5622,10 +5622,6 @@ static void switchoverCoordForZone(MemoryContext spiContext,
 									newMaster->mgrNode,
 									failedSlaves,
 									forceSwitch);
-	checkActiveLocksForSwitchover(coordinators, 
-									holdLockCoordinator, 
-									oldMaster,
-									10);
 	checkXlogDiffForSwitchoverCoord(coordinators, 
 									holdLockCoordinator, 
 									oldMaster, 
