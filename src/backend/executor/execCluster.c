@@ -7,7 +7,9 @@
 #include "catalog/namespace.h"
 #include "catalog/pg_class.h"
 #include "catalog/pgxc_node.h"
+#ifdef ADB_GRAM_ORA
 #include "catalog/ora_convert.h"
+#endif
 #include "commands/copy.h"
 #include "commands/defrem.h"
 #include "commands/matview.h"
@@ -157,7 +159,9 @@ static const ClusterCustomExecInfo cluster_custom_execute[] =
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeAlter, CLUSTER_CUSTOM_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeRemove, CLUSTER_CUSTOM_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterNodeCreate, CLUSTER_CUSTOM_NEED_SEND_STAT)}
+#ifdef ADB_GRAM_ORA
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterExecImplicitConvert, CLUSTER_CUSTOM_NEED_SEND_STAT)}
+#endif
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterPgxcGroupCreate, CLUSTER_CUSTOM_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(ClusterPgxcGroupRemove, CLUSTER_CUSTOM_NEED_SEND_STAT)}
 		,{CLUSTER_CUSTOM_EXEC_FUNC(cluster_cluster, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}

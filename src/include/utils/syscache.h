@@ -128,7 +128,7 @@ enum SysCacheIdentifier
 		,ORACONVERTSCID
 		#define SysCacheSize (ORACONVERTSCID + 1)
 	#else
-		#define SysCacheSize (USERMAPPINGUSERSERVER + 1)
+		#define SysCacheSize (ADBCLEANOID + 1)
 	#endif
 #elif defined(ADB_GRAM_ORA)
 	,ORACASTSOURCETARGET
@@ -141,9 +141,9 @@ enum SysCacheIdentifier
 	,NODENODEOID
 	,MGRUPDATAPARMNODENAMENODETYPEKEY
 	,MONITORJOBOID
-#define SysCacheSize (MONITORJOBOID + 1)
+	#define SysCacheSize (MONITORJOBOID + 1)
 #else
-#define SysCacheSize (USERMAPPINGUSERSERVER + 1)
+	#define SysCacheSize (USERMAPPINGUSERSERVER + 1)
 #endif
 };
 
