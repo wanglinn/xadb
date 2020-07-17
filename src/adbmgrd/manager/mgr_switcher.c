@@ -3430,7 +3430,7 @@ static void checkSet_pool_release_to_idle_timeout(SwitcherNodeWrapper *node)
 	char *originalValue;
 	PGConfParameterItem *originalItems;
 	PGConfParameterItem *expectItems;
-	bool execOk;
+	bool execOk = false;
 	int nTrys;
 
 	CheckNull(node);
@@ -3438,13 +3438,16 @@ static void checkSet_pool_release_to_idle_timeout(SwitcherNodeWrapper *node)
 
 	parameterName = "pool_release_to_idle_timeout";
 	expectValue = "-1";
-	originalValue = showNodeParameter(node->pgConn, parameterName, true);
+	originalValue = showNodeParameter(NameStr(node->mgrNode->form.nodename), 
+										node->pgConn, 
+										parameterName, 
+										false);
 	if (strcmp(originalValue, expectValue) == 0)
 	{
-		ereport(LOG, (errmsg("node %s parameter %s already is %s,"
-							 " no need to set",
-							 NameStr(node->mgrNode->form.nodename),
-							 parameterName, expectValue)));
+		ereport(LOG, (errmsg("parameter %s on node %s already is %s,"
+							" no need to set",
+							NameStr(node->mgrNode->form.nodename),
+							parameterName, expectValue)));
 		pfree(originalValue);
 		return;
 	}
@@ -3467,7 +3470,8 @@ static void checkSet_pool_release_to_idle_timeout(SwitcherNodeWrapper *node)
 			/*sleep 0.1s*/
 			pg_usleep(100000L);
 			/* check the param */
-			execOk = equalsNodeParameter(node->pgConn,
+			execOk = equalsNodeParameter(NameStr(node->mgrNode->form.nodename),
+										 node->pgConn,
 										 parameterName,
 										 expectValue);
 			if (execOk)
@@ -4460,7 +4464,7 @@ static void checkTrackActivitiesForSwitchover(dlist_head *coordinators,
 	dlist_foreach(iter, coordinators)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		if (!equalsNodeParameter(node->pgConn, paramName, paramValue))
+		if (!equalsNodeParameter(NameStr(node->mgrNode->form.nodename), node->pgConn, paramName, paramValue))
 		{
 			ereport(ERROR,
 					(errmsg("check %s parameter %s failed, do \"set (%s=%s)\" please",
@@ -4470,7 +4474,7 @@ static void checkTrackActivitiesForSwitchover(dlist_head *coordinators,
 							paramValue)));
 		}
 	}
-	if (!equalsNodeParameter(oldMaster->pgConn, paramName, paramValue))
+	if (!equalsNodeParameter(NameStr(oldMaster->mgrNode->form.nodename), oldMaster->pgConn, paramName, paramValue))
 	{
 		ereport(ERROR,
 				(errmsg("check %s parameter %s failed, do \"set (%s=%s)\" please",
