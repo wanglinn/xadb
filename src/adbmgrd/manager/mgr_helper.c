@@ -1368,7 +1368,7 @@ bool checkNodeRunningMode(PGconn *pgConn, bool isMaster)
 /*
  * Pfree the returned result when no longer needed
  */
-char *showNodeParameter(PGconn *pgConn, char *name, bool complain)
+char *showNodeParameter(char *nodeName, PGconn *pgConn, char *name, bool complain)
 {
 	PGresult *pgResult;
 	char *value;
@@ -1383,7 +1383,8 @@ char *showNodeParameter(PGconn *pgConn, char *name, bool complain)
 	else
 	{
 		ereport(complain ? ERROR : LOG,
-				(errmsg("execute %s failed:%s",
+				(errmsg("on %s execute %s failed:%s",
+						nodeName,
 						sql,
 						PQerrorMessage(pgConn))));
 		value = palloc0(1);
@@ -1394,11 +1395,11 @@ char *showNodeParameter(PGconn *pgConn, char *name, bool complain)
 	return value;
 }
 
-bool equalsNodeParameter(PGconn *pgConn, char *name, char *expectValue)
+bool equalsNodeParameter(char *nodeName, PGconn *pgConn, char *name, char *expectValue)
 {
 	bool equal;
 	char *actualValue;
-	actualValue = showNodeParameter(pgConn, name, true);
+	actualValue = showNodeParameter(nodeName, pgConn, name, true);
 	equal = is_equal_string(actualValue, expectValue) ||
 			((actualValue == NULL || strlen(actualValue) == 0) && expectValue == NULL);
 	pfree(actualValue);
@@ -2483,7 +2484,8 @@ void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 	for (seconds = 0; seconds <= checkSeconds; seconds++)
 	{
 		/* check the param */
-		if (equalsNodeParameter(pgConn,
+		if (equalsNodeParameter(NameStr(mgrNode->form.nodename),
+								pgConn,
 								"synchronous_standby_names",
 								value))
 		{
@@ -3353,7 +3355,7 @@ bool isNodeInSyncStandbyNames(MgrNodeWrapper *masterNode,
 	char *buf = NULL;
 	char *temp = NULL;
 
-	temp = showNodeParameter(masterConn,
+	temp = showNodeParameter(NameStr(masterNode->form.nodename), masterConn,
 							 "synchronous_standby_names", true);
 	ereport(DEBUG1,
 			(errmsg("%s synchronous_standby_names is %s",
@@ -3773,7 +3775,7 @@ void appendToSyncStandbyNames(MgrNodeWrapper *masterNode,
 	dlist_iter iter;
 	MgrNodeWrapper *mgrNode;
 
-	oldSyncConfigStr = showNodeParameter(masterPGconn,
+	oldSyncConfigStr = showNodeParameter(NameStr(masterNode->form.nodename), masterPGconn,
 										 "synchronous_standby_names", true);
 	synchronousStandbyNamesConfig =
 		parseSynchronousStandbyNamesConfig(oldSyncConfigStr, true);
@@ -3945,7 +3947,7 @@ void removeFromSyncStandbyNames(MgrNodeWrapper *masterNode,
 	dlist_iter iter;
 	MgrNodeWrapper *mgrNode;
 
-	oldSyncConfigStr = showNodeParameter(masterPGconn,
+	oldSyncConfigStr = showNodeParameter(NameStr(masterNode->form.nodename), masterPGconn,
 										 "synchronous_standby_names", true);
 	synchronousStandbyNamesConfig =
 		parseSynchronousStandbyNamesConfig(oldSyncConfigStr, true);

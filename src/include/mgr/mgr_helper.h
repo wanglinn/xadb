@@ -459,11 +459,11 @@ extern NodeRunningMode getNodeRunningMode(PGconn *pgConn);
 extern NodeRunningMode getExpectedNodeRunningMode(bool isMaster);
 extern bool checkNodeRunningMode(PGconn *pgConn, bool isMaster);
 extern bool setNodeParameter(PGconn *pgConn, char *name, char *value);
-extern char *showNodeParameter(PGconn *pgConn, char *name, bool complain);
+extern char *showNodeParameter(char *nodeName, PGconn *pgConn, char *name, bool complain);
 extern bool PQexecCommandSql(PGconn *pgConn, char *sql, bool complain);
 extern bool PQexecBoolQuery(PGconn *pgConn, char *sql, bool expectedValue, bool complain);
 extern int PQexecCountSql(PGconn *pgConn, char *sql, bool complain);
-extern bool equalsNodeParameter(PGconn *pgConn, char *parameterName,
+extern bool equalsNodeParameter(char *nodeName, PGconn *pgConn, char *parameterName,
 								char *expectValue);
 
 extern bool exec_pgxc_pool_reload(PGconn *coordCoon,

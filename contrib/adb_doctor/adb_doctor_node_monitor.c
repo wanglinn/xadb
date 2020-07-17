@@ -2507,7 +2507,7 @@ static bool checkSetRewindNodeParamter(MgrNodeWrapper *mgrNode, PGconn *conn)
 
 	parameterName = "wal_log_hints";
 	expectValue = "on";
-	originalValue = showNodeParameter(conn, parameterName, true);
+	originalValue = showNodeParameter(NameStr(mgrNode->form.nodename), conn, parameterName, true);
 	if (strcmp(originalValue, expectValue) == 0)
 	{
 		ereport(LOG, (errmsg("node %s parameter %s is %s, no need to set",
@@ -2526,7 +2526,7 @@ static bool checkSetRewindNodeParamter(MgrNodeWrapper *mgrNode, PGconn *conn)
 
 	parameterName = "full_page_writes";
 	expectValue = "on";
-	originalValue = showNodeParameter(conn, parameterName, true);
+	originalValue = showNodeParameter(NameStr(mgrNode->form.nodename), conn, parameterName, true);
 	if (strcmp(originalValue, expectValue) == 0)
 	{
 		ereport(LOG, (errmsg("node %s parameter %s is %s, no need to set",
