@@ -596,44 +596,8 @@ bool mgr_checknode_in_currentzone(const char *zone, const Oid TupleOid)
 
 	return res;
 }
-/*
-* mgr_get_nodetuple_by_name_zone
-*
-* get the tuple of node according to nodename and zone
-*/
-HeapTuple mgr_get_nodetuple_by_name_zone(Relation rel, char *nodename, char *nodezone)
-{
-	ScanKeyData key[2];
-	TableScanDesc rel_scan;
-	HeapTuple tuple = NULL;
-	HeapTuple tupleret = NULL;
-	NameData nodenamedata;
-	NameData nodezonedata;
-
-	Assert(nodename);
-	Assert(nodezone);
-	namestrcpy(&nodenamedata, nodename);
-	namestrcpy(&nodezonedata, nodezone);
-	ScanKeyInit(&key[0]
-		,Anum_mgr_node_nodename
-		,BTEqualStrategyNumber, F_NAMEEQ
-		,NameGetDatum(&nodenamedata));
-	ScanKeyInit(&key[1]
-		,Anum_mgr_node_nodezone
-		,BTEqualStrategyNumber
-		,F_NAMEEQ
-		,NameGetDatum(&nodezonedata));
-	rel_scan = table_beginscan_catalog(rel, 2, key);
-	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
-	{
-		break;
-	}
-	tupleret = heap_copytuple(tuple);
-	table_endscan(rel_scan);
-	return tupleret;
-}
-/*
-* mgr_node_has_slave_inzone
+/* mgr_node_has_slave_inzone
+* 
 * check the oid has been used by slave in given zone
 */
 bool mgr_node_has_slave_inzone(Relation rel, char *zone, Oid mastertupleoid)

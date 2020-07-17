@@ -1850,7 +1850,7 @@ Datum mgr_show_var_param(PG_FUNCTION_ARGS)
 	namestrcpy(&param, PG_GETARG_CSTRING(1));
 
 	relNode = table_open(NodeRelationId, AccessShareLock);
-	checkTuple = mgr_get_nodetuple_by_name_zone(relNode, nodename.data, mgr_zone);
+	checkTuple = mgr_get_tuple_node_from_name_type(relNode, nodename.data);
 	if (!HeapTupleIsValid(checkTuple))
 	{
 		table_close(relNode, AccessShareLock);

@@ -625,7 +625,6 @@ extern bool mgr_check_gtmmaster_repeate(Relation rel, char nodeType);
 extern bool mgr_checknode_in_currentzone(const char *zone, const Oid TupleOid);
 extern Datum mgr_zone_failover(PG_FUNCTION_ARGS);
 extern Datum mgr_zone_switchover(PG_FUNCTION_ARGS);
-extern HeapTuple mgr_get_nodetuple_by_name_zone(Relation rel, char *nodename, char *nodezone);
 extern Datum mgr_zone_clear(PG_FUNCTION_ARGS);
 extern Datum mgr_zone_init(PG_FUNCTION_ARGS);
 extern bool mgr_node_has_slave_inzone(Relation rel, char *zone, Oid mastertupleoid);
