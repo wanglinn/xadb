@@ -858,3 +858,66 @@ RETURNS varchar AS
 --ADBONLY CLUSTER SAFE
 LANGUAGE SQL;
 
+CREATE OR REPLACE FUNCTION oracle.lpad(text, int4, text default ' ')
+  RETURNS text
+  AS $$ora_lpad$$
+  LANGUAGE INTERNAL
+  IMMUTABLE PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+  STRICT;
+
+CREATE OR REPLACE FUNCTION oracle.lpad(text, numeric, text default ' ')
+  RETURNS text
+  AS $$select oracle.lpad($1, trunc($2)::int4, $3)$$
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+  STRICT;
+
+CREATE OR REPLACE FUNCTION oracle.rpad(text, int4, text default ' ')
+  RETURNS text
+  AS $$ora_rpad$$
+  LANGUAGE INTERNAL
+  IMMUTABLE PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+  STRICT;
+
+CREATE OR REPLACE FUNCTION oracle.rpad(text, numeric, text default ' ')
+  RETURNS text
+  AS $$select oracle.rpad($1, trunc($2)::int4, $3)$$
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+  STRICT;
+
+CREATE OR REPLACE FUNCTION oracle.width_bucket(float8, float8, float8, numeric)
+  RETURNS int4
+  AS $$select pg_catalog.width_bucket($1, $2, $3, trunc($4)::int4)$$
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+  STRICT;
+
+CREATE OR REPLACE FUNCTION oracle.width_bucket(numeric, numeric, numeric, numeric)
+  RETURNS int4
+  AS $$select pg_catalog.width_bucket($1, $2, $3, trunc($4)::int4)$$
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+  STRICT;
+
+CREATE OR REPLACE FUNCTION oracle.trunc(numeric, numeric)
+  RETURNS NUMERIC
+  AS $$select pg_catalog.trunc($1, trunc($2)::int4)$$
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+  STRICT;
+
+CREATE OR REPLACE FUNCTION oracle.round(numeric, numeric)
+  RETURNS NUMERIC
+  AS $$select pg_catalog.round($1, trunc($2)::int4)$$
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+  STRICT;
