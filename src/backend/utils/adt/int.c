@@ -1135,6 +1135,32 @@ int4mod(PG_FUNCTION_ARGS)
 	PG_RETURN_INT32(arg1 % arg2);
 }
 
+#ifdef ADB_GRAM_ORA
+Datum
+ora_int4mod(PG_FUNCTION_ARGS)
+{
+	int32		arg1 = PG_GETARG_INT32(0);
+	int32		arg2 = PG_GETARG_INT32(1);
+
+	if (unlikely(arg2 == 0))
+	{
+		PG_RETURN_INT32(arg1);
+	}
+
+	/*
+	 * Some machines throw a floating-point exception for INT_MIN % -1, which
+	 * is a bit silly since the correct answer is perfectly well-defined,
+	 * namely zero.
+	 */
+	if (arg2 == -1)
+		PG_RETURN_INT32(0);
+
+	/* No overflow is possible */
+
+	PG_RETURN_INT32(arg1 % arg2);
+}
+#endif	/* ADB_GRAM_ORA */
+
 Datum
 int2mod(PG_FUNCTION_ARGS)
 {

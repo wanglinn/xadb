@@ -2780,6 +2780,41 @@ numeric_mod(PG_FUNCTION_ARGS)
 	PG_RETURN_NUMERIC(res);
 }
 
+#ifdef ADB_GRAM_ORA
+/*
+ * ora_numeric_mod() -
+ *
+ *	Calculate the modulo of two numerics
+ */
+Datum
+ora_numeric_mod(PG_FUNCTION_ARGS)
+{
+	Numeric		num1 = PG_GETARG_NUMERIC(0);
+	Numeric		num2 = PG_GETARG_NUMERIC(1);
+	int			ival;
+	NumericVar	var;
+	Numeric		res;
+
+	ival = DatumGetInt32(DirectFunctionCall1(numeric_float4,
+											 NumericGetDatum(num2)));
+	if (ival == 0)
+		PG_RETURN_NUMERIC(num1);
+
+	if (ival == 0)
+	{
+		init_var(&var);
+		int64_to_numericvar((int64) 0, &var);
+		res = make_result(&var);
+		free_var(&var);
+		PG_RETURN_NUMERIC(res);
+	}
+
+	res = numeric_mod_opt_error(num1, num2, NULL);
+
+	PG_RETURN_NUMERIC(res);
+}
+#endif
+
 
 /*
  * numeric_mod_opt_error() -
