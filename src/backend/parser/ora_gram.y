@@ -291,7 +291,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	func_application func_application_normal func_expr_common_subexpr func_arg_expr
 	func_expr func_table for_locking_item func_expr_windowless
 	having_clause
-	indirection_el InsertStmt IndexStmt CreateOracleConvertStmt CreateOracleCast
+	indirection_el InsertStmt IndexStmt CreateOracleConvertStmt OracleCast
 	join_outer
 	limit_clause
 	offset_clause opt_collate_clause opt_start_with_clause PrepareStmt PreparableStmt 
@@ -533,7 +533,7 @@ stmt:
 	| CommentStmt
 	| CreateAsStmt
 	| CreateMatViewStmt
-	| CreateOracleCast
+	| OracleCast
 	| CreateOracleConvertStmt
 	| CreateStmt
 	| CreateSeqStmt
@@ -8200,7 +8200,7 @@ ora_convert_func_or_common:
  *
  *****************************************************************************/
 
-CreateOracleCast:
+OracleCast:
 			  CREATE opt_or_replace OracleCoerceContext CAST
 				'(' Typename AS Typename ')'
 				WITH FUNCTION function_with_argtypes
@@ -8228,18 +8228,26 @@ CreateOracleCast:
 					n->trunc_func = $14;
 					$$ = (Node*)n;
 				}
-			;
-
-CreateOracleCast:
-			  DROP opt_or_replace OracleCoerceContext CAST '(' Typename AS Typename ')'
+			/* DROP CAST */
+			| DROP OracleCoerceContext CAST '(' Typename AS Typename ')'
 				{
 					DropStmt *n = makeNode(DropStmt);
-					n->objects = list_make3(makeInteger($3), $6, $8);
+					n->objects = list_make3(makeInteger($2), $5, $7);
 					n->removeType = OBJECT_ORACLE_CAST;
 					n->behavior = DROP_RESTRICT;
 					n->missing_ok = false;
 					$$ = (Node *) n;
 				}
+			| DROP OracleCoerceContext CAST IF_P EXISTS '(' Typename AS Typename ')'
+				{
+					DropStmt *n = makeNode(DropStmt);
+					n->objects = list_make3(makeInteger($2), $7, $9);
+					n->removeType = OBJECT_ORACLE_CAST;
+					n->behavior = DROP_RESTRICT;
+					n->missing_ok = true;
+					$$ = (Node *) n;
+				}
+			;
 
 OracleCoerceContext:
 				DEFAULT
@@ -8250,14 +8258,13 @@ OracleCoerceContext:
 					{
 						$$ = ORA_COERCE_OPERATOR;
 					}
-				| IDENT FUNCTION
+				| COMMON FUNCTION
 					{
-						if (strcmp($1, "common") == 0)
-							$$ = ORA_COERCE_COMMON_FUNCTION;
-						else if (strcmp($1, "special") == 0)
-							$$ = ORA_COERCE_SPECIAL_FUNCTION;
-						else
-							ereport_pos($1, @1);
+						$$ = ORA_COERCE_COMMON_FUNCTION;
+					}
+				| SPECIAL FUNCTION
+					{
+						$$ = ORA_COERCE_SPECIAL_FUNCTION;
 					}
 				| /* empty */
 					{
