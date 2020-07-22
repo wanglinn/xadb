@@ -169,46 +169,9 @@ WHERE p1.oid < p2.oid AND
      p1.proretset != p2.proretset OR
      p1.provolatile != p2.provolatile OR
      p1.pronargs != p2.pronargs);
-  oid  |        proname        |  oid  |     proname     
--------+-----------------------+-------+-----------------
-  5369 | float4_tochar         | 13694 | to_char
- 13693 | to_char               | 13694 | to_char
- 13708 | to_number             | 13709 | to_number
-  5386 | float4_tonumber       | 13709 | to_number
-  5370 | float8_tochar         | 13696 | to_char
- 13695 | to_char               | 13696 | to_char
-  5387 | float8_tonumber       | 13711 | to_number
- 13710 | to_number             | 13711 | to_number
- 13689 | to_char               | 13690 | to_char
- 13688 | to_char               | 13689 | to_char
- 13687 | to_char               | 13690 | to_char
- 13687 | to_char               | 13688 | to_char
-  5367 | int4_tochar           | 13690 | to_char
-  5367 | int4_tochar           | 13688 | to_char
- 13691 | to_char               | 13692 | to_char
-  5368 | int8_tochar           | 13692 | to_char
-  5375 | interval_tochar       | 13705 | to_char
- 13704 | to_char               | 13705 | to_char
- 13697 | to_char               | 13698 | to_char
-  5371 | numeric_tochar        | 13698 | to_char
-  5372 | text_tochar           | 13699 | to_char
- 13681 | to_date               | 13682 | to_date
-  5381 | text_todate           | 13681 | to_date
-  5381 | text_todate           | 13682 | to_date
-  5385 | text_tonumber         | 13707 | to_number
- 13706 | to_number             | 13707 | to_number
- 13683 | to_timestamp          | 13684 | to_timestamp
-  5382 | text_totimestamp      | 13684 | to_timestamp
-  5382 | text_totimestamp      | 13683 | to_timestamp
- 13685 | to_timestamp_tz       | 13686 | to_timestamp_tz
-  5383 | text_totimestamptz    | 13686 | to_timestamp_tz
-  5373 | timestamp_tochar      | 13701 | to_char
-  5373 | timestamp_tochar      | 13700 | to_char
- 13700 | to_char               | 13701 | to_char
- 13702 | to_char               | 13703 | to_char
-  5374 | timestamptz_tochar    | 13702 | to_char
-  5374 | timestamptz_tochar    | 13703 | to_char
-(42 rows)
+ oid | proname | oid | proname 
+-----+---------+-----+---------
+(0 rows)
 
 -- Look for uses of different type OIDs in the argument/result type fields
 -- for different aliases of the same built-in function.

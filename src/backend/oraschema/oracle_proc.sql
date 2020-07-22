@@ -317,66 +317,6 @@ CREATE OR REPLACE FUNCTION oracle.last(str text)
     STRICT;
 
 /*
- * Function: to_date
- * Parameter Type: (text)
- * Parameter Type: (text, text)
- */
-CREATE OR REPLACE FUNCTION oracle.to_date(text)
-    RETURNS oracle.date
-    AS 'text_todate'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_date(text, text)
-    RETURNS oracle.date
-    AS 'text_todate'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-
-/*
- * Function: to_timestamp
- * Parameter Type: (text)
- * Parameter Type: (text, text)
- */
-CREATE OR REPLACE FUNCTION oracle.to_timestamp(text)
-    RETURNS timestamp
-    AS 'text_totimestamp'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_timestamp(text, text)
-    RETURNS timestamp
-    AS 'text_totimestamp'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-
-/*
- * Function: to_timestamp_tz
- * Parameter Type: (text)
- * Parameter Type: (text, text)
- */
-CREATE OR REPLACE FUNCTION oracle.to_timestamp_tz(text)
-    RETURNS timestamptz
-    AS 'text_totimestamptz'
-    LANGUAGE INTERNAL
-    STABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_timestamp_tz(text, text)
-    RETURNS timestamptz
-    AS 'text_totimestamptz'
-    LANGUAGE INTERNAL
-    STABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-
-/*
  * Function: to_char
  * Parameter Type: (smallint)
  * Parameter Type: (smallint, text)
@@ -406,57 +346,11 @@ CREATE FUNCTION oracle.to_char(text)
 
 /*
  * Function: to_number
- * Parameter Type: (text)
- * Parameter Type: (text, text)
- * Parameter Type: (float4)
- * Parameter Type: (float4, text)
  * Parameter Type: (float8)
  * Parameter Type: (float8, text)
  * Parameter Type: (numeric)
  * Parameter Type: (numeric, text)
  */
-CREATE OR REPLACE FUNCTION oracle.to_number(text)
-    RETURNS numeric
-    AS 'text_tonumber'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_number(text, text)
-    RETURNS numeric
-    AS 'text_tonumber'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_number(float4)
-    RETURNS numeric
-    AS 'float4_tonumber'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_number(float4, text)
-    RETURNS numeric
-    AS 'float4_tonumber'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_number(float8)
-    RETURNS numeric
-    AS 'float8_tonumber'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_number(float8, text)
-    RETURNS numeric
-    AS 'float8_tonumber'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_number(numeric)
     RETURNS numeric
     AS 'select $1'
