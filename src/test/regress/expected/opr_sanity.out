@@ -81,10 +81,9 @@ WHERE p1.prolang = 0 OR p1.prorettype = 0 OR
        prokind NOT IN ('f', 'a', 'w', 'p') OR
        provolatile NOT IN ('i', 's', 'v') OR
        proparallel NOT IN ('s', 'r', 'u');
- oid  |    proname     
-------+----------------
- 5403 | pg_xact_status
-(1 row)
+ oid | proname 
+-----+---------
+(0 rows)
 
 -- prosrc should never be null or empty
 SELECT p1.oid, p1.proname
@@ -172,11 +171,6 @@ WHERE p1.oid < p2.oid AND
      p1.pronargs != p2.pronargs);
   oid  |        proname        |  oid  |     proname     
 -------+-----------------------+-------+-----------------
-  5329 | dbms_random_normal    | 13746 | normal
-  5330 | dbms_random_random    | 13747 | random
-  5333 | dbms_random_string    | 13750 | string
-  5334 | dbms_random_terminate | 13751 | terminate
-  5336 | dbms_random_value     | 13756 | value
   5369 | float4_tochar         | 13694 | to_char
  13693 | to_char               | 13694 | to_char
  13708 | to_number             | 13709 | to_number

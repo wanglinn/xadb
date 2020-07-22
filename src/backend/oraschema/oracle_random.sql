@@ -24,6 +24,7 @@ CREATE OR REPLACE FUNCTION dbms_random.normal()
     AS 'dbms_random_normal'
     LANGUAGE INTERNAL
 --ADBONLY CLUSTER SAFE
+    STRICT
     VOLATILE PARALLEL RESTRICTED;
 COMMENT ON FUNCTION dbms_random.normal() IS 'Returns random numbers in a standard normal distribution';
 
@@ -32,6 +33,7 @@ CREATE OR REPLACE FUNCTION dbms_random.random()
     AS 'dbms_random_random'
     LANGUAGE INTERNAL
 --ADBONLY CLUSTER SAFE
+    STRICT
     VOLATILE PARALLEL RESTRICTED;
 COMMENT ON FUNCTION dbms_random.random() IS 'Generate Random Numeric Values';
 
@@ -58,6 +60,7 @@ CREATE OR REPLACE FUNCTION dbms_random.string(opt text, len int)
     AS 'dbms_random_string'
     LANGUAGE INTERNAL
 --ADBONLY CLUSTER SAFE
+    STRICT
     VOLATILE PARALLEL RESTRICTED;
 COMMENT ON FUNCTION dbms_random.string(text,int) IS 'Create Random Strings';
 
@@ -66,6 +69,7 @@ CREATE OR REPLACE FUNCTION dbms_random.terminate()
     AS 'dbms_random_terminate'
     LANGUAGE INTERNAL
 --ADBONLY CLUSTER SAFE
+    STRICT
     IMMUTABLE PARALLEL SAFE;
 COMMENT ON FUNCTION dbms_random.terminate() IS 'Terminate use of the Package';
 
@@ -105,6 +109,7 @@ CREATE OR REPLACE FUNCTION dbms_random.value()
     AS 'dbms_random_value'
     LANGUAGE INTERNAL
 --ADBONLY CLUSTER SAFE
+    STRICT
     VOLATILE PARALLEL RESTRICTED;
 COMMENT ON FUNCTION dbms_random.value() IS 'Generate Random number x, where x is greather or equal to 0 and less then 1';
 
