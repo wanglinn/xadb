@@ -37,141 +37,52 @@ static int getindex(const char **map, char *mbchar, int mblen);
 		} \
 	} while (0)
 
-Datum
-int4_tochar(PG_FUNCTION_ARGS)
-{
-	text		*fmt = PG_GETARG_TEXT_P_IF_NULL(1);
+#define DECLARE_TO_CHAR_FMT(type, func)						\
+Datum ora_##type##_tochar_fmt(PG_FUNCTION_ARGS)				\
+{															\
+	Pointer ptr = PG_GETARG_POINTER(1);						\
+	if (likely(VARSIZE_ANY_EXHDR(ptr) > 0))					\
+		return func(fcinfo);								\
+	PG_RETURN_NULL();										\
+}extern int not_exists
 
-	RETURN_IF_WITHOUT_FORMAT(int4out);
+#define DECLARE_NUM_TO_CHAR(type, out_fun, to_char_fun)		\
+Datum ora_##type##_tochar(PG_FUNCTION_ARGS)					\
+{															\
+	char *str = DatumGetCString(out_fun(fcinfo));			\
+	text *txt = cstring_to_text(str);						\
+	pfree(str);												\
+	PG_RETURN_TEXT_P(txt);									\
+}															\
+DECLARE_TO_CHAR_FMT(type, to_char_fun)
 
-	RETURN_NULL_IF_EMPTY_INPUT(fmt);
+DECLARE_NUM_TO_CHAR(int4, int4out, int4_to_char);
+DECLARE_NUM_TO_CHAR(int8, int8out, int8_to_char);
+DECLARE_NUM_TO_CHAR(float4, float4out, float4_to_char);
+DECLARE_NUM_TO_CHAR(float8, float8out, float8_to_char);
+DECLARE_NUM_TO_CHAR(numeric, numeric_out, numeric_to_char);
 
-	return DirectFunctionCall2(int4_to_char,
-								PG_GETARG_DATUM(0),
-								PG_GETARG_DATUM(1));
-}
+#define DECLARE_TIME_TO_CHAR(type, fmt_str, fmt_fun)		\
+Datum ora_##type##_tochar(PG_FUNCTION_ARGS)					\
+{															\
+	Datum result;											\
+	text *fmt;												\
+	if (fmt_str && fmt_str[0] != '\0')						\
+	{														\
+		fmt = cstring_to_text(fmt_str);						\
+		result = DirectFunctionCall2(fmt_fun,				\
+									 PG_GETARG_DATUM(0),	\
+									 PointerGetDatum(fmt));	\
+		pfree(fmt);											\
+		return result;										\
+	}														\
+	PG_RETURN_NULL();										\
+}															\
+DECLARE_TO_CHAR_FMT(type, fmt_fun)
 
-Datum
-int8_tochar(PG_FUNCTION_ARGS)
-{
-	text		*fmt = PG_GETARG_TEXT_P_IF_NULL(1);
-
-	RETURN_IF_WITHOUT_FORMAT(int8out);
-
-	RETURN_NULL_IF_EMPTY_INPUT(fmt);
-
-	return DirectFunctionCall2(int8_to_char,
-								PG_GETARG_DATUM(0),
-								PG_GETARG_DATUM(1));
-}
-
-Datum
-float4_tochar(PG_FUNCTION_ARGS)
-{
-	text		*fmt = PG_GETARG_TEXT_P_IF_NULL(1);
-
-	RETURN_IF_WITHOUT_FORMAT(float4out);
-
-	RETURN_NULL_IF_EMPTY_INPUT(fmt);
-
-	return DirectFunctionCall2(float4_to_char,
-								PG_GETARG_DATUM(0),
-								PG_GETARG_DATUM(1));
-}
-
-Datum
-float8_tochar(PG_FUNCTION_ARGS)
-{
-	text	   *fmt = PG_GETARG_TEXT_P_IF_NULL(1);
-
-	RETURN_IF_WITHOUT_FORMAT(float8out);
-
-	RETURN_NULL_IF_EMPTY_INPUT(fmt);
-
-	return DirectFunctionCall2(float8_to_char,
-								PG_GETARG_DATUM(0),
-								PG_GETARG_DATUM(1));
-}
-
-Datum
-numeric_tochar(PG_FUNCTION_ARGS)
-{
-	text	   *fmt = PG_GETARG_TEXT_P_IF_NULL(1);
-
-	RETURN_IF_WITHOUT_FORMAT(numeric_out);
-
-	RETURN_NULL_IF_EMPTY_INPUT(fmt);
-
-	return DirectFunctionCall2(numeric_to_char,
-								PG_GETARG_DATUM(0),
-								PG_GETARG_DATUM(1));
-}
-
-Datum
-text_tochar(PG_FUNCTION_ARGS)
-{
-	return PG_GETARG_DATUM(0);
-}
-
-Datum
-timestamp_tochar(PG_FUNCTION_ARGS)
-{
-	text *fmt = PG_GETARG_TEXT_P_IF_NULL(1);
-
-	RETURN_NULL_IF_EMPTY_INPUT(fmt);
-
-	if (!fmt)
-	{
-		if (nls_timestamp_format && strlen(nls_timestamp_format))
-			fmt = cstring_to_text(nls_timestamp_format);
-		else
-			PG_RETURN_NULL();
-	}
-
-	return DirectFunctionCall2(timestamp_to_char,
-								PG_GETARG_DATUM(0),
-								PointerGetDatum(fmt));
-}
-
-Datum
-timestamptz_tochar(PG_FUNCTION_ARGS)
-{
-	text *fmt = PG_GETARG_TEXT_P_IF_NULL(1);
-
-	RETURN_NULL_IF_EMPTY_INPUT(fmt);
-
-	if (!fmt)
-	{
-		if (nls_timestamp_tz_format && strlen(nls_timestamp_tz_format))
-			fmt = cstring_to_text(nls_timestamp_tz_format);
-		else
-			PG_RETURN_NULL();
-	}
-
-	return DirectFunctionCall2(timestamptz_to_char,
-								PG_GETARG_DATUM(0),
-								PointerGetDatum(fmt));
-}
-
-Datum
-interval_tochar(PG_FUNCTION_ARGS)
-{
-	text *fmt = PG_GETARG_TEXT_P_IF_NULL(1);
-
-	RETURN_NULL_IF_EMPTY_INPUT(fmt);
-
-	if (!fmt)
-	{
-		if (nls_timestamp_format && strlen(nls_timestamp_format))
-			fmt = cstring_to_text(nls_timestamp_format);
-		else
-			PG_RETURN_NULL();
-	}
-
-	return DirectFunctionCall2(interval_to_char,
-								PG_GETARG_DATUM(0),
-								PointerGetDatum(fmt));
-}
+DECLARE_TIME_TO_CHAR(timestamp, nls_timestamp_format, timestamp_to_char);
+DECLARE_TIME_TO_CHAR(timestamp_tz, nls_timestamp_tz_format, timestamptz_to_char);
+DECLARE_TIME_TO_CHAR(interval, nls_timestamp_format, interval_to_char);
 
 Datum
 trunc_text_toint2(PG_FUNCTION_ARGS)

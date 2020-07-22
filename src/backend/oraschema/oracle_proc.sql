@@ -378,40 +378,10 @@ CREATE OR REPLACE FUNCTION oracle.to_timestamp_tz(text, text)
 
 /*
  * Function: to_char
- * Parameter Type: (int)
- * Parameter Type: (int, text)
  * Parameter Type: (smallint)
  * Parameter Type: (smallint, text)
- * Parameter Type: (bigint)
- * Parameter Type: (bigint, text)
- * Parameter Type: (real)
- * Parameter Type: (real, text)
- * Parameter Type: (double precision)
- * Parameter Type: (double precision, text)
- * Parameter Type: (numeric)
- * Parameter Type: (numeric, text)
  * Parameter Type: (text)
- * Parameter Type: (timestamp)
- * Parameter Type: (timestamp, text)
- * Parameter Type: (timestamptz)
- * Parameter Type: (timestamptz, text)
- * Parameter Type: (interval)
- * Parameter Type: (interval, text)
  */
-CREATE OR REPLACE FUNCTION oracle.to_char(int)
-    RETURNS text
-    AS 'int4_tochar'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_char(int, text)
-    RETURNS text
-    AS 'int4_tochar'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
 CREATE OR REPLACE FUNCTION oracle.to_char(smallint)
     RETURNS text
     AS $$select oracle.to_char($1::int4)$$
@@ -426,108 +396,10 @@ CREATE OR REPLACE FUNCTION oracle.to_char(smallint, text)
     IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_char(bigint)
-    RETURNS text
-    AS 'int8_tochar'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_char(bigint, text)
-    RETURNS text
-    AS 'int8_tochar'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_char(real)
-    RETURNS text
-    AS 'float4_tochar'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_char(real, text)
-    RETURNS text
-    AS 'float4_tochar'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_char(double precision)
-    RETURNS text
-    AS 'float8_tochar'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_char(double precision, text)
-    RETURNS text
-    AS 'float8_tochar'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_char(numeric)
-    RETURNS text
-    AS 'numeric_tochar'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE OR REPLACE FUNCTION oracle.to_char(numeric, text)
-    RETURNS text
-    AS 'numeric_tochar'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
 CREATE FUNCTION oracle.to_char(text)
     RETURNS TEXT
-    AS 'text_tochar'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE FUNCTION oracle.to_char(timestamp)
-    RETURNS TEXT
-    AS 'timestamp_tochar'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE FUNCTION oracle.to_char(timestamp, text)
-    RETURNS TEXT
-    AS 'timestamp_tochar'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE FUNCTION oracle.to_char(timestamptz)
-    RETURNS TEXT
-    AS 'timestamptz_tochar'
-    LANGUAGE INTERNAL
-    STABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE FUNCTION oracle.to_char(timestamptz, text)
-    RETURNS TEXT
-    AS 'timestamptz_tochar'
-    LANGUAGE INTERNAL
-    STABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE FUNCTION oracle.to_char(interval)
-    RETURNS TEXT
-    AS 'interval_tochar'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    RETURNS NULL ON NULL INPUT;
-CREATE FUNCTION oracle.to_char(interval, text)
-    RETURNS TEXT
-    AS 'interval_tochar'
-    LANGUAGE INTERNAL
+    AS 'select $1'
+    LANGUAGE SQL
     IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
