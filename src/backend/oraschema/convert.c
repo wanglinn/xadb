@@ -84,147 +84,54 @@ DECLARE_TIME_TO_CHAR(timestamp, nls_timestamp_format, timestamp_to_char);
 DECLARE_TIME_TO_CHAR(timestamp_tz, nls_timestamp_tz_format, timestamptz_to_char);
 DECLARE_TIME_TO_CHAR(interval, nls_timestamp_format, interval_to_char);
 
-Datum
-trunc_text_toint2(PG_FUNCTION_ARGS)
-{
-	text	*txt = PG_GETARG_TEXT_PP_IF_NULL(0);
-	char	*txtstr = NULL;
-	Datum	result = (Datum)0;
+#define BEGIN_TRUNC_TEXT(type, action_)								\
+Datum trunc_text_to##type(PG_FUNCTION_ARGS)							\
+{																	\
+	text   *txt = PG_GETARG_TEXT_PP(0);								\
+	char   *txtstr;													\
+	Datum	result;													\
+	int64	i64;													\
+	txtstr = text_to_cstring(txt);									\
+	if (scanint8(txtstr, true, &i64))								\
+	{																\
+		action_();													\
+	}else															\
+	{																\
+		result = DirectFunctionCall3(numeric_in,					\
+									 CStringGetDatum(txtstr),		\
+									 ObjectIdGetDatum(InvalidOid),	\
+									 Int32GetDatum(-1));			\
+		result = DirectFunctionCall2(numeric_trunc,					\
+									 result,						\
+									 Int32GetDatum(0));				\
+		result = DirectFunctionCall1(numeric_##type, result);		\
+	}																\
+	PG_RETURN_DATUM(result);										\
+}extern int not_exists
 
-	if (!txt)
-		PG_RETURN_NULL();
+/* trunc_text_toint2 */
+#define TRUNC_INT2_ACTION()											\
+	if (unlikely((int16)i64 != i64))								\
+		ereport(ERROR,												\
+				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),		\
+				 errmsg("value \"%s\" is out of range for type %s",	\
+						txtstr, "smallint")));						\
+	result = Int16GetDatum((int16)i64)
+BEGIN_TRUNC_TEXT(int2, TRUNC_INT2_ACTION);
 
-	txtstr = text_to_cstring(txt);
-	PG_TRY();
-	{
-		volatile bool err = false;
+/* trunc_text_toint4 */
+#define TRUNC_INT4_ACTION()											\
+	if (unlikely((int32)i64 != i64))								\
+		ereport(ERROR,												\
+				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),		\
+				 errmsg("value \"%s\" is out of range for type %s",	\
+						txtstr, "integer")));						\
+	result = Int32GetDatum((int32)i64)
+BEGIN_TRUNC_TEXT(int4, TRUNC_INT4_ACTION);
 
-		/* first call int2in to convert text to int2 */
-		PG_TRY_HOLD();
-		{
-			result = DirectFunctionCall1(int2in, CStringGetDatum(txtstr));
-		} PG_CATCH_HOLD();
-		{
-			FlushErrorState();
-			err = true;
-		} PG_END_TRY_HOLD();
-
-		/* second try to trunc(text::numeric)::int2 */
-		if (err)
-		{
-			/* 1.text -> numeric */
-			Datum txtnum = DirectFunctionCall3(numeric_in,
-												CStringGetDatum(txtstr),
-												0,
-												-1);
-			/* 2. trunc(txtnum) */
-			txtnum = DirectFunctionCall2(numeric_trunc,
-										 txtnum,
-										 Int32GetDatum(0));
-
-			/* 3. numeric -> int2 */
-			result = DirectFunctionCall1(numeric_int2,
-										 txtnum);
-		}
-	} PG_CATCH();
-	{
-		pfree(txtstr);
-		PG_RE_THROW();
-	} PG_END_TRY();
-	pfree(txtstr);
-
-	return result;
-}
-
-Datum
-trunc_text_toint4(PG_FUNCTION_ARGS)
-{
-	text	*txt = PG_GETARG_TEXT_PP_IF_NULL(0);
-	char	*txtstr = NULL;
-	Datum	result = (Datum)0;
-
-	if (!txt)
-		PG_RETURN_NULL();
-
-	txtstr = text_to_cstring(txt);
-	PG_TRY();
-	{
-		volatile bool err = false;
-
-		/* first call int4in to convert text to int4 */
-		PG_TRY_HOLD();
-		{
-			result = DirectFunctionCall1(int4in, CStringGetDatum(txtstr));
-		} PG_CATCH_HOLD();
-		{
-			FlushErrorState();
-			err = true;
-		} PG_END_TRY_HOLD();
-
-		/* second try to trunc(text::numeric)::int4 */
-		if (err)
-		{
-			/* 1.text -> numeric */
-			Datum txtnum = DirectFunctionCall3(numeric_in,
-												CStringGetDatum(txtstr),
-												0,
-												-1);
-			/* 2. trunc(txtnum) */
-			txtnum = DirectFunctionCall2(numeric_trunc,
-										 txtnum,
-										 Int32GetDatum(0));
-
-			/* 3. numeric -> int4 */
-			result = DirectFunctionCall1(numeric_int4,
-										 txtnum);
-		}
-	} PG_CATCH();
-	{
-		pfree(txtstr);
-		PG_RE_THROW();
-	} PG_END_TRY();
-	pfree(txtstr);
-
-	return result;
-}
-
-Datum
-trunc_text_toint8(PG_FUNCTION_ARGS)
-{
-	text	*txt = PG_GETARG_TEXT_PP_IF_NULL(0);
-	char	*txtstr = NULL;
-	Datum	result = (Datum)0;
-	int64	i64;
-
-	if (!txt)
-		PG_RETURN_NULL();
-
-	txtstr = text_to_cstring(txt);
-
-	/* second try to trunc(text::numeric)::int8 */
-	if (!scanint8(txtstr, true, &i64))
-	{
-		/* 1.text -> numeric */
-		Datum txtnum = DirectFunctionCall3(numeric_in,
-											CStringGetDatum(txtstr),
-											0,
-											-1);
-		/* 2. trunc(txtnum) */
-		txtnum = DirectFunctionCall2(numeric_trunc,
-										txtnum,
-										Int32GetDatum(0));
-
-		/* 3. numeric -> int2 */
-		result = DirectFunctionCall1(numeric_int8,
-										txtnum);
-	}
-	else
-	{
-		result = Int64GetDatum(i64);
-	}
-
-	return result;
-}
+/* trunc_text_toint8 */
+#define TRUNC_INT8_ACTION()	result = Int64GetDatum(i64)
+BEGIN_TRUNC_TEXT(int8, TRUNC_INT8_ACTION);
 
 Datum
 text_toint2(PG_FUNCTION_ARGS)
