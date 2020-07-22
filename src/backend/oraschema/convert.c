@@ -136,222 +136,138 @@ BEGIN_TRUNC_TEXT(int8, TRUNC_INT8_ACTION);
 Datum
 text_toint2(PG_FUNCTION_ARGS)
 {
-	text	*txt = PG_GETARG_TEXT_PP_IF_NULL(0);
-	char	*txtstr = NULL;
-	Datum	result;
-
-	if (!txt)
-		PG_RETURN_NULL();
+	text   *txt = PG_GETARG_TEXT_PP_IF_NULL(0);
+	char   *txtstr;
+	int16	result;
 
 	txtstr = text_to_cstring(txt);
-	result = DirectFunctionCall1(int2in, CStringGetDatum(txtstr));
+	result = pg_strtoint16(txtstr);
 	pfree(txtstr);
 
-	return result;
+	PG_RETURN_INT16(result);
 }
 
 Datum
 text_toint4(PG_FUNCTION_ARGS)
 {
-	text	*txt = PG_GETARG_TEXT_PP_IF_NULL(0);
-	char	*txtstr = NULL;
-	Datum	result;
-
-	if (!txt)
-		PG_RETURN_NULL();
+	text   *txt = PG_GETARG_TEXT_PP_IF_NULL(0);
+	char   *txtstr;
+	int32	result;
 
 	txtstr = text_to_cstring(txt);
-	result = DirectFunctionCall1(int4in, CStringGetDatum(txtstr));
+	result = pg_strtoint32(txtstr);
 	pfree(txtstr);
 
-	return result;
+	PG_RETURN_INT32(result);
 }
 
 Datum
 text_toint8(PG_FUNCTION_ARGS)
 {
-	text	*txt = PG_GETARG_TEXT_PP_IF_NULL(0);
-	char	*txtstr = NULL;
-	Datum	result;
-
-	if (!txt)
-		PG_RETURN_NULL();
+	text   *txt = PG_GETARG_TEXT_PP_IF_NULL(0);
+	char   *txtstr;
+	int64	result;
 
 	txtstr = text_to_cstring(txt);
-	result = DirectFunctionCall1(int8in, CStringGetDatum(txtstr));
+	scanint8(txtstr, false, &result);
 	pfree(txtstr);
 
-	return result;
+	PG_RETURN_INT64(result);
 }
 
 
 Datum
 text_tofloat4(PG_FUNCTION_ARGS)
 {
-	text	*txt = PG_GETARG_TEXT_PP_IF_NULL(0);
-	char	*txtstr = NULL;
+	text   *txt = PG_GETARG_TEXT_PP_IF_NULL(0);
+	char   *txtstr = NULL;
 	Datum	result;
-
-	if (!txt)
-		PG_RETURN_NULL();
 
 	txtstr = text_to_cstring(txt);
 	result = DirectFunctionCall1(float4in,
 								 CStringGetDatum(txtstr));
 	pfree(txtstr);
 
-	return result;
+	PG_RETURN_DATUM(result);
 }
 
 Datum
 text_tofloat8(PG_FUNCTION_ARGS)
 {
-	text	*txt = PG_GETARG_TEXT_PP_IF_NULL(0);
-	char	*txtstr = NULL;
+	text   *txt = PG_GETARG_TEXT_PP_IF_NULL(0);
+	char   *txtstr = NULL;
 	Datum	result;
-
-	if (!txt)
-		PG_RETURN_NULL();
 
 	txtstr = text_to_cstring(txt);
 	result = DirectFunctionCall1(float8in,
 								 CStringGetDatum(txtstr));
 	pfree(txtstr);
 
-	return result;
+	PG_RETURN_DATUM(result);
 }
 
-Datum
-text_todate(PG_FUNCTION_ARGS)
-{
-	text *txt = PG_GETARG_TEXT_P_IF_NULL(0);
-	text *fmt = PG_GETARG_TEXT_P_IF_NULL(1);
-	Datum result;
-	char *cfmt;
-	char *p;
+#define DECLARE_TEXT_TO_TIME(type, fmt_str, tz, in_fun, typmod)		\
+Datum ora_text_to_##type(PG_FUNCTION_ARGS)							\
+{																	\
+	text *txt = PG_GETARG_TEXT_P(0);								\
+	text *fmt;														\
+	char *str;														\
+	Datum result;													\
+	if (fmt_str && fmt_str[0] != '\0')								\
+	{																\
+		TEXT_TO_TIME_CHECK(fmt_str);								\
+		fmt = cstring_to_text(fmt_str);								\
+		result = ora_to_timestamp(txt, fmt, tz);					\
+		pfree(fmt);													\
+	}else															\
+	{																\
+		str = text_to_cstring(txt);									\
+		result = DirectFunctionCall3(in_fun,						\
+									 CStringGetDatum(str),			\
+									 ObjectIdGetDatum(InvalidOid),	\
+									 Int32GetDatum(typmod));		\
+		pfree(str);													\
+	}																\
+	PG_RETURN_DATUM(result);										\
+}																	\
+Datum ora_text_to_##type##_fmt(PG_FUNCTION_ARGS)					\
+{																	\
+	Pointer ptr = PG_GETARG_POINTER(1);								\
+	if (likely(VARSIZE_ANY_EXHDR(ptr) > 0))							\
+	{																\
+		TEXT_TO_TIME_CHECK_TEXT((text*)ptr);						\
+		PG_RETURN_DATUM(ora_to_timestamp(PG_GETARG_TEXT_P(0), (text*)ptr, tz));	\
+	}																\
+	PG_RETURN_NULL();												\
+}extern int not_exists
 
-	/* return null if input txt is null */
-	if (!txt)
-		PG_RETURN_NULL();
+/* ora_text_to_date, ora_text_to_date_fmt */
+#define TEXT_TO_TIME_CHECK(fmt_str)											\
+	do{																		\
+		const char *p = fmt_str;											\
+		while (*p != '\0')													\
+		{																	\
+			if (*p == 'f' || *p++ == 'F')									\
+				ereport(ERROR,												\
+						(errmsg("The date format is not recognized.")));	\
+		}																	\
+	}while(0)
+#define TEXT_TO_TIME_CHECK_TEXT(txt)										\
+	do{																		\
+		char *str = text_to_cstring(txt);									\
+		TEXT_TO_TIME_CHECK(str);											\
+		pfree(str);															\
+	}while(0)
+DECLARE_TEXT_TO_TIME(date, nls_date_format, false, timestamp_in, 0);
 
-	/* return null if input txt is empty */
-	RETURN_NULL_IF_EMPTY_INPUT(txt);
-
-	/* return null if input fmt is empty */
-	RETURN_NULL_IF_EMPTY_INPUT(fmt);
-
-	/* get default date format style */
-	if (!fmt && nls_date_format && strlen(nls_date_format))
-		fmt = cstring_to_text(nls_date_format);
-
-	if(fmt)
-	{
-		cfmt = text_to_cstring(fmt);
-		p = cfmt;
-		/* check fmt */
-		while (*p != '\0')
-		{
-			if (*p == 'f' || *p++ == 'F')
-				ereport(ERROR,
-						(errmsg("The date format is not recognized.")));
-		}
-		pfree(cfmt);
-		/* it will return timestamp at GMT */
-		result = ora_to_timestamp(txt, fmt, false);
-	}
-	else
-	{
-		char *txtstr = text_to_cstring(txt);
-
-		result = DirectFunctionCall3(timestamp_in,
-									 CStringGetDatum(txtstr),
-									 ObjectIdGetDatum(InvalidOid),
-									 Int32GetDatum(0));
-		pfree(txtstr);
-	}
-
-	return result;
-}
-
-Datum
-text_totimestamp(PG_FUNCTION_ARGS)
-{
-	text *txt = PG_GETARG_TEXT_P_IF_NULL(0);
-	text *fmt = PG_GETARG_TEXT_P_IF_NULL(1);
-	Datum result;
-
-	/* return null if input txt is null */
-	if (!txt)
-		PG_RETURN_NULL();
-
-	/* return null if input txt is empty */
-	RETURN_NULL_IF_EMPTY_INPUT(txt);
-
-	/* return null if input fmt is empty */
-	RETURN_NULL_IF_EMPTY_INPUT(fmt);
-
-	/* get default date format style */
-	if (!fmt && nls_timestamp_format && strlen(nls_timestamp_format))
-		fmt = cstring_to_text(nls_timestamp_format);
-
-	if(fmt)
-	{
-		/* it will return timestamp at GMT */
-		result = ora_to_timestamp(txt, fmt, false);
-	}
-	else
-	{
-		char *txtstr = text_to_cstring(txt);
-
-		result = DirectFunctionCall3(timestamp_in,
-									 CStringGetDatum(txtstr),
-									 ObjectIdGetDatum(InvalidOid),
-									 Int32GetDatum(-1));
-		pfree(txtstr);
-	}
-
-	return result;
-}
-
-Datum
-text_totimestamptz(PG_FUNCTION_ARGS)
-{
-	text *txt = PG_GETARG_TEXT_P_IF_NULL(0);
-	text *fmt = PG_GETARG_TEXT_P_IF_NULL(1);
-	Datum result;
-
-	/* return null if input txt is null */
-	if (!txt)
-		PG_RETURN_NULL();
-
-	/* return null if input txt is empty */
-	RETURN_NULL_IF_EMPTY_INPUT(txt);
-
-	/* return null if input fmt is empty */
-	RETURN_NULL_IF_EMPTY_INPUT(fmt);
-
-	/* get default date format style */
-	if (!fmt && nls_timestamp_tz_format && strlen(nls_timestamp_tz_format))
-		fmt = cstring_to_text(nls_timestamp_tz_format);
-
-	if(fmt)
-	{
-		/* it will return timestamp at GMT */
-		result = ora_to_timestamp(txt, fmt, true);
-	}
-	else
-	{
-		char *txtstr = text_to_cstring(txt);
-
-		result = DirectFunctionCall3(timestamptz_in,
-									 CStringGetDatum(txtstr),
-									 ObjectIdGetDatum(InvalidOid),
-									 Int32GetDatum(0));
-		pfree(txtstr);
-	}
-
-	return result;
-}
+#undef TEXT_TO_TIME_CHECK
+#define TEXT_TO_TIME_CHECK(fmt_str)	((void)0)
+#undef TEXT_TO_TIME_CHECK_TEXT
+#define TEXT_TO_TIME_CHECK_TEXT(txt) ((void)0)
+/* ora_text_to_timestamp, ora_text_to_timestamp_fmt */
+DECLARE_TEXT_TO_TIME(timestamp, nls_timestamp_format, false, timestamp_in, -1);
+/* ora_text_to_timestamp_tz, ora_text_to_timestamp_tz_fmt */
+DECLARE_TEXT_TO_TIME(timestamp_tz, nls_timestamp_tz_format, true, timestamptz_in, 0);
 
 Datum
 text_tocstring(PG_FUNCTION_ARGS)
@@ -371,74 +287,76 @@ text_tocstring(PG_FUNCTION_ARGS)
 Datum
 text_tonumber(PG_FUNCTION_ARGS)
 {
-	text *txt = PG_GETARG_TEXT_PP_IF_NULL(0);
-	text *fmt = PG_GETARG_TEXT_PP_IF_NULL(1);
+	text *txt = PG_GETARG_TEXT_P(0);
+	char *txtstr;
+	Datum result;
 
-	if (!txt)
-		PG_RETURN_NULL();
-
-	RETURN_NULL_IF_EMPTY_INPUT(txt);
-	RETURN_NULL_IF_EMPTY_INPUT(fmt);
-
-	if (!fmt)
+	if (likely(VARSIZE_ANY_EXHDR(txt) > 0))
 	{
-		Datum result;
-		char *txtstr = text_to_cstring(txt);
+		txtstr = text_to_cstring(txt);
 		result = DirectFunctionCall3(numeric_in,
-								   CStringGetDatum(txtstr),
-								   0,
-								   -1);
+									 CStringGetDatum(txtstr),
+									 ObjectIdGetDatum(InvalidOid),
+									 Int32GetDatum(-1));
 		pfree(txtstr);
 
-		return result;
-	} else
-	{
-		return DirectFunctionCall2(numeric_to_number,
-							PG_GETARG_DATUM(0),
-							PG_GETARG_DATUM(1));
+		PG_RETURN_DATUM(result);
 	}
+	PG_RETURN_NULL();
+}
+
+Datum text_tonumber_fmt(PG_FUNCTION_ARGS)
+{
+	Pointer ptr1 = PG_GETARG_POINTER(0);
+	Pointer ptr2 = PG_GETARG_POINTER(1);
+	if (likely(VARSIZE_ANY_EXHDR(ptr1) > 0 &&
+			   VARSIZE_ANY_EXHDR(ptr2) > 0))
+		PG_RETURN_DATUM(numeric_to_number(fcinfo));
+	PG_RETURN_NULL();
 }
 
 Datum
-float4_tonumber(PG_FUNCTION_ARGS)
+float4_tonumber_fmt(PG_FUNCTION_ARGS)
 {
-	text *fmt = PG_GETARG_TEXT_PP_IF_NULL(1);
+	text *fmt = PG_GETARG_TEXT_P(1);
+	text *txt;
+	char *str;
+	Datum result;
 
-	RETURN_NULL_IF_EMPTY_INPUT(fmt);
-
-	if (!fmt)
+	if (likely(VARSIZE_ANY_EXHDR(fmt) > 0))
 	{
-		return DirectFunctionCall1(float4_numeric, PG_GETARG_DATUM(0));
-	} else
-	{
-		Datum val = DirectFunctionCall1(float4out, PG_GETARG_DATUM(0));
-		text *valtxt = cstring_to_text(DatumGetCString(val));
-
-		return DirectFunctionCall2(numeric_to_number,
-									PointerGetDatum(valtxt),
-									PG_GETARG_DATUM(1));
+		str = DatumGetCString(DirectFunctionCall1(float4out, PG_GETARG_DATUM(0)));
+		txt = cstring_to_text(str);
+		result = DirectFunctionCall2(numeric_to_number,
+									 PointerGetDatum(txt),
+									 PointerGetDatum(fmt));
+		pfree(txt);
+		pfree(str);
+		PG_RETURN_DATUM(result);
 	}
+	PG_RETURN_NULL();
 }
 
 Datum
-float8_tonumber(PG_FUNCTION_ARGS)
+float8_tonumber_fmt(PG_FUNCTION_ARGS)
 {
 	text *fmt = PG_GETARG_TEXT_PP_IF_NULL(1);
+	text *txt;
+	char *str;
+	Datum result;
 
-	RETURN_NULL_IF_EMPTY_INPUT(fmt);
-
-	if (!fmt)
+	if (likely(VARSIZE_ANY_EXHDR(fmt) > 0))
 	{
-		return DirectFunctionCall1(float8_numeric, PG_GETARG_DATUM(0));
-	} else
-	{
-		Datum val = DirectFunctionCall1(float8out, PG_GETARG_DATUM(0));
-		text *valtxt = cstring_to_text(DatumGetCString(val));
-
-		return DirectFunctionCall2(numeric_to_number,
-									PointerGetDatum(valtxt),
-									PG_GETARG_DATUM(1));
+		str = DatumGetCString(DirectFunctionCall1(float8out, PG_GETARG_DATUM(0)));
+		txt = cstring_to_text(str);
+		result = DirectFunctionCall2(numeric_to_number,
+									 PointerGetDatum(txt),
+									 PointerGetDatum(fmt));
+		pfree(txt);
+		pfree(str);
+		PG_RETURN_DATUM(result);
 	}
+	PG_RETURN_NULL();
 }
 
 /* 3 is enough, but it is defined as 4 in backend code. */
