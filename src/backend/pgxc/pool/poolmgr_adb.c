@@ -2793,7 +2793,7 @@ static void process_slot_event(ADBNodePoolSlot *slot)
 			break;
 		case PGRES_POLLING_OK:
 			slot->slot_state = SLOT_STATE_IDLE;
-			slot->retry = 0;
+			//slot->retry = 0;
 			slot->last_retry_time = 0;
 			break;
 		default:
