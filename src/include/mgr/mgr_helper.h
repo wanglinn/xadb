@@ -350,6 +350,9 @@ extern void selectActiveMasterCoordinators(MemoryContext spiContext,
 extern void selectMgrNodeByNodetype(MemoryContext spiContext,
 									char nodetype,
 									dlist_head *resultList);
+extern void selectMgrNodeByNodetypeEx(MemoryContext spiContext,
+										char nodetype,
+										dlist_head *resultList);									
 extern void selectActiveMgrNodeByNodetype(MemoryContext spiContext,
 										  char nodetype,
 										  dlist_head *resultList);

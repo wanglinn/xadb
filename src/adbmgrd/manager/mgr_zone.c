@@ -77,8 +77,11 @@ static bool MgrCheckHasSlaveZoneNode(MemoryContext spiContext,
 static void MgrShutdownNodesNotZone(MemoryContext spiContext,
 									char *currentZone);		
 static void MgrSetNodesNotZoneSwitched(MemoryContext spiContext,
-										char *currentZone);		
-static void MgrGetSlaveNodeZoneName(MemoryContext spiContext, 
+										char *currentZone);	
+static void MgrGetMasterZoneName(MemoryContext spiContext, 
+								NameData *zoneName);											
+static void MgrGetSlaveNodeZoneName(MemoryContext spiContext,
+									NameData *masterZoneName, 
 									NameData *zoneName);
 static void MgrInitAllNodes(char *zone);
 static void MgrAppendNode(MgrNodeWrapper  *node, 
@@ -759,6 +762,7 @@ void CheckZoneNodesBeforeInitAll(void)
 	MemoryContext 	spiContext = NULL;
 	MemoryContext   switchContext = NULL;
 	NameData 		slaveZone = {{0}};
+	NameData 		masterZone = {{0}};
 	dlist_head 	    masterList = DLIST_STATIC_INIT(masterList);
 	dlist_head 	    slaveList = DLIST_STATIC_INIT(slaveList);
 	MgrNodeWrapper  *masterNode = NULL;
@@ -774,10 +778,11 @@ void CheckZoneNodesBeforeInitAll(void)
 	MemoryContextSwitchTo(switchContext);
 	PG_TRY();
 	{
-		MgrGetSlaveNodeZoneName(spiContext, &slaveZone);
+		MgrGetMasterZoneName(spiContext, &masterZone);
+		MgrGetSlaveNodeZoneName(spiContext, &masterZone, &slaveZone);
 		if (strlen(NameStr(slaveZone)) > 0)
 		{
-			selectChildNodesInZone(spiContext, 0, mgr_zone, &masterList);
+			selectChildNodesInZone(spiContext, 0, NameStr(masterZone), &masterList);
 			dlist_foreach(masterIter, &masterList)
 			{
 				masterNode = dlist_container(MgrNodeWrapper, link, masterIter.cur);
@@ -803,15 +808,16 @@ void CheckZoneNodesBeforeInitAll(void)
 	SPI_finish();
 }
 static bool MgrGetSlaveNodeZoneNameByNodeType(MemoryContext spiContext, 
-										char 	nodeType, 
-										NameData *zoneName)
+											char 	nodeType, 
+											NameData *masterZoneName,
+											NameData *zoneName)
 {
 	dlist_head 			resultList = DLIST_STATIC_INIT(resultList);
 	dlist_node 			*node = NULL; 
 	MgrNodeWrapper 		*mgrNode = NULL;
 
 	selectNodeNotZoneForFailover(spiContext, 
-								mgr_zone, 
+								NameStr(*masterZoneName),
 								nodeType, 
 								&resultList);
 	if (!dlist_is_empty(&resultList))
@@ -823,17 +829,32 @@ static bool MgrGetSlaveNodeZoneNameByNodeType(MemoryContext spiContext,
 	}
 	return false;
 }
-static void MgrGetSlaveNodeZoneName(MemoryContext spiContext, NameData *zoneName)
+static void MgrGetMasterZoneName(MemoryContext spiContext, 
+								NameData *zoneName)
 {
-	if (MgrGetSlaveNodeZoneNameByNodeType(spiContext, CNDN_TYPE_GTM_COOR_SLAVE, zoneName)){
+	dlist_head 			resultList = DLIST_STATIC_INIT(resultList);
+	dlist_node 			*node = NULL; 
+	MgrNodeWrapper 		*mgrNode = NULL;
+
+	selectMgrNodeByNodetypeEx(spiContext, CNDN_TYPE_GTM_COOR_MASTER, &resultList);
+	if (!dlist_is_empty(&resultList))
+	{
+		node = dlist_tail_node(&resultList);
+		mgrNode = dlist_container(MgrNodeWrapper, link, node);
+		namestrcpy(zoneName, NameStr(mgrNode->form.nodezone));
+	}
+}
+static void MgrGetSlaveNodeZoneName(MemoryContext spiContext, NameData *masterZoneName, NameData *zoneName)
+{
+	if (MgrGetSlaveNodeZoneNameByNodeType(spiContext, CNDN_TYPE_GTM_COOR_SLAVE, masterZoneName, zoneName)){
 		return;
 	}
 
-	if (MgrGetSlaveNodeZoneNameByNodeType(spiContext, CNDN_TYPE_COORDINATOR_SLAVE, zoneName)){
+	if (MgrGetSlaveNodeZoneNameByNodeType(spiContext, CNDN_TYPE_COORDINATOR_SLAVE, masterZoneName, zoneName)){
 		return;
 	}
 
-	if (MgrGetSlaveNodeZoneNameByNodeType(spiContext, CNDN_TYPE_DATANODE_SLAVE, zoneName)){
+	if (MgrGetSlaveNodeZoneNameByNodeType(spiContext, CNDN_TYPE_DATANODE_SLAVE, masterZoneName, zoneName)){
 		return;
 	}
 }
@@ -862,7 +883,7 @@ static void MgrInitAllNodes(char *zone)
 	{
 		total = MgrGetNotActiveCount(spiContext, zone);
 
-		selectChildNodesInZone(spiContext, 0, mgr_zone, &masterList);
+		selectChildNodes(spiContext, 0, &masterList);
 		dlist_foreach(masterIter, &masterList)
 		{
 			masterNode = dlist_container(MgrNodeWrapper, link, masterIter.cur);
