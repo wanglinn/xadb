@@ -327,6 +327,21 @@ void selectMgrNodeByNodetype(MemoryContext spiContext,
 	pfree(sql.data);
 }
 
+void selectMgrNodeByNodetypeEx(MemoryContext spiContext,
+							 char nodetype,
+							 dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node \n"
+					 "WHERE nodetype = '%c' ",
+					 nodetype);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
 void selectActiveMgrNodeByNodetype(MemoryContext spiContext,
 								   char nodetype,
 								   dlist_head *resultList)

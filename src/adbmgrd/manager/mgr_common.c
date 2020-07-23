@@ -1055,13 +1055,17 @@ bool mgr_get_active_node(Name nodename, char nodetype, char *zone, Oid lowPriori
 				,BTEqualStrategyNumber
 				,F_BOOLEQ
 				,BoolGetDatum(true));
-	ScanKeyInit(&key[3]
-				,Anum_mgr_node_nodezone
-				,BTEqualStrategyNumber
-				,F_NAMEEQ
-				,CStringGetDatum(zone));	
+	if (strlen(zone) > 0)
+		ScanKeyInit(&key[3]
+					,Anum_mgr_node_nodezone
+					,BTEqualStrategyNumber
+					,F_NAMEEQ
+					,CStringGetDatum(zone));	
 	relNode = table_open(NodeRelationId, AccessShareLock);
-	relScan = table_beginscan_catalog(relNode, 4, key);
+	if (strlen(zone) > 0)
+		relScan = table_beginscan_catalog(relNode, 4, key);
+	else
+		relScan = table_beginscan_catalog(relNode, 3, key);
 	for (iloop = 0; iloop < 2; iloop++)
 	{
 		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)

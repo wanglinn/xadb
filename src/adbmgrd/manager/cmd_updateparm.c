@@ -2374,7 +2374,7 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 	/*check agent running normal*/
 	mgr_check_all_agent();
 	/*check all master nodes running normal*/
-	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, mgr_zone);
+	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, "");
 	//mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER);
 
 	/* check connect adbmgr */
@@ -2402,7 +2402,7 @@ void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *des
 		* guc name set '*' to '#', which in the coordinator pg_settings but not in gtm pg_settings,
 		* set 'G' which just in gtm master pg_settings.
 		*/
-		if (!mgr_get_active_node(&cnName, CNDN_TYPE_GTM_COOR_MASTER, mgr_zone, InvalidOid))
+		if (!mgr_get_active_node(&cnName, CNDN_TYPE_GTM_COOR_MASTER, "", InvalidOid))
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 				,errmsg("get active coordinator fail in cluster")));
 		/* get node info */
