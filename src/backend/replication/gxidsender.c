@@ -766,7 +766,6 @@ static void GxidProcessFinishGxid(GxidClientData *client)
 	size_t						input_buf_free_len, out_buf_free_len;
 
 	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_FIND, &found);
-	Assert(found);
 
 	resetStringInfo(&gxid_send_output_buffer);
 	pq_sendbyte(&gxid_send_output_buffer, 'f');
@@ -798,21 +797,26 @@ re_lock_:
 		found = IsXidInPreparedState(xid);
 		Assert(!found);
 #endif*/
-		GxidDropXidClientItem(xid, clientitem);
-		GxidDropXidItem(xid);
-
+		if (found)
+		{
+			GxidDropXidClientItem(xid, clientitem);
+			GxidDropXidItem(xid);
+		}
 		SNAP_SYNC_DEBUG_LOG((errmsg("GxidSend finish xid %d for client %s\n",
 			 			xid, clientitem->client_name)));
 	}
 	SpinLockRelease(&GxidSender->mutex);
 
-	gxid_send_input_buffer.cursor = start_cursor;
-	while(gxid_send_input_buffer.cursor < gxid_send_input_buffer.len)
+	if (found)
 	{
-		procno = pq_getmsgint(&gxid_send_input_buffer, sizeof(procno));
-		xid = pq_getmsgint(&gxid_send_input_buffer, sizeof(xid));
-		SnapSendTransactionFinish(xid);
-		SnapReleaseTransactionLocks(&GxidSender->comm_lock, xid);
+		gxid_send_input_buffer.cursor = start_cursor;
+		while(gxid_send_input_buffer.cursor < gxid_send_input_buffer.len)
+		{
+			procno = pq_getmsgint(&gxid_send_input_buffer, sizeof(procno));
+			xid = pq_getmsgint(&gxid_send_input_buffer, sizeof(xid));
+			SnapSendTransactionFinish(xid);
+			SnapReleaseTransactionLocks(&GxidSender->comm_lock, xid);
+		}
 	}
 
 	if (GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false) == false)
