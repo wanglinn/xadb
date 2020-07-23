@@ -595,7 +595,7 @@ _ora_date_round(DateADT day, int f)
  * specified by the format fmt.
  *
  ********************************************************************/
-Datum ora_date_trunc(PG_FUNCTION_ARGS)
+Datum ora_pg_date_trunc(PG_FUNCTION_ARGS)
 {
 	DateADT day = PG_GETARG_DATEADT(0);
 	text *fmt = PG_GETARG_TEXT_PP(1);
@@ -609,6 +609,64 @@ Datum ora_date_trunc(PG_FUNCTION_ARGS)
 	PG_RETURN_DATEADT(result);
 }
 
+Datum ora_oracle_date_trunc(PG_FUNCTION_ARGS)
+{
+	Timestamp timestamp = PG_GETARG_TIMESTAMP(0);
+	Timestamp result;
+	text *fmt = PG_GETARG_TEXT_PP(1);
+	fsec_t fsec;
+	struct pg_tm tt;
+
+	int f;
+
+	if (TIMESTAMP_NOT_FINITE(timestamp))
+		PG_RETURN_TIMESTAMP(timestamp);
+
+	f = ora_seq_search(VARDATA_ANY(fmt), date_fmt, VARSIZE_ANY_EXHDR(fmt));
+	CHECK_SEQ_SEARCH(f, "round/trunc format string");
+
+	if (timestamp2tm(timestamp, NULL, &tt, &fsec, NULL, NULL) != 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+				 errmsg("timestamp out of range")));
+
+	tt.tm_sec = 0;
+	fsec = 0;
+
+	switch (f)
+	{
+	CASE_fmt_IYYY
+	CASE_fmt_WW
+	CASE_fmt_W
+	CASE_fmt_IW
+	CASE_fmt_DAY
+	CASE_fmt_CC
+		j2date(_ora_date_trunc(DATE2J(tt.tm_year, tt.tm_mon, tt.tm_mday), f)
+								+ POSTGRES_EPOCH_JDATE,
+			   &tt.tm_year, &tt.tm_mon, &tt.tm_mday);
+		tt.tm_hour = 0;
+		tt.tm_min = 0;
+		break;
+	CASE_fmt_YYYY
+		tt.tm_mon = 1;
+	CASE_fmt_Q
+		tt.tm_mon = (3*((tt.tm_mon - 1)/3)) + 1;
+	CASE_fmt_MON
+		tt.tm_mday = 1;
+	CASE_fmt_DDD
+		tt.tm_hour = 0;
+	CASE_fmt_HH
+		tt.tm_min = 0;
+	}
+
+	if (tm2timestamp(&tt, fsec, NULL, &result) != 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+				 errmsg("timestamp out of range")));
+
+	PG_RETURN_TIMESTAMP(result);
+}
+
 Datum
 ora_timestamptz_trunc(PG_FUNCTION_ARGS)
 {
@@ -619,11 +677,7 @@ ora_timestamptz_trunc(PG_FUNCTION_ARGS)
 	fsec_t fsec;
 	struct pg_tm tt, *tm = &tt;
 
-#if PG_VERSION_NUM >= 90200
 	const char *tzn;
-#else
-	char *tzn;
-#endif
 	bool redotz = false;
 	int f;
 
@@ -634,9 +688,9 @@ ora_timestamptz_trunc(PG_FUNCTION_ARGS)
 	CHECK_SEQ_SEARCH(f, "round/trunc format string");
 
 	if (timestamp2tm(timestamp, &tz, tm, &fsec, &tzn, NULL) != 0)
-	ereport(ERROR,
-			(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
-			 errmsg("timestamp out of range")));
+		ereport(ERROR,
+				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+				 errmsg("timestamp out of range")));
 
 	tm->tm_sec = 0;
 	fsec = 0;
