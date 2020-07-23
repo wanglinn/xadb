@@ -269,8 +269,8 @@ CREATE OR REPLACE FUNCTION oracle.round(timestamptz, text default 'DDD')
  * Parameter Type: (timestamp with time zone)
  */
 CREATE OR REPLACE FUNCTION oracle.trunc(pg_catalog.date, text default 'DDD')
-    RETURNS date
-    AS 'ora_date_trunc'
+    RETURNS pg_catalog.date
+    AS 'ora_pg_date_trunc'
     LANGUAGE INTERNAL
     IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
@@ -278,16 +278,16 @@ CREATE OR REPLACE FUNCTION oracle.trunc(pg_catalog.date, text default 'DDD')
 
 CREATE OR REPLACE FUNCTION oracle.trunc(oracle.date, text default 'DDD')
     RETURNS oracle.date
-    AS 'ora_timestamptz_trunc'
+    AS 'ora_oracle_date_trunc'
     LANGUAGE INTERNAL
     IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
 
-CREATE OR REPLACE FUNCTION oracle.trunc(timestamptz, text default 'DDD')
-    RETURNS oracle.date
-    AS $$select oracle.ora_timestamptz_trunc($1, $2)::oracle.date;$$
-    LANGUAGE SQL
+CREATE OR REPLACE FUNCTION oracle.trunc(pg_catalog.timestamptz, text default 'DDD')
+    RETURNS pg_catalog.timestamptz
+    AS 'ora_timestamptz_trunc'
+    LANGUAGE INTERNAL
     STABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
     RETURNS NULL ON NULL INPUT;
