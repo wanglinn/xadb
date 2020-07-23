@@ -591,17 +591,9 @@
 
 # ADB_BEGIN
 { row_macros => 'ADB_GRAM_ORA',
-  aggfnoid => 'oracle.max(oracle.date)', aggtransfn => 'timestamptz_larger',
-  aggcombinefn => 'timestamptz_larger',
-  aggsortop => '>(timestamptz,timestamptz)', aggtranstype => 'timestamptz' },
-{ row_macros => 'ADB_GRAM_ORA',
   aggfnoid => 'max(oracle.rowid)', aggtransfn => 'rowid_larger',
   aggcombinefn => 'rowid_larger', aggsortop => '>(oracle.rowid,oracle.rowid)',
   aggtranstype => 'oracle.rowid' },
-{ row_macros => 'ADB_GRAM_ORA',
-  aggfnoid => 'oracle.min(oracle.date)', aggtransfn => 'timestamptz_smaller',
-  aggcombinefn => 'timestamptz_smaller',
-  aggsortop => '<(timestamptz,timestamptz)', aggtranstype => 'timestamptz' },
 { row_macros => 'ADB_GRAM_ORA',
   aggfnoid => 'min(oracle.rowid)', aggtransfn => 'rowid_smaller',
   aggcombinefn => 'rowid_smaller', aggsortop => '<(oracle.rowid,oracle.rowid)',

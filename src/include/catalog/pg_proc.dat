@@ -10687,18 +10687,10 @@
   proargtypes => 'regclass', prosrc => 'pg_partition_root' },
 
 # ADB_BEGIN
-{ oid => '9312', row_macros => 'ADB_GRAM_ORA',
-  proname => 'max', pronamespace => 'ORANSP', prokind => 'a',
-  proisstrict => 'f', prorettype => 'oracle.date', proargtypes => 'oracle.date',
-  prosrc => 'aggregate_dummy' },
 { oid => '9313', row_macros => 'ADB_GRAM_ORA',
   descr => 'maximum value of all rowid input values',
   proname => 'max', prokind => 'a', proisstrict => 'f',
   prorettype => 'oracle.rowid', proargtypes => 'oracle.rowid',
-  prosrc => 'aggregate_dummy' },
-{ oid => '9310', row_macros => 'ADB_GRAM_ORA',
-  proname => 'min', pronamespace => 'ORANSP', prokind => 'a',
-  proisstrict => 'f', prorettype => 'oracle.date', proargtypes => 'oracle.date',
   prosrc => 'aggregate_dummy' },
 { oid => '9311', row_macros => 'ADB_GRAM_ORA',
   descr => 'minimum value of all rowid input values',
