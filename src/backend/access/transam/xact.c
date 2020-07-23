@@ -2483,6 +2483,7 @@ CommitTransaction(void)
 #ifdef ADB
 	bool		use_2pc_commit = true;
 	Oid			generated_tx_node = InvalidOid;
+	isNeedAbortAnyTrans = true;
 #endif /* ADB */
 
 	is_parallel_worker = (s->blockState == TBLOCK_PARALLEL_INPROGRESS);

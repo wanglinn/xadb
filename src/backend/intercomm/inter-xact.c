@@ -1065,6 +1065,7 @@ CommitPreparedRxact(const char *gid,
 	if(fail_to_commit)
 	{
 		time_t end_time = time(NULL) + 5;	/* wait 5 seconds */
+		isNeedAbortAnyTrans = false;
 		for(;;)
 		{
 			pg_usleep(1000*100);	/* sleep 0.1 second */

@@ -150,4 +150,5 @@ double		vacuum_cleanup_index_scale_factor;
 
 #ifdef ADB
 bool 		useLocalXid = false;
+bool        isNeedAbortAnyTrans = true;
 #endif
