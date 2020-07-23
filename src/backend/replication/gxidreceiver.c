@@ -492,10 +492,16 @@ static void GxidRcvDie(int code, Datum arg)
 		   GxidRcv->state == WALRCV_STOPPING);
 	Assert(GxidRcv->pid == MyProcPid);
 	GxidRcv->state = WALRCV_STOPPED;
+	proclist_init(&GxidRcv->geters);
+	proclist_init(&GxidRcv->reters);
+	proclist_init(&GxidRcv->send_commiters);
+	proclist_init(&GxidRcv->wait_commiters);
 	GxidRcv->pid = 0;
 	GxidRcv->procno = INVALID_PGPROCNO;
 	GxidRcv->cur_pre_alloc = 0;
 	GxidRcv->wait_finish_cnt = 0;
+	GxidRcv->is_send_realloc_num = 0;
+	pg_atomic_write_u32(&GxidRcv->global_finish_id, InvalidTransactionId);
 	GxidRcv->next_try_time = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), RESTART_STEP_MS);	/* 3 seconds */
 	UNLOCK_GXID_RCV();
 
@@ -1185,8 +1191,8 @@ TransactionId GixRcvGetGlobalTransactionId(bool isSubXact)
 
 	UNLOCK_GXID_RCV();
 
-	SNAP_SYNC_DEBUG_LOG(errmsg("Proce %d get xid %d from GxidRcv\n",
-			MyProc->pgprocno, MyProc->getGlobalTransaction));
+	SNAP_SYNC_DEBUG_LOG((errmsg("Proce %d get xid %d from GxidRcv\n",
+			MyProc->pgprocno, MyProc->getGlobalTransaction)));
 
 	return MyProc->getGlobalTransaction;
 }
