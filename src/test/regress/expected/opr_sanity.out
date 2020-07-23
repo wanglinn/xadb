@@ -1430,9 +1430,7 @@ WHERE a.aggfnoid = p.oid AND
     a.aggfinalfn = 0 AND p.prorettype != a.aggtranstype;
  aggfnoid | proname 
 ----------+---------
-     5299 | max
-     5297 | min
-(2 rows)
+(0 rows)
 
 -- Cross-check transfn against its entry in pg_proc.
 SELECT a.aggfnoid::oid, p.proname, ptr.oid, ptr.proname
@@ -1454,11 +1452,9 @@ WHERE a.aggfnoid = p.oid AND
      -- we could carry the check further, but 3 args is enough for now
      OR (p.pronargs > 3)
     );
- aggfnoid | proname | oid  |       proname       
-----------+---------+------+---------------------
-     5299 | max     | 1196 | timestamptz_larger
-     5297 | min     | 1195 | timestamptz_smaller
-(2 rows)
+ aggfnoid | proname | oid | proname 
+----------+---------+-----+---------
+(0 rows)
 
 -- Cross-check finalfn (if present) against its entry in pg_proc.
 SELECT a.aggfnoid::oid, p.proname, pfn.oid, pfn.proname
@@ -1492,11 +1488,9 @@ WHERE a.aggfnoid = p.oid AND
     a.aggtransfn = ptr.oid AND ptr.proisstrict AND
     a.agginitval IS NULL AND
     NOT binary_coercible(p.proargtypes[0], a.aggtranstype);
- aggfnoid | proname | oid  |       proname       
-----------+---------+------+---------------------
-     5297 | min     | 1195 | timestamptz_smaller
-     5299 | max     | 1196 | timestamptz_larger
-(2 rows)
+ aggfnoid | proname | oid | proname 
+----------+---------+-----+---------
+(0 rows)
 
 -- Check for inconsistent specifications of moving-aggregate columns.
 SELECT ctid, aggfnoid::oid
@@ -1718,11 +1712,9 @@ FROM pg_operator AS o, pg_aggregate AS a, pg_proc AS p
 WHERE a.aggfnoid = p.oid AND a.aggsortop = o.oid AND
     (oprkind != 'b' OR oprresult != 'boolean'::regtype
      OR oprleft != p.proargtypes[0] OR oprright != p.proargtypes[0]);
- aggfnoid | oid  
-----------+------
-     5299 | 1324
-     5297 | 1322
-(2 rows)
+ aggfnoid | oid 
+----------+-----
+(0 rows)
 
 -- Check operator is a suitable btree opfamily member
 SELECT a.aggfnoid::oid, o.oid
@@ -1806,11 +1798,9 @@ WHERE p1.opfmethod = 0 OR p1.opfnamespace = 0;
 -- get noticed.
 SELECT oid, opfname FROM pg_opfamily f
 WHERE NOT EXISTS (SELECT 1 FROM pg_opclass WHERE opcfamily = f.oid);
-  oid  |    opfname     
--------+----------------
- 17167 | test_int4_ops
- 19331 | custom_opclass
-(2 rows)
+ oid | opfname 
+-----+---------
+(0 rows)
 
 -- **************** pg_opclass ****************
 -- Look for illegal values in pg_opclass fields
