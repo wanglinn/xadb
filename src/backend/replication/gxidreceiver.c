@@ -137,6 +137,7 @@ static void GxidRcvQuickDieHandler(SIGNAL_ARGS);
 typedef bool (*WaitTransRcvCond)(void *context, proclist_head *reters);
 static bool WaitGxidRcvCondReturn(void *context, proclist_head *reters);
 static bool WaitGxidRcvCommitReturn(void *context, proclist_head *wait_commiters);
+static void GxidRcvClearProcList(proclist_head *head);
 
 static void
 ProcessGxidRcvInterrupts(void)
@@ -492,10 +493,10 @@ static void GxidRcvDie(int code, Datum arg)
 		   GxidRcv->state == WALRCV_STOPPING);
 	Assert(GxidRcv->pid == MyProcPid);
 	GxidRcv->state = WALRCV_STOPPED;
-	proclist_init(&GxidRcv->geters);
-	proclist_init(&GxidRcv->reters);
-	proclist_init(&GxidRcv->send_commiters);
-	proclist_init(&GxidRcv->wait_commiters);
+	GxidRcvClearProcList(&GxidRcv->geters);
+	GxidRcvClearProcList(&GxidRcv->reters);
+	GxidRcvClearProcList(&GxidRcv->send_commiters);
+	GxidRcvClearProcList(&GxidRcv->wait_commiters);
 	GxidRcv->pid = 0;
 	GxidRcv->procno = INVALID_PGPROCNO;
 	GxidRcv->cur_pre_alloc = 0;
@@ -1339,4 +1340,13 @@ re_lock_:
 	
 	pfree(assign_xids);
 	pfree(finish_xids);
+}
+static void GxidRcvClearProcList(proclist_head *head)
+{
+	proclist_mutable_iter	iter;
+	
+	proclist_foreach_modify(iter, head, GxidWaitLink)
+	{
+		proclist_delete(head, iter.cur, GxidWaitLink);
+	}
 }
