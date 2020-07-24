@@ -1942,7 +1942,7 @@ RecordTransactionAbort(bool isSubXact)
 	 * Check that we haven't aborted halfway through RecordTransactionCommit.
 	 */
 #ifdef ADB
-	if (TransactionIdDidCommitGTM(xid, false))
+	if (isNeedAbortAnyTrans && TransactionIdDidCommitGTM(xid, false))
 		elog(PANIC, "cannot abort transaction %u, it was already committed",
 			 xid);
 #else
@@ -1972,6 +1972,9 @@ RecordTransactionAbort(bool isSubXact)
 #endif
 	}
 
+#ifdef ADB
+	if (isNeedAbortAnyTrans)
+#endif
 	XactLogAbortRecord(xact_time,
 					   nchildren, children,
 					   nrels, rels,
@@ -1998,10 +2001,16 @@ RecordTransactionAbort(bool isSubXact)
 	 * having flushed the ABORT record to disk, because in event of a crash
 	 * we'd be assumed to have aborted anyway.
 	 */
+#ifdef ADB
+	if (isNeedAbortAnyTrans)
+#endif
 	TransactionIdAbortTree(xid, nchildren, children);
 
 	END_CRIT_SECTION();
 
+#ifdef ADB
+	isNeedAbortAnyTrans = true;
+#endif
 	/* Compute latestXid while we have the child XIDs handy */
 	latestXid = TransactionIdLatest(xid, nchildren, children);
 

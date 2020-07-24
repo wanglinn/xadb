@@ -1189,15 +1189,7 @@ static void
 ShutdownPostgres(int code, Datum arg)
 {
 	/* Make sure we've killed any active transaction */
-#ifdef ADB
-	if (isNeedAbortAnyTrans)
-#endif
 	AbortOutOfAnyTransaction();
-
-#ifdef ADB
-	if (!isNeedAbortAnyTrans)
-		isNeedAbortAnyTrans = true;
-#endif
 
 	/*
 	 * User locks are not released by transaction end, so be sure to release
