@@ -195,11 +195,9 @@ WHERE p1.oid != p2.oid AND
 ORDER BY 1, 2;
  prorettype | prorettype 
 ------------+------------
-         17 |       9129
          25 |       1043
        1114 |       1184
-       1184 |       9009
-(4 rows)
+(2 rows)
 
 SELECT DISTINCT p1.proargtypes[0], p2.proargtypes[0]
 FROM pg_proc AS p1, pg_proc AS p2
@@ -213,14 +211,11 @@ WHERE p1.oid != p2.oid AND
 ORDER BY 1, 2;
  proargtypes | proargtypes 
 -------------+-------------
-          17 |        9129
-          21 |          23
           25 |        1042
           25 |        1043
         1114 |        1184
-        1184 |        9009
         1560 |        1562
-(7 rows)
+(4 rows)
 
 SELECT DISTINCT p1.proargtypes[1], p2.proargtypes[1]
 FROM pg_proc AS p1, pg_proc AS p2
@@ -234,12 +229,10 @@ WHERE p1.oid != p2.oid AND
 ORDER BY 1, 2;
  proargtypes | proargtypes 
 -------------+-------------
-          17 |        9129
           23 |          28
-          25 |        1043
         1114 |        1184
         1560 |        1562
-(5 rows)
+(3 rows)
 
 SELECT DISTINCT p1.proargtypes[2], p2.proargtypes[2]
 FROM pg_proc AS p1, pg_proc AS p2
@@ -398,10 +391,10 @@ ORDER BY 1;
 ------+----------------------
  2292 | cstring_in
  2500 | cstring_recv
- 5323 | ora_dbtimezone
- 5324 | ora_session_timezone
- 5384 | text_tocstring
- 5403 | pg_xact_status
+ 9232 | ora_dbtimezone
+ 9233 | ora_session_timezone
+ 9293 | text_tocstring
+ 9314 | pg_xact_status
 (6 rows)
 
 -- Check for length inconsistencies between the various argument-info arrays.

@@ -138,7 +138,7 @@ CREATE OR REPLACE FUNCTION oracle.tanh(float8)
  */
 CREATE OR REPLACE FUNCTION oracle.instr(str text, patt text, start int default 1, nth int default 1)
     RETURNS int
-    AS 'orastr_instr4'
+    AS 'oratext_instr4'
     LANGUAGE INTERNAL
     PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
@@ -450,38 +450,12 @@ CREATE OR REPLACE FUNCTION oracle.length(char)
  */
 CREATE OR REPLACE FUNCTION oracle.lengthb(oracle.varchar2)
     RETURNS integer
-    AS 'byteaoctetlen'
+    AS 'ora_byteaoctetlen'
     LANGUAGE INTERNAL
     IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
     STRICT;
 
-/* string functions for varchar2 type
- * these are 'byte' versions of corresponsing text/varchar functions
- */
-CREATE OR REPLACE FUNCTION oracle.substrb(oracle.varchar2, integer)
-    RETURNS oracle.varchar2
-    AS 'bytea_substr_no_len'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    STRICT;
-
-CREATE OR REPLACE FUNCTION oracle.substrb(oracle.varchar2, integer, integer)
-    RETURNS oracle.varchar2
-    AS 'bytea_substr'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    STRICT;
-
-CREATE OR REPLACE FUNCTION oracle.strposb(oracle.varchar2, oracle.varchar2)
-    RETURNS integer
-    AS 'byteapos'
-    LANGUAGE INTERNAL
-    IMMUTABLE PARALLEL SAFE
---ADBONLY CLUSTER SAFE
-    STRICT;
 
 /*
  * Function: remainder

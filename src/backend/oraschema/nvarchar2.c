@@ -123,9 +123,13 @@ nvarchar2recv(PG_FUNCTION_ARGS)
 
 /*
  * nvarchar2send -- convert nvarchar2 to binary value
- *
- * just use varcharsend()
  */
+Datum
+nvarchar2send(PG_FUNCTION_ARGS)
+{
+	/* Exactly the same as textsend, so share code */
+	return textsend(fcinfo);
+}
 
 /*
  * nvarchar2_transform()

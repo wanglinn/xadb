@@ -308,6 +308,17 @@ orastr_instr4 (PG_FUNCTION_ARGS)
 	PG_RETURN_INT32(ora_instr(arg1, arg2, arg3, arg4));
 }
 
+Datum
+oratext_instr4 (PG_FUNCTION_ARGS)
+{
+	text *arg1 = PG_GETARG_TEXT_PP(0);
+	text *arg2 = PG_GETARG_TEXT_PP(1);
+	int arg3 = PG_GETARG_INT32(2);
+	int arg4 = PG_GETARG_INT32(3);
+
+	PG_RETURN_INT32(ora_instr(arg1, arg2, arg3, arg4));
+}
+
 /****************************************************************
  * oracle.normalize
  *
