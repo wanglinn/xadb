@@ -116,9 +116,13 @@ varchar2recv(PG_FUNCTION_ARGS)
 
 /*
  * varchar2send -- convert varchar2 to binary value
- *
- * just use varcharsend()
  */
+Datum
+varchar2send(PG_FUNCTION_ARGS)
+{
+	/* Exactly the same as textsend, so share code */
+	return textsend(fcinfo);
+}
 
 /*
  * varchar2_transform()

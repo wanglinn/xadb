@@ -3160,6 +3160,16 @@ byteaoctetlen(PG_FUNCTION_ARGS)
 	PG_RETURN_INT32(toast_raw_datum_size(str) - VARHDRSZ);
 }
 
+#ifdef ADB_GRAM_ORA
+Datum
+ora_byteaoctetlen(PG_FUNCTION_ARGS)
+{
+	Datum		str = PG_GETARG_DATUM(0);
+
+	/* We need not detoast the input at all */
+	PG_RETURN_INT32(toast_raw_datum_size(str) - VARHDRSZ);
+}
+#endif	/* ADB_GRAM_ORA */
 /*
  * byteacat -
  *	  takes two bytea* and returns a bytea* that is the concatenation of
@@ -3243,6 +3253,16 @@ bytea_substr(PG_FUNCTION_ARGS)
 									  false));
 }
 
+#ifdef ADB_GRAM_ORA
+Datum
+ora_bytea_substr(PG_FUNCTION_ARGS)
+{
+	PG_RETURN_BYTEA_P(bytea_substring(PG_GETARG_DATUM(0),
+									  PG_GETARG_INT32(1),
+									  PG_GETARG_INT32(2),
+									  false));
+}
+#endif	/* ADB_GRAM_ORA */
 /*
  * bytea_substr_no_len -
  *	  Wrapper to avoid opr_sanity failure due to
@@ -3256,6 +3276,17 @@ bytea_substr_no_len(PG_FUNCTION_ARGS)
 									  -1,
 									  true));
 }
+
+#ifdef ADB_GRAM_ORA
+Datum
+ora_bytea_substr_no_len(PG_FUNCTION_ARGS)
+{
+	PG_RETURN_BYTEA_P(bytea_substring(PG_GETARG_DATUM(0),
+									  PG_GETARG_INT32(1),
+									  -1,
+									  true));
+}
+#endif	/* ADB_GRAM_ORA */
 
 static bytea *
 bytea_substring(Datum str,
@@ -3411,6 +3442,14 @@ byteapos(PG_FUNCTION_ARGS)
 
 	PG_RETURN_INT32(pos);
 }
+
+#ifdef ADB_GRAM_ORA
+Datum
+ora_byteapos(PG_FUNCTION_ARGS)
+{
+	return byteapos(fcinfo);
+}
+#endif
 
 /*-------------------------------------------------------------
  * byteaGetByte
