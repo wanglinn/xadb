@@ -5507,6 +5507,29 @@ text_concat(PG_FUNCTION_ARGS)
 	PG_RETURN_TEXT_P(result);
 }
 
+#ifdef ADB_GRAM_ORA
+/*
+ * Oracle compatible function. 
+ * Similar as text_concat, but treat empty result as NULL.
+ */
+Datum
+ora_text_concat(PG_FUNCTION_ARGS)
+{
+	text	   *result;
+
+	result = concat_internal("", 0, fcinfo);
+	if (result == NULL)
+		PG_RETURN_NULL();
+
+	if (VARSIZE_ANY_EXHDR(result) == 0)
+	{
+		pfree(result);
+		PG_RETURN_NULL();
+	}
+	PG_RETURN_TEXT_P(result);
+}
+#endif /* ADB_GRAM_ORA */
+
 /*
  * Concatenate all but first argument value with separators. The first
  * parameter is used as the separator. NULL arguments are ignored.
