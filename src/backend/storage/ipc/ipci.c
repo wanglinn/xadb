@@ -180,7 +180,10 @@ CreateSharedMemoryAndSemaphores(int port)
 			size = add_size(size, ClusterLockShmemSize());
 
 			size = add_size(size, SlotShmemSize());
+#endif
 
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+		size = add_size(size, SizeRowidShmem());
 #endif
 
 #if defined(ADBMGRD)

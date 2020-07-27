@@ -3,12 +3,14 @@
 
 #include "access/hash.h"
 #include "access/transam.h"
+#include "access/xact.h"
 #include "access/xlog.h"
 #include "catalog/pg_type.h"
 #include "funcapi.h"
 #include "libpq/pqformat.h"
 #include "miscadmin.h"
 #include "storage/itemptr.h"
+#include "storage/shmem.h"
 #include "storage/spin.h"
 #include "utils/builtins.h"
 #include "utils/rowid.h"
@@ -322,26 +324,123 @@ static int32 rowid_compare(const OraRowID *l, const OraRowID *r)
 #endif /* ADB */
 
 #else /* else !defined(USE_SEQ_ROWID) */
+typedef struct SharedRowidCache
+{
+	uint64		nextRowid;				/* next ROWID to assign */
+	uint64		flushedRowid;			/* last flush next ROWID in wal */
+	uint64		flushingRowid;			/* flushing next ROWID in wal */
+	XLogRecPtr	flushingPtr;			/* flushing next ROWID wal ptr */
+	slock_t		mutexNext;				/* lock for nextRowid */
+	slock_t		mutexFlushed;			/* lock for flushedRowid */
+	slock_t		mutexFlushing;			/* lock for flushingRowid and flushingPtr */
+}SharedRowidCache;
+
 #define INVALID_COMPARE_WITH_ROWID	UINT64CONST(-1)
+#define INVALID_SYNC_ROWID			UINT64CONST(0)
+#define FirstNormalRowid			100
 
 uint64 compare_with_rowid_id = INVALID_COMPARE_WITH_ROWID;
 int default_with_rowid_id = -1;
 bool default_with_rowids = false;
 
+static bool registered_xact_callback = false;
+static uint64 last_rowid = INVALID_SYNC_ROWID;
+static SharedRowidCache *RowidCache = NULL;
+
 void InitRowidShmem(void)
 {
-	if (IsUnderPostmaster)
-		return;
-
+	bool found;
+#ifdef USE_ASSERT_CHECKING
 	if (default_with_rowid_id >= 0)
 	{
 		Assert(default_with_rowid_id < ROWID_NODE_MAX_VALUE);
 		Assert((compare_with_rowid_id & ROWID_NODE_BITS_MASK) >> (64-ROWID_NODE_BITS_LENGTH) == default_with_rowid_id);
-		ShmemVariableCache->nextRowid = (compare_with_rowid_id | FirstNormalRowid);
 	}
-	StaticAssertStmt(sizeof(ShmemVariableCache->mutexRowid) >= sizeof(slock_t),
-					 "need enlare sizeof VariableCacheData::mutexRowid");
-	SpinLockInit((slock_t*)&ShmemVariableCache->mutexRowid);
+#endif
+	RowidCache = ShmemInitStruct("ROWID Data",
+								 sizeof(SharedRowidCache),
+								 &found);
+	if (!found)
+	{
+		if (default_with_rowid_id >= 0)
+			RowidCache->nextRowid = (compare_with_rowid_id | FirstNormalRowid);
+		else
+			RowidCache->nextRowid = INVALID_SYNC_ROWID;
+		RowidCache->flushedRowid = RowidCache->nextRowid;
+		RowidCache->flushingRowid = RowidCache->nextRowid;
+		RowidCache->flushingPtr = InvalidXLogRecPtr;
+		SpinLockInit(&RowidCache->mutexNext);
+		SpinLockInit(&RowidCache->mutexFlushed);
+		SpinLockInit(&RowidCache->mutexFlushing);
+	}
+}
+
+Size SizeRowidShmem(void)
+{
+	return sizeof(SharedRowidCache);
+}
+
+static void rowid_xact_callback(XactEvent event, void *arg)
+{
+	if (last_rowid == INVALID_SYNC_ROWID)
+		return;
+
+	switch(event)
+	{
+	case XACT_EVENT_COMMIT:
+	case XACT_EVENT_PARALLEL_COMMIT:
+	case XACT_EVENT_PREPARE:
+		SpinLockAcquire(&RowidCache->mutexFlushed);
+		Assert(last_rowid <= RowidCache->nextRowid);
+		Assert(RowidCache->flushedRowid <= RowidCache->nextRowid);
+		if (RowidCache->flushedRowid < last_rowid)
+			RowidCache->flushedRowid = last_rowid;
+		SpinLockRelease(&RowidCache->mutexFlushed);
+		last_rowid = INVALID_SYNC_ROWID;
+		break;
+	case XACT_EVENT_ABORT:
+	case XACT_EVENT_PARALLEL_ABORT:
+		last_rowid = INVALID_SYNC_ROWID;
+		break;
+	case XACT_EVENT_PRE_COMMIT:
+	case XACT_EVENT_PARALLEL_PRE_COMMIT:
+	case XACT_EVENT_PRE_PREPARE:
+		/* is flushed? */
+		SpinLockAcquire(&RowidCache->mutexFlushed);
+		if (RowidCache->flushedRowid > last_rowid)
+			last_rowid = INVALID_SYNC_ROWID;
+		SpinLockRelease(&RowidCache->mutexFlushed);
+		if (last_rowid == INVALID_SYNC_ROWID)
+			break;
+
+		/* is flushing? */
+		SpinLockAcquire(&RowidCache->mutexFlushing);
+		if (RowidCache->flushingRowid > last_rowid)
+			last_rowid = INVALID_SYNC_ROWID;
+		SpinLockRelease(&RowidCache->mutexFlushing);
+		if (last_rowid == INVALID_SYNC_ROWID)
+			break;
+
+		/* update to global next rowid */
+		SpinLockAcquire(&RowidCache->mutexNext);
+		last_rowid = RowidCache->nextRowid;
+		SpinLockRelease(&RowidCache->mutexNext);
+		/*
+		 * and flush next rowid,
+		 * maybe more than one backend flushing this next rowid,
+		 * however it bater than flush next rowid in each generate rowid
+		 */
+		XLogPutNextRowid(last_rowid);
+
+		/*
+		 * update flushing, but maybe other backend update it
+		 */
+		SpinLockAcquire(&RowidCache->mutexFlushing);
+		if (RowidCache->flushingRowid < last_rowid)
+			RowidCache->flushingRowid = last_rowid;
+		SpinLockRelease(&RowidCache->mutexFlushing);
+		break;
+	}
 }
 
 uint64 GetNewRowid(void)
@@ -355,12 +454,12 @@ uint64 GetNewRowid(void)
 				 errhint("before use rowid must set it to a valid value")));
 	}
 
-	LockRowidGen(ShmemVariableCache);
-	newid = ShmemVariableCache->nextRowid;
+	SpinLockAcquire(&RowidCache->mutexNext);
+	newid = RowidCache->nextRowid;
 
 	if (RowidIsLocalInvalid(newid))
 	{
-		UnlockRowidGen(ShmemVariableCache);
+		SpinLockRelease(&RowidCache->mutexNext);
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("invalid value for parameter \"default_with_rowid_id\": %d", default_with_rowid_id),
@@ -369,18 +468,24 @@ uint64 GetNewRowid(void)
 	}
 	if ((newid & ROWID_NODE_VALUE_MASK) == ROWID_NODE_VALUE_MASK)
 	{
-		UnlockRowidGen(ShmemVariableCache);
+		SpinLockRelease(&RowidCache->mutexNext);
 		ereport(ERROR,
 				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
 				 errmsg("rowid out of range")));
 	}
 
 	/* update shared memory */
-	++(ShmemVariableCache->nextRowid);
-	UnlockRowidGen(ShmemVariableCache);
+	++(RowidCache->nextRowid);
+	SpinLockRelease(&RowidCache->mutexNext);
 
-	/* write record and return */
-	XLogPutNextRowid(newid);
+	/* remember we generated new rowid */
+	if (unlikely(registered_xact_callback == false))
+	{
+		RegisterXactCallback(rowid_xact_callback, NULL);
+		registered_xact_callback = true;
+	}
+	last_rowid = newid;
+
 	return newid;
 }
 
@@ -408,6 +513,63 @@ Datum nextval_rowid(PG_FUNCTION_ARGS)
 	 */
 
 	PG_RETURN_UINT64(newrowid);
+}
+
+static void UpdateNextRowid(uint64 nextRowid)
+{
+	SpinLockAcquire(&RowidCache->mutexNext);
+	if (nextRowid > RowidCache->nextRowid)
+		RowidCache->nextRowid = nextRowid;
+	SpinLockRelease(&RowidCache->mutexNext);
+
+	SpinLockAcquire(&RowidCache->mutexFlushed);
+	if (nextRowid > RowidCache->flushedRowid)
+		RowidCache->flushedRowid = nextRowid;
+	SpinLockRelease(&RowidCache->mutexFlushed);
+}
+
+void RedoNextRowid(void *ptr)
+{
+	uint64		nextRowid;
+	memcpy(&nextRowid, ptr, sizeof(nextRowid));
+
+	if (RowidIsLocalInvalid(nextRowid))
+	{
+		int old_rowid_id = (int)RowidGetNodeID(nextRowid);
+		ereport(FATAL,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("invalid value for parameter \"default_with_rowid_id\": %d", default_with_rowid_id),
+				 errhint("must restore \"default_with_rowid_id\" to old value: %d", old_rowid_id),
+				 errdetail("redo next rowid is: " UINT64_FORMAT, nextRowid)));
+	}
+	UpdateNextRowid(nextRowid);
+}
+
+void SetCheckpointRowid(int64 nextRowid)
+{
+	int old_rowid_id;
+
+	if (default_with_rowid_id >= 0 &&
+		nextRowid &&
+		RowidIsLocalInvalid(nextRowid))
+	{
+		old_rowid_id = (int)RowidGetNodeID(nextRowid);
+		ereport(FATAL,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("invalid value for parameter \"default_with_rowid_id\": %d", default_with_rowid_id),
+				 errhint("must restore \"default_with_rowid_id\" to old value: %d", old_rowid_id),
+				 errdetail("checkpoint next rowid is: " UINT64_FORMAT, nextRowid)));
+	}
+	UpdateNextRowid(nextRowid);
+}
+
+int64 GetCheckpointRowid(void)
+{
+	uint64 nextRowid;
+	SpinLockAcquire(&RowidCache->mutexNext);
+	nextRowid = RowidCache->nextRowid;
+	SpinLockRelease(&RowidCache->mutexNext);
+	return nextRowid;
 }
 
 #endif /* !USE_SEQ_ROWID */
