@@ -6833,6 +6833,21 @@ void MgrRefreshAllPgxcNode(MemoryContext spiContext,
 										newMaster);
 		}
 	}	
+
+	dlist_foreach(iter, zoDNList)
+	{
+		ZoneOverDN = dlist_container(ZoneOverDNWrapper, link, iter.cur);
+		Assert(ZoneOverDN);
+		oldMaster = ZoneOverDN->zoDN->oldMaster;
+		newMaster = ZoneOverDN->zoDN->newMaster;
+		if (oldMaster != NULL && newMaster != NULL)
+		{
+			refreshPgxcNodesOfNewDataNodeMaster(zoGtm->holdLockCoordinator,
+												oldMaster,
+												newMaster,
+												true);	
+		}
+	}
 }
 void RevertZoneFailover(MemoryContext spiContext, 
 						ZoneOverGtm *zoGtm, 
