@@ -14077,6 +14077,7 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 	NameData		nodeSync;
 	bool			updateAll = true;
 	ReadonlyUpdateparm *rdUpdateparm;
+	Form_mgr_node      mgrNodeSlave = NULL; 
 
 	/* Check for the need for updates based on read-write separation parameters */
 	if (!mgr_get_sync_slave_readonly_state() && 
@@ -14207,11 +14208,6 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 				,F_OIDEQ
 				,ObjectIdGetDatum(mgr_datanode_info->masterNode->oid));
 		ScanKeyInit(&ndskey[3]
-				,Anum_mgr_node_curestatus
-				,BTEqualStrategyNumber
-				,F_NAMEEQ
-				,CStringGetDatum(CURE_STATUS_NORMAL));
-		ScanKeyInit(&ndskey[4]
 				,Anum_mgr_node_nodesync
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
@@ -14219,25 +14215,35 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 
 		/* In read-write separation mode, synchronous slave node is used by default, 
 		 * and asynchronous slave node can be used if no synchronous slave node exists. */
-		info->rel_scan = table_beginscan_catalog(info->rel_node, 5, ndskey);
+		info->rel_scan = table_beginscan_catalog(info->rel_node, 4, ndskey);
 		if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 		{
-			mgr_datanode_info->slaveNode = (Form_mgr_node)GETSTRUCT(tuple);
-		}
+			mgrNodeSlave = (Form_mgr_node)GETSTRUCT(tuple);
+			if ((pg_strcasecmp(NameStr(mgrNodeSlave->curestatus), CURE_STATUS_NORMAL) == 0) || 
+				(pg_strcasecmp(NameStr(mgrNodeSlave->curestatus), CURE_STATUS_SWITCHED) == 0))
+			{
+				mgr_datanode_info->slaveNode = mgrNodeSlave;		
+			}				
+		}		
 		/* Allow reading of asynchronous node slave */
 		else
 		{
 			table_endscan(info->rel_scan);
-			ScanKeyInit(&ndskey[4]
+			ScanKeyInit(&ndskey[3]
 					,Anum_mgr_node_nodesync
 					,BTEqualStrategyNumber
 					,F_NAMENE
 					,NameGetDatum(&nodeSync));
 			
-			info->rel_scan = table_beginscan_catalog(info->rel_node, 5, ndskey);
+			info->rel_scan = table_beginscan_catalog(info->rel_node, 4, ndskey);
 			if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 			{
-				mgr_datanode_info->slaveNode = (Form_mgr_node)GETSTRUCT(tuple);
+				mgrNodeSlave = (Form_mgr_node)GETSTRUCT(tuple);
+				if ((pg_strcasecmp(NameStr(mgrNodeSlave->curestatus), CURE_STATUS_NORMAL) == 0) || 
+					(pg_strcasecmp(NameStr(mgrNodeSlave->curestatus), CURE_STATUS_SWITCHED) == 0))
+				{
+					mgr_datanode_info->slaveNode = mgrNodeSlave;			
+				}					
 			}
 		}
 		table_endscan(info->rel_scan);
