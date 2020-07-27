@@ -139,10 +139,6 @@ FullTransactionIdAdvance(FullTransactionId *dest)
 #define FirstGenbkiObjectId		10000
 #define FirstBootstrapObjectId	12000
 #define FirstNormalObjectId		16384
-#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
-#define FirstNormalRowid		100
-#define RowidIsValid(id)		((id) >= FirstNormalObjectId && (id) < (uint64)-1)
-#endif
 
 /*
  * VariableCache is a data structure in shared memory that is used to track
@@ -191,22 +187,7 @@ typedef struct VariableCacheData
 	 */
 	TransactionId oldestClogXid;	/* oldest it's safe to look up in clog */
 
-#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
-	uint64		nextRowid;			/* next ROWID to assign */
-	/*
-	 * we can not include spin.h, because some fronted code include this head file.
-	 * so here we just declare a lare or equal sizeof slock_t variable.
-	 * when use it as slock_t we need hard convert point to "slock_t *",
-	 * like this "SpinLockAcquire((slock_t*)&VariableCache->mutexRowid)"
-	 */
-	unsigned int mutexRowid;
-#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 } VariableCacheData;
-
-#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
-#define LockRowidGen(cache_)	SpinLockAcquire((slock_t*)&(cache_)->mutexRowid)
-#define UnlockRowidGen(cache_)	SpinLockRelease((slock_t*)&(cache_)->mutexRowid)
-#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 
 typedef VariableCacheData *VariableCache;
 

@@ -1,7 +1,7 @@
 #ifndef ORA_ROWID_H
 #define ORA_ROWID_H
 
-#define ROWID_NODE_BITS_LENGTH	8
+#define ROWID_NODE_BITS_LENGTH	10
 #if (ROWID_NODE_BITS_LENGTH==10)
 #define ROWID_NODE_MAX_VALUE	1024
 #define ROWID_NODE_BITS_MASK	UINT64CONST(0xffc0000000000000)
@@ -32,5 +32,9 @@ extern bool default_with_rowids;
 
 extern void GucAssignRowidNodeId(int newval, void *extra);
 extern void InitRowidShmem(void);
+extern Size SizeRowidShmem(void);
+extern void RedoNextRowid(void *ptr);
+extern void SetCheckpointRowid(int64 rowid);
+extern int64 GetCheckpointRowid(void);
 
 #endif /* ORA_ROWID_H */
