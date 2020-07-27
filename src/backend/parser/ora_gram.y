@@ -2643,7 +2643,7 @@ a_expr:	c_expr
 				else
 				{
 					FuncCall *n = makeNode(FuncCall);
-					n->funcname = SystemFuncName("concat");
+					n->funcname = OracleFuncName("concat");
 					n->args = list_make2($1, $3);
 					n->location = @1;
 					$$ = (Node *)n;
@@ -2964,7 +2964,7 @@ b_expr: c_expr
 				strncmp(objname, "||", strlen(objname)) == 0)
 			{
 				FuncCall *n = makeNode(FuncCall);
-				n->funcname = SystemFuncName("concat");
+				n->funcname = OracleFuncName("concat");
 				n->args = list_make2($1, $3);
 				n->location = @1;
 				$$ = (Node *)n;
