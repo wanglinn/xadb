@@ -13140,8 +13140,8 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 
 		if (CheckMgrNodeHasSlaveNode(HeapTupleGetOid(tuple)))
 		{
-			heap_endscan(rel_scan);
-			heap_close(rel, RowExclusiveLock);
+			table_endscan(rel_scan);
+			table_close(rel, RowExclusiveLock);
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 				 ,errmsg("%s has slave node, cannot remove it. please drop the slave node first.", NameStr(mgr_node->nodename))));
 		}
@@ -15599,7 +15599,7 @@ static void RemoveSlaveNodeFromParent(Relation rel, Form_mgr_node curMgrNode, Oi
 static bool CheckMgrNodeHasSlaveNode(Oid parentOid)
 {
 	Relation rel_node;
-	HeapScanDesc rel_scan;
+	TableScanDesc rel_scan;
 	HeapTuple tuple;
 	ScanKeyData key[1];
 	bool hasSlave = false;
@@ -15609,14 +15609,14 @@ static bool CheckMgrNodeHasSlaveNode(Oid parentOid)
 				,BTEqualStrategyNumber
 				,F_OIDEQ
 				,ObjectIdGetDatum(parentOid));
-	rel_node = heap_open(NodeRelationId, AccessShareLock);			
-	rel_scan = heap_beginscan_catalog(rel_node, 1, key);
+	rel_node = table_open(NodeRelationId, AccessShareLock);			
+	rel_scan = table_beginscan_catalog(rel_node, 1, key);
 	if ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 	{
 		hasSlave = true;
 	}
-	heap_endscan(rel_scan);
-	heap_close(rel_node, AccessShareLock);
+	table_endscan(rel_scan);
+	table_close(rel_node, AccessShareLock);
 
 	return hasSlave;
 }
