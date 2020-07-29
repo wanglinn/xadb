@@ -5771,6 +5771,35 @@ Datum ora_timestamp_mi_numeric(PG_FUNCTION_ARGS)
 	PG_RETURN_DATUM(timestamp);
 }
 
+#ifdef ADB_GRAM_ORA
+Datum ora_date_mi_numeric(PG_FUNCTION_ARGS)
+{
+	Timestamp timestamp = PG_GETARG_TIMESTAMP(0);
+
+	timestamp -= numeric_mul_int64_ret_int64(PG_GETARG_DATUM(1), USECS_PER_DAY);
+
+	PG_RETURN_DATUM(timestamp);
+}
+
+Datum ora_date_pl_numeric(PG_FUNCTION_ARGS)
+{
+	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(0);
+
+	timestamp += numeric_mul_int64_ret_int64(PG_GETARG_DATUM(1), USECS_PER_DAY);
+
+	PG_RETURN_DATUM(timestamp);
+}
+
+Datum numeric_pl_ora_date(PG_FUNCTION_ARGS)
+{
+	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(1);
+
+	timestamp += numeric_mul_int64_ret_int64(PG_GETARG_DATUM(0), USECS_PER_DAY);
+
+	PG_RETURN_DATUM(timestamp);
+}
+#endif	/* ADB_GRAM_ORA */
+
 #define DEFINE_ORA_TIMESTAMP_OP(type, ARG, cvt1, cvt2)					\
 Datum ora_timestamp_pl_##type(PG_FUNCTION_ARGS)							\
 {																		\
