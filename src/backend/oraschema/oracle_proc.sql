@@ -559,44 +559,47 @@ CREATE OR REPLACE FUNCTION mod(text, numeric) RETURNS numeric AS
 --ADBONLY CLUSTER SAFE
 LANGUAGE SQL;
 
-CREATE OR REPLACE FUNCTION oracle.is_prefix(varchar, varchar)
+CREATE OR REPLACE FUNCTION oracle.is_prefix(varchar, varchar, boolean DEFAULT true)
 RETURNS boolean AS
-  $$select oracle.is_prefix($1,$2,true)$$
+  $$orastr_is_prefix_text$$
   IMMUTABLE PARALLEL SAFE STRICT
 --ADBONLY CLUSTER SAFE
-LANGUAGE SQL;
+LANGUAGE INTERNAL;
 
-CREATE OR REPLACE FUNCTION oracle.rvrs(varchar, integer DEFAULT 1)
+CREATE OR REPLACE FUNCTION oracle.rvrs(varchar, integer DEFAULT 1, integer DEFAULT NULL)
 RETURNS varchar AS
-  $$select oracle.rvrs($1,$2,NULL)$$
+  $$orastr_rvrs$$
   IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
-LANGUAGE SQL;
+CALLED ON NULL INPUT
+LANGUAGE INTERNAL;
 
-CREATE OR REPLACE FUNCTION oracle.swap(varchar, varchar, integer DEFAULT 1)
+CREATE OR REPLACE FUNCTION oracle.swap(varchar, varchar, integer DEFAULT 1, integer DEFAULT NULL)
 RETURNS varchar AS
-  $$select oracle.swap($1,$2,$3,NULL)$$
+  $$orastr_swap$$
   IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
-LANGUAGE SQL;
+CALLED ON NULL INPUT
+LANGUAGE INTERNAL;
 
-CREATE OR REPLACE FUNCTION oracle.betwn(varchar, integer, integer)
+CREATE OR REPLACE FUNCTION oracle.betwn(varchar, integer, integer, boolean DEFAULT true)
 RETURNS varchar AS
-  $$select oracle.betwn($1,$2,$3,true)$$
+  $$orastr_betwn_i$$
   IMMUTABLE PARALLEL SAFE STRICT
 --ADBONLY CLUSTER SAFE
-LANGUAGE SQL;
+LANGUAGE INTERNAL;
 
 CREATE OR REPLACE FUNCTION oracle.betwn(varchar, varchar,
   varchar DEFAULT NULL,
   INTEGER DEFAULT 1,
   INTEGER DEFAULT 1,
-  BOOLEAN DEFAULT true)
+  BOOLEAN DEFAULT true,
+  BOOLEAN DEFAULT false)
 RETURNS varchar AS
-  $$select oracle.betwn($1,$2,$3,$4,$5,$6,false)$$
+  $$orastr_betwn_c$$
   IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
-LANGUAGE SQL;
+LANGUAGE INTERNAL;
 
 CREATE OR REPLACE FUNCTION oracle.lpad(text, int4, text default ' ')
   RETURNS text
@@ -606,9 +609,17 @@ CREATE OR REPLACE FUNCTION oracle.lpad(text, int4, text default ' ')
 --ADBONLY CLUSTER SAFE
   STRICT;
 
+CREATE OR REPLACE FUNCTION oracle.lpad(text, int8, text default ' ')
+  RETURNS text
+  AS $$select oracle.lpad($1, pg_catalog.int4($2), $3)$$
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+  STRICT;
+
 CREATE OR REPLACE FUNCTION oracle.lpad(text, numeric, text default ' ')
   RETURNS text
-  AS $$select oracle.lpad($1, trunc($2)::int4, $3)$$
+  AS $$select oracle.lpad($1, pg_catalog.int4(pg_catalog.trunc($2, 0)), $3)$$
   LANGUAGE SQL
   IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
@@ -622,9 +633,17 @@ CREATE OR REPLACE FUNCTION oracle.rpad(text, int4, text default ' ')
 --ADBONLY CLUSTER SAFE
   STRICT;
 
+CREATE OR REPLACE FUNCTION oracle.rpad(text, int8, text default ' ')
+  RETURNS text
+  AS $$select oracle.rpad($1, pg_catalog.int4($2), $3)$$
+  LANGUAGE SQL
+  IMMUTABLE PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+  STRICT;
+
 CREATE OR REPLACE FUNCTION oracle.rpad(text, numeric, text default ' ')
   RETURNS text
-  AS $$select oracle.rpad($1, trunc($2)::int4, $3)$$
+  AS $$select oracle.rpad($1, pg_catalog.int4(pg_catalog.trunc($2, 0)), $3)$$
   LANGUAGE SQL
   IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
@@ -632,7 +651,7 @@ CREATE OR REPLACE FUNCTION oracle.rpad(text, numeric, text default ' ')
 
 CREATE OR REPLACE FUNCTION oracle.width_bucket(float8, float8, float8, numeric)
   RETURNS int4
-  AS $$select pg_catalog.width_bucket($1, $2, $3, trunc($4)::int4)$$
+  AS $$select pg_catalog.width_bucket($1, $2, $3, pg_catalog.int4(pg_catalog.trunc($4, 0)))$$
   LANGUAGE SQL
   IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
@@ -640,7 +659,7 @@ CREATE OR REPLACE FUNCTION oracle.width_bucket(float8, float8, float8, numeric)
 
 CREATE OR REPLACE FUNCTION oracle.width_bucket(numeric, numeric, numeric, numeric)
   RETURNS int4
-  AS $$select pg_catalog.width_bucket($1, $2, $3, trunc($4)::int4)$$
+  AS $$select pg_catalog.width_bucket($1, $2, $3, pg_catalog.int4(pg_catalog.trunc($4, 0)))$$
   LANGUAGE SQL
   IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
@@ -648,7 +667,7 @@ CREATE OR REPLACE FUNCTION oracle.width_bucket(numeric, numeric, numeric, numeri
 
 CREATE OR REPLACE FUNCTION oracle.trunc(numeric, numeric)
   RETURNS NUMERIC
-  AS $$select pg_catalog.trunc($1, trunc($2)::int4)$$
+  AS $$select pg_catalog.trunc($1, pg_catalog.int4(pg_catalog.trunc($2, 0)))$$
   LANGUAGE SQL
   IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
@@ -656,7 +675,7 @@ CREATE OR REPLACE FUNCTION oracle.trunc(numeric, numeric)
 
 CREATE OR REPLACE FUNCTION oracle.round(numeric, numeric)
   RETURNS NUMERIC
-  AS $$select pg_catalog.round($1, trunc($2)::int4)$$
+  AS $$select pg_catalog.round($1, pg_catalog.int4(pg_catalog.trunc($2, 0)))$$
   LANGUAGE SQL
   IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
