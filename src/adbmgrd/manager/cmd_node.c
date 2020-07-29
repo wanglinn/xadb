@@ -285,6 +285,7 @@ static void MgrQueryStatReplicationSlave(Form_mgr_node childNode,
 static HeapTuple MgrQueryStatReplicationMaster(Oid masterOid, 
 												Form_mgr_node nodeSlave, 
 												NameData *nameSlave);																					
+static bool CheckMgrNodeHasSlaveNode(Oid parentOid);
 
 #if (Natts_mgr_node != 13)
 #error "need change code"
@@ -13136,6 +13137,15 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 				 ,errmsg("%s \"%s\" does not exist in cluster", mgr_nodetype_str(nodetype), namedata.data)));
 		}
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+
+		if (CheckMgrNodeHasSlaveNode(HeapTupleGetOid(tuple)))
+		{
+			heap_endscan(rel_scan);
+			heap_close(rel, RowExclusiveLock);
+			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
+				 ,errmsg("%s has slave node, cannot remove it. please drop the slave node first.", NameStr(mgr_node->nodename))));
+		}
+
 		if (CNDN_TYPE_COORDINATOR_MASTER == nodetype)
 			removeCoordMasterNum++;
 		address = get_hostaddress_from_hostoid(mgr_node->nodehost);
@@ -15586,4 +15596,27 @@ static void RemoveSlaveNodeFromParent(Relation rel, Form_mgr_node curMgrNode, Oi
 	MgrFree(infosendmsg.data);
 	MgrFree(getAgentCmdRst.description.data);
 }
+static bool CheckMgrNodeHasSlaveNode(Oid parentOid)
+{
+	Relation rel_node;
+	HeapScanDesc rel_scan;
+	HeapTuple tuple;
+	ScanKeyData key[1];
+	bool hasSlave = false;
 
+	ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodemasternameoid
+				,BTEqualStrategyNumber
+				,F_OIDEQ
+				,ObjectIdGetDatum(parentOid));
+	rel_node = heap_open(NodeRelationId, AccessShareLock);			
+	rel_scan = heap_beginscan_catalog(rel_node, 1, key);
+	if ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+	{
+		hasSlave = true;
+	}
+	heap_endscan(rel_scan);
+	heap_close(rel_node, AccessShareLock);
+
+	return hasSlave;
+}
