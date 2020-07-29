@@ -153,10 +153,12 @@ static void start_listen(void)
 		if (bind(listen_sock, (struct sockaddr *)&listen_addr, sizeof(listen_addr)) < 0 || listen(listen_sock, PG_SOMAXCONN) < 0)
 		{
 			nTry++;
-			fprintf(stderr, _("could not listen on %s socket: %m"), _("IPv4"));
 			closesocket(listen_sock);
 			if(nTry > 10)
+			{
+				fprintf(stderr, _("could not listen on %s socket: %m"), _("IPv4"));
 				exit(EXIT_FAILURE);
+			}
 			else
 			{
 				/* pg_usleep() is useless,why? */
