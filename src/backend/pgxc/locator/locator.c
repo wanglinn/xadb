@@ -842,7 +842,7 @@ RelationIdBuildLocator(Oid relid)
 			++j;
 		}
 		for (j=0; j<count; ++j)
-			relationLocInfo->nodeids = list_append_unique_oid(relationLocInfo->nodeids, oids[j]);
+			relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids, oids[j]);
 		pfree(str);
 		pfree(oids);
 		list_free_deep(list);
@@ -850,8 +850,8 @@ RelationIdBuildLocator(Oid relid)
 	else if (pgxc_class->pclocatortype != LOCATOR_TYPE_HASHMAP)
 	{
 		for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
-			relationLocInfo->nodeids = list_append_unique_oid(relationLocInfo->nodeids,
-							pgxc_class->nodeoids.values[j]);
+			relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids,
+												   pgxc_class->nodeoids.values[j]);
 	}
 	else
 	{
@@ -1387,4 +1387,13 @@ AttrNumber GetFirstLocAttNumIfOnlyOne(RelationLocInfo *loc)
 				 errmsg("distribute by expression not support yet!")));
 	}
 	return key->attno;
+}
+
+List *adbGetUniqueNodeOids(const List *nodeoids)
+{
+	List *list = NIL;
+	const ListCell *lc;
+	foreach(lc, nodeoids)
+		list = list_append_unique_oid(list, lfirst_oid(lc));
+	return list;
 }

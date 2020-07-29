@@ -127,4 +127,5 @@ extern List *GetInvolvedNodes(RelationLocInfo *rel_loc, int nelems, Datum* dist_
 							  Oid* dist_types, RelationAccessType accessType);
 extern List *adbUseDnSlaveNodeids(List *nodeids);
 extern List *adbGetRelationNodeids(Oid relid);
+extern List *adbGetUniqueNodeOids(const List *nodeoids);
 #endif   /* LOCATOR_H */

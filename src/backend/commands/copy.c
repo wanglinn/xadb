@@ -3672,11 +3672,14 @@ BeginCopyFrom(ParseState *pstate,
 		}else
 		{
 			CopyStmt *stmt = makeClusterCopyFromStmt(rel, cstate->freeze);
+			List *rnodes = adbGetUniqueNodeOids(rel->rd_locator_info->nodeids);
 			cstate->NextRowFrom = AddNumberNextCopyFrom;
-			cstate->list_connect = ExecStartClusterCopy(rel->rd_locator_info->nodeids,
+			cstate->list_connect = ExecStartClusterCopy(rnodes,
 														stmt,
 														cstate->mem_copy_toc,
 														cstate->exec_cluster_flag);
+			Assert(list_length(cstate->list_connect) == list_length(rnodes));
+			list_free(rnodes);
 		}
 		cstate->cs_tupleslot = makeClusterCopySlot(cstate->rel);
 		cstate->cs_convert = create_type_convert(cstate->cs_tupleslot->tts_tupleDescriptor, true, false);
