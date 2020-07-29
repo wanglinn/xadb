@@ -1391,3 +1391,12 @@ AttrNumber GetFirstLocAttNumIfOnlyOne(RelationLocInfo *loc)
 	}
 	return key->attno;
 }
+
+List *adbGetUniqueNodeOids(const List *nodeoids)
+{
+	List *list = NIL;
+	const ListCell *lc;
+	foreach(lc, nodeoids)
+		list = list_append_unique_oid(list, lfirst_oid(lc));
+	return list;
+}

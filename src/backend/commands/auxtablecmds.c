@@ -520,7 +520,7 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 		master = heap_openrv(stmt->masterrv, NoLock);
 		rnodes = NIL;
 		if (master->rd_locator_info)
-			rnodes = list_copy(master->rd_locator_info->nodeids);
+			rnodes = adbGetUniqueNodeOids(master->rd_locator_info->nodeids);
 		foreach (lc, stmt->auxrvlist)
 		{
 			auxrel = heap_openrv((RangeVar *) lfirst(lc), AccessExclusiveLock);
