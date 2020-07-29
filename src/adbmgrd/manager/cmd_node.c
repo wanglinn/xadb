@@ -1947,9 +1947,9 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	if ((AGT_CMD_CNDN_CNDN_INIT == cmdtype || AGT_CMD_CNDN_SLAVE_INIT == cmdtype || AGT_CMD_GTMCOORD_INIT == cmdtype || AGT_CMD_GTMCOORD_SLAVE_INIT == cmdtype) 
 		&& mgr_node->nodeinited)
 	{
-		appendStringInfo(&(getAgentCmdRst->description), "%s \"%s\" has been initialized", nodetypestr, cndnname);
-		getAgentCmdRst->ret = false;
-		goto end;
+		ereport(ERROR,
+				(errcode(ERRCODE_INTERNAL_ERROR),
+				 errmsg("%s \"%s\" has been initialized", nodetypestr, cndnname)));
 	}
 	
 	if(AGT_CMD_CNDN_CNDN_INIT != cmdtype && AGT_CMD_CNDN_SLAVE_INIT != cmdtype && AGT_CMD_GTMCOORD_INIT != cmdtype && AGT_CMD_GTMCOORD_SLAVE_INIT != cmdtype
