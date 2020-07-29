@@ -44,9 +44,10 @@
 #include "utils/sortsupport.h"
 
 #ifdef ADB_GRAM_ORA
-#include "nodes/makefuncs.h"
-extern PGDLLIMPORT int current_grammar;	/* avoid include tcopprot.h */
+extern int current_grammar;	/* avoid include tcopprot.h */
+extern int parse_grammar;
 #endif /* ADB_GRAM_ORA */
+
 /* ----------
  * Uncomment the following to enable compilation of dump_numeric()
  * and dump_var() and to get a dump of any result produced by make_result().
@@ -559,9 +560,6 @@ static void accum_sum_final(NumericSumAccum *accum, NumericVar *result);
 static void accum_sum_copy(NumericSumAccum *dst, NumericSumAccum *src);
 static void accum_sum_combine(NumericSumAccum *accum, NumericSumAccum *accum2);
 
-#ifdef ADB_GRAM_ORA
-extern int parse_grammar;
-#endif
 
 /* ----------------------------------------------------------------------
  *
@@ -2780,41 +2778,6 @@ numeric_mod(PG_FUNCTION_ARGS)
 	PG_RETURN_NUMERIC(res);
 }
 
-#ifdef ADB_GRAM_ORA
-/*
- * ora_numeric_mod() -
- *
- *	Calculate the modulo of two numerics
- */
-Datum
-ora_numeric_mod(PG_FUNCTION_ARGS)
-{
-	Numeric		num1 = PG_GETARG_NUMERIC(0);
-	Numeric		num2 = PG_GETARG_NUMERIC(1);
-	int			ival;
-	NumericVar	var;
-	Numeric		res;
-
-	ival = DatumGetInt32(DirectFunctionCall1(numeric_float4,
-											 NumericGetDatum(num2)));
-	if (ival == 0)
-		PG_RETURN_NUMERIC(num1);
-
-	if (ival == 0)
-	{
-		init_var(&var);
-		int64_to_numericvar((int64) 0, &var);
-		res = make_result(&var);
-		free_var(&var);
-		PG_RETURN_NUMERIC(res);
-	}
-
-	res = numeric_mod_opt_error(num1, num2, NULL);
-
-	PG_RETURN_NUMERIC(res);
-}
-#endif
-
 
 /*
  * numeric_mod_opt_error() -
@@ -2866,48 +2829,6 @@ numeric_mod_opt_error(Numeric num1, Numeric num2, bool *have_error)
 	return res;
 }
 
-#ifdef ADB_GRAM_ORA
-/*
- * numericlike(Numeric, text)
- * 
- * Consistent with Oracle.
- * When comparing like, the numeric type and the decimal value are 0 for the parameter,
- * it will be ignored.
- */
-Datum
-numericlike(PG_FUNCTION_ARGS)
-{
-	Numeric		 num = PG_GETARG_NUMERIC(0);
-	NumericVar	 arg1;
-	text		*str;
-	text		*pat = PG_GETARG_TEXT_PP(1);
-	int			 i;
-	char		*charnum;
-	Datum		datum;
-
-	init_var_from_num(num, &arg1);
-	charnum = get_str_from_var(&arg1);
-	
-	/* Clean up the extra decimal point and 0 at the end. */
-	for (i=strlen(charnum)-1; i; i--)
-	{
-		if(charnum[i] == '.')
-		{
-			charnum[i] = '\0';
-			break;
-		}
-		else if(charnum[i] == '0')
-			charnum[i] = '\0';
-		else
-			break;
-	}
-	str = cstring_to_text_with_len(charnum, strlen(charnum));
-	/* call the native textlike() function of Postgres */
-	datum = DirectFunctionCall2(textlike, PointerGetDatum(str), PointerGetDatum(pat));
-
-	PG_RETURN_POINTER(datum);
-}
-#endif /* ADB_GRAM_ORA */
 
 /*
  * numeric_inc() -
@@ -9648,5 +9569,79 @@ int64 numeric_mul_int64_ret_int64(Datum num, int64 mul)
 
 	free_var(&result_num);
 	return result_i64;
+}
+
+/*
+ * ora_numeric_mod() -
+ *
+ *	Calculate the modulo of two numerics
+ */
+Datum
+ora_numeric_mod(PG_FUNCTION_ARGS)
+{
+	Numeric		num1 = PG_GETARG_NUMERIC(0);
+	Numeric		num2 = PG_GETARG_NUMERIC(1);
+	int			ival;
+	NumericVar	var;
+	Numeric		res;
+
+	ival = DatumGetInt32(DirectFunctionCall1(numeric_float4,
+											 NumericGetDatum(num2)));
+	if (ival == 0)
+		PG_RETURN_NUMERIC(num1);
+
+	if (ival == 0)
+	{
+		init_var(&var);
+		int64_to_numericvar((int64) 0, &var);
+		res = make_result(&var);
+		free_var(&var);
+		PG_RETURN_NUMERIC(res);
+	}
+
+	res = numeric_mod_opt_error(num1, num2, NULL);
+
+	PG_RETURN_NUMERIC(res);
+}
+
+/*
+ * numericlike(Numeric, text)
+ * 
+ * Consistent with Oracle.
+ * When comparing like, the numeric type and the decimal value are 0 for the parameter,
+ * it will be ignored.
+ */
+Datum
+numericlike(PG_FUNCTION_ARGS)
+{
+	Numeric		 num = PG_GETARG_NUMERIC(0);
+	NumericVar	 arg1;
+	text		*str;
+	text		*pat = PG_GETARG_TEXT_PP(1);
+	int			 i;
+	char		*charnum;
+	Datum		datum;
+
+	init_var_from_num(num, &arg1);
+	charnum = get_str_from_var(&arg1);
+	
+	/* Clean up the extra decimal point and 0 at the end. */
+	for (i=strlen(charnum)-1; i; i--)
+	{
+		if(charnum[i] == '.')
+		{
+			charnum[i] = '\0';
+			break;
+		}
+		else if(charnum[i] == '0')
+			charnum[i] = '\0';
+		else
+			break;
+	}
+	str = cstring_to_text_with_len(charnum, strlen(charnum));
+	/* call the native textlike() function of Postgres */
+	datum = DirectFunctionCall2(textlike, PointerGetDatum(str), PointerGetDatum(pat));
+
+	PG_RETURN_POINTER(datum);
 }
 #endif /* ADB_GRAM_ORA */
