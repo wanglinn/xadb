@@ -284,7 +284,10 @@ static void RxactMarkAutoTransaction(void)
 	{
 		if(info->type == RX_AUTO)
 		{
-			info->type = TransactionIdDidCommit(info->auto_tid) ? RX_COMMIT:RX_ROLLBACK;
+			if (TransactionIdDidCommit(info->auto_tid) || !TransactionIdDidAbort(info->auto_tid) )
+				info->type = RX_COMMIT;
+			else
+				info->type = RX_ROLLBACK;
 		}
 	}
 }
@@ -1677,7 +1680,12 @@ static void rxact_mark_gid(const char *gid, RemoteXactType type, bool success, b
 			rinfo->failed = true;
 			/* end of redo while change all RX_AUTO(function RxactMarkAutoTransaction) */
 			if (!is_redo && rinfo->type == RX_AUTO)
-				rinfo->type = TransactionIdDidCommit(rinfo->auto_tid) ? RX_COMMIT:RX_ROLLBACK;
+			{
+				if (TransactionIdDidCommit(rinfo->auto_tid) || !TransactionIdDidAbort(rinfo->auto_tid) )
+					rinfo->type = RX_COMMIT;
+				else
+					rinfo->type = RX_ROLLBACK;
+			}
 			/*rxact_has_filed_gid = true;*/
 		}
 	}else
@@ -1831,10 +1839,8 @@ static void rxact_2pc_do(void)
 			{
 				strcpy(node_conn->doing_gid, rinfo->gid);
 				node_conn->last_use = time(NULL);
-				ereport(RXACT_LOG_LEVEL, (errmsg("send \"%s\" to %u", buf.data, rinfo->remote_nodes[i])));
 			}else
 			{
-				ereport(RXACT_LOG_LEVEL, (errmsg("send \"%s\" to %u %s", buf.data, rinfo->remote_nodes[i], "failed")));
 				rxact_finish_node_conn(node_conn);
 			}
 		}
