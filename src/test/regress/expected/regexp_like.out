@@ -1,79 +1,79 @@
 set grammar to oracle;
-create table aa(id int,name varchar(20), cont  varchar(20));
-insert into aa values(1,'345','345');
-insert into aa values(2,'345abc','345');
-insert into aa values(3,'','');
-insert into aa values(4,'abc','abcd');
-insert into aa values(5,'mike',null);
-insert into aa values(6,null,null);
-select * from aa where regexp_like(name,'345');
+create table regliketbl(id int,name varchar(20), cont  varchar(20));
+insert into regliketbl values(1,'345','345');
+insert into regliketbl values(2,'345abc','345');
+insert into regliketbl values(3,'','');
+insert into regliketbl values(4,'abc','abcd');
+insert into regliketbl values(5,'mike',null);
+insert into regliketbl values(6,null,null);
+select * from regliketbl where regexp_like(name,'345');
  ID |  NAME  | CONT 
 ----+--------+------
   1 | 345    | 345
   2 | 345abc | 345
 (2 rows)
 
-select * from aa where regexp_like(name,to_char(345));
+select * from regliketbl where regexp_like(name,to_char(345));
  ID |  NAME  | CONT 
 ----+--------+------
   1 | 345    | 345
   2 | 345abc | 345
 (2 rows)
 
-select * from aa where regexp_like(name,345);
+select * from regliketbl where regexp_like(name,345);
  ID |  NAME  | CONT 
 ----+--------+------
   1 | 345    | 345
   2 | 345abc | 345
 (2 rows)
 
-select * from aa where regexp_like(name,to_number('345'));
+select * from regliketbl where regexp_like(name,to_number('345'));
  ID |  NAME  | CONT 
 ----+--------+------
   1 | 345    | 345
   2 | 345abc | 345
 (2 rows)
 
-select * from aa where regexp_like(name,exp(1));
+select * from regliketbl where regexp_like(name,exp(1));
  ID | NAME | CONT 
 ----+------+------
 (0 rows)
 
-select * from aa where regexp_like(name,cont);
+select * from regliketbl where regexp_like(name,cont);
  ID |  NAME  | CONT 
 ----+--------+------
   1 | 345    | 345
   2 | 345abc | 345
 (2 rows)
 
-select * from aa where regexp_like(name,'345abcd');
+select * from regliketbl where regexp_like(name,'345abcd');
  ID | NAME | CONT 
 ----+------+------
 (0 rows)
 
-select * from aa where regexp_like(name,'');
+select * from regliketbl where regexp_like(name,'');
  ID | NAME | CONT 
 ----+------+------
 (0 rows)
 
-select * from aa where regexp_like('',name);
+select * from regliketbl where regexp_like('',name);
  ID | NAME | CONT 
 ----+------+------
 (0 rows)
 
-select * from aa where regexp_like('','');
+select * from regliketbl where regexp_like('','');
  ID | NAME | CONT 
 ----+------+------
 (0 rows)
 
-select * from aa where regexp_like(name,null);
+select * from regliketbl where regexp_like(name,null);
  ID | NAME | CONT 
 ----+------+------
 (0 rows)
 
-select * from aa where regexp_like(null,name);
+select * from regliketbl where regexp_like(null,name);
  ID | NAME | CONT 
 ----+------+------
 (0 rows)
 
-drop table aa;
+drop table regliketbl;

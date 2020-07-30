@@ -1,14 +1,14 @@
 set grammar to oracle;
-create table aa(id int, dt timestamp);
-insert into aa values(1,to_date('2000-3-31','YYYY-MM-DD'));
-insert into aa values(2,to_date('2000-2-29','YYYY-MM-DD'));
+create table monthsbtwtbl(id int, dt timestamp);
+insert into monthsbtwtbl values(1,to_date('2000-3-31','YYYY-MM-DD'));
+insert into monthsbtwtbl values(2,to_date('2000-2-29','YYYY-MM-DD'));
 select months_between(to_date('2000-3-31','yyyy-mm-dd'),to_date('2000-2-29','yyyy-mm-dd')) from dual;
  MONTHS_BETWEEN(TO_DATE('2000-3-31','YYYY-MM-DD'),TO_DATE('2000-2-29','YYYY-MM-DD'))  
 --------------------------------------------------------------------------------------
                                                                                     1
 (1 row)
 
-select id,months_between(dt,to_date('2000-2-29','yyyy-mm-dd')) from aa;
+select id,months_between(dt,to_date('2000-2-29','yyyy-mm-dd')) from monthsbtwtbl;
  ID | MONTHS_BETWEEN(DT,TO_DATE('2000-2-29','YYYY-MM-DD'))  
 ----+-------------------------------------------------------
   1 |                                                     1
@@ -57,4 +57,4 @@ select months_between(to_date('2000-4-30 23:59:59','yyyy-mm-dd hh24:mi:ss'),to_d
                                                                                                                          0
 (1 row)
 
-drop table aa;
+drop table monthsbtwtbl;

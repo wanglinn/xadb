@@ -5,77 +5,16 @@
 # this limits the number of connections needed to run the tests.
 # ----------
 
+test: sinh cosh round round(date) trunc to_date regexp_substr greatest least trim substr nls_initcap nls_lower nls_upper lpad rpad nullif coalesce add_months months_between
+test: next_day last_day regexp_like translate to_timestamp to_yminterval to_dsinterval tanh remainder bitand nvl nvl2 nanvl lnnvl new_time sessiontimezone extract
+test: regexp regexp_count regexp_instr regexp_replace to_char to_number bin_to_num numtodsinterval numtoyminterval soundex instr length dump decode charset
+test: create_sequence create_primary_foreign_key create_other_constraints alter_column alter_constraints delete save_rollback sign base_query advanced_query set_function datatype ora_alias ora_in_notin ora_minus
+
+ignore: rownum_rowid
+
 # run tablespace by itself, and first, because it forces a checkpoint;
 # we'd prefer not to have checkpoints later in the tests because that
 # interferes with crash-recovery testing.
-test: sinh
-test: cosh
-test: round
-test: round(date)
-test: trunc
-test: to_date
-test: regexp_substr
-test: greatest
-test: least
-test: trim
-test: substr
-test: nls_initcap
-test: nls_lower
-test: nls_upper
-test: lpad
-test: rpad
-test: nullif
-test: coalesce
-test: add_months
-test: months_between
-test: next_day
-test: last_day
-test: regexp_like
-test: translate
-test: to_timestamp
-test: to_yminterval
-test: to_dsinterval
-test: tanh
-test: remainder
-test: bitand
-test: nvl
-test: nvl2
-test: nanvl
-test: lnnvl
-test: new_time
-test: sessiontimezone
-test: extract
-test: regexp_count
-test: regexp_instr
-test: regexp_replace
-test: to_char
-test: to_number
-test: bin_to_num
-test: numtodsinterval
-test: numtoyminterval
-test: soundex
-test: instr
-test: length
-test: dump
-test: decode
-test: charset
-test: create_sequence
-test: create_primary_foreign_key
-test: create_other_constraints
-test: alter_column
-test: alter_constraints
-test: delete
-test: save_rollback
-test: sign
-test: base_query
-test: advanced_query
-test: set_function
-ignore: rownum_rowid
-test: regexp
-test: datatype
-test: ora_alias
-test: ora_in_notin
-test: ora_minus
 test: tablespace
 
 # ----------

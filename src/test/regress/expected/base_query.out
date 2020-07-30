@@ -2,106 +2,106 @@ set grammar to oracle;
 set datestyle='ISO,YMD';
 set timezone = 8;
 --基本查询
-create table tt(id int,name varchar(10),sal binary_float, regdt timestamp default(to_date(' 2016-01-01 00:00:00','YYYY-MM-DD hh24:mi:ss')));
-insert into tt(id,name,sal) values(1, 'mike',3008.90);
-select * from tt;
+create table base_query_1(id int,name varchar(10),sal binary_float, regdt timestamp default(to_date(' 2016-01-01 00:00:00','YYYY-MM-DD hh24:mi:ss')));
+insert into base_query_1(id,name,sal) values(1, 'mike',3008.90);
+select * from base_query_1;
  ID | NAME |  SAL   |        REGDT        
 ----+------+--------+---------------------
   1 | mike | 3008.9 | 2016-01-01 00:00:00
 (1 row)
 
-select name, regdt from tt;
+select name, regdt from base_query_1;
  NAME |        REGDT        
 ------+---------------------
  mike | 2016-01-01 00:00:00
 (1 row)
 
-select tt.name from tt;
+select base_query_1.name from base_query_1;
  NAME 
 ------
  mike
 (1 row)
 
-select regdt,name,sal from tt;
+select regdt,name,sal from base_query_1;
         REGDT        | NAME |  SAL   
 ---------------------+------+--------
  2016-01-01 00:00:00 | mike | 3008.9
 (1 row)
 
-drop table tt;
+drop table base_query_1;
 --WHERE	基本运算符号
-create table tt(id int,name varchar(10),sal binary_float, regdt timestamp default(to_date(' 2016-01-01 00:00:00','YYYY-MM-DD hh24:mi:ss')));
-insert into tt(id,name,sal) values(1, 'mike',3008.90);
-insert into tt values(2, 'Tom',4380,to_timestamp('2016-3-24 15:09:50','YYYY-MM-DD hh24:mi:ss'));
-select * from tt where id=2;
+create table base_query_1(id int,name varchar(10),sal binary_float, regdt timestamp default(to_date(' 2016-01-01 00:00:00','YYYY-MM-DD hh24:mi:ss')));
+insert into base_query_1(id,name,sal) values(1, 'mike',3008.90);
+insert into base_query_1 values(2, 'Tom',4380,to_timestamp('2016-3-24 15:09:50','YYYY-MM-DD hh24:mi:ss'));
+select * from base_query_1 where id=2;
  ID | NAME | SAL  |        REGDT        
 ----+------+------+---------------------
   2 | Tom  | 4380 | 2016-03-24 15:09:50
 (1 row)
 
-select * from tt where id>=1;
+select * from base_query_1 where id>=1;
  ID | NAME |  SAL   |        REGDT        
 ----+------+--------+---------------------
   1 | mike | 3008.9 | 2016-01-01 00:00:00
   2 | Tom  |   4380 | 2016-03-24 15:09:50
 (2 rows)
 
-select * from tt where id<2;
+select * from base_query_1 where id<2;
  ID | NAME |  SAL   |        REGDT        
 ----+------+--------+---------------------
   1 | mike | 3008.9 | 2016-01-01 00:00:00
 (1 row)
 
-select * from tt where id*2-1=1;
+select * from base_query_1 where id*2-1=1;
  ID | NAME |  SAL   |        REGDT        
 ----+------+--------+---------------------
   1 | mike | 3008.9 | 2016-01-01 00:00:00
 (1 row)
 
-select name from tt where regdt=to_timestamp('2016-3-24 15:09:50','YYYY-MM-DD hh24:mi:ss');
+select name from base_query_1 where regdt=to_timestamp('2016-3-24 15:09:50','YYYY-MM-DD hh24:mi:ss');
  NAME 
 ------
  Tom
 (1 row)
 
-drop table tt;
+drop table base_query_1;
 --||连接不同列
-create table tt(id int,name varchar(10));
-insert into tt values(1,'Mike');
-insert into tt values(2,'Jack');
-select id||name as id_name from tt;
+create table base_query_1(id int,name varchar(10));
+insert into base_query_1 values(1,'Mike');
+insert into base_query_1 values(2,'Jack');
+select id||name as id_name from base_query_1;
  ID_NAME 
 ---------
  1Mike
  2Jack
 (2 rows)
 
-select to_char(id)||name as id_name from tt;
+select to_char(id)||name as id_name from base_query_1;
  ID_NAME 
 ---------
  1Mike
  2Jack
 (2 rows)
 
-drop table tt;
-create table tt(id number,sal number);
-insert into tt values(1,100);
-insert into tt values(2,200);
-select id||sal as id_sal from tt order by id;
+drop table base_query_1;
+create table base_query_1(id number,sal number);
+insert into base_query_1 values(1,100);
+insert into base_query_1 values(2,200);
+select id||sal as id_sal from base_query_1 order by id;
  ID_SAL 
 --------
  1100
  2200
 (2 rows)
 
-drop table tt;
+drop table base_query_1;
 --不同数据类型
 --timestamp	
-create table tt(id int, dt timestamp default(to_date(' 2016-01-01 00:00:00','YYYY-MM-DD hh24:mi:ss')));
-insert into tt(id) values(1);
-insert into tt values(2,to_timestamp('2016-03-15 15:09:50','YYYY-MM-DD hh24:mi:ss'));
-insert into tt values(3,to_date('2016-03-15 15:09:50','YYYY-MM-DD hh24:mi:ss'));
-select * from tt order by id;
+create table base_query_1(id int, dt timestamp default(to_date(' 2016-01-01 00:00:00','YYYY-MM-DD hh24:mi:ss')));
+insert into base_query_1(id) values(1);
+insert into base_query_1 values(2,to_timestamp('2016-03-15 15:09:50','YYYY-MM-DD hh24:mi:ss'));
+insert into base_query_1 values(3,to_date('2016-03-15 15:09:50','YYYY-MM-DD hh24:mi:ss'));
+select * from base_query_1 order by id;
  ID |         DT          
 ----+---------------------
   1 | 2016-01-01 00:00:00
@@ -109,28 +109,28 @@ select * from tt order by id;
   3 | 2016-03-15 15:09:50
 (3 rows)
 
-select * from tt where dt=to_date('2016-03-15 15:09:50','YYYY-MM-DD hh24:mi:ss') order by id;
+select * from base_query_1 where dt=to_date('2016-03-15 15:09:50','YYYY-MM-DD hh24:mi:ss') order by id;
  ID |         DT          
 ----+---------------------
   2 | 2016-03-15 15:09:50
   3 | 2016-03-15 15:09:50
 (2 rows)
 
-select * from tt where dt=to_timestamp('2016-03-15 15:09:50','YYYY-MM-DD hh24:mi:ss') order by id;
+select * from base_query_1 where dt=to_timestamp('2016-03-15 15:09:50','YYYY-MM-DD hh24:mi:ss') order by id;
  ID |         DT          
 ----+---------------------
   2 | 2016-03-15 15:09:50
   3 | 2016-03-15 15:09:50
 (2 rows)
 
-select * from tt where dt=to_timestamp('2016-03-16 15:09:50','YYYY-MM-DD hh24:mi:ss')- NUMTODSINTERVAL(1, 'day') order by id;
+select * from base_query_1 where dt=to_timestamp('2016-03-16 15:09:50','YYYY-MM-DD hh24:mi:ss')- NUMTODSINTERVAL(1, 'day') order by id;
  ID |         DT          
 ----+---------------------
   2 | 2016-03-15 15:09:50
   3 | 2016-03-15 15:09:50
 (2 rows)
 
-select * from tt where dt<to_timestamp('2016-03-16','YYYY-MM-DD') order by id;
+select * from base_query_1 where dt<to_timestamp('2016-03-16','YYYY-MM-DD') order by id;
  ID |         DT          
 ----+---------------------
   1 | 2016-01-01 00:00:00
@@ -138,45 +138,45 @@ select * from tt where dt<to_timestamp('2016-03-16','YYYY-MM-DD') order by id;
   3 | 2016-03-15 15:09:50
 (3 rows)
 
-select * from tt where dt between to_date('2016-03-15','YYYY-MM-DD') and to_date('2016-03-16','YYYY-MM-DD') order by id;
+select * from base_query_1 where dt between to_date('2016-03-15','YYYY-MM-DD') and to_date('2016-03-16','YYYY-MM-DD') order by id;
  ID |         DT          
 ----+---------------------
   2 | 2016-03-15 15:09:50
   3 | 2016-03-15 15:09:50
 (2 rows)
 
-select * from tt where dt between to_date('2016-03-15 03:09:00 pm','YYYY-MM-DD hh:mi:ss pm') and to_date('2016-03-16','YYYY-MM-DD') order by id;
+select * from base_query_1 where dt between to_date('2016-03-15 03:09:00 pm','YYYY-MM-DD hh:mi:ss pm') and to_date('2016-03-16','YYYY-MM-DD') order by id;
  ID |         DT          
 ----+---------------------
   2 | 2016-03-15 15:09:50
   3 | 2016-03-15 15:09:50
 (2 rows)
 
-drop table tt;
+drop table base_query_1;
 --timestamp with time zone
-create table tt(id int, dt timestamp with time zone);
-insert into tt values(1,timestamp'2016-03-15 15:09:50' at time zone '0:00');
-insert into tt values(3,to_timestamp_tz('2016-03-15 15:09:50 +8:00','YYYY-MM-DD hh24:mi:ss tzh:tzm'));
+create table base_query_1(id int, dt timestamp with time zone);
+insert into base_query_1 values(1,timestamp'2016-03-15 15:09:50' at time zone '0:00');
+insert into base_query_1 values(3,to_timestamp_tz('2016-03-15 15:09:50 +8:00','YYYY-MM-DD hh24:mi:ss tzh:tzm'));
 ERROR:  "TZ"/"tz"/"OF" format patterns are not supported in to_date
-select * from tt;
+select * from base_query_1;
  ID |             DT             
 ----+----------------------------
   1 | 2016-03-15 23:09:50 +08:00
 (1 row)
 
-select * from tt where dt<timestamp'2016-03-15 15:09:50' at time zone '4:00';
+select * from base_query_1 where dt<timestamp'2016-03-15 15:09:50' at time zone '4:00';
  ID |             DT             
 ----+----------------------------
   1 | 2016-03-15 23:09:50 +08:00
 (1 row)
 
-drop table tt;
+drop table base_query_1;
 --interval
-create table tt(id int, itv interval year(1) to month);
-insert into tt values(1,numtoyminterval(3,'year')+numtoyminterval(3,'month'));
-insert into tt values(2,numtoyminterval(8,'month'));
-insert into tt values(2,numtodsinterval(20,'day'));
-select * from tt order by id;
+create table base_query_1(id int, itv interval year(1) to month);
+insert into base_query_1 values(1,numtoyminterval(3,'year')+numtoyminterval(3,'month'));
+insert into base_query_1 values(2,numtoyminterval(8,'month'));
+insert into base_query_1 values(2,numtodsinterval(20,'day'));
+select * from base_query_1 order by id;
  ID |       ITV        
 ----+------------------
   1 | @ 3 years 3 mons
@@ -184,169 +184,181 @@ select * from tt order by id;
   2 | @ 0
 (3 rows)
 
-select * from tt where itv < numtoyminterval(3,'year')
-select * from tt where itv = numtoyminterval(10,'month')
-select * from tt where itv between numtoyminterval(10,'month') and numtodsinterval(1500,'day');
-ERROR:  syntax error at or near "select"
-LINE 2: select * from tt where itv = numtoyminterval(10,'month')
-        ^
-drop table tt;
+select * from base_query_1 where itv < numtoyminterval(3,'year');
+ ID |   ITV    
+----+----------
+  2 | @ 8 mons
+  2 | @ 0
+(2 rows)
+
+select * from base_query_1 where itv = numtoyminterval(10,'month');
+ ID | ITV 
+----+-----
+(0 rows)
+
+select * from base_query_1 where itv between numtoyminterval(10,'month') and numtodsinterval(1500,'day');
+ ID |       ITV        
+----+------------------
+  1 | @ 3 years 3 mons
+(1 row)
+
+drop table base_query_1;
 --float：不同精度和类型
-create table tt(id int,name varchar(10),sal binary_float, regdt timestamp default(to_date(' 2016-01-01 00:00:00','YYYY-MM-DD hh24:mi:ss')));
-insert into tt(id,name,sal) values(1, 'mike',3008.90);
-select name,sal from tt;
+create table base_query_1(id int,name varchar(10),sal binary_float, regdt timestamp default(to_date(' 2016-01-01 00:00:00','YYYY-MM-DD hh24:mi:ss')));
+insert into base_query_1(id,name,sal) values(1, 'mike',3008.90);
+select name,sal from base_query_1;
  NAME |  SAL   
 ------+--------
  mike | 3008.9
 (1 row)
 
-select name,sal from tt where sal=3008.90;
+select name,sal from base_query_1 where sal=3008.90;
  NAME |  SAL   
 ------+--------
  mike | 3008.9
 (1 row)
 
-select name,sal from tt where sal=3008.9;
+select name,sal from base_query_1 where sal=3008.9;
  NAME |  SAL   
 ------+--------
  mike | 3008.9
 (1 row)
 
-select name,sal from tt where sal=3008.9000;
+select name,sal from base_query_1 where sal=3008.9000;
  NAME |  SAL   
 ------+--------
  mike | 3008.9
 (1 row)
 
-select name,sal from tt where sal = 3.009E+003;
+select name,sal from base_query_1 where sal = 3.009E+003;
  NAME | SAL 
 ------+-----
 (0 rows)
 
-select name,sal from tt where sal = to_number(3008.90);
+select name,sal from base_query_1 where sal = to_number(3008.90);
  NAME |  SAL   
 ------+--------
  mike | 3008.9
 (1 row)
 
-select name,sal from tt where sal = '3008.90';
+select name,sal from base_query_1 where sal = '3008.90';
  NAME |  SAL   
 ------+--------
  mike | 3008.9
 (1 row)
 
-select name,sal from tt where sal = '3008.9';
+select name,sal from base_query_1 where sal = '3008.9';
  NAME |  SAL   
 ------+--------
  mike | 3008.9
 (1 row)
 
-select name,sal from tt where sal = '3008.9000';
+select name,sal from base_query_1 where sal = '3008.9000';
  NAME |  SAL   
 ------+--------
  mike | 3008.9
 (1 row)
 
-select name,sal from tt where sal = to_char(3008.90);
+select name,sal from base_query_1 where sal = to_char(3008.90);
  NAME |  SAL   
 ------+--------
  mike | 3008.9
 (1 row)
 
-select name,sal from tt where sal = abs(-3008.90);
+select name,sal from base_query_1 where sal = abs(-3008.90);
  NAME |  SAL   
 ------+--------
  mike | 3008.9
 (1 row)
 
-drop table tt;
+drop table base_query_1;
 --int型
-create table tt(id int,name varchar(10),sal integer);
-insert into tt(id,name,sal) values(1, 'mike',3008.90);
-insert into tt(id,name,sal) values(2, 'mike',2500);
-select name,sal from tt order by sal;
+create table base_query_1(id int,name varchar(10),sal integer);
+insert into base_query_1(id,name,sal) values(1, 'mike',3008.90);
+insert into base_query_1(id,name,sal) values(2, 'mike',2500);
+select name,sal from base_query_1 order by sal;
  NAME | SAL  
 ------+------
  mike | 2500
  mike | 3009
 (2 rows)
 
-select name,sal from tt where id=1.0;
+select name,sal from base_query_1 where id=1.0;
  NAME | SAL  
 ------+------
  mike | 3009
 (1 row)
 
-select name,sal from tt where sal=3009;
+select name,sal from base_query_1 where sal=3009;
  NAME | SAL  
 ------+------
  mike | 3009
 (1 row)
 
-select name,sal from tt where sal=3009.0;
+select name,sal from base_query_1 where sal=3009.0;
  NAME | SAL  
 ------+------
  mike | 3009
 (1 row)
 
-select name,sal from tt where id='1';
+select name,sal from base_query_1 where id='1';
  NAME | SAL  
 ------+------
  mike | 3009
 (1 row)
 
-select name,sal from tt where id=to_number(1);
+select name,sal from base_query_1 where id=to_number(1);
  NAME | SAL  
 ------+------
  mike | 3009
 (1 row)
 
-select name,sal from tt where id=to_char(1);
+select name,sal from base_query_1 where id=to_char(1);
  NAME | SAL  
 ------+------
  mike | 3009
 (1 row)
 
-select name,sal from tt where id=to_char(1.0);
+select name,sal from base_query_1 where id=to_char(1.0);
  NAME | SAL  
 ------+------
  mike | 3009
 (1 row)
 
-select name,sal from tt where sal='3009';
+select name,sal from base_query_1 where sal='3009';
  NAME | SAL  
 ------+------
  mike | 3009
 (1 row)
 
-select name,sal from tt where sal=to_number(3009);
+select name,sal from base_query_1 where sal=to_number(3009);
  NAME | SAL  
 ------+------
  mike | 3009
 (1 row)
 
-select name,sal from tt where sal=to_char(25000);
+select name,sal from base_query_1 where sal=to_char(25000);
  NAME | SAL 
 ------+-----
 (0 rows)
 
-select name,sal from tt where sal=abs(-25000);
+select name,sal from base_query_1 where sal=abs(-25000);
  NAME | SAL 
 ------+-----
 (0 rows)
 
-select name,sal from tt where sal='';
+select name,sal from base_query_1 where sal='';
  NAME | SAL 
 ------+-----
 (0 rows)
 
-drop table tt;
+drop table base_query_1;
 --varchar	
-create table tt(id int,name varchar(10),info varchar(50));
-insert into tt(id,name,info) values(1, 'mike','5000');
-insert into tt(id,name,info) values(2, '2',to_date('2015-02-12','YYYY-MM-DD'));
-insert into tt(id,name,info) values(3, null,'');
-select * from tt order by id;
+create table base_query_1(id int,name varchar(10),info varchar(50));
+insert into base_query_1(id,name,info) values(1, 'mike','5000');
+insert into base_query_1(id,name,info) values(2, '2',to_date('2015-02-12','YYYY-MM-DD'));
+insert into base_query_1(id,name,info) values(3, null,'');
+select * from base_query_1 order by id;
  ID | NAME |        INFO         
 ----+------+---------------------
   1 | mike | 5000
@@ -354,113 +366,113 @@ select * from tt order by id;
   3 |      | 
 (3 rows)
 
-select name from tt where name='mike';
+select name from base_query_1 where name='mike';
  NAME 
 ------
  mike
 (1 row)
 
-select name from tt where name=2;
+select name from base_query_1 where name=2;
 ERROR:  invalid input syntax for type numeric: "mike"
-select name from tt where info=to_date('2015-02-12','YYYY-MM-DD');
+select name from base_query_1 where info=to_date('2015-02-12','YYYY-MM-DD');
 ERROR:  invalid input syntax for type timestamp: "5000"
-select name from tt where info='';
+select name from base_query_1 where info='';
  NAME 
 ------
 (0 rows)
 
-select name from tt where info=null;
+select name from base_query_1 where info=null;
  NAME 
 ------
 (0 rows)
 
-select name from tt where info is null;
+select name from base_query_1 where info is null;
  NAME 
 ------
  
 (1 row)
 
-drop table tt;
+drop table base_query_1;
 --number	
-create table tt(id number(3,1));
-insert into tt(id) values(1);
-insert into tt(id) values(2.17);
-select * from tt order by id;
+create table base_query_1(id number(3,1));
+insert into base_query_1(id) values(1);
+insert into base_query_1(id) values(2.17);
+select * from base_query_1 order by id;
  ID  
 -----
    1
  2.2
 (2 rows)
 
-select * from tt where id=1.00000000;
+select * from base_query_1 where id=1.00000000;
  ID 
 ----
   1
 (1 row)
 
-select * from tt where id=000001;
+select * from base_query_1 where id=000001;
  ID 
 ----
   1
 (1 row)
 
-select * from tt where id=tanh(100);
+select * from base_query_1 where id=tanh(100);
  ID 
 ----
   1
 (1 row)
 
-select * from tt where id=exp(0);
+select * from base_query_1 where id=exp(0);
  ID 
 ----
   1
 (1 row)
 
-select * from tt where id='2.2';
+select * from base_query_1 where id='2.2';
  ID  
 -----
  2.2
 (1 row)
 
-select * from tt where id=to_char(2.2);
+select * from base_query_1 where id=to_char(2.2);
  ID  
 -----
  2.2
 (1 row)
 
-select * from tt where id=to_char(2.20);
+select * from base_query_1 where id=to_char(2.20);
  ID  
 -----
  2.2
 (1 row)
 
-select * from tt where id=to_number(2.200,'9.000');
+select * from base_query_1 where id=to_number(2.200,'9.000');
  ID  
 -----
  2.2
 (1 row)
 
-select * from tt where id= 2.2::binary_float;
+select * from base_query_1 where id= 2.2::binary_float;
  ID  
 -----
  2.2
 (1 row)
 
-select * from tt where id= 2.2::binary_double;
+select * from base_query_1 where id= 2.2::binary_double;
  ID  
 -----
  2.2
 (1 row)
 
-drop table tt;
+drop table base_query_1;
 --为子查询取别名
-create table tt(id int,sal binary_float);
-insert into tt values(1,1880.23);
-insert into tt values(2,17000);
-create table aa(id int,sal binary_float);
-insert into aa values(1,5000);
-insert into aa values(2,1000);
-select t.sal money from tt t,aa a where t.sal>a.sal;
+create table base_query_1(id int,sal binary_float);
+insert into base_query_1 values(1,1880.23);
+insert into base_query_1 values(2,17000);
+create table base_query_2(id int,sal binary_float);
+insert into base_query_2 values(1,5000);
+insert into base_query_2 values(2,1000);
+select t.sal money from base_query_1 t,base_query_2 a where t.sal>a.sal;
   MONEY  
 ---------
  1880.23
@@ -468,7 +480,7 @@ select t.sal money from tt t,aa a where t.sal>a.sal;
    17000
 (3 rows)
 
-select tt.sal money from tt,aa a where tt.sal>a.sal;
+select base_query_1.sal money from base_query_1,base_query_2 a where base_query_1.sal>a.sal;
   MONEY  
 ---------
  1880.23
@@ -476,23 +488,23 @@ select tt.sal money from tt,aa a where tt.sal>a.sal;
    17000
 (3 rows)
 
-select tt.id from tt, (select id,sal from aa where id<2) a where tt.id=a.id;
+select base_query_1.id from base_query_1, (select id,sal from base_query_2 where id<2) a where base_query_1.id=a.id;
  ID 
 ----
   1
 (1 row)
 
-select id from (select id,sal from aa where id<3) a where a.id>1;
+select id from (select id,sal from base_query_2 where id<3) a where a.id>1;
  ID 
 ----
   2
 (1 row)
 
-select id from (select id,sal money from aa where id<3) a where a.money<5000;
+select id from (select id,sal money from base_query_2 where id<3) a where a.money<5000;
  ID 
 ----
   2
 (1 row)
 
-drop table tt;
-drop table aa;
+drop table base_query_1;
+drop table base_query_2;

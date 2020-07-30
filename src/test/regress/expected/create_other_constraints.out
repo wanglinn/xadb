@@ -1,37 +1,37 @@
 set grammar to oracle;
 --1、非空约束
-create table tt(id integer,name varchar2(10) not null);
-insert into tt values(1,'');
+create table coctbl(id integer,name varchar2(10) not null);
+insert into coctbl values(1,'');
 ERROR:  null value in column "name" violates not-null constraint
 DETAIL:  Failing row contains (1, null).
-insert into tt values(2,null);
+insert into coctbl values(2,null);
 ERROR:  null value in column "name" violates not-null constraint
 DETAIL:  Failing row contains (2, null).
-insert into tt values(3);
+insert into coctbl values(3);
 ERROR:  null value in column "name" violates not-null constraint
 DETAIL:  Failing row contains (3, null).
-drop table tt;
+drop table coctbl;
 --2、默认值
-create table tt(id integer,name varchar2(10) default 'no');
-insert into tt values(1);
-select * from tt;
+create table coctbl(id integer,name varchar2(10) default 'no');
+insert into coctbl values(1);
+select * from coctbl;
  ID | NAME 
 ----+------
   1 | no
 (1 row)
 
-drop table tt;
+drop table coctbl;
 --3、唯一性
-create table tt(id integer,name varchar2(10) unique);
-insert into tt values(1,null);
-insert into tt values(2,null);
-insert into tt values(3,'a');
-insert into tt values(4,'a');
-ERROR:  duplicate key value violates unique constraint "tt_name_key"
+create table coctbl(id integer,name varchar2(10) unique);
+insert into coctbl values(1,null);
+insert into coctbl values(2,null);
+insert into coctbl values(3,'a');
+insert into coctbl values(4,'a');
+ERROR:  duplicate key value violates unique constraint "coctbl_name_key"
 DETAIL:  Key (name)=(a) already exists.
-insert into tt values(5,'');
-insert into tt values(6,'');
-select * from tt order by id;
+insert into coctbl values(5,'');
+insert into coctbl values(6,'');
+select * from coctbl order by id;
  ID | NAME 
 ----+------
   1 | 
@@ -41,56 +41,56 @@ select * from tt order by id;
   6 | 
 (5 rows)
 
-drop table tt;
-create table tt(id integer,name varchar2(10), constraint unq unique(name));
-drop table tt;
-create table tt(id integer unique,name varchar2(10) unique);
-drop table tt;
-create table tt(tid int primary key,name varchar(2) unique);
-drop table tt;
-create table tt(id integer,name varchar2(10), unique(id,name));
-insert into tt values(1,'a');
-insert into tt values(1,'b');
-insert into tt values(2,'a');
-insert into tt values(2,'a');
-ERROR:  duplicate key value violates unique constraint "tt_id_name_key"
+drop table coctbl;
+create table coctbl(id integer,name varchar2(10), constraint unq unique(name));
+drop table coctbl;
+create table coctbl(id integer unique,name varchar2(10) unique);
+drop table coctbl;
+create table coctbl(tid int primary key,name varchar(2) unique);
+drop table coctbl;
+create table coctbl(id integer,name varchar2(10), unique(id,name));
+insert into coctbl values(1,'a');
+insert into coctbl values(1,'b');
+insert into coctbl values(2,'a');
+insert into coctbl values(2,'a');
+ERROR:  duplicate key value violates unique constraint "coctbl_id_name_key"
 DETAIL:  Key (id, name)=(2, a) already exists.
-drop table tt;
+drop table coctbl;
 --4、检查约束
-create table tt(id integer,rate binary_float check(rate>1024) );
-insert into tt values(1,500);
-ERROR:  new row for relation "tt" violates check constraint "tt_rate_check"
+create table coctbl(id integer,rate binary_float check(rate>1024) );
+insert into coctbl values(1,500);
+ERROR:  new row for relation "coctbl" violates check constraint "coctbl_rate_check"
 DETAIL:  Failing row contains (1, 500).
-insert into tt values(1,1024.1);
-select * from tt;
+insert into coctbl values(1,1024.1);
+select * from coctbl;
  ID |  RATE  
 ----+--------
   1 | 1024.1
 (1 row)
 
-drop table tt;
-create table tt(id integer check(id>0), rate binary_float check(rate>1024) );
-insert into tt values(0,1024.1);
-ERROR:  new row for relation "tt" violates check constraint "tt_id_check"
+drop table coctbl;
+create table coctbl(id integer check(id>0), rate binary_float check(rate>1024) );
+insert into coctbl values(0,1024.1);
+ERROR:  new row for relation "coctbl" violates check constraint "coctbl_id_check"
 DETAIL:  Failing row contains (0, 1024.1).
-drop table tt;
-create table tt(id integer,rate binary_float check(rate is not null) );
-drop table tt;
-create table tt(id integer,rate binary_float, constraint chk check(rate > 1000));
-insert into tt values(1,500);
-ERROR:  new row for relation "tt" violates check constraint "chk"
+drop table coctbl;
+create table coctbl(id integer,rate binary_float check(rate is not null) );
+drop table coctbl;
+create table coctbl(id integer,rate binary_float, constraint chk check(rate > 1000));
+insert into coctbl values(1,500);
+ERROR:  new row for relation "coctbl" violates check constraint "chk"
 DETAIL:  Failing row contains (1, 500).
-insert into tt values(1,1001);
-select * from tt;
+insert into coctbl values(1,1001);
+select * from coctbl;
  ID | RATE 
 ----+------
   1 | 1001
 (1 row)
 
-drop table tt;
-create table tt(id integer,rate binary_float, constraint chk check(rate > 1000 and id >100));
-insert into tt values(101,1001);
-insert into tt values(1,1001);
-ERROR:  new row for relation "tt" violates check constraint "chk"
+drop table coctbl;
+create table coctbl(id integer,rate binary_float, constraint chk check(rate > 1000 and id >100));
+insert into coctbl values(101,1001);
+insert into coctbl values(1,1001);
+ERROR:  new row for relation "coctbl" violates check constraint "chk"
 DETAIL:  Failing row contains (1, 1001).
-drop table tt;
+drop table coctbl;
