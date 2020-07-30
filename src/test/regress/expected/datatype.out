@@ -264,11 +264,9 @@ create table tt(id int);
 insert into tt values(power(2,31)-1);
 insert into tt values(power(2,31));
 ERROR:  integer out of range
-CONTEXT:  SQL function "numeric_toint4" statement 1
 insert into tt values(-power(2,31));
 insert into tt values(-power(2,31)-1);
 ERROR:  integer out of range
-CONTEXT:  SQL function "numeric_toint4" statement 1
 insert into tt values(null);
 insert into tt values('');
 select * from tt order by id;
@@ -308,11 +306,9 @@ create table tt(id bigint);
 insert into tt values(power(2,63)-1);
 insert into tt values(power(2,63));
 ERROR:  bigint out of range
-CONTEXT:  SQL function "numeric_toint8" statement 1
 insert into tt values(-power(2,63));
 insert into tt values(-power(2,63)-1);
 ERROR:  bigint out of range
-CONTEXT:  SQL function "numeric_toint8" statement 1
 insert into tt values(null);
 insert into tt values('');
 select * from tt order by id;
