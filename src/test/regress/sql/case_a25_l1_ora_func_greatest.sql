@@ -1,0 +1,30 @@
+set grammar to oracle;
+select greatest(1,2,3,4) from dual;
+select greatest(1.1,to_number(1.1),exp(2)) from dual;
+select greatest(5.2,to_number(1.1),to_char(1.1)) from dual;
+select greatest(5,2,to_char(1.1)) from dual;
+select greatest(exp(2),2,to_char(1.1)) from dual;
+select greatest(5.2,to_number(1.1),'1') from dual;
+select greatest(to_char(100),to_char(12),to_char(3.1)) from dual;
+select greatest(to_number(3),'100','12') from dual;
+select greatest('100',to_number(3),12) from dual;
+select greatest('100','12',to_number(3)) from dual;
+select greatest('100','12',exp(2)) from dual;
+select greatest('abc','ab','abcd') from dual;
+select greatest('abc','ab','1') from dual;
+--select greatest('你好','加油') from dual;
+select greatest(100.1,'NaN'::binary_float,'3') from dual;
+select greatest('','a') from dual;
+select greatest('a',null) from dual;
+select greatest(null,'') from dual;
+
+
+create table t4test(id int,txt varchar);
+insert into t4test values(1,null);
+insert into t4test values(2,'ase');
+insert into t4test values(3,greatest('aa','12','cc'));
+select * from t4test order by id;
+select greatest(txt,'sds','ab') from t4test order by id;
+update t4test set txt=greatest(txt,'aba','ads');
+select * from t4test order by id;
+drop table t4test;

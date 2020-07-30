@@ -1,0 +1,94 @@
+set grammar to oracle;
+set datestyle ='ISO,YMD';
+--count
+create table t4test(id int,name varchar(20));
+insert into t4test values(1,'Jack');
+insert into t4test values(1,'Rose');
+insert into t4test values('','z');
+insert into t4test values(1,'');
+select * from t4test order by name;
+select count(*) from t4test where id=1;
+select count(name) from t4test where id=1;
+select count(*) from t4test;
+select count(id) from t4test;
+drop table t4test;
+--sum
+create table t4test(name char(5),sal number);
+insert into t4test values('Jack',5000);
+insert into t4test values('Rose',5000.0);
+insert into t4test values('',4500.8);
+insert into t4test values('','');
+insert into t4test values('Jack',5000.0);
+select * from t4test order by name, sal;
+select sum(sal) from t4test;
+select name,sum(sal) from t4test where name='Jack' group by name order by name;
+select sum(sal) as total from t4test where name='Jack';
+drop table t4test;
+--avg
+create table t4test(name char(5),sal number);
+insert into t4test values('Jack',5000);
+insert into t4test values('Rose',5000.07);
+insert into t4test values('',4500.8);
+insert into t4test values('','');
+insert into t4test values('Jack',5000.3);
+insert into t4test values('Jhon',567.389);
+insert into t4test values('lucy',0.0006);
+insert into t4test values('Lili',1.1);
+select * from t4test order by name, sal;
+select avg(sal) from t4test;
+select sum(*),avg(sal) from t4test;
+select count(*),sum(sal),avg(sal),(count(*)-1)*avg(sal) as total from t4test;
+drop table t4test;
+--max/min
+create table t4test(id char(5),sal number);
+--insert into t4test values('1',5000);
+insert into t4test values('2',5000.00);
+insert into t4test values('6.00','');
+insert into t4test values('3',4000.3);
+insert into t4test values('4',567.389);
+insert into t4test values('5',0.0006);
+select * from t4test order by id;
+select to_number(max(sal)) from t4test;
+select max(id) from t4test;
+select min(sal) from t4test;
+select min(id) from t4test;
+select sal,max(id) from t4test group by sal order by sal;
+drop table t4test;
+--不同数据类型测试
+--字符数字
+create table t4test(id char(5),sal number);
+insert into t4test values('1',5000);
+insert into t4test values('1.00',5000.00);
+insert into t4test values('',4500.8);
+insert into t4test values('2','');
+insert into t4test values('3',3000.3);
+insert into t4test values('4',567.389);
+insert into t4test values('5',0.0006);
+select * from t4test order by id;
+select max(id) from t4test;
+select min(id) from t4test;
+select min(id) from t4test;
+select avg(id) from t4test;
+select sum(id) from t4test;
+drop table t4test;
+--字符字母	
+create table t4test(id char(5),sal binary_float);
+insert into t4test values('Jack',123.9);
+insert into t4test values('Tom',123.90);
+insert into t4test values('a',123);
+select * from t4test order by id;
+select max(id) from t4test;
+select min(id) from t4test;
+select max(sal) from t4test group by sal;
+select sal,min(id) from t4test group by sal;
+select sal,max(id) from t4test group by sal;
+drop table t4test;
+--日期	
+create table t4test(id number,dt date);
+insert into t4test values(1,to_date('2015-1-1','yyyy-mm-dd'));
+insert into t4test values(2,to_timestamp('2015-1-2 08:10:09','yyyy-mm-dd hh24:mi:ss'));
+insert into t4test values(3,to_timestamp('2015-1-2 09:10:09','yyyy-mm-dd hh24:mi:ss'));
+select * from t4test order by id;
+select min(dt) from t4test;
+select max(dt) from t4test;
+drop table t4test;

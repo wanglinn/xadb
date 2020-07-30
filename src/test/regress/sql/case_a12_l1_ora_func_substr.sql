@@ -1,0 +1,34 @@
+set grammar to oracle;
+set datestyle='ISO,YMD';
+SELECT SUBSTR('ABCDEFG',3,4) sub FROM DUAL;
+SELECT SUBSTR('ABCDEFG',0,4) sub FROM DUAL;
+SELECT SUBSTR('ABCDEFG',-2,4) sub FROM DUAL;
+SELECT SUBSTR('ABCDEFG',-7,10) sub FROM DUAL;
+SELECT SUBSTR('ABCDEFG',-8,10) sub FROM DUAL;
+SELECT SUBSTR('ABCDEFG',1,0) sub FROM DUAL;
+SELECT SUBSTR('ABCDEFG',1,-1) sub FROM DUAL;
+SELECT SUBSTR('ABCDEFG',1,10) sub FROM DUAL;
+SELECT SUBSTR('ABCDEFG',100000000,1) sub FROM DUAL;
+SELECT SUBSTR('ABCDEFG',2,10000000) sub FROM DUAL;
+SELECT SUBSTR('ABCDEFG',2,10000000) sub FROM DUAL;
+SELECT SUBSTR('ABCDEFG','1','2') sub FROM DUAL;
+SELECT SUBSTR(1234,'1','2') sub FROM DUAL;
+SELECT SUBSTR(1234.4,1.1,2.0) sub FROM DUAL;
+SELECT SUBSTR(to_char('abcd'),1,2) sub FROM DUAL;
+SELECT SUBSTR(exp(2),1,6) sub FROM DUAL;
+SELECT SUBSTR('abcde',tanh(1),6) sub FROM DUAL;
+SELECT SUBSTR(to_date('2015-06-06 20:50:30','yyyy-mm-dd hh24:mi:ss'),1,10) sub FROM DUAL;
+SELECT SUBSTR(to_timestamp('2015-06-06 20:50:30','yyyy-mm-dd hh24:mi:ss'),1,10) sub FROM DUAL;
+SELECT SUBSTR('ABCDEFG',2) sub FROM DUAL;
+SELECT SUBSTR('',2) sub FROM DUAL;
+SELECT SUBSTR(null,2) sub FROM DUAL;
+SELECT SUBSTR('abc','') sub FROM DUAL;
+
+
+CREATE TABLE t4test (id int,txt varchar);
+insert into t4test values(1,SUBSTR('2434234234234212dasdsdasd',4,15));
+insert into t4test values(2,'qqqqqqqssssssssxx');
+select * from t4test order by id;
+update t4test set txt=substr(txt,5) where id=2;
+select * from t4test order by id;
+drop table t4test;

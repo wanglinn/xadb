@@ -1,0 +1,33 @@
+set grammar to oracle;
+--select lpad('~！@#￥%er', 20) from dual;
+--select lpad('你好', 5) from dual;
+select lpad('cd  ae',5) from dual;
+select lpad(to_char(45), 5) from dual;
+select lpad(3.545, 5) from dual;
+select lpad(4, 5) from dual;
+select lpad('a','4') from dual;
+select lpad('a','4.84') from dual;
+select lpad('abcdegf',3) from dual;
+--select lpad('你好', 3) from dual;
+select lpad('abcdegf',tan(1)) from dual;
+--select lpad('abcdegf',100*100) from dual;
+select lpad('abc',-2) from dual;
+select lpad('abc',5,'*') from dual;
+select lpad('abc',5,'123456') from dual;
+select lpad('abc',5,' ') from dual;
+select lpad('abc',5,6) from dual;
+select lpad('abc',5,1.6) from dual;
+select lpad('abc',5,to_char(2)) from dual;
+select lpad('abc',5,to_number(2)) from dual;
+select lpad('abc',5,3*2) from dual;
+select lpad('abc',5,tan(2)) from dual;
+--select lpad('abc',5,'你好') from dual;
+select lpad('',null) from dual;
+select lpad(null,null,'') from dual;
+
+CREATE TABLE t4test (id int,txt varchar);
+insert into t4test values(1,lpad('12',8));
+insert into t4test values(2,lpad('12',8,'*'));
+select * from t4test where txt=lpad('12',8,'*');
+
+drop table t4test;

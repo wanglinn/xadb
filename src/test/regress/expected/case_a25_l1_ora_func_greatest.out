@@ -1,0 +1,134 @@
+set grammar to oracle;
+select greatest(1,2,3,4) from dual;
+ GREATEST 
+----------
+        4
+(1 row)
+
+select greatest(1.1,to_number(1.1),exp(2)) from dual;
+      GREATEST      
+--------------------
+ 7.3890560989306502
+(1 row)
+
+select greatest(5.2,to_number(1.1),to_char(1.1)) from dual;
+ GREATEST 
+----------
+      5.2
+(1 row)
+
+select greatest(5,2,to_char(1.1)) from dual;
+ GREATEST 
+----------
+        5
+(1 row)
+
+select greatest(exp(2),2,to_char(1.1)) from dual;
+      GREATEST      
+--------------------
+ 7.3890560989306502
+(1 row)
+
+select greatest(5.2,to_number(1.1),'1') from dual;
+ GREATEST 
+----------
+      5.2
+(1 row)
+
+select greatest(to_char(100),to_char(12),to_char(3.1)) from dual;
+ GREATEST 
+----------
+ 3.1
+(1 row)
+
+select greatest(to_number(3),'100','12') from dual;
+ GREATEST 
+----------
+      100
+(1 row)
+
+select greatest('100',to_number(3),12) from dual;
+ GREATEST 
+----------
+ 3
+(1 row)
+
+select greatest('100','12',to_number(3)) from dual;
+ GREATEST 
+----------
+ 3
+(1 row)
+
+select greatest('100','12',exp(2)) from dual;
+      GREATEST      
+--------------------
+ 7.3890560989306502
+(1 row)
+
+select greatest('abc','ab','abcd') from dual;
+ GREATEST 
+----------
+ abcd
+(1 row)
+
+select greatest('abc','ab','1') from dual;
+ GREATEST 
+----------
+ abc
+(1 row)
+
+--select greatest('你好','加油') from dual;
+select greatest(100.1,'NaN'::binary_float,'3') from dual;
+ GREATEST 
+----------
+      NaN
+(1 row)
+
+select greatest('','a') from dual;
+ GREATEST 
+----------
+ 
+(1 row)
+
+select greatest('a',null) from dual;
+ GREATEST 
+----------
+ 
+(1 row)
+
+select greatest(null,'') from dual;
+ GREATEST 
+----------
+ 
+(1 row)
+
+create table t4test(id int,txt varchar);
+insert into t4test values(1,null);
+insert into t4test values(2,'ase');
+insert into t4test values(3,greatest('aa','12','cc'));
+select * from t4test order by id;
+ ID | TXT 
+----+-----
+  1 | 
+  2 | ase
+  3 | cc
+(3 rows)
+
+select greatest(txt,'sds','ab') from t4test order by id;
+ GREATEST 
+----------
+ sds
+ sds
+ sds
+(3 rows)
+
+update t4test set txt=greatest(txt,'aba','ads');
+select * from t4test order by id;
+ ID | TXT 
+----+-----
+  1 | ads
+  2 | ase
+  3 | cc
+(3 rows)
+
+drop table t4test;

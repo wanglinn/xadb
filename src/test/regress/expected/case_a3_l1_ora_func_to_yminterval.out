@@ -1,0 +1,69 @@
+set grammar to oracle;
+set datestyle='ISO,YMD';
+select to_date('1-31-2016','MM-DD-yyyy') + to_yminterval('0-1')  as ndate from dual;
+        NDATE        
+---------------------
+ 2016-02-29 00:00:00
+(1 row)
+
+select to_date('1-31-2016','MM-DD-yyyy') - to_yminterval('1-1')  as ndate from dual;
+        NDATE        
+---------------------
+ 2014-12-31 00:00:00
+(1 row)
+
+select to_date('1-31-2016','MM-DD-yyyy') - to_yminterval('2016-1')  as ndate from dual;
+         NDATE          
+------------------------
+ 0002-12-31 00:00:00 BC
+(1 row)
+
+select to_date('1-31-300','MM-DD-yyyy') - to_yminterval('320-0')  as ndate from dual;
+         NDATE          
+------------------------
+ 0021-01-31 00:00:00 BC
+(1 row)
+
+select to_char(to_yminterval('2016-1'),'yyyy-mm')  as ndate from dual;
+  NDATE  
+---------
+ 2016-01
+(1 row)
+
+select to_date('1-31-2016','MM-DD-yyyy') - to_yminterval('')  as ndate from dual;
+ NDATE 
+-------
+ 
+(1 row)
+
+select to_date('1-31-2016','MM-DD-yyyy') + to_yminterval(null)  as ndate from dual;
+ NDATE 
+-------
+ 
+(1 row)
+
+select to_date('01-03-2016 10:30:00','MM-DD-yyyy hh:mi:ss') + to_yminterval('-2-02') as ndate from dual;
+        NDATE        
+---------------------
+ 2013-11-03 10:30:00
+(1 row)
+
+CREATE TABLE t4test (id int,c_time date);
+insert into t4test values (1,to_date('1-31-2011','MM-DD-yyyy') + to_yminterval('1Y1Mon'));
+insert into t4test values (2,to_date('3-31-2011','MM-DD-yyyy') + to_yminterval('12M59S'));
+select * from t4test order by id;
+ ID |       C_TIME        
+----+---------------------
+  1 | 2012-02-29 00:00:00
+  2 | 2011-03-31 00:12:59
+(2 rows)
+
+update t4test set c_time=c_time-to_yminterval('20D');
+select * from t4test order by id;
+ ID |       C_TIME        
+----+---------------------
+  1 | 2012-02-09 00:00:00
+  2 | 2011-03-11 00:12:59
+(2 rows)
+
+drop table t4test;

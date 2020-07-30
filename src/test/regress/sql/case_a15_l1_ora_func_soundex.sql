@@ -1,0 +1,21 @@
+set grammar to oracle;
+select soundex('moon') from dual;
+select soundex('while') from dual;
+select soundex('ask') from dual;
+select soundex('basket') from dual;
+select soundex('yow') from dual;
+select soundex('lll') from dual;
+select soundex('dt') from dual;
+select soundex('bcdlm') from dual;
+select soundex(to_char('ask')) from dual;
+select soundex('') from dual;
+select soundex('NaN') from dual;
+select soundex(null) from dual;
+
+create table t4test(id int, txt varchar);
+insert into t4test values(1,soundex('Retain'));
+insert into t4test values(2,soundex('character '));
+select * from t4test order by id;
+update t4test set txt=soundex('Return') where id=1;
+select * from t4test order by id;
+drop table t4test;

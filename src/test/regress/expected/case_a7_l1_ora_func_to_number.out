@@ -1,0 +1,142 @@
+set grammar to oracle;
+select to_number(89.987,'99.999') from dual;
+ TO_NUMBER(89.987,'99.999')  
+-----------------------------
+                      89.987
+(1 row)
+
+select to_number(89.987,'99.9999') from dual;
+ TO_NUMBER(89.987,'99.9999')  
+------------------------------
+                       89.987
+(1 row)
+
+select to_number(89.987,'99.000') from dual;
+ TO_NUMBER(89.987,'99.000')  
+-----------------------------
+                      89.987
+(1 row)
+
+select to_number(889.987,'099.000') from dual;
+ TO_NUMBER(889.987,'099.000')  
+-------------------------------
+                       889.987
+(1 row)
+
+select to_number(889.987,'000.000') from dual;
+ TO_NUMBER(889.987,'000.000')  
+-------------------------------
+                       889.987
+(1 row)
+
+select to_number(-889.987,'000.000') from dual;
+ TO_NUMBER(-889.987,'000.000')  
+--------------------------------
+                       -889.987
+(1 row)
+
+select to_number(-889.987,'900.000') from dual;
+ TO_NUMBER(-889.987,'900.000')  
+--------------------------------
+                       -889.987
+(1 row)
+
+select to_number(-889.987,'-999.99') from dual;
+ TO_NUMBER(-889.987,'-999.99')  
+--------------------------------
+                         889.98
+(1 row)
+
+select to_number(-0,'9') from dual;
+ TO_NUMBER(-0,'9')  
+--------------------
+                  0
+(1 row)
+
+select to_number(-78.87) from dual;
+ TO_NUMBER(-78.87)  
+--------------------
+             -78.87
+(1 row)
+
+select to_number('889.987','000.000') from dual;
+ TO_NUMBER('889.987','000.000')  
+---------------------------------
+                         889.987
+(1 row)
+
+select to_number('-889.987','9999.999') from dual;
+ TO_NUMBER('-889.987','9999.999')  
+-----------------------------------
+                          -889.987
+(1 row)
+
+select to_number('-889.987','-999.999') from dual;
+ TO_NUMBER('-889.987','-999.999')  
+-----------------------------------
+                           889.987
+(1 row)
+
+select to_number('889.987') from dual;
+ TO_NUMBER('889.987')  
+-----------------------
+               889.987
+(1 row)
+
+SELECT TO_NUMBER('$12,123.23','$999,999.99') FROM DUAL;
+ TO_NUMBER('$12,123.23','$999,999.99')  
+----------------------------------------
+                               12123.23
+(1 row)
+
+SELECT TO_NUMBER('nan') FROM DUAL;
+ TO_NUMBER('NAN')  
+-------------------
+               NaN
+(1 row)
+
+SELECT TO_NUMBER(123.28,09999.99) FROM DUAL;
+ TO_NUMBER(123.28,09999.99)  
+-----------------------------
+                      123.28
+(1 row)
+
+SELECT TO_NUMBER(-123.28,999.99) FROM DUAL;
+ TO_NUMBER(-123.28,999.99)  
+----------------------------
+                    -123.28
+(1 row)
+
+SELECT TO_NUMBER((5+3.14*4)/5,'999.99999') FROM DUAL; 
+ TO_NUMBER((5+3.14*4)/5,'999.99999')  
+--------------------------------------
+                                3.512
+(1 row)
+
+select to_number(30, 'xxx') from dual;
+ERROR:  invalid input syntax for type numeric: " "
+select to_number('889.987','') from dual;
+ TO_NUMBER('889.987','')  
+--------------------------
+                         
+(1 row)
+
+CREATE TABLE t4test (id int,it int,num varchar);
+insert into t4test values(1,1,'2321.123123');
+insert into t4test values(2,2,'3243.232');
+select to_number(num,'9G999D99') as val from t4test order by val;
+   VAL   
+---------
+ 2321.12
+ 3243.23
+(2 rows)
+
+update t4test set it=to_number(it+22,'099');
+select * from t4test order by id;
+ ID | IT |     NUM     
+----+----+-------------
+  1 | 23 | 2321.123123
+  2 | 24 | 3243.232
+(2 rows)
+
+drop table t4test;

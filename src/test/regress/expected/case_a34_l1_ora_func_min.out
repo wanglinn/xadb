@@ -1,0 +1,49 @@
+set grammar to oracle;
+CREATE TABLE t4test (id int,name varchar,salary int,dep varchar);
+insert into t4test values(1,'xu',12000,'a1');
+insert into t4test values(2,'zhang',12500,'a2');
+insert into t4test values(3,'li',13500,'a1');
+insert into t4test values(4,'lin',13500,'a3');
+insert into t4test values(5,'xu',23456,'a1');
+insert into t4test values(6,'zha0',12500,'a1');
+insert into t4test values(7,'xiao',13500,'a2');
+insert into t4test values(8,'yang',23500,'a3');
+SELECT min(salary) from t4test;
+ MIN(SALARY)  
+--------------
+        12000
+(1 row)
+
+SELECT dep, name, salary,
+	min(salary) OVER (PARTITION BY dep) AS dep_min
+	FROM t4test
+	ORDER BY dep, name, salary;
+ DEP | NAME  | SALARY | DEP_MIN 
+-----+-------+--------+---------
+ a1  | li    |  13500 |   12000
+ a1  | xu    |  12000 |   12000
+ a1  | xu    |  23456 |   12000
+ a1  | zha0  |  12500 |   12000
+ a2  | xiao  |  13500 |   12500
+ a2  | zhang |  12500 |   12500
+ a3  | lin   |  13500 |   13500
+ a3  | yang  |  23500 |   13500
+(8 rows)
+
+	
+	
+SELECT dep, name, salary
+	FROM (SELECT dep, name, salary, 
+			min(salary) OVER (PARTITION BY dep) AS min_sal
+			FROM t4test)
+	WHERE salary = min_sal
+	ORDER BY dep, name, salary;	
+ DEP | NAME  | SALARY 
+-----+-------+--------
+ a1  | xu    |  12000
+ a2  | zhang |  12500
+ a3  | lin   |  13500
+(3 rows)
+
+	
+drop table t4test;

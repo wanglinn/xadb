@@ -1,0 +1,75 @@
+set grammar to oracle;
+select cosh(exp(2)) from dual;
+      COSH(EXP(2))       
+-------------------------
+ 809.0893049458213943468
+(1 row)
+
+select cosh(-1) from dual;
+     COSH(-1)       
+--------------------
+ 1.5430806348152438
+(1 row)
+
+select cosh('0.9') from dual;
+    COSH('0.9')     
+--------------------
+ 1.4330863854487744
+(1 row)
+
+select cosh(0) from dual;
+ COSH(0)  
+----------
+        1
+(1 row)
+
+select cosh(to_char(0.5)) from dual;
+ COSH(TO_CHAR(0.5))  
+---------------------
+ 1.12762596520638075
+(1 row)
+
+select cosh(null) from dual;
+ COSH(NULL)  
+-------------
+            
+(1 row)
+
+select cosh('') from dual;
+ COSH('')  
+-----------
+          
+(1 row)
+
+--MODIFY BY yuxiuming:add insert update
+CREATE TABLE t4test (id int,v1 number,v2 number default(2.0));
+insert into t4test values(1,cosh(12),3.14);
+select * from t4test order by id;
+ ID |             V1              |  V2  
+----+-----------------------------+------
+  1 | 81377.395712574066176664105 | 3.14
+(1 row)
+
+insert into t4test values(2,cosh('-2'));
+select * from t4test order by id;
+ ID |             V1              |  V2  
+----+-----------------------------+------
+  1 | 81377.395712574066176664105 | 3.14
+  2 |          3.7621956910836315 |    2
+(2 rows)
+
+update t4test set v1=cosh('1.20E+1') where id=2;
+select * from t4test order by id;
+ ID |             V1              |  V2  
+----+-----------------------------+------
+  1 | 81377.395712574066176664105 | 3.14
+  2 | 81377.395712574066176664105 |    2
+(2 rows)
+
+select cosh(v2) from t4test where id=1;
+      COSH(V2)        
+----------------------
+ 11.57357482831207445
+(1 row)
+
+drop table t4test;

@@ -1,0 +1,86 @@
+set grammar to oracle;
+select round(2.009,2) from dual;
+ ROUND(2.009,2)  
+-----------------
+            2.01
+(1 row)
+
+select round(100.987,0) from dual;
+ ROUND(100.987,0)  
+-------------------
+               101
+(1 row)
+
+select round(100.987,-1) from dual;
+ ROUND(100.987,-1)  
+--------------------
+                100
+(1 row)
+
+select round(100.987,-3) from dual;
+ ROUND(100.987,-3)  
+--------------------
+                  0
+(1 row)
+
+select round(exp(2),2) from dual;
+ ROUND(EXP(2),2)  
+------------------
+             7.39
+(1 row)
+
+select round(100.984,'2') from dual;
+ ROUND(100.984,'2')  
+---------------------
+              100.98
+(1 row)
+
+-----select round('100.984','2') from dual;
+select round(100.984,2.8) from dual;
+ ROUND(100.984,2.8)  
+---------------------
+              100.98
+(1 row)
+
+select round(100.984,-2.8) from dual;
+ ROUND(100.984,-2.8)  
+----------------------
+                  100
+(1 row)
+
+select round(-100.98467,3) from dual;
+ ROUND(-100.98467,3)  
+----------------------
+             -100.985
+(1 row)
+
+select round(1000000000000000000,3) from dual;
+ ROUND(1000000000000000000,3)  
+-------------------------------
+           1000000000000000000
+(1 row)
+
+select round(100,50) from dual;
+ ROUND(100,50)  
+----------------
+            100
+(1 row)
+
+select round(sinh(5),3) from dual;
+ ROUND(SINH(5),3)  
+-------------------
+            74.203
+(1 row)
+
+select round(sinh(5),null) from dual;
+ ROUND(SINH(5),NULL)  
+----------------------
+                     
+(1 row)
+
+select round(cosh(3),'') from dual;
+ ROUND(COSH(3),'')  
+--------------------
+                   
+(1 row)
+

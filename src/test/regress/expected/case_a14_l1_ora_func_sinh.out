@@ -1,0 +1,81 @@
+set grammar to oracle;
+/*ora*/ select  sinh(exp(2)) from dual;
+      SINH(EXP(2))       
+-------------------------
+ 809.0886869668320632533
+(1 row)
+
+/*ora*/ select  sinh(-1) from dual;
+      SINH(-1)        
+----------------------
+ -1.17520119364380145
+(1 row)
+
+/*ora*/ select  sinh('0.9') from dual;
+    SINH('0.9')     
+--------------------
+ 1.0265167257081753
+(1 row)
+
+/*ora*/ select  sinh(0) from dual;
+ SINH(0)  
+----------
+        0
+(1 row)
+
+/*ora*/ select  sinh(to_char(0.5)) from dual;
+ SINH(TO_CHAR(0.5))  
+---------------------
+ 0.52109530549374735
+(1 row)
+
+/*ora*/ select  sinh('0.9') from dual;
+    SINH('0.9')     
+--------------------
+ 1.0265167257081753
+(1 row)
+
+/*ora*/ select  sinh(null) from dual;
+ SINH(NULL)  
+-------------
+            
+(1 row)
+
+/*ora*/ select  sinh('') from dual;
+ SINH('')  
+-----------
+          
+(1 row)
+
+--MODIFY BY yuxiuming:add insert update
+CREATE TABLE t4test (id int,sinhvalue number,v number default(2.0));
+insert into t4test values(1,sinh(12),3.14);
+select * from t4test order by id;
+ ID |          SINHVALUE          |  V   
+----+-----------------------------+------
+  1 | 81377.395706429853823335895 | 3.14
+(1 row)
+
+insert into t4test values(2,sinh('-2'));
+select * from t4test order by id;
+ ID |          SINHVALUE          |  V   
+----+-----------------------------+------
+  1 | 81377.395706429853823335895 | 3.14
+  2 |         -3.6268604078470188 |    2
+(2 rows)
+
+update t4test set sinhvalue=sinh('1.20E+1') where id=2;
+select * from t4test order by id;
+ ID |          SINHVALUE          |  V   
+----+-----------------------------+------
+  1 | 81377.395706429853823335895 | 3.14
+  2 | 81377.395706429853823335895 |    2
+(2 rows)
+
+select sinh(v) from t4test where id=1;
+       SINH(V)        
+----------------------
+ 11.53029203041010855
+(1 row)
+
+drop table t4test;

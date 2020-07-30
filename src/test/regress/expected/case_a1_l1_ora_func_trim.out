@@ -1,0 +1,134 @@
+set grammar to oracle;
+set datestyle='ISO,YMD';
+select trim('  aa  bb  ') from dual;
+ TRIM('  AA  BB  ')  
+---------------------
+ aa  bb
+(1 row)
+
+select trim('  aa  bb') from dual;
+ TRIM('  AA  BB')  
+-------------------
+ aa  bb
+(1 row)
+
+select trim(leading ' ' from '   !@#$    ') from dual;
+ TRIM(LEADING ' ' FROM '   !@#$    ')  
+---------------------------------------
+ !@#$    
+(1 row)
+
+select trim(both 'x' from 'x!@#$x') from dual;
+ TRIM(BOTH 'X' FROM 'X!@#$X')  
+-------------------------------
+ !@#$
+(1 row)
+
+select trim(leading 'x' from 'x!@#$x') from dual;
+ TRIM(LEADING 'X' FROM 'X!@#$X')  
+----------------------------------
+ !@#$x
+(1 row)
+
+select trim(trailing 'x' from 'x!@#$x') from dual;
+ TRIM(TRAILING 'X' FROM 'X!@#$X')  
+-----------------------------------
+ x!@#$
+(1 row)
+
+select trim(both 'x' from ' x!@#$x ') from dual;
+ TRIM(BOTH 'X' FROM ' X!@#$X ')  
+---------------------------------
+  x!@#$x 
+(1 row)
+
+select trim(both 'xx' from ' xx!@#$x ') from dual;
+ TRIM(BOTH 'XX' FROM ' XX!@#$X ')  
+-----------------------------------
+  xx!@#$x 
+(1 row)
+
+select trim(both 'xl' from 'xl!@#$l') from dual;
+ TRIM(BOTH 'XL' FROM 'XL!@#$L')  
+---------------------------------
+ !@#$
+(1 row)
+
+select trim(both 'xl' from 'xl!@#$xl') from dual;
+ TRIM(BOTH 'XL' FROM 'XL!@#$XL')  
+----------------------------------
+ !@#$
+(1 row)
+
+select trim(both '' from 'xl!@#$l') from dual;
+ TRIM(BOTH '' FROM 'XL!@#$L')  
+-------------------------------
+ 
+(1 row)
+
+select trim(both 1 from 121) from dual;
+ TRIM(BOTH 1 FROM 121)  
+------------------------
+ 2
+(1 row)
+
+select trim(both 1 from 121.1) from dual;
+ TRIM(BOTH 1 FROM 121.1)  
+--------------------------
+ 21.
+(1 row)
+
+select trim(both 7 from exp(2)) from dual;
+ TRIM(BOTH 7 FROM EXP(2))  
+---------------------------
+ .3890560989306502
+(1 row)
+
+select trim(leading 0 from to_date('2016-10','yyyy-mm')) from dual;
+ TRIM(LEADING 0 FROM TO_DATE('2016-10','YYYY-MM'))  
+----------------------------------------------------
+ 2016-10-01 00:00:00
+(1 row)
+
+select trim(both to_char('a') from 'abc') from dual;
+ TRIM(BOTH TO_CHAR('A') FROM 'ABC')  
+-------------------------------------
+ bc
+(1 row)
+
+select trim(both null from 'abc') from dual;
+ TRIM(BOTH NULL FROM 'ABC')  
+-----------------------------
+ 
+(1 row)
+
+create table t4test(id int,txt varchar);
+insert into t4test values(1,null);
+insert into t4test values(2,'  aaa  ');
+insert into t4test values(3,trim('  sdas sdasd sdsad     '));
+select * from t4test order by id;
+ ID |       TXT        
+----+------------------
+  1 | 
+  2 |   aaa  
+  3 | sdas sdasd sdsad
+(3 rows)
+
+select trim(txt) from t4test order by id;
+    TRIM(TXT)     
+------------------
+ 
+ aaa
+ sdas sdasd sdsad
+(3 rows)
+
+update t4test set txt=trim(txt);
+select * from t4test order by id;
+ ID |       TXT        
+----+------------------
+  1 | 
+  2 | aaa
+  3 | sdas sdasd sdsad
+(3 rows)
+
+drop table t4test;

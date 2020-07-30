@@ -1,0 +1,33 @@
+set grammar to oracle;
+set datestyle='ISO,YMD';
+create table t4test(id int, dt timestamp);
+insert into t4test values(1,to_date('2000-3-31','YYYY-MM-DD'));
+insert into t4test values(2,to_date('1-1-1','YYYY-MM-DD'));
+insert into t4test values(3,to_date('9999-12-30','YYYY-MM-DD'));
+insert into t4test values(4,to_date('2001-2-1','YYYY-MM-DD'));
+insert into t4test values(5,to_date('2000-2-1','YYYY-MM-DD'));
+select id, last_day(dt) from t4test order by id;
+ ID |    LAST_DAY(DT)     
+----+---------------------
+  1 | 2000-03-31 00:00:00
+  2 | 0001-01-31 00:00:00
+  3 | 9999-12-31 00:00:00
+  4 | 2001-02-28 00:00:00
+  5 | 2000-02-29 00:00:00
+(5 rows)
+
+insert into t4test values(6,last_day(to_date('2004-2-10','YYYY-MM-DD')));
+insert into t4test values(7,last_day(to_date('2014-2-11','YYYY-MM-DD')));
+select id, dt from t4test order by id;
+ ID |         DT          
+----+---------------------
+  1 | 2000-03-31 00:00:00
+  2 | 0001-01-01 00:00:00
+  3 | 9999-12-30 00:00:00
+  4 | 2001-02-01 00:00:00
+  5 | 2000-02-01 00:00:00
+  6 | 2004-02-29 00:00:00
+  7 | 2014-02-28 00:00:00
+(7 rows)
+
+drop table t4test;

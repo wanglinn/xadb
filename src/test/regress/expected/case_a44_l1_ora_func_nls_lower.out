@@ -1,0 +1,68 @@
+set grammar to oracle;
+select nls_lower('AB CDe') from dual;
+ NLS_LOWER('AB CDE')  
+----------------------
+ ab cde
+(1 row)
+
+select nls_lower('\?!@#$%^&*()SA') from dual;
+ NLS_LOWER('\?!@#$%^&*()SA')  
+------------------------------
+ \?!@#$%^&*()sa
+(1 row)
+
+select nls_lower('AA\?!@#$%^&*()AA') from dual;
+ NLS_LOWER('AA\?!@#$%^&*()AA')  
+--------------------------------
+ aa\?!@#$%^&*()aa
+(1 row)
+
+select nls_lower('\?!@#sS$%^&*()sC') from dual;
+ NLS_LOWER('\?!@#SS$%^&*()SC')  
+--------------------------------
+ \?!@#ss$%^&*()sc
+(1 row)
+
+select nls_lower('Test你TEst好TeST') as str from dual;
+       STR        
+------------------
+ test你test好test
+(1 row)
+
+select nls_lower('1234SOU') from dual;
+ NLS_LOWER('1234SOU')  
+-----------------------
+ 1234sou
+(1 row)
+
+select nls_lower(to_char('SUV')) from dual;
+ NLS_LOWER(TO_CHAR('SUV'))  
+----------------------------
+ suv
+(1 row)
+
+select nls_lower(to_number('NaN')) from dual;
+ NLS_LOWER(TO_NUMBER('NAN'))  
+------------------------------
+ nan
+(1 row)
+
+create table t4test (id int,txt varchar);
+insert into t4test values(1,'ASD dasDSdas SADASD aSDSFasDFas');
+insert into t4test values(2,nls_lower('aSDa SD a SSD'));
+select * from t4test order by id;
+ ID |               TXT               
+----+---------------------------------
+  1 | ASD dasDSdas SADASD aSDSFasDFas
+  2 | asda sd a ssd
+(2 rows)
+
+update t4test set txt=nls_lower(txt);
+select * from t4test order by id;
+ ID |               TXT               
+----+---------------------------------
+  1 | asd dasdsdas sadasd asdsfasdfas
+  2 | asda sd a ssd
+(2 rows)
+
+drop table t4test;

@@ -1,0 +1,113 @@
+set grammar to oracle;
+set datestyle='ISO,YMD';
+--create table
+create table t4test(id int, dt date);
+insert into t4test values(1,to_date('20150102','yyyymmdd'));
+insert into t4test values(2,to_date('18000202 12:23:59','yyyymmdd hh:mi:ss'));
+insert into t4test values(3,to_date('2015-10-18'));
+select * from t4test order by id;
+ ID |         DT          
+----+---------------------
+  1 | 2015-01-02 00:00:00
+  2 | 1800-02-02 00:23:59
+  3 | 2015-10-18 00:00:00
+(3 rows)
+
+update t4test set dt=to_date('2012-2-29','yyyy-mm-dd') where id=3;
+select * from t4test order by id;
+ ID |         DT          
+----+---------------------
+  1 | 2015-01-02 00:00:00
+  2 | 1800-02-02 00:23:59
+  3 | 2012-02-29 00:00:00
+(3 rows)
+
+drop table t4test;
+--query
+select to_date('20150102','yyyymmdd') from dual;
+ TO_DATE('20150102','YYYYMMDD')  
+---------------------------------
+ 2015-01-02 00:00:00
+(1 row)
+
+select to_date('18000202 12:23:59','yyyymmdd hh:mi:ss') from dual;
+ TO_DATE('18000202 12:23:59','YYYYMMDD HH:MI:SS')  
+---------------------------------------------------
+ 1800-02-02 00:23:59
+(1 row)
+
+select to_date('20150102 12:23:59','yyyymmdd hh24:mi:ss') from dual;
+ TO_DATE('20150102 12:23:59','YYYYMMDD HH24:MI:SS')  
+-----------------------------------------------------
+ 2015-01-02 12:23:59
+(1 row)
+
+select to_date('2015,01,02','yyyy,mm,dd') from dual;
+ TO_DATE('2015,01,02','YYYY,MM,DD')  
+-------------------------------------
+ 2015-01-02 00:00:00
+(1 row)
+
+select to_date('01/02/2010','mm/dd/yyyy') from dual;
+ TO_DATE('01/02/2010','MM/DD/YYYY')  
+-------------------------------------
+ 2010-01-02 00:00:00
+(1 row)
+
+SELECT TO_DATE('January 15, 1989, 11:00 A.M.','Month dd, YYYY, HH:MI A.M.') FROM DUAL;
+ TO_DATE('JANUARY 15, 1989, 11:00 A.M.','MONTH DD, YYYY, HH:MI A.M.')  
+-----------------------------------------------------------------------
+ 1989-01-15 11:00:00
+(1 row)
+
+SELECT TO_DATE('Jan 15, 2010, 11:00 P.M.','Mon dd, YYYY, HH:MI P.M.') FROM DUAL;
+ TO_DATE('JAN 15, 2010, 11:00 P.M.','MON DD, YYYY, HH:MI P.M.')  
+-----------------------------------------------------------------
+ 2010-01-15 23:00:00
+(1 row)
+
+SELECT TO_DATE('15, 10, 11:00 P.M.','ddd, YY, HH:MI P.M.') FROM DUAL;
+ TO_DATE('15, 10, 11:00 P.M.','DDD, YY, HH:MI P.M.')  
+------------------------------------------------------
+ 2010-01-15 23:00:00
+(1 row)
+
+SELECT TO_date('January 15, 2010, 11:00 P.M.','Mon dd, YYYY, HH:MI P.M.') FROM DUAL;
+ TO_DATE('JANUARY 15, 2010, 11:00 P.M.','MON DD, YYYY, HH:MI P.M.')  
+---------------------------------------------------------------------
+ 2010-01-15 23:00:00
+(1 row)
+
+select to_date('2100-2-29','yyyy-mm-dd') from dual;
+ERROR:  the day must be between the first and the last day of the month
+select to_date('2015-2-28','') from dual;
+ TO_DATE('2015-2-28','')  
+--------------------------
+ 
+(1 row)
+
+select to_date('2015,01,02 14:34:23','yyyy,mm,dd hh24:mi:ss') - to_date('2014,01,01 11:24:21','yyyy,mm,dd hh24:mi:ss') from dual;
+       ?COLUMN?       
+----------------------
+ 366.1319675925925926
+(1 row)
+
+select to_date('20100202 10:23:59.190','yyyymmdd hh:mi:ss') from dual;
+ERROR:  Date format picture ends before converting entire input string
+select to_date('20100202 10:23:59.890','yyyymmdd hh:mi:ss') from dual;
+ERROR:  Date format picture ends before converting entire input string
+select to_date('20100202 10:23:59.890','yyyymmdd hh:mi:ss.ff3') from dual;
+ERROR:  The date format is not recognized.
+--test type oracle.date
+select pg_typeof(sysdate) from dual;
+ PG_TYPEOF(SYSDATE)  
+---------------------
+ oracle.date
+(1 row)
+
+select pg_typeof(sysdate - 1) from dual;
+ PG_TYPEOF(SYSDATE - 1)  
+-------------------------
+ oracle.date
+(1 row)
+

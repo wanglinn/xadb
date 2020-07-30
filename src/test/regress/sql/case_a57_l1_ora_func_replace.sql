@@ -1,0 +1,31 @@
+set grammar to oracle;
+select replace('abc', 'a', 'A');
+select replace('abc', 'a', '');
+select replace('abc', 'a', NULL);
+select replace('abc', 'a');
+select replace('abc', '', 'A');
+select replace('abc', NULL, 'A');
+select replace('abc', NULL);
+select replace('', 'a', 'A');
+select replace(NULL, 'a', 'A');
+select replace(NULL, '', 'A');
+select replace(NULL, NULL, 'A');
+select replace(NULL, 'a', '');
+select replace(NULL, 'a', NULL);
+select replace(NULL, '', '');
+select replace(NULL, '', NULL);
+select replace(NULL, NULL, '');
+select replace(NULL, NULL, NULL);
+select replace('', '', '');
+select replace(123, 2, 3);
+select replace(123, 2);
+
+
+create table t4test(id int, txt varchar);
+insert into t4test values(1, 'zhang****liang');
+insert into t4test values(2, 'zhangying***');
+insert into t4test values(3, replace('1234567','45','$$'));
+select * from t4test order by id;
+update t4test set txt=replace(txt,'*','@');
+select * from t4test order by id;
+drop table t4test;

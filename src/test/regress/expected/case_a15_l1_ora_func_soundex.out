@@ -1,0 +1,92 @@
+set grammar to oracle;
+select soundex('moon') from dual;
+ SOUNDEX('MOON')  
+------------------
+ M500
+(1 row)
+
+select soundex('while') from dual;
+ SOUNDEX('WHILE')  
+-------------------
+ W400
+(1 row)
+
+select soundex('ask') from dual;
+ SOUNDEX('ASK')  
+-----------------
+ A200
+(1 row)
+
+select soundex('basket') from dual;
+ SOUNDEX('BASKET')  
+--------------------
+ B230
+(1 row)
+
+select soundex('yow') from dual;
+ SOUNDEX('YOW')  
+-----------------
+ Y000
+(1 row)
+
+select soundex('lll') from dual;
+ SOUNDEX('LLL')  
+-----------------
+ L400
+(1 row)
+
+select soundex('dt') from dual;
+ SOUNDEX('DT')  
+----------------
+ D300
+(1 row)
+
+select soundex('bcdlm') from dual;
+ SOUNDEX('BCDLM')  
+-------------------
+ B234
+(1 row)
+
+select soundex(to_char('ask')) from dual;
+ SOUNDEX(TO_CHAR('ASK'))  
+--------------------------
+ A200
+(1 row)
+
+select soundex('') from dual;
+ SOUNDEX('')  
+--------------
+ 
+(1 row)
+
+select soundex('NaN') from dual;
+ SOUNDEX('NAN')  
+-----------------
+ N500
+(1 row)
+
+select soundex(null) from dual;
+ SOUNDEX(NULL)  
+----------------
+ 
+(1 row)
+
+create table t4test(id int, txt varchar);
+insert into t4test values(1,soundex('Retain'));
+insert into t4test values(2,soundex('character '));
+select * from t4test order by id;
+ ID | TXT  
+----+------
+  1 | R350
+  2 | C623
+(2 rows)
+
+update t4test set txt=soundex('Return') where id=1;
+select * from t4test order by id;
+ ID | TXT  
+----+------
+  1 | R365
+  2 | C623
+(2 rows)
+
+drop table t4test;

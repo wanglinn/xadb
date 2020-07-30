@@ -1,0 +1,85 @@
+set grammar to oracle;
+select coalesce(1) from dual;
+ COALESCE 
+----------
+        1
+(1 row)
+
+select coalesce(null,1) from dual;
+ COALESCE 
+----------
+        1
+(1 row)
+
+select coalesce(null,'','1') from dual;
+ COALESCE 
+----------
+ 1
+(1 row)
+
+select coalesce(null,3,1) from dual;
+ COALESCE 
+----------
+        3
+(1 row)
+
+select coalesce(null,3.934,1) from dual;
+ COALESCE 
+----------
+    3.934
+(1 row)
+
+select coalesce(null,3,1.789) from dual;
+ COALESCE 
+----------
+        3
+(1 row)
+
+select coalesce(null,3,1.789,'2') from dual;
+ COALESCE 
+----------
+        3
+(1 row)
+
+select coalesce(null,'2',1) from dual;
+ COALESCE 
+----------
+        2
+(1 row)
+
+select coalesce(null,'a','b') from dual;
+ COALESCE 
+----------
+ a
+(1 row)
+
+select coalesce(null,'a',to_char(1)) from dual;
+ COALESCE 
+----------
+ a
+(1 row)
+
+select coalesce(null,to_char(1),'a') from dual;
+ COALESCE 
+----------
+ 1
+(1 row)
+
+select coalesce(null,to_number('1'),2) from dual;
+ COALESCE 
+----------
+        1
+(1 row)
+
+select coalesce(null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,1) from dual;
+ COALESCE 
+----------
+        1
+(1 row)
+
+select coalesce(null,1.2345678912345,3) from dual;
+    COALESCE     
+-----------------
+ 1.2345678912345
+(1 row)
+

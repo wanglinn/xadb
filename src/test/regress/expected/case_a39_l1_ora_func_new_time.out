@@ -1,0 +1,87 @@
+set grammar to oracle;
+set datestyle='ISO,YMD';
+SELECT NEW_TIME(TO_DATE('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'), 'AST', 'PST') ndt FROM DUAL;
+         NDT         
+---------------------
+ 2009-11-09 21:23:45
+(1 row)
+
+SELECT NEW_TIME(TO_DATE('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'), 'GMT', 'EST') ndt FROM DUAL;
+         NDT         
+---------------------
+ 2009-11-09 20:23:45
+(1 row)
+
+SELECT NEW_TIME(TO_DATE('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'), 'GMT', 'EST') ndt FROM DUAL;
+         NDT         
+---------------------
+ 2009-11-09 20:23:45
+(1 row)
+
+SELECT NEW_TIME(TO_timestamp('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'), 'HDT', 'YDT') ndt FROM DUAL;
+         NDT         
+---------------------
+ 2009-11-10 02:23:45
+(1 row)
+
+SELECT NEW_TIME('04-MAR-2016 01:23:45', 'HST', 'YDT') ndt FROM DUAL;
+         NDT         
+---------------------
+ 2016-03-04 03:23:45
+(1 row)
+
+SELECT NEW_TIME(TO_DATE('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'), to_char('MST'), to_char('PDT')) ndt FROM DUAL;
+         NDT         
+---------------------
+ 2009-11-10 01:23:45
+(1 row)
+
+SELECT NEW_TIME(TO_DATE('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'), '', 'EST') ndt FROM DUAL;
+ NDT 
+-----
+ 
+(1 row)
+
+SELECT NEW_TIME(TO_DATE('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'), null, 'EST') ndt FROM DUAL;
+ NDT 
+-----
+ 
+(1 row)
+
+SELECT NEW_TIME('', 'MST', 'EST') ndt FROM DUAL;
+ NDT 
+-----
+ 
+(1 row)
+
+create table t4test (id int,ctime date);
+insert into t4test values(1,TO_DATE('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'));
+select new_time(ctime,'BST','EST') from t4test;
+ NEW_TIME(CTIME,'BST','EST')  
+------------------------------
+ 2009-11-09 19:23:45
+(1 row)
+
+insert into t4test values (2,new_time(TO_DATE('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'),'BST','YDT'));
+select * from t4test order by id;
+ ID |        CTIME        
+----+---------------------
+  1 | 2009-11-10 01:23:45
+  2 | 2009-11-09 16:23:45
+(2 rows)
+
+update t4test set ctime=new_time(TO_DATE('11-11-09 01:23:45', 'MM-DD-YY HH24:MI:SS'),'BST','YDT') where id=1;
+select * from t4test order by id;
+ ID |        CTIME        
+----+---------------------
+  1 | 2009-11-10 16:23:45
+  2 | 2009-11-09 16:23:45
+(2 rows)
+
+select * from t4test where ctime=new_time(TO_DATE('11-11-09 01:23:45', 'MM-DD-YY HH24:MI:SS'),'BST','YDT');
+ ID |        CTIME        
+----+---------------------
+  1 | 2009-11-10 16:23:45
+(1 row)
+
+drop table t4test;

@@ -1,0 +1,136 @@
+set grammar to oracle;
+--select lpad('~！@#￥%er', 20) from dual;
+--select lpad('你好', 5) from dual;
+select lpad('cd  ae',5) from dual;
+ LPAD('CD  AE',5)  
+-------------------
+ cd  a
+(1 row)
+
+select lpad(to_char(45), 5) from dual;
+ LPAD(TO_CHAR(45), 5)  
+-----------------------
+    45
+(1 row)
+
+select lpad(3.545, 5) from dual;
+ LPAD(3.545, 5)  
+-----------------
+ 3.545
+(1 row)
+
+select lpad(4, 5) from dual;
+ LPAD(4, 5)  
+-------------
+     4
+(1 row)
+
+select lpad('a','4') from dual;
+ LPAD('A','4')  
+----------------
+    a
+(1 row)
+
+select lpad('a','4.84') from dual;
+ LPAD('A','4.84')  
+-------------------
+    a
+(1 row)
+
+select lpad('abcdegf',3) from dual;
+ LPAD('ABCDEGF',3)  
+--------------------
+ abc
+(1 row)
+
+--select lpad('你好', 3) from dual;
+select lpad('abcdegf',tan(1)) from dual;
+ LPAD('ABCDEGF',TAN(1))  
+-------------------------
+ a
+(1 row)
+
+--select lpad('abcdegf',100*100) from dual;
+select lpad('abc',-2) from dual;
+ LPAD('ABC',-2)  
+-----------------
+ 
+(1 row)
+
+select lpad('abc',5,'*') from dual;
+ LPAD('ABC',5,'*')  
+--------------------
+ **abc
+(1 row)
+
+select lpad('abc',5,'123456') from dual;
+ LPAD('ABC',5,'123456')  
+-------------------------
+ 12abc
+(1 row)
+
+select lpad('abc',5,' ') from dual;
+ LPAD('ABC',5,' ')  
+--------------------
+   abc
+(1 row)
+
+select lpad('abc',5,6) from dual;
+ LPAD('ABC',5,6)  
+------------------
+ 66abc
+(1 row)
+
+select lpad('abc',5,1.6) from dual;
+ LPAD('ABC',5,1.6)  
+--------------------
+ 1.abc
+(1 row)
+
+select lpad('abc',5,to_char(2)) from dual;
+ LPAD('ABC',5,TO_CHAR(2))  
+---------------------------
+ 22abc
+(1 row)
+
+select lpad('abc',5,to_number(2)) from dual;
+ LPAD('ABC',5,TO_NUMBER(2))  
+-----------------------------
+ 22abc
+(1 row)
+
+select lpad('abc',5,3*2) from dual;
+ LPAD('ABC',5,3*2)  
+--------------------
+ 66abc
+(1 row)
+
+select lpad('abc',5,tan(2)) from dual;
+ LPAD('ABC',5,TAN(2))  
+-----------------------
+ -2abc
+(1 row)
+
+--select lpad('abc',5,'你好') from dual;
+select lpad('',null) from dual;
+ LPAD('',NULL)  
+----------------
+ 
+(1 row)
+
+select lpad(null,null,'') from dual;
+ LPAD(NULL,NULL,'')  
+---------------------
+ 
+(1 row)
+
+CREATE TABLE t4test (id int,txt varchar);
+insert into t4test values(1,lpad('12',8));
+insert into t4test values(2,lpad('12',8,'*'));
+select * from t4test where txt=lpad('12',8,'*');
+ ID |   TXT    
+----+----------
+  2 | ******12
+(1 row)
+
+drop table t4test;

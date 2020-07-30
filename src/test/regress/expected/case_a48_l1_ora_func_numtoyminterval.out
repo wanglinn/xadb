@@ -1,0 +1,87 @@
+set grammar to oracle;
+set datestyle='ISO,YMD';
+select to_date('2015-2-5 10:55:55','YYYY-MM-DD hh24:mi:ss') + numtoyminterval(10,'year')  as ndate from dual;
+        NDATE        
+---------------------
+ 2025-02-05 10:55:55
+(1 row)
+
+select to_date('2016-2-29 10:55:55','YYYY-MM-DD hh24:mi:ss') + numtoyminterval(1,'year')  as ndate from dual;
+        NDATE        
+---------------------
+ 2017-02-28 10:55:55
+(1 row)
+
+select to_date('2015-1-31 10:55:55','YYYY-MM-DD hh24:mi:ss') + numtoyminterval(1,'month')  as ndate from dual;
+        NDATE        
+---------------------
+ 2015-02-28 10:55:55
+(1 row)
+
+select to_date('2015-2-28 2:1:1','YYYY-MM-DD hh24:mi:ss') + numtoyminterval(3.567,'year')  as ndate from dual;
+        NDATE        
+---------------------
+ 2018-09-28 02:01:01
+(1 row)
+
+select to_date('2015-2-28 2:1:1','YYYY-MM-DD hh24:mi:ss') + numtoyminterval(3.123456789,'month')  as ndate from dual;
+        NDATE        
+---------------------
+ 2015-05-28 02:01:01
+(1 row)
+
+select to_timestamp('2015-2-28 2:1:1','YYYY-MM-DD hh24:mi:ss') + numtoyminterval('3.123456789','year')  as ndate from dual;
+        NDATE        
+---------------------
+ 2018-03-28 02:01:01
+(1 row)
+
+select to_char(numtoyminterval(3.123456789,'year'),'yyyy-mm')  as ndate from dual;
+  NDATE  
+---------
+ 0003-01
+(1 row)
+
+select to_char(numtoyminterval(3.29,'year') -numtoyminterval(2.11,'year'),'yyyy-mm') as ndate from dual;
+  NDATE  
+---------
+ 0001-02
+(1 row)
+
+select to_char(numtoyminterval(3.29,'year') -numtoyminterval(2.11,'month'),'yyyy-mm') as ndate from dual;
+  NDATE  
+---------
+ 0003-01
+(1 row)
+
+select to_char(numtoyminterval(3.29,''),'yyyy-mm') as ndate from dual;
+ NDATE 
+-------
+ 
+(1 row)
+
+select numtoyminterval(null,'year') -numtoyminterval(2.11,'month') as ndate from dual;
+ NDATE 
+-------
+ 
+(1 row)
+
+create table t4test(id int, dt date);
+insert into t4test values(1,to_date('2015-2-5 10:45:55','YYYY-MM-DD hh24:mi:ss') + numtoyminterval(1.5,'year'));
+insert into t4test values(2,to_date('2015-2-5 10:45:55','YYYY-MM-DD hh24:mi:ss') + numtoyminterval(1.5,'month'));
+select * from t4test order by id;
+ ID |         DT          
+----+---------------------
+  1 | 2016-08-05 10:45:55
+  2 | 2015-04-05 10:45:55
+(2 rows)
+
+update t4test set dt=dt+numtoyminterval(2,'year');
+select * from t4test order by id;
+ ID |         DT          
+----+---------------------
+  1 | 2018-08-05 10:45:55
+  2 | 2017-04-05 10:45:55
+(2 rows)
+
+drop table t4test;

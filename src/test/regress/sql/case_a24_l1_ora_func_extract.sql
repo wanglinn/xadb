@@ -1,0 +1,16 @@
+set grammar to oracle;
+--select extract(year from systimestamp) as year, extract(month from systimestamp) as month, extract(day from systimestamp) as day , extract(hour from systimestamp) as hour , extract(minute from systimestamp) as minute, extract(second from systimestamp) as second  from dual;
+select extract(year from to_timestamp('2016-04-11 14:29:26.828139','yyyy-mm-dd hh24:mi:ss.ff')) as year from dual;
+select extract(month from to_timestamp('2016-04-11 14:29:26.828139','yyyy-mm-dd hh24:mi:ss.ff')) as month from dual;
+select extract(day from to_timestamp('2016-04-11 14:29:26.828139','yyyy-mm-dd hh24:mi:ss.ff')) as day from dual;
+select extract(hour from to_timestamp('2016-04-11 14:29:26.828139','yyyy-mm-dd hh24:mi:ss.ff')) as hour from dual;
+select extract(minute from to_timestamp('2016-04-11 14:29:26.828139','yyyy-mm-dd hh24:mi:ss.ff')) as minute from dual;
+select extract(second from to_timestamp('2016-04-11 14:29:26.828139','yyyy-mm-dd hh24:mi:ss.ff')) as second from dual;
+select extract(timezone_hour from to_timestamp('2016-04-11 14:29:26.828139','yyyy-mm-dd hh24:mi:ss.ff')) as th from dual;
+select extract(timezone_minute from to_timestamp('2016-04-11 14:29:26.828139','yyyy-mm-dd hh24:mi:ss.ff')) as tm from dual;
+--select extract(timezone_hour from systimestamp) as th, extract(timezone_minute from systimestamp) as tm  from dual;
+--select extract(timezone_region from systimestamp) as tr, extract(timezone_abbr from systimestamp) as ta  from dual;
+select extract(year from numtoyminterval(4,'year')) as year  from dual;
+select extract(month from numtoyminterval(4.8,'month')) as mon  from dual;
+select extract(month from numtoyminterval(4.8,'year')) as mon  from dual;
+select extract(minute from numtoyminterval(4.8,'year')) as year from dual;

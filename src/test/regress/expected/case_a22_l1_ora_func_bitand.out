@@ -1,0 +1,133 @@
+set grammar to oracle;
+select bitand(1,3) from dual;
+ BITAND(1,3)  
+--------------
+            1
+(1 row)
+
+select bitand('1',3) from dual;
+ BITAND('1',3)  
+----------------
+              1
+(1 row)
+
+select bitand(127,3.9456) from dual;
+ BITAND(127,3.9456)  
+---------------------
+                   3
+(1 row)
+
+select bitand('1.4999',1.4999) from dual;
+ BITAND('1.4999',1.4999)  
+--------------------------
+                        1
+(1 row)
+
+select bitand(-1,-1) from dual;
+ BITAND(-1,-1)  
+----------------
+             -1
+(1 row)
+
+select bitand('-3',2) from dual;
+ BITAND('-3',2)  
+-----------------
+               0
+(1 row)
+
+select bitand(127.99,'128.99') from dual;
+ BITAND(127.99,'128.99')  
+--------------------------
+                        0
+(1 row)
+
+select bitand('-127','128') from dual;
+ BITAND('-127','128')  
+-----------------------
+                   128
+(1 row)
+
+select bitand(exp(2),exp(2)) from dual;
+ BITAND(EXP(2),EXP(2))  
+------------------------
+                      7
+(1 row)
+
+select bitand(to_char(4),0) from dual;
+ BITAND(TO_CHAR(4),0)  
+-----------------------
+                     0
+(1 row)
+
+select bitand(3*3,2*4) from dual;
+ BITAND(3*3,2*4)  
+------------------
+                8
+(1 row)
+
+select bitand('s',0) from dual;
+ERROR:  invalid input syntax for type numeric: "s"
+LINE 1: select bitand('s',0) from dual;
+                      ^
+select bitand('',0) from dual;
+ BITAND('',0)  
+---------------
+              
+(1 row)
+
+select bitand('',null) from dual;
+ BITAND('',NULL)  
+------------------
+                 
+(1 row)
+
+select bitand(null,2) from dual;
+ BITAND(NULL,2)  
+-----------------
+                
+(1 row)
+
+--MODIFY BY yuxiuming:add insert update
+select bitand(2*2,2+(21-2)) from dual;
+ BITAND(2*2,2+(21-2))  
+-----------------------
+                     4
+(1 row)
+
+select bitand(231223123223223,-231223123223223) from dual;
+ BITAND(231223123223223,-231223123223223)  
+-------------------------------------------
+                                         1
+(1 row)
+
+CREATE TABLE t4test (id int,v number default(2.0));
+insert into t4test values(1,bitand('1234',1235));
+select * from t4test order by id;
+ ID |  V   
+----+------
+  1 | 1234
+(1 row)
+
+insert into t4test values(2,bitand('1234',1235));
+select * from t4test order by id;
+ ID |  V   
+----+------
+  1 | 1234
+  2 | 1234
+(2 rows)
+
+update t4test set v=bitand('1.20E+1','1.20E+1') where id=2;
+select * from t4test order by id;
+ ID |  V   
+----+------
+  1 | 1234
+  2 |   12
+(2 rows)
+
+select bitand(v,12345) from t4test where id=1;
+ BITAND(V,12345)  
+------------------
+               16
+(1 row)
+
+drop table t4test;

@@ -1,0 +1,74 @@
+set grammar to oracle;
+select nls_initcap('ab cde') from dual;
+ NLS_INITCAP('AB CDE')  
+------------------------
+ Ab Cde
+(1 row)
+
+select nls_initcap('AAb  CDE') from dual;
+ NLS_INITCAP('AAB  CDE')  
+--------------------------
+ Aab  Cde
+(1 row)
+
+select nls_initcap('\?!@#$%^&*()sa') from dual;
+ NLS_INITCAP('\?!@#$%^&*()SA')  
+--------------------------------
+ \?!@#$%^&*()Sa
+(1 row)
+
+select nls_initcap('AA\?!@#$%^&*()AA') from dual;
+ NLS_INITCAP('AA\?!@#$%^&*()AA')  
+----------------------------------
+ Aa\?!@#$%^&*()Aa
+(1 row)
+
+select nls_initcap('\?!@#ss$%^&*()sC') from dual;
+ NLS_INITCAP('\?!@#SS$%^&*()SC')  
+----------------------------------
+ \?!@#Ss$%^&*()Sc
+(1 row)
+
+select nls_initcap('test你test好test') as str from dual;
+       STR        
+------------------
+ Test你test好test
+(1 row)
+
+select nls_initcap('1234SOU') from dual;
+ NLS_INITCAP('1234SOU')  
+-------------------------
+ 1234sou
+(1 row)
+
+select nls_initcap(to_char('suv')) from dual;
+ NLS_INITCAP(TO_CHAR('SUV'))  
+------------------------------
+ Suv
+(1 row)
+
+select nls_initcap(to_number('NaN')) from dual;
+ NLS_INITCAP(TO_NUMBER('NAN'))  
+--------------------------------
+ Nan
+(1 row)
+
+create table t4test(id int,txt varchar);
+insert into t4test values(1,'asasd dasdas sadasdasd asdasdasdas');
+insert into t4test values(2,nls_initcap('asda sd a sd'));
+select * from t4test order by id;
+ ID |                TXT                 
+----+------------------------------------
+  1 | asasd dasdas sadasdasd asdasdasdas
+  2 | Asda Sd A Sd
+(2 rows)
+
+update t4test set txt=nls_initcap(txt);
+select * from t4test order by id;
+ ID |                TXT                 
+----+------------------------------------
+  1 | Asasd Dasdas Sadasdasd Asdasdasdas
+  2 | Asda Sd A Sd
+(2 rows)
+
+drop table t4test;

@@ -1,0 +1,143 @@
+set grammar to oracle;
+select replace('abc', 'a', 'A');
+ REPLACE 
+---------
+ Abc
+(1 row)
+
+select replace('abc', 'a', '');
+ REPLACE 
+---------
+ bc
+(1 row)
+
+select replace('abc', 'a', NULL);
+ REPLACE 
+---------
+ bc
+(1 row)
+
+select replace('abc', 'a');
+ REPLACE 
+---------
+ bc
+(1 row)
+
+select replace('abc', '', 'A');
+ REPLACE 
+---------
+ abc
+(1 row)
+
+select replace('abc', NULL, 'A');
+ REPLACE 
+---------
+ abc
+(1 row)
+
+select replace('abc', NULL);
+ REPLACE 
+---------
+ abc
+(1 row)
+
+select replace('', 'a', 'A');
+ REPLACE 
+---------
+ 
+(1 row)
+
+select replace(NULL, 'a', 'A');
+ REPLACE 
+---------
+ 
+(1 row)
+
+select replace(NULL, '', 'A');
+ REPLACE 
+---------
+ 
+(1 row)
+
+select replace(NULL, NULL, 'A');
+ REPLACE 
+---------
+ 
+(1 row)
+
+select replace(NULL, 'a', '');
+ REPLACE 
+---------
+ 
+(1 row)
+
+select replace(NULL, 'a', NULL);
+ REPLACE 
+---------
+ 
+(1 row)
+
+select replace(NULL, '', '');
+ REPLACE 
+---------
+ 
+(1 row)
+
+select replace(NULL, '', NULL);
+ REPLACE 
+---------
+ 
+(1 row)
+
+select replace(NULL, NULL, '');
+ REPLACE 
+---------
+ 
+(1 row)
+
+select replace(NULL, NULL, NULL);
+ REPLACE 
+---------
+ 
+(1 row)
+
+select replace('', '', '');
+ REPLACE 
+---------
+ 
+(1 row)
+
+select replace(123, 2, 3);
+ REPLACE 
+---------
+ 133
+(1 row)
+
+select replace(123, 2);
+ REPLACE 
+---------
+ 13
+(1 row)
+
+create table t4test(id int, txt varchar);
+insert into t4test values(1, 'zhang****liang');
+insert into t4test values(2, 'zhangying***');
+insert into t4test values(3, replace('1234567','45','$$'));
+select * from t4test order by id;
+ ID |      TXT       
+----+----------------
+  1 | zhang****liang
+  2 | zhangying***
+  3 | 123$$67
+(3 rows)
+
+update t4test set txt=replace(txt,'*','@');
+select * from t4test order by id;
+ ID |      TXT       
+----+----------------
+  1 | zhang@@@@liang
+  2 | zhangying@@@
+  3 | 123$$67
+(3 rows)
+
+drop table t4test;

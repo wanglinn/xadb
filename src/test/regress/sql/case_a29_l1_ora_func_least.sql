@@ -1,0 +1,26 @@
+set grammar to oracle;
+select least(1,2,3,4) from dual;
+select least(1.1,to_number(1.1),exp(2)) from dual;
+select least(5.2,to_number(1.1),to_char(1.1)) from dual;
+select least(5.2,to_number(1.1),'1') from dual;
+select least(to_char(100),to_char(12),to_char(3.1)) from dual;
+select least(to_number(3),'100','12') from dual;
+select least('100',to_number(3),12) from dual;
+select least('100','12',to_number(3)) from dual;
+select least('100','12',exp(2)) from dual;
+select least('abc','ab','abcd') from dual;
+select least('abc','ab','1') from dual;
+--select least('你好','加油') from dual;
+select least('','a') from dual;
+select least('a',null) from dual;
+select least(null,'') from dual;
+
+create table t4test(id int,txt varchar);
+insert into t4test values(1,null);
+insert into t4test values(2,'ase');
+insert into t4test values(3,least('aa','12','cc'));
+select * from t4test order by id;
+select least(txt,'sds','ab') from t4test order by id;
+update t4test set txt=least(txt,'aba','ads');
+select * from t4test order by id;
+drop table t4test;
