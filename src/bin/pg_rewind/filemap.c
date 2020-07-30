@@ -894,32 +894,36 @@ is_source_other_node_tablespace_files(const char *path)
 
 void replace_tblspc_directory_name(char *path, const char *old_str, const char *new_str)
 {
-	int		old_str_len = 0;
-	int		new_str_len = 0;
-	char	later[MAXPGPATH];
-	int		later_len = 0;
-	char	*tmp = NULL;
+	char	later[MAXPGPATH] = {0};
+	char    *pBegin = NULL;
+	char    *pEnd = NULL;
+	char    oldStrFind[128] = {0};
+	char    newStrReplace[128] = {0};
+	int     offset = 0;
 
-	old_str_len = strlen(old_str);
-	new_str_len = strlen(new_str);
-
-	if (path && (tmp = strstr(path, old_str)) != NULL)
+	strcpy(oldStrFind, "/");
+	strcat(oldStrFind, old_str);
+	strcat(oldStrFind, "/");
+	
+	if (path && (pBegin = strstr(path, oldStrFind)) != NULL)
 	{
-		if (strlen(tmp) <= new_str_len)
-		{
-			strcpy(tmp, new_str);
-			memset(tmp + new_str_len + 1, '\0', 1);
-		}
-		else
-		{
-			memset(later,'\0',sizeof(later));
-			strncpy(later, tmp + old_str_len, strlen(tmp));
-			later_len = strlen(later);
-						
-			strcpy(tmp, new_str);
-			strcpy(tmp + new_str_len, later);
-			memset(tmp + new_str_len + later_len, '\0', 1);
-		}
+		strcpy(newStrReplace, "/");
+		strcat(newStrReplace, new_str);
+		strcat(newStrReplace, "/");
+		
+		pEnd = pBegin + strlen(oldStrFind);
+		strcpy(later, pEnd);
+
+		*pBegin = '\0';
+		offset = strlen(path);
+
+		strcat(path, newStrReplace);
+		offset += strlen(newStrReplace);
+		
+		strcat(path, later);
+		offset += strlen(later);
+		
+		path[offset] = '\0';
 	}
 }
 
