@@ -301,6 +301,20 @@ textlike(PG_FUNCTION_ARGS)
 	PG_RETURN_BOOL(result);
 }
 
+#ifdef ADB_GRAM_ORA
+Datum
+text_like_bpchar(PG_FUNCTION_ARGS)
+{
+	return textlike(fcinfo);
+}
+
+Datum
+text_nlike_bpchar(PG_FUNCTION_ARGS)
+{
+	return textnlike(fcinfo);
+}
+#endif	/* ADB_GRAM_ORA */
+
 Datum
 textnlike(PG_FUNCTION_ARGS)
 {

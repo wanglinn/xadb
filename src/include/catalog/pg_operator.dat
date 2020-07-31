@@ -3472,6 +3472,17 @@
   oprright => 'oracle.raw', oprresult => 'bool',
   oprnegate => '~~(oracle.raw,oracle.raw)', oprcode => 'oracle.rawnlike',
   oprrest => 'nlikesel', oprjoin => 'nlikejoinsel' },
-
+{ oid => '9377', row_macros => 'ADB_GRAM_ORA',
+  descr => 'match LIKE expression',
+  oprname => '~~', oprnamespace => 'ORANSP', oprleft => 'text',
+  oprright => 'bpchar', oprresult => 'bool',
+  oprnegate => '!~~(text,bpchar)', oprcode => 'oracle.text_like_bpchar',
+  oprrest => 'likesel', oprjoin => 'eqjoinsel' },
+{ oid => '9378', row_macros => 'ADB_GRAM_ORA',
+  descr => 'does not match LIKE expression',
+  oprname => '!~~', oprnamespace => 'ORANSP', oprleft => 'text',
+  oprright => 'bpchar', oprresult => 'bool',
+  oprnegate => '~~(text,bpchar)', oprcode => 'oracle.text_nlike_bpchar',
+  oprrest => 'nlikesel', oprjoin => 'nlikejoinsel' },
 # ADB_END
 ]
