@@ -5753,86 +5753,57 @@ Datum ora_date_mi_date(PG_FUNCTION_ARGS)
 	PG_RETURN_DATUM(result);
 }
 
-Datum ora_timestamp_pl_numeric(PG_FUNCTION_ARGS)
-{
-	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(0);
+#define DECLARE_ORA_TM_OP_NUMERIC(tm, Tm, TM, ret)							\
+Datum ora_##tm##_pl_numeric(PG_FUNCTION_ARGS)								\
+{																			\
+	Tm val = PG_GETARG_##TM(0);												\
+	val += numeric_mul_int64_ret_int64(PG_GETARG_DATUM(1), USECS_PER_DAY);	\
+	PG_RETURN_DATUM((ret));													\
+}																			\
+Datum ora_numeric_pl_##tm(PG_FUNCTION_ARGS)									\
+{																			\
+	Tm val = PG_GETARG_##TM(1);												\
+	val += numeric_mul_int64_ret_int64(PG_GETARG_DATUM(0), USECS_PER_DAY);	\
+	PG_RETURN_DATUM((ret));													\
+}																			\
+Datum ora_##tm##_mi_numeric(PG_FUNCTION_ARGS)								\
+{																			\
+	Tm val = PG_GETARG_##TM(0);												\
+	val -= numeric_mul_int64_ret_int64(PG_GETARG_DATUM(1), USECS_PER_DAY);	\
+	PG_RETURN_DATUM((ret));													\
+}extern int not_exist
 
-	timestamp += numeric_mul_int64_ret_int64(PG_GETARG_DATUM(1), USECS_PER_DAY);
+#define DECLARE_ORA_TM_OP(tm, Tm, TM, num, NUM, cvt, ret)			\
+Datum ora_##tm##_pl_##num(PG_FUNCTION_ARGS)							\
+{																	\
+	Tm val = PG_GETARG_##TM(0);										\
+	val += ((cvt)PG_GETARG_##NUM(1)) * (cvt)(USECS_PER_DAY);		\
+	PG_RETURN_##TM((ret));											\
+}																	\
+Datum ora_##num##_pl_##tm(PG_FUNCTION_ARGS)							\
+{																	\
+	Tm val = PG_GETARG_##TM(1);										\
+	val += ((cvt)PG_GETARG_##NUM(0)) * (cvt)(USECS_PER_DAY);		\
+	PG_RETURN_##TM((ret));											\
+}																	\
+Datum ora_##tm##_mi_##num(PG_FUNCTION_ARGS)							\
+{																	\
+	Tm val = PG_GETARG_##TM(0);										\
+	val -= ((cvt)PG_GETARG_##NUM(1)) * (cvt)(USECS_PER_DAY);		\
+	PG_RETURN_##TM((ret));											\
+}extern int not_exist
 
-	PG_RETURN_DATUM(timestamp);
-}
+#define DECLARE_ORA_TM_OPS(tm, Tm, TM, ret)							\
+	DECLARE_ORA_TM_OP_NUMERIC(tm, Tm, TM, ret);						\
+	DECLARE_ORA_TM_OP(tm, Tm, TM, int2, INT16, int64, ret);			\
+	DECLARE_ORA_TM_OP(tm, Tm, TM, int4, INT32, int64, ret);			\
+	DECLARE_ORA_TM_OP(tm, Tm, TM, int8, INT64, int64, ret);			\
+	DECLARE_ORA_TM_OP(tm, Tm, TM, float4, FLOAT4, float8, ret);		\
+	DECLARE_ORA_TM_OP(tm, Tm, TM, float8, FLOAT8, float8, ret)
 
-Datum ora_numeric_pl_timestamp(PG_FUNCTION_ARGS)
-{
-	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(1);
-
-	timestamp += numeric_mul_int64_ret_int64(PG_GETARG_DATUM(0), USECS_PER_DAY);
-
-	PG_RETURN_DATUM(timestamp);
-}
-
-Datum ora_timestamp_mi_numeric(PG_FUNCTION_ARGS)
-{
-	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(0);
-
-	timestamp -= numeric_mul_int64_ret_int64(PG_GETARG_DATUM(1), USECS_PER_DAY);
-
-	PG_RETURN_DATUM(timestamp);
-}
-
-#ifdef ADB_GRAM_ORA
-Datum ora_date_mi_numeric(PG_FUNCTION_ARGS)
-{
-	Timestamp timestamp = PG_GETARG_TIMESTAMP(0);
-
-	timestamp -= numeric_mul_int64_ret_int64(PG_GETARG_DATUM(1), USECS_PER_DAY);
-
-	PG_RETURN_DATUM(timestamp);
-}
-
-Datum ora_date_pl_numeric(PG_FUNCTION_ARGS)
-{
-	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(0);
-
-	timestamp += numeric_mul_int64_ret_int64(PG_GETARG_DATUM(1), USECS_PER_DAY);
-
-	PG_RETURN_DATUM(timestamp);
-}
-
-Datum numeric_pl_ora_date(PG_FUNCTION_ARGS)
-{
-	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(1);
-
-	timestamp += numeric_mul_int64_ret_int64(PG_GETARG_DATUM(0), USECS_PER_DAY);
-
-	PG_RETURN_DATUM(timestamp);
-}
-#endif	/* ADB_GRAM_ORA */
-
-#define DEFINE_ORA_TIMESTAMP_OP(type, ARG, cvt1, cvt2)					\
-Datum ora_timestamp_pl_##type(PG_FUNCTION_ARGS)							\
-{																		\
-	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(0);					\
-	timestamp += ((cvt1)PG_GETARG_##ARG(1)) * (cvt2)(USECS_PER_DAY);	\
-	PG_RETURN_TIMESTAMPTZ(timestamp);									\
-}																		\
-Datum ora_##type## _pl_timestamp(PG_FUNCTION_ARGS)						\
-{																		\
-	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(1);					\
-	timestamp += ((cvt1)PG_GETARG_##ARG(0)) * (cvt2)(USECS_PER_DAY);	\
-	PG_RETURN_TIMESTAMPTZ(timestamp);									\
-}																		\
-Datum ora_timestamp_mi_##type(PG_FUNCTION_ARGS)							\
-{																		\
-	TimestampTz timestamp = PG_GETARG_TIMESTAMPTZ(0);					\
-	timestamp -= ((cvt1)PG_GETARG_##ARG(1)) * (cvt2)(USECS_PER_DAY);	\
-	PG_RETURN_TIMESTAMPTZ(timestamp);									\
-}
-DEFINE_ORA_TIMESTAMP_OP(int2, INT16, int64, int64)
-DEFINE_ORA_TIMESTAMP_OP(int4, INT32, int64, int64)
-DEFINE_ORA_TIMESTAMP_OP(int8, INT64, int64, int64)
-DEFINE_ORA_TIMESTAMP_OP(float4, FLOAT4, float8, float8)
-DEFINE_ORA_TIMESTAMP_OP(float8, FLOAT8, float8, float8)
-#undef DEFINE_ORA_OP
+DECLARE_ORA_TM_OPS(date, Timestamp, TIMESTAMP, (val / INT64CONST(1000000)) * INT64CONST(1000000));
+DECLARE_ORA_TM_OPS(timestamp, Timestamp, TIMESTAMP, val);
+#undef timestamptz
+DECLARE_ORA_TM_OPS(timestamptz, TimestampTz, TIMESTAMPTZ, val);
 
 #endif /* ADB_GRAM_ORA */
