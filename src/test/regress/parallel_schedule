@@ -7,7 +7,7 @@
 
 test: sinh cosh round round(date) trunc to_date regexp_substr greatest least trim substr nls_initcap nls_lower nls_upper lpad rpad nullif coalesce add_months months_between
 test: next_day last_day regexp_like translate to_timestamp to_yminterval to_dsinterval tanh remainder bitand nvl nvl2 nanvl lnnvl new_time sessiontimezone extract
-test: regexp regexp_count regexp_instr regexp_replace to_char to_number bin_to_num numtodsinterval numtoyminterval soundex instr length dump decode charset
+test: regexp regexp_count regexp_instr regexp_replace to_char to_number bin_to_num numtodsinterval numtoyminterval soundex instr length dump decode charset tm_op_days
 test: create_sequence create_primary_foreign_key create_other_constraints alter_column alter_constraints delete save_rollback sign base_query advanced_query set_function datatype ora_alias ora_in_notin ora_minus
 
 ignore: rownum_rowid

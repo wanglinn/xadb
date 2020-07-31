@@ -1,0 +1,67 @@
+set grammar = oracle;
+create table tm_op_day_tbl(d date, t timestamp, tz timestamptz, d2 date, i2 int2, i4 int4, i8 int8, f4 float4, f8 float8, n number);
+/*pg*/insert into tm_op_day_tbl
+  values('2020-01-09 11:12:33', '2020-01-09 11:12:33.456789', '2020-01-09 11:12:33.123456 +8', '2010-02-03 11:12:33',
+         2, 4, 8, 1.003, 2.000006, 1000.999345);
+set timezone = 0;
+set datestyle='ISO,YMD';
+select d-d as "result" from tm_op_day_tbl;
+select d-d2 as "result" from tm_op_day_tbl;
+select d+i2 as "result" from tm_op_day_tbl;
+select i2+d as "result" from tm_op_day_tbl;
+select d-i2 as "result" from tm_op_day_tbl;
+select d+i4 as "result" from tm_op_day_tbl;
+select i4+d as "result" from tm_op_day_tbl;
+select d-i4 as "result" from tm_op_day_tbl;
+select d+i8 as "result" from tm_op_day_tbl;
+select i8+d as "result" from tm_op_day_tbl;
+select d-i8 as "result" from tm_op_day_tbl;
+select d+f4 as "result" from tm_op_day_tbl;
+select f4+d as "result" from tm_op_day_tbl;
+select d-f4 as "result" from tm_op_day_tbl;
+select d+f8 as "result" from tm_op_day_tbl;
+select f8+d as "result" from tm_op_day_tbl;
+select d-f8 as "result" from tm_op_day_tbl;
+select d+n as "result" from tm_op_day_tbl;
+select n+d as "result" from tm_op_day_tbl;
+select d-n as "result" from tm_op_day_tbl;
+
+select t+i2 as "result" from tm_op_day_tbl;
+select i2+t as "result" from tm_op_day_tbl;
+select t-i2 as "result" from tm_op_day_tbl;
+select t+i4 as "result" from tm_op_day_tbl;
+select i4+t as "result" from tm_op_day_tbl;
+select t-i4 as "result" from tm_op_day_tbl;
+select t+i8 as "result" from tm_op_day_tbl;
+select i8+t as "result" from tm_op_day_tbl;
+select t-i8 as "result" from tm_op_day_tbl;
+select t+f4 as "result" from tm_op_day_tbl;
+select f4+t as "result" from tm_op_day_tbl;
+select t-f4 as "result" from tm_op_day_tbl;
+select t+f8 as "result" from tm_op_day_tbl;
+select f8+t as "result" from tm_op_day_tbl;
+select t-f8 as "result" from tm_op_day_tbl;
+select t+n as "result" from tm_op_day_tbl;
+select n+t as "result" from tm_op_day_tbl;
+select t-n as "result" from tm_op_day_tbl;
+
+select tz+i2 as "result" from tm_op_day_tbl;
+select i2+tz as "result" from tm_op_day_tbl;
+select tz-i2 as "result" from tm_op_day_tbl;
+select tz+i4 as "result" from tm_op_day_tbl;
+select i4+tz as "result" from tm_op_day_tbl;
+select tz-i4 as "result" from tm_op_day_tbl;
+select tz+i8 as "result" from tm_op_day_tbl;
+select i8+tz as "result" from tm_op_day_tbl;
+select tz-i8 as "result" from tm_op_day_tbl;
+select tz+f4 as "result" from tm_op_day_tbl;
+select f4+tz as "result" from tm_op_day_tbl;
+select tz-f4 as "result" from tm_op_day_tbl;
+select tz+f8 as "result" from tm_op_day_tbl;
+select f8+tz as "result" from tm_op_day_tbl;
+select tz-f8 as "result" from tm_op_day_tbl;
+select tz+n as "result" from tm_op_day_tbl;
+select n+tz as "result" from tm_op_day_tbl;
+select tz-n as "result" from tm_op_day_tbl;
+
+drop table tm_op_day_tbl;
