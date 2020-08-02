@@ -5787,19 +5787,22 @@ Datum ora_##tm##_pl_numeric(PG_FUNCTION_ARGS)								\
 {																			\
 	Tm val = PG_GETARG_##TM(0);												\
 	val += numeric_mul_int64_ret_int64(PG_GETARG_DATUM(1), USECS_PER_DAY);	\
-	PG_RETURN_DATUM((ret));													\
+	val = (val / INT64CONST(1000000)) * INT64CONST(1000000);				\
+	PG_RETURN_TIMESTAMP((ret));												\
 }																			\
 Datum ora_numeric_pl_##tm(PG_FUNCTION_ARGS)									\
 {																			\
 	Tm val = PG_GETARG_##TM(1);												\
 	val += numeric_mul_int64_ret_int64(PG_GETARG_DATUM(0), USECS_PER_DAY);	\
-	PG_RETURN_DATUM((ret));													\
+	val = (val / INT64CONST(1000000)) * INT64CONST(1000000);				\
+	PG_RETURN_TIMESTAMP((ret));												\
 }																			\
 Datum ora_##tm##_mi_numeric(PG_FUNCTION_ARGS)								\
 {																			\
 	Tm val = PG_GETARG_##TM(0);												\
 	val -= numeric_mul_int64_ret_int64(PG_GETARG_DATUM(1), USECS_PER_DAY);	\
-	PG_RETURN_DATUM((ret));													\
+	val = (val / INT64CONST(1000000)) * INT64CONST(1000000);				\
+	PG_RETURN_TIMESTAMP((ret));												\
 }extern int not_exist
 
 #define DECLARE_ORA_TM_OP(tm, Tm, TM, num, NUM, cvt, ret)			\
@@ -5807,19 +5810,22 @@ Datum ora_##tm##_pl_##num(PG_FUNCTION_ARGS)							\
 {																	\
 	Tm val = PG_GETARG_##TM(0);										\
 	val += ((cvt)PG_GETARG_##NUM(1)) * (cvt)(USECS_PER_DAY);		\
-	PG_RETURN_##TM((ret));											\
+	val = (val / INT64CONST(1000000)) * INT64CONST(1000000);		\
+	PG_RETURN_TIMESTAMP((ret));										\
 }																	\
 Datum ora_##num##_pl_##tm(PG_FUNCTION_ARGS)							\
 {																	\
 	Tm val = PG_GETARG_##TM(1);										\
 	val += ((cvt)PG_GETARG_##NUM(0)) * (cvt)(USECS_PER_DAY);		\
-	PG_RETURN_##TM((ret));											\
+	val = (val / INT64CONST(1000000)) * INT64CONST(1000000);		\
+	PG_RETURN_TIMESTAMP((ret));										\
 }																	\
 Datum ora_##tm##_mi_##num(PG_FUNCTION_ARGS)							\
 {																	\
 	Tm val = PG_GETARG_##TM(0);										\
 	val -= ((cvt)PG_GETARG_##NUM(1)) * (cvt)(USECS_PER_DAY);		\
-	PG_RETURN_##TM((ret));											\
+	val = (val / INT64CONST(1000000)) * INT64CONST(1000000);		\
+	PG_RETURN_TIMESTAMP((ret));										\
 }extern int not_exist
 
 #define DECLARE_ORA_TM_OPS(tm, Tm, TM, ret)							\
@@ -5830,9 +5836,9 @@ Datum ora_##tm##_mi_##num(PG_FUNCTION_ARGS)							\
 	DECLARE_ORA_TM_OP(tm, Tm, TM, float4, FLOAT4, float8, ret);		\
 	DECLARE_ORA_TM_OP(tm, Tm, TM, float8, FLOAT8, float8, ret)
 
-DECLARE_ORA_TM_OPS(date, Timestamp, TIMESTAMP, (val / INT64CONST(1000000)) * INT64CONST(1000000));
-DECLARE_ORA_TM_OPS(timestamp, Timestamp, TIMESTAMP, (val / INT64CONST(1000000)) * INT64CONST(1000000));
+DECLARE_ORA_TM_OPS(date, Timestamp, TIMESTAMP, val);
+DECLARE_ORA_TM_OPS(timestamp, Timestamp, TIMESTAMP, val);
 #undef timestamptz
-DECLARE_ORA_TM_OPS(timestamptz, TimestampTz, TIMESTAMPTZ, (val / INT64CONST(1000000)) * INT64CONST(1000000));
+DECLARE_ORA_TM_OPS(timestamptz, TimestampTz, TIMESTAMPTZ, timestamptz2timestamp(val));
 
 #endif /* ADB_GRAM_ORA */
