@@ -3,7 +3,7 @@ create table tm_op_day_tbl(d date, t timestamp, tz timestamptz, d2 date, i2 int2
 /*pg*/insert into tm_op_day_tbl
   values('2020-01-09 11:12:33', '2020-01-09 11:12:33.456789', '2020-01-09 11:12:33.123456 +8', '2010-02-03 11:12:33',
          2, 4, 8, 1.003, 2.000006, 1000.999345);
-set timezone = 0;
+set timezone = 8;
 set datestyle='ISO,YMD';
 select d-d as "result" from tm_op_day_tbl;
  result 
@@ -236,109 +236,109 @@ select t-n as "result" from tm_op_day_tbl;
 select tz+i2 as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2020-01-11 03:12:33
+ 2020-01-11 11:12:33
 (1 row)
 
 select i2+tz as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2020-01-11 03:12:33
+ 2020-01-11 11:12:33
 (1 row)
 
 select tz-i2 as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2020-01-07 03:12:33
+ 2020-01-07 11:12:33
 (1 row)
 
 select tz+i4 as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2020-01-13 03:12:33
+ 2020-01-13 11:12:33
 (1 row)
 
 select i4+tz as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2020-01-13 03:12:33
+ 2020-01-13 11:12:33
 (1 row)
 
 select tz-i4 as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2020-01-05 03:12:33
+ 2020-01-05 11:12:33
 (1 row)
 
 select tz+i8 as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2020-01-17 03:12:33
+ 2020-01-17 11:12:33
 (1 row)
 
 select i8+tz as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2020-01-17 03:12:33
+ 2020-01-17 11:12:33
 (1 row)
 
 select tz-i8 as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2020-01-01 03:12:33
+ 2020-01-01 11:12:33
 (1 row)
 
 select tz+f4 as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2020-01-10 03:16:52
+ 2020-01-10 11:16:52
 (1 row)
 
 select f4+tz as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2020-01-10 03:16:52
+ 2020-01-10 11:16:52
 (1 row)
 
 select tz-f4 as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2020-01-08 03:08:13
+ 2020-01-08 11:08:13
 (1 row)
 
 select tz+f8 as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2020-01-11 03:12:33
+ 2020-01-11 11:12:33
 (1 row)
 
 select f8+tz as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2020-01-11 03:12:33
+ 2020-01-11 11:12:33
 (1 row)
 
 select tz-f8 as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2020-01-07 03:12:32
+ 2020-01-07 11:12:32
 (1 row)
 
 select tz+n as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2022-10-06 03:11:36
+ 2022-10-06 11:11:36
 (1 row)
 
 select n+tz as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2022-10-06 03:11:36
+ 2022-10-06 11:11:36
 (1 row)
 
 select tz-n as "result" from tm_op_day_tbl;
        result        
 ---------------------
- 2017-04-13 03:13:29
+ 2017-04-13 11:13:29
 (1 row)
 
 drop table tm_op_day_tbl;

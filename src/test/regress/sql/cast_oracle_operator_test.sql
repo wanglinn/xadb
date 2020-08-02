@@ -6,6 +6,7 @@ insert into test_convert values (2, 'a', 'a', '2020-02-02 02:02:02', 1, 1, 1, 1,
 insert into test_convert values (3, '1a', '2020-02-02 02:02:02', '2020-02-02 02:02:02', 1, 1, 1, 1, 1, '1 00:00:00', 1, '2020-02-02 02:02:02', '2020-02-02 02:02:02', '2020-02-02 02:02:02', '2020-02-02 02:02:02', '2020-02-02 02:02:02', to_timestamp('2020-02-02 02:02:02', 'YYYY-MM-DD HH24:MI:SS'), '2020-02-02 02:02:02');
 
 set grammar to oracle;
+set timezone = 8;
 set datestyle ='ISO,YMD';
 select count(*), 'Bool Result' from test_convert where c_char != c_date and case_id = 3;
 select c_char + c_date, pg_typeof(c_char + c_date) from test_convert where case_id = 1;
