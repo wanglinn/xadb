@@ -3370,6 +3370,35 @@ interval_div(PG_FUNCTION_ARGS)
 	PG_RETURN_INTERVAL_P(result);
 }
 
+#ifdef ADB_GRAM_ORA
+Datum
+ora_interval_mul_numeric(PG_FUNCTION_ARGS)
+{
+	return DirectFunctionCall2(interval_mul,
+							   PG_GETARG_DATUM(0),
+							   DirectFunctionCall1(numeric_float8, 
+							   					   PG_GETARG_DATUM(1)));
+
+}
+
+Datum
+ora_numeric_mul_interval(PG_FUNCTION_ARGS)
+{
+	return DirectFunctionCall2(interval_mul,
+							   PG_GETARG_DATUM(1),
+							   DirectFunctionCall1(numeric_float8, 
+							   					   PG_GETARG_DATUM(0)));
+}
+
+Datum
+ora_interval_div_numeric(PG_FUNCTION_ARGS)
+{
+	return DirectFunctionCall2(interval_div,
+							   PG_GETARG_DATUM(0),
+							   DirectFunctionCall1(numeric_float8, 
+							   					   PG_GETARG_DATUM(1)));
+}
+#endif	/* ADB_GRAM_ORA */
 
 /*
  * in_range support functions for timestamps and intervals.
@@ -5793,8 +5822,8 @@ Datum ora_##tm##_mi_##num(PG_FUNCTION_ARGS)							\
 	DECLARE_ORA_TM_OP(tm, Tm, TM, float8, FLOAT8, float8, ret)
 
 DECLARE_ORA_TM_OPS(date, Timestamp, TIMESTAMP, (val / INT64CONST(1000000)) * INT64CONST(1000000));
-DECLARE_ORA_TM_OPS(timestamp, Timestamp, TIMESTAMP, val);
+DECLARE_ORA_TM_OPS(timestamp, Timestamp, TIMESTAMP, (val / INT64CONST(1000000)) * INT64CONST(1000000));
 #undef timestamptz
-DECLARE_ORA_TM_OPS(timestamptz, TimestampTz, TIMESTAMPTZ, val);
+DECLARE_ORA_TM_OPS(timestamptz, TimestampTz, TIMESTAMPTZ, (val / INT64CONST(1000000)) * INT64CONST(1000000));
 
 #endif /* ADB_GRAM_ORA */

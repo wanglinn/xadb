@@ -1,0 +1,5111 @@
+set grammar to postgres;
+drop table if exists test_convert;
+NOTICE:  table "test_convert" does not exist, skipping
+create table test_convert(case_id int ,c_bytea bytea ,c_char char(20) ,c_date date ,c_float4 float4 ,c_float8 float8 ,c_int2 int2 ,c_int4 int4 ,c_int8 int8 ,c_interval interval ,c_numeric numeric ,c_oracle_date oracle.date ,c_oracle_nvarchar2 oracle.nvarchar2(20) ,c_oracle_varchar2 oracle.varchar2(20) ,c_text text ,c_timestamp timestamp ,c_timestamptz timestamptz, c_varchar varchar);
+insert into test_convert values (1, '1', '1', '2020-02-02 02:02:02', 1.1, 1.1, 1, 1, 1, '1 00:00:00', 1.1, '2020-02-02 02:02:02', '1', '1', '1', '2020-02-02 02:02:02', to_timestamp('2020-02-02 02:02:02', 'YYYY-MM-DD HH24:MI:SS'), '1');
+insert into test_convert values (2, 'a', 'a', '2020-02-02 02:02:02', 1, 1, 1, 1, 1, '1 00:00:00', 1, '2020-02-02 02:02:02', 'a', 'a', 'a', '2020-02-02 02:02:02', to_timestamp('2020-02-02 02:02:02', 'YYYY-MM-DD HH24:MI:SS'), 'a');
+insert into test_convert values (3, '1a', '2020-02-02 02:02:02', '2020-02-02 02:02:02', 1, 1, 1, 1, 1, '1 00:00:00', 1, '2020-02-02 02:02:02', '2020-02-02 02:02:02', '2020-02-02 02:02:02', '2020-02-02 02:02:02', '2020-02-02 02:02:02', to_timestamp('2020-02-02 02:02:02', 'YYYY-MM-DD HH24:MI:SS'), '2020-02-02 02:02:02');
+set grammar to oracle;
+set datestyle ='ISO,YMD';
+select count(*), 'Bool Result' from test_convert where c_char != c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_char + c_date, pg_typeof(c_char + c_date) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_CHAR + C_DATE)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char < c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <= c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <> c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char = c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char > c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char >= c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char != c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_char * c_float4, pg_typeof(c_char * c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_CHAR * C_FLOAT4)  
+----------+-------------------------------
+      1.1 | numeric
+(1 row)
+
+select c_char + c_float4, pg_typeof(c_char + c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_CHAR + C_FLOAT4)  
+----------+-------------------------------
+      2.1 | numeric
+(1 row)
+
+select c_char - c_float4, pg_typeof(c_char - c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_CHAR - C_FLOAT4)  
+----------+-------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_char / c_float4, pg_typeof(c_char / c_float4) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_CHAR / C_FLOAT4)  
+------------------------+-------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char < c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <= c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <> c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char = c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char > c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char >= c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char != c_float8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_char * c_float8, pg_typeof(c_char * c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_CHAR * C_FLOAT8)  
+----------+-------------------------------
+      1.1 | numeric
+(1 row)
+
+select c_char + c_float8, pg_typeof(c_char + c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_CHAR + C_FLOAT8)  
+----------+-------------------------------
+      2.1 | numeric
+(1 row)
+
+select c_char - c_float8, pg_typeof(c_char - c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_CHAR - C_FLOAT8)  
+----------+-------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_char / c_float8, pg_typeof(c_char / c_float8) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_CHAR / C_FLOAT8)  
+------------------------+-------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char < c_float8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <= c_float8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <> c_float8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char = c_float8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char > c_float8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char >= c_float8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char != c_int8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select c_char * c_int8, pg_typeof(c_char * c_int8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_CHAR * C_INT8)  
+----------+-----------------------------
+        1 | numeric
+(1 row)
+
+select c_char + c_int8, pg_typeof(c_char + c_int8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_CHAR + C_INT8)  
+----------+-----------------------------
+        2 | numeric
+(1 row)
+
+select c_char - c_int8, pg_typeof(c_char - c_int8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_CHAR - C_INT8)  
+----------+-----------------------------
+        0 | numeric
+(1 row)
+
+select c_char / c_int8, pg_typeof(c_char / c_int8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_CHAR / C_INT8)  
+----------+-----------------------------
+        1 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char < c_int8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <= c_int8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <> c_int8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char = c_int8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char > c_int8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char >= c_int8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_char * c_interval, pg_typeof(c_char * c_interval) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_CHAR * C_INTERVAL)  
+----------+---------------------------------
+ @ 1 day  | interval
+(1 row)
+
+select c_char * c_varchar, pg_typeof(c_char * c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_CHAR * C_VARCHAR)  
+----------+--------------------------------
+        1 | numeric
+(1 row)
+
+select c_char + c_varchar, pg_typeof(c_char + c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_CHAR + C_VARCHAR)  
+----------+--------------------------------
+        2 | numeric
+(1 row)
+
+select c_char - c_varchar, pg_typeof(c_char - c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_CHAR - C_VARCHAR)  
+----------+--------------------------------
+        0 | numeric
+(1 row)
+
+select c_char / c_varchar, pg_typeof(c_char / c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_CHAR / C_VARCHAR)  
+----------+--------------------------------
+        1 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date != c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_date + c_char, pg_typeof(c_date + c_char) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_CHAR)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_char, pg_typeof(c_date - c_char) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_CHAR)  
+---------------------+-----------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date < c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <= c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <> c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date = c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date > c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date >= c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select c_date + c_int2, pg_typeof(c_date + c_int2) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_INT2)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date + c_int2, pg_typeof(c_date + c_int2) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_INT2)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date + c_int2, pg_typeof(c_date + c_int2) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_INT2)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_int2, pg_typeof(c_date - c_int2) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_INT2)  
+---------------------+-----------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_int2, pg_typeof(c_date - c_int2) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_INT2)  
+---------------------+-----------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_int2, pg_typeof(c_date - c_int2) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_INT2)  
+---------------------+-----------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date != c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_date + c_oracle_nvarchar2, pg_typeof(c_date + c_oracle_nvarchar2) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_ORACLE_NVARCHAR2)  
+---------------------+-----------------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_oracle_nvarchar2, pg_typeof(c_date - c_oracle_nvarchar2) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_ORACLE_NVARCHAR2)  
+---------------------+-----------------------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date < c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <= c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <> c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date = c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date > c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date >= c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date != c_oracle_varchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_date + c_oracle_varchar2, pg_typeof(c_date + c_oracle_varchar2) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_ORACLE_VARCHAR2)  
+---------------------+----------------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_oracle_varchar2, pg_typeof(c_date - c_oracle_varchar2) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_ORACLE_VARCHAR2)  
+---------------------+----------------------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date < c_oracle_varchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <= c_oracle_varchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <> c_oracle_varchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date = c_oracle_varchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date > c_oracle_varchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date >= c_oracle_varchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date != c_text and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_date + c_text, pg_typeof(c_date + c_text) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_TEXT)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_text, pg_typeof(c_date - c_text) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_TEXT)  
+---------------------+-----------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date < c_text and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <= c_text and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <> c_text and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date = c_text and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date > c_text and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date >= c_text and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date != c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_date + c_varchar, pg_typeof(c_date + c_varchar) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_VARCHAR)  
+---------------------+--------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_varchar, pg_typeof(c_date - c_varchar) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_VARCHAR)  
+---------------------+--------------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date < c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <= c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <> c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date = c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date > c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date >= c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 != c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_float4 * c_char, pg_typeof(c_float4 * c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_CHAR)  
+----------+-------------------------------
+      1.1 | numeric
+(1 row)
+
+select c_float4 + c_char, pg_typeof(c_float4 + c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_CHAR)  
+----------+-------------------------------
+      2.1 | numeric
+(1 row)
+
+select c_float4 - c_char, pg_typeof(c_float4 - c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_CHAR)  
+----------+-------------------------------
+      0.1 | numeric
+(1 row)
+
+select c_float4 / c_char, pg_typeof(c_float4 / c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_CHAR)  
+----------+-------------------------------
+      1.1 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 < c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 <= c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 <> c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 = c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 > c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 >= c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float8 != c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_float8 * c_char, pg_typeof(c_float8 * c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_CHAR)  
+----------+-------------------------------
+      1.1 | numeric
+(1 row)
+
+select c_float8 + c_char, pg_typeof(c_float8 + c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 + C_CHAR)  
+----------+-------------------------------
+      2.1 | numeric
+(1 row)
+
+select c_float8 - c_char, pg_typeof(c_float8 - c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_CHAR)  
+----------+-------------------------------
+      0.1 | numeric
+(1 row)
+
+select c_float8 / c_char, pg_typeof(c_float8 / c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_CHAR)  
+----------+-------------------------------
+      1.1 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float8 < c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float8 <= c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float8 <> c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float8 = c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float8 > c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float8 >= c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_int2 + c_date, pg_typeof(c_int2 + c_date) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_INT2 + C_DATE)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_int2 + c_date, pg_typeof(c_int2 + c_date) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_INT2 + C_DATE)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_int2 + c_date, pg_typeof(c_int2 + c_date) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_INT2 + C_DATE)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_int8 != c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select c_int8 * c_char, pg_typeof(c_int8 * c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT8 * C_CHAR)  
+----------+-----------------------------
+        1 | numeric
+(1 row)
+
+select c_int8 + c_char, pg_typeof(c_int8 + c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT8 + C_CHAR)  
+----------+-----------------------------
+        2 | numeric
+(1 row)
+
+select c_int8 - c_char, pg_typeof(c_int8 - c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT8 - C_CHAR)  
+----------+-----------------------------
+        0 | numeric
+(1 row)
+
+select c_int8 / c_char, pg_typeof(c_int8 / c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT8 / C_CHAR)  
+----------+-----------------------------
+        1 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_int8 < c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_int8 <= c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_int8 <> c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_int8 = c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_int8 > c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_int8 >= c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_interval * c_char, pg_typeof(c_interval * c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INTERVAL * C_CHAR)  
+----------+---------------------------------
+ @ 1 day  | interval
+(1 row)
+
+select c_interval / c_char, pg_typeof(c_interval / c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INTERVAL / C_CHAR)  
+----------+---------------------------------
+ @ 1 day  | interval
+(1 row)
+
+select c_interval * c_text, pg_typeof(c_interval * c_text) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INTERVAL * C_TEXT)  
+----------+---------------------------------
+ @ 1 day  | interval
+(1 row)
+
+select c_interval / c_text, pg_typeof(c_interval / c_text) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INTERVAL / C_TEXT)  
+----------+---------------------------------
+ @ 1 day  | interval
+(1 row)
+
+select c_interval * c_varchar, pg_typeof(c_interval * c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INTERVAL * C_VARCHAR)  
+----------+------------------------------------
+ @ 1 day  | interval
+(1 row)
+
+select c_interval / c_varchar, pg_typeof(c_interval / c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INTERVAL / C_VARCHAR)  
+----------+------------------------------------
+ @ 1 day  | interval
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_numeric !~~ c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_numeric !~~ c_float4 and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_numeric !~~ c_float4 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_numeric !~~ c_float8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_numeric !~~ c_float8 and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_numeric !~~ c_float8 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_numeric !~~ c_int8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_numeric !~~ c_int8 and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_numeric !~~ c_int8 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select c_oracle_nvarchar2 + c_date, pg_typeof(c_oracle_nvarchar2 + c_date) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_ORACLE_NVARCHAR2 + C_DATE)  
+---------------------+-----------------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 < c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 <= c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 <> c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 = c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 > c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 >= c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 != c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_oracle_varchar2 + c_date, pg_typeof(c_oracle_varchar2 + c_date) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_ORACLE_VARCHAR2 + C_DATE)  
+---------------------+----------------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 < c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 <= c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 <> c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 = c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 > c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 >= c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_varchar * c_char, pg_typeof(c_varchar * c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_VARCHAR * C_CHAR)  
+----------+--------------------------------
+        1 | numeric
+(1 row)
+
+select c_varchar + c_char, pg_typeof(c_varchar + c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_VARCHAR + C_CHAR)  
+----------+--------------------------------
+        2 | numeric
+(1 row)
+
+select c_varchar - c_char, pg_typeof(c_varchar - c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_VARCHAR - C_CHAR)  
+----------+--------------------------------
+        0 | numeric
+(1 row)
+
+select c_varchar / c_char, pg_typeof(c_varchar / c_char) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_VARCHAR / C_CHAR)  
+----------+--------------------------------
+        1 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar != c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_varchar + c_date, pg_typeof(c_varchar + c_date) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_VARCHAR + C_DATE)  
+---------------------+--------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar < c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar <= c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar <> c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar = c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar > c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar >= c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_varchar * c_interval, pg_typeof(c_varchar * c_interval) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_VARCHAR * C_INTERVAL)  
+----------+------------------------------------
+ @ 1 day  | interval
+(1 row)
+
+select c_varchar * c_oracle_varchar2, pg_typeof(c_varchar * c_oracle_varchar2) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_VARCHAR * C_ORACLE_VARCHAR2)  
+----------+-------------------------------------------
+        1 | numeric
+(1 row)
+
+select c_varchar + c_oracle_varchar2, pg_typeof(c_varchar + c_oracle_varchar2) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_VARCHAR + C_ORACLE_VARCHAR2)  
+----------+-------------------------------------------
+        2 | numeric
+(1 row)
+
+select c_varchar - c_oracle_varchar2, pg_typeof(c_varchar - c_oracle_varchar2) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_VARCHAR - C_ORACLE_VARCHAR2)  
+----------+-------------------------------------------
+        0 | numeric
+(1 row)
+
+select c_varchar / c_oracle_varchar2, pg_typeof(c_varchar / c_oracle_varchar2) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_VARCHAR / C_ORACLE_VARCHAR2)  
+----------+-------------------------------------------
+        1 | numeric
+(1 row)
+
+select c_varchar * c_text, pg_typeof(c_varchar * c_text) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_VARCHAR * C_TEXT)  
+----------+--------------------------------
+        1 | numeric
+(1 row)
+
+select c_varchar + c_text, pg_typeof(c_varchar + c_text) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_VARCHAR + C_TEXT)  
+----------+--------------------------------
+        2 | numeric
+(1 row)
+
+select c_varchar - c_text, pg_typeof(c_varchar - c_text) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_VARCHAR - C_TEXT)  
+----------+--------------------------------
+        0 | numeric
+(1 row)
+
+select c_varchar / c_text, pg_typeof(c_varchar / c_text) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_VARCHAR / C_TEXT)  
+----------+--------------------------------
+        1 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_bytea ~~ c_bytea and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_bytea ~~ c_bytea and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_bytea ~~ c_bytea and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_bytea !~~ c_bytea and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_bytea !~~ c_bytea and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_bytea !~~ c_bytea and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char ~~ c_int8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char !~~ c_int8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_char / c_numeric, pg_typeof(c_char / c_numeric) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_CHAR / C_NUMERIC)  
+------------------------+--------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char != c_oracle_nvarchar2 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char != c_oracle_nvarchar2 and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char != c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <= c_oracle_nvarchar2 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <= c_oracle_nvarchar2 and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <= c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <> c_oracle_nvarchar2 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <> c_oracle_nvarchar2 and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <> c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char = c_oracle_nvarchar2 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char = c_oracle_nvarchar2 and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char = c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char > c_oracle_nvarchar2 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char > c_oracle_nvarchar2 and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char > c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char ~~ c_oracle_nvarchar2 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char ~~ c_oracle_nvarchar2 and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char ~~ c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char !~~ c_oracle_nvarchar2 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char !~~ c_oracle_nvarchar2 and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char !~~ c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char != c_varchar and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char != c_varchar and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char != c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <= c_varchar and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <= c_varchar and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <= c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <> c_varchar and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <> c_varchar and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char <> c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char = c_varchar and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char = c_varchar and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char = c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char > c_varchar and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char > c_varchar and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char > c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char ~~ c_varchar and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char ~~ c_varchar and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char ~~ c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char !~~ c_varchar and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char !~~ c_varchar and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_char !~~ c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_date + c_float4, pg_typeof(c_date + c_float4) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_FLOAT4)  
+---------------------+-------------------------------
+ 2020-02-03 02:24:00 | oracle.date
+(1 row)
+
+select c_date + c_float4, pg_typeof(c_date + c_float4) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_FLOAT4)  
+---------------------+-------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date + c_float4, pg_typeof(c_date + c_float4) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_FLOAT4)  
+---------------------+-------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_float4, pg_typeof(c_date - c_float4) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_FLOAT4)  
+---------------------+-------------------------------
+ 2020-01-31 21:36:00 | oracle.date
+(1 row)
+
+select c_date - c_float4, pg_typeof(c_date - c_float4) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_FLOAT4)  
+---------------------+-------------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_float4, pg_typeof(c_date - c_float4) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_FLOAT4)  
+---------------------+-------------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select c_date + c_float8, pg_typeof(c_date + c_float8) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_FLOAT8)  
+---------------------+-------------------------------
+ 2020-02-03 02:24:00 | oracle.date
+(1 row)
+
+select c_date + c_float8, pg_typeof(c_date + c_float8) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_FLOAT8)  
+---------------------+-------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date + c_float8, pg_typeof(c_date + c_float8) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_FLOAT8)  
+---------------------+-------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_float8, pg_typeof(c_date - c_float8) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_FLOAT8)  
+---------------------+-------------------------------
+ 2020-01-31 21:36:00 | oracle.date
+(1 row)
+
+select c_date - c_float8, pg_typeof(c_date - c_float8) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_FLOAT8)  
+---------------------+-------------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_float8, pg_typeof(c_date - c_float8) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_FLOAT8)  
+---------------------+-------------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select c_date + c_int4, pg_typeof(c_date + c_int4) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_INT4)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date + c_int4, pg_typeof(c_date + c_int4) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_INT4)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date + c_int4, pg_typeof(c_date + c_int4) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_INT4)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_int4, pg_typeof(c_date - c_int4) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_INT4)  
+---------------------+-----------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_int4, pg_typeof(c_date - c_int4) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_INT4)  
+---------------------+-----------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_int4, pg_typeof(c_date - c_int4) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_INT4)  
+---------------------+-----------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select c_date + c_int8, pg_typeof(c_date + c_int8) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_INT8)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date + c_int8, pg_typeof(c_date + c_int8) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_INT8)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date + c_int8, pg_typeof(c_date + c_int8) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_INT8)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_int8, pg_typeof(c_date - c_int8) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_INT8)  
+---------------------+-----------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_int8, pg_typeof(c_date - c_int8) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_INT8)  
+---------------------+-----------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_int8, pg_typeof(c_date - c_int8) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_INT8)  
+---------------------+-----------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select c_date + c_numeric, pg_typeof(c_date + c_numeric) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_NUMERIC)  
+---------------------+--------------------------------
+ 2020-02-03 02:24:00 | oracle.date
+(1 row)
+
+select c_date + c_numeric, pg_typeof(c_date + c_numeric) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_NUMERIC)  
+---------------------+--------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date + c_numeric, pg_typeof(c_date + c_numeric) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_DATE + C_NUMERIC)  
+---------------------+--------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_numeric, pg_typeof(c_date - c_numeric) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_NUMERIC)  
+---------------------+--------------------------------
+ 2020-01-31 21:36:00 | oracle.date
+(1 row)
+
+select c_date - c_numeric, pg_typeof(c_date - c_numeric) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_NUMERIC)  
+---------------------+--------------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select c_date - c_numeric, pg_typeof(c_date - c_numeric) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_DATE - C_NUMERIC)  
+---------------------+--------------------------------
+ 2020-02-01 00:00:00 | oracle.date
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date != c_oracle_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date != c_oracle_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date != c_oracle_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_date - c_oracle_date, pg_typeof(c_date - c_oracle_date) from test_convert where case_id = 1;
+          ?COLUMN?           | PG_TYPEOF(C_DATE - C_ORACLE_DATE)  
+-----------------------------+------------------------------------
+ @ 2 hours 2 mins 2 secs ago | interval
+(1 row)
+
+select c_date - c_oracle_date, pg_typeof(c_date - c_oracle_date) from test_convert where case_id = 2;
+          ?COLUMN?           | PG_TYPEOF(C_DATE - C_ORACLE_DATE)  
+-----------------------------+------------------------------------
+ @ 2 hours 2 mins 2 secs ago | interval
+(1 row)
+
+select c_date - c_oracle_date, pg_typeof(c_date - c_oracle_date) from test_convert where case_id = 3;
+          ?COLUMN?           | PG_TYPEOF(C_DATE - C_ORACLE_DATE)  
+-----------------------------+------------------------------------
+ @ 2 hours 2 mins 2 secs ago | interval
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date < c_oracle_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date < c_oracle_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date < c_oracle_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <> c_oracle_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <> c_oracle_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <> c_oracle_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date = c_oracle_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date = c_oracle_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date = c_oracle_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date >= c_oracle_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date >= c_oracle_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date >= c_oracle_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date ~~ c_oracle_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date ~~ c_oracle_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date ~~ c_oracle_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date !~~ c_oracle_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date !~~ c_oracle_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date !~~ c_oracle_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date ~~ c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date !~~ c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date ~~ c_oracle_varchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date !~~ c_oracle_varchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date ~~ c_text and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date !~~ c_text and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date != c_timestamp and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date != c_timestamp and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date != c_timestamp and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date < c_timestamp and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date < c_timestamp and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date < c_timestamp and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <> c_timestamp and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <> c_timestamp and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <> c_timestamp and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date = c_timestamp and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date = c_timestamp and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date = c_timestamp and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date >= c_timestamp and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date >= c_timestamp and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date >= c_timestamp and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date ~~ c_timestamp and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date ~~ c_timestamp and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date ~~ c_timestamp and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date !~~ c_timestamp and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date !~~ c_timestamp and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date !~~ c_timestamp and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date != c_timestamptz and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date != c_timestamptz and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date != c_timestamptz and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date < c_timestamptz and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date < c_timestamptz and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date < c_timestamptz and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <> c_timestamptz and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <> c_timestamptz and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date <> c_timestamptz and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date = c_timestamptz and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date = c_timestamptz and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date = c_timestamptz and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date >= c_timestamptz and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date >= c_timestamptz and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date >= c_timestamptz and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date ~~ c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_date !~~ c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_float4 + c_date, pg_typeof(c_float4 + c_date) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_FLOAT4 + C_DATE)  
+---------------------+-------------------------------
+ 2020-02-03 02:24:00 | oracle.date
+(1 row)
+
+select c_float4 + c_date, pg_typeof(c_float4 + c_date) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_FLOAT4 + C_DATE)  
+---------------------+-------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_float4 + c_date, pg_typeof(c_float4 + c_date) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_FLOAT4 + C_DATE)  
+---------------------+-------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_float4 * c_float4, pg_typeof(c_float4 * c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_FLOAT4)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 * c_float4, pg_typeof(c_float4 * c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_FLOAT4)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 + c_float4, pg_typeof(c_float4 + c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_FLOAT4)  
+----------+---------------------------------
+        2 | numeric
+(1 row)
+
+select c_float4 + c_float4, pg_typeof(c_float4 + c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_FLOAT4)  
+----------+---------------------------------
+        2 | numeric
+(1 row)
+
+select c_float4 - c_float4, pg_typeof(c_float4 - c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_FLOAT4)  
+----------+---------------------------------
+        0 | numeric
+(1 row)
+
+select c_float4 - c_float4, pg_typeof(c_float4 - c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_FLOAT4)  
+----------+---------------------------------
+        0 | numeric
+(1 row)
+
+select c_float4 - c_float4, pg_typeof(c_float4 - c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_FLOAT4)  
+----------+---------------------------------
+        0 | numeric
+(1 row)
+
+select c_float4 / c_float4, pg_typeof(c_float4 / c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_FLOAT4)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 / c_float4, pg_typeof(c_float4 / c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_FLOAT4)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 / c_float4, pg_typeof(c_float4 / c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_FLOAT4)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 != c_float8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select c_float4 * c_float8, pg_typeof(c_float4 * c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_FLOAT8)  
+----------+---------------------------------
+     1.21 | numeric
+(1 row)
+
+select c_float4 * c_float8, pg_typeof(c_float4 * c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_FLOAT8)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 * c_float8, pg_typeof(c_float4 * c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_FLOAT8)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 + c_float8, pg_typeof(c_float4 + c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_FLOAT8)  
+----------+---------------------------------
+      2.2 | numeric
+(1 row)
+
+select c_float4 + c_float8, pg_typeof(c_float4 + c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_FLOAT8)  
+----------+---------------------------------
+        2 | numeric
+(1 row)
+
+select c_float4 + c_float8, pg_typeof(c_float4 + c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_FLOAT8)  
+----------+---------------------------------
+        2 | numeric
+(1 row)
+
+select c_float4 - c_float8, pg_typeof(c_float4 - c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_FLOAT8)  
+----------+---------------------------------
+        0 | numeric
+(1 row)
+
+select c_float4 - c_float8, pg_typeof(c_float4 - c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_FLOAT8)  
+----------+---------------------------------
+        0 | numeric
+(1 row)
+
+select c_float4 - c_float8, pg_typeof(c_float4 - c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_FLOAT8)  
+----------+---------------------------------
+        0 | numeric
+(1 row)
+
+select c_float4 / c_float8, pg_typeof(c_float4 / c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_FLOAT8)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 / c_float8, pg_typeof(c_float4 / c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_FLOAT8)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 / c_float8, pg_typeof(c_float4 / c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_FLOAT8)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 <= c_float8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 <> c_float8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 = c_float8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 > c_float8 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select c_float4 * c_int2, pg_typeof(c_float4 * c_int2) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_INT2)  
+----------+-------------------------------
+      1.1 | numeric
+(1 row)
+
+select c_float4 * c_int2, pg_typeof(c_float4 * c_int2) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_INT2)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 * c_int2, pg_typeof(c_float4 * c_int2) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_INT2)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 + c_int2, pg_typeof(c_float4 + c_int2) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_INT2)  
+----------+-------------------------------
+      2.1 | numeric
+(1 row)
+
+select c_float4 + c_int2, pg_typeof(c_float4 + c_int2) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_INT2)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_float4 + c_int2, pg_typeof(c_float4 + c_int2) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_INT2)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_float4 - c_int2, pg_typeof(c_float4 - c_int2) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_INT2)  
+----------+-------------------------------
+      0.1 | numeric
+(1 row)
+
+select c_float4 - c_int2, pg_typeof(c_float4 - c_int2) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_INT2)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_float4 - c_int2, pg_typeof(c_float4 - c_int2) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_INT2)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_float4 / c_int2, pg_typeof(c_float4 / c_int2) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_INT2)  
+----------+-------------------------------
+      1.1 | numeric
+(1 row)
+
+select c_float4 / c_int2, pg_typeof(c_float4 / c_int2) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_INT2)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 / c_int2, pg_typeof(c_float4 / c_int2) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_INT2)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 * c_int4, pg_typeof(c_float4 * c_int4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_INT4)  
+----------+-------------------------------
+      1.1 | numeric
+(1 row)
+
+select c_float4 * c_int4, pg_typeof(c_float4 * c_int4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_INT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 * c_int4, pg_typeof(c_float4 * c_int4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_INT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 + c_int4, pg_typeof(c_float4 + c_int4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_INT4)  
+----------+-------------------------------
+      2.1 | numeric
+(1 row)
+
+select c_float4 + c_int4, pg_typeof(c_float4 + c_int4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_INT4)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_float4 + c_int4, pg_typeof(c_float4 + c_int4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_INT4)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_float4 - c_int4, pg_typeof(c_float4 - c_int4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_INT4)  
+----------+-------------------------------
+      0.1 | numeric
+(1 row)
+
+select c_float4 - c_int4, pg_typeof(c_float4 - c_int4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_INT4)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_float4 - c_int4, pg_typeof(c_float4 - c_int4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_INT4)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_float4 / c_int4, pg_typeof(c_float4 / c_int4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_INT4)  
+----------+-------------------------------
+      1.1 | numeric
+(1 row)
+
+select c_float4 / c_int4, pg_typeof(c_float4 / c_int4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_INT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 / c_int4, pg_typeof(c_float4 / c_int4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_INT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 * c_int8, pg_typeof(c_float4 * c_int8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_INT8)  
+----------+-------------------------------
+      1.1 | numeric
+(1 row)
+
+select c_float4 * c_int8, pg_typeof(c_float4 * c_int8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_INT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 * c_int8, pg_typeof(c_float4 * c_int8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_INT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 + c_int8, pg_typeof(c_float4 + c_int8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_INT8)  
+----------+-------------------------------
+      2.1 | numeric
+(1 row)
+
+select c_float4 + c_int8, pg_typeof(c_float4 + c_int8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_INT8)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_float4 + c_int8, pg_typeof(c_float4 + c_int8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_INT8)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_float4 - c_int8, pg_typeof(c_float4 - c_int8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_INT8)  
+----------+-------------------------------
+      0.1 | numeric
+(1 row)
+
+select c_float4 - c_int8, pg_typeof(c_float4 - c_int8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_INT8)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_float4 - c_int8, pg_typeof(c_float4 - c_int8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_INT8)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_float4 / c_int8, pg_typeof(c_float4 / c_int8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_INT8)  
+----------+-------------------------------
+      1.1 | numeric
+(1 row)
+
+select c_float4 / c_int8, pg_typeof(c_float4 / c_int8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_INT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 / c_int8, pg_typeof(c_float4 / c_int8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_INT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 * c_interval, pg_typeof(c_float4 * c_interval) from test_convert where case_id = 1;
+        ?COLUMN?         | PG_TYPEOF(C_FLOAT4 * C_INTERVAL)  
+-------------------------+-----------------------------------
+ @ 1 day 2 hours 24 mins | interval
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 != c_numeric and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select c_float4 * c_numeric, pg_typeof(c_float4 * c_numeric) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_NUMERIC)  
+----------+----------------------------------
+     1.21 | numeric
+(1 row)
+
+select c_float4 * c_numeric, pg_typeof(c_float4 * c_numeric) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_NUMERIC)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 * c_numeric, pg_typeof(c_float4 * c_numeric) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 * C_NUMERIC)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 + c_numeric, pg_typeof(c_float4 + c_numeric) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_NUMERIC)  
+----------+----------------------------------
+      2.2 | numeric
+(1 row)
+
+select c_float4 + c_numeric, pg_typeof(c_float4 + c_numeric) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_NUMERIC)  
+----------+----------------------------------
+        2 | numeric
+(1 row)
+
+select c_float4 + c_numeric, pg_typeof(c_float4 + c_numeric) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 + C_NUMERIC)  
+----------+----------------------------------
+        2 | numeric
+(1 row)
+
+select c_float4 - c_numeric, pg_typeof(c_float4 - c_numeric) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_NUMERIC)  
+----------+----------------------------------
+        0 | numeric
+(1 row)
+
+select c_float4 - c_numeric, pg_typeof(c_float4 - c_numeric) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_NUMERIC)  
+----------+----------------------------------
+        0 | numeric
+(1 row)
+
+select c_float4 - c_numeric, pg_typeof(c_float4 - c_numeric) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_NUMERIC)  
+----------+----------------------------------
+        0 | numeric
+(1 row)
+
+select c_float4 / c_numeric, pg_typeof(c_float4 / c_numeric) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_NUMERIC)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 / c_numeric, pg_typeof(c_float4 / c_numeric) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_NUMERIC)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_float4 / c_numeric, pg_typeof(c_float4 / c_numeric) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 / C_NUMERIC)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 <= c_numeric and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 <> c_numeric and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 = c_numeric and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float4 > c_numeric and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select c_float4 + c_oracle_date, pg_typeof(c_float4 + c_oracle_date) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_FLOAT4 + C_ORACLE_DATE)  
+---------------------+--------------------------------------
+ 2020-02-03 04:26:02 | oracle.date
+(1 row)
+
+select c_float4 - c_oracle_nvarchar2, pg_typeof(c_float4 - c_oracle_nvarchar2) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_ORACLE_NVARCHAR2)  
+----------+-------------------------------------------
+      0.1 | numeric
+(1 row)
+
+select c_float4 - c_oracle_varchar2, pg_typeof(c_float4 - c_oracle_varchar2) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_ORACLE_VARCHAR2)  
+----------+------------------------------------------
+      0.1 | numeric
+(1 row)
+
+select c_float4 - c_text, pg_typeof(c_float4 - c_text) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_TEXT)  
+----------+-------------------------------
+      0.1 | numeric
+(1 row)
+
+select c_float4 - c_varchar, pg_typeof(c_float4 - c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT4 - C_VARCHAR)  
+----------+----------------------------------
+      0.1 | numeric
+(1 row)
+
+select c_float8 + c_date, pg_typeof(c_float8 + c_date) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_FLOAT8 + C_DATE)  
+---------------------+-------------------------------
+ 2020-02-03 02:24:00 | oracle.date
+(1 row)
+
+select c_float8 + c_date, pg_typeof(c_float8 + c_date) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_FLOAT8 + C_DATE)  
+---------------------+-------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_float8 + c_date, pg_typeof(c_float8 + c_date) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_FLOAT8 + C_DATE)  
+---------------------+-------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float8 != c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select c_float8 * c_float4, pg_typeof(c_float8 * c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_FLOAT4)  
+----------+---------------------------------
+     1.21 | numeric
+(1 row)
+
+select c_float8 * c_float4, pg_typeof(c_float8 * c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_FLOAT4)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 * c_float4, pg_typeof(c_float8 * c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_FLOAT4)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 + c_float4, pg_typeof(c_float8 + c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 + C_FLOAT4)  
+----------+---------------------------------
+      2.2 | numeric
+(1 row)
+
+select c_float8 + c_float4, pg_typeof(c_float8 + c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 + C_FLOAT4)  
+----------+---------------------------------
+        2 | numeric
+(1 row)
+
+select c_float8 + c_float4, pg_typeof(c_float8 + c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 + C_FLOAT4)  
+----------+---------------------------------
+        2 | numeric
+(1 row)
+
+select c_float8 - c_float4, pg_typeof(c_float8 - c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_FLOAT4)  
+----------+---------------------------------
+        0 | numeric
+(1 row)
+
+select c_float8 - c_float4, pg_typeof(c_float8 - c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_FLOAT4)  
+----------+---------------------------------
+        0 | numeric
+(1 row)
+
+select c_float8 - c_float4, pg_typeof(c_float8 - c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_FLOAT4)  
+----------+---------------------------------
+        0 | numeric
+(1 row)
+
+select c_float8 / c_float4, pg_typeof(c_float8 / c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_FLOAT4)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 / c_float4, pg_typeof(c_float8 / c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_FLOAT4)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 / c_float4, pg_typeof(c_float8 / c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_FLOAT4)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float8 < c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float8 <> c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float8 = c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_float8 >= c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_float8 * c_float8, pg_typeof(c_float8 * c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_FLOAT8)  
+----------+---------------------------------
+     1.21 | numeric
+(1 row)
+
+select c_float8 * c_float8, pg_typeof(c_float8 * c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_FLOAT8)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 * c_float8, pg_typeof(c_float8 * c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_FLOAT8)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 + c_float8, pg_typeof(c_float8 + c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 + C_FLOAT8)  
+----------+---------------------------------
+        2 | numeric
+(1 row)
+
+select c_float8 + c_float8, pg_typeof(c_float8 + c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 + C_FLOAT8)  
+----------+---------------------------------
+        2 | numeric
+(1 row)
+
+select c_float8 - c_float8, pg_typeof(c_float8 - c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_FLOAT8)  
+----------+---------------------------------
+        0 | numeric
+(1 row)
+
+select c_float8 - c_float8, pg_typeof(c_float8 - c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_FLOAT8)  
+----------+---------------------------------
+        0 | numeric
+(1 row)
+
+select c_float8 - c_float8, pg_typeof(c_float8 - c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_FLOAT8)  
+----------+---------------------------------
+        0 | numeric
+(1 row)
+
+select c_float8 / c_float8, pg_typeof(c_float8 / c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_FLOAT8)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 / c_float8, pg_typeof(c_float8 / c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_FLOAT8)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 / c_float8, pg_typeof(c_float8 / c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_FLOAT8)  
+----------+---------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 * c_int2, pg_typeof(c_float8 * c_int2) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_INT2)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 * c_int2, pg_typeof(c_float8 * c_int2) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_INT2)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 + c_int2, pg_typeof(c_float8 + c_int2) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 + C_INT2)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_float8 + c_int2, pg_typeof(c_float8 + c_int2) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 + C_INT2)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_float8 - c_int2, pg_typeof(c_float8 - c_int2) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_INT2)  
+----------+-------------------------------
+      0.1 | numeric
+(1 row)
+
+select c_float8 - c_int2, pg_typeof(c_float8 - c_int2) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_INT2)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_float8 - c_int2, pg_typeof(c_float8 - c_int2) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_INT2)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_float8 / c_int2, pg_typeof(c_float8 / c_int2) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_INT2)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 / c_int2, pg_typeof(c_float8 / c_int2) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_INT2)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 * c_int4, pg_typeof(c_float8 * c_int4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_INT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 * c_int4, pg_typeof(c_float8 * c_int4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_INT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 + c_int4, pg_typeof(c_float8 + c_int4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 + C_INT4)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_float8 + c_int4, pg_typeof(c_float8 + c_int4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 + C_INT4)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_float8 - c_int4, pg_typeof(c_float8 - c_int4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_INT4)  
+----------+-------------------------------
+      0.1 | numeric
+(1 row)
+
+select c_float8 - c_int4, pg_typeof(c_float8 - c_int4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_INT4)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_float8 - c_int4, pg_typeof(c_float8 - c_int4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_INT4)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_float8 / c_int4, pg_typeof(c_float8 / c_int4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_INT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 / c_int4, pg_typeof(c_float8 / c_int4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_INT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 * c_int8, pg_typeof(c_float8 * c_int8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_INT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 * c_int8, pg_typeof(c_float8 * c_int8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_INT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 + c_int8, pg_typeof(c_float8 + c_int8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 + C_INT8)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_float8 + c_int8, pg_typeof(c_float8 + c_int8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 + C_INT8)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_float8 - c_int8, pg_typeof(c_float8 - c_int8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_INT8)  
+----------+-------------------------------
+      0.1 | numeric
+(1 row)
+
+select c_float8 - c_int8, pg_typeof(c_float8 - c_int8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_INT8)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_float8 - c_int8, pg_typeof(c_float8 - c_int8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_INT8)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_float8 / c_int8, pg_typeof(c_float8 / c_int8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_INT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 / c_int8, pg_typeof(c_float8 / c_int8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_INT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 * c_numeric, pg_typeof(c_float8 * c_numeric) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_NUMERIC)  
+----------+----------------------------------
+     1.21 | numeric
+(1 row)
+
+select c_float8 * c_numeric, pg_typeof(c_float8 * c_numeric) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_NUMERIC)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 * c_numeric, pg_typeof(c_float8 * c_numeric) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 * C_NUMERIC)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 + c_numeric, pg_typeof(c_float8 + c_numeric) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 + C_NUMERIC)  
+----------+----------------------------------
+        2 | numeric
+(1 row)
+
+select c_float8 + c_numeric, pg_typeof(c_float8 + c_numeric) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 + C_NUMERIC)  
+----------+----------------------------------
+        2 | numeric
+(1 row)
+
+select c_float8 - c_numeric, pg_typeof(c_float8 - c_numeric) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_NUMERIC)  
+----------+----------------------------------
+        0 | numeric
+(1 row)
+
+select c_float8 - c_numeric, pg_typeof(c_float8 - c_numeric) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_NUMERIC)  
+----------+----------------------------------
+        0 | numeric
+(1 row)
+
+select c_float8 - c_numeric, pg_typeof(c_float8 - c_numeric) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_NUMERIC)  
+----------+----------------------------------
+        0 | numeric
+(1 row)
+
+select c_float8 / c_numeric, pg_typeof(c_float8 / c_numeric) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_NUMERIC)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 / c_numeric, pg_typeof(c_float8 / c_numeric) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_NUMERIC)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 / c_numeric, pg_typeof(c_float8 / c_numeric) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 / C_NUMERIC)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_float8 - c_oracle_nvarchar2, pg_typeof(c_float8 - c_oracle_nvarchar2) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_ORACLE_NVARCHAR2)  
+----------+-------------------------------------------
+      0.1 | numeric
+(1 row)
+
+select c_float8 - c_oracle_varchar2, pg_typeof(c_float8 - c_oracle_varchar2) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_ORACLE_VARCHAR2)  
+----------+------------------------------------------
+      0.1 | numeric
+(1 row)
+
+select c_float8 - c_text, pg_typeof(c_float8 - c_text) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_TEXT)  
+----------+-------------------------------
+      0.1 | numeric
+(1 row)
+
+select c_float8 - c_varchar, pg_typeof(c_float8 - c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_FLOAT8 - C_VARCHAR)  
+----------+----------------------------------
+      0.1 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_int2 ~~ c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_int2 !~~ c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_int2 * c_float4, pg_typeof(c_int2 * c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT2 * C_FLOAT4)  
+----------+-------------------------------
+      1.1 | numeric
+(1 row)
+
+select c_int2 * c_float4, pg_typeof(c_int2 * c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT2 * C_FLOAT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int2 * c_float4, pg_typeof(c_int2 * c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT2 * C_FLOAT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int2 + c_float4, pg_typeof(c_int2 + c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT2 + C_FLOAT4)  
+----------+-------------------------------
+      2.1 | numeric
+(1 row)
+
+select c_int2 + c_float4, pg_typeof(c_int2 + c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT2 + C_FLOAT4)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_int2 + c_float4, pg_typeof(c_int2 + c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT2 + C_FLOAT4)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_int2 - c_float4, pg_typeof(c_int2 - c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT2 - C_FLOAT4)  
+----------+-------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_int2 - c_float4, pg_typeof(c_int2 - c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT2 - C_FLOAT4)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_int2 - c_float4, pg_typeof(c_int2 - c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT2 - C_FLOAT4)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_int2 / c_float4, pg_typeof(c_int2 / c_float4) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_INT2 / C_FLOAT4)  
+------------------------+-------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select c_int2 / c_float4, pg_typeof(c_int2 / c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT2 / C_FLOAT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int2 / c_float4, pg_typeof(c_int2 / c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT2 / C_FLOAT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int2 * c_float8, pg_typeof(c_int2 * c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT2 * C_FLOAT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int2 * c_float8, pg_typeof(c_int2 * c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT2 * C_FLOAT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int2 + c_float8, pg_typeof(c_int2 + c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT2 + C_FLOAT8)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_int2 + c_float8, pg_typeof(c_int2 + c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT2 + C_FLOAT8)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_int2 - c_float8, pg_typeof(c_int2 - c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT2 - C_FLOAT8)  
+----------+-------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_int2 - c_float8, pg_typeof(c_int2 - c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT2 - C_FLOAT8)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_int2 - c_float8, pg_typeof(c_int2 - c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT2 - C_FLOAT8)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_int2 / c_float8, pg_typeof(c_int2 / c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT2 / C_FLOAT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int2 / c_float8, pg_typeof(c_int2 / c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT2 / C_FLOAT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int2 / c_numeric, pg_typeof(c_int2 / c_numeric) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_INT2 / C_NUMERIC)  
+------------------------+--------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_int4 ~~ c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_int4 !~~ c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_int4 + c_date, pg_typeof(c_int4 + c_date) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_INT4 + C_DATE)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_int4 + c_date, pg_typeof(c_int4 + c_date) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_INT4 + C_DATE)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_int4 + c_date, pg_typeof(c_int4 + c_date) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_INT4 + C_DATE)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_int4 * c_float4, pg_typeof(c_int4 * c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT4 * C_FLOAT4)  
+----------+-------------------------------
+      1.1 | numeric
+(1 row)
+
+select c_int4 * c_float4, pg_typeof(c_int4 * c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT4 * C_FLOAT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int4 * c_float4, pg_typeof(c_int4 * c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT4 * C_FLOAT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int4 + c_float4, pg_typeof(c_int4 + c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT4 + C_FLOAT4)  
+----------+-------------------------------
+      2.1 | numeric
+(1 row)
+
+select c_int4 + c_float4, pg_typeof(c_int4 + c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT4 + C_FLOAT4)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_int4 + c_float4, pg_typeof(c_int4 + c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT4 + C_FLOAT4)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_int4 - c_float4, pg_typeof(c_int4 - c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT4 - C_FLOAT4)  
+----------+-------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_int4 - c_float4, pg_typeof(c_int4 - c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT4 - C_FLOAT4)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_int4 - c_float4, pg_typeof(c_int4 - c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT4 - C_FLOAT4)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_int4 / c_float4, pg_typeof(c_int4 / c_float4) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_INT4 / C_FLOAT4)  
+------------------------+-------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select c_int4 / c_float4, pg_typeof(c_int4 / c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT4 / C_FLOAT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int4 / c_float4, pg_typeof(c_int4 / c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT4 / C_FLOAT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int4 * c_float8, pg_typeof(c_int4 * c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT4 * C_FLOAT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int4 * c_float8, pg_typeof(c_int4 * c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT4 * C_FLOAT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int4 + c_float8, pg_typeof(c_int4 + c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT4 + C_FLOAT8)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_int4 + c_float8, pg_typeof(c_int4 + c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT4 + C_FLOAT8)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_int4 - c_float8, pg_typeof(c_int4 - c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT4 - C_FLOAT8)  
+----------+-------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_int4 - c_float8, pg_typeof(c_int4 - c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT4 - C_FLOAT8)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_int4 - c_float8, pg_typeof(c_int4 - c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT4 - C_FLOAT8)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_int4 / c_float8, pg_typeof(c_int4 / c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT4 / C_FLOAT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int4 / c_float8, pg_typeof(c_int4 / c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT4 / C_FLOAT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int4 / c_numeric, pg_typeof(c_int4 / c_numeric) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_INT4 / C_NUMERIC)  
+------------------------+--------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_int8 ~~ c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_int8 !~~ c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_int8 + c_date, pg_typeof(c_int8 + c_date) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_INT8 + C_DATE)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_int8 + c_date, pg_typeof(c_int8 + c_date) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_INT8 + C_DATE)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_int8 + c_date, pg_typeof(c_int8 + c_date) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_INT8 + C_DATE)  
+---------------------+-----------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_int8 * c_float4, pg_typeof(c_int8 * c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT8 * C_FLOAT4)  
+----------+-------------------------------
+      1.1 | numeric
+(1 row)
+
+select c_int8 * c_float4, pg_typeof(c_int8 * c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT8 * C_FLOAT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int8 * c_float4, pg_typeof(c_int8 * c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT8 * C_FLOAT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int8 + c_float4, pg_typeof(c_int8 + c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT8 + C_FLOAT4)  
+----------+-------------------------------
+      2.1 | numeric
+(1 row)
+
+select c_int8 + c_float4, pg_typeof(c_int8 + c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT8 + C_FLOAT4)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_int8 + c_float4, pg_typeof(c_int8 + c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT8 + C_FLOAT4)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_int8 - c_float4, pg_typeof(c_int8 - c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT8 - C_FLOAT4)  
+----------+-------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_int8 - c_float4, pg_typeof(c_int8 - c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT8 - C_FLOAT4)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_int8 - c_float4, pg_typeof(c_int8 - c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT8 - C_FLOAT4)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_int8 / c_float4, pg_typeof(c_int8 / c_float4) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_INT8 / C_FLOAT4)  
+------------------------+-------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select c_int8 / c_float4, pg_typeof(c_int8 / c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT8 / C_FLOAT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int8 / c_float4, pg_typeof(c_int8 / c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT8 / C_FLOAT4)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int8 * c_float8, pg_typeof(c_int8 * c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT8 * C_FLOAT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int8 * c_float8, pg_typeof(c_int8 * c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT8 * C_FLOAT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int8 + c_float8, pg_typeof(c_int8 + c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT8 + C_FLOAT8)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_int8 + c_float8, pg_typeof(c_int8 + c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT8 + C_FLOAT8)  
+----------+-------------------------------
+        2 | numeric
+(1 row)
+
+select c_int8 - c_float8, pg_typeof(c_int8 - c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_INT8 - C_FLOAT8)  
+----------+-------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_int8 - c_float8, pg_typeof(c_int8 - c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT8 - C_FLOAT8)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_int8 - c_float8, pg_typeof(c_int8 - c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT8 - C_FLOAT8)  
+----------+-------------------------------
+        0 | numeric
+(1 row)
+
+select c_int8 / c_float8, pg_typeof(c_int8 / c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_INT8 / C_FLOAT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int8 / c_float8, pg_typeof(c_int8 / c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_INT8 / C_FLOAT8)  
+----------+-------------------------------
+        1 | numeric
+(1 row)
+
+select c_int8 / c_numeric, pg_typeof(c_int8 / c_numeric) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_INT8 / C_NUMERIC)  
+------------------------+--------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select c_interval * c_float4, pg_typeof(c_interval * c_float4) from test_convert where case_id = 1;
+        ?COLUMN?         | PG_TYPEOF(C_INTERVAL * C_FLOAT4)  
+-------------------------+-----------------------------------
+ @ 1 day 2 hours 24 mins | interval
+(1 row)
+
+select c_interval / c_float4, pg_typeof(c_interval / c_float4) from test_convert where case_id = 1;
+             ?COLUMN?             | PG_TYPEOF(C_INTERVAL / C_FLOAT4)  
+----------------------------------+-----------------------------------
+ @ 21 hours 49 mins 5.454545 secs | interval
+(1 row)
+
+select c_numeric + c_date, pg_typeof(c_numeric + c_date) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_NUMERIC + C_DATE)  
+---------------------+--------------------------------
+ 2020-02-03 02:24:00 | oracle.date
+(1 row)
+
+select c_numeric + c_date, pg_typeof(c_numeric + c_date) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_NUMERIC + C_DATE)  
+---------------------+--------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select c_numeric + c_date, pg_typeof(c_numeric + c_date) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_NUMERIC + C_DATE)  
+---------------------+--------------------------------
+ 2020-02-03 00:00:00 | oracle.date
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_numeric != c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select c_numeric * c_float4, pg_typeof(c_numeric * c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC * C_FLOAT4)  
+----------+----------------------------------
+     1.21 | numeric
+(1 row)
+
+select c_numeric * c_float4, pg_typeof(c_numeric * c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC * C_FLOAT4)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_numeric * c_float4, pg_typeof(c_numeric * c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC * C_FLOAT4)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_numeric + c_float4, pg_typeof(c_numeric + c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC + C_FLOAT4)  
+----------+----------------------------------
+      2.2 | numeric
+(1 row)
+
+select c_numeric + c_float4, pg_typeof(c_numeric + c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC + C_FLOAT4)  
+----------+----------------------------------
+        2 | numeric
+(1 row)
+
+select c_numeric + c_float4, pg_typeof(c_numeric + c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC + C_FLOAT4)  
+----------+----------------------------------
+        2 | numeric
+(1 row)
+
+select c_numeric - c_float4, pg_typeof(c_numeric - c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC - C_FLOAT4)  
+----------+----------------------------------
+        0 | numeric
+(1 row)
+
+select c_numeric - c_float4, pg_typeof(c_numeric - c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC - C_FLOAT4)  
+----------+----------------------------------
+        0 | numeric
+(1 row)
+
+select c_numeric - c_float4, pg_typeof(c_numeric - c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC - C_FLOAT4)  
+----------+----------------------------------
+        0 | numeric
+(1 row)
+
+select c_numeric / c_float4, pg_typeof(c_numeric / c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC / C_FLOAT4)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_numeric / c_float4, pg_typeof(c_numeric / c_float4) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC / C_FLOAT4)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_numeric / c_float4, pg_typeof(c_numeric / c_float4) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC / C_FLOAT4)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_numeric < c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_numeric <> c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_numeric = c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_numeric >= c_float4 and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_numeric * c_float8, pg_typeof(c_numeric * c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC * C_FLOAT8)  
+----------+----------------------------------
+     1.21 | numeric
+(1 row)
+
+select c_numeric * c_float8, pg_typeof(c_numeric * c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC * C_FLOAT8)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_numeric * c_float8, pg_typeof(c_numeric * c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC * C_FLOAT8)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_numeric + c_float8, pg_typeof(c_numeric + c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC + C_FLOAT8)  
+----------+----------------------------------
+        2 | numeric
+(1 row)
+
+select c_numeric + c_float8, pg_typeof(c_numeric + c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC + C_FLOAT8)  
+----------+----------------------------------
+        2 | numeric
+(1 row)
+
+select c_numeric - c_float8, pg_typeof(c_numeric - c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC - C_FLOAT8)  
+----------+----------------------------------
+        0 | numeric
+(1 row)
+
+select c_numeric - c_float8, pg_typeof(c_numeric - c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC - C_FLOAT8)  
+----------+----------------------------------
+        0 | numeric
+(1 row)
+
+select c_numeric - c_float8, pg_typeof(c_numeric - c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC - C_FLOAT8)  
+----------+----------------------------------
+        0 | numeric
+(1 row)
+
+select c_numeric / c_float8, pg_typeof(c_numeric / c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC / C_FLOAT8)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_numeric / c_float8, pg_typeof(c_numeric / c_float8) from test_convert where case_id = 2;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC / C_FLOAT8)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select c_numeric / c_float8, pg_typeof(c_numeric / c_float8) from test_convert where case_id = 3;
+ ?COLUMN? | PG_TYPEOF(C_NUMERIC / C_FLOAT8)  
+----------+----------------------------------
+        1 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date ~~ c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date !~~ c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date != c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date != c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date != c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_oracle_date - c_date, pg_typeof(c_oracle_date - c_date) from test_convert where case_id = 1;
+        ?COLUMN?         | PG_TYPEOF(C_ORACLE_DATE - C_DATE)  
+-------------------------+------------------------------------
+ @ 2 hours 2 mins 2 secs | interval
+(1 row)
+
+select c_oracle_date - c_date, pg_typeof(c_oracle_date - c_date) from test_convert where case_id = 2;
+        ?COLUMN?         | PG_TYPEOF(C_ORACLE_DATE - C_DATE)  
+-------------------------+------------------------------------
+ @ 2 hours 2 mins 2 secs | interval
+(1 row)
+
+select c_oracle_date - c_date, pg_typeof(c_oracle_date - c_date) from test_convert where case_id = 3;
+        ?COLUMN?         | PG_TYPEOF(C_ORACLE_DATE - C_DATE)  
+-------------------------+------------------------------------
+ @ 2 hours 2 mins 2 secs | interval
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date <= c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date <= c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date <= c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date <> c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date <> c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date <> c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date = c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date = c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date = c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date > c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date > c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date > c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date ~~ c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date ~~ c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date ~~ c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date !~~ c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date !~~ c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_date !~~ c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_oracle_date + c_float4, pg_typeof(c_oracle_date + c_float4) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_ORACLE_DATE + C_FLOAT4)  
+---------------------+--------------------------------------
+ 2020-02-03 04:26:02 | oracle.date
+(1 row)
+
+select c_oracle_date - c_float4, pg_typeof(c_oracle_date - c_float4) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_ORACLE_DATE - C_FLOAT4)  
+---------------------+--------------------------------------
+ 2020-01-31 23:38:02 | oracle.date
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 != c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 != c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 != c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 < c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 < c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 < c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 <> c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 <> c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 <> c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 = c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 = c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 = c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 >= c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 >= c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 >= c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 ~~ c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 ~~ c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 ~~ c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 !~~ c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 !~~ c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 !~~ c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 ~~ c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 !~~ c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_oracle_nvarchar2 - c_float4, pg_typeof(c_oracle_nvarchar2 - c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_ORACLE_NVARCHAR2 - C_FLOAT4)  
+----------+-------------------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_oracle_nvarchar2 / c_float4, pg_typeof(c_oracle_nvarchar2 / c_float4) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_ORACLE_NVARCHAR2 / C_FLOAT4)  
+------------------------+-------------------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select c_oracle_nvarchar2 - c_float8, pg_typeof(c_oracle_nvarchar2 - c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_ORACLE_NVARCHAR2 - C_FLOAT8)  
+----------+-------------------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_oracle_nvarchar2 / c_numeric, pg_typeof(c_oracle_nvarchar2 / c_numeric) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_ORACLE_NVARCHAR2 / C_NUMERIC)  
+------------------------+--------------------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 ~~ c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 ~~ c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 ~~ c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 !~~ c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 !~~ c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 !~~ c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 ~~ c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 !~~ c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_oracle_varchar2 - c_float4, pg_typeof(c_oracle_varchar2 - c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_ORACLE_VARCHAR2 - C_FLOAT4)  
+----------+------------------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_oracle_varchar2 / c_float4, pg_typeof(c_oracle_varchar2 / c_float4) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_ORACLE_VARCHAR2 / C_FLOAT4)  
+------------------------+------------------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select c_oracle_varchar2 - c_float8, pg_typeof(c_oracle_varchar2 - c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_ORACLE_VARCHAR2 - C_FLOAT8)  
+----------+------------------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_oracle_varchar2 / c_numeric, pg_typeof(c_oracle_varchar2 / c_numeric) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_ORACLE_VARCHAR2 / C_NUMERIC)  
+------------------------+-------------------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_text ~~ c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_text !~~ c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_text - c_float4, pg_typeof(c_text - c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_TEXT - C_FLOAT4)  
+----------+-------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_text / c_float4, pg_typeof(c_text / c_float4) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_TEXT / C_FLOAT4)  
+------------------------+-------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select c_text - c_float8, pg_typeof(c_text - c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_TEXT - C_FLOAT8)  
+----------+-------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_text / c_numeric, pg_typeof(c_text / c_numeric) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_TEXT / C_NUMERIC)  
+------------------------+--------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp ~~ c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp !~~ c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp != c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp != c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp != c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp <= c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp <= c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp <= c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp <> c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp <> c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp <> c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp = c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp = c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp = c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp > c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp > c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp > c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp ~~ c_oracle_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp ~~ c_oracle_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp ~~ c_oracle_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp !~~ c_oracle_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp !~~ c_oracle_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp !~~ c_oracle_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp ~~ c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp !~~ c_oracle_nvarchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamptz <= c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamptz <= c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamptz <= c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamptz <> c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamptz <> c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamptz <> c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamptz = c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamptz = c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamptz = c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamptz > c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamptz > c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamptz > c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar != c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar != c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar != c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar < c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar < c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar < c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar <> c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar <> c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar <> c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar = c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar = c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar = c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar >= c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar >= c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar >= c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar ~~ c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar ~~ c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar ~~ c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar !~~ c_char and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar !~~ c_char and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar !~~ c_char and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar ~~ c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar !~~ c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_varchar - c_float4, pg_typeof(c_varchar - c_float4) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_VARCHAR - C_FLOAT4)  
+----------+----------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_varchar / c_float4, pg_typeof(c_varchar / c_float4) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_VARCHAR / C_FLOAT4)  
+------------------------+----------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select c_varchar - c_float8, pg_typeof(c_varchar - c_float8) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_VARCHAR - C_FLOAT8)  
+----------+----------------------------------
+     -0.1 | numeric
+(1 row)
+
+select c_varchar / c_numeric, pg_typeof(c_varchar / c_numeric) from test_convert where case_id = 1;
+        ?COLUMN?        | PG_TYPEOF(C_VARCHAR / C_NUMERIC)  
+------------------------+-----------------------------------
+ 0.90909090909090909091 | numeric
+(1 row)
+
+select c_oracle_varchar2 * c_varchar, pg_typeof(c_oracle_varchar2 * c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_ORACLE_VARCHAR2 * C_VARCHAR)  
+----------+-------------------------------------------
+        1 | numeric
+(1 row)
+
+select c_oracle_varchar2 + c_varchar, pg_typeof(c_oracle_varchar2 + c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_ORACLE_VARCHAR2 + C_VARCHAR)  
+----------+-------------------------------------------
+        2 | numeric
+(1 row)
+
+select c_oracle_varchar2 - c_varchar, pg_typeof(c_oracle_varchar2 - c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_ORACLE_VARCHAR2 - C_VARCHAR)  
+----------+-------------------------------------------
+        0 | numeric
+(1 row)
+
+select c_oracle_varchar2 / c_varchar, pg_typeof(c_oracle_varchar2 / c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_ORACLE_VARCHAR2 / C_VARCHAR)  
+----------+-------------------------------------------
+        1 | numeric
+(1 row)
+
+select c_text * c_interval, pg_typeof(c_text * c_interval) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_TEXT * C_INTERVAL)  
+----------+---------------------------------
+ @ 1 day  | interval
+(1 row)
+
+select c_text * c_varchar, pg_typeof(c_text * c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_TEXT * C_VARCHAR)  
+----------+--------------------------------
+        1 | numeric
+(1 row)
+
+select c_text + c_varchar, pg_typeof(c_text + c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_TEXT + C_VARCHAR)  
+----------+--------------------------------
+        2 | numeric
+(1 row)
+
+select c_text - c_varchar, pg_typeof(c_text - c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_TEXT - C_VARCHAR)  
+----------+--------------------------------
+        0 | numeric
+(1 row)
+
+select c_text / c_varchar, pg_typeof(c_text / c_varchar) from test_convert where case_id = 1;
+ ?COLUMN? | PG_TYPEOF(C_TEXT / C_VARCHAR)  
+----------+--------------------------------
+        1 | numeric
+(1 row)
+
+-- about timestamp and timestamptz
+select c_char + c_timestamptz, pg_typeof(c_char + c_timestamptz) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_CHAR + C_TIMESTAMPTZ)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_float4 + c_timestamptz, pg_typeof(c_float4 + c_timestamptz) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_FLOAT4 + C_TIMESTAMPTZ)  
+---------------------+--------------------------------------
+ 2020-02-03 12:26:02 | oracle.date
+(1 row)
+
+select c_float4 + c_timestamptz, pg_typeof(c_float4 + c_timestamptz) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_FLOAT4 + C_TIMESTAMPTZ)  
+---------------------+--------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_float4 + c_timestamptz, pg_typeof(c_float4 + c_timestamptz) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_FLOAT4 + C_TIMESTAMPTZ)  
+---------------------+--------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_float8 + c_timestamptz, pg_typeof(c_float8 + c_timestamptz) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_FLOAT8 + C_TIMESTAMPTZ)  
+---------------------+--------------------------------------
+ 2020-02-03 12:26:02 | oracle.date
+(1 row)
+
+select c_float8 + c_timestamptz, pg_typeof(c_float8 + c_timestamptz) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_FLOAT8 + C_TIMESTAMPTZ)  
+---------------------+--------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_float8 + c_timestamptz, pg_typeof(c_float8 + c_timestamptz) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_FLOAT8 + C_TIMESTAMPTZ)  
+---------------------+--------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_int2 + c_timestamptz, pg_typeof(c_int2 + c_timestamptz) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_INT2 + C_TIMESTAMPTZ)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_int2 + c_timestamptz, pg_typeof(c_int2 + c_timestamptz) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_INT2 + C_TIMESTAMPTZ)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_int2 + c_timestamptz, pg_typeof(c_int2 + c_timestamptz) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_INT2 + C_TIMESTAMPTZ)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_int4 + c_timestamptz, pg_typeof(c_int4 + c_timestamptz) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_INT4 + C_TIMESTAMPTZ)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_int4 + c_timestamptz, pg_typeof(c_int4 + c_timestamptz) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_INT4 + C_TIMESTAMPTZ)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_int4 + c_timestamptz, pg_typeof(c_int4 + c_timestamptz) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_INT4 + C_TIMESTAMPTZ)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_int8 + c_timestamptz, pg_typeof(c_int8 + c_timestamptz) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_INT8 + C_TIMESTAMPTZ)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_int8 + c_timestamptz, pg_typeof(c_int8 + c_timestamptz) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_INT8 + C_TIMESTAMPTZ)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_int8 + c_timestamptz, pg_typeof(c_int8 + c_timestamptz) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_INT8 + C_TIMESTAMPTZ)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_numeric + c_timestamptz, pg_typeof(c_numeric + c_timestamptz) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_NUMERIC + C_TIMESTAMPTZ)  
+---------------------+---------------------------------------
+ 2020-02-03 12:26:02 | oracle.date
+(1 row)
+
+select c_numeric + c_timestamptz, pg_typeof(c_numeric + c_timestamptz) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_NUMERIC + C_TIMESTAMPTZ)  
+---------------------+---------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_numeric + c_timestamptz, pg_typeof(c_numeric + c_timestamptz) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_NUMERIC + C_TIMESTAMPTZ)  
+---------------------+---------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_oracle_nvarchar2 + c_timestamptz, pg_typeof(c_oracle_nvarchar2 + c_timestamptz) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_ORACLE_NVARCHAR2 + C_TIMESTAMPTZ)  
+---------------------+------------------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_oracle_varchar2 + c_timestamptz, pg_typeof(c_oracle_varchar2 + c_timestamptz) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_ORACLE_VARCHAR2 + C_TIMESTAMPTZ)  
+---------------------+-----------------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_text + c_timestamptz, pg_typeof(c_text + c_timestamptz) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TEXT + C_TIMESTAMPTZ)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_char, pg_typeof(c_timestamptz + c_char) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_CHAR)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_char, pg_typeof(c_timestamptz - c_char) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_CHAR)  
+---------------------+------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_float4, pg_typeof(c_timestamptz + c_float4) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_FLOAT4)  
+---------------------+--------------------------------------
+ 2020-02-03 12:26:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_float4, pg_typeof(c_timestamptz + c_float4) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_FLOAT4)  
+---------------------+--------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_float4, pg_typeof(c_timestamptz + c_float4) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_FLOAT4)  
+---------------------+--------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_float4, pg_typeof(c_timestamptz - c_float4) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_FLOAT4)  
+---------------------+--------------------------------------
+ 2020-02-01 07:38:01 | oracle.date
+(1 row)
+
+select c_timestamptz - c_float4, pg_typeof(c_timestamptz - c_float4) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_FLOAT4)  
+---------------------+--------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_float4, pg_typeof(c_timestamptz - c_float4) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_FLOAT4)  
+---------------------+--------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_float8, pg_typeof(c_timestamptz + c_float8) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_FLOAT8)  
+---------------------+--------------------------------------
+ 2020-02-03 12:26:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_float8, pg_typeof(c_timestamptz + c_float8) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_FLOAT8)  
+---------------------+--------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_float8, pg_typeof(c_timestamptz + c_float8) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_FLOAT8)  
+---------------------+--------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_float8, pg_typeof(c_timestamptz - c_float8) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_FLOAT8)  
+---------------------+--------------------------------------
+ 2020-02-01 07:38:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_float8, pg_typeof(c_timestamptz - c_float8) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_FLOAT8)  
+---------------------+--------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_float8, pg_typeof(c_timestamptz - c_float8) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_FLOAT8)  
+---------------------+--------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_int2, pg_typeof(c_timestamptz + c_int2) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_INT2)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_int2, pg_typeof(c_timestamptz + c_int2) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_INT2)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_int2, pg_typeof(c_timestamptz + c_int2) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_INT2)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_int2, pg_typeof(c_timestamptz - c_int2) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_INT2)  
+---------------------+------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_int2, pg_typeof(c_timestamptz - c_int2) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_INT2)  
+---------------------+------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_int2, pg_typeof(c_timestamptz - c_int2) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_INT2)  
+---------------------+------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_int4, pg_typeof(c_timestamptz + c_int4) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_INT4)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_int4, pg_typeof(c_timestamptz + c_int4) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_INT4)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_int4, pg_typeof(c_timestamptz + c_int4) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_INT4)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_int4, pg_typeof(c_timestamptz - c_int4) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_INT4)  
+---------------------+------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_int4, pg_typeof(c_timestamptz - c_int4) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_INT4)  
+---------------------+------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_int4, pg_typeof(c_timestamptz - c_int4) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_INT4)  
+---------------------+------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_int8, pg_typeof(c_timestamptz + c_int8) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_INT8)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_int8, pg_typeof(c_timestamptz + c_int8) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_INT8)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_int8, pg_typeof(c_timestamptz + c_int8) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_INT8)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_int8, pg_typeof(c_timestamptz - c_int8) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_INT8)  
+---------------------+------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_int8, pg_typeof(c_timestamptz - c_int8) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_INT8)  
+---------------------+------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_int8, pg_typeof(c_timestamptz - c_int8) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_INT8)  
+---------------------+------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_numeric, pg_typeof(c_timestamptz + c_numeric) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_NUMERIC)  
+---------------------+---------------------------------------
+ 2020-02-03 12:26:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_numeric, pg_typeof(c_timestamptz + c_numeric) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_NUMERIC)  
+---------------------+---------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_numeric, pg_typeof(c_timestamptz + c_numeric) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_NUMERIC)  
+---------------------+---------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_numeric, pg_typeof(c_timestamptz - c_numeric) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_NUMERIC)  
+---------------------+---------------------------------------
+ 2020-02-01 07:38:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_numeric, pg_typeof(c_timestamptz - c_numeric) from test_convert where case_id = 2;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_NUMERIC)  
+---------------------+---------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_numeric, pg_typeof(c_timestamptz - c_numeric) from test_convert where case_id = 3;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_NUMERIC)  
+---------------------+---------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_oracle_nvarchar2, pg_typeof(c_timestamptz + c_oracle_nvarchar2) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_ORACLE_NVARCHAR2)  
+---------------------+------------------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_oracle_nvarchar2, pg_typeof(c_timestamptz - c_oracle_nvarchar2) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_ORACLE_NVARCHAR2)  
+---------------------+------------------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_oracle_varchar2, pg_typeof(c_timestamptz + c_oracle_varchar2) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_ORACLE_VARCHAR2)  
+---------------------+-----------------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_oracle_varchar2, pg_typeof(c_timestamptz - c_oracle_varchar2) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_ORACLE_VARCHAR2)  
+---------------------+-----------------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_text, pg_typeof(c_timestamptz + c_text) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_TEXT)  
+---------------------+------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_text, pg_typeof(c_timestamptz - c_text) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_TEXT)  
+---------------------+------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz + c_varchar, pg_typeof(c_timestamptz + c_varchar) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ + C_VARCHAR)  
+---------------------+---------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_timestamptz - c_varchar, pg_typeof(c_timestamptz - c_varchar) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMPTZ - C_VARCHAR)  
+---------------------+---------------------------------------
+ 2020-02-01 10:02:02 | oracle.date
+(1 row)
+
+select c_varchar + c_timestamptz, pg_typeof(c_varchar + c_timestamptz) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_VARCHAR + C_TIMESTAMPTZ)  
+---------------------+---------------------------------------
+ 2020-02-03 10:02:02 | oracle.date
+(1 row)
+
+select c_float4 + c_timestamp, pg_typeof(c_float4 + c_timestamp) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_FLOAT4 + C_TIMESTAMP)  
+---------------------+------------------------------------
+ 2020-02-03 04:26:02 | timestamp without time zone
+(1 row)
+
+select c_interval + c_timestamptz, pg_typeof(c_interval + c_timestamptz) from test_convert where case_id = 1;
+          ?COLUMN?          | PG_TYPEOF(C_INTERVAL + C_TIMESTAMPTZ)  
+----------------------------+----------------------------------------
+ 2020-02-03 02:02:02 -08:00 | timestamp with time zone
+(1 row)
+
+select c_interval + c_timestamptz, pg_typeof(c_interval + c_timestamptz) from test_convert where case_id = 2;
+          ?COLUMN?          | PG_TYPEOF(C_INTERVAL + C_TIMESTAMPTZ)  
+----------------------------+----------------------------------------
+ 2020-02-03 02:02:02 -08:00 | timestamp with time zone
+(1 row)
+
+select c_interval + c_timestamptz, pg_typeof(c_interval + c_timestamptz) from test_convert where case_id = 3;
+          ?COLUMN?          | PG_TYPEOF(C_INTERVAL + C_TIMESTAMPTZ)  
+----------------------------+----------------------------------------
+ 2020-02-03 02:02:02 -08:00 | timestamp with time zone
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 ~~ c_timestamp and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_nvarchar2 !~~ c_timestamp and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 ~~ c_timestamp and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_oracle_varchar2 !~~ c_timestamp and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_text ~~ c_timestamp and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_text !~~ c_timestamp and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select c_timestamp + c_float4, pg_typeof(c_timestamp + c_float4) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMP + C_FLOAT4)  
+---------------------+------------------------------------
+ 2020-02-03 04:26:02 | timestamp without time zone
+(1 row)
+
+select c_timestamp - c_float4, pg_typeof(c_timestamp - c_float4) from test_convert where case_id = 1;
+      ?COLUMN?       | PG_TYPEOF(C_TIMESTAMP - C_FLOAT4)  
+---------------------+------------------------------------
+ 2020-01-31 23:38:02 | timestamp without time zone
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp ~~ c_oracle_varchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp !~~ c_oracle_varchar2 and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp ~~ c_text and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp !~~ c_text and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp ~~ c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamp !~~ c_varchar and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamptz != c_date and case_id = 1;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamptz != c_date and case_id = 2;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_timestamptz != c_date and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select c_timestamptz + c_interval, pg_typeof(c_timestamptz + c_interval) from test_convert where case_id = 1;
+          ?COLUMN?          | PG_TYPEOF(C_TIMESTAMPTZ + C_INTERVAL)  
+----------------------------+----------------------------------------
+ 2020-02-03 02:02:02 -08:00 | timestamp with time zone
+(1 row)
+
+select c_timestamptz + c_interval, pg_typeof(c_timestamptz + c_interval) from test_convert where case_id = 2;
+          ?COLUMN?          | PG_TYPEOF(C_TIMESTAMPTZ + C_INTERVAL)  
+----------------------------+----------------------------------------
+ 2020-02-03 02:02:02 -08:00 | timestamp with time zone
+(1 row)
+
+select c_timestamptz + c_interval, pg_typeof(c_timestamptz + c_interval) from test_convert where case_id = 3;
+          ?COLUMN?          | PG_TYPEOF(C_TIMESTAMPTZ + C_INTERVAL)  
+----------------------------+----------------------------------------
+ 2020-02-03 02:02:02 -08:00 | timestamp with time zone
+(1 row)
+
+select c_timestamptz - c_interval, pg_typeof(c_timestamptz - c_interval) from test_convert where case_id = 1;
+          ?COLUMN?          | PG_TYPEOF(C_TIMESTAMPTZ - C_INTERVAL)  
+----------------------------+----------------------------------------
+ 2020-02-01 02:02:02 -08:00 | timestamp with time zone
+(1 row)
+
+select c_timestamptz - c_interval, pg_typeof(c_timestamptz - c_interval) from test_convert where case_id = 2;
+          ?COLUMN?          | PG_TYPEOF(C_TIMESTAMPTZ - C_INTERVAL)  
+----------------------------+----------------------------------------
+ 2020-02-01 02:02:02 -08:00 | timestamp with time zone
+(1 row)
+
+select c_timestamptz - c_interval, pg_typeof(c_timestamptz - c_interval) from test_convert where case_id = 3;
+          ?COLUMN?          | PG_TYPEOF(C_TIMESTAMPTZ - C_INTERVAL)  
+----------------------------+----------------------------------------
+ 2020-02-01 02:02:02 -08:00 | timestamp with time zone
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar ~~ c_timestamp and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        1 | Bool Result
+(1 row)
+
+select count(*), 'Bool Result' from test_convert where c_varchar !~~ c_timestamp and case_id = 3;
+ COUNT(*) |  ?COLUMN?   
+----------+-------------
+        0 | Bool Result
+(1 row)
+
+drop table test_convert;

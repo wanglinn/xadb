@@ -286,20 +286,22 @@ select * from adv_query_1 where name like 'apple%' order by id;
 (3 rows)
 
 select * from adv_query_1 where name like '% ' order by id;
+ ID |     NAME      |         DT          
+----+---------------+---------------------
+  2 | apple#UK      | 2015-11-01 10:30:59
+  3 | apple         | 2015-11-01 10:30:59
+(2 rows)
+
+select * from adv_query_1 where name like 'apple' order by id;
  ID | NAME | DT 
 ----+------+----
 (0 rows)
 
-select * from adv_query_1 where name like 'apple' order by id;
+select * from adv_query_1 where name like 'apple        ' order by id;
  ID |     NAME      |         DT          
 ----+---------------+---------------------
   3 | apple         | 2015-11-01 10:30:59
 (1 row)
-
-select * from adv_query_1 where name like 'apple        ' order by id;
- ID | NAME | DT 
-----+------+----
-(0 rows)
 
 select * from adv_query_1 where name like to_char('apple% ') order by id;
  ID |     NAME      |         DT          

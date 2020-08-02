@@ -6170,3 +6170,77 @@ rest_of_char_same(const char *s1, const char *s2, int len)
 #include "levenshtein.c"
 #define LEVENSHTEIN_LESS_EQUAL
 #include "levenshtein.c"
+
+#ifdef ADB_GRAM_ORA
+Datum
+ora_texteqbpchar(PG_FUNCTION_ARGS)
+{
+	return texteq(fcinfo);
+}
+
+Datum
+ora_bpchareqtext(PG_FUNCTION_ARGS)
+{
+	return texteq(fcinfo);
+}
+
+Datum
+ora_textnebpchar(PG_FUNCTION_ARGS)
+{
+	return textne(fcinfo);
+}
+
+Datum
+ora_bpcharnetext(PG_FUNCTION_ARGS)
+{
+	return textne(fcinfo);
+}
+
+Datum
+ora_bpchar_lt_text(PG_FUNCTION_ARGS)
+{
+	return text_lt(fcinfo);
+}
+
+Datum
+ora_bpchar_le_text(PG_FUNCTION_ARGS)
+{
+	return text_le(fcinfo);
+}
+
+Datum
+ora_bpchar_gt_text(PG_FUNCTION_ARGS)
+{
+	return text_gt(fcinfo);
+}
+
+Datum
+ora_bpchar_ge_text(PG_FUNCTION_ARGS)
+{
+	return text_ge(fcinfo);
+}
+
+Datum
+ora_text_lt_bpchar(PG_FUNCTION_ARGS)
+{
+	return text_lt(fcinfo);
+}
+
+Datum
+ora_text_le_bpchar(PG_FUNCTION_ARGS)
+{
+	return text_le(fcinfo);
+}
+
+Datum
+ora_text_gt_bpchar(PG_FUNCTION_ARGS)
+{
+	return text_gt(fcinfo);
+}
+
+Datum
+ora_text_ge_bpchar(PG_FUNCTION_ARGS)
+{
+	return text_ge(fcinfo);
+}
+#endif
