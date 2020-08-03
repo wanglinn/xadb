@@ -51,6 +51,9 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #include "utils/rel.h"
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+#include "access/relation.h"
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 #ifdef ADB
 #include "pgxc/pgxc.h"
 
@@ -1314,6 +1317,19 @@ transformFromClauseItem(ParseState *pstate, Node *n,
 			{
 				char	   *l_colname = strVal(lfirst(lx));
 				Value	   *m_name = NULL;
+
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+				/* need skip rowid column */
+				if (lx == list_head(l_colnames) && /* first column */
+					l_rte->rtekind == RTE_RELATION /* Ordinary relation */)
+				{
+					Relation rel = relation_open(l_rte->relid, AccessShareLock);
+					bool is_rowid = IsOraRowidColumn(TupleDescAttr(RelationGetDescr(rel), 0));
+					relation_close(rel, AccessShareLock);
+					if (is_rowid)
+						continue;
+				}
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 
 				foreach(rx, r_colnames)
 				{
