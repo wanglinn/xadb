@@ -1351,7 +1351,7 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 		/*
 		 * Ignore dropped columns in the parent.  attmap entry is left zero.
 		 */
-		if (attribute->attisdropped)
+		if (attribute->attisdropped ADB_SEQ_ROWID_CODE(|| IsOraRowidColumn(attribute)))
 			continue;
 
 		attmap[parent_attno - 1] = list_length(cxt->columns) + (new_attno++);
@@ -1371,7 +1371,7 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 		/*
 		 * Ignore dropped columns in the parent.
 		 */
-		if (attribute->attisdropped)
+		if (attribute->attisdropped ADB_SEQ_ROWID_CODE(|| IsOraRowidColumn(attribute)))
 			continue;
 
 		/*
