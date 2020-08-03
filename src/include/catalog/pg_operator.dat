@@ -3267,9 +3267,9 @@
 # ADB_BEGIN
 { oid => '9001', row_macros => 'ADB_GRAM_ORA',
   oid_symbol => 'RowidEqualOperator', descr => 'equal',
-  oprname => '=', oprnamespace => 'ORANSP', oprcanmerge => 't',
-  oprcanhash => 't', oprleft => 'oracle.rowid', oprright => 'oracle.rowid',
-  oprresult => 'bool', oprcom => '=(oracle.rowid,oracle.rowid)',
+  oprname => '=', oprcanmerge => 't', oprcanhash => 't',
+  oprleft => 'oracle.rowid', oprright => 'oracle.rowid', oprresult => 'bool',
+  oprcom => '=(oracle.rowid,oracle.rowid)',
   oprnegate => '<>(oracle.rowid,oracle.rowid)', oprcode => 'rowid_eq',
   oprrest => 'eqsel', oprjoin => 'eqjoinsel' },
 { oid => '9002', row_macros => 'ADB_GRAM_ORA', descr => 'not equal',
