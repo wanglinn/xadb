@@ -126,7 +126,8 @@ create_ctas_internal(List *attrList, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(b
 	create->accessMethod = into->accessMethod;
 #ifdef USE_SEQ_ROWID
 	*generated_rowid = false;
-	if (default_with_rowids)
+	if (default_with_rowids &&
+		is_matview == false)
 	{
 		create->tableElts = lcons(makeRowidColumnDef(true), create->tableElts);
 		*generated_rowid = true;
