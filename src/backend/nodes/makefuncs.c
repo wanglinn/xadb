@@ -551,6 +551,33 @@ ColumnDef *makeRowidColumnDef(bool only_def)
 
 	return def;
 }
+
+bool IsRowidColumnDef(const ColumnDef *def)
+{
+	FuncCall *fc;
+	ColumnRef *cr;
+	return def->location == -1 &&
+		   def->colname != NULL &&
+		   def->generated == ATTRIBUTE_GENERATED_STORED &&
+		   strcmp(def->colname, "rowid") == 0 &&
+		   def->typeName &&
+		   def->typeName->location == -1 &&
+		   def->typeName->typemod == -1 &&
+		   list_length(def->typeName->names) == 2 &&
+		   strcmp(strVal(linitial(def->typeName->names)), "oracle") == 0 &&
+		   strcmp(strVal(llast(def->typeName->names)), "rowid") == 0 &&
+		   (fc = (FuncCall*)def->raw_default) != NULL &&
+		   IsA(fc, FuncCall) &&
+		   fc->location == -1 &&
+		   list_length(fc->funcname) == 2 &&
+		   strcmp(strVal(linitial(fc->funcname)), "oracle") == 0 &&
+		   strcmp(strVal(llast(fc->funcname)), "nextrowid") == 0 &&
+		   list_length(fc->args) == 1 &&
+		   IsA(linitial(fc->args), ColumnRef) &&
+		   (cr = (ColumnRef*)linitial(fc->args))->location == -1 &&
+		   list_length(cr->fields) == 1 &&
+		   strcmp(strVal(linitial(cr->fields)), "tableoid") == 0;
+}
 #endif /* USE_SEQ_ROWID */
 
 /*

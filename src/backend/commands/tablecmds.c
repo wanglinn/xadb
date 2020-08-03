@@ -2778,6 +2778,12 @@ MergeAttributes(List *schema, List *supers, char relpersistence,
 			if (attribute->attisdropped)
 				continue;		/* leave newattno entry as zero */
 
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+			if (is_partition == false &&	/* for INHERIT */
+				IsOraRowidColumn(attribute))
+				continue;
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
+
 			/*
 			 * Does it conflict with some previously inherited column?
 			 */
@@ -3127,6 +3133,14 @@ MergeAttributes(List *schema, List *supers, char relpersistence,
 				}
 
 			}
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+			else if (entry == list_head(schema) &&
+					 IsRowidColumnDef(newdef))
+			{
+				/* let "rowid" at first */
+				inhSchema = lcons(newdef, inhSchema);
+			}
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 			else
 			{
 				/*
