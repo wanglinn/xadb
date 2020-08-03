@@ -993,7 +993,8 @@ plpgsql_exec_trigger(PLpgSQL_function *func,
 			TRIGGER_FIRED_BEFORE(trigdata->tg_event))
 		{
 			for (int i = 0; i < tupdesc->natts; i++)
-				if (TupleDescAttr(tupdesc, i)->attgenerated == ATTRIBUTE_GENERATED_STORED)
+				if (TupleDescAttr(tupdesc, i)->attgenerated == ATTRIBUTE_GENERATED_STORED
+					ADB_SEQ_ROWID_CODE(&& !IsOraRowidColumn(TupleDescAttr(tupdesc, i))))
 					expanded_record_set_field_internal(rec_new->erh,
 													   i + 1,
 													   (Datum) 0,
