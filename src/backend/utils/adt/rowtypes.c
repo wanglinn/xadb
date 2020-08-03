@@ -381,7 +381,7 @@ record_out(PG_FUNCTION_ARGS)
 		bool		nq;
 
 		/* Ignore dropped columns in datatype */
-		if (att->attisdropped)
+		if (att->attisdropped ADB_SEQ_ROWID_CODE(||IsOraRowidColumn(att)))
 			continue;
 
 		if (needComma)
