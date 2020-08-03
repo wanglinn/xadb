@@ -1100,6 +1100,15 @@ coerce_record_to_complex(ParseState *pstate, Node *node,
 			continue;
 		}
 
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+		if (IsOraRowidColumn(attr))
+		{
+			newargs = lappend(newargs,
+							  makeNullConst(ORACLE_ROWIDOID, -1, InvalidOid));
+			continue;
+		}
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
+
 		if (arg == NULL)
 			ereport(ERROR,
 					(errcode(ERRCODE_CANNOT_COERCE),
