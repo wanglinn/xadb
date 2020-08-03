@@ -64,7 +64,7 @@ extern bool enable_aux_dml;
 /* Convenience macro for the most common makeNamespaceItem() case */
 #define makeDefaultNSItem(rte)	makeNamespaceItem(rte, true, true, false, true)
 
-static void extractRemainingColumns(List *common_colnames,
+static void extractRemainingColumns(List *common_colnames, ADB_SEQ_ROWID_ARGS_COMMA(const RangeTblEntry *rte)
 									List *src_colnames, List *src_colvars,
 									List **res_colnames, List **res_colvars);
 static Node *transformJoinUsingClause(ParseState *pstate,
@@ -273,7 +273,7 @@ setTargetTable(ParseState *pstate, RangeVar *relation,
  * Extract all not-in-common columns from column lists of a source table
  */
 static void
-extractRemainingColumns(List *common_colnames,
+extractRemainingColumns(List *common_colnames, ADB_SEQ_ROWID_ARGS_COMMA(const RangeTblEntry *rte)
 						List *src_colnames, List *src_colvars,
 						List **res_colnames, List **res_colvars)
 {
@@ -289,6 +289,20 @@ extractRemainingColumns(List *common_colnames,
 		char	   *colname = strVal(lfirst(lnames));
 		bool		match = false;
 		ListCell   *cnames;
+
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+		if (IsA(lfirst(lvars), Var) &&
+			((Var*)lfirst(lvars))->varattno == 1 &&
+			((Var*)lfirst(lvars))->vartype == ORACLE_ROWIDOID && 
+			strcmp(colname, "rowid") == 0)
+		{
+			Relation rel = relation_open(rte->relid, AccessShareLock);
+			bool is_rowid = IsOraRowidColumn(TupleDescAttr(RelationGetDescr(rel), 0));
+			relation_close(rel, AccessShareLock);
+			if (is_rowid)
+				continue;
+		}
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 
 		foreach(cnames, common_colnames)
 		{
@@ -1468,10 +1482,10 @@ transformFromClauseItem(ParseState *pstate, Node *n,
 		}
 
 		/* Add remaining columns from each side to the output columns */
-		extractRemainingColumns(res_colnames,
+		extractRemainingColumns(res_colnames, ADB_SEQ_ROWID_ARGS_COMMA(l_rte)
 								l_colnames, l_colvars,
 								&l_colnames, &l_colvars);
-		extractRemainingColumns(res_colnames,
+		extractRemainingColumns(res_colnames, ADB_SEQ_ROWID_ARGS_COMMA(l_rte)
 								r_colnames, r_colvars,
 								&r_colnames, &r_colvars);
 		res_colnames = list_concat(res_colnames, l_colnames);
