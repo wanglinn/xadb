@@ -291,10 +291,11 @@ extractRemainingColumns(List *common_colnames, ADB_SEQ_ROWID_ARGS_COMMA(const Ra
 		ListCell   *cnames;
 
 #if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
-		if (IsA(lfirst(lvars), Var) &&
+		if (rte->rtekind == RTE_RELATION &&
+			OidIsValid(rte->relid) &&
+			IsA(lfirst(lvars), Var) &&
 			((Var*)lfirst(lvars))->varattno == 1 &&
-			((Var*)lfirst(lvars))->vartype == ORACLE_ROWIDOID && 
-			strcmp(colname, "rowid") == 0)
+			((Var*)lfirst(lvars))->vartype == ORACLE_ROWIDOID)
 		{
 			Relation rel = relation_open(rte->relid, AccessShareLock);
 			bool is_rowid = IsOraRowidColumn(TupleDescAttr(RelationGetDescr(rel), 0));
@@ -1485,7 +1486,7 @@ transformFromClauseItem(ParseState *pstate, Node *n,
 		extractRemainingColumns(res_colnames, ADB_SEQ_ROWID_ARGS_COMMA(l_rte)
 								l_colnames, l_colvars,
 								&l_colnames, &l_colvars);
-		extractRemainingColumns(res_colnames, ADB_SEQ_ROWID_ARGS_COMMA(l_rte)
+		extractRemainingColumns(res_colnames, ADB_SEQ_ROWID_ARGS_COMMA(r_rte)
 								r_colnames, r_colvars,
 								&r_colnames, &r_colvars);
 		res_colnames = list_concat(res_colnames, l_colnames);
