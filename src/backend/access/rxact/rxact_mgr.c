@@ -183,7 +183,7 @@ static void RxactHupHandler(SIGNAL_ARGS);
 
 static RxactAgent* CreateRxactAgent(int agent_fd);
 static void RxactMgrQuickdie(SIGNAL_ARGS);
-static void RxactMarkAutoTransaction(void);
+static void RxactMarkAutoTransaction(RxactTransactionInfo *rinfo);
 static void RxactLoop(void);
 static void RemoteXactBaseInit(void);
 static void RemoteXactMgrInit(void);
@@ -272,24 +272,6 @@ static void
 RxactMgrQuickdie(SIGNAL_ARGS)
 {
 	rxact_need_exit = true;
-}
-
-static void RxactMarkAutoTransaction(void)
-{
-	HASH_SEQ_STATUS			seq_status;
-	RxactTransactionInfo   *info;
-
-	hash_seq_init(&seq_status, htab_rxid);
-	while((info = hash_seq_search(&seq_status)) != NULL)
-	{
-		if(info->type == RX_AUTO)
-		{
-			if (TransactionIdDidCommit(info->auto_tid) || !TransactionIdDidAbort(info->auto_tid) )
-				info->type = RX_COMMIT;
-			else
-				info->type = RX_ROLLBACK;
-		}
-	}
 }
 
 static void RxactLoop(void)
@@ -689,7 +671,6 @@ RemoteXactMgrMain(void)
 	(void)MemoryContextSwitchTo(MessageContext);
 
 	RxactLoadLog();
-	RxactMarkAutoTransaction();
 
 	/* Server loop */
 	RxactLoop();
@@ -1651,6 +1632,58 @@ rxact_insert_gid(const char *gid, const Oid *oids, int count, RemoteXactType typ
 
 }
 
+static void RxactMarkAutoTransaction(RxactTransactionInfo *rinfo)
+{
+	int i;
+	char buf[1024];
+	PGresult *res;
+	bool is_commited = false;
+	NodeConn *node_conn;
+
+	bool transfor_auto_ok = true;
+
+	Assert(rinfo->type == RX_AUTO);
+	for(i=0;i<rinfo->count_nodes;++i)
+	{
+		/* skip successed node */
+		if(rinfo->remote_success[i])
+			continue;
+
+		/* get node connection, skip if not connectiond */
+		node_conn = rxact_get_node_conn(rinfo->db_oid, rinfo->remote_nodes[i], time(NULL));
+		if(node_conn == NULL || node_conn->conn == NULL || node_conn->doing_gid[0] != '\0')
+		{
+			/* if cann not get the connect now, try next time */
+			transfor_auto_ok = false;
+			break;
+		}
+
+		snprintf(buf, sizeof(buf), "SELECT pg_xact_status(%u)", rinfo->auto_tid);
+		res = PQexec(node_conn->conn, buf);
+		if (PQresultStatus(res) == PGRES_TUPLES_OK)
+		{
+			if (strcmp(PQgetvalue(res, 0, 0), "COMMITTED") == 0)
+				is_commited = true;
+		}
+		else
+		{
+			transfor_auto_ok = false;
+			ereport(WARNING,(errmsg("pg_xact_status xid %u failed in node oid %u\n",rinfo->auto_tid, rinfo->remote_nodes[i])));
+		}
+			
+		if (res)
+			PQclear(res);
+	}
+
+	if (transfor_auto_ok)
+	{
+		if (is_commited)
+			rinfo->type = RX_COMMIT;
+		else
+			rinfo->type = RX_ROLLBACK;
+	}
+}
+
 static void rxact_mark_gid(const char *gid, RemoteXactType type, bool success, bool is_redo)
 {
 	RxactTransactionInfo *rinfo;
@@ -1681,12 +1714,13 @@ static void rxact_mark_gid(const char *gid, RemoteXactType type, bool success, b
 			/* end of redo while change all RX_AUTO(function RxactMarkAutoTransaction) */
 			if (!is_redo && rinfo->type == RX_AUTO)
 			{
-				if (TransactionIdDidCommit(rinfo->auto_tid) || !TransactionIdDidAbort(rinfo->auto_tid) )
+				if (TransactionIdDidCommit(rinfo->auto_tid))
 					rinfo->type = RX_COMMIT;
-				else
+				else if (TransactionIdDidAbort(rinfo->auto_tid))
 					rinfo->type = RX_ROLLBACK;
+				else
+					RxactMarkAutoTransaction(rinfo);
 			}
-			/*rxact_has_filed_gid = true;*/
 		}
 	}else
 	{
@@ -1803,6 +1837,19 @@ static void rxact_2pc_do(void)
 		}
 #endif	/* USE_AGTM */
 
+		if (rinfo->type == RX_AUTO)
+		{
+			if (TransactionIdDidCommit(rinfo->auto_tid))
+				rinfo->type = RX_COMMIT;
+			else if (TransactionIdDidAbort(rinfo->auto_tid))
+				rinfo->type = RX_ROLLBACK;
+			else
+				RxactMarkAutoTransaction(rinfo);
+		}
+		
+		if (rinfo->type == RX_AUTO)
+			continue;
+
 		cmd_is_ok = false;
 		for(i=0;i<rinfo->count_nodes;++i)
 		{
@@ -1839,8 +1886,10 @@ static void rxact_2pc_do(void)
 			{
 				strcpy(node_conn->doing_gid, rinfo->gid);
 				node_conn->last_use = time(NULL);
+				ereport(RXACT_LOG_LEVEL, (errmsg("send \"%s\" to %u", buf.data, rinfo->remote_nodes[i])));
 			}else
 			{
+				ereport(RXACT_LOG_LEVEL, (errmsg("send \"%s\" to %u %s", buf.data, rinfo->remote_nodes[i], "failed")));
 				rxact_finish_node_conn(node_conn);
 			}
 		}
