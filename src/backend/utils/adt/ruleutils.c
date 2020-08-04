@@ -272,6 +272,9 @@ typedef struct
 
 	/* This flag tells whether we should actually print a column alias list */
 	bool		printaliases;
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	bool		has_rowid;
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 
 	/* This list has all names used as USING names in joins above this RTE */
 	List	   *parentUsing;	/* names assigned to parent merged columns */
@@ -4144,7 +4147,18 @@ set_relation_column_names(deparse_namespace *dpns, RangeTblEntry *rte,
 		ncolumns = tupdesc->natts;
 		real_colnames = (char **) palloc(ncolumns * sizeof(char *));
 
-		for (i = 0; i < ncolumns; i++)
+		i = 0;
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+		if (TupleDescAttr(tupdesc, 0)->attisdropped == false &&
+			IsOraRowidColumn(TupleDescAttr(tupdesc, 0)))
+		{
+			colinfo->has_rowid = true;
+			real_colnames[0] = NULL;
+			i=1;
+		}
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
+
+		for (; i < ncolumns; i++)
 		{
 			Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
 
@@ -7498,6 +7512,13 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 		Assert(refname == NULL);
 	}
 
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	if (attnum == 1 &&
+		colinfo->has_rowid)
+	{
+		attname = "rowid";
+	}else
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 	if (attnum == InvalidAttrNumber)
 		attname = NULL;
 	else if (attnum > 0)
