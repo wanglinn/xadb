@@ -2640,6 +2640,16 @@ MergeAttributes(List *schema, List *supers, char relpersistence,
 	 * to inherit an OID column.
 	 */
 	child_attno = 0;
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	/* add rowid to first if need */
+	if (schema != NIL &&
+		IsRowidColumnDef(linitial(schema)))
+	{
+		inhSchema = lappend(inhSchema, linitial(schema));
+		schema = list_delete_first(schema);
+		child_attno++;
+	}
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 	foreach(entry, supers)
 	{
 		Oid			parent = lfirst_oid(entry);
@@ -3069,14 +3079,6 @@ MergeAttributes(List *schema, List *supers, char relpersistence,
 					def->cooked_default = newdef->cooked_default;
 				}
 			}
-#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
-			else if (entry == list_head(schema) &&
-					 IsRowidColumnDef(newdef))
-			{
-				/* let "rowid" at first */
-				inhSchema = lcons(newdef, inhSchema);
-			}
-#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 			else
 			{
 				/*
