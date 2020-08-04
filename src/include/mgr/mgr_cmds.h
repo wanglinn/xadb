@@ -643,6 +643,7 @@ extern void MgrRefreshAllPgxcNode(MemoryContext spiContext, ZoneOverGtm *zoGtm, 
 extern void RevertZoneFailover(MemoryContext spiContext, ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
 extern void ZoneSwitchoverFree(ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
 extern int GetSlaveNodeNumInZone(MemoryContext spiContext, MgrNodeWrapper *mgrNode, char slaveType, char *zone);
+extern void DropNodeOnExecuteNode(char nodeType, char *executeNodeName, char *nodeName);
 extern char *getMgrNodeSyncStateValue(sync_state state);
 extern uint64 updateDoctorStatusOfMgrNodes(List *nodenames, char nodetype, bool allowcure, char *curestatus);
 extern uint64 updateDoctorStatusOfMgrNode(char *nodename, char nodetype, bool allowcure, char *curestatus);

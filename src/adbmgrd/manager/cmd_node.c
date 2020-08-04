@@ -6160,7 +6160,7 @@ static bool mgr_drop_node_on_all_coord(char nodetype, char *nodename)
 	HeapTuple tuple;
 	ManagerAgent *ma;
 	Form_mgr_node mgr_node;
-	StringInfoData psql_cmd, psql_cmd2;
+	StringInfoData psql_cmd2;
 	bool execRes = false;
 	bool execRes2 = false;
 	StringInfoData buf;
@@ -6200,68 +6200,17 @@ static bool mgr_drop_node_on_all_coord(char nodetype, char *nodename)
 		if ((strcmp(NameStr(mgr_node->nodename), nodename) == 0) && mgr_node->nodetype == nodetype)
 			continue;
 
-		resetStringInfo(&(getAgentCmdRst.description));
-		/* connection agent */
-		ma = ma_connect_hostoid(mgr_node->nodehost);
-		if (!ma_isconnected(ma))
-		{
-			/* report error message */
-			getAgentCmdRst.ret = false;
-			appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
-			ma_close(ma);
+		DropNodeOnExecuteNode(mgr_node->nodetype, NameStr(mgr_node->nodename), nodename);
 
-			table_endscan(info->rel_scan);
-			table_close(info->rel_node, AccessShareLock);
-			pfree(info);
-
-			ereport(ERROR, (errmsg("could not connect socket for agent \"%s\".",
-							get_hostname_from_hostoid(mgr_node->nodehost))));
-		}
-
-		initStringInfo(&psql_cmd);
+		/* exec "select pgxc_pool_reload();" */
 		initStringInfo(&psql_cmd2);
 		addressconnect = get_hostaddress_from_hostoid(mgr_node->nodehost);
 		user = get_hostuser_from_hostoid(mgr_node->nodehost);
-		appendStringInfo(&psql_cmd, " -h %s -p %u -d %s -U %s -a -c \""
+		appendStringInfo(&psql_cmd2, " -h %s -p %u -d %s -U %s -a -c \""
 						,addressconnect
 						,mgr_node->nodeport
 						,DEFAULT_DB
 						,user);
-		appendStringInfoString(&psql_cmd2, psql_cmd.data);
-
-
-		appendStringInfo(&psql_cmd, " DROP NODE \\\"%s\\\";", nodename);
-		appendStringInfo(&psql_cmd, " set FORCE_PARALLEL_MODE = off;\"");
-
-		ma_beginmessage(&buf, AGT_MSG_COMMAND);
-		ma_sendbyte(&buf, AGT_CMD_PSQL_CMD);
-		ma_sendstring(&buf, psql_cmd.data);
-		pfree(psql_cmd.data);
-		pfree(addressconnect);
-		pfree(user);
-		ma_endmessage(&buf, ma);
-
-		if (! ma_flush(ma, true))
-		{
-			getAgentCmdRst.ret = false;
-			appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
-			ma_close(ma);
-
-			table_endscan(info->rel_scan);
-			table_close(info->rel_node, AccessShareLock);
-			pfree(info);
-
-			return execRes;
-		}
-		/*check the receive msg*/
-		execRes = mgr_recv_msg(ma, &getAgentCmdRst);
-		ma_close(ma);
-		if (!execRes)
-			ereport(WARNING, (errmsg("drop node \"%s\" on coordinators \"%s\" fail %s"
-				,nodename, NameStr(mgr_node->nodename), getAgentCmdRst.description.data)));
-
-
-		/* exec "select pgxc_pool_reload();" */
 		ma = ma_connect_hostoid(mgr_node->nodehost);
 		appendStringInfo(&psql_cmd2, " select pgxc_pool_reload();\"");
 		ma_beginmessage(&buf, AGT_MSG_COMMAND);
