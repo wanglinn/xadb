@@ -13087,7 +13087,7 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 		}
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
 
-		if (CheckMgrNodeHasSlaveNode(HeapTupleGetOid(tuple)))
+		if (CheckMgrNodeHasSlaveNode(mgr_node->oid))
 		{
 			table_endscan(rel_scan);
 			table_close(rel, RowExclusiveLock);
