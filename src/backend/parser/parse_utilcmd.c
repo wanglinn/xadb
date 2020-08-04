@@ -464,6 +464,7 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 
 #if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
 	if (default_with_rowids &&
+		!IsA(stmt, CreateForeignTableStmt) &&
 		stmt->partbound == NULL)
 	{
 		stmt->tableElts = lcons(makeRowidColumnDef(false), stmt->tableElts);
