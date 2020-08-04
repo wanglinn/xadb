@@ -12,6 +12,8 @@
 
 CATALOG(monitor_disk,4809,MonitorDiskRelationId)
 {
+	Oid			oid;
+	
 	/* host name */
 	NameData	hostname;
 

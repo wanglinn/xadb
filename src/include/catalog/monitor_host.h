@@ -13,6 +13,8 @@
 
 CATALOG(monitor_host,4805,MonitorHostRelationId)
 {
+	Oid			oid;
+	
 	/* host name */
 	NameData	hostname;
 

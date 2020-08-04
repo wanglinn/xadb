@@ -7,6 +7,8 @@
 
 CATALOG(monitor_resolve,8902,MonitorResolveRelationId)
 {
+	Oid			oid;
+	
 	/* table monitor alarm oid */
 	Oid		mr_alarm_oid;
 

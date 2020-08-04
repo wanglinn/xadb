@@ -12,6 +12,8 @@
 
 CATALOG(monitor_alarm,5209,MonitorAlarmRelationId)
 {
+	Oid			oid;
+	
 	/* alarm level:1(warning),2(critical),3(emergency) */
 	int16		ma_alarm_level;
 

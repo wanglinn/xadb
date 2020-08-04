@@ -12,6 +12,8 @@
 
 CATALOG(monitor_cpu,4806,MonitorCpuRelationId)
 {
+	Oid			oid;
+	
 	/* host name */
 	NameData	hostname;
 

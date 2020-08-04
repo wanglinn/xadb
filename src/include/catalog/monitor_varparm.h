@@ -7,6 +7,8 @@
 
 CATALOG(monitor_varparm,4810,MonitorVarParmRelationId)
 {
+	Oid			oid;
+	
 	/* CPU threshold,More than this value will alarm */
 	int16		mv_cpu_threshold;
 

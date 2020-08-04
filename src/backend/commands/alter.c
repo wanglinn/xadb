@@ -36,6 +36,7 @@
 #include "catalog/pg_proc.h"
 #include "catalog/pg_subscription.h"
 #include "catalog/pg_statistic_ext.h"
+#include "catalog/pg_statistic_ext_data.h"
 #include "catalog/pg_ts_config.h"
 #include "catalog/pg_ts_dict.h"
 #include "catalog/pg_ts_parser.h"

@@ -12,6 +12,8 @@
 
 CATALOG(monitor_mem,4807,MonitorMemRelationId)
 {
+	Oid			oid;
+	
 	/* host name */
 	NameData	hostname;
 

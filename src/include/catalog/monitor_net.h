@@ -12,6 +12,8 @@
 
 CATALOG(monitor_net,4808,MonitorNetRelationId)
 {
+	Oid			oid;
+	
 	/* host name */
 	NameData	hostname;
 

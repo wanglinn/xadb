@@ -9,6 +9,8 @@
 
 CATALOG(monitor_user,4816,MuserRelationId)
 {
+	Oid			oid;
+	
 	/*the user name*/
 	NameData				username;
 
