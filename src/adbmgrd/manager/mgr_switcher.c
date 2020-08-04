@@ -7044,5 +7044,73 @@ int GetSlaveNodeNumInZone(MemoryContext spiContext,
 	pfreeSwitcherNodeWrapperList(&slaveNodes, NULL);
 	return slaveNum;
 }
+void DropNodeOnExecuteNode(char nodeType, char *executeNodeName, char *nodeName)
+{
+	SwitcherNodeWrapper *executeNode = NULL;
+	MemoryContext oldContext;
+	MemoryContext switchContext;
+	MemoryContext spiContext;
+	int spiRes;
+	char *sql = NULL;
+	char *sql2 = NULL;
+	bool execOk;
 
+	oldContext = CurrentMemoryContext;
+	switchContext = AllocSetContextCreate(oldContext,
+										  "DropNodeOnExecuteNode",
+										  ALLOCSET_DEFAULT_SIZES);
+	spiRes = SPI_connect();
+	if (spiRes != SPI_OK_CONNECT)
+	{
+		ereport(ERROR,
+				(errmsg("SPI_connect failed, connect return:%d",
+						spiRes)));
+	}
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(switchContext);
+
+	executeNode = checkGetOldMaster(executeNodeName,
+									nodeType,
+									5,
+									spiContext);
+
+	sql = psprintf("set grammar = postgres;");
+	execOk = PQexecCommandSql(executeNode->pgConn, sql, false);
+	if (execOk){
+		ereport(LOG,
+				(errmsg("on %s set grammar = postgres successfully",
+				executeNodeName)));
+	}
+	else{
+		ereport(ERROR,
+				(errmsg("on %s set grammar = postgres failed",
+				executeNodeName)));
+	}
+
+	/*sleep 0.1s*/
+	pg_usleep(100000L);
+
+	sql2 = psprintf("drop node \"%s\"; set FORCE_PARALLEL_MODE = off;", nodeName);
+	execOk = PQexecCommandSql(executeNode->pgConn, sql2, false);
+	if (execOk){
+		ereport(LOG,
+				(errmsg("on %s drop %s from pgxc_node successfully",
+				executeNodeName,
+				nodeName)));
+	}
+	else{
+		ereport(ERROR,
+				(errmsg("on %s drop %s from pgxc_node failed",
+				executeNodeName,
+				nodeName)));
+	}
+
+	MgrFree(sql);
+	MgrFree(sql2);
+	
+	pfreeSwitcherNodeWrapper(executeNode);
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(switchContext);
+	SPI_finish();
+}
 
