@@ -166,7 +166,7 @@ record_in(PG_FUNCTION_ARGS)
 		char	   *column_data;
 
 		/* Ignore dropped columns in datatype, but fill with nulls */
-		if (att->attisdropped)
+		if (att->attisdropped ADB_SEQ_ROWID_CODE(|| IsOraRowidColumn(att)))
 		{
 			values[i] = (Datum) 0;
 			nulls[i] = true;
