@@ -1136,6 +1136,12 @@ record_eq(PG_FUNCTION_ARGS)
 	 * the logical column index.
 	 */
 	i1 = i2 = j = 0;
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	if (IsOraRowidColumn(TupleDescAttr(tupdesc1, 0)))
+		++i1;
+	if (IsOraRowidColumn(TupleDescAttr(tupdesc2, 0)))
+		++i2;
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 	while (i1 < ncolumns1 || i2 < ncolumns2)
 	{
 		LOCAL_FCINFO(locfcinfo, 2);
