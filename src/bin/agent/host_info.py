@@ -52,9 +52,25 @@ def get_host_info():
 	host_platform_type = platform.machine()
 	return (host_platform_type)
 
+def get_filesystem_info():
+	time_stamp = time.strftime(ISOTIMEFORMAT, time.gmtime()) + " GMT"
+	filesystem_infos = psutil.disk_partitions(all=False)
+	filesystems = []
+	for filesystem_info in filesystem_infos:
+		try:
+			filesystem_use = psutil.disk_usage(filesystem_info.mountpoint)
+		except:
+			continue	
+		filesystem = (time_stamp, filesystem_info.device, filesystem_info.mountpoint, filesystem_info.fstype, filesystem_use.total, filesystem_use.used, filesystem_use.free, filesystem_use.percent)
+		filesystems.append(filesystem)
+		# print "s% %s %s %s %d %d %d %s" %filesystem
+	# print "%s" %(filesystems)
+	return (filesystems) 
+
 if __name__ == "__main__":
 	get_cpu_info()
 	get_mem_info()
 	get_disk_info()
 	get_net_info()
 	get_host_info()
+	get_filesystem_info()

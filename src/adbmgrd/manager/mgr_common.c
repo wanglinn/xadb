@@ -4059,6 +4059,7 @@ char* mgr_get_cmdname(int cmdtype)
 		{AGT_CMD_LIST_NODESIZE,					"LIST NODESIZE"},
 		{AGT_CMD_LIST_NODESIZE_CHECK_SOFTLINK,	"LIST NODESIZE CHECK SOFTLINK"},
 		{AGT_CMD_RESET_AGENT,					"RESET AGENT"},
+		{AGT_CMD_GET_FILESYSTEM,					"GET HOST FILESYSTEM"},
 	}; 	
 	
 	for (i=0; i<sizeof(cmds)/sizeof(CmdTypeName); i++)

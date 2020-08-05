@@ -8773,6 +8773,7 @@ void mgr_get_cmd_head_word(char cmdtype, char *str)
 		case AGT_CMD_CNDN_RENAME_RECOVERCONF:
 			strcpy(str, "update");
 			break;
+		case AGT_CMD_GET_FILESYSTEM:
 		case AGT_CMD_MONITOR_GETS_HOST_INFO:
 			strcpy(str, "monitor");
 			break;
