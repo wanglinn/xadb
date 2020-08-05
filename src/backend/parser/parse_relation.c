@@ -1071,10 +1071,10 @@ buildRelationAliases(TupleDesc tupdesc, Alias *alias, Alias *eref)
 		Form_pg_attribute attr = TupleDescAttr(tupdesc, varattno);
 		Value	   *attrname;
 
-		if (attr->attisdropped)
+		if (attr->attisdropped ADB_SEQ_ROWID_CODE(|| IsOraRowidColumn(attr)))
 		{
 			/* Always insert an empty string for a dropped column */
-			attrname = makeString(pstrdup(""));
+			attrname = makeString(pstrdup(ADB_SEQ_ROWID_CODE(!attr->attisdropped ? "rowid":) ""));
 			if (aliaslc)
 				alias->colnames = lappend(alias->colnames, attrname);
 			numdropped++;
