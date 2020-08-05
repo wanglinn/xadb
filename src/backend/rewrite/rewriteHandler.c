@@ -1404,7 +1404,7 @@ rewriteValuesRTE(Query *parsetree, RangeTblEntry *rte, int rti,
 				Form_pg_attribute att_tup;
 				Node	   *new_expr;
 
-				if (attrno == 0)
+				if (unlikely(attrno <= 0 || attrno > target_relation->rd_att->natts))
 					elog(ERROR, "cannot set value in column %d to DEFAULT", i);
 				att_tup = TupleDescAttr(target_relation->rd_att, attrno - 1);
 
