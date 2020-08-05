@@ -4602,7 +4602,8 @@ pg_attribute_aclcheck_all(Oid table_oid, Oid roleid, AclMode mode,
 			continue;
 
 		/* ignore dropped columns */
-		if (((Form_pg_attribute) GETSTRUCT(attTuple))->attisdropped)
+		if (((Form_pg_attribute) GETSTRUCT(attTuple))->attisdropped
+			ADB_SEQ_ROWID_CODE(|| IsOraRowidColumn((Form_pg_attribute) GETSTRUCT(attTuple))))
 		{
 			ReleaseSysCache(attTuple);
 			continue;
