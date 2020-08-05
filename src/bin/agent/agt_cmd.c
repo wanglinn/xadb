@@ -71,6 +71,7 @@ static int copyFile(const char *targetFileWithPath, const char *sourceFileWithPa
 static void pg_ltoa(int32 value, char *a);
 static bool cmd_rename_recovery(StringInfo msg);
 static void cmd_monitor_gets_hostinfo(void);
+static void cmd_get_filesystem(void);
 extern bool get_cpu_info(StringInfo hostinfostring);
 extern bool get_mem_info(StringInfo hostinfostring);
 extern bool get_disk_info(StringInfo hostinfostring);
@@ -79,6 +80,7 @@ extern bool get_host_info(StringInfo hostinfostring);
 extern bool get_disk_iops_info(StringInfo hostinfostring);
 extern bool get_system_info(StringInfo hostinfostring);
 extern bool get_platform_type_info(StringInfo hostinfostring);
+extern bool get_filesystem_info(StringInfo filesystemstring);
 
 static void cmd_rm_temp_file(StringInfo msg);
 static void cmd_check_dir_exist(StringInfo msg);
@@ -234,6 +236,9 @@ void do_agent_command(StringInfo buf)
 		break;
 	case AGT_CMD_RESET_AGENT:
 		cmd_reset_agent(buf);
+		break;
+	case AGT_CMD_GET_FILESYSTEM:
+		cmd_get_filesystem();
 		break;
 	default:
 		ereport(ERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION)
@@ -1337,6 +1342,26 @@ static void cmd_monitor_gets_hostinfo(void)
 	agt_put_msg(AGT_MSG_RESULT, hostinfostring.data, hostinfostring.len);
 	agt_flush();
 	pfree(hostinfostring.data);
+}
+
+/*
+ * this function can get host filesystem information, return an Array
+ * for example:
+ * timestamp, filesystem, mountpoint, fstype, totalSize, usedSize, freeSize, freePercent
+ * [(2020-07-10 10:40:41 GMT, /dev/sda, /, 633999622144, 491912757248, 109857832960, 81.70)]
+ * 
+ */
+static void cmd_get_filesystem(void)
+{
+	StringInfoData filesystemstring;
+	initStringInfo(&filesystemstring);
+
+	get_filesystem_info(&filesystemstring);
+	appendStringInfoCharMacro(&filesystemstring, '\0');
+
+	agt_put_msg(AGT_MSG_RESULT, filesystemstring.data, filesystemstring.len);
+	agt_flush();
+	pfree(filesystemstring.data);
 }
 
 /*clean gtm/coordinator/datanode folder*/

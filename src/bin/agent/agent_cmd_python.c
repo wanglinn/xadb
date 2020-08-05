@@ -38,6 +38,7 @@ bool get_disk_iops_info(StringInfo hostinfostring);
 bool get_system_info(StringInfo hostinfostring);
 bool get_platform_type_info(StringInfo hostinfostring);
 bool get_cpu_freq(StringInfo hostinfostring);
+bool get_filesystem_info(StringInfo filesystemstring);
 
 static void monitor_append_str(StringInfo hostinfostring, char *str);
 static void monitor_append_int64(StringInfo hostinfostring, int64 i);
@@ -431,6 +432,79 @@ bool get_cpu_freq(StringInfo hostinfostring)
         return false;
     }
     pclose(fstream);
+    return true;
+}
+
+bool get_filesystem_info(StringInfo filesystemstring)
+{
+    PyObject *pModule,*pDict,*pFunc,*pRetValue,*sysPath,*path;
+    char *time_Stamp = NULL;
+    char *file_system, *mount_point, *fs_type;
+    float used_percent;
+    int64 disk_Total, disk_Used, disk_Free;
+    int result;
+    char my_exec_path[MAXPGPATH];
+    char pghome[MAXPGPATH];
+
+    memset(pghome, 0, MAXPGPATH);
+
+    if (find_my_exec(agent_argv0, my_exec_path) < 0)
+        ereport(ERROR, (errmsg("%s: could not locate my own executable path", agent_argv0)));
+    get_share_path(my_exec_path, pghome);
+
+    Py_Initialize();
+    if (!Py_IsInitialized())
+        return false;
+
+    PyRun_SimpleString("import sys");
+    PyRun_SimpleString("import psutil");
+    PyRun_SimpleString("import time");
+    PyRun_SimpleString("ISOTIMEFORMAT = '%Y-%m-%d %H:%M:%S %Z'");
+
+    sysPath = PySys_GetObject("path");
+    path = PyString_FromString(pghome);
+    if ((result = PyList_Insert(sysPath, 0, path)) != 0)
+        ereport(ERROR, (errmsg("can't insert path %s to sysPath", pghome)));
+
+    pModule = PyImport_ImportModule("host_info");
+    if (!pModule)
+        ereport(ERROR, (errmsg("can't find file host_info.py in path:%s", pghome)));
+
+    pDict = PyModule_GetDict(pModule);
+    if (!pDict)
+        ereport(ERROR, (errmsg("can't get path for host_info.py")));
+
+    pFunc = PyDict_GetItemString(pDict, "get_filesystem_info");
+    if (!pFunc || !PyCallable_Check(pFunc))
+        ereport(ERROR, (errmsg("can't find function get_filesystem_info() in file host_info.py.")));
+
+    pRetValue = PyObject_CallObject(pFunc, NULL);
+    if (PyList_Check(pRetValue))
+    {
+        int SizeOfList = PyList_Size(pRetValue);
+        int i = 0;
+        for(i = 0; i < SizeOfList; i++){
+			PyObject *Item = PyList_GetItem(pRetValue, i);
+            PyArg_ParseTuple(Item, "sssslllf", &time_Stamp, &file_system, &mount_point,
+                                           &fs_type, &disk_Total, &disk_Used, &disk_Free, &used_percent);
+            monitor_append_str(filesystemstring, time_Stamp);
+            monitor_append_str(filesystemstring, file_system);
+            monitor_append_str(filesystemstring, mount_point);
+            monitor_append_str(filesystemstring, fs_type);
+            monitor_append_int64(filesystemstring, disk_Total);
+            monitor_append_int64(filesystemstring, disk_Used);
+            monitor_append_int64(filesystemstring, disk_Free);
+            monitor_append_float(filesystemstring, used_percent);
+            appendStringInfoCharMacro(filesystemstring, '\n');
+			Py_DECREF(Item); //释放空间
+        }
+    }
+
+    Py_DECREF(pModule);
+    Py_DECREF(pRetValue);
+    Py_DECREF(pFunc);
+    Py_Finalize();
+
     return true;
 }
 
