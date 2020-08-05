@@ -303,6 +303,14 @@ static void appendReloptionsArrayAH(PQExpBuffer buffer, const char *reloptions,
 static char *get_synchronized_snapshot(Archive *fout);
 static void setupDumpWorker(Archive *AHX);
 static TableInfo *getRootTableInfo(TableInfo *tbinfo);
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+#define ADB_SEQ_ROWID_CODE(c)				c
+#define ORA_ROWID_COLUMN_INDEX				0
+#define IsOraRowidColumn(tbinfo,ncol) (ncol == ORA_ROWID_COLUMN_INDEX && HaveOraRowidColumn(tbinfo))
+static bool HaveOraRowidColumn(const TableInfo *tbinfo);
+#else
+#define ADB_SEQ_ROWID_CODE(c)
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 #ifdef MGR_DUMP
 static void dumpAdbmgrTable(Archive *fout);
 static char *respacechr(char *str,char chr, char *strr);
@@ -16232,7 +16240,7 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 		for (j = 0; j < tbinfo->numatts; j++)
 		{
 			/* None of this applies to dropped columns */
-			if (tbinfo->attisdropped[j])
+			if (tbinfo->attisdropped[j] ADB_SEQ_ROWID_CODE(|| IsOraRowidColumn(tbinfo, j)))
 				continue;
 
 			/*
@@ -16438,6 +16446,11 @@ dumpAttrDef(Archive *fout, AttrDefInfo *adinfo)
 	/* Skip if not "separate"; it was dumped in the table's definition */
 	if (!adinfo->separate)
 		return;
+
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	if (IsOraRowidColumn(tbinfo, adnum-1))
+		return;
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 
 	q = createPQExpBuffer();
 	delq = createPQExpBuffer();
@@ -16768,6 +16781,19 @@ dumpConstraint(Archive *fout, ConstraintInfo *coninfo)
 		if (indxinfo == NULL)
 			fatal("missing index for constraint \"%s\"",
 				  coninfo->dobj.name);
+
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	if (HaveOraRowidColumn(tbinfo) &&
+		coninfo->condef == NULL &&
+		indxinfo->indnkeyattrs == 1 &&
+		indxinfo->indkeys[0] == ORA_ROWID_COLUMN_INDEX+1)
+	{
+		/* unique(rowid) */
+		destroyPQExpBuffer(q);
+		destroyPQExpBuffer(delq);
+		return;
+	}
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 
 		if (dopt->binary_upgrade)
 			binary_upgrade_set_pg_class_oids(fout, q,
@@ -18577,6 +18603,16 @@ appendReloptionsArrayAH(PQExpBuffer buffer, const char *reloptions,
 	if (!res)
 		pg_log_warning("could not parse reloptions array");
 }
+
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+static bool HaveOraRowidColumn(const TableInfo *tbinfo)
+{
+	return tbinfo->attgenerated[ORA_ROWID_COLUMN_INDEX] == 's' &&
+		   tbinfo->notnull[ORA_ROWID_COLUMN_INDEX] &&
+		   strcmp(tbinfo->attnames[ORA_ROWID_COLUMN_INDEX], "rowid") == 0 &&
+		   strcmp(tbinfo->atttypnames[ORA_ROWID_COLUMN_INDEX], "oracle.rowid") == 0;
+}
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 
 #ifdef MGR_DUMP
 
