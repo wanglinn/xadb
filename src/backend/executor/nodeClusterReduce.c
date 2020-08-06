@@ -2093,7 +2093,9 @@ ClusterReduceState *
 ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 {
 	ClusterReduceState *crstate;
-	Plan			   *outerPlan;
+	const TupleTableSlotOps
+					   *outerOps;
+	bool				outerOpsFixed;
 
 	Assert(outerPlan(node) != NULL);
 	Assert(innerPlan(node) == NULL);
@@ -2143,6 +2145,19 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 		crstate->ps.ExecProcNode = ExecEPQDefaultClusterReduce;
 
 	/*
+	 * initialize child nodes
+	 *
+	 * We shield the child node from the need to support REWIND, BACKWARD, or
+	 * MARK/RESTORE.
+	 */
+	eflags &= ~(EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK);
+	outerPlanState(crstate) = ExecInitNode(outerPlan(node), estate, eflags);
+	outerOps = ExecGetResultSlotOps(outerPlanState(crstate), &outerOpsFixed);
+	crstate->ps.outeropsset = true;
+	if (outerOps != &TTSOpsMinimalTuple || outerOpsFixed == false)
+		crstate->ps.outeropsfixed = false;
+
+	/*
 	 * Miscellaneous initialization
 	 *
 	 * create expression context for node
@@ -2155,17 +2170,7 @@ ExecInitClusterReduce(ClusterReduce *node, EState *estate, int eflags)
 	 * Initialize result slot, type and projection.
 	 */
 	ExecInitResultTupleSlotTL(&crstate->ps, &TTSOpsMinimalTuple);
-
-	/*
-	 * initialize child nodes
-	 *
-	 * We shield the child node from the need to support REWIND, BACKWARD, or
-	 * MARK/RESTORE.
-	 */
-	eflags &= ~(EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK);
-
-	outerPlan = outerPlan(node);
-	outerPlanState(crstate) = ExecInitNode(outerPlan, estate, eflags);
+	crstate->ps.resultopsfixed = crstate->ps.outeropsfixed;
 
 	estate->es_reduce_plan_inited = true;
 

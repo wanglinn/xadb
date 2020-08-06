@@ -26,6 +26,9 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 {
 	ClusterGatherState *gatherstate;
 	TupleDesc			tupDesc;
+	const TupleTableSlotOps
+					   *outerOps;
+	bool				outerOpsFixed;
 
 	Assert(outerPlan(node) != NULL);
 	Assert(innerPlan(node) == NULL);
@@ -44,10 +47,12 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 	tupDesc = ExecGetResultType(outerPlanState(gatherstate));
 
 	/*
-	 * Initialize result slot, type and projection.
+	 * Initialize result slot, we not support projection.
 	 */
 	ExecInitResultTupleSlotTL(&gatherstate->ps, &TTSOpsMinimalTuple);
-	ExecConditionalAssignProjectionInfo(&gatherstate->ps, tupDesc, OUTER_VAR);
+	outerOps = ExecGetResultSlotOps(outerPlanState(gatherstate), &outerOpsFixed);
+	if (outerOps != &TTSOpsMinimalTuple || outerOpsFixed)
+		gatherstate->ps.resultopsfixed = false;
 
 	if((flags & EXEC_FLAG_EXPLAIN_ONLY) == 0)
 		gatherstate->remote_running = GetPGconnAttatchCurrentInterXact(node->rnodes);

@@ -51,16 +51,23 @@ ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, ES
 											  estate, eflags, node->rnodes);
 
 	/*
+	 * most time our tuple from remote, and they are MinimalTupe
+	 * so we use a fixed TTSOpsMinimalTuple
+	 */
+	ps->ps.outerops = &TTSOpsMinimalTuple;
+	ps->ps.outeropsfixed = true;
+	ps->ps.outeropsset = true;
+
+	/*
 	 * Store the tuple descriptor into gather merge state, so we can use it
 	 * while initializing the gather merge slots.
 	 */
 	tupDesc = ExecGetResultType(outerPlanState(ps));
 
 	/*
-	 * Initialize result slot, type and projection.
+	 * Initialize result slot, we not support projection.
 	 */
 	ExecInitResultTupleSlotTL(&ps->ps, &TTSOpsMinimalTuple);
-	ExecConditionalAssignProjectionInfo(&ps->ps, tupDesc, OUTER_VAR);
 
 	ps->nkeys = node->numCols;
 	ps->sortkeys = palloc0(sizeof(ps->sortkeys[0]) * node->numCols);
@@ -118,12 +125,19 @@ static TupleTableSlot *ExecClusterMergeGather(PlanState *pstate)
 	int32	i;
 
 re_get_:
-	if(node->initialized == false)
+	if(unlikely(node->initialized == false))
 	{
 		result = ExecProcNode(outerPlanState(node));
 		if(!TupIsNull(result))
 		{
-			node->slots[node->nremote] = result;
+			if (TTS_IS_MINIMALTUPLE(result))
+			{
+				node->slots[node->nremote] = result;
+			}else
+			{
+				TTSOpsMinimalTuple.copyslot(pstate->ps_ResultTupleSlot, result);
+				node->slots[node->nremote] = pstate->ps_ResultTupleSlot;
+			}
 			binaryheap_add_unordered(node->binheap, Int32GetDatum(node->nremote));
 		}else
 		{
@@ -137,7 +151,7 @@ re_get_:
 		}
 		binaryheap_build(node->binheap);
 		node->initialized = true;
-	}else if (!binaryheap_empty(node->binheap))
+	}else if (likely(!binaryheap_empty(node->binheap)))
 	{
 		i = DatumGetInt32(binaryheap_first(node->binheap));
 		if(i < node->nremote)
@@ -147,22 +161,29 @@ re_get_:
 		{
 			Assert(i == node->nremote);
 			result = ExecProcNode(outerPlanState(node));
-			node->slots[i] = result;
+			if (TTS_IS_MINIMALTUPLE(result))
+			{
+				node->slots[i] = result;
+			}else
+			{
+				TTSOpsMinimalTuple.copyslot(pstate->ps_ResultTupleSlot, result);
+				node->slots[i] = pstate->ps_ResultTupleSlot;
+			}
 		}
-		if(!TupIsNull(result))
+		if(likely(!TupIsNull(result)))
 			binaryheap_replace_first(node->binheap, Int32GetDatum(i));
 		else
 			binaryheap_remove_first(node->binheap);
 	}
 
-	if(binaryheap_empty(node->binheap))
+	if(unlikely(binaryheap_empty(node->binheap)))
 	{
-		result = ExecClearTuple(node->ps.ps_ResultTupleSlot);
+		result = NULL;
 	}else
 	{
 		gatherType = ((ClusterMergeGather*)node->ps.plan)->gatherType;
 		i = DatumGetInt32(binaryheap_first(node->binheap));
-		if(i == node->nremote)
+		if(unlikely(i == node->nremote))
 		{
 			if((gatherType & CLUSTER_GATHER_COORD) == 0)
 				goto re_get_;
