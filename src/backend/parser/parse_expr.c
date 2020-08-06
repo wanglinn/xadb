@@ -1840,9 +1840,6 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 	Node	   *result;
 	OraCoercionContext oldContext = ORA_COERCE_DEFAULT;
 
-	if (IsOracleParseGram(pstate))
-		oldContext = OraCoercionContextSwitchTo(ORA_COERCE_COMMON_FUNCTION);
-
 	/* is sys_connect_by_path ? */
 	if (pstate->p_grammar == PARSE_GRAM_ORACLE &&
 		list_length(fn->funcname) == 1 &&
@@ -1877,6 +1874,9 @@ transformFuncCall(ParseState *pstate, FuncCall *fn)
 			return transformExprRecurse(pstate, (Node*)node);
 		}
 	}
+
+	if (IsOracleParseGram(pstate))
+		oldContext = OraCoercionContextSwitchTo(ORA_COERCE_COMMON_FUNCTION);
 
 	PG_TRY();
 	{
