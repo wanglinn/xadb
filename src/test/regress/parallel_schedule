@@ -186,3 +186,4 @@ test: case_a7_l1_ora_func_to_number
 test: case_a9_l1_ora_func_to_char
 test: case_b2_l1_ora_func_set_function
 test: cast_oracle_operator_test
+test: cast_oracle_function_test
