@@ -314,7 +314,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	ColId ColLabel cursor_name
 	explain_option_name extract_arg
 	iso_level index_name
-	MathOp
+	MathOp convert_Op
 	name NonReservedWord NonReservedWord_or_Sconst
 	opt_boolean_or_string opt_encoding OptConsTableSpace opt_index_name
 	opt_existing_window_name
@@ -328,7 +328,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %type <target>	insert_column_item single_set_clause set_target target_item
 
 %type <typnam>	Bit Character ConstDatetime ConstInterval ConstTypename
-				Numeric SimpleTypename Typename func_type
+				Numeric SimpleTypename Typename func_type convert_typename
 
 %type <value>	NumericOnly
 
@@ -8047,7 +8047,7 @@ OraImplicitConvertStmt:
 					$$ = (Node *) c;
 				}
 			/* implicit convert operator */
-			| CREATE opt_or_replace CONVERT OPERATOR Typename all_Op Typename AS Typename all_Op Typename
+			| CREATE opt_or_replace CONVERT OPERATOR convert_typename convert_Op convert_typename AS convert_typename convert_Op convert_typename
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
 					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
@@ -8062,7 +8062,7 @@ OraImplicitConvertStmt:
 					c->node_list = NIL;
 					$$ = (Node *) c;
 				}
-			| DROP CONVERT OPERATOR Typename all_Op Typename
+			| DROP CONVERT OPERATOR convert_typename convert_Op convert_typename
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
 					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
@@ -8074,7 +8074,7 @@ OraImplicitConvertStmt:
 					c->node_list = NIL;
 					$$ = (Node *) c;
 				}
-			| DROP CONVERT OPERATOR IF_P EXISTS Typename all_Op Typename
+			| DROP CONVERT OPERATOR IF_P EXISTS convert_typename convert_Op convert_typename
 				{
 					OraImplicitConvertStmt *c = makeNode(OraImplicitConvertStmt);
 					c->cvtkind = ORA_CONVERT_KIND_OPERATOR;
@@ -8093,10 +8093,24 @@ convert_functon_name:
 			;
 
 convert_type_list:
-			Typename							{ $$ = list_make1($1); }
-			| convert_type_list ',' Typename 	{ $$ = lappend($1, $3); }
+			convert_typename							{ $$ = list_make1($1); }
+			| convert_type_list ',' convert_typename 	{ $$ = lappend($1, $3); }
 		;
 
+convert_typename:
+			  Typename
+			| ANY								
+				{
+					TypeName *n = makeTypeName("any");
+					n->location = @1;
+					$$ = n;
+				}
+			;
+convert_Op:
+			  all_Op
+			| LIKE			{ $$ = "~~"; }
+			| NOT LIKE		{ $$ = "!~~"; }
+			;
 
 type_list:	Typename								{ $$ = list_make1($1); }
 			| type_list ',' Typename				{ $$ = lappend($1, $3); }
