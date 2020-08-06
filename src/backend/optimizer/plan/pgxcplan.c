@@ -319,6 +319,24 @@ pgxc_build_shippable_query_baserel(PlannerInfo *root, RemoteQueryPath *rqpath,
 		var->varno = rtr->rtindex;
 	}
 
+	/* add RowMarkClause */
+	if (root->parse->hasForUpdate)
+	{
+		RowMarkClause *rmc;
+		foreach (lcell, root->parse->rowMarks)
+		{
+			rmc = lfirst_node(RowMarkClause, lcell);
+			if (rmc->rti == baserel->relid)
+			{
+				rmc = copyObject(rmc);
+				rmc->rti = rtr->rtindex;
+				rmc->pushedDown = false;
+				query->rowMarks = lappend(query->rowMarks, rmc);
+				query->hasForUpdate = true;
+			}
+		}
+	}
+
 	return query;
 }
 
