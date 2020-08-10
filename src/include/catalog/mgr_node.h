@@ -166,4 +166,7 @@ NameData clusterLockCoordNodeName;
 #define DATANODE_MASTER_NAME		"datanode master"
 #define DATANODE_SLAVE_NAME			"datanode slave"
 
+#define SET_FORCE_PARALLEL_MODE_OFF		"set FORCE_PARALLEL_MODE = off;" 
+#define SELECT_PGXC_POOL_RELOAD       	"select pgxc_pool_reload();"
+
 #endif /* MGR_CNDNNODE_H */
