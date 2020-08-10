@@ -841,7 +841,12 @@ Bit:		BitWithLength
 ConstDatetime:
 			DATE_P
 				{
+#ifdef ADB_GRAM_ORA
 					$$ = OracleTypeNameLocation("date", @1);
+#else
+					$$ = SystemTypeName("timestamp");
+					$$->typmods = list_make1(makeIntConst(0, -1));
+#endif
 				}
 			| TIMESTAMP '(' Iconst ')' opt_timezone
 				{

@@ -983,11 +983,11 @@ static bool has_cluster_hazard_walker(Node *node, has_cluster_hazard_arg *contex
 	if (check_functions_in_node(node, has_cluster_hazard_checker,
 								context))
 		return true;
-#ifdef ADB_MULTI_GRAM
+#ifdef ADB_GRAM_ORA
 	/* oracle rownum can not */
 	else if (IsA(node, RownumExpr))
 		return true;
-#endif /* ADB_MULTI_GRAM */
+#endif /* ADB_GRAM_ORA */
 
 	/* temporary sequence can not */
 	else if (IsA(node, NextValueExpr))

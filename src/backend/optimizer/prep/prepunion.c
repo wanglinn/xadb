@@ -1319,7 +1319,7 @@ generate_setop_tlist(List *colTypes, List *colCollations,
 			 * It would likely be best to make the parser generate the correct
 			 * output tlist for every set-op to begin with, though.
 			 */
-#ifdef ADB_MULTI_GRAM
+#ifdef ADB_GRAM_ORA
 			if (current_grammar == PARSE_GRAM_ORACLE)
 				expr = coerce_to_common_type_extend(NULL,
 													expr,
