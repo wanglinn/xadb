@@ -2091,6 +2091,9 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 		}
 		/* do not add break, need run in JOIN_INNER case */
 	case JOIN_INNER:
+	case JOIN_LEFT:
+	case JOIN_FULL:
+	case JOIN_RIGHT:
 		if(IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist))
 		{
 			if (new_reduce_list)
@@ -2098,36 +2101,8 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 			return true;
 		}
 		break;
-	case JOIN_LEFT:
-		if(IsReduceInfoListReplicated(inner_reduce_list))
-		{
-			ReduceInfo *rinfo = linitial(inner_reduce_list);
-			Assert(!IsReduceInfoListCoordinator(outer_reduce_list));
-			if (IsReduceInfoListExecuteSubset(outer_reduce_list, rinfo->storage_nodes))
-			{
-				if (new_reduce_list)
-					*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
-				return true;
-			}
-		}
-		/* TODO run on node */
-		break;
-	case JOIN_FULL:
-		break;
-	case JOIN_RIGHT:
-		if(IsReduceInfoListReplicated(outer_reduce_list))
-		{
-			ReduceInfo *rinfo = linitial(outer_reduce_list);
-			Assert(!IsReduceInfoListCoordinator(inner_reduce_list));
-			if(IsReduceInfoListExecuteSubset(inner_reduce_list, rinfo->storage_nodes))
-			{
-				if (new_reduce_list)
-					*new_reduce_list = CopyReduceInfoList(inner_reduce_list);
-				return true;
-			}
-		}
-		break;
 	case JOIN_SEMI:
+	case JOIN_ANTI:
 		if(IsReduceInfoListReplicated(inner_reduce_list))
 		{
 			ReduceInfo *rinfo = linitial(inner_reduce_list);
@@ -2139,14 +2114,6 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 			}
 		}else if (!IsReduceInfoListReplicated(outer_reduce_list) &&
 			IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist))
-		{
-			if (new_reduce_list)
-				*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
-			return true;
-		}
-		break;
-	case JOIN_ANTI:
-		if (IsReduceInfoListReplicated(inner_reduce_list))
 		{
 			if (new_reduce_list)
 				*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
