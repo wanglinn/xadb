@@ -31,6 +31,9 @@
 #define MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK	0
 #define MGR_PGEXEC_DIRECT_EXE_UTI_RET_TUPLES_TRUE	1
 
+#define SQL_TYPE_COMMAND  	1
+#define SQL_TYPE_QUERY  	2
+
 #define ClosePgConn(co_pg_conn)\
 {\
 	if(co_pg_conn)\
@@ -78,6 +81,8 @@
 		relScan = NULL;\
 	}\
 }
+
+#define SetGrammarToPostgres(pgConn) PQexecCommandSql(pgConn, "set grammar = postgres;", false);
 
 typedef struct GetAgentCmdRst
 {
@@ -643,7 +648,7 @@ extern void MgrRefreshAllPgxcNode(MemoryContext spiContext, ZoneOverGtm *zoGtm, 
 extern void RevertZoneFailover(MemoryContext spiContext, ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
 extern void ZoneSwitchoverFree(ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
 extern int GetSlaveNodeNumInZone(MemoryContext spiContext, MgrNodeWrapper *mgrNode, char slaveType, char *zone);
-extern void DropNodeOnExecuteNode(char nodeType, char *executeNodeName, char *nodeName);
+extern bool ExecuteSqlOnPostgresGrammar(Form_mgr_node mgrNode, int newPort, char *sql, int sqlType);
 extern char *getMgrNodeSyncStateValue(sync_state state);
 extern uint64 updateDoctorStatusOfMgrNodes(List *nodenames, char nodetype, bool allowcure, char *curestatus);
 extern uint64 updateDoctorStatusOfMgrNode(char *nodename, char nodetype, bool allowcure, char *curestatus);

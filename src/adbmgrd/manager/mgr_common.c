@@ -3587,23 +3587,19 @@ int mgr_get_nodetype_num(const char nodeType, const bool inCluster, const bool r
 bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrdata, char *nodename, int newport)
 {
 	StringInfoData infosendmsg;
-	StringInfoData buf;
 	StringInfoData restmsg;
 	HeapTuple tuple;
 	Form_mgr_node mgr_node;
 	ScanKeyData key[2];
 	char *user;
 	char *address;
-	bool execRes = false;
 	bool bnormal= true;
 	HeapScanDesc relScan;
-	ManagerAgent *ma;
-	GetAgentCmdRst getAgentCmdRst;
-	int agentPort;
+	int 	agentPort;
+	int  	newPortIn = 0;
 
 	Assert(nodename);
 	initStringInfo(&infosendmsg);
-	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&restmsg);
 
 	ScanKeyInit(&key[0]
@@ -3642,45 +3638,25 @@ bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrda
 		{
 			/* update the pgxc_node */
 			resetStringInfo(&infosendmsg);
-			appendStringInfo(&infosendmsg, " -h %s -p %u -d %s -U %s -a -c \""
-				,"127.0.0.1"
-				,strcmp(nodename, NameStr(mgr_node->nodename)) == 0 ? newport : mgr_node->nodeport
-				,DEFAULT_DB
-				,user);
 			appendStringInfo(&infosendmsg, "%s", infostrdata->data);
-			appendStringInfo(&infosendmsg, " set FORCE_PARALLEL_MODE = off; select pgxc_pool_reload();\"");
+			appendStringInfo(&infosendmsg, " set FORCE_PARALLEL_MODE = off;");
 			pfree(user);
-			/* connection agent */
-			ma = ma_connect_hostoid(mgr_node->nodehost);
-			if (!ma_isconnected(ma))
+
+			newPortIn = 0;
+			if ((nodename != NULL) && (0 == pg_strcasecmp(nodename, NameStr(mgr_node->nodename))))
+				newPortIn = newport;
+			if (!ExecuteSqlOnPostgresGrammar(mgr_node, newPortIn, infosendmsg.data, SQL_TYPE_COMMAND))
 			{
-				/* report error message */
 				bnormal = false;
-				ereport(WARNING, (errmsg("%s", ma_last_error_msg(ma))));
-				ma_close(ma);
+				ereport(WARNING, (errmsg("execute %s failed.", infosendmsg.data)));
 				continue;
 			}
-			ma_beginmessage(&buf, AGT_MSG_COMMAND);
-			ma_sendbyte(&buf, AGT_CMD_PSQL_CMD);
-			ma_sendstring(&buf,infosendmsg.data);
-			ma_endmessage(&buf, ma);
-			if (! ma_flush(ma, true))
+
+			if (!ExecuteSqlOnPostgresGrammar(mgr_node, newPortIn, SELECT_PGXC_POOL_RELOAD, SQL_TYPE_QUERY))
 			{
 				bnormal = false;
-				ereport(WARNING, (errmsg("%s", ma_last_error_msg(ma))));
-				ma_close(ma);
+				ereport(WARNING, (errmsg("execute %s failed.", SELECT_PGXC_POOL_RELOAD)));
 				continue;
-			}
-			resetStringInfo(&getAgentCmdRst.description);
-			execRes = mgr_recv_msg(ma, &getAgentCmdRst);
-			ma_close(ma);
-			if (!execRes)
-			{
-				bnormal = false;
-				ereport(WARNING, (errmsg("refresh the node \"%s\" information in pgxc_node \
-					of corodinator \"%s\" fail, you should check its pgxc_node, sql string is %s,\
-					the error message: %s",
-					nodename, NameStr(mgr_node->nodename), infosendmsg.data, getAgentCmdRst.description.data)));
 			}
 		}
 		else
@@ -3691,7 +3667,6 @@ bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrda
 		}
 	}
 	pfree(infosendmsg.data);
-	pfree(getAgentCmdRst.description.data);
 	heap_endscan(relScan);
 
 	return bnormal;
