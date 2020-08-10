@@ -3634,32 +3634,16 @@ static List *create_inner_reduce_info_for_join(List *outer_reduce_list, RelOptIn
 				FreeReduceInfo(new_rinfo);
 		}
 /* ADBQ TODO add unique inner path */
-		switch(jointype)
-		{
-		case JOIN_INNER:
-		case JOIN_UNIQUE_INNER:
-		case JOIN_UNIQUE_OUTER:
-		case JOIN_SEMI:
-			need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
-			if (!IsReduceInfoByValue(rinfo) ||
-				(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, innerrel)) == NIL)
-				continue;
-			rinfo = MakeReduceInfoAs(rinfo, exprList);
-			list_free(exprList);
-			if(ReduceInfoListMember(need_reduce_list, rinfo))
-				FreeReduceInfo(rinfo);
-			else
-				need_reduce_list = lappend(need_reduce_list, rinfo);
-			break;
-		case JOIN_LEFT:
-		case JOIN_ANTI:
-			need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
-			break;
-		case JOIN_FULL:
-		case JOIN_RIGHT:
-		default:
-			break;
-		}
+		need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
+		if (!IsReduceInfoByValue(rinfo) ||
+			(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, innerrel)) == NIL)
+			continue;
+		rinfo = MakeReduceInfoAs(rinfo, exprList);
+		list_free(exprList);
+		if(ReduceInfoListMember(need_reduce_list, rinfo))
+			FreeReduceInfo(rinfo);
+		else
+			need_reduce_list = lappend(need_reduce_list, rinfo);
 	}
 
 	return need_reduce_list;
@@ -3694,29 +3678,16 @@ static List *create_outer_reduce_info_for_join(List *inner_reduce_list, RelOptIn
 				FreeReduceInfo(new_rinfo);
 		}
 /* ADBQ TODO add unique outer path */
-		switch(jointype)
-		{
-		case JOIN_INNER:
-		case JOIN_UNIQUE_INNER:
-		case JOIN_UNIQUE_OUTER:
-		case JOIN_SEMI:
-			need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
-			if (!IsReduceInfoByValue(rinfo) ||
-				(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, outerrel)) == NIL)
-				continue;
-			rinfo = MakeReduceInfoAs(rinfo, exprList);
-			list_free(exprList);
-			if(ReduceInfoListMember(need_reduce_list, rinfo))
-				FreeReduceInfo(rinfo);
-			else
-				need_reduce_list = lappend(need_reduce_list, rinfo);
-			break;
-		case JOIN_RIGHT:
-			need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
-			break;
-		default:
-			break;
-		}
+		need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
+		if (!IsReduceInfoByValue(rinfo) ||
+			(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, outerrel)) == NIL)
+			continue;
+		rinfo = MakeReduceInfoAs(rinfo, exprList);
+		list_free(exprList);
+		if(ReduceInfoListMember(need_reduce_list, rinfo))
+			FreeReduceInfo(rinfo);
+		else
+			need_reduce_list = lappend(need_reduce_list, rinfo);
 	}
 
 	return need_reduce_list;
