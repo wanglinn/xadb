@@ -102,9 +102,11 @@
 #include "utils/typcache.h"
 #if defined(ADB_GRAM_ORA) || defined(ADB_GRAM_DB2)
 #include "mb/pg_wchar.h"
+#endif /* defined(ADB_GRAM_ORA) || defined(ADB_GRAM_DB2) */
+#if defined(ADB_GRAM_ORA)
 #include "oraschema/oracoerce.h"
 #include "catalog/ora_cast.h"
-#endif /* defined(ADB_GRAM_ORA) || defined(ADB_GRAM_DB2) */
+#endif /* defined(ADB_GRAM_ORA)*/
 #ifdef ADB
 #include "agtm/agtm.h"
 #include "catalog/pg_proc.h"

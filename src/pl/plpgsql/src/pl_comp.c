@@ -1142,7 +1142,9 @@ plpgsql_parser_setup(struct ParseState *pstate, PLpgSQL_expr *expr)
 	switch (expr->func->grammar)
 	{
 	case PARSE_GRAM_ORACLE:
+#ifdef ADB_GRAM_ORA
 		pstate->p_pre_expr_hook = plora_pre_parse_expr;
+#endif
 		break;
 	default:
 		break;

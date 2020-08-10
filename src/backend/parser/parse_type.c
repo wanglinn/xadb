@@ -774,16 +774,24 @@ TypeName *typeStringToTypeNameForGrammar(const char *str, ParseGrammar grammar)
 	case PARSE_GRAM_POSTGRES:
 		raw_parsetree_list = raw_parser(buf.data);
 		break;
-#ifdef ADB_GRAM_ORA
 	case PARSE_GRAM_ORACLE:
+#ifdef ADB_GRAM_ORA
 		raw_parsetree_list = ora_raw_parser(buf.data);
-		break;
+#else
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("oracle grammar not builtin")));
 #endif
-#ifdef ADB_GRAM_DB2
+		break;
 	case PARSE_GRAM_DB2:
+#ifdef ADB_GRAM_DB2
 		raw_parsetree_list = db2_raw_parser(buf.data);
-		break;
+#else
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("db2 grammar not builtin")));
 #endif
+		break;
 
 	/* keep a compiler warning */
 	}
