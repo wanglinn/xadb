@@ -58,10 +58,6 @@ static void MemoryContextStatsInternal(MemoryContext context, int level,
 									   MemoryContextCounters *totals);
 static void MemoryContextStatsPrint(MemoryContext context, void *passthru,
 									const char *stats_string);
-#ifdef ADB
-static void *current_memcontext(void);
-static void *allocTopCxt(size_t s);
-#endif
 
 /*
  * You should not do memory allocations within a critical section, because
@@ -1234,27 +1230,3 @@ pchomp(const char *in)
 		n--;
 	return pnstrdup(in, n);
 }
-
-#ifdef ADB
-#include "gen_alloc.h"
-
-static void *
-current_memcontext()
-{
-	return((void *)CurrentMemoryContext);
-}
-
-static void *
-allocTopCxt(size_t s)
-{
-	return MemoryContextAlloc(TopMemoryContext, (Size)s);
-}
-
-Gen_Alloc genAlloc_class = {(void *)MemoryContextAlloc,
-							(void *)MemoryContextAllocZero,
-							(void *)repalloc,
-							(void *)pfree,
-							(void *)current_memcontext,
-							(void *)allocTopCxt};
-
-#endif
