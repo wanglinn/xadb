@@ -2517,7 +2517,7 @@ xmax_infomask_changed(uint16 new_infomask, uint16 old_infomask)
  */
 TM_Result
 heap_delete(Relation relation, ItemPointer tid,
-			CommandId cid, Snapshot crosscheck, ADB_ONLY_ARG_COMMA(Snapshot globalcheck) bool wait,
+			CommandId cid, Snapshot crosscheck, bool wait,
 			TM_FailureData *tmfd, bool changingPart)
 {
 	TM_Result	result;
@@ -2701,21 +2701,6 @@ l1:
 		else
 			result = TM_Deleted;
 	}
-#if defined(ADB) && defined(GLOBAL_CHECK)
-	else if (result == TM_Updated && globalcheck != InvalidSnapshot)
-	{
-		TransactionId xwait = HeapTupleHeaderGetRawXmax(tp.t_data);
-
-		if (XidInMVCCSnapshot(xwait, globalcheck))
-		{
-			UnlockReleaseBuffer(buffer);
-			ereport(ERROR,
-					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-					 errmsg("attempted to delete local committed but global uncommitted tuple "
-					 "which version is %u", xwait)));
-		}
-	}
-#endif
 
 	if (crosscheck != InvalidSnapshot && result == TM_Ok)
 	{
@@ -2943,7 +2928,6 @@ simple_heap_delete(Relation relation, ItemPointer tid)
 
 	result = heap_delete(relation, tid,
 						 GetCurrentCommandId(true), InvalidSnapshot,
-						 ADB_ONLY_ARG_COMMA(InvalidSnapshot)
 						 true /* wait for commit */ ,
 						 &tmfd, false /* changingPart */ );
 	switch (result)
@@ -2984,7 +2968,7 @@ simple_heap_delete(Relation relation, ItemPointer tid)
  */
 TM_Result
 heap_update(Relation relation, ItemPointer otid, HeapTuple newtup,
-			CommandId cid, Snapshot crosscheck, ADB_ONLY_ARG_COMMA(Snapshot globalcheck) bool wait,
+			CommandId cid, Snapshot crosscheck, bool wait,
 			TM_FailureData *tmfd, LockTupleMode *lockmode)
 {
 	TM_Result	result;
@@ -3346,21 +3330,6 @@ l2:
 		else
 			result = TM_Deleted;
 	}
-#if defined(ADB) && defined(GLOBAL_CHECK)
-	else if (result == TM_Updated && globalcheck != InvalidSnapshot)
-	{
-		TransactionId xwait = HeapTupleHeaderGetRawXmax(oldtup.t_data);
-
-		if (XidInMVCCSnapshot(xwait, globalcheck))
-		{
-			UnlockReleaseBuffer(buffer);
-			ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("attempted to update local committed but global uncommitted tuple "
-				 "which version is %u", xwait)));
-		}
-	}
-#endif
 
 	if (crosscheck != InvalidSnapshot && result == TM_Ok)
 	{
@@ -3999,7 +3968,7 @@ simple_heap_update(Relation relation, ItemPointer otid, HeapTuple tup)
 	LockTupleMode lockmode;
 
 	result = heap_update(relation, otid, tup,
-						 GetCurrentCommandId(true), InvalidSnapshot, ADB_ONLY_ARG_COMMA(InvalidSnapshot)
+						 GetCurrentCommandId(true), InvalidSnapshot,
 						 true /* wait for commit */ ,
 						 &tmfd, &lockmode);
 	switch (result)

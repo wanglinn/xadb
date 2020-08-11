@@ -315,7 +315,7 @@ heapam_tuple_delete(Relation relation, ItemPointer tid, CommandId cid,
 	 * the storage itself is cleaning the dead tuples by itself, it is the
 	 * time to call the index tuple deletion also.
 	 */
-	return heap_delete(relation, tid, cid, crosscheck, ADB_ONLY_ARG_COMMA(snapshot) wait, tmfd, changingPart);
+	return heap_delete(relation, tid, cid, crosscheck, wait, tmfd, changingPart);
 }
 
 
@@ -333,7 +333,7 @@ heapam_tuple_update(Relation relation, ItemPointer otid, TupleTableSlot *slot,
 	slot->tts_tableOid = RelationGetRelid(relation);
 	tuple->t_tableOid = slot->tts_tableOid;
 
-	result = heap_update(relation, otid, tuple, cid, crosscheck, ADB_ONLY_ARG_COMMA(snapshot) wait,
+	result = heap_update(relation, otid, tuple, cid, crosscheck, wait,
 						 tmfd, lockmode);
 	ItemPointerCopy(&tuple->t_self, &slot->tts_tid);
 
