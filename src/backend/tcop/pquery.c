@@ -515,6 +515,9 @@ PortalStart(Portal portal, ParamListInfo params,
 	MemoryContext oldContext;
 	QueryDesc  *queryDesc;
 	int			myeflags;
+#ifdef ADB_MULTI_GRAM
+	volatile int save_parse_grammar;
+#endif /* ADB_MULTI_GRAM */
 
 	AssertArg(PortalIsValid(portal));
 	AssertState(portal->status == PORTAL_DEFINED);
@@ -525,6 +528,10 @@ PortalStart(Portal portal, ParamListInfo params,
 	saveActivePortal = ActivePortal;
 	saveResourceOwner = CurrentResourceOwner;
 	savePortalContext = PortalContext;
+#ifdef ADB_MULTI_GRAM
+	save_parse_grammar = parse_grammar;
+	parse_grammar = portal->grammar;
+#endif /* ADB_MULTI_GRAM */
 	PG_TRY();
 	{
 		ActivePortal = portal;
@@ -655,6 +662,9 @@ PortalStart(Portal portal, ParamListInfo params,
 	}
 	PG_CATCH();
 	{
+#ifdef ADB_MULTI_GRAM
+		parse_grammar = save_parse_grammar;
+#endif /* ADB_MULTI_GRAM */
 		/* Uncaught error while executing portal: mark it dead */
 		MarkPortalFailed(portal);
 
@@ -667,6 +677,9 @@ PortalStart(Portal portal, ParamListInfo params,
 	}
 	PG_END_TRY();
 
+#ifdef ADB_MULTI_GRAM
+	parse_grammar = save_parse_grammar;
+#endif /* ADB_MULTI_GRAM */
 	MemoryContextSwitchTo(oldContext);
 
 	ActivePortal = saveActivePortal;
@@ -761,6 +774,9 @@ PortalRun(Portal portal, long count, bool isTopLevel, bool run_once,
 	ResourceOwner saveResourceOwner;
 	MemoryContext savePortalContext;
 	MemoryContext saveMemoryContext;
+#ifdef ADB_MULTI_GRAM
+	volatile int save_parse_grammar;
+#endif /* ADB_MULTI_GRAM */
 
 	AssertArg(PortalIsValid(portal));
 
@@ -806,6 +822,10 @@ PortalRun(Portal portal, long count, bool isTopLevel, bool run_once,
 	saveResourceOwner = CurrentResourceOwner;
 	savePortalContext = PortalContext;
 	saveMemoryContext = CurrentMemoryContext;
+#ifdef ADB_MULTI_GRAM
+	save_parse_grammar = parse_grammar;
+	parse_grammar = portal->grammar;
+#endif /* ADB_MULTI_GRAM */
 	PG_TRY();
 	{
 		ActivePortal = portal;
@@ -878,6 +898,9 @@ PortalRun(Portal portal, long count, bool isTopLevel, bool run_once,
 	}
 	PG_CATCH();
 	{
+#ifdef ADB_MULTI_GRAM
+		parse_grammar = save_parse_grammar;
+#endif /* ADB_MULTI_GRAM */
 		/* Uncaught error while executing portal: mark it dead */
 		MarkPortalFailed(portal);
 
@@ -897,6 +920,9 @@ PortalRun(Portal portal, long count, bool isTopLevel, bool run_once,
 	}
 	PG_END_TRY();
 
+#ifdef ADB_MULTI_GRAM
+	parse_grammar = save_parse_grammar;
+#endif /* ADB_MULTI_GRAM */
 	if (saveMemoryContext == saveTopTransactionContext)
 		MemoryContextSwitchTo(TopTransactionContext);
 	else
@@ -1521,6 +1547,9 @@ PortalRunFetch(Portal portal,
 	ResourceOwner saveResourceOwner;
 	MemoryContext savePortalContext;
 	MemoryContext oldContext;
+#ifdef ADB_MULTI_GRAM
+	volatile int save_parse_grammar;
+#endif /* ADB_MULTI_GRAM */
 
 	AssertArg(PortalIsValid(portal));
 
@@ -1538,6 +1567,10 @@ PortalRunFetch(Portal portal,
 	saveActivePortal = ActivePortal;
 	saveResourceOwner = CurrentResourceOwner;
 	savePortalContext = PortalContext;
+#ifdef ADB_MULTI_GRAM
+	save_parse_grammar = parse_grammar;
+	parse_grammar = portal->grammar;
+#endif /* ADB_MULTI_GRAM */
 	PG_TRY();
 	{
 		ActivePortal = portal;
@@ -1578,6 +1611,9 @@ PortalRunFetch(Portal portal,
 	}
 	PG_CATCH();
 	{
+#ifdef ADB_MULTI_GRAM
+		parse_grammar = save_parse_grammar;
+#endif /* ADB_MULTI_GRAM */
 		/* Uncaught error while executing portal: mark it dead */
 		MarkPortalFailed(portal);
 
@@ -1590,6 +1626,9 @@ PortalRunFetch(Portal portal,
 	}
 	PG_END_TRY();
 
+#ifdef ADB_MULTI_GRAM
+	parse_grammar = save_parse_grammar;
+#endif /* ADB_MULTI_GRAM */
 	MemoryContextSwitchTo(oldContext);
 
 	/* Mark portal not active */
