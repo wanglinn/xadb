@@ -18,6 +18,7 @@
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
 #include "catalog/pg_inherits.h"
+#include "catalog/heap.h"
 #include "catalog/indexing.h"
 #include "catalog/pgxc_node.h"
 #include "commands/defrem.h"
@@ -2236,14 +2237,11 @@ make_dummy_remote_rte(char *relname, Alias *alias)
 static Var *
 make_ctid_col_ref(Query *qry)
 {
-	ListCell		*lc1, *lc2;
-	RangeTblEntry		*rte1, *rte2;
-	int			tableRTEs, firstTableRTENumber;
-	RangeTblEntry		*rte_in_query = NULL;
-	AttrNumber		attnum;
-	Oid			vartypeid;
-	int32			type_mod;
-	Oid			varcollid;
+	ListCell	   *lc1, *lc2;
+	RangeTblEntry  *rte1, *rte2;
+	int				tableRTEs, firstTableRTENumber;
+	const FormData_pg_attribute
+				   *attr;
 
 	/*
 	 * If the query has more than 1 table RTEs where both are different, we can not add ctid to the query target list
@@ -2279,7 +2277,6 @@ make_ctid_col_ref(Query *qry)
 				}
 				continue;
 			}
-			rte_in_query = rte1;
 		}
 	}
 
@@ -2301,10 +2298,13 @@ make_ctid_col_ref(Query *qry)
 		firstTableRTENumber = 1;
 	}
 
-	attnum = specialAttNum("ctid");
-	Assert(rte_in_query);
-	get_rte_attribute_type(rte_in_query, attnum, &vartypeid, &type_mod, &varcollid);
-	return makeVar(firstTableRTENumber, attnum, vartypeid, type_mod, varcollid, 0);
+	attr = SystemAttributeDefinition(SelfItemPointerAttributeNumber);
+	return makeVar(firstTableRTENumber,
+				   SelfItemPointerAttributeNumber,
+				   attr->atttypid,
+				   attr->atttypmod,
+				   attr->attcollation,
+				   0);
 }
 
 

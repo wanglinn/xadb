@@ -57,9 +57,7 @@ static void expandTupleDesc(TupleDesc tupdesc, Alias *eref,
 							int rtindex, int sublevels_up,
 							int location, bool include_dropped,
 							List **colnames, List **colvars);
-#ifndef ADB
 static int	specialAttNum(const char *attname);
-#endif
 static bool isQueryUsingTempRelation_walker(Node *node, void *context);
 
 
@@ -3261,11 +3259,7 @@ attnameAttNum(Relation rd, const char *attname, bool sysColOK)
  * Note: this only discovers whether the name could be a system attribute.
  * Caller needs to ensure that it really is an attribute of the rel.
  */
-#ifdef ADB
-int
-#else
 static int
-#endif
 specialAttNum(const char *attname)
 {
 	const FormData_pg_attribute *sysatt;
