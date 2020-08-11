@@ -3593,80 +3593,87 @@ bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrda
 	char *user;
 	char *address;
 	bool bnormal= true;
-	TableScanDesc relScan;
+	TableScanDesc relScan = NULL;
 	int 	agentPort;
 	int  	newPortIn = 0;
 
 	Assert(nodename);
-	initStringInfo(&infosendmsg);
-	initStringInfo(&restmsg);
 
-	ScanKeyInit(&key[0]
-		,Anum_mgr_node_nodetype
-		,BTEqualStrategyNumber
-		,F_CHAREQ
-		,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
-	ScanKeyInit(&key[1]
-		,Anum_mgr_node_nodeincluster
-		,BTEqualStrategyNumber
-		,F_BOOLEQ
-		,BoolGetDatum(true));
-	relScan = table_beginscan_catalog(rel_node, 2, key);
-	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
-	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		user = get_hostuser_from_hostoid(mgr_node->nodehost);
-		agentPort = get_agentPort_from_hostoid(mgr_node->nodehost);
-		resetStringInfo(&infosendmsg);
-		resetStringInfo(&restmsg);
-
-		appendStringInfo(&infosendmsg, "select count(*) from pgxc_node where node_name = '%s'", nodename);
-		/* check the node info on the pgxc_node of coordinator */
-		address = get_hostaddress_from_hostoid(mgr_node->nodehost);
-		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, infosendmsg.data
-			,user, address
-			,strcmp(nodename, NameStr(mgr_node->nodename)) == 0 ? newport : mgr_node->nodeport
-			,DEFAULT_DB, &restmsg);
-		pfree(address);
-		if (restmsg.len != 0 && strcmp(restmsg.data, "0") == 0)
+	PG_TRY();
+	{	
+		initStringInfo(&infosendmsg);
+		initStringInfo(&restmsg);
+		ScanKeyInit(&key[0]
+			,Anum_mgr_node_nodetype
+			,BTEqualStrategyNumber
+			,F_CHAREQ
+			,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
+		ScanKeyInit(&key[1]
+			,Anum_mgr_node_nodeincluster
+			,BTEqualStrategyNumber
+			,F_BOOLEQ
+			,BoolGetDatum(true));
+		relScan = table_beginscan_catalog(rel_node, 2, key);
+		while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 		{
-			/* do nothing */
-			pfree(user);
-		}else if (restmsg.len != 0 && strcmp(restmsg.data, "1") ==0)
-		{
-			/* update the pgxc_node */
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			Assert(mgr_node);
+			user = get_hostuser_from_hostoid(mgr_node->nodehost);
+			agentPort = get_agentPort_from_hostoid(mgr_node->nodehost);
 			resetStringInfo(&infosendmsg);
-			appendStringInfo(&infosendmsg, "%s", infostrdata->data);
-			appendStringInfo(&infosendmsg, " set FORCE_PARALLEL_MODE = off;");
-			pfree(user);
+			resetStringInfo(&restmsg);
 
-			newPortIn = 0;
-			if ((nodename != NULL) && (0 == pg_strcasecmp(nodename, NameStr(mgr_node->nodename))))
-				newPortIn = newport;
-			if (!ExecuteSqlOnPostgresGrammar(mgr_node, newPortIn, infosendmsg.data, SQL_TYPE_COMMAND))
+			appendStringInfo(&infosendmsg, "select count(*) from pgxc_node where node_name = '%s'", nodename);
+			/* check the node info on the pgxc_node of coordinator */
+			address = get_hostaddress_from_hostoid(mgr_node->nodehost);
+			monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, infosendmsg.data
+				,user, address
+				,strcmp(nodename, NameStr(mgr_node->nodename)) == 0 ? newport : mgr_node->nodeport
+				,DEFAULT_DB, &restmsg);
+			pfree(address);
+			if (restmsg.len != 0 && strcmp(restmsg.data, "0") == 0)
+			{
+				/* do nothing */
+				pfree(user);
+			}else if (restmsg.len != 0 && strcmp(restmsg.data, "1") ==0)
+			{
+				/* update the pgxc_node */
+				resetStringInfo(&infosendmsg);
+				appendStringInfo(&infosendmsg, "%s", infostrdata->data);
+				appendStringInfo(&infosendmsg, " set FORCE_PARALLEL_MODE = off;");
+				pfree(user);
+
+				newPortIn = 0;
+				if ((nodename != NULL) && (0 == pg_strcasecmp(nodename, NameStr(mgr_node->nodename))))
+					newPortIn = newport;
+				if (ExecuteSqlOnPostgresGrammar(mgr_node, newPortIn, infosendmsg.data, SQL_TYPE_COMMAND))
+				{
+					ereport(LOG, (errmsg("on %s execute %s success.", NameStr(mgr_node->nodename), infosendmsg.data)));
+				}
+				if (ExecuteSqlOnPostgresGrammar(mgr_node, newPortIn, SELECT_PGXC_POOL_RELOAD, SQL_TYPE_QUERY))
+				{
+					ereport(LOG, (errmsg("on %s execute %s success.", NameStr(mgr_node->nodename), SELECT_PGXC_POOL_RELOAD)));
+				}
+			}
+			else
 			{
 				bnormal = false;
-				ereport(WARNING, (errmsg("execute %s failed.", infosendmsg.data)));
-				continue;
+				ereport(WARNING, (errmsg("connect corodinator \"%s\" fail, you should check its pgxc_node, sql string is %s",
+					NameStr(mgr_node->nodename), infosendmsg.data)));
 			}
+		}
 
-			if (!ExecuteSqlOnPostgresGrammar(mgr_node, newPortIn, SELECT_PGXC_POOL_RELOAD, SQL_TYPE_QUERY))
-			{
-				bnormal = false;
-				ereport(WARNING, (errmsg("execute %s failed.", SELECT_PGXC_POOL_RELOAD)));
-				continue;
-			}
-		}
-		else
-		{
-			bnormal = false;
-			ereport(WARNING, (errmsg("connect corodinator \"%s\" fail, you should check its pgxc_node, sql string is %s",
-				NameStr(mgr_node->nodename), infosendmsg.data)));
-		}
-	}
-	pfree(infosendmsg.data);
-	table_endscan(relScan);
+		MgrFree(infosendmsg.data);
+		MgrFree(restmsg.data);
+		table_endscan(relScan);
+	}PG_CATCH();
+	{
+		MgrFree(infosendmsg.data);
+		MgrFree(restmsg.data);
+		if (relScan != NULL)
+			table_endscan(relScan);			
+		PG_RE_THROW();
+	}PG_END_TRY();
 
 	return bnormal;
 }

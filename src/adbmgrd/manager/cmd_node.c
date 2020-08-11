@@ -287,6 +287,14 @@ static HeapTuple MgrQueryStatReplicationMaster(Oid masterOid,
 												Form_mgr_node nodeSlave, 
 												NameData *nameSlave);																					
 static bool CheckMgrNodeHasSlaveNode(Oid parentOid);
+static void mgr_modify_slave_port_recoveryconf(Relation rel_node,
+												char nodetype,
+												Oid nodetupleoid,
+												int32 newport);
+static void mgr_modify_gtmport_after_initd(Relation rel_node, 
+											HeapTuple nodetuple, 
+											char *nodename, 
+											int32 newport);
 
 #if (Natts_mgr_node != 13)
 #error "need change code"
@@ -9343,39 +9351,135 @@ static bool mgr_refresh_coord_pgxc_node(pgxc_node_operator cmd, char nodetype, c
 
 static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, char *nodename, char nodetype, int32 newport)
 {
-	Form_mgr_node mgr_node;
 	StringInfoData infosendmsg;
-	ScanKeyData key[2];
-	TableScanDesc rel_scan;
-	HeapTuple tuple =NULL;
 	Oid nodetupleoid;
 
 	Assert(HeapTupleIsValid(nodetuple));
-	nodetupleoid = ((Form_mgr_node)GETSTRUCT(tuple))->oid;
+	nodetupleoid = ((Form_mgr_node)GETSTRUCT(nodetuple))->oid;
 	initStringInfo(&infosendmsg);
-	/*if nodetype is slave, need modfify its postgresql.conf for port*/
-	if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype || CNDN_TYPE_COORDINATOR_SLAVE == nodetype)
+	
+	PG_TRY();
 	{
-		resetStringInfo(&infosendmsg);
-		mgr_append_pgconf_paras_str_int("port", newport, &infosendmsg);
-		mgr_modify_node_parameter_after_initd(rel_node, nodetuple, &infosendmsg, true);
-		if (CNDN_TYPE_DATANODE_SLAVE == nodetype)
+		/*if nodetype is slave, need modfify its postgresql.conf for port*/
+		if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype || CNDN_TYPE_COORDINATOR_SLAVE == nodetype)
 		{
 			resetStringInfo(&infosendmsg);
+			mgr_append_pgconf_paras_str_int("port", newport, &infosendmsg);
+			mgr_modify_node_parameter_after_initd(rel_node, nodetuple, &infosendmsg, true);
+			if (CNDN_TYPE_DATANODE_SLAVE == nodetype)
+			{
+				resetStringInfo(&infosendmsg);
+				appendStringInfo(&infosendmsg, "ALTER NODE \"%s\" WITH (%s=%d);"
+									,nodename,"port", newport);
+				mgr_modify_readonly_coord_pgxc_node(rel_node, &infosendmsg, nodename, newport);
+			}
+		}
+		/*if nodetype is gtm master, need modify its postgresql.conf and all datanodes、coordinators postgresql.conf for  agtm_port, agtm_host*/
+		else if (CNDN_TYPE_DATANODE_MASTER == nodetype)
+		{
+			/*gtm master*/
+			mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, mgr_zone);
+			mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER, mgr_zone);	
+
+			resetStringInfo(&infosendmsg);
+			mgr_append_pgconf_paras_str_int("port", newport, &infosendmsg);
+			mgr_modify_node_parameter_after_initd(rel_node, nodetuple, &infosendmsg, true);
+			
+			mgr_modify_slave_port_recoveryconf(rel_node, CNDN_TYPE_DATANODE_SLAVE, nodetupleoid, newport);
+			
+			resetStringInfo(&infosendmsg);
 			appendStringInfo(&infosendmsg, "ALTER NODE \"%s\" WITH (%s=%d);"
-								,nodename,"port", newport);
-			mgr_modify_readonly_coord_pgxc_node(rel_node, &infosendmsg, nodename, newport);
+								,nodename
+								,"port"
+								,newport);
+			mgr_modify_coord_pgxc_node(rel_node, CNDN_TYPE_COORDINATOR_MASTER,&infosendmsg, NULL, 0);
+			mgr_modify_coord_pgxc_node(rel_node, CNDN_TYPE_GTM_COOR_MASTER,&infosendmsg, NULL, 0);	
+		}
+		else if (CNDN_TYPE_GTM_COOR_MASTER == nodetype)
+		{
+			mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, mgr_zone);
+			mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER, mgr_zone);
+			mgr_modify_gtmport_after_initd(rel_node, nodetuple, nodename, newport);
+		}
+		else if (CNDN_TYPE_COORDINATOR_MASTER == nodetype)
+		{
+			/*refresh all pgxc_node all coordinators*/
+			mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, mgr_zone);
+			mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER, mgr_zone);
+
+			/*modify port*/
+			resetStringInfo(&infosendmsg);
+			mgr_append_pgconf_paras_str_int("port", newport, &infosendmsg);
+			mgr_modify_node_parameter_after_initd(rel_node, nodetuple, &infosendmsg, true);
+			
+			mgr_modify_slave_port_recoveryconf(rel_node, CNDN_TYPE_COORDINATOR_SLAVE, nodetupleoid, newport);
+
+			resetStringInfo(&infosendmsg);
+			appendStringInfo(&infosendmsg, "ALTER NODE \"%s\" WITH (%s=%d);"
+								,nodename
+								,"port"
+								,newport);
+			mgr_modify_coord_pgxc_node(rel_node, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg, nodename, newport);
+			mgr_modify_coord_pgxc_node(rel_node, CNDN_TYPE_GTM_COOR_MASTER,&infosendmsg, NULL, 0);
+		}
+		else
+		{
+			/*do nothing*/
+		}
+	}PG_CATCH();
+	{
+		MgrFree(infosendmsg.data);
+		PG_RE_THROW();
+	}PG_END_TRY();	
+
+	MgrFree(infosendmsg.data);
+}
+static void mgr_modify_slave_port_recoveryconf(Relation rel_node, char nodetype, Oid nodetupleoid, int32 newport)
+{
+	Form_mgr_node mgr_node;
+	ScanKeyData key[2];
+	TableScanDesc rel_scan;
+	HeapTuple tuple =NULL;
+
+	ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodetype
+				,BTEqualStrategyNumber
+				,F_CHAREQ
+				,CharGetDatum(nodetype));
+	ScanKeyInit(&key[1]
+				,Anum_mgr_node_nodeincluster
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
+	rel_scan = table_beginscan_catalog(rel_node, 2, key);
+	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);	
+		if (nodetupleoid == mgr_node->nodemasternameoid)
+		{
+			mgr_modify_port_recoveryconf(rel_node, tuple, newport);
 		}
 	}
-	/*if nodetype is gtm master, need modify its postgresql.conf and all datanodes、coordinators postgresql.conf for  agtm_port, agtm_host*/
-	else if (CNDN_TYPE_GTM_COOR_MASTER == nodetype || CNDN_TYPE_DATANODE_MASTER == nodetype)
+	heap_endscan(rel_scan);
+}
+
+static void mgr_modify_gtmport_after_initd(Relation rel_node, HeapTuple nodetuple, char *nodename, int32 newport)
+{
+	Form_mgr_node mgr_node;
+	StringInfoData infosendmsg;
+	ScanKeyData key[1];
+	TableScanDesc rel_scan = NULL;
+	HeapTuple tuple = NULL;
+
+	PG_TRY();
 	{
-		/*gtm master*/
-		if (CNDN_TYPE_DATANODE_MASTER == nodetype)
-			mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER, mgr_zone);
-		resetStringInfo(&infosendmsg);
+		mgr_node = (Form_mgr_node)GETSTRUCT(nodetuple);
+		Assert(mgr_node);
+		initStringInfo(&infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", newport, &infosendmsg);
 		mgr_modify_node_parameter_after_initd(rel_node, nodetuple, &infosendmsg, true);
+		
 		/*modify its slave recovery.conf and datanodes coordinators postgresql.conf*/
 		ScanKeyInit(&key[0]
 					,Anum_mgr_node_nodeincluster
@@ -9386,74 +9490,38 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 		while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 		{
 			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-			Assert(mgr_node);
-			if (CNDN_TYPE_GTM_COOR_MASTER == nodetype)
+			Assert(mgr_node);			
+			if (CNDN_TYPE_GTM_COOR_SLAVE == mgr_node->nodetype)
 			{
-				if (CNDN_TYPE_GTM_COOR_SLAVE == mgr_node->nodetype)
-				{
-					mgr_modify_port_recoveryconf(rel_node, tuple, newport);
-				}
-				else if (!(CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype))
-				{
-					resetStringInfo(&infosendmsg);
-					mgr_append_pgconf_paras_str_int("agtm_port", newport, &infosendmsg);
-					mgr_modify_node_parameter_after_initd(rel_node, tuple, &infosendmsg, false);
-				}
-				else
-				{
-					/*do nothing*/
-				}
+				mgr_modify_port_recoveryconf(rel_node, tuple, newport);
+			}
+			else if (CNDN_TYPE_GTM_COOR_MASTER != mgr_node->nodetype)
+			{
+				resetStringInfo(&infosendmsg);
+				mgr_append_pgconf_paras_str_int("agtm_port", newport, &infosendmsg);
+				mgr_modify_node_parameter_after_initd(rel_node, tuple, &infosendmsg, true);
 			}
 			else
 			{
-				if (CNDN_TYPE_DATANODE_SLAVE == mgr_node->nodetype)
-				{
-					if (nodetupleoid == mgr_node->nodemasternameoid)
-						mgr_modify_port_recoveryconf(rel_node, tuple, newport);
-				}
+				/*do nothing*/
 			}
 		}
 		table_endscan(rel_scan);
-		if (CNDN_TYPE_DATANODE_MASTER == nodetype)
-		{
-			resetStringInfo(&infosendmsg);
-			appendStringInfo(&infosendmsg, "ALTER NODE \"%s\" WITH (%s=%d);"
-								,nodename
-								,"port"
-								,newport);
-			mgr_modify_coord_pgxc_node(rel_node, CNDN_TYPE_COORDINATOR_MASTER,&infosendmsg, NULL, 0);
-			mgr_modify_readonly_coord_pgxc_node(rel_node, &infosendmsg, nodename, newport);
-			mgr_modify_coord_pgxc_node(rel_node, CNDN_TYPE_GTM_COOR_MASTER,&infosendmsg, nodename, newport);
-		}
-	}
-	else if (CNDN_TYPE_COORDINATOR_MASTER == nodetype)
-	{
-		/*refresh all pgxc_node all coordinators*/
-		mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER, mgr_zone);
-
-		/*modify port*/
-		resetStringInfo(&infosendmsg);
-		mgr_append_pgconf_paras_str_int("port", newport, &infosendmsg);
-		mgr_modify_node_parameter_after_initd(rel_node, nodetuple, &infosendmsg, true);
-		
 		resetStringInfo(&infosendmsg);
 		appendStringInfo(&infosendmsg, "ALTER NODE \"%s\" WITH (%s=%d);"
 							,nodename
 							,"port"
 							,newport);
-		mgr_modify_coord_pgxc_node(rel_node, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg, nodename, newport);
-		mgr_modify_readonly_coord_pgxc_node(rel_node, &infosendmsg, nodename, newport);
 		mgr_modify_coord_pgxc_node(rel_node, CNDN_TYPE_GTM_COOR_MASTER,&infosendmsg, nodename, newport);
-	}
-	else
-	{
-		/*do nothing*/
-	}
-
-	pfree(infosendmsg.data);
-
+		MgrFree(infosendmsg.data);
+	}PG_CATCH();
+	{   
+		if (rel_scan != NULL)
+			table_endscan(rel_scan);
+		MgrFree(infosendmsg.data);
+		PG_RE_THROW();
+	}PG_END_TRY();	
 }
-
 /*
 * modify the given node port after it initd
 */
@@ -9635,13 +9703,11 @@ static bool mgr_modify_coord_pgxc_node(Relation rel_node, char nodetype, StringI
 	HeapTuple tuple;
 	Form_mgr_node mgr_node;
 	ScanKeyData key[3];
-	char *user;
 	bool bnormal= true;
-	TableScanDesc rel_scan;
+	TableScanDesc rel_scan = NULL;
 	int 	newPortIn  = 0;
 
 	initStringInfo(&infosendmsg);
-
 	ScanKeyInit(&key[0]
 		,Anum_mgr_node_nodetype
 		,BTEqualStrategyNumber
@@ -9652,36 +9718,46 @@ static bool mgr_modify_coord_pgxc_node(Relation rel_node, char nodetype, StringI
 				,BTEqualStrategyNumber
 				,F_BOOLEQ
 				,BoolGetDatum(true));
-	rel_scan = table_beginscan_catalog(rel_node, 2, key);
-	while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+	PG_TRY();
 	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-
-		user = get_hostuser_from_hostoid(mgr_node->nodehost);
-		resetStringInfo(&infosendmsg);
-		appendStringInfo(&infosendmsg, "%s", infostrdata->data);
-		appendStringInfo(&infosendmsg, " set FORCE_PARALLEL_MODE = off;");
-		pfree(user);
-
-		newPortIn = 0;
-		if ((nodename != NULL) && (0 == pg_strcasecmp(nodename, NameStr(mgr_node->nodename))))
-			newPortIn = newport;
-
-		if (!ExecuteSqlOnPostgresGrammar(mgr_node, newPortIn, infosendmsg.data, SQL_TYPE_COMMAND))
+		rel_scan = table_beginscan_catalog(rel_node, 2, key);
+		while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
 		{
-			ereport(WARNING, (errmsg("execute %s failed.", "failed")));
-			break;
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			Assert(mgr_node);
+
+			resetStringInfo(&infosendmsg);
+			appendStringInfo(&infosendmsg, "%s", infostrdata->data);
+			appendStringInfo(&infosendmsg, " set FORCE_PARALLEL_MODE = off;");
+
+			newPortIn = 0;
+			if ((nodename != NULL) && (0 == pg_strcasecmp(nodename, NameStr(mgr_node->nodename))))
+				newPortIn = newport;
+
+			if (ExecuteSqlOnPostgresGrammar(mgr_node, newPortIn, infosendmsg.data, SQL_TYPE_COMMAND))
+			{
+				ereport(LOG, (errmsg("on %s execute %s success.", NameStr(mgr_node->nodename), infosendmsg.data)));
+			}
+			if (ExecuteSqlOnPostgresGrammar(mgr_node, newPortIn, SELECT_PGXC_POOL_RELOAD, SQL_TYPE_QUERY))
+			{
+				ereport(LOG, (errmsg("on %s execute %s success.", NameStr(mgr_node->nodename), SELECT_PGXC_POOL_RELOAD)));
+			}		
 		}
 
 		if (!ExecuteSqlOnPostgresGrammar(mgr_node, newPortIn, SELECT_PGXC_POOL_RELOAD, SQL_TYPE_QUERY))
 		{
 			ereport(WARNING, (errmsg("execute %s failed.", SELECT_PGXC_POOL_RELOAD)));
 			break;
-		}		
-	}
-	table_endscan(rel_scan);
-	pfree(infosendmsg.data);
+		}
+	
+		table_endscan(rel_scan);
+		pfree(infosendmsg.data);
+	}PG_CATCH();
+	{		
+		heap_endscan(rel_scan);
+		pfree(infosendmsg.data);
+		PG_RE_THROW();
+	}PG_END_TRY();
 
 	return bnormal;
 }
@@ -14451,9 +14527,9 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 			pfree(checkSql.data);
 			pfree(execSql.data);
 			ereport(LOG, 
-					(errmsg("%s, Failed to update pgxc_node in '%s'.", 
+					(errmsg("%s, Failed to update pgxc_node in '%s', execSql.data(%s).", 
 							warningMassage,
-							cn_master_node->nodename.data)));
+							cn_master_node->nodename.data, execSql.data)));
 			return false;
 		}
 		PQclear(res);
