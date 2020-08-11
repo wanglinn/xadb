@@ -9550,7 +9550,7 @@ static void mgr_modify_port_recoveryconf(Relation rel_node, HeapTuple aimtuple, 
 	Assert(mgr_node);
 	nodetype = mgr_node->nodetype;
 	namestrcpy(&nodenameData, NameStr(mgr_node->nodename));
-	if (!(CNDN_TYPE_GTM_COOR_SLAVE ==nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype))
+	if (!(CNDN_TYPE_GTM_COOR_SLAVE ==nodetype || CNDN_TYPE_DATANODE_SLAVE == nodetype || CNDN_TYPE_COORDINATOR_SLAVE == nodetype))
 		return;
 	mastertupleoid = mgr_node->nodemasternameoid;
 	hostoid = mgr_node->nodehost;
@@ -9617,6 +9617,9 @@ static void mgr_modify_port_recoveryconf(Relation rel_node, HeapTuple aimtuple, 
 		case CNDN_TYPE_DATANODE_SLAVE:
 			mgr_runmode_cndn_get_result(AGT_CMD_DN_RESTART, &getAgentCmdRst, rel_node, aimtuple, SHUTDOWN_F);
 			break;
+		case CNDN_TYPE_COORDINATOR_SLAVE:
+			mgr_runmode_cndn_get_result(AGT_CMD_CN_RESTART, &getAgentCmdRst, rel_node, aimtuple, SHUTDOWN_F);
+			break;	
 		default:
 			break;
 	}
