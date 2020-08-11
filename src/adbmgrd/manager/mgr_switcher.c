@@ -7056,6 +7056,8 @@ bool ExecuteSqlOnPostgresGrammar(Form_mgr_node mgrNode, int newPort, char *sql, 
 	bool execOk = false;
 	PGconn *pgConn = NULL;
 
+	ereport(LOG,(errmsg("on %s execute %s.", NameStr(mgrNode->nodename), sql)));
+
 	PG_TRY();
 	{
 		oldContext = CurrentMemoryContext;
@@ -7081,9 +7083,9 @@ bool ExecuteSqlOnPostgresGrammar(Form_mgr_node mgrNode, int newPort, char *sql, 
 		SetGrammarToPostgres(pgConn);
 		
 		if(sqlType == SQL_TYPE_COMMAND)
-			PQexecCommandSql(pgConn, sql, false);
+			PQexecCommandSql(pgConn, sql, true);
 		else
-			PQexecCountSql(pgConn, sql, false);
+			PQexecCountSql(pgConn, sql, true);
 
 		ClosePgConn(pgConn);
 		(void)MemoryContextSwitchTo(oldContext);
@@ -7097,7 +7099,7 @@ bool ExecuteSqlOnPostgresGrammar(Form_mgr_node mgrNode, int newPort, char *sql, 
 		MemoryContextDelete(switchContext);
 		SPI_finish();	
 		execOk = false;	
-
+		PG_RE_THROW();
 	}PG_END_TRY();
 
 	return execOk;
