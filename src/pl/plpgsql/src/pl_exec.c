@@ -478,6 +478,12 @@ plpgsql_exec_function(PLpgSQL_function *func, FunctionCallInfo fcinfo,
 	ErrorContextCallback plerrcontext;
 	int			i;
 	int			rc;
+#ifdef ADB_MULTI_GRAM
+	volatile int saved_grammar = parse_grammar;
+	parse_grammar = func->grammar;
+	PG_TRY();
+	{
+#endif /* ADB_MULTI_GRAM */
 
 	/*
 	 * Setup the execution state
@@ -785,6 +791,15 @@ plpgsql_exec_function(PLpgSQL_function *func, FunctionCallInfo fcinfo,
 	 * Pop the error context stack
 	 */
 	error_context_stack = plerrcontext.previous;
+
+#ifdef ADB_MULTI_GRAM
+	}PG_CATCH();
+	{
+		parse_grammar = saved_grammar;
+		PG_RE_THROW();
+	}PG_END_TRY();
+	parse_grammar = saved_grammar;
+#endif /* ADB_MULTI_GRAM */
 
 	/*
 	 * Return the function's result

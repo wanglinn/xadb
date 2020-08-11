@@ -68,6 +68,9 @@
 #define REMOTE_KEY_CUSTOM_FUNCTION			0xFFFFFF0B
 #define REMOTE_KEY_COORD_INFO				0xFFFFFF0C
 #define REMOTE_KEY_QUERY_STRING_INFO		0xFFFFFF0D
+#ifdef ADB_MULTI_GRAM
+#define REMOTE_KEY_GRAMMAR					0xFFFFFFEF
+#endif /* ADB_MULTI_GRAM */
 
 #define CLUSTER_CUSTOM_NEED_SEND_STAT			1
 #define CLUSTER_CUSTOM_NO_NEED_SEND_STAT		2
@@ -85,6 +88,9 @@ typedef struct ClusterErrorHookContext
 	ErrorContextCallback	callback;
 	Oid						saved_node_oid;
 	uint32					saved_node_id;
+#ifdef ADB_MULTI_GRAM
+	int						saved_parse_grammar;
+#endif /* ADB_MULTI_GRAM */
 	bool					saved_enable_cluster_plan;
 	bool					saved_in_cluster_mode;
 }ClusterErrorHookContext;
@@ -131,6 +137,11 @@ static void SerializeRelationOid(StringInfo buf, Oid relid);
 static Oid RestoreRelationOid(StringInfo buf, bool missok);
 static void SerializeCoordinatorInfo(StringInfo buf);
 static void SerializeDebugQueryString(StringInfo buf);
+#ifdef ADB_MULTI_GRAM
+static void SerializeGrammarInfo(StringInfo buf);
+#else
+#define SerializeGrammarInfo(arg)	((void)true)
+#endif /* ADB_MULTI_GRAM */
 static ClusterCoordInfo* RestoreCoordinatorInfo(StringInfo buf);
 static const char* RestoreDebugQueryString(StringInfo buf);
 static void send_rdc_listend_port(int port);
@@ -144,7 +155,7 @@ static bool RelationIsCoordOnly(Oid relid);
 
 static void ExecClusterErrorHookMaster(void *arg);
 static void ExecClusterErrorHookNode(void *arg);
-static void SetupClusterErrorHook(ClusterErrorHookContext *context);
+static void SetupClusterErrorHook(ClusterErrorHookContext *context ADB_MULTI_GRAM_COMMA_ARG(StringInfo msg));
 static void RestoreClusterHook(ClusterErrorHookContext *context);
 
 static const ClusterCustomExecInfo* find_custom_func_info(StringInfo mem_toc, bool noError);
@@ -209,7 +220,7 @@ void exec_cluster_plan(const void *splan, int length)
 	else
 		tag = T_Invalid;
 
-	SetupClusterErrorHook(&error_context_hook);
+	SetupClusterErrorHook(&error_context_hook ADB_MULTI_GRAM_COMMA_ARG(&msg));
 	restore_cluster_plan_info(&msg);
 	info = RestoreCoordinatorInfo(&msg);
 	debug_query_string = RestoreDebugQueryString(&msg);
@@ -568,6 +579,7 @@ PlanState* ExecStartClusterPlan(Plan *plan, EState *estate, int eflags, List *rn
 	}
 
 	SerializeCoordinatorInfo(&msg);
+	SerializeGrammarInfo(&msg);
 
 	StartRemotePlan(&msg, rnodes, &context, true);
 	pfree(msg.data);
@@ -1157,6 +1169,15 @@ static void SerializeDebugQueryString(StringInfo buf)
 	}
 }
 
+#ifdef ADB_MULTI_GRAM
+static void SerializeGrammarInfo(StringInfo buf)
+{
+	begin_mem_toc_insert(buf, REMOTE_KEY_GRAMMAR);
+	appendBinaryStringInfoNT(buf, (char*)&parse_grammar, sizeof(parse_grammar));
+	end_mem_toc_insert(buf, REMOTE_KEY_GRAMMAR);
+}
+#endif /* ADB_MULTI_GRAM */
+
 static const char* RestoreDebugQueryString(StringInfo buf)
 {
 	StringInfoData msg;
@@ -1508,8 +1529,12 @@ static void ExecClusterErrorHookNode(void *arg)
 	}
 }
 
-static void SetupClusterErrorHook(ClusterErrorHookContext *context)
+static void SetupClusterErrorHook(ClusterErrorHookContext *context ADB_MULTI_GRAM_COMMA_ARG(StringInfo msg))
 {
+#ifdef ADB_MULTI_GRAM
+	char   *ptr;
+	int		len;
+#endif /* ADB_MULTI_GRAM */
 	AssertArg(context);
 
 	context->saved_node_oid = PGXCNodeOid;
@@ -1517,6 +1542,15 @@ static void SetupClusterErrorHook(ClusterErrorHookContext *context)
 	context->saved_enable_cluster_plan = enable_cluster_plan;
 	context->saved_in_cluster_mode = in_cluster_mode;
 	in_cluster_mode = true;
+#ifdef ADB_MULTI_GRAM
+	context->saved_parse_grammar = parse_grammar;
+	ptr = mem_toc_lookup(msg, REMOTE_KEY_GRAMMAR, &len);
+	if (ptr)
+	{
+		Assert(sizeof(parse_grammar) <= len);
+		memcpy(&parse_grammar, ptr, sizeof(parse_grammar));
+	}
+#endif /* ADB_MULTI_GRAM */
 	context->callback.arg = context;
 	context->callback.callback = ExecClusterErrorHookNode;
 	context->callback.previous = error_context_stack;
@@ -1530,6 +1564,9 @@ static void RestoreClusterHook(ClusterErrorHookContext *context)
 	enable_cluster_plan = context->saved_enable_cluster_plan;
 	error_context_stack = context->callback.previous;
 	in_cluster_mode = context->saved_in_cluster_mode;
+#ifdef ADB_MULTI_GRAM
+	parse_grammar = context->saved_parse_grammar;
+#endif /* ADB_MULTI_GRAM */
 }
 
 static bool RelationIsCoordOnly(Oid relid)
