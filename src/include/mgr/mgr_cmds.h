@@ -648,7 +648,9 @@ extern void MgrRefreshAllPgxcNode(MemoryContext spiContext, ZoneOverGtm *zoGtm, 
 extern void RevertZoneFailover(MemoryContext spiContext, ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
 extern void ZoneSwitchoverFree(ZoneOverGtm *zoGtm, dlist_head *zoCoordList, dlist_head *zoDNList);
 extern int GetSlaveNodeNumInZone(MemoryContext spiContext, MgrNodeWrapper *mgrNode, char slaveType, char *zone);
-extern bool ExecuteSqlOnPostgresGrammar(Form_mgr_node mgrNode, int newPort, char *sql, int sqlType);
+extern bool ExecuteSqlOnPostgres(Form_mgr_node mgrNode, int newPort, char *sql);
+extern bool CheckNodeExistInPgxcNode(Form_mgr_node mgrNode, char *existNodeName, char nodeType);
+extern void MgrDelPgxcNodeSlaveFromCoord(Form_mgr_node coordMgrNode);
 extern char *getMgrNodeSyncStateValue(sync_state state);
 extern uint64 updateDoctorStatusOfMgrNodes(List *nodenames, char nodetype, bool allowcure, char *curestatus);
 extern uint64 updateDoctorStatusOfMgrNode(char *nodename, char nodetype, bool allowcure, char *curestatus);

@@ -3647,13 +3647,10 @@ bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrda
 				newPortIn = 0;
 				if ((nodename != NULL) && (0 == pg_strcasecmp(nodename, NameStr(mgr_node->nodename))))
 					newPortIn = newport;
-				if (ExecuteSqlOnPostgresGrammar(mgr_node, newPortIn, infosendmsg.data, SQL_TYPE_COMMAND))
+
+				if (ExecuteSqlOnPostgres(mgr_node, newPortIn, infosendmsg.data))
 				{
 					ereport(LOG, (errmsg("on %s execute %s success.", NameStr(mgr_node->nodename), infosendmsg.data)));
-				}
-				if (ExecuteSqlOnPostgresGrammar(mgr_node, newPortIn, SELECT_PGXC_POOL_RELOAD, SQL_TYPE_QUERY))
-				{
-					ereport(LOG, (errmsg("on %s execute %s success.", NameStr(mgr_node->nodename), SELECT_PGXC_POOL_RELOAD)));
 				}
 			}
 			else

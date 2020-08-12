@@ -353,6 +353,9 @@ static PGconn *GetNodeConn(Form_mgr_node nodeIn,
 							int newPort,
 							int connectTimeout,
 							MemoryContext spiContext);
+static bool DeletePgxcNodeDataNodeByName(PGconn *pgConn, 
+										char *nodeName, 
+										bool complain);							
 /**
  * system function of failover datanode
  */
@@ -7047,16 +7050,13 @@ int GetSlaveNodeNumInZone(MemoryContext spiContext,
 	pfreeSwitcherNodeWrapperList(&slaveNodes, NULL);
 	return slaveNum;
 }
-bool ExecuteSqlOnPostgresGrammar(Form_mgr_node mgrNode, int newPort, char *sql, int sqlType)
+static void ExecuteSqlOnPostgresGrammar(Form_mgr_node mgrNode, int newPort, char *sql, int sqlType)
 {
 	MemoryContext oldContext = NULL;
 	MemoryContext switchContext = NULL;
 	MemoryContext spiContext = NULL;
 	int spiRes;
-	bool execOk = false;
 	PGconn *pgConn = NULL;
-
-	ereport(LOG,(errmsg("on %s execute %s.", NameStr(mgrNode->nodename), sql)));
 
 	PG_TRY();
 	{
@@ -7091,18 +7091,14 @@ bool ExecuteSqlOnPostgresGrammar(Form_mgr_node mgrNode, int newPort, char *sql, 
 		(void)MemoryContextSwitchTo(oldContext);
 		MemoryContextDelete(switchContext);
 		SPI_finish();
-		execOk = true;
 	}PG_CATCH();
 	{
 		ClosePgConn(pgConn);
 		(void)MemoryContextSwitchTo(oldContext);
 		MemoryContextDelete(switchContext);
 		SPI_finish();	
-		execOk = false;	
 		PG_RE_THROW();
 	}PG_END_TRY();
-
-	return execOk;
 }
 
 static PGconn *GetNodeConn(Form_mgr_node nodeIn,
@@ -7138,4 +7134,194 @@ static PGconn *GetNodeConn(Form_mgr_node nodeIn,
 
 	return conn;
 }
+bool ExecuteSqlOnPostgres(Form_mgr_node mgrNode, int newPort, char *sql)
+{
+	if (strlen(sql) == 0)
+		return true;
+	PG_TRY();
+	{
+		ExecuteSqlOnPostgresGrammar(mgrNode, newPort, sql, SQL_TYPE_COMMAND);
+		ExecuteSqlOnPostgresGrammar(mgrNode, newPort, SELECT_PGXC_POOL_RELOAD, SQL_TYPE_QUERY);
+	}PG_CATCH();
+	{		
+		PG_RE_THROW();
+	}PG_END_TRY();
+	return true;	
+}
+bool CheckNodeExistInPgxcNode(Form_mgr_node mgrNode, char *existNodeName, char nodeType)
+{
+	MemoryContext oldContext = NULL;
+	MemoryContext switchContext = NULL;
+	MemoryContext spiContext = NULL;
+	int spiRes;
+	bool exist = false;
+	PGconn 	*pgConn = NULL;
+	StringInfoData	sql;
+
+	initStringInfo(&sql);
+
+	PG_TRY();
+	{
+		oldContext = CurrentMemoryContext;
+		switchContext = AllocSetContextCreate(oldContext,
+											"CheckNodeExistInPgxcNode",
+											ALLOCSET_DEFAULT_SIZES);
+		spiRes = SPI_connect();
+		if (spiRes != SPI_OK_CONNECT)
+		{
+			ereport(ERROR,
+					(errmsg("SPI_connect failed, connect return:%d",
+							spiRes)));
+		}
+		spiContext = CurrentMemoryContext;
+		MemoryContextSwitchTo(switchContext);
+
+		pgConn = GetNodeConn(mgrNode,
+							0,
+							10,
+							spiContext);
+		Assert(pgConn);
+		exist = nodenameExistsInPgxcNode(pgConn,
+										NULL,
+										true,
+										existNodeName,
+										getMappedPgxcNodetype(nodeType),
+										true);
+
+		ClosePgConn(pgConn);
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
+		SPI_finish();
+	}PG_CATCH();
+	{
+		ClosePgConn(pgConn);
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
+		SPI_finish();	
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	return exist;
+}
+// void DeletePgxcNodeByName(Form_mgr_node mgrNode, char *delNodeName)
+// {
+// 	MemoryContext oldContext = NULL;
+// 	MemoryContext switchContext = NULL;
+// 	MemoryContext spiContext = NULL;
+// 	int spiRes;
+// 	bool exist = false;
+// 	PGconn 	*pgConn = NULL;
+// 	StringInfoData	sql;
+
+// 	initStringInfo(&sql);
+
+// 	PG_TRY();
+// 	{
+// 		oldContext = CurrentMemoryContext;
+// 		switchContext = AllocSetContextCreate(oldContext,
+// 											"DeletePgxcNodeByName",
+// 											ALLOCSET_DEFAULT_SIZES);
+// 		spiRes = SPI_connect();
+// 		if (spiRes != SPI_OK_CONNECT)
+// 		{
+// 			ereport(ERROR,
+// 					(errmsg("SPI_connect failed, connect return:%d",
+// 							spiRes)));
+// 		}
+// 		spiContext = CurrentMemoryContext;
+// 		MemoryContextSwitchTo(switchContext);
+
+// 		pgConn = GetNodeConn(mgrNode,
+// 							0,
+// 							10,
+// 							spiContext);
+// 		Assert(pgConn);
+// 		DeletePgxcNodeDataNodeByName(pgConn, delNodeName, false);
+
+// 		ClosePgConn(pgConn);
+// 		(void)MemoryContextSwitchTo(oldContext);
+// 		MemoryContextDelete(switchContext);
+// 		SPI_finish();
+// 	}PG_CATCH();
+// 	{
+// 		ClosePgConn(pgConn);
+// 		(void)MemoryContextSwitchTo(oldContext);
+// 		MemoryContextDelete(switchContext);
+// 		SPI_finish();	
+// 		PG_RE_THROW();
+// 	}PG_END_TRY();	
+// }
+void MgrDelPgxcNodeSlaveFromCoord(Form_mgr_node coordMgrNode)
+{
+	MemoryContext oldContext = NULL;
+	MemoryContext switchContext = NULL;
+	MemoryContext spiContext = NULL;
+	StringInfoData	sql;
+	dlist_head 		slaveDataNodes = DLIST_STATIC_INIT(slaveDataNodes);
+	MgrNodeWrapper 	*mgrNode;
+	dlist_iter 		iter;
+	int 			spiRes;
+	PGconn 			*pgConn = NULL;
+
+	initStringInfo(&sql);
+
+	PG_TRY();
+	{
+		oldContext = CurrentMemoryContext;
+		switchContext = AllocSetContextCreate(oldContext,
+											"MgrDelPgxcNodeSlaveFromCoord",
+											ALLOCSET_DEFAULT_SIZES);
+		spiRes = SPI_connect();
+		if (spiRes != SPI_OK_CONNECT)
+		{
+			ereport(ERROR,
+					(errmsg("SPI_connect failed, connect return:%d",
+							spiRes)));
+		}
+		spiContext = CurrentMemoryContext;
+		MemoryContextSwitchTo(switchContext);
+
+		selectMgrNodeByNodetype(spiContext, CNDN_TYPE_DATANODE_SLAVE, &slaveDataNodes);
+		pgConn = GetNodeConn(coordMgrNode,
+								0,
+								10,
+								spiContext);
+		Assert(pgConn);
+		dlist_foreach(iter, &slaveDataNodes)
+		{
+			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);			
+			DeletePgxcNodeDataNodeByName(pgConn, NameStr(mgrNode->form.nodename), false);
+		}
+
+		ClosePgConn(pgConn);
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
+		SPI_finish();
+	}PG_CATCH();
+	{
+		ClosePgConn(pgConn);
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
+		SPI_finish();	
+		PG_RE_THROW();
+	}PG_END_TRY();
+}
+static bool DeletePgxcNodeDataNodeByName(PGconn *pgConn, char *nodeName, bool complain)
+{
+	char *sql;
+	bool execOk;
+
+	sql = psprintf("set FORCE_PARALLEL_MODE = off; "
+				   "delete from pgxc_node where node_name = '%s';",
+				   nodeName);
+	execOk = PQexecCommandSql(pgConn, sql, false);
+	pfree(sql);
+	if (!execOk)
+	{
+		ereport(complain ? ERROR : LOG,
+				(errmsg("%s delete datanode slaves from pgxc_node failed", nodeName)));
+	}
+	return execOk;
+}
+
 
