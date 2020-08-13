@@ -1107,17 +1107,20 @@ NodeConnectionStatus connectNodeDefaultDB(MgrNodeWrapper *node,
 	NodeConnectionStatus connStatus;
 
 	initStringInfo(&conninfo);
-	appendStringInfo(&conninfo,
-					 "postgresql://%s@%s:%d/%s?connect_timeout=%d",
-					 NameStr(node->host->form.hostuser),
-					 node->host->hostaddr,
-					 node->form.nodeport,
-					 DEFAULT_DB,
-					 connectTimeout);
+	appendStringInfo(&conninfo, "host='%s' port=%u dbname='%s' user='%s' connect_timeout=%d",
+					node->host->hostaddr, 
+					node->form.nodeport, 
+					DEFAULT_DB, 
+					NameStr(node->host->form.hostuser),
+					connectTimeout);
 	conn = PQconnectdb(conninfo.data);
 	pfree(conninfo.data);
 	if (PQstatus(conn) == CONNECTION_OK)
 	{
+		const char *gram = PQparameterStatus(conn, "grammar");
+		if (gram && strcmp(gram, "postgres"))
+			PQexec(conn, "set grammar=postgres");
+
 		ereport(DEBUG1,
 				(errmsg("connect node %s successfully",
 						NameStr(node->form.nodename))));
@@ -1144,6 +1147,7 @@ NodeConnectionStatus connectNodeDefaultDB(MgrNodeWrapper *node,
 		PQfinish(conn);
 		conn = NULL;
 	}
+
 	*pgConn = conn;
 	return connStatus;
 }
