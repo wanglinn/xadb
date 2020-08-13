@@ -64,7 +64,8 @@ extern void generate_partitionwise_join_paths(PlannerInfo *root,
 											  RelOptInfo *rel);
 #ifdef ADB
 extern void add_cluster_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
-											List *childrels, List *partitioned_rels);
+											List *childrels, List *partitioned_rels,
+											bool need_merge_append);
 #endif /* ADB */
 #ifdef ADB_GRAM_ORA
 extern void add_paths_to_connect_by_rel(PlannerInfo *root,
