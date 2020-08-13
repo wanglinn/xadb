@@ -791,7 +791,7 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 
 #ifdef ADB
 	/* first generate "union all" paths */
-	add_cluster_paths_to_append_rel(root, result_rel, rellist, NIL);
+	add_cluster_paths_to_append_rel(root, result_rel, rellist, NIL, false);
 
 	if (!op->all)
 	{

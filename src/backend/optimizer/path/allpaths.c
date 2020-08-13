@@ -2017,13 +2017,14 @@ add_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
 										partitioned_rels, -1));
 	}
 #ifdef ADB
-	add_cluster_paths_to_append_rel(root, rel, live_childrels, partitioned_rels);
+	add_cluster_paths_to_append_rel(root, rel, live_childrels, partitioned_rels, true);
 #endif /* ADB */
 }
 
 #ifdef ADB
 void add_cluster_paths_to_append_rel(PlannerInfo *root, RelOptInfo *rel,
-									 List *childrels, List *partitioned_rels)
+									 List *childrels, List *partitioned_rels,
+									 bool need_merge_append)
 {
 	List	   *reduce_list;
 	List	   *reduce_var_map;
@@ -2133,7 +2134,8 @@ re_generate_append_:
 			}
 
 			/* remember all pathkeys */
-			if (path->pathkeys != NIL)
+			if (need_merge_append &&
+				path->pathkeys != NIL)
 			{
 				ListCell   *lpk;
 				bool		found = false;
