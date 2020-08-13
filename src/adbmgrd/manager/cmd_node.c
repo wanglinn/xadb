@@ -68,20 +68,49 @@ hot_expansion changes below functions:
 extern char	*MGRDatabaseName;
 
 static PGconn *
-ExpPQsetdbLogin(const char *pghost, const char *pgport, const char *pgoptions,
+ExpPQsetdbLogin(const char *pghost, int32 port, const char *pgoptions,
 			 const char *pgtty, const char *login, const char *pwd);
 
 static PGconn *
-ExpPQsetdbLogin(const char *pghost, const char *pgport, const char *pgoptions,
+ExpPQsetdbLogin(const char *pghost, int32 port, const char *pgoptions,
 			 const char *pgtty, const char *login, const char *pwd)
 
 {
 	char* database ;
+	StringInfoData conninfo;
+	PGconn *conn;
+	const char *gram;
+
+	pgoptions = NULL;
+	pgtty     = NULL;
+	pwd       = NULL;
+
 	if(0!=strcmp(MGRDatabaseName,""))
 		database = MGRDatabaseName;
 	else
 		database = DEFAULT_DB;
-	return PQsetdbLogin(pghost, pgport, pgoptions, pgtty, database, login, pwd);
+
+	initStringInfo(&conninfo);
+	appendStringInfo(&conninfo, "host='%s' port=%u dbname='%s' user='%s' connect_timeout=%d",
+					pghost, port, database, login, 10);
+	conn = PQconnectdb(conninfo.data);
+	pfree(conninfo.data);
+	if (PQstatus(conn) == CONNECTION_OK)
+	{
+		gram = PQparameterStatus(conn, "grammar");
+		if (gram && strcmp(gram, "postgres"))
+			PQexec(conn, "set grammar=postgres");
+
+		ereport(DEBUG1,	(errmsg("connect host='%s' port=%u success.",
+						pghost, port)));	
+	}
+	else
+	{
+		ereport(LOG, (errmsg("connect host='%s' port=%u  error, %s",
+						pghost, port,	PQerrorMessage(conn))));
+	}
+
+	return conn;
 }
 
 typedef struct NodeSizeInfo
@@ -4346,7 +4375,6 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 	char *temp_file;
 	char *gtmMasterName;
 	char nodeport_buf[10];
-	char coordport_buf[10];
 	Oid dnhostoid = InvalidOid;
 	int32 dnport = 0;
 	PGconn * pg_conn = NULL;
@@ -4435,10 +4463,9 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 		/* step 4: block all the DDL lock */
 		initStringInfo(&send_hba_msg);
 		is_add_hba = AddHbaIsValid(&agtm_m_nodeinfo, &send_hba_msg);
-		sprintf(coordport_buf, "%d", agtm_m_nodeinfo.nodeport);
 
 		pg_conn = ExpPQsetdbLogin(agtm_m_nodeinfo.nodeaddr
-								,coordport_buf
+								,agtm_m_nodeinfo.nodeport
 								,NULL, NULL
 								,appendnodeinfo.nodeusername
 								,NULL);						
@@ -4781,7 +4808,6 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 	char *temp_file;
 	PGconn *pg_conn = NULL;
 	HeapTuple tup_result;
-	char coordport_buf[10];
 	char nodeport_buf[10];
 	char *gtmMasterName;
 	NameData nodename;
@@ -4878,10 +4904,9 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 		/* step 4: block all the DDL lock */
 		initStringInfo(&send_hba_msg);
 		is_add_hba = AddHbaIsValid(&agtm_m_nodeinfo, &send_hba_msg);
-		sprintf(coordport_buf, "%d", agtm_m_nodeinfo.nodeport);
 
 		pg_conn = ExpPQsetdbLogin(agtm_m_nodeinfo.nodeaddr
-								,coordport_buf
+								,agtm_m_nodeinfo.nodeport
 								,NULL, NULL
 								,appendnodeinfo.nodeusername
 								,NULL);
@@ -11686,7 +11711,6 @@ bool mgr_lock_cluster_deprecated(PGconn **pg_conn, Oid *cnoid)
 	int iloop = 0;
 	int max = 3;
 	char *coordhost = NULL;
-	char coordport_buf[10];
 	char *connect_user = NULL;
 	char cnpath[1024];
 	int try = 0;
@@ -11778,11 +11802,10 @@ bool mgr_lock_cluster_deprecated(PGconn **pg_conn, Oid *cnoid)
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
 
-	sprintf(coordport_buf, "%d", coordport);
 	for (try = 0; try < 2; try++)
 	{
 		*pg_conn = ExpPQsetdbLogin(coordhost
-								,coordport_buf
+								,coordport
 								,NULL, NULL
 								,connect_user
 								,NULL);
@@ -12042,7 +12065,6 @@ bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 	int iloop = 0;
 	int max = 3;
 	char *coordhost = NULL;
-	char coordport_buf[10];
 	char *connect_user = NULL;
 	char cnpath[1024];
 	int try = 0;
@@ -12134,11 +12156,10 @@ bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
 
-	sprintf(coordport_buf, "%d", coordport);
 	for (try = 0; try < 2; try++)
 	{
 		*pg_conn = ExpPQsetdbLogin(coordhost
-								,coordport_buf
+								,coordport
 								,NULL, NULL
 								,connect_user
 								,NULL);
@@ -13814,7 +13835,6 @@ bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg)
 	const int MAX_TRY = 3;
 	int try = MAX_TRY;
 	NameData local_ip;
-	NameData node_port;
 	GetAgentCmdRst getAgentCmdRst;
 	PGconn *pg_conn = NULL;
 
@@ -13824,12 +13844,11 @@ bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg)
 	{
 		ereport(ERROR, (errmsg("get adb manager local ip.")));
 	}
-	sprintf(NameStr(node_port), "%d", nodeinfo->nodeport);
 	try = MAX_TRY;
 	do
 	{
 		pg_conn = ExpPQsetdbLogin(nodeinfo->nodeaddr
-									,NameStr(node_port)
+									,nodeinfo->nodeport
 									,NULL, NULL
 									,nodeinfo->nodeusername
 									,NULL);
@@ -13861,7 +13880,7 @@ bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg)
 	do
 	{
 		pg_conn = ExpPQsetdbLogin(nodeinfo->nodeaddr
-								,NameStr(node_port)
+								,nodeinfo->nodeport
 								,NULL, NULL
 								,nodeinfo->nodeusername
 								,NULL);
