@@ -99,8 +99,8 @@ ExpPQsetdbLogin(const char *pghost, int32 port, const char *pgoptions,
 	if (PQstatus(conn) == CONNECTION_OK)
 	{
 		gram = PQparameterStatus(conn, "grammar");
-		if (gram && strcmp(gram, "postgres"))
-			PQexec(conn, "set grammar=postgres");
+		if (gram != NULL && pg_strcasecmp(gram, GARMMAR_POSTGRES) != 0)
+			PQexec(conn, SET_GRAMMAR_POSTGRES);
 
 		ereport(DEBUG1,	(errmsg("connect host='%s' port=%u success.",
 						pghost, port)));	
