@@ -1103,6 +1103,7 @@ NodeConnectionStatus connectNodeDefaultDB(MgrNodeWrapper *node,
 	StringInfoData conninfo;
 	PGconn *conn;
 	NodeConnectionStatus connStatus;
+	const char *gram = NULL;
 
 	initStringInfo(&conninfo);
 	appendStringInfo(&conninfo, "host='%s' port=%u dbname='%s' user='%s' connect_timeout=%d",
@@ -1115,9 +1116,9 @@ NodeConnectionStatus connectNodeDefaultDB(MgrNodeWrapper *node,
 	pfree(conninfo.data);
 	if (PQstatus(conn) == CONNECTION_OK)
 	{
-		const char *gram = PQparameterStatus(conn, "grammar");
-		if (gram && strcmp(gram, "postgres"))
-			PQexec(conn, "set grammar=postgres");
+		gram = PQparameterStatus(conn, "grammar");
+		if (gram != NULL && pg_strcasecmp(gram, GARMMAR_POSTGRES) != 0)
+			PQexec(conn, SET_GRAMMAR_POSTGRES);	
 
 		ereport(DEBUG1,
 				(errmsg("connect node %s successfully",

@@ -1623,6 +1623,7 @@ static void mgr_execute_sqlstring(char cmdtype, char *user, int port, char *addr
 	int ncolumn = 0;
 	int iloop = 0;
 	int jloop = 0;
+	const char *gram = NULL;
 
 	initStringInfo(&constr);
 	appendStringInfo(&constr, "postgresql://%s@%s:%d/%s", user, address, port, dbname);
@@ -1638,6 +1639,11 @@ static void mgr_execute_sqlstring(char cmdtype, char *user, int port, char *addr
 		(errmsg("%s", PQerrorMessage(conn))));
 		/*PQfinish(conn);*/
 	}
+	
+	gram = PQparameterStatus(conn, "grammar");
+	if (gram != NULL && pg_strcasecmp(gram, GARMMAR_POSTGRES) != 0)
+		PQexec(conn, SET_GRAMMAR_POSTGRES);	
+
 	res = PQexec(conn, sqlstring);
 
 	if(PQresultStatus(res) != PGRES_COMMAND_OK && PQresultStatus(res) != PGRES_TUPLES_OK)

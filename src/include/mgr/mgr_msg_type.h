@@ -15,6 +15,9 @@
 #define AGT_MSG_RESULT	'M'		/* for AGT_MSG_COMMAND */
 #define AGT_MSG_EXIT	'X'
 
+#define GARMMAR_POSTGRES        "postgres"
+#define SET_GRAMMAR_POSTGRES 	"set grammar=postgres"
+
 /* command type */
 #define AGT_MSG_CMD_GTM_START
 typedef enum AgentCommand
