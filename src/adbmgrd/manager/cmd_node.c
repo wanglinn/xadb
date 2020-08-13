@@ -14294,7 +14294,7 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 	char			*warningMassage = "Failed to write slave node information to pgxc_node table";
 	bool			enable_slave = false;
 	bool			enable_slave_async = false;
-
+	const 			char *gram = NULL;
 
 	/* check Read-Write separation switch */
 	check_readsql_slave_param_state(cn_master_node, sync_parms, "enable_readsql_on_slave", &enable_slave);
@@ -14330,6 +14330,9 @@ mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List
 			return false;
 		}
 	}
+	gram = PQparameterStatus(conn, "grammar");
+	if (gram != NULL && pg_strcasecmp(gram, GARMMAR_POSTGRES) != 0)
+		PQexec(conn, SET_GRAMMAR_POSTGRES);	
 	
 	initStringInfo(&execSql);
 	foreach (cell, datanode_list)
