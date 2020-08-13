@@ -6866,7 +6866,7 @@ static void mgr_construct_add_coordnode(InitNodeInfo *info_in, const char nodety
 		address = get_hostaddress_from_hostoid(mgr_node_in->nodehost);
 		if (strcmp(NameStr(mgr_node_in->nodename), NameStr(mgr_node_out->nodename)) == 0)
 		{
-			appendStringInfo(cmdstring, "ALTER NODE \\\"%s\\\" WITH (HOST='%s', PORT=%d, GTM=%d);"
+			appendStringInfo(cmdstring, "ALTER NODE \"%s\" WITH (HOST='%s', PORT=%d, GTM=%d);"
 							,NameStr(mgr_node_in->nodename)
 							,address
 							,mgr_node_in->nodeport
@@ -6874,7 +6874,7 @@ static void mgr_construct_add_coordnode(InitNodeInfo *info_in, const char nodety
 		}
 		else
 		{
-			appendStringInfo(cmdstring, " CREATE NODE \\\"%s\\\" WITH (TYPE='coordinator', HOST='%s', PORT=%d, GTM=%d);"
+			appendStringInfo(cmdstring, " CREATE NODE \"%s\" WITH (TYPE='coordinator', HOST='%s', PORT=%d, GTM=%d);"
 							,NameStr(mgr_node_in->nodename)
 							,address
 							,mgr_node_in->nodeport
@@ -6896,14 +6896,10 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 	InitNodeInfo *info_out, *info_in;
 	HeapTuple tuple_out, tuple_in, tup_result;
 	Form_mgr_node mgr_node_out, mgr_node_in;
-	GetAgentCmdRst getAgentCmdRst;
 	StringInfoData cmdstring;
-	StringInfoData buf;
-	ManagerAgent *ma;
-	bool execRes = false;
 	char *address = NULL;
-	char *cnAddress = NULL;
-	char *cnUser = NULL;
+	bool  execOk = false;
+	NameData 	nodename;
 
 	bool is_preferred = false;
 	bool is_primary = false;
@@ -6948,18 +6944,8 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 		if (CNDN_TYPE_GTM_COOR_MASTER != mgr_node_out->nodetype && CNDN_TYPE_COORDINATOR_MASTER != mgr_node_out->nodetype)
 			continue;
 
-		initStringInfo(&(getAgentCmdRst.description));
-		namestrcpy(&(getAgentCmdRst.nodename), NameStr(mgr_node_out->nodename));
-		//getAgentCmdRst.nodename = get_hostname_from_hostoid(mgr_node_out->nodehost);
-
+		namestrcpy(&nodename, NameStr(mgr_node_out->nodename));
 		initStringInfo(&cmdstring);
-		cnAddress = get_hostaddress_from_hostoid(mgr_node_out->nodehost);
-		cnUser = get_hostuser_from_hostoid(mgr_node_out->nodehost);
-		appendStringInfo(&cmdstring, " -h %s -p %u -d %s -U %s -a -c \""
-						,cnAddress
-						,mgr_node_out->nodeport
-						,DEFAULT_DB
-						,cnUser);
 
 		info_in = palloc(sizeof(*info_in));
 		mgr_construct_add_coordnode(info_in, CNDN_TYPE_GTM_COOR_MASTER, mgr_node_out, &cmdstring);
@@ -7022,13 +7008,13 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 			{
 				is_primary = false;
 			}
-			appendStringInfo(&cmdstring, "create node \\\"%s\\\" with(type='datanode', host='%s', port=%d , primary = %s, preferred = %s);"
+			appendStringInfo(&cmdstring, "create node \"%s\" with(type='datanode', host='%s', port=%d , primary = %s, preferred = %s);"
 									,NameStr(mgr_node_in->nodename)
 									,address
 									,mgr_node_in->nodeport
 									,true == is_primary ? "true":"false"
 									,true == is_preferred ? "true":"false");
-			pfree(address);
+			MgrFree(address);
 		}
 
 		foreach(cn_lc, prefer_cndn->coordiantor_list)
@@ -7043,83 +7029,16 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 			list_free(prefer_cndn->coordiantor_list);
 		if(PointerIsValid(prefer_cndn->datanode_list))
 			list_free(prefer_cndn->datanode_list);
-		pfree(prefer_cndn);
+		MgrFree(prefer_cndn);
+		execOk = ExecuteSqlOnPostgres(mgr_node_out, 0, cmdstring.data);
+		if (execOk)
+			ereport(LOG, (errmsg("on %s execute %s success.", NameStr(mgr_node_out->nodename), cmdstring.data)));
 
-		appendStringInfoString(&cmdstring, "\"");
-
-		/* connection agent */
-		getAgentCmdRst.ret = false;
-		ma = ma_connect_hostoid(mgr_node_out->nodehost);
-		if(!ma_isconnected(ma))
-		{
-			/* report error message */
-			appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
-			goto func_end;
-		}
-
-		ma_beginmessage(&buf, AGT_MSG_COMMAND);
-		ma_sendbyte(&buf, AGT_CMD_PSQL_CMD);
-		ma_sendstring(&buf,cmdstring.data);
-		ma_endmessage(&buf, ma);
-		if (! ma_flush(ma, true))
-		{
-			appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
-			goto func_end;
-		}
-
-		/*check the receive msg*/
-		execRes = mgr_recv_msg_original_result(ma, &getAgentCmdRst, AGENT_RESULT_DEBUG);
-		if (!execRes)
-		{
-			ereport(WARNING, (errmsg("config all, create node on all coordinators fail %s",
-					getAgentCmdRst.description.data)));
-			goto func_end;
-		}
-		ma_close(ma);
-		/* pgxc pool reload */
-		resetStringInfo(&cmdstring);
-		getAgentCmdRst.ret = false;
-		appendStringInfo(&cmdstring, " -h %s -p %u -d %s -U %s -a -c \""
-							,cnAddress
-							,mgr_node_out->nodeport
-							,DEFAULT_DB
-							,cnUser);
-		appendStringInfoString(&cmdstring, "select pgxc_pool_reload();\"");
-		ma = ma_connect_hostoid(mgr_node_out->nodehost);
-		if(!ma_isconnected(ma))
-		{
-			/* report error message */
-			appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
-			goto func_end;
-		}
-		ma_beginmessage(&buf, AGT_MSG_COMMAND);
-		ma_sendbyte(&buf, AGT_CMD_PSQL_CMD);
-		ma_sendstring(&buf,cmdstring.data);
-
-		ma_endmessage(&buf, ma);
-		if (! ma_flush(ma, true))
-		{
-			appendStringInfoString(&(getAgentCmdRst.description), ma_last_error_msg(ma));
-			goto func_end;
-		}
-		/* check the receive msg */
-		execRes = mgr_recv_msg_original_result(ma, &getAgentCmdRst, AGENT_RESULT_DEBUG);
-		if (!execRes)
-			ereport(WARNING, (errmsg("config all, select pgxc_pool_reload() fail %s",
-			getAgentCmdRst.description.data)));
-
-		func_end:
-			tup_result = build_common_command_tuple( &(getAgentCmdRst.nodename)
-					,getAgentCmdRst.ret
-					,getAgentCmdRst.ret == true ? "success":getAgentCmdRst.description.data);
-
-		ma_close(ma);
-		pfree(cnAddress);
-		pfree(cnUser);
-		pfree(cmdstring.data);
-		pfree(getAgentCmdRst.description.data);
+		tup_result = build_common_command_tuple(&nodename
+												,execOk
+												,execOk ? "success": "fail");
+		MgrFree(cmdstring.data);
 		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
-
 	}
 	/* end of row */
 
@@ -7127,7 +7046,7 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 	mgr_mark_node_in_cluster(info_out->rel_node);
 	table_endscan(info_out->rel_scan);
 	table_close(info_out->rel_node, AccessShareLock);
-	pfree(info_out);
+	MgrFree(info_out);
 
 	/*set gtm or datanode master synchronous_standby_names*/
 	mgr_set_master_sync();
@@ -9238,13 +9157,9 @@ static bool mgr_refresh_coord_pgxc_node(pgxc_node_operator cmd, char nodetype, c
 							,mgr_node_out->nodeport);
 			pfree(host_address);
 
-			if (ExecuteSqlOnPostgres(mgr_node_out, 0, cmdstring.data))
-				ereport(LOG, (errmsg("On %s execute %s success.", NameStr(mgr_node_out->nodename), cmdstring.data)));
-			
 			datanode_num = 0;
 			foreach(dn_lc, prefer_cndn->datanode_list)
 			{
-				resetStringInfo(&cmdstring);
 				datanode_num = datanode_num +1;
 				tuple_in = (HeapTuple)lfirst(dn_lc);
 				mgr_node_in = (Form_mgr_node)GETSTRUCT(tuple_in);
@@ -9267,15 +9182,11 @@ static bool mgr_refresh_coord_pgxc_node(pgxc_node_operator cmd, char nodetype, c
 									,true == is_preferred ? "true":"false"
 									,NameStr(mgr_node_out->nodename));
 					MgrFree(host_address);
-
-					if (ExecuteSqlOnPostgres(mgr_node_out, 0, cmdstring.data))
-						ereport(LOG, (errmsg("On %s execute %s success.", NameStr(mgr_node_out->nodename), cmdstring.data)));
 				}
 			}
 			
 			foreach(cn_lc2, prefer_cndn->coordiantor_list)
 			{
-				resetStringInfo(&cmdstring);
 				tuple_in = (HeapTuple)lfirst(cn_lc2);
 				mgr_node_in = (Form_mgr_node)GETSTRUCT(tuple_in);
 				Assert(mgr_node_in);
@@ -9288,14 +9199,12 @@ static bool mgr_refresh_coord_pgxc_node(pgxc_node_operator cmd, char nodetype, c
 									,mgr_node_in->nodeport
 									,NameStr(mgr_node_out->nodename));
 					MgrFree(host_address);				
-					if (ExecuteSqlOnPostgres(mgr_node_out, 0, cmdstring.data))
-						ereport(LOG, (errmsg("On %s execute %s success.", NameStr(mgr_node_out->nodename), cmdstring.data)));
-				}				
+				}			
 			}
 
-			resetStringInfo(&cmdstring);
 			appendStringInfoString(&cmdstring, SET_FORCE_PARALLEL_MODE_OFF);
-			ExecuteSqlOnPostgres(mgr_node_out, 0, cmdstring.data);
+			if (ExecuteSqlOnPostgres(mgr_node_out, 0, cmdstring.data))
+				ereport(LOG, (errmsg("On %s execute %s success.", NameStr(mgr_node_out->nodename), cmdstring.data)));
 		}
 		
 		MgrDelPgxcNodeSlaveFromCoord(append_coord_mgr);

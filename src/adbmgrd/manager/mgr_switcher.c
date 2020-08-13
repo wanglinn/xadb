@@ -7077,10 +7077,7 @@ static void ExecuteSqlOnPostgresGrammar(Form_mgr_node mgrNode, int newPort, char
 							newPort,	
 							10,
 							spiContext);
-		Assert(pgConn);
-
-		SetGrammarToPostgres(pgConn);
-		
+		Assert(pgConn);		
 		if(sqlType == SQL_TYPE_COMMAND)
 			PQexecCommandSql(pgConn, sql, true);
 		else
@@ -7137,14 +7134,10 @@ bool ExecuteSqlOnPostgres(Form_mgr_node mgrNode, int newPort, char *sql)
 {
 	if (strlen(sql) == 0)
 		return true;
-	PG_TRY();
-	{
-		ExecuteSqlOnPostgresGrammar(mgrNode, newPort, sql, SQL_TYPE_COMMAND);
-		ExecuteSqlOnPostgresGrammar(mgrNode, newPort, SELECT_PGXC_POOL_RELOAD, SQL_TYPE_QUERY);
-	}PG_CATCH();
-	{		
-		PG_RE_THROW();
-	}PG_END_TRY();
+	
+	ExecuteSqlOnPostgresGrammar(mgrNode, newPort, sql, SQL_TYPE_COMMAND);
+	ExecuteSqlOnPostgresGrammar(mgrNode, newPort, SELECT_PGXC_POOL_RELOAD, SQL_TYPE_QUERY);
+
 	return true;	
 }
 bool CheckNodeExistInPgxcNode(Form_mgr_node mgrNode, char *existNodeName, char nodeType)
@@ -7202,54 +7195,6 @@ bool CheckNodeExistInPgxcNode(Form_mgr_node mgrNode, char *existNodeName, char n
 
 	return exist;
 }
-// void DeletePgxcNodeByName(Form_mgr_node mgrNode, char *delNodeName)
-// {
-// 	MemoryContext oldContext = NULL;
-// 	MemoryContext switchContext = NULL;
-// 	MemoryContext spiContext = NULL;
-// 	int spiRes;
-// 	bool exist = false;
-// 	PGconn 	*pgConn = NULL;
-// 	StringInfoData	sql;
-
-// 	initStringInfo(&sql);
-
-// 	PG_TRY();
-// 	{
-// 		oldContext = CurrentMemoryContext;
-// 		switchContext = AllocSetContextCreate(oldContext,
-// 											"DeletePgxcNodeByName",
-// 											ALLOCSET_DEFAULT_SIZES);
-// 		spiRes = SPI_connect();
-// 		if (spiRes != SPI_OK_CONNECT)
-// 		{
-// 			ereport(ERROR,
-// 					(errmsg("SPI_connect failed, connect return:%d",
-// 							spiRes)));
-// 		}
-// 		spiContext = CurrentMemoryContext;
-// 		MemoryContextSwitchTo(switchContext);
-
-// 		pgConn = GetNodeConn(mgrNode,
-// 							0,
-// 							10,
-// 							spiContext);
-// 		Assert(pgConn);
-// 		DeletePgxcNodeDataNodeByName(pgConn, delNodeName, false);
-
-// 		ClosePgConn(pgConn);
-// 		(void)MemoryContextSwitchTo(oldContext);
-// 		MemoryContextDelete(switchContext);
-// 		SPI_finish();
-// 	}PG_CATCH();
-// 	{
-// 		ClosePgConn(pgConn);
-// 		(void)MemoryContextSwitchTo(oldContext);
-// 		MemoryContextDelete(switchContext);
-// 		SPI_finish();	
-// 		PG_RE_THROW();
-// 	}PG_END_TRY();	
-// }
 void MgrDelPgxcNodeSlaveFromCoord(Form_mgr_node coordMgrNode)
 {
 	MemoryContext oldContext = NULL;
