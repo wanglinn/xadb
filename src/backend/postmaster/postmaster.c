@@ -3768,7 +3768,7 @@ reaper(SIGNAL_ARGS)
 			{
 				LogChildExit(WARNING,
 							 _("snapshot sender process"), pid, exitstatus);
-				SnapReceiverPID = StartSnapSender();
+				SnapSenderPID = StartSnapSender();
 			}else
 			{
 				HandleChildCrash(pid, exitstatus,
