@@ -3618,7 +3618,7 @@ reaper(SIGNAL_ARGS)
 			{
 				LogChildExit(WARNING,
 							 pgstat_get_backend_desc(B_ADB_SNAP_SENDER), pid, exitstatus);
-				SnapReceiverPID = StartSnapSender();
+				SnapSenderPID = StartSnapSender();
 			}else
 			{
 				HandleChildCrash(pid, exitstatus,
