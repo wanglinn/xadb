@@ -1847,7 +1847,7 @@ re_do_in_try_:
 						code_var = (PLpgSQL_var *)
 							estate->datums[block->exceptions->sqlcode_varno];
 
-						assign_simple_var(estate, code_var, Int32GetDatum(edata->sqlerrcode), false, true);
+						assign_simple_var(estate, code_var, Int32GetDatum(edata->sqlerrcode), false, false);
 					}
 #endif /* ADB_GRAM_ORA */
 
