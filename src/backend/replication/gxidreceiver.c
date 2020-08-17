@@ -1095,7 +1095,8 @@ static void GxidRcvRemoveWaitFinishList(TransactionId xid, bool is_miss_ok)
 	{
 		if (GxidRcv->wait_xid_finish[i] == xid)
 		{
-			SNAP_SYNC_DEBUG_LOG(("Remove finish wait xid %d from wait_xid_finish\n", xid));
+			SNAP_SYNC_DEBUG_LOG((errmsg("Remove finish wait xid %d from wait_xid_finish\n", xid)));
+
 			found = true;
 			memmove(&GxidRcv->wait_xid_finish[i],
 						&GxidRcv->wait_xid_finish[i+1],

@@ -679,6 +679,7 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 	{
 	case 's':				/* snapshot */
 		SnapRcvProcessSnapshot(buf, len);
+		SnapRcvSendLocalNextXid();
 		SnapRcvSendHeartbeat();
 		break;
 	case 'a':

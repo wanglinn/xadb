@@ -284,7 +284,10 @@ void GxidSenderMain(void)
 				GxidSenderDropClient(client, false);
 			}else if(pq_node_send_pending(client->node))
 			{
-				ModifyWaitEvent(gxid_send_wait_event_set, client->event_pos, WL_SOCKET_WRITEABLE, NULL);
+				ModifyWaitEvent(gxid_send_wait_event_set,
+								client->event_pos, 
+								(client->status == CLIENT_STATUS_EXITING ? 0 : WL_SOCKET_READABLE) | WL_SOCKET_WRITEABLE,
+								NULL);
 			}else if(client->status == CLIENT_STATUS_EXITING)
 			{
 				/* no data sending and exiting, close it */
@@ -506,7 +509,7 @@ static bool GxidSenderAppendMsgToClient(GxidClientData *client, char msgtype, co
 		{
 			ModifyWaitEvent(gxid_send_wait_event_set,
 							client->event_pos,
-							WL_SOCKET_WRITEABLE,
+							WL_SOCKET_READABLE|WL_SOCKET_WRITEABLE,
 							NULL);
 		}
 		client->last_msg = GetCurrentTimestamp();
@@ -579,14 +582,12 @@ static void GxidSenderOnClientMsgEvent(WaitEvent *event)
 {
 	GxidClientData *volatile client = event->user_data;
 	pq_comm_node   *node;
-	uint32			new_event;
 
 	Assert(GetWaitEventData(gxid_send_wait_event_set, client->event_pos) == client);
 
 	PG_TRY();
 	{
 		node = client->node;
-		new_event = 0;
 		pq_node_switch_to(node);
 
 		if (event->events & WL_SOCKET_READABLE)
@@ -599,22 +600,15 @@ static void GxidSenderOnClientMsgEvent(WaitEvent *event)
 		if (event->events & (WL_SOCKET_WRITEABLE|WL_SOCKET_CONNECTED))
 			GxidSenderOnClientSendMsg(client, node);
 
-		if (pq_node_send_pending(node))
-		{
-			if ((event->events & (WL_SOCKET_WRITEABLE|WL_SOCKET_CONNECTED)) == 0)
-				new_event = WL_SOCKET_WRITEABLE;
-		}else if(client->status != CLIENT_STATUS_EXITING)
-		{
-			if ((event->events & WL_SOCKET_READABLE) == 0)
-				new_event = WL_SOCKET_READABLE;
-		}
-
-		if (new_event != 0)
-			ModifyWaitEvent(gxid_send_wait_event_set, event->pos, new_event, NULL);
 
 		/* all data sended and exiting, close it */
 		if (client->status == CLIENT_STATUS_EXITING)
 			GxidSenderDropClient(client, true);
+		else
+			ModifyWaitEvent(gxid_send_wait_event_set,
+							event->pos,
+							(pq_node_send_pending(node) ? WL_SOCKET_WRITEABLE : 0) | WL_SOCKET_READABLE,
+							NULL);
 	}PG_CATCH();
 	{
 		client->status = CLIENT_STATUS_EXITING;

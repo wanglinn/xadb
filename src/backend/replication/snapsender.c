@@ -560,7 +560,8 @@ void SnapSenderMain(void)
 				DropClient(client, false);
 			}else if(pq_node_send_pending(client->node))
 			{
-				ModifyWaitEvent(wait_event_set, client->event_pos, WL_SOCKET_WRITEABLE, NULL);
+				ModifyWaitEvent(wait_event_set, client->event_pos,
+						(client->status == CLIENT_STATUS_EXITING ? 0 : WL_SOCKET_READABLE) | WL_SOCKET_WRITEABLE, NULL);
 			}else if(client->status == CLIENT_STATUS_EXITING)
 			{
 				/* no data sending and exiting, close it */
@@ -882,7 +883,7 @@ static bool AppendMsgToClient(SnapClientData *client, char msgtype, const char *
 		{
 			ModifyWaitEvent(wait_event_set,
 							client->event_pos,
-							WL_SOCKET_WRITEABLE,
+							WL_SOCKET_READABLE|WL_SOCKET_WRITEABLE,
 							NULL);
 		}
 		client->last_msg = GetCurrentTimestamp();
@@ -961,15 +962,12 @@ static void OnClientMsgEvent(WaitEvent *event, time_t* time_last_latch)
 {
 	SnapClientData *volatile client = event->user_data;
 	pq_comm_node   *node;
-	uint32			new_event;
 
 	Assert(GetWaitEventData(wait_event_set, client->event_pos) == client);
 
 	PG_TRY();
 	{
 		node = client->node;
-		new_event = 0;
-
 		pq_node_switch_to(node);
 
 		if (event->events & WL_SOCKET_READABLE)
@@ -982,22 +980,15 @@ static void OnClientMsgEvent(WaitEvent *event, time_t* time_last_latch)
 		if (event->events & (WL_SOCKET_WRITEABLE|WL_SOCKET_CONNECTED))
 			OnClientSendMsg(client, node);
 
-		if (pq_node_send_pending(node))
-		{
-			if ((event->events & (WL_SOCKET_WRITEABLE|WL_SOCKET_CONNECTED)) == 0)
-				new_event = WL_SOCKET_WRITEABLE;
-		}else if(client->status != CLIENT_STATUS_EXITING)
-		{
-			if ((event->events & WL_SOCKET_READABLE) == 0)
-				new_event = WL_SOCKET_READABLE;
-		}
-
-		if (new_event != 0)
-			ModifyWaitEvent(wait_event_set, event->pos, new_event, NULL);
-
 		/* all data sended and exiting, close it */
 		if(client->status == CLIENT_STATUS_EXITING)
 			DropClient(client, true);
+		else
+			ModifyWaitEvent(wait_event_set,
+							event->pos,
+							(pq_node_send_pending(node) ? WL_SOCKET_WRITEABLE : 0) | WL_SOCKET_READABLE,
+							NULL);
+		
 	}PG_CATCH();
 	{
 		client->status = CLIENT_STATUS_EXITING;

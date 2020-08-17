@@ -49,9 +49,9 @@ typedef struct SnapLockIvdInfo
 #define SNAP_FORCE_DEBUG_LOG(rest)	((void)true)
 #endif
 
-//#define SNAP_SYNC_DEBUG_LOG 1
-#ifdef SNAP_SYNC_DEBUG_LOG
-#define SNAP_SYNC_DEBUG_LOG(rest) ereport_domain(LOG, PG_TEXTDOMAIN("SnapSync"), rest)
+#define SNAP_SYNC_DEBUG 1
+#ifdef SNAP_SYNC_DEBUG
+#define SNAP_SYNC_DEBUG_LOG(rest) ereport_domain(snap_debug_level, PG_TEXTDOMAIN("SnapSync"), rest)
 #else
 #define SNAP_SYNC_DEBUG_LOG(rest)	((void)true)
 #endif

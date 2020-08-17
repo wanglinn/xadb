@@ -207,6 +207,7 @@ static bool check_ssl(bool *newval, void **extra, GucSource source);
 static bool check_stage_log_stats(bool *newval, void **extra, GucSource source);
 static bool check_log_stats(bool *newval, void **extra, GucSource source);
 #ifdef ADB
+static bool check_snap_debug_max_messages(int *newval, void **extra, GucSource source);
 static bool check_pgxc_maintenance_mode(bool *newval, void **extra, GucSource source);
 #endif
 static bool check_canonical_path(char **newval, void **extra, GucSource source);
@@ -592,6 +593,7 @@ int			client_min_messages = NOTICE;
 int			log_min_duration_statement = -1;
 int			log_temp_files = -1;
 int			trace_recovery_messages = LOG;
+int			snap_debug_level = DEBUG1;
 
 int			temp_file_limit = -1;
 
@@ -5156,6 +5158,22 @@ static struct config_enum ConfigureNamesEnum[] =
 	},
 
 #ifdef ADB
+	{
+		{"snap_debug_level", PGC_SIGHUP, DEVELOPER_OPTIONS,
+			gettext_noop("Enables snap sync debug msg."),
+			gettext_noop("Each level includes all the levels that follow it. The later"
+						 " the level, the fewer messages are sent.")
+		},
+		&snap_debug_level,
+
+		/*
+		 * client_message_level_options allows too many values, really, but
+		 * it's not worth having a separate options array for this.
+		 */
+		DEBUG1, client_message_level_options,
+		check_snap_debug_max_messages, NULL, NULL
+	},
+
 	{
 		{"remotetype", PGC_BACKEND, CONN_AUTH,
 			gettext_noop("Sets the type of Postgres-XC remote connection"),
@@ -11594,6 +11612,16 @@ check_client_min_messages(int *newval, void **extra, GucSource source)
 		*newval = ERROR;
 	return true;
 }
+
+#ifdef ADB
+static bool
+check_snap_debug_max_messages(int *newval, void **extra, GucSource source)
+{
+	if (*newval > LOG)
+		*newval = LOG;
+	return true;
+}
+#endif
 
 static bool
 check_temp_buffers(int *newval, void **extra, GucSource source)
