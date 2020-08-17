@@ -522,7 +522,6 @@ static const struct config_enum_entry adb_default_locator_types[] = {
 	{"replication", LOCATOR_TYPE_REPLICATED, false},
 	{"replicated", LOCATOR_TYPE_REPLICATED, true},
 	{"hash", LOCATOR_TYPE_HASH, false},
-	{"hashmap", LOCATOR_TYPE_HASHMAP, false},
 	{"modulo", LOCATOR_TYPE_MODULO, false},
 	{"random", LOCATOR_TYPE_RANDOM, false},
 	{NULL, 0, false}
@@ -699,7 +698,6 @@ bool 		debug_enable_satisfy_mvcc;
 bool		enable_pushdown_art;
 bool		enable_zero_year;
 bool		enable_aux_dml = false;
-bool		adb_slot_enable_mvcc;
 extern bool auto_release_connect;	/* in libpq-node.c */
 bool		enable_coordinator_calculate = true;
 int			default_distribute_by = LOCATOR_TYPE_HASH;
@@ -1080,17 +1078,6 @@ static const unit_conversion time_unit_conversion_table[] =
 
 static struct config_bool ConfigureNamesBool[] =
 {
-#ifdef ADB
-	{
-		{"adb_slot_enable_mvcc", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("enable slot mvcc."),
-			NULL
-		},
-		&adb_slot_enable_mvcc,
-		false,
-		NULL, NULL, NULL
-	},
-#endif
 	{
 		{"enable_seqscan", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enables the planner's use of sequential-scan plans."),

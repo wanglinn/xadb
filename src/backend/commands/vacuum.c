@@ -73,7 +73,6 @@
 #include "pgxc/execRemote.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
-#include "pgxc/slot.h"
 #include "storage/mem_toc.h"
 #include "utils/lsyscache.h"
 
@@ -2293,18 +2292,8 @@ static List* get_vacuum_rel_node(List *nodes, Oid reloid, bool need_vacuum)
 	if (need_vacuum ||
 		classForm->pclocatortype != LOCATOR_TYPE_REPLICATED)
 	{
-		if (classForm->pclocatortype == LOCATOR_TYPE_HASHMAP)
-		{
-			ListCell *lc;
-			List *slot_oids = GetSlotNodeOids();
-			foreach(lc, slot_oids)
-				nodes = list_append_unique_oid(nodes, lfirst_oid(lc));
-			list_free(slot_oids);
-		}else
-		{
-			for (i=0;i<count;++i)
-				nodes = list_append_unique_oid(nodes, oids[i]);
-		}
+		for (i=0;i<count;++i)
+			nodes = list_append_unique_oid(nodes, oids[i]);
 	}else
 	{
 		for (i=0;i<count;++i)

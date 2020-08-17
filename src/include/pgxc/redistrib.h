@@ -25,7 +25,6 @@
 typedef enum RedistribOperation {
 	DISTRIB_NONE,		/* Default operation */
 	DISTRIB_DELETE_HASH,	/* Perform a DELETE with hash value check */
-	DISTRIB_DELETE_HASHMAP,	/* Perform a DELETE with hashmap value check */
 	DISTRIB_DELETE_MODULO,	/* Perform a DELETE with modulo value check */
 	DISTRIB_COPY_TO,	/* Perform a COPY TO */
 	DISTRIB_COPY_FROM,	/* Perform a COPY FROM */

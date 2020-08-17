@@ -60,7 +60,6 @@ typedef enum PgxcClassAlterType
 #define LOCATOR_TYPE_DISTRIBUTED	'D'	/* for distributed table without specific
 										 * scheme, e.g. result of JOIN of
 										 * replicated and distributed table */
-#define LOCATOR_TYPE_HASHMAP		'B'
 
 
 /* Maximum number of preferred Datanodes that can be defined in cluster */
@@ -73,18 +72,14 @@ typedef enum PgxcClassAlterType
 #define IsLocatorReplicated(x) 					((x) == LOCATOR_TYPE_REPLICATED)
 #define IsLocatorColumnDistributed(x) 			((x) == LOCATOR_TYPE_HASH || \
 												 (x) == LOCATOR_TYPE_RANDOM || \
-												 (x) == LOCATOR_TYPE_HASHMAP || \
 												 (x) == LOCATOR_TYPE_MODULO || \
 												 (x) == LOCATOR_TYPE_LIST || \
 												 (x) == LOCATOR_TYPE_RANGE || \
 												 (x) == LOCATOR_TYPE_DISTRIBUTED)
 #define IsLocatorDistributedByValue(x)			((x) == LOCATOR_TYPE_HASH || \
 												 (x) == LOCATOR_TYPE_MODULO || \
-												 (x) == LOCATOR_TYPE_HASHMAP || \
 												 (x) == LOCATOR_TYPE_LIST || \
 												 (x) == LOCATOR_TYPE_RANGE)
-
-#define IsLocatorHashmap(x) 					(x == LOCATOR_TYPE_HASHMAP)
 
 #endif							/* EXPOSE_TO_CLIENT_CODE */
 

@@ -5230,43 +5230,6 @@ _copyCleanConnStmt(const CleanConnStmt *from)
 
 	return newnode;
 }
-
-/* ****************************************************************
- *					slot.h copy functions
- * ****************************************************************
- */
-static AlterSlotStmt *
-_copyAlterSlotStmt(const AlterSlotStmt *from)
-{
-	AlterSlotStmt *newnode = makeNode(AlterSlotStmt);
-
-	COPY_SCALAR_FIELD(slotid);
-	COPY_NODE_FIELD(options);
-
-	return newnode;
-}
-
-static CreateSlotStmt *
-_copyCreateSlotStmt(const CreateSlotStmt *from)
-{
-	CreateSlotStmt *newnode = makeNode(CreateSlotStmt);
-
-	COPY_SCALAR_FIELD(slotid);
-	COPY_NODE_FIELD(options);
-
-	return newnode;
-}
-
-static DropSlotStmt *
-_copyDropSlotStmt(const DropSlotStmt *from)
-{
-	DropSlotStmt *newnode = makeNode(DropSlotStmt);
-
-	COPY_SCALAR_FIELD(slotid);
-
-	return newnode;
-}
-
 #endif /* ADB */
 
 #ifdef ADB_GRAM_ORA
@@ -5576,15 +5539,6 @@ copyObjectImpl(const void *from)
 			 */
 		case T_SimpleSort:
 			retval = _copySimpleSort(from);
-			break;
-		case T_AlterSlotStmt:
-			retval = _copyAlterSlotStmt(from);
-			break;
-		case T_CreateSlotStmt:
-			retval = _copyCreateSlotStmt(from);
-			break;
-		case T_DropSlotStmt:
-			retval = _copyDropSlotStmt(from);
 			break;
 #endif
 			/*

@@ -967,13 +967,6 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_MGRFlushParam)
 	ENUM_VALUE(T_MGRFlushReadonlySlave)
 #endif
-#ifdef ADB
-	ENUM_VALUE(T_CreateSlotStmt)
-	ENUM_VALUE(T_AlterSlotStmt)
-	ENUM_VALUE(T_DropSlotStmt)
-	ENUM_VALUE(T_FlushSlotStmt)
-	ENUM_VALUE(T_CleanSlotStmt)
-#endif
 END_ENUM(NodeTag)
 #endif /* NO_ENUM_NodeTag */
 

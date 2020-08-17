@@ -43,9 +43,6 @@
 #include "storage/predicate.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
-#ifdef ADB
-#include "pgxc/slot.h"
-#endif
 
 
 static TupleTableSlot *IndexOnlyNext(IndexOnlyScanState *node);
@@ -164,13 +161,6 @@ IndexOnlyNext(IndexOnlyScanState *node)
 		if (!VM_ALL_VISIBLE(scandesc->heapRelation,
 							ItemPointerGetBlockNumber(tid),
 							&node->ioss_VMBuffer))
-
-#ifdef ADB
-		if (((adb_slot_enable_mvcc)&&(scandesc->heapRelation->rd_id >= FirstNormalObjectId))
-		||(!VM_ALL_VISIBLE(scandesc->heapRelation,
-							ItemPointerGetBlockNumber(tid),
-							&node->ioss_VMBuffer)))
-#endif
 		{
 			/*
 			 * Rats, we have to visit the heap to check visibility.

@@ -794,9 +794,8 @@
 #adb_log_query = off				# Enable record sql query
 #enable_zero_year = false			# Thing it is effective if year is zero
 #default_distribute_by = 'hash'		# Set default distribute by type.
-									# Available values: replication, hash, hashmap, modulo, random 
+									# Available values: replication, hash, modulo, random 
 
-#adb_slot_enable_mvcc = false		# enable slot vacuum.
 #enable_cluster_plan = on
 #auto_release_connect = off			# release connects for connected other nodes when transaction finish
 #enable_readsql_on_slave = false	# Enable readonly sql execute on datanode slaves

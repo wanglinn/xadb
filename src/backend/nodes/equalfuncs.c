@@ -3184,34 +3184,6 @@ _equalCleanConnStmt(const CleanConnStmt *a, const CleanConnStmt *b)
 	COMPARE_SCALAR_FIELD(is_force);
 	return true;
 }
-
-/*
- * stuff from slot.h
- */
-
-static bool
-_equalAlterSlotStmt(const AlterSlotStmt *a, const AlterSlotStmt *b)
-{
-	COMPARE_SCALAR_FIELD(slotid);
-	COMPARE_NODE_FIELD(options);
-	return true;
-}
-
-static bool
-_equalCreateSlotStmt(const CreateSlotStmt *a, const CreateSlotStmt *b)
-{
-	COMPARE_SCALAR_FIELD(slotid);
-	COMPARE_NODE_FIELD(options);
-	return true;
-}
-
-static bool
-_equalDropSlotStmt(const DropSlotStmt *a, const DropSlotStmt *b)
-{
-	COMPARE_SCALAR_FIELD(slotid);
-	return true;
-}
-
 #endif
 
 #ifdef ADBMGRD
@@ -3454,17 +3426,6 @@ equal(const void *a, const void *b)
 			break;
 #endif /* ADB_GRAM_ORA */
 
-#ifdef ADB
-		case T_AlterSlotStmt:
-			retval = _equalAlterSlotStmt(a, b);
-			break;
-		case T_CreateSlotStmt:
-			retval = _equalCreateSlotStmt(a, b);
-			break;
-		case T_DropSlotStmt:
-			retval = _equalDropSlotStmt(a, b);
-			break;
-#endif /* ABD */
 		case T_TargetEntry:
 			retval = _equalTargetEntry(a, b);
 			break;

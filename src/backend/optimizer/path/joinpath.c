@@ -2929,7 +2929,6 @@ re_reduce_join_:
 								 ReducePathSave2List,
 								 (void*)&outer_pathlist,
 								 REDUCE_TYPE_HASH,
-								 (jcontext->root->glob->has_hashmap_rel && no_coord_oid) ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
 								 jcontext->root->glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 								 REDUCE_TYPE_NONE);
 			ReducePathListByExpr((Expr*)jcontext->inner_join_exprs,
@@ -2941,7 +2940,6 @@ re_reduce_join_:
 								 ReducePathSave2List,
 								 (void*)&inner_pathlist,
 								 REDUCE_TYPE_HASH,
-								 (jcontext->root->glob->has_hashmap_rel && no_coord_oid) ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
 								 jcontext->root->glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 								 REDUCE_TYPE_NONE);
 		}

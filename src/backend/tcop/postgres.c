@@ -108,10 +108,7 @@
 #include "storage/procarray.h"
 #include "utils/dynamicreduce.h"
 #include "utils/guc.h"
-
-#include "pgxc/slot.h"
-
-#endif
+#endif /* ADB */
 #ifdef ADB_MULTI_GRAM
 #include "catalog/namespace.h"
 #endif /* ADB_MULTI_GRAM */
@@ -4846,10 +4843,6 @@ PostgresMain(int argc, char *argv[],
 
 		/* Mark transaction abort with error */
 		MarkCurrentTransactionErrorAborted();
-
-		adb_slot_enable_clean = false;
-		DatanodeInClusterPlan = false;
-
 #endif
 
 		/*
@@ -5082,9 +5075,6 @@ PostgresMain(int argc, char *argv[],
 			AcquireClusterLock(exclusive);
 			cluster_lock_held = true;
 		}
-
-		adb_slot_enable_clean = false;
-
 #endif
 
 		/*

@@ -812,7 +812,6 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 								 get_reduce_union_path,
 								 (void*)&reducePath,
 								 REDUCE_TYPE_HASH,
-								 glob->has_hashmap_rel ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
 								 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 								 REDUCE_TYPE_NONE);
 

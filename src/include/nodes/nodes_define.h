@@ -4365,42 +4365,6 @@ END_NODE(MGRFlushReadonlySlave)
 
 #endif
 
-#ifdef ADB
-
-#ifndef NO_NODE_CreateSlotStmt
-BEGIN_NODE(CreateSlotStmt)
-	NODE_SCALAR(int,slotid)
-	NODE_NODE(List,options)
-END_NODE(CreateSlotStmt)
-#endif /* NO_NODE_CreateSlotStmt */
-
-#ifndef NO_NODE_AlterSlotStmt
-BEGIN_NODE(AlterSlotStmt)
-	NODE_SCALAR(int,slotid)
-	NODE_NODE(List,options)
-END_NODE(AlterSlotStmt)
-#endif /* NO_NODE_AlterSlotStmt */
-
-#ifndef NO_NODE_DropSlotStmt
-BEGIN_NODE(DropSlotStmt)
-	NODE_SCALAR(int,slotid)
-END_NODE(DropSlotStmt)
-#endif /* NO_NODE_DropSlotStmt */
-
-#ifndef NO_NODE_FlushSlotStmt
-BEGIN_NODE(FlushSlotStmt)
-END_NODE(FlushSlotStmt)
-#endif /* NO_NODE_FlushSlotStmt */
-
-#ifndef NO_NODE_CleanSlotStmt
-BEGIN_NODE(CleanSlotStmt)
-	NODE_STRING(schema_name)
-	NODE_STRING(table_name)
-END_NODE(CleanSlotStmt)
-#endif /* NO_NODE_CleanSlotStmt */
-
-#endif
-
 #ifndef NO_NODE_JoinPath
 BEGIN_NODE(JoinPath)
 	NODE_BASE2(Path,path)

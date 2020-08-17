@@ -120,9 +120,6 @@ static void DropStmtPreTreatment(DropStmt *stmt, const char *queryString,
 					bool sentToRemote, bool *is_temp,
 					RemoteQueryExecType *exec_type);
 static bool IsStmtAllowedInLockedMode(Node *parsetree, const char *queryString);
-
-#include "pgxc/slot.h"
-
 #endif
 
 #ifdef ADB
@@ -1119,44 +1116,6 @@ standard_ProcessUtility(PlannedStmt *pstmt,
 			PgxcGroupRemove((DropGroupStmt *) parsetree);
 			break;
 
-		case T_AlterSlotStmt:
-			SlotAlter((AlterSlotStmt *) parsetree);
-
-			if (IS_PGXC_COORDINATOR)
-				ExecRemoteUtilityStmt(&utilityContext);
-
-			break;
-
-		case T_CreateSlotStmt:
-			SlotCreate((CreateSlotStmt *) parsetree);
-
-			if (IS_PGXC_COORDINATOR)
-				ExecRemoteUtilityStmt(&utilityContext);
-
-			break;
-
-		case T_DropSlotStmt:
-			SlotRemove((DropSlotStmt *) parsetree);
-
-			if (IS_PGXC_COORDINATOR)
-				ExecRemoteUtilityStmt(&utilityContext);
-
-			break;
-
-		case T_FlushSlotStmt:
-			SlotFlush((FlushSlotStmt *) parsetree);
-
-			if (IS_PGXC_COORDINATOR)
-				ExecRemoteUtilityStmt(&utilityContext);
-			break;
-
-		case T_CleanSlotStmt:
-			if (IS_PGXC_DATANODE)
-				SlotClean((CleanSlotStmt *) parsetree);
-
-			if (IS_PGXC_COORDINATOR)
-				ExecRemoteUtilityStmt(&utilityContext);
-			break;
 		case T_FinishActiveBackendStmt:
 			execFinishActiveBackend((FinishActiveBackendStmt *) parsetree);
 			break;
@@ -4460,26 +4419,6 @@ CreateCommandTag(Node *parsetree)
 		case T_CleanConnStmt:
 			tag = "CLEAN CONNECTION";
 			break;
-
-		case T_AlterSlotStmt:
-			tag = "ALTER SLOT";
-			break;
-
-		case T_CreateSlotStmt:
-			tag = "CREATE SLOT";
-			break;
-
-		case T_DropSlotStmt:
-			tag = "DROP SLOT";
-			break;
-
-		case T_FlushSlotStmt:
-			tag = "FLUSH SLOT";
-			break;
-
-		case T_CleanSlotStmt:
-			tag = "CLEAN SLOT";
-			break;
 		case T_FinishActiveBackendStmt:
 			tag = "FINISH BACKEND";
 			break;
@@ -5021,6 +4960,7 @@ GetCommandLogLevel(Node *parsetree)
 		case T_CreateGroupStmt:
 		case T_DropGroupStmt:
 		case T_CleanConnStmt:
+		case T_FinishActiveBackendStmt:
 			lev = LOGSTMT_DDL;
 			break;
 
@@ -5028,14 +4968,6 @@ GetCommandLogLevel(Node *parsetree)
 		case T_BarrierStmt:
 		case T_CreateAuxStmt:
 			lev = LOGSTMT_ALL;
-			break;
-		case T_CreateSlotStmt:
-		case T_AlterSlotStmt:
-		case T_DropSlotStmt:
-		case T_FlushSlotStmt:
-		case T_CleanSlotStmt:
-		case T_FinishActiveBackendStmt:
-			lev = LOGSTMT_DDL;
 			break;
 #endif
 

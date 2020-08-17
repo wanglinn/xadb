@@ -477,7 +477,7 @@ standard_planner(Query *parse, int cursorOptions, ParamListInfo boundParams)
 	}
 
 #ifdef ADB
-	glob->has_hashmap_rel = glob->has_modulo_rel = false;
+	glob->has_modulo_rel = false;
 	glob->clusterPlanOK = (IsCnMaster() && CLUSTER_PLAN_OK(cursorOptions, parse));
 	if (glob->clusterPlanOK)
 		get_query_tree_cluster_info((Node*)parse, glob);
@@ -6178,7 +6178,6 @@ create_distinct_paths(PlannerInfo *root,
 								 create_cluster_distinct_path,
 								 &dcontext,
 								 REDUCE_TYPE_HASH,
-								 glob->has_hashmap_rel ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
 								 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 								 REDUCE_TYPE_COORDINATOR,
 								 REDUCE_TYPE_NONE);
@@ -8270,7 +8269,6 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 									 create_cluster_grouping_path,
 									 &gcontext,
 									 REDUCE_TYPE_HASH,
-									 glob->has_hashmap_rel ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
 									 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 									 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
 									 REDUCE_TYPE_NONE);
@@ -8298,7 +8296,6 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 								 create_cluster_grouping_path,
 								 &gcontext,
 								 REDUCE_TYPE_HASH,
-								 glob->has_hashmap_rel ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
 								 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 								 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
 								 REDUCE_TYPE_NONE);
@@ -8407,7 +8404,6 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 									 create_cluster_grouping_path,
 									 &gcontext,
 									 groupExprs ? REDUCE_TYPE_HASH : REDUCE_TYPE_IGNORE,
-									 (groupExprs && glob->has_hashmap_rel) ? REDUCE_TYPE_HASHMAP : REDUCE_TYPE_IGNORE,
 									 (groupExprs && glob->has_modulo_rel) ? REDUCE_TYPE_MODULO : REDUCE_TYPE_IGNORE,
 									 gcontext.can_gather ? REDUCE_TYPE_GATHER : REDUCE_TYPE_COORDINATOR,
 									 REDUCE_TYPE_NONE);
@@ -8436,7 +8432,6 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 										 create_cluster_batch_grouping_path,
 										 &gcontext,
 										 REDUCE_TYPE_HASH,
-										 (groupExprs && glob->has_hashmap_rel) ? REDUCE_TYPE_HASHMAP : REDUCE_TYPE_IGNORE,
 										 (groupExprs && glob->has_modulo_rel) ? REDUCE_TYPE_MODULO : REDUCE_TYPE_IGNORE,
 										 REDUCE_TYPE_NONE);
 						list_free(storage_list);
@@ -8515,7 +8510,6 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 										 create_cluster_grouping_path,
 										 &gcontext,
 										 REDUCE_TYPE_HASH,
-										 glob->has_hashmap_rel ? REDUCE_TYPE_HASHMAP:REDUCE_TYPE_IGNORE,
 										 glob->has_modulo_rel ? REDUCE_TYPE_MODULO:REDUCE_TYPE_IGNORE,
 										 gcontext.can_gather ? REDUCE_TYPE_GATHER:REDUCE_TYPE_COORDINATOR,
 										 REDUCE_TYPE_NONE);
@@ -8563,7 +8557,6 @@ add_paths_to_grouping_rel(PlannerInfo *root, RelOptInfo *input_rel,
 										 create_cluster_batch_grouping_path,
 										 &gcontext,
 										 REDUCE_TYPE_HASH,
-										 (groupExprs && glob->has_hashmap_rel) ? REDUCE_TYPE_HASHMAP : REDUCE_TYPE_IGNORE,
 										 (groupExprs && glob->has_modulo_rel) ? REDUCE_TYPE_MODULO : REDUCE_TYPE_IGNORE,
 										 REDUCE_TYPE_NONE);
 						list_free(storage_list);
@@ -9648,7 +9641,6 @@ static Path* reduce_to_relation_insert(PlannerInfo *root, Index rel_id, Path *pa
 		reduce_info = MakeRandomReduceInfo(storage_nodes);
 		path = create_cluster_reduce_path(root, path, list_make1(reduce_info), path->parent, NIL);
 	}else if(loc_info->locatorType == LOCATOR_TYPE_HASH ||
-			 loc_info->locatorType == LOCATOR_TYPE_HASHMAP ||
 			 loc_info->locatorType == LOCATOR_TYPE_MODULO ||
 			 loc_info->locatorType == LOCATOR_TYPE_LIST ||
 			 loc_info->locatorType == LOCATOR_TYPE_RANGE)
@@ -9752,10 +9744,6 @@ static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subp
 														quals);
 				*exec_nodes = list_copy(loc_info->nodeids);
 				return subpath;
-			}else if(loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
-			{
-				/* when no reduce, in datanode function NODEID_FROM_HASHVALUE is not work */
-				return NULL;
 			}
 			rel = relation_open(rte->relid, NoLock);
 			rinfo = MakeReduceInfoFromLocInfo(loc_info, NIL, rte->relid, relid);
@@ -9831,10 +9819,6 @@ static Path* try_simple_remote_insert(PlannerInfo *root, Index relid, Path *subp
 				result_path->subpath = subpath;
 				*exec_nodes = list_copy(loc_info->nodeids);
 				return (Path*)result_path;
-			}else if(loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
-			{
-				/* when no reduce, in datanode function NODEID_FROM_HASHVALUE is not work */
-				return NULL;
 			}else if(loc_info->locatorType != LOCATOR_TYPE_RANDOM)
 			{
 				rinfo = MakeReduceInfoUsingPathTarget(loc_info, NIL, subpath->pathtarget);
@@ -10590,24 +10574,19 @@ static bool get_query_tree_cluster_info(Node *node, PlannerGlobal *glob)
 	{
 		RangeTblEntry  *rte = (RangeTblEntry*)node;
 		Relation		rel;
-		char			locatorType;
 
 		if (rte->rtekind == RTE_RELATION &&
 			OidIsValid(rte->relid))
 		{
 			rel = relation_open(rte->relid, NoLock);
-			if (rel->rd_locator_info)
+			if (rel->rd_locator_info &&
+				rel->rd_locator_info->locatorType == LOCATOR_TYPE_MODULO)
 			{
-				locatorType = rel->rd_locator_info->locatorType;
-				if (locatorType == LOCATOR_TYPE_HASHMAP)
-					glob->has_hashmap_rel = true;
-				else if(locatorType == LOCATOR_TYPE_MODULO)
-					glob->has_modulo_rel = true;
+				glob->has_modulo_rel = true;
 			}
 			relation_close(rel, NoLock);
 
-			if (glob->has_hashmap_rel &&
-				glob->has_modulo_rel)
+			if (glob->has_modulo_rel)
 				return true;
 		}
 		return false;

@@ -15341,12 +15341,6 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 	foreach(item, subCmds)
 	{
 		AlterTableCmd *cmd = (AlterTableCmd *) lfirst(item);
-		if (cmd->subtype != AT_DistributeBy && cmd->def && rel->rd_locator_info
-				&& rel->rd_locator_info->locatorType == LOCATOR_TYPE_HASHMAP)
-			ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-					errmsg("not support ALTER hashmap table ADD/DELETE/TO node")));
-
 		/* 
 		 * Prevent child and parent tables of partitioned tables 
 		 * from being distributed differently.
@@ -18573,7 +18567,6 @@ static char GetRelationDistributeKey(ParseState *pstate, Relation rel, bool auxi
 		switch(default_distribute_by)
 		{
 		case LOCATOR_TYPE_HASH:
-		case LOCATOR_TYPE_HASHMAP:
 		case LOCATOR_TYPE_MODULO:
 			for (i = 0; i < desc->natts; i++)
 			{
@@ -18609,8 +18602,7 @@ static char GetRelationDistributeKey(ParseState *pstate, Relation rel, bool auxi
 		if (attno != InvalidAttrNumber)
 		{
 			loc_key = NULL;
-			if (loc_type == LOCATOR_TYPE_HASH ||
-				loc_type == LOCATOR_TYPE_HASHMAP)
+			if (loc_type == LOCATOR_TYPE_HASH)
 			{
 				loc_key = palloc0(sizeof(*loc_key));
 				loc_key->attno = attno;
@@ -18659,7 +18651,6 @@ static char GetRelationDistributeKey(ParseState *pstate, Relation rel, bool auxi
 			strategy = PARTITION_STRATEGY_MODULO;
 			break;
 		case LOCATOR_TYPE_HASH:
-		case LOCATOR_TYPE_HASHMAP:
 			strategy = PARTITION_STRATEGY_HASH;
 			break;
 		case LOCATOR_TYPE_LIST:
@@ -18724,7 +18715,6 @@ end_spec_:
 		{
 		case LOCATOR_TYPE_HASH:
 		case LOCATOR_TYPE_MODULO:
-		case LOCATOR_TYPE_HASHMAP:
 		case LOCATOR_TYPE_RANGE:
 		case LOCATOR_TYPE_LIST:
 			if (list_length(list_key) != 1)

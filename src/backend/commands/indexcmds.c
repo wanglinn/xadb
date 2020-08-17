@@ -71,7 +71,6 @@
 #include "optimizer/pgxcship.h"
 #include "parser/parse_utilcmd.h"
 #include "pgxc/pgxc.h"
-#include "pgxc/slot.h"
 #include "commands/copy.h"
 #include "catalog/pgxc_class.h"
 #include "libpq/libpq.h"
@@ -2564,18 +2563,8 @@ static List* get_reindex_rel_datanode(List *nodes, Oid reloid)
 	count = classForm->nodeoids.dim1;
 	if (classForm->pclocatortype != LOCATOR_TYPE_REPLICATED)
 	{
-		if (classForm->pclocatortype == LOCATOR_TYPE_HASHMAP)
-		{
-			ListCell *lc;
-			List *slot_oids = GetSlotNodeOids();
-			foreach(lc, slot_oids)
-				nodes = list_append_unique_oid(nodes, lfirst_oid(lc));
-			list_free(slot_oids);
-		}else
-		{
-			for (i=0;i<count;++i)
-				nodes = list_append_unique_oid(nodes, oids[i]);
-		}
+		for (i=0;i<count;++i)
+			nodes = list_append_unique_oid(nodes, oids[i]);
 	}else
 	{
 		for (i=0;i<count;++i)

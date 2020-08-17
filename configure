@@ -768,9 +768,9 @@ enable_seq_rowid
 adb_multi_gram
 enable_grammar_db2
 enable_grammar_oracle
-enable_cluster
-enable_rdma
 enable_reduce_rdma
+enable_rdma
+enable_cluster
 default_port
 WANTED_LANGUAGES
 enable_nls
@@ -836,6 +836,8 @@ enable_integer_datetimes
 enable_nls
 with_pgport
 enable_cluster
+enable_rdma
+enable_reduce_rdma
 enable_grammar_oracle
 enable_grammar_db2
 enable_seq_rowid
@@ -846,13 +848,10 @@ enable_debug
 enable_profiling
 enable_coverage
 enable_dtrace
-enable_rdma
-enable_reduce_rdma
 enable_tap_tests
 with_blocksize
 with_segsize
 with_wal_blocksize
-with_hashmap_slot_size
 with_CC
 with_llvm
 enable_depend
@@ -1529,6 +1528,8 @@ Optional Features:
   --enable-nls[=LANGUAGES]
                           enable Native Language Support
   --disable-cluster       enable cluster module
+  --disable-rdma          enable rdma module
+  --disable-reduce_rdma   enable reducerdma module
   --disable-grammar-oracle
                           enable oracle grammar
   --disable-grammar-db2   enable db2 grammar
@@ -1548,7 +1549,6 @@ Optional Features:
   --disable-largefile     omit support for large files
   --disable-float4-byval  disable float4 passed by value
   --disable-float8-byval  disable float8 passed by value
-  --enable-rdma           build with support rdma rsockets
 
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
@@ -1565,8 +1565,6 @@ Optional Packages:
   --with-segsize=SEGSIZE  set table segment size in GB [1]
   --with-wal-blocksize=BLOCKSIZE
                           set WAL block size in kB [8]
-  --with-hashmap-slot-size=HASHMAP_SLOTSIZE
-                          set HASHMAP slot size [1024]
   --with-CC=CMD           set compiler (deprecated)
   --with-llvm             build with LLVM based JIT support
   --with-icu              build with ICU support
@@ -3269,6 +3267,9 @@ else
 
 fi
 
+
+
+
 #
 # Rdma
 #
@@ -3290,10 +3291,19 @@ if test "${enable_rdma+set}" = set; then :
   esac
 
 else
-  enable_rdma=no
+  enable_rdma=yes
+
 fi
 
-# Check whether --enable-rdma was given.
+
+
+
+#
+# Rdma reduce
+#
+
+
+# Check whether --enable-reduce_rdma was given.
 if test "${enable_reduce_rdma+set}" = set; then :
   enableval=$enable_reduce_rdma;
   case $enableval in
@@ -3304,19 +3314,17 @@ if test "${enable_reduce_rdma+set}" = set; then :
       :
       ;;
     *)
-      as_fn_error $? "no argument expected for --enable-reduce-rdma option" "$LINENO" 5
+      as_fn_error $? "no argument expected for --enable-reduce_rdma option" "$LINENO" 5
       ;;
   esac
 
 else
-  enable_reduce_rdma=no
+  enable_reduce_rdma=yes
+
 fi
 
-if test "$enable_rdma" = yes || test "$enable_reduce_rdma" = yes ; then
-  enable_reduce_rdma = yes;
-#LIBS="-lrdmacm $LIBS"
-  LIBS="-ldl $LIBS" 
-fi
+
+
 
 #
 # oracle grammar
@@ -4032,45 +4040,6 @@ $as_echo "${wal_blocksize}kB" >&6; }
 
 cat >>confdefs.h <<_ACEOF
 #define XLOG_BLCKSZ ${XLOG_BLCKSZ}
-_ACEOF
-
-
-#
-# HASHMAP slot size
-#
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for HASHMAP slot size" >&5
-$as_echo_n "checking for HASHMAP slot size... " >&6; }
-
-
-
-# Check whether --with-hashmap-slot-size was given.
-if test "${with_hashmap_slot_size+set}" = set; then :
-  withval=$with_hashmap_slot_size;
-  case $withval in
-    yes)
-      as_fn_error $? "argument required for --with-hashmap-slot-size option" "$LINENO" 5
-      ;;
-    no)
-      as_fn_error $? "argument required for --with-hashmap-slot-size option" "$LINENO" 5
-      ;;
-    *)
-      hashmap_slot_size=$withval
-      ;;
-  esac
-
-else
-  hashmap_slot_size=1024
-fi
-
-
-if test "${hashmap_slot_size}" -lt 64 -o "${hashmap_slot_size}" -gt 65535; then
-  as_fn_error $? "Invalid HASHMAP slot size. Allowed values between 64 and 65535." "$LINENO" 5
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: ${hashmap_slot_size}" >&5
-$as_echo "${hashmap_slot_size}" >&6; }
-
-cat >>confdefs.h <<_ACEOF
-#define HASHMAP_SLOTSIZE ${hashmap_slot_size}
 _ACEOF
 
 
@@ -5538,20 +5507,6 @@ if test "$enable_cluster" = yes; then
   CFLAGS="$CFLAGS -DADB"
   BITCODE_CFLAGS="$BITCODE_CFLAGS -DADB"
   BITCODE_CXXFLAGS="$BITCODE_CXXFLAGS -DADB"
-fi
-
-if test "$enable_rdma" = yes; then
-  # for WITH_RDMA set "-DWITH_RDMA" by default
-  CFLAGS="$CFLAGS -DWITH_RDMA"
-  BITCODE_CFLAGS="$BITCODE_CFLAGS -DWITH_RDMA"
-  BITCODE_CXXFLAGS="$BITCODE_CXXFLAGS -DWITH_RDMA"
-fi
-
-if test "$enable_reduce_rdma" = yes; then
-  # for WITH_RDMA set "-DWITH_RDMA" by default
-  CFLAGS="$CFLAGS -DWITH_REDUCE_RDMA"
-  BITCODE_CFLAGS="$BITCODE_CFLAGS -DWITH_REDUCE_RDMA"
-  BITCODE_CXXFLAGS="$BITCODE_CXXFLAGS -DWITH_REDUCE_RDMA"
 fi
 
 # C[XX]FLAGS we determined above will be added back at the end

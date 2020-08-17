@@ -3458,46 +3458,6 @@ typedef struct DropNodeStmt
 
 
 #ifdef ADB
-typedef struct CreateSlotStmt
-{
-	NodeTag		type;
-	int 		slotid;
-	List		*options;
-} CreateSlotStmt;
-
-typedef struct AlterSlotStmt
-{
-	NodeTag		type;
-	int 		slotid;
-	List		*options;
-} AlterSlotStmt;
-
-typedef struct DropSlotStmt
-{
-	NodeTag		type;
-	int			slotid;
-} DropSlotStmt;
-
-/*
- * ----------------------
- *      Flush Slot table
- */
-typedef struct FlushSlotStmt
-{
-	NodeTag		type;
-} FlushSlotStmt;
-
-/*
- * ----------------------
- *      Clean Slot table
- */
-typedef struct CleanSlotStmt
-{
-	NodeTag		type;
-	char		*schema_name;
-	char		*table_name;
-} CleanSlotStmt;
-
 typedef struct FinishActiveBackendStmt
 {
 	NodeTag		type;

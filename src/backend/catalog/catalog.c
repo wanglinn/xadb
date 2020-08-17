@@ -51,7 +51,6 @@
 #include "utils/syscache.h"
 #ifdef ADB
 #include "catalog/adb_clean_d.h"
-#include "catalog/adb_slot.h"
 #include "catalog/pgxc_node.h"
 #include "catalog/pgxc_group.h"
 #include "pgxc/pgxc.h"
@@ -269,7 +268,6 @@ IsSharedRelation(Oid relationId)
 #ifdef ADB
 		relationId == PgxcGroupRelationId ||
 		relationId == PgxcNodeRelationId ||
-		relationId == AdbSlotRelationId ||
 		relationId == AdbCleanRelationId ||
 #endif
 		relationId == DbRoleSettingRelationId ||
@@ -296,7 +294,6 @@ IsSharedRelation(Oid relationId)
 		relationId == PgxcNodeOidIndexId ||
 		relationId == PgxcGroupGroupNameIndexId ||
 		relationId == PgxcGroupOidIndexId ||
-		relationId == AdbSlotSlotidIndexId ||
 		relationId == AdbCleanIndexId ||
 #endif
 		relationId == DbRoleSettingDatidRolidIndexId ||

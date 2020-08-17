@@ -99,9 +99,6 @@
 # define gettimeofday(a,b) gettimeofday(a)
 #endif
 
-/* Size of hashmap slot size */
-#undef HASHMAP_SLOTSIZE
-
 /* Define to 1 if you have the `append_history' function. */
 #undef HAVE_APPEND_HISTORY
 

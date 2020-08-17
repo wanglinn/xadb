@@ -35,8 +35,7 @@ const DistributeNameType all_distribute_name_type[] = {
 	{LOCATOR_TYPE_LIST,			"list"},
 	{LOCATOR_TYPE_MODULO,		"modulo"},
 	{LOCATOR_TYPE_RANDOM,		"random"},
-	{LOCATOR_TYPE_RANGE,		"range"},
-	{LOCATOR_TYPE_HASHMAP,		"hashmap"}
+	{LOCATOR_TYPE_RANGE,		"range"}
 };
 const uint32 cnt_distribute_name_type = lengthof(all_distribute_name_type);
 
@@ -54,7 +53,6 @@ static void SetDistributeByDatums(Datum *datums, bool *nulls, bool *replace, Lis
 	switch(loc_type)
 	{
 	case LOCATOR_TYPE_HASH:
-	case LOCATOR_TYPE_HASHMAP:
 	case LOCATOR_TYPE_MODULO:
 	case LOCATOR_TYPE_LIST:
 	case LOCATOR_TYPE_RANGE:

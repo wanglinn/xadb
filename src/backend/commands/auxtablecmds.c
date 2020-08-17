@@ -408,7 +408,6 @@ AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt)
 			break;
 		case LOCATOR_TYPE_HASH:
 		case LOCATOR_TYPE_MODULO:
-		case LOCATOR_TYPE_HASHMAP:
 			/* it is OK */
 			break;
 		case LOCATOR_TYPE_LIST:

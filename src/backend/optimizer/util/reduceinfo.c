@@ -33,7 +33,6 @@
 #include "utils/typcache.h"
 
 #include "optimizer/reduceinfo.h"
-#include "pgxc/slot.h"
 
 static oidvector *makeOidVector(List *list);
 static Expr* makeReduceArrayRef(List *oid_list, Expr *modulo, bool try_const, bool use_coalesce);
@@ -100,15 +99,6 @@ ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const E
 	rinfo->exclude_exec = list_copy(exclude);
 	rinfo->relids = pull_varnos((Node*)key);
 	rinfo->type = REDUCE_TYPE_HASH;
-
-	return rinfo;
-}
-
-
-ReduceInfo *MakeHashmapReduceInfo(const List *storage, const List *exclude, const Expr *key)
-{
-	ReduceInfo *rinfo = MakeHashReduceInfo(storage, exclude, key);
-	rinfo->type = REDUCE_TYPE_HASHMAP;
 
 	return rinfo;
 }
@@ -216,9 +206,6 @@ ReduceInfo *MakeReduceInfoFromLocInfo(const RelationLocInfo *loc_info, const Lis
 		if(loc_info->locatorType == LOCATOR_TYPE_HASH)
 		{
 			rinfo->type = REDUCE_TYPE_HASH;
-		}else if(loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
-		{
-			rinfo->type = REDUCE_TYPE_HASHMAP;
 		}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
 		{
 			rinfo->type = REDUCE_TYPE_MODULO;
@@ -269,7 +256,6 @@ ReduceInfo *MakeReduceInfoUsingPathTarget(const RelationLocInfo *loc_info, const
 		rinfo = MakeRandomReduceInfo(rnodes);
 		break;
 	case LOCATOR_TYPE_HASH:
-	case LOCATOR_TYPE_HASHMAP:
 	case LOCATOR_TYPE_MODULO:
 	case LOCATOR_TYPE_LIST:
 	case LOCATOR_TYPE_RANGE:
@@ -301,9 +287,6 @@ ReduceInfo *MakeReduceInfoUsingPathTarget(const RelationLocInfo *loc_info, const
 		{
 		case LOCATOR_TYPE_HASH:
 			rinfo->type = REDUCE_TYPE_HASH;
-			break;
-		case LOCATOR_TYPE_HASHMAP:
-			rinfo->type = REDUCE_TYPE_HASHMAP;
 			break;
 		case LOCATOR_TYPE_MODULO:
 			rinfo->type = REDUCE_TYPE_MODULO;
@@ -469,48 +452,6 @@ List *SortOidList(List *list)
 	pfree(oids);
 	return list;
 }
-
-
-int HashmapPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
-				   List *storage, List *exclude,
-				   ReducePathCallback_function func, void *context)
-{
-	ReduceInfo *reduce;
-	int result;
-	AssertArg(root && rel && path && storage && func);
-
-	if(expr == NULL)
-		return 0;
-
-	if (IsSlotNodeOidsEqualOidList(storage) == false)
-		return 0;
-
-	if(IsA(expr, List))
-	{
-		ListCell *lc;
-		result = 0;
-		foreach(lc, (List*)expr)
-		{
-			if (!IsTypeDistributable(exprType(lfirst(lc))) ||
-				expression_have_subplan(lfirst(lc)))
-				continue;
-			reduce = MakeHashmapReduceInfo(storage, exclude, lfirst(lc));
-			result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
-			if(result < 0)
-				break;
-		}
-	}else if(IsTypeDistributable(exprType((Node*)expr)) &&
-			 expression_have_subplan(expr) == false)
-	{
-		reduce = MakeHashmapReduceInfo(storage, exclude, expr);
-		result = ReducePathUsingReduceInfo(root, rel, path, func, context, reduce);
-	}else
-	{
-		result = 0;
-	}
-	return 0;
-}
-
 
 int HashPathByExpr(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *path,
 				   List *storage, List *exclude,
@@ -956,8 +897,6 @@ int ReducePathByExprVA(Expr *expr, PlannerInfo *root, RelOptInfo *rel, Path *pat
 		int type = va_arg(args, int);
 		if(type == REDUCE_TYPE_HASH)
 			result = HashPathByExpr(expr, root,rel, path, storage, exclude, func, context);
-		else if(type == REDUCE_TYPE_HASHMAP)
-			result = HashmapPathByExpr(expr, root,rel, path, storage, exclude, func, context);
 		else if(type == REDUCE_TYPE_MODULO)
 			result = ModuloPathByExpr(expr, root,rel, path, storage, exclude, func, context);
 		else if(type == REDUCE_TYPE_COORDINATOR)
@@ -2302,8 +2241,7 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 	Expr *result;
 	AssertArg(reduce && list_length(reduce->storage_nodes) > 0);
 
-	if (reduce->type != REDUCE_TYPE_HASHMAP &&
-		list_member_oid(reduce->storage_nodes, InvalidOid))
+	if (list_member_oid(reduce->storage_nodes, InvalidOid))
 	{
 		ereport(ERROR,
 				(errmsg("reduce info has an invalid OID")));
@@ -2333,21 +2271,6 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 
 			result = makeReduceArrayRef(reduce->storage_nodes, result, bms_is_empty(reduce->relids), true);
 		}
-		break;
-
-	case REDUCE_TYPE_HASHMAP:
-		if (reduce->nkey != 1)
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("not support multi-col for hash yet")));
-		result = makeHashExprFamily(reduce->keys[0].key,
-									reduce->keys[0].opfamily,
-									get_opclass_input_type(reduce->keys[0].opclass));
-
-		result = (Expr*) makeSimpleFuncExpr(F_HASH_COMBIN_MOD,
-											INT4OID,
-											list_make2(MakeInt4Const(HASHMAP_SLOTSIZE), result));
-		result = CreateNodeOidFromSlotIndexExpr(result);
 		break;
 
 	case REDUCE_TYPE_MODULO:

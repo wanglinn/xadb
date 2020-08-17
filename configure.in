@@ -433,19 +433,6 @@ AC_DEFINE_UNQUOTED([XLOG_BLCKSZ], ${XLOG_BLCKSZ}, [
 ])
 
 #
-# HASHMAP slot size
-#
-AC_MSG_CHECKING([for HASHMAP slot size])
-PGAC_ARG_REQ(with, hashmap-slot-size, [HASHMAP_SLOTSIZE], [set HASHMAP slot size [1024]],
-             [hashmap_slot_size=$withval],
-             [hashmap_slot_size=1024])
-if test "${hashmap_slot_size}" -lt 64 -o "${hashmap_slot_size}" -gt 65535; then
-  AC_MSG_ERROR([Invalid HASHMAP slot size. Allowed values between 64 and 65535.])
-fi
-AC_MSG_RESULT(${hashmap_slot_size})
-AC_DEFINE_UNQUOTED([HASHMAP_SLOTSIZE], ${hashmap_slot_size}, [Size of hashmap slot size])
-
-#
 # C compiler
 #
 

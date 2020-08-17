@@ -51,8 +51,6 @@
 #include "pgxc/redistrib.h"
 
 #include "utils/dynamicreduce.h"
-#include "pgxc/slot.h"
-
 
 #define REMOTE_KEY_END						0xFFFFFF00
 #define REMOTE_KEY_TRANSACTION_STATE		0xFFFFFF01
@@ -186,21 +184,6 @@ static void set_cluster_display(const char *activity, bool force, ClusterCoordIn
 static DynamicReduceNodeInfo   *CnRdcInfo = NULL;
 static uint32					CnRdcCnt = 0;
 
-Oid
-GetCurrentCnRdcID(const char *rdc_name)
-{
-	int i;
-
-	for (i = 0; i < CnRdcCnt; i++)
-	{
-		DynamicReduceNodeInfo *info = &CnRdcInfo[i];
-		if (pg_strcasecmp(NameStr(info->name), rdc_name) == 0)
-			return info->node_oid;
-	}
-
-	return InvalidOid;
-}
-
 void exec_cluster_plan(const void *splan, int length)
 {
 	char *reduce_info_data;
@@ -252,7 +235,6 @@ void exec_cluster_plan(const void *splan, int length)
 		/* Wait for the whole Reduce connect OK */
 		set_cluster_display("<cluster start group reduce>", false, info);
 		wait_rdc_group_message();
-		DatanodeInClusterPlan = true;
 	}
 
 	switch(tag)
@@ -304,7 +286,6 @@ void exec_cluster_plan(const void *splan, int length)
 
 	/* Send Copy Done message */
 	pq_putemptymessage('c');
-	DatanodeInClusterPlan = false;
 
 	DestroyTableStateSnapshot();
 }

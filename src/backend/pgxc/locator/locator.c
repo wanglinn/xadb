@@ -61,11 +61,9 @@
 #include "pgxc/locator.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/pgxcnode.h"
-#include "pgxc/slot.h"
 #include "postmaster/autovacuum.h"
 #include "utils/fmgrprotos.h"
 #include "utils/typcache.h"
-#include "pgxc/slot.h"
 #include "tcop/tcopprot.h"
 
 #define PUSH_REDUCE_EXPR_BMS	1
@@ -376,8 +374,6 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 	ExecNodes  *exec_nodes;
 	int			modulo;
 
-	int			nodeIndex;
-	int			slotstatus;
 	List		*tmp_nodeids = NIL;
 	ListCell	*lc;
 
@@ -466,37 +462,8 @@ GetRelationNodes(RelationLocInfo *rel_loc_info,
 				exec_nodes->nodeids = tmp_nodeids;
 			break;
 
-		case LOCATOR_TYPE_HASHMAP:
-			{
-				if(IS_PGXC_DATANODE)
-					return NULL;
-
-				if(dist_col_nulls[0])
-				{
-					if(accessType == RELATION_ACCESS_INSERT)
-					{
-						/* Insert NULL to first node*/
-						modulo = 0;
-						SlotGetInfo(0, &nodeIndex, &slotstatus);
-						exec_nodes->nodeids = list_make1_oid(nodeIndex);
-					}else
-					{
-						exec_nodes->nodeids = tmp_nodeids;
-						break;
-					}
-				}else
-				{
-						int32 hashVal = execHashValue(dist_col_values[0],
-													  dist_col_types[0],
-													  InvalidOid);
-						modulo = (uint32)hashVal % HASHMAP_SLOTSIZE;
-						SlotGetInfo(modulo, &nodeIndex, &slotstatus);
-						exec_nodes->nodeids = list_make1_oid(nodeIndex);
-				}
-			}
-			break;
-			/* PGXCTODO case LOCATOR_TYPE_RANGE: */
-			/* PGXCTODO case LOCATOR_TYPE_CUSTOM: */
+		/* PGXCTODO case LOCATOR_TYPE_RANGE: */
+		/* PGXCTODO case LOCATOR_TYPE_CUSTOM: */
 		default:
 			ereport(ERROR, (errmsg("Error: no such supported locator type: %c\n",
 								   rel_loc_info->locatorType)));
@@ -681,7 +648,6 @@ RelationIdBuildLocator(Oid relid)
 	switch(relationLocInfo->locatorType)
 	{
 	case LOCATOR_TYPE_HASH:
-	case LOCATOR_TYPE_HASHMAP:
 	case LOCATOR_TYPE_LIST:
 	case LOCATOR_TYPE_RANGE:
 	case LOCATOR_TYPE_MODULO:
@@ -850,15 +816,11 @@ RelationIdBuildLocator(Oid relid)
 		pfree(oids);
 		list_free_deep(list);
 	}
-	else if (pgxc_class->pclocatortype != LOCATOR_TYPE_HASHMAP)
+	else
 	{
 		for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
 			relationLocInfo->nodeids = lappend_oid(relationLocInfo->nodeids,
-							pgxc_class->nodeoids.values[j]);
-	}
-	else
-	{
-		relationLocInfo->nodeids = GetSlotNodeOids();
+												   pgxc_class->nodeoids.values[j]);
 	}
 
 	if (IsCnMaster())
@@ -1146,9 +1108,6 @@ GetInvolvedNodes(RelationLocInfo *rel_loc,
 	List	   *node_list = NIL;
 	int32		modulo;
 
-	int			nodeIndex;
-	int			slotstatus;
-
 	if (rel_loc == NULL)
 		return NIL;
 #warning change code
@@ -1215,39 +1174,8 @@ GetInvolvedNodes(RelationLocInfo *rel_loc,
 			}
 			break;
 
-			/* TODO case LOCATOR_TYPE_RANGE: */
-			/* TODO case LOCATOR_TYPE_CUSTOM: */
-			case LOCATOR_TYPE_HASHMAP:
-			{
-				int nnodes;
-
-				Assert(rel_loc->nodeids);
-				nnodes = list_length(rel_loc->nodeids);
-				Assert(nnodes > 0);
-
-				if(dist_nulls[0])
-				{
-					if(accessType == RELATION_ACCESS_INSERT)
-					{
-						modulo = 0; /* Insert NULL to first node*/
-						SlotGetInfo(0, &nodeIndex, &slotstatus);
-						node_list = list_make1_oid(nodeIndex);
-					}
-					else
-					{
-						node_list = list_copy(rel_loc->nodeids);
-						break;
-					}
-				} else
-				{
-					int32 hashVal = execHashValue(dist_values[0], dist_types[0], InvalidOid);
-					modulo = (uint32)hashVal % HASHMAP_SLOTSIZE;
-					SlotGetInfo(modulo, &nodeIndex, &slotstatus);
-					node_list = list_make1_oid(nodeIndex);
-				}
-			}
-			break;
-
+		/* TODO case LOCATOR_TYPE_RANGE: */
+		/* TODO case LOCATOR_TYPE_CUSTOM: */
 		default:
 			ereport(ERROR,
 					(errmsg("locator type '%c' not support yet", rel_loc->locatorType)));
@@ -1353,17 +1281,10 @@ adbGetRelationNodeids(Oid relid)
 
 	pgxc_class = (Form_pgxc_class)GETSTRUCT(htup);
 
-	if (pgxc_class->pclocatortype != LOCATOR_TYPE_HASHMAP)
+	for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
 	{
-		for (j = 0; j < pgxc_class->nodeoids.dim1; j++)
-		{
-			nodeids = lappend_oid(nodeids,
-							pgxc_class->nodeoids.values[j]);
-		}
-	}
-	else
-	{
-		nodeids = GetSlotNodeOids();
+		nodeids = lappend_oid(nodeids,
+						pgxc_class->nodeoids.values[j]);
 	}
 
 	systable_endscan(pcscan);

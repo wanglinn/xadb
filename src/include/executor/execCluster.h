@@ -18,7 +18,6 @@ extern PGDLLIMPORT bool in_cluster_mode;
 typedef void (*ClusterCustom_function)(StringInfo mem_toc);
 #define ClusterTocSetCustomFun(toc, fun) ClusterTocSetCustomFunStr(toc, #fun)
 
-extern Oid GetCurrentCnRdcID(const char *rdc_name);
 extern void exec_cluster_plan(const void *splan, int length);
 extern struct PlanState* ExecStartClusterPlan(Plan *plan, struct EState *estate,
 											  int eflags, List *rnodes);

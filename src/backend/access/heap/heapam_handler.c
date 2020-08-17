@@ -49,7 +49,6 @@
 #include "utils/builtins.h"
 #include "utils/rel.h"
 #ifdef ADB
-#include "pgxc/slot.h"
 #include "pgxc/pgxc.h"
 #endif
 
@@ -2289,11 +2288,6 @@ heapam_scan_bitmap_next_block(TableScanDesc scan,
 #ifdef ADB
 			if (valid && scan->rs_rd->rd_clean)
 				valid = ExecTestExpansionClean(scan->rs_rd->rd_clean, &loctup);
-			//only check tuple slot in datanode and hash distribution
-			if ((valid)&&(scan->rs_rd->rd_id >= FirstNormalObjectId)
-				&& IS_PGXC_REAL_DATANODE&&adb_slot_enable_mvcc
-				&&(LOCATOR_TYPE_HASHMAP == scan->rs_rd->rd_locator_info->locatorType))
-				valid = HeapTupleSatisfiesSlot(scan->rs_rd, &loctup);
 #endif
 			if (valid)
 			{

@@ -52,7 +52,6 @@
 #include "utils/rel.h"
 #include "utils/ruleutils.h"
 #include "utils/snapmgr.h"
-#include "pgxc/slot.h"
 
 #define AUX_SCAN_INFO_SIZE_STEP		8
 
@@ -141,11 +140,8 @@ int use_aux_type = USE_AUX_CTID;
 int use_aux_max_times = 1;
 
 static Expr* makeInt4EQ(Expr *l, Expr *r);
-static Expr* makeOidEQ(Expr *l, Expr *r);
 static Expr* makeInt4ArrayIn(Expr *l, Datum *values, int count);
-static Expr* makeOidArrayIn(Expr *l, Datum *values, int count);
 static Expr* makeInt4Const(int32 val);
-static Expr* makeOidConst(Oid val);
 static Expr* makeNotNullTest(Expr *expr, bool isrow);
 static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node);
 static List* make_new_qual_list(ModifyContext *context, Node *quals, bool need_eval_const);
@@ -390,10 +386,7 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 
 		if(context.partition_expr)
 		{
-			if(LOCATOR_TYPE_HASHMAP==loc_info->locatorType)
-				expr = makeOidEQ(context.partition_expr, makeOidConst(node_oid));
-			else
-				expr = makeInt4EQ(context.partition_expr, makeInt4Const(i));
+			expr = makeInt4EQ(context.partition_expr, makeInt4Const(i));
 			temp_constraints = lappend(temp_constraints, expr);
 		}
 
@@ -431,25 +424,6 @@ static Expr* makeInt4EQ(Expr *l, Expr *r)
 	return (Expr*)op;
 }
 
-static Expr* makeOidEQ(Expr *l, Expr *r)
-{
-	OpExpr *op;
-	AssertArg(exprType((Node*)l) == OIDOID);
-	AssertArg(exprType((Node*)r) == OIDOID);
-
-	op = makeNode(OpExpr);
-	op->opno = OidEqualOperator;
-	op->opfuncid = F_OIDEQ;
-	op->opresulttype = BOOLOID;
-	op->opretset = false;
-	op->opcollid = InvalidOid;
-	op->inputcollid = InvalidOid;
-	op->args = list_make2(l, r);
-	op->location = -1;
-
-	return (Expr*)op;
-}
-
 static Expr* makeInt4ArrayIn(Expr *l, Datum *values, int count)
 {
 	ArrayType *arr = construct_array(values, count, INT4OID, sizeof(int32), true, 'i');
@@ -471,27 +445,6 @@ static Expr* makeInt4ArrayIn(Expr *l, Datum *values, int count)
 	return (Expr*)sao;
 }
 
-static Expr* makeOidArrayIn(Expr *l, Datum *values, int count)
-{
-	ArrayType *arr = construct_array(values, count, OIDOID, sizeof(int32), true, 'i');
-	Const *c = makeConst(OIDARRAYOID,
-						 -1,
-						 InvalidOid,
-						 -1,
-						 PointerGetDatum(arr),
-						 false,
-						 false);
-	ScalarArrayOpExpr *sao = makeNode(ScalarArrayOpExpr);
-	sao->opno = OidEqualOperator;
-	sao->opfuncid = F_OIDEQ;
-	sao->useOr = true;
-	sao->inputcollid = InvalidOid;
-	sao->args = list_make2(l, c);
-	sao->location = -1;
-
-	return (Expr*)sao;
-}
-
 static Expr* makeInt4Const(int32 val)
 {
 	return (Expr*)makeConst(INT4OID,
@@ -499,17 +452,6 @@ static Expr* makeInt4Const(int32 val)
 							InvalidOid,
 							sizeof(int32),
 							Int32GetDatum(val),
-							false,
-							true);
-}
-
-static Expr* makeOidConst(Oid val)
-{
-	return (Expr*)makeConst(OIDOID,
-							-1,
-							InvalidOid,
-							sizeof(Oid),
-							ObjectIdGetDatum(val),
 							false,
 							true);
 }
@@ -540,10 +482,7 @@ static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node)
 				 errmsg("not distribute by only one expression not support yet")));
 	key = FirstLocKeyInfo(loc_info);
 
-	if (loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
-		n = HASHMAP_SLOTSIZE;
-	else
-		n = list_length(loc_info->nodeids);
+	n = list_length(loc_info->nodeids);
 
 	count = makeConst(INT4OID,
 					  -1,
@@ -556,7 +495,6 @@ static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node)
 	switch(loc_info->locatorType)
 	{
 	case LOCATOR_TYPE_HASH:
-	case LOCATOR_TYPE_HASHMAP:
 		expr = makeHashExprFamily((Expr*)node, key->opfamily, get_opclass_input_type(key->opclass));
 		break;
 	case LOCATOR_TYPE_MODULO:
@@ -580,17 +518,11 @@ static Expr* makePartitionExpr(RelationLocInfo *loc_info, Node *node)
 							   InvalidOid,
 							   COERCE_EXPLICIT_CALL);
 
-	if(LOCATOR_TYPE_HASHMAP==loc_info->locatorType)
-	{
-		expr = CreateNodeOidFromSlotIndexExpr(expr);
-	}else
-	{
-		coalesce = makeNode(CoalesceExpr);
-		coalesce->coalescetype = INT4OID,
-		coalesce->coalescecollid = InvalidOid;
-		coalesce->args = list_make2(expr, makeInt4Const(0)); /* when null, first node */
-		expr = (Expr*)coalesce;
-	}
+	coalesce = makeNode(CoalesceExpr);
+	coalesce->coalescetype = INT4OID,
+	coalesce->coalescecollid = InvalidOid;
+	coalesce->args = list_make2(expr, makeInt4Const(0)); /* when null, first node */
+	expr = (Expr*)coalesce;
 
 	return expr;
 }
@@ -691,19 +623,13 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 				if (param->isnull == false && context->var_typbyval == false)
 					param->value = datumCopy(param->value, context->var_typbyval, context->var_typlen);
 			}
-			if (context->loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
-				c2 = (Const*)makeOidConst(InvalidOid);
-			else
-				c2 = (Const*)makeInt4Const(0);
+			c2 = (Const*)makeInt4Const(0);
 			MemoryContextReset(context->expr_context->ecxt_per_tuple_memory);
 			c2->constvalue = ExecEvalExprSwitchContext(context->right_state,
 													   context->expr_context,
 													   &c2->constisnull);
 			context->hint = true;
-			if (context->loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
-				return (Node*)makeOidEQ(context->partition_expr, (Expr*)c2);
-			else
-				return (Node*)makeInt4EQ(context->partition_expr, (Expr*)c2);
+			return (Node*)makeInt4EQ(context->partition_expr, (Expr*)c2);
 		}
 	}else if (IsA(node, ScalarArrayOpExpr) &&
 		((ScalarArrayOpExpr*)node)->useOr &&
@@ -788,10 +714,7 @@ static Node* mutator_equal_expr(Node *node, ModifyContext *context)
 					/* right_expr not return NULL value, even input is NULL */
 					Assert(elmbyval == false);
 				}
-				if (context->loc_info->locatorType == LOCATOR_TYPE_HASHMAP)
-					node = (Node*)makeOidArrayIn(context->partition_expr, new_values, num_elems);
-				else
-					node = (Node*)makeInt4ArrayIn(context->partition_expr, new_values, num_elems);
+				node = (Node*)makeInt4ArrayIn(context->partition_expr, new_values, num_elems);
 				context->hint = true;
 				pfree(new_values);
 				if (convert_state)

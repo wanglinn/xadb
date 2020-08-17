@@ -6436,7 +6436,7 @@ static void mgr_pg_dumpall(Oid hostoid, int32 hostport, Oid dnmasteroid, char *t
 	initStringInfo(&(getAgentCmdRst.description));
 
 	hostaddr = get_hostaddress_from_hostoid(hostoid);
-	appendStringInfo(&pg_dumpall_cmd, " -h %s -p %d -s --include-nodes --dump-nodes --dump-adb_slot -f %s", hostaddr, hostport, temp_file);
+	appendStringInfo(&pg_dumpall_cmd, " -h %s -p %d -s --include-nodes --dump-nodes -f %s", hostaddr, hostport, temp_file);
 
 	/* connection agent */
 	ma = ma_connect_hostoid(dnmasteroid);

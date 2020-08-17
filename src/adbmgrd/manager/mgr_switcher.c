@@ -3093,11 +3093,10 @@ void checkGetSiblingMasterNodes(MemoryContext spiContext,
 		switcherNode = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 		/*
 		 * One "waitswitch" datanode master may block the operation of "alter node"
-		 * and "alter slot" in subsequent processes, If there is such a node,
-		 * temporarily bypass it. When that "waitswitch" datanode master back to normal,
-		 * It must compare the data in its pgxc_node and adb_slot tables with
-		 * the data in mgr_node, and then update the difference datanode master data
-		 * to its own pgxc_node and adb_slot tables.
+		 * in subsequent processes, If there is such a node, temporarily bypass it.
+		 * When that "waitswitch" datanode master back to normal,
+		 * It must compare the data in its pgxc_node table with the data in mgr_node,
+		 * and then update the difference datanode master data to its own pgxc_node table.
 		 */
 		if (pg_strcasecmp(NameStr(switcherNode->mgrNode->form.curestatus),
 						  CURE_STATUS_NORMAL) != 0 &&

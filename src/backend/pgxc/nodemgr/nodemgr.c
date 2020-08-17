@@ -37,7 +37,6 @@
 #include "pgxc/locator.h"
 #include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
-#include "pgxc/slot.h"
 
 #define REMOTE_KEY_ALTER_NODE	1
 #define REMOTE_KEY_REMOVE_NODE	2
@@ -1083,7 +1082,5 @@ InitPGXCNodeIdentifier(void)
 
 		if (PGXCNodeIdentifier == 0)
 			PGXCNodeIdentifier = get_pgxc_node_id(PGXCNodeOid);
-
-		InitSLOTPGXCNodeOid();
 	}
 }

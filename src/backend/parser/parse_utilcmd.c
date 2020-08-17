@@ -72,7 +72,6 @@
 #include "pgxc/execRemote.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_namespace.h"
-#include "pgxc/slot.h"
 #endif
 #include "parser/parser.h"
 #include "rewrite/rewriteManip.h"
@@ -216,7 +215,6 @@ addDefaultDistributeByOfSingleInherit(CreateStmt *stmt)
 		case LOCATOR_TYPE_RANDOM:
 			break;
 		case LOCATOR_TYPE_HASH:
-		case LOCATOR_TYPE_HASHMAP:
 		case LOCATOR_TYPE_MODULO:
 			distby->colname = get_attname(relloc->relid, GetFirstLocAttNumIfOnlyOne(relloc), false);
 			break;
@@ -572,10 +570,6 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 
 		switch (default_distribute_by)
 		{
-			case LOCATOR_TYPE_HASHMAP:
-				spec->strategy = pstrdup("hashmap");
-				spec->partParams = list_make1(elem);
-				break;
 			case LOCATOR_TYPE_REPLICATED:
 				spec->strategy = pstrdup("replication");
 				spec->partParams = NIL;
@@ -4830,8 +4824,7 @@ int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey ke
 			}else if (loc_type == LOCATOR_TYPE_REPLICATED ||
 					  loc_type == LOCATOR_TYPE_RANDOM ||
 					  loc_type == LOCATOR_TYPE_HASH ||
-					  loc_type == LOCATOR_TYPE_MODULO ||
-					  loc_type == LOCATOR_TYPE_HASHMAP)
+					  loc_type == LOCATOR_TYPE_MODULO)
 			{
 				if (bound)
 					goto excess_node_bound_;

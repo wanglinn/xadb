@@ -53,8 +53,6 @@
 #include "replication/snapsender.h"
 #include "replication/gxidsender.h"
 #include "replication/gxidreceiver.h"
-#include "pgxc/slot.h"
-
 #endif
 #if defined(ADBMGRD)
 #include "postmaster/adbmonitor.h"
@@ -178,8 +176,6 @@ CreateSharedMemoryAndSemaphores(int port)
 			
 		if (IS_PGXC_COORDINATOR)
 			size = add_size(size, ClusterLockShmemSize());
-
-			size = add_size(size, SlotShmemSize());
 #endif
 
 #if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
@@ -317,9 +313,6 @@ CreateSharedMemoryAndSemaphores(int port)
 	
 	if (IS_PGXC_COORDINATOR)
 		ClusterLockShmemInit();
-
-		SlotShmemInit();
-
 #endif
 
 	/*

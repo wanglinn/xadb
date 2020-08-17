@@ -1935,7 +1935,6 @@ pgxc_check_index_shippability(RelationLocInfo *relLocInfo,
 				break;
 
 			case LOCATOR_TYPE_HASH:
-			case LOCATOR_TYPE_HASHMAP:
 			case LOCATOR_TYPE_MODULO:
 			case LOCATOR_TYPE_LIST:
 			case LOCATOR_TYPE_RANGE:
@@ -2063,7 +2062,6 @@ pgxc_check_fk_shippability(RelationLocInfo *parentLocInfo,
 			result = false;
 			break;
 #ifdef ADB
-		case LOCATOR_TYPE_HASHMAP:
 		case LOCATOR_TYPE_LIST:
 		case LOCATOR_TYPE_RANGE:
 #endif

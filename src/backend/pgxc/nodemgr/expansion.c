@@ -1310,11 +1310,6 @@ static void ExpansionRange(Form_pgxc_class form_class, HeapTuple tup, List *expa
 
 }
 
-static void ExpansionHashmap(Form_pgxc_class form_class, HeapTuple tup, List *expansion, shm_mq_handle *mq)
-{
-
-}
-
 static void ExpansionWorkerCoord(List *expansion_node, shm_mq_handle *mq, MemoryContext loop_context)
 {
 	Relation			rel_class;
@@ -1383,9 +1378,6 @@ static void ExpansionWorkerCoord(List *expansion_node, shm_mq_handle *mq, Memory
 			break;
 		case LOCATOR_TYPE_RANDOM:
 			ExpansionRandom(form_class, tup, expansion_rel_node, rel_class, class_index_state, mq);
-			break;
-		case LOCATOR_TYPE_HASHMAP:
-			ExpansionHashmap(form_class, tup, expansion_rel_node, mq);
 			break;
 		default:
 			ereport(ERROR,

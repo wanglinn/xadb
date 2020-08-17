@@ -282,13 +282,6 @@ pgxc_redist_build_replicate_to_distrib(RedistribState *distribState,
 		distribState->commands = lappend(distribState->commands,
 					 makeRedistribCommand(DISTRIB_DELETE_MODULO, CATALOG_UPDATE_AFTER, execNodes));
 	}
-	else if (newLocInfo->locatorType == LOCATOR_TYPE_HASHMAP)
-	{
-		ExecNodes *execNodes = makeNode(ExecNodes);
-		execNodes->nodeids = list_copy(newLocInfo->nodeids);
-		distribState->commands = lappend(distribState->commands,
-					 makeRedistribCommand(DISTRIB_DELETE_HASHMAP, CATALOG_UPDATE_AFTER, execNodes));
-	}
 	else
 		ereport(ERROR,
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
@@ -434,7 +427,6 @@ distrib_execute_command(RedistribState *distribState, RedistribCommand *command)
 			distrib_reindex(distribState, command->execNodes);
 			break;
 		case DISTRIB_DELETE_HASH:
-		case DISTRIB_DELETE_HASHMAP:
 		case DISTRIB_DELETE_MODULO:
 			distrib_delete_hash(distribState, command->execNodes);
 			break;

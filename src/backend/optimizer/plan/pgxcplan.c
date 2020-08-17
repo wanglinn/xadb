@@ -2181,7 +2181,6 @@ pgxc_set_en_expr(Oid tableoid, Index resultRelationIndex)
 	 * XXX Need further testing for replicated and round-robin tables
 	 */
 	if (rel_loc_info->locatorType == LOCATOR_TYPE_HASH ||
-		rel_loc_info->locatorType == LOCATOR_TYPE_HASHMAP ||
 		rel_loc_info->locatorType == LOCATOR_TYPE_MODULO)
 	{
 		AttrNumber attno = GetFirstLocAttNumIfOnlyOne(rel_loc_info);
