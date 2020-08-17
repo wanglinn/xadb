@@ -762,9 +762,9 @@ create_remotequery_plan(PlannerInfo *root, RemoteQueryPath *best_path)
 	dummy_rtindex = list_length(root->parse->rtable);
 
 	result_node->scan.scanrelid = dummy_rtindex;
-	result_node->read_only = true;
-	/* result_node->read_only = (query->commandType == CMD_SELECT && !query->hasForUpdate); */
-	/* result_node->has_row_marks = query->hasForUpdate; */
+	result_node->read_only = (result_node->remote_query->commandType == CMD_SELECT &&
+							  !result_node->remote_query->hasForUpdate);
+	result_node->has_row_marks = result_node->remote_query->hasForUpdate;
 	result_node->exec_nodes = best_path->rqpath_en;
 	/*
 	 * For replicated results, we need to choose one of the nodes, if there are
