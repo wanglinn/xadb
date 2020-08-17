@@ -370,7 +370,8 @@ static void snapsenderUpdateNextXid(TransactionId xid, SnapClientData *client)
 		ShmemVariableCache->nextFullXid = FullTransactionIdFromEpochAndXid(epoch, xid);
 		FullTransactionIdAdvance(&ShmemVariableCache->nextFullXid);
 
-		SNAP_SYNC_DEBUG_LOG((errmsg("xid  %d, ShmemVariableCache->nextFullXid %d\n", xid, ShmemVariableCache->nextFullXid)));
+		SNAP_SYNC_DEBUG_LOG((errmsg("xid  %d, ShmemVariableCache->nextFullXid %d\n",
+				xid, XidFromFullTransactionId(ShmemVariableCache->nextFullXid))));
 		ShmemVariableCache->latestCompletedXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
 		TransactionIdRetreat(ShmemVariableCache->latestCompletedXid);
 

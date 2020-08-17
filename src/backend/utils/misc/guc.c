@@ -12250,20 +12250,6 @@ assign_session_replication_role(int newval, void *extra)
 		ResetPlanCache();
 }
 
-static bool
-check_client_min_messages(int *newval, void **extra, GucSource source)
-{
-	/*
-	 * We disallow setting client_min_messages above ERROR, because not
-	 * sending an ErrorResponse message for an error breaks the FE/BE
-	 * protocol.  However, for backwards compatibility, we still accept FATAL
-	 * or PANIC as input values, and then adjust here.
-	 */
-	if (*newval > ERROR)
-		*newval = ERROR;
-	return true;
-}
-
 #ifdef ADB
 static bool
 check_snap_debug_max_messages(int *newval, void **extra, GucSource source)
