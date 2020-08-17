@@ -4410,7 +4410,6 @@ void SerializeActiveTransactionIds(StringInfo buf)
 		if (TransactionIdIsNormal(xid))
 		{
 			xids[count++] = xid;
-			SNAP_SYNC_DEBUG_LOG();
 		}
 	}
 	LWLockRelease(ProcArrayLock);
