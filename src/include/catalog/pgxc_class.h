@@ -97,6 +97,7 @@ typedef struct DistributeNameType
 extern const DistributeNameType all_distribute_name_type[];
 extern const uint32				cnt_distribute_name_type;
 extern int default_distribute_by;
+extern char	*default_user_group;
 
 extern void PgxcClassCreate(Oid pcrelid,
 							char pclocatortype,

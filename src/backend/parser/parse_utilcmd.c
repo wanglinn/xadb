@@ -72,6 +72,7 @@
 #include "catalog/pg_proc.h"
 #include "catalog/pg_namespace.h"
 #include "pgxc/slot.h"
+#include "lib/ilist.h"
 #endif
 #include "parser/parser.h"
 #include "rewrite/rewriteManip.h"
@@ -128,7 +129,19 @@ typedef struct
 	List	   *triggers;		/* CREATE TRIGGER items */
 	List	   *grants;			/* GRANT items */
 } CreateSchemaStmtContext;
+#ifdef ADB
+typedef struct
+{
+	NameData 	username;
+	NameData	groupname;
+}UserGroup;
 
+typedef struct 
+{
+	UserGroup 	userGroup;
+	dlist_node 	link;
+}UserGroupWrapper;
+#endif
 
 static void transformColumnDefinition(CreateStmtContext *cxt,
 						  ColumnDef *column ADB_ONLY_COMMA_ARG(bool is_addcln));
@@ -165,6 +178,9 @@ static Const *transformPartitionBoundValue(ParseState *pstate, Node *con,
 							 Oid partCollation);
 
 #ifdef ADB
+static void SplitUserGroup(char *default_user_group, dlist_head *userGroupList);
+static void PFreeUserGroupWrapperList(dlist_head *nodes);
+static List *GetNodeIDListByUser();
 static PartitionBoundSpec *
 transformPartitionBoundForKey(ParseState *pstate, Relation parent,
 							  PartitionBoundSpec *spec, PartitionKey key);
@@ -4581,7 +4597,117 @@ static List* transformDistributeClusterHash(ParseState *pstate, PGXCSubCluster *
 
 	return result;
 }
+static void SplitUserGroup(char *default_user_group, dlist_head *userGroupList)
+{
+	char  userGroup[256] = {0};	
+	char *pBegin 	= NULL;
+	char *pEnd 		= NULL;
+	char *pEnd2		= NULL;
+	UserGroupWrapper	*userGroupWrapper = NULL;
 
+	if (strlen(default_user_group) == 0)
+		return;
+
+	pBegin = default_user_group;
+	while(pBegin != NULL)
+	{
+		memset(userGroup, 0, sizeof(userGroup));
+		pEnd = NULL;
+		pEnd = strstr(pBegin, "|");
+		if (pEnd != NULL){
+			strncpy(userGroup, pBegin, pEnd-pBegin);
+			pBegin = pEnd + 1;
+		}
+		else{
+			strcpy(userGroup, pBegin);
+			pBegin = pEnd;
+		}
+
+		pEnd2 = NULL;
+		pEnd2 = strstr(userGroup, ":");
+		if (pEnd2 == NULL)
+			ereport(ERROR,
+				(errcode(ERRCODE_DUPLICATE_OBJECT),
+				errmsg("the format of usergroup should be \"user_name1:group_name1|user_name2:group_name2|...\", the current is %s.", default_user_group)));
+
+		userGroupWrapper = palloc0(sizeof(UserGroupWrapper));
+		strncpy(userGroupWrapper->userGroup.username.data, userGroup, pEnd2-userGroup);
+		namestrcpy(&userGroupWrapper->userGroup.groupname, pEnd2+1);
+		
+		dlist_push_tail(userGroupList, &userGroupWrapper->link);
+	}
+	return;
+}
+static void PFreeUserGroupWrapperList(dlist_head *nodes)
+{
+	dlist_mutable_iter miter;
+	UserGroupWrapper *node;
+
+	dlist_foreach_modify(miter, nodes)
+	{
+		node = dlist_container(UserGroupWrapper, link, miter.cur);
+		dlist_delete(miter.cur);
+		pfree(node);
+		node = NULL;
+	}
+}
+static List *GetNodeIDListByUser()
+{
+	dlist_head userGroupList = DLIST_STATIC_INIT(userGroupList);
+	dlist_iter iter;
+	UserGroupWrapper *userGroupWrapper;
+	NameData userName  = {{0}};
+	NameData GroupName = {{0}};
+	List	*oidlist = NIL;
+	Oid	   *arr_nodeoids = NULL;
+	int		cnt_arr_oids;
+	Oid		groupoid;
+
+	SplitUserGroup(default_user_group, &userGroupList);
+	
+	/*  根据当前session获取当前用户 */
+	RoleSpec role;
+	role.roletype = ROLESPEC_SESSION_USER;
+	namestrcpy(&userName, get_rolespec_name(&role));
+	
+	/* 根据当前用户找到对应的group */
+	dlist_foreach(iter, &userGroupList)
+	{
+		userGroupWrapper = dlist_container(UserGroupWrapper, link, iter.cur);
+		if (0 == pg_strcasecmp(NameStr(userName), NameStr(userGroupWrapper->userGroup.username)))
+		{
+			namestrcpy(&GroupName, NameStr(userGroupWrapper->userGroup.groupname));
+			break;
+		}
+	}
+	PFreeUserGroupWrapperList(&userGroupList);
+	
+	if (strlen(NameStr(GroupName)) == 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+					errmsg("user \"%s\" has no groupname",	NameStr(userGroupWrapper->userGroup.username))));
+
+	groupoid = get_pgxc_groupoid(NameStr(GroupName));
+	if (!OidIsValid(groupoid))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+					errmsg("group \"%s\" not defined", NameStr(GroupName))));
+
+	cnt_arr_oids = get_pgxc_groupmembers(groupoid, &arr_nodeoids);
+	if (cnt_arr_oids == 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+					errmsg("No datanode defined in group %s", NameStr(GroupName))));
+
+	while(cnt_arr_oids > 0)
+	{
+		--cnt_arr_oids;
+		oidlist = lappend_oid(oidlist, arr_nodeoids[cnt_arr_oids]);
+	}
+	pfree(arr_nodeoids);
+
+	return oidlist;
+}
 int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey key,
 							   PartitionSpec *spec, PGXCSubCluster *cluster, char loc_type,
 							   List **values, Oid **nodeoids)
@@ -4601,7 +4727,12 @@ int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey ke
 		{
 			goto leak_node_info_;
 		}
-		oidlist = GetAllDnIDL(true);
+		if (strlen(default_user_group) == 0){
+			oidlist = GetAllDnIDL(true);
+		}
+		else{
+			oidlist = GetNodeIDListByUser();
+		}
 		if (oidlist == NIL)
 			ereport(ERROR,
 					(errcode(ERRCODE_UNDEFINED_OBJECT),

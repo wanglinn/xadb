@@ -631,6 +631,7 @@ bool		adb_slot_enable_mvcc;
 extern bool auto_release_connect;	/* in libpq-node.c */
 bool		enable_coordinator_calculate = true;
 int			default_distribute_by = LOCATOR_TYPE_HASH;
+char 		*default_user_group = "";
 #endif
 
 #ifdef ADB_EXT
@@ -4788,6 +4789,16 @@ static struct config_string ConfigureNamesString[] =
 		},
 		&adb_version_string,
 		ADB_VERSION,
+		NULL, NULL, NULL
+	},
+	{
+		{"default_user_group", PGC_USERSET, CUSTOM_OPTIONS,
+			gettext_noop("the user contain pgxc_group."),
+			NULL,
+			GUC_REPORT
+		},
+		&default_user_group,
+		"",
 		NULL, NULL, NULL
 	},
 #endif
