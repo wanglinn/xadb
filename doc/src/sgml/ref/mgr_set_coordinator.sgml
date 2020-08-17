@@ -23,6 +23,8 @@ ADB documentation
     <synopsis>
 SET COORDINATOR [ MASTER | SLAVE ] ALL ( { parameter = <replaceable class="parameter">value</replaceable> } [, ...] ) [ FORCE ]
 SET COORDINATOR { MASTER | SLAVE} <replaceable class="parameter">node_name</replaceable> ( { parameter = <replaceable class="parameter">value</replaceable> } [, ...] ) [ FORCE ]
+SET COORDINATOR [ MASTER ] ALL (default_user_group = 'user_name1:group_name1|user_name2:group_name2')
+SET COORDINATOR { MASTER } <replaceable class="parameter">node_name</replaceable> (default_user_group = 'user_name1:group_name1|user_name2:group_name2')
 </synopsis>
   </refsynopsisdiv>
 

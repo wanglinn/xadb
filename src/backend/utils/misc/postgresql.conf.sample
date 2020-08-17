@@ -800,6 +800,7 @@
 #auto_release_connect = off			# release connects for connected other nodes when transaction finish
 #enable_readsql_on_slave = false	# Enable readonly sql execute on datanode slaves
 #enable_readsql_on_slave_async = false	# Enable readonly sql execute on datanode async slaves
+#default_user_group = ""			# Set user group where create table
 #------------------------------------------------------------------------------
 # ADB MONITOR PARAMETERS
 #------------------------------------------------------------------------------
