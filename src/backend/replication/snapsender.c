@@ -1766,11 +1766,7 @@ re_lock_:
 	appendStringInfo(buf, " state: %d \n", pg_atomic_read_u32(&SnapSender->state));
 	appendStringInfo(buf, " local global xmin: %u\n", pg_atomic_read_u32(&SnapSender->global_xmin));
 	appendStringInfo(buf, " local oldest_xmin: %u\n", GetOldestXmin(NULL, PROCARRAY_FLAGS_VACUUM));
-	appendStringInfo(buf, " nextid_upcount: %d \n", pg_atomic_read_u32(&SnapSender->nextid_upcount));
 	appendStringInfo(buf, " nextid_upcount_cn: %d \n", pg_atomic_read_u32(&SnapSender->nextid_upcount_cn));
-	appendStringInfo(buf, " cur_cnt_assign: %u \n", assign_len);
-	appendStringInfo(buf, "  xid_assign: [");
-
 	qsort(assign_xids, assign_len, sizeof(TransactionId), xidComparator);
 	for (i = 0; i < assign_len; i++)
 	{

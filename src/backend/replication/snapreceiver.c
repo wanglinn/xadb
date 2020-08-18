@@ -67,6 +67,7 @@ typedef struct SnapRcvData
 /* GUC variables */
 extern char *AGtmHost;
 extern int	AGtmPort;
+extern char *PGXCNodeName;
 
 /* libpqwalreceiver connection */
 static WalReceiverConn *wrconn;
@@ -201,25 +202,34 @@ static void SnapRcvProcessSnapSync(void)
 	}
 }
 
-static void
-SnapRcvSendLocalNextXid(void)
+static TransactionId
+SnapRcvGetLocalNextXid(void)
 {
 	FullTransactionId full_xid; 
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 	full_xid = ShmemVariableCache->nextFullXid;
 	LWLockRelease(XidGenLock);
 
-	if (!FullTransactionIdIsValid(full_xid))
+	return XidFromFullTransactionId(full_xid);
+}
+
+/*
+static void
+SnapRcvSendLocalNextXid(void)
+{
+	TransactionId xid = SnapRcvGetLocalNextXid();
+
+	ereport(LOG,(errmsg("SnapRcvSendLocalNextXid ShmemVariableCache->nextXid %d\n", xid)));
+	if (!TransactionIdIsValid(xid))
 		return;
 
-	/* Construct a new message */
 	resetStringInfo(&reply_message);
 	pq_sendbyte(&reply_message, 'u');
-	pq_sendint64(&reply_message, XidFromFullTransactionId(full_xid));
+	pq_sendstring(&reply_message, PGXCNodeName);
+	pq_sendint64(&reply_message, xid);
 
-	/* Send it */
 	walrcv_send(wrconn, reply_message.data, reply_message.len);
-}
+}*/
 
 void SnapReceiverMain(void)
 {
@@ -336,6 +346,7 @@ void SnapReceiverMain(void)
 	for (;;)
 	{
 		WalRcvStreamOptions options;
+		TransactionId	next_xid = SnapRcvGetLocalNextXid();
 
 		/*
 		 * Check that we're connected to a valid server using the
@@ -346,14 +357,17 @@ void SnapReceiverMain(void)
 		/* options startpoint must be InvalidXLogRecPtr and timeline be 0 */
 		options.logical = false;
 		options.startpoint = InvalidXLogRecPtr;
-		options.slotname = NULL;
-		options.proto.physical.startpointTLI = 0;
+		options.slotname = PGXCNodeName;
+
+		if (TransactionIdIsNormal(next_xid))
+			options.proto.physical.startpointTLI = next_xid;
+		else
+			options.proto.physical.startpointTLI = 0;
 
 		if (walrcv_startstreaming(wrconn, &options))
 		{
 			//walrcv_endstreaming(wrconn, &primaryTLI);
 			/* loop until end-of-streaming or error */
-			SnapRcvSendLocalNextXid();
 			heartbeat_sent = true;
 			for(;;)
 			{
@@ -677,6 +691,7 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 	{
 	case 's':				/* snapshot */
 		SnapRcvProcessSnapshot(buf, len);
+		//SnapRcvSendLocalNextXid();
 		SnapRcvSendHeartbeat();
 		break;
 	case 'a':
@@ -785,6 +800,7 @@ static void SnapRcvProcessUpdateXid(char *buf, Size len)
 
 	xid = pq_getmsgint64(&msg);
 	
+	SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvProcessUpdateXid xid %d\n", xid)));
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 	nextXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
 	if (!NormalTransactionIdPrecedes(xid, nextXid))

@@ -666,6 +666,8 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 	if (adb_check_sync_nextid)
 		isSnapSenderWaitNextIdOk();
 
+	isSnapSenderWaitNextIdOk();
+
 	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_ENTER, &found);
 	if(found == false)
 	{
