@@ -14,4 +14,5 @@ extern void SnapSendLockSendSock(void);
 extern void SnapSendUnlockSendSock(void);
 extern TransactionId SnapSendGetGlobalXmin(void);
 extern void SnapSenderGetStat(StringInfo buf);
+extern void isSnapSenderWaitNextIdOk(void);
 #endif /* SNAP_SENDER_H_ */

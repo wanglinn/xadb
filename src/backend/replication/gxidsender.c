@@ -644,6 +644,8 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 	bool						found;
 	slist_head					xid_slist =  SLIST_STATIC_INIT(xid_slist);
 
+	isSnapSenderWaitNextIdOk();
+
 	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_ENTER, &found);
 	if(found == false)
 	{

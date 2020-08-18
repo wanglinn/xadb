@@ -43,6 +43,7 @@ struct ParseState;
 extern void AlterNodeExpansionWork(AlterNodeStmt *stmt, struct ParseState *pstate);
 extern void AlterNodeExpansionClean(AlterNodeStmt *stmt, struct ParseState *pstate);
 extern void ExpansionWorkerMain(Datum arg);
+extern void SnapSenderMainQueryDnNodeName(Datum arg);
 extern void ClusterExpansion(StringInfo mem_toc);
 extern void ClusterExpansionClean(StringInfo mem_toc);
 extern void RemoveCleanInfoFromExpansionClean(Oid relOid);
