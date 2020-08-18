@@ -921,6 +921,8 @@ PortalRun(Portal portal, long count, bool isTopLevel, bool run_once,
 	PG_END_TRY();
 
 #ifdef ADB_MULTI_GRAM
+	if (parse_grammar != portal->grammar)
+		save_parse_grammar = parse_grammar;
 	parse_grammar = save_parse_grammar;
 #endif /* ADB_MULTI_GRAM */
 	if (saveMemoryContext == saveTopTransactionContext)
