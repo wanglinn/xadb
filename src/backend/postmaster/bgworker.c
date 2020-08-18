@@ -140,6 +140,10 @@ static const struct
 	{
 		"ExpansionWorkerMain", ExpansionWorkerMain
 	}
+	,
+	{
+		"SnapSenderMainQueryDnNodeName", SnapSenderMainQueryDnNodeName
+	}
 #endif /* ADB */
 };
 

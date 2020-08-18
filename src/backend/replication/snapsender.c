@@ -1,7 +1,11 @@
 #include "postgres.h"
+#include "postmaster/bgworker.h"
 
 #include "access/transam.h"
 #include "access/twophase.h"
+#include "access/genam.h"
+#include "access/heapam.h"
+#include "access/htup_details.h"
 #include "pgstat.h"
 #include "lib/ilist.h"
 #include "libpq/libpq.h"
@@ -10,9 +14,11 @@
 #include "libpq/pqnode.h"
 #include "libpq/pqnone.h"
 #include "libpq/pqsignal.h"
+#include "libpq/pqmq.h"
 #include "miscadmin.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/poolcomm.h"
+#include "pgxc/nodemgr.h"
 #include "replication/snapsender.h"
 #include "replication/gxidsender.h"
 #include "storage/ipc.h"
@@ -20,14 +26,24 @@
 #include "storage/procarray.h"
 #include "storage/proclist.h"
 #include "storage/spin.h"
+#include "storage/shm_mq.h"
+#include "storage/shm_toc.h"
+#include "storage/condition_variable.h"
 #include "tcop/tcopprot.h"
 #include "utils/memutils.h"
 #include "utils/timestamp.h"
 #include "utils/varlena.h"
 #include "utils/hsearch.h"
 #include "utils/snapmgr.h"
+#include "intercomm/inter-node.h"
+#include "catalog/pgxc_node.h"
+#include "catalog/indexing.h"
 
 #define	MAX_CNT_SHMEM_XID_BUF	1024
+
+#define SNAPSENDER_STATE_STOPED 0
+#define SNAPSENDER_STATE_STARTING 1
+#define SNAPSENDER_STATE_OK 2
 
 typedef struct SnapSenderData
 {
@@ -36,10 +52,13 @@ typedef struct SnapSenderData
 	proclist_head	waiters_finish;		/* list of waiting event xid finish ack */
 	pid_t			pid;				/* PID of currently active snapsender process */
 	int				procno;				/* proc number of current active snapsender process */
-
+ 			
 	slock_t			mutex;				/* locks shared variables */
 	pg_atomic_flag	lock;				/* locks receive client sock */
 
+	ConditionVariable 		cv;
+	pg_atomic_uint32		state;
+	pg_atomic_uint32		nextid_upcount;
 	pg_atomic_uint32		global_xmin;
 	pg_atomic_uint32		global_finish_id;
 	volatile uint32			cur_cnt_assign;
@@ -91,6 +110,7 @@ typedef struct SnapClientData
 	int				event_pos;
 	slist_head		slist_xid;
 	TransactionId	global_xmin;
+	char			client_name[NAMEDATALEN];
 }SnapClientData;
 
 /* GUC variables */
@@ -112,6 +132,7 @@ static uint32			max_wait_event = 0;
 static uint32			cur_wait_event = 0;
 static int snap_send_timeout = 0;
 static HTAB *snapsender_xid_htab;
+static List	*dn_master_name_list;
 
 #define WAIT_EVENT_SIZE_STEP	64
 #define WAIT_EVENT_SIZE_START	128
@@ -159,6 +180,8 @@ static void SnapSenderDie(int code, Datum arg)
 	SnapSender->pid = 0;
 	SnapSender->procno = INVALID_PGPROCNO;
 	SpinLockRelease(&SnapSender->mutex);
+	pg_atomic_init_u32(&SnapSender->nextid_upcount, 0);
+	pg_atomic_init_u32(&SnapSender->state, SNAPSENDER_STATE_STOPED);
 }
 
 Size SnapSenderShmemSize(void)
@@ -177,12 +200,15 @@ void SnapSenderShmemInit(void)
 	{
 		MemSet(SnapSender, 0, size);
 		SnapSender->procno = INVALID_PGPROCNO;
+		pg_atomic_init_u32(&SnapSender->state, SNAPSENDER_STATE_STOPED);
+		ConditionVariableInit(&SnapSender->cv);
 		proclist_init(&SnapSender->waiters_assign);
 		proclist_init(&SnapSender->waiters_complete);
 		proclist_init(&SnapSender->waiters_finish);
 		SpinLockInit(&SnapSender->mutex);
 		pg_atomic_init_u32(&SnapSender->global_xmin, FirstNormalTransactionId);
 		pg_atomic_init_u32(&SnapSender->global_finish_id, InvalidTransactionId);
+		pg_atomic_init_u32(&SnapSender->nextid_upcount, 0);
 		pg_atomic_init_flag(&SnapSender->lock);
 	}
 }
@@ -340,6 +366,7 @@ static void snapsenderUpdateNextXid(TransactionId xid, SnapClientData *client)
 		ShmemVariableCache->nextFullXid = FullTransactionIdFromEpochAndXid(epoch, xid);
 		FullTransactionIdAdvance(&ShmemVariableCache->nextFullXid);
 
+		SNAP_SYNC_DEBUG_LOG((errmsg("xid  %d, ShmemVariableCache->nextFullXid %d\n", xid, ShmemVariableCache->nextFullXid)));
 		ShmemVariableCache->latestCompletedXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
 		TransactionIdRetreat(ShmemVariableCache->latestCompletedXid);
 
@@ -353,15 +380,35 @@ static void snapsenderProcessLocalMaxXid(SnapClientData *client, const char* dat
 {
 	StringInfoData	msg;
 	TransactionId	txid;
+	const char		*client_name;
+	char			*list_client_name;
+	ListCell 		*node_ceil;
+	uint32			current_count;
 
 	msg.data = input_buffer.data;
 	msg.len = msg.maxlen = input_buffer.len;
 	msg.cursor = 1; /* skip msgtype */
-	while(msg.cursor < msg.len)
+	
+	client_name = pq_getmsgstring(&msg);
+	txid = pq_getmsgint64(&msg);
+
+	SNAP_SYNC_DEBUG_LOG((errmsg("snapsenderProcessLocalMaxXid xid %d, name %s\n", txid, client_name)));
+	foreach(node_ceil, dn_master_name_list)
 	{
-		txid = pq_getmsgint64(&msg);
-		snapsenderUpdateNextXid(txid, client);
+	
+		list_client_name = (char *)lfirst(node_ceil);
+		if (strncmp(list_client_name, client_name, strlen(client_name)) == 0)
+			current_count = pg_atomic_sub_fetch_u32(&SnapSender->nextid_upcount, 1);
+		
+		if (current_count == 0)
+		{
+			pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
+			SNAP_SYNC_DEBUG_LOG((errmsg("snapsenderProcessLocalMaxXid SnapSender->state to Ok\n")));
+			ConditionVariableBroadcast(&SnapSender->cv);
+			break;
+		}
 	}
+	snapsenderUpdateNextXid(txid, client);
 }
 
 static TransactionId snapsenderGetSenderGlobalXmin(void)
@@ -485,6 +532,169 @@ static void SnapSendCheckTimeoutSocket(void)
 	return;
 }
 
+#define SNAPSENDER_QUEUE_SIZE	(16*1024)
+static void CreateSHMQPipe(dsm_segment *seg, shm_mq_handle** mqh_sender, shm_mq_handle **mqh_receiver, bool is_worker)
+{
+	shm_mq			   *mq_sender;
+	shm_mq			   *mq_receiver;
+	char			   *addr = dsm_segment_address(seg);
+
+	if (is_worker)
+	{
+		mq_receiver = (shm_mq*)(addr);
+		mq_sender = (shm_mq*)(addr+SNAPSENDER_QUEUE_SIZE);
+	}else
+	{
+		mq_sender = shm_mq_create(addr, SNAPSENDER_QUEUE_SIZE);
+		mq_receiver = shm_mq_create(addr+SNAPSENDER_QUEUE_SIZE,
+									SNAPSENDER_QUEUE_SIZE);
+	}
+	shm_mq_set_sender(mq_sender, MyProc);
+	*mqh_sender = shm_mq_attach(mq_sender, seg, NULL);
+	shm_mq_set_receiver(mq_receiver, MyProc);
+	*mqh_receiver = shm_mq_attach(mq_receiver, seg, NULL);
+}
+
+void SnapSenderMainQueryDnNodeName(Datum arg)
+{
+	HeapTuple		tuple;
+	shm_mq_handle	*mqh_sender;
+	shm_mq_handle	*mqh_receiver;
+	dsm_segment		*seg;
+	int 			res;
+	Relation		rel;
+	SysScanDesc 	scan;
+
+	/* We're now ready to receive signals */
+	BackgroundWorkerUnblockSignals();
+
+	/* Connect to our database */
+	BackgroundWorkerInitializeConnection("postgres", NULL, 0);
+
+	seg = dsm_attach(DatumGetUInt32(arg));
+	CreateSHMQPipe(seg, &mqh_sender, &mqh_receiver, true);
+	pq_redirect_to_shm_mq(seg, mqh_sender);
+
+	StartTransactionCommand();
+	PushActiveSnapshot(GetTransactionSnapshot());
+
+	Assert(IsGTMNode());
+	Assert(IsTransactionState());
+
+	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
+	scan = systable_beginscan(rel, PgxcNodeOidIndexId, true,
+							  NULL, 0, NULL);
+	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
+	{
+		res = shm_mq_send(mqh_sender, tuple->t_len, tuple->t_data, false);
+		if (res != SHM_MQ_SUCCESS)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+					errmsg("could not send message")));
+		}
+	}
+	systable_endscan(scan);
+	heap_close(rel, AccessShareLock);
+
+	PopActiveSnapshot();
+	CommitTransactionCommand();
+	pgstat_report_stat(false);
+	pgstat_report_activity(STATE_IDLE, NULL);
+}
+
+static void StartSnapSenderMainQueryDnNodeName(void)
+{
+	BackgroundWorker worker;
+	BackgroundWorkerHandle *handle;
+	BgwHandleStatus status;
+	pid_t		pid;
+	HeapTupleData htup;
+	shm_mq_result result;
+	Size		nbytes;
+	void	   *data;
+
+	dsm_segment	   *dsm_seg = dsm_create(SNAPSENDER_QUEUE_SIZE*2, 0);
+	shm_mq_handle  *mqh_sender;
+	shm_mq_handle  *mqh_receiver;
+	Form_pgxc_node 	node;
+
+	CreateSHMQPipe(dsm_seg, &mqh_sender, &mqh_receiver, false);
+
+	memset(&worker, 0, sizeof(worker));
+	worker.bgw_flags = BGWORKER_SHMEM_ACCESS |
+		BGWORKER_BACKEND_DATABASE_CONNECTION;
+	worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
+	worker.bgw_restart_time = BGW_NEVER_RESTART;
+	sprintf(worker.bgw_library_name, "postgres");
+	sprintf(worker.bgw_function_name, "SnapSenderMainQueryDnNodeName");
+	snprintf(worker.bgw_name, BGW_MAXLEN, "SnapSenderMainQueryDnNodeName worker");
+	snprintf(worker.bgw_type, BGW_MAXLEN, "SnapSenderMainQueryDnNodeName");
+	worker.bgw_main_arg = UInt32GetDatum(dsm_segment_handle(dsm_seg));
+	/* set bgw_notify_pid so that we can use WaitForBackgroundWorkerStartup */
+	worker.bgw_notify_pid = MyProc->pid;
+
+	if (!RegisterDynamicBackgroundWorker(&worker, &handle))
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+				 errmsg("Could not register background process"),
+				 errhint("You may need to increase max_worker_processes.")));
+
+	status = WaitForBackgroundWorkerStartup(handle, &pid);
+	if (status != BGWH_STARTED)
+		ereport(ERROR,
+				(errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+				 errmsg("could not start background process"),
+				 errhint("More details may be available in the server log.")));
+
+	list_free(dn_master_name_list);
+	dn_master_name_list = NIL;
+	for (;;)
+	{
+		result = shm_mq_receive(mqh_receiver, &nbytes, &data, false);
+
+		/* If queue is detached, set *done and return NULL. */
+		if (result == SHM_MQ_DETACHED)
+		{
+			ereport(DEBUG1,
+					(errmsg("receive message from snapsender worker got MQ detached")));
+			break;
+		}
+
+		/* In non-blocking mode, bail out if no message ready yet. */
+		if (result == SHM_MQ_WOULD_BLOCK)
+		{
+			ereport(ERROR,
+					(errmsg("receive message from snapsender worker SHM_MQ_WOULD_BLOCK")));
+		}
+	
+		if (result != SHM_MQ_SUCCESS)
+			ereport(ERROR,
+					(errmsg("receive message from snapsender worker got MQ detached")));
+
+		ItemPointerSetInvalid(&htup.t_self);
+		htup.t_tableOid = InvalidOid;
+		htup.t_len = nbytes;
+		htup.t_data = data;
+
+		node = (Form_pgxc_node)GETSTRUCT(&htup);
+
+		SNAP_SYNC_DEBUG_LOG((errmsg("node->node_type %c, node->name %s\n", node->node_type, NameStr(node->node_name))));
+		if (node->node_type == PGXC_NODE_DATANODE)
+			dn_master_name_list = lappend(dn_master_name_list, pstrdup(NameStr(node->node_name)));
+	}
+
+	pg_atomic_write_u32(&SnapSender->nextid_upcount, list_length(dn_master_name_list));
+	SNAP_SYNC_DEBUG_LOG((errmsg("list_length(dn_master_name_list) %d, SnapSender->nextid_upcount %d\n",
+			 			list_length(dn_master_name_list), pg_atomic_read_u32(&SnapSender->nextid_upcount))));
+
+	if (pg_atomic_read_u32(&SnapSender->nextid_upcount) == 0)
+	{
+		SNAP_SYNC_DEBUG_LOG((errmsg("StartSnapSenderMainQueryDnNodeName SnapSender->state to Ok\n")));
+		pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
+	}
+}
+
 void SnapSenderMain(void)
 {
 	WaitEvent	   *event;
@@ -504,6 +714,7 @@ void SnapSenderMain(void)
 	}
 	pg_memory_barrier();
 	SnapSender->pid = MyProc->pid;
+	pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_STARTING);
 	SnapSender->procno = MyProc->pgprocno;
 	SpinLockRelease(&SnapSender->mutex);
 
@@ -583,6 +794,7 @@ void SnapSenderMain(void)
 	FrontendProtocol = PG_PROTOCOL_LATEST;
 	whereToSendOutput = DestRemote;
 
+	StartSnapSenderMainQueryDnNodeName();
 	while(got_sigterm==false)
 	{
 		pq_switch_to_none();
@@ -615,6 +827,7 @@ void SnapSenderMain(void)
 		{
 			got_SIGHUP = false;
 			ProcessConfigFile(PGC_SIGHUP);
+			//SnapSenderReloadDnNameList();
 		}
 	}
 	proc_exit(1);
@@ -1031,6 +1244,34 @@ static void SerializeFullAssignXid(TransactionId *gs_xip, uint32 gs_cnt, Transac
 	}
 }
 
+static void snapsenderProcessNextXid(SnapClientData *client, TransactionId txid)
+{
+	char*			list_client_name;
+	ListCell 		*node_ceil;
+	uint32			current_count;
+	int				comp_ret;
+
+	foreach(node_ceil, dn_master_name_list)
+	{
+		list_client_name = (char *)lfirst(node_ceil);
+		comp_ret = strncmp(list_client_name, client->client_name, strlen(client->client_name));
+
+		if (comp_ret == 0)
+		{
+			current_count = pg_atomic_sub_fetch_u32(&SnapSender->nextid_upcount, 1);
+			if (current_count == 0)
+			{
+				SNAP_SYNC_DEBUG_LOG((errmsg("snapsenderProcessNextXid SnapSender->state to Ok\n")));
+				pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
+			}
+
+			break;
+		}
+	}
+
+	snapsenderUpdateNextXid(txid, client);
+}
+
 static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* time_last_latch)
 {
 	int						msgtype;
@@ -1038,6 +1279,8 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 	uint32					ss_cnt_assign;
 	TransactionId			*gs_xip;
 	uint32					gs_cnt_assign;
+	int						ret_ssc;
+	TransactionId			next_id;
 
 	if (pq_node_recvbuf(node) != 0)
 	{
@@ -1051,11 +1294,12 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 	{
 		resetStringInfo(&input_buffer);
 		msgtype = pq_node_get_msg(&input_buffer, node);
+
 		switch(msgtype)
 		{
 		case 'Q':
 			/* only support "START_REPLICATION" command */
-			if (strcasecmp(input_buffer.data, "START_REPLICATION 0/0 TIMELINE 0") != 0)
+			if (strncasecmp(input_buffer.data, "START_REPLICATION", strlen("START_REPLICATION")) != 0)
 				ereport(ERROR,
 						(errcode(ERRCODE_SYNTAX_ERROR),
 						errposition(0),
@@ -1067,6 +1311,11 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 			pq_sendint16(&output_buffer, 0);
 			AppendMsgToClient(client, 'W', output_buffer.data, output_buffer.len, false);
 
+			ret_ssc = sscanf(input_buffer.data, "%*s %*s \"%[^\" ]\" %*s %*s %d", client->client_name, &next_id);
+			if (ret_ssc > 0)
+			{
+				snapsenderProcessNextXid(client, next_id);
+			}
 			/* send snapshot */
 			resetStringInfo(&output_buffer);
 			appendStringInfoChar(&output_buffer, 's');
@@ -1433,6 +1682,8 @@ re_lock_:
 	}
 	SpinLockRelease(&SnapSender->mutex);
 
+	appendStringInfo(buf, " state: %d \n", pg_atomic_read_u32(&SnapSender->state));
+	appendStringInfo(buf, " nextid_upcount: %d \n", pg_atomic_read_u32(&SnapSender->nextid_upcount));
 	appendStringInfo(buf, " cur_cnt_assign: %u \n", assign_len);
 	appendStringInfo(buf, "  xid_assign: [");
 
@@ -1459,4 +1710,22 @@ re_lock_:
 
 	pfree(assign_xids);
 	pfree(finish_xids);
+}
+
+void isSnapSenderWaitNextIdOk(void)
+{
+	uint32 state;
+
+	state = pg_atomic_read_u32(&SnapSender->state);
+	if (likely(SNAPSENDER_STATE_OK == state))
+		return;
+	
+	for(;;)
+	{
+		ConditionVariableSleep(&SnapSender->cv, WAIT_EVENT_SAFE_SNAPSHOT);
+		state = pg_atomic_read_u32(&SnapSender->state);
+		if (state == SNAPSENDER_STATE_OK)
+			break;
+	}
+	ConditionVariableCancelSleep();
 }
