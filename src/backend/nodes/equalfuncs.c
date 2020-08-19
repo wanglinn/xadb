@@ -1299,6 +1299,9 @@ _equalCopyStmt(const CopyStmt *a, const CopyStmt *b)
 	COMPARE_STRING_FIELD(filename);
 	COMPARE_NODE_FIELD(options);
 	COMPARE_NODE_FIELD(whereClause);
+#ifdef ADB_EXT
+	COMPARE_NODE_FIELD(returningList);
+#endif /* ADB_EXT */
 
 	return true;
 }

@@ -2465,7 +2465,8 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 				{
 					CopyStmt   *cstmt = (CopyStmt *) stmt->utilityStmt;
 
-					if (cstmt->filename == NULL)
+					if (cstmt->filename == NULL ||
+						cstmt->returningList != NIL)
 					{
 						my_res = SPI_ERROR_COPY;
 						goto fail;

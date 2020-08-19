@@ -26,6 +26,7 @@ COPY <replaceable class="parameter">table_name</replaceable> [ ( <replaceable cl
     FROM { '<replaceable class="parameter">filename</replaceable>' | PROGRAM '<replaceable class="parameter">command</replaceable>' | STDIN }
     [ [ WITH ] ( <replaceable class="parameter">option</replaceable> [, ...] ) ]
     [ WHERE <replaceable class="parameter">condition</replaceable> ]
+    [ RETURNING * | <replaceable class="parameter">output_expression</replaceable> [ [ AS ] <replaceable class="parameter">output_name</replaceable> ] [, ...] ]
 
 COPY { <replaceable class="parameter">table_name</replaceable> [ ( <replaceable class="parameter">column_name</replaceable> [, ...] ) ] | ( <replaceable class="parameter">query</replaceable> ) }
     TO { '<replaceable class="parameter">filename</replaceable>' | PROGRAM '<replaceable class="parameter">command</replaceable>' | STDOUT }
@@ -378,6 +379,23 @@ WHERE <replaceable class="parameter">condition</replaceable>
     contains calls to <literal>VOLATILE</literal> functions).
    </para>
 
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><replaceable class="parameter">output_expression</replaceable></term>
+    <listitem>
+     <para>
+      An expression to be computed and returned by the
+      <command>COPY</command> command after each row is inserted.
+      The expression can use any column names of the table
+      named by <replaceable
+      class="parameter">table_name</replaceable>.  Write
+      <literal>*</literal> to return all columns of the inserted or updated
+      row(s).  Write <literal>lineno</literal> to return file line number,
+      Write <literal>table_name.lineno</literal> to return lineno column of
+      table <literal>table_name</literal>.
+     </para>
     </listitem>
    </varlistentry>
 

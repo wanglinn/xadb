@@ -58,6 +58,12 @@
 #include "utils/rls.h"
 #include "utils/snapmgr.h"
 
+#ifdef ADB_EXT
+#include "executor/execExpr.h"
+#include "nodes/nodeFuncs.h"
+#include "rewrite/rewriteManip.h"
+#endif /* ADB_EXT */
+
 #ifdef ADB
 #include "access/relscan.h"
 #include "access/tuptypeconvert.h"
@@ -195,6 +201,12 @@ typedef struct CopyStateData
 	List	   *convert_select; /* list of column names (can be NIL) */
 	bool	   *convert_select_flags;	/* per-column CSV/TEXT CS flags */
 	Node	   *whereClause;	/* WHERE condition (or NULL) */
+#ifdef ADB_EXT
+	List	   *returningList;
+	ParamListInfo returningParams;
+	StringInfo	returningBuffer;
+	bool		returning_embeds_ascii;
+#endif /* ADB_EXT */
 
 	/* these are just for error messages, see CopyFromErrorCallback */
 	const char *cur_relname;	/* table name for error messages */
@@ -450,6 +462,20 @@ static void CopySendInt32(CopyState cstate, int32 val);
 static bool CopyGetInt32(CopyState cstate, int32 *val);
 static void CopySendInt16(CopyState cstate, int16 val);
 static bool CopyGetInt16(CopyState cstate, int16 *val);
+#ifdef ADB_EXT
+static void ExecInitCopyReturning(CopyState cstate, ParseState *pstate, List *returningList);
+static void ExecCopyCSVReturning(StringInfo buf, TupleTableSlot *slot, bool embeds_ascii);
+static void ExecCopyReturning(CopyState cstate, TupleTableSlot *slot,
+							  ResultRelInfo *resultRelInfo, ExprContext *econtext);
+static CopyState BeginCopyFromReturning(ParseState *pstate,
+										Relation rel,
+										const char *filename,
+										bool is_program,
+										copy_data_source_cb data_source_cb,
+										List *attnamelist,
+										List *options,
+										List *returningList);
+#endif /* ADB_EXT */
 
 #ifdef ADB
 static uint64 CoordinatorCopyFrom(CopyState cstate);
@@ -516,6 +542,11 @@ ReceiveCopyBegin(CopyState cstate)
 		int16		format = (cstate->binary ? 1 : 0);
 		int			i;
 
+#ifdef ADB_EXT
+		if (cstate->returningList != NIL)
+			pq_beginmessage(&buf, 'W');	/* copy both */
+		else
+#endif /* ADB_EXT */
 		pq_beginmessage(&buf, 'G');
 		pq_sendbyte(&buf, format);	/* overall format */
 		pq_sendint16(&buf, natts);
@@ -527,6 +558,12 @@ ReceiveCopyBegin(CopyState cstate)
 	}
 	else
 	{
+#ifdef ADB_EXT
+		if (cstate->returningList != NIL)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("client protocol to old, not support returning")));
+#endif /* ADB_EXT */
 		/* old way */
 		if (cstate->binary)
 			ereport(ERROR,
@@ -1115,6 +1152,15 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 			whereClause = (Node *) make_ands_implicit((Expr *) whereClause);
 		}
 
+#ifdef ADB_EXT
+		if (stmt->returningList != NIL &&
+			stmt->whereClause == NULL)
+		{
+			/* only add rte to column namespace, transform returning later */
+			addRTEtoQuery(pstate, rte, false, true, true);
+		}
+#endif /* ADB_EXT */
+
 		tupDesc = RelationGetDescr(rel);
 		attnums = CopyGetAttnums(tupDesc, rel, stmt->attlist);
 		foreach(cur, attnums)
@@ -1295,8 +1341,8 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 			PreventCommandIfReadOnly("COPY FROM");
 		PreventCommandIfParallelMode("COPY FROM");
 
-		cstate = BeginCopyFrom(pstate, rel, stmt->filename, stmt->is_program,
-							   NULL, stmt->attlist, stmt->options);
+		cstate = BeginCopyFromReturning(pstate, rel, stmt->filename, stmt->is_program,
+										NULL, stmt->attlist, stmt->options, stmt->returningList);
 		cstate->whereClause = whereClause;
 #ifdef ADB
 		if(RelationGetLocInfoForRemote(rel))
@@ -2735,6 +2781,9 @@ CopyMultiInsertBufferFlush(CopyMultiInsertInfo *miinfo,
 	int			nused = buffer->nused;
 	ResultRelInfo *resultRelInfo = buffer->resultRelInfo;
 	TupleTableSlot **slots = buffer->slots;
+#ifdef ADB_EXT
+	ExprContext *econtext = GetPerTupleExprContext(estate);
+#endif /* ADB_EXT */
 
 	/* Set es_result_relation_info to the ResultRelInfo we're flushing. */
 	estate->es_result_relation_info = resultRelInfo;
@@ -2778,6 +2827,26 @@ CopyMultiInsertBufferFlush(CopyMultiInsertInfo *miinfo,
 		}
 	}
 #endif /* ADB */
+
+#ifdef ADB_EXT
+	if (cstate->returningList != NIL)
+	{
+		bool			embeds_ascii = cstate->returning_embeds_ascii;
+		StringInfo		msgbuf = cstate->returningBuffer;
+		TupleTableSlot *save_scan = econtext->ecxt_scantuple;
+		ProjectionInfo *projection = resultRelInfo->ri_projectReturning;
+		TupleTableSlot *returning = projection->pi_state.resultslot;
+
+		for (i=0; i<nused; ++i)
+		{
+			econtext->ecxt_scantuple = slots[i];
+			cstate->cur_lineno = buffer->linenos[i];
+			ExecProject(projection);
+			ExecCopyCSVReturning(msgbuf, returning, embeds_ascii);
+		}
+		econtext->ecxt_scantuple = save_scan;
+	}
+#endif /* ADB_EXT */
 
 	for (i = 0; i < nused; i++)
 	{
@@ -3322,6 +3391,45 @@ CopyFrom(CopyState cstate)
 	ExecBSInsertTriggers(estate, resultRelInfo);
 
 	econtext = GetPerTupleExprContext(estate);
+#ifdef ADB_EXT
+	if (cstate->returningList != NIL)
+	{
+		ModifyTable *node;
+		/* function ExecInitPartitionInfo need this */
+		Assert(mtstate->ps.plan == NULL);
+		Assert(estate->es_param_list_info == NULL);
+		node = makeNode(ModifyTable);
+		node->operation = CMD_INSERT;
+		node->returningLists = list_make1(cstate->returningList);
+		node->plans = list_make1(NULL);
+		mtstate->ps.plan = &node->plan;
+		mtstate->ps.ps_ExprContext = econtext;
+		estate->es_param_list_info = cstate->returningParams;
+
+		mtstate->ps.ps_ResultTupleSlot = MakeTupleTableSlot(ExecTypeFromTL(cstate->returningList),
+															&TTSOpsVirtual);
+		estate->es_tupleTable = lappend(estate->es_tupleTable, mtstate->ps.ps_ResultTupleSlot);
+
+		mtstate->ps.scanopsset = true;
+		if (RelationGetForm(cstate->rel)->relkind == RELKIND_PARTITIONED_TABLE)
+		{
+			mtstate->ps.scanopsfixed = false;
+		}else
+		{
+			mtstate->ps.scanopsfixed = true;
+			mtstate->ps.scanops = table_slot_callbacks(cstate->rel);
+			mtstate->ps.scandesc = RelationGetDescr(cstate->rel);
+		}
+
+		resultRelInfo->ri_returningList = cstate->returningList;
+		resultRelInfo->ri_projectReturning =
+			ExecBuildProjectionInfo(cstate->returningList,
+									econtext,
+									mtstate->ps.ps_ResultTupleSlot,
+									&mtstate->ps,
+									RelationGetDescr(cstate->rel));
+	}
+#endif /* ADB_EXT */
 
 	/* Set up callback to identify error line number */
 	errcallback.callback = CopyFromErrorCallback;
@@ -3654,6 +3762,10 @@ CopyFrom(CopyState cstate)
 																   false,
 																   NULL,
 																   NIL);
+#ifdef ADB_EXT
+						if (cstate->returningList != NIL)
+							ExecCopyReturning(cstate, myslot, resultRelInfo, econtext);
+#endif /* ADB_EXT */
 					}
 
 					/* AFTER ROW INSERT Triggers */
@@ -3679,6 +3791,11 @@ CopyFrom(CopyState cstate)
 		if (!CopyMultiInsertInfoIsEmpty(&multiInsertInfo))
 			CopyMultiInsertInfoFlush(&multiInsertInfo, NULL);
 	}
+
+#ifdef ADB_EXT
+	if (cstate->returningList != NIL)
+		pq_putemptymessage('c');
+#endif /* ADB_EXT */
 
 	/* Done, clean up */
 	error_context_stack = errcallback.previous;
@@ -3745,6 +3862,19 @@ BeginCopyFrom(ParseState *pstate,
 			  copy_data_source_cb data_source_cb,
 			  List *attnamelist,
 			  List *options)
+#ifdef ADB_EXT
+{
+	return BeginCopyFromReturning(pstate, rel, filename, is_program, data_source_cb, attnamelist, options, NIL);
+}
+static CopyState BeginCopyFromReturning(ParseState *pstate,
+										Relation rel,
+										const char *filename,
+										bool is_program,
+										copy_data_source_cb data_source_cb,
+										List *attnamelist,
+										List *options,
+										List *returningList)
+#endif
 {
 	CopyState	cstate;
 	bool		pipe = (filename == NULL);
@@ -3862,6 +3992,20 @@ BeginCopyFrom(ParseState *pstate,
 	cstate->num_defaults = num_defaults;
 	cstate->is_program = is_program;
 
+#ifdef ADB_EXT
+	if (returningList != NIL)
+	{
+		if (PG_PROTOCOL_MAJOR(FrontendProtocol) < 3)
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("client protocol to old, not support returning")));
+		ExecInitCopyReturning(cstate, pstate, returningList);
+		cstate->null_print_client = pg_server_to_client(cstate->null_print,
+														cstate->null_print_len);
+		cstate->returningBuffer = makeStringInfo();
+	}
+#endif /* ADB_EXT */
+
 	if (data_source_cb)
 	{
 		cstate->copy_dest = COPY_CALLBACK;
@@ -3917,6 +4061,14 @@ BeginCopyFrom(ParseState *pstate,
 				ereport(ERROR,
 						(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 						 errmsg("\"%s\" is a directory", cstate->filename)));
+#ifdef ADB_EXT
+			if (cstate->returningList != NIL)
+			{
+				CopyDest dest = cstate->copy_dest;
+				SendCopyBegin(cstate);
+				cstate->copy_dest = dest;
+			}
+#endif /* ADB_EXT */
 		}
 	}
 
@@ -5702,6 +5854,181 @@ CreateCopyDestReceiver(void)
 	return (DestReceiver *) self;
 }
 
+#ifdef ADB_EXT
+/* transform lineno as param */
+static Node* InitCopyPreColumnRef(ParseState *pstate, ColumnRef *cref)
+{
+	Node	   *field;
+	Param	   *param;
+	if (list_length(cref->fields) == 1)
+	{
+		field = linitial(cref->fields);
+		if (IsA(field, String) &&
+			strcmp(strVal(field), "lineno") == 0)
+		{
+			param = makeNode(Param);
+			param->paramkind = PARAM_EXTERN;
+			param->paramid = 1;	/* we only one param */
+			param->paramtype = INT8OID;
+			param->paramtypmod = -1;
+			param->paramcollid = InvalidOid;
+			param->location = -1;
+			return (Node*)param;
+		}
+	}
+
+	return NULL;
+}
+
+static void ExecCopyLinenoParam(ExprState *state, struct ExprEvalStep *op, ExprContext *econtext)
+{
+	CopyState copy = op->d.cparam.paramarg;
+	*op->resvalue = Int64GetDatumFast(copy->cur_lineno);
+	*op->resnull = false;
+}
+
+static void InitCopyParamCompileHook(ParamListInfo params, struct Param *param,
+									 struct ExprState *state,
+									 Datum *resv, bool *resnull)
+{
+	ExprEvalStep	step;
+	Assert(param->paramid == 1 && param->paramtype == INT8OID && param->location == -1);
+
+	step.opcode = EEOP_PARAM_CALLBACK;
+	step.resvalue = resv;
+	step.resnull = resnull;
+	step.d.cparam.paramfunc = ExecCopyLinenoParam;
+	step.d.cparam.paramarg = params->paramCompileArg;
+	step.d.cparam.paramid = param->paramid;
+	step.d.cparam.paramtype = param->paramtype;
+	ExprEvalPushStep(state, &step);
+}
+
+static void ExecInitCopyReturning(CopyState cstate, ParseState *pstate, List *returningList)
+{
+	PreParseColumnRefHook	save_hook = pstate->p_pre_columnref_hook;
+	MemoryContext			oldcontext = MemoryContextSwitchTo(cstate->copycontext);
+	ParamListInfo			params = makeParamList(0);
+	ListCell			   *lc;
+	TargetEntry			   *te;
+	Oid						funcid;
+	bool					isvar;
+
+	pstate->p_pre_columnref_hook = InitCopyPreColumnRef;
+	cstate->returningList = transformReturningList(pstate, returningList);
+	pstate->p_pre_columnref_hook = save_hook;
+
+	/* let all columns as cstring */
+	foreach (lc, cstate->returningList)
+	{
+		te = lfirst_node(TargetEntry, lc);
+		getTypeOutputInfo(exprType((Node*)te->expr), &funcid, &isvar);
+		te->expr = (Expr*)makeFuncExpr(funcid,
+									   CSTRINGOID,
+									   list_make1(te->expr),
+									   InvalidOid,
+									   exprCollation((Node*)te->expr),
+									   COERCE_EXPLICIT_CALL);
+	}
+
+	params->paramCompile = InitCopyParamCompileHook;
+	params->paramCompileArg = cstate;
+	cstate->returningParams = params;
+
+	cstate->returning_embeds_ascii = PG_ENCODING_IS_CLIENT_ONLY(pg_get_client_encoding());
+	MemoryContextSwitchTo(oldcontext);
+}
+
+static void ExecCopyCSVReturning(StringInfo buf, TupleTableSlot *slot, bool embeds_ascii)
+{
+	char   *ptr;
+	char   *start;
+	int		i,count;
+	bool	use_quote;
+	char	c;
+
+	resetStringInfo(buf);
+	count = slot->tts_tupleDescriptor->natts;
+	for (i=0;i<count;++i)
+	{
+		if (i > 0)
+			appendStringInfoChar(buf, ',');
+		if (slot->tts_isnull[i])
+			continue;
+
+		/* like function CopyAttributeOutCSV */
+		use_quote = false;
+		ptr = DatumGetCString(slot->tts_values[i]);
+		if (count == 1 &&
+			strcmp(ptr, "\\.") == 0)
+		{
+			use_quote = true;
+		}else
+		{
+			start = ptr;
+			while ((c = *start) != '\0')
+			{
+				if (c == ',' || c == '"' || c == '\n' || c == '\r')
+				{
+					use_quote = true;
+					break;
+				}
+				if (IS_HIGHBIT_SET(c) && embeds_ascii)
+					start += pg_mblen(start);
+				else
+					start++;
+			}
+		}
+
+		if (use_quote)
+		{
+			appendStringInfoChar(buf, '"');
+			/*
+			 * We adopt the same optimization strategy as in CopyAttributeOutText
+			 */
+			start = ptr;
+			while ((c = *ptr) != '\0')
+			{
+				if (c == '"')
+				{
+					if (ptr > start)
+						appendBinaryStringInfo(buf, start, ptr - start);
+					appendStringInfoChar(buf, '"');
+					start = ptr;	/* we include char in next run */
+				}
+				if (IS_HIGHBIT_SET(c) && embeds_ascii)
+					ptr += pg_mblen(ptr);
+				else
+					ptr++;
+			}
+			if (ptr > start)
+				appendBinaryStringInfo(buf, start, ptr - start);
+
+			appendStringInfoChar(buf, '"');
+		}else
+		{
+			appendStringInfoString(buf, ptr);
+		}
+	}
+	appendStringInfoChar(buf, '\n');
+	pq_putmessage('d', buf->data, buf->len);
+}
+
+static void ExecCopyReturning(CopyState cstate, TupleTableSlot *slot,
+							  ResultRelInfo *resultRelInfo, ExprContext *econtext)
+{
+	TupleTableSlot *save_scan = econtext->ecxt_scantuple;
+	TupleTableSlot *returning;
+
+	econtext->ecxt_scantuple = slot;
+	returning = ExecProject(resultRelInfo->ri_projectReturning);
+	econtext->ecxt_scantuple = save_scan;
+
+	ExecCopyCSVReturning(cstate->returningBuffer, returning, cstate->returning_embeds_ascii);
+}
+
+#endif /* ADB_EXT */
+
 #ifdef ADB
 void DoClusterCopy(CopyStmt *stmt, StringInfo mem_toc)
 {
@@ -5810,6 +6137,12 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 	ExprDoneCond done;
 	bool isnull;
 
+	if (cstate->returningList != NIL)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("not support returning yet!")));
+	}
 	Assert(cstate->rel);
 	/* force refresh currentCommandId */
 	GetCurrentCommandId(true);

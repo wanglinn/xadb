@@ -115,7 +115,6 @@ static Node *transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
 static void determineRecursiveColTypes(ParseState *pstate,
 									   Node *larg, List *nrtargetlist);
 static Query *transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt);
-static List *transformReturningList(ParseState *pstate, List *returningList);
 static List *transformUpdateTargetList(ParseState *pstate,
 									   List *targetList);
 static Query *transformDeclareCursorStmt(ParseState *pstate,
@@ -2745,7 +2744,7 @@ fill_extraUpdatedCols(RangeTblEntry *target_rte, TupleDesc tupdesc)
  * transformReturningList -
  *	handle a RETURNING clause in INSERT/UPDATE/DELETE
  */
-static List *
+List *
 transformReturningList(ParseState *pstate, List *returningList)
 {
 	List	   *rlist;

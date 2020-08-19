@@ -3519,6 +3519,9 @@ _copyCopyStmt(const CopyStmt *from)
 	COPY_STRING_FIELD(filename);
 	COPY_NODE_FIELD(options);
 	COPY_NODE_FIELD(whereClause);
+#ifdef ADB_EXT
+	COPY_NODE_FIELD(returningList);
+#endif /* ADB_EXT */
 
 	return newnode;
 }

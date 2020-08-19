@@ -2172,6 +2172,9 @@ typedef struct CopyStmt
 	char	   *filename;		/* filename, or NULL for STDIN/STDOUT */
 	List	   *options;		/* List of DefElem nodes */
 	Node	   *whereClause;	/* WHERE condition (or NULL) */
+#ifdef ADB_EXT
+	List	   *returningList;
+#endif /* ADB_EXT */
 } CopyStmt;
 
 /* ----------------------

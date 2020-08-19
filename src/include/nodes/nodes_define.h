@@ -2515,6 +2515,9 @@ BEGIN_NODE(CopyStmt)
 	NODE_STRING(filename)
 	NODE_NODE(List,options)
 	NODE_NODE(Node,whereClause)
+#ifdef ADB_EXT
+	NODE_NODE(List,returningList)
+#endif
 END_NODE(CopyStmt)
 #endif /* NO_NODE_CopyStmt */
 

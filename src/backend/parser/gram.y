@@ -3052,7 +3052,7 @@ ClosePortalStmt:
 
 CopyStmt:	COPY opt_binary qualified_name opt_column_list
 			copy_from opt_program copy_file_name copy_delimiter opt_with
-			copy_options where_clause
+			copy_options where_clause returning_clause
 				{
 					CopyStmt *n = makeNode(CopyStmt);
 					n->relation = $3;
@@ -3062,6 +3062,7 @@ CopyStmt:	COPY opt_binary qualified_name opt_column_list
 					n->is_program = $6;
 					n->filename = $7;
 					n->whereClause = $11;
+					n->returningList = $12;
 
 					if (n->is_program && n->filename == NULL)
 						ereport(ERROR,
@@ -3074,6 +3075,12 @@ CopyStmt:	COPY opt_binary qualified_name opt_column_list
 								(errcode(ERRCODE_SYNTAX_ERROR),
 								 errmsg("WHERE clause not allowed with COPY TO"),
 								 parser_errposition(@11)));
+
+					if (!n->is_from && n->returningList != NIL)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("RETURNING clause not allowed with COPY TO"),
+								 parser_errposition(@12)));
 
 					n->options = NIL;
 					/* Concatenate user-supplied flags */
