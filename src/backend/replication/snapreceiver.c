@@ -110,8 +110,8 @@ static void SnapRcvProcessAssign(char *buf, Size len);
 static void SnapRcvProcessComplete(char *buf, Size len);
 static void SnapRcvProcessHeartBeat(char *buf, Size len);
 static void SnapRcvProcessUpdateXid(char *buf, Size len);
-static void WakeupTransaction(TransactionId);
-static void SnapRcvSendLocalNextXid(void);
+static void WakeupTransaction(TransactionId xid);
+static void WakeupTransactionInit(TransactionId *xid, int count, proclist_head *waiters);
 static TransactionId SnapRcvGetLocalXmin(void);
 
 /* Signal handlers */
@@ -754,7 +754,11 @@ static void SnapRcvProcessSnapshot(char *buf, Size len)
 	}
 	if (SnapRcv->state == WALRCV_STARTING)
 		SnapRcv->state = WALRCV_STREAMING;
-	WakeupTransaction(InvalidTransactionId);
+	if (count > 0)
+	{
+		WakeupTransactionInit(xid, i, &SnapRcv->waiters);
+		WakeupTransactionInit(xid, i, &SnapRcv->ss_waiters);
+	}
 	UNLOCK_SNAP_RCV();
 
 	if (TransactionIdIsValid(xmin))
@@ -984,7 +988,7 @@ static bool WaitSnapRcvEvent(TimestampTz end, proclist_head *waiters, bool is_ss
 		{
 			pg_write_barrier();
 			proclist_push_tail(waiters, procno, GTMWaitLink);
-			if (is_ss)
+			if (is_ss && SNAP_RCV_LATCH_VALID())
 				SNAP_RCV_SET_LATCH();
 		}
 		UNLOCK_SNAP_RCV();
@@ -1121,6 +1125,44 @@ static void WakeupTransaction(TransactionId txid)
 		{
 			proclist_delete(&SnapRcv->waiters, proc->pgprocno, GTMWaitLink);
 			SetLatch(&proc->procLatch);
+		}
+	}
+}
+
+/* mutex must be locked */
+static void WakeupTransactionInit(TransactionId *xids, int count, proclist_head	*waiters)
+{
+	proclist_mutable_iter	iter;
+	PGPROC				 	*proc;
+	int						i;
+	TransactionId			xid;
+	bool					found;
+
+	proclist_foreach_modify(iter, waiters, GTMWaitLink)
+	{
+		proc = GetPGProcByNumber(iter.cur);
+		if (proc->waitGlobalTransaction == InvalidTransactionId)
+		{
+			proclist_delete(waiters, proc->pgprocno, GTMWaitLink);
+			SetLatch(&proc->procLatch);
+		}
+		else /* proc->waitGlobalTransaction not InvalidTransactionId */
+		{
+			found = false;
+			for (i = 0; i < count; i++)
+			{
+				xid = xids[i];
+				if (proc->waitGlobalTransaction == xid)
+				{
+					found = true;
+					break;
+				}
+			}
+			if (found == false)
+			{
+				proclist_delete(waiters, proc->pgprocno, GTMWaitLink);
+				SetLatch(&proc->procLatch);
+			}
 		}
 	}
 }

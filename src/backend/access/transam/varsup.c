@@ -35,6 +35,7 @@
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "replication/gxidreceiver.h"
+#include "replication/gxidsender.h"
 #include "replication/snapsender.h"
 
 /*
@@ -416,10 +417,10 @@ GetNewGlobalTransactionId(int level)
 FullTransactionId
 GetNewTransactionId(bool isSubXact)
 {
-#ifdef ADB
-	return GetNewTransactionIdExt(isSubXact, 1, true);
+#ifdef ADB_EXT
+	return GetNewTransactionIdExt(isSubXact, 1, true, false);
 }
-FullTransactionId GetNewTransactionIdExt(bool isSubXact, int xidnum, bool isInsertXact)
+TransactionId GetNewTransactionIdExt(bool isSubXact, int xidnum, bool isInsertXact, bool GxidInsert)
 {
 	int i;
 #endif
@@ -629,7 +630,13 @@ FullTransactionId GetNewTransactionIdExt(bool isSubXact, int xidnum, bool isInse
 	if (IsGTMNode())
 	{
 		if (!isSubXact)
+		{
 			SnapSendTransactionAssign(xid, xidnum, InvalidTransactionId);
+			if (GxidInsert)
+			{
+				GxidSendInsertAssignXid(xid, xidnum);
+			}
+		}
 	}
 #endif
 

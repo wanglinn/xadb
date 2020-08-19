@@ -1215,11 +1215,12 @@ static void OnClientMsgEvent(WaitEvent *event, time_t* time_last_latch)
 }
 
 /* like GetSnapshotData, but serialize all active transaction IDs */
-static void SerializeFullAssignXid(TransactionId *gs_xip, uint32 gs_cnt, TransactionId *ss_xip, uint32 ss_cnt, StringInfo buf)
+static void SerializeFullAssignXid(TransactionId *gs_xip, uint32 gs_cnt, TransactionId *ss_xip, uint32 ss_cnt,
+							TransactionId *sf_xip, uint32 sf_cnt, StringInfo buf)
 {
 	int index,i;
 	TransactionId xid;
-	bool	skip;
+	bool	skip, add_finish;
 
 	/* get all Transaction IDs */
 	for (index = 0; index < gs_cnt; ++index)
@@ -1241,6 +1242,27 @@ static void SerializeFullAssignXid(TransactionId *gs_xip, uint32 gs_cnt, Transac
 		pq_sendint32(buf, xid);
 		Assert(TransactionIdIsNormal(xid));
 		SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync xid %d\n", xid)));
+	}
+
+	for (i = 0; i < sf_cnt; ++i)
+	{
+		xid = sf_xip[i];
+		add_finish = true;
+		for (index = 0; index < gs_cnt; ++index)
+		{
+			if (xid == gs_xip[index])
+			{
+				add_finish = false;
+				break;
+			}
+		}
+
+		if (add_finish)
+		{
+			pq_sendint32(buf, xid);
+			Assert(TransactionIdIsNormal(xid));
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add finish xid %d\n", xid)));
+		}
 	}
 }
 
@@ -1276,7 +1298,9 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 {
 	int						msgtype;
 	TransactionId			ss_xid_assgin[MAX_CNT_SHMEM_XID_BUF];
+	TransactionId			ss_xid_finish[MAX_CNT_SHMEM_XID_BUF];
 	uint32					ss_cnt_assign;
+	uint32					ss_cnt_finish;
 	TransactionId			*gs_xip;
 	uint32					gs_cnt_assign;
 	int						ret_ssc;
@@ -1320,18 +1344,25 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 			resetStringInfo(&output_buffer);
 			appendStringInfoChar(&output_buffer, 's');
 			pq_sendint32(&output_buffer, snapsenderGetSenderGlobalXmin());
+			LWLockAcquire(XidGenLock, LW_SHARED);
 			SerializeActiveTransactionIds(&output_buffer);
 
 			gs_xip = GxidSenderGetAllXip(&gs_cnt_assign);
 			SpinLockAcquire(&SnapSender->mutex);
 			pg_memory_barrier();
 			ss_cnt_assign = SnapSender->cur_cnt_assign;
+			ss_cnt_finish = SnapSender->cur_cnt_complete;
 			if (ss_cnt_assign > 0)
 				memcpy(ss_xid_assgin, SnapSender->xid_assign, sizeof(TransactionId)*ss_cnt_assign);
 			
+			if (ss_cnt_finish > 0)
+				memcpy(ss_xid_finish, SnapSender->xid_complete, sizeof(TransactionId)*ss_cnt_finish);
+			
 			SpinLockRelease(&SnapSender->mutex);
+			LWLockRelease(XidGenLock);
 
-			SerializeFullAssignXid(gs_xip, gs_cnt_assign, ss_xid_assgin, ss_cnt_assign, &output_buffer);
+			SerializeFullAssignXid(gs_xip, gs_cnt_assign, ss_xid_assgin, ss_cnt_assign,
+								ss_xid_finish, ss_cnt_finish, &output_buffer);
 			pfree(gs_xip);
 			AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len, false);
 

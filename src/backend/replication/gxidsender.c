@@ -641,16 +641,27 @@ static void GxidSenderClearOldXid(GxidClientData *client)
 	GxidDropXidList(clientitem);
 }
 
+void GxidSendInsertAssignXid(TransactionId xid, int xidnum)
+{
+	int i;
+	SpinLockAcquire(&GxidSender->mutex);
+	for (i = xidnum; i > 0; i--)
+	{
+		SNAP_SYNC_DEBUG_LOG((errmsg("GxidSendInsertAssignXid add xid %d\n",
+			 			xid)));
+		GxidSender->xip[GxidSender->xcnt++] = xid--;
+	}
+	SpinLockRelease(&GxidSender->mutex);
+}
+
 static void GxidProcessAssignGxid(GxidClientData *client)
 {
-	int							procno;
-	TransactionId				xid;
-	slist_mutable_iter			siter;
+	int							procno, start_cursor, xid_num, i;
+	TransactionId				xid, xid_max;
 	ClientHashItemInfo			*clientitem;
 	ClientXidItemInfo			*xiditem;
 	FullTransactionId			full_xid;
 	bool						found;
-	slist_head					xid_slist =  SLIST_STATIC_INIT(xid_slist);
 
 	if (adb_check_sync_nextid)
 		isSnapSenderWaitNextIdOk();
@@ -667,26 +678,40 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 	resetStringInfo(&gxid_send_output_buffer);
 	pq_sendbyte(&gxid_send_output_buffer, 'a');
 
+	start_cursor = gxid_send_input_buffer.cursor;
+	xid_num = 0;
 	while(gxid_send_input_buffer.cursor < gxid_send_input_buffer.len)
 	{
 		procno = pq_getmsgint(&gxid_send_input_buffer, sizeof(procno));
-		full_xid = GetNewTransactionIdExt(false, 1, false);
-		xid = XidFromFullTransactionId(full_xid);
+		xid_num++;
+	}
 
-		xiditem = palloc0(sizeof(*xiditem));
-		xiditem->procno = procno;
-		xiditem->xid = xid;
-		slist_push_head(&clientitem->gxid_assgin_xid_list, &xiditem->snode);
+	xiditem = palloc0(xid_num * sizeof(ClientXidItemInfo*));
+	for (i = 0; i < xid_num; i++)
+	{
+		xiditem[i] = palloc0(sizeof(ClientXidItemInfo));
+	}
+
+	full_xid = GetNewTransactionIdExt(false, xid_num, false, true);
+	xid_max = XidFromFullTransactionId(full_xid);
+
+	gxid_send_input_buffer.cursor = start_cursor;
+	i = 0;
+	while(gxid_send_input_buffer.cursor < gxid_send_input_buffer.len)
+	{
+		procno = pq_getmsgint(&gxid_send_input_buffer, sizeof(procno));
+		xid = xid_max--;
+
+		xiditem[i]->procno = procno;
+		xiditem[i]->xid = xid;
+		slist_push_head(&clientitem->gxid_assgin_xid_list, &xiditem[i]->snode);
 		clientitem->xcnt++;
 
 		pq_sendint32(&gxid_send_output_buffer, procno);
 		pq_sendint32(&gxid_send_output_buffer, xid);
-
-		xiditem = palloc0(sizeof(*xiditem));
-		xiditem->xid = xid;
-		slist_push_head(&xid_slist, &xiditem->snode);
 		SNAP_SYNC_DEBUG_LOG((errmsg("GxidSend assging xid %d to %d\n",
 			 			xid, procno)));
+		i++;
 	}
 
 	if (GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false) == false)
@@ -694,18 +719,7 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 		client->status = CLIENT_STATUS_EXITING;
 		//GxidSenderDropClient(client, true);
 	}
-	else
-	{
-		SpinLockAcquire(&GxidSender->mutex);
-		slist_foreach_modify(siter, &xid_slist)
-		{
-			xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
-			GxidSender->xip[GxidSender->xcnt++] = xiditem->xid;
-			slist_delete(&xid_slist, &xiditem->snode);
-			pfree(xiditem);
-		}
-		SpinLockRelease(&GxidSender->mutex);
-	}
+	pfree(xiditem);
 }
 
 static void GxidProcessPreAssignGxidArray(GxidClientData *client)
@@ -743,10 +757,9 @@ static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 
 	SNAP_SYNC_DEBUG_LOG((errmsg("GxidSend assging xid for %s\n", client->client_name)));
 
-	full_xidmax = GetNewTransactionIdExt(false, xid_num, false);
+	full_xidmax = GetNewTransactionIdExt(false, xid_num, false, true);
 	xidmax = XidFromFullTransactionId(full_xidmax);
 
-	SpinLockAcquire(&GxidSender->mutex);
 	for (i = 0; i < xid_num; i++)
 	{
 		xid = xidmax - xid_num + i + 1;
@@ -755,11 +768,7 @@ static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 		slist_push_head(&clientitem->gxid_assgin_xid_list, &xiditem[i]->snode);
 		clientitem->xcnt++;
 		pq_sendint32(&gxid_send_output_buffer, xid);
-
-		GxidSender->xip[GxidSender->xcnt++] = xid;
 	}
-
-	SpinLockRelease(&GxidSender->mutex);
 
 	pfree(xiditem);
 	if (GxidSenderAppendMsgToClient(client, 'd', gxid_send_output_buffer.data, gxid_send_output_buffer.len, false) == false)
