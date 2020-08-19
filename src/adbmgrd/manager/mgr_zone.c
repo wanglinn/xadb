@@ -958,7 +958,7 @@ static void MgrAppendNode(MgrNodeWrapper  *node,
 	{
 		initStringInfo(&strerr);
 		coordMaster = mgr_get_mastername_by_nodename_type(NameStr(mgrNode->nodename), CNDN_TYPE_COORDINATOR_SLAVE);
-		if (mgr_append_coord_slave_func(coordMaster, NameStr(mgrNode->nodename), true, &strerr)){
+		if (mgr_append_coord_slave_func(coordMaster, NameStr(mgrNode->nodename), &strerr)){
 			ereportNoticeLog(errmsg("append coordinator slave %s success, progress is %d/%d.", NameStr(mgrNode->nodename), *num, total));		
 		}
 		else{

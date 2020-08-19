@@ -4805,15 +4805,13 @@ static List *GetNodeIDListByUser()
 	Oid	   *arr_nodeoids = NULL;
 	int		cnt_arr_oids;
 	Oid		groupoid;
+	RoleSpec role = {0};
 
 	SplitUserGroup(default_user_group, &userGroupList);
 	
-	/*  根据当前session获取当前用户 */
-	RoleSpec role;
 	role.roletype = ROLESPEC_SESSION_USER;
 	namestrcpy(&userName, get_rolespec_name(&role));
 	
-	/* 根据当前用户找到对应的group */
 	dlist_foreach(iter, &userGroupList)
 	{
 		userGroupWrapper = dlist_container(UserGroupWrapper, link, iter.cur);
