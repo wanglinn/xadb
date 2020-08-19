@@ -1227,12 +1227,6 @@ void GixRcvCommitTransactionId(TransactionId txid, bool isCommit)
 		return;
 	}
 
-	if (isCommit)
-	{
-		UpdateAdbLastFinishXid(txid);
-		pg_atomic_write_u32(&GxidRcv->global_finish_id, txid);
-	}
-
 	MyProc->getGlobalTransaction = txid;
 	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snapshot_sync_waittime);
 	ret = WaitGxidRcvEvent(endtime, WaitGxidRcvCommitReturn, &GxidRcv->wait_commiters,
@@ -1248,9 +1242,14 @@ void GixRcvCommitTransactionId(TransactionId txid, bool isCommit)
 		MyProc->getGlobalTransaction = InvalidTransactionId;
 		ereport(WARNING,(errmsg("GxidRcv wait xid timeout, which version is %d\n", txid)));
 		return;
-	}	
-
+	}
 	UNLOCK_GXID_RCV();
+
+	if (isCommit)
+	{
+		UpdateAdbLastFinishXid(txid);
+		pg_atomic_write_u32(&GxidRcv->global_finish_id, txid);
+	}
 	MyProc->getGlobalTransaction = InvalidTransactionId;
 
 	return;

@@ -17,4 +17,5 @@ extern void GxidSendLockSendSock(void);
 extern void GxidSendUnlockSendSock(void);
 extern void GxidSenderTransferLock(void **param, TransactionId xid, struct PGPROC *from);
 extern void GxidSenderGetStat(StringInfo buf);
+extern void GxidSendInsertAssignXid(TransactionId xid, int xidnum);
 #endif /* TRANS_SENDER_H_ */
