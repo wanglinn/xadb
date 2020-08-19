@@ -722,7 +722,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		res = mgr_append_coord_slave_func(m_coordname, s_coordname, false, &strerr);
+		res = mgr_append_coord_slave_func(m_coordname, s_coordname, &strerr);
 	}PG_CATCH();
 	{
 		PG_RE_THROW();
@@ -732,7 +732,7 @@ Datum mgr_append_coord_to_coord(PG_FUNCTION_ARGS)
 	MgrFree(strerr.data);
 	return HeapTupleGetDatum(tup_result);
 }
-bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, bool zoneAppend, StringInfoData *strerr)
+bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, StringInfoData *strerr)
 {
 	GetAgentCmdRst getAgentCmdRst;
 	AppendNodeInfo src_nodeinfo;
@@ -848,9 +848,7 @@ bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, bool zone
 	/* change the dest coordiantor port and hot_standby*/
 	resetStringInfo(&infosendmsg);
 	resetStringInfo(&(getAgentCmdRst.description));
-	if (zoneAppend){
-		mgr_append_pgconf_paras_str_quotastr("pgxc_node_name", dest_nodeinfo.nodename, &infosendmsg);		
-	}
+	mgr_append_pgconf_paras_str_quotastr("pgxc_node_name", dest_nodeinfo.nodename, &infosendmsg);		
 	mgr_add_parm(s_coordname, CNDN_TYPE_COORDINATOR_SLAVE, &infosendmsg);
 	mgr_append_pgconf_paras_str_int("port", dest_nodeinfo.nodeport, &infosendmsg);
 	mgr_append_pgconf_paras_str_str("hot_standby", "on", &infosendmsg);	
@@ -937,19 +935,23 @@ bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, bool zone
 
 	heap_endscan(rel_scan);
 	/*set coordinator s_coordname in cluster*/
+	tuple = mgr_get_tuple_node_from_name_type(rel_node, s_coordname);
+	mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+	Assert(mgr_node);
 	if (CNDN_TYPE_COORDINATOR_SLAVE == dest_nodeinfo.nodetype)
 	{
 		ereport(LOG, (errmsg("set coordinator \"%s\" in cluster", s_coordname)));
 		ereport(NOTICE, (errmsg("set coordinator \"%s\" in cluster", s_coordname)));
-		tuple = mgr_get_tuple_node_from_name_type(rel_node, s_coordname);
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
 		mgr_node->nodeinited = true;
 		mgr_node->nodeincluster = true;
 		mgr_node->allowcure = true;
-		heap_inplace_update(rel_node, tuple);
-		heap_freetuple(tuple);
 	}
+	else if (CNDN_TYPE_COORDINATOR_MASTER == dest_nodeinfo.nodetype)
+	{
+		mgr_node->nodemasternameoid = src_nodeinfo.tupleoid;
+	}
+	heap_inplace_update(rel_node, tuple);
+	heap_freetuple(tuple);
 
 	heap_close(rel_node, AccessShareLock);
 
@@ -1011,6 +1013,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	Oid cnoid = InvalidOid;
 	Oid checkOid;
 	List *dnList = NIL;
+	HeapTuple tupleM;
 
 	/*check all gtm, coordinator, datanode master running normal*/
 	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, mgr_zone);
@@ -1075,17 +1078,15 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		Assert(mgr_host);
 		s_agent_port = mgr_host->hostagentport;
 		ReleaseSysCache(host_tuple);
-
-		/*get the value of pgxc_node_name of s_coordname*/
-		resetStringInfo(&restmsg);
-		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, s_agent_port, "show pgxc_node_name;"
-			, dest_nodeinfo.nodeusername, dest_nodeinfo.nodeaddr, dest_nodeinfo.nodeport, DEFAULT_DB, &restmsg);
-		if (restmsg.len == 0)
+		
+		tupleM = SearchSysCache1(NODENODEOID, dest_nodeinfo.nodemasteroid);
+		if(HeapTupleIsValid(tupleM))
 		{
-			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
-				, errmsg("on coordinator \"%s\" get value of pgxc_node_name fail", s_coordname)));
+			mgr_node = (Form_mgr_node)GETSTRUCT(tupleM);
+			Assert(mgr_node);
+			namestrcpy(&m_nodename, NameStr(mgr_node->nodename));
 		}
-		namestrcpy(&m_nodename, restmsg.data);
+		ReleaseSysCache(tupleM);
 	}PG_CATCH();
 	{
 		ereport(NOTICE, (errmsg("manual invocation to check before execute this command again")));
@@ -1310,6 +1311,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	mgr_node->nodeinited = true;
 	mgr_node->nodeincluster = true;
 	mgr_node->allowcure = true;
+	mgr_node->nodemasternameoid = 0;
 	namestrcpy(&mgr_node->curestatus, CURE_STATUS_NORMAL);
 	agentPort = get_agentPort_from_hostoid(mgr_node->nodehost);
 	nodePort = mgr_node->nodeport;
