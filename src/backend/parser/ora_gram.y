@@ -9010,7 +9010,8 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 				break;
 			case BEGIN_P:
 			case CASE:
-				++wait_end_keyword;
+				if (last_token != END_P)
+					++wait_end_keyword;
 				break;
 			case IF_P:
 				if (last_token != END_P)
