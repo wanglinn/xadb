@@ -2098,7 +2098,33 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 		if(IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist))
 		{
 			if (new_reduce_list)
-				*new_reduce_list = union_reduce_info_list(outer_reduce_list, inner_reduce_list);
+			{
+				switch(jointype)
+				{
+				case JOIN_INNER:
+					*new_reduce_list = union_reduce_info_list(outer_reduce_list, inner_reduce_list);
+					break;
+				case JOIN_LEFT:
+					*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
+					break;
+				case JOIN_RIGHT:
+					*new_reduce_list = CopyReduceInfoList(inner_reduce_list);
+					break;
+				case JOIN_FULL:
+					{
+						List *l1 = ReduceInfoListGetExecuteOidList(outer_reduce_list);
+						List *l2 = ReduceInfoListGetExecuteOidList(inner_reduce_list);
+						l1 = list_concat_unique_oid(l1, l2);
+						list_free(l2);
+						*new_reduce_list = list_make1(MakeRandomReduceInfo(l1));
+						list_free(l1);
+					}
+					break;
+				default:
+					Assert(0);
+					break;
+				}
+			}
 			return true;
 		}
 		break;
