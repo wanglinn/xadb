@@ -67,16 +67,17 @@ hot_expansion changes below functions:
 
 extern char	*MGRDatabaseName;
 
-static PGconn *
-ExpPQsetdbLogin(const char *pghost, int32 port, const char *pgoptions,
-			 const char *pgtty, const char *login, const char *pwd);
+#define  GET_MGR_DB ((0!=strcmp(MGRDatabaseName,"")) ? MGRDatabaseName : DEFAULT_DB)
 
 static PGconn *
 ExpPQsetdbLogin(const char *pghost, int32 port, const char *pgoptions,
-			 const char *pgtty, const char *login, const char *pwd)
+			 const char *pgtty, char* database, const char *login, const char *pwd);
+
+static PGconn *
+ExpPQsetdbLogin(const char *pghost, int32 port, const char *pgoptions,
+			 const char *pgtty, char* database, const char *login, const char *pwd)
 
 {
-	char* database ;
 	StringInfoData conninfo;
 	PGconn *conn;
 	const char *gram;
@@ -84,11 +85,6 @@ ExpPQsetdbLogin(const char *pghost, int32 port, const char *pgoptions,
 	pgoptions = NULL;
 	pgtty     = NULL;
 	pwd       = NULL;
-
-	if(0!=strcmp(MGRDatabaseName,""))
-		database = MGRDatabaseName;
-	else
-		database = DEFAULT_DB;
 
 	initStringInfo(&conninfo);
 	appendStringInfo(&conninfo, "host='%s' port=%u dbname='%s' user='%s' connect_timeout=%d",
@@ -4467,6 +4463,7 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 		pg_conn = ExpPQsetdbLogin(agtm_m_nodeinfo.nodeaddr
 								,agtm_m_nodeinfo.nodeport
 								,NULL, NULL
+								,GET_MGR_DB
 								,appendnodeinfo.nodeusername
 								,NULL);						
 
@@ -4908,6 +4905,7 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 		pg_conn = ExpPQsetdbLogin(agtm_m_nodeinfo.nodeaddr
 								,agtm_m_nodeinfo.nodeport
 								,NULL, NULL
+								,GET_MGR_DB
 								,appendnodeinfo.nodeusername
 								,NULL);
 
@@ -11716,6 +11714,7 @@ bool mgr_lock_cluster_deprecated(PGconn **pg_conn, Oid *cnoid)
 		*pg_conn = ExpPQsetdbLogin(coordhost
 								,coordport
 								,NULL, NULL
+								,GET_MGR_DB
 								,connect_user
 								,NULL);
 		if (try != 0)
@@ -11819,7 +11818,6 @@ void mgr_get_gtmcoord_conn(char *zone, char *dbname, PGconn **pg_conn, Oid *cnoi
 	int iloop = 0;
 	int max = 3;
 	char *coordhost = NULL;
-	char coordport_buf[10];
 	char *connect_user = NULL;
 	char cnpath[1024];
 	int try = 0;
@@ -11908,15 +11906,14 @@ void mgr_get_gtmcoord_conn(char *zone, char *dbname, PGconn **pg_conn, Oid *cnoi
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
 
-	sprintf(coordport_buf, "%d", coordport);
 	for (try = 0; try < 2; try++)
 	{
-		*pg_conn = PQsetdbLogin(coordhost
-								,coordport_buf
-								,NULL, NULL,
-								dbname, 
-								connect_user
-								,NULL);
+		*pg_conn = ExpPQsetdbLogin(coordhost, 
+									coordport, 
+									NULL, NULL, 
+									dbname, 
+									connect_user, 
+									NULL);
 		if (try != 0)
 			break;
 		if (PQstatus((PGconn*)*pg_conn) != CONNECTION_OK)
@@ -12070,6 +12067,7 @@ bool mgr_lock_cluster_involve_gtm_coord(PGconn **pg_conn, Oid *cnoid)
 		*pg_conn = ExpPQsetdbLogin(coordhost
 								,coordport
 								,NULL, NULL
+								,GET_MGR_DB
 								,connect_user
 								,NULL);
 		if (try != 0)
@@ -13759,6 +13757,7 @@ bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg)
 		pg_conn = ExpPQsetdbLogin(nodeinfo->nodeaddr
 									,nodeinfo->nodeport
 									,NULL, NULL
+									,GET_MGR_DB
 									,nodeinfo->nodeusername
 									,NULL);
 		if ((try--) <= 0)
@@ -13791,6 +13790,7 @@ bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg)
 		pg_conn = ExpPQsetdbLogin(nodeinfo->nodeaddr
 								,nodeinfo->nodeport
 								,NULL, NULL
+								,GET_MGR_DB
 								,nodeinfo->nodeusername
 								,NULL);
 		if ((try--) <= 0)
