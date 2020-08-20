@@ -59,6 +59,7 @@ typedef struct SnapSenderData
 	ConditionVariable 		cv;
 	pg_atomic_uint32		state;
 	pg_atomic_uint32		nextid_upcount;
+	pg_atomic_uint32		nextid_upcount_cn;
 	pg_atomic_uint32		global_xmin;
 	pg_atomic_uint32		global_finish_id;
 	volatile uint32			cur_cnt_assign;
@@ -132,7 +133,8 @@ static uint32			max_wait_event = 0;
 static uint32			cur_wait_event = 0;
 static int snap_send_timeout = 0;
 static HTAB *snapsender_xid_htab;
-static List	*dn_master_name_list;
+static List	*dn_master_name_list = NIL;
+static List	*cn_master_name_list = NIL;
 
 #define WAIT_EVENT_SIZE_STEP	64
 #define WAIT_EVENT_SIZE_START	128
@@ -181,6 +183,7 @@ static void SnapSenderDie(int code, Datum arg)
 	SnapSender->procno = INVALID_PGPROCNO;
 	SpinLockRelease(&SnapSender->mutex);
 	pg_atomic_init_u32(&SnapSender->nextid_upcount, 0);
+	pg_atomic_init_u32(&SnapSender->nextid_upcount_cn, 0);
 	pg_atomic_init_u32(&SnapSender->state, SNAPSENDER_STATE_STOPED);
 }
 
@@ -209,6 +212,7 @@ void SnapSenderShmemInit(void)
 		pg_atomic_init_u32(&SnapSender->global_xmin, FirstNormalTransactionId);
 		pg_atomic_init_u32(&SnapSender->global_finish_id, InvalidTransactionId);
 		pg_atomic_init_u32(&SnapSender->nextid_upcount, 0);
+		pg_atomic_init_u32(&SnapSender->nextid_upcount_cn, 0);
 		pg_atomic_init_flag(&SnapSender->lock);
 	}
 }
@@ -400,6 +404,21 @@ static void snapsenderProcessLocalMaxXid(SnapClientData *client, const char* dat
 		if (strncmp(list_client_name, client_name, strlen(client_name)) == 0)
 			current_count = pg_atomic_sub_fetch_u32(&SnapSender->nextid_upcount, 1);
 		
+		if (current_count == 0)
+		{
+			pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
+			SNAP_SYNC_DEBUG_LOG((errmsg("snapsenderProcessLocalMaxXid SnapSender->state to Ok\n")));
+			ConditionVariableBroadcast(&SnapSender->cv);
+			break;
+		}
+	}
+
+	foreach(node_ceil, cn_master_name_list)
+	{
+		list_client_name = (char *)lfirst(node_ceil);
+		if (strncmp(list_client_name, client_name, strlen(client_name)) == 0)
+			current_count = pg_atomic_sub_fetch_u32(&SnapSender->nextid_upcount_cn, 1);
+
 		if (current_count == 0)
 		{
 			pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
@@ -649,6 +668,9 @@ static void StartSnapSenderMainQueryDnNodeName(void)
 
 	list_free(dn_master_name_list);
 	dn_master_name_list = NIL;
+
+	list_free(cn_master_name_list);
+	cn_master_name_list = NIL;
 	for (;;)
 	{
 		result = shm_mq_receive(mqh_receiver, &nbytes, &data, false);
@@ -682,16 +704,23 @@ static void StartSnapSenderMainQueryDnNodeName(void)
 		SNAP_SYNC_DEBUG_LOG((errmsg("node->node_type %c, node->name %s\n", node->node_type, NameStr(node->node_name))));
 		if (node->node_type == PGXC_NODE_DATANODE)
 			dn_master_name_list = lappend(dn_master_name_list, pstrdup(NameStr(node->node_name)));
+		
+		if (node->node_type == PGXC_NODE_COORDINATOR)
+			cn_master_name_list = lappend(cn_master_name_list, pstrdup(NameStr(node->node_name)));
 	}
 
 	pg_atomic_write_u32(&SnapSender->nextid_upcount, list_length(dn_master_name_list));
+	pg_atomic_write_u32(&SnapSender->nextid_upcount_cn, list_length(cn_master_name_list) - 1); //exclude gtmc
 	SNAP_SYNC_DEBUG_LOG((errmsg("list_length(dn_master_name_list) %d, SnapSender->nextid_upcount %d\n",
 			 			list_length(dn_master_name_list), pg_atomic_read_u32(&SnapSender->nextid_upcount))));
+	SNAP_SYNC_DEBUG_LOG((errmsg("list_length(cn_master_name_list) %d, SnapSender->nextid_upcount_cn %d\n",
+			 			list_length(cn_master_name_list), pg_atomic_read_u32(&SnapSender->nextid_upcount_cn))));
 
-	if (pg_atomic_read_u32(&SnapSender->nextid_upcount) == 0)
+	if (pg_atomic_read_u32(&SnapSender->nextid_upcount) == 0 || pg_atomic_read_u32(&SnapSender->nextid_upcount_cn) == 0)
 	{
 		SNAP_SYNC_DEBUG_LOG((errmsg("StartSnapSenderMainQueryDnNodeName SnapSender->state to Ok\n")));
 		pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
+		ConditionVariableBroadcast(&SnapSender->cv);
 	}
 }
 
@@ -1283,10 +1312,29 @@ static void snapsenderProcessNextXid(SnapClientData *client, TransactionId txid)
 			current_count = pg_atomic_sub_fetch_u32(&SnapSender->nextid_upcount, 1);
 			if (current_count == 0)
 			{
-				SNAP_SYNC_DEBUG_LOG((errmsg("snapsenderProcessNextXid SnapSender->state to Ok\n")));
+				SNAP_SYNC_DEBUG_LOG((errmsg("snapsenderProcessNextXid DN SnapSender->state to Ok\n")));
 				pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
+				ConditionVariableBroadcast(&SnapSender->cv);
 			}
 
+			break;
+		}
+	}
+
+	foreach(node_ceil, cn_master_name_list)
+	{
+		list_client_name = (char *)lfirst(node_ceil);
+		comp_ret = strncmp(list_client_name, client->client_name, strlen(client->client_name));
+
+		if (comp_ret == 0)
+		{
+			current_count = pg_atomic_sub_fetch_u32(&SnapSender->nextid_upcount_cn, 1);
+			if (current_count == 0)
+			{
+				SNAP_SYNC_DEBUG_LOG((errmsg("snapsenderProcessNextXid CN SnapSender->state to Ok\n")));
+				pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
+				ConditionVariableBroadcast(&SnapSender->cv);
+			}
 			break;
 		}
 	}
@@ -1338,6 +1386,7 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 			ret_ssc = sscanf(input_buffer.data, "%*s %*s \"%[^\" ]\" %*s %*s %d", client->client_name, &next_id);
 			if (ret_ssc > 0)
 			{
+				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSender got init sync request from %s\n", client->client_name)));
 				snapsenderProcessNextXid(client, next_id);
 			}
 			/* send snapshot */
@@ -1715,6 +1764,7 @@ re_lock_:
 
 	appendStringInfo(buf, " state: %d \n", pg_atomic_read_u32(&SnapSender->state));
 	appendStringInfo(buf, " nextid_upcount: %d \n", pg_atomic_read_u32(&SnapSender->nextid_upcount));
+	appendStringInfo(buf, " nextid_upcount_cn: %d \n", pg_atomic_read_u32(&SnapSender->nextid_upcount_cn));
 	appendStringInfo(buf, " cur_cnt_assign: %u \n", assign_len);
 	appendStringInfo(buf, "  xid_assign: [");
 
@@ -1755,6 +1805,7 @@ void isSnapSenderWaitNextIdOk(void)
 	{
 		ConditionVariableSleep(&SnapSender->cv, WAIT_EVENT_SAFE_SNAPSHOT);
 		state = pg_atomic_read_u32(&SnapSender->state);
+		SNAP_SYNC_DEBUG_LOG((errmsg("isSnapSenderWaitNextIdOk SnapSender->state %d\n", state)));
 		if (state == SNAPSENDER_STATE_OK)
 			break;
 	}
