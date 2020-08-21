@@ -121,6 +121,7 @@
 #ifdef ADB_EXT
 extern bool enable_batch_hash;	/* in planner.c */
 extern bool enable_batch_sort;	/* in costsize.c */
+extern bool adb_check_sync_nextid;	/* in snapsender.c */
 #endif /* ADB_EXT */
 
 
@@ -1079,6 +1080,17 @@ static const unit_conversion time_unit_conversion_table[] =
 
 static struct config_bool ConfigureNamesBool[] =
 {
+#ifdef ADB
+	{
+		{"adb_check_sync_nextid", PGC_SIGHUP, GTM,
+			gettext_noop("Enables check sync all cn/dn master next txid."),
+			NULL
+		},
+		&adb_check_sync_nextid,
+		true,
+		NULL, NULL, NULL
+	},
+#endif
 	{
 		{"enable_seqscan", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enables the planner's use of sequential-scan plans."),
