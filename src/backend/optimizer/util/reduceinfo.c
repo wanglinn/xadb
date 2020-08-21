@@ -2101,6 +2101,8 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 			{
 				switch(jointype)
 				{
+				case JOIN_UNIQUE_OUTER:
+				case JOIN_UNIQUE_INNER:
 				case JOIN_INNER:
 					*new_reduce_list = union_reduce_info_list(outer_reduce_list, inner_reduce_list);
 					break;
