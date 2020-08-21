@@ -355,7 +355,7 @@ static PGconn *GetNodeConn(Form_mgr_node nodeIn,
 							MemoryContext spiContext);
 static bool DeletePgxcNodeDataNodeByName(PGconn *pgConn, 
 										char *nodeName, 
-										bool complain);							
+										bool complain);
 /**
  * system function of failover datanode
  */
@@ -965,7 +965,11 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
 									&coordinatorSlaves,
 									newMaster,
-									true);		
+									true);
+		batchSetGtmInfoOnNodes(newMaster->mgrNode,
+							   &dataNodes,
+							   newMaster,
+							   true);							
 		refreshPgxcNodesOfCoordinators(NULL,
 									   &coordinators,
 									   oldMaster,
@@ -985,11 +989,7 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 		 * consistency, lock the cluster.
 		 */
 		tryLockCluster(&coordinators);
-
-		batchSetGtmInfoOnNodes(newMaster->mgrNode,
-							   &dataNodes,
-							   newMaster,
-							   false);
+		
 		refreshOldMasterAfterSwitch(oldMaster,
 									newMaster,
 									spiContext,

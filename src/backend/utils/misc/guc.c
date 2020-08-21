@@ -116,6 +116,7 @@
 #ifdef ADB_EXT
 extern bool enable_batch_hash;	/* in planner.c */
 extern bool enable_batch_sort;	/* in costsize.c */
+extern bool adb_check_sync_nextid;	/* in snapsender.c */
 #endif /* ADB_EXT */
 
 
@@ -1015,6 +1016,15 @@ static struct config_bool ConfigureNamesBool[] =
 		},
 		&adb_slot_enable_mvcc,
 		false,
+		NULL, NULL, NULL
+	},
+	{
+		{"adb_check_sync_nextid", PGC_SIGHUP, GTM,
+			gettext_noop("Enables check sync all cn/dn master next txid."),
+			NULL
+		},
+		&adb_check_sync_nextid,
+		true,
 		NULL, NULL, NULL
 	},
 #endif

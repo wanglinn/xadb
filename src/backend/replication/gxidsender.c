@@ -81,6 +81,7 @@ extern int AGtmPort;
 extern int gxid_receiver_timeout;
 
 static volatile sig_atomic_t gxid_send_got_sigterm = false;
+static volatile sig_atomic_t got_SIGHUP = false;
 
 static GxidSenderData	*GxidSender = NULL;
 static slist_head		gxid_send_all_client = SLIST_STATIC_INIT(gxid_send_all_client);
@@ -93,6 +94,7 @@ static WaitEvent	   	*gxid_send_wait_event = NULL;
 static uint32			gxid_send_max_wait_event = 0;
 static uint32			gxid_send_cur_wait_event = 0;
 static int 				gxid_send_timeout = 0;
+bool adb_check_sync_nextid = true;
 
 #define GXID_WAIT_EVENT_SIZE_STEP	64
 #define GXID_WAIT_EVENT_SIZE_START	128
@@ -128,6 +130,7 @@ static const GxidWaitEventData GxidSenderListenEventData = {GxidSenderOnListenEv
 /* Signal handlers */
 static void GixdSenderSigUsr1Handler(SIGNAL_ARGS);
 static void GxidSenderSigTermHandler(SIGNAL_ARGS);
+static void GxidSenderSigHupHandler(SIGNAL_ARGS);
 static void GxidSenderQuickDieHander(SIGNAL_ARGS);
 
 static void GxidSenderDie(int code, Datum arg)
@@ -233,7 +236,7 @@ void GxidSenderMain(void)
 	pqsignal(SIGINT, SIG_IGN);
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGHUP, SIG_IGN);
+	pqsignal(SIGHUP, GxidSenderSigHupHandler);
 	pqsignal(SIGTERM, GxidSenderSigTermHandler);
 	pqsignal(SIGQUIT, GxidSenderQuickDieHander);
 	sigdelset(&BlockSig, SIGQUIT);
@@ -308,7 +311,7 @@ void GxidSenderMain(void)
 		pq_switch_to_none();
 		wed = NULL;
 		rc = WaitEventSetWait(gxid_send_wait_event_set,
-							  gxid_send_timeout,
+							  10,
 							  gxid_send_wait_event,
 							  gxid_send_cur_wait_event,
 							  PG_WAIT_CLIENT);
@@ -322,6 +325,11 @@ void GxidSenderMain(void)
 		}
 
 		GxidSendCheckTimeoutSocket();
+		if (got_SIGHUP)
+		{
+			got_SIGHUP = false;
+			ProcessConfigFile(PGC_SIGHUP);
+		}
 	}
 	proc_exit(1);
 }
@@ -655,7 +663,8 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 	ClientXidItemInfo			**xiditem;
 	bool						found;
 
-	isSnapSenderWaitNextIdOk();
+	if (adb_check_sync_nextid)
+		isSnapSenderWaitNextIdOk();
 
 	clientitem = hash_search(gxidsender_xid_htab, client->client_name, HASH_ENTER, &found);
 	if(found == false)
@@ -720,6 +729,8 @@ static void GxidProcessPreAssignGxidArray(GxidClientData *client)
 	bool						found;
 	int							i, xid_num;
 
+	if (adb_check_sync_nextid)
+		isSnapSenderWaitNextIdOk();
 	xid_num = pq_getmsgint(&gxid_send_input_buffer, sizeof(xid_num));
 	Assert(xid_num > 0 && xid_num <= MAX_XID_PRE_ALLOC_NUM);
 
@@ -954,6 +965,12 @@ static void GixdSenderSigUsr1Handler(SIGNAL_ARGS)
 static void GxidSenderSigTermHandler(SIGNAL_ARGS)
 {
 	gxid_send_got_sigterm = true;
+}
+
+/* SIGHUP: set flag to re-read config file at next convenient time */
+static void GxidSenderSigHupHandler(SIGNAL_ARGS)
+{
+	got_SIGHUP = true;
 }
 
 static void GxidSenderQuickDieHander(SIGNAL_ARGS)
