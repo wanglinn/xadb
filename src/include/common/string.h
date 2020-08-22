@@ -15,4 +15,6 @@ extern int	strtoint(const char *pg_restrict str, char **pg_restrict endptr,
 					 int base);
 extern void pg_clean_ascii(char *str);
 
+extern void TrimTabSpace(char *lpInput);		 
+
 #endif							/* COMMON_STRING_H */

@@ -24,6 +24,14 @@
 #include "common/string.h"
 
 
+#define DELIMITER_TAB		'\t'
+#define DELIMITER_ENTER		'\n'
+#define DELIMITER_BLANK		' '
+
+
+static void TrimTabSpaceLeft(char *lpInput);
+static void TrimTabSpaceRight(char *lpInput);
+
 /*
  * Returns whether the string `str' has the postfix `end'.
  */
@@ -90,3 +98,71 @@ pg_clean_ascii(char *str)
 			*p = '?';
 	}
 }
+void TrimTabSpace(char *lpInput)
+{
+    TrimTabSpaceRight(lpInput);
+    TrimTabSpaceLeft(lpInput);
+}
+static void TrimTabSpaceLeft(char *lpInput)
+{
+    int i;
+    
+	if (lpInput == NULL)
+		return;
+		
+	if (*lpInput == '\0')
+	{
+		return;
+	}
+	
+	for (i = 0;;i++)
+	{
+		if (lpInput[i] != DELIMITER_TAB &&
+			lpInput[i] != DELIMITER_ENTER &&
+			lpInput[i] != DELIMITER_BLANK)
+		{
+			break;
+		}
+	}
+	if (i != 0)
+	{
+		int cur = i;
+		for (;;i++)
+		{
+			lpInput[i - cur] = lpInput[i];
+			if (lpInput[i] == '\0')
+				break;
+		}
+	}
+}
+
+static void TrimTabSpaceRight(char *lpInput)
+{
+    int i;
+	
+    if (lpInput == NULL)
+		return;
+		
+	if ('\0' == lpInput[0])
+	{
+		return;
+	}
+	
+	for (i = 0;;i++)
+	{
+		if (lpInput[i] == '\0')
+			break;
+	}
+	for (;;)
+	{
+		--i;
+		if (lpInput[i] != DELIMITER_TAB &&
+			lpInput[i] != DELIMITER_ENTER &&
+			lpInput[i] != DELIMITER_BLANK)
+			break;
+	}
+	lpInput[++i] = '\0';
+	return ;
+}
+
+
