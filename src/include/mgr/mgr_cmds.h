@@ -578,6 +578,7 @@ extern Oid mgr_get_nodeMaster_tupleOid(char *nodeName);
 extern int mgr_get_nodetype_num(const char nodeType, const bool inCluster, const bool readOnly);
 extern bool mgr_modify_readonly_coord_pgxc_node(Relation rel_node, StringInfo infostrdata, char *nodename, int newport);
 extern void mgr_flushparam(MGRFlushParam *node, ParamListInfo params, DestReceiver *dest);
+extern void mgr_get_archive_modeval(char *nodeName, char nodeType, char *val);
 extern void mgr_check_all_agent(void);
 extern void check_node_incluster(void);
 extern void check_zone_node_incluster(char *zone);

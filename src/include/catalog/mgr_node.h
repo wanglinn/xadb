@@ -79,6 +79,10 @@ typedef FormData_mgr_node *Form_mgr_node;
 #define SHUTDOWN_I  "immediate"
 #define TAKEPLAPARM_N  "none"
 
+#define	PARAM_ARCHIVE  			"archive"
+#define	PARAM_ARCHIVE_MODE  	"archive_mode"
+#define	PARAM_ON  				"on"
+#define	PARAM_OFF  				"off"
 
 #endif							/* EXPOSE_TO_CLIENT_CODE */
 

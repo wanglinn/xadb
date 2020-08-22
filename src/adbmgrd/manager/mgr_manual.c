@@ -976,7 +976,6 @@ bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, StringInf
 
 Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 {
-
 	GetAgentCmdRst getAgentCmdRst;
 	AppendNodeInfo dest_nodeinfo;
 	StringInfoData infosendmsg;
@@ -1014,6 +1013,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	Oid checkOid;
 	List *dnList = NIL;
 	HeapTuple tupleM;
+	char modeval[128] = {0};
 
 	/*check all gtm, coordinator, datanode master running normal*/
 	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, mgr_zone);
@@ -1114,10 +1114,9 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		PQclear(res);
 
 		/* check the diff xlog */
-		ereport(LOG, (errmsg("wait max %d seconds to check coordinator \"%s\", \"%s\" have the same xlog position"
-			, iMax, m_nodename.data, s_coordname)));
-		ereport(NOTICE, (errmsg("wait max %d seconds to check coordinator \"%s\", \"%s\" have the same xlog position"
-			, iMax, m_nodename.data, s_coordname)));
+		ereportNoticeLog(errmsg("wait max %d seconds to check coordinator \"%s\", \"%s\" have the same xlog position"
+			, iMax, m_nodename.data, s_coordname));
+
 		resetStringInfo(&restmsg);
 		checkOid = mgr_get_tupleoid_from_nodename_type(m_nodename.data, CNDN_TYPE_COORDINATOR_MASTER);
 		if (checkOid == cnoid)
@@ -1171,8 +1170,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 
 		noneed_dropnode = false;
 		/* send create node sql to all coordiantor*/
-		ereport(LOG, (errmsg("create node \"%s\" on all coordiantors in cluster", s_coordname)));
-		ereport(NOTICE, (errmsg("create node \"%s\" on all coordiantors in cluster", s_coordname)));
+		ereportNoticeLog(errmsg("create node \"%s\" on all coordiantors in cluster", s_coordname));
 
 		rest = mgr_manipulate_pgxc_node_on_all_coord(&pg_conn, cnoid, 2, &dest_nodeinfo, PGXC_NODE_MANIPULATE_TYPE_CREATE, &strerr);
 		if (!rest)
@@ -1231,10 +1229,8 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		}
 
 		/*set the coordinator*/
-		ereport(LOG, (errmsg("on coordinator \"%s\", set hot_standby=off, pgxc_node_name='%s'"
-			, s_coordname, s_coordname)));
-		ereport(NOTICE, (errmsg("on coordinator \"%s\", set hot_standby=off, pgxc_node_name='%s'"
-			, s_coordname, s_coordname)));
+		ereportNoticeLog(errmsg("on coordinator \"%s\", set hot_standby=off, pgxc_node_name='%s'"
+			, s_coordname, s_coordname));
 		resetStringInfo(&infosendmsg);
 		resetStringInfo(&(getAgentCmdRst.description));
 		mgr_add_parm(s_coordname, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
@@ -1358,6 +1354,11 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	pfree(userName);
 	pfree(sqlstrmsg.data);
 	pfree(restmsg.data);
+
+	mgr_get_archive_modeval(NameStr(m_nodename), CNDN_TYPE_COORDINATOR_MASTER, modeval);
+	if (pg_strcasecmp(PARAM_ON, modeval) == 0){
+		ereportWarningLog(errmsg("please modify archive_command of the new coordinator %s.", s_coordname));
+	}
 
 	if (strerr.len == 0)
 	{

@@ -33,6 +33,7 @@
 #include "parser/scansup.h"
 #include "executor/spi.h"
 #include "utils/elog.h"
+#include "common/string.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -106,6 +107,9 @@ static int mgr_check_parm_value(char *name, char *value, int vartype, char *parm
 static int mgr_get_parm_unit_type(char *nodename, char *parmunit);
 static bool mgr_parm_enum_lookup_by_name(char *value, StringInfo valuelist);
 static void mgr_string_add_single_quota(NameLocal value);
+static char *mgr_get_archive_value(MemoryContext spiContext, char *nodeName, char nodeType);
+static void mgr_split_archive_val(char *arhciveVal, char *flag, char *val);
+
 /*
 * for command: set {datanode|coordinaotr}  {master|slave} {nodename|ALL} {key1=value1,key2=value2...} ,
 * set datanode all {key1=value1,key2=value2...},set gtm all {key1=value1,key2=value2...}, set gtm master|slave
@@ -2730,4 +2734,100 @@ static bool mgr_check_set_value_format(char *keyname, char *keyvalue, int level)
 		return false;
 	}
 	return true;
+}
+static char *mgr_get_archive_value(MemoryContext spiContext, char *nodeName, char nodeType)
+{
+	StringInfoData infosendmsg;
+	GetAgentCmdRst getAgentCmdRst;
+	MgrNodeWrapper *mgrNode;
+	char portstr[6]="00000";
+
+	mgrNode = selectMgrNodeByNodenameType(nodeName,
+										nodeType,
+										spiContext);
+	if (!mgrNode)
+	{
+		ereport(ERROR,
+				(errmsg("%s does not exist or is not a %s node",
+						nodeName, mgr_get_nodetype_desc(nodeType))));
+	}
+
+	initStringInfo(&(getAgentCmdRst.description));
+	initStringInfo(&infosendmsg);
+
+	/*send the command string to agent to get the value*/
+	sprintf(portstr, "%d", mgrNode->form.nodeport);
+	appendStringInfo(&infosendmsg, "%s", portstr);
+	appendStringInfoCharMacro(&infosendmsg, '\0');
+	appendStringInfo(&infosendmsg, "%s", PARAM_ARCHIVE);
+	appendStringInfoCharMacro(&infosendmsg, '\0');
+	mgr_send_show_parameters(AGT_CMD_SHOW_CNDN_PARAM, &infosendmsg, mgrNode->form.nodehost, &getAgentCmdRst);
+	MgrFree(infosendmsg.data);	
+	
+	return getAgentCmdRst.description.data;
+}
+static void mgr_split_archive_val(char *arhciveVal, char *flag, char *val)
+{
+	char *pBegin = NULL;
+	char *pEnd   = NULL;
+
+	pBegin = strstr(arhciveVal, flag);
+	if (pBegin == NULL){
+		return;
+	}
+	else{
+		pBegin = pBegin + strlen(flag);
+		pEnd = strstr(pBegin, "=");
+		if (pEnd == NULL){
+			return;
+		}
+		else{
+			pBegin = pEnd + 1;
+			pEnd = strstr(pBegin, "\t");
+			if(pEnd == NULL)
+				strcpy(val, pBegin);	
+			else
+				strncpy(val, pBegin, pEnd-pBegin);
+		}
+	}
+
+	TrimTabSpace(val);
+}
+void mgr_get_archive_modeval(char *nodeName, char nodeType, char *val)
+{
+	char  *flagVal = NULL;
+	MemoryContext oldContext = NULL;
+	MemoryContext switchContext = NULL;
+	MemoryContext spiContext = NULL;
+	int spiRes;
+
+	PG_TRY();
+	{
+		oldContext = CurrentMemoryContext;
+		switchContext = AllocSetContextCreate(oldContext,
+											"mgr_get_archive_modeval",
+											ALLOCSET_DEFAULT_SIZES);
+		spiRes = SPI_connect();
+		if (spiRes != SPI_OK_CONNECT)
+		{
+			ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d", spiRes)));
+		}
+		spiContext = CurrentMemoryContext;
+		MemoryContextSwitchTo(switchContext);
+
+		flagVal = mgr_get_archive_value(spiContext, nodeName, nodeType);
+		mgr_split_archive_val(flagVal, PARAM_ARCHIVE_MODE, val);
+
+		MgrFree(flagVal);
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
+		SPI_finish();
+	}PG_CATCH();
+	{
+		MgrFree(flagVal);
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
+		SPI_finish();	
+		PG_RE_THROW();
+	}PG_END_TRY();
 }
