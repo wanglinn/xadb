@@ -107,6 +107,7 @@
 #include "utils/tqual.h"
 #ifdef ADB
 #include "replication/snapreceiver.h"
+#include "pgxc/pgxc.h"
 #endif /* ADB */
 
 
@@ -3095,6 +3096,11 @@ relation_needs_vacanalyze(Oid relid,
 
 		/* Determine if this table needs vacuum or analyze. */
 		*dovacuum = force_vacuum || (vactuples > vacthresh);
+#ifdef ADB
+		if (IsDnNode())
+			*doanalyze = false;
+		else
+#endif
 		*doanalyze = (anltuples > anlthresh);
 	}
 	else
