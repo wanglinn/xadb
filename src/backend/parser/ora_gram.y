@@ -4821,6 +4821,8 @@ OptWith:
 			WITH reloptions				{ $$ = $2; }
 			| WITH OIDS					{ $$ = list_make1(makeDefElem("oids", (Node *) makeInteger(true), @1)); }
 			| WITHOUT OIDS				{ $$ = list_make1(makeDefElem("oids", (Node *) makeInteger(false), @1)); }
+			| WITH ROWID				{ $$ = list_make1(makeDefElem("rowid", (Node *) makeInteger(true), @1)); }
+			| WITHOUT ROWID				{ $$ = list_make1(makeDefElem("rowid", (Node *) makeInteger(false), @1)); }
 			| /*EMPTY*/					{ $$ = NIL; }
 		;
 

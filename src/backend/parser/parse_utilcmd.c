@@ -383,7 +383,10 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	bool		like_temp_found = false;
 	CreateStmt *orgstmt = stmt;
 #endif
-
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	ListCell   *cell = NULL;
+	bool		use_rowid = false;
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 	/*
 	 * We must not scribble on the passed-in CreateStmt, so copy it.  (This is
 	 * overkill, but easy.)
@@ -486,7 +489,33 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	}
 
 #if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
-	if (default_with_rowids &&
+	foreach(cell, stmt->options)
+	{
+		DefElem    *def = (DefElem *) lfirst(cell);
+		/* find ROWID support  */
+		if (strcmp(def->defname, "rowid") == 0)
+		{
+			if (def->arg == NULL || defGetBoolean(def))
+				use_rowid = true;
+			break;
+		}
+	}
+	if (cell)
+	{
+		/* drop ROWID DefElem  */
+		if (list_length(stmt->options) == 1)
+		{
+			list_free(stmt->options);
+			stmt->options = NIL;
+		}
+		else
+			list_delete_ptr(stmt->options, lfirst(cell));
+	}
+	else
+		/* if not found, the default value is used */
+		use_rowid = default_with_rowids;
+
+	if (use_rowid &&
 		stmt->ofTypename == NULL &&
 		!IsA(stmt, CreateForeignTableStmt) &&
 		stmt->partbound == NULL)
