@@ -25,6 +25,9 @@
 #include "storage/proclist.h"
 #include "storage/spin.h"
 #include "utils/memutils.h"
+#ifdef ADB
+#include "utils/timestamp.h"
+#endif
 
 /* Initially, we are not prepared to sleep on any condition variable. */
 static ConditionVariable *cv_sleep_target = NULL;
@@ -122,6 +125,14 @@ ConditionVariablePrepareToSleep(ConditionVariable *cv)
 void
 ConditionVariableSleep(ConditionVariable *cv, uint32 wait_event_info)
 {
+#ifdef ADB
+	ConditionVariableSleepExt(cv, wait_event_info, -1);
+}
+bool ConditionVariableSleepExt(ConditionVariable *cv, uint32 wait_event_info, long endtime)
+{
+	int 		ret;
+	long		timeout;
+#endif /* ADB */
 	WaitEvent	event;
 	bool		done = false;
 
@@ -143,7 +154,11 @@ ConditionVariableSleep(ConditionVariable *cv, uint32 wait_event_info)
 	if (cv_sleep_target != cv)
 	{
 		ConditionVariablePrepareToSleep(cv);
-		return;
+#ifdef ADB
+			return true;
+#else
+			return;
+#endif
 	}
 
 	do
@@ -154,7 +169,21 @@ ConditionVariableSleep(ConditionVariable *cv, uint32 wait_event_info)
 		 * Wait for latch to be set.  (If we're awakened for some other
 		 * reason, the code below will cope anyway.)
 		 */
+#ifdef ADB
+		if (endtime > 0)
+		{
+			long secs;
+			int microsecs;
+			TimestampDifference(GetCurrentTimestamp(), endtime, &secs, &microsecs);
+			timeout = secs*1000 + microsecs/1000;
+		}
+		else
+			timeout = -1;
+
+		ret = WaitEventSetWait(cv_wait_event_set, timeout, &event, 1, wait_event_info);
+#else
 		WaitEventSetWait(cv_wait_event_set, -1, &event, 1, wait_event_info);
+#endif
 
 		if (event.events & WL_POSTMASTER_DEATH)
 		{
@@ -164,6 +193,10 @@ ConditionVariableSleep(ConditionVariable *cv, uint32 wait_event_info)
 			 */
 			exit(1);
 		}
+#ifdef ADB
+		if (timeout > 0 && ret == 0) //timeout occure
+			return false;
+#endif
 
 		/* Reset latch before examining the state of the wait list. */
 		ResetLatch(MyLatch);
@@ -191,6 +224,10 @@ ConditionVariableSleep(ConditionVariable *cv, uint32 wait_event_info)
 		}
 		SpinLockRelease(&cv->mutex);
 	} while (!done);
+
+#ifdef ADB
+	return true;
+#endif
 }
 
 /*

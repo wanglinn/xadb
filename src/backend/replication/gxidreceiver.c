@@ -18,6 +18,7 @@
 #include "storage/procarray.h"
 #include "storage/proclist.h"
 #include "storage/shmem.h"
+#include "storage/condition_variable.h"
 #include "utils/guc.h"
 #include "utils/resowner.h"
 #include "pgxc/pgxc.h"
@@ -32,7 +33,7 @@ int max_cn_prealloc_xid_size = 0;
 
 typedef struct GxidRcvData
 {
-	WalRcvState		state;
+	pg_atomic_uint32	state;
 	pid_t			pid;
 	int				procno;
 
@@ -41,6 +42,7 @@ typedef struct GxidRcvData
 	char			sender_host[NI_MAXHOST];
 	int				sender_port;
 
+	ConditionVariable 		cv;
 	proclist_head	geters;				/* list of getting gxid event */
 	proclist_head	reters;				/* list of return gxid event */
 
@@ -221,19 +223,17 @@ void GxidReceiverMain(void)
 	 * state to STOPPED. If we die before this, the startup process will keep
 	 * waiting for us to start up, until it times out.
 	 */
-	LOCK_GXID_RCV();
-	Assert(GxidRcv->pid == 0);
-	switch (GxidRcv->state)
+	switch (pg_atomic_read_u32(&GxidRcv->state))
 	{
 		case WALRCV_STOPPING:
 			/* If we've already been requested to stop, don't start up. */
-			GxidRcv->state = WALRCV_STOPPED;
+			pg_atomic_write_u32(&GxidRcv->state, WALRCV_STOPPED);
 			UNLOCK_GXID_RCV();
 			proc_exit(1);
 			break;
 
 		case WALRCV_STOPPED:
-			GxidRcv->state = WALRCV_STARTING;
+			pg_atomic_write_u32(&GxidRcv->state, WALRCV_STARTING);
 			/* fall through, do not add break */
 		case WALRCV_STARTING:
 			/* The usual case */
@@ -247,6 +247,9 @@ void GxidReceiverMain(void)
 			UNLOCK_GXID_RCV();
 			elog(PANIC, "snapreceiver still running according to shared memory state");
 	}
+	LOCK_GXID_RCV();
+
+	Assert(GxidRcv->pid == 0);
 	/* Advertise our PID so that the startup process can kill us */
 	GxidRcv->pid = MyProcPid;
 	GxidRcv->procno = MyProc->pgprocno;
@@ -434,7 +437,8 @@ void GxidRcvShmemInit(void)
 	{
 		/* First time through, so initialize */
 		MemSet(GxidRcv, 0, GxidRcvShmemSize());
-		GxidRcv->state = WALRCV_STOPPED;
+		pg_atomic_init_u32(&GxidRcv->state, WALRCV_STOPPED);
+		ConditionVariableInit(&GxidRcv->cv);
 		proclist_init(&GxidRcv->geters);
 		proclist_init(&GxidRcv->reters);
 		proclist_init(&GxidRcv->send_commiters);
@@ -484,15 +488,19 @@ static TimestampTz GxidRecvWaitUntilStartTime(void)
 
 static void GxidRcvDie(int code, Datum arg)
 {
+	uint32 state;
+
+	state = pg_atomic_read_u32(&GxidRcv->state);
 	/* Mark ourselves inactive in shared memory */
+	Assert(state == WALRCV_STREAMING ||
+		   state == WALRCV_RESTARTING ||
+		   state == WALRCV_STARTING ||
+		   state == WALRCV_WAITING ||
+		   state == WALRCV_STOPPING);
+	
+	pg_atomic_write_u32(&GxidRcv->state, WALRCV_STOPPED);
 	LOCK_GXID_RCV();
-	Assert(GxidRcv->state == WALRCV_STREAMING ||
-		   GxidRcv->state == WALRCV_RESTARTING ||
-		   GxidRcv->state == WALRCV_STARTING ||
-		   GxidRcv->state == WALRCV_WAITING ||
-		   GxidRcv->state == WALRCV_STOPPING);
 	Assert(GxidRcv->pid == MyProcPid);
-	GxidRcv->state = WALRCV_STOPPED;
 	GxidRcvClearProcList(&GxidRcv->geters);
 	GxidRcvClearProcList(&GxidRcv->reters);
 	GxidRcvClearProcList(&GxidRcv->send_commiters);
@@ -767,6 +775,32 @@ static void GxidRcvProcessPreAssign(char *buf, Size len)
 	Assert(num == 0);	
 }
 
+static void isGxidRcvStreamOk(void)
+{
+	uint32	state;
+	bool	is_wait_ok;
+	TimestampTz	endtime;
+
+	state = pg_atomic_read_u32(&GxidRcv->state);
+	if (likely(WALRCV_STREAMING == state))
+		return;
+
+	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snapshot_sync_waittime);
+	for(;;)
+	{
+		is_wait_ok = ConditionVariableSleepExt(&GxidRcv->cv, WAIT_EVENT_SAFE_SNAPSHOT, endtime);
+		if (is_wait_ok == false)
+			ereport(ERROR, (errmsg("cannot connect to GTMCOORD")));
+
+		state = pg_atomic_read_u32(&GxidRcv->state);
+		SNAP_SYNC_DEBUG_LOG((errmsg("isGxidRcvStreamOk GxidRcv->state %d\n", state)));
+		if (state == WALRCV_STREAMING)
+			break;
+	}
+	SNAP_SYNC_DEBUG_LOG((errmsg("isGxidRcvStreamOk return\n")));
+	ConditionVariableCancelSleep();
+}
+
 static void GxidRcvProcessMessage(unsigned char type, char *buf, Size len)
 {
 	resetStringInfo(&incoming_message);
@@ -774,10 +808,9 @@ static void GxidRcvProcessMessage(unsigned char type, char *buf, Size len)
 	switch (type)
 	{
 	case 's':
-		LOCK_GXID_RCV();
-		if (GxidRcv->state == WALRCV_STARTING)
-			GxidRcv->state = WALRCV_STREAMING;
-		UNLOCK_GXID_RCV();
+		pg_atomic_write_u32(&GxidRcv->state, WALRCV_STREAMING);
+		SNAP_SYNC_DEBUG_LOG((errmsg("GxidRcv->state to WALRCV_STREAMING\n")));
+		ConditionVariableBroadcast(&GxidRcv->cv);
 		break;
 	case 'q':
 		GxidRcvProcessPreAssign(buf, len);
@@ -803,8 +836,11 @@ static bool WaitGxidRcvCondReturn(void *context, proclist_head *reters)
 	proclist_mutable_iter	iter;
 	PGPROC					*proc;	
 	int						procno = MyProc->pgprocno;
+	uint32					state;
+
 	/* not in streaming, wait */
-	if (GxidRcv->state != WALRCV_STREAMING)
+	state = pg_atomic_read_u32(&GxidRcv->state);
+	if (unlikely(WALRCV_STREAMING != state))
 		return true;
 
 	proclist_foreach_modify(iter, reters, GxidWaitLink)
@@ -823,9 +859,11 @@ static bool WaitGxidRcvCommitReturn(void *context, proclist_head *wait_commiters
 	proclist_mutable_iter	iter;
 	PGPROC					*proc;
 	int						procno = MyProc->pgprocno;
+	uint32					state;
 
 	/* not in streaming, wait */
-	if (GxidRcv->state != WALRCV_STREAMING)
+	state = pg_atomic_read_u32(&GxidRcv->state);
+	if (unlikely(WALRCV_STREAMING != state))
 		return false;
 
 	proclist_foreach_modify(iter, wait_commiters, GxidWaitLink)
@@ -1153,14 +1191,9 @@ TransactionId GixRcvGetGlobalTransactionId(bool isSubXact)
 
 	ProcessGxidRcvInterrupts();
 	MyProc->getGlobalTransaction = InvalidTransactionId;
+	isGxidRcvStreamOk();
+
 	LOCK_GXID_RCV();
-
-	if (GxidRcv->state != WALRCV_STREAMING)
-	{
-		UNLOCK_GXID_RCV();
-		ereport(ERROR, (errmsg("cannot connect to GTMCOORD")));
-	}
-
 	if (GxidRcv->cur_pre_alloc > 0)
 	{
 		MyProc->getGlobalTransaction = GxidRcv->xid_alloc[GxidRcv->cur_pre_alloc - 1];
@@ -1210,7 +1243,7 @@ void GixRcvCommitTransactionId(TransactionId txid, bool isCommit)
 	ProcessGxidRcvInterrupts();
 	LOCK_GXID_RCV();
 
-	if (GxidRcv->state != WALRCV_STREAMING)
+	if (unlikely((pg_atomic_read_u32(&GxidRcv->state)) != WALRCV_STREAMING))
 	{
 		UNLOCK_GXID_RCV();
 		MyProc->getGlobalTransaction = InvalidTransactionId;
@@ -1273,7 +1306,6 @@ void GxidRcvGetStat(StringInfo buf)
 	uint32			assign_len;
 	TransactionId	*finish_xids;
 	uint32			finish_len;
-	WalRcvState		state;
 
 	assign_len = finish_len = XID_ARRAY_STEP_SIZE;
 	assign_xids = NULL;
@@ -1299,7 +1331,6 @@ re_lock_:
 		goto re_lock_;
 	}
 
-	state = GxidRcv->state;
 	assign_len = GxidRcv->cur_pre_alloc;
 	for (i = 0; i < GxidRcv->cur_pre_alloc; i++)
 	{
@@ -1313,7 +1344,7 @@ re_lock_:
 	}
 	UNLOCK_GXID_RCV();
 
-	appendStringInfo(buf, " status: %d \n", state);
+	appendStringInfo(buf, " status: %d \n", pg_atomic_read_u32(&GxidRcv->state));
 	appendStringInfo(buf, "  cur_pre_alloc: %d\n", assign_len);
 	appendStringInfo(buf, "   xid_alloc:[");
 
