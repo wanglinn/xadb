@@ -167,7 +167,7 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 							&zoGtm,
 							&zoCoordList, 
 							&zoDNList);
-		MgrSetNodesNotZoneSwitched(spiContext, currentZone);					
+		MgrSetNodesNotZoneSwitched(spiContext, currentZone);
 	}PG_CATCH();
 	{
 		ereportNoticeLog(errmsg("============ ZONE FAILOVER %s failed, revert it begin ============", currentZone));
@@ -194,6 +194,9 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 	}PG_END_TRY();
 
 	RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator, ADB_CHECK_SYNC_NEXTID_ON);
+
+	callAgentRestartNode(zoGtm.holdLockCoordinator->mgrNode, SHUTDOWN_F, true);
+
 	ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
 
 	MgrCheckAllSlaveNum(spiContext, currentZone);
