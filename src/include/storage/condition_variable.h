@@ -45,6 +45,10 @@ extern void ConditionVariableInit(ConditionVariable *cv);
 extern void ConditionVariableSleep(ConditionVariable *cv, uint32 wait_event_info);
 extern void ConditionVariableCancelSleep(void);
 
+#ifdef ADB
+extern bool ConditionVariableSleepExt(ConditionVariable *cv, uint32 wait_event_info, long endtime);
+#endif
+
 /*
  * Optionally, ConditionVariablePrepareToSleep can be called before entering
  * the test-and-sleep loop described above.  Doing so is more efficient if
