@@ -9009,6 +9009,8 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 				parser_yyerror("syntax error");
 				break;
 			case BEGIN_P:
+				++wait_end_keyword;
+				break;
 			case CASE:
 				if (last_token != END_P)
 					++wait_end_keyword;
