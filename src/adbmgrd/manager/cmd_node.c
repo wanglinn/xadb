@@ -2239,6 +2239,18 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			}
 			execRes= mgr_ma_send_cmd(cmdtype, infosendmsg.data, hostOid, &(getAgentCmdRst->description));
 		}
+
+		if (execRes){
+			ereportNoticeLog(errmsg("[SUCCESS] host(%s) cmd(%s) params(%s).", get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data));
+		}
+		else{
+			if (cmdtype == AGT_CMD_GTMCOORD_INIT || cmdtype == AGT_CMD_GTMCOORD_START_MASTER_BACKEND || cmdtype == AGT_CMD_GTMCOORD_START_MASTER){
+				ereportErrorLog(errmsg("[failed] host(%s) cmd(%s) params(%s).", get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data));
+			}
+			else{
+				ereportNoticeLog(errmsg("[failed] host(%s) cmd(%s) params(%s).", get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data));
+			}
+		}
 	}PG_CATCH();
 	{
 		if (AGT_CMD_DN_FAILOVER == cmdtype || AGT_CMD_GTMCOORD_SLAVE_FAILOVER == cmdtype)
@@ -2250,12 +2262,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		PG_RE_THROW();
 	}PG_END_TRY();
 
-    if (execRes){
-		ereportNoticeLog(errmsg("[SUCCESS] host(%s) cmd(%s) params(%s).", get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data));
-	}
-	else{
-		ereportNoticeLog(errmsg("[ERROR] host(%s) cmd(%s) params(%s).", get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data));
-	}
+    
 
 	getAgentCmdRst->ret = execRes;
 	if (!execRes && pg_conn)

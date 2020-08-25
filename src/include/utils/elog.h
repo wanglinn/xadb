@@ -126,6 +126,10 @@ extern bool ADB_DEBUG;
 #define ereport(elevel, rest)	\
 	ereport_domain(elevel, TEXTDOMAIN, rest)
 
+#define ereportErrorLog(rest) \
+		ereport(LOG, (rest));	\
+		ereport(ERROR, (rest)); 		
+
 #define ereportNoticeLog(rest) \
 		ereport(NOTICE, (rest)); \
 		ereport(LOG, (rest));	
