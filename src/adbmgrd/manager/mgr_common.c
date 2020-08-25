@@ -3865,8 +3865,16 @@ int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
 	StringInfoData resultstrdata;
 	StringInfoData conninfo;
 	PGconn *conn = NULL;
+	char *gtmMasterName;
+	bool agtm_m_is_exist = false; 
+	bool agtm_m_is_running = false;
+	AppendNodeInfo agtm_m_nodeinfo;
 
 	sprintf(nodeport_buf, "%d", nodeport);
+
+	memset(&agtm_m_nodeinfo, 0, sizeof(AppendNodeInfo));
+	gtmMasterName = mgr_get_agtm_name();
+	get_nodeinfo(gtmMasterName, CNDN_TYPE_GTM_COOR_MASTER, &agtm_m_is_exist, &agtm_m_is_running, &agtm_m_nodeinfo);
 
 	resetStringInfo(strinfo);
 	resetStringInfo(starttime);
@@ -3883,33 +3891,41 @@ int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
 		{
 			case PQPING_OK:
 				appendStringInfoString(strinfo, "running");
-				agentport = get_agentPort_from_hostoid(hostOid);
-				monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentport, SQL_PG_IS_IN_RECOVERY
-					,user, hostAddr, nodeport, DEFAULT_DB, &resultstrdata);
-				if (resultstrdata.len != 0)
+				if (agtm_m_is_exist && agtm_m_is_running)
 				{
-					if (strcmp(resultstrdata.data, "f") ==0)
+					agentport = get_agentPort_from_hostoid(hostOid);
+					monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentport, SQL_PG_IS_IN_RECOVERY
+						,user, hostAddr, nodeport, DEFAULT_DB, &resultstrdata);
+					if (resultstrdata.len != 0)
 					{
-						namestrcpy(recoveryStrInfo, enum_recovery_status_tab[RECOVERY_NOT_IN].name);
+						if (strcmp(resultstrdata.data, "f") ==0)
+						{
+							namestrcpy(recoveryStrInfo, enum_recovery_status_tab[RECOVERY_NOT_IN].name);
+						}
+						else if (strcmp(resultstrdata.data, "t") ==0)
+							namestrcpy(recoveryStrInfo, enum_recovery_status_tab[RECOVERY_IN].name);
+						else
+						{
+							/* do nothing */
+						}
 					}
-					else if (strcmp(resultstrdata.data, "t") ==0)
-						namestrcpy(recoveryStrInfo, enum_recovery_status_tab[RECOVERY_IN].name);
-					else
+					
+					initStringInfo(&resultstrdata);
+					monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentport, SQL_PG_QUERY_STARTTIME
+						, user, hostAddr, nodeport, DEFAULT_DB, &resultstrdata);
+					if (resultstrdata.len != 0)
 					{
-						/* do nothing */
+						appendStringInfoString(starttime, resultstrdata.data);
+					}
+					else 
+					{
+						appendStringInfoString(starttime, "unknown");
 					}
 				}
-                
-				initStringInfo(&resultstrdata);
-				monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentport, SQL_PG_QUERY_STARTTIME
-					, user, hostAddr, nodeport, DEFAULT_DB, &resultstrdata);
-				if (resultstrdata.len != 0)
+				else
 				{
-				    appendStringInfoString(starttime, resultstrdata.data);
-				}
-				else 
-				{
-				     appendStringInfoString(starttime, "unknown");
+					namestrcpy(recoveryStrInfo, enum_recovery_status_tab[RECOVERY_UNKNOWN].name);	
+					appendStringInfoString(starttime, "unknown");	
 				}
 				break;
 			case PQPING_REJECT:
