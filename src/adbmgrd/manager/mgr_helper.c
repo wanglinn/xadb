@@ -406,6 +406,28 @@ void selectMgrAllDataNodesInZone(MemoryContext spiContext,
 	pfree(sql.data);
 }
 
+void selectMgrSlaveNodes(Oid masterOid,
+						char nodetype,
+						MemoryContext spiContext,
+						dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * "
+					 "FROM pg_catalog.mgr_node "
+					 "WHERE nodetype = '%c' "
+					 "AND nodeinited = %d::boolean "
+					 "AND nodemasternameoid = %u "
+					 "AND curestatus != '%s' ",
+					 nodetype,
+					 true,
+					 masterOid,
+					 CURE_STATUS_ISOLATED);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
 /**
  * the list link data type is MgrNodeWrapper
  */

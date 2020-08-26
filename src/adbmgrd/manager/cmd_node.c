@@ -320,6 +320,9 @@ static void mgr_modify_gtmport_after_initd(Relation rel_node,
 											HeapTuple nodetuple, 
 											char *nodename, 
 											int32 newport);
+static void MgrInitAllSlaveNodes(char nodeType);
+static void MgrInitStartChildNodes(MemoryContext spiContext, MgrNodeWrapper *mgrNode);
+static void MgrInitStartNodeFunc(NameData *nodeName, char nodeType);
 
 #if (Natts_mgr_node != 13)
 #error "need change code"
@@ -15088,127 +15091,167 @@ void hexp_update_conf_pgxc_node_name(AppendNodeInfo *node, char* newname)
 	MgrFree(infosendmsg.data);
 	MgrFree(getAgentCmdRst.description.data);
 }
-
-
 Datum
 mgr_init_start_gtmcoord_slave_all(PG_FUNCTION_ARGS)
 {
-	char *shutdown_mode = TAKEPLAPARM_N; 
-	InitNodeInfo *info;
-	GetAgentCmdRst getAgentCmdRst;
-	FuncCallContext *funcctx;
-	HeapTuple tuple;
 	HeapTuple tup_result;
-	ScanKeyData key[1];
+	GetAgentCmdRst getAgentCmdRst;
+	namestrcpy(&getAgentCmdRst.nodename, "init gtmcood slave");
 
-	if (RecoveryInProgress())
-		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
+	MgrInitAllSlaveNodes(CNDN_TYPE_GTM_COOR_SLAVE);
 
-	if (SRF_IS_FIRSTCALL())
-	{
-		MemoryContext oldcontext;
-		funcctx = SRF_FIRSTCALL_INIT();
-		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-		ScanKeyInit(&key[0],
-					Anum_mgr_node_nodetype
-					,BTEqualStrategyNumber
-					,F_CHAREQ
-					,CharGetDatum(CNDN_TYPE_GTM_COOR_SLAVE));
-		info = palloc(sizeof(*info));
-		info->rel_node = table_open(NodeRelationId, RowExclusiveLock);
-		info->rel_scan = table_beginscan_catalog(info->rel_node, 1, key);
-		funcctx->user_fctx = info;
-		MemoryContextSwitchTo(oldcontext);
-	}
-	funcctx = SRF_PERCALL_SETUP();
-	info = funcctx->user_fctx;
-	Assert(info);
-	tuple = heap_getnext(info->rel_scan, ForwardScanDirection);
-	if(tuple == NULL)
-	{
-		/* end of row */
-		table_endscan(info->rel_scan);
-		table_close(info->rel_node, RowExclusiveLock);
-		MgrFree(info);
-		SRF_RETURN_DONE(funcctx);
-	}
-
-	mgr_run_gtm_dn_slave(tuple, info, AGT_CMD_GTMCOORD_SLAVE_INIT, CNDN_TYPE_GTM_COOR_SLAVE, shutdown_mode, &getAgentCmdRst);
-	if (!getAgentCmdRst.ret)
-	{
-		tup_result = build_common_command_tuple(&(getAgentCmdRst.nodename)
-												,getAgentCmdRst.ret
-												,getAgentCmdRst.description.data);
-		MgrFree(getAgentCmdRst.description.data);
-		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
-	}
-
-	mgr_run_gtm_dn_slave(tuple, info, AGT_CMD_GTMCOORD_START_SLAVE, CNDN_TYPE_GTM_COOR_SLAVE, shutdown_mode, &getAgentCmdRst);
-	tup_result = build_common_command_tuple(&(getAgentCmdRst.nodename)
-											,getAgentCmdRst.ret
-											,getAgentCmdRst.description.data);
-	MgrFree(getAgentCmdRst.description.data);
-	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
+	tup_result = build_common_command_tuple(&(getAgentCmdRst.nodename), 
+											1, 
+											"success");
+	return HeapTupleGetDatum(tup_result);
 }
 
 Datum
 mgr_init_start_dn_slave_all(PG_FUNCTION_ARGS)
 {
-	char *shutdown_mode = TAKEPLAPARM_N; 
-	InitNodeInfo *info;
-	GetAgentCmdRst getAgentCmdRst;
-	FuncCallContext *funcctx;
-	HeapTuple tuple;
 	HeapTuple tup_result;
-	ScanKeyData key[1];
+	GetAgentCmdRst getAgentCmdRst;
+	namestrcpy(&getAgentCmdRst.nodename, "init datanode slave");
 
-	if (RecoveryInProgress())
-		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
+	MgrInitAllSlaveNodes(CNDN_TYPE_DATANODE_SLAVE);
+	tup_result = build_common_command_tuple(&(getAgentCmdRst.nodename), 
+										1, 
+										"success");
+	return HeapTupleGetDatum(tup_result);
+}
+static void MgrInitAllSlaveNodes(char nodeType)
+{
+	MemoryContext 	oldContext;
+	MemoryContext 	spiContext = NULL;
+	MemoryContext   switchContext = NULL;
+	dlist_head 	    masterList = DLIST_STATIC_INIT(masterList);
+	dlist_head 	    slaveList = DLIST_STATIC_INIT(slaveList);
+	MgrNodeWrapper  *masterNode = NULL;
+	dlist_iter		masterIter;
+	int 			spiRes;
 
-	if (SRF_IS_FIRSTCALL())
-	{
-		MemoryContext oldcontext;
-		funcctx = SRF_FIRSTCALL_INIT();
-		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-		ScanKeyInit(&key[0],
-					Anum_mgr_node_nodetype
-					,BTEqualStrategyNumber
-					,F_CHAREQ
-					,CharGetDatum(CNDN_TYPE_DATANODE_SLAVE));
-		info = palloc(sizeof(*info));
-		info->rel_node = table_open(NodeRelationId, RowExclusiveLock);
-		info->rel_scan = table_beginscan_catalog(info->rel_node, 1, key);
-		funcctx->user_fctx = info;
-		MemoryContextSwitchTo(oldcontext);
+	oldContext = CurrentMemoryContext;
+	switchContext = AllocSetContextCreate(CurrentMemoryContext, "MgrInitAllSlaveNodes", ALLOCSET_DEFAULT_SIZES);
+	if ((spiRes = SPI_connect()) != SPI_OK_CONNECT){
+		ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
 	}
-	funcctx = SRF_PERCALL_SETUP();
-	info = funcctx->user_fctx;
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(switchContext);
+
+	PG_TRY();
+	{
+		selectMgrSlaveNodes(0,
+							getMgrMasterNodetype(nodeType),
+							spiContext,
+							&masterList);
+		dlist_foreach(masterIter, &masterList)
+		{
+			masterNode = dlist_container(MgrNodeWrapper, link, masterIter.cur);
+			Assert(masterNode);
+			MgrInitStartChildNodes(spiContext, masterNode);
+		}
+	}PG_CATCH();
+	{
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
+		SPI_finish();
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(switchContext);
+	SPI_finish();
+}
+static void MgrInitStartChildNodes(MemoryContext spiContext, MgrNodeWrapper *mgrNode)
+{
+	dlist_head 			slaveNodes = DLIST_STATIC_INIT(slaveNodes);
+	dlist_iter 			iter;
+	MgrNodeWrapper 		*slaveNode = NULL;
+
+	dlist_init(&slaveNodes);
+	selectChildNodes(spiContext,
+					 mgrNode->oid,
+					 &slaveNodes);
+	dlist_foreach(iter, &slaveNodes)
+	{
+		slaveNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		Assert(slaveNode);
+		if (!slaveNode->form.nodeincluster){
+			MgrInitStartNodeFunc(&(slaveNode->form.nodename), slaveNode->form.nodetype);
+
+			ereport(LOG, (errmsg("init start slave %s.", slaveNode->form.nodename.data)));
+		}
+		MgrInitStartChildNodes(spiContext, slaveNode);
+	}
+}
+#define MgrInitStartNodeFuncFree(info, getAgentCmdRst)\
+table_endscan(info->rel_scan);\
+table_close(info->rel_node, RowExclusiveLock);\
+MgrFree(info);\
+MgrFree(getAgentCmdRst.description.data);
+
+static void MgrInitStartNodeFunc(NameData *nodeName, char nodeType)
+{
+	InitNodeInfo *info;
+	ScanKeyData key[2];
+	HeapTuple tuple;
+	GetAgentCmdRst getAgentCmdRst;
+
+	initStringInfo(&(getAgentCmdRst.description));
+	ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodename
+				,BTEqualStrategyNumber
+				,F_NAMEEQ
+				,NameGetDatum(nodeName));
+	ScanKeyInit(&key[1],
+				Anum_mgr_node_nodetype
+				,BTEqualStrategyNumber
+				,F_CHAREQ
+				,CharGetDatum(nodeType));
+	info = palloc(sizeof(*info));
 	Assert(info);
+	info->rel_node = heap_open(NodeRelationId, RowExclusiveLock);
+	info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, key);
+
 	tuple = heap_getnext(info->rel_scan, ForwardScanDirection);
 	if(tuple == NULL)
 	{
-		/* end of row */
-		table_endscan(info->rel_scan);
-		table_close(info->rel_node, RowExclusiveLock);
-		MgrFree(info);
-		SRF_RETURN_DONE(funcctx);
+		MgrInitStartNodeFuncFree(info, getAgentCmdRst);
+		return;
 	}
-	mgr_init_gtm_dn_slave(tuple, info, AGT_CMD_CNDN_SLAVE_INIT, &getAgentCmdRst);
-	if (!getAgentCmdRst.ret)
+	if (nodeType == CNDN_TYPE_DATANODE_SLAVE)
 	{
-		tup_result = build_common_command_tuple(&(getAgentCmdRst.nodename)
-												,getAgentCmdRst.ret
-												,getAgentCmdRst.description.data);
-		MgrFree(getAgentCmdRst.description.data);
-		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
+		mgr_init_dn_slave(tuple, info, AGT_CMD_CNDN_SLAVE_INIT, &getAgentCmdRst);
+		if (!getAgentCmdRst.ret){
+			ereport(LOG, (errmsg("[failed] init datanode slave %s failed.", nodeName->data)));
+			MgrInitStartNodeFuncFree(info, getAgentCmdRst);
+			return;
+		}
+		mgr_run_gtm_dn_slave(tuple, info, AGT_CMD_DN_START, nodeType, TAKEPLAPARM_N, &getAgentCmdRst);
+		if (!getAgentCmdRst.ret){
+			ereport(LOG, (errmsg("[failed] start datanode slave %s failed.", nodeName->data)));
+			MgrInitStartNodeFuncFree(info, getAgentCmdRst);
+			return;
+		}
+	}
+	if (nodeType == CNDN_TYPE_GTM_COOR_SLAVE)
+	{
+		mgr_run_gtm_dn_slave(tuple, info, AGT_CMD_GTMCOORD_SLAVE_INIT, nodeType, TAKEPLAPARM_N, &getAgentCmdRst);
+		if (!getAgentCmdRst.ret){
+			ereport(LOG, (errmsg("[failed] init gtmcoord slave %s failed.", nodeName->data)));
+			MgrInitStartNodeFuncFree(info, getAgentCmdRst);
+			return;
+		}
+		mgr_run_gtm_dn_slave(tuple, info, AGT_CMD_GTMCOORD_START_SLAVE, nodeType, TAKEPLAPARM_N, &getAgentCmdRst);
+		if (!getAgentCmdRst.ret){
+			ereport(LOG, (errmsg("[failed] start gtmcoord slave %s failed.", nodeName->data)));
+			MgrInitStartNodeFuncFree(info, getAgentCmdRst);
+			return;
+		}
 	}
 
-	mgr_run_gtm_dn_slave(tuple, info, AGT_CMD_DN_START, CNDN_TYPE_DATANODE_SLAVE, shutdown_mode, &getAgentCmdRst);
-	tup_result = build_common_command_tuple(&(getAgentCmdRst.nodename)
-											,getAgentCmdRst.ret
-											,getAgentCmdRst.description.data);
-	MgrFree(getAgentCmdRst.description.data);
-	SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
+	MgrInitStartNodeFuncFree(info, getAgentCmdRst);
+	return;
 }
 
 static void mgr_init_gtm_dn_slave(HeapTuple tuple, 
