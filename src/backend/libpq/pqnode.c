@@ -624,3 +624,11 @@ void pq_node_close(pq_comm_node *node)
 		pfree(node->out_buf.data);
 	pfree(node);
 }
+
+pgsocket pq_get_socket(pq_comm_node *node)
+{
+	if(node == NULL)
+		return PGINVALID_SOCKET;
+	else
+		return node->sock;
+}

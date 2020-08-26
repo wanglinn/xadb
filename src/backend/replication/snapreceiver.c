@@ -842,7 +842,7 @@ static void SnapRcvProcessAssign(char *buf, Size len)
 static void SnapRcvProcessComplete(char *buf, Size len)
 {
 	StringInfoData	msg;
-	TransactionId	txid;
+	TransactionId	txid, max_xid;
 	uint32			i,count;
 	StringInfoData	xidmsg;
 
@@ -855,6 +855,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	msg.data = buf;
 	msg.len = msg.maxlen = len;
 	msg.cursor = 0;
+	max_xid = FirstNormalTransactionId;
 
 	initStringInfo(&xidmsg);
 	enlargeStringInfo(&xidmsg, msg.maxlen);
@@ -909,13 +910,21 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	}
 
 	SnapRcv->xcnt = count;
-
+	max_xid = SnapRcv->latestCompletedXid;
 	UNLOCK_SNAP_RCV();
 	SNAP_SYNC_DEBUG_LOG((errmsg("SanpRcv xcnt now is %d\n", count)));
 
 	if (finish_xid_ack_send)
 		walrcv_send(wrconn, xidmsg.data, xidmsg.len);
 	pfree(xidmsg.data);
+
+	if (TransactionIdPrecedes(ShmemVariableCache->latestCompletedXid,
+							  max_xid))
+	{
+		LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+		ShmemVariableCache->latestCompletedXid = max_xid;
+		LWLockRelease(XidGenLock);
+	}
 
 	msg.cursor = sizeof(bool);
 	while (msg.cursor < msg.len)

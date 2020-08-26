@@ -28,5 +28,5 @@ extern int	pq_node_get_id_socket(pq_comm_node *node);
 extern int	pq_node_flush_if_writable_sock(pq_comm_node *node);
 extern int	pq_node_putmessage_sock(pq_comm_node *node, char msgtype, const char *s, size_t len);
 extern void pq_node_putmessage_noblock_sock(pq_comm_node *node, char msgtype, const char *s, size_t len);
-
+extern pgsocket pq_get_socket(pq_comm_node *node);
 #endif /* PQ_NODE_H */

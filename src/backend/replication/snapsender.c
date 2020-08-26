@@ -476,7 +476,7 @@ static void snapsenderProcessHeartBeat(SnapClientData *client)
 	slist_foreach(siter, &slist_all_client)
 	{
 		cur_client = slist_container(SnapClientData, snode, siter.cur);
-		if (client->event_pos == cur_client->event_pos)
+		if (pq_get_socket(client->node) == pq_get_socket(cur_client->node))
 		{
 			client->global_xmin = xmin;
 			continue;
@@ -1763,6 +1763,8 @@ re_lock_:
 	SpinLockRelease(&SnapSender->mutex);
 
 	appendStringInfo(buf, " state: %d \n", pg_atomic_read_u32(&SnapSender->state));
+	appendStringInfo(buf, " local global xmin: %u\n", pg_atomic_read_u32(&SnapSender->global_xmin));
+	appendStringInfo(buf, " local oldest_xmin: %u\n", GetOldestXmin(NULL, PROCARRAY_FLAGS_VACUUM));
 	appendStringInfo(buf, " nextid_upcount: %d \n", pg_atomic_read_u32(&SnapSender->nextid_upcount));
 	appendStringInfo(buf, " nextid_upcount_cn: %d \n", pg_atomic_read_u32(&SnapSender->nextid_upcount_cn));
 	appendStringInfo(buf, " cur_cnt_assign: %u \n", assign_len);
