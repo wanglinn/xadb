@@ -360,7 +360,11 @@ extern void selectMgrAllDataNodes(MemoryContext spiContext,
 								  dlist_head *resultList);
 extern void selectMgrAllDataNodesInZone(MemoryContext spiContext,
 										char *zone,	
-										dlist_head *resultList);								  
+										dlist_head *resultList);
+extern void selectMgrSlaveNodes(Oid masterOid,
+								char nodetype,
+								MemoryContext spiContext,
+								dlist_head *resultList);																		  
 extern void selectActiveMgrSlaveNodes(Oid masterOid,
 									  char nodetype,
 									  MemoryContext spiContext,
