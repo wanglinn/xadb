@@ -2616,7 +2616,7 @@ char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype)
 
 char *mgr_get_agtm_name(void)
 {
-	ScanKeyData key[2];
+	ScanKeyData key[1];
 	Relation relNode;
 	TableScanDesc relScan;
 	char *nodename = NULL;
@@ -2628,13 +2628,8 @@ char *mgr_get_agtm_name(void)
 		,BTEqualStrategyNumber
 		,F_CHAREQ
 		,CharGetDatum(CNDN_TYPE_GTM_COOR_MASTER));
-	ScanKeyInit(&key[1]
-		,Anum_mgr_node_nodezone
-		,BTEqualStrategyNumber
-		,F_NAMEEQ
-		,CStringGetDatum(mgr_zone));
 	relNode = table_open(NodeRelationId, AccessShareLock);
-	relScan = table_beginscan_catalog(relNode, 2, key);
+	relScan = table_beginscan_catalog(relNode, 1, key);
 	while((tuple = heap_getnext(relScan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
