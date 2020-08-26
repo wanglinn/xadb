@@ -480,7 +480,7 @@ static void snapsenderProcessHeartBeat(SnapClientData *client)
 			global_xmin = cur_client->global_xmin;
 	}
 
-	oldxmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_DEFAULT);
+	oldxmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_VACUUM);
 	if (TransactionIdIsNormal(global_xmin) && NormalTransactionIdPrecedes(oldxmin, global_xmin))
 		global_xmin = oldxmin;
 
