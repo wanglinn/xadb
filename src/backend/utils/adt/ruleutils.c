@@ -137,6 +137,10 @@ typedef struct
 								 * sortgrouprefs.
 								 */
 #endif /* ADB */
+#ifdef ADB_MULTI_GRAM
+	int        parsegram;		/*0:pg ; 1: oracle; 2 ...*/
+#endif /*ADB_MULTI_GRAM*/
+
 } deparse_context;
 
 /*
@@ -389,6 +393,9 @@ static void set_deparse_planstate(deparse_namespace *dpns, PlanState *ps);
 #ifdef ADB
 static void set_deparse_plan(deparse_namespace *dpns, Plan *plan);
 #endif
+#ifdef ADB_MULTI_GRAM
+static bool query_connect_by_tree_walker(Node *node, int* context);
+#endif
 static void push_child_plan(deparse_namespace *dpns, PlanState *ps,
 							deparse_namespace *save_dpns);
 static void pop_child_plan(deparse_namespace *dpns,
@@ -404,7 +411,8 @@ static void make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 static void get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 						  TupleDesc resultDesc,
 						  int prettyFlags, int wrapColumn, int startIndent
-						  ADB_ONLY_COMMA_ARG2(bool finalise_aggregates, bool sortgroup_colno));
+						  ADB_ONLY_COMMA_ARG2(bool finalise_aggregates, bool sortgroup_colno)
+						  ADB_MULTI_GRAM_COMMA_ARG(int parsegram));
 static void get_values_def(List *values_lists, deparse_context *context);
 static void get_with_clause(Query *query, deparse_context *context);
 static void get_select_query_def(Query *query, deparse_context *context,
@@ -5212,10 +5220,8 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 			query = (Query *) lfirst(action);
 			get_query_def(query, buf, NIL, viewResultDesc,
 						  prettyFlags, WRAP_COLUMN_DEFAULT, 0
-#ifdef ADB
-						  , false, false
-#endif /* ADB */
-						);
+						  ADB_ONLY_COMMA_ARG2(false, false)
+						  ADB_MULTI_GRAM_COMMA_ARG(false));
 			if (prettyFlags)
 				appendStringInfoString(buf, ";\n");
 			else
@@ -5234,10 +5240,8 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 		query = (Query *) linitial(actions);
 		get_query_def(query, buf, NIL, viewResultDesc,
 					  prettyFlags, WRAP_COLUMN_DEFAULT, 0
-#ifdef ADB
-						, false, false
-#endif /* ADB */
-					);
+					  ADB_ONLY_COMMA_ARG2(false, false)
+					  ADB_MULTI_GRAM_COMMA_ARG(false));
 		appendStringInfoChar(buf, ';');
 	}
 
@@ -5265,6 +5269,9 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	int			fno;
 	Datum		dat;
 	bool		isnull;
+#ifdef ADB_MULTI_GRAM		
+	int		    context;
+#endif /*ADB_MULTI_GRAM*/
 
 	/*
 	 * Get the attribute values from the rules tuple
@@ -5309,13 +5316,22 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	}
 
 	ev_relation = table_open(ev_class, AccessShareLock);
+	
+#ifdef ADB_MULTI_GRAM
+	/*if the query has connect_by node, the output string should begin with ora */
+	query_connect_by_tree_walker((Node*)query, &context);
+
+	if(context == PARSE_GRAM_ORACLE)
+	{
+		appendStringInfoString(buf, "  /*ora*/");
+	}	
+#endif /* ADB_MULTI_GRAM */
+
 
 	get_query_def(query, buf, NIL, RelationGetDescr(ev_relation),
 				  prettyFlags, wrapColumn, 0
-#ifdef ADB
-				  , false, false
-#endif /* ADB */
-				  );
+				  ADB_ONLY_COMMA_ARG2(false, false)
+				  ADB_MULTI_GRAM_COMMA_ARG(context));
 	appendStringInfoChar(buf, ';');
 
 	table_close(ev_relation, AccessShareLock);
@@ -5473,7 +5489,8 @@ deparse_query(Query *query, StringInfo buf, List *parentnamespace,
 	PushOverrideSearchPath(tmp_search_path);
 
 	get_query_def(query, buf, parentnamespace, NULL, 0, WRAP_COLUMN_DEFAULT,
-				  0, finalise_aggs, sortgroup_colno);
+				  0, finalise_aggs, sortgroup_colno
+				ADB_MULTI_GRAM_COMMA_ARG(false));
 
 	PopOverrideSearchPath();
 }
@@ -5506,10 +5523,8 @@ static void
 get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 			  TupleDesc resultDesc,
 			  int prettyFlags, int wrapColumn, int startIndent
-#ifdef ADB
-			  , bool finalise_aggs, bool sortgroup_colno
-#endif /* ADB */
-			)
+			  ADB_ONLY_COMMA_ARG2(bool finalise_aggs, bool sortgroup_colno)
+			  ADB_MULTI_GRAM_COMMA_ARG(int parsegram))
 {
 	deparse_context context;
 	deparse_namespace dpns;
@@ -5543,6 +5558,9 @@ get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 	context.finalise_aggs = finalise_aggs;
 	context.sortgroup_colno = sortgroup_colno;
 #endif /* ADB */
+#ifdef ADB_MULTI_GRAM		
+	context.parsegram = parsegram;
+#endif /*ADB_MULTI_GRAM*/
 
 	set_deparse_for_query(&dpns, query, parentnamespace);
 
@@ -5687,10 +5705,8 @@ get_with_clause(Query *query, deparse_context *context)
 		get_query_def((Query *) cte->ctequery, buf, context->namespaces, NULL,
 					  context->prettyFlags, context->wrapColumn,
 					  context->indentLevel
-#ifdef ADB
-					  , context->finalise_aggs, context->sortgroup_colno
-#endif /* ADB */
-					  );
+					  ADB_ONLY_COMMA_ARG2(context->finalise_aggs, context->sortgroup_colno)
+					  ADB_MULTI_GRAM_COMMA_ARG(context->parsegram));
 		if (PRETTY_INDENT(context))
 			appendContextKeyword(context, "", 0, 0, 0);
 		appendStringInfoChar(buf, ')');
@@ -5883,6 +5899,37 @@ get_simple_values_rte(Query *query)
 	return result;
 }
 
+#ifdef ADB_MULTI_GRAM
+static bool 
+query_connect_by_tree_walker(Node *node, int* context)
+{
+	check_stack_depth();
+
+	if (node == NULL)
+	{
+		*context = PARSE_GRAM_POSTGRES;
+		return false;							/*0:pg model*/
+	}
+
+	if(IsA(node, Query) && ((Query*)node)->connect_by)
+	{
+		*context = PARSE_GRAM_ORACLE;
+		return true;          					/*1:oracle model*/
+	}
+
+	if (IsA(node, Query))
+	{
+		return query_tree_walker((Query*)node,
+								 query_connect_by_tree_walker,
+								 (void *)context,
+								 0);
+	}
+
+	return expression_tree_walker(node, query_connect_by_tree_walker,
+								  (void *) context);
+}
+#endif /* ADB_MULTI_GRAM */
+
 static void
 get_basic_select_query(Query *query, deparse_context *context,
 					   TupleDesc resultDesc)
@@ -5951,6 +5998,28 @@ get_basic_select_query(Query *query, deparse_context *context,
 		get_rule_expr(query->jointree->quals, context, false);
 	}
 
+	#ifdef ADB_MULTI_GRAM
+	/*Add the CONNECT BY if given under the oracle module */
+	if(query->connect_by != NULL)
+	{
+		if(query->connect_by->start_with != NULL)
+		{
+			appendStringInfoString(buf, " START WITH ");
+
+			get_rule_expr(query->connect_by->start_with, context, false);
+		}
+		
+		if(query->connect_by->connect_by != NULL)
+		{
+			appendStringInfoString(buf, " CONNECT BY ");
+
+			get_rule_expr(query->connect_by->connect_by,context, false);
+		}
+	}
+
+	#endif /* ADB_MULTI_GRAM */
+
+
 	/* Add the GROUP BY clause if given */
 	if (query->groupClause != NULL || query->groupingSets != NULL)
 	{
@@ -6011,7 +6080,7 @@ get_basic_select_query(Query *query, deparse_context *context,
  * ----------
  */
 static void
-get_target_list(List *targetList, deparse_context *context,
+ get_target_list(List *targetList, deparse_context *context,
 				TupleDesc resultDesc)
 {
 	StringInfo	buf = context->buf;
@@ -6171,10 +6240,8 @@ get_setop_query(Node *setOp, Query *query, deparse_context *context,
 		get_query_def(subquery, buf, context->namespaces, resultDesc,
 					  context->prettyFlags, context->wrapColumn,
 					  context->indentLevel
-#ifdef ADB
-					  , context->finalise_aggs, context->sortgroup_colno
-#endif /* ADB */
-					  );
+					  ADB_ONLY_COMMA_ARG2(context->finalise_aggs, context->sortgroup_colno)
+					  ADB_MULTI_GRAM_COMMA_ARG(context->parsegram));
 		if (need_paren)
 			appendStringInfoChar(buf, ')');
 	}
@@ -6750,10 +6817,8 @@ get_insert_query_def(Query *query, deparse_context *context)
 		get_query_def(select_rte->subquery, buf, NIL, NULL,
 					  context->prettyFlags, context->wrapColumn,
 					  context->indentLevel
-#ifdef ADB
-					  , context->finalise_aggs, context->sortgroup_colno
-#endif /* ADB */
-					  );
+					  ADB_ONLY_COMMA_ARG2(context->finalise_aggs, context->sortgroup_colno)
+					  ADB_MULTI_GRAM_COMMA_ARG(context->parsegram));
 	}
 	else if (values_rte)
 	{
@@ -9788,13 +9853,23 @@ get_rule_expr(Node *node, deparse_context *context,
 
 		case T_TableFunc:
 			get_tablefunc((TableFunc *) node, context, showimplicit);
-			break;
+			break;	
 
-#ifdef ADB_GRAM_ORA
+#ifdef ADB_MULTI_GRAM
 		case T_RownumExpr:
-			appendStringInfoString(buf, ".row");
-			break;
-
+		if(context->parsegram == PARSE_GRAM_ORACLE)
+		{
+			/*oracle model*/
+			appendStringInfoString(buf, "rownum");
+		}
+		else 
+		{
+			/*postgres model*/
+			appendStringInfoString(buf, ".row");	
+		}
+		break;
+#endif	/*ADB_MULTI_GRAM*/
+#ifdef ADB_GRAM_ORA
 		case T_PriorExpr:
 			appendStringInfoString(buf, "PRIOR ");
 			if (!IsA(((PriorExpr*)node)->expr, Var))
@@ -10616,10 +10691,8 @@ get_sublink_expr(SubLink *sublink, deparse_context *context)
 	get_query_def(query, buf, context->namespaces, NULL,
 				  context->prettyFlags, context->wrapColumn,
 				  context->indentLevel
-#ifdef ADB
-				  , context->finalise_aggs, context->sortgroup_colno
-#endif /* ADB */
-				  );
+ 				  ADB_ONLY_COMMA_ARG2(context->finalise_aggs, context->sortgroup_colno)
+				  ADB_MULTI_GRAM_COMMA_ARG(context->parsegram));
 
 	if (need_paren)
 		appendStringInfoString(buf, "))");
@@ -10865,10 +10938,8 @@ get_from_clause_item(Node *jtnode, Query *query, deparse_context *context)
 				get_query_def(rte->subquery, buf, context->namespaces, NULL,
 							  context->prettyFlags, context->wrapColumn,
 							  context->indentLevel
-#ifdef ADB
-							  , context->finalise_aggs, context->sortgroup_colno
-#endif /* ADB */
-							  );
+							  ADB_ONLY_COMMA_ARG2(context->finalise_aggs, context->sortgroup_colno)
+							  ADB_MULTI_GRAM_COMMA_ARG(context->parsegram));
 				appendStringInfoChar(buf, ')');
 				break;
 			case RTE_FUNCTION:
