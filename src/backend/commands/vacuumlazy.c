@@ -60,6 +60,15 @@
 #include "utils/pg_rusage.h"
 #include "utils/timestamp.h"
 #include "utils/tqual.h"
+#ifdef ADB
+#include "executor/clusterReceiver.h"
+#include "libpq/libpq-fe.h"
+#include "access/tuptypeconvert.h"
+#include "pgxc/pgxc.h"
+#include "commands/copy.h"
+#include "catalog/catalog.h"
+#include "intercomm/inter-node.h"
+#endif
 
 
 /*
@@ -139,6 +148,19 @@ typedef struct LVRelStats
 	bool		lock_waiter_detected;
 } LVRelStats;
 
+#ifdef ADB
+typedef struct RecvRelVsiContext
+{
+	RecvSampleContext	base;
+	VacuumSyncInfo		vsi;		
+}RecvRelVsiContext;
+
+typedef struct ClusterVacuumLazeHookFuncs
+{
+	PQNHookFunctions pub;
+	PGconn *conn;			/* last exec end PGconn* */
+}ClusterVacuumLazeHookFuncs;
+#endif
 
 /* A few variables that don't seem worth passing around as parameters */
 static int	elevel = -1;
@@ -176,7 +198,338 @@ static int	vac_cmp_itemptr(const void *left, const void *right);
 static bool heap_page_is_all_visible(Relation rel, Buffer buf,
 						 TransactionId *visibility_cutoff_xid, bool *all_frozen);
 
+#ifdef ADB
+static void PrintDebugVsi(VacuumSyncInfo *vsi)
+{
+	VACUUM_CLUSTER_DEBUG_LOG((errmsg("new_rel_pages  %u\n", vsi->new_rel_pages)));
+	VACUUM_CLUSTER_DEBUG_LOG((errmsg("new_live_tuples  %u\n", vsi->new_live_tuples)));
+	VACUUM_CLUSTER_DEBUG_LOG((errmsg("new_rel_allvisible  %u\n", vsi->new_rel_allvisible)));
+	VACUUM_CLUSTER_DEBUG_LOG((errmsg("new_frozen_xid  %u\n", vsi->new_frozen_xid)));
+	VACUUM_CLUSTER_DEBUG_LOG((errmsg("new_min_multi  %u\n", vsi->new_min_multi)));
+}
 
+static TupleDesc CreateRelRelVsiDesc(void)
+{
+	TupleDesc desc = CreateTemplateTupleDesc(5, false);
+	
+	TupleDescInitEntry(desc, 1, "new_rel_pages", OIDOID, -1, 0);
+	TupleDescInitEntry(desc, 2, "new_live_tuples", OIDOID, -1, 0);
+	TupleDescInitEntry(desc, 3, "new_rel_allvisible", OIDOID, -1, 0);
+	TupleDescInitEntry(desc, 4, "new_frozen_xid", OIDOID, -1, 0);
+	TupleDescInitEntry(desc, 5, "new_min_multi", OIDOID, -1, 0);
+	return desc;
+}
+
+static void InitSampleContext(RecvSampleContext *context, TupleDesc desc)
+{
+	TupleTableSlot *slot = MakeSingleTupleTableSlot(desc);
+	context->rstate = createClusterRecvStateFromSlot(slot, false);
+	context->got_run_end = false;
+}
+
+static void InitRecvRelVsiContext(RecvRelVsiContext *context)
+{
+	TupleDesc desc = CreateRelRelVsiDesc();
+	InitSampleContext(&context->base, desc);
+	context->vsi.new_rel_pages = 0;
+	context->vsi.new_live_tuples = 0;
+	context->vsi.new_rel_allvisible = 0;
+	context->vsi.new_frozen_xid = InvalidTransactionId;
+	context->vsi.new_min_multi = InvalidTransactionId;
+}
+
+typedef struct HookSampleFunctions
+{
+	PQNHookFunctions		funcs;
+	CopyDataFunction		recvfun;
+	List				   *conns;
+	List				   *got_end_conns;
+	void				   *context;
+}HookSampleFunctions;
+
+static bool HookSampleFunc(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
+{
+	HookSampleFunctions *funcs = (HookSampleFunctions*)pub;
+	if (buf[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+	{
+		funcs->conns = list_delete_ptr(funcs->conns, conn);
+		funcs->got_end_conns = lappend(funcs->got_end_conns, conn);
+		return true;
+	}else
+	{
+		(*funcs->recvfun)(funcs->context, conn, buf, len);
+		return false;
+	}
+}
+
+static void acquire_vsi_coord_master_main(void *context, CopyDataFunction recvfun, List *conns)
+{
+	HookSampleFunctions	hook;
+	hook.funcs = PQNDefaultHookFunctions;
+	hook.funcs.HookCopyOut = HookSampleFunc;
+	hook.context = context;
+	hook.recvfun = recvfun;
+	hook.got_end_conns = NIL;
+
+	hook.conns = list_copy(conns);
+	while(hook.conns != NIL)
+		PQNListExecFinish(hook.conns, NULL, &hook.funcs, true);
+	if (list_length(conns) != list_length(hook.got_end_conns))
+	{
+		ListCell *lc;
+		PGconn *conn;
+		foreach(lc, conns)
+		{
+			conn = lfirst(lc);
+			if (list_member_ptr(hook.got_end_conns, conn) == false)
+			{
+				ereport(ERROR,
+						(errcode(ERRCODE_PROTOCOL_VIOLATION),
+						 errmsg("not got data end message"),
+						 errnode(PQNConnectName(conn))));
+			}
+		}
+		Assert(false);
+	}
+	list_free(hook.got_end_conns);
+}
+
+static int NextRelVsiFromRaw(void *context, struct pg_conn *conn, const char *data, int len)
+{
+	RecvRelVsiContext *renc = (RecvRelVsiContext*)context;
+	BlockNumber new_rel_pages, new_live_tuples, new_rel_allvisible;
+	TransactionId	new_frozen_xid, new_min_multi;
+
+	if (data[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+	{
+		renc->base.got_run_end = true;
+		return 1;
+	}else if(clusterRecvTupleEx(renc->base.rstate, data, len, conn))
+	{
+		TupleTableSlot *slot = renc->base.rstate->base_slot;
+		Assert(slot->tts_tupleDescriptor->natts == 5);
+		Assert(TupleDescAttr(slot->tts_tupleDescriptor, 0)->atttypid == OIDOID);
+		slot_getallattrs(slot);
+		if (slot->tts_isnull[0] == false)
+		{
+			new_rel_pages = DatumGetUInt32(slot->tts_values[0]);
+			renc->vsi.new_rel_pages += new_rel_pages;
+			VACUUM_CLUSTER_DEBUG_LOG((errmsg("Cn get new_rel_pages %d, renc->vsi.new_rel_pages %d\n",
+				new_rel_pages, renc->vsi.new_rel_pages)));
+		}
+
+		if (slot->tts_isnull[1] == false)
+		{
+			new_live_tuples = DatumGetUInt32(slot->tts_values[1]);
+			renc->vsi.new_live_tuples += new_live_tuples;
+			VACUUM_CLUSTER_DEBUG_LOG((errmsg("Cn get new_live_tuples %d, renc->vsi.new_live_tuples %d\n",
+				new_live_tuples, renc->vsi.new_live_tuples)));
+		}
+
+		if (slot->tts_isnull[2] == false)
+		{
+			new_rel_allvisible = DatumGetUInt32(slot->tts_values[2]);
+			renc->vsi.new_rel_allvisible += new_rel_allvisible;
+			VACUUM_CLUSTER_DEBUG_LOG((errmsg("Cn get new_rel_allvisible %d, renc->vsi.new_rel_allvisible %d\n",
+				new_rel_allvisible, renc->vsi.new_rel_allvisible)));
+		}
+
+		if (slot->tts_isnull[3] == false)
+		{
+			new_frozen_xid = DatumGetUInt32(slot->tts_values[3]);
+
+			VACUUM_CLUSTER_DEBUG_LOG((errmsg("Cn get fnew_frozen_xid %d, renc->vsi.new_frozen_xid %d\n",
+				new_frozen_xid, renc->vsi.new_frozen_xid)));
+			if (TransactionIdIsNormal(new_frozen_xid))
+			{
+				if (renc->vsi.new_frozen_xid == InvalidTransactionId)
+					renc->vsi.new_frozen_xid = new_frozen_xid;
+				else if (NormalTransactionIdPrecedes(new_frozen_xid, renc->vsi.new_frozen_xid))
+					renc->vsi.new_frozen_xid = new_frozen_xid;
+			}
+			
+			VACUUM_CLUSTER_DEBUG_LOG((errmsg("renc->vsi.new_frozen_xid %d\n", renc->vsi.new_frozen_xid)));
+		}
+		if (slot->tts_isnull[4] == false)
+		{
+			new_min_multi = DatumGetUInt32(slot->tts_values[4]);
+
+			VACUUM_CLUSTER_DEBUG_LOG((errmsg("Cn get fnew_frozen_xid %d, renc->vsi.new_min_multi %d\n",
+				new_min_multi, renc->vsi.new_min_multi)));
+			if (TransactionIdIsNormal(new_min_multi))
+			{
+				if (renc->vsi.new_min_multi == InvalidTransactionId)
+					renc->vsi.new_min_multi = new_min_multi;
+				else if (NormalTransactionIdPrecedes(new_min_multi, renc->vsi.new_min_multi))
+					renc->vsi.new_min_multi = new_min_multi;
+			}
+			
+			VACUUM_CLUSTER_DEBUG_LOG((errmsg("renc->vsi.new_min_multi %d\n", renc->vsi.new_min_multi)));
+		}
+	}
+
+	return 0;
+}
+
+static void DestroySampleContext(RecvSampleContext *context, bool drop_desc)
+{
+	TupleTableSlot *slot = context->rstate->base_slot;
+	TupleDesc desc = slot->tts_tupleDescriptor;
+	freeClusterRecvState(context->rstate);
+	ExecDropSingleTupleTableSlot(slot);
+	if (drop_desc)
+		FreeTupleDesc(desc);
+}
+
+static void DestroyRecvRelNumContext(RecvRelVsiContext *context)
+{
+	DestroySampleContext(&context->base, true);
+}
+
+static void acquire_vsi_coord_master(List *dnlist, VacuumSyncInfo *vsi)
+{
+	RecvRelVsiContext	context;
+	int dn_len = list_length(dnlist);
+
+	Assert(dn_len > 0);
+
+	InitRecvRelVsiContext(&context);
+	acquire_vsi_coord_master_main(&context, NextRelVsiFromRaw, dnlist);
+	DestroyRecvRelNumContext(&context);
+
+	memcpy(vsi, &context.vsi, sizeof(*vsi));
+	return;
+}
+
+static TupleTableSlot* OnceTupleFunction(OnceTupleContext *context)
+{
+	if (context->slot == NULL)
+	{
+		TupleTableSlot *slot;
+		int i;
+		slot = context->slot = MakeSingleTupleTableSlot(context->desc);
+		for(i=context->desc->natts;(i--)>0;)
+		{
+			slot->tts_values[i] = context->values[i];
+			slot->tts_isnull[i] = false;
+		}
+		return ExecStoreVirtualTuple(slot);
+	}else
+	{
+		ExecDropSingleTupleTableSlot(context->slot);
+		context->slot = NULL;
+		return NULL;
+	}
+}
+
+static void send_vsi_other_coord(List *conns, VacuumSyncInfo *vsi)
+{
+	OnceTupleContext	context;
+	Datum				datums[5];
+
+	context.desc = CreateRelRelVsiDesc();
+	Assert(context.desc->natts == lengthof(datums));
+	context.slot = NULL;
+	context.values = datums;
+	datums[0] = UInt32GetDatum(vsi->new_rel_pages);
+	datums[1] = UInt32GetDatum(vsi->new_live_tuples);
+	datums[2] = UInt32GetDatum(vsi->new_rel_allvisible);
+	datums[3] = UInt32GetDatum(vsi->new_frozen_xid);
+	datums[4] = UInt32GetDatum(vsi->new_min_multi);
+	do_type_convert_slot_out_ex(context.desc, &context, conns, 0,
+								(ConvertGetNextRowFunction)OnceTupleFunction,
+								(ConvertSaveRowFunction)PQNputCopyData);
+	PQNFlush(conns, true);
+	FreeTupleDesc(context.desc);
+}
+
+static int NextRelVsiFromCoord(void *context, const char *data, int len)
+{
+	return NextRelVsiFromRaw(context, NULL, data, len);
+}
+
+static void acquire_relvsi_coord_slave(VacuumSyncInfo *vsi)
+{
+	RecvRelVsiContext	context;
+	
+	InitRecvRelVsiContext(&context);
+	SimpleNextCopyFromNewFE(NextRelVsiFromCoord, &context);
+	if (context.base.got_run_end == false)
+		ereport(ERROR,
+				(errcode(ERRCODE_PROTOCOL_VIOLATION),
+				 errmsg("not got data end message")));
+	DestroyRecvRelNumContext(&context);
+	put_executor_end_msg(true);
+
+	memcpy(vsi, &context.vsi, sizeof(*vsi));
+	return;
+}
+
+static void send_localvsi_to_coord(VacuumSyncInfo *vsi)
+{
+	TupleDesc desc = CreateRelRelVsiDesc();
+	TupleTableSlot *slot = MakeSingleTupleTableSlot(desc);
+	DestReceiver *r = CreateDestReceiver(DestClusterOut);
+
+	slot->tts_values[0] = UInt32GetDatum(vsi->new_rel_pages);
+	slot->tts_isnull[0] = false;
+
+	slot->tts_values[1] = UInt32GetDatum(vsi->new_live_tuples);
+	slot->tts_isnull[1] = false;
+
+	slot->tts_values[2] = UInt32GetDatum(vsi->new_rel_allvisible);
+	slot->tts_isnull[2] = false;
+
+	slot->tts_values[3] = UInt32GetDatum(vsi->new_frozen_xid);
+	slot->tts_isnull[3] = false;
+
+	slot->tts_values[4] = UInt32GetDatum(vsi->new_min_multi);
+	slot->tts_isnull[4] = false;
+	ExecStoreVirtualTuple(slot);
+
+	clusterRecvSetCheckEndMsg(r, false);
+	(*r->rStartup)(r, 0, desc);
+	(*r->receiveSlot)(slot, r);
+	(*r->rShutdown)(r);
+	(*r->rDestroy)(r);
+	put_executor_end_msg(true);
+
+	ExecDropSingleTupleTableSlot(slot);
+	FreeTupleDesc(desc);
+}
+
+static bool ClusterVacuumExecEndHookCopyOut(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len)
+{
+	if (buf[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
+	{
+		ClusterVacuumLazeHookFuncs *context = (ClusterVacuumLazeHookFuncs*)pub;
+		context->conn = conn;
+		return true;
+	}
+
+	return clusterRecvTuple(NULL, buf, len, NULL, conn);
+}
+
+static void cluster_recv_exec_end(List *conns)
+{
+	ClusterVacuumLazeHookFuncs context;
+	if (conns == NIL)
+		conns = PQNGetAllConns();
+	else
+		conns = list_copy(conns);
+
+	context.pub = PQNDefaultHookFunctions;
+	context.pub.HookCopyOut = ClusterVacuumExecEndHookCopyOut;
+	while (conns)
+	{
+		context.conn = NULL;
+		PQNListExecFinish(conns, NULL, &context.pub, true);
+		Assert(context.conn != NULL);
+		conns = list_delete_ptr(conns, context.conn);
+	}
+}
+
+#endif /* ADB */
 /*
  *	lazy_vacuum_rel() -- perform LAZY VACUUM for one heap relation
  *
@@ -208,6 +561,12 @@ lazy_vacuum_rel(Relation onerel, int options, VacuumParams *params,
 	double		new_live_tuples;
 	TransactionId new_frozen_xid;
 	MultiXactId new_min_multi;
+#ifdef ADB
+	List	   *cnlist = NIL;
+	List	   *dnlist = NIL;
+	VacuumSyncInfo	local_vsi;
+	VacuumSyncInfo	sum_vsi;
+#endif
 
 	Assert(params != NULL);
 
@@ -283,6 +642,12 @@ lazy_vacuum_rel(Relation onerel, int options, VacuumParams *params,
 	else
 		scanned_all_unfrozen = true;
 
+#ifdef ADB
+	VACUUM_CLUSTER_DEBUG_LOG((errmsg("OldestXmin %d, FreezeLimit %d, xidFullScanLimit %d\n",
+				OldestXmin, FreezeLimit, xidFullScanLimit)));
+	VACUUM_CLUSTER_DEBUG_LOG((errmsg("vacrelstats->scanned_pages %d, vacrelstats->frozenskipped_pages %d, vacrelstats->rel_pagesvacrelstats->rel_pages %d, scanned_all_unfrozen %d\n",
+				vacrelstats->scanned_pages, vacrelstats->frozenskipped_pages, vacrelstats->rel_pages, scanned_all_unfrozen)));
+#endif
 	/*
 	 * Optionally truncate the relation.
 	 */
@@ -329,6 +694,83 @@ lazy_vacuum_rel(Relation onerel, int options, VacuumParams *params,
 	new_frozen_xid = scanned_all_unfrozen ? FreezeLimit : InvalidTransactionId;
 	new_min_multi = scanned_all_unfrozen ? MultiXactCutoff : InvalidMultiXactId;
 
+#ifdef ADB
+	if (!IsToastRelation(onerel) && (onerel->rd_locator_info != NULL ||
+		 onerel->rd_rel->relkind == RELKIND_MATVIEW))
+	{
+		if (IsCnMaster() && !IsConnFromCoord())
+		{
+			/* collect vacuum statics */
+			List	   *cn_oids = NIL;
+
+			//if (onerel->rd_rel->relkind == RELKIND_MATVIEW)
+			cn_oids = GetAllCnIDL(false);
+			cnlist = FindConnectedList(cn_oids);
+			/* find all datanode connection */
+			if (onerel->rd_locator_info)
+			{
+				List	*dn_oids = NIL;
+				if (IsRelationReplicated(onerel->rd_locator_info))
+				{
+					Oid oid = get_preferred_nodeoid(onerel->rd_locator_info->nodeids);
+					dn_oids = list_make1_oid(oid);
+				}else
+				{
+					dn_oids = onerel->rd_locator_info->nodeids;
+				}
+				Assert(dn_oids != NIL);
+				dnlist = FindConnectedList(dn_oids);
+				if (dn_oids != onerel->rd_locator_info->nodeids)
+					list_free(dn_oids);
+			}
+
+			if (dnlist != NIL)
+			{
+				/* recv vacuum sync info from datanode */
+				acquire_vsi_coord_master(dnlist, &sum_vsi);
+				VACUUM_CLUSTER_DEBUG_LOG((errmsg("acquire_vsi_coord_master:\n")));
+				PrintDebugVsi(&sum_vsi);
+				new_rel_pages = sum_vsi.new_rel_pages;
+				new_live_tuples = sum_vsi.new_live_tuples;
+				new_rel_allvisible = sum_vsi.new_rel_allvisible;
+				new_frozen_xid = sum_vsi.new_frozen_xid;
+				new_min_multi = sum_vsi.new_min_multi;
+			}
+
+			if (cnlist != NIL)
+			{
+				/* send relfreezeid to other coordinator */
+				VACUUM_CLUSTER_DEBUG_LOG((errmsg("send_vsi_other_coord:\n")));
+				send_vsi_other_coord(cnlist, &sum_vsi);
+			}
+
+			if (cnlist)
+			{
+				cluster_recv_exec_end(cnlist);
+				list_free(cnlist);
+			}
+			if (dnlist)
+				list_free(dnlist);
+
+			list_free(cn_oids);
+		}
+		else if ((options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER &&
+			IS_PGXC_COORDINATOR &&
+			IsConnFromCoord())
+		{
+			/* recv freeze xid from master */
+			acquire_relvsi_coord_slave(&sum_vsi);
+			VACUUM_CLUSTER_DEBUG_LOG((errmsg("acquire_relvsi_coord_slave:\n")));
+			PrintDebugVsi(&sum_vsi);
+			new_rel_pages = sum_vsi.new_rel_pages;
+			new_live_tuples = sum_vsi.new_live_tuples;
+			new_rel_allvisible = sum_vsi.new_rel_allvisible;
+			new_frozen_xid = sum_vsi.new_frozen_xid;
+			new_min_multi = sum_vsi.new_min_multi;
+		}
+	}
+#endif /* ADB */
+
 	vac_update_relstats(onerel,
 						new_rel_pages,
 						new_live_tuples,
@@ -336,8 +778,18 @@ lazy_vacuum_rel(Relation onerel, int options, VacuumParams *params,
 						vacrelstats->hasindex,
 						new_frozen_xid,
 						new_min_multi,
-						false);
+						false
+						ADB_ONLY_COMMA_ARG(&local_vsi));
 
+#ifdef ADB
+	if (!IsToastRelation(onerel) && (options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER && IsConnFromCoord() && IS_PGXC_DATANODE)
+	{
+		/* send freeze xid to master */
+		VACUUM_CLUSTER_DEBUG_LOG((errmsg("dn send local vsi:\n")));
+		PrintDebugVsi(&local_vsi);
+		send_localvsi_to_coord(&local_vsi);
+	}
+#endif
 	/* report results to the stats collector, too */
 	pgstat_report_vacuum(RelationGetRelid(onerel),
 						 onerel->rd_rel->relisshared,
@@ -1750,7 +2202,8 @@ lazy_cleanup_index(Relation indrel,
 							false,
 							InvalidTransactionId,
 							InvalidMultiXactId,
-							false);
+							false
+							ADB_ONLY_COMMA_ARG(NULL));
 
 	ereport(elevel,
 			(errmsg("index \"%s\" now contains %.0f row versions in %u pages",

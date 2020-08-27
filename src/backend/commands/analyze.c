@@ -125,7 +125,6 @@ static Datum std_fetch_func(VacAttrStatsP stats, int rownum, bool *isNull);
 static Datum ind_fetch_func(VacAttrStatsP stats, int rownum, bool *isNull);
 
 #ifdef ADB
-static List* FindConnectedList(List *list);
 static int acquire_sample_rows_coord_master(Relation onerel, int elevel,
 					HeapTuple *rows, int targrows,
 					double *totalrows, double *totaldeadrows);
@@ -928,7 +927,8 @@ do_analyze_rel(Relation onerel, int options, VacuumParams *params,
 							hasindex,
 							InvalidTransactionId,
 							InvalidMultiXactId,
-							in_outer_xact);
+							in_outer_xact
+							ADB_ONLY_COMMA_ARG(NULL));
 	}
 
 	/*
@@ -951,7 +951,8 @@ do_analyze_rel(Relation onerel, int options, VacuumParams *params,
 								false,
 								InvalidTransactionId,
 								InvalidMultiXactId,
-								in_outer_xact);
+								in_outer_xact
+								ADB_ONLY_COMMA_ARG(NULL));
 		}
 	}
 
@@ -3281,13 +3282,6 @@ analyze_mcv_list(int *mcv_counts,
 }
 
 #ifdef ADB
-
-typedef struct RecvSampleContext
-{
-	ClusterRecvState	   *rstate;
-	bool					got_run_end;
-}RecvSampleContext;
-
 typedef struct RecvSampleRowsContext
 {
 	RecvSampleContext	base;
@@ -3312,7 +3306,6 @@ typedef struct RecvRelNumContext
 	int32				relpages;
 }RecvRelNumContext;
 
-typedef int (*CopyDataFunction)(void *context, struct pg_conn *conn, const char *data, int len);
 typedef struct HookSampleFunctions
 {
 	PQNHookFunctions		funcs;
@@ -3329,13 +3322,6 @@ typedef struct NextSampleContext
 	int				cursor;
 	int				maxrows;
 }NextSampleContext;
-
-typedef struct OnceTupleContext
-{
-	TupleDesc		desc;
-	TupleTableSlot *slot;
-	Datum		   *values;
-}OnceTupleContext;
 
 static TupleDesc CreateOtherSampleInfoDesc(void)
 {
@@ -3527,30 +3513,6 @@ static bool HookSampleFunc(PQNHookFunctions *pub, struct pg_conn *conn, const ch
 		(*funcs->recvfun)(funcs->context, conn, buf, len);
 		return false;
 	}
-}
-
-static List* FindConnectedList(List *list)
-{
-	List *result = NIL;
-	ListCell *lc;
-	struct pg_conn *conn;
-
-	Assert(list == NIL || IsA(list, OidList));
-	foreach (lc, list)
-	{
-		conn = PQNFindConnUseOid(lfirst_oid(lc));
-		if (conn == NULL)
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Connection for node %u not connected", lfirst_oid(lc))));
-		if (!PQisCopyOutState(conn) ||
-			!PQisCopyInState(conn))
-			ereport(ERROR,
-					(errcode(ERRCODE_INTERNAL_ERROR),
-					 errmsg("Connection for node %u is not in copy both mode", lfirst_oid(lc))));
-		result = list_append_unique_ptr(result, conn);
-	}
-	return result;
 }
 
 static TupleTableSlot* NextSampleFunction(NextSampleContext *context)

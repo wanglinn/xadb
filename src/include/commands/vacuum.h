@@ -23,6 +23,7 @@
 #include "utils/relcache.h"
 
 #ifdef ADB
+#include "executor/clusterReceiver.h"
 #define CLUSTER_VACUUM_CMD_VACUUM				0x80
 #define CLUSTER_VACUUM_CMD_ANALYZE				0x81
 #define CLUSTER_VACUUM_CMD_ANALYZE_FORCE_INH	0x82
@@ -152,6 +153,33 @@ typedef struct VacuumParams
 									 * to use default */
 } VacuumParams;
 
+#ifdef ADB
+typedef int (*CopyDataFunction)(void *context, struct pg_conn *conn, const char *data, int len);
+
+#define VACUUM_CLUSTER_DEBUG_LOG(rest) ereport_domain(cluster_vacuum_debug_level, PG_TEXTDOMAIN("VacuumCluster"), rest)
+typedef struct RecvSampleContext
+{
+	ClusterRecvState	   *rstate;
+	bool					got_run_end;
+}RecvSampleContext;
+
+typedef struct OnceTupleContext
+{
+	TupleDesc		desc;
+	TupleTableSlot *slot;
+	Datum		   *values;
+}OnceTupleContext;
+
+typedef struct VacuumSyncInfo
+{
+	BlockNumber			new_rel_pages;
+	BlockNumber			new_live_tuples;
+	BlockNumber			new_rel_allvisible;
+	TransactionId		new_frozen_xid;
+	TransactionId		new_min_multi;		
+}VacuumSyncInfo;
+#endif
+
 /* GUC parameters */
 extern PGDLLIMPORT int default_statistics_target;	/* PGDLLIMPORT for PostGIS */
 extern int	vacuum_freeze_min_age;
@@ -178,7 +206,8 @@ extern void vac_update_relstats(Relation relation,
 					bool hasindex,
 					TransactionId frozenxid,
 					MultiXactId minmulti,
-					bool in_outer_xact);
+					bool in_outer_xact
+					ADB_ONLY_COMMA_ARG(VacuumSyncInfo *vsi));
 extern void vacuum_set_xid_limits(Relation rel,
 					  int freeze_min_age, int freeze_table_age,
 					  int multixact_freeze_min_age,
@@ -208,5 +237,5 @@ extern bool std_typanalyze(VacAttrStats *stats);
 extern double anl_random_fract(void);
 extern double anl_init_selection_state(int n);
 extern double anl_get_next_S(double t, int n, double *stateptr);
-
+extern List* FindConnectedList(List *list);
 #endif							/* VACUUM_H */

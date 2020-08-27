@@ -60,7 +60,6 @@
 #include "catalog/pgxc_class.h"
 #include "commands/copy.h"
 #include "commands/defrem.h"
-#include "executor/clusterReceiver.h"
 #include "executor/executor.h"
 #include "executor/execCluster.h"
 #include "intercomm/inter-comm.h"
@@ -1034,7 +1033,8 @@ vac_update_relstats(Relation relation,
 					BlockNumber num_all_visible_pages,
 					bool hasindex, TransactionId frozenxid,
 					MultiXactId minmulti,
-					bool in_outer_xact)
+					bool in_outer_xact
+					ADB_ONLY_COMMA_ARG(VacuumSyncInfo *vsi))
 {
 	Oid			relid = RelationGetRelid(relation);
 	Relation	rd;
@@ -1133,6 +1133,16 @@ vac_update_relstats(Relation relation,
 		pgcform->relminmxid = minmulti;
 		dirty = true;
 	}
+#ifdef ADB
+	if (vsi)
+	{
+		vsi->new_rel_pages = pgcform->relpages;
+		vsi->new_live_tuples = pgcform->reltuples;
+		vsi->new_rel_allvisible = pgcform->relallvisible;
+		vsi->new_frozen_xid = pgcform->relfrozenxid;
+		vsi->new_min_multi = pgcform->relminmxid;
+	}
+#endif
 
 	/* If anything changed, write out the tuple. */
 	if (dirty)
@@ -1749,9 +1759,8 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 		List	   *oids = NIL;
 		MemoryContext oldcontext = MemoryContextSwitchTo(vac_context);
 
-
-		if (onerel->rd_rel->relkind == RELKIND_MATVIEW)
-			oids = GetAllCnIDL(false);
+		//if (onerel->rd_rel->relkind == RELKIND_MATVIEW)
+		oids = GetAllCnIDL(false);
 		if (onerel->rd_locator_info != NULL)
 			oids = list_union_oid(oids, onerel->rd_locator_info->nodeids);
 
@@ -1975,6 +1984,30 @@ vacuum_delay_point(void)
 }
 
 #ifdef ADB
+List* FindConnectedList(List *list)
+{
+	List *result = NIL;
+	ListCell *lc;
+	struct pg_conn *conn;
+
+	Assert(list == NIL || IsA(list, OidList));
+	foreach (lc, list)
+	{
+		conn = PQNFindConnUseOid(lfirst_oid(lc));
+		if (conn == NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Connection for node %u not connected", lfirst_oid(lc))));
+		if (!PQisCopyOutState(conn) ||
+			!PQisCopyInState(conn))
+			ereport(ERROR,
+					(errcode(ERRCODE_INTERNAL_ERROR),
+					 errmsg("Connection for node %u is not in copy both mode", lfirst_oid(lc))));
+		result = list_append_unique_ptr(result, conn);
+	}
+	return result;
+}
+
 void cluster_vacuum(struct StringInfoData *msg)
 {
 	StringInfoData	buf;
