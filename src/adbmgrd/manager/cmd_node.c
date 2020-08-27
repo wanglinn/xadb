@@ -15210,8 +15210,8 @@ static void MgrInitStartNodeFunc(NameData *nodeName, char nodeType)
 				,CharGetDatum(nodeType));
 	info = palloc(sizeof(*info));
 	Assert(info);
-	info->rel_node = heap_open(NodeRelationId, RowExclusiveLock);
-	info->rel_scan = heap_beginscan_catalog(info->rel_node, 2, key);
+	info->rel_node = table_open(NodeRelationId, RowExclusiveLock);
+	info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
 
 	tuple = heap_getnext(info->rel_scan, ForwardScanDirection);
 	if(tuple == NULL)
@@ -15221,7 +15221,7 @@ static void MgrInitStartNodeFunc(NameData *nodeName, char nodeType)
 	}
 	if (nodeType == CNDN_TYPE_DATANODE_SLAVE)
 	{
-		mgr_init_dn_slave(tuple, info, AGT_CMD_CNDN_SLAVE_INIT, &getAgentCmdRst);
+		mgr_init_gtm_dn_slave(tuple, info, AGT_CMD_CNDN_SLAVE_INIT, &getAgentCmdRst);
 		if (!getAgentCmdRst.ret){
 			ereport(LOG, (errmsg("[failed] init datanode slave %s failed.", nodeName->data)));
 			MgrInitStartNodeFuncFree(info, getAgentCmdRst);
