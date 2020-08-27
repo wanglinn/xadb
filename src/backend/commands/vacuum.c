@@ -1799,11 +1799,11 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	 * us to process it.  In VACUUM FULL, though, the toast table is
 	 * automatically rebuilt by cluster_rel so we shouldn't recurse to it.
 	 */
-#ifndef ADB 
+//#ifndef ADB 
 	if (!(options & VACOPT_SKIPTOAST) && !(options & VACOPT_FULL))
 		toast_relid = onerel->rd_rel->reltoastrelid;
 	else
-#endif
+//#endif
 		toast_relid = InvalidOid;
 
 	/*
