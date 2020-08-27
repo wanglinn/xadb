@@ -2423,8 +2423,7 @@ StartTransaction(void)
 	/*
 	 * For ADB, transaction start timestamp now get from coordinator master
 	 */
-	if (IsCnMaster())
-		globalXactStartTimestamp = xactStartTimestamp + globalDeltaTimestmap;
+	globalXactStartTimestamp = xactStartTimestamp + globalDeltaTimestmap;
 #endif
 	pgstat_report_xact_timestamp(xactStartTimestamp);
 	/* Mark xactStopTimestamp as unset. */
