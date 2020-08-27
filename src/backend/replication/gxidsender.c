@@ -659,7 +659,7 @@ static void GxidProcessAssignGxid(GxidClientData *client)
 	int							procno, start_cursor, xid_num, i;
 	TransactionId				xid, xid_max;
 	ClientHashItemInfo			*clientitem;
-	ClientXidItemInfo			*xiditem;
+	ClientXidItemInfo			**xiditem;
 	FullTransactionId			full_xid;
 	bool						found;
 

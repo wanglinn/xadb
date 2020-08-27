@@ -231,7 +231,7 @@ extern void UnsetGlobalTransactionId(void);
 extern void SetForceObtainXidFromAGTM(bool val);
 extern FullTransactionId GetNewGlobalTransactionId(int level);
 extern int TransactionLogFetch(TransactionId transactionId);
-extern FullTransactionId GetNewTransactionIdExt(bool isSubXact, int num, bool isInsertXact, bool GxidInsert);
+extern FullTransactionId GetNewTransactionIdExt(bool isSubXact, int xidnum, bool isInsertXact, bool GxidInsert);
 #endif
 extern FullTransactionId GetNewTransactionId(bool isSubXact);
 extern void AdvanceNextFullTransactionIdPastXid(TransactionId xid);
