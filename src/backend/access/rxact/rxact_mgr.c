@@ -41,9 +41,6 @@
 #include <sys/select.h>
 #endif
 
-#ifdef USE_AGTM
-#define AGTM_OID			OID_MAX
-#endif	/* USE_AGTM */
 #define RETRY_TIME			1	/* 1 second */
 #define EXIT_MINIMUM_NUMBER		2	/* The minimum number of events that Rxact can exit */
 #define MAX_RXACT_BUF_SIZE	4096
@@ -145,10 +142,6 @@ static int getNodeConnPos(NodeConn *checkCoon);
 
 static XLogRecPtr last_flush = 0;
 static XLogRecPtr need_flush = 0;
-
-extern char	*AGtmHost;
-extern int	AGtmPort;
-extern bool enableFsync;
 
 static HTAB *htab_remote_node = NULL;	/* RemoteNode */
 static HTAB *htab_db_node = NULL;		/* DatabaseNode */
@@ -445,27 +438,6 @@ static void RxactLoop(void)
 				AddRxactEventToSet(rxact_wait_event_set, T_Event_Node, PQsocket(pconn->conn), wait_write ? WL_SOCKET_WRITEABLE:WL_SOCKET_READABLE, pconn);
 		}
 
-#ifdef USE_AGTM
-		if(got_SIGHUP)
-		{
-			DbAndNodeOid key;
-
-			key.db_oid = InvalidOid;
-			key.node_oid = AGTM_OID;
-			pconn = hash_search(htab_node_conn, &key, HASH_FIND, NULL);
-			Assert(pconn != NULL);
-			ProcessConfigFile(PGC_SIGHUP);
-			got_SIGHUP = false;
-			if(pconn->conn != NULL
-				&& (strcmp(PQhost(pconn->conn), AGtmHost) != 0
-					|| atoi(PQport(pconn->conn)) != AGtmPort))
-			{
-				rxact_finish_node_conn(pconn);
-				continue;
-			}
-		}
-#endif	/* USE_AGTM */
-
 		/* wait event  nevents */
 		nevents = WaitEventSetWaitSignal(rxact_wait_event_set,
 								   waiting_time, //-1L or 1000,
@@ -577,10 +549,6 @@ static void RemoteXactMgrInit(void)
 static void RemoteXactHtabInit(void)
 {
 	HASHCTL hctl;
-#ifdef USE_AGTM
-	DbAndNodeOid key;
-	NodeConn *pconn;
-#endif	/* USE_AGTM */
 
 	/* create HTAB for RemoteNode */
 	Assert(htab_remote_node == NULL);
@@ -614,17 +582,6 @@ static void RemoteXactHtabInit(void)
 	htab_node_conn = hash_create("DatabaseNode"
 		, 64
 		, &hctl, HASH_ELEM | HASH_FUNCTION | HASH_COMPARE | HASH_CONTEXT);
-
-#ifdef USE_AGTM
-	/* insert AGTM node */
-	key.db_oid = InvalidOid;
-	key.node_oid = AGTM_OID;
-	pconn =  hash_search(htab_node_conn, &key, HASH_ENTER, NULL);
-	Assert(pconn != NULL);
-	pconn->conn = NULL;
-	pconn->status = PGRES_POLLING_FAILED;
-	pconn->doing_gid[0] = '\0';
-#endif	/* USE_AGTM */
 
 	/* create HTAB for RxactTransactionInfo */
 	Assert(htab_rxid == NULL);
@@ -828,17 +785,9 @@ static void RxactSaveLog(bool flush)
 	{
 		rxact_log_write_string(rlog, rinfo->gid);
 		rxact_log_write_bytes(rlog, &(rinfo->db_oid), sizeof(rinfo->db_oid));
-#ifdef USE_AGTM
-		/* don't need save AGTM OID */
-		rxact_log_write_int(rlog, rinfo->count_nodes-1);
-		Assert(rinfo->remote_nodes[rinfo->count_nodes-1] == AGTM_OID);
-		rxact_log_write_bytes(rlog, rinfo->remote_nodes
-			, sizeof(rinfo->remote_nodes[0]) * (rinfo->count_nodes-1));
-#else
 		rxact_log_write_int(rlog, rinfo->count_nodes);
 		rxact_log_write_bytes(rlog, rinfo->remote_nodes
 			, sizeof(rinfo->remote_nodes[0]) * (rinfo->count_nodes));
-#endif	/* USE_AGTM */
 		rxact_log_write_byte(rlog, (char)(rinfo->type));
 		if(rinfo->type == RX_AUTO)
 			rxact_log_write_bytes(rlog, &rinfo->auto_tid, sizeof(rinfo->auto_tid));
@@ -1401,23 +1350,12 @@ static void rxact_agent_get_running(RxactAgent *agent)
 	{
 		rxact_put_string(&buf, info->gid, false);
 		rxact_put_int(&buf, info->count_nodes, false);
-#ifdef USE_AGTM
-		Assert(info->remote_nodes[info->count_nodes-1] == AGTM_OID);
-		if(info->count_nodes > 1)
-		{
-			StaticAssertStmt(sizeof(oid) == sizeof(info->remote_nodes[0]), "change oid type");
-			rxact_put_bytes(&buf, info->remote_nodes
-				, sizeof(info->remote_nodes[0]) * (info->count_nodes-1), false);
-		}
-		rxact_put_bytes(&buf, &oid, sizeof(oid), false);
-#else
 		if(info->count_nodes > 0)
 		{
 			StaticAssertStmt(sizeof(oid) == sizeof(info->remote_nodes[0]), "change oid type");
 			rxact_put_bytes(&buf, info->remote_nodes
 				, sizeof(info->remote_nodes[0]) * (info->count_nodes), false);
 		}
-#endif	/* USE_AGTM */
 		rxact_put_bytes(&buf, info->remote_success
 			, sizeof(info->remote_success[0]) * info->count_nodes, false);
 		StaticAssertStmt(sizeof(info->db_oid) == sizeof(int), "change code off get");
@@ -1605,14 +1543,8 @@ rxact_insert_gid(const char *gid, const Oid *oids, int count, RemoteXactType typ
 				, (sizeof(Oid)+sizeof(bool))*(count+1));
 		if(count > 0)
 			memcpy(rinfo->remote_nodes, oids, sizeof(Oid)*(count));
-#ifdef USE_AGTM
-		rinfo->remote_nodes[count] = AGTM_OID;
-		rinfo->remote_success = (bool*)(&rinfo->remote_nodes[count+1]);
-		rinfo->count_nodes = count+1;
-#else
 		rinfo->remote_success = (bool*)(&rinfo->remote_nodes[count]);
 		rinfo->count_nodes = count;
-#endif	/* USE_AGTM */
 
 		rinfo->type = type;
 		rinfo->failed = is_redo;
@@ -1794,13 +1726,9 @@ static void rxact_2pc_do(void)
 	int i;
 	bool cmd_is_ok;
 	bool wait_block = true;
-#ifdef USE_AGTM
-	bool node_is_ok;	/* except AGTM nodes is ok? */
-#endif	/* USE_AGTM */
 
 	hash_seq_init(&hstatus, htab_rxid);
 	buf.data = NULL;
-	/*all_finish = true;*/
 	while((rinfo = hash_seq_search(&hstatus)) != NULL)
 	{
 #ifdef ADB_EXT
@@ -1816,19 +1744,6 @@ static void rxact_2pc_do(void)
 #endif /* ADB_EXT */
 		if(rinfo->failed == false)
 			continue;
-
-#ifdef USE_AGTM
-		node_is_ok = true;
-		for(i=0;i<rinfo->count_nodes;++i)
-		{
-			if(rinfo->remote_success[i] == false
-				&& rinfo->remote_nodes[i] != AGTM_OID)
-			{
-				node_is_ok = false;
-				break;
-			}
-		}
-#endif	/* USE_AGTM */
 
 		if (rinfo->type == RX_AUTO)
 		{
@@ -1849,12 +1764,6 @@ static void rxact_2pc_do(void)
 			/* skip successed node */
 			if(rinfo->remote_success[i])
 				continue;
-
-#ifdef USE_AGTM
-			/* we first finish except AGTM nodes */
-			if(rinfo->remote_nodes[i] == AGTM_OID && node_is_ok == false)
-				continue;
-#endif	/* USE_AGTM */
 
 			/* get node connection, skip if not connectiond */
 			node_conn = rxact_get_node_conn(rinfo->db_oid, rinfo->remote_nodes[i], time(NULL));
@@ -1893,8 +1802,6 @@ static void rxact_2pc_do(void)
 	else
 		waiting_time = 1000L;
 
-	/*if(all_finish == true)
-		rxact_has_filed_gid = false;*/
 	if(buf.data)
 		pfree(buf.data);
 }
@@ -1932,11 +1839,7 @@ static void rxact_2pc_result(NodeConn *conn)
 				, "success")));
 	rinfo = hash_search(htab_rxid, gid, HASH_FIND, NULL);
 	Assert(rinfo != NULL && rinfo->failed == true);
-#ifdef USE_AGTM
-	Assert(conn->oids.node_oid == AGTM_OID || conn->oids.db_oid == rinfo->db_oid);
-#else
 	Assert(conn->oids.db_oid == rinfo->db_oid);
-#endif	/* USE_AGTM */
 	finish = true;
 	for(i=0;i<rinfo->count_nodes;++i)
 	{
@@ -1986,30 +1889,18 @@ static NodeConn* rxact_get_node_conn(Oid db_oid, Oid node_oid, time_t cur_time)
 	bool found;
 
 	key.node_oid = node_oid;
-#ifdef USE_AGTM
-	if(node_oid == AGTM_OID)
-		key.db_oid = InvalidOid;
-	else
-#endif	/* USE_AGTM */
-		key.db_oid = db_oid;
+	key.db_oid = db_oid;
 
 	conn = hash_search(htab_node_conn, &key, HASH_ENTER, &found);
 	if(!found)
 	{
-#ifdef USE_AGTM		
-		Assert(node_oid != AGTM_OID);
-#endif	/* USE_AGTM */
 		conn->conn = NULL;
 		conn->last_use = 0;
 		conn->status = PGRES_POLLING_FAILED;
 		conn->doing_gid[0] = '\0';
 	}
 	Assert(conn && conn->oids.node_oid == node_oid);
-#ifdef USE_AGTM	
-	Assert(conn->oids.db_oid == db_oid || (conn->oids.db_oid == InvalidOid && node_oid == AGTM_OID));
-#else
 	Assert(conn->oids.db_oid == db_oid);
-#endif	/* USE_AGTM */
 
 	if(conn->conn != NULL && PQstatus(conn->conn) == CONNECTION_BAD)
 		rxact_finish_node_conn(conn);
@@ -2018,31 +1909,20 @@ static NodeConn* rxact_get_node_conn(Oid db_oid, Oid node_oid, time_t cur_time)
 		conn->last_use = (time_t)0;
 	if(conn->conn == NULL && conn->last_use < cur_time)
 	{
-		StringInfoData buf;
+		RemoteNode	   *rnode;
+		DatabaseNode   *dnode;
+		StringInfoData	buf;
 		buf.data = NULL;
+
 		/* connection to remote node */
-#ifdef USE_AGTM			
-		if(node_oid == AGTM_OID)
+		rnode = hash_search(htab_remote_node, &node_oid, HASH_FIND, NULL);
+		dnode = hash_search(htab_db_node, &db_oid, HASH_FIND, NULL);
+		if(rnode && dnode)
 		{
 			initStringInfo(&buf);
-			appendStringInfo(&buf, "host='%s' port=%u", AGtmHost, AGtmPort);
-			appendStringInfoString(&buf, " user='" AGTM_USER "'"
-									" dbname='" AGTM_DBNAME "'");
-		}else
-#endif	/* USE_AGTM */
-		{
-			RemoteNode *rnode;
-			DatabaseNode *dnode;
-
-			rnode = hash_search(htab_remote_node, &node_oid, HASH_FIND, NULL);
-			dnode = hash_search(htab_db_node, &db_oid, HASH_FIND, NULL);
-			if(rnode && dnode)
-			{
-				initStringInfo(&buf);
-				appendStringInfo(&buf, "host='%s' port=%u user='%s' dbname='%s'"
-					,rnode->nodeHost, rnode->nodePort, dnode->owner, dnode->dbname);
-				appendStringInfoString(&buf, " options='-c remotetype=rxactmgr'");
-			}
+			appendStringInfo(&buf, "host='%s' port=%u user='%s' dbname='%s'"
+				,rnode->nodeHost, rnode->nodePort, dnode->owner, dnode->dbname);
+			appendStringInfoString(&buf, " options='-c remotetype=rxactmgr'");
 		}
 		if(buf.data)
 		{
@@ -2155,12 +2035,8 @@ static void rxact_close_timeout_remote_conn(time_t cur_time)
 		{
 			rxact_finish_node_conn(node_conn);
 		}
-		if(hint == false
-			&& node_conn->conn == NULL
-#ifdef USE_AGTM
-			&& node_conn->oids.node_oid != AGTM_OID
-#endif	/* USE_AGTM */
-			)
+		if (hint == false &&
+			node_conn->conn == NULL)
 		{
 			key = node_conn->oids;
 			hint = true;
@@ -2168,9 +2044,6 @@ static void rxact_close_timeout_remote_conn(time_t cur_time)
 	}
 	if(hint)
 	{
-#ifdef USE_AGTM
-		Assert(key.node_oid != AGTM_OID);
-#endif	/* USE_AGTM */
 		hash_search(htab_node_conn, &key, HASH_REMOVE, NULL);
 	}
 }
@@ -2202,7 +2075,6 @@ static void rxact_xlog_insert(char *data, int len, uint8 info)
 	Assert(xptr > last_flush);
 	/* Last position */
 	last_flush = xptr;	
-	//Assert(need_flush == 0);
 	if(!need_flush)
 		need_flush = xptr;
 }
