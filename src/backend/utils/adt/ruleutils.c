@@ -5994,7 +5994,7 @@ get_basic_select_query(Query *query, deparse_context *context,
  * ----------
  */
 static void
- get_target_list(List *targetList, deparse_context *context,
+get_target_list(List *targetList, deparse_context *context,
 				TupleDesc resultDesc)
 {
 	StringInfo	buf = context->buf;
