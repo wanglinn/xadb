@@ -293,6 +293,9 @@ static void appendReloptionsArrayAH(PQExpBuffer buffer, const char *reloptions,
 static char *get_synchronized_snapshot(Archive *fout);
 static void setupDumpWorker(Archive *AHX);
 static TableInfo *getRootTableInfo(TableInfo *tbinfo);
+#ifdef ADB_MULTI_GRAM
+static int get_grammar_model(const char* data);
+#endif /* ADB_MULTI_GRAM */
 #ifdef MGR_DUMP
 static void dumpAdbmgrTable(Archive *fout);
 static char *respacechr(char *str,char chr, char *strr);
@@ -3465,6 +3468,44 @@ dumpBlob(Archive *fout, BlobInfo *binfo)
 	destroyPQExpBuffer(cquery);
 	destroyPQExpBuffer(dquery);
 }
+
+#ifdef ADB_MULTI_GRAM
+/*check the grammar model from data ,meanwhile return 
+* the length of the grammar module.
+*
+* return 0 if no grammar signal.
+*/
+
+static int 
+get_grammar_model(const char* data)
+{
+	int length;
+
+	length = 0;
+	/*skip space */
+	while(isspace(data[length]))
+	{
+		length++;
+	}
+
+	if(data[length] == '/' && data[length+1] == '*')
+	{
+		length = length + 2;
+		while(data[length +1 ] != 0 && !(data[length] == '*' && data[length+1] == '/'))
+		{
+			length++;
+		}
+
+		if(data[length + 1] == 0)
+			return 0;
+		else
+			return length+2;
+		
+	}
+	else
+		return 0;
+}
+#endif /* ADB_MULTI_GRAM */
 
 /*
  * dumpBlobs:
@@ -17670,6 +17711,9 @@ dumpRule(Archive *fout, RuleInfo *rinfo)
 	char	   *qtabname;
 	PGresult   *res;
 	char	   *tag;
+	#ifdef ADB_MULTI_GRAM
+	int 		length;
+	#endif /* ADB_MULTI_GRAM */
 
 	/* Skip if not to be dumped */
 	if (!rinfo->dobj.dump || dopt->dataOnly)
@@ -17698,11 +17742,18 @@ dumpRule(Archive *fout, RuleInfo *rinfo)
 	if (is_view)
 	{
 		PQExpBuffer result;
+		result = createViewAsClause(fout, tbinfo);
 
 		/*
 		 * We need OR REPLACE here because we'll be replacing a dummy view.
 		 * Otherwise this should look largely like the regular view dump code.
 		 */
+		#ifdef ADB_MULTI_GRAM							
+		if((length = get_grammar_model(result->data)) != 0)
+		{
+			appendBinaryPQExpBuffer(cmd,result->data,length);
+		}
+		#endif /* ADB_MULTI_GRAM */
 		appendPQExpBuffer(cmd, "CREATE OR REPLACE VIEW %s",
 						  fmtQualifiedDumpable(tbinfo));
 		if (nonemptyReloptions(tbinfo->reloptions))
@@ -17711,8 +17762,15 @@ dumpRule(Archive *fout, RuleInfo *rinfo)
 			appendReloptionsArrayAH(cmd, tbinfo->reloptions, "", fout);
 			appendPQExpBufferChar(cmd, ')');
 		}
-		result = createViewAsClause(fout, tbinfo);
-		appendPQExpBuffer(cmd, " AS\n%s", result->data);
+
+		#ifdef ADB_MULTI_GRAM
+		if(length != 0)
+		{
+			appendPQExpBuffer(cmd, " AS\n%s", result->data + length);
+		}
+		else
+			#endif /* ADB_MULTI_GRAM */
+		appendPQExpBuffer(cmd, " AS\n%s", result->data);		
 		destroyPQExpBuffer(result);
 		if (tbinfo->checkoption != NULL)
 			appendPQExpBuffer(cmd, "\n  WITH %s CHECK OPTION",
