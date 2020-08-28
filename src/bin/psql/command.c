@@ -153,6 +153,9 @@ static bool lookup_object_oid(EditableObjectType obj_type, const char *desc,
 							  Oid *obj_oid);
 static bool get_create_object_cmd(EditableObjectType obj_type, Oid oid,
 								  PQExpBuffer buf);
+#ifdef ADB_MULTI_GRAM
+static int get_grammar_model(const char* data);
+#endif /* ADB_MULTI_GRAM */
 static int	strip_lineno_from_objdesc(char *obj);
 static int	count_lines_in_buf(PQExpBuffer buf);
 static void print_with_linenumbers(FILE *output, char *lines,
@@ -4733,6 +4736,10 @@ get_create_object_cmd(EditableObjectType obj_type, Oid oid,
 					char	   *reloptions = PQgetvalue(res, 0, 4);
 					char	   *checkoption = PQgetvalue(res, 0, 5);
 
+#ifdef ADB_MULTI_GRAM			
+					int			length = 0;
+#endif /* ADB_MULTI_GRAM */	
+
 					/*
 					 * If the backend ever supports CREATE OR REPLACE
 					 * MATERIALIZED VIEW, allow that here; but as of today it
@@ -4747,6 +4754,13 @@ get_create_object_cmd(EditableObjectType obj_type, Oid oid,
 							break;
 #endif
 						case RELKIND_VIEW:
+#ifdef ADB_MULTI_GRAM							
+							if((length = get_grammar_model(viewdef)) != 0)
+							{
+								appendBinaryPQExpBuffer(buf,viewdef,length);
+							}
+#endif /* ADB_MULTI_GRAM */
+
 							appendPQExpBufferStr(buf, "CREATE OR REPLACE VIEW ");
 							break;
 						default:
@@ -4773,6 +4787,13 @@ get_create_object_cmd(EditableObjectType obj_type, Oid oid,
 					}
 
 					/* View definition from pg_get_viewdef (a SELECT query) */
+#ifdef ADB_MULTI_GRAM
+					if(length != 0)
+					{
+						appendPQExpBuffer(buf, " AS\n%s", viewdef + length);
+					}
+					else
+#endif /* ADB_MULTI_GRAM */
 					appendPQExpBuffer(buf, " AS\n%s", viewdef);
 
 					/* Get rid of the semicolon that pg_get_viewdef appends */
@@ -4801,6 +4822,45 @@ get_create_object_cmd(EditableObjectType obj_type, Oid oid,
 
 	return result;
 }
+
+#ifdef ADB_MULTI_GRAM
+/*check the grammar model from data ,meanwhile return 
+* the length of the grammar module.
+*
+* return 0 if no grammar signal.
+*/
+
+static int 
+get_grammar_model(const char* data)
+{
+	int length;
+
+	length = 0;
+	/*skip space */
+	while(isspace(data[length]))
+	{
+		length++;
+	}
+
+	if(data[length] == '/' && data[length+1] == '*')
+	{
+		length = length + 2;
+		while(data[length +1 ] != 0 && !(data[length] == '*' && data[length+1] == '/'))
+		{
+			length++;
+		}
+
+		if(data[length + 1] == 0)
+			return 0;
+		else
+			return length+2;
+		
+	}
+	else
+		return 0;
+}
+#endif /* ADB_MULTI_GRAM */
+
 
 /*
  * If the given argument of \ef or \ev ends with a line number, delete the line
