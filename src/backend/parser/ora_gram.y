@@ -8512,6 +8512,7 @@ unreserved_keyword:
 	| FUNCTION
 	| GLOBAL
 	| HOLD
+	| HOUR_P
 	| IDENTITY_P
 	| IF_P
 	| INDEX
