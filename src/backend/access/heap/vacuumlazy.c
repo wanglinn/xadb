@@ -719,8 +719,7 @@ heap_vacuum_rel(Relation onerel, VacuumParams *params,
 	new_min_multi = scanned_all_unfrozen ? MultiXactCutoff : InvalidMultiXactId;
 
 #ifdef ADB
-	if (!IsToastRelation(onerel) && (onerel->rd_locator_info != NULL ||
-		 onerel->rd_rel->relkind == RELKIND_MATVIEW))
+	if (!IsToastRelation(onerel) && (onerel->rd_locator_info != NULL))
 	{
 		if (IsCnMaster() && !IsConnFromCoord())
 		{
