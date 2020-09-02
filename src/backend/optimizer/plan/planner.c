@@ -6151,6 +6151,7 @@ create_distinct_paths(PlannerInfo *root,
 		List *storage_list;
 		List *exclude_list;
 		PlannerGlobal *glob = root->glob;
+		bool doing_parallel = false;
 		Assert(distinctExprs != NIL);
 
 		dcontext.can_hash = grouping_is_hashable(parse->distinctClause);
@@ -6158,7 +6159,8 @@ create_distinct_paths(PlannerInfo *root,
 		/* when can sort don't need set needed_pathkeys again */
 		Assert(dcontext.can_sort || dcontext.can_hash);
 
-		foreach(lc, input_rel->cluster_pathlist)
+re_loop_:
+		foreach(lc, doing_parallel ? input_rel->cluster_partial_pathlist : input_rel->cluster_pathlist)
 		{
 			List	   *save_pathlist;
 			List	   *new_pathlist;
@@ -6171,11 +6173,22 @@ create_distinct_paths(PlannerInfo *root,
 			ReduceInfoListGetStorageAndExcludeOidList(reduce_list, &storage_list, &exclude_list);
 
 			/* echo node distinct first */
-			save_pathlist = distinct_rel->cluster_pathlist;
-			distinct_rel->cluster_pathlist = NIL;
-			create_cluster_distinct_path(root, path, &dcontext);
-			new_pathlist = distinct_rel->cluster_pathlist;
-			distinct_rel->cluster_pathlist = save_pathlist;
+			if (doing_parallel)
+			{
+				save_pathlist = distinct_rel->cluster_partial_pathlist;
+				distinct_rel->cluster_partial_pathlist = NIL;
+				create_cluster_distinct_path(root, path, &dcontext);
+				new_pathlist = distinct_rel->cluster_partial_pathlist;
+				distinct_rel->cluster_partial_pathlist = save_pathlist;
+			}
+			else
+			{
+				save_pathlist = distinct_rel->cluster_pathlist;
+				distinct_rel->cluster_pathlist = NIL;
+				create_cluster_distinct_path(root, path, &dcontext);
+				new_pathlist = distinct_rel->cluster_pathlist;
+				distinct_rel->cluster_pathlist = save_pathlist;
+			}
 
 			new_pathlist = lappend(new_pathlist, path);
 
@@ -6212,6 +6225,11 @@ create_distinct_paths(PlannerInfo *root,
 			list_free(storage_list);
 			list_free(exclude_list);
 			list_free(new_pathlist);
+			if (doing_parallel == false)
+			{
+				doing_parallel = true;
+				goto re_loop_;
+			}
 		}
 	}
 #endif /* ADB */
