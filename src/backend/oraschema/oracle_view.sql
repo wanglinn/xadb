@@ -261,7 +261,7 @@ CREATE OR REPLACE FUNCTION oracle.raise_application_error(error_number int, erro
     END;
     $$
     LANGUAGE plpgsql
-    IMMUTABLE
+    IMMUTABLE PARALLEL SAFE
     STRICT;
 
 GRANT EXECUTE   ON FUNCTION  oracle.raise_application_error  TO PUBLIC;

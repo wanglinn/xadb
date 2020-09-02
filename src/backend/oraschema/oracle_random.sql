@@ -14,7 +14,7 @@ CREATE OR REPLACE FUNCTION dbms_random.initialize(int)
     RETURNS void
     AS 'dbms_random_initialize'
     LANGUAGE INTERNAL
-    IMMUTABLE
+    IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
     STRICT;
 COMMENT ON FUNCTION dbms_random.initialize(int) IS 'Initialize package with a seed value';
@@ -39,7 +39,7 @@ CREATE OR REPLACE FUNCTION dbms_random.seed(integer)
     RETURNS void
     AS 'dbms_random_seed_int'
     LANGUAGE INTERNAL
-    IMMUTABLE
+    IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
     STRICT;
 COMMENT ON FUNCTION dbms_random.seed(int) IS 'Reset the seed value';
@@ -48,7 +48,7 @@ CREATE OR REPLACE FUNCTION dbms_random.seed(text)
     RETURNS void
     AS 'dbms_random_seed_varchar'
     LANGUAGE INTERNAL
-    IMMUTABLE
+    IMMUTABLE PARALLEL SAFE
 --ADBONLY CLUSTER SAFE
     STRICT;
 COMMENT ON FUNCTION dbms_random.seed(text) IS 'Reset the seed value';
@@ -58,7 +58,7 @@ CREATE OR REPLACE FUNCTION dbms_random.string(opt text, len int)
     AS 'dbms_random_string'
     LANGUAGE INTERNAL
 --ADBONLY CLUSTER SAFE
-    IMMUTABLE;
+    IMMUTABLE PARALLEL SAFE;
 COMMENT ON FUNCTION dbms_random.string(text,int) IS 'Create Random Strings';
 
 CREATE OR REPLACE FUNCTION dbms_random.terminate()
@@ -66,7 +66,7 @@ CREATE OR REPLACE FUNCTION dbms_random.terminate()
     AS 'dbms_random_terminate'
     LANGUAGE INTERNAL
 --ADBONLY CLUSTER SAFE
-    IMMUTABLE;
+    IMMUTABLE PARALLEL SAFE;
 COMMENT ON FUNCTION dbms_random.terminate() IS 'Terminate use of the Package';
 
 CREATE OR REPLACE FUNCTION dbms_random.value(low double precision, high double precision)
