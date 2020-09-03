@@ -1625,7 +1625,9 @@ selectDumpableNamespace(NamespaceInfo *nsinfo, Archive *fout)
 #ifdef ADB_GRAM_ORA
 			 (strcmp(nsinfo->dobj.name, "pg_catalog") == 0 ||
 			  strcmp(nsinfo->dobj.name, "oracle") == 0 ||
-			  strcmp(nsinfo->dobj.name, "dbms_random") == 0))
+			  strcmp(nsinfo->dobj.name, "dbms_random") == 0 ||
+			  strcmp(nsinfo->dobj.name, "dbms_lock") == 0 ||
+			  strcmp(nsinfo->dobj.name, "dbms_output") == 0 ))
 #else
 			 strcmp(nsinfo->dobj.name, "pg_catalog") == 0)
 #endif
@@ -1641,6 +1643,8 @@ selectDumpableNamespace(NamespaceInfo *nsinfo, Archive *fout)
 #ifdef ADB_GRAM_ORA
 			 strcmp(nsinfo->dobj.name, "oracle") == 0 ||
 			 strcmp(nsinfo->dobj.name, "dbms_random") == 0 ||
+			 strcmp(nsinfo->dobj.name, "dbms_lock") == 0 ||
+			 strcmp(nsinfo->dobj.name, "dbms_output") == 0 ||
 #endif
 			 strcmp(nsinfo->dobj.name, "information_schema") == 0)
 	{
