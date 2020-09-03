@@ -2298,6 +2298,25 @@ transformIndexConstraints(CreateStmtContext *cxt)
 	{
 		index = (IndexStmt *) lfirst(lc);
 
+	#ifdef USE_SEQ_ROWID
+		if(index)
+		{
+			ListCell	*indexlc;
+			foreach(indexlc, index->indexParams)
+			{
+				IndexElem  *attribute = (IndexElem *) lfirst_node(IndexElem,indexlc);
+
+				if ((strcmp(attribute->name,"rowid") == 0) && !default_with_rowids)
+				{
+					break;
+				}
+			}
+
+			if(indexlc != NULL)
+				continue;
+		}
+	#endif // USE_SEQ_ROWID
+
 		if (index->primary)
 		{
 			if (cxt->pkey != NULL)
