@@ -162,6 +162,7 @@ Plan* MakeEmptyResultPlan(Plan *from)
 	case T_Agg:
 	case T_SeqScan:
 	case T_TidScan:
+	case T_BitmapHeapScan:
 		break;
 	case T_IndexScan:
 		{
