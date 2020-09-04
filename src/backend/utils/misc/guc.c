@@ -120,6 +120,7 @@
 #endif /* ADBMGRD */
 #ifdef ADB_EXT
 extern bool enable_batch_hash;	/* in planner.c */
+extern bool planner_evaluate_stable_expr; /* in planner.c */
 extern bool enable_batch_sort;	/* in costsize.c */
 #endif /* ADB_EXT */
 
@@ -1528,6 +1529,15 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&enable_batch_sort,
+		false,
+		NULL, NULL, NULL
+	},
+	{
+		{"planner_evaluate_stable_expr", PGC_USERSET, QUERY_TUNING_OTHER,
+			gettext_noop("evaluate stable expression in planner"),
+			NULL
+		},
+		&planner_evaluate_stable_expr,
 		false,
 		NULL, NULL, NULL
 	},

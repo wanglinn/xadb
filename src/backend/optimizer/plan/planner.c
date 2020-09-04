@@ -86,6 +86,9 @@
 double		cursor_tuple_fraction = DEFAULT_CURSOR_TUPLE_FRACTION;
 int			force_parallel_mode = FORCE_PARALLEL_OFF;
 bool		parallel_leader_participation = true;
+#ifdef ADB_EXT
+bool		planner_evaluate_stable_expr = false;
+#endif /* ADB_EXT */
 #ifdef ADB
 extern bool enable_cluster_plan;
 extern bool enable_coordinator_calculate; /* GUC in guc.c */
@@ -1372,6 +1375,11 @@ preprocess_expression(PlannerInfo *root, Node *expr, int kind)
 	 * careful to maintain AND/OR flatness --- that is, do not generate a tree
 	 * with AND directly under AND, nor OR directly under OR.
 	 */
+#ifdef ADB_EXT
+	if (planner_evaluate_stable_expr)
+		expr = estimate_expression_value(root, expr);
+	else
+#endif /* ADB_EXT */
 	expr = eval_const_expressions(root, expr);
 
 	/*
