@@ -2167,25 +2167,6 @@ BuildTupleFromCStrings(AttInMetadata *attinmeta, char **values)
 	return tuple;
 }
 
-//called by pgvalueslot
-Datum
-BuildFieldFromCStrings(AttInMetadata *attinmeta, char *value, int fieldnum)
-{
-	TupleDesc	tupdesc = attinmeta->tupdesc;
-	Datum	   	dvalue;
-	int			index;
-
-	index = fieldnum - 1;
-	Assert(TupleDescAttr(tupdesc ,index)->attisdropped);
-
-	dvalue = (Datum) palloc(sizeof(Datum));
-	dvalue = InputFunctionCall(&attinmeta->attinfuncs[index],
-										   value,
-										   attinmeta->attioparams[index],
-										   attinmeta->atttypmods[index]);
-	return dvalue;
-}
-
 /*
  * HeapTupleHeaderGetDatum - convert a HeapTupleHeader pointer to a Datum.
  *
