@@ -111,18 +111,20 @@ typedef struct SnapSendXidListItem
 typedef struct ClientHashItemInfo
 {
 	char			client_name[NAMEDATALEN];
-	int				xcnt;
-	slist_head		assgin_xid_list; 		/* xiditem list */
+	uint32			xcnt;
+	uint32			xcnt_max;
+	TransactionId	*assgin_xid_array;
 }ClientHashItemInfo;
 
 /* item in  slist_client */
+/*
 typedef struct ClientXidItemInfo
 {
 	slist_node		snode;
 	TransactionId	xid;
 	int				procno;
-	TimestampTz		ft; /* finish time*/
-}ClientXidItemInfo;
+	TimestampTz		ft;
+}ClientXidItemInfo;*/
 
 typedef struct SnapClientData
 {
@@ -218,7 +220,6 @@ static const WaitEventData ListenEventData = {OnListenEvent};
 static void SnapSendCheckTimeoutSocket(void);
 static void snapsender_create_xid_htab(void);
 static int	snapsender_match_xid(const void *key1, const void *key2, Size keysize);
-static bool SnapSenderWakeupFinishXidEvent(TransactionId txid);
 static void snapsenderProcessLocalMaxXid(SnapClientData *client);
 static void snapsenderUpdateNextXid(TransactionId xid, SnapClientData *exclue_client);
 static void SnapSenderSigHupHandler(SIGNAL_ARGS);
@@ -250,6 +251,45 @@ static void SnapSenderDie(int code, Datum arg)
 	SnapSenderFreeXidArray(SNAPSENDER_XID_ARRAY_XACT2P);
 	SnapSenderFreeXidArray(SNAPSENDER_XID_ARRAY_ASSIGN);
 	SnapSenderFreeXidArray(SNAPSENDER_XID_ARRAY_FINISH);
+}
+
+static void SnapSenderInitClientHashItem(ClientHashItemInfo *clientitem)
+{
+	clientitem->xcnt_max = XID_ARRAY_STEP_SIZE;
+	clientitem->xcnt = 0;
+	clientitem->assgin_xid_array = palloc0(sizeof(TransactionId) * clientitem->xcnt_max);
+	return;
+}
+
+static void SnapSenderClientHashItemAddXid(ClientHashItemInfo *clientitem, TransactionId xid)
+{
+	if (clientitem->xcnt == clientitem->xcnt_max)
+	{
+		clientitem->xcnt_max += XID_ARRAY_STEP_SIZE;
+		clientitem->assgin_xid_array = repalloc(clientitem->assgin_xid_array,
+					sizeof(TransactionId) * clientitem->xcnt_max);
+	}
+
+	Assert(clientitem->xcnt < clientitem->xcnt_max);
+	clientitem->assgin_xid_array[clientitem->xcnt++] = xid;
+}
+
+static void SnapSenderClientHashItemRemoveXid(ClientHashItemInfo *clientitem, TransactionId xid)
+{
+	int i;
+	int count = clientitem->xcnt;
+	for (i = 0 ;i < count; i++)
+	{
+		if (clientitem->assgin_xid_array[i] == xid)
+		{
+			memmove(&clientitem->assgin_xid_array[i],
+					&clientitem->assgin_xid_array[i+1],
+					(count-i-1) * sizeof(xid));
+			--clientitem->xcnt;
+			break;
+		}
+	}
+	clientitem->xcnt = count;
 }
 
 static void SnapSenderInitXidArray(SnapSenderXidArrayType ssxat)
@@ -498,89 +538,6 @@ static void snapsender_create_xid_htab(void)
 	hctl.hcxt = TopMemoryContext;
 	snapsender_xid_htab = hash_create("hash SnapsenderXid", 100,
 			&hctl, HASH_ELEM|HASH_FUNCTION|HASH_COMPARE|HASH_CONTEXT);
-}
-
-static bool SnapSenderWakeupFinishXidEvent(TransactionId txid)
-{
-	proclist_mutable_iter	iter;
-	PGPROC					*proc;
-
-	Assert(SnapSender != NULL);
-	SpinLockAcquire(&SnapSender->mutex);
-	if (SnapSender->procno == INVALID_PGPROCNO)
-	{
-		SpinLockRelease(&SnapSender->mutex);
-		return false;
-	}
-
-	proclist_foreach_modify(iter, &SnapSender->waiters_finish, GTMWaitLink)
-	{
-		proc = GetPGProcByNumber(iter.cur);
-		if (txid == proc->waitGlobalTransaction)
-		{
-			SetLatch(&proc->procLatch);
-			proclist_delete(&SnapSender->waiters_finish, proc->pgprocno, GTMWaitLink);
-		}
-	}
-
-	SpinLockRelease(&SnapSender->mutex);
-	return true;
-}
-
-static void snapsenderProcessXidFinishAck(SnapClientData *client)
-{
-	StringInfoData	msg;
-	TransactionId	txid;
-	XidClientHashItemInfo *info;
-	slist_mutable_iter siter;
-	ClientIdListItemInfo* clientitem;
-	SnapSendXidListItem* xiditem;
-	pgsocket socket_id;
-	bool found;
-
-	msg.data = input_buffer.data;
-	msg.len = msg.maxlen = input_buffer.len;
-	msg.cursor = input_buffer.cursor;
-	
-	socket_id = socket_pq_node(client->node);
-
-	while(msg.cursor < msg.len)
-	{
-		txid = pq_getmsgint(&msg, sizeof(txid));
-
-		info = hash_search(snapsender_xid_htab, &txid, HASH_FIND, &found);
-		if(found)
-		{
-			slist_foreach_modify(siter, &info->slist_client)
-			{
-				clientitem = slist_container(ClientIdListItemInfo, snode, siter.cur);
-				if (socket_id == clientitem->cleint_sockid)
-				{
-					slist_delete_current(&siter);
-					pfree(clientitem);
-				}
-			}
-			
-			slist_foreach_modify(siter, &client->slist_xid)
-			{
-				xiditem = slist_container(SnapSendXidListItem, snode, siter.cur);
-				if (xiditem->xid == txid)
-				{
-					slist_delete_current(&siter);
-					pfree(xiditem);
-				}
-			}
-
-			/* if slist is empty, all txid finish response received*/
-			if (slist_is_empty(&info->slist_client))
-			{
-				SnapSenderWakeupFinishXidEvent(txid);
-
-				/* remove empty txid hash item*/
-				hash_search(snapsender_xid_htab, &txid, HASH_REMOVE, &found);
-			}
-		}
-	}
 }
 
 static void snapsenderUpdateNextXidAllClient(TransactionId xid, SnapClientData *exclude_client)
@@ -1248,30 +1205,6 @@ static void SnapSenderDropXidItem(TransactionId xid)
 	SnapSender->xcnt = count;
 }
 
-/* must have lock gxid_mutex already */
-static bool SnapSenderDropXidClientItem(TransactionId xid, ClientHashItemInfo *clientitem)
-{
-	slist_mutable_iter	siter;
-	ClientXidItemInfo	*xiditem;
-	bool found = false;
-
-	slist_foreach_modify(siter, &clientitem->assgin_xid_list)
-	{
-		xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
-		if (xiditem->xid == xid)
-		{
-			found = true;
-			clientitem->xcnt--;
-			slist_delete(&clientitem->assgin_xid_list, &xiditem->snode);
-			pfree(xiditem);
-		}
-	}
-	//Assert(found);
-	Assert(clientitem->xcnt >= 0);
-
-	return found;
-}
-
 /* event handlers */
 static void OnLatchSetEvent(WaitEvent *event, time_t* time_last_latch)
 {
@@ -1409,47 +1342,6 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 	}
 }
 
-static void remove_hash_waiter(SnapClientData *client)
-{
-	slist_mutable_iter		siter;
-	slist_mutable_iter		siter2;
-	SnapSendXidListItem		*xiditem;
-	XidClientHashItemInfo	*info;
-	
-	ClientIdListItemInfo	*clientitem;
-	bool					found;
-	pgsocket fd = socket_pq_node(client->node);
-
-	slist_foreach_modify(siter, &client->slist_xid)
-	{
-		xiditem = slist_container(SnapSendXidListItem, snode, siter.cur);
-		info = hash_search(snapsender_xid_htab, &xiditem->xid, HASH_REMOVE, &found);
-		if(info)
-		{
-			slist_foreach_modify(siter2, &info->slist_client)
-			{
-				clientitem = slist_container(ClientIdListItemInfo, snode, siter2.cur);
-				if (clientitem->cleint_sockid == fd)
-				{
-					slist_delete_current(&siter2);
-					pfree(clientitem);
-				}
-			}
-
-			if (slist_is_empty(&info->slist_client))
-			{
-				/* remove empty txid hash item*/
-				hash_search(snapsender_xid_htab, &xiditem->xid, HASH_REMOVE, &found);
-			}
-		}
-
-		slist_delete_current(&siter);
-		pfree(xiditem);
-	}
-
-	return;
-}
-
 static void DropClient(SnapClientData *client, bool drop_in_slist)
 {
 	slist_iter siter;
@@ -1477,7 +1369,6 @@ static void DropClient(SnapClientData *client, bool drop_in_slist)
 	}
 
 	RemoveWaitEvent(wait_event_set, client->event_pos);
-	remove_hash_waiter(client);
 	
 	pq_node_close(client->node);
 	MemoryContextDelete(client->context);
@@ -1761,7 +1652,6 @@ static void SnapSenderProcessAssignGxid(SnapClientData *client)
 	TransactionId				xid;
 	TransactionId				*xid_array;
 	ClientHashItemInfo			*clientitem;
-	ClientXidItemInfo			*xiditem;
 	bool						found;
 
 	if (adb_check_sync_nextid)
@@ -1772,8 +1662,7 @@ static void SnapSenderProcessAssignGxid(SnapClientData *client)
 	{
 		MemSet(clientitem, 0, sizeof(*clientitem));
 		memcpy(clientitem->client_name, client->client_name, NAMEDATALEN);
-		slist_init(&(clientitem->assgin_xid_list));
-		clientitem->xcnt = 0;
+		SnapSenderInitClientHashItem(clientitem);
 	}
 
 	resetStringInfo(&output_buffer);
@@ -1796,12 +1685,7 @@ static void SnapSenderProcessAssignGxid(SnapClientData *client)
 		procno = pq_getmsgint(&input_buffer, sizeof(procno));
 		xid = GetNewTransactionIdExt(false, 1, false, false);
 
-		xiditem = palloc0(sizeof(*xiditem));
-		xiditem->procno = procno;
-		xiditem->xid = xid;
-		slist_push_head(&clientitem->assgin_xid_list, &xiditem->snode);
-		clientitem->xcnt++;
-
+		SnapSenderClientHashItemAddXid(clientitem, xid);
 		pq_sendint32(&output_buffer, procno);
 		pq_sendint32(&output_buffer, xid);
 
@@ -1829,7 +1713,6 @@ static void SnapSenderProcessPreAssignGxidArray(SnapClientData *client)
 {
 	TransactionId				xid, xidmax; 
 	ClientHashItemInfo			*clientitem;
-	ClientXidItemInfo			*xiditem;
 	bool						found;
 	int							i, xid_num;
 
@@ -1844,8 +1727,7 @@ static void SnapSenderProcessPreAssignGxidArray(SnapClientData *client)
 	{
 		MemSet(clientitem, 0, sizeof(*clientitem));
 		memcpy(clientitem->client_name, client->client_name, NAMEDATALEN);
-		clientitem->xcnt = 0;
-		slist_init(&clientitem->assgin_xid_list);
+		SnapSenderInitClientHashItem(clientitem);
 	}
 
 	resetStringInfo(&output_buffer);
@@ -1858,11 +1740,7 @@ static void SnapSenderProcessPreAssignGxidArray(SnapClientData *client)
 	for (i = 0; i < xid_num; i++)
 	{
 		xid = xidmax - xid_num + i + 1;
-		xiditem = palloc0(sizeof(ClientXidItemInfo));
-		xiditem->xid = xid;
-		xiditem->procno = 0;
-		slist_push_head(&clientitem->assgin_xid_list, &xiditem->snode);
-		clientitem->xcnt++;
+		SnapSenderClientHashItemAddXid(clientitem, xid);
 
 		SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_ASSIGN, xid);
 		pq_sendint32(&output_buffer, xid);
@@ -1940,7 +1818,7 @@ re_lock_:
 
 			SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_FINISH, xid);
 			SnapReleaseTransactionLocks(&SnapSender->comm_lock, xid);
-			SnapSenderDropXidClientItem(xid, clientitem);
+			SnapSenderClientHashItemRemoveXid(clientitem, xid);
 		}
 		SetLatch(&MyProc->procLatch);
 	}
@@ -1953,8 +1831,6 @@ re_lock_:
 
 static void SnapSenderDropXidList(ClientHashItemInfo *clientitem, TransactionId *cn_txids, int txids_count)
 {
-	slist_mutable_iter		siter;
-	ClientXidItemInfo		*xiditem;
 	TransactionId			*xids;
 	TransactionId			*xids_assign;
 	int						xids_assign_count;
@@ -1962,39 +1838,39 @@ static void SnapSenderDropXidList(ClientHashItemInfo *clientitem, TransactionId 
 	bool					found, array_found;
 	TransactionId			xid;
 
-	if (!slist_is_empty(&clientitem->assgin_xid_list))
+	if (clientitem->xcnt != 0)
 	{
 		xids = palloc0(clientitem->xcnt * sizeof(TransactionId));
 		i = 0;
 		count = 0;
 
-		if (!slist_is_empty( &clientitem->assgin_xid_list))
+		for (i = 0 ; i < clientitem->xcnt; i++)
 		{
-			SpinLockAcquire(&SnapSender->gxid_mutex);
-			slist_foreach_modify(siter, &clientitem->assgin_xid_list)
+			found = false;
+			xid = clientitem->assgin_xid_array[i];
+			for (index = 0 ;index < txids_count; index++)
 			{
-				found = false;
-				xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
-				for (index = 0 ;index < txids_count; index++)
+				if (xid == cn_txids[index])
 				{
-					if (xiditem->xid == cn_txids[index])
-					{
-						found = true;
-						break;
-					}
-				}
-
-				if (found == false)
-				{
-					clientitem->xcnt--;
-					xids[count++] = xiditem->xid;
-					slist_delete(&clientitem->assgin_xid_list, &xiditem->snode);
-					SnapSenderDropXidItem(xiditem->xid);
-					pfree(xiditem);
+					found = true;
+					break;
 				}
 			}
-			SpinLockRelease(&SnapSender->gxid_mutex);
+
+			if (found == false)
+			{
+				SnapSenderClientHashItemRemoveXid(clientitem, xid);
+				xids[count++] = xid;
+				//SnapSenderDropXidItem(xiditem->xid);
+			}
 		}
+		
+		SpinLockAcquire(&SnapSender->gxid_mutex);
+		for (i = 0; i < count; i++)
+		{
+			SnapSenderDropXidItem(xids[i]);
+		}
+		SpinLockRelease(&SnapSender->gxid_mutex);
 
 		for (i = 0; i < count; i++)
 		{
@@ -2006,19 +1882,19 @@ static void SnapSenderDropXidList(ClientHashItemInfo *clientitem, TransactionId 
 	}
 
 	xids_assign_count = 0;
-	if (txids_count > 0)
+	if (txids_count > 0 && clientitem->xcnt > 0)
 		xids_assign = palloc0(clientitem->xcnt * sizeof(txids_count));
 	else
 		xids_assign = NULL;
+	
 
 	for (index = 0 ;index < txids_count; index++)
 	{
 		found = false;
 		xid = cn_txids[index];
-		slist_foreach_modify(siter, &clientitem->assgin_xid_list)
+		for (i = 0 ; i < clientitem->xcnt; i++)
 		{
-			xiditem = slist_container(ClientXidItemInfo, snode, siter.cur);
-			if (xiditem->xid == xid)
+			if (clientitem->assgin_xid_array[i] == xid)
 			{
 				found = true;
 				break;
@@ -2028,12 +1904,7 @@ static void SnapSenderDropXidList(ClientHashItemInfo *clientitem, TransactionId 
 		/* can not found in assign list*/
 		if (found == false)
 		{
-			xiditem = palloc0(sizeof(*xiditem));
-			xiditem->procno = 0;
-			xiditem->xid = xid;
-			slist_push_head(&clientitem->assgin_xid_list, &xiditem->snode);
-			clientitem->xcnt++;
-
+			SnapSenderClientHashItemAddXid(clientitem, xid);
 			array_found = SnapSenderXidArrayIsExistXid(xid);
 			if (array_found == false)
 				xids_assign[xids_assign_count++] = xid;
@@ -2051,6 +1922,8 @@ static void SnapSenderDropXidList(ClientHashItemInfo *clientitem, TransactionId 
 		SetLatch(&MyProc->procLatch);
 		SpinLockRelease(&SnapSender->gxid_mutex);
 	}
+	if (xids_assign)
+		pfree(xids_assign);
 }
 
 static void SnapSenderClearOldXid(SnapClientData *client, TransactionId *cn_txids, int count)
@@ -2063,8 +1936,7 @@ static void SnapSenderClearOldXid(SnapClientData *client, TransactionId *cn_txid
 	{
 		MemSet(clientitem, 0, sizeof(*clientitem));
 		memcpy(clientitem->client_name, client->client_name, NAMEDATALEN);
-		slist_init(&(clientitem->assgin_xid_list));
-		clientitem->xcnt = 0;
+		SnapSenderInitClientHashItem(clientitem);
 	}
 
 	SnapSenderDropXidList(clientitem, cn_txids, count);
@@ -2260,10 +2132,6 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 				if (cmdtype == 'h')
 				{
 					snapsenderProcessHeartBeat(client);
-				}
-				else if (cmdtype == 'k')
-				{
-					snapsenderProcessXidFinishAck(client);
 				}
 				else if (cmdtype == 'u')
 				{
