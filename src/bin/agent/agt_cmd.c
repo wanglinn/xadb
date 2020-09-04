@@ -304,40 +304,44 @@ static bool parse_ping_node_msg(const StringInfo msg, Name host, Name port, Name
 	return true;
 }
 
+#define BUF_PING_STR_LEN 1024
 static int exec_ping_node(const char *host, const char *port, const char *user, const char *file_path, StringInfo err_msg)
 {
-	char conninfo[NAMEDATALEN + 1] = {0};
-	char editBuf[NAMEDATALEN + 1] = {0};
+	char conninfo[BUF_PING_STR_LEN] = {0};
+	char editBuf[BUF_PING_STR_LEN] = {0};
 	int retry;
 	int RETRY = 3;
 	int ret = -1;
 	if (host)
-		snprintf(editBuf, NAMEDATALEN, "host='%s' ", host);
+		snprintf(editBuf, BUF_PING_STR_LEN, "host='%s' ", host);
 	else
-		snprintf(editBuf, NAMEDATALEN, "host='%s' ", "127.0.0.1");
-	strncat(conninfo, editBuf, NAMEDATALEN);
+		snprintf(editBuf, BUF_PING_STR_LEN, "host='%s' ", "127.0.0.1");
+	strncat(conninfo, editBuf, BUF_PING_STR_LEN);
 
 	if (port)
 	{
-		snprintf(editBuf, NAMEDATALEN, "port=%d ", atoi(port));
-		strncat(conninfo, editBuf, NAMEDATALEN);
+		snprintf(editBuf, BUF_PING_STR_LEN, "port=%d ", atoi(port));
+		strncat(conninfo, editBuf, BUF_PING_STR_LEN);
 	}
 
 	if (user)
 	{
-		snprintf(editBuf, NAMEDATALEN, "user=%s ", user);
-		strncat(conninfo, editBuf, NAMEDATALEN);
+		snprintf(editBuf, BUF_PING_STR_LEN, "user=%s ", user);
+		strncat(conninfo, editBuf, BUF_PING_STR_LEN);
 	}
 	if (get_pgpid(file_path) == 0)
 		return PQPING_NO_RESPONSE;
 
 	/*timeout set 10s, when the cluster at high press, it should enlarge the value*/
-	snprintf(editBuf, NAMEDATALEN,"connect_timeout=10");
-	strncat(conninfo, editBuf, NAMEDATALEN);
+	snprintf(editBuf, BUF_PING_STR_LEN,"connect_timeout=10 ");
+	strncat(conninfo, editBuf, BUF_PING_STR_LEN);
+
+	snprintf(editBuf, BUF_PING_STR_LEN," options='-c adb_check_sync_nextid=0'");
+	strncat(conninfo, editBuf, BUF_PING_STR_LEN);
 
 	if (conninfo[0])
 	{
-		elog(DEBUG1, "Ping node string: %s.\n", conninfo);
+		elog(LOG, "Ping node string: %s.\n", conninfo);
 		for (retry = RETRY; retry; retry--)
 		{
 			ret = PQping(conninfo);

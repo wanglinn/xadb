@@ -99,7 +99,6 @@ static volatile sig_atomic_t got_deadlock_timeout;
 
 #ifdef ADB
 static PGPROC* snapshotProcess = NULL;
-static PGPROC* gxidProcess = NULL;
 #endif /* ADB */
 
 static void RemoveProcFromArray(int code, Datum arg);
@@ -314,10 +313,7 @@ InitProcGlobal(void)
 	SpinLockInit(ProcStructLock);
 #ifdef ADB
 	ProcGlobal->snapshotProc = &AuxiliaryProcs[NUM_AUXILIARY_PROCS-1];
-	ProcGlobal->gxidProc = &AuxiliaryProcs[NUM_AUXILIARY_PROCS-2];
-
 	snapshotProcess = ProcGlobal->snapshotProc;
-	gxidProcess = ProcGlobal->gxidProc;
 #endif /* ADB */
 }
 
@@ -584,24 +580,12 @@ InitAuxiliaryProcess(void)
 		proctype = auxproc - AuxiliaryProcs;
 		goto found_free_;
 	}
-	if (MyAuxProcType == GxidSenderProcess ||
-		MyAuxProcType == GxidReceiverProcess)
-	{
-		auxproc = ProcGlobal->gxidProc;
-		if (auxproc == NULL || auxproc->pid != 0)
-		{
-			SpinLockRelease(ProcStructLock);
-			elog(FATAL, "InitAuxiliaryProcess GxidProcess failed");
-		}
-		proctype = auxproc - AuxiliaryProcs;
-		goto found_free_;
-	}
 #endif /* ADB */
 	for (proctype = 0; proctype < NUM_AUXILIARY_PROCS; proctype++)
 	{
 		auxproc = &AuxiliaryProcs[proctype];
 #ifdef ADB
-		if (auxproc == ProcGlobal->snapshotProc || auxproc == ProcGlobal->gxidProc)
+		if (auxproc == ProcGlobal->snapshotProc)
 			continue;
 #endif /* ADB */
 		if (auxproc->pid == 0)
@@ -2002,16 +1986,5 @@ PGPROC *GetSnapshotProcess(void)
 		SpinLockRelease(ProcStructLock);
 	}
 	return snapshotProcess;
-}
-
-PGPROC *GetGxidProcess(void)
-{
-	if (gxidProcess == NULL)
-	{
-		SpinLockAcquire(ProcStructLock);
-		gxidProcess = ProcGlobal->gxidProc;
-		SpinLockRelease(ProcStructLock);
-	}
-	return gxidProcess;
 }
 #endif /* ADB */

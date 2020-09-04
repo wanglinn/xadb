@@ -23,4 +23,7 @@ struct PGPROC;
 extern void SnapRcvTransferLock(void **param, TransactionId xid, struct PGPROC *from);
 extern TransactionId SnapRcvGetGlobalXmin(void);
 extern void SnapRcvGetStat(StringInfo buf);
+
+extern TransactionId SnapRcvGetGlobalTransactionId(bool isSubXact);
+extern void SnapRcvCommitTransactionId(TransactionId txid, bool isCommit);
 #endif							/* SNAP_RECEIVER_H_ */

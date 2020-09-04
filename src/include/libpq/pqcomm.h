@@ -189,7 +189,6 @@ typedef uint32 AuthRequest;
  */
 #define CANCEL_REQUEST_CODE PG_PROTOCOL(1234,5678)
 
-#define GXID_SEND_SOCKET PG_PROTOCOL(1234,5680)
 #define SNAP_SEND_SOCKET PG_PROTOCOL(1234,5681)
 
 typedef struct CancelRequestPacket

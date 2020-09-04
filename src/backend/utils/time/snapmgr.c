@@ -74,7 +74,6 @@
 #include "postmaster/autovacuum.h"
 #include "replication/snapreceiver.h"
 #include "replication/snapsender.h"
-#include "replication/gxidsender.h"
 #endif
 
 /*
@@ -2419,7 +2418,7 @@ GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin,
 		{
 			//elog(LOG, "Before GxidSenderGetSnapshot, xmin %d, xmax %d, count %d",
 					//*xmin, *xmax, *count);
-			snap = GxidSenderGetSnapshot(snapshot, xmin, xmax, count);
+			snap = SnapSenderGetSnapshot(snapshot, xmin, xmax, count);
 			snap->global_xmin = SnapSendGetGlobalXmin();
 		}
 		else if (GlobalSnapshot == NULL ||
@@ -2433,7 +2432,7 @@ GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin,
 			*/
 			//elog(LOG, "Before GxidSenderGetSnapshot 22, xmin %d, xmax %d, count %d",
 					//*xmin, *xmax, *count);
-			snap = GxidSenderGetSnapshot(snapshot, xmin, xmax, count);
+			snap = SnapSenderGetSnapshot(snapshot, xmin, xmax, count);
 			snap->global_xmin = SnapSendGetGlobalXmin();
 	#ifdef SHOW_GLOBAL_SNAPSHOT
 			if (IsAnyAutoVacuumProcess())

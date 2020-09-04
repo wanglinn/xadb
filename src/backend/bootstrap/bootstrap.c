@@ -52,8 +52,6 @@
 #include "pgxc/poolmgr.h"
 #include "replication/snapsender.h"
 #include "replication/snapreceiver.h"
-#include "replication/gxidsender.h"
-#include "replication/gxidreceiver.h"
 #endif
 
 uint32		bootstrap_data_checksum_version = 0;	/* No checksum */
@@ -343,12 +341,6 @@ AuxiliaryProcessMain(int argc, char *argv[])
 			case SnapReceiverProcess:
 				statmsg = pgstat_get_backend_desc(B_ADB_SNAP_RECEIVER);
 				break;
-			case GxidSenderProcess:
-				statmsg = pgstat_get_backend_desc(B_ADB_GXID_SENDER);
-				break;
-			case GxidReceiverProcess:
-				statmsg = pgstat_get_backend_desc(B_ADB_GXID_RECEIVER);
-				break;
 #endif
 			case StartupProcess:
 				statmsg = pgstat_get_backend_desc(B_STARTUP);
@@ -470,14 +462,6 @@ AuxiliaryProcessMain(int argc, char *argv[])
 
 		case SnapReceiverProcess:
 			SnapReceiverMain();
-			proc_exit(1);
-		
-		case GxidSenderProcess:
-			GxidSenderMain();
-			proc_exit(1);
-		
-		case GxidReceiverProcess:
-			GxidReceiverMain();
 			proc_exit(1);
 #endif
 		case CheckerProcess:

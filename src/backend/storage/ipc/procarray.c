@@ -98,7 +98,7 @@
 #include "pgxc/pgxc.h"
 #include "postmaster/autovacuum.h"
 #include "replication/snapsender.h"
-#include "replication/gxidreceiver.h"
+#include "replication/snapreceiver.h"
 #include "replication/snapcommon.h"
 #include "storage/ipc.h"
 #include "utils/tqual.h"
@@ -489,7 +489,7 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid ADB_ONLY_COMMA_ARG
 			if (IsGTMNode())
 				SnapSendTransactionFinish(latestXid);
 			else
-				GixRcvCommitTransactionId(latestXid, isCommit);
+				SnapRcvCommitTransactionId(latestXid, isCommit);
 		}
 
 		if (TransactionIdIsValid(latestXid) && IsConnFromCoord() &&
@@ -4420,8 +4420,9 @@ void SerializeActiveTransactionIds(StringInfo buf)
 		if (TransactionIdIsNormal(xid))
 		{
 			xids[count++] = xid;
-			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync xid %d\n",
-			 			xid)));
+			if (TransactionIdIsNormal(xid))
+				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync xid %d\n",
+							xid)));
 		}
 	}
 	LWLockRelease(ProcArrayLock);

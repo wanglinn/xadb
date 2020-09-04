@@ -445,9 +445,12 @@ AutoVacLauncherMain(int argc, char *argv[])
 	ereport(DEBUG1,
 			(errmsg("autovacuum launcher started")));
 
+#ifdef ADB
+	pg_usleep(2L * 1000000L);
+#else
 	if (PostAuthDelay)
 		pg_usleep(PostAuthDelay * 1000000L);
-
+#endif
 	SetProcessingMode(InitProcessing);
 
 	/*
@@ -671,7 +674,11 @@ AutoVacLauncherMain(int argc, char *argv[])
 		 * necessity for manual cleanup of all postmaster children.
 		 */
 		if (rc & WL_POSTMASTER_DEATH)
+		{
+			ereport(LOG,
+			(errmsg("get WL_POSTMASTER_DEATH exit 1")));
 			proc_exit(1);
+		}
 
 		/* the normal shutdown case */
 		if (got_SIGTERM)
@@ -836,7 +843,7 @@ AutoVacLauncherMain(int argc, char *argv[])
 
 	/* Normal exit from the autovac launcher is here */
 shutdown:
-	ereport(DEBUG1,
+	ereport(LOG,
 			(errmsg("autovacuum launcher shutting down")));
 	AutoVacuumShmem->av_launcherpid = 0;
 
@@ -1413,7 +1420,6 @@ static void
 av_sighup_handler(SIGNAL_ARGS)
 {
 	int			save_errno = errno;
-
 	got_SIGHUP = true;
 	SetLatch(MyLatch);
 

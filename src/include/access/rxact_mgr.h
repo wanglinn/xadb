@@ -23,6 +23,7 @@ typedef struct RxactTransactionInfo
 	RemoteXactType type;	/* remote 2pc type */
 	TransactionId auto_tid;	/* when type is RX_AUTO */
 	bool failed;			/* backend do it failed ? */
+	bool is_cleanup;		/* is from clean up */
 }RxactTransactionInfo;
 
 extern void RemoteXactMgrMain(void) __attribute__((noreturn));

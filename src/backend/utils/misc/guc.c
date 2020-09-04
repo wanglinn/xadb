@@ -1020,7 +1020,7 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 	{
-		{"adb_check_sync_nextid", PGC_SIGHUP, GTM,
+		{"adb_check_sync_nextid", PGC_USERSET, GTM,
 			gettext_noop("Enables check sync all cn/dn master next txid."),
 			NULL
 		},
@@ -2837,16 +2837,7 @@ static struct config_int ConfigureNamesInt[] =
 		NULL, NULL, NULL
 	},
 
-	{
-		{"gxid_receiver_timeout", PGC_SIGHUP, COORDINATORS,
-			gettext_noop("For coordinators and datanode with gtmcoordinator gxidsender heartbeat time."),
-			gettext_noop("minimum time is 30ms"),
-			GUC_UNIT_MS
-		},
-		&gxid_receiver_timeout,
-		60000, 30000, INT_MAX,
-		NULL, NULL, NULL
-	},
+
 
 	{
 		{"waitglobaltransaction", PGC_USERSET, CLIENT_CONN_STATEMENT,
@@ -5181,7 +5172,7 @@ static struct config_enum ConfigureNamesEnum[] =
 		 * client_message_level_options allows too many values, really, but
 		 * it's not worth having a separate options array for this.
 		 */
-		DEBUG1, client_message_level_options,
+		LOG, client_message_level_options,
 		check_snap_debug_max_messages, NULL, NULL
 	},
 
