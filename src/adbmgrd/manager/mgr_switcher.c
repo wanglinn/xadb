@@ -195,10 +195,12 @@ static bool checkActiveLocks(PGconn *activePGcoon,
 							 bool localExecute,
 							 MgrNodeWrapper *mgrNode);
 static void checkXlogDiffForSwitchover(SwitcherNodeWrapper *oldMaster,
-									   SwitcherNodeWrapper *newMaster);
+									   SwitcherNodeWrapper *newMaster,
+									   int maxTrys);
 static void checkXlogDiffForSwitchoverCoord(dlist_head *coordinators, SwitcherNodeWrapper *holdLockCoordIn,
 											SwitcherNodeWrapper *oldMaster,
-											SwitcherNodeWrapper *newMaster);									   
+											SwitcherNodeWrapper *newMaster,
+											int maxTrys);									   
 static void revertClusterSetting(dlist_head *coordinators,
 								 SwitcherNodeWrapper *oldMaster,
 								 SwitcherNodeWrapper *newMaster);
@@ -268,11 +270,13 @@ static void switchoverCoordForZone(MemoryContext spiContext,
 									char 	*newMasterName,									
 									char 	*curZone, 
 									bool 	forceSwitch, 
+									int     maxTrys,   	
 									ZoneOverGtm *zoGtm,
 									ZoneOverCoord *zoCoord);									
 static void switchoverDataNodeForZone(MemoryContext spiContext,
 										char *newMasterName, 
 										bool forceSwitch, 
+										int maxTrys,
 										char *curZone,
 										ZoneOverGtm *zoGtm, 
 										ZoneOverDN *zoDN);										
@@ -412,7 +416,7 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 	char nodetype;
 	NameData nodeNameData;
 	bool force;
-	int maxTrys;
+	int maxTrys = 0;
 
 	/* get the input variable */
 	nodetype = PG_GETARG_INT32(0);
@@ -424,6 +428,8 @@ Datum mgr_switchover_func(PG_FUNCTION_ARGS)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("the value of maxTrys must be positive")));
+	if (maxTrys < 10)
+		maxTrys = 10;			 
 	/* check the type */
 	if (CNDN_TYPE_DATANODE_MASTER == nodetype ||
 		CNDN_TYPE_GTM_COOR_MASTER == nodetype)
@@ -958,6 +964,8 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 									 spiContext,
 									 OVERTYPE_FAILOVER,
 									 curZone);
+
+		ereportNoticeLog(errmsg("set gtmhost, gtmport to every node, please wait for a moment."));							 
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
 									&coordinators,
 									newMaster,
@@ -1153,7 +1161,8 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, in
 		}
 		checkActiveLocksForSwitchover(&coordinators, NULL, oldMaster, maxTrys);
 		checkXlogDiffForSwitchover(oldMaster,
-								   newMaster);
+								   newMaster,
+								   maxTrys);
 		CHECK_FOR_INTERRUPTS();
 
 		/* Prevent doctor process from manipulating this node simultaneously. */
@@ -1374,7 +1383,8 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 									  oldMaster,
 									  maxTrys);
 		checkXlogDiffForSwitchover(oldMaster,
-								   newMaster);
+								   newMaster,
+								   maxTrys);
 		CHECK_FOR_INTERRUPTS();
 		/* Prevent doctor process from manipulating this node simultaneously. */
 		refreshOldMasterBeforeSwitch(oldMaster,
@@ -1445,6 +1455,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 										curZone);	
 		}
 
+		ereportNoticeLog(errmsg("set gtmhost, gtmport to every node, please wait for a moment."));
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &coordinators, newMaster, true);
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &coordinatorSlaves, NULL, false);
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &runningSlavesSecond, NULL, false);
@@ -1564,6 +1575,7 @@ void switchoverCoord(char *newMasterName, bool forceSwitch, char *curZone)
 	SwitcherNodeWrapper *node;
 	SwitcherNodeWrapper *gtmMaster = NULL;
 	SwitcherNodeWrapper *holdLockCoordinator = NULL;
+	int maxTrys = 10;
 
 	oldContext = CurrentMemoryContext;
 	switchContext = AllocSetContextCreate(oldContext,
@@ -1614,13 +1626,13 @@ void switchoverCoord(char *newMasterName, bool forceSwitch, char *curZone)
 			tryLockCluster(&coordinators);
 		}
 		else{
-			checkActiveConnectionsForSwitchover(&coordinators, oldMaster, 10);
+			checkActiveConnectionsForSwitchover(&coordinators, oldMaster, maxTrys);
 		}		
 		holdLockCoordinator = getHoldLockCoordinator(&coordinators);
 		Assert(holdLockCoordinator);
 
-		checkActiveLocksForSwitchover(&coordinators, NULL, oldMaster, 10);
-		checkXlogDiffForSwitchoverCoord(&coordinators, NULL, oldMaster, newMaster);
+		checkActiveLocksForSwitchover(&coordinators, NULL, oldMaster, maxTrys);
+		checkXlogDiffForSwitchoverCoord(&coordinators, NULL, oldMaster, newMaster, maxTrys);
 		CHECK_FOR_INTERRUPTS();
 
 		refreshMgrNodeBeforeSwitch(oldMaster, spiContext);
@@ -4716,10 +4728,10 @@ static bool checkActiveLocks(PGconn *activePGcoon,
 }
 
 static void checkXlogDiffForSwitchover(SwitcherNodeWrapper *oldMaster,
-									   SwitcherNodeWrapper *newMaster)
+									   SwitcherNodeWrapper *newMaster,
+									   int maxTrys)
 {
 	int iloop;
-	int maxTrys = 10;
 	bool execOk = false;
 	char *sql;
 
@@ -4755,10 +4767,10 @@ static void checkXlogDiffForSwitchover(SwitcherNodeWrapper *oldMaster,
 static void checkXlogDiffForSwitchoverCoord(dlist_head *coordinators,
 											SwitcherNodeWrapper *holdLockCoordIn,
 											SwitcherNodeWrapper *oldMaster, 
-											SwitcherNodeWrapper *newMaster)
+											SwitcherNodeWrapper *newMaster,
+											int maxTrys)
 {
 	int iloop;
-	int maxTrys = 10;
 	bool execOk = false;
 	char *sql;
 	SwitcherNodeWrapper *holdLockCoordinator = NULL;
@@ -5307,6 +5319,7 @@ void MgrZoneSwitchoverGtm(MemoryContext spiContext,
 void MgrZoneSwitchoverCoord(MemoryContext spiContext, 
 							char 	*currentZone, 
 							bool	forceSwitch,
+							int     maxTrys,
 							ZoneOverGtm *zoGtm, 
 							dlist_head *zoCoordList)
 {
@@ -5342,6 +5355,7 @@ void MgrZoneSwitchoverCoord(MemoryContext spiContext,
 									NameStr(newDataName), 
 									currentZone,
 									forceSwitch, 
+									maxTrys,
 									zoGtm,
 									zoCoord);
 			dlist_push_tail(zoCoordList, &zoCoordWrapper->link);
@@ -5358,7 +5372,8 @@ void MgrZoneSwitchoverCoord(MemoryContext spiContext,
 }
 void MgrZoneSwitchoverDataNode(MemoryContext spiContext, 
 								char *currentZone,
-								bool forceSwitch, 
+								bool forceSwitch,
+								int maxTrys, 
 								ZoneOverGtm *zoGtm,
 								dlist_head *zoDNList)
 {
@@ -5390,7 +5405,8 @@ void MgrZoneSwitchoverDataNode(MemoryContext spiContext,
 
 			switchoverDataNodeForZone(spiContext, 
 										NameStr(newDataName), 
-										forceSwitch, 
+										forceSwitch,
+										maxTrys, 
 										currentZone, 
 										zoGtm, 
 										zoDN);
@@ -5490,7 +5506,7 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 											maxTrys);												
 	}
 	checkActiveLocksForSwitchover(coordinators, NULL, oldMaster, maxTrys);
-	checkXlogDiffForSwitchover(oldMaster, newMaster);
+	checkXlogDiffForSwitchover(oldMaster, newMaster, maxTrys);
 	CHECK_FOR_INTERRUPTS();
 	/* Prevent doctor process from manipulating this node simultaneously. */
 	refreshOldMasterBeforeSwitch(oldMaster, spiContext);
@@ -5533,6 +5549,7 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 
 	promoteNewMasterStartReign(oldMaster, newMaster);
 
+	ereportNoticeLog(errmsg("set gtmhost, gtmport to every node, please wait for a moment."));
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinators, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinatorSlaves, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	runningSlaves, NULL, complain);
@@ -5590,7 +5607,8 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 static void switchoverCoordForZone(MemoryContext spiContext, 
 									char 	*newMasterName,									
 									char 	*curZone, 
-									bool 	forceSwitch, 
+									bool 	forceSwitch,
+									int     maxTrys, 
 									ZoneOverGtm *zoGtm,
 									ZoneOverCoord *zoCoord)
 {
@@ -5634,7 +5652,8 @@ static void switchoverCoordForZone(MemoryContext spiContext,
 	checkXlogDiffForSwitchoverCoord(coordinators, 
 									holdLockCoordinator, 
 									oldMaster, 
-									newMaster);
+									newMaster,
+									maxTrys);
 	CHECK_FOR_INTERRUPTS();
 
 	zoCoord->oldMaster = oldMaster;
@@ -5705,6 +5724,7 @@ static void switchoverCoordForZone(MemoryContext spiContext,
 static void switchoverDataNodeForZone(MemoryContext spiContext,
 										char *newMasterName, 
 										bool forceSwitch,
+										int maxTrys,
 										char *curZone,
 										ZoneOverGtm *zoGtm, 
 										ZoneOverDN *zoDN)
@@ -5764,7 +5784,7 @@ static void switchoverDataNodeForZone(MemoryContext spiContext,
 	/* check interrupt before lock the cluster */
 	CHECK_FOR_INTERRUPTS();
 
-	checkXlogDiffForSwitchover(oldMaster, newMaster);
+	checkXlogDiffForSwitchover(oldMaster, newMaster, maxTrys);
 	CHECK_FOR_INTERRUPTS();
 
 	zoDN->newMaster = newMaster;
@@ -6525,6 +6545,8 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 	/* newMaster also is a coordinator */
 	newMaster->mgrNode->form.nodetype =	getMgrMasterNodetype(newMaster->mgrNode->form.nodetype);
 	dlist_push_head(coordinators, &newMaster->link);
+
+	ereportNoticeLog(errmsg("set gtmhost, gtmport to every node, please wait for a moment."));
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinators, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinatorSlaves, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	runningSlaves, NULL, complain);
