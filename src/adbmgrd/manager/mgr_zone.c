@@ -242,6 +242,8 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("the value of maxTrys must be positive")));
+	if (maxTrys < 10)
+		maxTrys = 10;			 
 		
 	namestrcpy(&name, "ZONE SWITCHOVER");
 	
@@ -270,6 +272,7 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 		MgrZoneSwitchoverCoord(spiContext, 
 								currentZone, 
 								force,
+								maxTrys,
 								&zoGtm, 
 								&zoCoordList);
 
@@ -277,6 +280,7 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 		MgrZoneSwitchoverDataNode(spiContext, 
 									currentZone, 
 									force,
+									maxTrys,
 									&zoGtm, 
 									&zoDNList);
 	}PG_CATCH();
