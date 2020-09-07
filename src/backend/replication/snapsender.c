@@ -486,7 +486,7 @@ void SnapSenderShmemInit(void)
 		LWLockInitialize(&SnapSender->comm_lock.lock_lock_info, LWTRANCHE_SNAPSHOT_COMMON_DSA);
 		LWLockInitialize(&SnapSender->comm_lock.lock_proc_link, LWTRANCHE_SNAPSHOT_COMMON_DSA);
 
-		pg_atomic_init_u32(&SnapSender->global_xmin, FirstNormalTransactionId);
+		pg_atomic_init_u32(&SnapSender->global_xmin, InvalidTransactionId);
 		pg_atomic_init_u32(&SnapSender->global_finish_id, InvalidTransactionId);
 		pg_atomic_init_u32(&SnapSender->nextid_upcount, 0);
 		pg_atomic_init_u32(&SnapSender->nextid_upcount_cn, 0);
@@ -636,7 +636,7 @@ static TransactionId snapsenderGetSenderGlobalXmin(void)
 	slist_iter siter;
 	SnapClientData *cur_client;
 	TransactionId oldxmin;
-	TransactionId global_xmin = FirstNormalTransactionId;
+	TransactionId global_xmin = InvalidTransactionId;
 
 	slist_foreach(siter, &slist_all_client)
 	{
@@ -649,7 +649,7 @@ static TransactionId snapsenderGetSenderGlobalXmin(void)
 	}
 
 	oldxmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_VACUUM);
-	if (NormalTransactionIdPrecedes(oldxmin, global_xmin))
+	if (!TransactionIdIsValid(global_xmin) || NormalTransactionIdPrecedes(oldxmin, global_xmin))
 		global_xmin = oldxmin;
 	if (TransactionIdIsValid(global_xmin))
 	{
@@ -1003,7 +1003,7 @@ void SnapSenderMain(void)
 	SnapSender->procno = MyProc->pgprocno;
 	SpinLockRelease(&SnapSender->mutex);
 
-	pg_atomic_write_u32(&SnapSender->global_xmin, FirstNormalTransactionId);
+	pg_atomic_write_u32(&SnapSender->global_xmin, InvalidTransactionId);
 	snap_send_timeout = snap_receiver_timeout + 10000L;
 
 	on_shmem_exit(SnapSenderDie, (Datum)0);
@@ -1444,7 +1444,7 @@ void OnListenEvent(WaitEvent *event, time_t* time_last_latch)
 		client->max_cnt = GetMaxSnapshotXidCount();
 		client->xid = palloc(client->max_cnt * sizeof(TransactionId));
 		client->cur_cnt = 0;
-		client->global_xmin = FirstNormalTransactionId;
+		client->global_xmin = InvalidTransactionId;
 		slist_init(&(client->slist_xid));
 		client->status = CLIENT_STATUS_CONNECTED;
 
