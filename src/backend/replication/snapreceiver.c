@@ -654,7 +654,7 @@ void SnapReceiverMain(void)
 	SnapRcv->procno = MyProc->pgprocno;
 
 	UNLOCK_SNAP_RCV();
-	pg_atomic_write_u32(&SnapRcv->global_xmin, FirstNormalTransactionId);
+	pg_atomic_write_u32(&SnapRcv->global_xmin, InvalidTransactionId);
 	pg_atomic_write_u32(&SnapRcv->last_client_req_key, 0);
 	pg_atomic_write_u32(&SnapRcv->last_ss_req_key, 0);
 	pg_atomic_write_u32(&SnapRcv->last_ss_resp_key, 0);
@@ -876,7 +876,7 @@ void SnapRcvShmemInit(void)
 		SnapRcv->comm_lock.last_lock_info = InvalidDsaPointer;
 		LWLockInitialize(&SnapRcv->comm_lock.lock_lock_info, LWTRANCHE_SNAPSHOT_COMMON_DSA);
 		LWLockInitialize(&SnapRcv->comm_lock.lock_proc_link, LWTRANCHE_SNAPSHOT_COMMON_DSA);
-		pg_atomic_init_u32(&SnapRcv->global_xmin, FirstNormalTransactionId);
+		pg_atomic_init_u32(&SnapRcv->global_xmin, InvalidTransactionId);
 		pg_atomic_init_u32(&SnapRcv->last_client_req_key, 0);
 		pg_atomic_init_u32(&SnapRcv->last_ss_req_key, 0);
 		pg_atomic_init_u32(&SnapRcv->last_ss_resp_key, 0);
