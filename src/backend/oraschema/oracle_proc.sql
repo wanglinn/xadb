@@ -144,6 +144,14 @@ CREATE OR REPLACE FUNCTION oracle.instr(str text, patt text, start int default 1
 --ADBONLY CLUSTER SAFE
     IMMUTABLE STRICT;
 
+CREATE OR REPLACE FUNCTION oracle.to_timestamp(text)
+    RETURNS timestamp
+    AS $$SELECT $1::timestamp;$$
+    LANGUAGE SQL
+    IMMUTABLE PARALLEL SAFE
+--ADBONLY CLUSTER SAFE
+    RETURNS NULL ON NULL INPUT;
+
 /*
  * Function: ADD_MONTHS
  */
