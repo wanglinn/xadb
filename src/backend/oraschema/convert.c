@@ -206,28 +206,17 @@ text_tofloat8(PG_FUNCTION_ARGS)
 	PG_RETURN_DATUM(result);
 }
 
-#define DECLARE_TEXT_TO_TIME(type, fmt_str, tz, in_fun, typmod)		\
+#define DECLARE_TEXT_TO_TIME(type, tz, in_fun, typmod)				\
 Datum ora_text_to_##type(PG_FUNCTION_ARGS)							\
 {																	\
 	text *txt = PG_GETARG_TEXT_P(0);								\
-	text *fmt;														\
-	char *str;														\
+	char *str = text_to_cstring(txt);								\
 	Datum result;													\
-	if (fmt_str && fmt_str[0] != '\0')								\
-	{																\
-		TEXT_TO_TIME_CHECK(fmt_str);								\
-		fmt = cstring_to_text(fmt_str);								\
-		result = ora_to_timestamp(txt, fmt, tz);					\
-		pfree(fmt);													\
-	}else															\
-	{																\
-		str = text_to_cstring(txt);									\
-		result = DirectFunctionCall3(in_fun,						\
-									 CStringGetDatum(str),			\
-									 ObjectIdGetDatum(InvalidOid),	\
-									 Int32GetDatum(typmod));		\
-		pfree(str);													\
-	}																\
+	result = DirectFunctionCall3(in_fun,							\
+								 CStringGetDatum(str),				\
+								 ObjectIdGetDatum(InvalidOid),		\
+								 Int32GetDatum(typmod));			\
+	pfree(str);														\
 	PG_RETURN_DATUM(result);										\
 }																	\
 Datum ora_text_to_##type##_fmt(PG_FUNCTION_ARGS)					\
@@ -258,16 +247,14 @@ Datum ora_text_to_##type##_fmt(PG_FUNCTION_ARGS)					\
 		TEXT_TO_TIME_CHECK(str);											\
 		pfree(str);															\
 	}while(0)
-DECLARE_TEXT_TO_TIME(date, nls_date_format, false, timestamp_in, 0);
+DECLARE_TEXT_TO_TIME(date, false, timestamp_in, 0);
 
-#undef TEXT_TO_TIME_CHECK
-#define TEXT_TO_TIME_CHECK(fmt_str)	((void)0)
 #undef TEXT_TO_TIME_CHECK_TEXT
 #define TEXT_TO_TIME_CHECK_TEXT(txt) ((void)0)
 /* ora_text_to_timestamp, ora_text_to_timestamp_fmt */
-DECLARE_TEXT_TO_TIME(timestamp, nls_timestamp_format, false, timestamp_in, -1);
+DECLARE_TEXT_TO_TIME(timestamp, false, timestamp_in, -1);
 /* ora_text_to_timestamp_tz, ora_text_to_timestamp_tz_fmt */
-DECLARE_TEXT_TO_TIME(timestamp_tz, nls_timestamp_tz_format, true, timestamptz_in, 0);
+DECLARE_TEXT_TO_TIME(timestamp_tz, true, timestamptz_in, 0);
 
 Datum
 text_tocstring(PG_FUNCTION_ARGS)
