@@ -15674,9 +15674,12 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 	char	   *storage;
 	int			j,
 				k;
-	#ifdef ADB_MULTI_GRAM
+#ifdef ADB_MULTI_GRAM
 	int 		length;
-	#endif /* ADB_MULTI_GRAM */	
+#endif /* ADB_MULTI_GRAM */
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+	bool		is_ora_rowid = false;
+#endif  
 
 	qrelname = pg_strdup(fmtId(tbinfo->dobj.name));
 	qualrelname = pg_strdup(fmtQualifiedDumpable(tbinfo));
@@ -15849,9 +15852,31 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 					if (actual_atts == 0)
 						appendPQExpBufferStr(q, " (");
 					else
-						appendPQExpBufferChar(q, ',');
-					appendPQExpBufferStr(q, "\n    ");
+					{
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+						if(is_ora_rowid == false)
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
+						appendPQExpBufferChar(q, ',');					
+					}
+
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+					if(is_ora_rowid == false)
+						appendPQExpBufferStr(q, "\n    ");
+					else
+						is_ora_rowid = false;
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
+					
 					actual_atts++;
+
+					/*if rowid is oracle.rowid,then skip it.*/
+#if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
+					if (strcmp(tbinfo->attnames[j], "rowid") == 0 &&
+		   				strcmp(tbinfo->atttypnames[j], "oracle.rowid") == 0)
+					{
+						is_ora_rowid = true;
+						continue;
+					}
+#endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 
 					/* Attribute name */
 					appendPQExpBufferStr(q, fmtId(tbinfo->attnames[j]));
@@ -17786,9 +17811,9 @@ dumpRule(Archive *fout, RuleInfo *rinfo)
 	char	   *qtabname;
 	PGresult   *res;
 	char	   *tag;
-	#ifdef ADB_MULTI_GRAM
+#ifdef ADB_MULTI_GRAM
 	int 		length;
-	#endif /* ADB_MULTI_GRAM */
+#endif /* ADB_MULTI_GRAM */
 
 	/* Skip if not to be dumped */
 	if (!rinfo->dobj.dump || dopt->dataOnly)
@@ -17823,12 +17848,12 @@ dumpRule(Archive *fout, RuleInfo *rinfo)
 		 * We need OR REPLACE here because we'll be replacing a dummy view.
 		 * Otherwise this should look largely like the regular view dump code.
 		 */
-		#ifdef ADB_MULTI_GRAM							
+#ifdef ADB_MULTI_GRAM							
 		if((length = get_grammar_model(result->data)) != 0)
 		{
 			appendBinaryPQExpBuffer(cmd,result->data,length);
 		}
-		#endif /* ADB_MULTI_GRAM */
+#endif /* ADB_MULTI_GRAM */
 		appendPQExpBuffer(cmd, "CREATE OR REPLACE VIEW %s",
 						  fmtQualifiedDumpable(tbinfo));
 		if (nonemptyReloptions(tbinfo->reloptions))
@@ -17838,13 +17863,13 @@ dumpRule(Archive *fout, RuleInfo *rinfo)
 			appendPQExpBufferChar(cmd, ')');
 		}
 
-		#ifdef ADB_MULTI_GRAM
+#ifdef ADB_MULTI_GRAM
 		if(length != 0)
 		{
 			appendPQExpBuffer(cmd, " AS\n%s", result->data + length);
 		}
 		else
-			#endif /* ADB_MULTI_GRAM */
+#endif /* ADB_MULTI_GRAM */
 		appendPQExpBuffer(cmd, " AS\n%s", result->data);		
 		destroyPQExpBuffer(result);
 		if (tbinfo->checkoption != NULL)
