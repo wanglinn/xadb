@@ -975,6 +975,7 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 
 static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 {
+	int flag = 0;
 	Node *node = loadNodeAndHookWithTag(buf, LoadPlanHook, context, tag);
 	Assert(node != NULL);
 
@@ -1036,9 +1037,23 @@ static void *LoadPlanHook(StringInfo buf, NodeTag tag, void *context)
 	/* if make empty plan using execute_nodes, must modify is_cluster_base_relation_scan_plan function */ 
 	case T_SeqScan:
 	case T_TidScan:
-	case T_BitmapHeapScan:
 		if (!list_member_oid(((Scan*)node)->execute_nodes, PGXCNodeOid))
-			node = (Node*)MakeEmptyResultPlan((Plan*)node);
+			node = (Node*)MakeEmptyResultPlan((Plan*)node);			
+		break;
+	case T_BitmapHeapScan:
+		flag = nodeTag(outerPlan(node)); 
+		switch(flag)
+		{
+			case T_SeqScan:
+			case T_TidScan:
+			case T_IndexScan:
+			if (!list_member_oid(((Scan*)outerPlan(node))->execute_nodes, PGXCNodeOid))
+				node = (Node*)MakeEmptyResultPlan(outerPlan(node));
+			break;
+			case T_EmptyResult:
+				node = (Node*)MakeEmptyResultPlan((Plan*)node);
+			break;
+		}
 		break;
 	case T_IndexScan:
 		LOAD_SCAN_REL_INFO(IndexScan, indexid);
