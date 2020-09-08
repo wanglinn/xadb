@@ -15792,6 +15792,9 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 	char	   *storage;
 	int			j,
 				k;
+	#ifdef ADB_MULTI_GRAM
+	int 		length;
+	#endif /* ADB_MULTI_GRAM */	
 
 	qrelname = pg_strdup(fmtId(tbinfo->dobj.name));
 	qualrelname = pg_strdup(fmtQualifiedDumpable(tbinfo));
@@ -15822,21 +15825,30 @@ dumpTableSchema(Archive *fout, TableInfo *tbinfo)
 			binary_upgrade_set_pg_class_oids(fout, q,
 											 tbinfo->dobj.catId.oid, false);
 
-		appendPQExpBuffer(q, "CREATE VIEW %s", qualrelname);
-
 		if (tbinfo->dummy_view)
 			result = createDummyViewAsClause(fout, tbinfo);
 		else
 		{
-			if (nonemptyReloptions(tbinfo->reloptions))
-			{
-				appendPQExpBufferStr(q, " WITH (");
-				appendReloptionsArrayAH(q, tbinfo->reloptions, "", fout);
-				appendPQExpBufferChar(q, ')');
-			}
 			result = createViewAsClause(fout, tbinfo);
 		}
-		appendPQExpBuffer(q, " AS\n%s", result->data);
+
+#ifdef ADB_MULTI_GRAM							
+		if((length = get_grammar_model(result->data)) != 0)
+		{
+			appendBinaryPQExpBuffer(q,result->data,length);
+		}
+
+		appendPQExpBuffer(q, "CREATE VIEW %s", qualrelname);
+
+		if (nonemptyReloptions(tbinfo->reloptions))
+		{
+			appendPQExpBufferStr(q, " WITH (");
+			appendReloptionsArrayAH(q, tbinfo->reloptions, "", fout);
+			appendPQExpBufferChar(q, ')');
+		}
+
+		appendPQExpBuffer(q, " AS\n%s", result->data + length);
+#endif /* ADB_MULTI_GRAM */
 		destroyPQExpBuffer(result);
 
 		if (tbinfo->checkoption != NULL && !tbinfo->dummy_view)
