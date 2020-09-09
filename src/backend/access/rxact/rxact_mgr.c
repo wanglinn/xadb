@@ -675,7 +675,6 @@ RemoteXactMgrMain(void)
 	(void)MemoryContextSwitchTo(MessageContext);
 
 	RxactLoadLog(true);
-	ereport(LOG, (errmsg("RxactLoadLog is OK\n")));
 
 	/* Server loop */
 	RxactLoop();

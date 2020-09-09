@@ -5172,7 +5172,7 @@ static struct config_enum ConfigureNamesEnum[] =
 		 * client_message_level_options allows too many values, really, but
 		 * it's not worth having a separate options array for this.
 		 */
-		LOG, client_message_level_options,
+		DEBUG1, client_message_level_options,
 		check_snap_debug_max_messages, NULL, NULL
 	},
 

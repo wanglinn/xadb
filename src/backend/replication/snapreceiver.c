@@ -86,10 +86,6 @@ typedef struct SnapRcvData
 	uint32			wait_finish_cnt;
 	TransactionId	wait_xid_finish[MAX_BACKENDS];
 
-	uint32			xcnt_finish;
-	TransactionId	xip_prep[MAX_CNT_SHMEM_XID_BUF];
-	TransactionId	xip_finish[MAX_CNT_SHMEM_XID_BUF];
-
 	uint32			is_send_realloc_num;  /* is need realloc from gc*/ 
 	pg_atomic_uint32	global_finish_id;
 }SnapRcvData;
@@ -210,56 +206,6 @@ DisableSnapRcvImmediateExit(void)
 }
 
 static void
-SnapRcvSendInitSync(void)
-{
-	List			*xid_list;
-	List			*rxact_list = NIL;
-	ListCell		*lc;
-	TransactionId	xid;
-	RxactTransactionInfo *info;
-
-	xid_list = GetPreparedXidList();
-
-	/* for coordinator get all left two-phase xid*/
-	if (IsCnNode() && !RecoveryInProgress())
-	{
-		rxact_list = RxactGetRunningList();
-		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSync RxactGetRunningList list len %d\n",
-			 			list_length(rxact_list))));
-	}
-
-	SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSync GetPreparedXidList xid_list len %d\n",
-			 			list_length(xid_list))));
-
-	resetStringInfo(&reply_message);
-	pq_sendbyte(&reply_message, 'e');
-	pq_sendstring(&reply_message, PGXCNodeName);
-	pq_sendint64(&reply_message, list_length(xid_list));
-	foreach (lc, xid_list)
-	{
-		xid = lfirst_int(lc);
-		pq_sendint64(&reply_message, xid);
-		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSync Add xid %d\n",
-			 			xid)));
-	}
-	list_free(xid_list);
-
-	pq_sendint64(&reply_message, list_length(rxact_list));
-	foreach (lc, rxact_list)
-	{
-		info =  (RxactTransactionInfo*)lfirst(lc);
-		pq_sendint64(&reply_message, pg_strtouint64(&info->gid[1], NULL, 10));
-		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSync Add xid %lu\n",
-			 			pg_strtouint64(&info->gid[1], NULL, 10))));
-	}
-	list_free(rxact_list);
-	/* Send it */
-	walrcv_send(wrconn, reply_message.data, reply_message.len);
-
-	return;
-}
-
-static void
 SnapRcvSendHeartbeat(void)
 {
 	TransactionId 	xmin;
@@ -314,24 +260,6 @@ SnapRcvGetLocalNextXid(void)
 	return xid;
 }
 
-/*
-static void
-SnapRcvSendLocalNextXid(void)
-{
-	TransactionId xid = SnapRcvGetLocalNextXid();
-
-	ereport(LOG,(errmsg("SnapRcvSendLocalNextXid ShmemVariableCache->nextXid %d\n", xid)));
-	if (!TransactionIdIsValid(xid))
-		return;
-
-	resetStringInfo(&reply_message);
-	pq_sendbyte(&reply_message, 'u');
-	pq_sendstring(&reply_message, PGXCNodeName);
-	pq_sendint64(&reply_message, xid);
-
-	walrcv_send(wrconn, reply_message.data, reply_message.len);
-}*/
-
 static void
 SnapRcvSendPreAssginXid(int xid_num)
 {
@@ -340,7 +268,7 @@ SnapRcvSendPreAssginXid(int xid_num)
 
 	/* Construct a new message */
 	resetStringInfo(&reply_message);
-	pq_sendbyte(&reply_message, 'p');
+	pq_sendbyte(&reply_message, 'q');
 	pq_sendstring(&reply_message, PGXCNodeName);
 	pq_sendint32(&reply_message, xid_num);
 
@@ -604,6 +532,60 @@ static void SnapRcvMainProcess(void)
 	SnapRcvProcessAssignList();
 }
 
+/* return list string for xid*/
+static List*
+SnapRcvSendInitSyncXid(void)
+{
+	List			*xid_list;
+	List			*rxact_list = NIL;
+	ListCell		*lc;
+	int64			xid;
+	RxactTransactionInfo *info;
+	List			*left_xid_str = NIL;
+	char			buf[128];
+	char			*str;
+
+	xid_list = GetPreparedXidList();
+
+	/* for coordinator get all left two-phase xid*/
+	if (IsCnNode() && !RecoveryInProgress())
+	{
+		rxact_list = RxactGetRunningList();
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid RxactGetRunningList list len %d\n",
+			 			list_length(rxact_list))));
+	}
+
+	SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid GetPreparedXidList xid_list len %d\n",
+			 			list_length(xid_list))));
+
+	foreach (lc, xid_list)
+	{
+		xid = lfirst_int(lc);
+
+		pg_lltoa(xid, buf);
+		str = pstrdup(buf);
+		left_xid_str = lappend(left_xid_str, makeString(str));
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid Add prepared xid %ld, str %s\n",
+			 			xid, str)));
+	}
+	list_free(xid_list);
+
+	foreach (lc, rxact_list)
+	{
+		info =  (RxactTransactionInfo*)lfirst(lc);
+		xid = pg_strtouint64(&info->gid[1], NULL, 10);
+
+		pg_lltoa(-xid, buf);
+		str = pstrdup(buf);
+		left_xid_str = lappend(left_xid_str, makeString(str));
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid Add rxact xid %ld, str %s\n", -xid, str)));
+	}
+	list_free(rxact_list);
+
+	return left_xid_str;
+}
+
+
 void SnapReceiverMain(void)
 {
 	TimestampTz last_recv_timestamp;
@@ -727,15 +709,17 @@ void SnapReceiverMain(void)
 		EnableSnapRcvImmediateExit();
 
 		/* options startpoint must be InvalidXLogRecPtr and timeline be 0 */
-		options.logical = false;
+		options.logical = true;
 		options.startpoint = InvalidXLogRecPtr;
 		options.slotname = PGXCNodeName;
 
 		if (TransactionIdIsNormal(next_xid))
-			options.proto.physical.startpointTLI = next_xid;
+			options.proto.logical.proto_version = next_xid;
 		else
-			options.proto.physical.startpointTLI = 0;
+			options.proto.logical.proto_version = InvalidTransactionId;
 
+		/*collect all left xid inluce rxact and prepared xid*/
+		options.proto.logical.publication_names = SnapRcvSendInitSyncXid();
 		if (walrcv_startstreaming(wrconn, &options))
 		{
 			//walrcv_endstreaming(wrconn, &primaryTLI);
@@ -870,7 +854,6 @@ void SnapRcvShmemInit(void)
 
 		SnapRcv->xcnt = 0;
 		SnapRcv->cur_pre_alloc = 0;
-		SnapRcv->xcnt_finish = 0;
 
 		SnapRcv->comm_lock.handle_lock_info = DSM_HANDLE_INVALID;
 		SnapRcv->comm_lock.first_lock_info = InvalidDsaPointer;
@@ -941,7 +924,6 @@ static void SnapRcvDie(int code, Datum arg)
 	SnapRcv->xcnt = 0;
 	SnapRcv->cur_pre_alloc = 0;
 	SnapRcv->wait_finish_cnt = 0;
-	SnapRcv->xcnt_finish = 0;
 
 	pg_atomic_write_u64(&SnapRcv->last_heartbeat_sync_time, 0);
 	SnapRcv->next_try_time = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), RESTART_STEP_MS);	/* 3 seconds */
@@ -1063,7 +1045,7 @@ static void SnapRcvConnectGTM(void)
 	snprintf(conninfo, MAXCONNINFO,
 			 "user=postgres host=%s port=%d contype=snaprcv",
 			 AGtmHost, AGtmPort);
-	wrconn = walrcv_connect(conninfo, false, "snapreceiver", &errstr);
+	wrconn = walrcv_connect(conninfo, true, "snapreceiver", &errstr);
 	if (!wrconn)
 		ereport(ERROR,
 				(errmsg("could not connect to the GTM server: %s", errstr)));
@@ -1233,6 +1215,56 @@ static void SnapRcvProcessAssignRequest(char *buf, Size len)
 		walrcv_send(wrconn, reply_message.data, reply_message.len);
 }
 
+static int
+SnapRcvXidComparator(const void *arg1, const void *arg2)
+{
+	TransactionId xid1 = *(const TransactionId *) arg1;
+	TransactionId xid2 = *(const TransactionId *) arg2;
+
+	if (xid1 < xid2)
+		return 1;
+	if (xid1 > xid2)
+		return -1;
+	return 0;
+}
+
+static void SnapRcvProcessPreAssign(char *buf, Size len)
+{
+	StringInfoData			msg;
+	TransactionId			txid;
+	int						num, start_index;
+			
+	msg.data = buf;
+	msg.len = msg.maxlen = len;
+	msg.cursor = 0;
+
+	SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcv rcv pre assing: ")));
+	num = pq_getmsgint(&msg, sizeof(num));
+	Assert(num > 0 && num <= MAX_XID_PRE_ALLOC_NUM);
+	
+	LOCK_SNAP_GXID_RCV();
+	Assert((SnapRcv->cur_pre_alloc + num) <= MAX_XID_PRE_ALLOC_NUM);
+	start_index = SnapRcv->cur_pre_alloc;
+	while(msg.cursor < msg.len)
+	{
+		txid = pq_getmsgint(&msg, sizeof(txid));
+
+		Assert(TransactionIdIsValid(txid));
+
+		SNAP_SYNC_DEBUG_LOG((errmsg(" %d\n", txid)));
+		num--;
+		SnapRcv->xid_alloc[start_index + num] = txid;
+		SnapRcv->cur_pre_alloc++;
+	}
+	SnapRcv->is_send_realloc_num = 0;
+	Assert(SnapRcv->cur_pre_alloc <= MAX_XID_PRE_ALLOC_NUM);
+
+	qsort(SnapRcv->xid_alloc, SnapRcv->cur_pre_alloc, sizeof(TransactionId), SnapRcvXidComparator);
+	UNLOCK_SNAP_GXID_RCV();
+
+	Assert(num == 0);	
+}
+
 static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 {
 	resetStringInfo(&incoming_message);
@@ -1241,8 +1273,6 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 	{
 	case 's':				/* snapshot */
 		SnapRcvProcessSnapshot(buf, len);
-		//SnapRcvSendLocalNextXid();
-		SnapRcvSendInitSync();
 		SnapRcvSendHeartbeat();
 		break;
 	case 'a':
@@ -1256,6 +1286,9 @@ static void SnapRcvProcessMessage(unsigned char type, char *buf, Size len)
 		break;
 	case 'f':
 		SnapRcvProcessFinishRequest(buf, len);
+		break;
+	case 'q':
+		SnapRcvProcessPreAssign(buf, len);
 		break;
 	case 'h':				/* heartbeat response */
 		SnapRcvProcessHeartBeat(buf, len);
@@ -2163,8 +2196,6 @@ void SnapRcvGetStat(StringInfo buf)
 	uint32			assign_preloc_len;
 	TransactionId	*finish_gxid_xids = NULL;
 	uint32			finish_gxid_len;
-	uint32			xcnt_finish;
-	TransactionId	xip_finish[MAX_CNT_SHMEM_XID_BUF];
 
 	assign_len = assign_preloc_len = finish_gxid_len = XID_ARRAY_STEP_SIZE;
 	assign_xids = NULL;
@@ -2214,11 +2245,6 @@ re_lock_:
 	{
 		assign_xids[i] = SnapRcv->xip[i];
 	}
-
-	xcnt_finish = SnapRcv->xcnt_finish;
-	if (xcnt_finish > 0)
-		memcpy(xip_finish, SnapRcv->xip_finish, sizeof(TransactionId)*xcnt_finish);
-
 	UNLOCK_SNAP_RCV();
 
 	appendStringInfo(buf, " status: %d \n", pg_atomic_read_u32(&SnapRcv->state));
@@ -2235,7 +2261,6 @@ re_lock_:
 	appendStringInfo(buf, "  xid_assign: [");
 	SnapRcvConstructStatsBuf(assign_xids, assign_len, buf);
 
-
 	appendStringInfo(buf, "  assign_preloc_len: %u\n", assign_preloc_len);
 	appendStringInfo(buf, "  xid_preloc_assign: [");
 	SnapRcvConstructStatsBuf(assign_preloc_xids, assign_preloc_len, buf);
@@ -2243,10 +2268,6 @@ re_lock_:
 	appendStringInfo(buf, "  finish_gxid_len: %u\n", finish_gxid_len);
 	appendStringInfo(buf, "  xid_finish: [");
 	SnapRcvConstructStatsBuf(finish_gxid_xids, finish_gxid_len, buf);
-
-	appendStringInfo(buf, "  xcn_pre_finish: %u\n", xcnt_finish);
-	appendStringInfo(buf, "  xid_pre_finish: [");
-	SnapRcvConstructStatsBuf(xip_finish, xcnt_finish, buf);
 
 	pg_atomic_write_u64(&SnapRcv->last_heartbeat_sync_time, 0);
 	SNAP_RCV_SET_LATCH();

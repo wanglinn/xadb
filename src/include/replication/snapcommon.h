@@ -29,7 +29,8 @@ typedef enum ClientStatus
 {
 	CLIENT_STATUS_CONNECTED = 1,
 	CLIENT_STATUS_STREAMING = 2,
-	CLIENT_STATUS_EXITING = 3
+	CLIENT_STATUS_CN_WAIT = 3, /* cn start stream and wait all dn master init sync*/
+	CLIENT_STATUS_EXITING = 4
 }ClientStatus;
 
 typedef struct SnapLockIvdInfo
