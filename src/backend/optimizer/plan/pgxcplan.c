@@ -3101,7 +3101,7 @@ static void validate_targetlist_updatable(List *tlist, RelationLocInfo *rel_loc_
 
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
-					 errmsg("Partition column can't be updated in current version")));
+					 errmsg("Distribute column can't be updated in current version")));
 		}
 	}
 }
