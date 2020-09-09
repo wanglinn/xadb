@@ -13190,12 +13190,6 @@ select TO_TIMESTAMP((select c_timestamp from tf where case_type = 'DATE' and cas
  2012-12-12 12:12:12.987654
 (1 row)
 
-select TO_TIMESTAMP((select c_text from tf where case_type = 'DATE' and case_id = 202), '+dd hh24:mi:ss') d from dual;
-          D          
----------------------
- 2020-08-01 02:00:00
-(1 row)
-
 select TO_TIMESTAMP_TZ((select c_oracle_date from tf where case_type = 'DATE' and case_id = 202), 'yyyy-mm-dd hh24:mi:ss') d from dual;
  D 
 ---

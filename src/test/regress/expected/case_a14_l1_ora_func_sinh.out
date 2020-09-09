@@ -29,12 +29,6 @@ set grammar to oracle;
  0.52109530549374735
 (1 row)
 
-/*ora*/ select  sinh('0.9') from dual;
-    SINH('0.9')     
---------------------
- 1.0265167257081753
-(1 row)
-
 /*ora*/ select  sinh(null) from dual;
  SINH(NULL)  
 -------------

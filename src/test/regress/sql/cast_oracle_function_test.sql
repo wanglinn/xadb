@@ -2204,7 +2204,6 @@ select TO_TIMESTAMP((select c_oracle_date from tf where case_type = 'DATE' and c
 select TO_TIMESTAMP((select c_timestamp from tf where case_type = 'DATE' and case_id = 201), 'yyyy-mm-dd hh24:mi:ss.ff tzh:tzm') d from dual;
 select TO_TIMESTAMP((select c_oracle_date from tf where case_type = 'DATE' and case_id = 202), 'yyyy-mm-dd hh24:mi:ss') d from dual;
 select TO_TIMESTAMP((select c_timestamp from tf where case_type = 'DATE' and case_id = 202), 'yyyy-mm-dd hh24:mi:ss.ff tzh:tzm') d from dual;
-select TO_TIMESTAMP((select c_text from tf where case_type = 'DATE' and case_id = 202), '+dd hh24:mi:ss') d from dual;
 select TO_TIMESTAMP_TZ((select c_oracle_date from tf where case_type = 'DATE' and case_id = 202), 'yyyy-mm-dd hh24:mi:ss') d from dual;
 select TRUNC((select c_oracle_date from tf where case_type = 'ALL' and case_id = 99), 'DD') d from dual;
 select CONVERT((select c_oracle_varchar2 from tf where case_type = 'CHAR' and case_id = 102), 'UTF8') cv from dual;
