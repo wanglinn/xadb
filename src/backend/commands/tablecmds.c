@@ -18306,15 +18306,14 @@ ATDetachCheckNoForeignKeyRefs(Relation partition)
 bool
 IsTempTable(Oid relid)
 {
-	Relation	 rel;
-	bool		 res;
-	/*
-	 * PGXCTODO: Is it correct to open without locks?
-	 * we just check if this table is temporary though...
-	 */
-	rel = relation_open(relid, NoLock);
-	res = rel->rd_rel->relpersistence == RELPERSISTENCE_TEMP;
-	relation_close(rel, NoLock);
+	bool		res;
+	HeapTuple	tuple;
+
+	tuple = SearchSysCache1(RELOID, ObjectIdGetDatum(relid));
+	if (!HeapTupleIsValid(tuple))
+		elog(ERROR, "cache lookup failed for relation %u", relid);
+	res = ((Form_pg_class) GETSTRUCT(tuple))->relpersistence == RELPERSISTENCE_TEMP;
+	ReleaseSysCache(tuple);
 	return res;
 }
 
@@ -18326,23 +18325,20 @@ IsTempTable(Oid relid)
 bool
 IsIndexUsingTempTable(Oid relid)
 {
-	bool res = false;
-	HeapTuple	 tuple;
-	Oid parent_id = InvalidOid;
+	bool		res = false;
+	HeapTuple	tuple;
+	Oid			parent_id;
 
 	tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(relid));
 	if (HeapTupleIsValid(tuple))
 	{
-		Form_pg_index index = (Form_pg_index) GETSTRUCT(tuple);
-		parent_id = index->indrelid;
+		parent_id = ((Form_pg_index) GETSTRUCT(tuple))->indrelid;
 
 		/* Release system cache BEFORE looking at the parent table */
 		ReleaseSysCache(tuple);
 
 		res = IsTempTable(parent_id);
 	}
-	else
-		res = false; /* Default case */
 
 	return res;
 }
