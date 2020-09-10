@@ -400,6 +400,7 @@ Datum mgr_expand_dnmaster(PG_FUNCTION_ARGS)
 		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", "", &infosendmsg);
 		mgr_append_pgconf_paras_str_str("hot_standby", "on", &infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", destnodeinfo.nodeport, &infosendmsg);
+		mgr_append_pgconf_paras_str_str("pgxc_node_name", destnodeinfo.nodename, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF,
 								destnodeinfo.nodepath,
 								&infosendmsg,
@@ -535,6 +536,7 @@ Datum mgr_expand_recover_backup_suc(PG_FUNCTION_ARGS)
 		mgr_append_pgconf_paras_str_quotastr("synchronous_standby_names", "", &infosendmsg);
 		mgr_append_pgconf_paras_str_str("hot_standby", "on", &infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", destnodeinfo.nodeport, &infosendmsg);
+		mgr_append_pgconf_paras_str_str("pgxc_node_name", destnodeinfo.nodename, &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF,
 								destnodeinfo.nodepath,
 								&infosendmsg,
@@ -1279,17 +1281,6 @@ static void MgrActivateStep2(PGconn *gtm_conn, List *dst_node_list, List *src_ds
 
 	PG_TRY();
 	{
-		foreach (lc, dst_node_list)
-		{
-			dst_node = (AppendNodeInfo *)lfirst(lc);
-			/* update pgxc node name in postgresql.conf in dst node. */
-			ereport(LOG, (errmsg("update pgxc node name in (%s) postgresql.conf in dst node.if this step fails, do it by hand, then restart the node", dst_node->nodename)));
-			hexp_update_conf_pgxc_node_name(dst_node, dst_node->nodename);
-
-			/* wait 60s for restart */
-			ereport(INFO, (errmsg("step2--restart dst node(%s). if this step fails, do it by hand.", dst_node->nodename)));
-			MgrCheckRestartRunning(dst_node);
-		}	
 
 		MgrCreateGtmSql(src_dst_list, nodes_slq, sizeof(nodes_slq));
 		/* add dst node to all other node's pgxc_node. */
