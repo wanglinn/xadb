@@ -91,6 +91,7 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #ifdef ADB
+#include "catalog/pgxc_node.h"
 #include "commands/defrem.h"
 #include "pgxc/pgxc.h"
 #include "postmaster/autovacuum.h"
@@ -128,6 +129,9 @@ static const FormData_pg_attribute Desc_pg_auth_members[Natts_pg_auth_members] =
 static const FormData_pg_attribute Desc_pg_index[Natts_pg_index] = {Schema_pg_index};
 static const FormData_pg_attribute Desc_pg_shseclabel[Natts_pg_shseclabel] = {Schema_pg_shseclabel};
 static const FormData_pg_attribute Desc_pg_subscription[Natts_pg_subscription] = {Schema_pg_subscription};
+#ifdef ADB
+static const FormData_pg_attribute Desc_pgxc_node[Natts_pgxc_node] = {Schema_pgxc_node};
+#endif /* ADB */
 
 /*
  *		Hash tables that index the relation cache
@@ -3752,7 +3756,13 @@ RelationCacheInitializePhase2(void)
 		formrdesc("pg_subscription", SubscriptionRelation_Rowtype_Id, true,
 				  Natts_pg_subscription, Desc_pg_subscription);
 
+#ifdef ADB
+		formrdesc("pgxc_node", PgxcNodeRelation_Rowtype_Id, true,
+				  Natts_pgxc_node, Desc_pgxc_node);
+#define NUM_CRITICAL_SHARED_RELS	6
+#else /* ADB */
 #define NUM_CRITICAL_SHARED_RELS	5	/* fix if you change list above */
+#endif /* ADB */
 	}
 
 	MemoryContextSwitchTo(oldcxt);
@@ -3892,7 +3902,13 @@ RelationCacheInitializePhase3(void)
 		load_critical_index(SharedSecLabelObjectIndexId,
 							SharedSecLabelRelationId);
 
+#ifdef ADB
+		load_critical_index(PgxcNodeOidIndexId,
+							PgxcNodeRelationId);
+#define NUM_CRITICAL_SHARED_INDEXES 7
+#else
 #define NUM_CRITICAL_SHARED_INDEXES 6	/* fix if you change list above */
+#endif
 
 		criticalSharedRelcachesBuilt = true;
 	}

@@ -23,7 +23,7 @@
 #include "catalog/genbki.h"
 #include "catalog/pgxc_node_d.h"
 
-CATALOG(pgxc_node,9015,PgxcNodeRelationId) BKI_SHARED_RELATION
+CATALOG(pgxc_node,9015,PgxcNodeRelationId) BKI_SHARED_RELATION BKI_ROWTYPE_OID(9124,PgxcNodeRelation_Rowtype_Id) BKI_SCHEMA_MACRO
 {
 	Oid			oid;			/* oid */
 
