@@ -5929,6 +5929,25 @@ get_basic_select_query(Query *query, deparse_context *context,
 
 			get_rule_expr(query->connect_by->connect_by,context, false);
 		}
+
+		if(query->connect_by->sortClause != NULL)
+		{
+			SortGroupClause *sortcl;
+			ListCell	    *lc;
+			TargetEntry	    *te;
+			Node		    *expr;
+
+			appendStringInfoString(buf, " order siblings by ");
+
+			foreach (lc, query->connect_by->sortClause)
+			{
+				sortcl = lfirst_node(SortGroupClause, lc);
+				te = get_sortgroupclause_tle(sortcl, query->connect_by->sort_tlist);
+
+				expr = (Node *) te->expr;
+				get_rule_expr(expr, context, true);
+			}
+		}
 	}
 
 	#endif /* ADB_MULTI_GRAM */
