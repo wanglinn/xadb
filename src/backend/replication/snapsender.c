@@ -650,6 +650,8 @@ static void SnapSendCheckTimeoutSocket(void)
 			timeout = TimestampTzPlusMilliseconds(client->last_msg, snap_send_timeout);
 			if (client->status == CLIENT_STATUS_EXITING || now >= timeout)
 			{
+				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSendCheckTimeoutSocket drop clientname %s status %d\n",
+			 			client->client_name, client->status)));
 				slist_delete_current(&siter);
 				DropClient(client, false);
 			}
@@ -1005,6 +1007,8 @@ void SnapSenderMain(void)
 			SnapClientData *client = slist_container(SnapClientData, snode, siter.cur);
 			if (socket_pq_node(client->node) == PGINVALID_SOCKET)
 			{
+				SNAP_SYNC_DEBUG_LOG((errmsg("sigsetjmp1 drop clientname %s\n",
+			 			client->client_name)));
 				slist_delete_current(&siter);
 				DropClient(client, false);
 			}else if(pq_node_send_pending(client->node))
@@ -1013,6 +1017,8 @@ void SnapSenderMain(void)
 						(client->status == CLIENT_STATUS_EXITING ? 0 : WL_SOCKET_READABLE) | WL_SOCKET_WRITEABLE, NULL);
 			}else if(client->status == CLIENT_STATUS_EXITING)
 			{
+				SNAP_SYNC_DEBUG_LOG((errmsg("sigsetjmp2 drop clientname %s\n",
+			 			client->client_name)));
 				/* no data sending and exiting, close it */
 				slist_delete_current(&siter);
 				DropClient(client, false);
@@ -1286,8 +1292,8 @@ static void DropClient(SnapClientData *client, bool drop_in_slist)
 	int pos = client->event_pos;
 
 	Assert(GetWaitEventData(wait_event_set, client->event_pos) == client);
-	SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend DropClient event_pos %d with drop_in_slist %d\n",
-			 			client->event_pos, drop_in_slist)));
+	SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend DropClient event_pos %d with drop_in_slist %d clientname %s\n",
+			 			client->event_pos, drop_in_slist, client->client_name)));
 	if (drop_in_slist)
 	{
 		slist_delete(&slist_all_client, &client->snode);
@@ -2007,10 +2013,12 @@ static void SnapSenderCheckOldClientList(SnapClientData *client)
 	slist_foreach_modify(siter, &slist_all_client)
 	{
 		client_item = slist_container(SnapClientData, snode, siter.cur);
-		if(!strncmp(client_item->client_name, client->client_name, strlen(client->client_name)) &&
+		if(!strcmp(client_item->client_name, client->client_name) &&
 			pq_get_socket(client_item->node) != pq_get_socket(client->node))
 		{
 			SnapSenderTransferCnClientToFailledList(client_item);
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderCheckOldClientList drop old clientname %s\n",
+			 			client_item->client_name)));
 			slist_delete_current(&siter);
 		}
 	}
