@@ -1584,6 +1584,8 @@ rewriteTargetListUD(Query *parsetree, RangeTblEntry *target_rte,
 		parsetree->targetList = lappend(parsetree->targetList, tle);
 	}
 
+	var = NULL;
+
 	if (IS_PGXC_COORDINATOR && RelationGetLocInfo(target_relation) != NULL
 		&& target_relation->rd_rel->relkind == RELKIND_RELATION)
 	{
