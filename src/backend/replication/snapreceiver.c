@@ -38,6 +38,14 @@ int snap_sender_connect_timeout = 5000L;
 int snap_force_globalxmin_sync_time = 30000L;
 int max_cn_prealloc_xid_size = 0;
 
+#define ReadConfigFile()			\
+if (got_SIGHUP)						\
+{									\
+	got_SIGHUP = false;				\
+	ProcessConfigFile(PGC_SIGHUP);	\
+}
+
+
 typedef struct SnapRcvData
 {
 	SnapCommonLock	comm_lock;
@@ -697,6 +705,7 @@ void SnapReceiverMain(void)
 	/* Unblock signals (they were blocked when the postmaster forked us) */
 	PG_SETMASK(&UnBlockSig);
 
+	ReadConfigFile();
 	EnableSnapRcvImmediateExit();
 	SnapRcvConnectGTM();
 	DisableSnapRcvImmediateExit();
@@ -741,11 +750,8 @@ void SnapReceiverMain(void)
 				bool		endofwal = false;
 
 				ProcessSnapRcvInterrupts();
-				if (got_SIGHUP)
-				{
-					got_SIGHUP = false;
-					ProcessConfigFile(PGC_SIGHUP);
-				}
+
+				ReadConfigFile();
 
 				loop_time = snap_sender_connect_timeout;
 				if (snap_receiver_timeout < loop_time)

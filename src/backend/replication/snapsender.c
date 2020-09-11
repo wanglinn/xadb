@@ -2138,6 +2138,8 @@ static void SnapSenderCheckOldClientList(SnapClientData *client)
 		if(!strcasecmp(client_item->client_name, client->client_name) &&
 			pq_get_socket(client_item->node) != pq_get_socket(client->node))
 		{
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderCheckOldClientList drop old clientname %s\n",
+			 			client_item->client_name)));
 			SnapSenderTransferCnClientToFailledList(client_item);
 			slist_delete_current(&siter);
 		}
@@ -2237,7 +2239,7 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 			pfree(xid_string_list);
 
 			SNAP_SYNC_DEBUG_LOG((errmsg("client->client_name %s, is_cn %d, SnapSender->dn_conn_state %d\n", client->client_name, is_cn, pg_atomic_read_u32(&SnapSender->dn_conn_state))));
-			if (is_cn && pg_atomic_read_u32(&SnapSender->dn_conn_state) != SNAPSENDER_ALL_DNMASTER_CONN_OK)
+			if (adb_check_sync_nextid && is_cn && pg_atomic_read_u32(&SnapSender->dn_conn_state) != SNAPSENDER_ALL_DNMASTER_CONN_OK)
 			{
 				SNAP_SYNC_DEBUG_LOG((errmsg("get cn conn request, but not all dn master conn ok\n")));
 				client->status = CLIENT_STATUS_CN_WAIT;

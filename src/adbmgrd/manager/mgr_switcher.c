@@ -945,6 +945,7 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 								   true);
 		newMaster->gtmInfoChanged = true;
 
+		RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_OFF);
 		promoteNewMasterStartReign(oldMaster, newMaster);
 
 		/* newMaster also is a coordinator */
@@ -961,7 +962,11 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 									 OVERTYPE_FAILOVER,
 									 curZone);
 
-		ereportNoticeLog(errmsg("set gtmhost, gtmport to every node, please wait for a moment."));							 
+		ereportNoticeLog(errmsg("set gtmhost, gtmport to every node, please wait for a moment."));	
+		batchSetGtmInfoOnNodes(newMaster->mgrNode,
+							   &dataNodes,
+							   newMaster,
+							   true);						 
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
 									&coordinators,
 									newMaster,
@@ -970,10 +975,6 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 									&coordinatorSlaves,
 									newMaster,
 									true);
-		batchSetGtmInfoOnNodes(newMaster->mgrNode,
-							   &dataNodes,
-							   newMaster,
-							   true);							
 		refreshPgxcNodesOfCoordinators(NULL,
 									   &coordinators,
 									   oldMaster,
@@ -1039,12 +1040,16 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 		FlushErrorState();
 		revertClusterSetting(&coordinators, oldMaster, newMaster);
 		revertGtmInfoSetting(oldMaster, newMaster, &coordinators, &coordinatorSlaves, &dataNodes);
+
+		RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_ON);
 	}
 	PG_END_TRY();
 
 	ereport(LOG, (errmsg("------------- FailOverGtmCoordMaster oldMasterName(%s) after -------------", oldMasterName)));			
 	PrintMgrNodeList(spiContext);
 
+	RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_ON);
+	
 	/* pfree data and close PGconn */
 	pfreeSwitcherNodeWrapperList(&failedSlaves, NULL);
 	pfreeSwitcherNodeWrapperList(&runningSlaves, newMaster);
@@ -1434,6 +1439,8 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 								   true);
 		newMaster->gtmInfoChanged = true;
 
+		RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_OFF);
+
 		promoteNewMasterStartReign(oldMaster, newMaster);
 
 		/* newMaster also is a coordinator */
@@ -1452,11 +1459,11 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 		}
 
 		ereportNoticeLog(errmsg("set gtmhost, gtmport to every node, please wait for a moment."));
+		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	&dataNodes,	NULL, false);
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &coordinators, newMaster, true);
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &coordinatorSlaves, NULL, false);
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &runningSlavesSecond, NULL, false);
-		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &failedSlavesSecond, NULL, false);	
-		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	&dataNodes,	NULL, false);
+		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, &failedSlavesSecond, NULL, false);
 
 		/* isolated node in pgxc_node would block the cluster */
 		selectIsolatedMgrNodes(spiContext, &isolatedNodes);
@@ -1521,12 +1528,15 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 
 		revertClusterSetting(&coordinators, oldMaster, newMaster);
 		revertGtmInfoSetting(oldMaster, newMaster, &coordinators, &coordinatorSlaves, &dataNodes);
+
+		RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_ON);
 	}
 	PG_END_TRY();
 
 	ereport(LOG, (errmsg("------------- switchoverGtmCoord newMasterName(%s) after -------------", newMasterName)));			
 	PrintMgrNodeList(spiContext);
 
+	RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_ON);
 	pfreeSwitcherNodeWrapperList(&failedSlaves, NULL);
 	pfreeSwitcherNodeWrapperList(&failedSlavesSecond, NULL);
 	pfreeSwitcherNodeWrapperList(&runningSlavesSecond, NULL);
@@ -5542,16 +5552,17 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 								true);
 	newMaster->gtmInfoChanged = true;
 
+	RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_OFF);
 	promoteNewMasterStartReign(oldMaster, newMaster);
 
 	ereportNoticeLog(errmsg("set gtmhost, gtmport to every node, please wait for a moment."));
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	dataNodes, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinators, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinatorSlaves, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	runningSlaves, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, runningSlavesSecond, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	failedSlaves, NULL, complain);
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, failedSlavesSecond, NULL, complain);	
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	dataNodes, NULL, complain);
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, failedSlavesSecond, NULL, complain);
   
 	newMaster->mgrNode->form.nodetype =	getMgrMasterNodetype(newMaster->mgrNode->form.nodetype);
 	dlist_push_head(coordinators, &newMaster->link);
@@ -6535,6 +6546,7 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 								true);
 	newMaster->gtmInfoChanged = true;
 
+	RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_OFF);
 	promoteNewMasterStartReign(oldMaster, newMaster);
 
 	/* newMaster also is a coordinator */
@@ -6542,13 +6554,13 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 	dlist_push_head(coordinators, &newMaster->link);
 
 	ereportNoticeLog(errmsg("set gtmhost, gtmport to every node, please wait for a moment."));
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	dataNodes, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinators, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinatorSlaves, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	runningSlaves, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, runningSlavesSecond, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	failedSlaves, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, failedSlavesSecond, NULL, complain);	
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	dataNodes, NULL, complain);
 
 	/* The better slave node is in front of the list */
 	sortNodesByWalLsnDesc(runningSlaves);	
@@ -7286,5 +7298,20 @@ static bool DeletePgxcNodeDataNodeByName(PGconn *pgConn, char *nodeName, bool co
 	}
 	return execOk;
 }
+void RefreshGtmAdbCheckSyncNextid(SwitcherNodeWrapper *node, char *value)
+{
+	GetAgentCmdRst 		getAgentCmdRst;
+	StringInfoData  	infosendmsg;
 
+	CheckNull(node);
 
+	initStringInfo(&(getAgentCmdRst.description));
+	initStringInfo(&infosendmsg);
+
+	mgr_append_pgconf_paras_str_quotastr("adb_check_sync_nextid", value, &infosendmsg);
+	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, node->mgrNode->nodepath, &infosendmsg
+							,node->mgrNode->form.nodehost, &getAgentCmdRst);
+	if (!getAgentCmdRst.ret)
+		ereport(ERROR, (errmsg("set adb_check_sync_nextid = '%s' in postgresql.conf of %s fail"
+			, infosendmsg.data, NameStr(node->mgrNode->form.nodename))));
+}
