@@ -84,6 +84,9 @@
 
 #define SetGrammarToPostgres(pgConn) PQexecCommandSql(pgConn, "set grammar = postgres;", false);
 
+#define ADB_CHECK_SYNC_NEXTID_OFF		"off"
+#define ADB_CHECK_SYNC_NEXTID_ON		"on"
+
 typedef struct GetAgentCmdRst
 {
 	NameData nodename;
@@ -652,6 +655,7 @@ extern int GetSlaveNodeNumInZone(MemoryContext spiContext, MgrNodeWrapper *mgrNo
 extern bool ExecuteSqlOnPostgres(Form_mgr_node mgrNode, int newPort, char *sql);
 extern bool CheckNodeExistInPgxcNode(Form_mgr_node mgrNode, char *existNodeName, char nodeType);
 extern void MgrDelPgxcNodeSlaveFromCoord(Form_mgr_node coordMgrNode);
+extern void RefreshGtmAdbCheckSyncNextid(SwitcherNodeWrapper *node, char *value);
 extern char *getMgrNodeSyncStateValue(sync_state state);
 extern uint64 updateDoctorStatusOfMgrNodes(List *nodenames, char nodetype, bool allowcure, char *curestatus);
 extern uint64 updateDoctorStatusOfMgrNode(char *nodename, char nodetype, bool allowcure, char *curestatus);

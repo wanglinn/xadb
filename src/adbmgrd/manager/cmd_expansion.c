@@ -86,7 +86,6 @@ static void MgrSetAppendNodeInfo(AppendNodeInfo  *nodeinfo, Form_mgr_node mgr_no
 static List* MgrGetAllAppendNodeInfo(void);
 static bool MgrGetConn(char* database, AppendNodeInfo *node, PGconn **pg_conn, StringInfoData  *infosendmsg);
 static void MgrCheckSynaLsn(PGconn * src_pg_conn, PGconn * dst_pg_conn);
-static void MgrCheckRestartRunning(AppendNodeInfo *dst_node);
 static List* MgrActivateStep1(char* database, List *nodeinfo_list);
 static void MgrCreateGtmSql(List *src_dst_list, char *nodes_slq, int len);
 static void MgrActivateStep2(PGconn *gtm_conn, List *dst_node_list, List *src_dst_list);
@@ -1103,27 +1102,6 @@ static void MgrCheckSynaLsn(PGconn *src_pg_conn, PGconn *dst_pg_conn)
 	if(!((src_lsn_high==dst_lsn_high) && (src_lsn_low==dst_lsn_low)))
 		ereport(ERROR, (errmsg("expend src node and dst node can not sync in %d seconds", try)));
 	
-	return;
-}
-static void MgrCheckRestartRunning(AppendNodeInfo *dst_node)
-{
-	int try=60;
-	CheckNull(dst_node);
-
-	hexp_restart_node(dst_node);	
-	for(;;)
-	{
-		if (is_node_running(dst_node->nodeaddr, dst_node->nodeport, dst_node->nodeusername, dst_node->nodetype))
-			break;
-		pg_usleep(1000000L);
-		try--;
-		if(try==0)
-			break;
-	}
-	
-	if (!is_node_running(dst_node->nodeaddr, dst_node->nodeport, dst_node->nodeusername, dst_node->nodetype))
-		ereport(ERROR, (errmsg("expend dst node %s can not restart in %d seconds",dst_node->nodename, 60)));
-
 	return;
 }
 static List* MgrActivateStep1(char* database, List *nodeinfo_list)

@@ -50,8 +50,7 @@
 char *mgr_zone;
 
 #define MGR_PGEXEC_DIRECT_EXE_UTI_RET_COMMAND_OK	0 
-#define ADB_CHECK_SYNC_NEXTID_OFF		"off"
-#define ADB_CHECK_SYNC_NEXTID_ON		"on"
+
 
 static void MgrFailoverCheck(MemoryContext spiContext, char *currentZone);
 static void MgrSwitchoverCheck(MemoryContext spiContext, char *currentZone);
@@ -96,7 +95,6 @@ static void MgrInitChildNodes(MemoryContext spiContext,
 								int total);								
 static int MgrGetNotActiveCount(MemoryContext spiContext, 
 								char *zone);
-static void RefreshGtmAdbCheckSyncNextid(SwitcherNodeWrapper *node, char *value);
 
 Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 {
@@ -162,7 +160,6 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 							maxTrys,
 							&zoGtm,
 							&zoDNList);
-		RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator, ADB_CHECK_SYNC_NEXTID_OFF);					
 		MgrRefreshAllPgxcNode(spiContext,
 							&zoGtm,
 							&zoCoordList, 
@@ -175,7 +172,7 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 							&zoGtm, 
 							&zoCoordList,
 							&zoDNList);
-		RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator, ADB_CHECK_SYNC_NEXTID_ON);
+		RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator, ADB_CHECK_SYNC_NEXTID_ON);					
 		ZoneSwitchoverFree(&zoGtm, 
 							&zoCoordList, 
 							&zoDNList);
@@ -193,10 +190,9 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errmsg(" ZONE FAILOVER %s failed.", currentZone)));
 	}PG_END_TRY();
 
-	RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator, ADB_CHECK_SYNC_NEXTID_ON);
-
 	callAgentRestartNode(zoGtm.holdLockCoordinator->mgrNode, SHUTDOWN_F, true);
 
+	RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator, ADB_CHECK_SYNC_NEXTID_ON);
 	ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
 
 	MgrCheckAllSlaveNum(spiContext, currentZone);
@@ -287,6 +283,8 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 	{
 		ereportNoticeLog(errmsg("============ ZONE SWITCHOVER %s failed, revert it begin ============", currentZone));
 		RevertZoneSwitchover(spiContext, &zoGtm, &zoCoordList, &zoDNList);
+
+		RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator, ADB_CHECK_SYNC_NEXTID_ON);
 		ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
 		ereportNoticeLog(errmsg("============ ZONE SWITCHOVER %s failed, revert it end ============", currentZone));
 
@@ -303,6 +301,8 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 	}PG_END_TRY();
 
 	tryUnlockCluster(&zoGtm.coordinators, true);
+
+	RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator, ADB_CHECK_SYNC_NEXTID_ON);
 	ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
 
 	MgrCheckAllSlaveNum(spiContext, currentZone);
@@ -1010,21 +1010,7 @@ static int MgrGetNotActiveCount(MemoryContext spiContext,
 	}
 	return count;
 }
-static void RefreshGtmAdbCheckSyncNextid(SwitcherNodeWrapper *node, char *value)
-{
-	GetAgentCmdRst 		getAgentCmdRst;
-	StringInfoData  	infosendmsg;
 
-	initStringInfo(&(getAgentCmdRst.description));
-	initStringInfo(&infosendmsg);
-
-	mgr_append_pgconf_paras_str_quotastr("adb_check_sync_nextid", value, &infosendmsg);
-	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, node->mgrNode->nodepath, &infosendmsg
-							,node->mgrNode->form.nodehost, &getAgentCmdRst);
-	if (!getAgentCmdRst.ret)
-		ereport(ERROR, (errmsg("set adb_check_sync_nextid = '%s' in postgresql.conf of %s fail"
-			, infosendmsg.data, NameStr(node->mgrNode->form.nodename))));
-}
 
 
 
