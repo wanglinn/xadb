@@ -2361,7 +2361,6 @@ bool callAgentRewindNode(MgrNodeWrapper *masterNode,
 						   &cmdMessage,
 						   slaveNode->host->hostaddr,
 						   slaveNode->host->form.hostagentport);
-	setSlaveNodeRecoveryConf(masterNode, slaveNode);
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
