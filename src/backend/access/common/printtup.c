@@ -269,7 +269,12 @@ static bool write_ora_target(StringInfo buf, TargetEntry *te, const char *source
 			{
 				char c = source_cmd[pg_mbstrlen_with_len(source_cmd, te->expr_loc + i)];
 				if (c != '\n')
-					appendStringInfoChar(&name, (char)pg_toupper(c));
+				{
+					if (('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z'))
+						appendStringInfoChar(&name, (char)pg_toupper(c));
+					else
+						appendBinaryStringInfo(&name, &source_cmd[te->expr_loc+i], 1);
+				}
 			}
 			pq_writestring(buf, name.data);
 			pfree(name.data);
