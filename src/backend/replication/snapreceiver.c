@@ -948,7 +948,7 @@ static void isSnapRcvStreamOk(void)
 	{
 		is_wait_ok = ConditionVariableSleepExt(&SnapRcv->cv, WAIT_EVENT_SAFE_SNAPSHOT, endtime);
 		if (is_wait_ok == false)
-			ereport(ERROR, (errmsg("cannot connect to GTMCOORD")));
+			ereport(ERROR, (errmsg("cannot connect to GTMCOORD: wait stream timeout")));
 
 		state = pg_atomic_read_u32(&SnapRcv->state);
 		SNAP_SYNC_DEBUG_LOG((errmsg("isSnapRcvStreamOk SnapRcv->state %d\n", state)));
@@ -1365,6 +1365,7 @@ static void SnapRcvProcessSnapshot(char *buf, Size len)
 		WakeupTransactionInit(xid, i, &SnapRcv->ss_waiters);
 	}
 	UNLOCK_SNAP_RCV();
+	ConditionVariableBroadcast(&SnapRcv->cv);
 
 	if (TransactionIdIsValid(xmin))
 		pg_atomic_write_u32(&SnapRcv->global_xmin, xmin);
