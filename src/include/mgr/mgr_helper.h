@@ -573,6 +573,7 @@ extern bool shutdownNodeWithinSeconds(MgrNodeWrapper *mgrNode,
 									  bool complain);
 extern bool startupNodeWithinSeconds(MgrNodeWrapper *mgrNode,
 									 int waitSeconds,
+									 bool waitRecovery,
 									 bool complain);
 extern bool batchPingNodesWaitinSeconds(dlist_head *nodes,
 										dlist_head *failedModes,
@@ -661,5 +662,6 @@ extern void MgrGetOldDnMasterNotZone(MemoryContext spiContext,
 									char nodeType, 
 									dlist_head *masterList, 
 									char *overType);
+extern bool waitForNodeMayBeInRecovery(MgrNodeWrapper *mgrNode);
 
 #endif /* MGR_HELPER_H */

@@ -2964,35 +2964,24 @@ bool shutdownNodeWithinSeconds(MgrNodeWrapper *mgrNode,
 
 bool startupNodeWithinSeconds(MgrNodeWrapper *mgrNode,
 							  int waitSeconds,
+							  bool waitRecovery,
 							  bool complain)
 {
-	if (callAgentStartNode(mgrNode, true, false))
+	callAgentStartNode(mgrNode, false, false);
+
+	if (pingNodeWaitinSeconds(mgrNode, PQPING_OK, waitSeconds))
 	{
-		if (pingNodeWaitinSeconds(mgrNode, PQPING_OK, waitSeconds))
-		{
-			return true;
-		}
-		else
-		{
-			ereport(complain ? ERROR : LOG,
-					(errmsg("try start up node %s failed, ping failed, it may be dead",
-							NameStr(mgrNode->form.nodename))));
-			return false;
-		}
+		return true;
 	}
 	else
 	{
-		if (pingNodeWaitinSeconds(mgrNode, PQPING_OK, 0))
-		{
+		if (waitRecovery && waitForNodeMayBeInRecovery(mgrNode))
 			return true;
-		}
-		else
-		{
-			ereport(complain ? ERROR : LOG,
-					(errmsg("try start up node %s failed",
-							NameStr(mgrNode->form.nodename))));
-			return false;
-		}
+
+		ereport(complain ? ERROR : LOG,
+				(errmsg("try start up node %s failed, ping failed, it may be dead",
+						NameStr(mgrNode->form.nodename))));
+		return false;
 	}
 }
 
@@ -4184,5 +4173,52 @@ void MgrGetOldDnMasterNotZone(MemoryContext spiContext,
 
 	if (dlist_is_empty(masterList)){
 		ereport(ERROR, (errmsg("no %s in other zone, current zone(%s).", mgr_get_nodetype_desc(nodeType), currentZone)));
+	}
+}
+
+bool waitForNodeMayBeInRecovery(MgrNodeWrapper *mgrNode)
+{
+	PGconn *pgConn = NULL;
+	bool printMsgHeader = false;
+	NodeConnectionStatus connStatus;
+	char msg [200];
+
+	while (true)
+	{
+		connStatus = connectNodeDefaultDB(mgrNode, 10, &pgConn);
+
+		PQfinish(pgConn);
+		pgConn = NULL;
+
+		if (connStatus == NODE_CONNECTION_STATUS_STARTING_UP)
+		{
+			if (!printMsgHeader)
+			{
+				snprintf(msg, 199, "%s may be in recovery, waiting......", NameStr(mgrNode->form.nodename));
+				ereport(NOTICE,
+						(errmsg("%s", msg)));
+				ereport(LOG,
+						(errmsg("%s", msg)));
+				printMsgHeader = true;
+				fputs(msg, stdout);
+			}
+			else
+			{
+				fputs(".", stdout);
+			}
+			pg_usleep(1000000L);
+		}
+		else if (connStatus == NODE_CONNECTION_STATUS_SUCCESS)
+		{
+			if (printMsgHeader)
+				fputs("\n", stdout);
+			return true;
+		}
+		else
+		{
+			if (printMsgHeader)
+				fputs("\n", stdout);
+			return false;
+		}
 	}
 }
