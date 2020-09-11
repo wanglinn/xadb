@@ -64,7 +64,7 @@ pgxc_pool_reload(PG_FUNCTION_ARGS)
 	if (IS_PGXC_DATANODE)
 		PG_RETURN_BOOL(true);
 
-	RemoteXactReloadNode();
+#warning should drop this function
 
 	PG_RETURN_BOOL(true);
 }

@@ -437,6 +437,7 @@ AuxiliaryProcessMain(int argc, char *argv[])
 		 * This will need rethinking if we ever want more than one of a
 		 * particular auxiliary process type.
 		 */
+		ADB_ONLY_CODE(if(MyAuxProcType != RemoteXactMgrProcess))	/* RXACT will call it */
 		ProcSignalInit(MaxBackends + MyAuxProcType + 1);
 
 		/* finish setting up bufmgr.c */

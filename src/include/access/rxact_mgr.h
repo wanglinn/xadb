@@ -27,11 +27,11 @@ typedef struct RxactTransactionInfo
 
 extern void RemoteXactMgrMain(void) __attribute__((noreturn));
 
+extern bool IsRXACTWorker(void);
 extern bool RecordRemoteXact(const char *gid, Oid *node_oids, int count, RemoteXactType type, bool no_error);
 extern bool RecordRemoteXactSuccess(const char *gid, RemoteXactType type, bool no_error);
 extern bool RecordRemoteXactFailed(const char *gid, RemoteXactType type, bool no_error);
 extern bool RecordRemoteXactAuto(const char *gid, TransactionId tid, bool no_error);
-extern void RemoteXactReloadNode(void);
 extern void DisconnectRemoteXact(void);
 /* return list of RxactTransactionInfo */
 extern List *RxactGetRunningList(void);

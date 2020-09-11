@@ -56,7 +56,9 @@
 #include "utils/pidfile.h"
 #include "utils/syscache.h"
 #include "utils/varlena.h"
-
+#ifdef ADB
+#include "access/rxact_mgr.h"
+#endif /* ADB */
 
 #define DIRECTORY_LOCK_FILE		"postmaster.pid"
 
@@ -694,7 +696,7 @@ InitializeSessionUserIdStandalone(void)
 				IsAnyAdbMonitorProcess() ||
 				IsBackgroundWorker);
 #else
-	AssertState(!IsUnderPostmaster || IsAutoVacuumWorkerProcess() || IsBackgroundWorker);
+	AssertState(!IsUnderPostmaster || IsAutoVacuumWorkerProcess() || IsBackgroundWorker ADB_ONLY_CODE(||IsRXACTWorker()));
 #endif
 
 	/* call only once */

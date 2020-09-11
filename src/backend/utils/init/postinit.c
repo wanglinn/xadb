@@ -67,6 +67,7 @@
 #include "utils/syscache.h"
 #include "utils/timeout.h"
 #ifdef ADB
+#include "access/rxact_mgr.h"
 #include "intercomm/inter-node.h"
 #include "pgxc/nodemgr.h"
 #endif
@@ -788,6 +789,13 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 					 errhint("You should immediately run CREATE USER \"%s\" SUPERUSER;.",
 							 username != NULL ? username : "postgres")));
 	}
+#ifdef ADB
+	else if (IsRXACTWorker())
+	{
+		InitializeSessionUserIdStandalone();
+		am_superuser = true;
+	}
+#endif /* ADB */
 	else if (IsBackgroundWorker)
 	{
 		if (username == NULL && !OidIsValid(useroid))

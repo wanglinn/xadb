@@ -13,9 +13,7 @@
 /* send to client */
 #define RXACT_MSG_OK			0x01
 #define RXACT_MSG_ERROR			0x02
-#define RXACT_MSG_NODE_INFO		0x03
-#define RXACT_MSG_UPDATE_NODE	0x04
-#define RXACT_MSG_RUNNING		0x05
-#define RXACT_MSG_WAIT_GID		0x06
+#define RXACT_MSG_RUNNING		0x03
+#define RXACT_MSG_WAIT_GID		0x04
 
 #endif /* RXACT_MSG_H_ */
