@@ -762,7 +762,7 @@ static bool pullBackToCluster(SwitcherNodeWrapper *masterNode,
 		}
 
 		startupNodeWithinSeconds(faultSlaveNode,
-								 STARTUP_NODE_SECONDS, true);
+								 STARTUP_NODE_SECONDS, true, true);
 		if (masterNodeFailed)
 		{
 			ereport(WARNING,

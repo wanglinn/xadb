@@ -2197,7 +2197,7 @@ void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 							  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
 							  true);
 
-	callAgentStartNode(slaveNode, true, true);
+	callAgentStartNode(slaveNode, false, false);
 
 	waitForNodeRunningOk(slaveNode, false, NULL, NULL);
 
@@ -2233,7 +2233,7 @@ void appendSlaveNodeFollowMasterEx(MemoryContext spiContext,
 							  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
 							  complain);
 
-	callAgentStartNode(slaveNode, true, complain);
+	callAgentStartNode(slaveNode, true, false);
 
 	waitForNodeRunningOk(slaveNode, false, &slave->pgConn, &slave->runningMode);
 
@@ -5260,7 +5260,7 @@ void MgrChildNodeFollowParentNode(MemoryContext spiContext,
 							  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
 							  true);
 
-	callAgentStartNode(slaveNode, true, true);
+	callAgentStartNode(slaveNode, true, false);
 
 	waitForNodeRunningOk(slaveNode, false, NULL, NULL);
 

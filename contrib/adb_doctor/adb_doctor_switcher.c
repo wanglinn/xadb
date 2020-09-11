@@ -408,6 +408,7 @@ static bool checkIfDataNodeOldMasterCanReign(MgrNodeWrapper *oldMaster,
 	{
 		if (!startupNodeWithinSeconds(oldMaster,
 									  STARTUP_NODE_SECONDS,
+									  true,
 									  false))
 		{
 			oldMasterStatusOk = false;
@@ -624,6 +625,7 @@ static bool checkIfGtmCoordOldMasterCanReign(MgrNodeWrapper *oldMaster,
 		{
 			if (!startupNodeWithinSeconds(oldMaster,
 										  STARTUP_NODE_SECONDS,
+										  true,
 										  false))
 			{
 				oldMasterStatusOk = false;
@@ -746,6 +748,7 @@ static void oldGtmCoordMasterContinueToReign(MgrNodeWrapper *oldMaster)
 		}
 		startupNodeWithinSeconds(oldMaster,
 								 STARTUP_NODE_SECONDS,
+								 true,
 								 true);
 		updateCureStatusForSwitch(oldMaster,
 								  CURE_STATUS_SWITCHED,
@@ -887,6 +890,7 @@ static void oldDataNodeMasterContinueToReign(MgrNodeWrapper *oldMaster)
 
 		startupNodeWithinSeconds(oldMaster,
 								 STARTUP_NODE_SECONDS,
+								 true,
 								 true);
 		oldMasterConn = getNodeDefaultDBConnection(oldMaster, 10);
 		if (!oldMasterConn)

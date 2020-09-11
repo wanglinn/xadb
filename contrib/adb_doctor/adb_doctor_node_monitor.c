@@ -992,12 +992,16 @@ static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo)
 		}
 		else
 		{
-			ereport(LOG,
-					(errmsg("%s, get node running status failed",
-							MyBgworkerEntry->bgw_name)));
-			done = false;
-			logRow->errormsg = "Failed to detect the running status of the node";
-			endAdbDoctorLog(logRow, false);
+			done = waitForNodeMayBeInRecovery(nodeInfo->mgrNode);
+			if(!done)
+			{
+				ereport(LOG,
+						(errmsg("%s, get node running status failed",
+								MyBgworkerEntry->bgw_name)));
+				done = false;
+				logRow->errormsg = "Failed to detect the running status of the node";
+				endAdbDoctorLog(logRow, false);
+			}
 		}
 	}
 	else
@@ -1045,12 +1049,16 @@ static bool treatNodeByRestart(MonitorNodeInfo *nodeInfo)
 		}
 		else
 		{
-			ereport(LOG,
-					(errmsg("%s, get node running status failed",
-							MyBgworkerEntry->bgw_name)));
-			done = false;
-			logRow->errormsg = "Failed to detect the running status of the node";
-			endAdbDoctorLog(logRow, false);
+			done = waitForNodeMayBeInRecovery(nodeInfo->mgrNode);
+			if(!done)
+			{
+				ereport(LOG,
+						(errmsg("%s, get node running status failed",
+								MyBgworkerEntry->bgw_name)));
+				done = false;
+				logRow->errormsg = "Failed to detect the running status of the node";
+				endAdbDoctorLog(logRow, false);
+			}
 		}
 	}
 	else
@@ -2112,6 +2120,7 @@ static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 		{
 			startupNodeWithinSeconds(slaveNode,
 									 STARTUP_NODE_SECONDS,
+									 true,
 									 true);
 			slavePGconn = getNodeDefaultDBConnection(slaveNode, 10);
 			if (!slavePGconn)
@@ -2327,7 +2336,7 @@ static void prepareRewindMgrNode(RewindMgrNodeObject *rewindObject,
 		callAgentRefreshPGSqlConf(slaveNode, portItem, false);
 		pfree(portItem);
 
-		startupNodeWithinSeconds(slaveNode, STARTUP_NODE_SECONDS, true);
+		startupNodeWithinSeconds(slaveNode, STARTUP_NODE_SECONDS, true, true);
 		rewindObject->slavePGconn = getNodeDefaultDBConnection(slaveNode, 10);
 		if (!rewindObject->slavePGconn)
 			ereport(ERROR,
@@ -2369,6 +2378,7 @@ static void prepareRewindMgrNode(RewindMgrNodeObject *rewindObject,
 								  true);
 		startupNodeWithinSeconds(masterNode,
 								 STARTUP_NODE_SECONDS,
+								 true,
 								 true);
 		rewindObject->masterPGconn = checkMasterRunningStatus(masterNode);
 		tryUpdateMgrNodeCurestatus(masterNode, CURE_STATUS_SWITCHED, spiContext);
@@ -2384,6 +2394,7 @@ static void prepareRewindMgrNode(RewindMgrNodeObject *rewindObject,
 								  0, true);
 		startupNodeWithinSeconds(slaveNode,
 								 STARTUP_NODE_SECONDS,
+								 true,
 								 true);
 	}
 }
