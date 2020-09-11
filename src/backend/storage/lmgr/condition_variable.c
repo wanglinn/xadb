@@ -181,6 +181,8 @@ bool ConditionVariableSleepExt(ConditionVariable *cv, uint32 wait_event_info, lo
 			timeout = -1;
 
 		ret = WaitEventSetWait(cv_wait_event_set, timeout, &event, 1, wait_event_info);
+		if (timeout >= 0 && ret == 0) //timeout occure
+			return false;
 #else
 		WaitEventSetWait(cv_wait_event_set, -1, &event, 1, wait_event_info);
 #endif
@@ -193,10 +195,6 @@ bool ConditionVariableSleepExt(ConditionVariable *cv, uint32 wait_event_info, lo
 			 */
 			exit(1);
 		}
-#ifdef ADB
-		if (timeout > 0 && ret == 0) //timeout occure
-			return false;
-#endif
 
 		/* Reset latch before examining the state of the wait list. */
 		ResetLatch(MyLatch);

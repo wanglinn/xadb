@@ -445,12 +445,9 @@ AutoVacLauncherMain(int argc, char *argv[])
 	ereport(DEBUG1,
 			(errmsg("autovacuum launcher started")));
 
-#ifdef ADB
-	pg_usleep(2L * 1000000L);
-#else
 	if (PostAuthDelay)
 		pg_usleep(PostAuthDelay * 1000000L);
-#endif
+
 	SetProcessingMode(InitProcessing);
 
 	/*

@@ -944,7 +944,7 @@ static void isSnapRcvStreamOk(void)
 	if (likely(WALRCV_STREAMING == state))
 		return;
 
-	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snap_sender_connect_timeout);
+	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snap_receiver_timeout);
 	for(;;)
 	{
 		is_wait_ok = ConditionVariableSleepExt(&SnapRcv->cv, WAIT_EVENT_SAFE_SNAPSHOT, endtime);
