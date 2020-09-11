@@ -2477,6 +2477,7 @@ static void rewindMgrNodeOperation(RewindMgrNodeObject *rewindObject,
 
 	/*node rewind*/
 	callAgentRewindNode(masterNode, slaveNode, true);
+	setSlaveNodeRecoveryConf(masterNode, slaveNode);
 }
 
 static PGconn *checkMasterRunningStatus(MgrNodeWrapper *masterNode)
