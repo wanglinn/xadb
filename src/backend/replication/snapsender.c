@@ -898,17 +898,19 @@ static void SnapSenderCheckRxactAndTwoPhaseXids()
 	if (array_2pc_len > 0 || array_xact_len > 0)
 	{
 		SpinLockAcquire(&SnapSender->gxid_mutex);
-		for (i = 0; i < array_xact_len; i++)
+
+		if (array_xact_len > 0)
 		{
-			SnapSender->gtmc_xip[SnapSender->gtmc_xcnt++] = xid_array_xact[i];
-			SnapSender->xip[SnapSender->xcnt++] = xid_array_xact[i];
-			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderCheckRxactAndTwoPhaseXids add rxact xid %d\n", xid_array_xact[i])));
+			memcpy(&SnapSender->gtmc_xip[SnapSender->gtmc_xcnt], xid_array_xact, sizeof(TransactionId)*array_xact_len);
+			memcpy(&SnapSender->xip[SnapSender->xcnt], xid_array_xact, sizeof(TransactionId)*array_xact_len);
+			SnapSender->gtmc_xcnt += array_xact_len;
+			SnapSender->xcnt += array_xact_len;
 		}
 
-		for (i = 0; i < array_2pc_len; i++)
+		if (array_2pc_len > 0)
 		{
-			SnapSender->xip[SnapSender->xcnt++] = xid_array_2pc[i];
-			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderCheckRxactAndTwoPhaseXids add 2pc xid %d\n", xid_array_2pc[i])));
+			memcpy(&SnapSender->xip[SnapSender->xcnt], xid_array_2pc, sizeof(TransactionId)*array_2pc_len);
+			SnapSender->xcnt += array_2pc_len;
 		}
 		SpinLockRelease(&SnapSender->gxid_mutex);
 	}
@@ -1653,9 +1655,10 @@ static void SnapSenderProcessAssignGxid(SnapClientData *client)
 	}
 	else
 	{
+		Assert(index == xid_num);
 		SpinLockAcquire(&SnapSender->gxid_mutex);
-		for (index = 0 ; index < xid_num; index++)
-			SnapSender->xip[SnapSender->xcnt++] = xid_array[index];
+		memcpy(&SnapSender->xip[SnapSender->xcnt], xid_array, sizeof(TransactionId)*xid_num);
+		SnapSender->xcnt += xid_num;
 		SetLatch(&MyProc->procLatch);
 		SpinLockRelease(&SnapSender->gxid_mutex);
 	}
@@ -1666,6 +1669,7 @@ static void SnapSenderProcessPreAssignGxidArray(SnapClientData *client)
 {
 	TransactionId				xid, xidmax; 
 	int							i, xid_num;
+	TransactionId				xid_array[MAX_XID_PRE_ALLOC_NUM]; 
 
 	if (adb_check_sync_nextid && !IsAutoVacuumWorkerProcess())
 		isSnapSenderWaitNextIdOk();
@@ -1690,12 +1694,14 @@ static void SnapSenderProcessPreAssignGxidArray(SnapClientData *client)
 	}
 
 	SetLatch(&MyProc->procLatch);
-	SpinLockAcquire(&SnapSender->gxid_mutex);
+
+	Assert(xid_num <= MAX_XID_PRE_ALLOC_NUM);
 	for (i = 0; i < xid_num; i++)
-	{
-		xid = xidmax - xid_num + i + 1;
-		SnapSender->xip[SnapSender->xcnt++] = xid;
-	}
+		xid_array[i] = xidmax - xid_num + i + 1;
+
+	SpinLockAcquire(&SnapSender->gxid_mutex);
+	memcpy(&SnapSender->xip[SnapSender->xcnt], xid_array, sizeof(TransactionId)*xid_num);
+	SnapSender->xcnt += xid_num;
 	SpinLockRelease(&SnapSender->gxid_mutex);
 
 	if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len) == false)
@@ -2258,7 +2264,7 @@ static void SnapSenderQuickDieHander(SIGNAL_ARGS)
 void SnapSendTransactionAssign(TransactionId txid, int txidnum, TransactionId parent)
 {
 	int i = 0;
-	TransactionId  xid;
+	TransactionId  xid, xid_tmp;
 
 	Assert(TransactionIdIsValid(txid));
 	Assert(TransactionIdIsNormal(txid));
@@ -2271,27 +2277,38 @@ void SnapSendTransactionAssign(TransactionId txid, int txidnum, TransactionId pa
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("snapshot sender not support sub transaction yet!")));
 
+	xid_tmp = txid;
 	SpinLockAcquire(&SnapSender->mutex);
-
 	for (i = txidnum; i > 0; i--)
 	{
-		SNAP_SYNC_DEBUG_LOG((errmsg("Call SnapSend assging xid %d\n",
-							txid)));
 		if(SnapSender->cur_cnt_assign == MAX_CNT_SHMEM_XID_BUF)
 			WaitSnapCommonShmemSpace(&SnapSender->mutex,
 								&SnapSender->cur_cnt_assign,
 								&SnapSender->waiters_assign, true);
 		Assert(SnapSender->cur_cnt_assign < MAX_CNT_SHMEM_XID_BUF);
 
-		xid = txid--;
+		xid = xid_tmp--;
+		SNAP_SYNC_DEBUG_LOG((errmsg("Call SnapSend assging xid %d\n",
+							xid)));
 		SnapSender->xid_assign[SnapSender->cur_cnt_assign++] = xid;
-		SnapSender->gtmc_xip[SnapSender->gtmc_xcnt++] = xid;
-		SnapSender->xip[SnapSender->xcnt++] = xid;
 	}
 
 	if (SnapSender->procno != INVALID_PGPROCNO)
 		SetLatch(&(GetPGProcByNumber(SnapSender->procno)->procLatch));
 	SpinLockRelease(&SnapSender->mutex);
+
+	xid_tmp = txid;
+	SpinLockAcquire(&SnapSender->gxid_mutex);
+	for (i = txidnum; i > 0; i--)
+	{
+		xid = xid_tmp--;
+		SnapSender->gtmc_xip[SnapSender->gtmc_xcnt++] = xid;
+		SnapSender->xip[SnapSender->xcnt++] = xid;
+		SNAP_SYNC_DEBUG_LOG((errmsg("Call SnapSend add xip xid %d\n",
+							xid)));
+	}
+
+	SpinLockRelease(&SnapSender->gxid_mutex);
 }
 
 void SnapSendTransactionFinish(TransactionId txid)
@@ -2335,9 +2352,11 @@ void SnapSendTransactionFinish(TransactionId txid)
 		}
 	}
 	SnapSender->gtmc_xcnt = count;
-	SnapSenderDropXidItem(txid);
-
 	SpinLockRelease(&SnapSender->mutex);
+
+	SpinLockAcquire(&SnapSender->gxid_mutex);
+	SnapSenderDropXidItem(txid);
+	SpinLockRelease(&SnapSender->gxid_mutex);
 }
 
 void SnapSendLockSendSock(void)
@@ -2482,7 +2501,8 @@ void SnapSenderGetStat(StringInfo buf)
 	finish_xids = NULL;
 	assign_gxid_xids = NULL;
 	gtmc_xids = NULL;
-re_lock_:
+
+re_lock_mutex:
 	if (!assign_xids)
 		assign_xids = palloc0(sizeof(TransactionId) * assign_len);
 	else
@@ -2492,7 +2512,26 @@ re_lock_:
 		finish_xids = palloc0(sizeof(TransactionId) * finish_len);
 	else
 		finish_xids = repalloc(finish_xids, sizeof(TransactionId) * finish_len);
-	
+
+	SpinLockAcquire(&SnapSender->mutex);
+	if (assign_len <  SnapSender->cur_cnt_assign || finish_len < SnapSender->cur_cnt_complete)
+	{
+		SpinLockRelease(&SnapSender->mutex);
+		assign_len += XID_ARRAY_STEP_SIZE;
+		finish_len += XID_ARRAY_STEP_SIZE;
+		goto re_lock_mutex;
+	}
+
+	assign_len = SnapSender->cur_cnt_assign;
+	if (assign_len > 0)
+		memcpy(assign_xids, SnapSender->xid_assign, sizeof(TransactionId)*assign_len);
+
+	finish_len = SnapSender->cur_cnt_complete;
+	if (finish_len > 0)
+		memcpy(finish_xids, SnapSender->xid_complete, sizeof(TransactionId)*finish_len);
+	SpinLockRelease(&SnapSender->mutex);
+
+re_lock_gxid_mutex:
 	if (!assign_gxid_xids)
 		assign_gxid_xids = palloc0(sizeof(TransactionId) * assign_gxid_xids_len);
 	else
@@ -2503,42 +2542,24 @@ re_lock_:
 	else
 		gtmc_xids = repalloc(gtmc_xids, sizeof(TransactionId) * gtmc_xids_len);
 	
-	SpinLockAcquire(&SnapSender->mutex);
-	if (assign_len <  SnapSender->cur_cnt_assign || finish_len < SnapSender->cur_cnt_complete
-			|| assign_gxid_xids_len < SnapSender->xcnt || gtmc_xids_len < SnapSender->gtmc_xcnt)
+	SpinLockAcquire(&SnapSender->gxid_mutex);
+	if (assign_gxid_xids_len < SnapSender->xcnt || gtmc_xids_len < SnapSender->gtmc_xcnt)
 	{
-		SpinLockRelease(&SnapSender->mutex);
-		assign_len += XID_ARRAY_STEP_SIZE;
-		finish_len += XID_ARRAY_STEP_SIZE;
+		SpinLockRelease(&SnapSender->gxid_mutex);
 		assign_gxid_xids_len += XID_ARRAY_STEP_SIZE;
 		gtmc_xids_len += XID_ARRAY_STEP_SIZE;
-		goto re_lock_;
-	}
-
-	assign_len = SnapSender->cur_cnt_assign;
-	for (i = 0; i < SnapSender->cur_cnt_assign; i++)
-	{
-		assign_xids[i] = SnapSender->xid_assign[i];
-	}
-
-	finish_len = SnapSender->cur_cnt_complete;
-	for (i = 0; i < SnapSender->cur_cnt_complete; i++)
-	{
-		finish_xids[i] = SnapSender->xid_complete[i];
+		goto re_lock_gxid_mutex;
 	}
 
 	assign_gxid_xids_len = SnapSender->xcnt;
-	for (i = 0; i < SnapSender->xcnt; i++)
-	{
-		assign_gxid_xids[i] = SnapSender->xip[i];
-	}
+	if (assign_gxid_xids_len > 0)
+		memcpy(assign_gxid_xids, SnapSender->xip, sizeof(TransactionId)*assign_gxid_xids_len);
 
 	gtmc_xids_len = SnapSender->gtmc_xcnt;
-	for (i = 0; i < SnapSender->gtmc_xcnt; i++)
-	{
-		gtmc_xids[i] = SnapSender->gtmc_xip[i];
-	}
-	SpinLockRelease(&SnapSender->mutex);
+	if (gtmc_xids_len > 0)
+		memcpy(gtmc_xids, SnapSender->gtmc_xip, sizeof(TransactionId)*gtmc_xids_len);
+	SpinLockRelease(&SnapSender->gxid_mutex);
+
 
 	appendStringInfo(buf, " state: %d \n", pg_atomic_read_u32(&SnapSender->state));
 	appendStringInfo(buf, " local global xmin: %u\n", pg_atomic_read_u32(&SnapSender->global_xmin));
