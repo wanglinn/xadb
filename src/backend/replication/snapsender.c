@@ -236,7 +236,7 @@ static void SnapSenderRecoveryXidListFromCnFailledList(SnapClientData *client)
 	slist_foreach_modify(siter, &slist_cn_failed_client)
 	{
 		SnapCnData = slist_container(SnapCnClientHoldData, snode, siter.cur);
-		if(!strncmp(SnapCnData->client_name, client->client_name, strlen(client->client_name)))
+		if(!strcasecmp(SnapCnData->client_name, client->client_name))
 		{
 			memcpy(client->xid, SnapCnData->xid, SnapCnData->cur_cnt);
 			client->cur_cnt = SnapCnData->cur_cnt;
@@ -1551,7 +1551,7 @@ static bool snapsenderGetIsCnConn(SnapClientData *client)
 	foreach(node_ceil, cn_master_name_list)
 	{
 		list_client_name = (char *)lfirst(node_ceil);
-		comp_ret = strncmp(list_client_name, client->client_name, strlen(client->client_name));
+		comp_ret = strcasecmp(list_client_name, client->client_name);
 
 		if (comp_ret == 0)
 		{
@@ -1575,7 +1575,7 @@ static void snapsenderProcessNextXid(SnapClientData *client, TransactionId txid)
 	foreach(node_ceil, dn_master_name_list)
 	{
 		list_client_name = (char *)lfirst(node_ceil);
-		comp_ret = strncmp(list_client_name, client->client_name, strlen(client->client_name));
+		comp_ret = strcasecmp(list_client_name, client->client_name);
 
 		if (comp_ret == 0)
 		{
@@ -1597,7 +1597,7 @@ static void snapsenderProcessNextXid(SnapClientData *client, TransactionId txid)
 	foreach(node_ceil, cn_master_name_list)
 	{
 		list_client_name = (char *)lfirst(node_ceil);
-		comp_ret = strncmp(list_client_name, client->client_name, strlen(client->client_name));
+		comp_ret = strcasecmp(list_client_name, client->client_name);
 
 		if (comp_ret == 0)
 		{
@@ -2019,7 +2019,7 @@ static void SnapSenderCheckOldClientList(SnapClientData *client)
 	slist_foreach_modify(siter, &slist_all_client)
 	{
 		client_item = slist_container(SnapClientData, snode, siter.cur);
-		if(!strcmp(client_item->client_name, client->client_name) &&
+		if(!strcasecmp(client_item->client_name, client->client_name) &&
 			pq_get_socket(client_item->node) != pq_get_socket(client->node))
 		{
 			SnapSenderTransferCnClientToFailledList(client_item);
@@ -2194,19 +2194,19 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 				else if (cmdtype == 'g') /* assing one xid */
 				{
 					client_name = pq_getmsgstring(&input_buffer);
-					Assert(!strncmp(client->client_name, client_name, strlen(client_name)));
+					Assert(!strcasecmp(client->client_name, client_name));
 					SnapSenderProcessAssignGxid(client);
 				}
 				else if (cmdtype == 'q') /* pre-alloc xid array */
 				{
 					client_name = pq_getmsgstring(&input_buffer);
-					Assert(!strncmp(client->client_name, client_name, strlen(client_name)));
+					Assert(!strcasecmp(client->client_name, client_name));
 					SnapSenderProcessPreAssignGxidArray(client);
 				}
 				else if (cmdtype == 'c')
 				{
 					client_name = pq_getmsgstring(&input_buffer);
-					Assert(!strncmp(client->client_name, client_name, strlen(client_name)));
+					Assert(!strcasecmp(client->client_name, client_name));
 					SnapSenderProcessFinishGxid(client);
 				}
 			}
