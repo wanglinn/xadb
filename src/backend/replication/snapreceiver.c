@@ -1475,7 +1475,6 @@ static void SnapRcvProcessAssign(char *buf, Size len)
 			++epoch;
 
 		ShmemVariableCache->nextFullXid = FullTransactionIdFromEpochAndXid(epoch, gxid);
-		FullTransactionIdAdvance(&ShmemVariableCache->nextFullXid);
 	}
 	/*
 	 * Now advance the nextXid counter.  This must not happen until after we
