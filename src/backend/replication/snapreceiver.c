@@ -1417,7 +1417,7 @@ static void SnapRcvProcessAssign(char *buf, Size len)
 {
 	StringInfoData	msg;
 	TransactionId	txid;
-	TransactionId	gxid = FirstNormalTransactionId;
+	TransactionId	gxid = InvalidTransactionId;
 	if ((len % sizeof(txid)) != 0 ||
 		len == 0)
 		ereport(ERROR,
@@ -1444,8 +1444,7 @@ static void SnapRcvProcessAssign(char *buf, Size len)
 					(errcode(ERRCODE_PROTOCOL_VIOLATION),
 					 errmsg("too many active transaction from GTM")));
 		}
-
-		if (NormalTransactionIdFollows(txid, gxid))
+		if (gxid == InvalidTransactionId || NormalTransactionIdFollows(txid, gxid))
 			gxid = txid;
 	}
 	UNLOCK_SNAP_RCV();
@@ -1497,7 +1496,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	msg.data = buf;
 	msg.len = msg.maxlen = len;
 	msg.cursor = 0;
-	max_xid = FirstNormalTransactionId;
+	max_xid = InvalidTransactionId;
 
 	initStringInfo(&xidmsg);
 	enlargeStringInfo(&xidmsg, msg.maxlen);
