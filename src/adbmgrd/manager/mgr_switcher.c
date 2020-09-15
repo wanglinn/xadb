@@ -1881,10 +1881,15 @@ static void revertClusterSetting(dlist_head *coordinators,
 	SwitcherNodeWrapper *holdLockCoordinator = NULL;
 	bool execOk = true;
 
-	Assert(coordinators != NULL);	
-	if ((NULL == oldMaster) || (NULL == newMaster))
+	Assert(coordinators != NULL);
+	if (NULL == oldMaster)
 	{
-		ereport(LOG,(errmsg("oldMaster = NULL || newMaster==NULL")));
+		ereport(LOG,(errmsg("oldMaster == NULL")));
+		return;
+	}
+	if (NULL == newMaster)
+	{
+		ereport(LOG,(errmsg("newMaster == NULL")));
 		return;
 	}
 
@@ -3397,7 +3402,7 @@ static void runningSlavesFollowNewMaster(SwitcherNodeWrapper *newMaster,
 
 	batchStartupNodesWithinSeconds(&mgrNodes,
 								   STARTUP_NODE_SECONDS,
-								   true);
+								   false);
 
 	switcherNodesToMgrNodes(runningSlaves, &siblingSlaveNodes);
 	if (oldMaster != NULL)
