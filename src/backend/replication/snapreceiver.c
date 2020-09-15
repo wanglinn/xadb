@@ -1466,10 +1466,7 @@ static void SnapRcvProcessAssign(char *buf, Size len)
 	ExtendSUBTRANS(gxid);
 	
 	if (TransactionIdFollowsOrEquals(gxid, ShmemVariableCache->nextXid))
-	{
 		ShmemVariableCache->nextXid = gxid;
-		TransactionIdAdvance(ShmemVariableCache->nextXid);
-	}
 	/*
 	 * Now advance the nextXid counter.  This must not happen until after we
 	 * have successfully completed ExtendCLOG() --- if that routine fails, we
