@@ -4975,7 +4975,7 @@ static struct config_enum ConfigureNamesEnum[] =
 	},
 #ifdef ADB
 	{
-		{"force_snapshot_consistent", PGC_SIGHUP, COORDINATORS,
+		{"force_snapshot_consistent", PGC_USERSET, COORDINATORS,
 			gettext_noop("force muptiple cn/gc data consistent level, set in coordinators and datanode"),
 			NULL
 		},
