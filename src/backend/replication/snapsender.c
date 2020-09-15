@@ -1452,10 +1452,13 @@ static void OnClientMsgEvent(WaitEvent *event, time_t* time_last_latch)
 static void SerializeFullAssignXid(TransactionId *gs_xip, uint32 gs_cnt, TransactionId *ss_xip, uint32 ss_cnt,
 							TransactionId *sf_xip, uint32 sf_cnt, StringInfo buf)
 {
-	int index,i;
+	int index,i,xid_num;
 	TransactionId xid;
+	TransactionId *xid_array;
 	bool	skip, add_finish;
 
+	xid_num = 0;
+	xid_array = palloc0(sizeof(TransactionId) * (gs_cnt+ss_cnt+sf_cnt));
 	/* get all Transaction IDs */
 	for (index = 0; index < gs_cnt; ++index)
 	{
@@ -1492,6 +1495,7 @@ static void SerializeFullAssignXid(TransactionId *gs_xip, uint32 gs_cnt, Transac
 		pq_sendint32(buf, xid);
 		Assert(TransactionIdIsNormal(xid));
 		SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync xid %d\n", xid)));
+		xid_array[xid_num++] = xid;
 	}
 
 	for (i = 0; i < sf_cnt; ++i)
@@ -1525,16 +1529,30 @@ static void SerializeFullAssignXid(TransactionId *gs_xip, uint32 gs_cnt, Transac
 			pq_sendint32(buf, xid);
 			Assert(TransactionIdIsNormal(xid));
 			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add finish xid %d\n", xid)));
+			xid_array[xid_num++] = xid;
 		}
 	}
 
 	for (i = 0; i < xid_array_count; ++i)
 	{
 		xid = xid_array[i];
-		pq_sendint32(buf, xid);
-		Assert(TransactionIdIsNormal(xid));
-		SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add xid_array xid %d\n", xid)));
+		skip = false;
+		for (index = 0; index < xid_num; index++)
+		{
+			if (xid_array[index] == xid)
+			{
+				skip = true;
+				break;
+			}
+		}
+		if (skip == false)
+		{
+			pq_sendint32(buf, xid);
+			Assert(TransactionIdIsNormal(xid));
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add xid_array xid %d\n", xid)));
+		}
 	}
+	pfree(xid_array);
 }
 
 static bool snapsenderGetIsCnConn(SnapClientData *client)
