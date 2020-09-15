@@ -108,7 +108,10 @@ libpqConnect(const char *connstr)
 	 * want to get stuck, waiting for it to start working again.
 	 */
 	run_simple_command("SET synchronous_commit = off");
+#ifdef ADB
 	run_simple_command("SET xc_maintenance_mode = on");
+	run_simple_command("SET force_snapshot_consistent = session;");
+#endif
 }
 
 /*
