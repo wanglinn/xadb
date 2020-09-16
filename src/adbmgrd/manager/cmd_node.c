@@ -12776,7 +12776,7 @@ bool mgr_get_self_address(char *server_address, int server_port, Name self_addre
 
 		if (connect(sock,(struct sockaddr*)&serv_addr,sizeof(serv_addr)) == -1)
 		{
-			ereport(WARNING, (errmsg("on ADB Manager sock connect \"%s\" \"%d\" fail", server_address, server_port)));
+			ereport(LOG, (errmsg("on ADB Manager sock connect \"%s\" \"%d\" fail", server_address, server_port)));
 			closesocket(sock);
 			return false;
 		}
