@@ -945,7 +945,7 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 								   true);
 		newMaster->gtmInfoChanged = true;
 
-		RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_OFF);
+		RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_OFF);
 		promoteNewMasterStartReign(oldMaster, newMaster);
 
 		/* newMaster also is a coordinator */
@@ -1041,14 +1041,15 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 		revertClusterSetting(&coordinators, oldMaster, newMaster);
 		revertGtmInfoSetting(oldMaster, newMaster, &coordinators, &coordinatorSlaves, &dataNodes);
 
-		RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_ON);
+		if (newMaster != NULL)
+			RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);
 	}
 	PG_END_TRY();
 
 	ereport(LOG, (errmsg("------------- FailOverGtmCoordMaster oldMasterName(%s) after -------------", oldMasterName)));			
 	PrintMgrNodeList(spiContext);
 
-	RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_ON);
+	RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);
 	
 	/* pfree data and close PGconn */
 	pfreeSwitcherNodeWrapperList(&failedSlaves, NULL);
@@ -1439,7 +1440,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 								   true);
 		newMaster->gtmInfoChanged = true;
 
-		RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_OFF);
+		RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_OFF);
 
 		promoteNewMasterStartReign(oldMaster, newMaster);
 
@@ -1529,14 +1530,15 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 		revertClusterSetting(&coordinators, oldMaster, newMaster);
 		revertGtmInfoSetting(oldMaster, newMaster, &coordinators, &coordinatorSlaves, &dataNodes);
 
-		RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_ON);
+		if (newMaster != NULL)
+			RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);
 	}
 	PG_END_TRY();
 
 	ereport(LOG, (errmsg("------------- switchoverGtmCoord newMasterName(%s) after -------------", newMasterName)));			
 	PrintMgrNodeList(spiContext);
 
-	RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_ON);
+	RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);
 	pfreeSwitcherNodeWrapperList(&failedSlaves, NULL);
 	pfreeSwitcherNodeWrapperList(&failedSlavesSecond, NULL);
 	pfreeSwitcherNodeWrapperList(&runningSlavesSecond, NULL);
@@ -5553,7 +5555,7 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 								true);
 	newMaster->gtmInfoChanged = true;
 
-	RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_OFF);
+	RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_OFF);
 	promoteNewMasterStartReign(oldMaster, newMaster);
 
 	ereportNoticeLog(errmsg("set gtmhost, gtmport to every node, please wait for a moment."));
@@ -6547,7 +6549,7 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 								true);
 	newMaster->gtmInfoChanged = true;
 
-	RefreshGtmAdbCheckSyncNextid(newMaster, ADB_CHECK_SYNC_NEXTID_OFF);
+	RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_OFF);
 	promoteNewMasterStartReign(oldMaster, newMaster);
 
 	/* newMaster also is a coordinator */
@@ -7299,20 +7301,20 @@ static bool DeletePgxcNodeDataNodeByName(PGconn *pgConn, char *nodeName, bool co
 	}
 	return execOk;
 }
-void RefreshGtmAdbCheckSyncNextid(SwitcherNodeWrapper *node, char *value)
+void RefreshGtmAdbCheckSyncNextid(MgrNodeWrapper *mgrNode, char *value)
 {
 	GetAgentCmdRst 		getAgentCmdRst;
 	StringInfoData  	infosendmsg;
 
-	CheckNull(node);
+	CheckNull(mgrNode);
 
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
 
 	mgr_append_pgconf_paras_str_quotastr("adb_check_sync_nextid", value, &infosendmsg);
-	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, node->mgrNode->nodepath, &infosendmsg
-							,node->mgrNode->form.nodehost, &getAgentCmdRst);
+	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD, mgrNode->nodepath, &infosendmsg
+							,mgrNode->form.nodehost, &getAgentCmdRst);
 	if (!getAgentCmdRst.ret)
 		ereport(ERROR, (errmsg("set adb_check_sync_nextid = '%s' in postgresql.conf of %s fail"
-			, infosendmsg.data, NameStr(node->mgrNode->form.nodename))));
+			, infosendmsg.data, NameStr(mgrNode->form.nodename))));
 }
