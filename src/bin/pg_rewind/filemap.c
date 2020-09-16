@@ -870,14 +870,13 @@ final_filemap_cmp(const void *a, const void *b)
 static bool
 is_source_other_node_tablespace_files(const char *path)
 {
-	char	path_bak[strlen(path)];
+	char	*path_bak = NULL;
 	char	*buf;
 	char	*tblspc = "pg_tblspc";
 	char	*token;
 	bool	flag = false;
 
-
-	strcpy(path_bak, path);
+	path_bak = pg_strdup(path);
 	buf = path_bak;
 	while((token = strsep(&buf,"/")) != NULL)
 	{
@@ -887,10 +886,12 @@ is_source_other_node_tablespace_files(const char *path)
 		{
 			if (strcmp(token, source_tblspc_directory) == 0)
 			{
+				pg_free(path_bak);
 				return false;
 			}
 		}
 	}
+	pg_free(path_bak);
 	return flag;
 }
 
