@@ -172,7 +172,8 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 							&zoGtm, 
 							&zoCoordList,
 							&zoDNList);
-		RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator, ADB_CHECK_SYNC_NEXTID_ON);					
+		if (zoGtm.holdLockCoordinator != NULL)					
+			RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);					
 		ZoneSwitchoverFree(&zoGtm, 
 							&zoCoordList, 
 							&zoDNList);
@@ -192,7 +193,7 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 
 	callAgentRestartNode(zoGtm.holdLockCoordinator->mgrNode, SHUTDOWN_F, true);
 
-	RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator, ADB_CHECK_SYNC_NEXTID_ON);
+	RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);
 	ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
 
 	MgrCheckAllSlaveNum(spiContext, currentZone);
@@ -284,7 +285,8 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 		ereportNoticeLog(errmsg("============ ZONE SWITCHOVER %s failed, revert it begin ============", currentZone));
 		RevertZoneSwitchover(spiContext, &zoGtm, &zoCoordList, &zoDNList);
 
-		RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator, ADB_CHECK_SYNC_NEXTID_ON);
+		if (zoGtm.holdLockCoordinator != NULL)	
+			RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);
 		ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
 		ereportNoticeLog(errmsg("============ ZONE SWITCHOVER %s failed, revert it end ============", currentZone));
 
@@ -302,7 +304,9 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 
 	tryUnlockCluster(&zoGtm.coordinators, true);
 
-	RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator, ADB_CHECK_SYNC_NEXTID_ON);
+	if (zoGtm.holdLockCoordinator != NULL)	
+		RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);
+	
 	ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
 
 	MgrCheckAllSlaveNum(spiContext, currentZone);

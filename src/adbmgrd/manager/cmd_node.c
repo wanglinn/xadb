@@ -325,6 +325,7 @@ static void mgr_modify_gtmport_after_initd(Relation rel_node,
 static void MgrInitAllSlaveNodes(char nodeType);
 static void MgrInitStartChildNodes(MemoryContext spiContext, MgrNodeWrapper *mgrNode);
 static void MgrInitStartNodeFunc(NameData *nodeName, char nodeType);
+static void mgr_update_all_cn_pgxcnode_readonlysql(InitNodeInfo	*info, List	*datanode_list, List *sync_parms);
 
 #if (Natts_mgr_node != 12)
 #error "need change code"
@@ -14063,15 +14064,14 @@ mgr_get_gtm_host_snapsender_gxidsender_port(StringInfo infosendmsg)
 bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync, Node *node)
 {
 	InitNodeInfo	*info;
-	ScanKeyData		cnkey[1], ndkey[3], ndskey[5];
+	ScanKeyData		ndkey[3], ndskey[5];
 	HeapTuple		tuple;
-	Form_mgr_node	cn_master_node, dn_master_node;
+	Form_mgr_node	dn_master_node;
 	MgrDatanodeInfo	*mgr_datanode_info;
 	List			*datanode_list = NIL;
 	ListCell		*cell, *prev;
 	List			*sync_parms = NIL;
 	NameData		nodeSync;
-	bool			updateAll = true;
 	ReadonlyUpdateparm *rdUpdateparm;
 	Form_mgr_node      mgrNodeSlave = NULL; 
 
@@ -14246,7 +14246,52 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 		heap_endscan(info->rel_scan);		
 	}
 
-	/* get CN master info */
+	mgr_update_all_cn_pgxcnode_readonlysql(info, datanode_list, sync_parms);
+
+	list_free(datanode_list);
+	MgrFree(info);
+
+	/* Add read-write separation mode data to force consistency setting reminder */
+	if (updateKey && isSlaveSync)
+	{
+		ereport(WARNING, 
+				(errcode(ERRCODE_WARNING),
+				 errmsg("Data nodes are synchronized by means of stream replication between primary and secondary nodes, which may cause extremely short synchronization delay. \
+				 		 If strong data consistency is required for the read-write separation function, configure the commit mode for 'DATANODE MASTER'."),
+				 errhint("SYNCHRONOUS_COMMIT = REMOTE_APPLY")));
+	}
+	return true;
+}
+static void mgr_update_all_cn_pgxcnode_readonlysql(InitNodeInfo	*info, List	*datanode_list, List *sync_parms)
+{
+	int 				spiRes;
+	MemoryContext 		spiContext;
+	MemoryContext 		oldContext = NULL;
+	MemoryContext 		switchContext;
+	bool				updateAll = true;
+	MgrNodeWrapper 		*gtmMaster = NULL;
+	ScanKeyData			cnkey[1];
+	HeapTuple			tuple;
+	Form_mgr_node		cn_master_node;
+
+	oldContext = CurrentMemoryContext;
+	switchContext = AllocSetContextCreate(oldContext,
+										"mgr_update_all_cn_pgxcnode_readonlysql",
+										ALLOCSET_DEFAULT_SIZES);
+	spiRes = SPI_connect();
+	if (spiRes != SPI_OK_CONNECT)
+	{
+		ereport(ERROR,
+				(errmsg("SPI_connect failed, connect return:%d",
+						spiRes)));
+	}
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(switchContext);
+
+	gtmMaster = selectMgrGtmCoordNode(spiContext);
+	Assert(gtmMaster);
+	RefreshGtmAdbCheckSyncNextid(gtmMaster, ADB_CHECK_SYNC_NEXTID_OFF);								
+	
 	ScanKeyInit(&cnkey[0]
 				,Anum_mgr_node_nodeinited
 				,BTEqualStrategyNumber
@@ -14265,10 +14310,16 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 		if (!mgr_exec_update_cn_pgxcnode_readonlysql_slave(cn_master_node, datanode_list, sync_parms))
 			updateAll = false;
 	}
-	list_free(datanode_list);
-	heap_endscan(info->rel_scan);
-	heap_close(info->rel_node, AccessShareLock);	/* close table */
-	pfree(info);
+
+	EndScan(info->rel_scan);
+	heap_close(info->rel_node, AccessShareLock);
+	RefreshGtmAdbCheckSyncNextid(gtmMaster, ADB_CHECK_SYNC_NEXTID_ON);
+	if (gtmMaster)
+		pfreeMgrNodeWrapper(gtmMaster);
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(switchContext);
+	SPI_finish();	
+
 	if (updateAll)
 	{
 		readonlySqlSlaveInfoRefreshComplete = true;
@@ -14276,20 +14327,9 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 	else
 	{
 		readonlySqlSlaveInfoRefreshComplete = false;
-		ereport(WARNING, 
+		ereport(LOG, 
 				(errmsg("Pgxc_node update not completed on all datanode masters.")));
 	}
-	/* Add read-write separation mode data to force consistency setting reminder */
-	if (updateKey && isSlaveSync)
-	{
-		ereport(WARNING, 
-				(errcode(ERRCODE_WARNING),
-				 errmsg("Data nodes are synchronized by means of stream replication between primary and secondary nodes, which may cause extremely short synchronization delay. \
-				 		 If strong data consistency is required for the read-write separation function, configure the commit mode for 'DATANODE MASTER'."),
-				 errhint("SYNCHRONOUS_COMMIT = REMOTE_APPLY")));
-
-	}
-	return true;
 }
 
 /* Execute the update of the pgxc_node table */
