@@ -662,6 +662,7 @@ static void SetZoneOverGtm(ZoneOverGtm *zoGtm)
 {
 	zoGtm->oldMaster          = NULL;
 	zoGtm->newMaster          = NULL;	
+	zoGtm->holdLockCoordinator= NULL;
 	dlist_init(&zoGtm->coordinators);
 	dlist_init(&zoGtm->coordinatorSlaves);
 	dlist_init(&zoGtm->runningSlaves);
