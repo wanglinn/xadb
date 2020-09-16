@@ -1169,6 +1169,7 @@ NodeConnectionStatus connectNodeDefaultDB(MgrNodeWrapper *node,
 	PGconn *conn;
 	NodeConnectionStatus connStatus;
 	const char *gram = NULL;
+	char *errorMessage = NULL;
 
 	initStringInfo(&conninfo);
 	appendStringInfo(&conninfo, "host='%s' port=%u dbname='%s' user='%s' connect_timeout=%d",
@@ -1192,13 +1193,17 @@ NodeConnectionStatus connectNodeDefaultDB(MgrNodeWrapper *node,
 	}
 	else
 	{
+		errorMessage = PQerrorMessage(conn);
 		ereport(LOG,
 				(errmsg("connect node %s error, %s",
 						NameStr(node->form.nodename),
-						PQerrorMessage(conn))));
+						errorMessage)));
 		if (strcmp(conn->last_sqlstate, "57P03") == 0)
 		{
-			connStatus = NODE_CONNECTION_STATUS_STARTING_UP;
+			if (errorMessage != NULL && strstr(errorMessage, "shutting down") != NULL)
+				connStatus = NODE_CONNECTION_STATUS_CANNOT_SHUTTING_DOWN;
+			else
+				connStatus = NODE_CONNECTION_STATUS_CANNOT_CONNECT_NOW;
 		}
 		else if (strcmp(conn->last_sqlstate, "53300") == 0)
 		{
@@ -1236,7 +1241,8 @@ PGconn *getNodeDefaultDBConnection(MgrNodeWrapper *mgrNode,
 		gotConn = true;
 	}
 	else if (connStatus == NODE_CONNECTION_STATUS_BUSY ||
-			 connStatus == NODE_CONNECTION_STATUS_STARTING_UP)
+			 connStatus == NODE_CONNECTION_STATUS_CANNOT_CONNECT_NOW ||
+			 connStatus == NODE_CONNECTION_STATUS_CANNOT_SHUTTING_DOWN)
 	{
 		gotConn = false;
 	}
@@ -2257,14 +2263,14 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool wait, bool complain)
 	if (res.agentRes)
 	{
 		ereport(LOG,
-				(errmsg("start %s %s successfully",
+				(errmsg("call agent start %s %s successfully",
 						NameStr(node->form.nodename),
 						node->nodepath)));
 	}
 	else
 	{
 		ereport(complain ? ERROR : LOG,
-				(errmsg("start %s %s failed:%s",
+				(errmsg("call agent start %s %s failed:%s",
 						NameStr(node->form.nodename),
 						node->nodepath,
 						res.message.data)));
@@ -4178,7 +4184,7 @@ void MgrGetOldDnMasterNotZone(MemoryContext spiContext,
 bool waitForNodeMayBeInRecovery(MgrNodeWrapper *mgrNode)
 {
 	PGconn *pgConn = NULL;
-	bool printMsgHeader = false;
+	bool printedMessage = false;
 	NodeConnectionStatus connStatus;
 	char msg [200];
 
@@ -4189,34 +4195,25 @@ bool waitForNodeMayBeInRecovery(MgrNodeWrapper *mgrNode)
 		PQfinish(pgConn);
 		pgConn = NULL;
 
-		if (connStatus == NODE_CONNECTION_STATUS_STARTING_UP)
+		if (connStatus == NODE_CONNECTION_STATUS_CANNOT_CONNECT_NOW)
 		{
-			if (!printMsgHeader)
+			if (!printedMessage)
 			{
 				snprintf(msg, 199, "%s may be in recovery, waiting......", NameStr(mgrNode->form.nodename));
 				ereport(NOTICE,
 						(errmsg("%s", msg)));
 				ereport(LOG,
 						(errmsg("%s", msg)));
-				printMsgHeader = true;
-				fputs(msg, stdout);
-			}
-			else
-			{
-				fputs(".", stdout);
+				printedMessage = true;
 			}
 			pg_usleep(1000000L);
 		}
 		else if (connStatus == NODE_CONNECTION_STATUS_SUCCESS)
 		{
-			if (printMsgHeader)
-				fputs("\n", stdout);
 			return true;
 		}
 		else
 		{
-			if (printMsgHeader)
-				fputs("\n", stdout);
 			return false;
 		}
 	}

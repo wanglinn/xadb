@@ -959,7 +959,7 @@ static bool startupNode(MonitorNodeInfo *nodeInfo)
 	nodeInfo->restartTime = GetCurrentTimestamp();
 	/* Modify the value of the variable that controls the restart frequency. */
 	nextRestartFactor(nodeInfo);
-	ok = callAgentStartNode(nodeInfo->mgrNode, true, false);
+	ok = callAgentStartNode(nodeInfo->mgrNode, false, false);
 	nodeInfo->restartTime = GetCurrentTimestamp();
 	return ok;
 }
@@ -977,8 +977,6 @@ static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo)
 			(errmsg("%s, try to startup node",
 					MyBgworkerEntry->bgw_name)));
 	done = startupNode(nodeInfo);
-	endCureOperation(nodeInfo->mgrNode, CURE_STATUS_NORMAL, spiContext);
-
 	if (done)
 	{
 		if (pingNodeWaitinSeconds(nodeInfo->mgrNode,
@@ -987,8 +985,6 @@ static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo)
 			ereport(LOG,
 					(errmsg("%s, startup node successfully",
 							MyBgworkerEntry->bgw_name)));
-			endAdbDoctorLog(logRow, true);
-			resetNodeMonitor();
 		}
 		else
 		{
@@ -1000,7 +996,6 @@ static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo)
 								MyBgworkerEntry->bgw_name)));
 				done = false;
 				logRow->errormsg = "Failed to detect the running status of the node";
-				endAdbDoctorLog(logRow, false);
 			}
 		}
 	}
@@ -1011,6 +1006,14 @@ static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo)
 						MyBgworkerEntry->bgw_name)));
 		done = false;
 		logRow->errormsg = "Failed to startup the node";
+	}
+	endCureOperation(nodeInfo->mgrNode, CURE_STATUS_NORMAL, spiContext);
+	if (done)
+	{
+		endAdbDoctorLog(logRow, true);
+		resetNodeMonitor();
+	}else
+	{
 		endAdbDoctorLog(logRow, false);
 	}
 	return done;
@@ -1034,8 +1037,6 @@ static bool treatNodeByRestart(MonitorNodeInfo *nodeInfo)
 									 SHUTDOWN_NODE_IMMEDIATE_SECONDS,
 									 false) &&
 		   startupNode(nodeInfo);
-	endCureOperation(nodeInfo->mgrNode, CURE_STATUS_NORMAL, spiContext);
-
 	if (done)
 	{
 		if (pingNodeWaitinSeconds(nodeInfo->mgrNode,
@@ -1044,8 +1045,6 @@ static bool treatNodeByRestart(MonitorNodeInfo *nodeInfo)
 			ereport(LOG,
 					(errmsg("%s, restart node successfully",
 							MyBgworkerEntry->bgw_name)));
-			endAdbDoctorLog(logRow, true);
-			resetNodeMonitor();
 		}
 		else
 		{
@@ -1057,7 +1056,6 @@ static bool treatNodeByRestart(MonitorNodeInfo *nodeInfo)
 								MyBgworkerEntry->bgw_name)));
 				done = false;
 				logRow->errormsg = "Failed to detect the running status of the node";
-				endAdbDoctorLog(logRow, false);
 			}
 		}
 	}
@@ -1068,6 +1066,14 @@ static bool treatNodeByRestart(MonitorNodeInfo *nodeInfo)
 						MyBgworkerEntry->bgw_name)));
 		done = false;
 		logRow->errormsg = "Failed to restart the node";
+	}
+	endCureOperation(nodeInfo->mgrNode, CURE_STATUS_NORMAL, spiContext);
+	if (done)
+	{
+		endAdbDoctorLog(logRow, true);
+		resetNodeMonitor();
+	}else
+	{
 		endAdbDoctorLog(logRow, false);
 	}
 	return done;
