@@ -2248,7 +2248,7 @@ void appendSlaveNodeFollowMasterEx(MemoryContext spiContext,
 							  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
 							  complain);
 
-	callAgentStartNode(slaveNode, true, false);
+	callAgentStartNode(slaveNode, false, false);
 
 	waitForNodeRunningOk(slaveNode, false, &slave->pgConn, &slave->runningMode);
 
@@ -3538,12 +3538,13 @@ static void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
 	while (networkFailures < maxNetworkFailures)
 	{
 		connStatus = connectNodeDefaultDB(mgrNode, 10, &pgConn);
-		if (connStatus == NODE_CONNECTION_STATUS_SUCCESS)
+		if (connStatus == NODE_CONNECTION_STATUS_SUCCESS ||
+			connStatus == NODE_CONNECTION_STATUS_CANNOT_SHUTTING_DOWN)
 		{
 			break;
 		}
 		else if (connStatus == NODE_CONNECTION_STATUS_BUSY ||
-				 connStatus == NODE_CONNECTION_STATUS_STARTING_UP)
+				 connStatus == NODE_CONNECTION_STATUS_CANNOT_CONNECT_NOW)
 		{
 			/* wait for start up */
 			networkFailures = 0;
@@ -5275,7 +5276,7 @@ void MgrChildNodeFollowParentNode(MemoryContext spiContext,
 							  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
 							  true);
 
-	callAgentStartNode(slaveNode, true, false);
+	callAgentStartNode(slaveNode, false, false);
 
 	waitForNodeRunningOk(slaveNode, false, NULL, NULL);
 
