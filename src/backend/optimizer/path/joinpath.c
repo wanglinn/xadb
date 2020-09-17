@@ -119,6 +119,7 @@ typedef struct ClusterJoinContext
 	JoinPathExtraData  *extra;
 
 	List			   *hashclauses;
+	List			   *joinclauses;
 
 	List			   *merge_pathkeys;
 	List			   *merge_clauses;
@@ -130,7 +131,6 @@ typedef struct ClusterJoinContext
 	JoinType			jointype;
 	int					try_match;	/* CLUSTER_TRY_XXX_JOIN */
 	bool				nestjoinOK;
-	bool				join_exprs_valid;
 }ClusterJoinContext;
 
 #define PATH_PARAM_OUTER_REL(path, rel)	\
@@ -182,15 +182,14 @@ static void try_cluster_join_path(ClusterJoinContext *jcontext,
 								  Path *inner_path,
 								  List *new_reduce_list);
 static List *create_outer_reduce_info_for_join(List *inner_reduce_list, RelOptInfo *outerrel,
-											   JoinType jointype, JoinPathExtraData *extra);
+											   JoinType jointype, List *joinrestrictlist);
 static List *create_inner_reduce_info_for_join(List *outer_reduce_list, RelOptInfo *innerrel,
-											   JoinType jointype, JoinPathExtraData *extra);
+											   JoinType jointype, List *joinrestrict);
 static List *create_and_append_replicate_reduceinfo(List *list, const ReduceInfo *rinfo);
 static List *reduce_paths_for_join(PlannerInfo *root, RelOptInfo *rel, List *pathlist, List *reduce_list, bool parallel);
-static bool get_cluster_join_exprs(RelOptInfo *outerrel, RelOptInfo *innerrel,
-								   List **outer_exprs, List **inner_exprs,
-								   List *restrictlist);
 static List *union_reduce_exec_oid_list(List *a, List *b);
+static void set_cluster_join_clauses(ClusterJoinContext *jcontext, bool init_hash);
+static void clear_cluster_join_clause(ClusterJoinContext *jcontext);
 #endif /* ADB */
 
 /*
@@ -1339,6 +1338,7 @@ sort_inner_and_outer(PlannerInfo *root,
 		jcontext.extra = extra;
 		jcontext.jointype = save_jointype;
 		jcontext.try_match = CLUSTER_TRY_MERGE_JOIN;
+		set_cluster_join_clauses(&jcontext, false);
 		set_all_join_inner_path(&jcontext, outerrel->cheapest_cluster_total_path, innerrel->cluster_pathlist);
 		inner_path = get_cheapest_join_path(&jcontext,
 											outerrel->cheapest_cluster_total_path,
@@ -1371,6 +1371,7 @@ sort_inner_and_outer(PlannerInfo *root,
 					sort_cluster_inner_and_outer(&jcontext, outer_path, inner_path, all_pathkeys, new_reduce_list);
 			}
 		}
+		clear_cluster_join_clause(&jcontext);
 	}
 #endif /* ADB */
 }
@@ -1930,6 +1931,7 @@ consider_parallel_nestloop(PlannerInfo *root,
 	JoinType	save_jointype = jointype;
 	ListCell   *lc1;
 #ifdef ADB
+	ClusterJoinContext jcontext;
 	bool		tried;
 #endif /* ADB */
 
@@ -1982,6 +1984,15 @@ consider_parallel_nestloop(PlannerInfo *root,
 		}
 	}
 #ifdef ADB
+	MemSet(&jcontext, 0, sizeof(jcontext));
+	jcontext.root = root;
+	jcontext.joinrel = joinrel;
+	jcontext.outerrel = outerrel;
+	jcontext.innerrel = innerrel;
+	jcontext.extra = extra;
+	jcontext.jointype = save_jointype;
+	jcontext.try_match = CLUSTER_TRY_NESTLOOP_JOIN;
+	set_cluster_join_clauses(&jcontext, false);
 	tried = false;
 	foreach(lc1, outerrel->cluster_partial_pathlist)
 	{
@@ -2012,7 +2023,7 @@ consider_parallel_nestloop(PlannerInfo *root,
 			if (!innerpath->parallel_safe ||
 				reduce_info_list_can_join(outer_reduce_list,
 										  get_reduce_info_list(innerpath),
-										  extra->restrictlist,
+										  jcontext.joinclauses,
 										  jointype,
 										  &new_reduce_list) == false)
 				continue;
@@ -2050,14 +2061,12 @@ consider_parallel_nestloop(PlannerInfo *root,
 	if(tried == false && outerrel->cluster_partial_pathlist)
 	{
 		/* reduce outer paths */
-		ClusterJoinContext jcontext;
 		Path *outerpath;
 		Path *innerpath;
 		List *pathkeys;
 		List *inner_reduce_list;
 		List *need_reduce_list;
 		List *outer_pathlist;
-		//List *outer_reduce_list;
 		List *new_reduce_list;
 		List *inner_pathlist = NIL;
 		foreach(lc1, innerrel->cluster_pathlist)
@@ -2069,22 +2078,12 @@ consider_parallel_nestloop(PlannerInfo *root,
 		if (inner_pathlist == NIL)
 			goto end_reduce_outer_;
 
-		MemSet(&jcontext, 0, sizeof(jcontext));
-		jcontext.root = root;
-		jcontext.joinrel = joinrel;
-		jcontext.outerrel = outerrel;
-		jcontext.innerrel = innerrel;
-		jcontext.extra = extra;
-		jcontext.jointype = save_jointype;
-		jcontext.try_match = CLUSTER_TRY_NESTLOOP_JOIN;
-
 		inner_reduce_list = GetPathListReduceInfoList(inner_pathlist);
-		need_reduce_list = create_outer_reduce_info_for_join(inner_reduce_list, outerrel, jointype, extra);
+		need_reduce_list = create_outer_reduce_info_for_join(inner_reduce_list, outerrel, jointype, jcontext.joinclauses);
 		outer_pathlist = reduce_paths_for_join(root, outerrel, outerrel->cluster_partial_pathlist, need_reduce_list, true);
 		foreach(lc1, outer_pathlist)
 		{
 			outerpath = lfirst(lc1);
-			//outer_reduce_list = get_reduce_info_list(outerpath);
 
 			set_all_join_inner_path(&jcontext, outerpath, inner_pathlist);
 			innerpath = get_cheapest_join_path(&jcontext, outerpath, TOTAL_COST, false, &new_reduce_list);
@@ -2123,7 +2122,7 @@ retry_partial_nestloop_:
 		}
 	}
 end_reduce_outer_:
-	(void)0;
+	clear_cluster_join_clause(&jcontext);
 #endif /* ADB */
 }
 
@@ -2537,7 +2536,7 @@ static Path* get_cheapest_join_path(ClusterJoinContext *jcontext,
 		bool can_join PG_USED_FOR_ASSERTS_ONLY;
 		can_join = reduce_info_list_can_join(outer_reduce_list,
 											 get_reduce_info_list(cheapest_inner_path),
-											 jcontext->extra->restrictlist,
+											 jcontext->joinclauses,
 											 jcontext->jointype,
 											 new_reduce_list);
 		Assert(can_join);
@@ -2549,7 +2548,7 @@ static void set_all_join_inner_path(ClusterJoinContext *jcontext, Path *outer_pa
 {
 	List *outer_reduce_list = get_reduce_info_list(outer_path);
 	List *list = NIL;
-	List *restrictlist = jcontext->extra->restrictlist;
+	List *restrictlist = jcontext->joinclauses;
 	ListCell *lc;
 	JoinType jointype = jcontext->jointype;
 	bool have_upper_reference = jcontext->joinrel->have_upper_reference;
@@ -2641,7 +2640,6 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 	jcontext.innerrel = innerrel;
 	jcontext.extra = extra;
 	jcontext.jointype = jointype;
-	jcontext.join_exprs_valid = false;
 
 	/*
 	 * Nestloop only supports inner, left, semi, and anti joins.  Also, if we
@@ -2678,33 +2676,7 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 			break;
 	}
 
-	/*jcontext.hashclauses = NIL;*/
-	if(jointype != JOIN_FULL)
-	{
-		bool isouterjoin = IS_OUTER_JOIN(jointype);
-		foreach(lc1, extra->restrictlist)
-		{
-			RestrictInfo *restrictinfo = lfirst(lc1);
-			/*
-			 * If processing an outer join, only use its own join clauses for
-			 * hashing.  For inner joins we need not be so picky.
-			 */
-			if (isouterjoin && restrictinfo->is_pushed_down)
-				continue;
-
-			if (!restrictinfo->can_join ||
-				restrictinfo->hashjoinoperator == InvalidOid)
-				continue;			/* not hashjoinable */
-
-			/*
-			 * Check if clause has the form "outer op inner" or "inner op outer".
-			 */
-			if (!clause_sides_match_join(restrictinfo, outerrel, innerrel))
-				continue;			/* no good for these input relations */
-
-			jcontext.hashclauses = lappend(jcontext.hashclauses, restrictinfo);
-		}
-	}
+	set_cluster_join_clauses(&jcontext, jointype != JOIN_FULL);
 
 	if (add_cluster_paths_to_joinrel_internal(&jcontext,
 											  base_outer_pathlist,
@@ -2812,7 +2784,7 @@ static void add_cluster_paths_to_joinrel(PlannerInfo *root,
 		}
 	}
 end_try_parallel_hash_join_:
-	return;
+	clear_cluster_join_clause(&jcontext);
 }
 
 static bool reduce_outer_and_inner_for_join(ClusterJoinContext *jcontext,
@@ -2850,7 +2822,7 @@ static bool reduce_outer_and_inner_for_join(ClusterJoinContext *jcontext,
 		need_reduce_list = create_inner_reduce_info_for_join(all_outer_reduce,
 															 innerrel,
 															 jcontext->jointype,
-															 jcontext->extra);
+															 jcontext->joinclauses);
 		inner_pathlist = reduce_paths_for_join(jcontext->root,
 											   innerrel,
 											   base_inner_pathlist,
@@ -2868,7 +2840,7 @@ static bool reduce_outer_and_inner_for_join(ClusterJoinContext *jcontext,
 		need_reduce_list = create_outer_reduce_info_for_join(all_inner_reduce,
 															 outerrel,
 															 jcontext->jointype,
-															 jcontext->extra);
+															 jcontext->joinclauses);
 		outer_pathlist = reduce_paths_for_join(jcontext->root,
 											   outerrel,
 											   base_outer_pathlist,
@@ -2881,22 +2853,11 @@ static bool reduce_outer_and_inner_for_join(ClusterJoinContext *jcontext,
 
 	/* reduce inner and outer both when modify(if) target not in inner and outer rel */
 	if ((path_flags & PATH_REDUCE_NO_INNER) == 0 &&
+		jcontext->outer_join_exprs != NIL &&
 		(resultRelation == 0 ||
 		 bms_is_member(resultRelation, jcontext->joinrel->relids) == false))
 	{
-		if (jcontext->join_exprs_valid == false)
-		{
-			get_cluster_join_exprs(outerrel,
-								   innerrel,
-								   &jcontext->outer_join_exprs,
-								   &jcontext->inner_join_exprs,
-								   jcontext->extra->restrictlist);
-			Assert(list_length(jcontext->outer_join_exprs) == list_length(jcontext->inner_join_exprs));
-			jcontext->join_exprs_valid = true;
-		}
-		if (jcontext->outer_join_exprs == NIL ||
-			jcontext->inner_join_exprs == NIL)
-			goto end_try_reduce_both_;
+		Assert(list_length(jcontext->outer_join_exprs) == list_length(jcontext->inner_join_exprs));
 
 		outer_pathlist = NIL;
 		inner_pathlist = NIL;
@@ -2956,7 +2917,6 @@ re_reduce_join_:
 		list_free(storage);
 	}
 
-end_try_reduce_both_:
 	/* reduce inner and outer both to coordinator */
 	if (tried_join == false &&
 		(resultRelation == 0 || bms_is_member(resultRelation, jcontext->joinrel->relids) == false))
@@ -3083,7 +3043,7 @@ static bool add_cluster_paths_to_joinrel_internal(ClusterJoinContext *jcontext,
 						Path	   *innerpath = (Path *) lfirst(lc2);
 						if (reduce_info_list_can_join(outer_reduce_list,
 													 get_reduce_info_list(innerpath),
-													 jcontext->extra->restrictlist,
+													 jcontext->joinclauses,
 													 jcontext->jointype,
 													 &tmp_reduce_list) &&
 							(jcontext->joinrel->have_upper_reference == false ||
@@ -3401,7 +3361,7 @@ static void try_cluster_join_path(ClusterJoinContext *jcontext, Path *outer_path
 					else
 						can_join = reduce_info_list_can_join(outer_reduce_list,
 															get_reduce_info_list(inner_path),
-															jcontext->extra->restrictlist,
+															jcontext->joinclauses,
 															jointype,
 															&reduce_info_list);
 					if (can_join)
@@ -3452,7 +3412,7 @@ static void try_cluster_join_path(ClusterJoinContext *jcontext, Path *outer_path
 						else
 							can_join = reduce_info_list_can_join(outer_reduce_list,
 																 get_reduce_info_list(inner_path),
-																 jcontext->extra->restrictlist,
+																 jcontext->joinclauses,
 																 jointype,
 																 &reduce_info_list);
 						if(can_join)
@@ -3566,7 +3526,7 @@ static void sort_cluster_inner_and_outer(ClusterJoinContext *jcontext, Path *out
 }
 
 static List *create_inner_reduce_info_for_join(List *outer_reduce_list, RelOptInfo *innerrel,
-											   JoinType jointype, JoinPathExtraData *extra)
+											   JoinType jointype, List *joinrestrictlist)
 {
 	ListCell *lc;
 	ReduceInfo *rinfo;
@@ -3596,7 +3556,7 @@ static List *create_inner_reduce_info_for_join(List *outer_reduce_list, RelOptIn
 /* ADBQ TODO add unique inner path */
 		need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
 		if (!IsReduceInfoByValue(rinfo) ||
-			(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, innerrel)) == NIL)
+			(exprList = FindJoinEqualExprs(rinfo, joinrestrictlist, innerrel)) == NIL)
 			continue;
 		rinfo = MakeReduceInfoAs(rinfo, exprList);
 		list_free(exprList);
@@ -3610,7 +3570,7 @@ static List *create_inner_reduce_info_for_join(List *outer_reduce_list, RelOptIn
 }
 
 static List *create_outer_reduce_info_for_join(List *inner_reduce_list, RelOptInfo *outerrel,
-											   JoinType jointype, JoinPathExtraData *extra)
+											   JoinType jointype, List *joinrestrictlist)
 {
 	ListCell *lc;
 	ReduceInfo *rinfo;
@@ -3640,7 +3600,7 @@ static List *create_outer_reduce_info_for_join(List *inner_reduce_list, RelOptIn
 /* ADBQ TODO add unique outer path */
 		need_reduce_list = create_and_append_replicate_reduceinfo(need_reduce_list, rinfo);
 		if (!IsReduceInfoByValue(rinfo) ||
-			(exprList = FindJoinEqualExprs(rinfo, extra->restrictlist, outerrel)) == NIL)
+			(exprList = FindJoinEqualExprs(rinfo, joinrestrictlist, outerrel)) == NIL)
 			continue;
 		rinfo = MakeReduceInfoAs(rinfo, exprList);
 		list_free(exprList);
@@ -3702,18 +3662,47 @@ static List *reduce_paths_for_join(PlannerInfo *root, RelOptInfo *rel, List *pat
 	return result;
 }
 
-static bool get_cluster_join_exprs(RelOptInfo *outerrel, RelOptInfo *innerrel,
-								   List **outer_exprs, List **inner_exprs,
-								   List *restrictlist)
+void set_cluster_join_clauses(ClusterJoinContext *jcontext, bool init_hash)
 {
-	ListCell *lc;
-	List *outer = NIL;
-	List *inner = NIL;
-	foreach(lc, restrictlist)
-	{
-		RestrictInfo *ri = lfirst(lc);
+	ListCell	   *lc;
+	RestrictInfo   *ri;
+	RelOptInfo	   *joinrel = jcontext->joinrel;
+	RelOptInfo	   *outerrel = jcontext->outerrel;
+	RelOptInfo	   *innerrel = jcontext->innerrel;
+	bool			isouterjoin = IS_OUTER_JOIN(jcontext->jointype);
 
-		/* only support X=X expression */
+	jcontext->hashclauses = NIL;
+	jcontext->joinclauses = NIL;
+	jcontext->outer_join_exprs = NIL;
+	jcontext->inner_join_exprs = NIL;
+
+	foreach (lc, jcontext->extra->restrictlist)
+	{
+		ri = lfirst_node(RestrictInfo, lc);
+
+		/*
+		 * If processing an outer join, only use its own join clauses for
+		 * hashing.  For inner joins we need not be so picky.
+		 */
+		if (isouterjoin && RINFO_IS_PUSHED_DOWN(ri, joinrel->relids))
+			continue;
+
+		/*
+		 * Check if clause can join and has the form "outer op inner" or "inner op outer".
+		 */
+		if (ri->can_join == false ||
+			!clause_sides_match_join(ri, outerrel, innerrel))
+			continue;			/* no good for these input relations */
+
+		jcontext->joinclauses = lappend(jcontext->joinclauses, ri);
+
+		if (init_hash && OidIsValid(ri->hashjoinoperator))
+			jcontext->hashclauses = lappend(jcontext->hashclauses, ri);
+
+		/*
+		 * find join left and right expr
+		 * and only support X=X expression
+		 */
 		if (!is_opclause(ri->clause) ||
 			ri->left_relids == NULL ||
 			ri->right_relids == NULL ||
@@ -3721,19 +3710,34 @@ static bool get_cluster_join_exprs(RelOptInfo *outerrel, RelOptInfo *innerrel,
 			!op_is_equivalence(((OpExpr *)(ri->clause))->opno))
 			continue;
 
-		if(bms_is_subset(ri->left_relids, outerrel->relids) && bms_is_subset(ri->right_relids, innerrel->relids))
+		if (bms_is_subset(ri->left_relids, outerrel->relids) &&
+			bms_is_subset(ri->right_relids, innerrel->relids))
 		{
-			outer = lappend(outer, get_leftop(ri->clause));
-			inner = lappend(inner, get_rightop(ri->clause));
-		}else if(bms_is_subset(ri->left_relids, innerrel->relids) && bms_is_subset(ri->right_relids, outerrel->relids))
+			jcontext->outer_join_exprs = lappend(jcontext->outer_join_exprs, get_leftop(ri->clause));
+			jcontext->inner_join_exprs = lappend(jcontext->inner_join_exprs, get_rightop(ri->clause));
+		}else if (bms_is_subset(ri->left_relids, innerrel->relids) &&
+				  bms_is_subset(ri->right_relids, outerrel->relids))
 		{
-			outer = lappend(outer, get_rightop(ri->clause));
-			inner = lappend(inner, get_leftop(ri->clause));
+			jcontext->outer_join_exprs = lappend(jcontext->outer_join_exprs, get_rightop(ri->clause));
+			jcontext->inner_join_exprs = lappend(jcontext->inner_join_exprs, get_leftop(ri->clause));
 		}
 	}
-	*outer_exprs = outer;
-	*inner_exprs = inner;
-	return outer != NIL;
+}
+
+static void clear_cluster_join_clause(ClusterJoinContext *jcontext)
+{
+	/*
+	 * don't free hashclauses, maybe someone HashPath using this list
+	   list_free(jcontext->hashclauses);
+	 */
+	list_free(jcontext->joinclauses);
+	list_free(jcontext->outer_join_exprs);
+	list_free(jcontext->inner_join_exprs);
+
+	jcontext->hashclauses = NIL;
+	jcontext->joinclauses = NIL;
+	jcontext->outer_join_exprs = NIL;
+	jcontext->inner_join_exprs = NIL;
 }
 
 static List *union_reduce_exec_oid_list(List *a, List *b)
