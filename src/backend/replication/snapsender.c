@@ -1309,7 +1309,8 @@ static void DropClient(SnapClientData *client, bool drop_in_slist)
 	SnapSenderTransferCnClientToFailledList(client);
 
 	RemoveWaitEvent(wait_event_set, client->event_pos);
-	
+	cur_wait_event--;
+
 	pq_node_close(client->node);
 	MemoryContextDelete(client->context);
 	if (fd != PGINVALID_SOCKET)
@@ -1431,7 +1432,7 @@ static void OnClientMsgEvent(WaitEvent *event, time_t* time_last_latch)
 		if (event->events & WL_SOCKET_READABLE)
 		{
 			if (client->status == CLIENT_STATUS_EXITING)
-				ModifyWaitEvent(wait_event_set, event->pos, 0, NULL);
+				ModifyWaitEvent(wait_event_set, client->event_pos, 0, NULL);
 			else
 				OnClientRecvMsg(client, node, time_last_latch);
 		}
@@ -1443,7 +1444,7 @@ static void OnClientMsgEvent(WaitEvent *event, time_t* time_last_latch)
 			DropClient(client, true);
 		else
 			ModifyWaitEvent(wait_event_set,
-							event->pos,
+							client->event_pos,
 							(pq_node_send_pending(node) ? WL_SOCKET_WRITEABLE : 0) | WL_SOCKET_READABLE,
 							NULL);
 		
