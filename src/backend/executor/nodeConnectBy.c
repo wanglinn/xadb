@@ -586,6 +586,16 @@ static TupleTableSlot *ExecHashConnectBy(PlanState *pstate)
 		}else if (cbstate->is_rescan)
 		{
 			int i;
+			/* clean buf file */
+			for(i=0; i<hjt->nbatch; ++i)
+			{
+				BufFile *file = hjt->outerBatchFile[i];
+				if (file == NULL)
+					continue;
+
+				BufFileClose(file);
+				hjt->outerBatchFile[i] = NULL;
+			}
 			/* make start with */
 			for(i=hjt->nbatch;--i>=0;)
 			{
@@ -1654,8 +1664,8 @@ static void ExecReScanHashConnectBy(ConnectByState *cbstate, HashConnectByState 
 					hjt->outerBatchFile[i] = NULL;
 				}
 			}
-			cbstate->is_rescan = true;
 		}
+		cbstate->is_rescan = true;
 	}else
 	{
 		if (hjt->outerBatchFile &&
