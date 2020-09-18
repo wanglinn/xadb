@@ -1501,7 +1501,7 @@ static void SerializeFullAssignXid(TransactionId *gs_xip, uint32 gs_cnt, Transac
 
 		pq_sendint32(buf, xid);
 		Assert(TransactionIdIsNormal(xid));
-		SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync xid %d\n", xid)));
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add assign xid %d\n", xid)));
 		xid_array[xid_num++] = xid;
 	}
 

@@ -438,6 +438,7 @@ InitProcess(void)
 #ifdef ADB
 	MyProc->isPooler = IsPGXCPoolerProcess();
 	MyPgXact->isClusterVacuum = false;
+	MyPgXact->is_gtm_2pc = false;
 #endif
 	MyPgXact->delayChkpt = false;
 	MyPgXact->vacuumFlags = 0;
@@ -644,6 +645,7 @@ found_free_:
 #ifdef ADB
 	MyProc->isPooler = IsPGXCPoolerProcess();
 	MyPgXact->isClusterVacuum = false;
+	MyPgXact->is_gtm_2pc = false;
 #endif
 	MyProc->isBackgroundWorker = IsBackgroundWorker;
 	MyPgXact->delayChkpt = false;

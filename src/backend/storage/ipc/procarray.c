@@ -4408,11 +4408,11 @@ void SerializeActiveTransactionIds(StringInfo buf)
 		volatile PGXACT *pgxact = &allPgXact[pgprocno];
 
 		TransactionId xid = (TransactionId)(*((volatile TransactionId*)&pgxact->xid));
-		if (TransactionIdIsNormal(xid))
+		if (TransactionIdIsNormal(xid) && pgxact->is_gtm_2pc == false)
 		{
 			xids[count++] = xid;
-			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync xid %d\n",
-			 			xid)));
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync local pronum xid %d\n",
+					xid)));
 		}
 	}
 	LWLockRelease(ProcArrayLock);
