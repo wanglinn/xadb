@@ -412,6 +412,7 @@ extern bool mgr_promote_node(char cmdtype, Oid hostOid, char *path, StringInfo s
 extern bool mgr_check_node_connect(char nodetype, Oid hostOid, int nodeport);
 extern bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo);
 extern bool mgr_ma_send_cmd(char cmdtype, char *cmdstr, Oid hostOid, StringInfo strinfo);
+extern bool mgr_check_agent_running(Oid hostOid);
 extern bool mgr_ma_send_cmd_get_original_result(char cmdtype, char *cmdstr, Oid hostOid, StringInfo strinfo, AGENT_RESULT_MsgTYPE resultType);
 extern bool mgr_recv_msg_original_result(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst, AGENT_RESULT_MsgTYPE resultType);
 extern void mgr_get_cmd_head_word(char cmdtype, char *str);
