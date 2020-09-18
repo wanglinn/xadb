@@ -1991,6 +1991,10 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 				 errmsg("%s \"%s\" has been initialized", nodetypestr, cndnname)));
 	}
 	
+	if(!mgr_check_agent_running(hostOid))
+		ereportErrorLog(errmsg("[failed] host(%s) is not running, please check the agent is running, cmd(%s).", 
+						get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype)));
+
 	if(AGT_CMD_CNDN_CNDN_INIT != cmdtype && AGT_CMD_CNDN_SLAVE_INIT != cmdtype && AGT_CMD_GTMCOORD_INIT != cmdtype && AGT_CMD_GTMCOORD_SLAVE_INIT != cmdtype
 		&& AGT_CMD_CLEAN_NODE != cmdtype && AGT_CMD_GTMCOORD_STOP_MASTER != cmdtype && AGT_CMD_GTMCOORD_STOP_SLAVE != cmdtype
 		&& AGT_CMD_CN_STOP != cmdtype && AGT_CMD_DN_STOP != cmdtype && !mgr_node->nodeinited

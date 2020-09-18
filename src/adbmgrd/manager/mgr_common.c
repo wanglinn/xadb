@@ -1686,7 +1686,21 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	pfree_AppendNodeInfo(slave_nodeinfo);
 	return res;
 }
+bool mgr_check_agent_running(Oid hostOid)
+{
+	char 		 *hostaddr=NULL;
+	ManagerAgent *ma	  =NULL;
 
+	hostaddr = get_hostaddress_from_hostoid(hostOid);
+	/* connection agent */
+	ma = ma_connect_hostoid(hostOid);
+	if(!ma_isconnected(ma))
+	{
+		MgrFree(hostaddr);
+		return false;
+	}
+	return true;
+}
 /*
 * send adbmgr command string to agent; if fail, the error information in strinfo
 *
