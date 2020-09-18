@@ -524,6 +524,13 @@ MarkAsPreparingGuts(GlobalTransaction gxact, TransactionId xid, const char *gid,
 	SHMQueueElemInit(&(proc->links));
 	proc->waitStatus = STATUS_OK;
 	/* We set up the gxact's VXID as InvalidBackendId/XID */
+#ifdef ADB
+	/* Gtm two phase prepare we don't assgin xid to pgxact->xid, as sender process has*/
+	if (IsGTMNode() && IsConnFromCoord())
+		pgxact->is_gtm_2pc = true;
+	else
+		pgxact->is_gtm_2pc = false;
+#endif
 	proc->lxid = (LocalTransactionId) xid;
 	pgxact->xid = xid;
 	pgxact->xmin = InvalidTransactionId;
