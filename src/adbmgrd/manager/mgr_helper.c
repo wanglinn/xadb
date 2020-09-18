@@ -3109,10 +3109,9 @@ bool batchStartupNodesWithinSeconds(dlist_head *nodes,
 	dlist_foreach_modify(iter, &failedNodes)
 	{
 		node = dlist_container(MgrNodeWrapper, link, iter.cur);
-		if (!waitForNodeMayBeInRecovery(node))
-			ereport(complain ? ERROR : LOG,
-					(errmsg("try start up node %s failed, it maybe in recovery.",
-							NameStr(node->form.nodename))));
+		ereport(complain ? ERROR : LOG,
+				(errmsg("try start up node %s failed, it maybe in recovery.",
+						NameStr(node->form.nodename))));
 	}
 	res = false;
 	goto end;
