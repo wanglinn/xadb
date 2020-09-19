@@ -1688,17 +1688,13 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 }
 bool mgr_check_agent_running(Oid hostOid)
 {
-	char 		 *hostaddr=NULL;
-	ManagerAgent *ma	  =NULL;
-
-	hostaddr = get_hostaddress_from_hostoid(hostOid);
-	/* connection agent */
-	ma = ma_connect_hostoid(hostOid);
+	ManagerAgent *ma = NULL;
+	ma = ma_connect_hostoid_with_timeout(hostOid, 60, 60);
 	if(!ma_isconnected(ma))
 	{
-		MgrFree(hostaddr);
 		return false;
 	}
+	ma_close(ma);
 	return true;
 }
 /*
