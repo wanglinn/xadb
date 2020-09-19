@@ -145,17 +145,23 @@ extern bool ADB_DEBUG;
 #define ereport(elevel, rest)	\
 	ereport_domain(elevel, TEXTDOMAIN, rest)
 
-#define ereportErrorLog(rest) \
-		ereport(LOG, (rest));	\
-		ereport(ERROR, (rest)); 		
+#define ereportErrorLog(rest) 	\
+{								\
+	ereport(LOG, (rest));		\
+	ereport(ERROR, (rest)); 	\
+}
 
-#define ereportNoticeLog(rest) \
-		ereport(NOTICE, (rest)); \
-		ereport(LOG, (rest));	
+#define ereportNoticeLog(rest)  \
+{								\
+	ereport(NOTICE, (rest)); 	\
+	ereport(LOG, (rest));		\
+}
 
 #define ereportWarningLog(rest) \
-		ereport(WARNING, (rest)); \
-		ereport(LOG, (rest));
+{								\
+	ereport(WARNING, (rest)); 	\
+	ereport(LOG, (rest));		\
+}
 
 #ifdef DEBUG_ADB
 
