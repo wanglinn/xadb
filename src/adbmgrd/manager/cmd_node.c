@@ -4828,12 +4828,14 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 	int max_locktry = 600;
 	const int max_pingtry = 60;
 	int ret = 0;
-
+	StringInfoData restmsg;
+	
 	if (RecoveryInProgress())
 		ereport(ERROR, (errmsg("cannot assign TransactionIds during recovery")));
 
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
+	initStringInfo(&restmsg);
 	memset(&appendnodeinfo, 0, sizeof(AppendNodeInfo));
 	memset(&agtm_m_nodeinfo, 0, sizeof(AppendNodeInfo));
 
@@ -4879,7 +4881,6 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 		/* step 2: update coordinator master's postgresql.conf. */
 		resetStringInfo(&infosendmsg);
 		mgr_get_other_parm(CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
-		mgr_add_parm(appendnodeinfo.nodename, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", appendnodeinfo.nodeport, &infosendmsg);
 		mgr_get_gtm_host_snapsender_gxidsender_port(&infosendmsg);
 		
@@ -4888,13 +4889,6 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 								&infosendmsg,
 								appendnodeinfo.nodehost,
 								&getAgentCmdRst);
-		if (!getAgentCmdRst.ret)
-			ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
-		/*param table*/
-		resetStringInfo(&infosendmsg);
-		resetStringInfo(&(getAgentCmdRst.description));
-		mgr_add_parm(appendnodeinfo.nodename, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, appendnodeinfo.nodepath, &infosendmsg, appendnodeinfo.nodehost, &getAgentCmdRst);
 		if (!getAgentCmdRst.ret)
 			ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
 
@@ -4966,21 +4960,33 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 		result = mgr_refresh_coord_pgxc_node(PGXC_APPEND, CNDN_TYPE_COORDINATOR_MASTER, appendnodeinfo.nodename, &getAgentCmdRst);
 		
 		/* step 11: release the DDL lock */
-		PQfinish(pg_conn);
-		pg_conn = NULL;
+		ClosePgConn(pg_conn);
 		if (is_add_hba)
 			RemoveHba(&agtm_m_nodeinfo, &send_hba_msg);
 		pfree(send_hba_msg.data);
 		
 		/*step 12: to update the data in the hba table to the specified pg_hba.conf file*/
 		add_hba_table_to_file(appendnodeinfo.nodename);
+
+		/*param table*/
+		resetStringInfo(&infosendmsg);
+		resetStringInfo(&(getAgentCmdRst.description));
+		mgr_add_parm(appendnodeinfo.nodename, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
+		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, appendnodeinfo.nodepath, &infosendmsg, appendnodeinfo.nodehost, &getAgentCmdRst);
+		if (!getAgentCmdRst.ret)
+			ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
+
+		resetStringInfo(&infosendmsg);
+		appendStringInfo(&infosendmsg, " stop -D %s -m i -o -f -w -c", appendnodeinfo.nodepath);
+		mgr_ma_send_cmd(AGT_CMD_CN_STOP, infosendmsg.data, appendnodeinfo.nodehost, &restmsg);
+		mgr_start_node(CNDN_TYPE_COORDINATOR_MASTER, appendnodeinfo.nodepath, appendnodeinfo.nodehost);	
+
 	}PG_CATCH();
 	{
-		if(pg_conn)
-		{
-			PQfinish(pg_conn);
-			pg_conn = NULL;
-		}
+		MgrFree(getAgentCmdRst.description.data);
+		MgrFree(infosendmsg.data);
+		MgrFree(restmsg.data);
+		ClosePgConn(pg_conn);		
 		PG_RE_THROW();
 	}PG_END_TRY();
 
@@ -4995,8 +5001,10 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 	}
 
 	tup_result = build_common_command_tuple(&nodename, result, getAgentCmdRst.description.data);
-
-	pfree(getAgentCmdRst.description.data);
+	
+	MgrFree(getAgentCmdRst.description.data);
+	MgrFree(infosendmsg.data);
+	MgrFree(restmsg.data);
 	pfree_AppendNodeInfo(appendnodeinfo);
 	pfree_AppendNodeInfo(agtm_m_nodeinfo);
 
@@ -13655,6 +13663,18 @@ static HeapTuple MgrQueryStatReplicationMaster(Oid masterOid,
 	StringInfoData 	resultstrdata;
 	Form_mgr_node 	nodeMaster;
 	HeapTuple 		masterTuple = NULL;
+	char sent_lsn[200];
+	char replay_lsn[200];
+
+	if (NameStr(nameSlave[3]) == NULL || strlen(NameStr(nameSlave[3])) ==  0)
+		sprintf(sent_lsn, "%s", "pg_lsn(null)");
+	else
+		sprintf(sent_lsn, "pg_lsn('%s')", NameStr(nameSlave[3]));
+
+	if (NameStr(nameSlave[4]) == NULL || strlen(NameStr(nameSlave[4])) ==  0)
+		sprintf(replay_lsn, "%s", "pg_lsn(null)");
+	else
+		sprintf(replay_lsn, "pg_lsn('%s')", NameStr(nameSlave[4]));
 
 	initStringInfo(&sqlstrdata);
 	appendStringInfo(&sqlstrdata, "select application_name, client_addr, state, \
@@ -13668,15 +13688,15 @@ static HeapTuple MgrQueryStatReplicationMaster(Oid masterOid,
 					(select '%s' as application_name, \
 					'%s' as client_addr, \
 					'%s' as state, \
-					pg_lsn('%s') as sent_lsn, \
-					pg_lsn('%s') as replay_lsn, \
+					%s as sent_lsn, \
+					%s as replay_lsn, \
 					'%s' as sync_state) a \
 					where application_name='%s';", \
 					NameStr(nodeSlave->nodename),
 					NameStr(nameSlave[1]),
 					NameStr(nameSlave[2]),
-					NameStr(nameSlave[3]),
-					NameStr(nameSlave[4]),
+					sent_lsn,
+					replay_lsn,
 					NameStr(nameSlave[5]),
 					NameStr(nodeSlave->nodename));
 							
