@@ -885,6 +885,7 @@ ExtendCLOG(TransactionId newestXact)
 	 * wraparound, the first XID of page zero is FirstNormalTransactionId.
 	 */
 #if defined(ADB)
+	TransactionId latestXid;
 	/*
 	 * In PGXC, it may be that a node is not involved in a transaction,
 	 * and therefore will be skipped, so we need to detect this by using
@@ -895,16 +896,15 @@ ExtendCLOG(TransactionId newestXact)
 	 */
 	pageno = TransactionIdToPage(newestXact);
 
-	/*
-	 * The first condition makes sure we did not wrap around
-	 * The second checks if we are still using the same page
-	 * Note that this value can change and we are not holding a lock,
-	 * so we repeat the check below. We do it this way instead of
-	 * grabbing the lock to avoid lock contention.
-	 */
-	if (ClogCtl->shared->latest_page_number - pageno <= CLOG_WRAP_CHECK_DELTA &&
-		pageno <= ClogCtl->shared->latest_page_number)
-		return;
+	/* 
+     * Note that this value can change and we are not holding a lock, 
+     * so we repeat the check below. We do it this way instead of 
+     * grabbing the lock to avoid lock contention.
+     */
+    latestXid = (ClogCtl->shared->latest_page_number * CLOG_XACTS_PER_PAGE)
+                    + CLOG_XACTS_PER_PAGE - 1;
+    if (TransactionIdPrecedesOrEquals(newestXact, latestXid))
+        return;
 #else
 	if (TransactionIdToPgIndex(newestXact) != 0 &&
 		!TransactionIdEquals(newestXact, FirstNormalTransactionId))
@@ -921,12 +921,13 @@ ExtendCLOG(TransactionId newestXact)
 	 * out the page already and advanced the latest_page_number
 	 * while we were waiting for the lock.
 	 */
-	if (ClogCtl->shared->latest_page_number - pageno <= CLOG_WRAP_CHECK_DELTA &&
-		pageno <= ClogCtl->shared->latest_page_number)
-	{
-		LWLockRelease(CLogControlLock);
-		return;
-	}
+	latestXid = (ClogCtl->shared->latest_page_number * CLOG_XACTS_PER_PAGE)
+                    + CLOG_XACTS_PER_PAGE - 1;
+    if (TransactionIdPrecedesOrEquals(newestXact, latestXid))
+    {
+        LWLockRelease(CLogControlLock);
+        return;
+    }
 #endif
 
 	/* Zero the page and make an XLOG entry about it */
