@@ -505,7 +505,7 @@ SnapRcvProcessAssignList(void)
 	proclist_foreach_modify(iter_gets, &SnapRcv->geters, GxidWaitLink)
 	{
 		pq_sendint32(&reply_message, iter_gets.cur);
-		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcv assing xid for %d\n",
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcv assing xid for %u\n",
 			 iter_gets.cur)));
 
 		proclist_delete(&SnapRcv->geters, iter_gets.cur, GxidWaitLink);
@@ -1111,7 +1111,7 @@ static void SnapRcvRemoveWaitFinishList(TransactionId xid, bool is_miss_ok)
 	{
 		if (SnapRcv->wait_xid_finish[i] == xid)
 		{
-			SNAP_SYNC_DEBUG_LOG((errmsg("Remove finish wait xid %d from wait_xid_finish\n", xid)));
+			SNAP_SYNC_DEBUG_LOG((errmsg("Remove finish wait xid %u from wait_xid_finish\n", xid)));
 			found = true;
 			memmove(&SnapRcv->wait_xid_finish[i],
 						&SnapRcv->wait_xid_finish[i+1],
@@ -1144,7 +1144,7 @@ static void SnapRcvProcessFinishRequest(char *buf, Size len)
 		procno = pq_getmsgint(&msg, sizeof(procno));
 		txid = pq_getmsgint(&msg, sizeof(txid));
 
-		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcv  rcv finish xid %d for %d\n", txid, procno)));
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcv  rcv finish xid %u for %d\n", txid, procno)));
 		SnapRcvRemoveWaitFinishList(txid, true);
 		Assert(TransactionIdIsValid(txid));
 
@@ -1187,7 +1187,7 @@ static void SnapRcvProcessAssignRequest(char *buf, Size len)
 		txid = pq_getmsgint(&msg, sizeof(txid));
 
 		Assert(TransactionIdIsValid(txid));
-		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcv  rcv assing xid %d for %d\n", txid, procno)));
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcv  rcv assing xid %u for %d\n", txid, procno)));
 
 		found = false;
 		proclist_foreach_modify(iter, &SnapRcv->reters, GxidWaitLink)
@@ -1257,7 +1257,7 @@ static void SnapRcvProcessPreAssign(char *buf, Size len)
 
 		Assert(TransactionIdIsValid(txid));
 
-		SNAP_SYNC_DEBUG_LOG((errmsg(" %d\n", txid)));
+		SNAP_SYNC_DEBUG_LOG((errmsg(" %u\n", txid)));
 		num--;
 		SnapRcv->xid_alloc[start_index + num] = txid;
 		SnapRcv->cur_pre_alloc++;
@@ -1396,7 +1396,7 @@ static void SnapRcvProcessUpdateXid(char *buf, Size len)
 
 	xid = pq_getmsgint64(&msg);
 	
-	SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvProcessUpdateXid xid %d\n", xid)));
+	SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvProcessUpdateXid xid %u\n", xid)));
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 	if (!NormalTransactionIdPrecedes(xid, ShmemVariableCache->nextXid))
 	{
@@ -1433,7 +1433,7 @@ static void SnapRcvProcessAssign(char *buf, Size len)
 	{
 		txid = pq_getmsgint(&msg, sizeof(txid));
 
-		SNAP_SYNC_DEBUG_LOG((errmsg("SanpRcv recv assging xid %d\n", txid)));
+		SNAP_SYNC_DEBUG_LOG((errmsg("SanpRcv recv assging xid %u\n", txid)));
 		if (SnapRcv->xcnt < MAX_BACKENDS)
 		{
 			SnapRcv->xip[SnapRcv->xcnt++] = txid;
@@ -1525,7 +1525,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 		{
 			if (SnapRcv->xip[i] == txid)
 			{
-				SNAP_SYNC_DEBUG_LOG((errmsg("SanpRcv recv finish xid %d\n", txid)));
+				SNAP_SYNC_DEBUG_LOG((errmsg("SanpRcv recv finish xid %u\n", txid)));
 				memmove(&SnapRcv->xip[i],
 						&SnapRcv->xip[i+1],
 						(count-i-1) * sizeof(txid));
@@ -1550,7 +1550,7 @@ static void SnapRcvProcessComplete(char *buf, Size len)
 	SnapRcv->xcnt = count;
 	max_xid = SnapRcv->latestCompletedXid;
 	UNLOCK_SNAP_RCV();
-	SNAP_SYNC_DEBUG_LOG((errmsg("SanpRcv xcnt now is %d\n", count)));
+	SNAP_SYNC_DEBUG_LOG((errmsg("SanpRcv xcnt now is %u\n", count)));
 
 	if (finish_xid_ack_send)
 		walrcv_send(wrconn, xidmsg.data, xidmsg.len);
@@ -2093,7 +2093,7 @@ TransactionId SnapRcvGetGlobalTransactionId(bool isSubXact)
 		UNLOCK_SNAP_GXID_RCV();
 
 		SNAP_RCV_SET_LATCH();
-		SNAP_SYNC_DEBUG_LOG((errmsg("Proce %d get xid %d from SnapRcv DIRECT\n",
+		SNAP_SYNC_DEBUG_LOG((errmsg("Proce %d get xid %u from SnapRcv DIRECT\n",
 				MyProc->pgprocno, MyProc->getGlobalTransaction)));
 		return MyProc->getGlobalTransaction;
 	}
@@ -2114,7 +2114,7 @@ TransactionId SnapRcvGetGlobalTransactionId(bool isSubXact)
 
 	UNLOCK_SNAP_GXID_RCV();
 
-	SNAP_SYNC_DEBUG_LOG((errmsg("Proce %d get xid %d from GxidRcv\n",
+	SNAP_SYNC_DEBUG_LOG((errmsg("Proce %d get xid %u from GxidRcv\n",
 			MyProc->pgprocno, MyProc->getGlobalTransaction)));
 
 	return MyProc->getGlobalTransaction;
@@ -2125,7 +2125,7 @@ void SnapRcvCommitTransactionId(TransactionId txid, bool isCommit)
 	TimestampTz				endtime;
 	bool					ret;
 
-	SNAP_SYNC_DEBUG_LOG((errmsg("Proce %d finish xid %d\n",
+	SNAP_SYNC_DEBUG_LOG((errmsg("Proce %d finish xid %u\n",
 			MyProc->pgprocno, txid)));
 
 	ProcessSnapRcvInterrupts();

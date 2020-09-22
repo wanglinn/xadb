@@ -415,9 +415,8 @@ GetNewTransactionId(bool isSubXact)
 #ifdef ADB_EXT
 	return GetNewTransactionIdExt(isSubXact, 1, true, true);
 }
-TransactionId GetNewTransactionIdExt(bool isSubXact, int xidnum, bool isInsertXact, bool isNeedAssign)
+TransactionId GetNewTransactionIdExt(bool isSubXact, uint32 xidnum, bool isInsertXact, bool isNeedAssign)
 {
-	int i;
 #endif
 	TransactionId xid;
 
@@ -447,6 +446,8 @@ TransactionId GetNewTransactionIdExt(bool isSubXact, int xidnum, bool isInsertXa
 
 #ifdef ADB_EXT
 	xid = ShmemVariableCache->nextXid + xidnum - 1;
+	if (xid < xidnum)
+		xid += FirstNormalTransactionId;
 #else
 	xid = ShmemVariableCache->nextXid;
 #endif
@@ -534,6 +535,8 @@ TransactionId GetNewTransactionIdExt(bool isSubXact, int xidnum, bool isInsertXa
 		LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 #ifdef ADB_EXT
 		xid = ShmemVariableCache->nextXid + xidnum - 1;
+		if (xid < xidnum)
+			xid += FirstNormalTransactionId;
 #else
 		xid = ShmemVariableCache->nextXid;
 #endif
@@ -559,13 +562,9 @@ TransactionId GetNewTransactionIdExt(bool isSubXact, int xidnum, bool isInsertXa
 	 * more XIDs until there is CLOG space for them.
 	 */
 #ifdef ADB_EXT
-	for (i = 0; i < xidnum; i++)
-	{
-		TransactionIdAdvance(ShmemVariableCache->nextXid);
-	}
-#else
-	TransactionIdAdvance(ShmemVariableCache->nextXid);
+	ShmemVariableCache->nextXid = xid;
 #endif
+	TransactionIdAdvance(ShmemVariableCache->nextXid);
 	
 	/*
 	 * We must store the new XID into the shared ProcArray before releasing

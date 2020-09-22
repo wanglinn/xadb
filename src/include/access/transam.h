@@ -187,7 +187,7 @@ extern int TransactionLogFetch(TransactionId transactionId);
 #endif
 
 #ifdef ADB_EXT
-extern TransactionId GetNewTransactionIdExt(bool isSubXact, int num, bool isInsertXact, bool GxidInsert);
+extern TransactionId GetNewTransactionIdExt(bool isSubXact, uint32 num, bool isInsertXact, bool GxidInsert);
 #endif
 
 extern TransactionId GetNewTransactionId(bool isSubXact);
