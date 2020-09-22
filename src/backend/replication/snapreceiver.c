@@ -547,7 +547,7 @@ SnapRcvSendInitSyncXid(void)
 	List			*xid_list;
 	List			*rxact_list = NIL;
 	ListCell		*lc;
-	int64			xid;
+	TransactionId	xid;
 	RxactTransactionInfo *info;
 	List			*left_xid_str = NIL;
 	char			buf[128];
@@ -573,7 +573,7 @@ SnapRcvSendInitSyncXid(void)
 		pg_lltoa(xid, buf);
 		str = pstrdup(buf);
 		left_xid_str = lappend(left_xid_str, makeString(str));
-		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid Add prepared xid %ld, str %s\n",
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid Add prepared xid %u, str %s\n",
 			 			xid, str)));
 	}
 	list_free(xid_list);
@@ -583,10 +583,10 @@ SnapRcvSendInitSyncXid(void)
 		info =  (RxactTransactionInfo*)lfirst(lc);
 		xid = pg_strtouint64(&info->gid[1], NULL, 10);
 
-		pg_lltoa(-xid, buf);
+		snprintf(buf, sizeof(buf), "+%u", xid);
 		str = pstrdup(buf);
 		left_xid_str = lappend(left_xid_str, makeString(str));
-		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid Add rxact xid %ld, str %s\n", -xid, str)));
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid Add rxact xid %u, str %s\n", xid, str)));
 	}
 	list_free(rxact_list);
 
