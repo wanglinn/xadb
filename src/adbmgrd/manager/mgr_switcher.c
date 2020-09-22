@@ -712,7 +712,7 @@ void FailOverCoordMaster(char *oldMasterName,
 										(Oid)0,
 										"",
 										&failedSlaves,
-										&runningSlaves);																			
+										&runningSlaves);
 		checkGetMasterCoordinators(spiContext,
 								   &coordinators,
 								   true, true);
@@ -1198,7 +1198,6 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, in
 
 		appendSlaveNodeFollowMaster(newMaster->mgrNode,
 									oldMaster->mgrNode,
-									NULL,
 									newMaster->pgConn,
 									spiContext);
 
@@ -1298,7 +1297,6 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 	dlist_head failedSlavesSecond = DLIST_STATIC_INIT(failedSlavesSecond);
 	dlist_head dataNodes = DLIST_STATIC_INIT(dataNodes);
 	dlist_head isolatedNodes = DLIST_STATIC_INIT(isolatedNodes);
-	dlist_head siblingSlaveGtms = DLIST_STATIC_INIT(siblingSlaveGtms);
 	MemoryContext oldContext;
 	MemoryContext switchContext;
 	MemoryContext spiContext;
@@ -1486,10 +1484,8 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 									   oldMaster,
 									   newMaster);							   
 
-		dlist_push_tail(&siblingSlaveGtms, &oldMaster->mgrNode->link);
 		appendSlaveNodeFollowMaster(newMaster->mgrNode,
 									oldMaster->mgrNode,
-									&siblingSlaveGtms,
 									newMaster->pgConn,
 									spiContext);
 		refreshOldMasterAfterSwitchover(oldMaster,
@@ -1680,7 +1676,6 @@ void switchoverCoord(char *newMasterName, bool forceSwitch, char *curZone)
 		dlist_push_tail(&coordinators, &newMaster->link);
         appendSlaveNodeFollowMaster(newMaster->mgrNode,
 									oldMaster->mgrNode,
-									NULL,
 									newMaster->pgConn,
 									spiContext);
 		if (pg_strcasecmp(NameStr(oldMaster->mgrNode->form.nodezone), curZone) == 0)
@@ -2195,7 +2190,6 @@ void switcherNodesToMgrNodes(dlist_head *switcherNodes,
 }
 void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 								 MgrNodeWrapper *slaveNode,
-								 dlist_head *siblingSlaveNodes,
 								 PGconn *masterPGconn,
 								 MemoryContext spiContext)
 {
@@ -2216,7 +2210,6 @@ void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 
 	appendToSyncStandbyNames(masterNode,
 							 slaveNode,
-							 siblingSlaveNodes,
 							 masterPGconn,
 							 spiContext);
 
@@ -2228,7 +2221,6 @@ void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 void appendSlaveNodeFollowMasterEx(MemoryContext spiContext,
 								SwitcherNodeWrapper *master,
 								SwitcherNodeWrapper *slave,
-								dlist_head *siblingSlaveNodes,
 								bool complain)
 {	
 	MgrNodeWrapper *masterNode = master->mgrNode;
@@ -2253,7 +2245,6 @@ void appendSlaveNodeFollowMasterEx(MemoryContext spiContext,
     if (master->runningMode != NODE_RUNNING_MODE_UNKNOW){
 		appendToSyncStandbyNames(masterNode,
 								slaveNode,
-								siblingSlaveNodes,
 								masterPGconn,
 								spiContext);
 	}
@@ -3380,7 +3371,15 @@ static void runningSlavesFollowNewMaster(SwitcherNodeWrapper *newMaster,
 	dlist_mutable_iter iter;
 	SwitcherNodeWrapper *slaveNode;
 	dlist_head mgrNodes = DLIST_STATIC_INIT(mgrNodes);
-	dlist_head siblingSlaveNodes = DLIST_STATIC_INIT(siblingSlaveNodes);
+
+	if (dlist_is_empty(runningSlaves))
+	{
+		appendToSyncStandbyNames(newMaster->mgrNode,
+								 NULL,
+								 newMaster->pgConn,
+								 spiContext);
+		return;
+	}
 
 	/* config these slave node to follow new master and restart them */
 	dlist_foreach_modify(iter, runningSlaves)
@@ -3410,9 +3409,6 @@ static void runningSlavesFollowNewMaster(SwitcherNodeWrapper *newMaster,
 								   STARTUP_NODE_SECONDS,
 								   false);
 
-	switcherNodesToMgrNodes(runningSlaves, &siblingSlaveNodes);
-	if (oldMaster != NULL)
-		dlist_push_tail(&siblingSlaveNodes, &oldMaster->mgrNode->link);
 	dlist_foreach_modify(iter, runningSlaves)
 	{
 		slaveNode = dlist_container(SwitcherNodeWrapper,
@@ -3421,15 +3417,9 @@ static void runningSlavesFollowNewMaster(SwitcherNodeWrapper *newMaster,
 							 false,
 							 &slaveNode->pgConn,
 							 &slaveNode->runningMode);
-
-		if ((pg_strcasecmp(overType, OVERTYPE_FAILOVER) == 0) && 
-		    (pg_strcasecmp(NameStr(slaveNode->mgrNode->form.nodezone), zone) != 0)){
-			continue;	
-		}
 		
 		appendToSyncStandbyNames(newMaster->mgrNode,
 								 slaveNode->mgrNode,
-								 &siblingSlaveNodes,
 								 newMaster->pgConn,
 								 spiContext);
 		ereport(LOG,
@@ -3728,7 +3718,6 @@ static void refreshSlaveNodesAfterSwitch(SwitcherNodeWrapper *newMaster,
 	dlist_foreach(iter, runningSlaves)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		/* nodesync field was set in other function */
 
 		if (pg_strcasecmp(NameStr(oldMaster->mgrNode->form.nodezone), curZone) == 0)
 		{
@@ -3768,7 +3757,6 @@ static void refreshSlaveNodesAfterSwitch(SwitcherNodeWrapper *newMaster,
 	dlist_foreach(iter, failedSlaves)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		namestrcpy(&node->mgrNode->form.nodesync, "");
 		node->mgrNode->form.nodemasternameoid = newMaster->mgrNode->form.oid;
 		if ((pg_strcasecmp(NameStr(oldMaster->mgrNode->form.nodezone), curZone) != 0) &&
 			(pg_strcasecmp(operType, OVERTYPE_FAILOVER) == 0) &&
@@ -3841,7 +3829,6 @@ static void refreshOldMasterAfterSwitch(SwitcherNodeWrapper *oldMaster,
 										MemoryContext spiContext,
 										bool kickOutOldMaster)
 {
-	namestrcpy(&oldMaster->mgrNode->form.nodesync, NameStr(newMaster->mgrNode->form.nodesync));
 	if (kickOutOldMaster)
 	{
 		/* Mark the data group to which the old master belongs */
@@ -3901,7 +3888,6 @@ static void refreshOldMasterAfterSwitchover(SwitcherNodeWrapper *oldMaster,
 											MemoryContext spiContext)
 {
 	oldMaster->mgrNode->form.nodetype =	getMgrSlaveNodetype(oldMaster->mgrNode->form.nodetype);
-	/* nodesync field was set in other function */
 	/* Mark the data group to which the old master belongs */
 	oldMaster->mgrNode->form.nodemasternameoid = newMaster->mgrNode->form.oid;
 	/* Admit the reign of new master */
@@ -3912,7 +3898,6 @@ static void refreshOldMasterAfterSwitchover(SwitcherNodeWrapper *oldMaster,
 static void refreshNewMasterAfterSwitchover(SwitcherNodeWrapper *newMaster,	MemoryContext spiContext)
 {
 	newMaster->mgrNode->form.nodetype = getMgrMasterNodetype(newMaster->mgrNode->form.nodetype);
-	namestrcpy(&newMaster->mgrNode->form.nodesync, "");
 	newMaster->mgrNode->form.nodemasternameoid = 0;
 	/* Why is there a curestatus of CURE_STATUS_SWITCHED? 
 	 * Because we can use this field as a tag to prevent the node doctor 
@@ -4096,7 +4081,6 @@ void updateMgrNodeAfterSwitch(MgrNodeWrapper *mgrNode,
 	appendStringInfo(&sql,
 					 "UPDATE pg_catalog.mgr_node \n"
 					 "SET nodetype = '%c', \n"
-					 "nodesync = '%s', \n"
 					 "nodemasternameoid = %u, \n"
 					 "nodeinited =%d::boolean, \n"
 					 "nodeincluster =%d::boolean, \n"
@@ -4105,7 +4089,6 @@ void updateMgrNodeAfterSwitch(MgrNodeWrapper *mgrNode,
 					 "WHERE oid = %u \n"
 					 "AND curestatus = '%s' \n",
 					 mgrNode->form.nodetype,
-					 NameStr(mgrNode->form.nodesync),
 					 mgrNode->form.nodemasternameoid,
 					 mgrNode->form.nodeinited,
 					 mgrNode->form.nodeincluster,
@@ -5273,7 +5256,6 @@ void MgrChildNodeFollowParentNode(MemoryContext spiContext,
 
 	appendToSyncStandbyNames(ParentNode,
 							 slaveNode,
-							 NULL,
 							 newParent->pgConn,
 							 spiContext);
 
@@ -5440,7 +5422,6 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 	SwitcherNodeWrapper *oldMaster = NULL;
 	SwitcherNodeWrapper *newMaster = NULL;
 	SwitcherNodeWrapper *holdLockCoordinator = NULL;
-	dlist_head siblingSlaveGtms = DLIST_STATIC_INIT(siblingSlaveGtms);
 	dlist_head  *coordinators		= &zoGtm->coordinators;
 	dlist_head  *coordinatorSlaves  = &zoGtm->coordinatorSlaves;
 	dlist_head  *runningSlaves 		= &zoGtm->runningSlaves;
@@ -5582,7 +5563,6 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
     appendSlaveNodeFollowMasterEx(spiContext,
 									newMaster,
 									oldMaster, 
-									NULL,
 									true);
 	refreshOldMasterAfterSwitchover(oldMaster,
 									newMaster,
@@ -5695,7 +5675,6 @@ static void switchoverCoordForZone(MemoryContext spiContext,
 	appendSlaveNodeFollowMasterEx(spiContext, 
 									newMaster, 
 									oldMaster, 
-									NULL,
 									true);
 
     DelNodeFromSwitcherNodeWrappers(coordinators, oldMaster);
@@ -5831,7 +5810,6 @@ static void switchoverDataNodeForZone(MemoryContext spiContext,
 	appendSlaveNodeFollowMasterEx(spiContext,
 									newMaster,
 									oldMaster, 
-									NULL,
 									true);
 	refreshPgxcNodesOfCoordinators(holdLockCoordinator,
 									coordinators,
@@ -6006,7 +5984,6 @@ static void RevertZoneSwitchoverDataNode(MemoryContext spiContext,
 	dlist_head 			*coordinators = NULL;
 	dlist_head 			*dataNodes = NULL;
 	bool 				complain = false;
-	dlist_head siblingSlave = DLIST_STATIC_INIT(siblingSlave);
 
 	Assert(zoGtm);
 	Assert(zoDN);	
@@ -6030,7 +6007,6 @@ static void RevertZoneSwitchoverDataNode(MemoryContext spiContext,
 	appendSlaveNodeFollowMasterEx(spiContext,
 								oldMaster,
 								newMaster,								 
-								NULL,
 								complain);
 	RevertRefreshPgxcNodeList(holdLockCoordinator, 
 								coordinators,
@@ -6092,7 +6068,6 @@ static void RevertZoneSwitchoverCoord(MemoryContext spiContext,
 									SwitcherNodeWrapper *newMaster)
 {
 	bool complain = false;
-	dlist_head siblingSlave = DLIST_STATIC_INIT(siblingSlave);
 	dlist_head *coordinators = &zoGtm->coordinators;
 	CheckNull(oldMaster);
 	CheckNull(newMaster);
@@ -6110,7 +6085,6 @@ static void RevertZoneSwitchoverCoord(MemoryContext spiContext,
 	appendSlaveNodeFollowMasterEx(spiContext,
 								oldMaster,
 								newMaster,					 
-								NULL,
 								complain);		
 	RefreshOldNodeWrapperConfig(oldMaster, newMaster);
 
@@ -6127,7 +6101,6 @@ static void RevertZoneSwitchOverGtm(MemoryContext spiContext,
 {
 	SwitcherNodeWrapper *oldGtmMaster = zoGtm->oldMaster;
 	SwitcherNodeWrapper *newGtmMaster = zoGtm->newMaster;
-	dlist_head siblingSlaveGtms = DLIST_STATIC_INIT(siblingSlaveGtms);
 	dlist_head *coordinators = &zoGtm->coordinators;
 	bool 		complain = false;
 
@@ -6162,11 +6135,9 @@ static void RevertZoneSwitchOverGtm(MemoryContext spiContext,
 						complain);
 	promoteNewMasterStartReign(newGtmMaster, oldGtmMaster);
 
-	dlist_push_tail(&siblingSlaveGtms, &newGtmMaster->mgrNode->link);
 	appendSlaveNodeFollowMasterEx(spiContext,
 								oldGtmMaster,
 								newGtmMaster,								 
-								&siblingSlaveGtms,
 								complain);
 
 	DelNodeFromSwitcherNodeWrappers(coordinators, newGtmMaster);
@@ -6913,7 +6884,6 @@ static void RevertZoneFailOverDataNode(MemoryContext spiContext,
 	dlist_head 			*coordinators = NULL;
 	dlist_head 			*dataNodes = NULL;
 	bool 				complain = false;
-	dlist_head siblingSlave = DLIST_STATIC_INIT(siblingSlave);
 
 	Assert(zoGtm);
 	Assert(zoDN);	
@@ -6937,7 +6907,6 @@ static void RevertZoneFailOverDataNode(MemoryContext spiContext,
 	appendSlaveNodeFollowMasterEx(spiContext,
 									oldMaster,
 									newMaster,								 
-									NULL,
 									complain);	
 }
 static void RevertZoneFailOverCoord(MemoryContext spiContext,
@@ -6964,7 +6933,6 @@ static void RevertZoneFailOverGtm(MemoryContext spiContext,
 {
 	SwitcherNodeWrapper *oldGtmMaster = zoGtm->oldMaster;
 	SwitcherNodeWrapper *newGtmMaster = zoGtm->newMaster;
-	dlist_head siblingSlaveGtms = DLIST_STATIC_INIT(siblingSlaveGtms);
 	dlist_head *coordinators = &zoGtm->coordinators;
 	bool 		complain = false;
 
@@ -7000,7 +6968,6 @@ static void RevertZoneFailOverGtm(MemoryContext spiContext,
 	appendSlaveNodeFollowMasterEx(spiContext,
 									oldGtmMaster,
 									newGtmMaster,								 
-									NULL,
 									complain);								
 }
 static void RefreshOldNodeWrapperConfig(SwitcherNodeWrapper *oldMaster,
@@ -7053,7 +7020,6 @@ static void RevertFailOverShutdownCoords(MemoryContext spiContext,
 		appendSlaveNodeFollowMasterEx(spiContext,
 										oldMaster,
 										newMaster,					 
-										NULL,
 										complain);		
 	}
 }

@@ -989,7 +989,7 @@ static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo)
 		else
 		{
 			done = waitForNodeMayBeInRecovery(nodeInfo->mgrNode);
-			if(!done)
+			if (!done)
 			{
 				ereport(LOG,
 						(errmsg("%s, get node running status failed",
@@ -1012,7 +1012,8 @@ static bool treatNodeByStartup(MonitorNodeInfo *nodeInfo)
 	{
 		endAdbDoctorLog(logRow, true);
 		resetNodeMonitor();
-	}else
+	}
+	else
 	{
 		endAdbDoctorLog(logRow, false);
 	}
@@ -1049,7 +1050,7 @@ static bool treatNodeByRestart(MonitorNodeInfo *nodeInfo)
 		else
 		{
 			done = waitForNodeMayBeInRecovery(nodeInfo->mgrNode);
-			if(!done)
+			if (!done)
 			{
 				ereport(LOG,
 						(errmsg("%s, get node running status failed",
@@ -1072,7 +1073,8 @@ static bool treatNodeByRestart(MonitorNodeInfo *nodeInfo)
 	{
 		endAdbDoctorLog(logRow, true);
 		resetNodeMonitor();
-	}else
+	}
+	else
 	{
 		endAdbDoctorLog(logRow, false);
 	}
@@ -2100,7 +2102,6 @@ static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 	NameData oldCurestatus;
 	NameData oldNodesync;
 	MemoryContext oldContext;
-	dlist_head siblingSlaveNodes = DLIST_STATIC_INIT(siblingSlaveNodes);
 
 	oldContext = CurrentMemoryContext;
 	memcpy(&oldCurestatus, &slaveNode->form.curestatus, sizeof(NameData));
@@ -2163,12 +2164,8 @@ static bool treatSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 		}
 		else
 		{
-			selectSiblingActiveNodes(slaveNode,
-									 &siblingSlaveNodes,
-									 spiContext);
 			appendSlaveNodeFollowMaster(masterNode,
 										slaveNode,
-										&siblingSlaveNodes,
 										masterPGconn,
 										spiContext);
 		}
@@ -2219,7 +2216,6 @@ static bool rewindSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 	StringInfoData infosendmsg;
 	GetAgentCmdRst getAgentCmdRst;
 	MemoryContext oldContext;
-	dlist_head siblingSlaveNodes = DLIST_STATIC_INIT(siblingSlaveNodes);
 
 	oldContext = CurrentMemoryContext;
 	initStringInfo(&(getAgentCmdRst.description));
@@ -2266,12 +2262,8 @@ static bool rewindSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 							getAgentCmdRst.description.data)));
 		}
 
-		selectSiblingActiveNodes(slaveNode,
-								 &siblingSlaveNodes,
-								 spiContext);
 		appendSlaveNodeFollowMaster(rewindObject->masterNode,
 									slaveNode,
-									&siblingSlaveNodes,
 									rewindObject->masterPGconn,
 									spiContext);
 

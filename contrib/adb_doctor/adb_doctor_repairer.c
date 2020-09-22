@@ -688,7 +688,6 @@ static bool refreshSyncStandbyNames(SwitcherNodeWrapper *masterNode,
 	MemoryContext oldContext;
 	MemoryContext spiContext;
 	MgrNodeWrapper mgrNodeBackup;
-	dlist_head siblingNodes = DLIST_STATIC_INIT(siblingNodes);
 
 	memcpy(&mgrNodeBackup, faultSlaveNode, sizeof(MgrNodeWrapper));
 
@@ -698,12 +697,8 @@ static bool refreshSyncStandbyNames(SwitcherNodeWrapper *masterNode,
 
 	PG_TRY();
 	{
-		selectSiblingActiveNodes(faultSlaveNode,
-								 &siblingNodes,
-								 spiContext);
 		removeFromSyncStandbyNames(masterNode->mgrNode,
 								   faultSlaveNode,
-								   &siblingNodes,
 								   masterNode->pgConn,
 								   spiContext);
 		done = true;
@@ -739,7 +734,6 @@ static bool pullBackToCluster(SwitcherNodeWrapper *masterNode,
 	MgrNodeWrapper mgrNodeBackup;
 	MemoryContext oldContext;
 	MgrNodeWrapper *gtmMaster = NULL;
-	dlist_head siblingSlaveNodes = DLIST_STATIC_INIT(siblingSlaveNodes);
 
 	oldContext = CurrentMemoryContext;
 	memcpy(&mgrNodeBackup, faultSlaveNode, sizeof(MgrNodeWrapper));
@@ -772,12 +766,8 @@ static bool pullBackToCluster(SwitcherNodeWrapper *masterNode,
 		}
 		else
 		{
-			selectSiblingActiveNodes(faultSlaveNode,
-									 &siblingSlaveNodes,
-									 spiContext);
 			appendSlaveNodeFollowMaster(masterNode->mgrNode,
 										faultSlaveNode,
-										&siblingSlaveNodes,
 										masterNode->pgConn,
 										spiContext);
 		}

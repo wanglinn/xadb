@@ -195,14 +195,12 @@ extern void switcherNodesToMgrNodes(dlist_head *switcherNodes,
 									dlist_head *mgrNodes);
 extern void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 										MgrNodeWrapper *slaveNode,
-										dlist_head *siblingSlaveNodes,
 										PGconn *masterPGconn,
 										MemoryContext spiContext);
 extern void appendSlaveNodeFollowMasterEx(MemoryContext spiContext,
 										SwitcherNodeWrapper *master,
 										SwitcherNodeWrapper *slave,
-										dlist_head *siblingSlaveNodes,
-										bool complain);								
+										bool complain);
 extern void checkGetMasterCoordinators(MemoryContext spiContext,
 									   dlist_head *coordinators,
 									   bool includeGtmCoord,

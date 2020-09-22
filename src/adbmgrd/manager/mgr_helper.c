@@ -19,6 +19,7 @@
 #include "../../src/interfaces/libpq/libpq-int.h"
 #include "catalog/pgxc_node.h"
 #include "replication/syncrep.h"
+#include "utils/fmgroids.h"
 
 static MgrHostWrapper *popHeadMgrHostPfreeOthers(dlist_head *mgrHosts);
 static MgrNodeWrapper *popHeadMgrNodePfreeOthers(dlist_head *mgrNodes);
@@ -328,8 +329,8 @@ void selectMgrNodeByNodetype(MemoryContext spiContext,
 }
 
 void selectMgrNodeByNodetypeEx(MemoryContext spiContext,
-							 char nodetype,
-							 dlist_head *resultList)
+							   char nodetype,
+							   dlist_head *resultList)
 {
 	StringInfoData sql;
 
@@ -384,8 +385,8 @@ void selectMgrAllDataNodes(MemoryContext spiContext,
 	pfree(sql.data);
 }
 void selectMgrAllDataNodesInZone(MemoryContext spiContext,
-								 char *zone,	
-						   		dlist_head *resultList)
+								 char *zone,
+								 dlist_head *resultList)
 {
 	StringInfoData sql;
 
@@ -407,9 +408,9 @@ void selectMgrAllDataNodesInZone(MemoryContext spiContext,
 }
 
 void selectMgrSlaveNodes(Oid masterOid,
-						char nodetype,
-						MemoryContext spiContext,
-						dlist_head *resultList)
+						 char nodetype,
+						 MemoryContext spiContext,
+						 dlist_head *resultList)
 {
 	StringInfoData sql;
 
@@ -476,8 +477,8 @@ void selectMgrSlaveNodesByOidType(Oid masterOid,
 	pfree(sql.data);
 }
 void selectChildNodes(MemoryContext spiContext,
-                        Oid oid,
-						dlist_head *resultList)
+					  Oid oid,
+					  dlist_head *resultList)
 {
 	StringInfoData sql;
 
@@ -493,7 +494,7 @@ void selectChildNodes(MemoryContext spiContext,
 void selectChildNodesInZone(MemoryContext spiContext,
 							Oid masterOid,
 							char *zone,
-						    dlist_head *resultList)
+							dlist_head *resultList)
 {
 	StringInfoData sql;
 
@@ -528,8 +529,8 @@ void selectNotActiveChildInZone(MemoryContext spiContext,
 	pfree(sql.data);
 }
 void selectAllNodesInZone(MemoryContext spiContext,
-							char *zone,
-						    dlist_head *resultList)
+						  char *zone,
+						  dlist_head *resultList)
 {
 	StringInfoData sql;
 
@@ -543,10 +544,10 @@ void selectAllNodesInZone(MemoryContext spiContext,
 	pfree(sql.data);
 }
 void selectActiveMgrSlaveNodesInZone(Oid masterOid,
-							   char nodetype,
-							   char *zone,
-							   MemoryContext spiContext,
-							   dlist_head *resultList)
+									 char nodetype,
+									 char *zone,
+									 MemoryContext spiContext,
+									 dlist_head *resultList)
 {
 	StringInfoData sql;
 
@@ -592,30 +593,45 @@ void selectMgrSlaveNodesByOidTypeInZone(Oid masterOid,
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
-void selectSiblingActiveNodes(MgrNodeWrapper *faultNode,
-							  dlist_head *resultList,
-							  MemoryContext spiContext)
+
+List *selectAllNodesInRepGroup(MgrNodeWrapper *mgrNode,
+							   MemoryContext spiContext)
 {
 	StringInfoData sql;
+	Oid nodemasternameoid = InvalidOid;
+	dlist_iter iter;
+	List *allNodesInRepGroup = NIL;
+	MgrNodeWrapper *nodeInDB;
+	dlist_head resultList = DLIST_STATIC_INIT(resultList);
+
+	nodeInDB = selectMgrNodeByOid(mgrNode->form.oid, spiContext);
+	if (isMasterNode(nodeInDB->form.nodetype, true))
+		nodemasternameoid = nodeInDB->form.oid;
+	else
+		nodemasternameoid = nodeInDB->form.nodemasternameoid;
+	pfreeMgrNodeWrapper(nodeInDB);
+	if (!OidIsValid(nodemasternameoid))
+		ereport(ERROR,
+				(errmsg("nodename:%s, can not get a valid master node oid",
+						NameStr(mgrNode->form.nodename))));
 
 	initStringInfo(&sql);
 	appendStringInfo(&sql,
-					 "SELECT * \n"
-					 "FROM pg_catalog.mgr_node \n"
-					 "WHERE nodetype in ('%c') \n"
-					 "AND nodeinited = %d::boolean \n"
-					 "AND nodeincluster = %d::boolean \n"
-					 "AND nodemasternameoid = %u \n"
-					 "AND curestatus != '%s' \n"
-					 "AND nodename != '%s' \n",
-					 faultNode->form.nodetype,
-					 true,
-					 true,
-					 faultNode->form.nodemasternameoid,
-					 CURE_STATUS_ISOLATED,
-					 NameStr(faultNode->form.nodename));
-	selectMgrNodes(sql.data, spiContext, resultList);
+					 "SELECT * "
+					 "FROM pg_catalog.mgr_node "
+					 "WHERE nodemasternameoid = %u "
+					 "OR oid = %u ",
+					 nodemasternameoid,
+					 nodemasternameoid);
+	selectMgrNodes(sql.data, spiContext, &resultList);
+
+	dlist_foreach(iter, &resultList)
+	{
+		MgrNodeWrapper *node = dlist_container(MgrNodeWrapper, link, iter.cur);
+		allNodesInRepGroup = lappend(allNodesInRepGroup, node);
+	}
 	pfree(sql.data);
+	return allNodesInRepGroup;
 }
 
 void selectIsolatedMgrSlaveNodes(Oid masterOid,
@@ -641,8 +657,8 @@ void selectIsolatedMgrSlaveNodes(Oid masterOid,
 	pfree(sql.data);
 }
 void selectIsolatedMgrSlaveNodesByNodeType(char nodetype,
-										MemoryContext spiContext,
-										dlist_head *resultList)
+										   MemoryContext spiContext,
+										   dlist_head *resultList)
 {
 	StringInfoData sql;
 
@@ -791,10 +807,10 @@ void selectIsolatedMgrNodes(MemoryContext spiContext,
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
-void selectNodeNotZone(MemoryContext spiContext, 
-							char *zone, 
-							char nodetype, 
-							dlist_head *resultList)
+void selectNodeNotZone(MemoryContext spiContext,
+					   char *zone,
+					   char nodetype,
+					   dlist_head *resultList)
 {
 	StringInfoData sql;
 
@@ -813,9 +829,9 @@ void selectNodeNotZone(MemoryContext spiContext,
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
-void selectActiveNodeInZone(MemoryContext spiContext, 
-							char *zone, 
-							char nodetype, 
+void selectActiveNodeInZone(MemoryContext spiContext,
+							char *zone,
+							char nodetype,
 							dlist_head *resultList)
 {
 	StringInfoData sql;
@@ -835,10 +851,10 @@ void selectActiveNodeInZone(MemoryContext spiContext,
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
-void selectNodeNotZoneForFailover(MemoryContext spiContext, 
-								char *zone, 
-								char nodetype, 
-								dlist_head *resultList)
+void selectNodeNotZoneForFailover(MemoryContext spiContext,
+								  char *zone,
+								  char nodetype,
+								  dlist_head *resultList)
 {
 	StringInfoData sql;
 
@@ -853,11 +869,11 @@ void selectNodeNotZoneForFailover(MemoryContext spiContext,
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
-void selectNodeZoneOid(MemoryContext spiContext, 
-							char nodetype,
-							char *nodezone,
-							Oid  oid, 
-							dlist_head *resultList)
+void selectNodeZoneOid(MemoryContext spiContext,
+					   char nodetype,
+					   char *nodezone,
+					   Oid oid,
+					   dlist_head *resultList)
 {
 	StringInfoData sql;
 
@@ -963,13 +979,11 @@ int updateMgrNodeAfterFollowMaster(MgrNodeWrapper *mgrNode,
 	initStringInfo(&buf);
 	appendStringInfo(&buf,
 					 "update pg_catalog.mgr_node  \n"
-					 "set curestatus = '%s', \n"
-					 "nodesync = '%s' \n"
+					 "set curestatus = '%s' \n"
 					 "WHERE oid = %u \n"
 					 "and curestatus = '%s' \n"
 					 "and nodetype = '%c' \n",
 					 newCurestatus,
-					 NameStr(mgrNode->form.nodesync),
 					 mgrNode->form.oid,
 					 NameStr(mgrNode->form.curestatus),
 					 mgrNode->form.nodetype);
@@ -1035,15 +1049,13 @@ int updateMgrNodeToUnIsolate(MgrNodeWrapper *mgrNode,
 					 "update pg_catalog.mgr_node "
 					 "set curestatus = '%s', "
 					 "nodeinited = %d::boolean, "
-					 "nodeincluster = %d::boolean, "
-					 "nodesync = '%s' "
+					 "nodeincluster = %d::boolean "
 					 "WHERE oid = %u "
 					 "and curestatus = '%s' "
 					 "and nodetype = '%c' ",
 					 CURE_STATUS_NORMAL,
 					 true,
 					 true,
-					 NameStr(mgrNode->form.nodesync),
 					 mgrNode->form.oid,
 					 NameStr(mgrNode->form.curestatus),
 					 mgrNode->form.nodetype);
@@ -1173,18 +1185,18 @@ NodeConnectionStatus connectNodeDefaultDB(MgrNodeWrapper *node,
 
 	initStringInfo(&conninfo);
 	appendStringInfo(&conninfo, "host='%s' port=%u dbname='%s' user='%s' connect_timeout=%d",
-					node->host->hostaddr, 
-					node->form.nodeport, 
-					DEFAULT_DB, 
-					NameStr(node->host->form.hostuser),
-					connectTimeout);
+					 node->host->hostaddr,
+					 node->form.nodeport,
+					 DEFAULT_DB,
+					 NameStr(node->host->form.hostuser),
+					 connectTimeout);
 	conn = PQconnectdb(conninfo.data);
 	pfree(conninfo.data);
 	if (PQstatus(conn) == CONNECTION_OK)
 	{
 		gram = PQparameterStatus(conn, "grammar");
 		if (gram != NULL && pg_strcasecmp(gram, GARMMAR_POSTGRES) != 0)
-			PQexec(conn, SET_GRAMMAR_POSTGRES);	
+			PQexec(conn, SET_GRAMMAR_POSTGRES);
 
 		ereport(DEBUG1,
 				(errmsg("connect node %s successfully",
@@ -1489,10 +1501,16 @@ bool equalsNodeParameter(char *nodeName, PGconn *pgConn, char *name, char *expec
 	bool equal;
 	char *actualValue;
 	actualValue = showNodeParameter(nodeName, pgConn, name, true);
-	equal = is_equal_string(actualValue, expectValue) ||
-			((actualValue == NULL || strlen(actualValue) == 0) && expectValue == NULL);
+	equal = equalsParameterValue(actualValue, expectValue);
 	pfree(actualValue);
 	return equal;
+}
+
+bool equalsParameterValue(char *parameterValue1, char *parameterValue2)
+{
+	return is_equal_string(parameterValue1, parameterValue2) ||
+		   ((parameterValue1 == NULL || strlen(parameterValue1) == 0) &&
+			(parameterValue2 == NULL || strlen(parameterValue2) == 0));
 }
 
 bool PQexecCommandSql(PGconn *pgConn, char *sql, bool complain)
@@ -1654,7 +1672,6 @@ bool exec_pool_close_idle_conn(PGconn *pgConn, bool complain)
 	char *sql = "set FORCE_PARALLEL_MODE = off; select pool_close_idle_conn();";
 	return PQexecBoolQuery(pgConn, sql, true, complain);
 }
-
 
 /* 
  * Pointer is disgusting, just return a small struct,
@@ -2017,8 +2034,8 @@ bool callAgentPromoteNode(MgrNodeWrapper *node, bool complain)
 	if (node->form.nodetype == CNDN_TYPE_DATANODE_MASTER ||
 		node->form.nodetype == CNDN_TYPE_DATANODE_SLAVE ||
 		node->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER ||
-		node->form.nodetype == CNDN_TYPE_COORDINATOR_SLAVE )
-	{   
+		node->form.nodetype == CNDN_TYPE_COORDINATOR_SLAVE)
+	{
 		cmd = AGT_CMD_DN_FAILOVER;
 	}
 	else if (node->form.nodetype == CNDN_TYPE_GTM_COOR_MASTER ||
@@ -2746,7 +2763,7 @@ void setCheckGtmInfoInPGSqlConf(MgrNodeWrapper *gtmMaster,
 	{
 		ereport(LOG,
 				(errmsg("set GTM information on %s successfully",
-						NameStr(mgrNode->form.nodename))));				
+						NameStr(mgrNode->form.nodename))));
 	}
 	else
 	{
@@ -2772,16 +2789,16 @@ static void CreateReplicationSlot(char *nodename, char *slot_name)
 	createSql = psprintf("SELECT pg_create_physical_replication_slot('%s')", slot_name);
 
 	memset(&nodeinfo, 0, sizeof(AppendNodeInfo));
-	mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_MASTER,false,
-								&is_exist, &is_running, &nodeinfo);	
+	mgr_get_nodeinfo_byname_type(nodename, CNDN_TYPE_DATANODE_MASTER, false,
+								 &is_exist, &is_running, &nodeinfo);
 	if (nodeinfo.nodehost == 0)
 	{
-		mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_SLAVE,false,
-								&is_exist, &is_running, &nodeinfo);
+		mgr_get_nodeinfo_byname_type(nodename, CNDN_TYPE_DATANODE_SLAVE, false,
+									 &is_exist, &is_running, &nodeinfo);
 		if (nodeinfo.nodehost == 0)
 		{
 			ereport(ERROR, (errmsg("datanode %s is not exist.", nodename)));
-		}		
+		}
 	}
 
 	agentPort = get_agentPort_from_hostoid(nodeinfo.nodehost);
@@ -2789,7 +2806,7 @@ static void CreateReplicationSlot(char *nodename, char *slot_name)
 	address = get_hostaddress_from_hostoid(nodeinfo.nodehost);
 
 	initStringInfo(&restmsg);
-	while (max_try--  >= 0)
+	while (max_try-- >= 0)
 	{
 		resetStringInfo(&restmsg);
 		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, qrySql, user, address, nodeinfo.nodeport, DEFAULT_DB, &restmsg);
@@ -2805,7 +2822,7 @@ static void CreateReplicationSlot(char *nodename, char *slot_name)
 		{
 			ereport(LOG, (errmsg("CreateReplicationSlot datanode(%s) has exist slot_name(%s).", nodename, slot_name)));
 			break;
-		}		
+		}
 	}
 	MgrFree(restmsg.data);
 }
@@ -2820,20 +2837,20 @@ static void DeleteReplicationSlot(char *nodename, char *slot_name)
 	int max_try = 3;
 	StringInfoData restmsg;
 
-	deleteSql = psprintf("select pg_drop_replication_slot('%s')",slot_name);
+	deleteSql = psprintf("select pg_drop_replication_slot('%s')", slot_name);
 
 	memset(&nodeinfo, 0, sizeof(AppendNodeInfo));
-	mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_MASTER,false,
-								&is_exist, &is_running, &nodeinfo);	
+	mgr_get_nodeinfo_byname_type(nodename, CNDN_TYPE_DATANODE_MASTER, false,
+								 &is_exist, &is_running, &nodeinfo);
 	if (nodeinfo.nodehost == 0)
 	{
-		mgr_get_nodeinfo_byname_type(nodename,CNDN_TYPE_DATANODE_SLAVE,false,
-								&is_exist, &is_running, &nodeinfo);
+		mgr_get_nodeinfo_byname_type(nodename, CNDN_TYPE_DATANODE_SLAVE, false,
+									 &is_exist, &is_running, &nodeinfo);
 		if (nodeinfo.nodehost == 0)
 		{
 			ereport(ERROR,
-				(errmsg("datanode %s is not exist.", nodename)));
-		}		
+					(errmsg("datanode %s is not exist.", nodename)));
+		}
 	}
 
 	agentPort = get_agentPort_from_hostoid(nodeinfo.nodehost);
@@ -2841,7 +2858,7 @@ static void DeleteReplicationSlot(char *nodename, char *slot_name)
 	address = get_hostaddress_from_hostoid(nodeinfo.nodehost);
 
 	initStringInfo(&restmsg);
-	while (max_try--  >= 0)
+	while (max_try-- >= 0)
 	{
 		ereport(LOG, (errmsg("DeleteReplicationSlot datanode(%s) delete slot_name(%s).", nodename, slot_name)));
 		monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentPort, deleteSql, user, address, nodeinfo.nodeport, DEFAULT_DB, &restmsg);
@@ -2852,10 +2869,12 @@ static void DeleteReplicationSlot(char *nodename, char *slot_name)
 }
 void dn_master_replication_slot(char *nodename, char *slot_name, char operate)
 {
-	if (operate == 'c'){
+	if (operate == 'c')
+	{
 		CreateReplicationSlot(nodename, slot_name);
-	} 
-	else if (operate == 'd'){
+	}
+	else if (operate == 'd')
+	{
 		DeleteReplicationSlot(nodename, slot_name);
 	}
 }
@@ -2875,16 +2894,16 @@ void setSlaveNodeRecoveryConf(MgrNodeWrapper *masterNode,
 									  NameStr(slaveNode->form.nodename));
 	items->next->next = newPGConfParameterItem("primary_conninfo",
 											   primary_conninfo_value, true);
-	/* if node is datanode slave , then update primary_slot_name in recovery.conf*/ 
-	if (slaveNode->form.nodetype == CNDN_TYPE_DATANODE_SLAVE || 
-		(slaveNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER && 
-		strcmp(NameStr(slaveNode->form.curestatus),"switching") == 0))
+	/* if node is datanode slave , then update primary_slot_name in recovery.conf*/
+	if (slaveNode->form.nodetype == CNDN_TYPE_DATANODE_SLAVE ||
+		(slaveNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER &&
+		 strcmp(NameStr(slaveNode->form.curestatus), "switching") == 0))
 	{
-		dn_master_replication_slot(NameStr(masterNode->form.nodename),NameStr(slaveNode->form.nodename),'c');
+		dn_master_replication_slot(NameStr(masterNode->form.nodename), NameStr(slaveNode->form.nodename), 'c');
 		items->next->next->next = newPGConfParameterItem("primary_slot_name",
-											   NameStr(slaveNode->form.nodename), false);
+														 NameStr(slaveNode->form.nodename), false);
 	}
-		
+
 	pfree(primary_conninfo_value);
 
 	callAgentRefreshRecoveryConf(slaveNode, items, true);
@@ -3558,7 +3577,7 @@ bool is_equal_string(char *a, char *b)
 	return (a != NULL && b != NULL) ? (strcmp(a, b) == 0) : (a == b);
 }
 
-bool list_contain_string(const List *list, char *str)
+bool string_list_contain(const List *list, char *str)
 {
 	ListCell *cell;
 
@@ -3570,7 +3589,7 @@ bool list_contain_string(const List *list, char *str)
 	return false;
 }
 
-List *list_delete_string(List *list, char *str, bool deep)
+List *string_list_delete(List *list, char *str, bool deep)
 {
 	ListCell *cell;
 
@@ -3641,40 +3660,44 @@ SynchronousStandbyNamesConfig *parseSynchronousStandbyNamesConfig(char *synchron
 			}
 			else
 			{
-				if (syncrep_parse_result->num_sync <= 0)
+				if (syncrep_parse_result->num_sync < 0)
 				{
 					ereport(complain ? ERROR : WARNING,
-							(errmsg("number of synchronous standbys (%d) must be greater than zero",
+							(errmsg("number of synchronous standbys (%d) must not be negtive",
 									syncrep_parse_result->num_sync)));
 				}
 				else
 				{
-					(void)MemoryContextSwitchTo(oldContext);
-
-					synchronousStandbyNamesConfig = palloc0(sizeof(SynchronousStandbyNamesConfig));
-					synchronousStandbyNamesConfig->num_sync = syncrep_parse_result->num_sync;
-					synchronousStandbyNamesConfig->syncrep_method = syncrep_parse_result->syncrep_method;
-					standby_name = syncrep_parse_result->member_names;
-					for (i = 1; i <= syncrep_parse_result->nmembers; i++)
+					if (syncrep_parse_result->syncrep_method == SYNC_REP_PRIORITY)
 					{
-						if (i <= synchronousStandbyNamesConfig->num_sync)
-							synchronousStandbyNamesConfig->syncStandbyNames =
-								lappend(synchronousStandbyNamesConfig->syncStandbyNames,
-										psprintf("%s", standby_name));
-						else
-							synchronousStandbyNamesConfig->potentialStandbyNames =
-								lappend(synchronousStandbyNamesConfig->potentialStandbyNames,
-										psprintf("%s", standby_name));
-						standby_name += strlen(standby_name) + 1;
-					}
+						(void)MemoryContextSwitchTo(oldContext);
 
-					(void)MemoryContextSwitchTo(tempContext);
+						synchronousStandbyNamesConfig = palloc0(sizeof(SynchronousStandbyNamesConfig));
+						synchronousStandbyNamesConfig->num_sync = syncrep_parse_result->num_sync;
+						synchronousStandbyNamesConfig->syncrep_method = syncrep_parse_result->syncrep_method;
+						standby_name = syncrep_parse_result->member_names;
+						for (i = 1; i <= syncrep_parse_result->nmembers; i++)
+						{
+							if (i <= synchronousStandbyNamesConfig->num_sync)
+								synchronousStandbyNamesConfig->syncStandbyNames =
+									lappend(synchronousStandbyNamesConfig->syncStandbyNames,
+											psprintf("%s", standby_name));
+							else
+								synchronousStandbyNamesConfig->potentialStandbyNames =
+									lappend(synchronousStandbyNamesConfig->potentialStandbyNames,
+											psprintf("%s", standby_name));
+							standby_name += strlen(standby_name) + 1;
+						}
+
+						(void)MemoryContextSwitchTo(tempContext);
+					}
+					else
+					{
+						ereport(WARNING,
+								(errmsg("Currently only supports streaming replication mechanism based on priority.")));
+					}
 				}
 			}
-		}
-		else
-		{
-			synchronousStandbyNamesConfig = NULL;
 		}
 	}
 	PG_CATCH();
@@ -3756,49 +3779,178 @@ char *transformSynchronousStandbyNamesConfig(List *syncStandbyNames,
 	return synchronous_standby_names;
 }
 
-static void checkIfNodesyncChangedAndUpdateIt(MgrNodeWrapper *masterNode,
-											  MgrNodeWrapper *mgrNode,
-											  List *syncStandbyNames,
-											  List *potentialStandbyNames,
-											  MemoryContext spiContext)
+static void configureStandbyNames(List **syncStandbyNamesP,
+								  List **potentialStandbyNamesP,
+								  MgrNodeWrapper *slaveNode,
+								  List *allNodesInRepGroup,
+								  List *nodeSyncConfigInRepGroup,
+								  bool append)
 {
-	NameData newNodesync;
-	ListCell *cell;
-	char *nodename;
-	bool found;
+	int zoneExpectedSyncNodes = 0;
+	int zoneActualSyncNodes = 0;
+	ListCell *cell1;
+	ListCell *cell2;
+	List *syncStandbyNames = *syncStandbyNamesP;
+	List *potentialStandbyNames = *potentialStandbyNamesP;
+	MgrNodeWrapper *tempNode;
 
-	if (isSameNodeZone(masterNode, mgrNode))
+	if (slaveNode == NULL)
+		return;
+
+	syncStandbyNames = string_list_delete(syncStandbyNames,
+										  NameStr(slaveNode->form.nodename),
+										  true);
+	potentialStandbyNames = string_list_delete(potentialStandbyNames,
+											   NameStr(slaveNode->form.nodename),
+											   true);
+
+	foreach (cell2, nodeSyncConfigInRepGroup)
 	{
-		found = false;
-		namestrcpy(&newNodesync, getMgrNodeSyncStateValue(SYNC_STATE_SYNC));
-		foreach (cell, syncStandbyNames)
+		MgrNodeSyncConfig *mgrNodeSyncConfig = (MgrNodeSyncConfig *)lfirst(cell2);
+		if (is_equal_string(NameStr(mgrNodeSyncConfig->nodezone),
+							NameStr(slaveNode->form.nodezone)))
 		{
-			nodename = (char *)lfirst(cell);
-			if (is_equal_string(NameStr(mgrNode->form.nodename), nodename))
-			{
-				found = true;
-				break;
-			}
+			zoneExpectedSyncNodes = mgrNodeSyncConfig->expectedSyncNodes;
+			break;
 		}
-		if (!found)
+	}
+
+	if (zoneExpectedSyncNodes <= 0)
+		goto _the_end;
+
+	foreach (cell2, syncStandbyNames)
+	{
+		char *nodename = (char *)lfirst(cell2);
+		foreach (cell1, allNodesInRepGroup)
 		{
-			namestrcpy(&newNodesync, getMgrNodeSyncStateValue(SYNC_STATE_POTENTIAL));
-			foreach (cell, potentialStandbyNames)
+			tempNode = (MgrNodeWrapper *)lfirst(cell1);
+			if (!is_equal_string(nodename, NameStr(tempNode->form.nodename)))
+				continue;
+
+			if (is_equal_string(NameStr(slaveNode->form.nodezone),
+								NameStr(tempNode->form.nodezone)))
+				zoneActualSyncNodes++;
+		}
+	}
+	if (append)
+	{
+		if (zoneExpectedSyncNodes > zoneActualSyncNodes)
+			syncStandbyNames = lappend(syncStandbyNames, psprintf("%s", NameStr(slaveNode->form.nodename)));
+		else
+			potentialStandbyNames = lappend(potentialStandbyNames, psprintf("%s", NameStr(slaveNode->form.nodename)));
+	}
+	else
+	{
+		/* pick one from potential to sync */
+		foreach (cell1, allNodesInRepGroup)
+		{
+			tempNode = (MgrNodeWrapper *)lfirst(cell1);
+			if (is_equal_string(NameStr(slaveNode->form.nodename),
+								NameStr(tempNode->form.nodename)))
+				continue;
+			if (!is_equal_string(NameStr(slaveNode->form.nodezone),
+								 NameStr(tempNode->form.nodezone)))
+				continue;
+			if (!string_list_contain(potentialStandbyNames,
+									 NameStr(tempNode->form.nodename)))
+				continue;
+
+			potentialStandbyNames = string_list_delete(potentialStandbyNames,
+													   NameStr(tempNode->form.nodename),
+													   true);
+			syncStandbyNames = lappend(syncStandbyNames, psprintf("%s", NameStr(tempNode->form.nodename)));
+			break;
+		}
+	}
+
+_the_end:
+	*syncStandbyNamesP = syncStandbyNames;
+	*potentialStandbyNamesP = potentialStandbyNames;
+}
+
+static void storeNodeSyncToMgrNode(MgrNodeWrapper *masterNode,
+								   List *allNodesInRepGroup,
+								   List *syncStandbyNames,
+								   List *potentialStandbyNames,
+								   List *nodeSyncConfigInRepGroup,
+								   MemoryContext spiContext)
+{
+	ListCell *cell1;
+	ListCell *cell2;
+	MgrNodeSyncConfig *mgrNodeSyncConfig;
+	MgrNodeWrapper *mgrNode;
+	NameData newNodesync;
+
+	/* change the 'node sync' configuration of MGR_NODE */
+	foreach (cell1, allNodesInRepGroup)
+	{
+		mgrNode = (MgrNodeWrapper *)lfirst(cell1);
+		if (is_equal_string(NameStr(masterNode->form.nodename), NameStr(mgrNode->form.nodename)))
+		{
+			namestrcpy(&newNodesync, "");
+		}
+		else if (string_list_contain(syncStandbyNames, NameStr(mgrNode->form.nodename)))
+		{
+			foreach (cell2, nodeSyncConfigInRepGroup)
 			{
-				nodename = (char *)lfirst(cell);
-				if (is_equal_string(NameStr(mgrNode->form.nodename), nodename))
+				mgrNodeSyncConfig = (MgrNodeSyncConfig *)lfirst(cell2);
+				if (is_equal_string(NameStr(mgrNodeSyncConfig->nodezone),
+									NameStr(mgrNode->form.nodezone)))
 				{
-					found = true;
+					mgrNodeSyncConfig->actualSyncNodes++;
 					break;
 				}
 			}
+			namestrcpy(&newNodesync, getMgrNodeSyncStateValue(SYNC_STATE_SYNC));
 		}
-		if (!found)
+		else if (string_list_contain(potentialStandbyNames, NameStr(mgrNode->form.nodename)))
+		{
+			namestrcpy(&newNodesync, getMgrNodeSyncStateValue(SYNC_STATE_POTENTIAL));
+		}
+		else
 		{
 			namestrcpy(&newNodesync, getMgrNodeSyncStateValue(SYNC_STATE_ASYNC));
 		}
-		if (!is_equal_string(NameStr(newNodesync), NameStr(mgrNode->form.nodesync)))
+
+		/* Store 'node sync' configuration to MGR_NODE if changed */
+		if (is_equal_string(NameStr(mgrNode->form.nodesync), NameStr(newNodesync)))
+			continue;
+		if (updateMgrNodeNodesync(mgrNode, NameStr(newNodesync), spiContext) == 1)
+			namecpy(&mgrNode->form.nodesync, &newNodesync);
+		else
+			ereport(ERROR,
+					(errmsg("%s try to change nodesync from '%s' to '%s' failed",
+							NameStr(mgrNode->form.nodename),
+							NameStr(mgrNode->form.nodesync),
+							NameStr(newNodesync))));
+	}
+
+	/* Check whether some zones possible loss the 'node sync' configuration */
+	foreach (cell2, nodeSyncConfigInRepGroup)
+	{
+		int diff;
+		mgrNodeSyncConfig = (MgrNodeSyncConfig *)lfirst(cell2);
+		diff = mgrNodeSyncConfig->expectedSyncNodes - mgrNodeSyncConfig->actualSyncNodes;
+		if (diff <= 0)
+			continue;
+		foreach (cell1, allNodesInRepGroup)
 		{
+			mgrNode = (MgrNodeWrapper *)lfirst(cell1);
+			if (!is_equal_string(NameStr(mgrNodeSyncConfig->nodezone),
+								 NameStr(mgrNode->form.nodezone)))
+				continue;
+			if (is_equal_string(NameStr(masterNode->form.nodename),
+								NameStr(mgrNode->form.nodename)))
+				continue;
+			if (is_equal_string(getMgrNodeSyncStateValue(SYNC_STATE_SYNC),
+								NameStr(mgrNode->form.nodesync)))
+				continue;
+
+			/* preserve 'node sync' configuration to sync in MGR_NODE */
+			namestrcpy(&newNodesync, getMgrNodeSyncStateValue(SYNC_STATE_SYNC));
+			/* Store 'node sync' configuration to MGR_NODE if changed */
+			if (is_equal_string(NameStr(mgrNode->form.nodesync), NameStr(newNodesync)))
+				continue;
 			if (updateMgrNodeNodesync(mgrNode, NameStr(newNodesync), spiContext) == 1)
 				namecpy(&mgrNode->form.nodesync, &newNodesync);
 			else
@@ -3807,28 +3959,92 @@ static void checkIfNodesyncChangedAndUpdateIt(MgrNodeWrapper *masterNode,
 								NameStr(mgrNode->form.nodename),
 								NameStr(mgrNode->form.nodesync),
 								NameStr(newNodesync))));
+			--diff;
+			if (diff <= 0)
+				break;
 		}
 	}
-	else
+}
+
+void adjustStreamReplication(MgrNodeWrapper *masterNode,
+							 MgrNodeWrapper *slaveNode,
+							 PGconn *masterPGconn,
+							 MemoryContext spiContext,
+							 bool append)
+{
+	char *oldSyncConfigStr = NULL;
+	char *newSyncConfigStr = NULL;
+	SynchronousStandbyNamesConfig *synchronousStandbyNamesConfig = NULL;
+	List *syncStandbyNames = NIL;
+	List *potentialStandbyNames = NIL;
+	List *nodeSyncConfigInRepGroup = NIL;
+	List *allNodesInRepGroup = NIL;
+
+	nodeSyncConfigInRepGroup = getNodeSyncConfigInRepGroup(masterNode);
+	allNodesInRepGroup = selectAllNodesInRepGroup(masterNode, spiContext);
+
+	oldSyncConfigStr = showNodeParameter(NameStr(masterNode->form.nodename), masterPGconn,
+										 "synchronous_standby_names", true);
+	synchronousStandbyNamesConfig =
+		parseSynchronousStandbyNamesConfig(oldSyncConfigStr, true);
+	if (synchronousStandbyNamesConfig)
 	{
-		if (is_equal_string(NameStr(mgrNode->form.nodesync), ""))
-		{
-			namestrcpy(&newNodesync, getMgrNodeSyncStateValue(SYNC_STATE_ASYNC));
-			if (updateMgrNodeNodesync(mgrNode, NameStr(newNodesync), spiContext) == 1)
-			{
-				namecpy(&mgrNode->form.nodesync, &newNodesync);
-			}
-			else{
-				ereport(ERROR,
-						(errmsg("%s try to change nodesync from '%s' to '%s' failed",
-								NameStr(mgrNode->form.nodename),
-								NameStr(mgrNode->form.nodesync),
-								NameStr(newNodesync))));
-			}
-				
-		}
+		syncStandbyNames = synchronousStandbyNamesConfig->syncStandbyNames;
+		potentialStandbyNames = synchronousStandbyNamesConfig->potentialStandbyNames;
 	}
-	
+
+	if (slaveNode != NULL)
+		configureStandbyNames(&syncStandbyNames,
+							  &potentialStandbyNames,
+							  slaveNode,
+							  allNodesInRepGroup,
+							  nodeSyncConfigInRepGroup,
+							  append);
+
+	storeNodeSyncToMgrNode(masterNode,
+						   allNodesInRepGroup,
+						   syncStandbyNames,
+						   potentialStandbyNames,
+						   nodeSyncConfigInRepGroup,
+						   spiContext);
+
+	newSyncConfigStr = transformSynchronousStandbyNamesConfig(syncStandbyNames,
+															  potentialStandbyNames);
+	if (!equalsParameterValue(oldSyncConfigStr, newSyncConfigStr))
+	{
+		ereport(LOG,
+				(errmsg("%s try to change synchronous_standby_names from '%s' to '%s'",
+						NameStr(masterNode->form.nodename),
+						oldSyncConfigStr,
+						newSyncConfigStr)));
+		setCheckSynchronousStandbyNames(masterNode,
+										masterPGconn,
+										newSyncConfigStr,
+										CHECK_SYNC_STANDBY_NAMES_SECONDS);
+	}
+
+	if (oldSyncConfigStr)
+		pfree(oldSyncConfigStr);
+	if (newSyncConfigStr)
+		pfree(newSyncConfigStr);
+	if (syncStandbyNames)
+		list_free_deep(syncStandbyNames);
+	if (potentialStandbyNames)
+		list_free_deep(potentialStandbyNames);
+	if (synchronousStandbyNamesConfig)
+		pfree(synchronousStandbyNamesConfig);
+	if (nodeSyncConfigInRepGroup)
+		list_free_deep(nodeSyncConfigInRepGroup);
+	if (allNodesInRepGroup)
+	{
+		ListCell *cell;
+		foreach (cell, allNodesInRepGroup)
+		{
+			MgrNodeWrapper *nodeToFree = (MgrNodeWrapper *)lfirst(cell);
+			pfreeMgrNodeWrapper(nodeToFree);
+		}
+		list_free(allNodesInRepGroup);
+	}
 }
 
 /**
@@ -3836,172 +4052,14 @@ static void checkIfNodesyncChangedAndUpdateIt(MgrNodeWrapper *masterNode,
  */
 void appendToSyncStandbyNames(MgrNodeWrapper *masterNode,
 							  MgrNodeWrapper *slaveNode,
-							  dlist_head *siblingSlaveNodes,
 							  PGconn *masterPGconn,
 							  MemoryContext spiContext)
 {
-	char *oldSyncConfigStr;
-	char *newSyncConfigStr;
-	SynchronousStandbyNamesConfig *synchronousStandbyNamesConfig;
-	List *syncStandbyNames;
-	List *potentialStandbyNames;
-	bool found;
-	dlist_iter iter;
-	MgrNodeWrapper *mgrNode;
-
-	oldSyncConfigStr = showNodeParameter(NameStr(masterNode->form.nodename), masterPGconn,
-										 "synchronous_standby_names", true);
-	synchronousStandbyNamesConfig =
-		parseSynchronousStandbyNamesConfig(oldSyncConfigStr, true);
-	if (synchronousStandbyNamesConfig)
-	{
-		syncStandbyNames = synchronousStandbyNamesConfig->syncStandbyNames;
-		potentialStandbyNames = synchronousStandbyNamesConfig->potentialStandbyNames;
-	}
-	else
-	{
-		syncStandbyNames = NIL;
-		potentialStandbyNames = NIL;
-	}
-
-	if (isSameNodeZone(masterNode, slaveNode))
-	{
-		if (list_contain_string(syncStandbyNames,
-								NameStr(slaveNode->form.nodename)))
-		{
-			potentialStandbyNames = list_delete_string(potentialStandbyNames,
-													   NameStr(slaveNode->form.nodename),
-													   true);
-		}
-		else
-		{
-			/* By default, expect one sync node in the current zone */
-			found = false;
-			if (siblingSlaveNodes)
-			{
-				dlist_foreach(iter, siblingSlaveNodes)
-				{
-					mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-					if (isSameNodeZone(masterNode, mgrNode))
-					{
-						if (list_contain_string(syncStandbyNames,
-												NameStr(mgrNode->form.nodename)))
-						{
-							found = true;
-							break;
-						}
-					}
-				}
-			}
-			if (found)
-			{
-				if (!list_contain_string(potentialStandbyNames,
-										 NameStr(slaveNode->form.nodename)))
-				{
-					/* current zone Prepend */
-					potentialStandbyNames = lcons(psprintf("%s", NameStr(slaveNode->form.nodename)),
-												  potentialStandbyNames);
-				}
-			}
-			else
-			{
-				potentialStandbyNames = list_delete_string(potentialStandbyNames,
-														   NameStr(slaveNode->form.nodename),
-														   true);
-				/* current zone Prepend */
-				syncStandbyNames = lcons(psprintf("%s", NameStr(slaveNode->form.nodename)),
-										 syncStandbyNames);
-			}
-		}
-	}
-	else
-	{
-		if (is_equal_string(NameStr(slaveNode->form.nodesync),
-							getMgrNodeSyncStateValue(SYNC_STATE_SYNC)))
-		{
-			potentialStandbyNames = list_delete_string(potentialStandbyNames,
-													   NameStr(slaveNode->form.nodename),
-													   true);
-			if (!list_contain_string(syncStandbyNames,
-									 NameStr(slaveNode->form.nodename)))
-			{
-				/* other zone append */
-				syncStandbyNames = lappend(syncStandbyNames,
-										   psprintf("%s", NameStr(slaveNode->form.nodename)));
-			}
-		}
-		else if (is_equal_string(NameStr(slaveNode->form.nodesync),
-								 getMgrNodeSyncStateValue(SYNC_STATE_POTENTIAL)))
-		{
-			syncStandbyNames = list_delete_string(syncStandbyNames,
-												  NameStr(slaveNode->form.nodename),
-												  true);
-			if (!list_contain_string(potentialStandbyNames,
-									 NameStr(slaveNode->form.nodename)))
-			{
-				/* other zone append */
-				potentialStandbyNames = lappend(potentialStandbyNames,
-												psprintf("%s", NameStr(slaveNode->form.nodename)));
-			}
-		}
-		else
-		{
-			/* It is an asynchronous standby, no need set synchronous_standby_names. */
-			syncStandbyNames = list_delete_string(syncStandbyNames,
-												  NameStr(slaveNode->form.nodename),
-												  true);
-			potentialStandbyNames = list_delete_string(potentialStandbyNames,
-													   NameStr(slaveNode->form.nodename),
-													   true);
-		}
-	}
-
-	if (siblingSlaveNodes)
-	{
-		dlist_foreach(iter, siblingSlaveNodes)
-		{
-			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-			if (!isSameNodeName(slaveNode, mgrNode))
-			{
-				checkIfNodesyncChangedAndUpdateIt(masterNode,
-												  mgrNode,
-												  syncStandbyNames,
-												  potentialStandbyNames,
-												  spiContext);
-			}
-		}
-	}
-	checkIfNodesyncChangedAndUpdateIt(masterNode,
-									  slaveNode,
-									  syncStandbyNames,
-									  potentialStandbyNames,
-									  spiContext);
-
-	newSyncConfigStr = transformSynchronousStandbyNamesConfig(syncStandbyNames,
-															  potentialStandbyNames);
-	if (!is_equal_string(oldSyncConfigStr, newSyncConfigStr))
-	{
-		ereport(LOG,
-				(errmsg("%s try to change synchronous_standby_names from '%s' to '%s'",
-						NameStr(masterNode->form.nodename),
-						oldSyncConfigStr,
-						newSyncConfigStr)));
-		setCheckSynchronousStandbyNames(masterNode,
-										masterPGconn,
-										newSyncConfigStr,
-										CHECK_SYNC_STANDBY_NAMES_SECONDS);
-	}
-
-	if (oldSyncConfigStr)
-		pfree(oldSyncConfigStr);
-	if (newSyncConfigStr)
-		pfree(newSyncConfigStr);
-	if (syncStandbyNames)
-		list_free_deep(syncStandbyNames);
-	if (potentialStandbyNames)
-		list_free_deep(potentialStandbyNames);
-	if (synchronousStandbyNamesConfig)
-		pfree(synchronousStandbyNamesConfig);
+	adjustStreamReplication(masterNode,
+							slaveNode,
+							masterPGconn,
+							spiContext,
+							true);
 }
 
 /**
@@ -4009,127 +4067,14 @@ void appendToSyncStandbyNames(MgrNodeWrapper *masterNode,
  */
 void removeFromSyncStandbyNames(MgrNodeWrapper *masterNode,
 								MgrNodeWrapper *slaveNode,
-								dlist_head *siblingSlaveNodes,
 								PGconn *masterPGconn,
 								MemoryContext spiContext)
 {
-	char *oldSyncConfigStr;
-	char *newSyncConfigStr;
-	SynchronousStandbyNamesConfig *synchronousStandbyNamesConfig;
-	List *syncStandbyNames;
-	List *potentialStandbyNames;
-	dlist_iter iter;
-	MgrNodeWrapper *mgrNode;
-
-	oldSyncConfigStr = showNodeParameter(NameStr(masterNode->form.nodename), masterPGconn,
-										 "synchronous_standby_names", true);
-	synchronousStandbyNamesConfig =
-		parseSynchronousStandbyNamesConfig(oldSyncConfigStr, true);
-	if (synchronousStandbyNamesConfig)
-	{
-		syncStandbyNames = synchronousStandbyNamesConfig->syncStandbyNames;
-		potentialStandbyNames = synchronousStandbyNamesConfig->potentialStandbyNames;
-	}
-	else
-	{
-		syncStandbyNames = NIL;
-		potentialStandbyNames = NIL;
-	}
-
-	if (isSameNodeZone(masterNode, slaveNode))
-	{
-		if (list_contain_string(syncStandbyNames,
-								NameStr(slaveNode->form.nodename)))
-		{
-			syncStandbyNames = list_delete_string(syncStandbyNames,
-												  NameStr(slaveNode->form.nodename),
-												  true);
-			/* pick one from potential to sync */
-			if (siblingSlaveNodes)
-			{
-				dlist_foreach(iter, siblingSlaveNodes)
-				{
-					mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-					if (isSameNodeZone(masterNode, mgrNode))
-					{
-						if (list_contain_string(potentialStandbyNames,
-												NameStr(mgrNode->form.nodename)))
-						{
-							potentialStandbyNames = list_delete_string(potentialStandbyNames,
-																	   NameStr(mgrNode->form.nodename),
-																	   true);
-							/* current zone Prepend */
-							syncStandbyNames = lcons(psprintf("%s", NameStr(mgrNode->form.nodename)),
-													 syncStandbyNames);
-							break;
-						}
-					}
-				}
-			}
-		}
-		else
-		{
-			potentialStandbyNames = list_delete_string(potentialStandbyNames,
-													   NameStr(slaveNode->form.nodename),
-													   true);
-		}
-	}
-	else
-	{
-		syncStandbyNames = list_delete_string(syncStandbyNames,
-											  NameStr(slaveNode->form.nodename),
-											  true);
-		potentialStandbyNames = list_delete_string(potentialStandbyNames,
-												   NameStr(slaveNode->form.nodename),
-												   true);
-	}
-
-	if (siblingSlaveNodes)
-	{
-		dlist_foreach(iter, siblingSlaveNodes)
-		{
-			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-			if (!isSameNodeName(slaveNode, mgrNode))
-			{
-				checkIfNodesyncChangedAndUpdateIt(masterNode,
-												  mgrNode,
-												  syncStandbyNames,
-												  potentialStandbyNames,
-												  spiContext);
-			}
-		}
-	}
-	checkIfNodesyncChangedAndUpdateIt(masterNode,
-									  slaveNode,
-									  syncStandbyNames,
-									  potentialStandbyNames,
-									  spiContext);
-
-	newSyncConfigStr = transformSynchronousStandbyNamesConfig(syncStandbyNames,
-															  potentialStandbyNames);
-	if (!is_equal_string(oldSyncConfigStr, newSyncConfigStr))
-	{
-		ereport(LOG,
-				(errmsg("%s try to change synchronous_standby_names from '%s' to '%s'",
-						NameStr(masterNode->form.nodename),
-						oldSyncConfigStr,
-						newSyncConfigStr)));
-		setCheckSynchronousStandbyNames(masterNode,
-										masterPGconn,
-										newSyncConfigStr,
-										CHECK_SYNC_STANDBY_NAMES_SECONDS);
-	}
-
-	if (oldSyncConfigStr)
-		pfree(oldSyncConfigStr);
-	if (newSyncConfigStr)
-		pfree(newSyncConfigStr);
-	if (syncStandbyNames)
-		list_free_deep(syncStandbyNames);
-	if (potentialStandbyNames)
-		list_free_deep(potentialStandbyNames);
-	if (synchronousStandbyNamesConfig)
-		pfree(synchronousStandbyNamesConfig);
+	adjustStreamReplication(masterNode,
+							slaveNode,
+							masterPGconn,
+							spiContext,
+							false);
 }
 
 bool setPGHbaTrustMyself(MgrNodeWrapper *mgrNode)
@@ -4157,26 +4102,29 @@ bool setPGHbaTrustMyself(MgrNodeWrapper *mgrNode)
 	}
 	return true;
 }
-void MgrGetOldDnMasterNotZone(MemoryContext spiContext, 
-								char *currentZone, 
-								char nodeType,
-								dlist_head *masterList, 
-								char *overType)
+void MgrGetOldDnMasterNotZone(MemoryContext spiContext,
+							  char *currentZone,
+							  char nodeType,
+							  dlist_head *masterList,
+							  char *overType)
 {
-	if (pg_strcasecmp(overType, OVERTYPE_SWITCHOVER) == 0){
-		selectNodeNotZone(spiContext, 
-							currentZone, 
-							nodeType, 
-							masterList);
+	if (pg_strcasecmp(overType, OVERTYPE_SWITCHOVER) == 0)
+	{
+		selectNodeNotZone(spiContext,
+						  currentZone,
+						  nodeType,
+						  masterList);
 	}
-	else{
-		selectNodeNotZoneForFailover(spiContext, 
-									currentZone, 
-									nodeType, 
-									masterList);
+	else
+	{
+		selectNodeNotZoneForFailover(spiContext,
+									 currentZone,
+									 nodeType,
+									 masterList);
 	}
 
-	if (dlist_is_empty(masterList)){
+	if (dlist_is_empty(masterList))
+	{
 		ereport(ERROR, (errmsg("no %s in other zone, current zone(%s).", mgr_get_nodetype_desc(nodeType), currentZone)));
 	}
 }
@@ -4186,7 +4134,7 @@ bool waitForNodeMayBeInRecovery(MgrNodeWrapper *mgrNode)
 	PGconn *pgConn = NULL;
 	bool printedMessage = false;
 	NodeConnectionStatus connStatus;
-	char msg [200];
+	char msg[200];
 
 	while (true)
 	{
@@ -4217,4 +4165,84 @@ bool waitForNodeMayBeInRecovery(MgrNodeWrapper *mgrNode)
 			return false;
 		}
 	}
+}
+
+List *getNodeSyncConfigInRepGroup(MgrNodeWrapper *mgrNode)
+{
+	Relation rel;
+	List *nodeSyncConfigInRepGroup = NIL;
+
+	rel = table_open(NodeRelationId, AccessShareLock);
+	PG_TRY();
+	{
+		TableScanDesc rel_scan;
+		HeapTuple tuple;
+		Form_mgr_node temp_mgr_node;
+		Oid nodemasternameoid = InvalidOid;
+
+		rel_scan = table_beginscan_catalog(rel, 0, NULL);
+		while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+		{
+			temp_mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			if (temp_mgr_node->oid == mgrNode->form.oid)
+			{
+				if (isMasterNode(temp_mgr_node->nodetype, true))
+					nodemasternameoid = temp_mgr_node->oid;
+				else
+					nodemasternameoid = temp_mgr_node->nodemasternameoid;
+
+				break;
+			}
+		}
+		table_endscan(rel_scan);
+		if (!OidIsValid(nodemasternameoid))
+			ereport(ERROR,
+					(errmsg("nodename:%s, can not get a valid master node oid",
+							NameStr(mgrNode->form.nodename))));
+
+		rel_scan = table_beginscan_catalog(rel, 0, NULL);
+		while ((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+		{
+			temp_mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			if ((temp_mgr_node->oid == nodemasternameoid ||
+				 temp_mgr_node->nodemasternameoid == nodemasternameoid) &&
+				is_equal_string(NameStr(temp_mgr_node->nodesync),
+								getMgrNodeSyncStateValue(SYNC_STATE_SYNC)))
+			{
+				MgrNodeSyncConfig *mgrNodeSyncConfig;
+				ListCell *cell;
+				bool found = false;
+				foreach (cell, nodeSyncConfigInRepGroup)
+				{
+					mgrNodeSyncConfig = (MgrNodeSyncConfig *)lfirst(cell);
+					if (is_equal_string(NameStr(temp_mgr_node->nodezone),
+										NameStr(mgrNodeSyncConfig->nodezone)))
+					{
+						found = true;
+						mgrNodeSyncConfig->expectedSyncNodes++;
+						break;
+					}
+				}
+				if (!found)
+				{
+					mgrNodeSyncConfig = palloc(sizeof(MgrNodeSyncConfig));
+					nodeSyncConfigInRepGroup = lappend(nodeSyncConfigInRepGroup, mgrNodeSyncConfig);
+					namecpy(&mgrNodeSyncConfig->nodezone, &temp_mgr_node->nodezone);
+					mgrNodeSyncConfig->expectedSyncNodes = 1;
+					mgrNodeSyncConfig->actualSyncNodes = 0;
+				}
+			}
+		}
+		table_endscan(rel_scan);
+	}
+	PG_CATCH();
+	{
+		table_close(rel, AccessShareLock);
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+
+	table_close(rel, AccessShareLock);
+
+	return nodeSyncConfigInRepGroup;
 }
