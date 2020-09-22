@@ -419,9 +419,9 @@ GetNewTransactionId(bool isSubXact)
 #ifdef ADB
 	return GetNewTransactionIdExt(isSubXact, 1, true, true);
 }
-FullTransactionId GetNewTransactionIdExt(bool isSubXact, int xidnum, bool isInsertXact, bool isNeedAssign)
+FullTransactionId GetNewTransactionIdExt(bool isSubXact, uint32 xidnum, bool isInsertXact, bool isNeedAssign)
 {
-	int i;
+	int	i;
 #endif
 	FullTransactionId full_xid;
 	TransactionId xid;

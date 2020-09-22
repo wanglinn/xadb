@@ -4411,7 +4411,7 @@ void SerializeActiveTransactionIds(StringInfo buf)
 		if (TransactionIdIsNormal(xid) && pgxact->is_gtm_2pc == false)
 		{
 			xids[count++] = xid;
-			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync local pronum xid %d\n",
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync local pronum xid %u\n",
 					xid)));
 		}
 	}
