@@ -986,9 +986,9 @@ _readCaseExpr(void)
 	READ_NODE_FIELD(args);
 	READ_NODE_FIELD(defresult);
 	READ_LOCATION_FIELD(location);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	READ_BOOL_FIELD(isdecode);
-#endif
+#endif	/* ADB_GRAM_ORA */
 	READ_DONE();
 }
 

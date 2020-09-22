@@ -3005,9 +3005,9 @@ expression_tree_mutator(Node *node,
 				MUTATE(newnode->arg, caseexpr->arg, Expr *);
 				MUTATE(newnode->args, caseexpr->args, List *);
 				MUTATE(newnode->defresult, caseexpr->defresult, Expr *);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 				newnode->isdecode = caseexpr->isdecode;
-#endif
+#endif	/* ADB_GRAM_ORA */
 				return (Node *) newnode;
 			}
 			break;

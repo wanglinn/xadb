@@ -1921,9 +1921,9 @@ _copyCaseExpr(const CaseExpr *from)
 	COPY_NODE_FIELD(args);
 	COPY_NODE_FIELD(defresult);
 	COPY_LOCATION_FIELD(location);
-#if defined(ADB) || defined(ADB_GRAM_ORA)
+#ifdef ADB_GRAM_ORA
 	COPY_SCALAR_FIELD(isdecode);
-#endif
+#endif	/* ADB_GRAM_ORA */
 	return newnode;
 }
 
