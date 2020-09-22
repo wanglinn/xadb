@@ -565,9 +565,9 @@ _equalCaseExpr(const CaseExpr *a, const CaseExpr *b)
 	COMPARE_NODE_FIELD(args);
 	COMPARE_NODE_FIELD(defresult);
 	COMPARE_LOCATION_FIELD(location);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	COMPARE_SCALAR_FIELD(isdecode);
-#endif
+#endif	/* ADB_GRAM_ORA */
 	return true;
 }
 
