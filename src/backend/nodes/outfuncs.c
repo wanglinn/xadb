@@ -1720,9 +1720,9 @@ _outCaseExpr(StringInfo str, const CaseExpr *node)
 	WRITE_NODE_FIELD(args);
 	WRITE_NODE_FIELD(defresult);
 	WRITE_LOCATION_FIELD(location);
-#ifdef ADB
+#ifdef ADB_GRAM_ORA
 	WRITE_BOOL_FIELD(isdecode);
-#endif
+#endif	/* ADB_GRAM_ORA */
 }
 
 static void
