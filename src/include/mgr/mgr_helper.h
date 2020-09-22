@@ -117,6 +117,13 @@ typedef struct SynchronousStandbyNamesConfig
 	List *potentialStandbyNames;
 } SynchronousStandbyNamesConfig;
 
+typedef struct MgrNodeSyncConfig
+{
+	NameData nodezone;
+	int expectedSyncNodes;
+	int actualSyncNodes;
+} MgrNodeSyncConfig;
+
 static inline PGHbaItem *newPGHbaItem(ConnectType type,
 									  char *database,
 									  char *user,
@@ -352,52 +359,51 @@ extern void selectMgrNodeByNodetype(MemoryContext spiContext,
 									char nodetype,
 									dlist_head *resultList);
 extern void selectMgrNodeByNodetypeEx(MemoryContext spiContext,
-										char nodetype,
-										dlist_head *resultList);									
+									  char nodetype,
+									  dlist_head *resultList);
 extern void selectActiveMgrNodeByNodetype(MemoryContext spiContext,
 										  char nodetype,
 										  dlist_head *resultList);
 extern void selectMgrAllDataNodes(MemoryContext spiContext,
 								  dlist_head *resultList);
 extern void selectMgrAllDataNodesInZone(MemoryContext spiContext,
-										char *zone,	
+										char *zone,
 										dlist_head *resultList);
 extern void selectMgrSlaveNodes(Oid masterOid,
 								char nodetype,
 								MemoryContext spiContext,
-								dlist_head *resultList);																		  
+								dlist_head *resultList);
 extern void selectActiveMgrSlaveNodes(Oid masterOid,
 									  char nodetype,
 									  MemoryContext spiContext,
 									  dlist_head *resultList);
 extern void selectChildNodes(MemoryContext spiContext,
-								Oid oid,
-								dlist_head *resultList);									  
+							 Oid oid,
+							 dlist_head *resultList);
 extern void selectChildNodesInZone(MemoryContext spiContext,
-									Oid masterOid,
-									char *zone,
-									dlist_head *resultList);
+								   Oid masterOid,
+								   char *zone,
+								   dlist_head *resultList);
 extern void selectNotActiveChildInZone(MemoryContext spiContext,
-									char *zone,
-									dlist_head *resultList);											
+									   char *zone,
+									   dlist_head *resultList);
 extern void selectAllNodesInZone(MemoryContext spiContext,
-								char *zone,
-								dlist_head *resultList);																		  
+								 char *zone,
+								 dlist_head *resultList);
 extern void selectActiveMgrSlaveNodesInZone(Oid masterOid,
-							   char nodetype,
-							   char *zone,
-							   MemoryContext spiContext,
-							   dlist_head *resultList);																			  
-extern void selectSiblingActiveNodes(MgrNodeWrapper *faultNode,
-									 dlist_head *resultList,
-									 MemoryContext spiContext);
+											char nodetype,
+											char *zone,
+											MemoryContext spiContext,
+											dlist_head *resultList);
+extern List *selectAllNodesInRepGroup(MgrNodeWrapper *mgrNode,
+									  MemoryContext spiContext);
 extern void selectIsolatedMgrSlaveNodes(Oid masterOid,
 										char nodetype,
 										MemoryContext spiContext,
 										dlist_head *resultList);
 extern void selectIsolatedMgrSlaveNodesByNodeType(char nodetype,
-										MemoryContext spiContext,
-										dlist_head *resultList);										
+												  MemoryContext spiContext,
+												  dlist_head *resultList);
 extern void selectAllMgrSlaveNodes(Oid masterOid,
 								   char nodetype,
 								   MemoryContext spiContext,
@@ -413,23 +419,23 @@ extern void selectMgrNodesForRepairerDoctor(MemoryContext spiContext,
 											dlist_head *resultList);
 extern void selectIsolatedMgrNodes(MemoryContext spiContext,
 								   dlist_head *resultList);
-extern void selectNodeNotZone(MemoryContext spiContext, 
-									char *zone, 
-									char nodetype,
-									dlist_head *resultList);
-extern void selectActiveNodeInZone(MemoryContext spiContext, 
-									char *zone, 
-									char nodetype, 
-									dlist_head *resultList);									
-extern void selectNodeNotZoneForFailover(MemoryContext spiContext, 
-										char *zone, 
-										char nodetype, 
-										dlist_head *resultList);									
-extern void selectNodeZoneOid(MemoryContext spiContext, 
-							char nodetype,
-							char *nodezone,
-							Oid  oid, 
-							dlist_head *resultList);							
+extern void selectNodeNotZone(MemoryContext spiContext,
+							  char *zone,
+							  char nodetype,
+							  dlist_head *resultList);
+extern void selectActiveNodeInZone(MemoryContext spiContext,
+								   char *zone,
+								   char nodetype,
+								   dlist_head *resultList);
+extern void selectNodeNotZoneForFailover(MemoryContext spiContext,
+										 char *zone,
+										 char nodetype,
+										 dlist_head *resultList);
+extern void selectNodeZoneOid(MemoryContext spiContext,
+							  char nodetype,
+							  char *nodezone,
+							  Oid oid,
+							  dlist_head *resultList);
 extern MgrNodeWrapper *selectMgrGtmCoordNode(MemoryContext spiContext);
 extern int updateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 								   char *newCurestatus,
@@ -473,6 +479,7 @@ extern bool PQexecBoolQuery(PGconn *pgConn, char *sql, bool expectedValue, bool 
 extern int PQexecCountSql(PGconn *pgConn, char *sql, bool complain);
 extern bool equalsNodeParameter(char *nodeName, PGconn *pgConn, char *parameterName,
 								char *expectValue);
+extern bool equalsParameterValue(char *parameterValue1, char *parameterValue2);
 
 extern bool exec_pgxc_pool_reload(PGconn *coordCoon,
 								  bool localExecute,
@@ -529,7 +536,7 @@ extern XLogRecPtr callAgentGet_pg_last_wal_receive_lsn(MgrNodeWrapper *node);
 extern bool setPGHbaTrustAddress(MgrNodeWrapper *mgrNode, char *address);
 extern void setPGHbaTrustSlaveReplication(MgrNodeWrapper *masterNode,
 										  MgrNodeWrapper *slaveNode,
-								   		  bool complain);
+										  bool complain);
 extern void setSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
 									   char *value);
 extern void setCheckSynchronousStandbyNames(MgrNodeWrapper *mgrNode,
@@ -625,8 +632,8 @@ extern bool isGtmCoordMgrNode(char nodetype);
 extern bool isDataNodeMgrNode(char nodetype);
 extern bool isCoordinatorMgrNode(char nodetype);
 extern bool is_equal_string(char *a, char *b);
-extern bool list_contain_string(const List *list, char *str);
-extern List *list_delete_string(List *list, char *str, bool deep);
+extern bool string_list_contain(const List *list, char *str);
+extern List *string_list_delete(List *list, char *str, bool deep);
 extern bool isSameNodeZone(MgrNodeWrapper *mgrNode1, MgrNodeWrapper *mgrNode2);
 extern bool isSameNodeName(MgrNodeWrapper *mgrNode1, MgrNodeWrapper *mgrNode2);
 extern SynchronousStandbyNamesConfig *parseSynchronousStandbyNamesConfig(char *synchronous_standby_names,
@@ -636,9 +643,16 @@ extern char *transformSynchronousStandbyNamesConfig(List *syncStandbyNames,
 /**
  * This function may modify MgrNodeWrapper field form.nodesync.
  */
+extern void adjustStreamReplication(MgrNodeWrapper *masterNode,
+									MgrNodeWrapper *slaveNode,
+									PGconn *masterPGconn,
+									MemoryContext spiContext,
+									bool append);
+/**
+ * This function may modify MgrNodeWrapper field form.nodesync.
+ */
 extern void appendToSyncStandbyNames(MgrNodeWrapper *masterNode,
 									 MgrNodeWrapper *slaveNode,
-									 dlist_head *siblingSlaveNodes,
 									 PGconn *masterPGconn,
 									 MemoryContext spiContext);
 /**
@@ -646,16 +660,16 @@ extern void appendToSyncStandbyNames(MgrNodeWrapper *masterNode,
  */
 extern void removeFromSyncStandbyNames(MgrNodeWrapper *masterNode,
 									   MgrNodeWrapper *slaveNode,
-									   dlist_head *siblingSlaveNodes,
 									   PGconn *masterPGconn,
 									   MemoryContext spiContext);
 extern bool setPGHbaTrustMyself(MgrNodeWrapper *mgrNode);
 extern void dn_master_replication_slot(char *nodename, char *slot_name, char operate);
-extern void MgrGetOldDnMasterNotZone(MemoryContext spiContext, 
-									char *currentZone, 
-									char nodeType, 
-									dlist_head *masterList, 
-									char *overType);
+extern void MgrGetOldDnMasterNotZone(MemoryContext spiContext,
+									 char *currentZone,
+									 char nodeType,
+									 dlist_head *masterList,
+									 char *overType);
 extern bool waitForNodeMayBeInRecovery(MgrNodeWrapper *mgrNode);
+extern List *getNodeSyncConfigInRepGroup(MgrNodeWrapper *mgrNode);
 
 #endif /* MGR_HELPER_H */
