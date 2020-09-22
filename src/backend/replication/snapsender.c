@@ -1856,8 +1856,8 @@ SnapSenderDropXidList(SnapClientData *client, const TransactionId *cn_txids, con
 	}
 
 	xids_assign_count = 0;
-	if (txids_count > 0 && client->cur_cnt > 0)
-		xids_assign = palloc0(client->cur_cnt * sizeof(txids_count));
+	if (txids_count > 0)
+		xids_assign = palloc0(client->cur_cnt * sizeof(TransactionId));
 	else
 		xids_assign = NULL;
 
@@ -1954,13 +1954,16 @@ static void SnapSenderProcessInitSyncRequest(SnapClientData *client, char* xid_l
 	TransactionId	*xid_2pc_array = NULL;
 	List	   		*xid_list;
 	ListCell   		*lc;
-	int64			xid;
+	TransactionId	xid;
 	int				list_len, i, index;
-	bool			found;
+	bool			found, is_rxact;
+	char			*xid_str;
 
-	if (!SplitIdentifierString(pstrdup(xid_list_str), ',', &xid_list))
+	xid_str = pstrdup(xid_list_str);
+	if (!SplitIdentifierString(xid_str, ',', &xid_list))
 	{
 		/* syntax error in name list */
+		pfree(xid_str);
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("parameter publication_names must be a list of xids")));
@@ -1978,30 +1981,38 @@ static void SnapSenderProcessInitSyncRequest(SnapClientData *client, char* xid_l
 	foreach(lc, xid_list)
 	{
 		const char *xid_str = (const char *) lfirst(lc);
-		xid = pg_strtouint64(xid_str, NULL, 10);
-
-		/* sync left twh-phase xid from client */
-		if (xid > 0)
+		
+		is_rxact = false;
+		SNAP_SYNC_DEBUG_LOG((errmsg("xid_str %s\n",
+								xid_str)));
+		if (xid_str[0] == '+') //for rxact init sync xid skip + character
 		{
-			Assert(TransactionIdIsNormal(xid));
+			is_rxact = true;
+			xid = pg_strtouint64(&xid_str[1], NULL, 10);
+		}
+		else
+			xid = pg_strtouint64(xid_str, NULL, 10);
+
+		SNAP_SYNC_DEBUG_LOG((errmsg("get xid number %u\n",
+								xid)));
+		Assert(TransactionIdIsNormal(xid));
+		/* sync left twh-phase xid from client */
+		if (is_rxact == false)
+		{
 			if (!SnapSenderXidArrayIsExistXid(xid))
 			{
 				SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_XACT2P, xid);
-				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderProcessInitSyncRequest Add prepared txid %ld\n",
+				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderProcessInitSyncRequest Add prepared txid %u\n",
 								xid)));
 				xid_2pc_array[array_2pc_len++] = xid;
 			}
 		}
-		else if(xid < 0)/* sync left rxact xid from client */
+		else/* sync left rxact xid from client */
 		{
-			xid = -xid;
-			Assert(TransactionIdIsNormal(xid));
 			cn_txids[txid_cn_count++] = xid;
-			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderProcessInitSyncRequest Add rxact xid %ld\n",
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderProcessInitSyncRequest Add rxact xid %u\n",
 							xid)));
 		}
-		else
-			ereport(ERROR,(errmsg("SnapSenderProcessInitSyncRequest invalid xid 0")));
 	}
 
 	if (array_2pc_len > 0)
@@ -2037,6 +2048,7 @@ static void SnapSenderProcessInitSyncRequest(SnapClientData *client, char* xid_l
 		pfree(cn_txids);
 		pfree(xid_2pc_array);
 	}
+	pfree(xid_str);
 	return;
 }
 
