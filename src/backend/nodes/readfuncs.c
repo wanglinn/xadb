@@ -987,7 +987,13 @@ _readCaseExpr(void)
 	READ_NODE_FIELD(defresult);
 	READ_LOCATION_FIELD(location);
 #ifdef ADB_GRAM_ORA
-	READ_BOOL_FIELD(isdecode);
+	/* Compatible with old views without isdecode */
+	if (*(pg_gettok()) == '}')
+		local_node->isdecode = false;
+	else
+	{
+		READ_BOOL_FIELD(isdecode);
+	}
 #endif	/* ADB_GRAM_ORA */
 	READ_DONE();
 }
