@@ -160,6 +160,19 @@ pg_strtok(int *length)
 	return ret_str;
 }
 
+#ifdef ADB_GRAM_ORA
+const char *
+pg_gettok(void)
+{
+	char		*local_str;      /* working pointer to string */
+
+	local_str = pg_strtok_ptr;
+
+	while (*local_str == ' ' || *local_str == '\n' || *local_str == '\t')
+		local_str++;
+	return local_str;
+}
+#endif	/* ADB_GRAM_ORA */
 /*
  * debackslash -
  *	  create a palloc'd string holding the given token.

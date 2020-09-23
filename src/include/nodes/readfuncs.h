@@ -23,6 +23,9 @@ extern char *pg_strtok(int *length);
 extern char *debackslash(char *token, int length);
 extern void *nodeRead(char *token, int tok_len);
 
+#ifdef ADB_GRAM_ORA
+extern const char *pg_gettok(void);
+#endif	/* ADB_GRAM_ORA */
 /*
  * prototypes for functions in readfuncs.c
  */
