@@ -678,5 +678,14 @@ extern void MgrGetOldDnMasterNotZone(MemoryContext spiContext,
 									 char *overType);
 extern bool waitForNodeMayBeInRecovery(MgrNodeWrapper *mgrNode);
 extern List *getNodeSyncConfigInRepGroup(MgrNodeWrapper *mgrNode);
+extern void appendToSyncStandbyNamesForZone(MgrNodeWrapper *masterNode,
+											MgrNodeWrapper *slaveNode,
+											PGconn *masterPGconn,
+											PGconn *slavePGconn,
+											MemoryContext spiContext);
+extern void UpdateSyncInfo(MgrNodeWrapper *mgrNode, 
+							PGconn *conn,
+							char *newNodesync,
+							MemoryContext spiContext);											
 
 #endif /* MGR_HELPER_H */

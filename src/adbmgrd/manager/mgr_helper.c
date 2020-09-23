@@ -25,6 +25,10 @@ static MgrHostWrapper *popHeadMgrHostPfreeOthers(dlist_head *mgrHosts);
 static MgrNodeWrapper *popHeadMgrNodePfreeOthers(dlist_head *mgrNodes);
 static void CreateReplicationSlot(char *nodename, char *slot_name);
 static void DeleteReplicationSlot(char *nodename, char *slot_name);
+static void UpdateSyncStandbyNames(MgrNodeWrapper *mgrNode,
+									PGconn *conn);																		
+static void MgrGetSyncStandByName(MgrNodeWrapper *node,
+								 StringInfoData *infosendmsg);
 
 void logMgrNodeWrapper(MgrNodeWrapper *src, char *title, int elevel)
 {
@@ -948,13 +952,11 @@ int updateMgrNodeNodesync(MgrNodeWrapper *mgrNode,
 					 "set nodesync = '%s' "
 					 "WHERE oid = %u "
 					 "and nodemasternameoid = %u "
-					 "and nodesync = '%s' "
-					 "and nodetype = '%c' ",
+					 "and nodesync = '%s' ",
 					 newNodesync,
 					 mgrNode->form.oid,
 					 mgrNode->form.nodemasternameoid,
-					 NameStr(mgrNode->form.nodesync),
-					 mgrNode->form.nodetype);
+					 NameStr(mgrNode->form.nodesync));
 	oldCtx = MemoryContextSwitchTo(spiContext);
 	spiRes = SPI_execute(buf.data, false, 0);
 	MemoryContextSwitchTo(oldCtx);
@@ -4246,3 +4248,79 @@ List *getNodeSyncConfigInRepGroup(MgrNodeWrapper *mgrNode)
 
 	return nodeSyncConfigInRepGroup;
 }
+void appendToSyncStandbyNamesForZone(MgrNodeWrapper *masterNode,
+									MgrNodeWrapper *slaveNode,
+									PGconn *masterPGconn,
+									PGconn *slavePGconn,
+									MemoryContext spiContext)
+{
+	UpdateSyncInfo(slaveNode,
+					slavePGconn,
+					NameStr(masterNode->form.nodesync),
+					spiContext);	
+
+	UpdateSyncInfo(masterNode,
+					masterPGconn,
+					"",
+					spiContext);
+}
+void UpdateSyncInfo(MgrNodeWrapper *mgrNode, 
+					PGconn *conn,
+					char *newNodesync,
+					MemoryContext spiContext)
+{
+	Assert(mgrNode);
+	Assert(conn);
+
+	if (updateMgrNodeNodesync(mgrNode, newNodesync, spiContext) != 1)
+		ereport(ERROR,
+				(errmsg("%s try to change nodesync to '%s' failed",
+						NameStr(mgrNode->form.nodename),
+						newNodesync)));
+	UpdateSyncStandbyNames(mgrNode, conn);
+}
+
+static void UpdateSyncStandbyNames(MgrNodeWrapper *mgrNode,
+									PGconn *conn)
+{
+	StringInfoData infosendmsg;
+
+	initStringInfo(&infosendmsg);
+	MgrGetSyncStandByName(mgrNode, &infosendmsg);
+
+	setCheckSynchronousStandbyNames(mgrNode,
+									conn,
+									NameStr(infosendmsg),
+									CHECK_SYNC_STANDBY_NAMES_SECONDS);
+										
+	MgrFree(infosendmsg.data);
+}
+static void MgrGetSyncStandByName(MgrNodeWrapper *node,
+								 StringInfoData *infosendmsg)
+{
+	StringInfoData infosendsyncmsg;
+	NameData slaveNodeName;
+	int  syncNum = 0;
+	bool hasOtherSlave= true;
+
+	initStringInfo(&infosendsyncmsg);
+
+	syncNum = mgr_get_master_sync_string(node->form.oid, true, node->form.oid, &infosendsyncmsg);
+	if(infosendsyncmsg.len != 0)
+	{
+		int i = 0;
+		while(i<infosendsyncmsg.len && infosendsyncmsg.data[i] != ',' && i < NAMEDATALEN)
+		{
+			slaveNodeName.data[i] = infosendsyncmsg.data[i];
+			i++;
+		}
+		if (i < NAMEDATALEN)
+			slaveNodeName.data[i] = '\0';
+		hasOtherSlave = true;
+		if (syncNum == 0)
+			syncNum = 1;
+	
+		appendStringInfo(infosendmsg, "%d (%s)", syncNum, infosendsyncmsg.data);
+	}
+}
+

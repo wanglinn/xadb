@@ -2222,7 +2222,7 @@ void appendSlaveNodeFollowMasterEx(MemoryContext spiContext,
 								SwitcherNodeWrapper *master,
 								SwitcherNodeWrapper *slave,
 								bool complain)
-{	
+{
 	MgrNodeWrapper *masterNode = master->mgrNode;
 	MgrNodeWrapper *slaveNode  = slave->mgrNode;
 	PGconn 	*masterPGconn 	  = master->pgConn;
@@ -2242,12 +2242,12 @@ void appendSlaveNodeFollowMasterEx(MemoryContext spiContext,
 
 	waitForNodeRunningOk(slaveNode, false, &slave->pgConn, &slave->runningMode);
 
-    if (master->runningMode != NODE_RUNNING_MODE_UNKNOW){
-		appendToSyncStandbyNames(masterNode,
-								slaveNode,
-								masterPGconn,
-								spiContext);
-	}
+    if (master->runningMode != NODE_RUNNING_MODE_UNKNOW)
+		appendToSyncStandbyNamesForZone(masterNode,
+										slaveNode,
+										masterPGconn,
+										slave->pgConn,
+										spiContext);
 
 	ereportNoticeLog(errmsg("%s has followed %s success",
 					NameStr(slaveNode->form.nodename),
@@ -6523,6 +6523,11 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 	RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_OFF);
 	promoteNewMasterStartReign(oldMaster, newMaster);
 
+	UpdateSyncInfo(newMaster->mgrNode,
+					newMaster->pgConn,
+					"",
+					spiContext);
+
 	/* newMaster also is a coordinator */
 	newMaster->mgrNode->form.nodetype =	getMgrMasterNodetype(newMaster->mgrNode->form.nodetype);
 	dlist_push_head(coordinators, &newMaster->link);
@@ -6751,6 +6756,11 @@ static void FailOverDataNodeMasterForZone(MemoryContext spiContext,
 
 	promoteNewMasterStartReign(oldMaster, newMaster);
 
+	UpdateSyncInfo(newMaster->mgrNode,
+					newMaster->pgConn,
+					"",
+					spiContext);
+					
 	/* The better slave node is in front of the list */
 	sortNodesByWalLsnDesc(runningSlaves);
 	runningSlavesFollowNewMaster(newMaster,
