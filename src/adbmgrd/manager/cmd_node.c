@@ -1665,8 +1665,8 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 			get_hostaddress_from_hostoid(hostOid), infosendmsg.data));
 	}
 	else{
-		ereportNoticeLog(errmsg("[ERROR] host(%s), cmd(INTI DATANODE SLAVE), params(%s).", 
-			get_hostaddress_from_hostoid(hostOid), infosendmsg.data));
+		ereportNoticeLog(errmsg("[ERROR] host(%s), cmd(INTI DATANODE SLAVE), params(%s), fail info(%s).", 
+			get_hostaddress_from_hostoid(hostOid), infosendmsg.data, NameStr(getAgentCmdRst->description)));
 	}
 
 	/*stop datanode master if we start it*/
@@ -2253,10 +2253,14 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		}
 		else{
 			if (cmdtype == AGT_CMD_GTMCOORD_INIT || cmdtype == AGT_CMD_GTMCOORD_START_MASTER_BACKEND || cmdtype == AGT_CMD_GTMCOORD_START_MASTER){
-				ereportErrorLog(errmsg("[failed] host(%s) cmd(%s) params(%s).", get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data));
+				ereportErrorLog(errmsg("[ERROR] host(%s), cmd(%s), params(%s), fail info(%s).", 
+								get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data,
+								NameStr(getAgentCmdRst->description)));
 			}
 			else{
-				ereportNoticeLog(errmsg("[failed] host(%s) cmd(%s) params(%s).", get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data));
+				ereportNoticeLog(errmsg("[ERROR] host(%s), cmd(%s), params(%s), fail info(%s).", 
+								get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data,
+								NameStr(getAgentCmdRst->description)));
 			}
 		}
 	}PG_CATCH();
