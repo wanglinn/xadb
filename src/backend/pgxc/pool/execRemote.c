@@ -407,7 +407,7 @@ static TupleTableSlot *
 RemoteQueryNext(ScanState *scan_node)
 {
 	RemoteQueryState   *node = (RemoteQueryState *)scan_node;
-	TupleTableSlot	   *scanslot = scan_node->ss_ScanTupleSlot;
+	TupleTableSlot	   *scanslot = ExecClearTuple(scan_node->ss_ScanTupleSlot);
 	RemoteQuery		   *rq = (RemoteQuery*) node->ss.ps.plan;
 	EState			   *estate = node->ss.ps.state;
 
@@ -426,10 +426,9 @@ RemoteQueryNext(ScanState *scan_node)
 		pgxc_rq_fire_bstriggers(node);
 		scanslot = StartRemoteQuery(node, scanslot);
 		node->query_Done = true;
-	} else
-		ExecClearTuple(scanslot);
+	}
 
-	if (node->update_cursor)
+	if (unlikely(node->update_cursor))
 	{
 #ifdef ADB
 		ereport(ERROR,
@@ -444,8 +443,7 @@ RemoteQueryNext(ScanState *scan_node)
 		node->update_cursor = NULL;
 		pfree_pgxc_all_handles(all_dn_handles);
 #endif
-	} else
-	if (TupIsNull(scanslot))
+	} else if (TupIsNull(scanslot))
 	{
 		scanslot = FetchRemoteQuery(node, scanslot);
 		node->eof_underlying = TupIsNull(scanslot);
