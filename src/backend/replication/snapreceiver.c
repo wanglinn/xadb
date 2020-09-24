@@ -2101,7 +2101,8 @@ TransactionId SnapRcvGetGlobalTransactionId(bool isSubXact)
 		SnapRcv->wait_xid_finish[SnapRcv->wait_finish_cnt++] = MyProc->getGlobalTransaction;
 		UNLOCK_SNAP_GXID_RCV();
 
-		SNAP_RCV_SET_LATCH();
+		if (SNAP_RCV_LATCH_VALID())
+			SNAP_RCV_SET_LATCH();
 		SNAP_SYNC_DEBUG_LOG((errmsg("Proce %d get xid %u from SnapRcv DIRECT\n",
 				MyProc->pgprocno, MyProc->getGlobalTransaction)));
 		return MyProc->getGlobalTransaction;
@@ -2282,7 +2283,8 @@ re_lock_:
 	SnapRcvConstructStatsBuf(finish_gxid_xids, finish_gxid_len, buf);
 
 	pg_atomic_write_u64(&SnapRcv->last_heartbeat_sync_time, 0);
-	SNAP_RCV_SET_LATCH();
+	if (SNAP_RCV_LATCH_VALID())
+		SNAP_RCV_SET_LATCH();
 
 	pfree(assign_xids);
 }
