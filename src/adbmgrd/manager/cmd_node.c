@@ -67,6 +67,8 @@ hot_expansion changes below functions:
 
 extern char	*MGRDatabaseName;
 
+bool initSlaveSuccess = true;
+
 #define  GET_MGR_DB ((0!=strcmp(MGRDatabaseName,"")) ? MGRDatabaseName : DEFAULT_DB)
 
 static PGconn *
@@ -1665,6 +1667,7 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 			get_hostaddress_from_hostoid(hostOid), infosendmsg.data));
 	}
 	else{
+		initSlaveSuccess = false;
 		ereportNoticeLog(errmsg("[ERROR] host(%s), cmd(INTI DATANODE SLAVE), params(%s), fail info(%s).", 
 			get_hostaddress_from_hostoid(hostOid), infosendmsg.data, NameStr(getAgentCmdRst->description)));
 	}
@@ -1992,7 +1995,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	}
 	
 	if(!mgr_check_agent_running(hostOid))
-		ereportErrorLog(errmsg("[failed] host(%s) is not running, please check the agent is running, cmd(%s).", 
+		ereportErrorLog(errmsg("[failed] agent on host(%s) may be not running, please check the agent is running, cmd(%s).", 
 						get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype)));
 
 	if(AGT_CMD_CNDN_CNDN_INIT != cmdtype && AGT_CMD_CNDN_SLAVE_INIT != cmdtype && AGT_CMD_GTMCOORD_INIT != cmdtype && AGT_CMD_GTMCOORD_SLAVE_INIT != cmdtype
@@ -2258,6 +2261,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 								NameStr(getAgentCmdRst->description)));
 			}
 			else{
+			    initSlaveSuccess = false;	
 				ereportNoticeLog(errmsg("[ERROR] host(%s), cmd(%s), params(%s), fail info(%s).", 
 								get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data,
 								NameStr(getAgentCmdRst->description)));
