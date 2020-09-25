@@ -15542,9 +15542,16 @@ static void MgrModifyParentNode(Relation rel, Form_mgr_node curMgrNode, Oid curN
 	{
 		mgrNode = selectMgrNodeByOid(curNodeOid, spiContext);
 		Assert(mgrNode);
-		callAgentStopNode(mgrNode, SHUTDOWN_F, false, false);
+
+		shutdownNodeWithinSeconds(mgrNode,
+							   	  SHUTDOWN_NODE_FAST_SECONDS,
+								  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
+								  true);
+
 		RemoveSlaveNodeFromParent(rel, curMgrNode, curNodeOid);
-		callAgentStartNode(mgrNode, true, true);
+
+		callAgentStartNode(mgrNode, false, false);
+		waitForNodeRunningOk(mgrNode, false, NULL, NULL);
 
 		MgrChildNodeFollowParentNode(spiContext, curMgrNode, curNodeOid, newParentMgrNode, newParentOid);
 

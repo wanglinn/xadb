@@ -241,5 +241,9 @@ extern void MgrChildNodeFollowParentNode(MemoryContext spiContext,
 										Oid childNodeOid, 
 										Form_mgr_node parentMgrNode, 
 										Oid parentOid);
+extern void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
+								bool isMaster,
+								PGconn **pgConnP,
+								NodeRunningMode *runningModeP);
 
 #endif /* MGR_SWITCHER_H */
