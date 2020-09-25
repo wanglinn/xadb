@@ -2877,16 +2877,14 @@ static void validateFailedSlavesForSwitch(MgrNodeWrapper *oldMaster,
 	}
 	else
 	{
-		if (strcmp(NameStr(newMaster->form.nodesync),
-				   getMgrNodeSyncStateValue(SYNC_STATE_SYNC)) != 0)
+		if ((pg_strcasecmp(NameStr(newMaster->form.nodesync), getMgrNodeSyncStateValue(SYNC_STATE_SYNC)) != 0) &&
+		    isSameNodeZone(newMaster, oldMaster))
 		{
 			dlist_foreach(iter, failedSlaves)
 			{
 				node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 				if (strcmp(NameStr(node->mgrNode->form.nodesync),
-						   getMgrNodeSyncStateValue(SYNC_STATE_SYNC)) == 0 &&
-					strcmp(NameStr(oldMaster->form.nodezone),
-						   NameStr(node->mgrNode->form.nodezone)) == 0)
+						   getMgrNodeSyncStateValue(SYNC_STATE_SYNC)) == 0)
 				{
 					ereport(ERROR,
 							(errmsg("%s failed, but it is a Synchronous standby node of old master %s, "
