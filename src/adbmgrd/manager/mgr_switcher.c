@@ -92,10 +92,6 @@ static void runningSlavesFollowNewMaster(SwitcherNodeWrapper *newMaster,
 										 char *zone);
 static int walLsnDesc(const void *node1, const void *node2);
 static void checkSet_pool_release_to_idle_timeout(SwitcherNodeWrapper *node);
-static void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
-								 bool isMaster,
-								 PGconn **pgConnP,
-								 NodeRunningMode *runningModeP);
 static void promoteNewMasterStartReign(SwitcherNodeWrapper *oldMaster,
 									   SwitcherNodeWrapper *newMaster);
 static void refreshMgrNodeBeforeSwitch(SwitcherNodeWrapper *node,
@@ -3513,10 +3509,10 @@ static void checkSet_pool_release_to_idle_timeout(SwitcherNodeWrapper *node)
 							   parameterName, expectValue)));
 }
 
-static void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
-								 bool isMaster,
-								 PGconn **pgConnP,
-								 NodeRunningMode *runningModeP)
+void waitForNodeRunningOk(MgrNodeWrapper *mgrNode,
+							bool isMaster,
+							PGconn **pgConnP,
+							NodeRunningMode *runningModeP)
 {
 	NodeConnectionStatus connStatus;
 	NodeRunningMode runningMode;
