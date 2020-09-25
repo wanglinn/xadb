@@ -368,6 +368,10 @@ extern void selectActiveMgrSlaveNodes(Oid masterOid,
 									  char nodetype,
 									  MemoryContext spiContext,
 									  dlist_head *resultList);
+extern void selectMgrSlaveNodesByOidType(Oid masterOid,
+										char nodetype,
+										MemoryContext spiContext,
+										dlist_head *resultList);									  
 extern void selectChildNodes(MemoryContext spiContext,
 								Oid oid,
 								dlist_head *resultList);									  
@@ -380,12 +384,17 @@ extern void selectNotActiveChildInZone(MemoryContext spiContext,
 									dlist_head *resultList);											
 extern void selectAllNodesInZone(MemoryContext spiContext,
 								char *zone,
-								dlist_head *resultList);																		  
+								dlist_head *resultList);
 extern void selectActiveMgrSlaveNodesInZone(Oid masterOid,
 							   char nodetype,
 							   char *zone,
 							   MemoryContext spiContext,
-							   dlist_head *resultList);																			  
+							   dlist_head *resultList);	
+extern void selectMgrSlaveNodesByOidTypeInZone(Oid masterOid,
+												char nodetype,
+												char *zone,
+												MemoryContext spiContext,
+												dlist_head *resultList);
 extern void selectSiblingActiveNodes(MgrNodeWrapper *faultNode,
 									 dlist_head *resultList,
 									 MemoryContext spiContext);

@@ -2396,18 +2396,18 @@ static void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
 	MgrNodeWrapper *mgrNode;
 
 	slaveNodetype = getMgrSlaveNodetype(masterNode->mgrNode->form.nodetype);
-	if (strlen(zone) > 0){
-		selectActiveMgrSlaveNodesInZone(masterNode->mgrNode->oid,
-									slaveNodetype,
-									zone,
-									spiContext,
-									&mgrNodes);
+	if (strlen(zone) > 0){		
+		selectMgrSlaveNodesByOidTypeInZone(masterNode->mgrNode->oid,
+										slaveNodetype,
+										zone,
+										spiContext,
+										&mgrNodes);
 	}
 	else{
-		selectActiveMgrSlaveNodes(masterNode->mgrNode->oid,
-							  slaveNodetype,
-							  spiContext,
-							  &mgrNodes);
+		selectMgrSlaveNodesByOidType(masterNode->mgrNode->oid,
+									slaveNodetype,
+									spiContext,
+									&mgrNodes);
 	}
 
 	if (excludeSlaveOid > 0)

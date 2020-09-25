@@ -455,6 +455,26 @@ void selectActiveMgrSlaveNodes(Oid masterOid,
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
+void selectMgrSlaveNodesByOidType(Oid masterOid,
+								char nodetype,
+								MemoryContext spiContext,
+								dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * "
+					 "FROM pg_catalog.mgr_node "
+					 "WHERE nodetype = '%c' "
+					 "AND nodemasternameoid = %u "
+					 "AND curestatus != '%s' ",
+					 nodetype,
+					 masterOid,
+					 CURE_STATUS_ISOLATED);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
 void selectChildNodes(MemoryContext spiContext,
                         Oid oid,
 						dlist_head *resultList)
@@ -543,6 +563,29 @@ void selectActiveMgrSlaveNodesInZone(Oid masterOid,
 					 nodetype,
 					 true,
 					 true,
+					 masterOid,
+					 CURE_STATUS_ISOLATED,
+					 zone);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
+void selectMgrSlaveNodesByOidTypeInZone(Oid masterOid,
+									 char nodetype,
+									 char *zone,
+									 MemoryContext spiContext,
+									 dlist_head *resultList)
+{
+	StringInfoData sql;
+
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * "
+					 "FROM pg_catalog.mgr_node "
+					 "WHERE nodetype = '%c' "
+					 "AND nodemasternameoid = %u "
+					 "AND curestatus != '%s' "
+					 "AND nodezone = '%s' ",
+					 nodetype,
 					 masterOid,
 					 CURE_STATUS_ISOLATED,
 					 zone);
