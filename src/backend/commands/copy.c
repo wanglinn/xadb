@@ -5978,6 +5978,8 @@ static uint64 CoordinatorCopyFrom(CopyState cstate)
 
 	ExecResetTupleTable(estate->es_tupleTable, false);
 
+    ereport(LOG, (errmsg("Copy From Coordinator, count_tuple(%lu).", cstate->count_tuple)));
+
 	return cstate->count_tuple;
 }
 
