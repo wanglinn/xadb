@@ -2255,9 +2255,9 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			ereportNoticeLog(errmsg("[SUCCESS] host(%s) cmd(%s) params(%s).", get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data));
 		}
 		else{
-			if (cmdtype == AGT_CMD_GTMCOORD_INIT || cmdtype == AGT_CMD_GTMCOORD_START_MASTER_BACKEND || cmdtype == AGT_CMD_GTMCOORD_START_MASTER){
-				ereportErrorLog(errmsg("[ERROR] host(%s), cmd(%s), params(%s), fail info(%s).", 
-								get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data,
+			if (cmdtype == AGT_CMD_GTMCOORD_INIT){
+				ereportErrorLog(errmsg("[ERROR] init gtmcoord(%s) failed. host(%s), cmd(%s), params(%s), fail info(%s).", 
+								cndnname, get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data,
 								NameStr(getAgentCmdRst->description)));
 			}
 			else{
