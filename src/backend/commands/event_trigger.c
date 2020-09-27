@@ -292,6 +292,14 @@ check_ddl_tag(const char *tag)
 		return EVENT_TRIGGER_COMMAND_TAG_OK;
 #endif
 
+#ifdef ADB_GRAM_ORA
+	if (pg_strcasecmp(tag, "CREATE PACKAGE") == 0 ||
+		pg_strcasecmp(tag, "CREATE PACKAGE BODY") == 0 ||
+		pg_strcasecmp(tag, "DROP PACKAGE") == 0 ||
+		pg_strcasecmp(tag, "DROP PACKAGE BODY") == 0)
+		return EVENT_TRIGGER_COMMAND_TAG_OK;
+#endif	/* ADB_GRAM_ORA */
+
 	/*
 	 * Handle some idiosyncratic special cases.
 	 */

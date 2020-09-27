@@ -260,7 +260,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	opt_indirection opt_interval opt_name_list opt_sort_clause
 	OptWith OptTypedTableElementList
 	opt_type_mod opt_type_modifiers opt_definition opt_collate opt_class opt_select_limit
-	opt_partition_clause
+	opt_partition_clause OptTableFuncElementList
 	opt_reloptions OptInherit
 	qual_Op qual_all_Op qualified_name_list
 	relation_expr_list returning_clause returning_item reloption_list
@@ -269,7 +269,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	set_target_list sortby_list sort_clause subquery_Op
 	TableElementList TableFuncElementList target_list transaction_mode_list_or_empty TypedTableElementList
 	transaction_mode_list /*transaction_mode_list_or_empty*/ trim_list
-	var_list within_group_clause
+	var_list within_group_clause package_declare_list package_body_list
 
 %type <list>	group_by_list prep_type_clause execute_param_clause
 %type <node>	group_by_item rollup_clause empty_grouping_set cube_clause grouping_sets_clause
@@ -283,8 +283,8 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	common_table_expr columnDef columnref CreateStmt ctext_expr columnElem
 	ColConstraint ColConstraintElem CommentStmt ConstraintAttr CreateProcedureStmt DropProcedureStmt CreateRoleStmt
 	case_default case_expr /*case_when*/ case_when_item c_expr
-	ConstraintElem CreateSeqStmt CreateAsStmt
-	DeallocateStmt DeclareCursorStmt DeleteStmt DropStmt def_arg
+	ConstraintElem CreateSeqStmt CreateAsStmt CreatePackageStmt package_declare package_body package_declare_type
+	DeallocateStmt DeclareCursorStmt DeleteStmt DropStmt def_arg package_edit_clause
 	ExecuteStmt  ExplainStmt ExplainableStmt explain_option_arg ExclusionWhereClause
 	FetchStmt fetch_args
 	func_application func_application_normal func_expr_common_subexpr func_arg_expr
@@ -311,7 +311,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %type <defelt>	generic_option_elem alter_generic_option_elem
 
 %type <str> all_Op attr_name access_method_clause access_method comment_text
-	ColId ColLabel cursor_name
+	ColId ColLabel cursor_name package_end_name
 	explain_option_name extract_arg
 	iso_level index_name
 	MathOp convert_Op
@@ -366,7 +366,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	ANY AS ASC AUDIT AUTHORIZATION ACTION ALWAYS AT
 	ADMIN AUTHID
 	BACKWARD BEGIN_P BETWEEN BFILE BIGINT BINARY BINARY_FLOAT BINARY_DOUBLE
-	BLOB BOOLEAN_P BOTH BY BYTE_P
+	BLOB BODY BOOLEAN_P BOTH BY BYTE_P
 	CASCADE CASE CAST CATALOG_P CHAR_P CHARACTERISTICS CHECK CLASS CLOSE CLUSTER
 	COLUMN COMMIT COMMENT COLLATION CONVERSION_P CONNECT_BY_ROOT CONNECTION COMMON
 	COMMITTED COMPRESS COLLATE CONNECT CONSTRAINT CONVERT CYCLE NOCYCLE
@@ -381,7 +381,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	DISTRIBUTE
 	/* ADB_END */
 
-	ELSE END_P ESCAPE EXCLUSIVE EXECUTE EXISTS EXPLAIN EXTRACT
+	EDITIONABLE ELSE END_P ESCAPE EXCLUSIVE EXECUTE EXISTS EXPLAIN EXTRACT
 	ENABLE_P EXCLUDE EVENT EXTENSION EXCLUDING ENCRYPTED
 	FALSE_P FAMILY FETCH FILE_P FIRST_P FLOAT_P FOLLOWING FOR FORWARD FROM FOREIGN FULL FUNCTION
 	GLOBAL GRANT GREATEST GROUP_P GROUPING HAVING
@@ -396,14 +396,14 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	MATERIALIZED MAXEXTENTS MINUS MINUTE_P MLSLABEL MOD MODE MODIFY MONTH_P MOVE
 	MATCH MAXVALUE METHOD NOMAXVALUE  MINVALUE NOMINVALUE
 	NAMES NCHAR NCLOB NEXT NEXTVAL NOAUDIT NOCOMPRESS NOT NOWAIT NULL_P NULLIF NUMBER_P
-	NUMERIC NVARCHAR2 NO NONE
+	NUMERIC NVARCHAR2 NO NONE NONEDITIONABLE
 	/* PGXC add NODE token */
 	NODE NULLS_P
 	OBJECT_P OF OFF OFFLINE OFFSET ON ONLINE ONLY OPERATOR OPTION OR ORDER OUT_P OUTER_P
 	OWNER OIDS OPTIONS OVER OWNED
 	PCTFREE PIPELINED PRECISION PRESERVE PRIOR PRIVILEGES PUBLIC PUBLICATION PURGE
-	PARTITION PRECEDING PROCEDURAL PROCEDURE PARTIAL PRIMARY PARSER PASSWORD PARALLEL_ENABLE POLICY
-	RANGE RAW READ REAL RECURSIVE REFRESH RENAME REPLACE REPEATABLE RESET RESOURCE RESTART RESTRICT
+	PACKAGE PARTITION PRECEDING PROCEDURAL PROCEDURE PARTIAL PRIMARY PARSER PASSWORD PARALLEL_ENABLE POLICY
+	RANGE RAW READ REAL RECORD RECURSIVE REF REFRESH RENAME REPLACE REPEATABLE RESET RESOURCE RESTART RESTRICT
 	RETURNING RETURN_P REVOKE REUSE RIGHT ROLE ROLLBACK ROLLUP ROW ROWID ROWNUM ROWS
 	REFERENCES REPLICA RULE RELATIVE_P RELEASE RESULT_CACHE
 	SCHEMA SECOND_P SELECT SERIALIZABLE SERVER SESSION SESSIONTIMEZONE SET SETS SHARE SHOW SIBLINGS SIZE SEARCH
@@ -511,14 +511,28 @@ stmtmulti: stmtmulti ';' stmt
 				updateRawStmtEnd(llast_node(RawStmt, $1), @2);
 			}
 			if ($3 != NULL)
-				$$ = lappend($1, makeRawStmt($3, @2 + 1));
+				if (IsA($1, List))
+				{
+					ListCell *cell;
+
+					foreach(cell, (List *)$3)
+						$1 = lappend($1, lfirst(cell));
+					
+					$$ = $1;
+				}
+				else
+					$$ = lappend($1, makeRawStmt($3, @2 + 1));
 			else
 				$$ = $1;
 		}
 	| stmt
 		{
 			if ($1 != NULL)
-				$$ = list_make1(makeRawStmt($1, 0));
+				if (IsA($1, List))
+					$$ = (List *) $1;
+				else
+					$$ = list_make1(makeRawStmt($1, 0));
+
 			else
 				$$ = NIL;
 		}
@@ -535,6 +549,7 @@ stmt:
 	| CreateStmt
 	| CreateSeqStmt
 	| CreateRoleStmt
+	| CreatePackageStmt
 	| CreateProcedureStmt
 	| DeallocateStmt
 	| DeclareCursorStmt
@@ -968,6 +983,388 @@ arg_class:	IN_P								{ $$ = FUNC_PARAM_IN; }
  */
 param_name:	type_function_name
 		;
+/*****************************************************************************
+ *
+ * CREATE [ OR REPLACE ] PACKAGE package_name IS | AS package_declare [ package_declare ... ] END [package_name] ;
+ * package_declare:
+ *		TYPE type_name IS | AS RECORD ( [ attribute_name data_type [ COLLATE collation ] [, ... ] ] );
+ *		| FUNCTION func_name ( [ [ argmode ] [ argname ] argtype [ { DEFAULT | = } default_expr ] [, ...] ] ) RETURNS rettype;
+ *		| PROCEDURE procedure_name ( [ [ argmode ] [ argname ] argtype [ { DEFAULT | = } default_expr ] [, ...] ] );
+ * 
+ * 
+ * CREATE [ OR REPLACE ] PACKAGE BODY package_name IS | AS package_body_item [ package_body_item ... ] END [package_name] ;
+ * package_body_item:
+ * 		FUNCTION: see CREATE FUNCTION ...
+ * 		| PROCEDURE: see CREATE PROCEDURE ...
+ * 
+ * 
+ * DROP PACKAGE package_name;
+ * 
+ * DROP PACKAGE BODY package_name;
+ * 
+ * 
+ *****************************************************************************/
+
+CreatePackageStmt:
+			CREATE opt_or_replace package_edit_clause PACKAGE ColId is_or_as package_declare_list END_P package_end_name
+				{	
+					CreateSchemaStmt   *csstmt = makeNode(CreateSchemaStmt);
+					DropStmt		   *dstmt;
+					PackageStmt		   *pkstmt;
+					List			   *raw_list = NIL;
+					ListCell		   *lc;
+
+					if ($2)
+					{
+						dstmt = makeNode(DropStmt);
+						dstmt->removeType = OBJECT_SCHEMA;
+						dstmt->missing_ok = true;
+						dstmt->objects = list_make1(makeString($5));
+						dstmt->behavior = DROP_CASCADE;
+						dstmt->concurrent = false;
+						raw_list = list_make1(makeRawStmt((Node *)dstmt, 0));
+					}
+
+					csstmt->schemaname = $5;
+					csstmt->authrole = NULL;
+					csstmt->schemaElts = NIL;
+					csstmt->if_not_exists = false;
+					raw_list = lappend(raw_list, makeRawStmt((Node *)csstmt, 0));
+
+					foreach(lc, $7)
+					{
+						if (lfirst(lc))
+						{
+							List	*typeName = NIL;
+							Node	*node = lfirst(lc);
+
+							switch (nodeTag(node))
+							{
+								case T_CreateRangeStmt:
+									{
+										CreateRangeStmt *n = (CreateRangeStmt *)node;
+										typeName = n->typeName;
+										n->typeName = list_make2($5, linitial(n->typeName));
+										list_free(typeName);
+									}
+									break;
+								case T_CompositeTypeStmt:
+									{
+										CompositeTypeStmt *n = (CompositeTypeStmt *)node;
+										((RangeVar *)n->typevar)->schemaname = $5;
+									}
+									break;
+								case T_DefineStmt:
+									{
+										DefineStmt *n = (DefineStmt *)node;
+										typeName = n->defnames;
+										n->defnames = list_make2($5, linitial(n->defnames));
+										list_free(typeName);
+									}
+									break;
+								default:
+									break;
+							}
+
+							raw_list = lappend(raw_list, makeRawStmt(lfirst(lc), 0));
+						}
+					}
+
+					pkstmt = makeNode(PackageStmt);
+					pkstmt->action = PACKAGE_CREATE;
+					raw_list = lappend(raw_list, makeRawStmt((Node *)pkstmt, 0));
+
+					$$ = (Node *)raw_list;
+
+				}
+			| CREATE opt_or_replace package_edit_clause PACKAGE BODY ColId is_or_as package_body_list END_P package_end_name
+				{	
+					CreateFunctionStmt	*stmt;
+					PackageStmt			*pkstmt;
+					RawStmt				*rawStmt;
+					List				*funcname;
+					List				*new_funcname;
+					ListCell			*lc;
+
+					if ($8)
+					{
+						foreach(lc, $8)
+						{
+							rawStmt = castNode(RawStmt, lfirst(lc));
+
+							funcname = NIL;
+							if(IsA(rawStmt->stmt, CreateFunctionStmt))
+							{
+								stmt = castNode(CreateFunctionStmt, rawStmt->stmt);
+								stmt->replace = $2;
+								funcname = stmt->funcname;
+							}
+							else
+								continue;
+
+							new_funcname = list_make1(makeString($6));
+							if (funcname && list_length(funcname) == 1)
+							{
+								new_funcname = lappend(new_funcname, linitial(funcname));
+								stmt->funcname = new_funcname;
+								list_free(funcname);
+							}
+						}
+					}
+
+					pkstmt = makeNode(PackageStmt);
+					pkstmt->action = PACKAGE_CREATE_BODY;
+					$8 = lappend($8, makeRawStmt((Node *)pkstmt, 0));
+
+					$$ = (Node *) $8;
+				}
+			| DROP PACKAGE name_list
+				{
+					DropStmt 		*n = makeNode(DropStmt);
+					PackageStmt		*pkstmt;
+					List			*raw_list;
+
+					n->removeType = OBJECT_SCHEMA;
+					n->missing_ok = false;
+					n->objects = $3;
+					n->behavior = DROP_CASCADE;
+					n->concurrent = false;
+					raw_list = list_make1(makeRawStmt((Node *)n, 0));
+
+					pkstmt = makeNode(PackageStmt);
+					pkstmt->action = PACKAGE_DELETE;
+					raw_list = lappend(raw_list, makeRawStmt((Node *)pkstmt, 0));
+
+					$$ = (Node *)raw_list;
+				}
+			| DROP PACKAGE BODY name_list
+				{
+					DeleteStmt		   *dlstmt;
+					PackageStmt		   *pkstmt;
+					List			   *raw_list = NIL;
+					Node			   *lexpr;
+					Node			   *rexpr;
+					Node			   *typeCast;
+					Node			   *dropexpr1;
+					Node			   *dropexpr2;
+					
+					/* delete from pg_proc 
+					   where PRONAMESPACE = 'package_name'::regnamespace::oid;  */
+					lexpr = makeColumnRef("pronamespace", NIL, -1, yyscanner);
+					typeCast = makeTypeCast(makeStringConst(strVal(linitial($4)), -1), 
+											makeTypeName("regnamespace"),
+											-1);
+					rexpr = makeTypeCast(typeCast,
+										 makeTypeName("oid"),
+										 -1);
+					dlstmt = makeNode(DeleteStmt);
+					dlstmt->relation = makeRangeVar(NULL, "pg_proc", -1);;
+					dlstmt->usingClause = NIL;
+					dlstmt->whereClause = (Node *)makeSimpleA_Expr(AEXPR_OP, "=", lexpr, rexpr, -1);
+					dlstmt->returningList = NIL;
+					dlstmt->withClause = NULL;
+					raw_list = list_make1(makeRawStmt((Node *)dlstmt, 0));
+
+
+					/* delete from pg_depend 
+					   where REFOBJID = 'package_name'::regnamespace::oid and CLASSID = 'pg_proc'::regclass::oid; */
+					lexpr = makeColumnRef("refobjid", NIL, -1, yyscanner);
+					typeCast = makeTypeCast(makeStringConst(strVal(linitial($4)), -1), 
+											makeTypeName("regnamespace"),
+											-1);
+					rexpr = makeTypeCast(typeCast,
+										 makeTypeName("oid"),
+										 -1);
+					dropexpr1 = (Node *)makeSimpleA_Expr(AEXPR_OP, "=", lexpr, rexpr, -1);
+
+					lexpr = makeColumnRef("classid", NIL, -1, yyscanner);
+					typeCast = makeTypeCast(makeStringConst("pg_proc", -1), 
+											makeTypeName("regclass"),
+											-1);
+					rexpr = makeTypeCast(typeCast,
+										 makeTypeName("oid"),
+										 -1);
+					dropexpr2 = (Node *)makeSimpleA_Expr(AEXPR_OP, "=", lexpr, rexpr, -1);
+					dlstmt = makeNode(DeleteStmt);
+					dlstmt->relation = makeRangeVar(NULL, "pg_depend", -1);;
+					dlstmt->usingClause = NIL;
+					dlstmt->whereClause = (Node *)makeBoolExpr(AND_EXPR, list_make2(dropexpr1, dropexpr2), -1);
+					dlstmt->returningList = NIL;
+					dlstmt->withClause = NULL;
+					raw_list = lappend(raw_list, makeRawStmt((Node *)dlstmt, 0));
+
+
+					pkstmt = makeNode(PackageStmt);
+					pkstmt->action = PACKAGE_DELETE_BODY;
+					raw_list = lappend(raw_list, makeRawStmt((Node *)pkstmt, 0));
+
+					$$ = (Node *) raw_list;
+				}
+			;
+
+package_end_name:
+			ColId						{ $$ = $1; }
+			| /* EMPTY */				{ $$ = NULL; }
+			;
+
+package_edit_clause:
+			EDITIONABLE					{ $$ = NULL; }
+			| NONEDITIONABLE			{ $$ = NULL; }
+			| /* EMPTY */				{ $$ = NULL; }
+			;
+
+package_declare_list:
+			package_declare							
+				{
+					if ($1)
+						$$ = list_make1($1);
+					else
+						$$ = NIL;
+				}
+			| package_declare_list package_declare	
+				{
+					if ($2)
+						$$ = lappend($1, $2);
+				}
+			;
+
+package_declare:
+			package_declare_type ';'													{ $$ = $1; }
+			| FUNCTION func_name func_args_with_defaults RETURN_P SimpleTypename ';'		{ $$ = NULL; }
+			| PROCEDURE func_name func_args_with_defaults ';'								{ $$ = NULL; }
+			| PROCEDURE ColId ';'														{ $$ = NULL; }
+			;
+
+
+package_declare_type:
+			/* TYPE record_type IS RECORD  ( field_definition [, field_definition]... ) */
+			TYPE_P any_name is_or_as RECORD '(' OptTableFuncElementList ')'
+				{
+					CompositeTypeStmt *n = makeNode(CompositeTypeStmt);
+
+					/* can't use qualified_name, sigh */
+					n->typevar = makeRangeVarFromAnyName($2, @2, yyscanner);
+					n->coldeflist = $6;
+					$$ = (Node *)n;
+				}
+			/*
+			| TYPE_P any_name is_or_as REF CURSOR
+				{
+					$$ = NULL;
+				}
+			*/
+			| TYPE_P any_name definition
+				{
+					DefineStmt *n = makeNode(DefineStmt);
+					n->kind = OBJECT_TYPE;
+					n->oldstyle = false;
+					n->defnames = $2;
+					n->args = NIL;
+					n->definition = $3;
+					$$ = (Node *)n;
+				}
+			| TYPE_P any_name is_or_as definition
+				{
+					DefineStmt *n = makeNode(DefineStmt);
+					n->kind = OBJECT_TYPE;
+					n->oldstyle = false;
+					n->defnames = $2;
+					n->args = NIL;
+					n->definition = $4;
+					$$ = (Node *)n;
+				}
+			| TYPE_P any_name is_or_as '(' OptTableFuncElementList ')'
+				{
+					CompositeTypeStmt *n = makeNode(CompositeTypeStmt);
+
+					/* can't use qualified_name, sigh */
+					n->typevar = makeRangeVarFromAnyName($2, @2, yyscanner);
+					n->coldeflist = $5;
+					$$ = (Node *)n;
+				}
+			| TYPE_P any_name is_or_as RANGE definition
+				{
+					CreateRangeStmt *n = makeNode(CreateRangeStmt);
+					n->typeName = $2;
+					n->params	= $5;
+					$$ = (Node *)n;
+				}
+			;
+
+OptTableFuncElementList:
+			TableFuncElementList				{ $$ = $1; }
+			| /*EMPTY*/							{ $$ = NIL; }
+		;
+
+package_body_list:
+			package_body							{ $$ = list_make1(makeRawStmt($1, 0)); }
+			| package_body_list package_body
+													{ $$ = lappend($1, makeRawStmt($2, 0)); }
+			;
+
+package_body:
+			PROCEDURE func_name func_args_with_defaults
+			create_procedure_invoker_rights_clause create_procedure_is_or_as Sconst ';'
+				{
+					CreateFunctionStmt *n = makeNode(CreateFunctionStmt);
+					ListCell		   *lc;
+					TypeName		   *type_name;
+					int					out_count;
+
+					n->replace = false;
+					n->funcname = $2;
+					n->parameters = $3;
+					n->options = list_make2(makeDefElem("as", (Node *)list_make1(makeString($6)), @6),
+											makeDefElem("language", (Node *)makeString("plorasql"), -1));
+
+					/* what type we need return of procedure */
+					out_count = 0;
+					type_name = NULL;
+					foreach(lc, n->parameters)
+					{
+						FunctionParameter *parm = lfirst(lc);
+						if (parm->mode == FUNC_PARAM_OUT ||
+							parm->mode == FUNC_PARAM_INOUT)
+						{
+							if(out_count == 0)
+								type_name = parm->argType;
+							++out_count;
+						}
+					}
+					if (out_count == 0)
+					{
+						n->returnType = makeTypeNameFromNameList(SystemFuncName("void"));
+					}else if(out_count == 1)
+					{
+						Assert(type_name != NULL);
+						n->returnType = type_name;
+					}else
+					{
+						Assert(out_count > 1);
+						n->returnType = makeTypeNameFromNameList(SystemFuncName("record"));
+					}
+
+					/* ignore invoker_rights_clause */
+					$$ = (Node *)n;
+				}
+			| FUNCTION func_name func_args_with_defaults
+			  create_function_attrs RETURN_P Typename
+			  create_procedure_is_or_as Sconst ';'
+				{
+					CreateFunctionStmt *n = makeNode(CreateFunctionStmt);
+
+					n->replace = false;
+					n->funcname = $2;
+					n->parameters = $3;
+					n->returnType = $6;
+					n->options = list_make2(makeDefElem("as", (Node *)list_make1(makeString($8)), @8),
+											makeDefElem("language", (Node *)makeString("plorasql"), -1));
+
+					$$ = (Node*)n;
+				}
+			;
+
+
 
 /*****************************************************************************
  *
@@ -8452,6 +8849,7 @@ unreserved_keyword:
 	| BFILE
 	| BINARY
 	| BLOB
+	| BODY
 	| BYTE_P
 	| CASCADE
 	| CACHE
@@ -8496,6 +8894,7 @@ unreserved_keyword:
 	| DISTRIBUTE
 /* ADB_END */
 	| DISABLE_P
+	| EDITIONABLE
 	| ESCAPE
 	| ENABLE_P
 	| EXCLUDE
@@ -8545,6 +8944,7 @@ unreserved_keyword:
 	| NCHAR
 	| NOCACHE
 	| NODE
+	| NONEDITIONABLE
 	| NCLOB
 	| NO
 	| NOCYCLE
@@ -8560,6 +8960,7 @@ unreserved_keyword:
 	| OWNER
 	| OWNED
 	| OPTIONS
+	| PACKAGE
 	| PARALLEL_ENABLE
 	| PARSER
 	| PARTIAL
@@ -8578,6 +8979,8 @@ unreserved_keyword:
 	| PURGE
 	| RANGE
 	| READ
+	| RECORD
+	| REF
 	| REFRESH
 	| RELATIVE_P
 	| RELEASE

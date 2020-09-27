@@ -853,6 +853,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_ColumnRefJoin)
 	ENUM_VALUE(T_PriorExpr)
 	ENUM_VALUE(T_OraImplicitConvertStmt)
+	ENUM_VALUE(T_PackageStmt)
 #endif
 #ifdef ADB_EXT
 	ENUM_VALUE(T_KeepClause)
@@ -1059,6 +1060,17 @@ BEGIN_ENUM(PGXCSubClusterType)
 	ENUM_VALUE(SUBCLUSTER_GROUP)
 END_ENUM(PGXCSubClusterType)
 #endif /* NO_ENUM_PGXCSubClusterType */
+#endif
+
+#if defined(ADB_GRAM_ORA)
+#ifndef NO_ENUM_PackageAction
+BEGIN_ENUM(PackageAction)
+	ENUM_VALUE(PACKAGE_CREATE)
+	ENUM_VALUE(PACKAGE_CREATE_BODY)
+	ENUM_VALUE(PACKAGE_DELETE)
+	ENUM_VALUE(PACKAGE_DELETE_BODY)
+END_ENUM(PackageAction)
+#endif /* NO_ENUM_PackageAction */
 #endif
 
 #ifndef NO_ENUM_ParamKind

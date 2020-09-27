@@ -1617,7 +1617,7 @@ ProcessUtilitySlow(ParseState *pstate,
 							false,
 							false,
 							EXEC_ON_ALL_NODES,
-							NULL,
+							pstmt->utilityStmt,
 							this_query_str,
 							NULL
 						};
@@ -2780,6 +2780,10 @@ ProcessUtilitySlow(ParseState *pstate,
 				address = AlterCollation((AlterCollationStmt *) parsetree);
 				break;
 
+#ifdef ADB_GRAM_ORA
+			case T_PackageStmt:
+				break;
+#endif	/* ADB_GRAM_ORA */
 			default:
 				elog(ERROR, "unrecognized node type: %d",
 					 (int) nodeTag(parsetree));
@@ -4484,6 +4488,31 @@ CreateCommandTag(Node *parsetree)
 						break;
 					case ICONVERT_DELETE:
 						tag = "DROP CONVERT";	/* DROP CONVERT */
+						break;
+					default:
+						elog(WARNING, "unrecognized commandType: %d",
+							 (int) stmt->action);
+						tag = "???";
+						break;
+				}
+			}
+			break;
+		case T_PackageStmt:
+			{
+				PackageStmt *stmt = (PackageStmt *)parsetree;
+				switch (stmt->action)
+				{
+					case PACKAGE_CREATE:
+						tag = "CREATE PACKAGE";
+						break;
+					case PACKAGE_CREATE_BODY:
+						tag = "CREATE PACKAGE BODY";
+						break;
+					case PACKAGE_DELETE:
+						tag = "DROP PACKAGE";
+						break;
+					case PACKAGE_DELETE_BODY:
+						tag = "DROP PACKAGE BODY";
 						break;
 					default:
 						elog(WARNING, "unrecognized commandType: %d",

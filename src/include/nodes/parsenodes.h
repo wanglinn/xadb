@@ -3900,6 +3900,20 @@ typedef struct OraImplicitConvertStmt
 	List			*node_list;		
 }OraImplicitConvertStmt;
 
+typedef enum PackageAction
+{
+	PACKAGE_CREATE,
+	PACKAGE_CREATE_BODY,
+	PACKAGE_DELETE,
+	PACKAGE_DELETE_BODY
+}PackageAction;
+
+typedef struct PackageStmt
+{
+	NodeTag			type;
+	PackageAction	action;
+}PackageStmt;
+
 #endif /* ADB_GRAM_ORA */
 
 #endif							/* PARSENODES_H */

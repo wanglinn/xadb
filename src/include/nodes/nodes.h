@@ -506,6 +506,7 @@ typedef enum NodeTag
 	T_ColumnRefJoin,
 	T_PriorExpr,
 	T_OraImplicitConvertStmt,
+	T_PackageStmt,
 #endif
 #ifdef ADB_EXT
 	T_KeepClause,

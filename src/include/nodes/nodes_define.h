@@ -3473,6 +3473,12 @@ BEGIN_NODE(OraImplicitConvertStmt)
 END_NODE(OraImplicitConvertStmt)
 #endif /* NO_NODE_OraImplicitConvertStmt */
 
+#ifndef NO_NODE_PackageStmt
+BEGIN_NODE(PackageStmt)
+	NODE_ENUM(PackageAction,action)
+END_NODE(PackageStmt)
+#endif /* NO_NODE_PackageStmt */
+
 #endif
 
 #ifdef ADB_EXT
