@@ -5192,11 +5192,11 @@ static void PrintMgrNode(MemoryContext spiContext, dlist_head *mgrNodes)
 				mgrNode->form.nodeport, mgrNode->form.nodeinited, mgrNode->form.nodeincluster, NameStr(mgrNode->form.nodezone),
 				mgrNode->form.allowcure, NameStr(mgrNode->form.curestatus), mgrNode->nodepath)));
 
-		dlist_init(&resultList);	
-		selectActiveMgrSlaveNodes(mgrNode->oid,
-							      getMgrSlaveNodetype(mgrNode->form.nodetype),
-							      spiContext,
-							   	  &resultList);
+		dlist_init(&resultList);
+		selectMgrSlaveNodesByOidType(mgrNode->oid,
+									getMgrSlaveNodetype(mgrNode->form.nodetype),
+									spiContext,
+									&resultList);
 		if (!dlist_is_empty(&resultList)){
 			PrintMgrNode(spiContext, &resultList);
 		}		
@@ -5208,20 +5208,16 @@ void PrintMgrNodeList(MemoryContext spiContext)
 	dlist_head 			masterCoords = DLIST_STATIC_INIT(masterCoords);
 	dlist_head 			masterDataNodes = DLIST_STATIC_INIT(masterDataNodes);
 
-	ereport(LOG, (errmsg("---------------------------- mgr_node gtm ----------------------------.")));
+	ereport(LOG, (errmsg("---------------------------- mgr_node ----------------------------.")));
 	selectMgrNodeByNodetype(spiContext, CNDN_TYPE_GTM_COOR_MASTER, &masterGtm);
 	PrintMgrNode(spiContext, &masterGtm);
-	ereport(LOG, (errmsg("---------------------------- mgr_node gtm ----------------------------.")));
 
-	ereport(LOG, (errmsg("---------------------------- mgr_node coord ----------------------------.")));
 	selectMgrNodeByNodetype(spiContext, CNDN_TYPE_COORDINATOR_MASTER, &masterCoords);
 	PrintMgrNode(spiContext, &masterCoords);
-	ereport(LOG, (errmsg("---------------------------- mgr_node coord ----------------------------.")));
 
-	ereport(LOG, (errmsg("---------------------------- mgr_node datanode ----------------------------.")));
 	selectMgrNodeByNodetype(spiContext, CNDN_TYPE_DATANODE_MASTER, &masterDataNodes);
 	PrintMgrNode(spiContext, &masterDataNodes);
-	ereport(LOG, (errmsg("---------------------------- mgr_node datanode ----------------------------.")));
+	ereport(LOG, (errmsg("---------------------------- mgr_node ----------------------------.")));
 }
 void MgrChildNodeFollowParentNode(MemoryContext spiContext, 
 									Form_mgr_node childMgrNode, 
