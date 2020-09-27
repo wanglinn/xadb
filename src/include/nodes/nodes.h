@@ -515,6 +515,7 @@ typedef enum NodeTag
 #ifdef ADB_GRAM_ORA
 	T_ColumnRefJoin,
 	T_PriorExpr,
+	T_PackageStmt,
 #endif
 #ifdef ADB_EXT
 	T_KeepClause,
