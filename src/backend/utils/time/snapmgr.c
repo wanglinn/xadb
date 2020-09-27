@@ -2511,13 +2511,9 @@ GetGlobalSnapshot(Snapshot snapshot, TransactionId *gs_xmin, bool isCatelog)
 	}
 
 	snapshot->global_xmin = SnapRcvGetGlobalXmin();
-	/*
-	 * We replace "curcid" if the current command id is
-	 * bigger than the snapshot's.
-	 */
+
 	cid = GetCurrentCommandId(false);
-	if (cid > snap->curcid)
-		snap->curcid = cid;
+	snap->curcid = cid;
 
 #ifdef SHOW_GLOBAL_SNAPSHOT
 	OutputGlobalSnapshot(snap);
