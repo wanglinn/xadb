@@ -2068,6 +2068,13 @@ Datum explain_rtable_of_plan(PG_FUNCTION_ARGS)
 	key.queryid = PG_GETARG_INT64(2);
 	key.planid = PG_GETARG_INT64(3);
 
+	if (key.dbid != MyDatabaseId)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Cross-Database query is not supported, "
+						"You need to connect to the database with ID %u to execute this query.",
+						key.dbid)));
+
 	/* Lookup the hash table entry with shared lock. */
 	LWLockAcquire(&adbssState->lock, LW_SHARED);
 
@@ -2104,16 +2111,15 @@ Datum explain_rtable_of_plan(PG_FUNCTION_ARGS)
 
 		getRelNameNspName(rte->relid, relName, nspName);
 
-		if (relName != NULL && nspName != NULL)
-		{
-			values[i++] = CStringGetDatum(pstrdup(nspName));
-			values[i++] = CStringGetDatum(pstrdup(relName));
-		}
+		if (nspName)
+			values[i++] = CStringGetDatum(nspName);
 		else
-		{
-			values[i++] = CStringGetDatum(NOT_FOUND_STR);
-			values[i++] = CStringGetDatum(NOT_FOUND_STR);
-		}
+			nulls[i++] = true;
+		if (relName)
+			values[i++] = CStringGetDatum(relName);
+		else
+			nulls[i++] = true;
+
 		tuplestore_putvalues(tupstore, tupdesc, values, nulls);
 	}
 
@@ -2166,6 +2172,13 @@ Datum explain_plan_nodes_of_plan(PG_FUNCTION_ARGS)
 	key.queryid = PG_GETARG_INT64(2);
 	key.planid = PG_GETARG_INT64(3);
 
+	if (key.dbid != MyDatabaseId)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("Cross-Database query is not supported, "
+						"You need to connect to the database with ID %u to execute this query.",
+						key.dbid)));
+
 	/* Lookup the hash table entry with shared lock. */
 	LWLockAcquire(&adbssState->lock, LW_SHARED);
 
@@ -2195,13 +2208,22 @@ Datum explain_plan_nodes_of_plan(PG_FUNCTION_ARGS)
 			memset(values, 0, sizeof(values));
 			memset(nulls, 0, sizeof(nulls));
 
-			values[i++] = CStringGetDatum(relationPlan->schemaname);
-			values[i++] = CStringGetDatum(relationPlan->relname);
+			if (relationPlan->schemaname)
+				values[i++] = CStringGetDatum(relationPlan->schemaname);
+			else
+				nulls[i++] = true;
+			if (relationPlan->relname)
+				values[i++] = CStringGetDatum(relationPlan->relname);
+			else
+				nulls[i++] = true;
 			if (relationPlan->attname)
 				values[i++] = CStringGetDatum(relationPlan->attname);
 			else
 				nulls[i++] = true;
-			values[i++] = CStringGetTextDatum(relationPlan->planname);
+			if (relationPlan->planname)
+				values[i++] = CStringGetTextDatum(relationPlan->planname);
+			else
+				nulls[i++] = true;
 
 			tuplestore_putvalues(tupstore, tupdesc, values, nulls);
 		}
@@ -2325,16 +2347,16 @@ Datum explain_rtable_of_query(PG_FUNCTION_ARGS)
 				memset(nulls, 0, sizeof(nulls));
 
 				getRelNameNspName(rte->relid, relName, nspName);
-				if (relName != NULL && nspName != NULL)
-				{
-					values[i++] = CStringGetDatum(pstrdup(nspName));
-					values[i++] = CStringGetDatum(pstrdup(relName));
-				}
+
+				if (nspName)
+					values[i++] = CStringGetDatum(nspName);
 				else
-				{
-					values[i++] = CStringGetDatum(NOT_FOUND_STR);
-					values[i++] = CStringGetDatum(NOT_FOUND_STR);
-				}
+					nulls[i++] = true;
+				if (relName)
+					values[i++] = CStringGetDatum(relName);
+				else
+					nulls[i++] = true;
+
 				tuplestore_putvalues(tupstore, tupdesc, values, nulls);
 			}
 		}
@@ -2451,13 +2473,22 @@ Datum explain_rtable_plan_of_query(PG_FUNCTION_ARGS)
 					memset(values, 0, sizeof(values));
 					memset(nulls, 0, sizeof(nulls));
 
-					values[i++] = CStringGetDatum(relationPlan->schemaname);
-					values[i++] = CStringGetDatum(relationPlan->relname);
+					if (relationPlan->schemaname)
+						values[i++] = CStringGetDatum(relationPlan->schemaname);
+					else
+						nulls[i++] = true;
+					if (relationPlan->relname)
+						values[i++] = CStringGetDatum(relationPlan->relname);
+					else
+						nulls[i++] = true;
 					if (relationPlan->attname)
 						values[i++] = CStringGetDatum(relationPlan->attname);
 					else
 						nulls[i++] = true;
-					values[i++] = CStringGetTextDatum(relationPlan->planname);
+					if (relationPlan->planname)
+						values[i++] = CStringGetTextDatum(relationPlan->planname);
+					else
+						nulls[i++] = true;
 
 					tuplestore_putvalues(tupstore, tupdesc, values, nulls);
 				}
@@ -2544,6 +2575,9 @@ static bool relationPlanWalker(Plan *plan, PlannedStmt *stmt, List **relationPla
 				relationPlan->planname = pstrdup("Seq Scan");
 				relationPlan->scanrelid = seqScan->scanrelid;
 				*relationPlans = lappend(*relationPlans, relationPlan);
+				/* relation may be dropped */
+				if (relationPlan->relname == NULL || relationPlan->schemaname == NULL)
+					continue;
 
 				expression_tree_walker((Node *)plan->qual, relationExpressionWalker, relationPlans);
 			}
