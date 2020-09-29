@@ -1340,22 +1340,13 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	Datum datumPath;
 	NameData masterNameData;
 	/*check node type*/
-	if (nodetype != CNDN_TYPE_GTM_COOR_SLAVE && nodetype != CNDN_TYPE_DATANODE_SLAVE)
+	if (!isSlaveNode(nodetype, false))
 	{
-		appendStringInfo(strinfo, "the nodetype is \"%d\", not for gtmcoord rewind or datanode rewind", nodetype);
+		appendStringInfo(strinfo, "the nodetype is \"%d\", not for gtmcoord rewind or datanode rewind or coordinator rewind.", nodetype);
 		return false;
 	}
 
 	cmdtype = AGT_CMD_NODE_REWIND;
-	if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
-	{
-		bGtmType = true;
-	}
-	else
-	{
-		bGtmType = false;
-	}
-
 	Assert(nodename);
 
 	/* get the master name of this node */
@@ -1382,10 +1373,12 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	/*restart the node then stop it with fast mode*/
 	initStringInfo(&(getAgentCmdRst.description));
 	ereport(NOTICE, (errmsg("pg_ctl restart %s \"%s\"", nodetypestr, nodename)));
-	if (bGtmType)
+	if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
 		mgr_runmode_cndn_get_result(AGT_CMD_AGTM_RESTART, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
-	else
+	else if (CNDN_TYPE_DATANODE_SLAVE == nodetype)
 		mgr_runmode_cndn_get_result(AGT_CMD_DN_RESTART, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
+	else
+		mgr_runmode_cndn_get_result(AGT_CMD_CN_RESTART, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
 	if(!getAgentCmdRst.ret)
 	{
 		heap_freetuple(tuple);
@@ -1424,10 +1417,13 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 
 	ereport(NOTICE, (errmsg("pg_ctl stop %s \"%s\" with fast mode", nodetypestr, nodename)));
 	resetStringInfo(&(getAgentCmdRst.description));
-	if (bGtmType)
+	if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
 		mgr_runmode_cndn_get_result(AGT_CMD_GTMCOORD_STOP_SLAVE, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
-	else
+	else if (CNDN_TYPE_DATANODE_SLAVE == nodetype)
 		mgr_runmode_cndn_get_result(AGT_CMD_DN_STOP, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
+	else
+		mgr_runmode_cndn_get_result(AGT_CMD_CN_STOP, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_F);
+
 	if(!getAgentCmdRst.ret)
 	{
 		heap_freetuple(tuple);
@@ -1505,16 +1501,22 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 		pfree(nodetypestr);
 		resetStringInfo(&infosendmsg);
 		resetStringInfo(&(getAgentCmdRst.description));
-		if (CNDN_TYPE_GTM_COOR_MASTER == mgr_node->nodetype || CNDN_TYPE_GTM_COOR_SLAVE == mgr_node->nodetype)
+		if (isGtmCoordMgrNode(mgr_node->nodetype))
 		{
 			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", slave_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
 			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", "all", slave_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
+		}
+		else if (isDataNodeMgrNode(mgr_node->nodetype))
+		{
+			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", slave_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
+			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", "all", slave_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
+			mgr_add_parameters_hbaconf(master_nodeinfo.tupleoid, CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
 		}
 		else
 		{
 			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", slave_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
 			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "replication", "all", slave_nodeinfo.nodeaddr, 32, "trust", &infosendmsg);
-			mgr_add_parameters_hbaconf(master_nodeinfo.tupleoid, CNDN_TYPE_DATANODE_MASTER, &infosendmsg);
+			mgr_add_parameters_hbaconf(master_nodeinfo.tupleoid, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
 		}
 		datumPath = heap_getattr(node_tuple, Anum_mgr_node_nodepath, RelationGetDescr(rel_node), &isNull);
 		if(isNull)
@@ -1587,8 +1589,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	agentPortM = mgr_host->hostagentport;
 	ReleaseSysCache(hostTupleM);
 
-	ereport(LOG, (errmsg("on %s master \"%s\" execute \"checkpoint\"", bGtmType ? "gtmcoord":"datanode", NameStr(masterNameData))));
-	ereport(NOTICE, (errmsg("on %s master \"%s\" execute \"checkpoint\"", bGtmType ? "gtmcoord":"datanode", NameStr(masterNameData))));
+    ereportNoticeLog(errmsg("on %s \"%s\" execute \"checkpoint\"", mgr_get_nodetype_desc(getMgrMasterNodetype(nodetype)), NameStr(masterNameData)));
 	initStringInfo(&restmsg);
 	iloop = 10;
 	while(iloop-- > 0)
@@ -1627,7 +1628,7 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 	if (resB)
 	{
 		if (restmsg.len == 0)
-			resB = false;
+		    resB = false;
 		else if (strcasecmp(restmsg.data, "{\"result\":\"0\"}") != 0)
 			resB = false;
 	}

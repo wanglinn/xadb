@@ -620,15 +620,19 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 		resetStringInfo(&infosendmsg);
 		resetStringInfo(&strinfo);
 		if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
+		{
 			appendStringInfo(&infosendmsg, " start -Z gtm_coord -D %s -o -i -w -c -l %s/logfile", slave_nodeinfo.nodepath, slave_nodeinfo.nodepath);
-		else
-		appendStringInfo(&infosendmsg, " start -Z datanode -D %s -o -i -w -c -l %s/logfile", slave_nodeinfo.nodepath, slave_nodeinfo.nodepath);
-
-		ereport(NOTICE, (errmsg("pg_ctl %s", infosendmsg.data)));
-		if (CNDN_TYPE_GTM_COOR_SLAVE == nodetype)
 			res = mgr_ma_send_cmd(AGT_CMD_GTMCOORD_START_SLAVE, infosendmsg.data, slave_nodeinfo.nodehost, &strinfo);
-		else
+		}else if (CNDN_TYPE_DATANODE_SLAVE == nodetype)
+		{
+		    appendStringInfo(&infosendmsg, " start -Z datanode -D %s -o -i -w -c -l %s/logfile", slave_nodeinfo.nodepath, slave_nodeinfo.nodepath);
 			res = mgr_ma_send_cmd(AGT_CMD_DN_START, infosendmsg.data, slave_nodeinfo.nodehost, &strinfo);
+		}else
+		{		
+			appendStringInfo(&infosendmsg, " start -Z coordinator -D %s -o -i -w -c -l %s/logfile", slave_nodeinfo.nodepath, slave_nodeinfo.nodepath);
+			res = mgr_ma_send_cmd(AGT_CMD_CN_START, infosendmsg.data, slave_nodeinfo.nodehost, &strinfo);
+		}
+		ereportNoticeLog(errmsg("pg_ctl %s", infosendmsg.data));
 		if (!res)
 			ereport(WARNING, (errmsg("pg_ctl %s fail, %s", infosendmsg.data, strinfo.data)));
 	}
