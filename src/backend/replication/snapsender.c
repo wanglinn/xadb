@@ -980,6 +980,8 @@ void SnapSenderMain(void)
 	SnapSenderInitXidArray(SNAPSENDER_XID_ARRAY_ASSIGN);
 	SnapSenderInitXidArray(SNAPSENDER_XID_ARRAY_FINISH);
 
+	StartSnapSenderMainQueryDnNodeName();
+	SnapSenderCheckRxactAndTwoPhaseXids();
 	if (sigsetjmp(local_sigjmp_buf, 1) != 0)
 	{
 		slist_mutable_iter siter;
@@ -1033,9 +1035,6 @@ void SnapSenderMain(void)
 	PG_exception_stack = &local_sigjmp_buf;
 	FrontendProtocol = PG_PROTOCOL_LATEST;
 	whereToSendOutput = DestRemote;
-
-	StartSnapSenderMainQueryDnNodeName();
-	SnapSenderCheckRxactAndTwoPhaseXids();
 
 	SetLatch(&MyProc->procLatch);
 	while(got_sigterm==false)
@@ -2212,7 +2211,7 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_PROTOCOL_VIOLATION),
-						errmsg("not in copy mode")));
+						errmsg("client %s not in copy mode", client->client_name)));
 			}
 			if (msgtype == 'c')
 				client->status = CLIENT_STATUS_CONNECTED;
