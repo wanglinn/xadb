@@ -7086,7 +7086,7 @@ static void ExecuteSqlOnPostgresGrammar(Form_mgr_node mgrNode, int newPort, char
 							newPort,	
 							10,
 							spiContext);
-		Assert(pgConn);		
+		CheckNull(pgConn);					
 		if(sqlType == SQL_TYPE_COMMAND)
 			PQexecCommandSql(pgConn, sql, true);
 		else
