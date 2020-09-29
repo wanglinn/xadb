@@ -11,17 +11,17 @@ ADB documentation
   </refmeta>
 
   <refnamediv>
-    <refname>REWIND GTMCOORD</refname>
-    <refpurpose>rewind gtmcoord slave</refpurpose>
+    <refname>REWIND COORDINATOR</refname>
+    <refpurpose>rewind coordinator slave</refpurpose>
   </refnamediv>
 
-  <indexterm zone="mgr-rewindgtm">
-    <primary>REWIND GTMCOORD</primary>
+  <indexterm zone="mgr-rewindcoordinator">
+    <primary>REWIND COORDINATOR</primary>
   </indexterm>
 
   <refsynopsisdiv>
     <synopsis>
-REWIND GTMCOORD SLAVE { <replaceable class="parameter">node_name</replaceable> }
+REWIND COORDINATOR SLAVE { <replaceable class="parameter">node_name</replaceable> }
 </synopsis>
   </refsynopsisdiv>
 
@@ -29,7 +29,7 @@ REWIND GTMCOORD SLAVE { <replaceable class="parameter">node_name</replaceable> }
     <title>Description</title>
 
     <para>
-<command>REWIND GTMCOORD</command> rewind gtmcoord slave.
+<command>REWIND COORDINATOR</command> rewind coordinator slave.
 </para>
   </refsect1>
   <refsect1>
@@ -52,16 +52,13 @@ REWIND GTMCOORD SLAVE { <replaceable class="parameter">node_name</replaceable> }
     <title>Examples</title>
 
     <para>
-Rewind gtmcoord slave gtm1:
-      <programlisting>REWIND GTMCOORD SLAVE gtm1;</programlisting>
+Rewind coordinator slave cn_0:
+      <programlisting>REWIND COORDINATOR SLAVE gtm1;</programlisting>
     </para>
   </refsect1>
       <refsect1>
     <title>See Also</title>
 
-    <simplelist type="inline">
-      <member><xref linkend="mgr-appendgtm"></member>
-    </simplelist>
   </refsect1>
 
 </refentry>

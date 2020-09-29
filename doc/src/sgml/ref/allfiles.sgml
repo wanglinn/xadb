@@ -290,6 +290,7 @@ Complete list of usable sgml source files in this directory.
 <!ENTITY mgrRevoke          SYSTEM "mgr_revoke_right.sgml">
 <!ENTITY mgrRewindDatanode  SYSTEM "mgr_rewind_datanode.sgml">
 <!ENTITY mgrRewindGtm       SYSTEM "mgr_rewind_gtm.sgml">
+<!ENTITY mgrRewindCoord     SYSTEM "mgr_rewind_coordinator.sgml">
 <!ENTITY mgrSetCoordinator  SYSTEM "mgr_set_coordinator.sgml">
 <!ENTITY mgrSetDatanode     SYSTEM "mgr_set_datanode.sgml">
 <!ENTITY mgrSetDoctor       SYSTEM "mgr_set_doctor.sgml">

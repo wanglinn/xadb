@@ -365,6 +365,7 @@
    &mgrRevoke;
    &mgrRewindDatanode;
    &mgrRewindGtm;
+   &mgrRewindCoord;
    &mgrSetCoordinator;
    &mgrSetDatanode;
    &mgrSetGtm;
