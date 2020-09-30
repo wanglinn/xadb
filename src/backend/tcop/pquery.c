@@ -1397,8 +1397,14 @@ PortalRunMulti(Portal portal,
 				/* it's special for INSERT */
 				if (IS_PGXC_COORDINATOR &&
 					pstmt->commandType == CMD_INSERT)
-					HandleCmdComplete(pstmt->commandType, &combine,
+					{
+						combine.cmdType = CMD_INSERT;
+						combine.data[0] = '1';
+						combine.data[1] = '\0';
+
+						HandleCmdComplete(pstmt->commandType, &combine,
 							completionTag, strlen(completionTag));
+					}			
 #endif
 			}
 			else
