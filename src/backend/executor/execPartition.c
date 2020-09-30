@@ -623,6 +623,14 @@ ExecInitPartitionInfo(ModifyTableState *mtstate, EState *estate,
 		List	   *returningList;
 		int			firstVarno = mtstate->resultRelInfo[0].ri_RangeTableIndex;
 
+#ifdef ADB
+		if(mtstate->mt_remoterels[mtstate->mt_whichplan] != NULL)
+		{
+			Scan *scan = (Scan*)mtstate->mt_remoterels[mtstate->mt_whichplan]->plan;
+			Assert(IsA(scan, RemoteQuery));
+			firstVarno = scan->scanrelid;
+		}
+#endif /*ADB*/
 		/* See the comment above for WCO lists. */
 		Assert((node->operation == CMD_INSERT &&
 				list_length(node->returningLists) == 1 &&
