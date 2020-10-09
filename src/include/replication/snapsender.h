@@ -20,4 +20,12 @@ extern void isSnapSenderWaitNextIdOk(void);
 extern Snapshot SnapSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, TransactionId* xmaxOld,
 			int *countOld);
 extern void SnapSenderTransferLock(void **param, TransactionId xid, struct PGPROC *from);
+
+extern void SerializeFullAssignXid(TransactionId *xids, uint32 cnt, TransactionId *gs_xip, uint32 gs_cnt,
+							TransactionId *ss_xip, uint32 ss_cnt,
+							TransactionId *sf_xip, uint32 sf_cnt, StringInfo buf);
+extern TransactionId *SnapSenderGetAllXip(uint32 *cnt_num);
+
+extern void SnapSenderGetAllAssingFinish(TransactionId	*ss_xid_assgin,uint32 *ss_cnt_assign,
+				TransactionId	*ss_xid_finish, uint32 *ss_cnt_finish);
 #endif /* SNAP_SENDER_H_ */
