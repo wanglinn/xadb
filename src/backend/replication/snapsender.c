@@ -2343,6 +2343,25 @@ void SnapSendTransactionAssign(TransactionId txid, int txidnum, TransactionId pa
 	if (SnapSender->procno != INVALID_PGPROCNO)
 		SetLatch(&(GetPGProcByNumber(SnapSender->procno)->procLatch));
 	SpinLockRelease(&SnapSender->mutex);
+}
+
+void SnapSendTransactionAddXip(TransactionId txid, int txidnum, TransactionId parent, LWLockId lock)
+{
+	int i = 0;
+	TransactionId  xid, xid_tmp;
+
+	Assert(TransactionIdIsValid(txid));
+	Assert(TransactionIdIsNormal(txid));
+	Assert (IsGTMNode());
+
+	Assert(SnapSender != NULL);
+	if (TransactionIdIsValid(parent))
+	{
+		LWLockRelease(lock);
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("snapshot sender not support sub transaction yet!")));
+	}
 
 	xid_tmp = txid;
 	SpinLockAcquire(&SnapSender->gxid_mutex);
