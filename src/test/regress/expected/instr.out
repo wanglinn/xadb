@@ -13,9 +13,9 @@ select instr(to_char('abc'),to_char('bc')) from dual;
 (1 row)
 
 select instr('爱存不存','存',1,2) from dual;
- INSTR('爈孭不存',' 
---------------------
-                  4
+ INSTR('爱存不存','存',1,2)  
+-----------------------------
+                           4
 (1 row)
 
 select instr(1234,23) from dual;

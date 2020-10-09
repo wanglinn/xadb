@@ -133,8 +133,8 @@ SELECT TRANSLATE(to_timestamp('2016-12-01 10:30:00.4534','yyyy-mm-dd hh:mi:ss.ff
 (1 row)
 
 SELECT TRANSLATE('你好','你','我') FROM DUAL;
- TRANSLATE('佽好''','佽' 
--------------------------
+ TRANSLATE('你好','你','我')  
+------------------------------
  我好
 (1 row)
 

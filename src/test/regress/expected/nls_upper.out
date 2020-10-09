@@ -24,8 +24,8 @@ select nls_upper('\?!@#ss$%^&*()sC') from dual;
 (1 row)
 
 select nls_upper('Test你tEst好teST') from dual;
- NLS_UPPER('TEST佽TESTTT好TES 
-------------------------------
+ NLS_UPPER('TEST你tETESTTTeSTTES 
+---------------------------------
  TEST你TEST好TEST
 (1 row)
 
