@@ -4341,10 +4341,10 @@ ora_replace_text(PG_FUNCTION_ARGS)
 	int 		from_sub_text_len;
 	TextPositionState state;
 	text	   *ret_text;
-	int 		start_posn;
-	int 		curr_posn;
 	int 		chunk_len;
 	char	   *start_ptr;
+	char	   *curr_ptr;
+	bool		found;
 	StringInfoData str;
 
 	if (src_text == NULL)
@@ -4374,8 +4374,8 @@ ora_replace_text(PG_FUNCTION_ARGS)
 		text_position_cleanup(&state);
 		PG_RETURN_TEXT_P(src_text);
 	}
-	start_posn = 1;
 
+	curr_ptr = text_position_get_match_ptr(&state);
 	/* start_ptr points to the start_posn'th character of src_text */
 	start_ptr = VARDATA_ANY(src_text);
 
@@ -4385,21 +4385,20 @@ ora_replace_text(PG_FUNCTION_ARGS)
 	{
 		CHECK_FOR_INTERRUPTS();
 
-		curr_posn = text_position_get_match_pos(&state);
-
 		/* copy the data skipped over by last text_position_next() */
-		chunk_len = charlen_to_bytelen(start_ptr, curr_posn - start_posn);
+		chunk_len = curr_ptr - start_ptr;
 		appendBinaryStringInfo(&str, start_ptr, chunk_len);
 
 		if (to_sub_text != NULL)
 			appendStringInfoText(&str, to_sub_text);
 
-		start_posn = curr_posn;
-		start_ptr += chunk_len;
-		start_posn += from_sub_text_len;
-		start_ptr += charlen_to_bytelen(start_ptr, from_sub_text_len);
+		start_ptr = curr_ptr + from_sub_text_len;
+
+		found = text_position_next(&state);
+		if (found)
+			curr_ptr = text_position_get_match_ptr(&state);
 	}
-	while (text_position_next(&state));
+	while (found);
 
 	/* copy trailing data */
 	chunk_len = ((char *) src_text + VARSIZE_ANY(src_text)) - start_ptr;
