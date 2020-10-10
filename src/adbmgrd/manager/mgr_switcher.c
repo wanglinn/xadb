@@ -7018,6 +7018,8 @@ static void RevertFailOverShutdownCoords(MemoryContext spiContext,
 		Assert(node);
 		oldMaster = node->zoCoord->oldMaster;
 		newMaster = node->zoCoord->newMaster;
+		CheckNull(oldMaster);
+		CheckNull(newMaster);
 
 		shutdownNodeWithinSeconds(newMaster->mgrNode,
 								SHUTDOWN_NODE_FAST_SECONDS,
