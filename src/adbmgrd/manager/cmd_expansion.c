@@ -107,6 +107,7 @@ Datum mgr_expand_activate_dnmaster(PG_FUNCTION_ARGS)
 	PGconn 		*gtm_conn = NULL;
 	Oid 		cnoid;
 	int			finish_try = 3;
+	volatile bool got_error = false;
 
 	namestrcpy(&nodename, "all node");
 
@@ -138,6 +139,14 @@ retry:
 	}
 	PG_CATCH();
 	{
+		got_error = true;
+		FlushErrorState();
+	}
+	PG_END_TRY();
+
+	if (got_error)
+	{
+		got_error = false;
 		mgr_unlock_cluster_involve_gtm_coord(&gtm_conn);
 		if (finish_try)
 		{
@@ -149,7 +158,6 @@ retry:
 		ereport(ERROR,
 			(errmsg("End active backend failed, please try to reactivate the expansion.")));
 	}
-	PG_END_TRY();
 
 	if ((src_dst_list = MgrActivateStep1(database, dst_node_list)) == NIL)
 	{
