@@ -2173,7 +2173,7 @@ bool callAgentStopNode(MgrNodeWrapper *node, char *shutdownMode,
 	else
 		cmd = AGT_CMD_DN_STOP;
 
-	ereportNoticeLog(errmsg("stop %s %s.", mgr_get_nodetype_desc(node->form.nodetype), NameStr(node->form.nodename)));
+	ereportNoticeLog(errmsg("stop %s %s %s.", mgr_get_nodetype_desc(node->form.nodetype), NameStr(node->form.nodename), shutdownMode));
 	res = callAgentSendCmd(cmd, &cmdMessage,
 						   node->host->hostaddr,
 						   node->host->form.hostagentport);
