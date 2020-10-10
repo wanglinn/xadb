@@ -5005,19 +5005,6 @@ static struct config_string ConfigureNamesString[] =
 		"pg_catalog.simple",
 		check_TSCurrentConfig, assign_TSCurrentConfig, NULL
 	},
-
-#ifdef ADB
-	{
-		{"agtm_host", PGC_SIGHUP, GTM,
-			gettext_noop("Host name or address of GTM"),
-			NULL
-		},
-		&AGtmHost,
-		"localhost",
-		check_agtm_host, NULL, NULL
-	},
-#endif
-
 	{
 		{"ssl_ciphers", PGC_SIGHUP, CONN_AUTH_SSL,
 			gettext_noop("Sets the list of allowed SSL ciphers."),
