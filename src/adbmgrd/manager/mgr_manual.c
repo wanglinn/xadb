@@ -1106,8 +1106,44 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
+		char *p = NULL;
+		int retry_time = 0;
+		int max_retry_time = 10;
+
 		/* lock the cluster */
 		mgr_lock_cluster_involve_gtm_coord(&pg_conn, &cnoid);
+RETRY:
+		/* check pg_prepared_xacts number */
+		res = PQexec(pg_conn, "select count(*) from pg_prepared_xacts;");
+		if (PQresultStatus(res) == PGRES_TUPLES_OK)
+		{
+			p = PQgetvalue(res, 0, 0);
+			if (!p || strcmp(p, "0") != 0)
+			{
+				if (retry_time < max_retry_time)
+				{
+					retry_time++;
+					pg_usleep(retry_time * 1000000L);
+					ereportNoticeLog(errmsg("Two-phase prepared xid left, wait %d seconds", retry_time));
+					PQclear(res);
+					goto RETRY;
+				}
+				else
+				{
+					ereport(ERROR, (errmsg("Two-phase prepared xid left, cannot active coordinator now, please try again later")));
+				}
+			}
+	
+			PQclear(res);
+			res = NULL;
+		}
+		else
+		{
+			rest = false;
+			ereport(WARNING, (errmsg("%s", PQerrorMessage(pg_conn))));
+		}
+
+		PQclear(res);
 		/*set xc_maintenance_mode=on  */
 		res = PQexec(pg_conn, "set xc_maintenance_mode = on;");
 		if (PQresultStatus(res) != PGRES_COMMAND_OK)
