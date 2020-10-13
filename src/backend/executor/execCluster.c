@@ -475,7 +475,7 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 	{
 		rte = lfirst(lc);
 		if(rte->rtekind == RTE_RELATION)
-			base_rels[i] = table_open(rte->relid, NoLock);
+			base_rels[i] = table_open(rte->relid, rte->rellockmode);
 		else
 			base_rels[i] = NULL;
 	}
