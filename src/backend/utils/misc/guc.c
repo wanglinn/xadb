@@ -633,6 +633,8 @@ bool		Debug_print_grammar = false;
 bool		enable_cluster_plan = true;
 bool		enable_readsql_on_slave = false;
 bool		enable_readsql_on_slave_async = false;
+int			snap_debug_level = DEBUG1;
+int			cluster_vacuum_debug_level = DEBUG1;
 #endif
 bool		Debug_print_rewritten = false;
 bool		Debug_pretty_print = true;
@@ -663,7 +665,6 @@ int			log_temp_files = -1;
 double		log_statement_sample_rate = 1.0;
 double		log_xact_sample_rate = 0;
 int			trace_recovery_messages = LOG;
-int			snap_debug_level = DEBUG1;
 
 int			temp_file_limit = -1;
 
@@ -5591,6 +5592,22 @@ static struct config_enum ConfigureNamesEnum[] =
 						 " the level, the fewer messages are sent.")
 		},
 		&snap_debug_level,
+
+		/*
+		 * client_message_level_options allows too many values, really, but
+		 * it's not worth having a separate options array for this.
+		 */
+		DEBUG1, client_message_level_options,
+		check_snap_debug_max_messages, NULL, NULL
+	},
+
+	{
+		{"cluster_vacuum_debug_level", PGC_SIGHUP, DEVELOPER_OPTIONS,
+			gettext_noop("Enables cluster vacuum  debug msg."),
+			gettext_noop("Each level includes all the levels that follow it. The later"
+						 " the level, the fewer messages are sent.")
+		},
+		&cluster_vacuum_debug_level,
 
 		/*
 		 * client_message_level_options allows too many values, really, but

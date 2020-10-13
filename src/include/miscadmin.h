@@ -266,6 +266,7 @@ extern int	socket_gxid_pair[2];
 extern int	socket_snap_pair[2];
 extern bool isNeedAbortAnyTrans;
 extern int	snap_debug_level;
+extern int cluster_vacuum_debug_level;
 #define MAX_XID_PRE_ALLOC_NUM 100
 #endif
 
