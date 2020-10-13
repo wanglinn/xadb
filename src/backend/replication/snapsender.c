@@ -2377,6 +2377,7 @@ void SnapSendTransactionAddXip(TransactionId txid, int txidnum, TransactionId pa
 
 	xid_tmp = txid;
 	SpinLockAcquire(&SnapSender->gxid_mutex);
+	LWLockRelease(lock);
 	for (i = txidnum; i > 0; i--)
 	{
 		xid = xid_tmp--;
