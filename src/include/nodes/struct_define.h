@@ -269,7 +269,6 @@ BEGIN_STRUCT(LocatorKeyInfo)
 	NODE_NODE(Expr,key)
 	NODE_SCALAR(Oid,opclass)
 	NODE_SCALAR(Oid,opfamily)
-	NODE_SCALAR(Oid,collation)
 	NODE_SCALAR(AttrNumber,attno)
 END_STRUCT(LocatorKeyInfo)
 #endif /* NO_STRUCT_LocatorKeyInfo */
@@ -401,7 +400,6 @@ BEGIN_STRUCT(ReduceKeyInfo)
 	NODE_NODE(Expr,key)
 	NODE_SCALAR(Oid,opclass)
 	NODE_SCALAR(Oid,opfamily)
-	NODE_SCALAR(Oid,collation)
 END_STRUCT(ReduceKeyInfo)
 #endif /* NO_STRUCT_ReduceKeyInfo */
 #endif

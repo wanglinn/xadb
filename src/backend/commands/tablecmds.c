@@ -566,7 +566,7 @@ static void RegisterPostAlterTableAction(post_alter_table_callback func, void *a
 static void CleanupPostAlterTableActions(void *arg);
 static void ATPaddingAuxData(void *arg);
 static char GetRelationDistributeKey(ParseState *pstate, Relation rel, bool auxiliary,
-									 PartitionSpec *spec, List **keys, PartitionKey *partkey);
+									 PartitionSpec *spec, List **keys);
 static void AtExecDistributeBy(Relation rel, PartitionSpec *options);
 static void checkRedistribution(Relation rel, AlterTableCmd *cmd);
 #endif
@@ -1031,30 +1031,21 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		List		   *valuelist = NIL;
 		Oid			   *nodeoids;
 		ParseState	   *pstate;
-		PartitionKey	partkey = NULL;
 		int				count;
 		char			loc_type;
 
 		pstate = make_parsestate(NULL);
 		pstate->p_sourcetext = queryString;
 
-		loc_type = GetRelationDistributeKey(pstate, rel, stmt->auxiliary, stmt->distributeby,
-											&loc_keys, &partkey);
+		loc_type = GetRelationDistributeKey(pstate, rel, stmt->auxiliary,
+											stmt->distributeby, &loc_keys);
 
 		count = transformDistributeCluster(pstate,
 										   rel,
-										   partkey,
-										   stmt->distributeby,
 										   stmt->subcluster,
 										   loc_type,
 										   &valuelist,
 										   &nodeoids);
-		if (partkey)
-		{
-			MemoryContext keycontext = GetMemoryChunkContext(partkey);
-			Assert(keycontext != CurrentMemoryContext);
-			MemoryContextDelete(keycontext);
-		}
 
 		PgxcClassCreate(RelationGetRelid(rel),
 						loc_type,
@@ -15065,7 +15056,7 @@ AtExecDistributeBy(Relation rel, PartitionSpec *options)
 		IS_PGXC_DATANODE)
 		return;
 
-	locatortype = GetRelationDistributeKey(NULL, rel, false, options, &keys, NULL);
+	locatortype = GetRelationDistributeKey(NULL, rel, false, options, &keys);
 	PgxcClassAlter(RelationGetRelid(rel),
 				   locatortype,
 				   keys,
@@ -15085,7 +15076,6 @@ static void
 AtExecSubCluster(Relation rel, PGXCSubCluster *options)
 {
 	RelationLocInfo *loc;
-	PartitionKey	part_key;
 	List		   *values;
 	Oid			   *nodeoids;
 	int				numnodes;
@@ -15101,14 +15091,6 @@ AtExecSubCluster(Relation rel, PGXCSubCluster *options)
 				 errmsg("relation %s is not a remote table", RelationGetRelationName(rel))));
 	}
 	loc = rel->rd_locator_info;
-	if (loc->locatorType == LOCATOR_TYPE_LIST ||
-		loc->locatorType == LOCATOR_TYPE_RANGE)
-	{
-		part_key = RelationGenerateDistributeKeyFromLocInfo(rel, rel->rd_locator_info);
-	}else
-	{
-		part_key = NULL;
-	}
 
 	/*
 	 * It is not checked if the new subcluster list is the same as the old one,
@@ -15118,8 +15100,6 @@ AtExecSubCluster(Relation rel, PGXCSubCluster *options)
 	/* Obtain new node information */
 	numnodes = transformDistributeCluster(NULL,
 										  rel,
-										  part_key,
-										  NULL,
 										  options,
 										  loc->locatorType,
 										  &values,
@@ -15306,7 +15286,6 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 	int					new_num, i;	/* Modified number of Oids */
 	ListCell		   *item;
 	ParseState		   *pstate;
-	PartitionKey		partkey = NULL;
 	PartitionSpec	   *spec = NULL;
 
 	/* Get necessary information about relation */
@@ -15363,15 +15342,12 @@ BuildRedistribCommands(Oid relid, List *subCmds)
 																   rel,
 																   false,
 																   spec,
-																   &newLocInfo->keys,
-																   &partkey);
+																   &newLocInfo->keys);
 				break;
 			case AT_SubCluster:
 				/* Update new list of nodes */
 				new_num = transformDistributeCluster(pstate,
 													 rel,
-													 partkey,
-													 spec,
 													 castNode(PGXCSubCluster, cmd->def),
 													 newLocInfo->locatorType,
 													 &newLocInfo->values,
@@ -16576,8 +16552,7 @@ static PartitionSpec *transformDistributeBy(ParseState *pstate, Relation rel, Pa
 							partspec->strategy)));
 	}else
 	{
-		if (loc_type == LOCATOR_TYPE_LIST ||
-			loc_type == LOCATOR_TYPE_MODULO)
+		if (loc_type == LOCATOR_TYPE_MODULO)
 		{
 			if (list_length(partspec->partParams) != 1)
 				ereport(ERROR,
@@ -18541,7 +18516,7 @@ void inferCreateStmtDistributeBy(CreateStmt *stmt)
 }
 
 static char GetRelationDistributeKey(ParseState *pstate, Relation rel, bool auxiliary,
-									 PartitionSpec *spec, List **keys, PartitionKey *partkey)
+									 PartitionSpec *spec, List **keys)
 {
 	LocatorKeyInfo *loc_key;
 	char loc_type;
@@ -18623,7 +18598,6 @@ static char GetRelationDistributeKey(ParseState *pstate, Relation rel, bool auxi
 			if (loc_key)
 			{
 				loc_key->opfamily = get_opclass_family(loc_key->opclass);
-				loc_key->collation = InvalidOid;
 				list_key = list_make1(loc_key);
 			}
 		}
@@ -18649,12 +18623,6 @@ static char GetRelationDistributeKey(ParseState *pstate, Relation rel, bool auxi
 		case LOCATOR_TYPE_HASH:
 			strategy = PARTITION_STRATEGY_HASH;
 			break;
-		case LOCATOR_TYPE_LIST:
-			strategy = PARTITION_STRATEGY_LIST;
-			break;
-		case LOCATOR_TYPE_RANGE:
-			strategy = PARTITION_STRATEGY_RANGE;
-			break;
 		default:
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
@@ -18669,19 +18637,6 @@ static char GetRelationDistributeKey(ParseState *pstate, Relation rel, bool auxi
 							  partcollation,
 							  strategy);
 
-		if (partkey &&
-			(loc_type == LOCATOR_TYPE_LIST ||
-			 loc_type == LOCATOR_TYPE_RANGE))
-		{
-			*partkey = RelationGenerateDistributeKey(rel,
-													 partattr,
-													 partexprs,
-													 partopclass,
-													 partcollation,
-													 strategy,
-													 list_length(spec->partParams));
-		}
-
 		lc = list_head(partexprs);
 		for(i=0,count=list_length(spec->partParams);i<count;++i)
 		{
@@ -18694,7 +18649,6 @@ static char GetRelationDistributeKey(ParseState *pstate, Relation rel, bool auxi
 			}
 			loc_key->opclass = partopclass[i];
 			loc_key->opfamily = get_opclass_family(loc_key->opclass);
-			loc_key->collation = partcollation[i];
 			list_key = lappend(list_key, loc_key);
 		}
 end_spec_:
@@ -18711,8 +18665,6 @@ end_spec_:
 		{
 		case LOCATOR_TYPE_HASH:
 		case LOCATOR_TYPE_MODULO:
-		case LOCATOR_TYPE_RANGE:
-		case LOCATOR_TYPE_LIST:
 			if (list_length(list_key) != 1)
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),

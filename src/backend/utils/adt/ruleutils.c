@@ -7341,11 +7341,6 @@ get_utility_query_def(Query *query, deparse_context *context)
 						else
 							appendStringInfo(buf, "(%s)", str);
 					}
-					if (elem->collation != NIL)
-					{
-						appendStringInfoString(buf, " COLLATE ");
-						deparse_namelist(buf, elem->collation, true);
-					}
 					if (elem->opclass)
 					{
 						appendStringInfoChar(buf, ' ');
@@ -7381,7 +7376,6 @@ get_utility_query_def(Query *query, deparse_context *context)
 								appendStringInfoString(buf, "FOR NULLS");
 							}else
 							{
-								#warning maybe core
 								get_rule_expr((Node*)bound, context, false);
 							}
 						}
@@ -12355,7 +12349,6 @@ static void adb_get_distribute_def_worker(StringInfo buf, Oid relid, int prettyF
 	{
 		List	   *exprs = NIL;
 		oidvector  *attclass = GetSysCacheXCClassAttr(tuple, Anum_pgxc_class_pcclass, form->pclocatortype == LOCATOR_TYPE_MODULO, relid);
-		oidvector  *attcollation = GetSysCacheXCClassAttr(tuple, Anum_pgxc_class_pccollation, true, relid);
 		txt = GetSysCacheXCClassAttr(tuple, Anum_pgxc_class_pcexprs, true, relid);
 		if (txt)
 		{
@@ -12376,7 +12369,6 @@ static void adb_get_distribute_def_worker(StringInfo buf, Oid relid, int prettyF
 		{
 			Oid			keycoltype;
 			Oid			keycolcollation;
-			Oid			partcoll;
 			appendStringInfoString(buf, sep);
 			sep = ", ";
 
@@ -12406,19 +12398,8 @@ static void adb_get_distribute_def_worker(StringInfo buf, Oid relid, int prettyF
 				pfree(str);
 
 				keycoltype = exprType(key);
-				keycolcollation = exprCollation(key);
 			}
 
-			if (attcollation)
-				partcoll = attcollation->values[n];
-			else
-				partcoll = InvalidOid;
-			if (OidIsValid(partcoll) && partcoll != keycolcollation)
-			{
-				str = generate_collation_name(partcoll);
-				appendStringInfo(buf, " COLLATE %s", str);
-				pfree(str);
-			}
 			if (attclass)
 				get_opclass_name(attclass->values[n], keycoltype, buf);
 		}
@@ -12469,30 +12450,6 @@ static void adb_get_distribute_def_worker(StringInfo buf, Oid relid, int prettyF
 			lc = lnext(lc);
 			switch(form->pclocatortype)
 			{
-			case LOCATOR_TYPE_LIST:
-				Assert(IsA(list2, List));
-				Assert(list_length(list2) > 0);
-				appendStringInfoString(buf, " FOR VALUES IN (");
-				foreach(lc2, list2)
-				{
-					get_const_expr(lfirst_node(Const, lc2), &context, -1);
-					if (lnext(lc2))
-						appendStringInfoString(buf, ", ");
-				}
-				appendStringInfoChar(buf, ')');
-				break;
-			case LOCATOR_TYPE_RANGE:
-				Assert(IsA(list2, List));
-				Assert(list_length(list2) == 2);
-				appendStringInfoString(buf, " FOR VALUES FROM ");
-				str = get_range_partbound_string(linitial_node(List, list2));
-				appendStringInfoString(buf, str);
-				pfree(str);
-				appendStringInfoString(buf, " TO ");
-				str = get_range_partbound_string(llast_node(List, list2));
-				appendStringInfoString(buf, str);
-				pfree(str);
-				break;
 			case LOCATOR_TYPE_HASH:
 				Assert(IsA(list2, IntList));
 				appendStringInfoString(buf, " FOR VALUES IN(");

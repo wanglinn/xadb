@@ -410,10 +410,6 @@ AnalyzeRewriteCreateAuxStmt(CreateAuxStmt *auxstmt)
 		case LOCATOR_TYPE_MODULO:
 			/* it is OK */
 			break;
-		case LOCATOR_TYPE_LIST:
-		case LOCATOR_TYPE_RANGE:
-			/* not support yet */
-			break;
 		case LOCATOR_TYPE_NONE:
 		case LOCATOR_TYPE_DISTRIBUTED:
 		default:

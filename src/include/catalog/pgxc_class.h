@@ -29,12 +29,10 @@ CATALOG(pgxc_class,9020,PgxcClassRelationId)
 
 	oidvector	pcclass BKI_FORCE_NULL;		/* operator class to compare keys */
 
-	oidvector	pccollation BKI_FORCE_NULL;	/* user-specified collation for keys */
-
 	pg_node_tree pcexprs BKI_FORCE_NULL;	/* list of expression in the distribute key;
 											 * one item for each zero entry in pcattrs[] */
 
-	pg_node_tree pcvalues BKI_FORCE_NULL;	/* list of each node's list(...) or range(lower, upper) values */
+	pg_node_tree pcvalues BKI_FORCE_NULL;	/* list of each node's hash(...) values */
 #endif
 } FormData_pgxc_class;
 
@@ -52,8 +50,6 @@ typedef enum PgxcClassAlterType
 #define LOCATOR_TYPE_INVALID		'\0'
 #define LOCATOR_TYPE_REPLICATED		'R'
 #define LOCATOR_TYPE_HASH			'H'
-#define LOCATOR_TYPE_RANGE			'G'
-#define LOCATOR_TYPE_LIST			'L'
 #define LOCATOR_TYPE_MODULO			'M'
 #define LOCATOR_TYPE_RANDOM			'N'
 #define LOCATOR_TYPE_NONE			'O'
@@ -73,13 +69,9 @@ typedef enum PgxcClassAlterType
 #define IsLocatorColumnDistributed(x) 			((x) == LOCATOR_TYPE_HASH || \
 												 (x) == LOCATOR_TYPE_RANDOM || \
 												 (x) == LOCATOR_TYPE_MODULO || \
-												 (x) == LOCATOR_TYPE_LIST || \
-												 (x) == LOCATOR_TYPE_RANGE || \
 												 (x) == LOCATOR_TYPE_DISTRIBUTED)
 #define IsLocatorDistributedByValue(x)			((x) == LOCATOR_TYPE_HASH || \
-												 (x) == LOCATOR_TYPE_MODULO || \
-												 (x) == LOCATOR_TYPE_LIST || \
-												 (x) == LOCATOR_TYPE_RANGE)
+												 (x) == LOCATOR_TYPE_MODULO)
 
 #endif							/* EXPOSE_TO_CLIENT_CODE */
 

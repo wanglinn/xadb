@@ -289,8 +289,6 @@ static void outputReduceType(StringInfo str, const char *type)
 	switch(*type)
 	{
 	CASE_REDUCE_TYPE(HASH);
-	CASE_REDUCE_TYPE(LIST);
-	CASE_REDUCE_TYPE(RANGE);
 	CASE_REDUCE_TYPE(MODULO);
 	CASE_REDUCE_TYPE(REPLICATED);
 	CASE_REDUCE_TYPE(RANDOM);
@@ -536,7 +534,6 @@ BEGIN_STRUCT(ReduceKeyInfo)
 	NODE_NODE(Expr,key)
 	NODE_OID(opclass,opclass)
 	NODE_OID(opfamily,opfamily)
-	NODE_OID(collation,collation)
 END_STRUCT(ReduceKeyInfo)
 BEGIN_STRUCT(ReduceInfo)
 	NODE_NODE(List,storage_nodes)

@@ -84,7 +84,6 @@ static inline void SetReduceKeyDefaultInfo(ReduceKeyInfo *key, const Expr *expr,
 								  method_name,
 								  am_oid);
 	key->opfamily = get_opclass_family(key->opclass);
-	key->collation = InvalidOid;
 }
 
 ReduceInfo *MakeHashReduceInfo(const List *storage, const List *exclude, const Expr *key)
@@ -197,7 +196,6 @@ ReduceInfo *MakeReduceInfoFromLocInfo(const RelationLocInfo *loc_info, const Lis
 			}
 			rinfo->keys[i].opclass = key->opclass;
 			rinfo->keys[i].opfamily = key->opfamily;
-			rinfo->keys[i].collation = key->collation;
 			++i;
 		}
 		rinfo->relids = bms_make_singleton(relid);
@@ -209,21 +207,11 @@ ReduceInfo *MakeReduceInfoFromLocInfo(const RelationLocInfo *loc_info, const Lis
 		}else if(loc_info->locatorType == LOCATOR_TYPE_MODULO)
 		{
 			rinfo->type = REDUCE_TYPE_MODULO;
-		}else if(loc_info->locatorType == LOCATOR_TYPE_LIST)
-		{
-			rinfo->type = REDUCE_TYPE_LIST;
-			Assert(list_length(loc_info->values) == list_length(loc_info->nodeids));
-			rinfo->values = copyObject(loc_info->values);
-		}else if(loc_info->locatorType == LOCATOR_TYPE_RANGE)
-		{
-			rinfo->type = REDUCE_TYPE_RANGE;
-			Assert(list_length(loc_info->values) == list_length(loc_info->nodeids));
-			rinfo->values = copyObject(loc_info->values);
 		}else
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg("unknown locator type %d", loc_info->locatorType)));
+					 errmsg("unknown locator type %d", loc_info->locatorType)));
 		}
 	}
 	return rinfo;
@@ -257,8 +245,6 @@ ReduceInfo *MakeReduceInfoUsingPathTarget(const RelationLocInfo *loc_info, const
 		break;
 	case LOCATOR_TYPE_HASH:
 	case LOCATOR_TYPE_MODULO:
-	case LOCATOR_TYPE_LIST:
-	case LOCATOR_TYPE_RANGE:
 		Assert(list_length(loc_info->keys) > 0);
 		rinfo = MakeEmptyReduceInfo(list_length(loc_info->keys));
 		rinfo->storage_nodes = list_copy(rnodes);
@@ -280,7 +266,6 @@ ReduceInfo *MakeReduceInfoUsingPathTarget(const RelationLocInfo *loc_info, const
 			bms_free(relids);
 			rinfo->keys[i].opclass = key->opclass;
 			rinfo->keys[i].opfamily = key->opfamily;
-			rinfo->keys[i].collation = key->collation;
 			++i;
 		}
 		switch(loc_info->locatorType)
@@ -290,16 +275,6 @@ ReduceInfo *MakeReduceInfoUsingPathTarget(const RelationLocInfo *loc_info, const
 			break;
 		case LOCATOR_TYPE_MODULO:
 			rinfo->type = REDUCE_TYPE_MODULO;
-			break;
-		case LOCATOR_TYPE_LIST:
-			Assert(list_length(loc_info->values) == list_length(loc_info->nodeids));
-			rinfo->values = copyObject(loc_info->values);
-			rinfo->type = REDUCE_TYPE_LIST;
-			break;
-		case LOCATOR_TYPE_RANGE:
-			Assert(list_length(loc_info->values) == list_length(loc_info->nodeids));
-			rinfo->values = copyObject(loc_info->values);
-			rinfo->type = REDUCE_TYPE_RANGE;
 			break;
 		default:
 			Assert(0);
@@ -1351,8 +1326,6 @@ ReduceInfo *CopyReduceInfoExtend(const ReduceInfo *reduce, int mark)
 				rinfo->keys[i].opclass = reduce->keys[i].opclass;
 			if (mark & REDUCE_MARK_OPFAMILY)
 				rinfo->keys[i].opfamily = reduce->keys[i].opfamily;
-			if (mark & REDUCE_MARK_COLLATION)
-				rinfo->keys[i].collation = reduce->keys[i].collation;
 		}
 	}
 
@@ -1413,9 +1386,6 @@ bool CompReduceInfo(const ReduceInfo *left, const ReduceInfo *right, int mark)
 				return false;
 			if ((mark & REDUCE_MARK_OPFAMILY) &&
 				left->keys[i].opfamily != right->keys[i].opfamily)
-				return false;
-			if ((mark & REDUCE_MARK_COLLATION) &&
-				left->keys[i].collation != right->keys[i].collation)
 				return false;
 		}
 	}
@@ -2382,19 +2352,6 @@ Expr *CreateExprUsingReduceInfo(ReduceInfo *reduce)
 	case REDUCE_TYPE_COORDINATOR:
 		Assert(IsCnMaster());
 		result = (Expr*) makeOidConst(PGXCNodeOid);
-		break;
-	case REDUCE_TYPE_LIST:
-		result = create_list_search_expr(reduce, reduce->keys[0].key);
-		break;
-	case REDUCE_TYPE_RANGE:
-		{
-			List *args = NIL;
-			uint32 i;
-			for (i=0;i<reduce->nkey;++i)
-				args = lappend(args, reduce->keys[i].key);
-			result = create_range_bsearch_expr(reduce, args);
-			list_free(args);
-		}
 		break;
 	default:
 		ereport(ERROR,

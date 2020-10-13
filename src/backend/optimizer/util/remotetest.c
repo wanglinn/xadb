@@ -301,43 +301,6 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 
 	context.relid = varno;
 	null_test_list = NIL;
-	if (loc_info->locatorType == LOCATOR_TYPE_LIST ||
-		loc_info->locatorType == LOCATOR_TYPE_RANGE)
-	{
-		Relation	rel;
-		ListCell   *lc;
-		PartitionKey part_key;
-		PartitionDesc part_desc;
-		PartitionScheme part_scheme;
-		List	   *clauses;
-		Bitmapset  *bms;
-
-		rel = table_open(loc_info->relid, NoLock);
-		part_key = RelationGenerateDistributeKeyFromLocInfo(rel, loc_info);
-		part_scheme = build_partschema_from_partkey(part_key);
-		part_desc = DistributeRelationGenerateDesc(part_key, loc_info->nodeids, loc_info->values);
-
-		if (IsA(quals, List))
-			clauses = (List*)quals;
-		else
-			clauses = list_make1(quals);
-		bms = prune_distribute_rel(varno, clauses, part_scheme, part_desc, part_key);
-		table_close(rel, NoLock);
-
-		result = NIL;
-		if (bms_is_empty(bms) == false)
-		{
-			i = 0;
-			MemoryContextSwitchTo(old_mctx);
-			foreach(lc, loc_info->nodeids)
-			{
-				if (bms_is_member(i, bms))
-					result = lappend_oid(result, lfirst_oid(lc));
-				++i;
-			}
-		}
-		goto end_test_;
-	}
 	if(IsLocatorDistributedByValue(loc_info->locatorType))
 	{
 		context.varattno = GetFirstLocAttNumIfOnlyOne(loc_info);
@@ -399,7 +362,6 @@ List *relation_remote_by_constraints_base(PlannerInfo *root, Node *quals, Relati
 		++i;
 	}
 
-end_test_:
 	MemoryContextSwitchTo(old_mctx);
 	MemoryContextDelete(main_mctx);
 	return result;

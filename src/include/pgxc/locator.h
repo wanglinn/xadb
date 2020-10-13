@@ -34,7 +34,6 @@ typedef struct LocatorKeyInfo
 	Expr	   *key;				/* not NULL when attno is 0, or NULL when attno is not 0 */
 	Oid			opclass;			/* operator class for key compare */
 	Oid			opfamily;			/* operator family from operator class */
-	Oid			collation;			/* user-specified collation */
 	AttrNumber	attno;				/* attribute number if key is column, or 0 when key is a exprssion */
 }LocatorKeyInfo;
 

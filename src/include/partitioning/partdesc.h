@@ -30,9 +30,6 @@ typedef struct PartitionDescData
 } PartitionDescData;
 
 extern void RelationBuildPartitionDesc(Relation rel);
-#ifdef ADB
-extern PartitionDesc DistributeRelationGenerateDesc(PartitionKey key, List *nodeoids, List *values);
-#endif /* ADB */
 
 extern PartitionDirectory CreatePartitionDirectory(MemoryContext mcxt);
 extern PartitionDesc PartitionDirectoryLookup(PartitionDirectory, Relation);

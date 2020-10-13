@@ -234,8 +234,6 @@ addDefaultDistributeByOfSingleInherit(CreateStmt *stmt)
 		case LOCATOR_TYPE_MODULO:
 			distby->colname = get_attname(relloc->relid, GetFirstLocAttNumIfOnlyOne(relloc), false);
 			break;
-		case LOCATOR_TYPE_RANGE:
-		case LOCATOR_TYPE_LIST:
 		case LOCATOR_TYPE_NONE:
 		case LOCATOR_TYPE_DISTRIBUTED:
 		default:
@@ -615,8 +613,6 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 				}
 				break;
 			case LOCATOR_TYPE_HASH:
-			case LOCATOR_TYPE_RANGE:
-			case LOCATOR_TYPE_LIST:
 			case LOCATOR_TYPE_NONE:
 			case LOCATOR_TYPE_DISTRIBUTED:
 				spec->strategy = pstrdup("hash");
@@ -4849,12 +4845,11 @@ static List *GetNodeIDListByUser()
 
 	return oidlist;
 }
-int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey key,
-							   PartitionSpec *spec, PGXCSubCluster *cluster, char loc_type,
-							   List **values, Oid **nodeoids)
+int transformDistributeCluster(ParseState *pstate, Relation rel, PGXCSubCluster *cluster,
+							   char loc_type, List **values, Oid **nodeoids)
 {
 	List			   *oidlist = NIL;
-	List			   *valuelist = NIL;	/* for LOCATOR_TYPE_LIST and LOCATOR_TYPE_RANGE */
+	List			   *valuelist = NIL;	/* for LOCATOR_TYPE_HASH */
 	ListCell		   *lc;
 	DefElem			   *def;
 	PartitionBoundSpec *bound;
@@ -4863,11 +4858,6 @@ int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey ke
 
 	if (cluster == NULL)
 	{
-		if (loc_type == LOCATOR_TYPE_LIST ||
-			loc_type == LOCATOR_TYPE_RANGE)
-		{
-			goto leak_node_info_;
-		}
 		if (strlen(default_user_group) == 0){
 			oidlist = GetAllDnIDL(true);
 		}
@@ -4883,11 +4873,6 @@ int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey ke
 		Oid	   *arr_nodeoids = NULL;
 		int		cnt_arr_oids;
 		Oid		groupoid;
-		if (loc_type == LOCATOR_TYPE_LIST ||
-			loc_type == LOCATOR_TYPE_RANGE)
-		{
-			goto leak_node_info_;
-		}
 		Assert(list_length(cluster->members) == 1);
 		def = linitial_node(DefElem, cluster->members);
 		groupoid = get_pgxc_groupoid(def->defname);
@@ -4915,8 +4900,13 @@ int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey ke
 		Assert(list_length(cluster->members) > 0);
 		if (cluster->modulus > 0)
 		{
-			*values = transformDistributeClusterHash(pstate, cluster, nodeoids);
-			return list_length(*values);
+			valuelist = transformDistributeClusterHash(pstate, cluster, nodeoids);
+			count = list_length(valuelist);
+			if (values)
+				*values = valuelist;
+			else
+				list_free_deep(valuelist);
+			return count;
 		}
 		foreach (lc, cluster->members)
 		{
@@ -4936,24 +4926,10 @@ int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey ke
 				goto dup_node_;
 			oidlist = lappend_oid(oidlist, oid);
 
-			if (loc_type == LOCATOR_TYPE_LIST)
-			{
-				if (bound == NULL)
-					goto leak_node_bound_;
-				Assert(key != NULL);
-				bound = transformPartitionBoundForKey(pstate, rel, bound, key);
-				valuelist = lappend(valuelist, bound->listdatums);
-			}else if (loc_type == LOCATOR_TYPE_RANGE)
-			{
-				if (bound == NULL)
-					goto leak_node_bound_;
-				Assert(key != NULL);
-				bound = transformPartitionBoundForKey(pstate, rel, bound, key);
-				valuelist = lappend(valuelist, list_make2(bound->lowerdatums, bound->upperdatums));
-			}else if (loc_type == LOCATOR_TYPE_REPLICATED ||
-					  loc_type == LOCATOR_TYPE_RANDOM ||
-					  loc_type == LOCATOR_TYPE_HASH ||
-					  loc_type == LOCATOR_TYPE_MODULO)
+			if (loc_type == LOCATOR_TYPE_REPLICATED ||
+				loc_type == LOCATOR_TYPE_RANDOM ||
+				loc_type == LOCATOR_TYPE_HASH ||
+				loc_type == LOCATOR_TYPE_MODULO)
 			{
 				if (bound)
 					goto excess_node_bound_;
@@ -4964,14 +4940,11 @@ int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey ke
 						 errmsg("unknown distribute type %d", loc_type)));
 			}
 		}
-#warning TODO check bound and sort list/range
 	}
 
 	count = list_length(oidlist);
 	if (cluster == NULL ||
 		cluster->clustertype == SUBCLUSTER_GROUP ||
-		loc_type == LOCATOR_TYPE_LIST ||
-		loc_type == LOCATOR_TYPE_RANGE ||
 		loc_type == LOCATOR_TYPE_REPLICATED ||
 		loc_type == LOCATOR_TYPE_RANDOM)
 	{
@@ -4992,25 +4965,6 @@ int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey ke
 		*values = valuelist;
 
 	return count;
-
-leak_node_info_:
-	if (spec)
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("distribute by %s must special node info", spec->strategy),
-				 parser_errposition(pstate, spec->location)));
-	else
-		ereport(ERROR,
-				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("must special node info")));
-	return 0;	/* never run, keep compiler quiet */
-
-leak_node_bound_:
-	ereport(ERROR,
-			(errcode(ERRCODE_SYNTAX_ERROR),
-			 errmsg("must special bound values"),
-			 parser_errposition(pstate, def->location)));
-	return 0;	/* never run, keep compiler quiet */
 
 excess_node_bound_:
 	ereport(ERROR,

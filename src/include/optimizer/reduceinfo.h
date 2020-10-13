@@ -6,8 +6,6 @@
 #define REDUCE_TYPE_NONE		'\0'
 #define REDUCE_TYPE_HASH		'H'
 #define REDUCE_TYPE_MODULO		'M'
-#define REDUCE_TYPE_LIST		'l'
-#define REDUCE_TYPE_RANGE		'r'
 #define REDUCE_TYPE_REPLICATED	'R'
 #define REDUCE_TYPE_RANDOM		'L'
 #define REDUCE_TYPE_COORDINATOR	'O'
@@ -16,9 +14,7 @@
 #define REDUCE_TYPE_GATHER		'G'
 #define IsReduceTypeByValue(t_)			\
 			((t_) == REDUCE_TYPE_HASH		|| \
-			 (t_) == REDUCE_TYPE_MODULO		|| \
-			 (t_) == REDUCE_TYPE_LIST		|| \
-			 (t_) == REDUCE_TYPE_RANGE)
+			 (t_) == REDUCE_TYPE_MODULO)
 #define IsReduceTypeNotByValue(t_)		\
 			((t_) == REDUCE_TYPE_REPLICATED	|| \
 			 (t_) == REDUCE_TYPE_RANDOM		|| \
@@ -30,23 +26,20 @@
 #define REDUCE_MARK_KEY_EXPR	0x0008
 #define REDUCE_MARK_OPCLASS		0x0010
 #define REDUCE_MARK_OPFAMILY	0x0020
-#define REDUCE_MARK_COLLATION	0x0040
-#define REDUCE_MARK_VALUES		0x0080
-#define REDUCE_MARK_RELIDS		0x0100
-#define REDUCE_MARK_TYPE		0x0200
+#define REDUCE_MARK_VALUES		0x0040
+#define REDUCE_MARK_RELIDS		0x0080
+#define REDUCE_MARK_TYPE		0x0100
 #define REDUCE_MARK_KEY_INFO		  \
 			(REDUCE_MARK_KEY_EXPR	| \
 			 REDUCE_MARK_OPCLASS	| \
-			 REDUCE_MARK_OPFAMILY	| \
-			 REDUCE_MARK_COLLATION)
+			 REDUCE_MARK_OPFAMILY)
 #define REDUCE_MARK_SAME			  \
 			(REDUCE_MARK_STORAGE	| \
 			 REDUCE_MARK_TYPE		| \
 			 REDUCE_MARK_VALUES		| \
 			 REDUCE_MARK_KEY_NUM	| \
 			 REDUCE_MARK_OPCLASS	| \
-			 REDUCE_MARK_OPFAMILY	| \
-			 REDUCE_MARK_COLLATION)
+			 REDUCE_MARK_OPFAMILY)
 #define REDUCE_MARK_NO_EXCLUDE		  \
 			(REDUCE_MARK_SAME		| \
 			 REDUCE_MARK_KEY_INFO	| \
@@ -58,7 +51,6 @@ typedef struct ReduceKeyInfo
 	Expr		   *key;					/* distribute key */
 	Oid				opclass;				/* operator class to compare */
 	Oid				opfamily;				/* operator family from opclass */
-	Oid				collation;				/* user-specified collation */
 }ReduceKeyInfo;
 
 typedef struct ReduceInfo
@@ -257,9 +249,5 @@ extern bool EqualReduceExpr(Expr *left, Expr *right);
 /* in outobject.c */
 extern char *printReduceInfo(ReduceInfo *rinfo);
 extern char *printReduceInfoList(List *list);
-
-/* in leafsearch.c */
-extern Expr* create_list_search_expr(ReduceInfo *rinfo, Expr *search);
-extern Expr* create_range_bsearch_expr(ReduceInfo *rinfo, List *search);
 
 #endif /* REDUCEINFO_H */

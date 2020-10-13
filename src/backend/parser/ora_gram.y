@@ -1900,18 +1900,6 @@ SubClusterNodeElem:
 
 				$$ = makeDefElem($1, (Node*)n, @1);
 			}
-		| pgxcnode_name FOR VALUES FROM '(' a_expr ')' TO '(' a_expr ')'
-			{
-				PartitionBoundSpec *n = makeNode(PartitionBoundSpec);
-
-				n->strategy = PARTITION_STRATEGY_RANGE;
-				n->is_default = false;
-				n->lowerdatums = list_make1($6);
-				n->upperdatums = list_make1($10);
-				n->location = @4;
-
-				$$ = makeDefElem($1, (Node*)n, @1);
-			}
 		;
 
 SubClusterNodeList:

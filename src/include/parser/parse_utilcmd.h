@@ -32,9 +32,8 @@ extern IndexStmt *generateClonedIndexStmt(RangeVar *heapRel,
 										  const AttrNumber *attmap, int attmap_length,
 										  Oid *constraintOid);
 #ifdef ADB
-extern int transformDistributeCluster(ParseState *pstate, Relation rel, PartitionKey key,
-									  PartitionSpec *spec, PGXCSubCluster *cluster, char loc_type,
-									  List **values, Oid **nodeoids);
+extern int transformDistributeCluster(ParseState *pstate, Relation rel, PGXCSubCluster *cluster,
+									  char loc_type, List **values, Oid **nodeoids);
 #endif /* ADB */
 
 #endif							/* PARSE_UTILCMD_H */

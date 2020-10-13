@@ -313,8 +313,7 @@ IsLocatorInfoEqual(const RelationLocInfo *a, const RelationLocInfo *b)
 		LocatorKeyInfo *l = lfirst(lc1);
 		LocatorKeyInfo *r = lfirst(lc2);
 		if (l->opclass != r->opclass ||
-			l->opfamily != r->opfamily ||
-			l->collation != r->collation)
+			l->opfamily != r->opfamily)
 			return false;
 		if (equal(l->key, r->key) == false)
 			return false;
@@ -648,8 +647,6 @@ RelationIdBuildLocator(Oid relid)
 	switch(relationLocInfo->locatorType)
 	{
 	case LOCATOR_TYPE_HASH:
-	case LOCATOR_TYPE_LIST:
-	case LOCATOR_TYPE_RANGE:
 	case LOCATOR_TYPE_MODULO:
 		{
 			List		   *exprs = NIL;
@@ -657,7 +654,6 @@ RelationIdBuildLocator(Oid relid)
 			LocatorKeyInfo *key;
 			int2vector	   *attr_array;
 			oidvector	   *class_array;
-			oidvector	   *collation_array = NULL;
 			char		   *str;
 
 			attr_array = GetPGXCClassAttr(htup, Anum_pgxc_class_pcattrs, RelationGetDescr(pcrel), false, relid);
@@ -684,32 +680,6 @@ RelationIdBuildLocator(Oid relid)
 				pfree(str);
 			}
 
-			if (relationLocInfo->locatorType == LOCATOR_TYPE_LIST ||
-				relationLocInfo->locatorType == LOCATOR_TYPE_RANGE)
-			{
-				txt = GetPGXCClassAttr(htup, Anum_pgxc_class_pcvalues, RelationGetDescr(pcrel), false, relid);
-				str = text_to_cstring(txt);
-				relationLocInfo->values = stringToNode(str);
-				if (!IsA(relationLocInfo->values, List) ||
-					list_length(relationLocInfo->values) != pgxc_class->nodeoids.dim1)
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_DATA_CORRUPTED),
-							 errmsg("invalid column(%d) data for pgxc_class(%u)",
-									Anum_pgxc_class_pcvalues, relid)));
-				}
-				pfree(str);
-
-				collation_array = GetPGXCClassAttr(htup, Anum_pgxc_class_pccollation, RelationGetDescr(pcrel), false, relid);
-				if (class_array->dim1 != attr_array->dim1)
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_DATA_CORRUPTED),
-							 errmsg("invalid column(%d) data for pgxc_class(%u)",
-									Anum_pgxc_class_pccollation, relid)));
-				}
-			}
-
 			for (j=0;j<attr_array->dim1;++j)
 			{
 				key = palloc0(sizeof(*key));
@@ -726,31 +696,7 @@ RelationIdBuildLocator(Oid relid)
 				}
 				key->opclass = class_array->values[j];
 				key->opfamily = get_opclass_family(key->opclass);
-				if (collation_array)
-					key->collation = collation_array->values[j];
-				else
-					key->collation = InvalidOid;
 				relationLocInfo->keys = lappend(relationLocInfo->keys, key);
-			}
-
-			if (relationLocInfo->locatorType == LOCATOR_TYPE_LIST ||
-				relationLocInfo->locatorType == LOCATOR_TYPE_RANGE)
-			{
-				txt = GetPGXCClassAttr(htup,
-									   Anum_pgxc_class_pcvalues,
-									   RelationGetDescr(pcrel),
-									   false,
-									   relid);
-				str = text_to_cstring(txt);
-				relationLocInfo->values = stringToNode(str);
-				pfree(str);
-				if (!IsA(relationLocInfo->values, List))
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_DATA_CORRUPTED),
-							 errmsg("invalid column(%d) data for pgxc_class(%u)",
-									Anum_pgxc_class_pcvalues, relid)));
-				}
 			}
 		}
 		break;
@@ -830,18 +776,6 @@ RelationIdBuildLocator(Oid relid)
 
 		if (enable_readsql_on_slave && sql_readonly == SQLTYPE_READ)
 			relationLocInfo->nodeids = relationLocInfo->slavenodeids;
-	}
-
-	if (relationLocInfo->locatorType == LOCATOR_TYPE_LIST ||
-		relationLocInfo->locatorType == LOCATOR_TYPE_RANGE)
-	{
-		if (list_length(relationLocInfo->values) != list_length(relationLocInfo->nodeids))
-		{
-			ereport(ERROR,
-					(errcode(ERRCODE_DATA_CORRUPTED),
-					 errmsg("pgxc_class(%u) attribute %d and %d element count not same",
-					 		relid, Anum_pgxc_class_nodeoids, Anum_pgxc_class_pcvalues)));
-		}
 	}
 
 	systable_endscan(pcscan);
