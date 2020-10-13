@@ -1,9 +1,9 @@
 <!--
-doc/src/sgml/ref/mgr_rewind_gtm.sgml
+doc/src/sgml/ref/mgr_rewind_coord.sgml
 ADB documentation
 -->
 
-<refentry id="MGR-REWINDGTM">
+<refentry id="mgr-rewindcoord">
   <refmeta>
     <refentrytitle>REWIND COORDINATOR</refentrytitle>
     <manvolnum>7</manvolnum>
@@ -12,10 +12,10 @@ ADB documentation
 
   <refnamediv>
     <refname>REWIND COORDINATOR</refname>
-    <refpurpose>rewind coordinator slave</refpurpose>
+    <refpurpose>rewind COORDINATOR slave</refpurpose>
   </refnamediv>
 
-  <indexterm zone="mgr-rewindcoordinator">
+  <indexterm zone="mgr-rewindcoord">
     <primary>REWIND COORDINATOR</primary>
   </indexterm>
 
@@ -29,7 +29,7 @@ REWIND COORDINATOR SLAVE { <replaceable class="parameter">node_name</replaceable
     <title>Description</title>
 
     <para>
-<command>REWIND COORDINATOR</command> rewind coordinator slave.
+<command>REWIND COORDINATOR</command> rewind COORDINATOR slave.
 </para>
   </refsect1>
   <refsect1>
@@ -52,8 +52,8 @@ REWIND COORDINATOR SLAVE { <replaceable class="parameter">node_name</replaceable
     <title>Examples</title>
 
     <para>
-Rewind coordinator slave cn_0:
-      <programlisting>REWIND COORDINATOR SLAVE gtm1;</programlisting>
+Rewind COORDINATOR slave coord1:
+      <programlisting>REWIND COORDINATOR SLAVE coord1;</programlisting>
     </para>
   </refsect1>
       <refsect1>
