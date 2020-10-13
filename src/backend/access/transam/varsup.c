@@ -416,7 +416,7 @@ GetNewGlobalTransactionId(int level)
 FullTransactionId
 GetNewTransactionId(bool isSubXact)
 {
-#ifdef ADB_EXT
+#ifdef ADB
 	return GetNewTransactionIdExt(isSubXact, 1, true, true);
 }
 FullTransactionId GetNewTransactionIdExt(bool isSubXact, int xidnum, bool isInsertXact, bool isNeedAssign)
