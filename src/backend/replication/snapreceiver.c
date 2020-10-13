@@ -544,7 +544,7 @@ static void SnapRcvMainProcess(void)
 static List*
 SnapRcvSendInitSyncXid(void)
 {
-	List			*xid_list;
+	List			*xid_list = NIL;
 	List			*rxact_list = NIL;
 	ListCell		*lc;
 	TransactionId	xid;
@@ -553,15 +553,22 @@ SnapRcvSendInitSyncXid(void)
 	char			buf[128];
 	char			*str;
 
-	xid_list = GetPreparedXidList();
-
-	/* for coordinator get all left two-phase xid*/
-	if (IsCnNode() && !RecoveryInProgress())
+	/* for slave node, there is no need sync left xid */
+	if (!RecoveryInProgress())
 	{
-		rxact_list = RxactGetRunningList();
-		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid RxactGetRunningList list len %d\n",
-			 			list_length(rxact_list))));
+		xid_list = GetPreparedXidList();
+
+		/* for coordinator get all left two-phase xid*/
+		if (IsCnNode())
+		{
+			rxact_list = RxactGetRunningList();
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid RxactGetRunningList list len %d\n",
+										list_length(rxact_list))));
+		}
 	}
+	else
+		return left_xid_str;
+	
 
 	SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid GetPreparedXidList xid_list len %d\n",
 			 			list_length(xid_list))));

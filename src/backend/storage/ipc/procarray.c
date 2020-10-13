@@ -4441,8 +4441,21 @@ void SerializeActiveTransactionIds(StringInfo buf)
 
 	pq_sendint32(buf, latestCompletedXid);
 	for(i=0;i<count;++i)
-		pq_sendint32(buf, xids[i]);
-	
+	{
+		bool found = false;
+		for (index = 0; index < ss_cnt_assign; index++)
+		{
+			if (ss_xid_assgin[index] == xids[i])
+			{
+				found = true;
+				break;
+			}
+		}
+
+		if (!found)
+			pq_sendint32(buf, xids[i]);
+	}
+
 	SerializeFullAssignXid(xids, count, gs_xip, gs_cnt_assign, ss_xid_assgin, ss_cnt_assign,
 						ss_xid_finish, ss_cnt_finish, buf);
 
