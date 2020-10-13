@@ -108,6 +108,9 @@ DECLARE_TOAST(pg_shseclabel, 4060, 4061);
 DECLARE_TOAST(adb_clean, 9321, 9117);
 #define AdbCleanToastTable 9321
 #define AdbCleanToastIndex 9117
+DECLARE_TOAST(pgxc_class, 9126, 9127);
+#define PgxcClassToastTable 9126
+#define PgxcClassToastIndex 9127
 #endif /* ADB */
 DECLARE_TOAST(pg_subscription, 4183, 4184);
 #define PgSubscriptionToastTable 4183
