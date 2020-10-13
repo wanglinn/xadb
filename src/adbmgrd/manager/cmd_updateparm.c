@@ -37,6 +37,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include "utils/formatting.h"
 
 #if (Natts_mgr_updateparm != 4)
 #error "need change code"
@@ -59,6 +60,7 @@ static int namestrcpylocal(NameLocal name, const char *str);
 static char *mgr_get_value_in_updateparm(Relation rel_node, HeapTuple tuple);
 static bool mgr_check_set_value_format(char *keyname, char *keyvalue, int level);
 static int mgr_find_char_num(char *str, char checkValue);
+static void ChangeKBG2Int(Name key, NameDataLocal *value, Name parmunit);
 
 /*if the parmeter in gtm or coordinator or datanode pg_settins, the nodetype in mgr_parm is '*'
  , if the parmeter in coordinator or datanode pg_settings, the nodetype in mgr_parm is '#'
@@ -109,6 +111,10 @@ static bool mgr_parm_enum_lookup_by_name(char *value, StringInfo valuelist);
 static void mgr_string_add_single_quota(NameLocal value);
 static char *mgr_get_archive_value(MemoryContext spiContext, char *nodeName, char nodeType);
 static void mgr_split_archive_val(char *arhciveVal, char *flag, char *val);
+static bool IsKBGParm(char *parmName);
+static void ParamhasKBG(char *parmName, char *value);
+static void GetParmUnit(Name parmunit, int64 *parmNum, char *parmOut);
+static void SetKeyVal(Relation noderel, char parmtype, Name key, NameLocal value, bool bneednotice);
 
 /*
 * for command: set {datanode|coordinaotr}  {master|slave} {nodename|ALL} {key1=value1,key2=value2...} ,
@@ -325,46 +331,54 @@ static void mgr_add_givenname_updateparm(MGRUpdateparm *parm_node, Name nodename
 			/* allow whitespace between integer and unit */
 			if (PGC_INT == vartype)
 			{
-				/*check the value not include empty space*/
-				pvalue=strchr(value.data, ' ');
-				if (pvalue != NULL)
+				if (IsKBGParm(key.data))
 				{
-					pvalue = value.data;
-					ipoint = 0;
-					/*skip head space*/
-					while (isspace((unsigned char) *pvalue))
+					ParamhasKBG(key.data, value.data);
+					ChangeKBG2Int(&key, &value, &parmunit);
+				}
+				else
+				{
+					/*check the value not include empty space*/
+					pvalue=strchr(value.data, ' ');
+					if (pvalue != NULL)
 					{
-						pvalue++;
-					}
-					while(*pvalue != '\0' && *pvalue != ' ')
-					{
-						valuetmp.data[ipoint] = *pvalue;
-						ipoint++;
-						pvalue++;
-					}
-					/*skip the space between value and unit*/
-					while (isspace((unsigned char) *pvalue))
-					{
-						pvalue++;
-					}
-					if (*pvalue < '0' || *pvalue > '9')
-					{
-						/*get the unit*/
+						pvalue = value.data;
+						ipoint = 0;
+						/*skip head space*/
+						while (isspace((unsigned char) *pvalue))
+						{
+							pvalue++;
+						}
 						while(*pvalue != '\0' && *pvalue != ' ')
 						{
 							valuetmp.data[ipoint] = *pvalue;
 							ipoint++;
 							pvalue++;
 						}
-						/*skip the space after unit*/
+						/*skip the space between value and unit*/
 						while (isspace((unsigned char) *pvalue))
 						{
 							pvalue++;
 						}
-						if ('\0' == *pvalue)
+						if (*pvalue < '0' || *pvalue > '9')
 						{
-							valuetmp.data[ipoint]='\0';
-							namestrcpylocal(&value, valuetmp.data);
+							/*get the unit*/
+							while(*pvalue != '\0' && *pvalue != ' ')
+							{
+								valuetmp.data[ipoint] = *pvalue;
+								ipoint++;
+								pvalue++;
+							}
+							/*skip the space after unit*/
+							while (isspace((unsigned char) *pvalue))
+							{
+								pvalue++;
+							}
+							if ('\0' == *pvalue)
+							{
+								valuetmp.data[ipoint]='\0';
+								namestrcpylocal(&value, valuetmp.data);
+							}
 						}
 					}
 				}
@@ -414,7 +428,11 @@ static void mgr_add_givenname_updateparm(MGRUpdateparm *parm_node, Name nodename
 	{
 		key_value = (struct keyvalue *)(lfirst(cell));
 		namestrcpy(&key, key_value->key);
-		namestrcpylocal(&value, key_value->value);
+		if (IsKBGParm(key.data))
+			SetKeyVal(rel_parm, parmtype, &key, &value, bneednotice);
+		else
+			namestrcpylocal(&value, key_value->value);
+		
 		/*add key, value to send string*/
 		mgr_append_pgconf_paras_str_str(key.data, value.data, &paramstrdata);
 		/*check the parm exists already in mgr_updateparm systbl*/
@@ -2830,4 +2848,147 @@ void mgr_get_archive_modeval(char *nodeName, char nodeType, char *val)
 		SPI_finish();	
 		PG_RE_THROW();
 	}PG_END_TRY();
+}
+static void ChangeKBG2IntFunc(char *result, char *flag, int32 expand, int32 parmNum, NameDataLocal *value)
+{
+	char   		*pBegin = NULL;
+	NameData 	num;
+	int64       src = 0;
+	int64       dest = 0;
+
+	if ((pBegin = strstr(result, flag)) != NULL)
+	{
+		*pBegin = '\0';
+		namestrcpy(&num, result);
+		src = strtoul(NameStr(num), NULL, 10);
+		dest = (src * expand) / parmNum;
+		MemSet(value->data, 0, NAMEDATALEN_LOCAL);
+		sprintf(value->data, "%ld", dest);
+	}
+}
+static void ChangeKBG2Int(Name key, NameDataLocal *value, Name parmunit)
+{
+	char	*result = NULL;
+	int64  	parmNum = 0;
+	char    basicParmUnit[8] = {0};
+	CheckNull(value);	
+
+	result = asc_toupper(value->data, strlen(value->data));
+	GetParmUnit(parmunit, &parmNum, basicParmUnit);
+    
+	ChangeKBG2IntFunc(result, "KB", 1024, parmNum, value);
+	ChangeKBG2IntFunc(result, "MB", 1024*1024, parmNum, value);
+	ChangeKBG2IntFunc(result, "GB", 1024*1024*1024, parmNum, value);
+	
+	MgrFree(result);
+}
+
+static bool IsKBGParm(char *parmName)
+{
+	int i = 0;
+	struct KBGParmName
+	{
+		char name[64];
+	} KBGParmNames[] = {{"shared_buffers"}, 
+						{"effective_cache_size"}, 
+						{"log_rotation_size"}, 
+						{"maintenance_work_mem"}, 
+						{"max_wal_size"}, 
+						{"min_wal_size"}};
+    for (i=0; i<sizeof(KBGParmNames)/sizeof(KBGParmNames[0]); i++)
+	{
+		if (0 == pg_strcasecmp(parmName, KBGParmNames[i].name))
+			return true;
+	}
+	return false;
+}
+static void ParamhasKBG(char *parmName, char *value)
+{
+	if ((strstr(value, "KB") == NULL) &&
+		(strstr(value, "MB") == NULL) &&
+		(strstr(value, "GB") == NULL))
+		ereport(ERROR, (errmsg("the parm %s can only support parmunit of 'KB', 'MB', 'GB', like 256KB, 80MB, 2GB.", parmName)));
+	
+}
+static void GetParmUnit(Name parmunit, int64 *parmNum, char *parmOut)
+{
+	char   		*pBegin = NULL;
+	NameData 	num;
+	char        *pramIn = asc_toupper(parmunit->data, strlen(parmunit->data));
+
+	if ((pBegin = strstr(pramIn, "KB")) != NULL)
+	{
+		strcpy(parmOut, "KB");
+		*pBegin = '\0';
+		namestrcpy(&num, pramIn);
+		*parmNum  = strtoul(NameStr(num), NULL, 10);
+		if (*parmNum == 0)
+			*parmNum = 1;
+		*parmNum = *parmNum * 1024;		
+	}
+	else if ((pBegin = strstr(pramIn, "MB")) != NULL)
+	{
+		strcpy(parmOut, "MB");
+		*pBegin = '\0';
+		namestrcpy(&num, pramIn);
+		*parmNum = strtoul(NameStr(num), NULL, 10);
+		if (*parmNum == 0)
+			*parmNum = 1;
+		*parmNum = *parmNum * 1024 * 1024;		
+	}
+	else if ((pBegin = strstr(pramIn, "GB")) != NULL)
+	{
+		strcpy(parmOut, "GB");
+		*pBegin = '\0';
+		namestrcpy(&num, pramIn);
+		*parmNum = strtoul(NameStr(num), NULL, 10);
+		if (*parmNum == 0)
+			*parmNum = 1;
+		*parmNum = *parmNum * 1024 * 1024 * 1024;
+	}
+}
+static void SetKeyVal(Relation noderel, char parmtype, Name key, NameLocal value, bool bneednotice)
+{
+	NameDataLocal defaultvalue;
+	NameData parmunit;
+	NameData parmmin;
+	NameData parmmax;
+	StringInfoData enumvalue;
+	int effectparmstatus;
+	int vartype; 
+	int32 tmpVal = 0;
+	int64 parmNum = 0;
+	char    basicParmUnit[8] = {0};
+	char    *tmpUnit = NULL;
+	int64     total = 0;
+
+    initStringInfo(&enumvalue);
+	mgr_check_parm_in_pgconf(noderel, parmtype, key, &defaultvalue, &vartype, &parmunit
+				, &parmmin, &parmmax, &effectparmstatus, &enumvalue, bneednotice, ERROR);
+
+	tmpVal = strtoul(value->data, NULL, 10);
+	GetParmUnit(&parmunit, &parmNum, basicParmUnit);
+	total = tmpVal * (parmNum/1024);
+
+	tmpUnit = asc_toupper(basicParmUnit, strlen(basicParmUnit));
+	if (0 == pg_strcasecmp("KB", tmpUnit))
+	{
+		if (1024 < total && total <=  1024*1024 && total%1024 == 0)
+			sprintf(value->data, "%ld%s", total/1024, "MB");
+		else if (1024*1024 < total && total <=  1024*1024*1024 && total%(1024*1024) == 0)
+			sprintf(value->data, "%ld%s", total/(1024*1024), "GB");
+		else
+			sprintf(value->data, "%ld%s", total, "KB");
+	}
+	else if (0 == pg_strcasecmp("MB", tmpUnit))
+	{
+		if (1024*1024 < total && total%1024 == 0)
+			sprintf(value->data, "%ld%s", total/(1024*1024), "GB");
+		else
+			sprintf(value->data, "%ld%s", total/1024, "MB");
+	}
+	else if (0 == pg_strcasecmp("GB", tmpUnit))
+	{
+		sprintf(value->data, "%ld%s", total/(1024*1024), "GB");
+	}
 }
