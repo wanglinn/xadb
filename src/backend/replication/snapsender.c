@@ -222,30 +222,34 @@ static void SnapSenderTransferCnClientToFailledList(SnapClientData *client)
 			SnapCnData->cur_cnt = client->cur_cnt;
 			memcpy(SnapCnData->client_name, client->client_name, NAMEDATALEN);
 			SnapCnData->xid = palloc(client->cur_cnt * sizeof(TransactionId));
-			memcpy(SnapCnData->xid, client->xid, SnapCnData->cur_cnt);
+			memcpy(SnapCnData->xid, client->xid, sizeof(client->xid[0]) * (SnapCnData->cur_cnt));
 			slist_push_head(&slist_cn_failed_client, &SnapCnData->snode);
 		}
 	}
 }
 
-static void SnapSenderRecoveryXidListFromCnFailledList(SnapClientData *client)
+static bool SnapSenderRecoveryXidListFromCnFailledList(SnapClientData *client)
 {
 	slist_mutable_iter		siter;
 	SnapCnClientHoldData	*SnapCnData;
+	bool					ret = false;
 
 	slist_foreach_modify(siter, &slist_cn_failed_client)
 	{
 		SnapCnData = slist_container(SnapCnClientHoldData, snode, siter.cur);
 		if(!strcasecmp(SnapCnData->client_name, client->client_name))
 		{
-			memcpy(client->xid, SnapCnData->xid, SnapCnData->cur_cnt);
+			memcpy(client->xid, SnapCnData->xid, sizeof(SnapCnData->xid[0]) * (SnapCnData->cur_cnt));
 			client->cur_cnt = SnapCnData->cur_cnt;
 			slist_delete(&slist_cn_failed_client, &SnapCnData->snode);
 			pfree(SnapCnData->xid);
 			pfree(SnapCnData);
+			ret = true;
 			break;
 		}
 	}
+
+	return ret;
 }
 
 static void SnapSenderDie(int code, Datum arg)
@@ -1461,11 +1465,11 @@ void SerializeFullAssignXid(TransactionId *xids, uint32 cnt, TransactionId *gs_x
 {
 	int index,i,xid_num;
 	TransactionId xid;
-	TransactionId *xid_array;
+	TransactionId *xid_array_sync;
 	bool	skip, add_finish;
 
 	xid_num = 0;
-	xid_array = palloc0(sizeof(TransactionId) * (gs_cnt+ss_cnt+sf_cnt));
+	xid_array_sync = palloc0(sizeof(TransactionId) * (gs_cnt+ss_cnt+sf_cnt));
 	/* get all Transaction IDs */
 	for (index = 0; index < gs_cnt; ++index)
 	{
@@ -1518,7 +1522,7 @@ void SerializeFullAssignXid(TransactionId *xids, uint32 cnt, TransactionId *gs_x
 		pq_sendint32(buf, xid);
 		Assert(TransactionIdIsNormal(xid));
 		SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add assign xid %u\n", xid)));
-		xid_array[xid_num++] = xid;
+		xid_array_sync[xid_num++] = xid;
 	}
 
 	for (i = 0; i < sf_cnt; ++i)
@@ -1552,7 +1556,7 @@ void SerializeFullAssignXid(TransactionId *xids, uint32 cnt, TransactionId *gs_x
 			pq_sendint32(buf, xid);
 			Assert(TransactionIdIsNormal(xid));
 			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add finish xid %u\n", xid)));
-			xid_array[xid_num++] = xid;
+			xid_array_sync[xid_num++] = xid;
 		}
 	}
 
@@ -1562,12 +1566,29 @@ void SerializeFullAssignXid(TransactionId *xids, uint32 cnt, TransactionId *gs_x
 		skip = false;
 		for (index = 0; index < xid_num; index++)
 		{
-			if (xid_array[index] == xid)
+			if (xid_array_sync[index] == xid)
 			{
 				skip = true;
 				break;
 			}
 		}
+
+		/* continue check xids list*/
+		if (!skip)
+		{
+			for (index = 0; index < cnt ; index ++)
+			{
+				if (xid == xids[index])
+				{
+					skip = true;
+					break;
+				}
+			}
+
+			if (skip)
+				continue;
+		}
+
 		if (skip == false)
 		{
 			pq_sendint32(buf, xid);
@@ -1575,7 +1596,7 @@ void SerializeFullAssignXid(TransactionId *xids, uint32 cnt, TransactionId *gs_x
 			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add xid_array xid %u\n", xid)));
 		}
 	}
-	pfree(xid_array);
+	pfree(xid_array_sync);
 }
 
 static bool snapsenderGetIsCnConn(SnapClientData *client)
@@ -1820,56 +1841,13 @@ re_lock_:
 static void 
 SnapSenderDropXidList(SnapClientData *client, const TransactionId *cn_txids, const int txids_count)
 {
-	TransactionId			*xids;
 	TransactionId			*xids_assign;
 	int						xids_assign_count;
-	int						i, count, index;
+	int						i, index;
 	bool					found, array_found;
 	TransactionId			xid;
-
-	/* CASE 1, client->xid(server reserve) has xid, but init sync has no this xid*/
-	if (client->cur_cnt != 0)
-	{
-		xids = palloc0(client->cur_cnt * sizeof(TransactionId));
-		i = 0;
-		count = 0;
-
-		for (i = 0 ; i < client->cur_cnt; i++)
-		{
-			found = false;
-			xid = client->xid[i];
-			for (index = 0 ;index < txids_count; index++)
-			{
-				if (xid == cn_txids[index])
-				{
-					found = true;
-					break;
-				}
-			}
-
-			/* when snapsender hold the xid, but client has no this xid sync, we should finish it*/
-			if (found == false)
-			{
-				SnapSenderClientRemoveXid(client, xid);
-				xids[count++] = xid;
-			}
-		}
-		
-		SpinLockAcquire(&SnapSender->gxid_mutex);
-		for (i = 0; i < count; i++)
-		{
-			SnapSenderDropXidItem(xids[i]);
-		}
-		SpinLockRelease(&SnapSender->gxid_mutex);
-
-		for (i = 0; i < count; i++)
-		{
-			//SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, xids[i]);
-			SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_FINISH, xids[i]);
-			SnapReleaseTransactionLocks(&SnapSender->comm_lock, xids[i]);
-		}
-		pfree(xids);
-	}
+	slist_iter				siter;
+	SnapClientData			*client_item;
 
 	xids_assign_count = 0;
 	if (txids_count > 0)
@@ -1882,12 +1860,35 @@ SnapSenderDropXidList(SnapClientData *client, const TransactionId *cn_txids, con
 	{
 		found = false;
 		xid = cn_txids[index];
-		for (i = 0 ; i < client->cur_cnt; i++)
+
+		/* when append for coordinator, new coordinator will repost the xids which are not from this client. */
+		/* we check the other client first */
+		slist_foreach(siter, &slist_all_client)
 		{
-			if (client->xid[i] == xid)
+			client_item = slist_container(SnapClientData, snode, siter.cur);
+			if (client_item != client)
 			{
-				found = true;
-				break;
+				for (i = 0 ; i < client_item->cur_cnt; i++)
+				{
+					if (client_item->xid[i] == xid)
+					{
+						found = true;
+						break;
+					}
+				}
+			}
+		}
+
+		/* check local cient */
+		if (found == false)
+		{
+			for (i = 0 ; i < client->cur_cnt; i++)
+			{
+				if (client->xid[i] == xid)
+				{
+					found = true;
+					break;
+				}
 			}
 		}
 
@@ -2061,6 +2062,19 @@ static void SnapSenderProcessInitSyncRequest(SnapClientData *client, char* xid_l
 					break;
 				}
 			}
+
+			if (!found)
+			{
+				for (index = 0; index <SnapSender->gtmc_xcnt; index++)
+				{
+					if (SnapSender->gtmc_xip[index] == xid_2pc_array[i])
+					{
+						found = true;
+						break;
+					}
+				}
+			}
+
 			if (!found)
 			{
 				SnapSender->xip[SnapSender->xcnt++] = xid_2pc_array[i];
@@ -2096,8 +2110,6 @@ static void SnapSenderCheckOldClientList(SnapClientData *client)
 			pq_get_socket(client_item->node) != pq_get_socket(client->node))
 		{
 			SnapSenderTransferCnClientToFailledList(client_item);
-			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderCheckOldClientList drop old clientname %s\n",
-			 			client_item->client_name)));
 			slist_delete_current(&siter);
 		}
 	}
