@@ -51,8 +51,7 @@
 #include "pgxc/pgxc.h"
 #include "replication/snapreceiver.h"
 #include "replication/snapsender.h"
-#include "replication/gxidsender.h"
-#include "replication/gxidreceiver.h"
+
 #endif
 #if defined(ADBMGRD)
 #include "postmaster/adbmonitor.h"
@@ -164,15 +163,9 @@ CreateSharedMemoryAndSemaphores(int port)
 		size = add_size(size, AsyncShmemSize());
 #ifdef ADB
 		if (IsGTMNode())
-		{
 			size = add_size(size, SnapSenderShmemSize());
-			size = add_size(size, GxidSenderShmemSize());
-		}
 		else
-		{
 			size = add_size(size, SnapRcvShmemSize());
-			size = add_size(size, GxidRcvShmemSize());
-		}
 			
 		if (IS_PGXC_COORDINATOR)
 			size = add_size(size, ClusterLockShmemSize());
@@ -301,15 +294,9 @@ CreateSharedMemoryAndSemaphores(int port)
 
 #ifdef ADB
 	if (IsGTMNode())
-	{
 		SnapSenderShmemInit();
-		GxidSenderShmemInit();
-	}
 	else
-	{
 		SnapRcvShmemInit();
-		GxidRcvShmemInit();
-	}
 	
 	if (IS_PGXC_COORDINATOR)
 		ClusterLockShmemInit();

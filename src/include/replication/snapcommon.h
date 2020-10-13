@@ -42,6 +42,7 @@ typedef struct SnapLockIvdInfo
 	/* SnapHoldLock [FLEXIBLE_ARRAY_MEMBER] in the end of struct*/
 }SnapLockIvdInfo;
 
+#define	MAX_CNT_SHMEM_XID_BUF	1024
 //#define FORCE_SNAP_DEBUG 1
 #ifdef SNAP_FORCE_DEBUG_LOG
 #define SNAP_FORCE_DEBUG_LOG(rest) ereport_domain(LOG, PG_TEXTDOMAIN("SnapForce"), rest)
@@ -77,4 +78,8 @@ extern void SnapReleaseSnapshotTxidLocks(SnapCommonLock *comm_lock, TransactionI
 				uint32 count, TransactionId lastxid);
 extern void SnapReleaseAllTxidLocks(SnapCommonLock *comm_lock);
 extern dsa_area* SnapGetLockArea(SnapCommonLock *comm_lock);
+void WaitSnapCommonShmemSpace(volatile slock_t *mutex,
+								   volatile uint32 *cur,
+								   proclist_head *waiters,
+								   bool is_snapsender);
 #endif							/* SNAP_RECEIVER_H_ */

@@ -262,7 +262,6 @@ extern double vacuum_cleanup_index_scale_factor;
 
 #ifdef ADB
 extern bool useLocalXid;
-extern int	socket_gxid_pair[2];
 extern int	socket_snap_pair[2];
 extern bool isNeedAbortAnyTrans;
 extern int	snap_debug_level;
@@ -415,8 +414,6 @@ typedef enum
 	RemoteXactMgrProcess,
 	SnapSenderProcess,
 	SnapReceiverProcess,
-	GxidSenderProcess,
-	GxidReceiverProcess,
 #endif
 	NUM_AUXPROCTYPES			/* Must be last! */
 } AuxProcType;

@@ -82,8 +82,6 @@
 #include "replication/snapreceiver.h"
 #include "replication/snapsender.h"
 #include "replication/snapcommon.h"
-#include "replication/gxidreceiver.h"
-#include "replication/gxidsender.h"
 #endif
 #ifdef ADBMGRD
 extern bool readonlySqlSlaveInfoRefreshFlag;
@@ -2730,7 +2728,7 @@ CommitTransaction(void)
 		if (!IsGTMNode())
 			SnapRcvTransferLock(&param, latestXid, MyProc);
 		else if (IsConnFromCoord())
-			GxidSenderTransferLock(&param, latestXid, MyProc);
+			SnapSenderTransferLock(&param, latestXid, MyProc);
 
 		SnapEndTransferLockIvdMsg(&param);
 	}

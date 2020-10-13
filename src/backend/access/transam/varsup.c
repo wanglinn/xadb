@@ -25,6 +25,7 @@
 #include "storage/pmsignal.h"
 #include "storage/proc.h"
 #include "utils/syscache.h"
+#include "replication/snapreceiver.h"
 
 #ifdef ADB
 #include "agtm/agtm.h"
@@ -34,8 +35,6 @@
 #include "executor/execCluster.h"		/* for in_cluster_mode */
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
-#include "replication/gxidreceiver.h"
-#include "replication/gxidsender.h"
 #include "replication/snapsender.h"
 
 /*
@@ -102,7 +101,7 @@ ObtainGlobalTransactionId(bool isSubXact)
 	if (IsCnMaster())
 	{
 		/* gxid = agtm_GetGlobalTransactionId(isSubXact);*/
-		gxid =  GixRcvGetGlobalTransactionId(isSubXact);
+		gxid =  SnapRcvGetGlobalTransactionId(isSubXact);
 		return gxid;
 	}
 
@@ -119,7 +118,7 @@ ObtainGlobalTransactionId(bool isSubXact)
 		IsAnyAutoVacuumProcess())
 	{
 		/* gxid = agtm_GetGlobalTransactionId(isSubXact);*/
-		gxid =  GixRcvGetGlobalTransactionId(isSubXact);
+		gxid =  SnapRcvGetGlobalTransactionId(isSubXact);
 		return gxid;
 	}
 
@@ -417,10 +416,10 @@ GetNewGlobalTransactionId(int level)
 FullTransactionId
 GetNewTransactionId(bool isSubXact)
 {
-#ifdef ADB
-	return GetNewTransactionIdExt(isSubXact, 1, true, false);
+#ifdef ADB_EXT
+	return GetNewTransactionIdExt(isSubXact, 1, true, true);
 }
-FullTransactionId GetNewTransactionIdExt(bool isSubXact, int xidnum, bool isInsertXact, bool GxidInsert)
+FullTransactionId GetNewTransactionIdExt(bool isSubXact, int xidnum, bool isInsertXact, bool isNeedAssign)
 {
 	int i;
 #endif
@@ -627,16 +626,10 @@ FullTransactionId GetNewTransactionIdExt(bool isSubXact, int xidnum, bool isInse
 	}
 
 #ifdef ADB
-	if (IsGTMNode())
+	if (IsGTMNode() && isNeedAssign)
 	{
 		if (!isSubXact)
-		{
 			SnapSendTransactionAssign(xid, xidnum, InvalidTransactionId);
-			if (GxidInsert)
-			{
-				GxidSendInsertAssignXid(xid, xidnum);
-			}
-		}
 	}
 #endif
 

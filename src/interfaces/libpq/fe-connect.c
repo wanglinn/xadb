@@ -2426,11 +2426,9 @@ keep_going:						/* We will come back to here until there is
 		 * reset them when we start to consider a new server.
 		 */
 #ifdef ADB
-	if (conn->connect_type && strcmp(conn->connect_type, "gxidrcv") == 0)
-		conn->pversion = GXID_SEND_SOCKET;
-	else if (conn->connect_type && strcmp(conn->connect_type, "snaprcv") == 0)
-		conn->pversion = SNAP_SEND_SOCKET;
-	else
+		if (conn->connect_type && strcmp(conn->connect_type, "snaprcv") == 0)
+			conn->pversion = SNAP_SEND_SOCKET;
+		else
 #endif
 		conn->pversion = PG_PROTOCOL(3, 0);
 		conn->send_appname = true;
@@ -3300,7 +3298,7 @@ keep_going:						/* We will come back to here until there is
 				}
 
 #ifdef ADB
-				if ((conn->pversion == GXID_SEND_SOCKET || conn->pversion == SNAP_SEND_SOCKET) && beresp == 'T')
+				if ((conn->pversion == SNAP_SEND_SOCKET) && beresp == 'T')
 				{
 					conn->status = CONNECTION_MADE;
 					conn->inStart = conn->inCursor;

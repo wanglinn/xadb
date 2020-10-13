@@ -26,6 +26,9 @@
 #include "utils/memutils.h"
 #include "utils/syscache.h"
 #include "utils/timeout.h"
+#include "utils/builtins.h"
+#include "replication/snapsender.h"
+#include "replication/snapreceiver.h"
 
 #include <unistd.h>
 #include <sys/stat.h>
@@ -161,7 +164,7 @@ static void RemoteXactBaseInit(void);
 static void RemoteXactMgrInit(void);
 static void RemoteXactHtabInit(void);
 static void DestroyRemoteConnHashTab(void);
-static void RxactLoadLog(void);
+static void RxactLoadLog(bool is_main);
 static void RxactSaveLog(bool flush);
 static void on_exit_rxact_mgr(int code, Datum arg);
 
@@ -187,7 +190,8 @@ static uint32 hash_DbAndNodeOid(const void *key, Size keysize);
 static int match_DbAndNodeOid(const void *key1, const void *key2,
 											Size keysize);
 static void
-rxact_insert_gid(const char *gid, const Oid *oids, int count, RemoteXactType type, Oid db_oid, bool is_redo);
+rxact_insert_gid(const char *gid, const Oid *oids, int count, RemoteXactType type,
+			Oid db_oid, bool is_redo, bool is_cleanup);
 static void rxact_mark_gid(const char *gid, RemoteXactType type, bool success, bool is_redo);
 static void rxact_auto_gid(const char *gid, TransactionId txid, bool is_redo);
 
@@ -589,7 +593,8 @@ RemoteXactMgrMain(void)
 	RemoteXactMgrInit();
 	(void)MemoryContextSwitchTo(MessageContext);
 
-	RxactLoadLog();
+	RxactLoadLog(true);
+	ereport(LOG, (errmsg("RxactLoadLog is OK\n")));
 
 	/* Server loop */
 	RxactLoop();
@@ -597,7 +602,7 @@ RemoteXactMgrMain(void)
 	proc_exit(0);
 }
 
-static void RxactLoadLog(void)
+static void RxactLoadLog(bool is_main)
 {
 	RXactLog rlog;
 	File rfile;
@@ -630,6 +635,7 @@ static void RxactLoadLog(void)
 		if(rxact_log_is_eof(rlog))
 			break;
 
+		waiting_time = 100;
 		gid = rxact_log_get_string(rlog);
 		rxact_log_read_bytes(rlog, (char*)&db_oid, sizeof(db_oid));
 		rxact_log_read_bytes(rlog, (char*)&count, sizeof(count));
@@ -638,7 +644,7 @@ static void RxactLoadLog(void)
 		else
 			oids = NULL;
 		rxact_log_read_bytes(rlog, &c, 1);
-		rxact_insert_gid(gid, oids, count, (RemoteXactType)c, db_oid, true);
+		rxact_insert_gid(gid, oids, count, (RemoteXactType)c, db_oid, true, is_main);
 		if(c == RX_AUTO)
 		{
 			rxact_log_read_bytes(rlog, &tid, sizeof(tid));
@@ -1070,7 +1076,7 @@ static void rxact_agent_do(RxactAgent *agent, StringInfo msg)
 		oids = NULL;
 	gid = rxact_get_string(msg);
 
-	rxact_insert_gid(gid, oids, count, type, agent->dboid, false);
+	rxact_insert_gid(gid, oids, count, type, agent->dboid, false, false);
 	ereport(RXACT_LOG_LEVEL, (errmsg("backend begin '%s' %s"
 		, gid, RemoteXactType2String(type))));
 	strncpy(agent->last_gid, gid, sizeof(agent->last_gid)-1);
@@ -1193,7 +1199,7 @@ static int match_DbAndNodeOid(const void *key1, const void *key2,
 }
 
 static void
-rxact_insert_gid(const char *gid, const Oid *oids, int count, RemoteXactType type, Oid db_oid, bool is_redo)
+rxact_insert_gid(const char *gid, const Oid *oids, int count, RemoteXactType type, Oid db_oid, bool is_redo, bool is_cleanup)
 {
 	RxactTransactionInfo *rinfo;
 	bool found;
@@ -1208,6 +1214,7 @@ rxact_insert_gid(const char *gid, const Oid *oids, int count, RemoteXactType typ
 	}
 
 	rinfo = hash_search(htab_rxid, gid, HASH_ENTER, &found);
+	rinfo->is_cleanup = is_cleanup;
 	if(found)
 	{
 		if(is_redo)
@@ -1251,6 +1258,17 @@ rxact_insert_gid(const char *gid, const Oid *oids, int count, RemoteXactType typ
 		PG_RE_THROW();
 	}PG_END_TRY();
 
+	/*if (is_cleanup)
+	{
+		if (IsGTMCnNode())
+		{
+			SnapSendTransactionAssign(pg_strtouint64(&rinfo->gid[1], NULL, 10), 1, InvalidTransactionId, true);
+		}
+		else
+		{
+			SnapRecvAddXactPrepareXid(pg_strtouint64(&rinfo->gid[1], NULL, 10));
+		}
+	}*/
 }
 
 static void RxactMarkAutoTransaction(RxactTransactionInfo *rinfo)
@@ -1329,6 +1347,19 @@ static void rxact_mark_gid(const char *gid, RemoteXactType type, bool success, b
 		{
 			pfree(rinfo->remote_nodes);
 			hash_search(htab_rxid, gid, HASH_REMOVE, NULL);
+
+			if (rinfo->is_cleanup)
+			{
+				if (IsGTMCnNode())
+				{
+					SnapSendTransactionFinish(pg_strtouint64(&rinfo->gid[1], NULL, 10));
+				}
+				else
+				{
+					SnapRcvCommitTransactionId(pg_strtouint64(&rinfo->gid[1], NULL, 10),
+						rinfo->type == RX_COMMIT ? true:false);
+				}
+			}
 		}else
 		{
 			rinfo->failed = true;
@@ -1830,7 +1861,7 @@ void rxact_redo(XLogReaderState *record)
 		pq_copymsgbytes(&buf, (char*)&count, sizeof(count));
 		oids = (Oid*)pq_getmsgbytes(&buf, count*sizeof(oids[0]));
 		gid = pq_getmsgstring(&buf);
-		rxact_insert_gid(gid, oids, count, type, db_oid, true);
+		rxact_insert_gid(gid, oids, count, type, db_oid, true, false);
 		break;
 	case RXACT_MSG_SUCCESS:
 		type = (RemoteXactType)pq_getmsgbyte(&buf);
@@ -1851,7 +1882,7 @@ void rxact_redo(XLogReaderState *record)
 void rxact_xlog_startup(void)
 {
 	RemoteXactHtabInit();
-	RxactLoadLog();
+	RxactLoadLog(false);
 }
 
 void rxact_xlog_cleanup(void)

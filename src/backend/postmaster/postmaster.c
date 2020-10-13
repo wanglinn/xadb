@@ -143,7 +143,6 @@
 #include "pgxc/poolmgr.h"
 #include "utils/resowner.h"
 #include "replication/snapsender.h"
-#include "replication/gxidsender.h"
 #endif
 
 #if defined (WITH_RDMA) || defined(WITH_REDUCE_RDMA)
@@ -273,7 +272,6 @@ bool		restart_after_crash = true;
 
 #ifdef ADB
 bool		adb_log_query = false;
-int			socket_gxid_pair[2];
 int			socket_snap_pair[2];
 #endif
 
@@ -284,8 +282,6 @@ static pid_t StartupPID = 0,
 			RemoteXactMgrPID = 0,
 			SnapSenderPID = 0,
 			SnapReceiverPID = 0,
-			GxidSenderPID = 0,
-			GxidReceiverPID = 0,
 #endif
 #if defined(ADBMGRD)
 			AdbMntPID = 0,
@@ -641,8 +637,6 @@ Datum xc_lockForBackupKey2;
 #define StartRemoteXactMgr()	StartChildProcess(RemoteXactMgrProcess)
 #define StartSnapSender()		StartChildProcess(SnapSenderProcess)
 #define StartSnapReceiver()		StartChildProcess(SnapReceiverProcess)
-#define StartGxidSender()		StartChildProcess(GxidSenderProcess)
-#define StartGxidReceiver()		StartChildProcess(GxidReceiverProcess)
 #endif /* ADB */
 
 #define StartupDataBase()		StartChildProcess(StartupProcess)
@@ -1544,13 +1538,6 @@ PostmasterMain(int argc, char *argv[])
 #ifdef ADB
 	if (IsGTMCnNode())
 	{
-		if(socketpair(AF_UNIX, SOCK_STREAM, 0, socket_gxid_pair) == -1 )
-		{
-			ereport(FATAL,
-					(errcode_for_socket_access(),
-					 errmsg("socketpair create failed: %m")));
-		}
-
 		if(socketpair(AF_UNIX, SOCK_STREAM, 0, socket_snap_pair) == -1 )
 		{
 			ereport(FATAL,
@@ -1954,6 +1941,27 @@ ServerLoop(void)
 		if (WalWriterPID == 0 && pmState == PM_RUN)
 			WalWriterPID = StartWalWriter();
 
+#ifdef ADB
+		/* If we have lost the pooler, try to start a new one */
+		if (IS_PGXC_COORDINATOR && PgPoolerPID == 0 && pmState == PM_RUN)
+			PgPoolerPID = StartPoolManager();
+
+		if (IsGTMNode() && pmState == PM_RUN)
+		{
+			if (SnapSenderPID == 0)
+				SnapSenderPID = StartSnapSender();
+		}
+
+		if (!IsGTMNode() && (pmState == PM_RUN || pmState == PM_HOT_STANDBY))
+		{
+			if (SnapReceiverPID == 0)
+				SnapReceiverPID = StartSnapReceiver();
+		}
+
+		if (IS_PGXC_COORDINATOR && RemoteXactMgrPID == 0 && pmState == PM_RUN)
+			RemoteXactMgrPID = StartRemoteXactMgr();
+#endif
+
 		/*
 		 * If we have lost the autovacuum launcher, try to start a new one. We
 		 * don't want autovacuum to run in binary upgrade mode because
@@ -1977,32 +1985,6 @@ ServerLoop(void)
 		/* If we have lost the archiver, try to start a new one. */
 		if (PgArchPID == 0 && PgArchStartupAllowed())
 			PgArchPID = pgarch_start();
-
-#ifdef ADB
-		/* If we have lost the pooler, try to start a new one */
-		if (IS_PGXC_COORDINATOR && PgPoolerPID == 0 && pmState == PM_RUN)
-			PgPoolerPID = StartPoolManager();
-
-		if (IS_PGXC_COORDINATOR && RemoteXactMgrPID == 0 && pmState == PM_RUN)
-			RemoteXactMgrPID = StartRemoteXactMgr();
-
-		if (IsGTMNode() && pmState == PM_RUN)
-		{
-			if (SnapSenderPID == 0)
-				SnapSenderPID = StartSnapSender();
-			if (GxidSenderPID == 0)
-				GxidSenderPID = StartGxidSender();
-		}
-
-		if (!IsGTMNode() && (pmState == PM_RUN || pmState == PM_HOT_STANDBY))
-		{
-			if (SnapReceiverPID == 0)
-				SnapReceiverPID = StartSnapReceiver();
-			if (GxidReceiverPID == 0)
-				GxidReceiverPID = StartGxidReceiver();
-		}
-			
-#endif
 
 #if defined(ADBMGRD)
 		/*
@@ -2371,18 +2353,12 @@ ProcessStartupPacket(Port *port, bool secure_done)
 	}
 
 #ifdef ADB
-	if (proto == GXID_SEND_SOCKET || proto ==  SNAP_SEND_SOCKET)
+	if (proto ==  SNAP_SEND_SOCKET)
 	{
 		char	retry_ack;
 		retry_ack = 'T';
 
-		if (proto ==  GXID_SEND_SOCKET)
-		{
-			GxidSendLockSendSock();
-			pool_sendfds(socket_gxid_pair[0], &port->sock, 1);
-			GxidSendUnlockSendSock();
-		}
-		else if (proto ==  SNAP_SEND_SOCKET)
+		if (proto ==  SNAP_SEND_SOCKET)
 		{
 			SnapSendLockSendSock();
 			pool_sendfds(socket_snap_pair[0], &port->sock, 1);
@@ -3068,12 +3044,6 @@ SIGHUP_handler(SIGNAL_ARGS)
 
 		if (SnapReceiverPID != 0)
 			signal_child(SnapReceiverPID, SIGHUP);
-		
-		if (GxidSenderPID != 0)
-			signal_child(GxidSenderPID, SIGHUP);
-
-		if (GxidReceiverPID != 0)
-			signal_child(GxidReceiverPID, SIGHUP);
 #endif
 		if (BgWriterPID != 0)
 			signal_child(BgWriterPID, SIGHUP);
@@ -3446,7 +3416,16 @@ reaper(SIGNAL_ARGS)
 				BgWriterPID = StartBackgroundWriter();
 			if (WalWriterPID == 0)
 				WalWriterPID = StartWalWriter();
-
+#ifdef ADB
+			if (IsGTMNode() && pmState == PM_RUN && SnapSenderPID == 0)
+				SnapSenderPID = StartSnapSender();
+			if (!IsGTMNode() && SnapReceiverPID == 0 && (pmState == PM_RUN || pmState == PM_HOT_STANDBY))
+				SnapReceiverPID = StartSnapReceiver();
+			if (IS_PGXC_COORDINATOR && PgPoolerPID == 0)
+				PgPoolerPID = StartPoolManager();
+			if (IS_PGXC_COORDINATOR && RemoteXactMgrPID == 0)
+				RemoteXactMgrPID = StartRemoteXactMgr();
+#endif
 			/*
 			 * Likewise, start other special children as needed.  In a restart
 			 * situation, some of them may be alive already.
@@ -3457,20 +3436,6 @@ reaper(SIGNAL_ARGS)
 				PgArchPID = pgarch_start();
 			if (PgStatPID == 0)
 				PgStatPID = pgstat_start();
-#ifdef ADB
-			if (IS_PGXC_COORDINATOR && PgPoolerPID == 0)
-				PgPoolerPID = StartPoolManager();
-			if (IS_PGXC_COORDINATOR && RemoteXactMgrPID == 0)
-				RemoteXactMgrPID = StartRemoteXactMgr();
-			if (IsGTMNode() && pmState == PM_RUN && SnapSenderPID == 0)
-				SnapSenderPID = StartSnapSender();
-			if (!IsGTMNode() && SnapReceiverPID == 0 && (pmState == PM_RUN || pmState == PM_HOT_STANDBY))
-				SnapReceiverPID = StartSnapReceiver();
-			if (IsGTMNode() && pmState == PM_RUN && GxidSenderPID == 0)
-				GxidSenderPID = StartGxidSender();
-			if (!IsGTMNode() && GxidReceiverPID == 0 && (pmState == PM_RUN || pmState == PM_HOT_STANDBY))
-				GxidReceiverPID = StartGxidReceiver();
-#endif
 #if defined(ADBMGRD)
 			if (AdbMonitoringActive() && AdbMntPID == 0)
 				AdbMntPID = StartAdbMntLauncher();
@@ -3721,23 +3686,6 @@ reaper(SIGNAL_ARGS)
 			continue;
 		}
 
-		if (IsGTMNode() && pmState == PM_RUN && pid == GxidSenderPID)
-		{
-			GxidSenderPID = 0;
-			if (EXIT_STATUS_0(exitstatus) ||
-				EXIT_STATUS_1(exitstatus))
-			{
-				LogChildExit(WARNING,
-							 pgstat_get_backend_desc(B_ADB_GXID_SENDER), pid, exitstatus);
-				GxidSenderPID = StartGxidSender();
-			}else
-			{
-				HandleChildCrash(pid, exitstatus,
-								 pgstat_get_backend_desc(B_ADB_GXID_SENDER));
-			}
-			continue;
-		}
-
 		if (!IsGTMNode() && pid == SnapReceiverPID)
 		{
 			SnapReceiverPID = 0;
@@ -3751,23 +3699,6 @@ reaper(SIGNAL_ARGS)
 			{
 				HandleChildCrash(pid, exitstatus,
 								 pgstat_get_backend_desc(B_ADB_SNAP_RECEIVER));
-			}
-			continue;
-		}
-
-		if (!IsGTMNode() && pid == GxidReceiverPID)
-		{
-			GxidReceiverPID = 0;
-			if (EXIT_STATUS_0(exitstatus) ||
-				EXIT_STATUS_1(exitstatus))
-			{
-				LogChildExit(WARNING,
-							 pgstat_get_backend_desc(B_ADB_GXID_RECEIVER), pid, exitstatus);
-				GxidReceiverPID = StartGxidReceiver();
-			}else
-			{
-				HandleChildCrash(pid, exitstatus,
-								 pgstat_get_backend_desc(B_ADB_GXID_RECEIVER));
 			}
 			continue;
 		}
@@ -4250,18 +4181,6 @@ HandleChildCrash(int pid, int exitstatus, const char *procname)
 									 (int)SnapSenderPID)));
 			signal_child(SnapSenderPID, (SendStop ? SIGSTOP : SIGQUIT));
 		}
-
-		if (pid == GxidSenderPID)
-		{
-			GxidSenderPID = 0;
-		}else if (GxidSenderPID != 0 && !FatalError)
-		{
-			ereport(DEBUG2,
-					(errmsg_internal("sending %s to process %d",
-									 (SendStop ? "SIGSTOP" : "SIGQUIT"),
-									 (int)GxidSenderPID)));
-			signal_child(GxidSenderPID, (SendStop ? SIGSTOP : SIGQUIT));
-		}
 	}else /* if (!IsGTMNode()) */
 	{
 		if (pid == SnapReceiverPID)
@@ -4274,18 +4193,6 @@ HandleChildCrash(int pid, int exitstatus, const char *procname)
 									 (SendStop ? "SIGSTOP" : "SIGQUIT"),
 									 (int)SnapReceiverPID)));
 			signal_child(SnapReceiverPID, (SendStop ? SIGSTOP : SIGQUIT));
-		}
-
-		if (pid == GxidReceiverPID)
-		{
-			GxidReceiverPID = 0;
-		}else if (GxidReceiverPID != 0 && !FatalError)
-		{
-			ereport(DEBUG2,
-					(errmsg_internal("sending %s to process %d",
-									 (SendStop ? "SIGSTOP" : "SIGQUIT"),
-									 (int)GxidReceiverPID)));
-			signal_child(GxidReceiverPID, (SendStop ? SIGSTOP : SIGQUIT));
 		}
 	}
 #endif
@@ -4867,10 +4774,7 @@ BackendStartup(Port *port)
 
 #ifdef ADB
 		if (IsGTMCnNode())
-		{
-			close(socket_gxid_pair[1]);
 			close(socket_snap_pair[1]);
-		}
 #endif /* ADB */
 
 /*
@@ -5126,9 +5030,7 @@ BackendInitialize(Port *port)
 #ifdef ADB
 	if (IsGTMCnNode())
 	{
-		close(socket_gxid_pair[0]);
 		close(socket_snap_pair[0]);
-		close(socket_gxid_pair[1]);
 		close(socket_snap_pair[1]);
 	}
 #endif /* ADB */
@@ -6193,29 +6095,17 @@ StartChildProcess(AuxProcType type)
 
 		if (IsGTMCnNode())
 		{
-			if (type == GxidSenderProcess)
+			if (type == SnapSenderProcess)
 			{
-				close(socket_gxid_pair[0]);
 				close(socket_snap_pair[0]);
-				close(socket_snap_pair[1]);
-			}
-			else if (type == SnapSenderProcess)
-			{
-				close(socket_gxid_pair[0]);
-				close(socket_snap_pair[0]);
-				close(socket_gxid_pair[1]);
 			}
 			else if (type == RemoteXactMgrProcess)
 			{
-				/* why ractmgr cannot close socket_gxid_pair[0] and socket_snap_pair[0]*/
-				close(socket_gxid_pair[1]);
 				close(socket_snap_pair[1]);
 			}
 			else
 			{
-				close(socket_gxid_pair[0]);
 				close(socket_snap_pair[0]);
-				close(socket_gxid_pair[1]);
 				close(socket_snap_pair[1]);
 			}
 		}
@@ -6249,10 +6139,6 @@ StartChildProcess(AuxProcType type)
 			case SnapReceiverProcess:
 				ereport(LOG,
 						(errmsg("could not fork snapshot receiver process: %m")));
-				break;
-			case GxidSenderProcess:
-				ereport(LOG,
-						(errmsg("could not fork transaction sender process: %m")));
 				break;
 #endif
 			case StartupProcess:

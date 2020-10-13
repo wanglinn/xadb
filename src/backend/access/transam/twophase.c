@@ -122,8 +122,6 @@
 #include "utils/lsyscache.h"
 #include "utils/inval.h"
 #include "replication/snapsender.h"
-#include "replication/gxidreceiver.h"
-#include "replication/gxidsender.h"
 #endif
 
 /*
@@ -1957,7 +1955,7 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 		if (IsGTMNode())
 			SnapSendTransactionFinish(latestXid);
 		else
-			GixRcvCommitTransactionId(latestXid, isCommit);
+			SnapRcvCommitTransactionId(latestXid, isCommit);
 	}
 
 	if (TransactionIdIsValid(latestXid) && IsConnFromCoord() &&
@@ -2005,7 +2003,7 @@ ProcessRecords(char *bufptr, TransactionId xid,
 		}
 		else if (IsConnFromCoord())
 		{
-			GxidSenderTransferLock(param_io, xid, dummy_proc);
+			SnapSenderTransferLock(param_io, xid, dummy_proc);
 		}
 	}
 #endif /* ADB */

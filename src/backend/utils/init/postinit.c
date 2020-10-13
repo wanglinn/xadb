@@ -70,6 +70,8 @@
 #include "access/rxact_mgr.h"
 #include "intercomm/inter-node.h"
 #include "pgxc/nodemgr.h"
+
+bool is_need_check_dn_coon = false;
 #endif
 
 
@@ -1081,6 +1083,9 @@ InitPostgres(const char *in_dbname, Oid dboid, const char *username,
 	 * settings passed in the startup packet.   We couldn't do this before
 	 * because we didn't know if client is a superuser.
 	 */
+#ifdef ADB
+	is_need_check_dn_coon = true;
+#endif
 	if (MyProcPort != NULL)
 		process_startup_options(MyProcPort, am_superuser);
 

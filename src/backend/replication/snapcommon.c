@@ -19,6 +19,7 @@
 #include "storage/procarray.h"
 #include "storage/proclist.h"
 #include "storage/shmem.h"
+#include "storage/spin.h"
 #include "utils/dsa.h"
 #include "utils/guc.h"
 #include "utils/memutils.h"
@@ -259,11 +260,8 @@ void SnapTransferLock(SnapCommonLock *comm_lock, void **param_io,
 
 	if (hash_num > 0)
 	{
-		if (!IsGTMNode())
-			newproc = GetSnapshotProcess();
-		else
-			newproc = GetGxidProcess();
-		
+		newproc = GetSnapshotProcess();
+
 		hash_seq_init(&seq_state, param->map);
 		LWLockAcquire(&comm_lock->lock_proc_link, LW_EXCLUSIVE);
 
@@ -423,4 +421,96 @@ void SnapReleaseAllTxidLocks(SnapCommonLock *comm_lock)
 		dp = next;
 	}
 	LWLockRelease(&comm_lock->lock_lock_info);
+}
+
+/* mutex must locked */
+void WaitSnapCommonShmemSpace(volatile slock_t *mutex,
+								   volatile uint32 *cur,
+								   proclist_head *waiters,
+								   bool is_snap)
+{
+	Latch				   *latch = &MyProc->procLatch;
+	proclist_mutable_iter	iter;
+	int						procno = MyProc->pgprocno;
+	int						rc;
+
+	while (*cur == MAX_CNT_SHMEM_XID_BUF)
+	{
+		bool in_list = false;
+		if (is_snap)
+		{
+			proclist_foreach_modify(iter, waiters, GTMWaitLink)
+			{
+				if (iter.cur == procno)
+				{
+					in_list = true;
+					break;
+				}
+			}
+		}
+		else 
+		{
+			proclist_foreach_modify(iter, waiters, GxidWaitLink)
+			{
+				if (iter.cur == procno)
+				{
+					in_list = true;
+					break;
+				}
+			}
+		}
+		if (!in_list)
+		{
+			if (is_snap)
+				MyProc->waitGlobalTransaction = InvalidTransactionId;
+			pg_write_barrier();
+
+			if (is_snap)
+				proclist_push_tail(waiters, procno, GTMWaitLink);
+			else
+				proclist_push_tail(waiters, procno, GxidWaitLink);
+		}
+#ifdef USE_ASSERT_CHECKING
+		else
+		{
+			Assert(MyProc->waitGlobalTransaction == InvalidTransactionId);
+		}
+#endif /* USE_ASSERT_CHECKING */
+		SpinLockRelease(mutex);
+
+		rc = WaitLatch(latch,
+					   WL_POSTMASTER_DEATH | WL_LATCH_SET,
+					   -1,
+					   PG_WAIT_EXTENSION);
+		ResetLatch(latch);
+		if (rc & WL_POSTMASTER_DEATH)
+		{
+			exit(1);
+		}
+		SpinLockAcquire(mutex);
+	}
+
+	/* check if we still in wait list, remove */
+	if (is_snap)
+	{
+		proclist_foreach_modify(iter, waiters, GTMWaitLink)
+		{
+			if (iter.cur == procno)
+			{
+				proclist_delete(waiters, procno, GTMWaitLink);
+				break;
+			}
+		}
+	}
+	else
+	{
+		proclist_foreach_modify(iter, waiters, GxidWaitLink)
+		{
+			if (iter.cur == procno)
+			{
+				proclist_delete(waiters, procno, GxidWaitLink);
+				break;
+			}
+		}
+	}
 }

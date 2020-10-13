@@ -3664,7 +3664,7 @@ ProcessInterrupts(void)
 					 errmsg("terminating logical replication worker due to administrator command")));
 		else if (IsLogicalLauncher())
 		{
-			ereport(DEBUG1,
+			ereport(LOG,
 					(errmsg("logical replication launcher shutting down")));
 
 			/*
@@ -4529,7 +4529,11 @@ PostgresMain(int argc, char *argv[],
 	if (!IsUnderPostmaster)
 	{
 		if (!SelectConfigFiles(userDoption, progname))
+		{
+			ereport(LOG,
+					(errmsg("SelectConfigFiles exit 1")));
 			proc_exit(1);
+		}
 	}
 
 	/*

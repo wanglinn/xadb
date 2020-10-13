@@ -286,7 +286,6 @@ typedef struct PROC_HDR
 #ifdef ADB
 	/* Hand of snapshot sender or receiver */
 	PGPROC	   *snapshotProc;
-	PGPROC	   *gxidProc;
 #endif /* ADB */
 	/* Head of list of bgworker free PGPROC structures */
 	PGPROC	   *bgworkerFreeProcs;
@@ -381,7 +380,6 @@ extern bool BecomeLockGroupMember(PGPROC *leader, int pid);
 
 #ifdef ADB
 extern PGPROC *GetSnapshotProcess(void);
-extern PGPROC *GetGxidProcess(void);
 #endif /* ADB */
 
 #endif							/* PROC_H */
