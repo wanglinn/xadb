@@ -1,12 +1,12 @@
 #include "postgres.h"
 
 #include "access/rmgr.h"
+#include "access/rxact_mgr.h"
 #include "access/xact.h"
 #include "access/twophase.h"
 #include "access/xlogrecord.h"
 #include "access/commit_ts.h"
 #include "access/subtrans.h"
-#include "access/rxact_mgr.h"
 #include "libpq/pqformat.h"
 #include "libpq/pqsignal.h"
 #include "lib/stringinfo.h"
@@ -1416,6 +1416,9 @@ static void SnapRcvProcessAssign(char *buf, Size len)
 {
 	StringInfoData	msg;
 	TransactionId	txid;
+	TransactionId	nextXid;
+	TransactionId	gxid = FirstNormalTransactionId;
+
 	if ((len % sizeof(txid)) != 0 ||
 		len == 0)
 		ereport(ERROR,
@@ -1442,8 +1445,47 @@ static void SnapRcvProcessAssign(char *buf, Size len)
 					(errcode(ERRCODE_PROTOCOL_VIOLATION),
 					 errmsg("too many active transaction from GTM")));
 		}
+
+		if (NormalTransactionIdFollows(txid, gxid))
+			gxid = txid;
 	}
 	UNLOCK_SNAP_RCV();
+
+	Assert(TransactionIdIsNormal(gxid));
+	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+
+	/*
+	 * If we are allocating the first XID of a new page of the commit log,
+	 * zero out that commit-log page before returning. We must do this while
+	 * holding XidGenLock, else another xact could acquire and commit a later
+	 * XID before we zero the page.  Fortunately, a page of the commit log
+	 * holds 32K or more transactions, so we don't have to do this very often.
+	 *
+	 * Extend pg_subtrans and pg_commit_ts too.
+	 */
+	ExtendCLOG(gxid);
+	ExtendCommitTs(gxid);
+	ExtendSUBTRANS(gxid);
+
+	nextXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
+	if (TransactionIdFollowsOrEquals(gxid, nextXid))
+	{
+		uint32	epoch;
+		epoch = EpochFromFullTransactionId(ShmemVariableCache->nextFullXid);
+		if (unlikely(gxid < nextXid))
+			++epoch;
+
+		ShmemVariableCache->nextFullXid = FullTransactionIdFromEpochAndXid(epoch, gxid);
+		FullTransactionIdAdvance(&ShmemVariableCache->nextFullXid);
+	}
+	/*
+	 * Now advance the nextXid counter.  This must not happen until after we
+	 * have successfully completed ExtendCLOG() --- if that routine fails, we
+	 * want the next incoming transaction to try it again.	We cannot assign
+	 * more XIDs until there is CLOG space for them.
+	 */
+	
+	LWLockRelease(XidGenLock);
 }
 
 static void SnapRcvProcessComplete(char *buf, Size len)
