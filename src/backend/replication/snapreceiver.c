@@ -102,6 +102,7 @@ typedef struct SnapRcvData
 extern char *AGtmHost;
 extern int	AGtmPort;
 extern char *PGXCNodeName;
+extern bool adb_check_sync_nextid;	/* in snapsender.c */
 
 /* item in  slist_client */
 typedef struct SnapRcvAssginXidClientInfo
@@ -544,7 +545,7 @@ static void SnapRcvMainProcess(void)
 static List*
 SnapRcvSendInitSyncXid(void)
 {
-	List			*xid_list = NIL;
+	List			*xid_prepared_list = NIL;
 	List			*rxact_list = NIL;
 	ListCell		*lc;
 	TransactionId	xid;
@@ -554,9 +555,9 @@ SnapRcvSendInitSyncXid(void)
 	char			*str;
 
 	/* for slave node, there is no need sync left xid */
-	if (!RecoveryInProgress())
+	if (!RecoveryInProgress() && adb_check_sync_nextid)
 	{
-		xid_list = GetPreparedXidList();
+		xid_prepared_list = GetPreparedXidList();
 
 		/* for coordinator get all left two-phase xid*/
 		if (IsCnNode())
@@ -570,10 +571,10 @@ SnapRcvSendInitSyncXid(void)
 		return left_xid_str;
 	
 
-	SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid GetPreparedXidList xid_list len %d\n",
-			 			list_length(xid_list))));
+	SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid GetPreparedXidList xid_prepared_list len %d\n",
+			 			list_length(xid_prepared_list))));
 
-	foreach (lc, xid_list)
+	foreach (lc, xid_prepared_list)
 	{
 		xid = lfirst_int(lc);
 
@@ -583,7 +584,7 @@ SnapRcvSendInitSyncXid(void)
 		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid Add prepared xid %u, str %s\n",
 			 			xid, str)));
 	}
-	list_free(xid_list);
+	list_free(xid_prepared_list);
 
 	foreach (lc, rxact_list)
 	{
