@@ -3364,9 +3364,20 @@ CopyFrom(CopyState cstate)
 #ifdef ADB
 		if (cstate->NextRowFrom)
 		{
-			myslot = (*cstate->NextRowFrom)(cstate, econtext, cstate->func_data);
-			if (TupIsNull(myslot))
+			TupleTableSlot *slot = (*cstate->NextRowFrom)(cstate, econtext, cstate->func_data);
+			if (TupIsNull(slot))
 				break;
+			if (myslot == singleslot)
+			{
+				myslot = slot;
+			}else
+			{
+				int natts = myslot->tts_tupleDescriptor->natts;
+				Assert(natts <= slot->tts_tupleDescriptor->natts);
+				memcpy(myslot->tts_values, slot->tts_values, sizeof(slot->tts_values[0]) * natts);
+				memcpy(myslot->tts_isnull, slot->tts_isnull, sizeof(slot->tts_isnull[0]) * natts);
+				ExecStoreVirtualTuple(myslot);
+			}
 		}else
 		{
 #endif /* ADB */
