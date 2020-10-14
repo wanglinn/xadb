@@ -1105,44 +1105,9 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
-		char *p = NULL;
-		int retry_time = 0;
-		int max_retry_time = 10;
-
 		/* lock the cluster */
 		mgr_lock_cluster_involve_gtm_coord(&pg_conn, &cnoid);
-RETRY:
-		/* check pg_prepared_xacts number */
-		res = PQexec(pg_conn, "select count(*) from pg_prepared_xacts;");
-		if (PQresultStatus(res) == PGRES_TUPLES_OK)
-		{
-			p = PQgetvalue(res, 0, 0);
-			if (!p || strcmp(p, "0") != 0)
-			{
-				if (retry_time < max_retry_time)
-				{
-					retry_time++;
-					pg_usleep(retry_time * 1000000L);
-					ereportNoticeLog(errmsg("Two-phase prepared xid left, wait %d seconds", retry_time));
-					PQclear(res);
-					goto RETRY;
-				}
-				else
-				{
-					ereport(ERROR, (errmsg("Two-phase prepared xid left, cannot active coordinator now, please try again later")));
-				}
-			}
-	
-			PQclear(res);
-			res = NULL;
-		}
-		else
-		{
-			rest = false;
-			ereport(WARNING, (errmsg("%s", PQerrorMessage(pg_conn))));
-		}
 
-		PQclear(res);
 		/*set xc_maintenance_mode=on  */
 		res = PQexec(pg_conn, "set xc_maintenance_mode = on;");
 		if (PQresultStatus(res) != PGRES_COMMAND_OK)
@@ -1284,6 +1249,21 @@ RETRY:
 				, s_coordname, s_coordname, getAgentCmdRst.description.data)));
 		}
 
+		/*set the coordinator adb_check_sync_nextid off*/
+		ereportNoticeLog(errmsg("on coordinator \"%s\", set adb_check_sync_nextid=off"
+			, s_coordname));
+		resetStringInfo(&infosendmsg);
+		resetStringInfo(&(getAgentCmdRst.description));
+		mgr_add_parm(s_coordname, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
+		mgr_append_pgconf_paras_str_str("adb_check_sync_nextid", "off", &infosendmsg);
+		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, dest_nodeinfo.nodepath, &infosendmsg
+			, dest_nodeinfo.nodehost, &getAgentCmdRst);
+		if (!getAgentCmdRst.ret)
+		{
+			ereport(ERROR, (errmsg("on coordinator \"%s\", set adb_check_sync_nextid=off fail, %s"
+				, s_coordname, getAgentCmdRst.description.data)));
+		}
+
 		/*restart the coordinator*/
 		resetStringInfo(&(getAgentCmdRst.description));
 		rel_node = table_open(NodeRelationId, AccessShareLock);
@@ -1307,6 +1287,22 @@ RETRY:
 				(errmsg("the coordinator \"%s\" is not running normal", s_coordname),
 					errhint("try \"monitor all\" to check the nodes status")));
 		}
+
+		/*set the coordinator adb_check_sync_nextid on*/
+		ereportNoticeLog(errmsg("on coordinator \"%s\", set adb_check_sync_nextid=on"
+			, s_coordname));
+		resetStringInfo(&infosendmsg);
+		resetStringInfo(&(getAgentCmdRst.description));
+		mgr_add_parm(s_coordname, CNDN_TYPE_COORDINATOR_MASTER, &infosendmsg);
+		mgr_append_pgconf_paras_str_str("adb_check_sync_nextid", "on", &infosendmsg);
+		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, dest_nodeinfo.nodepath, &infosendmsg
+			, dest_nodeinfo.nodehost, &getAgentCmdRst);
+		if (!getAgentCmdRst.ret)
+		{
+			ereport(ERROR, (errmsg("on coordinator \"%s\", set adb_check_sync_nextid=on fail, %s"
+				, s_coordname, getAgentCmdRst.description.data)));
+		}
+
 
 		resetStringInfo(&infosendmsg);
 		appendStringInfo(&infosendmsg, "SELECT PGXC_POOL_RELOAD();");

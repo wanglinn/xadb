@@ -133,6 +133,7 @@ static int getNodeConnPos(NodeConn *checkCoon);
 static XLogRecPtr last_flush = 0;
 static XLogRecPtr need_flush = 0;
 
+extern bool adb_check_sync_nextid;	/* in snapsender.c */
 static HTAB *htab_node_conn = NULL;		/* NodeConn */
 static HTAB *htab_rxid = NULL;			/* RxactTransactionInfo */
 
@@ -1852,6 +1853,10 @@ void rxact_redo(XLogReaderState *record)
 	buf.data = XLogRecGetData(record);
 	buf.len = XLogRecGetDataLen(record);
 	buf.cursor = 0;
+
+	if (!adb_check_sync_nextid)
+		return;
+
 	switch(info)
 	{
 	case RXACT_MSG_DO:
