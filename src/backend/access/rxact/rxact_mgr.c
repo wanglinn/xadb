@@ -153,6 +153,7 @@ static XLogRecPtr need_flush = 0;
 extern char	*AGtmHost;
 extern int	AGtmPort;
 extern bool enableFsync;
+extern bool adb_check_sync_nextid;	/* in snapsender.c */
 
 static HTAB *htab_remote_node = NULL;	/* RemoteNode */
 static HTAB *htab_db_node = NULL;		/* DatabaseNode */
@@ -2276,6 +2277,10 @@ void rxact_redo(XLogReaderState *record)
 	buf.data = XLogRecGetData(record);
 	buf.len = XLogRecGetDataLen(record);
 	buf.cursor = 0;
+
+	if (!adb_check_sync_nextid)
+		return;
+
 	switch(info)
 	{
 	case RXACT_MSG_DO:
