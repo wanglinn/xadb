@@ -266,20 +266,20 @@ typedef struct CopyStateData
 	int			raw_buf_index;	/* next byte to process */
 	int			raw_buf_len;	/* total # of bytes stored */
 #ifdef ADB
-	Tuplestorestate *cs_tuplestore;
-	TupleTableSlot  *cs_tupleslot;
-	TupleTableSlot  *cs_tsConvert;
-	TupleTypeConvert *cs_convert;
-	ReduceExprState *cs_reduce_state;
-	Expr			*cs_reduce_expr;
+	Tuplestorestate	   *cs_tuplestore;
+	TupleTableSlot	   *cs_tupleslot;
+	TupleTableSlot	   *cs_tsConvert;
+	TupleTypeConvert   *cs_convert;
+	ReduceExprState	   *cs_reduce_state;
+	Expr			   *cs_reduce_expr;
 	CustomNextRowFunction NextRowFrom;
-	void			*func_data;		/* function NextRowFrom's user data, default is TupleTableSlot for target rel */
-	List			*aux_info;		/* list of AuxiliaryCopyInfo */
-	BufFile			*fd_copied_ctid;/* saved tuple(s) ctid */
-	StringInfo		mem_copy_toc;	/* mem_toc if target relation has auxiliary */
-	List			*list_connect;	/* list of pg_conn */
-	uint64			count_tuple;	/* count tuple(s) read */
-	int				exec_cluster_flag;
+	void			   *func_data;		/* function NextRowFrom's user data */
+	List			   *aux_info;		/* list of AuxiliaryRelCopy */
+	BufFile			   *fd_copied_ctid;	/* saved tuple(s) ctid */
+	StringInfo			mem_copy_toc;	/* mem_toc if target relation has auxiliary */
+	List			   *list_connect;	/* list of pg_conn */
+	uint64				count_tuple;	/* count tuple(s) read */
+	int					exec_cluster_flag;
 #endif
 } CopyStateData;
 
@@ -3164,11 +3164,6 @@ CopyFrom(CopyState cstate)
 	estate->es_result_relation_info = resultRelInfo;
 
 	ExecInitRangeTable(estate, cstate->range_table);
-#ifdef ADB
-#warning TODO set func_data
-	/*if (cstate->func_data == NULL)
-		cstate->func_data = myslot;*/
-#endif /* ADB */
 
 	/*
 	 * Set up a ModifyTableState so we can let FDW(s) init themselves for
