@@ -625,11 +625,6 @@ FullTransactionId GetNewTransactionIdExt(bool isSubXact, uint32 xidnum, bool isI
 			MyPgXact->overflowed = true;
 	}
 
-#ifdef ADB
-	if (IsGTMNode() && isNeedAssign && !isSubXact)
-		SnapSendTransactionAddXip(xid, xidnum, InvalidTransactionId, XidGenLock);
-	else
-#endif
 	LWLockRelease(XidGenLock);
 
 #ifdef ADB
