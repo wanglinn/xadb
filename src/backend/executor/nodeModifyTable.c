@@ -679,7 +679,10 @@ ExecInsert(ModifyTableState *mtstate,
 	{
 #ifdef ADB
 		if (IsCnNode() && resultRemoteRel)
-			estate->es_processed += resultRemoteRel->rqs_processed;
+		{
+			(resultRemoteRel->rqs_processed)++;
+			estate->es_processed = resultRemoteRel->rqs_processed;
+		}
 		else
 #endif
 		(estate->es_processed)++;
@@ -1014,8 +1017,11 @@ ldelete:;
 	if (canSetTag)
 #ifdef ADB
 	{
-		if (IsCnNode() && resultRemoteRel)
-			estate->es_processed += resultRemoteRel->rqs_processed;
+	if (IsCnNode() && resultRemoteRel)
+		{
+			(resultRemoteRel->rqs_processed)++;
+			estate->es_processed = resultRemoteRel->rqs_processed;
+		}
 		else
 #endif
 		(estate->es_processed)++;
@@ -1651,8 +1657,11 @@ lreplace:;
 	if (canSetTag)
 #ifdef ADB
 	{
-		if (IsCnNode() && resultRemoteRel)
-			estate->es_processed += resultRemoteRel->rqs_processed;
+	if (IsCnNode() && resultRemoteRel)
+		{
+			(resultRemoteRel->rqs_processed)++;
+			estate->es_processed = resultRemoteRel->rqs_processed;
+		}
 		else
 #endif
 			(estate->es_processed)++;
