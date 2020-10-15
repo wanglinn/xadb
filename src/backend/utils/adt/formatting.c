@@ -6207,10 +6207,81 @@ ora_to_timestamp(text *date_txt, text *fmt)
 	int			tz;
 	struct pg_tm tm;
 	fsec_t		fsec;
+	text	   *new_date_txt, *new_fmt;
+	char	   *check_date_txt, *check_fmt;
+	char	   *date_str, *fmt_str;
+	char	   *p, *p1;
+	bool		date_include_mark = false;
+	bool		fmt_include_mark = false;
+
+	date_str = text_to_cstring(date_txt);
+	fmt_str = text_to_cstring(fmt);
+	if (strlen(date_str) >= 8 && strlen(fmt_str) >= 8)
+	{
+		p = date_str;
+		check_date_txt = (char *) palloc(sizeof(char) * (strlen(date_str) + 1));
+		p1 = check_date_txt;
+		if (*(p+1) == '-')
+			*p1++ = '0';
+
+		while (*p != '\0')
+		{
+			if (*p == '-')
+			{
+				if (*(p + 1) != '\0' && 
+					(*(p + 2) == '-' || 
+					 *(p + 2) == ' ' || 
+					 *(p + 2) == '\0'))
+					*p1++ = '0';
+				p++;
+				date_include_mark = true;
+				continue;
+			}
+			*p1++ = *p++;
+		}
+		*p1 = '\0';
+		if (date_include_mark && strlen(date_str) >= strlen(check_date_txt))
+		{
+			new_date_txt = cstring_to_text(check_date_txt);
+		}
+		else
+		{
+			new_date_txt = date_txt;
+		}
+
+		p = fmt_str;
+		check_fmt = (char *) palloc(sizeof(char) * (strlen(fmt_str) + 1));
+		p1 = check_fmt;
+		while (*p != '\0')
+		{
+			if (*p == '-')
+			{
+				p++;
+				fmt_include_mark = true;
+				continue;
+			}
+			*p1++ = *p++;
+		}
+		*p1 = '\0';
+		if (fmt_include_mark && strlen(fmt_str) >= strlen(check_fmt))
+		{
+			new_fmt = cstring_to_text(check_fmt);
+		}
+		else
+		{
+			new_fmt = fmt;
+		}
+	}
+	else
+	{
+		new_date_txt = date_txt;
+		new_fmt = fmt;
+	}
+	
 
 	AssertArg(fmt);
 
-	do_to_timestamp_internal(date_txt, fmt, &tm, &fsec, ora_DCH_from_char);
+	do_to_timestamp_internal(new_date_txt, new_fmt, &tm, &fsec, ora_DCH_from_char);
 
 	tz = DetermineTimeZoneOffset(&tm, session_timezone);
 
@@ -6218,6 +6289,11 @@ ora_to_timestamp(text *date_txt, text *fmt)
 		ereport(ERROR,
 				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
 				 errmsg("timestamp out of range")));
+
+	if (date_include_mark)
+		pfree(new_date_txt);
+	if (fmt_include_mark)
+		pfree(new_fmt);
 
 	PG_RETURN_TIMESTAMP(result);
 }
