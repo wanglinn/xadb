@@ -24,8 +24,8 @@ select nls_lower('\?!@#sS$%^&*()sC') from dual;
 (1 row)
 
 select nls_lower('Test你TEst好TeST') from dual;
- NLS_LOWER('TEST你TETESTTTeSTTES 
----------------------------------
+ NLS_LOWER('TEST你TEST好TEST')  
+--------------------------------
  test你test好test
 (1 row)
 

@@ -20,10 +20,9 @@ select length('你好') from dual;
 
 select length('你
 好') from dual;
- LENGTH('你+
-     )      
-------------
-          3
+ LENGTH('你')  
+---------------
+             3
 (1 row)
 
 select length(to_char(1234)) from dual;

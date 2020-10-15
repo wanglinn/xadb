@@ -25,7 +25,7 @@ select decode('a','a','b','a') from dual;
 (1 row)
 
 select decode('你好','你好','b','a') from dual;
- DECODE('你好','你好','b','a')  
+ DECODE('你好','你好','B','A')  
 --------------------------------
  b
 (1 row)
