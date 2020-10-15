@@ -3561,7 +3561,7 @@ ColLabel:	IDENT									{ $$ = $1; }
 			| reserved_keyword						{ $$ = pstrdup($1); }
 		;
 
-common_table_expr: name opt_name_list AS '(' SelectStmt ')'
+common_table_expr: name opt_name_list AS '(' PreparableStmt ')'
 		{
 			CommonTableExpr *n = makeNode(CommonTableExpr);
 			n->ctename = $1;
