@@ -448,12 +448,8 @@ heapgetpage(HeapScanDesc scan, BlockNumber page)
 				valid = true;
 			else
 				valid = HeapTupleSatisfiesVisibility(&loctup, snapshot, buffer);
-
-			CheckForSerializableConflictOut(valid, scan->rs_rd, &loctup,
-											buffer, snapshot);
-
 #ifdef ADB
-			if (valid && scan->rs_rd->rd_clean)
+			if (valid && unlikely(scan->rs_rd->rd_clean))
 				valid = ExecTestExpansionClean(scan->rs_rd->rd_clean, &loctup);
 			//only check tuple slot in datanode and hash distribution
 			if ((valid)&&(scan->rs_rd->rd_id >= FirstNormalObjectId)
@@ -461,6 +457,10 @@ heapgetpage(HeapScanDesc scan, BlockNumber page)
 				&&(LOCATOR_TYPE_HASHMAP == scan->rs_rd->rd_locator_info->locatorType))
 				valid = HeapTupleSatisfiesSlot(scan->rs_rd, &loctup);
 #endif
+
+			CheckForSerializableConflictOut(valid, scan->rs_rd, &loctup,
+											buffer, snapshot);
+
 			if (valid)
 				scan->rs_vistuples[ntup++] = lineoff;
 		}
@@ -674,6 +674,15 @@ heapgettup(HeapScanDesc scan,
 				valid = HeapTupleSatisfiesVisibility(tuple,
 													 snapshot,
 													 scan->rs_cbuf);
+#ifdef ADB
+				if (valid && unlikely(scan->rs_rd->rd_clean))
+					valid = ExecTestExpansionClean(scan->rs_rd->rd_clean, tuple);
+				//only check tuple slot in datanode and hash distribution
+				if ((valid)&&(scan->rs_rd->rd_id >= FirstNormalObjectId)
+					&& IS_PGXC_REAL_DATANODE&&adb_slot_enable_mvcc
+					&&(LOCATOR_TYPE_HASHMAP == scan->rs_rd->rd_locator_info->locatorType))
+					valid = HeapTupleSatisfiesSlot(scan->rs_rd, tuple);
+#endif
 
 				CheckForSerializableConflictOut(valid, scan->rs_rd, tuple,
 												scan->rs_cbuf, snapshot);
@@ -681,16 +690,6 @@ heapgettup(HeapScanDesc scan,
 				if (valid && key != NULL)
 					HeapKeyTest(tuple, RelationGetDescr(scan->rs_rd),
 								nkeys, key, valid);
-
-#ifdef ADB
-			if (valid && scan->rs_rd->rd_clean)
-				valid = ExecTestExpansionClean(scan->rs_rd->rd_clean, tuple);
-			//only check tuple slot in datanode and hash distribution
-				if ((valid)&&(scan->rs_rd->rd_id >= FirstNormalObjectId)
-					&& IS_PGXC_REAL_DATANODE&&adb_slot_enable_mvcc
-					&&(LOCATOR_TYPE_HASHMAP == scan->rs_rd->rd_locator_info->locatorType))
-					valid = HeapTupleSatisfiesSlot(scan->rs_rd, tuple);
-#endif
 
 				if (valid)
 				{
@@ -2015,7 +2014,7 @@ heap_fetch(Relation relation,
 
 
 #ifdef ADB
-	if (valid && relation->rd_clean)
+	if (valid && unlikely(relation->rd_clean))
 		valid = ExecTestExpansionClean(relation->rd_clean, tuple);
 	//only check tuple slot in datanode and hash distribution
 	if ((valid)&&(relation->rd_id >= FirstNormalObjectId)
@@ -2170,10 +2169,8 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 		{
 			/* If it's visible per the snapshot, we must return it */
 			valid = HeapTupleSatisfiesVisibility(heapTuple, snapshot, buffer);
-			CheckForSerializableConflictOut(valid, relation, heapTuple,
-											buffer, snapshot);
 #ifdef ADB
-			if (valid && relation->rd_clean)
+			if (valid && unlikely(relation->rd_clean))
 				valid = ExecTestExpansionClean(relation->rd_clean, heapTuple);
 			//only check tuple slot in datanode and hash distribution
 			if ((valid)&&(relation->rd_id >= FirstNormalObjectId)
@@ -2181,6 +2178,8 @@ heap_hot_search_buffer(ItemPointer tid, Relation relation, Buffer buffer,
 				&&(LOCATOR_TYPE_HASHMAP == relation->rd_locator_info->locatorType))
 				valid = HeapTupleSatisfiesSlot(relation, heapTuple);
 #endif
+			CheckForSerializableConflictOut(valid, relation, heapTuple,
+											buffer, snapshot);
 
 			if (valid)
 			{
@@ -2351,11 +2350,8 @@ heap_get_latest_tid(Relation relation,
 		 * result candidate.
 		 */
 		valid = HeapTupleSatisfiesVisibility(&tp, snapshot, buffer);
-		CheckForSerializableConflictOut(valid, relation, &tp, buffer, snapshot);
-
-
 #ifdef ADB
-		if (valid && relation->rd_clean)
+		if (valid && unlikely(relation->rd_clean))
 			valid = ExecTestExpansionClean(relation->rd_clean, &tp);
 		//only check tuple slot in datanode and hash distribution
 		if ((valid)&&(relation->rd_id >= FirstNormalObjectId)
@@ -2363,6 +2359,7 @@ heap_get_latest_tid(Relation relation,
 			&&(LOCATOR_TYPE_HASHMAP == relation->rd_locator_info->locatorType))
 			valid = HeapTupleSatisfiesSlot(relation, &tp);
 #endif
+		CheckForSerializableConflictOut(valid, relation, &tp, buffer, snapshot);
 
 		if (valid)
 			*tid = ctid;
