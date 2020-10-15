@@ -514,7 +514,7 @@ stmtmulti: stmtmulti ';' stmt
 				updateRawStmtEnd(llast_node(RawStmt, $1), @2);
 			}
 			if ($3 != NULL)
-				if (IsA($1, List))
+				if (IsA($3, List))
 				{
 					ListCell *cell;
 
