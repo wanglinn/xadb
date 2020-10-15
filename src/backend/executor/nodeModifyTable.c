@@ -765,7 +765,6 @@ ExecInsert(ModifyTableState *mtstate,
 	{
 #ifdef ADB
 		if (IsCnNode() && resultRemoteRel)
-		if (IsCnNode() && resultRemoteRel)
 			estate->es_processed += resultRemoteRel->rqs_processed;
 		else
 #endif
