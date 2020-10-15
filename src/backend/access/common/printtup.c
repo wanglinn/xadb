@@ -254,6 +254,7 @@ static bool write_ora_target(StringInfo buf, TargetEntry *te, const char *source
 	StringInfoData	name;
 	int				i;
 	bool			result = false;
+	int				wchar_len;
 
 	if (te->as_location <= 0 &&
 		te->expr_len > 0 &&
@@ -265,16 +266,18 @@ static bool write_ora_target(StringInfo buf, TargetEntry *te, const char *source
 		{
 		case T_FuncCall:
 			initStringInfoExtend(&name, te->expr_len + 1);
-			for (i=0;i<te->expr_len;++i)
+			for (i=0;i<te->expr_len;)
 			{
-				char c = source_cmd[pg_mbstrlen_with_len(source_cmd, te->expr_loc + i)];
+				char c = source_cmd[te->expr_loc + i];
 				if (c != '\n')
 				{
+					wchar_len = pg_mblen(source_cmd + te->expr_loc + i);
 					if (('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z'))
 						appendStringInfoChar(&name, (char)pg_toupper(c));
 					else
-						appendBinaryStringInfo(&name, &source_cmd[te->expr_loc+i], 1);
+						appendBinaryStringInfo(&name, &source_cmd[te->expr_loc+i], wchar_len);
 				}
+				i += wchar_len;
 			}
 			pq_writestring(buf, name.data);
 			pfree(name.data);
