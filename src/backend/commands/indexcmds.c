@@ -914,8 +914,8 @@ DefineIndex(Oid relationId,
 										   indexInfo->ii_Expressions))
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("Cannot create index whose evaluation cannot be "
-							"enforced to remote nodes")));
+					 errmsg("Distribution column is not in index column list, create index cannot be supported"
+							)));
 	}
 #endif /*ADB*/
 
