@@ -613,10 +613,10 @@ ExecCheckRTPerms(List *rangeTable, bool ereport_on_violation)
 		{
 			Assert(rte->rtekind == RTE_RELATION);
 			if (ereport_on_violation
-#ifdef ADB_GRAM_ORA
+#ifdef ADB
 				/* skip base table permission check between clusters. */
 				&& remoteConnType == REMOTE_CONN_APP
-#endif	/* ADB_GRAM_ORA */
+#endif
 				)
 				aclcheck_error(ACLCHECK_NO_PRIV, get_relkind_objtype(get_rel_relkind(rte->relid)),
 							   get_rel_name(rte->relid));
