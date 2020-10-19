@@ -324,7 +324,7 @@ static void mgr_modify_gtmport_after_initd(Relation rel_node,
 											int32 newport);
 static void MgrInitAllSlaveNodes(char nodeType);
 static void MgrInitStartChildNodes(MemoryContext spiContext, MgrNodeWrapper *mgrNode);
-static void MgrInitStartNodeFunc(NameData *nodeName, char nodeType);
+static bool MgrInitStartNodeFunc(NameData *nodeName, char nodeType);
 static void mgr_update_all_cn_pgxcnode_readonlysql(InitNodeInfo	*info, List	*datanode_list, List *sync_parms);
 
 #if (Natts_mgr_node != 13)
@@ -2256,15 +2256,16 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		if (execRes){
 			ereportNoticeLog(errmsg("[SUCCESS] host(%s) cmd(%s) params(%s).", get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data));
 		}
-		else{
+		else
+		{
+			initSlaveSuccess = false;
 			if (cmdtype == AGT_CMD_GTMCOORD_INIT){
 				ereportErrorLog(errmsg("[ERROR] init gtmcoord(%s) failed. host(%s), cmd(%s), params(%s), fail info(%s).", 
 								cndnname, get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data,
 								NameStr(getAgentCmdRst->description)));
 			}
 			else{
-			    initSlaveSuccess = false;	
-				ereportNoticeLog(errmsg("[ERROR] host(%s), cmd(%s), params(%s), fail info(%s).", 
+			    ereportNoticeLog(errmsg("[ERROR] host(%s), cmd(%s), params(%s), fail info(%s).", 
 								get_hostaddress_from_hostoid(hostOid), mgr_get_cmdname(cmdtype), infosendmsg.data,
 								NameStr(getAgentCmdRst->description)));
 			}
@@ -15122,14 +15123,20 @@ mgr_init_start_gtmcoord_slave_all(PG_FUNCTION_ARGS)
 	HeapTuple tup_result;
 	GetAgentCmdRst getAgentCmdRst;
 	namestrcpy(&getAgentCmdRst.nodename, "init gtmcood slave");
+	char result[16] = {0};
+	initSlaveSuccess = true;
 
 	ereportNoticeLog(errmsg("mgr_init_start_gtmcoord_slave_all\n"));
 
 	MgrInitAllSlaveNodes(CNDN_TYPE_GTM_COOR_SLAVE);
 
+	if (initSlaveSuccess)
+		strcpy(result, "success");
+	else
+		strcpy(result, "failed");
 	tup_result = build_common_command_tuple(&(getAgentCmdRst.nodename), 
 											1, 
-											"success");
+											result);
 	return HeapTupleGetDatum(tup_result);
 }
 
@@ -15139,13 +15146,20 @@ mgr_init_start_dn_slave_all(PG_FUNCTION_ARGS)
 	HeapTuple tup_result;
 	GetAgentCmdRst getAgentCmdRst;
 	namestrcpy(&getAgentCmdRst.nodename, "init datanode slave");
+	char result[16] = {0};
+	initSlaveSuccess = true;
 
 	ereportNoticeLog(errmsg("mgr_init_start_dn_slave_all\n"));
 
 	MgrInitAllSlaveNodes(CNDN_TYPE_DATANODE_SLAVE);
+
+	if (initSlaveSuccess)
+		strcpy(result, "success");
+	else
+		strcpy(result, "failed");
 	tup_result = build_common_command_tuple(&(getAgentCmdRst.nodename), 
 										1, 
-										"success");
+										result);
 	return HeapTupleGetDatum(tup_result);
 }
 static void MgrInitAllSlaveNodes(char nodeType)
@@ -15181,6 +15195,7 @@ static void MgrInitAllSlaveNodes(char nodeType)
 		}
 	}PG_CATCH();
 	{
+		initSlaveSuccess = false;
 		(void)MemoryContextSwitchTo(oldContext);
 		MemoryContextDelete(switchContext);
 		SPI_finish();
@@ -15206,9 +15221,9 @@ static void MgrInitStartChildNodes(MemoryContext spiContext, MgrNodeWrapper *mgr
 		slaveNode = dlist_container(MgrNodeWrapper, link, iter.cur);
 		Assert(slaveNode);
 		if (!slaveNode->form.nodeincluster){
-			MgrInitStartNodeFunc(&(slaveNode->form.nodename), slaveNode->form.nodetype);
-
-			ereport(LOG, (errmsg("init start slave %s.", slaveNode->form.nodename.data)));
+			ereport(LOG, (errmsg("init start slave %s.", slaveNode->form.nodename.data)));	
+			if (!MgrInitStartNodeFunc(&(slaveNode->form.nodename), slaveNode->form.nodetype))
+				initSlaveSuccess = false;			
 		}
 		MgrInitStartChildNodes(spiContext, slaveNode);
 	}
@@ -15219,7 +15234,7 @@ table_close(info->rel_node, RowExclusiveLock);\
 MgrFree(info);\
 MgrFree(getAgentCmdRst.description.data);
 
-static void MgrInitStartNodeFunc(NameData *nodeName, char nodeType)
+static bool MgrInitStartNodeFunc(NameData *nodeName, char nodeType)
 {
 	InitNodeInfo *info;
 	ScanKeyData key[2];
@@ -15246,7 +15261,7 @@ static void MgrInitStartNodeFunc(NameData *nodeName, char nodeType)
 	if(tuple == NULL)
 	{
 		MgrInitStartNodeFuncFree(info, getAgentCmdRst);
-		return;
+		return false;
 	}
 	if (nodeType == CNDN_TYPE_DATANODE_SLAVE)
 	{
@@ -15254,13 +15269,13 @@ static void MgrInitStartNodeFunc(NameData *nodeName, char nodeType)
 		if (!getAgentCmdRst.ret){
 			ereport(LOG, (errmsg("[failed] init datanode slave %s failed.", nodeName->data)));
 			MgrInitStartNodeFuncFree(info, getAgentCmdRst);
-			return;
+			return false;
 		}
 		mgr_run_gtm_dn_slave(tuple, info, AGT_CMD_DN_START, nodeType, TAKEPLAPARM_N, &getAgentCmdRst);
 		if (!getAgentCmdRst.ret){
 			ereport(LOG, (errmsg("[failed] start datanode slave %s failed.", nodeName->data)));
 			MgrInitStartNodeFuncFree(info, getAgentCmdRst);
-			return;
+			return false;
 		}
 	}
 	if (nodeType == CNDN_TYPE_GTM_COOR_SLAVE)
@@ -15269,18 +15284,18 @@ static void MgrInitStartNodeFunc(NameData *nodeName, char nodeType)
 		if (!getAgentCmdRst.ret){
 			ereport(LOG, (errmsg("[failed] init gtmcoord slave %s failed.", nodeName->data)));
 			MgrInitStartNodeFuncFree(info, getAgentCmdRst);
-			return;
+			return false;
 		}
 		mgr_run_gtm_dn_slave(tuple, info, AGT_CMD_GTMCOORD_START_SLAVE, nodeType, TAKEPLAPARM_N, &getAgentCmdRst);
 		if (!getAgentCmdRst.ret){
 			ereport(LOG, (errmsg("[failed] start gtmcoord slave %s failed.", nodeName->data)));
 			MgrInitStartNodeFuncFree(info, getAgentCmdRst);
-			return;
+			return false;
 		}
 	}
 
 	MgrInitStartNodeFuncFree(info, getAgentCmdRst);
-	return;
+	return true;
 }
 
 static void mgr_init_gtm_dn_slave(HeapTuple tuple, 
