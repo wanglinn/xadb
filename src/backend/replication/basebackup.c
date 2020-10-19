@@ -193,6 +193,8 @@ static const char *const excludeDirContents[] =
 	/* Contents zeroed on startup, see StartupSUBTRANS(). */
 	"pg_subtrans",
 
+	"pg_log",
+
 	/* end of list */
 	NULL
 };
