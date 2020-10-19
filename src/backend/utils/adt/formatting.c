@@ -1134,6 +1134,10 @@ static int	strspace_len(const char *str);
 static void from_char_set_mode(TmFromChar *tmfc, const FromCharDateMode mode);
 static void from_char_set_int(int *dest, const int value, const FormatNode *node);
 static int	from_char_parse_int_len(int *dest, const char **src, const int len, FormatNode *node);
+#ifdef ADB_GRAM_ORA
+static int ora_from_char_parse_int_len(int *dest, const char **src, const int len, FormatNode *node, bool is_oracle);
+static int ora_from_char_parse_int(int *dest, const char **src, FormatNode *node, bool is_to_date);
+#endif	/* ADB_GRAM_ORA */
 static int	from_char_parse_int(int *dest, const char **src, FormatNode *node);
 static int	seq_search(const char *name, const char *const *array, int *len);
 static int	from_char_seq_search(int *dest, const char **src,
@@ -1144,8 +1148,9 @@ static void do_to_timestamp(text *date_txt, text *fmt,
 #ifdef ADB_GRAM_ORA
 static void do_to_timestamp_internal(text *date_txt, text *fmt,
 				struct pg_tm * tm, fsec_t *fsec,
-				void (*DCH_from_char_ptr)(FormatNode *, const char *, TmFromChar *));
+				void (*DCH_from_char_ptr)(FormatNode *, const char *, TmFromChar *), bool is_to_date);
 static void ora_DCH_from_char(FormatNode *node, const char *in, TmFromChar *out);
+static void ora_date_DCH_from_char(FormatNode *node, const char *in, TmFromChar *out);
 static void ora_date_check(TmFromChar *out, const char * type);
 
 #define OraCheckYear(out)	ora_date_check((out), "y")
@@ -2393,6 +2398,14 @@ from_char_set_int(int *dest, const int value, const FormatNode *node)
 static int
 from_char_parse_int_len(int *dest, const char **src, const int len, FormatNode *node)
 {
+#ifdef ADB_GRAM_ORA
+	return ora_from_char_parse_int_len(dest, src, len, node, false);
+}
+static int
+ora_from_char_parse_int_len(int *dest, const char **src, const int len, FormatNode *node, bool is_oracle)
+{
+
+#endif	/* ADB_GRAM_ORA */
 	long		result;
 	char		copy[DCH_MAX_ITEM_SIZ + 1];
 	const char *init = *src;
@@ -2414,9 +2427,50 @@ from_char_parse_int_len(int *dest, const char **src, const int len, FormatNode *
 		 */
 		char	   *endptr;
 
-		errno = 0;
-		result = strtol(init, &endptr, 10);
-		*src = endptr;
+#ifdef ADB_GRAM_ORA
+		if (is_oracle)
+		{
+			int			i;
+			bool		iclude_separator = false;
+
+			/*
+			 * For data length and format length is different, 
+			 * let the original logic to deal with.
+			 * Example: do_date('1-1-1', 'yyyy-mm-dd')
+			 */
+			for (i = 0; i < len; i++)
+			{
+				if (*(init + i) == '\0' || *(init + i) == ' ' || is_separator_char(init + i))
+				{
+					iclude_separator = true;
+					break;
+				}
+			}
+			if (!iclude_separator)
+			{
+				char   *tmp_init = (char *) palloc(sizeof(char) * (len + 1));
+				strncpy(tmp_init, init, len);
+				tmp_init[len] = '\0';
+				result = strtol(tmp_init, &endptr, 10);
+				pfree(tmp_init);
+				*src = init + len;
+			}
+			else
+			{
+				errno = 0;
+				result = strtol(init, &endptr, 10);
+				*src = endptr;
+			}
+		}
+		else
+		{
+#endif	/* ADB_GRAM_ORA */
+			errno = 0;
+			result = strtol(init, &endptr, 10);
+			*src = endptr;
+#ifdef ADB_GRAM_ORA
+		}
+#endif	/* ADB_GRAM_ORA */
 	}
 	else
 	{
@@ -2486,7 +2540,16 @@ from_char_parse_int_len(int *dest, const char **src, const int len, FormatNode *
 static int
 from_char_parse_int(int *dest, const char **src, FormatNode *node)
 {
+#ifdef ADB_GRAM_ORA
+	return ora_from_char_parse_int_len(dest, src, node->key->len, node, false);
+}
+static int
+ora_from_char_parse_int(int *dest, const char **src, FormatNode *node, bool is_to_date)
+{
+	return ora_from_char_parse_int_len(dest, src, node->key->len, node, is_to_date);
+#else
 	return from_char_parse_int_len(dest, src, node->key->len, node);
+#endif	/* ADB_GRAM_ORA */
 }
 
 /*
@@ -4079,13 +4142,13 @@ do_to_timestamp(text *date_txt, text *fmt,
 				struct pg_tm *tm, fsec_t *fsec)
 #ifdef ADB_GRAM_ORA
 {
-	do_to_timestamp_internal(date_txt, fmt, tm, fsec, DCH_from_char);
+	do_to_timestamp_internal(date_txt, fmt, tm, fsec, DCH_from_char, false);
 }
 
 static void
 do_to_timestamp_internal(text *date_txt, text *fmt,
 				struct pg_tm * tm, fsec_t *fsec,
-				void (*DCH_from_char_ptr)(FormatNode *, const char *, TmFromChar *))
+				void (*DCH_from_char_ptr)(FormatNode *, const char *, TmFromChar *), bool is_to_date)
 #endif
 {
 	FormatNode *format;
@@ -4109,6 +4172,22 @@ do_to_timestamp_internal(text *date_txt, text *fmt,
 		bool		incache;
 
 		fmt_str = text_to_cstring(fmt);
+#ifdef ADB_GRAM_ORA
+		if (is_to_date)
+		{
+			char	*lower_str = fmt_str;
+			while (*lower_str != '\0')
+			{
+				/* 
+				 * Convert format character to lowercase,
+				 * avoid parsing failure caused by nonstandard writing of format character.
+				 */
+				if (!is_separator_char(lower_str))
+					*lower_str = pg_tolower(*lower_str);
+				lower_str++;
+			}
+		}
+#endif	/* ADB_GRAM_ORA */
 
 		if (fmt_len > DCH_CACHE_SIZE)
 		{
@@ -6330,7 +6409,7 @@ ora_to_timestamp(text *date_txt, text *fmt, bool withtz)
 
 	AssertArg(fmt);
 
-	do_to_timestamp_internal(date_txt, fmt, &tm, &fsec, ora_DCH_from_char);
+	do_to_timestamp_internal(date_txt, fmt, &tm, &fsec, ora_DCH_from_char, false);
 
 	if (withtz)
 	{
@@ -6671,6 +6750,469 @@ ora_DCH_from_char(FormatNode *node, const char *in, TmFromChar *out)
 						}
 
 						len = from_char_parse_int_len(&ns, &s, 9, n);
+						if (max_precision > 0 && len > max_precision)
+							ereport(ERROR,
+									(errcode(ERRCODE_INVALID_DATETIME_FORMAT),
+									errmsg("the fractional seconds must be between 0 and 999999999")));
+						switch (len)
+						{
+							case 1:
+								out->us = ns * 100000;
+								break;
+							case 2:
+								out->us = ns * 10000;
+								break;
+							case 3:
+								out->us = ns * 1000;
+								break;
+							case 4:
+								out->us = ns * 100;
+								break;
+							case 5:
+								out->us = ns * 10;
+								break;
+							case 6:
+								out->us = ns;
+								break;
+							case 7:
+								elog(WARNING,
+									"TIMESTAMP(7) precision reduced to maximum allowed, 6");
+								out->us = ns / 10;
+								break;
+							case 8:
+								elog(WARNING,
+									"TIMESTAMP(8) precision reduced to maximum allowed, 6");
+								out->us = ns / 100;
+								break;
+							case 9:
+								elog(WARNING,
+									"TIMESTAMP(9) precision reduced to maximum allowed, 6");
+								out->us = ns / 1000;
+								break;
+							default:
+								ereport(ERROR,
+									(errcode(ERRCODE_INVALID_DATETIME_FORMAT),
+									errmsg("date format picture ends before converting entire input string")));
+								break;
+						}
+					}
+				}
+				break;
+		}
+	}
+
+	/*
+	 * It means format ends before input string.
+	 */
+	if (*s != '\0' && *s != ' ')
+		ereport(ERROR,
+			(errcode(ERRCODE_INVALID_DATETIME_FORMAT),
+			errmsg("Date format picture ends before converting entire input string")));
+
+	/*
+	 * Just like oracle, set default year and month,
+	 * Then we can check day, wday and yday.
+	 */
+	if (out->year == 0 || (out->mm == 0 && out->ddd == 0))
+	{
+		time_t now = time(NULL);
+		struct tm * tm = localtime(&now);
+
+		if (out->year == 0)
+			out->year = tm->tm_year + 1900;
+		if (out->mm == 0 && out->ddd == 0)
+			out->mm = tm->tm_mon + 1;
+	}
+
+	/*
+	 * Check day of month again.
+	 */
+	if (out->dd > 0)
+	{
+		static const int mdays[2][13]= {
+			{0,31,28,31,30,31,30,31,31,30,31,30,31},
+			{0,31,29,31,30,31,30,31,31,30,31,30,31}
+			};
+		int maxmday = mdays[isleap(out->year)][out->mm];
+		if (out->dd > maxmday)
+			ereport(ERROR,
+				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+				errmsg("the day must be between the first and the last day of the month")));
+	}
+
+	/* Check day of year again */
+	if (out->ddd > 0)
+	{
+		if (out->ddd > (isleap(out->year) ? 366 : 365))
+			ereport(ERROR,
+				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+				errmsg("day of year must be between 1 and 365 (366 for leap year)")));
+	}
+	/* Check day of week again (do nothing, see above) */
+}
+
+/* ---------------------
+ * ORA_TO_DATE()
+ *
+ * Make Date from date_str which is formatted at argument 'fmt'.
+ * Here we match some checks by oracle grammar.
+ * ---------------------
+ */
+Datum
+ora_to_date(text *date_txt, text *fmt, bool withtz)
+{
+	Timestamp	result;
+	int			tz;
+	struct pg_tm tm;
+	fsec_t		fsec;
+	int		   *ptz = NULL;
+
+	AssertArg(fmt);
+
+	do_to_timestamp_internal(date_txt, fmt, &tm, &fsec, ora_date_DCH_from_char, true);
+
+	if (withtz)
+	{
+		tz = DetermineTimeZoneOffset(&tm, session_timezone);
+		ptz = &tz;
+	}
+
+	if (tm2timestamp(&tm, fsec, ptz, &result) != 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+				 errmsg("timestamp out of range")));
+
+	PG_RETURN_TIMESTAMP(result);
+}
+
+static void
+ora_date_DCH_from_char(FormatNode *node, const char *in, TmFromChar *out)
+{
+	FormatNode *n;
+	const char *s;
+	int 		len,
+				value;
+	bool		fx_mode = false;
+
+	for (n = node, s = in; n->type != NODE_TYPE_END && *s != '\0'; n++)
+	{
+		if (true && (n->type == NODE_TYPE_SEPARATOR || n->type == NODE_TYPE_SPACE) && !is_separator_char(s))
+			continue;
+
+		if (n->type != NODE_TYPE_ACTION)
+		{
+			/*
+			 * Separator, so consume one character from input string.  Notice
+			 * we don't insist that the consumed character match the format's
+			 * character.
+			 */
+			s++;
+			continue;
+		}
+
+		/* Ignore spaces before fields when not in FX (fixed width) mode */
+		if (!fx_mode && n->key->id != DCH_FX)
+		{
+			while (*s != '\0' && isspace((unsigned char) *s))
+				s++;
+		}
+
+		from_char_set_mode(out, n->key->date_mode);
+
+		switch (n->key->id)
+		{
+			case DCH_FX:
+				fx_mode = true;
+				break;
+			case DCH_A_M:
+			case DCH_P_M:
+			case DCH_a_m:
+			case DCH_p_m:
+				from_char_seq_search(&value, &s, ampm_strings_long, n);
+				from_char_set_int(&out->pm, value % 2, n);
+				out->clock = CLOCK_12_HOUR;
+				break;
+			case DCH_AM:
+			case DCH_PM:
+			case DCH_am:
+			case DCH_pm:
+				from_char_seq_search(&value, &s, ampm_strings, n);
+				from_char_set_int(&out->pm, value % 2, n);
+				out->clock = CLOCK_12_HOUR;
+				break;
+			case DCH_HH:
+			case DCH_HH12:
+				ora_from_char_parse_int_len(&out->hh, &s, 2, n, true);
+				out->clock = CLOCK_12_HOUR;
+				SKIP_THth(s, n->suffix);
+				OraCheckHour(out);
+				break;
+			case DCH_HH24:
+				ora_from_char_parse_int_len(&out->hh, &s, 2, n, true);
+				SKIP_THth(s, n->suffix);
+				OraCheckHour(out);
+				break;
+			case DCH_MI:
+				ora_from_char_parse_int(&out->mi, &s, n, true);
+				SKIP_THth(s, n->suffix);
+				OraCheckMinute(out);
+				break;
+			case DCH_SS:
+				ora_from_char_parse_int(&out->ss, &s, n, true);
+				SKIP_THth(s, n->suffix);
+				OraCheckSecond(out);
+				break;
+			case DCH_MS:		/* millisecond */
+				len = ora_from_char_parse_int_len(&out->ms, &s, 3, n, true);
+
+				/*
+				 * 25 is 0.25 and 250 is 0.25 too; 025 is 0.025 and not 0.25
+				 */
+				out->ms *= len == 1 ? 100 :
+					len == 2 ? 10 : 1;
+
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_US:		/* microsecond */
+				len = ora_from_char_parse_int_len(&out->us, &s, 6, n, true);
+
+				out->us *= len == 1 ? 100000 :
+					len == 2 ? 10000 :
+					len == 3 ? 1000 :
+					len == 4 ? 100 :
+					len == 5 ? 10 : 1;
+
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_SSSS:
+				ora_from_char_parse_int(&out->ssss, &s, n, true);
+				SKIP_THth(s, n->suffix);
+				break;
+#ifdef ADB_GRAM_ORA
+			case DCH_SSSSS:
+				ora_from_char_parse_int(&out->ssss, &s, n, true);
+				SKIP_THth(s, n->suffix);
+				break;
+#endif
+			case DCH_tz:
+			case DCH_TZ:
+			case DCH_OF:
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("\"TZ\"/\"tz\"/\"OF\" format patterns are not supported in to_date")));
+			case DCH_A_D:
+			case DCH_B_C:
+			case DCH_a_d:
+			case DCH_b_c:
+				from_char_seq_search(&value, &s, adbc_strings_long, n);
+				from_char_set_int(&out->bc, value % 2, n);
+				break;
+			case DCH_AD:
+			case DCH_BC:
+			case DCH_ad:
+			case DCH_bc:
+				from_char_seq_search(&value, &s, adbc_strings, n);
+				from_char_set_int(&out->bc, value % 2, n);
+				break;
+			case DCH_MONTH:
+			case DCH_Month:
+			case DCH_month:
+				{
+					volatile bool err = false;
+					PG_TRY_HOLD();
+					{
+						from_char_seq_search(&value, &s, months_full, n);
+					} PG_CATCH_HOLD();
+					{
+						FlushErrorState();
+						err = true;
+					} PG_END_TRY_HOLD();
+
+					if (err)
+						from_char_seq_search(&value, &s, months, n);
+
+					from_char_set_int(&out->mm, value + 1, n);
+					OraCheckMonth(out);
+				}
+				break;
+			case DCH_MON:
+			case DCH_Mon:
+			case DCH_mon:
+				from_char_seq_search(&value, &s, months, n);
+				/*
+				 * try to ignore the rest characters if we
+				 * get the short month
+				 */
+				{
+					const char *p = months_full[value] + 3;
+					size_t len = strlen(p);
+					if (strncmp(s, p, len) == 0)
+						s += len;
+				}
+				from_char_set_int(&out->mm, value + 1, n);
+				OraCheckMonth(out);
+				break;
+			case DCH_MM:
+				ora_from_char_parse_int(&out->mm, &s, n, true);
+				SKIP_THth(s, n->suffix);
+				OraCheckMonth(out);
+				break;
+			case DCH_DAY:
+			case DCH_Day:
+			case DCH_day:
+				from_char_seq_search(&value, &s, days, n);
+				from_char_set_int(&out->d, value, n);
+				out->d++;
+				break;
+			case DCH_DY:
+			case DCH_Dy:
+			case DCH_dy:
+				from_char_seq_search(&value, &s, days, n);
+				from_char_set_int(&out->d, value, n);
+				out->d++;
+				break;
+			case DCH_DDD:
+				ora_from_char_parse_int(&out->ddd, &s, n, true);
+				SKIP_THth(s, n->suffix);
+				OraCheckYDay(out);
+				break;
+			case DCH_IDDD:
+				ora_from_char_parse_int_len(&out->ddd, &s, 3, n, true);
+				SKIP_THth(s, n->suffix);
+				OraCheckYDay(out);
+				break;
+			case DCH_DD:
+				ora_from_char_parse_int(&out->dd, &s, n, true);
+				SKIP_THth(s, n->suffix);
+				OraCheckMDay(out);
+				break;
+			case DCH_D:
+				ora_from_char_parse_int(&out->d, &s, n, true);
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_ID:
+				ora_from_char_parse_int_len(&out->d, &s, 1, n, true);
+				/* Shift numbering to match Gregorian where Sunday = 1 */
+				if (++out->d > 7)
+					out->d = 1;
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_WW:
+			case DCH_IW:
+				ora_from_char_parse_int(&out->ww, &s, n, true);
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_Q:
+
+				/*
+				 * We ignore 'Q' when converting to date because it is unclear
+				 * which date in the quarter to use, and some people specify
+				 * both quarter and month, so if it was honored it might
+				 * conflict with the supplied month. That is also why we don't
+				 * throw an error.
+				 *
+				 * We still parse the source string for an integer, but it
+				 * isn't stored anywhere in 'out'.
+				 */
+				ora_from_char_parse_int((int *) NULL, &s, n, true);
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_CC:
+				ora_from_char_parse_int(&out->cc, &s, n, true);
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_Y_YYY:
+				{
+					int 		matched,
+								years,
+								millennia,
+								nch;
+
+					matched = sscanf(s, "%d,%03d%n", &millennia, &years, &nch);
+					if (matched < 2)
+						ereport(ERROR,
+								(errcode(ERRCODE_INVALID_DATETIME_FORMAT),
+							  errmsg("invalid input string for \"Y,YYY\"")));
+					years += (millennia * 1000);
+					from_char_set_int(&out->year, years, n);
+					out->yysz = 4;
+					s += nch;
+					SKIP_THth(s, n->suffix);
+					OraCheckYear(out);
+				}
+				break;
+			case DCH_YYYY:
+			case DCH_IYYY:
+				ora_from_char_parse_int(&out->year, &s, n, true);
+				out->yysz = 4;
+				SKIP_THth(s, n->suffix);
+				OraCheckYear(out);
+				break;
+			case DCH_YYY:
+			case DCH_IYY:
+				if (ora_from_char_parse_int(&out->year, &s, n, true) < 4)
+					out->year = adjust_partial_year_to_2020(out->year);
+				out->yysz = 3;
+				SKIP_THth(s, n->suffix);
+				OraCheckYear(out);
+				break;
+			case DCH_YY:
+			case DCH_IY:
+				if (ora_from_char_parse_int(&out->year, &s, n, true) < 4)
+					out->year = adjust_partial_year_to_2020(out->year);
+				out->yysz = 2;
+				SKIP_THth(s, n->suffix);
+				OraCheckYear(out);
+				break;
+			case DCH_Y:
+			case DCH_I:
+				if (ora_from_char_parse_int(&out->year, &s, n, true) < 4)
+					out->year = adjust_partial_year_to_2020(out->year);
+				out->yysz = 1;
+				SKIP_THth(s, n->suffix);
+				OraCheckYear(out);
+				break;
+			case DCH_RM:
+				from_char_seq_search(&value, &s, rm_months_upper, n);
+				from_char_set_int(&out->mm, MONTHS_PER_YEAR - value, n);
+				OraCheckMonth(out);
+				break;
+			case DCH_rm:
+				from_char_seq_search(&value, &s, rm_months_lower, n);
+				from_char_set_int(&out->mm, MONTHS_PER_YEAR - value, n);
+				OraCheckMonth(out);
+				break;
+			case DCH_W:
+				ora_from_char_parse_int(&out->w, &s, n, true);
+				SKIP_THth(s, n->suffix);
+				break;
+			case DCH_J:
+				ora_from_char_parse_int(&out->j, &s, n, true);
+				SKIP_THth(s, n->suffix);
+				break;
+			default:
+				{
+					if ((n->key->id >= DCH_XFF1 && n->key->id <= DCH_XFF) ||
+						(n->key->id >= DCH_FF1 && n->key->id <= DCH_FF))
+					{
+						int			ns = 0;		/* nanosecond */
+						int			max_precision = 0;
+
+						if (n->key->id >= DCH_XFF1 && n->key->id <= DCH_XFF)
+						{
+							/* skip radix characters */
+							if (!isdigit(*s))
+								s++;
+							if (n->key->id < DCH_XFF)
+								max_precision = n->key->id - DCH_XFF1 + 1;
+						} else
+						if (n->key->id >= DCH_FF1 && n->key->id <= DCH_FF)
+						{
+							if (n->key->id < DCH_FF)
+								max_precision = n->key->id - DCH_FF1 + 1;
+						}
+
+						len = ora_from_char_parse_int_len(&ns, &s, 9, n, true);
 						if (max_precision > 0 && len > max_precision)
 							ereport(ERROR,
 									(errcode(ERRCODE_INVALID_DATETIME_FORMAT),
