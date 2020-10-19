@@ -528,6 +528,7 @@ CREATE OR REPLACE FUNCTION pg_catalog.get_all_nodename_in_spec_host(hostname tex
 		when 'g' then 'gtmcoord master'
 		when 'p' then 'gtmcoord slave'
 		when 'c' then 'coordinator'
+        when 's' then 'coordinator slave'
 		when 'd' then 'datanode master'
 		when 'b' then 'datanode slave'
 		end as nodetype,
