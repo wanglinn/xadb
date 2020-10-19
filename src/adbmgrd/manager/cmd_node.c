@@ -15126,8 +15126,6 @@ mgr_init_start_gtmcoord_slave_all(PG_FUNCTION_ARGS)
 	char result[16] = {0};
 	initSlaveSuccess = true;
 
-	ereportNoticeLog(errmsg("mgr_init_start_gtmcoord_slave_all\n"));
-
 	MgrInitAllSlaveNodes(CNDN_TYPE_GTM_COOR_SLAVE);
 
 	if (initSlaveSuccess)
@@ -15148,8 +15146,6 @@ mgr_init_start_dn_slave_all(PG_FUNCTION_ARGS)
 	namestrcpy(&getAgentCmdRst.nodename, "init datanode slave");
 	char result[16] = {0};
 	initSlaveSuccess = true;
-
-	ereportNoticeLog(errmsg("mgr_init_start_dn_slave_all\n"));
 
 	MgrInitAllSlaveNodes(CNDN_TYPE_DATANODE_SLAVE);
 
