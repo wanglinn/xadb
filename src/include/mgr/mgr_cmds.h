@@ -383,6 +383,7 @@ extern bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, 
 extern TupleDesc get_common_command_tuple_desc(void);
 extern HeapTuple build_common_command_tuple(const Name name, bool success, const char *message);
 extern int pingNode_user(char *host, char *port, char *user);
+extern int pingNode_user_by_nodename(char *node_name, char *host_addr, char *node_port, char *node_user);
 extern bool is_valid_ip(char *ip);
 extern bool	mgr_check_host_in_use(Oid hostoid, bool check_inited);
 extern void mgr_mark_node_in_cluster(Relation rel);
@@ -533,6 +534,7 @@ extern bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int c
 /*expansion calls*/
 extern void	mgr_make_sure_all_running(char node_type, char *zone);
 extern bool is_node_running(char *hostaddr, int32 hostport, char *user, char nodetype);
+extern bool makesure_node_is_running(Form_mgr_node mgr_node, int port);
 extern bool mgr_try_max_pingnode(char *host, char *port, char *user, const int max_times);
 extern char mgr_get_master_type(char nodetype);
 extern void mgr_get_nodeinfo_byname_type(char *node_name, char node_type, bool bincluster, bool *is_exist, bool *is_running, AppendNodeInfo *nodeinfo);
