@@ -1033,8 +1033,27 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	 * those could refer to generated columns.
 	 */
 	if (rawDefaults)
+#ifdef ADB_MULTI_GRAM
+	{
+		/* support implicit conversion of Oracle type for column default expression value. */
+		if (stmt->grammar != PARSE_GRAM_POSTGRES)
+			PushOverrideSearchPathForGrammar(stmt->grammar);
+		PG_TRY();
+		{
+#endif	/* ADB_MULTI_GRAM */
 		AddRelationNewConstraints(rel, rawDefaults, NIL,
 								  true, true, false, queryString);
+#ifdef ADB_MULTI_GRAM
+		}PG_CATCH();
+		{
+			if (stmt->grammar != PARSE_GRAM_POSTGRES)
+				PopOverrideSearchPath();
+			PG_RE_THROW();
+		}PG_END_TRY();
+		if (stmt->grammar != PARSE_GRAM_POSTGRES)
+			PopOverrideSearchPath();
+	}
+#endif	/* ADB_MULTI_GRAM */
 
 	/*
 	 * Make column generation expressions visible for use by partitioning.
