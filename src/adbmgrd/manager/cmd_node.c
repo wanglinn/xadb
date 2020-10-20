@@ -5738,7 +5738,23 @@ bool is_node_running(char *hostaddr, int32 hostport, char *user, char nodetype)
 
 	return true;
 }
+bool makesure_node_is_running(Form_mgr_node mgr_node, int port)
+{
+	char bufPort[10] = {0};
+	int ret;
 
+	char *hostaddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
+	char *user = get_hostuser_from_hostoid(mgr_node->nodehost);
+	sprintf(bufPort, "%d", port);
+
+	ret = pingNode_user_by_nodename(NameStr(mgr_node->nodename), hostaddr, bufPort, user);
+	if (ret != PQPING_OK)
+	{
+		return false;
+	}
+
+	return true;
+}
 static void mgr_get_parent_appendnodeinfo(Oid parentOid, AppendNodeInfo *parentnodeinfo)
 {
 	Relation        rel;
@@ -9287,10 +9303,12 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 {
 	StringInfoData infosendmsg;
 	Oid nodetupleoid;
+	Form_mgr_node mgr_node;
 
 	Assert(HeapTupleIsValid(nodetuple));
 	nodetupleoid = HeapTupleGetOid(nodetuple);
 	initStringInfo(&infosendmsg);
+	mgr_node = (Form_mgr_node)GETSTRUCT(nodetuple);
 	
 	PG_TRY();
 	{
@@ -9300,6 +9318,10 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 			resetStringInfo(&infosendmsg);
 			mgr_append_pgconf_paras_str_int("port", newport, &infosendmsg);
 			mgr_modify_node_parameter_after_initd(rel_node, nodetuple, &infosendmsg, true);
+			if (!makesure_node_is_running(mgr_node, newport))
+				ereport(ERROR, (errmsg("[ERROR] %s %s is not running on port %d.", 
+						mgr_get_nodetype_desc(mgr_node->nodetype), NameStr(mgr_node->nodename), newport)));
+
 			if (CNDN_TYPE_DATANODE_SLAVE == nodetype)
 			{
 				resetStringInfo(&infosendmsg);
@@ -9318,6 +9340,9 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 			resetStringInfo(&infosendmsg);
 			mgr_append_pgconf_paras_str_int("port", newport, &infosendmsg);
 			mgr_modify_node_parameter_after_initd(rel_node, nodetuple, &infosendmsg, true);
+			if (!makesure_node_is_running(mgr_node, newport))
+				ereport(ERROR, (errmsg("[ERROR] %s %s is not running on port %d.", 
+						mgr_get_nodetype_desc(mgr_node->nodetype), NameStr(mgr_node->nodename), newport)));
 			
 			mgr_modify_slave_port_recoveryconf(rel_node, CNDN_TYPE_DATANODE_SLAVE, nodetupleoid, newport);
 			
@@ -9345,7 +9370,10 @@ static void mgr_modify_port_after_initd(Relation rel_node, HeapTuple nodetuple, 
 			resetStringInfo(&infosendmsg);
 			mgr_append_pgconf_paras_str_int("port", newport, &infosendmsg);
 			mgr_modify_node_parameter_after_initd(rel_node, nodetuple, &infosendmsg, true);
-			
+			if (!makesure_node_is_running(mgr_node, newport))
+				ereport(ERROR, (errmsg("[ERROR] %s %s is not running on port %d.", 
+						mgr_get_nodetype_desc(mgr_node->nodetype), NameStr(mgr_node->nodename), newport)));
+
 			mgr_modify_slave_port_recoveryconf(rel_node, CNDN_TYPE_COORDINATOR_SLAVE, nodetupleoid, newport);
 
 			resetStringInfo(&infosendmsg);
@@ -9413,7 +9441,10 @@ static void mgr_modify_gtmport_after_initd(Relation rel_node, HeapTuple nodetupl
 		initStringInfo(&infosendmsg);
 		mgr_append_pgconf_paras_str_int("port", newport, &infosendmsg);
 		mgr_modify_node_parameter_after_initd(rel_node, nodetuple, &infosendmsg, true);
-		
+		if (!makesure_node_is_running(mgr_node, newport))
+				ereport(ERROR, (errmsg("[ERROR] %s %s is not running on port %d.", 
+						mgr_get_nodetype_desc(mgr_node->nodetype), NameStr(mgr_node->nodename), newport)));
+
 		/*modify its slave recovery.conf and datanodes coordinators postgresql.conf*/
 		ScanKeyInit(&key[0]
 					,Anum_mgr_node_nodeincluster

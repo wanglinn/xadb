@@ -61,6 +61,8 @@ static XLogRecPtr mgr_get_last_wal_receive_location(const Oid hostOid, char *sql
 	, const char *database, const bool bgtmtype);
 static XLogRecPtr parse_lsn(const char *str);
 static TupleDesc get_list_nodesize_tuple_desc(void);
+static int mgr_send_node_message_to_agent(char *host_addr, int32 agent_port, char *node_port, char *node_user, char *pid_file_path);
+
 bool mgr_recv_msg_for_nodesize(ManagerAgent	*ma, GetAgentCmdRst *getAgentCmdRst);
 HeapTuple build_list_nodesize_tuple(const Name nodename, char nodetype, int32 nodeport, const char *nodepath, int64 nodesize);
 TupleDesc common_list_nodesize = NULL;
@@ -589,11 +591,6 @@ bool is_valid_ip(char *ip)
 /* ping someone node for monitor */
 int pingNode_user(char *host_addr, char *node_port, char *node_user)
 {
-	int ping_status;
-	bool execok = false;
-	ManagerAgent *ma;
-	StringInfoData sendstrmsg;
-	StringInfoData buf;
 	char pid_file_path[MAXPATH] = {0};
 	Datum nodepath;
 	int32 agent_port;
@@ -603,7 +600,6 @@ int pingNode_user(char *host_addr, char *node_port, char *node_user)
 	HeapTuple tuple;
 	Oid host_tuple_oid;
 	Form_mgr_host mgr_host;
-	GetAgentCmdRst getAgentCmdRst;
 	bool isnull;
 	Assert(host_addr && node_port && node_user);
 
@@ -650,6 +646,76 @@ int pingNode_user(char *host_addr, char *node_port, char *node_user)
 	heap_endscan(rel_scan);
 	heap_close(rel, AccessShareLock);
 
+	return mgr_send_node_message_to_agent(host_addr, agent_port, node_port, node_user, pid_file_path);
+}
+int pingNode_user_by_nodename(char *node_name, char *host_addr, char *node_port, char *node_user)
+{
+	char pid_file_path[MAXPATH] = {0};
+	Datum nodepath;
+	int32 agent_port;
+	Relation rel;
+	HeapScanDesc rel_scan;
+	ScanKeyData key[2];
+	HeapTuple tuple;
+	Oid host_tuple_oid;
+	Form_mgr_host mgr_host;
+	bool isnull;
+	Assert(host_addr && node_port && node_user);
+
+	/*get the host port base on the port of node and host*/
+	ScanKeyInit(&key[0]
+				,Anum_mgr_host_hostaddr
+				,BTEqualStrategyNumber
+				,F_TEXTEQ
+				,CStringGetTextDatum(host_addr));
+	rel = heap_open(HostRelationId, AccessShareLock);
+	rel_scan = heap_beginscan_catalog(rel, 1, key);
+	tuple = heap_getnext(rel_scan, ForwardScanDirection);
+	host_tuple_oid = HeapTupleGetOid(tuple);
+	if (!HeapTupleIsValid(tuple))
+	{
+		ereport(ERROR, (errmsg("host\"%s\" does not exist in the host table", host_addr)));
+	}
+	mgr_host = (Form_mgr_host)GETSTRUCT(tuple);
+	Assert(mgr_host);
+	agent_port = mgr_host->hostagentport;
+	heap_endscan(rel_scan);
+	heap_close(rel, AccessShareLock);
+
+	/*get postmaster.pid file path */
+	ScanKeyInit(&key[0]
+			,Anum_mgr_node_nodename
+			,BTEqualStrategyNumber
+			,F_NAMEEQ
+			,CStringGetDatum(node_name));
+	ScanKeyInit(&key[1]
+				,Anum_mgr_node_nodehost
+				,BTEqualStrategyNumber
+				,F_OIDEQ
+				,ObjectIdGetDatum(host_tuple_oid));
+	rel = heap_open(NodeRelationId, AccessShareLock);
+	rel_scan = heap_beginscan_catalog(rel, 2, key);
+	tuple = heap_getnext(rel_scan, ForwardScanDirection);
+	if (!HeapTupleIsValid(tuple))
+	{
+		ereport(ERROR, (errmsg("port \"%s\" does not exist in the node table", node_port)));
+	}
+	nodepath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(rel), &isnull);
+	snprintf(pid_file_path, MAXPATH, "%s/postmaster.pid", TextDatumGetCString(nodepath));
+	heap_endscan(rel_scan);
+	heap_close(rel, AccessShareLock);
+
+	return mgr_send_node_message_to_agent(host_addr, agent_port, node_port, node_user, pid_file_path);
+}
+static int mgr_send_node_message_to_agent(char *host_addr, int32 agent_port, char *node_port, char *node_user, char *pid_file_path)
+{
+	int ping_status;
+	bool execok = false;
+	ManagerAgent *ma;
+	StringInfoData sendstrmsg;
+	StringInfoData buf;
+	GetAgentCmdRst getAgentCmdRst;
+
 	/*send the node message to agent*/
 	initStringInfo(&sendstrmsg);
 	initStringInfo(&(getAgentCmdRst.description));
@@ -670,15 +736,17 @@ int pingNode_user(char *host_addr, char *node_port, char *node_user)
 		ma_close(ma);
 		ereport(LOG, (errmsg("could not connect socket for agent \"%s\".",
 						host_addr)));
-		pfree(sendstrmsg.data);
-		pfree(getAgentCmdRst.description.data);
+		MgrFree(sendstrmsg.data);
+		MgrFree(getAgentCmdRst.description.data);
 		return AGENT_DOWN;
 	}
 	getAgentCmdRst.ret = false;
+	
+	initStringInfo(&buf);
 	ma_beginmessage(&buf, AGT_MSG_COMMAND);
 	ma_sendbyte(&buf, AGT_CMD_PING_NODE);
 	mgr_append_infostr_infostr(&buf, &sendstrmsg);
-	pfree(sendstrmsg.data);
+	MgrFree(sendstrmsg.data);
 	ma_endmessage(&buf, ma);
 	if (! ma_flush(ma, true))
 	{
@@ -698,8 +766,10 @@ int pingNode_user(char *host_addr, char *node_port, char *node_user)
 	if (getAgentCmdRst.description.len == 1)
 		ping_status = getAgentCmdRst.description.data[0];
 	else
-		ereport(ERROR, (errmsg("receive msg from agent \"%s\" error.", host_addr)));
-	pfree(getAgentCmdRst.description.data);
+		ereport(ERROR, (errmsg("receive msg from (host=%s port=%s) error, please check the node is runnning ok.", host_addr, node_port)));
+	MgrFree(getAgentCmdRst.description.data);
+	MgrFree(buf.data);
+
 	switch(ping_status)
 	{
 		case PQPING_OK:
@@ -709,8 +779,7 @@ int pingNode_user(char *host_addr, char *node_port, char *node_user)
 			return ping_status;
 		default:
 			return PQPING_NO_RESPONSE;
-	}
-	pfree(buf.data);
+	}	
 }
 
 /*check the host in use or not*/
