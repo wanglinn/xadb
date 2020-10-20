@@ -1042,14 +1042,15 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 		revertGtmInfoSetting(oldMaster, newMaster, &coordinators, &coordinatorSlaves, &dataNodes);
 
 		if (newMaster != NULL)
-			RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);
+			RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);		
 	}
 	PG_END_TRY();
 
 	ereport(LOG, (errmsg("------------- FailOverGtmCoordMaster oldMasterName(%s) after -------------", oldMasterName)));			
 	PrintMgrNodeList(spiContext);
 
-	RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);
+	if (newMaster != NULL)
+		RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);
 	
 	/* pfree data and close PGconn */
 	pfreeSwitcherNodeWrapperList(&failedSlaves, NULL);
@@ -1534,7 +1535,8 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 	ereport(LOG, (errmsg("------------- switchoverGtmCoord newMasterName(%s) after -------------", newMasterName)));			
 	PrintMgrNodeList(spiContext);
 
-	RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);
+	if (newMaster != NULL)
+		RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);
 	pfreeSwitcherNodeWrapperList(&failedSlaves, NULL);
 	pfreeSwitcherNodeWrapperList(&failedSlavesSecond, NULL);
 	pfreeSwitcherNodeWrapperList(&runningSlavesSecond, NULL);
