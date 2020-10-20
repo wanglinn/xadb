@@ -2416,7 +2416,9 @@ void SnapSendTransactionFinish(TransactionId txid)
 
 	SpinLockRelease(&SnapSender->mutex);
 
-	SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, txid);
+	SpinLockAcquire(&SnapSender->gxid_mutex);
+	SnapSenderDropXidItem(txid);
+	SpinLockRelease(&SnapSender->gxid_mutex);
 }
 
 void SnapSendLockSendSock(void)
