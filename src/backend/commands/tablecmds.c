@@ -1211,8 +1211,26 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	 * to be postponed to this final step of CREATE TABLE.
 	 */
 	if (rawDefaults || stmt->constraints)
+#ifdef ADB_MULTI_GRAM
+	{
+		if (stmt->grammar != PARSE_GRAM_POSTGRES)
+			PushOverrideSearchPathForGrammar(stmt->grammar);
+		PG_TRY();
+		{
+#endif	/* ADB_MULTI_GRAM */
 		AddRelationNewConstraints(rel, rawDefaults, stmt->constraints,
 								  true, true, false);
+#ifdef ADB_MULTI_GRAM
+		}PG_CATCH();
+		{
+			if (stmt->grammar != PARSE_GRAM_POSTGRES)
+				PopOverrideSearchPath();
+			PG_RE_THROW();
+		}PG_END_TRY();
+		if (stmt->grammar != PARSE_GRAM_POSTGRES)
+			PopOverrideSearchPath();
+	}
+#endif	/* ADB_MULTI_GRAM */
 
 	ObjectAddressSet(address, RelationRelationId, relationId);
 
