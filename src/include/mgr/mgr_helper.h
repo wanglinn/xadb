@@ -362,6 +362,8 @@ extern void selectMgrNodeByNodetypeEx(MemoryContext spiContext,
 extern void selectActiveMgrNodeByNodetype(MemoryContext spiContext,
 										  char nodetype,
 										  dlist_head *resultList);
+extern void selectActiveMgrNode(MemoryContext spiContext,
+								dlist_head *resultList);										  
 extern void selectMgrAllDataNodes(MemoryContext spiContext,
 								  dlist_head *resultList);
 extern void selectMgrAllDataNodesInZone(MemoryContext spiContext,

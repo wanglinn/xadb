@@ -94,6 +94,7 @@ static void MgrInitChildNodes(MemoryContext spiContext,
 								int total);								
 static int MgrGetNotActiveCount(MemoryContext spiContext, 
 								char *zone);
+static void MgrAddHbaToNodes(MemoryContext spiContext);
 
 Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 {
@@ -134,6 +135,8 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 	PG_TRY();
 	{
 		MgrFailoverCheck(spiContext, currentZone);
+
+		MgrAddHbaToNodes(spiContext);
 
 		MgrShutdownNodesNotZone(spiContext, currentZone);
 
@@ -257,6 +260,8 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 	PG_TRY();
 	{
 		MgrSwitchoverCheck(spiContext, currentZone);
+
+		MgrAddHbaToNodes(spiContext);
 
 		ereportNoticeLog(errmsg("============ ZONE SWITCHOVER %s, step1:switchover gtmcoord slave in %s ============", currentZone, currentZone));
 		MgrZoneSwitchoverGtm(spiContext, 
@@ -1014,7 +1019,32 @@ static int MgrGetNotActiveCount(MemoryContext spiContext,
 	}
 	return count;
 }
+static void MgrAddHbaToNodes(MemoryContext spiContext)
+{
+	dlist_head nodes = DLIST_STATIC_INIT(nodes);
+	dlist_iter iter;
+	MgrNodeWrapper *node;
+	AppendNodeInfo nodeinfo;
+	bool is_exist = false;
+	bool is_running = false; 
+	StringInfoData send_hba_msg;
 
+	initStringInfo(&send_hba_msg);
+	selectActiveMgrNode(spiContext, &nodes);
+	dlist_foreach(iter, &nodes)
+	{
+		node = dlist_container(MgrNodeWrapper, link, iter.cur);
+		memset(&nodeinfo, 0, sizeof(AppendNodeInfo));
+		is_exist = false;
+		is_running = false;
+		get_nodeinfo(NameStr(node->form.nodename), node->form.nodetype, &is_exist, &is_running, &nodeinfo);
+		if (is_exist && is_running)
+		{
+			resetStringInfo(&send_hba_msg);
+			AddHbaIsValid(&nodeinfo, &send_hba_msg);
+		}
+	}
+}
 
 
 

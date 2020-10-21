@@ -368,7 +368,24 @@ void selectActiveMgrNodeByNodetype(MemoryContext spiContext,
 	selectMgrNodes(sql.data, spiContext, resultList);
 	pfree(sql.data);
 }
+void selectActiveMgrNode(MemoryContext spiContext,
+						dlist_head *resultList)
+{
+	StringInfoData sql;
 
+	initStringInfo(&sql);
+	appendStringInfo(&sql,
+					 "SELECT * \n"
+					 "FROM pg_catalog.mgr_node \n"
+					 "WHERE nodeinited = %d::boolean \n"
+					 "AND nodeincluster = %d::boolean \n"
+					 "AND curestatus != '%s' \n",
+					 true,
+					 true,
+					 CURE_STATUS_ISOLATED);
+	selectMgrNodes(sql.data, spiContext, resultList);
+	pfree(sql.data);
+}
 void selectMgrAllDataNodes(MemoryContext spiContext,
 						   dlist_head *resultList)
 {
