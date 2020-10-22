@@ -175,7 +175,6 @@ failed_get_xid_:
 TransactionId
 GetNewGlobalTransactionId(int level)
 {
-	TransactionId xid;
 	TransactionId gxid;
 	bool isSubXact = level > 1;
 
@@ -201,9 +200,10 @@ GetNewGlobalTransactionId(int level)
 	if (RecoveryInProgress())
 		elog(ERROR, "cannot assign TransactionIds during recovery");
 
-	/* Vacuum check */
-	xid = ReadNewTransactionId();
-
+	if (IsConnFromCoord())
+		gxid = GetXidFromCoord(level);
+	else
+		gxid = ObtainGlobalTransactionId(isSubXact);
 	/*----------
 	 * Check to see if it's safe to assign another XID.  This protects against
 	 * catastrophic data loss due to XID wraparound.  The basic rules are:
@@ -216,8 +216,9 @@ GetNewGlobalTransactionId(int level)
 	 *
 	 * Note that this coding also appears in GetNewMultiXactId.
 	 *----------
+	 * CN master has thro warning already
 	 */
-	if (TransactionIdFollowsOrEquals(xid, ShmemVariableCache->xidVacLimit))
+	if (!IsConnFromCoord() && TransactionIdFollowsOrEquals(gxid, ShmemVariableCache->xidVacLimit))
 	{
 		/*
 		 * For safety's sake, we release XidGenLock while sending signals,
@@ -236,11 +237,11 @@ GetNewGlobalTransactionId(int level)
 		 * request only once per 64K transaction starts.  This still gives
 		 * plenty of chances before we get into real trouble.
 		 */
-		if (IsUnderPostmaster && (xid % 65536) == 0)
+		if (IsUnderPostmaster && (gxid % 65536) == 0)
 			SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
 
 		if (IsUnderPostmaster &&
-			TransactionIdFollowsOrEquals(xid, xidStopLimit))
+			TransactionIdFollowsOrEquals(gxid, xidStopLimit))
 		{
 			char	   *oldest_datname = get_database_name(oldest_datoid);
 
@@ -260,7 +261,7 @@ GetNewGlobalTransactionId(int level)
 						 errhint("Stop the postmaster and vacuum that database in single-user mode.\n"
 								 "You might also need to commit or roll back old prepared transactions.")));
 		}
-		else if (TransactionIdFollowsOrEquals(xid, xidWarnLimit))
+		else if (TransactionIdFollowsOrEquals(gxid, xidWarnLimit))
 		{
 			char	   *oldest_datname = get_database_name(oldest_datoid);
 
@@ -269,23 +270,18 @@ GetNewGlobalTransactionId(int level)
 				ereport(WARNING,
 						(errmsg("database \"%s\" must be vacuumed within %u transactions",
 								oldest_datname,
-								xidWrapLimit - xid),
+								xidWrapLimit - gxid),
 						 errhint("To avoid a database shutdown, execute a database-wide VACUUM in that database.\n"
 								 "You might also need to commit or roll back old prepared transactions.")));
 			else
 				ereport(WARNING,
 						(errmsg("database with OID %u must be vacuumed within %u transactions",
 								oldest_datoid,
-								xidWrapLimit - xid),
+								xidWrapLimit - gxid),
 						 errhint("To avoid a database shutdown, execute a database-wide VACUUM in that database.\n"
 								 "You might also need to commit or roll back old prepared transactions.")));
 		}
 	}
-
-	if (IsConnFromCoord())
-		gxid = GetXidFromCoord(level);
-	else
-		gxid = ObtainGlobalTransactionId(isSubXact);
 
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 
@@ -489,6 +485,10 @@ TransactionId GetNewTransactionIdExt(bool isSubXact, uint32 xidnum, bool isInser
 		if (IsUnderPostmaster && (xid % 65536) == 0)
 			SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
 
+#ifdef ADB
+		if (isInsertXact == true)
+		{
+#endif
 		if (IsUnderPostmaster &&
 			TransactionIdFollowsOrEquals(xid, xidStopLimit))
 		{
@@ -530,7 +530,9 @@ TransactionId GetNewTransactionIdExt(bool isSubXact, uint32 xidnum, bool isInser
 						 errhint("To avoid a database shutdown, execute a database-wide VACUUM in that database.\n"
 								 "You might also need to commit or roll back old prepared transactions, or drop stale replication slots.")));
 		}
-
+#ifdef ADB
+		}
+#endif
 		/* Re-acquire lock and start over */
 		LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 #ifdef ADB_EXT
