@@ -543,9 +543,11 @@ Datum monitor_databasetps_insert_data(PG_FUNCTION_ARGS)
 			appendStringInfo(&sqltpsStrData, "select xact_commit+xact_rollback from pg_stat_database where datname = \'%s\';",  dbname);
 			appendStringInfo(&sqlqpsStrData, "select sum(calls)from pg_stat_statements, pg_database where dbid = pg_database.oid and pg_database.datname=\'%s\';",  dbname);
 			/*get given database tps first*/
-			dbtps[idex][iloop] = monitor_get_sqlres_all_typenode_usedbname(rel_node, sqltpsStrData.data, DEFAULT_DB, CNDN_TYPE_GTM_COOR_MASTER, GET_SUM);
+			dbtps[idex][iloop] = (monitor_get_sqlres_all_typenode_usedbname(rel_node, sqltpsStrData.data, DEFAULT_DB, CNDN_TYPE_GTM_COOR_MASTER, GET_SUM)
+								+ monitor_get_sqlres_all_typenode_usedbname(rel_node, sqltpsStrData.data, DEFAULT_DB, CNDN_TYPE_COORDINATOR_MASTER, GET_SUM));
 			/*get given database qps first*/
-			dbqps[idex][iloop] = monitor_get_sqlres_all_typenode_usedbname(rel_node, sqlqpsStrData.data, DEFAULT_DB, CNDN_TYPE_GTM_COOR_MASTER, GET_SUM);
+			dbqps[idex][iloop] = (monitor_get_sqlres_all_typenode_usedbname(rel_node, sqlqpsStrData.data, DEFAULT_DB, CNDN_TYPE_GTM_COOR_MASTER, GET_SUM)
+								+ monitor_get_sqlres_all_typenode_usedbname(rel_node, sqlqpsStrData.data, DEFAULT_DB, CNDN_TYPE_COORDINATOR_MASTER, GET_SUM));;
 			resetStringInfo(&sqltpsStrData);
 			resetStringInfo(&sqlqpsStrData);
 			idex++;
