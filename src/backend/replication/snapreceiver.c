@@ -380,7 +380,7 @@ static bool SnapRcvWaitGxidEvent(TimestampTz end, WaitGxidRcvCond test,
 			}
 		}
 
-		if (is_need_setlatch)
+		if (is_need_setlatch && SNAP_RCV_LATCH_VALID())
 			SNAP_RCV_SET_LATCH();
 
 		UNLOCK_SNAP_GXID_RCV();
