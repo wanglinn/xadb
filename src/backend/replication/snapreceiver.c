@@ -2107,14 +2107,19 @@ static bool SnapRcvFoundWaitFinishList(TransactionId xid)
 TransactionId SnapRcvGetGlobalTransactionId(bool isSubXact)
 {
 	TimestampTz				endtime;
+	int						retry_time, max_retry_time;
+	int						wait_loop_time = snapshot_sync_waittime/10;
 
 	if(isSubXact)
 		ereport(ERROR, (errmsg("cannot assign XIDs in child transaction")));
 
 	SNAP_SYNC_DEBUG_LOG((errmsg("call SnapRcvGetGlobalTransactionId\n")));
-	ProcessSnapRcvInterrupts();
 	MyProc->getGlobalTransaction = InvalidTransactionId;
-	
+	retry_time = 0;
+	max_retry_time = 5;
+
+RETRY:
+	ProcessSnapRcvInterrupts();
 	isSnapRcvStreamOk();
 	LOCK_SNAP_GXID_RCV();
 	if (SnapRcv->cur_pre_alloc > 0)
@@ -2133,7 +2138,7 @@ TransactionId SnapRcvGetGlobalTransactionId(bool isSubXact)
 		return MyProc->getGlobalTransaction;
 	}
 
-	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snapshot_sync_waittime);
+	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), wait_loop_time * (retry_time + 1));
 	SnapRcvWaitGxidEvent(endtime, WaitSnapRcvCondReturn, &SnapRcv->reters, &SnapRcv->geters, NULL, true);
 
 	if (!TransactionIdIsValid(MyProc->getGlobalTransaction))
@@ -2142,6 +2147,16 @@ TransactionId SnapRcvGetGlobalTransactionId(bool isSubXact)
 		SnapRcvDeleteProcList(&SnapRcv->reters, MyProc->pgprocno);
 
 		UNLOCK_SNAP_GXID_RCV();
+		if (retry_time < max_retry_time)
+		{
+			retry_time++;
+			ereport(WARNING,(errmsg("Cannot get xid from GTMCOORD, retry time %d\n", retry_time)));
+			goto RETRY;
+		}
+		ereport(ERROR,
+			(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+			errmsg("Cannot get xid from GTMCOORD, after max retry time %d, please check GTMCOORD status\n", max_retry_time),
+			errhint("you can modfiy guc parameter \"snapshot_sync_waittime\" on coordinators to request the global transaction id from gtmc")));
 		ereport(ERROR,(errmsg("Cannot get xid from GTMCOORD, please check GTMCOORD status\n")));
 	}
 	else
