@@ -167,7 +167,11 @@ extern void performDeletion(const ObjectAddress *object,
 
 extern void performMultipleDeletions(const ObjectAddresses *objects,
 									 DropBehavior behavior, int flags);
-
+#ifdef ADB_GRAM_ORA
+extern void ora_performMultipleDeletions(const ObjectAddresses *objects,
+									 DropBehavior behavior, int flags,
+									 Oid skip_depend_oid);
+#endif	/* ADB_GRAM_ORA */
 #ifdef ADB
 extern void performRenameSchema(const ObjectAddress *object,
 						   const char *oldname, const char *newname);

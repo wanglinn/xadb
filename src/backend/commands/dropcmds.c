@@ -57,6 +57,9 @@ RemoveObjects(DropStmt *stmt)
 {
 	ObjectAddresses *objects;
 	ListCell   *cell1;
+#ifdef ADB_GRAM_ORA
+	Oid			skip_depend_oid = InvalidOid;
+#endif	/* ADB_GRAM_ORA */
 
 	objects = new_object_addresses();
 
@@ -74,6 +77,12 @@ RemoveObjects(DropStmt *stmt)
 									 AccessExclusiveLock,
 									 stmt->missing_ok);
 
+#ifdef ADB_GRAM_ORA
+		/* Record the object ID of Oracle compatible EXTENSION 'ora_convert' */
+		if (stmt->removeType == OBJECT_EXTENSION &&
+			strcmp(strVal((Value *)object), "ora_convert") == 0)
+			skip_depend_oid = address.objectId;
+#endif	/* ADB_GRAM_ORA */
 		/*
 		 * Issue NOTICE if supplied object was not found.  Note this is only
 		 * relevant in the missing_ok case, because otherwise
@@ -123,7 +132,13 @@ RemoveObjects(DropStmt *stmt)
 	}
 
 	/* Here we really delete them. */
-	performMultipleDeletions(objects, stmt->behavior, 0);
+#ifdef ADB_GRAM_ORA
+	if (skip_depend_oid != InvalidOid)
+		/* Ignore objects that have system dependencies in object dependencies. */
+		ora_performMultipleDeletions(objects, stmt->behavior, 0, skip_depend_oid);
+	else
+#endif	/* ADB_GRAM_ORA */
+		performMultipleDeletions(objects, stmt->behavior, 0);
 
 	free_object_addresses(objects);
 }
