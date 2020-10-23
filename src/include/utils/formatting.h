@@ -30,7 +30,6 @@ extern char *asc_initcap(const char *buff, size_t nbytes);
 
 #ifdef ADB_GRAM_ORA
 extern Datum ora_to_timestamp(text * date_txt, text * fmt, bool withtz);
-extern Datum ora_to_date(text * date_txt, text * fmt, bool withtz);
 #endif
 
 #endif
