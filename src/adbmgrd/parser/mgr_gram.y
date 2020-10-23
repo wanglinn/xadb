@@ -575,22 +575,24 @@ CheckNodeStmt:
 		}
 
 AppendNodeStmt:
-		APPEND DATANODE MASTER Ident
+		APPEND DATANODE MASTER Ident opt_general_options
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($4, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_append_dnmaster", args));
 			with_data_checksums = false;
+			g_initall_options = $5;
 			$$ = (Node*)stmt;
 		}
-		|	APPEND DATANODE MASTER Ident DATA_CHECKSUMS
+		|	APPEND DATANODE MASTER Ident DATA_CHECKSUMS opt_general_options
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($4, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_append_dnmaster", args));
 			with_data_checksums = true;
+			g_initall_options = $6;
 			$$ = (Node*)stmt;
 		}
 		| APPEND DATANODE SLAVE Ident
@@ -601,22 +603,24 @@ AppendNodeStmt:
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_append_dnslave", args));
 			$$ = (Node*)stmt;
 		}
-		| APPEND COORDINATOR MASTER Ident
+		| APPEND COORDINATOR MASTER Ident opt_general_options
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($4, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_append_coordmaster", args));
 			with_data_checksums = false;
+			g_initall_options = $5;
 			$$ = (Node*)stmt;
 		}
-		| APPEND COORDINATOR MASTER Ident DATA_CHECKSUMS
+		| APPEND COORDINATOR MASTER Ident DATA_CHECKSUMS opt_general_options
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			List *args = list_make1(makeStringConst($4, -1));
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeNode_RangeFunction("mgr_append_coordmaster", args));
 			with_data_checksums = true;
+			g_initall_options = $6;
 			$$ = (Node*)stmt;
 		}
 		| APPEND COORDINATOR SLAVE Ident
@@ -2232,20 +2236,22 @@ ListNodeStmt:
 	;
 
 InitNodeStmt:
-INIT ALL
+INIT ALL opt_general_options
 	{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("initall"), -1));
 			with_data_checksums = false;
+			g_initall_options = $3;
 			$$ = (Node*)stmt;
 	}
-| INIT ALL DATA_CHECKSUMS
+| INIT ALL DATA_CHECKSUMS opt_general_options
 	{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("initall"), -1));
 			with_data_checksums = true;
+			g_initall_options = $4;
 			$$ = (Node*)stmt;
 	}
 	;

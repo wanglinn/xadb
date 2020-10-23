@@ -12,7 +12,14 @@ ADB documentation
 
   <refnamediv>
     <refname>APPEND COORDINATOR</refname>
-    <refpurpose>append a new coordinator to the cluster and make it run</refpurpose>
+    <refpurpose>append a new coordinator to the cluster and make it run \n
+    Use like this:\n
+    APPEND COORDINATOR MASTER node_name \n
+    APPEND COORDINATOR SLAVE node_name \n
+    APPEND COORDINATOR MASTER node_name (walsegsize=64) \n
+    APPEND COORDINATOR MASTER node_name DATA_CHECKSUMS (walsegsize=64) \n
+    walsegsize=64: the unit of 64 is MB, and the value of walsegsize must be a power of 2 between 1 and 1024.
+    </refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-appendcoordinator">

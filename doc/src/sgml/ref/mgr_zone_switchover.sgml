@@ -12,7 +12,7 @@ ADB documentation
 
   <refnamediv>
     <refname>ZONE SWITCHOVER</refname>
-    <refpurpose>switchover from source zone to dest zone, include switchover gtmcoord, switchover coordinators, switchover datanodes
+    <refpurpose>switchover from source zone to dest zone, include switchover gtmcoord, switchover coordinators, switchover datanodes \n
     Use like this:\n
     ZONE SWITCHOVER zonename \n
     ZONE SWITCHOVER zonename 30 \n

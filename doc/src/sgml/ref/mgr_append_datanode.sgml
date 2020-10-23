@@ -12,7 +12,13 @@ ADB documentation
 
   <refnamediv>
     <refname>APPEND DATANODE</refname>
-    <refpurpose>append a new datanode to the cluster and make it run</refpurpose>
+    <refpurpose>append a new datanode to the cluster and make it run \n
+    Use like this:\n
+    APPEND DATANODE MASTER node_name \n
+    APPEND DATANODE SLAVE node_name \n
+    APPEND DATANODE MASTER node_name (walsegsize=64) \n
+    walsegsize=64: the unit of 64 is MB, and the value of walsegsize must be a power of 2 between 1 and 1024.
+    </refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-appenddatanode">

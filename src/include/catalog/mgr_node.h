@@ -4,6 +4,7 @@
 
 #include "catalog/genbki.h"
 #include "catalog/mgr_node_d.h"
+#include "nodes/pg_list.h"
 
 CATALOG(mgr_node,4813,NodeRelationId)
 {
@@ -145,6 +146,7 @@ typedef enum RECOVERY_STATUS
 }recovery_status;
 
 extern bool with_data_checksums;
+extern List *g_initall_options;
 
 #define DEFAULT_DB "postgres"
 
