@@ -224,12 +224,29 @@ static void findDependentObjects(const ObjectAddress *object,
 								 ObjectAddresses *targetObjects,
 								 const ObjectAddresses *pendingObjects,
 								 Relation *depRel);
+#ifdef ADB_GRAM_ORA
+static void ora_findDependentObjects(const ObjectAddress *object,
+									 int objflags,
+									 int flags,
+									 ObjectAddressStack *stack,
+									 ObjectAddresses *targetObjects,
+									 const ObjectAddresses *pendingObjects,
+									 Relation *depRel,
+									 bool skip_sys_depend,
+									 List **sys_depend_obj);
+static void ora_deleteObjectsInList(ObjectAddresses *targetObjects, Relation *depRel, int flags, List *skip_dele_obj);
+#endif /* ADB_GRAM_ORA */
 static void reportDependentObjects(const ObjectAddresses *targetObjects,
 								   DropBehavior behavior,
 								   int flags,
 								   const ObjectAddress *origObject);
+#ifdef ADB_GRAM_ORA
+static void ora_deleteOneObject(const ObjectAddress *object,
+								Relation *depRel, int32 flags, bool delete_obj_self);
+#else
 static void deleteOneObject(const ObjectAddress *object,
 							Relation *depRel, int32 flags);
+#endif /* ADB_GRAM_ORA */
 static void doDeletion(const ObjectAddress *object, int flags);
 static bool find_expr_references_walker(Node *node,
 										find_expr_references_context *context);
@@ -262,6 +279,16 @@ static void
 deleteObjectsInList(ObjectAddresses *targetObjects, Relation *depRel,
 					int flags)
 {
+#ifdef ADB_GRAM_ORA
+	ora_deleteObjectsInList(targetObjects, depRel, flags, NIL);
+}
+static void
+ora_deleteObjectsInList(ObjectAddresses *targetObjects, Relation *depRel,
+						int flags, List *skip_dele_obj)
+{
+	ListCell   *lc;
+	bool		delete_obj_self;	/* delete object itself */
+#endif	/* ADB_GRAM_ORA */
 	int			i;
 
 	/*
@@ -303,7 +330,23 @@ deleteObjectsInList(ObjectAddresses *targetObjects, Relation *depRel,
 			(thisextra->flags & DEPFLAG_ORIGINAL))
 			continue;
 
+#ifdef ADB_GRAM_ORA
+		delete_obj_self = true;
+		foreach(lc, skip_dele_obj)
+		{
+			ObjectAddress *obj = (ObjectAddress *) lfirst(lc);
+			/* skip deleting system dependent objects. */
+			if (thisobj->classId == obj->classId && 
+				thisobj->objectId == obj->objectId)
+			{
+				delete_obj_self = false;
+				break;
+			}
+		}
+		ora_deleteOneObject(thisobj, depRel, flags, delete_obj_self);
+#else
 		deleteOneObject(thisobj, depRel, flags);
+#endif	/* ADB_GRAM_ORA */
 	}
 }
 
@@ -409,6 +452,20 @@ void
 performMultipleDeletions(const ObjectAddresses *objects,
 						 DropBehavior behavior, int flags)
 {
+#ifdef ADB_GRAM_ORA
+	ora_performMultipleDeletions(objects, behavior, flags, InvalidOid);
+}
+void
+/**
+ * skip_sys_depend_oid: 
+ * It is necessary to avoid objects with EXTENSION deletion failure caused 
+ * by system dependency.
+ */
+ora_performMultipleDeletions(const ObjectAddresses *objects,
+						 DropBehavior behavior, int flags, Oid skip_sys_depend_oid)
+{
+	List	   *sys_depend_obj = NIL;	/* there are system dependent objects. */
+#endif	/* ADB_GRAM_ORA */
 	Relation	depRel;
 	ObjectAddresses *targetObjects;
 	int			i;
@@ -442,14 +499,27 @@ performMultipleDeletions(const ObjectAddresses *objects,
 		 * has done this already, but many places are sloppy about it.)
 		 */
 		AcquireDeletionLock(thisobj, flags);
-
-		findDependentObjects(thisobj,
+#ifdef ADB_GRAM_ORA
+		if (skip_sys_depend_oid != InvalidOid &&
+			thisobj->objectId == skip_sys_depend_oid)
+			ora_findDependentObjects(thisobj,
 							 DEPFLAG_ORIGINAL,
 							 flags,
 							 NULL,	/* empty stack */
 							 targetObjects,
 							 objects,
-							 &depRel);
+							 &depRel,
+							 true,
+							 &sys_depend_obj);
+		else
+#endif	/* ADB_GRAM_ORA */
+			findDependentObjects(thisobj,
+								 DEPFLAG_ORIGINAL,
+								 flags,
+								 NULL,	/* empty stack */
+								 targetObjects,
+								 objects,
+								 &depRel);
 	}
 
 #ifdef ADB    
@@ -470,7 +540,11 @@ performMultipleDeletions(const ObjectAddresses *objects,
 						   (objects->numrefs == 1 ? objects->refs : NULL));
 
 	/* do the deed */
+#ifdef ADB_GRAM_ORA
+	ora_deleteObjectsInList(targetObjects, &depRel, flags, sys_depend_obj);
+#else
 	deleteObjectsInList(targetObjects, &depRel, flags);
+#endif	/* ADB_GRAM_ORA */
 
 	/* And clean up */
 	free_object_addresses(targetObjects);
@@ -563,6 +637,26 @@ findDependentObjects(const ObjectAddress *object,
 					 const ObjectAddresses *pendingObjects,
 					 Relation *depRel)
 {
+#ifdef ADB_GRAM_ORA
+	ora_findDependentObjects(object, objflags, flags, stack, targetObjects, pendingObjects, depRel, false, NULL);
+}
+
+/**
+ * sys_depend_obj:
+ * Used to store objects that are dependent on the system.
+ */
+static void
+ora_findDependentObjects(const ObjectAddress *object,
+					 int objflags,
+					 int flags,
+					 ObjectAddressStack *stack,
+					 ObjectAddresses *targetObjects,
+					 const ObjectAddresses *pendingObjects,
+					 Relation *depRel,
+					 bool skip_sys_depend,
+					 List **sys_depend_obj)
+{
+#endif	/* ADB_GRAM_ORA */
 	ScanKeyData key[3];
 	int			nkeys;
 	SysScanDesc scan;
@@ -1009,6 +1103,18 @@ findDependentObjects(const ObjectAddress *object,
 				break;
 			case DEPENDENCY_PIN:
 
+#ifdef ADB_GRAM_ORA
+				/* Remember that there are system dependent objects. */
+				if (skip_sys_depend)
+				{
+					ObjectAddress *obj = (ObjectAddress *) 
+									palloc(sizeof(ObjectAddress));
+					obj->classId = foundDep->refclassid;
+					obj->objectId = foundDep->refobjid;
+					*sys_depend_obj = lappend(*sys_depend_obj, obj);
+					continue;
+				}
+#endif	/* ADB_GRAM_ORA */
 				/*
 				 * For a PIN dependency we just ereport immediately; there
 				 * won't be any others to report.
@@ -1064,14 +1170,26 @@ findDependentObjects(const ObjectAddress *object,
 	for (int i = 0; i < numDependentObjects; i++)
 	{
 		ObjectAddressAndFlags *depObj = dependentObjects + i;
-
-		findDependentObjects(&depObj->obj,
-							 depObj->subflags,
-							 flags,
-							 &mystack,
-							 targetObjects,
-							 pendingObjects,
-							 depRel);
+#ifdef ADB_GRAM_ORA
+		if (skip_sys_depend)
+			ora_findDependentObjects(&depObj->obj,
+									 depObj->subflags,
+									 flags,
+									 &mystack,
+									 targetObjects,
+									 pendingObjects,
+									 depRel,
+									 skip_sys_depend,
+									 sys_depend_obj);
+		else
+#endif	/* ADB_GRAM_ORA */
+			findDependentObjects(&depObj->obj,
+								 depObj->subflags,
+								 flags,
+								 &mystack,
+								 targetObjects,
+								 pendingObjects,
+								 depRel);
 	}
 
 	pfree(dependentObjects);
@@ -1372,9 +1490,19 @@ reportDependentObjects(const ObjectAddresses *targetObjects,
  *
  * *depRel is the already-open pg_depend relation.
  */
+#ifdef ADB_GRAM_ORA
+/**
+ * delete_obj_self:
+ * Do you want to delete the dependency and the object itself.
+ */
+static void
+ora_deleteOneObject(const ObjectAddress *object, Relation *depRel, int flags, bool delete_obj_self)
+{
+#else
 static void
 deleteOneObject(const ObjectAddress *object, Relation *depRel, int flags)
 {
+#endif	/* ADB_GRAM_ORA */
 	ScanKeyData key[3];
 	int			nkeys;
 	SysScanDesc scan;
@@ -1401,7 +1529,11 @@ deleteOneObject(const ObjectAddress *object, Relation *depRel, int flags)
 	 * updates before calling doDeletion() --- they'd get committed right
 	 * away, which is not cool if the deletion then fails.
 	 */
-	doDeletion(object, flags);
+#ifdef ADB_GRAM_ORA
+	/* delete the object itself. */
+	if (delete_obj_self)
+#endif	/* ADB_GRAM_ORA */
+		doDeletion(object, flags);
 
 	/*
 	 * Reopen depRel if we closed it above
