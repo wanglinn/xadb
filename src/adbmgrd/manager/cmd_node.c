@@ -46,6 +46,8 @@
 #include "access/xlog.h"
 #include "nodes/nodes.h"
 #include "access/xact.h"
+#include "access/xlog_internal.h"
+
 /*
 hot_expansion changes below functions:
 1.mgr_pgbasebackup:add dnmaster type.
@@ -132,6 +134,12 @@ typedef struct ReadonlyUpdateparm
 	NameData	updateparmvalue;
 }ReadonlyUpdateparm;
 
+
+typedef struct InitAllParmInfo
+{
+	uint walSegSize;
+}InitAllParmInfo;
+
 #define MAX_PREPARED_TRANSACTIONS_DEFAULT	120
 #define PG_DUMPALL_TEMP_FILE "/tmp/pg_dumpall_temp"
 #define MAX_WAL_SENDERS_NUM	5
@@ -147,6 +155,7 @@ typedef struct ReadonlyUpdateparm
 #define SELECT_ADB_CLEANL_NUM       				"SELECT COUNT(*) FROM adb_clean;" 
 
 bool with_data_checksums = false;
+List *g_initall_options;
 Oid specHostOid = 0;
 Oid clusterLockCoordNodeOid = 0;
 NameData paramV;
@@ -155,6 +164,8 @@ NameData paramV;
 bool readonlySqlSlaveInfoRefreshFlag;
 /* Mark the read-only sql slave node information successfully refreshed to coordinate */
 bool readonlySqlSlaveInfoRefreshComplete = false;
+
+InitAllParmInfo g_InitAllParmInfo;
 
 static struct enum_sync_state sync_state_tab[] =
 {
@@ -326,6 +337,7 @@ static void MgrInitAllSlaveNodes(char nodeType);
 static void MgrInitStartChildNodes(MemoryContext spiContext, MgrNodeWrapper *mgrNode);
 static bool MgrInitStartNodeFunc(NameData *nodeName, char nodeType);
 static void mgr_update_all_cn_pgxcnode_readonlysql(InitNodeInfo	*info, List	*datanode_list, List *sync_parms);
+static void mgr_get_init_parm(List *options, InitAllParmInfo *parmInfo);
 
 #if (Natts_mgr_node != 13)
 #error "need change code"
@@ -1383,6 +1395,8 @@ mgr_init_gtmcoord_master(PG_FUNCTION_ARGS)
     
 	CheckZoneNodesBeforeInitAll();
 
+	mgr_get_init_parm(g_initall_options, &g_InitAllParmInfo);
+
 	return mgr_runmode_cndn(nodenames_supplier_of_db, NULL, CNDN_TYPE_GTM_COOR_MASTER, AGT_CMD_GTMCOORD_INIT, TAKEPLAPARM_N, fcinfo);
 }
 /*
@@ -2105,6 +2119,9 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 			appendStringInfo(&infosendmsg, " --nodename %s -E UTF8 --locale=C -k", cndnname);
 		else
 			appendStringInfo(&infosendmsg, " --nodename %s -E UTF8 --locale=C", cndnname);
+
+		if (g_InitAllParmInfo.walSegSize != 0)
+			appendStringInfo(&infosendmsg, " --wal-segsize=%u", g_InitAllParmInfo.walSegSize);
 	}  /*init gtmcoord slave*/
 	else if (AGT_CMD_GTMCOORD_SLAVE_INIT == cmdtype || AGT_CMD_CNDN_SLAVE_INIT == cmdtype)
 	{
@@ -4387,6 +4404,8 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 
 	namestrcpy(&nodename, appendnodeinfo.nodename);
 
+	mgr_get_init_parm(g_initall_options, &g_InitAllParmInfo);
+
 	PG_TRY();
 	{
 		/* get node info for append datanode master */
@@ -4487,8 +4506,6 @@ Datum mgr_append_dnmaster(PG_FUNCTION_ARGS)
 
 		temp_file = get_temp_file_name();
 		
-		
-
 		mgr_pg_dumpall(dnhostoid, dnport, appendnodeinfo.nodehost, temp_file);
 
 		/* step 6: start the datanode master with restoremode mode, and input all catalog message */
@@ -4825,6 +4842,8 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 	appendnodeinfo.nodename = PG_GETARG_CSTRING(0);
 	Assert(appendnodeinfo.nodename);
 
+	mgr_get_init_parm(g_initall_options, &g_InitAllParmInfo);
+		
 	namestrcpy(&nodename, appendnodeinfo.nodename);
 	PG_TRY();
 	{
@@ -6718,6 +6737,10 @@ static void mgr_append_init_cndnmaster(AppendNodeInfo *appendnodeinfo)
 		appendStringInfo(&infosendmsg, " --nodename %s -E UTF8 --locale=C -k", appendnodeinfo->nodename);
 	else
 		appendStringInfo(&infosendmsg, " --nodename %s -E UTF8 --locale=C", appendnodeinfo->nodename);
+
+	if (g_InitAllParmInfo.walSegSize != 0)
+		appendStringInfo(&infosendmsg, " --wal-segsize=%u", g_InitAllParmInfo.walSegSize);
+
 	initStringInfo(&strinfo);
 	res = mgr_ma_send_cmd(cmdtype, infosendmsg.data, appendnodeinfo->nodehost, &strinfo);
 	pfree(infosendmsg.data);
@@ -15724,4 +15747,31 @@ static bool CheckMgrNodeHasSlaveNode(Oid parentOid)
 	table_close(rel_node, AccessShareLock);
 
 	return hasSlave;
+}
+static void mgr_get_init_parm(List *options, InitAllParmInfo *parmInfo)
+{
+	ListCell *lc;
+	DefElem *def;
+	uint walSegSize = 0;
+
+	memset(parmInfo, 0x00, sizeof(InitAllParmInfo));
+
+	foreach(lc, options)
+	{
+		def = lfirst(lc);
+		Assert(def && IsA(def, DefElem));
+		if(strcmp(def->defname, "walsegsize") == 0)
+		{
+			if (parmInfo->walSegSize != 0)
+				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
+					,errmsg("the parameter of \"walsegsize\" has existed again")));
+
+			walSegSize = defGetInt32(def);
+			if(walSegSize <= 0 || walSegSize > 1024 || !IsPowerOf2(walSegSize))
+				ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
+					,errmsg("The value of walsegsize must be a power of 2 between 1 and 1024.")));
+
+			parmInfo->walSegSize = walSegSize;
+		}
+	}
 }

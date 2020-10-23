@@ -12,7 +12,14 @@ ADB documentation
 
   <refnamediv>
     <refname>INIT ALL</refname>
-    <refpurpose>Initialize and start the ADB cluster</refpurpose>
+    <refpurpose>Initialize and start the ADB cluster \n
+    Use like this:\n
+    INIT ALL \n
+    INIT ALL (walsegsize=64) \n
+    INIT ALL DATA_CHECKSUMS \n
+    INIT ALL DATA_CHECKSUMS (walsegsize=64) \n
+    walsegsize=64: the unit of 64 is MB, and the value of walsegsize must be a power of 2 between 1 and 1024.
+    </refpurpose>
   </refnamediv>
 
   <indexterm zone="mgr-initall">
