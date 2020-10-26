@@ -7342,7 +7342,12 @@ make_sort_input_target(PlannerInfo *root,
 	{
 		Expr	   *expr = (Expr *) lfirst(lc);
 
+#ifdef ADB_GRAM_ORA
+		if ((postpone_col[i] || (postpone_srfs && col_is_srf[i]))
+		&& !IsA(expr,RownumExpr))
+#else
 		if (postpone_col[i] || (postpone_srfs && col_is_srf[i]))
+#endif /*ADB_GRAM_ORA*/
 			postponable_cols = lappend(postponable_cols, expr);
 		else
 			add_column_to_pathtarget(input_target, expr,
