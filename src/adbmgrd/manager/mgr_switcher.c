@@ -356,6 +356,9 @@ static PGconn *GetNodeConn(Form_mgr_node nodeIn,
 static bool DeletePgxcNodeDataNodeByName(PGconn *pgConn, 
 										char *nodeName, 
 										bool complain);
+static void PrintReplicationInfo(SwitcherNodeWrapper *masterNode);
+static void PrintCoordReplicationInfo(dlist_head  *coordinators);
+
 /**
  * system function of failover datanode
  */
@@ -507,6 +510,7 @@ void FailOverDataNodeMaster(char *oldMasterName,
 										2,
 										spiContext);
 		oldMaster->startupAfterException = false;
+		PrintReplicationInfo(oldMaster);
 
 		checkGetSlaveNodesRunningStatus(oldMaster,
 										spiContext,
@@ -706,6 +710,7 @@ void FailOverCoordMaster(char *oldMasterName,
 										2,
 										spiContext);
 		oldMaster->startupAfterException = false;
+		PrintReplicationInfo(oldMaster);
 
 		checkGetSlaveNodesRunningStatus(oldMaster,
 										spiContext,
@@ -880,6 +885,8 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 											  2,
 											  spiContext);
 		oldMaster->startupAfterException = false;
+		PrintReplicationInfo(oldMaster);
+
 		checkGetSlaveNodesRunningStatus(oldMaster,
 										spiContext,
 										(Oid)0,
@@ -1119,8 +1126,10 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, in
 		}		
 		oldMaster = checkGetSwitchoverOldMaster(newMaster->mgrNode->form.nodemasternameoid,
 												CNDN_TYPE_DATANODE_MASTER,
-												spiContext);
+												spiContext);		
 		oldMaster->startupAfterException = false;
+		PrintReplicationInfo(oldMaster);
+
 		checkGetSlaveNodesRunningStatus(oldMaster,
 										spiContext,
 										newMaster->mgrNode->oid,
@@ -1338,6 +1347,8 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 												CNDN_TYPE_GTM_COOR_MASTER,
 												spiContext);												
 		oldMaster->startupAfterException = false;
+		PrintReplicationInfo(oldMaster);
+
 		checkGetSlaveNodesRunningStatus(oldMaster,
 										spiContext,
 										newMaster->mgrNode->oid,
@@ -1614,7 +1625,9 @@ void switchoverCoord(char *newMasterName, bool forceSwitch, char *curZone)
 		oldMaster = checkGetSwitchoverOldMaster(newMaster->mgrNode->form.nodemasternameoid,
 												CNDN_TYPE_COORDINATOR_MASTER,
 												spiContext);
-		oldMaster->startupAfterException = false;		
+		oldMaster->startupAfterException = false;
+		PrintReplicationInfo(oldMaster);
+
 		checkGetSlaveNodesRunningStatus(oldMaster,
 										spiContext,
 										newMaster->mgrNode->oid,
@@ -5452,6 +5465,8 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 											spiContext);
 
 	oldMaster->startupAfterException = false;
+	PrintReplicationInfo(oldMaster);
+
 	checkGetSlaveNodesRunningStatus(oldMaster,
 									spiContext,
 									newMaster->mgrNode->oid,
@@ -5554,6 +5569,8 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 	newMaster->mgrNode->form.nodetype =	getMgrMasterNodetype(newMaster->mgrNode->form.nodetype);
 	dlist_push_head(coordinators, &newMaster->link);
 	
+	PrintCoordReplicationInfo(coordinators);
+
 	tryLockCluster(coordinators);
 	holdLockCoordinator = getHoldLockCoordinator(coordinators);
 	zoGtm->holdLockCoordinator = holdLockCoordinator;
@@ -5750,6 +5767,7 @@ static void switchoverDataNodeForZone(MemoryContext spiContext,
 											CNDN_TYPE_DATANODE_MASTER,
 											spiContext);
 	oldMaster->startupAfterException = false;
+	PrintReplicationInfo(oldMaster);
 
 	checkGetSlaveNodesRunningStatus(oldMaster,
 									spiContext,
@@ -7296,4 +7314,129 @@ void RefreshGtmAdbCheckSyncNextid(MgrNodeWrapper *mgrNode, char *value)
 	if (!getAgentCmdRst.ret)
 		ereport(ERROR, (errmsg("set adb_check_sync_nextid = '%s' in postgresql.conf of %s fail"
 			, infosendmsg.data, NameStr(mgrNode->form.nodename))));
+}
+
+static void PrintReplicationInfo(SwitcherNodeWrapper *masterNode)
+{
+	int row=0;
+	int i=0;
+	PGresult *res = NULL;
+	StringInfoData  	infosendmsg;
+	char *sql = "select pid,\
+				usesysid,\
+				usename,\
+				application_name,\
+				client_addr,\
+				client_hostname,\
+				client_port,\
+				backend_start,\
+				backend_xmin,\
+				state,\
+				sent_lsn,\
+				write_lsn,\
+				flush_lsn,\
+				replay_lsn,\
+				write_lag,\
+				flush_lag,\
+				replay_lag,\
+				sync_priority,\
+				sync_state \
+				from pg_stat_replication;";
+	
+	CheckNull(masterNode);
+	CheckNull(masterNode->pgConn);
+
+	initStringInfo(&infosendmsg);
+	res = PQexec(masterNode->pgConn, sql);
+	if (PQresultStatus(res) == PGRES_TUPLES_OK)
+	{
+		row = PQntuples(res);
+		for (i=0; i<row; i++)
+		{
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "pid", PQgetvalue(res, i, 0)); 
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "usesysid", PQgetvalue(res, i, 1));
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "usename", PQgetvalue(res, i, 2)); 
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "application_name", PQgetvalue(res, i, 3)); 
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "client_addr", PQgetvalue(res, i, 4)); 
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "client_hostname", PQgetvalue(res, i, 5)); 
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "client_port", PQgetvalue(res, i, 6)); 
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "backend_start", PQgetvalue(res, i, 7)); 
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "backend_xmin", PQgetvalue(res, i, 8)); 
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "state", PQgetvalue(res, i, 9)); 
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "sent_lsn", PQgetvalue(res, i, 10)); 
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "write_lsn", PQgetvalue(res, i, 11)); 
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "flush_lsn", PQgetvalue(res, i, 12)); 
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "replay_lsn", PQgetvalue(res, i, 13)); 
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "write_lag", PQgetvalue(res, i, 14));
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "flush_lag", PQgetvalue(res, i, 15));
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "replay_lag", PQgetvalue(res, i, 16));
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s,", "sync_priority", PQgetvalue(res, i, 17));
+			infosendmsg.len += snprintf(infosendmsg.data+infosendmsg.len, infosendmsg.maxlen-infosendmsg.len-1, "%s=%s.", "sync_state", PQgetvalue(res, i, 18)); 
+
+			ereport(LOG, (errmsg("the %d/%d of master node \"%s\" in pg_stat_replication: %s", i+1, row, NameStr(masterNode->mgrNode->form.nodename), infosendmsg.data)));
+			resetStringInfo(&infosendmsg);
+		}
+	}
+}
+static void PrintReplicationInfoOfMasterNode(MemoryContext spiContext,
+											char *currentZone,
+											char nodeType)
+{
+	dlist_head 			nodeList = DLIST_STATIC_INIT(nodeList);
+	dlist_iter 			iter;
+	MgrNodeWrapper 		*mgrNode = NULL;
+	char 				*hostaddr = NULL;
+	char 				*user = NULL;
+	SwitcherNodeWrapper *masterNode = NULL;
+
+	selectNodeNotZoneForFailover(spiContext, currentZone, nodeType, &nodeList);
+	dlist_foreach(iter, &nodeList)
+	{
+		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		Assert(mgrNode);
+
+		hostaddr = get_hostaddress_from_hostoid(mgrNode->form.nodehost);
+		user = get_hostuser_from_hostoid(mgrNode->form.nodehost);
+		if (!is_node_running(hostaddr, mgrNode->form.nodeport, user, mgrNode->form.nodetype))
+		{
+			MgrFree(hostaddr);
+			MgrFree(user);
+			ereport(LOG, (errmsg("%s \"%s\" is not running, so you can't get the pg_stat_replication information.", 
+					mgr_get_nodetype_desc(mgrNode->form.nodetype), NameStr(mgrNode->form.nodename))));			
+		}
+		else
+		{
+			masterNode = palloc0(sizeof(SwitcherNodeWrapper));
+			masterNode->mgrNode = mgrNode;
+			if (tryConnectNode(masterNode, 10))
+			{
+				PrintReplicationInfo(masterNode);
+			}
+			pfreeSwitcherNodeWrapperPGconn(masterNode);
+			MgrFree(masterNode);
+			masterNode = NULL;
+		}		
+	}
+}
+void PrintReplicationInfoOfMasterZone(MemoryContext spiContext,
+										char *currentZone)
+{
+	 PrintReplicationInfoOfMasterNode(spiContext, currentZone, CNDN_TYPE_GTM_COOR_MASTER);
+ 	 PrintReplicationInfoOfMasterNode(spiContext, currentZone, CNDN_TYPE_COORDINATOR_MASTER);
+	 PrintReplicationInfoOfMasterNode(spiContext, currentZone, CNDN_TYPE_DATANODE_MASTER);
+}
+static void PrintCoordReplicationInfo(dlist_head  *coordinators)
+{
+	dlist_iter iter;
+	SwitcherNodeWrapper *coordinator;
+
+	dlist_foreach(iter, coordinators)
+	{
+		coordinator = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		Assert(coordinator);
+		if (coordinator->mgrNode->form.nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+		{
+			PrintReplicationInfo(coordinator);
+		}
+	}
 }

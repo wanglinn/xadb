@@ -139,6 +139,8 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 
 		MgrAddHbaToNodes(spiContext);
 
+	 	PrintReplicationInfoOfMasterZone(spiContext, currentZone);
+		
 		MgrShutdownNodesNotZone(spiContext, currentZone);
 
 		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s, step1:failover gtmcoord slave in %s ========.", currentZone, currentZone));
@@ -1047,8 +1049,4 @@ static void MgrAddHbaToNodes(MemoryContext spiContext)
 		}
 	}
 }
-
-
-
-
 
