@@ -3707,6 +3707,7 @@ main(int argc, char *argv[])
 #ifdef ADB
 	vacuumfreeze("template0");
 	vacuumfreeze("template1");
+	vacuumfreeze("antdb");
 	vacuumfreeze("postgres");
 #endif
 
