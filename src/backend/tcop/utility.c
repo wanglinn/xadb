@@ -1664,6 +1664,7 @@ ProcessUtilitySlow(ParseState *pstate,
 					stmts = transformCreateStmt((CreateStmt *) parsetree,
 												queryString ADB_ONLY_COMMA_ARG(&transformed_stmt));
 #ifdef ADB
+					is_temp = (((CreateStmt *)parsetree)->relation->relpersistence == RELPERSISTENCE_TEMP);
 					if (IsCnMaster())
 					{
 						/*
