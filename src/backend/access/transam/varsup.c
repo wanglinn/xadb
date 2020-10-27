@@ -177,6 +177,7 @@ GetNewGlobalTransactionId(int level)
 {
 	TransactionId gxid;
 	bool isSubXact = level > 1;
+	static int last_vacuum_trigger_num = -1;
 
 	/*
 	 * Workers synchronize transaction state at the beginning of each parallel
@@ -237,8 +238,17 @@ GetNewGlobalTransactionId(int level)
 		 * request only once per 64K transaction starts.  This still gives
 		 * plenty of chances before we get into real trouble.
 		 */
-		if (IsUnderPostmaster && (gxid % 65536) == 0)
-			SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
+		if (IsUnderPostmaster)
+		{
+			if (last_vacuum_trigger_num == -1 || last_vacuum_trigger_num == 65536)
+			{
+				SendPostmasterSignal(PMSIGNAL_START_AUTOVAC_LAUNCHER);
+				last_vacuum_trigger_num = 0;
+			}
+			else
+				last_vacuum_trigger_num++;
+		}
+			
 
 		if (IsUnderPostmaster &&
 			TransactionIdFollowsOrEquals(gxid, xidStopLimit))
