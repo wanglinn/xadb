@@ -221,6 +221,7 @@ void execClusterFinishActiveBackend(StringInfo mem_toc);
 bool execLocalFinishActiveBackend(void);
 static List *getActiveBackendList(void);
 #define FINISH_ACTIVE_BACKEND	1
+extern bool singleuser;
 #endif	/* ADB*/
 /*
  * Report shared-memory space needed by CreateSharedProcArray.
@@ -1776,7 +1777,10 @@ Snapshot GetSnapshotDataExt(Snapshot snapshot, bool isCatelog)
 	else
 	{
 		xmin = xmax;
-		snap = GetGlobalSnapshotGxid(snapshot, &xmin, &xmax, &count, isCatelog);
+		if (!singleuser)
+			snap = GetGlobalSnapshotGxid(snapshot, &xmin, &xmax, &count, isCatelog);
+		else
+			snap = snapshot;
 		Assert(snap == snapshot);
 		Assert(snap->xcnt <= snap->max_xcnt);
 		globalxmin = xmin;
