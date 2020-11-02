@@ -97,6 +97,7 @@
 #define RELCACHE_INIT_FILEMAGIC		0x573266	/* version ID value */
 #ifdef ADB
 extern bool enable_readsql_on_slave;
+extern bool singleuser;
 #endif
 
 /*
@@ -1179,13 +1180,16 @@ RelationBuildDesc(Oid targetRelId, bool insertIt)
 		relation->rd_rsdesc = NULL;
 
 #ifdef ADB
-	if ((IsCnNode()||IsDnNode()) &&
-		relation->rd_id >= FirstNormalObjectId)
-		RelationBuildLocator(relation);
+	if (!singleuser)
+	{
+		if ((IsCnNode()||IsDnNode()) &&
+			relation->rd_id >= FirstNormalObjectId)
+			RelationBuildLocator(relation);
 
-	RelationBuildAuxiliary(relation);
+		RelationBuildAuxiliary(relation);
 
-	RelationBuildExpansionClean(relation);
+		RelationBuildExpansionClean(relation);
+	}
 #endif
 
 	/* foreign key data is not loaded till asked for */
@@ -2080,7 +2084,7 @@ RelationIdGetRelation(Oid relationId)
 		RelationIncrementReferenceCount(rd);
 #ifdef ADB
 	}
-	if (rd && rd->rd_locator_info)
+	if (!singleuser && rd && rd->rd_locator_info)
 	{
 		MemoryContext oldcontext = MemoryContextSwitchTo(GetMemoryChunkContext(rd));
 		if (enable_readsql_on_slave && sql_readonly == SQLTYPE_READ)

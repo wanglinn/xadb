@@ -146,6 +146,7 @@ int			PostAuthDelay = 0;
 #ifdef ADB
 /* record the sql is read only or not read only */
 SqlTypeLevel	sql_readonly = SQLTYPE_UNINIT;
+bool			singleuser = false;
 #endif
 
 /* ----------------
@@ -4209,9 +4210,6 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 	int			errs = 0;
 	GucSource	gucsource;
 	int			flag;
-#ifdef ADB
-	bool		singleuser = false;
-#endif
 
 	if (secure)
 	{
@@ -4794,7 +4792,7 @@ PostgresMain(int argc, char *argv[],
 	on_shmem_exit(PGXCCleanClusterLock, 0);
 
 	/* If this postgres is launched from another Coord, do not initialize handles. skip it */
-	if (!am_walsender && IS_PGXC_COORDINATOR && !IsPoolHandle())
+	if (!singleuser && !am_walsender && IS_PGXC_COORDINATOR && !IsPoolHandle())
 	{
 		if (!IsConnFromCoord())
 		{
