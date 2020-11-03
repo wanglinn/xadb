@@ -1703,22 +1703,11 @@ static void SnapSenderProcessAssignGxid(SnapClientData *client)
 		SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_ASSIGN, xid);
 		xid_array[index++] = xid;
 	}
+	SetLatch(&MyProc->procLatch);
 
 	if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len) == false)
 	{
 		client->status = CLIENT_STATUS_EXITING;
-		SnapSenderClientRemoveXid(client, xid);
-		SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_ASSIGN, xid);
-		//GxidSenderDropClient(client, true);
-	}
-	else
-	{
-		Assert(index == xid_num);
-		SpinLockAcquire(&SnapSender->gxid_mutex);
-		memcpy(&SnapSender->xip[SnapSender->xcnt], xid_array, sizeof(TransactionId)*xid_num);
-		SnapSender->xcnt += xid_num;
-		SetLatch(&MyProc->procLatch);
-		SpinLockRelease(&SnapSender->gxid_mutex);
 	}
 	pfree(xid_array);
 }
@@ -1727,7 +1716,6 @@ static void SnapSenderProcessPreAssignGxidArray(SnapClientData *client)
 {
 	TransactionId				xid, xidmax; 
 	int							i, xid_num;
-	TransactionId				xid_array[MAX_XID_PRE_ALLOC_NUM]; 
 
 	if (adb_check_sync_nextid && !IsAutoVacuumWorkerProcess())
 		isSnapSenderWaitNextIdOk();
@@ -1755,14 +1743,6 @@ static void SnapSenderProcessPreAssignGxidArray(SnapClientData *client)
 	SetLatch(&MyProc->procLatch);
 
 	Assert(xid_num <= MAX_XID_PRE_ALLOC_NUM);
-	for (i = 0; i < xid_num; i++)
-		xid_array[i] = xidmax - xid_num + i + 1;
-
-	SpinLockAcquire(&SnapSender->gxid_mutex);
-	memcpy(&SnapSender->xip[SnapSender->xcnt], xid_array, sizeof(TransactionId)*xid_num);
-	SnapSender->xcnt += xid_num;
-	SpinLockRelease(&SnapSender->gxid_mutex);
-
 	if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len) == false)
 	{
 		client->status = CLIENT_STATUS_EXITING;
@@ -2351,6 +2331,34 @@ static void SnapSenderQuickDieHander(SIGNAL_ARGS)
 	exit(2);
 }
 
+void SnapSendAddXip(TransactionId txid, int txidnum, TransactionId parent)
+{
+	int i = 0;
+	TransactionId  xid, xid_tmp;
+
+	Assert(TransactionIdIsValid(txid));
+	Assert(TransactionIdIsNormal(txid));
+	if (!IsGTMNode())
+		return;
+
+	Assert(SnapSender != NULL);
+	if (TransactionIdIsValid(parent))
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("snapshot sender not support sub transaction yet!")));
+
+	xid_tmp = txid;
+	SpinLockAcquire(&SnapSender->gxid_mutex);
+	for (i = txidnum; i > 0; i--)
+	{
+		xid = xid_tmp--;
+		SNAP_SYNC_DEBUG_LOG((errmsg("Call SnapSend add xip  %u\n",
+							xid)));
+		SnapSender->xip[SnapSender->xcnt++] = xid--;
+	}
+	SpinLockRelease(&SnapSender->gxid_mutex);
+}
+
 void SnapSendTransactionAssign(TransactionId txid, int txidnum, TransactionId parent)
 {
 	int i = 0;
@@ -2511,13 +2519,17 @@ Snapshot SnapSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, Transactio
 	{
 		xid = SnapSender->xip[i];
 
-		if (NormalTransactionIdPrecedes(xid, xmin))
-			xmin = xid;
-
 		/* if XID is >= xmax, we can skip it */
 		if (!NormalTransactionIdPrecedes(xid, *xmaxOld))
 			continue;
-		
+
+		if (NormalTransactionIdPrecedes(xid, xmin))
+			xmin = xid;
+
+		/* We don't include our own XIDs (if any) in the snapshot */
+		if (xid == MyPgXact->xid)
+			continue;
+
 		/* Add XID to snapshot. */
 		snap->xip[xcnt++] = xid;
 		update_xmin = true;
