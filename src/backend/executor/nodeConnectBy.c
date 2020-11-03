@@ -456,7 +456,7 @@ static TupleTableSlot *ExecHashConnectBy(PlanState *pstate)
 
 			hjt = ExecHashTableCreate(hash,
 									  state->hj_hashOperators,
-									  false);	/* inner join not need keep nulls */
+									  true);	/* inner join not need keep nulls */
 			cbstate->hjt = hjt;
 			hash->hashtable = hjt;
 			if (hjt->outerBatchFile == NULL)
