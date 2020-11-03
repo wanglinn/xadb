@@ -1085,6 +1085,14 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 															rtoffset);
 						rq->base_tlist = fix_scan_list(root, rq->base_tlist, rtoffset);
 						rq->scan.scanrelid += rtoffset;
+
+						/* If en_expr is set, it means that we have a remote query plan without reduced.
+						*  So need to set the var refereneces accordingly.
+						*/
+						if(rq->exec_nodes)
+						{
+							rq->exec_nodes->en_expr = fix_scan_list(root, rq->exec_nodes->en_expr, rtoffset);
+						}
 					}
 				}
 #endif
