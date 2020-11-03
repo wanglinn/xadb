@@ -46,7 +46,7 @@ typedef struct SnapLockIvdInfo
 #define	MAX_CNT_SHMEM_XID_BUF	1024
 //#define FORCE_SNAP_DEBUG 1
 #ifdef SNAP_FORCE_DEBUG_LOG
-#define SNAP_FORCE_DEBUG_LOG(rest) ereport_domain(LOG, PG_TEXTDOMAIN("SnapForce"), rest)
+#define SNAP_FORCE_DEBUG_LOG(rest) ereport_domain(snap_debug_level, PG_TEXTDOMAIN("SnapForce"), rest)
 #else
 #define SNAP_FORCE_DEBUG_LOG(rest)	((void)true)
 #endif

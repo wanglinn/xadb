@@ -10,6 +10,7 @@ extern Size SnapSenderShmemSize(void);
 extern void SnapSenderShmemInit(void);
 
 extern void SnapSendTransactionAssign(TransactionId txid, int txidnum, TransactionId parent);
+extern void SnapSendAddXip(TransactionId txid, int txidnum, TransactionId parent);
 extern void SnapSendTransactionFinish(TransactionId txid);
 
 extern void SnapSendLockSendSock(void);
