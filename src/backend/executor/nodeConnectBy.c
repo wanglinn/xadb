@@ -528,6 +528,24 @@ re_get_tuplestore_connect_by_:
 	goto re_get_tuplestore_connect_by_;
 }
 
+static bool HashConnectByIsCycleSelf(ConnectByState *cbstate, TupleTableSlot *slot)
+{
+	ExprContext *econtext = cbstate->ps.ps_ExprContext;
+	TupleTableSlot *outer_slot = econtext->ecxt_outertuple;
+	HashConnectByState *state = cbstate->private_state;
+
+	econtext->ecxt_outertuple = slot;
+	Assert(econtext->ecxt_innertuple == slot);
+	if (ExecQualAndReset(state->hash_clauses, econtext) &&
+		ExecQualAndReset(cbstate->joinclause, econtext))
+	{
+		econtext->ecxt_outertuple = outer_slot;
+		return true;
+	}
+	econtext->ecxt_outertuple = outer_slot;
+	return false;
+}
+
 static TupleTableSlot *ExecHashConnectBy(PlanState *pstate)
 {
 	ConnectByState *cbstate = castNode(ConnectByState, pstate);
@@ -538,6 +556,7 @@ static TupleTableSlot *ExecHashConnectBy(PlanState *pstate)
 	TupleTableSlot *outer_slot = cbstate->outer_slot;
 	BufFile *file;
 	uint32 hashvalue;
+	bool no_cycle = castNode(ConnectByPlan, cbstate->ps.plan)->no_cycle;
 
 	if (cbstate->processing_root)
 	{
@@ -763,7 +782,7 @@ reget_hash_connect_by_:
 	if (Int64InArray(DatumGetArrayTypeP(outer_slot->tts_values[cbstate->rownum_chain_attr-1]),
 					 DatumGetInt64(inner_slot->tts_values[state->input_rownum_index])))
 	{
-		if (castNode(ConnectByPlan, cbstate->ps.plan)->no_cycle == false)
+		if (no_cycle == false)
 			ereport(ERROR,
 					(errcode(ERRCODE_DUPLICATE_OBJECT),
 					 errmsg("CONNECT BY loop in user data")));
@@ -786,8 +805,11 @@ reget_hash_connect_by_:
 		econtext->ecxt_outertuple = outer_slot;
 		ExecHashGetBucketAndBatch(hjt, hashvalue, &bucket_no, &batch_no);
 
-		/* don't need save it when inner batch is empty */
-		if (hjt->innerBatchFile[batch_no] != NULL)
+		/* don't need save it when inner batch is empty or tuple is cycle self */
+		if (hjt->innerBatchFile[batch_no] != NULL &&
+			(no_cycle == false ||
+			(hashvalue != state->cur_hashvalue &&
+			HashConnectByIsCycleSelf(cbstate, inner_slot) == false)))
 		{
 			Datum rownum_chain;
 			int64 *rownum_ptr;
