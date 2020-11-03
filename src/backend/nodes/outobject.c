@@ -340,6 +340,45 @@ static void output_scalar_array(StringInfo str, const void *p
 	appendStringInfoString(str, "]\n");
 }
 
+static void outputTupleTableSlot(StringInfo str, TupleTableSlot *slot)
+{
+	TupleDesc	desc;
+	char	   *val;
+	int			i;
+	Oid			typoutput;
+	char		tmp;
+	bool		typIsVarlena;
+	if (TupIsNull(slot))
+	{
+		appendStringInfo(str, "NULL");
+		return;
+	}
+
+	desc = slot->tts_tupleDescriptor;
+	tmp = '(';
+	slot_getallattrs(slot);
+	for (i=0;i<desc->natts;++i)
+	{
+		Form_pg_attribute att = TupleDescAttr(desc, i);
+		if (att->attisdropped)
+			continue;
+		appendStringInfoChar(str, tmp);
+		tmp = ',';
+		if (slot->tts_isnull[i] == false)
+		{
+			getTypeOutputInfo(att->atttypid, &typoutput, &typIsVarlena);
+			val = OidOutputFunctionCall(typoutput, slot->tts_values[i]);
+			appendStringInfoString(str, val);
+			pfree (val);
+		}
+	}
+
+	if (tmp == '(')
+		appendStringInfoString(str, "()\n");
+	else
+		appendStringInfoString(str, ")\n");
+}
+
 #define SIMPLE_OUTPUT_DECLARE(type, fmt)					\
 static void output##type(StringInfo str, const type *value)	\
 {															\
@@ -611,6 +650,9 @@ static void printNode(const void *obj, StringInfo str, int space)
 	case T_OidList:
 	case T_IntList:
 		outputList(obj, str, space);
+		break;
+	case T_TupleTableSlot:
+		outputTupleTableSlot(str, (TupleTableSlot*)obj);
 		break;
 	default:
 		ereport(ERROR, (errmsg("unknown node type %d\n", nodeTag(obj))));
