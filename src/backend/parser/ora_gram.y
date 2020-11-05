@@ -198,7 +198,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, List *list, ListCell 
 %type <node>	TableConstraint TableLikeClause
 
 %type <node>	columnOptions
-
+%type <node>	tablesample_clause opt_seed_clause
 %type <alias>	alias_clause opt_alias_clause
 
 %type <boolean>	opt_all opt_byte_char opt_restart_seqs opt_verbose opt_no_inherit
@@ -369,7 +369,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, List *list, ListCell 
 	ANY AS ASC AUDIT AUTHORIZATION ACTION ALWAYS AT
 	ADMIN AUTHID
 	BACKWARD BEGIN_P BETWEEN BFILE BIGINT BINARY BINARY_FLOAT BINARY_DOUBLE
-	BLOB BODY BOOLEAN_P BOTH BY BYTE_P
+	BLOB BLOCK BODY BOOLEAN_P BOTH BY BYTE_P
 	CASCADE CASE CAST CATALOG_P CHAR_P CHARACTERISTICS CHECK CLASS CLOSE CLUSTER
 	COLUMN COMMIT COMMENT COLLATION CONVERSION_P CONNECT_BY_ROOT CONNECTION COMMON
 	COMMITTED COMPRESS COLLATE CONNECT CONSTRAINT CONVERT CYCLE NOCYCLE
@@ -409,10 +409,10 @@ static A_Indirection* listToIndirection(A_Indirection *in, List *list, ListCell 
 	RANGE RAW READ REAL RECORD RECURSIVE REF REFRESH RENAME REPLACE REPEATABLE RESET RESOURCE RESTART RESTRICT
 	RETURNING RETURN_P REVOKE REUSE RIGHT ROLE ROLLBACK ROLLUP ROW ROWID ROWNUM ROWS
 	REFERENCES REPLICA RULE RELATIVE_P RELEASE RESULT_CACHE
-	SCHEMA SECOND_P SELECT SERIALIZABLE SERVER SESSION SESSIONTIMEZONE SET SETS SHARE SHOW SIBLINGS SIZE SEARCH
+	SCHEMA SECOND_P SEED SELECT SERIALIZABLE SERVER SESSION SESSIONTIMEZONE SET SETS SHARE SHOW SIBLINGS SIZE SEARCH
 	SMALLINT SIMPLE SETOF STATISTICS SAVEPOINT SEQUENCE SYSID SOME SCROLL
 	SNAPSHOT SPECIAL START STORAGE SUBSCRIPTION SUCCESSFUL SYNONYM SYSDATE SYSTIMESTAMP
-	TABLE TEMP TEMPLATE TEMPORARY THAN THEN TIME TIMESTAMP TO TRAILING
+	TABLE SAMPLE TEMP TEMPLATE TEMPORARY THAN THEN TIME TIMESTAMP TO TRAILING
 	TRANSACTION TRANSFORM TREAT TRIM TRUNCATE TRIGGER TRUE_P TABLESPACE
 	TYPE_P TEXT_P
 	UID UNCOMMITTED UNION UNIQUE UPDATE USER USING UNLOGGED
@@ -7309,6 +7309,14 @@ table_ref:
 				$1->alias = $2;
 				$$ = (Node*) $1;
 			}
+		| relation_expr opt_alias_clause tablesample_clause
+				{
+					RangeTableSample *n = (RangeTableSample *) $3;
+					$1->alias = $2;
+					/* relation_expr goes inside the RangeTableSample node */
+					n->relation = (Node *) $1;
+					$$ = (Node *) n;
+				}
 		| select_with_parens opt_alias_clause
 			{
 				RangeSubselect *n = makeNode(RangeSubselect);
@@ -7352,6 +7360,37 @@ table_ref:
 				n->coldeflist = lsecond($2);
 				$$ = (Node *) n;
 			}
+		;
+
+/*
+ * SAMPLE decoration in a FROM item
+ */
+tablesample_clause:
+		SAMPLE '(' expr_list ')' opt_seed_clause
+			{
+				RangeTableSample *n = makeNode(RangeTableSample);
+				/* n->relation will be filled in later */
+				n->method = list_make1(makeString("bernoulli"));
+				n->args = $3;
+				n->repeatable = $5;
+				n->location = @1;
+				$$ = (Node *) n;
+			}
+		| SAMPLE BLOCK '(' expr_list ')' opt_seed_clause
+			{
+				RangeTableSample *n = makeNode(RangeTableSample);
+				/* n->relation will be filled in later */
+				n->method = list_make1(makeString("system"));
+				n->args = $4;
+				n->repeatable = $6;
+				n->location = @1;
+				$$ = (Node *) n;
+			}
+		;
+
+opt_seed_clause:
+			SEED '(' a_expr ')'			{ $$ = (Node *) $3; }
+			| /*EMPTY*/					{ $$ = NULL; }
 		;
 
 target_item:
@@ -8972,6 +9011,7 @@ type_func_name_keyword:
 	| OUTER_P
 	| OVER
 	| RIGHT
+	| SAMPLE
 	;
 
 unreserved_keyword:
@@ -8991,6 +9031,7 @@ unreserved_keyword:
 	| BFILE
 	| BINARY
 	| BLOB
+	| BLOCK
 	| BODY
 	| BYTE_P
 	| CASCADE
@@ -9145,6 +9186,7 @@ unreserved_keyword:
 	| SCHEMA
 	| SCROLL
 	| SECOND_P
+	| SEED
 	| SEQUENCE
 	| SERVER
 	| SETS
