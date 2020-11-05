@@ -1160,6 +1160,8 @@ static void OnLatchSetEvent(WaitEvent *event, time_t* time_last_latch)
 	uint32					assign_cnt, finish_cnt;
 	proclist_mutable_iter	proc_iter_assign;
 	proclist_mutable_iter	proc_iter_finish;
+	TransactionId			*assign_array;
+	TransactionId			*finish_array;
 	PGPROC					*proc;
 	time_t					time_now;
 
@@ -1206,25 +1208,40 @@ static void OnLatchSetEvent(WaitEvent *event, time_t* time_last_latch)
 	}
 	SpinLockRelease(&SnapSender->mutex);
 
-	
-	if (assign_xid_list_len > 0)
+	if (assign_xid_list_len > 0 && assign_cnt > 0)
+	{
+		assign_array = palloc0(sizeof(TransactionId) * (assign_xid_list_len + assign_cnt));
+		memcpy(assign_array, assign_xid_array, sizeof(TransactionId)*assign_xid_list_len);
+		memcpy(assign_array + assign_xid_list_len, xid_assign, sizeof(TransactionId)*assign_cnt);
+
+		ProcessShmemXidMsg(assign_array, assign_xid_list_len + assign_cnt, 'a');
+		assign_xid_list_len = 0;
+		pfree(assign_array);
+	}
+	else if (assign_xid_list_len > 0)
 	{
 		ProcessShmemXidMsg(assign_xid_array, assign_xid_list_len, 'a');
 		assign_xid_list_len = 0;
 	}
-
-	/* check assign message */
-	if (assign_cnt > 0)
+	else if (assign_cnt > 0) /* check assign message */
 		ProcessShmemXidMsg(&xid_assign[0], assign_cnt, 'a');
 
-	if (finish_xid_list_len > 0)
+	if (finish_xid_list_len > 0 && finish_cnt > 0)
+	{
+		finish_array = palloc0(sizeof(TransactionId) * (finish_xid_list_len + finish_cnt));
+		memcpy(finish_array, finish_xid_array, sizeof(TransactionId)*finish_xid_list_len);
+		memcpy(finish_array + finish_xid_list_len, xid_finish, sizeof(TransactionId)*finish_cnt);
+
+		ProcessShmemXidMsg(finish_array, finish_xid_list_len + finish_cnt, 'c');
+		finish_xid_list_len = 0;
+		pfree(finish_array);
+	}
+	else if (finish_xid_list_len > 0)
 	{
 		ProcessShmemXidMsg(finish_xid_array, finish_xid_list_len, 'c');
 		finish_xid_list_len = 0;
 	}
-
-	/* check finish transaction */
-	if (finish_cnt > 0)
+	else if (finish_cnt > 0) /* check finish transaction */
 		ProcessShmemXidMsg(&xid_finish[0], finish_cnt, 'c');
 
 	*time_last_latch = time_now;
@@ -2423,10 +2440,7 @@ void SnapSendTransactionFinish(TransactionId txid)
 	SetLatch(&(GetPGProcByNumber(SnapSender->procno)->procLatch));
 
 	SpinLockRelease(&SnapSender->mutex);
-
-	SpinLockAcquire(&SnapSender->gxid_mutex);
-	SnapSenderDropXidItem(txid);
-	SpinLockRelease(&SnapSender->gxid_mutex);
+	SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, txid);
 }
 
 void SnapSendLockSendSock(void)
