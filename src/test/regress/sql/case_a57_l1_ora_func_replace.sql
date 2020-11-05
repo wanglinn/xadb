@@ -19,6 +19,7 @@ select replace(NULL, NULL, NULL);
 select replace('', '', '');
 select replace(123, 2, 3);
 select replace(123, 2);
+select replace('我是，中国人；','，',',');
 
 
 create table t4test(id int, txt varchar);

@@ -89,3 +89,125 @@ select to_date('20100202 10:23:59.890','yyyymmdd hh:mi:ss') from dual;
 ERROR:  Date format picture ends before converting entire input string
 select to_date('20100202 10:23:59.890','yyyymmdd hh:mi:ss.ff3') from dual;
 ERROR:  The date format is not recognized.
+select to_date('2020-10-1400:00:00', 'yyyy-mm-ddHH24:mi:ss') from dual;
+ TO_DATE('2020-10-1400:00:00', 'YYYY-MM-DDHH24:MI:SS')  
+--------------------------------------------------------
+ 2020-10-14 00:00:00
+(1 row)
+
+select to_date('202010 14 00:00:00', 'yyyy-mm-dd HH24:mi:ss') from dual;
+ TO_DATE('202010 14 00:00:00', 'YYYY-MM-DD HH24:MI:SS')  
+---------------------------------------------------------
+ 2020-10-14 00:00:00
+(1 row)
+
+select to_date('20201031235959', 'yyyymmddhh24miss') from dual;
+ TO_DATE('20201031235959', 'YYYYMMDDHH24MISS')  
+------------------------------------------------
+ 2020-10-31 23:59:59
+(1 row)
+
+select to_date('20200202','yyyy-mm-dd') from dual;
+ TO_DATE('20200202','YYYY-MM-DD')  
+-----------------------------------
+ 2020-02-02 00:00:00
+(1 row)
+
+select to_date(to_char(sysdate,'yyyy-mm-dd')||'23:59:59','yyyy-mm-dd HH24:mi:ss') from dual;
+ TO_DATE(TO_CHAR(SYSDATE,'YYYY-MM-DD')||'23:59:59','YYYY-MM-DD HH24:MI:SS')  
+-----------------------------------------------------------------------------
+ 2020-11-05 23:59:59
+(1 row)
+
+select to_date('2020-02-02 23:59:59','yyyy-mm-dd HH24:Mi:ss') from dual;
+ TO_DATE('2020-02-02 23:59:59','YYYY-MM-DD HH24:MI:SS')  
+---------------------------------------------------------
+ 2020-02-02 23:59:59
+(1 row)
+
+select to_date( '20201031235959', 'yyyy-mm-dd hh24:mi:ss' ) from dual;
+ TO_DATE( '20201031235959', 'YYYY-MM-DD HH24:MI:SS' )  
+-------------------------------------------------------
+ 2020-10-31 23:59:59
+(1 row)
+
+select to_date( '2020:11:03','yyyy-mm-dd') from dual;
+ TO_DATE( '2020:11:03','YYYY-MM-DD')  
+--------------------------------------
+ 2020-11-03 00:00:00
+(1 row)
+
+select to_date('2016-03-15 09:25:59 pm','yyyy-mm-dd hh:mi:ss pm') from dual;
+ TO_DATE('2016-03-15 09:25:59 PM','YYYY-MM-DD HH:MI:SS PM')  
+-------------------------------------------------------------
+ 2016-03-15 21:25:59
+(1 row)
+
+select to_date('20160315092559','yyyymmddhhmiss') from dual;
+ TO_DATE('20160315092559','YYYYMMDDHHMISS')  
+---------------------------------------------
+ 2016-03-15 09:25:59
+(1 row)
+
+select to_date('20160315092559pm','yyyymmddhhmisspm') from dual;
+ TO_DATE('20160315092559PM','YYYYMMDDHHMISSPM')  
+-------------------------------------------------
+ 2016-03-15 21:25:59
+(1 row)
+
+select to_date('99-12-1','yy-mm-dd')from dual;
+ TO_DATE('99-12-1','YY-MM-DD') 
+-------------------------------
+ 1999-12-01 00:00:00
+(1 row)
+
+select to_date('20100202 10:23:59.190','yyyymmdd hh:mi:ss') from dual;
+ERROR:  Date format picture ends before converting entire input string
+select to_date('20100202 10.23.59','yyyy-mm-dd hh:mi:ss') from dual;
+ TO_DATE('20100202 10.23.59','YYYY-MM-DD HH:MI:SS')  
+-----------------------------------------------------
+ 2010-02-02 10:23:59
+(1 row)
+
+select to_date('20200202','yyyy-mm-dd') from dual;
+ TO_DATE('20200202','YYYY-MM-DD')  
+-----------------------------------
+ 2020-02-02 00:00:00
+(1 row)
+
+select to_date(to_char(sysdate,'yyyy-mm-dd')||'23:59:59','yyyy-mm-dd HH24:mi:ss') from dual;
+ TO_DATE(TO_CHAR(SYSDATE,'YYYY-MM-DD')||'23:59:59','YYYY-MM-DD HH24:MI:SS')  
+-----------------------------------------------------------------------------
+ 2020-11-05 23:59:59
+(1 row)
+
+select to_date('2020-02-02 23:59:59','yyyy-mm-dd HH24:Mi:ss') from dual;
+ TO_DATE('2020-02-02 23:59:59','YYYY-MM-DD HH24:MI:SS')  
+---------------------------------------------------------
+ 2020-02-02 23:59:59
+(1 row)
+
+select to_date('20201031235959', 'yyyy-mm-dd hh24:mi:ss' ) from dual;
+ TO_DATE('20201031235959', 'YYYY-MM-DD HH24:MI:SS' )  
+------------------------------------------------------
+ 2020-10-31 23:59:59
+(1 row)
+
+select to_date('2020:11:03','yyyy-mm-dd') from dual;
+ TO_DATE('2020:11:03','YYYY-MM-DD')  
+-------------------------------------
+ 2020-11-03 00:00:00
+(1 row)
+
+select to_date('20201031235959', 'yyyy-:/-mm-dd hh24:mi:ss' ) from dual;
+ TO_DATE('20201031235959', 'YYYY-:/-MM-DD HH24:MI:SS' )  
+---------------------------------------------------------
+ 2020-10-31 23:59:59
+(1 row)
+
+SELECT to_date('January 15, 1989, 11:00 A.M.','Month dd, YYYY, HH:MI A.M.') from dual;
+ TO_DATE('JANUARY 15, 1989, 11:00 A.M.','MONTH DD, YYYY, HH:MI A.M.')  
+-----------------------------------------------------------------------
+ 1989-01-15 11:00:00
+(1 row)
+

@@ -119,6 +119,12 @@ select replace(123, 2);
  13
 (1 row)
 
+select replace('我是，中国人；','，',',');
+    REPLACE    
+---------------
+ 我是,中国人；
+(1 row)
+
 create table t4test(id int, txt varchar);
 insert into t4test values(1, 'zhang****liang');
 insert into t4test values(2, 'zhangying***');
