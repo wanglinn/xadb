@@ -986,6 +986,10 @@ void SnapSenderMain(void)
 
 	StartSnapSenderMainQueryDnNodeName();
 	SnapSenderCheckRxactAndTwoPhaseXids();
+	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
+	SnapSender->latestCompletedXid = ShmemVariableCache->latestCompletedXid;
+	LWLockRelease(XidGenLock);
+
 	if (sigsetjmp(local_sigjmp_buf, 1) != 0)
 	{
 		slist_mutable_iter siter;
@@ -2369,7 +2373,7 @@ void SnapSendAddXip(TransactionId txid, int txidnum, TransactionId parent)
 	for (i = txidnum; i > 0; i--)
 	{
 		xid = xid_tmp--;
-		SNAP_SYNC_DEBUG_LOG((errmsg("Call SnapSend add xip  %u\n",
+		SNAP_SYNC_DEBUG_LOG((errmsg("Call SnapSend add xip xid %u\n",
 							xid)));
 		SnapSender->xip[SnapSender->xcnt++] = xid--;
 	}
