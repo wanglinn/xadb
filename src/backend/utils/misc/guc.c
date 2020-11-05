@@ -3085,7 +3085,7 @@ static struct config_int ConfigureNamesInt[] =
 			gettext_noop("minimum time is 1s"),
 			GUC_UNIT_MS
 		},
-		&snap_receiver_timeout,
+		&snap_force_globalxmin_sync_time,
 		30000, 5000, INT_MAX,
 		NULL, NULL, NULL
 	},
