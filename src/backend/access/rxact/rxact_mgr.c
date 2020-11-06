@@ -1352,7 +1352,7 @@ static void rxact_mark_gid(const char *gid, RemoteXactType type, bool success, b
 			{
 				if (IsGTMCnNode())
 				{
-					SnapSendTransactionFinish(pg_strtouint64(&rinfo->gid[1], NULL, 10));
+					SnapSendTransactionFinish(pg_strtouint64(&rinfo->gid[1], NULL, 10), true);
 				}
 				else
 				{

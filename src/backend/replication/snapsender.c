@@ -850,17 +850,15 @@ static void StartSnapSenderMainQueryDnNodeName(void)
 
 static void SnapSenderCheckRxactAndTwoPhaseXids()
 {
-	List						*xid_list;
 	List						*rxact_list = NIL;
 	ListCell					*lc;
 	TransactionId				xid;
 	RxactTransactionInfo 		*info;
-	TransactionId				*xid_array_2pc;
 	TransactionId				*xid_array_xact;
-	int							array_2pc_len, array_xact_len, i;
+	int							array_xact_len, i;
 
-	xid_list = GetPreparedXidList();
-	/* for coordinator get all left two-phase xid*/
+	/* for gtm get rxact left xid*/
+	/* for two-phase left xid, when get snapshot we can get the xid from local proc array*/
 	if (IsGTMNode() && !RecoveryInProgress())
 	{
 		rxact_list = RxactGetRunningList();
@@ -868,27 +866,9 @@ static void SnapSenderCheckRxactAndTwoPhaseXids()
 			 			list_length(rxact_list))));
 	}
 
-	SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderCheckRxactXids GetPreparedXidList xid_list len %d\n",
-			 			list_length(xid_list))));
-
-	array_2pc_len = list_length(xid_list);
 	array_xact_len = list_length(rxact_list);
-
-	if (array_2pc_len > 0)
-		xid_array_2pc = palloc0(sizeof(TransactionId) * array_2pc_len);
 	if (array_xact_len > 0)
 		xid_array_xact = palloc0(sizeof(TransactionId) * array_xact_len);
-
-	i = 0;
-	foreach (lc, xid_list)
-	{
-		xid = lfirst_int(lc);
-		SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_XACT2P, xid);
-		SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderCheckRxactAndTwoPhaseXids Add GetPreparedXidList xid %u\n",
-							xid)));
-		xid_array_2pc[i++] = xid;
-	}
-	list_free(xid_list);
 
 	i = 0;
 	foreach (lc, rxact_list)
@@ -901,26 +881,14 @@ static void SnapSenderCheckRxactAndTwoPhaseXids()
 	}
 	list_free(rxact_list);
 
-	if (array_2pc_len > 0 || array_xact_len > 0)
+	if (array_xact_len > 0)
 	{
 		SpinLockAcquire(&SnapSender->gxid_mutex);
-
-		if (array_xact_len > 0)
-		{
-			memcpy(&SnapSender->xip[SnapSender->xcnt], xid_array_xact, sizeof(TransactionId)*array_xact_len);
-			SnapSender->xcnt += array_xact_len;
-		}
-
-		if (array_2pc_len > 0)
-		{
-			memcpy(&SnapSender->xip[SnapSender->xcnt], xid_array_2pc, sizeof(TransactionId)*array_2pc_len);
-			SnapSender->xcnt += array_2pc_len;
-		}
+		memcpy(&SnapSender->xip[SnapSender->xcnt], xid_array_xact, sizeof(TransactionId)*array_xact_len);
+		SnapSender->xcnt += array_xact_len;
 		SpinLockRelease(&SnapSender->gxid_mutex);
 	}
 
-	if (array_2pc_len > 0)
-		pfree(xid_array_2pc);
 	if (array_xact_len > 0)
 		pfree(xid_array_xact);
 
@@ -2417,7 +2385,7 @@ void SnapSendTransactionAssign(TransactionId txid, int txidnum, TransactionId pa
 	SpinLockRelease(&SnapSender->mutex);
 }
 
-void SnapSendTransactionFinish(TransactionId txid)
+void SnapSendTransactionFinish(TransactionId txid, bool is_rxact)
 {
 	if(!TransactionIdIsValid(txid) || !IsGTMNode())
 		return;
@@ -2444,7 +2412,15 @@ void SnapSendTransactionFinish(TransactionId txid)
 	SetLatch(&(GetPGProcByNumber(SnapSender->procno)->procLatch));
 
 	SpinLockRelease(&SnapSender->mutex);
-	SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, txid);
+
+	if (is_rxact)
+	{
+		SpinLockAcquire(&SnapSender->gxid_mutex);
+		SnapSenderDropXidItem(txid);
+		SpinLockRelease(&SnapSender->gxid_mutex);
+	}
+	else
+		SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, txid);
 }
 
 void SnapSendLockSendSock(void)
