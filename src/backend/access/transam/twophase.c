@@ -1941,7 +1941,7 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 	if (TransactionIdIsValid(latestXid) && (IsCnMaster() || proc->getGlobalTransaction == latestXid))
 	{
 		if (IsGTMNode())
-			SnapSendTransactionFinish(latestXid);
+			SnapSendTransactionFinish(latestXid, false);
 		else
 			SnapRcvCommitTransactionId(latestXid, isCommit);
 	}

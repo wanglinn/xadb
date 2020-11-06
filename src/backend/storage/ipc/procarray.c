@@ -488,7 +488,7 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid ADB_ONLY_COMMA_ARG
 		if (TransactionIdIsValid(latestXid) && (IsCnMaster() || proc->getGlobalTransaction == latestXid))
 		{
 			if (IsGTMNode())
-				SnapSendTransactionFinish(latestXid);
+				SnapSendTransactionFinish(latestXid, false);
 			else
 				SnapRcvCommitTransactionId(latestXid, isCommit);
 		}
