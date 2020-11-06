@@ -196,6 +196,7 @@ static void SnapSenderSigUsr1Handler(SIGNAL_ARGS);
 static void SnapSenderSigTermHandler(SIGNAL_ARGS);
 static void SnapSenderQuickDieHander(SIGNAL_ARGS);
 
+static void isSnapSenderAllDnConnOk(void);
 static void WakeAllCnClientStream(void);
 static void SnapSenderInitXidArray(SnapSenderXidArrayType ssxat);
 static void SnapSenderFreeXidArray(SnapSenderXidArrayType ssxat);
@@ -1159,8 +1160,16 @@ static void OnLatchSetEvent(WaitEvent *event, time_t* time_last_latch)
 
 	if (finish_cnt > 0)
 	{
+		int i;
 		memcpy(xid_finish, SnapSender->xid_complete, sizeof(TransactionId)*finish_cnt);
 		SnapSender->cur_cnt_complete = 0;
+		if (xid_xact2pc_count > 0)
+		{
+			for (i = 0; i <finish_cnt; i++)
+			{
+				SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, xid_finish[i]);
+			}
+		}
 	}
 
 	proclist_foreach_modify(proc_iter_assign, &SnapSender->waiters_assign, GTMWaitLink)
@@ -2393,6 +2402,9 @@ void SnapSendTransactionFinish(TransactionId txid, bool is_rxact)
 	Assert(TransactionIdIsNormal(txid));
 	Assert(SnapSender != NULL);
 
+	if (is_rxact)
+		isSnapSenderAllDnConnOk();
+
 	SpinLockAcquire(&SnapSender->mutex);
 	if (SnapSender->procno == INVALID_PGPROCNO)
 	{
@@ -2419,8 +2431,6 @@ void SnapSendTransactionFinish(TransactionId txid, bool is_rxact)
 		SnapSenderDropXidItem(txid);
 		SpinLockRelease(&SnapSender->gxid_mutex);
 	}
-	else
-		SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, txid);
 }
 
 void SnapSendLockSendSock(void)
