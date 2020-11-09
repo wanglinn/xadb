@@ -182,12 +182,9 @@ IsToastClass(Form_pg_class reltuple)
 bool
 IsCatalogNamespace(Oid namespaceId)
 {
-#ifdef ADB
-	return (namespaceId == PG_CATALOG_NAMESPACE
 #ifdef ADB_GRAM_ORA
-	||namespaceId == PG_ORACLE_NAMESPACE
-#endif
-	);
+	return (namespaceId == PG_CATALOG_NAMESPACE
+			||namespaceId == PG_ORACLE_NAMESPACE);
 #elif defined(ADBMGRD)
 	return (namespaceId == PG_CATALOG_NAMESPACE ||
 			namespaceId == PG_MANAGER_NAMESPACE);
