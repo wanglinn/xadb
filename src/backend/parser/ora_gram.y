@@ -226,6 +226,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 				for_locking_strength
 				opt_hold opt_nulls_order opt_column opt_set_data TableLikeOptionList
 				TableLikeOption opt_nowait_or_skip OptNoLog
+%type <ival>	opt_lock lock_type
 
 %type <objwithargs> aggregate_with_argtypes function_with_argtypes operator_with_argtypes
 
@@ -292,7 +293,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	having_clause
 	indirection_el InsertStmt IndexStmt OraImplicitConvertStmt
 	join_outer
-	limit_clause
+	limit_clause LockStmt 
 	offset_clause opt_collate_clause opt_start_with_clause PrepareStmt PreparableStmt 
 	SelectStmt select_clause select_no_parens select_with_parens set_expr
 	simple_select select_limit_value select_offset_value start_with_clause
@@ -415,7 +416,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	UID UNCOMMITTED UNION UNIQUE UPDATE USER USING UNLOGGED
 	UNENCRYPTED UNTIL UNBOUNDED
 	VALIDATE VALUES VARCHAR VARCHAR2 VERBOSE VIEW VALID
-	WHEN WHENEVER WHERE WITH WRAPPER WRITE WITHIN WITHOUT WORK
+	WAIT WHEN WHENEVER WHERE WITH WRAPPER WRITE WITHIN WITHOUT WORK
 	XML_P
 	YEAR_P
 	ZONE
@@ -561,6 +562,7 @@ stmt:
 	| FetchStmt
 	| InsertStmt
 	| IndexStmt
+	| LockStmt
 	| OraImplicitConvertStmt
 	| RefreshMatViewStmt
 	| RenameStmt
@@ -6693,6 +6695,7 @@ opt_nowait_or_skip:
 		;
 
 opt_nowait:	NOWAIT							{ $$ = true; }
+			| WAIT Iconst					{ $$ = false; }
 			| /*EMPTY*/						{ $$ = false; }
 		;
 
@@ -7409,6 +7412,39 @@ type_function_name:	IDENT							{ $$ = $1; }
 			| unreserved_keyword					{ $$ = pstrdup($1); }
 			| type_func_name_keyword				{ $$ = pstrdup($1); }
 		;
+
+/*****************************************************************************
+ *
+ *		QUERY:
+ *				LOCK TABLE
+ *
+ *****************************************************************************/
+
+LockStmt:	LOCK_P TABLE relation_expr_list opt_lock opt_nowait 
+				{
+					LockStmt *n = makeNode(LockStmt);
+
+					n->relations = $3;
+					n->mode = $4;
+					n->nowait = $5;
+					$$ = (Node *)n;
+				}
+		;
+
+opt_lock:	IN_P lock_type MODE				{ $$ = $2; }
+			| /*EMPTY*/						{ $$ = AccessExclusiveLock; }
+		;
+
+lock_type:	ACCESS SHARE					{ $$ = AccessShareLock; }
+			| ROW SHARE						{ $$ = RowShareLock; }
+			| ROW EXCLUSIVE					{ $$ = RowExclusiveLock; }
+			| SHARE UPDATE EXCLUSIVE		{ $$ = ShareUpdateExclusiveLock; }
+			| SHARE							{ $$ = ShareLock; }
+			| SHARE ROW EXCLUSIVE			{ $$ = ShareRowExclusiveLock; }
+			| EXCLUSIVE						{ $$ = ExclusiveLock; }
+			| ACCESS EXCLUSIVE				{ $$ = AccessExclusiveLock; }
+		;
+
 
 UpdateStmt:
 	  UPDATE relation_expr_opt_alias SET set_clause_list
@@ -8813,6 +8849,7 @@ reserved_keyword:
 	| VALIDATE
 	| VALUES
 	| VARCHAR2
+	| WAIT
 	| WHENEVER
 	| WHERE
 	| WITH
