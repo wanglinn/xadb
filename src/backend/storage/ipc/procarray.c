@@ -1415,9 +1415,8 @@ GetOldestXmin(Relation rel, int flags)
 	TransactionId replication_slot_catalog_xmin = InvalidTransactionId;
 
 #ifdef ADB
-	/* Now we sync global xmin for cluster */
-	/*if (TransactionIdIsValid(RecentGlobalXmin))
-		return RecentGlobalXmin;*/	
+	if (TransactionIdIsValid(RecentGlobalXmin))
+		return RecentGlobalXmin;
 #endif
 
 	/*
