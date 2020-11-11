@@ -1425,6 +1425,12 @@ TransactionIdIsActive(TransactionId xid)
 TransactionId
 GetOldestXmin(Relation rel, int flags)
 {
+#ifdef ADB
+	return GetOldestXminExt(rel, flags, false);
+}
+TransactionId GetOldestXminExt(Relation rel, int flags, bool is_snap_sync)
+{
+#endif /* ADB */
 	ProcArrayStruct *arrayP = procArray;
 	TransactionId result;
 	int			index;
@@ -1434,8 +1440,9 @@ GetOldestXmin(Relation rel, int flags)
 	volatile TransactionId replication_slot_catalog_xmin = InvalidTransactionId;
 
 #ifdef ADB
-	if (TransactionIdIsValid(RecentGlobalXmin))
+	if (!is_snap_sync && TransactionIdIsValid(RecentGlobalXmin))
 		return RecentGlobalXmin;
+	/*for snap sync global xmin, we should get rel local global xmin*/
 #endif
 
 	/*

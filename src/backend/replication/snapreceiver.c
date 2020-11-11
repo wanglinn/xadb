@@ -1999,7 +1999,7 @@ static TransactionId SnapRcvGetLocalXmin(void)
 	UNLOCK_SNAP_RCV();
 	if (!RecoveryInProgress())
 	{
-		oldxmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_VACUUM);
+		oldxmin = GetOldestXminExt(NULL, PROCARRAY_FLAGS_VACUUM, true);
 		if (NormalTransactionIdPrecedes(oldxmin, xmin))
 			xmin = oldxmin;
 	}
@@ -2283,7 +2283,7 @@ re_lock_:
 
 	appendStringInfo(buf, "  global_xmin: %u\n", pg_atomic_read_u32(&SnapRcv->global_xmin));
 	appendStringInfo(buf, "  local global_xmin: %u\n", pg_atomic_read_u32(&SnapRcv->local_global_xmin));
-	appendStringInfo(buf, "  local oldest_xmin: %u\n", GetOldestXmin(NULL, PROCARRAY_FLAGS_VACUUM));
+	appendStringInfo(buf, "  local oldest_xmin: %u\n", GetOldestXminExt(NULL, PROCARRAY_FLAGS_VACUUM, true));
 	appendStringInfo(buf, "  last_client_req_key: %u\n", pg_atomic_read_u32(&SnapRcv->last_client_req_key));
 	appendStringInfo(buf, "  last_ss_req_key: %u\n", pg_atomic_read_u32(&SnapRcv->last_ss_req_key));
 	appendStringInfo(buf, "  last_ss_resp_key: %u\n", pg_atomic_read_u32(&SnapRcv->last_ss_resp_key));

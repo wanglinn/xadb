@@ -88,6 +88,7 @@ extern Snapshot GetSnapshotDataExt(Snapshot snapshot, bool isCatelog);
 extern void SerializeActiveTransactionIds(StringInfo buf);
 extern void EnlargeSnapshotXip(Snapshot snapshot, uint32 need_size);
 extern bool TransactionIdIsInProgressExt(TransactionId xid, bool isAdb);
+extern TransactionId GetOldestXminExt(Relation rel, int flags, bool is_snap_sync);
 #endif /* ADB */
 
 extern bool ProcArrayInstallImportedXmin(TransactionId xmin,
