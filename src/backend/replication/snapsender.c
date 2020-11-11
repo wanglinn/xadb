@@ -562,7 +562,7 @@ static TransactionId snapsenderGetSenderGlobalXmin(void)
 			global_xmin = cur_client->global_xmin;
 	}
 
-	oldxmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_VACUUM);
+	oldxmin = GetOldestXminExt(NULL, PROCARRAY_FLAGS_VACUUM, true);
 	if (!TransactionIdIsValid(global_xmin) || NormalTransactionIdPrecedes(oldxmin, global_xmin))
 		global_xmin = oldxmin;
 	if (TransactionIdIsValid(global_xmin))
@@ -600,7 +600,7 @@ static void snapsenderProcessHeartBeat(SnapClientData *client)
 			global_xmin = cur_client->global_xmin;
 	}
 
-	oldxmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_VACUUM);
+	oldxmin = GetOldestXminExt(NULL, PROCARRAY_FLAGS_VACUUM, true);
 	if (TransactionIdIsNormal(global_xmin) && NormalTransactionIdPrecedes(oldxmin, global_xmin))
 		global_xmin = oldxmin;
 
@@ -2627,7 +2627,8 @@ re_lock_gxid_mutex:
 
 	appendStringInfo(buf, " state: %d \n", pg_atomic_read_u32(&SnapSender->state));
 	appendStringInfo(buf, " local global xmin: %u\n", pg_atomic_read_u32(&SnapSender->global_xmin));
-	appendStringInfo(buf, " local oldest_xmin: %u\n", GetOldestXmin(NULL, PROCARRAY_FLAGS_VACUUM));
+	appendStringInfo(buf, " local oldest_xmin: %u\n", GetOldestXminExt(NULL, PROCARRAY_FLAGS_VACUUM, true));
+	appendStringInfo(buf, " nextid_upcount: %d \n", pg_atomic_read_u32(&SnapSender->nextid_upcount));
 	appendStringInfo(buf, " nextid_upcount_cn: %d \n", pg_atomic_read_u32(&SnapSender->nextid_upcount_cn));
 	qsort(assign_xids, assign_len, sizeof(TransactionId), xidComparator);
 	for (i = 0; i < assign_len; i++)
