@@ -144,6 +144,7 @@ static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a);
 static Node* plora_pre_parse_func(ParseState *pstate, FuncCall *func);
 static Node* plora_pre_parse_expr(ParseState *pstate, Node *expr);
 static PLpgSQL_type *plpgsql_find_wordtype_ns(PLpgSQL_nsitem *ns_top, const char *ident, PLpgSQL_datum **datums);
+static bool comp_plsql_func_argname(Oid funcOid, List *fields);
 #endif /* ADB_GRAM_ORA */
 
 /* ----------
@@ -1162,6 +1163,19 @@ plpgsql_pre_column_ref(ParseState *pstate, ColumnRef *cref)
 
 	if (expr->func->resolve_option == PLPGSQL_RESOLVE_VARIABLE)
 		return resolve_column_ref(pstate, expr, cref, false);
+#ifdef ADB_GRAM_ORA
+	/**
+	 * In Oracle compatible mode, 
+	 * the system error report caused by the same parameter name of 
+	 * user-defined function and SQL column name inside the function 
+	 * can be avoided.
+	 */
+	else if (IsOracleGram(pstate->p_grammar) && 
+			 expr->func->resolve_option == PLPGSQL_RESOLVE_ERROR &&
+			 comp_plsql_func_argname(expr->func->fn_oid, cref->fields) &&
+			 pstate->p_post_columnref_hook != NULL)
+		return resolve_column_ref(pstate, expr, cref, false); 
+#endif	/* ADB_GRAM_ORA */
 	else
 		return NULL;
 }
@@ -3018,5 +3032,72 @@ static Node* plora_pre_parse_aexpr(ParseState *pstate, A_Expr *a)
 	}
 
 	return NULL;
+}
+
+
+static bool
+comp_plsql_func_argname(Oid funcOid, List *fields)
+{
+	HeapTuple	tup;
+	Datum		proargnames;
+	bool		isnull;
+	bool		include = true;
+
+	if (funcOid == InvalidOid)
+		return false;
+
+	tup = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcOid));
+	if (!HeapTupleIsValid(tup))
+	{
+		elog(ERROR, "cache lookup failed for function %u", funcOid);
+		return false;
+	}
+
+	proargnames = SysCacheGetAttr(PROCNAMEARGSNSP, tup,
+								  Anum_pg_proc_proargnames,
+								  &isnull);
+
+	if (!isnull)
+	{
+		int			i;
+		ArrayType  *arr;
+		int			numargs;
+		Datum	   *argnames;
+		ListCell   *lc;
+
+		arr = DatumGetArrayTypeP(proargnames);
+
+		deconstruct_array(arr, TEXTOID, -1, false, 'i',
+					  &argnames, NULL, &numargs);
+
+		foreach(lc, fields)
+		{
+			Node   *name = (Node *) lfirst(lc);
+			if (IsA(name, String))
+			{
+				for (i = 0; i < numargs; i++)
+				{
+					char	*pname = TextDatumGetCString(argnames[i]);
+
+					if (strcmp(pname, strVal(name)) == 0)
+					{
+						include = true;
+						break;
+					}
+					include = false;
+				}
+			}
+			else
+			{
+				include = false;
+				break;
+			}
+
+			if (!include)
+				break;
+		}
+	}
+	ReleaseSysCache(tup);
+	return include;
 }
 #endif /* ADB_GRAM_ORA */
