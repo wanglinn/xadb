@@ -869,8 +869,8 @@ static void cmd_node_refresh_pgsql_paras(char cmdtype, StringInfo msg)
 	char *strconf = "# PostgreSQL recovery config file";
 	char buf[1024];
 	bool bforce = false;
-	ConfInfo *info,
-			*infohead;
+	ConfInfo *info = NULL;
+	ConfInfo *infohead = NULL;
 	FILE *create_recovery_file;
 	int err;
 
@@ -965,6 +965,11 @@ static void cmd_node_refresh_pgsql_paras(char cmdtype, StringInfo msg)
 	}
 	/*get the postgresql.conf content*/
 	info = parse_conf_file(pgconffilebak.data);
+	if (info == NULL)
+	{
+		unlink(pgconffilebak.data);
+		ereport(ERROR, (errmsg("parse conf file(%s) failed, the file maybe null or not exist. err: %s.", pgconffilebak.data, strerror(err))));
+	}
 	infohead = info;
 
 	while((ptmp = &infoparastr.data[infoparastr.cursor]) != '\0' && (infoparastr.cursor < infoparastr.len))
