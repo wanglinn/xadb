@@ -24,6 +24,7 @@
 #define SHUTDOWN_NODE_FAST_SECONDS 5
 #define SHUTDOWN_NODE_IMMEDIATE_SECONDS 90
 #define STARTUP_NODE_SECONDS 90
+#define SHUTDOWN_NODE_SECONDS_ON_REWIND 90
 
 #define EXTRACT_GTM_INFOMATION(gtmMaster, agtm_host,  \
 							   agtm_port)             \
@@ -121,6 +122,17 @@ typedef struct MgrNodeSyncConfig
 	int expectedSyncNodes;
 	int actualSyncNodes;
 } MgrNodeSyncConfig;
+
+typedef struct RewindMgrNodeObject
+{
+	MgrNodeWrapper *masterNode;
+	MgrNodeWrapper *slaveNode;
+	PGconn *masterPGconn;
+	PGconn *slavePGconn;
+	NameData slaveCurestatusBackup;
+	NameData slaveNodesyncBackup;
+} RewindMgrNodeObject;
+
 
 static inline PGHbaItem *newPGHbaItem(ConnectType type,
 									  char *database,
@@ -584,7 +596,7 @@ extern bool shutdownNodeWithinSeconds(MgrNodeWrapper *mgrNode,
 extern bool startupNodeWithinSeconds(MgrNodeWrapper *mgrNode,
 									 int waitSeconds,
 									 bool waitRecovery,
-									 bool complain);
+									 bool complain);								 
 extern bool batchPingNodesWaitinSeconds(dlist_head *nodes,
 										dlist_head *failedModes,
 										PGPing expectedPGPing,
@@ -689,5 +701,15 @@ extern void UpdateSyncInfo(MgrNodeWrapper *mgrNode,
 							PGconn *conn,
 							char *newNodesync,
 							MemoryContext spiContext);											
+extern PGconn *checkMasterRunningStatus(MgrNodeWrapper *masterNode);
+extern void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
+								   PGconn *pgConn,
+								   MemoryContext spiContext);
+extern void rewindMgrNodeOperation(RewindMgrNodeObject *rewindObject,
+								   MemoryContext spiContext);
+extern bool checkSetRewindNodeParamter(MgrNodeWrapper *mgrNode, PGconn *conn);
+extern void tryUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
+									   char *newCurestatus,
+									   MemoryContext spiContext);
 
 #endif /* MGR_HELPER_H */

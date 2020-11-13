@@ -2082,10 +2082,9 @@ bool callAgentPromoteNode(MgrNodeWrapper *node, bool complain)
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
-		ereport(LOG,
-				(errmsg("promote %s %s successfully",
+		ereportNoticeLog(errmsg("promote %s %s successfully",
 						NameStr(node->form.nodename),
-						node->nodepath)));
+						node->nodepath));
 	}
 	else
 	{
@@ -2291,22 +2290,22 @@ bool callAgentStartNode(MgrNodeWrapper *node, bool wait, bool complain)
 	else
 		cmd = AGT_CMD_DN_START; /* pg_ctl  */
 
-	ereportNoticeLog(errmsg("start %s %s.", mgr_get_nodetype_desc(node->form.nodetype), NameStr(node->form.nodename)));
 	res = callAgentSendCmd(cmd, &cmdMessage,
 						   node->host->hostaddr,
 						   node->host->form.hostagentport);
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
-		ereport(LOG,
-				(errmsg("call agent start %s %s successfully",
+		ereportNoticeLog(errmsg("call agent start %s %s %s successfully",
+						mgr_get_nodetype_desc(node->form.nodetype),
 						NameStr(node->form.nodename),
-						node->nodepath)));
+						node->nodepath));
 	}
 	else
 	{
 		ereport(complain ? ERROR : LOG,
-				(errmsg("call agent start %s %s failed:%s",
+				(errmsg("call agent start %s %s %s failed:%s",
+						mgr_get_nodetype_desc(node->form.nodetype),
 						NameStr(node->form.nodename),
 						node->nodepath,
 						res.message.data)));
@@ -4340,4 +4339,192 @@ static void MgrGetSyncStandByName(MgrNodeWrapper *node,
 		appendStringInfo(infosendmsg, "%d (%s)", syncNum, infosendsyncmsg.data);
 	}
 }
+void rewindMgrNodeOperation(RewindMgrNodeObject *rewindObject,
+								   MemoryContext spiContext)
+{
+	MgrNodeWrapper *masterNode;
+	MgrNodeWrapper *slaveNode;
+	StringInfoData restmsg;
+	StringInfoData infosendmsg;
+	bool resA;
+	bool resB;
 
+	masterNode = rewindObject->masterNode;
+	slaveNode = rewindObject->slaveNode;
+
+	shutdownNodeWithinSeconds(slaveNode,
+							  SHUTDOWN_NODE_SECONDS_ON_REWIND,
+							  0, true);
+
+	setPGHbaTrustAddress(masterNode, slaveNode->host->hostaddr);
+
+	setPGHbaTrustSlaveReplication(masterNode, slaveNode, true);
+
+	PQexecCommandSql(rewindObject->masterPGconn, "checkpoint;", true);
+
+	initStringInfo(&restmsg);
+	initStringInfo(&infosendmsg);
+	appendStringInfo(&infosendmsg, "%s/bin/pg_controldata '%s' | grep 'Minimum recovery ending location:' |awk '{print $5}'",
+					 masterNode->host->hostadbhome,
+					 masterNode->nodepath);
+	appendStringInfoCharMacro(&infosendmsg, '\0');
+	resA = mgr_ma_send_cmd_get_original_result(AGT_CMD_GET_BATCH_JOB,
+											   infosendmsg.data,
+											   masterNode->form.nodehost,
+											   &restmsg,
+											   AGENT_RESULT_LOG);
+	if (resA)
+	{
+		if (restmsg.len == 0)
+			resA = false;
+		else if (strcasecmp(restmsg.data, "{\"result\":\"0/0\"}") != 0)
+			resA = false;
+	}
+
+	resetStringInfo(&restmsg);
+	resetStringInfo(&infosendmsg);
+	appendStringInfo(&infosendmsg, "%s/bin/pg_controldata '%s' |grep 'Min recovery ending loc' |awk '{print $6}'",
+					 masterNode->host->hostadbhome,
+					 masterNode->nodepath);
+	appendStringInfoCharMacro(&infosendmsg, '\0');
+	resB = mgr_ma_send_cmd_get_original_result(AGT_CMD_GET_BATCH_JOB,
+											   infosendmsg.data,
+											   masterNode->form.nodehost,
+											   &restmsg,
+											   AGENT_RESULT_LOG);
+	if (resB)
+	{
+		if (restmsg.len == 0)
+			resB = false;
+		else if (strcasecmp(restmsg.data, "{\"result\":\"0\"}") != 0)
+			resB = false;
+	}
+	pfree(restmsg.data);
+	pfree(infosendmsg.data);
+
+	if (!resA || !resB)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_IN_USE),
+				 errmsg("on the master \"%s\" execute \"pg_controldata %s\" to get the expect value fail",
+						NameStr(masterNode->form.nodename),
+						masterNode->nodepath),
+				 errhint("execute \"checkpoint\" on  master \"%s\", then execute  \"pg_controldata %s\" to check \"Minimum recovery \
+					ending location\" is \"0/0\" and \"Min recovery ending loc's timeline\" is \"0\" before execute the rewind command again",
+						 NameStr(masterNode->form.nodename),
+						 masterNode->nodepath)));
+	}
+
+	/*node rewind*/
+	callAgentRewindNode(masterNode, slaveNode, true);
+	setSlaveNodeRecoveryConf(masterNode, slaveNode);
+}
+void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
+							PGconn *pgConn,
+							MemoryContext spiContext)
+{
+	MgrNodeWrapper *gtmMaster = NULL;
+
+	if (mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
+	{
+		return;
+	}
+	gtmMaster = selectMgrGtmCoordNode(spiContext);
+	if (!gtmMaster)
+	{
+		ereport(ERROR,
+				(errmsg("There is no GTM master node in the cluster")));
+	}
+	setCheckGtmInfoInPGSqlConf(gtmMaster, mgrNode, pgConn, true, CHECK_GTM_INFO_SECONDS, true);
+	if (gtmMaster)
+		pfreeMgrNodeWrapper(gtmMaster);
+}
+PGconn *checkMasterRunningStatus(MgrNodeWrapper *masterNode)
+{
+	PGconn *conn;
+	conn = getNodeDefaultDBConnection(masterNode, 10);
+	if (!conn)
+		ereport(ERROR,
+				(errmsg("get node %s connection failed",
+						NameStr(masterNode->form.nodename))));
+
+	if (!checkNodeRunningMode(conn, true))
+	{
+		PQfinish(conn);
+		ereport(ERROR,
+				(errmsg("master node %s is not running on master mode"
+						"suspend the operation of following master",
+						NameStr(masterNode->form.nodename))));
+	}
+	return conn;
+}
+/**
+ * pg_rewind requires that the target server either has the wal_log_hints 
+ * option enabled in postgresql.conf or data checksums enabled when the 
+ * cluster was initialized with initdb. Neither of these are currently 
+ * on by default. full_page_writes must also be set to on, but is enabled 
+ * by default. So we should set these values before rewind, and after rewind 
+ * restore these value to the orginal values.
+ */
+bool checkSetRewindNodeParamter(MgrNodeWrapper *mgrNode, PGconn *conn)
+{
+	char *parameterName;
+	char *expectValue;
+	char *originalValue;
+	PGConfParameterItem *expectItem = NULL;
+	bool set = false;
+
+	parameterName = "wal_log_hints";
+	expectValue = "on";
+	originalValue = showNodeParameter(NameStr(mgrNode->form.nodename), conn, parameterName, true);
+	if (strcmp(originalValue, expectValue) == 0)
+	{
+		ereport(LOG, (errmsg("node %s parameter %s is %s, no need to set",
+							 NameStr(mgrNode->form.nodename),
+							 parameterName, expectValue)));
+	}
+	else
+	{
+		expectItem = newPGConfParameterItem(parameterName,
+											expectValue, false);
+		callAgentRefreshPGSqlConfReload(mgrNode, expectItem, true);
+		pfreePGConfParameterItem(expectItem);
+		set = true;
+	}
+	pfree(originalValue);
+
+	parameterName = "full_page_writes";
+	expectValue = "on";
+	originalValue = showNodeParameter(NameStr(mgrNode->form.nodename), conn, parameterName, true);
+	if (strcmp(originalValue, expectValue) == 0)
+	{
+		ereport(LOG, (errmsg("node %s parameter %s is %s, no need to set",
+							 NameStr(mgrNode->form.nodename),
+							 parameterName, expectValue)));
+	}
+	else
+	{
+		expectItem = newPGConfParameterItem(parameterName,
+											expectValue, false);
+		callAgentRefreshPGSqlConfReload(mgrNode, expectItem, true);
+		pfreePGConfParameterItem(expectItem);
+		set = true;
+	}
+	pfree(originalValue);
+	return set;
+}
+void tryUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
+									   char *newCurestatus,
+									   MemoryContext spiContext)
+{
+	int rows;
+
+	rows = updateMgrNodeCurestatus(mgrNode, newCurestatus, spiContext);
+	if (rows != 1)
+		ereport(ERROR,
+				(errmsg("%s, can not transit to curestatus:%s",
+						NameStr(mgrNode->form.nodename),
+						newCurestatus)));
+	else
+		namestrcpy(&mgrNode->form.curestatus, newCurestatus);
+}
