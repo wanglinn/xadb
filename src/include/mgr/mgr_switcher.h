@@ -197,6 +197,10 @@ extern void appendSlaveNodeFollowMaster(MgrNodeWrapper *masterNode,
 										MgrNodeWrapper *slaveNode,
 										PGconn *masterPGconn,
 										MemoryContext spiContext);
+void appendSlaveNodeFollowMasterForSwitchOver(MemoryContext spiContext,
+												SwitcherNodeWrapper *master,
+												SwitcherNodeWrapper *slave,
+												bool complain);										
 extern void appendSlaveNodeFollowMasterEx(MemoryContext spiContext,
 										SwitcherNodeWrapper *master,
 										SwitcherNodeWrapper *slave,

@@ -28,7 +28,7 @@
 #include "adb_doctor_log.h"
 
 #define IS_EMPTY_STRING(str) (str == NULL || strlen(str) == 0)
-#define SHUTDOWN_NODE_SECONDS_ON_REWIND 90
+
 /* 
  * Benchmark of the time interval, The following elements 
  * based on deadlineMs, but have min and max value limit.
@@ -117,15 +117,6 @@ typedef struct MonitorNodeInfo
 	AdbDoctorErrorRecorder *connectionErrors;
 } MonitorNodeInfo;
 
-typedef struct RewindMgrNodeObject
-{
-	MgrNodeWrapper *masterNode;
-	MgrNodeWrapper *slaveNode;
-	PGconn *masterPGconn;
-	PGconn *slavePGconn;
-	NameData slaveCurestatusBackup;
-	NameData slaveNodesyncBackup;
-} RewindMgrNodeObject;
 
 static void nodeMonitorMainLoop(MonitorNodeInfo *nodeInfo);
 
@@ -197,9 +188,6 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *mgrNode,
 static void checkUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 										 char *newCurestatus,
 										 MemoryContext spiContext);
-static void tryUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
-									   char *newCurestatus,
-									   MemoryContext spiContext);
 static MgrNodeWrapper *checkGetMgrNodeForNodeDoctor(Oid oid);
 static bool isHaveActiveSlaveNodes(MgrNodeWrapper *mgrNode, char *nodesync);
 
@@ -211,15 +199,8 @@ static bool rewindSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 										MemoryContext spiContext);
 static void prepareRewindMgrNode(RewindMgrNodeObject *rewindObject,
 								 MemoryContext spiContext);
-static void rewindMgrNodeOperation(RewindMgrNodeObject *rewindObject,
-								   MemoryContext spiContext);
-static PGconn *checkMasterRunningStatus(MgrNodeWrapper *masterNode);
-static bool checkSetRewindNodeParamter(MgrNodeWrapper *mgrNode, PGconn *conn);
 static MgrNodeWrapper *checkGetMasterNode(Oid nodemasternameoid,
 										  MemoryContext spiContext);
-static void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
-								   PGconn *pgConn,
-								   MemoryContext spiContext);
 static bool setMgrNodeGtmInfo(MgrNodeWrapper *mgrNode);
 static void masterNodeCrashed(MonitorNodeInfo *nodeInfo);
 static void slaveNodeCrashed(MonitorNodeInfo *nodeInfo);
@@ -1819,23 +1800,6 @@ static void checkUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 		namestrcpy(&mgrNode->form.curestatus, newCurestatus);
 	}
 }
-
-static void tryUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
-									   char *newCurestatus,
-									   MemoryContext spiContext)
-{
-	int rows;
-
-	rows = updateMgrNodeCurestatus(mgrNode, newCurestatus, spiContext);
-	if (rows != 1)
-		ereport(ERROR,
-				(errmsg("%s, can not transit to curestatus:%s",
-						NameStr(mgrNode->form.nodename),
-						newCurestatus)));
-	else
-		namestrcpy(&mgrNode->form.curestatus, newCurestatus);
-}
-
 static MgrNodeWrapper *checkGetMgrNodeForNodeDoctor(Oid oid)
 {
 	MgrNodeWrapper *mgrNode;
@@ -2396,165 +2360,6 @@ static void prepareRewindMgrNode(RewindMgrNodeObject *rewindObject,
 								 true);
 	}
 }
-
-static void rewindMgrNodeOperation(RewindMgrNodeObject *rewindObject,
-								   MemoryContext spiContext)
-{
-	MgrNodeWrapper *masterNode;
-	MgrNodeWrapper *slaveNode;
-	StringInfoData restmsg;
-	StringInfoData infosendmsg;
-	bool resA;
-	bool resB;
-
-	masterNode = rewindObject->masterNode;
-	slaveNode = rewindObject->slaveNode;
-
-	shutdownNodeWithinSeconds(slaveNode,
-							  SHUTDOWN_NODE_SECONDS_ON_REWIND,
-							  0, true);
-
-	setPGHbaTrustAddress(masterNode, slaveNode->host->hostaddr);
-
-	setPGHbaTrustSlaveReplication(masterNode, slaveNode, true);
-
-	PQexecCommandSql(rewindObject->masterPGconn, "checkpoint;", true);
-
-	initStringInfo(&restmsg);
-	initStringInfo(&infosendmsg);
-	appendStringInfo(&infosendmsg, "%s/bin/pg_controldata '%s' | grep 'Minimum recovery ending location:' |awk '{print $5}'",
-					 masterNode->host->hostadbhome,
-					 masterNode->nodepath);
-	appendStringInfoCharMacro(&infosendmsg, '\0');
-	resA = mgr_ma_send_cmd_get_original_result(AGT_CMD_GET_BATCH_JOB,
-											   infosendmsg.data,
-											   masterNode->form.nodehost,
-											   &restmsg,
-											   AGENT_RESULT_LOG);
-	if (resA)
-	{
-		if (restmsg.len == 0)
-			resA = false;
-		else if (strcasecmp(restmsg.data, "{\"result\":\"0/0\"}") != 0)
-			resA = false;
-	}
-
-	resetStringInfo(&restmsg);
-	resetStringInfo(&infosendmsg);
-	appendStringInfo(&infosendmsg, "%s/bin/pg_controldata '%s' |grep 'Min recovery ending loc' |awk '{print $6}'",
-					 masterNode->host->hostadbhome,
-					 masterNode->nodepath);
-	appendStringInfoCharMacro(&infosendmsg, '\0');
-	resB = mgr_ma_send_cmd_get_original_result(AGT_CMD_GET_BATCH_JOB,
-											   infosendmsg.data,
-											   masterNode->form.nodehost,
-											   &restmsg,
-											   AGENT_RESULT_LOG);
-	if (resB)
-	{
-		if (restmsg.len == 0)
-			resB = false;
-		else if (strcasecmp(restmsg.data, "{\"result\":\"0\"}") != 0)
-			resB = false;
-	}
-	pfree(restmsg.data);
-	pfree(infosendmsg.data);
-
-	if (!resA || !resB)
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_OBJECT_IN_USE),
-				 errmsg("on the master \"%s\" execute \"pg_controldata %s\" to get the expect value fail",
-						NameStr(masterNode->form.nodename),
-						masterNode->nodepath),
-				 errhint("execute \"checkpoint\" on  master \"%s\", then execute  \"pg_controldata %s\" to check \"Minimum recovery \
-					ending location\" is \"0/0\" and \"Min recovery ending loc's timeline\" is \"0\" before execute the rewind command again",
-						 NameStr(masterNode->form.nodename),
-						 masterNode->nodepath)));
-	}
-
-	/*node rewind*/
-	callAgentRewindNode(masterNode, slaveNode, true);
-	setSlaveNodeRecoveryConf(masterNode, slaveNode);
-}
-
-static PGconn *checkMasterRunningStatus(MgrNodeWrapper *masterNode)
-{
-	PGconn *conn;
-	conn = getNodeDefaultDBConnection(masterNode, 10);
-	if (!conn)
-		ereport(ERROR,
-				(errmsg("get node %s connection failed",
-						NameStr(masterNode->form.nodename))));
-
-	if (!checkNodeRunningMode(conn, true))
-	{
-		PQfinish(conn);
-		ereport(ERROR,
-				(errmsg("%s master node %s is not running on master mode"
-						"suspend the operation of following master",
-						MyBgworkerEntry->bgw_name,
-						NameStr(masterNode->form.nodename))));
-	}
-	return conn;
-}
-
-/**
- * pg_rewind requires that the target server either has the wal_log_hints 
- * option enabled in postgresql.conf or data checksums enabled when the 
- * cluster was initialized with initdb. Neither of these are currently 
- * on by default. full_page_writes must also be set to on, but is enabled 
- * by default. So we should set these values before rewind, and after rewind 
- * restore these value to the orginal values.
- */
-static bool checkSetRewindNodeParamter(MgrNodeWrapper *mgrNode, PGconn *conn)
-{
-	char *parameterName;
-	char *expectValue;
-	char *originalValue;
-	PGConfParameterItem *expectItem = NULL;
-	bool set = false;
-
-	parameterName = "wal_log_hints";
-	expectValue = "on";
-	originalValue = showNodeParameter(NameStr(mgrNode->form.nodename), conn, parameterName, true);
-	if (strcmp(originalValue, expectValue) == 0)
-	{
-		ereport(LOG, (errmsg("node %s parameter %s is %s, no need to set",
-							 NameStr(mgrNode->form.nodename),
-							 parameterName, expectValue)));
-	}
-	else
-	{
-		expectItem = newPGConfParameterItem(parameterName,
-											expectValue, false);
-		callAgentRefreshPGSqlConfReload(mgrNode, expectItem, true);
-		pfreePGConfParameterItem(expectItem);
-		set = true;
-	}
-	pfree(originalValue);
-
-	parameterName = "full_page_writes";
-	expectValue = "on";
-	originalValue = showNodeParameter(NameStr(mgrNode->form.nodename), conn, parameterName, true);
-	if (strcmp(originalValue, expectValue) == 0)
-	{
-		ereport(LOG, (errmsg("node %s parameter %s is %s, no need to set",
-							 NameStr(mgrNode->form.nodename),
-							 parameterName, expectValue)));
-	}
-	else
-	{
-		expectItem = newPGConfParameterItem(parameterName,
-											expectValue, false);
-		callAgentRefreshPGSqlConfReload(mgrNode, expectItem, true);
-		pfreePGConfParameterItem(expectItem);
-		set = true;
-	}
-	pfree(originalValue);
-	return set;
-}
-
 static MgrNodeWrapper *checkGetMasterNode(Oid nodemasternameoid,
 										  MemoryContext spiContext)
 {
@@ -2576,28 +2381,6 @@ static MgrNodeWrapper *checkGetMasterNode(Oid nodemasternameoid,
 	}
 	return masterNode;
 }
-
-static void checkSetMgrNodeGtmInfo(MgrNodeWrapper *mgrNode,
-								   PGconn *pgConn,
-								   MemoryContext spiContext)
-{
-	MgrNodeWrapper *gtmMaster = NULL;
-
-	if (mgrNode->form.nodetype == CNDN_TYPE_GTM_COOR_SLAVE)
-	{
-		return;
-	}
-	gtmMaster = selectMgrGtmCoordNode(spiContext);
-	if (!gtmMaster)
-	{
-		ereport(ERROR,
-				(errmsg("There is no GTM master node in the cluster")));
-	}
-	setCheckGtmInfoInPGSqlConf(gtmMaster, mgrNode, pgConn, true, CHECK_GTM_INFO_SECONDS, true);
-	if (gtmMaster)
-		pfreeMgrNodeWrapper(gtmMaster);
-}
-
 static bool setMgrNodeGtmInfo(MgrNodeWrapper *mgrNode)
 {
 	bool done;
