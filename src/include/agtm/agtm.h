@@ -28,7 +28,7 @@
 							(isPGXCCoordinator || isPGXCDataNode) &&	\
 							  IsUnderPostmaster &&						\
 							  IsNormalDatabase() &&						\
-							  IsNormalProcessingMode())
+							  (IsNormalProcessingMode() || IsInitProcessingMode()))
 
 /* Type of sequence name used when dropping it */
 typedef enum AGTM_SequenceKeyType
