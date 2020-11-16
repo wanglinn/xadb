@@ -207,10 +207,7 @@ static void RevertFailOverData(MemoryContext spiContext,
 								dlist_head *coordinators,
 								SwitcherNodeWrapper *oldMaster,
 								SwitcherNodeWrapper *newMaster,
-								dlist_head *runningSlaves);																	   
-static void revertClusterSetting(dlist_head *coordinators,
-								 SwitcherNodeWrapper *oldMaster,
-								 SwitcherNodeWrapper *newMaster);
+								dlist_head *runningSlaves);
 static void revertGtmInfoSetting(SwitcherNodeWrapper *oldGtmMaster,
 								 SwitcherNodeWrapper *newGtmMaster,
 								 dlist_head *coordinators,
@@ -377,7 +374,7 @@ static void RewindSlaveToMaster(MemoryContext spiContext,
 {																									\
 	if (pg_strcasecmp(NameStr(mgrNode->form.nodezone), curZone) != 0)							    \
 	{																								\
-		ereport(ERROR, (errmsg("the datanode(%s) is not in current zone(%s), can't operator it.",	\
+		ereport(ERROR, (errmsg("the node(%s) is not in current zone(%s), can't operator it.",	\
 				NameStr(mgrNode->form.nodename), curZone)));									    \
 	}																								\
 }
@@ -614,7 +611,7 @@ void FailOverDataNodeMaster(char *oldMasterName,
 		/* The better slave node is in front of the list */
 		sortNodesByWalLsnDesc(&runningSlaves);
 		runningSlavesFollowNewMaster(newMaster,
-									 oldMaster,
+									 NULL,
 									 &runningSlaves,
 									 NULL,
 									 spiContext,
@@ -756,10 +753,7 @@ static void RevertFailOverData(MemoryContext spiContext,
 
 	CheckNull(coordinators);
 	CheckNull(newMaster);
-
-	ereportNoticeLog(errmsg("begin to revert failover, oldMaster(%s), newMaster(%s)", 
-				NameStr(oldMaster->mgrNode->form.nodename),
-				NameStr(newMaster->mgrNode->form.nodename)));
+	ereportNoticeLog(errmsg("begin to revert failover"));
 
 	if (oldMaster == NULL)
 	{
@@ -769,6 +763,7 @@ static void RevertFailOverData(MemoryContext spiContext,
 	}
 
 	DelNodeFromSwitcherNodeWrappers(runningSlaves, newMaster);	
+	/* stop the old master is avoid the double master in the cluster */
 	if (makesure_node_is_running(&oldMaster->mgrNode->form, oldMaster->mgrNode->form.nodeport))
 		shutdownNodeWithinSeconds(oldMaster->mgrNode,
 								SHUTDOWN_NODE_FAST_SECONDS,
@@ -912,12 +907,24 @@ static void RevertSwitchverData(MemoryContext spiContext,
 									NULL);
 	}
 
-	holdLockCoordinator = getHoldLockCoordinator(coordinators);
-	execOk = RevertFailoverDataOfPgxcNode(holdLockCoordinator,
+	if (isDataNodeMgrNode(oldMaster->mgrNode->form.nodetype))
+	{
+		holdLockCoordinator = getHoldLockCoordinator(coordinators);
+		execOk = RevertFailoverDataOfPgxcNode(holdLockCoordinator,
 												coordinators,
 												oldMaster,
 												newMaster);
-	refreshReplicationSlots(oldMaster, newMaster);
+		refreshReplicationSlots(oldMaster, newMaster);
+	}
+	else
+	{
+		DelNodeFromSwitcherNodeWrappers(coordinators, oldMaster);
+		dlist_push_head(coordinators, &newMaster->link);
+		execOk = RevertFailoverDataOfPgxcNode(NULL,
+											coordinators,
+											oldMaster,
+											newMaster);
+	}
 
 	if (!tryUnlockCluster(coordinators, false))
 	{
@@ -1135,6 +1142,9 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 	MemoryContext spiContext;
 	ErrorData *edata = NULL;
 	dlist_head isolatedNodes = DLIST_STATIC_INIT(isolatedNodes);
+	SwitcherNodeWrapper *RevertOldMaster = NULL;
+	SwitcherNodeWrapper *RevertNewMaster = NULL;
+	bool	beginFailOver = false;
 
     oldContext = CurrentMemoryContext;
 	switchContext = AllocSetContextCreate(oldContext,
@@ -1158,6 +1168,7 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 		oldMaster = checkGetGtmCoordOldMaster(oldMasterName,
 											  2,
 											  spiContext);
+		CheckNodeInZone(oldMaster->mgrNode, curZone);									  
 		oldMaster->startupAfterException = false;
 		PrintReplicationInfo(oldMaster);
 
@@ -1175,6 +1186,7 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 								&coordinatorSlaves,
 								false);
 		checkGetAllDataNodes(&dataNodes, spiContext);
+		RevertOldMaster = oldMaster;
 		chooseNewMasterNode(oldMaster,
 							&newMaster,
 							&runningSlaves,
@@ -1183,7 +1195,6 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 							forceSwitch,
 							NameStr(*newMasterName),
 							curZone);
-
 		checkGetSlaveNodesRunningSecondStatus(oldMaster,
 											spiContext,
 											(Oid)newMaster->mgrNode->form.oid,
@@ -1198,6 +1209,7 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 		namestrcpy(newMasterName, NameStr(newMaster->mgrNode->form.nodename));        
 		CHECK_FOR_INTERRUPTS();
 
+		RevertNewMaster = newMaster;
 		/**
 		 * Switch gtm coordinator oldMaster to the standby running mode, 
 		 * and switch gtm coordinator newMaster to the master running mode, 
@@ -1225,6 +1237,7 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 								   CHECK_GTM_INFO_SECONDS,
 								   true);
 		newMaster->gtmInfoChanged = true;
+		beginFailOver = true;
 
 		RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_OFF);
 		promoteNewMasterStartReign(oldMaster, newMaster);
@@ -1236,14 +1249,14 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 		/* The better slave node is in front of the list */
 		sortNodesByWalLsnDesc(&runningSlaves);
 		runningSlavesFollowNewMaster(newMaster,
-									 oldMaster,
+									 NULL,
 									 &runningSlaves,
 									 NULL,
 									 spiContext,
 									 OVERTYPE_FAILOVER,
 									 curZone);
 
-		ereportNoticeLog(errmsg("set gtmhost, gtmport to every node, please wait for a moment."));	
+		ereportNoticeLog(errmsg("set gtmhost and gtmport to every node, please wait for a moment..."));	
 		batchSetGtmInfoOnNodes(newMaster->mgrNode,
 							   &dataNodes,
 							   newMaster,
@@ -1297,16 +1310,7 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 		refreshMgrNodeListAfterFailoverGtm(spiContext, &coordinatorSlaves);
 		refreshMgrNodeListAfterFailoverGtm(spiContext, &dataNodes);
 
-
 		tryUnlockCluster(&coordinators, true);
-
-        if (pg_strcasecmp(NameStr(oldMaster->mgrNode->form.nodezone), curZone) != 0)
-		{
-			ShutdownRunningNotZone(&runningSlaves, curZone);
-			ShutdownRunningNotZone(&runningSlavesSecond, curZone);
-			ShutdownRunningNotZone(&failedSlaves, curZone);
-			ShutdownRunningNotZone(&failedSlavesSecond, curZone);
-		}
 
 		ereportNoticeLog(errmsg("Switch the GTM master from %s to %s "
 						"has been successfully completed",
@@ -1319,11 +1323,17 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 		MemoryContextSwitchTo(oldContext);
 		edata = CopyErrorData();
 		FlushErrorState();
-		revertClusterSetting(&coordinators, oldMaster, newMaster);
-		revertGtmInfoSetting(oldMaster, newMaster, &coordinators, &coordinatorSlaves, &dataNodes);
-
-		if (newMaster != NULL)
-			RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);		
+		revertGtmInfoSetting(RevertNewMaster,
+							RevertOldMaster, 
+							&coordinators, 
+							&coordinatorSlaves,
+							&dataNodes);
+		RevertFailOverData(spiContext,
+							beginFailOver,
+							&coordinators,
+							RevertNewMaster,
+							RevertOldMaster,
+							&runningSlaves);			
 	}
 	PG_END_TRY();
 
@@ -1453,10 +1463,7 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, in
 		checkXlogDiffForSwitchover(oldMaster,
 								   newMaster,
 								   maxTrys);
-		CHECK_FOR_INTERRUPTS();
-
-		beginSwitchOver = true;
-
+		CHECK_FOR_INTERRUPTS();		
 		/* Prevent doctor process from manipulating this node simultaneously. */
 		refreshOldMasterBeforeSwitch(oldMaster, spiContext);
 
@@ -1467,7 +1474,7 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, in
 									  &runningSlavesSecond,
  									  &failedSlavesSecond,
 									  spiContext);
-
+		beginSwitchOver = true;	
 		oldMaster->startupAfterException = (oldMaster->runningMode == NODE_RUNNING_MODE_MASTER &&
 			 								newMaster->runningMode == NODE_RUNNING_MODE_SLAVE);
 		shutdownNodeWithinSeconds(oldMaster->mgrNode,
@@ -1491,7 +1498,7 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, in
 												oldMaster, 
 												true);
 		runningSlavesFollowNewMaster(newMaster, 
-									oldMaster,
+									NULL,
 									&runningSlaves,
 									gtmMaster->mgrNode,
 									spiContext,
@@ -1542,7 +1549,6 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, in
 		MemoryContextSwitchTo(oldContext);
 		edata = CopyErrorData();
 		FlushErrorState();
-
 		RevertSwitchverData(spiContext,
 							beginSwitchOver,
 							&coordinators,
@@ -1593,6 +1599,9 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 	dlist_mutable_iter miter;
 	SwitcherNodeWrapper *node;
 	SwitcherNodeWrapper *holdLockCoordinator = NULL;
+	SwitcherNodeWrapper *RevertOldMaster = NULL;
+	SwitcherNodeWrapper *RevertNewMaster = NULL;
+	bool beginSwitchOver = false;
 
 	oldContext = CurrentMemoryContext;
 	switchContext = AllocSetContextCreate(oldContext,
@@ -1658,6 +1667,8 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 
 		/* check interrupt before lock the cluster */
 		CHECK_FOR_INTERRUPTS();
+		RevertOldMaster = oldMaster;
+		RevertNewMaster = newMaster;
 
 		if (forceSwitch)
 		{
@@ -1676,10 +1687,10 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 								   newMaster,
 								   maxTrys);
 		CHECK_FOR_INTERRUPTS();
+
 		/* Prevent doctor process from manipulating this node simultaneously. */
 		refreshOldMasterBeforeSwitch(oldMaster,
 									 spiContext);
-
 		RefreshMgrNodesBeforeSwitchGtmCoord(spiContext, 
 											newMaster,
 											oldMaster,
@@ -1690,6 +1701,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 											&coordinators,
 											&coordinatorSlaves,
 											&dataNodes);
+		beginSwitchOver = true;									
 		oldMaster->startupAfterException = (oldMaster->runningMode == NODE_RUNNING_MODE_MASTER &&
 			 								newMaster->runningMode == NODE_RUNNING_MODE_SLAVE);
 		shutdownNodeWithinSeconds(oldMaster->mgrNode,
@@ -1703,7 +1715,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 			ereportNoticeLog(errmsg("%s has been shut down and the cluster is unlocked",
 							NameStr(oldMaster->mgrNode->form.nodename)));
 		}
-		ClosePgConn(oldMaster->pgConn);
+		ClosePgConn(oldMaster->pgConn); // test error
 		/* Delete the oldMaster, it is not a coordinator now. */
 		dlist_foreach_modify(miter, &coordinators) 
 		{
@@ -1720,7 +1732,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 		 */
 		tryUnlockCluster(&coordinators, true);
 
-		setCheckGtmInfoInPGSqlConf(newMaster->mgrNode,
+		setCheckGtmInfoInPGSqlConf(newMaster->mgrNode,   // test error
 								   newMaster->mgrNode,
 								   newMaster->pgConn,
 								   true,
@@ -1734,18 +1746,14 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 
 		/* newMaster also is a coordinator */
 		newMaster->mgrNode->form.nodetype =	getMgrMasterNodetype(newMaster->mgrNode->form.nodetype);
-		dlist_push_head(&coordinators, &newMaster->link);     			
-
-		if (pg_strcasecmp(NameStr(oldMaster->mgrNode->form.nodezone), curZone) == 0)
-		{
-			runningSlavesFollowNewMaster(newMaster,
-										NULL,
-										&runningSlaves,
-										newMaster->mgrNode,
-										spiContext,
-										OVERTYPE_SWITCHOVER,
-										curZone);	
-		}
+		dlist_push_head(&coordinators, &newMaster->link);
+		runningSlavesFollowNewMaster(newMaster,
+									NULL,
+									&runningSlaves,
+									newMaster->mgrNode,
+									spiContext,
+									OVERTYPE_SWITCHOVER,
+									curZone);	
 
 		ereportNoticeLog(errmsg("set gtmhost, gtmport to every node, please wait for a moment."));
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	&dataNodes,	NULL, false);
@@ -1772,8 +1780,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 		refreshPgxcNodesOfCoordinators(holdLockCoordinator,
 									   &coordinators,
 									   oldMaster,
-									   newMaster);							   
-
+									   newMaster);
 		appendSlaveNodeFollowMaster(newMaster->mgrNode,
 									oldMaster->mgrNode,
 									newMaster->pgConn,
@@ -1812,12 +1819,17 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 		MemoryContextSwitchTo(oldContext);
 		edata = CopyErrorData();
 		FlushErrorState();
-
-		revertClusterSetting(&coordinators, oldMaster, newMaster);
-		revertGtmInfoSetting(oldMaster, newMaster, &coordinators, &coordinatorSlaves, &dataNodes);
-
-		if (newMaster != NULL)
-			RefreshGtmAdbCheckSyncNextid(newMaster->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);
+		revertGtmInfoSetting(RevertNewMaster, 
+							RevertOldMaster, 
+							&coordinators,
+							&coordinatorSlaves, 
+							&dataNodes);
+		RevertSwitchverData(spiContext,
+							beginSwitchOver,
+							&coordinators,
+							RevertNewMaster,
+							RevertOldMaster,
+							&runningSlaves);		
 	}
 	PG_END_TRY();
 
@@ -2168,109 +2180,6 @@ void chooseNewMasterNodeForZone(SwitcherNodeWrapper *oldMaster,
 						NameStr(newMaster->mgrNode->form.nodename)));
 						
 }						 
-
-static void revertClusterSetting(dlist_head *coordinators,
-								 SwitcherNodeWrapper *oldMaster,
-								 SwitcherNodeWrapper *newMaster)
-{
-	dlist_iter iter;
-	SwitcherNodeWrapper *node;
-	SwitcherNodeWrapper *holdLockCoordinator = NULL;
-	bool execOk = true;
-
-	Assert(coordinators != NULL);
-	if (NULL == oldMaster)
-	{
-		ereport(LOG,(errmsg("oldMaster == NULL")));
-		return;
-	}
-	if (NULL == newMaster)
-	{
-		ereport(LOG,(errmsg("newMaster == NULL")));
-		return;
-	}
-
-	holdLockCoordinator = getHoldLockCoordinator(coordinators);
-	rollbackSwitcherNodeTransaction(holdLockCoordinator, false);
-
-	if (newMaster != NULL && newMaster->pgxcNodeChanged)
-	{
-		if (updatePgxcNodeForSwitch(holdLockCoordinator,
-									newMaster,
-									newMaster,
-									oldMaster,
-									false))
-		{
-			newMaster->pgxcNodeChanged = false;
-		}
-		else
-		{
-			ereport(NOTICE,
-					(errmsg("%s revert pgxc_node failed",
-							NameStr(newMaster->mgrNode->form.nodename))));
-			ereport(LOG,
-					(errmsg("%s revert pgxc_node failed",
-							NameStr(newMaster->mgrNode->form.nodename))));
-			execOk = false;
-		}
-	}
-	dlist_foreach(iter, coordinators)
-	{
-		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		if (node->pgxcNodeChanged)
-		{
-			if (updatePgxcNodeForSwitch(holdLockCoordinator,
-										node,
-										newMaster,
-										oldMaster,
-										false))
-			{
-				node->pgxcNodeChanged = false;
-			}
-			else
-			{
-				ereport(NOTICE,
-						(errmsg("%s revert pgxc_node failed",
-								NameStr(node->mgrNode->form.nodename))));
-				ereport(LOG,
-						(errmsg("%s revert pgxc_node failed",
-								NameStr(node->mgrNode->form.nodename))));
-				execOk = false;
-			}
-			pgxcPoolReloadOnNode(holdLockCoordinator,
-								 node,
-								 false);
-		}
-	}
-	
-	if (oldMaster && oldMaster->startupAfterException)
-	{
-		callAgentStartNode(oldMaster->mgrNode, false, false);
-	}
-	if (!tryUnlockCluster(coordinators, false))
-	{
-		execOk = false;
-	}
-	if (execOk)
-	{
-		ereport(NOTICE,
-				(errmsg("revert cluster setting successfully completed")));
-		ereport(LOG,
-				(errmsg("revert cluster setting successfully completed")));
-	}
-	else
-	{
-		ereport(WARNING,
-				(errmsg("revert cluster setting, but some operations failed")));
-	}
-	ereport(WARNING,
-			(errmsg("An exception occurred during the switching operation, "
-					"It is recommended to use command such as 'monitor all', "
-					"'monitor ha' to check the failure point in the cluster "
-					"first, and then retry the switching operation!!!")));
-}
-
-
 static void RevertPgxcNodeCoord(dlist_head *coordinators,
 								 SwitcherNodeWrapper *oldMaster,
 								 SwitcherNodeWrapper *newMaster,
@@ -2338,7 +2247,7 @@ static void RevertPgxcNodeCoord(dlist_head *coordinators,
  * Executes an "pause cluster" operation on master coordinator. 
  * If any of the sub-operations fails, the execution of the remaining 
  * sub-operations is abandoned, and the function returns false. 
- * Finally, if operation failed, may should call revertClusterSetting() to 
+ * Finally, if operation failed, may should call to 
  * revert the settings that was changed during execution.
  * When cluster is locked, the connection which  execute the lock command 
  * "SELECT PG_PAUSE_CLUSTER();" is the only active connection.
@@ -5140,24 +5049,24 @@ static void revertGtmInfoSetting(SwitcherNodeWrapper *oldGtmMaster,
 								 dlist_head *dataNodes)
 {
 
-	if (oldGtmMaster)
+	if (newGtmMaster)
 	{
-		if (oldGtmMaster->gtmInfoChanged)
-		{
-			setGtmInfoInPGSqlConf(oldGtmMaster->mgrNode,
-								  oldGtmMaster->mgrNode,
-								  false);			  
-		}
-		if (newGtmMaster && newGtmMaster->gtmInfoChanged)
+		if (newGtmMaster->gtmInfoChanged)
 		{
 			setGtmInfoInPGSqlConf(newGtmMaster->mgrNode,
-								  oldGtmMaster->mgrNode,
+								  newGtmMaster->mgrNode,
+								  false);			  
+		}
+		if (oldGtmMaster && oldGtmMaster->gtmInfoChanged)
+		{
+			setGtmInfoInPGSqlConf(oldGtmMaster->mgrNode,
+								  newGtmMaster->mgrNode,
 								  false);			  
 		}
 
-		SetGtmInfoSettingToList(coordinators, oldGtmMaster);
-		SetGtmInfoSettingToList(coordinatorSlaves, oldGtmMaster);
-		SetGtmInfoSettingToList(dataNodes, oldGtmMaster);
+		SetGtmInfoSettingToList(coordinators, newGtmMaster);
+		SetGtmInfoSettingToList(coordinatorSlaves, newGtmMaster);
+		SetGtmInfoSettingToList(dataNodes, newGtmMaster);
 	}
 }
 
