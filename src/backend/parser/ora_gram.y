@@ -3302,11 +3302,6 @@ attr_name: ColLabel
 Bit:  BFILE					{ $$ = SystemTypeNameLocation("bytea", @1); }
 	| BLOB					{ $$ = SystemTypeNameLocation("bytea", @1); }
 	| LONG_P RAW			{ $$ = OracleTypeNameLocation("raw", @1); }
-	| RAW
-		{
-			$$ = OracleTypeNameLocation("raw", @1);
-			$$->typmods = list_make1(makeIntConst(2000, -1));
-		}
 	| RAW '(' Iconst ')'
 		{
 			$$ = OracleTypeNameLocation("raw", @1);
