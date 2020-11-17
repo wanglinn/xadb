@@ -2625,6 +2625,12 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 	 * LockRows, Limit, and/or ModifyTable steps added if needed.
 	 */
 	planner_need_limit = limit_needed(parse);
+#ifdef ADB
+	if (planner_need_limit &&
+		parse->commandType != CMD_SELECT)
+		root->glob->clusterPlanOK = false;
+#endif /* ADB */
+
 	foreach(lc, current_rel->pathlist)
 	{
 		Path	   *path = (Path *) lfirst(lc);
