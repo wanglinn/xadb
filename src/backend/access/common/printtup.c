@@ -279,6 +279,12 @@ static bool write_ora_target(StringInfo buf, TargetEntry *te, const char *source
 				}
 				i += wchar_len;
 			}
+			/* remove the space at the end of the function expression. */
+			while(name.data[name.len-1] == ' ')
+			{
+				name.data[name.len-1] = '\0';
+				name.len--;
+			}
 			pq_writestring(buf, name.data);
 			pfree(name.data);
 			break;
