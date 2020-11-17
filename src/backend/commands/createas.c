@@ -161,8 +161,24 @@ create_ctas_internal(List *attrList, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(b
 	/* Create the "view" part of a materialized view. */
 	if (is_matview)
 	{
+#ifdef ADB
+		Query	   *query = castNode(Query, into->viewQuery);
+		/**
+		 * In the cluster mode, it is avoided that parsetree is rewritten after 
+		 * being received by other nodes, resulting in assertion failure.
+		 */
+		if (query->commandType == CMD_UTILITY &&
+			IsA(query->utilityStmt, Query) &&
+			((Query*)query->utilityStmt)->commandType == CMD_SELECT)
+		{
+			query = (Query *) copyObject(query->utilityStmt);
+		}
+		else
+			query = (Query *) copyObject(into->viewQuery);
+#else
 		/* StoreViewQuery scribbles on tree, so make a copy */
 		Query	   *query = (Query *) copyObject(into->viewQuery);
+#endif /* ADB */
 
 		StoreViewQuery(intoRelationAddr.objectId, query, false);
 		CommandCounterIncrement();
@@ -346,6 +362,20 @@ ExecCreateTableAs(ParseState *pstate, CreateTableAsStmt *stmt,
 #endif /* USE_SEQ_ROWID */
 		return address;
 	}
+
+#ifdef ADB
+	/**
+	 * In the cluster mode, it is avoided that parsetree is rewritten after 
+	 * being received by other nodes, resulting in assertion failure.
+	 */
+	if (query->commandType == CMD_UTILITY &&
+		IsA(query->utilityStmt, Query) &&
+		((Query*)query->utilityStmt)->commandType == CMD_SELECT)
+	{
+		query = castNode(Query, query->utilityStmt);
+	}
+#endif 
+
 	Assert(query->commandType == CMD_SELECT);
 
 	/*
