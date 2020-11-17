@@ -264,6 +264,10 @@ parse_analyze_varparams_for_gram(RawStmt *parseTree, const char *sourceText,
 
 	/* make sure all is well with parameter types */
 	check_variable_parameters(pstate, query);
+#ifdef ADB_GRAM_ORA
+	check_joinon_column_join((Node*)(query->jointree), pstate);
+	rewrite_rownum_query_enum((Node*)query, NULL);
+#endif /* ADB_GRAM_ORA */
 
 	if (post_parse_analyze_hook)
 		(*post_parse_analyze_hook) (pstate, query);
