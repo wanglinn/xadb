@@ -201,10 +201,38 @@ pull_up_sublinks(PlannerInfo *root)
 {
 	Node	   *jtnode;
 	Relids		relids;
+	FromExpr   *from = root->parse->jointree;
+
+#ifdef ADB_GRAM_ORA
+	List	   *keep_quals = NIL;
+	if (is_andclause(from->quals) &&
+		contain_rownum(from->quals))
+	{
+		FromExpr   *newfrom = makeFromExpr(from->fromlist, NULL);
+		List	   *quals = NIL;
+		BoolExpr   *bexpr = (BoolExpr*)from->quals;
+		ListCell   *lc;
+		foreach (lc, bexpr->args)
+		{
+			if (contain_rownum(lfirst(lc)))
+			{
+				keep_quals = lappend(keep_quals, lfirst(lc));
+			}else
+			{
+				quals = lappend(quals, lfirst(lc));
+			}
+		}
+		if (list_length(quals) == 1)
+			newfrom->quals = linitial(quals);
+		else
+			newfrom->quals = (Node*)makeBoolExpr(AND_EXPR, quals, bexpr->location);
+		from = newfrom;
+	}
+#endif /* ADB_GRAM_ORA */
 
 	/* Begin recursion through the jointree */
 	jtnode = pull_up_sublinks_jointree_recurse(root,
-											   (Node *) root->parse->jointree,
+											   (Node *) from,
 											   &relids);
 
 	/*
@@ -215,6 +243,22 @@ pull_up_sublinks(PlannerInfo *root)
 		root->parse->jointree = (FromExpr *) jtnode;
 	else
 		root->parse->jointree = makeFromExpr(list_make1(jtnode), NULL);
+#ifdef ADB_GRAM_ORA
+	if (keep_quals != NIL)
+	{
+		from = root->parse->jointree;
+		if (list_length(keep_quals) == 1)
+		{
+			from->quals = linitial(keep_quals);
+			list_free(keep_quals);
+		}else
+		{
+			from->quals = (Node*)makeBoolExpr(AND_EXPR,
+											  keep_quals,
+											  castNode(BoolExpr, from->quals)->location);
+		}
+	}
+#endif /* ADB_GRAM_ORA */
 }
 
 /*
