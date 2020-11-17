@@ -3989,7 +3989,10 @@ static void refreshSlaveNodesAfterSwitch(SwitcherNodeWrapper *newMaster,
 	dlist_foreach(iter, failedSlaves)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		node->mgrNode->form.nodemasternameoid = newMaster->mgrNode->form.oid;
+		if (pg_strcasecmp(NameStr(oldMaster->mgrNode->form.nodezone), curZone) == 0)
+		{
+			node->mgrNode->form.nodemasternameoid = newMaster->mgrNode->form.oid;
+		}
 		if ((pg_strcasecmp(NameStr(oldMaster->mgrNode->form.nodezone), curZone) != 0) &&
 			(pg_strcasecmp(operType, OVERTYPE_FAILOVER) == 0) &&
 			(pg_strcasecmp(NameStr(node->mgrNode->form.nodezone), curZone) != 0))
