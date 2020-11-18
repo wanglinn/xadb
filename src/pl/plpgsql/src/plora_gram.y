@@ -1222,7 +1222,10 @@ proc_condition	: any_identifier
 						{
 							if (strcmp($1, "sqlstate") != 0)
 							{
-								$$ = plpgsql_parse_err_condition($1);
+								if (strcmp($1, "zero_divide") == 0)
+									$$ = plpgsql_parse_err_condition("division_by_zero");
+								else
+									$$ = plpgsql_parse_err_condition($1);
 							}
 							else
 							{
