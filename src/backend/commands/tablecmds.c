@@ -1131,21 +1131,22 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		parent_relid = RangeVarGetRelid(range, NoLock, true);
 
 		parent_tuple = SearchSysCache1(PGXCCLASSRELID, parent_relid);
-		if (!HeapTupleIsValid(parent_tuple))
-			elog(ERROR, "cache lookup failed for pgxc_class %u", parent_relid);
+		/*for parent foreign table, there is no record in pgxc_class*/
+		if (HeapTupleIsValid(parent_tuple))
+		{
+			new_tuple = heap_copytuple(parent_tuple);
+			ReleaseSysCache(parent_tuple);
 
-		new_tuple = heap_copytuple(parent_tuple);
-		ReleaseSysCache(parent_tuple);
-		
-		form = (Form_pgxc_class) GETSTRUCT(new_tuple);
-		Assert(form->pcrelid == parent_relid);
-		form->pcrelid = RelationGetRelid(rel);
+			form = (Form_pgxc_class) GETSTRUCT(new_tuple);
+			Assert(form->pcrelid == parent_relid);
+			form->pcrelid = RelationGetRelid(rel);
 
-		/* Open the relation for insertion */
-		pgxcclassrel = table_open(PgxcClassRelationId, RowExclusiveLock);
-		CatalogTupleInsert(pgxcclassrel, new_tuple);
-		heap_freetuple(new_tuple);
-		table_close(pgxcclassrel, RowExclusiveLock);
+			/* Open the relation for insertion */
+			pgxcclassrel = table_open(PgxcClassRelationId, RowExclusiveLock);
+			CatalogTupleInsert(pgxcclassrel, new_tuple);
+			heap_freetuple(new_tuple);
+			table_close(pgxcclassrel, RowExclusiveLock);
+		}
 	}
 #endif /* ADB */
 
