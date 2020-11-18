@@ -2693,7 +2693,7 @@ List *deconstruct_connect_by(PlannerInfo *root, RelOptInfo *rel, List *quals)
 	Query *parse = root->parse;
 	Assert(rel->joininfo == NIL);
 	Assert(rel->baserestrictinfo == NIL);
-	Assert(parse->connect_by != NULL && parse->connect_by->connect_by != NULL);
+	Assert(parse->connect_by != NULL);
 
 	list = NIL;
 	foreach(lc, castNode(List, parse->connect_by->connect_by))
