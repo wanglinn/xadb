@@ -1087,6 +1087,11 @@ bool check_query_not_readonly_walker(Node *node, void *context)
 	{
 		Query *query = (Query *) node;
 
+		/* skip JDBC set command. */
+		if (query->commandType == CMD_UTILITY && 
+			nodeTag(query->utilityStmt) == T_VariableSetStmt)
+			return false;
+
 		/* Non-read-only are no longer checked */
 		if(sql_readonly == SQLTYPE_WRITE || enable_readsql_on_slave == false)
 			return true;
