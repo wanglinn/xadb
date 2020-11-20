@@ -14156,11 +14156,12 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 	Form_mgr_node	dn_master_node;
 	MgrDatanodeInfo	*mgr_datanode_info;
 	List			*datanode_list = NIL;
-	ListCell		*cell, *prev;
+	ListCell		*cell, *cell1;
 	List			*sync_parms = NIL;
 	NameData		nodeSync;
 	ReadonlyUpdateparm *rdUpdateparm;
 	Form_mgr_node      mgrNodeSlave = NULL; 
+	DefElem			*def;
 
 	/* Check for the need for updates based on read-write separation parameters */
 	if (!mgr_get_sync_slave_readonly_state() && 
@@ -14187,6 +14188,7 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 		ReadonlyUpdateparm		*newUpdateparm;
 		MGRUpdateparm			*parm_node;
 		MGRUpdateparmReset		*parm_node_reset;
+		List					*options;
 
 		Assert(nodeTag(node) == T_MGRUpdateparm || nodeTag(node) == T_MGRUpdateparmReset);
 
@@ -14198,6 +14200,7 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 			newUpdateparm->updateparmnodetype = parm_node->nodetype;
 			strcpy(NameStr(newUpdateparm->updateparmkey), updateKey);
 			strcpy(NameStr(newUpdateparm->updateparmvalue), isSlaveSync ? "on":"off");
+			options = parm_node->options;
 		}
 		else
 		{
@@ -14206,29 +14209,88 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 			newUpdateparm->updateparmnodetype = parm_node_reset->nodetype;
 			strcpy(NameStr(newUpdateparm->updateparmkey), updateKey);
 			strcpy(NameStr(newUpdateparm->updateparmvalue), isSlaveSync ? "on":"off");
+			options = parm_node_reset->options;
 		}
-		if (list_length(sync_parms) > 0)
+		if (list_length(sync_parms) > 0 && list_length(options) > 0)
 		{
-			prev = NULL;
-			foreach (cell, sync_parms)
+			/**
+			 * Traverse all the read-write separation parameters in this setting to 
+			 * avoid the parameters being set repeatedly, 
+			 * resulting in mutual coverage between parameters.
+			 */
+			foreach (cell1, options)
 			{
-				rdUpdateparm = (ReadonlyUpdateparm *) lfirst(cell);
-				if (strcmp(NameStr(rdUpdateparm->updateparmnodename), NameStr(newUpdateparm->updateparmnodename)) == 0 
-					&& rdUpdateparm->updateparmnodetype == newUpdateparm->updateparmnodetype
-					&& strcmp(NameStr(rdUpdateparm->updateparmkey), NameStr(newUpdateparm->updateparmkey)) == 0)
+				def = lfirst(cell1);
+				Assert(def && IsA(def, DefElem));
+
+				foreach (cell, sync_parms)
 				{
-					sync_parms = list_delete_cell(sync_parms, cell, prev);
-					pfree(rdUpdateparm);
-					break;
+					rdUpdateparm = (ReadonlyUpdateparm *) lfirst(cell);
+					if (strcmp(NameStr(rdUpdateparm->updateparmnodename), NameStr(newUpdateparm->updateparmnodename)) == 0 
+						&& rdUpdateparm->updateparmnodetype == newUpdateparm->updateparmnodetype)
+					{
+						if (strcmp(NameStr(rdUpdateparm->updateparmkey), def->defname) == 0)
+						{
+							if (nodeTag(node) == T_MGRUpdateparmReset)
+								namestrcpy(&rdUpdateparm->updateparmvalue, "off");
+							else
+								namestrcpy(&rdUpdateparm->updateparmvalue, defGetString(def));
+						}
+					}
+					else
+					{
+						def = lfirst(cell1);
+						if (strcmp(def->defname, "enable_readsql_on_slave") == 0 || 
+							strcmp(def->defname, "enable_readsql_on_slave_async") == 0)
+						{
+							ReadonlyUpdateparm *resUpdateparm = (ReadonlyUpdateparm *) palloc(sizeof(ReadonlyUpdateparm));
+
+							namestrcpy(&resUpdateparm->updateparmnodename, NameStr(newUpdateparm->updateparmnodename));
+							resUpdateparm->updateparmnodetype = newUpdateparm->updateparmnodetype;
+							strcpy(NameStr(resUpdateparm->updateparmkey), def->defname);
+							if (nodeTag(node) == T_MGRUpdateparmReset)
+								namestrcpy(&resUpdateparm->updateparmvalue, "off");
+							else
+								namestrcpy(&resUpdateparm->updateparmvalue, defGetString(def));
+
+							sync_parms = lappend(sync_parms, resUpdateparm);
+						}
+					}
 				}
-				prev = cell;
 			}
-			sync_parms = lappend(sync_parms, newUpdateparm);
 		}
+		/* Setting parameters for the first time. */
 		else
 		{
-			sync_parms = lappend(sync_parms, newUpdateparm);
+			if (list_length(options) > 0)
+			{
+				/**
+				 * Traverse all the read-write separation parameters in this setting to 
+				 * avoid the parameters being set repeatedly, 
+				 * resulting in mutual coverage between parameters.
+				 */
+				foreach (cell1, options)
+				{
+					def = lfirst(cell1);
+					if (strcmp(def->defname, "enable_readsql_on_slave") == 0 || 
+						strcmp(def->defname, "enable_readsql_on_slave_async") == 0)
+					{
+						ReadonlyUpdateparm *resUpdateparm = (ReadonlyUpdateparm *) palloc(sizeof(ReadonlyUpdateparm));
+
+						namestrcpy(&resUpdateparm->updateparmnodename, NameStr(newUpdateparm->updateparmnodename));
+						resUpdateparm->updateparmnodetype = newUpdateparm->updateparmnodetype;
+						strcpy(NameStr(resUpdateparm->updateparmkey), def->defname);
+						if (nodeTag(node) == T_MGRUpdateparmReset)
+							namestrcpy(&resUpdateparm->updateparmvalue, "off");
+						else
+							namestrcpy(&resUpdateparm->updateparmvalue, defGetString(def));
+
+						sync_parms = lappend(sync_parms, resUpdateparm);
+					}
+				}
+			}
 		}
+		pfree(newUpdateparm);
 	}
 
 	/* get datanode master info */
