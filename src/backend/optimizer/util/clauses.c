@@ -1087,11 +1087,25 @@ bool check_query_not_readonly_walker(Node *node, void *context)
 	{
 		Query *query = (Query *) node;
 
-		/* skip JDBC set command. */
-		if (query->commandType == CMD_UTILITY && 
-			nodeTag(query->utilityStmt) == T_VariableSetStmt)
-			return false;
-
+		/* skip JDBC or ODBC set command. */
+		if (query->commandType == CMD_UTILITY && query->utilityStmt)
+		{
+			switch (nodeTag(query->utilityStmt))
+			{
+				case T_VariableSetStmt:
+				case T_VariableShowStmt:
+				case T_DeallocateStmt:
+					return false;
+					break;
+				default:
+				{
+					ereport(LOG,
+							(errmsg("Utility statement type %d not supported by read-write separation, see enumerating type NodeTag. ", 
+									nodeTag(query->utilityStmt))));
+					break;
+				}
+			}
+		}
 		/* Non-read-only are no longer checked */
 		if(sql_readonly == SQLTYPE_WRITE || enable_readsql_on_slave == false)
 			return true;
