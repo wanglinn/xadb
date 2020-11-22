@@ -255,7 +255,7 @@ pull_up_sublinks(PlannerInfo *root)
 		{
 			from->quals = (Node*)makeBoolExpr(AND_EXPR,
 											  keep_quals,
-											  castNode(BoolExpr, from->quals)->location);
+											  -1);
 		}
 	}
 #endif /* ADB_GRAM_ORA */
