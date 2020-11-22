@@ -4502,7 +4502,16 @@ static void rewrite_rownum_query(Query *query)
 		hints = bms_add_member(hints, i);
 	}
 
-	query->limitCount = limitCount;
+	query->limitCount = coerce_to_target_type(NULL,
+											  limitCount,
+											  exprType(limitCount),
+											  INT8OID,
+											  -1,
+											  COERCION_ASSIGNMENT,
+											  COERCE_IMPLICIT_CAST,
+											  -1);
+	if (query->limitCount == NULL)
+		return;	/* should not happen */
 	if(qual_list != NIL)
 	{
 		/* whe use args for get new quals */
