@@ -1960,6 +1960,9 @@ exec_parse_message(const char *query_string,	/* string to execute */
 		Query	   *query;
 		bool		snapshot_set = false;
 
+#ifdef ADB
+		sql_readonly = SQLTYPE_UNINIT;
+#endif
 		raw_parse_tree = linitial_node(RawStmt, parsetree_list);
 
 		/*
