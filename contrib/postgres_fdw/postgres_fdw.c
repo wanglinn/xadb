@@ -44,6 +44,9 @@
 #include "utils/rel.h"
 #include "utils/sampling.h"
 #include "utils/selfuncs.h"
+#ifdef ADB
+#include "pgxc/execRemote.h"
+#endif
 
 PG_MODULE_MAGIC;
 
@@ -3709,6 +3712,11 @@ execute_foreign_modify(EState *estate,
 	}
 	else
 		n_rows = atoi(PQcmdTuples(res));
+
+#ifdef ADB
+	if (n_rows > 0)
+		((RemoteQueryState *) estate->es_result_remoterel)->rqs_processed += n_rows;
+#endif
 
 	/* And clean up */
 	PQclear(res);
