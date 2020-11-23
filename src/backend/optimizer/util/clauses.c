@@ -53,6 +53,7 @@
 #include "utils/typcache.h"
 #ifdef ADB
 #include "catalog/adb_proc.h"
+#include "tcop/utility.h"
 #endif /* ADB */
 
 typedef struct
@@ -1330,8 +1331,8 @@ bool check_query_not_readonly_walker(Node *node, void *context)
 				default:
 				{
 					ereport(LOG,
-							(errmsg("Utility statement type %d not supported by read-write separation, see enumerating type NodeTag. ", 
-									nodeTag(query->utilityStmt))));
+							(errmsg("Read write separation does not support utility statement type: '%s'. ", 
+									CreateCommandTag(query->utilityStmt))));
 					break;
 				}
 			}
