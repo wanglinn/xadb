@@ -1719,9 +1719,12 @@ bool IsGroupingReduceExpr(PathTarget *target, ReduceInfo *info)
 	return result;
 }
 
-bool IsReduceInfoListCanInnerJoin(List *outer_reduce_list,
-							List *inner_reduce_list,
-							List *restrictlist)
+bool
+IsReduceInfoListCanInnerJoin(List *outer_reduce_list,
+							 List *inner_reduce_list,
+							 List *restrictlist,
+							 bool accept_outer_replicate,
+							 bool accept_inner_replicate)
 {
 	ListCell *outer_lc,*inner_lc;
 	ReduceInfo *outer_reduce;
@@ -1731,15 +1734,21 @@ bool IsReduceInfoListCanInnerJoin(List *outer_reduce_list,
 	{
 		outer_reduce = lfirst(outer_lc);
 		AssertArg(outer_reduce);
-		if(IsReduceInfoReplicated(outer_reduce))
+		if (accept_outer_replicate &&
+			IsReduceInfoReplicated(outer_reduce))
 			return IsReduceInfoListExecuteSubsetReduceInfo(inner_reduce_list, outer_reduce);
 
 		foreach(inner_lc, inner_reduce_list)
 		{
 			inner_reduce = lfirst(inner_lc);
 			AssertArg(inner_reduce);
-			if (IsReduceInfoReplicated(inner_reduce) ||
-				(IsReduceInfoCoordinator(outer_reduce) && IsReduceInfoCoordinator(inner_reduce)))
+			if (accept_inner_replicate &&
+				IsReduceInfoReplicated(inner_reduce) &&
+				IsReduceInfoListExecuteSubsetReduceInfo(outer_reduce_list, inner_reduce))
+				return true;
+
+			if (IsReduceInfoCoordinator(outer_reduce) &&
+				IsReduceInfoCoordinator(inner_reduce))
 				return true;
 
 			if (!IsReduceInfoCoordinator(outer_reduce) &&
@@ -2031,6 +2040,40 @@ static List *union_reduce_info_list(List *outer, List *inner)
 	return list_make1(rinfo);
 }
 
+static List*
+union_reduce_info_list_as_random(List *outer_reduce_list, List *inner_reduce_list)
+{
+	ReduceInfo *rinfo;
+	ListCell   *lc,*lc2;
+	List	   *storage = NIL;
+
+	foreach (lc, outer_reduce_list)
+	{
+		rinfo = lfirst(lc);
+		if (IsReduceInfoFinalReplicated(rinfo))
+			continue;
+		foreach (lc2, rinfo->storage_nodes)
+		{
+			if (list_member_oid(rinfo->exclude_exec, lfirst_oid(lc2)) == false)
+				storage = list_append_unique_oid(storage, lfirst_oid(lc2));
+		}
+	}
+	foreach (lc, inner_reduce_list)
+	{
+		rinfo = lfirst(lc);
+		if (IsReduceInfoFinalReplicated(rinfo))
+			continue;
+		foreach (lc2, rinfo->storage_nodes)
+		{
+			if (list_member_oid(rinfo->exclude_exec, lfirst_oid(lc2)) == false)
+				storage = list_append_unique_oid(storage, lfirst_oid(lc2));
+		}
+	}
+	rinfo = MakeRandomReduceInfo(storage);
+	list_free(storage);
+	return list_make1(rinfo);
+}
+
 /*
  * when can join return new ReduceInfo list,
  * else return NIL
@@ -2092,40 +2135,55 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 		}
 		/* do not add break, need run in JOIN_INNER case */
 	case JOIN_INNER:
+		if(IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist, true, true))
+		{
+			if (new_reduce_list)
+				*new_reduce_list = union_reduce_info_list(outer_reduce_list, inner_reduce_list);
+			return true;
+		}
+		break;
 	case JOIN_LEFT:
-	case JOIN_FULL:
-	case JOIN_RIGHT:
-		if(IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist))
+		if(IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist, false, true))
 		{
 			if (new_reduce_list)
 			{
-				switch(jointype)
-				{
-				case JOIN_UNIQUE_OUTER:
-				case JOIN_UNIQUE_INNER:
-				case JOIN_INNER:
-					*new_reduce_list = union_reduce_info_list(outer_reduce_list, inner_reduce_list);
-					break;
-				case JOIN_LEFT:
-					*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
-					break;
-				case JOIN_RIGHT:
-					*new_reduce_list = CopyReduceInfoList(inner_reduce_list);
-					break;
-				case JOIN_FULL:
-					{
-						List *l1 = ReduceInfoListGetExecuteOidList(outer_reduce_list);
-						List *l2 = ReduceInfoListGetExecuteOidList(inner_reduce_list);
-						l1 = list_concat_unique_oid(l1, l2);
-						list_free(l2);
-						*new_reduce_list = list_make1(MakeRandomReduceInfo(l1));
-						list_free(l1);
-					}
-					break;
-				default:
-					Assert(0);
-					break;
-				}
+				/*
+				 * join result for distribute column maybe have null values
+				 * so result reduce info change to random
+				 */
+				List *execute = ReduceInfoListGetExecuteOidList(outer_reduce_list);
+				*new_reduce_list = list_make1(MakeRandomReduceInfo(execute));
+				list_free(execute);
+			}
+			return true;
+		}
+		break;
+	case JOIN_RIGHT:
+		if(IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist, true, false))
+		{
+			if (new_reduce_list)
+			{
+				/*
+				 * join result for distribute column maybe have null values
+				 * so result reduce info change to random
+				 */
+				List *execute = ReduceInfoListGetExecuteOidList(inner_reduce_list);
+				*new_reduce_list = list_make1(MakeRandomReduceInfo(execute));
+				list_free(execute);
+			}
+			return true;
+		}
+		break;
+	case JOIN_FULL:
+		if(IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist, false, false))
+		{
+			if (new_reduce_list)
+			{
+				/*
+				 * join result for distribute column maybe have null values
+				 * so result reduce info change to random
+				 */
+				*new_reduce_list = union_reduce_info_list_as_random(outer_reduce_list, inner_reduce_list);
 			}
 			return true;
 		}
@@ -2141,8 +2199,7 @@ bool reduce_info_list_can_join(List *outer_reduce_list,
 					*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
 				return true;
 			}
-		}else if (!IsReduceInfoListReplicated(outer_reduce_list) &&
-			IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist))
+		}else if (IsReduceInfoListCanInnerJoin(outer_reduce_list, inner_reduce_list, restrictlist, false, false))
 		{
 			if (new_reduce_list)
 				*new_reduce_list = CopyReduceInfoList(outer_reduce_list);
