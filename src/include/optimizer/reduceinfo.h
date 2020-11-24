@@ -212,8 +212,10 @@ extern List* MakeVarList(const List *attnos, Index relid, const PathTarget *targ
 extern List* ExtractExprList(const List *attnos, List *exprs);
 extern bool IsGroupingReduceExpr(PathTarget *target, ReduceInfo *info);
 extern bool IsReduceInfoListCanInnerJoin(List *outer_reduce_list,
-									List *inner_reduce_list,
-									List *restrictlist);
+										 List *inner_reduce_list,
+										 List *restrictlist,
+										 bool accept_outer_replicate,
+										 bool accept_inner_replicate);
 extern bool IsReduceInfoListCanUniqueJoin(List *reduce_list, List *restrictlist);
 extern bool IsReduceInfoCanInnerJoin(ReduceInfo *outer_rinfo,
 									 ReduceInfo *inner_rinfo,
