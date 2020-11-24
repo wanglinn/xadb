@@ -54,6 +54,7 @@ const PQNHookFunctions PQNFalseHookFunctions =
 };
 
 extern char *PGXCNodeName;	/* GUC */
+extern bool enable_readsql_on_slave;	/* GUC */
 static HTAB *htab_oid_pgconn = NULL;
 bool auto_release_connect = false;	/* guc */
 static bool force_release_connect = false;
@@ -253,6 +254,22 @@ static List* apply_for_node_use_oid(List *oid_list)
 				{
 					PQfinish(linitial(conn_list));
 					conn_list = list_delete_first(conn_list);
+				}
+			}
+			/**
+			 * when the slave node stops responding, 
+			 * the read-write separation is stopped.
+			 */
+			if (enable_readsql_on_slave)
+			{
+				foreach(lc, need_list)
+				{
+					NodeHandle *handle = GetNodeHandle(lfirst_oid(lc), false, NULL);
+					if (handle->node_type == TYPE_DN_SLAVENODE)
+					{
+						enable_readsql_on_slave = false;
+						break;
+					}
 				}
 			}
 			force_release_connect = force_close_connect = true;
