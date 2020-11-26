@@ -208,7 +208,7 @@ pg_strtok(int *length)
 const char *
 pg_gettok(void)
 {
-	char		*local_str;      /* working pointer to string */
+	const char   *local_str;      /* working pointer to string */
 
 	local_str = pg_strtok_ptr;
 
