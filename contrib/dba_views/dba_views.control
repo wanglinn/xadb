@@ -1,0 +1,7 @@
+# dba_views extension
+comment = 'Views of Oracle Compatible'
+default_version = '1.0'
+module_pathname = '$libdir/dba_views'
+requires = 'postgres_fdw'
+#superuser = true
+relocatable = true
