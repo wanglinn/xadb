@@ -1097,7 +1097,14 @@ bool check_query_not_readonly_walker(Node *node, void *context)
 				case T_VariableShowStmt:
 				case T_DeallocateStmt:
 					return false;
-					break;
+				case T_DeclareCursorStmt:
+				{
+					Node *dquery = ((DeclareCursorStmt*)query->utilityStmt)->query;
+					if (dquery && IsA(dquery, Query))
+						return check_query_not_readonly_walker(dquery, context);
+					else
+						return true;
+				}
 				default:
 				{
 					ereport(LOG,
