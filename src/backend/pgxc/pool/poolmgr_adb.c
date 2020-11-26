@@ -169,6 +169,7 @@ typedef struct HostInfo
 {
 	char	   *hostname;
 	uint16		port;
+	uint16		hosttype;
 }HostInfo;
 
 /* Pool of connections to specified pgxc node */
@@ -242,6 +243,7 @@ int			PoolRemoteCmdTimeout = 0;
 /* pool time out */
 extern int pool_time_out;
 extern int pool_release_to_idle_timeout;
+extern bool enable_readsql_on_slave;
 
 /* connect retry times */
 int 		RetryTimes = 3;
@@ -1208,6 +1210,7 @@ static void send_host_info(StringInfo buf, List *oidlist)
 		nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
 		pool_sendstring(buf, NameStr(nodeForm->node_host));
 		pool_sendint(buf, nodeForm->node_port);
+		pool_sendint(buf, nodeForm->node_type);
 
 		ReleaseSysCache(tuple);
 	}
@@ -2976,6 +2979,7 @@ static void agent_acquire_connections(PoolAgent *agent, StringInfo msg)
 			ConnectedInfo *cinfo;
 			info.hostname = (char*)pool_getstring(msg);
 			info.port = (uint16)pool_getint(msg);
+			info.hosttype = (uint16)pool_getint(msg);
 			ereport(PMGRLOG,
 					(errmsg("agent %p pid %d begin acquire connect %s:%d",
 							agent, agent->pid, info.hostname, info.port),
@@ -3249,6 +3253,14 @@ static int agent_session_command(PoolAgent *agent, const char *set_command, Pool
 	hash_seq_init(&hseq, agent->connected_node);
 	while((info=hash_seq_search(&hseq)) != NULL)
 	{
+		/**
+		 * Avoid sending SET commands to datanode slave nodes
+		 * if read/write separation is on.
+		 */
+		if (enable_readsql_on_slave &&
+			info->info.hosttype == PGXC_NODE_DATANODESLAVE)
+			continue;
+
 		if (pool_exec_set_query(info->slot->conn, set_command, errMsg) == false)
 			res = 1;
 	}
