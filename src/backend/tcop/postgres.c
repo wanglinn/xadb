@@ -1304,9 +1304,6 @@ exec_simple_query(const char *query_string)
 	bool		use_implicit_block;
 	char		msec_str[32];
 
-#ifdef ADB
-	sql_readonly = SQLTYPE_UNINIT;
-#endif
 	/*
 	 * Report query to various monitoring facilities.
 	 */
@@ -1430,6 +1427,7 @@ exec_simple_query(const char *query_string)
 		DestReceiver *receiver;
 		int16		format;
 #ifdef ADB
+		sql_readonly = SQLTYPE_UNINIT;
 		/*
 		 * By default we do not want Datanodes or client Coordinators to contact GTM directly,
 		 * it should get this information passed down to it.
