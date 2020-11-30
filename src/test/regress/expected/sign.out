@@ -94,14 +94,14 @@ select 1.0::float(4)+'1' from dual;
 (1 row)
 
 select to_char(to_date('2014-07-15','YYYY-MM-DD')+numtoyminterval(3,'month'),'yyyy-mm') from dual;
- TO_CHAR(TO_DATE('2014-07-15','YYYY-MM-DD')+NUMTOYMINTERVAL(3,'MONTH'),'YYYY-MM')  
------------------------------------------------------------------------------------
+ TO_CHAR(TO_DATE('2014-07-15','YYYY-MM-DD')+NUMTOYMINTERVAL(3,'MONTH'),'YYYY-MM') 
+----------------------------------------------------------------------------------
  2014-10
 (1 row)
 
 select to_char(numtoyminterval(3,'year') - numtoyminterval(3,'month'),'yyyy-mm') from dual;
- TO_CHAR(NUMTOYMINTERVAL(3,'YEAR') - NUMTOYMINTERVAL(3,'MONTH'),'YYYY-MM')  
-----------------------------------------------------------------------------
+ TO_CHAR(NUMTOYMINTERVAL(3,'YEAR') - NUMTOYMINTERVAL(3,'MONTH'),'YYYY-MM') 
+---------------------------------------------------------------------------
  0002-09
 (1 row)
 

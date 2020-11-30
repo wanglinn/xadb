@@ -1,31 +1,31 @@
 set grammar to oracle;
 SELECT NLS_CHARSET_ID('gbk') FROM DUAL; 
- NLS_CHARSET_ID('GBK')  
-------------------------
-                     37
+ NLS_CHARSET_ID('GBK') 
+-----------------------
+                    37
 (1 row)
 
 SELECT NLS_CHARSET_ID('utf8') FROM DUAL; 
- NLS_CHARSET_ID('UTF8')  
--------------------------
-                       6
+ NLS_CHARSET_ID('UTF8') 
+------------------------
+                      6
 (1 row)
 
 SELECT NLS_CHARSET_ID('unicode') FROM DUAL; 
- NLS_CHARSET_ID('UNICODE')  
-----------------------------
-                          6
+ NLS_CHARSET_ID('UNICODE') 
+---------------------------
+                         6
 (1 row)
 
 SELECT NLS_CHARSET_ID('aaa') FROM DUAL; 
- NLS_CHARSET_ID('AAA')  
-------------------------
-                       
+ NLS_CHARSET_ID('AAA') 
+-----------------------
+                      
 (1 row)
 
 SELECT NLS_CHARSET_ID(123) FROM DUAL; 
- NLS_CHARSET_ID(123)  
-----------------------
-                     
+ NLS_CHARSET_ID(123) 
+---------------------
+                    
 (1 row)
 

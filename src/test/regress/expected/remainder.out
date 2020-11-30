@@ -1,32 +1,32 @@
 set grammar to oracle;
 select remainder(7,5) from dual;
- REMAINDER(7,5)  
------------------
-               2
+ REMAINDER(7,5) 
+----------------
+              2
 (1 row)
 
 select remainder(11.9,3) from dual;
- REMAINDER(11.9,3)  
---------------------
-               -0.1
+ REMAINDER(11.9,3) 
+-------------------
+              -0.1
 (1 row)
 
 select remainder(-99.8768678,4) from dual;
- REMAINDER(-99.8768678,4)  
----------------------------
-                 0.1231322
+ REMAINDER(-99.8768678,4) 
+--------------------------
+                0.1231322
 (1 row)
 
 select remainder(-5.6,-2.5) from dual;
- REMAINDER(-5.6,-2.5)  
------------------------
-                  -0.6
+ REMAINDER(-5.6,-2.5) 
+----------------------
+                 -0.6
 (1 row)
 
 select remainder(0,2) from dual;
- REMAINDER(0,2)  
------------------
-               0
+ REMAINDER(0,2) 
+----------------
+              0
 (1 row)
 
 select remainder(0,0) from dual;
@@ -36,98 +36,98 @@ select remainder(3,0) from dual;
 ERROR:  division by zero
 CONTEXT:  SQL function "remainder" statement 1
 select remainder(exp(4),3) from dual;
- REMAINDER(EXP(4),3)  
-----------------------
-    0.598150033144239
+ REMAINDER(EXP(4),3) 
+---------------------
+   0.598150033144239
 (1 row)
 
 select remainder(sin(0.9),tan(1)) from dual;
- REMAINDER(SIN(0.9),TAN(1))  
------------------------------
-          -0.774080815027417
+ REMAINDER(SIN(0.9),TAN(1)) 
+----------------------------
+         -0.774080815027417
 (1 row)
 
 select remainder(1.98*4/(1.9+1.1),1.5*2) from dual;
- REMAINDER(1.98*4/(1.9+1.1),1.5*2)  
-------------------------------------
-                              -0.36
+ REMAINDER(1.98*4/(1.9+1.1),1.5*2) 
+-----------------------------------
+                             -0.36
 (1 row)
 
 select remainder(to_number('34'),3) from dual;
- REMAINDER(TO_NUMBER('34'),3)  
--------------------------------
-                             1
+ REMAINDER(TO_NUMBER('34'),3) 
+------------------------------
+                            1
 (1 row)
 
 select remainder(to_char(29),3) from dual;
- REMAINDER(TO_CHAR(29),3)  
----------------------------
-                        -1
+ REMAINDER(TO_CHAR(29),3) 
+--------------------------
+                       -1
 (1 row)
 
 select remainder('7',5) from dual;
- REMAINDER('7',5)  
--------------------
-                 2
+ REMAINDER('7',5) 
+------------------
+                2
 (1 row)
 
 select remainder(11.9,'3') from dual;
- REMAINDER(11.9,'3')  
-----------------------
-                 -0.1
+ REMAINDER(11.9,'3') 
+---------------------
+                -0.1
 (1 row)
 
 select remainder('-8.1','4') from dual;
- REMAINDER('-8.1','4')  
-------------------------
-                   -0.1
+ REMAINDER('-8.1','4') 
+-----------------------
+                  -0.1
 (1 row)
 
 select remainder('008','4.000') from dual;
- REMAINDER('008','4.000')  
----------------------------
-                         0
+ REMAINDER('008','4.000') 
+--------------------------
+                        0
 (1 row)
 
 select remainder('0',2) from dual;
- REMAINDER('0',2)  
--------------------
-                 0
+ REMAINDER('0',2) 
+------------------
+                0
 (1 row)
 
 select remainder('NaN',2) from dual;
- REMAINDER('NAN',2)  
----------------------
-                 NaN
+ REMAINDER('NAN',2) 
+--------------------
+                NaN
 (1 row)
 
 select remainder('NaN','NaN') from dual;
- REMAINDER('NAN','NAN')  
--------------------------
-                     NaN
+ REMAINDER('NAN','NAN') 
+------------------------
+                    NaN
 (1 row)
 
 select remainder(5,'NaN') from dual;
- REMAINDER(5,'NAN')  
----------------------
-                 NaN
+ REMAINDER(5,'NAN') 
+--------------------
+                NaN
 (1 row)
 
 select remainder('',null) from dual;
- REMAINDER('',NULL)  
----------------------
-                    
-(1 row)
-
-select remainder(null,3) from dual;
- REMAINDER(NULL,3)  
+ REMAINDER('',NULL) 
 --------------------
                    
 (1 row)
 
-select remainder('','') from dual;
- REMAINDER('','')  
+select remainder(null,3) from dual;
+ REMAINDER(NULL,3) 
 -------------------
                   
+(1 row)
+
+select remainder('','') from dual;
+ REMAINDER('','') 
+------------------
+                 
 (1 row)
 

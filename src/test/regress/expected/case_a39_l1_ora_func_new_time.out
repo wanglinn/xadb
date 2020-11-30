@@ -57,8 +57,8 @@ SELECT NEW_TIME('', 'MST', 'EST') ndt FROM DUAL;
 create table t4test (id int,ctime date);
 insert into t4test values(1,TO_DATE('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'));
 select new_time(ctime,'BST','EST') from t4test;
- NEW_TIME(CTIME,'BST','EST')  
-------------------------------
+ NEW_TIME(CTIME,'BST','EST') 
+-----------------------------
  2009-11-09 19:23:45
 (1 row)
 

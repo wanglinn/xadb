@@ -1,15 +1,15 @@
 set grammar to oracle;
 select length('abcd!@#$^&*()') from dual;
- LENGTH('ABCD!@#$^&*()')  
---------------------------
-                       13
+ LENGTH('ABCD!@#$^&*()') 
+-------------------------
+                      13
 (1 row)
 
 select length('ab
 c') from dual;
- LENGTH('ABC')  
-----------------
-              4
+ LENGTH('ABC') 
+---------------
+             4
 (1 row)
 
 select length('你好') as str from dual;
@@ -26,21 +26,21 @@ select length('你
 (1 row)
 
 select length(to_char(1234)) from dual;
- LENGTH(TO_CHAR(1234))  
-------------------------
-                      4
+ LENGTH(TO_CHAR(1234)) 
+-----------------------
+                     4
 (1 row)
 
 select length(exp(2)) from dual;
- LENGTH(EXP(2))  
------------------
-              18
+ LENGTH(EXP(2)) 
+----------------
+             18
 (1 row)
 
 select length(12.3456) from dual;
- LENGTH(12.3456)  
-------------------
-                7
+ LENGTH(12.3456) 
+-----------------
+               7
 (1 row)
 
 create table t4test (name varchar2(10));
@@ -57,12 +57,12 @@ select * from t4test where length(name) >6 order by name;
 (3 rows)
 
 select name,length(name) from t4test order by name;
-    NAME    | LENGTH(NAME)  
-------------+---------------
- 1bd2sdfaef |            10
- 3csadfed   |             8
- ccd        |             3
- mmsdeq4d   |             8
+    NAME    | LENGTH(NAME) 
+------------+--------------
+ 1bd2sdfaef |           10
+ 3csadfed   |            8
+ ccd        |            3
+ mmsdeq4d   |            8
 (4 rows)
 
 drop table t4test;

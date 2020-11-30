@@ -1,26 +1,26 @@
 set grammar to oracle;
 select nvl(1.4,4.8) from dual;
- NVL(1.4,4.8)  
----------------
-           1.4
+ NVL(1.4,4.8) 
+--------------
+          1.4
 (1 row)
 
 select nvl(4,5) from dual;
- NVL(4,5)  
------------
-         4
+ NVL(4,5) 
+----------
+        4
 (1 row)
 
 select nvl(1.4,4) from dual;
- NVL(1.4,4)  
--------------
-         1.4
+ NVL(1.4,4) 
+------------
+        1.4
 (1 row)
 
 select nvl(4,4.8) from dual;
- NVL(4,4.8)  
--------------
-           4
+ NVL(4,4.8) 
+------------
+          4
 (1 row)
 
 select nvl(exp(2),4.8) from dual;
@@ -30,20 +30,20 @@ select nvl(exp(2),4.8) from dual;
 (1 row)
 
 select nvl(exp(2),exp(3)) from dual;
- NVL(EXP(2),EXP(3))  
----------------------
-  7.3890560989306502
+ NVL(EXP(2),EXP(3)) 
+--------------------
+ 7.3890560989306502
 (1 row)
 
 select nvl('3',exp(4)) from dual;
- NVL('3',EXP(4))  
-------------------
+ NVL('3',EXP(4)) 
+-----------------
  3
 (1 row)
 
 select nvl('s',exp(4)) from dual;
- NVL('S',EXP(4))  
-------------------
+ NVL('S',EXP(4)) 
+-----------------
  s
 (1 row)
 
@@ -56,38 +56,38 @@ select nvl(exp(4),'3') from dual;
 (1 row)
 
 select nvl('',4) from dual;
- NVL('',4)  
-------------
+ NVL('',4) 
+-----------
  4
 (1 row)
 
 select nvl(null,4) from dual;
- NVL(NULL,4)  
---------------
+ NVL(NULL,4) 
+-------------
  4
 (1 row)
 
 select nvl('','') from dual;
- NVL('','')  
--------------
+ NVL('','') 
+------------
  
 (1 row)
 
 select nvl(4,'') from dual;
- NVL(4,'')  
-------------
+ NVL(4,'') 
+-----------
  4
 (1 row)
 
 select nvl(null,null) from dual;
- NVL(NULL,NULL)  
------------------
+ NVL(NULL,NULL) 
+----------------
  
 (1 row)
 
 select nvl(null,'') from dual;
- NVL(NULL,'')  
----------------
+ NVL(NULL,'') 
+--------------
  
 (1 row)
 

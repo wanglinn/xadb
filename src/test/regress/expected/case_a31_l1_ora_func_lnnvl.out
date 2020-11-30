@@ -74,26 +74,26 @@ insert into ct4test values(null, 1,1=1);
 insert into ct4test values('ab', 2,1=1);
 insert into ct4test values('abc', 3,1=2);
 select lnnvl(name is null) from ct4test where id=1;
- LNNVL(NAME IS NULL)  
-----------------------
+ LNNVL(NAME IS NULL) 
+---------------------
  f
 (1 row)
 
 select lnnvl(name is not null) from ct4test where id=1;
- LNNVL(NAME IS NOT NULL)  
---------------------------
+ LNNVL(NAME IS NOT NULL) 
+-------------------------
  t
 (1 row)
 
 select lnnvl(name ='ab') from ct4test where id=2;
- LNNVL(NAME ='AB')  
---------------------
+ LNNVL(NAME ='AB') 
+-------------------
  f
 (1 row)
 
 select lnnvl(name !='ab') from ct4test where id=2;
- LNNVL(NAME !='AB')  
----------------------
+ LNNVL(NAME !='AB') 
+--------------------
  t
 (1 row)
 

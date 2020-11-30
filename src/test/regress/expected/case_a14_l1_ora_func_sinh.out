@@ -6,7 +6,7 @@ set grammar to oracle;
 (1 row)
 
 /*ora*/ select  sinh(-1) from dual;
-      SINH(-1)        
+       SINH(-1)       
 ----------------------
  -1.17520119364380145
 (1 row)
@@ -18,9 +18,9 @@ set grammar to oracle;
 (1 row)
 
 /*ora*/ select  sinh(0) from dual;
- SINH(0)  
-----------
-        0
+ SINH(0) 
+---------
+       0
 (1 row)
 
 /*ora*/ select  sinh(to_char(0.5)) from dual;
@@ -30,15 +30,15 @@ set grammar to oracle;
 (1 row)
 
 /*ora*/ select  sinh(null) from dual;
- SINH(NULL)  
--------------
-            
+ SINH(NULL) 
+------------
+           
 (1 row)
 
 /*ora*/ select  sinh('') from dual;
- SINH('')  
------------
-          
+ SINH('') 
+----------
+         
 (1 row)
 
 --MODIFY BY yuxiuming:add insert update

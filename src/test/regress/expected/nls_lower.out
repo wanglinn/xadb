@@ -1,49 +1,49 @@
 set grammar to oracle;
 select nls_lower('AB CDe') from dual;
- NLS_LOWER('AB CDE')  
-----------------------
+ NLS_LOWER('AB CDE') 
+---------------------
  ab cde
 (1 row)
 
 select nls_lower('\?!@#$%^&*()SA') from dual;
- NLS_LOWER('\?!@#$%^&*()SA')  
-------------------------------
+ NLS_LOWER('\?!@#$%^&*()SA') 
+-----------------------------
  \?!@#$%^&*()sa
 (1 row)
 
 select nls_lower('AA\?!@#$%^&*()AA') from dual;
- NLS_LOWER('AA\?!@#$%^&*()AA')  
---------------------------------
+ NLS_LOWER('AA\?!@#$%^&*()AA') 
+-------------------------------
  aa\?!@#$%^&*()aa
 (1 row)
 
 select nls_lower('\?!@#sS$%^&*()sC') from dual;
- NLS_LOWER('\?!@#SS$%^&*()SC')  
---------------------------------
+ NLS_LOWER('\?!@#SS$%^&*()SC') 
+-------------------------------
  \?!@#ss$%^&*()sc
 (1 row)
 
 select nls_lower('Test你TEst好TeST') from dual;
- NLS_LOWER('TEST你TEST好TEST')  
---------------------------------
+ NLS_LOWER('TEST你TEST好TEST') 
+-------------------------------
  test你test好test
 (1 row)
 
 select nls_lower('1234SOU') from dual;
- NLS_LOWER('1234SOU')  
------------------------
+ NLS_LOWER('1234SOU') 
+----------------------
  1234sou
 (1 row)
 
 select nls_lower(to_char('SUV')) from dual;
- NLS_LOWER(TO_CHAR('SUV'))  
-----------------------------
+ NLS_LOWER(TO_CHAR('SUV')) 
+---------------------------
  suv
 (1 row)
 
 select nls_lower(to_number('NaN')) from dual;
- NLS_LOWER(TO_NUMBER('NAN'))  
-------------------------------
+ NLS_LOWER(TO_NUMBER('NAN')) 
+-----------------------------
  nan
 (1 row)
 

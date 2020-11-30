@@ -1,121 +1,121 @@
 set grammar to oracle;
 set datestyle='ISO,YMD';
 select instr('abc','bc') from dual;
- INSTR('ABC','BC')  
---------------------
-                  2
+ INSTR('ABC','BC') 
+-------------------
+                 2
 (1 row)
 
 select instr(to_char('abc'),to_char('bc')) from dual;
- INSTR(TO_CHAR('ABC'),TO_CHAR('BC'))  
---------------------------------------
-                                    2
+ INSTR(TO_CHAR('ABC'),TO_CHAR('BC')) 
+-------------------------------------
+                                   2
 (1 row)
 
 select instr('爱存不存','存',1,2) from dual;
- INSTR('爱存不存','存',1,2)  
------------------------------
-                           4
+ INSTR('爱存不存','存',1,2) 
+----------------------------
+                          4
 (1 row)
 
 select instr(1234,23) from dual;
- INSTR(1234,23)  
------------------
-               2
+ INSTR(1234,23) 
+----------------
+              2
 (1 row)
 
 select instr(to_number(123.56),'.') from dual;
- INSTR(TO_NUMBER(123.56),'.')  
--------------------------------
-                             4
+ INSTR(TO_NUMBER(123.56),'.') 
+------------------------------
+                            4
 (1 row)
 
 select instr(exp(2),0)  from dual;
- INSTR(EXP(2),0)   
--------------------
-                 6
+ INSTR(EXP(2),0) 
+-----------------
+               6
 (1 row)
 
 select instr(exp(2),exp(2))  from dual;
- INSTR(EXP(2),EXP(2))   
-------------------------
-                      1
+ INSTR(EXP(2),EXP(2)) 
+----------------------
+                    1
 (1 row)
 
 select instr(to_date('2015-06-06 20:50:30','yyyy-mm-dd hh24:mi:ss'),'15') from dual;
- INSTR(TO_DATE('2015-06-06 20:50:30','YYYY-MM-DD HH24:MI:SS'),'15')  
----------------------------------------------------------------------
-                                                                   3
+ INSTR(TO_DATE('2015-06-06 20:50:30','YYYY-MM-DD HH24:MI:SS'),'15') 
+--------------------------------------------------------------------
+                                                                  3
 (1 row)
 
 select instr('!@#$%^&*()~','^')  from dual;
- INSTR('!@#$%^&*()~','^')   
-----------------------------
-                          6
+ INSTR('!@#$%^&*()~','^') 
+--------------------------
+                        6
 (1 row)
 
 select instr('abc
 sw','
 s') from dual;
- INSTR('ABCSW','S')  
----------------------
-                   4
+ INSTR('ABCSW','S') 
+--------------------
+                  4
 (1 row)
 
 select instr('abcswcs','cs',1,2) from dual;
- INSTR('ABCSWCS','CS',1,2)  
-----------------------------
-                          6
-(1 row)
-
-select instr('abcswcs','cs',1000000000) from dual;
- INSTR('ABCSWCS','CS',1000000000)  
------------------------------------
-                                 0
-(1 row)
-
-select instr('abcswcs','cs',-100) from dual;
- INSTR('ABCSWCS','CS',-100)  
------------------------------
-                           0
-(1 row)
-
-select instr('abcswcs','cs',-1) from dual;
- INSTR('ABCSWCS','CS',-1)  
+ INSTR('ABCSWCS','CS',1,2) 
 ---------------------------
                          6
 (1 row)
 
+select instr('abcswcs','cs',1000000000) from dual;
+ INSTR('ABCSWCS','CS',1000000000) 
+----------------------------------
+                                0
+(1 row)
+
+select instr('abcswcs','cs',-100) from dual;
+ INSTR('ABCSWCS','CS',-100) 
+----------------------------
+                          0
+(1 row)
+
+select instr('abcswcs','cs',-1) from dual;
+ INSTR('ABCSWCS','CS',-1) 
+--------------------------
+                        6
+(1 row)
+
 select instr('abcswcs','cs','',-1) from dual;
- INSTR('ABCSWCS','CS','',-1)  
-------------------------------
-                             
+ INSTR('ABCSWCS','CS','',-1) 
+-----------------------------
+                            
 (1 row)
 
 select instr('abcswcs','cs',0) from dual;
- INSTR('ABCSWCS','CS',0)  
---------------------------
-                        0
+ INSTR('ABCSWCS','CS',0) 
+-------------------------
+                       0
 (1 row)
 
 select instr('abcswcs','cs',1,10000000000) from dual;
 ERROR:  integer out of range
 select instr('','')  from dual;
- INSTR('','')   
-----------------
-               
+ INSTR('','') 
+--------------
+             
 (1 row)
 
 select instr(null,'a') from dual;
- INSTR(NULL,'A')  
-------------------
-                 
+ INSTR(NULL,'A') 
+-----------------
+                
 (1 row)
 
 select instr('abc','') from dual;
- INSTR('ABC','')  
-------------------
-                 
+ INSTR('ABC','') 
+-----------------
+                
 (1 row)
 
 create table t4test (name varchar2(10),idx int);
@@ -134,44 +134,44 @@ select * from t4test where instr(name,'d')  >0 order by name;
 
 drop table t4test;
 select instr('ababc','ab',2) from dual;
- INSTR('ABABC','AB',2)  
-------------------------
-                      3
+ INSTR('ABABC','AB',2) 
+-----------------------
+                     3
 (1 row)
 
 select instr('ababadc','ab',2,2) from dual;
- INSTR('ABABADC','AB',2,2)  
-----------------------------
-                          0
+ INSTR('ABABADC','AB',2,2) 
+---------------------------
+                         0
 (1 row)
 
 select instr('ababadc','ab',2,1) from dual;
- INSTR('ABABADC','AB',2,1)  
+ INSTR('ABABADC','AB',2,1) 
+---------------------------
+                         3
+(1 row)
+
+select instr('ababadc','ab',-2,1) from dual;
+ INSTR('ABABADC','AB',-2,1) 
 ----------------------------
                           3
 (1 row)
 
-select instr('ababadc','ab',-2,1) from dual;
- INSTR('ABABADC','AB',-2,1)  
------------------------------
-                           3
-(1 row)
-
 select instr('ababadc','ab',-1,1) from dual;
- INSTR('ABABADC','AB',-1,1)  
------------------------------
-                           3
+ INSTR('ABABADC','AB',-1,1) 
+----------------------------
+                          3
 (1 row)
 
 select instr('abababc','ab',-1,1) from dual;
- INSTR('ABABABC','AB',-1,1)  
------------------------------
-                           5
+ INSTR('ABABABC','AB',-1,1) 
+----------------------------
+                          5
 (1 row)
 
 select instr('abababc','ab',-1,2) from dual;
- INSTR('ABABABC','AB',-1,2)  
------------------------------
-                           3
+ INSTR('ABABABC','AB',-1,2) 
+----------------------------
+                          3
 (1 row)
 

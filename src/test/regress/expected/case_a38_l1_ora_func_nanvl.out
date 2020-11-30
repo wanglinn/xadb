@@ -1,26 +1,26 @@
 set grammar to oracle;
 select nanvl(5,4.7) from dual;
- NANVL(5,4.7)  
----------------
-             5
+ NANVL(5,4.7) 
+--------------
+            5
 (1 row)
 
 select nanvl(5.8,4.7) from dual;
- NANVL(5.8,4.7)  
------------------
-             5.8
+ NANVL(5.8,4.7) 
+----------------
+            5.8
 (1 row)
 
 select nanvl('8',4.7) from dual;
- NANVL('8',4.7)  
------------------
-               8
+ NANVL('8',4.7) 
+----------------
+              8
 (1 row)
 
 select nanvl('4.8',4.7) from dual;
- NANVL('4.8',4.7)  
--------------------
-               4.8
+ NANVL('4.8',4.7) 
+------------------
+              4.8
 (1 row)
 
 select nanvl('s',4.7) from dual;
@@ -34,39 +34,39 @@ select nanvl(exp(2),4.7) from dual;
 (1 row)
 
 select nanvl(2*5.7,4.7) from dual;
- NANVL(2*5.7,4.7)  
--------------------
-              11.4
+ NANVL(2*5.7,4.7) 
+------------------
+             11.4
 (1 row)
 
 select nanvl(exp(2),sin(3)) from dual;
- NANVL(EXP(2),SIN(3))  
------------------------
-    7.3890560989306502
+ NANVL(EXP(2),SIN(3)) 
+----------------------
+   7.3890560989306502
 (1 row)
 
 select nanvl('','') from dual;
- NANVL('','')  
----------------
-              
+ NANVL('','') 
+--------------
+             
 (1 row)
 
 select nanvl('',null) from dual;
- NANVL('',NULL)  
------------------
-                
-(1 row)
-
-select nanvl(null,4) from dual;
- NANVL(NULL,4)  
+ NANVL('',NULL) 
 ----------------
                
 (1 row)
 
+select nanvl(null,4) from dual;
+ NANVL(NULL,4) 
+---------------
+              
+(1 row)
+
 select nanvl(4.5,null) from dual;
- NANVL(4.5,NULL)  
-------------------
-                 
+ NANVL(4.5,NULL) 
+-----------------
+                
 (1 row)
 
 create table t4test(id int,num float);
@@ -82,11 +82,11 @@ select * from t4test order by id;
 (3 rows)
 
 select nanvl(3.33,num) from t4test;
- NANVL(3.33,NUM)  
-------------------
-             3.33
-             3.33
-             3.33
+ NANVL(3.33,NUM) 
+-----------------
+            3.33
+            3.33
+            3.33
 (3 rows)
 
 drop table t4test;

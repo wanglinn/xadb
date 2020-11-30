@@ -71,11 +71,11 @@ select * from datatype_tbl2 order by id;
 (1 row)
 
 select id, length(info) from datatype_tbl1 order by id;
- ID | LENGTH(INFO)  
-----+---------------
-  1 |             3
-  2 |             9
-  3 |            20
+ ID | LENGTH(INFO) 
+----+--------------
+  1 |            3
+  2 |            9
+  3 |           20
 (3 rows)
 
 drop table datatype_tbl1;
@@ -102,11 +102,11 @@ select * from datatype_tbl2 order by id;
 (1 row)
 
 select id,length(info) from datatype_tbl1 order by id;
- ID | LENGTH(INFO)  
-----+---------------
-  1 |             3
-  2 |             9
-  3 |             5
+ ID | LENGTH(INFO) 
+----+--------------
+  1 |            3
+  2 |            9
+  3 |            5
 (3 rows)
 
 drop table datatype_tbl1;
@@ -134,11 +134,11 @@ select * from datatype_tbl2 order by id;
 (3 rows)
 
 select id,length(info) from datatype_tbl2 order by id;
- ID | LENGTH(INFO)  
-----+---------------
-  1 |             3
-  2 |             9
-  3 |             5
+ ID | LENGTH(INFO) 
+----+--------------
+  1 |            3
+  2 |            9
+  3 |            5
 (3 rows)
 
 drop table datatype_tbl1;
@@ -243,10 +243,10 @@ create table datatype_tbl1(id number,job varchar(50));
 insert into datatype_tbl1 values(1,exp(2));
 insert into datatype_tbl1 select * from datatype_tbl2;
 select length(job) from datatype_tbl1;
- LENGTH(JOB)  
---------------
-           18
-           18
+ LENGTH(JOB) 
+-------------
+          18
+          18
 (2 rows)
 
 select * from datatype_tbl1;

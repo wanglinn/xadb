@@ -1,25 +1,25 @@
 set grammar to oracle;
 SELECT NLS_CHARSET_NAME(2) FROM DUAL;
- NLS_CHARSET_NAME(2)  
-----------------------
+ NLS_CHARSET_NAME(2) 
+---------------------
  EUC_CN
 (1 row)
 
 SELECT NLS_CHARSET_NAME(6) FROM DUAL;
- NLS_CHARSET_NAME(6)  
-----------------------
+ NLS_CHARSET_NAME(6) 
+---------------------
  UTF8
 (1 row)
 
 SELECT NLS_CHARSET_NAME(37) FROM DUAL;
- NLS_CHARSET_NAME(37)  
------------------------
+ NLS_CHARSET_NAME(37) 
+----------------------
  GBK
 (1 row)
 
 SELECT NLS_CHARSET_NAME(888) FROM DUAL;
- NLS_CHARSET_NAME(888)  
-------------------------
+ NLS_CHARSET_NAME(888) 
+-----------------------
  
 (1 row)
 

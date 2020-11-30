@@ -165,37 +165,37 @@ SELECT regexp_instr('abc1def2', '[[:digit:]] d',1,1,0,'x') output  from dual;
 
 select regexp_instr('abcxxx#%
 adfbc','^a',1,2,0,'m') from dual;
- REGEXP_INSTR('ABCXXX#%ADFBC','^A',1,2,0,'M')  
------------------------------------------------
-                                            10
+ REGEXP_INSTR('ABCXXX#%ADFBC','^A',1,2,0,'M') 
+----------------------------------------------
+                                           10
 (1 row)
 
 select regexp_instr('abcxxx#%
 adfbc','^a',1,2,0,'n') from dual;
- REGEXP_INSTR('ABCXXX#%ADFBC','^A',1,2,0,'N')  
------------------------------------------------
-                                             0
+ REGEXP_INSTR('ABCXXX#%ADFBC','^A',1,2,0,'N') 
+----------------------------------------------
+                                            0
 (1 row)
 
 select regexp_instr('abcxxx#%
 adfbc','^a',1,2,0,'i') from dual;
- REGEXP_INSTR('ABCXXX#%ADFBC','^A',1,2,0,'I')  
------------------------------------------------
-                                             0
+ REGEXP_INSTR('ABCXXX#%ADFBC','^A',1,2,0,'I') 
+----------------------------------------------
+                                            0
 (1 row)
 
 select regexp_instr('abcxxx#%
 adfbc','^a',1,2,0,'x') from dual;
- REGEXP_INSTR('ABCXXX#%ADFBC','^A',1,2,0,'X')  
------------------------------------------------
-                                             0
+ REGEXP_INSTR('ABCXXX#%ADFBC','^A',1,2,0,'X') 
+----------------------------------------------
+                                            0
 (1 row)
 
 select regexp_instr('abcxxx#%
 adfbc','^a',1,2,0,'c') from dual;
- REGEXP_INSTR('ABCXXX#%ADFBC','^A',1,2,0,'C')  
------------------------------------------------
-                                             0
+ REGEXP_INSTR('ABCXXX#%ADFBC','^A',1,2,0,'C') 
+----------------------------------------------
+                                            0
 (1 row)
 
 SELECT REGEXP_INSTR(123456, 123, 1, 1, 0) 

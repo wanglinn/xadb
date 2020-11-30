@@ -118,41 +118,41 @@ SELECT regexp_replace('abc1def2', '[[:digit:]] d','@',1,1,'x') output  from dual
 
 select regexp_replace('abcxxx#%
 adfbc','^a','@',1,2,'m') from dual;
- REGEXP_REPLACE('ABCXXX#%ADFBC','^A','@',1,2,'M')  
----------------------------------------------------
- abcxxx#%                                         +
+ REGEXP_REPLACE('ABCXXX#%ADFBC','^A','@',1,2,'M') 
+--------------------------------------------------
+ abcxxx#%                                        +
  @dfbc
 (1 row)
 
 select regexp_replace('abcxxx#%
 adfbc','^a','@',1,2,'n') from dual;
- REGEXP_REPLACE('ABCXXX#%ADFBC','^A','@',1,2,'N')  
----------------------------------------------------
- abcxxx#%                                         +
+ REGEXP_REPLACE('ABCXXX#%ADFBC','^A','@',1,2,'N') 
+--------------------------------------------------
+ abcxxx#%                                        +
  adfbc
 (1 row)
 
 select regexp_replace('abcxxx#%
 adfbc','^a','@',1,2,'i') from dual;
- REGEXP_REPLACE('ABCXXX#%ADFBC','^A','@',1,2,'I')  
----------------------------------------------------
- abcxxx#%                                         +
+ REGEXP_REPLACE('ABCXXX#%ADFBC','^A','@',1,2,'I') 
+--------------------------------------------------
+ abcxxx#%                                        +
  adfbc
 (1 row)
 
 select regexp_replace('abcxxx#%
 adfbc','^a','@',1,2,'x') from dual;
- REGEXP_REPLACE('ABCXXX#%ADFBC','^A','@',1,2,'X')  
----------------------------------------------------
- abcxxx#%                                         +
+ REGEXP_REPLACE('ABCXXX#%ADFBC','^A','@',1,2,'X') 
+--------------------------------------------------
+ abcxxx#%                                        +
  adfbc
 (1 row)
 
 select regexp_replace('abcxxx#%
 adfbc','^a','@',1,2,'c') from dual;
- REGEXP_REPLACE('ABCXXX#%ADFBC','^A','@',1,2,'C')  
----------------------------------------------------
- abcxxx#%                                         +
+ REGEXP_REPLACE('ABCXXX#%ADFBC','^A','@',1,2,'C') 
+--------------------------------------------------
+ abcxxx#%                                        +
  adfbc
 (1 row)
 

@@ -1,184 +1,184 @@
 set grammar to oracle;
 select regexp_count('abcdfbc','Bc',1,'i') from dual;
- REGEXP_COUNT('ABCDFBC','BC',1,'I')  
--------------------------------------
-                                   2
+ REGEXP_COUNT('ABCDFBC','BC',1,'I') 
+------------------------------------
+                                  2
 (1 row)
 
 select regexp_count('abcdfBc','Bc',1,'c') from dual;
- REGEXP_COUNT('ABCDFBC','BC',1,'C')  
+ REGEXP_COUNT('ABCDFBC','BC',1,'C') 
+------------------------------------
+                                  1
+(1 row)
+
+select regexp_count('ab
+cdfbc','b.c',1,'n') from dual;
+ REGEXP_COUNT('ABCDFBC','B.C',1,'N') 
 -------------------------------------
                                    1
 (1 row)
 
 select regexp_count('ab
-cdfbc','b.c',1,'n') from dual;
- REGEXP_COUNT('ABCDFBC','B.C',1,'N')  
---------------------------------------
-                                    1
-(1 row)
-
-select regexp_count('ab
 cdfbc','b.c',1,'i') from dual;
- REGEXP_COUNT('ABCDFBC','B.C',1,'I')  
---------------------------------------
-                                    0
+ REGEXP_COUNT('ABCDFBC','B.C',1,'I') 
+-------------------------------------
+                                   0
 (1 row)
 
 select regexp_count('abcxxx#%
 adfbc','^a',1,'m') from dual;
- REGEXP_COUNT('ABCXXX#%ADFBC','^A',1,'M')  
--------------------------------------------
-                                         2
-(1 row)
-
-select regexp_count('abcxxx#%
-adfbc','^a',1,'i') from dual;
- REGEXP_COUNT('ABCXXX#%ADFBC','^A',1,'I')  
--------------------------------------------
-                                         1
-(1 row)
-
-select regexp_count('abcxxx#%
-adfbc','^a',1,'n') from dual;
- REGEXP_COUNT('ABCXXX#%ADFBC','^A',1,'N')  
--------------------------------------------
-                                         1
-(1 row)
-
-select regexp_count('abcxxx#%
-adfbc','^a',1,'x') from dual;
- REGEXP_COUNT('ABCXXX#%ADFBC','^A',1,'X')  
--------------------------------------------
-                                         1
-(1 row)
-
-select regexp_count('abcxxx#%
-adfbc','^a',1,'c') from dual;
- REGEXP_COUNT('ABCXXX#%ADFBC','^A',1,'C')  
--------------------------------------------
-                                         1
-(1 row)
-
-select regexp_count('abcvvbcvvb c','b c',1,'x') from dual;
- REGEXP_COUNT('ABCVVBCVVB C','B C',1,'X')  
--------------------------------------------
-                                         2
-(1 row)
-
-select regexp_count('abcvvbcvvb c','b c',1,'n') from dual;
- REGEXP_COUNT('ABCVVBCVVB C','B C',1,'N')  
--------------------------------------------
-                                         1
-(1 row)
-
-select regexp_count('abcvvbcvvBC','bc',1,'ic') from dual;
- REGEXP_COUNT('ABCVVBCVVBC','BC',1,'IC')  
+ REGEXP_COUNT('ABCXXX#%ADFBC','^A',1,'M') 
 ------------------------------------------
                                         2
 (1 row)
 
-select regexp_count('abcvvbcvvBC','bc',1,'ci') from dual;
- REGEXP_COUNT('ABCVVBCVVBC','BC',1,'CI')  
+select regexp_count('abcxxx#%
+adfbc','^a',1,'i') from dual;
+ REGEXP_COUNT('ABCXXX#%ADFBC','^A',1,'I') 
 ------------------------------------------
-                                        3
+                                        1
+(1 row)
+
+select regexp_count('abcxxx#%
+adfbc','^a',1,'n') from dual;
+ REGEXP_COUNT('ABCXXX#%ADFBC','^A',1,'N') 
+------------------------------------------
+                                        1
+(1 row)
+
+select regexp_count('abcxxx#%
+adfbc','^a',1,'x') from dual;
+ REGEXP_COUNT('ABCXXX#%ADFBC','^A',1,'X') 
+------------------------------------------
+                                        1
+(1 row)
+
+select regexp_count('abcxxx#%
+adfbc','^a',1,'c') from dual;
+ REGEXP_COUNT('ABCXXX#%ADFBC','^A',1,'C') 
+------------------------------------------
+                                        1
+(1 row)
+
+select regexp_count('abcvvbcvvb c','b c',1,'x') from dual;
+ REGEXP_COUNT('ABCVVBCVVB C','B C',1,'X') 
+------------------------------------------
+                                        2
+(1 row)
+
+select regexp_count('abcvvbcvvb c','b c',1,'n') from dual;
+ REGEXP_COUNT('ABCVVBCVVB C','B C',1,'N') 
+------------------------------------------
+                                        1
+(1 row)
+
+select regexp_count('abcvvbcvvBC','bc',1,'ic') from dual;
+ REGEXP_COUNT('ABCVVBCVVBC','BC',1,'IC') 
+-----------------------------------------
+                                       2
+(1 row)
+
+select regexp_count('abcvvbcvvBC','bc',1,'ci') from dual;
+ REGEXP_COUNT('ABCVVBCVVBC','BC',1,'CI') 
+-----------------------------------------
+                                       3
 (1 row)
 
 select regexp_count('abcvvbcvvBC','b c',1,'ix') from dual;
- REGEXP_COUNT('ABCVVBCVVBC','B C',1,'IX')  
--------------------------------------------
-                                         3
+ REGEXP_COUNT('ABCVVBCVVBC','B C',1,'IX') 
+------------------------------------------
+                                        3
 (1 row)
 
 select regexp_count('abcvvb
 cvvB
 C','b.c',1,'in') from dual;
- REGEXP_COUNT('ABCVVBCVVBC','B.C',1,'IN')  
--------------------------------------------
-                                         2
+ REGEXP_COUNT('ABCVVBCVVBC','B.C',1,'IN') 
+------------------------------------------
+                                        2
 (1 row)
 
 select regexp_count('abcvvb cvvB C','b c') from dual;
- REGEXP_COUNT('ABCVVB CVVB C','B C')  
---------------------------------------
-                                    1
+ REGEXP_COUNT('ABCVVB CVVB C','B C') 
+-------------------------------------
+                                   1
 (1 row)
 
 select regexp_count('abacvvb
 cvvB C','b.c') from dual;
- REGEXP_COUNT('ABACVVBCVVB C','B.C')  
---------------------------------------
-                                    1
+ REGEXP_COUNT('ABACVVBCVVB C','B.C') 
+-------------------------------------
+                                   1
 (1 row)
 
 select regexp_count('abc
 abc','bc?') from dual;
- REGEXP_COUNT('ABCABC','BC?')  
--------------------------------
-                             2
+ REGEXP_COUNT('ABCABC','BC?') 
+------------------------------
+                            2
 (1 row)
 
 select regexp_count('abcvvbcvvbc','bc',2.9,'c') from dual;
- REGEXP_COUNT('ABCVVBCVVBC','BC',2.9,'C')  
--------------------------------------------
-                                         2
+ REGEXP_COUNT('ABCVVBCVVBC','BC',2.9,'C') 
+------------------------------------------
+                                        2
 (1 row)
 
 select regexp_count('abcvvbcvvbc','bc',exp(2),'c') from dual;
- REGEXP_COUNT('ABCVVBCVVBC','BC',EXP(2),'C')  
-----------------------------------------------
-                                            1
+ REGEXP_COUNT('ABCVVBCVVBC','BC',EXP(2),'C') 
+---------------------------------------------
+                                           1
 (1 row)
 
 select regexp_count('abcvvbcvvbc','bc','1','c') from dual;
- REGEXP_COUNT('ABCVVBCVVBC','BC','1','C')  
--------------------------------------------
-                                         3
+ REGEXP_COUNT('ABCVVBCVVBC','BC','1','C') 
+------------------------------------------
+                                        3
 (1 row)
 
 select regexp_count('abcvvbcvvbc','bc',-1,'c') from dual;
 ERROR:  Invalid "position" value (-1) for "regexp_count"
 HINT:  "position" must be a positive integer
 select regexp_count('abcvvbcvvbc','bc',1000000,'c') from dual;
- REGEXP_COUNT('ABCVVBCVVBC','BC',1000000,'C')  
------------------------------------------------
-                                             0
+ REGEXP_COUNT('ABCVVBCVVBC','BC',1000000,'C') 
+----------------------------------------------
+                                            0
 (1 row)
 
 select regexp_count('12345',123,1) from dual;
- REGEXP_COUNT('12345',123,1)  
-------------------------------
-                            1
+ REGEXP_COUNT('12345',123,1) 
+-----------------------------
+                           1
 (1 row)
 
 select regexp_count(12345,123,1) from dual;
- REGEXP_COUNT(12345,123,1)  
-----------------------------
-                          1
+ REGEXP_COUNT(12345,123,1) 
+---------------------------
+                         1
 (1 row)
 
 select regexp_count(12345.8,5.8,1) from dual;
- REGEXP_COUNT(12345.8,5.8,1)  
-------------------------------
-                            1
+ REGEXP_COUNT(12345.8,5.8,1) 
+-----------------------------
+                           1
 (1 row)
 
 select regexp_count(to_date('2016-01-31','yyyy-mm-dd'),'31',1) from dual;
- REGEXP_COUNT(TO_DATE('2016-01-31','YYYY-MM-DD'),'31',1)  
-----------------------------------------------------------
-                                                        1
+ REGEXP_COUNT(TO_DATE('2016-01-31','YYYY-MM-DD'),'31',1) 
+---------------------------------------------------------
+                                                       1
 (1 row)
 
 select regexp_count(to_timestamp('2016-01-31','yyyy-mm-dd'),'31',1) from dual;
- REGEXP_COUNT(TO_TIMESTAMP('2016-01-31','YYYY-MM-DD'),'31',1)  
----------------------------------------------------------------
-                                                             1
+ REGEXP_COUNT(TO_TIMESTAMP('2016-01-31','YYYY-MM-DD'),'31',1) 
+--------------------------------------------------------------
+                                                            1
 (1 row)
 
 select regexp_count(numtoyminterval(10,'year'),'10',1) from dual;
- REGEXP_COUNT(NUMTOYMINTERVAL(10,'YEAR'),'10',1)  
---------------------------------------------------
-                                                1
+ REGEXP_COUNT(NUMTOYMINTERVAL(10,'YEAR'),'10',1) 
+-------------------------------------------------
+                                               1
 (1 row)
 
 select regexp_count('abcvvbcvvbc','bc','2.1','c') from dual;
@@ -186,15 +186,15 @@ ERROR:  invalid input syntax for type integer: "2.1"
 LINE 1: select regexp_count('abcvvbcvvbc','bc','2.1','c') from dual;
                                                ^
 select regexp_count(null,'',1,'i') from dual;
- REGEXP_COUNT(NULL,'',1,'I')  
-------------------------------
-                             
+ REGEXP_COUNT(NULL,'',1,'I') 
+-----------------------------
+                            
 (1 row)
 
 select regexp_count('','',1,'i') from dual;
- REGEXP_COUNT('','',1,'I')  
-----------------------------
-                           
+ REGEXP_COUNT('','',1,'I') 
+---------------------------
+                          
 (1 row)
 
 CREATE TABLE t4test (id int,txt varchar,num int);

@@ -1,183 +1,183 @@
 set grammar to oracle;
 select nvl2(3,4,5) from dual;
- NVL2(3,4,5)  
---------------
-            4
+ NVL2(3,4,5) 
+-------------
+           4
 (1 row)
 
 select nvl2(3,'4',5) from dual;
- NVL2(3,'4',5)  
-----------------
+ NVL2(3,'4',5) 
+---------------
  4
 (1 row)
 
 select nvl2(3,'4.9',5) from dual;
- NVL2(3,'4.9',5)  
-------------------
+ NVL2(3,'4.9',5) 
+-----------------
  4.9
 (1 row)
 
 select nvl2(3,'s',5) from dual;
- NVL2(3,'S',5)  
-----------------
+ NVL2(3,'S',5) 
+---------------
  s
 (1 row)
 
 select nvl2(3,exp(3),5) from dual;
- NVL2(3,EXP(3),5)   
+  NVL2(3,EXP(3),5)  
 --------------------
  20.085536923187668
 (1 row)
 
 select nvl2(3,1.5*2,5) from dual;
- NVL2(3,1.5*2,5)  
-------------------
-                3
+ NVL2(3,1.5*2,5) 
+-----------------
+               3
 (1 row)
 
 select nvl2(4,4.8,5) from dual;
- NVL2(4,4.8,5)  
-----------------
-            4.8
+ NVL2(4,4.8,5) 
+---------------
+           4.8
 (1 row)
 
 select nvl2(3.9,4,5) from dual;
- NVL2(3.9,4,5)  
-----------------
-              4
+ NVL2(3.9,4,5) 
+---------------
+             4
 (1 row)
 
 select nvl2('3.9',4,5) from dual;
- NVL2('3.9',4,5)  
+ NVL2('3.9',4,5) 
+-----------------
+               4
+(1 row)
+
+select nvl2('s',4,5) from dual;
+ NVL2('S',4,5) 
+---------------
+             4
+(1 row)
+
+select nvl2(exp(2),4,5) from dual;
+ NVL2(EXP(2),4,5) 
 ------------------
                 4
 (1 row)
 
-select nvl2('s',4,5) from dual;
- NVL2('S',4,5)  
-----------------
-              4
-(1 row)
-
-select nvl2(exp(2),4,5) from dual;
- NVL2(EXP(2),4,5)  
--------------------
-                 4
-(1 row)
-
 select nvl2(3,4,5.6) from dual;
- NVL2(3,4,5.6)  
-----------------
-              4
+ NVL2(3,4,5.6) 
+---------------
+             4
 (1 row)
 
 select nvl2(3,4,'4.8') from dual;
- NVL2(3,4,'4.8')  
-------------------
+ NVL2(3,4,'4.8') 
+-----------------
  4
 (1 row)
 
 select nvl2(3,4,'0') from dual;
- NVL2(3,4,'0')  
-----------------
+ NVL2(3,4,'0') 
+---------------
  4
 (1 row)
 
 select nvl2(3,4,'aaa') from dual;
- NVL2(3,4,'AAA')  
-------------------
+ NVL2(3,4,'AAA') 
+-----------------
  4
 (1 row)
 
 select nvl2(3,4,exp(3)) from dual;
- NVL2(3,4,EXP(3))  
--------------------
-                 4
+ NVL2(3,4,EXP(3)) 
+------------------
+                4
 (1 row)
 
 select nvl2(tan(2),exp(2),exp(3)) from dual;
- NVL2(TAN(2),EXP(2),EXP(3))  
------------------------------
-          7.3890560989306502
+ NVL2(TAN(2),EXP(2),EXP(3)) 
+----------------------------
+         7.3890560989306502
 (1 row)
 
 select nvl2(4.9,'s','s') from dual;
- NVL2(4.9,'S','S')  
---------------------
+ NVL2(4.9,'S','S') 
+-------------------
  s
 (1 row)
 
 select nvl2('',4,5) from dual;
- NVL2('',4,5)  
----------------
-             5
+ NVL2('',4,5) 
+--------------
+            5
 (1 row)
 
 select nvl2(3,'',5) from dual;
- NVL2(3,'',5)  
----------------
+ NVL2(3,'',5) 
+--------------
  
 (1 row)
 
 select nvl2(null,4,5) from dual;
- NVL2(NULL,4,5)  
------------------
-               5
+ NVL2(NULL,4,5) 
+----------------
+              5
 (1 row)
 
 select nvl2(null,4.8,5.9) from dual;
- NVL2(NULL,4.8,5.9)  
----------------------
-                 5.9
+ NVL2(NULL,4.8,5.9) 
+--------------------
+                5.9
 (1 row)
 
 select nvl2(null,4.8,4) from dual;
- NVL2(NULL,4.8,4)  
--------------------
-                 4
+ NVL2(NULL,4.8,4) 
+------------------
+                4
 (1 row)
 
 select nvl2(null,4.8,'s') from dual;
 ERROR:  invalid input syntax for type numeric: "s"
 select nvl2(null,4.8,'5.9') from dual;
- NVL2(NULL,4.8,'5.9')  
------------------------
-                   5.9
+ NVL2(NULL,4.8,'5.9') 
+----------------------
+                  5.9
 (1 row)
 
 select nvl2(null,4.8,exp(2)) from dual;
- NVL2(NULL,4.8,EXP(2))  
-------------------------
-     7.3890560989306502
+ NVL2(NULL,4.8,EXP(2)) 
+-----------------------
+    7.3890560989306502
 (1 row)
 
 select nvl2(4.9,null,4.9) from dual;
- NVL2(4.9,NULL,4.9)  
----------------------
- 
-(1 row)
-
-select nvl2(4.9,null,'') from dual;
- NVL2(4.9,NULL,'')  
+ NVL2(4.9,NULL,4.9) 
 --------------------
  
 (1 row)
 
+select nvl2(4.9,null,'') from dual;
+ NVL2(4.9,NULL,'') 
+-------------------
+ 
+(1 row)
+
 select nvl2(4.9,null,null) from dual;
- NVL2(4.9,NULL,NULL)  
-----------------------
+ NVL2(4.9,NULL,NULL) 
+---------------------
  
 (1 row)
 
 select nvl2(null,null,null) from dual;
- NVL2(NULL,NULL,NULL)  
------------------------
+ NVL2(NULL,NULL,NULL) 
+----------------------
  
 (1 row)
 
 select nvl2('','','') from dual;
- NVL2('','','')  
------------------
+ NVL2('','','') 
+----------------
  
 (1 row)
 
@@ -194,8 +194,8 @@ select * from t4test order by id ;
 (3 rows)
 
 select nvl2(num,'is not null','is null') from t4test order by num;
- NVL2(NUM,'IS NOT NULL','IS NULL')  
-------------------------------------
+ NVL2(NUM,'IS NOT NULL','IS NULL') 
+-----------------------------------
  is not null
  is not null
  is null

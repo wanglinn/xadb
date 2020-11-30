@@ -4,8 +4,8 @@ create table nextdaytbl(id int, dt timestamp);
 insert into nextdaytbl values(1,to_date('2000-3-31','YYYY-MM-DD'));
 insert into nextdaytbl values(2,to_date('2000-2-29','YYYY-MM-DD'));
 select id, next_day(dt,'MONDAY') from nextdaytbl;
- ID | NEXT_DAY(DT,'MONDAY')  
-----+------------------------
+ ID | NEXT_DAY(DT,'MONDAY') 
+----+-----------------------
   1 | 2000-04-03 00:00:00
   2 | 2000-03-06 00:00:00
 (2 rows)
@@ -18,8 +18,8 @@ select id, next_day(dt,'MON') from nextdaytbl;
 (2 rows)
 
 select id, next_day(dt,'Mond') from nextdaytbl;
- ID | NEXT_DAY(DT,'MOND')  
-----+----------------------
+ ID | NEXT_DAY(DT,'MOND') 
+----+---------------------
   1 | 2000-04-03 00:00:00
   2 | 2000-03-06 00:00:00
 (2 rows)

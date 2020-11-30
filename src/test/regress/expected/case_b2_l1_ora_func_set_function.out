@@ -16,27 +16,27 @@ select * from t4test order by name;
 (4 rows)
 
 select count(*) from t4test where id=1;
- COUNT(*)  
------------
-         3
+ COUNT(*) 
+----------
+        3
 (1 row)
 
 select count(name) from t4test where id=1;
- COUNT(NAME)  
---------------
-            2
+ COUNT(NAME) 
+-------------
+           2
 (1 row)
 
 select count(*) from t4test;
- COUNT(*)  
------------
-         4
+ COUNT(*) 
+----------
+        4
 (1 row)
 
 select count(id) from t4test;
- COUNT(ID)  
-------------
-          3
+ COUNT(ID) 
+-----------
+         3
 (1 row)
 
 drop table t4test;
@@ -58,15 +58,15 @@ select * from t4test order by name, sal;
 (5 rows)
 
 select sum(sal) from t4test;
- SUM(SAL)  
------------
-   19500.8
+ SUM(SAL) 
+----------
+  19500.8
 (1 row)
 
 select name,sum(sal) from t4test where name='Jack' group by name order by name;
- NAME  | SUM(SAL)  
--------+-----------
- Jack  |     10000
+ NAME  | SUM(SAL) 
+-------+----------
+ Jack  |    10000
 (1 row)
 
 select sum(sal) as total from t4test where name='Jack';
@@ -136,32 +136,32 @@ select * from t4test order by id;
 (5 rows)
 
 select to_number(max(sal)) from t4test;
- TO_NUMBER(MAX(SAL))  
-----------------------
-                 5000
+ TO_NUMBER(MAX(SAL)) 
+---------------------
+                5000
 (1 row)
 
 select max(id) from t4test;
- MAX(ID)  
-----------
+ MAX(ID) 
+---------
  6.00 
 (1 row)
 
 select min(sal) from t4test;
- MIN(SAL)  
------------
-    0.0006
+ MIN(SAL) 
+----------
+   0.0006
 (1 row)
 
 select min(id) from t4test;
- MIN(ID)  
-----------
+ MIN(ID) 
+---------
  2    
 (1 row)
 
 select sal,max(id) from t4test group by sal order by sal;
-   SAL   | MAX(ID)  
----------+----------
+   SAL   | MAX(ID) 
+---------+---------
   0.0006 | 5    
  567.389 | 4    
   4000.3 | 3    
@@ -193,20 +193,20 @@ select * from t4test order by id;
 (7 rows)
 
 select max(id) from t4test;
- MAX(ID)  
-----------
+ MAX(ID) 
+---------
  5    
 (1 row)
 
 select min(id) from t4test;
- MIN(ID)  
-----------
+ MIN(ID) 
+---------
  1    
 (1 row)
 
 select min(id) from t4test;
- MIN(ID)  
-----------
+ MIN(ID) 
+---------
  1    
 (1 row)
 
@@ -217,9 +217,9 @@ select avg(id) from t4test;
 (1 row)
 
 select sum(id) from t4test;
- SUM(ID)  
-----------
-       16
+ SUM(ID) 
+---------
+      16
 (1 row)
 
 drop table t4test;
@@ -237,34 +237,34 @@ select * from t4test order by id;
 (3 rows)
 
 select max(id) from t4test;
- MAX(ID)  
-----------
+ MAX(ID) 
+---------
  Tom  
 (1 row)
 
 select min(id) from t4test;
- MIN(ID)  
-----------
+ MIN(ID) 
+---------
  a    
 (1 row)
 
 select max(sal) from t4test group by sal;
- MAX(SAL)  
------------
-     123.9
-       123
+ MAX(SAL) 
+----------
+    123.9
+      123
 (2 rows)
 
 select sal,min(id) from t4test group by sal;
-  SAL  | MIN(ID)  
--------+----------
+  SAL  | MIN(ID) 
+-------+---------
  123.9 | Jack 
    123 | a    
 (2 rows)
 
 select sal,max(id) from t4test group by sal;
-  SAL  | MAX(ID)  
--------+----------
+  SAL  | MAX(ID) 
+-------+---------
  123.9 | Tom  
    123 | a    
 (2 rows)
@@ -284,13 +284,13 @@ select * from t4test order by id;
 (3 rows)
 
 select min(dt) from t4test;
-      MIN(DT)        
+       MIN(DT)       
 ---------------------
  2015-01-01 00:00:00
 (1 row)
 
 select max(dt) from t4test;
-      MAX(DT)        
+       MAX(DT)       
 ---------------------
  2015-01-02 09:10:09
 (1 row)

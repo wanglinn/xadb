@@ -16,27 +16,27 @@ select * from set_func_tbl1 order by name;
 (4 rows)
 
 select count(*) from set_func_tbl1 where id=1;
- COUNT(*)  
------------
-         3
+ COUNT(*) 
+----------
+        3
 (1 row)
 
 select count(name) from set_func_tbl1 where id=1;
- COUNT(NAME)  
---------------
-            2
+ COUNT(NAME) 
+-------------
+           2
 (1 row)
 
 select count(*) from set_func_tbl1;
- COUNT(*)  
------------
-         4
+ COUNT(*) 
+----------
+        4
 (1 row)
 
 select count(id) from set_func_tbl1;
- COUNT(ID)  
-------------
-          3
+ COUNT(ID) 
+-----------
+         3
 (1 row)
 
 drop table set_func_tbl1;
@@ -58,15 +58,15 @@ select * from set_func_tbl1 order by name, sal;
 (5 rows)
 
 select sum(sal) from set_func_tbl1;
- SUM(SAL)  
------------
-   19500.8
+ SUM(SAL) 
+----------
+  19500.8
 (1 row)
 
 select name,sum(sal) from set_func_tbl1 where name='Jack' group by name order by name;
- NAME  | SUM(SAL)  
--------+-----------
- Jack  |     10000
+ NAME  | SUM(SAL) 
+-------+----------
+ Jack  |    10000
 (1 row)
 
 select sum(sal) as total from set_func_tbl1 where name='Jack';
@@ -137,32 +137,32 @@ select * from set_func_tbl1 order by id;
 (6 rows)
 
 select to_number(max(sal)) from set_func_tbl1;
- TO_NUMBER(MAX(SAL))  
-----------------------
-                 5000
+ TO_NUMBER(MAX(SAL)) 
+---------------------
+                5000
 (1 row)
 
 select max(id) from set_func_tbl1;
- MAX(ID)  
-----------
+ MAX(ID) 
+---------
  6.00 
 (1 row)
 
 select min(sal) from set_func_tbl1;
- MIN(SAL)  
------------
-    0.0006
+ MIN(SAL) 
+----------
+   0.0006
 (1 row)
 
 select min(id) from set_func_tbl1;
- MIN(ID)  
-----------
+ MIN(ID) 
+---------
  1    
 (1 row)
 
 select sal,max(id) from set_func_tbl1 group by sal order by sal;
-   SAL   | MAX(ID)  
----------+----------
+   SAL   | MAX(ID) 
+---------+---------
   0.0006 | 5    
  567.389 | 4    
   4000.3 | 3    
@@ -194,20 +194,20 @@ select * from set_func_tbl1 order by id;
 (7 rows)
 
 select max(id) from set_func_tbl1;
- MAX(ID)  
-----------
+ MAX(ID) 
+---------
  5    
 (1 row)
 
 select min(id) from set_func_tbl1;
- MIN(ID)  
-----------
+ MIN(ID) 
+---------
  1    
 (1 row)
 
 select min(id) from set_func_tbl1;
- MIN(ID)  
-----------
+ MIN(ID) 
+---------
  1    
 (1 row)
 
@@ -218,9 +218,9 @@ select avg(id) from set_func_tbl1;
 (1 row)
 
 select sum(id) from set_func_tbl1;
- SUM(ID)  
-----------
-       16
+ SUM(ID) 
+---------
+      16
 (1 row)
 
 drop table set_func_tbl1;
@@ -238,34 +238,34 @@ select * from set_func_tbl1 order by id;
 (3 rows)
 
 select max(id) from set_func_tbl1;
- MAX(ID)  
-----------
+ MAX(ID) 
+---------
  Tom  
 (1 row)
 
 select min(id) from set_func_tbl1;
- MIN(ID)  
-----------
+ MIN(ID) 
+---------
  a    
 (1 row)
 
 select max(sal) from set_func_tbl1 group by sal;
- MAX(SAL)  
------------
-     123.9
-       123
+ MAX(SAL) 
+----------
+    123.9
+      123
 (2 rows)
 
 select sal,min(id) from set_func_tbl1 group by sal;
-  SAL  | MIN(ID)  
--------+----------
+  SAL  | MIN(ID) 
+-------+---------
  123.9 | Jack 
    123 | a    
 (2 rows)
 
 select sal,max(id) from set_func_tbl1 group by sal;
-  SAL  | MAX(ID)  
--------+----------
+  SAL  | MAX(ID) 
+-------+---------
  123.9 | Tom  
    123 | a    
 (2 rows)
@@ -285,13 +285,13 @@ select * from set_func_tbl1 order by id;
 (3 rows)
 
 select min(dt) from set_func_tbl1;
-      MIN(DT)        
+       MIN(DT)       
 ---------------------
  2015-01-01 00:00:00
 (1 row)
 
 select max(dt) from set_func_tbl1;
-      MAX(DT)        
+       MAX(DT)       
 ---------------------
  2015-01-02 09:10:09
 (1 row)

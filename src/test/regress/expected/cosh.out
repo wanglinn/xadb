@@ -6,7 +6,7 @@ select cosh(exp(2)) from dual;
 (1 row)
 
 select cosh(-1) from dual;
-     COSH(-1)       
+      COSH(-1)      
 --------------------
  1.5430806348152438
 (1 row)
@@ -18,9 +18,9 @@ select cosh('0.9') from dual;
 (1 row)
 
 select cosh(0) from dual;
- COSH(0)  
-----------
-        1
+ COSH(0) 
+---------
+       1
 (1 row)
 
 select cosh(to_char(0.5)) from dual;
@@ -36,14 +36,14 @@ select cosh('0.9') from dual;
 (1 row)
 
 select cosh(null) from dual;
- COSH(NULL)  
--------------
-            
+ COSH(NULL) 
+------------
+           
 (1 row)
 
 select cosh('') from dual;
- COSH('')  
------------
-          
+ COSH('') 
+----------
+         
 (1 row)
 

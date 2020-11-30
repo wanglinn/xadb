@@ -7,7 +7,7 @@ SELECT DUMP('\|a*&^%$#@!g?') FROM DUAL;
 
 --SELECT DUMP('你好') FROM DUAL;
 SELECT DUMP(22.7) FROM DUAL;
-            DUMP(22.7)              
+             DUMP(22.7)             
 ------------------------------------
  Typ=25 Len=8: 32,0,0,0,50,50,46,55
 (1 row)
@@ -31,13 +31,13 @@ SELECT DUMP('a',16) FROM DUAL;
 (1 row)
 
 SELECT DUMP('ab',8) FROM DUAL;
-         DUMP('AB',8)           
+          DUMP('AB',8)          
 --------------------------------
  Typ=25 Len=6: 30,0,0,0,141,142
 (1 row)
 
 SELECT DUMP('ab',17) FROM DUAL;
-      DUMP('AB',17)        
+       DUMP('AB',17)       
 ---------------------------
  Typ=25 Len=6: ?,?,?,?,a,b
 (1 row)
@@ -53,7 +53,7 @@ ERROR:  unknown format
 SELECT DUMP('abcdefg',-2) FROM DUAL;
 ERROR:  unknown format
 SELECT DUMP('abcdefg','8') FROM DUAL;
-                DUMP('ABCDEFG','8')                  
+                 DUMP('ABCDEFG','8')                 
 -----------------------------------------------------
  Typ=25 Len=11: 54,0,0,0,141,142,143,144,145,146,147
 (1 row)
@@ -104,14 +104,14 @@ LINE 1: SELECT DUMP('a',8,0,'2') FROM DUAL;
                ^
 HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 SELECT DUMP('',null) FROM DUAL;
- DUMP('',NULL)  
-----------------
+ DUMP('',NULL) 
+---------------
  
 (1 row)
 
 SELECT DUMP(null,8) FROM DUAL;
- DUMP(NULL,8)  
----------------
+ DUMP(NULL,8) 
+--------------
  
 (1 row)
 
