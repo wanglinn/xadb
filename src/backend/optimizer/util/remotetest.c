@@ -14,12 +14,14 @@
  */
 #include "postgres.h"
 
+#include "access/htup_details.h"
 #include "access/sysattr.h"
 #include "access/table.h"
 #include "access/tuptypeconvert.h"
 #include "catalog/heap.h"
 #include "catalog/pg_aux_class.h"
 #include "catalog/pg_operator.h"
+#include "catalog/pgxc_node.h"
 #include "catalog/pg_type.h"
 #include "commands/defrem.h"
 #include "executor/executor.h"
@@ -52,6 +54,7 @@
 #include "utils/rel.h"
 #include "utils/ruleutils.h"
 #include "utils/snapmgr.h"
+#include "utils/syscache.h"
 
 #define AUX_SCAN_INFO_SIZE_STEP		8
 
@@ -138,6 +141,7 @@ typedef struct GatherMainRelExecOn
 
 int use_aux_type = USE_AUX_CTID;
 int use_aux_max_times = 1;
+extern bool enable_readsql_on_slave;	/* GUC */
 
 static Expr* makeInt4EQ(Expr *l, Expr *r);
 static Expr* makeInt4ArrayIn(Expr *l, Datum *values, int count);
@@ -165,6 +169,7 @@ static GatherMainRelExecOn* get_main_table_execute_on(GatherAuxInfoContext *cont
 static bool process_remote_aux_tuple(PQNHookFunctions *pub, struct pg_conn *conn, const char *buf, int len);
 static void push_tid_to_exec_on(GatherMainRelExecOn *context, Datum datum);
 static Expr* make_ctid_in_expr(Index relid, ItemPointer tids, uint32 count);
+static Oid convert_slaveoid_to_masteroid(RelationLocInfo *loc_info, Oid master_node_id);
 
 /* return remote oid list */
 List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel, bool modify_info_when_aux)
@@ -231,9 +236,19 @@ List *relation_remote_by_constraints(PlannerInfo *root, RelOptInfo *rel, bool mo
 		MemoryContextSwitchTo(old_mctx);
 		if (exec_on->list_nodeid != NIL)
 		{
+			Oid node_oid;
 			foreach (lc, rel->loc_info->nodeids)
 			{
-				if (list_member_int(exec_on->list_nodeid, get_pgxc_node_id(lfirst_oid(lc))))
+				/**
+				 * Avoid node OID changes caused by the read and write separation enabled,
+				 * resulting in the inability to correctly match node information.
+				 */
+				if (enable_readsql_on_slave && sql_readonly == SQLTYPE_READ)
+					node_oid = convert_slaveoid_to_masteroid(rel->loc_info, lfirst_oid(lc));
+				else
+					node_oid = lfirst_oid(lc);
+
+				if (list_member_int(exec_on->list_nodeid, get_pgxc_node_id(node_oid)))
 					result = list_append_unique_oid(result, lfirst_oid(lc));
 			}
 		}
@@ -1466,4 +1481,26 @@ static Expr* make_ctid_in_expr(Index relid, ItemPointer tids, uint32 count)
 	}
 
 	return expr;
+}
+
+static Oid
+convert_slaveoid_to_masteroid(RelationLocInfo *loc_info, Oid nodeid)
+{
+	HeapTuple		tuple;
+	Form_pgxc_node	nodeForm;
+	Oid				result;
+
+	if (nodeid == InvalidOid)
+		return 0;
+
+	tuple = SearchSysCache1(PGXCNODEOID, ObjectIdGetDatum(nodeid));
+
+	if (!HeapTupleIsValid(tuple))
+			elog(ERROR, "cache lookup failed for node %u", nodeid);
+
+	nodeForm = (Form_pgxc_node) GETSTRUCT(tuple);
+	result = nodeForm->node_master_oid;
+	ReleaseSysCache(tuple);
+
+	return result;
 }
