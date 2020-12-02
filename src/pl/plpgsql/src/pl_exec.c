@@ -4222,7 +4222,11 @@ exec_stmt_execsql(PLpgSQL_execstate *estate,
 			if (plansource->commandTag &&
 				(strcmp(plansource->commandTag, "INSERT") == 0 ||
 				 strcmp(plansource->commandTag, "UPDATE") == 0 ||
-				 strcmp(plansource->commandTag, "DELETE") == 0))
+				 strcmp(plansource->commandTag, "DELETE") == 0
+#ifdef ADB
+				 || strcmp(plansource->commandTag, "CREATE TABLE AS") == 0
+#endif /* ADB */
+				 ))
 			{
 				stmt->mod_stmt = true;
 				break;
