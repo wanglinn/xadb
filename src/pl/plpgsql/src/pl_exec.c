@@ -4267,7 +4267,8 @@ exec_stmt_execsql(PLpgSQL_execstate *estate,
 			 */
 			if (plansource->commandTag == CMDTAG_INSERT ||
 				plansource->commandTag == CMDTAG_UPDATE ||
-				plansource->commandTag == CMDTAG_DELETE)
+				plansource->commandTag == CMDTAG_DELETE
+				ADB_ONLY_CODE(|| plansource->commandTag == CMDTAG_CREATE_TABLE_AS))
 			{
 				stmt->mod_stmt = true;
 				break;
