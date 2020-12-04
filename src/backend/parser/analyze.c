@@ -4476,7 +4476,7 @@ static void rewrite_rownum_query(Query *query)
 				/* rownum >= expr
 				 *  only support rownum >= 1
 				 */
-				if(v64 != (int64)1)
+				if(v64 == (int64)1)
 					return;
 			}else if(opname[1] == '\0')
 			{
@@ -4491,7 +4491,24 @@ static void rewrite_rownum_query(Query *query)
 			}
 		}else if(opname[0] == '=' && opname[1] == '\0')
 		{
-			if(!IsA(r, RownumExpr))
+			if(const_get_int64((Expr*)r, &v64))
+			{
+				if(v64 == (int64)1)
+				{
+					limitCount = (Node*)make_int8_const(Int64GetDatum(v64));
+				}else
+				{
+					/* if rownum != 1, return 0 records*/
+					limitCount = (Node*)make_int8_const(Int64GetDatum(0));
+				}
+
+				if (list_length(qual_list) == 1)
+					qual_list = NIL;
+				else
+					list_delete(qual_list, (void *)expr);
+				break;
+			}
+			else if(!IsA(r, RownumExpr))
 				return;
 			/* rownum = rownum ignore */
 		}else
