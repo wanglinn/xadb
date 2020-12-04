@@ -645,9 +645,6 @@ int			adb_custom_plan_tries = 5;
 #ifdef DEBUG_ADB
 bool		ADB_DEBUG;
 #endif
-#ifdef AGTM
-extern int agtm_listen_port;
-#endif /* AGTM */
 
 /*
  * SSL renegotiation was been removed in PostgreSQL 9.5, but we tolerate it
@@ -3703,17 +3700,6 @@ static struct config_int ConfigureNamesInt[] =
 
 #ifdef ADB
 	{
-		{"pool_time_out", PGC_BACKEND, CLIENT_CONN_OTHER,
-			gettext_noop("close connection from poolmgr to datanode idle process max time(s)"),
-			gettext_noop("A value of 0 uses the system default."),
-			GUC_UNIT_S
-		},
-		&pool_time_out,
-		60, 1, INT_MAX,
-		NULL, NULL, NULL
-	},
-
-	{
 		{"min_pool_size", PGC_POSTMASTER, DATA_NODES,
 			gettext_noop("Initial pool size."),
 			gettext_noop("If number of active connections decreased below this value, "
@@ -3844,19 +3830,6 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 #endif /* ADB */
-
-#ifdef AGTM
-	{
-		{"agtm_port", PGC_INTERNAL, CONN_AUTH,
-			gettext_noop("Other coordinator/datanode backend connect port."),
-			NULL,
-			GUC_NO_RESET_ALL | GUC_REPORT
-		},
-		&agtm_listen_port,
-		0, 0, 65535,
-		NULL, NULL, NULL
-	},
-#endif /* AGTM */
 
 	/* End-of-list marker */
 	{
