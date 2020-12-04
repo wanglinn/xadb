@@ -158,6 +158,7 @@ static bool ExecHashNewBatch(HashJoinTable hashtable, HashConnectByState *state,
 static void ProcessTuplesortRoot(ConnectByState *cbstate, TuplestoreConnectByLeaf *leaf, uint32 input_rownum_index);
 static void RestartBufFile(BufFile *file);
 static Datum MakeInt8ArrayDatum(TupleTableSlot *outer_slot, AttrNumber prior_attno, int64 **last_ptr);
+static bool IsLimitLevel(ConnectByState *cbstate);
 
 static void ExecInitHashConnectBy(HashConnectByState *state, ConnectByState *pstate)
 {
@@ -410,6 +411,7 @@ static TupleTableSlot *ExecNestConnectBy(PlanState *pstate)
 	ExprContext *econtext = cbstate->ps.ps_ExprContext;
 	int64		   *rownum_ptr;
 	Datum			rownum_chain;
+	bool			limit_level = IsLimitLevel(cbstate);
 
 	if (cbstate->processing_root)
 	{
@@ -494,8 +496,9 @@ re_get_tuplestore_connect_by_:
 		econtext->ecxt_outertuple = outer_slot;
 		if (ExecQualAndReset(cbstate->joinclause, econtext))
 		{
-			/* cycle check */
-			if (Int64InArray(DatumGetArrayTypeP(outer_slot->tts_values[cbstate->rownum_chain_attr-1]),
+			/* cycle check, but skip limit level */
+			if (!limit_level &&
+				Int64InArray(DatumGetArrayTypeP(outer_slot->tts_values[cbstate->rownum_chain_attr-1]),
 							 DatumGetInt64(inner_slot->tts_values[state->input_rownum_index])))
 			{
 				if (castNode(ConnectByPlan, cbstate->ps.plan)->no_cycle == false)
@@ -2197,4 +2200,30 @@ void ExecEvalSysConnectByPathExpr(ExprState *state, ExprEvalStep *op, ExprContex
 		text *result = cstring_to_text_with_len(buf.data, buf.len);
 		*op->resvalue = PointerGetDatum(result);
 	}
+}
+
+static bool
+IsLimitLevel(ConnectByState *cbstate)
+{
+	List		*expr_list;
+	ListCell	*lc;
+	Node		*node;
+
+	if (cbstate->joinclause && cbstate->joinclause->expr)
+	{
+		if (IsA(cbstate->joinclause->expr, List))
+		{
+			expr_list = (List *)cbstate->joinclause->expr;
+			foreach(lc, expr_list)
+			{
+				node = (Node *)lfirst(lc);
+				if (IsA(node, OpExpr) && 
+					IsA(linitial(((OpExpr *)node)->args), LevelExpr))
+				{
+					return true;
+				}
+			}
+		}
+	}
+	return false;
 }
