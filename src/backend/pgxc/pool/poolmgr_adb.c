@@ -1228,6 +1228,7 @@ static List* recv_host_info(StringInfo buf, bool dup_str)
 		info = palloc(sizeof(*info));
 		info->hostname = (char*)pool_getstring(buf);
 		info->port = (uint16)pool_getint(buf);
+		info->hosttype = (uint16)pool_getint(buf);
 		if (dup_str)
 			info->hostname = pstrdup(info->hostname);
 		list = lappend(list, info);
