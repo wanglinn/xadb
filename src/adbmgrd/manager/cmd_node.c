@@ -276,6 +276,7 @@ static bool exec_remove_coordinator(char nodetype, char *nodename);
 static bool mgr_get_async_slave_readonly_state(List **parms);
 static bool mgr_get_sync_slave_readonly_state(void);
 static bool check_all_cn_sync_slave_is_active(void);
+static bool check_node_is_active(Form_mgr_node mgr_node);
 static bool mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List *datanode_list, List *sync_parms);
 static void check_readsql_slave_param_state(Form_mgr_node cn_master_node, List *sync_parms, char *key, bool *state);
 
@@ -14429,17 +14430,19 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 		/* In read-write separation mode, synchronous slave node is used by default, 
 		 * and asynchronous slave node can be used if no synchronous slave node exists. */
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 4, ndskey);
-		if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+		while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 		{
 			mgrNodeSlave = (Form_mgr_node)GETSTRUCT(tuple);
-			if ((pg_strcasecmp(NameStr(mgrNodeSlave->curestatus), CURE_STATUS_NORMAL) == 0) || 
-				(pg_strcasecmp(NameStr(mgrNodeSlave->curestatus), CURE_STATUS_SWITCHED) == 0))
+			if (((pg_strcasecmp(NameStr(mgrNodeSlave->curestatus), CURE_STATUS_NORMAL) == 0) || 
+				(pg_strcasecmp(NameStr(mgrNodeSlave->curestatus), CURE_STATUS_SWITCHED) == 0)) &&
+				check_node_is_active(mgrNodeSlave))
 			{
-				mgr_datanode_info->slaveNode = mgrNodeSlave;		
-			}				
-		}		
+				mgr_datanode_info->slaveNode = mgrNodeSlave;
+				break;
+			}
+		}
 		/* Allow reading of asynchronous node slave */
-		else
+		if (mgr_datanode_info->slaveNode == NULL)
 		{
 			table_endscan(info->rel_scan);
 			ScanKeyInit(&ndskey[3]
@@ -14449,14 +14452,16 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 					,NameGetDatum(&nodeSync));
 			
 			info->rel_scan = table_beginscan_catalog(info->rel_node, 4, ndskey);
-			if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+			while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 			{
 				mgrNodeSlave = (Form_mgr_node)GETSTRUCT(tuple);
-				if ((pg_strcasecmp(NameStr(mgrNodeSlave->curestatus), CURE_STATUS_NORMAL) == 0) || 
-					(pg_strcasecmp(NameStr(mgrNodeSlave->curestatus), CURE_STATUS_SWITCHED) == 0))
+				if (((pg_strcasecmp(NameStr(mgrNodeSlave->curestatus), CURE_STATUS_NORMAL) == 0) || 
+					(pg_strcasecmp(NameStr(mgrNodeSlave->curestatus), CURE_STATUS_SWITCHED) == 0)) &&
+					check_node_is_active(mgrNodeSlave))
 				{
-					mgr_datanode_info->slaveNode = mgrNodeSlave;			
-				}					
+					mgr_datanode_info->slaveNode = mgrNodeSlave;
+					break;
+				}
 			}
 		}
 		table_endscan(info->rel_scan);
@@ -15952,4 +15957,41 @@ static void mgr_get_init_parm(List *options, InitAllParmInfo *parmInfo)
 			parmInfo->walSegSize = walSegSize;
 		}
 	}
+}
+
+/**
+ * Check node is Online.
+ */
+static bool
+check_node_is_active(Form_mgr_node mgr_node)
+{
+	StringInfoData	connStr;
+	PGconn		   *conn = NULL;
+	bool			active = true;
+
+	Assert(mgr_node);
+	/* init node connect string */
+	initStringInfo(&connStr);
+	appendStringInfo(&connStr, 
+						"postgresql://%s@%s:%d/%s", 
+						get_hostuser_from_hostoid(mgr_node->nodehost), 
+						get_hostaddress_from_hostoid(mgr_node->nodehost), 
+						mgr_node->nodeport, 
+						DEFAULT_DB);
+	appendStringInfoCharMacro(&connStr, '\0');
+	
+	/* get node connect */
+	conn = PQconnectdb(connStr.data);
+	if (PQstatus(conn) != CONNECTION_OK)
+	{
+		pg_usleep(1 * 1000000L);
+		conn = PQconnectdb(connStr.data);
+		if (PQstatus(conn) != CONNECTION_OK)
+		{
+			active = false;
+		}
+	}
+	pfree(connStr.data);
+	PQfinish(conn);
+	return active;
 }
