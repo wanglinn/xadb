@@ -2534,7 +2534,7 @@ CommitTransaction(void)
 					  : XACT_EVENT_PRE_COMMIT);
 
 #if defined(ADB)
-	if (IsGTMCnNode())
+	if (IsCnMaster())
 	{
 		Oid *oids;
 		int other_node_trans_count;
