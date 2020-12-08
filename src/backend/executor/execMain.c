@@ -940,12 +940,22 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 				Relation	resultRelDesc;
 
 				resultRelOid = getrelid(resultRelIndex, rangeTable);
+#ifdef ADB
+				if(IsConnFromCoord() && !OidIsValid(resultRelOid))
+					/* some time target table no in this datanode */
+					MemSet(resultRelInfos, 0, sizeof(*resultRelInfos));
+				else
+				{
+#endif
 				resultRelDesc = heap_open(resultRelOid, RowExclusiveLock);
 				InitResultRelInfo(resultRelInfo,
 								  resultRelDesc,
 								  lfirst_int(l),
 								  NULL,
 								  estate->es_instrument);
+#ifdef ADB
+				}
+#endif /* ADB */
 				resultRelInfo++;
 			}
 
@@ -1704,6 +1714,9 @@ ExecEndPlan(PlanState *planstate, EState *estate)
 	resultRelInfo = estate->es_root_result_relations;
 	for (i = estate->es_num_root_result_relations; i > 0; i--)
 	{
+#ifdef ADB /* some time target table no in this datanode */
+		if (resultRelInfo->ri_RelationDesc)
+#endif /* ADB */
 		heap_close(resultRelInfo->ri_RelationDesc, NoLock);
 		resultRelInfo++;
 	}
