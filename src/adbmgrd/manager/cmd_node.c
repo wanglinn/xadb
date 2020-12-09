@@ -15918,13 +15918,12 @@ check_node_is_active(Form_mgr_node mgr_node)
 	conn = PQconnectdb(connStr.data);
 	if (PQstatus(conn) != CONNECTION_OK)
 	{
-		pg_usleep(1 * 1000000L);
+		pg_usleep(1 * 10000L);
 		conn = PQconnectdb(connStr.data);
 		if (PQstatus(conn) != CONNECTION_OK)
-		{
 			active = false;
-		}
 	}
+
 	pfree(connStr.data);
 	PQfinish(conn);
 	return active;
