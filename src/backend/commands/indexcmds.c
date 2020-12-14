@@ -2719,7 +2719,7 @@ static int process_master_reindex_cmd(int *options_in,const char *data, int len)
 
 		tableOid = RangeVarGetRelid(range, AccessShareLock, true);
 
-		if (reindex_relation(tableOid,
+		if (OidIsValid(tableOid) && reindex_relation(tableOid,
 							 REINDEX_REL_PROCESS_TOAST |
 							 REINDEX_REL_CHECK_CONSTRAINTS,
 							 options))
