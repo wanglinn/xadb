@@ -4222,6 +4222,27 @@ exec_prepare_plan(PLpgSQL_execstate *estate,
 	expr->rwparam = -1;
 }
 
+#ifdef ADB
+/* ----------
+ * for create table as return ture. As for create table as, pg_rewrite_query will call QueryRewriteCTAS. query->commandTag to "CREATE TABLE AS".
+ *   BUt query SPI type to  SPI_OK_INSERT. So we should modify to true.
+ * For create temp table as return false. As it will not call QueryRewriteCTAS to rewrite query.
+ * For other command return false.
+ * ----------
+ */
+static bool
+is_create_table_as_and_not_into_tmp_cmd(CachedPlanSource *plansource)
+{
+	if (plansource->commandTag == CMDTAG_CREATE_TABLE_AS &&
+		IsA(plansource->raw_parse_tree->stmt, CreateTableAsStmt) &&
+		((CreateTableAsStmt *)plansource->raw_parse_tree->stmt)->relkind != OBJECT_MATVIEW &&
+		((CreateTableAsStmt *)plansource->raw_parse_tree->stmt)->into->rel->relpersistence != RELPERSISTENCE_TEMP)
+		return true;
+	else
+		return false;
+}
+#endif
+
 
 /* ----------
  * exec_stmt_execsql			Execute an SQL statement (possibly with INTO).
@@ -4268,7 +4289,7 @@ exec_stmt_execsql(PLpgSQL_execstate *estate,
 			if (plansource->commandTag == CMDTAG_INSERT ||
 				plansource->commandTag == CMDTAG_UPDATE ||
 				plansource->commandTag == CMDTAG_DELETE
-				ADB_ONLY_CODE(|| plansource->commandTag == CMDTAG_CREATE_TABLE_AS))
+				ADB_ONLY_CODE(|| is_create_table_as_and_not_into_tmp_cmd(plansource)))
 			{
 				stmt->mod_stmt = true;
 				break;
