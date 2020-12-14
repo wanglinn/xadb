@@ -1704,6 +1704,8 @@ oracle_dbms_output_role(List *roles, bool is_grant)
 {
 	GrantStmt	*grantStmt;
 	AccessPriv	*accessPriv;
+	List		*role_list = NIL;
+	ListCell	*item;
 
 	accessPriv = makeNode(AccessPriv);
 	accessPriv->priv_name = "usage";
@@ -1717,10 +1719,26 @@ oracle_dbms_output_role(List *roles, bool is_grant)
 	grantStmt->objects = list_make3(makeString("dbms_lock"),
 									makeString("dbms_random"),
 									makeString("dbms_output"));
-	grantStmt->grantees = roles;
 	grantStmt->grant_option = false;
-	
+
+	foreach(item, roles)
+	{
+		RoleSpec   *rolspec = lfirst(item);
+		char	   *role;
+		HeapTuple	tuple;
+
+		role = rolspec->rolename;
+		tuple = SearchSysCache1(AUTHNAME, PointerGetDatum(role));
+		if (!HeapTupleIsValid(tuple))
+			continue;
+
+		role_list = lappend(role_list, rolspec);
+		ReleaseSysCache(tuple);
+	}
+	grantStmt->grantees = role_list;
+
 	ExecuteGrantStmt(grantStmt);
+	list_free(role_list);
 
 }
 
