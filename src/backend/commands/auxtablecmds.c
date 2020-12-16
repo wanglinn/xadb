@@ -834,8 +834,7 @@ List *MakeMainRelTargetForAux(Relation main_rel, Relation aux_rel, Index relid, 
 	Form_pg_attribute	aux_attr;
 	TupleDesc			main_desc = RelationGetDescr(main_rel);
 	TupleDesc			aux_desc = RelationGetDescr(aux_rel);
-	Var				   *var;
-	TargetEntry		   *te;
+	Expr			   *expr;
 	List			   *result = NIL;
 	char			   *attname;
 	int					anum;
@@ -844,63 +843,74 @@ List *MakeMainRelTargetForAux(Relation main_rel, Relation aux_rel, Index relid, 
 	for(i=anum=0;i<aux_desc->natts;++i)
 	{
 		aux_attr = TupleDescAttr(aux_desc, i);
-		if (aux_attr->attisdropped)
-			continue;
 
 		++anum;
-		attname = NameStr(aux_attr->attname);
-		if (anum == Anum_aux_table_auxnodeid)
+		if (aux_attr->attisdropped)
 		{
-			main_attr = SystemAttributeDefinition(XC_NodeIdAttributeNumber);
-		}else if (anum == Anum_aux_table_auxctid)
-		{
-			main_attr = SystemAttributeDefinition(SelfItemPointerAttributeNumber);
+			expr = (Expr*)makeNullConst(UNKNOWNOID,
+										-1,
+										InvalidOid);
+			main_attr = aux_attr;
 		}else
 		{
-			for(j=0;j<main_desc->natts;++j)
+			expr = (Expr*)makeVar(relid,
+								 aux_attr->attnum,
+								 aux_attr->atttypid,
+								 aux_attr->atttypmod,
+								 aux_attr->attcollation,
+								 0);
+
+			attname = NameStr(aux_attr->attname);
+			if (anum == Anum_aux_table_auxnodeid)
 			{
-				main_attr = TupleDescAttr(main_desc, j);
-				if (main_attr->attisdropped)
-					continue;
+				main_attr = SystemAttributeDefinition(XC_NodeIdAttributeNumber);
+			}else if (anum == Anum_aux_table_auxctid)
+			{
+				main_attr = SystemAttributeDefinition(SelfItemPointerAttributeNumber);
+			}else
+			{
+				for(j=0;j<main_desc->natts;++j)
+				{
+					main_attr = TupleDescAttr(main_desc, j);
+					if (main_attr->attisdropped)
+						continue;
 
-				if (strcmp(attname, NameStr(main_attr->attname)) == 0)
-					break;
+					if (strcmp(attname, NameStr(main_attr->attname)) == 0)
+						break;
+				}
+				if (j >= main_desc->natts)
+					main_attr = NULL;
 			}
-			if (j >= main_desc->natts)
-				main_attr = NULL;
+
+			if (main_attr == NULL)
+				ereport(ERROR,
+						(errcode(ERRCODE_DATATYPE_MISMATCH),
+						 errmsg("Can not found column \"%s\" in relation \"%s\" for auxiliary table \"%s\"",
+								attname, RelationGetRelationName(main_rel), RelationGetRelationName(aux_rel)),
+						 err_generic_string(PG_DIAG_SCHEMA_NAME, get_namespace_name(RelationGetNamespace(main_rel))),
+						 err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(main_rel)),
+						 err_generic_string(PG_DIAG_COLUMN_NAME, attname)));
+
+			if (main_attr->atttypid != aux_attr->atttypid ||
+				main_attr->atttypmod != aux_attr->atttypmod)
+				ereport(ERROR,
+						(errcode(ERRCODE_DATATYPE_MISMATCH),
+						 errmsg("Column \"%s\" in relation \"%s\" off type %s does not match auxiliary column of type %s.",
+								NameStr(main_attr->attname),
+								RelationGetRelationName(main_rel),
+								format_type_with_typemod(main_attr->atttypid, main_attr->atttypmod),
+								format_type_with_typemod(aux_attr->atttypid, aux_attr->atttypmod)),
+						 err_generic_string(PG_DIAG_SCHEMA_NAME, get_namespace_name(RelationGetNamespace(main_rel))),
+						 err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(main_rel)),
+						 err_generic_string(PG_DIAG_COLUMN_NAME, attname)));
 		}
 
-		if (main_attr == NULL)
-			ereport(ERROR,
-					(errcode(ERRCODE_DATATYPE_MISMATCH),
-					 errmsg("Can not found column \"%s\" in relation \"%s\" for auxiliary table \"%s\"",
-					 		attname, RelationGetRelationName(main_rel), RelationGetRelationName(aux_rel)),
-					 err_generic_string(PG_DIAG_SCHEMA_NAME, get_namespace_name(RelationGetNamespace(main_rel))),
-					 err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(main_rel)),
-					 err_generic_string(PG_DIAG_COLUMN_NAME, attname)));
-
-		if (main_attr->atttypid != aux_attr->atttypid ||
-			main_attr->atttypmod != aux_attr->atttypmod)
-			ereport(ERROR,
-					(errcode(ERRCODE_DATATYPE_MISMATCH),
-					 errmsg("Column \"%s\" in relation \"%s\" off type %s does not match auxiliary column of type %s.",
-					 		NameStr(main_attr->attname),
-							RelationGetRelationName(main_rel),
-							format_type_with_typemod(main_attr->atttypid, main_attr->atttypmod),
-							format_type_with_typemod(aux_attr->atttypid, aux_attr->atttypmod)),
-					 err_generic_string(PG_DIAG_SCHEMA_NAME, get_namespace_name(RelationGetNamespace(main_rel))),
-					 err_generic_string(PG_DIAG_TABLE_NAME, RelationGetRelationName(main_rel)),
-					 err_generic_string(PG_DIAG_COLUMN_NAME, attname)));
-
-		var = makeVar(relid, main_attr->attnum, main_attr->atttypid, main_attr->atttypmod, main_attr->attcollation, 0);
 		if (target_entry)
-		{
-			te = makeTargetEntry((Expr*)var, (AttrNumber)anum, pstrdup(NameStr(main_attr->attname)), false);
-			result = lappend(result, te);
-		}else
-		{
-			result = lappend(result, var);
-		}
+			expr = (Expr*)makeTargetEntry(expr,
+								   (AttrNumber)anum,
+								   pstrdup(NameStr(main_attr->attname)),
+								   false);
+		result = lappend(result, expr);
 	}
 
 	return result;

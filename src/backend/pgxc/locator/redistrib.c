@@ -1043,33 +1043,36 @@ MakeMainRelTargetForShadow(Relation mainRel, Index relid, bool targetEntry)
 {
 	Form_pg_attribute	main_attr;
 	TupleDesc			main_desc = RelationGetDescr(mainRel);
-	Var				   *var;
-	TargetEntry		   *te;
+	Expr			   *expr;
 	List			   *result = NIL;
 	int					anum = 0;
 	int					i;
-	//char			   *attname;
 
 	for(i=0;i<main_desc->natts;++i)
 	{
 		main_attr = TupleDescAttr(main_desc, i);
 		if (main_attr->attisdropped)
-			continue;
-
-		++anum;
-		//attname = NameStr(main_attr->attname);
-
-		var = makeVar(relid, main_attr->attnum, main_attr->atttypid, main_attr->atttypmod
-						, main_attr->attcollation, 0);
-		if (targetEntry)
 		{
-			te = makeTargetEntry((Expr*)var, (AttrNumber)anum
-									, pstrdup(NameStr(main_attr->attname)), false);
-			result = lappend(result, te);
+			expr = (Expr*)makeNullConst(UNKNOWNOID,
+										-1,
+										InvalidOid);
 		}else
 		{
-			result = lappend(result, var);
+			expr = (Expr*)makeVar(relid,
+								 main_attr->attnum,
+								 main_attr->atttypid,
+								 main_attr->atttypmod,
+								 main_attr->attcollation,
+								 0);
 		}
+		++anum;
+
+		if (targetEntry)
+			expr = (Expr*)makeTargetEntry(expr,
+								   (AttrNumber)anum,
+								   pstrdup(NameStr(main_attr->attname)),
+								   false);
+		result = lappend(result, expr);
 	}
 
 	return result;

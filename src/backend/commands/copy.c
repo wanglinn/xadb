@@ -6468,9 +6468,34 @@ static TupleTableSlot* CallNextRow(void *data, ExprContext *econtext)
 	econtext->ecxt_scantuple = slot;
 	return slot;
 }
+
+static TupleTableSlot* CallNextRowWithDroppedColumn(void *data, ExprContext *econtext)
+{
+	int i = 0;
+	CopyFromReduceState	   *state = data;
+	TupleTableSlot		   *slot;
+	slot = (*state->NextRow)(state->cstate, state->drio.econtext, state->func_data);
+
+	if (!TupIsNull(slot))
+	{
+		/* Make sure the tuple is fully deconstructed */
+		slot_getallattrs(slot);
+		/* Be sure to null out any dropped columns */
+		for(i=slot->tts_tupleDescriptor->natts;(--i)>=0;)
+		{
+			if (TupleDescAttr(slot->tts_tupleDescriptor, i)->attisdropped)
+						slot->tts_isnull[i] = true;
+		}
+	}
+	econtext->ecxt_scantuple = slot;
+	return slot;
+}
+
 static void InitCopyFromReduce(CopyFromReduceState *state, TupleDesc desc, Expr *reduce,
 							   List *rnodes, int id, CustomNextRowFunction fun, void *func_data)
 {
+	int i = 0;
+	bool is_with_dropped_column = false;
 	DynamicReduceMQ drmq;
 	AssertArg(IsA(rnodes, OidList));
 
@@ -6484,7 +6509,22 @@ static void InitCopyFromReduce(CopyFromReduceState *state, TupleDesc desc, Expr 
 						   drmq->worker_sender_mq, sizeof(drmq->worker_sender_mq),
 						   drmq->reduce_sender_mq, sizeof(drmq->reduce_sender_mq));
 	state->drio.expr_state = ExecInitReduceExpr(reduce);
-	state->drio.FetchLocal = CallNextRow;
+
+	/*check desc has any dropped columns */
+	for(i=desc->natts;(--i)>=0;)
+	{
+		if (TupleDescAttr(desc, i)->attisdropped)
+		{
+			is_with_dropped_column = true;
+			break;
+		}
+	}
+
+	if (is_with_dropped_column)
+		state->drio.FetchLocal = CallNextRowWithDroppedColumn;
+	else
+		state->drio.FetchLocal = CallNextRow;
+
 	state->drio.user_data = state;
 	state->plan_id = id;
 
