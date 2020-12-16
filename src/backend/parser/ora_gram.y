@@ -1727,7 +1727,7 @@ alter_table_cmd:
 						{
 							ereport(ERROR,
 									(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-									errmsg("Unsupported column default value expression"),
+									errmsg("Unsupported column default value expression, only constants or sequences are supported."),
 									parser_errposition(@5)));
 						}
 					}
@@ -3670,6 +3670,19 @@ ColConstraintElem:
 			| DEFAULT b_expr
 				{
 					Constraint *n = makeNode(Constraint);
+
+					if (!IsA($2, A_Const))
+					{
+						if (!IsA($2, FuncCall) ||
+							(IsA($2, FuncCall) &&
+							 strcmp(strVal(llast(((FuncCall *)$2)->funcname)), "nextval") != 0))
+						{
+							ereport(ERROR,
+									(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+									errmsg("Unsupported column default value expression, only constants or sequences are supported."),
+									parser_errposition(@2)));
+						}
+					}
 					n->contype = CONSTR_DEFAULT;
 					n->location = @1;
 					n->raw_expr = $2;
