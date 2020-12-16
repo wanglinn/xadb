@@ -9443,7 +9443,7 @@ static void mgr_modify_gtmport_after_initd(Relation rel_node, HeapTuple nodetupl
 			{
 				mgr_modify_port_recoveryconf(rel_node, tuple, newport);
 			}
-			else if (CNDN_TYPE_GTM_COOR_MASTER != mgr_node->nodetype)
+			else if (CNDN_TYPE_GTM_COOR_MASTER != mgr_node->nodetype && CNDN_TYPE_COORDINATOR_MASTER != mgr_node->nodetype)
 			{
 				resetStringInfo(&infosendmsg);
 				mgr_append_pgconf_paras_str_int("agtm_port", newport, &infosendmsg);
@@ -9454,7 +9454,25 @@ static void mgr_modify_gtmport_after_initd(Relation rel_node, HeapTuple nodetupl
 				/*do nothing*/
 			}
 		}
-		table_endscan(rel_scan);
+		EndScan(rel_scan);
+
+		mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER, NULL);
+
+		/* restart  CNDN_TYPE_COORDINATOR_MASTER */
+		rel_scan = table_beginscan_catalog(rel_node, 1, key);
+		while((tuple = heap_getnext(rel_scan, ForwardScanDirection)) != NULL)
+		{
+			mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+			Assert(mgr_node);			
+			if (CNDN_TYPE_COORDINATOR_MASTER == mgr_node->nodetype)
+			{
+				resetStringInfo(&infosendmsg);
+				mgr_append_pgconf_paras_str_int("agtm_port", newport, &infosendmsg);
+				mgr_modify_node_parameter_after_initd(rel_node, tuple, &infosendmsg, true);
+			}
+		}
+		EndScan(rel_scan);
+
 		resetStringInfo(&infosendmsg);
 		appendStringInfo(&infosendmsg, "ALTER NODE \"%s\" WITH (%s=%d);"
 							,nodename
