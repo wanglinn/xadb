@@ -1815,9 +1815,13 @@ alter_table_cmd:
 				{
 					$$ = $3;
 				}
-			| MODIFY opt_column '(' modify_col_list ')'
+			| MODIFY COLUMN '(' modify_col_list ')'
 				{
 					$$ = (Node*)$4;
+				}
+			| MODIFY '(' modify_col_list ')'
+				{
+					$$ = (Node*)$3;
 				}
 			| MODIFY opt_column ColId DEFAULT '(' a_expr ')'
 				{
@@ -1826,6 +1830,29 @@ alter_table_cmd:
 					n->name = $3;
 					n->def = $6;
 					$$ = (Node*)n;
+				}
+			/* ALTER TABLE <name> MODIFY ( <colname> DEFAULT <expr> ) */
+			| MODIFY '(' ColId DEFAULT a_expr ')'
+				{
+					AlterTableCmd  *n = makeNode(AlterTableCmd);
+
+					if (!IsA($5, A_Const))
+					{
+						if (!IsA($5, FuncCall) ||
+							(IsA($5, FuncCall) &&
+							 strcmp(strVal(llast(((FuncCall *)$5)->funcname)), "nextval") != 0))
+						{
+							ereport(ERROR,
+									(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+									errmsg("Unsupported column default value expression"),
+									parser_errposition(@5)));
+						}
+					}
+
+					n->subtype = AT_ColumnDefault;
+					n->name = $3;
+					n->def = $5;
+					$$ = (Node *)n;
 				}
 			/* ALTER FOREIGN TABLE <name> ALTER [COLUMN] <colname> OPTIONS */
 			| ALTER opt_column ColId alter_generic_options
