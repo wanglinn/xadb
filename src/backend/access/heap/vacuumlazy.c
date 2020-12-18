@@ -518,6 +518,7 @@ static int NextRelVsiFromRaw(void *context, struct pg_conn *conn, const char *da
 
 	if (data[0] == CLUSTER_MSG_EXECUTOR_RUN_END)
 	{
+		VACUUM_CLUSTER_DEBUG_LOG((errmsg("Cn master get vacuum info end msg from dn master\n")));
 		renc->base.got_run_end = true;
 		return 1;
 	}else if(clusterRecvTupleEx(renc->base.rstate, data, len, conn))
@@ -570,7 +571,7 @@ static int NextRelVsiFromRaw(void *context, struct pg_conn *conn, const char *da
 		{
 			new_min_multi = DatumGetUInt32(slot->tts_values[4]);
 
-			VACUUM_CLUSTER_DEBUG_LOG((errmsg("Cn get fnew_frozen_xid %d, renc->vsi.new_min_multi %d\n",
+			VACUUM_CLUSTER_DEBUG_LOG((errmsg("Cn get new_min_multi %d, renc->vsi.new_min_multi %d\n",
 				new_min_multi, renc->vsi.new_min_multi)));
 			if (TransactionIdIsNormal(new_min_multi))
 			{
@@ -708,6 +709,8 @@ static void send_localvsi_to_coord(VacuumSyncInfo *vsi)
 	(*r->receiveSlot)(slot, r);
 	(*r->rShutdown)(r);
 	(*r->rDestroy)(r);
+
+	VACUUM_CLUSTER_DEBUG_LOG((errmsg("dn send local vacuum info end to cn master :\n")));
 	put_executor_end_msg(true);
 
 	ExecDropSingleTupleTableSlot(slot);
@@ -759,6 +762,14 @@ void
 heap_vacuum_rel(Relation onerel, VacuumParams *params,
 				BufferAccessStrategy bstrategy)
 {
+#ifdef ADB
+	return lazy_vacuum_rel_ext(onerel, params, bstrategy, NIL, NIL);
+}
+void
+lazy_vacuum_rel_ext(Relation onerel, VacuumParams *params,
+				BufferAccessStrategy bstrategy, List *cn_conns, List *dn_conns)
+{
+#endif /* ADB */
 	LVRelStats *vacrelstats;
 	Relation   *Irel;
 	int			nindexes;
@@ -781,8 +792,6 @@ heap_vacuum_rel(Relation onerel, VacuumParams *params,
 	MultiXactId new_min_multi;
 	ErrorContextCallback errcallback;
 #ifdef ADB
-	List	   *cnlist = NIL;
-	List	   *dnlist = NIL;
 	VacuumSyncInfo	local_vsi;
 	VacuumSyncInfo	sum_vsi;
 #endif
@@ -888,12 +897,6 @@ heap_vacuum_rel(Relation onerel, VacuumParams *params,
 	else
 		scanned_all_unfrozen = true;
 
-#ifdef ADB
-	VACUUM_CLUSTER_DEBUG_LOG((errmsg("OldestXmin %d, FreezeLimit %d, xidFullScanLimit %d\n",
-				OldestXmin, FreezeLimit, xidFullScanLimit)));
-	VACUUM_CLUSTER_DEBUG_LOG((errmsg("vacrelstats->scanned_pages %d, vacrelstats->frozenskipped_pages %d, vacrelstats->rel_pagesvacrelstats->rel_pages %d, scanned_all_unfrozen %d\n",
-				vacrelstats->scanned_pages, vacrelstats->frozenskipped_pages, vacrelstats->rel_pages, scanned_all_unfrozen)));
-#endif
 	/*
 	 * Optionally truncate the relation.
 	 */
@@ -911,6 +914,30 @@ heap_vacuum_rel(Relation onerel, VacuumParams *params,
 
 	/* Pop the error context stack */
 	error_context_stack = errcallback.previous;
+
+#ifdef ADB
+	VACUUM_CLUSTER_DEBUG_LOG((errmsg("relname %s OldestXmin %u, FreezeLimit %u, xidFullScanLimit %u\n",
+				RelationGetRelationName(onerel), OldestXmin, FreezeLimit, xidFullScanLimit)));
+	VACUUM_CLUSTER_DEBUG_LOG((errmsg("vacrelstats->scanned_pages %u, vacrelstats->frozenskipped_pages %u, vacrelstats->rel_pagesvacrelstats->rel_pages %u, scanned_all_unfrozen %u\n",
+				vacrelstats->scanned_pages, vacrelstats->frozenskipped_pages, vacrelstats->rel_pages, scanned_all_unfrozen)));
+
+	/* if node call lazy_truncate_heap, it will get transaction id from cn master, cn master should wait */
+	if (IsCnMaster() && !IsToastRelation(onerel) && (onerel->rd_locator_info != NULL) && !IsConnFromCoord())
+	{
+		if (cn_conns)
+		{
+			VACUUM_CLUSTER_DEBUG_LOG((errmsg("cnmaster relname %s wait cn slave send end\n", RelationGetRelationName(onerel))));
+			cluster_recv_exec_end(cn_conns);
+		}
+		if (dn_conns)
+		{
+			VACUUM_CLUSTER_DEBUG_LOG((errmsg("cnmaster relname %s wait dn master send end\n", RelationGetRelationName(onerel))));
+			cluster_recv_exec_end(dn_conns);
+		}
+	}
+	if (IsConnFromCoord() && !IsToastRelation(onerel))
+		put_executor_end_msg(true);
+#endif
 
 	/* Report that we are now doing final cleanup */
 	pgstat_progress_update_param(PROGRESS_VACUUM_PHASE,
@@ -957,34 +984,11 @@ heap_vacuum_rel(Relation onerel, VacuumParams *params,
 	{
 		if (IsCnMaster() && !IsConnFromCoord())
 		{
-			/* collect vacuum statics */
-			List	   *cn_oids = NIL;
-
-			//if (onerel->rd_rel->relkind == RELKIND_MATVIEW)
-			cn_oids = GetAllCnIDL(false);
-			cnlist = FindConnectedList(cn_oids);
-			/* find all datanode connection */
-			if (onerel->rd_locator_info)
-			{
-				List	*dn_oids = NIL;
-				if (IsRelationReplicated(onerel->rd_locator_info))
-				{
-					Oid oid = get_preferred_nodeoid(onerel->rd_locator_info->nodeids);
-					dn_oids = list_make1_oid(oid);
-				}else
-				{
-					dn_oids = onerel->rd_locator_info->nodeids;
-				}
-				Assert(dn_oids != NIL);
-				dnlist = FindConnectedList(dn_oids);
-				if (dn_oids != onerel->rd_locator_info->nodeids)
-					list_free(dn_oids);
-			}
-
-			if (dnlist != NIL)
+			if (dn_conns != NIL)
 			{
 				/* recv vacuum sync info from datanode */
-				acquire_vsi_coord_master(dnlist, &sum_vsi);
+				VACUUM_CLUSTER_DEBUG_LOG((errmsg("cnmaster relname %s wait vacuum sync info from dn\n", RelationGetRelationName(onerel))));
+				acquire_vsi_coord_master(dn_conns, &sum_vsi);
 				VACUUM_CLUSTER_DEBUG_LOG((errmsg("acquire_vsi_coord_master:\n")));
 				PrintDebugVsi(&sum_vsi);
 				new_rel_pages = sum_vsi.new_rel_pages;
@@ -994,30 +998,27 @@ heap_vacuum_rel(Relation onerel, VacuumParams *params,
 				new_min_multi = sum_vsi.new_min_multi;
 			}
 
-			if (cnlist != NIL)
+			if (cn_conns != NIL)
 			{
 				/* send relfreezeid to other coordinator */
-				VACUUM_CLUSTER_DEBUG_LOG((errmsg("send_vsi_other_coord:\n")));
-				send_vsi_other_coord(cnlist, &sum_vsi);
+				VACUUM_CLUSTER_DEBUG_LOG((errmsg("cnmaster relname %s send vacuum info to other cn slave:\n", RelationGetRelationName(onerel))));
+				send_vsi_other_coord(cn_conns, &sum_vsi);
 			}
 
-			if (cnlist)
+			if (cn_conns)
 			{
-				cluster_recv_exec_end(cnlist);
-				list_free(cnlist);
+				VACUUM_CLUSTER_DEBUG_LOG((errmsg("cnmaster relname %s waiter cn slave ack:\n", RelationGetRelationName(onerel))));
+				cluster_recv_exec_end(cn_conns);
 			}
-			if (dnlist)
-				list_free(dnlist);
-
-			list_free(cn_oids);
 		}
 		else if ((params->options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER &&
 			IS_PGXC_COORDINATOR &&
 			IsConnFromCoord())
 		{
 			/* recv freeze xid from master */
+			VACUUM_CLUSTER_DEBUG_LOG((errmsg("cn slave relname %s waiter cn master vacuum info:\n", RelationGetRelationName(onerel))));
 			acquire_relvsi_coord_slave(&sum_vsi);
-			VACUUM_CLUSTER_DEBUG_LOG((errmsg("acquire_relvsi_coord_slave:\n")));
+			VACUUM_CLUSTER_DEBUG_LOG((errmsg("cn slave relname %s get cn master vacuum info:\n", RelationGetRelationName(onerel))));
 			PrintDebugVsi(&sum_vsi);
 			new_rel_pages = sum_vsi.new_rel_pages;
 			new_live_tuples = sum_vsi.new_live_tuples;
@@ -1039,10 +1040,10 @@ heap_vacuum_rel(Relation onerel, VacuumParams *params,
 						ADB_ONLY_COMMA_ARG(&local_vsi));
 
 #ifdef ADB
-	if (!IsToastRelation(onerel) && (params->options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER && IsConnFromCoord() && IS_PGXC_DATANODE)
+	if (!IsToastRelation(onerel) && IsConnFromCoord() && IS_PGXC_DATANODE)
 	{
 		/* send freeze xid to master */
-		VACUUM_CLUSTER_DEBUG_LOG((errmsg("dn send local vsi:\n")));
+		VACUUM_CLUSTER_DEBUG_LOG((errmsg("dn relname %s send local vacuum info to cn master :\n", RelationGetRelationName(onerel))));
 		PrintDebugVsi(&local_vsi);
 		send_localvsi_to_coord(&local_vsi);
 	}

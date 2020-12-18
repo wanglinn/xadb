@@ -789,22 +789,22 @@ vacuum_open_relation(Oid relid, RangeVar *relation, int options,
 		return onerel;
 
 #ifdef ADB
-		if ((options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER &&
-			IsConnFromCoord())
-		{
-			/* we report an error, let master known we not locked the relation */
-			Assert(relation);
-			if (!rel_lock)
-				ereport(ERROR,
-						(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
-						 errmsg("Can not analyze of \"%s\" --- lock not available",
-								relation->relname)));
-			else
-				ereport(ERROR,
-						(errcode(ERRCODE_UNDEFINED_TABLE),
-						 errmsg("Can not analyze of \"%s\" --- relation no longer exists",
-								relation->relname)));
-		}
+	if ((options & VACOPT_IN_CLUSTER) == VACOPT_IN_CLUSTER &&
+		IsConnFromCoord())
+	{
+		/* we report an error, let master known we not locked the relation */
+		Assert(relation);
+		if (!rel_lock)
+			ereport(ERROR,
+					(errcode(ERRCODE_LOCK_NOT_AVAILABLE),
+					 errmsg("Can not analyze of \"%s\" --- lock not available",
+							relation->relname)));
+		else
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_TABLE),
+					 errmsg("Can not analyze of \"%s\" --- relation no longer exists",
+							relation->relname)));
+	}
 #endif /* ADB */
 
 	/*
@@ -1875,7 +1875,8 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 	int			save_nestlevel;
 #ifdef ADB
 	StringInfoData	buf;
-	List		   *conns;
+	List	   *cn_conns;
+	List	   *dn_conns;
 #endif /* ADB */
 
 	Assert(params != NULL);
@@ -1981,6 +1982,18 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 								  params->options & VACOPT_VACUUM))
 	{
 		relation_close(onerel, lmode);
+#ifdef ADB
+		if ((params->options & VACOPT_IN_CLUSTER) &&
+			IsConnFromCoord())
+		{
+			/* should not happen, we report an error, let master known we not locked the relation */
+			Assert(relation);
+			ereport(ERROR,
+					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+					 errmsg("permission denied for table %s",
+							relation->relname)));
+		}
+#endif /* ADB */
 		PopActiveSnapshot();
 		CommitTransactionCommand();
 		return false;
@@ -1998,6 +2011,17 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 				(errmsg("skipping \"%s\" --- cannot vacuum non-tables or special system tables",
 						RelationGetRelationName(onerel))));
 		relation_close(onerel, lmode);
+#ifdef ADB
+		if ((params->options & VACOPT_IN_CLUSTER) &&
+			IsConnFromCoord())
+		{
+			/* should not happen, we report an error, let master known we not locked the relation */
+			Assert(relation);
+			ereport(ERROR,
+					(errmsg("Can not vacuum other temporary table %s",
+							relation->relname)));
+		}
+#endif /* ADB */
 		PopActiveSnapshot();
 		CommitTransactionCommand();
 		return false;
@@ -2013,6 +2037,17 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 	if (RELATION_IS_OTHER_TEMP(onerel))
 	{
 		relation_close(onerel, lmode);
+#ifdef ADB
+		if ((params->options & VACOPT_IN_CLUSTER) &&
+			IsConnFromCoord())
+		{
+			/* should not happen, we report an error, let master known we not locked the relation */
+			Assert(relation);
+			ereport(ERROR,
+					(errmsg("Can not vacuum other temporary table %s",
+							relation->relname)));
+		}
+#endif /* ADB */
 		PopActiveSnapshot();
 		CommitTransactionCommand();
 		return false;
@@ -2026,6 +2061,17 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 	if (onerel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE)
 	{
 		relation_close(onerel, lmode);
+#ifdef ADB
+		if ((params->options & VACOPT_IN_CLUSTER) &&
+			IsConnFromCoord())
+		{
+			/* should not happen, we report an error, let master known we not locked the relation */
+			Assert(relation);
+			ereport(ERROR,
+					(errmsg("Can not vacuum partitioned table %s",
+							relation->relname)));
+		}
+#endif /* ADB */
 		PopActiveSnapshot();
 		CommitTransactionCommand();
 		/* It's OK to proceed with ANALYZE on this table */
@@ -2071,7 +2117,8 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 	}
 
 #ifdef ADB
-	conns = NIL;
+	cn_conns = NIL;
+	dn_conns = NIL;
 	if (IsCnMaster() &&
 		!IsToastRelation(onerel) &&
 		(onerel->rd_locator_info != NULL ||
@@ -2079,15 +2126,16 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 	{
 		char	   *namespace;
 		ListCell   *lc;
-		List	   *oids = NIL;
+		List	   *cn_oids = NIL;
+		List	   *dn_oids = NIL;
 		MemoryContext oldcontext = MemoryContextSwitchTo(vac_context);
 
 		//if (onerel->rd_rel->relkind == RELKIND_MATVIEW)
-		oids = GetAllCnIDL(false);
+		cn_oids = GetAllCnIDL(false);
 		if (onerel->rd_locator_info != NULL)
-			oids = list_union_oid(oids, onerel->rd_locator_info->nodeids);
+			dn_oids = list_union_oid(dn_oids, onerel->rd_locator_info->nodeids);
 
-		if (oids != NIL)
+		if (cn_oids != NIL || dn_oids != NIL)
 		{
 			initStringInfo(&buf);
 
@@ -2097,7 +2145,7 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 			save_node_string(&buf, RelationGetRelationName(onerel));
 			pfree(namespace);
 
-			foreach(lc, oids)
+			foreach(lc, cn_oids)
 			{
 				PGconn *conn = PQNFindConnUseOid(lfirst_oid(lc));
 				if (conn == NULL)
@@ -2106,11 +2154,30 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 							(errcode(ERRCODE_INTERNAL_ERROR),
 							errmsg("remote node %u not connected", lfirst_oid(lc))));
 				}
-				conns = lappend(conns, conn);
+				cn_conns = lappend(cn_conns, conn);
 			}
-			list_free(oids);
+			list_free(cn_oids);
 
-			PQNputCopyData(conns, buf.data, buf.len);
+			if (onerel->rd_rel->relkind != RELKIND_MATVIEW && dn_oids != NIL)
+			{
+				foreach(lc, dn_oids)
+				{
+					PGconn *conn = PQNFindConnUseOid(lfirst_oid(lc));
+					if (conn == NULL)
+					{
+						ereport(ERROR,
+								(errcode(ERRCODE_INTERNAL_ERROR),
+								errmsg("remote node %u not connected", lfirst_oid(lc))));
+					}
+					dn_conns = lappend(dn_conns, conn);
+				}
+			}
+			list_free(dn_oids);
+
+			PQNputCopyData(cn_conns, buf.data, buf.len);
+			PQNputCopyData(dn_conns, buf.data, buf.len);
+			PQNFlush(cn_conns, true);
+			PQNFlush(dn_conns, true);
 			pfree(buf.data);
 		}
 		MemoryContextSwitchTo(oldcontext);
@@ -2122,11 +2189,11 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 	 * us to process it.  In VACUUM FULL, though, the toast table is
 	 * automatically rebuilt by cluster_rel so we shouldn't recurse to it.
 	 */
-//#ifndef ADB 
+#ifndef ADB 
 	if (!(params->options & VACOPT_SKIPTOAST) && !(params->options & VACOPT_FULL))
 		toast_relid = onerel->rd_rel->reltoastrelid;
 	else
-//#endif
+#endif
 		toast_relid = InvalidOid;
 
 	/*
@@ -2158,7 +2225,20 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 		cluster_rel(relid, InvalidOid, cluster_options);
 	}
 	else
+	{
+#ifdef ADB
+#warning TODO add other table type
+		if (onerel->rd_tableam == GetHeapamTableAmRoutine())
+			lazy_vacuum_rel_ext(onerel, params, vac_strategy, cn_conns, dn_conns);
+		else
+			ereport(ERROR,
+					errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					errmsg("vacuum only support heap yet!"));
+#else
 		table_relation_vacuum(onerel, params, vac_strategy);
+#endif
+	}
+
 
 	/* Roll back any GUC changes executed by index functions */
 	AtEOXact_GUC(false, save_nestlevel);
@@ -2171,10 +2251,19 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 		relation_close(onerel, NoLock);
 
 #ifdef ADB
-	if (conns != NIL)
+	if (cn_conns != NIL)
 	{
-		cluster_recv_exec_end(conns);
-		list_free(conns);
+		VACUUM_CLUSTER_DEBUG_LOG((errmsg("cn master relname %s end wait cn slave end :\n", RelationGetRelationName(onerel))));
+		cluster_recv_exec_end(cn_conns);
+		VACUUM_CLUSTER_DEBUG_LOG((errmsg("cn master relname %s end get cn slave end :\n", RelationGetRelationName(onerel))));
+		list_free(cn_conns);
+	}
+	if (dn_conns != NIL)
+	{
+		VACUUM_CLUSTER_DEBUG_LOG((errmsg("cn master relname %s end wait dn master end :\n", RelationGetRelationName(onerel))));
+		cluster_recv_exec_end(dn_conns);
+		VACUUM_CLUSTER_DEBUG_LOG((errmsg("cn master relname %s end get dn master end :\n", RelationGetRelationName(onerel))));
+		list_free(dn_conns);
 	}
 #endif /* ADB */
 
