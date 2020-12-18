@@ -221,6 +221,8 @@ extern void vac_update_datfrozenxid(void);
 extern void vacuum_delay_point(void);
 #ifdef ADB
 extern void cluster_vacuum(struct StringInfoData *msg);
+extern void lazy_vacuum_rel_ext(Relation onerel, int options, VacuumParams *params,
+				BufferAccessStrategy bstrategy, List *cn_conns, List *dn_cns);
 #endif /* ADB */
 
 /* in commands/vacuumlazy.c */
