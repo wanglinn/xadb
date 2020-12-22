@@ -13357,7 +13357,7 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 			if (CNDN_TYPE_DATANODE_SLAVE == nodetype)
 				ereport(WARNING, (errmsg("the datanode master \"%s\" has no synchronous slave node", mastername.data)));
 			else
-				ereport(WARNING, (errmsg("the gtm master \"%s\" has no synchronous slave node", mastername.data)));
+				ereport(WARNING, (errmsg("the %s \"%s\" has no synchronous slave node", mgr_get_nodetype_desc(CNDN_TYPE_GTM_COOR_SLAVE), mastername.data)));
 		}
 		/*update the tuple*/
 		mgr_node->nodeinited = false;
