@@ -11,7 +11,7 @@ extern void SnapSenderShmemInit(void);
 
 extern void SnapSendTransactionAssign(TransactionId txid, int txidnum, TransactionId parent);
 extern void SnapSendAddXip(TransactionId txid, int txidnum, TransactionId parent);
-extern void SnapSendTransactionFinish(TransactionId txid, bool is_rxact);
+extern void SnapSendTransactionFinish(TransactionId txid, SnapXidFinishOption finish_flag);
 
 extern void SnapSendLockSendSock(void);
 extern void SnapSendUnlockSendSock(void);
@@ -28,5 +28,5 @@ extern void SerializeFullAssignXid(TransactionId *xids, uint32 cnt, TransactionI
 extern TransactionId *SnapSenderGetAllXip(uint32 *cnt_num);
 
 extern void SnapSenderGetAllAssingFinish(TransactionId	*ss_xid_assgin,uint32 *ss_cnt_assign,
-				TransactionId	*ss_xid_finish, uint32 *ss_cnt_finish);
+				TransactionId	*ss_xid_finish, uint32 *ss_cnt_finish, TransactionId *latestCompletedXid);
 #endif /* SNAP_SENDER_H_ */

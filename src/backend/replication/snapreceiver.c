@@ -169,7 +169,6 @@ static TransactionId SnapRcvGetLocalXmin(void);
 /* Signal handlers */
 static void SnapRcvSigHupHandler(SIGNAL_ARGS);
 static void SnapRcvSigUsr1Handler(SIGNAL_ARGS);
-static void SnapRcvShutdownHandler(SIGNAL_ARGS);
 static void SnapRcvQuickDieHandler(SIGNAL_ARGS);
 
 typedef bool (*WaitSnapRcvCond)(void *context);
@@ -669,7 +668,7 @@ void SnapReceiverMain(void)
 	/* Properly accept or ignore signals the postmaster might send us */
 	pqsignal(SIGHUP, SnapRcvSigHupHandler);	/* set flag to read config file */
 	pqsignal(SIGINT, SIG_IGN);
-	pqsignal(SIGTERM, SnapRcvShutdownHandler);	/* request shutdown */
+	pqsignal(SIGTERM, SIG_IGN);	/* ignore kill -15 signal */
 	pqsignal(SIGQUIT, SnapRcvQuickDieHandler);	/* hard crash time */
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
@@ -1000,24 +999,6 @@ SnapRcvSigUsr1Handler(SIGNAL_ARGS)
 	int			save_errno = errno;
 
 	latch_sigusr1_handler();
-
-	errno = save_errno;
-}
-
-/* SIGTERM: set flag for main loop, or shutdown immediately if safe */
-static void
-SnapRcvShutdownHandler(SIGNAL_ARGS)
-{
-	int			save_errno = errno;
-
-	got_SIGTERM = true;
-
-	if (SNAP_RCV_LATCH_VALID())
-		SNAP_RCV_SET_LATCH();
-
-	/* Don't joggle the elbow of proc_exit */
-	if (!proc_exit_inprogress && SnapRcvImmediateInterruptOK)
-		ProcessSnapRcvInterrupts();
 
 	errno = save_errno;
 }
@@ -1354,13 +1335,14 @@ static void SnapRcvProcessSnapshot(char *buf, Size len)
 	latestCompletedXid = pq_getmsgint(&incoming_message, sizeof(TransactionId));
 	count = (incoming_message.len - incoming_message.cursor) / sizeof(TransactionId);
 
-	SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvProcessSnapshot count %d\n", count)));
+	SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvProcessSnapshot count %d, SnapRcv->latestCompletedXid %u\n", count, latestCompletedXid)));
 	if (count > lengthof(SnapRcv->xip))
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
 				 errmsg("too many active transaction ID from GTM %u", count)));
 	}
+	i = 0;
 	if (count > 0)
 	{
 		xid = palloc(count*sizeof(TransactionId));
@@ -1384,11 +1366,9 @@ static void SnapRcvProcessSnapshot(char *buf, Size len)
 	}
 
 	pg_atomic_write_u32(&SnapRcv->state, WALRCV_STREAMING);
-	if (count > 0)
-	{
-		WakeupTransactionInit(xid, i, &SnapRcv->waiters);
-		WakeupTransactionInit(xid, i, &SnapRcv->ss_waiters);
-	}
+	WakeupTransactionInit(xid, i, &SnapRcv->waiters);
+	WakeupTransactionInit(xid, i, &SnapRcv->ss_waiters);
+
 	UNLOCK_SNAP_RCV();
 	ConditionVariableBroadcast(&SnapRcv->cv);
 
@@ -1867,16 +1847,17 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 		end = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snap_receiver_timeout);
 		
 		is_wait_ok = true;
-		LOCK_SNAP_RCV();
 		if (pg_atomic_read_u32(&SnapRcv->state) == WALRCV_STREAMING)
 		{
 			req_key = pg_atomic_add_fetch_u32(&SnapRcv->last_client_req_key, 1);
 			SNAP_FORCE_DEBUG_LOG((errmsg("Add proce %d to wait snap sync list, req_key %lld,  SnapRcv->last_ss_resp_key %lld\n", 
 					MyProc->pgprocno, req_key, pg_atomic_read_u32(&SnapRcv->last_ss_resp_key))));
 			MyProc->ss_req_key = req_key;
+			LOCK_SNAP_RCV();
 			is_wait_ok = WaitSnapRcvEvent(end, &SnapRcv->ss_waiters, true, WaitSnapRcvSyncSnap, (void*)((size_t)req_key));
+			UNLOCK_SNAP_RCV();
 		}
-		UNLOCK_SNAP_RCV();
+		
 		if (!is_wait_ok)
 		{
 			ereport(ERROR,
@@ -1922,7 +1903,6 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 
 re_lock_:
 	isSnapRcvStreamOk();
-	Assert(pg_atomic_read_u32(&SnapRcv->state) == WALRCV_STREAMING);
 	LOCK_SNAP_RCV();
 	if (snap->max_xcnt < SnapRcv->xcnt)
 	{
@@ -2177,7 +2157,7 @@ RETRY:
 	return MyProc->getGlobalTransaction;
 }
 
-void SnapRcvCommitTransactionId(TransactionId txid, bool isCommit)
+void SnapRcvCommitTransactionId(TransactionId txid, SnapXidFinishOption finish_flag)
 {
 	TimestampTz				endtime;
 	bool					ret;
@@ -2186,16 +2166,22 @@ void SnapRcvCommitTransactionId(TransactionId txid, bool isCommit)
 			MyProc->pgprocno, txid)));
 
 	ProcessSnapRcvInterrupts();
+	isSnapRcvStreamOk();
 	if (pg_atomic_read_u32(&SnapRcv->state) != WALRCV_STREAMING)
 	{
-		MyProc->getGlobalTransaction = InvalidTransactionId;
-		ereport(WARNING, (errmsg("cannot connect to GTMCOORD, commit xid %d ignore", txid)));
-		return;
+		if (finish_flag & SNAP_XID_RXACT)
+			ereport(ERROR, (errmsg("rxact cannot connect to GTMCOORD, commit xid %d failed", txid)));
+		else
+		{
+			MyProc->getGlobalTransaction = InvalidTransactionId;
+			ereport(WARNING, (errmsg("cannot connect to GTMCOORD, commit xid %d ignore", txid)));
+			return;
+		}
 	}
 
 	LOCK_SNAP_GXID_RCV();
 	ret = SnapRcvFoundWaitFinishList(txid);
-	if (!ret)
+	if (!ret && (finish_flag & SNAP_XID_RXACT) == 0)
 	{
 		UNLOCK_SNAP_GXID_RCV();
 		MyProc->getGlobalTransaction = InvalidTransactionId;
@@ -2203,7 +2189,7 @@ void SnapRcvCommitTransactionId(TransactionId txid, bool isCommit)
 		return;
 	}
 
-	if (isCommit)
+	if (finish_flag & SNAP_XID_COMMIT)
 	{
 		UpdateAdbLastFinishXid(txid);
 		pg_atomic_write_u32(&SnapRcv->global_finish_id, txid);

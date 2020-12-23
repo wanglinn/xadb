@@ -1352,12 +1352,12 @@ static void rxact_mark_gid(const char *gid, RemoteXactType type, bool success, b
 			{
 				if (IsGTMCnNode())
 				{
-					SnapSendTransactionFinish(pg_strtouint64(&rinfo->gid[1], NULL, 10), true);
+					SnapSendTransactionFinish(pg_strtouint64(&rinfo->gid[1], NULL, 10), SNAP_XID_RXACT);
 				}
 				else
 				{
-					SnapRcvCommitTransactionId(pg_strtouint64(&rinfo->gid[1], NULL, 10),
-						rinfo->type == RX_COMMIT ? true:false);
+					int snap_finish_option = rinfo->type == RX_COMMIT ? SNAP_XID_COMMIT : SNAP_XID_NONE;
+					SnapRcvCommitTransactionId(pg_strtouint64(&rinfo->gid[1], NULL, 10), snap_finish_option | SNAP_XID_RXACT);
 				}
 			}
 		}else

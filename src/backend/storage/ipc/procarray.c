@@ -488,9 +488,9 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid ADB_ONLY_COMMA_ARG
 		if (TransactionIdIsValid(latestXid) && (IsCnMaster() || proc->getGlobalTransaction == latestXid))
 		{
 			if (IsGTMNode())
-				SnapSendTransactionFinish(latestXid, false);
+				SnapSendTransactionFinish(latestXid, SNAP_XID_NONE);
 			else
-				SnapRcvCommitTransactionId(latestXid, isCommit);
+				SnapRcvCommitTransactionId(latestXid, SNAP_XID_COMMIT);
 		}
 
 		if (TransactionIdIsValid(latestXid) && IsConnFromCoord() &&
@@ -1598,7 +1598,7 @@ ExitedAllGxidRcvXidProcess(void)
 			proc = &allProcs[pgprocno];
 			if (TransactionIdIsNormal(proc->getGlobalTransaction))
 			{
-				ereport(WARNING, (errmsg("terminal PID(%d) as gxidrcv exited\n", proc->pid)));
+				ereport(WARNING, (errmsg("terminal PID(%d) as snaprcv exited for xid %u\n", proc->pid, proc->getGlobalTransaction)));
 				kill(proc->pid, SIGTERM);
 			}
 		}
@@ -4544,7 +4544,7 @@ void SerializeActiveTransactionIds(StringInfo buf)
 	}
 
 	gs_xip = SnapSenderGetAllXip(&gs_cnt_assign);
-	SnapSenderGetAllAssingFinish(ss_xid_assgin, &ss_cnt_assign, ss_xid_finish, &ss_cnt_finish);
+	SnapSenderGetAllAssingFinish(ss_xid_assgin, &ss_cnt_assign, ss_xid_finish, &ss_cnt_finish, &latestCompletedXid);
 
 	LWLockRelease(XidGenLock);
 	LWLockRelease(ProcArrayLock);
