@@ -32,7 +32,12 @@ typedef enum ClientStatus
 	CLIENT_STATUS_CN_WAIT = 3, /* cn start stream and wait all dn master init sync*/
 	CLIENT_STATUS_EXITING = 4
 }ClientStatus;
-
+typedef enum SnapXidFinishOption
+{
+	SNAP_XID_NONE = 0,			/* no option */
+	SNAP_XID_COMMIT = 1 << 0,	/* Commit */
+	SNAP_XID_RXACT = 1 << 1,	/* Rxact do finish*/
+} SnapXidFinishOption;
 typedef struct SnapLockIvdInfo
 {
 	dsa_pointer					next;

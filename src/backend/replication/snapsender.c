@@ -193,7 +193,6 @@ static TransactionId snapsenderGetSenderGlobalXmin(void);
 
 /* Signal handlers */
 static void SnapSenderSigUsr1Handler(SIGNAL_ARGS);
-static void SnapSenderSigTermHandler(SIGNAL_ARGS);
 static void SnapSenderQuickDieHander(SIGNAL_ARGS);
 
 static void isSnapSenderAllDnConnOk(void);
@@ -927,7 +926,7 @@ void SnapSenderMain(void)
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
 	pqsignal(SIGHUP, SnapSenderSigHupHandler);
-	pqsignal(SIGTERM, SnapSenderSigTermHandler);
+	pqsignal(SIGTERM, SIG_IGN); /* ignore kill -15 signal*/
 	pqsignal(SIGQUIT, SnapSenderQuickDieHander);
 	sigdelset(&BlockSig, SIGQUIT);
 	pqsignal(SIGUSR1, SnapSenderSigUsr1Handler);
@@ -1222,25 +1221,14 @@ static void OnLatchSetEvent(WaitEvent *event, time_t* time_last_latch)
 	*time_last_latch = time_now;
 }
 
-static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char msgtype)
+static void ProcessShmemXidMsg(TransactionId *xids, const uint32 xid_cnt, char msgtype)
 {
 	slist_mutable_iter		siter;
-	SnapClientData		   *client;
-	uint32					i, xid_array_cnt;
-	TransactionId			xid_array[MAX_CNT_SHMEM_XID_BUF];
-	TransactionId			xid_item;
+	SnapClientData			*client;
+	uint32					i;
 
 	if (xid_cnt <= 0)
 		return;
-	
-	Assert(xid_cnt <= MAX_CNT_SHMEM_XID_BUF);
-
-	xid_array_cnt = 0;
-	for(i=0; i<xid_cnt; ++i)
-	{
-		xid_item = xid[i];
-		xid_array[xid_array_cnt++] = xid_item;
-	}
 
 	/* send TransactionIds to client */
 	output_buffer.cursor = false;	/* use it as bool for flag serialized message */
@@ -1262,11 +1250,11 @@ static void ProcessShmemXidMsg(TransactionId *xid, const uint32 xid_cnt, char ms
 			{
 				pq_sendbyte(&output_buffer, 0);
 			}
-			for(i=0;i<xid_array_cnt;++i)
+			for(i=0;i<xid_cnt;++i)
 			{
-				pq_sendint32(&output_buffer, xid_array[i]);
+				pq_sendint32(&output_buffer, xids[i]);
 				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend rel finsih/assing %c xid %u\n",
-					msgtype, xid_array[i])));
+					msgtype, xids[i])));
 			}
 			output_buffer.cursor = true;
 		}
@@ -1615,43 +1603,49 @@ static void snapsenderProcessNextXid(SnapClientData *client, TransactionId txid)
 
 	snapsenderUpdateNextXid(txid, client);
 
-	foreach(node_ceil, dn_master_name_list)
+	if (pg_atomic_read_u32(&SnapSender->dn_conn_state) != SNAPSENDER_ALL_DNMASTER_CONN_OK)
 	{
-		list_client_name = (char *)lfirst(node_ceil);
-		comp_ret = strcasecmp(list_client_name, client->client_name);
-
-		if (comp_ret == 0)
+		foreach(node_ceil, dn_master_name_list)
 		{
-			current_count = pg_atomic_sub_fetch_u32(&SnapSender->nextid_upcount, 1);
-			if (current_count == 0)
-			{
-				SNAP_SYNC_DEBUG_LOG((errmsg("snapsenderProcessNextXid DN SnapSender->state dn_conn_state to Ok\n")));
-				pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
-				pg_atomic_write_u32(&SnapSender->dn_conn_state, SNAPSENDER_ALL_DNMASTER_CONN_OK);
-				ConditionVariableBroadcast(&SnapSender->cv);
-				ConditionVariableBroadcast(&SnapSender->cv_dn_con);
-				WakeAllCnClientStream();
-			}
+			list_client_name = (char *)lfirst(node_ceil);
+			comp_ret = strcasecmp(list_client_name, client->client_name);
 
-			break;
+			if (comp_ret == 0)
+			{
+				current_count = pg_atomic_sub_fetch_u32(&SnapSender->nextid_upcount, 1);
+				if (current_count == 0)
+				{
+					SNAP_SYNC_DEBUG_LOG((errmsg("snapsenderProcessNextXid DN SnapSender->state dn_conn_state to Ok\n")));
+					pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
+					pg_atomic_write_u32(&SnapSender->dn_conn_state, SNAPSENDER_ALL_DNMASTER_CONN_OK);
+					ConditionVariableBroadcast(&SnapSender->cv);
+					ConditionVariableBroadcast(&SnapSender->cv_dn_con);
+					WakeAllCnClientStream();
+				}
+
+				break;
+			}
 		}
 	}
 
-	foreach(node_ceil, cn_master_name_list)
+	if (pg_atomic_read_u32(&SnapSender->state) != SNAPSENDER_STATE_OK)
 	{
-		list_client_name = (char *)lfirst(node_ceil);
-		comp_ret = strcasecmp(list_client_name, client->client_name);
-
-		if (comp_ret == 0)
+		foreach(node_ceil, cn_master_name_list)
 		{
-			current_count = pg_atomic_sub_fetch_u32(&SnapSender->nextid_upcount_cn, 1);
-			if (current_count == 0)
+			list_client_name = (char *)lfirst(node_ceil);
+			comp_ret = strcasecmp(list_client_name, client->client_name);
+
+			if (comp_ret == 0)
 			{
-				SNAP_SYNC_DEBUG_LOG((errmsg("snapsenderProcessNextXid CN SnapSender->state to Ok\n")));
-				pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
-				ConditionVariableBroadcast(&SnapSender->cv);
+				current_count = pg_atomic_sub_fetch_u32(&SnapSender->nextid_upcount_cn, 1);
+				if (current_count == 0)
+				{
+					SNAP_SYNC_DEBUG_LOG((errmsg("snapsenderProcessNextXid CN SnapSender->state to Ok\n")));
+					pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
+					ConditionVariableBroadcast(&SnapSender->cv);
+				}
+				break;
 			}
-			break;
 		}
 	}
 }
@@ -1820,8 +1814,9 @@ SnapSenderDropXidList(SnapClientData *client, const TransactionId *cn_txids, con
 	else
 		xids_assign = NULL;
 
+	SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderDropXidList client %s client->cur_cnt %u, txids_count %u\n", client->client_name, client->cur_cnt, txids_count)));
 	/* CASE 1, client->xid(server reserve) has xid, but init sync has no this xid*/
-	if (client->cur_cnt != 0)
+	if (client->cur_cnt > 0)
 	{
 		TransactionId	*xids;
 		xids = palloc0(client->cur_cnt * sizeof(TransactionId));
@@ -1832,6 +1827,8 @@ SnapSenderDropXidList(SnapClientData *client, const TransactionId *cn_txids, con
 		{
 			found = false;
 			xid = client->xid[i];
+
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSender client %s left %d/%d xid %u\n", client->client_name, i, client->cur_cnt, xid)));
 			for (index = 0 ;index < txids_count; index++)
 			{
 				if (xid == cn_txids[index])
@@ -1844,7 +1841,7 @@ SnapSenderDropXidList(SnapClientData *client, const TransactionId *cn_txids, con
 			/* when snapsender hold the xid, but client has no this xid sync, we should finish it*/
 			if (found == false)
 			{
-				SnapSenderClientRemoveXid(client, xid);
+				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSender remove client %s xid %u\n", client->client_name, xid)));
 				xids[count++] = xid;
 			}
 		}
@@ -1860,6 +1857,7 @@ SnapSenderDropXidList(SnapClientData *client, const TransactionId *cn_txids, con
 
 			for (i = 0; i < count; i++)
 			{
+				SnapSenderClientRemoveXid(client, xids[i]);
 				//SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, xids[i]);
 				SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_FINISH, xids[i]);
 				SnapReleaseTransactionLocks(&SnapSender->comm_lock, xids[i]);
@@ -1977,7 +1975,7 @@ re_lock_:
 }
 
 void SnapSenderGetAllAssingFinish(TransactionId	*ss_xid_assgin,uint32 *ss_cnt_assign,
-				TransactionId	*ss_xid_finish, uint32 *ss_cnt_finish)
+				TransactionId	*ss_xid_finish, uint32 *ss_cnt_finish, TransactionId *latestCompletedXid)
 {
 	SpinLockAcquire(&SnapSender->mutex);
 	pg_memory_barrier();
@@ -1988,6 +1986,13 @@ void SnapSenderGetAllAssingFinish(TransactionId	*ss_xid_assgin,uint32 *ss_cnt_as
 	
 	if (*ss_cnt_finish > 0)
 		memcpy(ss_xid_finish, SnapSender->xid_complete, sizeof(TransactionId) * (SnapSender->cur_cnt_complete));
+
+	if (TransactionIdIsNormal(SnapSender->latestCompletedXid))
+	{
+		if (TransactionIdFollows(SnapSender->latestCompletedXid,
+									*latestCompletedXid))
+				*latestCompletedXid= SnapSender->latestCompletedXid;
+	}
 	
 	SpinLockRelease(&SnapSender->mutex);
 }
@@ -2061,6 +2066,7 @@ static void SnapSenderProcessInitSyncRequest(SnapClientData *client, char* xid_l
 		}
 	}
 
+	list_free(xid_list);
 	if (array_2pc_len > 0)
 	{
 		SpinLockAcquire(&SnapSender->gxid_mutex);
@@ -2095,7 +2101,6 @@ static void SnapSenderProcessInitSyncRequest(SnapClientData *client, char* xid_l
 		pfree(xid_2pc_array);
 	}
 	pfree(xid_str_org);
-	list_free(xid_list);
 	return;
 }
 
@@ -2163,13 +2168,12 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 				(errmsg("client closed stream %s", client->client_name)));
 	}
 
-	client->last_msg = GetCurrentTimestamp();
-
 	while (1)
 	{
 		resetStringInfo(&input_buffer);
 		msgtype = pq_node_get_msg(&input_buffer, node);
 
+		client->last_msg = GetCurrentTimestamp();
 		switch(msgtype)
 		{
 		case 'Q':
@@ -2192,8 +2196,8 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 			ret_ssc = sscanf(input_buffer.data, "%*s %*s \"%[^\" ]\" %*s %*s %*s \'%[^\']\', %*s \'%[^\']\')",
 							client->client_name, next_id_str, xid_string_list);
 			next_id = pg_strtouint64(next_id_str, NULL, 10);
-			SNAP_SYNC_DEBUG_LOG((errmsg("ret_ssc %d, client->client_name %s, next_id_str %s,next_id %u, xid_string_list %s\n", 
-						ret_ssc, client->client_name, next_id_str, next_id, xid_string_list)));
+			SNAP_SYNC_DEBUG_LOG((errmsg("ret_ssc %d, client->client_name %s, next_id_str %s,next_id %u, xid_string_list %s， client->cur_cnt %u\n", 
+						ret_ssc, client->client_name, next_id_str, next_id, xid_string_list, client->cur_cnt)));
 			if (ret_ssc > 0)
 			{
 				is_cn = snapsenderGetIsCnConn(client);
@@ -2203,7 +2207,9 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 				if (!client->is_dn)
 					SnapSenderRecoveryXidListFromCnFailledList(client);
 
-				SnapSenderProcessInitSyncRequest(client, xid_string_list);
+				/* for dn, if gtm dose not restart, we don't need to sync xid from xid. As snapsend store all xid which has assigned to cn*/
+				if (!client->is_dn || pg_atomic_read_u32(&SnapSender->dn_conn_state) != SNAPSENDER_ALL_DNMASTER_CONN_OK)
+					SnapSenderProcessInitSyncRequest(client, xid_string_list);
 
 				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSender got init sync request from %s\n", client->client_name)));
 				snapsenderProcessNextXid(client, next_id);
@@ -2218,6 +2224,12 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 				return;
 			}
 
+			/* for CN before init sync snap, we should call finish all finish xid first */
+			if (!client->is_dn)
+			{
+				time_t			time_last_latch;
+				OnLatchSetEvent(NULL, &time_last_latch);
+			}
 			/* send snapshot */
 			SnapSenderSendInitSnapShot(client);
 			client->status = CLIENT_STATUS_STREAMING;
@@ -2305,11 +2317,6 @@ static void SnapSenderSigUsr1Handler(SIGNAL_ARGS)
 	errno = save_errno;
 }
 
-static void SnapSenderSigTermHandler(SIGNAL_ARGS)
-{
-	got_sigterm = true;
-}
-
 static void SnapSenderQuickDieHander(SIGNAL_ARGS)
 {
 	if (proc_exit_inprogress)
@@ -2388,7 +2395,7 @@ void SnapSendTransactionAssign(TransactionId txid, int txidnum, TransactionId pa
 	SpinLockRelease(&SnapSender->mutex);
 }
 
-void SnapSendTransactionFinish(TransactionId txid, bool is_rxact)
+void SnapSendTransactionFinish(TransactionId txid, SnapXidFinishOption finish_flag)
 {
 	if(!TransactionIdIsValid(txid) || !IsGTMNode())
 		return;
@@ -2396,7 +2403,7 @@ void SnapSendTransactionFinish(TransactionId txid, bool is_rxact)
 	Assert(TransactionIdIsNormal(txid));
 	Assert(SnapSender != NULL);
 
-	if (is_rxact)
+	if (finish_flag & SNAP_XID_RXACT)
 		isSnapSenderAllDnConnOk();
 
 	SpinLockAcquire(&SnapSender->mutex);
@@ -2419,7 +2426,7 @@ void SnapSendTransactionFinish(TransactionId txid, bool is_rxact)
 
 	SpinLockRelease(&SnapSender->mutex);
 
-	if (is_rxact)
+	if (finish_flag & SNAP_XID_RXACT)
 	{
 		SpinLockAcquire(&SnapSender->gxid_mutex);
 		SnapSenderDropXidItem(txid);

@@ -25,5 +25,5 @@ extern TransactionId SnapRcvGetGlobalXmin(void);
 extern void SnapRcvGetStat(StringInfo buf);
 
 extern TransactionId SnapRcvGetGlobalTransactionId(bool isSubXact);
-extern void SnapRcvCommitTransactionId(TransactionId txid, bool isCommit);
+extern void SnapRcvCommitTransactionId(TransactionId txid, SnapXidFinishOption finish_flag);
 #endif							/* SNAP_RECEIVER_H_ */
