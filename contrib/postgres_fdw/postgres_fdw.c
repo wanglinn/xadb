@@ -3714,8 +3714,8 @@ execute_foreign_modify(EState *estate,
 		n_rows = atoi(PQcmdTuples(res));
 
 #ifdef ADB
-	if (n_rows > 0)
-		((RemoteQueryState *) estate->es_result_remoterel)->rqs_processed += n_rows;
+	if (n_rows > 0 && estate->es_result_remoterel)
+		((RemoteQueryState *) estate->es_result_remoterel)->rqs_processed = n_rows;
 #endif
 
 	/* And clean up */
