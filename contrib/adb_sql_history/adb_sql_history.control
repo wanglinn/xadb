@@ -1,0 +1,6 @@
+# adb_sql_history extension
+comment = 'adb_sql_history - record SQL statements of process'
+default_version = '1.0'
+module_pathname = '$libdir/adb_sql_history'
+relocatable = true
+superuser = true
