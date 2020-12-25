@@ -6,6 +6,7 @@ include $(top_builddir)/src/Makefile.global
 
 SUBDIRS = \
 		adb_stat_statements	\
+		adb_sql_history	\
 		adminpack	\
 		amcheck		\
 		auth_delay	\
