@@ -7006,6 +7006,8 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 	info_out = funcctx->user_fctx;
 	Assert(info_out);
 
+	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, NULL);
+	
 	while((tuple_out = heap_getnext(info_out->rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node_out = (Form_mgr_node)GETSTRUCT(tuple_out);
