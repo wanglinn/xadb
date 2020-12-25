@@ -546,12 +546,15 @@ SnapRcvSendInitSyncXid(void)
 {
 	List			*xid_prepared_list = NIL;
 	List			*rxact_list = NIL;
+	List			*local_assign_list = NIL;
 	ListCell		*lc;
 	TransactionId	xid;
 	RxactTransactionInfo *info;
 	List			*left_xid_str = NIL;
 	char			buf[128];
 	char			*str;
+	TransactionId	*xids;
+	int				xids_num, i;
 
 	/* for slave node, there is no need sync left xid */
 	if (!RecoveryInProgress() && adb_check_sync_nextid)
@@ -561,6 +564,10 @@ SnapRcvSendInitSyncXid(void)
 		/* for coordinator get all left two-phase xid*/
 		if (IsCnNode())
 		{
+			local_assign_list = GetAllSnapRcvAssginXids();
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid GetAllSnapRcvAssginXids list len %d\n",
+										list_length(local_assign_list))));
+
 			rxact_list = RxactGetRunningList();
 			SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid RxactGetRunningList list len %d\n",
 										list_length(rxact_list))));
@@ -585,11 +592,17 @@ SnapRcvSendInitSyncXid(void)
 	}
 	list_free(xid_prepared_list);
 
+	xids_num = list_length(rxact_list);
+	if (xids_num > 0)
+		xids = palloc0(sizeof(TransactionId) * xids_num);
+
+	i = 0;
 	foreach (lc, rxact_list)
 	{
 		info =  (RxactTransactionInfo*)lfirst(lc);
 		xid = pg_strtouint64(&info->gid[1], NULL, 10);
 
+		xids[i++] = xid;
 		snprintf(buf, sizeof(buf), "+%u", xid);
 		str = pstrdup(buf);
 		left_xid_str = lappend(left_xid_str, makeString(str));
@@ -597,6 +610,44 @@ SnapRcvSendInitSyncXid(void)
 	}
 	list_free(rxact_list);
 
+	if (list_length(local_assign_list) > 0)
+	{
+		bool found = false;
+		foreach (lc, local_assign_list)
+		{
+			xid = lfirst_int(lc);
+			found = false;
+			for (i = 0 ;i < xids_num; i++)
+			{
+				if (xids[i] == xid)
+				{
+					found = true;
+					break;
+				}
+			}
+
+			if (!found)
+			{
+				snprintf(buf, sizeof(buf), "+%u", xid);
+				str = pstrdup(buf);
+				left_xid_str = lappend(left_xid_str, makeString(str));
+				SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvSendInitSyncXid Add local assign xid %u, str %s\n",
+								xid, str)));
+			}
+		}
+
+		LOCK_SNAP_GXID_RCV();
+		SnapRcv->wait_finish_cnt = 0;
+		foreach (lc, local_assign_list)
+		{
+			xid = lfirst_int(lc);
+			SnapRcv->wait_xid_finish[SnapRcv->wait_finish_cnt++] = xid;
+		}
+		UNLOCK_SNAP_GXID_RCV();
+		list_free(local_assign_list);
+	}
+	if (xids_num > 0)
+		pfree(xids);
 	return left_xid_str;
 }
 

@@ -1810,7 +1810,7 @@ SnapSenderDropXidList(SnapClientData *client, const TransactionId *cn_txids, con
 
 	xids_assign_count = 0;
 	if (txids_count > 0)
-		xids_assign = palloc0(client->cur_cnt * sizeof(TransactionId));
+		xids_assign = palloc0(txids_count * sizeof(TransactionId));
 	else
 		xids_assign = NULL;
 
