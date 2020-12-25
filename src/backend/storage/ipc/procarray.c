@@ -1605,6 +1605,32 @@ ExitedAllGxidRcvXidProcess(void)
 		LWLockRelease(ProcArrayLock);
 	}
 }
+
+List *GetAllSnapRcvAssginXids(void)
+{
+	int			numProcs;
+	int			*pgprocnos;
+	int			index, pgprocno;
+	volatile 	PGPROC *proc;
+	List		*list = NIL;
+	if (!RecoveryInProgress() && !IsGTMNode())
+	{
+		LWLockAcquire(ProcArrayLock, LW_SHARED);
+
+		pgprocnos = procArray->pgprocnos;
+		numProcs = procArray->numProcs;
+		for (index = 0; index < numProcs; index++)
+		{
+			pgprocno = pgprocnos[index];
+			proc = &allProcs[pgprocno];
+			if (TransactionIdIsNormal(proc->getGlobalTransaction))
+				list = lappend_int(list, proc->getGlobalTransaction);
+		}
+		LWLockRelease(ProcArrayLock);
+	}
+
+	return list;
+}
 #endif /* ADB */
 
 /*
