@@ -2096,8 +2096,11 @@ void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 						 char *zone)
 {
 	SwitcherNodeWrapper *node;
-	SwitcherNodeWrapper *newMaster;
+	SwitcherNodeWrapper *newMaster = NULL;
 	dlist_mutable_iter miter;
+
+	if(dlist_is_empty(runningSlaves))
+		ereportErrorLog(errmsg("Error there is no running slave to choose as a candidate for promotion"));
 
 	/* Prevent other doctor processe from manipulating this node simultaneously */
 	refreshOldMasterBeforeSwitch(oldMaster, spiContext);
@@ -2121,7 +2124,10 @@ void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 										   NameStr(oldMaster->mgrNode->form.nodezone),
 										   zone);
 	}
-	
+	if (NULL == newMaster)
+		ereportErrorLog(errmsg("Error there is no new %s for promotion",
+				mgr_get_nodetype_desc(getMgrMasterNodetype(oldMaster->mgrNode->form.nodetype))));
+
 	*newMasterP = newMaster;
 	if (newMaster)
 	{
@@ -2166,10 +2172,10 @@ void chooseNewMasterNodeForZone(SwitcherNodeWrapper *oldMaster,
 										&failedSlaves,
 										NameStr(oldMaster->mgrNode->form.nodezone),
 										zone);
-	if (NULL == newMaster){
-		ereport(ERROR,(errmsg("no %s is choose as a candidate for promotion",
-				 mgr_get_nodetype_desc(getMgrSlaveNodetype(oldMaster->mgrNode->form.nodetype)))));
-	}									
+	if (NULL == newMaster)
+		ereportErrorLog(errmsg("Error there is no new %s for promotion",
+				 mgr_get_nodetype_desc(getMgrMasterNodetype(oldMaster->mgrNode->form.nodetype))));
+		
 	*newMasterP = newMaster;
 
 	validateNewMasterCandidateForSwitch(oldMaster->mgrNode, newMaster, forceSwitch);

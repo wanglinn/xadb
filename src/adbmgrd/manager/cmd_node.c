@@ -13873,8 +13873,8 @@ bool AddHbaIsValid(const AppendNodeInfo *nodeinfo, StringInfo infosendmsg)
 	if (try < 0)
 	{
 		ereport(ERROR,
-			(errmsg("Fail to connect to coordinator %s", PQerrorMessage((PGconn*)pg_conn)),
-			errhint("coordinator info(host=%s port=%d dbname=%s user=%s)",
+			(errmsg("Fail to connect to node %s", PQerrorMessage((PGconn*)pg_conn)),
+			errhint("node info(host=%s port=%d dbname=%s user=%s)",
 				nodeinfo->nodeaddr, nodeinfo->nodeport, DEFAULT_DB, nodeinfo->nodeusername)));
 	}
 	/*release the pg_conn */
