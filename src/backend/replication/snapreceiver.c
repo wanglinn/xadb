@@ -651,6 +651,34 @@ SnapRcvSendInitSyncXid(void)
 	return left_xid_str;
 }
 
+static void SnapRcvStopAllWaitFinishBackend()
+{
+	proclist_mutable_iter	iter;
+	PGPROC					*proc;
+
+	ProcessSnapRcvInterrupts();
+	LOCK_SNAP_GXID_RCV();
+	if (proclist_is_empty(&SnapRcv->send_commiters) && proclist_is_empty(&SnapRcv->wait_commiters))
+	{
+		UNLOCK_SNAP_GXID_RCV();
+		return;
+	}
+
+	proclist_foreach_modify(iter, &SnapRcv->send_commiters, GxidWaitLink)
+	{
+		proc = GetPGProcByNumber(iter.cur);
+		proc->getGlobalTransaction = InvalidTransactionId;
+		SetLatch(&proc->procLatch);
+	}
+
+	proclist_foreach_modify(iter, &SnapRcv->wait_commiters, GxidWaitLink)
+	{
+		proc = GetPGProcByNumber(iter.cur);
+		proc->getGlobalTransaction = InvalidTransactionId;
+		SetLatch(&proc->procLatch);
+	}
+	UNLOCK_SNAP_GXID_RCV();
+}
 
 void SnapReceiverMain(void)
 {
@@ -659,6 +687,15 @@ void SnapReceiverMain(void)
 	TimestampTz last_hb_st, now;
 	bool		force_send;
 	int 		loop_time;
+	sigjmp_buf	local_sigjmp_buf;
+
+	if (sigsetjmp(local_sigjmp_buf, 1) != 0)
+	{
+		SnapRcvStopAllWaitFinishBackend();
+		EmitErrorReport();
+		exit(1);
+	}
+	PG_exception_stack = &local_sigjmp_buf;
 
 	Assert(SnapRcv != NULL);
 
