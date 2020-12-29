@@ -1114,7 +1114,6 @@ static void SnapSenderDropXidItem(TransactionId xid)
 			break;
 		}
 	}
-	SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, xid);
 	SnapSender->xcnt = count;
 }
 
@@ -1772,6 +1771,7 @@ re_lock_:
 		Assert(!found);
 #endif*/
 		SnapSenderDropXidItem(xid);
+		SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, xid);
 		SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend finish xid %u for client %s\n",
 			 			xid, client->client_name)));
 	}
@@ -2431,6 +2431,7 @@ void SnapSendTransactionFinish(TransactionId txid, SnapXidFinishOption finish_fl
 		SpinLockAcquire(&SnapSender->gxid_mutex);
 		SnapSenderDropXidItem(txid);
 		SpinLockRelease(&SnapSender->gxid_mutex);
+		SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, txid);
 	}
 }
 
