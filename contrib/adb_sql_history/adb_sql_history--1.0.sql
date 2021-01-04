@@ -25,7 +25,5 @@ SELECT
 	t1.lasttime as lasttime,
 	t1.ecount
 FROM
-	adb_sql_history() t1,
-	pg_database t2
-WHERE t1.dbid = t2.oid
+	adb_sql_history() t1 left join pg_database t2 on t1.dbid = t2.oid
 ORDER BY pid, lasttime DESC;

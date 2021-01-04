@@ -72,20 +72,18 @@
 #include "storage/shmem.h"
 #include "storage/spin.h"
 
-
 /* shared memory global variables */
 
-static PGShmemHeader *ShmemSegHdr;	/* shared mem segment header */
+static PGShmemHeader *ShmemSegHdr; /* shared mem segment header */
 
-static void *ShmemBase;			/* start address of shared memory */
+static void *ShmemBase; /* start address of shared memory */
 
-static void *ShmemEnd;			/* end+1 address of shared memory */
+static void *ShmemEnd; /* end+1 address of shared memory */
 
-slock_t    *ShmemLock;			/* spinlock for shared memory and LWLock
-								 * allocation */
+slock_t *ShmemLock; /* spinlock for shared memory and LWLock
+                     * allocation */
 
 static HTAB *ShmemIndex = NULL; /* primary index hashtable for shmem */
-
 
 /*
  *	InitShmemAccess() --- set up basic pointers to shared memory.
@@ -93,14 +91,13 @@ static HTAB *ShmemIndex = NULL; /* primary index hashtable for shmem */
  * Note: the argument should be declared "PGShmemHeader *seghdr",
  * but we use void to avoid having to include ipc.h in shmem.h.
  */
-void
-InitShmemAccess(void *seghdr)
+void InitShmemAccess(void *seghdr)
 {
-	PGShmemHeader *shmhdr = (PGShmemHeader *) seghdr;
+    PGShmemHeader *shmhdr = (PGShmemHeader *)seghdr;
 
-	ShmemSegHdr = shmhdr;
-	ShmemBase = (void *) shmhdr;
-	ShmemEnd = (char *) ShmemBase + shmhdr->totalsize;
+    ShmemSegHdr = shmhdr;
+    ShmemBase = (void *)shmhdr;
+    ShmemEnd = (char *)ShmemBase + shmhdr->totalsize;
 }
 
 /*
@@ -108,42 +105,39 @@ InitShmemAccess(void *seghdr)
  *
  * This should be called only in the postmaster or a standalone backend.
  */
-void
-InitShmemAllocation(void)
+void InitShmemAllocation(void)
 {
-	PGShmemHeader *shmhdr = ShmemSegHdr;
-	char	   *aligned;
+    PGShmemHeader *shmhdr = ShmemSegHdr;
+    char *aligned;
 
-	Assert(shmhdr != NULL);
+    Assert(shmhdr != NULL);
 
-	/*
-	 * Initialize the spinlock used by ShmemAlloc.  We must use
-	 * ShmemAllocUnlocked, since obviously ShmemAlloc can't be called yet.
-	 */
-	ShmemLock = (slock_t *) ShmemAllocUnlocked(sizeof(slock_t));
+    /*
+     * Initialize the spinlock used by ShmemAlloc.  We must use
+     * ShmemAllocUnlocked, since obviously ShmemAlloc can't be called yet.
+     */
+    ShmemLock = (slock_t *)ShmemAllocUnlocked(sizeof(slock_t));
 
-	SpinLockInit(ShmemLock);
+    SpinLockInit(ShmemLock);
 
-	/*
-	 * Allocations after this point should go through ShmemAlloc, which
-	 * expects to allocate everything on cache line boundaries.  Make sure the
-	 * first allocation begins on a cache line boundary.
-	 */
-	aligned = (char *)
-		(CACHELINEALIGN((((char *) shmhdr) + shmhdr->freeoffset)));
-	shmhdr->freeoffset = aligned - (char *) shmhdr;
+    /*
+     * Allocations after this point should go through ShmemAlloc, which
+     * expects to allocate everything on cache line boundaries.  Make sure the
+     * first allocation begins on a cache line boundary.
+     */
+    aligned = (char *)(CACHELINEALIGN((((char *)shmhdr) + shmhdr->freeoffset)));
+    shmhdr->freeoffset = aligned - (char *)shmhdr;
 
-	/* ShmemIndex can't be set up yet (need LWLocks first) */
-	shmhdr->index = NULL;
-	ShmemIndex = (HTAB *) NULL;
+    /* ShmemIndex can't be set up yet (need LWLocks first) */
+    shmhdr->index = NULL;
+    ShmemIndex = (HTAB *)NULL;
 
-	/*
-	 * Initialize ShmemVariableCache for transaction manager. (This doesn't
-	 * really belong here, but not worth moving.)
-	 */
-	ShmemVariableCache = (VariableCache)
-		ShmemAlloc(sizeof(*ShmemVariableCache));
-	memset(ShmemVariableCache, 0, sizeof(*ShmemVariableCache));
+    /*
+     * Initialize ShmemVariableCache for transaction manager. (This doesn't
+     * really belong here, but not worth moving.)
+     */
+    ShmemVariableCache = (VariableCache)ShmemAlloc(sizeof(*ShmemVariableCache));
+    memset(ShmemVariableCache, 0, sizeof(*ShmemVariableCache));
 }
 
 /*
@@ -153,18 +147,28 @@ InitShmemAllocation(void)
  *
  * Assumes ShmemLock and ShmemSegHdr are initialized.
  */
-void *
-ShmemAlloc(Size size)
+void *ShmemAlloc(Size size)
 {
-	void	   *newSpace;
+    void *newSpace;
 
-	newSpace = ShmemAllocNoError(size);
-	if (!newSpace)
-		ereport(ERROR,
-				(errcode(ERRCODE_OUT_OF_MEMORY),
-				 errmsg("out of shared memory (%zu bytes requested)",
-						size)));
-	return newSpace;
+    newSpace = ShmemAllocNoError(size);
+    if (!newSpace)
+        ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of shared memory (%zu bytes requested)", size)));
+    return newSpace;
+}
+
+/*
+ * GetShmemFreeSize -- Get remain free size of sheme
+ *
+ * Assumes ShmemLock and ShmemSegHdr are initialized.
+ */
+Size ShmemGetFreeSize()
+{
+    Size free_size;
+    SpinLockAcquire(ShmemLock);
+    free_size = ShmemSegHdr->totalsize - ShmemSegHdr->freeoffset;
+    SpinLockRelease(ShmemLock);
+    return free_size;
 }
 
 /*
@@ -172,47 +176,46 @@ ShmemAlloc(Size size)
  *
  * As ShmemAlloc, but returns NULL if out of space, rather than erroring.
  */
-void *
-ShmemAllocNoError(Size size)
+void *ShmemAllocNoError(Size size)
 {
-	Size		newStart;
-	Size		newFree;
-	void	   *newSpace;
+    Size newStart;
+    Size newFree;
+    void *newSpace;
 
-	/*
-	 * Ensure all space is adequately aligned.  We used to only MAXALIGN this
-	 * space but experience has proved that on modern systems that is not good
-	 * enough.  Many parts of the system are very sensitive to critical data
-	 * structures getting split across cache line boundaries.  To avoid that,
-	 * attempt to align the beginning of the allocation to a cache line
-	 * boundary.  The calling code will still need to be careful about how it
-	 * uses the allocated space - e.g. by padding each element in an array of
-	 * structures out to a power-of-two size - but without this, even that
-	 * won't be sufficient.
-	 */
-	size = CACHELINEALIGN(size);
+    /*
+     * Ensure all space is adequately aligned.  We used to only MAXALIGN this
+     * space but experience has proved that on modern systems that is not good
+     * enough.  Many parts of the system are very sensitive to critical data
+     * structures getting split across cache line boundaries.  To avoid that,
+     * attempt to align the beginning of the allocation to a cache line
+     * boundary.  The calling code will still need to be careful about how it
+     * uses the allocated space - e.g. by padding each element in an array of
+     * structures out to a power-of-two size - but without this, even that
+     * won't be sufficient.
+     */
+    size = CACHELINEALIGN(size);
 
-	Assert(ShmemSegHdr != NULL);
+    Assert(ShmemSegHdr != NULL);
 
-	SpinLockAcquire(ShmemLock);
+    SpinLockAcquire(ShmemLock);
 
-	newStart = ShmemSegHdr->freeoffset;
+    newStart = ShmemSegHdr->freeoffset;
 
-	newFree = newStart + size;
-	if (newFree <= ShmemSegHdr->totalsize)
-	{
-		newSpace = (void *) ((char *) ShmemBase + newStart);
-		ShmemSegHdr->freeoffset = newFree;
-	}
-	else
-		newSpace = NULL;
+    newFree = newStart + size;
+    if (newFree <= ShmemSegHdr->totalsize)
+    {
+        newSpace = (void *)((char *)ShmemBase + newStart);
+        ShmemSegHdr->freeoffset = newFree;
+    }
+    else
+        newSpace = NULL;
 
-	SpinLockRelease(ShmemLock);
+    SpinLockRelease(ShmemLock);
 
-	/* note this assert is okay with newSpace == NULL */
-	Assert(newSpace == (void *) CACHELINEALIGN(newSpace));
+    /* note this assert is okay with newSpace == NULL */
+    Assert(newSpace == (void *)CACHELINEALIGN(newSpace));
 
-	return newSpace;
+    return newSpace;
 }
 
 /*
@@ -223,35 +226,31 @@ ShmemAllocNoError(Size size)
  *
  * We consider maxalign, rather than cachealign, sufficient here.
  */
-void *
-ShmemAllocUnlocked(Size size)
+void *ShmemAllocUnlocked(Size size)
 {
-	Size		newStart;
-	Size		newFree;
-	void	   *newSpace;
+    Size newStart;
+    Size newFree;
+    void *newSpace;
 
-	/*
-	 * Ensure allocated space is adequately aligned.
-	 */
-	size = MAXALIGN(size);
+    /*
+     * Ensure allocated space is adequately aligned.
+     */
+    size = MAXALIGN(size);
 
-	Assert(ShmemSegHdr != NULL);
+    Assert(ShmemSegHdr != NULL);
 
-	newStart = ShmemSegHdr->freeoffset;
+    newStart = ShmemSegHdr->freeoffset;
 
-	newFree = newStart + size;
-	if (newFree > ShmemSegHdr->totalsize)
-		ereport(ERROR,
-				(errcode(ERRCODE_OUT_OF_MEMORY),
-				 errmsg("out of shared memory (%zu bytes requested)",
-						size)));
-	ShmemSegHdr->freeoffset = newFree;
+    newFree = newStart + size;
+    if (newFree > ShmemSegHdr->totalsize)
+        ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY), errmsg("out of shared memory (%zu bytes requested)", size)));
+    ShmemSegHdr->freeoffset = newFree;
 
-	newSpace = (void *) ((char *) ShmemBase + newStart);
+    newSpace = (void *)((char *)ShmemBase + newStart);
 
-	Assert(newSpace == (void *) MAXALIGN(newSpace));
+    Assert(newSpace == (void *)MAXALIGN(newSpace));
 
-	return newSpace;
+    return newSpace;
 }
 
 /*
@@ -259,36 +258,32 @@ ShmemAllocUnlocked(Size size)
  *
  * Returns true if the pointer points within the shared memory segment.
  */
-bool
-ShmemAddrIsValid(const void *addr)
+bool ShmemAddrIsValid(const void *addr)
 {
-	return (addr >= ShmemBase) && (addr < ShmemEnd);
+    return (addr >= ShmemBase) && (addr < ShmemEnd);
 }
 
 /*
  *	InitShmemIndex() --- set up or attach to shmem index table.
  */
-void
-InitShmemIndex(void)
+void InitShmemIndex(void)
 {
-	HASHCTL		info;
-	int			hash_flags;
+    HASHCTL info;
+    int hash_flags;
 
-	/*
-	 * Create the shared memory shmem index.
-	 *
-	 * Since ShmemInitHash calls ShmemInitStruct, which expects the ShmemIndex
-	 * hashtable to exist already, we have a bit of a circularity problem in
-	 * initializing the ShmemIndex itself.  The special "ShmemIndex" hash
-	 * table name will tell ShmemInitStruct to fake it.
-	 */
-	info.keysize = SHMEM_INDEX_KEYSIZE;
-	info.entrysize = sizeof(ShmemIndexEnt);
-	hash_flags = HASH_ELEM;
+    /*
+     * Create the shared memory shmem index.
+     *
+     * Since ShmemInitHash calls ShmemInitStruct, which expects the ShmemIndex
+     * hashtable to exist already, we have a bit of a circularity problem in
+     * initializing the ShmemIndex itself.  The special "ShmemIndex" hash
+     * table name will tell ShmemInitStruct to fake it.
+     */
+    info.keysize = SHMEM_INDEX_KEYSIZE;
+    info.entrysize = sizeof(ShmemIndexEnt);
+    hash_flags = HASH_ELEM;
 
-	ShmemIndex = ShmemInitHash("ShmemIndex",
-							   SHMEM_INDEX_SIZE, SHMEM_INDEX_SIZE,
-							   &info, hash_flags);
+    ShmemIndex = ShmemInitHash("ShmemIndex", SHMEM_INDEX_SIZE, SHMEM_INDEX_SIZE, &info, hash_flags);
 }
 
 /*
@@ -313,43 +308,40 @@ InitShmemIndex(void)
  * cases.  Now, it always throws error instead, so callers need not check
  * for NULL.
  */
-HTAB *
-ShmemInitHash(const char *name,		/* table string name for shmem index */
-			  long init_size,	/* initial table size */
-			  long max_size,	/* max size of the table */
-			  HASHCTL *infoP,	/* info about key and bucket size */
-			  int hash_flags)	/* info about infoP */
+HTAB *ShmemInitHash(const char *name, /* table string name for shmem index */
+                    long init_size,   /* initial table size */
+                    long max_size,    /* max size of the table */
+                    HASHCTL *infoP,   /* info about key and bucket size */
+                    int hash_flags)   /* info about infoP */
 {
-	bool		found;
-	void	   *location;
+    bool found;
+    void *location;
 
-	/*
-	 * Hash tables allocated in shared memory have a fixed directory; it can't
-	 * grow or other backends wouldn't be able to find it. So, make sure we
-	 * make it big enough to start with.
-	 *
-	 * The shared memory allocator must be specified too.
-	 */
-	infoP->dsize = infoP->max_dsize = hash_select_dirsize(max_size);
-	infoP->alloc = ShmemAllocNoError;
-	hash_flags |= HASH_SHARED_MEM | HASH_ALLOC | HASH_DIRSIZE;
+    /*
+     * Hash tables allocated in shared memory have a fixed directory; it can't
+     * grow or other backends wouldn't be able to find it. So, make sure we
+     * make it big enough to start with.
+     *
+     * The shared memory allocator must be specified too.
+     */
+    infoP->dsize = infoP->max_dsize = hash_select_dirsize(max_size);
+    infoP->alloc = ShmemAllocNoError;
+    hash_flags |= HASH_SHARED_MEM | HASH_ALLOC | HASH_DIRSIZE;
 
-	/* look it up in the shmem index */
-	location = ShmemInitStruct(name,
-							   hash_get_shared_size(infoP, hash_flags),
-							   &found);
+    /* look it up in the shmem index */
+    location = ShmemInitStruct(name, hash_get_shared_size(infoP, hash_flags), &found);
 
-	/*
-	 * if it already exists, attach to it rather than allocate and initialize
-	 * new space
-	 */
-	if (found)
-		hash_flags |= HASH_ATTACH;
+    /*
+     * if it already exists, attach to it rather than allocate and initialize
+     * new space
+     */
+    if (found)
+        hash_flags |= HASH_ATTACH;
 
-	/* Pass location of hashtable header to hash_create */
-	infoP->hctl = (HASHHDR *) location;
+    /* Pass location of hashtable header to hash_create */
+    infoP->hctl = (HASHHDR *)location;
 
-	return hash_create(name, init_size, infoP, hash_flags);
+    return hash_create(name, init_size, infoP, hash_flags);
 }
 
 /*
@@ -368,138 +360,130 @@ ShmemInitHash(const char *name,		/* table string name for shmem index */
  *	cases.  Now, it always throws error instead, so callers need not check
  *	for NULL.
  */
-void *
-ShmemInitStruct(const char *name, Size size, bool *foundPtr)
+void *ShmemInitStruct(const char *name, Size size, bool *foundPtr)
 {
-	ShmemIndexEnt *result;
-	void	   *structPtr;
+    ShmemIndexEnt *result;
+    void *structPtr;
 
-	LWLockAcquire(ShmemIndexLock, LW_EXCLUSIVE);
+    LWLockAcquire(ShmemIndexLock, LW_EXCLUSIVE);
 
-	if (!ShmemIndex)
-	{
-		PGShmemHeader *shmemseghdr = ShmemSegHdr;
+    if (!ShmemIndex)
+    {
+        PGShmemHeader *shmemseghdr = ShmemSegHdr;
 
-		/* Must be trying to create/attach to ShmemIndex itself */
-		Assert(strcmp(name, "ShmemIndex") == 0);
+        /* Must be trying to create/attach to ShmemIndex itself */
+        Assert(strcmp(name, "ShmemIndex") == 0);
 
-		if (IsUnderPostmaster)
-		{
-			/* Must be initializing a (non-standalone) backend */
-			Assert(shmemseghdr->index != NULL);
-			structPtr = shmemseghdr->index;
-			*foundPtr = true;
-		}
-		else
-		{
-			/*
-			 * If the shmem index doesn't exist, we are bootstrapping: we must
-			 * be trying to init the shmem index itself.
-			 *
-			 * Notice that the ShmemIndexLock is released before the shmem
-			 * index has been initialized.  This should be OK because no other
-			 * process can be accessing shared memory yet.
-			 */
-			Assert(shmemseghdr->index == NULL);
-			structPtr = ShmemAlloc(size);
-			shmemseghdr->index = structPtr;
-			*foundPtr = false;
-		}
-		LWLockRelease(ShmemIndexLock);
-		return structPtr;
-	}
+        if (IsUnderPostmaster)
+        {
+            /* Must be initializing a (non-standalone) backend */
+            Assert(shmemseghdr->index != NULL);
+            structPtr = shmemseghdr->index;
+            *foundPtr = true;
+        }
+        else
+        {
+            /*
+             * If the shmem index doesn't exist, we are bootstrapping: we must
+             * be trying to init the shmem index itself.
+             *
+             * Notice that the ShmemIndexLock is released before the shmem
+             * index has been initialized.  This should be OK because no other
+             * process can be accessing shared memory yet.
+             */
+            Assert(shmemseghdr->index == NULL);
+            structPtr = ShmemAlloc(size);
+            shmemseghdr->index = structPtr;
+            *foundPtr = false;
+        }
+        LWLockRelease(ShmemIndexLock);
+        return structPtr;
+    }
 
-	/* look it up in the shmem index */
-	result = (ShmemIndexEnt *)
-		hash_search(ShmemIndex, name, HASH_ENTER_NULL, foundPtr);
+    /* look it up in the shmem index */
+    result = (ShmemIndexEnt *)hash_search(ShmemIndex, name, HASH_ENTER_NULL, foundPtr);
 
-	if (!result)
-	{
-		LWLockRelease(ShmemIndexLock);
-		ereport(ERROR,
-				(errcode(ERRCODE_OUT_OF_MEMORY),
-				 errmsg("could not create ShmemIndex entry for data structure \"%s\"",
-						name)));
-	}
+    if (!result)
+    {
+        LWLockRelease(ShmemIndexLock);
+        ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY),
+                        errmsg("could not create ShmemIndex entry for data structure \"%s\"", name)));
+    }
 
-	if (*foundPtr)
-	{
-		/*
-		 * Structure is in the shmem index so someone else has allocated it
-		 * already.  The size better be the same as the size we are trying to
-		 * initialize to, or there is a name conflict (or worse).
-		 */
-		if (result->size != size)
-		{
-			LWLockRelease(ShmemIndexLock);
-			ereport(ERROR,
-					(errmsg("ShmemIndex entry size is wrong for data structure"
-							" \"%s\": expected %zu, actual %zu",
-							name, size, result->size)));
-		}
-		structPtr = result->location;
-	}
-	else
-	{
-		/* It isn't in the table yet. allocate and initialize it */
-		structPtr = ShmemAllocNoError(size);
-		if (structPtr == NULL)
-		{
-			/* out of memory; remove the failed ShmemIndex entry */
-			hash_search(ShmemIndex, name, HASH_REMOVE, NULL);
-			LWLockRelease(ShmemIndexLock);
-			ereport(ERROR,
-					(errcode(ERRCODE_OUT_OF_MEMORY),
-					 errmsg("not enough shared memory for data structure"
-							" \"%s\" (%zu bytes requested)",
-							name, size)));
-		}
-		result->size = size;
-		result->location = structPtr;
-	}
+    if (*foundPtr)
+    {
+        /*
+         * Structure is in the shmem index so someone else has allocated it
+         * already.  The size better be the same as the size we are trying to
+         * initialize to, or there is a name conflict (or worse).
+         */
+        if (result->size != size)
+        {
+            LWLockRelease(ShmemIndexLock);
+            ereport(ERROR, (errmsg("ShmemIndex entry size is wrong for data structure"
+                                   " \"%s\": expected %zu, actual %zu",
+                                   name, size, result->size)));
+        }
+        structPtr = result->location;
+    }
+    else
+    {
+        /* It isn't in the table yet. allocate and initialize it */
+        structPtr = ShmemAllocNoError(size);
+        if (structPtr == NULL)
+        {
+            /* out of memory; remove the failed ShmemIndex entry */
+            hash_search(ShmemIndex, name, HASH_REMOVE, NULL);
+            LWLockRelease(ShmemIndexLock);
 
-	LWLockRelease(ShmemIndexLock);
+            ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY),
+                            errmsg("totalsize is %zu, has already alloc %zu bytes mem, free size in shmem is only %zu "
+                                   "bytes, not enough shared memory for data structure"
+                                   " \"%s\" (%zu bytes requested)",
+                                   ShmemSegHdr->totalsize, ShmemSegHdr->freeoffset,
+                                   ShmemSegHdr->totalsize - ShmemSegHdr->freeoffset, name, size)));
+        }
+        result->size = size;
+        result->location = structPtr;
+    }
 
-	Assert(ShmemAddrIsValid(structPtr));
+    LWLockRelease(ShmemIndexLock);
 
-	Assert(structPtr == (void *) CACHELINEALIGN(structPtr));
+    Assert(ShmemAddrIsValid(structPtr));
 
-	return structPtr;
+    Assert(structPtr == (void *)CACHELINEALIGN(structPtr));
+
+    return structPtr;
 }
-
 
 /*
  * Add two Size values, checking for overflow
  */
-Size
-add_size(Size s1, Size s2)
+Size add_size(Size s1, Size s2)
 {
-	Size		result;
+    Size result;
 
-	result = s1 + s2;
-	/* We are assuming Size is an unsigned type here... */
-	if (result < s1 || result < s2)
-		ereport(ERROR,
-				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-				 errmsg("requested shared memory size overflows size_t")));
-	return result;
+    result = s1 + s2;
+    /* We are assuming Size is an unsigned type here... */
+    if (result < s1 || result < s2)
+        ereport(ERROR,
+                (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED), errmsg("requested shared memory size overflows size_t")));
+    return result;
 }
 
 /*
  * Multiply two Size values, checking for overflow
  */
-Size
-mul_size(Size s1, Size s2)
+Size mul_size(Size s1, Size s2)
 {
-	Size		result;
+    Size result;
 
-	if (s1 == 0 || s2 == 0)
-		return 0;
-	result = s1 * s2;
-	/* We are assuming Size is an unsigned type here... */
-	if (result / s2 != s1)
-		ereport(ERROR,
-				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-				 errmsg("requested shared memory size overflows size_t")));
-	return result;
+    if (s1 == 0 || s2 == 0)
+        return 0;
+    result = s1 * s2;
+    /* We are assuming Size is an unsigned type here... */
+    if (result / s2 != s1)
+        ereport(ERROR,
+                (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED), errmsg("requested shared memory size overflows size_t")));
+    return result;
 }

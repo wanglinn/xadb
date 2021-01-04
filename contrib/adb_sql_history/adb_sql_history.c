@@ -275,7 +275,10 @@ static void shmem_startup(void)
     if (prev_shmem_startup_hook)
         (*prev_shmem_startup_hook)();
 
+    elog(LOG, "one SQL item need %zu bytes, server can connect by maxbackends of num %d", SQL_HISTORY_ITEM_SIZE(),
+         MaxBackends);
     shmem = ShmemInitStruct(ADBSH_NAME, sql_history_shm_size(), &found);
+
     if (unlikely(found == false))
     {
         ptr = shmem;
