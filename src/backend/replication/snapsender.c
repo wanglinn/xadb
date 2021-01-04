@@ -273,10 +273,11 @@ static void SnapSenderClientAddXid(SnapClientData *client, TransactionId xid)
 	Assert(client->cur_cnt <= client->max_cnt);
 }
 
-static void SnapSenderClientRemoveXid(SnapClientData *client, TransactionId xid)
+static bool SnapSenderClientRemoveXid(SnapClientData *client, TransactionId xid)
 {
 	int i;
 	int count = client->cur_cnt;
+	bool found = false;
 	for (i = 0 ;i < count; i++)
 	{
 		if (client->xid[i] == xid)
@@ -285,10 +286,12 @@ static void SnapSenderClientRemoveXid(SnapClientData *client, TransactionId xid)
 					&client->xid[i+1],
 					(count-i-1) * sizeof(xid));
 			--count;
+			found = true;
 			break;
 		}
 	}
 	client->cur_cnt = count;
+	return found;
 }
 
 static void SnapSenderInitXidArray(SnapSenderXidArrayType ssxat)
@@ -1812,10 +1815,10 @@ re_lock_:
 		procno = pq_getmsgint(&input_buffer, sizeof(procno));
 		xid = pq_getmsgint(&input_buffer, sizeof(xid));
 
-		SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_FINISH, xid);
-		SnapReleaseTransactionLocks(&SnapSender->comm_lock, xid);
+		if(SnapSenderClientRemoveXid(client, xid))
+			SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_FINISH, xid);
 
-		SnapSenderClientRemoveXid(client, xid);
+		SnapReleaseTransactionLocks(&SnapSender->comm_lock, xid);
 		SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, xid);
 	}
 	SetLatch(&MyProc->procLatch);
@@ -1886,9 +1889,9 @@ SnapSenderDropXidList(SnapClientData *client, const TransactionId *cn_txids, con
 
 			for (i = 0; i < count; i++)
 			{
-				SnapSenderClientRemoveXid(client, xids[i]);
+				if(SnapSenderClientRemoveXid(client, xids[i]))
+					SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_FINISH, xids[i]);
 				//SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, xids[i]);
-				SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_FINISH, xids[i]);
 				SnapReleaseTransactionLocks(&SnapSender->comm_lock, xids[i]);
 			}
 		}
