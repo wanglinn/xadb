@@ -720,23 +720,26 @@ static bool RevertFailoverDataOfPgxcNode(SwitcherNodeWrapper *holdLockCoordinato
 	dlist_foreach(iter, coordinators)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		if (updatePgxcNodeForSwitch(holdLockCoordinator,
+		if (node->pgxcNodeChanged)
+		{
+			if (updatePgxcNodeForSwitch(holdLockCoordinator,
+										node,
+										oldMaster,
+										newMaster,										
+										false))
+			{
+				node->pgxcNodeChanged = false;
+			}
+			else
+			{
+				ereportNoticeLog(errmsg("%s revert pgxc_node failed",
+								NameStr(node->mgrNode->form.nodename)));
+				execOk = false;
+			}
+			pgxcPoolReloadOnNode(holdLockCoordinator,
 									node,
-									oldMaster,
-									newMaster,										
-									false))
-		{
-			node->pgxcNodeChanged = false;
+									false);
 		}
-		else
-		{
-			ereportNoticeLog(errmsg("%s revert pgxc_node failed",
-							NameStr(node->mgrNode->form.nodename)));
-			execOk = false;
-		}
-		pgxcPoolReloadOnNode(holdLockCoordinator,
-								node,
-								false);
 	}
 	
 	return execOk;
@@ -846,8 +849,6 @@ static void RevertSwitchverData(MemoryContext spiContext,
 	initStringInfo(&(getAgentCmdRst.description));
 	initStringInfo(&infosendmsg);
 
-	ereportNoticeLog(errmsg("begin to revert switchover"));
-
 	if (beginSwitchOver)
 	{
 		if (makesure_node_is_running(&oldMaster->mgrNode->form, oldMaster->mgrNode->form.nodeport))
@@ -907,9 +908,9 @@ static void RevertSwitchverData(MemoryContext spiContext,
 									NULL);
 	}
 
+	holdLockCoordinator = getHoldLockCoordinator(coordinators);
 	if (isDataNodeMgrNode(oldMaster->mgrNode->form.nodetype))
 	{
-		holdLockCoordinator = getHoldLockCoordinator(coordinators);
 		execOk = RevertFailoverDataOfPgxcNode(holdLockCoordinator,
 												coordinators,
 												oldMaster,
@@ -919,8 +920,7 @@ static void RevertSwitchverData(MemoryContext spiContext,
 	else
 	{
 		DelNodeFromSwitcherNodeWrappers(coordinators, oldMaster);
-		dlist_push_head(coordinators, &newMaster->link);
-		execOk = RevertFailoverDataOfPgxcNode(NULL,
+		execOk = RevertFailoverDataOfPgxcNode(holdLockCoordinator,
 											coordinators,
 											oldMaster,
 											newMaster);
@@ -1549,12 +1549,14 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, in
 		MemoryContextSwitchTo(oldContext);
 		edata = CopyErrorData();
 		FlushErrorState();
+		ereportNoticeLog(errmsg("revert switchover datanode begin."));
 		RevertSwitchverData(spiContext,
 							beginSwitchOver,
 							&coordinators,
 							RevertNewMaster,
 							RevertOldMaster,
 							&runningSlaves);
+		ereportNoticeLog(errmsg("revert switchover datanode end."));	
 	}
 	PG_END_TRY();
 
@@ -1819,6 +1821,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 		MemoryContextSwitchTo(oldContext);
 		edata = CopyErrorData();
 		FlushErrorState();
+		ereportNoticeLog(errmsg("revert switchover gtm coordinator begin"));
 		revertGtmInfoSetting(RevertNewMaster, 
 							RevertOldMaster, 
 							&coordinators,
@@ -1829,7 +1832,8 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 							&coordinators,
 							RevertNewMaster,
 							RevertOldMaster,
-							&runningSlaves);		
+							&runningSlaves);
+		ereportNoticeLog(errmsg("revert switchover gtm coordinator end"));							
 	}
 	PG_END_TRY();
 
@@ -4748,12 +4752,7 @@ static void checkActiveConnectionsForSwitchover(dlist_head *coordinators,
 	SwitcherNodeWrapper *node;
 	dlist_iter iter;
 
-	ereport(LOG,
-			(errmsg("wait max %d seconds to wait there are no active "
-					"connections on coordinators and master nodes",
-					maxTrys)));
-	ereport(NOTICE,
-			(errmsg("wait max %d seconds to wait there are no active "
+	ereportNoticeLog((errmsg("wait max %d seconds to wait there are no active "
 					"connections on coordinators and master nodes",
 					maxTrys)));
 	for (iloop = 0; iloop < maxTrys; iloop++)
@@ -4785,8 +4784,7 @@ static void checkActiveConnectionsForSwitchover(dlist_head *coordinators,
 		}
 	}
 	if (!execOk)
-		ereport(ERROR,
-				(errmsg("there are some active connections on "
+		ereportErrorLog((errmsg("[Error] there are some active connections on "
 						"coordinators or datanode masters")));
 }
 
