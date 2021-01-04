@@ -11953,11 +11953,11 @@ void mgr_get_gtmcoord_conn(char *zone, char *dbname, PGconn **pg_conn, Oid *cnoi
 			if (iloop == max-1)
 			{
 				heap_close(rel_node, AccessShareLock);
-				ereport(ERROR, (errmsg("can not get active coordinator in cluster %d", iloop)));
+				ereport(ERROR, (errmsg("can not get active gtm coordinator in cluster %d", iloop)));
 			}
 			else
 			{
-				ereport(WARNING, (errmsg("can not get active coordinator in cluster %d", iloop)));
+				ereport(WARNING, (errmsg("can not get active gtm coordinator in cluster %d", iloop)));
 			}
 		}
 		else
@@ -11966,7 +11966,7 @@ void mgr_get_gtmcoord_conn(char *zone, char *dbname, PGconn **pg_conn, Oid *cnoi
 			if(!(HeapTupleIsValid(tuple)))
 			{
 				heap_close(rel_node, AccessShareLock);
-				ereport(ERROR, (errmsg("coordinator \"%s\" does not exist", nodename.data)
+				ereport(ERROR, (errmsg("gtm coordinator \"%s\" does not exist", nodename.data)
 					, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node")
 					, errcode(ERRCODE_UNDEFINED_OBJECT)));
 			}
@@ -12049,7 +12049,7 @@ void mgr_get_gtmcoord_conn(char *zone, char *dbname, PGconn **pg_conn, Oid *cnoi
 		pfree(getAgentCmdRst.description.data);
 		ereport(ERROR,
 			(errmsg("Fail to connect to coordinator %s", PQerrorMessage((PGconn*)*pg_conn)),
-			errhint("coordinator info(host=%s port=%d dbname=%s user=%s)",
+			errhint("gtm coordinator info(host=%s port=%d dbname=%s user=%s)",
 				coordhost, coordport, DEFAULT_DB, connect_user)));
 	}
 
