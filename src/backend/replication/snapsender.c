@@ -128,6 +128,7 @@ extern bool is_need_check_dn_coon;
 bool adb_check_sync_nextid = true;
 int force_snapshot_consistent = FORCE_SNAP_CON_SESSION;
 int snapshot_sync_waittime = 10000;
+int snap_restart_timeout = 300000;
 static volatile sig_atomic_t got_sigterm = false;
 static volatile sig_atomic_t got_SIGHUP = false;
 
@@ -160,7 +161,7 @@ static uint32			cur_wait_event = 0;
 static int snap_send_timeout = 0;
 static List	*dn_master_name_list = NIL;
 static List	*cn_master_name_list = NIL;
-
+static TimestampTz start_time = 0;
 static bool is_snapsender_query_worker = false;
 #define WAIT_EVENT_SIZE_STEP	64
 #define WAIT_EVENT_SIZE_START	128
@@ -187,6 +188,7 @@ static const WaitEventData LatchSetEventData = {OnLatchSetEvent};
 static const WaitEventData PostmasterDeathEventData = {OnPostmasterDeathEvent};
 static const WaitEventData ListenEventData = {OnListenEvent};
 static void SnapSendCheckTimeoutSocket(void);
+static void SnapSendCheckCnDnInitSyncWait(void);
 static void snapsenderUpdateNextXid(TransactionId xid, SnapClientData *exclue_client);
 static void SnapSenderSigHupHandler(SIGNAL_ARGS);
 static TransactionId snapsenderGetSenderGlobalXmin(void);
@@ -195,7 +197,7 @@ static TransactionId snapsenderGetSenderGlobalXmin(void);
 static void SnapSenderSigUsr1Handler(SIGNAL_ARGS);
 static void SnapSenderQuickDieHander(SIGNAL_ARGS);
 
-static void isSnapSenderAllDnConnOk(void);
+static void isSnapSenderAllCnDnConnOk(void);
 static void WakeAllCnClientStream(void);
 static void SnapSenderInitXidArray(SnapSenderXidArrayType ssxat);
 static void SnapSenderFreeXidArray(SnapSenderXidArrayType ssxat);
@@ -634,6 +636,33 @@ static void snapsenderProcessSyncRequest(SnapClientData *client)
 	}
 }
 
+static void SnapSendCheckCnDnInitSyncWait(void)
+{
+	TimestampTz now;
+	uint32 state, dn_state;
+
+	state = pg_atomic_read_u32(&SnapSender->dn_conn_state);
+	dn_state = pg_atomic_read_u32(&SnapSender->dn_conn_state);
+	if (likely(state == SNAPSENDER_STATE_OK &&
+				dn_state == SNAPSENDER_ALL_DNMASTER_CONN_OK))
+		return;
+
+	now = GetCurrentTimestamp();
+	if ((now - start_time) > snap_restart_timeout * 1000)
+	{
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapSendCheckCnDnInitSyncWait timeout, snap_restart_timeout %d\n", snap_restart_timeout)));
+		pg_atomic_write_u32(&SnapSender->nextid_upcount, 0);
+		pg_atomic_write_u32(&SnapSender->nextid_upcount_cn, 0);
+		pg_atomic_write_u32(&SnapSender->dn_conn_state, SNAPSENDER_ALL_DNMASTER_CONN_OK);
+		pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
+		ConditionVariableBroadcast(&SnapSender->cv);
+		ConditionVariableBroadcast(&SnapSender->cv_dn_con);
+		WakeAllCnClientStream();
+		start_time = 0;
+	}
+	return;
+}
+
 static void SnapSendCheckTimeoutSocket(void)
 {
 	TimestampTz  now;
@@ -825,15 +854,12 @@ static void StartSnapSenderMainQueryDnNodeName(void)
 	SNAP_SYNC_DEBUG_LOG((errmsg("list_length(cn_master_name_list) %d, SnapSender->nextid_upcount_cn %d\n",
 			 			list_length(cn_master_name_list), pg_atomic_read_u32(&SnapSender->nextid_upcount_cn))));
 
-	if (pg_atomic_read_u32(&SnapSender->nextid_upcount) == 0 || pg_atomic_read_u32(&SnapSender->nextid_upcount_cn) == 0)
+	if (pg_atomic_read_u32(&SnapSender->nextid_upcount) == 0 && pg_atomic_read_u32(&SnapSender->nextid_upcount_cn) == 0)
 	{
 		SNAP_SYNC_DEBUG_LOG((errmsg("StartSnapSenderMainQueryDnNodeName SnapSender->state to Ok\n")));
 		pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
 		ConditionVariableBroadcast(&SnapSender->cv);
-	}
 
-	if (pg_atomic_read_u32(&SnapSender->nextid_upcount) == 0)
-	{
 		SNAP_SYNC_DEBUG_LOG((errmsg("StartSnapSenderMainQueryDnNodeName SnapSender->dn_conn_state to Ok\n")));
 		pg_atomic_write_u32(&SnapSender->dn_conn_state, SNAPSENDER_ALL_DNMASTER_CONN_OK);
 		ConditionVariableBroadcast(&SnapSender->cv_dn_con);
@@ -1004,6 +1030,7 @@ void SnapSenderMain(void)
 	PG_exception_stack = &local_sigjmp_buf;
 	FrontendProtocol = PG_PROTOCOL_LATEST;
 	whereToSendOutput = DestRemote;
+	start_time = GetCurrentTimestamp();
 
 	SetLatch(&MyProc->procLatch);
 	while(got_sigterm==false)
@@ -1034,6 +1061,8 @@ void SnapSenderMain(void)
 			OnLatchSetEvent(NULL, &time_last_latch);
 
 		SnapSendCheckTimeoutSocket();
+		if (start_time > 0)
+			SnapSendCheckCnDnInitSyncWait();
 		if (got_SIGHUP)
 		{
 			got_SIGHUP = false;
@@ -2216,10 +2245,13 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 			}
 			pfree(xid_string_list);
 
-			SNAP_SYNC_DEBUG_LOG((errmsg("client->client_name %s, is_cn %d, SnapSender->dn_conn_state %d\n", client->client_name, is_cn, pg_atomic_read_u32(&SnapSender->dn_conn_state))));
-			if (adb_check_sync_nextid && is_cn && pg_atomic_read_u32(&SnapSender->dn_conn_state) != SNAPSENDER_ALL_DNMASTER_CONN_OK)
+			SNAP_SYNC_DEBUG_LOG((errmsg("client->client_name %s, is_cn %d, SnapSender->dn_conn_state %d, SnapSender->state %d\n",
+									client->client_name, is_cn, pg_atomic_read_u32(&SnapSender->dn_conn_state), pg_atomic_read_u32(&SnapSender->state))));
+			if (adb_check_sync_nextid && is_cn &&
+				(pg_atomic_read_u32(&SnapSender->dn_conn_state) != SNAPSENDER_ALL_DNMASTER_CONN_OK
+				|| pg_atomic_read_u32(&SnapSender->state) != SNAPSENDER_STATE_OK))
 			{
-				SNAP_SYNC_DEBUG_LOG((errmsg("get cn conn request, but not all dn master conn ok\n")));
+				SNAP_SYNC_DEBUG_LOG((errmsg("get cn conn request, but not all dn or cn master conn ok\n")));
 				client->status = CLIENT_STATUS_CN_WAIT;
 				return;
 			}
@@ -2404,7 +2436,7 @@ void SnapSendTransactionFinish(TransactionId txid, SnapXidFinishOption finish_fl
 	Assert(SnapSender != NULL);
 
 	if (finish_flag & SNAP_XID_RXACT)
-		isSnapSenderAllDnConnOk();
+		isSnapSenderAllCnDnConnOk();
 
 	SpinLockAcquire(&SnapSender->mutex);
 	if (SnapSender->procno == INVALID_PGPROCNO)
@@ -2464,23 +2496,41 @@ TransactionId SnapSendGetGlobalXmin(void)
 	return xmin;
 }
 
-static void isSnapSenderAllDnConnOk(void)
+static void isSnapSenderAllCnDnConnOk(void)
 {
-	uint32 state;
+	uint32 dn_state, cn_state;
 
-	state = pg_atomic_read_u32(&SnapSender->dn_conn_state);
-	if (likely(SNAPSENDER_ALL_DNMASTER_CONN_OK == state))
+	cn_state = pg_atomic_read_u32(&SnapSender->state);
+	dn_state = pg_atomic_read_u32(&SnapSender->dn_conn_state);
+	if (likely(SNAPSENDER_ALL_DNMASTER_CONN_OK == dn_state &&
+				SNAPSENDER_STATE_OK == cn_state))
 		return;
-	
-	for(;;)
+
+	if (dn_state != SNAPSENDER_ALL_DNMASTER_CONN_OK)
 	{
-		ConditionVariableSleep(&SnapSender->cv_dn_con, WAIT_EVENT_SAFE_SNAPSHOT);
-		state = pg_atomic_read_u32(&SnapSender->dn_conn_state);
-		SNAP_SYNC_DEBUG_LOG((errmsg("isSnapSenderAllDnConnOk SnapSender->dn_conn_state %d\n", state)));
-		if (state == SNAPSENDER_ALL_DNMASTER_CONN_OK)
-			break;
+		for(;;)
+		{
+			ConditionVariableSleep(&SnapSender->cv_dn_con, WAIT_EVENT_SAFE_SNAPSHOT);
+			dn_state = pg_atomic_read_u32(&SnapSender->dn_conn_state);
+			SNAP_SYNC_DEBUG_LOG((errmsg("isSnapSenderAllCnDnConnOk SnapSender->dn_conn_state %d\n", dn_state)));
+			if (dn_state == SNAPSENDER_ALL_DNMASTER_CONN_OK)
+				break;
+		}
+		ConditionVariableCancelSleep();
 	}
-	ConditionVariableCancelSleep();
+
+	if (cn_state != SNAPSENDER_STATE_OK)
+	{
+		for(;;)
+		{
+			ConditionVariableSleep(&SnapSender->cv, WAIT_EVENT_SAFE_SNAPSHOT);
+			cn_state = pg_atomic_read_u32(&SnapSender->state);
+			SNAP_SYNC_DEBUG_LOG((errmsg("isSnapSenderAllCnDnConnOk SnapSender->state %d\n", cn_state)));
+			if (cn_state == SNAPSENDER_STATE_OK)
+				break;
+		}
+		ConditionVariableCancelSleep();
+	}
 }
 
 Snapshot SnapSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, TransactionId* xmaxOld,
@@ -2496,7 +2546,7 @@ Snapshot SnapSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, Transactio
 	/* when gtmc get snapshot, we musk make sure all dn has synced two phase xid */
 	if (is_need_check_dn_coon && adb_check_sync_nextid &&
 			!IsAutoVacuumWorkerProcess() && !is_snapsender_query_worker)
-		isSnapSenderAllDnConnOk();
+		isSnapSenderAllCnDnConnOk();
 
 	if (snap->xip == NULL)
 		EnlargeSnapshotXip(snap, GetMaxSnapshotXidCount());

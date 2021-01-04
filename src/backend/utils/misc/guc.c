@@ -2813,6 +2813,17 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
+		{"snap_restart_timeout", PGC_USERSET, GTM,
+			gettext_noop("For gtm snapsender restart wait all coordinator and datanode connect."),
+			gettext_noop("minimum time is 60s"),
+			GUC_UNIT_MS
+		},
+		&snap_restart_timeout,
+		300000, 60000, INT_MAX,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"snap_receiver_timeout", PGC_SIGHUP, COORDINATORS,
 			gettext_noop("For coordinators and datanode with gtmcoordinator snapsender heartbeat time."),
 			gettext_noop("minimum time is 30ms"),
@@ -2833,8 +2844,6 @@ static struct config_int ConfigureNamesInt[] =
 		30000, 5000, INT_MAX,
 		NULL, NULL, NULL
 	},
-
-
 
 	{
 		{"waitglobaltransaction", PGC_USERSET, CLIENT_CONN_STATEMENT,
