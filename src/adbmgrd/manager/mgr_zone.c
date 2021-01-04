@@ -134,6 +134,7 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 
 	PG_TRY();
 	{
+		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s begin ========.", currentZone));
 		MgrFailoverCheck(spiContext, currentZone);
 
 		MgrAddHbaToNodes(spiContext);
@@ -169,6 +170,7 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 							&zoCoordList, 
 							&zoDNList);
 		MgrSetNodesNotZoneSwitched(spiContext, currentZone);
+		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s end ========.", currentZone));
 	}PG_CATCH();
 	{
 		ereportNoticeLog(errmsg("============ ZONE FAILOVER %s failed, revert it begin ============", currentZone));
@@ -261,6 +263,7 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 	
 	PG_TRY();
 	{
+		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s begin ========.", currentZone));
 		MgrSwitchoverCheck(spiContext, currentZone);
 
 		MgrAddHbaToNodes(spiContext);
@@ -287,6 +290,7 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 									maxTrys,
 									&zoGtm, 
 									&zoDNList);
+		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s end ========.", currentZone));							
 	}PG_CATCH();
 	{
 		ereportNoticeLog(errmsg("============ ZONE SWITCHOVER %s failed, revert it begin ============", currentZone));
@@ -501,7 +505,7 @@ static void MgrShutdownNodeNotZone(MemoryContext spiContext,
 		shutdownNodeWithinSeconds(mgrNode,
 								SHUTDOWN_NODE_FAST_SECONDS,
 								SHUTDOWN_NODE_IMMEDIATE_SECONDS,
-								true);
+								false);
 
 		mgrNode->form.nodeinited    = false;
 		mgrNode->form.nodeincluster = false;
@@ -663,9 +667,6 @@ static void MgrMakesureAllSlaveRunning(void)
 }
 static void MgrMakesureZoneAllSlaveRunning(char *zone)
 {
-	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, zone);
-	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_MASTER, zone);
-	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_MASTER, zone);
 	mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_SLAVE, zone);
 	mgr_make_sure_all_running(CNDN_TYPE_COORDINATOR_SLAVE, zone);
 	mgr_make_sure_all_running(CNDN_TYPE_DATANODE_SLAVE, zone);
