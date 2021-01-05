@@ -14145,7 +14145,7 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 
 	/* Check whether there is an unstarted coord synchronous standby */
 	if (!check_all_cn_sync_slave_is_active())
-		return true;
+		return false;
 
 	/* get read-write separation parameters */
 	if (!mgr_get_async_slave_readonly_state(&sync_parms) && updateKey == NULL)
