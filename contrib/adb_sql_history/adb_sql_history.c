@@ -1,4 +1,3 @@
-
 #include "postgres.h"
 
 #include <math.h>
@@ -27,6 +26,8 @@
 #include "parser/scanner.h"
 #include "parser/scansup.h"
 #include "pgstat.h"
+#include "postmaster/autovacuum.h"
+#include "replication/walsender.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
 #include "storage/spin.h"
@@ -41,6 +42,9 @@
 #include "utils/rel.h"
 #include "utils/relcache.h"
 #include "utils/timestamp.h"
+#ifdef ADBMGRD
+#include "postmaster/adbmonitor.h"
+#endif /* ADBMGRD */
 
 PG_MODULE_MAGIC;
 
@@ -85,14 +89,13 @@ static const struct config_enum_entry adbss_track_options[] = {{"none", ADBSS_TR
                                                                {NULL, 0, false}};
 
 static bool adbSHEnabled = true;
-static int adbssTrackLevel = ADBSS_TRACK_TOP;
+static int adbssTrackLevel = ADBSS_TRACK_NONE;
 static int adbSHSqlNum = ADBSH_DEFAULT_MAX_RECORD;
 
 typedef struct SQLHistoryItem
 {
     pid_t pid;
     Oid dbid;
-    /*time_t lasttime;*/
     TimestampTz lasttime;
     int64 ecount;
     slock_t mutex;
@@ -133,6 +136,8 @@ static ExecutorRun_hook_type prev_ExecutorRun = NULL;
     ((adbSHEnabled) &&                                                                                                 \
      (adbssTrackLevel == ADBSS_TRACK_ALL || (adbssTrackLevel == ADBSS_TRACK_TOP && nested_level == 0)))
 
+#define adbssQueryAvailable()                                                                                          \
+    ((adbSHEnabled) && (adbssTrackLevel == ADBSS_TRACK_ALL || adbssTrackLevel == ADBSS_TRACK_TOP))
 /*
  * Module load callback
  */
@@ -184,8 +189,12 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
     SQLHistoryItem *sql_item = NULL;
     Datum values[NATTS_NUM] = {0};
     bool nulls[NATTS_NUM] = {0};
-    struct tm *tmp_ptr = NULL;
-    char data_time[30] = {0};
+
+    if (!adbssQueryAvailable())
+    {
+        elog(ERROR, "preload adb_sql_history failed. Please check your postgresql.conf.");
+        return (Datum)0;
+    }
 
     /* check to see if caller supports us returning a tuplestore */
     if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo))
@@ -220,7 +229,12 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
             memset(nulls, 0, sizeof(nulls));
 
             sql_item = (SQLHistoryItem *)ptr;
-            Assert(sql_item);
+
+            if (!sql_item)
+            {
+                elog(LOG, "sql_item is null, this should not happen");
+                return (Datum)0;
+            }
 
             SpinLockAcquire(&sql_item->mutex);
             if (strlen(sql_item->sql) > 0)
@@ -229,15 +243,6 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
                 values[Anum_adbss_dbid - 1] = ObjectIdGetDatum(sql_item->dbid);
                 values[Anum_adbss_query - 1] = CStringGetTextDatum(sql_item->sql);
 
-                /*tmp_ptr = localtime(&sql_item->lasttime);*/
-                /*memset(&data_time, 0, sizeof(data_time));*/
-                /*snprintf(data_time, sizeof(data_time), "%4d-%02d-%02d
-                 * %02d:%02d:%02d",*/
-                /*(1900 + tmp_ptr->tm_year), (1 + tmp_ptr->tm_mon),*/
-                /*tmp_ptr->tm_mday, tmp_ptr->tm_hour, tmp_ptr->tm_min,*/
-                /*tmp_ptr->tm_sec);*/
-
-                /*values[Anum_adbss_last_time - 1] = CStringGetTextDatum(data_time);*/
                 values[Anum_adbss_last_time - 1] = TimestampTzGetDatum(sql_item->lasttime);
                 values[Anum_adbss_calls - 1] = Int64GetDatumFast(sql_item->ecount);
 
@@ -259,12 +264,28 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
 
     return (Datum)0;
 }
+
 static Size sql_history_shm_size(void)
 {
     Size size = mul_size(SQL_HISTORY_ITEM_SIZE(), adbSHSqlNum);
-    size = mul_size(size, MaxBackends);
+    if (MaxBackends == 0)
+    {
+        /* not call InitializeMaxBackends() */
+        Size max_backends = MaxConnections + autovacuum_max_workers + 1 +
+#if defined(ADBMGRD)
+                            /* and adb monitor launcher */
+                            adbmonitor_max_workers + 1 +
+#endif
+                            max_worker_processes + max_wal_senders;
+        size = mul_size(size, max_backends);
+    }
+    else
+    {
+        size = mul_size(size, MaxBackends);
+    }
     return size;
 }
+
 static void shmem_startup(void)
 {
     SQLHistoryItem *item;
@@ -290,10 +311,14 @@ static void shmem_startup(void)
             --i;
         }
     }
+    else
+    {
+        ptr = shmem + (SQL_HISTORY_ITEM_SIZE() * adbSHSqlNum) * (MyBackendId - 1);
+        MemSet(ptr, 0, SQL_HISTORY_ITEM_SIZE() * adbSHSqlNum);
+    }
 
     my_sql_history = MemoryContextAlloc(TopMemoryContext, sizeof(my_sql_history[0]) * adbSHSqlNum);
 }
-
 /*
  * ExecutorRun hook: all we need do is track nesting depth
  */
@@ -357,6 +382,10 @@ static void save_sql(QueryDesc *queryDesc)
     int sql_idx = 0;
 
     sql = get_querytext(queryDesc);
+
+    if (sql == NULL || strlen(sql) == 0)
+        return;
+
     if (sql && strncmp(sql, "<cluster query>", strlen(sql)) == 0)
         return;
 
@@ -381,14 +410,12 @@ static bool find_sql_pos(char *sql, int *idx)
     for (i = 0; i < adbSHSqlNum; i++)
     {
         sql_item = (SQLHistoryItem *)my_sql_history[i];
-        SpinLockAcquire(&sql_item->mutex);
         if (strlen(sql_item->sql) > 0)
         {
             if (0 == pg_strcasecmp(sql_item->sql, sql))
             {
                 sql_found = true;
                 *idx = i;
-                SpinLockRelease(&sql_item->mutex);
                 break;
             }
         }
@@ -398,11 +425,9 @@ static bool find_sql_pos(char *sql, int *idx)
             {
                 empty_found = true;
                 *idx = i;
-                SpinLockRelease(&sql_item->mutex);
                 break;
             }
         }
-        SpinLockRelease(&sql_item->mutex);
     }
 
     if (!sql_found && !empty_found)
@@ -410,8 +435,9 @@ static bool find_sql_pos(char *sql, int *idx)
         /* list is full, find the youngest time */
         for (i = 0; i < adbSHSqlNum; i++)
         {
+            /*do not need add slock_t of SQLHistoryItem here, because only do read here, and no other place will call
+             * this function*/
             sql_item = (SQLHistoryItem *)my_sql_history[i];
-            SpinLockAcquire(&sql_item->mutex);
 
             if (i == 0)
             {
@@ -426,7 +452,6 @@ static bool find_sql_pos(char *sql, int *idx)
                     *idx = i;
                 }
             }
-            SpinLockRelease(&sql_item->mutex);
         }
     }
 
@@ -436,13 +461,16 @@ static void insert_sql(int sql_idx, char *sql)
 {
     SQLHistoryItem *sql_item = NULL;
 
-    Assert(sql_idx < adbSHSqlNum);
+    if (sql_idx >= adbSHSqlNum)
+    {
+        elog(LOG, "sql_idx is not smaller than adbSHSqlNum, this should not happen");
+        return;
+    }
     sql_item = (SQLHistoryItem *)my_sql_history[sql_idx];
     SpinLockAcquire(&sql_item->mutex);
     sql_item->pid = MyProcPid;
     sql_item->dbid = MyDatabaseId;
     StrNCpy(sql_item->sql, sql, pgstat_track_activity_query_size);
-    /*time(&sql_item->lasttime);*/
     sql_item->lasttime = GetCurrentTimestamp();
     sql_item->ecount = 1;
     SpinLockRelease(&sql_item->mutex);
@@ -451,7 +479,11 @@ static void insert_sql(int sql_idx, char *sql)
 static void update_sql(int sql_idx)
 {
     SQLHistoryItem *sql_item = NULL;
-    Assert(sql_idx < adbSHSqlNum);
+    if (sql_idx >= adbSHSqlNum)
+    {
+        elog(LOG, "sql_idx is not smaller than adbSHSqlNum, this should not happen");
+        return;
+    }
     sql_item = (SQLHistoryItem *)my_sql_history[sql_idx];
     SpinLockAcquire(&sql_item->mutex);
     sql_item->lasttime = GetCurrentTimestamp();
@@ -479,13 +511,23 @@ static char *get_querytext(QueryDesc *queryDesc)
      */
     if (query_location >= 0)
     {
-        Assert(query_location <= strlen(query));
+        if (query_location > strlen(query))
+        {
+            elog(LOG, "query_location is bigger than lenth of query, this should not happen");
+            return NULL;
+        }
         query += query_location;
         /* Length of 0 (or -1) means "rest of string" */
         if (query_len <= 0)
             query_len = strlen(query);
         else
-            Assert(query_len <= strlen(query));
+        {
+            if (query_len > strlen(query))
+            {
+                elog(LOG, "query_len is bigger than lenth of query, this should not happen");
+                return NULL;
+            }
+        }
     }
     else
     {
