@@ -170,6 +170,7 @@ static TransactionId SnapRcvGetLocalXmin(void);
 /* Signal handlers */
 static void SnapRcvSigHupHandler(SIGNAL_ARGS);
 static void SnapRcvSigUsr1Handler(SIGNAL_ARGS);
+static void SnapRcvShutdownHandler(SIGNAL_ARGS);
 static void SnapRcvQuickDieHandler(SIGNAL_ARGS);
 
 typedef bool (*WaitSnapRcvCond)(void *context);
@@ -183,6 +184,7 @@ static void WakeupSnapSync(uint32_t req_key);
 static void SnapRcvDeleteProcList(proclist_head *reters, int procno);
 static bool SnapRcvWaitGxidEvent(TimestampTz end, WaitGxidRcvCond test,
 			proclist_head *reters, proclist_head *geters, void *context, bool is_need_setlatch);
+static void SnapRcvStopAllWaitFinishBackend(void);
 
 static void
 ProcessSnapRcvInterrupts(void)
@@ -192,6 +194,7 @@ ProcessSnapRcvInterrupts(void)
 
 	if (got_SIGTERM)
 	{
+		SnapRcvStopAllWaitFinishBackend();
 		SnapRcvImmediateInterruptOK = false;
 		ereport(FATAL,
 				(errcode(ERRCODE_ADMIN_SHUTDOWN),
@@ -651,12 +654,11 @@ SnapRcvSendInitSyncXid(void)
 	return left_xid_str;
 }
 
-static void SnapRcvStopAllWaitFinishBackend()
+static void SnapRcvStopAllWaitFinishBackend(void)
 {
 	proclist_mutable_iter	iter;
 	PGPROC					*proc;
 
-	ProcessSnapRcvInterrupts();
 	LOCK_SNAP_GXID_RCV();
 	if (proclist_is_empty(&SnapRcv->send_commiters) && proclist_is_empty(&SnapRcv->wait_commiters))
 	{
@@ -757,7 +759,7 @@ void SnapReceiverMain(void)
 	/* Properly accept or ignore signals the postmaster might send us */
 	pqsignal(SIGHUP, SnapRcvSigHupHandler);	/* set flag to read config file */
 	pqsignal(SIGINT, SIG_IGN);
-	pqsignal(SIGTERM, SIG_IGN);	/* ignore kill -15 signal */
+	pqsignal(SIGTERM, SnapRcvShutdownHandler);	/* request shutdown */
 	pqsignal(SIGQUIT, SnapRcvQuickDieHandler);	/* hard crash time */
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
@@ -1001,6 +1003,20 @@ static TimestampTz WaitUntilStartTime(void)
 	}
 
 	return now;
+}
+
+/* SIGTERM: set flag for main loop, or shutdown immediately if safe */
+static void
+SnapRcvShutdownHandler(SIGNAL_ARGS)
+{
+	int			save_errno = errno;
+
+	got_SIGTERM = true;
+
+	if (SNAP_RCV_LATCH_VALID())
+		SNAP_RCV_SET_LATCH();
+
+	errno = save_errno;
 }
 
 static void SnapRcvDie(int code, Datum arg)
@@ -2223,20 +2239,33 @@ void SnapRcvCommitTransactionId(TransactionId txid, SnapXidFinishOption finish_f
 {
 	TimestampTz				endtime;
 	bool					ret;
+	int						state;
 
 	SNAP_SYNC_DEBUG_LOG((errmsg("Proce %d finish xid %u\n",
 			MyProc->pgprocno, txid)));
 
 	ProcessSnapRcvInterrupts();
+
+	state = pg_atomic_read_u32(&SnapRcv->state);
+
+	/* for stopped state and not rxact flag, we can ignore it directly*/
+	if (state == WALRCV_STOPPED && (finish_flag & SNAP_XID_RXACT) == 0)
+	{
+		MyProc->getGlobalTransaction = InvalidTransactionId;
+		ereport(WARNING, (errmsg("cannot connect to GTMCOORD, state is stooped. commit xid %d ignore", txid)));
+		return;
+	}
+
 	isSnapRcvStreamOk();
-	if (pg_atomic_read_u32(&SnapRcv->state) != WALRCV_STREAMING)
+	state = pg_atomic_read_u32(&SnapRcv->state);
+	if (state != WALRCV_STREAMING)
 	{
 		if (finish_flag & SNAP_XID_RXACT)
-			ereport(ERROR, (errmsg("rxact cannot connect to GTMCOORD, commit xid %d failed", txid)));
+			ereport(ERROR, (errmsg("state %d, rxact cannot connect to GTMCOORD, commit xid %d failed", state, txid)));
 		else
 		{
 			MyProc->getGlobalTransaction = InvalidTransactionId;
-			ereport(WARNING, (errmsg("cannot connect to GTMCOORD, commit xid %d ignore", txid)));
+			ereport(WARNING, (errmsg("cannot connect to GTMCOORD, state %d, commit xid %d ignore", state, txid)));
 			return;
 		}
 	}

@@ -195,6 +195,7 @@ static TransactionId snapsenderGetSenderGlobalXmin(void);
 
 /* Signal handlers */
 static void SnapSenderSigUsr1Handler(SIGNAL_ARGS);
+static void SnapSenderSigTermHandler(SIGNAL_ARGS);
 static void SnapSenderQuickDieHander(SIGNAL_ARGS);
 
 static void isSnapSenderAllCnDnConnOk(void);
@@ -955,7 +956,7 @@ void SnapSenderMain(void)
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
 	pqsignal(SIGHUP, SnapSenderSigHupHandler);
-	pqsignal(SIGTERM, SIG_IGN); /* ignore kill -15 signal*/
+	pqsignal(SIGTERM, SnapSenderSigTermHandler);
 	pqsignal(SIGQUIT, SnapSenderQuickDieHander);
 	sigdelset(&BlockSig, SIGQUIT);
 	pqsignal(SIGUSR1, SnapSenderSigUsr1Handler);
@@ -2350,6 +2351,11 @@ static void SnapSenderSigUsr1Handler(SIGNAL_ARGS)
 	latch_sigusr1_handler();
 
 	errno = save_errno;
+}
+
+static void SnapSenderSigTermHandler(SIGNAL_ARGS)
+{
+	got_sigterm = true;
 }
 
 static void SnapSenderQuickDieHander(SIGNAL_ARGS)
