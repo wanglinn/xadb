@@ -192,8 +192,9 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
 
     if (!adbssQueryAvailable())
     {
-        elog(ERROR, "preload adb_sql_history failed. Please check your postgresql.conf.");
-        return (Datum)0;
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("preload adb_sql_history failed. Please check your postgresql.conf")));
+        PG_RETURN_NULL();
     }
 
     /* check to see if caller supports us returning a tuplestore */
@@ -211,7 +212,8 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
 
     /* Build a tuple descriptor for our result type */
     if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
-        elog(ERROR, "return type must be a row type");
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("return type must be a row type")));
+    /* Switch into long-lived context to construct returned data structures */
 
     tupstore = tuplestore_begin_heap(true, false, work_mem);
     rsinfo->returnMode = SFRM_Materialize;
@@ -225,15 +227,16 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
         ptr = shmem + (SQL_HISTORY_ITEM_SIZE() * adbSHSqlNum) * (i - 1);
         for (j = 0; j < adbSHSqlNum; j++)
         {
-            memset(values, 0, sizeof(values));
-            memset(nulls, 0, sizeof(nulls));
+            MemSet(values, 0, sizeof(values));
+            MemSet(nulls, 0, sizeof(nulls));
 
             sql_item = (SQLHistoryItem *)ptr;
 
             if (!sql_item)
             {
-                elog(LOG, "sql_item is null, this should not happen");
-                return (Datum)0;
+                ereport(ERROR,
+                        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("sql_item is null, this should not happen")));
+                PG_RETURN_NULL();
             }
 
             SpinLockAcquire(&sql_item->mutex);
@@ -262,7 +265,7 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
 
     tuplestore_donestoring(tupstore);
 
-    return (Datum)0;
+    PG_RETURN_NULL();
 }
 
 static Size sql_history_shm_size(void)
@@ -312,13 +315,6 @@ static void shmem_startup(void)
             --i;
         }
     }
-    else
-    {
-        ptr = shmem + (SQL_HISTORY_ITEM_SIZE() * adbSHSqlNum) * (MyBackendId - 1);
-        MemSet(ptr, 0, SQL_HISTORY_ITEM_SIZE() * adbSHSqlNum);
-    }
-
-    my_sql_history = MemoryContextAlloc(TopMemoryContext, sizeof(my_sql_history[0]) * adbSHSqlNum);
 }
 /*
  * ExecutorRun hook: all we need do is track nesting depth
@@ -329,7 +325,7 @@ static void adbsh_ExecutorRun(QueryDesc *queryDesc, ScanDirection direction, uin
     {
         bind_my_sql_history();
 
-        if (adbssAvailable())
+        if (my_sql_history && adbssAvailable())
             save_sql(queryDesc);
 
         nested_level++;
@@ -356,16 +352,26 @@ static void bind_my_sql_history(void)
 
     if (MyBackendId != InvalidBackendId && !sql_history_set)
     {
+        my_sql_history = MemoryContextAlloc(TopMemoryContext, sizeof(my_sql_history[0]) * adbSHSqlNum);
         ptr = shmem + (SQL_HISTORY_ITEM_SIZE() * adbSHSqlNum) * (MyBackendId - 1);
+
         for (i = 0; i < adbSHSqlNum; ++i)
         {
             my_sql_history[i] = (SQLHistoryItem *)ptr;
+            SpinLockAcquire(&my_sql_history[i]->mutex);
+            MemSet(my_sql_history[i]->sql, 0, pgstat_track_activity_query_size);
+            my_sql_history[i]->lasttime = 0;
+            my_sql_history[i]->pid = 0;
+            my_sql_history[i]->dbid = 0;
+            my_sql_history[i]->ecount = 0;
+            SpinLockRelease(&my_sql_history[i]->mutex);
             ptr += SQL_HISTORY_ITEM_SIZE();
         }
 
         sql_history_set = true;
     }
 }
+
 static void define_custom_param(void)
 {
     DefineCustomBoolVariable("adb_sql_history.enable", "enable adb_sql_history.", NULL, &adbSHEnabled, true, PGC_SUSET,
@@ -387,7 +393,7 @@ static void save_sql(QueryDesc *queryDesc)
     if (sql == NULL || strlen(sql) == 0)
         return;
 
-    if (sql && strncmp(sql, "<cluster query>", strlen(sql)) == 0)
+    if (strncmp(sql, "<cluster query>", strlen(sql)) == 0)
         return;
 
     found = find_sql_pos(sql, &sql_idx);
@@ -464,7 +470,8 @@ static void insert_sql(int sql_idx, char *sql)
 
     if (sql_idx >= adbSHSqlNum)
     {
-        elog(LOG, "sql_idx is not smaller than adbSHSqlNum, this should not happen");
+        ereport(COMMERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION),
+                            errmsg("sql_idx is not smaller than adbSHSqlNum, this should not happen")));
         return;
     }
     sql_item = (SQLHistoryItem *)my_sql_history[sql_idx];
@@ -482,7 +489,8 @@ static void update_sql(int sql_idx)
     SQLHistoryItem *sql_item = NULL;
     if (sql_idx >= adbSHSqlNum)
     {
-        elog(LOG, "sql_idx is not smaller than adbSHSqlNum, this should not happen");
+        ereport(COMMERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION),
+                            errmsg("sql_idx is not smaller than adbSHSqlNum, this should not happen")));
         return;
     }
     sql_item = (SQLHistoryItem *)my_sql_history[sql_idx];
@@ -514,7 +522,8 @@ static char *get_querytext(QueryDesc *queryDesc)
     {
         if (query_location > strlen(query))
         {
-            elog(LOG, "query_location is bigger than lenth of query, this should not happen");
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                            errmsg("query_location is bigger than lenth of query, this should not happen")));
             return NULL;
         }
         query += query_location;
@@ -525,7 +534,8 @@ static char *get_querytext(QueryDesc *queryDesc)
         {
             if (query_len > strlen(query))
             {
-                elog(LOG, "query_len is bigger than lenth of query, this should not happen");
+                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                                errmsg("query_len is bigger than lenth of query, this should not happen")));
                 return NULL;
             }
         }
