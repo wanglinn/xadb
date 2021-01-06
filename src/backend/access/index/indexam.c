@@ -613,6 +613,11 @@ index_fetch_heap(IndexScanDesc scan)
 											!scan->xs_continue_hot);
 	LockBuffer(scan->xs_cbuf, BUFFER_LOCK_UNLOCK);
 
+#ifdef ADB
+	if (got_heap_tuple && unlikely(scan->heapRelation->rd_clean))
+		got_heap_tuple = ExecTestExpansionClean(scan->heapRelation->rd_clean, &scan->xs_ctup);
+#endif /* ADB */
+
 	if (got_heap_tuple)
 	{
 		/*

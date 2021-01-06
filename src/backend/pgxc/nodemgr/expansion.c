@@ -1772,6 +1772,11 @@ bool ExecTestExpansionClean(struct ExpansionClean *clean, void *tup)
 	return DatumGetBool(datum);
 }
 
+bool NeedTestExpansionClean(struct ExpansionClean *clean, const ItemPointer tid)
+{
+	return ItemPointerGetBlockNumberNoCheck(tid) <= clean->max_block;
+}
+
 BlockNumber GetExpansionInsertLimitBlock(struct ExpansionClean *clean)
 {
 	if (clean && clean->limit_insert)

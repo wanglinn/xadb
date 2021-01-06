@@ -161,13 +161,6 @@ IndexOnlyNext(IndexOnlyScanState *node)
 		if (!VM_ALL_VISIBLE(scandesc->heapRelation,
 							ItemPointerGetBlockNumber(tid),
 							&node->ioss_VMBuffer))
-
-#ifdef ADB
-		if (((adb_slot_enable_mvcc)&&(scandesc->heapRelation->rd_id >= FirstNormalObjectId))
-		||(!VM_ALL_VISIBLE(scandesc->heapRelation,
-							ItemPointerGetBlockNumber(tid),
-							&node->ioss_VMBuffer)))
-#endif
 		{
 			/*
 			 * Rats, we have to visit the heap to check visibility.
@@ -193,6 +186,15 @@ IndexOnlyNext(IndexOnlyScanState *node)
 			 * entry might require a visit to the same heap page.
 			 */
 		}
+#ifdef ADB
+		else if (unlikely(scandesc->heapRelation->rd_clean) &&
+				 NeedTestExpansionClean(scandesc->heapRelation->rd_clean, tid) &&
+				 /* the heap_tuple will be filter out by expansion adb_clean */
+				 index_fetch_heap(scandesc) == NULL)
+		{
+			continue;
+		}
+#endif /* ADB */
 
 		/*
 		 * Fill the scan tuple slot with data from the index.  This might be
