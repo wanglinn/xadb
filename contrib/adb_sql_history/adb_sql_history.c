@@ -192,19 +192,21 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
 
     if (!adbssQueryAvailable())
     {
-        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                        errmsg("preload adb_sql_history failed. Please check your postgresql.conf")));
-        PG_RETURN_NULL();
+        ereport(COMMERROR, errmsg("preload adb_sql_history failed. Please check your postgresql.conf"));
+        PG_RETURN_VOID();
     }
 
     /* check to see if caller supports us returning a tuplestore */
     if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo))
-        ereport(ERROR,
-                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("set-valued function called in context that cannot "
-                                                                "accept a set")));
+    {
+        ereport(COMMERROR, errmsg("set-valued function called in context that cannot accept a set"));
+        PG_RETURN_VOID();
+    }
     if (!(rsinfo->allowedModes & SFRM_Materialize))
-        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("materialize mode required, but it is not "
-                                                                       "allowed in this context")));
+    {
+        ereport(COMMERROR, errmsg("materialize mode required, but it is not allowed in this context"));
+        PG_RETURN_VOID();
+    }
 
     /* Switch into long-lived context to construct returned data structures */
     per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;
@@ -212,7 +214,10 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
 
     /* Build a tuple descriptor for our result type */
     if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
-        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("return type must be a row type")));
+    {
+        ereport(COMMERROR, errmsg("return type must be a row type"));
+        PG_RETURN_VOID();
+    }
     /* Switch into long-lived context to construct returned data structures */
 
     tupstore = tuplestore_begin_heap(true, false, work_mem);
@@ -234,9 +239,8 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
 
             if (!sql_item)
             {
-                ereport(ERROR,
-                        (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg("sql_item is null, this should not happen")));
-                PG_RETURN_NULL();
+                ereport(COMMERROR, errmsg("sql_item is null, this should not happen"));
+                PG_RETURN_VOID();
             }
 
             SpinLockAcquire(&sql_item->mutex);
@@ -265,7 +269,7 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
 
     tuplestore_donestoring(tupstore);
 
-    PG_RETURN_NULL();
+    PG_RETURN_VOID();
 }
 
 static Size sql_history_shm_size(void)
@@ -411,7 +415,10 @@ static bool find_sql_pos(char *sql, int *idx)
     bool empty_found = false;
 
     if (strlen(sql) == 0)
-        ereport(ERROR, (errmsg(ADBSH_NAME " find_sql, sql is null")));
+    {
+        ereport(COMMERROR, errmsg("find_sql, sql is null"));
+        return false;
+    }
 
     for (i = 0; i < adbSHSqlNum; i++)
     {
@@ -469,8 +476,7 @@ static void insert_sql(int sql_idx, char *sql)
 
     if (sql_idx >= adbSHSqlNum)
     {
-        ereport(COMMERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION),
-                            errmsg("sql_idx is not smaller than adbSHSqlNum, this should not happen")));
+        ereport(COMMERROR, errmsg("sql_idx is not smaller than adbSHSqlNum, this should not happen"));
         return;
     }
     sql_item = (SQLHistoryItem *)my_sql_history[sql_idx];
@@ -488,8 +494,7 @@ static void update_sql(int sql_idx)
     SQLHistoryItem *sql_item = NULL;
     if (sql_idx >= adbSHSqlNum)
     {
-        ereport(COMMERROR, (errcode(ERRCODE_PROTOCOL_VIOLATION),
-                            errmsg("sql_idx is not smaller than adbSHSqlNum, this should not happen")));
+        ereport(COMMERROR, errmsg("sql_idx is not smaller than adbSHSqlNum, this should not happen"));
         return;
     }
     sql_item = (SQLHistoryItem *)my_sql_history[sql_idx];
@@ -521,8 +526,7 @@ static char *get_querytext(QueryDesc *queryDesc)
     {
         if (query_location > strlen(query))
         {
-            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                            errmsg("query_location is bigger than lenth of query, this should not happen")));
+            ereport(COMMERROR, errmsg("query_location is bigger than lenth of query, this should not happen"));
             return NULL;
         }
         query += query_location;
@@ -533,8 +537,7 @@ static char *get_querytext(QueryDesc *queryDesc)
         {
             if (query_len > strlen(query))
             {
-                ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                                errmsg("query_len is bigger than lenth of query, this should not happen")));
+                ereport(COMMERROR, errmsg("query_len is bigger than lenth of query, this should not happen"));
                 return NULL;
             }
         }
