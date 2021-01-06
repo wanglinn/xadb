@@ -195,10 +195,9 @@ static TransactionId snapsenderGetSenderGlobalXmin(void);
 
 /* Signal handlers */
 static void SnapSenderSigUsr1Handler(SIGNAL_ARGS);
-static void SnapSenderSigTermHandler(SIGNAL_ARGS);
 static void SnapSenderQuickDieHander(SIGNAL_ARGS);
 
-static void isSnapSenderAllCnDnConnOk(void);
+static bool isSnapSenderAllCnDnConnOk(bool is_wait);
 static void WakeAllCnClientStream(void);
 static void SnapSenderInitXidArray(SnapSenderXidArrayType ssxat);
 static void SnapSenderFreeXidArray(SnapSenderXidArrayType ssxat);
@@ -963,7 +962,7 @@ void SnapSenderMain(void)
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
 	pqsignal(SIGHUP, SnapSenderSigHupHandler);
-	pqsignal(SIGTERM, SnapSenderSigTermHandler);
+	pqsignal(SIGTERM, SIG_IGN);
 	pqsignal(SIGQUIT, SnapSenderQuickDieHander);
 	sigdelset(&BlockSig, SIGQUIT);
 	pqsignal(SIGUSR1, SnapSenderSigUsr1Handler);
@@ -1081,7 +1080,10 @@ void SnapSenderMain(void)
 			//SnapSenderReloadDnNameList();
 		}
 	}
-	proc_exit(1);
+
+	ereport(FATAL,
+				(errcode(ERRCODE_ADMIN_SHUTDOWN),
+				 errmsg("terminating snaprsender process due to administrator command")));
 }
 
 static void SnapSenderStartup(void)
@@ -1840,14 +1842,12 @@ static void
 SnapSenderDropXidList(SnapClientData *client, const TransactionId *cn_txids, const int txids_count)
 {
 	TransactionId			*xids_assign;
-	int						xids_assign_count;
 	int						i, index, count;
-	bool					found, array_found;
+	bool					found;
 	TransactionId			xid;
 	slist_iter				siter;
 	SnapClientData			*client_item;
 
-	xids_assign_count = 0;
 	if (txids_count > 0)
 		xids_assign = palloc0(txids_count * sizeof(TransactionId));
 	else
@@ -1898,7 +1898,6 @@ SnapSenderDropXidList(SnapClientData *client, const TransactionId *cn_txids, con
 			{
 				if(SnapSenderClientRemoveXid(client, xids[i]))
 					SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_FINISH, xids[i]);
-				//SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, xids[i]);
 				SnapReleaseTransactionLocks(&SnapSender->comm_lock, xids[i]);
 			}
 		}
@@ -1944,39 +1943,9 @@ SnapSenderDropXidList(SnapClientData *client, const TransactionId *cn_txids, con
 
 		/* can not found in assign list*/
 		if (found == false)
-		{
 			SnapSenderClientAddXid(client, xid);
-			array_found = SnapSenderXidArrayIsExistXid(xid);
-			if (array_found == false)
-			{
-				xids_assign[xids_assign_count++] = xid;
-				SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_ASSIGN, xid);
-			}
-		}
 	}
 
-	if (xids_assign_count > 0)
-	{
-		SpinLockAcquire(&SnapSender->gxid_mutex);
-		for (i = 0 ; i < xids_assign_count; i++)
-		{
-			found = false;
-			for (index = 0; index <SnapSender->xcnt; index++)
-			{
-				if (SnapSender->xip[index] == xids_assign[i])
-				{
-					found = true;
-					break;
-				}
-			}
-			if (!found)
-			{
-				SnapSender->xip[SnapSender->xcnt++] = xids_assign[i];
-				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderDropXidList add xid %u\n", xids_assign[i])));
-			}
-		}
-		SpinLockRelease(&SnapSender->gxid_mutex);
-	}
 	if (xids_assign)
 		pfree(xids_assign);
 }
@@ -2126,6 +2095,8 @@ static void SnapSenderProcessInitSyncRequest(SnapClientData *client, char* xid_l
 				SnapSender->xip[SnapSender->xcnt++] = xid_2pc_array[i];
 				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderProcessInitSyncRequest real Add 2pc  id %u\n",
 							xid_2pc_array[i])));
+				SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_ASSIGN, xid_2pc_array[i]);
+				
 			}
 		}
 		SpinLockRelease(&SnapSender->gxid_mutex);
@@ -2359,11 +2330,6 @@ static void SnapSenderSigUsr1Handler(SIGNAL_ARGS)
 	errno = save_errno;
 }
 
-static void SnapSenderSigTermHandler(SIGNAL_ARGS)
-{
-	got_sigterm = true;
-}
-
 static void SnapSenderQuickDieHander(SIGNAL_ARGS)
 {
 	if (proc_exit_inprogress)
@@ -2451,7 +2417,7 @@ void SnapSendTransactionFinish(TransactionId txid, SnapXidFinishOption finish_fl
 	Assert(SnapSender != NULL);
 
 	if (finish_flag & SNAP_XID_RXACT)
-		isSnapSenderAllCnDnConnOk();
+		isSnapSenderAllCnDnConnOk(true);
 
 	SpinLockAcquire(&SnapSender->mutex);
 	if (SnapSender->procno == INVALID_PGPROCNO)
@@ -2460,8 +2426,8 @@ void SnapSendTransactionFinish(TransactionId txid, SnapXidFinishOption finish_fl
 		return;
 	}
 
-	SNAP_SYNC_DEBUG_LOG((errmsg("Call SnapSend finish xid %u\n",
-			 			txid)));
+	SNAP_SYNC_DEBUG_LOG((errmsg("Call SnapSend finish xid %u finish_flag %d\n",
+			 			txid, finish_flag)));
 
 	if(SnapSender->cur_cnt_complete == MAX_CNT_SHMEM_XID_BUF)
 		WaitSnapCommonShmemSpace(&SnapSender->mutex,
@@ -2511,15 +2477,20 @@ TransactionId SnapSendGetGlobalXmin(void)
 	return xmin;
 }
 
-static void isSnapSenderAllCnDnConnOk(void)
+static bool isSnapSenderAllCnDnConnOk(bool is_wait)
 {
 	uint32 dn_state, cn_state;
+
 
 	cn_state = pg_atomic_read_u32(&SnapSender->state);
 	dn_state = pg_atomic_read_u32(&SnapSender->dn_conn_state);
 	if (likely(SNAPSENDER_ALL_DNMASTER_CONN_OK == dn_state &&
 				SNAPSENDER_STATE_OK == cn_state))
-		return;
+		return true;
+
+	/* when is_wait is false, and snapsender connection state is not ok, we should return derectly*/
+	if (is_wait == false)
+		return false;
 
 	if (dn_state != SNAPSENDER_ALL_DNMASTER_CONN_OK)
 	{
@@ -2546,6 +2517,7 @@ static void isSnapSenderAllCnDnConnOk(void)
 		}
 		ConditionVariableCancelSleep();
 	}
+	return true;
 }
 
 Snapshot SnapSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, TransactionId* xmaxOld,
@@ -2554,6 +2526,7 @@ Snapshot SnapSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, Transactio
 	TransactionId	xid,xmax,xmin;
 	uint32			i,xcnt;
 	bool			update_xmin = false;
+	bool			is_wait_ok = false;
 
 	if (RecoveryInProgress())
 		return snap;
@@ -2561,7 +2534,11 @@ Snapshot SnapSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, Transactio
 	/* when gtmc get snapshot, we musk make sure all dn has synced two phase xid */
 	if (is_need_check_dn_coon && adb_check_sync_nextid &&
 			!IsAutoVacuumWorkerProcess() && !is_snapsender_query_worker)
-		isSnapSenderAllCnDnConnOk();
+	{
+		is_wait_ok = isSnapSenderAllCnDnConnOk(false);
+		if (is_wait_ok == false)
+			return NULL;
+	}
 
 	if (snap->xip == NULL)
 		EnlargeSnapshotXip(snap, GetMaxSnapshotXidCount());

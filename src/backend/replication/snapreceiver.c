@@ -670,12 +670,14 @@ static void SnapRcvStopAllWaitFinishBackend(void)
 		proc = GetPGProcByNumber(iter.cur);
 		proc->getGlobalTransaction = InvalidTransactionId;
 		SetLatch(&proc->procLatch);
+		proclist_delete( &SnapRcv->send_commiters, iter.cur, GTMWaitLink);
 	}
 
 	proclist_foreach_modify(iter, &SnapRcv->wait_commiters, GxidWaitLink)
 	{
 		proc = GetPGProcByNumber(iter.cur);
 		proc->getGlobalTransaction = InvalidTransactionId;
+		proclist_delete( &SnapRcv->wait_commiters, iter.cur, GTMWaitLink);
 		SetLatch(&proc->procLatch);
 	}
 	UNLOCK_SNAP_GXID_RCV();

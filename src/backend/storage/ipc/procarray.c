@@ -1693,6 +1693,8 @@ Snapshot GetSnapshotDataExt(Snapshot snapshot, bool isCatelog)
 	bool		hint;
 	TransactionId global_snap_xmin;
 	Snapshot 	snap PG_USED_FOR_ASSERTS_ONLY;
+	int			max_retry_time = 20;
+	uint32		retry_time = 0;
 #endif /* ADB */
 
 	Assert(snapshot != NULL);
@@ -1771,6 +1773,8 @@ Snapshot GetSnapshotDataExt(Snapshot snapshot, bool isCatelog)
 		return snapshot;
 #endif
 	}
+
+retry:
 #endif /* ADB */
 
 	/*
@@ -1796,7 +1800,24 @@ Snapshot GetSnapshotDataExt(Snapshot snapshot, bool isCatelog)
 	{
 		xmin = xmax;
 		if (!singleuser)
+		{
 			snap = GetGlobalSnapshotGxid(snapshot, &xmin, &xmax, &count, isCatelog);
+			if (!snap)
+			{
+				LWLockRelease(ProcArrayLock);
+				/* wait a moment after get snapshot failed*/
+				pg_usleep((retry_time+1)*5000*1000);
+				if (retry_time < max_retry_time)
+				{
+					retry_time++;
+					goto retry;
+				}
+				else
+					ereport(ERROR,
+						(errcode(ERRCODE_INTERNAL_ERROR),
+					 	errmsg("Wait SnapSender state OK timeout!")));
+			}
+		}
 		else
 			snap = snapshot;
 		Assert(snap == snapshot);
