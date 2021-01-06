@@ -189,6 +189,15 @@ IndexOnlyNext(IndexOnlyScanState *node)
 
 			tuple_from_heap = true;
 		}
+#ifdef ADB
+		else if (unlikely(scandesc->heapRelation->rd_clean) &&
+				 NeedTestExpansionClean(scandesc->heapRelation->rd_clean, tid) &&
+				 /* the heap_tuple will be filter out by expansion adb_clean */
+				 index_fetch_heap(scandesc, node->ioss_TableSlot) == false)
+		{
+			continue;
+		}
+#endif /* ADB */
 
 		/*
 		 * Fill the scan tuple slot with data from the index.  This might be

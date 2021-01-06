@@ -677,6 +677,7 @@ extern void DestroyExpansionClean(struct ExpansionClean *clean);
 extern bool IsExpansionCleanEqual(struct ExpansionClean *a, struct ExpansionClean *b);
 extern bool ExecTestExpansionClean(struct ExpansionClean *clean, void *tup);
 extern bool ExecTestSlotExpansionClean(struct ExpansionClean *clean, struct TupleTableSlot *slot);
+extern bool NeedTestExpansionClean(struct ExpansionClean *clean, const ItemPointer tid);
 extern BlockNumber GetExpansionInsertLimitBlock(struct ExpansionClean *clean);
 extern bool CanInsertIntoExpansionRel(struct ExpansionClean *clean, BlockNumber blk);
 #endif /* ADB */

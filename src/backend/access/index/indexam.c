@@ -578,6 +578,11 @@ index_fetch_heap(IndexScanDesc scan, TupleTableSlot *slot)
 									scan->xs_snapshot, slot,
 									&scan->xs_heap_continue, &all_dead);
 
+#ifdef ADB
+	if (found && unlikely(scan->heapRelation->rd_clean))
+		found = ExecTestExpansionClean(scan->heapRelation->rd_clean, slot);
+#endif /* ADB */
+
 	if (found)
 		pgstat_count_heap_fetch(scan->indexRelation);
 
