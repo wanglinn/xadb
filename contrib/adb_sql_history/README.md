@@ -16,7 +16,7 @@ adb_sql_history--1.0.sql
 3. 增加3个GUC变量： adb_sql_history.enable, adb_sql_history.track, adb_sql_history.sql_num
    其中:adb_sql_history.enable表示开关，取值为true和false;
         adb_sql_history.track有两个取值top和all，top表示记录用户输入的SQL命令，all表示记录执行用户SQL命令的所有子SQL语句；
-        adb_sql_history.sql_num表示单个backend记录的SQL语句条数，共享内存按MaxBackends*单backend最大10条*(单条sql最大1024字节加SQLHistoryItem结构体对齐后大小)计算，由于共享内存大小有限，所以条数不能设置过大，建议10条以下。
+        adb_sql_history.sql_num表示单个backend记录的SQL语句条数，共享内存按MaxBackends*单backend最大adb_sql_history.sql_num条*(单条sql最大1024字节加SQLHistoryItem结构体对齐后32字节)计算，由于共享内存大小和work_mem有限，所以条数不能设置过大，建议60条以下。
 4. 插件默认打开，可以在数据库超级用户下通过set命令将adb_sql_history.enable设置为false关闭。如果需要再次打开，可以重新设置为true。adb_sql_history.sql_num不支持在线修改，修改需要重启生效。
 
 ## 使用方式
