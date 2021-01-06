@@ -2419,6 +2419,8 @@ GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin,
 			//elog(LOG, "Before GxidSenderGetSnapshot, xmin %d, xmax %d, count %d",
 					//*xmin, *xmax, *count);
 			snap = SnapSenderGetSnapshot(snapshot, xmin, xmax, count);
+			if (!snap)
+				return snap;
 			snap->global_xmin = SnapSendGetGlobalXmin();
 		}
 		else if (GlobalSnapshot == NULL ||
@@ -2433,6 +2435,8 @@ GetGlobalSnapshotGxid(Snapshot snapshot, TransactionId *xmin,
 			//elog(LOG, "Before GxidSenderGetSnapshot 22, xmin %d, xmax %d, count %d",
 					//*xmin, *xmax, *count);
 			snap = SnapSenderGetSnapshot(snapshot, xmin, xmax, count);
+			if (!snap)
+				return snap;
 			snap->global_xmin = SnapSendGetGlobalXmin();
 	#ifdef SHOW_GLOBAL_SNAPSHOT
 			if (IsAnyAutoVacuumProcess())
