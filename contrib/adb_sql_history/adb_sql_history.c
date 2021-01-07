@@ -88,7 +88,9 @@ static const struct config_enum_entry adbss_track_options[] = {{"none", ADBSS_TR
                                                                {"all", ADBSS_TRACK_ALL, false},
                                                                {NULL, 0, false}};
 
-static bool adbSHEnabled = true;
+static bool adbSHEnabled = false;
+static bool adbSHLoadlibrary = false;
+
 static int adbssTrackLevel = ADBSS_TRACK_NONE;
 static int adbSHSqlNum = ADBSH_DEFAULT_MAX_RECORD;
 
@@ -137,7 +139,7 @@ static ExecutorRun_hook_type prev_ExecutorRun = NULL;
      (adbssTrackLevel == ADBSS_TRACK_ALL || (adbssTrackLevel == ADBSS_TRACK_TOP && nested_level == 0)))
 
 #define adbssQueryAvailable()                                                                                          \
-    ((adbSHEnabled) && (adbssTrackLevel == ADBSS_TRACK_ALL || adbssTrackLevel == ADBSS_TRACK_TOP))
+    ((adbSHLoadlibrary) && (adbssTrackLevel == ADBSS_TRACK_ALL || adbssTrackLevel == ADBSS_TRACK_TOP))
 /*
  * Module load callback
  */
@@ -147,6 +149,8 @@ void _PG_init(void)
         return;
 
     define_custom_param();
+
+    adbSHLoadlibrary = true;
 
     EmitWarningsOnPlaceholders(ADBSH_NAME);
 
@@ -193,19 +197,19 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
     if (!adbssQueryAvailable())
     {
         ereport(COMMERROR, errmsg("preload adb_sql_history failed. Please check your postgresql.conf"));
-        PG_RETURN_VOID();
+        PG_RETURN_NULL();
     }
 
     /* check to see if caller supports us returning a tuplestore */
     if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo))
     {
         ereport(COMMERROR, errmsg("set-valued function called in context that cannot accept a set"));
-        PG_RETURN_VOID();
+        PG_RETURN_NULL();
     }
     if (!(rsinfo->allowedModes & SFRM_Materialize))
     {
         ereport(COMMERROR, errmsg("materialize mode required, but it is not allowed in this context"));
-        PG_RETURN_VOID();
+        PG_RETURN_NULL();
     }
 
     /* Switch into long-lived context to construct returned data structures */
@@ -216,7 +220,7 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
     if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
     {
         ereport(COMMERROR, errmsg("return type must be a row type"));
-        PG_RETURN_VOID();
+        PG_RETURN_NULL();
     }
     /* Switch into long-lived context to construct returned data structures */
 
@@ -239,8 +243,7 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
 
             if (!sql_item)
             {
-                ereport(COMMERROR, errmsg("sql_item is null, this should not happen"));
-                PG_RETURN_VOID();
+                PG_RETURN_NULL();
             }
 
             SpinLockAcquire(&sql_item->mutex);
@@ -269,7 +272,7 @@ Datum adb_sql_history(PG_FUNCTION_ARGS)
 
     tuplestore_donestoring(tupstore);
 
-    PG_RETURN_VOID();
+    PG_RETURN_NULL();
 }
 
 static Size sql_history_shm_size(void)
