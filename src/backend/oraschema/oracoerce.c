@@ -492,6 +492,10 @@ transformNvlArgs(ParseState *pstate, List *args)
 	{
 		if (can_coerce_type(1, &rtypid, &ltypid, COERCION_IMPLICIT))
 		{
+			if (ltypmod != -1 &&
+				(ltypid == ORACLE_VARCHAR2OID ||
+				 ltypid == ORACLE_NVARCHAR2OID))
+				 ltypmod = -1;
 			cnode = coerce_to_target_type(pstate,
 										  rarg,
 										  rtypid,
