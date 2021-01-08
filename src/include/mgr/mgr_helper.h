@@ -711,5 +711,8 @@ extern bool checkSetRewindNodeParamter(MgrNodeWrapper *mgrNode, PGconn *conn);
 extern void tryUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 									   char *newCurestatus,
 									   MemoryContext spiContext);
+extern void get_node_level(char 	*nodeName,
+							char 	nodeType,
+							int 	*num);
 
 #endif /* MGR_HELPER_H */

@@ -283,6 +283,7 @@ extern HeapTuple build_list_nodesize_tuple(const Name nodename, char nodetype, i
 static void mgr_get_gtm_host_snapsender_gxidsender_port(StringInfo infosendmsg);
 static void mgr_get_nodesync_by_val(char *syncVal, 
 									char nodeType, 
+									Form_mgr_node mgr_node,
 									bool hasSyncNode, 
 									char *curZone,
 									NameData *inputZoneData, 
@@ -366,7 +367,7 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 	Relation rel;
 	HeapTuple tuple;
 	HeapTuple newtuple;
-	HeapTuple checktuple;
+	HeapTuple checktuple = NULL;
 	ListCell *lc;
 	DefElem *def;
 	List *options;
@@ -476,7 +477,6 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 			}
 			namestrcpy(&forNodeZoneData, NameStr(mgr_node->nodezone));
 			hasSyncNode = mgr_check_syncstate_node_exist(rel, masterTupleOid, SYNC_STATE_SYNC, InvalidOid, false);
-			heap_freetuple(checktuple);
 		}
 
 		/* name */
@@ -542,7 +542,8 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 						,errmsg("the sync_state of node can be set as \"sync\", \"potential\" or \"async\"")));
 				}
 				mgr_get_nodesync_by_val(str, 
-										nodetype, 
+										nodetype,
+										mgr_node,
 										hasSyncNode, 
 										mgr_zone,
 										&zoneData,										
@@ -603,6 +604,7 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 		{
 			mgr_get_nodesync_by_val(NULL, 
 									nodetype, 
+									mgr_node,
 									hasSyncNode, 
 									mgr_zone,
 									&zoneData,										
@@ -621,10 +623,14 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 		}
 	}PG_CATCH();
 	{
+		if (checktuple != NULL)
+			heap_freetuple(checktuple);
 		table_close(rel, RowExclusiveLock);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
+	if (checktuple != NULL)
+		heap_freetuple(checktuple);
 	/*the node is not in cluster until config all*/
 	datum[Anum_mgr_node_nodeincluster-1] = BoolGetDatum(false);
 	/* now, node is not initialized*/
@@ -699,16 +705,29 @@ static void mgr_set_nodesync_val(char *syncVal, bool hasSyncNode, NameData *sync
 }
 static void mgr_get_nodesync_by_val(char *syncVal, 
 									char nodeType, 
+									Form_mgr_node mgr_node,
 									bool hasSyncNode, 
 									char *curZone,
 									NameData *inputZoneData, 
 									NameData *forNodeZoneData, 
 									NameData *syncStateName)
 {
+	int level = 0;
+
 	if (nodeType == mgr_get_master_type(nodeType))
 	{
 		namestrcpy(syncStateName, "");
 		return;
+	}
+    
+	if (isSlaveNode(nodeType, true) && syncVal == NULL)
+	{
+		get_node_level(NameStr(mgr_node->nodename), mgr_node->nodetype, &level);
+		if (level >= 2)
+		{
+			namestrcpy(syncStateName, sync_state_tab[SYNC_STATE_ASYNC].name);
+			return;
+		}
 	}
 
 	if (pg_strcasecmp(NameStr(*inputZoneData), curZone) != 0)
@@ -5749,7 +5768,6 @@ bool check_gtm_is_running(char node_type)
 	HeapTuple tuple;
 	Form_mgr_node mgr_node;
 	char * hostaddr = NULL;
-	char *nodetype_str = NULL;
 	char *user;
 	bool is_running = false;
 

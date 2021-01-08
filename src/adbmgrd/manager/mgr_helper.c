@@ -4528,3 +4528,58 @@ void tryUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 	else
 		namestrcpy(&mgrNode->form.curestatus, newCurestatus);
 }
+static void 
+get_node_level_func(MemoryContext spiContext, 
+					Oid		nodeOid,
+					int 	*num)
+{
+	MgrNodeWrapper *mgrNode = NULL;
+	if (nodeOid != 0)
+	{
+		(*num)++;
+		mgrNode = selectMgrNodeByOid(nodeOid, spiContext);
+		if (mgrNode != NULL)
+			get_node_level_func(spiContext, mgrNode->form.nodemasternameoid, num);
+	}
+	return;
+}
+void
+get_node_level(char 	*nodeName,
+				char 	nodeType,
+				int 	*num)
+{
+	int 			spiRes = 0;		
+	MemoryContext 	oldContext;
+	MemoryContext 	spiContext = NULL;
+	MemoryContext   switchContext = NULL;
+	MgrNodeWrapper *mgrNode = NULL;
+
+	oldContext = CurrentMemoryContext;
+	switchContext = AllocSetContextCreate(CurrentMemoryContext, "get_node_level", ALLOCSET_DEFAULT_SIZES);
+	if ((spiRes = SPI_connect()) != SPI_OK_CONNECT){
+		ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
+	}
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(switchContext);
+
+	PG_TRY();
+	{
+		mgrNode = selectMgrNodeByNodenameType(nodeName,
+											nodeType,
+											spiContext);
+		Assert(mgrNode);
+		get_node_level_func(spiContext, 
+							mgrNode->form.oid,
+							num);
+	}PG_CATCH();
+	{
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
+		SPI_finish();
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(switchContext);
+	SPI_finish();
+}
