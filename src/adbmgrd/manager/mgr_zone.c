@@ -1033,8 +1033,15 @@ static void MgrAddHbaToNodes(MemoryContext spiContext)
 	bool is_exist = false;
 	bool is_running = false; 
 	StringInfoData send_hba_msg;
+	NameData local_ip;
+	GetAgentCmdRst getAgentCmdRst;
 
 	initStringInfo(&send_hba_msg);
+	initStringInfo(&(getAgentCmdRst.description));
+	
+	if (!get_local_ip(&local_ip))
+		ereport(ERROR, (errmsg("get adb manager local ip.")));
+	
 	selectActiveMgrNode(spiContext, &nodes);
 	dlist_foreach(iter, &nodes)
 	{
@@ -1046,7 +1053,20 @@ static void MgrAddHbaToNodes(MemoryContext spiContext)
 		if (is_exist && is_running)
 		{
 			resetStringInfo(&send_hba_msg);
-			AddHbaIsValid(&nodeinfo, &send_hba_msg);
+			resetStringInfo(&(getAgentCmdRst.description));
+			
+			/*send adb manager ip to coordinator pg_hba.conf file*/
+			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", NameStr(local_ip), 32, "trust", &send_hba_msg);
+			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF
+									,nodeinfo.nodepath
+									,&send_hba_msg
+									,nodeinfo.nodehost
+									,&getAgentCmdRst);
+			if (!getAgentCmdRst.ret)
+				ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
+
+			/*execute pgxc_ctl reload to take effect for the new value in the pg_hba.conf  */
+			mgr_reload_conf(nodeinfo.nodehost, nodeinfo.nodepath);
 		}
 	}
 }

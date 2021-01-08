@@ -282,7 +282,6 @@ static bool check_node_is_active(Form_mgr_node mgr_node);
 static bool mgr_exec_update_cn_pgxcnode_readonlysql_slave(Form_mgr_node	cn_master_node, List *datanode_list, List *sync_parms);
 static void check_readsql_slave_param_state(Form_mgr_node cn_master_node, List *sync_parms, char *key, bool *state);
 
-static bool get_local_ip(Name local_ip);
 extern HeapTuple build_list_nodesize_tuple(const Name nodename, char nodetype, int32 nodeport, const char *nodepath, int64 nodesize);
 static void mgr_get_gtm_host_snapsender_gxidsender_port(StringInfo infosendmsg);
 static void mgr_get_nodesync_by_val(char *syncVal, 
@@ -5774,6 +5773,63 @@ bool makesure_node_is_running(Form_mgr_node mgr_node, int port)
 	}
 
 	return true;
+}
+bool check_gtm_is_running(char node_type)
+{
+	InitNodeInfo *info;
+	ScanKeyData key[3];
+	HeapTuple tuple;
+	Form_mgr_node mgr_node;
+	char * hostaddr = NULL;
+	char *nodetype_str = NULL;
+	char *user;
+	bool is_running = false;
+
+	ScanKeyInit(&key[0]
+				,Anum_mgr_node_nodeinited
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
+
+	ScanKeyInit(&key[1]
+				,Anum_mgr_node_nodeincluster
+				,BTEqualStrategyNumber
+				,F_BOOLEQ
+				,BoolGetDatum(true));
+
+	ScanKeyInit(&key[2]
+				,Anum_mgr_node_nodetype
+				,BTEqualStrategyNumber
+				,F_CHAREQ
+				,CharGetDatum(node_type));
+    
+	info = (InitNodeInfo *)palloc0(sizeof(InitNodeInfo));
+	info->rel_node = heap_open(NodeRelationId, AccessShareLock);
+	info->rel_scan = heap_beginscan_catalog(info->rel_node, 3, key);
+	info->lcp = NULL;
+
+	if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
+	{
+		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
+		Assert(mgr_node);
+
+		hostaddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
+		user = get_hostuser_from_hostoid(mgr_node->nodehost);
+		if (is_node_running(hostaddr, mgr_node->nodeport, user, mgr_node->nodetype))
+		{
+			is_running = true;
+		}
+		pfree(user);
+	}
+
+	heap_endscan(info->rel_scan);
+	heap_close(info->rel_node, AccessShareLock);
+	pfree(info);
+
+	if (hostaddr != NULL)
+		pfree(hostaddr);
+
+	return is_running;
 }
 static void mgr_get_parent_appendnodeinfo(Oid parentOid, AppendNodeInfo *parentnodeinfo)
 {
@@ -13957,7 +14013,7 @@ Get the local IP address by checking the server
 if success return true;
 else return false;
 */
-static bool get_local_ip(Name local_ip)
+bool get_local_ip(Name local_ip)
 {
 	Datum agent_host_ip;
 	int32 port;
