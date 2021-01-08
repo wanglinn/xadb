@@ -7642,9 +7642,12 @@ static void PrintReplicationInfoOfMasterNode(MemoryContext spiContext,
 void PrintReplicationInfoOfMasterZone(MemoryContext spiContext,
 										char *currentZone)
 {
-	 PrintReplicationInfoOfMasterNode(spiContext, currentZone, CNDN_TYPE_GTM_COOR_MASTER);
- 	 PrintReplicationInfoOfMasterNode(spiContext, currentZone, CNDN_TYPE_COORDINATOR_MASTER);
-	 PrintReplicationInfoOfMasterNode(spiContext, currentZone, CNDN_TYPE_DATANODE_MASTER);
+	if (check_gtm_is_running(CNDN_TYPE_GTM_COOR_MASTER))
+	{
+		PrintReplicationInfoOfMasterNode(spiContext, currentZone, CNDN_TYPE_GTM_COOR_MASTER);
+		PrintReplicationInfoOfMasterNode(spiContext, currentZone, CNDN_TYPE_COORDINATOR_MASTER);
+		PrintReplicationInfoOfMasterNode(spiContext, currentZone, CNDN_TYPE_DATANODE_MASTER);
+	}
 }
 static void PrintCoordReplicationInfo(dlist_head  *coordinators)
 {

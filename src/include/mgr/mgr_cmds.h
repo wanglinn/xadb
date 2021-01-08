@@ -535,6 +535,7 @@ extern bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int c
 extern void	mgr_make_sure_all_running(char node_type, char *zone);
 extern bool is_node_running(char *hostaddr, int32 hostport, char *user, char nodetype);
 extern bool makesure_node_is_running(Form_mgr_node mgr_node, int port);
+extern bool check_gtm_is_running(char node_type);
 extern bool mgr_try_max_pingnode(char *host, char *port, char *user, const int max_times);
 extern char mgr_get_master_type(char nodetype);
 extern void mgr_get_nodeinfo_byname_type(char *node_name, char node_type, bool bincluster, bool *is_exist, bool *is_running, AppendNodeInfo *nodeinfo);
@@ -675,4 +676,5 @@ extern void hexp_restart_node(AppendNodeInfo *node);
 extern void hexp_update_conf_pgxc_node_name(AppendNodeInfo *node, char* newname);
 extern void CheckZoneNodesBeforeInitAll(void);
 extern void PrintReplicationInfoOfMasterZone(MemoryContext spiContext, char *currentZone);
+extern bool get_local_ip(Name local_ip);
 #endif /* MGR_CMDS_H */
