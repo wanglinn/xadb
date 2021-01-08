@@ -45,13 +45,6 @@
 #include "optimizer/paths.h"
 #include "optimizer/restrictinfo.h"
 
-#ifdef ADB
-#include "nodes/relation.h"
-#include "optimizer/cost.h"
-#include "optimizer/restrictinfo.h"
-#include "parser/parsetree.h"
-#endif /* ADB */
-
 static bool IsTidEqualClause(OpExpr *node, int varno);
 static bool IsTidEqualAnyClause(ScalarArrayOpExpr *node, int varno);
 static List *TidQualFromExpr(Node *expr, int varno);
@@ -154,6 +147,66 @@ IsTidEqualAnyClause(ScalarArrayOpExpr *node, int varno)
 	return false;
 }
 
+#ifdef ADB_GRAM_ORA
+static inline bool IsRowidVar(Var *var, int varno)
+{
+	return (IsA(var, Var) &&
+			var->varattno == ADB_RowIdAttributeNumber &&
+			var->vartype == ORACLE_RIDOID &&
+			var->varno == varno &&
+			var->varlevelsup == 0);
+}
+
+static bool IsRidEqualClause(OpExpr *node, int varno)
+{
+	Node	   *arg1,
+			   *arg2,
+			   *other;
+
+	if (node->opno != RIDEqualOperator ||
+		list_length(node->args) != 2)
+		return false;
+	arg1 = linitial(node->args);
+	arg2 = lsecond(node->args);
+
+	/* Look for ROWID as either argument */
+	if (IsRowidVar((Var*)arg1, varno))
+		other = arg2;
+	else if (IsRowidVar((Var*)arg2, varno))
+		other = arg1;
+	else
+		return false;
+	if (unlikely(exprType(other)!= ORACLE_RIDOID))
+		return false;		/* probably can't happen */
+
+	/* The other argument must be a pseudoconstant */
+	if (!is_pseudo_constant_clause(other))
+		return false;
+
+	return true;				/* success */
+}
+
+static bool IsRidEqualAnyClause(ScalarArrayOpExpr *node, int varno)
+{
+	Node	   *arg1,
+			   *arg2;
+
+	if (node->opno != RIDEqualOperator ||
+		node->useOr == false)
+		return false;
+	Assert(list_length(node->args) == 2);
+	arg1 = linitial(node->args);
+	arg2 = lsecond(node->args);
+
+	return (arg1 &&
+			IsRowidVar((Var*)arg1, varno) &&
+			is_pseudo_constant_clause(arg2));
+}
+#else
+#define IsRidEqualClause(a,b) false
+#define IsRidEqualAnyClause(a,b) false
+#endif /* ADB_GRAM_ORA */
+
 /*
  *	Extract a set of CTID conditions from the given qual expression
  *
@@ -181,13 +234,15 @@ TidQualFromExpr(Node *expr, int varno)
 	if (is_opclause(expr))
 	{
 		/* base case: check for tideq opclause */
-		if (IsTidEqualClause((OpExpr *) expr, varno))
+		if (IsTidEqualClause((OpExpr *) expr, varno) ||
+			IsRidEqualClause((OpExpr *) expr, varno))
 			rlst = list_make1(expr);
 	}
 	else if (expr && IsA(expr, ScalarArrayOpExpr))
 	{
 		/* another base case: check for tid = ANY clause */
-		if (IsTidEqualAnyClause((ScalarArrayOpExpr *) expr, varno))
+		if (IsTidEqualAnyClause((ScalarArrayOpExpr *) expr, varno) ||
+			IsRidEqualAnyClause((ScalarArrayOpExpr *) expr, varno))
 			rlst = list_make1(expr);
 	}
 	else if (expr && IsA(expr, CurrentOfExpr))

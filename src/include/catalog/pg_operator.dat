@@ -3338,7 +3338,8 @@
   oprresult => 'jsonb', oprcode => 'jsonb_delete_path' },
 
 # ADB_BEGIN
-{ oid => '9001', row_macros => 'ADB_GRAM_ORA', descr => 'equal',
+{ oid => '9001', row_macros => 'ADB_GRAM_ORA', oid_symbol => 'RIDEqualOperator',
+  descr => 'equal',
   oprname => '=', oprnamespace => 'ORANSP', oprcanmerge => 't',
   oprcanhash => 't', oprleft => 'oracle.rid', oprright => 'oracle.rid',
   oprresult => 'bool', oprcom => 'oracle.=(oracle.rid,oracle.rid)',
@@ -3389,9 +3390,9 @@
   oprname => '-', oprnamespace => 'ORANSP', oprleft => 'oracle.date',
   oprright => 'interval', oprresult => 'oracle.date',
   oprcode => 'oracle.ora_date_mi_interval' },
-{ oid => '3423', row_macros => 'ADB_GRAM_ORA', descr => 'matches LIKE expression',
+{ oid => '3423', row_macros => 'ADB_GRAM_ORA',
+  descr => 'matches LIKE expression',
   oprname => '~~', oprnamespace => 'ORANSP', oprleft => 'numeric',
-  oprright => 'text', oprresult => 'bool',
-  oprcode => 'numericlike' },
+  oprright => 'text', oprresult => 'bool', oprcode => 'numericlike' },
 # ADB_END
 ]
