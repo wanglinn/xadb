@@ -4588,3 +4588,51 @@ get_node_level(char 	*nodeName,
 	MemoryContextDelete(switchContext);
 	SPI_finish();
 }
+void warnning_node_by_level_syncstate(char 	*nodeName,
+										char 	nodeType)
+{
+	int 			num = 0;
+	int 			spiRes = 0;		
+	MemoryContext 	oldContext;
+	MemoryContext 	spiContext = NULL;
+	MemoryContext   switchContext = NULL;
+	MgrNodeWrapper  *mgrNode = NULL;
+
+	if (!isSlaveNode(nodeType, true))
+		return;
+
+	oldContext = CurrentMemoryContext;
+	switchContext = AllocSetContextCreate(CurrentMemoryContext, "warnning_node_by_level_syncstate", ALLOCSET_DEFAULT_SIZES);
+	if ((spiRes = SPI_connect()) != SPI_OK_CONNECT){
+		ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
+	}
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(switchContext);
+
+	PG_TRY();
+	{
+		mgrNode = selectMgrNodeByNodenameType(nodeName,
+											nodeType,
+											spiContext);
+		Assert(mgrNode);
+		get_node_level_func(spiContext, 
+							mgrNode->oid,
+							&num);
+		if (num >=3 && 
+			is_equal_string(getMgrNodeSyncStateValue(SYNC_STATE_SYNC), NameStr(mgrNode->form.nodesync)))
+		{
+			ereportWarningLog(errmsg("%s is on level %d, the sync_state is sync, but the actual replication state is asynchronous.",
+				NameStr(mgrNode->form.nodename), num));
+		}	
+	}PG_CATCH();
+	{
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
+		SPI_finish();
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(switchContext);
+	SPI_finish();
+}

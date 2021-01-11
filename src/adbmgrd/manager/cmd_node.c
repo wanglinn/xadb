@@ -651,6 +651,8 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 	/*close relation */
 	heap_close(rel, RowExclusiveLock);
 
+	warnning_node_by_level_syncstate(nodename, nodetype);
+
 	/* Record dependencies on host */
 	myself.classId = NodeRelationId;
 	myself.objectId = cndn_oid;
@@ -3115,8 +3117,7 @@ Datum mgr_monitor_all(PG_FUNCTION_ARGS)
 
 	/* check the node recovery status */
 	nodetypeStr = mgr_nodetype_str(nodetype);
-	if (nodetype == CNDN_TYPE_COORDINATOR_MASTER || nodetype == CNDN_TYPE_DATANODE_MASTER
-		|| nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+	if (isMasterNode(nodetype, true))
 	{
 		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
 			ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
@@ -3127,6 +3128,8 @@ Datum mgr_monitor_all(PG_FUNCTION_ARGS)
 		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
 			ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
 				, NameStr(mgr_node->nodename), recoveryStatus.data)));
+
+		warnning_node_by_level_syncstate(NameStr(mgr_node->nodename), nodetype);		
 	}
 
 	pfree(nodetypeStr);
@@ -3310,6 +3313,8 @@ Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS)
 				if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
 					ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
 						, NameStr(mgr_node->nodename), recoveryStatus.data)));
+
+				warnning_node_by_level_syncstate(NameStr(mgr_node->nodename), nodetype);
 			}
 
 			pfree(nodetypeStr);
@@ -3414,6 +3419,8 @@ Datum mgr_monitor_gtmcoord_all(PG_FUNCTION_ARGS)
 				if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
 					ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
 						, NameStr(mgr_node->nodename), recoveryStatus.data)));
+
+				warnning_node_by_level_syncstate(NameStr(mgr_node->nodename), mgr_node->nodetype);		
 			}
 
 			pfree(nodetypeStr);
@@ -3973,8 +3980,7 @@ Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
 
 	/* check the node recovery status */
 	nodetypeStr = mgr_nodetype_str(nodetype);
-	if (nodetype == CNDN_TYPE_COORDINATOR_MASTER || nodetype == CNDN_TYPE_DATANODE_MASTER
-		|| nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+	if (isMasterNode(nodetype, true))
 	{
 		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
 			ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
@@ -3985,6 +3991,8 @@ Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
 		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_IN].name) != 0)
 			ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
 				, NameStr(mgr_node->nodename), recoveryStatus.data)));
+
+		warnning_node_by_level_syncstate(NameStr(mgr_node->nodename), mgr_node->nodetype);		
 	}
 
 	pfree(nodetypeStr);
@@ -4185,8 +4193,7 @@ Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS)
 			, &resultstrdata, &starttime, &recoveryStatus);
 
 	/* check the node recovery status */
-	if (nodetype == CNDN_TYPE_COORDINATOR_MASTER || nodetype == CNDN_TYPE_DATANODE_MASTER
-		|| nodetype == CNDN_TYPE_GTM_COOR_MASTER)
+	if (isMasterNode(nodetype, true))
 	{
 		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
 		{
@@ -4203,6 +4210,7 @@ Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS)
 			ereport(WARNING, (errmsg("%s %s is not in recovery status", nodetypeStr, NameStr(mgr_node->nodename))));
 			pfree(nodetypeStr);
 		}
+		warnning_node_by_level_syncstate(NameStr(mgr_node->nodename), mgr_node->nodetype);
 	}
 
 	namestrcpy(&host, host_addr);
