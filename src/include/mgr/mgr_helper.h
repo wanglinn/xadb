@@ -714,5 +714,6 @@ extern void tryUpdateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 extern void get_node_level(char 	*nodeName,
 							char 	nodeType,
 							int 	*num);
-
+extern void warnning_node_by_level_syncstate(char 	*nodeName,
+											char 	nodeType);
 #endif /* MGR_HELPER_H */
