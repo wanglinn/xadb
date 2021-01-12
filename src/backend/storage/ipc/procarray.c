@@ -1806,6 +1806,13 @@ retry:
 #ifdef ADB
 	if(try_agtm_snap)
 	{
+		if (IsInitProcessingMode())
+		{
+			if (!TransactionIdIsNormal(snapshot->xmax))
+				snapshot->xmax = xmax;
+			if (!TransactionIdIsNormal(snapshot->xmin))
+				snapshot->xmin = xmax;
+		}
 		Assert(TransactionIdIsNormal(snapshot->xmax));
 		xmax = snapshot->xmax;
 		globalxmin = xmin = snapshot->xmin;
