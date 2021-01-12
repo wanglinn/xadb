@@ -4288,7 +4288,9 @@ void UpdateSyncInfo(MgrNodeWrapper *mgrNode,
 	Assert(mgrNode);
 	Assert(conn);
 
-	if (updateMgrNodeNodesync(mgrNode, newNodesync, spiContext) != 1)
+	if (updateMgrNodeNodesync(mgrNode, newNodesync, spiContext) == 1)
+		namestrcpy(&mgrNode->form.nodesync, newNodesync);
+	else
 		ereport(ERROR,
 				(errmsg("%s try to change nodesync to '%s' failed",
 						NameStr(mgrNode->form.nodename),

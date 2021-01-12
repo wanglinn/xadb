@@ -290,6 +290,7 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 									maxTrys,
 									&zoGtm, 
 									&zoDNList);
+		refreshAsyncToSync(spiContext, &zoGtm.runningSlaveOfNewMaster);
 		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s end ========.", currentZone));							
 	}PG_CATCH();
 	{
@@ -683,6 +684,7 @@ static void SetZoneOverGtm(ZoneOverGtm *zoGtm)
 	dlist_init(&zoGtm->failedSlaves);
 	dlist_init(&zoGtm->failedSlavesSecond);
 	dlist_init(&zoGtm->dataNodes);	
+	dlist_init(&zoGtm->runningSlaveOfNewMaster);	
 }
 static void MgrCheckAllSlaveNum(MemoryContext spiContext, 
 								char *currentZone)
