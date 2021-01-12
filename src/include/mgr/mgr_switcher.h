@@ -28,12 +28,14 @@ typedef struct SwitcherNodeWrapper
 	NameData oldCurestatus;
 	PGHbaItem *temporaryHbaItems;
 	PGConfParameterItem *originalParameterItems;
+	NameData	oldNodeSync;
 	bool pgxcNodeChanged;
 	bool holdClusterLock;
 	bool adbSlotChanged;
 	bool startupAfterException;
 	bool inTransactionBlock;
 	bool gtmInfoChanged;
+	bool syncStateChanged;
 } SwitcherNodeWrapper;
 
 typedef struct ZoneOverGtm
@@ -48,6 +50,7 @@ typedef struct ZoneOverGtm
 	dlist_head 			failedSlaves;
 	dlist_head 			failedSlavesSecond;
 	dlist_head 			dataNodes;
+	dlist_head          runningSlaveOfNewMaster;
 }ZoneOverGtm;
  
 typedef struct ZoneOverCoord
@@ -219,6 +222,9 @@ extern SwitcherNodeWrapper *getHoldLockCoordinator(dlist_head *coordinators);
 extern void updateCureStatusForSwitch(MgrNodeWrapper *mgrNode,
 									  char *newCurestatus,
 									  MemoryContext spiContext);
+extern void updateSyncStatusForSwitch(MgrNodeWrapper *mgrNode,
+										char *newSyncState,
+										MemoryContext spiContext);	  
 extern void updateMgrNodeAfterSwitch(MgrNodeWrapper *mgrNode,
 									 char *newCurestatus,
 									 MemoryContext spiContext);									  
