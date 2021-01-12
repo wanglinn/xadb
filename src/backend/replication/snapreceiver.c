@@ -670,14 +670,14 @@ static void SnapRcvStopAllWaitFinishBackend(void)
 		proc = GetPGProcByNumber(iter.cur);
 		proc->getGlobalTransaction = InvalidTransactionId;
 		SetLatch(&proc->procLatch);
-		proclist_delete( &SnapRcv->send_commiters, iter.cur, GTMWaitLink);
+		proclist_delete( &SnapRcv->send_commiters, iter.cur, GxidWaitLink);
 	}
 
 	proclist_foreach_modify(iter, &SnapRcv->wait_commiters, GxidWaitLink)
 	{
 		proc = GetPGProcByNumber(iter.cur);
 		proc->getGlobalTransaction = InvalidTransactionId;
-		proclist_delete( &SnapRcv->wait_commiters, iter.cur, GTMWaitLink);
+		proclist_delete( &SnapRcv->wait_commiters, iter.cur, GxidWaitLink);
 		SetLatch(&proc->procLatch);
 	}
 	UNLOCK_SNAP_GXID_RCV();
@@ -2284,7 +2284,8 @@ void SnapRcvCommitTransactionId(TransactionId txid, SnapXidFinishOption finish_f
 		return;
 	}
 
-	isSnapRcvStreamOk();
+	if (finish_flag & SNAP_XID_RXACT)
+		isSnapRcvStreamOk();
 	state = pg_atomic_read_u32(&SnapRcv->state);
 	if (state != WALRCV_STREAMING)
 	{
