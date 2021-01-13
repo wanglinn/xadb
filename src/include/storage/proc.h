@@ -259,8 +259,8 @@ typedef struct PGXACT
 								 * previously called InCommit */
 
 	uint8		nxids;
-#ifdef ADB	
-	bool		isClusterVacuum;
+#ifdef ADB
+	uint8		adb_cluster_vacuum;
 	bool		is_gtm_2pc;		/* whether gtm and connect from the other cn or dn*/
 #endif
 } PGXACT;

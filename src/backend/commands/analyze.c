@@ -461,6 +461,7 @@ end_if_:
 		if(dnlist != NIL || cnlist != NIL)
 		{
 			/* send command to all nodes */
+			TransactionId	xid;
 			List *conns = list_union_ptr(cnlist, dnlist);
 			char *namespace = get_namespace_name(RelationGetNamespace(onerel));
 			StringInfoData buf;
@@ -470,6 +471,9 @@ end_if_:
 				appendStringInfoChar(&buf, CLUSTER_VACUUM_CMD_ANALYZE_FORCE_INH);
 			else
 				appendStringInfoChar(&buf, CLUSTER_VACUUM_CMD_ANALYZE);
+			
+			xid = GetTopTransactionId();
+			appendBinaryStringInfo(&buf, (char*)&xid, sizeof(xid));
 			save_node_string(&buf, namespace);
 			save_node_string(&buf, RelationGetRelationName(onerel));
 			saveNode(&buf, (Node*)va_cols);

@@ -560,7 +560,7 @@ MarkAsPreparingGuts(GlobalTransaction gxact, TransactionId xid, const char *gid,
 	gxact->inredo = false;
 	strcpy(gxact->gid, gid);
 #ifdef ADB
-	pgxact->isClusterVacuum = false;
+	pgxact->adb_cluster_vacuum = 0;
 	gxact->node_cnt = nodecnt;
 	if (gxact->node_cnt > 0)
 	{
@@ -1947,7 +1947,7 @@ FinishPreparedTransactionExt(const char *gid, bool isCommit, bool isMissingOK)
 	}
 
 	if (TransactionIdIsValid(latestXid) && IsConnFromCoord() &&
-		 !IsGTMNode() && !pgxact->isClusterVacuum)
+		 !IsGTMNode() && !(pgxact->adb_cluster_vacuum & ADB_PROCARRAY_CLUSTER_VACUUM))
 	{
 		UpdateAdbLastFinishXid(latestXid);
 	}

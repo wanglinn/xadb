@@ -36,6 +36,7 @@
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "replication/snapsender.h"
+#include "storage/procarray.h"
 
 /*
  * Parameters as below are used only in Datanode or NoMaster-Coordinator.
@@ -202,7 +203,30 @@ GetNewGlobalTransactionId(int level)
 		elog(ERROR, "cannot assign TransactionIds during recovery");
 
 	if (IsConnFromCoord())
-		gxid = GetXidFromCoord(level);
+	{
+		if (MyPgXact->adb_cluster_vacuum & ADB_PROCARRAY_CLUSTER_VACUUM_TOAST)
+		{
+			/* only for CLUSTER VACUUM TOAST table, it get XID from GTM directly */
+			if (IsGTMNode())
+			{
+				gxid = GetNewTransactionId(isSubXact);
+				elog(DEBUG5, "GTM CLUSTER vacuum toast table Get txid %u from local\n", gxid);
+			}
+			else
+			{
+				gxid = ObtainGlobalTransactionId(isSubXact);
+				elog(DEBUG5, "CLUSTER vacuum toast table Get txid %u from GTM\n", gxid);
+			}
+		}
+		else if (MyPgXact->adb_cluster_vacuum & ADB_PROCARRAY_CLUSTER_VACUUM)
+		{
+			/* only for CLUSTER VACUUM  not TOAST table */
+			gxid = GetClusterVacuumAnalyzeXid();
+			elog(DEBUG5, "Get txid %u from cluster vacuum analyze\n", gxid);
+		}
+		else
+			gxid = GetXidFromCoord(level);
+	}
 	else
 		gxid = ObtainGlobalTransactionId(isSubXact);
 	/*----------

@@ -1524,9 +1524,13 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	if (!OidIsValid(relid) &&
 		relation != NULL &&
 		(options & VACOPT_IN_CLUSTER))
-	{
 		relid = RangeVarGetRelid(relation, AccessShareLock, true);
-		MyPgXact->isClusterVacuum = true;
+
+	if (options & VACOPT_IN_CLUSTER)
+	{
+		MyPgXact->adb_cluster_vacuum |= ADB_PROCARRAY_CLUSTER_VACUUM;
+		if (options & VACOPT_CLUSTER_VACUUM_TOAST)
+			MyPgXact->adb_cluster_vacuum |= ADB_PROCARRAY_CLUSTER_VACUUM_TOAST;
 	}
 #endif /* ADB */
 
@@ -1832,9 +1836,12 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 
 		if (cn_oids != NIL || dn_oids != NIL)
 		{
+			TransactionId xid;
 			initStringInfo(&buf);
+			xid = GetTopTransactionId();
 
 			appendStringInfoChar(&buf, CLUSTER_VACUUM_CMD_VACUUM);
+			appendBinaryStringInfo(&buf, (char*)&xid, sizeof(xid));
 			namespace = get_namespace_name(RelationGetNamespace(onerel));
 			save_node_string(&buf, namespace);
 			save_node_string(&buf, RelationGetRelationName(onerel));
@@ -1884,11 +1891,11 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	 * us to process it.  In VACUUM FULL, though, the toast table is
 	 * automatically rebuilt by cluster_rel so we shouldn't recurse to it.
 	 */
-#ifndef ADB 
+//#ifndef ADB 
 	if (!(options & VACOPT_SKIPTOAST) && !(options & VACOPT_FULL))
 		toast_relid = onerel->rd_rel->reltoastrelid;
 	else
-#endif
+//#endif
 		toast_relid = InvalidOid;
 
 	/*
@@ -1963,7 +1970,7 @@ vacuum_rel(Oid relid, RangeVar *relation, int options, VacuumParams *params)
 	 * totally unimportant for toast relations.
 	 */
 	if (toast_relid != InvalidOid)
-		vacuum_rel(toast_relid, NULL, options, params);
+		vacuum_rel(toast_relid, NULL, options ADB_ONLY_CODE(| VACOPT_CLUSTER_VACUUM_TOAST), params);
 
 	/*
 	 * Now release the session-level lock on the master table.
@@ -2288,6 +2295,7 @@ static void cluster_recv_exec_end(List *conns)
 
 static int process_master_vacuum_cmd(ClusterVacuumCmdContext *context, const char *data, int len)
 {
+	TransactionId xid;
 	char *namespace;
 	char *relname;
 	RangeVar *range = NULL;
@@ -2301,6 +2309,8 @@ static int process_master_vacuum_cmd(ClusterVacuumCmdContext *context, const cha
 	buf.cursor = 0;
 
 	mtype = pq_getmsgbyte(&buf);
+	pq_copymsgbytes(&buf, (char*)&xid, sizeof(xid));
+	SetClusterVacuumAnalyzeTransactionId(xid);
 	switch(mtype)
 	{
 	case CLUSTER_VACUUM_CMD_VACUUM:

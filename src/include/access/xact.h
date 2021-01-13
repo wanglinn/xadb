@@ -366,6 +366,8 @@ extern bool SubTransactionIsActive(SubTransactionId subxid);
 extern CommandId GetCurrentCommandId(bool used);
 #ifdef ADB
 extern CommandId GetCurrentCommandIdCoord(bool used, bool coord_used);
+extern void SetClusterVacuumAnalyzeTransactionId(TransactionId xid);
+extern TransactionId GetClusterVacuumAnalyzeXid(void);
 #endif /* ADB */
 extern void SetParallelStartTimestamps(TimestampTz xact_ts, TimestampTz stmt_ts);
 extern TimestampTz GetCurrentTransactionStartTimestamp(void);

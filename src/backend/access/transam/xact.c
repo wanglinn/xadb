@@ -214,6 +214,7 @@ typedef struct TransactionStateData
 													   AbortTransaction about remote nodes */
 	XactPhase			xact_phase;					/* mark which phase the current xact in */
 	InterXactState		interXactState;				/* inter transaction state if TopTransaction */
+	TransactionId		cva_xid;					/* cluster vacuum analyze xid*/
 #else
 	TransactionId transactionId;	/* my XID, or Invalid if none */
 #endif
@@ -253,6 +254,7 @@ static TransactionStateData TopTransactionStateData = {
 	false,						/* error abort? */
 	XACT_PHASE_ONE,				/* implicit two-phase commit? */
 	NULL,						/* inter transaction state */
+	0,							/* cluster vacuum analyze transaction id */
 #else
 	0,							/* transaction id */
 #endif
@@ -477,6 +479,25 @@ GetTopTransactionId(void)
 		AssignTransactionId(&TopTransactionStateData);
 	return XactTopTransactionId;
 }
+
+#ifdef ADB
+/* ONLY for CLUSTER VACUUM/ANALYZE */
+void
+SetClusterVacuumAnalyzeTransactionId(TransactionId xid)
+{
+	Assert(!TransactionIdIsValid(TopTransactionStateData.cva_xid) || TransactionIdEquals(TopTransactionStateData.cva_xid, xid));
+	Assert(TransactionIdIsValid(xid));
+	TopTransactionStateData.cva_xid = xid;
+
+	return;
+}
+
+TransactionId GetClusterVacuumAnalyzeXid(void)
+{
+	Assert(TransactionIdIsValid(TopTransactionStateData.cva_xid));
+	return TopTransactionStateData.cva_xid;
+}
+#endif
 
 /*
  *	GetTopTransactionIdIfAny
@@ -2792,6 +2813,7 @@ CommitTransaction(void)
 #ifdef ADB
 	UnsetGlobalTransactionId();
 	s->isLocalParameterUsed = false;
+	s->cva_xid = InvalidTransactionId;
 
 	/*
 	 * Set the command ID of Coordinator to be sent to the remote nodes
@@ -3121,6 +3143,9 @@ PrepareTransaction(void)
 	s->childXids = NULL;
 	s->nChildXids = 0;
 	s->maxChildXids = 0;
+#ifdef ADB
+	s->cva_xid = InvalidTransactionId;
+#endif /* ADB */
 
 	XactTopTransactionId = InvalidTransactionId;
 	nParallelCurrentXids = 0;
@@ -3464,6 +3489,7 @@ CleanupTransaction(void)
 	s->maxChildXids = 0;
 	s->parallelModeLevel = 0;
 #ifdef ADB
+	s->cva_xid = InvalidTransactionId;
 	UnsetGlobalTransactionId();
 #endif
 
@@ -5742,6 +5768,9 @@ PushTransaction(void)
 	 * We can now stack a minimally valid subtransaction without fear of
 	 * failure.
 	 */
+#ifdef ADB
+	s->cva_xid = InvalidTransactionId;
+#endif
 	s->transactionId = InvalidTransactionId;	/* until assigned */
 	s->subTransactionId = currentSubTransactionId;
 	s->parent = p;
