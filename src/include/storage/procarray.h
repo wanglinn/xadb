@@ -38,6 +38,9 @@
 													 * catalog_xmin */
 #ifdef ADB
 #define		PROCARRAY_EXPANSION_WORKER		0X80	/* expansion worker */
+
+#define		ADB_PROCARRAY_CLUSTER_VACUUM		0X02	/* cluster vacuum flag */
+#define		ADB_PROCARRAY_CLUSTER_VACUUM_TOAST	0X04	/* cluster vacuum toast flag */
 #endif
 /*
  * Only flags in PROCARRAY_PROC_FLAGS_MASK are considered when matching

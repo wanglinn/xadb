@@ -921,22 +921,6 @@ lazy_vacuum_rel_ext(Relation onerel, VacuumParams *params,
 	VACUUM_CLUSTER_DEBUG_LOG((errmsg("vacrelstats->scanned_pages %u, vacrelstats->frozenskipped_pages %u, vacrelstats->rel_pagesvacrelstats->rel_pages %u, scanned_all_unfrozen %u\n",
 				vacrelstats->scanned_pages, vacrelstats->frozenskipped_pages, vacrelstats->rel_pages, scanned_all_unfrozen)));
 
-	/* if node call lazy_truncate_heap, it will get transaction id from cn master, cn master should wait */
-	if (IsCnMaster() && !IsToastRelation(onerel) && (onerel->rd_locator_info != NULL) && !IsConnFromCoord())
-	{
-		if (cn_conns)
-		{
-			VACUUM_CLUSTER_DEBUG_LOG((errmsg("cnmaster relname %s wait cn slave send end\n", RelationGetRelationName(onerel))));
-			cluster_recv_exec_end(cn_conns);
-		}
-		if (dn_conns)
-		{
-			VACUUM_CLUSTER_DEBUG_LOG((errmsg("cnmaster relname %s wait dn master send end\n", RelationGetRelationName(onerel))));
-			cluster_recv_exec_end(dn_conns);
-		}
-	}
-	if (IsConnFromCoord() && !IsToastRelation(onerel))
-		put_executor_end_msg(true);
 #endif
 
 	/* Report that we are now doing final cleanup */

@@ -194,6 +194,7 @@ typedef enum VacuumOption
 #ifdef ADB
 	,VACOPT_IN_CLUSTER = 1 << 8
 	,VACOPT_ANALYZE_FORCE_INH	= 1 << 9
+	,VACOPT_CLUSTER_VACUUM_TOAST	= 1 << 10
 #endif /* ADB */
 } VacuumOption;
 
