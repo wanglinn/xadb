@@ -652,7 +652,8 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 	heap_close(rel, RowExclusiveLock);
 
 	warnning_node_by_level_syncstate(nodename, nodetype);
-	warnning_master_has_no_sync(nodename, nodetype);
+	if (isSlaveNode(nodetype, true))
+		warnning_master_has_no_sync(nodename, nodetype);
 
 	/* Record dependencies on host */
 	myself.classId = NodeRelationId;
