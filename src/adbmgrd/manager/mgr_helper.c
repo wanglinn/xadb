@@ -4638,3 +4638,83 @@ void warnning_node_by_level_syncstate(char 	*nodeName,
 	MemoryContextDelete(switchContext);
 	SPI_finish();
 }
+void 
+warnning_master_has_no_sync(char 	*nodeName,
+							char 	nodeType)
+{
+	int 			spiRes = 0;		
+	MemoryContext 	oldContext;
+	MemoryContext 	spiContext = NULL;
+	MemoryContext   switchContext = NULL;
+	MgrNodeWrapper  *mgrNode = NULL;
+	MgrNodeWrapper  *slaveNode = NULL;
+	MgrNodeWrapper  *tmpNode = NULL;
+	dlist_head 		nodes = DLIST_STATIC_INIT(nodes);
+	dlist_iter 		iter;
+	bool			hasSync = false;
+
+	if (nodeType == CNDN_TYPE_COORDINATOR_MASTER || nodeType == CNDN_TYPE_COORDINATOR_SLAVE)
+		return;
+
+	oldContext = CurrentMemoryContext;
+	switchContext = AllocSetContextCreate(CurrentMemoryContext, "warnning_master_has_no_sync", ALLOCSET_DEFAULT_SIZES);
+	if ((spiRes = SPI_connect()) != SPI_OK_CONNECT){
+		ereport(ERROR, (errmsg("SPI_connect failed, connect return:%d",	spiRes)));
+	}
+	spiContext = CurrentMemoryContext;
+	MemoryContextSwitchTo(switchContext);
+
+	PG_TRY();
+	{
+		if (nodeType == CNDN_TYPE_DATANODE_SLAVE || nodeType == CNDN_TYPE_GTM_COOR_SLAVE)
+		{
+			slaveNode = selectMgrNodeByNodenameType(nodeName,
+												nodeType,
+												spiContext);
+			Assert(slaveNode);
+			if (is_equal_string(getMgrNodeSyncStateValue(SYNC_STATE_SYNC), NameStr(slaveNode->form.nodesync)))
+				return;
+			
+			mgrNode = selectMgrNodeByOid(slaveNode->form.nodemasternameoid, spiContext);
+			Assert(mgrNode);			
+		}
+		else
+		{
+			mgrNode = selectMgrNodeByNodenameType(nodeName,
+												nodeType,
+												spiContext);
+			Assert(mgrNode);
+		}
+
+		if (isMasterNode(mgrNode->form.nodetype, true))
+		{
+			selectMgrSlaveNodes(mgrNode->oid,
+								getMgrSlaveNodetype(mgrNode->form.nodetype),
+								spiContext,
+								&nodes);
+			dlist_foreach(iter, &nodes)
+			{
+				tmpNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+				if(is_equal_string(getMgrNodeSyncStateValue(SYNC_STATE_SYNC), NameStr(mgrNode->form.nodesync)))
+				{
+					hasSync = true;
+					break;
+				}				
+			}
+			if (!hasSync)
+				ereportWarningLog(errmsg("%s is %s, it has no synchronous node.",
+					NameStr(mgrNode->form.nodename),  mgr_get_nodetype_desc(mgrNode->form.nodetype)));
+		}
+		
+	}PG_CATCH();
+	{
+		(void)MemoryContextSwitchTo(oldContext);
+		MemoryContextDelete(switchContext);
+		SPI_finish();
+		PG_RE_THROW();
+	}PG_END_TRY();
+
+	(void)MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(switchContext);
+	SPI_finish();
+}

@@ -718,4 +718,6 @@ extern void get_node_level(char 	*nodeName,
 							int 	*num);
 extern void warnning_node_by_level_syncstate(char 	*nodeName,
 											char 	nodeType);
+extern void warnning_master_has_no_sync(char 	*nodeName,
+										char 	nodeType);
 #endif /* MGR_HELPER_H */
