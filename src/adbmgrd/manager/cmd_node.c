@@ -653,6 +653,7 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 	table_close(rel, RowExclusiveLock);
 
 	warnning_node_by_level_syncstate(nodename, nodetype);
+	warnning_master_has_no_sync(nodename, nodetype);
 
 	/* Record dependencies on host */
 	myself.classId = NodeRelationId;
@@ -1155,6 +1156,9 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 	MgrFree(oldtuple);
 	MgrFree(newParentTuple);
 	table_close(rel, RowExclusiveLock);
+
+	warnning_master_has_no_sync(NameStr(mgr_node->nodename), mgr_node->nodetype);
+	warnning_node_by_level_syncstate(NameStr(mgr_node->nodename), mgr_node->nodetype);
 
 	PG_RETURN_BOOL(true);
 }
@@ -3112,6 +3116,8 @@ Datum mgr_monitor_all(PG_FUNCTION_ARGS)
 		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
 			ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
 				, NameStr(mgr_node->nodename), recoveryStatus.data)));
+		
+		warnning_master_has_no_sync(NameStr(mgr_node->nodename), nodetype);
 	}
 	else
 	{
@@ -3295,6 +3301,8 @@ Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS)
 				if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
 					ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
 						, NameStr(mgr_node->nodename), recoveryStatus.data)));
+
+				warnning_master_has_no_sync(NameStr(mgr_node->nodename), nodetype);		
 			}
 			else
 			{
@@ -3400,6 +3408,7 @@ Datum mgr_monitor_gtmcoord_all(PG_FUNCTION_ARGS)
 					ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
 						, NameStr(mgr_node->nodename), recoveryStatus.data)));
 				}
+				warnning_master_has_no_sync(NameStr(mgr_node->nodename), mgr_node->nodetype);
 			}
 			else
 			{
@@ -3959,6 +3968,8 @@ Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
 		if (strcmp(recoveryStatus.data, enum_recovery_status_tab[RECOVERY_NOT_IN].name) != 0)
 			ereport(WARNING, (errmsg("%s %s recovery status is %s", nodetypeStr
 				, NameStr(mgr_node->nodename), recoveryStatus.data)));
+
+		warnning_master_has_no_sync(NameStr(mgr_node->nodename), mgr_node->nodetype);	
 	}
 	else
 	{
@@ -4173,6 +4184,7 @@ Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS)
 			ereport(WARNING, (errmsg("%s %s is in recovery status", nodetypeStr, NameStr(mgr_node->nodename))));
 			pfree(nodetypeStr);
 		}
+		warnning_master_has_no_sync(NameStr(mgr_node->nodename), mgr_node->nodetype);
 	}
 	else
 	{

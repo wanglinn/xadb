@@ -2736,8 +2736,6 @@ getRunningSlaveOfNewMaster(MemoryContext spiContext,
 							dlist_head *runningSlaveOfNewMaster)
 {
 	dlist_head 	mgrNodes = DLIST_STATIC_INIT(mgrNodes);
-	MgrNodeWrapper *mgrNode;
-	dlist_mutable_iter iter;
 
 	selectMgrSlaveNodesByOidType(masterNode->form.oid,
 								getMgrSlaveNodetype(masterNode->form.nodetype),
