@@ -668,22 +668,22 @@ TransactionId GetNewTransactionIdExt(bool isSubXact, uint32 xidnum, bool isInser
 	}
 
 #ifdef ADB
-	/* we must add xid to xip and add xid to xid_assign before release XidGenLock*/
-	/* for snapsender assing xid to cn/dn, we should add xid to snapsender->xip */
-	/* for gtm local process, no need add xid to snapsender->xip.*/
-	/* As from local porc array, we can get the xid */
-	if (IsGTMNode() && !isNeedAssign && !isSubXact)
+	if (IsGTMNode() && !isSubXact)
+	{
+		/* we must add xid to xip and add xid to xid_assign before release XidGenLock*/
+		/* for snapsender assing xid to cn/dn, we should add xid to snapsender->xip */
+		/* for gtm local process, no need add xid to snapsender->xip.*/
+		/* As from local porc array, we can get the xid */
+		/* for gtm local process, we should assing xid and add xid to SnapSender->xid_assign */
+		/* for snapsender assign xid to dn/cn, snapsender can add xid to  SNAPSENDER_XID_ARRAY_ASSIGN itselt*/
+		if (!isNeedAssign)
 			SnapSendAddXip(xid, xidnum, InvalidTransactionId);
+		else
+			SnapSendTransactionAssign(xid, xidnum, InvalidTransactionId);
+	}
 #endif
 
 	LWLockRelease(XidGenLock);
-
-#ifdef ADB
-	/* for gtm local process, we should assing xid and add xid to SnapSender->xid_assign */
-	/* for snapsender assign xid to dn/cn, snapsender can add xid to  SNAPSENDER_XID_ARRAY_ASSIGN itselt*/
-	if (IsGTMNode() && isNeedAssign && !isSubXact)
-			SnapSendTransactionAssign(xid, xidnum, InvalidTransactionId);
-#endif
 
 #ifdef DEBUG_ADB
 	adb_ereport(LOG,
