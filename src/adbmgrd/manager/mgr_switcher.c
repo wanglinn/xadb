@@ -7548,7 +7548,10 @@ bool CheckNodeExistInPgxcNode(Form_mgr_node mgrNode, char *existNodeName, char n
 							0,
 							10,
 							spiContext);
-		Assert(pgConn);
+		if (pgConn == NULL)
+			ereport(ERROR,
+					(errmsg("get conn from %s fail.", NameStr(mgrNode->nodename))));
+
 		exist = nodenameExistsInPgxcNode(pgConn,
 										NULL,
 										true,
@@ -7606,7 +7609,10 @@ void MgrDelPgxcNodeSlaveFromCoord(Form_mgr_node coordMgrNode)
 								0,
 								10,
 								spiContext);
-		Assert(pgConn);
+		if (pgConn == NULL)
+			ereport(ERROR,
+					(errmsg("get conn from %s fail.", NameStr(coordMgrNode->nodename))));
+
 		dlist_foreach(iter, &slaveDataNodes)
 		{
 			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);			
