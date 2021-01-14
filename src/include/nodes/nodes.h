@@ -323,6 +323,8 @@ typedef enum NodeTag
 	T_ClusterMergeGatherPath,
 	T_ClusterReducePath,
 	T_ReduceScanPath,
+#endif
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	T_FilterPath,
 #endif
 #ifdef ADB_GRAM_ORA

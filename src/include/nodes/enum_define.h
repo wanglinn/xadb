@@ -248,12 +248,12 @@ END_ENUM(CommandMode)
 #endif
 
 #ifndef NO_ENUM_CommandTag
-#define PG_CMDTAG(tag, name, evtrgok, rwrok, rowcnt) ENUM_VALUE(tag)
 BEGIN_ENUM(CommandTag)
+#define PG_CMDTAG(tag, name, evtrgok, rwrok, rowcnt) ENUM_VALUE(tag)
 #include"tcop/cmdtaglist.h"
 	ENUM_VALUE(COMMAND_TAG_NEXTTAG)
-END_ENUM(CommandTag)
 #undef PG_CMDTAG
+END_ENUM(CommandTag)
 #endif /* NO_ENUM_CommandTag */
 
 #ifndef NO_ENUM_ConstrType
@@ -728,6 +728,8 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_ClusterMergeGatherPath)
 	ENUM_VALUE(T_ClusterReducePath)
 	ENUM_VALUE(T_ReduceScanPath)
+#endif
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	ENUM_VALUE(T_FilterPath)
 #endif
 #ifdef ADB_GRAM_ORA

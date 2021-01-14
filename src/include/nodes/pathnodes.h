@@ -393,6 +393,8 @@ struct PlannerInfo
 #ifdef ADB_GRAM_ORA
 	/* for connect by */
 	struct FromExpr *original_join_tree;
+	/* Record rownum expressions that are blocked from being pushed down. */
+	List			*rownum_exprs;
 #endif /* ADB_GRAM_ORA */
 };
 
@@ -1498,9 +1500,9 @@ typedef struct GroupResultPath
 {
 	Path		path;
 	List	   *quals;
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	Path	   *subpath;
-#endif /* ADB */
+#endif /* ADB || ADB_GRAM_ORA */
 } GroupResultPath;
 
 /*
@@ -1989,10 +1991,12 @@ typedef struct ReduceScanPath
 	Path	   *reducepath;
 	List	   *rescan_clauses;
 }ReduceScanPath;
+#endif /* ADB */
 
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 typedef GroupResultPath FilterPath;
 
-#endif /* ADB */
+#endif /* ADB || ADB_GRAM_ORA */
 
 #ifdef ADB_GRAM_ORA
 typedef struct ConnectByPath

@@ -276,9 +276,10 @@ foreach my $key (sort keys %all_enum)
 		}
 	}
 	print H "\n#ifndef NO_ENUM_$key\nBEGIN_ENUM($key)\n";
+	print H "#define PG_CMDTAG(tag, name, evtrgok, rwrok, rowcnt) ENUM_VALUE(tag)\n" if $key eq "CommandTag";
 	foreach my $item (@{$all_enum{$key}})
 	{
-		if($item =~ /ifdef/)
+		if($item =~ /ifdef|if\s+defined/)
 		{
 			$item =~ s/\n//g;
 		}
@@ -299,6 +300,7 @@ foreach my $key (sort keys %all_enum)
 			}
 		}
 	}
+	print H "#undef PG_CMDTAG\n" if $key eq "CommandTag";
 	print H "END_ENUM($key)\n#endif /* NO_ENUM_$key */\n";
 
 	if(defined $ident_if_defined{$key})

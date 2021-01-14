@@ -1958,7 +1958,7 @@ create_group_result_path(PlannerInfo *root, RelOptInfo *rel,
 	return pathnode;
 }
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 FilterPath *create_filter_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 							   PathTarget *target, List *quals)
 {
@@ -1980,7 +1980,9 @@ FilterPath *create_filter_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath
 
 	return filter;
 }
+#endif /* ADB || ADB_GRAM_ORA */
 
+#ifdef ADB
 Path *replicate_to_one_node(PlannerInfo *root, RelOptInfo *rel, Path *path, List *target_oids)
 {
 	FilterPath *filter;

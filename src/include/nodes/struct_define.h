@@ -424,7 +424,15 @@ END_STRUCT(QualCost)
 #ifndef NO_STRUCT_QueryCompletion
 BEGIN_STRUCT(QueryCompletion)
 	NODE_ENUM(CommandTag,commandTag)
+#ifdef ADB
+union {
+
 	NODE_SCALAR(uint64,nprocessed)
+Datum datum
+}
+#else
+	NODE_SCALAR(uint64,nprocessed)
+#endif
 END_STRUCT(QueryCompletion)
 #endif /* NO_STRUCT_QueryCompletion */
 

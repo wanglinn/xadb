@@ -871,6 +871,21 @@ deconstruct_recurse(PlannerInfo *root, Node *jtnode, bool below_outer_join,
 		{
 			Node	   *qual = (Node *) lfirst(l);
 
+#ifdef ADB_GRAM_ORA
+			/*
+			 * Avoid rownum expression push down,
+			 * in the case of including WINDOWS, AGG, GROUP BY, CONNECT BY.
+			 */
+			if ((root->parse->groupClause ||
+				 root->parse->hasAggs ||
+				 root->parse->hasWindowFuncs ||
+				 root->parse->connect_by) &&
+				contain_rownum(qual))
+			{
+				root->rownum_exprs = lappend(root->rownum_exprs, qual);
+				continue;
+			}
+#endif	/* ADB_GRAM_ORA */
 			distribute_qual_to_rels(root, qual,
 									false, below_outer_join, JOIN_INNER,
 									root->qual_security_level,
