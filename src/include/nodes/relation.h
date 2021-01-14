@@ -375,6 +375,8 @@ typedef struct PlannerInfo
 #ifdef ADB_GRAM_ORA
 	/* for connect by */
 	struct FromExpr *original_join_tree;
+	/* Record rownum expressions that are blocked from being pushed down. */
+	List			*rownum_exprs;
 #endif /* ADB_GRAM_ORA */
 } PlannerInfo;
 

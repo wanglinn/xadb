@@ -2509,6 +2509,53 @@ grouping_planner(PlannerInfo *root, bool inheritance_update,
 									  connect_by_targets,
 									  connect_by_targets_contain_srfs);
 		}
+		/**
+		 * To prevent rownum expression from pushing down, 
+		 * need to create a filter Path to ensure the correct results.
+		 */
+		if (root->rownum_exprs &&
+			current_rel->pathlist &&
+			(root->parse->groupClause ||
+			 root->parse->hasAggs ||
+			 root->parse->hasWindowFuncs ||
+			 root->parse->connect_by))
+		{
+			List		*new_paths = NIL;
+			ListCell	*lc;
+			Path		*path;
+
+			foreach(lc, current_rel->pathlist)
+			{
+				path = (Path *) lfirst(lc);
+				new_paths = lappend(new_paths, 
+									create_filter_path(root,
+														current_rel,
+														path,
+														current_rel->reltarget,
+														root->rownum_exprs));
+			}
+			current_rel->pathlist = new_paths;
+			if (current_rel->cheapest_startup_path)
+				current_rel->cheapest_startup_path = (Path *) create_filter_path(root,
+																				 current_rel,
+																				 current_rel->cheapest_startup_path,
+																				 current_rel->reltarget,
+																				 root->rownum_exprs);
+			if (current_rel->cheapest_total_path)
+				current_rel->cheapest_total_path = (Path *) create_filter_path(root,
+																			   current_rel,
+																			   current_rel->cheapest_total_path,
+																			   current_rel->reltarget,
+																			   root->rownum_exprs);
+			if (current_rel->cheapest_unique_path)
+				current_rel->cheapest_unique_path = (Path *) create_filter_path(root,
+																				current_rel,
+																				current_rel->cheapest_unique_path,
+																				current_rel->reltarget,
+																				root->rownum_exprs);	
+			if (current_rel->partial_pathlist)
+				current_rel->partial_pathlist = NIL;
+		}
 #endif /* ADB_GRAM_ORA */
 
 		/*
