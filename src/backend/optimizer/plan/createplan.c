@@ -2889,6 +2889,30 @@ create_lockrows_plan(PlannerInfo *root, LockRowsPath *best_path,
 	return plan;
 }
 
+#ifdef ADB
+typedef struct ModifyRemoteQueryRelidContext
+{
+	Index	start;
+	int		rtoffset;
+}ModifyRemoteQueryRelidContext;
+/*
+ * ModifyRemoteQueryRelidWalker
+ *	Update scanrelid of the remotequery nodes. 
+ */
+static bool ModifyRemoteQueryRelidWalker(Plan *plan, PlannerGlobal *global, ModifyRemoteQueryRelidContext *context)
+{
+	if (plan == NULL)
+		return false;
+	if (IsA(plan, RemoteQuery))
+	{
+		RemoteQuery *rq = (RemoteQuery*)plan;
+		if (rq->scan.scanrelid > context->start)
+			rq->scan.scanrelid += context->rtoffset;
+	}
+	return plan_tree_walker(plan, (Node*)global, ModifyRemoteQueryRelidWalker, context);
+}
+#endif /* ADB */
+
 /*
  * create_modifytable_plan
  *	  Create a ModifyTable plan for 'best_path'.
@@ -2902,6 +2926,9 @@ create_modifytable_plan(PlannerInfo *root, ModifyTablePath *best_path)
 	List	   *subplans = NIL;
 	ListCell   *subpaths,
 			   *subroots;
+#ifdef ADB
+	int			rtcount;
+#endif
 
 	/* Build the plan for each input path */
 	forboth(subpaths, best_path->subpaths,
@@ -2911,6 +2938,7 @@ create_modifytable_plan(PlannerInfo *root, ModifyTablePath *best_path)
 		PlannerInfo *subroot = (PlannerInfo *) lfirst(subroots);
 		Plan	   *subplan;
 
+		ADB_ONLY_CODE(rtcount = list_length(subroot->parse->rtable));
 		/*
 		 * In an inherited UPDATE/DELETE, reference the per-child modified
 		 * subroot while creating Plans from Paths for the child rel.  This is
@@ -2923,6 +2951,31 @@ create_modifytable_plan(PlannerInfo *root, ModifyTablePath *best_path)
 		 * That's not great, but it seems better than the alternative.
 		 */
 		subplan = create_plan_recurse(subroot, subpath, CP_EXACT_TLIST);
+#ifdef ADB
+		/* For an inherited UPDATE/DELETE query, the per-subplan will add 
+		 * some new rtables to the rtables of subroot, meanwhile the scanrelid record
+		 * the index of the subroot's rtables. it may wrong !!! The scanrelid should 
+		 * record the index of the root's rtables.
+		 * Now after ccreate sub_plan process, add these new rtables to the root's rtables,
+		 * then update the accurate scanrelid. 
+		 */
+		if (subroot->parse->rtable != root->parse->rtable &&
+			list_length(subroot->parse->rtable) > rtcount)
+		{
+			ListCell *lc;
+			ModifyRemoteQueryRelidContext	context;
+
+			context.start = rtcount;
+			context.rtoffset = list_length(root->parse->rtable) - rtcount;
+			ModifyRemoteQueryRelidWalker(subplan, NULL, &context);
+			lc = list_nth_cell(subroot->parse->rtable, rtcount);
+			do
+			{
+				root->parse->rtable = lappend(root->parse->rtable, lfirst(lc));
+				lc = lnext(subroot->parse->rtable, lc);
+			}while (lc != NULL);
+		}
+#endif /* ADB */
 
 		/* Transfer resname/resjunk labeling, too, to keep executor happy */
 		apply_tlist_labeling(subplan->targetlist, subroot->processed_tlist);
