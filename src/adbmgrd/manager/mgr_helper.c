@@ -4667,11 +4667,11 @@ warnning_master_has_no_sync(char 	*nodeName,
 												nodeType,
 												spiContext);
 			Assert(slaveNode);
-			if (is_equal_string(getMgrNodeSyncStateValue(SYNC_STATE_SYNC), NameStr(slaveNode->form.nodesync)))
-				return;
-			
-			mgrNode = selectMgrNodeByOid(slaveNode->form.nodemasternameoid, spiContext);
-			Assert(mgrNode);			
+			if (!is_equal_string(getMgrNodeSyncStateValue(SYNC_STATE_SYNC), NameStr(slaveNode->form.nodesync)))
+			{			
+				mgrNode = selectMgrNodeByOid(slaveNode->form.nodemasternameoid, spiContext);
+				Assert(mgrNode);
+			}			
 		}
 		else
 		{
@@ -4681,7 +4681,7 @@ warnning_master_has_no_sync(char 	*nodeName,
 			Assert(mgrNode);
 		}
 
-		if (isMasterNode(mgrNode->form.nodetype, true))
+		if (mgrNode != NULL && isMasterNode(mgrNode->form.nodetype, true))
 		{
 			selectMgrSlaveNodes(mgrNode->form.oid,
 								getMgrSlaveNodetype(mgrNode->form.nodetype),
@@ -4690,7 +4690,7 @@ warnning_master_has_no_sync(char 	*nodeName,
 			dlist_foreach(iter, &nodes)
 			{
 				tmpNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-				if(is_equal_string(getMgrNodeSyncStateValue(SYNC_STATE_SYNC), NameStr(mgrNode->form.nodesync)))
+				if(is_equal_string(getMgrNodeSyncStateValue(SYNC_STATE_SYNC), NameStr(tmpNode->form.nodesync)))
 				{
 					hasSync = true;
 					break;
@@ -4699,8 +4699,7 @@ warnning_master_has_no_sync(char 	*nodeName,
 			if (!hasSync)
 				ereportWarningLog(errmsg("%s is %s, it has no synchronous node.",
 					NameStr(mgrNode->form.nodename),  mgr_get_nodetype_desc(mgrNode->form.nodetype)));
-		}
-		
+		}	
 	}PG_CATCH();
 	{
 		(void)MemoryContextSwitchTo(oldContext);
