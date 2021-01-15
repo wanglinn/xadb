@@ -27,7 +27,6 @@
 #define IsUnderAGTM()		(!useLocalXid&&!isRestoreMode && \
 							(isPGXCCoordinator || isPGXCDataNode) &&	\
 							  IsUnderPostmaster &&						\
-							  IsNormalDatabase() &&						\
 							  (IsNormalProcessingMode() || IsInitProcessingMode()))
 
 /* Type of sequence name used when dropping it */
