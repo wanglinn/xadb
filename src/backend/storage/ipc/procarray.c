@@ -1824,6 +1824,7 @@ retry:
 						(errcode(ERRCODE_INTERNAL_ERROR),
 					 	errmsg("Wait SnapSender state OK timeout!")));
 			}
+			global_snap_xmin = snapshot->global_xmin;
 		}
 		else
 			snap = snapshot;
