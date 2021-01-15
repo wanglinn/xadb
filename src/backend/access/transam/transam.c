@@ -163,7 +163,7 @@ bool							/* true if given transaction committed */
 TransactionIdDidCommit(TransactionId transactionId)
 {
 #ifdef ADB
-	return TransactionIdDidCommitGTM(transactionId, !IsGTMNode());
+	return TransactionIdDidCommitGTM(transactionId, (!IsGTMNode()) && (!IsInitProcessingMode()));
 }
 bool TransactionIdDidCommitGTM(TransactionId transactionId, bool try_gtm)
 {
