@@ -1230,6 +1230,11 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 			from = makeRangeVar(get_namespace_name(RelationGetNamespace(rel)),
 								pstrdup(RelationGetRelationName(rel)),
 								-1);
+#ifdef ADB
+			/* FOR CLUSTER COPY TO a INHERITS TABLE, we should not scan its parent table. Keep the same with PG */
+			/* When row security is enabled, we should not include parent records too. PG BUG */
+			from->inh = false;
+#endif /* ADB */
 
 			/* Build query */
 			select = makeNode(SelectStmt);
