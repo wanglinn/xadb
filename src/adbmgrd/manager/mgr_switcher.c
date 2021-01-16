@@ -2121,7 +2121,7 @@ void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 	shutdownNodeWithinSeconds(oldMaster->mgrNode,
 							  SHUTDOWN_NODE_FAST_SECONDS,
 							  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
-							  true);
+							  false);
 	/* given new master node? */
 	if(newMasterName && strlen(newMasterName) > 0)
 	{
