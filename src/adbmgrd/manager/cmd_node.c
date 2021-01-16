@@ -1158,8 +1158,8 @@ Datum mgr_alter_node_func(PG_FUNCTION_ARGS)
 	MgrFree(newParentTuple);
 	table_close(rel, RowExclusiveLock);
 
-	warnning_master_has_no_sync(NameStr(mgr_node->nodename), mgr_node->nodetype);
-	warnning_node_by_level_syncstate(NameStr(mgr_node->nodename), mgr_node->nodetype);
+	warnning_master_has_no_sync(name_str, nodetype);
+	warnning_node_by_level_syncstate(name_str, nodetype);
 
 	PG_RETURN_BOOL(true);
 }
