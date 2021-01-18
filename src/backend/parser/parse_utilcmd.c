@@ -186,6 +186,7 @@ static List *GetNodeIDListByUser();
 static PartitionBoundSpec *
 transformPartitionBoundForKey(ParseState *pstate, Relation parent,
 							  PartitionBoundSpec *spec, PartitionKey key);
+static bool checkAttachPartitionTableInfo(Relation rel, Relation sub_rel);
 /*
  * addDefaultDistributeByOfSingleInherit
  *
@@ -3756,6 +3757,26 @@ transformAlterTableStmt(Oid relid, AlterTableStmt *stmt,
 				{
 					PartitionCmd *partcmd = (PartitionCmd *) cmd->def;
 
+#ifdef ADB
+					if (IsGTMCnNode() && cmd->subtype == AT_AttachPartition)
+					{
+						Relation	  sub_rel;
+						bool		  is_ok = false;
+
+						sub_rel = RelationIdGetRelation(RelnameGetRelid(partcmd->name->relname));
+						if (RelationIsValid(sub_rel))
+						{
+							is_ok = checkAttachPartitionTableInfo(rel, sub_rel);
+							RelationClose(sub_rel);
+							if (!is_ok)
+								ereport(ERROR,
+										(errmsg("The \"%s\" table does not meet the requirement of being a sub table of \"%s\" table.",
+												partcmd->name->relname,
+												NameStr(rel->rd_rel->relname)),
+										errhint("The distribution information or table structure of the child table is different from that of the parent table.")));
+						}
+					}
+#endif	/* ADB */
 					transformPartitionCmd(&cxt, partcmd);
 					/* assign transformed value of the partition bound */
 					partcmd->bound = cxt.partbound;
@@ -5065,5 +5086,74 @@ dup_node_:
 			 errmsg("duplicate node \"%s\"", def->defname),
 			 parser_errposition(pstate, def->location)));
 	return 0;	/* never run, keep compiler quiet */
+}
+
+static bool
+checkAttachPartitionTableInfo(Relation parent_rel, Relation sub_rel)
+{
+	TupleDesc			a_desc, b_desc;
+	RelationLocInfo	   *a, *b;
+	ListCell		   *lc1, *lc2;
+	int 				i;
+
+	if (!RelationIsValid(parent_rel) ||
+		parent_rel->rd_locator_info == NULL ||
+		!RelationIsValid(sub_rel) ||
+		sub_rel->rd_locator_info == NULL)
+		return true;
+
+	a = parent_rel->rd_locator_info;
+	b = sub_rel->rd_locator_info;
+
+	/* Check the partition type, key and node. */
+	if (a->locatorType != b->locatorType ||
+		list_length(a->keys) != list_length(b->keys) ||
+		list_length(a->nodeids) != list_length(a->nodeids))
+		return false;
+
+	if (IsRelationDistributedByValue(a))
+	{
+		if (equal(a->nodeids, b->nodeids) == false)
+			return false;
+	}else if(list_equal_oid_without_order(a->nodeids, b->nodeids) == false)
+	{
+		return false;
+	}
+
+	/* Check the consistency of partition key. */
+	forboth(lc1, a->keys, lc2, b->keys)
+	{
+		LocatorKeyInfo *l = lfirst(lc1);
+		LocatorKeyInfo *r = lfirst(lc2);
+		if (l->opclass != r->opclass ||
+			l->opfamily != r->opfamily ||
+			l->attno != r->attno)
+			return false;
+		if (equal(l->key, r->key) == false)
+			return false;
+	}
+
+	if (equal(a->values, b->values) == false)
+		return false;
+
+	a_desc =  RelationGetDescr(parent_rel);
+	b_desc =  RelationGetDescr(sub_rel);
+	/* The fields in the checklist are arranged in the same order. */
+	if (a_desc->natts != b_desc->natts)
+		return false;
+	for (i = 0; i < a_desc->natts; i++)
+	{
+		FormData_pg_attribute	*a_arrt = &a_desc->attrs[i];
+		FormData_pg_attribute	*b_arrt = &b_desc->attrs[i];
+		
+		if (a_arrt->atttypid != b_arrt->atttypid ||
+			a_arrt->atttypmod != b_arrt->atttypmod ||
+			strcmp(NameStr(a_arrt->attname), NameStr(b_arrt->attname)) != 0)
+			return false;
+		
+	}
+
+	return true;
+
 }
 #endif /* ADB */
