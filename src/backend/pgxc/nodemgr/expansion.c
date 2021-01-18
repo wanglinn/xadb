@@ -7,6 +7,7 @@
 #include "access/relscan.h"
 #include "access/sysattr.h"
 #include "access/xact.h"
+#include "access/visibilitymap.h"
 #include "catalog/adb_clean.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_database.h"
@@ -1732,6 +1733,7 @@ static int ProcessClusterCleanCommand(ClusterCleanContext *context, const char *
 	XLogRecPtr		recptr;
 	OffsetNumber	clean_items[MaxHeapTuplesPerPage];
 	int				clean_nitem;
+	Buffer			vmbuffer = InvalidBuffer;
 
 	buf.data = (char*)data;
 	buf.len = buf.maxlen = len;
@@ -1778,6 +1780,7 @@ static int ProcessClusterCleanCommand(ClusterCleanContext *context, const char *
 			 lineoff <= lines;
 			 lineoff++,lpp++)
 		{
+			vmbuffer = InvalidBuffer;
 			if (!ItemIdIsNormal(lpp))
 				continue;
 			loctup.t_tableOid = relid;
@@ -1791,7 +1794,18 @@ static int ProcessClusterCleanCommand(ClusterCleanContext *context, const char *
 				valid = HeapTupleSatisfiesVisibility(&loctup, context->snapshot, buffer);
 
 			if (valid && ExecTestExpansionClean(rel->rd_clean, &loctup) == false)
+			{
 				clean_items[clean_nitem++] = lineoff;
+
+				/* set page invisibil */
+				if (PageIsAllVisible(page))
+				{
+					visibilitymap_pin(rel, block, &vmbuffer);
+					PageClearAllVisible(page);
+					visibilitymap_clear(rel, BufferGetBlockNumber(buffer),
+										vmbuffer, VISIBILITYMAP_VALID_BITS);
+				}
+			}
 		}
 
 		if (clean_nitem > 0)
