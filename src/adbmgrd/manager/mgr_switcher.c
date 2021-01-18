@@ -7452,7 +7452,14 @@ static void ExecuteSqlOnPostgresGrammar(Form_mgr_node mgrNode, int newPort, char
 							newPort,	
 							10,
 							spiContext);
-		CheckNull(pgConn);					
+		if (pgConn == NULL)
+		{
+			ereport(LOG,
+					(errmsg("[Error] get conn from %s fail. nodeport(%d), newPort(%d).", 
+					NameStr(mgrNode->nodename), mgrNode->nodeport, newPort)));
+			ereport(ERROR,
+					(errmsg("get conn from %s fail.", NameStr(mgrNode->nodename))));		
+		}
 		if(sqlType == SQL_TYPE_COMMAND)
 			PQexecCommandSql(pgConn, sql, true);
 		else
