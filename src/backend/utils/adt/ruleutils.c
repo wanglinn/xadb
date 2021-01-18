@@ -1093,6 +1093,7 @@ pg_get_triggerdef_worker(Oid trigid, bool pretty)
 		context.appendparents = NULL;
 #ifdef ADB
 		context.finalise_aggs = false;
+		context.sortgroup_colno = false;
 #endif /* ADB */
 
 		get_rule_expr(qual, &context, false);
@@ -3349,6 +3350,7 @@ deparse_expression_pretty(Node *expr, List *dpcontext,
 	context.appendparents = NULL;
 #ifdef ADB
 	context.finalise_aggs = false;
+	context.sortgroup_colno = false;
 #endif /* ADB */
 
 	get_rule_expr(expr, &context, showimplicit);
@@ -5129,6 +5131,7 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 		context.appendparents = NULL;
 #ifdef ADB
 		context.finalise_aggs = false;
+		context.sortgroup_colno = false;
 #endif /* ADB */
 
 		set_deparse_for_query(&dpns, query, NIL);
