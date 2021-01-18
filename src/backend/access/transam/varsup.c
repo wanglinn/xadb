@@ -320,24 +320,33 @@ GetNewGlobalTransactionId(int level)
 
 	LWLockAcquire(XidGenLock, LW_EXCLUSIVE);
 
-	/*
-	 * If we are allocating the first XID of a new page of the commit log,
-	 * zero out that commit-log page before returning. We must do this while
-	 * holding XidGenLock, else another xact could acquire and commit a later
-	 * XID before we zero the page.  Fortunately, a page of the commit log
-	 * holds 32K or more transactions, so we don't have to do this very often.
-	 *
-	 * Extend pg_subtrans and pg_commit_ts too.
-	 */
-	ExtendCLOG(gxid);
-	ExtendCommitTs(gxid);
-	ExtendSUBTRANS(gxid);
 
 	full_gxid = FullTransactionIdFromEpochAndXid(EpochFromFullTransactionId(ShmemVariableCache->nextFullXid),
 												 gxid);
 	if (FullTransactionIdPrecedes(ShmemVariableCache->nextFullXid, full_gxid))
 	{
+		/*
+		 * If we are allocating the first XID of a new page of the commit log,
+		 * zero out that commit-log page before returning. We must do this while
+		 * holding XidGenLock, else another xact could acquire and commit a later
+		 * XID before we zero the page.  Fortunately, a page of the commit log
+		 * holds 32K or more transactions, so we don't have to do this very often.
+		 *
+		 * Extend pg_subtrans and pg_commit_ts too.
+		 */
+		ExtendCLOG(gxid);
+		ExtendCommitTs(gxid);
+		ExtendSUBTRANS(gxid);
+
 		ShmemVariableCache->nextFullXid = full_gxid;
+
+		/*
+		 * Now advance the nextXid counter.  This must not happen until after we
+		 * have successfully completed ExtendCLOG() --- if that routine fails, we
+		 * want the next incoming transaction to try it again.	We cannot assign
+		 * more XIDs until there is CLOG space for them.
+		 */
+		FullTransactionIdAdvance(&ShmemVariableCache->nextFullXid);
 	} else
 	{
 		/*
@@ -357,14 +366,6 @@ GetNewGlobalTransactionId(int level)
 				(errmsg("Global XID %u is already in use, please try again!", gxid)));
 		}
 	}
-
-	/*
-	 * Now advance the nextXid counter.  This must not happen until after we
-	 * have successfully completed ExtendCLOG() --- if that routine fails, we
-	 * want the next incoming transaction to try it again.	We cannot assign
-	 * more XIDs until there is CLOG space for them.
-	 */
-	FullTransactionIdAdvance(&ShmemVariableCache->nextFullXid);
 
 	/*
 	 * We must store the new XID into the shared ProcArray before releasing

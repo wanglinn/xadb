@@ -1573,23 +1573,25 @@ static void SnapRcvProcessAssign(char *buf, Size len)
 	 *
 	 * Extend pg_subtrans and pg_commit_ts too.
 	 */
-	/* for slave cn/dn, we cannot extend clog and insert wal log */
-	if (!RecoveryInProgress())
-	{
-		ExtendCLOG(gxid);
-		ExtendCommitTs(gxid);
-		ExtendSUBTRANS(gxid);
-	}
 
 	nextXid = XidFromFullTransactionId(ShmemVariableCache->nextFullXid);
 	if (TransactionIdFollowsOrEquals(gxid, nextXid))
 	{
+		/* for slave cn/dn, we cannot extend clog and insert wal log */
+		if (!RecoveryInProgress())
+		{
+			ExtendCLOG(gxid);
+			ExtendCommitTs(gxid);
+			ExtendSUBTRANS(gxid);
+		}
+
 		uint32	epoch;
 		epoch = EpochFromFullTransactionId(ShmemVariableCache->nextFullXid);
 		if (unlikely(gxid < nextXid))
 			++epoch;
 
 		ShmemVariableCache->nextFullXid = FullTransactionIdFromEpochAndXid(epoch, gxid);
+		FullTransactionIdAdvance(&ShmemVariableCache->nextFullXid);
 	}
 	/*
 	 * Now advance the nextXid counter.  This must not happen until after we
