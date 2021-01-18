@@ -8345,6 +8345,17 @@ heap_xlog_clean(XLogReaderState *record)
 	if (InHotStandby && TransactionIdIsValid(xlrec->latestRemovedXid))
 		ResolveRecoveryConflictWithSnapshot(xlrec->latestRemovedXid, rnode);
 
+	if (xlrec->ndead > 0)
+	{
+		Relation	reln = CreateFakeRelcacheEntry(rnode);
+		Buffer		vmbuffer = InvalidBuffer;
+
+		visibilitymap_pin(reln, blkno, &vmbuffer);
+		visibilitymap_clear(reln, blkno, vmbuffer, VISIBILITYMAP_VALID_BITS);
+		ReleaseBuffer(vmbuffer);
+		FreeFakeRelcacheEntry(reln);	
+	}
+
 	/*
 	 * If we have a full-page image, restore it (using a cleanup lock) and
 	 * we're done.
