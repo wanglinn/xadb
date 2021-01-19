@@ -353,6 +353,7 @@ extern void mgr_append_pgconf_paras_str_str(char *key, char *value, StringInfo i
 extern void mgr_append_pgconf_paras_str_int(char *key, int value, StringInfo infosendmsg);
 extern void mgr_append_infostr_infostr(StringInfo infostr, StringInfo sourceinfostr);
 extern void mgr_add_parameters_pgsqlconf(Oid tupleOid, char nodetype, int cndnport, StringInfo infosendparamsg);
+extern void mgr_reset_master_config(MgrNodeWrapper *mgrNode);
 extern void mgr_append_pgconf_paras_str_quotastr(char *key, char *value, StringInfo infosendmsg);
 extern void mgr_add_parameters_recoveryconf(char nodetype, char *slavename, Oid tupleoid, StringInfo infosendparamsg);
 extern void mgr_add_parameters_hbaconf(Oid mastertupleoid, char nodetype, StringInfo infosendhbamsg);

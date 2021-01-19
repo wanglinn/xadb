@@ -654,6 +654,8 @@ void FailOverDataNodeMaster(char *oldMasterName,
 										kickOutOldMaster);
 		tryUnlockCluster(&coordinators, true);
 
+		mgr_reset_master_config(newMaster->mgrNode);
+
 		ereportNoticeLog(errmsg("Switch the datanode master from %s to %s "
 								"has been successfully completed",
 								NameStr(oldMaster->mgrNode->form.nodename),
@@ -1091,6 +1093,8 @@ void FailOverCoordMaster(char *oldMasterName,
 			ShutdownRunningNotZone(&failedSlaves, curZone);
 		}
 
+		mgr_reset_master_config(newMaster->mgrNode);
+
 		ereportNoticeLog((errmsg("Switch the coordinator master from %s to %s "
 						"has been successfully completed",
 						NameStr(oldMaster->mgrNode->form.nodename),
@@ -1315,6 +1319,8 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 		refreshMgrNodeListAfterFailoverGtm(spiContext, &dataNodes);
 
 		tryUnlockCluster(&coordinators, true);
+
+		mgr_reset_master_config(newMaster->mgrNode);
 
 		ereportNoticeLog(errmsg("Switch the GTM master from %s to %s "
 						"has been successfully completed",
@@ -1546,6 +1552,8 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, in
 										false);
 		tryUnlockCluster(&coordinators, true);
 
+		mgr_reset_master_config(newMaster->mgrNode);
+
 		ereportNoticeLog(errmsg("Switch the datanode master from %s to %s "
 						"has been successfully completed",
 						NameStr(oldMaster->mgrNode->form.nodename),
@@ -1742,7 +1750,7 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 		 */
 		tryUnlockCluster(&coordinators, true);
 
-		setCheckGtmInfoInPGSqlConf(newMaster->mgrNode,   // test error
+		setCheckGtmInfoInPGSqlConf(newMaster->mgrNode, 
 								   newMaster->mgrNode,
 								   newMaster->pgConn,
 								   true,
@@ -1817,6 +1825,8 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 										spiContext,
 										false);
 		tryUnlockCluster(&coordinators, true);
+
+		mgr_reset_master_config(newMaster->mgrNode);
 
 		ereportNoticeLog((errmsg("Switchover the GTM master from %s to %s "
 						"has been successfully completed",
@@ -2027,6 +2037,8 @@ void switchoverCoord(char *newMasterName, bool forceSwitch, char *curZone)
 		tryUnlockCluster(&coordinators, true);
 
 		RefreshPgxcNodeName(newMaster, NameStr(newMaster->mgrNode->form.nodename));
+
+		mgr_reset_master_config(newMaster->mgrNode);
 
 		ereportNoticeLog((errmsg("Switchover the coordinator master from %s to %s "
 						"has been successfully completed",
