@@ -4909,10 +4909,11 @@ dup_node_:
 static bool
 checkAttachPartitionTableInfo(Relation parent_rel, Relation sub_rel)
 {
-	TupleDesc			a_desc, b_desc;
-	RelationLocInfo	   *a, *b;
-	ListCell		   *lc1, *lc2;
-	int 				i;
+	TupleDesc				a_desc, b_desc;
+	RelationLocInfo		   *a, *b;
+	ListCell			   *lc1, *lc2;
+	FormData_pg_attribute  *a_arrt, *b_arrt;
+	int 					a_loc, b_loc;
 
 	if (!RelationIsValid(parent_rel) ||
 		parent_rel->rd_locator_info == NULL ||
@@ -4938,16 +4939,31 @@ checkAttachPartitionTableInfo(Relation parent_rel, Relation sub_rel)
 		return false;
 	}
 
+	a_desc =  RelationGetDescr(parent_rel);
+	b_desc =  RelationGetDescr(sub_rel);
+
 	/* Check the consistency of partition key. */
 	forboth(lc1, a->keys, lc2, b->keys)
 	{
 		LocatorKeyInfo *l = lfirst(lc1);
 		LocatorKeyInfo *r = lfirst(lc2);
+
 		if (l->opclass != r->opclass ||
 			l->opfamily != r->opfamily ||
-			l->collation != r->collation ||
-			l->attno != r->attno)
+			l->collation != r->collation)
 			return false;
+
+		if (l->attno != r->attno)
+		{
+			a_arrt = &a_desc->attrs[l->attno - 1];
+			b_arrt = &b_desc->attrs[r->attno - 1];
+
+			if (a_arrt->atttypid != b_arrt->atttypid ||
+				a_arrt->atttypmod != b_arrt->atttypmod ||
+				strcmp(NameStr(a_arrt->attname), NameStr(b_arrt->attname)) != 0)
+				return false;
+		}
+
 		if (equal(l->key, r->key) == false)
 			return false;
 	}
@@ -4955,21 +4971,32 @@ checkAttachPartitionTableInfo(Relation parent_rel, Relation sub_rel)
 	if (equal(a->values, b->values) == false)
 		return false;
 
-	a_desc =  RelationGetDescr(parent_rel);
-	b_desc =  RelationGetDescr(sub_rel);
+	a_loc = b_loc = 0;
 	/* The fields in the checklist are arranged in the same order. */
-	if (a_desc->natts != b_desc->natts)
-		return false;
-	for (i = 0; i < a_desc->natts; i++)
+	while (a_loc < a_desc->natts && b_loc < b_desc->natts)
 	{
-		FormData_pg_attribute	*a_arrt = &a_desc->attrs[i];
-		FormData_pg_attribute	*b_arrt = &b_desc->attrs[i];
+		a_arrt = &a_desc->attrs[a_loc];
+		b_arrt = &b_desc->attrs[b_loc];
 		
+		while (a_arrt->attisdropped)
+		{
+			a_loc ++;
+			a_arrt = &a_desc->attrs[a_loc];
+		}
+
+		while (b_arrt->attisdropped)
+		{
+			b_loc ++;
+			b_arrt = &b_desc->attrs[b_loc];
+		}
+
 		if (a_arrt->atttypid != b_arrt->atttypid ||
 			a_arrt->atttypmod != b_arrt->atttypmod ||
 			strcmp(NameStr(a_arrt->attname), NameStr(b_arrt->attname)) != 0)
 			return false;
 		
+		a_loc ++;
+		b_loc ++;
 	}
 
 	return true;
