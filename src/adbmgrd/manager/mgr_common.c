@@ -1761,6 +1761,7 @@ bool mgr_check_agent_running(Oid hostOid)
 	ma = ma_connect_hostoid_with_timeout(hostOid, 60, 60);
 	if(!ma_isconnected(ma))
 	{
+		ma_close(ma);
 		return false;
 	}
 	ma_close(ma);
