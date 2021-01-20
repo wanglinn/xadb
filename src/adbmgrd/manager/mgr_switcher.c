@@ -378,7 +378,6 @@ static void RestartCurzoneNodes(dlist_head *dataNodes,
 								dlist_head *coordinators, 
 								dlist_head *coordinatorSlaves, 
 								dlist_head *runningSlaves, 
-								dlist_head *runningSlavesSecond, 
 								bool complain);
 
 #define CheckNodeInZone(mgrNode, curZone)															\
@@ -2138,10 +2137,11 @@ void chooseNewMasterNode(SwitcherNodeWrapper *oldMaster,
 	refreshOldMasterBeforeSwitch(oldMaster, spiContext);
 
 	/* Sentinel, ensure to shut down old master */
-	shutdownNodeWithinSeconds(oldMaster->mgrNode,
-							  SHUTDOWN_NODE_FAST_SECONDS,
-							  SHUTDOWN_NODE_IMMEDIATE_SECONDS,
-							  false);
+	if(mgr_check_agent_running(oldMaster->mgrNode->form.nodehost))
+		shutdownNodeWithinSeconds(oldMaster->mgrNode,
+								SHUTDOWN_NODE_FAST_SECONDS,
+								SHUTDOWN_NODE_IMMEDIATE_SECONDS,
+								false);
 	/* given new master node? */
 	if(newMasterName && strlen(newMasterName) > 0)
 	{
@@ -4831,7 +4831,8 @@ static void restartNodes(dlist_head *nodes, bool complain)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 		Assert(node);
-		if (node->mgrNode->form.nodetype != CNDN_TYPE_GTM_COOR_MASTER)
+		if (node->mgrNode->form.nodetype != CNDN_TYPE_GTM_COOR_MASTER &&
+			mgr_check_agent_running(node->mgrNode->form.nodehost))
 		{
 			shutdownNodeWithinSeconds(node->mgrNode,
 									SHUTDOWN_NODE_FAST_SECONDS,
@@ -6912,7 +6913,7 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 										runningSlaves,
 										failedSlaves,
 										runningSlavesSecond,
-										failedSlavesSecond);					
+										failedSlavesSecond);
 	CHECK_FOR_INTERRUPTS();
 
 	zoGtm->oldMaster = oldMaster;					
@@ -6949,13 +6950,14 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinators, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinatorSlaves, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	runningSlaves, NULL, complain);
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, runningSlavesSecond, NULL, complain);
+	/* runningSlavesSecond may contain node in zone 'local', if the agent of local is down, the SetCheckGtm and stop may be fail  */
+	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, runningSlavesSecond, NULL, false);
 	RestartCurzoneNodes(dataNodes, 
 						coordinators, 
 						coordinatorSlaves, 
 						runningSlaves, 
-						runningSlavesSecond, 
 						complain);
+	restartNodes(runningSlavesSecond, false);
 	
 	/* newMaster also is a coordinator */
 	newMaster->mgrNode->form.nodetype =	getMgrMasterNodetype(newMaster->mgrNode->form.nodetype);
@@ -7951,12 +7953,10 @@ RestartCurzoneNodes(dlist_head *dataNodes,
 					dlist_head *coordinators, 
 					dlist_head *coordinatorSlaves, 
 					dlist_head *runningSlaves, 
-					dlist_head *runningSlavesSecond, 
 					bool complain)
 {
 	restartNodes(dataNodes, complain);
 	restartNodes(coordinators, complain);
 	restartNodes(coordinatorSlaves, complain);
 	restartNodes(runningSlaves, complain);
-	restartNodes(runningSlavesSecond, complain);
 }
