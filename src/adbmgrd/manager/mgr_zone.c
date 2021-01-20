@@ -503,16 +503,19 @@ static void MgrShutdownNodeNotZone(MemoryContext spiContext,
 	{
 		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
 		Assert(mgrNode);
-		shutdownNodeWithinSeconds(mgrNode,
-								SHUTDOWN_NODE_FAST_SECONDS,
-								SHUTDOWN_NODE_IMMEDIATE_SECONDS,
-								false);
+		if(mgr_check_agent_running(mgrNode->form.nodehost))
+		{
+			shutdownNodeWithinSeconds(mgrNode,
+									SHUTDOWN_NODE_FAST_SECONDS,
+									SHUTDOWN_NODE_IMMEDIATE_SECONDS,
+									false);
 
-		mgrNode->form.nodeinited    = false;
-		mgrNode->form.nodeincluster = false;
-		updateMgrNodeAfterSwitch(mgrNode, CURE_STATUS_SWITCHING, spiContext);
-		ereport(LOG, (errmsg("failover node(%s) is set to not inited, not incluster. nodezone(%s)", 
-			NameStr(mgrNode->form.nodename), NameStr(mgrNode->form.nodezone))));						
+			mgrNode->form.nodeinited    = false;
+			mgrNode->form.nodeincluster = false;
+			updateMgrNodeAfterSwitch(mgrNode, CURE_STATUS_SWITCHING, spiContext);
+			ereport(LOG, (errmsg("failover node(%s) is set to not inited, not incluster. nodezone(%s)", 
+				NameStr(mgrNode->form.nodename), NameStr(mgrNode->form.nodezone))));
+		}							
 	}
 		
 	pfreeMgrNodeWrapperList(&nodeList, NULL);
