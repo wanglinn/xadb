@@ -372,7 +372,14 @@ static void RewindSlaveToMaster(MemoryContext spiContext,
 static void getRunningSlaveOfNewMaster(MemoryContext spiContext,
 										MgrNodeWrapper *masterNode,
 										dlist_head *runningSlaveOfNewMaster);
-static void refreshSyncToAsync(MemoryContext spiContext, dlist_head *nodes);								
+static void refreshSyncToAsync(MemoryContext spiContext, dlist_head *nodes);
+static void restartNodes(dlist_head *nodes, bool complain);								
+static void RestartCurzoneNodes(dlist_head *dataNodes,
+								dlist_head *coordinators, 
+								dlist_head *coordinatorSlaves, 
+								dlist_head *runningSlaves, 
+								dlist_head *runningSlavesSecond, 
+								bool complain);
 
 #define CheckNodeInZone(mgrNode, curZone)															\
 {																									\
@@ -1144,11 +1151,12 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 	MemoryContext oldContext;
 	MemoryContext switchContext;
 	MemoryContext spiContext;
-	ErrorData *edata = NULL;
+	ErrorData *edata = NULL; 
 	dlist_head isolatedNodes = DLIST_STATIC_INIT(isolatedNodes);
 	SwitcherNodeWrapper *RevertOldMaster = NULL;
 	SwitcherNodeWrapper *RevertNewMaster = NULL;
-	bool	beginFailOver = false;
+	bool				beginFailOver = false;
+	bool				complain = true;
 
     oldContext = CurrentMemoryContext;
 	switchContext = AllocSetContextCreate(oldContext,
@@ -1239,7 +1247,7 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 								   newMaster->pgConn,
 								   true,
 								   CHECK_GTM_INFO_SECONDS,
-								   true);
+								   complain);
 		newMaster->gtmInfoChanged = true;
 		beginFailOver = true;
 
@@ -1261,18 +1269,18 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 									 curZone);
 
 		ereportNoticeLog(errmsg("set gtmhost and gtmport to every node, please wait for a moment..."));	
-		batchSetGtmInfoOnNodes(newMaster->mgrNode,
-							   &dataNodes,
-							   newMaster,
-							   true);						 
+		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
+									&dataNodes,
+									newMaster,
+									complain);						 
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
 									&coordinators,
 									newMaster,
-									true);
+									complain);
 		batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,
 									&coordinatorSlaves,
 									newMaster,
-									true);
+									complain);
 		refreshPgxcNodesOfCoordinators(NULL,
 									   &coordinators,
 									   oldMaster,
@@ -1283,7 +1291,7 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 		cleanMgrNodesOnCoordinator(&isolatedNodes,
 								   newMaster->mgrNode,
 								   newMaster->pgConn,
-								   true);
+								   complain);
 		pfreeMgrNodeWrapperList(&isolatedNodes, NULL);
 
 		/* 
@@ -1314,7 +1322,7 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 		refreshMgrNodeListAfterFailoverGtm(spiContext, &coordinatorSlaves);
 		refreshMgrNodeListAfterFailoverGtm(spiContext, &dataNodes);
 
-		tryUnlockCluster(&coordinators, true);
+		tryUnlockCluster(&coordinators, complain);
 
 		ereportNoticeLog(errmsg("Switch the GTM master from %s to %s "
 						"has been successfully completed",
@@ -1508,7 +1516,7 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, in
 		runningSlavesFollowNewMaster(newMaster, 
 									NULL,
 									&runningSlaves,
-									gtmMaster->mgrNode,
+									NULL,
 									spiContext,
 									OVERTYPE_SWITCHOVER,
 									curZone);
@@ -3032,14 +3040,21 @@ static void checkGetCoordinatorsForZone(MemoryContext spiContext,
 							zone, 
 							nodeType, 
 							&masterMgrNodes);
-
 	mgrNodesToSwitcherNodes(&masterMgrNodes, coordinators);
 
 	dlist_foreach(iter, coordinators)
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		Assert(node);
-		node->runningMode = NODE_RUNNING_MODE_UNKNOW;
+		if (!tryConnectNode(node, 10))
+		{
+			ereport(LOG, (errmsg("connect to %s failed",
+							NameStr(node->mgrNode->form.nodename))));
+		}
+	}
+
+	if (dlist_is_empty(coordinators))
+	{
+		ereport(LOG, (errmsg("can't find any coordinator")));
 	}
 }
 
@@ -4793,7 +4808,30 @@ static void batchCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 		}
 	}
 }
+/* resetart the node, makesure the snapreceiver of node connect to the new gtm */
+static void restartNodes(dlist_head *nodes, bool complain)
+{
+	dlist_iter iter;
+	SwitcherNodeWrapper *node;
 
+	dlist_foreach(iter, nodes)
+	{
+		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
+		Assert(node);
+		if (node->mgrNode->form.nodetype != CNDN_TYPE_GTM_COOR_MASTER)
+		{
+			shutdownNodeWithinSeconds(node->mgrNode,
+									SHUTDOWN_NODE_FAST_SECONDS,
+									SHUTDOWN_NODE_IMMEDIATE_SECONDS,
+									complain);
+			callAgentStartNode(node->mgrNode, false, complain);
+			if (isMasterNode(node->mgrNode->form.nodetype, true))
+				waitForNodeRunningOk(node->mgrNode, true, NULL, NULL);
+			else
+				waitForNodeRunningOk(node->mgrNode, false, NULL, NULL);	
+		}
+	}
+}
 static void batchSetCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 										dlist_head *nodes,
 										SwitcherNodeWrapper *ignoreNode,
@@ -4801,7 +4839,7 @@ static void batchSetCheckGtmInfoOnNodes(MgrNodeWrapper *gtmMaster,
 {
 	batchSetGtmInfoOnNodes(gtmMaster, nodes, ignoreNode, complain);
 	batchCheckGtmInfoOnNodes(gtmMaster, nodes, ignoreNode,
-							 CHECK_GTM_INFO_SECONDS, complain);
+							 CHECK_GTM_INFO_SECONDS, complain);	
 }
 static bool isCurestatusForRunningOk(char *curestatus)
 {
@@ -6817,7 +6855,7 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 	dlist_head  *failedSlaves 		= &zoGtm->failedSlaves;
 	dlist_head  *failedSlavesSecond = &zoGtm->failedSlavesSecond;
 	dlist_head  *dataNodes 			= &zoGtm->dataNodes;
-	bool 		complain = false;
+	bool 		complain = true;
 	NameData    newMasterName = {{0}};
 
 	ereport(LOG, (errmsg("------------- FailOverGtmCoordMaster oldMasterName(%s) before -------------", oldMasterName)));			
@@ -6893,18 +6931,22 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 					"",
 					spiContext);
 
-	/* newMaster also is a coordinator */
-	newMaster->mgrNode->form.nodetype =	getMgrMasterNodetype(newMaster->mgrNode->form.nodetype);
-	dlist_push_head(coordinators, &newMaster->link);
-
 	ereportNoticeLog(errmsg("set gtmhost, gtmport to every node, please wait for a moment."));
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	dataNodes, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinators, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, coordinatorSlaves, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	runningSlaves, NULL, complain);
 	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, runningSlavesSecond, NULL, complain);
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode,	failedSlaves, NULL, complain);
-	batchSetCheckGtmInfoOnNodes(newMaster->mgrNode, failedSlavesSecond, NULL, complain);	
+	RestartCurzoneNodes(dataNodes, 
+						coordinators, 
+						coordinatorSlaves, 
+						runningSlaves, 
+						runningSlavesSecond, 
+						complain);
+	
+	/* newMaster also is a coordinator */
+	newMaster->mgrNode->form.nodetype =	getMgrMasterNodetype(newMaster->mgrNode->form.nodetype);
+	dlist_push_head(coordinators, &newMaster->link);
 
 	/* The better slave node is in front of the list */
 	sortNodesByWalLsnDesc(runningSlaves);	
@@ -7891,5 +7933,17 @@ RewindSlaveToMaster(MemoryContext spiContext,
 
 	rewindMgrNodeOperation(rewindObject, spiContext);
 }
-
-
+static void
+RestartCurzoneNodes(dlist_head *dataNodes,
+					dlist_head *coordinators, 
+					dlist_head *coordinatorSlaves, 
+					dlist_head *runningSlaves, 
+					dlist_head *runningSlavesSecond, 
+					bool complain)
+{
+	restartNodes(dataNodes, complain);
+	restartNodes(coordinators, complain);
+	restartNodes(coordinatorSlaves, complain);
+	restartNodes(runningSlaves, complain);
+	restartNodes(runningSlavesSecond, complain);
+}
