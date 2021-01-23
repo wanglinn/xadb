@@ -1472,6 +1472,8 @@ static void OnClientMsgEvent(WaitEvent *event, time_t* time_last_latch)
 }
 
 /* like GetSnapshotData, but serialize all active transaction IDs */
+/* xids get xid from local proc arraty. gs_xip get xid from SnapSender->xid. */
+/* ss_xip get xid from Snapsender->xid_assign, sf_xip get xid from SnapSender->xid_finish. */
 void SerializeFullAssignXid(TransactionId *xids, uint32 cnt, TransactionId *gs_xip, uint32 gs_cnt,
 							TransactionId *ss_xip, uint32 ss_cnt,
 							TransactionId *sf_xip, uint32 sf_cnt, StringInfo buf)
@@ -1483,11 +1485,12 @@ void SerializeFullAssignXid(TransactionId *xids, uint32 cnt, TransactionId *gs_x
 
 	xid_num = 0;
 	xid_array_sync = palloc0(sizeof(TransactionId) * (gs_cnt+ss_cnt+sf_cnt));
-	/* get all Transaction IDs */
+	/* get all Transaction IDs which have assign to the other CN/DN */
 	for (index = 0; index < gs_cnt; ++index)
 	{
 		xid = gs_xip[index];
 		skip = false;
+		/* if this xid in assign list, we will assgin later, we cannot sync it*/
 		for (i = 0; i < ss_cnt ; i ++)
 		{
 			if (xid == ss_xip[i])
@@ -1538,29 +1541,18 @@ void SerializeFullAssignXid(TransactionId *xids, uint32 cnt, TransactionId *gs_x
 		xid_array_sync[xid_num++] = xid;
 	}
 
+	/* check SnapSender->xid_finish list*/
 	for (i = 0; i < sf_cnt; ++i)
 	{
 		xid = sf_xip[i];
 		add_finish = true;
-		for (index = 0; index < gs_cnt; ++index)
+		/* if the xid which exist in xid_finish, but we havn't sync it, we should add sync it */
+		for (index = 0; index < xid_num; index++)
 		{
-			if (xid == gs_xip[index])
+			if (xid_array_sync[index] == xid)
 			{
-				add_finish = false;
+				skip = true;
 				break;
-			}
-		}
-
-		/* continue check finish_xid_array list*/
-		if (add_finish)
-		{
-			for (index = 0; index < finish_xid_list_len; ++index)
-			{
-				if (xid == finish_xid_array[index])
-				{
-					add_finish = false;
-					break;
-				}
 			}
 		}
 
@@ -1568,7 +1560,31 @@ void SerializeFullAssignXid(TransactionId *xids, uint32 cnt, TransactionId *gs_x
 		{
 			pq_sendint32(buf, xid);
 			Assert(TransactionIdIsNormal(xid));
-			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add finish xid %u\n", xid)));
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add Snapsender finish list xid %u\n", xid)));
+			xid_array_sync[xid_num++] = xid;
+		}
+	}
+
+	/* check SnapSender local finish xid array list*/
+	for (i = 0; i < finish_xid_list_len; ++i)
+	{
+		xid = finish_xid_array[i];
+		add_finish = true;
+		/* if the xid which exist in xid_finish, but we havn't sync it, we should add sync it */
+		for (index = 0; index < xid_num; index++)
+		{
+			if (xid_array_sync[index] == xid)
+			{
+				skip = true;
+				break;
+			}
+		}
+
+		if (add_finish)
+		{
+			pq_sendint32(buf, xid);
+			Assert(TransactionIdIsNormal(xid));
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add Snapsender local finish array xid %u\n", xid)));
 			xid_array_sync[xid_num++] = xid;
 		}
 	}
@@ -1943,7 +1959,10 @@ SnapSenderDropXidList(SnapClientData *client, const TransactionId *cn_txids, con
 
 		/* can not found in assign list*/
 		if (found == false)
+		{
 			SnapSenderClientAddXid(client, xid);
+			SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_ASSIGN, xid);
+		}
 	}
 
 	if (xids_assign)
@@ -2068,6 +2087,7 @@ static void SnapSenderProcessInitSyncRequest(SnapClientData *client, char* xid_l
 		}
 		else/* sync left rxact xid from client */
 		{
+			SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_XACT2P, xid);
 			cn_txids[txid_cn_count++] = xid;
 			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderProcessInitSyncRequest Add rxact xid %u\n",
 							xid)));
@@ -2075,7 +2095,7 @@ static void SnapSenderProcessInitSyncRequest(SnapClientData *client, char* xid_l
 	}
 
 	list_free(xid_list);
-	if (array_2pc_len > 0)
+	if (array_2pc_len > 0 || txid_cn_count > 0)
 	{
 		SpinLockAcquire(&SnapSender->gxid_mutex);
 		for (i = 0; i < array_2pc_len; i++)
@@ -2097,6 +2117,27 @@ static void SnapSenderProcessInitSyncRequest(SnapClientData *client, char* xid_l
 							xid_2pc_array[i])));
 				SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_ASSIGN, xid_2pc_array[i]);
 				
+			}
+		}
+
+		for (i = 0; i < txid_cn_count; i++)
+		{
+			found = false;
+			for (index = 0; index <SnapSender->xcnt; index++)
+			{
+				if (SnapSender->xip[index] == cn_txids[i])
+				{
+					found = true;
+					break;
+				}
+			}
+
+			if (!found)
+			{
+				SnapSender->xip[SnapSender->xcnt++] = cn_txids[i];
+				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderProcessInitSyncRequest real Add rxact/local_assing  id %u\n",
+							cn_txids[i])));
+				SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_ASSIGN, cn_txids[i]);
 			}
 		}
 		SpinLockRelease(&SnapSender->gxid_mutex);
@@ -2237,12 +2278,6 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 				return;
 			}
 
-			/* for CN before init sync snap, we should call finish all finish xid first */
-			if (!client->is_dn)
-			{
-				time_t			time_last_latch;
-				OnLatchSetEvent(NULL, &time_last_latch);
-			}
 			/* send snapshot */
 			SnapSenderSendInitSnapShot(client);
 			client->status = CLIENT_STATUS_STREAMING;
