@@ -193,6 +193,13 @@ bool ConditionVariableSleepExt(ConditionVariable *cv, uint32 wait_event_info, lo
 			 * Emergency bailout if postmaster has died.  This is to avoid the
 			 * necessity for manual cleanup of all postmaster children.
 			 */
+#ifdef ADB
+			if (endtime == 0)
+			{
+				/* we do nothing, when postmaster exit while we wait event.*/
+			}
+			else
+#endif
 			exit(1);
 		}
 

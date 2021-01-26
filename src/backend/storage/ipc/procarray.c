@@ -4465,7 +4465,7 @@ void SerializeActiveTransactionIds(StringInfo buf)
 	int			   *pgprocnos;
 	int				numProcs;
 	int				index;
-	uint32			i,count;
+	uint32			count;
 	TransactionId	latestCompletedXid;
 	TransactionId	ss_xid_assgin[MAX_CNT_SHMEM_XID_BUF];
 	TransactionId	ss_xid_finish[MAX_CNT_SHMEM_XID_BUF];
@@ -4499,28 +4499,12 @@ void SerializeActiveTransactionIds(StringInfo buf)
 	}
 
 	gs_xip = SnapSenderGetAllXip(&gs_cnt_assign);
-	SnapSenderGetAllAssingFinish(ss_xid_assgin, &ss_cnt_assign, ss_xid_finish, &ss_cnt_finish, &latestCompletedXid);
+	SnapSenderGetAllAssingFinishXids(ss_xid_assgin, &ss_cnt_assign, ss_xid_finish, &ss_cnt_finish, &latestCompletedXid);
 
 	LWLockRelease(XidGenLock);
 	LWLockRelease(ProcArrayLock);
 
 	pq_sendint32(buf, latestCompletedXid);
-	for(i=0;i<count;++i)
-	{
-		bool found = false;
-		for (index = 0; index < ss_cnt_assign; index++)
-		{
-			if (ss_xid_assgin[index] == xids[i])
-			{
-				found = true;
-				break;
-			}
-		}
-
-		if (!found)
-			pq_sendint32(buf, xids[i]);
-	}
-
 	SerializeFullAssignXid(xids, count, gs_xip, gs_cnt_assign, ss_xid_assgin, ss_cnt_assign,
 						ss_xid_finish, ss_cnt_finish, buf);
 

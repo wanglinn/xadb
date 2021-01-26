@@ -656,7 +656,7 @@ SnapRcvSendInitSyncXid(void)
 
 static void SnapRcvStopAllWaitFinishBackend(void)
 {
-	proclist_mutable_iter	iter;
+	proclist_mutable_iter	iter_send, iter_wait;
 	PGPROC					*proc;
 
 	LOCK_SNAP_GXID_RCV();
@@ -666,19 +666,27 @@ static void SnapRcvStopAllWaitFinishBackend(void)
 		return;
 	}
 
-	proclist_foreach_modify(iter, &SnapRcv->send_commiters, GxidWaitLink)
+	proclist_foreach_modify(iter_send, &SnapRcv->send_commiters, GxidWaitLink)
 	{
-		proc = GetPGProcByNumber(iter.cur);
+		proc = GetPGProcByNumber(iter_send.cur);
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvStopAllWaitFinishBackend send_commiters for pgprocno %d set getGlobalTransaction from %u to 0\n",
+			proc->pgprocno,
+			proc->getGlobalTransaction)));
 		proc->getGlobalTransaction = InvalidTransactionId;
+		proclist_delete( &SnapRcv->send_commiters, iter_send.cur, GxidWaitLink);
+		/* we should add it in wait_commiters*/
+		proclist_push_tail(&SnapRcv->wait_commiters, proc->pgprocno, GxidWaitLink);
 		SetLatch(&proc->procLatch);
-		proclist_delete( &SnapRcv->send_commiters, iter.cur, GxidWaitLink);
 	}
 
-	proclist_foreach_modify(iter, &SnapRcv->wait_commiters, GxidWaitLink)
+	proclist_foreach_modify(iter_wait, &SnapRcv->wait_commiters, GxidWaitLink)
 	{
-		proc = GetPGProcByNumber(iter.cur);
+		proc = GetPGProcByNumber(iter_wait.cur);
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvStopAllWaitFinishBackend wait_commiters for pgprocno %d set getGlobalTransaction from %u to 0\n",
+			proc->pgprocno,
+			proc->getGlobalTransaction)));
 		proc->getGlobalTransaction = InvalidTransactionId;
-		proclist_delete( &SnapRcv->wait_commiters, iter.cur, GxidWaitLink);
+		/* we should not delete the proc from wait_commiters. As backend process will check and re-add it*/
 		SetLatch(&proc->procLatch);
 	}
 	UNLOCK_SNAP_GXID_RCV();
@@ -1053,7 +1061,7 @@ static void SnapRcvDie(int code, Datum arg)
 		walrcv_disconnect(wrconn);
 }
 
-static void isSnapRcvStreamOk(void)
+static void isSnapRcvStreamOk(bool is_dead_wait)
 {
 	uint32	state;
 	bool	is_wait_ok;
@@ -1066,7 +1074,14 @@ static void isSnapRcvStreamOk(void)
 	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snap_receiver_timeout);
 	for(;;)
 	{
-		is_wait_ok = ConditionVariableSleepExt(&SnapRcv->cv, WAIT_EVENT_SAFE_SNAPSHOT, endtime);
+		if (is_dead_wait)
+		{
+			ConditionVariableSleepExt(&SnapRcv->cv, WAIT_EVENT_SAFE_SNAPSHOT, 0);
+			is_wait_ok = true;
+		}
+		else
+			is_wait_ok = ConditionVariableSleepExt(&SnapRcv->cv, WAIT_EVENT_SAFE_SNAPSHOT, endtime);
+
 		if (is_wait_ok == false)
 			ereport(ERROR, (errmsg("cannot connect to GTMCOORD: wait stream timeout")));
 
@@ -1249,6 +1264,9 @@ static void SnapRcvProcessFinishRequest(char *buf, Size len)
 			proc = GetPGProcByNumber(iter.cur);
 			if (proc->pgprocno == procno && proc->getGlobalTransaction == txid)
 			{
+				SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvProcessFinishRequest for pgprocno %d set getGlobalTransaction from %u to 0\n",
+					proc->pgprocno,
+					proc->getGlobalTransaction)));
 				proc->getGlobalTransaction = InvalidTransactionId;
 				SetLatch(&proc->procLatch);
 				//found = true;
@@ -1472,6 +1490,20 @@ static void SnapRcvProcessSnapshot(char *buf, Size len)
 		pg_atomic_write_u32(&SnapRcv->global_xmin, xmin);
 	
 	SnapReleaseSnapshotTxidLocks(&SnapRcv->comm_lock,xid, count, latestCompletedXid);
+
+	if (snap_debug_level >= LOG && i > 0)
+	{
+		int index = 0;
+		StringInfoData msg;
+		initStringInfo(&msg);
+
+		for (index = 0; index < i; index++)
+		{
+			appendStringInfo(&msg, "%u,", xid[index]);
+		}
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvProcessSnapshot xid %s\n", msg.data)));
+		pfree(msg.data);
+	}
 
 	if (xid != NULL)
 		pfree(xid);
@@ -1986,7 +2018,7 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 	}
 
 re_lock_:
-	isSnapRcvStreamOk();
+	isSnapRcvStreamOk(false);
 	LOCK_SNAP_RCV();
 	if (snap->max_xcnt < SnapRcv->xcnt)
 	{
@@ -2191,7 +2223,7 @@ TransactionId SnapRcvGetGlobalTransactionId(bool isSubXact)
 
 RETRY:
 	ProcessSnapRcvInterrupts();
-	isSnapRcvStreamOk();
+	isSnapRcvStreamOk(false);
 	LOCK_SNAP_GXID_RCV();
 	if (SnapRcv->cur_pre_alloc > 0)
 	{
@@ -2257,13 +2289,16 @@ void SnapRcvCommitTransactionId(TransactionId txid, SnapXidFinishOption finish_f
 	/* for stopped state and not rxact flag, we can ignore it directly*/
 	if (state == WALRCV_STOPPED && (finish_flag & SNAP_XID_RXACT) == 0)
 	{
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvCommitTransactionId1 for pgprocno %d set getGlobalTransaction from %u to 0\n",
+					MyProc->pgprocno,
+					txid)));
 		MyProc->getGlobalTransaction = InvalidTransactionId;
 		ereport(WARNING, (errmsg("cannot connect to GTMCOORD, state is stooped. commit xid %d ignore", txid)));
 		return;
 	}
 
 	if (finish_flag & SNAP_XID_RXACT)
-		isSnapRcvStreamOk();
+		isSnapRcvStreamOk(false);
 	state = pg_atomic_read_u32(&SnapRcv->state);
 	if (state != WALRCV_STREAMING)
 	{
@@ -2271,9 +2306,20 @@ void SnapRcvCommitTransactionId(TransactionId txid, SnapXidFinishOption finish_f
 			ereport(ERROR, (errmsg("state %d, rxact cannot connect to GTMCOORD, commit xid %d failed", state, txid)));
 		else
 		{
-			MyProc->getGlobalTransaction = InvalidTransactionId;
-			ereport(WARNING, (errmsg("cannot connect to GTMCOORD, state %d, commit xid %d ignore", state, txid)));
-			return;
+			if (state == WALRCV_STARTING)
+			{
+				/* if we have init sync the txid to GTM, when backend finish this xid, we should wait until to stream OK */
+				isSnapRcvStreamOk(true);
+			}
+			else
+			{
+				SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvCommitTransactionId2 for pgprocno %d set getGlobalTransaction from %u to 0\n",
+						MyProc->pgprocno,
+						txid)));
+				MyProc->getGlobalTransaction = InvalidTransactionId;
+				ereport(WARNING, (errmsg("cannot connect to GTMCOORD, state %d, commit xid %d ignore", state, txid)));
+				return;
+			}
 		}
 	}
 
@@ -2282,6 +2328,9 @@ void SnapRcvCommitTransactionId(TransactionId txid, SnapXidFinishOption finish_f
 	if (!ret && (finish_flag & SNAP_XID_RXACT) == 0)
 	{
 		UNLOCK_SNAP_GXID_RCV();
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvCommitTransactionId3 for pgprocno %d set getGlobalTransaction from %u to 0\n",
+				MyProc->pgprocno,
+				txid)));
 		MyProc->getGlobalTransaction = InvalidTransactionId;
 		ereport(WARNING,(errmsg("xid %d is gone in snaprcv, maybe Snapsender/Snaprecv restart\n", txid)));
 		return;
@@ -2305,12 +2354,18 @@ void SnapRcvCommitTransactionId(TransactionId txid, SnapXidFinishOption finish_f
 		SnapRcvDeleteProcList(&SnapRcv->send_commiters, MyProc->pgprocno);
 		SnapRcvDeleteProcList(&SnapRcv->wait_commiters, MyProc->pgprocno);
 		UNLOCK_SNAP_GXID_RCV();
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvCommitTransactionId4 for pgprocno %d set getGlobalTransaction from %u to 0\n",
+			MyProc->pgprocno,
+			txid)));
 		MyProc->getGlobalTransaction = InvalidTransactionId;
 		ereport(WARNING,(errmsg("SnapRcv wait xid timeout, which version is %d\n", txid)));
 		return;
 	}	
 
 	UNLOCK_SNAP_GXID_RCV();
+	SNAP_SYNC_DEBUG_LOG((errmsg("SnapRcvCommitTransactionId5 for pgprocno %d set getGlobalTransaction from %u to 0\n",
+		MyProc->pgprocno,
+		txid)));
 	MyProc->getGlobalTransaction = InvalidTransactionId;
 
 	return;
