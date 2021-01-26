@@ -240,6 +240,13 @@ BitmapHeapNext(BitmapHeapScanState *node)
 											   tbmres->blockno,
 											   &node->vmbuffer));
 
+#if ADB
+			/* after expand activate, before expand clean, the page maybe visinle,
+			   so it should read the tuple by bitgetpage	
+			 */	
+			if (node->skip_fetch && unlikely(scan->rs_rd->rd_clean))
+				node->skip_fetch = false;
+#endif	
 			if (node->skip_fetch)
 			{
 				/*
