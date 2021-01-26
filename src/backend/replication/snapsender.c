@@ -1158,47 +1158,79 @@ static void SnapSenderDropXidItem(TransactionId xid)
 	SnapSender->xcnt = count;
 }
 
-/* event handlers */
-static void OnLatchSetEvent(WaitEvent *event, time_t* time_last_latch)
+static void SnapSenderTriggerAssingAndFinishList(TransactionId *xid_assign, uint32 local_assign_cnt, TransactionId *xid_finish, uint32 local_finish_cnt)
 {
-	TransactionId			xid_assign[MAX_CNT_SHMEM_XID_BUF];
-	TransactionId			xid_finish[MAX_CNT_SHMEM_XID_BUF];
-	uint32					assign_cnt, finish_cnt;
-	proclist_mutable_iter	proc_iter_assign;
-	proclist_mutable_iter	proc_iter_finish;
 	TransactionId			*assign_array;
 	TransactionId			*finish_array;
+
+	if (assign_xid_list_len > 0 && local_assign_cnt > 0)
+	{
+		assign_array = palloc0(sizeof(TransactionId) * (assign_xid_list_len + local_assign_cnt));
+		memcpy(assign_array, assign_xid_array, sizeof(TransactionId)*assign_xid_list_len);
+		memcpy(assign_array + assign_xid_list_len, xid_assign, sizeof(TransactionId)*local_assign_cnt);
+
+		ProcessShmemXidMsg(assign_array, assign_xid_list_len + local_assign_cnt, 'a');
+		assign_xid_list_len = 0;
+		pfree(assign_array);
+	}
+	else if (assign_xid_list_len > 0)
+	{
+		ProcessShmemXidMsg(assign_xid_array, assign_xid_list_len, 'a');
+		assign_xid_list_len = 0;
+	}
+	else if (local_assign_cnt > 0) /* check assign message */
+		ProcessShmemXidMsg(&xid_assign[0], local_assign_cnt, 'a');
+
+	if (finish_xid_list_len > 0 && local_finish_cnt > 0)
+	{
+		finish_array = palloc0(sizeof(TransactionId) * (finish_xid_list_len + local_finish_cnt));
+		memcpy(finish_array, finish_xid_array, sizeof(TransactionId)*finish_xid_list_len);
+		memcpy(finish_array + finish_xid_list_len, xid_finish, sizeof(TransactionId)*local_finish_cnt);
+
+		ProcessShmemXidMsg(finish_array, finish_xid_list_len + local_finish_cnt, 'c');
+		finish_xid_list_len = 0;
+		pfree(finish_array);
+	}
+	else if (finish_xid_list_len > 0)
+	{
+		ProcessShmemXidMsg(finish_xid_array, finish_xid_list_len, 'c');
+		finish_xid_list_len = 0;
+	}
+	else if (local_finish_cnt > 0) /* check finish transaction */
+		ProcessShmemXidMsg(&xid_finish[0], local_finish_cnt, 'c');
+
+	return;
+}
+
+void SnapSenderGetAllAssingFinishXids(TransactionId *xid_assign, uint32 *assign_cnt, TransactionId *xid_finish, uint32 *finish_cnt, TransactionId *latestCompletedXid)
+{
+	uint32					local_assign_cnt, local_finish_cnt;
+	proclist_mutable_iter	proc_iter_assign;
+	proclist_mutable_iter	proc_iter_finish;
 	PGPROC					*proc;
-	time_t					time_now;
-
-	if (!MyLatch->is_set)
-		return;
-
-	time_now = time(NULL);
-	ResetLatch(&MyProc->procLatch);
 
 	SpinLockAcquire(&SnapSender->mutex);
 	Assert(SnapSender->cur_cnt_assign <= MAX_CNT_SHMEM_XID_BUF);
 	Assert(SnapSender->cur_cnt_complete <= MAX_CNT_SHMEM_XID_BUF);
 
-	assign_cnt = SnapSender->cur_cnt_assign;
-	finish_cnt = SnapSender->cur_cnt_complete;
+	local_assign_cnt = SnapSender->cur_cnt_assign;
+	local_finish_cnt = SnapSender->cur_cnt_complete;
 
 	pg_memory_barrier();
-	if (assign_cnt > 0)
+	if (local_assign_cnt > 0)
 	{
-		memcpy(xid_assign, SnapSender->xid_assign, sizeof(TransactionId)*assign_cnt);
+		memcpy(xid_assign, SnapSender->xid_assign, sizeof(TransactionId)*local_assign_cnt);
 		SnapSender->cur_cnt_assign = 0;
 	}
 
-	if (finish_cnt > 0)
+	if (local_finish_cnt > 0)
 	{
 		int i;
-		memcpy(xid_finish, SnapSender->xid_complete, sizeof(TransactionId)*finish_cnt);
+		memcpy(xid_finish, SnapSender->xid_complete, sizeof(TransactionId)*local_finish_cnt);
 		SnapSender->cur_cnt_complete = 0;
 		if (xid_xact2pc_count > 0)
 		{
-			for (i = 0; i <finish_cnt; i++)
+			for (i = 0; i <local_finish_cnt; i++)
 			{
 				SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, xid_finish[i]);
 			}
@@ -1220,44 +1252,36 @@ static void OnLatchSetEvent(WaitEvent *event, time_t* time_last_latch)
 		proclist_delete(&SnapSender->waiters_complete, proc_iter_finish.cur, GTMWaitLink);
 		SetLatch(&proc->procLatch);
 	}
+
+	if (latestCompletedXid && TransactionIdIsNormal(SnapSender->latestCompletedXid))
+	{
+		if (TransactionIdFollows(SnapSender->latestCompletedXid,
+									*latestCompletedXid))
+				*latestCompletedXid= SnapSender->latestCompletedXid;
+	}
 	SpinLockRelease(&SnapSender->mutex);
 
-	if (assign_xid_list_len > 0 && assign_cnt > 0)
-	{
-		assign_array = palloc0(sizeof(TransactionId) * (assign_xid_list_len + assign_cnt));
-		memcpy(assign_array, assign_xid_array, sizeof(TransactionId)*assign_xid_list_len);
-		memcpy(assign_array + assign_xid_list_len, xid_assign, sizeof(TransactionId)*assign_cnt);
+	*assign_cnt = local_assign_cnt;
+	*finish_cnt = local_finish_cnt;
+	return;
+}
 
-		ProcessShmemXidMsg(assign_array, assign_xid_list_len + assign_cnt, 'a');
-		assign_xid_list_len = 0;
-		pfree(assign_array);
-	}
-	else if (assign_xid_list_len > 0)
-	{
-		ProcessShmemXidMsg(assign_xid_array, assign_xid_list_len, 'a');
-		assign_xid_list_len = 0;
-	}
-	else if (assign_cnt > 0) /* check assign message */
-		ProcessShmemXidMsg(&xid_assign[0], assign_cnt, 'a');
+/* event handlers */
+static void OnLatchSetEvent(WaitEvent *event, time_t* time_last_latch)
+{
+	TransactionId			xid_assign[MAX_CNT_SHMEM_XID_BUF];
+	TransactionId			xid_finish[MAX_CNT_SHMEM_XID_BUF];
+	uint32					assign_cnt, finish_cnt;
+	time_t					time_now;
 
-	if (finish_xid_list_len > 0 && finish_cnt > 0)
-	{
-		finish_array = palloc0(sizeof(TransactionId) * (finish_xid_list_len + finish_cnt));
-		memcpy(finish_array, finish_xid_array, sizeof(TransactionId)*finish_xid_list_len);
-		memcpy(finish_array + finish_xid_list_len, xid_finish, sizeof(TransactionId)*finish_cnt);
+	if (!MyLatch->is_set)
+		return;
 
-		ProcessShmemXidMsg(finish_array, finish_xid_list_len + finish_cnt, 'c');
-		finish_xid_list_len = 0;
-		pfree(finish_array);
-	}
-	else if (finish_xid_list_len > 0)
-	{
-		ProcessShmemXidMsg(finish_xid_array, finish_xid_list_len, 'c');
-		finish_xid_list_len = 0;
-	}
-	else if (finish_cnt > 0) /* check finish transaction */
-		ProcessShmemXidMsg(&xid_finish[0], finish_cnt, 'c');
+	time_now = time(NULL);
+	ResetLatch(&MyProc->procLatch);
 
+	SnapSenderGetAllAssingFinishXids(xid_assign, &assign_cnt, xid_finish, &finish_cnt, NULL);
+	SnapSenderTriggerAssingAndFinishList(xid_assign, assign_cnt, xid_finish, finish_cnt);
 	*time_last_latch = time_now;
 }
 
@@ -1270,6 +1294,7 @@ static void ProcessShmemXidMsg(TransactionId *xids, const uint32 xid_cnt, char m
 	if (xid_cnt <= 0)
 		return;
 
+	resetStringInfo(&output_buffer);
 	/* send TransactionIds to client */
 	output_buffer.cursor = false;	/* use it as bool for flag serialized message */
 
@@ -1299,6 +1324,8 @@ static void ProcessShmemXidMsg(TransactionId *xids, const uint32 xid_cnt, char m
 			output_buffer.cursor = true;
 		}
 
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend rel finsih/assing xids to client %s, client->status %d\n",
+					client->client_name, client->status)));
 		if (AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len) == false)
 		{
 					
@@ -1471,6 +1498,23 @@ static void OnClientMsgEvent(WaitEvent *event, time_t* time_last_latch)
 	}PG_END_TRY();
 }
 
+static bool IsXidAlreadyInInitSyncList(TransactionId xid,TransactionId *xid_array_sync,int xid_sync_num)
+{
+	int index;
+	bool found = false;
+
+	for (index = 0; index < xid_sync_num; index++)
+	{
+		if (xid_array_sync[index] == xid)
+		{
+			found = true;
+			break;
+		}
+	}
+
+	return found;
+}
+
 /* like GetSnapshotData, but serialize all active transaction IDs */
 /* xids get xid from local proc arraty. gs_xip get xid from SnapSender->xid. */
 /* ss_xip get xid from Snapsender->xid_assign, sf_xip get xid from SnapSender->xid_finish. */
@@ -1478,154 +1522,54 @@ void SerializeFullAssignXid(TransactionId *xids, uint32 cnt, TransactionId *gs_x
 							TransactionId *ss_xip, uint32 ss_cnt,
 							TransactionId *sf_xip, uint32 sf_cnt, StringInfo buf)
 {
-	int index,i,xid_num;
+	int index,xid_sync_num;
+	bool found;
 	TransactionId xid;
 	TransactionId *xid_array_sync;
-	bool	skip, add_finish;
 
-	xid_num = 0;
-	xid_array_sync = palloc0(sizeof(TransactionId) * (gs_cnt+ss_cnt+sf_cnt));
-	/* get all Transaction IDs which have assign to the other CN/DN */
+	xid_sync_num = 0;
+	xid_array_sync = palloc0(sizeof(TransactionId) * (cnt+gs_cnt+xid_xact2pc_count));
+
+	/* for gtm local proc array assign xid num,*/
+	for(index=0;index<cnt;++index)
+	{
+		xid = xids[index];
+		pq_sendint32(buf, xid);
+		xid_array_sync[xid_sync_num++] = xid;
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add local proc assing xid %u\n", xid)));
+	}
+
+	/* for SnapSender->xid the xids which have assign to the other CN/DN */
 	for (index = 0; index < gs_cnt; ++index)
 	{
 		xid = gs_xip[index];
-		skip = false;
-		/* if this xid in assign list, we will assgin later, we cannot sync it*/
-		for (i = 0; i < ss_cnt ; i ++)
+		/* continue check init sync xids list*/
+		found = IsXidAlreadyInInitSyncList(xid, xid_array_sync, xid_sync_num);
+		if (!found)
 		{
-			if (xid == ss_xip[i])
-			{
-				skip = true;
-				break;
-			}
-		}
-
-		if (skip)
-			continue;
-		
-		/* continue check assign_xid_array list*/
-		if (!skip)
-		{
-			for (i = 0; i < assign_xid_list_len ; i ++)
-			{
-				if (xid == assign_xid_array[i])
-				{
-					skip = true;
-					break;
-				}
-			}
-
-			if (skip)
-				continue;
-		}
-
-		/* continue check xids list*/
-		if (!skip)
-		{
-			for (i = 0; i < cnt ; i ++)
-			{
-				if (xid == xids[i])
-				{
-					skip = true;
-					break;
-				}
-			}
-
-			if (skip)
-				continue;
-		}
-
-		pq_sendint32(buf, xid);
-		Assert(TransactionIdIsNormal(xid));
-		SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add assign xid %u\n", xid)));
-		xid_array_sync[xid_num++] = xid;
-	}
-
-	/* check SnapSender->xid_finish list*/
-	for (i = 0; i < sf_cnt; ++i)
-	{
-		xid = sf_xip[i];
-		add_finish = true;
-		/* if the xid which exist in xid_finish, but we havn't sync it, we should add sync it */
-		for (index = 0; index < xid_num; index++)
-		{
-			if (xid_array_sync[index] == xid)
-			{
-				skip = true;
-				break;
-			}
-		}
-
-		if (add_finish)
-		{
-			pq_sendint32(buf, xid);
-			Assert(TransactionIdIsNormal(xid));
-			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add Snapsender finish list xid %u\n", xid)));
-			xid_array_sync[xid_num++] = xid;
+			pq_sendint32(buf, gs_xip[index]);
+			xid_array_sync[xid_sync_num++] = xid;
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add SnapSender xids xid %u\n", xid)));
 		}
 	}
 
-	/* check SnapSender local finish xid array list*/
-	for (i = 0; i < finish_xid_list_len; ++i)
+	/* last check xid_xact2pc_array */
+	for (index = 0; index < xid_xact2pc_count; ++index)
 	{
-		xid = finish_xid_array[i];
-		add_finish = true;
-		/* if the xid which exist in xid_finish, but we havn't sync it, we should add sync it */
-		for (index = 0; index < xid_num; index++)
+		xid = xid_xact2pc_array[index];
+		/* continue check init sync xids list*/
+		found = IsXidAlreadyInInitSyncList(xid, xid_array_sync, xid_sync_num);
+		if (!found)
 		{
-			if (xid_array_sync[index] == xid)
-			{
-				skip = true;
-				break;
-			}
-		}
-
-		if (add_finish)
-		{
-			pq_sendint32(buf, xid);
-			Assert(TransactionIdIsNormal(xid));
-			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add Snapsender local finish array xid %u\n", xid)));
-			xid_array_sync[xid_num++] = xid;
-		}
-	}
-
-	for (i = 0; i < xid_xact2pc_count; ++i)
-	{
-		xid = xid_xact2pc_array[i];
-		skip = false;
-		for (index = 0; index < xid_num; index++)
-		{
-			if (xid_array_sync[index] == xid)
-			{
-				skip = true;
-				break;
-			}
-		}
-
-		/* continue check xids list*/
-		if (!skip)
-		{
-			for (index = 0; index < cnt ; index ++)
-			{
-				if (xid == xids[index])
-				{
-					skip = true;
-					break;
-				}
-			}
-
-			if (skip)
-				continue;
-		}
-
-		if (skip == false)
-		{
-			pq_sendint32(buf, xid);
-			Assert(TransactionIdIsNormal(xid));
-			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add xid_xact2pc_array xid %u\n", xid)));
+			pq_sendint32(buf, gs_xip[index]);
+			xid_array_sync[xid_sync_num++] = xid;
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSend init sync add xid_xact2pc xid %u\n", xid)));
 		}
 	}
 	pfree(xid_array_sync);
+
+	/*Before we init Sync all xid to client, we should trigger porcess assign and finish list first*/
+	SnapSenderTriggerAssingAndFinishList(ss_xip,ss_cnt, sf_xip, sf_cnt);
 }
 
 static bool snapsenderGetIsCnConn(SnapClientData *client)
@@ -1743,6 +1687,7 @@ static void SnapSenderProcessAssignGxid(SnapClientData *client)
 		pq_sendint32(&output_buffer, xid);
 
 		SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_ASSIGN, xid);
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderProcessAssignGxid Add assgin xid %u\n", xid)));
 		xid_array[index++] = xid;
 	}
 	SetLatch(&MyProc->procLatch);
@@ -1779,6 +1724,7 @@ static void SnapSenderProcessPreAssignGxidArray(SnapClientData *client)
 		SnapSenderClientAddXid(client, xid);
 
 		SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_ASSIGN, xid);
+		SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderProcessPreAssignGxidArray Add assgin xid %u\n", xid)));
 		pq_sendint32(&output_buffer, xid);
 	}
 
@@ -1841,7 +1787,10 @@ re_lock_:
 		xid = pq_getmsgint(&input_buffer, sizeof(xid));
 
 		if(SnapSenderClientRemoveXid(client, xid))
+		{
 			SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_FINISH, xid);
+			SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderProcessFinishGxid Add finish xid %u\n", xid)));
+		}
 
 		SnapReleaseTransactionLocks(&SnapSender->comm_lock, xid);
 		SnapSenderXidArrayRemoveXid(SNAPSENDER_XID_ARRAY_XACT2P, xid);
@@ -1913,7 +1862,10 @@ SnapSenderDropXidList(SnapClientData *client, const TransactionId *cn_txids, con
 			for (i = 0; i < count; i++)
 			{
 				if(SnapSenderClientRemoveXid(client, xids[i]))
+				{
 					SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_FINISH, xids[i]);
+					SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderDropXidList Add finish xid %u\n", xids[i])));
+				}
 				SnapReleaseTransactionLocks(&SnapSender->comm_lock, xids[i]);
 			}
 		}
@@ -1959,10 +1911,7 @@ SnapSenderDropXidList(SnapClientData *client, const TransactionId *cn_txids, con
 
 		/* can not found in assign list*/
 		if (found == false)
-		{
 			SnapSenderClientAddXid(client, xid);
-			SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_ASSIGN, xid);
-		}
 	}
 
 	if (xids_assign)
@@ -1999,29 +1948,6 @@ re_lock_:
 
 	*cnt_num = assign_len;
 	return assign_xids;
-}
-
-void SnapSenderGetAllAssingFinish(TransactionId	*ss_xid_assgin,uint32 *ss_cnt_assign,
-				TransactionId	*ss_xid_finish, uint32 *ss_cnt_finish, TransactionId *latestCompletedXid)
-{
-	SpinLockAcquire(&SnapSender->mutex);
-	pg_memory_barrier();
-	*ss_cnt_assign = SnapSender->cur_cnt_assign;
-	*ss_cnt_finish = SnapSender->cur_cnt_complete;
-	if (*ss_cnt_assign > 0)
-		memcpy(ss_xid_assgin, SnapSender->xid_assign, sizeof(TransactionId) * (SnapSender->cur_cnt_assign));
-	
-	if (*ss_cnt_finish > 0)
-		memcpy(ss_xid_finish, SnapSender->xid_complete, sizeof(TransactionId) * (SnapSender->cur_cnt_complete));
-
-	if (TransactionIdIsNormal(SnapSender->latestCompletedXid))
-	{
-		if (TransactionIdFollows(SnapSender->latestCompletedXid,
-									*latestCompletedXid))
-				*latestCompletedXid= SnapSender->latestCompletedXid;
-	}
-	
-	SpinLockRelease(&SnapSender->mutex);
 }
 
 static void SnapSenderProcessInitSyncRequest(SnapClientData *client, char* xid_list_str)
@@ -2116,7 +2042,7 @@ static void SnapSenderProcessInitSyncRequest(SnapClientData *client, char* xid_l
 				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderProcessInitSyncRequest real Add 2pc  id %u\n",
 							xid_2pc_array[i])));
 				SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_ASSIGN, xid_2pc_array[i]);
-				
+				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderProcessInitSyncRequest Add 2pc assign xid %u\n", xid_2pc_array[i])));
 			}
 		}
 
@@ -2138,6 +2064,7 @@ static void SnapSenderProcessInitSyncRequest(SnapClientData *client, char* xid_l
 				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderProcessInitSyncRequest real Add rxact/local_assing  id %u\n",
 							cn_txids[i])));
 				SnapSenderXidArrayAddXid(SNAPSENDER_XID_ARRAY_ASSIGN, cn_txids[i]);
+				SNAP_SYNC_DEBUG_LOG((errmsg("SnapSenderProcessInitSyncRequest Add rxact/local_assing assign xid %u\n", cn_txids[i])));
 			}
 		}
 		SpinLockRelease(&SnapSender->gxid_mutex);
@@ -2177,13 +2104,16 @@ static void SnapSenderCheckOldClientList(SnapClientData *client)
 static void SnapSenderSendInitSnapShot(SnapClientData *client)
 {
 	/* send snapshot */
-	resetStringInfo(&output_buffer);
-	appendStringInfoChar(&output_buffer, 's');
-	pq_sendint32(&output_buffer, snapsenderGetSenderGlobalXmin());
+	static StringInfoData	iss_buffer;
 
-	SerializeActiveTransactionIds(&output_buffer);
+	initStringInfo(&iss_buffer);
+	appendStringInfoChar(&iss_buffer, 's');
+	pq_sendint32(&iss_buffer, snapsenderGetSenderGlobalXmin());
 
-	AppendMsgToClient(client, 'd', output_buffer.data, output_buffer.len);
+	SerializeActiveTransactionIds(&iss_buffer);
+
+	AppendMsgToClient(client, 'd', iss_buffer.data, iss_buffer.len);
+	pfree(iss_buffer.data);
 }
 
 static void WakeAllCnClientStream(void)
@@ -2247,8 +2177,8 @@ static void OnClientRecvMsg(SnapClientData *client, pq_comm_node *node, time_t* 
 			ret_ssc = sscanf(input_buffer.data, "%*s %*s \"%[^\" ]\" %*s %*s %*s \'%[^\']\', %*s \'%[^\']\')",
 							client->client_name, next_id_str, xid_string_list);
 			next_id = pg_strtouint64(next_id_str, NULL, 10);
-			SNAP_SYNC_DEBUG_LOG((errmsg("ret_ssc %d, client->client_name %s, next_id_str %s,next_id %u, xid_string_list %s， client->cur_cnt %u\n", 
-						ret_ssc, client->client_name, next_id_str, next_id, xid_string_list, client->cur_cnt)));
+			SNAP_SYNC_DEBUG_LOG((errmsg("ret_ssc %d, client->client_name %s,client->status %d, next_id_str %s,next_id %u, xid_string_list %s， client->cur_cnt %u\n", 
+						ret_ssc, client->client_name, client->status, next_id_str, next_id, xid_string_list, client->cur_cnt)));
 			if (ret_ssc > 0)
 			{
 				is_cn = snapsenderGetIsCnConn(client);

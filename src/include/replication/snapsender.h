@@ -27,6 +27,6 @@ extern void SerializeFullAssignXid(TransactionId *xids, uint32 cnt, TransactionI
 							TransactionId *sf_xip, uint32 sf_cnt, StringInfo buf);
 extern TransactionId *SnapSenderGetAllXip(uint32 *cnt_num);
 
-extern void SnapSenderGetAllAssingFinish(TransactionId	*ss_xid_assgin,uint32 *ss_cnt_assign,
+extern void SnapSenderGetAllAssingFinishXids(TransactionId	*ss_xid_assgin,uint32 *ss_cnt_assign,
 				TransactionId	*ss_xid_finish, uint32 *ss_cnt_finish, TransactionId *latestCompletedXid);
 #endif /* SNAP_SENDER_H_ */
