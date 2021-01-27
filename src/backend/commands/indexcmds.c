@@ -1042,6 +1042,16 @@ DefineIndex(Oid relationId,
 				}
 			}
 
+#ifdef ADB_GRAM_ORA
+			/**
+			 * If relation is a child table of a partitioned table
+			 * and also a parent table of another partitioned child table,
+			 * the check is skipped.
+			 */
+			if (stmt->grammar == PARSE_GRAM_ORACLE &&
+				rel->rd_rel->relispartition)
+				continue;
+#endif	/* ADB_GRAM_ORA */
 			if (!found)
 			{
 				Form_pg_attribute att;
