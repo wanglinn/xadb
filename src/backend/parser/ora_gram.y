@@ -1660,6 +1660,16 @@ AlterTableStmt:
 					n->missing_ok = true;
 					$$ = (Node *)n;
 				}
+			| ALTER TABLE relation_expr ADD_P ora_part_child
+				{
+					CreateStmt *n = (CreateStmt *)$5;
+					RangeVar   *part_rel = n->relation;
+
+					n->inhRelations = list_make1($3);
+					n->relation = part_rel;
+
+					$$ = $5;
+				}
 			/* ALTER TABLE <table_name> DROP PARTITION sub_table_name */
 			|	ALTER TABLE relation_expr DROP_PARTITION any_name_list
 				{
