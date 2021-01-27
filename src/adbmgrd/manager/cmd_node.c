@@ -341,7 +341,6 @@ static void MgrInitStartChildNodes(MemoryContext spiContext, MgrNodeWrapper *mgr
 static bool MgrInitStartNodeFunc(NameData *nodeName, char nodeType);
 static void mgr_update_all_cn_pgxcnode_readonlysql(InitNodeInfo	*info, List	*datanode_list, List *sync_parms);
 static void mgr_get_init_parm(List *options, InitAllParmInfo *parmInfo);
-static void mgr_set_standby_to_off(MgrNodeWrapper *mgrNode);
 
 #if (Natts_mgr_node != 12)
 #error "need change code"
@@ -7352,12 +7351,7 @@ void mgr_add_parameters_pgsqlconf(Oid tupleOid, char nodetype, int cndnport, Str
 		mgr_get_gtm_host_snapsender_gxidsender_port(infosendparamsg);
 	}
 }
-void mgr_reset_master_config(MgrNodeWrapper *mgrNode)
-{
-	mgr_set_standby_to_off(mgrNode);
 
-	callAgentRestartNode(mgrNode, SHUTDOWN_F, true);
-}
 /*
 * the parameters which need refresh for recovery.conf
 */
@@ -16047,31 +16041,4 @@ check_node_is_active(Form_mgr_node mgr_node)
 	pfree(connStr.data);
 	PQfinish(conn);
 	return active;
-}
-static void 
-mgr_set_standby_to_off(MgrNodeWrapper *mgrNode)
-{
-	StringInfoData infosendmsg;
-	GetAgentCmdRst getAgentCmdRst;
-
-	initStringInfo(&infosendmsg);
-	initStringInfo(&(getAgentCmdRst.description));
-
-	if (isMasterNode(mgrNode->form.nodetype, true))
-	{
-		mgr_append_pgconf_paras_str_str("hot_standby", "off", &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, mgrNode->nodepath, &infosendmsg
-			, mgrNode->host->oid, &getAgentCmdRst);
-		if (!getAgentCmdRst.ret)
-		{
-			MgrFree(infosendmsg.data);
-			MgrFree(getAgentCmdRst.description.data);
-
-			ereport(ERROR, (errmsg("set hot_standby to off at node %s fail, description(%s)."
-				, NameStr(mgrNode->form.nodename), getAgentCmdRst.description.data)));
-		}
-	}
-
-	MgrFree(infosendmsg.data);
-	MgrFree(getAgentCmdRst.description.data);
 }

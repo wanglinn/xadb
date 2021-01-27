@@ -96,7 +96,6 @@ static void MgrInitChildNodes(MemoryContext spiContext,
 static int MgrGetNotActiveCount(MemoryContext spiContext, 
 								char *zone);
 static void MgrAddHbaToNodes(MemoryContext spiContext);
-static void MgrResetAllMasterConfig(ZoneOverGtm *zoGtm, dlist_head 	*zoDNList);
 
 Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 {
@@ -199,11 +198,10 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 		ereport(ERROR, (errmsg(" ZONE FAILOVER %s failed.", currentZone)));
 	}PG_END_TRY();
 
+	callAgentRestartNode(zoGtm.holdLockCoordinator->mgrNode, SHUTDOWN_F, true);
+
 	if (zoGtm.holdLockCoordinator != NULL)
 		RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);
-
-	MgrResetAllMasterConfig(&zoGtm, &zoDNList);
-
 	ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
 
 	MgrCheckAllSlaveNum(spiContext, currentZone);
@@ -322,8 +320,6 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 	if (zoGtm.holdLockCoordinator != NULL)	
 		RefreshGtmAdbCheckSyncNextid(zoGtm.holdLockCoordinator->mgrNode, ADB_CHECK_SYNC_NEXTID_ON);
 	
-	MgrResetAllMasterConfig(&zoGtm, &zoDNList);
-
 	ZoneSwitchoverFree(&zoGtm, &zoCoordList, &zoDNList);
 
 	MgrCheckAllSlaveNum(spiContext, currentZone);
@@ -1077,27 +1073,6 @@ static void MgrAddHbaToNodes(MemoryContext spiContext)
 			/*execute pgxc_ctl reload to take effect for the new value in the pg_hba.conf  */
 			mgr_reload_conf(nodeinfo.nodehost, nodeinfo.nodepath);
 		}
-	}
-}
-static void
-MgrResetAllMasterConfig(ZoneOverGtm *zoGtm, dlist_head 	*zoDNList)
-{
-	SwitcherNodeWrapper *node;
-	dlist_iter 			iter;
-	ZoneOverDNWrapper   *ZoneOverDN = NULL;
-
-	dlist_foreach(iter, &zoGtm->coordinators)
-	{
-		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
-		Assert(node);
-		mgr_reset_master_config(node->mgrNode);
-	}
-
-	dlist_foreach(iter, zoDNList)
-	{
-		ZoneOverDN = dlist_container(ZoneOverDNWrapper, link, iter.cur);
-		Assert(ZoneOverDN);
-		mgr_reset_master_config(ZoneOverDN->zoDN->newMaster->mgrNode);
 	}
 }
 
