@@ -75,6 +75,9 @@
 #include "lib/ilist.h"
 #endif
 #include "parser/parser.h"
+#ifdef ADB_GRAM_ORA
+#include "partitioning/partbounds.h"
+#endif	/* ADB_GRAM_ORA */
 #include "rewrite/rewriteManip.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
@@ -178,7 +181,9 @@ static void validateInfiniteBounds(ParseState *pstate, List *blist);
 static Const *transformPartitionBoundValue(ParseState *pstate, Node *con,
 										   const char *colName, Oid colType, int32 colTypmod,
 										   Oid partCollation);
-
+#ifdef ADB_GRAM_ORA
+extern List *find_inheritance_children(Oid parentrelId, LOCKMODE lockmode);
+#endif	/* ADB_GRAM_ORA */
 #ifdef ADB
 static void SplitUserGroup(char *default_user_group, dlist_head *userGroupList);
 static void PFreeUserGroupWrapperList(dlist_head *nodes);
@@ -4295,9 +4300,28 @@ transformPartitionBoundForKey(ParseState *pstate, Relation parent,
 					 parser_errposition(pstate, exprLocation((Node *) spec))));
 
 		if (spec->modulus <= 0)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-					 errmsg("modulus for hash partition must be a positive integer")));
+#ifdef ADB_GRAM_ORA
+		{
+			if (pstate->p_grammar != PARSE_GRAM_ORACLE)
+#endif	/* ADB_GRAM_ORA */
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+						 errmsg("modulus for hash partition must be a positive integer")));
+#ifdef ADB_GRAM_ORA
+			else
+			{
+				List	   *currentchildren = NIL;
+				int			n;
+
+				currentchildren = find_inheritance_children(RelationGetRelid(parent), NoLock);
+				n = list_length(currentchildren);
+				/* Add the default value of hash partition*/
+				result_spec->modulus = spec->modulus = n + 1;
+				result_spec->remainder = spec->remainder = n;
+				list_free(currentchildren);
+			}
+		}
+#endif	/* ADB_GRAM_ORA */
 
 		Assert(spec->remainder >= 0);
 
@@ -4367,6 +4391,9 @@ transformPartitionBoundForKey(ParseState *pstate, Relation parent,
 	}
 	else if (strategy == PARTITION_STRATEGY_RANGE)
 	{
+#ifdef ADB_GRAM_ORA
+		List	*max_upperdatums = NIL;
+#endif	/* ADB_GRAM_ORA */
 		if (spec->strategy != PARTITION_STRATEGY_RANGE)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
@@ -4374,9 +4401,25 @@ transformPartitionBoundForKey(ParseState *pstate, Relation parent,
 					 parser_errposition(pstate, exprLocation((Node *) spec))));
 
 		if (list_length(spec->lowerdatums) != partnatts)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-					 errmsg("FROM must specify exactly one value per partitioning column")));
+#ifdef ADB_GRAM_ORA
+		{
+			List		   *currentchildren;
+
+			currentchildren = find_inheritance_children(RelationGetRelid(parent), NoLock);
+			if (currentchildren == NIL || list_length(spec->lowerdatums) != 0)
+#endif	/* ADB_GRAM_ORA */
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+						errmsg("FROM must specify exactly one value per partitioning column")));
+				
+#ifdef ADB_GRAM_ORA
+			/* gets the maximum partition boundary value. */
+			if (pstate->p_grammar == PARSE_GRAM_ORACLE)
+			{
+				max_upperdatums = get_partition_bound_max_value(pstate, parent, spec, currentchildren);
+			}
+		}
+#endif	/* ADB_GRAM_ORA */
 		if (list_length(spec->upperdatums) != partnatts)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
@@ -4386,6 +4429,16 @@ transformPartitionBoundForKey(ParseState *pstate, Relation parent,
 		 * Convert raw parse nodes into PartitionRangeDatum nodes and perform
 		 * any necessary validation.
 		 */
+#ifdef ADB_GRAM_ORA
+		if (pstate->p_grammar == PARSE_GRAM_ORACLE &&
+			spec->lowerdatums == NIL &&
+			max_upperdatums != NIL)
+		{
+			/* Add the default lower limit of range partition */
+			result_spec->lowerdatums = max_upperdatums;
+		}
+		else
+#endif	/* ADB_GRAM_ORA */
 		result_spec->lowerdatums =
 			transformPartitionRangeBounds(pstate, spec->lowerdatums,
 										  parent ADB_ONLY_COMMA_ARG(RelationGetPartitionKey(parent)));

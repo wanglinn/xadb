@@ -14,6 +14,9 @@
 #include "fmgr.h"
 #include "nodes/parsenodes.h"
 #include "nodes/pg_list.h"
+#ifdef ADB_GRAM_ORA
+#include "parser/parse_node.h"
+#endif	/* ADB_GRAM_ORA */
 #include "partitioning/partdefs.h"
 #include "utils/relcache.h"
 struct RelOptInfo;				/* avoid including pathnodes.h here */
@@ -117,5 +120,10 @@ extern int	partition_range_datum_bsearch(FmgrInfo *partsupfunc,
 										  int nvalues, Datum *values, bool *is_equal);
 extern int	partition_hash_bsearch(PartitionBoundInfo boundinfo,
 								   int modulus, int remainder);
-
+#ifdef ADB_GRAM_ORA
+extern List *get_partition_bound_max_value(ParseState *pstate,
+										   Relation parent,
+										   PartitionBoundSpec *spec,
+										   List *currentchildren);
+#endif	/* ADB_GRAM_ORA */
 #endif							/* PARTBOUNDS_H */

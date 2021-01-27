@@ -4871,3 +4871,89 @@ satisfies_hash_partition(PG_FUNCTION_ARGS)
 
 	PG_RETURN_BOOL(rowHash % modulus == remainder);
 }
+
+#ifdef ADB_GRAM_ORA
+List *get_partition_bound_max_value(ParseState *pstate, Relation parent, PartitionBoundSpec *spec, List *currentchildren)
+{
+	List	   *pbspec_list = NIL;
+	ListCell   *lc;
+	Oid			inhrelid;
+	HeapTuple	tuple;
+	Datum		datum;
+	bool		isnull;
+	int32		cmpval;		/* placate compiler */
+	int			i, j;
+	PartitionKey			key;
+	PartitionBoundSpec	   *bspec,
+							*larger_spec;
+	PartitionRangeBound	   *upper,
+							*larger_bound;
+
+	Assert(spec->lowerdatums == NIL);
+	foreach (lc, currentchildren)
+	{
+		cmpval = 0;
+		inhrelid = lfirst_oid(lc);
+		tuple = SearchSysCache1(RELOID, inhrelid);
+		if (!HeapTupleIsValid(tuple))
+			elog(ERROR, "cache lookup failed for relation %u", inhrelid);
+
+		datum = SysCacheGetAttr(RELOID, tuple,
+						Anum_pg_class_relpartbound,
+						&isnull);
+
+		if (isnull)
+			elog(ERROR, "null relpartbound for relation %u", inhrelid);
+
+		bspec = (PartitionBoundSpec *)
+			stringToNode(TextDatumGetCString(datum));
+		if (!IsA(bspec, PartitionBoundSpec))
+			elog(ERROR, "expected PartitionBoundSpec");
+		
+		if (bspec->strategy != PARTITION_STRATEGY_RANGE)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+						errmsg("invalid bound specification for a range partition"),
+						parser_errposition(pstate, exprLocation((Node *) spec))));
+
+
+
+		pbspec_list = lappend(pbspec_list, copyObjectImpl((void *) bspec));
+		ReleaseSysCache(tuple);
+	}
+	list_free(currentchildren);
+
+	Assert(pbspec_list != NIL);
+
+	lc = list_head(pbspec_list);
+	larger_spec = bspec = (PartitionBoundSpec *) lfirst(lc);
+	key = RelationGetPartitionKey(parent);
+	larger_bound = make_one_partition_rbound(key, -1, bspec->upperdatums, false);
+
+	for (i = 0; i < list_length(pbspec_list) - 1; i++)
+	{
+		lc = lnext(pbspec_list, lc);
+		bspec = (PartitionBoundSpec *) lfirst(lc);
+		upper = make_one_partition_rbound(key, -1, bspec->upperdatums, false);
+
+		for (j = 0; j < key->partnatts; j++)
+		{
+			cmpval = DatumGetInt32(FunctionCall2Coll(&key->partsupfunc[j],
+														key->partcollation[j],
+														larger_bound->datums[j],
+														upper->datums[j]));
+			if (cmpval == 0)
+				continue;
+			else if (cmpval < 0)
+			{
+				larger_bound = upper;
+				larger_spec = bspec;
+			}
+			break;
+		}
+	}
+	list_free(pbspec_list);
+
+	return (List *)copyObjectImpl((void *)larger_spec->upperdatums);
+}
+#endif	/* ADB_GRAM_ORA */
