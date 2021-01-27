@@ -76,7 +76,8 @@ union YYSTYPE;					/* need forward reference for tok_is_keyword */
 
 typedef struct OraclePartitionSpec
 {
-	PartitionSpec	   *partitionSpec;
+	PartitionSpec	   *partitionSpec;		/* PARTITION BY clause*/
+	PartitionSpec	   *subpartitionSpec;	/* SUBPARTITION BY clause*/
 	List			   *children;		/* list of CreateStmt */
 }OraclePartitionSpec;
 
@@ -272,7 +273,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	transaction_mode_list /*transaction_mode_list_or_empty*/ trim_list
 	var_list within_group_clause package_declare_list package_body_list
 
-%type <list>	group_by_list prep_type_clause execute_param_clause
+%type <list>	group_by_list prep_type_clause execute_param_clause 
 %type <node>	group_by_item rollup_clause empty_grouping_set cube_clause grouping_sets_clause
 
 %type <node>
@@ -349,15 +350,15 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %type <partelem>	part_elem
 %type <list>		part_params
 %type <partboundspec> ForValues
-%type <list>		ora_part_child_list range_datum_list
-%type <node>		ora_part_child PartitionRangeDatum
+%type <list>		ora_part_child_list ora_subpart_child_list range_datum_list SubPartitionTemplate
+%type <node>		ora_part_child ora_subpart_child PartitionRangeDatum
 %type <connectby>	opt_connect_by_clause connect_by_clause
 %type <select_order_by> opt_select_sort_clause select_sort_clause
 %type <keep>		keep_clause
 
 /* ADB_BEGIN */
 %type <defelt>	SubClusterNodeElem
-%type <partspec>	OptDistributeBy OptDistributeByInternal
+%type <partspec>	OptDistributeBy OptDistributeByInternal SubPartitionSpec
 %type <list>	pgxcnodes pgxcnode_list SubClusterNodeList
 %type <str>		pgxcgroup_name pgxcnode_name
 %type <subclus> OptSubCluster OptSubClusterInternal
@@ -409,7 +410,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	REFERENCES REPLICA RULE RELATIVE_P RELEASE RESULT_CACHE
 	SCHEMA SECOND_P SELECT SERIALIZABLE SERVER SESSION SESSIONTIMEZONE SET SETS SHARE SHOW SIBLINGS SIZE SEARCH
 	SMALLINT SIMPLE SETOF STATISTICS SAVEPOINT SEQUENCE SYSID SOME SCROLL
-	SNAPSHOT SPECIAL START STORAGE SUBSCRIPTION SUCCESSFUL SYNONYM SYSDATE SYSTIMESTAMP
+	SNAPSHOT SPECIAL START STORAGE SUBPARTITION SUBSCRIPTION SUCCESSFUL SYNONYM SYSDATE SYSTIMESTAMP
 	TABLE TEMP TEMPLATE TEMPORARY THAN THEN TIME TIMESTAMP TO TRAILING
 	TRANSACTION TRANSFORM TREAT TRIM TRUNCATE TRIGGER TRUE_P TABLESPACE
 	TYPE_P TEXT_P
@@ -424,7 +425,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 /*
  * same specific token
  */
-%token	ORACLE_JOIN_OP CONNECT_BY CONNECT_BY_NOCYCLE NULLS_LA DROP_PARTITION LIMIT_LA
+%token	ORACLE_JOIN_OP CONNECT_BY CONNECT_BY_NOCYCLE NULLS_LA DROP_PARTITION LIMIT_LA SUBPARTITION_TEMPLATE
 
 /* Precedence: lowest to highest */
 %right	RETURN_P RETURNING PRIMARY
@@ -4333,18 +4334,21 @@ OptPartitionSpecNotEmpty:
 				{
 					$$ = $1;
 				}
-			| PartitionSpec '(' ora_part_child_list ')'
+			| PartitionSpec SubPartitionTemplate '(' ora_part_child_list ')'
 				{
+					int			part_count, i;
+					int			subpart_count, j;
+					ListCell	*cell;
+					ListCell	*sub_cell;
+					CreateStmt	*stmt;
+					CreateStmt	*sub_stmt;
+
 					if (strcmp($1->partitionSpec->strategy, "hash") == 0)
 					{
-						int			part_count, i;
-						ListCell	*cell;
-						CreateStmt	*stmt;
-
-						part_count = list_length($3);
+						part_count = list_length($4);
 						if (part_count > 0)
 						{
-							cell = list_head($3);
+							cell = list_head($4);
 							for (i = 0; i < part_count; i++)
 							{
 								if (cell && nodeTag(lfirst(cell)) != T_CreateStmt)
@@ -4360,12 +4364,81 @@ OptPartitionSpecNotEmpty:
 						}
 					}
 
+					/* Update sub partition information of sub table. */
+					part_count = list_length($4);
+					if ($1->subpartitionSpec != NULL &&
+						part_count > 0)
+					{
+						cell = list_head($4);
+						for (i = 0; i < part_count; i++)
+						{
+							if (cell && nodeTag(lfirst(cell)) != T_CreateStmt)
+								elog(ERROR, "Unknown hash partition table creation clause.");
+
+							stmt = (CreateStmt*) lfirst(cell);
+							subpart_count = list_length(stmt->child_rels);
+
+							if (subpart_count > 0)
+							{
+								sub_cell = list_head(stmt->child_rels);
+								for (j = 0; j < subpart_count; j++)
+								{
+									if (sub_cell && nodeTag(lfirst(sub_cell)) != T_CreateStmt)
+										elog(ERROR, "Unknown hash partition table creation clause.");
+
+									sub_stmt = (CreateStmt*) lfirst(sub_cell);
+									if (strcmp($1->subpartitionSpec->strategy, "hash") == 0)
+									{
+										Assert (sub_stmt->partbound->strategy = PARTITION_STRATEGY_HASH);
+										sub_stmt->partbound->modulus = subpart_count;
+										sub_stmt->partbound->remainder = j;
+									}
+
+									sub_cell = lnext(sub_cell);
+								}
+								stmt->partspec = $1->subpartitionSpec;
+							}
+							else if (list_length($2) > 0)
+							{
+								List	*template;
+								char	*new_subpart_relname = NULL;
+
+								template = copyObjectImpl((void *) $2);
+								subpart_count = list_length(template);
+								
+								sub_cell = list_head(template);
+								for (j = 0; j < subpart_count; j++)
+								{
+									if (sub_cell && nodeTag(lfirst(sub_cell)) != T_CreateStmt)
+										elog(ERROR, "Unknown hash partition table creation clause.");
+
+									sub_stmt = (CreateStmt*) lfirst(sub_cell);
+									if (strcmp($1->subpartitionSpec->strategy, "hash") == 0)
+									{
+										Assert (sub_stmt->partbound->strategy = PARTITION_STRATEGY_HASH);
+										sub_stmt->partbound->modulus = subpart_count;
+										sub_stmt->partbound->remainder = j;
+									}
+									new_subpart_relname = psprintf("%s_%s", stmt->relation->relname, sub_stmt->relation->relname);
+									pfree(sub_stmt->relation->relname);
+									sub_stmt->relation->relname = new_subpart_relname;
+									sub_cell = lnext(sub_cell);
+								}
+								stmt->child_rels = template;
+								stmt->partspec = $1->subpartitionSpec;
+							}
+
+							cell = lnext(cell);
+						}
+
+					}
+
 					$$ =  $1;
-					$$->children = $3;
+					$$->children = $4;
 				}
 		;
 
-PartitionSpec: PARTITION BY part_strategy '(' part_params ')'
+PartitionSpec: PARTITION BY part_strategy '(' part_params ')' SubPartitionSpec
 				{
 					PartitionSpec *n = makeNode(PartitionSpec);
 
@@ -4375,8 +4448,28 @@ PartitionSpec: PARTITION BY part_strategy '(' part_params ')'
 
 					$$ = palloc0(sizeof(OraclePartitionSpec));
 					$$->partitionSpec = n;
+
+					if ($7)
+						$$->subpartitionSpec = $7;
 				}
 		;
+
+SubPartitionSpec: 
+			SUBPARTITION BY part_strategy '(' part_params ')'
+				{
+					PartitionSpec *n = makeNode(PartitionSpec);
+
+					n->strategy = $3;
+					n->partParams = $5;
+					n->location = @1;
+
+					$$ = n;
+				}
+			| /*EMPTY*/
+				{
+					$$ = NULL;
+				}
+			;
 
 part_strategy:	IDENT					{ $$ = $1; }
 				| unreserved_keyword	{ $$ = pstrdup($1); }
@@ -4428,6 +4521,50 @@ ora_part_child_list:
 
 ora_part_child:
 		PARTITION qualified_name ForValues OptWith OnCommitOption OptTableSpace
+			{
+				CreateStmt *n = makeNode(CreateStmt);
+				n->grammar = PARSE_GRAM_ORACLE;
+				n->relation = $2;
+				n->partbound = $3;
+				n->options = $4;
+				n->oncommit = $5;
+				n->tablespacename = $6;
+
+				$$ = (Node*)n;
+			}
+		| PARTITION qualified_name ForValues OptWith OnCommitOption OptTableSpace '(' ora_subpart_child_list ')'
+			{
+				CreateStmt *n = makeNode(CreateStmt);
+				n->grammar = PARSE_GRAM_ORACLE;
+				n->relation = $2;
+				n->partbound = $3;
+				n->options = $4;
+				n->oncommit = $5;
+				n->tablespacename = $6;
+				n->child_rels = $8;
+
+				$$ = (Node*)n;
+			}
+		;
+
+SubPartitionTemplate:
+			SUBPARTITION_TEMPLATE '(' ora_subpart_child_list ')'
+				{
+					$$ = $3;
+				}
+			|  /*EMPTY*/
+				{
+					$$ = NULL;
+				}
+			;
+
+ora_subpart_child_list:
+		  ora_subpart_child								{ $$ = list_make1($1); }
+		| ora_subpart_child_list ',' ora_subpart_child	{ $$ = lappend($1, $3); }
+		;
+
+ora_subpart_child:
+		SUBPARTITION qualified_name ForValues OptWith OnCommitOption OptTableSpace
 			{
 				CreateStmt *n = makeNode(CreateStmt);
 				n->grammar = PARSE_GRAM_ORACLE;
@@ -9075,6 +9212,7 @@ unreserved_keyword:
 	| SNAPSHOT
 	| SPECIAL
 	| STORAGE
+	| SUBPARTITION
 	| SUBSCRIPTION
 	| TEMP
 	| TEMPLATE
@@ -9453,6 +9591,16 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 			cur_token = LIMIT;
 		}
 		PUSH_LOOKAHEAD(&look1);
+		break;
+	case SUBPARTITION:
+		LEX_LOOKAHEAD(&look1);
+		if (look1.token == TEMPLATE)
+		{
+			cur_token = SUBPARTITION_TEMPLATE;
+		}else
+		{
+			PUSH_LOOKAHEAD(&look1);
+		}
 		break;
 	case ';':
 		yyextra->parsing_first_token = true;

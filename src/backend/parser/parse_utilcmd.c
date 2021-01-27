@@ -550,6 +550,20 @@ transformCreateStmt(CreateStmt *stmt, const char *queryString ADB_ONLY_COMMA_ARG
 	 */
 	transformIndexConstraints(&cxt);
 
+#ifdef ADB_MULTI_GRAM
+	/* marke grammar */
+	if (stmt->grammar != PARSE_GRAM_POSTGRES &&
+		cxt.alist != NIL)
+	{
+		ListCell	*lc;
+		foreach(lc, cxt.alist)
+		{
+			IndexStmt  *index = lfirst(lc);
+			index->grammar = stmt->grammar;
+		}
+	}
+#endif	/* ADB_MULTI_GRAM */
+
 	/*
 	 * Postprocess foreign-key constraints.
 	 */
