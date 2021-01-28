@@ -613,6 +613,8 @@ int pingNode_user(char *host_addr, char *node_port, char *node_user)
 	tuple = heap_getnext(rel_scan, ForwardScanDirection);
 	if (!HeapTupleIsValid(tuple))
 	{
+		table_endscan(rel_scan);
+		table_close(rel, AccessShareLock);
 		ereport(ERROR, (errmsg("host\"%s\" does not exist in the host table", host_addr)));
 	}
 	mgr_host = (Form_mgr_host)GETSTRUCT(tuple);
@@ -638,6 +640,8 @@ int pingNode_user(char *host_addr, char *node_port, char *node_user)
 	tuple = heap_getnext(rel_scan, ForwardScanDirection);
 	if (!HeapTupleIsValid(tuple))
 	{
+		table_endscan(rel_scan);
+		table_close(rel, AccessShareLock);
 		ereport(ERROR, (errmsg("port \"%s\" does not exist in the node table", node_port)));
 	}
 	nodepath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(rel), &isnull);
