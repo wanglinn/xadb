@@ -1610,13 +1610,15 @@ static void snapsenderProcessNextXid(SnapClientData *client, TransactionId txid)
 				if (current_count == 0)
 				{
 					SNAP_SYNC_DEBUG_LOG((errmsg("snapsenderProcessNextXid DN SnapSender->state dn_conn_state to Ok\n")));
-					pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
 					pg_atomic_write_u32(&SnapSender->dn_conn_state, SNAPSENDER_ALL_DNMASTER_CONN_OK);
-					ConditionVariableBroadcast(&SnapSender->cv);
-					ConditionVariableBroadcast(&SnapSender->cv_dn_con);
-					WakeAllCnClientStream();
+					if (pg_atomic_read_u32(&SnapSender->state) == SNAPSENDER_STATE_OK)
+					{
+						SNAP_SYNC_DEBUG_LOG((errmsg("wakeup all waite CN and backend1.\n")));
+						ConditionVariableBroadcast(&SnapSender->cv_dn_con);
+						ConditionVariableBroadcast(&SnapSender->cv);
+						WakeAllCnClientStream();
+					}
 				}
-
 				break;
 			}
 		}
@@ -1636,7 +1638,13 @@ static void snapsenderProcessNextXid(SnapClientData *client, TransactionId txid)
 				{
 					SNAP_SYNC_DEBUG_LOG((errmsg("snapsenderProcessNextXid CN SnapSender->state to Ok\n")));
 					pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
-					ConditionVariableBroadcast(&SnapSender->cv);
+					if (pg_atomic_read_u32(&SnapSender->dn_conn_state) == SNAPSENDER_ALL_DNMASTER_CONN_OK)
+					{
+						SNAP_SYNC_DEBUG_LOG((errmsg("wakeup all waite CN and backend2.\n")));
+						ConditionVariableBroadcast(&SnapSender->cv_dn_con);
+						ConditionVariableBroadcast(&SnapSender->cv);
+						WakeAllCnClientStream();
+					}
 				}
 				break;
 			}
