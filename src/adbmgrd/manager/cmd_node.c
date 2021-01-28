@@ -14078,9 +14078,12 @@ bool get_local_ip(Name local_ip)
 			ma_close(ma);
 			break;
 		}
+		ma_close(ma);
 	}
 	if(!(HeapTupleIsValid(tuple)))
 	{
+		heap_endscan(rel_scan);
+		heap_close(rel, AccessShareLock);
 		return false;
 	}
 	mgr_host = (Form_mgr_host)GETSTRUCT(tuple);
@@ -14090,6 +14093,8 @@ bool get_local_ip(Name local_ip)
 	agent_host_ip = SysCacheGetAttr(HOSTHOSTOID, tuple, Anum_mgr_host_hostaddr, &isNull);
 	if(isNull)
 	{
+		heap_endscan(rel_scan);
+		heap_close(rel, AccessShareLock);
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
 			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
 			, errmsg("column hostaddr is null")));
