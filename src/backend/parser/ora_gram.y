@@ -355,7 +355,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, List *list, ListCell 
 %type <list>		part_params
 %type <partboundspec> ForValues
 %type <list>		ora_part_child_list ora_subpart_child_list range_datum_list SubPartitionTemplate
-%type <node>		ora_part_child ora_subpart_child PartitionRangeDatum
+%type <node>		ora_part_child ora_subpart_child PartitionRangeDatum modify_part_clause
 %type <connectby>	opt_connect_by_clause connect_by_clause
 %type <select_order_by> opt_select_sort_clause select_sort_clause
 %type <keep>		keep_clause
@@ -430,7 +430,8 @@ static A_Indirection* listToIndirection(A_Indirection *in, List *list, ListCell 
 /*
  * same specific token
  */
-%token	ORACLE_JOIN_OP CONNECT_BY CONNECT_BY_NOCYCLE NULLS_LA DROP_PARTITION LIMIT_LA SUBPARTITION_TEMPLATE
+%token	ORACLE_JOIN_OP CONNECT_BY CONNECT_BY_NOCYCLE NULLS_LA DROP_PARTITION LIMIT_LA SUBPARTITION_TEMPLATE 
+	MODIFY_PARTITION DROP_SUBPARTITION RENAME_PARTITION RENAME_SUBPARTITION
 
 /* Precedence: lowest to highest */
 %right	RETURN_P RETURNING PRIMARY
@@ -1475,6 +1476,26 @@ RenameStmt: ALTER INDEX qualified_name RENAME TO name
 					n->missing_ok = false;
 					$$ = (Node *)n;
 				}
+			| ALTER TABLE relation_expr RENAME_PARTITION relation_expr TO name
+				{
+					RenameStmt *n = makeNode(RenameStmt);
+					n->renameType = OBJECT_TABLE;
+					n->relation = $5;
+					n->subname = NULL;
+					n->newname = $7;
+					n->missing_ok = false;
+					$$ = (Node *)n;
+				}
+			| ALTER TABLE relation_expr RENAME_SUBPARTITION relation_expr TO name
+				{
+					RenameStmt *n = makeNode(RenameStmt);
+					n->renameType = OBJECT_TABLE;
+					n->relation = $5;
+					n->subname = NULL;
+					n->newname = $7;
+					n->missing_ok = false;
+					$$ = (Node *)n;
+				}
 			| ALTER TABLE IF_P EXISTS relation_expr RENAME TO name
 				{
 					RenameStmt *n = makeNode(RenameStmt);
@@ -1676,8 +1697,24 @@ AlterTableStmt:
 
 					$$ = $5;
 				}
+			/* ALTER TABLE <table_name> MODIFY PARTITION ... */
+			| ALTER TABLE relation_expr modify_part_clause
+				{
+					$$ = $4;
+				}
 			/* ALTER TABLE <table_name> DROP PARTITION sub_table_name */
 			|	ALTER TABLE relation_expr DROP_PARTITION any_name_list
+				{
+					DropStmt *n = makeNode(DropStmt);
+					n->removeType = OBJECT_TABLE;
+					n->missing_ok = false;
+					n->objects = $5;
+					n->behavior = DROP_RESTRICT;
+					n->concurrent = false;
+					$$ = (Node *)n;
+				}
+			/* ALTER TABLE <table_name> DROP SUBPARTITION sub_table_name */
+			|	ALTER TABLE relation_expr DROP_SUBPARTITION any_name_list
 				{
 					DropStmt *n = makeNode(DropStmt);
 					n->removeType = OBJECT_TABLE;
@@ -1696,7 +1733,15 @@ AlterTableStmt:
 					n->behavior = DROP_RESTRICT;
 					$$ = (Node *)n;
 				}
-
+			/*|ALTER TABLE <table_name> TRUNCATE SUBPARTITION sub_table_name */
+			| ALTER TABLE relation_expr TRUNCATE SUBPARTITION relation_expr_list
+				{
+					TruncateStmt *n = makeNode(TruncateStmt);
+					n->relations = $6;
+					n->restart_seqs = false;
+					n->behavior = DROP_RESTRICT;
+					$$ = (Node *)n;
+				}
 		;
 
 alter_table_cmds:
@@ -2133,6 +2178,41 @@ alter_table_cmd:
 				}
 /* ADB_END */
 		;
+
+modify_part_clause:
+			MODIFY_PARTITION relation_expr ADD_P ora_subpart_child
+				{
+					CreateStmt *n = (CreateStmt *)$4;
+					RangeVar   *part_rel = n->relation;
+
+					n->inhRelations = list_make1($2);
+					n->relation = part_rel;
+
+					$$ = $4;
+				}
+/*
+			| RENAME PARTITION relation_expr TO name
+				{
+					RenameStmt *n = makeNode(RenameStmt);
+					n->renameType = OBJECT_TABLE;
+					n->relation = $3;
+					n->subname = NULL;
+					n->newname = $5;
+					n->missing_ok = false;
+					$$ = (Node *)n;
+				}
+			| RENAME SUBPARTITION relation_expr TO name
+				{
+					RenameStmt *n = makeNode(RenameStmt);
+					n->renameType = OBJECT_TABLE;
+					n->relation = $3;
+					n->subname = NULL;
+					n->newname = $5;
+					n->missing_ok = false;
+					$$ = (Node *)n;
+				}
+*/
+			;
 
 opt_set_data: SET DATA_P							{ $$ = 1; }
 			| /*EMPTY*/								{ $$ = 0; }
@@ -9770,6 +9850,22 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 		if (look1.token == PARTITION)
 		{
 			cur_token = DROP_PARTITION;
+		}else if (look1.token == SUBPARTITION)
+		{
+			cur_token = DROP_SUBPARTITION;
+		}else
+		{
+			PUSH_LOOKAHEAD(&look1);
+		}
+		break;
+	case RENAME:
+				LEX_LOOKAHEAD(&look1);
+		if (look1.token == PARTITION)
+		{
+			cur_token = RENAME_PARTITION;
+		}else if (look1.token == SUBPARTITION)
+		{
+			cur_token = RENAME_SUBPARTITION;
 		}else
 		{
 			PUSH_LOOKAHEAD(&look1);
@@ -9790,6 +9886,16 @@ static int ora_yylex(YYSTYPE *lvalp, YYLTYPE *lloc, core_yyscan_t yyscanner)
 			cur_token = LIMIT;
 		}
 		PUSH_LOOKAHEAD(&look1);
+		break;
+	case MODIFY:
+		LEX_LOOKAHEAD(&look1);
+		if (look1.token == PARTITION)
+		{
+			cur_token = MODIFY_PARTITION;
+		}else
+		{
+			PUSH_LOOKAHEAD(&look1);
+		}
 		break;
 	case SUBPARTITION:
 		LEX_LOOKAHEAD(&look1);
