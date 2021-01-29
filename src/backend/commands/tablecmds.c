@@ -650,6 +650,69 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 
 		relkind = RELKIND_PARTITIONED_TABLE;
 	}
+#ifdef ADB_GRAM_ORA
+	/**
+	 * For sub partitioned tables with partitioned sub tables,
+	 * if the partition information is missing,
+	 * the partition information needed should be
+	 * generated according to the partition key of the parent table.
+	 */
+	if (stmt->grammar == PARSE_GRAM_ORACLE &&
+		stmt->child_rels != NIL &&
+		stmt->inhRelations != NIL &&
+		stmt->partspec == NULL)
+	{
+		PartitionSpec  *spec;
+		Relation		parent;
+		RangeVar	   *var;
+		PartitionKey	key;
+		List		   *part_elem = NIL;
+		int				i;
+
+		Assert(list_length(stmt->inhRelations) == 1);
+		var = (RangeVar*) linitial(stmt->inhRelations);
+		parent = RelationIdGetRelation(RelnameGetRelid(var->relname));
+		key = RelationGetPartitionKey(parent);
+		if (key)
+		{
+			for (i = 0; i < key->partnatts; i++)
+			{
+				PartitionElem *n = makeNode(PartitionElem);
+				n->name = get_attname(RelationGetRelid(parent),
+										key->partattrs[i], false);
+				n->location = -1;
+				part_elem = lappend(part_elem, n);
+			}
+			RelationClose(parent);
+
+			spec = makeNode(PartitionSpec);
+			switch (key->strategy)
+			{
+				case PARTITION_STRATEGY_HASH:
+					spec->strategy = pstrdup("hash");
+					break;
+				case PARTITION_STRATEGY_LIST:
+					spec->strategy = pstrdup("list");
+					break;
+				case PARTITION_STRATEGY_RANGE:
+					spec->strategy = pstrdup("range");
+					break;
+				default:
+					elog(ERROR, "unexpected partition strategy: %d",
+						(int) key->strategy);
+			}
+
+			spec->partParams = part_elem;
+			spec->location = -1;
+
+			stmt->partspec = spec;
+
+			if (stmt->relation->relpersistence != RELKIND_PARTITIONED_TABLE)
+				elog(ERROR, "unexpected relkind: %d", (int) stmt->relation->relpersistence);
+			relkind = RELKIND_PARTITIONED_TABLE;
+		}
+	}
+#endif	/* ADB_GRAM_ORA */
 
 	/*
 	 * Look up the namespace in which we are supposed to create the relation,
