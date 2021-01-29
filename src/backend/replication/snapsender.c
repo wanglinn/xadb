@@ -864,17 +864,23 @@ static void StartSnapSenderMainQueryDnNodeName(void)
 	SNAP_SYNC_DEBUG_LOG((errmsg("list_length(cn_master_name_list) %d, SnapSender->nextid_upcount_cn %d\n",
 			 			list_length(cn_master_name_list), pg_atomic_read_u32(&SnapSender->nextid_upcount_cn))));
 
-	if (pg_atomic_read_u32(&SnapSender->nextid_upcount) == 0 && pg_atomic_read_u32(&SnapSender->nextid_upcount_cn) == 0)
+	if (pg_atomic_read_u32(&SnapSender->nextid_upcount_cn) == 0)
 	{
 		SNAP_SYNC_DEBUG_LOG((errmsg("StartSnapSenderMainQueryDnNodeName SnapSender->state to Ok\n")));
 		pg_atomic_write_u32(&SnapSender->state, SNAPSENDER_STATE_OK);
 		ConditionVariableBroadcast(&SnapSender->cv);
+	}
 
+	if (pg_atomic_read_u32(&SnapSender->nextid_upcount) == 0)
+	{
 		SNAP_SYNC_DEBUG_LOG((errmsg("StartSnapSenderMainQueryDnNodeName SnapSender->dn_conn_state to Ok\n")));
 		pg_atomic_write_u32(&SnapSender->dn_conn_state, SNAPSENDER_ALL_DNMASTER_CONN_OK);
 		ConditionVariableBroadcast(&SnapSender->cv_dn_con);
-		WakeAllCnClientStream();
 	}
+
+	if (pg_atomic_read_u32(&SnapSender->state) == SNAPSENDER_STATE_OK &&
+			pg_atomic_read_u32(&SnapSender->dn_conn_state) == SNAPSENDER_ALL_DNMASTER_CONN_OK)
+		WakeAllCnClientStream();
 }
 
 static void SnapSenderCheckRxactAndTwoPhaseXids()
