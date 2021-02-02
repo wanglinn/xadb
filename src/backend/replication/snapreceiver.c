@@ -13,6 +13,7 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "pgxc/pgxc.h"
+#include "agtm/agtm.h"
 #include "postmaster/postmaster.h"
 #include "replication/walreceiver.h"
 #include "replication/snapreceiver.h"
@@ -1978,7 +1979,7 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 	TimestampTz		end;
 	uint32_t		req_key;
 
-	if (IsInitProcessingMode() && pg_atomic_read_u32(&SnapRcv->state) != WALRCV_STREAMING)
+	if ((IsInitProcessingMode() || !IsNormalDatabase()) && pg_atomic_read_u32(&SnapRcv->state) != WALRCV_STREAMING)
 		return snap;
 
 	if (snap->xip == NULL)

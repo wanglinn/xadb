@@ -1689,7 +1689,7 @@ Snapshot GetSnapshotDataExt(Snapshot snapshot, bool isCatelog)
 	TransactionId replication_slot_xmin = InvalidTransactionId;
 	TransactionId replication_slot_catalog_xmin = InvalidTransactionId;
 #ifdef ADB
-	bool		try_agtm_snap = ((IsUnderAGTM() && IsNormalDatabase()) || IsAnyAutoVacuumProcess()) && (!IsGTMNode());
+	bool		try_agtm_snap = ((IsUnderAGTM()) || IsAnyAutoVacuumProcess()) && (!IsGTMNode());
 	bool		hint;
 	TransactionId global_snap_xmin;
 	Snapshot 	snap PG_USED_FOR_ASSERTS_ONLY;
@@ -1792,7 +1792,7 @@ retry:
 #ifdef ADB
 	if(try_agtm_snap)
 	{
-		if (IsInitProcessingMode())
+		if (IsInitProcessingMode() || !IsNormalDatabase())
 		{
 			if (!TransactionIdIsNormal(snapshot->xmax))
 				snapshot->xmax = xmax;
