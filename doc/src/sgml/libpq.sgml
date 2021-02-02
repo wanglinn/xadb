@@ -91,21 +91,6 @@
     </para>
    </warning>
 
-   <note>
-    <para>
-     On Windows, there is a way to improve performance if a single
-     database connection is repeatedly started and shutdown.  Internally,
-     libpq calls <function>WSAStartup()</function> and <function>WSACleanup()</function> for connection startup
-     and shutdown, respectively.  <function>WSAStartup()</function> increments an internal
-     Windows library reference count which is decremented by <function>WSACleanup()</function>.
-     When the reference count is just one, calling <function>WSACleanup()</function> frees
-     all resources and all DLLs are unloaded.  This is an expensive
-     operation.  To avoid this, an application can manually call
-     <function>WSAStartup()</function> so resources will not be freed when the last database
-     connection is closed.
-    </para>
-   </note>
-
    <variablelist>
     <varlistentry id="libpq-pqconnectdbparams">
      <term><function>PQconnectdbParams</function><indexterm><primary>PQconnectdbParams</primary></indexterm></term>
@@ -355,7 +340,7 @@ PostgresPollingStatusType PQconnectPoll(PGconn *conn);
        Conversely, if <function>PQconnectPoll(conn)</function> last returned
        <symbol>PGRES_POLLING_WRITING</symbol>, wait until the socket is ready
        to write, then call <function>PQconnectPoll(conn)</function> again.
-       On the first iteration, i.e. if you have yet to call
+       On the first iteration, i.e., if you have yet to call
        <function>PQconnectPoll</function>, behave as if it last returned
        <symbol>PGRES_POLLING_WRITING</symbol>.  Continue this loop until
        <function>PQconnectPoll(conn)</function> returns
@@ -860,7 +845,7 @@ postgresql:///mydb?host=localhost&amp;port=5433
 
    <para>
     Percent-encoding may be used to include symbols with special meaning in any
-    of the <acronym>URI</acronym> parts, e.g. replace <literal>=</literal> with
+    of the <acronym>URI</acronym> parts, e.g., replace <literal>=</literal> with
     <literal>%3D</literal>.
 
    </para>
@@ -919,7 +904,7 @@ postgresql://%2Fvar%2Flib%2Fpostgresql/dbname
        <literal>hostaddr</literal>, and <literal>port</literal> options accept a comma-separated
        list of values. The same number of elements must be given in each
        option that is specified, such
-       that e.g. the first <literal>hostaddr</literal> corresponds to the first host name,
+       that e.g., the first <literal>hostaddr</literal> corresponds to the first host name,
        the second <literal>hostaddr</literal> corresponds to the second host name, and so
        forth. As an exception, if only one <literal>port</literal> is specified, it
        applies to all the hosts.
@@ -947,7 +932,7 @@ postgresql://%2Fvar%2Flib%2Fpostgresql/dbname
      <para>
        If a password file is used, you can have different passwords for
        different hosts. All the other connection options are the same for every
-       host in the list; it is not possible to e.g. specify different
+       host in the list; it is not possible to e.g., specify different
        usernames for different hosts.
      </para>
    </sect3>
@@ -1123,7 +1108,7 @@ postgresql://%2Fvar%2Flib%2Fpostgresql/dbname
       <listitem>
       <para>
        Maximum wait for connection, in seconds (write as a decimal integer,
-       e.g. <literal>10</literal>).  Zero, negative, or not specified means
+       e.g., <literal>10</literal>).  Zero, negative, or not specified means
        wait indefinitely.  The minimum allowed timeout is 2 seconds, therefore
        a value of <literal>1</literal> is interpreted as <literal>2</literal>.
        This timeout applies separately to each host name or IP address.
@@ -1554,8 +1539,10 @@ postgresql://%2Fvar%2Flib%2Fpostgresql/dbname
       <term><literal>gsslib</literal></term>
       <listitem>
        <para>
-        GSS library to use for GSSAPI authentication. Only used on Windows.
-        Set to <literal>gssapi</literal> to force libpq to use the GSSAPI
+        GSS library to use for GSSAPI authentication.
+        Currently this is disregarded except on Windows builds that include
+        both GSSAPI and SSPI support.  In that case, set
+        this to <literal>gssapi</literal> to cause libpq to use the GSSAPI
         library for authentication instead of the default SSPI.
        </para>
       </listitem>
@@ -2229,7 +2216,7 @@ const char *PQsslAttribute(const PGconn *conn, const char *attribute_name);
          <term><literal>cipher</literal></term>
           <listitem>
            <para>
-            A short name of the ciphersuite used, e.g.
+            A short name of the ciphersuite used, e.g.,
             <literal>"DHE-RSA-DES-CBC3-SHA"</literal>. The names are specific
             to each SSL implementation.
            </para>
@@ -4878,7 +4865,7 @@ int PQflush(PGconn *conn);
    <function>PQflush</function> again.  Repeat until
    <function>PQflush</function> returns 0.  (It is necessary to check for
    read-ready and drain the input with <function>PQconsumeInput</function>,
-   because the server can block trying to send us data, e.g. NOTICE
+   because the server can block trying to send us data, e.g., NOTICE
    messages, and won't read our data until we read its.)  Once
    <function>PQflush</function> returns 0, wait for the socket to be
    read-ready and then read the response as described above.
@@ -7887,7 +7874,7 @@ ldap://ldap.acme.com/cn=dbserver,cn=hosts?pgconnectinfo?base?(objectclass=*)
    For a connection to be known secure, SSL usage must be configured
    on <emphasis>both the client and the server</emphasis> before the connection
    is made. If it is only configured on the server, the client may end up
-   sending sensitive information (e.g. passwords) before
+   sending sensitive information (e.g., passwords) before
    it knows that the server requires high security. In libpq, secure
    connections can be ensured
    by setting the <literal>sslmode</literal> parameter to <literal>verify-full</literal> or
@@ -7963,7 +7950,7 @@ ldap://ldap.acme.com/cn=dbserver,cn=hosts?pgconnectinfo?base?(objectclass=*)
      <row>
       <entry><literal>verify-ca</literal></entry>
       <entry>Yes</entry>
-      <entry><literal>Depends on CA</literal>-policy</entry>
+      <entry>Depends on CA policy</entry>
       <entry>I want my data encrypted, and I accept the overhead. I want to be
        sure that I connect to a server that I trust.
       </entry>
@@ -8026,7 +8013,7 @@ ldap://ldap.acme.com/cn=dbserver,cn=hosts?pgconnectinfo?base?(objectclass=*)
      <row>
       <entry><filename>~/.postgresql/postgresql.crt</filename></entry>
       <entry>client certificate</entry>
-      <entry>requested by server</entry>
+      <entry>sent to server</entry>
      </row>
 
      <row>
@@ -8065,9 +8052,6 @@ ldap://ldap.acme.com/cn=dbserver,cn=hosts?pgconnectinfo?base?(objectclass=*)
    that the <literal>libssl</literal> and/or <literal>libcrypto</literal> libraries
    have been initialized by your application, so that
    <application>libpq</application> will not also initialize those libraries.
-   See <ulink
-   url="http://h41379.www4.hpe.com/doc/83final/ba554_90007/ch04.html"></ulink>
-   for details on the SSL API.
   </para>
 
   <para>
@@ -8225,14 +8209,6 @@ int PQisthreadsafe();
    function <function>PQregisterThreadLock</function> in the
    <application>libpq</application> source code for a way to do cooperative
    locking between <application>libpq</application> and your application.
-  </para>
-
-  <para>
-   If you experience problems with threaded applications, run the program
-   in <filename>src/tools/thread</filename> to see if your platform has
-   thread-unsafe functions.  This program is run by
-   <filename>configure</filename>, but for binary distributions your
-   library might not match the library used to build the binaries.
   </para>
  </sect1>
 

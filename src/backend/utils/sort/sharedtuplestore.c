@@ -228,14 +228,9 @@ static void
 sts_flush_chunk(SharedTuplestoreAccessor *accessor)
 {
 	size_t		size;
-	size_t		written;
 
 	size = STS_CHUNK_PAGES * BLCKSZ;
-	written = BufFileWrite(accessor->write_file, accessor->write_chunk, size);
-	if (written != size)
-		ereport(ERROR,
-				(errcode_for_file_access(),
-				 errmsg("could not write to temporary file: %m")));
+	BufFileWrite(accessor->write_file, accessor->write_chunk, size);
 	memset(accessor->write_chunk, 0, size);
 	accessor->write_pointer = &accessor->write_chunk->data[0];
 	accessor->sts->participants[accessor->participant].npages +=
@@ -620,6 +615,7 @@ sts_parallel_scan_next(SharedTuplestoreAccessor *accessor, void *meta_data)
 		if (!eof)
 		{
 			SharedTuplestoreChunk chunk_header;
+			size_t		nread;
 
 			/* Make sure we have the file open. */
 			if (accessor->read_file == NULL)
@@ -641,14 +637,15 @@ sts_parallel_scan_next(SharedTuplestoreAccessor *accessor, void *meta_data)
 			if (BufFileSeekBlock(accessor->read_file, read_page) != 0)
 				ereport(ERROR,
 						(errcode_for_file_access(),
-						 errmsg("could not read from shared tuplestore temporary file"),
-						 errdetail_internal("Could not seek to next block.")));
-			if (BufFileRead(accessor->read_file, &chunk_header,
-							STS_CHUNK_HEADER_SIZE) != STS_CHUNK_HEADER_SIZE)
+						 errmsg("could not seek block %u in shared tuplestore temporary file",
+								read_page)));
+			nread = BufFileRead(accessor->read_file, &chunk_header,
+								STS_CHUNK_HEADER_SIZE);
+			if (nread != STS_CHUNK_HEADER_SIZE)
 				ereport(ERROR,
 						(errcode_for_file_access(),
-						 errmsg("could not read from shared tuplestore temporary file(%d,%d,%s)",
-						 		accessor->fileset->creator_pid, accessor->fileset->number, accessor->sts->name),
+						 errmsg("could not read from shared tuplestore temporary file(%d,%d,%s): read only %zu of %zu bytes",
+						 		accessor->fileset->creator_pid, accessor->fileset->number, accessor->sts->name, nread, STS_CHUNK_HEADER_SIZE),
 						 errdetail_internal("Short read while reading chunk header.")));
 
 			/*

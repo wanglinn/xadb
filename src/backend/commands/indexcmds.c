@@ -16,6 +16,7 @@
 #include "postgres.h"
 
 #include "access/amapi.h"
+#include "access/hash.h"
 #include "access/htup_details.h"
 #include "access/reloptions.h"
 #include "access/sysattr.h"
@@ -362,6 +363,7 @@ DefineIndex(Oid relationId,
 			bool skip_build,
 			bool quiet)
 {
+	bool		concurrent;
 	char	   *indexRelationName;
 	char	   *accessMethodName;
 	Oid		   *typeObjectId;
@@ -397,6 +399,18 @@ DefineIndex(Oid relationId,
 	LOCKMODE	lockmode;
 	Snapshot	snapshot;
 	int			i;
+
+	/*
+	 * Force non-concurrent build on temporary relations, even if CONCURRENTLY
+	 * was requested.  Other backends can't access a temporary relation, so
+	 * there's no harm in grabbing a stronger lock, and a non-concurrent DROP
+	 * is more efficient.  Do this before any use of the concurrent option is
+	 * done.
+	 */
+	if (stmt->concurrent && get_rel_persistence(relationId) != RELPERSISTENCE_TEMP)
+		concurrent = true;
+	else
+		concurrent = false;
 
 	/*
 	 * count key attributes in index
@@ -440,7 +454,7 @@ DefineIndex(Oid relationId,
 	 * parallel workers under the control of certain particular ambuild
 	 * functions will need to be updated, too.
 	 */
-	lockmode = stmt->concurrent ? ShareUpdateExclusiveLock : ShareLock;
+	lockmode = concurrent ? ShareUpdateExclusiveLock : ShareLock;
 	rel = heap_open(relationId, lockmode);
 
 	relationId = RelationGetRelid(rel);
@@ -484,6 +498,12 @@ DefineIndex(Oid relationId,
 	partitioned = rel->rd_rel->relkind == RELKIND_PARTITIONED_TABLE;
 	if (partitioned)
 	{
+		/*
+		 * Note: we check 'stmt->concurrent' rather than 'concurrent', so that
+		 * the error is thrown also for temporary tables.  Seems better to be
+		 * consistent, even though we could do it on temporary table because
+		 * we're not actually doing it concurrently.
+		 */
 		if (stmt->concurrent)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -672,8 +692,8 @@ DefineIndex(Oid relationId,
 	indexInfo->ii_ExclusionStrats = NULL;
 	indexInfo->ii_Unique = stmt->unique;
 	/* In a concurrent build, mark it not-ready-for-inserts */
-	indexInfo->ii_ReadyForInserts = !stmt->concurrent;
-	indexInfo->ii_Concurrent = stmt->concurrent;
+	indexInfo->ii_ReadyForInserts = !concurrent;
+	indexInfo->ii_Concurrent = concurrent;
 	indexInfo->ii_BrokenHotChain = false;
 	indexInfo->ii_ParallelWorkers = 0;
 	indexInfo->ii_Am = accessMethodId;
@@ -729,44 +749,75 @@ DefineIndex(Oid relationId,
 
 	/*
 	 * If this table is partitioned and we're creating a unique index or a
-	 * primary key, make sure that the indexed columns are part of the
-	 * partition key.  Otherwise it would be possible to violate uniqueness by
-	 * putting values that ought to be unique in different partitions.
+	 * primary key, make sure that the partition key is a subset of the
+	 * index's columns.  Otherwise it would be possible to violate uniqueness
+	 * by putting values that ought to be unique in different partitions.
 	 *
 	 * We could lift this limitation if we had global indexes, but those have
 	 * their own problems, so this is a useful feature combination.
 	 */
 	if (partitioned && (stmt->unique || stmt->primary))
 	{
-		PartitionKey key = rel->rd_partkey;
+		PartitionKey key = RelationGetPartitionKey(rel);
+		const char *constraint_type;
 		int			i;
 
+		if (stmt->primary)
+			constraint_type = "PRIMARY KEY";
+		else if (stmt->unique)
+			constraint_type = "UNIQUE";
+		else if (stmt->excludeOpNames != NIL)
+			constraint_type = "EXCLUDE";
+		else
+		{
+			elog(ERROR, "unknown constraint type");
+			constraint_type = NULL; /* keep compiler quiet */
+		}
+
 		/*
-		 * A partitioned table can have unique indexes, as long as all the
-		 * columns in the partition key appear in the unique key.  A
-		 * partition-local index can enforce global uniqueness iff the PK
-		 * value completely determines the partition that a row is in.
-		 *
-		 * Thus, verify that all the columns in the partition key appear in
-		 * the unique key definition.
+		 * Verify that all the columns in the partition key appear in the
+		 * unique key definition, with the same notion of equality.
 		 */
 		for (i = 0; i < key->partnatts; i++)
 		{
 			bool		found = false;
+			int			eq_strategy;
+			Oid			ptkey_eqop;
 			int			j;
-			const char *constraint_type;
 
-			if (stmt->primary)
-				constraint_type = "PRIMARY KEY";
-			else if (stmt->unique)
-				constraint_type = "UNIQUE";
-			else if (stmt->excludeOpNames != NIL)
-				constraint_type = "EXCLUDE";
+			/*
+			 * Identify the equality operator associated with this partkey
+			 * column.  For list and range partitioning, partkeys use btree
+			 * operator classes; hash partitioning uses hash operator classes.
+			 * (Keep this in sync with ComputePartitionAttrs!)
+			 */
+			if (key->strategy == PARTITION_STRATEGY_HASH)
+				eq_strategy = HTEqualStrategyNumber;
 			else
-			{
-				elog(ERROR, "unknown constraint type");
-				constraint_type = NULL; /* keep compiler quiet */
-			}
+				eq_strategy = BTEqualStrategyNumber;
+
+			ptkey_eqop = get_opfamily_member(key->partopfamily[i],
+											 key->partopcintype[i],
+											 key->partopcintype[i],
+											 eq_strategy);
+			if (!OidIsValid(ptkey_eqop))
+				elog(ERROR, "missing operator %d(%u,%u) in partition opfamily %u",
+					 eq_strategy, key->partopcintype[i], key->partopcintype[i],
+					 key->partopfamily[i]);
+
+			/*
+			 * We'll need to be able to identify the equality operators
+			 * associated with index columns, too.  We know what to do with
+			 * btree opclasses; if there are ever any other index types that
+			 * support unique indexes, this logic will need extension.
+			 */
+			if (accessMethodId == BTREE_AM_OID)
+				eq_strategy = BTEqualStrategyNumber;
+			else
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("cannot match partition key to an index using access method \"%s\"",
+								accessMethodName)));
 
 			/*
 			 * It may be possible to support UNIQUE constraints when partition
@@ -780,12 +831,31 @@ DefineIndex(Oid relationId,
 						 errdetail("%s constraints cannot be used when partition keys include expressions.",
 								   constraint_type)));
 
+			/* Search the index column(s) for a match */
 			for (j = 0; j < indexInfo->ii_NumIndexKeyAttrs; j++)
 			{
 				if (key->partattrs[i] == indexInfo->ii_IndexAttrNumbers[j])
 				{
-					found = true;
-					break;
+					/* Matched the column, now what about the equality op? */
+					Oid			idx_opfamily;
+					Oid			idx_opcintype;
+
+					idx_opfamily = get_opclass_family(classObjectId[j]);
+					idx_opcintype = get_opclass_input_type(classObjectId[j]);
+					if (OidIsValid(idx_opfamily) && OidIsValid(idx_opcintype))
+					{
+						Oid			idx_eqop;
+
+						idx_eqop = get_opfamily_member(idx_opfamily,
+													   idx_opcintype,
+													   idx_opcintype,
+													   eq_strategy);
+						if (ptkey_eqop == idx_eqop)
+						{
+							found = true;
+							break;
+						}
+					}
 				}
 			}
 #ifdef ADB_GRAM_ORA
@@ -802,11 +872,11 @@ DefineIndex(Oid relationId,
 			{
 				Form_pg_attribute att;
 
-				att = TupleDescAttr(RelationGetDescr(rel), key->partattrs[i] - 1);
+				att = TupleDescAttr(RelationGetDescr(rel),
+									key->partattrs[i] - 1);
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("insufficient columns in %s constraint definition",
-								constraint_type),
+						 errmsg("unique constraint on partitioned table must include all partitioning columns"),
 						 errdetail("%s constraint on table \"%s\" lacks column \"%s\" which is part of the partition key.",
 								   constraint_type, RelationGetRelationName(rel),
 								   NameStr(att->attname))));
@@ -881,7 +951,7 @@ DefineIndex(Oid relationId,
 	 * A valid stmt->oldNode implies that we already have a built form of the
 	 * index.  The caller should also decline any index build.
 	 */
-	Assert(!OidIsValid(stmt->oldNode) || (skip_build && !stmt->concurrent));
+	Assert(!OidIsValid(stmt->oldNode) || (skip_build && !concurrent));
 
 	/*
 	 * Make the catalog entries for the index, including constraints. This
@@ -892,11 +962,11 @@ DefineIndex(Oid relationId,
 	flags = constr_flags = 0;
 	if (stmt->isconstraint)
 		flags |= INDEX_CREATE_ADD_CONSTRAINT;
-	if (skip_build || stmt->concurrent || partitioned)
+	if (skip_build || concurrent || partitioned)
 		flags |= INDEX_CREATE_SKIP_BUILD;
 	if (stmt->if_not_exists)
 		flags |= INDEX_CREATE_IF_NOT_EXISTS;
-	if (stmt->concurrent)
+	if (concurrent)
 		flags |= INDEX_CREATE_CONCURRENT;
 	if (partitioned)
 		flags |= INDEX_CREATE_PARTITIONED;
@@ -1174,7 +1244,7 @@ DefineIndex(Oid relationId,
 		return address;
 	}
 
-	if (!stmt->concurrent)
+	if (!concurrent)
 	{
 		/* Close the heap and we're done, in the non-concurrent case */
 		heap_close(rel, NoLock);

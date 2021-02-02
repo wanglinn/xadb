@@ -50,7 +50,9 @@ OldSnapshotTimeMapLock				42
 BackendRandomLock					43
 LogicalRepWorkerLock				44
 CLogTruncationLock					45
+WrapLimitsVacuumLock				46
+NotifyQueueTailLock					47
 # ADB_BEGIN
-BarrierLock							46
-SlotTableLock						47
+BarrierLock							48
+SlotTableLock						49
 # ADB END

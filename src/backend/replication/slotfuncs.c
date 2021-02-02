@@ -228,87 +228,73 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 	for (slotno = 0; slotno < max_replication_slots; slotno++)
 	{
 		ReplicationSlot *slot = &ReplicationSlotCtl->replication_slots[slotno];
+		ReplicationSlot slot_contents;
 		Datum		values[PG_GET_REPLICATION_SLOTS_COLS];
 		bool		nulls[PG_GET_REPLICATION_SLOTS_COLS];
-
-		ReplicationSlotPersistency persistency;
-		TransactionId xmin;
-		TransactionId catalog_xmin;
-		XLogRecPtr	restart_lsn;
-		XLogRecPtr	confirmed_flush_lsn;
-		pid_t		active_pid;
-		Oid			database;
-		NameData	slot_name;
-		NameData	plugin;
 		int			i;
 
 		if (!slot->in_use)
 			continue;
 
+		/* Copy slot contents while holding spinlock, then examine at leisure */
 		SpinLockAcquire(&slot->mutex);
-
-		xmin = slot->data.xmin;
-		catalog_xmin = slot->data.catalog_xmin;
-		database = slot->data.database;
-		restart_lsn = slot->data.restart_lsn;
-		confirmed_flush_lsn = slot->data.confirmed_flush;
-		namecpy(&slot_name, &slot->data.name);
-		namecpy(&plugin, &slot->data.plugin);
-		active_pid = slot->active_pid;
-		persistency = slot->data.persistency;
-
+		slot_contents = *slot;
 		SpinLockRelease(&slot->mutex);
 
+		memset(values, 0, sizeof(values));
 		memset(nulls, 0, sizeof(nulls));
 
 		i = 0;
-		values[i++] = NameGetDatum(&slot_name);
+		values[i++] = NameGetDatum(&slot_contents.data.name);
 
-		if (database == InvalidOid)
+		if (slot_contents.data.database == InvalidOid)
 			nulls[i++] = true;
 		else
-			values[i++] = NameGetDatum(&plugin);
+			values[i++] = NameGetDatum(&slot_contents.data.plugin);
 
-		if (database == InvalidOid)
+		if (slot_contents.data.database == InvalidOid)
 			values[i++] = CStringGetTextDatum("physical");
 		else
 			values[i++] = CStringGetTextDatum("logical");
 
-		if (database == InvalidOid)
+		if (slot_contents.data.database == InvalidOid)
 			nulls[i++] = true;
 		else
-			values[i++] = database;
+			values[i++] = ObjectIdGetDatum(slot_contents.data.database);
 
-		values[i++] = BoolGetDatum(persistency == RS_TEMPORARY);
-		values[i++] = BoolGetDatum(active_pid != 0);
+		values[i++] = BoolGetDatum(slot_contents.data.persistency == RS_TEMPORARY);
+		values[i++] = BoolGetDatum(slot_contents.active_pid != 0);
 
-		if (active_pid != 0)
-			values[i++] = Int32GetDatum(active_pid);
-		else
-			nulls[i++] = true;
-
-		if (xmin != InvalidTransactionId)
-			values[i++] = TransactionIdGetDatum(xmin);
+		if (slot_contents.active_pid != 0)
+			values[i++] = Int32GetDatum(slot_contents.active_pid);
 		else
 			nulls[i++] = true;
 
-		if (catalog_xmin != InvalidTransactionId)
-			values[i++] = TransactionIdGetDatum(catalog_xmin);
+		if (slot_contents.data.xmin != InvalidTransactionId)
+			values[i++] = TransactionIdGetDatum(slot_contents.data.xmin);
 		else
 			nulls[i++] = true;
 
-		if (restart_lsn != InvalidXLogRecPtr)
-			values[i++] = LSNGetDatum(restart_lsn);
+		if (slot_contents.data.catalog_xmin != InvalidTransactionId)
+			values[i++] = TransactionIdGetDatum(slot_contents.data.catalog_xmin);
 		else
 			nulls[i++] = true;
 
-		if (confirmed_flush_lsn != InvalidXLogRecPtr)
-			values[i++] = LSNGetDatum(confirmed_flush_lsn);
+		if (slot_contents.data.restart_lsn != InvalidXLogRecPtr)
+			values[i++] = LSNGetDatum(slot_contents.data.restart_lsn);
 		else
 			nulls[i++] = true;
+
+		if (slot_contents.data.confirmed_flush != InvalidXLogRecPtr)
+			values[i++] = LSNGetDatum(slot_contents.data.confirmed_flush);
+		else
+			nulls[i++] = true;
+
+		Assert(i == PG_GET_REPLICATION_SLOTS_COLS);
 
 		tuplestore_putvalues(tupstore, tupdesc, values, nulls);
 	}
+
 	LWLockRelease(ReplicationSlotControlLock);
 
 	tuplestore_donestoring(tupstore);
@@ -335,6 +321,14 @@ pg_physical_replication_slot_advance(XLogRecPtr moveto)
 		MyReplicationSlot->data.restart_lsn = moveto;
 		SpinLockRelease(&MyReplicationSlot->mutex);
 		retlsn = moveto;
+
+		/*
+		 * Dirty the slot so as it is written out at the next checkpoint.
+		 * Note that the LSN position advanced may still be lost in the
+		 * event of a crash, but this makes the data consistent after a
+		 * clean shutdown.
+		 */
+		ReplicationSlotMarkDirty();
 	}
 
 	return retlsn;
@@ -343,8 +337,8 @@ pg_physical_replication_slot_advance(XLogRecPtr moveto)
 /*
  * Helper function for advancing our logical replication slot forward.
  *
- * The slot's restart_lsn is used as start point for reading records,
- * while confirmed_lsn is used as base point for the decoding context.
+ * The slot's restart_lsn is used as start point for reading records, while
+ * confirmed_flush is used as base point for the decoding context.
  *
  * We cannot just do LogicalConfirmReceivedLocation to update confirmed_flush,
  * because we need to digest WAL to advance restart_lsn allowing to recycle
@@ -439,9 +433,9 @@ pg_logical_replication_slot_advance(XLogRecPtr moveto)
 			 * keep track of their progress, so we should make more of an
 			 * effort to save it for them.
 			 *
-			 * Dirty the slot so it's written out at the next checkpoint.
-			 * We'll still lose its position on crash, as documented, but it's
-			 * better than always losing the position even on clean restart.
+			 * Dirty the slot so it is written out at the next checkpoint.
+			 * The LSN position advanced to may still be lost on a crash
+			 * but this makes the data consistent after a clean shutdown.
 			 */
 			ReplicationSlotMarkDirty();
 		}
@@ -514,8 +508,8 @@ pg_replication_slot_advance(PG_FUNCTION_ARGS)
 	/*
 	 * Check if the slot is not moving backwards.  Physical slots rely simply
 	 * on restart_lsn as a minimum point, while logical slots have confirmed
-	 * consumption up to confirmed_lsn, meaning that in both cases data older
-	 * than that is not available anymore.
+	 * consumption up to confirmed_flush, meaning that in both cases data
+	 * older than that is not available anymore.
 	 */
 	if (OidIsValid(MyReplicationSlot->data.database))
 		minlsn = MyReplicationSlot->data.confirmed_flush;
@@ -538,14 +532,12 @@ pg_replication_slot_advance(PG_FUNCTION_ARGS)
 	values[0] = NameGetDatum(&MyReplicationSlot->data.name);
 	nulls[0] = false;
 
-	/* Update the on disk state when lsn was updated. */
-	if (XLogRecPtrIsInvalid(endlsn))
-	{
-		ReplicationSlotMarkDirty();
-		ReplicationSlotsComputeRequiredXmin(false);
-		ReplicationSlotsComputeRequiredLSN();
-		ReplicationSlotSave();
-	}
+	/*
+	 * Recompute the minimum LSN and xmin across all slots to adjust with the
+	 * advancing potentially done.
+	 */
+	ReplicationSlotsComputeRequiredXmin(false);
+	ReplicationSlotsComputeRequiredLSN();
 
 	ReplicationSlotRelease();
 

@@ -153,8 +153,8 @@ ALTER TABLE ft_pg_type SET WITH OIDS;
 -- ===================================================================
 -- tests for validator
 -- ===================================================================
--- requiressl, krbsrvname and gsslib are omitted because they depend on
--- configure options
+-- requiressl and some other parameters are omitted because
+-- valid values for them depend on configure options
 ALTER SERVER testserver1 OPTIONS (
 	use_remote_estimate 'false',
 	updatable 'true',
@@ -178,10 +178,10 @@ ALTER SERVER testserver1 OPTIONS (
 	sslcert 'value',
 	sslkey 'value',
 	sslrootcert 'value',
-	sslcrl 'value'
+	sslcrl 'value',
 	--requirepeer 'value',
-	-- krbsrvname 'value',
-	-- gsslib 'value',
+	krbsrvname 'value',
+	gsslib 'value'
 	--replication 'value'
 );
 
@@ -1166,6 +1166,26 @@ DELETE FROM ft2
   WHERE ft2.c1 > 1200 AND ft2.c1 % 10 = 0 AND ft2.c2 = ft4.c1
   RETURNING 100;
 DELETE FROM ft2 WHERE ft2.c1 > 1200;
+
+-- Test UPDATE with a MULTIEXPR sub-select
+-- (maybe someday this'll be remotely executable, but not today)
+EXPLAIN (verbose, costs off)
+UPDATE ft2 AS target SET (c2, c7) = (
+    SELECT c2 * 10, c7
+        FROM ft2 AS src
+        WHERE target.c1 = src.c1
+) WHERE c1 > 1100;
+UPDATE ft2 AS target SET (c2, c7) = (
+    SELECT c2 * 10, c7
+        FROM ft2 AS src
+        WHERE target.c1 = src.c1
+) WHERE c1 > 1100;
+
+UPDATE ft2 AS target SET (c2) = (
+    SELECT c2 / 10
+        FROM ft2 AS src
+        WHERE target.c1 = src.c1
+) WHERE c1 > 1100;
 
 -- Test UPDATE/DELETE with WHERE or JOIN/ON conditions containing
 -- user-defined operators/functions

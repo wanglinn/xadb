@@ -312,13 +312,6 @@ TransactionIdSetPageStatus(TransactionId xid, int nsubxids,
 			   nsubxids * sizeof(TransactionId)) == 0)
 	{
 		/*
-		 * We don't try to do group update optimization if a process has
-		 * overflowed the subxids array in its PGPROC, since in that case we
-		 * don't have a complete list of XIDs for it.
-		 */
-		Assert(THRESHOLD_SUBTRANS_CLOG_OPT <= PGPROC_MAX_CACHED_SUBXIDS);
-
-		/*
 		 * If we can immediately acquire CLogControlLock, we update the status
 		 * of our own XID and release the lock.  If not, try use group XID
 		 * update.  If that doesn't work out, fall back to waiting for the
@@ -532,10 +525,10 @@ TransactionGroupUpdateXidStatus(TransactionId xid, XidStatus status,
 		PGXACT	   *pgxact = &ProcGlobal->allPgXact[nextidx];
 
 		/*
-		 * Overflowed transactions should not use group XID status update
-		 * mechanism.
+		 * Transactions with more than THRESHOLD_SUBTRANS_CLOG_OPT sub-XIDs
+		 * should not use group XID status update mechanism.
 		 */
-		Assert(!pgxact->overflowed);
+		Assert(pgxact->nxids <= THRESHOLD_SUBTRANS_CLOG_OPT);
 
 		TransactionIdSetPageStatusInternal(proc->clogGroupMemberXid,
 										   pgxact->nxids,
@@ -856,13 +849,6 @@ CheckPointCLOG(void)
 	/* Flush dirty CLOG pages to disk */
 	TRACE_POSTGRESQL_CLOG_CHECKPOINT_START(true);
 	SimpleLruFlush(ClogCtl, true);
-
-	/*
-	 * fsync pg_xact to ensure that any files flushed previously are durably
-	 * on disk.
-	 */
-	fsync_fname("pg_xact", true);
-
 	TRACE_POSTGRESQL_CLOG_CHECKPOINT_DONE(true);
 }
 

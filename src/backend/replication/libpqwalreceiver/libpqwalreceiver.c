@@ -23,6 +23,7 @@
 #include "pqexpbuffer.h"
 #include "access/xlog.h"
 #include "catalog/pg_type.h"
+#include "common/connect.h"
 #include "funcapi.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
@@ -127,6 +128,9 @@ libpqrcv_connect(const char *conninfo, bool logical, const char *appname,
 	const char *vals[5];
 	int			i = 0;
 
+#ifdef ADB
+	bool		is_snap_rcv = false;
+#endif /*ADB*/
 	/*
 	 * We use the expand_dbname parameter to process the connection string (or
 	 * URI), and pass some extra options.
@@ -213,6 +217,25 @@ libpqrcv_connect(const char *conninfo, bool logical, const char *appname,
 	{
 		*err = pchomp(PQerrorMessage(conn->streamConn));
 		return NULL;
+	}
+#ifdef ADB
+	if (conninfo && strstr(conninfo,"snaprcv"))
+		is_snap_rcv = true;
+#endif /*ADB*/
+	if (logical ADB_ONLY_CODE(&& !is_snap_rcv))
+	{
+		PGresult   *res;
+
+		res = libpqrcv_PQexec(conn->streamConn,
+							  ALWAYS_SECURE_SEARCH_PATH_SQL);
+		if (PQresultStatus(res) != PGRES_TUPLES_OK)
+		{
+			PQclear(res);
+			ereport(ERROR,
+					(errmsg("could not clear search path: %s",
+							pchomp(PQerrorMessage(conn->streamConn)))));
+		}
+		PQclear(res);
 	}
 
 	conn->logical = logical;

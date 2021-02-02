@@ -3258,6 +3258,57 @@ get_range_subtype(Oid rangeOid)
 		return InvalidOid;
 }
 
+/*
+ * get_range_collation
+ *		Returns the collation of a given range type
+ *
+ * Returns InvalidOid if the type is not a range type,
+ * or if its subtype is not collatable.
+ */
+Oid
+get_range_collation(Oid rangeOid)
+{
+	HeapTuple	tp;
+
+	tp = SearchSysCache1(RANGETYPE, ObjectIdGetDatum(rangeOid));
+	if (HeapTupleIsValid(tp))
+	{
+		Form_pg_range rngtup = (Form_pg_range) GETSTRUCT(tp);
+		Oid			result;
+
+		result = rngtup->rngcollation;
+		ReleaseSysCache(tp);
+		return result;
+	}
+	else
+		return InvalidOid;
+}
+
+/*				---------- PG_INDEX CACHE ----------				 */
+
+/*
+ * get_index_isreplident
+ *
+ *		Given the index OID, return pg_index.indisreplident.
+ */
+bool
+get_index_isreplident(Oid index_oid)
+{
+	HeapTuple		tuple;
+	Form_pg_index	rd_index;
+	bool			result;
+
+	tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(index_oid));
+	if (!HeapTupleIsValid(tuple))
+		return false;
+
+	rd_index = (Form_pg_index) GETSTRUCT(tuple);
+	result = rd_index->indisreplident;
+	ReleaseSysCache(tuple);
+
+	return result;
+}
+
 #ifdef ADB
 /*
  * get_relnatts
@@ -3862,3 +3913,25 @@ data_corrupted_:
 	return NULL;	/* keep compiler quiet */
 }
 #endif /* ADB_GRAM_ORA */
+/*
+ * get_index_isclustered
+ *
+ *		Given the index OID, return pg_index.indisclustered.
+ */
+bool
+get_index_isclustered(Oid index_oid)
+{
+	bool		isclustered;
+	HeapTuple	tuple;
+	Form_pg_index rd_index;
+
+	tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(index_oid));
+	if (!HeapTupleIsValid(tuple))
+		elog(ERROR, "cache lookup failed for index %u", index_oid);
+
+	rd_index = (Form_pg_index) GETSTRUCT(tuple);
+	isclustered = rd_index->indisclustered;
+	ReleaseSysCache(tuple);
+
+	return isclustered;
+}

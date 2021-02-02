@@ -51,3 +51,5 @@ BackendRandomLock					43
 LogicalRepWorkerLock				44
 CLogTruncationLock					45
 AdbmonitorLock						46
+WrapLimitsVacuumLock				47
+NotifyQueueTailLock					48

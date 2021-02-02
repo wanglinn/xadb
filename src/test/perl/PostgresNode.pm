@@ -477,13 +477,15 @@ sub init
 		{
 			print $conf "wal_level = replica\n";
 		}
-		print $conf "max_wal_senders = 5\n";
-		print $conf "max_replication_slots = 5\n";
-		print $conf "max_wal_size = 128MB\n";
-		print $conf "shared_buffers = 1MB\n";
+		print $conf "max_wal_senders = 10\n";
+		print $conf "max_replication_slots = 10\n";
 		print $conf "wal_log_hints = on\n";
 		print $conf "hot_standby = on\n";
-		print $conf "max_connections = 10\n";
+		# conservative settings to ensure we can run multiple postmasters:
+		print $conf "shared_buffers = 1MB\n";
+		print $conf "max_connections = 20\n";
+		# limit disk space consumption, too:
+		print $conf "max_wal_size = 128MB\n";
 	}
 	else
 	{
@@ -559,8 +561,10 @@ sub backup
 	my $name        = $self->name;
 
 	print "# Taking pg_basebackup $backup_name from node \"$name\"\n";
-	TestLib::system_or_bail('pg_basebackup', '-D', $backup_path, '-h',
-		$self->host, '-p', $self->port, '--no-sync');
+	TestLib::system_or_bail(
+		'pg_basebackup', '-D', $backup_path, '-h',
+		$self->host,     '-p', $self->port,  '--checkpoint',
+		'fast',          '--no-sync');
 	print "# Backup finished\n";
 	return;
 }
@@ -1157,20 +1161,6 @@ sub can_bind
 	return $ret;
 }
 
-# Retain the errno on die() if set, else assume a generic errno of 1.
-# This will instruct the END handler on how to handle artifacts left
-# behind from tests.
-$SIG{__DIE__} = sub {
-	if ($!)
-	{
-		$died = $!;
-	}
-	else
-	{
-		$died = 1;
-	}
-};
-
 # Automatically shut down any still-running nodes when the test script exits.
 # Note that this just stops the postmasters (in the same order the nodes were
 # created in).  Any temporary directories are deleted, in an unspecified
@@ -1189,8 +1179,7 @@ END
 		next if defined $ENV{'PG_TEST_NOCLEAN'};
 
 		# clean basedir on clean test invocation
-		$node->clean_node
-		  if TestLib::all_tests_passing() && !defined $died && !$exit_code;
+		$node->clean_node if $exit_code == 0 && TestLib::all_tests_passing();
 	}
 
 	$? = $exit_code;
@@ -1262,7 +1251,6 @@ sub safe_psql
 		print "\n#### End standard error\n";
 	}
 
-	$stdout =~ s/\r//g if $TestLib::windows_os;
 	return $stdout;
 }
 
@@ -1438,16 +1426,20 @@ sub psql
 		}
 	};
 
+	# Note: on Windows, IPC::Run seems to convert \r\n to \n in program output
+	# if we're using native Perl, but not if we're using MSys Perl.  So do it
+	# by hand in the latter case, here and elsewhere.
+
 	if (defined $$stdout)
 	{
+		$$stdout =~ s/\r\n/\n/g if $Config{osname} eq 'msys';
 		chomp $$stdout;
-		$$stdout =~ s/\r//g if $TestLib::windows_os;
 	}
 
 	if (defined $$stderr)
 	{
+		$$stderr =~ s/\r\n/\n/g if $Config{osname} eq 'msys';
 		chomp $$stderr;
-		$$stderr =~ s/\r//g if $TestLib::windows_os;
 	}
 
 	# See http://perldoc.perl.org/perlvar.html#%24CHILD_ERROR
@@ -1510,8 +1502,8 @@ sub poll_query_until
 	{
 		my $result = IPC::Run::run $cmd, '>', \$stdout, '2>', \$stderr;
 
+		$stdout =~ s/\r\n/\n/g if $Config{osname} eq 'msys';
 		chomp($stdout);
-		$stdout =~ s/\r//g if $TestLib::windows_os;
 
 		if ($stdout eq $expected)
 		{
@@ -1526,8 +1518,8 @@ sub poll_query_until
 
 	# The query result didn't change in 180 seconds. Give up. Print the
 	# output from the last attempt, hopefully that's useful for debugging.
+	$stderr =~ s/\r\n/\n/g if $Config{osname} eq 'msys';
 	chomp($stderr);
-	$stderr =~ s/\r//g if $TestLib::windows_os;
 	diag qq(poll_query_until timed out executing this query:
 $query
 expecting this output:
@@ -1961,8 +1953,8 @@ sub pg_recvlogical_upto
 		}
 	};
 
-	$stdout =~ s/\r//g if $TestLib::windows_os;
-	$stderr =~ s/\r//g if $TestLib::windows_os;
+	$stdout =~ s/\r\n/\n/g if $Config{osname} eq 'msys';
+	$stderr =~ s/\r\n/\n/g if $Config{osname} eq 'msys';
 
 	if (wantarray)
 	{

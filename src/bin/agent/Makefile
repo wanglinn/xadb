@@ -59,7 +59,7 @@ CFLAGS += -I$(top_srcdir)/$(subdir) $(python_includespec)
 
 ifeq ($(shared_libpython),yes)
 # We put libpgport and libpgcommon into OBJS, so remove it from LIBS
-LIBS := $(filter-out -lpgport -lpgcommon, $(LIBS) $(libpq_pgport))
+LIBS := $(filter-out -lpgcommon, $(LIBS) $(libpq_pgport))
 
 # The agent doesn't need everything that's in LIBS, however
 LIBS := $(filter-out -lz -lreadline -ledit -ltermcap -lncurses -lcurses, $(LIBS))

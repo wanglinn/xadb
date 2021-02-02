@@ -39,8 +39,7 @@ lo_manage(PG_FUNCTION_ARGS)
 		 */
 		elog(ERROR, "not fired by trigger manager");
 #else
-		elog(ERROR, "%s: not fired by trigger manager",
-			 trigdata->tg_trigger->tgname);
+		elog(ERROR, "lo_manage: not fired by trigger manager");
 #endif
 
 	if (!TRIGGER_FIRED_FOR_ROW(trigdata->tg_event)) /* internal error */

@@ -30,6 +30,7 @@
 #include "access/xlog.h"
 #include "access/xloginsert.h"
 #include "access/xlogutils.h"
+#include "catalog/index.h"
 #include "catalog/namespace.h"
 #include "catalog/storage.h"
 #include "commands/async.h"
@@ -2531,9 +2532,10 @@ CommitTransaction(void)
 
 	/*
 	 * Do pre-commit processing that involves calling user-defined code, such
-	 * as triggers.  Since closing cursors could queue trigger actions,
-	 * triggers could open cursors, etc, we have to keep looping until there's
-	 * nothing left to do.
+	 * as triggers.  SECURITY_RESTRICTED_OPERATION contexts must not queue an
+	 * action that would run here, because that would bypass the sandbox.
+	 * Since closing cursors could queue trigger actions, triggers could open
+	 * cursors, etc, we have to keep looping until there's nothing left to do.
 	 */
 	for (;;)
 	{
@@ -2550,6 +2552,13 @@ CommitTransaction(void)
 		if (!PreCommit_Portals(false))
 			break;
 	}
+
+	/*
+	 * The remaining actions cannot call any user-defined code, so it's safe
+	 * to start shutting down within-transaction services.  But note that most
+	 * of this stuff could still throw an error, which would switch us into
+	 * the transaction-abort path.
+	 */
 
 	CallXactCallbacks(is_parallel_worker ? XACT_EVENT_PARALLEL_PRE_COMMIT
 					  : XACT_EVENT_PRE_COMMIT);
@@ -2591,13 +2600,6 @@ CommitTransaction(void)
 	}
 #endif
 
-	/*
-	 * The remaining actions cannot call any user-defined code, so it's safe
-	 * to start shutting down within-transaction services.  But note that most
-	 * of this stuff could still throw an error, which would switch us into
-	 * the transaction-abort path.
-	 */
-
 	/* If we might have parallel workers, clean them up now. */
 	if (IsInParallelMode())
 		AtEOXact_Parallel(true);
@@ -2615,18 +2617,19 @@ CommitTransaction(void)
 	AtEOXact_LargeObject(true);
 
 	/*
+	 * Insert notifications sent by NOTIFY commands into the queue.  This
+	 * should be late in the pre-commit sequence to minimize time spent
+	 * holding the notify-insertion lock.  However, this could result in
+	 * creating a snapshot, so we must do it before serializable cleanup.
+	 */
+	PreCommit_Notify();
+
+	/*
 	 * Mark serializable transaction as complete for predicate locking
 	 * purposes.  This should be done as late as we can put it and still allow
 	 * errors to be raised for failure patterns found at commit.
 	 */
 	PreCommit_CheckForSerializationFailure();
-
-	/*
-	 * Insert notifications sent by NOTIFY commands into the queue.  This
-	 * should be late in the pre-commit sequence to minimize time spent
-	 * holding the notify-insertion lock.
-	 */
-	PreCommit_Notify();
 
 	/* Prevent cancel/die interrupt while cleaning up */
 	HOLD_INTERRUPTS();
@@ -2910,14 +2913,14 @@ PrepareTransaction(void)
 	/* close large objects before lower-level cleanup */
 	AtEOXact_LargeObject(true);
 
+	/* NOTIFY requires no work at this point */
+
 	/*
 	 * Mark serializable transaction as complete for predicate locking
 	 * purposes.  This should be done as late as we can put it and still allow
 	 * errors to be raised for failure patterns found at commit.
 	 */
 	PreCommit_CheckForSerializationFailure();
-
-	/* NOTIFY will be handled below */
 
 	/*
 	 * Don't allow PREPARE TRANSACTION if we've accessed a temporary table in
@@ -3357,6 +3360,9 @@ AbortTransaction(void)
 	 * take care of rolling them back if need be.)
 	 */
 	SetUserIdAndSecContext(s->prevUser, s->prevSecContext);
+
+	/* Forget about any active REINDEX. */
+	ResetReindexState(s->nestingLevel);
 
 	/* If in parallel mode, clean up workers and exit parallel mode. */
 	if (IsInParallelMode())
@@ -5628,6 +5634,9 @@ AbortSubTransaction(void)
 	 * AbortTransaction.)
 	 */
 	SetUserIdAndSecContext(s->prevUser, s->prevSecContext);
+
+	/* Forget about any active REINDEX. */
+	ResetReindexState(s->nestingLevel);
 
 	/* Exit from parallel mode, if necessary. */
 	if (IsInParallelMode())

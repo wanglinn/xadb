@@ -403,6 +403,59 @@ CREATE TABLE products (
     ensure that a column does not contain null values, the not-null
     constraint described in the next section can be used.
    </para>
+
+   <note>
+    <para>
+     <productname>PostgreSQL</productname> does not support
+     <literal>CHECK</literal> constraints that reference table data other than
+     the new or updated row being checked.  While a <literal>CHECK</literal>
+     constraint that violates this rule may appear to work in simple
+     tests, it cannot guarantee that the database will not reach a state
+     in which the constraint condition is false (due to subsequent changes
+     of the other row(s) involved).  This would cause a database dump and
+     reload to fail.  The reload could fail even when the complete
+     database state is consistent with the constraint, due to rows not
+     being loaded in an order that will satisfy the constraint.  If
+     possible, use <literal>UNIQUE</literal>, <literal>EXCLUDE</literal>,
+     or <literal>FOREIGN KEY</literal> constraints to express
+     cross-row and cross-table restrictions.
+    </para>
+
+    <para>
+     If what you desire is a one-time check against other rows at row
+     insertion, rather than a continuously-maintained consistency
+     guarantee, a custom <link linkend="triggers">trigger</link> can be used
+     to implement that.  (This approach avoids the dump/reload problem because
+     <application>pg_dump</application> does not reinstall triggers until after
+     reloading data, so that the check will not be enforced during a
+     dump/reload.)
+    </para>
+   </note>
+
+   <note>
+    <para>
+     <productname>PostgreSQL</productname> assumes that
+     <literal>CHECK</literal> constraints' conditions are immutable, that
+     is, they will always give the same result for the same input row.
+     This assumption is what justifies examining <literal>CHECK</literal>
+     constraints only when rows are inserted or updated, and not at other
+     times.  (The warning above about not referencing other table data is
+     really a special case of this restriction.)
+    </para>
+
+    <para>
+     An example of a common way to break this assumption is to reference a
+     user-defined function in a <literal>CHECK</literal> expression, and
+     then change the behavior of that
+     function.  <productname>PostgreSQL</productname> does not disallow
+     that, but it will not notice if there are rows in the table that now
+     violate the <literal>CHECK</literal> constraint. That would cause a
+     subsequent database dump and reload to fail.
+     The recommended way to handle such a change is to drop the constraint
+     (using <command>ALTER TABLE</command>), adjust the function definition,
+     and re-add the constraint, thereby rechecking it against all table rows.
+    </para>
+   </note>
   </sect2>
 
   <sect2>
@@ -1200,7 +1253,7 @@ ALTER TABLE products ADD COLUMN description text;
     </para>
 
     <para>
-     However, if the default value is volatile (e.g.
+     However, if the default value is volatile (e.g.,
      <function>clock_timestamp()</function>)
      each row will need to be updated with the value calculated at the time
      <command>ALTER TABLE</command> is executed. To avoid a potentially
@@ -1470,7 +1523,7 @@ ALTER TABLE products RENAME TO items;
 
   <para>
    An object can be assigned to a new owner with an <command>ALTER</command>
-   command of the appropriate kind for the object, e.g. <xref
+   command of the appropriate kind for the object, e.g., <xref
    linkend="sql-altertable"/>.  Superusers can always do
    this; ordinary roles can only do it if they are both the current owner
    of the object (or a member of the owning role) and a member of the new
@@ -2001,19 +2054,18 @@ SELECT * FROM information WHERE group_id = 2 FOR UPDATE;
   </indexterm>
 
   <para>
-   A <productname>PostgreSQL</productname> database cluster
-   contains one or more named databases.  Users and groups of users are
-   shared across the entire cluster, but no other data is shared across
-   databases.  Any given client connection to the server can access
-   only the data in a single database, the one specified in the connection
-   request.
+   A <productname>PostgreSQL</productname> database cluster contains
+   one or more named databases.  Roles and a few other object types are
+   shared across the entire cluster.  A client connection to the server
+   can only access data in a single database, the one specified in the
+   connection request.
   </para>
 
   <note>
    <para>
     Users of a cluster do not necessarily have the privilege to access every
-    database in the cluster.  Sharing of user names means that there
-    cannot be different users named, say, <literal>joe</literal> in two databases
+    database in the cluster.  Sharing of role names means that there
+    cannot be different roles named, say, <literal>joe</literal> in two databases
     in the same cluster; but the system can be configured to allow
     <literal>joe</literal> access to only some of the databases.
    </para>
@@ -2390,56 +2442,57 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
    <title>Usage Patterns</title>
 
    <para>
-    Schemas can be used to organize your data in many ways.  There are a few
-    usage patterns easily supported by the default configuration, only one of
-    which suffices when database users mistrust other database users:
+    Schemas can be used to organize your data in many ways.
+    A <firstterm>secure schema usage pattern</firstterm> prevents untrusted
+    users from changing the behavior of other users' queries.  When a database
+    does not use a secure schema usage pattern, users wishing to securely
+    query that database would take protective action at the beginning of each
+    session.  Specifically, they would begin each session by
+    setting <varname>search_path</varname> to the empty string or otherwise
+    removing non-superuser-writable schemas
+    from <varname>search_path</varname>.  There are a few usage patterns
+    easily supported by the default configuration:
     <itemizedlist>
      <listitem>
       <!-- "DROP SCHEMA public" is inferior to this REVOKE, because pg_dump
-           doesn't preserve that DROP. -->
+           doesn't preserve that DROP.
+
+           A database owner can attack the database's users via "CREATE SCHEMA
+           trojan; ALTER DATABASE $mydb SET search_path = trojan, public;".  A
+           CREATEROLE user can issue "GRANT $dbowner TO $me" and then use the
+           database owner attack. -->
       <para>
        Constrain ordinary users to user-private schemas.  To implement this,
        issue <literal>REVOKE CREATE ON SCHEMA public FROM PUBLIC</literal>,
-       and create a schema for each user with the same name as that user.  If
-       affected users had logged in before this, consider auditing the public
+       and create a schema for each user with the same name as that user.
+       Recall that the default search path starts
+       with <literal>$user</literal>, which resolves to the user name.
+       Therefore, if each user has a separate schema, they access their own
+       schemas by default.  After adopting this pattern in a database where
+       untrusted users had already logged in, consider auditing the public
        schema for objects named like objects in
-       schema <literal>pg_catalog</literal>.  Recall that the default search
-       path starts with <literal>$user</literal>, which resolves to the user
-       name.  Therefore, if each user has a separate schema, they access their
-       own schemas by default.
+       schema <literal>pg_catalog</literal>.  This pattern is a secure schema
+       usage pattern unless an untrusted user is the database owner or holds
+       the <literal>CREATEROLE</literal> privilege, in which case no secure
+       schema usage pattern exists.
+      </para>
+      <para>
       </para>
      </listitem>
 
      <listitem>
       <para>
-       Remove the public schema from each user's default search path
-       using <literal>ALTER ROLE <replaceable>user</replaceable> SET
-       search_path = "$user"</literal>.  Everyone retains the ability to
-       create objects in the public schema, but only qualified names will
-       choose those objects.  While qualified table references are fine, calls
-       to functions in the public schema <link linkend="typeconv-func">will be
-       unsafe or unreliable</link>.  Also, a user holding
-       the <literal>CREATEROLE</literal> privilege can undo this setting and
-       issue arbitrary queries under the identity of users relying on the
-       setting.  If you create functions or extensions in the public schema or
-       grant <literal>CREATEROLE</literal> to users not warranting this
-       almost-superuser ability, use the first pattern instead.
-      </para>
-     </listitem>
-
-     <listitem>
-      <para>
-       Remove the public schema from <varname>search_path</varname> in
-       <link linkend="config-setting-configuration-file"><filename>postgresql.conf</filename></link>.
-       The ensuing user experience matches the previous pattern.  In addition
-       to that pattern's implications for functions
-       and <literal>CREATEROLE</literal>, this trusts database owners
-       like <literal>CREATEROLE</literal>.  If you create functions or
-       extensions in the public schema or assign
-       the <literal>CREATEROLE</literal>
-       privilege, <literal>CREATEDB</literal> privilege or individual database
-       ownership to users not warranting almost-superuser access, use the
-       first pattern instead.
+       Remove the public schema from the default search path, by modifying
+       <link linkend="config-setting-configuration-file"><filename>postgresql.conf</filename></link>
+       or by issuing <literal>ALTER ROLE ALL SET search_path =
+       "$user"</literal>.  Everyone retains the ability to create objects in
+       the public schema, but only qualified names will choose those objects.
+       While qualified table references are fine, calls to functions in the
+       public schema <link linkend="typeconv-func">will be unsafe or
+       unreliable</link>.  If you create functions or extensions in the public
+       schema, use the first pattern instead.  Otherwise, like the first
+       pattern, this is secure unless an untrusted user is the database owner
+       or holds the <literal>CREATEROLE</literal> privilege.
       </para>
      </listitem>
 
@@ -2447,10 +2500,9 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
       <para>
        Keep the default.  All users access the public schema implicitly.  This
        simulates the situation where schemas are not available at all, giving
-       a smooth transition from the non-schema-aware world.  However, any user
-       can issue arbitrary queries under the identity of any user not electing
-       to protect itself individually.  This pattern is acceptable only when
-       the database has a single user or a few mutually-trusting users.
+       a smooth transition from the non-schema-aware world.  However, this is
+       never a secure pattern.  It is acceptable only when the database has a
+       single user or a few mutually-trusting users.
       </para>
      </listitem>
     </itemizedlist>
@@ -2534,7 +2586,7 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 CREATE TABLE cities (
     name            text,
     population      float,
-    altitude        int     -- in feet
+    elevation       int     -- in feet
 );
 
 CREATE TABLE capitals (
@@ -2554,40 +2606,40 @@ CREATE TABLE capitals (
    rows of a table or all rows of a table plus all of its descendant tables.
    The latter behavior is the default.
    For example, the following query finds the names of all cities,
-   including state capitals, that are located at an altitude over
+   including state capitals, that are located at an elevation over
    500 feet:
 
 <programlisting>
-SELECT name, altitude
+SELECT name, elevation
     FROM cities
-    WHERE altitude &gt; 500;
+    WHERE elevation &gt; 500;
 </programlisting>
 
    Given the sample data from the <productname>PostgreSQL</productname>
    tutorial (see <xref linkend="tutorial-sql-intro"/>), this returns:
 
 <programlisting>
-   name    | altitude
------------+----------
- Las Vegas |     2174
- Mariposa  |     1953
- Madison   |      845
+   name    | elevation
+-----------+-----------
+ Las Vegas |      2174
+ Mariposa  |      1953
+ Madison   |       845
 </programlisting>
   </para>
 
   <para>
    On the other hand, the following query finds all the cities that
-   are not state capitals and are situated at an altitude over 500 feet:
+   are not state capitals and are situated at an elevation over 500 feet:
 
 <programlisting>
-SELECT name, altitude
+SELECT name, elevation
     FROM ONLY cities
-    WHERE altitude &gt; 500;
+    WHERE elevation &gt; 500;
 
-   name    | altitude
------------+----------
- Las Vegas |     2174
- Mariposa  |     1953
+   name    | elevation
+-----------+-----------
+ Las Vegas |      2174
+ Mariposa  |      1953
 </programlisting>
   </para>
 
@@ -2606,9 +2658,9 @@ SELECT name, altitude
    to explicitly specify that descendant tables are included:
 
 <programlisting>
-SELECT name, altitude
+SELECT name, elevation
     FROM cities*
-    WHERE altitude &gt; 500;
+    WHERE elevation &gt; 500;
 </programlisting>
 
    Writing <literal>*</literal> is not necessary, since this behavior is always
@@ -2623,19 +2675,19 @@ SELECT name, altitude
    originating table:
 
 <programlisting>
-SELECT c.tableoid, c.name, c.altitude
+SELECT c.tableoid, c.name, c.elevation
 FROM cities c
-WHERE c.altitude &gt; 500;
+WHERE c.elevation &gt; 500;
 </programlisting>
 
    which returns:
 
 <programlisting>
- tableoid |   name    | altitude
-----------+-----------+----------
-   139793 | Las Vegas |     2174
-   139793 | Mariposa  |     1953
-   139798 | Madison   |      845
+ tableoid |   name    | elevation
+----------+-----------+-----------
+   139793 | Las Vegas |      2174
+   139793 | Mariposa  |      1953
+   139798 | Madison   |       845
 </programlisting>
 
    (If you try to reproduce this example, you will probably get
@@ -2643,19 +2695,19 @@ WHERE c.altitude &gt; 500;
    <structname>pg_class</structname> you can see the actual table names:
 
 <programlisting>
-SELECT p.relname, c.name, c.altitude
+SELECT p.relname, c.name, c.elevation
 FROM cities c, pg_class p
-WHERE c.altitude &gt; 500 AND c.tableoid = p.oid;
+WHERE c.elevation &gt; 500 AND c.tableoid = p.oid;
 </programlisting>
 
    which returns:
 
 <programlisting>
- relname  |   name    | altitude
-----------+-----------+----------
- cities   | Las Vegas |     2174
- cities   | Mariposa  |     1953
- capitals | Madison   |      845
+ relname  |   name    | elevation
+----------+-----------+-----------
+ cities   | Las Vegas |      2174
+ cities   | Mariposa  |      1953
+ capitals | Madison   |       845
 </programlisting>
   </para>
 
@@ -2664,9 +2716,9 @@ WHERE c.altitude &gt; 500 AND c.tableoid = p.oid;
    alias type, which will print the table OID symbolically:
 
 <programlisting>
-SELECT c.tableoid::regclass, c.name, c.altitude
+SELECT c.tableoid::regclass, c.name, c.elevation
 FROM cities c
-WHERE c.altitude &gt; 500;
+WHERE c.elevation &gt; 500;
 </programlisting>
   </para>
 
@@ -2676,7 +2728,7 @@ WHERE c.altitude &gt; 500;
    other tables in the inheritance hierarchy. In our example, the
    following <command>INSERT</command> statement will fail:
 <programlisting>
-INSERT INTO cities (name, population, altitude, state)
+INSERT INTO cities (name, population, elevation, state)
 VALUES ('Albany', NULL, NULL, 'NY');
 </programlisting>
    We might hope that the data would somehow be routed to the
@@ -2767,7 +2819,15 @@ VALUES ('Albany', NULL, NULL, 'NY');
    accessed through <structname>cities</structname>.  This preserves the appearance
    that the data is (also) in the parent table.  But
    the <structname>capitals</structname> table could not be updated directly
-   without an additional grant.  In a similar way, the parent table's row
+   without an additional grant.  Two exceptions to this rule are
+   <command>TRUNCATE</command> and <command>LOCK TABLE</command>,
+   where permissions on the child tables are always checked,
+   whether they are processed directly or recursively via those commands
+   performed on the parent table.
+  </para>
+
+  <para>
+   In a similar way, the parent table's row
    security policies (see <xref linkend="ddl-rowsecurity"/>) are applied to
    rows coming from child tables during an inherited query.  A child table's
    policies, if any, are applied only when it is the table explicitly named
@@ -3264,7 +3324,7 @@ CREATE INDEX ON measurement (logdate);
 
     <para>
       Normally the set of partitions established when initially defining the
-      table are not intended to remain static.  It is common to want to
+      table is not intended to remain static.  It is common to want to
       remove old partitions of data and periodically add new partitions for
       new data. One of the most important advantages of partitioning is
       precisely that it allows this otherwise painful task to be executed
@@ -3400,8 +3460,8 @@ ALTER INDEX measurement_city_id_logdate_key
 
      <listitem>
       <para>
-       Unique constraints on partitioned tables must include all the
-       partition key columns.  This limitation exists because
+       Unique constraints (and hence primary keys) on partitioned tables must
+       include all the partition key columns.  This limitation exists because
        <productname>PostgreSQL</productname> can only enforce
        uniqueness in each partition individually.
       </para>
@@ -3487,8 +3547,8 @@ ALTER INDEX measurement_city_id_logdate_key
      <title>Example</title>
 
      <para>
-      We use the same <structname>measurement</structname> table we used
-      above.  To implement partitioning using inheritance, use
+      We use the non-partitioned <structname>measurement</structname>
+      table above.  To implement partitioning using inheritance, use
       the following steps:
 
       <orderedlist spacing="compact">

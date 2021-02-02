@@ -222,8 +222,7 @@ GetConnection(void)
 
 	if (PQstatus(tmpconn) != CONNECTION_OK)
 	{
-		fprintf(stderr, _("%s: could not connect to server: %s"),
-				progname, PQerrorMessage(tmpconn));
+		fprintf(stderr, _("%s: %s"), progname, PQerrorMessage(tmpconn));
 		PQfinish(tmpconn);
 		free(values);
 		free(keywords);
@@ -342,8 +341,11 @@ RetrieveWalSegSize(PGconn *conn)
 	{
 		fprintf(stderr, _("%s: WAL segment size could not be parsed\n"),
 				progname);
+		PQclear(res);
 		return false;
 	}
+
+	PQclear(res);
 
 	/* set the multiplier based on unit to convert xlog_val to bytes */
 	if (strcmp(xlog_unit, "MB") == 0)
@@ -364,7 +366,6 @@ RetrieveWalSegSize(PGconn *conn)
 		return false;
 	}
 
-	PQclear(res);
 	return true;
 }
 

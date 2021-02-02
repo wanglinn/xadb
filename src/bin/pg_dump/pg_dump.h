@@ -136,6 +136,7 @@ typedef struct _dumpableObject
 	DumpComponents dump;		/* bitmask of components to dump */
 	DumpComponents dump_contains;	/* as above, but for contained objects */
 	bool		ext_member;		/* true if object is member of extension */
+	bool		depends_on_ext;	/* true if object depends on an extension */
 	DumpId	   *dependencies;	/* dumpIds of objects this one depends on */
 	int			nDeps;			/* number of valid dependencies */
 	int			allocDeps;		/* allocated size of dependencies[] */
@@ -376,7 +377,7 @@ typedef struct _indxInfo
 								 * contains both key and nonkey attributes */
 	bool		indisclustered;
 	bool		indisreplident;
-	Oid			parentidx;		/* if partitioned, parent index OID */
+	Oid			parentidx;		/* if a partition, parent index OID */
 	/* if there is an associated constraint object, its dumpId: */
 	DumpId		indexconstraint;
 	int			relpages;		/* relpages of the underlying table */

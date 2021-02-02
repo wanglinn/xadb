@@ -302,7 +302,7 @@ EXPLAIN SELECT * FROM pgbench_accounts WHERE filler LIKE '%x%';
         scan</emphasis>, the cooperating processes take turns reading data from the
         index.  Currently, parallel index scans are supported only for
         btree indexes.  Each process will claim a single index block and will
-        scan and return all tuples referenced by that block; other process can
+        scan and return all tuples referenced by that block; other processes can
         at the same time be returning tuples from a different index block.
         The results of a parallel btree scan are returned in sorted order
         within each worker process.
@@ -435,7 +435,7 @@ EXPLAIN SELECT * FROM pgbench_accounts WHERE filler LIKE '%x%';
     involve appending multiple results sets can therefore achieve
     coarse-grained parallelism even when efficient partial plans are not
     available.  For example, consider a query against a partitioned table
-    which can be only be implemented efficiently by using an index that does
+    which can only be implemented efficiently by using an index that does
     not support parallel scans.  The planner might choose a <literal>Parallel
     Append</literal> of regular <literal>Index Scan</literal> plans; each
     individual index scan would have to be executed to completion by a single
@@ -458,7 +458,7 @@ EXPLAIN SELECT * FROM pgbench_accounts WHERE filler LIKE '%x%';
     <xref linkend="guc-parallel-tuple-cost"/>.  Of course, this plan may turn
     out to be slower than the serial plan which the planner preferred, but
     this will not always be the case.  If you don't get a parallel
-    plan even with very small values of these settings (e.g. after setting
+    plan even with very small values of these settings (e.g., after setting
     them both to zero), there may be some reason why the query planner is
     unable to generate a parallel plan for your query.  See
     <xref linkend="when-can-parallel-query-be-used"/> and
@@ -496,7 +496,7 @@ EXPLAIN SELECT * FROM pgbench_accounts WHERE filler LIKE '%x%';
   </para>
 
   <para>
-    The following operations are always parallel restricted.
+    The following operations are always parallel restricted:
   </para>
 
   <itemizedlist>
@@ -556,7 +556,7 @@ EXPLAIN SELECT * FROM pgbench_accounts WHERE filler LIKE '%x%';
   <para>
     Functions and aggregates must be marked <literal>PARALLEL UNSAFE</literal> if
     they write to the database, access sequences, change the transaction state
-    even temporarily (e.g. a PL/pgSQL function which establishes an
+    even temporarily (e.g., a PL/pgSQL function which establishes an
     <literal>EXCEPTION</literal> block to catch errors), or make persistent changes to
     settings.  Similarly, functions must be marked <literal>PARALLEL
     RESTRICTED</literal> if they access temporary tables, client connection state,

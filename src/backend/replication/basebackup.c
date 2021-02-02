@@ -67,7 +67,6 @@ static int64 _tarWriteDir(const char *pathbuf, int basepathlen, struct stat *sta
 			 bool sizeonly);
 static void send_int8_string(StringInfoData *buf, int64 intval);
 static void SendBackupHeader(List *tablespaces);
-static void base_backup_cleanup(int code, Datum arg);
 static void perform_base_backup(basebackup_options *opt);
 static void parse_basebackup_options(List *options, basebackup_options *opt);
 static void SendXlogRecPtrResult(XLogRecPtr ptr, TimeLineID tli);
@@ -125,6 +124,18 @@ static int64 total_checksum_failures;
 static bool noverify_checksums = false;
 
 /*
+ * Definition of one element part of an exclusion list, used for paths part
+ * of checksum validation or base backups.  "name" is the name of the file
+ * or path to check for exclusion.  If "match_prefix" is true, any items
+ * matching the name as prefix are excluded.
+ */
+struct exclude_list_item
+{
+	const char *name;
+	bool		match_prefix;
+};
+
+/*
  * The contents of these directories are removed or recreated during server
  * start so they are not included in backups.  The directories themselves are
  * kept and included as empty to preserve access permissions.
@@ -175,16 +186,19 @@ static const char *excludeDirContents[] =
 /*
  * List of files excluded from backups.
  */
-static const char *excludeFiles[] =
+static const struct exclude_list_item excludeFiles[] =
 {
 	/* Skip auto conf temporary file. */
-	PG_AUTOCONF_FILENAME ".tmp",
+	{PG_AUTOCONF_FILENAME ".tmp", false},
 
 	/* Skip current log file temporary file */
-	LOG_METAINFO_DATAFILE_TMP,
+	{LOG_METAINFO_DATAFILE_TMP, false},
 
-	/* Skip relation cache because it is rebuilt on startup */
-	RELCACHE_INIT_FILENAME,
+	/*
+	 * Skip relation cache because it is rebuilt on startup.  This includes
+	 * temporary files.
+	 */
+	{RELCACHE_INIT_FILENAME, true},
 
 	/*
 	 * If there's a backup_label or tablespace_map file, it belongs to a
@@ -192,14 +206,14 @@ static const char *excludeFiles[] =
 	 * for this backup.  Our backup_label/tablespace_map is injected into the
 	 * tar separately.
 	 */
-	BACKUP_LABEL_FILE,
-	TABLESPACE_MAP,
+	{BACKUP_LABEL_FILE, false},
+	{TABLESPACE_MAP, false},
 
-	"postmaster.pid",
-	"postmaster.opts",
+	{"postmaster.pid", false},
+	{"postmaster.opts", false},
 
 	/* end of list */
-	NULL
+	{NULL, false}
 };
 
 /*
@@ -208,28 +222,16 @@ static const char *excludeFiles[] =
  * Note: this list should be kept in sync with what pg_verify_checksums.c
  * includes.
  */
-static const char *noChecksumFiles[] = {
-	"pg_control",
-	"pg_filenode.map",
-	"pg_internal.init",
-	"PG_VERSION",
+static const struct exclude_list_item noChecksumFiles[] = {
+	{"pg_control", false},
+	{"pg_filenode.map", false},
+	{"pg_internal.init", true},
+	{"PG_VERSION", false},
 #ifdef EXEC_BACKEND
-	"config_exec_params",
-	"config_exec_params.new",
+	{"config_exec_params", true},
 #endif
-	NULL,
+	{NULL, false}
 };
-
-
-/*
- * Called when ERROR or FATAL happens in perform_base_backup() after
- * we have started the backup - make sure we end it!
- */
-static void
-base_backup_cleanup(int code, Datum arg)
-{
-	do_pg_abort_backup();
-}
 
 /*
  * Actually do a base backup for the specified tablespaces.
@@ -269,7 +271,7 @@ perform_base_backup(basebackup_options *opt)
 	 * do_pg_stop_backup() should be inside the error cleanup block!
 	 */
 
-	PG_ENSURE_ERROR_CLEANUP(base_backup_cleanup, (Datum) 0);
+	PG_ENSURE_ERROR_CLEANUP(do_pg_abort_backup, BoolGetDatum(false));
 	{
 		ListCell   *lc;
 		tablespaceinfo *ti;
@@ -378,7 +380,7 @@ perform_base_backup(basebackup_options *opt)
 
 		endptr = do_pg_stop_backup(labelfile->data, !opt->nowait, &endtli);
 	}
-	PG_END_ENSURE_ERROR_CLEANUP(base_backup_cleanup, (Datum) 0);
+	PG_END_ENSURE_ERROR_CLEANUP(do_pg_abort_backup, BoolGetDatum(false));
 
 
 	if (opt->includewal)
@@ -1125,9 +1127,13 @@ sendDir(const char *path, int basepathlen, bool sizeonly, List *tablespaces,
 
 		/* Scan for files that should be excluded */
 		excludeFound = false;
-		for (excludeIdx = 0; excludeFiles[excludeIdx] != NULL; excludeIdx++)
+		for (excludeIdx = 0; excludeFiles[excludeIdx].name != NULL; excludeIdx++)
 		{
-			if (strcmp(de->d_name, excludeFiles[excludeIdx]) == 0)
+			int			cmplen = strlen(excludeFiles[excludeIdx].name);
+
+			if (!excludeFiles[excludeIdx].match_prefix)
+				cmplen++;
+			if (strncmp(de->d_name, excludeFiles[excludeIdx].name, cmplen) == 0)
 			{
 				elog(DEBUG1, "file \"%s\" excluded from backup", de->d_name);
 				excludeFound = true;
@@ -1360,17 +1366,24 @@ sendDir(const char *path, int basepathlen, bool sizeonly, List *tablespaces,
 static bool
 is_checksummed_file(const char *fullpath, const char *filename)
 {
-	const char **f;
-
 	/* Check that the file is in a tablespace */
 	if (strncmp(fullpath, "./global/", 9) == 0 ||
 		strncmp(fullpath, "./base/", 7) == 0 ||
 		strncmp(fullpath, "/", 1) == 0)
 	{
-		/* Compare file against noChecksumFiles skiplist */
-		for (f = noChecksumFiles; *f; f++)
-			if (strcmp(*f, filename) == 0)
+		int			excludeIdx;
+
+		/* Compare file against noChecksumFiles skip list */
+		for (excludeIdx = 0; noChecksumFiles[excludeIdx].name != NULL; excludeIdx++)
+		{
+			int			cmplen = strlen(noChecksumFiles[excludeIdx].name);
+
+			if (!noChecksumFiles[excludeIdx].match_prefix)
+				cmplen++;
+			if (strncmp(filename, noChecksumFiles[excludeIdx].name,
+						cmplen) == 0)
 				return false;
+		}
 
 		return true;
 	}
