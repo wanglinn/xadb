@@ -1315,6 +1315,9 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 		List		   *last_range_upperdatums;
 		CreateStmt		tmpStmt;
 		ObjectAddress	tmpAddr;
+		Relation		parentRel;
+		bool			relispartition = false;
+		Oid				currentRelId;
 
 		if (stmt->partspec == NULL)
 		{
@@ -1324,9 +1327,53 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 
 		}
 
+		currentRelId = RangeVarGetRelid(stmt->relation, NoLock, false);
+		parentRel = RelationIdGetRelation(currentRelId);
+		if (RelationIsValid(parentRel))
+		{
+			relispartition = parentRel->rd_rel->relispartition;
+			if (relispartition && list_length(stmt->child_rels) > 0)
+			{
+				HeapTuple				tuple;
+				Datum					datum;
+				bool					isnull;
+				PartitionBoundSpec	   *bspec, *tmpSpc;
+
+				tmpSpc = ((CreateStmt *) linitial(stmt->child_rels))->partbound;
+				if (tmpSpc->lowerdatums == NIL)
+				{
+					tuple = SearchSysCache1(RELOID, currentRelId);
+					if (!HeapTupleIsValid(tuple))
+						elog(ERROR, "cache lookup failed for relation %u", currentRelId);
+
+					datum = SysCacheGetAttr(RELOID, tuple,
+									Anum_pg_class_relpartbound,
+									&isnull);
+
+					if (isnull)
+						elog(ERROR, "null relpartbound for relation %u", currentRelId);
+
+					bspec = (PartitionBoundSpec *)
+						stringToNode(TextDatumGetCString(datum));
+					if (!IsA(bspec, PartitionBoundSpec))
+						elog(ERROR, "expected PartitionBoundSpec");
+					
+					if (bspec->strategy != PARTITION_STRATEGY_RANGE)
+						ereport(ERROR,
+								(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+								 errmsg("invalid bound specification for a range partition")));
+
+					tmpSpc->lowerdatums = copyObjectImpl(bspec->lowerdatums);
+					ReleaseSysCache(tuple);
+				}
+			}
+			
+			RelationClose(parentRel);
+		}
+
 		/* user maybe using "VALUES LESS THAN (...)", it is not have min values */
 		last_range_upperdatums = NIL;
-		if (pg_strcasecmp(stmt->partspec->strategy, "range") == 0)
+		if (pg_strcasecmp(stmt->partspec->strategy, "range") == 0 && !relispartition)
 		{
 			int n = list_length(stmt->partspec->partParams);
 			while(n>0)
