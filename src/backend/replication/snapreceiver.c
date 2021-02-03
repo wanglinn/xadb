@@ -1795,7 +1795,7 @@ static bool WaitSnapRcvEvent(TimestampTz end, proclist_head *waiters, bool is_ss
 		ResetLatch(latch);
 		if (rc & WL_POSTMASTER_DEATH)
 		{
-			exit(1);
+			elog(FATAL, "When wait SnapRcv get postmaster death event, just report fatal error.");
 		}else if(rc & WL_TIMEOUT)
 		{
 			ret = false;
