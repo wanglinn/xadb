@@ -3956,6 +3956,8 @@ int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
 	memset(&agtm_m_nodeinfo, 0, sizeof(AppendNodeInfo));
 	gtmMasterName = mgr_get_agtm_name();
 	get_nodeinfo(gtmMasterName, CNDN_TYPE_GTM_COOR_MASTER, &agtm_m_is_exist, &agtm_m_is_running, &agtm_m_nodeinfo);
+	if (agtm_m_is_exist && !agtm_m_is_running)
+		ereport(ERROR, (errmsg("gtmcoord master %s is not running", gtmMasterName)));
 
 	resetStringInfo(strinfo);
 	resetStringInfo(starttime);
