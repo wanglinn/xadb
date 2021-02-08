@@ -29,9 +29,9 @@ endif
 
 pg_waldump: $(PG_OBJS) | submake-libpgport
 ifeq ($(enable_cluster),yes)
-	$(CC) $(filter-out, -DADB, $(CFLAGS)) $^ $(patsubst -lpgcommon, -lpgcommon_pg, $(LDFLAGS)) $(LDFLAGS_EX) $(patsubst -lpgcommon, -lpgcommon_pg, $(LIBS)) -o $@$(X)
+	$(CC) $(CFLAGS) $^ $(patsubst -lpgcommon, -lpgcommon_pg, $(LDFLAGS)) $(LDFLAGS_EX) $(patsubst -lpgcommon, -lpgcommon_pg, $(LIBS)) -o $@$(X)
 else
-	$(CC) $(filter-out, -DADB, $(CFLAGS)) $^ $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 endif
 
 adb_waldump: $(ADB_OBJS) | submake-libpgport

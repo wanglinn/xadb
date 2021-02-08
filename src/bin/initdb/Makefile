@@ -40,13 +40,17 @@ OBJS = \
 	$(OBJ_S)
 OBJS_MGR= $(OBJ_S:%.o=%_mgr.o) $(WIN32RES)
 
+ifeq ($(enable_cluster),yes)
 all: initdb initmgr
+else
+all: initdb
+endif
 
 initdb: $(OBJS) | submake-libpq submake-libpgport submake-libpgfeutils
 	$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 
 initmgr: $(OBJS_MGR) | submake-libpq submake-libpgport submake-libpgfeutils
-	$(CC) $(OBJS_MGR) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
+	$(CC) $(CFLAGS) $(OBJS_MGR) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 
 $(OBJS_MGR): %_mgr.o : %.c
 	$(CC) $(patsubst -DPGXC,, $(patsubst -DADB,, $(CFLAGS))) $(CPPFLAGS) -DINITMGR -c -o $@ $<
@@ -57,14 +61,18 @@ localtime.c: % : $(top_srcdir)/src/timezone/%
 
 install: all installdirs
 	$(INSTALL_PROGRAM) initdb$(X) '$(DESTDIR)$(bindir)/initdb$(X)'
+ifeq ($(enable_cluster),yes)
 	$(INSTALL_PROGRAM) initmgr$(X) '$(DESTDIR)$(bindir)/initmgr$(X)'
+endif
 
 installdirs:
 	$(MKDIR_P) '$(DESTDIR)$(bindir)'
 
 uninstall:
 	rm -f '$(DESTDIR)$(bindir)/initdb$(X)'
+ifeq ($(enable_cluster),yes)
 	rm -f '$(DESTDIR)$(bindir)/initmgr$(X)'
+endif
 
 clean distclean maintainer-clean:
 	rm -f initdb$(X) initmgr$(X) $(OBJS) $(OBJS_MGR) $(OBJS_AGTM) localtime.c
