@@ -778,7 +778,7 @@ syncTargetDirectory(const char *argv0)
 #ifdef ADB
 							   "initdb (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n",
 #else
-							"initdb (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n",
+							   "initdb (PostgreSQL) " PG_VERSION "\n",
 #endif
 							   exec_path)) < 0)
 	{
