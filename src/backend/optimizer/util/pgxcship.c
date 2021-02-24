@@ -2237,7 +2237,7 @@ List *adb_get_all_dist_vars(Index varno, RangeTblEntry *rte, List *tlist, struct
 	LocatorKeyInfo *key;
 
 	if (loc == NULL ||
-		!IsRelationDistributedByValue(loc));
+		!IsRelationDistributedByValue(loc))
 		return NIL;
 	
 	list = NIL;
