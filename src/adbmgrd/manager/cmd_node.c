@@ -316,10 +316,6 @@ static bool MgrCheckChildAndParent(Oid childOid, Oid parentOid);
 static Datum mgr_monitor_ha_common(PG_FUNCTION_ARGS, char *zone);
 static void mgr_start_zone_nodes(char *zoneNameIn, char cmdType, char nodeType);
 static void mgr_stop_zone_nodes(char *zoneNameIn, const char *shutdownMode, char cmdType, char nodeType);
-static bool mgrCheckNodeIsExclude(List *nodeNamelist, char *excludeNodeName);
-static void mgr_make_sure_all_running_exclude(char node_type, 
-												char *zone, 
-												List *excludeNodeNamelist);
 static void MgrQueryStatReplicationSlave(Form_mgr_node childNode, 
 										 NameData *name);									 
 static HeapTuple MgrQueryStatReplicationMaster(Oid masterOid, 
@@ -5650,105 +5646,6 @@ void mgr_make_sure_all_running(char node_type, char *zone)
 
 	return;
 }
-static bool mgrCheckNodeIsExclude(List *nodeNamelist, char *excludeNodeName)
-{
-	bool 		exclude = false;
-	ListCell   	*cell;
-	Value 		*val;
-
-	foreach(cell, nodeNamelist)
-	{
-		val = lfirst(cell);
-		Assert(val && IsA(val,String));
-		if (pg_strcasecmp(excludeNodeName, strVal(val)) == 0)
-		{
-			exclude = true;
-			break;
-		}
-	}
-	return exclude;
-}
-static void mgr_make_sure_all_running_exclude(char node_type, char *zone, List *excludeNodeNamelist)
-{
-	InitNodeInfo *info;
-	ScanKeyData key[4];
-	HeapTuple tuple;
-	Form_mgr_node mgr_node;
-	char * hostaddr = NULL;
-	char *nodetype_str = NULL;
-	char *user;
-	NameData nodetypestr_data;
-	NameData nodename;
-
-	ScanKeyInit(&key[0]
-				,Anum_mgr_node_nodeinited
-				,BTEqualStrategyNumber
-				,F_BOOLEQ
-				,BoolGetDatum(true));
-
-	ScanKeyInit(&key[1]
-				,Anum_mgr_node_nodeincluster
-				,BTEqualStrategyNumber
-				,F_BOOLEQ
-				,BoolGetDatum(true));
-
-	ScanKeyInit(&key[2]
-				,Anum_mgr_node_nodetype
-				,BTEqualStrategyNumber
-				,F_CHAREQ
-				,CharGetDatum(node_type));
-    
-	if (zone != NULL){
-		ScanKeyInit(&key[3]
-			,Anum_mgr_node_nodezone
-			,BTEqualStrategyNumber
-			,F_NAMEEQ
-			,CStringGetDatum(zone));
-	}
-
-	info = (InitNodeInfo *)palloc0(sizeof(InitNodeInfo));
-	info->rel_node = table_open(NodeRelationId, AccessShareLock);
-	if (zone != NULL){
-		info->rel_scan = table_beginscan_catalog(info->rel_node, 4, key);
-	}
-	else{
-		info->rel_scan = table_beginscan_catalog(info->rel_node, 3, key);
-	}
-
-	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
-	{
-		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
-		Assert(mgr_node);
-		if (mgrCheckNodeIsExclude(excludeNodeNamelist, NameStr(mgr_node->nodename)))
-			continue;
-
-		hostaddr = get_hostaddress_from_hostoid(mgr_node->nodehost);
-		user = get_hostuser_from_hostoid(mgr_node->nodehost);
-		if (!is_node_running(hostaddr, mgr_node->nodeport, user, mgr_node->nodetype))
-		{
-			nodetype_str = mgr_nodetype_str(mgr_node->nodetype);
-			namestrcpy(&nodename, NameStr(mgr_node->nodename));
-			table_endscan(info->rel_scan);
-			table_close(info->rel_node, AccessShareLock);
-			pfree(info);
-			pfree(hostaddr);
-			pfree(user);
-			namestrcpy(&nodetypestr_data, nodetype_str);
-			pfree(nodetype_str);
-			ereport(ERROR, (errmsg("%s \"%s\" is not running, so you can't perform the current operation.", nodetypestr_data.data,nodename.data)));
-		} 
-		pfree(user);
-	}
-
-	table_endscan(info->rel_scan);
-	table_close(info->rel_node, AccessShareLock);
-	pfree(info);
-
-	if (hostaddr != NULL)
-		pfree(hostaddr);
-
-	return;
-}
 
 bool is_node_running(char *hostaddr, int32 hostport, char *user, char nodetype)
 {
@@ -6296,6 +6193,13 @@ static bool mgr_drop_node_on_all_coord(char nodetype, char *nodename)
 
 			if ((strcmp(NameStr(mgr_node->nodename), nodename) == 0) && mgr_node->nodetype == nodetype)
 				continue;
+
+			if (!makesure_node_is_running(mgr_node, mgr_node->nodeport) && mgr_node->nodetype == CNDN_TYPE_COORDINATOR_MASTER)
+			{
+				ereportWarningLog(errmsg("%s \"%s\" is not running, so the pgxc_node of this node is not modify, please modify it by hand.", 
+				  	mgr_get_nodetype_desc(mgr_node->nodetype), NameStr(mgr_node->nodename)));
+				continue;
+			}
 
 			sql = psprintf("drop node \"%s\"; set FORCE_PARALLEL_MODE = off;", nodename);
 			if (ExecuteSqlOnPostgres(mgr_node, 0, sql))
@@ -13238,7 +13142,6 @@ Datum mgr_remove_node_func(PG_FUNCTION_ARGS)
 		table_endscan(rel_scan);
 
 		mgr_make_sure_all_running(CNDN_TYPE_GTM_COOR_MASTER, mgr_zone);
-		mgr_make_sure_all_running_exclude(CNDN_TYPE_COORDINATOR_MASTER, mgr_zone, nodenamelist);
 	}
 
 	foreach(cell, nodenamelist)
