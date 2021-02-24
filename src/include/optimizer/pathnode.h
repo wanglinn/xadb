@@ -87,9 +87,11 @@ extern MergeAppendPath *create_merge_append_path(PlannerInfo *root,
 						 List *partitioned_rels);
 extern ResultPath *create_result_path(PlannerInfo *root, RelOptInfo *rel,
 				   PathTarget *target, List *resconstantqual);
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 extern FilterPath *create_filter_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 									  PathTarget *target, List *quals);
+#endif
+#ifdef ADB
 extern Path *replicate_to_one_node(PlannerInfo *root, RelOptInfo *rel, Path *path, List *target_oids);
 #endif /* ADB */
 extern MaterialPath *create_material_path(RelOptInfo *rel, Path *subpath);

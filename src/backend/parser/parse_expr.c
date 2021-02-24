@@ -1517,7 +1517,6 @@ static void tryTransformRowidIn(ScalarArrayOpExpr *saop, ParseState *pstate)
 	arr->array_typeid = TIDARRAYOID;
 	saop->opfuncid = F_TIDEQ;
 	saop->opno = TIDEqualOperator;
-	return saop;
 }
 #endif /* defined(ADB_GRAM_ORA) && !defined(ADB) */
 

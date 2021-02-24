@@ -154,8 +154,8 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	PartitionBoundSpec	*partboundspec;
 	OracleConnectBy		*connectby;
 	SelectSortClause	*select_order_by;
-/* ADB_BEGIN */
 	PartitionSpec		*partspec;
+/* ADB_BEGIN */
 	PGXCSubCluster		*subclus;
 /* ADB_END */
 /* ADB_EXT */
@@ -273,7 +273,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	transaction_mode_list /*transaction_mode_list_or_empty*/ trim_list
 	var_list within_group_clause package_declare_list package_body_list
 
-%type <list>	group_by_list prep_type_clause execute_param_clause 
+%type <list>	group_by_list prep_type_clause execute_param_clause
 %type <node>	group_by_item rollup_clause empty_grouping_set cube_clause grouping_sets_clause
 
 %type <node>
@@ -355,10 +355,11 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %type <connectby>	opt_connect_by_clause connect_by_clause
 %type <select_order_by> opt_select_sort_clause select_sort_clause
 %type <keep>		keep_clause
+%type <partspec>	SubPartitionSpec
 
 /* ADB_BEGIN */
 %type <defelt>	SubClusterNodeElem
-%type <partspec>	OptDistributeBy OptDistributeByInternal SubPartitionSpec
+%type <partspec>	OptDistributeBy OptDistributeByInternal
 %type <list>	pgxcnodes pgxcnode_list SubClusterNodeList
 %type <str>		pgxcgroup_name pgxcnode_name
 %type <subclus> OptSubCluster OptSubClusterInternal

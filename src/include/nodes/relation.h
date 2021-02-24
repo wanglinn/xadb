@@ -1418,9 +1418,9 @@ typedef struct ResultPath
 {
 	Path		path;
 	List	   *quals;
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	Path	   *subpath;
-#endif /* ADB */
+#endif /* ADB || ADB_GRAM_ORA */
 } ResultPath;
 
 /*
@@ -1899,9 +1899,11 @@ typedef struct ReduceScanPath
 	List	   *rescan_clauses;
 }ReduceScanPath;
 
-typedef ResultPath FilterPath;
-
 #endif /* ADB */
+
+#if defined(ADB) || defined(ADB_GRAM_ORA)
+typedef ResultPath FilterPath;
+#endif
 
 #ifdef ADB_GRAM_ORA
 typedef struct ConnectByPath

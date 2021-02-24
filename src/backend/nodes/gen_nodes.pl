@@ -277,7 +277,7 @@ foreach my $key (sort keys %all_enum)
 	print H "\n#ifndef NO_ENUM_$key\nBEGIN_ENUM($key)\n";
 	foreach my $item (@{$all_enum{$key}})
 	{
-		if($item =~ /ifdef/)
+		if($item =~ /ifdef|if\s+defined/)
 		{
 			$item =~ s/\n//g;
 		}

@@ -96,7 +96,7 @@ static Plan *create_merge_append_plan(PlannerInfo *root, MergeAppendPath *best_p
 						 int flags);
 static Result *create_result_plan(PlannerInfo *root, ResultPath *best_path);
 static ProjectSet *create_project_set_plan(PlannerInfo *root, ProjectSetPath *best_path);
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 static Result *create_filter_plan(PlannerInfo *root, FilterPath *best_path);
 #endif /* ADB */
 static Material *create_material_plan(PlannerInfo *root, MaterialPath *best_path,
@@ -462,13 +462,13 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 				plan = (Plan *) create_minmaxagg_plan(root,
 													  (MinMaxAggPath *) best_path);
 			}
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 			else if (IsA(best_path, FilterPath))
 			{
 				plan = (Plan*)create_filter_plan(root,
 												 (FilterPath*)best_path);
 			}
-#endif /* ADB */
+#endif /* ADB_GRAM_ORA */
 			else
 			{
 				Assert(IsA(best_path, ResultPath));
@@ -1444,7 +1444,7 @@ create_result_plan(PlannerInfo *root, ResultPath *best_path)
 	return plan;
 }
 
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 static Result *create_filter_plan(PlannerInfo *root, FilterPath *best_path)
 {
 	Result	   *plan;
@@ -1466,7 +1466,7 @@ static Result *create_filter_plan(PlannerInfo *root, FilterPath *best_path)
 
 	return plan;
 }
-#endif /* ADB */
+#endif /* ADB || ADB_GRAM_ORA */
 
 /*
  * create_project_set_plan

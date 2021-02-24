@@ -1797,7 +1797,7 @@ END_NODE(MergeAppendPath)
 BEGIN_NODE(ResultPath)
 	NODE_BASE2(Path,path)
 	NODE_NODE(List,quals)
-#ifdef ADB
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	NODE_NODE(Path,subpath)
 #endif
 END_NODE(ResultPath)
@@ -2042,6 +2042,10 @@ BEGIN_NODE(ReduceScanPath)
 	NODE_NODE(List,rescan_clauses)
 END_NODE(ReduceScanPath)
 #endif /* NO_NODE_ReduceScanPath */
+
+#endif
+
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 
 #ifndef NO_NODE_FilterPath
 NODE_SAME(FilterPath, ResultPath)

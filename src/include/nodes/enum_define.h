@@ -692,6 +692,8 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_ClusterMergeGatherPath)
 	ENUM_VALUE(T_ClusterReducePath)
 	ENUM_VALUE(T_ReduceScanPath)
+#endif
+#if defined(ADB) || defined(ADB_GRAM_ORA)
 	ENUM_VALUE(T_FilterPath)
 #endif
 #ifdef ADB_GRAM_ORA
@@ -1229,6 +1231,9 @@ BEGIN_ENUM(RowMarkType)
 	ENUM_VALUE(ROW_MARK_KEYSHARE)
 	ENUM_VALUE(ROW_MARK_REFERENCE)
 	ENUM_VALUE(ROW_MARK_COPY)
+#ifdef ADB
+	ENUM_VALUE(ROW_MARK_ADBSPECIAL)
+#endif
 END_ENUM(RowMarkType)
 #endif /* NO_ENUM_RowMarkType */
 
@@ -1396,6 +1401,7 @@ BEGIN_ENUM(VacuumOption)
 #ifdef ADB
 	ENUM_VALUE(VACOPT_IN_CLUSTER)
 	ENUM_VALUE(VACOPT_ANALYZE_FORCE_INH)
+	ENUM_VALUE(VACOPT_CLUSTER_VACUUM_TOAST)
 #endif
 END_ENUM(VacuumOption)
 #endif /* NO_ENUM_VacuumOption */
