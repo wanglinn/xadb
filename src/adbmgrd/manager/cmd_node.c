@@ -200,6 +200,7 @@ static void mgr_get_other_parm(char node_type, StringInfo infosendmsg);
 static bool mgr_get_active_hostoid_and_port(char node_type, Oid *hostoid, int32 *hostport, AppendNodeInfo *appendnodeinfo, bool set_ip);
 static void mgr_pg_dumpall(Oid hostoid, int32 hostport, Oid dnmasteroid, char *temp_file);
 static void mgr_stop_node_with_restoremode(const char *nodepath, Oid hostoid);
+static void mgr_freezen_cm_alldatabase(AppendNodeInfo *appendnodeinfo);
 static void mgr_pg_dumpall_input_node(const Oid dn_master_oid, const int32 dn_master_port, char *temp_file);
 static void mgr_rm_dumpall_temp_file(Oid dnhostoid,char *temp_file);
 static void mgr_start_node_with_restoremode(const char *nodepath, Oid hostoid, char nodetype);
@@ -5009,6 +5010,9 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 		mgr_pg_dumpall_input_node(appendnodeinfo.nodehost, appendnodeinfo.nodeport, temp_file);
 		mgr_rm_dumpall_temp_file(appendnodeinfo.nodehost, temp_file);
 
+		/*step 6_1: vacuum freezen all database for this new cn master*/
+		mgr_freezen_cm_alldatabase(&appendnodeinfo);
+
 		/* step 7: stop the append coordiantor with restoremode, and then start it with "coordinator" mode */
 		mgr_stop_node_with_restoremode(appendnodeinfo.nodepath, appendnodeinfo.nodehost);
 		mgr_start_node(CNDN_TYPE_COORDINATOR_MASTER, appendnodeinfo.nodepath, appendnodeinfo.nodehost);
@@ -5022,7 +5026,7 @@ Datum mgr_append_coordmaster(PG_FUNCTION_ARGS)
 		/* step 10: alter pgxc_node in append coordinator */
 		resetStringInfo(&(getAgentCmdRst.description));
 		result = mgr_refresh_coord_pgxc_node(PGXC_APPEND, CNDN_TYPE_COORDINATOR_MASTER, appendnodeinfo.nodename, &getAgentCmdRst);
-		
+
 		/* step 11: release the DDL lock */
 		ClosePgConn(pg_conn);
 		if (is_add_hba)
@@ -6482,6 +6486,85 @@ static void mgr_start_node_with_restoremode(const char *nodepath, Oid hostoid, c
 
 	if (!getAgentCmdRst.ret)
 		ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
+}
+
+static void mgr_freezen_cm_alldatabase(AppendNodeInfo *appendnodeinfo)
+{
+	PGconn		*pg_conn;
+	PGconn		*pg_conn_db;
+	PGresult	*res;
+	PGresult	*res_db;
+	int			i;
+
+	pg_conn = ExpPQsetdbLogin(appendnodeinfo->nodeaddr
+								,appendnodeinfo->nodeport
+								,NULL, NULL
+								,GET_MGR_DB
+								,appendnodeinfo->nodeusername
+								,NULL);
+
+	if (pg_conn == NULL || PQstatus((PGconn*)pg_conn) != CONNECTION_OK)
+	{
+		ereport(ERROR,
+			(errmsg("Fail to connect to new cn master %s", PQerrorMessage((PGconn*)pg_conn)),
+			errhint("cn mster info(host=%s port=%d dbname=%s user=%s)",
+				appendnodeinfo->nodeaddr, appendnodeinfo->nodeport, DEFAULT_DB, appendnodeinfo->nodeusername)));
+	}
+
+	res = PQexec(pg_conn,
+					   "SELECT datname "
+					   "FROM pg_database d "
+					   "WHERE datallowconn "
+					   "ORDER BY (datname <> 'template1'), datname");
+	
+	if (!res ||
+		PQresultStatus(res) != PGRES_TUPLES_OK)
+	{
+		PQfinish(pg_conn);
+		ereport(ERROR,
+			(errmsg("Fail to select all database in cn master %s", PQerrorMessage((PGconn*)pg_conn)),
+			errhint("cn mster info(host=%s port=%d dbname=%s user=%s)",
+				appendnodeinfo->nodeaddr, appendnodeinfo->nodeport, DEFAULT_DB, appendnodeinfo->nodeusername)));
+	}
+
+	for (i = 0; i < PQntuples(res); i++)
+	{
+		char	   *dbname = PQgetvalue(res, i, 0);
+		/* Skip template0, even if it's not marked !datallowconn. */
+		if (strcmp(dbname, "template0") == 0)
+			continue;
+
+		pg_conn_db = ExpPQsetdbLogin(appendnodeinfo->nodeaddr
+						,appendnodeinfo->nodeport
+						,NULL, NULL
+						,dbname
+						,appendnodeinfo->nodeusername
+						,NULL);
+		if (pg_conn_db == NULL || PQstatus((PGconn*)pg_conn_db) != CONNECTION_OK)
+		{
+			ereport(ERROR,
+				(errmsg("Fail to connect to new cn master %s ", PQerrorMessage((PGconn*)pg_conn)),
+				errhint("cn mster info(host=%s port=%d dbname=%s user=%s)",
+					appendnodeinfo->nodeaddr, appendnodeinfo->nodeport, dbname, appendnodeinfo->nodeusername)));
+		}
+		res_db = PQexec(pg_conn_db, "VACUUM FREEZE");
+
+		if (!res_db ||
+			PQresultStatus(res_db) != PGRES_COMMAND_OK)
+		{
+			PQfinish(pg_conn_db);
+			ereport(ERROR,
+				(errmsg("Fail to vacuum freeze database in cn master %s", PQerrorMessage((PGconn*)pg_conn)),
+				errhint("cn mster info(host=%s port=%d dbname=%s user=%s)",
+					appendnodeinfo->nodeaddr, appendnodeinfo->nodeport, DEFAULT_DB, appendnodeinfo->nodeusername)));
+		}
+
+		PQclear(res_db);
+		ClosePgConn(pg_conn_db);
+	}
+
+	PQclear(res);
+	ClosePgConn(pg_conn);
 }
 
 static void mgr_pg_dumpall(Oid hostoid, int32 hostport, Oid dnmasteroid, char *temp_file)
