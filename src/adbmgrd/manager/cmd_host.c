@@ -1629,7 +1629,6 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 		info = palloc(sizeof(*info));
 		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
 		*(info->lcp) = list_head(hostname_list);
-		info->rel_host = heap_open(HostRelationId, AccessShareLock);
 
 		/* save info */
 		funcctx->user_fctx = info;
@@ -1644,8 +1643,7 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 	lcp = info->lcp;
 	if (*lcp == NULL)
 	{
-		heap_close(info->rel_host, AccessShareLock);
-		pfree(info);
+		MgrFree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
 
@@ -1657,11 +1655,10 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 	if(tup == NULL)
 	{
 		/* end of row */
-		heap_endscan(info->rel_scan);
-		heap_close(info->rel_host, AccessShareLock);
-		pfree(info);
-		ReleaseSysCache(tup);
-		SRF_RETURN_DONE(funcctx);
+		MgrFree(info);
+		ereportWarningLog(errmsg("host name \"%s\" does not exist", NameStr(name)));
+		tup_result = build_common_command_tuple(&(mgr_host->hostname), true, _("fail"));
+		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 	}
 
 	mgr_host = (Form_mgr_host)GETSTRUCT(tup);
@@ -1692,7 +1689,7 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 			tup_result = build_common_command_tuple(&(mgr_host->hostname)
 													, getAgentCmdRst.ret,
 													getAgentCmdRst.description.data);
-		ReleaseSysCache(tup);
+			ReleaseSysCache(tup);
 		}
 		else
 		{
@@ -1834,7 +1831,6 @@ Datum mgr_monitor_agent_hostlist(PG_FUNCTION_ARGS)
 		info = palloc(sizeof(*info));
 		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
 		*(info->lcp) = list_head(hostname_list);
-		info->rel_host = heap_open(HostRelationId, AccessShareLock);
 
 		funcctx->user_fctx = info;
 		MemoryContextSwitchTo(oldcontext);
@@ -1848,7 +1844,6 @@ Datum mgr_monitor_agent_hostlist(PG_FUNCTION_ARGS)
 	lcp = info->lcp;
 	if (*lcp == NULL)
 	{
-		heap_close(info->rel_host, AccessShareLock);
 		pfree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
