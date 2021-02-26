@@ -1588,7 +1588,6 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 		check_host_name_isvaild(info->host_list);
 
 		info->index = 0;
-		info->rel_host = table_open(HostRelationId, AccessShareLock);
 
 		/* save info */
 		funcctx->user_fctx = info;
@@ -1602,8 +1601,7 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 
 	if (info->index >= list_length(info->host_list))
 	{
-		table_close(info->rel_host, AccessShareLock);
-		pfree(info);
+		MgrFree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
 
@@ -1615,11 +1613,10 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 	if(tup == NULL)
 	{
 		/* end of row */
-		table_endscan(info->rel_scan);
-		table_close(info->rel_host, AccessShareLock);
-		pfree(info);
-		ReleaseSysCache(tup);
-		SRF_RETURN_DONE(funcctx);
+		MgrFree(info);
+		ereportWarningLog(errmsg("host name \"%s\" does not exist", NameStr(name)));
+		tup_result = build_common_command_tuple(&name, true, _("fail"));
+		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tup_result));
 	}
 
 	mgr_host = (Form_mgr_host)GETSTRUCT(tup);
@@ -1650,7 +1647,7 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 			tup_result = build_common_command_tuple(&(mgr_host->hostname)
 													, getAgentCmdRst.ret,
 													getAgentCmdRst.description.data);
-		ReleaseSysCache(tup);
+			ReleaseSysCache(tup);
 		}
 		else
 		{
@@ -1785,8 +1782,6 @@ Datum mgr_monitor_agent_hostlist(PG_FUNCTION_ARGS)
 		info->host_list = DecodeTextArrayToValueList(PG_GETARG_DATUM(0));
 		check_host_name_isvaild(info->host_list);
 
-		info->rel_host = table_open(HostRelationId, AccessShareLock);
-
 		funcctx->user_fctx = info;
 		MemoryContextSwitchTo(oldcontext);
 	}
@@ -1798,7 +1793,6 @@ Datum mgr_monitor_agent_hostlist(PG_FUNCTION_ARGS)
 
 	if (info->index >= list_length(info->host_list))
 	{
-		table_close(info->rel_host, AccessShareLock);
 		pfree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
