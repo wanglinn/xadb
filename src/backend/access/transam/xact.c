@@ -676,7 +676,7 @@ AssignTransactionId(TransactionState s)
 	ResourceOwner currentOwner;
 	bool		log_unknown_top = false;
 #ifdef ADB
-	bool		try_agtm = IsUnderAGTM() && (!IsGTMNode() || IsConnFromCoord());
+	bool		try_agtm = IsUnderAGTM() && (!IsGTMNode() || IsConnFromCoord()) && !single_slave_datanode;
 #endif /* ADB */
 
 	/* Assert that caller didn't screw up */

@@ -744,6 +744,8 @@ extern bool auto_release_connect;	/* in libpq-node.c */
 bool		enable_coordinator_calculate = true;
 int			default_distribute_by = LOCATOR_TYPE_HASH;
 char 		*default_user_group = "";
+bool    single_slave_datanode;
+bool		enable_view_distribute;
 #endif
 
 #ifdef ADB_EXT
@@ -1702,6 +1704,24 @@ static struct config_bool ConfigureNamesBool[] =
 			NULL
 		},
 		&enable_readsql_on_slave_async,
+		false,
+		NULL, NULL, NULL
+	},
+	{
+		{"single_slave_datanode", PGC_SIGHUP, DATA_NODES,
+			gettext_noop("force single slave datanode run, set in slave datanode"),
+			NULL
+		},
+		&single_slave_datanode,
+		false,
+		NULL, NULL, NULL
+	},
+	{
+		{"enable_view_distribute", PGC_SUSET, DEVELOPER_OPTIONS,
+			gettext_noop("Enables the view distribute to datanode"),
+			NULL
+		},
+		&enable_view_distribute,
 		false,
 		NULL, NULL, NULL
 	},

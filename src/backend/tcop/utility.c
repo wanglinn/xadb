@@ -2425,7 +2425,14 @@ ProcessUtilitySlow(ParseState *pstate,
 					relation_close(rel, NoLock);
 					if(need_remote)
 					{
-						utilityContext.exec_type = EXEC_ON_COORDS;
+						if (enable_view_distribute)
+						{
+							utilityContext.exec_type = EXEC_ON_ALL_NODES;
+						}
+						else
+						{
+							utilityContext.exec_type = EXEC_ON_COORDS;
+						}
 						utilityContext.stmt = (Node *) parsetree;
 						ExecRemoteUtilityStmt(&utilityContext);
 					}
@@ -2975,7 +2982,7 @@ ExecDropStmt(DropStmt *stmt, bool isTopLevel ADB_ONLY_COMMA_ARG2(const char *que
 				RemoteQueryExecType	exec_type;
 				bool				is_temp = false;
 
-				if (stmt->removeType == OBJECT_MATVIEW)
+				if (stmt->removeType == OBJECT_MATVIEW && !enable_view_distribute)
 					exec_type = EXEC_ON_COORDS;
 				else
 					exec_type = EXEC_ON_ALL_NODES;
@@ -3262,7 +3269,14 @@ ExecUtilityFindNodes(ObjectType object_type,
 			if ((*is_temp = IsTempTable(object_id)))
 				exec_type = EXEC_ON_NONE;
 			else
-				exec_type = EXEC_ON_COORDS;
+				if (enable_view_distribute)
+				{
+					exec_type = EXEC_ON_ALL_NODES;
+				}
+				else
+				{
+					exec_type = EXEC_ON_COORDS;
+				}
 			break;
 
 		case OBJECT_INDEX:
@@ -3275,16 +3289,20 @@ ExecUtilityFindNodes(ObjectType object_type,
 			 */
 			else if (get_rel_relkind(object_id) == RELKIND_MATVIEW ||
 						(get_rel_relkind(object_id) == RELKIND_INDEX &&
-							get_rel_relkind(IndexGetRelation(object_id, false)) == RELKIND_MATVIEW))
+							get_rel_relkind(IndexGetRelation(object_id, false)) == RELKIND_MATVIEW) &&
+							!enable_view_distribute)
 				exec_type = EXEC_ON_COORDS;
 			else
 				exec_type = EXEC_ON_ALL_NODES;
 			break;
 
 		case OBJECT_MATVIEW:
-			/* Materialized views are located only on the coordinators */
+			/* Materialized views are located only on the coordinators if enable_view_distribute is not true */
 			*is_temp = false;
-			exec_type = EXEC_ON_COORDS;
+			if (enable_view_distribute)
+				exec_type = EXEC_ON_ALL_NODES;
+			else
+				exec_type = EXEC_ON_COORDS;
 			break;
 
 		default:

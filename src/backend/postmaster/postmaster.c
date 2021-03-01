@@ -1975,7 +1975,7 @@ ServerLoop(void)
 				SnapSenderPID = StartSnapSender();
 		}
 
-		if (!IsGTMNode() && (pmState == PM_RUN || pmState == PM_HOT_STANDBY))
+		if (!IsGTMNode() && (pmState == PM_RUN || pmState == PM_HOT_STANDBY) && !single_slave_datanode)
 		{
 			if (SnapReceiverPID == 0)
 				SnapReceiverPID = StartSnapReceiver();

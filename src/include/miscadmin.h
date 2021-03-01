@@ -261,6 +261,8 @@ extern bool VacuumCostActive;
 extern double vacuum_cleanup_index_scale_factor;
 
 #ifdef ADB
+extern bool single_slave_datanode;
+extern bool enable_view_distribute;
 extern bool useLocalXid;
 extern int	socket_snap_pair[2];
 extern bool isNeedAbortAnyTrans;
