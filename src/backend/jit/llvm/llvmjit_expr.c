@@ -2365,20 +2365,20 @@ llvm_compile_expr(ExprState *state)
 #ifdef ADB_EXT
 			case EEOP_AGG_KEEP_TRANS_TUPLE:
 				build_EvalXFunc(b, mod, "ExecEvalAggKeepTuple",
-								v_state, v_econtext, op);
-				LLVMBuildBr(b, opblocks[i + 1]);
+								v_state, op, v_econtext);
+				LLVMBuildBr(b, opblocks[opno + 1]);
 				break;
 
 			case EEOP_AGG_KEEP_TRANS_ORDER_DATUM:
 				build_EvalXFunc(b, mod, "ExecEvalAggKeepOrderDatum",
-								v_state, v_econtext, op);
-				LLVMBuildBr(b, opblocks[i + 1]);
+								v_state, op, v_econtext);
+				LLVMBuildBr(b, opblocks[opno + 1]);
 				break;
 
 			case EEOP_AGG_KEEP_TRANS_ORDER_TUPLE:
 				build_EvalXFunc(b, mod, "ExecEvalAggKeepOrderTuple",
-								v_state, v_econtext, op);
-				LLVMBuildBr(b, opblocks[i + 1]);
+								v_state, op, v_econtext);
+				LLVMBuildBr(b, opblocks[opno + 1]);
 				break;
 #endif /* ADB_EXT */
 
@@ -2394,14 +2394,14 @@ llvm_compile_expr(ExprState *state)
 					LLVMBuildStore(b, v_ptr, v_resvaluep);
 #endif /* USE_FLOAT8_BYVAL */
 					LLVMBuildStore(b, l_sbool_const(0), v_resnullp);
-					LLVMBuildBr(b, opblocks[i + 1]);
+					LLVMBuildBr(b, opblocks[opno + 1]);
 					break;
 				}
 
 			case EEOP_SYS_CONNECT_BY_PATH:
 				build_EvalXFunc(b, mod, "ExecEvalSysConnectByPathExpr",
-								v_state, v_econtext, op);
-				LLVMBuildBr(b, opblocks[i + 1]);
+								v_state, op, v_econtext);
+				LLVMBuildBr(b, opblocks[opno + 1]);
 				break;
 #endif /* ADB_GRAM_ORA */
 
