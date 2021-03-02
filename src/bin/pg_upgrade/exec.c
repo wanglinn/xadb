@@ -3,7 +3,7 @@
  *
  *	execution functions
  *
- *	Copyright (c) 2010-2019, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2020, PostgreSQL Global Development Group
  *	src/bin/pg_upgrade/exec.c
  */
 
@@ -376,6 +376,7 @@ check_bin_dir(ClusterInfo *cluster)
 					  cluster->bindir);
 
 	validate_exec(cluster->bindir, "postgres");
+	validate_exec(cluster->bindir, "pg_controldata");
 	validate_exec(cluster->bindir, "pg_ctl");
 
 	/*
@@ -390,12 +391,20 @@ check_bin_dir(ClusterInfo *cluster)
 		validate_exec(cluster->bindir, "pg_resetxlog");
 	else
 		validate_exec(cluster->bindir, "pg_resetwal");
+
 	if (cluster == &new_cluster)
 	{
-		/* these are only needed in the new cluster */
-		validate_exec(cluster->bindir, "psql");
+		/*
+		 * These binaries are only needed for the target version. pg_dump and
+		 * pg_dumpall are used to dump the old cluster, but must be of the
+		 * target version.
+		 */
+		validate_exec(cluster->bindir, "initdb");
 		validate_exec(cluster->bindir, "pg_dump");
 		validate_exec(cluster->bindir, "pg_dumpall");
+		validate_exec(cluster->bindir, "pg_restore");
+		validate_exec(cluster->bindir, "psql");
+		validate_exec(cluster->bindir, "vacuumdb");
 	}
 }
 

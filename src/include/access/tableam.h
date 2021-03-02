@@ -4,7 +4,7 @@
  *	  POSTGRES table access method definitions.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/access/tableam.h
@@ -47,18 +47,19 @@ typedef enum ScanOptions
 	SO_TYPE_SEQSCAN = 1 << 0,
 	SO_TYPE_BITMAPSCAN = 1 << 1,
 	SO_TYPE_SAMPLESCAN = 1 << 2,
-	SO_TYPE_ANALYZE = 1 << 3,
+	SO_TYPE_TIDSCAN = 1 << 3,
+	SO_TYPE_ANALYZE = 1 << 4,
 
 	/* several of SO_ALLOW_* may be specified */
 	/* allow or disallow use of access strategy */
-	SO_ALLOW_STRAT = 1 << 4,
+	SO_ALLOW_STRAT = 1 << 5,
 	/* report location to syncscan logic? */
-	SO_ALLOW_SYNC = 1 << 5,
+	SO_ALLOW_SYNC = 1 << 6,
 	/* verify visibility page-at-a-time? */
-	SO_ALLOW_PAGEMODE = 1 << 6,
+	SO_ALLOW_PAGEMODE = 1 << 7,
 
 	/* unregister snapshot at scan end? */
-	SO_TEMP_SNAPSHOT = 1 << 7
+	SO_TEMP_SNAPSHOT = 1 << 8
 } ScanOptions;
 
 /*
@@ -127,7 +128,7 @@ typedef struct TM_FailureData
 } TM_FailureData;
 
 /* "options" flag bits for table_tuple_insert */
-#define TABLE_INSERT_SKIP_WAL		0x0001
+/* TABLE_INSERT_SKIP_WAL was 0x0001; RelationNeedsWAL() now governs */
 #define TABLE_INSERT_SKIP_FSM		0x0002
 #define TABLE_INSERT_FROZEN			0x0004
 #define TABLE_INSERT_NO_LOGICAL		0x0008
@@ -141,7 +142,7 @@ typedef struct TM_FailureData
 
 /* Typedef for callback function for table_index_build_scan */
 typedef void (*IndexBuildCallback) (Relation index,
-									HeapTuple htup,
+									ItemPointer tid,
 									Datum *values,
 									bool *isnull,
 									bool tupleIsAlive,
@@ -289,12 +290,12 @@ typedef struct TableAmRoutine
 	 *
 	 * *call_again is false on the first call to index_fetch_tuple for a tid.
 	 * If there potentially is another tuple matching the tid, *call_again
-	 * needs be set to true by index_fetch_tuple, signalling to the caller
+	 * needs to be set to true by index_fetch_tuple, signaling to the caller
 	 * that index_fetch_tuple should be called again for the same tid.
 	 *
 	 * *all_dead, if all_dead is not NULL, should be set to true by
 	 * index_fetch_tuple iff it is guaranteed that no backend needs to see
-	 * that tuple. Index AMs can use that do avoid returning that tid in
+	 * that tuple. Index AMs can use that to avoid returning that tid in
 	 * future searches.
 	 */
 	bool		(*index_fetch_tuple) (struct IndexFetchTableData *scan,
@@ -409,9 +410,8 @@ typedef struct TableAmRoutine
 
 	/*
 	 * Perform operations necessary to complete insertions made via
-	 * tuple_insert and multi_insert with a BulkInsertState specified. This
-	 * may for example be used to flush the relation, when the
-	 * TABLE_INSERT_SKIP_WAL option was used.
+	 * tuple_insert and multi_insert with a BulkInsertState specified. In-tree
+	 * access methods ceased to use this.
 	 *
 	 * Typically callers of tuple_insert and multi_insert will just pass all
 	 * the flags that apply to them, and each AM has to decide which of them
@@ -434,8 +434,8 @@ typedef struct TableAmRoutine
 	 *
 	 * Note that only the subset of the relcache filled by
 	 * RelationBuildLocalRelation() can be relied upon and that the relation's
-	 * catalog entries either will either not yet exist (new relation), or
-	 * will still reference the old relfilenode.
+	 * catalog entries will either not yet exist (new relation), or will still
+	 * reference the old relfilenode.
 	 *
 	 * As output *freezeXid, *minmulti must be set to the values appropriate
 	 * for pg_class.{relfrozenxid, relminmxid}. For AMs that don't need those
@@ -482,9 +482,9 @@ typedef struct TableAmRoutine
 											  double *tups_recently_dead);
 
 	/*
-	 * React to VACUUM command on the relation. The VACUUM might be user
-	 * triggered or by autovacuum. The specific actions performed by the AM
-	 * will depend heavily on the individual AM.
+	 * React to VACUUM command on the relation. The VACUUM can be triggered by
+	 * a user or by autovacuum. The specific actions performed by the AM will
+	 * depend heavily on the individual AM.
 	 *
 	 * On entry a transaction is already established, and the relation is
 	 * locked with a ShareUpdateExclusive lock.
@@ -581,6 +581,24 @@ typedef struct TableAmRoutine
 	 */
 	bool		(*relation_needs_toast_table) (Relation rel);
 
+	/*
+	 * This callback should return the OID of the table AM that implements
+	 * TOAST tables for this AM.  If the relation_needs_toast_table callback
+	 * always returns false, this callback is not required.
+	 */
+	Oid			(*relation_toast_am) (Relation rel);
+
+	/*
+	 * This callback is invoked when detoasting a value stored in a toast
+	 * table implemented by this AM.  See table_relation_fetch_toast_slice()
+	 * for more details.
+	 */
+	void		(*relation_fetch_toast_slice) (Relation toastrel, Oid valueid,
+											   int32 attrsize,
+											   int32 sliceoffset,
+											   int32 slicelength,
+											   struct varlena *result);
+
 
 	/* ------------------------------------------------------------------------
 	 * Planner related functions.
@@ -591,7 +609,7 @@ typedef struct TableAmRoutine
 	 * See table_relation_estimate_size().
 	 *
 	 * While block oriented, it shouldn't be too hard for an AM that doesn't
-	 * doesn't internally use blocks to convert into a usable representation.
+	 * internally use blocks to convert into a usable representation.
 	 *
 	 * This differs from the relation_size callback by returning size
 	 * estimates (both relation size and tuple count) for planning purposes,
@@ -661,7 +679,7 @@ typedef struct TableAmRoutine
 	 * false if the sample scan is finished, true otherwise. `scan` was
 	 * started via table_beginscan_sampling().
 	 *
-	 * Typically this will first determine the target block by call the
+	 * Typically this will first determine the target block by calling the
 	 * TsmRoutine's NextSampleBlock() callback if not NULL, or alternatively
 	 * perform a sequential scan over all blocks.  The determined block is
 	 * then typically read and pinned.
@@ -679,7 +697,7 @@ typedef struct TableAmRoutine
 	 *
 	 * Currently it is required to implement this interface, as there's no
 	 * alternative way (contrary e.g. to bitmap scans) to implement sample
-	 * scans. If infeasible to implement the AM may raise an error.
+	 * scans. If infeasible to implement, the AM may raise an error.
 	 */
 	bool		(*scan_sample_next_block) (TableScanDesc scan,
 										   struct SampleScanState *scanstate);
@@ -809,6 +827,19 @@ table_beginscan_sampling(Relation rel, Snapshot snapshot,
 		flags |= SO_ALLOW_PAGEMODE;
 
 	return rel->rd_tableam->scan_begin(rel, snapshot, nkeys, key, NULL, flags);
+}
+
+/*
+ * table_beginscan_tid is an alternative entry point for setting up a
+ * TableScanDesc for a Tid scan. As with bitmap scans, it's worth using
+ * the same data structure although the behavior is rather different.
+ */
+static inline TableScanDesc
+table_beginscan_tid(Relation rel, Snapshot snapshot)
+{
+	uint32		flags = SO_TYPE_TIDSCAN;
+
+	return rel->rd_tableam->scan_begin(rel, snapshot, 0, NULL, NULL, flags);
 }
 
 /*
@@ -962,12 +993,12 @@ table_index_fetch_end(struct IndexFetchTableData *scan)
  *
  * *call_again needs to be false on the first call to table_index_fetch_tuple() for
  * a tid. If there potentially is another tuple matching the tid, *call_again
- * will be set to true, signalling that table_index_fetch_tuple() should be called
+ * will be set to true, signaling that table_index_fetch_tuple() should be called
  * again for the same tid.
  *
  * *all_dead, if all_dead is not NULL, will be set to true by
  * table_index_fetch_tuple() iff it is guaranteed that no backend needs to see
- * that tuple. Index AMs can use that do avoid returning that tid in future
+ * that tuple. Index AMs can use that to avoid returning that tid in future
  * searches.
  *
  * The difference between this function and table_fetch_row_version is that
@@ -1014,8 +1045,8 @@ extern bool table_index_fetch_tuple_check(Relation rel,
  * true, false otherwise.
  *
  * See table_index_fetch_tuple's comment about what the difference between
- * these functions is. This function is the correct to use outside of
- * index entry->table tuple lookups.
+ * these functions is. It is correct to use this function outside of index
+ * entry->table tuple lookups.
  */
 static inline bool
 table_tuple_fetch_row_version(Relation rel,
@@ -1084,18 +1115,14 @@ table_compute_xid_horizon_for_tuples(Relation rel,
 /*
  * Insert a tuple from a slot into table AM routine.
  *
- * The options bitmask allows to specify options that allow to change the
- * behaviour of the AM. Several options might be ignored by AMs not supporting
- * them.
- *
- * If the TABLE_INSERT_SKIP_WAL option is specified, the new tuple doesn't
- * need to be logged to WAL, even for a non-temp relation. It is the AMs
- * choice whether this optimization is supported.
+ * The options bitmask allows the caller to specify options that may change the
+ * behaviour of the AM. The AM will ignore options that it does not support.
  *
  * If the TABLE_INSERT_SKIP_FSM option is specified, AMs are free to not reuse
  * free space in the relation. This can save some cycles when we know the
- * relation is new and doesn't contain useful amounts of free space.  It's
- * commonly passed directly to RelationGetBufferForTuple, see for more info.
+ * relation is new and doesn't contain useful amounts of free space.
+ * TABLE_INSERT_SKIP_FSM is commonly passed directly to
+ * RelationGetBufferForTuple. See that method for more information.
  *
  * TABLE_INSERT_FROZEN should only be specified for inserts into
  * relfilenodes created during the current subtransaction and when
@@ -1110,7 +1137,6 @@ table_compute_xid_horizon_for_tuples(Relation rel,
  *
  * Note that most of these options will be applied when inserting into the
  * heap's TOAST table, too, if the tuple requires any out-of-line data.
- *
  *
  * The BulkInsertState object (if any; bistate can be NULL for default
  * behavior) is also just passed through to RelationGetBufferForTuple. If
@@ -1168,7 +1194,7 @@ table_tuple_complete_speculative(Relation rel, TupleTableSlot *slot,
  * operation. That's often faster than calling table_insert() in a loop,
  * because e.g. the AM can reduce WAL logging and page locking overhead.
  *
- * Except for taking `nslots` tuples as input, as an array of TupleTableSlots
+ * Except for taking `nslots` tuples as input, and an array of TupleTableSlots
  * in `slots`, the parameters for table_multi_insert() are the same as for
  * table_tuple_insert().
  *
@@ -1311,9 +1337,7 @@ table_tuple_lock(Relation rel, ItemPointer tid, Snapshot snapshot,
 
 /*
  * Perform operations necessary to complete insertions made via
- * tuple_insert and multi_insert with a BulkInsertState specified. This
- * e.g. may e.g. used to flush the relation when inserting with
- * TABLE_INSERT_SKIP_WAL specified.
+ * tuple_insert and multi_insert with a BulkInsertState specified.
  */
 static inline void
 table_finish_bulk_insert(Relation rel, int options)
@@ -1383,13 +1407,13 @@ table_relation_copy_data(Relation rel, const RelFileNode *newrnode)
  * Additional Input parameters:
  * - use_sort - if true, the table contents are sorted appropriate for
  *   `OldIndex`; if false and OldIndex is not InvalidOid, the data is copied
- *   in that index's order; if false and OidIndex is InvalidOid, no sorting is
+ *   in that index's order; if false and OldIndex is InvalidOid, no sorting is
  *   performed
- * - OidIndex - see use_sort
+ * - OldIndex - see use_sort
  * - OldestXmin - computed by vacuum_set_xid_limits(), even when
  *   not needed for the relation's AM
- * - *xid_cutoff - dito
- * - *multi_cutoff - dito
+ * - *xid_cutoff - ditto
+ * - *multi_cutoff - ditto
  *
  * Output parameters:
  * - *xid_cutoff - rel's new relfrozenxid value, may be invalid
@@ -1416,10 +1440,10 @@ table_relation_copy_for_cluster(Relation OldTable, Relation NewTable,
 }
 
 /*
- * Perform VACUUM on the relation. The VACUUM can be user-triggered or by
+ * Perform VACUUM on the relation. The VACUUM can be triggered by a user or by
  * autovacuum. The specific actions performed by the AM will depend heavily on
  * the individual AM.
-
+ *
  * On entry a transaction needs to already been established, and the
  * table is locked with a ShareUpdateExclusive lock.
  *
@@ -1522,7 +1546,7 @@ table_index_build_scan(Relation table_rel,
 /*
  * As table_index_build_scan(), except that instead of scanning the complete
  * table, only the given number of blocks are scanned.  Scan to end-of-rel can
- * be signalled by passing InvalidBlockNumber as numblocks.  Note that
+ * be signaled by passing InvalidBlockNumber as numblocks.  Note that
  * restricting the range to scan cannot be done when requesting syncscan.
  *
  * When "anyvisible" mode is requested, all tuples visible to any transaction
@@ -1602,6 +1626,50 @@ static inline bool
 table_relation_needs_toast_table(Relation rel)
 {
 	return rel->rd_tableam->relation_needs_toast_table(rel);
+}
+
+/*
+ * Return the OID of the AM that should be used to implement the TOAST table
+ * for this relation.
+ */
+static inline Oid
+table_relation_toast_am(Relation rel)
+{
+	return rel->rd_tableam->relation_toast_am(rel);
+}
+
+/*
+ * Fetch all or part of a TOAST value from a TOAST table.
+ *
+ * If this AM is never used to implement a TOAST table, then this callback
+ * is not needed. But, if toasted values are ever stored in a table of this
+ * type, then you will need this callback.
+ *
+ * toastrel is the relation in which the toasted value is stored.
+ *
+ * valueid identifes which toast value is to be fetched. For the heap,
+ * this corresponds to the values stored in the chunk_id column.
+ *
+ * attrsize is the total size of the toast value to be fetched.
+ *
+ * sliceoffset is the offset within the toast value of the first byte that
+ * should be fetched.
+ *
+ * slicelength is the number of bytes from the toast value that should be
+ * fetched.
+ *
+ * result is caller-allocated space into which the fetched bytes should be
+ * stored.
+ */
+static inline void
+table_relation_fetch_toast_slice(Relation toastrel, Oid valueid,
+								 int32 attrsize, int32 sliceoffset,
+								 int32 slicelength, struct varlena *result)
+{
+	toastrel->rd_tableam->relation_fetch_toast_slice(toastrel, valueid,
+													 attrsize,
+													 sliceoffset, slicelength,
+													 result);
 }
 
 
@@ -1726,6 +1794,20 @@ extern BlockNumber table_block_parallelscan_nextpage(Relation rel,
 extern void table_block_parallelscan_startblock_init(Relation rel,
 													 ParallelBlockTableScanDesc pbscan);
 
+
+/* ----------------------------------------------------------------------------
+ * Helper functions to implement relation sizing for block oriented AMs.
+ * ----------------------------------------------------------------------------
+ */
+
+extern uint64 table_block_relation_size(Relation rel, ForkNumber forkNumber);
+extern void table_block_relation_estimate_size(Relation rel,
+											   int32 *attr_widths,
+											   BlockNumber *pages,
+											   double *tuples,
+											   double *allvisfrac,
+											   Size overhead_bytes_per_tuple,
+											   Size usable_bytes_per_page);
 
 /* ----------------------------------------------------------------------------
  * Functions in tableamapi.c

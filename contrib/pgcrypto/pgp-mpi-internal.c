@@ -31,12 +31,11 @@
 #include "postgres.h"
 
 #include "imath.h"
-
-#include "px.h"
 #include "pgp.h"
+#include "px.h"
 
 static mpz_t *
-mp_new()
+mp_new(void)
 {
 	mpz_t	   *mp = mp_int_alloc();
 

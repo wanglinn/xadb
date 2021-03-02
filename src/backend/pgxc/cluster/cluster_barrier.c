@@ -177,6 +177,7 @@ DoRemoteClusterBarrier(NodeMixHandle *mix_handle,
 void
 InterCreateClusterBarrier(char cmd_type, const char *barrierID, CommandDest dest)
 {
+	QueryCompletion	qc;
 	switch (cmd_type)
 	{
 		case CLUSTER_BARRIER_PREPARE:
@@ -195,11 +196,14 @@ InterCreateClusterBarrier(char cmd_type, const char *barrierID, CommandDest dest
 			break;
 	}
 
-	EndCommand(CLUSTER_BARRIER_TAG, dest);
+	InitializeQueryCompletion(&qc);
+	qc.commandTag = CMDTAG_BARRIER;
+	qc.datum = CStringGetDatum(barrierID);
+	EndCommand(&qc, dest, false);
 }
 
 void
-ExecCreateClusterBarrier(const char *barrierID, char *completionTag)
+ExecCreateClusterBarrier(const char *barrierID, QueryCompletion *qc)
 {
 	const char	   *barrier_id = NULL;
 	List		   *node_list = NIL;
@@ -263,6 +267,6 @@ ExecCreateClusterBarrier(const char *barrierID, char *completionTag)
 
 	FreeMixHandle(mix_handle);
 
-	if (completionTag)
-		snprintf(completionTag, COMPLETION_TAG_BUFSIZE, "%s %s", CLUSTER_BARRIER_TAG, barrier_id);
+	if (qc)
+		qc->datum = CStringGetDatum(barrier_id);
 }

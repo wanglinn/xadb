@@ -3,7 +3,7 @@
  * pg_publication.c
  *		publication C API manipulation
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -14,26 +14,25 @@
 
 #include "postgres.h"
 
-#include "funcapi.h"
-#include "miscadmin.h"
-
 #include "access/genam.h"
 #include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/tableam.h"
 #include "access/xact.h"
-
 #include "catalog/catalog.h"
 #include "catalog/dependency.h"
 #include "catalog/index.h"
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
+#include "catalog/partition.h"
 #include "catalog/objectaccess.h"
 #include "catalog/objectaddress.h"
-#include "catalog/pg_type.h"
+#include "catalog/pg_inherits.h"
 #include "catalog/pg_publication.h"
 #include "catalog/pg_publication_rel.h"
-
+#include "catalog/pg_type.h"
+#include "funcapi.h"
+#include "miscadmin.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/catcache.h"
@@ -50,17 +49,9 @@
 static void
 check_publication_add_relation(Relation targetrel)
 {
-	/* Give more specific error for partitioned tables */
-	if (RelationGetForm(targetrel)->relkind == RELKIND_PARTITIONED_TABLE)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("\"%s\" is a partitioned table",
-						RelationGetRelationName(targetrel)),
-				 errdetail("Adding partitioned tables to publications is not supported."),
-				 errhint("You can add the table partitions individually.")));
-
-	/* Must be table */
-	if (RelationGetForm(targetrel)->relkind != RELKIND_RELATION)
+	/* Must be a regular or partitioned table */
+	if (RelationGetForm(targetrel)->relkind != RELKIND_RELATION &&
+		RelationGetForm(targetrel)->relkind != RELKIND_PARTITIONED_TABLE)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("\"%s\" is not a table",
@@ -106,7 +97,8 @@ check_publication_add_relation(Relation targetrel)
 static bool
 is_publishable_class(Oid relid, Form_pg_class reltuple)
 {
-	return reltuple->relkind == RELKIND_RELATION &&
+	return (reltuple->relkind == RELKIND_RELATION ||
+			reltuple->relkind == RELKIND_PARTITIONED_TABLE) &&
 		!IsCatalogRelationOid(relid) &&
 		reltuple->relpersistence == RELPERSISTENCE_PERMANENT &&
 		relid >= FirstNormalObjectId;
@@ -222,10 +214,7 @@ publication_add_relation(Oid pubid, Relation targetrel,
 	return myself;
 }
 
-
-/*
- * Gets list of publication oids for a relation oid.
- */
+/* Gets list of publication oids for a relation */
 List *
 GetRelationPublications(Oid relid)
 {
@@ -256,7 +245,7 @@ GetRelationPublications(Oid relid)
  * should use GetAllTablesPublicationRelations().
  */
 List *
-GetPublicationRelations(Oid pubid)
+GetPublicationRelations(Oid pubid, PublicationPartOpt pub_partopt)
 {
 	List	   *result;
 	Relation	pubrelsrel;
@@ -282,7 +271,31 @@ GetPublicationRelations(Oid pubid)
 
 		pubrel = (Form_pg_publication_rel) GETSTRUCT(tup);
 
-		result = lappend_oid(result, pubrel->prrelid);
+		if (get_rel_relkind(pubrel->prrelid) == RELKIND_PARTITIONED_TABLE &&
+			pub_partopt != PUBLICATION_PART_ROOT)
+		{
+			List	   *all_parts = find_all_inheritors(pubrel->prrelid, NoLock,
+														NULL);
+
+			if (pub_partopt == PUBLICATION_PART_ALL)
+				result = list_concat(result, all_parts);
+			else if (pub_partopt == PUBLICATION_PART_LEAF)
+			{
+				ListCell   *lc;
+
+				foreach(lc, all_parts)
+				{
+					Oid			partOid = lfirst_oid(lc);
+
+					if (get_rel_relkind(partOid) != RELKIND_PARTITIONED_TABLE)
+						result = lappend_oid(result, partOid);
+				}
+			}
+			else
+				Assert(false);
+		}
+		else
+			result = lappend_oid(result, pubrel->prrelid);
 	}
 
 	systable_endscan(scan);
@@ -330,9 +343,13 @@ GetAllTablesPublications(void)
 
 /*
  * Gets list of all relation published by FOR ALL TABLES publication(s).
+ *
+ * If the publication publishes partition changes via their respective root
+ * partitioned tables, we must exclude partitions in favor of including the
+ * root partitioned tables.
  */
 List *
-GetAllTablesPublicationRelations(void)
+GetAllTablesPublicationRelations(bool pubviaroot)
 {
 	Relation	classRel;
 	ScanKeyData key[1];
@@ -354,13 +371,36 @@ GetAllTablesPublicationRelations(void)
 		Form_pg_class relForm = (Form_pg_class) GETSTRUCT(tuple);
 		Oid			relid = relForm->oid;
 
-		if (is_publishable_class(relid, relForm))
+		if (is_publishable_class(relid, relForm) &&
+			!(relForm->relispartition && pubviaroot))
 			result = lappend_oid(result, relid);
 	}
 
 	table_endscan(scan);
-	table_close(classRel, AccessShareLock);
 
+	if (pubviaroot)
+	{
+		ScanKeyInit(&key[0],
+					Anum_pg_class_relkind,
+					BTEqualStrategyNumber, F_CHAREQ,
+					CharGetDatum(RELKIND_PARTITIONED_TABLE));
+
+		scan = table_beginscan_catalog(classRel, 1, key);
+
+		while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+		{
+			Form_pg_class relForm = (Form_pg_class) GETSTRUCT(tuple);
+			Oid			relid = relForm->oid;
+
+			if (is_publishable_class(relid, relForm) &&
+				!relForm->relispartition)
+				result = lappend_oid(result, relid);
+		}
+
+		table_endscan(scan);
+	}
+
+	table_close(classRel, AccessShareLock);
 	return result;
 }
 
@@ -377,7 +417,6 @@ GetPublication(Oid pubid)
 	Form_pg_publication pubform;
 
 	tup = SearchSysCache1(PUBLICATIONOID, ObjectIdGetDatum(pubid));
-
 	if (!HeapTupleIsValid(tup))
 		elog(ERROR, "cache lookup failed for publication %u", pubid);
 
@@ -391,6 +430,7 @@ GetPublication(Oid pubid)
 	pub->pubactions.pubupdate = pubform->pubupdate;
 	pub->pubactions.pubdelete = pubform->pubdelete;
 	pub->pubactions.pubtruncate = pubform->pubtruncate;
+	pub->pubviaroot = pubform->pubviaroot;
 
 	ReleaseSysCache(tup);
 
@@ -406,19 +446,9 @@ GetPublicationByName(const char *pubname, bool missing_ok)
 {
 	Oid			oid;
 
-	oid = GetSysCacheOid1(PUBLICATIONNAME, Anum_pg_publication_oid,
-						  CStringGetDatum(pubname));
-	if (!OidIsValid(oid))
-	{
-		if (missing_ok)
-			return NULL;
+	oid = get_publication_oid(pubname, missing_ok);
 
-		ereport(ERROR,
-				(errcode(ERRCODE_UNDEFINED_OBJECT),
-				 errmsg("publication \"%s\" does not exist", pubname)));
-	}
-
-	return GetPublication(oid);
+	return OidIsValid(oid) ? GetPublication(oid) : NULL;
 }
 
 /*
@@ -481,7 +511,6 @@ pg_get_publication_tables(PG_FUNCTION_ARGS)
 	char	   *pubname = text_to_cstring(PG_GETARG_TEXT_PP(0));
 	Publication *publication;
 	List	   *tables;
-	ListCell  **lcp;
 
 	/* stuff done only on the first call of the function */
 	if (SRF_IS_FIRSTCALL())
@@ -495,26 +524,32 @@ pg_get_publication_tables(PG_FUNCTION_ARGS)
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
 		publication = GetPublicationByName(pubname, false);
+
+		/*
+		 * Publications support partitioned tables, although all changes are
+		 * replicated using leaf partition identity and schema, so we only
+		 * need those.
+		 */
 		if (publication->alltables)
-			tables = GetAllTablesPublicationRelations();
+			tables = GetAllTablesPublicationRelations(publication->pubviaroot);
 		else
-			tables = GetPublicationRelations(publication->oid);
-		lcp = (ListCell **) palloc(sizeof(ListCell *));
-		*lcp = list_head(tables);
-		funcctx->user_fctx = (void *) lcp;
+			tables = GetPublicationRelations(publication->oid,
+											 publication->pubviaroot ?
+											 PUBLICATION_PART_ROOT :
+											 PUBLICATION_PART_LEAF);
+		funcctx->user_fctx = (void *) tables;
 
 		MemoryContextSwitchTo(oldcontext);
 	}
 
 	/* stuff done on every call of the function */
 	funcctx = SRF_PERCALL_SETUP();
-	lcp = (ListCell **) funcctx->user_fctx;
+	tables = (List *) funcctx->user_fctx;
 
-	while (*lcp != NULL)
+	if (funcctx->call_cntr < list_length(tables))
 	{
-		Oid			relid = lfirst_oid(*lcp);
+		Oid			relid = list_nth_oid(tables, funcctx->call_cntr);
 
-		*lcp = lnext(*lcp);
 		SRF_RETURN_NEXT(funcctx, ObjectIdGetDatum(relid));
 	}
 

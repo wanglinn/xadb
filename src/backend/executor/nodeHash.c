@@ -3,7 +3,7 @@
  * nodeHash.c
  *	  Routines to hash relations for hashjoin
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -37,11 +37,11 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "port/atomics.h"
+#include "port/pg_bitutils.h"
 #include "utils/dynahash.h"
-#include "utils/memutils.h"
 #include "utils/lsyscache.h"
+#include "utils/memutils.h"
 #include "utils/syscache.h"
-
 
 static void ExecHashIncreaseNumBatches(HashJoinTable hashtable);
 static void ExecHashIncreaseNumBuckets(HashJoinTable hashtable);
@@ -184,7 +184,8 @@ MultiExecPrivateHashExt(HashState *node, TupleTableSlot *(*call_back)(), void *u
 	econtext = node->ps.ps_ExprContext;
 
 	/*
-	 * get all inner tuples and insert into the hash table (or temp files)
+	 * Get all tuples from the node below the Hash node and insert into the
+	 * hash table (or temp files).
 	 */
 	for (;;)
 	{
@@ -196,7 +197,7 @@ MultiExecPrivateHashExt(HashState *node, TupleTableSlot *(*call_back)(), void *u
 		if (TupIsNull(slot))
 			break;
 		/* We have to compute the hash value */
-		econtext->ecxt_innertuple = slot;
+		econtext->ecxt_outertuple = slot;
 		if (ExecHashGetHashValue(hashtable, econtext, hashkeys,
 								 false, hashtable->keepNulls,
 								 &hashvalue))
@@ -292,7 +293,7 @@ MultiExecParallelHashExt(HashState *node, TupleTableSlot *(*call_back)(), void *
 			 * ExecHashTableCreate(), or someone else is doing that.  Either
 			 * way, wait for everyone to arrive here so we can proceed.
 			 */
-			BarrierArriveAndWait(build_barrier, WAIT_EVENT_HASH_BUILD_ALLOCATING);
+			BarrierArriveAndWait(build_barrier, WAIT_EVENT_HASH_BUILD_ALLOCATE);
 			/* Fall through. */
 
 		case PHJ_BUILD_HASHING_INNER:
@@ -323,7 +324,7 @@ MultiExecParallelHashExt(HashState *node, TupleTableSlot *(*call_back)(), void *
 #endif /* ADB_EXT */
 				if (TupIsNull(slot))
 					break;
-				econtext->ecxt_innertuple = slot;
+				econtext->ecxt_outertuple = slot;
 				if (ExecHashGetHashValue(hashtable, econtext, hashkeys,
 										 false, hashtable->keepNulls,
 										 &hashvalue))
@@ -352,7 +353,7 @@ MultiExecParallelHashExt(HashState *node, TupleTableSlot *(*call_back)(), void *
 			 * counters.
 			 */
 			if (BarrierArriveAndWait(build_barrier,
-									 WAIT_EVENT_HASH_BUILD_HASHING_INNER))
+									 WAIT_EVENT_HASH_BUILD_HASH_INNER))
 			{
 				/*
 				 * Elect one backend to disable any further growth.  Batches
@@ -430,8 +431,9 @@ ExecInitHash(Hash *node, EState *estate, int eflags)
 	/*
 	 * initialize child expressions
 	 */
-	hashstate->ps.qual =
-		ExecInitQual(node->plan.qual, (PlanState *) hashstate);
+	Assert(node->plan.qual == NIL);
+	hashstate->hashkeys =
+		ExecInitExprList(node->hashkeys, (PlanState *) hashstate);
 
 	return hashstate;
 }
@@ -643,7 +645,7 @@ ExecHashTableCreate(HashState *state, List *hashOperators, List *hashCollations,
 		 * backend will be elected to do that now if necessary.
 		 */
 		if (BarrierPhase(build_barrier) == PHJ_BUILD_ELECTING &&
-			BarrierArriveAndWait(build_barrier, WAIT_EVENT_HASH_BUILD_ELECTING))
+			BarrierArriveAndWait(build_barrier, WAIT_EVENT_HASH_BUILD_ELECT))
 		{
 			pstate->nbatch = nbatch;
 			pstate->space_allowed = space_allowed;
@@ -871,9 +873,7 @@ ExecChooseHashTableSize(double ntuples, int tupwidth, bool useskew,
 		dbatch = ceil(inner_rel_bytes / (hash_table_bytes - bucket_bytes));
 		dbatch = Min(dbatch, max_pointers);
 		minbatch = (int) dbatch;
-		nbatch = 2;
-		while (nbatch < minbatch)
-			nbatch <<= 1;
+		nbatch = pg_nextpower2_32(Max(2, minbatch));
 	}
 
 	Assert(nbuckets > 0);
@@ -1118,7 +1118,7 @@ ExecParallelHashIncreaseNumBatches(HashJoinTable hashtable)
 			 * tuples.
 			 */
 			if (BarrierArriveAndWait(&pstate->grow_batches_barrier,
-									 WAIT_EVENT_HASH_GROW_BATCHES_ELECTING))
+									 WAIT_EVENT_HASH_GROW_BATCHES_ELECT))
 			{
 				dsa_pointer_atomic *buckets;
 				ParallelHashJoinBatch *old_batch0;
@@ -1228,7 +1228,7 @@ ExecParallelHashIncreaseNumBatches(HashJoinTable hashtable)
 		case PHJ_GROW_BATCHES_ALLOCATING:
 			/* Wait for the above to be finished. */
 			BarrierArriveAndWait(&pstate->grow_batches_barrier,
-								 WAIT_EVENT_HASH_GROW_BATCHES_ALLOCATING);
+								 WAIT_EVENT_HASH_GROW_BATCHES_ALLOCATE);
 			/* Fall through. */
 
 		case PHJ_GROW_BATCHES_REPARTITIONING:
@@ -1241,7 +1241,7 @@ ExecParallelHashIncreaseNumBatches(HashJoinTable hashtable)
 			ExecParallelHashMergeCounters(hashtable);
 			/* Wait for the above to be finished. */
 			BarrierArriveAndWait(&pstate->grow_batches_barrier,
-								 WAIT_EVENT_HASH_GROW_BATCHES_REPARTITIONING);
+								 WAIT_EVENT_HASH_GROW_BATCHES_REPARTITION);
 			/* Fall through. */
 
 		case PHJ_GROW_BATCHES_DECIDING:
@@ -1252,7 +1252,7 @@ ExecParallelHashIncreaseNumBatches(HashJoinTable hashtable)
 			 * not helping.
 			 */
 			if (BarrierArriveAndWait(&pstate->grow_batches_barrier,
-									 WAIT_EVENT_HASH_GROW_BATCHES_DECIDING))
+									 WAIT_EVENT_HASH_GROW_BATCHES_DECIDE))
 			{
 				bool		space_exhausted = false;
 				bool		extreme_skew_detected = false;
@@ -1302,7 +1302,7 @@ ExecParallelHashIncreaseNumBatches(HashJoinTable hashtable)
 		case PHJ_GROW_BATCHES_FINISHING:
 			/* Wait for the above to complete. */
 			BarrierArriveAndWait(&pstate->grow_batches_barrier,
-								 WAIT_EVENT_HASH_GROW_BATCHES_FINISHING);
+								 WAIT_EVENT_HASH_GROW_BATCHES_FINISH);
 	}
 }
 
@@ -1551,7 +1551,7 @@ ExecParallelHashIncreaseNumBuckets(HashJoinTable hashtable)
 		case PHJ_GROW_BUCKETS_ELECTING:
 			/* Elect one participant to prepare to increase nbuckets. */
 			if (BarrierArriveAndWait(&pstate->grow_buckets_barrier,
-									 WAIT_EVENT_HASH_GROW_BUCKETS_ELECTING))
+									 WAIT_EVENT_HASH_GROW_BUCKETS_ELECT))
 			{
 				size_t		size;
 				dsa_pointer_atomic *buckets;
@@ -1580,7 +1580,7 @@ ExecParallelHashIncreaseNumBuckets(HashJoinTable hashtable)
 		case PHJ_GROW_BUCKETS_ALLOCATING:
 			/* Wait for the above to complete. */
 			BarrierArriveAndWait(&pstate->grow_buckets_barrier,
-								 WAIT_EVENT_HASH_GROW_BUCKETS_ALLOCATING);
+								 WAIT_EVENT_HASH_GROW_BUCKETS_ALLOCATE);
 			/* Fall through. */
 
 		case PHJ_GROW_BUCKETS_REINSERTING:
@@ -1615,7 +1615,7 @@ ExecParallelHashIncreaseNumBuckets(HashJoinTable hashtable)
 				CHECK_FOR_INTERRUPTS();
 			}
 			BarrierArriveAndWait(&pstate->grow_buckets_barrier,
-								 WAIT_EVENT_HASH_GROW_BUCKETS_REINSERTING);
+								 WAIT_EVENT_HASH_GROW_BUCKETS_REINSERT);
 	}
 }
 
@@ -1815,9 +1815,13 @@ ExecParallelHashTableInsertCurrentBatch(HashJoinTable hashtable,
  * ExecHashGetHashValue
  *		Compute the hash value for a tuple
  *
- * The tuple to be tested must be in either econtext->ecxt_outertuple or
- * econtext->ecxt_innertuple.  Vars in the hashkeys expressions should have
- * varno either OUTER_VAR or INNER_VAR.
+ * The tuple to be tested must be in econtext->ecxt_outertuple (thus Vars in
+ * the hashkeys expressions need to have OUTER_VAR as varno). If outer_tuple
+ * is false (meaning it's the HashJoin's inner node, Hash), econtext,
+ * hashkeys, and slot need to be from Hash, with hashkeys/slot referencing and
+ * being suitable for tuples from the node below the Hash. Conversely, if
+ * outer_tuple is true, econtext is from HashJoin, and hashkeys/slot need to
+ * be appropriate for tuples from HashJoin's outer node.
  *
  * A true result means the tuple's hash value has been successfully computed
  * and stored at *hashvalue.  A false result means the tuple cannot match
@@ -1914,7 +1918,7 @@ ExecHashGetHashValue(HashJoinTable hashtable,
  * chains), and must only cause the batch number to remain the same or
  * increase.  Our algorithm is
  *		bucketno = hashvalue MOD nbuckets
- *		batchno = (hashvalue DIV nbuckets) MOD nbatch
+ *		batchno = ROR(hashvalue, log2_nbuckets) MOD nbatch
  * where nbuckets and nbatch are both expected to be powers of 2, so we can
  * do the computations by shifting and masking.  (This assumes that all hash
  * functions are good about randomizing all their output bits, else we are
@@ -1926,7 +1930,11 @@ ExecHashGetHashValue(HashJoinTable hashtable,
  * number the way we do here).
  *
  * nbatch is always a power of 2; we increase it only by doubling it.  This
- * effectively adds one more bit to the top of the batchno.
+ * effectively adds one more bit to the top of the batchno.  In very large
+ * joins, we might run out of bits to add, so we do this by rotating the hash
+ * value.  This causes batchno to steal bits from bucketno when the number of
+ * virtual buckets exceeds 2^32.  It's better to have longer bucket chains
+ * than to lose the ability to divide batches.
  */
 void
 ExecHashGetBucketAndBatch(HashJoinTable hashtable,
@@ -1939,9 +1947,9 @@ ExecHashGetBucketAndBatch(HashJoinTable hashtable,
 
 	if (nbatch > 1)
 	{
-		/* we can do MOD by masking, DIV by shifting */
 		*bucketno = hashvalue & (nbuckets - 1);
-		*batchno = (hashvalue >> hashtable->log2_nbuckets) & (nbatch - 1);
+		*batchno = pg_rotate_right32(hashvalue,
+									 hashtable->log2_nbuckets) & (nbatch - 1);
 	}
 	else
 	{
@@ -2348,9 +2356,7 @@ ExecHashBuildSkewHash(HashJoinTable hashtable, Hash *node, int mcvsToUse)
 		 * MaxAllocSize/sizeof(void *)/8, but that is not currently possible
 		 * since we limit pg_statistic entries to much less than that.
 		 */
-		nbuckets = 2;
-		while (nbuckets <= mcvsToUse)
-			nbuckets <<= 1;
+		nbuckets = pg_nextpower2_32(mcvsToUse + 1);
 		/* use two more bits just to help avoid collisions */
 		nbuckets <<= 2;
 
@@ -2677,7 +2683,10 @@ ExecHashInitializeDSM(HashState *node, ParallelContext *pcxt)
 	size = offsetof(SharedHashInfo, hinstrument) +
 		pcxt->nworkers * sizeof(HashInstrumentation);
 	node->shared_info = (SharedHashInfo *) shm_toc_allocate(pcxt->toc, size);
+
+	/* Each per-worker area must start out as zeroes. */
 	memset(node->shared_info, 0, size);
+
 	node->shared_info->num_workers = pcxt->nworkers;
 	shm_toc_insert(pcxt->toc, node->ps.plan->plan_node_id,
 				   node->shared_info);
@@ -2696,22 +2705,33 @@ ExecHashInitializeWorker(HashState *node, ParallelWorkerContext *pwcxt)
 	if (!node->ps.instrument)
 		return;
 
+	/*
+	 * Find our entry in the shared area, and set up a pointer to it so that
+	 * we'll accumulate stats there when shutting down or rebuilding the hash
+	 * table.
+	 */
 	shared_info = (SharedHashInfo *)
 		shm_toc_lookup(pwcxt->toc, node->ps.plan->plan_node_id, false);
 	node->hinstrument = &shared_info->hinstrument[ParallelWorkerNumber];
 }
 
 /*
- * Copy instrumentation data from this worker's hash table (if it built one)
- * to DSM memory so the leader can retrieve it.  This must be done in an
- * ExecShutdownHash() rather than ExecEndHash() because the latter runs after
- * we've detached from the DSM segment.
+ * Collect EXPLAIN stats if needed, saving them into DSM memory if
+ * ExecHashInitializeWorker was called, or local storage if not.  In the
+ * parallel case, this must be done in ExecShutdownHash() rather than
+ * ExecEndHash() because the latter runs after we've detached from the DSM
+ * segment.
  */
 void
 ExecShutdownHash(HashState *node)
 {
+	/* Allocate save space if EXPLAIN'ing and we didn't do so already */
+	if (node->ps.instrument && !node->hinstrument)
+		node->hinstrument = (HashInstrumentation *)
+			palloc0(sizeof(HashInstrumentation));
+	/* Now accumulate data for the current (final) hash table */
 	if (node->hinstrument && node->hashtable)
-		ExecHashGetInstrumentation(node->hinstrument, node->hashtable);
+		ExecHashAccumInstrumentation(node->hinstrument, node->hashtable);
 }
 
 /*
@@ -2735,18 +2755,34 @@ ExecHashRetrieveInstrumentation(HashState *node)
 }
 
 /*
- * Copy the instrumentation data from 'hashtable' into a HashInstrumentation
- * struct.
+ * Accumulate instrumentation data from 'hashtable' into an
+ * initially-zeroed HashInstrumentation struct.
+ *
+ * This is used to merge information across successive hash table instances
+ * within a single plan node.  We take the maximum values of each interesting
+ * number.  The largest nbuckets and largest nbatch values might have occurred
+ * in different instances, so there's some risk of confusion from reporting
+ * unrelated numbers; but there's a bigger risk of misdiagnosing a performance
+ * issue if we don't report the largest values.  Similarly, we want to report
+ * the largest spacePeak regardless of whether it happened in the same
+ * instance as the largest nbuckets or nbatch.  All the instances should have
+ * the same nbuckets_original and nbatch_original; but there's little value
+ * in depending on that here, so handle them the same way.
  */
 void
-ExecHashGetInstrumentation(HashInstrumentation *instrument,
-						   HashJoinTable hashtable)
+ExecHashAccumInstrumentation(HashInstrumentation *instrument,
+							 HashJoinTable hashtable)
 {
-	instrument->nbuckets = hashtable->nbuckets;
-	instrument->nbuckets_original = hashtable->nbuckets_original;
-	instrument->nbatch = hashtable->nbatch;
-	instrument->nbatch_original = hashtable->nbatch_original;
-	instrument->space_peak = hashtable->spacePeak;
+	instrument->nbuckets = Max(instrument->nbuckets,
+							   hashtable->nbuckets);
+	instrument->nbuckets_original = Max(instrument->nbuckets_original,
+										hashtable->nbuckets_original);
+	instrument->nbatch = Max(instrument->nbatch,
+							 hashtable->nbatch);
+	instrument->nbatch_original = Max(instrument->nbatch_original,
+									  hashtable->nbatch_original);
+	instrument->space_peak = Max(instrument->space_peak,
+								 hashtable->spacePeak);
 }
 
 /*

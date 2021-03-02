@@ -19,24 +19,34 @@ INSERT INTO TIMETZ_TBL VALUES ('15:36:39 America/New_York');
 ERROR:  invalid input syntax for type time with time zone: "15:36:39 America/New_York"
 LINE 1: INSERT INTO TIMETZ_TBL VALUES ('15:36:39 America/New_York');
                                        ^
-SELECT f1 AS "Time TZ" FROM TIMETZ_TBL ORDER BY f1;
+-- this should fail (timezone not specified without a date)
+INSERT INTO TIMETZ_TBL VALUES ('15:36:39 m2');
+ERROR:  invalid input syntax for type time with time zone: "15:36:39 m2"
+LINE 1: INSERT INTO TIMETZ_TBL VALUES ('15:36:39 m2');
+                                       ^
+-- this should fail (dynamic timezone abbreviation without a date)
+INSERT INTO TIMETZ_TBL VALUES ('15:36:39 MSK m2');
+ERROR:  invalid input syntax for type time with time zone: "15:36:39 MSK m2"
+LINE 1: INSERT INTO TIMETZ_TBL VALUES ('15:36:39 MSK m2');
+                                       ^
+SELECT f1 AS "Time TZ" FROM TIMETZ_TBL;
     Time TZ     
 ----------------
  00:01:00-07
  01:00:00-07
  02:03:00-07
- 08:08:00-04
  07:07:00-08
+ 08:08:00-04
  11:59:00-07
  12:00:00-07
  12:01:00-07
- 15:36:39-04
- 15:36:39-05
  23:59:00-07
  23:59:59.99-07
+ 15:36:39-05
+ 15:36:39-04
 (12 rows)
 
-SELECT f1 AS "Three" FROM TIMETZ_TBL WHERE f1 < '05:06:07-07' ORDER BY f1;
+SELECT f1 AS "Three" FROM TIMETZ_TBL WHERE f1 < '05:06:07-07';
     Three    
 -------------
  00:01:00-07
@@ -44,42 +54,83 @@ SELECT f1 AS "Three" FROM TIMETZ_TBL WHERE f1 < '05:06:07-07' ORDER BY f1;
  02:03:00-07
 (3 rows)
 
-SELECT f1 AS "Seven" FROM TIMETZ_TBL WHERE f1 > '05:06:07-07' ORDER BY f1;
+SELECT f1 AS "Seven" FROM TIMETZ_TBL WHERE f1 > '05:06:07-07';
      Seven      
 ----------------
- 08:08:00-04
  07:07:00-08
+ 08:08:00-04
  11:59:00-07
  12:00:00-07
  12:01:00-07
- 15:36:39-04
- 15:36:39-05
  23:59:00-07
  23:59:59.99-07
+ 15:36:39-05
+ 15:36:39-04
 (9 rows)
 
-SELECT f1 AS "None" FROM TIMETZ_TBL WHERE f1 < '00:00-07' ORDER BY f1;
+SELECT f1 AS "None" FROM TIMETZ_TBL WHERE f1 < '00:00-07';
  None 
 ------
 (0 rows)
 
-SELECT f1 AS "Ten" FROM TIMETZ_TBL WHERE f1 >= '00:00-07' ORDER BY f1;
+SELECT f1 AS "Ten" FROM TIMETZ_TBL WHERE f1 >= '00:00-07';
       Ten       
 ----------------
  00:01:00-07
  01:00:00-07
  02:03:00-07
- 08:08:00-04
  07:07:00-08
+ 08:08:00-04
  11:59:00-07
  12:00:00-07
  12:01:00-07
- 15:36:39-04
- 15:36:39-05
  23:59:00-07
  23:59:59.99-07
+ 15:36:39-05
+ 15:36:39-04
 (12 rows)
 
+-- Check edge cases
+SELECT '23:59:59.999999'::timetz;
+       timetz       
+--------------------
+ 23:59:59.999999-07
+(1 row)
+
+SELECT '23:59:59.9999999'::timetz;  -- rounds up
+   timetz    
+-------------
+ 24:00:00-07
+(1 row)
+
+SELECT '23:59:60'::timetz;  -- rounds up
+   timetz    
+-------------
+ 24:00:00-07
+(1 row)
+
+SELECT '24:00:00'::timetz;  -- allowed
+   timetz    
+-------------
+ 24:00:00-07
+(1 row)
+
+SELECT '24:00:00.01'::timetz;  -- not allowed
+ERROR:  date/time field value out of range: "24:00:00.01"
+LINE 1: SELECT '24:00:00.01'::timetz;
+               ^
+SELECT '23:59:60.01'::timetz;  -- not allowed
+ERROR:  date/time field value out of range: "23:59:60.01"
+LINE 1: SELECT '23:59:60.01'::timetz;
+               ^
+SELECT '24:01:00'::timetz;  -- not allowed
+ERROR:  date/time field value out of range: "24:01:00"
+LINE 1: SELECT '24:01:00'::timetz;
+               ^
+SELECT '25:00:00'::timetz;  -- not allowed
+ERROR:  date/time field value out of range: "25:00:00"
+LINE 1: SELECT '25:00:00'::timetz;
+               ^
 --
 -- TIME simple math
 --
@@ -88,7 +139,7 @@ SELECT f1 AS "Ten" FROM TIMETZ_TBL WHERE f1 >= '00:00-07' ORDER BY f1;
 -- Leave in one query to show that it is rejected,
 -- and do the rest of the testing in horology.sql
 -- where we do mixed-type arithmetic. - thomas 2000-12-02
-SELECT f1 + time with time zone '00:01' AS "Illegal" FROM TIMETZ_TBL ORDER BY f1;
+SELECT f1 + time with time zone '00:01' AS "Illegal" FROM TIMETZ_TBL;
 ERROR:  operator does not exist: time with time zone + time with time zone
 LINE 1: SELECT f1 + time with time zone '00:01' AS "Illegal" FROM TI...
                   ^

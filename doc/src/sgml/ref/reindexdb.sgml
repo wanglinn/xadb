@@ -15,7 +15,7 @@ PostgreSQL documentation
  </refmeta>
 
  <refnamediv>
-  <refname id="reindexdb">reindexdb</refname>
+  <refname>reindexdb</refname>
   <refpurpose>reindex a <productname>PostgreSQL</productname> database</refpurpose>
  </refnamediv>
 
@@ -122,8 +122,9 @@ PostgreSQL documentation
       <term><option>--concurrently</option></term>
       <listitem>
        <para>
-        Use the <literal>CONCURRENTLY</literal> option.  See <xref
-        linkend="sql-reindex"/> for further information.
+        Use the <literal>CONCURRENTLY</literal> option.  See
+        <xref linkend="sql-reindex"/>, where all the caveats of this option
+        are explained in detail.
        </para>
       </listitem>
      </varlistentry>
@@ -162,6 +163,29 @@ PostgreSQL documentation
         Recreate <replaceable class="parameter">index</replaceable> only.
         Multiple indexes can be recreated by writing multiple
         <option>-i</option> switches.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><option>-j <replaceable class="parameter">njobs</replaceable></option></term>
+      <term><option>--jobs=<replaceable class="parameter">njobs</replaceable></option></term>
+      <listitem>
+       <para>
+        Execute the reindex commands in parallel by running
+        <replaceable class="parameter">njobs</replaceable>
+        commands simultaneously.  This option reduces the time of the
+        processing but it also increases the load on the database server.
+       </para>
+       <para>
+        <application>reindexdb</application> will open
+        <replaceable class="parameter">njobs</replaceable> connections to the
+        database, so make sure your <xref linkend="guc-max-connections"/>
+        setting is high enough to accommodate all connections.
+       </para>
+       <para>
+        Note that this option is incompatible with the <option>--index</option>
+        and <option>--system</option> options.
        </para>
       </listitem>
      </varlistentry>
@@ -357,8 +381,8 @@ PostgreSQL documentation
     <term><envar>PG_COLOR</envar></term>
     <listitem>
      <para>
-      Specifies whether to use color in diagnostics messages.  Possible values
-      are <literal>always</literal>, <literal>auto</literal>,
+      Specifies whether to use color in diagnostic messages. Possible values
+      are <literal>always</literal>, <literal>auto</literal> and
       <literal>never</literal>.
      </para>
     </listitem>

@@ -3,7 +3,7 @@
 --
 
 CREATE TABLE clstr_tst_s (rf_a SERIAL PRIMARY KEY,
-	b INT) distribute by replication;
+	b INT);
 
 CREATE TABLE clstr_tst (a SERIAL PRIMARY KEY,
 	b INT,
@@ -61,14 +61,14 @@ INSERT INTO clstr_tst (b, c, d) VALUES (6, 'seis', repeat('xyzzy', 100000));
 
 CLUSTER clstr_tst_c ON clstr_tst;
 
-SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY a, b, c;
+SELECT a,b,c,substring(d for 30), length(d) from clstr_tst;
 SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY a;
 SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY b;
 SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY c;
 
 -- Verify that inheritance link still works
 INSERT INTO clstr_tst_inh VALUES (0, 100, 'in child table');
-SELECT a,b,c,substring(d for 30), length(d) from clstr_tst ORDER BY a, b, c;
+SELECT a,b,c,substring(d for 30), length(d) from clstr_tst;
 
 -- Verify that foreign key link still works
 INSERT INTO clstr_tst (b, c) VALUES (1111, 'this should fail');
@@ -126,8 +126,7 @@ CLUSTER clstr_1_pkey ON clstr_1;
 CLUSTER clstr_2 USING clstr_2_pkey;
 SELECT * FROM clstr_1 UNION ALL
   SELECT * FROM clstr_2 UNION ALL
-  SELECT * FROM clstr_3
-  ORDER BY 1;
+  SELECT * FROM clstr_3;
 
 -- revert to the original state
 DELETE FROM clstr_1;
@@ -146,21 +145,19 @@ SET SESSION AUTHORIZATION regress_clstr_user;
 CLUSTER;
 SELECT * FROM clstr_1 UNION ALL
   SELECT * FROM clstr_2 UNION ALL
-  SELECT * FROM clstr_3
-  ORDER BY 1;
+  SELECT * FROM clstr_3;
 
 -- cluster a single table using the indisclustered bit previously set
 DELETE FROM clstr_1;
 INSERT INTO clstr_1 VALUES (2);
 INSERT INTO clstr_1 VALUES (1);
 CLUSTER clstr_1;
-SELECT * FROM clstr_1
-ORDER BY 1;
+SELECT * FROM clstr_1;
 
 -- Test MVCC-safety of cluster. There isn't much we can do to verify the
 -- results with a single backend...
 
-CREATE TABLE clustertest (key int PRIMARY KEY) distribute by replication;
+CREATE TABLE clustertest (key int PRIMARY KEY);
 
 INSERT INTO clustertest VALUES (10);
 INSERT INTO clustertest VALUES (20);
@@ -182,19 +179,19 @@ UPDATE clustertest SET key = 60 WHERE key = 50;
 UPDATE clustertest SET key = 70 WHERE key = 60;
 UPDATE clustertest SET key = 80 WHERE key = 70;
 
-SELECT * FROM clustertest ORDER BY 1;
+SELECT * FROM clustertest;
 CLUSTER clustertest_pkey ON clustertest;
-SELECT * FROM clustertest ORDER BY 1;
+SELECT * FROM clustertest;
 
 COMMIT;
 
-SELECT * FROM clustertest ORDER BY 1;
+SELECT * FROM clustertest;
 
 -- check that temp tables can be clustered
 create temp table clstr_temp (col1 int primary key, col2 text);
 insert into clstr_temp values (2, 'two'), (1, 'one');
 cluster clstr_temp using clstr_temp_pkey;
-select * from clstr_temp order by 1;
+select * from clstr_temp;
 drop table clstr_temp;
 
 RESET SESSION AUTHORIZATION;
@@ -219,11 +216,46 @@ cluster clstr_4 using cluster_sort;
 select * from
 (select hundred, lag(hundred) over () as lhundred,
         thousand, lag(thousand) over () as lthousand,
-        tenthous, lag(tenthous) over () as ltenthous from (select * from clstr_4 order by hundred, thousand, tenthous) aa) ss
+        tenthous, lag(tenthous) over () as ltenthous from clstr_4) ss
 where row(hundred, thousand, tenthous) <= row(lhundred, lthousand, ltenthous);
 
 reset enable_indexscan;
 reset maintenance_work_mem;
+
+-- test CLUSTER on expression index
+CREATE TABLE clstr_expression(id serial primary key, a int, b text COLLATE "C");
+INSERT INTO clstr_expression(a, b) SELECT g.i % 42, 'prefix'||g.i FROM generate_series(1, 133) g(i);
+CREATE INDEX clstr_expression_minus_a ON clstr_expression ((-a), b);
+CREATE INDEX clstr_expression_upper_b ON clstr_expression ((upper(b)));
+
+-- verify indexes work before cluster
+BEGIN;
+SET LOCAL enable_seqscan = false;
+EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE upper(b) = 'PREFIX3';
+SELECT * FROM clstr_expression WHERE upper(b) = 'PREFIX3';
+EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b;
+SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b;
+COMMIT;
+
+-- and after clustering on clstr_expression_minus_a
+CLUSTER clstr_expression USING clstr_expression_minus_a;
+BEGIN;
+SET LOCAL enable_seqscan = false;
+EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE upper(b) = 'PREFIX3';
+SELECT * FROM clstr_expression WHERE upper(b) = 'PREFIX3';
+EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b;
+SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b;
+COMMIT;
+
+-- and after clustering on clstr_expression_upper_b
+CLUSTER clstr_expression USING clstr_expression_upper_b;
+BEGIN;
+SET LOCAL enable_seqscan = false;
+EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE upper(b) = 'PREFIX3';
+SELECT * FROM clstr_expression WHERE upper(b) = 'PREFIX3';
+EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b;
+SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b;
+COMMIT;
 
 -- clean up
 DROP TABLE clustertest;
@@ -231,4 +263,6 @@ DROP TABLE clstr_1;
 DROP TABLE clstr_2;
 DROP TABLE clstr_3;
 DROP TABLE clstr_4;
+DROP TABLE clstr_expression;
+
 DROP USER regress_clstr_user;

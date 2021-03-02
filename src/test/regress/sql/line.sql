@@ -36,7 +36,7 @@ INSERT INTO LINE_TBL VALUES ('[(1,2),(1,2)]');
 
 INSERT INTO LINE_TBL VALUES (line(point '(1,0)', point '(1,0)'));
 
-select * from LINE_TBL order by s[0], s[1], s[2];
+select * from LINE_TBL;
 
 select '{nan, 1, nan}'::line = '{nan, 1, nan}'::line as true,
 	   '{nan, 1, nan}'::line = '{nan, 2, nan}'::line as false;

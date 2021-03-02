@@ -3,7 +3,7 @@
  * matview.c
  *	  materialized view support
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -101,7 +101,7 @@ static void OpenMatViewIncrementalMaintenance(void);
 static void CloseMatViewIncrementalMaintenance(void);
 #ifdef ADB
 static ObjectAddress ExecRefreshMatView_adb(RefreshMatViewStmt *stmt, const char *queryString,
-											ParamListInfo params, char *completionTag, bool master);
+											ParamListInfo params, QueryCompletion *qc, bool master);
 static void adb_send_relation_data(List *connList, Oid reloid, LOCKMODE lockmode);
 static void adb_send_copy_end(List *connList);
 static uint64 adb_recv_relation_data(DestReceiver *self, TupleDesc desc, int operator);
@@ -153,7 +153,6 @@ void ClusterRefreshMatView(StringInfo mem_toc)
 	RefreshMatViewStmt *stmt;
 	const char		   *queryString;
 	ParamListInfo		params;
-	char			   *completionTag;
 
 	StringInfoData		buf;
 	buf.data = mem_toc_lookup(mem_toc, REMOTE_KEY_CMD_INFO, &buf.maxlen);
@@ -175,7 +174,6 @@ void ClusterRefreshMatView(StringInfo mem_toc)
 				 errmsg("Can not found RefreshMatViewStmt struct")));
 	}
 	queryString = load_node_string(&buf, false);
-	completionTag = load_node_string(&buf, true);
 	params = LoadParamList(&buf);
 
 	/*
@@ -187,7 +185,7 @@ void ClusterRefreshMatView(StringInfo mem_toc)
 	EventTriggerInhibitCommandCollection();
 	PG_TRY();
 	{
-		ExecRefreshMatView_adb(stmt, queryString, params, completionTag, false);
+		ExecRefreshMatView_adb(stmt, queryString, params, NULL, false);
 	}
 	PG_CATCH();
 	{
@@ -196,8 +194,6 @@ void ClusterRefreshMatView(StringInfo mem_toc)
 	}
 	PG_END_TRY();
 	EventTriggerUndoInhibitCommandCollection();
-
-	pfree(completionTag);
 }
 #endif /* ADB */
 
@@ -223,15 +219,15 @@ void ClusterRefreshMatView(StringInfo mem_toc)
  */
 ObjectAddress
 ExecRefreshMatView(RefreshMatViewStmt *stmt, const char *queryString,
-				   ParamListInfo params, char *completionTag)
+				   ParamListInfo params, QueryCompletion *qc)
 {
 #ifdef ADB
-	return ExecRefreshMatView_adb(stmt, queryString, params, completionTag, true);
+	return ExecRefreshMatView_adb(stmt, queryString, params, qc, true);
 }
 
 static ObjectAddress
 ExecRefreshMatView_adb(RefreshMatViewStmt *stmt, const char *queryString,
-					   ParamListInfo params, char *completionTag, bool master)
+					   ParamListInfo params, QueryCompletion *qc, bool master)
 {
 	Tuplestorestate *tstore = NULL;
 	List		   *connList = NIL;
@@ -383,7 +379,6 @@ ExecRefreshMatView_adb(RefreshMatViewStmt *stmt, const char *queryString,
 			begin_mem_toc_insert(&toc, REMOTE_KEY_CMD_INFO);
 			saveNode(&toc, (Node*)stmt);
 			save_node_string(&toc, queryString);
-			save_node_string(&toc, completionTag);
 			SaveParamList(&toc, params);
 			end_mem_toc_insert(&toc, REMOTE_KEY_CMD_INFO);
 
@@ -558,7 +553,7 @@ refresh_matview_datafill(DestReceiver *dest, Query *query,
 	CHECK_FOR_INTERRUPTS();
 
 	/* Plan the query which will generate data for the refresh. */
-	plan = pg_plan_query(query, 0, NULL);
+	plan = pg_plan_query(query, queryString, 0, NULL);
 
 	/*
 	 * Use a snapshot with an updated command ID to ensure this query sees
@@ -624,17 +619,13 @@ transientrel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	 */
 	myState->transientrel = transientrel;
 	myState->output_cid = GetCurrentCommandId(true);
-
-	/*
-	 * We can skip WAL-logging the insertions, unless PITR or streaming
-	 * replication is in use. We can skip the FSM in any case.
-	 */
 	myState->ti_options = TABLE_INSERT_SKIP_FSM | TABLE_INSERT_FROZEN;
-	if (!XLogIsNeeded())
-		myState->ti_options |= TABLE_INSERT_SKIP_WAL;
 	myState->bistate = GetBulkInsertState();
 
-	/* Not using WAL requires smgr_targblock be initially invalid */
+	/*
+	 * Valid smgr_targblock implies something already wrote to the relation.
+	 * This may be harmless, but this function hasn't planned for it.
+	 */
 	Assert(RelationGetTargetBlock(transientrel) == InvalidBlockNumber);
 }
 
@@ -1303,7 +1294,7 @@ static void adb_send_copy_end(List *connList)
 
 static void adb_send_relation_data(List *connList, Oid reloid, LOCKMODE lockmode)
 {
-	Relation			rel = heap_open(reloid, lockmode);
+	Relation			rel = table_open(reloid, lockmode);
 	TableScanDesc		scandesc = table_beginscan(rel, GetActiveSnapshot(), 0, NULL);
 	TupleTypeConvert   *convert = create_type_convert(RelationGetDescr(rel), true, false);
 	TupleTableSlot	   *base_slot = table_slot_create(rel, NULL);

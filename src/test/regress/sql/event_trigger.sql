@@ -10,6 +10,9 @@ BEGIN
 END
 $$ language plpgsql;
 
+-- should fail, can't call it as a plain function
+SELECT test_event_trigger();
+
 -- should fail, event triggers cannot have declared arguments
 create function test_event_trigger_arg(name text)
 returns event_trigger as $$ BEGIN RETURN 1; END $$ language plpgsql;
@@ -173,7 +176,7 @@ CREATE SCHEMA audit_tbls authorization regress_evt_user;
 CREATE TEMP TABLE a_temp_tbl ();
 SET SESSION AUTHORIZATION regress_evt_user;
 
-CREATE TABLE schema_one.table_one(a int) distribute by replication;
+CREATE TABLE schema_one.table_one(a int);
 CREATE TABLE schema_one."table two"(a int);
 CREATE TABLE schema_one.table_three(a int);
 CREATE TABLE audit_tbls.schema_one_table_two(the_value text);

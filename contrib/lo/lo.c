@@ -33,26 +33,11 @@ lo_manage(PG_FUNCTION_ARGS)
 	HeapTuple	trigtuple;		/* The original value of tuple	*/
 
 	if (!CALLED_AS_TRIGGER(fcinfo)) /* internal error */
-#ifdef ADB
-		/* fix: Access to field 'tg_trigger' results in a dereference
-		 * of a null pointer (loaded from variable 'trigdata')
-		 */
-		elog(ERROR, "not fired by trigger manager");
-#else
-		elog(ERROR, "%s: not fired by trigger manager",
-			 trigdata->tg_trigger->tgname);
-#endif
+		elog(ERROR, "lo_manage: not fired by trigger manager");
 
 	if (!TRIGGER_FIRED_FOR_ROW(trigdata->tg_event)) /* internal error */
-#ifdef ADB
-		/* fix: Access to field 'tg_trigger' results in a dereference
-		 * of a null pointer (loaded from variable 'trigdata')
-		 */
-		elog(ERROR, "not fired by trigger manager");
-#else
 		elog(ERROR, "%s: must be fired for row",
 			 trigdata->tg_trigger->tgname);
-#endif
 
 	/*
 	 * Fetch some values from trigdata
@@ -88,7 +73,8 @@ lo_manage(PG_FUNCTION_ARGS)
 	 * Here, if the value of the monitored attribute changes, then the large
 	 * object associated with the original value is unlinked.
 	 */
-	if (newtuple != NULL)
+	if (newtuple != NULL &&
+		bms_is_member(attnum - FirstLowInvalidHeapAttributeNumber, trigdata->tg_updatedcols))
 	{
 		char	   *orig = SPI_getvalue(trigtuple, tupdesc, attnum);
 		char	   *newv = SPI_getvalue(newtuple, tupdesc, attnum);

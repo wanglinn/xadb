@@ -1,7 +1,7 @@
 <!-- doc/src/sgml/xindex.sgml -->
 
 <sect1 id="xindex">
- <title>Interfacing Extensions To Indexes</title>
+ <title>Interfacing Extensions to Indexes</title>
 
  <indexterm zone="xindex">
   <primary>index</primary>
@@ -105,7 +105,7 @@
   </para>
 
    <table tocentry="1" id="xindex-btree-strat-table">
-    <title>B-tree Strategies</title>
+    <title>B-Tree Strategies</title>
     <tgroup cols="2">
      <thead>
       <row>
@@ -402,7 +402,7 @@
 
   <para>
    B-trees require a comparison support function,
-   and allow two additional support functions to be
+   and allow three additional support functions to be
    supplied at the operator class author's option, as shown in <xref
    linkend="xindex-btree-support-table"/>.
    The requirements for these support functions are explained further in
@@ -410,8 +410,10 @@
   </para>
 
    <table tocentry="1" id="xindex-btree-support-table">
-    <title>B-tree Support Functions</title>
+    <title>B-Tree Support Functions</title>
     <tgroup cols="2">
+     <colspec colname="col1" colwidth="3*"/>
+     <colspec colname="col2" colwidth="1*"/>
      <thead>
       <row>
        <entry>Function</entry>
@@ -441,6 +443,13 @@
        </entry>
        <entry>3</entry>
       </row>
+      <row>
+       <entry>
+        Determine if it is safe for indexes that use the operator
+        class to apply the btree deduplication optimization (optional)
+       </entry>
+       <entry>4</entry>
+      </row>
      </tbody>
     </tgroup>
    </table>
@@ -454,6 +463,8 @@
    <table tocentry="1" id="xindex-hash-support-table">
     <title>Hash Support Functions</title>
     <tgroup cols="2">
+     <colspec colname="col1" colwidth="3*"/>
+     <colspec colname="col2" colwidth="1*"/>
      <thead>
       <row>
        <entry>Function</entry>
@@ -487,6 +498,9 @@
    <table tocentry="1" id="xindex-gist-support-table">
     <title>GiST Support Functions</title>
     <tgroup cols="3">
+     <colspec colname="col1" colwidth="2*"/>
+     <colspec colname="col2" colwidth="3*"/>
+     <colspec colname="col3" colwidth="1*"/>
      <thead>
       <row>
        <entry>Function</entry>
@@ -559,6 +573,9 @@
    <table tocentry="1" id="xindex-spgist-support-table">
     <title>SP-GiST Support Functions</title>
     <tgroup cols="3">
+     <colspec colname="col1" colwidth="2*"/>
+     <colspec colname="col2" colwidth="3*"/>
+     <colspec colname="col3" colwidth="1*"/>
      <thead>
       <row>
        <entry>Function</entry>
@@ -607,6 +624,9 @@
    <table tocentry="1" id="xindex-gin-support-table">
     <title>GIN Support Functions</title>
     <tgroup cols="3">
+     <colspec colname="col1" colwidth="2*"/>
+     <colspec colname="col2" colwidth="3*"/>
+     <colspec colname="col3" colwidth="1*"/>
      <thead>
       <row>
        <entry>Function</entry>
@@ -674,6 +694,9 @@
    <table tocentry="1" id="xindex-brin-support-table">
     <title>BRIN Support Functions</title>
     <tgroup cols="3">
+     <colspec colname="col1" colwidth="2*"/>
+     <colspec colname="col2" colwidth="3*"/>
+     <colspec colname="col3" colwidth="1*"/>
      <thead>
       <row>
        <entry>Function</entry>
@@ -980,7 +1003,8 @@ DEFAULT FOR TYPE int8 USING btree FAMILY integer_ops AS
   OPERATOR 5 > ,
   FUNCTION 1 btint8cmp(int8, int8) ,
   FUNCTION 2 btint8sortsupport(internal) ,
-  FUNCTION 3 in_range(int8, int8, int8, boolean, boolean) ;
+  FUNCTION 3 in_range(int8, int8, int8, boolean, boolean) ,
+  FUNCTION 4 btequalimage(oid) ;
 
 CREATE OPERATOR CLASS int4_ops
 DEFAULT FOR TYPE int4 USING btree FAMILY integer_ops AS
@@ -992,7 +1016,8 @@ DEFAULT FOR TYPE int4 USING btree FAMILY integer_ops AS
   OPERATOR 5 > ,
   FUNCTION 1 btint4cmp(int4, int4) ,
   FUNCTION 2 btint4sortsupport(internal) ,
-  FUNCTION 3 in_range(int4, int4, int4, boolean, boolean) ;
+  FUNCTION 3 in_range(int4, int4, int4, boolean, boolean) ,
+  FUNCTION 4 btequalimage(oid) ;
 
 CREATE OPERATOR CLASS int2_ops
 DEFAULT FOR TYPE int2 USING btree FAMILY integer_ops AS
@@ -1004,7 +1029,8 @@ DEFAULT FOR TYPE int2 USING btree FAMILY integer_ops AS
   OPERATOR 5 > ,
   FUNCTION 1 btint2cmp(int2, int2) ,
   FUNCTION 2 btint2sortsupport(internal) ,
-  FUNCTION 3 in_range(int2, int2, int2, boolean, boolean) ;
+  FUNCTION 3 in_range(int2, int2, int2, boolean, boolean) ,
+  FUNCTION 4 btequalimage(oid) ;
 
 ALTER OPERATOR FAMILY integer_ops USING btree ADD
   -- cross-type comparisons int8 vs int2

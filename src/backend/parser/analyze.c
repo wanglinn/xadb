@@ -14,7 +14,7 @@
  * contain optimizable statements, which we should transform.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *	src/backend/parser/analyze.c
@@ -370,7 +370,7 @@ transformOptionalSelectInto(ParseState *pstate, Node *parseTree)
 		/* If it's a set-operation tree, drill down to leftmost SelectStmt */
 		while (stmt && stmt->op != SETOP_NONE)
 			stmt = stmt->larg;
-		Assert(stmt && IsA(stmt, SelectStmt) &&stmt->larg == NULL);
+		Assert(stmt && IsA(stmt, SelectStmt) && stmt->larg == NULL);
 
 		if (stmt->intoClause)
 		{
@@ -638,9 +638,7 @@ transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt)
 										 stmt->relation->inh,
 										 true,
 										 ACL_DELETE);
-
-	/* grab the namespace item made by setTargetTable */
-	nsitem = (ParseNamespaceItem *) llast(pstate->p_namespace);
+	nsitem = pstate->p_target_nsitem;
 
 	/* there's no DISTINCT in DELETE */
 	qry->distinctClause = NIL;
@@ -699,8 +697,8 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 	List	   *sub_namespace;
 	List	   *icolumns;
 	List	   *attrnos;
+	ParseNamespaceItem *nsitem;
 	RangeTblEntry *rte;
-	RangeTblRef *rtr;
 	ListCell   *icols;
 	ListCell   *attnos;
 	ListCell   *lc;
@@ -778,7 +776,10 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 
 #ifdef ADB_MULTI_GRAM
 	if(pstate->p_grammar == PARSE_GRAM_ORACLE)
-		addRTEtoQuery(pstate, rt_fetch(qry->resultRelation, pstate->p_rtable), false, true, true);
+	{
+#warning review this code
+		/* addRTEtoQuery(pstate, rt_fetch(qry->resultRelation, pstate->p_rtable), false, true, true); */
+	}
 #endif /* ADB */
 
 	/* Validate stmt->cols list, or build default list if no list given */
@@ -841,13 +842,13 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 
 		/*
 		 * Make the source be a subquery in the INSERT's rangetable, and add
-		 * it to the INSERT's joinlist.
+		 * it to the INSERT's joinlist (but not the namespace).
 		 */
-		rte = addRangeTableEntryForSubquery(pstate,
-											selectQuery,
-											makeAlias("*SELECT*", NIL),
-											false,
-											false);
+		nsitem = addRangeTableEntryForSubquery(pstate,
+											   selectQuery,
+											   makeAlias("*SELECT*", NIL),
+											   false,
+											   false);
 #ifdef ADB
 		/*
 		 * For an INSERT SELECT involving INSERT on a child after scanning
@@ -864,11 +865,7 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 			}
 		}
 #endif
-		rtr = makeNode(RangeTblRef);
-		/* assume new rte is at end */
-		rtr->rtindex = list_length(pstate->p_rtable);
-		Assert(rte == rt_fetch(rtr->rtindex, pstate->p_rtable));
-		pstate->p_joinlist = lappend(pstate->p_joinlist, rtr);
+		addNSItemToQuery(pstate, nsitem, true, false, false);
 
 		/*----------
 		 * Generate an expression list for the INSERT that selects all the
@@ -893,12 +890,12 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 			if (tle->resjunk)
 				continue;
 			if (tle->expr &&
-				(IsA(tle->expr, Const) ||IsA(tle->expr, Param)) &&
+				(IsA(tle->expr, Const) || IsA(tle->expr, Param)) &&
 				exprType((Node *) tle->expr) == UNKNOWNOID)
 				expr = tle->expr;
 			else
 			{
-				Var		   *var = makeVarFromTargetEntry(rtr->rtindex, tle);
+				Var		   *var = makeVarFromTargetEntry(nsitem->p_rtindex, tle);
 
 				var->location = exprLocation((Node *) tle->expr);
 				expr = (Expr *) var;
@@ -1020,19 +1017,15 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 		/*
 		 * Generate the VALUES RTE
 		 */
-		rte = addRangeTableEntryForValues(pstate, exprsLists,
-										  coltypes, coltypmods, colcollations,
-										  NULL, lateral, true);
-		rtr = makeNode(RangeTblRef);
-		/* assume new rte is at end */
-		rtr->rtindex = list_length(pstate->p_rtable);
-		Assert(rte == rt_fetch(rtr->rtindex, pstate->p_rtable));
-		pstate->p_joinlist = lappend(pstate->p_joinlist, rtr);
+		nsitem = addRangeTableEntryForValues(pstate, exprsLists,
+											 coltypes, coltypmods, colcollations,
+											 NULL, lateral, true);
+		addNSItemToQuery(pstate, nsitem, true, false, false);
 
 		/*
 		 * Generate list of Vars referencing the RTE
 		 */
-		expandRTE(rte, rtr->rtindex, 0, -1, false, NULL, &exprList);
+		exprList = expandNSItemVars(nsitem, 0, -1, NULL);
 
 		/*
 		 * Re-apply any indirection on the target column specs to the Vars
@@ -1075,7 +1068,7 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 	 * Generate query's target list using the computed list of expressions.
 	 * Also, mark all the target columns as needing insert permissions.
 	 */
-	rte = pstate->p_target_rangetblentry;
+	rte = pstate->p_target_nsitem->p_rte;
 	qry->targetList = NIL;
 	Assert(list_length(exprList) <= list_length(icolumns));
 	forthree(lc, exprList, icols, icolumns, attnos, attrnos)
@@ -1109,8 +1102,8 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 	if (stmt->returningList)
 	{
 		pstate->p_namespace = NIL;
-		addRTEtoQuery(pstate, pstate->p_target_rangetblentry,
-					  false, true, true);
+		addNSItemToQuery(pstate, pstate->p_target_nsitem,
+						 false, true, true);
 		qry->returningList = transformReturningList(pstate,
 													stmt->returningList);
 	}
@@ -1245,7 +1238,6 @@ transformOnConflictClause(ParseState *pstate,
 	Oid			arbiterConstraint;
 	List	   *onConflictSet = NIL;
 	Node	   *onConflictWhere = NULL;
-	RangeTblEntry *exclRte = NULL;
 	int			exclRelIndex = 0;
 	List	   *exclRelTlist = NIL;
 	OnConflictExpr *result;
@@ -1258,6 +1250,8 @@ transformOnConflictClause(ParseState *pstate,
 	if (onConflictClause->action == ONCONFLICT_UPDATE)
 	{
 		Relation	targetrel = pstate->p_target_relation;
+		ParseNamespaceItem *exclNSItem;
+		RangeTblEntry *exclRte;
 
 		/*
 		 * All INSERT expressions have been parsed, get ready for potentially
@@ -1271,16 +1265,17 @@ transformOnConflictClause(ParseState *pstate,
 		 * relation, and no permission checks are required on it.  (We'll
 		 * check the actual target relation, instead.)
 		 */
-		exclRte = addRangeTableEntryForRelation(pstate,
-												targetrel,
-												RowExclusiveLock,
-												makeAlias("excluded", NIL),
-												false, false);
+		exclNSItem = addRangeTableEntryForRelation(pstate,
+												   targetrel,
+												   RowExclusiveLock,
+												   makeAlias("excluded", NIL),
+												   false, false);
+		exclRte = exclNSItem->p_rte;
+		exclRelIndex = exclNSItem->p_rtindex;
+
 		exclRte->relkind = RELKIND_COMPOSITE_TYPE;
 		exclRte->requiredPerms = 0;
 		/* other permissions fields in exclRte are already empty */
-
-		exclRelIndex = list_length(pstate->p_rtable);
 
 		/* Create EXCLUDED rel's targetlist for use by EXPLAIN */
 		exclRelTlist = BuildOnConflictExcludedTargetlist(targetrel,
@@ -1290,9 +1285,9 @@ transformOnConflictClause(ParseState *pstate,
 		 * Add EXCLUDED and the target RTE to the namespace, so that they can
 		 * be used in the UPDATE subexpressions.
 		 */
-		addRTEtoQuery(pstate, exclRte, false, true, true);
-		addRTEtoQuery(pstate, pstate->p_target_rangetblentry,
-					  false, true, true);
+		addNSItemToQuery(pstate, exclNSItem, false, true, true);
+		addNSItemToQuery(pstate, pstate->p_target_nsitem,
+						 false, true, true);
 
 		/*
 		 * Now transform the UPDATE subexpressions.
@@ -1573,9 +1568,12 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 
 	/* transform LIMIT */
 	qry->limitOffset = transformLimitClause(pstate, stmt->limitOffset,
-											EXPR_KIND_OFFSET, "OFFSET");
+											EXPR_KIND_OFFSET, "OFFSET",
+											stmt->limitOption);
 	qry->limitCount = transformLimitClause(pstate, stmt->limitCount,
-										   EXPR_KIND_LIMIT, "LIMIT");
+										   EXPR_KIND_LIMIT, "LIMIT",
+										   stmt->limitOption);
+	qry->limitOption = stmt->limitOption;
 
 	/* transform window clauses after we have seen all window functions */
 	qry->windowClause = transformWindowDefinitions(pstate,
@@ -1627,8 +1625,7 @@ transformValuesClause(ParseState *pstate, SelectStmt *stmt)
 	List	  **colexprs = NULL;
 	int			sublist_length = -1;
 	bool		lateral = false;
-	RangeTblEntry *rte;
-	int			rtindex;
+	ParseNamespaceItem *nsitem;
 	ListCell   *lc;
 	ListCell   *lc2;
 	int			i;
@@ -1800,20 +1797,16 @@ transformValuesClause(ParseState *pstate, SelectStmt *stmt)
 	/*
 	 * Generate the VALUES RTE
 	 */
-	rte = addRangeTableEntryForValues(pstate, exprsLists,
-									  coltypes, coltypmods, colcollations,
-									  NULL, lateral, true);
-	addRTEtoQuery(pstate, rte, true, true, true);
-
-	/* assume new rte is at end */
-	rtindex = list_length(pstate->p_rtable);
-	Assert(rte == rt_fetch(rtindex, pstate->p_rtable));
+	nsitem = addRangeTableEntryForValues(pstate, exprsLists,
+										 coltypes, coltypmods, colcollations,
+										 NULL, lateral, true);
+	addNSItemToQuery(pstate, nsitem, true, true, true);
 
 	/*
 	 * Generate a targetlist as though expanding "*"
 	 */
 	Assert(pstate->p_next_resno == 1);
-	qry->targetList = expandRelAttrs(pstate, rte, rtindex, 0, -1);
+	qry->targetList = expandNSItemAttrs(pstate, nsitem, 0, -1);
 
 	/*
 	 * The grammar allows attaching ORDER BY, LIMIT, and FOR UPDATE to a
@@ -1826,9 +1819,12 @@ transformValuesClause(ParseState *pstate, SelectStmt *stmt)
 										  false /* allow SQL92 rules */ );
 
 	qry->limitOffset = transformLimitClause(pstate, stmt->limitOffset,
-											EXPR_KIND_OFFSET, "OFFSET");
+											EXPR_KIND_OFFSET, "OFFSET",
+											stmt->limitOption);
 	qry->limitCount = transformLimitClause(pstate, stmt->limitCount,
-										   EXPR_KIND_LIMIT, "LIMIT");
+										   EXPR_KIND_LIMIT, "LIMIT",
+										   stmt->limitOption);
+	qry->limitOption = stmt->limitOption;
 
 	if (stmt->lockingClause)
 		ereport(ERROR,
@@ -1882,7 +1878,9 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 			   *targetnames,
 			   *sv_namespace;
 	int			sv_rtable_length;
-	RangeTblEntry *jrte;
+	ParseNamespaceItem *jnsitem;
+	ParseNamespaceColumn *sortnscolumns;
+	int			sortcolindex;
 	int			tllen;
 
 	qry->commandType = CMD_SELECT;
@@ -1975,6 +1973,9 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 	qry->targetList = NIL;
 	targetvars = NIL;
 	targetnames = NIL;
+	sortnscolumns = (ParseNamespaceColumn *)
+		palloc0(list_length(sostmt->colTypes) * sizeof(ParseNamespaceColumn));
+	sortcolindex = 0;
 
 	forfour(lct, sostmt->colTypes,
 			lcm, sostmt->colTypmods,
@@ -2005,6 +2006,14 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 		qry->targetList = lappend(qry->targetList, tle);
 		targetvars = lappend(targetvars, var);
 		targetnames = lappend(targetnames, makeString(colName));
+		sortnscolumns[sortcolindex].p_varno = leftmostRTI;
+		sortnscolumns[sortcolindex].p_varattno = lefttle->resno;
+		sortnscolumns[sortcolindex].p_vartype = colType;
+		sortnscolumns[sortcolindex].p_vartypmod = colTypmod;
+		sortnscolumns[sortcolindex].p_varcollid = colCollation;
+		sortnscolumns[sortcolindex].p_varnosyn = leftmostRTI;
+		sortnscolumns[sortcolindex].p_varattnosyn = lefttle->resno;
+		sortcolindex++;
 	}
 
 	/*
@@ -2019,18 +2028,22 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 	 */
 	sv_rtable_length = list_length(pstate->p_rtable);
 
-	jrte = addRangeTableEntryForJoin(pstate,
-									 targetnames,
-									 JOIN_INNER,
-									 targetvars,
-									 NULL,
-									 false);
+	jnsitem = addRangeTableEntryForJoin(pstate,
+										targetnames,
+										sortnscolumns,
+										JOIN_INNER,
+										0,
+										targetvars,
+										NIL,
+										NIL,
+										NULL,
+										false);
 
 	sv_namespace = pstate->p_namespace;
 	pstate->p_namespace = NIL;
 
-	/* add jrte to column namespace only */
-	addRTEtoQuery(pstate, jrte, false, false, true);
+	/* add jnsitem to column namespace only */
+	addNSItemToQuery(pstate, jnsitem, false, false, true);
 
 	/*
 	 * For now, we don't support resjunk sort clauses on the output of a
@@ -2046,7 +2059,7 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 										  EXPR_KIND_ORDER_BY,
 										  false /* allow SQL92 rules */ );
 
-	/* restore namespace, remove jrte from rtable */
+	/* restore namespace, remove join RTE from rtable */
 	pstate->p_namespace = sv_namespace;
 	pstate->p_rtable = list_truncate(pstate->p_rtable, sv_rtable_length);
 
@@ -2060,9 +2073,12 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 									exprLocation(list_nth(qry->targetList, tllen)))));
 
 	qry->limitOffset = transformLimitClause(pstate, limitOffset,
-											EXPR_KIND_OFFSET, "OFFSET");
+											EXPR_KIND_OFFSET, "OFFSET",
+											stmt->limitOption);
 	qry->limitCount = transformLimitClause(pstate, limitCount,
-										   EXPR_KIND_LIMIT, "LIMIT");
+										   EXPR_KIND_LIMIT, "LIMIT",
+										   stmt->limitOption);
+	qry->limitOption = stmt->limitOption;
 
 	qry->rtable = pstate->p_rtable;
 	qry->jointree = makeFromExpr(pstate->p_joinlist, NULL);
@@ -2158,7 +2174,7 @@ transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
 		/* Process leaf SELECT */
 		Query	   *selectQuery;
 		char		selectName[32];
-		RangeTblEntry *rte PG_USED_FOR_ASSERTS_ONLY;
+		ParseNamespaceItem *nsitem;
 		RangeTblRef *rtr;
 		ListCell   *tl;
 
@@ -2215,19 +2231,17 @@ transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
 		 */
 		snprintf(selectName, sizeof(selectName), "*SELECT* %d",
 				 list_length(pstate->p_rtable) + 1);
-		rte = addRangeTableEntryForSubquery(pstate,
-											selectQuery,
-											makeAlias(selectName, NIL),
-											false,
-											false);
+		nsitem = addRangeTableEntryForSubquery(pstate,
+											   selectQuery,
+											   makeAlias(selectName, NIL),
+											   false,
+											   false);
 
 		/*
 		 * Return a RangeTblRef to replace the SelectStmt in the set-op tree.
 		 */
 		rtr = makeNode(RangeTblRef);
-		/* assume new rte is at end */
-		rtr->rtindex = list_length(pstate->p_rtable);
-		Assert(rte == rt_fetch(rtr->rtindex, pstate->p_rtable));
+		rtr->rtindex = nsitem->p_rtindex;
 		return (Node *) rtr;
 	}
 	else
@@ -2596,9 +2610,7 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 										 stmt->relation->inh,
 										 true,
 										 ACL_UPDATE);
-
-	/* grab the namespace item made by setTargetTable */
-	nsitem = (ParseNamespaceItem *) llast(pstate->p_namespace);
+	nsitem = pstate->p_target_nsitem;
 
 	/* subqueries in FROM cannot access the result relation */
 	nsitem->p_lateral_only = true;
@@ -2657,7 +2669,7 @@ transformUpdateTargetList(ParseState *pstate, List *origTlist)
 		pstate->p_next_resno = RelationGetNumberOfAttributes(pstate->p_target_relation) + 1;
 
 	/* Prepare non-junk columns for assignment to target table */
-	target_rte = pstate->p_target_rangetblentry;
+	target_rte = pstate->p_target_nsitem->p_rte;
 	orig_tl = list_head(origTlist);
 
 	foreach(tl, tlist)
@@ -2701,15 +2713,23 @@ transformUpdateTargetList(ParseState *pstate, List *origTlist)
 		target_rte->updatedCols = bms_add_member(target_rte->updatedCols,
 												 attrno - FirstLowInvalidHeapAttributeNumber);
 
-		orig_tl = lnext(orig_tl);
+		orig_tl = lnext(origTlist, orig_tl);
 	}
 	if (orig_tl != NULL)
 		elog(ERROR, "UPDATE target count mismatch --- internal error");
 
-	/*
-	 * Record in extraUpdatedCols generated columns referencing updated base
-	 * columns.
-	 */
+	fill_extraUpdatedCols(target_rte, tupdesc);
+
+	return tlist;
+}
+
+/*
+ * Record in extraUpdatedCols generated columns referencing updated base
+ * columns.
+ */
+void
+fill_extraUpdatedCols(RangeTblEntry *target_rte, TupleDesc tupdesc)
+{
 	if (tupdesc->constr &&
 		tupdesc->constr->has_generated_stored)
 	{
@@ -2731,8 +2751,6 @@ transformUpdateTargetList(ParseState *pstate, List *origTlist)
 															  defval.adnum - FirstLowInvalidHeapAttributeNumber);
 		}
 	}
-
-	return tlist;
 }
 
 /*
@@ -3238,7 +3256,7 @@ is_rel_child_of_rel(RangeTblEntry *child_rte, RangeTblEntry *parent_rte)
 	res = false;
 
 	/* Scan pg_inherits and get all the subclass OIDs one by one. */
-	relation = heap_open(InheritsRelationId, AccessShareLock);
+	relation = table_open(InheritsRelationId, AccessShareLock);
 	ScanKeyInit(&key[0], Anum_pg_inherits_inhparent, BTEqualStrategyNumber, F_OIDEQ, ObjectIdGetDatum(parentOID));
 	scan = systable_beginscan(relation, InheritsParentIndexId, true, NULL, 1, key);
 
@@ -3255,7 +3273,7 @@ is_rel_child_of_rel(RangeTblEntry *child_rte, RangeTblEntry *parent_rte)
 	}
 
 	systable_endscan(scan);
-	heap_close(relation, AccessShareLock);
+	table_close(relation, AccessShareLock);
 	return res;
 }
 
@@ -3786,11 +3804,10 @@ static bool pullup_rel_for_join(Node *node, JoinExprInfo *jinfo
 		PullupRelForJoinContext my_context;
 		FromExpr *from = (FromExpr*)node;
 
-		for(lc=list_head(from->fromlist);lc;)
+		foreach (lc, from->fromlist)
 		{
 			item = lfirst(lc);
 			Assert(item);
-			lc = lnext(lc);
 
 			my_context.larg = my_context.rarg = NULL;
 			if(pullup_rel_for_join(item, jinfo, pstate, &my_context))
@@ -3801,7 +3818,7 @@ static bool pullup_rel_for_join(Node *node, JoinExprInfo *jinfo
 
 			if(combin_pullup_context(context, &my_context))
 			{
-				from->fromlist = list_delete_ptr(from->fromlist, item);
+				from->fromlist = foreach_delete_current(from->fromlist, lc);
 				if(context->larg && context->rarg)
 					break;
 			}
@@ -3969,54 +3986,60 @@ void check_joinon_column_join(Node *node, ParseState *pstate)
 	}
 }
 
-static List* find_namespace_item_for_rte(List *namespace, RangeTblEntry *rte)
+static ParseNamespaceItem*
+find_namespace_item_for_rte(List *namespace, int rtindex)
 {
-	ListCell *lc;
+	ListCell		   *lc;
 	ParseNamespaceItem *pni = NULL;
-	Assert(rte && namespace);
+	Assert(namespace != NIL);
+
 	foreach(lc, namespace)
 	{
 		pni = lfirst(lc);
 		Assert(pni);
-		if(pni->p_rte == rte)
-			break;
+		if(pni->p_rtindex == rtindex)
+			return pni;
 	}
-	Assert(pni->p_rte == rte);
-	return list_make1(pni);
+	ereport(ERROR,
+			(errcode(ERRCODE_INTERNAL_ERROR),
+			 errmsg("can not found namespace item for range table %d", rtindex)));
+	return NULL;	/* keep compiler quiet */
 }
 
-static void analyze_new_join(ParseState *pstate, Node *node, RangeTblEntry **top_rte
-	, int *rtindex, List **namelist)
+static void 
+analyze_new_join(ParseState *pstate, Node *node,
+				 ParseNamespaceItem **top_nsitem,
+				 List **namespace)
 {
-	Assert(pstate && node && top_rte && rtindex);
+#warning need merge again
+	Assert(pstate && node && top_nsitem);
 	if(IsA(node, JoinExpr))
 	{
 		JoinExpr *j = (JoinExpr*)node;
 		if(j->rtindex == 0)
 		{
+#if 0
 			/* new join expr */
 			ParseNamespaceItem *pni;
-			ListCell *lc;
+			ParseNamespaceItem *l_pni;
+			ParseNamespaceItem *r_pni;
+			ListCell		   *lc;
+			List			   *l_namespace,
+							   *r_namespace;
 			List *res_colnames,
 				 *colnames,
 				 *res_colvars,
 				 *colvars,
 				 *res_namelist,
 				 *arg_namelist;
-			RangeTblEntry	*l_rte;
-			RangeTblEntry	*r_rte;
-			int				l_rtindex;
-			int				r_rtindex;
 			int				k;
+			int				res_colindex;
 
 			Assert(j->jointype == JOIN_INNER || j->jointype == JOIN_LEFT);
-			analyze_new_join(pstate, j->larg, &l_rte, &l_rtindex, &res_namelist);
-			expandRTE(l_rte, l_rtindex, 0, -1, false, &res_colnames, &res_colvars);
+			analyze_new_join(pstate, j->larg, &l_pni, &l_namespace);
+			analyze_new_join(pstate, j->rarg, &r_pni, &r_namespace);
+			Assert((checkNameSpaceConflicts(pstate, l_namespace, r_namespace), true));
 
-			analyze_new_join(pstate, j->rarg, &r_rte, &r_rtindex, &arg_namelist);
-			expandRTE(r_rte, r_rtindex, 0, -1, false, &colnames, &colvars);
-
-			Assert((checkNameSpaceConflicts(pstate, res_namelist, arg_namelist), true));
 			res_colnames = list_concat(res_colnames, colnames);
 			res_colvars = list_concat(res_colvars, colvars);
 			res_namelist = list_concat(res_namelist, arg_namelist);
@@ -4046,31 +4069,34 @@ static void analyze_new_join(ParseState *pstate, Node *node, RangeTblEntry **top
 			pni->p_lateral_only = false;
 			pni->p_lateral_ok = true;
 			*namelist = lappend(res_namelist, pni);
+#else
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("merge code not finish")));
+#endif
 		}else
 		{
-			*top_rte = rt_fetch(j->rtindex, pstate->p_rtable);
-			*namelist = find_namespace_item_for_rte(pstate->p_namespace, *top_rte);
-			*rtindex = j->rtindex;
+			*top_nsitem = find_namespace_item_for_rte(pstate->p_namespace, j->rtindex);
+			*namespace = list_make1(*top_nsitem);
 		}
 	}else if(IsA(node, FromExpr))
 	{
-		RangeTblEntry *rte;
-		List *my_namelist;
-		ListCell *lc;
-		FromExpr *from_expr = (FromExpr*)node;
-		int my_rtindex;
+		ParseNamespaceItem *nsitem;
+		List			   *my_namelist;
+		ListCell		   *lc;
+		FromExpr		   *from_expr = (FromExpr*)node;
 		foreach(lc, from_expr->fromlist)
 		{
-			analyze_new_join(pstate, lfirst(lc), &rte, &my_rtindex, &my_namelist);
-			Assert((checkNameSpaceConflicts(pstate, *namelist, my_namelist),true));
-			*namelist = list_concat(*namelist, my_namelist);
+			analyze_new_join(pstate, lfirst(lc), &nsitem, &my_namelist);
+			Assert((checkNameSpaceConflicts(pstate, *namespace, my_namelist), true));
+			*namespace = list_concat(*namespace, my_namelist);
+			list_free(my_namelist);
 		}
 	}else if(IsA(node, RangeTblRef))
 	{
 		RangeTblRef *rtr = (RangeTblRef*)node;
-		*top_rte = rt_fetch(rtr->rtindex, pstate->p_rtable);
-		*namelist = find_namespace_item_for_rte(pstate->p_namespace, *top_rte);
-		*rtindex = rtr->rtindex;
+		*top_nsitem = find_namespace_item_for_rte(pstate->p_namespace, rtr->rtindex);
+		*namespace = list_make1(*top_nsitem);
 	}else
 	{
 		ereport(ERROR, (errmsg("unknown node type %d", nodeTag(node))));
@@ -4112,16 +4138,15 @@ static List* get_join_qual_exprs(Node *quals, ParseState *pstate)
 	 * and delete from qual_list
 	 */
 	result = NIL;
-	for(lc=list_head(qual_list);lc;)
+	foreach (lc, qual_list)
 	{
 		expr = lfirst(lc);
-		lc = lnext(lc);
 		if(have_ora_column_join(expr, NULL) == false)
 			continue;
 
 		jinfo = get_ora_column_join(expr, pstate);
 		result = lappend(result, jinfo);
-		qual_list = list_delete_ptr(qual_list, expr);
+		qual_list = foreach_delete_current(qual_list, lc);
 	}
 
 	/*
@@ -4208,11 +4233,10 @@ static Node* transformFromAndWhere(ParseState *pstate, Node *quals)
 	from = makeNode(FromExpr);
 	from->fromlist = pstate->p_joinlist;
 
-	for(lc=list_head(qual_list);lc!=NULL;)
+	foreach (lc, qual_list)
 	{
 		ListCell *tmp = lc;
 		jinfo = lfirst(lc);
-		lc = lnext(lc);
 
 		if(jinfo->lrtindex == 0
 			|| jinfo->rrtindex == 0)
@@ -4229,7 +4253,7 @@ static Node* transformFromAndWhere(ParseState *pstate, Node *quals)
 		{
 			ereport(ERROR, (errmsg("move filter qual to join filter failed!")));
 		}
-		qual_list = list_delete_ptr(qual_list, jinfo);
+		qual_list = foreach_delete_current(qual_list, lc);
 		pfree(jinfo);
 	}
 
@@ -4243,10 +4267,9 @@ static Node* transformFromAndWhere(ParseState *pstate, Node *quals)
 	}
 
 	{
-		RangeTblEntry *rte;
-		int rtindex;
+		ParseNamespaceItem *nsitem;
 		new_namelist = NIL;
-		analyze_new_join(pstate, (Node*)from, &rte, &rtindex, &new_namelist);
+		analyze_new_join(pstate, (Node*)from, &nsitem, &new_namelist);
 	}
 	pstate->p_namespace = new_namelist;
 
@@ -4313,7 +4336,7 @@ static void rewrite_rownum_query(Query *query)
 	/* find expr */
 	limitCount = NULL;
 	hints = NULL;
-	for(i=0,lc=list_head(qual_list);lc;lc=lnext(lc),++i)
+	for(i=0,lc=list_head(qual_list);lc;lc=lnext(qual_list, lc),++i)
 	{
 		expr = lfirst(lc);
 		if(contain_rownum((Node*)expr) == false)
@@ -4480,7 +4503,7 @@ static void rewrite_rownum_query(Query *query)
 	{
 		/* whe use args for get new quals */
 		args = NIL;
-		for(i=0,lc=list_head(qual_list);lc;lc=lnext(lc),++i)
+		for(i=0,lc=list_head(qual_list);lc;lc=lnext(qual_list, lc),++i)
 		{
 			if(bms_is_member(i, hints))
 				continue;
@@ -4647,10 +4670,10 @@ void applyModifyToAuxiliaryTable(struct PlannerInfo *root, double rows, Index re
 		return;
 
 	rte = rt_fetch(relid, root->parse->rtable);
-	rel = heap_open(rte->relid, NoLock);
+	rel = table_open(rte->relid, NoLock);
 	if (rel->rd_auxlist == NIL)
 	{
-		heap_close(rel, NoLock);
+		table_close(rel, NoLock);
 		return;
 	}
 
@@ -4661,11 +4684,11 @@ void applyModifyToAuxiliaryTable(struct PlannerInfo *root, double rows, Index re
 	generated = false;
 	foreach(lc, rel->rd_auxlist)
 	{
-		rel_aux = heap_open(lfirst_oid(lc), NoLock);
+		rel_aux = table_open(lfirst_oid(lc), NoLock);
 
 		if (RELATION_IS_OTHER_TEMP(rel_aux))
 		{
-			heap_close(rel_aux, NoLock);
+			table_close(rel_aux, NoLock);
 			continue;
 		}
 
@@ -4716,10 +4739,10 @@ void applyModifyToAuxiliaryTable(struct PlannerInfo *root, double rows, Index re
 		}
 
 		generated = true;
-		heap_close(rel_aux, NoLock);
+		table_close(rel_aux, NoLock);
 	}
 
-	heap_close(rel, NoLock);
+	table_close(rel, NoLock);
 	if (generated)
 		root->parse->hasModifyingCTE = true;
 
@@ -4731,10 +4754,10 @@ static Query* makeAuxiliaryInsertQuery(Relation rel_aux, Alias *main_alias, List
 	Query		   *subparse;
 	ParseState	   *pstate;
 	RangeTblEntry  *subrte;
-	RangeTblRef	   *rtr;
 	List		   *icolumns;
 	List		   *attnos;
 	List		   *exprList;
+	ParseNamespaceItem *subnsi;
 
 	pstate = make_parsestate(NULL);
 
@@ -4743,40 +4766,38 @@ static Query* makeAuxiliaryInsertQuery(Relation rel_aux, Alias *main_alias, List
 	subparse->canSetTag = false;	/* must be false */
 
 	/* make insert target rte */
-	subrte = addRangeTableEntryForRelation(pstate, rel_aux, RowExclusiveLock, NULL, false, false);
-	pstate->p_target_rangetblentry = subrte;
+	subnsi = addRangeTableEntryForRelation(pstate, rel_aux, RowExclusiveLock, NULL, false, false);
+	pstate->p_target_nsitem = subnsi;
 	pstate->p_target_relation = rel_aux;
-	subrte->requiredPerms = ACL_INSERT;
-	subparse->resultRelation = list_length(pstate->p_rtable);
+	subnsi->p_rte->requiredPerms = ACL_INSERT;
+	subparse->resultRelation = subnsi->p_rtindex;
 
 	/* build default list */
 	icolumns = checkInsertTargets(pstate, NULL, &attnos);
 	Assert(list_length(icolumns) == list_length(attnos));
 
-	/* build tuplestore scan RTE */
-	subrte = addRangeTableEntryForParamTupleStore(pstate,
+	/* build tuplestore scan ParsenameSpace */
+	subnsi = addRangeTableEntryForParamTupleStore(pstate,
 												  main_vars,
 												  main_alias,
 												  paramid,
 												  false);
+	subrte = subnsi->p_rte;
 	subrte->execNodes = execNodes;
 	if (rows > 0.0)
 		subrte->rows = rows;
 	else
 		subrte->rows = 1000.0;
-	rtr = makeNode(RangeTblRef);
-	rtr->rtindex = list_length(pstate->p_rtable);
-	Assert(rt_fetch(rtr->rtindex, pstate->p_rtable) == subrte);
-	pstate->p_joinlist = lappend(pstate->p_joinlist, rtr);
+	addNSItemToQuery(pstate, subnsi, true, false, false);
 
 	/* search vars tuplestore scan result need */
-	exprList = make_aux_rel_result_vars_rel(subrte, rel_aux, rtr->rtindex);
+	exprList = make_aux_rel_result_vars_rel(subrte, rel_aux, subnsi->p_rtindex);
 	exprList = transformInsertRow(pstate, exprList, NULL, icolumns, attnos, false);
 
 	subparse->targetList = make_modify_query_insert_target(exprList,
-															icolumns,
-															attnos,
-															&pstate->p_target_rangetblentry->insertedCols);
+														   icolumns,
+														   attnos,
+														   &pstate->p_target_nsitem->p_rte->insertedCols);
 
 	subparse->rtable = pstate->p_rtable;
 	subparse->jointree = makeFromExpr(pstate->p_joinlist, NULL);
@@ -4793,10 +4814,10 @@ static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List
 {
 	Query		   *subparse;
 	ParseState	   *pstate;
-	RangeTblEntry  *aux_rte;
 	RangeTblEntry  *pts_rte;
 	Expr		   *qual;
-	Index			aux_relid,pts_relid;
+	ParseNamespaceItem *aux_nsi;
+	ParseNamespaceItem *pts_nsi;
 
 	pstate = make_parsestate(NULL);
 
@@ -4805,34 +4826,31 @@ static Query* makeAuxiliaryDeleteQuery(Relation rel_aux, Alias *main_alias, List
 	subparse->canSetTag = false;	/* must be false */
 
 	/* make delete target rte */
-	aux_rte = addRangeTableEntryForRelation(pstate, rel_aux, RowExclusiveLock, NULL, false, false);
-	pstate->p_target_rangetblentry = aux_rte;
+	aux_nsi = addRangeTableEntryForRelation(pstate, rel_aux, RowExclusiveLock, NULL, false, false);
+	pstate->p_target_nsitem = aux_nsi;
 	pstate->p_target_relation = rel_aux;
-	aux_rte->requiredPerms = ACL_DELETE|ACL_SELECT;
-	aux_relid = list_length(pstate->p_rtable);
-	Assert(rt_fetch(aux_relid, pstate->p_rtable) == aux_rte);
-	subparse->resultRelation = aux_relid;
-	/* add target rte to joinlist and namespace */
-	addRTEtoQuery(pstate, aux_rte, true, false, false);
+	aux_nsi->p_rte->requiredPerms = ACL_DELETE|ACL_SELECT;
+	subparse->resultRelation = aux_nsi->p_rtindex;
+	/* add target ParseNamespaceItem to joinlist and namespace */
+	addNSItemToQuery(pstate, aux_nsi, true, false, false);
 
-	pts_rte = addRangeTableEntryForParamTupleStore(pstate,
+	pts_nsi = addRangeTableEntryForParamTupleStore(pstate,
 													main_vars,
 													main_alias,
 													paramid,
 													false);
+	pts_rte = pts_nsi->p_rte;
 	pts_rte->execNodes = execNodes;
-	pts_relid = list_length(pstate->p_rtable);
-	Assert(rt_fetch(pts_relid, pstate->p_rtable) == pts_rte);
 	if (rows > 0.0)
 		pts_rte->rows = rows;
 	else
 		pts_rte->rows = 1000.0;
 
 	/* make aux_rel inner join tuplestore */
-	addRTEtoQuery(pstate, pts_rte, true, false, false);
+	addNSItemToQuery(pstate, pts_nsi, true, false, false);
 
 	/* make join clause */
-	qual = make_aux_delete_clause(rel_aux, aux_relid, pts_rte, pts_relid, filter_nulls);
+	qual = make_aux_delete_clause(rel_aux, aux_nsi->p_rtindex, pts_rte, pts_nsi->p_rtindex, filter_nulls);
 
 	subparse->rtable = pstate->p_rtable;
 	subparse->jointree = makeFromExpr(pstate->p_joinlist, (Node*)qual);

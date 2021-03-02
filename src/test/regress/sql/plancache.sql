@@ -5,12 +5,12 @@
 CREATE TEMP TABLE pcachetest AS SELECT * FROM int8_tbl;
 
 -- create and use a cached plan
-PREPARE prepstmt AS SELECT * FROM pcachetest ORDER BY q1, q2;
+PREPARE prepstmt AS SELECT * FROM pcachetest;
 
 EXECUTE prepstmt;
 
 -- and one with parameters
-PREPARE prepstmt2(bigint) AS SELECT * FROM pcachetest WHERE q1 = $1 ORDER BY q1, q2;
+PREPARE prepstmt2(bigint) AS SELECT * FROM pcachetest WHERE q1 = $1;
 
 EXECUTE prepstmt2(123);
 
@@ -22,7 +22,7 @@ EXECUTE prepstmt2(123);
 
 -- recreate the temp table (this demonstrates that the raw plan is
 -- purely textual and doesn't depend on OIDs, for instance)
-CREATE TEMP TABLE pcachetest AS SELECT * FROM int8_tbl ORDER BY q1, q2;
+CREATE TEMP TABLE pcachetest AS SELECT * FROM int8_tbl ORDER BY 2;
 
 EXECUTE prepstmt;
 EXECUTE prepstmt2(123);
@@ -45,12 +45,12 @@ EXECUTE prepstmt2(123);
 CREATE TEMP VIEW pcacheview AS
   SELECT * FROM pcachetest;
 
-PREPARE vprep AS SELECT * FROM pcacheview ORDER BY q1, q2;
+PREPARE vprep AS SELECT * FROM pcacheview;
 
 EXECUTE vprep;
 
 CREATE OR REPLACE TEMP VIEW pcacheview AS
-  SELECT q1, q2/2 AS q2 FROM pcachetest ORDER BY q1, q2;
+  SELECT q1, q2/2 AS q2 FROM pcachetest;
 
 EXECUTE vprep;
 
@@ -149,7 +149,7 @@ begin
   drop table if exists temptable cascade;
   create temp table temptable as select * from generate_series(1,3) as f1;
   create temp view vv as select * from temptable;
-  for r in select * from vv order by 1 loop
+  for r in select * from vv loop
     raise notice '%', r;
   end loop;
 end$$ language plpgsql;

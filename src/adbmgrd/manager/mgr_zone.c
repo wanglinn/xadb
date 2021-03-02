@@ -427,7 +427,7 @@ static void MgrCheckMasterHasSlaveCnDn(MemoryContext spiContext,
 		{
 			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
 			dlist_init(&slaveList);
-			selectActiveMgrSlaveNodesInZone(mgrNode->oid, getMgrSlaveNodetype(mgrNode->form.nodetype), currentZone, spiContext, &slaveList);
+			selectActiveMgrSlaveNodesInZone(mgrNode->form.oid, getMgrSlaveNodetype(mgrNode->form.nodetype), currentZone, spiContext, &slaveList);
 			if (dlist_is_empty(&slaveList)){
 				ereport(ERROR, (errmsg("because %s node(%s) has no slave node in zone(%s), please add slave node first.", 
 					NameStr(mgrNode->form.nodename), mgr_get_nodetype_desc(mgrNode->form.nodetype), currentZone)));
@@ -453,7 +453,7 @@ static void MgrCheckMasterHasSlave(MemoryContext spiContext,
 
 	oldMaster = MgrGetOldGtmMasterNotZone(spiContext, currentZone, overType);
 	Assert(oldMaster);
-	selectActiveMgrSlaveNodesInZone(oldMaster->oid, getMgrSlaveNodetype(oldMaster->form.nodetype), currentZone, spiContext, &activeNodes);
+	selectActiveMgrSlaveNodesInZone(oldMaster->form.oid, getMgrSlaveNodetype(oldMaster->form.nodetype), currentZone, spiContext, &activeNodes);
 	if (dlist_is_empty(&activeNodes)){
 		ereport(ERROR, (errmsg("because no gtmcoord slave in zone(%s),  please add slave node first.", currentZone)));
 	}
@@ -723,7 +723,7 @@ static void MgrGetNodeAndChildsInZone(MemoryContext spiContext,
 
 	dlist_init(&mgrNodes);
 	selectChildNodesInZone(spiContext,
-						   mgrNode->oid,
+						   mgrNode->form.oid,
 						   zone,
 						   &mgrNodes);
 	dlist_foreach(iter, &mgrNodes)
@@ -751,7 +751,7 @@ static bool MgrCheckHasSlaveZoneNode(MemoryContext spiContext, char *zone)
 		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
 		Assert(mgrNode);
 		selectChildNodes(spiContext,
-                        mgrNode->oid,
+                        mgrNode->form.oid,
 						&childNodes);
 		dlist_foreach(childIter, &childNodes)
 		{
@@ -799,7 +799,7 @@ void CheckZoneNodesBeforeInitAll(void)
 				masterNode = dlist_container(MgrNodeWrapper, link, masterIter.cur);
 				Assert(masterNode);
 				dlist_init(&slaveList);
-				selectChildNodesInZone(spiContext, masterNode->oid, NameStr(slaveZone), &slaveList);
+				selectChildNodesInZone(spiContext, masterNode->form.oid, NameStr(slaveZone), &slaveList);
 				if (dlist_is_empty(&slaveList)){
 					ereport(ERROR, (errmsg("%s %s has no slave node in zone %s, please add slave node first.",	
 						 mgr_get_nodetype_desc(masterNode->form.nodetype), NameStr(masterNode->form.nodename), NameStr(slaveZone))));
@@ -929,7 +929,7 @@ static void MgrInitChildNodes(MemoryContext spiContext,
 
 	dlist_init(&slaveNodes);
 	selectChildNodesInZone(spiContext,
-							mgrNode->oid,
+							mgrNode->form.oid,
 							zone,
 							&slaveNodes);
 	dlist_foreach(iter, &slaveNodes)

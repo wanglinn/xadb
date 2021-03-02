@@ -3,7 +3,7 @@
  * varsup.c
  *	  postgres OID & XID variables support routines
  *
- * Copyright (c) 2000-2019, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2020, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/access/transam/varsup.c
@@ -704,22 +704,22 @@ AdvanceNextFullTransactionIdPastXid(TransactionId xid)
 /*
  * Advance the cluster-wide value for the oldest valid clog entry.
  *
- * We must acquire CLogTruncationLock to advance the oldestClogXid. It's not
+ * We must acquire XactTruncationLock to advance the oldestClogXid. It's not
  * necessary to hold the lock during the actual clog truncation, only when we
  * advance the limit, as code looking up arbitrary xids is required to hold
- * CLogTruncationLock from when it tests oldestClogXid through to when it
+ * XactTruncationLock from when it tests oldestClogXid through to when it
  * completes the clog lookup.
  */
 void
 AdvanceOldestClogXid(TransactionId oldest_datfrozenxid)
 {
-	LWLockAcquire(CLogTruncationLock, LW_EXCLUSIVE);
+	LWLockAcquire(XactTruncationLock, LW_EXCLUSIVE);
 	if (TransactionIdPrecedes(ShmemVariableCache->oldestClogXid,
 							  oldest_datfrozenxid))
 	{
 		ShmemVariableCache->oldestClogXid = oldest_datfrozenxid;
 	}
-	LWLockRelease(CLogTruncationLock);
+	LWLockRelease(XactTruncationLock);
 }
 
 /*
@@ -889,7 +889,7 @@ ForceTransactionIdLimitUpdate(void)
 	if (!TransactionIdIsValid(xidVacLimit))
 		return true;			/* this shouldn't happen anymore either */
 	if (TransactionIdFollowsOrEquals(nextXid, xidVacLimit))
-		return true;			/* past VacLimit, don't delay updating */
+		return true;			/* past xidVacLimit, don't delay updating */
 	if (!SearchSysCacheExists1(DATABASEOID, ObjectIdGetDatum(oldestXidDB)))
 		return true;			/* could happen, per comments above */
 	return false;

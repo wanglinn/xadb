@@ -4,7 +4,7 @@
  *	  support for the POSTGRES executor module
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/executor/executor.h
@@ -15,6 +15,7 @@
 #define EXECUTOR_H
 
 #include "executor/execdesc.h"
+#include "fmgr.h"
 #include "nodes/lockoptions.h"
 #include "nodes/parsenodes.h"
 #include "utils/memutils.h"
@@ -143,12 +144,11 @@ extern TupleHashTable BuildTupleHashTableExt(PlanState *parent,
 extern TupleHashEntry LookupTupleHashEntry(TupleHashTable hashtable,
 										   TupleTableSlot *slot,
 										   bool *isnew);
-#ifdef ADB_EXT
-extern TupleHashEntry LookupTupleHashEntryWithHash(TupleHashTable hashtable,
-												   TupleTableSlot *slot,
-												   bool *isnew,
-												   uint32 hash);
-#endif /* ADB_EXT */
+extern uint32 TupleHashTableHash(TupleHashTable hashtable,
+								 TupleTableSlot *slot);
+extern TupleHashEntry LookupTupleHashEntryHash(TupleHashTable hashtable,
+											   TupleTableSlot *slot,
+											   bool *isnew, uint32 hash);
 extern TupleHashEntry FindTupleHashEntry(TupleHashTable hashtable,
 										 TupleTableSlot *slot,
 										 ExprState *eqcomp,
@@ -211,9 +211,9 @@ extern void ExecWithCheckOptions(WCOKind kind, ResultRelInfo *resultRelInfo,
 extern LockTupleMode ExecUpdateLockMode(EState *estate, ResultRelInfo *relinfo);
 extern ExecRowMark *ExecFindRowMark(EState *estate, Index rti, bool missing_ok);
 extern ExecAuxRowMark *ExecBuildAuxRowMark(ExecRowMark *erm, List *targetlist);
-extern TupleTableSlot *EvalPlanQual(EState *estate, EPQState *epqstate,
-									Relation relation, Index rti, TupleTableSlot *testslot);
-extern void EvalPlanQualInit(EPQState *epqstate, EState *estate,
+extern TupleTableSlot *EvalPlanQual(EPQState *epqstate, Relation relation,
+									Index rti, TupleTableSlot *testslot);
+extern void EvalPlanQualInit(EPQState *epqstate, EState *parentestate,
 							 Plan *subplan, List *auxrowmarks, int epqParam);
 extern void EvalPlanQualSetPlan(EPQState *epqstate,
 								Plan *subplan, List *auxrowmarks);
@@ -221,9 +221,9 @@ extern TupleTableSlot *EvalPlanQualSlot(EPQState *epqstate,
 										Relation relation, Index rti);
 
 #define EvalPlanQualSetSlot(epqstate, slot)  ((epqstate)->origslot = (slot))
-extern void EvalPlanQualFetchRowMarks(EPQState *epqstate);
+extern bool EvalPlanQualFetchRowMark(EPQState *epqstate, Index rti, TupleTableSlot *slot);
 extern TupleTableSlot *EvalPlanQualNext(EPQState *epqstate);
-extern void EvalPlanQualBegin(EPQState *epqstate, EState *parentestate);
+extern void EvalPlanQualBegin(EPQState *epqstate);
 extern void EvalPlanQualEnd(EPQState *epqstate);
 
 /*
@@ -284,7 +284,7 @@ extern ExprState *ExecInitQual(List *qual, PlanState *parent);
 extern ExprState *ExecInitCheck(List *qual, PlanState *parent);
 extern List *ExecInitExprList(List *nodes, PlanState *parent);
 extern ExprState *ExecBuildAggTrans(AggState *aggstate, struct AggStatePerPhaseData *phase,
-									bool doSort, bool doHash);
+									bool doSort, bool doHash, bool nullcheck);
 extern ExprState *ExecBuildGroupingEqual(TupleDesc ldesc, TupleDesc rdesc,
 										 const TupleTableSlotOps *lops, const TupleTableSlotOps *rops,
 										 int numCols,
@@ -349,7 +349,7 @@ ExecEvalExprSwitchContext(ExprState *state,
  * ExecProject
  *
  * Projects a tuple based on projection info and stores it in the slot passed
- * to ExecBuildProjectInfo().
+ * to ExecBuildProjectionInfo().
  *
  * Note: the result is always a virtual tuple; therefore it may reference
  * the contents of the exprContext's scan tuples and/or temporary results
@@ -545,6 +545,7 @@ extern void end_tup_output(TupOutputState *tstate);
 extern EState *CreateExecutorState(void);
 extern void FreeExecutorState(EState *estate);
 extern ExprContext *CreateExprContext(EState *estate);
+extern ExprContext *CreateWorkExprContext(EState *estate);
 extern ExprContext *CreateStandaloneExprContext(void);
 extern void FreeExprContext(ExprContext *econtext, bool isCommit);
 extern void ReScanExprContext(ExprContext *econtext);
@@ -593,8 +594,7 @@ extern void ExecInitRangeTable(EState *estate, List *rangeTable);
 static inline RangeTblEntry *
 exec_rt_fetch(Index rti, EState *estate)
 {
-	Assert(rti > 0 && rti <= estate->es_range_table_size);
-	return estate->es_range_table_array[rti - 1];
+	return (RangeTblEntry *) list_nth(estate->es_range_table, rti - 1);
 }
 
 extern Relation ExecGetRangeTableRelation(EState *estate, Index rti);

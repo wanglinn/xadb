@@ -3,7 +3,7 @@
  * pg_lsn.c
  *	  Operations for the pg_lsn datatype.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -33,6 +33,9 @@ pg_lsn_in_internal(const char *str, bool *have_error)
 	uint32		id,
 				off;
 	XLogRecPtr	result;
+
+	Assert(have_error != NULL);
+	*have_error = false;
 
 	/* Sanity check input format. */
 	len1 = strspn(str, "0123456789abcdefABCDEF");
@@ -169,6 +172,24 @@ pg_lsn_ge(PG_FUNCTION_ARGS)
 	XLogRecPtr	lsn2 = PG_GETARG_LSN(1);
 
 	PG_RETURN_BOOL(lsn1 >= lsn2);
+}
+
+Datum
+pg_lsn_larger(PG_FUNCTION_ARGS)
+{
+	XLogRecPtr	lsn1 = PG_GETARG_LSN(0);
+	XLogRecPtr	lsn2 = PG_GETARG_LSN(1);
+
+	PG_RETURN_LSN((lsn1 > lsn2) ? lsn1 : lsn2);
+}
+
+Datum
+pg_lsn_smaller(PG_FUNCTION_ARGS)
+{
+	XLogRecPtr	lsn1 = PG_GETARG_LSN(0);
+	XLogRecPtr	lsn2 = PG_GETARG_LSN(1);
+
+	PG_RETURN_LSN((lsn1 < lsn2) ? lsn1 : lsn2);
 }
 
 /* btree index opclass support */

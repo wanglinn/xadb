@@ -8,7 +8,7 @@
  *	  interrupted, unlike LWLock waits.  Condition variables are safe
  *	  to use within dynamic shared memory segments.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/backend/storage/lmgr/condition_variable.c
@@ -19,6 +19,7 @@
 #include "postgres.h"
 
 #include "miscadmin.h"
+#include "portability/instr_time.h"
 #include "storage/condition_variable.h"
 #include "storage/ipc.h"
 #include "storage/proc.h"
@@ -95,12 +96,6 @@ ConditionVariablePrepareToSleep(ConditionVariable *cv)
 	/* Record the condition variable on which we will sleep. */
 	cv_sleep_target = cv;
 
-	/*
-	 * Reset my latch before adding myself to the queue, to ensure that we
-	 * don't miss a wakeup that occurs immediately.
-	 */
-	ResetLatch(MyLatch);
-
 	/* Add myself to the wait queue. */
 	SpinLockAcquire(&cv->mutex);
 	proclist_push_tail(&cv->wakeup, pgprocno, cvWaitLink);
@@ -125,16 +120,24 @@ ConditionVariablePrepareToSleep(ConditionVariable *cv)
 void
 ConditionVariableSleep(ConditionVariable *cv, uint32 wait_event_info)
 {
-#ifdef ADB
-	ConditionVariableSleepExt(cv, wait_event_info, -1);
+	(void) ConditionVariableTimedSleep(cv, -1 /* no timeout */ ,
+									   wait_event_info);
 }
-bool ConditionVariableSleepExt(ConditionVariable *cv, uint32 wait_event_info, long endtime)
+
+/*
+ * Wait for a condition variable to be signaled or a timeout to be reached.
+ *
+ * Returns true when timeout expires, otherwise returns false.
+ *
+ * See ConditionVariableSleep() for general usage.
+ */
+bool
+ConditionVariableTimedSleep(ConditionVariable *cv, long timeout,
+							uint32 wait_event_info)
 {
-	int 		ret;
-	long		timeout;
-#endif /* ADB */
-	WaitEvent	event;
-	bool		done = false;
+	long		cur_timeout = -1;
+	instr_time	start_time;
+	instr_time	cur_time;
 
 	/*
 	 * If the caller didn't prepare to sleep explicitly, then do so now and
@@ -154,39 +157,31 @@ bool ConditionVariableSleepExt(ConditionVariable *cv, uint32 wait_event_info, lo
 	if (cv_sleep_target != cv)
 	{
 		ConditionVariablePrepareToSleep(cv);
-#ifdef ADB
-			return true;
-#else
-			return;
-#endif
+		return false;
 	}
 
-	do
+	/*
+	 * Record the current time so that we can calculate the remaining timeout
+	 * if we are woken up spuriously.
+	 */
+	if (timeout >= 0)
 	{
-		CHECK_FOR_INTERRUPTS();
+		INSTR_TIME_SET_CURRENT(start_time);
+		Assert(timeout >= 0 && timeout <= INT_MAX);
+		cur_timeout = timeout;
+	}
+
+	while (true)
+	{
+		WaitEvent	event;
+		bool		done = false;
 
 		/*
 		 * Wait for latch to be set.  (If we're awakened for some other
 		 * reason, the code below will cope anyway.)
 		 */
-#ifdef ADB
-		if (endtime > 0)
-		{
-			long secs;
-			int microsecs;
-			TimestampDifference(GetCurrentTimestamp(), endtime, &secs, &microsecs);
-			timeout = secs*1000 + microsecs/1000;
-		}
-		else
-			timeout = -1;
-
-		ret = WaitEventSetWait(cv_wait_event_set, timeout, &event, 1, wait_event_info);
-		if (timeout >= 0 && ret == 0) //timeout occure
-			return false;
-#else
-		(void) WaitEventSetWait(cv_wait_event_set, -1, &event, 1,
+		(void) WaitEventSetWait(cv_wait_event_set, cur_timeout, &event, 1,
 								wait_event_info);
-#endif
 
 		if (event.events & WL_POSTMASTER_DEATH)
 		{
@@ -199,6 +194,8 @@ bool ConditionVariableSleepExt(ConditionVariable *cv, uint32 wait_event_info, lo
 
 		/* Reset latch before examining the state of the wait list. */
 		ResetLatch(MyLatch);
+
+		CHECK_FOR_INTERRUPTS();
 
 		/*
 		 * If this process has been taken out of the wait list, then we know
@@ -222,11 +219,23 @@ bool ConditionVariableSleepExt(ConditionVariable *cv, uint32 wait_event_info, lo
 			proclist_push_tail(&cv->wakeup, MyProc->pgprocno, cvWaitLink);
 		}
 		SpinLockRelease(&cv->mutex);
-	} while (!done);
 
-#ifdef ADB
-	return true;
-#endif
+		/* We were signaled, so return */
+		if (done)
+			return false;
+
+		/* If we're not done, update cur_timeout for next iteration */
+		if (timeout >= 0)
+		{
+			INSTR_TIME_SET_CURRENT(cur_time);
+			INSTR_TIME_SUBTRACT(cur_time, start_time);
+			cur_timeout = timeout - (long) INSTR_TIME_GET_MILLISEC(cur_time);
+
+			/* Have we crossed the timeout threshold? */
+			if (cur_timeout <= 0)
+				return true;
+		}
+	}
 }
 
 /*
@@ -242,6 +251,7 @@ void
 ConditionVariableCancelSleep(void)
 {
 	ConditionVariable *cv = cv_sleep_target;
+	bool		signaled = false;
 
 	if (cv == NULL)
 		return;
@@ -249,7 +259,17 @@ ConditionVariableCancelSleep(void)
 	SpinLockAcquire(&cv->mutex);
 	if (proclist_contains(&cv->wakeup, MyProc->pgprocno, cvWaitLink))
 		proclist_delete(&cv->wakeup, MyProc->pgprocno, cvWaitLink);
+	else
+		signaled = true;
 	SpinLockRelease(&cv->mutex);
+
+	/*
+	 * If we've received a signal, pass it on to another waiting process, if
+	 * there is one.  Otherwise a call to ConditionVariableSignal() might get
+	 * lost, despite there being another process ready to handle it.
+	 */
+	if (signaled)
+		ConditionVariableSignal(cv);
 
 	cv_sleep_target = NULL;
 }

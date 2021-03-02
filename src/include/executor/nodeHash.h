@@ -4,7 +4,7 @@
  *	  prototypes for nodeHash.c
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/executor/nodeHash.h
@@ -83,7 +83,7 @@ extern void ExecHashInitializeDSM(HashState *node, ParallelContext *pcxt);
 extern void ExecHashInitializeWorker(HashState *node, ParallelWorkerContext *pwcxt);
 extern void ExecHashRetrieveInstrumentation(HashState *node);
 extern void ExecShutdownHash(HashState *node);
-extern void ExecHashGetInstrumentation(HashInstrumentation *instrument,
-									   HashJoinTable hashtable);
+extern void ExecHashAccumInstrumentation(HashInstrumentation *instrument,
+										 HashJoinTable hashtable);
 
 #endif							/* NODEHASH_H */

@@ -12,6 +12,8 @@
 #include "optimizer/pgxcplan.h"
 #endif /* ADB */
 #include "optimizer/planmain.h"
+#include "tcop/cmdtag.h"
+#include "utils/rel.h"
 
 #include "nodes/enum_funcs.h"
 

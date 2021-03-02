@@ -1,4 +1,7 @@
 -- txid_snapshot data type and related functions
+-- Note: these are backward-compatibility functions and types, and have been
+-- replaced by new xid8-based variants.  See xid.sql.  The txid variants will
+-- be removed in a future release.
 
 -- i/o
 select '12:13:'::txid_snapshot;
@@ -25,7 +28,7 @@ select snap from snapshot_test order by nr;
 select  txid_snapshot_xmin(snap),
 	txid_snapshot_xmax(snap),
 	txid_snapshot_xip(snap)
-from snapshot_test order by nr, 1, 2, 3;
+from snapshot_test order by nr;
 
 select id, txid_visible_in_snapshot(id, snap)
 from snapshot_test, generate_series(11, 21) id

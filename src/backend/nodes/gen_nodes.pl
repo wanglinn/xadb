@@ -11,7 +11,7 @@ my $same_node;
 my %all_enum;
 my %ident_if_defined;
 my $ident = '[a-zA-Z_][a-zA-Z0-9_]*';
-my $scalar_ident = 'char|bool|int|uint8|int16|uint16|int32|uint32|bits32|uint64|size_t|double|long|Cost|AttrNumber|Index|Oid|BlockNumber|Selectivity|Size|float8|TimeLineID|Buffer|AclMode|TriggerEvent|XLogRecPtr|StrategyNumber';
+my $scalar_ident = 'char|bool|int|uint8|int16|uint16|int32|uint32|bits32|uint64|size_t|double|long|Cost|AttrNumber|Index|Oid|BlockNumber|Selectivity|Size|float8|TimeLineID|Buffer|AclMode|TriggerEvent|XLogRecPtr|StrategyNumber|SubTransactionId';
 my $reg_args = "\\s*$ident\\s*(,\\s*$ident\\s*)*";
 my %special_node;
 my %special_member;
@@ -608,6 +608,18 @@ sub process_node_member
 		{
 			print H "\tNODE_STRUCT_ARRAY(ParamExternData,params, NODE_ARG_->numParams)\n";
 		}else
+		{
+			print H "$item\n";
+		}
+	}
+	# [const] scalar_ident **ident
+	elsif ($item =~ /^(const\s+){0,1}($scalar_ident|$ident)\s*\*\s*\*\s*($ident)$/)
+	{
+		if (defined $special_mem and defined $$special_mem{$3})
+		{
+			print H "\t$$special_mem{$3}\n";
+		}
+		else
 		{
 			print H "$item\n";
 		}

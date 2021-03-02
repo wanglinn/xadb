@@ -30,14 +30,13 @@
 #include <io.h>
 #endif
 
+#include "dumputils.h"
+#include "fe_utils/string_utils.h"
+#include "libpq/libpq-fs.h"
 #include "parallel.h"
 #include "pg_backup_archiver.h"
 #include "pg_backup_db.h"
 #include "pg_backup_utils.h"
-#include "dumputils.h"
-#include "fe_utils/string_utils.h"
-
-#include "libpq/libpq-fs.h"
 
 #define TEXT_DUMP_HEADER "--\n-- PostgreSQL database dump\n--\n\n"
 #define TEXT_DUMPALL_HEADER "--\n-- PostgreSQL database cluster dump\n--\n\n"
@@ -554,8 +553,8 @@ RestoreArchive(Archive *AHX)
 							 */
 							if (strncmp(dropStmt, "ALTER TABLE", 11) == 0)
 							{
-								appendPQExpBuffer(ftStmt,
-												  "ALTER TABLE IF EXISTS");
+								appendPQExpBufferStr(ftStmt,
+													 "ALTER TABLE IF EXISTS");
 								dropStmt = dropStmt + 11;
 							}
 
@@ -671,11 +670,11 @@ RestoreArchive(Archive *AHX)
 	{
 		/*
 		 * In serial mode, process everything in three phases: normal items,
-		 * then ACLs, then matview refresh items.  We might be able to skip
-		 * one or both extra phases in some cases, eg data-only restores.
+		 * then ACLs, then post-ACL items.  We might be able to skip one or
+		 * both extra phases in some cases, eg data-only restores.
 		 */
 		bool		haveACL = false;
-		bool		haveRefresh = false;
+		bool		havePostACL = false;
 
 		for (te = AH->toc->next; te != AH->toc; te = te->next)
 		{
@@ -690,8 +689,8 @@ RestoreArchive(Archive *AHX)
 				case RESTORE_PASS_ACL:
 					haveACL = true;
 					break;
-				case RESTORE_PASS_REFRESH:
-					haveRefresh = true;
+				case RESTORE_PASS_POST_ACL:
+					havePostACL = true;
 					break;
 			}
 		}
@@ -706,12 +705,12 @@ RestoreArchive(Archive *AHX)
 			}
 		}
 
-		if (haveRefresh)
+		if (havePostACL)
 		{
 			for (te = AH->toc->next; te != AH->toc; te = te->next)
 			{
 				if ((te->reqs & (REQ_SCHEMA | REQ_DATA)) != 0 &&
-					_tocEntryRestorePass(te) == RESTORE_PASS_REFRESH)
+					_tocEntryRestorePass(te) == RESTORE_PASS_POST_ACL)
 					(void) restore_toc_entry(AH, te, false);
 			}
 		}
@@ -1046,8 +1045,6 @@ WriteData(Archive *AHX, const void *data, size_t dLen)
 		fatal("internal error -- WriteData cannot be called outside the context of a DataDumper routine");
 
 	AH->WriteDataPtr(AH, data, dLen);
-
-	return;
 }
 
 /*
@@ -1462,7 +1459,6 @@ void
 archputs(const char *s, Archive *AH)
 {
 	WriteData(AH, s, strlen(s));
-	return;
 }
 
 /* Public */
@@ -1737,8 +1733,6 @@ ahwrite(const void *ptr, size_t size, size_t nmemb, ArchiveHandle *AH)
 
 	if (bytes_written != size * nmemb)
 		WRITE_ERROR_EXIT;
-
-	return;
 }
 
 /* on some error, we may decide to go on... */
@@ -1989,7 +1983,7 @@ WriteInt(ArchiveHandle *AH, int i)
 	 * This is a bit yucky, but I don't want to make the binary format very
 	 * dependent on representation, and not knowing much about it, I write out
 	 * a sign byte. If you change this, don't forget to change the file
-	 * version #, and modify readInt to read the new format AS WELL AS the old
+	 * version #, and modify ReadInt to read the new format AS WELL AS the old
 	 * formats.
 	 */
 
@@ -3088,8 +3082,21 @@ _tocEntryRestorePass(TocEntry *te)
 		strcmp(te->desc, "ACL LANGUAGE") == 0 ||
 		strcmp(te->desc, "DEFAULT ACL") == 0)
 		return RESTORE_PASS_ACL;
-	if (strcmp(te->desc, "MATERIALIZED VIEW DATA") == 0)
-		return RESTORE_PASS_REFRESH;
+	if (strcmp(te->desc, "EVENT TRIGGER") == 0 ||
+		strcmp(te->desc, "MATERIALIZED VIEW DATA") == 0)
+		return RESTORE_PASS_POST_ACL;
+
+	/*
+	 * Comments need to be emitted in the same pass as their parent objects.
+	 * ACLs haven't got comments, and neither do matview data objects, but
+	 * event triggers do.  (Fortunately, event triggers haven't got ACLs, or
+	 * we'd need yet another weird special case.)
+	 */
+	if (strcmp(te->desc, "COMMENT") == 0 &&
+		strncmp(te->tag, "EVENT TRIGGER ", 14) == 0)
+		return RESTORE_PASS_POST_ACL;
+
+	/* All else can be handled in the main pass. */
 	return RESTORE_PASS_MAIN;
 }
 
@@ -3877,15 +3884,6 @@ bool
 checkSeek(FILE *fp)
 {
 	pgoff_t		tpos;
-
-	/*
-	 * If pgoff_t is wider than long, we must have "real" fseeko and not an
-	 * emulation using fseek.  Otherwise report no seek capability.
-	 */
-#ifndef HAVE_FSEEKO
-	if (sizeof(pgoff_t) > sizeof(long))
-		return false;
-#endif
 
 	/* Check that ftello works on this file */
 	tpos = ftello(fp);
@@ -4870,7 +4868,7 @@ CloneArchive(ArchiveHandle *AH)
 		 * any data to/from the database.
 		 */
 		initPQExpBuffer(&connstr);
-		appendPQExpBuffer(&connstr, "dbname=");
+		appendPQExpBufferStr(&connstr, "dbname=");
 		appendConnStrVal(&connstr, PQdb(AH->connection));
 		pghost = PQhost(AH->connection);
 		pgport = PQport(AH->connection);

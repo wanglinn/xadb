@@ -3,7 +3,7 @@
  * pg_shdepend.c
  *	  routines to support manipulation of the pg_shdepend relation
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -34,8 +34,8 @@
 #include "catalog/pg_largeobject.h"
 #include "catalog/pg_largeobject_metadata.h"
 #include "catalog/pg_namespace.h"
-#include "catalog/pg_operator.h"
 #include "catalog/pg_opclass.h"
+#include "catalog/pg_operator.h"
 #include "catalog/pg_opfamily.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_shdepend.h"
@@ -48,9 +48,9 @@
 #include "catalog/pg_type.h"
 #include "catalog/pg_user_mapping.h"
 #include "commands/alter.h"
-#include "commands/dbcommands.h"
 #include "commands/collationcmds.h"
 #include "commands/conversioncmds.h"
+#include "commands/dbcommands.h"
 #include "commands/defrem.h"
 #include "commands/event_trigger.h"
 #include "commands/extension.h"
@@ -61,12 +61,11 @@
 #include "commands/subscriptioncmds.h"
 #include "commands/tablecmds.h"
 #include "commands/typecmds.h"
-#include "storage/lmgr.h"
 #include "miscadmin.h"
+#include "storage/lmgr.h"
 #include "utils/acl.h"
 #include "utils/fmgroids.h"
 #include "utils/syscache.h"
-
 
 typedef enum
 {
@@ -1326,7 +1325,11 @@ shdepDropOwned(List *roleids, DropBehavior behavior)
 											sdepForm->objid);
 					break;
 				case SHARED_DEPENDENCY_POLICY:
-					/* If unable to remove role from policy, remove policy. */
+
+					/*
+					 * Try to remove role from policy; if unable to, remove
+					 * policy.
+					 */
 					if (!RemoveRoleFromObjectPolicy(roleid,
 													sdepForm->classid,
 													sdepForm->objid))
@@ -1334,6 +1337,19 @@ shdepDropOwned(List *roleids, DropBehavior behavior)
 						obj.classId = sdepForm->classid;
 						obj.objectId = sdepForm->objid;
 						obj.objectSubId = sdepForm->objsubid;
+
+						/*
+						 * Acquire lock on object, then verify this dependency
+						 * is still relevant.  If not, the object might have
+						 * been dropped or the policy modified.  Ignore the
+						 * object in that case.
+						 */
+						AcquireDeletionLock(&obj, 0);
+						if (!systable_recheck_tuple(scan, tuple))
+						{
+							ReleaseDeletionLock(&obj);
+							break;
+						}
 						add_exact_object_address(&obj, deleteobjs);
 					}
 					break;
@@ -1344,6 +1360,13 @@ shdepDropOwned(List *roleids, DropBehavior behavior)
 						obj.classId = sdepForm->classid;
 						obj.objectId = sdepForm->objid;
 						obj.objectSubId = sdepForm->objsubid;
+						/* as above */
+						AcquireDeletionLock(&obj, 0);
+						if (!systable_recheck_tuple(scan, tuple))
+						{
+							ReleaseDeletionLock(&obj);
+							break;
+						}
 						add_exact_object_address(&obj, deleteobjs);
 					}
 					break;

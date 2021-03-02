@@ -3,7 +3,7 @@
  * win32_shmem.c
  *	  Implement shared memory using win32 facilities
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/port/win32_shmem.c
@@ -194,7 +194,7 @@ EnableLockPagesPrivilege(int elevel)
  * standard header.
  */
 PGShmemHeader *
-PGSharedMemoryCreate(Size size, int port,
+PGSharedMemoryCreate(Size size,
 					 PGShmemHeader **shim)
 {
 	void	   *memAddress;

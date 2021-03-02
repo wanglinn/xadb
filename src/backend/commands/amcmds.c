@@ -3,7 +3,7 @@
  * amcmds.c
  *	  Routines for SQL commands that manipulate access methods.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -18,6 +18,7 @@
 #include "catalog/catalog.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
+#include "catalog/objectaccess.h"
 #include "catalog/pg_am.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
@@ -106,6 +107,8 @@ CreateAccessMethod(CreateAmStmt *stmt)
 	recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 
 	recordDependencyOnCurrentExtension(&myself, false);
+
+	InvokeObjectPostCreateHook(AccessMethodRelationId, amoid, 0);
 
 	table_close(rel, RowExclusiveLock);
 

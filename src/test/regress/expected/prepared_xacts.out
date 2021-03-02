@@ -6,26 +6,26 @@
 -- isn't really needed ... stopping and starting the postmaster would
 -- be enough, but we can't even do that here.
 -- create a simple table that we'll use in the tests
-CREATE TABLE pxtest1 (foobar VARCHAR(10)) distribute by replication;
+CREATE TABLE pxtest1 (foobar VARCHAR(10));
 INSERT INTO pxtest1 VALUES ('aaa');
 -- Test PREPARE TRANSACTION
 BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 UPDATE pxtest1 SET foobar = 'bbb' WHERE foobar = 'aaa';
-SELECT * FROM pxtest1 ORDER BY foobar;
+SELECT * FROM pxtest1;
  foobar 
 --------
  bbb
 (1 row)
 
 PREPARE TRANSACTION 'foo1';
-SELECT * FROM pxtest1 ORDER BY foobar;
+SELECT * FROM pxtest1;
  foobar 
 --------
  aaa
 (1 row)
 
 -- Test pg_prepared_xacts system view
-SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts;
  gid  
 ------
  foo1
@@ -33,13 +33,13 @@ SELECT gid FROM pg_prepared_xacts ORDER BY gid;
 
 -- Test ROLLBACK PREPARED
 ROLLBACK PREPARED 'foo1';
-SELECT * FROM pxtest1  ORDER BY foobar;
+SELECT * FROM pxtest1;
  foobar 
 --------
  aaa
 (1 row)
 
-SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts;
  gid 
 -----
 (0 rows)
@@ -47,7 +47,7 @@ SELECT gid FROM pg_prepared_xacts ORDER BY gid;
 -- Test COMMIT PREPARED
 BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 INSERT INTO pxtest1 VALUES ('ddd');
-SELECT * FROM pxtest1 ORDER BY foobar;
+SELECT * FROM pxtest1;
  foobar 
 --------
  aaa
@@ -55,14 +55,14 @@ SELECT * FROM pxtest1 ORDER BY foobar;
 (2 rows)
 
 PREPARE TRANSACTION 'foo2';
-SELECT * FROM pxtest1  ORDER BY foobar;
+SELECT * FROM pxtest1;
  foobar 
 --------
  aaa
 (1 row)
 
 COMMIT PREPARED 'foo2';
-SELECT * FROM pxtest1  ORDER BY foobar;
+SELECT * FROM pxtest1;
  foobar 
 --------
  aaa
@@ -72,7 +72,7 @@ SELECT * FROM pxtest1  ORDER BY foobar;
 -- Test duplicate gids
 BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 UPDATE pxtest1 SET foobar = 'eee' WHERE foobar = 'ddd';
-SELECT * FROM pxtest1  ORDER BY foobar;
+SELECT * FROM pxtest1;
  foobar 
 --------
  aaa
@@ -80,7 +80,7 @@ SELECT * FROM pxtest1  ORDER BY foobar;
 (2 rows)
 
 PREPARE TRANSACTION 'foo3';
-SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts;
  gid  
 ------
  foo3
@@ -91,7 +91,7 @@ INSERT INTO pxtest1 VALUES ('fff');
 -- This should fail, because the gid foo3 is already in use
 PREPARE TRANSACTION 'foo3';
 ERROR:  transaction identifier "foo3" is already in use
-SELECT * FROM pxtest1  ORDER BY foobar;
+SELECT * FROM pxtest1;
  foobar 
 --------
  aaa
@@ -99,7 +99,7 @@ SELECT * FROM pxtest1  ORDER BY foobar;
 (2 rows)
 
 ROLLBACK PREPARED 'foo3';
-SELECT * FROM pxtest1  ORDER BY foobar;
+SELECT * FROM pxtest1;
  foobar 
 --------
  aaa
@@ -186,7 +186,7 @@ ERROR:  relation "pxtest2" does not exist
 LINE 1: SELECT * FROM pxtest2;
                       ^
 -- There should be two prepared transactions
-SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts;
      gid     
 -------------
  regress-one
@@ -201,7 +201,7 @@ rollback;
 -- Disconnect, we will continue testing in a different backend
 \c -
 -- There should still be two prepared transactions
-SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts;
      gid     
 -------------
  regress-one
@@ -229,7 +229,7 @@ SELECT * FROM pxtest2;
 (2 rows)
 
 -- There should be one prepared transaction
-SELECT gid FROM pg_prepared_xacts ORDER BY 1;
+SELECT gid FROM pg_prepared_xacts;
      gid     
 -------------
  regress-two
@@ -242,7 +242,7 @@ ERROR:  relation "pxtest3" does not exist
 LINE 1: SELECT * FROM pxtest3;
                       ^
 -- There should be no prepared transactions
-SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts;
  gid 
 -----
 (0 rows)

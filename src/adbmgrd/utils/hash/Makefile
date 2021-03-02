@@ -12,6 +12,8 @@ subdir = src/adbmgrd/utils/hash
 top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = dynahash.o hashfn.o pg_crc.o
+OBJS = \
+	dynahash.o \
+	pg_crc.o
 
 include $(top_srcdir)/src/adbmgrd/common.mk

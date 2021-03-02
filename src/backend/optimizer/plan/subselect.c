@@ -6,7 +6,7 @@
  * This module deals with SubLinks and CTEs, but not subquery RTEs (i.e.,
  * not sub-SELECT-in-FROM cases).
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -640,7 +640,7 @@ build_subplan(PlannerInfo *root, Plan *plan, PlannerInfo *subroot,
 		{
 			ptr += sprintf(ptr, "$%d%s",
 						   lfirst_int(lc),
-						   lnext(lc) ? "," : ")");
+						   lnext(splan->setParam, lc) ? "," : ")");
 		}
 	}
 
@@ -918,7 +918,7 @@ SS_process_ctes(PlannerInfo *root)
 
 void SS_process_ctes_lc(PlannerInfo *root, ListCell *lc)
 {
-	for(;lc!=NULL;lc=lnext(lc))
+	for(;lc!=NULL;lc=lnext(root->parse->cteList, lc))
 #else
 	foreach(lc, root->parse->cteList)
 #endif /* ADB */
@@ -1313,6 +1313,7 @@ convert_ANY_sublink_to_join(PlannerInfo *root, SubLink *sublink,
 	Query	   *subselect = (Query *) sublink->subselect;
 	Relids		upper_varnos;
 	int			rtindex;
+	ParseNamespaceItem *nsitem;
 	RangeTblEntry *rte;
 	RangeTblRef *rtr;
 	List	   *subquery_vars;
@@ -1360,11 +1361,12 @@ convert_ANY_sublink_to_join(PlannerInfo *root, SubLink *sublink,
 	 * below). Therefore this is a lot easier than what pull_up_subqueries has
 	 * to go through.
 	 */
-	rte = addRangeTableEntryForSubquery(pstate,
-										subselect,
-										makeAlias("ANY_subquery", NIL),
-										false,
-										false);
+	nsitem = addRangeTableEntryForSubquery(pstate,
+										   subselect,
+										   makeAlias("ANY_subquery", NIL),
+										   false,
+										   false);
+	rte = nsitem->p_rte;
 	parse->rtable = lappend(parse->rtable, rte);
 	rtindex = list_length(parse->rtable);
 
@@ -2858,6 +2860,7 @@ finalize_plan(PlannerInfo *root, Plan *plan,
 		case T_Hash:
 		case T_Material:
 		case T_Sort:
+		case T_IncrementalSort:
 		case T_Unique:
 		case T_SetOp:
 		case T_Group:

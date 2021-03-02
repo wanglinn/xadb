@@ -94,14 +94,18 @@ sub copy_files
 	return;
 }
 
+# serverhost: what to put in listen_addresses, e.g. '127.0.0.1'
+# servercidr: what to put in pg_hba.conf, e.g. '127.0.0.1/32'
 sub configure_test_server_for_ssl
 {
-	my ($node, $serverhost, $authmethod, $password, $password_enc) = @_;
+	my ($node, $serverhost, $servercidr, $authmethod, $password,
+		$password_enc) = @_;
 
 	my $pgdata = $node->data_dir;
 
 	# Create test users and databases
 	$node->psql('postgres', "CREATE USER ssltestuser");
+	$node->psql('postgres', "CREATE USER md5testuser");
 	$node->psql('postgres', "CREATE USER anotheruser");
 	$node->psql('postgres', "CREATE USER yetanotheruser");
 	$node->psql('postgres', "CREATE DATABASE trustdb");
@@ -113,6 +117,10 @@ sub configure_test_server_for_ssl
 	{
 		$node->psql('postgres',
 			"SET password_encryption='$password_enc'; ALTER USER ssltestuser PASSWORD '$password';"
+		);
+		# A special user that always has an md5-encrypted password
+		$node->psql('postgres',
+			"SET password_encryption='md5'; ALTER USER md5testuser PASSWORD '$password';"
 		);
 		$node->psql('postgres',
 			"SET password_encryption='$password_enc'; ALTER USER anotheruser PASSWORD '$password';"
@@ -128,7 +136,7 @@ sub configure_test_server_for_ssl
 	print $conf "log_statement=all\n";
 
 	# enable SSL and set up server key
-	print $conf "include 'sslconfig.conf'";
+	print $conf "include 'sslconfig.conf'\n";
 
 	close $conf;
 
@@ -148,7 +156,7 @@ sub configure_test_server_for_ssl
 	$node->restart;
 
 	# Change pg_hba after restart because hostssl requires ssl=on
-	configure_hba_for_ssl($node, $serverhost, $authmethod);
+	configure_hba_for_ssl($node, $servercidr, $authmethod);
 
 	return;
 }
@@ -176,10 +184,10 @@ sub switch_server_cert
 
 sub configure_hba_for_ssl
 {
-	my ($node, $serverhost, $authmethod) = @_;
+	my ($node, $servercidr, $authmethod) = @_;
 	my $pgdata = $node->data_dir;
 
-	# Only accept SSL connections from localhost. Our tests don't depend on this
+	# Only accept SSL connections from $servercidr. Our tests don't depend on this
 	# but seems best to keep it as narrow as possible for security reasons.
 	#
 	# When connecting to certdb, also check the client certificate.
@@ -187,19 +195,17 @@ sub configure_hba_for_ssl
 	print $hba
 	  "# TYPE  DATABASE        USER            ADDRESS                 METHOD             OPTIONS\n";
 	print $hba
-	  "hostssl trustdb         all             $serverhost/32            $authmethod\n";
+	  "hostssl trustdb         md5testuser     $servercidr            md5\n";
 	print $hba
-	  "hostssl trustdb         all             ::1/128                 $authmethod\n";
+	  "hostssl trustdb         all             $servercidr            $authmethod\n";
 	print $hba
-	  "hostssl verifydb        ssltestuser     $serverhost/32          $authmethod        clientcert=verify-full\n";
+	  "hostssl verifydb        ssltestuser     $servercidr            $authmethod        clientcert=verify-full\n";
 	print $hba
-	  "hostssl verifydb        anotheruser     $serverhost/32          $authmethod        clientcert=verify-full\n";
+	  "hostssl verifydb        anotheruser     $servercidr            $authmethod        clientcert=verify-full\n";
 	print $hba
-	  "hostssl verifydb        yetanotheruser  $serverhost/32          $authmethod        clientcert=verify-ca\n";
+	  "hostssl verifydb        yetanotheruser  $servercidr            $authmethod        clientcert=verify-ca\n";
 	print $hba
-	  "hostssl certdb          all             $serverhost/32            cert\n";
-	print $hba
-	  "hostssl certdb          all             ::1/128                 cert\n";
+	  "hostssl certdb          all             $servercidr            cert\n";
 	close $hba;
 	return;
 }

@@ -765,7 +765,7 @@ Datum mgr_checkout_dnslave_status(PG_FUNCTION_ARGS)
 			funcctx = SRF_FIRSTCALL_INIT();
 			oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-			info = palloc(sizeof(*info));
+			info = palloc0(sizeof(*info));
 			ScanKeyInit(&key[0]
 					,Anum_mgr_node_nodeinited
 					,BTEqualStrategyNumber
@@ -773,7 +773,6 @@ Datum mgr_checkout_dnslave_status(PG_FUNCTION_ARGS)
 					,BoolGetDatum(true));
 			info->rel_node = table_open(NodeRelationId, AccessShareLock);
 			info->rel_scan = table_beginscan_catalog(info->rel_node, 1, key);
-			info->lcp =NULL;
 			/* save info */
 			funcctx->user_fctx = info;
 
@@ -1028,10 +1027,9 @@ static List* MgrGetAllAppendNodeInfo(void)
 				,F_BOOLEQ
 				,BoolGetDatum(false));
 
-	info = palloc(sizeof(*info));
+	info = palloc0(sizeof(*info));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 3, key);
-	info->lcp = NULL;
 
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -1533,10 +1531,9 @@ hexp_get_all_dn_status(void)
 				,F_BOOLEQ
 				,BoolGetDatum(true));
 
-	info = palloc(sizeof(*info));
+	info = palloc0(sizeof(*info));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 1, key);
-	info->lcp = NULL;
 
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -1706,10 +1703,9 @@ static void hexp_create_dm_on_all_coord(PGconn *pg_conn, AppendNodeInfo *nodeinf
 				,F_BOOLEQ
 				,BoolGetDatum(true));
 
-	info = palloc(sizeof(*info));
+	info = palloc0(sizeof(*info));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
-	info->lcp = NULL;
 
 	//todo rollback
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
@@ -1760,10 +1756,9 @@ static void hexp_pgxc_pool_reload_on_all_node(PGconn *pg_conn)
 				,F_BOOLEQ
 				,BoolGetDatum(true));
 
-	info = palloc(sizeof(*info));
+	info = palloc0(sizeof(*info));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
-	info->lcp = NULL;
 
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -1809,7 +1804,6 @@ static bool hexp_get_nodeinfo_from_table(char *node_name, char node_type, Append
 	info = (InitNodeInfo *)palloc0(sizeof(InitNodeInfo));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
-	info->lcp =NULL;
 
 	if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) == NULL)
 	{
@@ -1872,7 +1866,6 @@ static bool hexp_get_nodeinfo_from_table_byoid(Oid tupleOid, AppendNodeInfo *nod
 	info = (InitNodeInfo *)palloc0(sizeof(InitNodeInfo));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 1, key);
-	info->lcp =NULL;
 
 	if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) == NULL)
 	{
@@ -1947,10 +1940,9 @@ static void hexp_set_expended_node_state(char *nodename, bool search_init, bool 
 				,F_BOOLEQ
 				,BoolGetDatum(search_incluster));
 
-	info = palloc(sizeof(*info));
+	info = palloc0(sizeof(*info));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 4, key);
-	info->lcp =NULL;
 
 	tuple = heap_getnext(info->rel_scan, ForwardScanDirection);
 	if(tuple == NULL)

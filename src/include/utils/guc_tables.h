@@ -5,7 +5,7 @@
  *
  * See src/backend/utils/misc/README for design notes.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  *
  *	  src/include/utils/guc_tables.h
  *
@@ -105,15 +105,12 @@ enum config_group
 	ERROR_HANDLING_OPTIONS,
 	PRESET_OPTIONS,
 	CUSTOM_OPTIONS,
+	DEVELOPER_OPTIONS
 #ifdef ADB
-	DEVELOPER_OPTIONS,
-	ADB_REDUCE,
-	DATA_NODES,
+	,DATA_NODES,
 	GTM,
 	COORDINATORS,
 	XC_HOUSEKEEPING_OPTIONS
-#else
-	DEVELOPER_OPTIONS
 #endif
 };
 

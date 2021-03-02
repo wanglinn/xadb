@@ -6,7 +6,7 @@
  * See src/backend/optimizer/README for discussion of EquivalenceClasses.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -64,6 +64,10 @@ static bool reconsider_outer_join_clause(PlannerInfo *root,
 										 bool outer_on_left);
 static bool reconsider_full_join_clause(PlannerInfo *root,
 										RestrictInfo *rinfo);
+static Bitmapset *get_eclass_indexes_for_relids(PlannerInfo *root,
+												Relids relids);
+static Bitmapset *get_common_eclass_indexes(PlannerInfo *root, Relids relids1,
+											Relids relids2);
 
 
 /*
@@ -341,10 +345,11 @@ process_equivalence(PlannerInfo *root,
 
 		/*
 		 * Case 2: need to merge ec1 and ec2.  This should never happen after
-		 * we've built any canonical pathkeys; if it did, those pathkeys might
-		 * be rendered non-canonical by the merge.
+		 * the ECs have reached canonical state; otherwise, pathkeys could be
+		 * rendered non-canonical by the merge, and relation eclass indexes
+		 * would get broken by removal of an eq_classes list entry.
 		 */
-		if (root->canon_pathkeys != NIL)
+		if (root->ec_merging_done)
 			elog(ERROR, "too late to merge equivalence classes");
 
 		/*
@@ -750,11 +755,60 @@ get_eclass_for_sort_expr(PlannerInfo *root,
 
 	root->eq_classes = lappend(root->eq_classes, newec);
 
+	/*
+	 * If EC merging is already complete, we have to mop up by adding the new
+	 * EC to the eclass_indexes of the relation(s) mentioned in it.
+	 */
+	if (root->ec_merging_done)
+	{
+		int			ec_index = list_length(root->eq_classes) - 1;
+		int			i = -1;
+
+		while ((i = bms_next_member(newec->ec_relids, i)) > 0)
+		{
+			RelOptInfo *rel = root->simple_rel_array[i];
+
+			Assert(rel->reloptkind == RELOPT_BASEREL ||
+				   rel->reloptkind == RELOPT_DEADREL);
+
+			rel->eclass_indexes = bms_add_member(rel->eclass_indexes,
+												 ec_index);
+		}
+	}
+
 	MemoryContextSwitchTo(oldcontext);
 
 	return newec;
 }
 
+/*
+ * Find an equivalence class member expression, all of whose Vars, come from
+ * the indicated relation.
+ */
+Expr *
+find_em_expr_for_rel(EquivalenceClass *ec, RelOptInfo *rel)
+{
+	ListCell   *lc_em;
+
+	foreach(lc_em, ec->ec_members)
+	{
+		EquivalenceMember *em = lfirst(lc_em);
+
+		if (bms_is_subset(em->em_relids, rel->relids) &&
+			!bms_is_empty(em->em_relids))
+		{
+			/*
+			 * If there is more than one equivalence member whose Vars are
+			 * taken entirely from this relation, we'll be content to choose
+			 * any one of those.
+			 */
+			return em->em_expr;
+		}
+	}
+
+	/* We didn't find any suitable equivalence class expression */
+	return NULL;
+}
 
 /*
  * generate_base_implied_equalities
@@ -807,42 +861,71 @@ get_eclass_for_sort_expr(PlannerInfo *root,
 void
 generate_base_implied_equalities(PlannerInfo *root)
 {
+	int			ec_index;
 	ListCell   *lc;
-	Index		rti;
 
+	/*
+	 * At this point, we're done absorbing knowledge of equivalences in the
+	 * query, so no further EC merging should happen, and ECs remaining in the
+	 * eq_classes list can be considered canonical.  (But note that it's still
+	 * possible for new single-member ECs to be added through
+	 * get_eclass_for_sort_expr().)
+	 */
+	root->ec_merging_done = true;
+
+	ec_index = 0;
 	foreach(lc, root->eq_classes)
 	{
 		EquivalenceClass *ec = (EquivalenceClass *) lfirst(lc);
+		bool		can_generate_joinclause = false;
+		int			i;
 
 		Assert(ec->ec_merged == NULL);	/* else shouldn't be in list */
 		Assert(!ec->ec_broken); /* not yet anyway... */
 
-		/* Single-member ECs won't generate any deductions */
-		if (list_length(ec->ec_members) <= 1)
-			continue;
+		/*
+		 * Generate implied equalities that are restriction clauses.
+		 * Single-member ECs won't generate any deductions, either here or at
+		 * the join level.
+		 */
+		if (list_length(ec->ec_members) > 1)
+		{
+			if (ec->ec_has_const)
+				generate_base_implied_equalities_const(root, ec);
+			else
+				generate_base_implied_equalities_no_const(root, ec);
 
-		if (ec->ec_has_const)
-			generate_base_implied_equalities_const(root, ec);
-		else
-			generate_base_implied_equalities_no_const(root, ec);
+			/* Recover if we failed to generate required derived clauses */
+			if (ec->ec_broken)
+				generate_base_implied_equalities_broken(root, ec);
 
-		/* Recover if we failed to generate required derived clauses */
-		if (ec->ec_broken)
-			generate_base_implied_equalities_broken(root, ec);
-	}
+			/* Detect whether this EC might generate join clauses */
+			can_generate_joinclause =
+				(bms_membership(ec->ec_relids) == BMS_MULTIPLE);
+		}
 
-	/*
-	 * This is also a handy place to mark base rels (which should all exist by
-	 * now) with flags showing whether they have pending eclass joins.
-	 */
-	for (rti = 1; rti < root->simple_rel_array_size; rti++)
-	{
-		RelOptInfo *brel = root->simple_rel_array[rti];
+		/*
+		 * Mark the base rels cited in each eclass (which should all exist by
+		 * now) with the eq_classes indexes of all eclasses mentioning them.
+		 * This will let us avoid searching in subsequent lookups.  While
+		 * we're at it, we can mark base rels that have pending eclass joins;
+		 * this is a cheap version of has_relevant_eclass_joinclause().
+		 */
+		i = -1;
+		while ((i = bms_next_member(ec->ec_relids, i)) > 0)
+		{
+			RelOptInfo *rel = root->simple_rel_array[i];
 
-		if (brel == NULL)
-			continue;
+			Assert(rel->reloptkind == RELOPT_BASEREL);
 
-		brel->has_eclass_joins = has_relevant_eclass_joinclause(root, brel);
+			rel->eclass_indexes = bms_add_member(rel->eclass_indexes,
+												 ec_index);
+
+			if (can_generate_joinclause)
+				rel->has_eclass_joins = true;
+		}
+
+		ec_index++;
 	}
 }
 
@@ -1080,11 +1163,72 @@ generate_join_implied_equalities(PlannerInfo *root,
 								 Relids outer_relids,
 								 RelOptInfo *inner_rel)
 {
-	return generate_join_implied_equalities_for_ecs(root,
-													root->eq_classes,
-													join_relids,
-													outer_relids,
-													inner_rel);
+	List	   *result = NIL;
+	Relids		inner_relids = inner_rel->relids;
+	Relids		nominal_inner_relids;
+	Relids		nominal_join_relids;
+	Bitmapset  *matching_ecs;
+	int			i;
+
+	/* If inner rel is a child, extra setup work is needed */
+	if (IS_OTHER_REL(inner_rel))
+	{
+		Assert(!bms_is_empty(inner_rel->top_parent_relids));
+
+		/* Fetch relid set for the topmost parent rel */
+		nominal_inner_relids = inner_rel->top_parent_relids;
+		/* ECs will be marked with the parent's relid, not the child's */
+		nominal_join_relids = bms_union(outer_relids, nominal_inner_relids);
+	}
+	else
+	{
+		nominal_inner_relids = inner_relids;
+		nominal_join_relids = join_relids;
+	}
+
+	/*
+	 * Get all eclasses in common between inner_rel's relids and outer_relids
+	 */
+	matching_ecs = get_common_eclass_indexes(root, inner_rel->relids,
+											 outer_relids);
+
+	i = -1;
+	while ((i = bms_next_member(matching_ecs, i)) >= 0)
+	{
+		EquivalenceClass *ec = (EquivalenceClass *) list_nth(root->eq_classes, i);
+		List	   *sublist = NIL;
+
+		/* ECs containing consts do not need any further enforcement */
+		if (ec->ec_has_const)
+			continue;
+
+		/* Single-member ECs won't generate any deductions */
+		if (list_length(ec->ec_members) <= 1)
+			continue;
+
+		/* Sanity check that this eclass overlaps the join */
+		Assert(bms_overlap(ec->ec_relids, nominal_join_relids));
+
+		if (!ec->ec_broken)
+			sublist = generate_join_implied_equalities_normal(root,
+															  ec,
+															  join_relids,
+															  outer_relids,
+															  inner_relids);
+
+		/* Recover if we failed to generate required derived clauses */
+		if (ec->ec_broken)
+			sublist = generate_join_implied_equalities_broken(root,
+															  ec,
+															  nominal_join_relids,
+															  outer_relids,
+															  nominal_inner_relids,
+															  inner_rel);
+
+		result = list_concat(result, sublist);
+	}
+
+	return result;
 }
 
 /*
@@ -1580,8 +1724,6 @@ reconsider_outer_join_clauses(PlannerInfo *root)
 {
 	bool		found;
 	ListCell   *cell;
-	ListCell   *prev;
-	ListCell   *next;
 
 	/* Outer loop repeats until we find no more deductions */
 	do
@@ -1589,72 +1731,60 @@ reconsider_outer_join_clauses(PlannerInfo *root)
 		found = false;
 
 		/* Process the LEFT JOIN clauses */
-		prev = NULL;
-		for (cell = list_head(root->left_join_clauses); cell; cell = next)
+		foreach(cell, root->left_join_clauses)
 		{
 			RestrictInfo *rinfo = (RestrictInfo *) lfirst(cell);
 
-			next = lnext(cell);
 			if (reconsider_outer_join_clause(root, rinfo, true))
 			{
 				found = true;
 				/* remove it from the list */
 				root->left_join_clauses =
-					list_delete_cell(root->left_join_clauses, cell, prev);
+					foreach_delete_current(root->left_join_clauses, cell);
 				/* we throw it back anyway (see notes above) */
 				/* but the thrown-back clause has no extra selectivity */
 				rinfo->norm_selec = 2.0;
 				rinfo->outer_selec = 1.0;
 				distribute_restrictinfo_to_rels(root, rinfo);
 			}
-			else
-				prev = cell;
 		}
 
 		/* Process the RIGHT JOIN clauses */
-		prev = NULL;
-		for (cell = list_head(root->right_join_clauses); cell; cell = next)
+		foreach(cell, root->right_join_clauses)
 		{
 			RestrictInfo *rinfo = (RestrictInfo *) lfirst(cell);
 
-			next = lnext(cell);
 			if (reconsider_outer_join_clause(root, rinfo, false))
 			{
 				found = true;
 				/* remove it from the list */
 				root->right_join_clauses =
-					list_delete_cell(root->right_join_clauses, cell, prev);
+					foreach_delete_current(root->right_join_clauses, cell);
 				/* we throw it back anyway (see notes above) */
 				/* but the thrown-back clause has no extra selectivity */
 				rinfo->norm_selec = 2.0;
 				rinfo->outer_selec = 1.0;
 				distribute_restrictinfo_to_rels(root, rinfo);
 			}
-			else
-				prev = cell;
 		}
 
 		/* Process the FULL JOIN clauses */
-		prev = NULL;
-		for (cell = list_head(root->full_join_clauses); cell; cell = next)
+		foreach(cell, root->full_join_clauses)
 		{
 			RestrictInfo *rinfo = (RestrictInfo *) lfirst(cell);
 
-			next = lnext(cell);
 			if (reconsider_full_join_clause(root, rinfo))
 			{
 				found = true;
 				/* remove it from the list */
 				root->full_join_clauses =
-					list_delete_cell(root->full_join_clauses, cell, prev);
+					foreach_delete_current(root->full_join_clauses, cell);
 				/* we throw it back anyway (see notes above) */
 				/* but the thrown-back clause has no extra selectivity */
 				rinfo->norm_selec = 2.0;
 				rinfo->outer_selec = 1.0;
 				distribute_restrictinfo_to_rels(root, rinfo);
 			}
-			else
-				prev = cell;
 		}
 	} while (found);
 
@@ -2043,12 +2173,24 @@ match_eclasses_to_foreign_key_col(PlannerInfo *root,
 	Index		var2varno = fkinfo->ref_relid;
 	AttrNumber	var2attno = fkinfo->confkey[colno];
 	Oid			eqop = fkinfo->conpfeqop[colno];
+	RelOptInfo *rel1 = root->simple_rel_array[var1varno];
+	RelOptInfo *rel2 = root->simple_rel_array[var2varno];
 	List	   *opfamilies = NIL;	/* compute only if needed */
-	ListCell   *lc1;
+	Bitmapset  *matching_ecs;
+	int			i;
 
-	foreach(lc1, root->eq_classes)
+	/* Consider only eclasses mentioning both relations */
+	Assert(root->ec_merging_done);
+	Assert(IS_SIMPLE_REL(rel1));
+	Assert(IS_SIMPLE_REL(rel2));
+	matching_ecs = bms_intersect(rel1->eclass_indexes,
+								 rel2->eclass_indexes);
+
+	i = -1;
+	while ((i = bms_next_member(matching_ecs, i)) >= 0)
 	{
-		EquivalenceClass *ec = (EquivalenceClass *) lfirst(lc1);
+		EquivalenceClass *ec = (EquivalenceClass *) list_nth(root->eq_classes,
+															 i);
 		bool		item1member = false;
 		bool		item2member = false;
 		ListCell   *lc2;
@@ -2057,14 +2199,6 @@ match_eclasses_to_foreign_key_col(PlannerInfo *root,
 		if (ec->ec_has_volatile)
 			continue;
 		/* Note: it seems okay to match to "broken" eclasses here */
-
-		/*
-		 * If eclass visibly doesn't have members for both rels, there's no
-		 * need to grovel through the members.
-		 */
-		if (!bms_is_member(var1varno, ec->ec_relids) ||
-			!bms_is_member(var2varno, ec->ec_relids))
-			continue;
 
 		foreach(lc2, ec->ec_members)
 		{
@@ -2110,7 +2244,7 @@ match_eclasses_to_foreign_key_col(PlannerInfo *root,
 
 /*
  * add_child_rel_equivalences
- *	  Search for EC members that reference the parent_rel, and
+ *	  Search for EC members that reference the root parent of child_rel, and
  *	  add transformed members referencing the child_rel.
  *
  * Note that this function won't be called at all unless we have at least some
@@ -2118,6 +2252,12 @@ match_eclasses_to_foreign_key_col(PlannerInfo *root,
  *
  * parent_rel and child_rel could be derived from appinfo, but since the
  * caller has already computed them, we might as well just pass them in.
+ *
+ * The passed-in AppendRelInfo is not used when the parent_rel is not a
+ * top-level baserel, since it shows the mapping from the parent_rel but
+ * we need to translate EC expressions that refer to the top-level parent.
+ * Using it is faster than using adjust_appendrel_attrs_multilevel(), though,
+ * so we prefer it when we can.
  */
 void
 add_child_rel_equivalences(PlannerInfo *root,
@@ -2125,12 +2265,22 @@ add_child_rel_equivalences(PlannerInfo *root,
 						   RelOptInfo *parent_rel,
 						   RelOptInfo *child_rel)
 {
-	ListCell   *lc1;
+	Relids		top_parent_relids = child_rel->top_parent_relids;
+	Relids		child_relids = child_rel->relids;
+	int			i;
 
-	foreach(lc1, root->eq_classes)
+	/*
+	 * EC merging should be complete already, so we can use the parent rel's
+	 * eclass_indexes to avoid searching all of root->eq_classes.
+	 */
+	Assert(root->ec_merging_done);
+	Assert(IS_SIMPLE_REL(parent_rel));
+
+	i = -1;
+	while ((i = bms_next_member(parent_rel->eclass_indexes, i)) >= 0)
 	{
-		EquivalenceClass *cur_ec = (EquivalenceClass *) lfirst(lc1);
-		ListCell   *lc2;
+		EquivalenceClass *cur_ec = (EquivalenceClass *) list_nth(root->eq_classes, i);
+		int			num_members;
 
 		/*
 		 * If this EC contains a volatile expression, then generating child
@@ -2140,16 +2290,18 @@ add_child_rel_equivalences(PlannerInfo *root,
 		if (cur_ec->ec_has_volatile)
 			continue;
 
-		/*
-		 * No point in searching if child's topmost parent rel is not
-		 * mentioned in eclass.
-		 */
-		if (!bms_is_subset(child_rel->top_parent_relids, cur_ec->ec_relids))
-			continue;
+		/* Sanity check eclass_indexes only contain ECs for parent_rel */
+		Assert(bms_is_subset(top_parent_relids, cur_ec->ec_relids));
 
-		foreach(lc2, cur_ec->ec_members)
+		/*
+		 * We don't use foreach() here because there's no point in scanning
+		 * newly-added child members, so we can stop after the last
+		 * pre-existing EC member.
+		 */
+		num_members = list_length(cur_ec->ec_members);
+		for (int pos = 0; pos < num_members; pos++)
 		{
-			EquivalenceMember *cur_em = (EquivalenceMember *) lfirst(lc2);
+			EquivalenceMember *cur_em = (EquivalenceMember *) list_nth(cur_ec->ec_members, pos);
 
 			if (cur_em->em_is_const)
 				continue;		/* ignore consts here */
@@ -2159,13 +2311,14 @@ add_child_rel_equivalences(PlannerInfo *root,
 			 * already-transformed child members.  Otherwise, if some original
 			 * member expression references more than one appendrel, we'd get
 			 * an O(N^2) explosion of useless derived expressions for
-			 * combinations of children.
+			 * combinations of children.  (But add_child_join_rel_equivalences
+			 * may add targeted combinations for partitionwise-join purposes.)
 			 */
 			if (cur_em->em_is_child)
 				continue;		/* ignore children here */
 
 			/* Does this member reference child's topmost parent rel? */
-			if (bms_overlap(cur_em->em_relids, child_rel->top_parent_relids))
+			if (bms_overlap(cur_em->em_relids, top_parent_relids))
 			{
 				/* Yes, generate transformed child version */
 				Expr	   *child_expr;
@@ -2186,8 +2339,8 @@ add_child_rel_equivalences(PlannerInfo *root,
 					child_expr = (Expr *)
 						adjust_appendrel_attrs_multilevel(root,
 														  (Node *) cur_em->em_expr,
-														  child_rel->relids,
-														  child_rel->top_parent_relids);
+														  child_relids,
+														  top_parent_relids);
 				}
 
 				/*
@@ -2197,22 +2350,151 @@ add_child_rel_equivalences(PlannerInfo *root,
 				 * don't want the child member to be marked as constant.
 				 */
 				new_relids = bms_difference(cur_em->em_relids,
-											child_rel->top_parent_relids);
-				new_relids = bms_add_members(new_relids, child_rel->relids);
+											top_parent_relids);
+				new_relids = bms_add_members(new_relids, child_relids);
 
 				/*
 				 * And likewise for nullable_relids.  Note this code assumes
 				 * parent and child relids are singletons.
 				 */
 				new_nullable_relids = cur_em->em_nullable_relids;
-				if (bms_overlap(new_nullable_relids,
-								child_rel->top_parent_relids))
+				if (bms_overlap(new_nullable_relids, top_parent_relids))
 				{
 					new_nullable_relids = bms_difference(new_nullable_relids,
-														 child_rel->top_parent_relids);
+														 top_parent_relids);
 					new_nullable_relids = bms_add_members(new_nullable_relids,
-														  child_rel->relids);
+														  child_relids);
 				}
+
+				(void) add_eq_member(cur_ec, child_expr,
+									 new_relids, new_nullable_relids,
+									 true, cur_em->em_datatype);
+
+				/* Record this EC index for the child rel */
+				child_rel->eclass_indexes = bms_add_member(child_rel->eclass_indexes, i);
+			}
+		}
+	}
+}
+
+/*
+ * add_child_join_rel_equivalences
+ *	  Like add_child_rel_equivalences(), but for joinrels
+ *
+ * Here we find the ECs relevant to the top parent joinrel and add transformed
+ * member expressions that refer to this child joinrel.
+ *
+ * Note that this function won't be called at all unless we have at least some
+ * reason to believe that the EC members it generates will be useful.
+ */
+void
+add_child_join_rel_equivalences(PlannerInfo *root,
+								int nappinfos, AppendRelInfo **appinfos,
+								RelOptInfo *parent_joinrel,
+								RelOptInfo *child_joinrel)
+{
+	Relids		top_parent_relids = child_joinrel->top_parent_relids;
+	Relids		child_relids = child_joinrel->relids;
+	Bitmapset  *matching_ecs;
+	int			i;
+
+	Assert(IS_JOIN_REL(child_joinrel) && IS_JOIN_REL(parent_joinrel));
+
+	/* We need consider only ECs that mention the parent joinrel */
+	matching_ecs = get_eclass_indexes_for_relids(root, top_parent_relids);
+
+	i = -1;
+	while ((i = bms_next_member(matching_ecs, i)) >= 0)
+	{
+		EquivalenceClass *cur_ec = (EquivalenceClass *) list_nth(root->eq_classes, i);
+		int			num_members;
+
+		/*
+		 * If this EC contains a volatile expression, then generating child
+		 * EMs would be downright dangerous, so skip it.  We rely on a
+		 * volatile EC having only one EM.
+		 */
+		if (cur_ec->ec_has_volatile)
+			continue;
+
+		/* Sanity check on get_eclass_indexes_for_relids result */
+		Assert(bms_overlap(top_parent_relids, cur_ec->ec_relids));
+
+		/*
+		 * We don't use foreach() here because there's no point in scanning
+		 * newly-added child members, so we can stop after the last
+		 * pre-existing EC member.
+		 */
+		num_members = list_length(cur_ec->ec_members);
+		for (int pos = 0; pos < num_members; pos++)
+		{
+			EquivalenceMember *cur_em = (EquivalenceMember *) list_nth(cur_ec->ec_members, pos);
+
+			if (cur_em->em_is_const)
+				continue;		/* ignore consts here */
+
+			/*
+			 * We consider only original EC members here, not
+			 * already-transformed child members.
+			 */
+			if (cur_em->em_is_child)
+				continue;		/* ignore children here */
+
+			/*
+			 * We may ignore expressions that reference a single baserel,
+			 * because add_child_rel_equivalences should have handled them.
+			 */
+			if (bms_membership(cur_em->em_relids) != BMS_MULTIPLE)
+				continue;
+
+			/* Does this member reference child's topmost parent rel? */
+			if (bms_overlap(cur_em->em_relids, top_parent_relids))
+			{
+				/* Yes, generate transformed child version */
+				Expr	   *child_expr;
+				Relids		new_relids;
+				Relids		new_nullable_relids;
+
+				if (parent_joinrel->reloptkind == RELOPT_JOINREL)
+				{
+					/* Simple single-level transformation */
+					child_expr = (Expr *)
+						adjust_appendrel_attrs(root,
+											   (Node *) cur_em->em_expr,
+											   nappinfos, appinfos);
+				}
+				else
+				{
+					/* Must do multi-level transformation */
+					Assert(parent_joinrel->reloptkind == RELOPT_OTHER_JOINREL);
+					child_expr = (Expr *)
+						adjust_appendrel_attrs_multilevel(root,
+														  (Node *) cur_em->em_expr,
+														  child_relids,
+														  top_parent_relids);
+				}
+
+				/*
+				 * Transform em_relids to match.  Note we do *not* do
+				 * pull_varnos(child_expr) here, as for example the
+				 * transformation might have substituted a constant, but we
+				 * don't want the child member to be marked as constant.
+				 */
+				new_relids = bms_difference(cur_em->em_relids,
+											top_parent_relids);
+				new_relids = bms_add_members(new_relids, child_relids);
+
+				/*
+				 * For nullable_relids, we must selectively replace parent
+				 * nullable relids with child ones.
+				 */
+				new_nullable_relids = cur_em->em_nullable_relids;
+				if (bms_overlap(new_nullable_relids, top_parent_relids))
+					new_nullable_relids =
+						adjust_child_relids_multilevel(root,
+													   new_nullable_relids,
+													   child_relids,
+													   top_parent_relids);
 
 				(void) add_eq_member(cur_ec, child_expr,
 									 new_relids, new_nullable_relids,
@@ -2256,7 +2538,10 @@ generate_implied_equalities_for_column(PlannerInfo *root,
 	List	   *result = NIL;
 	bool		is_child_rel = (rel->reloptkind == RELOPT_OTHER_MEMBER_REL);
 	Relids		parent_relids;
-	ListCell   *lc1;
+	int			i;
+
+	/* Should be OK to rely on eclass_indexes */
+	Assert(root->ec_merging_done);
 
 	/* Indexes are available only on base or "other" member relations. */
 	Assert(IS_SIMPLE_REL(rel));
@@ -2267,25 +2552,21 @@ generate_implied_equalities_for_column(PlannerInfo *root,
 	else
 		parent_relids = NULL;	/* not used, but keep compiler quiet */
 
-	foreach(lc1, root->eq_classes)
+	i = -1;
+	while ((i = bms_next_member(rel->eclass_indexes, i)) >= 0)
 	{
-		EquivalenceClass *cur_ec = (EquivalenceClass *) lfirst(lc1);
+		EquivalenceClass *cur_ec = (EquivalenceClass *) list_nth(root->eq_classes, i);
 		EquivalenceMember *cur_em;
 		ListCell   *lc2;
+
+		/* Sanity check eclass_indexes only contain ECs for rel */
+		Assert(is_child_rel || bms_is_subset(rel->relids, cur_ec->ec_relids));
 
 		/*
 		 * Won't generate joinclauses if const or single-member (the latter
 		 * test covers the volatile case too)
 		 */
 		if (cur_ec->ec_has_const || list_length(cur_ec->ec_members) <= 1)
-			continue;
-
-		/*
-		 * No point in searching if rel not mentioned in eclass (but we can't
-		 * tell that for a child rel).
-		 */
-		if (!is_child_rel &&
-			!bms_is_subset(rel->relids, cur_ec->ec_relids))
 			continue;
 
 		/*
@@ -2381,11 +2662,25 @@ bool
 have_relevant_eclass_joinclause(PlannerInfo *root,
 								RelOptInfo *rel1, RelOptInfo *rel2)
 {
-	ListCell   *lc1;
+	Bitmapset  *matching_ecs;
+	int			i;
 
-	foreach(lc1, root->eq_classes)
+	/* Examine only eclasses mentioning both rel1 and rel2 */
+	matching_ecs = get_common_eclass_indexes(root, rel1->relids,
+											 rel2->relids);
+
+	i = -1;
+	while ((i = bms_next_member(matching_ecs, i)) >= 0)
 	{
-		EquivalenceClass *ec = (EquivalenceClass *) lfirst(lc1);
+		EquivalenceClass *ec = (EquivalenceClass *) list_nth(root->eq_classes,
+															 i);
+
+		/*
+		 * Sanity check that get_common_eclass_indexes gave only ECs
+		 * containing both rels.
+		 */
+		Assert(bms_overlap(rel1->relids, ec->ec_relids));
+		Assert(bms_overlap(rel2->relids, ec->ec_relids));
 
 		/*
 		 * Won't generate joinclauses if single-member (this test covers the
@@ -2397,12 +2692,12 @@ have_relevant_eclass_joinclause(PlannerInfo *root,
 		/*
 		 * We do not need to examine the individual members of the EC, because
 		 * all that we care about is whether each rel overlaps the relids of
-		 * at least one member, and a test on ec_relids is sufficient to prove
-		 * that.  (As with have_relevant_joinclause(), it is not necessary
-		 * that the EC be able to form a joinclause relating exactly the two
-		 * given rels, only that it be able to form a joinclause mentioning
-		 * both, and this will surely be true if both of them overlap
-		 * ec_relids.)
+		 * at least one member, and get_common_eclass_indexes() and the single
+		 * member check above are sufficient to prove that.  (As with
+		 * have_relevant_joinclause(), it is not necessary that the EC be able
+		 * to form a joinclause relating exactly the two given rels, only that
+		 * it be able to form a joinclause mentioning both, and this will
+		 * surely be true if both of them overlap ec_relids.)
 		 *
 		 * Note we don't test ec_broken; if we did, we'd need a separate code
 		 * path to look through ec_sources.  Checking the membership anyway is
@@ -2414,9 +2709,8 @@ have_relevant_eclass_joinclause(PlannerInfo *root,
 		 * since the join result is likely to be small even though it'll end
 		 * up being an unqualified nestloop.
 		 */
-		if (bms_overlap(rel1->relids, ec->ec_relids) &&
-			bms_overlap(rel2->relids, ec->ec_relids))
-			return true;
+
+		return true;
 	}
 
 	return false;
@@ -2434,11 +2728,17 @@ have_relevant_eclass_joinclause(PlannerInfo *root,
 bool
 has_relevant_eclass_joinclause(PlannerInfo *root, RelOptInfo *rel1)
 {
-	ListCell   *lc1;
+	Bitmapset  *matched_ecs;
+	int			i;
 
-	foreach(lc1, root->eq_classes)
+	/* Examine only eclasses mentioning rel1 */
+	matched_ecs = get_eclass_indexes_for_relids(root, rel1->relids);
+
+	i = -1;
+	while ((i = bms_next_member(matched_ecs, i)) >= 0)
 	{
-		EquivalenceClass *ec = (EquivalenceClass *) lfirst(lc1);
+		EquivalenceClass *ec = (EquivalenceClass *) list_nth(root->eq_classes,
+															 i);
 
 		/*
 		 * Won't generate joinclauses if single-member (this test covers the
@@ -2451,8 +2751,7 @@ has_relevant_eclass_joinclause(PlannerInfo *root, RelOptInfo *rel1)
 		 * Per the comment in have_relevant_eclass_joinclause, it's sufficient
 		 * to find an EC that mentions both this rel and some other rel.
 		 */
-		if (bms_overlap(rel1->relids, ec->ec_relids) &&
-			!bms_is_subset(ec->ec_relids, rel1->relids))
+		if (!bms_is_subset(ec->ec_relids, rel1->relids))
 			return true;
 	}
 
@@ -2584,4 +2883,55 @@ is_redundant_with_indexclauses(RestrictInfo *rinfo, List *indexclauses)
 	}
 
 	return false;
+}
+
+/*
+ * get_eclass_indexes_for_relids
+ *		Build and return a Bitmapset containing the indexes into root's
+ *		eq_classes list for all eclasses that mention any of these relids
+ */
+static Bitmapset *
+get_eclass_indexes_for_relids(PlannerInfo *root, Relids relids)
+{
+	Bitmapset  *ec_indexes = NULL;
+	int			i = -1;
+
+	/* Should be OK to rely on eclass_indexes */
+	Assert(root->ec_merging_done);
+
+	while ((i = bms_next_member(relids, i)) > 0)
+	{
+		RelOptInfo *rel = root->simple_rel_array[i];
+
+		ec_indexes = bms_add_members(ec_indexes, rel->eclass_indexes);
+	}
+	return ec_indexes;
+}
+
+/*
+ * get_common_eclass_indexes
+ *		Build and return a Bitmapset containing the indexes into root's
+ *		eq_classes list for all eclasses that mention rels in both
+ *		relids1 and relids2.
+ */
+static Bitmapset *
+get_common_eclass_indexes(PlannerInfo *root, Relids relids1, Relids relids2)
+{
+	Bitmapset  *rel1ecs;
+	Bitmapset  *rel2ecs;
+	int			relid;
+
+	rel1ecs = get_eclass_indexes_for_relids(root, relids1);
+
+	/*
+	 * We can get away with just using the relation's eclass_indexes directly
+	 * when relids2 is a singleton set.
+	 */
+	if (bms_get_singleton_member(relids2, &relid))
+		rel2ecs = root->simple_rel_array[relid]->eclass_indexes;
+	else
+		rel2ecs = get_eclass_indexes_for_relids(root, relids2);
+
+	/* Calculate and return the common EC indexes, recycling the left input. */
+	return bms_int_members(rel1ecs, rel2ecs);
 }

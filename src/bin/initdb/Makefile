@@ -2,7 +2,7 @@
 #
 # Makefile for src/bin/initdb
 #
-# Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 #
 # src/bin/initdb/Makefile
@@ -18,7 +18,12 @@ include $(top_builddir)/src/Makefile.global
 
 override CPPFLAGS := -DFRONTEND -I$(libpq_srcdir) -I$(top_srcdir)/src/timezone $(CPPFLAGS)
 
-# note: we need libpq only because fe_utils does
+# Note: it's important that we link to encnames.o from libpgcommon, not
+# from libpq, else we have risks of version skew if we run with a libpq
+# shared library from a different PG version.  The libpq_pgport macro
+# should ensure that that happens.
+#
+# We need libpq only because fe_utils does.
 LDFLAGS_INTERNAL += -L$(top_builddir)/src/fe_utils -lpgfeutils $(libpq_pgport)
 
 # use system timezone data?
@@ -26,12 +31,16 @@ ifneq (,$(with_system_tzdata))
 override CPPFLAGS += '-DSYSTEMTZDIR="$(with_system_tzdata)"'
 endif
 
-OBJ_S=	initdb.o findtimezone.o localtime.o encnames.o $(WIN32RES)
-OBJS= $(OBJ_S) $(WIN32RES)
+OBJ_S = \
+	findtimezone.o \
+	initdb.o \
+	localtime.o
+OBJS = \
+	$(WIN32RES) \
+	$(OBJ_S)
 OBJS_MGR= $(OBJ_S:%.o=%_mgr.o) $(WIN32RES)
-OBJS_AGTM= $(OBJ_S:%.o=%_agtm.o) $(WIN32RES)
 
-all: initdb initmgr initagtm
+all: initdb initmgr
 
 initdb: $(OBJS) | submake-libpq submake-libpgport submake-libpgfeutils
 	$(CC) $(CFLAGS) $(OBJS) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
@@ -39,31 +48,16 @@ initdb: $(OBJS) | submake-libpq submake-libpgport submake-libpgfeutils
 initmgr: $(OBJS_MGR) | submake-libpq submake-libpgport submake-libpgfeutils
 	$(CC) $(OBJS_MGR) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 
-initagtm: $(OBJS_AGTM) | submake-libpq submake-libpgport submake-libpgfeutils
-	$(CC) $(OBJS_AGTM) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
-
 $(OBJS_MGR): %_mgr.o : %.c
 	$(CC) $(patsubst -DPGXC,, $(patsubst -DADB,, $(CFLAGS))) $(CPPFLAGS) -DINITMGR -c -o $@ $<
 
-$(OBJS_AGTM): %_agtm.o : %.c
-	$(CC) $(patsubst -DPGXC,, $(patsubst -DADB,, $(CFLAGS))) $(CPPFLAGS) -DINITAGTM -c -o $@ $<
-
-# We used to pull in all of libpq to get encnames.c, but that
-# exposes us to risks of version skew if we link to a shared library.
-# Do it the hard way, instead, so that we're statically linked.
-
-encnames.c: % : $(top_srcdir)/src/backend/utils/mb/%
-	rm -f $@ && $(LN_S) $< .
-
-# Likewise, pull in localtime.c from src/timezones
-
+# We must pull in localtime.c from src/timezones
 localtime.c: % : $(top_srcdir)/src/timezone/%
 	rm -f $@ && $(LN_S) $< .
 
 install: all installdirs
 	$(INSTALL_PROGRAM) initdb$(X) '$(DESTDIR)$(bindir)/initdb$(X)'
 	$(INSTALL_PROGRAM) initmgr$(X) '$(DESTDIR)$(bindir)/initmgr$(X)'
-	$(INSTALL_PROGRAM) initagtm$(X) '$(DESTDIR)$(bindir)/initagtm$(X)'
 
 installdirs:
 	$(MKDIR_P) '$(DESTDIR)$(bindir)'
@@ -71,16 +65,14 @@ installdirs:
 uninstall:
 	rm -f '$(DESTDIR)$(bindir)/initdb$(X)'
 	rm -f '$(DESTDIR)$(bindir)/initmgr$(X)'
-	rm -f '$(DESTDIR)$(bindir)/initagtm$(X)'
 
 clean distclean maintainer-clean:
-	rm -f initdb$(X) initmgr$(X) initagtm$(X) $(OBJS) $(OBJS_MGR) $(OBJS_AGTM) encnames.c localtime.c
+	rm -f initdb$(X) initmgr$(X) $(OBJS) $(OBJS_MGR) $(OBJS_AGTM) localtime.c
 	rm -rf tmp_check
 
 # ensure that changes in datadir propagate into object file
 initdb.o: initdb.c $(top_builddir)/src/Makefile.global
 initmgr.o: initdb.c $(top_builddir)/src/Makefile.global
-initagtm.o: initdb.c $(top_builddir)/src/Makefile.global
 check:
 	$(prove_check)
 

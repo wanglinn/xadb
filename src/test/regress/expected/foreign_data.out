@@ -1390,8 +1390,6 @@ CREATE FOREIGN TABLE ft2 () INHERITS (fd_pt1)
  c2     | text    |           |          |         | extended |              | 
  c3     | date    |           |          |         | plain    |              | 
 Child tables: ft2
-Distribute By: HASH(c1)
-Location Nodes: ALL DATANODES
 
 \d+ ft2
                                        Foreign table "public.ft2"
@@ -1437,8 +1435,6 @@ ALTER FOREIGN TABLE ft2 INHERIT fd_pt1;
  c2     | text    |           |          |         | extended |              | 
  c3     | date    |           |          |         | plain    |              | 
 Child tables: ft2
-Distribute By: HASH(c1)
-Location Nodes: ALL DATANODES
 
 \d+ ft2
                                        Foreign table "public.ft2"
@@ -1482,8 +1478,6 @@ Child tables: ct3,
  c2     | text    |           |          |         | extended |              | 
  c3     | date    |           |          |         | plain    |              | 
 Inherits: ft2
-Distribute By: HASH(c1)
-Location Nodes: ALL DATANODES
 
 \d+ ft3
                                        Foreign table "public.ft3"
@@ -1514,8 +1508,6 @@ ALTER TABLE fd_pt1 ADD COLUMN c8 integer;
  c7     | integer |           | not null |         | plain    |              | 
  c8     | integer |           |          |         | plain    |              | 
 Child tables: ft2
-Distribute By: HASH(c1)
-Location Nodes: ALL DATANODES
 
 \d+ ft2
                                        Foreign table "public.ft2"
@@ -1548,8 +1540,6 @@ Child tables: ct3,
  c7     | integer |           | not null |         | plain    |              | 
  c8     | integer |           |          |         | plain    |              | 
 Inherits: ft2
-Distribute By: HASH(c1)
-Location Nodes: ALL DATANODES
 
 \d+ ft3
                                        Foreign table "public.ft3"
@@ -1592,8 +1582,6 @@ ALTER TABLE fd_pt1 ALTER COLUMN c8 SET STORAGE EXTERNAL;
  c7     | integer |           |          |         | plain    |              | 
  c8     | text    |           |          |         | external |              | 
 Child tables: ft2
-Distribute By: HASH(c1)
-Location Nodes: ALL DATANODES
 
 \d+ ft2
                                        Foreign table "public.ft2"
@@ -1627,8 +1615,6 @@ ALTER TABLE fd_pt1 DROP COLUMN c8;
  c2     | text    |           |          |         | extended |              | 
  c3     | date    |           |          |         | plain    |              | 
 Child tables: ft2
-Distribute By: HASH(c1)
-Location Nodes: ALL DATANODES
 
 \d+ ft2
                                        Foreign table "public.ft2"
@@ -1669,8 +1655,6 @@ Check constraints:
     "fd_pt1chk1" CHECK (c1 > 0) NO INHERIT
     "fd_pt1chk2" CHECK (c2 <> ''::text)
 Child tables: ft2
-Distribute By: HASH(c1)
-Location Nodes: ALL DATANODES
 
 \d+ ft2
                                        Foreign table "public.ft2"
@@ -1718,8 +1702,6 @@ Check constraints:
     "fd_pt1chk1" CHECK (c1 > 0) NO INHERIT
     "fd_pt1chk2" CHECK (c2 <> ''::text)
 Child tables: ft2
-Distribute By: HASH(c1)
-Location Nodes: ALL DATANODES
 
 \d+ ft2
                                        Foreign table "public.ft2"
@@ -1750,8 +1732,6 @@ ALTER TABLE fd_pt1 ADD CONSTRAINT fd_pt1chk3 CHECK (c2 <> '') NOT VALID;
 Check constraints:
     "fd_pt1chk3" CHECK (c2 <> ''::text) NOT VALID
 Child tables: ft2
-Distribute By: HASH(c1)
-Location Nodes: ALL DATANODES
 
 \d+ ft2
                                        Foreign table "public.ft2"
@@ -1779,8 +1759,6 @@ ALTER TABLE fd_pt1 VALIDATE CONSTRAINT fd_pt1chk3;
 Check constraints:
     "fd_pt1chk3" CHECK (c2 <> ''::text)
 Child tables: ft2
-Distribute By: HASH(c1)
-Location Nodes: ALL DATANODES
 
 \d+ ft2
                                        Foreign table "public.ft2"
@@ -1812,8 +1790,6 @@ ALTER TABLE fd_pt1 RENAME CONSTRAINT fd_pt1chk3 TO f2_check;
 Check constraints:
     "f2_check" CHECK (f2 <> ''::text)
 Child tables: ft2
-Distribute By: HASH(f1)
-Location Nodes: ALL DATANODES
 
 \d+ ft2
                                        Foreign table "public.ft2"

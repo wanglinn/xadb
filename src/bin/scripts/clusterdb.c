@@ -2,7 +2,7 @@
  *
  * clusterdb
  *
- * Portions Copyright (c) 2002-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2002-2020, PostgreSQL Global Development Group
  *
  * src/bin/scripts/clusterdb.c
  *
@@ -12,6 +12,7 @@
 #include "postgres_fe.h"
 #include "common.h"
 #include "common/logging.h"
+#include "fe_utils/cancel.h"
 #include "fe_utils/simple_list.h"
 #include "fe_utils/string_utils.h"
 
@@ -133,7 +134,7 @@ main(int argc, char *argv[])
 		exit(1);
 	}
 
-	setup_cancel_handler();
+	setup_cancel_handler(NULL);
 
 	if (alldb)
 	{
@@ -206,7 +207,7 @@ cluster_one_database(const char *dbname, bool verbose, const char *table,
 	if (table)
 	{
 		appendPQExpBufferChar(&sql, ' ');
-		appendQualifiedRelation(&sql, table, conn, progname, echo);
+		appendQualifiedRelation(&sql, table, conn, echo);
 	}
 	appendPQExpBufferChar(&sql, ';');
 
@@ -239,7 +240,7 @@ cluster_all_databases(bool verbose, const char *maintenance_db,
 
 	conn = connectMaintenanceDatabase(maintenance_db, host, port, username,
 									  prompt_password, progname, echo);
-	result = executeQuery(conn, "SELECT datname FROM pg_database WHERE datallowconn ORDER BY 1;", progname, echo);
+	result = executeQuery(conn, "SELECT datname FROM pg_database WHERE datallowconn ORDER BY 1;", echo);
 	PQfinish(conn);
 
 	initPQExpBuffer(&connstr);
@@ -254,7 +255,7 @@ cluster_all_databases(bool verbose, const char *maintenance_db,
 		}
 
 		resetPQExpBuffer(&connstr);
-		appendPQExpBuffer(&connstr, "dbname=");
+		appendPQExpBufferStr(&connstr, "dbname=");
 		appendConnStrVal(&connstr, dbname);
 
 		cluster_one_database(connstr.data, verbose, NULL,
@@ -290,5 +291,6 @@ help(const char *progname)
 	printf(_("  -W, --password            force password prompt\n"));
 	printf(_("  --maintenance-db=DBNAME   alternate maintenance database\n"));
 	printf(_("\nRead the description of the SQL command CLUSTER for details.\n"));
-	printf(_("\nReport bugs to <pgsql-bugs@lists.postgresql.org>.\n"));
+	printf(_("\nReport bugs to <%s>.\n"), PACKAGE_BUGREPORT);
+	printf(_("%s home page: <%s>\n"), PACKAGE_NAME, PACKAGE_URL);
 }

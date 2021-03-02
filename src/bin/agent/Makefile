@@ -50,7 +50,7 @@ endif
 OBJS= agent.o agent_elog.o globals.o \
 	agt_msg.o agt_cmd.o backend.o \
 	agent_utility.o agent_cmd_python.o\
-	assert.o aset.o mcxt.o stringinfo.o \
+	assert.o aset.o mcxt.o \
 	conf_scan.o hba_scan.o get_uptime.o \
 	pgstrsignal.o \
 	$(top_builddir)/src/port/libpgport_srv.a \
@@ -82,9 +82,6 @@ assert.c: % : $(top_srcdir)/src/backend/utils/error/%
 aset.c mcxt.c: % : $(top_srcdir)/src/backend/utils/mmgr/%
 	rm -f $@ && $(LN_S) $< .
 
-stringinfo.c: % : $(top_srcdir)/src/backend/lib/%
-	rm -f $@ && $(LN_S) $< .
-
 pgstrsignal.c: % : $(top_srcdir)/src/port/%
 	rm -f $@ && $(LN_S) $< .
 
@@ -102,7 +99,7 @@ uninstall:
 	rm -f '$(DESTDIR)$(bindir)/agent$(X)'
 
 distclean: clean
-	rm -f assert.c aset.c mcxt.c stringinfo.c conf_scan.c hba_scan.c
+	rm -f assert.c aset.c mcxt.c conf_scan.c hba_scan.c
 
 clean maintainer-clean:
 	rm -f agent$(X) $(OBJS)  

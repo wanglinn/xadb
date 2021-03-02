@@ -134,17 +134,17 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 }
 
 /*
- * Non-keyword token types.  These are hard-wired into the "flex" lexer.
+ * Basic non-keyword token types.  These are hard-wired into the core lexer.
  * They must be listed first so that their numeric codes do not depend on
- * the set of keywords.  PL/pgsql depends on this so that it can share the
- * same lexer.  If you add/change tokens here, fix PL/pgsql to match!
+ * the set of keywords.  Keep this list in sync with backend/parser/gram.y!
  *
- * DOT_DOT is unused in the core SQL grammar, and so will always provoke
- * parse errors.  It is needed by PL/pgsql.
+ * Some of these are not directly referenced in this file, but they must be
+ * here anyway.
  */
-%token <str>	IDENT FCONST SCONST BCONST XCONST Op
-%token <ival>	ICONST
-%token			TYPECAST DOT_DOT COLON_EQUALS
+%token <str>	IDENT UIDENT FCONST SCONST USCONST BCONST XCONST Op
+%token <ival>	ICONST PARAM
+%token			TYPECAST DOT_DOT COLON_EQUALS EQUALS_GREATER
+%token			LESS_EQUALS GREATER_EQUALS NOT_EQUALS
 
 %type <list>	stmtblock stmtmulti
 %type <node>	stmt
@@ -196,7 +196,7 @@ extern char *mgr_get_mastername_by_nodename_type(char* nodename, char nodetype);
 %token<keyword>	ADD_P DEPLOY DROP ALTER LIST CREATE ACL CLUSTER
 %token<keyword>	IF_P EXISTS NOT FOR IN_P MINVALUE MAXVALUE
 %token<keyword>	FALSE_P TRUE_P
-%token<keyword>	HOST MONITOR PARAM HBA HA BOOTTIME READONLY
+%token<keyword>	HOST MONITOR PARAM_P HBA HA BOOTTIME READONLY
 %token<keyword>	INIT MASTER SLAVE ALL NODE COORDINATOR DATANODE GTMCOORD
 %token<keyword>	PRETTY SIZE WITH SLINK
 %token<keyword> PASSWORD CLEAN RESET WHERE ROW_ID
@@ -1601,14 +1601,14 @@ ResetUpdataparmStmt:
 		;
 
 ListParmStmt:
-	  LIST PARAM
+	  LIST PARAM_P
 		{
 			SelectStmt *stmt = makeNode(SelectStmt);
 			stmt->targetList = list_make1(make_star_target(-1));
 			stmt->fromClause = list_make1(makeRangeVar(pstrdup("adbmgr"), pstrdup("updateparm"), -1));
 			$$ = (Node*)stmt;
 		}
-	| LIST PARAM node_type Ident sub_like_expr
+	| LIST PARAM_P node_type Ident sub_like_expr
 		{
 			StringInfoData like_expr;
 			List* node_name;
@@ -1650,7 +1650,7 @@ ListParmStmt:
 
 			$$ = (Node*)stmt;
 		}
-	| LIST PARAM cluster_type ALL sub_like_expr
+	| LIST PARAM_P cluster_type ALL sub_like_expr
 	{
 			StringInfoData like_expr;
 			SelectStmt *stmt = makeNode(SelectStmt);
@@ -2798,7 +2798,7 @@ ListMonitor:
 	;
 
 ShowStmt:
-	SHOW PARAM Ident var_showparam
+	SHOW PARAM_P Ident var_showparam
 	{
 		SelectStmt *stmt = makeNode(SelectStmt);
 		List *args = list_make1(makeStringConst($3, @3));
@@ -2831,7 +2831,7 @@ FlushStmt:
 		MGRFlushHost *node = makeNode(MGRFlushHost);
 		$$ = (Node*)node;
 	}
-	| FLUSH PARAM
+	| FLUSH PARAM_P
 	{
 		MGRFlushParam *node = makeNode(MGRFlushParam);
 		$$ = (Node*)node;
@@ -3419,7 +3419,7 @@ unreserved_keyword:
 	| MONITOR
 	| NODE
 	| OFF
-	| PARAM
+	| PARAM_P
 	| PASSWORD
 	| PROMOTE
 	| PRETTY
@@ -3559,7 +3559,6 @@ static List* make_start_agent_args(List *options)
 	ListCell *lc;
 	DefElem *def;
 
-	/* for(lc=list_head(options);lc;lc=lnext(lc)) */
 	foreach(lc,options)
 	{
 		def = lfirst(lc);

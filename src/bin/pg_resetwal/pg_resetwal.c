@@ -20,7 +20,7 @@
  * step 2 ...
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/bin/pg_resetwal/pg_resetwal.c
@@ -44,9 +44,9 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "access/transam.h"
-#include "access/tuptoaster.h"
+#include "access/heaptoast.h"
 #include "access/multixact.h"
+#include "access/transam.h"
 #include "access/xlog.h"
 #include "access/xlog_internal.h"
 #include "common/controldata_utils.h"
@@ -54,10 +54,10 @@
 #include "common/file_perm.h"
 #include "common/logging.h"
 #include "common/restricted_token.h"
-#include "storage/large_object.h"
-#include "pg_getopt.h"
+#include "common/string.h"
 #include "getopt_long.h"
-
+#include "pg_getopt.h"
+#include "storage/large_object.h"
 
 static ControlFileData ControlFile; /* pg_control values */
 static XLogSegNo newXlogSegNo;	/* new XLOG segment # */
@@ -76,7 +76,7 @@ static int	WalSegSz;
 static int	set_wal_segsize;
 
 static void CheckDataVersion(void);
-static bool ReadControlFile(void);
+static bool read_controlfile(void);
 static void GuessControlValues(void);
 static void PrintControlValues(bool guessed);
 static void PrintNewControlValues(void);
@@ -397,7 +397,7 @@ main(int argc, char *argv[])
 	/*
 	 * Attempt to read the existing pg_control file
 	 */
-	if (!ReadControlFile())
+	if (!read_controlfile())
 		GuessControlValues();
 
 	/*
@@ -542,7 +542,6 @@ CheckDataVersion(void)
 	const char *ver_file = "PG_VERSION";
 	FILE	   *ver_fd;
 	char		rawline[64];
-	int			len;
 
 	if ((ver_fd = fopen(ver_file, "r")) == NULL)
 	{
@@ -561,14 +560,8 @@ CheckDataVersion(void)
 		exit(1);
 	}
 
-	/* remove trailing newline, handling Windows newlines as well */
-	len = strlen(rawline);
-	if (len > 0 && rawline[len - 1] == '\n')
-	{
-		rawline[--len] = '\0';
-		if (len > 0 && rawline[len - 1] == '\r')
-			rawline[--len] = '\0';
-	}
+	/* strip trailing newline and carriage return */
+	(void) pg_strip_crlf(rawline);
 
 	if (strcmp(rawline, PG_MAJORVERSION) != 0)
 	{
@@ -589,7 +582,7 @@ CheckDataVersion(void)
  * to the current format.  (Currently we don't do anything of the sort.)
  */
 static bool
-ReadControlFile(void)
+read_controlfile(void)
 {
 	int			fd;
 	int			len;
@@ -710,7 +703,7 @@ GuessControlValues(void)
 	ControlFile.state = DB_SHUTDOWNED;
 	ControlFile.time = (pg_time_t) time(NULL);
 	ControlFile.checkPoint = ControlFile.checkPointCopy.redo;
-	ControlFile.unloggedLSN = 1;
+	ControlFile.unloggedLSN = FirstNormalUnloggedLSN;
 
 	/* minRecoveryPoint, backupStartPoint and backupEndPoint can be left zero */
 
@@ -733,7 +726,6 @@ GuessControlValues(void)
 	ControlFile.indexMaxKeys = INDEX_MAX_KEYS;
 	ControlFile.toast_max_chunk_size = TOAST_MAX_CHUNK_SIZE;
 	ControlFile.loblksize = LOBLKSIZE;
-	ControlFile.float4ByVal = FLOAT4PASSBYVAL;
 	ControlFile.float8ByVal = FLOAT8PASSBYVAL;
 
 	/*
@@ -752,26 +744,17 @@ GuessControlValues(void)
 static void
 PrintControlValues(bool guessed)
 {
-	char		sysident_str[32];
-
 	if (guessed)
 		printf(_("Guessed pg_control values:\n\n"));
 	else
 		printf(_("Current pg_control values:\n\n"));
 
-	/*
-	 * Format system_identifier separately to keep platform-dependent format
-	 * code out of the translatable message string.
-	 */
-	snprintf(sysident_str, sizeof(sysident_str), UINT64_FORMAT,
-			 ControlFile.system_identifier);
-
 	printf(_("pg_control version number:            %u\n"),
 		   ControlFile.pg_control_version);
 	printf(_("Catalog version number:               %u\n"),
 		   ControlFile.catalog_version_no);
-	printf(_("Database system identifier:           %s\n"),
-		   sysident_str);
+	printf(_("Database system identifier:           %llu\n"),
+		   (unsigned long long) ControlFile.system_identifier);
 	printf(_("Latest checkpoint's TimeLineID:       %u\n"),
 		   ControlFile.checkPointCopy.ThisTimeLineID);
 	printf(_("Latest checkpoint's full_page_writes: %s\n"),
@@ -821,8 +804,6 @@ PrintControlValues(bool guessed)
 	/* This is no longer configurable, but users may still expect to see it: */
 	printf(_("Date/time type storage:               %s\n"),
 		   _("64-bit integers"));
-	printf(_("Float4 argument passing:              %s\n"),
-		   (ControlFile.float4ByVal ? _("by value") : _("by reference")));
 	printf(_("Float8 argument passing:              %s\n"),
 		   (ControlFile.float8ByVal ? _("by value") : _("by reference")));
 	printf(_("Data page checksum version:           %u\n"),
@@ -949,8 +930,8 @@ RewriteControlFile(void)
  *
  * On entry, ControlFile.checkPointCopy.redo and ControlFile.xlog_seg_size
  * are assumed valid (note that we allow the old xlog seg size to differ
- * from what we're using).  On exit, newXlogId and newXlogSeg are set to
- * suitable values for the beginning of replacement WAL (in our seg size).
+ * from what we're using).  On exit, newXlogSegNo is set to suitable
+ * value for the beginning of replacement WAL (in our seg size).
  */
 static void
 FindEndOfXLOG(void)
@@ -1246,5 +1227,6 @@ usage(void)
 	printf(_("  -x, --next-transaction-id=XID  set next transaction ID\n"));
 	printf(_("      --wal-segsize=SIZE         size of WAL segments, in megabytes\n"));
 	printf(_("  -?, --help                     show this help, then exit\n"));
-	printf(_("\nReport bugs to <pgsql-bugs@lists.postgresql.org>.\n"));
+	printf(_("\nReport bugs to <%s>.\n"), PACKAGE_BUGREPORT);
+	printf(_("%s home page: <%s>\n"), PACKAGE_NAME, PACKAGE_URL);
 }

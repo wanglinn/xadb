@@ -943,25 +943,36 @@ static void SnapRcvDie(int code, Datum arg)
 
 static void isSnapRcvStreamOk(void)
 {
-	uint32	state;
-	bool	is_wait_ok;
-	TimestampTz	endtime;
+	uint32		state;
+	instr_time	start_time;
+	instr_time	cur_time;
+	long		timeout;
 
 	state = pg_atomic_read_u32(&SnapRcv->state);
 	if (likely(WALRCV_STREAMING == state))
 		return;
 
-	endtime = TimestampTzPlusMilliseconds(GetCurrentTimestamp(), snap_receiver_timeout);
+	INSTR_TIME_SET_CURRENT(start_time);
+	timeout = snap_receiver_timeout;
+	ConditionVariablePrepareToSleep(&SnapRcv->cv);
 	for(;;)
 	{
-		is_wait_ok = ConditionVariableSleepExt(&SnapRcv->cv, WAIT_EVENT_SAFE_SNAPSHOT, endtime);
-		if (is_wait_ok == false)
+		if (ConditionVariableTimedSleep(&SnapRcv->cv, timeout, WAIT_EVENT_SAFE_SNAPSHOT))
 			ereport(ERROR, (errmsg("cannot connect to GTMCOORD: wait stream timeout")));
 
 		state = pg_atomic_read_u32(&SnapRcv->state);
 		SNAP_SYNC_DEBUG_LOG((errmsg("isSnapRcvStreamOk SnapRcv->state %d\n", state)));
 		if (state == WALRCV_STREAMING)
 			break;
+		
+		/* update timeout for next iteration */
+		INSTR_TIME_SET_CURRENT(cur_time);
+		INSTR_TIME_SUBTRACT(cur_time, start_time);
+		timeout -= (long) INSTR_TIME_GET_MILLISEC(cur_time);
+
+		/* Have we crossed the timeout threshold? */
+		if (timeout <= 0)
+			ereport(ERROR, (errmsg("cannot connect to GTMCOORD: wait stream timeout")));
 	}
 	SNAP_SYNC_DEBUG_LOG((errmsg("isSnapRcvStreamOk return\n")));
 	ConditionVariableCancelSleep();

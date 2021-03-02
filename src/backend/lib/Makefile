@@ -12,8 +12,18 @@ subdir = src/backend/lib
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = binaryheap.o bipartite_match.o bloomfilter.o dshash.o hyperloglog.o \
-       ilist.o integerset.o knapsack.o pairingheap.o rbtree.o stringinfo.o
+OBJS = \
+	binaryheap.o \
+	bipartite_match.o \
+	bloomfilter.o \
+	dshash.o \
+	hyperloglog.o \
+	ilist.o \
+	integerset.o \
+	knapsack.o \
+	pairingheap.o \
+	rbtree.o \
+
 ifeq ($(enable_cluster),yes)
   OBJS += oidbuffer.o
 endif

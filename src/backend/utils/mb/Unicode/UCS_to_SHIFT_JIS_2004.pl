@@ -1,6 +1,6 @@
 #! /usr/bin/perl
 #
-# Copyright (c) 2007-2019, PostgreSQL Global Development Group
+# Copyright (c) 2007-2020, PostgreSQL Global Development Group
 #
 # src/backend/utils/mb/Unicode/UCS_to_SHIFT_JIS_2004.pl
 #
@@ -8,6 +8,8 @@
 # "sjis-0213-2004-std.txt" (http://x0213.org)
 
 use strict;
+use warnings;
+
 use convutils;
 
 # first generate UTF-8 --> SHIFT_JIS_2004 table

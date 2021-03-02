@@ -1,4 +1,4 @@
-CREATE TABLE test_tablesample (id int, name text) WITH (fillfactor=10) distribute by replication;
+CREATE TABLE test_tablesample (id int, name text) WITH (fillfactor=10);
 -- use fillfactor so we don't have to load too much data to get multiple pages
 INSERT INTO test_tablesample
   SELECT i, repeat(i::text, 200) FROM generate_series(0, 9) s(i);
@@ -198,13 +198,13 @@ explain (costs off)
 -------------------------------------------------
  Aggregate
    ->  Append
-         ->  Sample Scan on person
+         ->  Sample Scan on person person_1
                Sampling: bernoulli ('100'::real)
-         ->  Sample Scan on emp
+         ->  Sample Scan on emp person_2
                Sampling: bernoulli ('100'::real)
-         ->  Sample Scan on student
+         ->  Sample Scan on student person_3
                Sampling: bernoulli ('100'::real)
-         ->  Sample Scan on stud_emp
+         ->  Sample Scan on stud_emp person_4
                Sampling: bernoulli ('100'::real)
 (10 rows)
 

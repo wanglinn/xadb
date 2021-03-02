@@ -10,7 +10,7 @@
  * scan where each backend reads an arbitrary subset of the tuples that were
  * written.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -31,8 +31,6 @@
 #include "utils/memutils.h"
 #endif /* ADB_EXT */
 #include "utils/sharedtuplestore.h"
-
-#include <limits.h>
 
 /*
  * The size of chunks, in pages.  This is somewhat arbitrarily set to match

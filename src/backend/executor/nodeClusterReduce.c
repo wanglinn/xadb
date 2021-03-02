@@ -1212,7 +1212,7 @@ static void BeginAdvanceReduce(ClusterReduceState *crstate, dsm_segment *seg)
 	{
 		AdvanceNodeInfo *info = &state->nodes[i];
 		info->nodeoid = lfirst_oid(lc);
-		lc = lnext(lc);
+		lc = lnext(reduce_oids, lc);
 		if (info->nodeoid == PGXCNodeOid)
 		{
 			char name[MAXPGPATH];
@@ -1744,7 +1744,7 @@ static void InitMergeReduceState(ClusterReduceState *state, MergeReduceState *me
 		enlargeStringInfo(&info->read_buf, SizeofMinimalTupleHeader);
 		MemSet(info->read_buf.data, SizeofMinimalTupleHeader, 0);
 		info->nodeoid = lfirst_oid(lc);
-		lc = lnext(lc);
+		lc = lnext(reduce_oids, lc);
 		if (info->nodeoid == PGXCNodeOid &&
 			seg == NULL)
 		{
@@ -2679,7 +2679,7 @@ static inline bool SetClusterReduceOrigin(EPQState *epq, PlanState *ps, bool (*f
 	ListCell *lc;
 	if ((*fun)(epq->owner, ps))
 		return true;
-	foreach(lc, epq->estate->es_subplanstates)
+	foreach(lc, epq->recheckestate->es_subplanstates)
 	{
 		if ((*fun)(lfirst(lc), ps))
 			return true;
@@ -2714,7 +2714,7 @@ static bool EnumClusterReduceWorker(PlanState *ps, EPQState *epq)
 
 void StartEPQClusterReduce(EPQState *epq)
 {
-	(void)EnumClusterReduceWorker(epq->planstate, epq);
+	(void)EnumClusterReduceWorker(epq->recheckplanstate, epq);
 }
 
 /* =========================================================================== */

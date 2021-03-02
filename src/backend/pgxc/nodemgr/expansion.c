@@ -777,9 +777,8 @@ static uint32 GetBestMultiple(List *old_values, oidvector *old_nodeoids, List *e
 	}
 
 	/* find max value */
-	lc = list_head(multiple);
-	least_common = lfirst_int(lc);
-	for_each_cell (lc, lnext(lc))
+	least_common = linitial_int(multiple);
+	foreach (lc, multiple)
 	{
 		if (least_common < lfirst_int(lc))
 			least_common = lfirst_int(lc);
@@ -827,7 +826,7 @@ static void ReplaceHashModuloExpansionNode(Oid *oids, uint32 count, List *expans
 		lc = list_head(expansion);
 
 		/* replace */
-		while ((lc=lnext(lc)) != NULL)
+		while ((lc=lnext(expansion, lc)) != NULL)
 		{
 			n = bms_first_member(bms);
 			oids[n] = lfirst_oid(lc);
@@ -1160,11 +1159,11 @@ static void ExpansionWorkerCoord(List *expansion_node, shm_mq_handle *mq, Memory
 
 	heap_endscan(scan);
 	CatalogCloseIndexes(class_index_state);
-	heap_close(rel_class, RowExclusiveLock);
+	table_close(rel_class, RowExclusiveLock);
 	if (rel_clean)
 	{
 		CatalogCloseIndexes(clean_index_state);
-		heap_close(rel_clean, RowExclusiveLock);
+		table_close(rel_clean, RowExclusiveLock);
 	}
 }
 
@@ -1209,7 +1208,7 @@ loop_:
 						   (Expr*)loadNode(&msg),
 						   rel_clean,
 						   clean_index_state);
-		heap_close(rel, NoLock);
+		table_close(rel, NoLock);
 		goto loop_;
 	}else if (msgtype != EW_KEY_END_DATABASE)
 	{
@@ -1219,7 +1218,7 @@ loop_:
 	}
 
 	CatalogCloseIndexes(clean_index_state);
-	heap_close(rel_clean, RowExclusiveLock);
+	table_close(rel_clean, RowExclusiveLock);
 	MemoryContextSwitchTo(main_context);
 }
 

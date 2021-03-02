@@ -253,13 +253,13 @@ static void OnConnectError(DROnErrorArgs)
 #if (defined DR_USING_EPOLL) || (defined WITH_REDUCE_RDMA)
 void CallConnectingOnError(void)
 {
-	ListCell	   *lc;
 	DREventData	   *base;
-	for (lc=list_head(dr_connecting_node_list);lc != NULL;)
+	int				i;
+	for (i = list_length(dr_connecting_node_list); i > 0;)
 	{
-		base = lfirst(lc);
+		--i;
+		base = list_nth(dr_connecting_node_list, i);
 		Assert(base->type == DR_EVENT_DATA_NODE);
-		lc = lnext(lc);
 		((DRNodeEventData*)base)->status = DRN_WAIT_CLOSE;
 		if (base->OnError)
 			(*base->OnError)(base);
@@ -267,13 +267,13 @@ void CallConnectingOnError(void)
 }
 void CallConnectiongPreWait(void)
 {
-	ListCell	   *lc;
 	DREventData	   *base;
-	for (lc=list_head(dr_connecting_node_list);lc != NULL;)
+	int				i;
+	for (i=list_length(dr_connecting_node_list); i > 0;)
 	{
-		base = lfirst(lc);
+		--i;
+		base = list_nth(dr_connecting_node_list, i);
 		Assert(base->type == DR_EVENT_DATA_NODE);
-		lc = lnext(lc);
 		if (base->OnPreWait)
 			(*base->OnPreWait)(base);
 	}

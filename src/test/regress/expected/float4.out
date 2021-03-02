@@ -1,7 +1,7 @@
 --
 -- FLOAT4
 --
-CREATE TABLE FLOAT4_TBL (id int, f1  float4);
+CREATE TABLE FLOAT4_TBL (f1  float4);
 INSERT INTO FLOAT4_TBL(f1) VALUES ('    0.0');
 INSERT INTO FLOAT4_TBL(f1) VALUES ('1004.30   ');
 INSERT INTO FLOAT4_TBL(f1) VALUES ('     -34.84    ');
@@ -24,6 +24,14 @@ INSERT INTO FLOAT4_TBL(f1) VALUES ('-10e-70');
 ERROR:  "-10e-70" is out of range for type real
 LINE 1: INSERT INTO FLOAT4_TBL(f1) VALUES ('-10e-70');
                                            ^
+INSERT INTO FLOAT4_TBL(f1) VALUES ('10e70'::float8);
+ERROR:  value out of range: overflow
+INSERT INTO FLOAT4_TBL(f1) VALUES ('-10e70'::float8);
+ERROR:  value out of range: overflow
+INSERT INTO FLOAT4_TBL(f1) VALUES ('10e-70'::float8);
+ERROR:  value out of range: underflow
+INSERT INTO FLOAT4_TBL(f1) VALUES ('-10e-70'::float8);
+ERROR:  value out of range: underflow
 INSERT INTO FLOAT4_TBL(f1) VALUES ('10e400');
 ERROR:  "10e400" is out of range for type real
 LINE 1: INSERT INTO FLOAT4_TBL(f1) VALUES ('10e400');
@@ -160,7 +168,7 @@ SELECT '' AS four, f.* FROM FLOAT4_TBL f WHERE f.f1 <> '1004.3';
       | 1.2345679e-20
 (4 rows)
 
-SELECT '' AS one, f.f1 FROM FLOAT4_TBL f WHERE f.f1 = '1004.3';
+SELECT '' AS one, f.* FROM FLOAT4_TBL f WHERE f.f1 = '1004.3';
  one |   f1   
 -----+--------
      | 1004.3

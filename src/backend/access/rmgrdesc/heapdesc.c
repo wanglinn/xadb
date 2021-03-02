@@ -3,7 +3,7 @@
  * heapdesc.c
  *	  rmgr descriptor routines for access/heap/heapam.c
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -86,9 +86,9 @@ heap_desc(StringInfo buf, XLogReaderState *record)
 		int			i;
 
 		if (xlrec->flags & XLH_TRUNCATE_CASCADE)
-			appendStringInfo(buf, "cascade ");
+			appendStringInfoString(buf, "cascade ");
 		if (xlrec->flags & XLH_TRUNCATE_RESTART_SEQS)
-			appendStringInfo(buf, "restart_seqs ");
+			appendStringInfoString(buf, "restart_seqs ");
 		appendStringInfo(buf, "nrelids %u relids", xlrec->nrelids);
 		for (i = 0; i < xlrec->nrelids; i++)
 			appendStringInfo(buf, " %u", xlrec->relids[i]);

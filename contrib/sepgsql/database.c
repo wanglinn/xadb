@@ -4,7 +4,7 @@
  *
  * Routines corresponding to database objects
  *
- * Copyright (c) 2010-2019, PostgreSQL Global Development Group
+ * Copyright (c) 2010-2020, PostgreSQL Global Development Group
  *
  * -------------------------------------------------------------------------
  */
@@ -15,14 +15,14 @@
 #include "access/sysattr.h"
 #include "access/table.h"
 #include "catalog/dependency.h"
-#include "catalog/pg_database.h"
 #include "catalog/indexing.h"
+#include "catalog/pg_database.h"
 #include "commands/dbcommands.h"
 #include "commands/seclabel.h"
+#include "sepgsql.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/snapmgr.h"
-#include "sepgsql.h"
 
 /*
  * sepgsql_database_post_create
@@ -63,7 +63,7 @@ sepgsql_database_post_create(Oid databaseId, const char *dtemplate)
 	 * check db_database:{getattr} permission
 	 */
 	initStringInfo(&audit_name);
-	appendStringInfo(&audit_name, "%s", quote_identifier(dtemplate));
+	appendStringInfoString(&audit_name, quote_identifier(dtemplate));
 	sepgsql_avc_check_perms_label(tcontext,
 								  SEPG_CLASS_DB_DATABASE,
 								  SEPG_DB_DATABASE__GETATTR,
@@ -74,7 +74,7 @@ sepgsql_database_post_create(Oid databaseId, const char *dtemplate)
 	 * Compute a default security label of the newly created database based on
 	 * a pair of security label of client and source database.
 	 *
-	 * XXX - uncoming version of libselinux supports to take object name to
+	 * XXX - upcoming version of libselinux supports to take object name to
 	 * handle special treatment on default security label.
 	 */
 	rel = table_open(DatabaseRelationId, AccessShareLock);
@@ -101,8 +101,8 @@ sepgsql_database_post_create(Oid databaseId, const char *dtemplate)
 	 * check db_database:{create} permission
 	 */
 	resetStringInfo(&audit_name);
-	appendStringInfo(&audit_name, "%s",
-					 quote_identifier(NameStr(datForm->datname)));
+	appendStringInfoString(&audit_name,
+						   quote_identifier(NameStr(datForm->datname)));
 	sepgsql_avc_check_perms_label(ncontext,
 								  SEPG_CLASS_DB_DATABASE,
 								  SEPG_DB_DATABASE__CREATE,

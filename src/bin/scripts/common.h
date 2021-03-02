@@ -2,7 +2,7 @@
  *	common.h
  *		Common support routines for bin/scripts/
  *
- *	Copyright (c) 2003-2019, PostgreSQL Global Development Group
+ *	Copyright (c) 2003-2020, PostgreSQL Global Development Group
  *
  *	src/bin/scripts/common.h
  */
@@ -10,8 +10,8 @@
 #define COMMON_H
 
 #include "common/username.h"
-#include "libpq-fe.h"
 #include "getopt_long.h"		/* pgrminclude ignore */
+#include "libpq-fe.h"
 #include "pqexpbuffer.h"		/* pgrminclude ignore */
 
 enum trivalue
@@ -20,8 +20,6 @@ enum trivalue
 	TRI_NO,
 	TRI_YES
 };
-
-extern bool CancelRequested;
 
 typedef void (*help_handler) (const char *progname);
 
@@ -39,27 +37,25 @@ extern PGconn *connectMaintenanceDatabase(const char *maintenance_db,
 										  const char *pguser, enum trivalue prompt_password,
 										  const char *progname, bool echo);
 
-extern PGresult *executeQuery(PGconn *conn, const char *query,
-							  const char *progname, bool echo);
+extern void disconnectDatabase(PGconn *conn);
 
-extern void executeCommand(PGconn *conn, const char *query,
-						   const char *progname, bool echo);
+extern PGresult *executeQuery(PGconn *conn, const char *query, bool echo);
+
+extern void executeCommand(PGconn *conn, const char *query, bool echo);
 
 extern bool executeMaintenanceCommand(PGconn *conn, const char *query,
 									  bool echo);
+
+extern bool consumeQueryResult(PGconn *conn);
+
+extern bool processQueryResult(PGconn *conn, PGresult *result);
 
 extern void splitTableColumnsSpec(const char *spec, int encoding,
 								  char **table, const char **columns);
 
 extern void appendQualifiedRelation(PQExpBuffer buf, const char *name,
-									PGconn *conn, const char *progname, bool echo);
+									PGconn *conn, bool echo);
 
 extern bool yesno_prompt(const char *question);
-
-extern void setup_cancel_handler(void);
-
-extern void SetCancelConn(PGconn *conn);
-extern void ResetCancelConn(void);
-
 
 #endif							/* COMMON_H */

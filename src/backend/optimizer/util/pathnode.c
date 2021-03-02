@@ -3,7 +3,7 @@
  * pathnode.c
  *	  Routines to manipulate pathlists and create path nodes
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -16,8 +16,8 @@
 
 #include <math.h>
 
-#include "miscadmin.h"
 #include "foreign/fdwapi.h"
+#include "miscadmin.h"
 #include "nodes/extensible.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/appendinfo.h"
@@ -38,6 +38,7 @@
 #ifdef ADB
 #include "catalog/pgxc_node.h"
 #include "commands/tablecmds.h"
+#include "common/hashfn.h"
 #include "libpq/libpq-node.h"
 #include "optimizer/reduceinfo.h"
 #include "optimizer/restrictinfo.h"
@@ -67,8 +68,8 @@ typedef enum
 #define STD_FUZZ_FACTOR 1.01
 
 static List *translate_sub_tlist(List *tlist, int relid);
-static int	append_total_cost_compare(const void *a, const void *b);
-static int	append_startup_cost_compare(const void *a, const void *b);
+static int	append_total_cost_compare(const ListCell *a, const ListCell *b);
+static int	append_startup_cost_compare(const ListCell *a, const ListCell *b);
 static List *reparameterize_pathlist_by_child(PlannerInfo *root,
 											  List *pathlist,
 											  RelOptInfo *child_rel);
@@ -511,11 +512,9 @@ void
 add_path(RelOptInfo *parent_rel, Path *new_path)
 {
 	bool		accept_new = true;	/* unless we find a superior old path */
-	ListCell   *insert_after = NULL;	/* where to insert new item */
+	int			insert_at = 0;	/* where to insert new item */
 	List	   *new_path_pathkeys;
 	ListCell   *p1;
-	ListCell   *p1_prev;
-	ListCell   *p1_next;
 
 	/*
 	 * This is a convenient place to check for query cancel --- no part of the
@@ -530,20 +529,14 @@ add_path(RelOptInfo *parent_rel, Path *new_path)
 	 * Loop to check proposed new path against old paths.  Note it is possible
 	 * for more than one old path to be tossed out because new_path dominates
 	 * it.
-	 *
-	 * We can't use foreach here because the loop body may delete the current
-	 * list cell.
 	 */
-	p1_prev = NULL;
-	for (p1 = list_head(parent_rel->pathlist); p1 != NULL; p1 = p1_next)
+	foreach(p1, parent_rel->pathlist)
 	{
 		Path	   *old_path = (Path *) lfirst(p1);
 		bool		remove_old = false; /* unless new proves superior */
 		PathCostComparison costcmp;
 		PathKeysComparison keyscmp;
 		BMS_Comparison outercmp;
-
-		p1_next = lnext(p1);
 
 		/*
 		 * Do a fuzzy cost comparison with standard fuzziness limit.
@@ -681,23 +674,20 @@ add_path(RelOptInfo *parent_rel, Path *new_path)
 		 */
 		if (remove_old)
 		{
-			parent_rel->pathlist = list_delete_cell(parent_rel->pathlist,
-													p1, p1_prev);
+			parent_rel->pathlist = foreach_delete_current(parent_rel->pathlist,
+														  p1);
 
 			/*
 			 * Delete the data pointed-to by the deleted cell, if possible
 			 */
 			if (!IsA(old_path, IndexPath))
 				pfree(old_path);
-			/* p1_prev does not advance */
 		}
 		else
 		{
 			/* new belongs after this old path if it has cost >= old's */
 			if (new_path->total_cost >= old_path->total_cost)
-				insert_after = p1;
-			/* p1_prev advances */
-			p1_prev = p1;
+				insert_at = foreach_current_index(p1) + 1;
 		}
 
 		/*
@@ -712,10 +702,8 @@ add_path(RelOptInfo *parent_rel, Path *new_path)
 	if (accept_new)
 	{
 		/* Accept the new path: insert it at proper place in pathlist */
-		if (insert_after)
-			lappend_cell(parent_rel->pathlist, insert_after, new_path);
-		else
-			parent_rel->pathlist = lcons(new_path, parent_rel->pathlist);
+		parent_rel->pathlist =
+			list_insert_nth(parent_rel->pathlist, insert_at, new_path);
 	}
 	else
 	{
@@ -872,10 +860,8 @@ void
 add_partial_path(RelOptInfo *parent_rel, Path *new_path)
 {
 	bool		accept_new = true;	/* unless we find a superior old path */
-	ListCell   *insert_after = NULL;	/* where to insert new item */
+	int			insert_at = 0;	/* where to insert new item */
 	ListCell   *p1;
-	ListCell   *p1_prev;
-	ListCell   *p1_next;
 
 	/* Check for query cancel. */
 	CHECK_FOR_INTERRUPTS();
@@ -890,20 +876,16 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
 	 * As in add_path, throw out any paths which are dominated by the new
 	 * path, but throw out the new path if some existing path dominates it.
 	 */
-	p1_prev = NULL;
-	for (p1 = list_head(parent_rel->partial_pathlist); p1 != NULL;
-		 p1 = p1_next)
+	foreach(p1, parent_rel->partial_pathlist)
 	{
 		Path	   *old_path = (Path *) lfirst(p1);
 		bool		remove_old = false; /* unless new proves superior */
 		PathKeysComparison keyscmp;
 
-		p1_next = lnext(p1);
-
 		/* Compare pathkeys. */
 		keyscmp = compare_pathkeys(new_path->pathkeys, old_path->pathkeys);
 
-		/* Unless pathkeys are incompable, keep just one of the two paths. */
+		/* Unless pathkeys are incompatible, keep just one of the two paths. */
 		if (keyscmp != PATHKEYS_DIFFERENT)
 		{
 			if (new_path->total_cost > old_path->total_cost * STD_FUZZ_FACTOR)
@@ -950,17 +932,14 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
 		if (remove_old)
 		{
 			parent_rel->partial_pathlist =
-				list_delete_cell(parent_rel->partial_pathlist, p1, p1_prev);
+				foreach_delete_current(parent_rel->partial_pathlist, p1);
 			pfree(old_path);
-			/* p1_prev does not advance */
 		}
 		else
 		{
 			/* new belongs after this old path if it has cost >= old's */
 			if (new_path->total_cost >= old_path->total_cost)
-				insert_after = p1;
-			/* p1_prev advances */
-			p1_prev = p1;
+				insert_at = foreach_current_index(p1) + 1;
 		}
 
 		/*
@@ -975,11 +954,8 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
 	if (accept_new)
 	{
 		/* Accept the new path: insert it at proper place */
-		if (insert_after)
-			lappend_cell(parent_rel->partial_pathlist, insert_after, new_path);
-		else
-			parent_rel->partial_pathlist =
-				lcons(new_path, parent_rel->partial_pathlist);
+		parent_rel->partial_pathlist =
+			list_insert_nth(parent_rel->partial_pathlist, insert_at, new_path);
 	}
 	else
 	{
@@ -992,12 +968,10 @@ add_partial_path(RelOptInfo *parent_rel, Path *new_path)
 void add_cluster_path(RelOptInfo *parent_rel, Path *new_path)
 {
 	bool		accept_new = true;		/* unless we find a superior old path */
-	ListCell   *insert_after = NULL;	/* where to insert new item */
+	int			insert_at = 0;	/* where to insert new item */
 	List	   *new_path_pathkeys;
 	ListCell   *p1;
-	ListCell   *p1_prev;
-	ListCell   *p1_next;
-	List *new_reduce_list;
+	List	   *new_reduce_list;
 	AssertArg(parent_rel && new_path);
 
 	/*
@@ -1019,20 +993,14 @@ void add_cluster_path(RelOptInfo *parent_rel, Path *new_path)
 	 * Loop to check proposed new path against old paths.  Note it is possible
 	 * for more than one old path to be tossed out because new_path dominates
 	 * it.
-	 *
-	 * We can't use foreach here because the loop body may delete the current
-	 * list cell.
 	 */
-	p1_prev = NULL;
-	for (p1 = list_head(parent_rel->cluster_pathlist); p1 != NULL; p1 = p1_next)
+	foreach(p1, parent_rel->cluster_pathlist)
 	{
 		Path	   *old_path = (Path *) lfirst(p1);
 		bool		remove_old = false; /* unless new proves superior */
 		PathCostComparison costcmp;
 		PathKeysComparison keyscmp;
 		BMS_Comparison outercmp;
-
-		p1_next = lnext(p1);
 
 		/*
 		 * If the two paths compare differently for startup and total cost,
@@ -1165,23 +1133,20 @@ void add_cluster_path(RelOptInfo *parent_rel, Path *new_path)
 		 */
 		if (remove_old)
 		{
-			parent_rel->cluster_pathlist = list_delete_cell(parent_rel->cluster_pathlist,
-													p1, p1_prev);
+			parent_rel->cluster_pathlist =
+				foreach_delete_current(parent_rel->cluster_pathlist, p1);
 
 			/*
 			 * Delete the data pointed-to by the deleted cell, if possible
 			 */
 			if (!IsA(old_path, IndexPath))
 				pfree(old_path);
-			/* p1_prev does not advance */
 		}
 		else
 		{
 			/* new belongs after this old path if it has cost >= old's */
 			if (new_path->total_cost >= old_path->total_cost)
-				insert_after = p1;
-			/* p1_prev advances */
-			p1_prev = p1;
+				insert_at = foreach_current_index(p1) + 1;
 		}
 
 		/*
@@ -1196,10 +1161,8 @@ void add_cluster_path(RelOptInfo *parent_rel, Path *new_path)
 	if (accept_new)
 	{
 		/* Accept the new path: insert it at proper place in pathlist */
-		if (insert_after)
-			lappend_cell(parent_rel->cluster_pathlist, insert_after, new_path);
-		else
-			parent_rel->cluster_pathlist = lcons(new_path, parent_rel->cluster_pathlist);
+		parent_rel->cluster_pathlist = 
+			list_insert_nth(parent_rel->cluster_pathlist, insert_at, new_path);
 	}
 	else
 	{
@@ -1221,10 +1184,8 @@ void add_cluster_path_list(RelOptInfo *parent_rel, List *pathlist, bool free_lis
 void add_cluster_partial_path(RelOptInfo *parent_rel, Path *new_path)
 {
 	bool		accept_new = true;		/* unless we find a superior old path */
-	ListCell   *insert_after = NULL;	/* where to insert new item */
+	int			insert_at = 0;	/* where to insert new item */
 	ListCell   *p1;
-	ListCell   *p1_prev;
-	ListCell   *p1_next;
 	List	   *new_reduce_list;
 
 	/* Check for query cancel. */
@@ -1250,15 +1211,11 @@ void add_cluster_partial_path(RelOptInfo *parent_rel, Path *new_path)
 	 * As in add_path, throw out any paths which are dominated by the new
 	 * path, but throw out the new path if some existing path dominates it.
 	 */
-	p1_prev = NULL;
-	for (p1 = list_head(parent_rel->cluster_partial_pathlist); p1 != NULL;
-		 p1 = p1_next)
+	foreach(p1, parent_rel->cluster_partial_pathlist)
 	{
 		Path	   *old_path = (Path *) lfirst(p1);
 		bool		remove_old = false; /* unless new proves superior */
 		PathKeysComparison keyscmp;
-
-		p1_next = lnext(p1);
 
 		/* Unless pathkeys are incompable, keep just one of the two paths. */
 		if (IsReduceInfoListEqual(new_reduce_list, get_reduce_info_list(old_path)) &&
@@ -1308,17 +1265,14 @@ void add_cluster_partial_path(RelOptInfo *parent_rel, Path *new_path)
 		if (remove_old)
 		{
 			parent_rel->cluster_partial_pathlist =
-				list_delete_cell(parent_rel->cluster_partial_pathlist, p1, p1_prev);
+				foreach_delete_current(parent_rel->cluster_partial_pathlist, p1);
 			pfree(old_path);
-			/* p1_prev does not advance */
 		}
 		else
 		{
 			/* new belongs after this old path if it has cost >= old's */
 			if (new_path->total_cost >= old_path->total_cost)
-				insert_after = p1;
-			/* p1_prev advances */
-			p1_prev = p1;
+				insert_at = foreach_current_index(p1) + 1;
 		}
 
 		/*
@@ -1333,11 +1287,8 @@ void add_cluster_partial_path(RelOptInfo *parent_rel, Path *new_path)
 	if (accept_new)
 	{
 		/* Accept the new path: insert it at proper place */
-		if (insert_after)
-			lappend_cell(parent_rel->cluster_partial_pathlist, insert_after, new_path);
-		else
-			parent_rel->cluster_partial_pathlist =
-				lcons(new_path, parent_rel->cluster_partial_pathlist);
+		parent_rel->cluster_partial_pathlist = 
+			list_insert_nth(parent_rel->cluster_partial_pathlist, insert_at, new_path);
 	}
 	else
 	{
@@ -1759,9 +1710,8 @@ create_append_path(PlannerInfo *root,
 		 */
 		Assert(pathkeys == NIL);
 
-		subpaths = list_qsort(subpaths, append_total_cost_compare);
-		partial_subpaths = list_qsort(partial_subpaths,
-									  append_startup_cost_compare);
+		list_sort(subpaths, append_total_cost_compare);
+		list_sort(partial_subpaths, append_startup_cost_compare);
 	}
 	pathnode->first_partial_path = list_length(subpaths);
 	pathnode->subpaths = list_concat(subpaths, partial_subpaths);
@@ -1816,17 +1766,18 @@ create_append_path(PlannerInfo *root,
 
 /*
  * append_total_cost_compare
- *	  qsort comparator for sorting append child paths by total_cost descending
+ *	  list_sort comparator for sorting append child paths
+ *	  by total_cost descending
  *
  * For equal total costs, we fall back to comparing startup costs; if those
  * are equal too, break ties using bms_compare on the paths' relids.
- * (This is to avoid getting unpredictable results from qsort.)
+ * (This is to avoid getting unpredictable results from list_sort.)
  */
 static int
-append_total_cost_compare(const void *a, const void *b)
+append_total_cost_compare(const ListCell *a, const ListCell *b)
 {
-	Path	   *path1 = (Path *) lfirst(*(ListCell **) a);
-	Path	   *path2 = (Path *) lfirst(*(ListCell **) b);
+	Path	   *path1 = (Path *) lfirst(a);
+	Path	   *path2 = (Path *) lfirst(b);
 	int			cmp;
 
 	cmp = compare_path_costs(path1, path2, TOTAL_COST);
@@ -1837,17 +1788,18 @@ append_total_cost_compare(const void *a, const void *b)
 
 /*
  * append_startup_cost_compare
- *	  qsort comparator for sorting append child paths by startup_cost descending
+ *	  list_sort comparator for sorting append child paths
+ *	  by startup_cost descending
  *
  * For equal startup costs, we fall back to comparing total costs; if those
  * are equal too, break ties using bms_compare on the paths' relids.
- * (This is to avoid getting unpredictable results from qsort.)
+ * (This is to avoid getting unpredictable results from list_sort.)
  */
 static int
-append_startup_cost_compare(const void *a, const void *b)
+append_startup_cost_compare(const ListCell *a, const ListCell *b)
 {
-	Path	   *path1 = (Path *) lfirst(*(ListCell **) a);
-	Path	   *path2 = (Path *) lfirst(*(ListCell **) b);
+	Path	   *path1 = (Path *) lfirst(a);
+	Path	   *path2 = (Path *) lfirst(b);
 	int			cmp;
 
 	cmp = compare_path_costs(path1, path2, STARTUP_COST);
@@ -2333,7 +2285,8 @@ static UniquePath *create_unique_path_internal(PlannerInfo *root, RelOptInfo *re
 					 NIL,
 					 subpath->startup_cost,
 					 subpath->total_cost,
-					 rel->rows);
+					 rel->rows,
+					 subpath->pathtarget->width);
 	}
 
 	if (sjinfo->semi_can_btree && sjinfo->semi_can_hash)
@@ -3343,7 +3296,7 @@ apply_projection_to_path(PlannerInfo *root,
 	 * workers can help project.  But if there is something that is not
 	 * parallel-safe in the target expressions, then we can't.
 	 */
-	if ((IsA(path, GatherPath) ||IsA(path, GatherMergePath)) &&
+	if ((IsA(path, GatherPath) || IsA(path, GatherMergePath)) &&
 		is_parallel_safe(root, (Node *) target->exprs))
 	{
 		/*
@@ -3453,6 +3406,57 @@ create_set_projection_path(PlannerInfo *root,
 		target->cost.startup +
 		(cpu_tuple_cost + target->cost.per_tuple) * subpath->rows +
 		(pathnode->path.rows - subpath->rows) * cpu_tuple_cost / 2;
+
+	return pathnode;
+}
+
+/*
+ * create_incremental_sort_path
+ *	  Creates a pathnode that represents performing an incremental sort.
+ *
+ * 'rel' is the parent relation associated with the result
+ * 'subpath' is the path representing the source of data
+ * 'pathkeys' represents the desired sort order
+ * 'presorted_keys' is the number of keys by which the input path is
+ *		already sorted
+ * 'limit_tuples' is the estimated bound on the number of output tuples,
+ *		or -1 if no LIMIT or couldn't estimate
+ */
+SortPath *
+create_incremental_sort_path(PlannerInfo *root,
+							 RelOptInfo *rel,
+							 Path *subpath,
+							 List *pathkeys,
+							 int presorted_keys,
+							 double limit_tuples)
+{
+	IncrementalSortPath *sort = makeNode(IncrementalSortPath);
+	SortPath   *pathnode = &sort->spath;
+
+	pathnode->path.pathtype = T_IncrementalSort;
+	pathnode->path.parent = rel;
+	/* Sort doesn't project, so use source path's pathtarget */
+	pathnode->path.pathtarget = subpath->pathtarget;
+	/* For now, assume we are above any joins, so no parameterization */
+	pathnode->path.param_info = NULL;
+	pathnode->path.parallel_aware = false;
+	pathnode->path.parallel_safe = rel->consider_parallel &&
+		subpath->parallel_safe;
+	pathnode->path.parallel_workers = subpath->parallel_workers;
+	pathnode->path.pathkeys = pathkeys;
+
+	pathnode->subpath = subpath;
+
+	cost_incremental_sort(&pathnode->path,
+						  root, pathkeys, presorted_keys,
+						  subpath->startup_cost,
+						  subpath->total_cost,
+						  subpath->rows,
+						  subpath->pathtarget->width,
+						  0.0,	/* XXX comparison_cost shouldn't be 0? */
+						  work_mem, limit_tuples);
+
+	sort->nPresortedCols = presorted_keys;
 
 	return pathnode;
 }
@@ -3693,6 +3697,7 @@ create_agg_path(PlannerInfo *root,
 	pathnode->aggstrategy = aggstrategy;
 	pathnode->aggsplit = aggsplit;
 	pathnode->numGroups = numGroups;
+	pathnode->transitionSpace = aggcosts ? aggcosts->transitionSpace : 0;
 	pathnode->groupClause = groupClause;
 	pathnode->qual = qual;
 
@@ -3701,7 +3706,7 @@ create_agg_path(PlannerInfo *root,
 			 list_length(groupClause), numGroups,
 			 qual,
 			 subpath->startup_cost, subpath->total_cost,
-			 subpath->rows);
+			 subpath->rows, subpath->pathtarget->width);
 
 	/* add tlist eval cost for each output row */
 	pathnode->path.startup_cost += target->cost.startup;
@@ -3780,6 +3785,7 @@ create_groupingsets_path(PlannerInfo *root,
 	pathnode->aggstrategy = aggstrategy;
 	pathnode->rollups = rollups;
 	pathnode->qual = having_qual;
+	pathnode->transitionSpace = agg_costs ? agg_costs->transitionSpace : 0;
 
 	Assert(rollups != NIL);
 	Assert(aggstrategy != AGG_PLAIN || list_length(rollups) == 1);
@@ -3811,7 +3817,8 @@ create_groupingsets_path(PlannerInfo *root,
 					 having_qual,
 					 subpath->startup_cost,
 					 subpath->total_cost,
-					 subpath->rows);
+					 subpath->rows,
+					 subpath->pathtarget->width);
 			is_first = false;
 			if (!rollup->is_hashed)
 				is_first_sort = false;
@@ -3834,7 +3841,8 @@ create_groupingsets_path(PlannerInfo *root,
 						 rollup->numGroups,
 						 having_qual,
 						 0.0, 0.0,
-						 subpath->rows);
+						 subpath->rows,
+						 subpath->pathtarget->width);
 				if (!rollup->is_hashed)
 					is_first_sort = false;
 			}
@@ -3859,7 +3867,8 @@ create_groupingsets_path(PlannerInfo *root,
 						 having_qual,
 						 sort_path.startup_cost,
 						 sort_path.total_cost,
-						 sort_path.rows);
+						 sort_path.rows,
+						 subpath->pathtarget->width);
 			}
 
 			pathnode->path.total_cost += agg_path.total_cost;
@@ -4289,6 +4298,7 @@ LimitPath *
 create_limit_path(PlannerInfo *root, RelOptInfo *rel,
 				  Path *subpath,
 				  Node *limitOffset, Node *limitCount,
+				  LimitOption limitOption,
 				  int64 offset_est, int64 count_est)
 {
 	LimitPath  *pathnode = makeNode(LimitPath);
@@ -4310,6 +4320,7 @@ create_limit_path(PlannerInfo *root, RelOptInfo *rel,
 	pathnode->subpath = subpath;
 	pathnode->limitOffset = limitOffset;
 	pathnode->limitCount = limitCount;
+	pathnode->limitOption = limitOption;
 
 	/*
 	 * Adjust the output rows count and costs according to the offset/limit.
@@ -4543,7 +4554,7 @@ do { \
 	(path) = reparameterize_path_by_child(root, (path), child_rel); \
 	if ((path) == NULL) \
 		return NULL; \
-} while(0);
+} while(0)
 
 #define REPARAMETERIZE_CHILD_PATH_LIST(pathlist) \
 do { \
@@ -4554,7 +4565,7 @@ do { \
 		if ((pathlist) == NIL) \
 			return NULL; \
 	} \
-} while(0);
+} while(0)
 
 	Path	   *new_path;
 	ParamPathInfo *new_ppi;

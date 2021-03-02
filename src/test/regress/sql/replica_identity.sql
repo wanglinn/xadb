@@ -5,9 +5,9 @@ CREATE TABLE test_replica_identity (
        nonkey text,
        CONSTRAINT test_replica_identity_unique_defer UNIQUE (keya, keyb) DEFERRABLE,
        CONSTRAINT test_replica_identity_unique_nondefer UNIQUE (keya, keyb)
-) distribute by replication;
+) ;
 
-CREATE TABLE test_replica_identity_othertable (id serial primary key) distribute by replication;
+CREATE TABLE test_replica_identity_othertable (id serial primary key);
 
 CREATE INDEX test_replica_identity_keyab ON test_replica_identity (keya, keyb);
 CREATE UNIQUE INDEX test_replica_identity_keyab_key ON test_replica_identity (keya, keyb);
@@ -75,5 +75,26 @@ SELECT relreplident FROM pg_class WHERE oid = 'test_replica_identity'::regclass;
 ALTER TABLE test_replica_identity REPLICA IDENTITY NOTHING;
 SELECT relreplident FROM pg_class WHERE oid = 'test_replica_identity'::regclass;
 
+---
+-- Test that ALTER TABLE rewrite preserves nondefault replica identity
+---
+
+-- constraint variant
+CREATE TABLE test_replica_identity2 (id int UNIQUE NOT NULL);
+ALTER TABLE test_replica_identity2 REPLICA IDENTITY USING INDEX test_replica_identity2_id_key;
+\d test_replica_identity2
+ALTER TABLE test_replica_identity2 ALTER COLUMN id TYPE bigint;
+\d test_replica_identity2
+
+-- straight index variant
+CREATE TABLE test_replica_identity3 (id int NOT NULL);
+CREATE UNIQUE INDEX test_replica_identity3_id_key ON test_replica_identity3 (id);
+ALTER TABLE test_replica_identity3 REPLICA IDENTITY USING INDEX test_replica_identity3_id_key;
+\d test_replica_identity3
+ALTER TABLE test_replica_identity3 ALTER COLUMN id TYPE bigint;
+\d test_replica_identity3
+
 DROP TABLE test_replica_identity;
+DROP TABLE test_replica_identity2;
+DROP TABLE test_replica_identity3;
 DROP TABLE test_replica_identity_othertable;

@@ -1,7 +1,7 @@
 <!-- doc/src/sgml/plpgsql.sgml -->
 
-<chapter id="plpgsql">
-  <title><application>PL/pgSQL</application> - <acronym>SQL</acronym> Procedural Language</title>
+<chapter id="plpgsql" xreflabel="PL/pgSQL">
+  <title><application>PL/pgSQL</application> &mdash; <acronym>SQL</acronym> Procedural Language</title>
 
  <indexterm zone="plpgsql">
   <primary>PL/pgSQL</primary>
@@ -138,13 +138,11 @@
     </para>
 
     <para>
-     <application>PL/pgSQL</application> functions can also be declared to accept
-     and return the polymorphic types
-     <type>anyelement</type>, <type>anyarray</type>, <type>anynonarray</type>,
-     <type>anyenum</type>, and <type>anyrange</type>.  The actual
-     data types handled by a polymorphic function can vary from call to
-     call, as discussed in <xref linkend="extend-types-polymorphic"/>.
-     An example is shown in <xref linkend="plpgsql-declaration-parameters"/>.
+     <application>PL/pgSQL</application> functions can also be declared to
+     accept and return the polymorphic types described in
+     <xref linkend="extend-types-polymorphic"/>, thus allowing the actual data
+     types handled by the function to vary from call to call.
+     Examples appear in <xref linkend="plpgsql-declaration-parameters"/>.
     </para>
 
     <para>
@@ -519,13 +517,11 @@ $$ LANGUAGE plpgsql;
      </para>
 
      <para>
-      When the return type of a <application>PL/pgSQL</application>
-      function is declared as a polymorphic type (<type>anyelement</type>,
-      <type>anyarray</type>, <type>anynonarray</type>, <type>anyenum</type>,
-      or <type>anyrange</type>), a special parameter <literal>$0</literal>
-      is created.  Its data type is the actual return type of the function,
-      as deduced from the actual input types (see <xref
-      linkend="extend-types-polymorphic"/>).
+      When the return type of a <application>PL/pgSQL</application> function
+      is declared as a polymorphic type (see
+      <xref linkend="extend-types-polymorphic"/>), a special
+      parameter <literal>$0</literal> is created.  Its data type is the actual
+      return type of the function, as deduced from the actual input types.
       This allows the function to access its actual return type
       as shown in <xref linkend="plpgsql-declaration-type"/>.
       <literal>$0</literal> is initialized to null and can be modified by
@@ -562,6 +558,32 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 </programlisting>
+     </para>
+
+     <para>
+      In practice it might be more useful to declare a polymorphic function
+      using the <type>anycompatible</type> family of types, so that automatic
+      promotion of the input arguments to a common type will occur.
+      For example:
+
+<programlisting>
+CREATE FUNCTION add_three_values(v1 anycompatible, v2 anycompatible, v3 anycompatible)
+RETURNS anycompatible AS $$
+BEGIN
+    RETURN v1 + v2 + v3;
+END;
+$$ LANGUAGE plpgsql;
+</programlisting>
+
+      With this example, a call such as
+
+<programlisting>
+SELECT add_three_values(1, 2, 4.7);
+</programlisting>
+
+      will work, automatically promoting the integer inputs to numeric.
+      The function using <type>anyelement</type> would require you to
+      cast the three inputs to the same type manually.
      </para>
     </sect2>
 
@@ -913,7 +935,7 @@ my_record.user_id := 20;
    </sect2>
 
    <sect2 id="plpgsql-statements-sql-noresult">
-    <title>Executing a Command With No Result</title>
+    <title>Executing a Command with No Result</title>
 
     <para>
      For any SQL command that does not return rows, for example
@@ -984,7 +1006,7 @@ PERFORM create_mv('cs_session_page_requests_mv', my_query);
    </sect2>
 
    <sect2 id="plpgsql-statements-sql-onerow">
-    <title>Executing a Query with a Single-row Result</title>
+    <title>Executing a Query with a Single-Row Result</title>
 
     <indexterm zone="plpgsql-statements-sql-onerow">
      <primary>SELECT INTO</primary>
@@ -1286,7 +1308,7 @@ EXECUTE format('SELECT count(*) FROM %I '
    </note>
 
    <example id="plpgsql-quote-literal-example">
-   <title>Quoting Values In Dynamic Queries</title>
+   <title>Quoting Values in Dynamic Queries</title>
 
     <indexterm>
      <primary>quote_ident</primary>
@@ -1471,6 +1493,9 @@ GET DIAGNOSTICS integer_var = ROW_COUNT;
      <table id="plpgsql-current-diagnostics-values">
       <title>Available Diagnostics Items</title>
       <tgroup cols="3">
+       <colspec colname="col1" colwidth="1*"/>
+       <colspec colname="col2" colwidth="1*"/>
+       <colspec colname="col3" colwidth="2*"/>
        <thead>
         <row>
          <entry>Name</entry>
@@ -1852,7 +1877,7 @@ SELECT * FROM get_available_flightid(CURRENT_DATE);
    </sect2>
 
    <sect2 id="plpgsql-statements-returning-procedure">
-    <title>Returning From a Procedure</title>
+    <title>Returning from a Procedure</title>
 
     <para>
      A procedure does not have a return value.  A procedure can therefore end
@@ -2419,7 +2444,7 @@ END LOOP;
    </sect2>
 
    <sect2 id="plpgsql-records-iterating">
-    <title>Looping Through Query Results</title>
+    <title>Looping through Query Results</title>
 
     <para>
      Using a different type of <literal>FOR</literal> loop, you can iterate through
@@ -2437,19 +2462,29 @@ END LOOP <optional> <replaceable>label</replaceable> </optional>;
      resulting from the <replaceable>query</replaceable> and the loop body is
      executed for each row. Here is an example:
 <programlisting>
-CREATE FUNCTION cs_refresh_mviews() RETURNS integer AS $$
+CREATE FUNCTION refresh_mviews() RETURNS integer AS $$
 DECLARE
     mviews RECORD;
 BEGIN
-    RAISE NOTICE 'Refreshing materialized views...';
+    RAISE NOTICE 'Refreshing all materialized views...';
 
-    FOR mviews IN SELECT * FROM cs_materialized_views ORDER BY sort_key LOOP
+    FOR mviews IN
+       SELECT n.nspname AS mv_schema,
+              c.relname AS mv_name,
+              pg_catalog.pg_get_userbyid(c.relowner) AS owner
+         FROM pg_catalog.pg_class c
+    LEFT JOIN pg_catalog.pg_namespace n ON (n.oid = c.relnamespace)
+        WHERE c.relkind = 'm'
+     ORDER BY 1
+    LOOP
 
-        -- Now "mviews" has one record from cs_materialized_views
+        -- Now "mviews" has one record with information about the materialized view
 
-        RAISE NOTICE 'Refreshing materialized view %s ...', quote_ident(mviews.mv_name);
-        EXECUTE format('TRUNCATE TABLE %I', mviews.mv_name);
-        EXECUTE format('INSERT INTO %I %s', mviews.mv_name, mviews.mv_query);
+        RAISE NOTICE 'Refreshing materialized view %.% (owner: %)...',
+                     quote_ident(mviews.mv_schema),
+                     quote_ident(mviews.mv_name),
+                     quote_ident(mviews.owner);
+        EXECUTE format('REFRESH MATERIALIZED VIEW %I.%I', mviews.mv_schema, mviews.mv_name);
     END LOOP;
 
     RAISE NOTICE 'Done refreshing materialized views.';
@@ -2504,7 +2539,7 @@ END LOOP <optional> <replaceable>label</replaceable> </optional>;
    </sect2>
 
    <sect2 id="plpgsql-foreach-array">
-    <title>Looping Through Arrays</title>
+    <title>Looping through Arrays</title>
 
     <para>
      The <literal>FOREACH</literal> loop is much like a <literal>FOR</literal> loop,
@@ -2751,7 +2786,7 @@ SELECT merge_db(1, 'dennis');
     </example>
 
    <sect3 id="plpgsql-exception-diagnostics">
-    <title>Obtaining Information About an Error</title>
+    <title>Obtaining Information about an Error</title>
 
     <para>
      Exception handlers frequently need to identify the specific error that
@@ -2788,6 +2823,9 @@ GET STACKED DIAGNOSTICS <replaceable>variable</replaceable> { = | := } <replacea
      <table id="plpgsql-exception-diagnostics-values">
       <title>Error Diagnostics Items</title>
       <tgroup cols="3">
+       <colspec colname="col1" colwidth="2*"/>
+       <colspec colname="col2" colwidth="1*"/>
+       <colspec colname="col3" colwidth="2*"/>
        <thead>
         <row>
          <entry>Name</entry>
@@ -3420,7 +3458,7 @@ COMMIT;
    </sect2>
 
    <sect2 id="plpgsql-cursor-for-loop">
-    <title>Looping Through a Cursor's Result</title>
+    <title>Looping through a Cursor's Result</title>
 
     <para>
      There is a variant of the <command>FOR</command> statement that allows
@@ -3740,9 +3778,9 @@ RAISE unique_violation USING MESSAGE = 'Duplicate user ID: ' || user_id;
    <para>
     If no condition name nor SQLSTATE is specified in a
     <command>RAISE EXCEPTION</command> command, the default is to use
-    <literal>RAISE_EXCEPTION</literal> (<literal>P0001</literal>).  If no message
-    text is specified, the default is to use the condition name or
-    SQLSTATE as message text.
+    <literal>ERRCODE_RAISE_EXCEPTION</literal> (<literal>P0001</literal>).
+    If no message text is specified, the default is to use the condition
+    name or SQLSTATE as message text.
    </para>
 
    <note>
@@ -4107,7 +4145,7 @@ CREATE TRIGGER emp_stamp BEFORE INSERT OR UPDATE ON emp
    </para>
 
    <example id="plpgsql-trigger-audit-example">
-    <title>A <application>PL/pgSQL</application> Trigger Function For Auditing</title>
+    <title>A <application>PL/pgSQL</application> Trigger Function for Auditing</title>
 
     <para>
      This example trigger ensures that any insert, update or delete of a row
@@ -4164,7 +4202,7 @@ AFTER INSERT OR UPDATE OR DELETE ON emp
    </para>
 
    <example id="plpgsql-view-trigger-audit-example">
-    <title>A <application>PL/pgSQL</application> View Trigger Function For Auditing</title>
+    <title>A <application>PL/pgSQL</application> View Trigger Function for Auditing</title>
 
     <para>
      This example uses a trigger on the view to make it updatable, and
@@ -4246,7 +4284,7 @@ INSTEAD OF INSERT OR UPDATE OR DELETE ON emp_view
 
 
    <example id="plpgsql-trigger-summary-example">
-    <title>A <application>PL/pgSQL</application> Trigger Function For Maintaining A Summary Table</title>
+    <title>A <application>PL/pgSQL</application> Trigger Function for Maintaining a Summary Table</title>
 
     <para>
      The schema detailed here is partly based on the <emphasis>Grocery Store
@@ -4531,7 +4569,7 @@ CREATE EVENT TRIGGER snitch ON ddl_command_start EXECUTE FUNCTION snitch();
   </sect1>
 
   <sect1 id="plpgsql-implementation">
-   <title><application>PL/pgSQL</application> Under the Hood</title>
+   <title><application>PL/pgSQL</application> under the Hood</title>
 
    <para>
     This section discusses some implementation details that are
@@ -5059,7 +5097,7 @@ a_output := a_output || $$ if v_$$ || referrer_keys.kind || $$ like '$$
 
   </sect2>
   <sect2 id="plpgsql-extra-checks">
-   <title>Additional Compile-time and Run-time Checks</title>
+   <title>Additional Compile-Time and Run-Time Checks</title>
 
    <para>
     To aid the user in finding instances of simple but common problems before
@@ -5626,7 +5664,7 @@ BEGIN
     INSERT INTO cs_active_job(job_id) VALUES (v_job_id);
 
     BEGIN
-        INSERT INTO cs_jobs (job_id, start_stamp) VALUES (v_job_id, sysdate);
+        INSERT INTO cs_jobs (job_id, start_stamp) VALUES (v_job_id, now());
     EXCEPTION
         WHEN dup_val_on_index THEN NULL; -- don't worry if it already exists
     END;

@@ -3,7 +3,7 @@
  * nodeHashjoin.c
  *	  Routines to handle hash join nodes
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -362,7 +362,7 @@ ExecHashJoinImpl(PlanState *pstate, bool parallel)
 						if (hashtable->nbatch > 1)
 							ExecParallelHashJoinPartitionOuter(node);
 						BarrierArriveAndWait(build_barrier,
-											 WAIT_EVENT_HASH_BUILD_HASHING_OUTER);
+											 WAIT_EVENT_HASH_BUILD_HASH_OUTER);
 					}
 					Assert(BarrierPhase(build_barrier) == PHJ_BUILD_DONE);
 
@@ -489,7 +489,26 @@ ExecHashJoinImpl(PlanState *pstate, bool parallel)
 				if (joinqual == NULL || ExecQual(joinqual, econtext))
 				{
 					node->hj_MatchedOuter = true;
-					HeapTupleHeaderSetMatch(HJTUPLE_MINTUPLE(node->hj_CurTuple));
+
+					if (parallel)
+					{
+						/*
+						 * Full/right outer joins are currently not supported
+						 * for parallel joins, so we don't need to set the
+						 * match bit.  Experiments show that it's worth
+						 * avoiding the shared memory traffic on large
+						 * systems.
+						 */
+						Assert(!HJ_FILL_INNER(node));
+					}
+					else
+					{
+						/*
+						 * This is really only needed if HJ_FILL_INNER(node),
+						 * but we'll avoid the branch and just set it always.
+						 */
+						HeapTupleHeaderSetMatch(HJTUPLE_MINTUPLE(node->hj_CurTuple));
+					}
 
 					/* In an antijoin, we never return a matched tuple */
 					if (node->js.jointype == JOIN_ANTI)
@@ -635,14 +654,8 @@ ExecInitHashJoin(HashJoin *node, EState *estate, int eflags)
 	HashJoinState *hjstate;
 	Plan	   *outerNode;
 	Hash	   *hashNode;
-	List	   *lclauses;
-	List	   *rclauses;
-	List	   *rhclauses;
-	List	   *hoperators;
-	List	   *hcollations;
 	TupleDesc	outerDesc,
 				innerDesc;
-	ListCell   *l;
 	const TupleTableSlotOps *ops;
 
 	/* check for unsupported flags */
@@ -765,36 +778,10 @@ ExecInitHashJoin(HashJoin *node, EState *estate, int eflags)
 	hjstate->hj_CurSkewBucketNo = INVALID_SKEW_BUCKET_NO;
 	hjstate->hj_CurTuple = NULL;
 
-	/*
-	 * Deconstruct the hash clauses into outer and inner argument values, so
-	 * that we can evaluate those subexpressions separately.  Also make a list
-	 * of the hash operator OIDs, in preparation for looking up the hash
-	 * functions to use.
-	 */
-	lclauses = NIL;
-	rclauses = NIL;
-	rhclauses = NIL;
-	hoperators = NIL;
-	hcollations = NIL;
-	foreach(l, node->hashclauses)
-	{
-		OpExpr	   *hclause = lfirst_node(OpExpr, l);
-
-		lclauses = lappend(lclauses, ExecInitExpr(linitial(hclause->args),
-												  (PlanState *) hjstate));
-		rclauses = lappend(rclauses, ExecInitExpr(lsecond(hclause->args),
-												  (PlanState *) hjstate));
-		rhclauses = lappend(rhclauses, ExecInitExpr(lsecond(hclause->args),
-													innerPlanState(hjstate)));
-		hoperators = lappend_oid(hoperators, hclause->opno);
-		hcollations = lappend_oid(hcollations, hclause->inputcollid);
-	}
-	hjstate->hj_OuterHashKeys = lclauses;
-	hjstate->hj_InnerHashKeys = rclauses;
-	hjstate->hj_HashOperators = hoperators;
-	hjstate->hj_Collations = hcollations;
-	/* child Hash node needs to evaluate inner hash keys, too */
-	((HashState *) innerPlanState(hjstate))->hashkeys = rhclauses;
+	hjstate->hj_OuterHashKeys = ExecInitExprList(node->hashkeys,
+												 (PlanState *) hjstate);
+	hjstate->hj_HashOperators = node->hashoperators;
+	hjstate->hj_Collations = node->hashcollations;
 
 	hjstate->hj_JoinState = HJ_BUILD_HASHTABLE;
 	hjstate->hj_MatchedOuter = false;
@@ -1183,14 +1170,14 @@ ExecParallelHashJoinNewBatch(HashJoinState *hjstate)
 
 					/* One backend allocates the hash table. */
 					if (BarrierArriveAndWait(batch_barrier,
-											 WAIT_EVENT_HASH_BATCH_ELECTING))
+											 WAIT_EVENT_HASH_BATCH_ELECT))
 						ExecParallelHashTableAlloc(hashtable, batchno);
 					/* Fall through. */
 
 				case PHJ_BATCH_ALLOCATING:
 					/* Wait for allocation to complete. */
 					BarrierArriveAndWait(batch_barrier,
-										 WAIT_EVENT_HASH_BATCH_ALLOCATING);
+										 WAIT_EVENT_HASH_BATCH_ALLOCATE);
 					/* Fall through. */
 
 				case PHJ_BATCH_LOADING:
@@ -1210,7 +1197,7 @@ ExecParallelHashJoinNewBatch(HashJoinState *hjstate)
 					}
 					sts_end_parallel_scan(inner_tuples);
 					BarrierArriveAndWait(batch_barrier,
-										 WAIT_EVENT_HASH_BATCH_LOADING);
+										 WAIT_EVENT_HASH_BATCH_LOAD);
 					/* Fall through. */
 
 				case PHJ_BATCH_PROBING:
@@ -1391,6 +1378,20 @@ ExecReScanHashJoin(HashJoinState *node)
 		else
 		{
 			/* must destroy and rebuild hash table */
+			HashState  *hashNode = castNode(HashState, innerPlanState(node));
+
+			Assert(hashNode->hashtable == node->hj_HashTable);
+			/* accumulate stats from old hash table, if wanted */
+			/* (this should match ExecShutdownHash) */
+			if (hashNode->ps.instrument && !hashNode->hinstrument)
+				hashNode->hinstrument = (HashInstrumentation *)
+					palloc0(sizeof(HashInstrumentation));
+			if (hashNode->hinstrument)
+				ExecHashAccumInstrumentation(hashNode->hinstrument,
+											 hashNode->hashtable);
+			/* for safety, be sure to clear child plan node's pointer too */
+			hashNode->hashtable = NULL;
+
 			ExecHashTableDestroy(node->hj_HashTable);
 			node->hj_HashTable = NULL;
 			node->hj_JoinState = HJ_BUILD_HASHTABLE;

@@ -6,7 +6,7 @@ CREATE TEMP TABLE articles (
     title text UNIQUE NOT NULL,
     body text UNIQUE,
     created date
-) distribute by replication;
+);
 
 CREATE TEMP TABLE articles_in_category (
     article_id int,
@@ -124,7 +124,7 @@ CREATE TEMP TABLE users (
     -- snip
     PRIMARY KEY (uid),
     UNIQUE (name)
-) distribute by replication;
+);
 
 -- OK
 SELECT u.uid, u.name FROM node n

@@ -21,4 +21,4 @@ INSERT INTO LSEG_TBL VALUES ('[1,2,3, 4');
 INSERT INTO LSEG_TBL VALUES ('[(,2),(3,4)]');
 INSERT INTO LSEG_TBL VALUES ('[(1,2),(3,4)');
 
-select * from LSEG_TBL ORDER BY (s[0])[0], (s[0])[1];
+select * from LSEG_TBL;

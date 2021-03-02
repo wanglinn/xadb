@@ -90,7 +90,7 @@ CREATE TABLE test_like_id_2 (LIKE test_like_id_1);
  b      | text   |           |          | 
 
 INSERT INTO test_like_id_2 (b) VALUES ('b2');
-ERROR:  null value in column "a" violates not-null constraint
+ERROR:  null value in column "a" of relation "test_like_id_2" violates not-null constraint
 DETAIL:  Failing row contains (null, b2).
 SELECT * FROM test_like_id_2;  -- identity was not copied
  a | b 
@@ -159,7 +159,82 @@ SELECT * FROM test_like_gen_3;
 (1 row)
 
 DROP TABLE test_like_gen_1, test_like_gen_2, test_like_gen_3;
-CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, y text) DISTRIBUTE BY REPLICATION; /* copies indexes */
+-- also test generated column with a "forward" reference (bug #16342)
+CREATE TABLE test_like_4 (b int DEFAULT 42, c int GENERATED ALWAYS AS (a * 2) STORED, a int);
+\d test_like_4
+                          Table "public.test_like_4"
+ Column |  Type   | Collation | Nullable |              Default               
+--------+---------+-----------+----------+------------------------------------
+ b      | integer |           |          | 42
+ c      | integer |           |          | generated always as (a * 2) stored
+ a      | integer |           |          | 
+
+CREATE TABLE test_like_4a (LIKE test_like_4);
+CREATE TABLE test_like_4b (LIKE test_like_4 INCLUDING DEFAULTS);
+CREATE TABLE test_like_4c (LIKE test_like_4 INCLUDING GENERATED);
+CREATE TABLE test_like_4d (LIKE test_like_4 INCLUDING DEFAULTS INCLUDING GENERATED);
+\d test_like_4a
+            Table "public.test_like_4a"
+ Column |  Type   | Collation | Nullable | Default 
+--------+---------+-----------+----------+---------
+ b      | integer |           |          | 
+ c      | integer |           |          | 
+ a      | integer |           |          | 
+
+INSERT INTO test_like_4a (a) VALUES(11);
+SELECT a, b, c FROM test_like_4a;
+ a  | b | c 
+----+---+---
+ 11 |   |  
+(1 row)
+
+\d test_like_4b
+            Table "public.test_like_4b"
+ Column |  Type   | Collation | Nullable | Default 
+--------+---------+-----------+----------+---------
+ b      | integer |           |          | 42
+ c      | integer |           |          | 
+ a      | integer |           |          | 
+
+INSERT INTO test_like_4b (a) VALUES(11);
+SELECT a, b, c FROM test_like_4b;
+ a  | b  | c 
+----+----+---
+ 11 | 42 |  
+(1 row)
+
+\d test_like_4c
+                         Table "public.test_like_4c"
+ Column |  Type   | Collation | Nullable |              Default               
+--------+---------+-----------+----------+------------------------------------
+ b      | integer |           |          | 
+ c      | integer |           |          | generated always as (a * 2) stored
+ a      | integer |           |          | 
+
+INSERT INTO test_like_4c (a) VALUES(11);
+SELECT a, b, c FROM test_like_4c;
+ a  | b | c  
+----+---+----
+ 11 |   | 22
+(1 row)
+
+\d test_like_4d
+                         Table "public.test_like_4d"
+ Column |  Type   | Collation | Nullable |              Default               
+--------+---------+-----------+----------+------------------------------------
+ b      | integer |           |          | 42
+ c      | integer |           |          | generated always as (a * 2) stored
+ a      | integer |           |          | 
+
+INSERT INTO test_like_4d (a) VALUES(11);
+SELECT a, b, c FROM test_like_4d;
+ a  | b  | c  
+----+----+----
+ 11 | 42 | 22
+(1 row)
+
+DROP TABLE test_like_4, test_like_4a, test_like_4b, test_like_4c, test_like_4d;
+CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, y text); /* copies indexes */
 INSERT INTO inhg VALUES (5, 10);
 INSERT INTO inhg VALUES (20, 10); -- should fail
 ERROR:  duplicate key value violates unique constraint "inhg_pkey"
@@ -168,10 +243,10 @@ DROP TABLE inhg;
 /* Multiple primary keys creation should fail */
 CREATE TABLE inhg (x text, LIKE inhx INCLUDING INDEXES, PRIMARY KEY(x)); /* fails */
 ERROR:  multiple primary keys for table "inhg" are not allowed
-CREATE TABLE inhz (xx text DEFAULT 'text', yy int UNIQUE) DISTRIBUTE BY REPLICATION;
+CREATE TABLE inhz (xx text DEFAULT 'text', yy int UNIQUE);
 CREATE UNIQUE INDEX inhz_xx_idx on inhz (xx) WHERE xx <> 'test';
 /* Ok to create multiple unique indexes */
-CREATE TABLE inhg (x text UNIQUE, LIKE inhz INCLUDING INDEXES) DISTRIBUTE BY REPLICATION;
+CREATE TABLE inhg (x text UNIQUE, LIKE inhz INCLUDING INDEXES);
 INSERT INTO inhg (xx, yy, x) VALUES ('test', 5, 10);
 INSERT INTO inhg (xx, yy, x) VALUES ('test', 10, 15);
 INSERT INTO inhg (xx, yy, x) VALUES ('foo', 10, 15); -- should fail
@@ -210,8 +285,6 @@ CREATE TABLE ctlt12_storage (LIKE ctlt1 INCLUDING STORAGE, LIKE ctlt2 INCLUDING 
  a      | text |           | not null |         | main     |              | 
  b      | text |           |          |         | extended |              | 
  c      | text |           |          |         | external |              | 
-Distribute By: HASH(a)
-Location Nodes: ALL DATANODES
 
 CREATE TABLE ctlt12_comments (LIKE ctlt1 INCLUDING COMMENTS, LIKE ctlt2 INCLUDING COMMENTS);
 \d+ ctlt12_comments
@@ -221,8 +294,6 @@ CREATE TABLE ctlt12_comments (LIKE ctlt1 INCLUDING COMMENTS, LIKE ctlt2 INCLUDIN
  a      | text |           | not null |         | extended |              | A
  b      | text |           |          |         | extended |              | B
  c      | text |           |          |         | extended |              | C
-Distribute By: HASH(a)
-Location Nodes: ALL DATANODES
 
 CREATE TABLE ctlt1_inh (LIKE ctlt1 INCLUDING CONSTRAINTS INCLUDING COMMENTS) INHERITS (ctlt1);
 NOTICE:  merging column "a" with inherited definition
@@ -237,8 +308,6 @@ NOTICE:  merging constraint "ctlt1_a_check" with inherited definition
 Check constraints:
     "ctlt1_a_check" CHECK (length(a) > 2)
 Inherits: ctlt1
-Distribute By: HASH(a)
-Location Nodes: ALL DATANODES
 
 SELECT description FROM pg_description, pg_constraint c WHERE classoid = 'pg_constraint'::regclass AND objoid = c.oid AND c.conrelid = 'ctlt1_inh'::regclass;
  description 
@@ -260,8 +329,6 @@ Check constraints:
     "ctlt3_a_check" CHECK (length(a) < 5)
 Inherits: ctlt1,
           ctlt3
-Distribute By: HASH(a)
-Location Nodes: ALL DATANODES
 
 CREATE TABLE ctlt13_like (LIKE ctlt3 INCLUDING CONSTRAINTS INCLUDING COMMENTS INCLUDING STORAGE) INHERITS (ctlt1);
 NOTICE:  merging column "a" with inherited definition
@@ -276,8 +343,6 @@ Check constraints:
     "ctlt1_a_check" CHECK (length(a) > 2)
     "ctlt3_a_check" CHECK (length(a) < 5)
 Inherits: ctlt1
-Distribute By: HASH(a)
-Location Nodes: ALL DATANODES
 
 SELECT description FROM pg_description, pg_constraint c WHERE classoid = 'pg_constraint'::regclass AND objoid = c.oid AND c.conrelid = 'ctlt13_like'::regclass;
  description 
@@ -300,8 +365,6 @@ Check constraints:
     "ctlt1_a_check" CHECK (length(a) > 2)
 Statistics objects:
     "public"."ctlt_all_a_b_stat" (ndistinct, dependencies, mcv) ON a, b FROM ctlt_all
-Distribute By: HASH(a)
-Location Nodes: ALL DATANODES
 
 SELECT c.relname, objsubid, description FROM pg_description, pg_index i, pg_class c WHERE classoid = 'pg_class'::regclass AND objoid = i.indexrelid AND c.oid = i.indexrelid AND i.indrelid = 'ctlt_all'::regclass ORDER BY c.relname, objsubid;
     relname     | objsubid | description 
@@ -326,6 +389,22 @@ ERROR:  column "a" has a storage parameter conflict
 DETAIL:  MAIN versus EXTENDED
 DROP TABLE ctlt1, ctlt2, ctlt3, ctlt4, ctlt12_storage, ctlt12_comments, ctlt1_inh, ctlt13_inh, ctlt13_like, ctlt_all, ctla, ctlb CASCADE;
 NOTICE:  drop cascades to table inhe
+-- LIKE must respect NO INHERIT property of constraints
+CREATE TABLE noinh_con_copy (a int CHECK (a > 0) NO INHERIT);
+CREATE TABLE noinh_con_copy1 (LIKE noinh_con_copy INCLUDING CONSTRAINTS);
+\d noinh_con_copy1
+          Table "public.noinh_con_copy1"
+ Column |  Type   | Collation | Nullable | Default 
+--------+---------+-----------+----------+---------
+ a      | integer |           |          | 
+Check constraints:
+    "noinh_con_copy_a_check" CHECK (a > 0) NO INHERIT
+
+-- fail, as partitioned tables don't allow NO INHERIT constraints
+CREATE TABLE noinh_con_copy1_parted (LIKE noinh_con_copy INCLUDING ALL)
+  PARTITION BY LIST (a);
+ERROR:  cannot add NO INHERIT constraint to partitioned table "noinh_con_copy1_parted"
+DROP TABLE noinh_con_copy, noinh_con_copy1;
 /* LIKE with other relation kinds */
 CREATE TABLE ctlt4 (a int, b text);
 CREATE SEQUENCE ctlseq1;

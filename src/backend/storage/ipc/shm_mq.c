@@ -8,7 +8,7 @@
  * and only the receiver may receive.  This is intended to allow a user
  * backend to communicate with worker backends that it has registered.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/backend/storage/ipc/shm_mq.c
@@ -1221,7 +1221,7 @@ shm_mq_wait_internal(shm_mq *mq, PGPROC **ptr, BackgroundWorkerHandle *handle)
 			}
 		}
 
-		/* Wait to be signalled. */
+		/* Wait to be signaled. */
 		(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, 0,
 						 WAIT_EVENT_MQ_INTERNAL);
 
@@ -1290,7 +1290,7 @@ shm_mq_inc_bytes_written(shm_mq *mq, Size n)
 						pg_atomic_read_u64(&mq->mq_bytes_written) + n);
 }
 
-/* Shim for on_dsm_callback. */
+/* Shim for on_dsm_detach callback. */
 static void
 shm_mq_detach_callback(dsm_segment *seg, Datum arg)
 {

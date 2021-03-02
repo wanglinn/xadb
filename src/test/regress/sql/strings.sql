@@ -21,13 +21,34 @@ SET standard_conforming_strings TO on;
 
 SELECT U&'d\0061t\+000061' AS U&"d\0061t\+000061";
 SELECT U&'d!0061t\+000061' UESCAPE '!' AS U&"d*0061t\+000061" UESCAPE '*';
+SELECT U&'a\\b' AS "a\b";
 
 SELECT U&' \' UESCAPE '!' AS "tricky";
 SELECT 'tricky' AS U&"\" UESCAPE '!';
 
 SELECT U&'wrong: \061';
 SELECT U&'wrong: \+0061';
+SELECT U&'wrong: +0061' UESCAPE +;
 SELECT U&'wrong: +0061' UESCAPE '+';
+
+SELECT U&'wrong: \db99';
+SELECT U&'wrong: \db99xy';
+SELECT U&'wrong: \db99\\';
+SELECT U&'wrong: \db99\0061';
+SELECT U&'wrong: \+00db99\+000061';
+SELECT U&'wrong: \+2FFFFF';
+
+-- while we're here, check the same cases in E-style literals
+SELECT E'd\u0061t\U00000061' AS "data";
+SELECT E'a\\b' AS "a\b";
+SELECT E'wrong: \u061';
+SELECT E'wrong: \U0061';
+SELECT E'wrong: \udb99';
+SELECT E'wrong: \udb99xy';
+SELECT E'wrong: \udb99\\';
+SELECT E'wrong: \udb99\u0061';
+SELECT E'wrong: \U0000db99\U00000061';
+SELECT E'wrong: \U002FFFFF';
 
 SET standard_conforming_strings TO off;
 
@@ -69,25 +90,25 @@ SELECT E'De\\123dBeEf'::bytea;
 -- E021-10 implicit casting among the character data types
 --
 
-SELECT CAST(f1 AS text) AS "text(char)" FROM CHAR_TBL ORDER BY f1;
+SELECT CAST(f1 AS text) AS "text(char)" FROM CHAR_TBL;
 
-SELECT CAST(f1 AS text) AS "text(varchar)" FROM VARCHAR_TBL ORDER BY f1;
+SELECT CAST(f1 AS text) AS "text(varchar)" FROM VARCHAR_TBL;
 
 SELECT CAST(name 'namefield' AS text) AS "text(name)";
 
 -- since this is an explicit cast, it should truncate w/o error:
-SELECT CAST(f1 AS char(10)) AS "char(text)" FROM TEXT_TBL ORDER BY f1;
+SELECT CAST(f1 AS char(10)) AS "char(text)" FROM TEXT_TBL;
 -- note: implicit-cast case is tested in char.sql
 
-SELECT CAST(f1 AS char(20)) AS "char(text)" FROM TEXT_TBL ORDER BY f1;
+SELECT CAST(f1 AS char(20)) AS "char(text)" FROM TEXT_TBL;
 
-SELECT CAST(f1 AS char(10)) AS "char(varchar)" FROM VARCHAR_TBL ORDER BY f1;
+SELECT CAST(f1 AS char(10)) AS "char(varchar)" FROM VARCHAR_TBL;
 
 SELECT CAST(name 'namefield' AS char(10)) AS "char(name)";
 
-SELECT CAST(f1 AS varchar) AS "varchar(text)" FROM TEXT_TBL ORDER BY f1;
+SELECT CAST(f1 AS varchar) AS "varchar(text)" FROM TEXT_TBL;
 
-SELECT CAST(f1 AS varchar) AS "varchar(char)" FROM CHAR_TBL ORDER BY f1;
+SELECT CAST(f1 AS varchar) AS "varchar(char)" FROM CHAR_TBL;
 
 SELECT CAST(name 'namefield' AS varchar) AS "varchar(name)";
 
@@ -144,7 +165,20 @@ SELECT SUBSTRING('abcdefg' FROM 'c.e') AS "cde";
 -- With a parenthesized subexpression, return only what matches the subexpr
 SELECT SUBSTRING('abcdefg' FROM 'b(.*)f') AS "cde";
 
--- PostgreSQL extension to allow using back reference in replace string;
+-- Check behavior of SIMILAR TO, which uses largely the same regexp variant
+SELECT 'abcdefg' SIMILAR TO '_bcd%' AS true;
+SELECT 'abcdefg' SIMILAR TO 'bcd%' AS false;
+SELECT 'abcdefg' SIMILAR TO '_bcd#%' ESCAPE '#' AS false;
+SELECT 'abcd%' SIMILAR TO '_bcd#%' ESCAPE '#' AS true;
+-- Postgres uses '\' as the default escape character, which is not per spec
+SELECT 'abcdefg' SIMILAR TO '_bcd\%' AS false;
+-- and an empty string to mean "no escape", which is also not per spec
+SELECT 'abcd\efg' SIMILAR TO '_bcd\%' ESCAPE '' AS true;
+-- these behaviors are per spec, though:
+SELECT 'abcdefg' SIMILAR TO '_bcd%' ESCAPE NULL AS null;
+SELECT 'abcdefg' SIMILAR TO '_bcd#%' ESCAPE '##' AS error;
+
+-- Test back reference in regexp_replace
 SELECT regexp_replace('1112223333', E'(\\d{3})(\\d{3})(\\d{4})', E'(\\1) \\2-\\3');
 SELECT regexp_replace('AAA   BBB   CCC   ', E'\\s+', ' ', 'g');
 SELECT regexp_replace('AAA', '^|$', 'Z', 'g');
@@ -479,6 +513,12 @@ SELECT strpos('abcdef', 'cd') AS "pos_3";
 
 SELECT strpos('abcdef', 'xy') AS "pos_0";
 
+SELECT strpos('abcdef', '') AS "pos_1";
+
+SELECT strpos('', 'xy') AS "pos_0";
+
+SELECT strpos('', '') AS "pos_1";
+
 --
 -- test replace
 --
@@ -556,6 +596,29 @@ SELECT sha384('The quick brown fox jumps over the lazy dog.');
 
 SELECT sha512('');
 SELECT sha512('The quick brown fox jumps over the lazy dog.');
+
+--
+-- encode/decode
+--
+SELECT encode('\x1234567890abcdef00', 'hex');
+SELECT decode('1234567890abcdef00', 'hex');
+SELECT encode(('\x' || repeat('1234567890abcdef0001', 7))::bytea, 'base64');
+SELECT decode(encode(('\x' || repeat('1234567890abcdef0001', 7))::bytea,
+                     'base64'), 'base64');
+SELECT encode('\x1234567890abcdef00', 'escape');
+SELECT decode(encode('\x1234567890abcdef00', 'escape'), 'escape');
+
+--
+-- get_bit/set_bit etc
+--
+SELECT get_bit('\x1234567890abcdef00'::bytea, 43);
+SELECT get_bit('\x1234567890abcdef00'::bytea, 99);  -- error
+SELECT set_bit('\x1234567890abcdef00'::bytea, 43, 0);
+SELECT set_bit('\x1234567890abcdef00'::bytea, 99, 0);  -- error
+SELECT get_byte('\x1234567890abcdef00'::bytea, 3);
+SELECT get_byte('\x1234567890abcdef00'::bytea, 99);  -- error
+SELECT set_byte('\x1234567890abcdef00'::bytea, 7, 11);
+SELECT set_byte('\x1234567890abcdef00'::bytea, 99, 11);  -- error
 
 --
 -- test behavior of escape_string_warning and standard_conforming_strings options

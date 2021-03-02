@@ -40,52 +40,45 @@ INSERT INTO SUBSELECT_TBL VALUES (3, 3, 3);
 INSERT INTO SUBSELECT_TBL VALUES (6, 7, 8);
 INSERT INTO SUBSELECT_TBL VALUES (8, 9, NULL);
 
-SELECT '' AS eight, * FROM SUBSELECT_TBL ORDER BY f1, f2, f3;
+SELECT '' AS eight, * FROM SUBSELECT_TBL;
 
 -- Uncorrelated subselects
 
 SELECT '' AS two, f1 AS "Constant Select" FROM SUBSELECT_TBL
-  WHERE f1 IN (SELECT 1) ORDER BY 2;
+  WHERE f1 IN (SELECT 1);
 
 SELECT '' AS six, f1 AS "Uncorrelated Field" FROM SUBSELECT_TBL
-  WHERE f1 IN (SELECT f2 FROM SUBSELECT_TBL) 
-  ORDER BY 2;
+  WHERE f1 IN (SELECT f2 FROM SUBSELECT_TBL);
 
 SELECT '' AS six, f1 AS "Uncorrelated Field" FROM SUBSELECT_TBL
   WHERE f1 IN (SELECT f2 FROM SUBSELECT_TBL WHERE
-    f2 IN (SELECT f1 FROM SUBSELECT_TBL)) 
-    ORDER BY 2;
+    f2 IN (SELECT f1 FROM SUBSELECT_TBL));
 
 SELECT '' AS three, f1, f2
   FROM SUBSELECT_TBL
   WHERE (f1, f2) NOT IN (SELECT f2, CAST(f3 AS int4) FROM SUBSELECT_TBL
-                         WHERE f3 IS NOT NULL) 
-                         ORDER BY f1, f2;
+                         WHERE f3 IS NOT NULL);
 
 -- Correlated subselects
 
 SELECT '' AS six, f1 AS "Correlated Field", f2 AS "Second Field"
   FROM SUBSELECT_TBL upper
-  WHERE f1 IN (SELECT f2 FROM SUBSELECT_TBL WHERE f1 = upper.f1) 
-  ORDER BY f1, f2;
+  WHERE f1 IN (SELECT f2 FROM SUBSELECT_TBL WHERE f1 = upper.f1);
 
 SELECT '' AS six, f1 AS "Correlated Field", f3 AS "Second Field"
   FROM SUBSELECT_TBL upper
   WHERE f1 IN
-    (SELECT f2 FROM SUBSELECT_TBL WHERE CAST(upper.f2 AS float) = f3)
-    ORDER BY 2, 3;
+    (SELECT f2 FROM SUBSELECT_TBL WHERE CAST(upper.f2 AS float) = f3);
 
 SELECT '' AS six, f1 AS "Correlated Field", f3 AS "Second Field"
   FROM SUBSELECT_TBL upper
   WHERE f3 IN (SELECT upper.f1 + f2 FROM SUBSELECT_TBL
-               WHERE f2 = CAST(f3 AS integer)) 
-               ORDER BY 2, 3;
+               WHERE f2 = CAST(f3 AS integer));
 
 SELECT '' AS five, f1 AS "Correlated Field"
   FROM SUBSELECT_TBL
   WHERE (f1, f2) IN (SELECT f2, CAST(f3 AS int4) FROM SUBSELECT_TBL
-                     WHERE f3 IS NOT NULL) 
-                     ORDER BY 2;
+                     WHERE f3 IS NOT NULL);
 
 --
 -- Use some existing tables in the regression test
@@ -94,8 +87,7 @@ SELECT '' AS five, f1 AS "Correlated Field"
 SELECT '' AS eight, ss.f1 AS "Correlated Field", ss.f3 AS "Second Field"
   FROM SUBSELECT_TBL ss
   WHERE f1 NOT IN (SELECT f1+1 FROM INT4_TBL
-                   WHERE f1 != ss.f1 AND f1 < 2147483647) 
-                   ORDER BY 2, 3;
+                   WHERE f1 != ss.f1 AND f1 < 2147483647);
 
 select q1, float8(count(*)) / (select count(*) from int8_tbl)
 from int8_tbl group by q1 order by q1;
@@ -239,8 +231,7 @@ END) AS "Status",
 END) AS "Status_OK"
 FROM orderstest ord;
 
-SELECT * FROM orders_view 
-ORDER BY approver_ref, po_ref, ordercanceled;
+SELECT * FROM orders_view;
 
 DROP TABLE orderstest cascade;
 
@@ -287,8 +278,7 @@ select * from shipped_view;
 
 select f1, ss1 as relabel from
     (select *, (select sum(f1) from int4_tbl b where f1 >= a.f1) as ss1
-     from int4_tbl a) ss 
-     ORDER BY f1, relabel;
+     from int4_tbl a) ss;
 
 --
 -- Test cases involving PARAM_EXEC parameters and min/max index optimizations.
@@ -321,12 +311,10 @@ create temp table float_table (float_col float8);
 insert into float_table values (1), (2), (3);
 
 select * from float_table
-  where float_col in (select num_col from numeric_table) 
-  ORDER BY float_col;
+  where float_col in (select num_col from numeric_table);
 
 select * from numeric_table
-  where num_col in (select float_col from float_table) 
-  ORDER BY num_col;
+  where num_col in (select float_col from float_table);
 
 --
 -- Test case for bug #4290: bogus calculation of subplan param sets
@@ -352,8 +340,7 @@ insert into tc values(2,2);
 select
   ( select min(tb.id) from tb
     where tb.aval = (select ta.val from ta where ta.id = tc.aid) ) as min_tb_id
-from tc 
-ORDER BY min_tb_id;
+from tc;
 
 --
 -- Test case for 8.3 "failed to locate grouping columns" bug
@@ -466,6 +453,16 @@ insert into inner_text values ('a', null);
 select * from outer_text where (f1, f2) not in (select * from inner_text);
 
 --
+-- Another test case for cross-type hashed subplans: comparison of
+-- inner-side values must be done with appropriate operator
+--
+
+explain (verbose, costs off)
+select 'foo'::text in (select 'bar'::name union all select 'bar'::name);
+
+select 'foo'::text in (select 'bar'::name union all select 'bar'::name);
+
+--
 -- Test case for premature memory release during hashing of subplan output
 --
 
@@ -497,6 +494,71 @@ explain (verbose, costs off)
     (select (select random() where y=y) as x from (values(1),(2)) v(y)) ss;
 
 --
+-- Test rescan of a hashed subplan (the use of random() is to prevent the
+-- sub-select from being pulled up, which would result in not hashing)
+--
+explain (verbose, costs off)
+select sum(ss.tst::int) from
+  onek o cross join lateral (
+  select i.ten in (select f1 from int4_tbl where f1 <= o.hundred) as tst,
+         random() as r
+  from onek i where i.unique1 = o.unique1 ) ss
+where o.ten = 0;
+
+select sum(ss.tst::int) from
+  onek o cross join lateral (
+  select i.ten in (select f1 from int4_tbl where f1 <= o.hundred) as tst,
+         random() as r
+  from onek i where i.unique1 = o.unique1 ) ss
+where o.ten = 0;
+
+--
+-- Test rescan of a SetOp node
+--
+explain (costs off)
+select count(*) from
+  onek o cross join lateral (
+    select * from onek i1 where i1.unique1 = o.unique1
+    except
+    select * from onek i2 where i2.unique1 = o.unique2
+  ) ss
+where o.ten = 1;
+
+select count(*) from
+  onek o cross join lateral (
+    select * from onek i1 where i1.unique1 = o.unique1
+    except
+    select * from onek i2 where i2.unique1 = o.unique2
+  ) ss
+where o.ten = 1;
+
+--
+-- Test rescan of a RecursiveUnion node
+--
+explain (costs off)
+select sum(o.four), sum(ss.a) from
+  onek o cross join lateral (
+    with recursive x(a) as
+      (select o.four as a
+       union
+       select a + 1 from x
+       where a < 10)
+    select * from x
+  ) ss
+where o.ten = 1;
+
+select sum(o.four), sum(ss.a) from
+  onek o cross join lateral (
+    with recursive x(a) as
+      (select o.four as a
+       union
+       select a + 1 from x
+       where a < 10)
+    select * from x
+  ) ss
+where o.ten = 1;
+
+--
 -- Check we don't misoptimize a NOT IN where the subquery returns no rows.
 --
 create temp table notinouter (a int);
@@ -520,6 +582,20 @@ select val.x
     values ((select s.i + 1)), (s.i + 101)
   ) as val(x)
 where s.i < 10 and (select val.x) < 110;
+
+-- another variant of that (bug #16213)
+explain (verbose, costs off)
+select * from
+(values
+  (3 not in (select * from (values (1), (2)) ss1)),
+  (false)
+) ss;
+
+select * from
+(values
+  (3 not in (select * from (values (1), (2)) ss1)),
+  (false)
+) ss;
 
 --
 -- Check sane behavior with nested IN SubLinks
@@ -549,7 +625,7 @@ select (select q from
           union all
           select 4,5,6.0 where f1 <= 0
          ) q )
-from int4_tbl ORDER BY 1;
+from int4_tbl;
 
 --
 -- Check that volatile quals aren't pushed down past a DISTINCT:
@@ -634,8 +710,6 @@ begin
         select * from (select pk,c2 from sq_limit order by c1,pk) as x limit 3
     loop
         ln := regexp_replace(ln, 'Memory: \S*',  'Memory: xxx');
-        -- this case might occur if force_parallel_mode is on:
-        ln := regexp_replace(ln, 'Worker 0:  Sort Method',  'Sort Method');
         return next ln;
     end loop;
 end;

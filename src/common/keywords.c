@@ -4,7 +4,7 @@
  *	  PostgreSQL's list of SQL keywords
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -20,7 +20,11 @@
 
 /* ScanKeywordList lookup data for SQL keywords */
 
+#ifdef ADBMGRD
+#include "kwlist_mgr_d.h"
+#else
 #include "kwlist_d.h"
+#endif
 
 /* Keyword categories for SQL keywords */
 

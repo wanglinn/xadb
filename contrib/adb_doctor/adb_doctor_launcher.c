@@ -493,7 +493,7 @@ static void launchNodeMonitorDoctor(MgrNodeWrapper *mgrNode)
 
 	bgworkerData = palloc0(sizeof(AdbDoctorBgworkerData));
 	bgworkerData->type = ADB_DOCTOR_TYPE_NODE_MONITOR;
-	bgworkerData->oid = mgrNode->oid;
+	bgworkerData->oid = mgrNode->form.oid;
 	bgworkerData->displayName = getDoctorDisplayName(bgworkerData->type,
 													 NameStr(mgrNode->form.nodename));
 	Assert(confShm != NULL);
@@ -731,7 +731,7 @@ static void terminateDoctor(AdbDoctorBgworkerStatus *bgworkerStatus,
 		dlist_foreach_modify(miter, cachedMonitorNodes)
 		{
 			mgrNode = dlist_container(MgrNodeWrapper, link, miter.cur);
-			if (mgrNode->oid == oid)
+			if (mgrNode->form.oid == oid)
 			{
 				dlist_delete(miter.cur);
 				pfreeMgrNodeWrapper(mgrNode);
@@ -968,7 +968,7 @@ static void tryRefreshNodeMonitorDoctors(bool confChanged,
 		dlist_foreach_modify(freshIter, &freshCmpList)
 		{
 			freshNode = dlist_container(MgrNodeWrapper, cmpLink, freshIter.cur);
-			if (staleNode->oid == freshNode->oid)
+			if (staleNode->form.oid == freshNode->form.oid)
 			{
 				dlist_delete(staleIter.cur);
 				dlist_delete(freshIter.cur);
@@ -976,12 +976,12 @@ static void tryRefreshNodeMonitorDoctors(bool confChanged,
 				{
 					if (confChanged)
 						signalDoctorByUniqueId(ADB_DOCTOR_TYPE_NODE_MONITOR,
-											   freshNode->oid);
+											   freshNode->form.oid);
 				}
 				else
 				{
 					signalDoctorByUniqueId(ADB_DOCTOR_TYPE_NODE_MONITOR,
-										   freshNode->oid);
+										   freshNode->form.oid);
 				}
 				break;
 			}
@@ -999,7 +999,7 @@ static void tryRefreshNodeMonitorDoctors(bool confChanged,
 		 * in cachedMonitorNodes(also pointed by iter.cur) will be pfreed. */
 		dlist_delete(miter.cur);
 		terminateDoctorByUniqueId(ADB_DOCTOR_TYPE_NODE_MONITOR,
-								  mgrNode->oid);
+								  mgrNode->form.oid);
 	}
 	/* The remaining data in freshCmpList exactly is addedList. */
 	dlist_foreach_modify(miter, &freshCmpList)

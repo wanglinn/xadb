@@ -38,6 +38,9 @@
 #ifndef NODE_BITMAPSET_ARRAY
 #	define NODE_BITMAPSET_ARRAY(t,m,l)
 #endif
+#ifndef NODE_BYTEA_ARRAY
+#	define NODE_BYTEA_ARRAY(t,m,l)
+#endif
 #ifndef NODE_RELIDS
 #	define NODE_RELIDS(t,m) NODE_BITMAPSET(Bitmapset,m)
 #endif
@@ -315,6 +318,12 @@ NODE_SPECIAL_MEB(SetOp)
 	dupCollations NODE_SCALAR_POINT(Oid,dupCollations,NODE_ARG_->numCols)
 END_SPECIAL_MEB(SetOp)
 
+NODE_SPECIAL_MEB(Limit)
+	uniqColIdx NODE_SCALAR_POINT(AttrNumber,uniqColIdx,NODE_ARG_->uniqNumCols)
+	uniqOperators NODE_SCALAR_POINT(Oid,uniqOperators,NODE_ARG_->uniqNumCols)
+	uniqCollations NODE_SCALAR_POINT(Oid,uniqCollations,NODE_ARG_->uniqNumCols)
+END_SPECIAL_MEB(Limit)
+
 NODE_SPECIAL_MEB(IndexOptInfo)
 	indexkeys NODE_SCALAR_POINT(int,indexkeys,NODE_ARG_->ncolumns)
 	indexcollations NODE_SCALAR_POINT(Oid,indexcollations,NODE_ARG_->ncolumns)
@@ -323,6 +332,7 @@ NODE_SPECIAL_MEB(IndexOptInfo)
 	sortopfamily NODE_SCALAR_POINT(Oid,sortopfamily,NODE_ARG_->ncolumns)
 	reverse_sort NODE_SCALAR_POINT(bool,reverse_sort,NODE_ARG_->ncolumns)
 	nulls_first NODE_SCALAR_POINT(bool,nulls_first,NODE_ARG_->ncolumns)
+	opclassoptions NODE_BYTEA_ARRAY(bytea,opclassoptions,NODE_ARG_->ncolumns)
 	canreturn NODE_SCALAR_POINT(bool,canreturn,NODE_ARG_->ncolumns)
 	amcostestimate NODE_OTHER_POINT(void,amcostestimate)
 END_SPECIAL_MEB(IndexOptInfo)
@@ -527,6 +537,7 @@ END_SPECIAL_MEB(WindowFunc)
 NODE_SPECIAL_MEB(AppendRelInfo)
 	parent_reltype NODE_OID(type,parent_reltype)
 	child_reltype NODE_OID(type,child_reltype)
+	parent_colnos NODE_SCALAR_POINT(AttrNumber,parent_colnos,NODE_ARG_->num_child_cols)
 END_SPECIAL_MEB(AppendRelInfo)
 
 NODE_SPECIAL_MEB(ArrayCoerceExpr)

@@ -10,10 +10,10 @@
  *
  * Formerly, CTAS was implemented as a variant of SELECT, which led
  * to assorted legacy behaviors that we still try to preserve, notably that
- * we must return a tuples-processed count in the completionTag.  (We no
+ * we must return a tuples-processed count in the QueryCompletion.  (We no
  * longer do that for CTAS ... WITH NO DATA, however.)
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -25,8 +25,8 @@
 #include "postgres.h"
 
 #include "access/heapam.h"
-#include "access/reloptions.h"
 #include "access/htup_details.h"
+#include "access/reloptions.h"
 #include "access/sysattr.h"
 #include "access/tableam.h"
 #include "access/xact.h"
@@ -204,7 +204,7 @@ create_ctas_nodata(List *tlist, IntoClause *into ADB_SEQ_ROWID_COMMA_ARGS(bool *
 			if (lc)
 			{
 				colname = strVal(lfirst(lc));
-				lc = lnext(lc);
+				lc = lnext(into->colNames, lc);
 			}
 			else
 				colname = tle->resname;
@@ -285,9 +285,9 @@ static void ExecCreateTableRowidEnd(CreateTableAsStmt *stmt, Oid relid)
  * ExecCreateTableAs -- execute a CREATE TABLE AS command
  */
 ObjectAddress
-ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
+ExecCreateTableAs(ParseState *pstate, CreateTableAsStmt *stmt,
 				  ParamListInfo params, QueryEnvironment *queryEnv,
-				  char *completionTag)
+				  QueryCompletion *qc)
 {
 	Query	   *query = castNode(Query, stmt->query);
 	IntoClause *into = stmt->into;
@@ -335,7 +335,7 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 		ExecuteStmt *estmt = castNode(ExecuteStmt, query->utilityStmt);
 
 		Assert(!is_matview);	/* excluded by syntax */
-		ExecuteQuery(estmt, into, queryString, params, dest, completionTag ADB_ONLY_COMMA_ARG(false));
+		ExecuteQuery(pstate, estmt, into, params, dest, qc ADB_ONLY_COMMA_ARG(false));
 
 		/* get object address that intorel_startup saved for us */
 		address = ((DR_intorel *) dest)->reladdr;
@@ -398,7 +398,8 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 		Assert(query->commandType == CMD_SELECT);
 
 		/* plan the query */
-		plan = pg_plan_query(query, CURSOR_OPT_PARALLEL_OK, params);
+		plan = pg_plan_query(query, pstate->p_sourcetext,
+							 CURSOR_OPT_PARALLEL_OK, params);
 
 		/*
 		 * Use a snapshot with an updated command ID to ensure this query sees
@@ -411,7 +412,7 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 		UpdateActiveSnapshotCommandId();
 
 		/* Create a QueryDesc, redirecting output to our tuple receiver */
-		queryDesc = CreateQueryDesc(plan, queryString,
+		queryDesc = CreateQueryDesc(plan, pstate->p_sourcetext,
 									GetActiveSnapshot(), InvalidSnapshot,
 									dest, params, queryEnv, 0);
 
@@ -437,11 +438,9 @@ ExecCreateTableAs(CreateTableAsStmt *stmt, const char *queryString,
 		/* run the plan to completion */
 		ExecutorRun(queryDesc, ForwardScanDirection, 0L, true);
 
-		/* save the rowcount if we're given a completionTag to fill */
-		if (completionTag)
-			snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
-					 "SELECT " UINT64_FORMAT,
-					 queryDesc->estate->es_processed);
+		/* save the rowcount if we're given a qc to fill */
+		if (qc)
+			SetQueryCompletion(qc, CMDTAG_SELECT, queryDesc->estate->es_processed);
 
 		/* get object address that intorel_startup saved for us */
 		address = ((DR_intorel *) dest)->reladdr;
@@ -558,7 +557,7 @@ intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 		if (lc)
 		{
 			colname = strVal(lfirst(lc));
-			lc = lnext(lc);
+			lc = lnext(into->colNames, lc);
 		}
 		else
 			colname = NameStr(attribute->attname);
@@ -639,7 +638,7 @@ intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	if (check_enable_rls(intoRelationAddr.objectId, InvalidOid, false) == RLS_ENABLED)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 (errmsg("policies not yet implemented for this command"))));
+				 errmsg("policies not yet implemented for this command")));
 
 	/*
 	 * Tentatively mark the target as populated, if it's a matview and we're
@@ -654,16 +653,13 @@ intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	myState->rel = intoRelationDesc;
 	myState->reladdr = intoRelationAddr;
 	myState->output_cid = GetCurrentCommandId(true);
-
-	/*
-	 * We can skip WAL-logging the insertions, unless PITR or streaming
-	 * replication is in use. We can skip the FSM in any case.
-	 */
-	myState->ti_options = TABLE_INSERT_SKIP_FSM |
-		(XLogIsNeeded() ? 0 : TABLE_INSERT_SKIP_WAL);
+	myState->ti_options = TABLE_INSERT_SKIP_FSM;
 	myState->bistate = GetBulkInsertState();
 
-	/* Not using WAL requires smgr_targblock be initially invalid */
+	/*
+	 * Valid smgr_targblock implies something already wrote to the relation.
+	 * This may be harmless, but this function hasn't planned for it.
+	 */
 	Assert(RelationGetTargetBlock(intoRelationDesc) == InvalidBlockNumber);
 }
 

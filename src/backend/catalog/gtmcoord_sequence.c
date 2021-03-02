@@ -183,11 +183,13 @@ ProcessAGtmCommand(StringInfo input_message, CommandDest dest)
 	StringInfo output;
 	AGTM_MessageType mtype;
 	StringInfoData buf;
+	QueryCompletion qc;
 
 	mtype = pq_getmsgint(input_message, sizeof (AGTM_MessageType));
 	msg_name = gtm_util_message_name(mtype);
-	set_ps_display(msg_name, true);
-	BeginCommand(msg_name, dest);
+	qc.commandTag = gtm_util_message_tag(mtype);
+	set_ps_display(msg_name);
+	BeginCommand(qc.commandTag, dest);
 	ereport(DEBUG1,
 		(errmsg("[ pid=%d] Process Command mtype = %s (%d).",
 		MyProcPid, msg_name, (int)mtype)));
@@ -248,7 +250,7 @@ ProcessAGtmCommand(StringInfo input_message, CommandDest dest)
 		(*receiver->rDestroy)(receiver);
 	}
 
-	EndCommand(msg_name, dest);
+	EndCommand(&qc, dest, false);
 
 	pfree(buf.data);
 }

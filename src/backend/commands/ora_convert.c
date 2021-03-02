@@ -46,7 +46,7 @@
 
 static void CreateOracleConvertLocal(CreateOracleConvertStmt *stmt, ParseState *pstate);
 static void DropOracleConvertLocal(DropStmt *stmt);
-static oidvector* GetTypeOidVector(ListCell *lc, int count, bool missing_ok, ParseState *pstate);
+static oidvector* GetTypeOidVector(List *list, ListCell *lc, int count, bool missing_ok, ParseState *pstate);
 
 #ifdef ADB
 void ClusterCreateOracleConvert(StringInfo mem_toc);
@@ -152,8 +152,8 @@ static void CreateOracleConvertLocal(CreateOracleConvertStmt *stmt, ParseState *
 		(stmt->cvtkind == ORA_CONVERT_KIND_FUNCTION || stmt->cvtkind == ORA_CONVERT_KIND_OPERATOR))
 		elog(ERROR, "The number of unqualified parameters or inconsistent parameters.");
 
-	cvtfrom = GetTypeOidVector(list_head(stmt->cvtfrom), cvtfromList_count, false, pstate);
-	cvtto = GetTypeOidVector(list_head(stmt->cvtto), cvttoList_count, false, pstate);
+	cvtfrom = GetTypeOidVector(stmt->cvtfrom, list_head(stmt->cvtfrom), cvtfromList_count, false, pstate);
+	cvtto = GetTypeOidVector(stmt->cvtto, list_head(stmt->cvtto), cvttoList_count, false, pstate);
 
 	Assert(stmt->cvtname);
 	convert_rel = table_open(OraConvertRelationId, RowExclusiveLock);
@@ -272,12 +272,12 @@ Oid GetOracleConvertOid(List *objects, bool missing_ok)
 	Assert(IsA(lfirst(lc), Integer));
 	cvtkind = CharGetDatum(intVal(lfirst(lc)));
 
-	lc = lnext(lc);
+	lc = lnext(objects, lc);
 	Assert(IsA(lfirst(lc), String));
 	cvtname = CStringGetDatum(strVal(lfirst(lc)));
 
-	lc = lnext(lc);
-	cvtfrom = GetTypeOidVector(lc, list_length(objects)-2, missing_ok, NULL);
+	lc = lnext(objects, lc);
+	cvtfrom = GetTypeOidVector(objects, lc, list_length(objects)-2, missing_ok, NULL);
 	if (cvtfrom == NULL)
 	{
 		Assert(missing_ok);
@@ -393,12 +393,12 @@ static void DropOracleConvertLocal(DropStmt *stmt)
 	Assert(IsA(lfirst(lc), Integer));
 	cvtkind = CharGetDatum(intVal(lfirst(lc)));
 
-	lc = lnext(lc);
+	lc = lnext(stmt->objects, lc);
 	Assert(IsA(lfirst(lc), String));
 	cvtname = CStringGetDatum(strVal(lfirst(lc)));
 
-	lc = lnext(lc);
-	cvtfrom = GetTypeOidVector(lc, list_length(stmt->objects)-2, true, NULL);
+	lc = lnext(stmt->objects, lc);
+	cvtfrom = GetTypeOidVector(stmt->objects, lc, list_length(stmt->objects)-2, true, NULL);
 
 	convert_rel = table_open(OraConvertRelationId, RowExclusiveLock);
 	tuple = SearchSysCache3(ORACONVERTSCID,
@@ -548,7 +548,7 @@ TypenameGetTypOid(TypeName *typname, bool *find)
 	}
 }
 
-static oidvector* GetTypeOidVector(ListCell *lc, int count, bool missing_ok, ParseState *pstate)
+static oidvector* GetTypeOidVector(List *list, ListCell *lc, int count, bool missing_ok, ParseState *pstate)
 {
 	bool		find_oid;
 	int			i;
@@ -573,7 +573,7 @@ static oidvector* GetTypeOidVector(ListCell *lc, int count, bool missing_ok, Par
 					 parser_errposition(pstate, typeName->location)));
 		}
 		ov->values[i] = oid;
-		lc = lnext(lc);
+		lc = lnext(list, lc);
 	}
 
 	return ov;

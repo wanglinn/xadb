@@ -6,7 +6,7 @@
  * See src/backend/utils/misc/README for more information.
  *
  *
- * Copyright (c) 2000-2019, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2020, PostgreSQL Global Development Group
  * Written by Peter Eisentraut <peter_e@gmx.net>.
  *
  * IDENTIFICATION
@@ -36,12 +36,13 @@
 #include "access/xlog_internal.h"
 #include "catalog/namespace.h"
 #include "catalog/pg_authid.h"
+#include "catalog/storage.h"
 #include "commands/async.h"
 #include "commands/prepare.h"
+#include "commands/trigger.h"
 #include "commands/user.h"
 #include "commands/vacuum.h"
 #include "commands/variable.h"
-#include "commands/trigger.h"
 #include "common/string.h"
 #include "funcapi.h"
 #include "jit/jit.h"
@@ -69,24 +70,26 @@
 #include "postmaster/syslogger.h"
 #include "postmaster/walwriter.h"
 #include "replication/logicallauncher.h"
+#include "replication/reorderbuffer.h"
 #include "replication/slot.h"
 #include "replication/syncrep.h"
 #include "replication/walreceiver.h"
 #include "replication/walsender.h"
 #include "storage/bufmgr.h"
 #include "storage/dsm_impl.h"
-#include "storage/standby.h"
 #include "storage/fd.h"
 #include "storage/large_object.h"
 #include "storage/pg_shmem.h"
-#include "storage/proc.h"
 #include "storage/predicate.h"
+#include "storage/proc.h"
+#include "storage/standby.h"
 #include "tcop/tcopprot.h"
 #include "tsearch/ts_cache.h"
+#include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/bytea.h"
-#include "utils/guc_tables.h"
 #include "utils/float.h"
+#include "utils/guc_tables.h"
 #include "utils/memutils.h"
 #include "utils/pg_locale.h"
 #include "utils/pg_lsn.h"
@@ -159,6 +162,7 @@ extern int	CommitSiblings;
 extern char *default_tablespace;
 extern char *temp_tablespaces;
 extern bool ignore_checksum_failure;
+extern bool ignore_invalid_pages;
 extern bool synchronize_seqscans;
 
 #ifdef TRACE_SYNCSCAN
@@ -234,7 +238,7 @@ static bool check_autovacuum_max_workers(int *newval, void **extra, GucSource so
 static bool check_max_wal_senders(int *newval, void **extra, GucSource source);
 static bool check_autovacuum_work_mem(int *newval, void **extra, GucSource source);
 static bool check_effective_io_concurrency(int *newval, void **extra, GucSource source);
-static void assign_effective_io_concurrency(int newval, void *extra);
+static bool check_maintenance_io_concurrency(int *newval, void **extra, GucSource source);
 static void assign_pgstat_temp_directory(const char *newval, void *extra);
 static bool check_application_name(char **newval, void **extra, GucSource source);
 static void assign_application_name(const char *newval, void *extra);
@@ -242,6 +246,8 @@ static bool check_cluster_name(char **newval, void **extra, GucSource source);
 static const char *show_unix_socket_permissions(void);
 static const char *show_log_file_mode(void);
 static const char *show_data_directory_mode(void);
+static bool check_backtrace_functions(char **newval, void **extra, GucSource source);
+static void assign_backtrace_functions(const char *newval, void *extra);
 static bool check_recovery_target_timeline(char **newval, void **extra, GucSource source);
 static void assign_recovery_target_timeline(const char *newval, void *extra);
 static bool check_recovery_target(char **newval, void **extra, GucSource source);
@@ -279,6 +285,9 @@ static const struct config_enum_entry bytea_output_options[] = {
 	{"hex", BYTEA_OUTPUT_HEX, false},
 	{NULL, 0, false}
 };
+
+StaticAssertDecl(lengthof(bytea_output_options) == (BYTEA_OUTPUT_HEX + 2),
+				 "array length mismatch");
 
 /*
  * We have different sets for client and server message level options because
@@ -335,12 +344,18 @@ static const struct config_enum_entry intervalstyle_options[] = {
 	{NULL, 0, false}
 };
 
+StaticAssertDecl(lengthof(intervalstyle_options) == (INTSTYLE_ISO_8601 + 2),
+				 "array length mismatch");
+
 static const struct config_enum_entry log_error_verbosity_options[] = {
 	{"terse", PGERROR_TERSE, false},
 	{"default", PGERROR_DEFAULT, false},
 	{"verbose", PGERROR_VERBOSE, false},
 	{NULL, 0, false}
 };
+
+StaticAssertDecl(lengthof(log_error_verbosity_options) == (PGERROR_VERBOSE + 2),
+				 "array length mismatch");
 
 static const struct config_enum_entry log_statement_options[] = {
 	{"none", LOGSTMT_NONE, false},
@@ -349,6 +364,9 @@ static const struct config_enum_entry log_statement_options[] = {
 	{"all", LOGSTMT_ALL, false},
 	{NULL, 0, false}
 };
+
+StaticAssertDecl(lengthof(log_statement_options) == (LOGSTMT_ALL + 2),
+				 "array length mismatch");
 
 static const struct config_enum_entry isolation_level_options[] = {
 #ifdef ADB
@@ -371,6 +389,9 @@ static const struct config_enum_entry session_replication_role_options[] = {
 	{"local", SESSION_REPLICATION_ROLE_LOCAL, false},
 	{NULL, 0, false}
 };
+
+StaticAssertDecl(lengthof(session_replication_role_options) == (SESSION_REPLICATION_ROLE_LOCAL + 2),
+				 "array length mismatch");
 
 static const struct config_enum_entry syslog_facility_options[] = {
 #ifdef HAVE_SYSLOG
@@ -395,17 +416,26 @@ static const struct config_enum_entry track_function_options[] = {
 	{NULL, 0, false}
 };
 
+StaticAssertDecl(lengthof(track_function_options) == (TRACK_FUNC_ALL + 2),
+				 "array length mismatch");
+
 static const struct config_enum_entry xmlbinary_options[] = {
 	{"base64", XMLBINARY_BASE64, false},
 	{"hex", XMLBINARY_HEX, false},
 	{NULL, 0, false}
 };
 
+StaticAssertDecl(lengthof(xmlbinary_options) == (XMLBINARY_HEX + 2),
+				 "array length mismatch");
+
 static const struct config_enum_entry xmloption_options[] = {
 	{"content", XMLOPTION_CONTENT, false},
 	{"document", XMLOPTION_DOCUMENT, false},
 	{NULL, 0, false}
 };
+
+StaticAssertDecl(lengthof(xmloption_options) == (XMLOPTION_CONTENT + 2),
+				 "array length mismatch");
 
 /*
  * Although only "on", "off", and "safe_encoding" are documented, we
@@ -598,6 +628,9 @@ const struct config_enum_entry ssl_protocol_versions_info[] = {
 	{NULL, 0, false}
 };
 
+StaticAssertDecl(lengthof(ssl_protocol_versions_info) == (PG_TLS1_3_VERSION + 2),
+				 "array length mismatch");
+
 static struct config_enum_entry shared_memory_options[] = {
 #ifndef WIN32
 	{"sysv", SHMEM_TYPE_SYSV, false},
@@ -660,11 +693,16 @@ bool		session_auth_is_superuser;
 int			log_min_error_statement = ERROR;
 int			log_min_messages = WARNING;
 int			client_min_messages = NOTICE;
+int			log_min_duration_sample = -1;
 int			log_min_duration_statement = -1;
+int			log_parameter_max_length = -1;
+int			log_parameter_max_length_on_error = 0;
 int			log_temp_files = -1;
 double		log_statement_sample_rate = 1.0;
 double		log_xact_sample_rate = 0;
 int			trace_recovery_messages = LOG;
+char	   *backtrace_functions;
+char	   *backtrace_symbol_list;
 
 int			temp_file_limit = -1;
 
@@ -791,6 +829,9 @@ const char *const GucContext_Names[] =
 	 /* PGC_USERSET */ "user"
 };
 
+StaticAssertDecl(lengthof(GucContext_Names) == (PGC_USERSET + 1),
+				 "array length mismatch");
+
 /*
  * Displayable names for source types (enum GucSource)
  *
@@ -813,6 +854,9 @@ const char *const GucSource_Names[] =
 	 /* PGC_S_TEST */ "test",
 	 /* PGC_S_SESSION */ "session"
 };
+
+StaticAssertDecl(lengthof(GucSource_Names) == (PGC_S_SESSION + 1),
+				 "array length mismatch");
 
 /*
  * Displayable names for the groupings defined in enum config_group
@@ -939,6 +983,14 @@ const char *const config_group_names[] =
 	NULL
 };
 
+#ifdef ADB
+StaticAssertDecl(lengthof(config_group_names) == (XC_HOUSEKEEPING_OPTIONS + 2),
+				 "array length mismatch");
+#else
+StaticAssertDecl(lengthof(config_group_names) == (DEVELOPER_OPTIONS + 2),
+				 "array length mismatch");
+#endif
+
 /*
  * Displayable names for GUC variable types (enum config_type)
  *
@@ -952,6 +1004,9 @@ const char *const config_type_names[] =
 	 /* PGC_STRING */ "string",
 	 /* PGC_ENUM */ "enum"
 };
+
+StaticAssertDecl(lengthof(config_type_names) == (PGC_ENUM + 1),
+				 "array length mismatch");
 
 /*
  * Unit conversion tables.
@@ -1155,6 +1210,15 @@ static struct config_bool ConfigureNamesBool[] =
 		NULL, NULL, NULL
 	},
 	{
+		{"enable_incrementalsort", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of incremental sort steps."),
+			NULL
+		},
+		&enable_incrementalsort,
+		true,
+		NULL, NULL, NULL
+	},
+	{
 		{"enable_hashagg", PGC_USERSET, QUERY_TUNING_METHOD,
 			gettext_noop("Enables the planner's use of hashed aggregation plans."),
 			NULL,
@@ -1162,6 +1226,26 @@ static struct config_bool ConfigureNamesBool[] =
 		},
 		&enable_hashagg,
 		true,
+		NULL, NULL, NULL
+	},
+	{
+		{"enable_hashagg_disk", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of hashed aggregation plans that are expected to exceed work_mem."),
+			NULL,
+			GUC_EXPLAIN
+		},
+		&enable_hashagg_disk,
+		true,
+		NULL, NULL, NULL
+	},
+	{
+		{"enable_groupingsets_hash_disk", PGC_USERSET, QUERY_TUNING_METHOD,
+			gettext_noop("Enables the planner's use of hashed aggregation plans for groupingsets when the total size of the hash tables is expected to exceed work_mem."),
+			NULL,
+			GUC_EXPLAIN
+		},
+		&enable_groupingsets_hash_disk,
+		false,
 		NULL, NULL, NULL
 	},
 	{
@@ -1256,7 +1340,7 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 	{
 		{"enable_partition_pruning", PGC_USERSET, QUERY_TUNING_METHOD,
-			gettext_noop("Enable plan-time and run-time partition pruning."),
+			gettext_noop("Enables plan-time and run-time partition pruning."),
 			gettext_noop("Allows the query planner and executor to compare partition "
 						 "bounds to conditions in the query to determine which "
 						 "partitions must be scanned."),
@@ -1371,6 +1455,25 @@ static struct config_bool ConfigureNamesBool[] =
 			GUC_NOT_IN_SAMPLE
 		},
 		&zero_damaged_pages,
+		false,
+		NULL, NULL, NULL
+	},
+	{
+		{"ignore_invalid_pages", PGC_POSTMASTER, DEVELOPER_OPTIONS,
+			gettext_noop("Continues recovery after an invalid pages failure."),
+			gettext_noop("Detection of WAL records having references to "
+						 "invalid pages during recovery causes PostgreSQL to "
+						 "raise a PANIC-level error, aborting the recovery. "
+						 "Setting ignore_invalid_pages to true causes "
+						 "the system to ignore invalid page references "
+						 "in WAL records (but still report a warning), "
+						 "and continue recovery. This behavior may cause "
+						 "crashes, data loss, propagate or hide corruption, "
+						 "or other serious problems. Only has an effect "
+						 "during recovery or in standby mode."),
+			GUC_NOT_IN_SAMPLE
+		},
+		&ignore_invalid_pages,
 		false,
 		NULL, NULL, NULL
 	},
@@ -2086,7 +2189,7 @@ static struct config_bool ConfigureNamesBool[] =
 	},
 
 	{
-		{"allow_system_table_mods", PGC_POSTMASTER, DEVELOPER_OPTIONS,
+		{"allow_system_table_mods", PGC_SUSET, DEVELOPER_OPTIONS,
 			gettext_noop("Allows modifications of the structure of system tables."),
 			NULL,
 			GUC_NOT_IN_SAMPLE
@@ -2264,6 +2367,14 @@ static struct config_bool ConfigureNamesBool[] =
 			gettext_noop("Whether to continue running after a failure to sync data files."),
 		},
 		&data_sync_retry,
+		false,
+		NULL, NULL, NULL
+	},
+	{
+		{"wal_receiver_create_temp_slot", PGC_SIGHUP, REPLICATION_STANDBY,
+			gettext_noop("Sets whether a WAL receiver should create a temporary replication slot if no permanent slot is configured."),
+		},
+		&wal_receiver_create_temp_slot,
 		false,
 		NULL, NULL, NULL
 	},
@@ -2784,6 +2895,18 @@ static struct config_int ConfigureNamesInt[] =
 		NULL, NULL, NULL
 	},
 
+	{
+		{"logical_decoding_work_mem", PGC_USERSET, RESOURCES_MEM,
+			gettext_noop("Sets the maximum memory to be used for logical decoding."),
+			gettext_noop("This much memory can be used by each internal "
+						 "reorder buffer before spilling to disk."),
+			GUC_UNIT_KB
+		},
+		&logical_decoding_work_mem,
+		65536, 64, MAX_KILOBYTES,
+		NULL, NULL, NULL
+	},
+
 	/*
 	 * We use the hopefully-safely-small value of 100kB as the compiled-in
 	 * default for max_stack_depth.  InitializeGUCOptions will increase it if
@@ -2867,7 +2990,7 @@ static struct config_int ConfigureNamesInt[] =
 			NULL
 		},
 		&max_files_per_process,
-		1000, 25, INT_MAX,
+		1000, 64, INT_MAX,
 		NULL, NULL, NULL
 	},
 
@@ -3217,6 +3340,17 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
+		{"wal_skip_threshold", PGC_USERSET, WAL_SETTINGS,
+			gettext_noop("Size of new file to fsync instead of writing WAL."),
+			NULL,
+			GUC_UNIT_KB
+		},
+		&wal_skip_threshold,
+		2048, 0, MAX_KILOBYTES,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"max_wal_senders", PGC_POSTMASTER, REPLICATION_SENDING,
 			gettext_noop("Sets the maximum number of simultaneously running WAL sender processes."),
 			NULL
@@ -3234,6 +3368,19 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&max_replication_slots,
 		10, 0, MAX_BACKENDS /* XXX? */ ,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"max_slot_wal_keep_size", PGC_SIGHUP, REPLICATION_SENDING,
+			gettext_noop("Sets the maximum WAL size that can be reserved by replication slots."),
+			gettext_noop("Replication slots will be marked as failed, and segments released "
+						 "for deletion or recycling, if this much space is occupied by WAL "
+						 "on disk."),
+			GUC_UNIT_MB
+		},
+		&max_slot_wal_keep_size_mb,
+		-1, -1, MAX_KILOBYTES,
 		NULL, NULL, NULL
 	},
 
@@ -3285,11 +3432,23 @@ static struct config_int ConfigureNamesInt[] =
 	},
 
 	{
+		{"log_min_duration_sample", PGC_SUSET, LOGGING_WHEN,
+			gettext_noop("Sets the minimum execution time above which "
+						 "a sample of statements will be logged."
+						 " Sampling is determined by log_statement_sample_rate."),
+			gettext_noop("Zero log a sample of all queries. -1 turns this feature off."),
+			GUC_UNIT_MS
+		},
+		&log_min_duration_sample,
+		-1, -1, INT_MAX,
+		NULL, NULL, NULL
+	},
+
+	{
 		{"log_min_duration_statement", PGC_SUSET, LOGGING_WHEN,
 			gettext_noop("Sets the minimum execution time above which "
-						 "statements will be logged."),
-			gettext_noop("Zero prints all queries, subject to log_statement_sample_rate. "
-						 "-1 turns this feature off."),
+						 "all statements will be logged."),
+			gettext_noop("Zero prints all queries. -1 turns this feature off."),
 			GUC_UNIT_MS
 		},
 		&log_min_duration_statement,
@@ -3306,6 +3465,28 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&Log_autovacuum_min_duration,
 		-1, -1, INT_MAX,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"log_parameter_max_length", PGC_SUSET, LOGGING_WHAT,
+			gettext_noop("When logging statements, limit logged parameter values to first N bytes."),
+			gettext_noop("-1 to print values in full."),
+			GUC_UNIT_BYTE
+		},
+		&log_parameter_max_length,
+		-1, -1, INT_MAX / 2,
+		NULL, NULL, NULL
+	},
+
+	{
+		{"log_parameter_max_length_on_error", PGC_USERSET, LOGGING_WHAT,
+			gettext_noop("When reporting an error, limit logged parameter values to first N bytes."),
+			gettext_noop("-1 to print values in full."),
+			GUC_UNIT_BYTE
+		},
+		&log_parameter_max_length_on_error,
+		0, -1, INT_MAX / 2,
 		NULL, NULL, NULL
 	},
 
@@ -3356,7 +3537,25 @@ static struct config_int ConfigureNamesInt[] =
 		0,
 #endif
 		0, MAX_IO_CONCURRENCY,
-		check_effective_io_concurrency, assign_effective_io_concurrency, NULL
+		check_effective_io_concurrency, NULL, NULL
+	},
+
+	{
+		{"maintenance_io_concurrency",
+			PGC_USERSET,
+			RESOURCES_ASYNCHRONOUS,
+			gettext_noop("A variant of effective_io_concurrency that is used for maintenance work."),
+			NULL,
+			GUC_EXPLAIN
+		},
+		&maintenance_io_concurrency,
+#ifdef USE_PREFETCH
+		10,
+#else
+		0,
+#endif
+		0, MAX_IO_CONCURRENCY,
+		check_maintenance_io_concurrency, NULL, NULL
 	},
 
 	{
@@ -3555,6 +3754,15 @@ static struct config_int ConfigureNamesInt[] =
 		},
 		&autovacuum_vac_thresh,
 		50, 0, INT_MAX,
+		NULL, NULL, NULL
+	},
+	{
+		{"autovacuum_vacuum_insert_threshold", PGC_SIGHUP, AUTOVACUUM,
+			gettext_noop("Minimum number of tuple inserts prior to vacuum, or -1 to disable insert vacuums"),
+			NULL
+		},
+		&autovacuum_vac_ins_thresh,
+		1000, -1, INT_MAX,
 		NULL, NULL, NULL
 	},
 	{
@@ -3808,7 +4016,7 @@ static struct config_int ConfigureNamesInt[] =
 			GUC_UNIT_BYTE
 		},
 		&pgstat_track_activity_query_size,
-		1024, 100, 102400,
+		1024, 100, 1048576,
 		NULL, NULL, NULL
 	},
 
@@ -4273,6 +4481,17 @@ static struct config_real ConfigureNamesReal[] =
 		0.2, 0.0, 100.0,
 		NULL, NULL, NULL
 	},
+
+	{
+		{"autovacuum_vacuum_insert_scale_factor", PGC_SIGHUP, AUTOVACUUM,
+			gettext_noop("Number of tuple inserts prior to vacuum as a fraction of reltuples."),
+			NULL
+		},
+		&autovacuum_vac_ins_scale,
+		0.2, 0.0, 100.0,
+		NULL, NULL, NULL
+	},
+
 	{
 		{"autovacuum_analyze_scale_factor", PGC_SIGHUP, AUTOVACUUM,
 			gettext_noop("Number of tuple inserts, updates, or deletes prior to analyze as a fraction of reltuples."),
@@ -4305,9 +4524,8 @@ static struct config_real ConfigureNamesReal[] =
 
 	{
 		{"log_statement_sample_rate", PGC_SUSET, LOGGING_WHEN,
-			gettext_noop("Fraction of statements exceeding log_min_duration_statement to be logged."),
-			gettext_noop("If you only want a sample, use a value between 0.0 (never "
-						 "log) and 1.0 (always log).")
+			gettext_noop("Fraction of statements exceeding log_min_duration_sample to be logged."),
+			gettext_noop("Use a value between 0.0 (never log) and 1.0 (always log).")
 		},
 		&log_statement_sample_rate,
 		1.0, 0.0, 1.0,
@@ -4377,7 +4595,7 @@ static struct config_string ConfigureNamesString[] =
 
 	{
 		{"recovery_target_timeline", PGC_POSTMASTER, WAL_RECOVERY_TARGET,
-			gettext_noop("Specifies the timeline to recovery into."),
+			gettext_noop("Specifies the timeline to recover into."),
 			NULL
 		},
 		&recovery_target_timeline_string,
@@ -4387,7 +4605,7 @@ static struct config_string ConfigureNamesString[] =
 
 	{
 		{"recovery_target", PGC_POSTMASTER, WAL_RECOVERY_TARGET,
-			gettext_noop("Set to 'immediate' to end recovery as soon as a consistent state is reached."),
+			gettext_noop("Set to \"immediate\" to end recovery as soon as a consistent state is reached."),
 			NULL
 		},
 		&recovery_target_string,
@@ -4453,7 +4671,7 @@ static struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"primary_conninfo", PGC_POSTMASTER, REPLICATION_STANDBY,
+		{"primary_conninfo", PGC_SIGHUP, REPLICATION_STANDBY,
 			gettext_noop("Sets the connection string to be used to connect to the sending server."),
 			NULL,
 			GUC_SUPERUSER_ONLY
@@ -4464,7 +4682,7 @@ static struct config_string ConfigureNamesString[] =
 	},
 
 	{
-		{"primary_slot_name", PGC_POSTMASTER, REPLICATION_STANDBY,
+		{"primary_slot_name", PGC_SIGHUP, REPLICATION_STANDBY,
 			gettext_noop("Sets the name of the replication slot to use on the sending server."),
 			NULL
 		},
@@ -5009,7 +5227,7 @@ static struct config_string ConfigureNamesString[] =
 			GUC_SUPERUSER_ONLY
 		},
 		&SSLCipherSuites,
-#ifdef USE_SSL
+#ifdef USE_OPENSSL
 		"HIGH:MEDIUM:+3DES:!aNULL",
 #else
 		"none",
@@ -5046,7 +5264,8 @@ static struct config_string ConfigureNamesString[] =
 	{
 		{"ssl_passphrase_command", PGC_SIGHUP, CONN_AUTH_SSL,
 			gettext_noop("Command to obtain passphrases for SSL."),
-			NULL
+			NULL,
+			GUC_SUPERUSER_ONLY
 		},
 		&ssl_passphrase_command,
 		"",
@@ -5095,6 +5314,16 @@ static struct config_string ConfigureNamesString[] =
 		&jit_provider,
 		"llvmjit",
 		NULL, NULL, NULL
+	},
+	{
+		{"backtrace_functions", PGC_SUSET, DEVELOPER_OPTIONS,
+			gettext_noop("Log backtrace for errors in these functions."),
+			NULL,
+			GUC_NOT_IN_SAMPLE
+		},
+		&backtrace_functions,
+		"",
+		check_backtrace_functions, assign_backtrace_functions, NULL
 	},
 
 #ifdef ADB
@@ -5227,6 +5456,7 @@ static struct config_string ConfigureNamesString[] =
 		NULL, NULL, NULL
 	},
 #endif
+
 	/* End-of-list marker */
 	{
 		{NULL, 0, 0, NULL, NULL}, NULL, NULL, NULL, NULL, NULL
@@ -5558,7 +5788,7 @@ static struct config_enum ConfigureNamesEnum[] =
 			GUC_SUPERUSER_ONLY
 		},
 		&ssl_min_protocol_version,
-		PG_TLS1_VERSION,
+		PG_TLS1_2_VERSION,
 		ssl_protocol_versions_info + 1, /* don't allow PG_TLS_ANY */
 		NULL, NULL, NULL
 	},
@@ -5705,9 +5935,6 @@ static struct config_generic **guc_variables;
 
 /* Current number of variables contained in the vector */
 static int	num_guc_variables;
-
-/* Current number of variables marked with GUC_EXPLAIN */
-static int	num_guc_explain_variables;
 
 /* Vector capacity */
 static int	size_guc_variables;
@@ -5972,7 +6199,6 @@ build_guc_variables(void)
 {
 	int			size_vars;
 	int			num_vars = 0;
-	int			num_explain_vars = 0;
 	struct config_generic **guc_vars;
 	int			i;
 
@@ -5983,9 +6209,6 @@ build_guc_variables(void)
 		/* Rather than requiring vartype to be filled in by hand, do this: */
 		conf->gen.vartype = PGC_BOOL;
 		num_vars++;
-
-		if (conf->gen.flags & GUC_EXPLAIN)
-			num_explain_vars++;
 	}
 
 	for (i = 0; ConfigureNamesInt[i].gen.name; i++)
@@ -5994,9 +6217,6 @@ build_guc_variables(void)
 
 		conf->gen.vartype = PGC_INT;
 		num_vars++;
-
-		if (conf->gen.flags & GUC_EXPLAIN)
-			num_explain_vars++;
 	}
 
 	for (i = 0; ConfigureNamesReal[i].gen.name; i++)
@@ -6005,9 +6225,6 @@ build_guc_variables(void)
 
 		conf->gen.vartype = PGC_REAL;
 		num_vars++;
-
-		if (conf->gen.flags & GUC_EXPLAIN)
-			num_explain_vars++;
 	}
 
 	for (i = 0; ConfigureNamesString[i].gen.name; i++)
@@ -6016,9 +6233,6 @@ build_guc_variables(void)
 
 		conf->gen.vartype = PGC_STRING;
 		num_vars++;
-
-		if (conf->gen.flags & GUC_EXPLAIN)
-			num_explain_vars++;
 	}
 
 	for (i = 0; ConfigureNamesEnum[i].gen.name; i++)
@@ -6027,9 +6241,6 @@ build_guc_variables(void)
 
 		conf->gen.vartype = PGC_ENUM;
 		num_vars++;
-
-		if (conf->gen.flags & GUC_EXPLAIN)
-			num_explain_vars++;
 	}
 
 	/*
@@ -6061,7 +6272,6 @@ build_guc_variables(void)
 		free(guc_variables);
 	guc_variables = guc_vars;
 	num_guc_variables = num_vars;
-	num_guc_explain_variables = num_explain_vars;
 	size_guc_variables = size_vars;
 	qsort((void *) guc_variables, num_guc_variables,
 		  sizeof(struct config_generic *), guc_var_compare);
@@ -8985,40 +9195,37 @@ replace_auto_config_value(ConfigVariable **head_p, ConfigVariable **tail_p,
 						  const char *name, const char *value)
 {
 	ConfigVariable *item,
+			   *next,
 			   *prev = NULL;
 
-	/* Search the list for an existing match (we assume there's only one) */
-	for (item = *head_p; item != NULL; item = item->next)
+	/*
+	 * Remove any existing match(es) for "name".  Normally there'd be at most
+	 * one, but if external tools have modified the config file, there could
+	 * be more.
+	 */
+	for (item = *head_p; item != NULL; item = next)
 	{
-		if (strcmp(item->name, name) == 0)
+		next = item->next;
+		if (guc_name_compare(item->name, name) == 0)
 		{
-			/* found a match, replace it */
-			pfree(item->value);
-			if (value != NULL)
-			{
-				/* update the parameter value */
-				item->value = pstrdup(value);
-			}
+			/* found a match, delete it */
+			if (prev)
+				prev->next = next;
 			else
-			{
-				/* delete the configuration parameter from list */
-				if (*head_p == item)
-					*head_p = item->next;
-				else
-					prev->next = item->next;
-				if (*tail_p == item)
-					*tail_p = prev;
+				*head_p = next;
+			if (next == NULL)
+				*tail_p = prev;
 
-				pfree(item->name);
-				pfree(item->filename);
-				pfree(item);
-			}
-			return;
+			pfree(item->name);
+			pfree(item->value);
+			pfree(item->filename);
+			pfree(item);
 		}
-		prev = item;
+		else
+			prev = item;
 	}
 
-	/* Not there; no work if we're trying to delete it */
+	/* Done if we're trying to delete it */
 	if (value == NULL)
 		return;
 
@@ -9068,7 +9275,7 @@ AlterSystemSetConfigFile(AlterSystemStmt *altersysstmt)
 	if (!superuser())
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 (errmsg("must be superuser to execute ALTER SYSTEM command"))));
+				 errmsg("must be superuser to execute ALTER SYSTEM command")));
 
 	/*
 	 * Extract statement arguments
@@ -10048,41 +10255,40 @@ ShowAllGUCConfig(DestReceiver *dest)
 }
 
 /*
- * Returns an array of modified GUC options to show in EXPLAIN. Only options
- * related to query planning (marked with GUC_EXPLAIN), with values different
- * from built-in defaults.
+ * Return an array of modified GUC options to show in EXPLAIN.
+ *
+ * We only report options related to query planning (marked with GUC_EXPLAIN),
+ * with values different from their built-in defaults.
  */
 struct config_generic **
 get_explain_guc_options(int *num)
 {
-	int			i;
 	struct config_generic **result;
 
 	*num = 0;
 
 	/*
-	 * Allocate enough space to fit all GUC_EXPLAIN options. We may not need
-	 * all the space, but there are fairly few such options so we don't waste
-	 * a lot of memory.
+	 * While only a fraction of all the GUC variables are marked GUC_EXPLAIN,
+	 * it doesn't seem worth dynamically resizing this array.
 	 */
-	result = palloc(sizeof(struct config_generic *) * num_guc_explain_variables);
+	result = palloc(sizeof(struct config_generic *) * num_guc_variables);
 
-	for (i = 0; i < num_guc_variables; i++)
+	for (int i = 0; i < num_guc_variables; i++)
 	{
 		bool		modified;
 		struct config_generic *conf = guc_variables[i];
 
-		/* return only options visible to the user */
+		/* return only parameters marked for inclusion in explain */
+		if (!(conf->flags & GUC_EXPLAIN))
+			continue;
+
+		/* return only options visible to the current user */
 		if ((conf->flags & GUC_NO_SHOW_ALL) ||
 			((conf->flags & GUC_SUPERUSER_ONLY) &&
 			 !is_member_of_role(GetUserId(), DEFAULT_ROLE_READ_ALL_SETTINGS)))
 			continue;
 
-		/* only parameters explicitly marked for inclusion in explain */
-		if (!(conf->flags & GUC_EXPLAIN))
-			continue;
-
-		/* return only options that were modified (w.r.t. config file) */
+		/* return only options that are different from their boot values */
 		modified = false;
 
 		switch (conf->vartype)
@@ -10131,15 +10337,12 @@ get_explain_guc_options(int *num)
 				elog(ERROR, "unexpected GUC type: %d", conf->vartype);
 		}
 
-		/* skip GUC variables that match the built-in default */
 		if (!modified)
 			continue;
 
-		/* assign to the values array */
+		/* OK, report it */
 		result[*num] = conf;
 		*num = *num + 1;
-
-		Assert(*num <= num_guc_explain_variables);
 	}
 
 	return result;
@@ -10621,8 +10824,7 @@ show_all_file_settings(PG_FUNCTION_ARGS)
 	if (!(rsinfo->allowedModes & SFRM_Materialize))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("materialize mode required, but it is not " \
-						"allowed in this context")));
+				 errmsg("materialize mode required, but it is not allowed in this context")));
 
 	/* Scan the config files using current context as workspace */
 	conf = ProcessConfigFileInternal(PGC_SIGHUP, false, DEBUG3);
@@ -11387,6 +11589,21 @@ read_gucstate_binary(char **srcptr, char *srcend, void *dest, Size size)
 }
 
 /*
+ * Callback used to add a context message when reporting errors that occur
+ * while trying to restore GUCs in parallel workers.
+ */
+static void
+guc_restore_error_context_callback(void *arg)
+{
+	char	  **error_context_name_and_value = (char **) arg;
+
+	if (error_context_name_and_value)
+		errcontext("while setting parameter \"%s\" to \"%s\"",
+				   error_context_name_and_value[0],
+				   error_context_name_and_value[1]);
+}
+
+/*
  * RestoreGUCState:
  * Reads the GUC state at the specified address and updates the GUCs with the
  * values read from the GUC state.
@@ -11404,6 +11621,7 @@ RestoreGUCState(void *gucstate)
 	char	   *srcend;
 	Size		len;
 	int			i;
+	ErrorContextCallback error_context_callback;
 
 	/* First item is the length of the subsequent data */
 	memcpy(&len, gucstate, sizeof(len));
@@ -11448,9 +11666,16 @@ RestoreGUCState(void *gucstate)
 	srcptr += sizeof(len);
 	srcend = srcptr + len;
 
+	/* If the GUC value check fails, we want errors to show useful context. */
+	error_context_callback.callback = guc_restore_error_context_callback;
+	error_context_callback.previous = error_context_stack;
+	error_context_callback.arg = NULL;
+	error_context_stack = &error_context_callback;
+
 	while (srcptr < srcend)
 	{
 		int			result;
+		char	   *error_context_name_and_value[2];
 
 		varname = read_gucstate(&srcptr, srcend);
 		varvalue = read_gucstate(&srcptr, srcend);
@@ -11465,6 +11690,9 @@ RestoreGUCState(void *gucstate)
 		read_gucstate_binary(&srcptr, srcend,
 							 &varscontext, sizeof(varscontext));
 
+		error_context_name_and_value[0] = varname;
+		error_context_name_and_value[1] = varvalue;
+		error_context_callback.arg = &error_context_name_and_value[0];
 		result = set_config_option(varname, varvalue, varscontext, varsource,
 								   GUC_ACTION_SET, true, ERROR, true);
 		if (result <= 0)
@@ -11473,7 +11701,10 @@ RestoreGUCState(void *gucstate)
 					 errmsg("parameter \"%s\" could not be set", varname)));
 		if (varsourcefile[0])
 			set_config_sourcefile(varname, varsourcefile, varsourceline);
+		error_context_callback.arg = NULL;
 	}
+
+	error_context_stack = error_context_callback.previous;
 }
 
 /*
@@ -11544,7 +11775,7 @@ ProcessGUCArray(ArrayType *array,
 					  -1 /* varlenarray */ ,
 					  -1 /* TEXT's typlen */ ,
 					  false /* TEXT's typbyval */ ,
-					  'i' /* TEXT's typalign */ ,
+					  TYPALIGN_INT /* TEXT's typalign */ ,
 					  &isnull);
 
 		if (isnull)
@@ -11623,7 +11854,7 @@ GUCArrayAdd(ArrayType *array, const char *name, const char *value)
 						  -1 /* varlenarray */ ,
 						  -1 /* TEXT's typlen */ ,
 						  false /* TEXT's typbyval */ ,
-						  'i' /* TEXT's typalign */ ,
+						  TYPALIGN_INT /* TEXT's typalign */ ,
 						  &isnull);
 			if (isnull)
 				continue;
@@ -11643,12 +11874,12 @@ GUCArrayAdd(ArrayType *array, const char *name, const char *value)
 					  -1 /* varlena array */ ,
 					  -1 /* TEXT's typlen */ ,
 					  false /* TEXT's typbyval */ ,
-					  'i' /* TEXT's typalign */ );
+					  TYPALIGN_INT /* TEXT's typalign */ );
 	}
 	else
 		a = construct_array(&datum, 1,
 							TEXTOID,
-							-1, false, 'i');
+							-1, false, TYPALIGN_INT);
 
 	return a;
 }
@@ -11694,7 +11925,7 @@ GUCArrayDelete(ArrayType *array, const char *name)
 					  -1 /* varlenarray */ ,
 					  -1 /* TEXT's typlen */ ,
 					  false /* TEXT's typbyval */ ,
-					  'i' /* TEXT's typalign */ ,
+					  TYPALIGN_INT /* TEXT's typalign */ ,
 					  &isnull);
 		if (isnull)
 			continue;
@@ -11713,11 +11944,11 @@ GUCArrayDelete(ArrayType *array, const char *name)
 								 -1 /* varlenarray */ ,
 								 -1 /* TEXT's typlen */ ,
 								 false /* TEXT's typbyval */ ,
-								 'i' /* TEXT's typalign */ );
+								 TYPALIGN_INT /* TEXT's typalign */ );
 		else
 			newarray = construct_array(&d, 1,
 									   TEXTOID,
-									   -1, false, 'i');
+									   -1, false, TYPALIGN_INT);
 
 		index++;
 	}
@@ -11760,7 +11991,7 @@ GUCArrayReset(ArrayType *array)
 					  -1 /* varlenarray */ ,
 					  -1 /* TEXT's typlen */ ,
 					  false /* TEXT's typbyval */ ,
-					  'i' /* TEXT's typalign */ ,
+					  TYPALIGN_INT /* TEXT's typalign */ ,
 					  &isnull);
 		if (isnull)
 			continue;
@@ -11781,11 +12012,11 @@ GUCArrayReset(ArrayType *array)
 								 -1 /* varlenarray */ ,
 								 -1 /* TEXT's typlen */ ,
 								 false /* TEXT's typbyval */ ,
-								 'i' /* TEXT's typalign */ );
+								 TYPALIGN_INT /* TEXT's typalign */ );
 		else
 			newarray = construct_array(&d, 1,
 									   TEXTOID,
-									   -1, false, 'i');
+									   -1, false, TYPALIGN_INT);
 
 		index++;
 		pfree(val);
@@ -12610,36 +12841,27 @@ check_adbmonitor_max_workers(int *newval, void **extra, GucSource source)
 static bool
 check_effective_io_concurrency(int *newval, void **extra, GucSource source)
 {
-#ifdef USE_PREFETCH
-	double		new_prefetch_pages;
-
-	if (ComputeIoConcurrency(*newval, &new_prefetch_pages))
-	{
-		int		   *myextra = (int *) guc_malloc(ERROR, sizeof(int));
-
-		*myextra = (int) rint(new_prefetch_pages);
-		*extra = (void *) myextra;
-
-		return true;
-	}
-	else
-		return false;
-#else
+#ifndef USE_PREFETCH
 	if (*newval != 0)
 	{
 		GUC_check_errdetail("effective_io_concurrency must be set to 0 on platforms that lack posix_fadvise().");
 		return false;
 	}
-	return true;
 #endif							/* USE_PREFETCH */
+	return true;
 }
 
-static void
-assign_effective_io_concurrency(int newval, void *extra)
+static bool
+check_maintenance_io_concurrency(int *newval, void **extra, GucSource source)
 {
-#ifdef USE_PREFETCH
-	target_prefetch_pages = *((int *) extra);
+#ifndef USE_PREFETCH
+	if (*newval != 0)
+	{
+		GUC_check_errdetail("maintenance_io_concurrency must be set to 0 on platforms that lack posix_fadvise().");
+		return false;
+	}
 #endif							/* USE_PREFETCH */
+	return true;
 }
 
 static void
@@ -12721,6 +12943,76 @@ show_data_directory_mode(void)
 
 	snprintf(buf, sizeof(buf), "%04o", data_directory_mode);
 	return buf;
+}
+
+/*
+ * We split the input string, where commas separate function names
+ * and certain whitespace chars are ignored, into a \0-separated (and
+ * \0\0-terminated) list of function names.  This formulation allows
+ * easy scanning when an error is thrown while avoiding the use of
+ * non-reentrant strtok(), as well as keeping the output data in a
+ * single palloc() chunk.
+ */
+static bool
+check_backtrace_functions(char **newval, void **extra, GucSource source)
+{
+	int			newvallen = strlen(*newval);
+	char	   *someval;
+	int			validlen;
+	int			i;
+	int			j;
+
+	/*
+	 * Allow characters that can be C identifiers and commas as separators, as
+	 * well as some whitespace for readability.
+	 */
+	validlen = strspn(*newval,
+					  "0123456789_"
+					  "abcdefghijklmnopqrstuvwxyz"
+					  "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+					  ", \n\t");
+	if (validlen != newvallen)
+	{
+		GUC_check_errdetail("invalid character");
+		return false;
+	}
+
+	if (*newval[0] == '\0')
+	{
+		*extra = NULL;
+		return true;
+	}
+
+	/*
+	 * Allocate space for the output and create the copy.  We could discount
+	 * whitespace chars to save some memory, but it doesn't seem worth the
+	 * trouble.
+	 */
+	someval = guc_malloc(ERROR, newvallen + 1 + 1);
+	for (i = 0, j = 0; i < newvallen; i++)
+	{
+		if ((*newval)[i] == ',')
+			someval[j++] = '\0';	/* next item */
+		else if ((*newval)[i] == ' ' ||
+				 (*newval)[i] == '\n' ||
+				 (*newval)[i] == '\t')
+			;					/* ignore these */
+		else
+			someval[j++] = (*newval)[i];	/* copy anything else */
+	}
+
+	/* two \0s end the setting */
+	someval[j] = '\0';
+	someval[j + 1] = '\0';
+
+	*extra = someval;
+	return true;
+}
+
+static void
+assign_backtrace_functions(const char *newval, void *extra)
+{
+	backtrace_symbol_list = (char *) extra;
 }
 
 static bool

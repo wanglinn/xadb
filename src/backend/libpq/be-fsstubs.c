@@ -3,7 +3,7 @@
  * be-fsstubs.c
  *	  Builtin functions for open/close/read/write operations on large objects
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -102,7 +102,7 @@ be_lo_open(PG_FUNCTION_ARGS)
 			 errdetail("The feature is not currently supported")));
 #endif
 
-#if FSDB
+#ifdef FSDB
 	elog(DEBUG4, "lo_open(%u,%d)", lobjId, mode);
 #endif
 
@@ -132,7 +132,7 @@ be_lo_close(PG_FUNCTION_ARGS)
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
 				 errmsg("invalid large-object descriptor: %d", fd)));
 
-#if FSDB
+#ifdef FSDB
 	elog(DEBUG4, "lo_close(%d)", fd);
 #endif
 
@@ -546,7 +546,7 @@ lo_import_internal(text *filename, Oid lobjOid)
 
 	inv_close(lobj);
 
-	if (CloseTransientFile(fd))
+	if (CloseTransientFile(fd) != 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not close file \"%s\": %m",
@@ -600,13 +600,11 @@ be_lo_export(PG_FUNCTION_ARGS)
 		fd = OpenTransientFilePerm(fnamebuf, O_CREAT | O_WRONLY | O_TRUNC | PG_BINARY,
 								   S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 	}
-	PG_CATCH();
+	PG_FINALLY();
 	{
 		umask(oumask);
-		PG_RE_THROW();
 	}
 	PG_END_TRY();
-	umask(oumask);
 	if (fd < 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
@@ -626,7 +624,7 @@ be_lo_export(PG_FUNCTION_ARGS)
 							fnamebuf)));
 	}
 
-	if (CloseTransientFile(fd))
+	if (CloseTransientFile(fd) != 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not close file \"%s\": %m",

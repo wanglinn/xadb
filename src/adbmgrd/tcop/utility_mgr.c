@@ -7,88 +7,88 @@
 #include "tcop/utility.h"
 
 
-const char *mgr_CreateCommandTag(Node *parsetree)
+CommandTag mgr_CreateCommandTag(Node *parsetree)
 {
-	const char *tag;
+	CommandTag tag;
 	AssertArg(parsetree);
 
 	switch(nodeTag(parsetree))
 	{
 	case T_MGRAddHost:
-		tag = "ADD HOST";
+		tag = CMDTAG_MGR_ADD_HOST;
 		break;
 	case T_MGRDropHost:
-		tag = "DROP HOST";
+		tag = CMDTAG_MGR_DROP_HOST;
 		break;
 	case T_MGRAlterHost:
-		tag = "ALTER HOST";
+		tag = CMDTAG_MGR_ALTER_HOST;
 		break;
 	case T_MGRAddNode:
-		tag = "ADD NODE";
+		tag = CMDTAG_MGR_ADD_NODE;
 		break;
 	case T_MGRAlterNode:
-		tag = "ALTER NODE";
+		tag = CMDTAG_MGR_ALTER_NODE;
 		break;
 	case T_MGRDropNode:
-		tag = "DROP NODE";
+		tag = CMDTAG_MGR_DROP_NODE;
 		break;
 	case T_MGRUpdateparm:
-		tag = "SET PARAM";
+		tag = CMDTAG_MGR_SET_PARAM;
 		break;
 	case T_MGRUpdateparmReset:
-		tag = "RESET PARAM";
+		tag = CMDTAG_MGR_RESET_PARAM;
 		break;
 	case T_MGRStartAgent:
-		tag = "START AGENT";
+		tag = CMDTAG_MGR_START_AGENT;
 		break;
 	case T_MGRFlushHost:
-		tag = "FLUSH HOST";
+		tag = CMDTAG_MGR_FLUSH_HOST;
 		break;
 	case T_MGRDoctorSet: 
-		tag = "SET DOCTOR";
+		tag = CMDTAG_MGR_SET_DOCTOR;
 		break;
 	case T_MonitorJobitemAdd:
-		tag = "ADD ITEM";
+		tag = CMDTAG_MGR_ADD_ITEM;
 		break;
 	case T_MonitorJobitemAlter:
-		tag = "ALTER ITEM";
+		tag = CMDTAG_MGR_ALTER_ITEM;
 		break;
 	case T_MonitorJobitemDrop:
-		tag = "DROP ITEM";
+		tag = CMDTAG_MGR_DROP_ITEM;
 		break;
 	case T_MonitorJobAdd:
-		tag = "ADD JOB";
+		tag = CMDTAG_MGR_ADD_JOB;
 		break;
 	case T_MonitorJobAlter:
-		tag = "ALTER JOB";
+		tag = CMDTAG_MGR_ALTER_JOB;
 		break;
 	case T_MonitorJobDrop:
-		tag = "DROP JOB";
+		tag = CMDTAG_MGR_DROP_JOB;
 		break;
 	case T_MgrExtensionAdd:
-		tag = "ADD EXTENSION";
+		tag = CMDTAG_MGR_ADD_EXTENSION;
 		break;
 	case T_MgrExtensionDrop:
-		tag = "DROP EXTENSION";
+		tag = CMDTAG_MGR_DROP_EXTENSION;
 		break;
 	case T_MgrRemoveNode:
-		tag = "REMOVE NODE";
+		tag = CMDTAG_MGR_REMOVE_NODE;
 		break;
 	case T_MGRSetClusterInit:
-		tag = "SET CLUSTER INIT";
+		tag = CMDTAG_MGR_SET_CLUSTER_INIT;
 		break;
 	case T_MonitorDeleteData:
-		tag = "CLEAN MONITOR DATA";
+		tag = CMDTAG_MGR_CLEAN_MONITOR_DATA;
 		break;
 	case T_MGRFlushParam:
-		tag = "FLUSH PARAM";
+		tag = CMDTAG_MGR_FLUSH_PARAM;
 		break;
 	case T_MGRFlushReadonlySlave:
-		tag = "FLUSH READONLY SLAVE";
+		tag = CMDTAG_MGR_FLUSH_READONLY_SLAVE;
 		break;
 	default:
 		ereport(WARNING, (errmsg("unrecognized node type: %d", (int)nodeTag(parsetree))));
-		tag = "???";
+		tag = CMDTAG_UNKNOWN;
 		break;
 	}
 	return tag;
@@ -98,7 +98,7 @@ void mgr_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 									ProcessUtilityContext context, ParamListInfo params,
 									QueryEnvironment *queryEnv,
 									DestReceiver *dest,
-									char *completionTag)
+									QueryCompletion *qc)
 {
 	Node *parsetree = pstmt->utilityStmt;
 	AssertArg(parsetree);

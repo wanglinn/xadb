@@ -5,7 +5,7 @@
  *		bits of hard-wired knowledge
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -31,9 +31,8 @@
 #include "catalog/pg_auth_members.h"
 #include "catalog/pg_authid.h"
 #include "catalog/pg_database.h"
-#include "catalog/pg_namespace.h"
-#include "catalog/pg_pltemplate.h"
 #include "catalog/pg_db_role_setting.h"
+#include "catalog/pg_namespace.h"
 #include "catalog/pg_replication_origin.h"
 #include "catalog/pg_shdepend.h"
 #include "catalog/pg_shdescription.h"
@@ -55,7 +54,6 @@
 #include "catalog/pgxc_group.h"
 #include "pgxc/pgxc.h"
 #endif
-
 
 /*
  * IsSystemRelation
@@ -260,7 +258,6 @@ IsSharedRelation(Oid relationId)
 	if (relationId == AuthIdRelationId ||
 		relationId == AuthMemRelationId ||
 		relationId == DatabaseRelationId ||
-		relationId == PLTemplateRelationId ||
 		relationId == SharedDescriptionRelationId ||
 		relationId == SharedDependRelationId ||
 		relationId == SharedSecLabelRelationId ||
@@ -281,7 +278,6 @@ IsSharedRelation(Oid relationId)
 		relationId == AuthMemMemRoleIndexId ||
 		relationId == DatabaseNameIndexId ||
 		relationId == DatabaseOidIndexId ||
-		relationId == PLTemplateNameIndexId ||
 		relationId == SharedDescriptionObjIndexId ||
 		relationId == SharedDependDependerIndexId ||
 		relationId == SharedDependReferenceIndexId ||
@@ -313,8 +309,6 @@ IsSharedRelation(Oid relationId)
 		relationId == AdbCleanToastTable ||
 		relationId == AdbCleanToastIndex ||
 #endif /* ADB */
-		relationId == PgPlTemplateToastTable ||
-		relationId == PgPlTemplateToastIndex ||
 		relationId == PgReplicationOriginToastTable ||
 		relationId == PgReplicationOriginToastIndex ||
 		relationId == PgShdescriptionToastTable ||
@@ -350,13 +344,6 @@ IsSharedRelation(Oid relationId)
  * number of entries (much less than 2^32) and there aren't very long runs of
  * consecutive existing OIDs.  This is a mostly reasonable assumption for
  * system catalogs.
- *
- * This is exported separately because there are cases where we want to use
- * an index that will not be recognized by RelationGetOidIndex: TOAST tables
- * have indexes that are usable, but have multiple columns and are on
- * ordinary columns rather than a true OID column.  This code will work
- * anyway, so long as the OID is the index's first column.  The caller must
- * pass in the actual heap attnum of the OID column, however.
  *
  * Caller must have a suitable lock on the relation.
  */

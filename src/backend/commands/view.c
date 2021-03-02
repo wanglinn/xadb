@@ -3,7 +3,7 @@
  * view.c
  *	  use rewrite rules to construct views
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -26,8 +26,8 @@
 #include "parser/analyze.h"
 #include "parser/parse_relation.h"
 #include "rewrite/rewriteDefine.h"
-#include "rewrite/rewriteManip.h"
 #include "rewrite/rewriteHandler.h"
+#include "rewrite/rewriteManip.h"
 #include "rewrite/rewriteSupport.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
@@ -40,24 +40,6 @@
 #endif
 
 static void checkViewTupleDesc(TupleDesc newdesc, TupleDesc olddesc);
-
-/*---------------------------------------------------------------------
- * Validator for "check_option" reloption on views. The allowed values
- * are "local" and "cascaded".
- */
-void
-validateWithCheckOption(const char *value)
-{
-	if (value == NULL ||
-		(strcmp(value, "local") != 0 &&
-		 strcmp(value, "cascaded") != 0))
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid value for \"check_option\" option"),
-				 errdetail("Valid values are \"local\" and \"cascaded\".")));
-	}
-}
 
 /*---------------------------------------------------------------------
  * DefineVirtualRelation
@@ -167,6 +149,10 @@ DefineVirtualRelation(RangeVar *relation, List *tlist, bool replace,
 		 * Note that we must do this before updating the query for the view,
 		 * since the rules system requires that the correct view columns be in
 		 * place when defining the new rules.
+		 *
+		 * Also note that ALTER TABLE doesn't run parse transformation on
+		 * AT_AddColumnToView commands.  The ColumnDef we supply must be ready
+		 * to execute as-is.
 		 */
 		if (list_length(attrList) > rel->rd_att->natts)
 		{
@@ -298,7 +284,8 @@ checkViewTupleDesc(TupleDesc newdesc, TupleDesc olddesc)
 					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
 					 errmsg("cannot change name of view column \"%s\" to \"%s\"",
 							NameStr(oldattr->attname),
-							NameStr(newattr->attname))));
+							NameStr(newattr->attname)),
+					 errhint("Use ALTER VIEW ... RENAME COLUMN ... to change name of view column instead.")));
 		/* XXX would it be safe to allow atttypmod to change?  Not sure */
 		if (newattr->atttypid != oldattr->atttypid ||
 			newattr->atttypmod != oldattr->atttypmod)
@@ -362,6 +349,7 @@ UpdateRangeTableOfViewParse(Oid viewOid, Query *viewParse)
 {
 	Relation	viewRel;
 	List	   *new_rt;
+	ParseNamespaceItem *nsitem;
 	RangeTblEntry *rt_entry1,
 			   *rt_entry2;
 	ParseState *pstate;
@@ -386,14 +374,17 @@ UpdateRangeTableOfViewParse(Oid viewOid, Query *viewParse)
 	 * Create the 2 new range table entries and form the new range table...
 	 * OLD first, then NEW....
 	 */
-	rt_entry1 = addRangeTableEntryForRelation(pstate, viewRel,
-											  AccessShareLock,
-											  makeAlias("old", NIL),
-											  false, false);
-	rt_entry2 = addRangeTableEntryForRelation(pstate, viewRel,
-											  AccessShareLock,
-											  makeAlias("new", NIL),
-											  false, false);
+	nsitem = addRangeTableEntryForRelation(pstate, viewRel,
+										   AccessShareLock,
+										   makeAlias("old", NIL),
+										   false, false);
+	rt_entry1 = nsitem->p_rte;
+	nsitem = addRangeTableEntryForRelation(pstate, viewRel,
+										   AccessShareLock,
+										   makeAlias("new", NIL),
+										   false, false);
+	rt_entry2 = nsitem->p_rte;
+
 	/* Must override addRangeTableEntry's default access-check flags */
 	rt_entry1->requiredPerms = 0;
 	rt_entry2->requiredPerms = 0;
@@ -547,7 +538,7 @@ DefineView(ViewStmt *stmt, const char *queryString,
 			if (te->resjunk)
 				continue;
 			te->resname = pstrdup(strVal(lfirst(alist_item)));
-			alist_item = lnext(alist_item);
+			alist_item = lnext(stmt->aliases, alist_item);
 			if (alist_item == NULL)
 				break;			/* done assigning aliases */
 		}

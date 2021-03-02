@@ -5,7 +5,7 @@
  *
  * This is the external API for the raw lexing/parsing functions.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/parser/parser.h
@@ -50,6 +50,13 @@ extern TypeName *SystemTypeNameLocation(char *name, int location);
 #endif /* ADB_MULTI_GRAM */
 
 /* move from gram.y */
+/* Private struct for the result of opt_select_limit production */
+typedef struct SelectLimit
+{
+	Node *limitOffset;
+	Node *limitCount;
+	LimitOption limitOption;
+} SelectLimit;
 extern RawStmt *makeRawStmt(Node *stmt, int stmt_location);
 extern void updateRawStmtEnd(RawStmt *rs, int end_location);
 extern Node *makeColumnRef(char *colname, List *indirection,
@@ -63,9 +70,6 @@ extern Node *makeBitStringConst(char *str, int location);
 extern Node *makeNullAConst(int location);
 extern Node *makeAConst(Value *v, int location);
 extern Node *makeBoolAConst(bool state, int location);
-#ifdef ADB_GRAM_ORA
-extern List *check_sequence_name(List *names, core_yyscan_t yyscanner, int location);
-#endif
 extern RoleSpec *makeRoleSpec(RoleSpecType type, int location);
 extern void check_qualified_name(List *names, core_yyscan_t yyscanner);
 extern List *check_func_name(List *names, core_yyscan_t yyscanner);
@@ -76,7 +80,7 @@ extern List *makeOrderedSetArgs(List *directargs, List *orderedargs,
 								core_yyscan_t yyscanner);
 extern void insertSelectOptions(SelectStmt *stmt,
 								List *sortClause, List *lockingClause,
-								Node *limitOffset, Node *limitCount,
+								SelectLimit *limitClause,
 								WithClause *withClause,
 								core_yyscan_t yyscanner);
 extern Node *makeSetOp(SetOperation op, bool all, Node *larg, Node *rarg);
@@ -99,6 +103,9 @@ extern void SplitColQualList(List *qualList,
 							 List **constraintList, CollateClause **collClause,
 							 core_yyscan_t yyscanner);
 /* end from gram.y */
+#ifdef ADB_GRAM_ORA
+extern List *check_sequence_name(List *names, core_yyscan_t yyscanner, int location);
+#endif
 
 #ifdef ADB_GRAM_ORA
 extern List *OracleFuncName(char *name);

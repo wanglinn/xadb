@@ -1,13 +1,12 @@
-#!/usr/bin/perl -w
+#!/usr/bin/perl
 #----------------------------------------------------------------------
 #
 # genbki.pl
-#    Perl script that generates postgres.bki, postgres.description,
-#    postgres.shdescription, and symbol definition headers from specially
-#    formatted header files and data files.  The BKI files are used to
-#    initialize the postgres template database.
+#    Perl script that generates postgres.bki and symbol definition
+#    headers from specially formatted header files and data files.
+#    postgres.bki is used to initialize the postgres template database.
 #
-# Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 #
 # src/backend/catalog/genbki.pl
@@ -18,9 +17,8 @@ use strict;
 use warnings;
 use Getopt::Long;
 
-use File::Basename;
-use File::Spec;
-BEGIN { use lib File::Spec->rel2abs(dirname(__FILE__)); }
+use FindBin;
+use lib $FindBin::RealBin;
 
 use Catalog;
 
@@ -149,9 +147,29 @@ foreach my $header (@ARGV)
 
 		$catalog_data{$catname} = $data;
 
-		# Check for duplicated OIDs while we're at it.
 		foreach my $row (@$data)
 		{
+			# Generate entries for pg_description and pg_shdescription.
+			if (defined $row->{descr})
+			{
+				my %descr = (
+					objoid      => $row->{oid},
+					classoid    => $catalog->{relation_oid},
+					objsubid    => 0,
+					description => $row->{descr});
+
+				if ($catalog->{shared_relation})
+				{
+					delete $descr{objsubid};
+					push @{ $catalog_data{pg_shdescription} }, \%descr;
+				}
+				else
+				{
+					push @{ $catalog_data{pg_description} }, \%descr;
+				}
+			}
+
+			# Check for duplicated OIDs while we're at it.
 			$oidcounts{ $row->{oid} }++ if defined $row->{oid};
 		}
 	}
@@ -223,6 +241,15 @@ my $PG_ORACLE_NAMESPACE = Catalog::FindDefinedSymbolFromData($catalog_data{pg_na
 							if ($enable_grammar_oracle eq 'yes');
 my $PG_MANAGER_NAMESPACE = Catalog::FindDefinedSymbolFromData($catalog_data{pg_namespace}, 'PG_MANAGER_NAMESPACE')
 							if ($build_manager eq 'yes');
+
+# Fill in pg_class.relnatts by looking at the referenced catalog's schema.
+# This is ugly but there's no better place; Catalog::AddDefaultValues
+# can't do it, for lack of easy access to the other catalog.
+foreach my $row (@{ $catalog_data{pg_class} })
+{
+	$row->{relnatts} = scalar(@{ $catalogs{ $row->{relname} }->{columns} });
+}
+
 
 # Build lookup tables.
 
@@ -466,15 +493,8 @@ open my $bki, '>', $bkifile . $tmpext
 my $schemafile = $output_path . 'schemapg.h';
 open my $schemapg, '>', $schemafile . $tmpext
   or die "can't open $schemafile$tmpext: $!";
-my $descrfile = $output_path . 'postgres.description';
-open my $descr, '>', $descrfile . $tmpext
-  or die "can't open $descrfile$tmpext: $!";
-my $shdescrfile = $output_path . 'postgres.shdescription';
-open my $shdescr, '>', $shdescrfile . $tmpext
-  or die "can't open $shdescrfile$tmpext: $!";
 
-# Generate postgres.bki, postgres.description, postgres.shdescription,
-# and pg_*_d.h headers.
+# Generate postgres.bki and pg_*_d.h headers.
 
 # version marker for .bki file
 print $bki "# PostgreSQL $major_version\n";
@@ -500,7 +520,7 @@ foreach my $catname (@catnames)
  * %s_d.h
  *    Macro definitions for %s
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * NOTES
@@ -718,22 +738,6 @@ EOM
 		# Write to postgres.bki
 		print_bki_insert(\%bki_values, $schema);
 
-		# Write comments to postgres.description and
-		# postgres.shdescription
-		if (defined $bki_values{descr})
-		{
-			if ($catalog->{shared_relation})
-			{
-				printf $shdescr "%s\t%s\t%s\n",
-				  $bki_values{oid}, $catname, $bki_values{descr};
-			}
-			else
-			{
-				printf $descr "%s\t%s\t0\t%s\n",
-				  $bki_values{oid}, $catname, $bki_values{descr};
-			}
-		}
-
 		# Emit OID symbol
 		if (defined $bki_values{oid_symbol})
 		{
@@ -782,7 +786,7 @@ print $schemapg <<EOM;
  * schemapg.h
  *    Schema_pg_xxx macros for use by relcache.c
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * NOTES
@@ -812,14 +816,10 @@ print $schemapg "\n#endif\t\t\t\t\t\t\t/* SCHEMAPG_H */\n";
 # We're done emitting data
 close $bki;
 close $schemapg;
-close $descr;
-close $shdescr;
 
 # Finally, rename the completed files into place.
-Catalog::RenameTempFile($bkifile,     $tmpext);
-Catalog::RenameTempFile($schemafile,  $tmpext);
-Catalog::RenameTempFile($descrfile,   $tmpext);
-Catalog::RenameTempFile($shdescrfile, $tmpext);
+Catalog::RenameTempFile($bkifile,    $tmpext);
+Catalog::RenameTempFile($schemafile, $tmpext);
 
 exit 0;
 
@@ -1058,7 +1058,7 @@ sub morph_row_for_schemapg
 		}
 
 		# Expand booleans from 'f'/'t' to 'false'/'true'.
-		# Some values might be other macros (eg FLOAT4PASSBYVAL),
+		# Some values might be other macros (eg FLOAT8PASSBYVAL),
 		# don't change.
 		elsif ($atttype eq 'bool')
 		{
@@ -1163,9 +1163,9 @@ Options:
     --set-version    PostgreSQL version number for initdb cross-check
     --include-path   Include path in source tree
 
-genbki.pl generates BKI files and symbol definition
+genbki.pl generates postgres.bki and symbol definition
 headers from specially formatted header files and .dat
-files.  The BKI files are used to initialize the
+files.  postgres.bki is used to initialize the
 postgres template database.
 
 Report bugs to <pgsql-bugs\@lists.postgresql.org>.

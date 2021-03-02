@@ -166,11 +166,11 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 				errmsg("\"%s\" already exists, skipping", jobname)));
 			PG_RETURN_BOOL(false);
 		}
-		heap_close(rel, AccessShareLock);
+		table_close(rel, AccessShareLock);
 		ereport(ERROR, (errcode(ERRCODE_DUPLICATE_OBJECT)
 				, errmsg("\"%s\" already exists", jobname)));
 	}
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 	memset(datum, 0, sizeof(datum));
 	memset(isnull, 0, sizeof(isnull));
 	memset(got, 0, sizeof(got));
@@ -275,7 +275,7 @@ Datum monitor_job_add_func(PG_FUNCTION_ARGS)
 	CatalogTupleInsert(rel, newtuple);
 	heap_freetuple(newtuple);
 	/*close relation */
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 
 	ppid = getppid();
 	kill(ppid, SIGHUP);
@@ -341,7 +341,7 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 		checktuple = montiot_job_get_item_tuple(rel, &jobnamedata);
 		if (!HeapTupleIsValid(checktuple))
 		{
-			heap_close(rel, RowExclusiveLock);
+			table_close(rel, RowExclusiveLock);
 			ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 					,errmsg("\"%s\" does not exist", jobname)));
 		}
@@ -424,7 +424,7 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 	{
 		if (got[Anum_monitor_job_command-1] || got[Anum_monitor_job_description-1])
 		{
-			heap_close(rel, RowExclusiveLock);
+			table_close(rel, RowExclusiveLock);
 			ereport(ERROR, (errmsg("the command of \"ALTER JOB ALL\" not support modify the column \"comamnd\" and \"desc\"")));
 		}
 		relScan = table_beginscan_catalog(rel, 0, NULL);
@@ -442,7 +442,7 @@ Datum monitor_job_alter_func(PG_FUNCTION_ARGS)
 		heap_freetuple(checktuple);
 	}
 	/* at end, close relation */
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 
 	ppid = getppid();
 	kill(ppid, SIGHUP);
@@ -532,7 +532,7 @@ Datum monitor_job_drop_func(PG_FUNCTION_ARGS)
 		}
 	}
 	/* at end, close relation */
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 	(void)MemoryContextSwitchTo(old_context);
 	MemoryContextDelete(context);
 	PG_RETURN_BOOL(true);
@@ -994,7 +994,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 		if (serv_addr)
 			pfree(serv_addr);
 		heap_endscan(relScan);
-		heap_close(relNode, AccessShareLock);
+		table_close(relNode, AccessShareLock);
 
 		if (user)
 			pfree(user);
@@ -1022,7 +1022,7 @@ Datum monitor_handle_coordinator(PG_FUNCTION_ARGS)
 	pfree(fdHandle);
 
 	heap_endscan(relScan);
-	heap_close(relNode, AccessShareLock);
+	table_close(relNode, AccessShareLock);
 
 	if (bnameNull && (!ret))
 		namestrcpy(&masterName, "coordinator master");
@@ -1099,7 +1099,7 @@ bool mgr_check_job_in_updateparam(const char *subjobstr)
 		if(isNull)
 		{
 			heap_endscan(relScan);
-			heap_close(relJob, AccessShareLock);
+			table_close(relJob, AccessShareLock);
 			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR)
 				, err_generic_string(PG_DIAG_TABLE_NAME, "monitor_job")
 				, errmsg("column command is null")));
@@ -1118,7 +1118,7 @@ bool mgr_check_job_in_updateparam(const char *subjobstr)
 
 	}
 	heap_endscan(relScan);
-	heap_close(relJob, AccessShareLock);
+	table_close(relJob, AccessShareLock);
 
 	if (res)
 	{
@@ -1383,7 +1383,7 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 		}
 		if (serv_addr)
 			pfree(serv_addr);
-		heap_close(relNode, AccessShareLock);
+		table_close(relNode, AccessShareLock);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
@@ -1396,7 +1396,7 @@ Datum monitor_handle_datanode(PG_FUNCTION_ARGS)
 		i++;
 	}
 	pfree(fdHandle);
-	heap_close(relNode, AccessShareLock);
+	table_close(relNode, AccessShareLock);
 
 	if (bnameNull)
 		namestrcpy(&masterName, "datanode master");
@@ -1773,7 +1773,7 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 		}
 		if (serv_addr)
 			pfree(serv_addr);
-		heap_close(relNode, AccessShareLock);
+		table_close(relNode, AccessShareLock);
 		PG_RE_THROW();
 	}PG_END_TRY();
 
@@ -1781,7 +1781,7 @@ Datum monitor_handle_gtm(PG_FUNCTION_ARGS)
 	close(fdHandle[0].fd);
 	pfree(fdHandle[0].address);
 	pfree(fdHandle);
-	heap_close(relNode, AccessShareLock);
+	table_close(relNode, AccessShareLock);
 
 	namestrcpy(&masterName, "gtm master");
 	if (!ret)

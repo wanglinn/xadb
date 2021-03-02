@@ -51,6 +51,16 @@ SELECT count(*) FROM test_tsvector WHERE a @@ 'w:*|q:*';
 SELECT count(*) FROM test_tsvector WHERE a @@ any ('{wr,qh}');
 SELECT count(*) FROM test_tsvector WHERE a @@ 'no_such_lexeme';
 SELECT count(*) FROM test_tsvector WHERE a @@ '!no_such_lexeme';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'pl <-> yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'yh <-> pl';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'qe <2> qt';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!pl <-> yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!pl <-> !yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!yh <-> pl';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!qe <2> qt';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(pl <-> yh)';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(yh <-> pl)';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(qe <2> qt)';
 
 create index wowidx on test_tsvector using gist (a);
 
@@ -70,6 +80,16 @@ SELECT count(*) FROM test_tsvector WHERE a @@ 'w:*|q:*';
 SELECT count(*) FROM test_tsvector WHERE a @@ any ('{wr,qh}');
 SELECT count(*) FROM test_tsvector WHERE a @@ 'no_such_lexeme';
 SELECT count(*) FROM test_tsvector WHERE a @@ '!no_such_lexeme';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'pl <-> yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'yh <-> pl';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'qe <2> qt';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!pl <-> yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!pl <-> !yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!yh <-> pl';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!qe <2> qt';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(pl <-> yh)';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(yh <-> pl)';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(qe <2> qt)';
 
 SET enable_indexscan=OFF;
 SET enable_bitmapscan=ON;
@@ -86,6 +106,81 @@ SELECT count(*) FROM test_tsvector WHERE a @@ 'w:*|q:*';
 SELECT count(*) FROM test_tsvector WHERE a @@ any ('{wr,qh}');
 SELECT count(*) FROM test_tsvector WHERE a @@ 'no_such_lexeme';
 SELECT count(*) FROM test_tsvector WHERE a @@ '!no_such_lexeme';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'pl <-> yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'yh <-> pl';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'qe <2> qt';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!pl <-> yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!pl <-> !yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!yh <-> pl';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!qe <2> qt';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(pl <-> yh)';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(yh <-> pl)';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(qe <2> qt)';
+
+-- Test siglen parameter of GiST tsvector_ops
+CREATE INDEX wowidx1 ON test_tsvector USING gist (a tsvector_ops(foo=1));
+CREATE INDEX wowidx1 ON test_tsvector USING gist (a tsvector_ops(siglen=0));
+CREATE INDEX wowidx1 ON test_tsvector USING gist (a tsvector_ops(siglen=2048));
+CREATE INDEX wowidx1 ON test_tsvector USING gist (a tsvector_ops(siglen=100,foo='bar'));
+CREATE INDEX wowidx1 ON test_tsvector USING gist (a tsvector_ops(siglen=100, siglen = 200));
+
+CREATE INDEX wowidx2 ON test_tsvector USING gist (a tsvector_ops(siglen=1));
+
+\d test_tsvector
+
+DROP INDEX wowidx;
+
+EXPLAIN (costs off) SELECT count(*) FROM test_tsvector WHERE a @@ 'wr|qh';
+
+SELECT count(*) FROM test_tsvector WHERE a @@ 'wr|qh';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'wr&qh';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'eq&yt';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'eq|yt';
+SELECT count(*) FROM test_tsvector WHERE a @@ '(eq&yt)|(wr&qh)';
+SELECT count(*) FROM test_tsvector WHERE a @@ '(eq|yt)&(wr|qh)';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'w:*|q:*';
+SELECT count(*) FROM test_tsvector WHERE a @@ any ('{wr,qh}');
+SELECT count(*) FROM test_tsvector WHERE a @@ 'no_such_lexeme';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!no_such_lexeme';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'pl <-> yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'yh <-> pl';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'qe <2> qt';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!pl <-> yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!pl <-> !yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!yh <-> pl';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!qe <2> qt';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(pl <-> yh)';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(yh <-> pl)';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(qe <2> qt)';
+
+DROP INDEX wowidx2;
+
+CREATE INDEX wowidx ON test_tsvector USING gist (a tsvector_ops(siglen=484));
+
+\d test_tsvector
+
+EXPLAIN (costs off) SELECT count(*) FROM test_tsvector WHERE a @@ 'wr|qh';
+
+SELECT count(*) FROM test_tsvector WHERE a @@ 'wr|qh';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'wr&qh';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'eq&yt';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'eq|yt';
+SELECT count(*) FROM test_tsvector WHERE a @@ '(eq&yt)|(wr&qh)';
+SELECT count(*) FROM test_tsvector WHERE a @@ '(eq|yt)&(wr|qh)';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'w:*|q:*';
+SELECT count(*) FROM test_tsvector WHERE a @@ any ('{wr,qh}');
+SELECT count(*) FROM test_tsvector WHERE a @@ 'no_such_lexeme';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!no_such_lexeme';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'pl <-> yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'yh <-> pl';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'qe <2> qt';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!pl <-> yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!pl <-> !yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!yh <-> pl';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!qe <2> qt';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(pl <-> yh)';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(yh <-> pl)';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(qe <2> qt)';
 
 RESET enable_seqscan;
 RESET enable_indexscan;
@@ -110,6 +205,25 @@ SELECT count(*) FROM test_tsvector WHERE a @@ 'w:*|q:*';
 SELECT count(*) FROM test_tsvector WHERE a @@ any ('{wr,qh}');
 SELECT count(*) FROM test_tsvector WHERE a @@ 'no_such_lexeme';
 SELECT count(*) FROM test_tsvector WHERE a @@ '!no_such_lexeme';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'pl <-> yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'yh <-> pl';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'qe <2> qt';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!pl <-> yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!pl <-> !yh';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!yh <-> pl';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!qe <2> qt';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(pl <-> yh)';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(yh <-> pl)';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!(qe <2> qt)';
+
+-- Test optimization of non-empty GIN_SEARCH_MODE_ALL queries
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM test_tsvector WHERE a @@ '!qh';
+SELECT count(*) FROM test_tsvector WHERE a @@ '!qh';
+
+EXPLAIN (COSTS OFF)
+SELECT count(*) FROM test_tsvector WHERE a @@ 'wr' AND a @@ '!qh';
+SELECT count(*) FROM test_tsvector WHERE a @@ 'wr' AND a @@ '!qh';
 
 RESET enable_seqscan;
 
@@ -122,11 +236,11 @@ SELECT * FROM ts_stat('SELECT a FROM test_tsvector', 'AB') ORDER BY ndoc DESC, n
 SELECT ts_lexize('english_stem', 'skies');
 SELECT ts_lexize('english_stem', 'identity');
 
-SELECT * FROM ts_token_type('default') ORDER BY tokid;
+SELECT * FROM ts_token_type('default');
 
 SELECT * FROM ts_parse('default', '345 qwe@efd.r '' http://www.com/ http://aew.werc.ewr/?ad=qwe&dw 1aew.werc.ewr/?ad=qwe&dw 2aew.werc.ewr http://3aew.werc.ewr/?ad=qwe&dw http://4aew.werc.ewr http://5aew.werc.ewr:8100/?  ad=qwe&dw 6aew.werc.ewr:8100/?ad=qwe&dw 7aew.werc.ewr:8100/?ad=qwe&dw=%20%32 +4.0e-10 qwe qwe qwqwe 234.435 455 5.005 teodor@stack.net teodor@123-stack.net 123_teodor@stack.net 123-teodor@stack.net qwe-wer asdf <fr>qwer jf sdjk<we hjwer <werrwe> ewr1> ewri2 <a href="qwe<qwe>">
 /usr/local/fff /awdf/dwqe/4325 rewt/ewr wefjn /wqe-324/ewr gist.h gist.h.c gist.c. readline 4.2 4.2. 4.2, readline-4.2 readline-4.2. 234
-<i <b> wow  < jqw <> qwerty') ORDER BY tokid,token collate "POSIX";
+<i <b> wow  < jqw <> qwerty');
 
 SELECT to_tsvector('english', '345 qwe@efd.r '' http://www.com/ http://aew.werc.ewr/?ad=qwe&dw 1aew.werc.ewr/?ad=qwe&dw 2aew.werc.ewr http://3aew.werc.ewr/?ad=qwe&dw http://4aew.werc.ewr http://5aew.werc.ewr:8100/?  ad=qwe&dw 6aew.werc.ewr:8100/?ad=qwe&dw 7aew.werc.ewr:8100/?ad=qwe&dw=%20%32 +4.0e-10 qwe qwe qwqwe 234.435 455 5.005 teodor@stack.net teodor@123-stack.net 123_teodor@stack.net 123-teodor@stack.net qwe-wer asdf <fr>qwer jf sdjk<we hjwer <werrwe> ewr1> ewri2 <a href="qwe<qwe>">
 /usr/local/fff /awdf/dwqe/4325 rewt/ewr wefjn /wqe-324/ewr gist.h gist.h.c gist.c. readline 4.2 4.2. 4.2, readline-4.2 readline-4.2. 234
@@ -138,7 +252,7 @@ SELECT length(to_tsvector('english', '345 qwe@efd.r '' http://www.com/ http://ae
 
 -- ts_debug
 
-SELECT * from ts_debug('english', '<myns:foo-bar_baz.blurfl>abc&nm1;def&#xa9;ghi&#245;jkl</myns:foo-bar_baz.blurfl>') ORDER BY alias, description, token collate "POSIX";
+SELECT * from ts_debug('english', '<myns:foo-bar_baz.blurfl>abc&nm1;def&#xa9;ghi&#245;jkl</myns:foo-bar_baz.blurfl>');
 
 -- check parsing of URLs
 SELECT * from ts_debug('english', 'http://www.harewoodsolutions.co.uk/press.aspx</span>');
@@ -330,6 +444,11 @@ Water, water, every where,
 S. T. Coleridge (1772-1834)
 ', phraseto_tsquery('english', 'idle as a painted Ship'));
 
+SELECT ts_headline('english',
+'Lorem ipsum urna.  Nullam nullam ullamcorper urna.',
+to_tsquery('english','Lorem') && phraseto_tsquery('english','ullamcorper urna'),
+'MaxWords=100, MinWords=1');
+
 SELECT ts_headline('english', '
 <html>
 <!-- some comment -->
@@ -400,9 +519,15 @@ Water, water, every where,
 S. T. Coleridge (1772-1834)
 ', to_tsquery('english', 'Coleridge & stuck'), 'MaxFragments=2,FragmentDelimiter=***');
 
+--Fragments with phrase search
+SELECT ts_headline('english',
+'Lorem ipsum urna.  Nullam nullam ullamcorper urna.',
+to_tsquery('english','Lorem') && phraseto_tsquery('english','ullamcorper urna'),
+'MaxFragments=100, MaxWords=100, MinWords=1');
+
 --Rewrite sub system
 
-CREATE TABLE test_tsquery (txtkeyword TEXT, txtsample TEXT) DISTRIBUTE BY REPLICATION;
+CREATE TABLE test_tsquery (txtkeyword TEXT, txtsample TEXT);
 \set ECHO none
 \copy test_tsquery from stdin
 'New York'	new & york | big & apple | nyc
@@ -520,6 +645,17 @@ INSERT INTO test_tsvector (t) VALUES ('345 qwerty');
 
 SELECT count(*) FROM test_tsvector WHERE a @@ to_tsquery('345&qwerty');
 
+-- Test inlining of immutable constant functions
+
+-- to_tsquery(text) is not immutable, so it won't be inlined
+explain (costs off)
+select * from test_tsquery, to_tsquery('new') q where txtsample @@ q;
+
+-- to_tsquery(regconfig, text) is an immutable function.
+-- That allows us to get rid of using function scan and join at all.
+explain (costs off)
+select * from test_tsquery, to_tsquery('english', 'new') q where txtsample @@ q;
+
 -- test finding items in GIN's pending list
 create temp table pendtest (ts tsvector);
 create index pendtest_idx on pendtest using gin(ts);
@@ -527,7 +663,7 @@ insert into pendtest values (to_tsvector('Lore ipsam'));
 insert into pendtest values (to_tsvector('Lore ipsum'));
 select * from pendtest where 'ipsu:*'::tsquery @@ ts;
 select * from pendtest where 'ipsa:*'::tsquery @@ ts;
-select * from pendtest where 'ips:*'::tsquery @@ ts ORDER BY 1;
+select * from pendtest where 'ips:*'::tsquery @@ ts;
 select * from pendtest where 'ipt:*'::tsquery @@ ts;
 select * from pendtest where 'ipi:*'::tsquery @@ ts;
 

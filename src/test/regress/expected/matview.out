@@ -44,7 +44,7 @@ SELECT relispopulated FROM pg_class WHERE oid = 'mvtest_tm'::regclass;
 (1 row)
 
 CREATE UNIQUE INDEX mvtest_tm_type ON mvtest_tm (type);
-SELECT * FROM mvtest_tm ORDER BY type, totamt;
+SELECT * FROM mvtest_tm ORDER BY type;
  type | totamt 
 ------+--------
  x    |      5
@@ -526,7 +526,7 @@ drop materialized view mvtest_error;
 CREATE TABLE mvtest_v AS SELECT generate_series(1,10) AS a;
 CREATE MATERIALIZED VIEW mvtest_mv_v AS SELECT a FROM mvtest_v WHERE a <= 5;
 DELETE FROM mvtest_v WHERE EXISTS ( SELECT * FROM mvtest_mv_v WHERE mvtest_mv_v.a = mvtest_v.a );
-SELECT * FROM mvtest_v order by 1;
+SELECT * FROM mvtest_v;
  a  
 ----
   6
@@ -536,7 +536,7 @@ SELECT * FROM mvtest_v order by 1;
  10
 (5 rows)
 
-SELECT * FROM mvtest_mv_v order by 1;
+SELECT * FROM mvtest_mv_v;
  a 
 ---
  1

@@ -1,7 +1,7 @@
 /*
  *	pg_upgrade.h
  *
- *	Copyright (c) 2010-2019, PostgreSQL Global Development Group
+ *	Copyright (c) 2010-2020, PostgreSQL Global Development Group
  *	src/bin/pg_upgrade/pg_upgrade.h
  */
 
@@ -15,14 +15,8 @@
 /* Use port in the private/dynamic port number range */
 #define DEF_PGUPORT			50432
 
-/* Allocate for null byte */
-#define USER_NAME_SIZE		128
-
 #define MAX_STRING			1024
-#define LINE_ALLOC			4096
 #define QUERY_ALLOC			8192
-
-#define MIGRATOR_API_VERSION	1
 
 #define MESSAGE_WIDTH		60
 
@@ -71,7 +65,6 @@ extern char *output_files[];
 
 #ifndef WIN32
 #define pg_mv_file			rename
-#define pg_link_file		link
 #define PATH_SEPARATOR		'/'
 #define PATH_QUOTE	'\''
 #define RM_CMD				"rm -f"
@@ -82,7 +75,6 @@ extern char *output_files[];
 #define ECHO_BLANK	""
 #else
 #define pg_mv_file			pgrename
-#define pg_link_file		win32_pghardlink
 #define PATH_SEPARATOR		'\\'
 #define PATH_QUOTE	'"'
 #define RM_CMD				"DEL /q"
@@ -141,7 +133,7 @@ typedef struct
 	char	   *nspname;		/* namespace name */
 	char	   *relname;		/* relation name */
 	Oid			reloid;			/* relation OID */
-	Oid			relfilenode;	/* relation relfile node */
+	Oid			relfilenode;	/* relation file node */
 	Oid			indtable;		/* if index, OID of its table, else 0 */
 	Oid			toastheap;		/* if toast table, OID of base table, else 0 */
 	char	   *tablespace;		/* tablespace path; "" for cluster default */
@@ -314,7 +306,6 @@ typedef struct
 typedef struct
 {
 	const char *progname;		/* complete pathname for this program */
-	char	   *exec_path;		/* full path to my executable */
 	char	   *user;			/* username for clusters */
 	bool		user_specified; /* user specified on command-line */
 	char	  **old_tablespaces;	/* tablespaces */
@@ -457,6 +448,8 @@ void		old_9_3_check_for_line_data_type_usage(ClusterInfo *cluster);
 void		old_9_6_check_for_unknown_data_type_usage(ClusterInfo *cluster);
 void		old_9_6_invalidate_hash_indexes(ClusterInfo *cluster,
 											bool check_mode);
+
+void		old_11_check_for_sql_identifier_data_type_usage(ClusterInfo *cluster);
 
 /* parallel.c */
 void		parallel_exec_prog(const char *log_file, const char *opt_log_file,

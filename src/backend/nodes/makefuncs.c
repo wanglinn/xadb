@@ -1,10 +1,10 @@
 /*-------------------------------------------------------------------------
  *
  * makefuncs.c
- *	  creator functions for primitive nodes. The functions here are for
- *	  the most frequently created nodes.
+ *	  creator functions for various nodes. The functions here are for the
+ *	  most frequently created nodes.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -17,7 +17,6 @@
 
 #include "catalog/pg_class.h"
 #include "catalog/pg_type.h"
-#include "fmgr.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "utils/lsyscache.h"
@@ -93,13 +92,13 @@ makeVar(Index varno,
 	var->varlevelsup = varlevelsup;
 
 	/*
-	 * Since few if any routines ever create Var nodes with varnoold/varoattno
-	 * different from varno/varattno, we don't provide separate arguments for
-	 * them, but just initialize them to the given varno/varattno. This
+	 * Only a few callers need to make Var nodes with varnosyn/varattnosyn
+	 * different from varno/varattno.  We don't provide separate arguments for
+	 * them, but just initialize them to the given varno/varattno.  This
 	 * reduces code clutter and chance of error for most callers.
 	 */
-	var->varnoold = varno;
-	var->varoattno = varattno;
+	var->varnosyn = varno;
+	var->varattnosyn = varattno;
 
 	/* Likewise, we just set location to "unknown" here */
 	var->location = -1;
@@ -803,6 +802,57 @@ make_ands_implicit(Expr *clause)
 		return NIL;				/* constant TRUE input -> NIL list */
 	else
 		return list_make1(clause);
+}
+
+/*
+ * makeIndexInfo
+ *	  create an IndexInfo node
+ */
+IndexInfo *
+makeIndexInfo(int numattrs, int numkeyattrs, Oid amoid, List *expressions,
+			  List *predicates, bool unique, bool isready, bool concurrent)
+{
+	IndexInfo  *n = makeNode(IndexInfo);
+
+	n->ii_NumIndexAttrs = numattrs;
+	n->ii_NumIndexKeyAttrs = numkeyattrs;
+	Assert(n->ii_NumIndexKeyAttrs != 0);
+	Assert(n->ii_NumIndexKeyAttrs <= n->ii_NumIndexAttrs);
+	n->ii_Unique = unique;
+	n->ii_ReadyForInserts = isready;
+	n->ii_Concurrent = concurrent;
+
+	/* expressions */
+	n->ii_Expressions = expressions;
+	n->ii_ExpressionsState = NIL;
+
+	/* predicates  */
+	n->ii_Predicate = predicates;
+	n->ii_PredicateState = NULL;
+
+	/* exclusion constraints */
+	n->ii_ExclusionOps = NULL;
+	n->ii_ExclusionProcs = NULL;
+	n->ii_ExclusionStrats = NULL;
+
+	/* opclass options */
+	n->ii_OpclassOptions = NULL;
+
+	/* speculative inserts */
+	n->ii_UniqueOps = NULL;
+	n->ii_UniqueProcs = NULL;
+	n->ii_UniqueStrats = NULL;
+
+	/* initialize index-build state to default */
+	n->ii_BrokenHotChain = false;
+	n->ii_ParallelWorkers = 0;
+
+	/* set up for possible use by index AM */
+	n->ii_Am = amoid;
+	n->ii_AmCache = NULL;
+	n->ii_Context = CurrentMemoryContext;
+
+	return n;
 }
 
 /*

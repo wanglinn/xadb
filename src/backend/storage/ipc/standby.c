@@ -7,7 +7,7 @@
  *	AccessExclusiveLocks and starting snapshots for Hot Standby mode.
  *	Plus conflict recovery processing.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -43,7 +43,9 @@ int			max_standby_streaming_delay = 30 * 1000;
 static HTAB *RecoveryLockLists;
 
 static void ResolveRecoveryConflictWithVirtualXIDs(VirtualTransactionId *waitlist,
-												   ProcSignalReason reason);
+												   ProcSignalReason reason,
+												   uint32 wait_event_info,
+												   bool report_waiting);
 static void SendRecoveryConflictWithBufferPin(ProcSignalReason reason);
 static XLogRecPtr LogCurrentRunningXacts(RunningTransactions CurrRunningXacts);
 static void LogAccessExclusiveLocks(int nlocks, xl_standby_lock *locks);
@@ -90,7 +92,7 @@ InitRecoveryTransactionEnvironment(void)
 	/*
 	 * Initialize shared invalidation management for Startup process, being
 	 * careful to register ourselves as a sendOnly process so we don't need to
-	 * read messages, nor will we get signalled when the queue starts filling
+	 * read messages, nor will we get signaled when the queue starts filling
 	 * up.
 	 */
 	SharedInvalBackendInit(true);
@@ -99,7 +101,7 @@ InitRecoveryTransactionEnvironment(void)
 	 * Lock a virtual transaction id for Startup process.
 	 *
 	 * We need to do GetNextLocalTransactionId() because
-	 * SharedInvalBackendInit() leaves localTransactionid invalid and the lock
+	 * SharedInvalBackendInit() leaves localTransactionId invalid and the lock
 	 * manager doesn't like that at all.
 	 *
 	 * Note that we don't need to run XactLockTableInsert() because nobody
@@ -184,7 +186,7 @@ static int	standbyWait_us = STANDBY_INITIAL_WAIT_US;
  * more then we return true, if we can wait some more return false.
  */
 static bool
-WaitExceedsMaxStandbyDelay(void)
+WaitExceedsMaxStandbyDelay(uint32 wait_event_info)
 {
 	TimestampTz ltime;
 
@@ -198,7 +200,9 @@ WaitExceedsMaxStandbyDelay(void)
 	/*
 	 * Sleep a bit (this is essential to avoid busy-waiting).
 	 */
+	pgstat_report_wait_start(wait_event_info);
 	pg_usleep(standbyWait_us);
+	pgstat_report_wait_end();
 
 	/*
 	 * Progressively increase the sleep times, but not to more than 1s, since
@@ -216,19 +220,25 @@ WaitExceedsMaxStandbyDelay(void)
  * recovery processing. Judgement has already been passed on it within
  * a specific rmgr. Here we just issue the orders to the procs. The procs
  * then throw the required error as instructed.
+ *
+ * If report_waiting is true, "waiting" is reported in PS display if necessary.
+ * If the caller has already reported that, report_waiting should be false.
+ * Otherwise, "waiting" is reported twice unexpectedly.
  */
 static void
 ResolveRecoveryConflictWithVirtualXIDs(VirtualTransactionId *waitlist,
-									   ProcSignalReason reason)
+									   ProcSignalReason reason, uint32 wait_event_info,
+									   bool report_waiting)
 {
-	TimestampTz waitStart;
+	TimestampTz waitStart = 0;
 	char	   *new_status;
 
 	/* Fast exit, to avoid a kernel call if there's no work to be done. */
 	if (!VirtualTransactionIdIsValid(*waitlist))
 		return;
 
-	waitStart = GetCurrentTimestamp();
+	if (report_waiting)
+		waitStart = GetCurrentTimestamp();
 	new_status = NULL;			/* we haven't changed the ps display */
 
 	while (VirtualTransactionIdIsValid(*waitlist))
@@ -243,7 +253,7 @@ ResolveRecoveryConflictWithVirtualXIDs(VirtualTransactionId *waitlist,
 			 * Report via ps if we have been waiting for more than 500 msec
 			 * (should that be configurable?)
 			 */
-			if (update_process_title && new_status == NULL &&
+			if (update_process_title && new_status == NULL && report_waiting &&
 				TimestampDifferenceExceeds(waitStart, GetCurrentTimestamp(),
 										   500))
 			{
@@ -254,12 +264,12 @@ ResolveRecoveryConflictWithVirtualXIDs(VirtualTransactionId *waitlist,
 				new_status = (char *) palloc(len + 8 + 1);
 				memcpy(new_status, old_status, len);
 				strcpy(new_status + len, " waiting");
-				set_ps_display(new_status, false);
+				set_ps_display(new_status);
 				new_status[len] = '\0'; /* truncate off " waiting" */
 			}
 
 			/* Is it time to kill it? */
-			if (WaitExceedsMaxStandbyDelay())
+			if (WaitExceedsMaxStandbyDelay(wait_event_info))
 			{
 				pid_t		pid;
 
@@ -285,7 +295,7 @@ ResolveRecoveryConflictWithVirtualXIDs(VirtualTransactionId *waitlist,
 	/* Reset ps display if we changed it */
 	if (new_status)
 	{
-		set_ps_display(new_status, false);
+		set_ps_display(new_status);
 		pfree(new_status);
 	}
 }
@@ -311,7 +321,9 @@ ResolveRecoveryConflictWithSnapshot(TransactionId latestRemovedXid, RelFileNode 
 										 node.dbNode);
 
 	ResolveRecoveryConflictWithVirtualXIDs(backends,
-										   PROCSIG_RECOVERY_CONFLICT_SNAPSHOT);
+										   PROCSIG_RECOVERY_CONFLICT_SNAPSHOT,
+										   WAIT_EVENT_RECOVERY_CONFLICT_SNAPSHOT,
+										   true);
 }
 
 void
@@ -339,7 +351,9 @@ ResolveRecoveryConflictWithTablespace(Oid tsid)
 	temp_file_users = GetConflictingVirtualXIDs(InvalidTransactionId,
 												InvalidOid);
 	ResolveRecoveryConflictWithVirtualXIDs(temp_file_users,
-										   PROCSIG_RECOVERY_CONFLICT_TABLESPACE);
+										   PROCSIG_RECOVERY_CONFLICT_TABLESPACE,
+										   WAIT_EVENT_RECOVERY_CONFLICT_TABLESPACE,
+										   true);
 }
 
 void
@@ -402,8 +416,16 @@ ResolveRecoveryConflictWithLock(LOCKTAG locktag)
 		VirtualTransactionId *backends;
 
 		backends = GetLockConflicts(&locktag, AccessExclusiveLock, NULL);
+
+		/*
+		 * Prevent ResolveRecoveryConflictWithVirtualXIDs() from reporting
+		 * "waiting" in PS display by disabling its argument report_waiting
+		 * because the caller, WaitOnLock(), has already reported that.
+		 */
 		ResolveRecoveryConflictWithVirtualXIDs(backends,
-											   PROCSIG_RECOVERY_CONFLICT_LOCK);
+											   PROCSIG_RECOVERY_CONFLICT_LOCK,
+											   PG_WAIT_LOCK | locktag.locktag_type,
+											   false);
 	}
 	else
 	{

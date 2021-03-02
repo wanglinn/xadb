@@ -7,7 +7,7 @@
  * already seen.  The hash key is computed from the grouping columns.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -160,7 +160,7 @@ ExecRecursiveUnion(PlanState *pstate)
 }
 
 /* ----------------------------------------------------------------
- *		ExecInitRecursiveUnionScan
+ *		ExecInitRecursiveUnion
  * ----------------------------------------------------------------
  */
 RecursiveUnionState *
@@ -263,7 +263,7 @@ ExecInitRecursiveUnion(RecursiveUnion *node, EState *estate, int eflags)
 }
 
 /* ----------------------------------------------------------------
- *		ExecEndRecursiveUnionScan
+ *		ExecEndRecursiveUnion
  *
  *		frees any storage allocated through C routines.
  * ----------------------------------------------------------------

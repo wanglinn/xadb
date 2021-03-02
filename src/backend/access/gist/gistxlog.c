@@ -4,7 +4,7 @@
  *	  WAL replay logic for GiST.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -356,8 +356,7 @@ gistRedoPageDelete(XLogReaderState *record)
 	{
 		Page		page = (Page) BufferGetPage(leafBuffer);
 
-		GistPageSetDeleteXid(page, xldata->deleteXid);
-		GistPageSetDeleted(page);
+		GistPageSetDeleted(page, xldata->deleteXid);
 
 		PageSetLSN(page, lsn);
 		MarkBufferDirty(leafBuffer);
@@ -396,8 +395,27 @@ gistRedoPageReuse(XLogReaderState *record)
 	 */
 	if (InHotStandby)
 	{
-		ResolveRecoveryConflictWithSnapshot(xlrec->latestRemovedXid,
-											xlrec->node);
+		FullTransactionId latestRemovedFullXid = xlrec->latestRemovedFullXid;
+		FullTransactionId nextFullXid = ReadNextFullTransactionId();
+		uint64		diff;
+
+		/*
+		 * ResolveRecoveryConflictWithSnapshot operates on 32-bit
+		 * TransactionIds, so truncate the logged FullTransactionId. If the
+		 * logged value is very old, so that XID wrap-around already happened
+		 * on it, there can't be any snapshots that still see it.
+		 */
+		nextFullXid = ReadNextFullTransactionId();
+		diff = U64FromFullTransactionId(nextFullXid) -
+			U64FromFullTransactionId(latestRemovedFullXid);
+		if (diff < MaxTransactionId / 2)
+		{
+			TransactionId latestRemovedXid;
+
+			latestRemovedXid = XidFromFullTransactionId(latestRemovedFullXid);
+			ResolveRecoveryConflictWithSnapshot(latestRemovedXid,
+												xlrec->node);
+		}
 	}
 }
 
@@ -430,6 +448,9 @@ gist_redo(XLogReaderState *record)
 			break;
 		case XLOG_GIST_PAGE_DELETE:
 			gistRedoPageDelete(record);
+			break;
+		case XLOG_GIST_ASSIGN_LSN:
+			/* nop. See gistGetFakeLSN(). */
 			break;
 		default:
 			elog(PANIC, "gist_redo: unknown op code %u", info);
@@ -554,7 +575,7 @@ gistXLogSplit(bool page_is_leaf,
  * downlink from the parent page.
  */
 XLogRecPtr
-gistXLogPageDelete(Buffer buffer, TransactionId xid,
+gistXLogPageDelete(Buffer buffer, FullTransactionId xid,
 				   Buffer parentBuffer, OffsetNumber downlinkOffset)
 {
 	gistxlogPageDelete xlrec;
@@ -575,10 +596,28 @@ gistXLogPageDelete(Buffer buffer, TransactionId xid,
 }
 
 /*
+ * Write an empty XLOG record to assign a distinct LSN.
+ */
+XLogRecPtr
+gistXLogAssignLSN(void)
+{
+	int			dummy = 0;
+
+	/*
+	 * Records other than SWITCH_WAL must have content. We use an integer 0 to
+	 * follow the restriction.
+	 */
+	XLogBeginInsert();
+	XLogSetRecordFlags(XLOG_MARK_UNIMPORTANT);
+	XLogRegisterData((char *) &dummy, sizeof(dummy));
+	return XLogInsert(RM_GIST_ID, XLOG_GIST_ASSIGN_LSN);
+}
+
+/*
  * Write XLOG record about reuse of a deleted page.
  */
 void
-gistXLogPageReuse(Relation rel, BlockNumber blkno, TransactionId latestRemovedXid)
+gistXLogPageReuse(Relation rel, BlockNumber blkno, FullTransactionId latestRemovedXid)
 {
 	gistxlogPageReuse xlrec_reuse;
 
@@ -591,7 +630,7 @@ gistXLogPageReuse(Relation rel, BlockNumber blkno, TransactionId latestRemovedXi
 	/* XLOG stuff */
 	xlrec_reuse.node = rel->rd_node;
 	xlrec_reuse.block = blkno;
-	xlrec_reuse.latestRemovedXid = latestRemovedXid;
+	xlrec_reuse.latestRemovedFullXid = latestRemovedXid;
 
 	XLogBeginInsert();
 	XLogRegisterData((char *) &xlrec_reuse, SizeOfGistxlogPageReuse);

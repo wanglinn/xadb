@@ -10,7 +10,7 @@
  * therefore, even when built for backend, it cannot rely on backend
  * infrastructure such as elog() or palloc().
  *
- * Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Copyright (c) 1996-2020, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/port/pg_strong_random.c
@@ -27,11 +27,11 @@
 #ifdef USE_OPENSSL
 #include <openssl/rand.h>
 #endif
-#ifdef WIN32
+#ifdef USE_WIN32_RANDOM
 #include <wincrypt.h>
 #endif
 
-#ifdef WIN32
+#ifdef USE_WIN32_RANDOM
 /*
  * Cache a global crypto provider that only gets freed when the process
  * exits, in case we need random numbers more than once.

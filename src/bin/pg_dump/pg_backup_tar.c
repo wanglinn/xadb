@@ -29,17 +29,17 @@
  */
 #include "postgres_fe.h"
 
-#include "pg_backup_archiver.h"
-#include "pg_backup_tar.h"
-#include "pg_backup_utils.h"
-#include "pgtar.h"
-#include "common/file_utils.h"
-#include "fe_utils/string_utils.h"
-
 #include <sys/stat.h>
 #include <ctype.h>
 #include <limits.h>
 #include <unistd.h>
+
+#include "common/file_utils.h"
+#include "fe_utils/string_utils.h"
+#include "pg_backup_archiver.h"
+#include "pg_backup_tar.h"
+#include "pg_backup_utils.h"
+#include "pgtar.h"
 
 static void _ArchiveEntry(ArchiveHandle *AH, TocEntry *te);
 static void _StartData(ArchiveHandle *AH, TocEntry *te);
@@ -515,6 +515,8 @@ _tarReadRaw(ArchiveHandle *AH, void *buf, size_t len, TAR_MEMBER *th, FILE *fh)
 	size_t		used = 0;
 	size_t		res = 0;
 
+	Assert(th || fh);
+
 	avail = AH->lookaheadLen - AH->lookaheadPos;
 	if (avail > 0)
 	{
@@ -567,8 +569,6 @@ _tarReadRaw(ArchiveHandle *AH, void *buf, size_t len, TAR_MEMBER *th, FILE *fh)
 					READ_ERROR_EXIT(th->nFH);
 			}
 		}
-		else
-			fatal("internal error -- neither th nor fh specified in tarReadRaw()\n");
 	}
 
 	ctx->tarFHpos += res + used;
@@ -615,8 +615,6 @@ _WriteData(ArchiveHandle *AH, const void *data, size_t dLen)
 
 	if (tarWrite(data, dLen, tctx->TH) != dLen)
 		WRITE_ERROR_EXIT;
-
-	return;
 }
 
 static void
@@ -818,7 +816,6 @@ _ReadBuf(ArchiveHandle *AH, void *buf, size_t len)
 		fatal("could not read from input file: end of file");
 
 	ctx->filePos += len;
-	return;
 }
 
 static void

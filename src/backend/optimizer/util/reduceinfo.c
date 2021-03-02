@@ -1010,10 +1010,10 @@ bool IsReduceInfoListByValue(List *list)
 #ifdef USE_ASSERT_CHECKING
 		if(list_length(list) > 1)
 		{
-			ListCell *lc = list_head(list);
-			for_each_cell(lc, lnext(lc))
+			int n = list_length(list);
+			while (--n > 0)
 			{
-				rinfo = lfirst(lc);
+				rinfo = list_nth(list, n);
 				Assert(IsReduceInfoByValue(rinfo));
 			}
 		}

@@ -1,5 +1,6 @@
 #include "postgres.h"
 
+#include "common/hashfn.h"
 #include "libpq/pqformat.h"
 #include "storage/latch.h"
 #include "utils/memutils.h"

@@ -26,14 +26,14 @@ select * from inserttest;
 insert into inserttest values(10, 20, '40'), (-1, 2, DEFAULT),
     ((select 2), (select i from (values(3)) as foo (i)), 'values are fun!');
 
-select * from inserttest order by 1,2,3;
+select * from inserttest;
 
 --
 -- TOASTed value test
 --
 insert into inserttest values(30, 50, repeat('x', 10000));
 
-select col1, col2, char_length(col3) from inserttest order by 1,2,3;
+select col1, col2, char_length(col3) from inserttest;
 
 drop table inserttest;
 
@@ -229,7 +229,7 @@ select tableoid::regclass::text, a, min(b) as min_b, max(b) as max_b from list_p
 -- direct partition inserts should check hash partition bound constraint
 
 -- Use hand-rolled hash functions and operator classes to get predictable
--- result on different matchines.  The hash function for int4 simply returns
+-- result on different machines.  The hash function for int4 simply returns
 -- the sum of the values passed to it and the one for text returns the length
 -- of the non-empty string value passed to it or 0.
 

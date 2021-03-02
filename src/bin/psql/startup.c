@@ -1,7 +1,7 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2019, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2020, PostgreSQL Global Development Group
  *
  * src/bin/psql/startup.c
  */
@@ -14,20 +14,16 @@
 #include <win32.h>
 #endif							/* WIN32 */
 
-#include "getopt_long.h"
-
-#include "common/logging.h"
-#include "fe_utils/print.h"
-
 #include "command.h"
 #include "common.h"
+#include "common/logging.h"
 #include "describe.h"
+#include "fe_utils/print.h"
+#include "getopt_long.h"
 #include "help.h"
 #include "input.h"
 #include "mainloop.h"
 #include "settings.h"
-
-
 
 /*
  * Global psql options
@@ -341,7 +337,7 @@ main(int argc, char *argv[])
 		exit(EXIT_BADCONN);
 	}
 
-	setup_cancel_handler();
+	psql_setup_cancel_handler();
 
 	PQsetNoticeProcessor(pset.db, NoticeProcessor, NULL);
 
@@ -473,6 +469,7 @@ error:
 	 */
 	else
 	{
+		pg_logging_config(PG_LOG_FLAG_TERSE);
 		connection_warnings(true);
 		if (!pset.quiet)
 			printf(_("Type \"help\" for help.\n\n"));
@@ -723,15 +720,18 @@ parse_psql_options(int argc, char *argv[], struct adhoc_opts *options)
 				options->single_txn = true;
 				break;
 			case '?':
-				/* Actual help option given */
-				if (strcmp(argv[optind - 1], "-?") == 0)
+				if (optind <= argc &&
+					strcmp(argv[optind - 1], "-?") == 0)
 				{
+					/* actual help option given */
 					usage(NOPAGER);
 					exit(EXIT_SUCCESS);
 				}
-				/* unknown option reported by getopt */
 				else
+				{
+					/* getopt error (unknown option or missing argument) */
 					goto unknown_option;
+				}
 				break;
 			case 1:
 				{

@@ -3,7 +3,7 @@
  * fe-lobj.c
  *	  Front-end large object interface
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -853,7 +853,7 @@ lo_export(PGconn *conn, Oid lobjId, const char *filename)
 	}
 
 	/* if we already failed, don't overwrite that msg with a close error */
-	if (close(fd) && result >= 0)
+	if (close(fd) != 0 && result >= 0)
 	{
 		printfPQExpBuffer(&conn->errorMessage,
 						  libpq_gettext("could not write to file \"%s\": %s\n"),

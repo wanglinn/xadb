@@ -3,7 +3,7 @@
  * gistvalidate.c
  *	  Opclass validator for GiST.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -140,6 +140,9 @@ gistvalidate(Oid opclassoid)
 											5, 5, INTERNALOID, opcintype,
 											INT2OID, OIDOID, INTERNALOID);
 				break;
+			case GIST_OPTIONS_PROC:
+				ok = check_amoptsproc_signature(procform->amproc);
+				break;
 			default:
 				ereport(INFO,
 						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
@@ -259,7 +262,8 @@ gistvalidate(Oid opclassoid)
 			(opclassgroup->functionset & (((uint64) 1) << i)) != 0)
 			continue;			/* got it */
 		if (i == GIST_DISTANCE_PROC || i == GIST_FETCH_PROC ||
-			i == GIST_COMPRESS_PROC || i == GIST_DECOMPRESS_PROC)
+			i == GIST_COMPRESS_PROC || i == GIST_DECOMPRESS_PROC ||
+			i == GIST_OPTIONS_PROC)
 			continue;			/* optional methods */
 		ereport(INFO,
 				(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),

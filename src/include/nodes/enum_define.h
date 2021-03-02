@@ -87,6 +87,7 @@ BEGIN_ENUM(AlterTableType)
 	ENUM_VALUE(AT_ColumnDefault)
 	ENUM_VALUE(AT_DropNotNull)
 	ENUM_VALUE(AT_SetNotNull)
+	ENUM_VALUE(AT_DropExpression)
 	ENUM_VALUE(AT_CheckNotNull)
 	ENUM_VALUE(AT_SetStatistics)
 	ENUM_VALUE(AT_SetOptions)
@@ -103,7 +104,6 @@ BEGIN_ENUM(AlterTableType)
 	ENUM_VALUE(AT_AlterConstraint)
 	ENUM_VALUE(AT_ValidateConstraint)
 	ENUM_VALUE(AT_ValidateConstraintRecurse)
-	ENUM_VALUE(AT_ProcessedConstraint)
 	ENUM_VALUE(AT_AddIndexConstraint)
 	ENUM_VALUE(AT_DropConstraint)
 	ENUM_VALUE(AT_DropConstraintRecurse)
@@ -247,6 +247,15 @@ END_ENUM(CommandMode)
 #endif /* NO_ENUM_CommandMode */
 #endif
 
+#ifndef NO_ENUM_CommandTag
+#define PG_CMDTAG(tag, name, evtrgok, rwrok, rowcnt) ENUM_VALUE(tag)
+BEGIN_ENUM(CommandTag)
+#include"tcop/cmdtaglist.h"
+	ENUM_VALUE(COMMAND_TAG_NEXTTAG)
+END_ENUM(CommandTag)
+#undef PG_CMDTAG
+#endif /* NO_ENUM_CommandTag */
+
 #ifndef NO_ENUM_ConstrType
 BEGIN_ENUM(ConstrType)
 	ENUM_VALUE(CONSTR_NULL)
@@ -373,6 +382,15 @@ BEGIN_ENUM(ImportForeignSchemaType)
 END_ENUM(ImportForeignSchemaType)
 #endif /* NO_ENUM_ImportForeignSchemaType */
 
+#ifndef NO_ENUM_IncrementalSortExecutionStatus
+BEGIN_ENUM(IncrementalSortExecutionStatus)
+	ENUM_VALUE(INCSORT_LOADFULLSORT)
+	ENUM_VALUE(INCSORT_LOADPREFIXSORT)
+	ENUM_VALUE(INCSORT_READFULLSORT)
+	ENUM_VALUE(INCSORT_READPREFIXSORT)
+END_ENUM(IncrementalSortExecutionStatus)
+#endif /* NO_ENUM_IncrementalSortExecutionStatus */
+
 #ifndef NO_ENUM_InheritanceKind
 BEGIN_ENUM(InheritanceKind)
 	ENUM_VALUE(INHKIND_NONE)
@@ -394,12 +412,21 @@ BEGIN_ENUM(JoinType)
 END_ENUM(JoinType)
 #endif /* NO_ENUM_JoinType */
 
+#ifndef NO_ENUM_LimitOption
+BEGIN_ENUM(LimitOption)
+	ENUM_VALUE(LIMIT_OPTION_COUNT)
+	ENUM_VALUE(LIMIT_OPTION_WITH_TIES)
+	ENUM_VALUE(LIMIT_OPTION_DEFAULT)
+END_ENUM(LimitOption)
+#endif /* NO_ENUM_LimitOption */
+
 #ifndef NO_ENUM_LimitStateCond
 BEGIN_ENUM(LimitStateCond)
 	ENUM_VALUE(LIMIT_INITIAL)
 	ENUM_VALUE(LIMIT_RESCAN)
 	ENUM_VALUE(LIMIT_EMPTY)
 	ENUM_VALUE(LIMIT_INWINDOW)
+	ENUM_VALUE(LIMIT_WINDOWEND_TIES)
 	ENUM_VALUE(LIMIT_SUBPLANEOF)
 	ENUM_VALUE(LIMIT_WINDOWEND)
 	ENUM_VALUE(LIMIT_WINDOWSTART)
@@ -482,6 +509,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_HashJoin)
 	ENUM_VALUE(T_Material)
 	ENUM_VALUE(T_Sort)
+	ENUM_VALUE(T_IncrementalSort)
 	ENUM_VALUE(T_Group)
 	ENUM_VALUE(T_Agg)
 	ENUM_VALUE(T_WindowAgg)
@@ -555,6 +583,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_HashJoinState)
 	ENUM_VALUE(T_MaterialState)
 	ENUM_VALUE(T_SortState)
+	ENUM_VALUE(T_IncrementalSortState)
 	ENUM_VALUE(T_GroupState)
 	ENUM_VALUE(T_AggState)
 	ENUM_VALUE(T_WindowAggState)
@@ -678,6 +707,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_ProjectionPath)
 	ENUM_VALUE(T_ProjectSetPath)
 	ENUM_VALUE(T_SortPath)
+	ENUM_VALUE(T_IncrementalSortPath)
 	ENUM_VALUE(T_GroupPath)
 	ENUM_VALUE(T_UpperUniquePath)
 	ENUM_VALUE(T_AggPath)
@@ -806,6 +836,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_AlterObjectSchemaStmt)
 	ENUM_VALUE(T_AlterOwnerStmt)
 	ENUM_VALUE(T_AlterOperatorStmt)
+	ENUM_VALUE(T_AlterTypeStmt)
 	ENUM_VALUE(T_DropOwnedStmt)
 	ENUM_VALUE(T_ReassignOwnedStmt)
 	ENUM_VALUE(T_CompositeTypeStmt)
@@ -851,6 +882,7 @@ BEGIN_ENUM(NodeTag)
 	ENUM_VALUE(T_CreateStatsStmt)
 	ENUM_VALUE(T_AlterCollationStmt)
 	ENUM_VALUE(T_CallStmt)
+	ENUM_VALUE(T_AlterStatsStmt)
 #ifdef ADB_GRAM_ORA
 	ENUM_VALUE(T_CreateOracleConvertStmt)
 	ENUM_VALUE(T_CreateOracleCastStmt)
@@ -1407,6 +1439,14 @@ BEGIN_ENUM(ViewCheckOption)
 	ENUM_VALUE(CASCADED_CHECK_OPTION)
 END_ENUM(ViewCheckOption)
 #endif /* NO_ENUM_ViewCheckOption */
+
+#ifndef NO_ENUM_ViewOptCheckOption
+BEGIN_ENUM(ViewOptCheckOption)
+	ENUM_VALUE(VIEW_OPTION_CHECK_OPTION_NOT_SET)
+	ENUM_VALUE(VIEW_OPTION_CHECK_OPTION_LOCAL)
+	ENUM_VALUE(VIEW_OPTION_CHECK_OPTION_CASCADED)
+END_ENUM(ViewOptCheckOption)
+#endif /* NO_ENUM_ViewOptCheckOption */
 
 #ifndef NO_ENUM_WCOKind
 BEGIN_ENUM(WCOKind)

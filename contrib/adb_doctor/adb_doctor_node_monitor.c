@@ -398,7 +398,7 @@ static void examineAdbDoctorConf()
 				(errmsg("%s, Refresh configuration completed",
 						MyBgworkerEntry->bgw_name)));
 
-		freshMgrNode = checkGetMgrNodeForNodeDoctor(cachedMgrNode->oid);
+		freshMgrNode = checkGetMgrNodeForNodeDoctor(cachedMgrNode->form.oid);
 		if (isIdenticalDoctorMgrNode(freshMgrNode, cachedMgrNode))
 		{
 			pfreeMgrNodeWrapper(freshMgrNode);
@@ -1711,7 +1711,7 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *mgrNode,
 	MgrNodeWrapper *nodeDataInDB;
 	bool needReset = false;
 	nodeDataInMem = mgrNode;
-	nodeDataInDB = selectMgrNodeForNodeDoctor(nodeDataInMem->oid,
+	nodeDataInDB = selectMgrNodeForNodeDoctor(nodeDataInMem->form.oid,
 											  spiContext);
 	if (!nodeDataInDB)
 	{
@@ -1861,7 +1861,7 @@ static bool isHaveActiveSlaveNodes(MgrNodeWrapper *mgrNode, char *nodesync)
 					 "AND nodeinited = %d::boolean \n"
 					 "AND nodeincluster = %d::boolean \n"
 					 "AND nodetype = '%c' ",
-					 mgrNode->oid,
+					 mgrNode->form.oid,
 					 true,
 					 true,
 					 getMgrSlaveNodetype(mgrNode->form.nodetype));
@@ -2228,7 +2228,7 @@ static bool rewindSlaveNodeFollowMaster(MgrNodeWrapper *slaveNode,
 
 		rewindMgrNodeOperation(rewindObject, spiContext);
 
-		mgr_add_parameters_pgsqlconf(slaveNode->oid,
+		mgr_add_parameters_pgsqlconf(slaveNode->form.oid,
 									 slaveNode->form.nodetype,
 									 slaveNode->form.nodeport,
 									 &infosendmsg);

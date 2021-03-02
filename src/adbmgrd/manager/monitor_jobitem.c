@@ -120,11 +120,11 @@ Datum monitor_jobitem_add_func(PG_FUNCTION_ARGS)
 				errmsg("\"%s\" already exists, skipping", itemname)));
 			PG_RETURN_BOOL(false);
 		}
-		heap_close(rel, AccessShareLock);
+		table_close(rel, AccessShareLock);
 		ereport(ERROR, (errcode(ERRCODE_DUPLICATE_OBJECT)
 				, errmsg("\"%s\" already exists", itemname)));
 	}
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 	memset(datum, 0, sizeof(datum));
 	memset(isnull, 0, sizeof(isnull));
 	memset(got, 0, sizeof(got));
@@ -192,7 +192,7 @@ Datum monitor_jobitem_add_func(PG_FUNCTION_ARGS)
 	CatalogTupleInsert(rel, newtuple);
 	heap_freetuple(newtuple);
 	/*close relation */
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 
 	PG_RETURN_BOOL(true);
 }
@@ -241,7 +241,7 @@ Datum monitor_jobitem_alter_func(PG_FUNCTION_ARGS)
 	checktuple = montiot_jobitem_get_item_tuple(rel, &itemnamedata);
 	if (!HeapTupleIsValid(checktuple))
 	{
-		heap_close(rel, RowExclusiveLock);
+		table_close(rel, RowExclusiveLock);
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 				,errmsg("\"%s\" does not exist", itemname)));
 	}
@@ -299,7 +299,7 @@ Datum monitor_jobitem_alter_func(PG_FUNCTION_ARGS)
 
 	heap_freetuple(checktuple);
 	/* at end, close relation */
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 
 	PG_RETURN_BOOL(true);
 }
@@ -386,7 +386,7 @@ Datum monitor_jobitem_drop_func(PG_FUNCTION_ARGS)
 		}
 	}
 	/* at end, close relation */
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 	(void)MemoryContextSwitchTo(old_context);
 	MemoryContextDelete(context);
 	PG_RETURN_BOOL(true);

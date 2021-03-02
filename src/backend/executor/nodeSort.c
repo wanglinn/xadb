@@ -3,7 +3,7 @@
  * nodeSort.c
  *	  Routines to handle sorting of relations.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -93,7 +93,8 @@ ExecSort(PlanState *pstate)
 											  plannode->collations,
 											  plannode->nullsFirst,
 											  work_mem,
-											  NULL, node->randomAccess);
+											  NULL,
+											  node->randomAccess);
 		if (node->bounded)
 			tuplesort_set_bound(tuplesortstate, node->bound);
 		node->tuplesortstate = (void *) tuplesortstate;
@@ -108,7 +109,7 @@ ExecSort(PlanState *pstate)
 
 			if (TupIsNull(slot))
 				break;
-
+#warning delete srt_start_merge?
 #ifdef ADB
 			if (plannode->srt_start_merge)
 				tuplesort_puttupleslotontape(tuplesortstate, slot);

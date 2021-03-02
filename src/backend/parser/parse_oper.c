@@ -3,7 +3,7 @@
  * parse_oper.c
  *		handle operator things for parser
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -134,7 +134,7 @@ LookupOperName(ParseState *pstate, List *opername, Oid oprleft, Oid oprright,
 /*
  * LookupOperWithArgs
  *		Like LookupOperName, but the argument types are specified by
- *		a ObjectWithArg node.
+ *		a ObjectWithArgs node.
  */
 Oid
 LookupOperWithArgs(ObjectWithArgs *oper, bool noError)

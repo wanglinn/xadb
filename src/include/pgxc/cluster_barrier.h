@@ -32,7 +32,7 @@
 extern void InterCreateClusterBarrier(char cmd_type, const char *barrierID, CommandDest dest);
 
 /* extern create cluster barrier command */
-extern void ExecCreateClusterBarrier(const char *barrierID, char *completionTag);
+extern void ExecCreateClusterBarrier(const char *barrierID, QueryCompletion *qc);
 
 /* xlog recovery */
 extern void cluster_barrier_redo(XLogReaderState *record);

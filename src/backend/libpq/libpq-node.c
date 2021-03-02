@@ -1,6 +1,7 @@
 #include "postgres.h"
 
 #include "catalog/pgxc_node.h"
+#include "common/hashfn.h"
 #include "executor/clusterReceiver.h"
 #include "intercomm/inter-node.h"
 #include "libpq-fe.h"
@@ -484,29 +485,27 @@ PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook,
 	while(list != NIL)
 	{
 		int fres;
-		for(i=0,lc=list_head(list);lc!=NULL;)
+		foreach (lc, list)
 		{
 			conn = lfirst(lc);
 			if((fres = PQflush(conn)) != 0)
 			{
 				if(fres > 0)
 				{
-					pfds[i].events = POLLOUT;
+					pfds[lc__state.i].events = POLLOUT;
 				}else
 				{
-					lc = lnext(lc);
-					list = list_delete_ptr(list, conn);
+					list = foreach_delete_current(list, lc);
 				}
 			}else if((n=PQNIsConnecting(conn)) != 0)
 			{
 				if(n > 0)
-					pfds[i].events = POLLOUT;
+					pfds[lc__state.i].events = POLLOUT;
 				else
-					pfds[i].events = POLLIN;
+					pfds[lc__state.i].events = POLLIN;
 			}else if(PQisCopyInState(conn) && !PQisCopyOutState(conn))
 			{
-				lc = lnext(lc);
-				list = list_delete_ptr(list, conn);
+				list = foreach_delete_current(list, lc);
 				continue;
 			}else if (PQstatus(conn) == CONNECTION_BAD)
 			{
@@ -515,16 +514,13 @@ PQNListExecFinish(List *conn_list, GetPGconnHook get_pgconn_hook,
 					res = true;
 					goto end_loop_;
 				}
-				lc = lnext(lc);
-				list = list_delete_ptr(list, conn);
+				list = foreach_delete_current(list, lc);
 				continue;
 			}else
 			{
-				pfds[i].events = POLLIN;
+				pfds[lc__state.i].events = POLLIN;
 			}
-			pfds[i].fd = PQsocket(conn);
-			++i;
-			lc = lnext(lc);
+			pfds[lc__state.i].fd = PQsocket(conn);
 		}
 
 re_poll_:
@@ -550,7 +546,7 @@ re_poll_:
 		}
 
 		/* first consume all socket data */
-		for(i=0,lc=list_head(list);lc!=NULL;lc=lnext(lc),++i)
+		for(i=0,lc=list_head(list);lc!=NULL;lc=lnext(list, lc),++i)
 		{
 			if(pfds[i].revents != 0)
 			{
@@ -569,27 +565,19 @@ re_poll_:
 		}
 
 		/* second analyze socket data one by one */
-		for(i=0,lc=list_head(list);lc!=NULL;++i)
+		i = 0;
+		foreach (lc, list)
 		{
-			if ((pfds[i].revents & POLLIN) == 0)
-			{
-				lc = lnext(lc);
+			if ((pfds[i++].revents & POLLIN) == 0)
 				continue;
-			}
 
 			conn = lfirst(lc);
 			res = PQNExecFinish(conn, hook);
 			if(res)
 				goto end_loop_;
-			if(PQstatus(conn) == CONNECTION_BAD
-				|| PQtransactionStatus(conn) != PQTRANS_ACTIVE)
-			{
-				lc = lnext(lc);
-				list = list_delete_ptr(list, conn);
-			}else
-			{
-				lc = lnext(lc);
-			}
+			if (PQstatus(conn) == CONNECTION_BAD ||
+				PQtransactionStatus(conn) != PQTRANS_ACTIVE)
+				list = foreach_delete_current(list, lc);
 		}
 	}
 
@@ -676,6 +664,7 @@ static int PQNIsConnecting(PGconn *conn)
 		break;
 	case CONNECTION_STARTED:
 	case CONNECTION_MADE:
+	case CONNECTION_CHECK_TARGET:
 		return 1;
 	case CONNECTION_AWAITING_RESPONSE:
 	case CONNECTION_AUTH_OK:
@@ -920,9 +909,10 @@ void PQNReportResultError(struct pg_result *result, struct pg_conn *conn, int el
 	AssertArg(result);
 	PG_TRY();
 	{
-		char	   *file_name = PQresultErrorField(result, PG_DIAG_SOURCE_FILE);
-		char	   *file_line = PQresultErrorField(result, PG_DIAG_SOURCE_LINE);
-		char	   *func_name = PQresultErrorField(result, PG_DIAG_SOURCE_FUNCTION);
+		const char *str;
+		const char *file_name;
+		const char *file_line;
+		const char *func_name;
 
 		if (elevel <= 0)
 		{
@@ -935,12 +925,8 @@ void PQNReportResultError(struct pg_result *result, struct pg_conn *conn, int el
 				elevel = ERROR;
 		}
 
-		if(errstart(elevel, file_name ? file_name : __FILE__,
-			file_line ? atoi(file_line) : __LINE__,
-			func_name ? func_name : PG_FUNCNAME_MACRO,
-			TEXTDOMAIN))
+		if(errstart(elevel, TEXTDOMAIN))
 		{
-			const char *str;
 			if((str = PQresultErrorField(result, PG_DIAG_SQLSTATE)) != NULL)
 				errcode(MAKE_SQLSTATE(str[0], str[1], str[2], str[3], str[4]));
 			else
@@ -982,7 +968,13 @@ void PQNReportResultError(struct pg_result *result, struct pg_conn *conn, int el
 			GENERIC_ERROR(PG_DIAG_CONSTRAINT_NAME);
 #undef GENERIC_ERROR
 
-			errfinish(0);
+			file_name = PQresultErrorField(result, PG_DIAG_SOURCE_FILE);
+			file_line = PQresultErrorField(result, PG_DIAG_SOURCE_LINE);
+			func_name = PQresultErrorField(result, PG_DIAG_SOURCE_FUNCTION);
+			errfinish(file_name ? file_name : __FILE__,
+					  file_line ? atoi(file_line) : __LINE__,
+					  func_name ? func_name : PG_FUNCNAME_MACRO);
+
 			if (elevel >= ERROR)
 				pg_unreachable();
 		}
@@ -1136,7 +1128,7 @@ re_select_:
 
 void PQNputCopyData(List *conn_list, const char *buffer, int nbytes)
 {
-	ListCell *lc,*prev,*next;
+	ListCell *lc;
 	List *list;
 	int result;
 
@@ -1162,14 +1154,12 @@ void PQNputCopyData(List *conn_list, const char *buffer, int nbytes)
 	{
 		PQNFlush(list, true);
 
-		prev = NULL;
-		for(lc = list_head(list);lc!=NULL;lc=next)
+		foreach (lc, list)
 		{
-			next = lnext(lc);
 			result = PQputCopyData(lfirst(lc), buffer, nbytes);
 			if (result > 0)
 			{
-				list = list_delete_cell(list, lc, prev);
+				list = foreach_delete_current(list, lc);
 				continue;
 			}else if(result < 0)
 			{
@@ -1177,7 +1167,6 @@ void PQNputCopyData(List *conn_list, const char *buffer, int nbytes)
 						(errmsg("%s", PQerrorMessage(lfirst(lc))),
 						 errnode(PQNConnectName(lfirst(lc)))));
 			}
-			prev = lc;
 		}
 	}
 }

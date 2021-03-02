@@ -3,7 +3,7 @@
  * snapmgr.h
  *	  POSTGRES snapshot manager
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/snapmgr.h
@@ -13,7 +13,7 @@
 #ifndef SNAPMGR_H
 #define SNAPMGR_H
 
-#include "fmgr.h"
+#include "access/transam.h"
 #include "utils/relcache.h"
 #include "utils/resowner.h"
 #include "utils/snapshot.h"
@@ -40,7 +40,6 @@
 	 RelationNeedsWAL(rel) \
   && !IsCatalogRelation(rel) \
   && !RelationIsAccessibleInLogicalDecoding(rel) \
-  && !RelationHasUnloggedIndex(rel) \
 )
 
 #define EarlyPruningEnabled(rel) (old_snapshot_threshold >= 0 && RelationAllowsEarlyPruning(rel))
@@ -125,6 +124,8 @@ extern Snapshot RegisterSnapshot(Snapshot snapshot);
 extern void UnregisterSnapshot(Snapshot snapshot);
 extern Snapshot RegisterSnapshotOnOwner(Snapshot snapshot, ResourceOwner owner);
 extern void UnregisterSnapshotFromOwner(Snapshot snapshot, ResourceOwner owner);
+
+extern FullTransactionId GetFullRecentGlobalXmin(void);
 
 extern void AtSubCommit_Snapshot(int level);
 extern void AtSubAbort_Snapshot(int level);

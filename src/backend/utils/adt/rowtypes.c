@@ -3,7 +3,7 @@
  * rowtypes.c
  *	  I/O and comparison functions for generic composite types.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -16,8 +16,8 @@
 
 #include <ctype.h>
 
+#include "access/detoast.h"
 #include "access/htup_details.h"
-#include "access/tuptoaster.h"
 #include "catalog/pg_type.h"
 #include "funcapi.h"
 #include "libpq/pqformat.h"
@@ -978,8 +978,10 @@ record_cmp(FunctionCallInfo fcinfo)
 			locfcinfo->args[0].isnull = false;
 			locfcinfo->args[1].value = values2[i2];
 			locfcinfo->args[1].isnull = false;
-			locfcinfo->isnull = false;
 			cmpresult = DatumGetInt32(FunctionCallInvoke(locfcinfo));
+
+			/* We don't expect comparison support functions to return null */
+			Assert(!locfcinfo->isnull);
 
 			if (cmpresult < 0)
 			{
@@ -1224,9 +1226,8 @@ record_eq(PG_FUNCTION_ARGS)
 			locfcinfo->args[0].isnull = false;
 			locfcinfo->args[1].value = values2[i2];
 			locfcinfo->args[1].isnull = false;
-			locfcinfo->isnull = false;
 			oprresult = DatumGetBool(FunctionCallInvoke(locfcinfo));
-			if (!oprresult)
+			if (locfcinfo->isnull || !oprresult)
 			{
 				result = false;
 				break;
@@ -1467,7 +1468,18 @@ record_image_cmp(FunctionCallInfo fcinfo)
 			}
 
 			/* Compare the pair of elements */
-			if (att1->attlen == -1)
+			if (att1->attbyval)
+			{
+				if (values1[i1] != values2[i2])
+					cmpresult = (values1[i1] < values2[i2]) ? -1 : 1;
+			}
+			else if (att1->attlen > 0)
+			{
+				cmpresult = memcmp(DatumGetPointer(values1[i1]),
+								   DatumGetPointer(values2[i2]),
+								   att1->attlen);
+			}
+			else if (att1->attlen == -1)
 			{
 				Size		len1,
 							len2;
@@ -1490,17 +1502,8 @@ record_image_cmp(FunctionCallInfo fcinfo)
 				if ((Pointer) arg2val != (Pointer) values2[i2])
 					pfree(arg2val);
 			}
-			else if (att1->attbyval)
-			{
-				if (values1[i1] != values2[i2])
-					cmpresult = (values1[i1] < values2[i2]) ? -1 : 1;
-			}
 			else
-			{
-				cmpresult = memcmp(DatumGetPointer(values1[i1]),
-								   DatumGetPointer(values2[i2]),
-								   att1->attlen);
-			}
+				elog(ERROR, "unexpected attlen: %d", att1->attlen);
 
 			if (cmpresult < 0)
 			{

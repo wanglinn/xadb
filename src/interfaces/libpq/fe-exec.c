@@ -3,7 +3,7 @@
  * fe-exec.c
  *	  functions related to sending a query down to the backend
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -18,16 +18,15 @@
 #include <fcntl.h>
 #include <limits.h>
 
-#include "libpq-fe.h"
-#include "libpq-int.h"
-
-#include "mb/pg_wchar.h"
-
 #ifdef WIN32
 #include "win32.h"
 #else
 #include <unistd.h>
 #endif
+
+#include "libpq-fe.h"
+#include "libpq-int.h"
+#include "mb/pg_wchar.h"
 
 /* keep this in same order as ExecStatusType in libpq-fe.h */
 char	   *const pgresStatus[] = {
@@ -2745,7 +2744,7 @@ PQsendDescribe(PGconn *conn, char desc_type, const char *desc_target)
 	/* remember we are doing a Describe */
 	conn->queryclass = PGQUERY_DESCRIBE;
 
-	/* reset last-query string (not relevant now) */
+	/* reset last_query string (not relevant now) */
 	if (conn->last_query)
 	{
 		free(conn->last_query);
@@ -3831,7 +3830,7 @@ PQflush(PGconn *conn)
  *		PQfreemem - safely frees memory allocated
  *
  * Needed mostly by Win32, unless multithreaded DLL (/MD in VC6)
- * Used for freeing memory from PQescapeByte()a/PQunescapeBytea()
+ * Used for freeing memory from PQescapeBytea()/PQunescapeBytea()
  */
 void
 PQfreemem(void *ptr)

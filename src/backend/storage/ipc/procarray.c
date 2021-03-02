@@ -57,7 +57,7 @@
  * happen, it would tie up KnownAssignedXids indefinitely, so we protect
  * ourselves by pruning the array when a valid list of running XIDs arrives.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -77,11 +77,14 @@
 #include "access/xact.h"
 #include "access/xlog.h"
 #include "catalog/catalog.h"
+#include "catalog/pg_authid.h"
+#include "commands/dbcommands.h"
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
 #include "storage/spin.h"
+#include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
@@ -313,9 +316,6 @@ CreateSharedProcArray(void)
 							mul_size(sizeof(bool), TOTAL_MAX_CACHED_SUBXIDS),
 							&found);
 	}
-
-	/* Register and initialize fields of ProcLWLockTranche */
-	LWLockRegisterTranche(LWTRANCHE_PROC, "proc");
 }
 
 /*
@@ -513,7 +513,7 @@ ProcArrayEndTransaction(PGPROC *proc, TransactionId latestXid ADB_ONLY_COMMA_ARG
 		pgxact->xmin = InvalidTransactionId;
 		/* must be cleared with xid/xmin: */
 		pgxact->vacuumFlags &= ~PROC_VACUUM_STATE_MASK;
-		pgxact->delayChkpt = false; /* be sure this is cleared in abort */
+		proc->delayChkpt = false;	/* be sure this is cleared in abort */
 		proc->recoveryConflictPending = false;
 #ifdef ADB
 		pgxact->isClusterVacuum = false;
@@ -537,7 +537,7 @@ ProcArrayEndTransactionInternal(PGPROC *proc, PGXACT *pgxact,
 	pgxact->xmin = InvalidTransactionId;
 	/* must be cleared with xid/xmin: */
 	pgxact->vacuumFlags &= ~PROC_VACUUM_STATE_MASK;
-	pgxact->delayChkpt = false; /* be sure this is cleared in abort */
+	proc->delayChkpt = false;	/* be sure this is cleared in abort */
 	proc->recoveryConflictPending = false;
 
 	/* Clear the subtransaction-XID cache too while holding the lock */
@@ -585,9 +585,9 @@ ProcArrayGroupClearXid(PGPROC *proc, TransactionId latestXid)
 	/* Add ourselves to the list of processes needing a group XID clear. */
 	proc->procArrayGroupMember = true;
 	proc->procArrayGroupMemberXid = latestXid;
+	nextidx = pg_atomic_read_u32(&procglobal->procArrayGroupFirst);
 	while (true)
 	{
-		nextidx = pg_atomic_read_u32(&procglobal->procArrayGroupFirst);
 		pg_atomic_write_u32(&proc->procArrayGroupNext, nextidx);
 
 		if (pg_atomic_compare_exchange_u32(&procglobal->procArrayGroupFirst,
@@ -704,7 +704,7 @@ ProcArrayClearTransaction(PGPROC *proc)
 
 	/* redundant, but just in case */
 	pgxact->vacuumFlags &= ~PROC_VACUUM_STATE_MASK;
-	pgxact->delayChkpt = false;
+	proc->delayChkpt = false;
 
 	/* Clear the subtransaction-XID cache too */
 	pgxact->nxids = 0;
@@ -825,8 +825,6 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 	Assert(standbyState == STANDBY_INITIALIZED);
 
 	/*
-	 * OK, we need to initialise from the RunningTransactionsData record.
-	 *
 	 * NB: this can be reached at least twice, so make sure new code can deal
 	 * with that.
 	 */
@@ -841,11 +839,11 @@ ProcArrayApplyRecoveryInfo(RunningTransactions running)
 	 * sort them first.
 	 *
 	 * Some of the new xids are top-level xids and some are subtransactions.
-	 * We don't call SubtransSetParent because it doesn't matter yet. If we
+	 * We don't call SubTransSetParent because it doesn't matter yet. If we
 	 * aren't overflowed then all xids will fit in snapshot and so we don't
 	 * need subtrans. If we later overflow, an xid assignment record will add
-	 * xids to subtrans. If RunningXacts is overflowed then we don't have
-	 * enough information to correctly update subtrans anyway.
+	 * xids to subtrans. If RunningTransactionsData is overflowed then we
+	 * don't have enough information to correctly update subtrans anyway.
 	 */
 
 	/*
@@ -1535,10 +1533,11 @@ GetOldestXmin(Relation rel, int flags)
 		result = replication_slot_xmin;
 
 	/*
-	 * After locks have been released and defer_cleanup_age has been applied,
-	 * check whether we need to back up further to make logical decoding
-	 * possible. We need to do so if we're computing the global limit (rel =
-	 * NULL) or if the passed relation is a catalog relation of some kind.
+	 * After locks have been released and vacuum_defer_cleanup_age has been
+	 * applied, check whether we need to back up further to make logical
+	 * decoding possible. We need to do so if we're computing the global limit
+	 * (rel = NULL) or if the passed relation is a catalog relation of some
+	 * kind.
 	 */
 	if (!(flags & PROCARRAY_SLOTS_XMIN) &&
 		(rel == NULL ||
@@ -2549,7 +2548,7 @@ GetOldestSafeDecodingTransactionId(bool catalogOnly)
  * delaying checkpoint because they have critical actions in progress.
  *
  * Constructs an array of VXIDs of transactions that are currently in commit
- * critical sections, as shown by having delayChkpt set in their PGXACT.
+ * critical sections, as shown by having delayChkpt set in their PGPROC.
  *
  * Returns a palloc'd array that should be freed by the caller.
  * *nvxids is the number of valid entries.
@@ -2580,9 +2579,8 @@ GetVirtualXIDsDelayingChkpt(int *nvxids)
 	{
 		int			pgprocno = arrayP->pgprocnos[index];
 		PGPROC	   *proc = &allProcs[pgprocno];
-		PGXACT	   *pgxact = &allPgXact[pgprocno];
 
-		if (pgxact->delayChkpt)
+		if (proc->delayChkpt)
 		{
 			VirtualTransactionId vxid;
 
@@ -2620,12 +2618,11 @@ HaveVirtualXIDsDelayingChkpt(VirtualTransactionId *vxids, int nvxids)
 	{
 		int			pgprocno = arrayP->pgprocnos[index];
 		PGPROC	   *proc = &allProcs[pgprocno];
-		PGXACT	   *pgxact = &allPgXact[pgprocno];
 		VirtualTransactionId vxid;
 
 		GET_VXID_FROM_PGPROC(vxid, *proc);
 
-		if (pgxact->delayChkpt && VirtualTransactionIdIsValid(vxid))
+		if (proc->delayChkpt && VirtualTransactionIdIsValid(vxid))
 		{
 			int			i;
 
@@ -3274,6 +3271,118 @@ CountOtherDBBackends(Oid databaseId, int *nbackends, int *nprepared)
 }
 
 /*
+ * Terminate existing connections to the specified database. This routine
+ * is used by the DROP DATABASE command when user has asked to forcefully
+ * drop the database.
+ *
+ * The current backend is always ignored; it is caller's responsibility to
+ * check whether the current backend uses the given DB, if it's important.
+ *
+ * It doesn't allow to terminate the connections even if there is a one
+ * backend with the prepared transaction in the target database.
+ */
+void
+TerminateOtherDBBackends(Oid databaseId)
+{
+	ProcArrayStruct *arrayP = procArray;
+	List	   *pids = NIL;
+	int			nprepared = 0;
+	int			i;
+
+	LWLockAcquire(ProcArrayLock, LW_SHARED);
+
+	for (i = 0; i < procArray->numProcs; i++)
+	{
+		int			pgprocno = arrayP->pgprocnos[i];
+		PGPROC	   *proc = &allProcs[pgprocno];
+
+		if (proc->databaseId != databaseId)
+			continue;
+		if (proc == MyProc)
+			continue;
+
+		if (proc->pid != 0)
+			pids = lappend_int(pids, proc->pid);
+		else
+			nprepared++;
+	}
+
+	LWLockRelease(ProcArrayLock);
+
+	if (nprepared > 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_IN_USE),
+				 errmsg("database \"%s\" is being used by prepared transaction",
+						get_database_name(databaseId)),
+				 errdetail_plural("There is %d prepared transaction using the database.",
+								  "There are %d prepared transactions using the database.",
+								  nprepared,
+								  nprepared)));
+
+	if (pids)
+	{
+		ListCell   *lc;
+
+		/*
+		 * Check whether we have the necessary rights to terminate other
+		 * sessions.  We don't terminate any session until we ensure that we
+		 * have rights on all the sessions to be terminated.  These checks are
+		 * the same as we do in pg_terminate_backend.
+		 *
+		 * In this case we don't raise some warnings - like "PID %d is not a
+		 * PostgreSQL server process", because for us already finished session
+		 * is not a problem.
+		 */
+		foreach(lc, pids)
+		{
+			int			pid = lfirst_int(lc);
+			PGPROC	   *proc = BackendPidGetProc(pid);
+
+			if (proc != NULL)
+			{
+				/* Only allow superusers to signal superuser-owned backends. */
+				if (superuser_arg(proc->roleId) && !superuser())
+					ereport(ERROR,
+							(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+							 errmsg("must be a superuser to terminate superuser process")));
+
+				/* Users can signal backends they have role membership in. */
+				if (!has_privs_of_role(GetUserId(), proc->roleId) &&
+					!has_privs_of_role(GetUserId(), DEFAULT_ROLE_SIGNAL_BACKENDID))
+					ereport(ERROR,
+							(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+							 errmsg("must be a member of the role whose process is being terminated or member of pg_signal_backend")));
+			}
+		}
+
+		/*
+		 * There's a race condition here: once we release the ProcArrayLock,
+		 * it's possible for the session to exit before we issue kill.  That
+		 * race condition possibility seems too unlikely to worry about.  See
+		 * pg_signal_backend.
+		 */
+		foreach(lc, pids)
+		{
+			int			pid = lfirst_int(lc);
+			PGPROC	   *proc = BackendPidGetProc(pid);
+
+			if (proc != NULL)
+			{
+				/*
+				 * If we have setsid(), signal the backend's whole process
+				 * group
+				 */
+#ifdef HAVE_SETSID
+				(void) kill(-pid, SIGTERM);
+#else
+				(void) kill(pid, SIGTERM);
+#endif
+			}
+		}
+	}
+}
+
+/*
  * ProcArraySetReplicationSlotXmin
  *
  * Install limits to future computations of the xmin horizon to prevent vacuum
@@ -3430,7 +3539,7 @@ DisplayXidCache(void)
 
 
 /* ----------------------------------------------
- *		KnownAssignedTransactions sub-module
+ *		KnownAssignedTransactionIds sub-module
  * ----------------------------------------------
  */
 
@@ -3469,7 +3578,7 @@ DisplayXidCache(void)
  *
  * When we throw away subXIDs from KnownAssignedXids, we need to keep track of
  * that, similarly to tracking overflow of a PGPROC's subxids array.  We do
- * that by remembering the lastOverflowedXID, ie the last thrown-away subXID.
+ * that by remembering the lastOverflowedXid, ie the last thrown-away subXID.
  * As long as that is within the range of interesting XIDs, we have to assume
  * that subXIDs are missing from snapshots.  (Note that subXID overflow occurs
  * on primary when 65th subXID arrives, whereas on standby it occurs when 64th

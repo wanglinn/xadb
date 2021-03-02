@@ -46,13 +46,6 @@ typedef enum
 	REMOTE_COPY_TUPLESTORE	/* Store data in tuplestore */
 } RemoteCopyType;
 
-/* Combines results of INSERT statements using multiple values */
-typedef struct CombineTag
-{
-	CmdType cmdType;						/* DML command type */
-	char	data[COMPLETION_TAG_BUFSIZE];	/* execution result combination data */
-} CombineTag;
-
 /*
  * Represents a DataRow message received from a remote node.
  * Contains originating node number and message body in DataRow format without
@@ -117,8 +110,6 @@ extern int ExecCountSlotsRemoteQuery(RemoteQuery *node);
 extern RemoteQueryState *ExecInitRemoteQuery(RemoteQuery *node, EState *estate, int eflags);
 extern TupleTableSlot* ExecRemoteQuery(PlanState *ps);
 extern void ExecEndRemoteQuery(RemoteQueryState *step);
-
-extern void HandleCmdComplete(CmdType commandType, CombineTag *combine, const char *msg_body, size_t len);
 
 extern void ExecRemoteQueryReScan(RemoteQueryState *node, ExprContext *exprCtxt);
 

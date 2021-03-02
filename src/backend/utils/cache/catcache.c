@@ -3,7 +3,7 @@
  * catcache.c
  *	  System catalog cache for tuples matching a key.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -15,15 +15,16 @@
 #include "postgres.h"
 
 #include "access/genam.h"
+#include "access/heaptoast.h"
 #include "access/relscan.h"
 #include "access/sysattr.h"
 #include "access/table.h"
-#include "access/tuptoaster.h"
 #include "access/valid.h"
 #include "access/xact.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_operator.h"
 #include "catalog/pg_type.h"
+#include "common/hashfn.h"
 #include "miscadmin.h"
 #ifdef CATCACHE_STATS
 #include "storage/ipc.h"		/* for on_proc_exit */
@@ -32,7 +33,6 @@
 #include "utils/builtins.h"
 #include "utils/datum.h"
 #include "utils/fmgroids.h"
-#include "utils/hashutils.h"
 #include "utils/inval.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"

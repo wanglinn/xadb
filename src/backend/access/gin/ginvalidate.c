@@ -3,7 +3,7 @@
  * ginvalidate.c
  *	  Opclass validator for GIN.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -23,9 +23,8 @@
 #include "catalog/pg_type.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
-#include "utils/syscache.h"
 #include "utils/regproc.h"
-
+#include "utils/syscache.h"
 
 /*
  * Validator for a GIN opclass.
@@ -143,6 +142,9 @@ ginvalidate(Oid opclassoid)
 											INTERNALOID, INTERNALOID,
 											INTERNALOID);
 				break;
+			case GIN_OPTIONS_PROC:
+				ok = check_amoptsproc_signature(procform->amproc);
+				break;
 			default:
 				ereport(INFO,
 						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
@@ -238,7 +240,8 @@ ginvalidate(Oid opclassoid)
 		if (opclassgroup &&
 			(opclassgroup->functionset & (((uint64) 1) << i)) != 0)
 			continue;			/* got it */
-		if (i == GIN_COMPARE_PROC || i == GIN_COMPARE_PARTIAL_PROC)
+		if (i == GIN_COMPARE_PROC || i == GIN_COMPARE_PARTIAL_PROC ||
+			i == GIN_OPTIONS_PROC)
 			continue;			/* optional method */
 		if (i == GIN_CONSISTENT_PROC || i == GIN_TRICONSISTENT_PROC)
 			continue;			/* don't need both, see check below loop */

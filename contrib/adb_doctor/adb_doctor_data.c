@@ -96,7 +96,7 @@ attachAdbDoctorBgworkerDataShm(Datum main_arg, char *name)
 
 bool isIdenticalDoctorMgrNode(MgrNodeWrapper *data1, MgrNodeWrapper *data2)
 {
-	return data1->oid == data2->oid &&
+	return data1->form.oid == data2->form.oid &&
 		   strcmp(NameStr(data1->form.nodename),
 				  NameStr(data2->form.nodename)) == 0 &&
 		   data1->form.nodehost == data2->form.nodehost &&

@@ -3,7 +3,7 @@
  * readfuncs.c
  *	  Reader functions for Postgres tree nodes.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -159,22 +159,22 @@
 /* Read an attribute number array */
 #define READ_ATTRNUMBER_ARRAY(fldname, len) \
 	token = pg_strtok(&length);		/* skip :fldname */ \
-	local_node->fldname = readAttrNumberCols(len);
+	local_node->fldname = readAttrNumberCols(len)
 
 /* Read an oid array */
 #define READ_OID_ARRAY(fldname, len) \
 	token = pg_strtok(&length);		/* skip :fldname */ \
-	local_node->fldname = readOidCols(len);
+	local_node->fldname = readOidCols(len)
 
 /* Read an int array */
 #define READ_INT_ARRAY(fldname, len) \
 	token = pg_strtok(&length);		/* skip :fldname */ \
-	local_node->fldname = readIntCols(len);
+	local_node->fldname = readIntCols(len)
 
 /* Read a bool array */
 #define READ_BOOL_ARRAY(fldname, len) \
 	token = pg_strtok(&length);		/* skip :fldname */ \
-	local_node->fldname = readBoolCols(len);
+	local_node->fldname = readBoolCols(len)
 
 /* Routine exit */
 #define READ_DONE() \
@@ -283,12 +283,13 @@ _readQuery(void)
 	READ_NODE_FIELD(sortClause);
 	READ_NODE_FIELD(limitOffset);
 	READ_NODE_FIELD(limitCount);
+	READ_ENUM_FIELD(limitOption, LimitOption);
 	READ_NODE_FIELD(rowMarks);
 	READ_NODE_FIELD(setOperations);
 	READ_NODE_FIELD(constraintDeps);
 	READ_NODE_FIELD(withCheckOptions);
 	READ_LOCATION_FIELD(stmt_location);
-	READ_LOCATION_FIELD(stmt_len);
+	READ_INT_FIELD(stmt_len);
 
 #ifdef ADB_GRAM_ORA
 	READ_NODE_FIELD(connect_by);
@@ -549,8 +550,8 @@ _readVar(void)
 	READ_INT_FIELD(vartypmod);
 	READ_OID_FIELD(varcollid);
 	READ_UINT_FIELD(varlevelsup);
-	READ_UINT_FIELD(varnoold);
-	READ_INT_FIELD(varoattno);
+	READ_UINT_FIELD(varnosyn);
+	READ_INT_FIELD(varattnosyn);
 	READ_LOCATION_FIELD(location);
 
 	READ_DONE();
@@ -1364,6 +1365,33 @@ _readOnConflictExpr(void)
 }
 
 /*
+ *	Stuff from pathnodes.h.
+ *
+ * Mostly we don't need to read planner nodes back in again, but some
+ * of these also end up in plan trees.
+ */
+
+/*
+ * _readAppendRelInfo
+ */
+static AppendRelInfo *
+_readAppendRelInfo(void)
+{
+	READ_LOCALS(AppendRelInfo);
+
+	READ_UINT_FIELD(parent_relid);
+	READ_UINT_FIELD(child_relid);
+	READ_OID_FIELD(parent_reltype);
+	READ_OID_FIELD(child_reltype);
+	READ_NODE_FIELD(translated_vars);
+	READ_INT_FIELD(num_child_cols);
+	READ_ATTRNUMBER_ARRAY(parent_colnos, local_node->num_child_cols);
+	READ_OID_FIELD(parent_reloid);
+
+	READ_DONE();
+}
+
+/*
  *	Stuff from parsenodes.h.
  */
 
@@ -1397,7 +1425,10 @@ _readRangeTblEntry(void)
 			break;
 		case RTE_JOIN:
 			READ_ENUM_FIELD(jointype, JoinType);
+			READ_INT_FIELD(joinmergedcols);
 			READ_NODE_FIELD(joinaliasvars);
+			READ_NODE_FIELD(joinleftcols);
+			READ_NODE_FIELD(joinrightcols);
 			break;
 		case RTE_FUNCTION:
 			READ_NODE_FIELD(functions);
@@ -1541,6 +1572,7 @@ _readPlannedStmt(void)
 	READ_NODE_FIELD(rtable);
 	READ_NODE_FIELD(resultRelations);
 	READ_NODE_FIELD(rootResultRelations);
+	READ_NODE_FIELD(appendRelations);
 	READ_NODE_FIELD(subplans);
 	READ_BITMAPSET_FIELD(rewindPlanIDs);
 	READ_NODE_FIELD(rowMarks);
@@ -1549,7 +1581,7 @@ _readPlannedStmt(void)
 	READ_NODE_FIELD(paramExecTypes);
 	READ_NODE_FIELD(utilityStmt);
 	READ_LOCATION_FIELD(stmt_location);
-	READ_LOCATION_FIELD(stmt_len);
+	READ_INT_FIELD(stmt_len);
 
 	READ_DONE();
 }
@@ -1672,6 +1704,7 @@ _readAppend(void)
 
 	ReadCommonPlan(&local_node->plan);
 
+	READ_BITMAPSET_FIELD(apprelids);
 	READ_NODE_FIELD(appendplans);
 	READ_INT_FIELD(first_partial_plan);
 	READ_NODE_FIELD(part_prune_info);
@@ -1689,6 +1722,7 @@ _readMergeAppend(void)
 
 	ReadCommonPlan(&local_node->plan);
 
+	READ_BITMAPSET_FIELD(apprelids);
 	READ_NODE_FIELD(mergeplans);
 	READ_INT_FIELD(numCols);
 	READ_ATTRNUMBER_ARRAY(sortColIdx, local_node->numCols);
@@ -2132,6 +2166,9 @@ _readHashJoin(void)
 	ReadCommonJoin(&local_node->join);
 
 	READ_NODE_FIELD(hashclauses);
+	READ_NODE_FIELD(hashoperators);
+	READ_NODE_FIELD(hashcollations);
+	READ_NODE_FIELD(hashkeys);
 
 	READ_DONE();
 }
@@ -2150,12 +2187,13 @@ _readMaterial(void)
 }
 
 /*
- * _readSort
+ * ReadCommonSort
+ *	Assign the basic stuff of all nodes that inherit from Sort
  */
-static Sort *
-_readSort(void)
+static void
+ReadCommonSort(Sort *local_node)
 {
-	READ_LOCALS(Sort);
+	READ_TEMP_LOCALS();
 
 	ReadCommonPlan(&local_node->plan);
 
@@ -2164,6 +2202,32 @@ _readSort(void)
 	READ_OID_ARRAY(sortOperators, local_node->numCols);
 	READ_OID_ARRAY(collations, local_node->numCols);
 	READ_BOOL_ARRAY(nullsFirst, local_node->numCols);
+}
+
+/*
+ * _readSort
+ */
+static Sort *
+_readSort(void)
+{
+	READ_LOCALS_NO_FIELDS(Sort);
+
+	ReadCommonSort(local_node);
+
+	READ_DONE();
+}
+
+/*
+ * _readIncrementalSort
+ */
+static IncrementalSort *
+_readIncrementalSort(void)
+{
+	READ_LOCALS(IncrementalSort);
+
+	ReadCommonSort(&local_node->sort);
+
+	READ_INT_FIELD(nPresortedCols);
 
 	READ_DONE();
 }
@@ -2224,6 +2288,7 @@ _readAgg(void)
 	READ_OID_ARRAY(grpOperators, local_node->numCols);
 	READ_OID_ARRAY(grpCollations, local_node->numCols);
 	READ_LONG_FIELD(numGroups);
+	READ_UINT64_FIELD(transitionSpace);
 	READ_BITMAPSET_FIELD(aggParams);
 	READ_NODE_FIELD(groupingSets);
 	READ_NODE_FIELD(chain);
@@ -2338,6 +2403,7 @@ _readHash(void)
 
 	ReadCommonPlan(&local_node->plan);
 
+	READ_NODE_FIELD(hashkeys);
 	READ_OID_FIELD(skewTable);
 	READ_INT_FIELD(skewColumn);
 	READ_BOOL_FIELD(skewInherit);
@@ -2397,6 +2463,11 @@ _readLimit(void)
 
 	READ_NODE_FIELD(limitOffset);
 	READ_NODE_FIELD(limitCount);
+	READ_ENUM_FIELD(limitOption, LimitOption);
+	READ_INT_FIELD(uniqNumCols);
+	READ_ATTRNUMBER_ARRAY(uniqColIdx, local_node->uniqNumCols);
+	READ_OID_ARRAY(uniqOperators, local_node->uniqNumCols);
+	READ_OID_ARRAY(uniqCollations, local_node->uniqNumCols);
 
 	READ_DONE();
 }
@@ -2959,6 +3030,8 @@ parseNodeString(void)
 		return_value = _readFromExpr();
 	else if (MATCH("ONCONFLICTEXPR", 14))
 		return_value = _readOnConflictExpr();
+	else if (MATCH("APPENDRELINFO", 13))
+		return_value = _readAppendRelInfo();
 	else if (MATCH("RTE", 3))
 		return_value = _readRangeTblEntry();
 	else if (MATCH("RANGETBLFUNCTION", 16))
@@ -3041,6 +3114,8 @@ parseNodeString(void)
 	else if (MATCH("BATCHSORT", 9))
 		return_value = _readBatchSort();
 #endif /* ADB_EXT */
+	else if (MATCH("INCREMENTALSORT", 15))
+		return_value = _readIncrementalSort();
 	else if (MATCH("GROUP", 5))
 		return_value = _readGroup();
 	else if (MATCH("AGG", 3))

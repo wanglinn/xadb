@@ -3,7 +3,7 @@
  * relfilenodemap.c
  *	  relfilenode to oid mapping cache.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -22,9 +22,9 @@
 #include "miscadmin.h"
 #include "utils/builtins.h"
 #include "utils/catcache.h"
+#include "utils/fmgroids.h"
 #include "utils/hsearch.h"
 #include "utils/inval.h"
-#include "utils/fmgroids.h"
 #include "utils/rel.h"
 #include "utils/relfilenodemap.h"
 #include "utils/relmapper.h"
@@ -64,7 +64,7 @@ RelfilenodeMapInvalidateCallback(Datum arg, Oid relid)
 	while ((entry = (RelfilenodeMapEntry *) hash_seq_search(&status)) != NULL)
 	{
 		/*
-		 * If relid is InvalidOid, signalling a complete reset, we must remove
+		 * If relid is InvalidOid, signaling a complete reset, we must remove
 		 * all entries, otherwise just remove the specific relation's entry.
 		 * Always remove negative cache entries.
 		 */

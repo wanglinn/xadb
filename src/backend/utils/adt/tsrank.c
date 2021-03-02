@@ -3,7 +3,7 @@
  * tsrank.c
  *		rank tsvector by tsquery
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
@@ -16,11 +16,10 @@
 #include <limits.h>
 #include <math.h>
 
+#include "miscadmin.h"
 #include "tsearch/ts_utils.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
-#include "miscadmin.h"
-
 
 static const float weights[] = {0.1f, 0.2f, 0.4f, 1.0f};
 
@@ -337,7 +336,7 @@ calc_rank_or(const float *w, TSVector t, TSQuery q)
 				}
 			}
 /*
-			limit (sum(i/i^2),i->inf) = pi^2/6
+			limit (sum(1/i^2),i=1,inf) = pi^2/6
 			resj = sum(wi/i^2),i=1,noccurence,
 			wi - should be sorted desc,
 			don't sort for now, just choose maximum weight. This should be corrected
@@ -738,7 +737,7 @@ get_docrep(TSVector txt, QueryRepresentation *qr, int *doclen)
 	doc = (DocRepresentation *) palloc(sizeof(DocRepresentation) * len);
 
 	/*
-	 * Iterate through query to make DocRepresentaion for words and it's
+	 * Iterate through query to make DocRepresentation for words and it's
 	 * entries satisfied by query
 	 */
 	for (i = 0; i < qr->query->size; i++)

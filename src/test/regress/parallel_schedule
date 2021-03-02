@@ -95,14 +95,14 @@ test: boolean char name varchar text int2 int4 int8 oid float4 float8 bit numeri
 # strings depends on char, varchar and text
 # numerology depends on int2, int4, int8, float4, float8
 # ----------
-test: strings numerology point lseg line box path polygon circle date time timetz timestamp timestamptz interval inet macaddr macaddr8 tstypes
+test: strings numerology point lseg line box path polygon circle date time timetz timestamp timestamptz interval inet macaddr macaddr8 tstypes xid
 
 # ----------
 # Another group of parallel tests
 # geometry depends on point, lseg, box, path, polygon and circle
 # horology depends on interval, timetz, timestamp, timestamptz
 # ----------
-test: geometry horology regex oidjoins type_sanity opr_sanity misc_sanity comments expressions
+test: geometry horology regex oidjoins type_sanity opr_sanity misc_sanity comments expressions unicode
 
 # ----------
 # These four each depend on the previous one
@@ -153,11 +153,12 @@ test: brin gin gist spgist privileges init_privs security_label collate matview 
 # ----------
 # Another group of parallel tests
 # ----------
-test: create_table_like alter_generic alter_operator misc async dbsize misc_functions sysviews tsrf tidscan
+test: create_table_like alter_generic alter_operator misc async dbsize misc_functions sysviews tsrf tid tidscan collate.icu.utf8 incremental_sort
 
 # rules cannot run concurrently with any test that creates
 # a view or rule in the public schema
-test: rules psql psql_crosstab amutils stats_ext
+# collate.*.utf8 tests cannot be run in parallel with each other
+test: rules psql psql_crosstab amutils stats_ext collate.linux.utf8
 
 # run by itself so it can run parallel workers
 test: select_parallel
@@ -186,7 +187,7 @@ test: plancache limit plpgsql copy2 temp domain rangefuncs prepare conversion tr
 # ----------
 # Another group of parallel tests
 # ----------
-test: partition_join partition_prune reloptions hash_part indexing partition_aggregate partition_info
+test: partition_join partition_prune reloptions hash_part indexing partition_aggregate partition_info tuplesort explain
 
 # event triggers cannot run concurrently with any test that runs DDL
 test: event_trigger

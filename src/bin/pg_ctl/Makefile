@@ -2,7 +2,7 @@
 #
 # Makefile for src/bin/pg_ctl
 #
-# Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 #
 # src/bin/pg_ctl/Makefile
@@ -24,9 +24,13 @@ LDFLAGS_INTERNAL += $(libpq_pgport)
 SUBMAKE_LIBPQ := submake-libpq
 endif
 
-OBJS=	pg_ctl.o $(WIN32RES)
-OBJS_MGR = mgr_ctl.o $(WIN32RES)
-OBJS_ATM = agtm_ctl.o $(WIN32RES)
+OBJS = \
+	$(WIN32RES) \
+	pg_ctl.o
+OBJS_MGR = $(WIN32RES) \
+	mgr_ctl.o
+OBJS_ATM = $(WIN32RES) \
+	agtm_ctl.o
 
 ifeq ($(enable_cluster),yes)
 all: pg_ctl mgr_ctl agtm_ctl

@@ -8,7 +8,7 @@
 
 
 -- create a simple table that we'll use in the tests
-CREATE TABLE pxtest1 (foobar VARCHAR(10)) distribute by replication;
+CREATE TABLE pxtest1 (foobar VARCHAR(10));
 
 INSERT INTO pxtest1 VALUES ('aaa');
 
@@ -16,41 +16,41 @@ INSERT INTO pxtest1 VALUES ('aaa');
 -- Test PREPARE TRANSACTION
 BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 UPDATE pxtest1 SET foobar = 'bbb' WHERE foobar = 'aaa';
-SELECT * FROM pxtest1 ORDER BY foobar;
+SELECT * FROM pxtest1;
 PREPARE TRANSACTION 'foo1';
 
-SELECT * FROM pxtest1 ORDER BY foobar;
+SELECT * FROM pxtest1;
 
 -- Test pg_prepared_xacts system view
-SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts;
 
 -- Test ROLLBACK PREPARED
 ROLLBACK PREPARED 'foo1';
 
-SELECT * FROM pxtest1  ORDER BY foobar;
+SELECT * FROM pxtest1;
 
-SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts;
 
 
 -- Test COMMIT PREPARED
 BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 INSERT INTO pxtest1 VALUES ('ddd');
-SELECT * FROM pxtest1 ORDER BY foobar;
+SELECT * FROM pxtest1;
 PREPARE TRANSACTION 'foo2';
 
-SELECT * FROM pxtest1  ORDER BY foobar;
+SELECT * FROM pxtest1;
 
 COMMIT PREPARED 'foo2';
 
-SELECT * FROM pxtest1  ORDER BY foobar;
+SELECT * FROM pxtest1;
 
 -- Test duplicate gids
 BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 UPDATE pxtest1 SET foobar = 'eee' WHERE foobar = 'ddd';
-SELECT * FROM pxtest1  ORDER BY foobar;
+SELECT * FROM pxtest1;
 PREPARE TRANSACTION 'foo3';
 
-SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts;
 
 BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
 INSERT INTO pxtest1 VALUES ('fff');
@@ -58,11 +58,11 @@ INSERT INTO pxtest1 VALUES ('fff');
 -- This should fail, because the gid foo3 is already in use
 PREPARE TRANSACTION 'foo3';
 
-SELECT * FROM pxtest1  ORDER BY foobar;
+SELECT * FROM pxtest1;
 
 ROLLBACK PREPARED 'foo3';
 
-SELECT * FROM pxtest1  ORDER BY foobar;
+SELECT * FROM pxtest1;
 
 -- Test serialization failure (SSI)
 BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;
@@ -119,7 +119,7 @@ FETCH 1 FROM foo;
 SELECT * FROM pxtest2;
 
 -- There should be two prepared transactions
-SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts;
 
 -- pxtest3 should be locked because of the pending DROP
 begin;
@@ -130,7 +130,7 @@ rollback;
 \c -
 
 -- There should still be two prepared transactions
-SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts;
 
 -- pxtest3 should still be locked because of the pending DROP
 begin;
@@ -143,14 +143,14 @@ COMMIT PREPARED 'regress-one';
 SELECT * FROM pxtest2;
 
 -- There should be one prepared transaction
-SELECT gid FROM pg_prepared_xacts ORDER BY 1;
+SELECT gid FROM pg_prepared_xacts;
 
 -- Commit table drop
 COMMIT PREPARED 'regress-two';
 SELECT * FROM pxtest3;
 
 -- There should be no prepared transactions
-SELECT gid FROM pg_prepared_xacts ORDER BY gid;
+SELECT gid FROM pg_prepared_xacts;
 
 -- Clean up
 DROP TABLE pxtest2;

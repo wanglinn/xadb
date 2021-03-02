@@ -191,7 +191,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 		}
 
 	}
-	heap_close(rel_node, RowExclusiveLock);
+	table_close(rel_node, RowExclusiveLock);
 	if (!slave_is_running)
 		ereport(WARNING, (errmsg("%s \"%s\" is not running normal", nodetypestr, nodenamedata.data)));
 
@@ -226,7 +226,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 		}
 		else
 			hasOtherSlave = false;
-		heap_close(rel_node, AccessShareLock);
+		table_close(rel_node, AccessShareLock);
 	}
 	initStringInfo(&strinfotmp);
 	if (strinfo.len != 0)
@@ -282,7 +282,7 @@ Datum mgr_failover_manual_adbmgr_func(PG_FUNCTION_ARGS)
 		heap_inplace_update(rel_node, tuple);
 	}
 	heap_endscan(relScan);
-	heap_close(rel_node, RowExclusiveLock);
+	table_close(rel_node, RowExclusiveLock);
 
 	/*for mgr_updateparm systbl, drop the old master param, update slave parm info in the mgr_updateparm systbl*/
 	ereport(LOG, (errmsg("refresh \"param\" table in ADB Manager, delete the old master parameters, and update %s \"%s\" as master type", nodetypestr, nodenamedata.data)));
@@ -435,7 +435,7 @@ Datum mgr_failover_manual_pgxcnode_func(PG_FUNCTION_ARGS)
 		if (!cn_is_exist || !cn_is_running)
 		{
 			heap_endscan(rel_scan);
-			heap_close(rel_node, AccessShareLock);
+			table_close(rel_node, AccessShareLock);
 			if (cn_is_exist)
 				pfree_AppendNodeInfo(cn_nodeinfo);
 			ereport(ERROR, (errmsg("coordinator \"%s\" is not running normal", NameStr(mgr_node->nodename))));
@@ -443,7 +443,7 @@ Datum mgr_failover_manual_pgxcnode_func(PG_FUNCTION_ARGS)
 		pfree_AppendNodeInfo(cn_nodeinfo);
 	}
 	heap_endscan(rel_scan);
-	heap_close(rel_node, AccessShareLock);
+	table_close(rel_node, AccessShareLock);
 
 	PG_TRY();
 	{
@@ -558,7 +558,7 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 		ReleaseSysCache(slavetuple);
 		get = true;
 	}
-	heap_close(rel_node, RowExclusiveLock);
+	table_close(rel_node, RowExclusiveLock);
 
 	if (!get)
 	{
@@ -956,7 +956,7 @@ bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, StringInf
 	heap_inplace_update(rel_node, tuple);
 	heap_freetuple(tuple);
 
-	heap_close(rel_node, AccessShareLock);
+	table_close(rel_node, AccessShareLock);
 
 	pfree(restmsg.data);
 	pfree(infosendmsg.data);
@@ -1270,7 +1270,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		tuple = mgr_get_tuple_node_from_name_type(rel_node, s_coordname);
 		mgr_runmode_cndn_get_result(AGT_CMD_CN_RESTART, &getAgentCmdRst, rel_node, tuple, SHUTDOWN_I);
 		heap_freetuple(tuple);
-		heap_close(rel_node, AccessShareLock);
+		table_close(rel_node, AccessShareLock);
 		if(!getAgentCmdRst.ret)
 		{
 			ereport(ERROR, (errmsg("restart coordinator \"%s\" fail, %s", s_coordname, getAgentCmdRst.description.data)));
@@ -1350,7 +1350,7 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	userName = get_hostuser_from_hostoid(mgr_node->nodehost);
 	heap_inplace_update(rel_node, tuple);
 	heap_freetuple(tuple);
-	heap_close(rel_node, RowExclusiveLock);
+	table_close(rel_node, RowExclusiveLock);
 
 	pfree(infosendmsg.data);
 	pfree(getAgentCmdRst.description.data);
@@ -1527,7 +1527,7 @@ bool mgr_execute_direct_on_all_coord(PGconn **pg_conn, const char *sql, const in
 	}
 
 	heap_endscan(rel_scan);
-	heap_close(rel_node, AccessShareLock);
+	table_close(rel_node, AccessShareLock);
 	pfree(restmsg.data);
 
 	return rest;
@@ -1744,7 +1744,7 @@ bool mgr_manipulate_pgxc_node_on_all_coord(PGconn **pg_conn,
 	}
 
 	heap_endscan(rel_scan);
-	heap_close(rel_node, AccessShareLock);
+	table_close(rel_node, AccessShareLock);
 	pfree(sql.data);
 
 	return rest;
@@ -2129,7 +2129,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 				tuple = mgr_get_tuple_node_from_name_type(nodeRel, nodeNameData.data);
 			mgr_runmode_cndn_get_result(AGT_CMD_DN_START, &getAgentCmdRst, nodeRel, tuple, TAKEPLAPARM_N);
 			heap_freetuple(tuple);
-			heap_close(nodeRel, AccessShareLock);
+			table_close(nodeRel, AccessShareLock);
 			if(!getAgentCmdRst.ret)
 			{
 				ereport(WARNING, (errmsg("start original %s \"%s\" fail %s", nodeTypeStrData.data, nodeNameData.data, getAgentCmdRst.description.data)));
@@ -2165,7 +2165,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 			else
 				mgr_runmode_cndn_get_result(AGT_CMD_AGTM_RESTART, &getAgentCmdRst, nodeRel, tuple, SHUTDOWN_F);
 			heap_freetuple(tuple);
-			heap_close(nodeRel, AccessShareLock);
+			table_close(nodeRel, AccessShareLock);
 			if(!getAgentCmdRst.ret)
 			{
 				bgetAgentCmdRst = true;
@@ -2302,14 +2302,14 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 		tuple = SearchSysCache1(NODENODEOID, nodeInfoS.tupleoid);
 		if(!(HeapTupleIsValid(tuple)))
 		{
-			heap_close(nodeRel, RowExclusiveLock);
+			table_close(nodeRel, RowExclusiveLock);
 			ereport(ERROR, (errmsg("get original %s \"%s\" tuple information in node table error", nodeTypeStrData.data, nodeNameData.data)));
 		}
 		tupleS = SearchSysCache1(NODENODEOID, nodeInfoM.tupleoid);
 		if(!(HeapTupleIsValid(tupleS)))
 		{
 			ReleaseSysCache(tuple);
-			heap_close(nodeRel, RowExclusiveLock);
+			table_close(nodeRel, RowExclusiveLock);
 			ereport(ERROR, (errmsg("get original %s \"%s\" tuple information in node table error", masterTypeStrData.data, nodeMasterNameData.data)));
 		}
 
@@ -2336,7 +2336,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 		heap_inplace_update(nodeRel, tupleS);
 		ReleaseSysCache(tupleS);
 
-		heap_close(nodeRel, RowExclusiveLock);
+		table_close(nodeRel, RowExclusiveLock);
 	}PG_CATCH();
 	{
 		ereport(LOG, (errmsg("rollback start:")));
@@ -2359,7 +2359,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 	rel_updateparm = table_open(UpdateparmRelationId, RowExclusiveLock);
 	mgr_parmr_update_tuple_nodename_nodetype(rel_updateparm, &nodeNameData, nodeType, masterType);
 	mgr_parmr_update_tuple_nodename_nodetype(rel_updateparm, &nodeMasterNameData, masterType, nodeType);
-	heap_close(rel_updateparm, RowExclusiveLock);
+	table_close(rel_updateparm, RowExclusiveLock);
 
 	/* update new slave postgresql.conf */
 	resetStringInfo(&infosendmsg);
@@ -2413,7 +2413,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 	}
 
 	heap_freetuple(tuple);
-	heap_close(nodeRel, AccessShareLock);
+	table_close(nodeRel, AccessShareLock);
 
 	/* for other slave */
 	ScanKeyInit(&key[0],
@@ -2456,7 +2456,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 		if (isNull)
 		{
 			heap_endscan(relScan);
-			heap_close(nodeRel, RowExclusiveLock);
+			table_close(nodeRel, RowExclusiveLock);
 			pfree(infosendmsg.data);
 			pfree(strerr.data);
 			pfree(getAgentCmdRst.description.data);
@@ -2492,7 +2492,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 		pfree(typestr);
 	}
 	heap_endscan(relScan);
-	heap_close(nodeRel, RowExclusiveLock);
+	table_close(nodeRel, RowExclusiveLock);
 
 	pfree(infosendmsg.data);
 	pfree(getAgentCmdRst.description.data);
@@ -2551,7 +2551,7 @@ static void mgr_get_hba_replication_info(Oid masterTupleOid, StringInfo infosend
 	}
 
 	heap_endscan(relScan);
-	heap_close(nodeRel, AccessShareLock);
+	table_close(nodeRel, AccessShareLock);
 }
 
 
@@ -2697,7 +2697,7 @@ static bool mgr_check_active_locks_in_cluster(PGconn *pgConn, const Oid cnOid)
 
 	pfree(cmdstring.data);
 	heap_endscan(relScan);
-	heap_close(nodeRel, AccessShareLock);
+	table_close(nodeRel, AccessShareLock);
 
 	return rest;
 }
@@ -2793,7 +2793,7 @@ static bool mgr_check_active_connect_in_coordinator(PGconn *pgConn, const Oid cn
 
 	pfree(cmdstring.data);
 	heap_endscan(relScan);
-	heap_close(nodeRel, AccessShareLock);
+	table_close(nodeRel, AccessShareLock);
 
 	return rest;
 }
@@ -2862,7 +2862,7 @@ bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport
 			if(isNull)
 			{
 				heap_endscan(relScan);
-				heap_close(nodeRel, AccessShareLock);
+				table_close(nodeRel, AccessShareLock);
 
 				pfree(infosendsyncmsg.data);
 				pfree(infosendmsg.data);
@@ -2906,7 +2906,7 @@ bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport
 	cn_tuple = SearchSysCache1(NODENODEOID, cnoid);
 	if(!HeapTupleIsValid(cn_tuple))
 	{
-		heap_close(nodeRel, AccessShareLock);
+		table_close(nodeRel, AccessShareLock);
 		pfree(infosendsyncmsg.data);
 		pfree(infosendmsg.data);
 		pfree((getAgentCmdRst.description.data));
@@ -2944,7 +2944,7 @@ bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport
 		if(isNull)
 		{
 			heap_endscan(relScan);
-			heap_close(nodeRel, AccessShareLock);
+			table_close(nodeRel, AccessShareLock);
 			pfree(infosendsyncmsg.data);
 			pfree(infosendmsg.data);
 			pfree((getAgentCmdRst.description.data));
@@ -3032,7 +3032,7 @@ bool mgr_update_agtm_port_host(PGconn **pg_conn, char *hostaddress, int cndnport
 		}
 	}
 	heap_endscan(relScan);
-	heap_close(nodeRel, AccessShareLock);
+	table_close(nodeRel, AccessShareLock);
 
 	pfree(infosendsyncmsg.data);
 	pfree(infosendmsg.data);
@@ -3091,7 +3091,7 @@ static bool mgr_check_track_activities_on_coordinator(void)
 	}
 
 	heap_endscan(relScan);
-	heap_close(nodeRel, AccessShareLock);
+	table_close(nodeRel, AccessShareLock);
 
 	pfree(infosendmsg.data);
 	pfree(getAgentCmdRst.description.data);
@@ -3146,7 +3146,7 @@ static Oid mgr_get_tupleoid_from_nodename_type(char *nodename, char nodetype)
 		break;
 	}
 	heap_endscan(relScan);
-	heap_close(nodeRel, AccessShareLock);
+	table_close(nodeRel, AccessShareLock);
 
 	return tupleOid;
 }

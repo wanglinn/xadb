@@ -23,7 +23,7 @@
  * aggregate function over all rows in the current row's window frame.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -47,6 +47,7 @@
 #include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
+#include "utils/expandeddatum.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/regproc.h"
@@ -93,7 +94,7 @@ typedef struct WindowStatePerFuncData
 	bool		resulttypeByVal;
 
 	bool		plain_agg;		/* is it just a plain aggregate function? */
-	int			aggno;			/* if so, index of its PerAggData */
+	int			aggno;			/* if so, index of its WindowStatePerAggData */
 
 	WindowObject winobj;		/* object used in window function API */
 }			WindowStatePerFuncData;
@@ -142,7 +143,7 @@ typedef struct WindowStatePerAggData
 				resulttypeByVal,
 				transtypeByVal;
 
-	int			wfuncno;		/* index of associated PerFuncData */
+	int			wfuncno;		/* index of associated WindowStatePerFuncData */
 
 	/* Context holding transition value and possibly other subsidiary data */
 	MemoryContext aggcontext;	/* may be private, or winstate->aggcontext */

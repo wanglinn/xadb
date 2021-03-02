@@ -12,10 +12,9 @@
 
 #include "access/gist.h"
 #include "access/stratnum.h"
+#include "cubedata.h"
 #include "utils/array.h"
 #include "utils/float.h"
-
-#include "cubedata.h"
 
 PG_MODULE_MAGIC;
 
@@ -100,7 +99,7 @@ bool		g_cube_leaf_consistent(NDBOX *key, NDBOX *query, StrategyNumber strategy);
 bool		g_cube_internal_consistent(NDBOX *key, NDBOX *query, StrategyNumber strategy);
 
 /*
-** Auxiliary funxtions
+** Auxiliary functions
 */
 static double distance_1D(double a1, double a2, double b1, double b2);
 static bool cube_is_point_internal(NDBOX *cube);
@@ -590,7 +589,7 @@ g_cube_picksplit(PG_FUNCTION_ARGS)
 			v->spl_nright++;
 		}
 	}
-	*left = *right = FirstOffsetNumber; /* sentinel value, see dosplit() */
+	*left = *right = FirstOffsetNumber; /* sentinel value */
 
 	v->spl_ldatum = PointerGetDatum(datum_l);
 	v->spl_rdatum = PointerGetDatum(datum_r);
@@ -718,14 +717,10 @@ cube_union_v0(NDBOX *a, NDBOX *b)
 	/* First compute the union of the dimensions present in both args */
 	for (i = 0; i < DIM(b); i++)
 	{
-		result->x[i] = Min(
-						   Min(LL_COORD(a, i), UR_COORD(a, i)),
-						   Min(LL_COORD(b, i), UR_COORD(b, i))
-			);
-		result->x[i + DIM(a)] = Max(
-									Max(LL_COORD(a, i), UR_COORD(a, i)),
-									Max(LL_COORD(b, i), UR_COORD(b, i))
-			);
+		result->x[i] = Min(Min(LL_COORD(a, i), UR_COORD(a, i)),
+						   Min(LL_COORD(b, i), UR_COORD(b, i)));
+		result->x[i + DIM(a)] = Max(Max(LL_COORD(a, i), UR_COORD(a, i)),
+									Max(LL_COORD(b, i), UR_COORD(b, i)));
 	}
 	/* continue on the higher dimensions only present in 'a' */
 	for (; i < DIM(a); i++)
@@ -797,14 +792,10 @@ cube_inter(PG_FUNCTION_ARGS)
 	/* First compute intersection of the dimensions present in both args */
 	for (i = 0; i < DIM(b); i++)
 	{
-		result->x[i] = Max(
-						   Min(LL_COORD(a, i), UR_COORD(a, i)),
-						   Min(LL_COORD(b, i), UR_COORD(b, i))
-			);
-		result->x[i + DIM(a)] = Min(
-									Max(LL_COORD(a, i), UR_COORD(a, i)),
-									Max(LL_COORD(b, i), UR_COORD(b, i))
-			);
+		result->x[i] = Max(Min(LL_COORD(a, i), UR_COORD(a, i)),
+						   Min(LL_COORD(b, i), UR_COORD(b, i)));
+		result->x[i + DIM(a)] = Min(Max(LL_COORD(a, i), UR_COORD(a, i)),
+									Max(LL_COORD(b, i), UR_COORD(b, i)));
 	}
 	/* continue on the higher dimensions only present in 'a' */
 	for (; i < DIM(a); i++)

@@ -3,7 +3,7 @@
 # pg_opclass.dat
 #    Initial contents of the pg_opclass system catalog.
 #
-# Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 #
 # src/include/catalog/pg_opclass.dat
@@ -146,13 +146,16 @@
   opcfamily => 'btree/datetime_ops', opcintype => 'timestamp' },
 { opcmethod => 'hash', opcname => 'timestamp_ops',
   opcfamily => 'hash/timestamp_ops', opcintype => 'timestamp' },
-{ opcmethod => 'btree', opcname => 'text_pattern_ops',
+{ oid => '4217', oid_symbol => 'TEXT_BTREE_PATTERN_OPS_OID',
+  opcmethod => 'btree', opcname => 'text_pattern_ops',
   opcfamily => 'btree/text_pattern_ops', opcintype => 'text',
   opcdefault => 'f' },
-{ opcmethod => 'btree', opcname => 'varchar_pattern_ops',
+{ oid => '4218', oid_symbol => 'VARCHAR_BTREE_PATTERN_OPS_OID',
+  opcmethod => 'btree', opcname => 'varchar_pattern_ops',
   opcfamily => 'btree/text_pattern_ops', opcintype => 'text',
   opcdefault => 'f' },
-{ opcmethod => 'btree', opcname => 'bpchar_pattern_ops',
+{ oid => '4219', oid_symbol => 'BPCHAR_BTREE_PATTERN_OPS_OID',
+  opcmethod => 'btree', opcname => 'bpchar_pattern_ops',
   opcfamily => 'btree/bpchar_pattern_ops', opcintype => 'bpchar',
   opcdefault => 'f' },
 { opcmethod => 'btree', opcname => 'money_ops', opcfamily => 'btree/money_ops',
@@ -165,6 +168,10 @@
   opcintype => 'tid' },
 { opcmethod => 'hash', opcname => 'xid_ops', opcfamily => 'hash/xid_ops',
   opcintype => 'xid' },
+{ opcmethod => 'hash', opcname => 'xid8_ops', opcfamily => 'hash/xid8_ops',
+  opcintype => 'xid8' },
+{ opcmethod => 'btree', opcname => 'xid8_ops', opcfamily => 'btree/xid8_ops',
+  opcintype => 'xid8' },
 { opcmethod => 'hash', opcname => 'cid_ops', opcfamily => 'hash/cid_ops',
   opcintype => 'cid' },
 { opcmethod => 'hash', opcname => 'tid_ops', opcfamily => 'hash/tid_ops',

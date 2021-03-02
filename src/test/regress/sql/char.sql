@@ -32,31 +32,31 @@ INSERT INTO CHAR_TBL (f1) VALUES ('cd');
 INSERT INTO CHAR_TBL (f1) VALUES ('c     ');
 
 
-SELECT '' AS seven, * FROM CHAR_TBL order by f1;
+SELECT '' AS seven, * FROM CHAR_TBL;
 
 SELECT '' AS six, c.*
    FROM CHAR_TBL c
-   WHERE c.f1 <> 'a' order by f1;
+   WHERE c.f1 <> 'a';
 
 SELECT '' AS one, c.*
    FROM CHAR_TBL c
-   WHERE c.f1 = 'a' order by f1;
+   WHERE c.f1 = 'a';
 
 SELECT '' AS five, c.*
    FROM CHAR_TBL c
-   WHERE c.f1 < 'a' order by f1;
+   WHERE c.f1 < 'a';
 
 SELECT '' AS six, c.*
    FROM CHAR_TBL c
-   WHERE c.f1 <= 'a' order by f1;
+   WHERE c.f1 <= 'a';
 
 SELECT '' AS one, c.*
    FROM CHAR_TBL c
-   WHERE c.f1 > 'a' order by f1;
+   WHERE c.f1 > 'a';
 
 SELECT '' AS two, c.*
    FROM CHAR_TBL c
-   WHERE c.f1 >= 'a' order by f1;
+   WHERE c.f1 >= 'a';
 
 DROP TABLE CHAR_TBL;
 
@@ -72,4 +72,4 @@ INSERT INTO CHAR_TBL (f1) VALUES ('abcd');
 INSERT INTO CHAR_TBL (f1) VALUES ('abcde');
 INSERT INTO CHAR_TBL (f1) VALUES ('abcd    ');
 
-SELECT '' AS four, * FROM CHAR_TBL order by f1;
+SELECT '' AS four, * FROM CHAR_TBL;

@@ -10,15 +10,37 @@ subdir = src/adbmgrd/catalog
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = catalog.o dependency.o heap.o index.o indexing.o namespace.o aclchk.o \
-       objectaccess.o objectaddress.o partition.o pg_aggregate.o pg_collation.o \
-       pg_constraint.o pg_conversion.o \
-       pg_depend.o pg_enum.o pg_inherits.o pg_largeobject.o pg_namespace.o \
-       pg_operator.o pg_proc.o pg_publication.o pg_range.o \
-	   pg_db_role_setting.o pg_shdepend.o pg_subscription.o pg_type.o \
-	   storage.o toasting.o
-
-BKIFILES = adbmgrd.bki adbmgrd.description adbmgrd.shdescription
+OBJS = \
+	aclchk.o \
+	catalog.o \
+	dependency.o \
+	heap.o \
+	index.o \
+	indexing.o \
+	namespace.o \
+	objectaccess.o \
+	objectaddress.o \
+	partition.o \
+	pg_aggregate.o \
+	pg_cast.o \
+	pg_collation.o \
+	pg_constraint.o \
+	pg_conversion.o \
+	pg_db_role_setting.o \
+	pg_depend.o \
+	pg_enum.o \
+	pg_inherits.o \
+	pg_largeobject.o \
+	pg_namespace.o \
+	pg_operator.o \
+	pg_proc.o \
+	pg_publication.o \
+	pg_range.o \
+	pg_shdepend.o \
+	pg_subscription.o \
+	pg_type.o \
+	storage.o \
+	toasting.o
 
 include $(top_srcdir)/src/adbmgrd/common.mk
 
@@ -31,10 +53,10 @@ CATALOG_HEADERS := \
 	pg_attrdef.h pg_constraint.h pg_inherits.h pg_index.h pg_operator.h \
 	pg_opfamily.h pg_opclass.h pg_am.h pg_amop.h pg_amproc.h \
 	pg_language.h pg_largeobject_metadata.h pg_largeobject.h pg_aggregate.h \
-	pg_statistic_ext.h pg_statistic_ext_data.h\
+	pg_statistic_ext.h pg_statistic_ext_data.h \
 	pg_statistic.h pg_rewrite.h pg_trigger.h pg_event_trigger.h pg_description.h \
 	pg_cast.h pg_enum.h pg_namespace.h pg_conversion.h pg_depend.h \
-	pg_database.h pg_db_role_setting.h pg_tablespace.h pg_pltemplate.h \
+	pg_database.h pg_db_role_setting.h pg_tablespace.h \
 	pg_authid.h pg_auth_members.h pg_shdepend.h pg_shdescription.h \
 	pg_ts_config.h pg_ts_config_map.h pg_ts_dict.h \
 	pg_ts_parser.h pg_ts_template.h pg_extension.h \
@@ -75,7 +97,7 @@ POSTGRES_BKI_DATA = $(addprefix $(top_srcdir)/src/include/catalog/,\
 	pg_cast.dat pg_class.dat pg_collation.dat \
 	pg_database.dat pg_language.dat \
 	pg_namespace.dat pg_opclass.dat pg_operator.dat pg_opfamily.dat \
-	pg_pltemplate.dat pg_proc.dat pg_range.dat pg_tablespace.dat \
+	pg_proc.dat pg_range.dat pg_tablespace.dat \
 	pg_ts_config.dat pg_ts_config_map.dat pg_ts_dict.dat pg_ts_parser.dat \
 	pg_ts_template.dat pg_type.dat \
 	)
@@ -103,8 +125,6 @@ bki-stamp: genbki.pl Catalog.pm $(POSTGRES_BKI_SRCS) $(POSTGRES_BKI_DATA) $(top_
 	$(PERL) $< --include-path=$(top_srcdir)/src/include/ \
 		--set-version=$(MAJORVERSION) "--defines=$(MYCPPFLAGS)" $(POSTGRES_BKI_SRCS)
 	mv postgres.bki adbmgrd.bki
-	mv postgres.description adbmgrd.description
-	mv postgres.shdescription adbmgrd.shdescription
 	touch $@
 
 $(top_builddir)/src/include/catalog/header-stamp:
@@ -120,8 +140,6 @@ $(top_builddir)/src/include/catalog/mgr-header-stamp: bki-stamp $(top_builddir)/
 .PHONY: install-data
 install-data: $(BKIFILES) installdirs
 	$(INSTALL_DATA) $(call vpathsearch,adbmgrd.bki) '$(DESTDIR)$(datadir)/adbmgrd.bki'
-	$(INSTALL_DATA) $(call vpathsearch,adbmgrd.description) '$(DESTDIR)$(datadir)/adbmgrd.description'
-	$(INSTALL_DATA) $(call vpathsearch,adbmgrd.shdescription) '$(DESTDIR)$(datadir)/adbmgrd.shdescription'
 	$(INSTALL_DATA) $(backend_src_dir)/catalog/system_views.sql '$(DESTDIR)$(datadir)/adbmgrd_views.sql'
 
 installdirs:
@@ -129,7 +147,7 @@ installdirs:
 
 .PHONY: uninstall-data
 uninstall-data:
-	rm -f $(addprefix '$(DESTDIR)$(datadir)'/, $(BKIFILES) mgr_views.sql)
+	rm -f $(addprefix '$(DESTDIR)$(datadir)'/, adbmgrd.bki mgr_views.sql)
 
 # postgres.bki, postgres.description, postgres.shdescription, and schemapg.h
 # are in the distribution tarball, so they are not cleaned here.
@@ -137,4 +155,4 @@ clean:
 	rm -f toasting.h indexing.h
 
 maintainer-clean: clean
-	rm -f bki-stamp $(BKIFILES) $(GENERATED_HEADERS)
+	rm -f bki-stamp adbmgrd.bki $(GENERATED_HEADERS)

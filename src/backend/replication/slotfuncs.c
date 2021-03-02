@@ -3,7 +3,7 @@
  * slotfuncs.c
  *	   Support functions for replication slots
  *
- * Copyright (c) 2012-2019, PostgreSQL Global Development Group
+ * Copyright (c) 2012-2020, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/replication/slotfuncs.c
@@ -14,12 +14,12 @@
 
 #include "access/htup_details.h"
 #include "access/xlog_internal.h"
+#include "access/xlogutils.h"
 #include "funcapi.h"
 #include "miscadmin.h"
 #include "replication/decode.h"
-#include "replication/slot.h"
 #include "replication/logical.h"
-#include "replication/logicalfuncs.h"
+#include "replication/slot.h"
 #include "utils/builtins.h"
 #include "utils/inval.h"
 #include "utils/pg_lsn.h"
@@ -31,7 +31,7 @@ check_permissions(void)
 	if (!superuser() && !has_rolreplication(GetUserId()))
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-				 (errmsg("must be superuser or replication role to use replication slots"))));
+				 errmsg("must be superuser or replication role to use replication slots")));
 }
 
 /*
@@ -118,10 +118,14 @@ pg_create_physical_replication_slot(PG_FUNCTION_ARGS)
  * Helper function for creating a new logical replication slot with
  * given arguments. Note that this function doesn't release the created
  * slot.
+ *
+ * When find_startpoint is false, the slot's confirmed_flush is not set; it's
+ * caller's responsibility to ensure it's set to something sensible.
  */
 static void
 create_logical_replication_slot(char *name, char *plugin,
-								bool temporary, XLogRecPtr restart_lsn)
+								bool temporary, XLogRecPtr restart_lsn,
+								bool find_startpoint)
 {
 	LogicalDecodingContext *ctx = NULL;
 
@@ -139,16 +143,26 @@ create_logical_replication_slot(char *name, char *plugin,
 						  temporary ? RS_TEMPORARY : RS_EPHEMERAL);
 
 	/*
-	 * Create logical decoding context, to build the initial snapshot.
+	 * Create logical decoding context to find start point or, if we don't
+	 * need it, to 1) bump slot's restart_lsn and xmin 2) check plugin sanity.
+	 *
+	 * Note: when !find_startpoint this is still important, because it's at
+	 * this point that the output plugin is validated.
 	 */
 	ctx = CreateInitDecodingContext(plugin, NIL,
-									false,	/* do not build snapshot */
+									false,	/* just catalogs is OK */
 									restart_lsn,
-									logical_read_local_xlog_page, NULL, NULL,
-									NULL);
+									XL_ROUTINE(.page_read = read_local_xlog_page,
+											   .segment_open = wal_segment_open,
+											   .segment_close = wal_segment_close),
+									NULL, NULL, NULL);
 
-	/* build initial snapshot, might take a while */
-	DecodingContextFindStartpoint(ctx);
+	/*
+	 * If caller needs us to determine the decoding start point, do so now.
+	 * This might take a while.
+	 */
+	if (find_startpoint)
+		DecodingContextFindStartpoint(ctx);
 
 	/* don't need the decoding context anymore */
 	FreeDecodingContext(ctx);
@@ -179,7 +193,8 @@ pg_create_logical_replication_slot(PG_FUNCTION_ARGS)
 	create_logical_replication_slot(NameStr(*name),
 									NameStr(*plugin),
 									temporary,
-									InvalidXLogRecPtr);
+									InvalidXLogRecPtr,
+									true);
 
 	values[0] = NameGetDatum(&MyReplicationSlot->data.name);
 	values[1] = LSNGetDatum(MyReplicationSlot->data.confirmed_flush);
@@ -221,7 +236,7 @@ pg_drop_replication_slot(PG_FUNCTION_ARGS)
 Datum
 pg_get_replication_slots(PG_FUNCTION_ARGS)
 {
-#define PG_GET_REPLICATION_SLOTS_COLS 11
+#define PG_GET_REPLICATION_SLOTS_COLS 13
 	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
 	TupleDesc	tupdesc;
 	Tuplestorestate *tupstore;
@@ -237,8 +252,7 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 	if (!(rsinfo->allowedModes & SFRM_Materialize))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("materialize mode required, but it is not " \
-						"allowed in this context")));
+				 errmsg("materialize mode required, but it is not allowed in this context")));
 
 	/* Build a tuple descriptor for our result type */
 	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
@@ -264,87 +278,112 @@ pg_get_replication_slots(PG_FUNCTION_ARGS)
 	for (slotno = 0; slotno < max_replication_slots; slotno++)
 	{
 		ReplicationSlot *slot = &ReplicationSlotCtl->replication_slots[slotno];
+		ReplicationSlot slot_contents;
 		Datum		values[PG_GET_REPLICATION_SLOTS_COLS];
 		bool		nulls[PG_GET_REPLICATION_SLOTS_COLS];
-
-		ReplicationSlotPersistency persistency;
-		TransactionId xmin;
-		TransactionId catalog_xmin;
-		XLogRecPtr	restart_lsn;
-		XLogRecPtr	confirmed_flush_lsn;
-		pid_t		active_pid;
-		Oid			database;
-		NameData	slot_name;
-		NameData	plugin;
+		WALAvailability walstate;
+		XLogSegNo	last_removed_seg;
 		int			i;
 
 		if (!slot->in_use)
 			continue;
 
+		/* Copy slot contents while holding spinlock, then examine at leisure */
 		SpinLockAcquire(&slot->mutex);
-
-		xmin = slot->data.xmin;
-		catalog_xmin = slot->data.catalog_xmin;
-		database = slot->data.database;
-		restart_lsn = slot->data.restart_lsn;
-		confirmed_flush_lsn = slot->data.confirmed_flush;
-		namecpy(&slot_name, &slot->data.name);
-		namecpy(&plugin, &slot->data.plugin);
-		active_pid = slot->active_pid;
-		persistency = slot->data.persistency;
-
+		slot_contents = *slot;
 		SpinLockRelease(&slot->mutex);
 
+		memset(values, 0, sizeof(values));
 		memset(nulls, 0, sizeof(nulls));
 
 		i = 0;
-		values[i++] = NameGetDatum(&slot_name);
+		values[i++] = NameGetDatum(&slot_contents.data.name);
 
-		if (database == InvalidOid)
+		if (slot_contents.data.database == InvalidOid)
 			nulls[i++] = true;
 		else
-			values[i++] = NameGetDatum(&plugin);
+			values[i++] = NameGetDatum(&slot_contents.data.plugin);
 
-		if (database == InvalidOid)
+		if (slot_contents.data.database == InvalidOid)
 			values[i++] = CStringGetTextDatum("physical");
 		else
 			values[i++] = CStringGetTextDatum("logical");
 
-		if (database == InvalidOid)
+		if (slot_contents.data.database == InvalidOid)
 			nulls[i++] = true;
 		else
-			values[i++] = database;
+			values[i++] = ObjectIdGetDatum(slot_contents.data.database);
 
-		values[i++] = BoolGetDatum(persistency == RS_TEMPORARY);
-		values[i++] = BoolGetDatum(active_pid != 0);
+		values[i++] = BoolGetDatum(slot_contents.data.persistency == RS_TEMPORARY);
+		values[i++] = BoolGetDatum(slot_contents.active_pid != 0);
 
-		if (active_pid != 0)
-			values[i++] = Int32GetDatum(active_pid);
-		else
-			nulls[i++] = true;
-
-		if (xmin != InvalidTransactionId)
-			values[i++] = TransactionIdGetDatum(xmin);
+		if (slot_contents.active_pid != 0)
+			values[i++] = Int32GetDatum(slot_contents.active_pid);
 		else
 			nulls[i++] = true;
 
-		if (catalog_xmin != InvalidTransactionId)
-			values[i++] = TransactionIdGetDatum(catalog_xmin);
+		if (slot_contents.data.xmin != InvalidTransactionId)
+			values[i++] = TransactionIdGetDatum(slot_contents.data.xmin);
 		else
 			nulls[i++] = true;
 
-		if (restart_lsn != InvalidXLogRecPtr)
-			values[i++] = LSNGetDatum(restart_lsn);
+		if (slot_contents.data.catalog_xmin != InvalidTransactionId)
+			values[i++] = TransactionIdGetDatum(slot_contents.data.catalog_xmin);
 		else
 			nulls[i++] = true;
 
-		if (confirmed_flush_lsn != InvalidXLogRecPtr)
-			values[i++] = LSNGetDatum(confirmed_flush_lsn);
+		if (slot_contents.data.restart_lsn != InvalidXLogRecPtr)
+			values[i++] = LSNGetDatum(slot_contents.data.restart_lsn);
 		else
 			nulls[i++] = true;
+
+		if (slot_contents.data.confirmed_flush != InvalidXLogRecPtr)
+			values[i++] = LSNGetDatum(slot_contents.data.confirmed_flush);
+		else
+			nulls[i++] = true;
+
+		walstate = GetWALAvailability(slot_contents.data.restart_lsn);
+
+		switch (walstate)
+		{
+			case WALAVAIL_INVALID_LSN:
+				nulls[i++] = true;
+				break;
+
+			case WALAVAIL_NORMAL:
+				values[i++] = CStringGetTextDatum("normal");
+				break;
+
+			case WALAVAIL_RESERVED:
+				values[i++] = CStringGetTextDatum("reserved");
+				break;
+
+			case WALAVAIL_REMOVED:
+				values[i++] = CStringGetTextDatum("lost");
+				break;
+
+			default:
+				elog(ERROR, "invalid walstate: %d", (int) walstate);
+		}
+
+		if (max_slot_wal_keep_size_mb >= 0 &&
+			(walstate == WALAVAIL_NORMAL || walstate == WALAVAIL_RESERVED) &&
+			((last_removed_seg = XLogGetLastRemovedSegno()) != 0))
+		{
+			XLogRecPtr	min_safe_lsn;
+
+			XLogSegNoOffsetToRecPtr(last_removed_seg + 1, 0,
+									wal_segment_size, min_safe_lsn);
+			values[i++] = Int64GetDatum(min_safe_lsn);
+		}
+		else
+			nulls[i++] = true;
+
+		Assert(i == PG_GET_REPLICATION_SLOTS_COLS);
 
 		tuplestore_putvalues(tupstore, tupdesc, values, nulls);
 	}
+
 	LWLockRelease(ReplicationSlotControlLock);
 
 	tuplestore_donestoring(tupstore);
@@ -365,12 +404,21 @@ pg_physical_replication_slot_advance(XLogRecPtr moveto)
 	XLogRecPtr	startlsn = MyReplicationSlot->data.restart_lsn;
 	XLogRecPtr	retlsn = startlsn;
 
+	Assert(moveto != InvalidXLogRecPtr);
+
 	if (startlsn < moveto)
 	{
 		SpinLockAcquire(&MyReplicationSlot->mutex);
 		MyReplicationSlot->data.restart_lsn = moveto;
 		SpinLockRelease(&MyReplicationSlot->mutex);
 		retlsn = moveto;
+
+		/*
+		 * Dirty the slot so as it is written out at the next checkpoint. Note
+		 * that the LSN position advanced may still be lost in the event of a
+		 * crash, but this makes the data consistent after a clean shutdown.
+		 */
+		ReplicationSlotMarkDirty();
 	}
 
 	return retlsn;
@@ -379,8 +427,8 @@ pg_physical_replication_slot_advance(XLogRecPtr moveto)
 /*
  * Helper function for advancing our logical replication slot forward.
  *
- * The slot's restart_lsn is used as start point for reading records,
- * while confirmed_lsn is used as base point for the decoding context.
+ * The slot's restart_lsn is used as start point for reading records, while
+ * confirmed_flush is used as base point for the decoding context.
  *
  * We cannot just do LogicalConfirmReceivedLocation to update confirmed_flush,
  * because we need to digest WAL to advance restart_lsn allowing to recycle
@@ -392,8 +440,9 @@ pg_logical_replication_slot_advance(XLogRecPtr moveto)
 {
 	LogicalDecodingContext *ctx;
 	ResourceOwner old_resowner = CurrentResourceOwner;
-	XLogRecPtr	startlsn;
 	XLogRecPtr	retlsn;
+
+	Assert(moveto != InvalidXLogRecPtr);
 
 	PG_TRY();
 	{
@@ -405,14 +454,16 @@ pg_logical_replication_slot_advance(XLogRecPtr moveto)
 		ctx = CreateDecodingContext(InvalidXLogRecPtr,
 									NIL,
 									true,	/* fast_forward */
-									logical_read_local_xlog_page,
+									XL_ROUTINE(.page_read = read_local_xlog_page,
+											   .segment_open = wal_segment_open,
+											   .segment_close = wal_segment_close),
 									NULL, NULL, NULL);
 
 		/*
 		 * Start reading at the slot's restart_lsn, which we know to point to
 		 * a valid record.
 		 */
-		startlsn = MyReplicationSlot->data.restart_lsn;
+		XLogBeginRead(ctx->reader, MyReplicationSlot->data.restart_lsn);
 
 		/* Initialize our return value in case we don't do anything */
 		retlsn = MyReplicationSlot->data.confirmed_flush;
@@ -421,10 +472,7 @@ pg_logical_replication_slot_advance(XLogRecPtr moveto)
 		InvalidateSystemCaches();
 
 		/* Decode at least one record, until we run out of records */
-		while ((!XLogRecPtrIsInvalid(startlsn) &&
-				startlsn < moveto) ||
-			   (!XLogRecPtrIsInvalid(ctx->reader->EndRecPtr) &&
-				ctx->reader->EndRecPtr < moveto))
+		while (ctx->reader->EndRecPtr < moveto)
 		{
 			char	   *errm = NULL;
 			XLogRecord *record;
@@ -433,12 +481,9 @@ pg_logical_replication_slot_advance(XLogRecPtr moveto)
 			 * Read records.  No changes are generated in fast_forward mode,
 			 * but snapbuilder/slot statuses are updated properly.
 			 */
-			record = XLogReadRecord(ctx->reader, startlsn, &errm);
+			record = XLogReadRecord(ctx->reader, &errm);
 			if (errm)
 				elog(ERROR, "%s", errm);
-
-			/* Read sequentially from now on */
-			startlsn = InvalidXLogRecPtr;
 
 			/*
 			 * Process the record.  Storage-level changes are ignored in
@@ -475,9 +520,9 @@ pg_logical_replication_slot_advance(XLogRecPtr moveto)
 			 * keep track of their progress, so we should make more of an
 			 * effort to save it for them.
 			 *
-			 * Dirty the slot so it's written out at the next checkpoint.
-			 * We'll still lose its position on crash, as documented, but it's
-			 * better than always losing the position even on clean restart.
+			 * Dirty the slot so it is written out at the next checkpoint. The
+			 * LSN position advanced to may still be lost on a crash but this
+			 * makes the data consistent after a clean shutdown.
 			 */
 			ReplicationSlotMarkDirty();
 		}
@@ -523,7 +568,7 @@ pg_replication_slot_advance(PG_FUNCTION_ARGS)
 
 	if (XLogRecPtrIsInvalid(moveto))
 		ereport(ERROR,
-				(errmsg("invalid target wal lsn")));
+				(errmsg("invalid target WAL LSN")));
 
 	/* Build a tuple descriptor for our result type */
 	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
@@ -539,19 +584,21 @@ pg_replication_slot_advance(PG_FUNCTION_ARGS)
 		moveto = Min(moveto, GetXLogReplayRecPtr(&ThisTimeLineID));
 
 	/* Acquire the slot so we "own" it */
-	ReplicationSlotAcquire(NameStr(*slotname), true);
+	(void) ReplicationSlotAcquire(NameStr(*slotname), SAB_Error);
 
 	/* A slot whose restart_lsn has never been reserved cannot be advanced */
 	if (XLogRecPtrIsInvalid(MyReplicationSlot->data.restart_lsn))
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 errmsg("cannot advance replication slot that has not previously reserved WAL")));
+				 errmsg("replication slot \"%s\" cannot be advanced",
+						NameStr(*slotname)),
+				 errdetail("This slot has never previously reserved WAL, or has been invalidated.")));
 
 	/*
 	 * Check if the slot is not moving backwards.  Physical slots rely simply
 	 * on restart_lsn as a minimum point, while logical slots have confirmed
-	 * consumption up to confirmed_lsn, meaning that in both cases data older
-	 * than that is not available anymore.
+	 * consumption up to confirmed_flush, meaning that in both cases data
+	 * older than that is not available anymore.
 	 */
 	if (OidIsValid(MyReplicationSlot->data.database))
 		minlsn = MyReplicationSlot->data.confirmed_flush;
@@ -574,15 +621,6 @@ pg_replication_slot_advance(PG_FUNCTION_ARGS)
 	values[0] = NameGetDatum(&MyReplicationSlot->data.name);
 	nulls[0] = false;
 
-	/* Update the on disk state when lsn was updated. */
-	if (XLogRecPtrIsInvalid(endlsn))
-	{
-		ReplicationSlotMarkDirty();
-		ReplicationSlotsComputeRequiredXmin(false);
-		ReplicationSlotsComputeRequiredLSN();
-		ReplicationSlotSave();
-	}
-
 	ReplicationSlotRelease();
 
 	/* Return the reached position. */
@@ -604,6 +642,8 @@ copy_replication_slot(FunctionCallInfo fcinfo, bool logical_slot)
 	Name		src_name = PG_GETARG_NAME(0);
 	Name		dst_name = PG_GETARG_NAME(1);
 	ReplicationSlot *src = NULL;
+	ReplicationSlot first_slot_contents;
+	ReplicationSlot second_slot_contents;
 	XLogRecPtr	src_restart_lsn;
 	bool		src_islogical;
 	bool		temporary;
@@ -643,13 +683,10 @@ copy_replication_slot(FunctionCallInfo fcinfo, bool logical_slot)
 
 		if (s->in_use && strcmp(NameStr(s->data.name), NameStr(*src_name)) == 0)
 		{
+			/* Copy the slot contents while holding spinlock */
 			SpinLockAcquire(&s->mutex);
-			src_islogical = SlotIsLogical(s);
-			src_restart_lsn = s->data.restart_lsn;
-			temporary = s->data.persistency == RS_TEMPORARY;
-			plugin = logical_slot ? pstrdup(NameStr(s->data.plugin)) : NULL;
+			first_slot_contents = *s;
 			SpinLockRelease(&s->mutex);
-
 			src = s;
 			break;
 		}
@@ -661,6 +698,11 @@ copy_replication_slot(FunctionCallInfo fcinfo, bool logical_slot)
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
 				 errmsg("replication slot \"%s\" does not exist", NameStr(*src_name))));
+
+	src_islogical = SlotIsLogical(&first_slot_contents);
+	src_restart_lsn = first_slot_contents.data.restart_lsn;
+	temporary = (first_slot_contents.data.persistency == RS_TEMPORARY);
+	plugin = logical_slot ? NameStr(first_slot_contents.data.plugin) : NULL;
 
 	/* Check type of replication slot */
 	if (src_islogical != logical_slot)
@@ -678,7 +720,7 @@ copy_replication_slot(FunctionCallInfo fcinfo, bool logical_slot)
 		Assert(!logical_slot);
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 (errmsg("cannot copy a replication slot that doesn't reserve WAL"))));
+				 errmsg("cannot copy a replication slot that doesn't reserve WAL")));
 	}
 
 	/* Overwrite params from optional arguments */
@@ -692,10 +734,18 @@ copy_replication_slot(FunctionCallInfo fcinfo, bool logical_slot)
 
 	/* Create new slot and acquire it */
 	if (logical_slot)
+	{
+		/*
+		 * We must not try to read WAL, since we haven't reserved it yet --
+		 * hence pass find_startpoint false.  confirmed_flush will be set
+		 * below, by copying from the source slot.
+		 */
 		create_logical_replication_slot(NameStr(*dst_name),
 										plugin,
 										temporary,
-										src_restart_lsn);
+										src_restart_lsn,
+										false);
+	}
 	else
 		create_physical_replication_slot(NameStr(*dst_name),
 										 true,
@@ -712,22 +762,26 @@ copy_replication_slot(FunctionCallInfo fcinfo, bool logical_slot)
 		TransactionId copy_xmin;
 		TransactionId copy_catalog_xmin;
 		XLogRecPtr	copy_restart_lsn;
+		XLogRecPtr	copy_confirmed_flush;
 		bool		copy_islogical;
 		char	   *copy_name;
 
 		/* Copy data of source slot again */
 		SpinLockAcquire(&src->mutex);
-		copy_effective_xmin = src->effective_xmin;
-		copy_effective_catalog_xmin = src->effective_catalog_xmin;
+		second_slot_contents = *src;
+		SpinLockRelease(&src->mutex);
 
-		copy_xmin = src->data.xmin;
-		copy_catalog_xmin = src->data.catalog_xmin;
-		copy_restart_lsn = src->data.restart_lsn;
+		copy_effective_xmin = second_slot_contents.effective_xmin;
+		copy_effective_catalog_xmin = second_slot_contents.effective_catalog_xmin;
+
+		copy_xmin = second_slot_contents.data.xmin;
+		copy_catalog_xmin = second_slot_contents.data.catalog_xmin;
+		copy_restart_lsn = second_slot_contents.data.restart_lsn;
+		copy_confirmed_flush = second_slot_contents.data.confirmed_flush;
 
 		/* for existence check */
-		copy_name = pstrdup(NameStr(src->data.name));
-		copy_islogical = SlotIsLogical(src);
-		SpinLockRelease(&src->mutex);
+		copy_name = NameStr(second_slot_contents.data.name);
+		copy_islogical = SlotIsLogical(&second_slot_contents);
 
 		/*
 		 * Check if the source slot still exists and is valid. We regard it as
@@ -747,6 +801,14 @@ copy_replication_slot(FunctionCallInfo fcinfo, bool logical_slot)
 							NameStr(*src_name)),
 					 errdetail("The source replication slot was modified incompatibly during the copy operation.")));
 
+		/* The source slot must have a consistent snapshot */
+		if (src_islogical && XLogRecPtrIsInvalid(copy_confirmed_flush))
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("cannot copy unfinished logical replication slot \"%s\"",
+							NameStr(*src_name)),
+					 errhint("Retry when the source replication slot's confirmed_flush_lsn is valid.")));
+
 		/* Install copied values again */
 		SpinLockAcquire(&MyReplicationSlot->mutex);
 		MyReplicationSlot->effective_xmin = copy_effective_xmin;
@@ -755,6 +817,7 @@ copy_replication_slot(FunctionCallInfo fcinfo, bool logical_slot)
 		MyReplicationSlot->data.xmin = copy_xmin;
 		MyReplicationSlot->data.catalog_xmin = copy_catalog_xmin;
 		MyReplicationSlot->data.restart_lsn = copy_restart_lsn;
+		MyReplicationSlot->data.confirmed_flush = copy_confirmed_flush;
 		SpinLockRelease(&MyReplicationSlot->mutex);
 
 		ReplicationSlotMarkDirty();

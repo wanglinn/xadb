@@ -2,7 +2,7 @@
  *
  * partbounds.h
  *
- * Copyright (c) 2007-2019, PostgreSQL Global Development Group
+ * Copyright (c) 2007-2020, PostgreSQL Global Development Group
  *
  * src/include/partitioning/partbounds.h
  *
@@ -16,6 +16,7 @@
 #include "nodes/pg_list.h"
 #include "partitioning/partdefs.h"
 #include "utils/relcache.h"
+struct RelOptInfo;				/* avoid including pathnodes.h here */
 
 
 /*
@@ -56,7 +57,6 @@
  * pointed by remainder produced when hash value of the datum-tuple is divided
  * by the greatest modulus.
  */
-
 typedef struct PartitionBoundInfoData
 {
 	char		strategy;		/* hash, list or range? */
@@ -88,6 +88,14 @@ extern bool partition_bounds_equal(int partnatts, int16 *parttyplen,
 								   PartitionBoundInfo b2);
 extern PartitionBoundInfo partition_bounds_copy(PartitionBoundInfo src,
 												PartitionKey key);
+extern PartitionBoundInfo partition_bounds_merge(int partnatts,
+												 FmgrInfo *partsupfunc,
+												 Oid *partcollation,
+												 struct RelOptInfo *outer_rel,
+												 struct RelOptInfo *inner_rel,
+												 JoinType jointype,
+												 List **outer_parts,
+												 List **inner_parts);
 extern bool partitions_are_ordered(PartitionBoundInfo boundinfo, int nparts);
 extern void check_new_partition_bound(char *relname, Relation parent,
 									  PartitionBoundSpec *spec);

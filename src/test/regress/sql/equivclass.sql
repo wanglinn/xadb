@@ -99,8 +99,7 @@ alter operator family integer_ops using btree add
   function 1 int8alias1cmp (int8, int8alias1);
 
 create table ec0 (ff int8 primary key, f1 int8, f2 int8);
-create table ec1 (ff int8 primary key, f1 int8alias1, f2 int8alias2)
-	distribute by replication;
+create table ec1 (ff int8 primary key, f1 int8alias1, f2 int8alias2);
 create table ec2 (xf int8 primary key, x1 int8alias1, x2 int8alias2);
 
 -- for the moment we only want to look at nestloop plans
@@ -263,3 +262,10 @@ explain (costs off)
 -- this could be converted, but isn't at present
 explain (costs off)
   select * from tenk1 where unique1 = unique1 or unique2 = unique2;
+
+-- check that we recognize equivalence with dummy domains in the way
+create temp table undername (f1 name, f2 int);
+create temp view overview as
+  select f1::information_schema.sql_identifier as sqli, f2 from undername;
+explain (costs off)  -- this should not require a sort
+  select * from overview where sqli = 'foo' order by sqli;

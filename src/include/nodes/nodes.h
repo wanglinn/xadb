@@ -4,7 +4,7 @@
  *	  Definitions for tagged nodes.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2014-2017, ADB Development Group
  *
@@ -75,6 +75,7 @@ typedef enum NodeTag
 	T_HashJoin,
 	T_Material,
 	T_Sort,
+	T_IncrementalSort,
 	T_Group,
 	T_Agg,
 	T_WindowAgg,
@@ -159,6 +160,7 @@ typedef enum NodeTag
 	T_HashJoinState,
 	T_MaterialState,
 	T_SortState,
+	T_IncrementalSortState,
 	T_GroupState,
 	T_AggState,
 	T_WindowAggState,
@@ -300,6 +302,7 @@ typedef enum NodeTag
 	T_ProjectionPath,
 	T_ProjectSetPath,
 	T_SortPath,
+	T_IncrementalSortPath,
 	T_GroupPath,
 	T_UpperUniquePath,
 	T_AggPath,
@@ -449,6 +452,7 @@ typedef enum NodeTag
 	T_AlterObjectSchemaStmt,
 	T_AlterOwnerStmt,
 	T_AlterOperatorStmt,
+	T_AlterTypeStmt,
 	T_DropOwnedStmt,
 	T_ReassignOwnedStmt,
 	T_CompositeTypeStmt,
@@ -494,6 +498,7 @@ typedef enum NodeTag
 	T_CreateStatsStmt,
 	T_AlterCollationStmt,
 	T_CallStmt,
+	T_AlterStatsStmt,
 #ifdef ADB_GRAM_ORA
 	T_CreateOracleConvertStmt,
 	T_CreateOracleCastStmt,
@@ -949,8 +954,8 @@ typedef enum AggStrategy
 /* Primitive options supported by nodeAgg.c: */
 #define AGGSPLITOP_COMBINE		0x01	/* substitute combinefn for transfn */
 #define AGGSPLITOP_SKIPFINAL	0x02	/* skip finalfn, return state as-is */
-#define AGGSPLITOP_SERIALIZE	0x04	/* apply serializefn to output */
-#define AGGSPLITOP_DESERIALIZE	0x08	/* apply deserializefn to input */
+#define AGGSPLITOP_SERIALIZE	0x04	/* apply serialfn to output */
+#define AGGSPLITOP_DESERIALIZE	0x08	/* apply deserialfn to input */
 
 /* Supported operating modes (i.e., useful combinations of these options): */
 typedef enum AggSplit
@@ -1001,5 +1006,18 @@ typedef enum OnConflictAction
 	ONCONFLICT_NOTHING,			/* ON CONFLICT ... DO NOTHING */
 	ONCONFLICT_UPDATE			/* ON CONFLICT ... DO UPDATE */
 } OnConflictAction;
+
+/*
+ * LimitOption -
+ *	LIMIT option of query
+ *
+ * This is needed in both parsenodes.h and plannodes.h, so put it here...
+ */
+typedef enum LimitOption
+{
+	LIMIT_OPTION_COUNT,			/* FETCH FIRST... ONLY */
+	LIMIT_OPTION_WITH_TIES,		/* FETCH FIRST... WITH TIES */
+	LIMIT_OPTION_DEFAULT,		/* No limit present */
+} LimitOption;
 
 #endif							/* NODES_H */

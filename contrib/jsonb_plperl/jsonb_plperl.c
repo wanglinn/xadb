@@ -5,8 +5,8 @@
 #include "fmgr.h"
 #include "plperl.h"
 #include "plperl_helpers.h"
-#include "utils/jsonb.h"
 #include "utils/fmgrprotos.h"
+#include "utils/jsonb.h"
 
 PG_MODULE_MAGIC;
 
@@ -189,12 +189,12 @@ SV_to_JsonbValue(SV *in, JsonbParseState **jsonb_state, bool is_elem)
 		case SVt_PVHV:
 			return HV_to_JsonbValue((HV *) in, jsonb_state);
 
-		case SVt_NULL:
-			out.type = jbvNull;
-			break;
-
 		default:
-			if (SvUOK(in))
+			if (!SvOK(in))
+			{
+				out.type = jbvNull;
+			}
+			else if (SvUOK(in))
 			{
 				/*
 				 * If UV is >=64 bits, we have no better way to make this
@@ -235,11 +235,11 @@ SV_to_JsonbValue(SV *in, JsonbParseState **jsonb_state, bool is_elem)
 				if (isinf(nval))
 					ereport(ERROR,
 							(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
-							 (errmsg("cannot convert infinity to jsonb"))));
+							 errmsg("cannot convert infinity to jsonb")));
 				if (isnan(nval))
 					ereport(ERROR,
 							(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
-							 (errmsg("cannot convert NaN to jsonb"))));
+							 errmsg("cannot convert NaN to jsonb")));
 
 				out.type = jbvNumeric;
 				out.val.numeric =
@@ -260,7 +260,7 @@ SV_to_JsonbValue(SV *in, JsonbParseState **jsonb_state, bool is_elem)
 				 */
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 (errmsg("cannot transform this Perl type to jsonb"))));
+						 errmsg("cannot transform this Perl type to jsonb")));
 				return NULL;
 			}
 	}

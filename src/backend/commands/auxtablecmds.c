@@ -65,11 +65,11 @@ InsertAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum)
 	values[Anum_pg_aux_class_relid - 1] = ObjectIdGetDatum(relid);
 	values[Anum_pg_aux_class_attnum - 1] = Int16GetDatum(attnum);
 
-	auxrelation = heap_open(AuxClassRelationId, RowExclusiveLock);
+	auxrelation = table_open(AuxClassRelationId, RowExclusiveLock);
 	tuple = heap_form_tuple(RelationGetDescr(auxrelation), values, nulls);
 	CatalogTupleInsert(auxrelation, tuple);
 	heap_freetuple(tuple);
-	heap_close(auxrelation, RowExclusiveLock);
+	table_close(auxrelation, RowExclusiveLock);
 
 	/* reference object address */
 	ObjectAddressSubSet(referenced, RelationRelationId, relid, attnum);
@@ -95,7 +95,7 @@ RemoveAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum)
 	Relation	auxrelation;
 	HeapTuple	tuple;
 
-	auxrelation = heap_open(AuxClassRelationId, RowExclusiveLock);
+	auxrelation = table_open(AuxClassRelationId, RowExclusiveLock);
 
 	if (OidIsValid(auxrelid))
 		tuple = SearchSysCache1(AUXCLASSIDENT,
@@ -110,7 +110,7 @@ RemoveAuxClassTuple(Oid auxrelid, Oid relid, AttrNumber attnum)
 
 	simple_heap_delete(auxrelation, &(tuple->t_self));
 	ReleaseSysCache(tuple);
-	heap_close(auxrelation, RowExclusiveLock);
+	table_close(auxrelation, RowExclusiveLock);
 }
 
 /*
@@ -260,7 +260,7 @@ bool HasAuxRelation(Oid relid)
 				F_OIDEQ,
 				ObjectIdGetDatum(relid));
 
-	auxrel = heap_open(AuxClassRelationId, AccessShareLock);
+	auxrel = table_open(AuxClassRelationId, AccessShareLock);
 	auxscan = systable_beginscan(auxrel,
 								 AuxClassRelidAttnumIndexId,
 								 true,
@@ -270,7 +270,7 @@ bool HasAuxRelation(Oid relid)
 	tuple = systable_getnext(auxscan);
 	result = HeapTupleIsValid(tuple);
 	systable_endscan(auxscan);
-	heap_close(auxrel, AccessShareLock);
+	table_close(auxrel, AccessShareLock);
 
 	return result;
 }
@@ -512,16 +512,16 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 		StringInfoData	buf;
 
 		/* AnalyzeRewriteCreateAuxStmt has LOCKed already */
-		master = heap_openrv(stmt->masterrv, NoLock);
+		master = table_openrv(stmt->masterrv, NoLock);
 		rnodes = NIL;
 		if (master->rd_locator_info)
 			rnodes = adbGetUniqueNodeOids(master->rd_locator_info->nodeids);
 		foreach (lc, stmt->auxrvlist)
 		{
-			auxrel = heap_openrv((RangeVar *) lfirst(lc), AccessExclusiveLock);
+			auxrel = table_openrv((RangeVar *) lfirst(lc), AccessExclusiveLock);
 			if (RELATION_IS_OTHER_TEMP(auxrel))
 			{
-				heap_close(auxrel, AccessExclusiveLock);
+				table_close(auxrel, AccessExclusiveLock);
 				continue;
 			}
 			if (stmt->truncaux)
@@ -565,14 +565,14 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 									   mnodes,
 									   auxcopy);
 
-				heap_close(auxrel, NoLock);
+				table_close(auxrel, NoLock);
 			}
 			list_free(auxrellist);
 			list_free(auxcopylist);
 		}
 		list_free(mnodes);
 
-		heap_close(master, NoLock);
+		table_close(master, NoLock);
 
 		/* cleanup */
 		if (rconns)
@@ -659,14 +659,14 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 		buf.cursor = 0;
 		rnodes = (List*)loadNode(&buf);
 
-		master = heap_openrv_extended(stmt->masterrv, ShareLock, true);
+		master = table_openrv_extended(stmt->masterrv, ShareLock, true);
 		auxrv = makeNode(RangeVar);
 		foreach (lc, auxcopylist)
 		{
 			auxcopy = (AuxiliaryRelCopy *) lfirst(lc);
 			auxrv->schemaname = auxcopy->schemaname;
 			auxrv->relname = auxcopy->relname;
-			auxrel = heap_openrv_extended(auxrv, AccessExclusiveLock, true);
+			auxrel = table_openrv_extended(auxrv, AccessExclusiveLock, true);
 			if (stmt->truncaux)
 				TruncateAuxRelation(auxrel);
 
@@ -676,12 +676,12 @@ ExecPaddingAuxDataStmt(PaddingAuxDataStmt *stmt, StringInfo msg)
 								   auxcopy);
 
 			if (auxrel)
-				heap_close(auxrel, NoLock);
+				table_close(auxrel, NoLock);
 		}
 		pfree(auxrv);
 
 		if (master)
-			heap_close(master, NoLock);
+			table_close(master, NoLock);
 	}
 }
 
@@ -691,7 +691,7 @@ ExecCreateAuxStmt(CreateAuxStmt *auxstmt,
 				  ProcessUtilityContext context,
 				  DestReceiver *dest,
 				  bool sentToRemote,
-				  char *completionTag)
+				  QueryCompletion *qc)
 {
 	PaddingAuxDataStmt *padding_stmt;
 	PlannedStmt *stmt;
@@ -715,7 +715,7 @@ ExecCreateAuxStmt(CreateAuxStmt *auxstmt,
 				   NULL,
 				   dest,
 				   sentToRemote,
-				   completionTag);
+				   qc);
 
 	/* Padding data for auxiliary data */
 	ExecPaddingAuxDataStmt(padding_stmt, NULL);
@@ -784,7 +784,7 @@ void RelationBuildAuxiliary(Relation rel)
 				F_OIDEQ,
 				ObjectIdGetDatum(RelationGetRelid(rel)));
 
-	auxrel = heap_open(AuxClassRelationId, AccessShareLock);
+	auxrel = table_open(AuxClassRelationId, AccessShareLock);
 	auxscan = systable_beginscan(auxrel,
 								 AuxClassRelidAttnumIndexId,
 								 true,
@@ -806,7 +806,7 @@ void RelationBuildAuxiliary(Relation rel)
 	MemoryContextSwitchTo(old_context);
 
 	systable_endscan(auxscan);
-	heap_close(auxrel, AccessShareLock);
+	table_close(auxrel, AccessShareLock);
 }
 
 Bitmapset *MakeAuxMainRelResultAttnos(Relation rel)

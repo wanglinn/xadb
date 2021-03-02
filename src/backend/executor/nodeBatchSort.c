@@ -1,5 +1,6 @@
 #include "postgres.h"
 
+#include "common/hashfn.h"
 #include "executor/executor.h"
 #include "executor/nodeBatchSort.h"
 #include "fmgr.h"
@@ -8,7 +9,6 @@
 #include "port/atomics.h"
 #include "storage/barrier.h"
 #include "utils/builtins.h"
-#include "utils/hashutils.h"
 #include "utils/tuplesort.h"
 #include "utils/typcache.h"
 

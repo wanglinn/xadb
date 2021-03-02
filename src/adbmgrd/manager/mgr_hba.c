@@ -298,7 +298,7 @@ Datum mgr_show_hba_all(PG_FUNCTION_ARGS)
 
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 
 		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 		if(!PG_ARGISNULL(0))
@@ -317,7 +317,6 @@ Datum mgr_show_hba_all(PG_FUNCTION_ARGS)
 			info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
 		}
 
-		info->lcp = NULL;
 		funcctx->user_fctx = info;
 		MemoryContextSwitchTo(oldcontext);
 	}
@@ -350,7 +349,7 @@ Datum mgr_show_hba_all(PG_FUNCTION_ARGS)
 	}
 
 	heap_endscan(info->rel_scan);
-	heap_close(info->rel_node, AccessShareLock);
+	table_close(info->rel_node, AccessShareLock);
 	pfree(info);
 	SRF_RETURN_DONE(funcctx);
 }
@@ -404,7 +403,7 @@ Datum mgr_list_hba_by_name(PG_FUNCTION_ARGS)
 	if(!PointerIsValid(tuple))
 	{
 		heap_endscan(info->rel_scan);
-		heap_close(info->rel, AccessShareLock);
+		table_close(info->rel, AccessShareLock);
 		pfree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
@@ -482,7 +481,7 @@ Datum mgr_add_hba(PG_FUNCTION_ARGS)
 		Assert(mgr_node);
 		nodetype = mgr_node->nodetype;
 		heap_endscan(rel_scan);
-		heap_close(rel_node, AccessShareLock);
+		table_close(rel_node, AccessShareLock);
 		if (!mgr_type_include(nodetype, type))
 			ereport(ERROR, (errmsg("the node's type is not right")));
 
@@ -518,7 +517,7 @@ static void mgr_add_hba_all(char type, char *hbastr, GetAgentCmdRst *err_msg)
 	}
 
 	heap_endscan(rel_scan);
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 }
 
 static void mgr_add_hba_one(char nodetype, char *nodename, char *zone, char *hbastr, bool record_err_msg, bool is_check_exist, GetAgentCmdRst *err_msg)
@@ -662,7 +661,7 @@ static Oid tuple_insert_table_hba(Datum *values, bool *isnull)
 	values[Anum_mgr_hba_oid-1] = ObjectIdGetDatum(hba_oid);
 	isnull[Anum_mgr_hba_oid-1] = false;
 	newtuple = heap_form_tuple(RelationGetDescr(rel), values, isnull);
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 	heap_freetuple(newtuple);
 	return hba_oid;
 }
@@ -796,7 +795,7 @@ static void drop_hba_all(GetAgentCmdRst *err_msg)
 		drop_hba_nodename_value(coord_name, hbavalue, err_msg);
 	}
 	heap_endscan(rel_scan);
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 }
 /*
 	delete one row form hba talbe base on nodename,
@@ -828,7 +827,7 @@ static void drop_hba_nodename_all(char *coord_name, GetAgentCmdRst *err_msg)
 		drop_hba_nodename_value(coord_name, hbavalue, err_msg);
 	}
 	heap_endscan(rel_scan);
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 }
 
 static void drop_hba_all_value(List *args_list, GetAgentCmdRst *err_msg)
@@ -864,7 +863,7 @@ static void drop_hba_all_value(List *args_list, GetAgentCmdRst *err_msg)
 			name_list = lappend(name_list, coord_name);
 	}
 	heap_endscan(rel_scan);
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 	if(false == tuple_exist)
 	{
 		appendStringInfo(&(err_msg->description), "%s", "Error: the hba talbe is empty.\n");
@@ -929,7 +928,7 @@ static void drop_hba_nodename_value(char *coord_name, char *hbavalue, GetAgentCm
 	if(false == mgr_node->nodeinited)
 	{
 		delete_table_hba(coord_name, hbavalue);
-		heap_close(rel, AccessShareLock);
+		table_close(rel, AccessShareLock);
 		heap_freetuple(tuple);
 		return;
 	}
@@ -941,7 +940,7 @@ static void drop_hba_nodename_value(char *coord_name, char *hbavalue, GetAgentCm
 				 ,errmsg("coordinator\"%s\" does not exist nodepath", coord_name)));
 	}
 	node_path = TextDatumGetCString(datumPath);
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 	heap_freetuple(tuple);
 	/*step2: parser the hba values and check whether it's valid*/
 	initStringInfo(&infosendmsg);/*send to agent*/
@@ -1036,7 +1035,7 @@ static void delete_table_hba(char *coord_name, char *values)
 	}
 
 	heap_endscan(rel_scan);
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 }
 
 void mgr_clean_hba_table(char *coord_name, char *values)
@@ -1101,7 +1100,7 @@ void add_hba_table_to_file(char *coord_name)
 		err_msg.ret = true;
 	}
 	heap_endscan(rel_scan);
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 	pfree(err_msg.description.data);
 }
 
@@ -1154,7 +1153,7 @@ static bool check_hba_tuple_exist(char *coord_name, char *values)
 		ret = true;
 	}
 	heap_endscan(rel_scan);
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 	return ret;
 }
 

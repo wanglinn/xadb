@@ -24,12 +24,10 @@
 #ifndef __PG_BACKUP_ARCHIVE__
 #define __PG_BACKUP_ARCHIVE__
 
-
 #include <time.h>
 
-#include "pg_backup.h"
-
 #include "libpq-fe.h"
+#include "pg_backup.h"
 #include "pqexpbuffer.h"
 
 #define LOBBUFSIZE 16384
@@ -100,7 +98,7 @@ typedef z_stream *z_streamp;
 #define K_VERS_MAJOR 1
 #define K_VERS_MINOR 14
 #define K_VERS_REV 0
-#define K_VERS_SELF MAKE_ARCHIVE_VERSION(K_VERS_MAJOR, K_VERS_MINOR, K_VERS_REV);
+#define K_VERS_SELF MAKE_ARCHIVE_VERSION(K_VERS_MAJOR, K_VERS_MINOR, K_VERS_REV)
 
 /* Newest format we can read */
 #define K_VERS_MAX	MAKE_ARCHIVE_VERSION(K_VERS_MAJOR, K_VERS_MINOR, 255)
@@ -211,10 +209,14 @@ typedef enum
  * data restore failures.  On the other hand, matview REFRESH commands should
  * come out after ACLs, as otherwise non-superuser-owned matviews might not
  * be able to execute.  (If the permissions at the time of dumping would not
- * allow a REFRESH, too bad; we won't fix that for you.)  These considerations
- * force us to make three passes over the TOC, restoring the appropriate
- * subset of items in each pass.  We assume that the dependency sort resulted
- * in an appropriate ordering of items within each subset.
+ * allow a REFRESH, too bad; we won't fix that for you.)  We also want event
+ * triggers to be restored after ACLs, so that they can't mess those up.
+ *
+ * These considerations force us to make three passes over the TOC,
+ * restoring the appropriate subset of items in each pass.  We assume that
+ * the dependency sort resulted in an appropriate ordering of items within
+ * each subset.
+ *
  * XXX This mechanism should be superseded by tracking dependencies on ACLs
  * properly; but we'll still need it for old dump files even after that.
  */
@@ -222,9 +224,9 @@ typedef enum
 {
 	RESTORE_PASS_MAIN = 0,		/* Main pass (most TOC item types) */
 	RESTORE_PASS_ACL,			/* ACL item types */
-	RESTORE_PASS_REFRESH		/* Matview REFRESH items */
+	RESTORE_PASS_POST_ACL		/* Event trigger and matview refresh items */
 
-#define RESTORE_PASS_LAST RESTORE_PASS_REFRESH
+#define RESTORE_PASS_LAST RESTORE_PASS_POST_ACL
 } RestorePass;
 
 typedef enum
@@ -426,8 +428,6 @@ typedef struct _archiveOpts
 extern TocEntry *ArchiveEntry(Archive *AHX, CatalogId catalogId,
 							  DumpId dumpId, ArchiveOpts *opts);
 
-extern void WriteTOC(ArchiveHandle *AH);
-extern void ReadTOC(ArchiveHandle *AH);
 extern void WriteHead(ArchiveHandle *AH);
 extern void ReadHead(ArchiveHandle *AH);
 extern void WriteToc(ArchiveHandle *AH);

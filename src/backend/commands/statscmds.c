@@ -3,7 +3,7 @@
  * statscmds.c
  *	  Commands for creating and altering extended statistics objects
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -14,6 +14,7 @@
  */
 #include "postgres.h"
 
+#include "access/heapam.h"
 #include "access/relation.h"
 #include "access/relscan.h"
 #include "access/table.h"
@@ -21,6 +22,7 @@
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/namespace.h"
+#include "catalog/objectaccess.h"
 #include "catalog/pg_namespace.h"
 #include "catalog/pg_statistic_ext.h"
 #include "catalog/pg_statistic_ext_data.h"
@@ -29,6 +31,7 @@
 #include "miscadmin.h"
 #include "statistics/statistics.h"
 #include "utils/builtins.h"
+#include "utils/fmgroids.h"
 #include "utils/inval.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
@@ -320,7 +323,7 @@ CreateStatistics(CreateStatsStmt *stmt)
 	if (build_mcv)
 		types[ntypes++] = CharGetDatum(STATS_EXT_MCV);
 	Assert(ntypes > 0 && ntypes <= lengthof(types));
-	stxkind = construct_array(types, ntypes, CHAROID, 1, true, 'c');
+	stxkind = construct_array(types, ntypes, CHAROID, 1, true, TYPALIGN_CHAR);
 
 	statrel = table_open(StatisticExtRelationId, RowExclusiveLock);
 
@@ -336,6 +339,7 @@ CreateStatistics(CreateStatsStmt *stmt)
 	values[Anum_pg_statistic_ext_stxrelid - 1] = ObjectIdGetDatum(relid);
 	values[Anum_pg_statistic_ext_stxname - 1] = NameGetDatum(&stxname);
 	values[Anum_pg_statistic_ext_stxnamespace - 1] = ObjectIdGetDatum(namespaceId);
+	values[Anum_pg_statistic_ext_stxstattarget - 1] = Int32GetDatum(-1);
 	values[Anum_pg_statistic_ext_stxowner - 1] = ObjectIdGetDatum(stxowner);
 	values[Anum_pg_statistic_ext_stxkeys - 1] = PointerGetDatum(stxkeys);
 	values[Anum_pg_statistic_ext_stxkind - 1] = PointerGetDatum(stxkind);
@@ -369,6 +373,8 @@ CreateStatistics(CreateStatsStmt *stmt)
 	heap_freetuple(htup);
 
 	relation_close(datarel, RowExclusiveLock);
+
+	InvokeObjectPostCreateHook(StatisticExtRelationId, statoid, 0);
 
 	/*
 	 * Invalidate relcache so that others see the new statistics object.
@@ -412,6 +418,110 @@ CreateStatistics(CreateStatsStmt *stmt)
 
 	/* Return stats object's address */
 	return myself;
+}
+
+/*
+ *		ALTER STATISTICS
+ */
+ObjectAddress
+AlterStatistics(AlterStatsStmt *stmt)
+{
+	Relation	rel;
+	Oid			stxoid;
+	HeapTuple	oldtup;
+	HeapTuple	newtup;
+	Datum		repl_val[Natts_pg_statistic_ext];
+	bool		repl_null[Natts_pg_statistic_ext];
+	bool		repl_repl[Natts_pg_statistic_ext];
+	ObjectAddress address;
+	int			newtarget = stmt->stxstattarget;
+
+	/* Limit statistics target to a sane range */
+	if (newtarget < -1)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("statistics target %d is too low",
+						newtarget)));
+	}
+	else if (newtarget > 10000)
+	{
+		newtarget = 10000;
+		ereport(WARNING,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("lowering statistics target to %d",
+						newtarget)));
+	}
+
+	/* lookup OID of the statistics object */
+	stxoid = get_statistics_object_oid(stmt->defnames, stmt->missing_ok);
+
+	/*
+	 * If we got here and the OID is not valid, it means the statistics does
+	 * not exist, but the command specified IF EXISTS. So report this as a
+	 * simple NOTICE and we're done.
+	 */
+	if (!OidIsValid(stxoid))
+	{
+		char	   *schemaname;
+		char	   *statname;
+
+		Assert(stmt->missing_ok);
+
+		DeconstructQualifiedName(stmt->defnames, &schemaname, &statname);
+
+		if (schemaname)
+			ereport(NOTICE,
+					(errmsg("statistics object \"%s.%s\" does not exist, skipping",
+							schemaname, statname)));
+		else
+			ereport(NOTICE,
+					(errmsg("statistics object \"%s\" does not exist, skipping",
+							statname)));
+
+		return InvalidObjectAddress;
+	}
+
+	/* Search pg_statistic_ext */
+	rel = table_open(StatisticExtRelationId, RowExclusiveLock);
+
+	oldtup = SearchSysCache1(STATEXTOID, ObjectIdGetDatum(stxoid));
+
+	/* Must be owner of the existing statistics object */
+	if (!pg_statistics_object_ownercheck(stxoid, GetUserId()))
+		aclcheck_error(ACLCHECK_NOT_OWNER, OBJECT_STATISTIC_EXT,
+					   NameListToString(stmt->defnames));
+
+	/* Build new tuple. */
+	memset(repl_val, 0, sizeof(repl_val));
+	memset(repl_null, false, sizeof(repl_null));
+	memset(repl_repl, false, sizeof(repl_repl));
+
+	/* replace the stxstattarget column */
+	repl_repl[Anum_pg_statistic_ext_stxstattarget - 1] = true;
+	repl_val[Anum_pg_statistic_ext_stxstattarget - 1] = Int32GetDatum(newtarget);
+
+	newtup = heap_modify_tuple(oldtup, RelationGetDescr(rel),
+							   repl_val, repl_null, repl_repl);
+
+	/* Update system catalog. */
+	CatalogTupleUpdate(rel, &newtup->t_self, newtup);
+
+	InvokeObjectPostAlterHook(StatisticExtRelationId, stxoid, 0);
+
+	ObjectAddressSet(address, StatisticExtRelationId, stxoid);
+
+	/*
+	 * NOTE: because we only support altering the statistics target, not the
+	 * other fields, there is no need to update dependencies.
+	 */
+
+	heap_freetuple(newtup);
+	ReleaseSysCache(oldtup);
+
+	table_close(rel, RowExclusiveLock);
+
+	return address;
 }
 
 /*
@@ -485,6 +595,10 @@ RemoveStatisticsById(Oid statsOid)
  *
  * For MCV lists that's not the case, as those statistics store the datums
  * internally. In this case we simply reset the statistics value to NULL.
+ *
+ * Note that "type change" includes collation change, which means we can rely
+ * on the MCV list being consistent with the collation info in pg_attribute
+ * during estimation.
  */
 void
 UpdateStatisticsForTypeChange(Oid statsOid, Oid relationOid, int attnum,
@@ -525,7 +639,7 @@ UpdateStatisticsForTypeChange(Oid statsOid, Oid relationOid, int attnum,
 	replaces[Anum_pg_statistic_ext_data_stxdmcv - 1] = true;
 	nulls[Anum_pg_statistic_ext_data_stxdmcv - 1] = true;
 
-	rel = heap_open(StatisticExtDataRelationId, RowExclusiveLock);
+	rel = table_open(StatisticExtDataRelationId, RowExclusiveLock);
 
 	/* replace the old tuple */
 	stup = heap_modify_tuple(oldtup,
@@ -539,7 +653,7 @@ UpdateStatisticsForTypeChange(Oid statsOid, Oid relationOid, int attnum,
 
 	heap_freetuple(stup);
 
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 }
 
 /*

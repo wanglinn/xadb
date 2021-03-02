@@ -3,7 +3,7 @@
  * aclchk.c
  *	  Routines to check access control permissions.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -53,12 +53,12 @@
 #include "catalog/pg_statistic_ext_data.h"
 #include "catalog/pg_subscription.h"
 #include "catalog/pg_tablespace.h"
-#include "catalog/pg_type.h"
+#include "catalog/pg_transform.h"
 #include "catalog/pg_ts_config.h"
 #include "catalog/pg_ts_dict.h"
 #include "catalog/pg_ts_parser.h"
 #include "catalog/pg_ts_template.h"
-#include "catalog/pg_transform.h"
+#include "catalog/pg_type.h"
 #include "commands/dbcommands.h"
 #include "commands/event_trigger.h"
 #include "commands/extension.h"
@@ -76,7 +76,6 @@
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
-
 
 /*
  * Internal format used by ALTER DEFAULT PRIVILEGES.
@@ -143,24 +142,6 @@ static void recordExtensionInitPrivWorker(Oid objoid, Oid classoid, int objsubid
 										  Acl *new_acl);
 
 
-#ifdef ACLDEBUG
-static void
-dumpacl(Acl *acl)
-{
-	int			i;
-	AclItem    *aip;
-
-	elog(DEBUG2, "acl size = %d, # acls = %d",
-		 ACL_SIZE(acl), ACL_NUM(acl));
-	aip = ACL_DAT(acl);
-	for (i = 0; i < ACL_NUM(acl); ++i)
-		elog(DEBUG2, "	acl[%d]: %s", i,
-			 DatumGetCString(DirectFunctionCall1(aclitemout,
-												 PointerGetDatum(aip + i))));
-}
-#endif							/* ACLDEBUG */
-
-
 /*
  * If is_grant is true, adds the given privileges for the list of
  * grantees to the existing old_acl.  If is_grant is false, the
@@ -180,9 +161,6 @@ merge_acl_with_grant(Acl *old_acl, bool is_grant,
 
 	modechg = is_grant ? ACL_MODECHG_ADD : ACL_MODECHG_DEL;
 
-#ifdef ACLDEBUG
-	dumpacl(old_acl);
-#endif
 	new_acl = old_acl;
 
 	foreach(j, grantees)
@@ -221,10 +199,6 @@ merge_acl_with_grant(Acl *old_acl, bool is_grant,
 		/* avoid memory leak when there are many grantees */
 		pfree(new_acl);
 		new_acl = newer_acl;
-
-#ifdef ACLDEBUG
-		dumpacl(new_acl);
-#endif
 	}
 
 	return new_acl;
@@ -1642,7 +1616,7 @@ expand_all_col_privileges(Oid table_oid, Form_pg_class classForm,
 
 /*
  *	This processes attributes, but expects to be called from
- *	ExecGrant_Relation, not directly from ExecGrantStmt.
+ *	ExecGrant_Relation, not directly from ExecuteGrantStmt.
  */
 static void
 ExecGrant_Attribute(InternalGrant *istmt, Oid relOid, const char *relname,
@@ -3871,7 +3845,7 @@ pg_class_aclmask(Oid table_oid, Oid roleid,
 
 	/*
 	 * Deny anyone permission to update a system catalog unless
-	 * pg_authid.rolsuper is set.  Also allow it if allowSystemTableMods.
+	 * pg_authid.rolsuper is set.
 	 *
 	 * As of 7.4 we have some updatable system views; those shouldn't be
 	 * protected in this way.  Assume the view rules can take care of
@@ -3880,23 +3854,14 @@ pg_class_aclmask(Oid table_oid, Oid roleid,
 	if ((mask & (ACL_INSERT | ACL_UPDATE | ACL_DELETE | ACL_TRUNCATE | ACL_USAGE)) &&
 		IsSystemClass(table_oid, classForm) &&
 		classForm->relkind != RELKIND_VIEW &&
-		!superuser_arg(roleid) &&
-		!allowSystemTableMods)
-	{
-#ifdef ACLDEBUG
-		elog(DEBUG2, "permission denied for system catalog update");
-#endif
+		!superuser_arg(roleid))
 		mask &= ~(ACL_INSERT | ACL_UPDATE | ACL_DELETE | ACL_TRUNCATE | ACL_USAGE);
-	}
 
 	/*
 	 * Otherwise, superusers bypass all permission-checking.
 	 */
 	if (superuser_arg(roleid))
 	{
-#ifdef ACLDEBUG
-		elog(DEBUG2, "OID %u is superuser, home free", roleid);
-#endif
 		ReleaseSysCache(tuple);
 		return mask;
 	}
@@ -4133,7 +4098,7 @@ pg_largeobject_aclmask_snapshot(Oid lobj_oid, Oid roleid,
 		return mask;
 
 	/*
-	 * Get the largeobject's ACL from pg_language_metadata
+	 * Get the largeobject's ACL from pg_largeobject_metadata
 	 */
 	pg_lo_meta = table_open(LargeObjectMetadataRelationId,
 							AccessShareLock);
@@ -5602,19 +5567,22 @@ recordExtObjInitPriv(Oid objoid, Oid classoid)
 			elog(ERROR, "cache lookup failed for relation %u", objoid);
 		pg_class_tuple = (Form_pg_class) GETSTRUCT(tuple);
 
-		/* Indexes don't have permissions */
+		/*
+		 * Indexes don't have permissions, neither do the pg_class rows for
+		 * composite types.  (These cases are unreachable given the
+		 * restrictions in ALTER EXTENSION ADD, but let's check anyway.)
+		 */
 		if (pg_class_tuple->relkind == RELKIND_INDEX ||
-			pg_class_tuple->relkind == RELKIND_PARTITIONED_INDEX)
+			pg_class_tuple->relkind == RELKIND_PARTITIONED_INDEX ||
+			pg_class_tuple->relkind == RELKIND_COMPOSITE_TYPE)
+		{
+			ReleaseSysCache(tuple);
 			return;
-
-		/* Composite types don't have permissions either */
-		if (pg_class_tuple->relkind == RELKIND_COMPOSITE_TYPE)
-			return;
+		}
 
 		/*
-		 * If this isn't a sequence, index, or composite type then it's
-		 * possibly going to have columns associated with it that might have
-		 * ACLs.
+		 * If this isn't a sequence then it's possibly going to have
+		 * column-level ACLs associated with it.
 		 */
 		if (pg_class_tuple->relkind != RELKIND_SEQUENCE)
 		{
@@ -5746,6 +5714,11 @@ recordExtObjInitPriv(Oid objoid, Oid classoid)
 		SysScanDesc scan;
 		Relation	relation;
 
+		/*
+		 * Note: this is dead code, given that we don't allow large objects to
+		 * be made extension members.  But it seems worth carrying in case
+		 * some future caller of this function has need for it.
+		 */
 		relation = table_open(LargeObjectMetadataRelationId, RowExclusiveLock);
 
 		/* There's no syscache for pg_largeobject_metadata */
@@ -5888,19 +5861,22 @@ removeExtObjInitPriv(Oid objoid, Oid classoid)
 			elog(ERROR, "cache lookup failed for relation %u", objoid);
 		pg_class_tuple = (Form_pg_class) GETSTRUCT(tuple);
 
-		/* Indexes don't have permissions */
+		/*
+		 * Indexes don't have permissions, neither do the pg_class rows for
+		 * composite types.  (These cases are unreachable given the
+		 * restrictions in ALTER EXTENSION DROP, but let's check anyway.)
+		 */
 		if (pg_class_tuple->relkind == RELKIND_INDEX ||
-			pg_class_tuple->relkind == RELKIND_PARTITIONED_INDEX)
+			pg_class_tuple->relkind == RELKIND_PARTITIONED_INDEX ||
+			pg_class_tuple->relkind == RELKIND_COMPOSITE_TYPE)
+		{
+			ReleaseSysCache(tuple);
 			return;
-
-		/* Composite types don't have permissions either */
-		if (pg_class_tuple->relkind == RELKIND_COMPOSITE_TYPE)
-			return;
+		}
 
 		/*
-		 * If this isn't a sequence, index, or composite type then it's
-		 * possibly going to have columns associated with it that might have
-		 * ACLs.
+		 * If this isn't a sequence then it's possibly going to have
+		 * column-level ACLs associated with it.
 		 */
 		if (pg_class_tuple->relkind != RELKIND_SEQUENCE)
 		{

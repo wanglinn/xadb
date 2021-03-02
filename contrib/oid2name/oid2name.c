@@ -10,12 +10,11 @@
 #include "postgres_fe.h"
 
 #include "catalog/pg_class_d.h"
-
+#include "common/logging.h"
 #include "fe_utils/connect.h"
+#include "getopt_long.h"
 #include "libpq-fe.h"
 #include "pg_getopt.h"
-#include "getopt_long.h"
-
 
 /* an extensible array to keep track of elements to show */
 typedef struct
@@ -85,6 +84,7 @@ get_opts(int argc, char **argv, struct options *my_opts)
 	const char *progname;
 	int			optindex;
 
+	pg_logging_init(argv[0]);
 	progname = get_progname(argv[0]);
 
 	/* set the defaults */
@@ -190,6 +190,14 @@ get_opts(int argc, char **argv, struct options *my_opts)
 				exit(1);
 		}
 	}
+
+	if (optind < argc)
+	{
+		fprintf(stderr, _("%s: too many command-line arguments (first is \"%s\")\n"),
+				progname, argv[optind]);
+		fprintf(stderr, _("Try \"%s --help\" for more information.\n"), progname);
+		exit(1);
+	}
 }
 
 static void
@@ -216,8 +224,9 @@ help(const char *progname)
 		   "  -p, --port=PORT            database server port number\n"
 		   "  -U, --username=USERNAME    connect as specified database user\n"
 		   "\nThe default action is to show all database OIDs.\n\n"
-		   "Report bugs to <pgsql-bugs@lists.postgresql.org>.\n",
-		   progname, progname);
+		   "Report bugs to <%s>.\n"
+		   "%s home page: <%s>\n",
+		   progname, progname, PACKAGE_BUGREPORT, PACKAGE_NAME, PACKAGE_URL);
 }
 
 /*
@@ -325,8 +334,8 @@ sql_conn(struct options *my_opts)
 
 		if (!conn)
 		{
-			fprintf(stderr, "%s: could not connect to database %s\n",
-					"oid2name", my_opts->dbname);
+			pg_log_error("could not connect to database %s",
+						 my_opts->dbname);
 			exit(1);
 		}
 
@@ -344,8 +353,8 @@ sql_conn(struct options *my_opts)
 	/* check to see that the backend connection was successfully made */
 	if (PQstatus(conn) == CONNECTION_BAD)
 	{
-		fprintf(stderr, "%s: could not connect to database %s: %s",
-				"oid2name", my_opts->dbname, PQerrorMessage(conn));
+		pg_log_error("could not connect to database %s: %s",
+					 my_opts->dbname, PQerrorMessage(conn));
 		PQfinish(conn);
 		exit(1);
 	}
@@ -353,8 +362,8 @@ sql_conn(struct options *my_opts)
 	res = PQexec(conn, ALWAYS_SECURE_SEARCH_PATH_SQL);
 	if (PQresultStatus(res) != PGRES_TUPLES_OK)
 	{
-		fprintf(stderr, "oid2name: could not clear search_path: %s\n",
-				PQerrorMessage(conn));
+		pg_log_error("could not clear search_path: %s",
+					 PQerrorMessage(conn));
 		PQclear(res);
 		PQfinish(conn);
 		exit(-1);
@@ -387,8 +396,8 @@ sql_exec(PGconn *conn, const char *todo, bool quiet)
 	/* check and deal with errors */
 	if (!res || PQresultStatus(res) > 2)
 	{
-		fprintf(stderr, "oid2name: query failed: %s\n", PQerrorMessage(conn));
-		fprintf(stderr, "oid2name: query was: %s\n", todo);
+		pg_log_error("query failed: %s", PQerrorMessage(conn));
+		pg_log_error("query was: %s", todo);
 
 		PQclear(res);
 		PQfinish(conn);
@@ -542,8 +551,7 @@ sql_exec_searchtables(PGconn *conn, struct options *opts)
 	free(comma_filenodes);
 
 	/* now build the query */
-	todo = psprintf(
-					"SELECT pg_catalog.pg_relation_filenode(c.oid) as \"Filenode\", relname as \"Table Name\" %s\n"
+	todo = psprintf("SELECT pg_catalog.pg_relation_filenode(c.oid) as \"Filenode\", relname as \"Table Name\" %s\n"
 					"FROM pg_catalog.pg_class c\n"
 					"	LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\n"
 					"	LEFT JOIN pg_catalog.pg_database d ON d.datname = pg_catalog.current_database(),\n"

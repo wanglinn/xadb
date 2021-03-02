@@ -324,6 +324,32 @@ CREATE TABLE people (
       linkend="sql-createforeigntable"/> for details.
      </para>
     </listitem>
+    <listitem>
+     <para>For inheritance:</para>
+     <itemizedlist>
+      <listitem>
+       <para>
+        If a parent column is a generated column, a child column must also be
+        a generated column using the same expression.  In the definition of
+        the child column, leave off the <literal>GENERATED</literal> clause,
+        as it will be copied from the parent.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        In case of multiple inheritance, if one parent column is a generated
+        column, then all parent columns must be generated columns and with the
+        same expression.
+       </para>
+      </listitem>
+      <listitem>
+       <para>
+        If a parent column is not a generated column, a child column may be
+        defined to be a generated column or not.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </listitem>
    </itemizedlist>
   </para>
 
@@ -1301,6 +1327,29 @@ ALTER TABLE products ADD COLUMN description text;
     value is given (null if you don't specify a <literal>DEFAULT</literal> clause).
    </para>
 
+   <tip>
+    <para>
+     From <productname>PostgreSQL</productname> 11, adding a column with
+     a constant default value no longer means that each row of the table
+     needs to be updated when the <command>ALTER TABLE</command> statement
+     is executed. Instead, the default value will be returned the next time
+     the row is accessed, and applied when the table is rewritten, making
+     the <command>ALTER TABLE</command> very fast even on large tables.
+    </para>
+
+    <para>
+     However, if the default value is volatile (e.g.
+     <function>clock_timestamp()</function>)
+     each row will need to be updated with the value calculated at the time
+     <command>ALTER TABLE</command> is executed. To avoid a potentially
+     lengthy update operation, particularly if you intend to fill the column
+     with mostly nondefault values anyway, it may be preferable to add the
+     column with no default, insert the correct values using
+     <command>UPDATE</command>, and then add any desired default as described
+     below.
+    </para>
+   </tip>
+
    <para>
     You can also define constraints on the column at the same time,
     using the usual syntax:
@@ -1315,17 +1364,6 @@ ALTER TABLE products ADD COLUMN description text CHECK (description &lt;&gt; '')
     correctly.
    </para>
 
-  <tip>
-   <para>
-    Adding a column with a default requires updating each row of the
-    table (to store the new column value).  However, if no default is
-    specified, <productname>PostgreSQL</productname> is able to avoid
-    the physical update.  So if you intend to fill the column with
-    mostly nondefault values, it's best to add the column with no default,
-    insert the correct values using <command>UPDATE</command>, and then add any
-    desired default as described below.
-   </para>
-  </tip>
   </sect2>
 
   <sect2 id="ddl-alter-removing-a-column">
@@ -1566,8 +1604,10 @@ ALTER TABLE products RENAME TO items;
   </para>
 
   <para>
-   The right to modify or destroy an object is always the privilege of
-   the owner only.
+   The right to modify or destroy an object is inherent in being the
+   object's owner, and cannot be granted or revoked in itself.
+   (However, like all privileges, that right can be inherited by
+   members of the owning role; see <xref linkend="role-membership"/>.)
   </para>
 
   <para>
@@ -1602,17 +1642,11 @@ GRANT UPDATE ON accounts TO joe;
   </para>
 
   <para>
-   To revoke a privilege, use the fittingly named
+   To revoke a previously-granted privilege, use the fittingly named
    <xref linkend="sql-revoke"/> command:
 <programlisting>
 REVOKE ALL ON accounts FROM PUBLIC;
 </programlisting>
-   The special privileges of the object owner (i.e., the right to do
-   <command>DROP</command>, <command>GRANT</command>, <command>REVOKE</command>, etc.)
-   are always implicit in being the owner,
-   and cannot be granted or revoked.  But the object owner can choose
-   to revoke their own ordinary privileges, for example to make a
-   table read-only for themselves as well as others.
   </para>
 
   <para>
@@ -1624,6 +1658,13 @@ REVOKE ALL ON accounts FROM PUBLIC;
    recipient (directly or through a chain of grants) will lose the
    privilege.  For details see the <xref linkend="sql-grant"/> and
    <xref linkend="sql-revoke"/> reference pages.
+  </para>
+
+  <para>
+   An object's owner can choose to revoke their own ordinary privileges,
+   for example to make a table read-only for themselves as well as others.
+   But owners are always treated as holding all grant options, so they
+   can always re-grant their own privileges.
   </para>
 
   <para>
@@ -1727,6 +1768,7 @@ REVOKE ALL ON accounts FROM PUBLIC;
      <listitem>
       <para>
        For databases, allows new schemas and publications to be created within
+       the database, and allows trusted extensions to be installed within
        the database.
       </para>
       <para>
@@ -1738,8 +1780,11 @@ REVOKE ALL ON accounts FROM PUBLIC;
       <para>
        For tablespaces, allows tables, indexes, and temporary files to be
        created within the tablespace, and allows databases to be created that
-       have the tablespace as their default tablespace.  (Note that revoking
-       this privilege will not alter the placement of existing objects.)
+       have the tablespace as their default tablespace.
+      </para>
+      <para>
+       Note that revoking this privilege will not alter the existence or
+       location of existing objects.
       </para>
      </listitem>
     </varlistentry>
@@ -1863,6 +1908,9 @@ REVOKE ALL ON accounts FROM PUBLIC;
   <table id="privilege-abbrevs-table">
    <title>ACL Privilege Abbreviations</title>
    <tgroup cols="3">
+    <colspec colname="col1" colwidth="1*"/>
+    <colspec colname="col2" colwidth="1*"/>
+    <colspec colname="col3" colwidth="2*"/>
     <thead>
      <row>
       <entry>Privilege</entry>
@@ -1968,6 +2016,10 @@ REVOKE ALL ON accounts FROM PUBLIC;
   <table id="privileges-summary-table">
    <title>Summary of Access Privileges</title>
    <tgroup cols="4">
+    <colspec colname="col1" colwidth="2*"/>
+    <colspec colname="col2" colwidth="1*"/>
+    <colspec colname="col3" colwidth="1*"/>
+    <colspec colname="col4" colwidth="1*"/>
     <thead>
      <row>
       <entry>Object Type</entry>
@@ -2606,19 +2658,18 @@ SELECT * FROM information WHERE group_id = 2 FOR UPDATE;
   </indexterm>
 
   <para>
-   A <productname>PostgreSQL</productname> database cluster
-   contains one or more named databases.  Users and groups of users are
-   shared across the entire cluster, but no other data is shared across
-   databases.  Any given client connection to the server can access
-   only the data in a single database, the one specified in the connection
-   request.
+   A <productname>PostgreSQL</productname> database cluster contains
+   one or more named databases.  Roles and a few other object types are
+   shared across the entire cluster.  A client connection to the server
+   can only access data in a single database, the one specified in the
+   connection request.
   </para>
 
   <note>
    <para>
     Users of a cluster do not necessarily have the privilege to access every
-    database in the cluster.  Sharing of user names means that there
-    cannot be different users named, say, <literal>joe</literal> in two databases
+    database in the cluster.  Sharing of role names means that there
+    cannot be different roles named, say, <literal>joe</literal> in two databases
     in the same cluster; but the system can be configured to allow
     <literal>joe</literal> access to only some of the databases.
    </para>
@@ -2995,56 +3046,57 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
    <title>Usage Patterns</title>
 
    <para>
-    Schemas can be used to organize your data in many ways.  There are a few
-    usage patterns easily supported by the default configuration, only one of
-    which suffices when database users mistrust other database users:
+    Schemas can be used to organize your data in many ways.
+    A <firstterm>secure schema usage pattern</firstterm> prevents untrusted
+    users from changing the behavior of other users' queries.  When a database
+    does not use a secure schema usage pattern, users wishing to securely
+    query that database would take protective action at the beginning of each
+    session.  Specifically, they would begin each session by
+    setting <varname>search_path</varname> to the empty string or otherwise
+    removing non-superuser-writable schemas
+    from <varname>search_path</varname>.  There are a few usage patterns
+    easily supported by the default configuration:
     <itemizedlist>
      <listitem>
       <!-- "DROP SCHEMA public" is inferior to this REVOKE, because pg_dump
-           doesn't preserve that DROP. -->
+           doesn't preserve that DROP.
+
+           A database owner can attack the database's users via "CREATE SCHEMA
+           trojan; ALTER DATABASE $mydb SET search_path = trojan, public;".  A
+           CREATEROLE user can issue "GRANT $dbowner TO $me" and then use the
+           database owner attack. -->
       <para>
        Constrain ordinary users to user-private schemas.  To implement this,
        issue <literal>REVOKE CREATE ON SCHEMA public FROM PUBLIC</literal>,
-       and create a schema for each user with the same name as that user.  If
-       affected users had logged in before this, consider auditing the public
+       and create a schema for each user with the same name as that user.
+       Recall that the default search path starts
+       with <literal>$user</literal>, which resolves to the user name.
+       Therefore, if each user has a separate schema, they access their own
+       schemas by default.  After adopting this pattern in a database where
+       untrusted users had already logged in, consider auditing the public
        schema for objects named like objects in
-       schema <literal>pg_catalog</literal>.  Recall that the default search
-       path starts with <literal>$user</literal>, which resolves to the user
-       name.  Therefore, if each user has a separate schema, they access their
-       own schemas by default.
+       schema <literal>pg_catalog</literal>.  This pattern is a secure schema
+       usage pattern unless an untrusted user is the database owner or holds
+       the <literal>CREATEROLE</literal> privilege, in which case no secure
+       schema usage pattern exists.
+      </para>
+      <para>
       </para>
      </listitem>
 
      <listitem>
       <para>
-       Remove the public schema from each user's default search path
-       using <literal>ALTER ROLE <replaceable>user</replaceable> SET
-       search_path = "$user"</literal>.  Everyone retains the ability to
-       create objects in the public schema, but only qualified names will
-       choose those objects.  While qualified table references are fine, calls
-       to functions in the public schema <link linkend="typeconv-func">will be
-       unsafe or unreliable</link>.  Also, a user holding
-       the <literal>CREATEROLE</literal> privilege can undo this setting and
-       issue arbitrary queries under the identity of users relying on the
-       setting.  If you create functions or extensions in the public schema or
-       grant <literal>CREATEROLE</literal> to users not warranting this
-       almost-superuser ability, use the first pattern instead.
-      </para>
-     </listitem>
-
-     <listitem>
-      <para>
-       Remove the public schema from <varname>search_path</varname> in
-       <link linkend="config-setting-configuration-file"><filename>postgresql.conf</filename></link>.
-       The ensuing user experience matches the previous pattern.  In addition
-       to that pattern's implications for functions
-       and <literal>CREATEROLE</literal>, this trusts database owners
-       like <literal>CREATEROLE</literal>.  If you create functions or
-       extensions in the public schema or assign
-       the <literal>CREATEROLE</literal>
-       privilege, <literal>CREATEDB</literal> privilege or individual database
-       ownership to users not warranting almost-superuser access, use the
-       first pattern instead.
+       Remove the public schema from the default search path, by modifying
+       <link linkend="config-setting-configuration-file"><filename>postgresql.conf</filename></link>
+       or by issuing <literal>ALTER ROLE ALL SET search_path =
+       "$user"</literal>.  Everyone retains the ability to create objects in
+       the public schema, but only qualified names will choose those objects.
+       While qualified table references are fine, calls to functions in the
+       public schema <link linkend="typeconv-func">will be unsafe or
+       unreliable</link>.  If you create functions or extensions in the public
+       schema, use the first pattern instead.  Otherwise, like the first
+       pattern, this is secure unless an untrusted user is the database owner
+       or holds the <literal>CREATEROLE</literal> privilege.
       </para>
      </listitem>
 
@@ -3052,10 +3104,9 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
       <para>
        Keep the default.  All users access the public schema implicitly.  This
        simulates the situation where schemas are not available at all, giving
-       a smooth transition from the non-schema-aware world.  However, any user
-       can issue arbitrary queries under the identity of any user not electing
-       to protect itself individually.  This pattern is acceptable only when
-       the database has a single user or a few mutually-trusting users.
+       a smooth transition from the non-schema-aware world.  However, this is
+       never a secure pattern.  It is acceptable only when the database has a
+       single user or a few mutually-trusting users.
       </para>
      </listitem>
     </itemizedlist>
@@ -3139,7 +3190,7 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 CREATE TABLE cities (
     name            text,
     population      float,
-    altitude        int     -- in feet
+    elevation       int     -- in feet
 );
 
 CREATE TABLE capitals (
@@ -3159,40 +3210,40 @@ CREATE TABLE capitals (
    rows of a table or all rows of a table plus all of its descendant tables.
    The latter behavior is the default.
    For example, the following query finds the names of all cities,
-   including state capitals, that are located at an altitude over
+   including state capitals, that are located at an elevation over
    500 feet:
 
 <programlisting>
-SELECT name, altitude
+SELECT name, elevation
     FROM cities
-    WHERE altitude &gt; 500;
+    WHERE elevation &gt; 500;
 </programlisting>
 
    Given the sample data from the <productname>PostgreSQL</productname>
    tutorial (see <xref linkend="tutorial-sql-intro"/>), this returns:
 
 <programlisting>
-   name    | altitude
------------+----------
- Las Vegas |     2174
- Mariposa  |     1953
- Madison   |      845
+   name    | elevation
+-----------+-----------
+ Las Vegas |      2174
+ Mariposa  |      1953
+ Madison   |       845
 </programlisting>
   </para>
 
   <para>
    On the other hand, the following query finds all the cities that
-   are not state capitals and are situated at an altitude over 500 feet:
+   are not state capitals and are situated at an elevation over 500 feet:
 
 <programlisting>
-SELECT name, altitude
+SELECT name, elevation
     FROM ONLY cities
-    WHERE altitude &gt; 500;
+    WHERE elevation &gt; 500;
 
-   name    | altitude
------------+----------
- Las Vegas |     2174
- Mariposa  |     1953
+   name    | elevation
+-----------+-----------
+ Las Vegas |      2174
+ Mariposa  |      1953
 </programlisting>
   </para>
 
@@ -3211,9 +3262,9 @@ SELECT name, altitude
    to explicitly specify that descendant tables are included:
 
 <programlisting>
-SELECT name, altitude
+SELECT name, elevation
     FROM cities*
-    WHERE altitude &gt; 500;
+    WHERE elevation &gt; 500;
 </programlisting>
 
    Writing <literal>*</literal> is not necessary, since this behavior is always
@@ -3228,19 +3279,19 @@ SELECT name, altitude
    originating table:
 
 <programlisting>
-SELECT c.tableoid, c.name, c.altitude
+SELECT c.tableoid, c.name, c.elevation
 FROM cities c
-WHERE c.altitude &gt; 500;
+WHERE c.elevation &gt; 500;
 </programlisting>
 
    which returns:
 
 <programlisting>
- tableoid |   name    | altitude
-----------+-----------+----------
-   139793 | Las Vegas |     2174
-   139793 | Mariposa  |     1953
-   139798 | Madison   |      845
+ tableoid |   name    | elevation
+----------+-----------+-----------
+   139793 | Las Vegas |      2174
+   139793 | Mariposa  |      1953
+   139798 | Madison   |       845
 </programlisting>
 
    (If you try to reproduce this example, you will probably get
@@ -3248,19 +3299,19 @@ WHERE c.altitude &gt; 500;
    <structname>pg_class</structname> you can see the actual table names:
 
 <programlisting>
-SELECT p.relname, c.name, c.altitude
+SELECT p.relname, c.name, c.elevation
 FROM cities c, pg_class p
-WHERE c.altitude &gt; 500 AND c.tableoid = p.oid;
+WHERE c.elevation &gt; 500 AND c.tableoid = p.oid;
 </programlisting>
 
    which returns:
 
 <programlisting>
- relname  |   name    | altitude
-----------+-----------+----------
- cities   | Las Vegas |     2174
- cities   | Mariposa  |     1953
- capitals | Madison   |      845
+ relname  |   name    | elevation
+----------+-----------+-----------
+ cities   | Las Vegas |      2174
+ cities   | Mariposa  |      1953
+ capitals | Madison   |       845
 </programlisting>
   </para>
 
@@ -3269,9 +3320,9 @@ WHERE c.altitude &gt; 500 AND c.tableoid = p.oid;
    alias type, which will print the table OID symbolically:
 
 <programlisting>
-SELECT c.tableoid::regclass, c.name, c.altitude
+SELECT c.tableoid::regclass, c.name, c.elevation
 FROM cities c
-WHERE c.altitude &gt; 500;
+WHERE c.elevation &gt; 500;
 </programlisting>
   </para>
 
@@ -3281,7 +3332,7 @@ WHERE c.altitude &gt; 500;
    other tables in the inheritance hierarchy. In our example, the
    following <command>INSERT</command> statement will fail:
 <programlisting>
-INSERT INTO cities (name, population, altitude, state)
+INSERT INTO cities (name, population, elevation, state)
 VALUES ('Albany', NULL, NULL, 'NY');
 </programlisting>
    We might hope that the data would somehow be routed to the
@@ -3940,14 +3991,14 @@ ALTER TABLE measurement ATTACH PARTITION measurement_y2008m02
     <para>
      Before running the <command>ATTACH PARTITION</command> command, it is
      recommended to create a <literal>CHECK</literal> constraint on the table to
-     be attached describing the desired partition constraint.  That way,
+     be attached matching the desired partition constraint. That way,
      the system will be able to skip the scan to validate the implicit
-     partition constraint. Without such a constraint, the table will be
-     scanned to validate the partition constraint while holding an
-     <literal>ACCESS EXCLUSIVE</literal> lock on that partition
+     partition constraint. Without the <literal>CHECK</literal> constraint,
+     the table will be scanned to validate the partition constraint while
+     holding an <literal>ACCESS EXCLUSIVE</literal> lock on that partition
      and a <literal>SHARE UPDATE EXCLUSIVE</literal> lock on the parent table.
-     One may then drop the constraint after <command>ATTACH PARTITION</command>
-     is finished, because it is no longer necessary.
+     It may be desired to drop the redundant <literal>CHECK</literal> constraint
+     after <command>ATTACH PARTITION</command> is finished.
     </para>
 
     <para>
@@ -4000,6 +4051,15 @@ ALTER INDEX measurement_city_id_logdate_key
        There is no way to create an
        exclusion constraint spanning all partitions; it is only possible
        to constrain each leaf partition individually.
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       Unique constraints on partitioned tables must include all the
+       partition key columns.  This limitation exists because
+       <productname>PostgreSQL</productname> can only enforce
+       uniqueness in each partition individually.
       </para>
      </listitem>
 
@@ -4061,8 +4121,8 @@ ALTER INDEX measurement_city_id_logdate_key
       <listitem>
        <para>
         Some operations require a stronger lock when using declarative
-        partitioning than when using table inheritance.  For example, adding
-        or removing a partition to or from a partitioned table requires taking
+        partitioning than when using table inheritance.  For example,
+        removing a partition from a partitioned table requires taking
         an <literal>ACCESS EXCLUSIVE</literal> lock on the parent table,
         whereas a <literal>SHARE UPDATE EXCLUSIVE</literal> lock is enough
         in the case of regular inheritance.
@@ -4075,8 +4135,8 @@ ALTER INDEX measurement_city_id_logdate_key
      <title>Example</title>
 
      <para>
-      We use the same <structname>measurement</structname> table we used
-      above.  To implement partitioning using inheritance, use
+      We use the non-partitioned <structname>measurement</structname>
+      table above.  To implement partitioning using inheritance, use
       the following steps:
 
       <orderedlist spacing="compact">
@@ -4477,7 +4537,7 @@ SELECT count(*) FROM measurement WHERE logdate &gt;= DATE '2008-01-01';
 SET enable_partition_pruning = off;
 EXPLAIN SELECT count(*) FROM measurement WHERE logdate &gt;= DATE '2008-01-01';
                                     QUERY PLAN
------------------------------------------------------------------------------------
+-------------------------------------------------------------------&zwsp;----------------
  Aggregate  (cost=188.76..188.77 rows=1 width=8)
    -&gt;  Append  (cost=0.00..181.05 rows=3085 width=0)
          -&gt;  Seq Scan on measurement_y2006m02  (cost=0.00..33.12 rows=617 width=0)
@@ -4502,11 +4562,10 @@ EXPLAIN SELECT count(*) FROM measurement WHERE logdate &gt;= DATE '2008-01-01';
 SET enable_partition_pruning = on;
 EXPLAIN SELECT count(*) FROM measurement WHERE logdate &gt;= DATE '2008-01-01';
                                     QUERY PLAN
------------------------------------------------------------------------------------
+-------------------------------------------------------------------&zwsp;----------------
  Aggregate  (cost=37.75..37.76 rows=1 width=8)
-   -&gt;  Append  (cost=0.00..36.21 rows=617 width=0)
-         -&gt;  Seq Scan on measurement_y2008m01  (cost=0.00..33.12 rows=617 width=0)
-               Filter: (logdate &gt;= '2008-01-01'::date)
+   -&gt;  Seq Scan on measurement_y2008m01  (cost=0.00..33.12 rows=617 width=0)
+         Filter: (logdate &gt;= '2008-01-01'::date)
 </programlisting>
    </para>
 
@@ -4675,7 +4734,7 @@ EXPLAIN SELECT count(*) FROM measurement WHERE logdate &gt;= DATE '2008-01-01';
    </itemizedlist>
    </para>
   </sect2>
-  
+
   <sect2 id="ddl-partitioning-declarative-best-practices">
    <title>Declarative Partitioning Best Practices</title>
 

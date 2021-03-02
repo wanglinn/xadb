@@ -5,7 +5,7 @@
  *
  * Author: Magnus Hagander <magnus@hagander.net>
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *		  src/bin/pg_basebackup/receivelog.c
@@ -20,15 +20,12 @@
 #include <sys/select.h>
 #endif
 
-/* local includes */
-#include "receivelog.h"
-#include "streamutil.h"
-
-#include "libpq-fe.h"
 #include "access/xlog_internal.h"
 #include "common/file_utils.h"
 #include "common/logging.h"
-
+#include "libpq-fe.h"
+#include "receivelog.h"
+#include "streamutil.h"
 
 /* fd and filename for currently open WAL file */
 static Walfile *walfile = NULL;
@@ -134,10 +131,10 @@ open_walfile(StreamCtl *stream, XLogRecPtr startpoint)
 			/* fsync file in case of a previous crash */
 			if (stream->walmethod->sync(f) != 0)
 			{
-				pg_log_error("could not fsync existing write-ahead log file \"%s\": %s",
+				pg_log_fatal("could not fsync existing write-ahead log file \"%s\": %s",
 							 fn, stream->walmethod->getlasterror());
 				stream->walmethod->close(f, CLOSE_UNLINK);
-				return false;
+				exit(1);
 			}
 
 			walfile = f;
@@ -763,9 +760,9 @@ HandleCopyStream(PGconn *conn, StreamCtl *stream,
 		{
 			if (stream->walmethod->sync(walfile) != 0)
 			{
-				pg_log_error("could not fsync file \"%s\": %s",
+				pg_log_fatal("could not fsync file \"%s\": %s",
 							 current_walfile_name, stream->walmethod->getlasterror());
-				goto error;
+				exit(1);
 			}
 			lastFlushPosition = blockpos;
 
@@ -1015,9 +1012,9 @@ ProcessKeepaliveMsg(PGconn *conn, StreamCtl *stream, char *copybuf, int len,
 			 */
 			if (stream->walmethod->sync(walfile) != 0)
 			{
-				pg_log_error("could not fsync file \"%s\": %s",
+				pg_log_fatal("could not fsync file \"%s\": %s",
 							 current_walfile_name, stream->walmethod->getlasterror());
-				return false;
+				exit(1);
 			}
 			lastFlushPosition = blockpos;
 		}

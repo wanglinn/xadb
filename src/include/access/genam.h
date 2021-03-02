@@ -4,7 +4,7 @@
  *	  POSTGRES generalized index access method definitions.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/access/genam.h
@@ -118,6 +118,13 @@ typedef enum IndexUniqueCheck
 } IndexUniqueCheck;
 
 
+/* Nullable "ORDER BY col op const" distance */
+typedef struct IndexOrderByDistance
+{
+	double		value;
+	bool		isnull;
+} IndexOrderByDistance;
+
 /*
  * generalized index_ interface routines (in indexam.c)
  */
@@ -178,8 +185,12 @@ extern RegProcedure index_getprocid(Relation irel, AttrNumber attnum,
 extern FmgrInfo *index_getprocinfo(Relation irel, AttrNumber attnum,
 								   uint16 procnum);
 extern void index_store_float8_orderby_distances(IndexScanDesc scan,
-												 Oid *orderByTypes, double *distances,
+												 Oid *orderByTypes,
+												 IndexOrderByDistance *distances,
 												 bool recheckOrderBy);
+extern bytea *index_opclass_options(Relation relation, AttrNumber attnum,
+									Datum attoptions, bool validate);
+
 
 /*
  * index access method support routines (in genam.c)

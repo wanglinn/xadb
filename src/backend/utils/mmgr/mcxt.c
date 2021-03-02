@@ -9,7 +9,7 @@
  * context's MemoryContextMethods struct.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -463,6 +463,30 @@ MemoryContextIsEmpty(MemoryContext context)
 }
 
 /*
+ * Find the memory allocated to blocks for this memory context. If recurse is
+ * true, also include children.
+ */
+Size
+MemoryContextMemAllocated(MemoryContext context, bool recurse)
+{
+	Size		total = context->mem_allocated;
+
+	AssertArg(MemoryContextIsValid(context));
+
+	if (recurse)
+	{
+		MemoryContext child = context->firstchild;
+
+		for (child = context->firstchild;
+			 child != NULL;
+			 child = child->nextchild)
+			total += MemoryContextMemAllocated(child, true);
+	}
+
+	return total;
+}
+
+/*
  * MemoryContextStats
  *		Print statistics about the named context and all its descendants.
  *
@@ -736,6 +760,7 @@ MemoryContextCreate(MemoryContext node,
 	node->methods = methods;
 	node->parent = parent;
 	node->firstchild = NULL;
+	node->mem_allocated = 0;
 	node->prevchild = NULL;
 	node->name = name;
 	node->ident = NULL;

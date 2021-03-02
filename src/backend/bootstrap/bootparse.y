@@ -4,7 +4,7 @@
  * bootparse.y
  *	  yacc grammar for the "bootstrap" mode (BKI file format)
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -306,6 +306,8 @@ Boot_DeclareIndexStmt:
 					stmt->idxcomment = NULL;
 					stmt->indexOid = InvalidOid;
 					stmt->oldNode = InvalidOid;
+					stmt->oldCreateSubid = InvalidSubTransactionId;
+					stmt->oldFirstRelfilenodeSubid = InvalidSubTransactionId;
 					stmt->unique = false;
 					stmt->primary = false;
 					stmt->isconstraint = false;
@@ -356,6 +358,8 @@ Boot_DeclareUniqueIndexStmt:
 					stmt->idxcomment = NULL;
 					stmt->indexOid = InvalidOid;
 					stmt->oldNode = InvalidOid;
+					stmt->oldCreateSubid = InvalidSubTransactionId;
+					stmt->oldFirstRelfilenodeSubid = InvalidSubTransactionId;
 					stmt->unique = true;
 					stmt->primary = false;
 					stmt->isconstraint = false;

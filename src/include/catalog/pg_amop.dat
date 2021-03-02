@@ -3,7 +3,7 @@
 # pg_amop.dat
 #    Initial contents of the pg_amop system catalog.
 #
-# Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 #
 # src/include/catalog/pg_amop.dat
@@ -179,6 +179,24 @@
   amopstrategy => '4', amopopr => '>=(oid,oid)', amopmethod => 'btree' },
 { amopfamily => 'btree/oid_ops', amoplefttype => 'oid', amoprighttype => 'oid',
   amopstrategy => '5', amopopr => '>(oid,oid)', amopmethod => 'btree' },
+
+# btree xid8_ops
+
+{ amopfamily => 'btree/xid8_ops', amoplefttype => 'xid8',
+  amoprighttype => 'xid8', amopstrategy => '1', amopopr => '<(xid8,xid8)',
+  amopmethod => 'btree' },
+{ amopfamily => 'btree/xid8_ops', amoplefttype => 'xid8',
+  amoprighttype => 'xid8', amopstrategy => '2', amopopr => '<=(xid8,xid8)',
+  amopmethod => 'btree' },
+{ amopfamily => 'btree/xid8_ops', amoplefttype => 'xid8',
+  amoprighttype => 'xid8', amopstrategy => '3', amopopr => '=(xid8,xid8)',
+  amopmethod => 'btree' },
+{ amopfamily => 'btree/xid8_ops', amoplefttype => 'xid8',
+  amoprighttype => 'xid8', amopstrategy => '4', amopopr => '>=(xid8,xid8)',
+  amopmethod => 'btree' },
+{ amopfamily => 'btree/xid8_ops', amoplefttype => 'xid8',
+  amoprighttype => 'xid8', amopstrategy => '5', amopopr => '>(xid8,xid8)',
+  amopmethod => 'btree' },
 
 # btree tid_ops
 
@@ -1009,6 +1027,11 @@
 { amopfamily => 'hash/xid_ops', amoplefttype => 'xid', amoprighttype => 'xid',
   amopstrategy => '1', amopopr => '=(xid,xid)', amopmethod => 'hash' },
 
+# xid8_ops
+{ amopfamily => 'hash/xid8_ops', amoplefttype => 'xid8',
+  amoprighttype => 'xid8', amopstrategy => '1', amopopr => '=(xid8,xid8)',
+  amopmethod => 'hash' },
+
 # cid_ops
 { amopfamily => 'hash/cid_ops', amoplefttype => 'cid', amoprighttype => 'cid',
   amopstrategy => '1', amopopr => '=(cid,cid)', amopmethod => 'hash' },
@@ -1081,6 +1104,9 @@
   amopstrategy => '13', amopopr => '~(box,box)', amopmethod => 'gist' },
 { amopfamily => 'gist/box_ops', amoplefttype => 'box', amoprighttype => 'box',
   amopstrategy => '14', amopopr => '@(box,box)', amopmethod => 'gist' },
+{ amopfamily => 'gist/box_ops', amoplefttype => 'box', amoprighttype => 'point',
+  amopstrategy => '15', amoppurpose => 'o', amopopr => '<->(box,point)',
+  amopmethod => 'gist', amopsortfamily => 'btree/float_ops' },
 
 # gist point_ops
 { amopfamily => 'gist/point_ops', amoplefttype => 'point',
@@ -1543,6 +1569,10 @@
   amopstrategy => '11', amopopr => '|>>(box,box)', amopmethod => 'spgist' },
 { amopfamily => 'spgist/box_ops', amoplefttype => 'box', amoprighttype => 'box',
   amopstrategy => '12', amopopr => '|&>(box,box)', amopmethod => 'spgist' },
+{ amopfamily => 'spgist/box_ops', amoplefttype => 'box',
+  amoprighttype => 'point', amopstrategy => '15', amoppurpose => 'o',
+  amopopr => '<->(box,point)', amopmethod => 'spgist',
+  amopsortfamily => 'btree/float_ops' },
 
 # SP-GiST poly_ops (supports polygons)
 { amopfamily => 'spgist/poly_ops', amoplefttype => 'polygon',

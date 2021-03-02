@@ -3,7 +3,7 @@
  * varlena.c
  *	  Functions for the variable-length built-in types.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -17,10 +17,12 @@
 #include <ctype.h>
 #include <limits.h>
 
-#include "access/tuptoaster.h"
+#include "access/detoast.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_type.h"
+#include "common/hashfn.h"
 #include "common/int.h"
+#include "common/unicode_norm.h"
 #include "lib/hyperloglog.h"
 #include "libpq/pqformat.h"
 #include "miscadmin.h"
@@ -29,7 +31,6 @@
 #include "regex/regex.h"
 #include "utils/builtins.h"
 #include "utils/bytea.h"
-#include "utils/hashutils.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/pg_locale.h"
@@ -388,7 +389,7 @@ byteaout(PG_FUNCTION_ARGS)
 	{
 		/* Print traditional escaped format */
 		char	   *vp;
-		int			len;
+		uint64		len;
 		int			i;
 
 		len = 1;				/* empty string has 1 char */
@@ -402,7 +403,18 @@ byteaout(PG_FUNCTION_ARGS)
 			else
 				len++;
 		}
+
+		/*
+		 * In principle len can't overflow uint32 if the input fit in 1GB, but
+		 * for safety let's check rather than relying on palloc's internal
+		 * check.
+		 */
+		if (len > MaxAllocSize)
+			ereport(ERROR,
+					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+					 errmsg_internal("result of bytea output conversion is too large")));
 		rp = result = (char *) palloc(len);
+
 		vp = VARDATA_ANY(vlena);
 		for (i = VARSIZE_ANY_EXHDR(vlena); i != 0; i--, vp++)
 		{
@@ -1118,7 +1130,12 @@ text_position(text *t1, text *t2, Oid collid)
 	TextPositionState state;
 	int			result;
 
-	if (VARSIZE_ANY_EXHDR(t1) < 1 || VARSIZE_ANY_EXHDR(t2) < 1)
+	/* Empty needle always matches at position 1 */
+	if (VARSIZE_ANY_EXHDR(t2) < 1)
+		return 1;
+
+	/* Otherwise, can't match if haystack is shorter than needle */
+	if (VARSIZE_ANY_EXHDR(t1) < VARSIZE_ANY_EXHDR(t2))
 		return 0;
 
 	text_position_setup(t1, t2, collid, &state);
@@ -1272,6 +1289,9 @@ text_position_setup(text *t1, text *t2, Oid collid, TextPositionState *state)
  * Advance to the next match, starting from the end of the previous match
  * (or the beginning of the string, on first call).  Returns true if a match
  * is found.
+ *
+ * Note that this refuses to match an empty-string needle.  Most callers
+ * will have handled that case specially and we'll never see it here.
  */
 static bool
 text_position_next(TextPositionState *state)
@@ -1463,6 +1483,12 @@ check_collation_set(Oid collid)
  *	to allow null-termination for inputs to strcoll().
  * Returns an integer less than, equal to, or greater than zero, indicating
  * whether arg1 is less than, equal to, or greater than arg2.
+ *
+ * Note: many functions that depend on this are marked leakproof; therefore,
+ * avoid reporting the actual contents of the input when throwing errors.
+ * All errors herein should be things that can't happen except on corrupt
+ * data, anyway; otherwise we will have trouble with indexing strings that
+ * would cause them.
  */
 int
 varstr_cmp(const char *arg1, int len1, const char *arg2, int len2, Oid collid)
@@ -2052,7 +2078,7 @@ varstr_sortsupport(SortSupport ssup, Oid typid, Oid collid)
 
 	/*
 	 * If we're using abbreviated keys, or if we're using a locale-aware
-	 * comparison, we need to initialize a StringSortSupport object.  Both
+	 * comparison, we need to initialize a VarStringSortSupport object. Both
 	 * cases will make use of the temporary buffers we initialize here for
 	 * scratch space (and to detect requirement for BpChar semantics from
 	 * caller), and the abbreviation case requires additional state.
@@ -2769,6 +2795,26 @@ varstr_abbrev_abort(int memtupcount, SortSupport ssup)
 	return true;
 }
 
+/*
+ * Generic equalimage support function for character type's operator classes.
+ * Disables the use of deduplication with nondeterministic collations.
+ */
+Datum
+btvarstrequalimage(PG_FUNCTION_ARGS)
+{
+	/* Oid		opcintype = PG_GETARG_OID(0); */
+	Oid			collid = PG_GET_COLLATION();
+
+	check_collation_set(collid);
+
+	if (lc_collate_is_c(collid) ||
+		collid == DEFAULT_COLLATION_OID ||
+		get_collation_isdeterministic(collid))
+		PG_RETURN_BOOL(true);
+	else
+		PG_RETURN_BOOL(false);
+}
+
 Datum
 text_larger(PG_FUNCTION_ARGS)
 {
@@ -2996,33 +3042,11 @@ textgename(PG_FUNCTION_ARGS)
  */
 
 static int
-internal_text_pattern_compare(text *arg1, text *arg2, Oid collid)
+internal_text_pattern_compare(text *arg1, text *arg2)
 {
 	int			result;
 	int			len1,
 				len2;
-
-	check_collation_set(collid);
-
-	/*
-	 * XXX We cannot use a text_pattern_ops index for nondeterministic
-	 * collations, because these operators intentionally ignore the collation.
-	 * However, the planner has no way to know that, so it might choose such
-	 * an index for an "=" clause, which would lead to wrong results.  This
-	 * check here doesn't prevent choosing the index, but it will at least
-	 * error out if the index is chosen.  A text_pattern_ops index on a column
-	 * with nondeterministic collation is pretty useless anyway, since LIKE
-	 * etc. won't work there either.  A future possibility would be to
-	 * annotate the operator class or its members in the catalog to avoid the
-	 * index.  Another alternative is to stay away from the *_pattern_ops
-	 * operator classes and prefer creating LIKE-supporting indexes with
-	 * COLLATE "C".
-	 */
-	if (!get_collation_isdeterministic(collid))
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("nondeterministic collations are not supported for operator class \"%s\"",
-						"text_pattern_ops")));
 
 	len1 = VARSIZE_ANY_EXHDR(arg1);
 	len2 = VARSIZE_ANY_EXHDR(arg2);
@@ -3046,7 +3070,7 @@ text_pattern_lt(PG_FUNCTION_ARGS)
 	text	   *arg2 = PG_GETARG_TEXT_PP(1);
 	int			result;
 
-	result = internal_text_pattern_compare(arg1, arg2, PG_GET_COLLATION());
+	result = internal_text_pattern_compare(arg1, arg2);
 
 	PG_FREE_IF_COPY(arg1, 0);
 	PG_FREE_IF_COPY(arg2, 1);
@@ -3062,7 +3086,7 @@ text_pattern_le(PG_FUNCTION_ARGS)
 	text	   *arg2 = PG_GETARG_TEXT_PP(1);
 	int			result;
 
-	result = internal_text_pattern_compare(arg1, arg2, PG_GET_COLLATION());
+	result = internal_text_pattern_compare(arg1, arg2);
 
 	PG_FREE_IF_COPY(arg1, 0);
 	PG_FREE_IF_COPY(arg2, 1);
@@ -3078,7 +3102,7 @@ text_pattern_ge(PG_FUNCTION_ARGS)
 	text	   *arg2 = PG_GETARG_TEXT_PP(1);
 	int			result;
 
-	result = internal_text_pattern_compare(arg1, arg2, PG_GET_COLLATION());
+	result = internal_text_pattern_compare(arg1, arg2);
 
 	PG_FREE_IF_COPY(arg1, 0);
 	PG_FREE_IF_COPY(arg2, 1);
@@ -3094,7 +3118,7 @@ text_pattern_gt(PG_FUNCTION_ARGS)
 	text	   *arg2 = PG_GETARG_TEXT_PP(1);
 	int			result;
 
-	result = internal_text_pattern_compare(arg1, arg2, PG_GET_COLLATION());
+	result = internal_text_pattern_compare(arg1, arg2);
 
 	PG_FREE_IF_COPY(arg1, 0);
 	PG_FREE_IF_COPY(arg2, 1);
@@ -3110,7 +3134,7 @@ bttext_pattern_cmp(PG_FUNCTION_ARGS)
 	text	   *arg2 = PG_GETARG_TEXT_PP(1);
 	int			result;
 
-	result = internal_text_pattern_compare(arg1, arg2, PG_GET_COLLATION());
+	result = internal_text_pattern_compare(arg1, arg2);
 
 	PG_FREE_IF_COPY(arg1, 0);
 	PG_FREE_IF_COPY(arg2, 1);
@@ -3123,16 +3147,7 @@ Datum
 bttext_pattern_sortsupport(PG_FUNCTION_ARGS)
 {
 	SortSupport ssup = (SortSupport) PG_GETARG_POINTER(0);
-	Oid			collid = ssup->ssup_collation;
 	MemoryContext oldcontext;
-
-	check_collation_set(collid);
-
-	if (!get_collation_isdeterministic(collid))
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("nondeterministic collations are not supported for operator class \"%s\"",
-						"text_pattern_ops")));
 
 	oldcontext = MemoryContextSwitchTo(ssup->ssup_cxt);
 
@@ -3491,7 +3506,7 @@ Datum
 byteaGetBit(PG_FUNCTION_ARGS)
 {
 	bytea	   *v = PG_GETARG_BYTEA_PP(0);
-	int32		n = PG_GETARG_INT32(1);
+	int64		n = PG_GETARG_INT64(1);
 	int			byteNo,
 				bitNo;
 	int			len;
@@ -3499,14 +3514,15 @@ byteaGetBit(PG_FUNCTION_ARGS)
 
 	len = VARSIZE_ANY_EXHDR(v);
 
-	if (n < 0 || n >= len * 8)
+	if (n < 0 || n >= (int64) len * 8)
 		ereport(ERROR,
 				(errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
-				 errmsg("index %d out of valid range, 0..%d",
-						n, len * 8 - 1)));
+				 errmsg("index %lld out of valid range, 0..%lld",
+						(long long) n, (long long) len * 8 - 1)));
 
-	byteNo = n / 8;
-	bitNo = n % 8;
+	/* n/8 is now known < len, so safe to cast to int */
+	byteNo = (int) (n / 8);
+	bitNo = (int) (n % 8);
 
 	byte = ((unsigned char *) VARDATA_ANY(v))[byteNo];
 
@@ -3560,7 +3576,7 @@ Datum
 byteaSetBit(PG_FUNCTION_ARGS)
 {
 	bytea	   *res = PG_GETARG_BYTEA_P_COPY(0);
-	int32		n = PG_GETARG_INT32(1);
+	int64		n = PG_GETARG_INT64(1);
 	int32		newBit = PG_GETARG_INT32(2);
 	int			len;
 	int			oldByte,
@@ -3570,14 +3586,15 @@ byteaSetBit(PG_FUNCTION_ARGS)
 
 	len = VARSIZE(res) - VARHDRSZ;
 
-	if (n < 0 || n >= len * 8)
+	if (n < 0 || n >= (int64) len * 8)
 		ereport(ERROR,
 				(errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
-				 errmsg("index %d out of valid range, 0..%d",
-						n, len * 8 - 1)));
+				 errmsg("index %lld out of valid range, 0..%lld",
+						(long long) n, (long long) len * 8 - 1)));
 
-	byteNo = n / 8;
-	bitNo = n % 8;
+	/* n/8 is now known < len, so safe to cast to int */
+	byteNo = (int) (n / 8);
+	bitNo = (int) (n % 8);
 
 	/*
 	 * sanity check!
@@ -4940,7 +4957,7 @@ text_to_array_internal(PG_FUNCTION_ARGS)
 			/* XXX: this hardcodes assumptions about the text type */
 			PG_RETURN_ARRAYTYPE_P(construct_md_array(elems, nulls,
 													 1, dims, lbs,
-													 TEXTOID, -1, false, 'i'));
+													 TEXTOID, -1, false, TYPALIGN_INT));
 		}
 
 		text_position_setup(inputstring, fldsep, PG_GET_COLLATION(), &state);
@@ -6185,6 +6202,155 @@ rest_of_char_same(const char *s1, const char *s2, int len)
 #include "levenshtein.c"
 #define LEVENSHTEIN_LESS_EQUAL
 #include "levenshtein.c"
+
+
+/*
+ * Unicode support
+ */
+
+static UnicodeNormalizationForm
+unicode_norm_form_from_string(const char *formstr)
+{
+	UnicodeNormalizationForm form = -1;
+
+	/*
+	 * Might as well check this while we're here.
+	 */
+	if (GetDatabaseEncoding() != PG_UTF8)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("Unicode normalization can only be performed if server encoding is UTF8")));
+
+	if (pg_strcasecmp(formstr, "NFC") == 0)
+		form = UNICODE_NFC;
+	else if (pg_strcasecmp(formstr, "NFD") == 0)
+		form = UNICODE_NFD;
+	else if (pg_strcasecmp(formstr, "NFKC") == 0)
+		form = UNICODE_NFKC;
+	else if (pg_strcasecmp(formstr, "NFKD") == 0)
+		form = UNICODE_NFKD;
+	else
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("invalid normalization form: %s", formstr)));
+
+	return form;
+}
+
+Datum
+unicode_normalize_func(PG_FUNCTION_ARGS)
+{
+	text	   *input = PG_GETARG_TEXT_PP(0);
+	char	   *formstr = text_to_cstring(PG_GETARG_TEXT_PP(1));
+	UnicodeNormalizationForm form;
+	int			size;
+	pg_wchar   *input_chars;
+	pg_wchar   *output_chars;
+	unsigned char *p;
+	text	   *result;
+	int			i;
+
+	form = unicode_norm_form_from_string(formstr);
+
+	/* convert to pg_wchar */
+	size = pg_mbstrlen_with_len(VARDATA_ANY(input), VARSIZE_ANY_EXHDR(input));
+	input_chars = palloc((size + 1) * sizeof(pg_wchar));
+	p = (unsigned char *) VARDATA_ANY(input);
+	for (i = 0; i < size; i++)
+	{
+		input_chars[i] = utf8_to_unicode(p);
+		p += pg_utf_mblen(p);
+	}
+	input_chars[i] = (pg_wchar) '\0';
+	Assert((char *) p == VARDATA_ANY(input) + VARSIZE_ANY_EXHDR(input));
+
+	/* action */
+	output_chars = unicode_normalize(form, input_chars);
+
+	/* convert back to UTF-8 string */
+	size = 0;
+	for (pg_wchar *wp = output_chars; *wp; wp++)
+	{
+		unsigned char buf[4];
+
+		unicode_to_utf8(*wp, buf);
+		size += pg_utf_mblen(buf);
+	}
+
+	result = palloc(size + VARHDRSZ);
+	SET_VARSIZE(result, size + VARHDRSZ);
+
+	p = (unsigned char *) VARDATA_ANY(result);
+	for (pg_wchar *wp = output_chars; *wp; wp++)
+	{
+		unicode_to_utf8(*wp, p);
+		p += pg_utf_mblen(p);
+	}
+	Assert((char *) p == (char *) result + size + VARHDRSZ);
+
+	PG_RETURN_TEXT_P(result);
+}
+
+/*
+ * Check whether the string is in the specified Unicode normalization form.
+ *
+ * This is done by convering the string to the specified normal form and then
+ * comparing that to the original string.  To speed that up, we also apply the
+ * "quick check" algorithm specified in UAX #15, which can give a yes or no
+ * answer for many strings by just scanning the string once.
+ *
+ * This function should generally be optimized for the case where the string
+ * is in fact normalized.  In that case, we'll end up looking at the entire
+ * string, so it's probably not worth doing any incremental conversion etc.
+ */
+Datum
+unicode_is_normalized(PG_FUNCTION_ARGS)
+{
+	text	   *input = PG_GETARG_TEXT_PP(0);
+	char	   *formstr = text_to_cstring(PG_GETARG_TEXT_PP(1));
+	UnicodeNormalizationForm form;
+	int			size;
+	pg_wchar   *input_chars;
+	pg_wchar   *output_chars;
+	unsigned char *p;
+	int			i;
+	UnicodeNormalizationQC quickcheck;
+	int			output_size;
+	bool		result;
+
+	form = unicode_norm_form_from_string(formstr);
+
+	/* convert to pg_wchar */
+	size = pg_mbstrlen_with_len(VARDATA_ANY(input), VARSIZE_ANY_EXHDR(input));
+	input_chars = palloc((size + 1) * sizeof(pg_wchar));
+	p = (unsigned char *) VARDATA_ANY(input);
+	for (i = 0; i < size; i++)
+	{
+		input_chars[i] = utf8_to_unicode(p);
+		p += pg_utf_mblen(p);
+	}
+	input_chars[i] = (pg_wchar) '\0';
+	Assert((char *) p == VARDATA_ANY(input) + VARSIZE_ANY_EXHDR(input));
+
+	/* quick check (see UAX #15) */
+	quickcheck = unicode_is_normalized_quickcheck(form, input_chars);
+	if (quickcheck == UNICODE_NORM_QC_YES)
+		PG_RETURN_BOOL(true);
+	else if (quickcheck == UNICODE_NORM_QC_NO)
+		PG_RETURN_BOOL(false);
+
+	/* normalize and compare with original */
+	output_chars = unicode_normalize(form, input_chars);
+
+	output_size = 0;
+	for (pg_wchar *wp = output_chars; *wp; wp++)
+		output_size++;
+
+	result = (size == output_size) &&
+		(memcmp(input_chars, output_chars, size * sizeof(pg_wchar)) == 0);
+
+	PG_RETURN_BOOL(result);
+}
 
 #ifdef ADB_GRAM_ORA
 Datum

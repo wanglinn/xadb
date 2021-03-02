@@ -4,7 +4,7 @@
  *	  definitions for query plan nodes
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2014-2017, ADB Development Group
  *
@@ -74,6 +74,8 @@ typedef struct PlannedStmt
 	 * targets; needed for trigger firing.
 	 */
 	List	   *rootResultRelations;
+
+	List	   *appendRelations;	/* list of AppendRelInfo nodes */
 
 	List	   *subplans;		/* Plan trees for SubPlan expressions; note
 								 * that some could be NULL */
@@ -258,6 +260,7 @@ struct PartitionPruneInfo;		/* forward reference to struct below */
 typedef struct Append
 {
 	Plan		plan;
+	Bitmapset  *apprelids;		/* RTIs of appendrel(s) formed by this node */
 	List	   *appendplans;
 
 	/*
@@ -278,6 +281,7 @@ typedef struct Append
 typedef struct MergeAppend
 {
 	Plan		plan;
+	Bitmapset  *apprelids;		/* RTIs of appendrel(s) formed by this node */
 	List	   *mergeplans;
 	/* these fields are just like the sort-key info in struct Sort: */
 	int			numCols;		/* number of sort-key columns */
@@ -750,6 +754,14 @@ typedef struct HashJoin
 {
 	Join		join;
 	List	   *hashclauses;
+	List	   *hashoperators;
+	List	   *hashcollations;
+
+	/*
+	 * List of expressions to be hashed for tuples from the outer plan, to
+	 * perform lookups in the hashtable over the inner plan.
+	 */
+	List	   *hashkeys;
 #ifdef ADB
 	bool		cluster_hashtable_first;	/* build hash table first when cluster plan if true */
 #endif
@@ -799,6 +811,16 @@ typedef struct BatchSort
 }BatchSort;
 #endif /* ADB_EXT */
 
+/* ----------------
+ *		incremental sort node
+ * ----------------
+ */
+typedef struct IncrementalSort
+{
+	Sort		sort;
+	int			nPresortedCols; /* number of presorted columns */
+} IncrementalSort;
+
 /* ---------------
  *	 group node -
  *		Used for queries with GROUP BY (but no aggregates) specified.
@@ -838,6 +860,7 @@ typedef struct Agg
 	Oid		   *grpOperators;	/* equality operators to compare with */
 	Oid		   *grpCollations;
 	long		numGroups;		/* estimated number of groups in input */
+	uint64		transitionSpace;	/* for pass-by-ref transition data */
 	Bitmapset  *aggParams;		/* IDs of Params used in Aggref inputs */
 	/* Note: planner provides numGroups & aggParams only in HASHED/MIXED case */
 	List	   *groupingSets;	/* grouping sets to use */
@@ -945,6 +968,12 @@ typedef struct GatherMerge
 typedef struct Hash
 {
 	Plan		plan;
+
+	/*
+	 * List of expressions to be hashed for tuples from Hash's outer plan,
+	 * needed to put them into the hashtable.
+	 */
+	List	   *hashkeys;		/* hash keys for the hashjoin condition */
 	Oid			skewTable;		/* outer join key's table OID, or InvalidOid */
 	AttrNumber	skewColumn;		/* outer join key's column #, or zero */
 	bool		skewInherit;	/* is outer join rel an inheritance tree? */
@@ -999,6 +1028,11 @@ typedef struct Limit
 	Plan		plan;
 	Node	   *limitOffset;	/* OFFSET parameter, or NULL if none */
 	Node	   *limitCount;		/* COUNT parameter, or NULL if none */
+	LimitOption limitOption;	/* limit type */
+	int			uniqNumCols;	/* number of columns to check for similarity  */
+	AttrNumber *uniqColIdx;		/* their indexes in the target list */
+	Oid		   *uniqOperators;	/* equality operators to compare with */
+	Oid		   *uniqCollations; /* collations for equality comparisons */
 } Limit;
 
 #ifdef ADB

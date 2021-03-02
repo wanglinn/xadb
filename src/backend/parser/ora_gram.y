@@ -100,10 +100,10 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 #define MAKE_ANY_A_EXPR(name_, l_, r_, loc_) (Node*)makeA_Expr(AEXPR_OP_ANY, list_make1(makeString(pstrdup(name_))), l_, r_, loc_)
 static void oracleInsertSelectOptions(SelectStmt *stmt,
 									  SelectSortClause *sortClause, List *lockingClause,
-									  Node *limitOffset, Node *limitCount,
+									  SelectLimit *limitClause,
 									  WithClause *withClause,
 									  core_yyscan_t yyscanner);
-static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
+static A_Indirection* listToIndirection(A_Indirection *in, List *list, ListCell *lc);
 %}
 
 %expect 0
@@ -154,6 +154,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	PartitionBoundSpec	*partboundspec;
 	OracleConnectBy		*connectby;
 	SelectSortClause	*select_order_by;
+	struct SelectLimit	*selectlimit;
 /* ADB_BEGIN */
 	PartitionSpec		*partspec;
 	PGXCSubCluster		*subclus;
@@ -172,7 +173,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
  * DOT_DOT is unused in the core SQL grammar, and so will always provoke
  * parse errors.  It is needed by PL/pgsql.
  */
-%token <str>	IDENT FCONST SCONST BCONST XCONST Op
+%token <str>	IDENT UIDENT FCONST SCONST USCONST BCONST XCONST Op
 %token <ival>	ICONST PARAM
 %token			TYPECAST DOT_DOT COLON_EQUALS EQUALS_GREATER
 %token			LESS_EQUALS GREATER_EQUALS NOT_EQUALS
@@ -260,17 +261,19 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	oper_argtypes OptTableElementList opt_distinct opt_for_locking_clause
 	opt_indirection opt_interval opt_name_list opt_sort_clause
 	OptWith OptTypedTableElementList
-	opt_type_mod opt_type_modifiers opt_definition opt_collate opt_class opt_select_limit
+	opt_type_mod opt_type_modifiers opt_definition opt_collate opt_class
 	opt_partition_clause
 	opt_reloptions OptInherit
 	qual_Op qual_all_Op qualified_name_list
 	relation_expr_list returning_clause returning_item reloption_list
 	reloptions role_list implicit_row
-	select_limit set_clause_list set_clause set_expr_list set_expr_row
+	set_clause_list set_clause set_expr_list set_expr_row
 	set_target_list sortby_list sort_clause subquery_Op
 	TableElementList TableFuncElementList target_list transaction_mode_list_or_empty TypedTableElementList
 	transaction_mode_list /*transaction_mode_list_or_empty*/ trim_list
 	var_list within_group_clause
+
+%type <selectlimit> opt_select_limit select_limit limit_clause
 
 %type <list>	group_by_list prep_type_clause execute_param_clause
 %type <node>	group_by_item rollup_clause empty_grouping_set cube_clause grouping_sets_clause
@@ -293,7 +296,6 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 	having_clause
 	indirection_el InsertStmt IndexStmt CreateOracleConvertStmt OracleCast
 	join_outer
-	limit_clause
 	offset_clause opt_collate_clause opt_start_with_clause PrepareStmt PreparableStmt 
 	SelectStmt select_clause select_no_parens select_with_parens set_expr
 	simple_select select_limit_value select_offset_value start_with_clause
@@ -3460,11 +3462,11 @@ columnref:	ColId
 					{
 						A_Indirection *in = makeNode(A_Indirection);
 						lc1 = list_head($2);
-						lc2 = lnext(lc1);
+						lc2 = lnext($2, lc1);
 						list = list_make1(lfirst(lc1));
 						in->arg = makeColumnRef($1, list, @1 + (list_length($2)-1), yyscanner);
 						in->indirection = list_make1(lfirst(lc2));
-						$$ = (Node *)listToIndirection(in, lnext(lc2));
+						$$ = (Node *)listToIndirection(in, $2, lnext($2, lc2));
 					}else
 					{
 						$$ = makeColumnRef($1, $2, @1, yyscanner);
@@ -3977,7 +3979,7 @@ OptPartitionSpecNotEmpty:
 								stmt->partbound->modulus = part_count;
 								stmt->partbound->remainder = i;
 
-								cell = lnext(cell);
+								cell = lnext($3, cell);
 							}
 						}
 					}
@@ -5528,9 +5530,9 @@ InsertStmt:
 				if(res->indirection)
 				{
 					ereport(ERROR,
-						(ERRCODE_SYNTAX_ERROR,
-						errmsg("%s at or near \"%s\"", _("syntax error"), res->name),
-						parser_errposition(res->location)));
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("%s at or near \"%s\"", _("syntax error"), res->name),
+							 parser_errposition(res->location)));
 				}
 				alias_col = lappend(alias_col, makeString(res->name));
 			}
@@ -6226,14 +6228,14 @@ select_no_parens:
 		| select_clause select_sort_clause
 			{
 				oracleInsertSelectOptions((SelectStmt *) $1, $2, NIL,
-										  NULL, NULL, NULL,
+										  NULL, NULL,
 										  yyscanner);
 				$$ = $1;
 			}
 		| select_clause opt_select_sort_clause for_locking_clause opt_select_limit
 			{
 				oracleInsertSelectOptions((SelectStmt *) $1, $2, $3,
-										  list_nth($4, 0), list_nth($4, 1),
+										  $4,
 										  NULL,
 										  yyscanner);
 				$$ = $1;
@@ -6241,15 +6243,15 @@ select_no_parens:
 		| select_clause opt_select_sort_clause select_limit opt_for_locking_clause
 			{
 				oracleInsertSelectOptions((SelectStmt *) $1, $2, $4,
-										  list_nth($3, 0), list_nth($3, 1),
+										  $3,
 										  NULL,
 										  yyscanner);
 				$$ = $1;
 			}
 		| with_clause select_clause
 			{
-				insertSelectOptions((SelectStmt *) $2, NULL, NIL,
-									NULL, NULL,
+				insertSelectOptions((SelectStmt *) $2, NIL, NIL,
+									NULL,
 									$1,
 									yyscanner);
 				$$ = $2;
@@ -6257,7 +6259,7 @@ select_no_parens:
 		| with_clause select_clause select_sort_clause
 			{
 				oracleInsertSelectOptions((SelectStmt *) $2, $3, NIL,
-										  NULL, NULL,
+										  NULL,
 										  $1,
 										  yyscanner);
 				$$ = $2;
@@ -6265,7 +6267,7 @@ select_no_parens:
 		| with_clause select_clause opt_select_sort_clause for_locking_clause opt_select_limit
 			{
 				oracleInsertSelectOptions((SelectStmt *) $2, $3, $4,
-										  list_nth($5, 0), list_nth($5, 1),
+										  $5,
 										  $1,
 										  yyscanner);
 				$$ = $2;
@@ -6273,7 +6275,7 @@ select_no_parens:
 		| with_clause select_clause opt_select_sort_clause select_limit opt_for_locking_clause
 			{
 				oracleInsertSelectOptions((SelectStmt *) $2, $3, $5,
-										  list_nth($4, 0), list_nth($4, 1),
+										  $4,
 										  $1,
 										  yyscanner);
 				$$ = $2;
@@ -6339,22 +6341,52 @@ opt_nowait:	NOWAIT							{ $$ = true; }
 		;
 
 select_limit:
-			limit_clause offset_clause			{ $$ = list_make2($2, $1); }
-			| offset_clause limit_clause		{ $$ = list_make2($1, $2); }
-			| limit_clause						{ $$ = list_make2(NULL, $1); }
-			| offset_clause						{ $$ = list_make2($1, NULL); }
+			limit_clause offset_clause
+				{
+					$$ = $1;
+					($$)->limitOffset = $2;
+				}
+			| offset_clause limit_clause
+				{
+					$$ = $2;
+					($$)->limitOffset = $1;
+				}
+			| limit_clause
+				{
+					$$ = $1;
+				}
+			| offset_clause
+				{
+					SelectLimit *n = (SelectLimit *) palloc(sizeof(SelectLimit));
+					n->limitOffset = $1;
+					n->limitCount = NULL;
+					n->limitOption = LIMIT_OPTION_COUNT;
+					$$ = n;
+				}
 		;
 
 opt_select_limit:
 			select_limit						{ $$ = $1; }
-			| /* EMPTY */						{ $$ = list_make2(NULL,NULL); }
+			| /* EMPTY */						{ $$ = NULL; }
 		;
 
 limit_clause:
 			LIMIT select_limit_value
-				{ $$ = $2; }
+				{
+					SelectLimit *n = (SelectLimit *) palloc(sizeof(SelectLimit));
+					n->limitOffset = NULL;
+					n->limitCount = $2;
+					n->limitOption = LIMIT_OPTION_COUNT;
+					$$ = n;
+				}
 			| LIMIT_LA select_limit_value
-				{ $$ = $2; }
+				{
+					SelectLimit *n = (SelectLimit *) palloc(sizeof(SelectLimit));
+					n->limitOffset = NULL;
+					n->limitCount = $2;
+					n->limitOption = LIMIT_OPTION_COUNT;
+					$$ = n;
+				}
 			| LIMIT select_limit_value ',' select_offset_value
 				{
 					/* Disabled because it was too confusing, bjm 2002-02-18 */
@@ -9123,11 +9155,11 @@ static Node *reparse_decode_func(List *args, int location)
 	c->casetype = InvalidOid; /* not analyzed yet */
 	c->isdecode = true;
 	c->arg = lfirst(lc);
-	lc = lnext(lc);
+	lc = lnext(args, lc);
 
 	while(lc)
 	{
-		if (lnext(lc))
+		if (lnext(args, lc))
 		{
 			CaseWhen *w = makeNode(CaseWhen);
 			expr = lfirst(lc);
@@ -9143,7 +9175,7 @@ static Node *reparse_decode_func(List *args, int location)
 				w->expr = expr;
 			}
 
-			lc = lnext(lc);
+			lc = lnext(args, lc);
 			w->result = lfirst(lc);
 			w->location = -1;
 
@@ -9153,7 +9185,7 @@ static Node *reparse_decode_func(List *args, int location)
 			c->defresult = lfirst(lc);
 		}
 
-		lc = lnext(lc);
+		lc = lnext(args, lc);
 	}
 
 	c->location = location;
@@ -9274,7 +9306,7 @@ static Node* make_any_sublink(Node *testexpr, const char *operName, Node *subsel
 
 static void oracleInsertSelectOptions(SelectStmt *stmt,
 									  SelectSortClause *sortClause, List *lockingClause,
-									  Node *limitOffset, Node *limitCount,
+									  SelectLimit *limitClause,
 									  WithClause *withClause,
 									  core_yyscan_t yyscanner)
 {
@@ -9310,17 +9342,17 @@ static void oracleInsertSelectOptions(SelectStmt *stmt,
 		}
 	}
 	insertSelectOptions(stmt, sort_clause,
-						lockingClause, limitOffset, limitCount, withClause, yyscanner);
+						lockingClause, limitClause, withClause, yyscanner);
 }
 
-static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc)
+static A_Indirection* listToIndirection(A_Indirection *in, List *list, ListCell *lc)
 {	
 	if(lc != NULL)
 	{	
 		A_Indirection *sub_in = makeNode(A_Indirection);
 		sub_in->arg = (Node *)in;
 		sub_in->indirection = list_make1(lfirst(lc));
-		return listToIndirection(sub_in, lnext(lc));
+		return listToIndirection(sub_in, list, lnext(list, lc));
 	}
 	return in;
 }

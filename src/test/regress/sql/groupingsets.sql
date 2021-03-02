@@ -384,6 +384,18 @@ explain (costs off)
     from (values (1),(2)) v(x), gstest_data(v.x)
    group by cube (a,b) order by a,b;
 
+-- Verify that we correctly handle the child node returning a
+-- non-minimal slot, which happens if the input is pre-sorted,
+-- e.g. due to an index scan.
+BEGIN;
+SET LOCAL enable_hashagg = false;
+EXPLAIN (COSTS OFF) SELECT a, b, count(*), max(a), max(b) FROM gstest3 GROUP BY GROUPING SETS(a, b,()) ORDER BY a, b;
+SELECT a, b, count(*), max(a), max(b) FROM gstest3 GROUP BY GROUPING SETS(a, b,()) ORDER BY a, b;
+SET LOCAL enable_seqscan = false;
+EXPLAIN (COSTS OFF) SELECT a, b, count(*), max(a), max(b) FROM gstest3 GROUP BY GROUPING SETS(a, b,()) ORDER BY a, b;
+SELECT a, b, count(*), max(a), max(b) FROM gstest3 GROUP BY GROUPING SETS(a, b,()) ORDER BY a, b;
+COMMIT;
+
 -- More rescan tests
 select * from (values (1),(2)) v(a) left join lateral (select v.a, four, ten, count(*) from onek group by cube(four,ten)) s on true order by v.a,four,ten;
 select array(select row(v.a,s1.*) from (select two,four, count(*) from onek group by cube(two,four) order by two,four) s1) from (values (1),(2)) v(a);
@@ -428,5 +440,63 @@ select v||'a', case grouping(v||'a') when 1 then 1 else 0 end, count(*)
 select v||'a', case when grouping(v||'a') = 1 then 1 else 0 end, count(*)
   from unnest(array[1,1], array['a','b']) u(i,v)
  group by rollup(i, v||'a') order by 1,3;
+
+--
+-- Compare results between plans using sorting and plans using hash
+-- aggregation. Force spilling in both cases by setting work_mem low
+-- and turning on enable_groupingsets_hash_disk.
+--
+
+SET enable_groupingsets_hash_disk = true;
+SET work_mem='64kB';
+
+-- Produce results with sorting.
+
+set enable_hashagg = false;
+set jit_above_cost = 0;
+
+explain (costs off)
+select g100, g10, sum(g::numeric), count(*), max(g::text) from
+  (select g%1000 as g1000, g%100 as g100, g%10 as g10, g
+   from generate_series(0,1999) g) s
+group by cube (g1000, g100,g10);
+
+create table gs_group_1 as
+select g100, g10, sum(g::numeric), count(*), max(g::text) from
+  (select g%1000 as g1000, g%100 as g100, g%10 as g10, g
+   from generate_series(0,1999) g) s
+group by cube (g1000, g100,g10);
+
+-- Produce results with hash aggregation.
+
+set enable_hashagg = true;
+set enable_sort = false;
+
+explain (costs off)
+select g100, g10, sum(g::numeric), count(*), max(g::text) from
+  (select g%1000 as g1000, g%100 as g100, g%10 as g10, g
+   from generate_series(0,1999) g) s
+group by cube (g1000, g100,g10);
+
+create table gs_hash_1 as
+select g100, g10, sum(g::numeric), count(*), max(g::text) from
+  (select g%1000 as g1000, g%100 as g100, g%10 as g10, g
+   from generate_series(0,1999) g) s
+group by cube (g1000, g100,g10);
+
+
+set enable_sort = true;
+set work_mem to default;
+
+-- Compare results
+
+(select * from gs_hash_1 except select * from gs_group_1)
+  union all
+(select * from gs_group_1 except select * from gs_hash_1);
+
+drop table gs_group_1;
+drop table gs_hash_1;
+
+SET enable_groupingsets_hash_disk TO DEFAULT;
 
 -- end

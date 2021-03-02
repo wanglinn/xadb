@@ -33,7 +33,7 @@ void logMgrNodeWrapper(MgrNodeWrapper *src, char *title, int elevel)
 	ereport(elevel,
 			(errmsg("%s oid:%u,nodename:%s,nodehost:%u,nodetype:%c,nodesync:%s,nodeport:%d,nodemasternameoid:%u,curestatus:%s",
 					rTitle,
-					src->oid,
+					src->form.oid,
 					NameStr(src->form.nodename),
 					src->form.nodehost,
 					src->form.nodetype,
@@ -902,7 +902,7 @@ int updateMgrNodeCurestatus(MgrNodeWrapper *mgrNode,
 					 "and curestatus = '%s' \n"
 					 "and nodetype = '%c' \n",
 					 newCurestatus,
-					 mgrNode->oid,
+					 mgrNode->form.oid,
 					 NameStr(mgrNode->form.curestatus),
 					 mgrNode->form.nodetype);
 	oldCtx = MemoryContextSwitchTo(spiContext);
@@ -935,7 +935,7 @@ int updateMgrNodeNodesync(MgrNodeWrapper *mgrNode,
 					 "and nodesync = '%s' "
 					 "and nodetype = '%c' ",
 					 newNodesync,
-					 mgrNode->oid,
+					 mgrNode->form.oid,
 					 mgrNode->form.nodemasternameoid,
 					 NameStr(mgrNode->form.nodesync),
 					 mgrNode->form.nodetype);
@@ -970,7 +970,7 @@ int updateMgrNodeAfterFollowMaster(MgrNodeWrapper *mgrNode,
 					 "and nodetype = '%c' \n",
 					 newCurestatus,
 					 NameStr(mgrNode->form.nodesync),
-					 mgrNode->oid,
+					 mgrNode->form.oid,
 					 NameStr(mgrNode->form.curestatus),
 					 mgrNode->form.nodetype);
 	oldCtx = MemoryContextSwitchTo(spiContext);
@@ -1007,7 +1007,7 @@ int updateMgrNodeToIsolate(MgrNodeWrapper *mgrNode,
 					 newCurestatus,
 					 false,
 					 false,
-					 mgrNode->oid,
+					 mgrNode->form.oid,
 					 NameStr(mgrNode->form.curestatus),
 					 mgrNode->form.nodetype);
 	oldCtx = MemoryContextSwitchTo(spiContext);
@@ -1044,7 +1044,7 @@ int updateMgrNodeToUnIsolate(MgrNodeWrapper *mgrNode,
 					 true,
 					 true,
 					 NameStr(mgrNode->form.nodesync),
-					 mgrNode->oid,
+					 mgrNode->form.oid,
 					 NameStr(mgrNode->form.curestatus),
 					 mgrNode->form.nodetype);
 	oldCtx = MemoryContextSwitchTo(spiContext);
@@ -3579,18 +3579,15 @@ bool list_contain_string(const List *list, char *str)
 List *list_delete_string(List *list, char *str, bool deep)
 {
 	ListCell *cell;
-	ListCell *prev;
 
-	prev = NULL;
 	foreach (cell, list)
 	{
 		if (is_equal_string((char *)lfirst(cell), str))
 		{
 			if (deep)
 				pfree(lfirst(cell));
-			return list_delete_cell(list, cell, prev);
+			return list_delete_cell(list, cell);
 		}
-		prev = cell;
 	}
 	return list;
 }

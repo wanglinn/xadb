@@ -250,8 +250,8 @@ Datum monitor_databaseitem_insert_data(PG_FUNCTION_ARGS)
 	{
 		pfree(user);
 		pfree(hostaddress);
-		heap_close(rel, RowExclusiveLock);
-		heap_close(rel_node, RowExclusiveLock);
+		table_close(rel, RowExclusiveLock);
+		table_close(rel_node, RowExclusiveLock);
 		ereport(ERROR, (errcode(ERRCODE_DATA_EXCEPTION)
 			,errmsg("get database namelist error")));
 	}
@@ -394,8 +394,8 @@ Datum monitor_databaseitem_insert_data(PG_FUNCTION_ARGS)
 	pfree(sqlstr_heaphit_read_indexsize.data);
 	pfree(sqlstr_commit_connect_longidle_prepare.data);
 	list_free(dbnamelist);
-	heap_close(rel, RowExclusiveLock);
-	heap_close(rel_node, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
+	table_close(rel_node, RowExclusiveLock);
 	PG_RETURN_TEXT_P(cstring_to_text("insert_data"));
 }
 
@@ -507,8 +507,8 @@ Datum monitor_databasetps_insert_data(PG_FUNCTION_ARGS)
 	pfree(hostaddress);
 	if(dbnamelist == NULL)
 	{
-		heap_close(rel, RowExclusiveLock);
-		heap_close(rel_node, RowExclusiveLock);
+		table_close(rel, RowExclusiveLock);
+		table_close(rel_node, RowExclusiveLock);
 		ereport(ERROR, (errcode(ERRCODE_DATA_EXCEPTION)
 			,errmsg("get database namelist error")));
 	}
@@ -583,8 +583,8 @@ Datum monitor_databasetps_insert_data(PG_FUNCTION_ARGS)
 	pfree(sqlqpsStrData.data);
 	pfree(sqldbruntimeStrData.data);
 	list_free(dbnamelist);
-	heap_close(rel, RowExclusiveLock);
-	heap_close(rel_node, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
+	table_close(rel_node, RowExclusiveLock);
 	PG_RETURN_TEXT_P(cstring_to_text("insert_data"));
 }
 /*
@@ -906,15 +906,15 @@ static int64 monitor_standbydelay(char nodetype)
 	}PG_CATCH();
 	{
 		heap_endscan(hostrel_scan);
-		heap_close(hostrel, AccessShareLock);
-		heap_close(noderel, AccessShareLock);
+		table_close(hostrel, AccessShareLock);
+		table_close(noderel, AccessShareLock);
 
 		PG_RE_THROW();
 	}PG_END_TRY();
 
 	heap_endscan(hostrel_scan);
-	heap_close(hostrel, AccessShareLock);
-	heap_close(noderel, AccessShareLock);
+	table_close(hostrel, AccessShareLock);
+	table_close(noderel, AccessShareLock);
 	/*check cluster*/
 	clustertime = timestamptz_to_str(GetCurrentTimestamp());
 	mthreshold_levelvalue_positiveseq(OBJECT_NODE_STANDBYDELAY, MONITOR_CLUSTERSTR, clustertime

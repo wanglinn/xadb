@@ -20,15 +20,25 @@ INSERT INTO TIME_TBL VALUES ('2003-07-07 15:36:39 America/New_York');
 INSERT INTO TIME_TBL VALUES ('15:36:39 America/New_York');
 
 
-SELECT f1 AS "Time" FROM TIME_TBL ORDER BY f1;
+SELECT f1 AS "Time" FROM TIME_TBL;
 
-SELECT f1 AS "Three" FROM TIME_TBL WHERE f1 < '05:06:07' ORDER BY f1;
+SELECT f1 AS "Three" FROM TIME_TBL WHERE f1 < '05:06:07';
 
-SELECT f1 AS "Five" FROM TIME_TBL WHERE f1 > '05:06:07' ORDER BY f1;
+SELECT f1 AS "Five" FROM TIME_TBL WHERE f1 > '05:06:07';
 
-SELECT f1 AS "None" FROM TIME_TBL WHERE f1 < '00:00' ORDER BY f1;
+SELECT f1 AS "None" FROM TIME_TBL WHERE f1 < '00:00';
 
-SELECT f1 AS "Eight" FROM TIME_TBL WHERE f1 >= '00:00' ORDER BY f1;
+SELECT f1 AS "Eight" FROM TIME_TBL WHERE f1 >= '00:00';
+
+-- Check edge cases
+SELECT '23:59:59.999999'::time;
+SELECT '23:59:59.9999999'::time;  -- rounds up
+SELECT '23:59:60'::time;  -- rounds up
+SELECT '24:00:00'::time;  -- allowed
+SELECT '24:00:00.01'::time;  -- not allowed
+SELECT '23:59:60.01'::time;  -- not allowed
+SELECT '24:01:00'::time;  -- not allowed
+SELECT '25:00:00'::time;  -- not allowed
 
 --
 -- TIME simple math
@@ -39,4 +49,4 @@ SELECT f1 AS "Eight" FROM TIME_TBL WHERE f1 >= '00:00' ORDER BY f1;
 -- and do the rest of the testing in horology.sql
 -- where we do mixed-type arithmetic. - thomas 2000-12-02
 
-SELECT f1 + time '00:01' AS "Illegal" FROM TIME_TBL ORDER BY f1;
+SELECT f1 + time '00:01' AS "Illegal" FROM TIME_TBL;

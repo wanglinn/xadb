@@ -1,8 +1,8 @@
 #include "postgres.h"
 
+#include "access/detoast.h"
 #include "access/htup_details.h"
 #include "access/transam.h"
-#include "access/tuptoaster.h"
 #include "access/tuptypeconvert.h"
 #include "catalog/pg_type.h"
 #include "executor/clusterReceiver.h"
@@ -199,7 +199,7 @@ TupleTableSlot* do_type_convert_slot_in(TupleTypeConvert *convert, TupleTableSlo
 					}
 				}
 			}
-			lc = lnext(lc);
+			lc = lnext(convert->io_state, lc);
 		}
 	}PG_CATCH();
 	{
@@ -255,7 +255,7 @@ TupleTableSlot* do_type_convert_slot_out(TupleTypeConvert *convert, TupleTableSl
 				}
 			}
 		}
-		lc = lnext(lc);
+		lc = lnext(convert->io_state, lc);
 	}
 
 	return ExecStoreVirtualTuple(dest);
@@ -576,7 +576,7 @@ static void append_stringinfo_datum(StringInfo buf, Datum datum, int16 typlen, b
 		/* varlena */
 		struct varlena *p;
 		if(VARATT_IS_EXTERNAL(DatumGetPointer(datum)))
-			p = heap_tuple_fetch_attr((struct varlena *)DatumGetPointer(datum));
+			p = detoast_external_attr((struct varlena *)DatumGetPointer(datum));
 		else
 			p = (struct varlena *)DatumGetPointer(datum);
 		appendBinaryStringInfo(buf, (char*)p, VARSIZE_ANY(p));

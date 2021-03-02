@@ -29,7 +29,7 @@
  * and a non-lossy page.
  *
  *
- * Copyright (c) 2003-2019, PostgreSQL Global Development Group
+ * Copyright (c) 2003-2020, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/nodes/tidbitmap.c
@@ -41,11 +41,11 @@
 #include <limits.h>
 
 #include "access/htup_details.h"
+#include "common/hashfn.h"
 #include "nodes/bitmapset.h"
 #include "nodes/tidbitmap.h"
 #include "storage/lwlock.h"
 #include "utils/dsa.h"
-#include "utils/hashutils.h"
 
 /*
  * The maximum number of tuples per page is not large (typically 256 with
@@ -889,7 +889,7 @@ tbm_prepare_shared_iterate(TIDBitmap *tbm)
 		pg_atomic_add_fetch_u32(&ptchunks->refcount, 1);
 
 	/* Initialize the iterator lock */
-	LWLockInitialize(&istate->lock, LWTRANCHE_TBM);
+	LWLockInitialize(&istate->lock, LWTRANCHE_SHARED_TIDBITMAP);
 
 	/* Initialize the shared iterator state */
 	istate->schunkbit = 0;
@@ -1021,7 +1021,7 @@ tbm_iterate(TBMIterator *iterator)
 		PagetableEntry *page;
 		int			ntuples;
 
-		/* In ONE_PAGE state, we don't allocate an spages[] array */
+		/* In TBM_ONE_PAGE state, we don't allocate an spages[] array */
 		if (tbm->status == TBM_ONE_PAGE)
 			page = &tbm->entry1;
 		else

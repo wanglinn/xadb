@@ -3,7 +3,7 @@
  * execJunk.c
  *	  Junk attribute support stuff....
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -173,7 +173,7 @@ ExecInitJunkFilterConversion(List *targetList,
 			{
 				TargetEntry *tle = lfirst(t);
 
-				t = lnext(t);
+				t = lnext(targetList, t);
 				if (!tle->resjunk)
 				{
 					cleanMap[i] = tle->resno;

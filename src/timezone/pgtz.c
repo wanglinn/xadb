@@ -3,7 +3,7 @@
  * pgtz.c
  *	  Timezone Library Integration Functions
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/timezone/pgtz.c
@@ -357,7 +357,7 @@ pg_tzset_offset(long gmtoffset)
  * is to ensure that log_timezone has a valid value before any logging GUC
  * variables could become set to values that require elog.c to provide
  * timestamps (e.g., log_line_prefix).  We may as well initialize
- * session_timestamp to something valid, too.
+ * session_timezone to something valid, too.
  */
 void
 pg_timezone_initialize(void)

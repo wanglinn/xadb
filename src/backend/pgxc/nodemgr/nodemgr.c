@@ -230,7 +230,7 @@ static void xcnode_endscan(XCNodeScanDesc *desc)
 	{
 		table_endscan(desc->scan_desc);
 	}
-	heap_close(desc->xcnode_rel, AccessShareLock);
+	table_close(desc->xcnode_rel, AccessShareLock);
 }
 
 uint32 adb_get_all_coord_oid_array(Oid **pparr, bool order_name)
@@ -611,7 +611,7 @@ PgxcNodeCreateLocal(CreateNodeStmt *stmt)
 	 * There could be a relation race here if a similar Oid
 	 * being created before the heap is inserted.
 	 */
-	pgxcnodesrel = heap_open(PgxcNodeRelationId, RowExclusiveLock);
+	pgxcnodesrel = table_open(PgxcNodeRelationId, RowExclusiveLock);
 
 	/* Build entry tuple */
 	values[Anum_pgxc_node_node_name - 1] = DirectFunctionCall1(namein, CStringGetDatum(node_name));
@@ -630,7 +630,7 @@ PgxcNodeCreateLocal(CreateNodeStmt *stmt)
 	/* Insert tuple in catalog */
 	CatalogTupleInsert(pgxcnodesrel, htup);
 
-	heap_close(pgxcnodesrel, RowExclusiveLock);
+	table_close(pgxcnodesrel, RowExclusiveLock);
 }
 
 /*
@@ -752,7 +752,7 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 				 errmsg("must be superuser to change cluster nodes")));
 
 	/* Look at the node tuple, and take exclusive lock on it */
-	rel = heap_open(PgxcNodeRelationId, RowExclusiveLock);
+	rel = table_open(PgxcNodeRelationId, RowExclusiveLock);
 
 	/* Open new tuple, checks are performed on it and new values */
 	oldtup = SearchSysCache1(PGXCNODENAME, PointerGetDatum(node_name));
@@ -848,7 +848,7 @@ PgxcNodeAlterLocal(AlterNodeStmt *stmt)
 	ReleaseSysCache(oldtup);
 
 	/* Release lock at Commit */
-	heap_close(rel, NoLock);
+	table_close(rel, NoLock);
 }
 
 void
@@ -976,7 +976,7 @@ PgxcNodeRemoveLocal(DropNodeStmt *stmt)
 	 */
 
 	/* Delete the pgxc_node tuple */
-	relation = heap_open(PgxcNodeRelationId, RowExclusiveLock);
+	relation = table_open(PgxcNodeRelationId, RowExclusiveLock);
 	tup = SearchSysCache1(PGXCNODEOID, ObjectIdGetDatum(noid));
 	if (!HeapTupleIsValid(tup)) /* should not happen */
 		ereport(ERROR,
@@ -988,7 +988,7 @@ PgxcNodeRemoveLocal(DropNodeStmt *stmt)
 
 	ReleaseSysCache(tup);
 
-	heap_close(relation, RowExclusiveLock);
+	table_close(relation, RowExclusiveLock);
 }
 
 void

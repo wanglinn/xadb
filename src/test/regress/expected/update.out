@@ -2,7 +2,6 @@
 -- UPDATE syntax tests
 --
 CREATE TABLE update_test (
-	id  INT,
     a   INT DEFAULT 10,
     b   INT,
     c   TEXT
@@ -11,38 +10,38 @@ CREATE TABLE upsert_test (
     a   INT PRIMARY KEY,
     b   TEXT
 );
-INSERT INTO update_test(a,b,c) VALUES (5, 10, 'foo');
+INSERT INTO update_test VALUES (5, 10, 'foo');
 INSERT INTO update_test(b, a) VALUES (15, 10);
-SELECT * FROM update_test ORDER BY a, b, c;
- id | a  | b  |  c  
-----+----+----+-----
-    |  5 | 10 | foo
-    | 10 | 15 | 
+SELECT * FROM update_test;
+ a  | b  |  c  
+----+----+-----
+  5 | 10 | foo
+ 10 | 15 | 
 (2 rows)
 
 UPDATE update_test SET a = DEFAULT, b = DEFAULT;
-SELECT * FROM update_test  ORDER BY a, b, c;
- id | a  | b |  c  
-----+----+---+-----
-    | 10 |   | foo
-    | 10 |   | 
+SELECT * FROM update_test;
+ a  | b |  c  
+----+---+-----
+ 10 |   | foo
+ 10 |   | 
 (2 rows)
 
 -- aliases for the UPDATE target table
 UPDATE update_test AS t SET b = 10 WHERE t.a = 10;
-SELECT * FROM update_test  ORDER BY a, b, c;
- id | a  | b  |  c  
-----+----+----+-----
-    | 10 | 10 | foo
-    | 10 | 10 | 
+SELECT * FROM update_test;
+ a  | b  |  c  
+----+----+-----
+ 10 | 10 | foo
+ 10 | 10 | 
 (2 rows)
 
 UPDATE update_test t SET b = t.b + 10 WHERE t.a = 10;
-SELECT * FROM update_test  ORDER BY a, b, c;
- id | a  | b  |  c  
-----+----+----+-----
-    | 10 | 20 | foo
-    | 10 | 20 | 
+SELECT * FROM update_test;
+ a  | b  |  c  
+----+----+-----
+ 10 | 20 | foo
+ 10 | 20 | 
 (2 rows)
 
 --
@@ -50,11 +49,11 @@ SELECT * FROM update_test  ORDER BY a, b, c;
 --
 UPDATE update_test SET a=v.i FROM (VALUES(100, 20)) AS v(i, j)
   WHERE update_test.b = v.j;
-SELECT * FROM update_test  ORDER BY a, b, c;
- id |  a  | b  |  c  
-----+-----+----+-----
-    | 100 | 20 | foo
-    | 100 | 20 | 
+SELECT * FROM update_test;
+  a  | b  |  c  
+-----+----+-----
+ 100 | 20 | foo
+ 100 | 20 | 
 (2 rows)
 
 -- fail, wrong data type:
@@ -67,34 +66,34 @@ HINT:  You will need to rewrite or cast the expression.
 --
 -- Test multiple-set-clause syntax
 --
-INSERT INTO update_test(a,b,c) SELECT a,b+1,c FROM update_test;
+INSERT INTO update_test SELECT a,b+1,c FROM update_test;
 SELECT * FROM update_test;
- id |  a  | b  |  c  
-----+-----+----+-----
-    | 100 | 20 | foo
-    | 100 | 20 | 
-    | 100 | 21 | foo
-    | 100 | 21 | 
+  a  | b  |  c  
+-----+----+-----
+ 100 | 20 | foo
+ 100 | 20 | 
+ 100 | 21 | foo
+ 100 | 21 | 
 (4 rows)
 
 UPDATE update_test SET (c,b,a) = ('bugle', b+11, DEFAULT) WHERE c = 'foo';
-SELECT * FROM update_test  ORDER BY a, b, c;
- id |  a  | b  |   c   
-----+-----+----+-------
-    |  10 | 31 | bugle
-    |  10 | 32 | bugle
-    | 100 | 20 | 
-    | 100 | 21 | 
+SELECT * FROM update_test;
+  a  | b  |   c   
+-----+----+-------
+ 100 | 20 | 
+ 100 | 21 | 
+  10 | 31 | bugle
+  10 | 32 | bugle
 (4 rows)
 
 UPDATE update_test SET (c,b) = ('car', a+b), a = a + 1 WHERE a = 10;
-SELECT * FROM update_test  ORDER BY a, b, c;
- id |  a  | b  |  c  
-----+-----+----+-----
-    |  11 | 41 | car
-    |  11 | 42 | car
-    | 100 | 20 | 
-    | 100 | 21 | 
+SELECT * FROM update_test;
+  a  | b  |  c  
+-----+----+-----
+ 100 | 20 | 
+ 100 | 21 | 
+  11 | 41 | car
+  11 | 42 | car
 (4 rows)
 
 -- fail, multi assignment to same column:
@@ -105,12 +104,12 @@ UPDATE update_test
   SET (b,a) = (select a,b from update_test where b = 41 and c = 'car')
   WHERE a = 100 AND b = 20;
 SELECT * FROM update_test;
- id |  a  | b  |  c  
-----+-----+----+-----
-    | 100 | 21 | 
-    |  11 | 41 | car
-    |  11 | 42 | car
-    |  41 | 11 | 
+  a  | b  |  c  
+-----+----+-----
+ 100 | 21 | 
+  11 | 41 | car
+  11 | 42 | car
+  41 | 11 | 
 (4 rows)
 
 -- correlated sub-select:
@@ -118,12 +117,12 @@ UPDATE update_test o
   SET (b,a) = (select a+1,b from update_test i
                where i.a=o.a and i.b=o.b and i.c is not distinct from o.c);
 SELECT * FROM update_test;
- id | a  |  b  |  c  
-----+----+-----+-----
-    | 21 | 101 | 
-    | 41 |  12 | car
-    | 42 |  12 | car
-    | 11 |  42 | 
+ a  |  b  |  c  
+----+-----+-----
+ 21 | 101 | 
+ 41 |  12 | car
+ 42 |  12 | car
+ 11 |  42 | 
 (4 rows)
 
 -- fail, multiple rows supplied:
@@ -133,12 +132,12 @@ ERROR:  more than one row returned by a subquery used as an expression
 UPDATE update_test SET (b,a) = (select a+1,b from update_test where a = 1000)
   WHERE a = 11;
 SELECT * FROM update_test;
- id | a  |  b  |  c  
-----+----+-----+-----
-    | 21 | 101 | 
-    | 41 |  12 | car
-    | 42 |  12 | car
-    |    |     | 
+ a  |  b  |  c  
+----+-----+-----
+ 21 | 101 | 
+ 41 |  12 | car
+ 42 |  12 | car
+    |     | 
 (4 rows)
 
 -- *-expansion should work in this context:
@@ -159,13 +158,13 @@ LINE 1: UPDATE update_test AS t SET b = update_test.b + 10 WHERE t.a...
 HINT:  Perhaps you meant to reference the table alias "t".
 -- Make sure that we can update to a TOASTed value.
 UPDATE update_test SET c = repeat('x', 10000) WHERE c = 'car';
-SELECT a, b, char_length(c) FROM update_test ORDER BY a;
+SELECT a, b, char_length(c) FROM update_test;
  a  |  b  | char_length 
 ----+-----+-------------
+    |     |            
  21 | 100 |            
  41 |  12 |       10000
  42 |  12 |       10000
-    |     |            
 (4 rows)
 
 -- Check multi-assignment with a Result node to handle a one-time filter.
@@ -228,6 +227,27 @@ INSERT INTO upsert_test VALUES (1, 'Bat') ON CONFLICT(a)
  1 | Foo, Correlated, Excluded
 (1 row)
 
+-- ON CONFLICT using system attributes in RETURNING, testing both the
+-- inserting and updating paths. See bug report at:
+-- https://www.postgresql.org/message-id/73436355-6432-49B1-92ED-1FE4F7E7E100%40finefun.com.au
+INSERT INTO upsert_test VALUES (2, 'Beeble') ON CONFLICT(a)
+  DO UPDATE SET (b, a) = (SELECT b || ', Excluded', a from upsert_test i WHERE i.a = excluded.a)
+  RETURNING tableoid::regclass, xmin = pg_current_xact_id()::xid AS xmin_correct, xmax = 0 AS xmax_correct;
+  tableoid   | xmin_correct | xmax_correct 
+-------------+--------------+--------------
+ upsert_test | t            | t
+(1 row)
+
+-- currently xmax is set after a conflict - that's probably not good,
+-- but it seems worthwhile to have to be explicit if that changes.
+INSERT INTO upsert_test VALUES (2, 'Brox') ON CONFLICT(a)
+  DO UPDATE SET (b, a) = (SELECT b || ', Excluded', a from upsert_test i WHERE i.a = excluded.a)
+  RETURNING tableoid::regclass, xmin = pg_current_xact_id()::xid AS xmin_correct, xmax = pg_current_xact_id()::xid AS xmax_correct;
+  tableoid   | xmin_correct | xmax_correct 
+-------------+--------------+--------------
+ upsert_test | t            | t
+(1 row)
+
 DROP TABLE update_test;
 DROP TABLE upsert_test;
 ---------------------------
@@ -288,29 +308,29 @@ ALTER TABLE part_b_10_b_20 ATTACH PARTITION part_c_1_100 FOR VALUES FROM (1) TO 
 
 -- The order of subplans should be in bound order
 EXPLAIN (costs off) UPDATE range_parted set c = c - 50 WHERE c > 97;
-             QUERY PLAN              
--------------------------------------
+                   QUERY PLAN                    
+-------------------------------------------------
  Update on range_parted
-   Update on part_a_1_a_10
-   Update on part_a_10_a_20
-   Update on part_b_1_b_10
-   Update on part_c_1_100
-   Update on part_d_1_15
-   Update on part_d_15_20
-   Update on part_b_20_b_30
-   ->  Seq Scan on part_a_1_a_10
+   Update on part_a_1_a_10 range_parted_1
+   Update on part_a_10_a_20 range_parted_2
+   Update on part_b_1_b_10 range_parted_3
+   Update on part_c_1_100 range_parted_4
+   Update on part_d_1_15 range_parted_5
+   Update on part_d_15_20 range_parted_6
+   Update on part_b_20_b_30 range_parted_7
+   ->  Seq Scan on part_a_1_a_10 range_parted_1
          Filter: (c > '97'::numeric)
-   ->  Seq Scan on part_a_10_a_20
+   ->  Seq Scan on part_a_10_a_20 range_parted_2
          Filter: (c > '97'::numeric)
-   ->  Seq Scan on part_b_1_b_10
+   ->  Seq Scan on part_b_1_b_10 range_parted_3
          Filter: (c > '97'::numeric)
-   ->  Seq Scan on part_c_1_100
+   ->  Seq Scan on part_c_1_100 range_parted_4
          Filter: (c > '97'::numeric)
-   ->  Seq Scan on part_d_1_15
+   ->  Seq Scan on part_d_1_15 range_parted_5
          Filter: (c > '97'::numeric)
-   ->  Seq Scan on part_d_15_20
+   ->  Seq Scan on part_d_15_20 range_parted_6
          Filter: (c > '97'::numeric)
-   ->  Seq Scan on part_b_20_b_30
+   ->  Seq Scan on part_b_20_b_30 range_parted_7
          Filter: (c > '97'::numeric)
 (22 rows)
 

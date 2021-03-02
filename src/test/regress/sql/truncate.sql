@@ -2,21 +2,21 @@
 CREATE TABLE truncate_a (col1 integer primary key);
 INSERT INTO truncate_a VALUES (1);
 INSERT INTO truncate_a VALUES (2);
-SELECT * FROM truncate_a ORDER BY 1;
+SELECT * FROM truncate_a;
 -- Roll truncate back
 BEGIN;
 TRUNCATE truncate_a;
 ROLLBACK;
-SELECT * FROM truncate_a ORDER BY 1;
+SELECT * FROM truncate_a;
 -- Commit the truncate this time
 BEGIN;
 TRUNCATE truncate_a;
 COMMIT;
-SELECT * FROM truncate_a ORDER BY 1;
+SELECT * FROM truncate_a;
 
 -- Test foreign-key checks
 CREATE TABLE trunc_b (a int REFERENCES truncate_a);
-CREATE TABLE trunc_c (a serial PRIMARY KEY) DISTRIBUTE BY REPLICATION;
+CREATE TABLE trunc_c (a serial PRIMARY KEY);
 CREATE TABLE trunc_d (a int REFERENCES trunc_c);
 CREATE TABLE trunc_e (a int REFERENCES truncate_a, b int REFERENCES trunc_c);
 
@@ -94,35 +94,35 @@ CREATE TABLE trunc_faa (col3 text) INHERITS (trunc_fa);
 INSERT INTO trunc_faa VALUES (5, 'five', 'FIVE');
 
 BEGIN;
-SELECT * FROM trunc_f ORDER BY 1;
+SELECT * FROM trunc_f;
 TRUNCATE trunc_f;
-SELECT * FROM trunc_f ORDER BY 1;
+SELECT * FROM trunc_f;
 ROLLBACK;
 
 BEGIN;
-SELECT * FROM trunc_f ORDER BY 1;
+SELECT * FROM trunc_f;
 TRUNCATE ONLY trunc_f;
-SELECT * FROM trunc_f ORDER BY 1;
+SELECT * FROM trunc_f;
 ROLLBACK;
 
 BEGIN;
-SELECT * FROM trunc_f ORDER BY 1;
-SELECT * FROM trunc_fa ORDER BY 1, 2;
-SELECT * FROM trunc_faa ORDER BY 1, 2;
+SELECT * FROM trunc_f;
+SELECT * FROM trunc_fa;
+SELECT * FROM trunc_faa;
 TRUNCATE ONLY trunc_fb, ONLY trunc_fa;
-SELECT * FROM trunc_f ORDER BY 1;
-SELECT * FROM trunc_fa ORDER BY 1, 2;
-SELECT * FROM trunc_faa ORDER BY 1, 2;
+SELECT * FROM trunc_f;
+SELECT * FROM trunc_fa;
+SELECT * FROM trunc_faa;
 ROLLBACK;
 
 BEGIN;
-SELECT * FROM trunc_f ORDER BY 1;
-SELECT * FROM trunc_fa ORDER BY 1, 2;
-SELECT * FROM trunc_faa ORDER BY 1, 2;
+SELECT * FROM trunc_f;
+SELECT * FROM trunc_fa;
+SELECT * FROM trunc_faa;
 TRUNCATE ONLY trunc_fb, trunc_fa;
-SELECT * FROM trunc_f ORDER BY 1;
-SELECT * FROM trunc_fa ORDER BY 1, 2;
-SELECT * FROM trunc_faa ORDER BY 1, 2;
+SELECT * FROM trunc_f;
+SELECT * FROM trunc_fa;
+SELECT * FROM trunc_faa;
 ROLLBACK;
 
 DROP TABLE trunc_f CASCADE;
@@ -188,19 +188,19 @@ ALTER SEQUENCE truncate_a_id1 OWNED BY truncate_a.id1;
 
 INSERT INTO truncate_a DEFAULT VALUES;
 INSERT INTO truncate_a DEFAULT VALUES;
-SELECT * FROM truncate_a ORDER BY id;
+SELECT * FROM truncate_a;
 
 TRUNCATE truncate_a;
 
 INSERT INTO truncate_a DEFAULT VALUES;
 INSERT INTO truncate_a DEFAULT VALUES;
-SELECT * FROM truncate_a ORDER BY id;
+SELECT * FROM truncate_a;
 
 TRUNCATE truncate_a RESTART IDENTITY;
 
 INSERT INTO truncate_a DEFAULT VALUES;
 INSERT INTO truncate_a DEFAULT VALUES;
-SELECT * FROM truncate_a ORDER BY id;
+SELECT * FROM truncate_a;
 
 CREATE TABLE truncate_b (id int GENERATED ALWAYS AS IDENTITY (START WITH 44));
 
@@ -228,7 +228,7 @@ SELECT * FROM truncate_a;
 ROLLBACK;
 INSERT INTO truncate_a DEFAULT VALUES;
 INSERT INTO truncate_a DEFAULT VALUES;
-SELECT * FROM truncate_a order by 1,2;
+SELECT * FROM truncate_a;
 
 DROP TABLE truncate_a;
 
@@ -289,3 +289,41 @@ TRUNCATE TABLE truncpart;
 SELECT * FROM tp_chk_data();
 DROP TABLE truncprim, truncpart;
 DROP FUNCTION tp_ins_data(), tp_chk_data();
+
+-- test cascade when referencing a partitioned table
+CREATE TABLE trunc_a (a INT PRIMARY KEY) PARTITION BY RANGE (a);
+CREATE TABLE trunc_a1 PARTITION OF trunc_a FOR VALUES FROM (0) TO (10);
+CREATE TABLE trunc_a2 PARTITION OF trunc_a FOR VALUES FROM (10) TO (20)
+  PARTITION BY RANGE (a);
+CREATE TABLE trunc_a21 PARTITION OF trunc_a2 FOR VALUES FROM (10) TO (12);
+CREATE TABLE trunc_a22 PARTITION OF trunc_a2 FOR VALUES FROM (12) TO (16);
+CREATE TABLE trunc_a2d PARTITION OF trunc_a2 DEFAULT;
+CREATE TABLE trunc_a3 PARTITION OF trunc_a FOR VALUES FROM (20) TO (30);
+INSERT INTO trunc_a VALUES (0), (5), (10), (15), (20), (25);
+
+-- truncate a partition cascading to a table
+CREATE TABLE ref_b (
+    b INT PRIMARY KEY,
+    a INT REFERENCES trunc_a(a) ON DELETE CASCADE
+);
+INSERT INTO ref_b VALUES (10, 0), (50, 5), (100, 10), (150, 15);
+
+TRUNCATE TABLE trunc_a1 CASCADE;
+SELECT a FROM ref_b;
+
+DROP TABLE ref_b;
+
+-- truncate a partition cascading to a partitioned table
+CREATE TABLE ref_c (
+    c INT PRIMARY KEY,
+    a INT REFERENCES trunc_a(a) ON DELETE CASCADE
+) PARTITION BY RANGE (c);
+CREATE TABLE ref_c1 PARTITION OF ref_c FOR VALUES FROM (100) TO (200);
+CREATE TABLE ref_c2 PARTITION OF ref_c FOR VALUES FROM (200) TO (300);
+INSERT INTO ref_c VALUES (100, 10), (150, 15), (200, 20), (250, 25);
+
+TRUNCATE TABLE trunc_a21 CASCADE;
+SELECT a as "from table ref_c" FROM ref_c;
+SELECT a as "from table trunc_a" FROM trunc_a ORDER BY a;
+
+DROP TABLE trunc_a, ref_c;

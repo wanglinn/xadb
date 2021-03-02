@@ -4,7 +4,7 @@
  *		parse analysis for optimizable statements
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/parser/analyze.h
@@ -59,5 +59,7 @@ bool rewrite_rownum_query_enum(Node *node, void *context);
 
 extern List *BuildOnConflictExcludedTargetlist(Relation targetrel,
 											   Index exclRelIndex);
+
+extern void fill_extraUpdatedCols(RangeTblEntry *target_rte, TupleDesc tupdesc);
 
 #endif							/* ANALYZE_H */

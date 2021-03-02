@@ -14,7 +14,7 @@
  *	plan --- consider improving this someday.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  *
  * src/backend/utils/adt/ri_triggers.c
  *
@@ -36,9 +36,9 @@
 #include "executor/executor.h"
 #include "executor/spi.h"
 #include "lib/ilist.h"
+#include "miscadmin.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_relation.h"
-#include "miscadmin.h"
 #include "storage/bufmgr.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
@@ -56,7 +56,6 @@
 #ifdef ADB
 #include "pgxc/pgxc.h"
 #endif
-
 
 /*
  * Local definitions
@@ -212,8 +211,7 @@ static const RI_ConstraintInfo *ri_FetchConstraintInfo(Trigger *trigger,
 													   Relation trig_rel, bool rel_is_pk);
 static const RI_ConstraintInfo *ri_LoadConstraintInfo(Oid constraintOid);
 static SPIPlanPtr ri_PlanCheck(const char *querystr, int nargs, Oid *argtypes,
-							   RI_QueryKey *qkey, Relation fk_rel, Relation pk_rel,
-							   bool cache_plan);
+							   RI_QueryKey *qkey, Relation fk_rel, Relation pk_rel);
 static bool ri_PerformCheck(const RI_ConstraintInfo *riinfo,
 							RI_QueryKey *qkey, SPIPlanPtr qplan,
 							Relation fk_rel, Relation pk_rel,
@@ -398,7 +396,7 @@ RI_FKey_check(TriggerData *trigdata)
 
 		/* Prepare and save the plan */
 		qplan = ri_PlanCheck(querybuf.data, riinfo->nkeys, queryoids,
-							 &qkey, fk_rel, pk_rel, true);
+							 &qkey, fk_rel, pk_rel);
 	}
 
 	/*
@@ -525,7 +523,7 @@ ri_Check_Pk_Match(Relation pk_rel, Relation fk_rel,
 
 		/* Prepare and save the plan */
 		qplan = ri_PlanCheck(querybuf.data, riinfo->nkeys, queryoids,
-							 &qkey, fk_rel, pk_rel, true);
+							 &qkey, fk_rel, pk_rel);
 	}
 
 	/*
@@ -717,7 +715,7 @@ ri_restrict(TriggerData *trigdata, bool is_no_action)
 
 		/* Prepare and save the plan */
 		qplan = ri_PlanCheck(querybuf.data, riinfo->nkeys, queryoids,
-							 &qkey, fk_rel, pk_rel, true);
+							 &qkey, fk_rel, pk_rel);
 	}
 
 	/*
@@ -822,7 +820,7 @@ RI_FKey_cascade_del(PG_FUNCTION_ARGS)
 
 		/* Prepare and save the plan */
 		qplan = ri_PlanCheck(querybuf.data, riinfo->nkeys, queryoids,
-							 &qkey, fk_rel, pk_rel, true);
+							 &qkey, fk_rel, pk_rel);
 	}
 
 	/*
@@ -940,11 +938,11 @@ RI_FKey_cascade_upd(PG_FUNCTION_ARGS)
 			queryoids[i] = pk_type;
 			queryoids[j] = pk_type;
 		}
-		appendStringInfoString(&querybuf, qualbuf.data);
+		appendBinaryStringInfo(&querybuf, qualbuf.data, qualbuf.len);
 
 		/* Prepare and save the plan */
 		qplan = ri_PlanCheck(querybuf.data, riinfo->nkeys * 2, queryoids,
-							 &qkey, fk_rel, pk_rel, true);
+							 &qkey, fk_rel, pk_rel);
 	}
 
 	/*
@@ -1119,11 +1117,11 @@ ri_set(TriggerData *trigdata, bool is_set_null)
 			qualsep = "AND";
 			queryoids[i] = pk_type;
 		}
-		appendStringInfoString(&querybuf, qualbuf.data);
+		appendBinaryStringInfo(&querybuf, qualbuf.data, qualbuf.len);
 
 		/* Prepare and save the plan */
 		qplan = ri_PlanCheck(querybuf.data, riinfo->nkeys, queryoids,
-							 &qkey, fk_rel, pk_rel, true);
+							 &qkey, fk_rel, pk_rel);
 	}
 
 	/*
@@ -2141,8 +2139,7 @@ InvalidateConstraintCacheCallBack(Datum arg, int cacheid, uint32 hashvalue)
  */
 static SPIPlanPtr
 ri_PlanCheck(const char *querystr, int nargs, Oid *argtypes,
-			 RI_QueryKey *qkey, Relation fk_rel, Relation pk_rel,
-			 bool cache_plan)
+			 RI_QueryKey *qkey, Relation fk_rel, Relation pk_rel)
 {
 	SPIPlanPtr	qplan;
 	Relation	query_rel;
@@ -2173,12 +2170,9 @@ ri_PlanCheck(const char *querystr, int nargs, Oid *argtypes,
 	/* Restore UID and security context */
 	SetUserIdAndSecContext(save_userid, save_sec_context);
 
-	/* Save the plan if requested */
-	if (cache_plan)
-	{
-		SPI_keepplan(qplan);
-		ri_HashPreparedPlan(qkey, qplan);
-	}
+	/* Save the plan */
+	SPI_keepplan(qplan);
+	ri_HashPreparedPlan(qkey, qplan);
 
 	return qplan;
 }
@@ -2469,9 +2463,10 @@ ri_ReportViolation(const RI_ConstraintInfo *riinfo,
 				 errmsg("removing partition \"%s\" violates foreign key constraint \"%s\"",
 						RelationGetRelationName(pk_rel),
 						NameStr(riinfo->conname)),
-				 errdetail("Key (%s)=(%s) still referenced from table \"%s\".",
+				 errdetail("Key (%s)=(%s) is still referenced from table \"%s\".",
 						   key_names.data, key_values.data,
-						   RelationGetRelationName(fk_rel))));
+						   RelationGetRelationName(fk_rel)),
+				 errtableconstraint(fk_rel, NameStr(riinfo->conname))));
 	else if (onfk)
 		ereport(ERROR,
 				(errcode(ERRCODE_FOREIGN_KEY_VIOLATION),

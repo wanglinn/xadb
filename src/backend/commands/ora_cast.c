@@ -13,6 +13,7 @@
 #include "miscadmin.h"
 #include "parser/parse_func.h"
 #include "parser/parse_type.h"
+#include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
@@ -279,7 +280,7 @@ Oid GetOracleCastOid(List *objects, bool missing_ok)
 	Assert(IsA(lfirst(lc), Integer));
 	castcontext = CharGetDatum(intVal(lfirst(lc)));
 
-	lc = lnext(lc);
+	lc = lnext(objects, lc);
 	Assert(IsA(lfirst(lc), TypeName));
 	sourcetypename = lfirst_node(TypeName, lc);
 	oid = TypenameGetTypOid(sourcetypename, &find_oid);
@@ -289,7 +290,7 @@ Oid GetOracleCastOid(List *objects, bool missing_ok)
 				 errmsg("type \"%s\" does not exist",TypeNameToString(sourcetypename))));
 	sourcetyptype = ObjectIdGetDatum(oid);
 
-	lc = lnext(lc);
+	lc = lnext(objects, lc);
 	Assert(IsA(lfirst(lc), TypeName));
 	targettypename = lfirst_node(TypeName, lc);
 	oid = TypenameGetTypOid(targettypename, &find_oid);
@@ -338,7 +339,7 @@ static void DropOracleCastLocal(DropStmt *stmt)
 	Assert(IsA(lfirst(lc), Integer));
 	castcontext = CharGetDatum(intVal(lfirst(lc)));
 
-	lc = lnext(lc);
+	lc = lnext(stmt->objects, lc);
 	Assert(IsA(lfirst(lc), TypeName));
 	sourcetypename = lfirst_node(TypeName, lc);
 	oid = TypenameGetTypOid(sourcetypename, &find_oid);
@@ -348,7 +349,7 @@ static void DropOracleCastLocal(DropStmt *stmt)
 				 errmsg("type \"%s\" does not exist",TypeNameToString(sourcetypename))));
 	sourcetyptype = ObjectIdGetDatum(oid);
 
-	lc = lnext(lc);
+	lc = lnext(stmt->objects, lc);
 	Assert(IsA(lfirst(lc), TypeName));
 	targettypename = lfirst_node(TypeName, lc);
 	oid = TypenameGetTypOid(targettypename, &find_oid);

@@ -100,7 +100,6 @@ typedef struct MgrHostWrapper
 typedef struct MgrNodeWrapper
 {
 	FormData_mgr_node form;
-	Oid oid;
 	char *nodepath;
 	MgrHostWrapper *host;
 	dlist_node link;

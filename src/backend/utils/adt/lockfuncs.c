@@ -3,7 +3,7 @@
  * lockfuncs.c
  *		Functions for SQL access to various lock-manager capabilities.
  *
- * Copyright (c) 2002-2019, PostgreSQL Global Development Group
+ * Copyright (c) 2002-2020, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *		src/backend/utils/adt/lockfuncs.c
@@ -29,7 +29,10 @@
 #endif
 
 
-/* This must match enum LockTagType! */
+/*
+ * This must match enum LockTagType!  Also, be sure to document any changes
+ * in the docs for the pg_locks view and for wait event types.
+ */
 const char *const LockTagTypeNames[] = {
 	"relation",
 	"extend",
@@ -37,11 +40,14 @@ const char *const LockTagTypeNames[] = {
 	"tuple",
 	"transactionid",
 	"virtualxid",
-	"speculative token",
+	"spectoken",
 	"object",
 	"userlock",
 	"advisory"
 };
+
+StaticAssertDecl(lengthof(LockTagTypeNames) == (LOCKTAG_ADVISORY + 1),
+				 "array length mismatch");
 
 /* This must match enum PredicateLockTargetType (predicate_internals.h) */
 static const char *const PredicateLockTagTypeNames[] = {
@@ -49,6 +55,9 @@ static const char *const PredicateLockTagTypeNames[] = {
 	"page",
 	"tuple"
 };
+
+StaticAssertDecl(lengthof(PredicateLockTagTypeNames) == (PREDLOCKTAG_TUPLE + 1),
+				 "array length mismatch");
 
 /* Working status for pg_lock_status */
 typedef struct
@@ -541,7 +550,7 @@ pg_blocking_pids(PG_FUNCTION_ARGS)
 	/* Construct array, using hardwired knowledge about int4 type */
 	PG_RETURN_ARRAYTYPE_P(construct_array(arrayelems, narrayelems,
 										  INT4OID,
-										  sizeof(int32), true, 'i'));
+										  sizeof(int32), true, TYPALIGN_INT));
 }
 
 
@@ -582,7 +591,7 @@ pg_safe_snapshot_blocking_pids(PG_FUNCTION_ARGS)
 	/* Construct array, using hardwired knowledge about int4 type */
 	PG_RETURN_ARRAYTYPE_P(construct_array(blocker_datums, num_blockers,
 										  INT4OID,
-										  sizeof(int32), true, 'i'));
+										  sizeof(int32), true, TYPALIGN_INT));
 }
 
 
@@ -684,8 +693,6 @@ pg_isolation_test_session_is_blocked(PG_FUNCTION_ARGS)
 	SET_LOCKTAG_ADVISORY(tag, MyDatabaseId, key1, key2, 2)
 
 #ifdef ADB
-
-#define MAXINT8LEN 25
 
 /*
  * pgxc_advisory_lock - Core function that implements the algorithm needed to
@@ -840,15 +847,6 @@ pgxc_advisory_lock(int64 key64, int32 key1, int32 key2, bool iskeybig,
 
 #endif /* ADB */
 
-static void
-PreventAdvisoryLocksInParallelMode(void)
-{
-	if (IsInParallelMode())
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_TRANSACTION_STATE),
-				 errmsg("cannot use advisory locks during a parallel operation")));
-}
-
 /*
  * pg_advisory_lock(int8) - acquire exclusive lock on an int8 key
  */
@@ -858,7 +856,6 @@ pg_advisory_lock_int8(PG_FUNCTION_ARGS)
 	int64		key = PG_GETARG_INT64(0);
 	LOCKTAG		tag;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 	{
@@ -883,7 +880,6 @@ pg_advisory_xact_lock_int8(PG_FUNCTION_ARGS)
 	int64		key = PG_GETARG_INT64(0);
 	LOCKTAG		tag;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 	{
@@ -907,7 +903,6 @@ pg_advisory_lock_shared_int8(PG_FUNCTION_ARGS)
 	int64		key = PG_GETARG_INT64(0);
 	LOCKTAG		tag;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 	{
@@ -932,7 +927,6 @@ pg_advisory_xact_lock_shared_int8(PG_FUNCTION_ARGS)
 	int64		key = PG_GETARG_INT64(0);
 	LOCKTAG		tag;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 	{
@@ -959,7 +953,6 @@ pg_try_advisory_lock_int8(PG_FUNCTION_ARGS)
 	LOCKTAG		tag;
 	LockAcquireResult res;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(key, 0, 0, true, ExclusiveLock, SESSION_LOCK, DONT_WAIT));
@@ -984,7 +977,6 @@ pg_try_advisory_xact_lock_int8(PG_FUNCTION_ARGS)
 	LOCKTAG		tag;
 	LockAcquireResult res;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(key, 0, 0, true, ExclusiveLock, TRANSACTION_LOCK, DONT_WAIT));
@@ -1008,7 +1000,6 @@ pg_try_advisory_lock_shared_int8(PG_FUNCTION_ARGS)
 	LOCKTAG		tag;
 	LockAcquireResult res;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(key, 0, 0, true, ShareLock, SESSION_LOCK, DONT_WAIT));
@@ -1033,7 +1024,6 @@ pg_try_advisory_xact_lock_shared_int8(PG_FUNCTION_ARGS)
 	LOCKTAG		tag;
 	LockAcquireResult res;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(key, 0, 0, true, ShareLock, TRANSACTION_LOCK, DONT_WAIT));
@@ -1057,7 +1047,6 @@ pg_advisory_unlock_int8(PG_FUNCTION_ARGS)
 	LOCKTAG		tag;
 	bool		res;
 
-	PreventAdvisoryLocksInParallelMode();
 	SET_LOCKTAG_INT64(tag, key);
 
 	res = LockRelease(&tag, ExclusiveLock, true);
@@ -1077,7 +1066,6 @@ pg_advisory_unlock_shared_int8(PG_FUNCTION_ARGS)
 	LOCKTAG		tag;
 	bool		res;
 
-	PreventAdvisoryLocksInParallelMode();
 	SET_LOCKTAG_INT64(tag, key);
 
 	res = LockRelease(&tag, ShareLock, true);
@@ -1095,7 +1083,6 @@ pg_advisory_lock_int4(PG_FUNCTION_ARGS)
 	int32		key2 = PG_GETARG_INT32(1);
 	LOCKTAG		tag;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 	{
@@ -1121,7 +1108,6 @@ pg_advisory_xact_lock_int4(PG_FUNCTION_ARGS)
 	int32		key2 = PG_GETARG_INT32(1);
 	LOCKTAG		tag;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 	{
@@ -1146,7 +1132,6 @@ pg_advisory_lock_shared_int4(PG_FUNCTION_ARGS)
 	int32		key2 = PG_GETARG_INT32(1);
 	LOCKTAG		tag;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 	{
@@ -1172,7 +1157,6 @@ pg_advisory_xact_lock_shared_int4(PG_FUNCTION_ARGS)
 	int32		key2 = PG_GETARG_INT32(1);
 	LOCKTAG		tag;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 	{
@@ -1200,7 +1184,6 @@ pg_try_advisory_lock_int4(PG_FUNCTION_ARGS)
 	LOCKTAG		tag;
 	LockAcquireResult res;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(0, key1, key2, false, ExclusiveLock, SESSION_LOCK, DONT_WAIT));
@@ -1226,7 +1209,6 @@ pg_try_advisory_xact_lock_int4(PG_FUNCTION_ARGS)
 	LOCKTAG		tag;
 	LockAcquireResult res;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(0, key1, key2, false, ExclusiveLock, TRANSACTION_LOCK, DONT_WAIT));
@@ -1251,7 +1233,6 @@ pg_try_advisory_lock_shared_int4(PG_FUNCTION_ARGS)
 	LOCKTAG		tag;
 	LockAcquireResult res;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(0, key1, key2, false, ShareLock, SESSION_LOCK, DONT_WAIT));
@@ -1277,7 +1258,6 @@ pg_try_advisory_xact_lock_shared_int4(PG_FUNCTION_ARGS)
 	LOCKTAG		tag;
 	LockAcquireResult res;
 
-	PreventAdvisoryLocksInParallelMode();
 #ifdef ADB
 	if (IsCnMaster())
 		PG_RETURN_BOOL(pgxc_advisory_lock(0, key1, key2, false, ShareLock, TRANSACTION_LOCK, DONT_WAIT));
@@ -1302,7 +1282,6 @@ pg_advisory_unlock_int4(PG_FUNCTION_ARGS)
 	LOCKTAG		tag;
 	bool		res;
 
-	PreventAdvisoryLocksInParallelMode();
 	SET_LOCKTAG_INT32(tag, key1, key2);
 
 	res = LockRelease(&tag, ExclusiveLock, true);
@@ -1323,7 +1302,6 @@ pg_advisory_unlock_shared_int4(PG_FUNCTION_ARGS)
 	LOCKTAG		tag;
 	bool		res;
 
-	PreventAdvisoryLocksInParallelMode();
 	SET_LOCKTAG_INT32(tag, key1, key2);
 
 	res = LockRelease(&tag, ShareLock, true);
@@ -1461,7 +1439,7 @@ pgxc_lock_for_utility_stmt(Node *parsetree)
 		ereport(ERROR,
 				(errcode(ERRCODE_READ_ONLY_SQL_TRANSACTION),
 				errmsg("cannot execute %s in a locked cluster",
-						CreateCommandTag(parsetree))));
+						GetCommandTagName(CreateCommandTag(parsetree)))));
 
 	return lockAcquired;
 }

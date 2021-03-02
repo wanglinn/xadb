@@ -285,7 +285,7 @@ DropDBCleanConnection(char *dbname)
 static List* get_all_xcnode_oid(void)
 {
 	HeapTuple tuple;
-	Relation rel = heap_open(PgxcNodeRelationId, AccessShareLock);
+	Relation rel = table_open(PgxcNodeRelationId, AccessShareLock);
 	TableScanDesc scan = table_beginscan_catalog(rel, 0, NULL);
 	List *list = NIL;
 

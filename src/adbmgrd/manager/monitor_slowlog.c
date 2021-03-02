@@ -330,8 +330,8 @@ Datum monitor_slowlog_insert_data(PG_FUNCTION_ARGS)
 		list_free(dbnamelist);
 	if(user)
 		pfree(user);
-	heap_close(rel_slowlog, RowExclusiveLock);
-	heap_close(rel_node, RowExclusiveLock);
+	table_close(rel_slowlog, RowExclusiveLock);
+	table_close(rel_node, RowExclusiveLock);
 	PG_RETURN_TEXT_P(cstring_to_text("insert_data"));
 }
 

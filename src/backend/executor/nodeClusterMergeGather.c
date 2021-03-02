@@ -101,7 +101,7 @@ ClusterMergeGatherState *ExecInitClusterMergeGather(ClusterMergeGather *node, ES
 		ListCell *lc;
 		List *list = GetPGconnAttatchCurrentInterXact(node->rnodes);
 		Assert(list_length(list) == nremote);
-		for(i=0,lc=list_head(list);lc!=NULL;lc=lnext(lc),++i)
+		for(i=0,lc=list_head(list);lc!=NULL;lc=lnext(list,lc),++i)
 			ps->conns[i] = lfirst(lc);
 		Assert(i == nremote);
 	}

@@ -280,13 +280,20 @@ SELECT array_to_json(ARRAY [jsonb '{"a":1}', jsonb '{"b":[2,3]}']);
 (1 row)
 
 -- anyarray column
-select to_jsonb(histogram_bounds) histogram_bounds
+CREATE TEMP TABLE rows AS
+SELECT x, 'txt' || x as y
+FROM generate_series(1,3) AS x;
+analyze rows;
+select attname, to_jsonb(histogram_bounds) histogram_bounds
 from pg_stats
-where attname = 'tmplname' and tablename = 'pg_pltemplate';
-                                       histogram_bounds                                       
-----------------------------------------------------------------------------------------------
- ["plperl", "plperlu", "plpgsql", "plpython2u", "plpython3u", "plpythonu", "pltcl", "pltclu"]
-(1 row)
+where tablename = 'rows' and
+      schemaname = pg_my_temp_schema()::regnamespace::text
+order by 1;
+ attname |     histogram_bounds     
+---------+--------------------------
+ x       | [1, 2, 3]
+ y       | ["txt1", "txt2", "txt3"]
+(2 rows)
 
 -- to_jsonb, timestamps
 select to_jsonb(timestamp '2014-05-28 12:22:35.614298');
@@ -354,9 +361,6 @@ select to_jsonb(timestamptz '-Infinity');
 (1 row)
 
 --jsonb_agg
-CREATE TEMP TABLE rows AS
-SELECT x, 'txt' || x as y
-FROM generate_series(1,3) AS x;
 SELECT jsonb_agg(q)
   FROM ( SELECT $$a$$ || x AS b, y AS c,
                ARRAY[ROW(x.*,ARRAY[1,2,3]),
@@ -2433,11 +2437,19 @@ SELECT rec FROM jsonb_populate_record(
 
 -- anonymous record type
 SELECT jsonb_populate_record(null::record, '{"x": 0, "y": 1}');
-ERROR:  record type has not been registered
+ERROR:  could not determine row type for result of jsonb_populate_record
+HINT:  Provide a non-null record argument, or call the function in the FROM clause using a column definition list.
 SELECT jsonb_populate_record(row(1,2), '{"f1": 0, "f2": 1}');
  jsonb_populate_record 
 -----------------------
  (0,1)
+(1 row)
+
+SELECT * FROM
+  jsonb_populate_record(null::record, '{"x": 776}') AS (x int, y int);
+  x  | y 
+-----+---
+ 776 |  
 (1 row)
 
 -- composite domain
@@ -2516,7 +2528,8 @@ SELECT * FROM jsonb_populate_recordset(row('def',99,NULL)::jbpop,'[{"a":[100,200
 
 -- anonymous record type
 SELECT jsonb_populate_recordset(null::record, '[{"x": 0, "y": 1}]');
-ERROR:  record type has not been registered
+ERROR:  could not determine row type for result of jsonb_populate_recordset
+HINT:  Provide a non-null record argument, or call the function in the FROM clause using a column definition list.
 SELECT jsonb_populate_recordset(row(1,2), '[{"f1": 0, "f2": 1}]');
  jsonb_populate_recordset 
 --------------------------
@@ -2533,9 +2546,17 @@ FROM (VALUES (1),(2)) v(i);
  2 | (2,43)
 (4 rows)
 
+SELECT * FROM
+  jsonb_populate_recordset(null::record, '[{"x": 776}]') AS (x int, y int);
+  x  | y 
+-----+---
+ 776 |  
+(1 row)
+
 -- empty array is a corner case
 SELECT jsonb_populate_recordset(null::record, '[]');
-ERROR:  record type has not been registered
+ERROR:  could not determine row type for result of jsonb_populate_recordset
+HINT:  Provide a non-null record argument, or call the function in the FROM clause using a column definition list.
 SELECT jsonb_populate_recordset(row(1,2), '[]');
  jsonb_populate_recordset 
 --------------------------
@@ -2544,6 +2565,12 @@ SELECT jsonb_populate_recordset(row(1,2), '[]');
 SELECT * FROM jsonb_populate_recordset(NULL::jbpop,'[]') q;
  a | b | c 
 ---+---+---
+(0 rows)
+
+SELECT * FROM
+  jsonb_populate_recordset(null::record, '[]') AS (x int, y int);
+ x | y 
+---+---
 (0 rows)
 
 -- composite domain
@@ -3618,7 +3645,7 @@ select * from nestjsonb where j @> '{"c":3}';
  {"a": [["b", {"x": 1}], ["b", {"x": 2}]], "c": 3}
 (1 row)
 
-select * from nestjsonb where j @> '[[14]]' order by j;
+select * from nestjsonb where j @> '[[14]]';
         j        
 -----------------
  [[14, 2, 3]]
@@ -3639,7 +3666,7 @@ select * from nestjsonb where j @> '{"c":3}';
  {"a": [["b", {"x": 1}], ["b", {"x": 2}]], "c": 3}
 (1 row)
 
-select * from nestjsonb where j @> '[[14]]' order by j;
+select * from nestjsonb where j @> '[[14]]';
         j        
 -----------------
  [[14, 2, 3]]
@@ -4484,6 +4511,63 @@ select jsonb_set('{"a": {"b": [1, 2, 3]}}', '{a, b, non_integer}', '"new_value"'
 ERROR:  path element at position 3 is not an integer: "non_integer"
 select jsonb_set('{"a": {"b": [1, 2, 3]}}', '{a, b, NULL}', '"new_value"');
 ERROR:  path element at position 3 is null
+-- jsonb_set_lax
+\pset null NULL
+-- pass though non nulls to jsonb_set
+select jsonb_set_lax('{"a":1,"b":2}','{b}','5') ;
+  jsonb_set_lax   
+------------------
+ {"a": 1, "b": 5}
+(1 row)
+
+select jsonb_set_lax('{"a":1,"b":2}','{d}','6', true) ;
+      jsonb_set_lax       
+--------------------------
+ {"a": 1, "b": 2, "d": 6}
+(1 row)
+
+-- using the default treatment
+select jsonb_set_lax('{"a":1,"b":2}','{b}',null);
+    jsonb_set_lax    
+---------------------
+ {"a": 1, "b": null}
+(1 row)
+
+select jsonb_set_lax('{"a":1,"b":2}','{d}',null,true);
+        jsonb_set_lax        
+-----------------------------
+ {"a": 1, "b": 2, "d": null}
+(1 row)
+
+-- errors
+select jsonb_set_lax('{"a":1,"b":2}', '{b}', null, true, null);
+ERROR:  null_value_treatment must be "delete_key", "return_target", "use_json_null", or "raise_exception"
+select jsonb_set_lax('{"a":1,"b":2}', '{b}', null, true, 'no_such_treatment');
+ERROR:  null_value_treatment must be "delete_key", "return_target", "use_json_null", or "raise_exception"
+-- explicit treatments
+select jsonb_set_lax('{"a":1,"b":2}', '{b}', null, null_value_treatment => 'raise_exception') as raise_exception;
+ERROR:  JSON value must not be null
+DETAIL:  Exception was raised because null_value_treatment is "raise_exception".
+HINT:  To avoid, either change the null_value_treatment argument or ensure that an SQL NULL is not passed.
+select jsonb_set_lax('{"a":1,"b":2}', '{b}', null, null_value_treatment => 'return_target') as return_target;
+  return_target   
+------------------
+ {"a": 1, "b": 2}
+(1 row)
+
+select jsonb_set_lax('{"a":1,"b":2}', '{b}', null, null_value_treatment => 'delete_key') as delete_key;
+ delete_key 
+------------
+ {"a": 1}
+(1 row)
+
+select jsonb_set_lax('{"a":1,"b":2}', '{b}', null, null_value_treatment => 'use_json_null') as use_json_null;
+    use_json_null    
+---------------------
+ {"a": 1, "b": null}
+(1 row)
+
+\pset null
 -- jsonb_insert
 select jsonb_insert('{"a": [0,1,2]}', '{a, 1}', '"new_value"');
          jsonb_insert          

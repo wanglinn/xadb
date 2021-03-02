@@ -8,10 +8,9 @@
 
 #include "postgres.h"
 
-#include "c.h"
+#include "access/detoast.h"
 #include "fmgr.h"
 #include "oraschema.h"
-#include "access/tuptoaster.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_type_d.h"
 #include "utils/array.h"

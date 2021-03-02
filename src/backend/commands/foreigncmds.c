@@ -3,7 +3,7 @@
  * foreigncmds.c
  *	  foreign-data wrapper/server creation/manipulation commands
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
@@ -120,11 +120,10 @@ transformGenericOptions(Oid catalogId,
 	{
 		DefElem    *od = lfirst(optcell);
 		ListCell   *cell;
-		ListCell   *prev = NULL;
 
 		/*
 		 * Find the element in resultOptions.  We need this for validation in
-		 * all cases.  Also identify the previous element.
+		 * all cases.
 		 */
 		foreach(cell, resultOptions)
 		{
@@ -132,8 +131,6 @@ transformGenericOptions(Oid catalogId,
 
 			if (strcmp(def->defname, od->defname) == 0)
 				break;
-			else
-				prev = cell;
 		}
 
 		/*
@@ -150,7 +147,7 @@ transformGenericOptions(Oid catalogId,
 							(errcode(ERRCODE_UNDEFINED_OBJECT),
 							 errmsg("option \"%s\" not found",
 									od->defname)));
-				resultOptions = list_delete_cell(resultOptions, cell, prev);
+				resultOptions = list_delete_cell(resultOptions, cell);
 				break;
 
 			case DEFELEM_SET:
@@ -478,13 +475,12 @@ static Oid
 lookup_fdw_handler_func(DefElem *handler)
 {
 	Oid			handlerOid;
-	Oid			funcargtypes[1];	/* dummy */
 
 	if (handler == NULL || handler->arg == NULL)
 		return InvalidOid;
 
 	/* handlers have no arguments */
-	handlerOid = LookupFuncName((List *) handler->arg, 0, funcargtypes, false);
+	handlerOid = LookupFuncName((List *) handler->arg, 0, NULL, false);
 
 	/* check that handler has correct return type */
 	if (get_func_rettype(handlerOid) != FDW_HANDLEROID)
@@ -1346,6 +1342,9 @@ AlterUserMapping(AlterUserMappingStmt *stmt)
 						   repl_val, repl_null, repl_repl);
 
 	CatalogTupleUpdate(rel, &tp->t_self, tp);
+
+	InvokeObjectPostAlterHook(UserMappingRelationId,
+							  umId, 0);
 
 	ObjectAddressSet(address, UserMappingRelationId, umId);
 

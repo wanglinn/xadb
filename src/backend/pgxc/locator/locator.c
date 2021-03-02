@@ -575,7 +575,7 @@ HasRelationLocator(Oid relid)
 				F_OIDEQ,
 				ObjectIdGetDatum(relid));
 
-	pcrel = heap_open(PgxcClassRelationId, AccessShareLock);
+	pcrel = table_open(PgxcClassRelationId, AccessShareLock);
 	pcscan = systable_beginscan(pcrel,
 								PgxcClassPgxcRelIdIndexId,
 								true,
@@ -584,7 +584,7 @@ HasRelationLocator(Oid relid)
 								&skey);
 	result = HeapTupleIsValid(systable_getnext(pcscan));
 	systable_endscan(pcscan);
-	heap_close(pcrel, AccessShareLock);
+	table_close(pcrel, AccessShareLock);
 
 	return result;
 }
@@ -629,14 +629,14 @@ RelationIdBuildLocator(Oid relid)
 				Anum_pgxc_class_pcrelid,
 				BTEqualStrategyNumber, F_OIDEQ,
 				ObjectIdGetDatum(relid));
-	pcrel = heap_open(PgxcClassRelationId, AccessShareLock);
+	pcrel = table_open(PgxcClassRelationId, AccessShareLock);
 	pcscan = systable_beginscan(pcrel, PgxcClassPgxcRelIdIndexId, true,
 								NULL, 1, &skey);
 	htup = systable_getnext(pcscan);
 	if (!HeapTupleIsValid(htup))
 	{
 		systable_endscan(pcscan);
-		heap_close(pcrel, AccessShareLock);
+		table_close(pcrel, AccessShareLock);
 		return NULL;
 	}
 
@@ -692,7 +692,7 @@ RelationIdBuildLocator(Oid relid)
 								 errmsg("invalid column(%d) data for pgxc_class(%u)",
 										Anum_pgxc_class_pcexprs, relid)));
 					key->key = lfirst(lc);
-					lc = lnext(lc);
+					lc = lnext(exprs, lc);
 				}
 				key->opclass = class_array->values[j];
 				key->opfamily = get_opclass_family(key->opclass);
@@ -779,7 +779,7 @@ RelationIdBuildLocator(Oid relid)
 	}
 
 	systable_endscan(pcscan);
-	heap_close(pcrel, AccessShareLock);
+	table_close(pcrel, AccessShareLock);
 
 	return relationLocInfo;
 }
@@ -1209,7 +1209,7 @@ adbGetRelationNodeids(Oid relid)
 	if (!HeapTupleIsValid(htup))
 	{
 		systable_endscan(pcscan);
-		heap_close(pcrel, AccessShareLock);
+		table_close(pcrel, AccessShareLock);
 		return NIL;
 	}
 

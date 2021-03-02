@@ -7,7 +7,7 @@
  * This file contains WAL control and information functions.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/backend/access/transam/xlogfuncs.c
@@ -27,35 +27,22 @@
 #include "miscadmin.h"
 #include "pgstat.h"
 #include "replication/walreceiver.h"
+#include "storage/fd.h"
+#include "storage/ipc.h"
 #include "storage/smgr.h"
 #include "utils/builtins.h"
+#include "utils/guc.h"
 #include "utils/memutils.h"
 #include "utils/numeric.h"
-#include "utils/guc.h"
 #include "utils/pg_lsn.h"
 #include "utils/timestamp.h"
 #include "utils/tuplestore.h"
-#include "storage/fd.h"
-#include "storage/ipc.h"
-
 
 /*
  * Store label file and tablespace map during non-exclusive backups.
  */
 static StringInfo label_file;
 static StringInfo tblspc_map_file;
-
-/*
- * Called when the backend exits with a running non-exclusive base backup,
- * to clean up state.
- */
-static void
-nonexclusive_base_backup_cleanup(int code, Datum arg)
-{
-	do_pg_abort_backup();
-	ereport(WARNING,
-			(errmsg("aborting backup due to backend exiting before pg_stop_backup was called")));
-}
 
 /*
  * pg_start_backup: set up for taking an on-line backup dump
@@ -104,10 +91,10 @@ pg_start_backup(PG_FUNCTION_ARGS)
 		tblspc_map_file = makeStringInfo();
 		MemoryContextSwitchTo(oldcontext);
 
+		register_persistent_abort_backup_handler();
+
 		startpoint = do_pg_start_backup(backupidstr, fast, NULL, label_file,
 										NULL, tblspc_map_file, false, true);
-
-		before_shmem_exit(nonexclusive_base_backup_cleanup, (Datum) 0);
 	}
 
 	PG_RETURN_LSN(startpoint);
@@ -199,8 +186,7 @@ pg_stop_backup_v2(PG_FUNCTION_ARGS)
 	if (!(rsinfo->allowedModes & SFRM_Materialize))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("materialize mode required, but it is not " \
-						"allowed in this context")));
+				 errmsg("materialize mode required, but it is not allowed in this context")));
 
 	/* Build a tuple descriptor for our result type */
 	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
@@ -249,7 +235,6 @@ pg_stop_backup_v2(PG_FUNCTION_ARGS)
 		 * and tablespace map so they can be written to disk by the caller.
 		 */
 		stoppoint = do_pg_stop_backup(label_file->data, waitforarchive, NULL);
-		cancel_before_shmem_exit(nonexclusive_base_backup_cleanup, (Datum) 0);
 
 		values[1] = CStringGetTextDatum(label_file->data);
 		values[2] = CStringGetTextDatum(tblspc_map_file->data);
@@ -267,7 +252,7 @@ pg_stop_backup_v2(PG_FUNCTION_ARGS)
 	values[0] = LSNGetDatum(stoppoint);
 
 	tuplestore_putvalues(tupstore, tupdesc, values, nulls);
-	tuplestore_donestoring(typstore);
+	tuplestore_donestoring(tupstore);
 
 	return (Datum) 0;
 }
@@ -313,8 +298,8 @@ pg_create_restore_point(PG_FUNCTION_ARGS)
 	if (RecoveryInProgress())
 		ereport(ERROR,
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-				 (errmsg("recovery is in progress"),
-				  errhint("WAL control functions cannot be executed during recovery."))));
+				 errmsg("recovery is in progress"),
+				 errhint("WAL control functions cannot be executed during recovery.")));
 
 	if (!XLogIsNeeded())
 		ereport(ERROR,
@@ -413,7 +398,7 @@ pg_last_wal_receive_lsn(PG_FUNCTION_ARGS)
 {
 	XLogRecPtr	recptr;
 
-	recptr = GetWalRcvWriteRecPtr(NULL, NULL);
+	recptr = GetWalRcvFlushRecPtr(NULL, NULL);
 
 	if (recptr == 0)
 		PG_RETURN_NULL();
@@ -546,6 +531,13 @@ pg_wal_replay_pause(PG_FUNCTION_ARGS)
 				 errmsg("recovery is not in progress"),
 				 errhint("Recovery control functions can only be executed during recovery.")));
 
+	if (PromoteIsTriggered())
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("standby promotion is ongoing"),
+				 errhint("%s cannot be executed after promotion is triggered.",
+						 "pg_wal_replay_pause()")));
+
 	SetRecoveryPause(true);
 
 	PG_RETURN_VOID();
@@ -565,6 +557,13 @@ pg_wal_replay_resume(PG_FUNCTION_ARGS)
 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 				 errmsg("recovery is not in progress"),
 				 errhint("Recovery control functions can only be executed during recovery.")));
+
+	if (PromoteIsTriggered())
+		ereport(ERROR,
+				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+				 errmsg("standby promotion is ongoing"),
+				 errhint("%s cannot be executed after promotion is triggered.",
+						 "pg_wal_replay_resume()")));
 
 	SetRecoveryPause(false);
 
@@ -726,7 +725,7 @@ pg_promote(PG_FUNCTION_ARGS)
 	if (wait_seconds <= 0)
 		ereport(ERROR,
 				(errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
-				 errmsg("\"wait_seconds\" cannot be negative or equal zero")));
+				 errmsg("\"wait_seconds\" must not be negative or zero")));
 
 	/* create the promote signal file */
 	promote_file = AllocateFile(PROMOTE_SIGNAL_FILE, "w");
@@ -759,6 +758,8 @@ pg_promote(PG_FUNCTION_ARGS)
 #define WAITS_PER_SECOND 10
 	for (i = 0; i < WAITS_PER_SECOND * wait_seconds; i++)
 	{
+		int			rc;
+
 		ResetLatch(MyLatch);
 
 		if (!RecoveryInProgress())
@@ -766,10 +767,17 @@ pg_promote(PG_FUNCTION_ARGS)
 
 		CHECK_FOR_INTERRUPTS();
 
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
-						 1000L / WAITS_PER_SECOND,
-						 WAIT_EVENT_PROMOTE);
+		rc = WaitLatch(MyLatch,
+					   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
+					   1000L / WAITS_PER_SECOND,
+					   WAIT_EVENT_PROMOTE);
+
+		/*
+		 * Emergency bailout if postmaster has died.  This is to avoid the
+		 * necessity for manual cleanup of all postmaster children.
+		 */
+		if (rc & WL_POSTMASTER_DEATH)
+			PG_RETURN_BOOL(false);
 	}
 
 	ereport(WARNING,

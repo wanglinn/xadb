@@ -242,7 +242,7 @@ AdbMntLauncherMain(int argc, char *argv[])
 	MyStartTime = time(NULL);
 
 	/* Identify myself via ps */
-	init_ps_display("adb monitor launcher process", "", "", "");
+	init_ps_display("adb monitor launcher process");
 
 	ereport(LOG,
 			(errmsg("adb monitor launcher started")));
@@ -979,7 +979,7 @@ AdbMntWorkerMain(int argc, char *argv[])
 	MyStartTime = time(NULL);
 
 	/* Identify myself via ps */
-	init_ps_display("adb monitor worker process", "", "", "");
+	init_ps_display("adb monitor worker process");
 
 	SetProcessingMode(InitProcessing);
 
@@ -1133,7 +1133,7 @@ AdbMntWorkerMain(int argc, char *argv[])
 
 		InitPostgres(dbname, InvalidOid, NULL, InvalidOid, NULL, false);
 		SetProcessingMode(NormalProcessing);
-		set_ps_display(jobstr, false);
+		set_ps_display(jobstr);
 		ereport(DEBUG1,
 				(errmsg("adb monitor is processing job \"%u\"", jobid)));
 
@@ -1210,13 +1210,13 @@ adbmonitor_exec_job(Oid jobid)
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 			,errmsg("adbmonitor job oid \"%u\" dose not exist", jobid)));
 	}
-	rel_job = heap_open(MjobRelationId, AccessShareLock);
+	rel_job = table_open(MjobRelationId, AccessShareLock);
 	tupledsc = RelationGetDescr(rel_job);
 	commanddatum = heap_getattr(tuple, Anum_monitor_job_command, tupledsc, &beNull);
 	if (beNull)
 	{
 		ReleaseSysCache(tuple);
-		heap_close(rel_job, AccessShareLock);
+		table_close(rel_job, AccessShareLock);
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 			, err_generic_string(PG_DIAG_TABLE_NAME, "monitor_job")
 			, errmsg("column command is null")));
@@ -1224,7 +1224,7 @@ adbmonitor_exec_job(Oid jobid)
 	initStringInfo(&commandsql);
 	appendStringInfo(&commandsql, "%s", TextDatumGetCString(commanddatum));
 	ReleaseSysCache(tuple);
-	heap_close(rel_job, AccessShareLock);
+	table_close(rel_job, AccessShareLock);
 	if (SPI_connect() < 0)
 	{
 		ereport(ERROR, (errcode(ERRCODE_CONNECTION_FAILURE),

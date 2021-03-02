@@ -3,7 +3,7 @@
  * copy.c
  *		Implements the COPY utility command
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -39,8 +39,8 @@
 #include "libpq/pqformat.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
-#include "optimizer/optimizer.h"
 #include "nodes/makefuncs.h"
+#include "optimizer/optimizer.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_collate.h"
 #include "parser/parse_expr.h"
@@ -49,6 +49,7 @@
 #include "rewrite/rewriteHandler.h"
 #include "storage/fd.h"
 #include "tcop/tcopprot.h"
+#include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
@@ -217,7 +218,6 @@ typedef struct CopyStateData
 	 * Working state for COPY FROM
 	 */
 	AttrNumber	num_defaults;
-	FmgrInfo	oid_in_function;
 	FmgrInfo   *in_functions;	/* array of input functions for each attrs */
 	Oid		   *typioparams;	/* array of element types for in_functions */
 	int		   *defmap;			/* array of default att numbers */
@@ -1079,6 +1079,7 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 	if (stmt->relation)
 	{
 		LOCKMODE	lockmode = is_from ? RowExclusiveLock : AccessShareLock;
+		ParseNamespaceItem *nsitem;
 		RangeTblEntry *rte;
 		TupleDesc	tupDesc;
 		List	   *attnums;
@@ -1091,14 +1092,15 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 
 		relid = RelationGetRelid(rel);
 
-		rte = addRangeTableEntryForRelation(pstate, rel, lockmode,
-											NULL, false, false);
+		nsitem = addRangeTableEntryForRelation(pstate, rel, lockmode,
+											   NULL, false, false);
+		rte = nsitem->p_rte;
 		rte->requiredPerms = (is_from ? ACL_INSERT : ACL_SELECT);
 
 		if (stmt->whereClause)
 		{
-			/* add rte to column namespace  */
-			addRTEtoQuery(pstate, rte, false, true, true);
+			/* add nsitem to query namespace */
+			addNSItemToQuery(pstate, nsitem, false, true, true);
 
 			/* Transform the raw expression tree */
 			whereClause = transformExpr(pstate, stmt->whereClause, EXPR_KIND_COPY_WHERE);
@@ -1293,7 +1295,6 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 		/* check read-only transaction and parallel mode */
 		if (XactReadOnly && !rel->rd_islocaltemp)
 			PreventCommandIfReadOnly("COPY FROM");
-		PreventCommandIfParallelMode("COPY FROM");
 
 		cstate = BeginCopyFrom(pstate, rel, stmt->filename, stmt->is_program,
 							   NULL, stmt->attlist, stmt->options);
@@ -1315,13 +1316,8 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 		EndCopyTo(cstate);
 	}
 
-	/*
-	 * Close the relation. If reading, we can release the AccessShareLock we
-	 * got; if writing, we should hold the lock until end of transaction to
-	 * ensure that updates will be committed before lock is released.
-	 */
 	if (rel != NULL)
-		table_close(rel, (is_from ? NoLock : AccessShareLock));
+		table_close(rel, NoLock);
 }
 
 /*
@@ -1737,7 +1733,10 @@ BeginCopy(ParseState *pstate,
 		((DR_copy *) dest)->cstate = cstate;
 
 		/* Create a QueryDesc requesting no output */
-		plan_stmt = pg_plan_query((Query*)raw_query->stmt, cluster_safe ? CURSOR_OPT_CLUSTER_PLAN_SAFE : CURSOR_OPT_PARALLEL_OK, NULL);
+		plan_stmt = pg_plan_query((Query*)raw_query->stmt,
+								  pstate->p_sourcetext,
+								  cluster_safe ? CURSOR_OPT_CLUSTER_PLAN_SAFE : CURSOR_OPT_PARALLEL_OK,
+								  NULL);
 		cstate->queryDesc = CreateQueryDesc(plan_stmt,
 											pstate->p_sourcetext,
 											GetActiveSnapshot(),
@@ -1859,11 +1858,8 @@ BeginCopy(ParseState *pstate,
 		}
 
 		/* plan the query */
-#ifdef ADB
-		plan = pg_plan_query(query, (cluster_safe ? CURSOR_OPT_CLUSTER_PLAN_SAFE:0)|CURSOR_OPT_PARALLEL_OK, NULL);
-#else
-		plan = pg_plan_query(query, CURSOR_OPT_PARALLEL_OK, NULL);
-#endif /* ADB */
+		plan = pg_plan_query(query, pstate->p_sourcetext,
+							 ADB_ONLY_CODE((cluster_safe ? CURSOR_OPT_CLUSTER_PLAN_SAFE:0)|) CURSOR_OPT_PARALLEL_OK, NULL);
 
 		/*
 		 * With row level security and a user using "COPY relation TO", we
@@ -2200,13 +2196,11 @@ BeginCopyTo(ParseState *pstate,
 			{
 				cstate->copy_file = AllocateFile(cstate->filename, PG_BINARY_W);
 			}
-			PG_CATCH();
+			PG_FINALLY();
 			{
 				umask(oumask);
-				PG_RE_THROW();
 			}
 			PG_END_TRY();
-			umask(oumask);
 			if (cstate->copy_file == NULL)
 			{
 				/* copy errno because ereport subfunctions might change it */
@@ -2829,7 +2823,8 @@ CopyMultiInsertBufferFlush(CopyMultiInsertInfo *miinfo,
  * The buffer must be flushed before cleanup.
  */
 static inline void
-CopyMultiInsertBufferCleanup(CopyMultiInsertBuffer *buffer)
+CopyMultiInsertBufferCleanup(CopyMultiInsertInfo *miinfo,
+							 CopyMultiInsertBuffer *buffer)
 {
 	int			i;
 
@@ -2844,6 +2839,9 @@ CopyMultiInsertBufferCleanup(CopyMultiInsertBuffer *buffer)
 	/* Since we only create slots on demand, just drop the non-null ones. */
 	for (i = 0; i < MAX_BUFFERED_TUPLES && buffer->slots[i] != NULL; i++)
 		ExecDropSingleTupleTableSlot(buffer->slots[i]);
+
+	table_finish_bulk_insert(buffer->resultRelInfo->ri_RelationDesc,
+							 miinfo->ti_options);
 
 	pfree(buffer);
 }
@@ -2896,7 +2894,7 @@ CopyMultiInsertInfoFlush(CopyMultiInsertInfo *miinfo, ResultRelInfo *curr_rri)
 			buffer = (CopyMultiInsertBuffer *) linitial(miinfo->multiInsertBuffers);
 		}
 
-		CopyMultiInsertBufferCleanup(buffer);
+		CopyMultiInsertBufferCleanup(miinfo, buffer);
 		miinfo->multiInsertBuffers = list_delete_first(miinfo->multiInsertBuffers);
 	}
 }
@@ -2910,7 +2908,7 @@ CopyMultiInsertInfoCleanup(CopyMultiInsertInfo *miinfo)
 	ListCell   *lc;
 
 	foreach(lc, miinfo->multiInsertBuffers)
-		CopyMultiInsertBufferCleanup(lfirst(lc));
+		CopyMultiInsertBufferCleanup(miinfo, lfirst(lc));
 
 	list_free(miinfo->multiInsertBuffers);
 }
@@ -3022,63 +3020,15 @@ CopyFrom(CopyState cstate)
 							RelationGetRelationName(cstate->rel))));
 	}
 
-	/*----------
-	 * Check to see if we can avoid writing WAL
-	 *
-	 * If archive logging/streaming is not enabled *and* either
-	 *	- table was created in same transaction as this COPY
-	 *	- data is being written to relfilenode created in this transaction
-	 * then we can skip writing WAL.  It's safe because if the transaction
-	 * doesn't commit, we'll discard the table (or the new relfilenode file).
-	 * If it does commit, we'll have done the table_finish_bulk_insert() at
-	 * the bottom of this routine first.
-	 *
-	 * As mentioned in comments in utils/rel.h, the in-same-transaction test
-	 * is not always set correctly, since in rare cases rd_newRelfilenodeSubid
-	 * can be cleared before the end of the transaction. The exact case is
-	 * when a relation sets a new relfilenode twice in same transaction, yet
-	 * the second one fails in an aborted subtransaction, e.g.
-	 *
-	 * BEGIN;
-	 * TRUNCATE t;
-	 * SAVEPOINT save;
-	 * TRUNCATE t;
-	 * ROLLBACK TO save;
-	 * COPY ...
-	 *
-	 * Also, if the target file is new-in-transaction, we assume that checking
-	 * FSM for free space is a waste of time, even if we must use WAL because
-	 * of archiving.  This could possibly be wrong, but it's unlikely.
-	 *
-	 * The comments for table_tuple_insert and RelationGetBufferForTuple
-	 * specify that skipping WAL logging is only safe if we ensure that our
-	 * tuples do not go into pages containing tuples from any other
-	 * transactions --- but this must be the case if we have a new table or
-	 * new relfilenode, so we need no additional work to enforce that.
-	 *
-	 * We currently don't support this optimization if the COPY target is a
-	 * partitioned table as we currently only lazily initialize partition
-	 * information when routing the first tuple to the partition.  We cannot
-	 * know at this stage if we can perform this optimization.  It should be
-	 * possible to improve on this, but it does mean maintaining heap insert
-	 * option flags per partition and setting them when we first open the
-	 * partition.
-	 *
-	 * This optimization is not supported for relation types which do not
-	 * have any physical storage, with foreign tables and views using
-	 * INSTEAD OF triggers entering in this category.  Partitioned tables
-	 * are not supported as per the description above.
-	 *----------
+	/*
+	 * If the target file is new-in-transaction, we assume that checking FSM
+	 * for free space is a waste of time.  This could possibly be wrong, but
+	 * it's unlikely.
 	 */
-	/* createSubid is creation check, newRelfilenodeSubid is truncation check */
 	if (RELKIND_HAS_STORAGE(cstate->rel->rd_rel->relkind) &&
 		(cstate->rel->rd_createSubid != InvalidSubTransactionId ||
-		 cstate->rel->rd_newRelfilenodeSubid != InvalidSubTransactionId))
-	{
+		 cstate->rel->rd_firstRelfilenodeSubid != InvalidSubTransactionId))
 		ti_options |= TABLE_INSERT_SKIP_FSM;
-		if (!XLogIsNeeded())
-			ti_options |= TABLE_INSERT_SKIP_WAL;
-	}
 
 	/*
 	 * Optimize if new relfilenode was created in this subxact or one of its
@@ -3580,7 +3530,7 @@ CopyFrom(CopyState cstate)
 				/* Compute stored generated columns */
 				if (resultRelInfo->ri_RelationDesc->rd_att->constr &&
 					resultRelInfo->ri_RelationDesc->rd_att->constr->has_generated_stored)
-					ExecComputeStoredGenerated(estate, myslot ADB_SEQ_ROWID_COMMA_ARGS(true));
+					ExecComputeStoredGenerated(estate, myslot, CMD_INSERT);
 
 				/*
 				 * If the target is a plain table, check the constraints of
@@ -3680,9 +3630,6 @@ CopyFrom(CopyState cstate)
 	{
 		if (!CopyMultiInsertInfoIsEmpty(&multiInsertInfo))
 			CopyMultiInsertInfoFlush(&multiInsertInfo, NULL);
-
-		/* Tear down the multi-insert buffer data */
-		CopyMultiInsertInfoCleanup(&multiInsertInfo);
 	}
 
 	/* Done, clean up */
@@ -3714,6 +3661,10 @@ CopyFrom(CopyState cstate)
 		target_resultRelInfo->ri_FdwRoutine->EndForeignInsert(estate,
 															  target_resultRelInfo);
 
+	/* Tear down the multi-insert buffer data */
+	if (insertMethod != CIM_SINGLE)
+		CopyMultiInsertInfoCleanup(&multiInsertInfo);
+
 	ExecCloseIndices(target_resultRelInfo);
 
 	/* Close all the partitioned tables, leaf partitions, and their indices */
@@ -3724,8 +3675,6 @@ CopyFrom(CopyState cstate)
 	ExecCleanUpTriggerState(estate);
 
 	FreeExecutorState(estate);
-
-	table_finish_bulk_insert(cstate->rel, ti_options);
 
 	return processed;
 }
@@ -5715,6 +5664,8 @@ void DoClusterCopy(CopyStmt *stmt, StringInfo mem_toc)
 	Relation		rel;
 	MemoryContext	oldcontext;
 	ParseState	   *pstate;
+	ParseNamespaceItem
+				   *nsitem;
 	RangeTblEntry  *rte;
 	List		   *rnodes = NIL;
 
@@ -5731,7 +5682,7 @@ void DoClusterCopy(CopyStmt *stmt, StringInfo mem_toc)
 				(errcode(ERRCODE_PROTOCOL_VIOLATION),
 				 errmsg("cluster copy no target relation")));
 	}
-	rel = heap_openrv(stmt->relation, RowExclusiveLock);
+	rel = table_openrv(stmt->relation, RowExclusiveLock);
 	/* check read-only transaction and parallel mode */
 	if (XactReadOnly && !rel->rd_islocaltemp)
 		PreventCommandIfReadOnly("COPY FROM");
@@ -5739,7 +5690,8 @@ void DoClusterCopy(CopyStmt *stmt, StringInfo mem_toc)
 
 	pstate = make_parsestate(NULL);
 
-	rte = addRangeTableEntryForRelation(pstate, rel, RowExclusiveLock, NULL, false, false);
+	nsitem = addRangeTableEntryForRelation(pstate, rel, RowExclusiveLock, NULL, false, false);
+	rte = nsitem->p_rte;
 	rte->requiredPerms = ACL_INSERT;
 	/* ADBTODO: rte->insertedCols and ExecCheckRTPerms(pstate->p_rtable, true); */
 
@@ -5751,7 +5703,7 @@ void DoClusterCopy(CopyStmt *stmt, StringInfo mem_toc)
 	rte->relid = RelationGetRelid(rel);
 	rte->relkind = rel->rd_rel->relkind;
 	rte->requiredPerms = ACL_INSERT;
-	cstate->range_table = list_make1(rte);
+	cstate->range_table = pstate->p_rtable;
 
 	/* Initialize state variables */
 	cstate->eol_type = EOL_UNKNOWN;
@@ -5794,7 +5746,7 @@ void DoClusterCopy(CopyStmt *stmt, StringInfo mem_toc)
 	if (cstate->aux_info)
 		ApplyCopyToAuxiliary(cstate, rnodes);
 
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 	EndCopyFrom(cstate);
 }
 
@@ -6421,10 +6373,10 @@ List* MakeAuxRelCopyInfo(Relation rel)
 	result = NIL;
 	foreach(lc, rel->rd_auxlist)
 	{
-		aux_rel = heap_open(lfirst_oid(lc), NoLock);
+		aux_rel = table_open(lfirst_oid(lc), NoLock);
 		if (RELATION_IS_OTHER_TEMP(aux_rel))
 		{
-			heap_close(aux_rel, NoLock);
+			table_close(aux_rel, NoLock);
 			continue;
 		}
 
@@ -6432,7 +6384,7 @@ List* MakeAuxRelCopyInfo(Relation rel)
 
 		result = lappend(result, aux_copy);
 
-		heap_close(aux_rel, NoLock);
+		table_close(aux_rel, NoLock);
 	}
 
 	return result;
@@ -6471,7 +6423,7 @@ static void ApplyCopyToAuxiliary(CopyState parent, List *rnodes)
 		aux = lfirst(lc);
 		range.schemaname = aux->schemaname;
 		range.relname = aux->relname;
-		rel = heap_openrv_extended(&range, RowExclusiveLock, true);
+		rel = table_openrv_extended(&range, RowExclusiveLock, true);
 		BufFileSeek(parent->fd_copied_ctid, 0, 0, SEEK_SET);
 
 		if (rel)
@@ -6488,7 +6440,7 @@ static void ApplyCopyToAuxiliary(CopyState parent, List *rnodes)
 		if (rel)
 		{
 			ClusterCopyFromReduce(rel, aux->reduce, rnodes, aux->id, parent->freeze, NextRowFromTidBufFile, &state);
-			heap_close(rel, RowExclusiveLock);
+			table_close(rel, RowExclusiveLock);
 		}else
 		{
 			ClusterDummyCopyFromReduce(aux->targetList, aux->reduce, rnodes, aux->id, NextRowFromTidBufFile, &state);

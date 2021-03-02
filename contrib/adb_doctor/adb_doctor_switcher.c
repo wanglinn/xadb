@@ -151,7 +151,7 @@ static void switcherMainLoop(dlist_head *oldMasters)
 			/* The switch task was completed, the process should exits */
 			break;
 		}
-		set_ps_display("sleeping", false);
+		set_ps_display("sleeping");
 		rc = WaitLatchOrSocket(MyLatch,
 							   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
 							   PGINVALID_SOCKET,
@@ -224,7 +224,7 @@ static SwitchMasterResult *checkAndSwitchMaster(MgrNodeWrapper *oldMaster)
 	SwitchMasterResult *switchMasterResult = NULL;
 
 	switchMasterResult = palloc0(sizeof(SwitchMasterResult));
-	set_ps_display(NameStr(oldMaster->form.nodename), false);
+	set_ps_display(NameStr(oldMaster->form.nodename));
 	memcpy(&mgrNodeBackup, oldMaster, sizeof(MgrNodeWrapper));
 
 	oldContext = CurrentMemoryContext;
@@ -713,11 +713,11 @@ static void oldGtmCoordMasterContinueToReign(MgrNodeWrapper *oldMaster)
 		ereport(LOG,
 				(errmsg("old master %s returned to normal, try to abort switching",
 						NameStr(oldMaster->form.nodename))));
-		selectActiveMgrSlaveNodes(oldMaster->oid,
+		selectActiveMgrSlaveNodes(oldMaster->form.oid,
 								  getMgrSlaveNodetype(oldMaster->form.nodetype),
 								  spiContext,
 								  &mgrNodes);
-		selectIsolatedMgrSlaveNodes(oldMaster->oid,
+		selectIsolatedMgrSlaveNodes(oldMaster->form.oid,
 									getMgrSlaveNodetype(oldMaster->form.nodetype),
 									spiContext,
 									&mgrNodes);
@@ -857,11 +857,11 @@ static void oldDataNodeMasterContinueToReign(MgrNodeWrapper *oldMaster)
 			}
 		}
 
-		selectActiveMgrSlaveNodes(oldMaster->oid,
+		selectActiveMgrSlaveNodes(oldMaster->form.oid,
 								  getMgrSlaveNodetype(oldMaster->form.nodetype),
 								  spiContext,
 								  &mgrNodes);
-		selectIsolatedMgrSlaveNodes(oldMaster->oid,
+		selectIsolatedMgrSlaveNodes(oldMaster->form.oid,
 									getMgrSlaveNodetype(oldMaster->form.nodetype),
 									spiContext,
 									&mgrNodes);
@@ -1279,7 +1279,7 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem,
 {
 	MgrNodeWrapper *nodeDataInDB;
 
-	nodeDataInDB = selectMgrNodeByOid(nodeDataInMem->oid, spiContext);
+	nodeDataInDB = selectMgrNodeByOid(nodeDataInMem->form.oid, spiContext);
 	if (!nodeDataInDB)
 	{
 		ereport(ERROR,
@@ -1362,7 +1362,7 @@ static void classifySlaveNodesByIfRunning(MgrNodeWrapper *masterNode,
 	SwitcherNodeWrapper *node;
 	dlist_mutable_iter miter;
 
-	selectActiveMgrSlaveNodes(masterNode->oid,
+	selectActiveMgrSlaveNodes(masterNode->form.oid,
 							  getMgrSlaveNodetype(masterNode->form.nodetype),
 							  spiContext,
 							  &mgrNodes);
@@ -1391,7 +1391,7 @@ static void classifySlaveNodesByIfRunning(MgrNodeWrapper *masterNode,
 	}
 	/* add isolated slave node to failedSlaves */
 	dlist_init(&mgrNodes);
-	selectIsolatedMgrSlaveNodes(masterNode->oid,
+	selectIsolatedMgrSlaveNodes(masterNode->form.oid,
 								getMgrSlaveNodetype(masterNode->form.nodetype),
 								spiContext,
 								&mgrNodes);

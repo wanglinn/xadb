@@ -216,7 +216,7 @@ re_check_:
 			if (time(NULL) - time_start > after_sec)
 			{
 				ListCell *lc2 = lc;
-				for (lc2 = lc; lc2 != NULL; lc2 = lnext(lc2))
+				for (lc2 = lc; lc2 != NULL; lc2 = lnext(list, lc2))
 					PQNRequestCancel(((NodeHandle*)lfirst(lc2))->node_conn);
 				break;
 			}
@@ -225,7 +225,7 @@ re_check_:
 		}
 	}
 
-	for (;lc != NULL; lc = lnext(lc))
+	for (;lc != NULL; lc = lnext(list, lc))
 	{
 		handle = lfirst(lc);
 		PQNExecFinish_trouble(handle->node_conn, -1);

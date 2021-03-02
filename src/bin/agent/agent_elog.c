@@ -107,8 +107,7 @@ in_error_recursion_trouble(void)
 	return (recursion_depth > 2);
 }
 
-bool errstart(int elevel, const char *filename, int lineno,
-		 const char *funcname, const char *domain)
+bool errstart(int elevel, const char *domain)
 {
 	ErrorData  *edata;
 	bool		output_to_server;
@@ -145,8 +144,7 @@ bool errstart(int elevel, const char *filename, int lineno,
 	if (ErrorContext == NULL)
 	{
 		/* Ooops, hard crash time; very little we can do safely here */
-		write_stderr("error occurred at %s:%d before error message processing is available\n",
-					 filename ? filename : "(unknown file)", lineno);
+		write_stderr("error occurred before error message processing is available\n");
 		exit(2);
 	}
 
@@ -180,18 +178,6 @@ bool errstart(int elevel, const char *filename, int lineno,
 	edata->elevel = elevel;
 	edata->output_to_server = output_to_server;
 	edata->output_to_client = output_to_client;
-	if (filename)
-	{
-		const char *slash;
-
-		/* keep only base name, useful especially for vpath builds */
-		slash = strrchr(filename, '/');
-		if (slash)
-			filename = slash + 1;
-	}
-	edata->filename = filename;
-	edata->lineno = lineno;
-	edata->funcname = funcname;
 	/* the default text domain is the backend's */
 	edata->domain = domain ? domain : PG_TEXTDOMAIN("postgres");
 	/* initialize context_domain the same way (see set_errcontext_domain()) */
@@ -219,7 +205,7 @@ bool errstart(int elevel, const char *filename, int lineno,
  * See elog.h for the error level definitions.
  */
 void
-errfinish(int dummy,...)
+errfinish(const char *filename, int lineno, const char *funcname)
 {
 	ErrorData  *edata = &errordata[errordata_stack_depth];
 	int			elevel = edata->elevel;
@@ -229,6 +215,23 @@ errfinish(int dummy,...)
 
 	recursion_depth++;
 	CHECK_STACK_DEPTH();
+
+	/* Save the last few bits of error state into the stack entry */
+	if (filename)
+	{
+		const char *slash;
+
+		/* keep only base name, useful especially for vpath builds */
+		slash = strrchr(filename, '/');
+		if (slash)
+			filename = slash + 1;
+	}
+
+	edata->filename = filename;
+	edata->lineno = lineno;
+	edata->funcname = funcname;
+
+	elevel = edata->elevel;
 
 	/*
 	 * Do processing in ErrorContext, which we hope has enough reserved space
@@ -524,98 +527,6 @@ static void agent_send_error_data(ErrorData *edata)
 }
 
 /*
- * elog_start --- startup for old-style API
- *
- * All that we do here is stash the hidden filename/lineno/funcname
- * arguments into a stack entry, along with the current value of errno.
- *
- * We need this to be separate from elog_finish because there's no other
- * C89-compliant way to deal with inserting extra arguments into the elog
- * call.  (When using C99's __VA_ARGS__, we could possibly merge this with
- * elog_finish, but there doesn't seem to be a good way to save errno before
- * evaluating the format arguments if we do that.)
- */
-void
-elog_start(const char *filename, int lineno, const char *funcname)
-{
-	ErrorData  *edata;
-
-	/* Make sure that memory context initialization has finished */
-	if (ErrorContext == NULL)
-	{
-		/* Ooops, hard crash time; very little we can do safely here */
-		write_stderr("error occurred at %s:%d before error message processing is available\n",
-					 filename ? filename : "(unknown file)", lineno);
-		exit(2);
-	}
-
-	if (++errordata_stack_depth >= ERRORDATA_STACK_SIZE)
-	{
-		/*
-		 * Wups, stack not big enough.  We treat this as a PANIC condition
-		 * because it suggests an infinite loop of errors during error
-		 * recovery.  Note that the message is intentionally not localized,
-		 * else failure to convert it to client encoding could cause further
-		 * recursion.
-		 */
-		errordata_stack_depth = -1;		/* make room on stack */
-		ereport(PANIC, (errmsg_internal("ERRORDATA_STACK_SIZE exceeded")));
-	}
-
-	edata = &errordata[errordata_stack_depth];
-	if (filename)
-	{
-		const char *slash;
-
-		/* keep only base name, useful especially for vpath builds */
-		slash = strrchr(filename, '/');
-		if (slash)
-			filename = slash + 1;
-	}
-	edata->filename = filename;
-	edata->lineno = lineno;
-	edata->funcname = funcname;
-	/* errno is saved now so that error parameter eval can't change it */
-	edata->saved_errno = errno;
-}
-
-/*
- * elog_finish --- finish up for old-style API
- */
-void
-elog_finish(int elevel, const char *fmt,...)
-{
-	ErrorData  *edata = &errordata[errordata_stack_depth];
-	MemoryContext oldcontext;
-
-	CHECK_STACK_DEPTH();
-
-	/*
-	 * Do errstart() to see if we actually want to report the message.
-	 */
-	errordata_stack_depth--;
-	errno = edata->saved_errno;
-	if (!errstart(elevel, edata->filename, edata->lineno, edata->funcname, NULL))
-		return;					/* nothing to do */
-
-	/*
-	 * Format error message just like errmsg_internal().
-	 */
-	recursion_depth++;
-	oldcontext = MemoryContextSwitchTo(ErrorContext);
-
-	EVALUATE_MESSAGE(edata->domain, message, false, false);
-
-	MemoryContextSwitchTo(oldcontext);
-	recursion_depth--;
-
-	/*
-	 * And let errfinish() finish up.
-	 */
-	errfinish(0);
-}
-
-/*
  * errcode --- add SQLSTATE error code to the current error
  *
  * The code is expected to be represented as per MAKE_SQLSTATE().
@@ -801,7 +712,7 @@ pg_re_throw(void)
 		 */
 		error_context_stack = NULL;
 
-		errfinish(0);
+		errfinish(edata->filename, edata->lineno, edata->funcname);
 	}
 
 	/* Doesn't return ... */

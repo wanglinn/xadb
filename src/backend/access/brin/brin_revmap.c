@@ -12,7 +12,7 @@
  * the metapage.  When the revmap needs to be expanded, all tuples on the
  * regular BRIN page at that block (if any) are moved out of the way.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -395,9 +395,10 @@ brinRevmapDesummarizeRange(Relation idxrel, BlockNumber heapBlk)
 	 */
 
 	/*
-	 * Because of SUE lock, this function shouldn't run concurrently with
-	 * summarization.  Placeholder tuples can only exist as leftovers from
-	 * crashed summarization, so if we detect any, we complain but proceed.
+	 * Because of ShareUpdateExclusive lock, this function shouldn't run
+	 * concurrently with summarization.  Placeholder tuples can only exist as
+	 * leftovers from crashed summarization, so if we detect any, we complain
+	 * but proceed.
 	 */
 	if (BrinTupleIsPlaceholder(tup))
 		ereport(WARNING,

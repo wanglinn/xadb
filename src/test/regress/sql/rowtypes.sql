@@ -36,11 +36,11 @@ create temp table quadtable(f1 int, q quad);
 insert into quadtable values (1, ((3.3,4.4),(5.5,6.6)));
 insert into quadtable values (2, ((null,4.4),(5.5,6.6)));
 
-select * from quadtable order by f1, q;
+select * from quadtable;
 
 select f1, q.c1 from quadtable;		-- fails, q is a table reference
 
-select f1, (q).c1, (qq.q).c1.i from quadtable qq order by 1;
+select f1, (q).c1, (qq.q).c1.i from quadtable qq;
 
 create temp table people (fn fullname, bd date);
 
@@ -63,7 +63,7 @@ select * from people;
 
 insert into quadtable (f1, q.c1.r, q.c2.i) values(44,55,66);
 
-select * from quadtable order by f1, q;
+select * from quadtable;
 
 -- The object here is to ensure that toasted references inside
 -- composite values don't cause problems.  The large f1 value will
@@ -74,7 +74,7 @@ insert into pp values (repeat('abcdefghijkl', 100000));
 
 insert into people select ('Jim', f1, null)::fullname, current_date from pp;
 
-select (fn).first, substr((fn).last, 1, 20), length((fn).last) from people order by 1, 2;
+select (fn).first, substr((fn).last, 1, 20), length((fn).last) from people;
 
 -- Test row comparison semantics.  Prior to PG 8.2 we did this in a totally
 -- non-spec-compliant way.
@@ -169,7 +169,16 @@ select * from int8_tbl i8
 where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)');
 
 select * from int8_tbl i8
-where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)') order by 1, 2;
+where i8 in (row(123,456)::int8_tbl, '(4567890123456789,123)');
+
+-- Check ability to select columns from an anonymous rowtype
+select (row(1, 2.0)).f1;
+select (row(1, 2.0)).f2;
+select (row(1, 2.0)).nosuch;  -- fail
+select (row(1, 2.0)).*;
+select (r).f1 from (select row(1, 2.0) as r) ss;
+select (r).f3 from (select row(1, 2.0) as r) ss;  -- fail
+select (r).* from (select row(1, 2.0) as r) ss;
 
 -- Check some corner cases involving empty rowtypes
 select ROW();
@@ -331,7 +340,7 @@ UPDATE price
     FROM unnest(ARRAY[(10, 123.00), (11, 99.99)]::price_input[]) input_prices
     WHERE price_key_from_table(price.*) = price_key_from_input(input_prices.*);
 
-select * from price order by id;
+select * from price;
 
 rollback;
 
@@ -361,7 +370,7 @@ $$ language sql;
 select fcompos1(row(1,'one'));
 select fcompos2(row(2,'two'));
 select fcompos3(row(3,'three'));
-select * from compos ORDER BY 1,2;
+select * from compos;
 
 --
 -- We allow I/O conversion casts from composite types to strings to be
@@ -403,25 +412,25 @@ select longname(f) from fullname f;
 -- (bug #11210 and other reports)
 --
 
-select row_to_json(i) from int8_tbl i order by q1, q2;
-select row_to_json(i) from int8_tbl i(x,y) order by x,y;
+select row_to_json(i) from int8_tbl i;
+select row_to_json(i) from int8_tbl i(x,y);
 
 create temp view vv1 as select * from int8_tbl;
-select row_to_json(i) from vv1 i order by q1, q2;
-select row_to_json(i) from vv1 i(x,y) order by x,y;
+select row_to_json(i) from vv1 i;
+select row_to_json(i) from vv1 i(x,y);
 
 select row_to_json(ss) from
-  (select q1, q2 from int8_tbl order by q1, q2) as ss;
+  (select q1, q2 from int8_tbl) as ss;
 select row_to_json(ss) from
-  (select q1, q2 from int8_tbl order by q1, q2 offset 0) as ss;
+  (select q1, q2 from int8_tbl offset 0) as ss;
 select row_to_json(ss) from
-  (select q1 as a, q2 as b from int8_tbl order by a, q2) as ss;
+  (select q1 as a, q2 as b from int8_tbl) as ss;
 select row_to_json(ss) from
-  (select q1 as a, q2 as b from int8_tbl order by a, q2 offset 0) as ss;
+  (select q1 as a, q2 as b from int8_tbl offset 0) as ss;
 select row_to_json(ss) from
-  (select q1 as a, q2 as b from int8_tbl order by a, q2) as ss(x,y);
+  (select q1 as a, q2 as b from int8_tbl) as ss(x,y);
 select row_to_json(ss) from
-  (select q1 as a, q2 as b from int8_tbl order by a, q2 offset 0) as ss(x,y);
+  (select q1 as a, q2 as b from int8_tbl offset 0) as ss(x,y);
 
 explain (costs off)
 select row_to_json(q) from
@@ -440,7 +449,7 @@ select row_to_json(q) from
 create temp table tt1 as select * from int8_tbl limit 2;
 create temp table tt2 () inherits(tt1);
 insert into tt2 values(0,0);
-select row_to_json(r) from (select q2,q1 from tt1 order by q2, q1 offset 0) r;
+select row_to_json(r) from (select q2,q1 from tt1 offset 0) r;
 
 -- check no-op rowtype conversions
 create temp table tt3 () inherits(tt2);

@@ -23,7 +23,7 @@ standard_targets = all install installdirs uninstall distprep clean distclean ma
 # these targets should recurse even into subdirectories not being built:
 standard_always_targets = distprep clean distclean maintainer-clean
 
-.PHONY: $(standard_targets) install-strip html man installcheck-parallel maintainer-check
+.PHONY: $(standard_targets) install-strip html man installcheck-parallel update-unicode
 
 # make `all' the default target
 all:
@@ -39,6 +39,8 @@ all:
 VERSION = @PACKAGE_VERSION@
 MAJORVERSION = @PG_MAJORVERSION@
 VERSION_NUM = @PG_VERSION_NUM@
+
+PACKAGE_URL = @PACKAGE_URL@
 
 # Set top_srcdir, srcdir, and VPATH.
 ifdef PGXS
@@ -78,9 +80,6 @@ endif
 endif # not PGXS
 
 vpathsearch = `for f in $(addsuffix /$(1),$(subst :, ,. $(VPATH))); do test -r $$f && echo $$f && break; done`
-
-# Saved arguments from configure
-configure_args = @configure_args@
 
 
 ##########################################################################
@@ -190,6 +189,7 @@ with_perl	= @with_perl@
 with_python	= @with_python@
 with_tcl	= @with_tcl@
 with_openssl	= @with_openssl@
+with_readline	= @with_readline@
 with_selinux	= @with_selinux@
 with_systemd	= @with_systemd@
 with_gssapi	= @with_gssapi@
@@ -263,6 +263,7 @@ GCC = @GCC@
 SUN_STUDIO_CC = @SUN_STUDIO_CC@
 CXX = @CXX@
 CFLAGS = @CFLAGS@
+CFLAGS_SL = @CFLAGS_SL@
 CFLAGS_VECTOR = @CFLAGS_VECTOR@
 CFLAGS_SSE42 = @CFLAGS_SSE42@
 CFLAGS_ARMV8_CRC32C = @CFLAGS_ARMV8_CRC32C@
@@ -354,6 +355,22 @@ XGETTEXT = @XGETTEXT@
 
 GZIP	= gzip
 BZIP2	= bzip2
+
+DOWNLOAD = wget -O $@ --no-use-server-timestamps
+#DOWNLOAD = curl -o $@
+
+
+# Unicode data information
+
+# Before each major release, update these and run make update-unicode.
+
+# Pick a release from here: <https://www.unicode.org/Public/>.  Note
+# that the most recent release listed there is often a pre-release;
+# don't pick that one, except for testing.
+UNICODE_VERSION = 13.0.0
+
+# Pick a release from here: <http://cldr.unicode.org/index/downloads>
+CLDR_VERSION = 37
 
 
 # Tree-wide build support
@@ -489,11 +506,6 @@ GCOV = @GCOV@
 LCOV = @LCOV@
 GENHTML = @GENHTML@
 
-ifeq ($(enable_coverage),yes)
-# ccache loses .gcno files
-export CCACHE_DISABLE = 1
-endif
-
 # Feature settings
 
 DEF_PGPORT = @default_port@
@@ -513,10 +525,6 @@ build_os = @build_os@
 host_tuple = @host@
 host_os = @host_os@
 host_cpu = @host_cpu@
-
-# This is mainly for use on FreeBSD, where we have both a.out and elf
-# systems now.  May be applicable to other systems to?
-ELF_SYSTEM= @ELF_SYS@
 
 # Backend stack size limit has to be hard-wired on Windows (it's in bytes)
 WIN32_STACK_RLIMIT=4194304

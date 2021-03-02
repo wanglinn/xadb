@@ -4,7 +4,7 @@
  *	  Routines to support inter-object dependencies.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/dependency.h
@@ -158,6 +158,10 @@ typedef enum ObjectClass
 
 /* in dependency.c */
 
+extern void AcquireDeletionLock(const ObjectAddress *object, int flags);
+
+extern void ReleaseDeletionLock(const ObjectAddress *object);
+
 extern void performDeletion(const ObjectAddress *object,
 							DropBehavior behavior, int flags);
 
@@ -177,7 +181,7 @@ extern void recordDependencyOnSingleRelExpr(const ObjectAddress *depender,
 											Node *expr, Oid relId,
 											DependencyType behavior,
 											DependencyType self_behavior,
-											bool ignore_self);
+											bool reverse_self);
 
 extern ObjectClass getObjectClass(const ObjectAddress *object);
 
@@ -217,6 +221,10 @@ extern long deleteDependencyRecordsFor(Oid classId, Oid objectId,
 extern long deleteDependencyRecordsForClass(Oid classId, Oid objectId,
 											Oid refclassId, char deptype);
 
+extern long deleteDependencyRecordsForSpecific(Oid classId, Oid objectId,
+											   char deptype,
+											   Oid refclassId, Oid refobjectId);
+
 extern long changeDependencyFor(Oid classId, Oid objectId,
 								Oid refClassId, Oid oldRefObjectId,
 								Oid newRefObjectId);
@@ -228,10 +236,11 @@ extern long changeDependenciesOn(Oid refClassId, Oid oldRefObjectId,
 								 Oid newRefObjectId);
 
 extern Oid	getExtensionOfObject(Oid classId, Oid objectId);
+extern List *getAutoExtensionsOfObject(Oid classId, Oid objectId);
 
 extern bool sequenceIsOwned(Oid seqId, char deptype, Oid *tableId, int32 *colId);
-extern List *getOwnedSequences(Oid relid, AttrNumber attnum);
-extern Oid	getOwnedSequence(Oid relid, AttrNumber attnum);
+extern List *getOwnedSequences(Oid relid);
+extern Oid	getIdentitySequence(Oid relid, AttrNumber attnum, bool missing_ok);
 
 extern Oid	get_constraint_index(Oid constraintId);
 

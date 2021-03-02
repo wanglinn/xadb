@@ -12,6 +12,10 @@ subdir = src/adbmgrd/access/table
 top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = table.o tableam.o tableamapi.o
+OBJS = \
+	table.o \
+	tableam.o \
+	tableamapi.o \
+	toast_helper.o
 
 include $(top_srcdir)/src/adbmgrd/common.mk

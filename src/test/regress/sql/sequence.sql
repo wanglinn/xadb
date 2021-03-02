@@ -59,7 +59,7 @@ INSERT INTO serialTest1 VALUES ('bar');
 INSERT INTO serialTest1 VALUES ('force', 100);
 INSERT INTO serialTest1 VALUES ('wrong', NULL);
 
-SELECT * FROM serialTest1 ORDER BY f1, f2;
+SELECT * FROM serialTest1;
 
 SELECT pg_get_serial_sequence('serialTest1', 'f2');
 
@@ -144,7 +144,7 @@ DROP SEQUENCE foo_seq_new;
 -- renaming serial sequences
 ALTER TABLE serialtest1_f2_seq RENAME TO serialtest1_f2_foo;
 INSERT INTO serialTest1 VALUES ('more');
-SELECT * FROM serialTest1 ORDER BY f1, f2;
+SELECT * FROM serialTest1;
 
 --
 -- Check dependencies of serial and ordinary sequences
@@ -272,8 +272,6 @@ DROP SEQUENCE seq2;
 -- should fail
 SELECT lastval();
 
-CREATE USER regress_seq_user;
-
 -- Test sequences in read-only transactions
 CREATE TEMPORARY SEQUENCE sequence_test_temp1;
 START TRANSACTION READ ONLY;
@@ -286,6 +284,8 @@ SELECT setval('sequence_test2', 1);  -- error
 ROLLBACK;
 
 -- privileges tests
+
+CREATE USER regress_seq_user;
 
 -- nextval
 BEGIN;

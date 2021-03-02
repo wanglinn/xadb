@@ -19,7 +19,7 @@
  * data across crashes.  During database startup, we simply force the
  * currently-active page of SUBTRANS to zeroes.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/backend/access/transam/subtrans.c
@@ -85,7 +85,7 @@ SubTransSetParent(TransactionId xid, TransactionId parent)
 	Assert(TransactionIdIsValid(parent));
 	Assert(TransactionIdFollows(xid, parent));
 
-	LWLockAcquire(SubtransControlLock, LW_EXCLUSIVE);
+	LWLockAcquire(SubtransSLRULock, LW_EXCLUSIVE);
 
 	slotno = SimpleLruReadPage(SubTransCtl, pageno, true, xid);
 	ptr = (TransactionId *) SubTransCtl->shared->page_buffer[slotno];
@@ -103,7 +103,7 @@ SubTransSetParent(TransactionId xid, TransactionId parent)
 		SubTransCtl->shared->page_dirty[slotno] = true;
 	}
 
-	LWLockRelease(SubtransControlLock);
+	LWLockRelease(SubtransSLRULock);
 }
 
 /*
@@ -133,7 +133,7 @@ SubTransGetParent(TransactionId xid)
 
 	parent = *ptr;
 
-	LWLockRelease(SubtransControlLock);
+	LWLockRelease(SubtransSLRULock);
 
 	return parent;
 }
@@ -195,9 +195,9 @@ void
 SUBTRANSShmemInit(void)
 {
 	SubTransCtl->PagePrecedes = SubTransPagePrecedes;
-	SimpleLruInit(SubTransCtl, "subtrans", NUM_SUBTRANS_BUFFERS, 0,
-				  SubtransControlLock, "pg_subtrans",
-				  LWTRANCHE_SUBTRANS_BUFFERS);
+	SimpleLruInit(SubTransCtl, "Subtrans", NUM_SUBTRANS_BUFFERS, 0,
+				  SubtransSLRULock, "pg_subtrans",
+				  LWTRANCHE_SUBTRANS_BUFFER);
 	/* Override default assumption that writes should be fsync'd */
 	SubTransCtl->do_fsync = false;
 }
@@ -217,7 +217,7 @@ BootStrapSUBTRANS(void)
 {
 	int			slotno;
 
-	LWLockAcquire(SubtransControlLock, LW_EXCLUSIVE);
+	LWLockAcquire(SubtransSLRULock, LW_EXCLUSIVE);
 
 	/* Create and zero the first page of the subtrans log */
 	slotno = ZeroSUBTRANSPage(0);
@@ -226,7 +226,7 @@ BootStrapSUBTRANS(void)
 	SimpleLruWritePage(SubTransCtl, slotno);
 	Assert(!SubTransCtl->shared->page_dirty[slotno]);
 
-	LWLockRelease(SubtransControlLock);
+	LWLockRelease(SubtransSLRULock);
 }
 
 /*
@@ -263,7 +263,7 @@ StartupSUBTRANS(TransactionId oldestActiveXID)
 	 * Whenever we advance into a new page, ExtendSUBTRANS will likewise zero
 	 * the new page without regard to whatever was previously on disk.
 	 */
-	LWLockAcquire(SubtransControlLock, LW_EXCLUSIVE);
+	LWLockAcquire(SubtransSLRULock, LW_EXCLUSIVE);
 
 	startPage = TransactionIdToPage(oldestActiveXID);
 	nextFullXid = ShmemVariableCache->nextFullXid;
@@ -279,7 +279,7 @@ StartupSUBTRANS(TransactionId oldestActiveXID)
 	}
 	(void) ZeroSUBTRANSPage(startPage);
 
-	LWLockRelease(SubtransControlLock);
+	LWLockRelease(SubtransSLRULock);
 }
 
 /*
@@ -364,7 +364,7 @@ ExtendSUBTRANS(TransactionId newestXact)
 	pageno = TransactionIdToPage(newestXact);
 #endif
 
-	LWLockAcquire(SubtransControlLock, LW_EXCLUSIVE);
+	LWLockAcquire(SubtransSLRULock, LW_EXCLUSIVE);
 
 #if defined(ADB)
 	/*
@@ -375,7 +375,7 @@ ExtendSUBTRANS(TransactionId newestXact)
 	if (SubTransCtl->shared->latest_page_number - pageno <= SUBTRANS_WRAP_CHECK_DELTA &&
 		pageno <= SubTransCtl->shared->latest_page_number)
 	{
-		LWLockRelease(SubtransControlLock);
+		LWLockRelease(SubtransSLRULock);
 		return;
 	}
 #endif
@@ -383,7 +383,7 @@ ExtendSUBTRANS(TransactionId newestXact)
 	/* Zero the page */
 	ZeroSUBTRANSPage(pageno);
 
-	LWLockRelease(SubtransControlLock);
+	LWLockRelease(SubtransSLRULock);
 }
 
 

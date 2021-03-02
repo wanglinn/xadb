@@ -669,7 +669,7 @@ static void PoolerLoop(void)
 
 		/* process busy slot first */
 		pollfd_tmp = &(poll_fd[1]);	/* skip liten socket */
-		for(lc=list_head(polling_slot);lc && count < (Size)rval;lc=lnext(lc))
+		for(lc=list_head(polling_slot);lc && count < (Size)rval;lc=lnext(polling_slot, lc))
 		{
 			pgsocket sock;
 			slot = lfirst(lc);

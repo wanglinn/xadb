@@ -3,7 +3,7 @@
  * parse_type.c
  *		handle type operations for parser
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -19,13 +19,12 @@
 #include "catalog/pg_type.h"
 #include "lib/stringinfo.h"
 #include "nodes/makefuncs.h"
-#include "parser/parser.h"
 #include "parser/parse_type.h"
+#include "parser/parser.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
-
 
 static int32 typenameTypeMod(ParseState *pstate, const TypeName *typeName,
 							 Type typ);
@@ -33,6 +32,18 @@ static int32 typenameTypeMod(ParseState *pstate, const TypeName *typeName,
 
 /*
  * LookupTypeName
+ *		Wrapper for typical case.
+ */
+Type
+LookupTypeName(ParseState *pstate, const TypeName *typeName,
+			   int32 *typmod_p, bool missing_ok)
+{
+	return LookupTypeNameExtended(pstate,
+								  typeName, typmod_p, true, missing_ok);
+}
+
+/*
+ * LookupTypeNameExtended
  *		Given a TypeName object, lookup the pg_type syscache entry of the type.
  *		Returns NULL if no such type can be found.  If the type is found,
  *		the typmod value represented in the TypeName struct is computed and
@@ -51,11 +62,17 @@ static int32 typenameTypeMod(ParseState *pstate, const TypeName *typeName,
  * found but is a shell, and there is typmod decoration, an error will be
  * thrown --- this is intentional.
  *
+ * If temp_ok is false, ignore types in the temporary namespace.  Pass false
+ * when the caller will decide, using goodness of fit criteria, whether the
+ * typeName is actually a type or something else.  If typeName always denotes
+ * a type (or denotes nothing), pass true.
+ *
  * pstate is only used for error location info, and may be NULL.
  */
 Type
-LookupTypeName(ParseState *pstate, const TypeName *typeName,
-			   int32 *typmod_p, bool missing_ok)
+LookupTypeNameExtended(ParseState *pstate,
+					   const TypeName *typeName, int32 *typmod_p,
+					   bool temp_ok, bool missing_ok)
 {
 	Oid			typoid;
 	HeapTuple	tup;
@@ -172,7 +189,7 @@ LookupTypeName(ParseState *pstate, const TypeName *typeName,
 		else
 		{
 			/* Unqualified type name, so search the search path */
-			typoid = TypenameGetTypid(typname);
+			typoid = TypenameGetTypidExtended(typname, temp_ok);
 		}
 
 		/* If an array reference, return the array type instead */
@@ -392,7 +409,7 @@ typenameTypeMod(ParseState *pstate, const TypeName *typeName, Type typ)
 
 	/* hardwired knowledge about cstring's representation details here */
 	arrtypmod = construct_array(datums, n, CSTRINGOID,
-								-2, false, 'c');
+								-2, false, TYPALIGN_CHAR);
 
 	/* arrange to report location if type's typmodin function fails */
 	setup_parser_errposition_callback(&pcbstate, pstate, typeName->location);

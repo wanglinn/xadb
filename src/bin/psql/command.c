@@ -1,12 +1,11 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2019, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2020, PostgreSQL Global Development Group
  *
  * src/bin/psql/command.c
  */
 #include "postgres_fe.h"
-#include "command.h"
 
 #include <ctype.h>
 #include <time.h>
@@ -24,22 +23,22 @@
 #endif
 
 #include "catalog/pg_class_d.h"
-#include "portability/instr_time.h"
-
-#include "libpq-fe.h"
-#include "pqexpbuffer.h"
-#include "common/logging.h"
-#include "fe_utils/print.h"
-#include "fe_utils/string_utils.h"
-
+#include "command.h"
 #include "common.h"
+#include "common/logging.h"
 #include "copy.h"
 #include "crosstabview.h"
 #include "describe.h"
+#include "fe_utils/cancel.h"
+#include "fe_utils/print.h"
+#include "fe_utils/string_utils.h"
 #include "help.h"
 #include "input.h"
 #include "large_obj.h"
+#include "libpq-fe.h"
 #include "mainloop.h"
+#include "portability/instr_time.h"
+#include "pqexpbuffer.h"
 #include "psqlscanslash.h"
 #include "settings.h"
 #include "variables.h"
@@ -87,6 +86,10 @@ static backslashResult exec_command_errverbose(PsqlScanState scan_state, bool ac
 static backslashResult exec_command_f(PsqlScanState scan_state, bool active_branch);
 static backslashResult exec_command_g(PsqlScanState scan_state, bool active_branch,
 									  const char *cmd);
+static backslashResult process_command_g_options(char *first_option,
+												 PsqlScanState scan_state,
+												 bool active_branch,
+												 const char *cmd);
 static backslashResult exec_command_gdesc(PsqlScanState scan_state, bool active_branch);
 static backslashResult exec_command_gexec(PsqlScanState scan_state, bool active_branch);
 static backslashResult exec_command_gset(PsqlScanState scan_state, bool active_branch);
@@ -164,8 +167,8 @@ static void minimal_error_message(PGresult *res);
 
 static void printSSLInfo(void);
 static void printGSSInfo(void);
-static bool printPsetInfo(const char *param, struct printQueryOpt *popt);
-static char *pset_value_string(const char *param, struct printQueryOpt *popt);
+static bool printPsetInfo(const char *param, printQueryOpt *popt);
+static char *pset_value_string(const char *param, printQueryOpt *popt);
 
 #ifdef WIN32
 static void checkWin32Codepage(void);
@@ -322,7 +325,8 @@ exec_command(const char *cmd,
 		status = exec_command_ef_ev(scan_state, active_branch, query_buf, true);
 	else if (strcmp(cmd, "ev") == 0)
 		status = exec_command_ef_ev(scan_state, active_branch, query_buf, false);
-	else if (strcmp(cmd, "echo") == 0 || strcmp(cmd, "qecho") == 0)
+	else if (strcmp(cmd, "echo") == 0 || strcmp(cmd, "qecho") == 0 ||
+			 strcmp(cmd, "warn") == 0)
 		status = exec_command_echo(scan_state, active_branch, cmd);
 	else if (strcmp(cmd, "elif") == 0)
 		status = exec_command_elif(scan_state, cstack, query_buf);
@@ -724,7 +728,38 @@ exec_command_d(PsqlScanState scan_state, bool active_branch, const char *cmd)
 					success = listTables("tvmsE", NULL, show_verbose, show_system);
 				break;
 			case 'A':
-				success = describeAccessMethods(pattern, show_verbose);
+				{
+					char	   *pattern2 = NULL;
+
+					if (pattern && cmd[2] != '\0' && cmd[2] != '+')
+						pattern2 = psql_scan_slash_option(scan_state, OT_NORMAL, NULL, true);
+
+					switch (cmd[2])
+					{
+						case '\0':
+						case '+':
+							success = describeAccessMethods(pattern, show_verbose);
+							break;
+						case 'c':
+							success = listOperatorClasses(pattern, pattern2, show_verbose);
+							break;
+						case 'f':
+							success = listOperatorFamilies(pattern, pattern2, show_verbose);
+							break;
+						case 'o':
+							success = listOpFamilyOperators(pattern, pattern2, show_verbose);
+							break;
+						case 'p':
+							success = listOpFamilyFunctions(pattern, pattern2);
+							break;
+						default:
+							status = PSQL_CMD_UNKNOWN;
+							break;
+					}
+
+					if (pattern2)
+						free(pattern2);
+				}
 				break;
 			case 'a':
 				success = describeAggregates(pattern, show_verbose, show_system);
@@ -1117,7 +1152,7 @@ exec_command_ef_ev(PsqlScanState scan_state, bool active_branch,
 }
 
 /*
- * \echo and \qecho -- echo arguments to stdout or query output
+ * \echo, \qecho, and \warn -- echo arguments to stdout, query output, or stderr
  */
 static backslashResult
 exec_command_echo(PsqlScanState scan_state, bool active_branch, const char *cmd)
@@ -1132,13 +1167,15 @@ exec_command_echo(PsqlScanState scan_state, bool active_branch, const char *cmd)
 
 		if (strcmp(cmd, "qecho") == 0)
 			fout = pset.queryFout;
+		else if (strcmp(cmd, "warn") == 0)
+			fout = stderr;
 		else
 			fout = stdout;
 
 		while ((value = psql_scan_slash_option(scan_state,
 											   OT_NORMAL, &quoted, false)))
 		{
-			if (!quoted && strcmp(value, "-n") == 0)
+			if (first && !no_newline && !quoted && strcmp(value, "-n") == 0)
 				no_newline = true;
 			else
 			{
@@ -1250,19 +1287,40 @@ exec_command_f(PsqlScanState scan_state, bool active_branch)
 }
 
 /*
- * \g [filename] -- send query, optionally with output to file/pipe
- * \gx [filename] -- same as \g, with expanded mode forced
+ * \g  [(pset-option[=pset-value] ...)] [filename/shell-command]
+ * \gx [(pset-option[=pset-value] ...)] [filename/shell-command]
+ *
+ * Send the current query.  If pset options are specified, they are made
+ * active just for this query.  If a filename or pipe command is given,
+ * the query output goes there.  \gx implicitly sets "expanded=on" along
+ * with any other pset options that are specified.
  */
 static backslashResult
 exec_command_g(PsqlScanState scan_state, bool active_branch, const char *cmd)
 {
 	backslashResult status = PSQL_CMD_SKIP_LINE;
+	char	   *fname;
 
-	if (active_branch)
+	/*
+	 * Because the option processing for this is fairly complicated, we do it
+	 * and then decide whether the branch is active.
+	 */
+	fname = psql_scan_slash_option(scan_state,
+								   OT_FILEPIPE, NULL, false);
+
+	if (fname && fname[0] == '(')
 	{
-		char	   *fname = psql_scan_slash_option(scan_state,
-												   OT_FILEPIPE, NULL, false);
+		/* Consume pset options through trailing ')' ... */
+		status = process_command_g_options(fname + 1, scan_state,
+										   active_branch, cmd);
+		free(fname);
+		/* ... and again attempt to scan the filename. */
+		fname = psql_scan_slash_option(scan_state,
+									   OT_FILEPIPE, NULL, false);
+	}
 
+	if (status == PSQL_CMD_SKIP_LINE && active_branch)
+	{
 		if (!fname)
 			pset.gfname = NULL;
 		else
@@ -1270,15 +1328,96 @@ exec_command_g(PsqlScanState scan_state, bool active_branch, const char *cmd)
 			expand_tilde(&fname);
 			pset.gfname = pg_strdup(fname);
 		}
-		free(fname);
 		if (strcmp(cmd, "gx") == 0)
-			pset.g_expanded = true;
+		{
+			/* save settings if not done already, then force expanded=on */
+			if (pset.gsavepopt == NULL)
+				pset.gsavepopt = savePsetInfo(&pset.popt);
+			pset.popt.topt.expanded = 1;
+		}
 		status = PSQL_CMD_SEND;
 	}
-	else
-		ignore_slash_filepipe(scan_state);
+
+	free(fname);
 
 	return status;
+}
+
+/*
+ * Process parenthesized pset options for \g
+ *
+ * Note: okay to modify first_option, but not to free it; caller does that
+ */
+static backslashResult
+process_command_g_options(char *first_option, PsqlScanState scan_state,
+						  bool active_branch, const char *cmd)
+{
+	bool		success = true;
+	bool		found_r_paren = false;
+
+	do
+	{
+		char	   *option;
+		size_t		optlen;
+
+		/* If not first time through, collect a new option */
+		if (first_option)
+			option = first_option;
+		else
+		{
+			option = psql_scan_slash_option(scan_state,
+											OT_NORMAL, NULL, false);
+			if (!option)
+			{
+				if (active_branch)
+				{
+					pg_log_error("\\%s: missing right parenthesis", cmd);
+					success = false;
+				}
+				break;
+			}
+		}
+
+		/* Check for terminating right paren, and remove it from string */
+		optlen = strlen(option);
+		if (optlen > 0 && option[optlen - 1] == ')')
+		{
+			option[--optlen] = '\0';
+			found_r_paren = true;
+		}
+
+		/* If there was anything besides parentheses, parse/execute it */
+		if (optlen > 0)
+		{
+			/* We can have either "name" or "name=value" */
+			char	   *valptr = strchr(option, '=');
+
+			if (valptr)
+				*valptr++ = '\0';
+			if (active_branch)
+			{
+				/* save settings if not done already, then apply option */
+				if (pset.gsavepopt == NULL)
+					pset.gsavepopt = savePsetInfo(&pset.popt);
+				success &= do_pset(option, valptr, &pset.popt, true);
+			}
+		}
+
+		/* Clean up after this option.  We should not free first_option. */
+		if (first_option)
+			first_option = NULL;
+		else
+			free(option);
+	} while (!found_r_paren);
+
+	/* If we failed after already changing some options, undo side-effects */
+	if (!success && active_branch && pset.gsavepopt)
+	{
+		restorePsetInfo(&pset.popt, pset.gsavepopt);
+		pset.gsavepopt = NULL;
+	}
+
+	return success ? PSQL_CMD_SKIP_LINE : PSQL_CMD_ERROR;
 }
 
 /*
@@ -2944,6 +3083,11 @@ do_connect(enum trivalue reuse_previous_specification,
 			reuse_previous = !has_connection_string;
 			break;
 	}
+
+	/* If the old connection does not exist, there is nothing to reuse. */
+	if (!o_conn)
+		reuse_previous = false;
+
 	/* Silently ignore arguments subsequent to a connection string. */
 	if (has_connection_string)
 	{
@@ -2995,7 +3139,7 @@ do_connect(enum trivalue reuse_previous_specification,
 	if (!dbname && reuse_previous)
 	{
 		initPQExpBuffer(&connstr);
-		appendPQExpBuffer(&connstr, "dbname=");
+		appendPQExpBufferStr(&connstr, "dbname=");
 		appendConnStrVal(&connstr, PQdb(o_conn));
 		dbname = connstr.data;
 		/* has_connection_string=true would be a dead store */
@@ -3120,8 +3264,14 @@ do_connect(enum trivalue reuse_previous_specification,
 			pg_log_error("\\connect: %s", PQerrorMessage(n_conn));
 			if (o_conn)
 			{
+				/*
+				 * Transition to having no connection.  Keep this bit in sync
+				 * with CheckConnection().
+				 */
 				PQfinish(o_conn);
 				pset.db = NULL;
+				ResetCancelConn();
+				UnsyncVariables();
 			}
 		}
 
@@ -3135,7 +3285,8 @@ do_connect(enum trivalue reuse_previous_specification,
 
 	/*
 	 * Replace the old connection with the new one, and update
-	 * connection-dependent variables.
+	 * connection-dependent variables.  Keep the resynchronization logic in
+	 * sync with CheckConnection().
 	 */
 	PQsetNoticeProcessor(n_conn, NoticeProcessor, NULL);
 	pset.db = n_conn;
@@ -3229,7 +3380,8 @@ connection_warnings(bool in_startup)
 										 sverbuf, sizeof(sverbuf)));
 
 #ifdef WIN32
-		checkWin32Codepage();
+		if (in_startup)
+			checkWin32Codepage();
 #endif
 		printSSLInfo();
 		printGSSInfo();
@@ -3276,7 +3428,7 @@ printGSSInfo(void)
 	if (!PQgssEncInUse(pset.db))
 		return;					/* no GSSAPI encryption in use */
 
-	printf(_("GSSAPI Encrypted connection\n"));
+	printf(_("GSSAPI-encrypted connection\n"));
 }
 
 
@@ -3521,7 +3673,8 @@ do_edit(const char *filename_arg, PQExpBuffer query_buf,
 		{
 			unsigned int ql = query_buf->len;
 
-			if (ql == 0 || query_buf->data[ql - 1] != '\n')
+			/* force newline-termination of what we send to editor */
+			if (ql > 0 && query_buf->data[ql - 1] != '\n')
 			{
 				appendPQExpBufferChar(query_buf, '\n');
 				ql++;
@@ -3762,6 +3915,17 @@ _unicode_linestyle2string(int linestyle)
 /*
  * do_pset
  *
+ * Performs the assignment "param = value", where value could be NULL;
+ * for some params that has an effect such as inversion, for others
+ * it does nothing.
+ *
+ * Adjusts the state of the formatting options at *popt.  (In practice that
+ * is always pset.popt, but maybe someday it could be different.)
+ *
+ * If successful and quiet is false, then invokes printPsetInfo() to report
+ * the change.
+ *
+ * Returns true if successful, else false (eg for invalid param or value).
  */
 bool
 do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
@@ -4086,9 +4250,11 @@ do_pset(const char *param, const char *value, printQueryOpt *popt, bool quiet)
 	return true;
 }
 
-
+/*
+ * printPsetInfo: print the state of the "param" formatting parameter in popt.
+ */
 static bool
-printPsetInfo(const char *param, struct printQueryOpt *popt)
+printPsetInfo(const char *param, printQueryOpt *popt)
 {
 	Assert(param != NULL);
 
@@ -4269,6 +4435,77 @@ printPsetInfo(const char *param, struct printQueryOpt *popt)
 	return true;
 }
 
+/*
+ * savePsetInfo: make a malloc'd copy of the data in *popt.
+ *
+ * Possibly this should be somewhere else, but it's a bit specific to psql.
+ */
+printQueryOpt *
+savePsetInfo(const printQueryOpt *popt)
+{
+	printQueryOpt *save;
+
+	save = (printQueryOpt *) pg_malloc(sizeof(printQueryOpt));
+
+	/* Flat-copy all the scalar fields, then duplicate sub-structures. */
+	memcpy(save, popt, sizeof(printQueryOpt));
+
+	/* topt.line_style points to const data that need not be duplicated */
+	if (popt->topt.fieldSep.separator)
+		save->topt.fieldSep.separator = pg_strdup(popt->topt.fieldSep.separator);
+	if (popt->topt.recordSep.separator)
+		save->topt.recordSep.separator = pg_strdup(popt->topt.recordSep.separator);
+	if (popt->topt.tableAttr)
+		save->topt.tableAttr = pg_strdup(popt->topt.tableAttr);
+	if (popt->nullPrint)
+		save->nullPrint = pg_strdup(popt->nullPrint);
+	if (popt->title)
+		save->title = pg_strdup(popt->title);
+
+	/*
+	 * footers and translate_columns are never set in psql's print settings,
+	 * so we needn't write code to duplicate them.
+	 */
+	Assert(popt->footers == NULL);
+	Assert(popt->translate_columns == NULL);
+
+	return save;
+}
+
+/*
+ * restorePsetInfo: restore *popt from the previously-saved copy *save,
+ * then free *save.
+ */
+void
+restorePsetInfo(printQueryOpt *popt, printQueryOpt *save)
+{
+	/* Free all the old data we're about to overwrite the pointers to. */
+
+	/* topt.line_style points to const data that need not be duplicated */
+	if (popt->topt.fieldSep.separator)
+		free(popt->topt.fieldSep.separator);
+	if (popt->topt.recordSep.separator)
+		free(popt->topt.recordSep.separator);
+	if (popt->topt.tableAttr)
+		free(popt->topt.tableAttr);
+	if (popt->nullPrint)
+		free(popt->nullPrint);
+	if (popt->title)
+		free(popt->title);
+
+	/*
+	 * footers and translate_columns are never set in psql's print settings,
+	 * so we needn't write code to duplicate them.
+	 */
+	Assert(popt->footers == NULL);
+	Assert(popt->translate_columns == NULL);
+
+	/* Now we may flat-copy all the fields, including pointers. */
+	memcpy(popt, save, sizeof(printQueryOpt));
+
+	/* Lastly, free "save" ... but its sub-structures now belong to popt. */
+	free(save);
+}
 
 static const char *
 pset_bool_string(bool val)
@@ -4316,7 +4553,7 @@ pset_quoted_string(const char *str)
  * output that produces the correct setting when fed back into \pset.
  */
 static char *
-pset_value_string(const char *param, struct printQueryOpt *popt)
+pset_value_string(const char *param, printQueryOpt *popt)
 {
 	Assert(param != NULL);
 
@@ -4600,7 +4837,7 @@ lookup_object_oid(EditableObjectType obj_type, const char *desc,
 			 */
 			appendPQExpBufferStr(query, PG_GRAM_HINT "SELECT ");
 			appendStringLiteralConn(query, desc, pset.db);
-			appendPQExpBuffer(query, "::pg_catalog.regclass::pg_catalog.oid");
+			appendPQExpBufferStr(query, "::pg_catalog.regclass::pg_catalog.oid");
 			break;
 	}
 

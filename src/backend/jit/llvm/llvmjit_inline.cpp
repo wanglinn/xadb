@@ -11,7 +11,7 @@
  * so for all external functions, all the referenced functions (and
  * prerequisites) will be imported.
  *
- * Copyright (c) 2016-2019, PostgreSQL Global Development Group
+ * Copyright (c) 2016-2020, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/lib/llvmjit/llvmjit_inline.cpp
@@ -42,6 +42,9 @@ extern "C"
 #include <llvm-c/Core.h>
 #include <llvm-c/BitReader.h>
 
+/* Avoid macro clash with LLVM's C++ headers */
+#undef Min
+
 #include <llvm/ADT/SetVector.h>
 #include <llvm/ADT/StringSet.h>
 #include <llvm/ADT/StringMap.h>
@@ -53,7 +56,6 @@ extern "C"
 #include <llvm/Support/Error.h>
 #endif
 #include <llvm/IR/Attributes.h>
-#include <llvm/IR/CallSite.h>
 #include <llvm/IR/DebugInfo.h>
 #include <llvm/IR/IntrinsicInst.h>
 #include <llvm/IR/IRBuilder.h>
@@ -171,7 +173,7 @@ llvm_inline(LLVMModuleRef M)
 static std::unique_ptr<ImportMapTy>
 llvm_build_inline_plan(llvm::Module *mod)
 {
-	std::unique_ptr<ImportMapTy> globalsToInline = llvm::make_unique<ImportMapTy>();
+	std::unique_ptr<ImportMapTy> globalsToInline(new ImportMapTy());
 	FunctionInlineStates functionStates;
 	InlineWorkList worklist;
 

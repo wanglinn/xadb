@@ -1,6 +1,6 @@
 #! /usr/bin/perl
 #
-# Copyright (c) 2001-2019, PostgreSQL Global Development Group
+# Copyright (c) 2001-2020, PostgreSQL Global Development Group
 #
 # src/backend/utils/mb/Unicode/UCS_to_EUC_JP.pl
 #
@@ -12,6 +12,8 @@
 # organization's ftp site.
 
 use strict;
+use warnings;
+
 use convutils;
 
 my $this_script = 'src/backend/utils/mb/Unicode/UCS_to_EUC_JP.pl';

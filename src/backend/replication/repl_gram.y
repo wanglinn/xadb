@@ -3,7 +3,7 @@
  *
  * repl_gram.y				- Parser for the replication commands
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -87,6 +87,8 @@ static SQLCmd *make_sqlcmd(void);
 %token K_EXPORT_SNAPSHOT
 %token K_NOEXPORT_SNAPSHOT
 %token K_USE_SNAPSHOT
+%token K_MANIFEST
+%token K_MANIFEST_CHECKSUMS
 
 %type <node>	command
 %type <node>	base_backup start_replication start_logical_replication
@@ -156,6 +158,7 @@ var_name:	IDENT	{ $$ = $1; }
 /*
  * BASE_BACKUP [LABEL '<label>'] [PROGRESS] [FAST] [WAL] [NOWAIT]
  * [MAX_RATE %d] [TABLESPACE_MAP] [NOVERIFY_CHECKSUMS]
+ * [MANIFEST %s] [MANIFEST_CHECKSUMS %s]
  */
 base_backup:
 			K_BASE_BACKUP base_backup_opt_list
@@ -213,6 +216,16 @@ base_backup_opt:
 				{
 				  $$ = makeDefElem("noverify_checksums",
 								   (Node *)makeInteger(true), -1);
+				}
+			| K_MANIFEST SCONST
+				{
+				  $$ = makeDefElem("manifest",
+								   (Node *)makeString($2), -1);
+				}
+			| K_MANIFEST_CHECKSUMS SCONST
+				{
+				  $$ = makeDefElem("manifest_checksums",
+								   (Node *)makeString($2), -1);
 				}
 			;
 
@@ -333,7 +346,7 @@ timeline_history:
 					if ($2 <= 0)
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
-								 (errmsg("invalid timeline %u", $2))));
+								 errmsg("invalid timeline %u", $2)));
 
 					cmd = makeNode(TimeLineHistoryCmd);
 					cmd->timeline = $2;
@@ -365,7 +378,7 @@ opt_timeline:
 					if ($2 <= 0)
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
-								 (errmsg("invalid timeline %u", $2))));
+								 errmsg("invalid timeline %u", $2)));
 					$$ = $2;
 				}
 				| /* EMPTY */			{ $$ = 0; }

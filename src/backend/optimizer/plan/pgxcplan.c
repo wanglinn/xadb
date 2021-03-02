@@ -374,6 +374,11 @@ static Query *
 pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 									List **unshippable_quals, List **rep_tlist)
 {
+#if 1
+#warning TODO: merge
+	ereport(ERROR,
+			errmsg("not merge finish"));
+#else
 	/* Variables for the part of the Query representing the JOIN */
 	Query			*join_query;
 	FromExpr		*from_expr;
@@ -566,6 +571,7 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 	join_query->targetList = tlist;
 
 	return join_query;
+#endif
 }
 
 /*
@@ -1578,7 +1584,7 @@ create_remotedml_plan(PlannerInfo *root, Plan *topplan, CmdType cmdtyp, ModifyTa
 		fstep->scan.scanrelid = list_length(root->parse->rtable);
 
 		mt->remote_plans = lappend(mt->remote_plans, fstep);
-		heap_close(res_rel, NoLock);
+		table_close(res_rel, NoLock);
 	}
 
 	return (Plan *)mt;
@@ -2511,7 +2517,7 @@ fetch_ctid_of(Plan *subtree, Query *query)
  * The plan generated in either of the above cases is returned.
  */
 PlannedStmt *
-pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
+pgxc_planner(Query *query, const char *query_string, int cursorOptions, ParamListInfo boundParams)
 {
 	PlannedStmt *result;
 
@@ -2528,7 +2534,7 @@ pgxc_planner(Query *query, int cursorOptions, ParamListInfo boundParams)
 		return result;
 
 	/* we need Coordinator for evaluation, invoke standard planner */
-	result = standard_planner(query, cursorOptions, boundParams);
+	result = standard_planner(query, query_string, cursorOptions, boundParams);
 	return result;
 }
 

@@ -17,6 +17,12 @@
   <productname>PostgreSQL</productname>.
  </para>
 
+ <para>
+  This module is considered <quote>trusted</quote>, that is, it can be
+  installed by non-superusers who have <literal>CREATE</literal> privilege
+  on the current database.
+ </para>
+
  <sect2>
   <title>General Hashing Functions</title>
 
@@ -1132,7 +1138,8 @@ gen_random_bytes(count integer) returns bytea
 gen_random_uuid() returns uuid
 </synopsis>
   <para>
-   Returns a version 4 (random) UUID.
+   Returns a version 4 (random) UUID. (Obsolete, this function is now also
+   included in core <productname>PostgreSQL</productname>.)
   </para>
  </sect2>
 

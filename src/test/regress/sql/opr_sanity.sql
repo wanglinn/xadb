@@ -130,7 +130,7 @@ FROM pg_proc AS p1, pg_proc AS p2
 WHERE p1.oid != p2.oid AND
     p1.proname = p2.proname AND
     p1.pronargs = p2.pronargs AND
-    p1.proargtypes = p2.proargtypes order by p1.proname,p1.oid,p2.oid;
+    p1.proargtypes = p2.proargtypes;
 
 -- Considering only built-in procs (prolang = 12), look for multiple uses
 -- of the same internal function (ie, matching prosrc fields).  It's OK to
@@ -153,7 +153,7 @@ WHERE p1.oid < p2.oid AND
      p1.proisstrict != p2.proisstrict OR
      p1.proretset != p2.proretset OR
      p1.provolatile != p2.provolatile OR
-     p1.pronargs != p2.pronargs) order by p1.proname,p1.oid,p2.oid;
+     p1.pronargs != p2.pronargs);
 
 -- Look for uses of different type OIDs in the argument/result type fields
 -- for different aliases of the same built-in function.
@@ -166,7 +166,7 @@ WHERE p1.oid < p2.oid AND
 -- Note: ignore aggregate functions here, since they all point to the same
 -- dummy built-in function.  Likewise, ignore range constructor functions.
 
-SELECT DISTINCT p1.prorettype, p2.prorettype
+SELECT DISTINCT p1.prorettype::regtype, p2.prorettype::regtype
 FROM pg_proc AS p1, pg_proc AS p2
 WHERE p1.oid != p2.oid AND
     p1.prosrc = p2.prosrc AND
@@ -177,7 +177,7 @@ WHERE p1.oid != p2.oid AND
     (p1.prorettype < p2.prorettype)
 ORDER BY 1, 2;
 
-SELECT DISTINCT p1.proargtypes[0], p2.proargtypes[0]
+SELECT DISTINCT p1.proargtypes[0]::regtype, p2.proargtypes[0]::regtype
 FROM pg_proc AS p1, pg_proc AS p2
 WHERE p1.oid != p2.oid AND
     p1.prosrc = p2.prosrc AND
@@ -188,7 +188,7 @@ WHERE p1.oid != p2.oid AND
     (p1.proargtypes[0] < p2.proargtypes[0])
 ORDER BY 1, 2;
 
-SELECT DISTINCT p1.proargtypes[1], p2.proargtypes[1]
+SELECT DISTINCT p1.proargtypes[1]::regtype, p2.proargtypes[1]::regtype
 FROM pg_proc AS p1, pg_proc AS p2
 WHERE p1.oid != p2.oid AND
     p1.prosrc = p2.prosrc AND
@@ -199,7 +199,7 @@ WHERE p1.oid != p2.oid AND
     (p1.proargtypes[1] < p2.proargtypes[1])
 ORDER BY 1, 2;
 
-SELECT DISTINCT p1.proargtypes[2], p2.proargtypes[2]
+SELECT DISTINCT p1.proargtypes[2]::regtype, p2.proargtypes[2]::regtype
 FROM pg_proc AS p1, pg_proc AS p2
 WHERE p1.oid != p2.oid AND
     p1.prosrc = p2.prosrc AND
@@ -208,7 +208,7 @@ WHERE p1.oid != p2.oid AND
     (p1.proargtypes[2] < p2.proargtypes[2])
 ORDER BY 1, 2;
 
-SELECT DISTINCT p1.proargtypes[3], p2.proargtypes[3]
+SELECT DISTINCT p1.proargtypes[3]::regtype, p2.proargtypes[3]::regtype
 FROM pg_proc AS p1, pg_proc AS p2
 WHERE p1.oid != p2.oid AND
     p1.prosrc = p2.prosrc AND
@@ -217,7 +217,7 @@ WHERE p1.oid != p2.oid AND
     (p1.proargtypes[3] < p2.proargtypes[3])
 ORDER BY 1, 2;
 
-SELECT DISTINCT p1.proargtypes[4], p2.proargtypes[4]
+SELECT DISTINCT p1.proargtypes[4]::regtype, p2.proargtypes[4]::regtype
 FROM pg_proc AS p1, pg_proc AS p2
 WHERE p1.oid != p2.oid AND
     p1.prosrc = p2.prosrc AND
@@ -226,7 +226,7 @@ WHERE p1.oid != p2.oid AND
     (p1.proargtypes[4] < p2.proargtypes[4])
 ORDER BY 1, 2;
 
-SELECT DISTINCT p1.proargtypes[5], p2.proargtypes[5]
+SELECT DISTINCT p1.proargtypes[5]::regtype, p2.proargtypes[5]::regtype
 FROM pg_proc AS p1, pg_proc AS p2
 WHERE p1.oid != p2.oid AND
     p1.prosrc = p2.prosrc AND
@@ -235,7 +235,7 @@ WHERE p1.oid != p2.oid AND
     (p1.proargtypes[5] < p2.proargtypes[5])
 ORDER BY 1, 2;
 
-SELECT DISTINCT p1.proargtypes[6], p2.proargtypes[6]
+SELECT DISTINCT p1.proargtypes[6]::regtype, p2.proargtypes[6]::regtype
 FROM pg_proc AS p1, pg_proc AS p2
 WHERE p1.oid != p2.oid AND
     p1.prosrc = p2.prosrc AND
@@ -244,7 +244,7 @@ WHERE p1.oid != p2.oid AND
     (p1.proargtypes[6] < p2.proargtypes[6])
 ORDER BY 1, 2;
 
-SELECT DISTINCT p1.proargtypes[7], p2.proargtypes[7]
+SELECT DISTINCT p1.proargtypes[7]::regtype, p2.proargtypes[7]::regtype
 FROM pg_proc AS p1, pg_proc AS p2
 WHERE p1.oid != p2.oid AND
     p1.prosrc = p2.prosrc AND
@@ -273,7 +273,7 @@ SELECT p1.oid, p1.proname
 FROM pg_proc as p1
 WHERE p1.prorettype IN
     ('anyelement'::regtype, 'anyarray'::regtype, 'anynonarray'::regtype,
-     'anyenum'::regtype, 'anyrange'::regtype)
+     'anyenum'::regtype)
   AND NOT
     ('anyelement'::regtype = ANY (p1.proargtypes) OR
      'anyarray'::regtype = ANY (p1.proargtypes) OR
@@ -281,6 +281,37 @@ WHERE p1.prorettype IN
      'anyenum'::regtype = ANY (p1.proargtypes) OR
      'anyrange'::regtype = ANY (p1.proargtypes))
 ORDER BY 2;
+
+-- anyrange is tighter than the rest, can only resolve from anyrange input
+
+SELECT p1.oid, p1.proname
+FROM pg_proc as p1
+WHERE p1.prorettype = 'anyrange'::regtype
+  AND NOT
+     'anyrange'::regtype = ANY (p1.proargtypes)
+ORDER BY 2;
+
+-- similarly for the anycompatible family
+
+SELECT p1.oid, p1.proname
+FROM pg_proc as p1
+WHERE p1.prorettype IN
+    ('anycompatible'::regtype, 'anycompatiblearray'::regtype,
+     'anycompatiblenonarray'::regtype)
+  AND NOT
+    ('anycompatible'::regtype = ANY (p1.proargtypes) OR
+     'anycompatiblearray'::regtype = ANY (p1.proargtypes) OR
+     'anycompatiblenonarray'::regtype = ANY (p1.proargtypes) OR
+     'anycompatiblerange'::regtype = ANY (p1.proargtypes))
+ORDER BY 2;
+
+SELECT p1.oid, p1.proname
+FROM pg_proc as p1
+WHERE p1.prorettype = 'anycompatiblerange'::regtype
+  AND NOT
+     'anycompatiblerange'::regtype = ANY (p1.proargtypes)
+ORDER BY 2;
+
 
 -- Look for functions that accept cstring and are neither datatype input
 -- functions nor encoding conversion functions.  It's almost never a good
@@ -309,7 +340,7 @@ FROM pg_proc as p1
 WHERE  p1.prorettype = 'cstring'::regtype
     AND NOT EXISTS(SELECT 1 FROM pg_type WHERE typoutput = p1.oid)
     AND NOT EXISTS(SELECT 1 FROM pg_type WHERE typmodout = p1.oid)
-    AND p1.oid != 'shell_out(opaque)'::regprocedure
+    AND p1.oid != 'shell_out(void)'::regprocedure
 ORDER BY 1;
 
 -- Check for length inconsistencies between the various argument-info arrays.
@@ -806,8 +837,6 @@ WHERE o1.oprnegate = o2.oid AND p1.oid = o1.oprcode AND p2.oid = o2.oprcode AND
 
 -- Btree comparison operators' functions should have the same volatility
 -- and leakproofness markings as the associated comparison support function.
--- As of Postgres 12, the only exceptions are that textual equality functions
--- are marked leakproof but textual comparison/inequality functions are not.
 SELECT pp.oid::regprocedure as proc, pp.provolatile as vp, pp.proleakproof as lp,
        po.oid::regprocedure as opr, po.provolatile as vo, po.proleakproof as lo
 FROM pg_proc pp, pg_proc po, pg_operator o, pg_amproc ap, pg_amop ao
@@ -1306,7 +1335,7 @@ WHERE p1.amopopr = p2.oid AND p2.oprcode = p3.oid AND
 SELECT p1.amprocfamily, p1.amprocnum
 FROM pg_amproc as p1
 WHERE p1.amprocfamily = 0 OR p1.amproclefttype = 0 OR p1.amprocrighttype = 0
-    OR p1.amprocnum < 1 OR p1.amproc = 0;
+    OR p1.amprocnum < 0 OR p1.amproc = 0;
 
 -- Support routines that are primary members of opfamilies must be immutable
 -- (else it suggests that the index ordering isn't fixed).  But cross-type
@@ -1325,6 +1354,24 @@ WHERE p1.amproc = p2.oid AND
     p1.amproclefttype != p1.amprocrighttype AND
     p2.provolatile = 'v';
 
+-- Almost all of the core distribution's Btree opclasses can use one of the
+-- two generic "equalimage" functions as their support function 4.  Look for
+-- opclasses that don't allow deduplication unconditionally here.
+--
+-- Newly added Btree opclasses don't have to support deduplication.  It will
+-- usually be trivial to add support, though.  Note that the expected output
+-- of this part of the test will need to be updated when a new opclass cannot
+-- support deduplication (by using btequalimage).
+SELECT amp.amproc::regproc AS proc, opf.opfname AS opfamily_name,
+       opc.opcname AS opclass_name, opc.opcintype::regtype AS opcintype
+FROM pg_am AS am
+JOIN pg_opclass AS opc ON opc.opcmethod = am.oid
+JOIN pg_opfamily AS opf ON opc.opcfamily = opf.oid
+LEFT JOIN pg_amproc AS amp ON amp.amprocfamily = opf.oid AND
+    amp.amproclefttype = opc.opcintype AND amp.amprocnum = 4
+WHERE am.amname = 'btree' AND
+    amp.amproc IS DISTINCT FROM 'btequalimage'::regproc
+ORDER BY 1, 2, 3;
 
 -- **************** pg_index ****************
 

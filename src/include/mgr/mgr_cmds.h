@@ -142,19 +142,16 @@ typedef enum AGENT_RESULT_MsgTYPE
 	AGENT_RESULT_MESSAGE = 2
 }AGENT_RESULT_MsgTYPE;
 
-typedef struct InitNodeInfo
+typedef struct NodeScanInfo
 {
-	Relation rel_node;
-	TableScanDesc rel_scan;
-	ListCell  **lcp;
-}InitNodeInfo;
+	Relation		rel_node;
+	TableScanDesc	rel_scan;
+	List		   *node_list;
+	int				index;
+}NodeScanInfo;
 
-typedef struct InitAclInfo
-{
-	Relation rel_authid;
-	TableScanDesc rel_scan;
-	ListCell  **lcp;
-}InitAclInfo;
+typedef struct NodeScanInfo InitNodeInfo;
+typedef struct NodeScanInfo InitAclInfo;
 
 struct tuple_cndn
 {

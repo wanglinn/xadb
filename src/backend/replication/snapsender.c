@@ -716,7 +716,7 @@ void SnapSenderMainQueryDnNodeName(Datum arg)
 	Assert(IsGTMNode());
 	Assert(IsTransactionState());
 
-	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
+	rel = table_open(PgxcNodeRelationId, AccessShareLock);
 	scan = systable_beginscan(rel, PgxcNodeOidIndexId, true,
 							  NULL, 0, NULL);
 	while (HeapTupleIsValid(tuple = systable_getnext(scan)))
@@ -730,7 +730,7 @@ void SnapSenderMainQueryDnNodeName(Datum arg)
 		}
 	}
 	systable_endscan(scan);
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 
 	PopActiveSnapshot();
 	CommitTransactionCommand();

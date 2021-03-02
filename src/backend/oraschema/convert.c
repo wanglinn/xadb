@@ -225,7 +225,10 @@ Datum ora_text_to_##type##_fmt(PG_FUNCTION_ARGS)					\
 	if (likely(VARSIZE_ANY_EXHDR(ptr) > 0))							\
 	{																\
 		TEXT_TO_TIME_CHECK_TEXT((text*)ptr);						\
-		PG_RETURN_DATUM(ora_to_timestamp(PG_GETARG_TEXT_P(0), (text*)ptr, tz));	\
+		PG_RETURN_DATUM(ora_to_timestamp(PG_GETARG_TEXT_P(0),		\
+										 (text*)ptr,				\
+										 PG_GET_COLLATION(),		\
+										 tz));						\
 	}																\
 	PG_RETURN_NULL();												\
 }extern int not_exists

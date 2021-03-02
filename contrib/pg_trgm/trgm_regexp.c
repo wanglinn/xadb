@@ -181,7 +181,7 @@
  * 7) Mark state 3 final because state 5 of source NFA is marked as final.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -191,13 +191,11 @@
  */
 #include "postgres.h"
 
-#include "trgm.h"
-
 #include "regex/regexport.h"
+#include "trgm.h"
 #include "tsearch/ts_locale.h"
 #include "utils/hsearch.h"
 #include "utils/memutils.h"
-
 
 /*
  * Uncomment (or use -DTRGM_REGEXP_DEBUG) to print debug info,
@@ -557,14 +555,11 @@ createTrgmNFA(text *text_re, Oid collation,
 	{
 		trg = createTrgmNFAInternal(&regex, graph, rcontext);
 	}
-	PG_CATCH();
+	PG_FINALLY();
 	{
 		pg_regfree(&regex);
-		PG_RE_THROW();
 	}
 	PG_END_TRY();
-
-	pg_regfree(&regex);
 
 	/* Clean up all the cruft we created */
 	MemoryContextSwitchTo(oldcontext);
@@ -1013,9 +1008,7 @@ addKey(TrgmNFA *trgmNFA, TrgmState *state, TrgmStateKey *key)
 {
 	regex_arc_t *arcs;
 	TrgmStateKey destKey;
-	ListCell   *cell,
-			   *prev,
-			   *next;
+	ListCell   *cell;
 	int			i,
 				arcsCount;
 
@@ -1030,13 +1023,10 @@ addKey(TrgmNFA *trgmNFA, TrgmState *state, TrgmStateKey *key)
 	 * redundancy.  We can drop either old key(s) or the new key if we find
 	 * redundancy.
 	 */
-	prev = NULL;
-	cell = list_head(state->enterKeys);
-	while (cell)
+	foreach(cell, state->enterKeys)
 	{
 		TrgmStateKey *existingKey = (TrgmStateKey *) lfirst(cell);
 
-		next = lnext(cell);
 		if (existingKey->nstate == key->nstate)
 		{
 			if (prefixContains(&existingKey->prefix, &key->prefix))
@@ -1050,15 +1040,10 @@ addKey(TrgmNFA *trgmNFA, TrgmState *state, TrgmStateKey *key)
 				 * The new key covers this old key. Remove the old key, it's
 				 * no longer needed once we add this key to the list.
 				 */
-				state->enterKeys = list_delete_cell(state->enterKeys,
-													cell, prev);
+				state->enterKeys = foreach_delete_current(state->enterKeys,
+														  cell);
 			}
-			else
-				prev = cell;
 		}
-		else
-			prev = cell;
-		cell = next;
 	}
 
 	/* No redundancy, so add this key to the state's list */

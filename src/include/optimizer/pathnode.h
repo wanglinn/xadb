@@ -4,7 +4,7 @@
  *	  prototypes for pathnode.c, relnode.c.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/optimizer/pathnode.h
@@ -210,6 +210,12 @@ extern ProjectSetPath *create_set_projection_path(PlannerInfo *root,
 												  RelOptInfo *rel,
 												  Path *subpath,
 												  PathTarget *target);
+extern SortPath *create_incremental_sort_path(PlannerInfo *root,
+											  RelOptInfo *rel,
+											  Path *subpath,
+											  List *pathkeys,
+											  int presorted_keys,
+											  double limit_tuples);
 extern SortPath *create_sort_path(PlannerInfo *root,
 								  RelOptInfo *rel,
 								  Path *subpath,
@@ -297,6 +303,7 @@ extern ModifyTablePath *create_modifytable_path(PlannerInfo *root,
 extern LimitPath *create_limit_path(PlannerInfo *root, RelOptInfo *rel,
 									Path *subpath,
 									Node *limitOffset, Node *limitCount,
+									LimitOption limitOption,
 									int64 offset_est, int64 count_est);
 extern void adjust_limit_rows_costs(double *rows,
 									Cost *startup_cost, Cost *total_cost,
@@ -364,7 +371,6 @@ extern bool restrict_list_have_upper_reference(List *list, PlannerInfo *root);
  * prototypes for relnode.c
  */
 extern void setup_simple_rel_arrays(PlannerInfo *root);
-extern void setup_append_rel_array(PlannerInfo *root);
 extern void expand_planner_arrays(PlannerInfo *root, int add_size);
 extern RelOptInfo *build_simple_rel(PlannerInfo *root, int relid,
 									RelOptInfo *parent);

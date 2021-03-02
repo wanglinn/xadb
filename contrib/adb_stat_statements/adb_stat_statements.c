@@ -125,6 +125,7 @@ static void adbss_shmem_startup(void);
 static void adbss_relcache_hook(Datum arg, Oid relid);
 static void adbss_post_parse_analyze(ParseState *pstate, Query *query);
 static PlannedStmt *adbss_planner_hook(Query *parse,
+									   const char *query_string,
 									   int cursorOptions,
 									   ParamListInfo boundParams);
 static void adbss_ExecutorStart(QueryDesc *queryDesc, int eflags);
@@ -556,13 +557,14 @@ adbss_post_parse_analyze(ParseState *pstate, Query *query)
 }
 
 static PlannedStmt *adbss_planner_hook(Query *parse,
+									   const char *query_string,
 									   int cursorOptions,
 									   ParamListInfo boundParams)
 {
 	PlannedStmt *result;
 
 	if (prev_planner_hook)
-		result = prev_planner_hook(parse, cursorOptions, boundParams);
+		result = prev_planner_hook(parse, query_string, cursorOptions, boundParams);
 	else
 	{
 #ifdef ADB
@@ -571,10 +573,10 @@ static PlannedStmt *adbss_planner_hook(Query *parse,
 		 * is not allowed to go into PGXC planner.
 		 */
 		if (IsCnMaster())
-			result = pgxc_planner(parse, cursorOptions, boundParams);
+			result = pgxc_planner(parse, query_string, cursorOptions, boundParams);
 		else
 #endif
-			result = standard_planner(parse, cursorOptions, boundParams);
+			result = standard_planner(parse, query_string, cursorOptions, boundParams);
 	}
 	/* 
 	 * As far as I know, pgxc_planner does not save the queryId to PlannedStmt.
@@ -733,7 +735,7 @@ static void adbssStoreToTable(QueryDesc *queryDesc)
 	uint64 planid;
 
 	heap_lock = AccessExclusiveLock;
-	adbssRel = heap_open(adbssOids.tableOid, heap_lock);
+	adbssRel = table_open(adbssOids.tableOid, heap_lock);
 	if (!checkAdbssAttrs(RelationGetDescr(adbssRel)))
 	{
 		ereport(WARNING, (errmsg(ADBSS_NAME " extension installed incorrectly")));
@@ -795,7 +797,7 @@ clean:
 	if (indstate)
 		CatalogCloseIndexes(indstate);
 	if (adbssRel)
-		heap_close(adbssRel, heap_lock);
+		table_close(adbssRel, heap_lock);
 }
 
 #define checkAdbssRelDescAttr(Anum_attr, attr_typid)                        \
@@ -1632,7 +1634,7 @@ static Oid getAdbssExtensionSchemaOid()
 				ObjectIdGetDatum(ext_schema));
 #endif
 
-	rel = heap_open(ExtensionRelationId, heap_lock);
+	rel = table_open(ExtensionRelationId, heap_lock);
 	scandesc = systable_beginscan(rel, ExtensionOidIndexId, true,
 								  NULL, 1, entry);
 
@@ -1646,7 +1648,7 @@ static Oid getAdbssExtensionSchemaOid()
 
 	systable_endscan(scandesc);
 
-	heap_close(rel, heap_lock);
+	table_close(rel, heap_lock);
 
 	return result;
 }
@@ -1944,7 +1946,9 @@ Datum explain_plan(PG_FUNCTION_ARGS)
 				 errmsg("could not find saved plan")));
 
 	ExplainBeginOutput(es);
-#if PG_VERSION_NUM >= 100000
+#if PG_VERSION_NUM >= 130000
+	ExplainOnePlan(pl_stmt, NULL, es, ADBSS_DUMMY_QUERY, NULL, NULL, NULL, NULL);
+#elif PG_VERSION_NUM >= 100000
 	ExplainOnePlan(pl_stmt, NULL, es, ADBSS_DUMMY_QUERY, NULL, NULL, NULL);
 #else
 	ExplainOnePlan(pl_stmt, NULL, es, ADBSS_DUMMY_QUERY, NULL, NULL);
@@ -2269,7 +2273,7 @@ Datum explain_rtable_of_query(PG_FUNCTION_ARGS)
 			*plantree_list;
 		ListCell *cell;
 
-		set_ps_display("explain query", false);
+		set_ps_display("explain query");
 
 #ifdef ADB_MULTI_GRAM
 		querytree_list = pg_analyze_and_rewrite_for_gram(parsetree,
@@ -2284,10 +2288,12 @@ Datum explain_rtable_of_query(PG_FUNCTION_ARGS)
 
 #ifdef ADB
 		plantree_list = pg_plan_queries(querytree_list,
+										query_string,
 										CURSOR_OPT_PARALLEL_OK | CURSOR_OPT_CLUSTER_PLAN_SAFE,
 										NULL);
 #else
 		plantree_list = pg_plan_queries(querytree_list,
+										query_string,
 										CURSOR_OPT_PARALLEL_OK, NULL);
 #endif
 		/* Explain every plan */
@@ -2398,7 +2404,7 @@ Datum explain_rtable_plan_of_query(PG_FUNCTION_ARGS)
 			*plantree_list;
 		ListCell *cell;
 
-		set_ps_display("explain query", false);
+		set_ps_display("explain query");
 
 #ifdef ADB_MULTI_GRAM
 		querytree_list = pg_analyze_and_rewrite_for_gram(parsetree,
@@ -2413,10 +2419,12 @@ Datum explain_rtable_plan_of_query(PG_FUNCTION_ARGS)
 
 #ifdef ADB
 		plantree_list = pg_plan_queries(querytree_list,
+										query_string,
 										CURSOR_OPT_PARALLEL_OK | CURSOR_OPT_CLUSTER_PLAN_SAFE,
 										NULL);
 #else
 		plantree_list = pg_plan_queries(querytree_list,
+										query_string,
 										CURSOR_OPT_PARALLEL_OK, NULL);
 #endif
 		/* Explain every plan */
@@ -2482,14 +2490,14 @@ static bool relationExpressionWalker(Node *node, List **relationPlans)
 				relationPlan->varattno = var->varattno;
 				if (relationPlan->relname != NULL && relationPlan->schemaname != NULL)
 				{
-					relation = heap_open(relationPlan->relid, AccessShareLock);
+					relation = table_open(relationPlan->relid, AccessShareLock);
 					tupleDesc = RelationGetDescr(relation);
 					if (var->varattno > tupleDesc->natts)
 						relationPlan->attname = NULL;
 					else
 						relationPlan->attname =
 							pstrdup(NameStr(TupleDescAttr(tupleDesc, var->varattno - 1)->attname));
-					heap_close(relation, AccessShareLock);
+					table_close(relation, AccessShareLock);
 				}
 				else
 				{

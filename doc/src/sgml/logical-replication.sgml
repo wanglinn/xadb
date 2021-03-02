@@ -232,10 +232,15 @@
   </para>
 
   <para>
-   Columns of a table are also matched by name.  A different order of columns
-   in the target table is allowed, but the column types have to match.  The
-   target table can have additional columns not provided by the published
-   table.  Those will be filled with their default values.
+   Columns of a table are also matched by name.  The order of columns in the
+   subscriber table does not need to match that of the publisher.  The data
+   types of the columns do not need to match, as long as the text
+   representation of the data can be converted to the target type.  For
+   example, you can replicate from a column of type <type>integer</type> to a
+   column of type <type>bigint</type>.  The target table can also have
+   additional columns not provided by the published table.  Any such columns
+   will be filled with the default value as specified in the definition of the
+   target table.
   </para>
 
   <sect2 id="logical-replication-subscription-slot">
@@ -397,13 +402,23 @@
 
    <listitem>
     <para>
-     Replication is only possible from base tables to base tables.  That is,
-     the tables on the publication and on the subscription side must be normal
-     tables, not views, materialized views, partition root tables, or foreign
-     tables.  In the case of partitions, you can therefore replicate a
-     partition hierarchy one-to-one, but you cannot currently replicate to a
-     differently partitioned setup.  Attempts to replicate tables other than
-     base tables will result in an error.
+     Replication is only supported by tables, including partitioned tables.
+     Attempts to replicate other types of relations such as views, materialized
+     views, or foreign tables, will result in an error.
+    </para>
+   </listitem>
+
+   <listitem>
+    <para>
+     When replicating between partitioned tables, the actual replication
+     originates, by default, from the leaf partitions on the publisher, so
+     partitions on the publisher must also exist on the subscriber as valid
+     target tables. (They could either be leaf partitions themselves, or they
+     could be further subpartitioned, or they could even be independent
+     tables.)  Publications can also specify that changes are to be replicated
+     using the identity and schema of the partitioned root table instead of
+     that of the individual leaf partitions in which the changes actually
+     originate (see <xref linkend="sql-createpublication"/>).
     </para>
    </listitem>
   </itemizedlist>
@@ -480,7 +495,8 @@
 
   <para>
    The monitoring information about subscription is visible in
-   <link linkend="pg-stat-subscription"><literal>pg_stat_subscription</literal></link>.
+   <link linkend="monitoring-pg-stat-subscription">
+   <structname>pg_stat_subscription</structname></link>.
    This view contains one row for every subscription worker.  A subscription
    can have zero or more active subscription workers depending on its state.
   </para>

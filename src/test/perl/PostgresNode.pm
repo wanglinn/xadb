@@ -63,6 +63,9 @@ PostgresNode - class representing PostgreSQL server instance
   # Stop the server
   $node->stop('fast');
 
+  # Find a free, unprivileged TCP port to bind some other service to
+  my $port = get_free_port();
+
 =head1 DESCRIPTION
 
 PostgresNode contains a set of routines able to work on a PostgreSQL node,
@@ -102,6 +105,7 @@ use Scalar::Util qw(blessed);
 
 our @EXPORT = qw(
   get_new_node
+  get_free_port
 );
 
 our ($use_tcp, $test_localhost, $test_pghost, $last_host_assigned,
@@ -112,7 +116,7 @@ INIT
 
 	# Set PGHOST for backward compatibility.  This doesn't work for own_host
 	# nodes, so prefer to not rely on this when writing new tests.
-	$use_tcp            = $TestLib::windows_os;
+	$use_tcp            = !$TestLib::use_unix_sockets;
 	$test_localhost     = "127.0.0.1";
 	$last_host_assigned = 1;
 	$test_pghost        = $use_tcp ? $test_localhost : TestLib::tempdir_short;
@@ -383,7 +387,7 @@ sub set_replication_conf
 
 	open my $hba, '>>', "$pgdata/pg_hba.conf";
 	print $hba "\n# Allow replication (set up by PostgresNode.pm)\n";
-	if ($TestLib::windows_os)
+	if ($TestLib::windows_os && !$TestLib::use_unix_sockets)
 	{
 		print $hba
 		  "host replication all $test_localhost/32 sspi include_realm=1 map=regress\n";
@@ -649,6 +653,9 @@ Restoring WAL segments from archives using restore_command can be enabled
 by passing the keyword parameter has_restoring => 1. This is disabled by
 default.
 
+If has_restoring is used, standby mode is used by default.  To use
+recovery mode instead, pass the keyword parameter standby => 0.
+
 The backup is copied, leaving the original unmodified. pg_hba.conf is
 unconditionally set to enable replication connections.
 
@@ -665,6 +672,7 @@ sub init_from_backup
 
 	$params{has_streaming} = 0 unless defined $params{has_streaming};
 	$params{has_restoring} = 0 unless defined $params{has_restoring};
+	$params{standby}       = 1 unless defined $params{standby};
 
 	print
 	  "# Initializing node \"$node_name\" from backup \"$backup_name\" of node \"$root_name\"\n";
@@ -695,7 +703,8 @@ port = $port
 			"unix_socket_directories = '$host'");
 	}
 	$self->enable_streaming($root_node) if $params{has_streaming};
-	$self->enable_restoring($root_node) if $params{has_restoring};
+	$self->enable_restoring($root_node, $params{standby})
+	  if $params{has_restoring};
 	return;
 }
 
@@ -935,7 +944,7 @@ primary_conninfo='$root_connstr'
 # Internal routine to enable archive recovery command on a standby node
 sub enable_restoring
 {
-	my ($self, $root_node) = @_;
+	my ($self, $root_node, $standby) = @_;
 	my $path = TestLib::perl2host($root_node->archive_dir);
 	my $name = $self->name;
 
@@ -957,7 +966,30 @@ sub enable_restoring
 		'postgresql.conf', qq(
 restore_command = '$copy_command'
 ));
-	$self->set_standby_mode();
+	if ($standby)
+	{
+		$self->set_standby_mode();
+	}
+	else
+	{
+		$self->set_recovery_mode();
+	}
+	return;
+}
+
+=pod
+
+=item $node->set_recovery_mode()
+
+Place recovery.signal file.
+
+=cut
+
+sub set_recovery_mode
+{
+	my ($self) = @_;
+
+	$self->append_conf('recovery.signal', '');
 	return;
 }
 
@@ -1071,54 +1103,21 @@ sub get_new_node
 	my $class = 'PostgresNode';
 	$class = shift if scalar(@_) % 2 != 1;
 	my ($name, %params) = @_;
-	my $port_is_forced = defined $params{port};
-	my $found          = $port_is_forced;
-	my $port = $port_is_forced ? $params{port} : $last_port_assigned;
 
-	while ($found == 0)
+	# Select a port.
+	my $port;
+	if (defined $params{port})
 	{
-
-		# advance $port, wrapping correctly around range end
-		$port = 49152 if ++$port >= 65536;
-		print "# Checking port $port\n";
-
-		# Check first that candidate port number is not included in
-		# the list of already-registered nodes.
-		$found = 1;
-		foreach my $node (@all_nodes)
-		{
-			$found = 0 if ($node->port == $port);
-		}
-
-		# Check to see if anything else is listening on this TCP port.  This
-		# is *necessary* on $use_tcp (Windows) configurations.  Seek a port
-		# available for all possible listen_addresses values, for own_host
-		# nodes and so the caller can harness this port for the widest range
-		# of purposes.  The 0.0.0.0 test achieves that for post-2006 Cygwin,
-		# which automatically sets SO_EXCLUSIVEADDRUSE.  The same holds for
-		# MSYS (a Cygwin fork).  Testing 0.0.0.0 is insufficient for Windows
-		# native Perl (https://stackoverflow.com/a/14388707), so we also test
-		# individual addresses.
-		#
-		# This seems like a good idea on Unixen as well, even though we don't
-		# ask the postmaster to open a TCP port on Unix.  On Non-Linux,
-		# non-Windows kernels, binding to 127.0.0.1/24 addresses other than
-		# 127.0.0.1 might fail with EADDRNOTAVAIL.  Binding to 0.0.0.0 is
-		# unnecessary on non-Windows systems.
-		#
-		# XXX A port available now may become unavailable by the time we start
-		# the postmaster.
-		if ($found == 1)
-		{
-			foreach my $addr (qw(127.0.0.1),
-				$use_tcp ? qw(127.0.0.2 127.0.0.3 0.0.0.0) : ())
-			{
-				can_bind($addr, $port) or $found = 0;
-			}
-		}
+		$port = $params{port};
 	}
-
-	print "# Found port $port\n";
+	else
+	{
+		# When selecting a port, we look for an unassigned TCP port number,
+		# even if we intend to use only Unix-domain sockets.  This is clearly
+		# necessary on $use_tcp (Windows) configurations, and it seems like a
+		# good idea on Unixen as well.
+		$port = get_free_port();
+	}
 
 	# Select a host.
 	my $host = $test_pghost;
@@ -1143,10 +1142,77 @@ sub get_new_node
 	# Add node to list of nodes
 	push(@all_nodes, $node);
 
-	# And update port for next time
-	$port_is_forced or $last_port_assigned = $port;
-
 	return $node;
+}
+
+=pod
+
+=item get_free_port()
+
+Locate an unprivileged (high) TCP port that's not currently bound to
+anything.  This is used by get_new_node, and is also exported for use
+by test cases that need to start other, non-Postgres servers.
+
+Ports assigned to existing PostgresNode objects are automatically
+excluded, even if those servers are not currently running.
+
+XXX A port available now may become unavailable by the time we start
+the desired service.
+
+=cut
+
+sub get_free_port
+{
+	my $found = 0;
+	my $port  = $last_port_assigned;
+
+	while ($found == 0)
+	{
+
+		# advance $port, wrapping correctly around range end
+		$port = 49152 if ++$port >= 65536;
+		print "# Checking port $port\n";
+
+		# Check first that candidate port number is not included in
+		# the list of already-registered nodes.
+		$found = 1;
+		foreach my $node (@all_nodes)
+		{
+			$found = 0 if ($node->port == $port);
+		}
+
+		# Check to see if anything else is listening on this TCP port.
+		# Seek a port available for all possible listen_addresses values,
+		# so callers can harness this port for the widest range of purposes.
+		# The 0.0.0.0 test achieves that for post-2006 Cygwin, which
+		# automatically sets SO_EXCLUSIVEADDRUSE.  The same holds for MSYS (a
+		# Cygwin fork).  Testing 0.0.0.0 is insufficient for Windows native
+		# Perl (https://stackoverflow.com/a/14388707), so we also test
+		# individual addresses.
+		#
+		# On non-Linux, non-Windows kernels, binding to 127.0.0/24 addresses
+		# other than 127.0.0.1 might fail with EADDRNOTAVAIL.  Binding to
+		# 0.0.0.0 is unnecessary on non-Windows systems.
+		if ($found == 1)
+		{
+			foreach my $addr (qw(127.0.0.1),
+				$use_tcp ? qw(127.0.0.2 127.0.0.3 0.0.0.0) : ())
+			{
+				if (!can_bind($addr, $port))
+				{
+					$found = 0;
+					last;
+				}
+			}
+		}
+	}
+
+	print "# Found port $port\n";
+
+	# Update port for next time
+	$last_port_assigned = $port;
+
+	return $port;
 }
 
 # Internal routine to check whether a host:port is available to bind
@@ -1168,20 +1234,6 @@ sub can_bind
 	return $ret;
 }
 
-# Retain the errno on die() if set, else assume a generic errno of 1.
-# This will instruct the END handler on how to handle artifacts left
-# behind from tests.
-$SIG{__DIE__} = sub {
-	if ($!)
-	{
-		$died = $!;
-	}
-	else
-	{
-		$died = 1;
-	}
-};
-
 # Automatically shut down any still-running nodes when the test script exits.
 # Note that this just stops the postmasters (in the same order the nodes were
 # created in).  Any temporary directories are deleted, in an unspecified
@@ -1200,8 +1252,7 @@ END
 		next if defined $ENV{'PG_TEST_NOCLEAN'};
 
 		# clean basedir on clean test invocation
-		$node->clean_node
-		  if TestLib::all_tests_passing() && !defined $died && !$exit_code;
+		$node->clean_node if $exit_code == 0 && TestLib::all_tests_passing();
 	}
 
 	$? = $exit_code;
@@ -1335,6 +1386,12 @@ the B<timed_out> parameter is also given.
 If B<timeout> is set and this parameter is given, the scalar it references
 is set to true if the psql call times out.
 
+=item replication => B<value>
+
+If set, add B<replication=value> to the conninfo string.
+Passing the literal value C<database> results in a logical replication
+connection.
+
 =item extra_params => ['--single-transaction']
 
 If given, it must be an array reference containing additional parameters to B<psql>.
@@ -1363,10 +1420,17 @@ sub psql
 
 	my $stdout            = $params{stdout};
 	my $stderr            = $params{stderr};
+	my $replication       = $params{replication};
 	my $timeout           = undef;
 	my $timeout_exception = 'psql timed out';
-	my @psql_params =
-	  ('psql', '-XAtq', '-d', $self->connstr($dbname), '-f', '-');
+	my @psql_params       = (
+		'psql',
+		'-XAtq',
+		'-d',
+		$self->connstr($dbname)
+		  . (defined $replication ? " replication=$replication" : ""),
+		'-f',
+		'-');
 
 	# If the caller wants an array and hasn't passed stdout/stderr
 	# references, allocate temporary ones to capture them so we
@@ -1492,6 +1556,73 @@ sub psql
 	{
 		return $ret;
 	}
+}
+
+=pod
+
+=item $node->interactive_psql($dbname, \$stdin, \$stdout, $timer, %params) => harness
+
+Invoke B<psql> on B<$dbname> and return an IPC::Run harness object,
+which the caller may use to send interactive input to B<psql>.
+The process's stdin is sourced from the $stdin scalar reference,
+and its stdout and stderr go to the $stdout scalar reference.
+ptys are used so that psql thinks it's being called interactively.
+
+The specified timer object is attached to the harness, as well.
+It's caller's responsibility to select the timeout length, and to
+restart the timer after each command if the timeout is per-command.
+
+psql is invoked in tuples-only unaligned mode with reading of B<.psqlrc>
+disabled.  That may be overridden by passing extra psql parameters.
+
+Dies on failure to invoke psql, or if psql fails to connect.
+Errors occurring later are the caller's problem.
+
+Be sure to "finish" the harness when done with it.
+
+The only extra parameter currently accepted is
+
+=over
+
+=item extra_params => ['--single-transaction']
+
+If given, it must be an array reference containing additional parameters to B<psql>.
+
+=back
+
+This requires IO::Pty in addition to IPC::Run.
+
+=cut
+
+sub interactive_psql
+{
+	my ($self, $dbname, $stdin, $stdout, $timer, %params) = @_;
+
+	my @psql_params = ('psql', '-XAt', '-d', $self->connstr($dbname));
+
+	push @psql_params, @{ $params{extra_params} }
+	  if defined $params{extra_params};
+
+	# Ensure there is no data waiting to be sent:
+	$$stdin = "" if ref($stdin);
+	# IPC::Run would otherwise append to existing contents:
+	$$stdout = "" if ref($stdout);
+
+	my $harness = IPC::Run::start \@psql_params,
+	  '<pty<', $stdin, '>pty>', $stdout, $timer;
+
+	# Pump until we see psql's help banner.  This ensures that callers
+	# won't write anything to the pty before it's ready, avoiding an
+	# implementation issue in IPC::Run.  Also, it means that psql
+	# connection failures are caught here, relieving callers of
+	# the need to handle those.  (Right now, we have no particularly
+	# good handling for errors anyway, but that might be added later.)
+	pump $harness
+	  until $$stdout =~ /Type "help" for help/ || $timer->is_expired;
+
+	die "psql startup timed out" if $timer->is_expired;
+
+	return $harness;
 }
 
 =pod

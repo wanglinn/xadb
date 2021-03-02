@@ -187,14 +187,14 @@ PgxcGroupCreateLocal(CreateGroupStmt *stmt)
 	values[Anum_pgxc_group_group_members - 1] = PointerGetDatum(nodes_array);
 
 	/* Open the relation for insertion */
-	rel = heap_open(PgxcGroupRelationId, RowExclusiveLock);
+	rel = table_open(PgxcGroupRelationId, RowExclusiveLock);
 	values[Anum_pgxc_group_oid-1] = ObjectIdGetDatum(GetNewOidWithIndex(rel, PgxcGroupOidIndexId, Anum_pgxc_group_oid));
 	tup = heap_form_tuple(rel->rd_att, values, nulls);
 
 	/* Do the insertion */
 	(void)CatalogTupleInsert(rel, tup);
 
-	heap_close(rel, RowExclusiveLock);
+	table_close(rel, RowExclusiveLock);
 }
 
 /*
@@ -285,7 +285,7 @@ PgxcGroupRemoveLocal(DropGroupStmt *stmt)
 						group_name)));
 
 	/* Delete the pgxc_group tuple */
-	relation = heap_open(PgxcGroupRelationId, RowExclusiveLock);
+	relation = table_open(PgxcGroupRelationId, RowExclusiveLock);
 	tup = SearchSysCache(PGXCGROUPOID, ObjectIdGetDatum(group_oid), 0, 0, 0);
 
 	if (!HeapTupleIsValid(tup)) /* should not happen */
@@ -300,7 +300,7 @@ PgxcGroupRemoveLocal(DropGroupStmt *stmt)
 
 	ReleaseSysCache(tup);
 
-	heap_close(relation, RowExclusiveLock);
+	table_close(relation, RowExclusiveLock);
 }
 
 /* Get the nodeoid list without the current node
@@ -317,7 +317,7 @@ getCoordOid(bool *include_myself)
 	List 			*nodeOid_list = NIL;
 	bool			include_current_node = false;;
 
-	rel = heap_open(PgxcNodeRelationId, AccessShareLock);
+	rel = table_open(PgxcNodeRelationId, AccessShareLock);
 	ScanKeyInit(&skey[0],
 				Anum_pgxc_node_node_type,
 				BTEqualStrategyNumber, F_CHAREQ,

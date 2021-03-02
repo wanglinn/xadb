@@ -2,12 +2,12 @@
 #include "postgres.h"
 
 #include "commands/tablespace.h"
+#include "common/hashfn.h"
 #include "executor/executor.h"
 #include "executor/nodeHash.h"
 #include "executor/nodeReduceScan.h"
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
-#include "utils/hashutils.h"
 #include "utils/memutils.h"
 #include "utils/sharedtuplestore.h"
 #include "utils/typcache.h"

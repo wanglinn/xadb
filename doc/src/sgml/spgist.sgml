@@ -1,6 +1,6 @@
 <!-- doc/src/sgml/spgist.sgml -->
 
-<chapter id="spgist">
+<chapter id="spgist" xreflabel="SP-GiST">
 <title>SP-GiST Indexes</title>
 
    <indexterm>
@@ -139,6 +139,7 @@
        <literal>|&amp;&gt;</literal>
       </entry>
       <entry>
+       <literal>&lt;-&gt;</literal>
       </entry>
      </row>
      <row>
@@ -213,7 +214,7 @@
   The <literal>quad_point_ops</literal>, <literal>kd_point_ops</literal> and
   <literal>poly_ops</literal> operator classes support the <literal>&lt;-&gt;</literal>
   ordering operator, which enables the k-nearest neighbor (<literal>k-NN</literal>)
-  search over indexed point or polygon datasets.
+  search over indexed point or polygon data sets.
  </para>
 
 </sect1>
@@ -968,7 +969,7 @@ typedef struct spgLeafConsistentOut
  </sect2>
 
  <sect2 id="spgist-all-the-same">
-  <title><quote>All-the-same</quote> Inner Tuples</title>
+  <title><quote>All-the-Same</quote> Inner Tuples</title>
 
   <para>
    The <acronym>SP-GiST</acronym> core can override the results of the

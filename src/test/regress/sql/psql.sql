@@ -38,6 +38,13 @@ SELECT 3 as three, 4 as four \gx
 
 \unset FETCH_COUNT
 
+-- \g/\gx with pset options
+
+SELECT 1 as one, 2 as two \g (format=csv csv_fieldsep='\t')
+\g
+SELECT 1 as one, 2 as two \gx (title='foo bar')
+\g
+
 -- \gset
 
 select 10 as test01, 20 as test02, 'Hello' as test03 \gset pref01_
@@ -771,6 +778,22 @@ drop table psql_serial_tab;
 \pset expanded off
 \pset border 1
 
+-- \echo and allied features
+
+\echo this is a test
+\echo -n without newline
+\echo with -n newline
+\echo '-n' with newline
+
+\set foo bar
+\echo foo = :foo
+
+\qecho this is a test
+\qecho foo = :foo
+
+\warn this is a test
+\warn foo = :foo
+
 -- tests for \if ... \endif
 
 \if true
@@ -825,6 +848,17 @@ select \if false \\ (bogus \else \\ 42 \endif \\ forty_two;
 	\echo 'should not print #2-4'
 \else
 	\echo 'all false'
+\endif
+
+-- test true-false elif after initial true branch
+\if true
+	\echo 'should print #2-5'
+\elif true
+	\echo 'should not print #2-6'
+\elif false
+	\echo 'should not print #2-7'
+\else
+	\echo 'should not print #2-8'
 \endif
 
 -- test simple true-then-else
@@ -895,22 +929,59 @@ select \if false \\ (bogus \else \\ 42 \endif \\ forty_two;
 	:try_to_quit
 	\echo `nosuchcommand` :foo :'foo' :"foo"
 	\pset fieldsep | `nosuchcommand` :foo :'foo' :"foo"
-	\a \C arg1 \c arg1 arg2 arg3 arg4 \cd arg1 \conninfo
+	\a
+	\C arg1
+	\c arg1 arg2 arg3 arg4
+	\cd arg1
+	\conninfo
 	\copy arg1 arg2 arg3 arg4 arg5 arg6
-	\copyright \dt arg1 \e arg1 arg2
+	\copyright
+	SELECT 1 as one, 2, 3 \crosstabview
+	\dt arg1
+	\e arg1 arg2
 	\ef whole_line
 	\ev whole_line
-	\echo arg1 arg2 arg3 arg4 arg5 \echo arg1 \encoding arg1 \errverbose
-	\g arg1 \gx arg1 \gexec \h \html \i arg1 \ir arg1 \l arg1 \lo arg1 arg2
-	\o arg1 \p \password arg1 \prompt arg1 arg2 \pset arg1 arg2 \q
-	\reset \s arg1 \set arg1 arg2 arg3 arg4 arg5 arg6 arg7 \setenv arg1 arg2
+	\echo arg1 arg2 arg3 arg4 arg5
+	\echo arg1
+	\encoding arg1
+	\errverbose
+	\f arg1
+	\g arg1
+	\gx arg1
+	\gexec
+	SELECT 1 AS one \gset
+	\h
+	\?
+	\html
+	\i arg1
+	\ir arg1
+	\l arg1
+	\lo arg1 arg2
+	\lo_list
+	\o arg1
+	\p
+	\password arg1
+	\prompt arg1 arg2
+	\pset arg1 arg2
+	\q
+	\reset
+	\s arg1
+	\set arg1 arg2 arg3 arg4 arg5 arg6 arg7
+	\setenv arg1 arg2
 	\sf whole_line
 	\sv whole_line
-	\t arg1 \T arg1 \timing arg1 \unset arg1 \w arg1 \watch arg1 \x arg1
+	\t arg1
+	\T arg1
+	\timing arg1
+	\unset arg1
+	\w arg1
+	\watch arg1
+	\x arg1
 	-- \else here is eaten as part of OT_FILEPIPE argument
 	\w |/no/such/file \else
 	-- \endif here is eaten as part of whole-line argument
 	\! whole_line \endif
+	\z
 \else
 	\echo 'should print #8-1'
 \endif
@@ -1115,3 +1186,24 @@ set search_path to default;
 
 set role to default;
 drop role regress_partitioning_role;
+
+-- \d on toast table (use pg_statistic's toast table, which has a known name)
+\d pg_toast.pg_toast_2619
+
+-- check printing info about access methods
+\dA
+\dA *
+\dA h*
+\dA foo
+\dA foo bar
+\dA+
+\dA+ *
+\dA+ h*
+\dA+ foo
+\dAc brin pg*.oid*
+\dAf spgist
+\dAf btree int4
+\dAo+ btree float_ops
+\dAo * pg_catalog.jsonb_path_ops
+\dAp btree float_ops
+\dAp * pg_catalog.uuid_ops

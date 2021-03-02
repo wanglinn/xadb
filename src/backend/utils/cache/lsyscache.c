@@ -3,7 +3,7 @@
  * lsyscache.c
  *	  Convenience routines for common queries in the system catalog cache.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -23,6 +23,7 @@
 #include "catalog/pg_am.h"
 #include "catalog/pg_amop.h"
 #include "catalog/pg_amproc.h"
+#include "catalog/pg_cast.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_constraint.h"
 #include "catalog/pg_language.h"
@@ -744,6 +745,55 @@ equality_ops_are_compatible(Oid opno1, Oid opno2)
 	return result;
 }
 
+/*
+ * comparison_ops_are_compatible
+ *		Return true if the two given comparison operators have compatible
+ *		semantics.
+ *
+ * This is trivially true if they are the same operator.  Otherwise,
+ * we look to see if they can be found in the same btree opfamily.
+ * For example, '<' and '>=' ops match if they belong to the same family.
+ *
+ * (This is identical to equality_ops_are_compatible(), except that we
+ * don't bother to examine hash opclasses.)
+ */
+bool
+comparison_ops_are_compatible(Oid opno1, Oid opno2)
+{
+	bool		result;
+	CatCList   *catlist;
+	int			i;
+
+	/* Easy if they're the same operator */
+	if (opno1 == opno2)
+		return true;
+
+	/*
+	 * We search through all the pg_amop entries for opno1.
+	 */
+	catlist = SearchSysCacheList1(AMOPOPID, ObjectIdGetDatum(opno1));
+
+	result = false;
+	for (i = 0; i < catlist->n_members; i++)
+	{
+		HeapTuple	op_tuple = &catlist->members[i]->tuple;
+		Form_pg_amop op_form = (Form_pg_amop) GETSTRUCT(op_tuple);
+
+		if (op_form->amopmethod == BTREE_AM_OID)
+		{
+			if (op_in_opfamily(opno2, op_form->amopfamily))
+			{
+				result = true;
+				break;
+			}
+		}
+	}
+
+	ReleaseSysCacheList(catlist);
+
+	return result;
+}
+
 
 /*				---------- AMPROC CACHES ----------						 */
 
@@ -952,6 +1002,66 @@ get_atttypetypmodcoll(Oid relid, AttrNumber attnum,
 	*typmod = att_tup->atttypmod;
 	*collid = att_tup->attcollation;
 	ReleaseSysCache(tp);
+}
+
+/*
+ * get_attoptions
+ *
+ *		Given the relation id and the attribute number,
+ *		return the attribute options text[] datum, if any.
+ */
+Datum
+get_attoptions(Oid relid, int16 attnum)
+{
+	HeapTuple	tuple;
+	Datum		attopts;
+	Datum		result;
+	bool		isnull;
+
+	tuple = SearchSysCache2(ATTNUM,
+							ObjectIdGetDatum(relid),
+							Int16GetDatum(attnum));
+
+	if (!HeapTupleIsValid(tuple))
+		elog(ERROR, "cache lookup failed for attribute %d of relation %u",
+			 attnum, relid);
+
+	attopts = SysCacheGetAttr(ATTNAME, tuple, Anum_pg_attribute_attoptions,
+							  &isnull);
+
+	if (isnull)
+		result = (Datum) 0;
+	else
+		result = datumCopy(attopts, false, -1); /* text[] */
+
+	ReleaseSysCache(tuple);
+
+	return result;
+}
+
+/*				---------- PG_CAST CACHE ----------					 */
+
+/*
+ * get_cast_oid - given two type OIDs, look up a cast OID
+ *
+ * If missing_ok is false, throw an error if the cast is not found.  If
+ * true, just return InvalidOid.
+ */
+Oid
+get_cast_oid(Oid sourcetypeid, Oid targettypeid, bool missing_ok)
+{
+	Oid			oid;
+
+	oid = GetSysCacheOid2(CASTSOURCETARGET, Anum_pg_cast_oid,
+						  ObjectIdGetDatum(sourcetypeid),
+						  ObjectIdGetDatum(targettypeid));
+	if (!OidIsValid(oid) && !missing_ok)
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("cast from type %s to type %s does not exist",
+						format_type_be(sourcetypeid),
+						format_type_be(targettypeid))));
+	return oid;
 }
 
 /*				---------- COLLATION CACHE ----------					 */
@@ -2333,7 +2443,7 @@ get_typalign(Oid typid)
 		return result;
 	}
 	else
-		return 'i';
+		return TYPALIGN_INT;
 }
 #endif
 
@@ -2353,7 +2463,7 @@ get_typstorage(Oid typid)
 		return result;
 	}
 	else
-		return 'p';
+		return TYPSTORAGE_PLAIN;
 }
 
 /*
@@ -3129,19 +3239,6 @@ get_attstatsslot(AttStatsSlot *sslot, HeapTuple statstuple,
 	sslot->staop = (&stats->staop1)[i];
 	sslot->stacoll = (&stats->stacoll1)[i];
 
-	/*
-	 * XXX Hopefully-temporary hack: if stacoll isn't set, inject the default
-	 * collation.  This won't matter for non-collation-aware datatypes.  For
-	 * those that are, this covers cases where stacoll has not been set.  In
-	 * the short term we need this because some code paths involving type NAME
-	 * do not pass any collation to prefix_selectivity and related functions.
-	 * Even when that's been fixed, it's likely that some add-on typanalyze
-	 * functions won't get the word right away about filling stacoll during
-	 * ANALYZE, so we'll probably need this for awhile.
-	 */
-	if (sslot->stacoll == InvalidOid)
-		sslot->stacoll = DEFAULT_COLLATION_OID;
-
 	if (flags & ATTSTATSSLOT_VALUES)
 	{
 		val = SysCacheGetAttr(STATRELATTINH, statstuple,
@@ -3312,6 +3409,32 @@ get_range_subtype(Oid rangeOid)
 		return InvalidOid;
 }
 
+/*
+ * get_range_collation
+ *		Returns the collation of a given range type
+ *
+ * Returns InvalidOid if the type is not a range type,
+ * or if its subtype is not collatable.
+ */
+Oid
+get_range_collation(Oid rangeOid)
+{
+	HeapTuple	tp;
+
+	tp = SearchSysCache1(RANGETYPE, ObjectIdGetDatum(rangeOid));
+	if (HeapTupleIsValid(tp))
+	{
+		Form_pg_range rngtup = (Form_pg_range) GETSTRUCT(tp);
+		Oid			result;
+
+		result = rngtup->rngcollation;
+		ReleaseSysCache(tp);
+		return result;
+	}
+	else
+		return InvalidOid;
+}
+
 /*				---------- PG_INDEX CACHE ----------				 */
 
 /*
@@ -3319,7 +3442,8 @@ get_range_subtype(Oid rangeOid)
  *
  *		Given the index OID and column number,
  *		return opclass of the index column
- *			or InvalidOid if the index was not found.
+ *			or InvalidOid if the index was not found
+ *				or column is non-key one.
  */
 Oid
 get_index_column_opclass(Oid index_oid, int attno)
@@ -3342,16 +3466,94 @@ get_index_column_opclass(Oid index_oid, int attno)
 	/* caller is supposed to guarantee this */
 	Assert(attno > 0 && attno <= rd_index->indnatts);
 
+	/* Non-key attributes don't have an opclass */
+	if (attno > rd_index->indnkeyatts)
+	{
+		ReleaseSysCache(tuple);
+		return InvalidOid;
+	}
+
 	datum = SysCacheGetAttr(INDEXRELID, tuple,
 							Anum_pg_index_indclass, &isnull);
 	Assert(!isnull);
 
 	indclass = ((oidvector *) DatumGetPointer(datum));
+
+	Assert(attno <= indclass->dim1);
 	opclass = indclass->values[attno - 1];
 
 	ReleaseSysCache(tuple);
 
 	return opclass;
+}
+
+/*
+ * get_index_isreplident
+ *
+ *		Given the index OID, return pg_index.indisreplident.
+ */
+bool
+get_index_isreplident(Oid index_oid)
+{
+	HeapTuple	tuple;
+	Form_pg_index rd_index;
+	bool		result;
+
+	tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(index_oid));
+	if (!HeapTupleIsValid(tuple))
+		return false;
+
+	rd_index = (Form_pg_index) GETSTRUCT(tuple);
+	result = rd_index->indisreplident;
+	ReleaseSysCache(tuple);
+
+	return result;
+}
+
+/*
+ * get_index_isvalid
+ *
+ *		Given the index OID, return pg_index.indisvalid.
+ */
+bool
+get_index_isvalid(Oid index_oid)
+{
+	bool		isvalid;
+	HeapTuple	tuple;
+	Form_pg_index rd_index;
+
+	tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(index_oid));
+	if (!HeapTupleIsValid(tuple))
+		elog(ERROR, "cache lookup failed for index %u", index_oid);
+
+	rd_index = (Form_pg_index) GETSTRUCT(tuple);
+	isvalid = rd_index->indisvalid;
+	ReleaseSysCache(tuple);
+
+	return isvalid;
+}
+
+/*
+ * get_index_isclustered
+ *
+ *		Given the index OID, return pg_index.indisclustered.
+ */
+bool
+get_index_isclustered(Oid index_oid)
+{
+	bool		isclustered;
+	HeapTuple	tuple;
+	Form_pg_index rd_index;
+
+	tuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(index_oid));
+	if (!HeapTupleIsValid(tuple))
+		elog(ERROR, "cache lookup failed for index %u", index_oid);
+
+	rd_index = (Form_pg_index) GETSTRUCT(tuple);
+	isclustered = rd_index->indisclustered;
+	ReleaseSysCache(tuple);
+
+	return isclustered;
 }
 
 #ifdef ADB

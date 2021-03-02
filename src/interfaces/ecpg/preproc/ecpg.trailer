@@ -291,38 +291,6 @@ prepared_name: name
 		;
 
 /*
- * Declare Statement
- */
-ECPGDeclareStmt: DECLARE prepared_name STATEMENT
-		{
-			struct declared_name_st *ptr = NULL;
-
-			/* Check whether the declared name has been defined or not */
-			for (ptr = g_declared_list; ptr != NULL; ptr = ptr->next)
-			{
-				if (strcmp($2, ptr->name) == 0)
-				{
-					/* re-definition is a bug */
-					mmerror(PARSE_ERROR, ET_ERROR, "declared name %s is already defined", ptr->name);
-				}
-			}
-
-			/* Add a new declared name into the g_declared_list */
-			ptr = NULL;
-			ptr = (struct declared_name_st *) mm_alloc(sizeof(struct declared_name_st));
-			if (ptr)
-			{
-				/* initial definition */
-				ptr->name = $2;
-				ptr->next = g_declared_list;
-				g_declared_list = ptr;
-			}
-
-			$$ = mm_strdup($2);
-		}
-;
-
-/*
  * Declare a prepared cursor. The syntax is different from the standard
  * declare statement, so we create a new rule.
  */
@@ -348,7 +316,6 @@ ECPGCursorStmt:  DECLARE cursor_name cursor_options CURSOR opt_hold FOR prepared
 			}
 
 			this = (struct cursor *) mm_alloc(sizeof(struct cursor));
-			memset(this, 0 ,sizeof(struct cursor));
 
 			/* initial definition */
 			this->next = cur;
@@ -358,7 +325,6 @@ ECPGCursorStmt:  DECLARE cursor_name cursor_options CURSOR opt_hold FOR prepared
 			this->command =  cat_str(6, mm_strdup("declare"), cursor_marker, $3, mm_strdup("cursor"), $5, mm_strdup("for $1"));
 			this->argsresult = NULL;
 			this->argsresult_oos = NULL;
-			this->prepared_name = $7;
 
 			thisquery->type = &ecpg_query;
 			thisquery->brace_level = 0;
@@ -830,22 +796,8 @@ unsigned_type: SQL_UNSIGNED SQL_SHORT		{ $$ = ECPGt_unsigned_short; }
 		| SQL_UNSIGNED INT_P				{ $$ = ECPGt_unsigned_int; }
 		| SQL_UNSIGNED SQL_LONG				{ $$ = ECPGt_unsigned_long; }
 		| SQL_UNSIGNED SQL_LONG INT_P		{ $$ = ECPGt_unsigned_long; }
-		| SQL_UNSIGNED SQL_LONG SQL_LONG
-		{
-#ifdef HAVE_LONG_LONG_INT
-			$$ = ECPGt_unsigned_long_long;
-#else
-			$$ = ECPGt_unsigned_long;
-#endif
-		}
-		| SQL_UNSIGNED SQL_LONG SQL_LONG INT_P
-		{
-#ifdef HAVE_LONG_LONG_INT
-			$$ = ECPGt_unsigned_long_long;
-#else
-			$$ = ECPGt_unsigned_long;
-#endif
-		}
+		| SQL_UNSIGNED SQL_LONG SQL_LONG	{ $$ = ECPGt_unsigned_long_long; }
+		| SQL_UNSIGNED SQL_LONG SQL_LONG INT_P { $$ = ECPGt_unsigned_long_long; }
 		| SQL_UNSIGNED CHAR_P			{ $$ = ECPGt_unsigned_char; }
 		;
 
@@ -854,22 +806,8 @@ signed_type: SQL_SHORT				{ $$ = ECPGt_short; }
 		| INT_P						{ $$ = ECPGt_int; }
 		| SQL_LONG					{ $$ = ECPGt_long; }
 		| SQL_LONG INT_P			{ $$ = ECPGt_long; }
-		| SQL_LONG SQL_LONG
-		{
-#ifdef HAVE_LONG_LONG_INT
-			$$ = ECPGt_long_long;
-#else
-			$$ = ECPGt_long;
-#endif
-		}
-		| SQL_LONG SQL_LONG INT_P
-		{
-#ifdef HAVE_LONG_LONG_INT
-			$$ = ECPGt_long_long;
-#else
-			$$ = ECPGt_long;
-#endif
-		}
+		| SQL_LONG SQL_LONG			{ $$ = ECPGt_long_long; }
+		| SQL_LONG SQL_LONG INT_P	{ $$ = ECPGt_long_long; }
 		| SQL_BOOL					{ $$ = ECPGt_bool; }
 		| CHAR_P					{ $$ = ECPGt_char; }
 		| DOUBLE_P					{ $$ = ECPGt_double; }
@@ -1099,7 +1037,7 @@ UsingValue: UsingConst
 		{
 			char *length = mm_alloc(32);
 
-			sprintf(length, "%d", (int) strlen($1));
+			sprintf(length, "%zu", strlen($1));
 			add_variable_to_head(&argsinsert, new_variable($1, ECPGmake_simple_type(ECPGt_const, length, 0), 0), &no_indicator);
 		}
 		| civar { $$ = EMPTY; }
@@ -1226,7 +1164,7 @@ IntConstVar: Iconst
 		{
 			char *length = mm_alloc(sizeof(int) * CHAR_BIT * 10 / 3);
 
-			sprintf(length, "%d", (int) strlen($1));
+			sprintf(length, "%zu", strlen($1));
 			new_variable($1, ECPGmake_simple_type(ECPGt_const, length, 0), 0);
 			$$ = $1;
 		}
@@ -1272,7 +1210,7 @@ AllConstVar: ecpg_fconst
 		{
 			char *length = mm_alloc(sizeof(int) * CHAR_BIT * 10 / 3);
 
-			sprintf(length, "%d", (int) strlen($1));
+			sprintf(length, "%zu", strlen($1));
 			new_variable($1, ECPGmake_simple_type(ECPGt_const, length, 0), 0);
 			$$ = $1;
 		}
@@ -1287,7 +1225,7 @@ AllConstVar: ecpg_fconst
 			char *length = mm_alloc(sizeof(int) * CHAR_BIT * 10 / 3);
 			char *var = cat2_str(mm_strdup("-"), $2);
 
-			sprintf(length, "%d", (int) strlen(var));
+			sprintf(length, "%zu", strlen(var));
 			new_variable(var, ECPGmake_simple_type(ECPGt_const, length, 0), 0);
 			$$ = var;
 		}
@@ -1297,7 +1235,7 @@ AllConstVar: ecpg_fconst
 			char *length = mm_alloc(sizeof(int) * CHAR_BIT * 10 / 3);
 			char *var = cat2_str(mm_strdup("-"), $2);
 
-			sprintf(length, "%d", (int) strlen(var));
+			sprintf(length, "%zu", strlen(var));
 			new_variable(var, ECPGmake_simple_type(ECPGt_const, length, 0), 0);
 			$$ = var;
 		}
@@ -1308,7 +1246,7 @@ AllConstVar: ecpg_fconst
 			char *var = $1 + 1;
 
 			var[strlen(var) - 1] = '\0';
-			sprintf(length, "%d", (int) strlen(var));
+			sprintf(length, "%zu", strlen(var));
 			new_variable(var, ECPGmake_simple_type(ECPGt_const, length, 0), 0);
 			$$ = var;
 		}
@@ -1781,46 +1719,12 @@ ecpg_bconst:	BCONST		{ $$ = make_name(); } ;
 
 ecpg_fconst:	FCONST		{ $$ = make_name(); } ;
 
-ecpg_sconst:
-		SCONST
-		{
-			/* could have been input as '' or $$ */
-			$$ = (char *)mm_alloc(strlen($1) + 3);
-			$$[0]='\'';
-			strcpy($$+1, $1);
-			$$[strlen($1)+1]='\'';
-			$$[strlen($1)+2]='\0';
-			free($1);
-		}
-		| ECONST
-		{
-			$$ = (char *)mm_alloc(strlen($1) + 4);
-			$$[0]='E';
-			$$[1]='\'';
-			strcpy($$+2, $1);
-			$$[strlen($1)+2]='\'';
-			$$[strlen($1)+3]='\0';
-			free($1);
-		}
-		| NCONST
-		{
-			$$ = (char *)mm_alloc(strlen($1) + 4);
-			$$[0]='N';
-			$$[1]='\'';
-			strcpy($$+2, $1);
-			$$[strlen($1)+2]='\'';
-			$$[strlen($1)+3]='\0';
-			free($1);
-		}
-		| UCONST	{ $$ = $1; }
-		| DOLCONST	{ $$ = $1; }
-		;
+ecpg_sconst:	SCONST		{ $$ = $1; } ;
 
 ecpg_xconst:	XCONST		{ $$ = make_name(); } ;
 
-ecpg_ident:	IDENT		{ $$ = make_name(); }
+ecpg_ident:	IDENT		{ $$ = $1; }
 		| CSTRING	{ $$ = make3_str(mm_strdup("\""), $1, mm_strdup("\"")); }
-		| UIDENT	{ $$ = $1; }
 		;
 
 quoted_ident_stringvar: name

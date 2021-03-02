@@ -35,40 +35,17 @@
 #include "executor/spi.h"
 #include "access/xlog.h"
 
-
-typedef struct StartAgentInfo
+typedef struct HostScanInfo
 {
 	Relation		rel_host;
 	TableScanDesc	rel_scan;
-}StartAgentInfo;
+	List		   *host_list;
+	int				index;
+}HostScanInfo;
 
-typedef struct StopAgentInfo
-{
-	Relation		rel_host;
-	TableScanDesc	rel_scan;
-    ListCell  **lcp;
-}StopAgentInfo;
-/*
-typedef struct InitNodeInfo
-{
-	Relation rel_node;
-	TableScanDesc rel_scan;
-	ListCell  **lcp;
-}InitNodeInfo;
-*/
-typedef struct InitHostInfo
-{
-	Relation rel_host;
-	TableScanDesc rel_scan;
-	ListCell  **lcp;
-}InitHostInfo;
-
-typedef struct InitDeployInfo
-{
-	Relation rel_host;
-	TableScanDesc rel_scan;
-	ListCell  **lcp;
-}InitDeployInfo;
+typedef struct HostScanInfo StopAgentInfo;
+typedef struct HostScanInfo InitHostInfo;
+typedef struct HostScanInfo InitDeployInfo;
 
 #if (Natts_mgr_host != 9)
 #error "need change code"
@@ -635,11 +612,10 @@ Datum mgr_deploy_all(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_host = table_open(HostRelationId, AccessShareLock);
 
 		info->rel_scan = table_beginscan_catalog(info->rel_host, 0, NULL);
-		info->lcp = NULL;
 
 		funcctx->user_fctx = info;
 		MemoryContextSwitchTo(oldcontext);
@@ -713,7 +689,6 @@ Datum mgr_deploy_hostnamelist(PG_FUNCTION_ARGS)
 {
 	InitDeployInfo *info = NULL;
 	FuncCallContext *funcctx = NULL;
-	ListCell **lcp = NULL;
 	ListCell *lc = NULL;
 	FILE volatile *tar = NULL;
 	HeapTuple out;
@@ -724,7 +699,6 @@ Datum mgr_deploy_hostnamelist(PG_FUNCTION_ARGS)
 	char *password = PG_GETARG_CSTRING(0);
 	char *str_addr;
 	char *str_path = NULL;
-	List *hostname_list = NIL;
 	List *host_list = NIL;
 	NameData name;
 	Datum datum;
@@ -753,11 +727,10 @@ Datum mgr_deploy_hostnamelist(PG_FUNCTION_ARGS)
 		info = palloc(sizeof(*info));
 		info->rel_host = table_open(HostRelationId, AccessShareLock);
 		info->rel_scan = table_beginscan_catalog(info->rel_host, 0, NULL);
-		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
+		info->index = 0;
 
-		hostname_list = DecodeTextArrayToValueList(PG_GETARG_DATUM(1));
-		check_host_name_isvaild(hostname_list);
-		*(info->lcp) = list_head(hostname_list);
+		info->host_list = DecodeTextArrayToValueList(PG_GETARG_DATUM(1));
+		check_host_name_isvaild(info->host_list);
 		funcctx->user_fctx = info;
 		MemoryContextSwitchTo(oldcontext);
 	}
@@ -767,8 +740,7 @@ Datum mgr_deploy_hostnamelist(PG_FUNCTION_ARGS)
 	info = funcctx->user_fctx;
 	Assert(info);
 
-	lcp = info->lcp;
-	if (*lcp == NULL)
+	if (info->index >= list_length(info->host_list))
 	{
 		table_endscan(info->rel_scan);
 		table_close(info->rel_host, AccessShareLock);
@@ -780,8 +752,8 @@ Datum mgr_deploy_hostnamelist(PG_FUNCTION_ARGS)
 
 	resetStringInfo(&buf);
 
-	hostname = (Value *)lfirst(*lcp);
-	*lcp = lnext(*lcp);
+	hostname = (Value *)list_nth(info->host_list, info->index);
+	++(info->index);
 
 	namestrcpy(&name, strVal(hostname));
 	tuple = SearchSysCache1(HOSTHOSTNAME, NameGetDatum(&name));
@@ -1160,8 +1132,6 @@ Datum mgr_start_agent_hostnamelist(PG_FUNCTION_ARGS)
 	HeapTuple tup_result;
 	Form_mgr_host mgr_host;
 	int ret;
-	List *listhost = NIL;
-	ListCell **lcp;
 	NameData name;
 	StringInfoData message;
 	StringInfoData exec_path;
@@ -1181,15 +1151,14 @@ Datum mgr_start_agent_hostnamelist(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 		info = palloc(sizeof(*info));
-		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
 		info->rel_node = table_open(HostRelationId, AccessShareLock);
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
 
 		datum_hostname_list = PG_GETARG_DATUM(1);
-		listhost = DecodeTextArrayToValueList(datum_hostname_list);
-		check_host_name_isvaild(listhost);
+		info->node_list = DecodeTextArrayToValueList(datum_hostname_list);
+		check_host_name_isvaild(info->node_list);
 
-		*(info->lcp) = list_head(listhost);
+		info->index = 0;
 		funcctx->user_fctx = info;
 		MemoryContextSwitchTo(oldcontext);
 	}
@@ -1197,15 +1166,14 @@ Datum mgr_start_agent_hostnamelist(PG_FUNCTION_ARGS)
 	funcctx = SRF_PERCALL_SETUP();
 	info = funcctx->user_fctx;
 	Assert(info);
-	lcp = info->lcp;
-	if (*lcp == NULL)
+	if (info->index >= list_length(info->node_list))
 	{
 		table_endscan(info->rel_scan);
 		table_close(info->rel_node, AccessShareLock);
 		SRF_RETURN_DONE(funcctx);
 	}
-	hostname = (Value *) lfirst(*lcp);
-	*lcp = lnext(*lcp);
+	hostname = (Value *) list_nth(info->node_list, info->index);
+	++(info->index);
 	namestrcpy(&name, strVal(hostname));
 	initStringInfo(&message);
 	initStringInfo(&exec_path);
@@ -1293,8 +1261,6 @@ Datum mgr_start_agent_all(PG_FUNCTION_ARGS)
 	HeapTuple tup_result;
 	Form_mgr_host mgr_host;
 	int ret;
-	List *listhost;
-	ListCell **lcp;
 	NameData name;
 	StringInfoData message;
 	StringInfoData exec_path;
@@ -1312,9 +1278,7 @@ Datum mgr_start_agent_all(PG_FUNCTION_ARGS)
 		MemoryContext oldcontext;
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-		info = palloc(sizeof(*info));
-		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
-		listhost = NIL;
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(HostRelationId, AccessShareLock);
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
 		/*get host list*/
@@ -1322,9 +1286,8 @@ Datum mgr_start_agent_all(PG_FUNCTION_ARGS)
 		{
 			mgr_host = (Form_mgr_host)GETSTRUCT(tup);
 			Assert(mgr_host);
-			listhost = lappend(listhost, mgr_host->hostname.data);
+			info->node_list = lappend(info->node_list, mgr_host->hostname.data);
 		}
-		*(info->lcp) = list_head(listhost);
 		funcctx->user_fctx = info;
 		MemoryContextSwitchTo(oldcontext);
 	}
@@ -1332,15 +1295,14 @@ Datum mgr_start_agent_all(PG_FUNCTION_ARGS)
 	funcctx = SRF_PERCALL_SETUP();
 	info = funcctx->user_fctx;
 	Assert(info);
-	lcp = info->lcp;
-	if (*lcp == NULL)
+	if (info->index >= list_length(info->node_list))
 	{
 		table_endscan(info->rel_scan);
 		table_close(info->rel_node, AccessShareLock);
 		SRF_RETURN_DONE(funcctx);
 	}
-	hostname = (char *) lfirst(*lcp);
-	*lcp = lnext(*lcp);
+	hostname = (char *) list_nth(info->node_list, info->index);
+	(info->index)++;
 	namestrcpy(&name, hostname);
 	initStringInfo(&message);
 	initStringInfo(&exec_path);
@@ -1505,10 +1467,9 @@ Datum mgr_stop_agent_all(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_host = table_open(HostRelationId, AccessShareLock);
 		info->rel_scan = table_beginscan_catalog(info->rel_host, 0, NULL);
-        info->lcp = NULL;
 
 		/* save info */
 		funcctx->user_fctx = info;
@@ -1604,7 +1565,6 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
 	StopAgentInfo *info;
-	ListCell **lcp = NULL;
 	HeapTuple tup;
 	HeapTuple tup_result;
 	Form_mgr_host mgr_host;
@@ -1614,8 +1574,6 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 	char cmdtype = AGT_CMD_STOP_AGENT;
 	int retry = 0;
 	const int retrymax = 10;
-	Datum datum_hostname_list;
-	List *hostname_list = NIL;
 	Value *hostname;
 	NameData name;
 
@@ -1624,14 +1582,12 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 		MemoryContext oldcontext;
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+		info = palloc0(sizeof(*info));
 
-		datum_hostname_list = PG_GETARG_DATUM(0);
-		hostname_list = DecodeTextArrayToValueList(datum_hostname_list);
-		check_host_name_isvaild(hostname_list);
+		info->host_list = DecodeTextArrayToValueList(PG_GETARG_DATUM(0));
+		check_host_name_isvaild(info->host_list);
 
-		info = palloc(sizeof(*info));
-		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
-		*(info->lcp) = list_head(hostname_list);
+		info->index = 0;
 		info->rel_host = table_open(HostRelationId, AccessShareLock);
 
 		/* save info */
@@ -1644,16 +1600,15 @@ Datum mgr_stop_agent_hostnamelist(PG_FUNCTION_ARGS)
 	info = funcctx->user_fctx;
 	Assert(info);
 
-	lcp = info->lcp;
-	if (*lcp == NULL)
+	if (info->index >= list_length(info->host_list))
 	{
 		table_close(info->rel_host, AccessShareLock);
 		pfree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
 
-	hostname = (Value *)lfirst(*lcp);
-	*lcp = lnext(*lcp);
+	hostname = (Value *)list_nth(info->host_list, info->index);
+	++(info->index);
 	namestrcpy(&name, strVal(hostname));
 
 	tup = SearchSysCache1(HOSTHOSTNAME, NameGetDatum(&name));
@@ -1757,11 +1712,10 @@ Datum mgr_monitor_agent_all(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_host = table_open(HostRelationId, AccessShareLock);
 
 		info->rel_scan = table_beginscan_catalog(info->rel_host, 0, NULL);
-		info->lcp = NULL;
 
 		funcctx->user_fctx = info;
 		MemoryContextSwitchTo(oldcontext);
@@ -1812,9 +1766,6 @@ Datum mgr_monitor_agent_all(PG_FUNCTION_ARGS)
 Datum mgr_monitor_agent_hostlist(PG_FUNCTION_ARGS)
 {
 	FuncCallContext * funcctx;
-	ListCell **lcp = NULL;
-	Datum datum_hostname_list;
-	List *hostname_list = NIL;
 	HeapTuple tup,tup_result;
 	InitHostInfo *info;
 	Value *hostname;
@@ -1829,14 +1780,11 @@ Datum mgr_monitor_agent_hostlist(PG_FUNCTION_ARGS)
 		MemoryContext oldcontext;
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+		info = palloc0(sizeof(*info));
 
-		datum_hostname_list = PG_GETARG_DATUM(0);
-		hostname_list = DecodeTextArrayToValueList(datum_hostname_list);
-		check_host_name_isvaild(hostname_list);
+		info->host_list = DecodeTextArrayToValueList(PG_GETARG_DATUM(0));
+		check_host_name_isvaild(info->host_list);
 
-		info = palloc(sizeof(*info));
-		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
-		*(info->lcp) = list_head(hostname_list);
 		info->rel_host = table_open(HostRelationId, AccessShareLock);
 
 		funcctx->user_fctx = info;
@@ -1848,16 +1796,15 @@ Datum mgr_monitor_agent_hostlist(PG_FUNCTION_ARGS)
 	info = funcctx->user_fctx;
 	Assert(info);
 
-	lcp = info->lcp;
-	if (*lcp == NULL)
+	if (info->index >= list_length(info->host_list))
 	{
 		table_close(info->rel_host, AccessShareLock);
 		pfree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
 
-	hostname = (Value *)lfirst(*lcp);
-	*lcp = lnext(*lcp);
+	hostname = (Value *)list_nth(info->host_list, info->index);
+	++(info->index);
 	namestrcpy(&name, strVal(hostname));
 
 	tup = SearchSysCache1(HOSTHOSTNAME, NameGetDatum(&name));

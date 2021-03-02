@@ -3,7 +3,7 @@
  * transam.c
  *	  postgres transaction (commit) log interface routines
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -489,7 +489,7 @@ TransactionIdGetCommitLSN(TransactionId xid)
 }
 
 #if defined(ADB) || defined(ADB_MULTI_GRAM)
-Datum pg_xact_status(PG_FUNCTION_ARGS)
+Datum adb_xact_status(PG_FUNCTION_ARGS)
 {
 	TransactionId	tid = (TransactionId) PG_GETARG_INT64(0);
 	XidStatus		xidstatus;

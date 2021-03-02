@@ -110,6 +110,7 @@ END_STRUCT(AggClauseCosts)
 BEGIN_STRUCT(AutoVacOpts)
 	NODE_SCALAR(bool,enabled)
 	NODE_SCALAR(int,vacuum_threshold)
+	NODE_SCALAR(int,vacuum_ins_threshold)
 	NODE_SCALAR(int,analyze_threshold)
 	NODE_SCALAR(int,vacuum_cost_limit)
 	NODE_SCALAR(int,freeze_min_age)
@@ -121,6 +122,7 @@ BEGIN_STRUCT(AutoVacOpts)
 	NODE_SCALAR(int,log_min_duration)
 	NODE_SCALAR(float8,vacuum_cost_delay)
 	NODE_SCALAR(float8,vacuum_scale_factor)
+	NODE_SCALAR(float8,vacuum_ins_scale_factor)
 	NODE_SCALAR(float8,analyze_scale_factor)
 END_STRUCT(AutoVacOpts)
 #endif /* NO_STRUCT_AutoVacOpts */
@@ -167,12 +169,17 @@ END_STRUCT(CustomScanMethods)
 
 #ifndef NO_STRUCT_EPQState
 BEGIN_STRUCT(EPQState)
-	NODE_NODE(EState,estate)
-	NODE_NODE(PlanState,planstate)
-	NODE_NODE(TupleTableSlot,origslot)
+	NODE_NODE(EState,parentestate)
+	NODE_SCALAR(int,epqParam)
+	NODE_NODE(List,tuple_table)
+TupleTableSlot **relsubs_slot
 	NODE_NODE(Plan,plan)
 	NODE_NODE(List,arowMarks)
-	NODE_SCALAR(int,epqParam)
+	NODE_NODE(TupleTableSlot,origslot)
+	NODE_NODE(EState,recheckestate)
+ExecAuxRowMark **relsubs_rowmark
+	NODE_SCALAR_POINT(bool,relsubs_done,NODE_ARG_->------)
+	NODE_NODE(PlanState,recheckplanstate)
 #ifdef ADB
 	NODE_NODE(PlanState,owner)
 #endif
@@ -229,9 +236,27 @@ BEGIN_STRUCT(HashInstrumentation)
 	NODE_SCALAR(int,nbuckets_original)
 	NODE_SCALAR(int,nbatch)
 	NODE_SCALAR(int,nbatch_original)
-	NODE_SCALAR(size_t,space_peak)
+	NODE_SCALAR(Size,space_peak)
 END_STRUCT(HashInstrumentation)
 #endif /* NO_STRUCT_HashInstrumentation */
+
+#ifndef NO_STRUCT_IncrementalSortGroupInfo
+BEGIN_STRUCT(IncrementalSortGroupInfo)
+int64 groupCount
+	NODE_SCALAR(long,maxDiskSpaceUsed)
+	NODE_SCALAR(long,totalDiskSpaceUsed)
+	NODE_SCALAR(long,maxMemorySpaceUsed)
+	NODE_SCALAR(long,totalMemorySpaceUsed)
+	NODE_SCALAR(bits32,sortMethods)
+END_STRUCT(IncrementalSortGroupInfo)
+#endif /* NO_STRUCT_IncrementalSortGroupInfo */
+
+#ifndef NO_STRUCT_IncrementalSortInfo
+BEGIN_STRUCT(IncrementalSortInfo)
+	NODE_STRUCT_MEB(IncrementalSortGroupInfo,fullsortGroupInfo)
+	NODE_STRUCT_MEB(IncrementalSortGroupInfo,prefixsortGroupInfo)
+END_STRUCT(IncrementalSortInfo)
+#endif /* NO_STRUCT_IncrementalSortInfo */
 
 #ifndef NO_STRUCT_JoinCostWorkspace
 BEGIN_STRUCT(JoinCostWorkspace)
@@ -348,10 +373,18 @@ BEGIN_STRUCT(ParamListInfoData)
 	NODE_OTHER_POINT(void,paramCompileArg)
 	NODE_OTHER_POINT(ParserSetupHook,parserSetup)
 	NODE_OTHER_POINT(void,parserSetupArg)
+	NODE_STRING(paramValuesStr)
 	NODE_SCALAR(int,numParams)
 	NODE_STRUCT_ARRAY(ParamExternData,params, NODE_ARG_->numParams)
 END_STRUCT(ParamListInfoData)
 #endif /* NO_STRUCT_ParamListInfoData */
+
+#ifndef NO_STRUCT_ParamsErrorCbData
+BEGIN_STRUCT(ParamsErrorCbData)
+	NODE_STRING(portalName)
+ParamListInfo params
+END_STRUCT(ParamsErrorCbData)
+#endif /* NO_STRUCT_ParamsErrorCbData */
 
 #ifndef NO_STRUCT_PartitionPruneStep
 BEGIN_STRUCT(PartitionPruneStep)
@@ -369,9 +402,17 @@ BEGIN_STRUCT(PartitionSchemeData)
 	NODE_SCALAR_POINT(Oid,partcollation,NODE_ARG_->------)
 	NODE_SCALAR_POINT(int16,parttyplen,NODE_ARG_->------)
 	NODE_SCALAR_POINT(bool,parttypbyval,NODE_ARG_->------)
-FmgrInfo *partsupfunc
+struct FmgrInfo *partsupfunc
 END_STRUCT(PartitionSchemeData)
 #endif /* NO_STRUCT_PartitionSchemeData */
+
+#ifndef NO_STRUCT_PresortedKeyData
+BEGIN_STRUCT(PresortedKeyData)
+FmgrInfo flinfo
+FunctionCallInfo fcinfo
+OffsetNumber attno
+END_STRUCT(PresortedKeyData)
+#endif /* NO_STRUCT_PresortedKeyData */
 
 #ifndef NO_STRUCT_QualCost
 BEGIN_STRUCT(QualCost)
@@ -379,6 +420,13 @@ BEGIN_STRUCT(QualCost)
 	NODE_SCALAR(Cost,per_tuple)
 END_STRUCT(QualCost)
 #endif /* NO_STRUCT_QualCost */
+
+#ifndef NO_STRUCT_QueryCompletion
+BEGIN_STRUCT(QueryCompletion)
+	NODE_ENUM(CommandTag,commandTag)
+	NODE_SCALAR(uint64,nprocessed)
+END_STRUCT(QueryCompletion)
+#endif /* NO_STRUCT_QueryCompletion */
 
 #if defined(ADB)
 #ifndef NO_STRUCT_ReduceInfo
@@ -432,6 +480,13 @@ HashInstrumentation hinstrument[FLEXIBLE_ARRAY_MEMBER]
 END_STRUCT(SharedHashInfo)
 #endif /* NO_STRUCT_SharedHashInfo */
 
+#ifndef NO_STRUCT_SharedIncrementalSortInfo
+BEGIN_STRUCT(SharedIncrementalSortInfo)
+	NODE_SCALAR(int,num_workers)
+IncrementalSortInfo sinfo[FLEXIBLE_ARRAY_MEMBER]
+END_STRUCT(SharedIncrementalSortInfo)
+#endif /* NO_STRUCT_SharedIncrementalSortInfo */
+
 #ifndef NO_STRUCT_SharedSortInfo
 BEGIN_STRUCT(SharedSortInfo)
 	NODE_SCALAR(int,num_workers)
@@ -443,7 +498,6 @@ END_STRUCT(SharedSortInfo)
 BEGIN_STRUCT(StdRdOptions)
 	NODE_SCALAR(int32,vl_len_)
 	NODE_SCALAR(int,fillfactor)
-	NODE_SCALAR(float8,vacuum_cleanup_index_scale_factor)
 	NODE_SCALAR(int,toast_tuple_target)
 	NODE_STRUCT_MEB(AutoVacOpts,autovacuum)
 	NODE_SCALAR(bool,user_catalog_table)
@@ -486,6 +540,6 @@ END_STRUCT(TupleHashTableData)
 BEGIN_STRUCT(ViewOptions)
 	NODE_SCALAR(int32,vl_len_)
 	NODE_SCALAR(bool,security_barrier)
-	NODE_SCALAR(int,check_option_offset)
+	NODE_ENUM(ViewOptCheckOption,check_option)
 END_STRUCT(ViewOptions)
 #endif /* NO_STRUCT_ViewOptions */

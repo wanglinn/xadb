@@ -1899,7 +1899,7 @@ Datum mgr_show_var_param(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 		ScanKeyInit(&key[0]
 				,Anum_mgr_node_nodeincluster
@@ -1907,7 +1907,6 @@ Datum mgr_show_var_param(PG_FUNCTION_ARGS)
 				,F_BOOLEQ
 				,BoolGetDatum(true));
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 1, key);
-		info->lcp =NULL;
 
 		/* save info */
 		funcctx->user_fctx = info;

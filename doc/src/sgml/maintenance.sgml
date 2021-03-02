@@ -347,7 +347,7 @@
   </sect2>
 
   <sect2 id="vacuum-for-visibility-map">
-   <title>Updating The Visibility Map</title>
+   <title>Updating the Visibility Map</title>
 
    <para>
     Vacuum maintains a <link linkend="storage-vm">visibility map</link> for each
@@ -707,7 +707,7 @@ HINT:  Stop the postmaster and vacuum that database in single-user mode.
    </sect3>
   </sect2>
 
-  <sect2 id="autovacuum">
+  <sect2 id="autovacuum" xreflabel="autovacuum">
    <title>The Autovacuum Daemon</title>
 
    <indexterm>
@@ -777,13 +777,33 @@ vacuum threshold = vacuum base threshold + vacuum scale factor * number of tuple
     <xref linkend="guc-autovacuum-vacuum-scale-factor"/>,
     and the number of tuples is
     <structname>pg_class</structname>.<structfield>reltuples</structfield>.
-    The number of obsolete tuples is obtained from the statistics
-    collector; it is a semi-accurate count updated by each
-    <command>UPDATE</command> and <command>DELETE</command> operation.  (It
-    is only semi-accurate because some information might be lost under heavy
-    load.)  If the <structfield>relfrozenxid</structfield> value of the table is more
-    than <varname>vacuum_freeze_table_age</varname> transactions old, an aggressive
-    vacuum is performed to freeze old tuples and advance
+   </para>
+
+   <para>
+    The table is also vacuumed if the number of tuples inserted since the last
+    vacuum has exceeded the defined insert threshold, which is defined as:
+<programlisting>
+vacuum insert threshold = vacuum base insert threshold + vacuum insert scale factor * number of tuples
+</programlisting>
+    where the vacuum insert base threshold is
+    <xref linkend="guc-autovacuum-vacuum-insert-threshold"/>,
+    and vacuum insert scale factor is
+    <xref linkend="guc-autovacuum-vacuum-insert-scale-factor"/>.
+    Such vacuums may allow portions of the table to be marked as
+    <firstterm>all visible</firstterm> and also allow tuples to be frozen, which
+    can reduce the work required in subsequent vacuums.
+    For tables which receive <command>INSERT</command> operations but no or
+    almost no <command>UPDATE</command>/<command>DELETE</command> operations,
+    it may be beneficial to lower the table's
+    <xref linkend="reloption-autovacuum-freeze-min-age"/> as this may allow
+    tuples to be frozen by earlier vacuums.  The number of obsolete tuples and
+    the number of inserted tuples are obtained from the statistics collector;
+    it is a semi-accurate count updated by each <command>UPDATE</command>,
+    <command>DELETE</command> and <command>INSERT</command> operation.  (It is
+    only semi-accurate because some information might be lost under heavy
+    load.)  If the <structfield>relfrozenxid</structfield> value of the table
+    is more than <varname>vacuum_freeze_table_age</varname> transactions old,
+    an aggressive vacuum is performed to freeze old tuples and advance
     <structfield>relfrozenxid</structfield>; otherwise, only pages that have been modified
     since the last vacuum are scanned.
    </para>
@@ -807,8 +827,7 @@ analyze threshold = analyze base threshold + analyze scale factor * number of tu
     The default thresholds and scale factors are taken from
     <filename>postgresql.conf</filename>, but it is possible to override them
     (and many other autovacuum control parameters) on a per-table basis; see
-    <xref linkend="sql-createtable-storage-parameters"
-    endterm="sql-createtable-storage-parameters-title"/> for more information.
+    <xref linkend="sql-createtable-storage-parameters"/> for more information.
     If a setting has been changed via a table's storage parameters, that value
     is used when processing that table; otherwise the global settings are
     used. See <xref linkend="runtime-config-autovacuum"/> for more details on
@@ -825,6 +844,26 @@ analyze threshold = analyze base threshold + analyze scale factor * number of tu
     <literal>autovacuum_vacuum_cost_limit</literal> storage parameters have been set
     are not considered in the balancing algorithm.
    </para>
+
+   <para>
+    Autovacuum workers generally don't block other commands.  If a process
+    attempts to acquire a lock that conflicts with the
+    <literal>SHARE UPDATE EXCLUSIVE</literal> lock held by autovacuum, lock
+    acquisition will interrupt the autovacuum.  For conflicting lock modes,
+    see <xref linkend="table-lock-compatibility"/>.  However, if the autovacuum
+    is running to prevent transaction ID wraparound (i.e., the autovacuum query
+    name in the <structname>pg_stat_activity</structname> view ends with
+    <literal>(to prevent wraparound)</literal>), the autovacuum is not
+    automatically interrupted.
+   </para>
+
+   <warning>
+    <para>
+     Regularly running commands that acquire locks conflicting with a
+     <literal>SHARE UPDATE EXCLUSIVE</literal> lock (e.g., ANALYZE) can
+     effectively prevent autovacuums from ever completing.
+    </para>
+   </warning>
   </sect2>
  </sect1>
 
@@ -871,7 +910,7 @@ analyze threshold = analyze base threshold + analyze scale factor * number of tu
    <xref linkend="sql-reindex"/> can be used safely and easily in all cases.
    This command requires an <literal>ACCESS EXCLUSIVE</literal> lock by
    default, hence it is often preferable to execute it with its
-   <literal>CONCURRENTLY</literal> option which requires only a
+   <literal>CONCURRENTLY</literal> option, which requires only a
    <literal>SHARE UPDATE EXCLUSIVE</literal> lock.
   </para>
  </sect1>

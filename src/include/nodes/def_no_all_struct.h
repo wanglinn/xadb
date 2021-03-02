@@ -10,6 +10,8 @@
 #define NO_STRUCT_ExprContext_CB
 #define NO_STRUCT_ExtensibleNodeMethods
 #define NO_STRUCT_HashInstrumentation
+#define NO_STRUCT_IncrementalSortGroupInfo
+#define NO_STRUCT_IncrementalSortInfo
 #define NO_STRUCT_JoinCostWorkspace
 #define NO_STRUCT_JoinPathExtraData
 #define NO_STRUCT_LocatorKeyInfo
@@ -22,14 +24,18 @@
 #define NO_STRUCT_MergeScanSelCache
 #define NO_STRUCT_ParamExternData
 #define NO_STRUCT_ParamListInfoData
+#define NO_STRUCT_ParamsErrorCbData
 #define NO_STRUCT_PartitionPruneStep
 #define NO_STRUCT_PartitionSchemeData
+#define NO_STRUCT_PresortedKeyData
 #define NO_STRUCT_QualCost
+#define NO_STRUCT_QueryCompletion
 #define NO_STRUCT_ReduceInfo
 #define NO_STRUCT_ReduceKeyInfo
 #define NO_STRUCT_RelationLocInfo
 #define NO_STRUCT_SemiAntiJoinFactors
 #define NO_STRUCT_SharedHashInfo
+#define NO_STRUCT_SharedIncrementalSortInfo
 #define NO_STRUCT_SharedSortInfo
 #define NO_STRUCT_StdRdOptions
 #define NO_STRUCT_TupleHashEntryData

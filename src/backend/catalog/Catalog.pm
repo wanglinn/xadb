@@ -4,7 +4,7 @@
 #    Perl module that extracts info from catalog files into Perl
 #    data structures
 #
-# Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 #
 # src/backend/catalog/Catalog.pm
@@ -331,35 +331,30 @@ sub AddDefaultValues
 	foreach my $column (@$schema)
 	{
 		my $attname = $column->{name};
-		my $atttype = $column->{type};
 
-		if (defined $row->{$attname})
-		{
-			;
-		}
-		elsif ($attname eq 'oid')
-		{
-			;
-		}
+		# No work if field already has a value.
+		next if defined $row->{$attname};
+
+		# Ignore 'oid' columns, they're handled elsewhere.
+		next if $attname eq 'oid';
+
 # ADB_BEGIN
-		elsif ($catname eq 'ora_cast' && $attname eq 'castid')
-		{
-			;
-		}
-		elsif ($catname eq 'ora_convert' && $attname eq 'cvtid')
-		{
-			;
-		}
+		# Ignore ora_cast::castid
+		next if ($catname eq 'ora_cast' && $attname eq 'castid');
+
+		# Ignore ora_convert::cvtid
+		next if ($catname eq 'ora_convert' && $attname eq 'cvtid');
 # ADB_END
-		elsif (defined $column->{default})
+
+		# If column has a default value, fill that in.
+		if (defined $column->{default})
 		{
 			$row->{$attname} = $column->{default};
+			next;
 		}
-		else
-		{
-			# Failed to find a value.
-			push @missing_fields, $attname;
-		}
+
+		# Failed to find a value for this field.
+		push @missing_fields, $attname;
 	}
 
 	# Failure to provide all columns is a hard error.

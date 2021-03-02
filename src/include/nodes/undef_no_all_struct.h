@@ -10,6 +10,8 @@
 #undef NO_STRUCT_ExprContext_CB
 #undef NO_STRUCT_ExtensibleNodeMethods
 #undef NO_STRUCT_HashInstrumentation
+#undef NO_STRUCT_IncrementalSortGroupInfo
+#undef NO_STRUCT_IncrementalSortInfo
 #undef NO_STRUCT_JoinCostWorkspace
 #undef NO_STRUCT_JoinPathExtraData
 #undef NO_STRUCT_LocatorKeyInfo
@@ -22,14 +24,18 @@
 #undef NO_STRUCT_MergeScanSelCache
 #undef NO_STRUCT_ParamExternData
 #undef NO_STRUCT_ParamListInfoData
+#undef NO_STRUCT_ParamsErrorCbData
 #undef NO_STRUCT_PartitionPruneStep
 #undef NO_STRUCT_PartitionSchemeData
+#undef NO_STRUCT_PresortedKeyData
 #undef NO_STRUCT_QualCost
+#undef NO_STRUCT_QueryCompletion
 #undef NO_STRUCT_ReduceInfo
 #undef NO_STRUCT_ReduceKeyInfo
 #undef NO_STRUCT_RelationLocInfo
 #undef NO_STRUCT_SemiAntiJoinFactors
 #undef NO_STRUCT_SharedHashInfo
+#undef NO_STRUCT_SharedIncrementalSortInfo
 #undef NO_STRUCT_SharedSortInfo
 #undef NO_STRUCT_StdRdOptions
 #undef NO_STRUCT_TupleHashEntryData

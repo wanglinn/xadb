@@ -3,7 +3,7 @@
  * buffile.c
  *	  Management of large buffered temporary files.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -45,9 +45,9 @@
 #include "executor/instrument.h"
 #include "miscadmin.h"
 #include "pgstat.h"
-#include "storage/fd.h"
-#include "storage/buffile.h"
 #include "storage/buf_internals.h"
+#include "storage/buffile.h"
+#include "storage/fd.h"
 #include "utils/resowner.h"
 
 /*
@@ -664,7 +664,7 @@ BufFileSeek(BufFile *file, int fileno, off_t offset, int whence)
 
 			/*
 			 * Relative seek considers only the signed offset, ignoring
-			 * fileno. Note that large offsets (> 1 gig) risk overflow in this
+			 * fileno. Note that large offsets (> 1 GB) risk overflow in this
 			 * add, unless we have 64-bit off_t.
 			 */
 			newFile = file->curFile;

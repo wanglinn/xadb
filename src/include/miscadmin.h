@@ -10,7 +10,7 @@
  *	  Over time, this has also become the preferred place for widely known
  *	  resource-limitation stuff, such as work_mem and check_stack_depth().
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/miscadmin.h
@@ -25,7 +25,7 @@
 
 #include <signal.h>
 
-#include "datatype/timestamp.h" /* for TimestampTZ */
+#include "datatype/timestamp.h" /* for TimestampTz */
 #include "pgtime.h"				/* for pg_time_t */
 
 #define InvalidPid				(-1)
@@ -81,7 +81,7 @@ extern PGDLLIMPORT volatile sig_atomic_t InterruptPending;
 extern PGDLLIMPORT volatile sig_atomic_t QueryCancelPending;
 extern PGDLLIMPORT volatile sig_atomic_t ProcDiePending;
 extern PGDLLIMPORT volatile sig_atomic_t IdleInTransactionSessionTimeoutPending;
-extern PGDLLIMPORT volatile sig_atomic_t ConfigReloadPending;
+extern PGDLLIMPORT volatile sig_atomic_t ProcSignalBarrierPending;
 
 extern PGDLLIMPORT volatile sig_atomic_t ClientConnectionLost;
 
@@ -97,16 +97,16 @@ extern void ProcessInterrupts(void);
 
 #define CHECK_FOR_INTERRUPTS() \
 do { \
-	if (InterruptPending) \
+	if (unlikely(InterruptPending)) \
 		ProcessInterrupts(); \
 } while(0)
 #else							/* WIN32 */
 
 #define CHECK_FOR_INTERRUPTS() \
 do { \
-	if (UNBLOCKED_SIGNAL_QUEUE()) \
+	if (unlikely(UNBLOCKED_SIGNAL_QUEUE())) \
 		pgwin32_dispatch_queued_signals(); \
-	if (InterruptPending) \
+	if (unlikely(InterruptPending)) \
 		ProcessInterrupts(); \
 } while(0)
 #endif							/* WIN32 */
@@ -251,9 +251,9 @@ extern int	VacuumCostPageDirty;
 extern int	VacuumCostLimit;
 extern double VacuumCostDelay;
 
-extern int	VacuumPageHit;
-extern int	VacuumPageMiss;
-extern int	VacuumPageDirty;
+extern int64 VacuumPageHit;
+extern int64 VacuumPageMiss;
+extern int64 VacuumPageDirty;
 
 extern int	VacuumCostBalance;
 extern bool VacuumCostActive;
@@ -286,8 +286,6 @@ extern void restore_stack_base(pg_stack_base_t base);
 extern void check_stack_depth(void);
 extern bool stack_is_too_deep(void);
 
-extern void PostgresSigHupHandler(SIGNAL_ARGS);
-
 /* in tcop/utility.c */
 extern void PreventCommandIfReadOnly(const char *cmdname);
 extern void PreventCommandIfParallelMode(const char *cmdname);
@@ -312,8 +310,41 @@ extern char *DatabasePath;
 /* now in utils/init/miscinit.c */
 extern void InitPostmasterChild(void);
 extern void InitStandaloneProcess(const char *argv0);
+extern void SwitchToSharedLatch(void);
+extern void SwitchBackToLocalLatch(void);
+
+typedef enum BackendType
+{
+	B_INVALID = 0,
+	B_AUTOVAC_LAUNCHER,
+	B_AUTOVAC_WORKER,
+	B_BACKEND,
+	B_BG_WORKER,
+	B_BG_WRITER,
+	B_CHECKPOINTER,
+	B_STARTUP,
+	B_WAL_RECEIVER,
+	B_WAL_SENDER,
+	B_WAL_WRITER,
+	B_ARCHIVER,
+	B_STATS_COLLECTOR,
+	B_LOGGER,
+#ifdef ADB
+	B_ADB_POOLER,
+	B_ADB_RXACT,
+	B_ADB_SNAP_SENDER,
+	B_ADB_SNAP_RECEIVER,
+#endif /* ADB */
+} BackendType;
+
+extern BackendType MyBackendType;
+
+extern const char *GetBackendTypeDesc(BackendType backendType);
 
 extern void SetDatabasePath(const char *path);
+extern void checkDataDir(void);
+extern void SetDataDir(const char *dir);
+extern void ChangeToDataDir(void);
 
 extern char *GetUserNameFromId(Oid roleid, bool noerr);
 extern Oid	GetUserId(void);
@@ -332,13 +363,6 @@ extern void InitializeSessionUserIdStandalone(void);
 extern void SetSessionAuthorization(Oid userid, bool is_superuser);
 extern Oid	GetCurrentRoleId(void);
 extern void SetCurrentRoleId(Oid roleid, bool is_superuser);
-
-extern void checkDataDir(void);
-extern void SetDataDir(const char *dir);
-extern void ChangeToDataDir(void);
-
-extern void SwitchToSharedLatch(void);
-extern void SwitchBackToLocalLatch(void);
 
 /* in utils/misc/superuser.c */
 extern bool superuser(void);	/* current user is superuser */

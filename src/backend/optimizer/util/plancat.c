@@ -4,7 +4,7 @@
  *	   routines for accessing the system catalogs
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -20,9 +20,9 @@
 #include "access/genam.h"
 #include "access/htup_details.h"
 #include "access/nbtree.h"
-#include "access/tableam.h"
 #include "access/sysattr.h"
 #include "access/table.h"
+#include "access/tableam.h"
 #include "access/transam.h"
 #include "access/xlog.h"
 #include "catalog/catalog.h"
@@ -41,9 +41,9 @@
 #include "optimizer/optimizer.h"
 #include "optimizer/plancat.h"
 #include "optimizer/prep.h"
-#include "partitioning/partdesc.h"
 #include "parser/parse_relation.h"
 #include "parser/parsetree.h"
+#include "partitioning/partdesc.h"
 #include "rewrite/rewriteManip.h"
 #include "statistics/statistics.h"
 #include "storage/bufmgr.h"
@@ -51,8 +51,8 @@
 #include "utils/lsyscache.h"
 #include "utils/partcache.h"
 #include "utils/rel.h"
-#include "utils/syscache.h"
 #include "utils/snapmgr.h"
+#include "utils/syscache.h"
 #ifdef ADB
 #include "catalog/pg_inherits.h"
 #include "pgxc/pgxc.h"
@@ -77,6 +77,9 @@ static void set_relation_partition_info(PlannerInfo *root, RelOptInfo *rel,
 static PartitionScheme find_partition_scheme(PlannerInfo *root, Relation rel);
 static void set_baserel_partition_key_exprs(Relation relation,
 											RelOptInfo *rel);
+static void set_baserel_partition_constraint(Relation relation,
+											 RelOptInfo *rel);
+
 
 /*
  * get_relation_info -
@@ -280,6 +283,9 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 			info->amcostestimate = amroutine->amcostestimate;
 			Assert(info->amcostestimate != NULL);
 
+			/* Fetch index opclass options */
+			info->opclassoptions = RelationGetIndexAttOptions(indexRelation, true);
+
 			/*
 			 * Fetch the ordering information for the index, if any.
 			 */
@@ -433,6 +439,13 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 
 			index_close(indexRelation, NoLock);
 
+			/*
+			 * We've historically used lcons() here.  It'd make more sense to
+			 * use lappend(), but that causes the planner to change behavior
+			 * in cases where two indexes seem equally attractive.  For now,
+			 * stick with lcons() --- few tables should have so many indexes
+			 * that the O(N^2) behavior of lcons() is really a problem.
+			 */
 			indexinfos = lcons(info, indexinfos);
 		}
 
@@ -1182,32 +1195,14 @@ get_relation_data_width(Oid relid, int32 *attr_widths)
  * run, and in many cases it won't be invoked at all, so there seems no
  * point in caching the data in RelOptInfo.
  */
-List *
-get_relation_constraints(PlannerInfo *root,
-						 Oid relationObjectId, RelOptInfo *rel,
-						 bool include_noinherit,
-						 bool include_notnull,
-						 bool include_partition)
-{
-	return get_relation_constraints_base(root, relationObjectId, rel->relid,
-										 include_noinherit,
-										 include_notnull,
-										 include_partition);
-}
-List *get_relation_constraints_base(PlannerInfo *root,
-									Oid relationObjectId, Index varno,
-									bool include_noinherit,
-									bool include_notnull,
-									bool include_partition)
+static List *
+get_relation_constraints_internal(PlannerInfo *root,
+								  Relation relation, Index varno,
+								  bool include_noinherit,
+								  bool include_notnull)
 {
 	List	   *result = NIL;
-	Relation	relation;
 	TupleConstr *constr;
-
-	/*
-	 * We assume the relation has already been safely locked.
-	 */
-	relation = table_open(relationObjectId, NoLock);
 
 	constr = relation->rd_att->constr;
 	if (constr != NULL)
@@ -1291,31 +1286,61 @@ List *get_relation_constraints_base(PlannerInfo *root,
 		}
 	}
 
+	return result;
+}
+
+List *
+get_relation_constraints(PlannerInfo *root,
+						 Oid relationObjectId, RelOptInfo *rel,
+						 bool include_noinherit,
+						 bool include_notnull,
+						 bool include_partition)
+{
+	Relation	relation;
+	List	   *result;
+
+	/*
+	 * We assume the relation has already been safely locked.
+	 */
+	relation = table_open(relationObjectId, NoLock);
+
+	result = get_relation_constraints_internal(root, relation,
+											   rel->relid,
+											   include_noinherit,
+											   include_notnull);
+
 	/*
 	 * Add partitioning constraints, if requested.
 	 */
 	if (include_partition && relation->rd_rel->relispartition)
 	{
-		List	   *pcqual = RelationGetPartitionQual(relation);
-
-		if (pcqual)
-		{
-			/*
-			 * Run the partition quals through const-simplification similar to
-			 * check constraints.  We skip canonicalize_qual, though, because
-			 * partition quals should be in canonical form already; also,
-			 * since the qual is in implicit-AND format, we'd have to
-			 * explicitly convert it to explicit-AND format and back again.
-			 */
-			pcqual = (List *) eval_const_expressions(root, (Node *) pcqual);
-
-			/* Fix Vars to have the desired varno */
-			if (varno != 1)
-				ChangeVarNodes((Node *) pcqual, 1, varno, 0);
-
-			result = list_concat(result, pcqual);
-		}
+		/* make sure rel->partition_qual is set */
+		set_baserel_partition_constraint(relation, rel);
+		result = list_concat(result, rel->partition_qual);
 	}
+
+	table_close(relation, NoLock);
+
+	return result;
+}
+
+List *get_relation_constraints_base(PlannerInfo *root,
+									Oid relationObjectId, Index varno,
+									bool include_noinherit,
+									bool include_notnull,
+									bool include_partition)
+{
+	Relation	relation;
+	List	   *result;
+
+	/*
+	 * We assume the relation has already been safely locked.
+	 */
+	relation = table_open(relationObjectId, NoLock);
+
+	result = get_relation_constraints_internal(root, relation, varno,
+											   include_noinherit,
+											   include_notnull);
 
 	table_close(relation, NoLock);
 
@@ -1375,7 +1400,7 @@ get_relation_statistics(RelOptInfo *rel, Relation relation)
 			info->kind = STATS_EXT_NDISTINCT;
 			info->keys = bms_copy(keys);
 
-			stainfos = lcons(info, stainfos);
+			stainfos = lappend(stainfos, info);
 		}
 
 		if (statext_is_kind_built(dtup, STATS_EXT_DEPENDENCIES))
@@ -1387,7 +1412,7 @@ get_relation_statistics(RelOptInfo *rel, Relation relation)
 			info->kind = STATS_EXT_DEPENDENCIES;
 			info->keys = bms_copy(keys);
 
-			stainfos = lcons(info, stainfos);
+			stainfos = lappend(stainfos, info);
 		}
 
 		if (statext_is_kind_built(dtup, STATS_EXT_MCV))
@@ -1399,7 +1424,7 @@ get_relation_statistics(RelOptInfo *rel, Relation relation)
 			info->kind = STATS_EXT_MCV;
 			info->keys = bms_copy(keys);
 
-			stainfos = lcons(info, stainfos);
+			stainfos = lappend(stainfos, info);
 		}
 
 		ReleaseSysCache(htup);
@@ -1778,7 +1803,7 @@ build_index_tlist(PlannerInfo *root, IndexOptInfo *index,
 			if (indexpr_item == NULL)
 				elog(ERROR, "wrong number of index expressions");
 			indexvar = (Expr *) lfirst(indexpr_item);
-			indexpr_item = lnext(indexpr_item);
+			indexpr_item = lnext(index->indexprs, indexpr_item);
 		}
 
 		tlist = lappend(tlist,
@@ -2145,12 +2170,12 @@ has_stored_generated_columns(PlannerInfo *root, Index rti)
 	bool		result = false;
 
 	/* Assume we already have adequate lock */
-	relation = heap_open(rte->relid, NoLock);
+	relation = table_open(rte->relid, NoLock);
 
 	tupdesc = RelationGetDescr(relation);
 	result = tupdesc->constr && tupdesc->constr->has_generated_stored;
 
-	heap_close(relation, NoLock);
+	table_close(relation, NoLock);
 
 	return result;
 }
@@ -2189,7 +2214,7 @@ bool reloid_list_has_any_triggers(List *list, CmdType event)
 
 	foreach(lc, list)
 	{
-		relation = heap_open(lfirst_oid(lc), NoLock);
+		relation = table_open(lfirst_oid(lc), NoLock);
 		trigDesc = relation->trigdesc;
 		switch (event)
 		{
@@ -2221,7 +2246,7 @@ bool reloid_list_has_any_triggers(List *list, CmdType event)
 				elog(ERROR, "unrecognized CmdType: %d", (int) event);
 				break;
 		}
-		heap_close(relation, NoLock);
+		table_close(relation, NoLock);
 		if (result)
 			break;
 	}
@@ -2254,7 +2279,7 @@ set_relation_partition_info(PlannerInfo *root, RelOptInfo *rel,
 	rel->boundinfo = partdesc->boundinfo;
 	rel->nparts = partdesc->nparts;
 	set_baserel_partition_key_exprs(relation, rel);
-	rel->partition_qual = RelationGetPartitionQual(relation);
+	set_baserel_partition_constraint(relation, rel);
 }
 
 /*
@@ -2384,9 +2409,8 @@ PartitionScheme build_partschema_from_partkey(PartitionKey partkey)
 /*
  * set_baserel_partition_key_exprs
  *
- * Builds partition key expressions for the given base relation and sets them
- * in given RelOptInfo.  Any single column partition keys are converted to Var
- * nodes.  All Var nodes are restamped with the relid of given relation.
+ * Builds partition key expressions for the given base relation and fills
+ * rel->partexprs.
  */
 static void
 set_baserel_partition_key_exprs(Relation relation,
@@ -2437,19 +2461,52 @@ void adb_set_rel_partition_key_exprs(PartitionKey partkey, RelOptInfo *rel)
 			/* Re-stamp the expression with given varno. */
 			partexpr = (Expr *) copyObject(lfirst(lc));
 			ChangeVarNodes((Node *) partexpr, 1, varno, 0);
-			lc = lnext(lc);
+			lc = lnext(partkey->partexprs, lc);
 		}
 
+		/* Base relations have a single expression per key. */
 		partexprs[cnt] = list_make1(partexpr);
 	}
 
 	rel->partexprs = partexprs;
 
 	/*
-	 * A base relation can not have nullable partition key expressions. We
-	 * still allocate array of empty expressions lists to keep partition key
-	 * expression handling code simple. See build_joinrel_partition_info() and
-	 * match_expr_to_partition_keys().
+	 * A base relation does not have nullable partition key expressions, since
+	 * no outer join is involved.  We still allocate an array of empty
+	 * expression lists to keep partition key expression handling code simple.
+	 * See build_joinrel_partition_info() and match_expr_to_partition_keys().
 	 */
 	rel->nullable_partexprs = (List **) palloc0(sizeof(List *) * partnatts);
+}
+
+/*
+ * set_baserel_partition_constraint
+ *
+ * Builds the partition constraint for the given base relation and sets it
+ * in the given RelOptInfo.  All Var nodes are restamped with the relid of the
+ * given relation.
+ */
+static void
+set_baserel_partition_constraint(Relation relation, RelOptInfo *rel)
+{
+	List	   *partconstr;
+
+	if (rel->partition_qual)	/* already done */
+		return;
+
+	/*
+	 * Run the partition quals through const-simplification similar to check
+	 * constraints.  We skip canonicalize_qual, though, because partition
+	 * quals should be in canonical form already; also, since the qual is in
+	 * implicit-AND format, we'd have to explicitly convert it to explicit-AND
+	 * format and back again.
+	 */
+	partconstr = RelationGetPartitionQual(relation);
+	if (partconstr)
+	{
+		partconstr = (List *) expression_planner((Expr *) partconstr);
+		if (rel->relid != 1)
+			ChangeVarNodes((Node *) partconstr, 1, rel->relid, 0);
+		rel->partition_qual = partconstr;
+	}
 }

@@ -50,29 +50,23 @@ analyze onerow;
 --
 
 SELECT '' AS "xxx", *
-  FROM J1_TBL AS tx 
-  ORDER BY i, j, t;
+  FROM J1_TBL AS tx;
 
 SELECT '' AS "xxx", *
-  FROM J1_TBL tx 
-  ORDER BY i, j, t;
+  FROM J1_TBL tx;
 
 SELECT '' AS "xxx", *
-  FROM J1_TBL AS t1 (a, b, c) 
-  ORDER BY a, b, c;
+  FROM J1_TBL AS t1 (a, b, c);
 
 SELECT '' AS "xxx", *
-  FROM J1_TBL t1 (a, b, c)
-  ORDER BY a, b, c;
+  FROM J1_TBL t1 (a, b, c);
 
 SELECT '' AS "xxx", *
-  FROM J1_TBL t1 (a, b, c), J2_TBL t2 (d, e) 
-  ORDER BY a, b, c, d, e;
+  FROM J1_TBL t1 (a, b, c), J2_TBL t2 (d, e);
 
 SELECT '' AS "xxx", t1.a, t2.e
   FROM J1_TBL t1 (a, b, c), J2_TBL t2 (d, e)
-  WHERE t1.a = t2.d
-  ORDER BY a, e;
+  WHERE t1.a = t2.d;
 
 
 --
@@ -82,8 +76,7 @@ SELECT '' AS "xxx", t1.a, t2.e
 --
 
 SELECT '' AS "xxx", *
-  FROM J1_TBL CROSS JOIN J2_TBL
-  ORDER BY J1_TBL.i, J1_TBL.j, J1_TBL.t, J2_TBL.i, J2_TBL.k;
+  FROM J1_TBL CROSS JOIN J2_TBL;
 
 -- ambiguous column
 SELECT '' AS "xxx", i, k, t
@@ -91,22 +84,18 @@ SELECT '' AS "xxx", i, k, t
 
 -- resolve previous ambiguity by specifying the table name
 SELECT '' AS "xxx", t1.i, k, t
-  FROM J1_TBL t1 CROSS JOIN J2_TBL t2
-  ORDER BY i, k, t;
+  FROM J1_TBL t1 CROSS JOIN J2_TBL t2;
 
 SELECT '' AS "xxx", ii, tt, kk
   FROM (J1_TBL CROSS JOIN J2_TBL)
-    AS tx (ii, jj, tt, ii2, kk)
-    ORDER BY ii, tt, kk;
+    AS tx (ii, jj, tt, ii2, kk);
 
 SELECT '' AS "xxx", tx.ii, tx.jj, tx.kk
   FROM (J1_TBL t1 (a, b, c) CROSS JOIN J2_TBL t2 (d, e))
-    AS tx (ii, jj, tt, ii2, kk)
-    ORDER BY ii, jj, kk;
+    AS tx (ii, jj, tt, ii2, kk);
 
 SELECT '' AS "xxx", *
-  FROM J1_TBL CROSS JOIN J2_TBL a CROSS JOIN J2_TBL b
-  ORDER BY J1_TBL.i,J1_TBL.j,J1_TBL.t,a.i,a.k,b.i,b.k;
+  FROM J1_TBL CROSS JOIN J2_TBL a CROSS JOIN J2_TBL b;
 
 
 --
@@ -123,13 +112,11 @@ SELECT '' AS "xxx", *
 
 -- Inner equi-join on specified column
 SELECT '' AS "xxx", *
-  FROM J1_TBL INNER JOIN J2_TBL USING (i)
-  ORDER BY i, j, k, t;
+  FROM J1_TBL INNER JOIN J2_TBL USING (i);
 
 -- Same as above, slightly different syntax
 SELECT '' AS "xxx", *
-  FROM J1_TBL JOIN J2_TBL USING (i)
-  ORDER BY i, j, k, t;
+  FROM J1_TBL JOIN J2_TBL USING (i);
 
 SELECT '' AS "xxx", *
   FROM J1_TBL t1 (a, b, c) JOIN J2_TBL t2 (a, d) USING (a)
@@ -146,22 +133,18 @@ SELECT '' AS "xxx", *
 --
 
 SELECT '' AS "xxx", *
-  FROM J1_TBL NATURAL JOIN J2_TBL
-  ORDER BY i, j, k, t;
+  FROM J1_TBL NATURAL JOIN J2_TBL;
 
 SELECT '' AS "xxx", *
-  FROM J1_TBL t1 (a, b, c) NATURAL JOIN J2_TBL t2 (a, d)
-  ORDER BY a, b, c, d;
+  FROM J1_TBL t1 (a, b, c) NATURAL JOIN J2_TBL t2 (a, d);
 
 SELECT '' AS "xxx", *
-  FROM J1_TBL t1 (a, b, c) NATURAL JOIN J2_TBL t2 (d, a)
-  ORDER BY a, b, c, d;
+  FROM J1_TBL t1 (a, b, c) NATURAL JOIN J2_TBL t2 (d, a);
 
 -- mismatch number of columns
 -- currently, Postgres will fill in with underlying names
 SELECT '' AS "xxx", *
-  FROM J1_TBL t1 (a, b) NATURAL JOIN J2_TBL t2 (a)
-  ORDER BY a, b, t, k;
+  FROM J1_TBL t1 (a, b) NATURAL JOIN J2_TBL t2 (a);
 
 
 --
@@ -169,12 +152,10 @@ SELECT '' AS "xxx", *
 --
 
 SELECT '' AS "xxx", *
-  FROM J1_TBL JOIN J2_TBL ON (J1_TBL.i = J2_TBL.i)
-  ORDER BY J1_TBL.i, J1_TBL.j, J1_TBL.t, J2_TBL.i, J2_TBL.k;
+  FROM J1_TBL JOIN J2_TBL ON (J1_TBL.i = J2_TBL.i);
 
 SELECT '' AS "xxx", *
-  FROM J1_TBL JOIN J2_TBL ON (J1_TBL.i = J2_TBL.k)
-  ORDER BY J1_TBL.i, J1_TBL.j, J1_TBL.t, J2_TBL.i, J2_TBL.k;
+  FROM J1_TBL JOIN J2_TBL ON (J1_TBL.i = J2_TBL.k);
 
 
 --
@@ -182,7 +163,7 @@ SELECT '' AS "xxx", *
 --
 
 SELECT '' AS "xxx", *
-  FROM J1_TBL JOIN J2_TBL ON (J1_TBL.i <= J2_TBL.k) order by J1_TBL.i,j,k;
+  FROM J1_TBL JOIN J2_TBL ON (J1_TBL.i <= J2_TBL.k);
 
 
 --
@@ -199,12 +180,10 @@ SELECT '' AS "xxx", *
   ORDER BY i, k, t;
 
 SELECT '' AS "xxx", *
-  FROM J1_TBL RIGHT OUTER JOIN J2_TBL USING (i)
-  ORDER BY i, j, k, t;
+  FROM J1_TBL RIGHT OUTER JOIN J2_TBL USING (i);
 
 SELECT '' AS "xxx", *
-  FROM J1_TBL RIGHT JOIN J2_TBL USING (i)
-  ORDER BY i, j, k, t;
+  FROM J1_TBL RIGHT JOIN J2_TBL USING (i);
 
 SELECT '' AS "xxx", *
   FROM J1_TBL FULL OUTER JOIN J2_TBL USING (i)
@@ -250,8 +229,7 @@ INSERT INTO t3 VALUES ( 'bb', 13 );
 INSERT INTO t3 VALUES ( 'cc', 23 );
 INSERT INTO t3 VALUES ( 'dd', 33 );
 
-SELECT * FROM t1 FULL JOIN t2 USING (name) FULL JOIN t3 USING (name) 
-ORDER BY name,t1.n, t2.n, t3.n;
+SELECT * FROM t1 FULL JOIN t2 USING (name) FULL JOIN t3 USING (name);
 
 --
 -- Test interactions of join syntax and subqueries
@@ -262,42 +240,36 @@ SELECT * FROM
 (SELECT * FROM t2) as s2
 INNER JOIN
 (SELECT * FROM t3) s3
-USING (name)
-ORDER BY name, s2.n, s3.n;
+USING (name);
 
 SELECT * FROM
 (SELECT * FROM t2) as s2
 LEFT JOIN
 (SELECT * FROM t3) s3
-USING (name)
-ORDER BY name, s2.n, s3.n;
+USING (name);
 
 SELECT * FROM
 (SELECT * FROM t2) as s2
 FULL JOIN
 (SELECT * FROM t3) s3
-USING (name)
-ORDER BY name, s2.n, s3.n;
+USING (name);
 
 -- Cases with non-nullable expressions in subquery results;
 -- make sure these go to null as expected
 SELECT * FROM
 (SELECT name, n as s2_n, 2 as s2_2 FROM t2) as s2
 NATURAL INNER JOIN
-(SELECT name, n as s3_n, 3 as s3_2 FROM t3) s3
-ORDER BY name, s2_n, s3_n;
+(SELECT name, n as s3_n, 3 as s3_2 FROM t3) s3;
 
 SELECT * FROM
 (SELECT name, n as s2_n, 2 as s2_2 FROM t2) as s2
 NATURAL LEFT JOIN
-(SELECT name, n as s3_n, 3 as s3_2 FROM t3) s3
-ORDER BY name, s2_n, s3_n;
+(SELECT name, n as s3_n, 3 as s3_2 FROM t3) s3;
 
 SELECT * FROM
 (SELECT name, n as s2_n, 2 as s2_2 FROM t2) as s2
 NATURAL FULL JOIN
-(SELECT name, n as s3_n, 3 as s3_2 FROM t3) s3
-ORDER BY name, s2_n, s3_n;
+(SELECT name, n as s3_n, 3 as s3_2 FROM t3) s3;
 
 SELECT * FROM
 (SELECT name, n as s1_n, 1 as s1_1 FROM t1) as s1
@@ -311,8 +283,7 @@ SELECT * FROM
 NATURAL FULL JOIN
 (SELECT name, n as s2_n, 2 as s2_2 FROM t2) as s2
 NATURAL FULL JOIN
-(SELECT name, n as s3_n, 3 as s3_2 FROM t3) s3
-ORDER BY name, s1_n, s2_n, s3_n;
+(SELECT name, n as s3_n, 3 as s3_2 FROM t3) s3;
 
 SELECT * FROM
 (SELECT name, n as s1_n FROM t1) as s1
@@ -321,8 +292,7 @@ NATURAL FULL JOIN
     (SELECT name, n as s2_n FROM t2) as s2
     NATURAL FULL JOIN
     (SELECT name, n as s3_n FROM t3) as s3
-  ) ss2
-  ORDER BY name, s1_n, s2_n, s3_n;
+  ) ss2;
 
 SELECT * FROM
 (SELECT name, n as s1_n FROM t1) as s1
@@ -331,8 +301,7 @@ NATURAL FULL JOIN
     (SELECT name, n as s2_n, 2 as s2_2 FROM t2) as s2
     NATURAL FULL JOIN
     (SELECT name, n as s3_n FROM t3) as s3
-  ) ss2
-  ORDER BY name, s1_n, s2_n, s3_n;
+  ) ss2;
 
 -- Constants as join keys can also be problematic
 SELECT * FROM
@@ -357,30 +326,27 @@ insert into y values (2,222);
 insert into y values (3,333);
 insert into y values (4,null);
 
-select * from x ORDER BY x1;
-select * from y ORDER BY y1;
+select * from x;
+select * from y;
 
-select * from x left join y on (x1 = y1 and x2 is not null) ORDER BY x1, x2, y1, y2;
-select * from x left join y on (x1 = y1 and y2 is not null) ORDER BY x1, x2, y1, y2;
+select * from x left join y on (x1 = y1 and x2 is not null);
+select * from x left join y on (x1 = y1 and y2 is not null);
 
 select * from (x left join y on (x1 = y1)) left join x xx(xx1,xx2)
-on (x1 = xx1) ORDER BY x1, x2, y1, y2;
+on (x1 = xx1);
 select * from (x left join y on (x1 = y1)) left join x xx(xx1,xx2)
-on (x1 = xx1 and x2 is not null) ORDER BY x1, x2, y1, y2;
+on (x1 = xx1 and x2 is not null);
 select * from (x left join y on (x1 = y1)) left join x xx(xx1,xx2)
-on (x1 = xx1 and y2 is not null) ORDER BY x1, x2, y1, y2;
+on (x1 = xx1 and y2 is not null);
 select * from (x left join y on (x1 = y1)) left join x xx(xx1,xx2)
-on (x1 = xx1 and xx2 is not null) ORDER BY x1, x2, y1, y2;
+on (x1 = xx1 and xx2 is not null);
 -- these should NOT give the same answers as above
 select * from (x left join y on (x1 = y1)) left join x xx(xx1,xx2)
-on (x1 = xx1) where (x2 is not null)
-ORDER BY x1, x2, y1, y2;
+on (x1 = xx1) where (x2 is not null);
 select * from (x left join y on (x1 = y1)) left join x xx(xx1,xx2)
-on (x1 = xx1) where (y2 is not null)
-ORDER BY x1, x2, y1, y2;
+on (x1 = xx1) where (y2 is not null);
 select * from (x left join y on (x1 = y1)) left join x xx(xx1,xx2)
-on (x1 = xx1) where (xx2 is not null)
-ORDER BY x1, x2, y1, y2;
+on (x1 = xx1) where (xx2 is not null);
 
 --
 -- regression test: check for bug with propagation of implied equality
@@ -525,11 +491,11 @@ INSERT INTO t3 VALUES (7, 8);
 INSERT INTO t3 VALUES (500, 100);
 
 DELETE FROM t3 USING t1 table1 WHERE t3.x = table1.a;
-SELECT * FROM t3 ORDER By x, y;
+SELECT * FROM t3;
 DELETE FROM t3 USING t1 JOIN t2 USING (a) WHERE t3.x > t1.a;
-SELECT * FROM t3 ORDER By x, y;
+SELECT * FROM t3;
 DELETE FROM t3 USING t3 t3_other WHERE t3.x = t3_other.x AND t3.y = t3_other.y;
-SELECT * FROM t3 ORDER By x, y;
+SELECT * FROM t3;
 
 -- Test join against inheritance tree
 
@@ -537,7 +503,7 @@ create temp table t2a () inherits (t2);
 
 insert into t2a values (200, 2001);
 
-select * from t1 left join t2 on (t1.a = t2.a) order by 1,2,3,4;
+select * from t1 left join t2 on (t1.a = t2.a);
 
 -- Test matching of column name with wrong alias
 
@@ -560,11 +526,9 @@ set enable_nestloop to off;
 
 -- these should give the same results
 
-select tt1.*, tt2.* from tt1 left join tt2 on tt1.joincol = tt2.joincol 
-      ORDER BY tt1_id, tt2_id; 
+select tt1.*, tt2.* from tt1 left join tt2 on tt1.joincol = tt2.joincol;
 
-select tt1.*, tt2.* from tt2 right join tt1 on tt1.joincol = tt2.joincol 
-      ORDER BY tt1_id, tt2_id; 
+select tt1.*, tt2.* from tt2 right join tt1 on tt1.joincol = tt2.joincol;
 
 reset enable_hashjoin;
 reset enable_nestloop;
@@ -605,7 +569,7 @@ LEFT JOIN (
         FROM tt3 b LEFT JOIN tt3 c ON (b.f1 = c.f1)
         WHERE c.f1 IS NULL
 ) AS d ON (a.f1 = d.f1)
-WHERE d.f1 IS NULL ORDER BY f1;
+WHERE d.f1 IS NULL;
 
 --
 -- regression test for proper handling of outer joins within antijoins
@@ -638,8 +602,7 @@ insert into tt6 values(1, 9);
 insert into tt6 values(1, 2);
 insert into tt6 values(2, 9);
 
-select * from tt5,tt6 where tt5.f1 = tt6.f1 and tt5.f1 = tt5.f2 - tt6.f2 
-      ORDER BY tt5.f1, tt5.f2, tt6.f1, tt6.f2;
+select * from tt5,tt6 where tt5.f1 = tt6.f1 and tt5.f1 = tt5.f2 - tt6.f2;
 
 --
 -- regression test for problems of the sort depicted in bug #3588
@@ -661,8 +624,7 @@ select yy.pkyy as yy_pkyy, yy.pkxx as yy_pkxx, yya.pkyy as yya_pkyy,
 from yy
      left join (SELECT * FROM yy where pkyy = 101) as yya ON yy.pkyy = yya.pkyy
      left join xx xxa on yya.pkxx = xxa.pkxx
-     left join xx xxb on coalesce (xxa.pkxx, 1) = xxb.pkxx 
-     ORDER BY yy_pkyy, yy_pkxx, yya_pkyy, xxa_pkxx, xxb_pkxx;
+     left join xx xxb on coalesce (xxa.pkxx, 1) = xxb.pkxx;
 
 --
 -- regression test for improper pushing of constants across outer-join clauses
@@ -678,16 +640,14 @@ insert into zt2 values(53);
 select * from
   zt2 left join zt3 on (f2 = f3)
       left join zt1 on (f3 = f1)
-where f2 = 53 
-ORDER BY f1, f2, f3;
+where f2 = 53;
 
 create temp view zv1 as select *,'dummy'::text AS junk from zt1;
 
 select * from
   zt2 left join zt3 on (f2 = f3)
       left join zv1 on (f3 = f1)
-where f2 = 53 
-ORDER BY f1, f2, f3;
+where f2 = 53;
 
 --
 -- regression test for improper extraction of OR indexqual conditions
@@ -873,23 +833,20 @@ create temp table nt1 (
   id int primary key,
   a1 boolean,
   a2 boolean
-)
-distribute by replication;
+);
 create temp table nt2 (
   id int primary key,
   nt1_id int,
   b1 boolean,
   b2 boolean,
   foreign key (nt1_id) references nt1(id)
-)
-distribute by replication;
+);
 create temp table nt3 (
   id int primary key,
   nt2_id int,
   c1 boolean,
   foreign key (nt2_id) references nt2(id)
-)
-distribute by replication;
+);
 
 insert into nt1 values (1,true,true);
 insert into nt1 values (2,true,false);
@@ -950,25 +907,28 @@ order by 1,2;
 --
 -- test the corner cases FULL JOIN ON TRUE and FULL JOIN ON FALSE
 --
-select * from int4_tbl a full join int4_tbl b on true order by 1,2;
-select * from int4_tbl a full join int4_tbl b on false order by 1,2;
+select * from int4_tbl a full join int4_tbl b on true;
+select * from int4_tbl a full join int4_tbl b on false;
 
 --
 -- test for ability to use a cartesian join when necessary
 --
 
+create temp table q1 as select 1 as q1;
+create temp table q2 as select 0 as q2;
+analyze q1;
+analyze q2;
+
 explain (costs off)
 select * from
   tenk1 join int4_tbl on f1 = twothousand,
-  int4(sin(1)) q1,
-  int4(sin(0)) q2
+  q1, q2
 where q1 = thousand or q2 = thousand;
 
 explain (costs off)
 select * from
   tenk1 join int4_tbl on f1 = twothousand,
-  int4(sin(1)) q1,
-  int4(sin(0)) q2
+  q1, q2
 where thousand = (q1 + q2);
 
 --
@@ -1057,6 +1017,89 @@ select t1.unique2, t1.stringu1, t2.unique1, t2.stringu2 from
   left join tenk1 t2
   on (subq1.y1 = t2.unique1)
 where t1.unique2 < 42 and t1.stringu1 > t2.stringu2;
+
+-- Here's a variant that we can't fold too aggressively, though,
+-- or we end up with noplace to evaluate the lateral PHV
+explain (verbose, costs off)
+select * from
+  (select 1 as x) ss1 left join (select 2 as y) ss2 on (true),
+  lateral (select ss2.y as z limit 1) ss3;
+select * from
+  (select 1 as x) ss1 left join (select 2 as y) ss2 on (true),
+  lateral (select ss2.y as z limit 1) ss3;
+
+--
+-- test inlining of immutable functions
+--
+create function f_immutable_int4(i integer) returns integer as
+$$ begin return i; end; $$ language plpgsql immutable;
+
+-- check optimization of function scan with join
+explain (costs off)
+select unique1 from tenk1, (select * from f_immutable_int4(1) x) x
+where x = unique1;
+
+explain (verbose, costs off)
+select unique1, x.*
+from tenk1, (select *, random() from f_immutable_int4(1) x) x
+where x = unique1;
+
+explain (costs off)
+select unique1 from tenk1, f_immutable_int4(1) x where x = unique1;
+
+explain (costs off)
+select unique1 from tenk1, lateral f_immutable_int4(1) x where x = unique1;
+
+explain (costs off)
+select unique1, x from tenk1 join f_immutable_int4(1) x on unique1 = x;
+
+explain (costs off)
+select unique1, x from tenk1 left join f_immutable_int4(1) x on unique1 = x;
+
+explain (costs off)
+select unique1, x from tenk1 right join f_immutable_int4(1) x on unique1 = x;
+
+explain (costs off)
+select unique1, x from tenk1 full join f_immutable_int4(1) x on unique1 = x;
+
+-- check that pullup of a const function allows further const-folding
+explain (costs off)
+select unique1 from tenk1, f_immutable_int4(1) x where x = 42;
+
+-- test inlining of immutable functions with PlaceHolderVars
+explain (costs off)
+select nt3.id
+from nt3 as nt3
+  left join
+    (select nt2.*, (nt2.b1 or i4 = 42) AS b3
+     from nt2 as nt2
+       left join
+         f_immutable_int4(0) i4
+         on i4 = nt2.nt1_id
+    ) as ss2
+    on ss2.id = nt3.nt2_id
+where nt3.id = 1 and ss2.b3;
+
+drop function f_immutable_int4(int);
+
+-- test inlining when function returns composite
+
+create function mki8(bigint, bigint) returns int8_tbl as
+$$select row($1,$2)::int8_tbl$$ language sql;
+
+create function mki4(int) returns int4_tbl as
+$$select row($1)::int4_tbl$$ language sql;
+
+explain (verbose, costs off)
+select * from mki8(1,2);
+select * from mki8(1,2);
+
+explain (verbose, costs off)
+select * from mki4(42);
+select * from mki4(42);
+
+drop function mki8(bigint, bigint);
+drop function mki4(int);
 
 --
 -- test extraction of restriction OR clauses from join OR clause
@@ -1235,7 +1278,7 @@ select t1.* from
     on (b2.d2 = b1.q2)
   on (t1.f1 = b1.d1)
   left join int4_tbl i4
-  on (i8.q2 = i4.f1) order by f1;
+  on (i8.q2 = i4.f1);
 
 explain (verbose, costs off)
 select t1.* from
@@ -1258,7 +1301,7 @@ select t1.* from
     on (b2.d2 = b1.q2)
   on (t1.f1 = b1.d1)
   left join int4_tbl i4
-  on (i8.q2 = i4.f1) order by f1;
+  on (i8.q2 = i4.f1);
 
 explain (verbose, costs off)
 select t1.* from
@@ -1283,7 +1326,7 @@ select t1.* from
     on (b2.d2 = b1.q2)
   on (t1.f1 = b1.d1)
   left join int4_tbl i4
-  on (i8.q2 = i4.f1) order by f1;
+  on (i8.q2 = i4.f1);
 
 explain (verbose, costs off)
 select * from
@@ -1302,7 +1345,7 @@ select * from
   right join text_tbl t2
   on t1.f1 = 'doh!'
   left join int4_tbl i4
-  on i8.q1 = i4.f1 order by 1,2,3,4;
+  on i8.q1 = i4.f1;
 
 --
 -- test for appropriate join order in the presence of lateral references
@@ -1559,7 +1602,7 @@ SELECT * FROM
   LEFT JOIN
     (SELECT q1, q2, COALESCE(dat1, q1) AS y
      FROM int8_tbl LEFT JOIN innertab ON q2 = id) ss2
-  ON true order by q1, q2;
+  ON true;
 
 rollback;
 
@@ -1717,7 +1760,7 @@ select * from ((select f1/2 as x from int4_tbl) ss1 join int4_tbl i4 on x = f1) 
 select * from (values(1)) x(lb),
   lateral generate_series(lb,4) x4;
 select * from (select f1/1000000000 from int4_tbl) x(lb),
-  lateral generate_series(lb,4) x4 order by lb, x4;
+  lateral generate_series(lb,4) x4;
 select * from (values(1)) x(lb),
   lateral (values(lb)) y(lbcopy);
 select * from (values(1)) x(lb),
@@ -2080,6 +2123,24 @@ where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1;
 select * from j1
 inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2
 where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1;
+
+-- Exercise array keys mark/restore B-Tree code
+explain (costs off) select * from j1
+inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2
+where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1 and j2.id1 = any (array[1]);
+
+select * from j1
+inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2
+where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1 and j2.id1 = any (array[1]);
+
+-- Exercise array keys "find extreme element" B-Tree code
+explain (costs off) select * from j1
+inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2
+where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1 and j2.id1 >= any (array[1,5]);
+
+select * from j1
+inner join j2 on j1.id1 = j2.id1 and j1.id2 = j2.id2
+where j1.id1 % 1000 = 1 and j2.id1 % 1000 = 1 and j2.id1 >= any (array[1,5]);
 
 reset enable_nestloop;
 reset enable_hashjoin;

@@ -3,7 +3,7 @@
  * syscache.c
  *	  System cache management routines
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  * Portions Copyright (c) 2010-2012, Postgres-XC Development Group
  * Portions Copyright (c) 2014-2017, ADB Development Group
@@ -55,13 +55,13 @@
 #include "catalog/pg_publication.h"
 #include "catalog/pg_publication_rel.h"
 #include "catalog/pg_range.h"
+#include "catalog/pg_replication_origin.h"
 #include "catalog/pg_rewrite.h"
 #include "catalog/pg_seclabel.h"
 #include "catalog/pg_sequence.h"
 #include "catalog/pg_shdepend.h"
 #include "catalog/pg_shdescription.h"
 #include "catalog/pg_shseclabel.h"
-#include "catalog/pg_replication_origin.h"
 #include "catalog/pg_statistic.h"
 #include "catalog/pg_statistic_ext.h"
 #include "catalog/pg_statistic_ext_data.h"
@@ -76,8 +76,9 @@
 #include "catalog/pg_ts_template.h"
 #include "catalog/pg_type.h"
 #include "catalog/pg_user_mapping.h"
-#include "utils/rel.h"
+#include "lib/qunique.h"
 #include "utils/catcache.h"
+#include "utils/rel.h"
 #include "utils/syscache.h"
 #ifdef ADB
 #include "catalog/adb_clean.h"
@@ -101,6 +102,7 @@
 #include "catalog/ora_cast.h"
 #include "catalog/ora_convert.h"
 #endif
+
 /*---------------------------------------------------------------------------
 
 	Adding system caches:
@@ -1244,8 +1246,6 @@ void
 InitCatalogCache(void)
 {
 	int			cacheId;
-	int			i,
-				j;
 
 	StaticAssertStmt(SysCacheSize == (int) lengthof(cacheinfo),
 					 "SysCacheSize does not match syscache.c's array");
@@ -1282,21 +1282,15 @@ InitCatalogCache(void)
 	/* Sort and de-dup OID arrays, so we can use binary search. */
 	pg_qsort(SysCacheRelationOid, SysCacheRelationOidSize,
 			 sizeof(Oid), oid_compare);
-	for (i = 1, j = 0; i < SysCacheRelationOidSize; i++)
-	{
-		if (SysCacheRelationOid[i] != SysCacheRelationOid[j])
-			SysCacheRelationOid[++j] = SysCacheRelationOid[i];
-	}
-	SysCacheRelationOidSize = j + 1;
+	SysCacheRelationOidSize =
+		qunique(SysCacheRelationOid, SysCacheRelationOidSize, sizeof(Oid),
+				oid_compare);
 
 	pg_qsort(SysCacheSupportingRelOid, SysCacheSupportingRelOidSize,
 			 sizeof(Oid), oid_compare);
-	for (i = 1, j = 0; i < SysCacheSupportingRelOidSize; i++)
-	{
-		if (SysCacheSupportingRelOid[i] != SysCacheSupportingRelOid[j])
-			SysCacheSupportingRelOid[++j] = SysCacheSupportingRelOid[i];
-	}
-	SysCacheSupportingRelOidSize = j + 1;
+	SysCacheSupportingRelOidSize =
+		qunique(SysCacheSupportingRelOid, SysCacheSupportingRelOidSize,
+				sizeof(Oid), oid_compare);
 
 	CacheInitialized = true;
 }

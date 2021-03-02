@@ -3,7 +3,7 @@
 
 #include "access/htup_details.h"
 #include "access/tupdesc.h"
-#include "access/tuptoaster.h"
+#include "access/detoast.h"
 #include "access/tuptypeconvert.h"
 #include "access/xact.h"
 #include "nodes/execnodes.h"
@@ -606,7 +606,7 @@ MinimalTuple fetch_slot_message(TupleTableSlot *slot, bool *need_free_tup)
 				attr->attbyval == false &&
 				VARATT_IS_EXTERNAL(DatumGetPointer(slot->tts_values[i])))
 			{
-				values[i] = PointerGetDatum(heap_tuple_fetch_attr((struct varlena *)DatumGetPointer(slot->tts_values[i])));
+				values[i] = PointerGetDatum(detoast_external_attr((struct varlena *)DatumGetPointer(slot->tts_values[i])));
 #ifdef NOT_USED
 				/* try compress it */
 				if(!VARATT_IS_COMPRESSED(DatumGetPointer(values[i])))

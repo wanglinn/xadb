@@ -3,7 +3,7 @@
  * spi.c
  *				Server Programming Interface
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -1485,7 +1485,7 @@ SPI_cursor_open_internal(const char *name, SPIPlanPtr plan,
 				(errcode(ERRCODE_INVALID_CURSOR_DEFINITION),
 		/* translator: %s is name of a SQL command, eg INSERT */
 				 errmsg("cannot open %s query as cursor",
-						plansource->commandTag)));
+						GetCommandTagName(plansource->commandTag))));
 	}
 
 	Assert(list_length(plan->plancache_list) == 1);
@@ -1604,14 +1604,13 @@ SPI_cursor_open_internal(const char *name, SPIPlanPtr plan,
 	portal->queryEnv = _SPI_current->queryEnv;
 
 	/*
-	 * If told to be read-only, or in parallel mode, verify that this query is
-	 * in fact read-only.  This can't be done earlier because we need to look
-	 * at the finished, planned queries.  (In particular, we don't want to do
-	 * it between GetCachedPlan and PortalDefineQuery, because throwing an
-	 * error between those steps would result in leaking our plancache
-	 * refcount.)
+	 * If told to be read-only, we'd better check for read-only queries. This
+	 * can't be done earlier because we need to look at the finished, planned
+	 * queries.  (In particular, we don't want to do it between GetCachedPlan
+	 * and PortalDefineQuery, because throwing an error between those steps
+	 * would result in leaking our plancache refcount.)
 	 */
-	if (read_only || IsInParallelMode())
+	if (read_only)
 	{
 		ListCell   *lc;
 
@@ -1620,16 +1619,11 @@ SPI_cursor_open_internal(const char *name, SPIPlanPtr plan,
 			PlannedStmt *pstmt = lfirst_node(PlannedStmt, lc);
 
 			if (!CommandIsReadOnly(pstmt))
-			{
-				if (read_only)
-					ereport(ERROR,
-							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					/* translator: %s is a SQL statement name */
-							 errmsg("%s is not allowed in a non-volatile function",
-									CreateCommandTag((Node *) pstmt))));
-				else
-					PreventCommandIfParallelMode(CreateCommandTag((Node *) pstmt));
-			}
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				/* translator: %s is a SQL statement name */
+						 errmsg("%s is not allowed in a non-volatile function",
+								CreateCommandName((Node *) pstmt))));
 		}
 	}
 
@@ -2026,8 +2020,9 @@ spi_dest_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	slist_push_head(&_SPI_current->tuptables, &tuptable->next);
 
 	/* set up initial allocations */
-	tuptable->alloced = tuptable->free = 128;
+	tuptable->alloced = 128;
 	tuptable->vals = (HeapTuple *) palloc(tuptable->alloced * sizeof(HeapTuple));
+	tuptable->numvals = 0;
 	tuptable->tupdesc = CreateTupleDescCopy(typeinfo);
 
 	MemoryContextSwitchTo(oldcxt);
@@ -2053,18 +2048,18 @@ spi_printtup(TupleTableSlot *slot, DestReceiver *self)
 
 	oldcxt = MemoryContextSwitchTo(tuptable->tuptabcxt);
 
-	if (tuptable->free == 0)
+	if (tuptable->numvals >= tuptable->alloced)
 	{
 		/* Double the size of the pointer array */
-		tuptable->free = tuptable->alloced;
-		tuptable->alloced += tuptable->free;
+		uint64		newalloced = tuptable->alloced * 2;
+
 		tuptable->vals = (HeapTuple *) repalloc_huge(tuptable->vals,
-													 tuptable->alloced * sizeof(HeapTuple));
+													 newalloced * sizeof(HeapTuple));
+		tuptable->alloced = newalloced;
 	}
 
-	tuptable->vals[tuptable->alloced - tuptable->free] =
-		ExecCopySlotHeapTuple(slot);
-	(tuptable->free)--;
+	tuptable->vals[tuptable->numvals] = ExecCopySlotHeapTuple(slot);
+	(tuptable->numvals)++;
 
 	MemoryContextSwitchTo(oldcxt);
 
@@ -2483,10 +2478,7 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				/* translator: %s is a SQL statement name */
 						 errmsg("%s is not allowed in a non-volatile function",
-								CreateCommandTag((Node *) stmt))));
-
-			if (IsInParallelMode() && !CommandIsReadOnly(stmt))
-				PreventCommandIfParallelMode(CreateCommandTag((Node *) stmt));
+								CreateCommandName((Node *) stmt))));
 
 			/*
 			 * If not read-only mode, advance the command counter before each
@@ -2522,8 +2514,8 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 			}
 			else
 			{
-				char		completionTag[COMPLETION_TAG_BUFSIZE];
 				ProcessUtilityContext context;
+				QueryCompletion qc;
 
 				/*
 				 * If the SPI context is atomic, or we are asked to manage
@@ -2537,21 +2529,19 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 				else
 					context = PROCESS_UTILITY_QUERY_NONATOMIC;
 
+				InitializeQueryCompletion(&qc);
 				ProcessUtility(stmt,
 							   plansource->query_string,
 							   context,
 							   paramLI,
 							   _SPI_current->queryEnv,
 							   dest,
-#ifdef ADB
-							   false,
-#endif /* ADB */
-							   completionTag);
+							   ADB_ONLY_ARG_COMMA(false)
+							   &qc);
 
 				/* Update "processed" if stmt returned tuples */
 				if (_SPI_current->tuptable)
-					_SPI_current->processed = _SPI_current->tuptable->alloced -
-						_SPI_current->tuptable->free;
+					_SPI_current->processed = _SPI_current->tuptable->numvals;
 
 				res = SPI_OK_UTILITY;
 
@@ -2563,9 +2553,8 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 				{
 					CreateTableAsStmt *ctastmt = (CreateTableAsStmt *) stmt->utilityStmt;
 
-					if (strncmp(completionTag, "SELECT ", 7) == 0)
-						_SPI_current->processed =
-							pg_strtouint64(completionTag + 7, NULL, 10);
+					if (qc.commandTag == CMDTAG_SELECT)
+						_SPI_current->processed = qc.nprocessed;
 					else
 					{
 						/*
@@ -2586,16 +2575,15 @@ _SPI_execute_plan(SPIPlanPtr plan, ParamListInfo paramLI,
 				}
 				else if (IsA(stmt->utilityStmt, CopyStmt))
 				{
-					Assert(strncmp(completionTag, "COPY ", 5) == 0);
-					_SPI_current->processed = pg_strtouint64(completionTag + 5,
-															 NULL, 10);
+					Assert(qc.commandTag == CMDTAG_COPY);
+					_SPI_current->processed = qc.nprocessed;
 				}
 			}
 
 			/*
 			 * The last canSetTag query sets the status values returned to the
 			 * caller.  Be careful to free any tuptables not returned, to
-			 * avoid intratransaction memory leak.
+			 * avoid intra-transaction memory leak.
 			 */
 			if (canSetTag)
 			{
@@ -2829,7 +2817,7 @@ _SPI_cursor_operation(Portal portal, FetchDirection direction, long count,
 
 	/*
 	 * Think not to combine this store with the preceding function call. If
-	 * the portal contains calls to functions that use SPI, then SPI_stack is
+	 * the portal contains calls to functions that use SPI, then _SPI_stack is
 	 * likely to move around while the portal runs.  When control returns,
 	 * _SPI_current will point to the correct stack entry... but the pointer
 	 * may be different than it was beforehand. So we must be sure to re-fetch
@@ -2920,7 +2908,7 @@ _SPI_checktuples(void)
 
 	if (tuptable == NULL)		/* spi_dest_startup was not called */
 		failed = true;
-	else if (processed != (tuptable->alloced - tuptable->free))
+	else if (processed != tuptable->numvals)
 		failed = true;
 
 	return failed;
@@ -2959,7 +2947,7 @@ _SPI_make_plan_non_temp(SPIPlanPtr plan)
 									ALLOCSET_SMALL_SIZES);
 	oldcxt = MemoryContextSwitchTo(plancxt);
 
-	/* Copy the SPI_plan struct and subsidiary data into the new context */
+	/* Copy the _SPI_plan struct and subsidiary data into the new context */
 	newplan = (SPIPlanPtr) palloc0(sizeof(_SPI_plan));
 	newplan->magic = _SPI_PLAN_MAGIC;
 	newplan->plancxt = plancxt;

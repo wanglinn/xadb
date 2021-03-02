@@ -149,6 +149,68 @@ SELECT count(*) FROM
 (1 row)
 
 --
+-- Compare results between plans using sorting and plans using hash
+-- aggregation. Force spilling in both cases by setting work_mem low.
+--
+SET work_mem='64kB';
+-- Produce results with sorting.
+SET enable_hashagg=FALSE;
+SET jit_above_cost=0;
+EXPLAIN (costs off)
+SELECT DISTINCT g%1000 FROM generate_series(0,9999) g;
+                   QUERY PLAN                   
+------------------------------------------------
+ Unique
+   ->  Sort
+         Sort Key: ((g % 1000))
+         ->  Function Scan on generate_series g
+(4 rows)
+
+CREATE TABLE distinct_group_1 AS
+SELECT DISTINCT g%1000 FROM generate_series(0,9999) g;
+SET jit_above_cost TO DEFAULT;
+CREATE TABLE distinct_group_2 AS
+SELECT DISTINCT (g%1000)::text FROM generate_series(0,9999) g;
+SET enable_hashagg=TRUE;
+-- Produce results with hash aggregation.
+SET enable_sort=FALSE;
+SET jit_above_cost=0;
+EXPLAIN (costs off)
+SELECT DISTINCT g%1000 FROM generate_series(0,9999) g;
+                QUERY PLAN                
+------------------------------------------
+ HashAggregate
+   Group Key: (g % 1000)
+   ->  Function Scan on generate_series g
+(3 rows)
+
+CREATE TABLE distinct_hash_1 AS
+SELECT DISTINCT g%1000 FROM generate_series(0,9999) g;
+SET jit_above_cost TO DEFAULT;
+CREATE TABLE distinct_hash_2 AS
+SELECT DISTINCT (g%1000)::text FROM generate_series(0,9999) g;
+SET enable_sort=TRUE;
+SET work_mem TO DEFAULT;
+-- Compare results
+(SELECT * FROM distinct_hash_1 EXCEPT SELECT * FROM distinct_group_1)
+  UNION ALL
+(SELECT * FROM distinct_group_1 EXCEPT SELECT * FROM distinct_hash_1);
+ ?column? 
+----------
+(0 rows)
+
+(SELECT * FROM distinct_hash_1 EXCEPT SELECT * FROM distinct_group_1)
+  UNION ALL
+(SELECT * FROM distinct_group_1 EXCEPT SELECT * FROM distinct_hash_1);
+ ?column? 
+----------
+(0 rows)
+
+DROP TABLE distinct_hash_1;
+DROP TABLE distinct_hash_2;
+DROP TABLE distinct_group_1;
+DROP TABLE distinct_group_2;
+--
 -- Also, some tests of IS DISTINCT FROM, which doesn't quite deserve its
 -- very own regression file.
 --
@@ -158,7 +220,7 @@ INSERT INTO DISTTABLE VALUES(2);
 INSERT INTO DISTTABLE VALUES(3);
 INSERT INTO DISTTABLE VALUES(NULL);
 -- basic cases
-SELECT f1, f1 IS DISTINCT FROM 2 as "not 2" FROM disttable ORDER BY f1;
+SELECT f1, f1 IS DISTINCT FROM 2 as "not 2" FROM disttable;
  f1 | not 2 
 ----+-------
   1 | t
@@ -167,7 +229,7 @@ SELECT f1, f1 IS DISTINCT FROM 2 as "not 2" FROM disttable ORDER BY f1;
     | t
 (4 rows)
 
-SELECT f1, f1 IS DISTINCT FROM NULL as "not null" FROM disttable ORDER BY f1;
+SELECT f1, f1 IS DISTINCT FROM NULL as "not null" FROM disttable;
  f1 | not null 
 ----+----------
   1 | t
@@ -176,7 +238,7 @@ SELECT f1, f1 IS DISTINCT FROM NULL as "not null" FROM disttable ORDER BY f1;
     | f
 (4 rows)
 
-SELECT f1, f1 IS DISTINCT FROM f1 as "false" FROM disttable ORDER BY f1;
+SELECT f1, f1 IS DISTINCT FROM f1 as "false" FROM disttable;
  f1 | false 
 ----+-------
   1 | f
@@ -185,7 +247,7 @@ SELECT f1, f1 IS DISTINCT FROM f1 as "false" FROM disttable ORDER BY f1;
     | f
 (4 rows)
 
-SELECT f1, f1 IS DISTINCT FROM f1+1 as "not null" FROM disttable ORDER BY f1;
+SELECT f1, f1 IS DISTINCT FROM f1+1 as "not null" FROM disttable;
  f1 | not null 
 ----+----------
   1 | t

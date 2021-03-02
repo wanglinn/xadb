@@ -5,7 +5,7 @@
  *
  * See plancache.c for comments.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/plancache.h
@@ -18,10 +18,13 @@
 #include "access/tupdesc.h"
 #include "lib/ilist.h"
 #include "nodes/params.h"
+#include "tcop/cmdtag.h"
 #include "utils/queryenvironment.h"
 #if defined(ADB) || defined(ADB_GRAM_ORA)
 #include "nodes/parsenodes.h"
 #endif
+#include "utils/resowner.h"
+
 
 /* Forward declaration, to avoid including parsenodes.h here */
 struct RawStmt;
@@ -98,7 +101,7 @@ typedef struct CachedPlanSource
 	int			magic;			/* should equal CACHEDPLANSOURCE_MAGIC */
 	struct RawStmt *raw_parse_tree; /* output of raw_parser(), or NULL */
 	const char *query_string;	/* source text of query */
-	const char *commandTag;		/* command tag (a constant!), or NULL */
+	CommandTag	commandTag;		/* 'nuff said */
 	Oid		   *param_types;	/* array of parameter type OIDs, or NULL */
 	int			num_params;		/* length of param_types array */
 	ParserSetupHook parserSetup;	/* alternative parameter spec method */
@@ -197,10 +200,10 @@ extern void ResetPlanCache(void);
 extern CachedPlanSource *CreateCachedPlan(struct RawStmt *raw_parse_tree,
 										  const char *query_string,
 										  ADB_ONLY_ARG_COMMA(const char *stmt_name)
-										  const char *commandTag);
+										  CommandTag commandTag);
 extern CachedPlanSource *CreateOneShotCachedPlan(struct RawStmt *raw_parse_tree,
 												 const char *query_string,
-												 const char *commandTag);
+												 CommandTag commandTag);
 extern void CompleteCachedPlan(CachedPlanSource *plansource,
 							   List *querytree_list,
 							   MemoryContext querytree_context,
@@ -240,6 +243,13 @@ extern CachedPlan *GetCachedPlanADB(CachedPlanSource *plansource,
 									QueryEnvironment *queryEnv,
 									bool cluster_safe);
 #endif /* ADB */
+
+extern bool CachedPlanAllowsSimpleValidityCheck(CachedPlanSource *plansource,
+												CachedPlan *plan,
+												ResourceOwner owner);
+extern bool CachedPlanIsSimplyValid(CachedPlanSource *plansource,
+									CachedPlan *plan,
+									ResourceOwner owner);
 
 extern CachedExpression *GetCachedExpression(Node *expr);
 extern void FreeCachedExpression(CachedExpression *cexpr);

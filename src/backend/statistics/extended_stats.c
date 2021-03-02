@@ -6,7 +6,7 @@
  * Generic code supporting statistics objects created via CREATE STATISTICS.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -16,21 +16,25 @@
  */
 #include "postgres.h"
 
+#include "access/detoast.h"
 #include "access/genam.h"
 #include "access/htup_details.h"
 #include "access/table.h"
-#include "access/tuptoaster.h"
 #include "catalog/indexing.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_statistic_ext.h"
 #include "catalog/pg_statistic_ext_data.h"
+#include "commands/progress.h"
 #include "miscadmin.h"
 #include "nodes/nodeFuncs.h"
 #include "optimizer/clauses.h"
 #include "optimizer/optimizer.h"
+#include "pgstat.h"
 #include "postmaster/autovacuum.h"
 #include "statistics/extended_stats_internal.h"
 #include "statistics/statistics.h"
+#include "utils/acl.h"
+#include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
@@ -61,6 +65,7 @@ typedef struct StatExtEntry
 	char	   *name;			/* statistics object's name */
 	Bitmapset  *columns;		/* attribute numbers covered by the object */
 	List	   *types;			/* 'char' list of enabled statistic kinds */
+	int			stattarget;		/* statistics target (-1 for default) */
 } StatExtEntry;
 
 
@@ -70,7 +75,8 @@ static VacAttrStats **lookup_var_attr_stats(Relation rel, Bitmapset *attrs,
 static void statext_store(Oid relid,
 						  MVNDistinct *ndistinct, MVDependencies *dependencies,
 						  MCVList *mcv, VacAttrStats **stats);
-
+static int	statext_compute_stattarget(int stattarget,
+									   int natts, VacAttrStats **stats);
 
 /*
  * Compute requested extended stats, using the rows sampled for the plain
@@ -89,6 +95,7 @@ BuildRelationExtStatistics(Relation onerel, double totalrows,
 	List	   *stats;
 	MemoryContext cxt;
 	MemoryContext oldcxt;
+	int64		ext_cnt;
 
 	cxt = AllocSetContextCreate(CurrentMemoryContext,
 								"BuildRelationExtStatistics",
@@ -98,6 +105,22 @@ BuildRelationExtStatistics(Relation onerel, double totalrows,
 	pg_stext = table_open(StatisticExtRelationId, RowExclusiveLock);
 	stats = fetch_statentries_for_relation(pg_stext, RelationGetRelid(onerel));
 
+	/* report this phase */
+	if (stats != NIL)
+	{
+		const int	index[] = {
+			PROGRESS_ANALYZE_PHASE,
+			PROGRESS_ANALYZE_EXT_STATS_TOTAL
+		};
+		const int64 val[] = {
+			PROGRESS_ANALYZE_PHASE_COMPUTE_EXT_STATS,
+			list_length(stats)
+		};
+
+		pgstat_progress_update_multi_param(2, index, val);
+	}
+
+	ext_cnt = 0;
 	foreach(lc, stats)
 	{
 		StatExtEntry *stat = (StatExtEntry *) lfirst(lc);
@@ -106,6 +129,7 @@ BuildRelationExtStatistics(Relation onerel, double totalrows,
 		MCVList    *mcv = NULL;
 		VacAttrStats **stats;
 		ListCell   *lc2;
+		int			stattarget;
 
 		/*
 		 * Check if we can build these stats based on the column analyzed. If
@@ -130,6 +154,19 @@ BuildRelationExtStatistics(Relation onerel, double totalrows,
 		Assert(bms_num_members(stat->columns) >= 2 &&
 			   bms_num_members(stat->columns) <= STATS_MAX_DIMENSIONS);
 
+		/* compute statistics target for this statistics */
+		stattarget = statext_compute_stattarget(stat->stattarget,
+												bms_num_members(stat->columns),
+												stats);
+
+		/*
+		 * Don't rebuild statistics objects with statistics target set to 0
+		 * (we just leave the existing values around, just like we do for
+		 * regular per-column statistics).
+		 */
+		if (stattarget == 0)
+			continue;
+
 		/* compute statistic of each requested type */
 		foreach(lc2, stat->types)
 		{
@@ -143,17 +180,150 @@ BuildRelationExtStatistics(Relation onerel, double totalrows,
 														  stat->columns, stats);
 			else if (t == STATS_EXT_MCV)
 				mcv = statext_mcv_build(numrows, rows, stat->columns, stats,
-										totalrows);
+										totalrows, stattarget);
 		}
 
 		/* store the statistics in the catalog */
 		statext_store(stat->statOid, ndistinct, dependencies, mcv, stats);
+
+		/* for reporting progress */
+		pgstat_progress_update_param(PROGRESS_ANALYZE_EXT_STATS_COMPUTED,
+									 ++ext_cnt);
 	}
 
 	table_close(pg_stext, RowExclusiveLock);
 
 	MemoryContextSwitchTo(oldcxt);
 	MemoryContextDelete(cxt);
+}
+
+/*
+ * ComputeExtStatisticsRows
+ *		Compute number of rows required by extended statistics on a table.
+ *
+ * Computes number of rows we need to sample to build extended statistics on a
+ * table. This only looks at statistics we can actually build - for example
+ * when analyzing only some of the columns, this will skip statistics objects
+ * that would require additional columns.
+ *
+ * See statext_compute_stattarget for details about how we compute statistics
+ * target for a statistics objects (from the object target, attribute targets
+ * and default statistics target).
+ */
+int
+ComputeExtStatisticsRows(Relation onerel,
+						 int natts, VacAttrStats **vacattrstats)
+{
+	Relation	pg_stext;
+	ListCell   *lc;
+	List	   *lstats;
+	MemoryContext cxt;
+	MemoryContext oldcxt;
+	int			result = 0;
+
+	cxt = AllocSetContextCreate(CurrentMemoryContext,
+								"ComputeExtStatisticsRows",
+								ALLOCSET_DEFAULT_SIZES);
+	oldcxt = MemoryContextSwitchTo(cxt);
+
+	pg_stext = table_open(StatisticExtRelationId, RowExclusiveLock);
+	lstats = fetch_statentries_for_relation(pg_stext, RelationGetRelid(onerel));
+
+	foreach(lc, lstats)
+	{
+		StatExtEntry *stat = (StatExtEntry *) lfirst(lc);
+		int			stattarget = stat->stattarget;
+		VacAttrStats **stats;
+		int			nattrs = bms_num_members(stat->columns);
+
+		/*
+		 * Check if we can build this statistics object based on the columns
+		 * analyzed. If not, ignore it (don't report anything, we'll do that
+		 * during the actual build BuildRelationExtStatistics).
+		 */
+		stats = lookup_var_attr_stats(onerel, stat->columns,
+									  natts, vacattrstats);
+
+		if (!stats)
+			continue;
+
+		/*
+		 * Compute statistics target, based on what's set for the statistic
+		 * object itself, and for its attributes.
+		 */
+		stattarget = statext_compute_stattarget(stat->stattarget,
+												nattrs, stats);
+
+		/* Use the largest value for all statistics objects. */
+		if (stattarget > result)
+			result = stattarget;
+	}
+
+	table_close(pg_stext, RowExclusiveLock);
+
+	MemoryContextSwitchTo(oldcxt);
+	MemoryContextDelete(cxt);
+
+	/* compute sample size based on the statistics target */
+	return (300 * result);
+}
+
+/*
+ * statext_compute_stattarget
+ *		compute statistics target for an extended statistic
+ *
+ * When computing target for extended statistics objects, we consider three
+ * places where the target may be set - the statistics object itself,
+ * attributes the statistics is defined on, and then the default statistics
+ * target.
+ *
+ * First we look at what's set for the statistics object itself, using the
+ * ALTER STATISTICS ... SET STATISTICS command. If we find a valid value
+ * there (i.e. not -1) we're done. Otherwise we look at targets set for any
+ * of the attributes the statistic is defined on, and if there are columns
+ * with defined target, we use the maximum value. We do this mostly for
+ * backwards compatibility, because this is what we did before having
+ * statistics target for extended statistics.
+ *
+ * And finally, if we still don't have a statistics target, we use the value
+ * set in default_statistics_target.
+ */
+static int
+statext_compute_stattarget(int stattarget, int nattrs, VacAttrStats **stats)
+{
+	int			i;
+
+	/*
+	 * If there's statistics target set for the statistics object, use it. It
+	 * may be set to 0 which disables building of that statistic.
+	 */
+	if (stattarget >= 0)
+		return stattarget;
+
+	/*
+	 * The target for the statistics object is set to -1, in which case we
+	 * look at the maximum target set for any of the attributes the object is
+	 * defined on.
+	 */
+	for (i = 0; i < nattrs; i++)
+	{
+		/* keep the maximmum statistics target */
+		if (stats[i]->attr->attstattarget > stattarget)
+			stattarget = stats[i]->attr->attstattarget;
+	}
+
+	/*
+	 * If the value is still negative (so neither the statistics object nor
+	 * any of the columns have custom statistics target set), use the global
+	 * default target.
+	 */
+	if (stattarget < 0)
+		stattarget = default_statistics_target;
+
+	/* As this point we should have a valid statistics target. */
+	Assert((stattarget >= 0) && (stattarget <= 10000));
+
+	return stattarget;
 }
 
 /*
@@ -224,6 +394,7 @@ fetch_statentries_for_relation(Relation pg_statext, Oid relid)
 		entry->statOid = staForm->oid;
 		entry->schema = get_namespace_name(staForm->stxnamespace);
 		entry->name = pstrdup(NameStr(staForm->stxname));
+		entry->stattarget = staForm->stxstattarget;
 		for (i = 0; i < staForm->stxkeys.dim1; i++)
 		{
 			entry->columns = bms_add_member(entry->columns,
@@ -322,12 +493,14 @@ statext_store(Oid statOid,
 			  MVNDistinct *ndistinct, MVDependencies *dependencies,
 			  MCVList *mcv, VacAttrStats **stats)
 {
+	Relation	pg_stextdata;
 	HeapTuple	stup,
 				oldtup;
 	Datum		values[Natts_pg_statistic_ext_data];
 	bool		nulls[Natts_pg_statistic_ext_data];
 	bool		replaces[Natts_pg_statistic_ext_data];
-	Relation	pg_stextdata;
+
+	pg_stextdata = table_open(StatisticExtDataRelationId, RowExclusiveLock);
 
 	memset(nulls, true, sizeof(nulls));
 	memset(replaces, false, sizeof(replaces));
@@ -371,8 +544,6 @@ statext_store(Oid statOid,
 		elog(ERROR, "cache lookup failed for statistics object %u", statOid);
 
 	/* replace it */
-	pg_stextdata = table_open(StatisticExtDataRelationId, RowExclusiveLock);
-
 	stup = heap_modify_tuple(oldtup,
 							 RelationGetDescr(pg_stextdata),
 							 values,
@@ -697,15 +868,20 @@ has_stats_of_kind(List *stats, char requiredkind)
  *		there's no match.
  *
  * The current selection criteria is very simple - we choose the statistics
- * object referencing the most of the requested attributes, breaking ties
- * in favor of objects with fewer keys overall.
+ * object referencing the most attributes in covered (and still unestimated
+ * clauses), breaking ties in favor of objects with fewer keys overall.
+ *
+ * The clause_attnums is an array of bitmaps, storing attnums for individual
+ * clauses. A NULL element means the clause is either incompatible or already
+ * estimated.
  *
  * XXX If multiple statistics objects tie on both criteria, then which object
  * is chosen depends on the order that they appear in the stats list. Perhaps
  * further tiebreakers are needed.
  */
 StatisticExtInfo *
-choose_best_statistics(List *stats, Bitmapset *attnums, char requiredkind)
+choose_best_statistics(List *stats, char requiredkind,
+					   Bitmapset **clause_attnums, int nclauses)
 {
 	ListCell   *lc;
 	StatisticExtInfo *best_match = NULL;
@@ -714,17 +890,33 @@ choose_best_statistics(List *stats, Bitmapset *attnums, char requiredkind)
 
 	foreach(lc, stats)
 	{
+		int			i;
 		StatisticExtInfo *info = (StatisticExtInfo *) lfirst(lc);
+		Bitmapset  *matched = NULL;
 		int			num_matched;
 		int			numkeys;
-		Bitmapset  *matched;
 
 		/* skip statistics that are not of the correct type */
 		if (info->kind != requiredkind)
 			continue;
 
-		/* determine how many attributes of these stats can be matched to */
-		matched = bms_intersect(attnums, info->keys);
+		/*
+		 * Collect attributes in remaining (unestimated) clauses fully covered
+		 * by this statistic object.
+		 */
+		for (i = 0; i < nclauses; i++)
+		{
+			/* ignore incompatible/estimated clauses */
+			if (!clause_attnums[i])
+				continue;
+
+			/* ignore clauses that are not covered by this object */
+			if (!bms_is_subset(clause_attnums[i], info->keys))
+				continue;
+
+			matched = bms_add_members(matched, clause_attnums[i]);
+		}
+
 		num_matched = bms_num_members(matched);
 		bms_free(matched);
 
@@ -796,21 +988,13 @@ statext_is_compatible_clause_internal(PlannerInfo *root, Node *clause,
 		RangeTblEntry *rte = root->simple_rte_array[relid];
 		OpExpr	   *expr = (OpExpr *) clause;
 		Var		   *var;
-		bool		varonleft = true;
-		bool		ok;
 
 		/* Only expressions with two arguments are considered compatible. */
 		if (list_length(expr->args) != 2)
 			return false;
 
-		/* see if it actually has the right shape (one Var, one Const) */
-		ok = (NumRelids((Node *) expr) == 1) &&
-			(is_pseudo_constant_clause(lsecond(expr->args)) ||
-			 (varonleft = false,
-			  is_pseudo_constant_clause(linitial(expr->args))));
-
-		/* unsupported structure (two variables or so) */
-		if (!ok)
+		/* Check if the expression has the right shape (one Var, one Const) */
+		if (!examine_clause_args(expr->args, &var, NULL, NULL))
 			return false;
 
 		/*
@@ -850,7 +1034,61 @@ statext_is_compatible_clause_internal(PlannerInfo *root, Node *clause,
 			!get_func_leakproof(get_opcode(expr->opno)))
 			return false;
 
-		var = (varonleft) ? linitial(expr->args) : lsecond(expr->args);
+		return statext_is_compatible_clause_internal(root, (Node *) var,
+													 relid, attnums);
+	}
+
+	/* Var IN Array */
+	if (IsA(clause, ScalarArrayOpExpr))
+	{
+		RangeTblEntry *rte = root->simple_rte_array[relid];
+		ScalarArrayOpExpr *expr = (ScalarArrayOpExpr *) clause;
+		Var		   *var;
+
+		/* Only expressions with two arguments are considered compatible. */
+		if (list_length(expr->args) != 2)
+			return false;
+
+		/* Check if the expression has the right shape (one Var, one Const) */
+		if (!examine_clause_args(expr->args, &var, NULL, NULL))
+			return false;
+
+		/*
+		 * If it's not one of the supported operators ("=", "<", ">", etc.),
+		 * just ignore the clause, as it's not compatible with MCV lists.
+		 *
+		 * This uses the function for estimating selectivity, not the operator
+		 * directly (a bit awkward, but well ...).
+		 */
+		switch (get_oprrest(expr->opno))
+		{
+			case F_EQSEL:
+			case F_NEQSEL:
+			case F_SCALARLTSEL:
+			case F_SCALARLESEL:
+			case F_SCALARGTSEL:
+			case F_SCALARGESEL:
+				/* supported, will continue with inspection of the Var */
+				break;
+
+			default:
+				/* other estimators are considered unknown/unsupported */
+				return false;
+		}
+
+		/*
+		 * If there are any securityQuals on the RTE from security barrier
+		 * views or RLS policies, then the user may not have access to all the
+		 * table's data, and we must check that the operator is leak-proof.
+		 *
+		 * If the operator is leaky, then we must ignore this clause for the
+		 * purposes of estimating with MCV lists, otherwise the operator might
+		 * reveal values from the MCV list that the user doesn't have
+		 * permission to see.
+		 */
+		if (rte->securityQuals != NIL &&
+			!get_func_leakproof(get_opcode(expr->opno)))
+			return false;
 
 		return statext_is_compatible_clause_internal(root, (Node *) var,
 													 relid, attnums);
@@ -990,9 +1228,13 @@ statext_is_compatible_clause(PlannerInfo *root, Node *clause, Index relid,
  * statext_mcv_clauselist_selectivity
  *		Estimate clauses using the best multi-column statistics.
  *
- * Selects the best extended (multi-column) statistic on a table (measured by
- * the number of attributes extracted from the clauses and covered by it), and
- * computes the selectivity for the supplied clauses.
+ * Applies available extended (multi-column) statistics on a table. There may
+ * be multiple applicable statistics (with respect to the clauses), in which
+ * case we use greedy approach. In each round we select the best statistic on
+ * a table (measured by the number of attributes extracted from the clauses
+ * and covered by it), and compute the selectivity for the supplied clauses.
+ * We repeat this process with the remaining clauses (if any), until none of
+ * the available statistics can be used.
  *
  * One of the main challenges with using MCV lists is how to extrapolate the
  * estimate to the data not covered by the MCV list. To do that, we compute
@@ -1036,11 +1278,6 @@ statext_is_compatible_clause(PlannerInfo *root, Node *clause, Index relid,
  * 'estimatedclauses' is an input/output parameter.  We set bits for the
  * 0-based 'clauses' indexes we estimate for and also skip clause items that
  * already have a bit set.
- *
- * XXX If we were to use multiple statistics, this is where it would happen.
- * We would simply repeat this on a loop on the "remaining" clauses, possibly
- * using the already estimated clauses as conditions (and combining the values
- * using conditional probability formula).
  */
 static Selectivity
 statext_mcv_clauselist_selectivity(PlannerInfo *root, List *clauses, int varRelid,
@@ -1048,17 +1285,9 @@ statext_mcv_clauselist_selectivity(PlannerInfo *root, List *clauses, int varReli
 								   RelOptInfo *rel, Bitmapset **estimatedclauses)
 {
 	ListCell   *l;
-	Bitmapset  *clauses_attnums = NULL;
 	Bitmapset **list_attnums;
 	int			listidx;
-	StatisticExtInfo *stat;
-	List	   *stat_clauses;
-	Selectivity simple_sel,
-				mcv_sel,
-				mcv_basesel,
-				mcv_totalsel,
-				other_sel,
-				sel;
+	Selectivity sel = 1.0;
 
 	/* check if there's any stats that might be useful for us. */
 	if (!has_stats_of_kind(rel->statlist, STATS_EXT_MCV))
@@ -1086,78 +1315,97 @@ statext_mcv_clauselist_selectivity(PlannerInfo *root, List *clauses, int varReli
 
 		if (!bms_is_member(listidx, *estimatedclauses) &&
 			statext_is_compatible_clause(root, clause, rel->relid, &attnums))
-		{
 			list_attnums[listidx] = attnums;
-			clauses_attnums = bms_add_members(clauses_attnums, attnums);
-		}
 		else
 			list_attnums[listidx] = NULL;
 
 		listidx++;
 	}
 
-	/* We need at least two attributes for multivariate statistics. */
-	if (bms_membership(clauses_attnums) != BMS_MULTIPLE)
-		return 1.0;
-
-	/* find the best suited statistics object for these attnums */
-	stat = choose_best_statistics(rel->statlist, clauses_attnums, STATS_EXT_MCV);
-
-	/* if no matching stats could be found then we've nothing to do */
-	if (!stat)
-		return 1.0;
-
-	/* Ensure choose_best_statistics produced an expected stats type. */
-	Assert(stat->kind == STATS_EXT_MCV);
-
-	/* now filter the clauses to be estimated using the selected MCV */
-	stat_clauses = NIL;
-
-	listidx = 0;
-	foreach(l, clauses)
+	/* apply as many extended statistics as possible */
+	while (true)
 	{
+		StatisticExtInfo *stat;
+		List	   *stat_clauses;
+		Selectivity simple_sel,
+					mcv_sel,
+					mcv_basesel,
+					mcv_totalsel,
+					other_sel,
+					stat_sel;
+
+		/* find the best suited statistics object for these attnums */
+		stat = choose_best_statistics(rel->statlist, STATS_EXT_MCV,
+									  list_attnums, list_length(clauses));
+
 		/*
-		 * If the clause is compatible with the selected statistics, mark it
-		 * as estimated and add it to the list to estimate.
+		 * if no (additional) matching stats could be found then we've nothing
+		 * to do
 		 */
-		if (list_attnums[listidx] != NULL &&
-			bms_is_subset(list_attnums[listidx], stat->keys))
+		if (!stat)
+			break;
+
+		/* Ensure choose_best_statistics produced an expected stats type. */
+		Assert(stat->kind == STATS_EXT_MCV);
+
+		/* now filter the clauses to be estimated using the selected MCV */
+		stat_clauses = NIL;
+
+		listidx = 0;
+		foreach(l, clauses)
 		{
-			stat_clauses = lappend(stat_clauses, (Node *) lfirst(l));
-			*estimatedclauses = bms_add_member(*estimatedclauses, listidx);
+			/*
+			 * If the clause is compatible with the selected statistics, mark
+			 * it as estimated and add it to the list to estimate.
+			 */
+			if (list_attnums[listidx] != NULL &&
+				bms_is_subset(list_attnums[listidx], stat->keys))
+			{
+				stat_clauses = lappend(stat_clauses, (Node *) lfirst(l));
+				*estimatedclauses = bms_add_member(*estimatedclauses, listidx);
+
+				bms_free(list_attnums[listidx]);
+				list_attnums[listidx] = NULL;
+			}
+
+			listidx++;
 		}
 
-		listidx++;
+		/*
+		 * First compute "simple" selectivity, i.e. without the extended
+		 * statistics, and essentially assuming independence of the
+		 * columns/clauses. We'll then use the various selectivities computed
+		 * from MCV list to improve it.
+		 */
+		simple_sel = clauselist_selectivity_simple(root, stat_clauses, varRelid,
+												   jointype, sjinfo, NULL);
+
+		/*
+		 * Now compute the multi-column estimate from the MCV list, along with
+		 * the other selectivities (base & total selectivity).
+		 */
+		mcv_sel = mcv_clauselist_selectivity(root, stat, stat_clauses, varRelid,
+											 jointype, sjinfo, rel,
+											 &mcv_basesel, &mcv_totalsel);
+
+		/* Estimated selectivity of values not covered by MCV matches */
+		other_sel = simple_sel - mcv_basesel;
+		CLAMP_PROBABILITY(other_sel);
+
+		/* The non-MCV selectivity can't exceed the 1 - mcv_totalsel. */
+		if (other_sel > 1.0 - mcv_totalsel)
+			other_sel = 1.0 - mcv_totalsel;
+
+		/*
+		 * Overall selectivity is the combination of MCV and non-MCV
+		 * estimates.
+		 */
+		stat_sel = mcv_sel + other_sel;
+		CLAMP_PROBABILITY(stat_sel);
+
+		/* Factor the estimate from this MCV to the oveall estimate. */
+		sel *= stat_sel;
 	}
-
-	/*
-	 * First compute "simple" selectivity, i.e. without the extended
-	 * statistics, and essentially assuming independence of the
-	 * columns/clauses. We'll then use the various selectivities computed from
-	 * MCV list to improve it.
-	 */
-	simple_sel = clauselist_selectivity_simple(root, stat_clauses, varRelid,
-											   jointype, sjinfo, NULL);
-
-	/*
-	 * Now compute the multi-column estimate from the MCV list, along with the
-	 * other selectivities (base & total selectivity).
-	 */
-	mcv_sel = mcv_clauselist_selectivity(root, stat, stat_clauses, varRelid,
-										 jointype, sjinfo, rel,
-										 &mcv_basesel, &mcv_totalsel);
-
-	/* Estimated selectivity of values not covered by MCV matches */
-	other_sel = simple_sel - mcv_basesel;
-	CLAMP_PROBABILITY(other_sel);
-
-	/* The non-MCV selectivity can't exceed the 1 - mcv_totalsel. */
-	if (other_sel > 1.0 - mcv_totalsel)
-		other_sel = 1.0 - mcv_totalsel;
-
-	/* Overall selectivity is the combination of MCV and non-MCV estimates. */
-	sel = mcv_sel + other_sel;
-	CLAMP_PROBABILITY(sel);
 
 	return sel;
 }
@@ -1195,4 +1443,66 @@ statext_clauselist_selectivity(PlannerInfo *root, List *clauses, int varRelid,
 											   estimatedclauses);
 
 	return sel;
+}
+
+/*
+ * examine_opclause_expression
+ *		Split expression into Var and Const parts.
+ *
+ * Attempts to match the arguments to either (Var op Const) or (Const op Var),
+ * possibly with a RelabelType on top. When the expression matches this form,
+ * returns true, otherwise returns false.
+ *
+ * Optionally returns pointers to the extracted Var/Const nodes, when passed
+ * non-null pointers (varp, cstp and varonleftp). The varonleftp flag specifies
+ * on which side of the operator we found the Var node.
+ */
+bool
+examine_clause_args(List *args, Var **varp, Const **cstp, bool *varonleftp)
+{
+	Var		   *var;
+	Const	   *cst;
+	bool		varonleft;
+	Node	   *leftop,
+			   *rightop;
+
+	/* enforced by statext_is_compatible_clause_internal */
+	Assert(list_length(args) == 2);
+
+	leftop = linitial(args);
+	rightop = lsecond(args);
+
+	/* strip RelabelType from either side of the expression */
+	if (IsA(leftop, RelabelType))
+		leftop = (Node *) ((RelabelType *) leftop)->arg;
+
+	if (IsA(rightop, RelabelType))
+		rightop = (Node *) ((RelabelType *) rightop)->arg;
+
+	if (IsA(leftop, Var) && IsA(rightop, Const))
+	{
+		var = (Var *) leftop;
+		cst = (Const *) rightop;
+		varonleft = true;
+	}
+	else if (IsA(leftop, Const) && IsA(rightop, Var))
+	{
+		var = (Var *) rightop;
+		cst = (Const *) leftop;
+		varonleft = false;
+	}
+	else
+		return false;
+
+	/* return pointers to the extracted parts if requested */
+	if (varp)
+		*varp = var;
+
+	if (cstp)
+		*cstp = cst;
+
+	if (varonleftp)
+		*varonleftp = varonleft;
+
+	return true;
 }

@@ -6,7 +6,7 @@ use File::Basename qw(basename dirname);
 use File::Path qw(rmtree);
 use PostgresNode;
 use TestLib;
-use Test::More tests => 106;
+use Test::More tests => 109;
 
 program_help_ok('pg_basebackup');
 program_version_ok('pg_basebackup');
@@ -65,8 +65,8 @@ $node->restart;
 
 # Write some files to test that they are not copied.
 foreach my $filename (
-	qw(backup_label tablespace_map postgresql.auto.conf.tmp current_logfiles.tmp)
-  )
+	qw(backup_label tablespace_map postgresql.auto.conf.tmp
+	current_logfiles.tmp global/pg_internal.init.123))
 {
 	open my $file, '>>', "$pgdata/$filename";
 	print $file "DONOTCOPY";
@@ -103,7 +103,8 @@ foreach my $filename (@tempRelationFiles)
 # Run base backup.
 $node->command_ok([ 'pg_basebackup', '-D', "$tempdir/backup", '-X', 'none' ],
 	'pg_basebackup runs');
-ok(-f "$tempdir/backup/PG_VERSION", 'backup was created');
+ok(-f "$tempdir/backup/PG_VERSION",      'backup was created');
+ok(-f "$tempdir/backup/backup_manifest", 'backup manifest included');
 
 # Permissions on backup should be default
 SKIP:
@@ -135,7 +136,7 @@ foreach my $dirname (
 # These files should not be copied.
 foreach my $filename (
 	qw(postgresql.auto.conf.tmp postmaster.opts postmaster.pid tablespace_map current_logfiles.tmp
-	global/pg_internal.init))
+	global/pg_internal.init global/pg_internal.init.123))
 {
 	ok(!-f "$tempdir/backup/$filename", "$filename not copied");
 }
@@ -160,12 +161,14 @@ rmtree("$tempdir/backup");
 
 $node->command_ok(
 	[
-		'pg_basebackup', '-D', "$tempdir/backup2", '--waldir',
-		"$tempdir/xlog2"
+		'pg_basebackup',    '-D',
+		"$tempdir/backup2", '--no-manifest',
+		'--waldir',         "$tempdir/xlog2"
 	],
 	'separate xlog directory');
-ok(-f "$tempdir/backup2/PG_VERSION", 'backup was created');
-ok(-d "$tempdir/xlog2/",             'xlog directory was created');
+ok(-f "$tempdir/backup2/PG_VERSION",       'backup was created');
+ok(!-f "$tempdir/backup2/backup_manifest", 'manifest was suppressed');
+ok(-d "$tempdir/xlog2/",                   'xlog directory was created');
 rmtree("$tempdir/backup2");
 rmtree("$tempdir/xlog2");
 

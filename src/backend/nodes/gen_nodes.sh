@@ -25,6 +25,7 @@ cat \
 	$inc_dir/nodes/params.h \
 	$inc_dir/optimizer/planmain.h \
 	$inc_dir/optimizer/reduceinfo.h \
+	$inc_dir/tcop/cmdtag.h \
 	| perl $bin_dir/node_format.pl >/tmp/$$.h \
 	&& (clang-format -style="{BasedOnStyle: llvm, ColumnLimit: 0}" /tmp/$$.h || exit 1) \
 	   | perl $bin_dir/gen_nodes.pl -s $inc_dir/nodes/node_special.h -o $inc_dir/nodes/

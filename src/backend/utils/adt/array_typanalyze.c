@@ -3,7 +3,7 @@
  * array_typanalyze.c
  *	  Functions for gathering statistics from array columns
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -14,7 +14,7 @@
  */
 #include "postgres.h"
 
-#include "access/tuptoaster.h"
+#include "access/detoast.h"
 #include "commands/vacuum.h"
 #include "utils/array.h"
 #include "utils/builtins.h"

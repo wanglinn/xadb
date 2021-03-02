@@ -15,11 +15,11 @@ DELETE FROM delete_test AS dt WHERE dt.a > 75;
 -- to be referenced
 DELETE FROM delete_test dt WHERE delete_test.a > 25;
 
-SELECT id, a, char_length(b) FROM delete_test ORDER BY id;
+SELECT id, a, char_length(b) FROM delete_test;
 
 -- delete a row with a TOASTed value
 DELETE FROM delete_test WHERE a > 25;
 
-SELECT id, a, char_length(b) FROM delete_test ORDER BY id;
+SELECT id, a, char_length(b) FROM delete_test;
 
 DROP TABLE delete_test;

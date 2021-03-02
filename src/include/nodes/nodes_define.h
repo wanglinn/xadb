@@ -49,6 +49,7 @@
  *   HashJoinState
  *   MaterialState
  *   SortState
+ *   IncrementalSortState
  *   GroupState
  *   AggState
  *   WindowAggState
@@ -148,6 +149,9 @@
 #endif
 #ifndef NODE_BITMAPSET_ARRAY
 #	define NODE_BITMAPSET_ARRAY(t,m,l)
+#endif
+#ifndef NODE_BYTEA_ARRAY
+#	define NODE_BYTEA_ARRAY(t,m,l)
 #endif
 #ifndef NODE_RELIDS
 #	define NODE_RELIDS(t,m) NODE_BITMAPSET(Bitmapset,m)
@@ -269,6 +273,7 @@ END_NODE(ModifyTable)
 #ifndef NO_NODE_Append
 BEGIN_NODE(Append)
 	NODE_BASE2(Plan,plan)
+	NODE_BITMAPSET(Bitmapset,apprelids)
 	NODE_NODE(List,appendplans)
 	NODE_SCALAR(int,first_partial_plan)
 	NODE_NODE(PartitionPruneInfo,part_prune_info)
@@ -278,6 +283,7 @@ END_NODE(Append)
 #ifndef NO_NODE_MergeAppend
 BEGIN_NODE(MergeAppend)
 	NODE_BASE2(Plan,plan)
+	NODE_BITMAPSET(Bitmapset,apprelids)
 	NODE_NODE(List,mergeplans)
 	NODE_SCALAR(int,numCols)
 	NODE_SCALAR_POINT(AttrNumber,sortColIdx,NODE_ARG_->numCols)
@@ -481,6 +487,9 @@ END_NODE(MergeJoin)
 BEGIN_NODE(HashJoin)
 	NODE_BASE2(Join,join)
 	NODE_NODE(List,hashclauses)
+	NODE_NODE(List,hashoperators)
+	NODE_NODE(List,hashcollations)
+	NODE_NODE(List,hashkeys)
 #ifdef ADB
 	NODE_SCALAR(bool,cluster_hashtable_first)
 #endif
@@ -507,6 +516,13 @@ BEGIN_NODE(Sort)
 END_NODE(Sort)
 #endif /* NO_NODE_Sort */
 
+#ifndef NO_NODE_IncrementalSort
+BEGIN_NODE(IncrementalSort)
+	NODE_BASE2(Sort,sort)
+	NODE_SCALAR(int,nPresortedCols)
+END_NODE(IncrementalSort)
+#endif /* NO_NODE_IncrementalSort */
+
 #ifndef NO_NODE_Group
 BEGIN_NODE(Group)
 	NODE_BASE2(Plan,plan)
@@ -527,6 +543,7 @@ BEGIN_NODE(Agg)
 	NODE_SCALAR_POINT(Oid,grpOperators,NODE_ARG_->numCols)
 	NODE_SCALAR_POINT(Oid,grpCollations,NODE_ARG_->numCols)
 	NODE_SCALAR(long,numGroups)
+	NODE_SCALAR(uint64,transitionSpace)
 	NODE_BITMAPSET(Bitmapset,aggParams)
 	NODE_NODE(List,groupingSets)
 	NODE_NODE(List,chain)
@@ -601,6 +618,7 @@ END_NODE(GatherMerge)
 #ifndef NO_NODE_Hash
 BEGIN_NODE(Hash)
 	NODE_BASE2(Plan,plan)
+	NODE_NODE(List,hashkeys)
 	NODE_OID(class,skewTable)
 	NODE_SCALAR(AttrNumber,skewColumn)
 	NODE_SCALAR(bool,skewInherit)
@@ -636,6 +654,11 @@ BEGIN_NODE(Limit)
 	NODE_BASE2(Plan,plan)
 	NODE_NODE(Node,limitOffset)
 	NODE_NODE(Node,limitCount)
+	NODE_ENUM(LimitOption,limitOption)
+	NODE_SCALAR(int,uniqNumCols)
+	NODE_SCALAR_POINT(AttrNumber,uniqColIdx,NODE_ARG_->uniqNumCols)
+	NODE_SCALAR_POINT(Oid,uniqOperators,NODE_ARG_->uniqNumCols)
+	NODE_SCALAR_POINT(Oid,uniqCollations,NODE_ARG_->uniqNumCols)
 END_NODE(Limit)
 #endif /* NO_NODE_Limit */
 
@@ -984,8 +1007,8 @@ BEGIN_NODE(Var)
 	NODE_SCALAR(int32,vartypmod)
 	NODE_OID(collation,varcollid)
 	NODE_SCALAR(Index,varlevelsup)
-	NODE_SCALAR(Index,varnoold)
-	NODE_SCALAR(AttrNumber,varoattno)
+	NODE_SCALAR(Index,varnosyn)
+	NODE_SCALAR(AttrNumber,varattnosyn)
 	NODE_SCALAR(int,location)
 END_NODE(Var)
 #endif /* NO_NODE_Var */
@@ -1646,6 +1669,7 @@ BEGIN_NODE(IndexOptInfo)
 	NODE_SCALAR_POINT(Oid,sortopfamily,NODE_ARG_->ncolumns)
 	NODE_SCALAR_POINT(bool,reverse_sort,NODE_ARG_->ncolumns)
 	NODE_SCALAR_POINT(bool,nulls_first,NODE_ARG_->ncolumns)
+	NODE_BYTEA_ARRAY(bytea,opclassoptions,NODE_ARG_->ncolumns)
 	NODE_SCALAR_POINT(bool,canreturn,NODE_ARG_->ncolumns)
 	NODE_SCALAR(Oid,relam)
 	NODE_NODE(List,indexprs)
@@ -1862,6 +1886,13 @@ BEGIN_NODE(SortPath)
 END_NODE(SortPath)
 #endif /* NO_NODE_SortPath */
 
+#ifndef NO_NODE_IncrementalSortPath
+BEGIN_NODE(IncrementalSortPath)
+	NODE_BASE2(SortPath,spath)
+	NODE_SCALAR(int,nPresortedCols)
+END_NODE(IncrementalSortPath)
+#endif /* NO_NODE_IncrementalSortPath */
+
 #ifndef NO_NODE_GroupPath
 BEGIN_NODE(GroupPath)
 	NODE_BASE2(Path,path)
@@ -1886,6 +1917,7 @@ BEGIN_NODE(AggPath)
 	NODE_ENUM(AggStrategy,aggstrategy)
 	NODE_ENUM(AggSplit,aggsplit)
 	NODE_SCALAR(double,numGroups)
+	NODE_SCALAR(uint64,transitionSpace)
 	NODE_NODE(List,groupClause)
 	NODE_NODE(List,qual)
 #ifdef ADB_EXT
@@ -1901,6 +1933,7 @@ BEGIN_NODE(GroupingSetsPath)
 	NODE_ENUM(AggStrategy,aggstrategy)
 	NODE_NODE(List,rollups)
 	NODE_NODE(List,qual)
+	NODE_SCALAR(uint64,transitionSpace)
 END_NODE(GroupingSetsPath)
 #endif /* NO_NODE_GroupingSetsPath */
 
@@ -1981,6 +2014,7 @@ BEGIN_NODE(LimitPath)
 	NODE_NODE(Path,subpath)
 	NODE_NODE(Node,limitOffset)
 	NODE_NODE(Node,limitCount)
+	NODE_ENUM(LimitOption,limitOption)
 END_NODE(LimitPath)
 #endif /* NO_NODE_LimitPath */
 
@@ -2195,6 +2229,8 @@ BEGIN_NODE(AppendRelInfo)
 	NODE_OID(type,parent_reltype)
 	NODE_OID(type,child_reltype)
 	NODE_NODE(List,translated_vars)
+	NODE_SCALAR(int,num_child_cols)
+	NODE_SCALAR_POINT(AttrNumber,parent_colnos,NODE_ARG_->num_child_cols)
 	NODE_SCALAR(Oid,parent_reloid)
 END_NODE(AppendRelInfo)
 #endif /* NO_NODE_AppendRelInfo */
@@ -2302,6 +2338,7 @@ BEGIN_NODE(Query)
 	NODE_NODE(List,sortClause)
 	NODE_NODE(Node,limitOffset)
 	NODE_NODE(Node,limitCount)
+	NODE_ENUM(LimitOption,limitOption)
 	NODE_NODE(List,rowMarks)
 	NODE_NODE(Node,setOperations)
 	NODE_NODE(List,constraintDeps)
@@ -2336,6 +2373,7 @@ BEGIN_NODE(PlannedStmt)
 	NODE_NODE(List,rtable)
 	NODE_NODE(List,resultRelations)
 	NODE_NODE(List,rootResultRelations)
+	NODE_NODE(List,appendRelations)
 	NODE_NODE(List,subplans)
 	NODE_BITMAPSET(Bitmapset,rewindPlanIDs)
 	NODE_NODE(List,rowMarks)
@@ -2395,6 +2433,7 @@ BEGIN_NODE(SelectStmt)
 	NODE_NODE(List,sortClause)
 	NODE_NODE(Node,limitOffset)
 	NODE_NODE(Node,limitCount)
+	NODE_ENUM(LimitOption,limitOption)
 	NODE_NODE(List,lockingClause)
 	NODE_NODE(WithClause,withClause)
 	NODE_ENUM(SetOperation,op)
@@ -2610,6 +2649,8 @@ BEGIN_NODE(IndexStmt)
 	NODE_STRING(idxcomment)
 	NODE_SCALAR(Oid,indexOid)
 	NODE_SCALAR(Oid,oldNode)
+	NODE_SCALAR(SubTransactionId,oldCreateSubid)
+	NODE_SCALAR(SubTransactionId,oldFirstRelfilenodeSubid)
 	NODE_SCALAR(bool,unique)
 	NODE_SCALAR(bool,primary)
 	NODE_SCALAR(bool,isconstraint)
@@ -2744,6 +2785,7 @@ END_NODE(CreatedbStmt)
 BEGIN_NODE(DropdbStmt)
 	NODE_STRING(dbname)
 	NODE_SCALAR(bool,missing_ok)
+	NODE_NODE(List,options)
 END_NODE(DropdbStmt)
 #endif /* NO_NODE_DropdbStmt */
 
@@ -3033,6 +3075,7 @@ BEGIN_NODE(AlterObjectDependsStmt)
 	NODE_NODE(RangeVar,relation)
 	NODE_NODE(Node,object)
 	NODE_NODE(Value,extname)
+	NODE_SCALAR(bool,remove)
 END_NODE(AlterObjectDependsStmt)
 #endif /* NO_NODE_AlterObjectDependsStmt */
 
@@ -3061,6 +3104,13 @@ BEGIN_NODE(AlterOperatorStmt)
 	NODE_NODE(List,options)
 END_NODE(AlterOperatorStmt)
 #endif /* NO_NODE_AlterOperatorStmt */
+
+#ifndef NO_NODE_AlterTypeStmt
+BEGIN_NODE(AlterTypeStmt)
+	NODE_NODE(List,typeName)
+	NODE_NODE(List,options)
+END_NODE(AlterTypeStmt)
+#endif /* NO_NODE_AlterTypeStmt */
 
 #ifndef NO_NODE_DropOwnedStmt
 BEGIN_NODE(DropOwnedStmt)
@@ -3433,6 +3483,14 @@ BEGIN_NODE(CallStmt)
 END_NODE(CallStmt)
 #endif /* NO_NODE_CallStmt */
 
+#ifndef NO_NODE_AlterStatsStmt
+BEGIN_NODE(AlterStatsStmt)
+	NODE_NODE(List,defnames)
+	NODE_SCALAR(int,stxstattarget)
+	NODE_SCALAR(bool,missing_ok)
+END_NODE(AlterStatsStmt)
+#endif /* NO_NODE_AlterStatsStmt */
+
 #ifdef ADB_GRAM_ORA
 
 #ifndef NO_NODE_CreateOracleConvertStmt
@@ -3733,6 +3791,7 @@ BEGIN_NODE(IndexElem)
 	NODE_STRING(indexcolname)
 	NODE_NODE(List,collation)
 	NODE_NODE(List,opclass)
+	NODE_NODE(List,opclassopts)
 	NODE_ENUM(SortByDir,ordering)
 	NODE_ENUM(SortByNulls,nulls_ordering)
 END_NODE(IndexElem)
@@ -3794,7 +3853,10 @@ BEGIN_NODE(RangeTblEntry)
 	NODE_NODE(Query,subquery)
 	NODE_SCALAR(bool,security_barrier)
 	NODE_ENUM(JoinType,jointype)
+	NODE_SCALAR(int,joinmergedcols)
 	NODE_NODE(List,joinaliasvars)
+	NODE_NODE(List,joinleftcols)
+	NODE_NODE(List,joinrightcols)
 	NODE_NODE(List,functions)
 	NODE_SCALAR(bool,funcordinality)
 	NODE_NODE(TableFunc,tablefunc)
@@ -4114,7 +4176,7 @@ END_NODE(SQLCmd)
 BEGIN_NODE(EventTriggerData)
 	NODE_STRING(event)
 	NODE_NODE(Node,parsetree)
-	NODE_STRING(tag)
+	NODE_ENUM(CommandTag,tag)
 END_NODE(EventTriggerData)
 #endif /* NO_NODE_EventTriggerData */
 

@@ -597,6 +597,7 @@ Datum rxact_get_running(PG_FUNCTION_ARGS)
 	HeapTuple tuple;
 	ArrayBuildState *astate,*astate2;
 	Datum values[6];
+	ForEachState *state;
 	int i;
 	static bool nulls[6] = {false,false,false,false,false,false};
 
@@ -604,7 +605,6 @@ Datum rxact_get_running(PG_FUNCTION_ARGS)
 	{
 		MemoryContext oldcontext;
 		TupleDesc	tupdesc;
-		List *list;
 
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
@@ -624,18 +624,21 @@ Datum rxact_get_running(PG_FUNCTION_ARGS)
 						   BOOLARRAYOID, -1, 0);
 		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
 
-		list = RxactGetRunningList();
-		funcctx->user_fctx = list_head(list);
+		state = palloc(sizeof(*state));
+		state->l = RxactGetRunningList();
+		state->i = 0;
+		funcctx->user_fctx = state;
 
 		MemoryContextSwitchTo(oldcontext);
 	}
 
 	funcctx = SRF_PERCALL_SETUP();
+	state = (ForEachState*)funcctx;
 
-	if(funcctx->user_fctx)
+	if(state->i < list_length(state->l))
 	{
-		info = lfirst((ListCell*)funcctx->user_fctx);
-		funcctx->user_fctx = lnext((ListCell*)funcctx->user_fctx);
+		info = list_nth(state->l, state->i);
+		++(state->i);
 
 		values[0] = PointerGetDatum(cstring_to_text(info->gid));
 		values[1] = ObjectIdGetDatum(info->db_oid);

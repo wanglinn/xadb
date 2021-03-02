@@ -179,7 +179,7 @@ static const ClusterCustomExecInfo cluster_custom_execute[] =
 		,{CLUSTER_CUSTOM_EXEC_FUNC(cluster_reindex, CLUSTER_CUSTOM_NO_NEED_SEND_STAT)}
 	};
 
-static void set_cluster_display(const char *activity, bool force, ClusterCoordInfo *info);
+static void set_cluster_display(const char *activity, ClusterCoordInfo *info);
 
 static DynamicReduceNodeInfo   *CnRdcInfo = NULL;
 static uint32					CnRdcCnt = 0;
@@ -226,14 +226,14 @@ void exec_cluster_plan(const void *splan, int length)
 		uint32 rdc_listen_port;
 
 		/* Start self Reduce with rdc_id */
-		set_cluster_display("<cluster start self reduce>", false, info);
+		set_cluster_display("<cluster start self reduce>", info);
 		rdc_listen_port = StartDynamicReduceWorker();
 
 		/* Tell coordinator self own listen port */
 		send_rdc_listend_port(rdc_listen_port);
 
 		/* Wait for the whole Reduce connect OK */
-		set_cluster_display("<cluster start group reduce>", false, info);
+		set_cluster_display("<cluster start group reduce>", info);
 		wait_rdc_group_message();
 	}
 
@@ -245,7 +245,7 @@ void exec_cluster_plan(const void *splan, int length)
 					(errcode(ERRCODE_PROTOCOL_VIOLATION),
 					 errmsg("Can not found valid plan info")));
 		GetTransactionSnapshot();
-		set_cluster_display(custom_fun->FuncString, false, info);
+		set_cluster_display(custom_fun->FuncString, info);
 		(*custom_fun->func)(&msg);
 		break;
 	case T_PlannedStmt:
@@ -315,13 +315,13 @@ static void ExecClusterPlanStmt(StringInfo buf, ClusterCoordInfo *info)
 
 	ExecutorStart(query_desc, eflags);
 
-	set_cluster_display("<advance reduce>", false, info);
+	set_cluster_display("<advance reduce>", info);
 	if (query_desc->totaltime)
 		InstrStartNode(query_desc->totaltime);
 	if (query_desc->totaltime)
 		InstrStopNode(query_desc->totaltime, 0);
 
-	set_cluster_display("<cluster query>", false, info);
+	set_cluster_display("<cluster query>", info);
 
 	/* run plan */
 	ExecutorRun(query_desc, ForwardScanDirection, 0L, true);
@@ -370,7 +370,7 @@ static void ExecClusterCopyStmt(StringInfo buf, ClusterCoordInfo *info)
 
 	stmt = (CopyStmt*)loadNode(&msg);
 	Assert(IsA(stmt, CopyStmt));
-	set_cluster_display("<CLUSTER COPY FROM>", false, info);
+	set_cluster_display("<CLUSTER COPY FROM>", info);
 
 	DoClusterCopy(stmt, buf);
 }
@@ -388,7 +388,7 @@ ExecClusterAuxPadding(StringInfo buf, ClusterCoordInfo *info)
 
 	stmt = (PaddingAuxDataStmt *) loadNode(&msg);
 	Assert(IsA(stmt, PaddingAuxDataStmt));
-	set_cluster_display("<PADDING AUXILIARY DATA>", false, info);
+	set_cluster_display("<PADDING AUXILIARY DATA>", info);
 
 	ExecPaddingAuxDataStmt(stmt, buf);
 }
@@ -471,7 +471,7 @@ static QueryDesc *create_cluster_query_desc(StringInfo info, DestReceiver *r)
 
 	n = list_length(rte_list);
 	base_rels = palloc(sizeof(Relation) * n);
-	for(i=0,lc=list_head(rte_list);lc!=NULL;lc=lnext(lc),++i)
+	for(i=0,lc=list_head(rte_list);lc!=NULL;lc=lnext(rte_list,lc),++i)
 	{
 		rte = lfirst(lc);
 		if(rte->rtekind == RTE_RELATION)
@@ -879,7 +879,7 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 		if(((RangeTblEntry*)node)->rtekind == RTE_RELATION)
 		{
 			RangeTblEntry *rte = (RangeTblEntry*)node;
-			Relation rel = heap_open(rte->relid, NoLock);
+			Relation rel = table_open(rte->relid, NoLock);
 			LOCKMODE locked_mode = GetLocalLockedRelationOidMode(rte->relid);
 			RangeTblEntry tmp;
 			Assert(locked_mode != NoLock);
@@ -904,7 +904,7 @@ static bool SerializePlanHook(StringInfo buf, Node *node, void *context)
 			}
 			/* save relation Oid */
 			SerializeRelationOid(buf, RelationGetRelid(rel));
-			heap_close(rel, NoLock);
+			table_close(rel, NoLock);
 			appendBinaryStringInfo(buf, (char*)&locked_mode, sizeof(locked_mode));
 			return true;
 		}
@@ -1910,17 +1910,17 @@ void DestroyTableStateSnapshot(void)
 	}
 }
 
-static void set_cluster_display(const char *activity, bool force, ClusterCoordInfo *info)
+static void set_cluster_display(const char *activity, ClusterCoordInfo *info)
 {
 	if (info == NULL)
 	{
-		set_ps_display(activity, force);
+		set_ps_display(activity);
 	}else
 	{
 		StringInfoData buf;
 		initStringInfo(&buf);
 		appendStringInfo(&buf, "%s for PID %d from %s", activity, info->pid, info->name);
-		set_ps_display(buf.data, force);
+		set_ps_display(buf.data);
 		pfree(buf.data);
 	}
 }

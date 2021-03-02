@@ -6,9 +6,9 @@
 --
 -- Tables and rules for the view test
 --
-create table rtest_t1 (a int4, b int4) distribute by roundrobin;
-create table rtest_t2 (a int4, b int4) distribute by roundrobin;
-create table rtest_t3 (a int4, b int4) distribute by roundrobin;
+create table rtest_t1 (a int4, b int4);
+create table rtest_t2 (a int4, b int4);
+create table rtest_t3 (a int4, b int4);
 create view rtest_v1 as select * from rtest_t1;
 create rule rtest_v1_ins as on insert to rtest_v1 do instead
 	insert into rtest_t1 values (new.a, new.b);
@@ -142,7 +142,7 @@ insert into rtest_t3 values (5, 35);
 -- insert values
 insert into rtest_v1 values (1, 11);
 insert into rtest_v1 values (2, 12);
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a | b  
 ---+----
  1 | 11
@@ -151,7 +151,7 @@ select * from rtest_v1 order by a, b;
 
 -- delete with constant expression
 delete from rtest_v1 where a = 1;
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a | b  
 ---+----
  2 | 12
@@ -159,7 +159,7 @@ select * from rtest_v1 order by a, b;
 
 insert into rtest_v1 values (1, 11);
 delete from rtest_v1 where b = 12;
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a | b  
 ---+----
  1 | 11
@@ -167,7 +167,7 @@ select * from rtest_v1 order by a, b;
 
 insert into rtest_v1 values (2, 12);
 insert into rtest_v1 values (2, 13);
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a | b  
 ---+----
  1 | 11
@@ -184,7 +184,7 @@ select * from rtest_v1 order by a, b;
 ** So this time both rows with a = 2 must get deleted
 \r
 delete from rtest_v1 where b = 12;
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a | b  
 ---+----
  1 | 11
@@ -193,7 +193,7 @@ select * from rtest_v1 order by a, b;
 delete from rtest_v1;
 -- insert select
 insert into rtest_v1 select * from rtest_t2;
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a | b  
 ---+----
  1 | 21
@@ -204,7 +204,7 @@ select * from rtest_v1 order by a, b;
 delete from rtest_v1;
 -- same with swapped targetlist
 insert into rtest_v1 (b, a) select b, a from rtest_t2;
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a | b  
 ---+----
  1 | 21
@@ -214,20 +214,20 @@ select * from rtest_v1 order by a, b;
 
 -- now with only one target attribute
 insert into rtest_v1 (a) select a from rtest_t3;
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a | b  
 ---+----
  1 | 21
- 1 |   
  2 | 22
- 2 |   
  3 | 23
+ 1 |   
+ 2 |   
  3 |   
  4 |   
  5 |   
 (8 rows)
 
-select * from rtest_v1 where b isnull order by a, b;
+select * from rtest_v1 where b isnull;
  a | b 
 ---+---
  1 |  
@@ -240,7 +240,7 @@ select * from rtest_v1 where b isnull order by a, b;
 -- let attribute a differ (must be done on rtest_t1 - see above)
 update rtest_t1 set a = a + 10 where b isnull;
 delete from rtest_v1 where b isnull;
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a | b  
 ---+----
  1 | 21
@@ -250,29 +250,29 @@ select * from rtest_v1 order by a, b;
 
 -- now updates with constant expression
 update rtest_v1 set b = 42 where a = 2;
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a | b  
 ---+----
  1 | 21
- 2 | 42
  3 | 23
+ 2 | 42
 (3 rows)
 
 update rtest_v1 set b = 99 where b = 42;
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a | b  
 ---+----
  1 | 21
- 2 | 99
  3 | 23
+ 2 | 99
 (3 rows)
 
 update rtest_v1 set b = 88 where b < 50;
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a | b  
 ---+----
- 1 | 88
  2 | 99
+ 1 | 88
  3 | 88
 (3 rows)
 
@@ -280,7 +280,7 @@ delete from rtest_v1;
 insert into rtest_v1 select rtest_t2.a, rtest_t3.b
     from rtest_t2, rtest_t3
     where rtest_t2.a = rtest_t3.a;
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a | b  
 ---+----
  1 | 31
@@ -290,7 +290,7 @@ select * from rtest_v1 order by a, b;
 
 -- updates in a mergejoin
 update rtest_v1 set b = rtest_t2.b from rtest_t2 where rtest_v1.a = rtest_t2.a;
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a | b  
 ---+----
  1 | 21
@@ -299,21 +299,21 @@ select * from rtest_v1 order by a, b;
 (3 rows)
 
 insert into rtest_v1 select * from rtest_t3;
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a | b  
 ---+----
  1 | 21
- 1 | 31
  2 | 22
- 2 | 32
  3 | 23
+ 1 | 31
+ 2 | 32
  3 | 33
  4 | 34
  5 | 35
 (8 rows)
 
 update rtest_t1 set a = a + 10 where b > 30;
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a  | b  
 ----+----
   1 | 21
@@ -327,7 +327,7 @@ select * from rtest_v1 order by a, b;
 (8 rows)
 
 update rtest_v1 set a = rtest_t3.a + 20 from rtest_t3 where rtest_v1.b = rtest_t3.b;
-select * from rtest_v1 order by a, b;
+select * from rtest_v1;
  a  | b  
 ----+----
   1 | 21
@@ -356,7 +356,7 @@ insert into rtest_admin values ('jw', 'orion');
 insert into rtest_admin values ('jw', 'notjw');
 insert into rtest_admin values ('bm', 'neptun');
 update rtest_system set sysname = 'pluto' where sysname = 'neptun';
-select * from rtest_interface order by sysname, ifname;
+select * from rtest_interface;
  sysname | ifname 
 ---------+--------
  orion   | eth0
@@ -365,7 +365,7 @@ select * from rtest_interface order by sysname, ifname;
  pluto   | eth0
 (4 rows)
 
-select * from rtest_admin order by pname, sysname;
+select * from rtest_admin;
  pname | sysname 
 -------+---------
  jw    | orion
@@ -386,14 +386,14 @@ select * from rtest_admin order by pname, sysname;
 (3 rows)
 
 delete from rtest_system where sysname = 'orion';
-select * from rtest_interface order by sysname, ifname;
+select * from rtest_interface;
  sysname | ifname 
 ---------+--------
  notjw   | eth0
  pluto   | eth0
 (2 rows)
 
-select * from rtest_admin order by pname, sysname;
+select * from rtest_admin;
  pname  | sysname 
 --------+---------
  bm     | pluto
@@ -487,7 +487,7 @@ insert into rtest_t4 values (26, 'Record should go to rtest_t4 and t8');
 insert into rtest_t4 values (28, 'Record should go to rtest_t4 and t8');
 insert into rtest_t4 values (30, 'Record should go to rtest_t4');
 insert into rtest_t4 values (40, 'Record should go to rtest_t4');
-select * from rtest_t4 order by a, b;
+select * from rtest_t4;
  a  |                  b                  
 ----+-------------------------------------
   1 | Record should go to rtest_t4
@@ -499,7 +499,7 @@ select * from rtest_t4 order by a, b;
  40 | Record should go to rtest_t4
 (7 rows)
 
-select * from rtest_t5 order by a, b;
+select * from rtest_t5;
  a  |                  b                  
 ----+-------------------------------------
  10 | Record should go to rtest_t5
@@ -507,19 +507,19 @@ select * from rtest_t5 order by a, b;
  19 | Record should go to rtest_t5 and t7
 (3 rows)
 
-select * from rtest_t6 order by a, b;
+select * from rtest_t6;
  a  |                  b                  
 ----+-------------------------------------
  20 | Record should go to rtest_t4 and t6
 (1 row)
 
-select * from rtest_t7 order by a, b;
+select * from rtest_t7;
  a  |                  b                  
 ----+-------------------------------------
  19 | Record should go to rtest_t5 and t7
 (1 row)
 
-select * from rtest_t8 order by a, b;
+select * from rtest_t8;
  a  |                  b                  
 ----+-------------------------------------
  26 | Record should go to rtest_t4 and t8
@@ -542,14 +542,14 @@ insert into rtest_t9 values (28, 'Record should go to rtest_t4 and t8');
 insert into rtest_t9 values (30, 'Record should go to rtest_t4');
 insert into rtest_t9 values (40, 'Record should go to rtest_t4');
 insert into rtest_t4 select * from rtest_t9 where a < 20;
-select * from rtest_t4 order by a, b;
+select * from rtest_t4;
  a |              b               
 ---+------------------------------
  1 | Record should go to rtest_t4
  2 | Record should go to rtest_t4
 (2 rows)
 
-select * from rtest_t5 order by a, b;
+select * from rtest_t5;
  a  |                  b                  
 ----+-------------------------------------
  10 | Record should go to rtest_t5
@@ -557,24 +557,24 @@ select * from rtest_t5 order by a, b;
  19 | Record should go to rtest_t5 and t7
 (3 rows)
 
-select * from rtest_t6 order by a, b;
+select * from rtest_t6;
  a | b 
 ---+---
 (0 rows)
 
-select * from rtest_t7 order by a, b;
+select * from rtest_t7;
  a  |                  b                  
 ----+-------------------------------------
  19 | Record should go to rtest_t5 and t7
 (1 row)
 
-select * from rtest_t8 order by a, b;
+select * from rtest_t8;
  a | b 
 ---+---
 (0 rows)
 
 insert into rtest_t4 select * from rtest_t9 where b ~ 'and t8';
-select * from rtest_t4 order by a, b;
+select * from rtest_t4;
  a  |                  b                  
 ----+-------------------------------------
   1 | Record should go to rtest_t4
@@ -583,7 +583,7 @@ select * from rtest_t4 order by a, b;
  28 | Record should go to rtest_t4 and t8
 (4 rows)
 
-select * from rtest_t5 order by a, b;
+select * from rtest_t5;
  a  |                  b                  
 ----+-------------------------------------
  10 | Record should go to rtest_t5
@@ -591,18 +591,18 @@ select * from rtest_t5 order by a, b;
  19 | Record should go to rtest_t5 and t7
 (3 rows)
 
-select * from rtest_t6 order by a, b;
+select * from rtest_t6;
  a | b 
 ---+---
 (0 rows)
 
-select * from rtest_t7 order by a, b;
+select * from rtest_t7;
  a  |                  b                  
 ----+-------------------------------------
  19 | Record should go to rtest_t5 and t7
 (1 row)
 
-select * from rtest_t8 order by a, b;
+select * from rtest_t8;
  a  |                  b                  
 ----+-------------------------------------
  26 | Record should go to rtest_t4 and t8
@@ -610,19 +610,19 @@ select * from rtest_t8 order by a, b;
 (2 rows)
 
 insert into rtest_t4 select a + 1, b from rtest_t9 where a in (20, 30, 40);
-select * from rtest_t4 order by a, b;
+select * from rtest_t4;
  a  |                  b                  
 ----+-------------------------------------
   1 | Record should go to rtest_t4
   2 | Record should go to rtest_t4
- 21 | Record should go to rtest_t4 and t6
  26 | Record should go to rtest_t4 and t8
  28 | Record should go to rtest_t4 and t8
+ 21 | Record should go to rtest_t4 and t6
  31 | Record should go to rtest_t4
  41 | Record should go to rtest_t4
 (7 rows)
 
-select * from rtest_t5 order by a, b;
+select * from rtest_t5;
  a  |                  b                  
 ----+-------------------------------------
  10 | Record should go to rtest_t5
@@ -630,19 +630,19 @@ select * from rtest_t5 order by a, b;
  19 | Record should go to rtest_t5 and t7
 (3 rows)
 
-select * from rtest_t6 order by a, b;
+select * from rtest_t6;
  a  |                  b                  
 ----+-------------------------------------
  21 | Record should go to rtest_t4 and t6
 (1 row)
 
-select * from rtest_t7 order by a, b;
+select * from rtest_t7;
  a  |                  b                  
 ----+-------------------------------------
  19 | Record should go to rtest_t5 and t7
 (1 row)
 
-select * from rtest_t8 order by a, b;
+select * from rtest_t8;
  a  |                  b                  
 ----+-------------------------------------
  26 | Record should go to rtest_t4 and t8
@@ -653,7 +653,7 @@ select * from rtest_t8 order by a, b;
 -- Check that the ordering of rules fired is correct
 --
 insert into rtest_order1 values (1);
-select * from rtest_order2 order by a, b, c;
+select * from rtest_order2;
  a | b |              c               
 ---+---+------------------------------
  1 | 1 | rule 1 - this should run 1st
@@ -676,7 +676,7 @@ insert into rtest_nothn1 values (39, 'don''t want this');
 insert into rtest_nothn1 values (40, 'want this');
 insert into rtest_nothn1 values (50, 'want this');
 insert into rtest_nothn1 values (60, 'want this');
-select * from rtest_nothn1 order by a, b;
+select * from rtest_nothn1;
  a  |     b     
 ----+-----------
   1 | want this
@@ -692,12 +692,12 @@ insert into rtest_nothn2 values (10, 'too small');
 insert into rtest_nothn2 values (50, 'too small');
 insert into rtest_nothn2 values (100, 'OK');
 insert into rtest_nothn2 values (200, 'OK');
-select * from rtest_nothn2 order by a, b;
+select * from rtest_nothn2;
  a | b 
 ---+---
 (0 rows)
 
-select * from rtest_nothn3 order by a, b;
+select * from rtest_nothn3;
   a  | b  
 -----+----
  100 | OK
@@ -719,7 +719,7 @@ insert into rtest_nothn4 values (40, 'want this');
 insert into rtest_nothn4 values (50, 'want this');
 insert into rtest_nothn4 values (60, 'want this');
 insert into rtest_nothn1 select * from rtest_nothn4;
-select * from rtest_nothn1 order by a, b;
+select * from rtest_nothn1;
  a  |     b     
 ----+-----------
   1 | want this
@@ -737,12 +737,12 @@ insert into rtest_nothn4 values (50, 'too small');
 insert into rtest_nothn4 values (100, 'OK');
 insert into rtest_nothn4 values (200, 'OK');
 insert into rtest_nothn2 select * from rtest_nothn4;
-select * from rtest_nothn2 order by a, b;
+select * from rtest_nothn2;
  a | b 
 ---+---
 (0 rows)
 
-select * from rtest_nothn3 order by a, b;
+select * from rtest_nothn3;
   a  | b  
 -----+----
  100 | OK
@@ -783,7 +783,7 @@ insert into rtest_view2 values (7);
 insert into rtest_view2 values (7);
 insert into rtest_view2 values (7);
 insert into rtest_view2 values (7);
-select * from rtest_vview1 order by a, b;
+select * from rtest_vview1;
  a |   b    
 ---+--------
  2 | item 2
@@ -792,7 +792,7 @@ select * from rtest_vview1 order by a, b;
  7 | item 7
 (4 rows)
 
-select * from rtest_vview2 order by a, b;
+select * from rtest_vview2;
  a |   b    
 ---+--------
  1 | item 1
@@ -803,7 +803,7 @@ select * from rtest_vview2 order by a, b;
  8 | item 8
 (6 rows)
 
-select * from rtest_vview3 order by a, b;
+select * from rtest_vview3;
  a |   b    
 ---+--------
  2 | item 2
@@ -820,7 +820,7 @@ select * from rtest_vview4 order by a, b;
  7 | item 7 |        4
 (4 rows)
 
-select * from rtest_vview5 order by a, b;
+select * from rtest_vview5;
  a |   b    | refcount 
 ---+--------+----------
  1 | item 1 |        0
@@ -834,7 +834,7 @@ select * from rtest_vview5 order by a, b;
 (8 rows)
 
 insert into rtest_view3 select * from rtest_vview1 where a < 7;
-select * from rtest_view3 order by a, b;
+select * from rtest_view3;
  a |   b    
 ---+--------
  2 | item 2
@@ -844,7 +844,7 @@ select * from rtest_view3 order by a, b;
 
 delete from rtest_view3;
 insert into rtest_view3 select * from rtest_vview2 where a != 5 and b !~ '2';
-select * from rtest_view3 order by a, b;
+select * from rtest_view3;
  a |   b    
 ---+--------
  1 | item 1
@@ -855,7 +855,7 @@ select * from rtest_view3 order by a, b;
 
 delete from rtest_view3;
 insert into rtest_view3 select * from rtest_vview3;
-select * from rtest_view3 order by a, b;
+select * from rtest_view3;
  a |   b    
 ---+--------
  2 | item 2
@@ -875,7 +875,7 @@ select * from rtest_view4 order by a, b;
 
 delete from rtest_view4;
 insert into rtest_view4 select * from rtest_vview5 where a > 2 and refcount = 0;
-select * from rtest_view4 order by a, b;
+select * from rtest_view4;
  a |   b    | c 
 ---+--------+---
  3 | item 3 | 0
@@ -941,18 +941,18 @@ CREATE TABLE shoe_data (
 	slminlen   float,         -- minimum shoelace length
 	slmaxlen   float,         -- maximum shoelace length
 	slunit     char(8)        -- length unit
-) distribute by roundrobin;
+);
 CREATE TABLE shoelace_data (
 	sl_name    char(10),      -- primary key
 	sl_avail   integer,       -- available # of pairs
 	sl_color   char(10),      -- shoelace color
 	sl_len     float,         -- shoelace length
 	sl_unit    char(8)        -- length unit
-) distribute by replication;
+);
 CREATE TABLE unit (
 	un_name    char(8),       -- the primary key
 	un_fact    float          -- factor to transform to cm
-) distribute by replication;
+);
 CREATE VIEW shoe AS
 	SELECT sh.shoename,
 		   sh.sh_avail,
@@ -1181,7 +1181,7 @@ create rule rules_foorule as on insert to rules_foo where f1 < 100
 do instead nothing;
 insert into rules_foo values(1);
 insert into rules_foo values(1001);
-select * from rules_foo order by f1;
+select * from rules_foo;
   f1  
 ------
  1001
@@ -1200,14 +1200,14 @@ create rule rules_foorule as on insert to rules_foo where f1 < 100
 do instead insert into rules_foo2 values (new.f1);
 insert into rules_foo values(2);
 insert into rules_foo values(100);
-select * from rules_foo order by f1;
+select * from rules_foo;
   f1  
 ------
-  100
  1001
+  100
 (2 rows)
 
-select * from rules_foo2 order by f1;
+select * from rules_foo2;
  f1 
 ----
   2
@@ -1235,7 +1235,7 @@ create rule rrule as
     select old.pid, new.descrip where old.descrip isnull;
   update cchild set descrip = new.descrip where cchild.pid = old.pid;
 );
-select * from vview order by pid;
+select * from vview;
  pid |   txt   | descrip  
 -----+---------+----------
    1 | parent1 | descrip1
@@ -1243,7 +1243,7 @@ select * from vview order by pid;
 (2 rows)
 
 update vview set descrip='test1' where pid=1;
-select * from vview order by pid;
+select * from vview;
  pid |   txt   | descrip 
 -----+---------+---------
    1 | parent1 | test1
@@ -1251,7 +1251,7 @@ select * from vview order by pid;
 (2 rows)
 
 update vview set descrip='test2' where pid=2;
-select * from vview order by pid;
+select * from vview;
  pid |   txt   | descrip 
 -----+---------+---------
    1 | parent1 | test1
@@ -1259,14 +1259,14 @@ select * from vview order by pid;
 (2 rows)
 
 update vview set descrip='test3' where pid=3;
-select * from vview order by pid;
+select * from vview;
  pid |   txt   | descrip 
 -----+---------+---------
    1 | parent1 | test1
    2 | parent2 | test2
 (2 rows)
 
-select * from cchild order by pid;
+select * from cchild;
  pid | descrip 
 -----+---------
    1 | test1
@@ -1311,11 +1311,12 @@ pg_available_extension_versions| SELECT e.name,
     e.version,
     (x.extname IS NOT NULL) AS installed,
     e.superuser,
+    e.trusted,
     e.relocatable,
     e.schema,
     e.requires,
     e.comment
-   FROM (pg_available_extension_versions() e(name, version, superuser, relocatable, schema, requires, comment)
+   FROM (pg_available_extension_versions() e(name, version, superuser, trusted, relocatable, schema, requires, comment)
      LEFT JOIN pg_extension x ON (((e.name = x.extname) AND (e.version = x.extversion))));
 pg_available_extensions| SELECT e.name,
     e.default_version,
@@ -1461,8 +1462,10 @@ pg_replication_slots| SELECT l.slot_name,
     l.xmin,
     l.catalog_xmin,
     l.restart_lsn,
-    l.confirmed_flush_lsn
-   FROM (pg_get_replication_slots() l(slot_name, plugin, slot_type, datoid, temporary, active, active_pid, xmin, catalog_xmin, restart_lsn, confirmed_flush_lsn)
+    l.confirmed_flush_lsn,
+    l.wal_status,
+    l.min_safe_lsn
+   FROM (pg_get_replication_slots() l(slot_name, plugin, slot_type, datoid, temporary, active, active_pid, xmin, catalog_xmin, restart_lsn, confirmed_flush_lsn, wal_status, min_safe_lsn)
      LEFT JOIN pg_database d ON ((l.datoid = d.oid)));
 pg_roles| SELECT pg_authid.rolname,
     pg_authid.rolsuper,
@@ -1721,9 +1724,15 @@ pg_shadow| SELECT pg_authid.rolname AS usename,
    FROM (pg_authid
      LEFT JOIN pg_db_role_setting s ON (((pg_authid.oid = s.setrole) AND (s.setdatabase = (0)::oid))))
   WHERE pg_authid.rolcanlogin;
+pg_shmem_allocations| SELECT pg_get_shmem_allocations.name,
+    pg_get_shmem_allocations.off,
+    pg_get_shmem_allocations.size,
+    pg_get_shmem_allocations.allocated_size
+   FROM pg_get_shmem_allocations() pg_get_shmem_allocations(name, off, size, allocated_size);
 pg_stat_activity| SELECT s.datid,
     d.datname,
     s.pid,
+    s.leader_pid,
     s.usesysid,
     u.rolname AS usename,
     s.application_name,
@@ -1741,7 +1750,7 @@ pg_stat_activity| SELECT s.datid,
     s.backend_xmin,
     s.query,
     s.backend_type
-   FROM ((pg_stat_get_activity(NULL::integer) s(datid, pid, usesysid, application_name, state, query, wait_event_type, wait_event, xact_start, query_start, backend_start, state_change, client_addr, client_hostname, client_port, backend_xid, backend_xmin, backend_type, ssl, sslversion, sslcipher, sslbits, sslcompression, ssl_client_dn, ssl_client_serial, ssl_issuer_dn, gss_auth, gss_princ, gss_enc)
+   FROM ((pg_stat_get_activity(NULL::integer) s(datid, pid, usesysid, application_name, state, query, wait_event_type, wait_event, xact_start, query_start, backend_start, state_change, client_addr, client_hostname, client_port, backend_xid, backend_xmin, backend_type, ssl, sslversion, sslcipher, sslbits, sslcompression, ssl_client_dn, ssl_client_serial, ssl_issuer_dn, gss_auth, gss_princ, gss_enc, leader_pid)
      LEFT JOIN pg_database d ON ((s.datid = d.oid)))
      LEFT JOIN pg_authid u ON ((s.usesysid = u.oid)));
 pg_stat_all_indexes| SELECT c.oid AS relid,
@@ -1771,6 +1780,7 @@ pg_stat_all_tables| SELECT c.oid AS relid,
     pg_stat_get_live_tuples(c.oid) AS n_live_tup,
     pg_stat_get_dead_tuples(c.oid) AS n_dead_tup,
     pg_stat_get_mod_since_analyze(c.oid) AS n_mod_since_analyze,
+    pg_stat_get_ins_since_vacuum(c.oid) AS n_ins_since_vacuum,
     pg_stat_get_last_vacuum_time(c.oid) AS last_vacuum,
     pg_stat_get_last_autovacuum_time(c.oid) AS last_autovacuum,
     pg_stat_get_last_analyze_time(c.oid) AS last_analyze,
@@ -1845,7 +1855,48 @@ pg_stat_gssapi| SELECT s.pid,
     s.gss_auth AS gss_authenticated,
     s.gss_princ AS principal,
     s.gss_enc AS encrypted
-   FROM pg_stat_get_activity(NULL::integer) s(datid, pid, usesysid, application_name, state, query, wait_event_type, wait_event, xact_start, query_start, backend_start, state_change, client_addr, client_hostname, client_port, backend_xid, backend_xmin, backend_type, ssl, sslversion, sslcipher, sslbits, sslcompression, ssl_client_dn, ssl_client_serial, ssl_issuer_dn, gss_auth, gss_princ, gss_enc);
+   FROM pg_stat_get_activity(NULL::integer) s(datid, pid, usesysid, application_name, state, query, wait_event_type, wait_event, xact_start, query_start, backend_start, state_change, client_addr, client_hostname, client_port, backend_xid, backend_xmin, backend_type, ssl, sslversion, sslcipher, sslbits, sslcompression, ssl_client_dn, ssl_client_serial, ssl_issuer_dn, gss_auth, gss_princ, gss_enc, leader_pid)
+  WHERE (s.client_port IS NOT NULL);
+pg_stat_progress_analyze| SELECT s.pid,
+    s.datid,
+    d.datname,
+    s.relid,
+        CASE s.param1
+            WHEN 0 THEN 'initializing'::text
+            WHEN 1 THEN 'acquiring sample rows'::text
+            WHEN 2 THEN 'acquiring inherited sample rows'::text
+            WHEN 3 THEN 'computing statistics'::text
+            WHEN 4 THEN 'computing extended statistics'::text
+            WHEN 5 THEN 'finalizing analyze'::text
+            ELSE NULL::text
+        END AS phase,
+    s.param2 AS sample_blks_total,
+    s.param3 AS sample_blks_scanned,
+    s.param4 AS ext_stats_total,
+    s.param5 AS ext_stats_computed,
+    s.param6 AS child_tables_total,
+    s.param7 AS child_tables_done,
+    (s.param8)::oid AS current_child_table_relid
+   FROM (pg_stat_get_progress_info('ANALYZE'::text) s(pid, datid, relid, param1, param2, param3, param4, param5, param6, param7, param8, param9, param10, param11, param12, param13, param14, param15, param16, param17, param18, param19, param20)
+     LEFT JOIN pg_database d ON ((s.datid = d.oid)));
+pg_stat_progress_basebackup| SELECT s.pid,
+        CASE s.param1
+            WHEN 0 THEN 'initializing'::text
+            WHEN 1 THEN 'waiting for checkpoint to finish'::text
+            WHEN 2 THEN 'estimating backup size'::text
+            WHEN 3 THEN 'streaming database files'::text
+            WHEN 4 THEN 'waiting for wal archiving to finish'::text
+            WHEN 5 THEN 'transferring wal files'::text
+            ELSE NULL::text
+        END AS phase,
+        CASE s.param2
+            WHEN '-1'::integer THEN NULL::bigint
+            ELSE s.param2
+        END AS backup_total,
+    s.param3 AS backup_streamed,
+    s.param4 AS tablespaces_total,
+    s.param5 AS tablespaces_streamed
+   FROM pg_stat_get_progress_info('BASEBACKUP'::text) s(pid, datid, relid, param1, param2, param3, param4, param5, param6, param7, param8, param9, param10, param11, param12, param13, param14, param15, param16, param17, param18, param19, param20);
 pg_stat_progress_cluster| SELECT s.pid,
     s.datid,
     d.datname,
@@ -1951,10 +2002,23 @@ pg_stat_replication| SELECT s.pid,
     w.replay_lag,
     w.sync_priority,
     w.sync_state,
-    w.reply_time
-   FROM ((pg_stat_get_activity(NULL::integer) s(datid, pid, usesysid, application_name, state, query, wait_event_type, wait_event, xact_start, query_start, backend_start, state_change, client_addr, client_hostname, client_port, backend_xid, backend_xmin, backend_type, ssl, sslversion, sslcipher, sslbits, sslcompression, ssl_client_dn, ssl_client_serial, ssl_issuer_dn, gss_auth, gss_princ, gss_enc)
-     JOIN pg_stat_get_wal_senders() w(pid, state, sent_lsn, write_lsn, flush_lsn, replay_lsn, write_lag, flush_lag, replay_lag, sync_priority, sync_state, reply_time) ON ((s.pid = w.pid)))
+    w.reply_time,
+    w.spill_txns,
+    w.spill_count,
+    w.spill_bytes
+   FROM ((pg_stat_get_activity(NULL::integer) s(datid, pid, usesysid, application_name, state, query, wait_event_type, wait_event, xact_start, query_start, backend_start, state_change, client_addr, client_hostname, client_port, backend_xid, backend_xmin, backend_type, ssl, sslversion, sslcipher, sslbits, sslcompression, ssl_client_dn, ssl_client_serial, ssl_issuer_dn, gss_auth, gss_princ, gss_enc, leader_pid)
+     JOIN pg_stat_get_wal_senders() w(pid, state, sent_lsn, write_lsn, flush_lsn, replay_lsn, write_lag, flush_lag, replay_lag, sync_priority, sync_state, reply_time, spill_txns, spill_count, spill_bytes) ON ((s.pid = w.pid)))
      LEFT JOIN pg_authid u ON ((s.usesysid = u.oid)));
+pg_stat_slru| SELECT s.name,
+    s.blks_zeroed,
+    s.blks_hit,
+    s.blks_read,
+    s.blks_written,
+    s.blks_exists,
+    s.flushes,
+    s.truncates,
+    s.stats_reset
+   FROM pg_stat_get_slru() s(name, blks_zeroed, blks_hit, blks_read, blks_written, blks_exists, flushes, truncates, stats_reset);
 pg_stat_ssl| SELECT s.pid,
     s.ssl,
     s.sslversion AS version,
@@ -1964,7 +2028,8 @@ pg_stat_ssl| SELECT s.pid,
     s.ssl_client_dn AS client_dn,
     s.ssl_client_serial AS client_serial,
     s.ssl_issuer_dn AS issuer_dn
-   FROM pg_stat_get_activity(NULL::integer) s(datid, pid, usesysid, application_name, state, query, wait_event_type, wait_event, xact_start, query_start, backend_start, state_change, client_addr, client_hostname, client_port, backend_xid, backend_xmin, backend_type, ssl, sslversion, sslcipher, sslbits, sslcompression, ssl_client_dn, ssl_client_serial, ssl_issuer_dn, gss_auth, gss_princ, gss_enc);
+   FROM pg_stat_get_activity(NULL::integer) s(datid, pid, usesysid, application_name, state, query, wait_event_type, wait_event, xact_start, query_start, backend_start, state_change, client_addr, client_hostname, client_port, backend_xid, backend_xmin, backend_type, ssl, sslversion, sslcipher, sslbits, sslcompression, ssl_client_dn, ssl_client_serial, ssl_issuer_dn, gss_auth, gss_princ, gss_enc, leader_pid)
+  WHERE (s.client_port IS NOT NULL);
 pg_stat_subscription| SELECT su.oid AS subid,
     su.subname,
     st.pid,
@@ -2000,6 +2065,7 @@ pg_stat_sys_tables| SELECT pg_stat_all_tables.relid,
     pg_stat_all_tables.n_live_tup,
     pg_stat_all_tables.n_dead_tup,
     pg_stat_all_tables.n_mod_since_analyze,
+    pg_stat_all_tables.n_ins_since_vacuum,
     pg_stat_all_tables.last_vacuum,
     pg_stat_all_tables.last_autovacuum,
     pg_stat_all_tables.last_analyze,
@@ -2043,6 +2109,7 @@ pg_stat_user_tables| SELECT pg_stat_all_tables.relid,
     pg_stat_all_tables.n_live_tup,
     pg_stat_all_tables.n_dead_tup,
     pg_stat_all_tables.n_mod_since_analyze,
+    pg_stat_all_tables.n_ins_since_vacuum,
     pg_stat_all_tables.last_vacuum,
     pg_stat_all_tables.last_autovacuum,
     pg_stat_all_tables.last_analyze,
@@ -2057,7 +2124,8 @@ pg_stat_wal_receiver| SELECT s.pid,
     s.status,
     s.receive_start_lsn,
     s.receive_start_tli,
-    s.received_lsn,
+    s.written_lsn,
+    s.flushed_lsn,
     s.received_tli,
     s.last_msg_send_time,
     s.last_msg_receipt_time,
@@ -2067,7 +2135,7 @@ pg_stat_wal_receiver| SELECT s.pid,
     s.sender_host,
     s.sender_port,
     s.conninfo
-   FROM pg_stat_get_wal_receiver() s(pid, status, receive_start_lsn, receive_start_tli, received_lsn, received_tli, last_msg_send_time, last_msg_receipt_time, latest_end_lsn, latest_end_time, slot_name, sender_host, sender_port, conninfo)
+   FROM pg_stat_get_wal_receiver() s(pid, status, receive_start_lsn, receive_start_tli, written_lsn, flushed_lsn, received_tli, last_msg_send_time, last_msg_receipt_time, latest_end_lsn, latest_end_time, slot_name, sender_host, sender_port, conninfo)
   WHERE (s.pid IS NOT NULL);
 pg_stat_xact_all_tables| SELECT c.oid AS relid,
     n.nspname AS schemaname,
@@ -2149,15 +2217,15 @@ pg_statio_all_tables| SELECT c.oid AS relid,
     (sum(pg_stat_get_blocks_hit(i.indexrelid)))::bigint AS idx_blks_hit,
     (pg_stat_get_blocks_fetched(t.oid) - pg_stat_get_blocks_hit(t.oid)) AS toast_blks_read,
     pg_stat_get_blocks_hit(t.oid) AS toast_blks_hit,
-    (sum((pg_stat_get_blocks_fetched(x.indexrelid) - pg_stat_get_blocks_hit(x.indexrelid))))::bigint AS tidx_blks_read,
-    (sum(pg_stat_get_blocks_hit(x.indexrelid)))::bigint AS tidx_blks_hit
+    (pg_stat_get_blocks_fetched(x.indexrelid) - pg_stat_get_blocks_hit(x.indexrelid)) AS tidx_blks_read,
+    pg_stat_get_blocks_hit(x.indexrelid) AS tidx_blks_hit
    FROM ((((pg_class c
      LEFT JOIN pg_index i ON ((c.oid = i.indrelid)))
      LEFT JOIN pg_class t ON ((c.reltoastrelid = t.oid)))
      LEFT JOIN pg_index x ON ((t.oid = x.indrelid)))
      LEFT JOIN pg_namespace n ON ((n.oid = c.relnamespace)))
   WHERE (c.relkind = ANY (ARRAY['r'::"char", 't'::"char", 'm'::"char"]))
-  GROUP BY c.oid, n.nspname, c.relname, t.oid, x.indrelid;
+  GROUP BY c.oid, n.nspname, c.relname, t.oid, x.indexrelid;
 pg_statio_sys_indexes| SELECT pg_statio_all_indexes.relid,
     pg_statio_all_indexes.indexrelid,
     pg_statio_all_indexes.schemaname,
@@ -2579,7 +2647,7 @@ INSERT INTO ruletest_tbl VALUES (99, 99);
 CREATE OR REPLACE RULE myrule AS ON INSERT TO ruletest_tbl
 	DO INSTEAD INSERT INTO ruletest_tbl2 VALUES (1000, 1000);
 INSERT INTO ruletest_tbl VALUES (99, 99);
-SELECT * FROM ruletest_tbl2 ORDER BY a;
+SELECT * FROM ruletest_tbl2;
   a   |  b   
 ------+------
    10 |   10
@@ -2723,7 +2791,7 @@ insert into test_3 (name) values ('Test 6');
 create view id_ordered as select * from id order by id;
 create rule update_id_ordered as on update to id_ordered
 	do instead update id set name = new.name where id = old.id;
-select * from id_ordered order by id;
+select * from id_ordered;
  id |  name  
 ----+--------
   1 | Test 1
@@ -2737,7 +2805,7 @@ select * from id_ordered order by id;
 update id_ordered set name = 'update 2' where id = 2;
 update id_ordered set name = 'update 4' where id = 4;
 update id_ordered set name = 'update 5' where id = 5;
-select * from id_ordered order by id;
+select * from id_ordered;
  id |   name   
 ----+----------
   1 | Test 1
@@ -2758,9 +2826,9 @@ drop cascades to view id_ordered
 -- check corner case where an entirely-dummy subplan is created by
 -- constraint exclusion
 --
-create temp table t1 (a integer primary key) distribute by replication;
-create temp table t1_1 (check (a >= 0 and a < 10)) inherits (t1) distribute by replication;
-create temp table t1_2 (check (a >= 10 and a < 20)) inherits (t1) distribute by replication;
+create temp table t1 (a integer primary key);
+create temp table t1_1 (check (a >= 0 and a < 10)) inherits (t1);
+create temp table t1_2 (check (a >= 10 and a < 20)) inherits (t1);
 create rule t1_ins_1 as on insert to t1
 	where new.a >= 0 and new.a < 10
 	do instead
@@ -2780,12 +2848,12 @@ create rule t1_upd_2 as on update to t1
 set constraint_exclusion = on;
 insert into t1 select * from generate_series(5,19,1) g;
 update t1 set a = 4 where a = 5;
-select * from only t1 order by 1;
+select * from only t1;
  a 
 ---
 (0 rows)
 
-select * from only t1_1 order by 1;
+select * from only t1_1;
  a 
 ---
  6
@@ -2795,7 +2863,7 @@ select * from only t1_1 order by 1;
  4
 (5 rows)
 
-select * from only t1_2 order by 1;
+select * from only t1_2;
  a  
 ----
  10
@@ -2870,59 +2938,59 @@ create rule r1 as on update to rules_src do also
   insert into rules_log values(old.*, 'old'), (new.*, 'new');
 update rules_src set f2 = f2 + 1;
 update rules_src set f2 = f2 * 10;
-select * from rules_src order by 1,2;
+select * from rules_src;
  f1 | f2  
 ----+-----
   1 |  30
  11 | 130
 (2 rows)
 
-select * from rules_log order by 1,2,3;
+select * from rules_log;
  f1 | f2  | tag 
 ----+-----+-----
   1 |   2 | old
   1 |   3 | new
-  1 |   3 | old
-  1 |  30 | new
  11 |  12 | old
  11 |  13 | new
+  1 |   3 | old
+  1 |  30 | new
  11 |  13 | old
  11 | 130 | new
 (8 rows)
 
 create rule r2 as on update to rules_src do also
-  values(old.*, 'old'), (new.*, 'new') order by 1,2,3;
+  values(old.*, 'old'), (new.*, 'new');
 update rules_src set f2 = f2 / 10;
  column1 | column2 | column3 
 ---------+---------+---------
-       1 |       3 | new
        1 |      30 | old
-      11 |      13 | new
+       1 |       3 | new
       11 |     130 | old
+      11 |      13 | new
 (4 rows)
 
-select * from rules_src order by 1,2;
+select * from rules_src;
  f1 | f2 
 ----+----
   1 |  3
  11 | 13
 (2 rows)
 
-select * from rules_log order by 1,2,3;
+select * from rules_log;
  f1 | f2  | tag 
 ----+-----+-----
   1 |   2 | old
   1 |   3 | new
-  1 |   3 | new
-  1 |   3 | old
-  1 |  30 | new
-  1 |  30 | old
  11 |  12 | old
  11 |  13 | new
- 11 |  13 | new
+  1 |   3 | old
+  1 |  30 | new
  11 |  13 | old
  11 | 130 | new
+  1 |  30 | old
+  1 |   3 | new
  11 | 130 | old
+ 11 |  13 | new
 (12 rows)
 
 create rule r3 as on delete to rules_src do notify rules_src_deletion;
@@ -2969,6 +3037,30 @@ Rules:
     ON UPDATE TO rules_src DO INSTEAD  UPDATE rules_log trgt SET tag = 'updated'::text
   WHERE trgt.f1 = new.f1
 
+--
+-- Also check multiassignment deparsing.
+--
+create table rule_t1(f1 int, f2 int);
+create table rule_dest(f1 int, f2 int[], tag text);
+create rule rr as on update to rule_t1 do instead UPDATE rule_dest trgt
+  SET (f2[1], f1, tag) = (SELECT new.f2, new.f1, 'updated'::varchar)
+  WHERE trgt.f1 = new.f1 RETURNING new.*;
+\d+ rule_t1
+                                  Table "public.rule_t1"
+ Column |  Type   | Collation | Nullable | Default | Storage | Stats target | Description 
+--------+---------+-----------+----------+---------+---------+--------------+-------------
+ f1     | integer |           |          |         | plain   |              | 
+ f2     | integer |           |          |         | plain   |              | 
+Rules:
+    rr AS
+    ON UPDATE TO rule_t1 DO INSTEAD  UPDATE rule_dest trgt SET (f2[1], f1, tag) = ( SELECT new.f2,
+            new.f1,
+            'updated'::character varying AS "varchar")
+  WHERE trgt.f1 = new.f1
+  RETURNING new.f1,
+    new.f2
+
+drop table rule_t1, rule_dest;
 --
 -- check alter rename rule
 --
@@ -3022,6 +3114,18 @@ create view rule_v1 as values(1,2);
  column2 | integer |           |          |         | plain   | 
 View definition:
  VALUES (1,2);
+
+alter table rule_v1 rename column column2 to q2;
+\d+ rule_v1
+                           View "public.rule_v1"
+ Column  |  Type   | Collation | Nullable | Default | Storage | Description 
+---------+---------+-----------+----------+---------+---------+-------------
+ column1 | integer |           |          |         | plain   | 
+ q2      | integer |           |          |         | plain   | 
+View definition:
+ SELECT "*VALUES*".column1,
+    "*VALUES*".column2 AS q2
+   FROM (VALUES (1,2)) "*VALUES*";
 
 drop view rule_v1;
 create view rule_v1(x) as values(1,2);

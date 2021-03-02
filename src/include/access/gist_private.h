@@ -4,7 +4,7 @@
  *	  private declarations for GiST -- declarations related to the
  *	  internal implementation of GiST, not the public API
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/access/gist_private.h
@@ -17,7 +17,6 @@
 #include "access/amapi.h"
 #include "access/gist.h"
 #include "access/itup.h"
-#include "fmgr.h"
 #include "lib/pairingheap.h"
 #include "storage/bufmgr.h"
 #include "storage/buffile.h"
@@ -138,13 +137,16 @@ typedef struct GISTSearchItem
 		/* we must store parentlsn to detect whether a split occurred */
 		GISTSearchHeapItem heap;	/* heap info, if heap tuple */
 	}			data;
-	double		distances[FLEXIBLE_ARRAY_MEMBER];	/* numberOfOrderBys
-													 * entries */
+
+	/* numberOfOrderBys entries */
+	IndexOrderByDistance distances[FLEXIBLE_ARRAY_MEMBER];
 } GISTSearchItem;
 
 #define GISTSearchItemIsHeap(item)	((item).blkno == InvalidBlockNumber)
 
-#define SizeOfGISTSearchItem(n_distances) (offsetof(GISTSearchItem, distances) + sizeof(double) * (n_distances))
+#define SizeOfGISTSearchItem(n_distances) \
+	(offsetof(GISTSearchItem, distances) + \
+	 sizeof(IndexOrderByDistance) * (n_distances))
 
 /*
  * GISTScanOpaqueData: private state for a scan of a GiST index
@@ -160,7 +162,7 @@ typedef struct GISTScanOpaqueData
 	bool		firstCall;		/* true until first gistgettuple call */
 
 	/* pre-allocated workspace arrays */
-	double	   *distances;		/* output area for gistindex_keytest */
+	IndexOrderByDistance *distances;	/* output area for gistindex_keytest */
 
 	/* info about killed items if any (killedItems is NULL if never used) */
 	OffsetNumber *killedItems;	/* offset numbers of killed items */
@@ -378,6 +380,14 @@ typedef struct GISTBuildBuffers
 	int			rootlevel;
 } GISTBuildBuffers;
 
+/* GiSTOptions->buffering_mode values */
+typedef enum GistOptBufferingMode
+{
+	GIST_OPTION_BUFFERING_AUTO,
+	GIST_OPTION_BUFFERING_ON,
+	GIST_OPTION_BUFFERING_OFF
+} GistOptBufferingMode;
+
 /*
  * Storage type for GiST's reloptions
  */
@@ -385,7 +395,7 @@ typedef struct GiSTOptions
 {
 	int32		vl_len_;		/* varlena header (do not touch directly!) */
 	int			fillfactor;		/* page fill factor in percent (0..100) */
-	int			bufferingModeOffset;	/* use buffering build? */
+	GistOptBufferingMode buffering_mode;	/* buffering build mode */
 } GiSTOptions;
 
 /* gist.c */
@@ -400,7 +410,7 @@ extern void freeGISTstate(GISTSTATE *giststate);
 extern void gistdoinsert(Relation r,
 						 IndexTuple itup,
 						 Size freespace,
-						 GISTSTATE *GISTstate,
+						 GISTSTATE *giststate,
 						 Relation heapRel,
 						 bool is_build);
 
@@ -417,7 +427,7 @@ extern bool gistplacetopage(Relation rel, Size freespace, GISTSTATE *giststate,
 							OffsetNumber oldoffnum, BlockNumber *newblkno,
 							Buffer leftchildbuf,
 							List **splitinfo,
-							bool markleftchild,
+							bool markfollowright,
 							Relation heapRel,
 							bool is_build);
 
@@ -426,11 +436,11 @@ extern SplitedPageLayout *gistSplit(Relation r, Page page, IndexTuple *itup,
 
 /* gistxlog.c */
 extern XLogRecPtr gistXLogPageDelete(Buffer buffer,
-									 TransactionId xid, Buffer parentBuffer,
+									 FullTransactionId xid, Buffer parentBuffer,
 									 OffsetNumber downlinkOffset);
 
 extern void gistXLogPageReuse(Relation rel, BlockNumber blkno,
-							  TransactionId latestRemovedXid);
+							  FullTransactionId latestRemovedXid);
 
 extern XLogRecPtr gistXLogUpdate(Buffer buffer,
 								 OffsetNumber *todelete, int ntodelete,
@@ -444,6 +454,8 @@ extern XLogRecPtr gistXLogSplit(bool page_is_leaf,
 								SplitedPageLayout *dist,
 								BlockNumber origrlink, GistNSN oldnsn,
 								Buffer leftchild, bool markfollowright);
+
+extern XLogRecPtr gistXLogAssignLSN(void);
 
 /* gistget.c */
 extern bool gistgettuple(IndexScanDesc scan, ScanDirection dir);
@@ -473,8 +485,7 @@ extern bool gistPageRecyclable(Page page);
 extern void gistfillbuffer(Page page, IndexTuple *itup, int len,
 						   OffsetNumber off);
 extern IndexTuple *gistextractpage(Page page, int *len /* out */ );
-extern IndexTuple *gistjoinvector(
-								  IndexTuple *itvec, int *len,
+extern IndexTuple *gistjoinvector(IndexTuple *itvec, int *len,
 								  IndexTuple *additvec, int addlen);
 extern IndexTupleData *gistfillitupvec(IndexTuple *vec, int veclen, int *memlen);
 

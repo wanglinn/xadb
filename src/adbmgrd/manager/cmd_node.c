@@ -628,6 +628,7 @@ Datum mgr_add_node_func(PG_FUNCTION_ARGS)
 
 	/* now, we can insert record */
 	newtuple = heap_form_tuple(RelationGetDescr(rel), datum, isnull);
+	CatalogTupleInsert(rel, newtuple);
 	heap_freetuple(newtuple);
 
 	/*close relation */
@@ -1192,7 +1193,7 @@ Datum mgr_drop_node_func(PG_FUNCTION_ARGS)
 	if (mgr_node_has_slave(rel,mgr_node->oid))
 	{
 		heap_freetuple(tuple);
-		heap_close(rel, RowExclusiveLock);
+		table_close(rel, RowExclusiveLock);
 		ereport(ERROR, (errcode(ERRCODE_OBJECT_IN_USE)
 				,errmsg("%s \"%s\" has been used by slave, cannot be dropped"
 					, mgr_get_nodetype_desc(nodetype), nodename)));
@@ -2646,8 +2647,6 @@ Datum mgr_runmode_cndn(nodenames_supplier supplier,
 	HeapTuple tup_result;
 	HeapTuple aimtuple =NULL;
 	FuncCallContext *funcctx;
-	ListCell **lcp;
-	List *nodenamelist;
 	InitNodeInfo *info;
 	char *nodestrname;
 	NameData nodenamedata;
@@ -2661,16 +2660,13 @@ Datum mgr_runmode_cndn(nodenames_supplier supplier,
 		funcctx = SRF_FIRSTCALL_INIT();
 		/* switch to memory context appropriate for multiple function calls */
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+		/* allocate memory for user context */
+		info = palloc0(sizeof(*info));
 
 		Assert(supplier);
-		nodenamelist = supplier(fcinfo, nodetype);
+		info->node_list = supplier(fcinfo, nodetype);
 		if(consumer)
-			consumer(nodenamelist, nodetype);
-
-		/* allocate memory for user context */
-		info = palloc(sizeof(*info));
-		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
-		*(info->lcp) = list_head(nodenamelist);
+			consumer(info->node_list, nodetype);
 
 		info->rel_node = table_open(NodeRelationId, RowExclusiveLock);
 		/* save info */
@@ -2682,20 +2678,19 @@ Datum mgr_runmode_cndn(nodenames_supplier supplier,
 	funcctx = SRF_PERCALL_SETUP();
 	info = funcctx->user_fctx;
 	Assert(info);
-	lcp = info->lcp;
-	if (*lcp == NULL)
+	if (info->index >= list_length(info->node_list))
 	{
 		table_close(info->rel_node, RowExclusiveLock);
-		pfree(info->lcp);
+		list_free(info->node_list);
 		pfree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
-	nodestrname = (char *) lfirst(*lcp);
-	*lcp = lnext(*lcp);
+	nodestrname = (char *) list_nth(info->node_list, info->index);
+	++(info->index);
 	if(namestrcpy(&nodenamedata, nodestrname) != 0)
 	{
 		table_close(info->rel_node, RowExclusiveLock);
-		pfree(info->lcp);
+		list_free(info->node_list);
 		pfree(info);
 		ereport(ERROR, (errmsg("namestrcpy %s fail", nodestrname)));
 	}
@@ -2786,10 +2781,9 @@ static void mgr_start_zone_nodes(char *zoneNameIn, char cmdType, char nodeType)
 		
 	PG_TRY();
 	{
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
-		info->lcp = NULL;
 		while ((aimtuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 		{
 			mgrNode = (Form_mgr_node)GETSTRUCT(aimtuple);
@@ -2884,10 +2878,9 @@ static void mgr_stop_zone_nodes(char *zoneNameIn, const char *shutdownMode, char
 		
 	PG_TRY();
 	{
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
-		info->lcp = NULL;
 		while ((aimtuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 		{
 			mgrNode = (Form_mgr_node)GETSTRUCT(aimtuple);
@@ -2945,10 +2938,9 @@ Datum mgr_boottime_all(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
-		info->lcp =NULL;
 		/* save info */
 		funcctx->user_fctx = info;
 
@@ -3040,10 +3032,9 @@ Datum mgr_monitor_all(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
-		info->lcp =NULL;
 		/* save info */
 		funcctx->user_fctx = info;
 
@@ -3134,10 +3125,9 @@ Datum mgr_monitor_zone_all(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
-		info->lcp =NULL;
 		/* save info */
 		funcctx->user_fctx = info;
 
@@ -3228,10 +3218,9 @@ Datum mgr_monitor_datanode_all(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
-		info->lcp =NULL;
 
 		/* save info */
 		funcctx->user_fctx = info;
@@ -3329,10 +3318,9 @@ Datum mgr_monitor_gtmcoord_all(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
-		info->lcp =NULL;
 
 		/* save info */
 		funcctx->user_fctx = info;
@@ -3433,10 +3421,9 @@ Datum mgr_boottime_gtmcoord_all(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
-		info->lcp =NULL;
 
 		/* save info */
 		funcctx->user_fctx = info;
@@ -3533,10 +3520,9 @@ Datum mgr_boottime_datanode_all(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
-		info->lcp =NULL;
 
 		/* save info */
 		funcctx->user_fctx = info;
@@ -3630,10 +3616,9 @@ Datum mgr_boottime_coordinator_all(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
-		info->lcp =NULL;
 
 		/* save info */
 		funcctx->user_fctx = info;
@@ -3708,8 +3693,6 @@ Datum mgr_boottime_nodetype_namelist(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
 	InitNodeInfo *info;
-	ListCell **lcp;
-	List *nodenamelist=NIL;
 	HeapTuple tup, tup_result;
 	Form_mgr_node mgr_node;
 	StringInfoData resultstrdata;
@@ -3730,11 +3713,9 @@ Datum mgr_boottime_nodetype_namelist(PG_FUNCTION_ARGS)
 
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
 
-		info = palloc(sizeof(*info));
-		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
-		*(info->lcp) = list_head(nodenamelist);
+		info = palloc0(sizeof(*info));
+		info->node_list = get_fcinfo_namelist("", 1, fcinfo);
 		info->rel_node = table_open(NodeRelationId, RowExclusiveLock);
 
 		/* save info */
@@ -3749,16 +3730,15 @@ Datum mgr_boottime_nodetype_namelist(PG_FUNCTION_ARGS)
 	info = funcctx->user_fctx;
 	Assert(info);
 
-	lcp = info->lcp;
-	if (*lcp == NULL)
+	if (info->index >= list_length(info->node_list))
 	{
 		table_close(info->rel_node, RowExclusiveLock);
 		pfree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
 
-	nodename = (char *)lfirst(*lcp);
-	*lcp = lnext(*lcp);
+	nodename = (char *)list_nth(info->node_list, info->index);
+	++(info->index);
 	tup = mgr_get_tuple_node_from_name_type(info->rel_node, nodename);
 	if (!HeapTupleIsValid(tup))
 	{
@@ -3841,8 +3821,6 @@ Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
 	InitNodeInfo *info;
-	ListCell **lcp;
-	List *nodenamelist=NIL;
 	HeapTuple tup, tup_result;
 	Form_mgr_node mgr_node;
 	StringInfoData resultstrdata;
@@ -3863,11 +3841,9 @@ Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
 
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-		nodenamelist = get_fcinfo_namelist("", 1, fcinfo);
 
-		info = palloc(sizeof(*info));
-		info->lcp = (ListCell **) palloc(sizeof(ListCell *));
-		*(info->lcp) = list_head(nodenamelist);
+		info = palloc0(sizeof(*info));
+		info->node_list = get_fcinfo_namelist("", 1, fcinfo);
 		info->rel_node = table_open(NodeRelationId, RowExclusiveLock);
 
 		/* save info */
@@ -3882,16 +3858,15 @@ Datum mgr_monitor_nodetype_namelist(PG_FUNCTION_ARGS)
 	info = funcctx->user_fctx;
 	Assert(info);
 
-	lcp = info->lcp;
-	if (*lcp == NULL)
+	if (info->index >= list_length(info->node_list))
 	{
 		table_close(info->rel_node, RowExclusiveLock);
 		pfree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
 
-	nodename = (char *)lfirst(*lcp);
-	*lcp = lnext(*lcp);
+	nodename = (char *)list_nth(info->node_list, info->index);
+	++(info->index);
 	tup = mgr_get_tuple_node_from_name_type(info->rel_node, nodename);
 	if (!HeapTupleIsValid(tup))
 	{
@@ -3998,7 +3973,7 @@ Datum mgr_boottime_nodetype_all(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 
 		ScanKeyInit(&key[0]
@@ -4007,7 +3982,6 @@ Datum mgr_boottime_nodetype_all(PG_FUNCTION_ARGS)
 					,F_CHAREQ
 					,CharGetDatum(nodetype));
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 1, key);
-		info->lcp =NULL;
 
 		/* save info */
 		funcctx->user_fctx = info;
@@ -4105,7 +4079,7 @@ Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 
 		ScanKeyInit(&key[0]
@@ -4114,7 +4088,6 @@ Datum mgr_monitor_nodetype_all(PG_FUNCTION_ARGS)
 					,F_CHAREQ
 					,CharGetDatum(nodetype));
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 1, key);
-		info->lcp =NULL;
 
 		/* save info */
 		funcctx->user_fctx = info;
@@ -5341,7 +5314,6 @@ void mgr_get_nodeinfo_byname_type(char *node_name, char node_type, bool binclust
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 4, key);
 	else
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
-	info->lcp =NULL;
 
 	if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) == NULL)
 	{
@@ -5442,7 +5414,6 @@ void get_nodeinfo(char *nodename, char node_type, bool *is_exist, bool *is_runni
 	info = (InitNodeInfo *)palloc0(sizeof(InitNodeInfo));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 4, key);
-	info->lcp =NULL;
 
 	if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) == NULL)
 	{
@@ -5585,7 +5556,6 @@ void mgr_make_sure_all_running(char node_type, char *zone)
 	else{
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 3, key);
 	}
-	info->lcp = NULL;
 
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -5683,7 +5653,6 @@ static void mgr_make_sure_all_running_exclude(char node_type, char *zone, List *
 	else{
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 3, key);
 	}
-	info->lcp = NULL;
 
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -5821,13 +5790,12 @@ static void mgr_add_hbaconf_all(char *dnusername, char *dnaddr, bool check_inclu
 				,BTEqualStrategyNumber
 				,F_BOOLEQ
 				,BoolGetDatum(true));
-	info = palloc(sizeof(*info));
+	info = palloc0(sizeof(*info));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	if (check_incluster)
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 3, key);
 	else
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
-	info->lcp =NULL;
 
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -5886,10 +5854,9 @@ void mgr_add_hbaconf(char nodetype, char *dnusername, char *dnaddr)
 				,F_BOOLEQ
 				,BoolGetDatum(true));
 
-	info = palloc(sizeof(*info));
+	info = palloc0(sizeof(*info));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
-	info->lcp =NULL;
 
 	while((tuple = heap_getnext(info->rel_scan, ForwardScanDirection))!= NULL)
 	{
@@ -6004,10 +5971,9 @@ static void mgr_set_inited_incluster(char *nodename, char nodetype, bool checkva
 				,F_BOOLEQ
 				,BoolGetDatum(checkvalue));
 
-	info = palloc(sizeof(*info));
+	info = palloc0(sizeof(*info));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 4, key);
-	info->lcp =NULL;
 
 	tuple = heap_getnext(info->rel_scan, ForwardScanDirection);
 	if(tuple == NULL)
@@ -6112,10 +6078,9 @@ static void mgr_create_node_on_all_coord(PG_FUNCTION_ARGS, char nodetype, char *
 				,F_NAMEEQ
 				,CStringGetDatum(mgr_zone));
 
-	info = palloc(sizeof(*info));
+	info = palloc0(sizeof(*info));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
-	info->lcp = NULL;
 
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -6186,10 +6151,9 @@ static bool mgr_drop_node_on_all_coord(char nodetype, char *nodename)
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,CStringGetDatum(mgr_zone));
-	info = palloc(sizeof(*info));
+	info = palloc0(sizeof(*info));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 3, key);
-	info->lcp = NULL;
 
 	PG_TRY();
 	{
@@ -6212,14 +6176,14 @@ static bool mgr_drop_node_on_all_coord(char nodetype, char *nodename)
 	}PG_CATCH();
 	{
 		EndScan(info->rel_scan);
-		heap_close(info->rel_node, AccessShareLock);
+		table_close(info->rel_node, AccessShareLock);
 		MgrFree(info);
 		MgrFree(getAgentCmdRst.description.data);
 		PG_RE_THROW();
 	}PG_END_TRY();
 	
 	EndScan(info->rel_scan);
-	heap_close(info->rel_node, AccessShareLock);
+	table_close(info->rel_node, AccessShareLock);
 	MgrFree(info);
 	MgrFree(getAgentCmdRst.description.data);
 
@@ -6529,10 +6493,9 @@ static bool mgr_get_active_hostoid_and_port(char node_type, Oid *hostoid, int32 
 				,BTEqualStrategyNumber
 				,F_NAMEEQ
 				,CStringGetDatum(mgr_zone));
-	info = palloc(sizeof(*info));
+	info = palloc0(sizeof(*info));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 3, key);
-	info->lcp =NULL;
 
 	while((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -6664,7 +6627,6 @@ static void mgr_get_appendnodeinfo(char node_type, char *nodename, AppendNodeInf
 	info = (InitNodeInfo *)palloc0(sizeof(InitNodeInfo));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 4, key);
-	info->lcp =NULL;
 
 	if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) == NULL)
 	{
@@ -6879,7 +6841,8 @@ static void mgr_construct_add_coordnode(InitNodeInfo *info_in, const char nodety
 				,F_CHAREQ
 				,CharGetDatum(nodetype));
 	info_in->rel_scan = table_beginscan_catalog(info_in->rel_node, 1, key_in);
-	info_in->lcp =NULL;
+	info_in->index = 0;
+	info_in->node_list = NULL;
 
 	while ((tuple_in = heap_getnext(info_in->rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -6949,10 +6912,9 @@ Datum mgr_configure_nodes_all(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info_out = palloc(sizeof(*info_out));
+		info_out = palloc0(sizeof(*info_out));
 		info_out->rel_node = table_open(NodeRelationId, AccessShareLock);
 		info_out->rel_scan = table_beginscan_catalog(info_out->rel_node, 0, NULL);
-		info_out->lcp = NULL;
 
 		/* save info */
 		funcctx->user_fctx = info_out;
@@ -7101,6 +7063,8 @@ void mgr_send_conf_parameters(char filetype, char *datapath, StringInfo infosend
 	StringInfoData sendstrmsg;
 	StringInfoData buf;
 
+	if (AGT_CMD_CNDN_REFRESH_RECOVERCONF == filetype || AGT_CMD_CNDN_RENAME_RECOVERCONF == filetype)
+		return;
 	initStringInfo(&sendstrmsg);
 	appendStringInfoString(&sendstrmsg, datapath);
 	appendStringInfoCharMacro(&sendstrmsg, '\0');
@@ -8419,13 +8383,12 @@ static Datum mgr_prepare_clean_all(PG_FUNCTION_ARGS, char *zone)
 
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(NodeRelationId, RowExclusiveLock);
 		if (zone != NULL)
 			info->rel_scan = table_beginscan_catalog(info->rel_node, 1, key);
 		else
 			info->rel_scan = table_beginscan_catalog(info->rel_node, 0, key);
-		info->lcp =NULL;
 
 		/* save info */
 		funcctx->user_fctx = info;
@@ -8668,12 +8631,12 @@ void mgr_get_cmd_head_word(char cmdtype, char *str)
 			strcpy(str, "psql");
 			break;
 		case AGT_CMD_CNDN_REFRESH_PGSQLCONF:
-		case AGT_CMD_CNDN_REFRESH_RECOVERCONF:
+		// case AGT_CMD_CNDN_REFRESH_RECOVERCONF:
 		case AGT_CMD_CNDN_REFRESH_PGHBACONF:
 		case AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD:
 		case AGT_CMD_CNDN_DELPARAM_PGSQLCONF_FORCE:
-		case AGT_CMD_CNDN_RENAME_RECOVERCONF:
-			strcpy(str, "update");
+		// case AGT_CMD_CNDN_RENAME_RECOVERCONF:
+		// 	strcpy(str, "update");
 			break;
 		case AGT_CMD_GET_FILESYSTEM:
 		case AGT_CMD_MONITOR_GETS_HOST_INFO:
@@ -8860,14 +8823,14 @@ static struct tuple_cndn *get_new_pgxc_node(pgxc_node_operator cmd, char *node_n
 		}
 		if(NULL == cn_lc )
 		{
-			for_each_cell(lc_in, dn_lc)
+			for (lc_in = dn_lc; lc_in != NULL; lc_in = lnext(host_info->datanode_list, lc_in))
 			{
 				leave_cndn->datanode_list = lappend(leave_cndn->datanode_list, lfirst(lc_in));
 			}
 		}
 		else
 		{
-			for_each_cell(lc_in, cn_lc)
+			for (lc_in = cn_lc; lc_in != NULL; lc_in = lnext(host_info->coordiantor_list, lc_in))
 			{
 				leave_cndn->coordiantor_list = lappend(leave_cndn->coordiantor_list, lfirst(lc_in));
 			}
@@ -8936,10 +8899,9 @@ static void mgr_check_appendnodeinfo(char node_type, char *append_node_name)
 				,F_CHAREQ
 				,CharGetDatum(node_type));
 
-	info = palloc(sizeof(*info));
+	info = palloc0(sizeof(*info));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 4, key);
-	info->lcp =NULL;
 
 	if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -9006,7 +8968,7 @@ static bool mgr_check_node_inited(char node_type, char *node_name, bool is_init)
 		find_type = true;
 	}
 			
-	info = palloc(sizeof(*info));	
+	info = palloc0(sizeof(*info));	
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);
 	if (find_type){
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 3, key);
@@ -9014,8 +8976,6 @@ static bool mgr_check_node_inited(char node_type, char *node_name, bool is_init)
 	else{
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 2, key);
 	}
-	
-	info->lcp = NULL;
 
 	if ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -11053,10 +11013,9 @@ Datum mgr_list_acl_all(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
-		info->rel_authid = table_open(AuthIdRelationId, AccessShareLock);
-		info->rel_scan = table_beginscan_catalog(info->rel_authid, 0, NULL);
-		info->lcp =NULL;
+		info = palloc0(sizeof(*info));
+		info->rel_node = table_open(AuthIdRelationId, AccessShareLock);
+		info->rel_scan = table_beginscan_catalog(info->rel_node, 0, NULL);
 		/* save info */
 		funcctx->user_fctx = info;
 
@@ -11073,7 +11032,7 @@ Datum mgr_list_acl_all(PG_FUNCTION_ARGS)
 	{
 		/* end of row */
 		table_endscan(info->rel_scan);
-		table_close(info->rel_authid, AccessShareLock);
+		table_close(info->rel_node, AccessShareLock);
 		pfree(info);
 		SRF_RETURN_DONE(funcctx);
 	}
@@ -13561,7 +13520,7 @@ static Datum mgr_monitor_ha_common(PG_FUNCTION_ARGS, char *zone)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		info = palloc(sizeof(*info));
+		info = palloc0(sizeof(*info));
 		info->rel_node = table_open(NodeRelationId, AccessShareLock);
 		ScanKeyInit(&key[0]
 				,Anum_mgr_node_nodeincluster
@@ -13569,7 +13528,6 @@ static Datum mgr_monitor_ha_common(PG_FUNCTION_ARGS, char *zone)
 				,F_BOOLEQ
 				,BoolGetDatum(true));
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 1, key);
-		info->lcp =NULL;
 
 		/* save info */
 		funcctx->user_fctx = info;
@@ -13979,7 +13937,6 @@ bool get_active_node_info(const char node_type, const char *node_name, char *zon
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 5, key);
 	else
 		info->rel_scan = table_beginscan_catalog(info->rel_node, 4, key);
-	info->lcp =NULL;
 	while((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
 		mgr_node = (Form_mgr_node)GETSTRUCT(tuple);
@@ -14098,7 +14055,7 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 	Form_mgr_node	cn_master_node, dn_master_node;
 	MgrDatanodeInfo	*mgr_datanode_info;
 	List			*datanode_list = NIL;
-	ListCell		*cell, *prev;
+	ListCell		*cell;
 	List			*sync_parms = NIL;
 	NameData		nodeSync;
 	bool			updateAll = true;
@@ -14118,9 +14075,8 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 	if (!mgr_get_async_slave_readonly_state(&sync_parms) && updateKey == NULL)
 		return true; 
 
-	info = palloc(sizeof(*info));
+	info = palloc0(sizeof(*info));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);	/* open table */
-	info->lcp = NULL;
 
 	readonlySqlSlaveInfoRefreshComplete = false;
 
@@ -14152,7 +14108,6 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 		}
 		if (list_length(sync_parms) > 0)
 		{
-			prev = NULL;
 			foreach (cell, sync_parms)
 			{
 				rdUpdateparm = (ReadonlyUpdateparm *) lfirst(cell);
@@ -14160,11 +14115,10 @@ bool mgr_update_cn_pgxcnode_readonlysql_slave(char *updateKey, bool isSlaveSync,
 					&& rdUpdateparm->updateparmnodetype == newUpdateparm->updateparmnodetype
 					&& strcmp(NameStr(rdUpdateparm->updateparmkey), NameStr(newUpdateparm->updateparmkey)) == 0)
 				{
-					sync_parms = list_delete_cell(sync_parms, cell, prev);
+					sync_parms = list_delete_cell(sync_parms, cell);
 					pfree(rdUpdateparm);
 					break;
 				}
-				prev = cell;
 			}
 			sync_parms = lappend(sync_parms, newUpdateparm);
 		}
@@ -14675,9 +14629,8 @@ void mgr_clean_cn_pgxcnode_readonlysql_slave(void)
 			,F_CHAREQ
 			,CharGetDatum(CNDN_TYPE_COORDINATOR_MASTER));
 			
-	info = palloc(sizeof(*info));
+	info = palloc0(sizeof(*info));
 	info->rel_node = table_open(NodeRelationId, AccessShareLock);	/* open table */
-	info->lcp = NULL;
 	info->rel_scan = table_beginscan_catalog(info->rel_node, 2, cnkey);
 	while ((tuple = heap_getnext(info->rel_scan, ForwardScanDirection)) != NULL)
 	{
@@ -15130,6 +15083,8 @@ mgr_init_start_gtmcoord_slave_all(PG_FUNCTION_ARGS)
 	GetAgentCmdRst getAgentCmdRst;
 	namestrcpy(&getAgentCmdRst.nodename, "init gtmcood slave");
 
+	ereportNoticeLog(errmsg("mgr_init_start_gtmcoord_slave_all\n"));
+
 	MgrInitAllSlaveNodes(CNDN_TYPE_GTM_COOR_SLAVE);
 
 	tup_result = build_common_command_tuple(&(getAgentCmdRst.nodename), 
@@ -15144,6 +15099,8 @@ mgr_init_start_dn_slave_all(PG_FUNCTION_ARGS)
 	HeapTuple tup_result;
 	GetAgentCmdRst getAgentCmdRst;
 	namestrcpy(&getAgentCmdRst.nodename, "init datanode slave");
+
+	ereportNoticeLog(errmsg("mgr_init_start_dn_slave_all\n"));
 
 	MgrInitAllSlaveNodes(CNDN_TYPE_DATANODE_SLAVE);
 	tup_result = build_common_command_tuple(&(getAgentCmdRst.nodename), 
@@ -15202,7 +15159,7 @@ static void MgrInitStartChildNodes(MemoryContext spiContext, MgrNodeWrapper *mgr
 
 	dlist_init(&slaveNodes);
 	selectChildNodes(spiContext,
-					 mgrNode->oid,
+					 mgrNode->form.oid,
 					 &slaveNodes);
 	dlist_foreach(iter, &slaveNodes)
 	{
@@ -15382,7 +15339,7 @@ static void mgr_run_gtm_dn_slave( HeapTuple tuple,
 	{
 		table_endscan(info->rel_scan);
 		table_close(info->rel_node, RowExclusiveLock);
-		MgrFree(info->lcp);
+		list_free(info->node_list);
 		MgrFree(info);
 		ereport(ERROR, (errmsg("namestrcpy %s fail", nodestrname)));
 	}

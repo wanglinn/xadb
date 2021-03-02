@@ -4,7 +4,7 @@
  *	  Routines to support inter-object dependencies.
  *
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -78,6 +78,7 @@
 #include "parser/parsetree.h"
 #include "rewrite/rewriteRemove.h"
 #include "storage/lmgr.h"
+#include "utils/acl.h"
 #include "utils/fmgroids.h"
 #include "utils/guc.h"
 #include "utils/lsyscache.h"
@@ -230,8 +231,6 @@ static void reportDependentObjects(const ObjectAddresses *targetObjects,
 static void deleteOneObject(const ObjectAddress *object,
 							Relation *depRel, int32 flags);
 static void doDeletion(const ObjectAddress *object, int flags);
-static void AcquireDeletionLock(const ObjectAddress *object, int flags);
-static void ReleaseDeletionLock(const ObjectAddress *object);
 static bool find_expr_references_walker(Node *node,
 										find_expr_references_context *context);
 static void eliminate_duplicate_dependencies(ObjectAddresses *addrs);
@@ -495,7 +494,7 @@ extern void performRenameSchema(const ObjectAddress *object,
 	* And rename object dependent if necessary
 	*/
 
-	depRel = heap_open(DependRelationId, RowExclusiveLock);
+	depRel = relation_open(DependRelationId, RowExclusiveLock);
 
 	targetObjects = new_object_addresses();
 
@@ -518,7 +517,7 @@ extern void performRenameSchema(const ObjectAddress *object,
 	/* And clean up */
 	free_object_addresses(targetObjects);
 
-	heap_close(depRel, RowExclusiveLock);
+	relation_close(depRel, RowExclusiveLock);
  }
 #endif /*END ADB*/
 
@@ -628,6 +627,7 @@ findDependentObjects(const ObjectAddress *object,
 				ObjectIdGetDatum(object->objectId));
 	if (object->objectSubId != 0)
 	{
+		/* Consider only dependencies of this sub-object */
 		ScanKeyInit(&key[2],
 					Anum_pg_depend_objsubid,
 					BTEqualStrategyNumber, F_INT4EQ,
@@ -635,7 +635,10 @@ findDependentObjects(const ObjectAddress *object,
 		nkeys = 3;
 	}
 	else
+	{
+		/* Consider dependencies of this object and any sub-objects it has */
 		nkeys = 2;
+	}
 
 	scan = systable_beginscan(*depRel, DependDependerIndexId, true,
 							  NULL, nkeys, key);
@@ -651,6 +654,18 @@ findDependentObjects(const ObjectAddress *object,
 		otherObject.classId = foundDep->refclassid;
 		otherObject.objectId = foundDep->refobjid;
 		otherObject.objectSubId = foundDep->refobjsubid;
+
+		/*
+		 * When scanning dependencies of a whole object, we may find rows
+		 * linking sub-objects of the object to the object itself.  (Normally,
+		 * such a dependency is implicit, but we must make explicit ones in
+		 * some cases involving partitioning.)  We must ignore such rows to
+		 * avoid infinite recursion.
+		 */
+		if (otherObject.classId == object->classId &&
+			otherObject.objectId == object->objectId &&
+			object->objectSubId == 0)
+			continue;
 
 		switch (foundDep->deptype)
 		{
@@ -938,6 +953,16 @@ findDependentObjects(const ObjectAddress *object,
 		otherObject.classId = foundDep->classid;
 		otherObject.objectId = foundDep->objid;
 		otherObject.objectSubId = foundDep->objsubid;
+
+		/*
+		 * If what we found is a sub-object of the current object, just ignore
+		 * it.  (Normally, such a dependency is implicit, but we must make
+		 * explicit ones in some cases involving partitioning.)
+		 */
+		if (otherObject.classId == object->classId &&
+			otherObject.objectId == object->objectId &&
+			object->objectSubId == 0)
+			continue;
 
 		/*
 		 * Must lock the dependent object before recursing to it.
@@ -1488,10 +1513,10 @@ doDeletion(const ObjectAddress *object, int flags)
 											0, 0, 0);
 						if (HeapTupleIsValid(tup))
 						{
-							relation = heap_open(PgxcClassRelationId, RowExclusiveLock);
+							relation = relation_open(PgxcClassRelationId, RowExclusiveLock);
 							CatalogTupleDelete(relation, &tup->t_self);
 							ReleaseSysCache(tup);
-							heap_close(relation, RowExclusiveLock);
+							relation_close(relation, RowExclusiveLock);
 						}
 					}
 #else
@@ -1749,11 +1774,14 @@ doDeletion(const ObjectAddress *object, int flags)
 /*
  * AcquireDeletionLock - acquire a suitable lock for deleting an object
  *
+ * Accepts the same flags as performDeletion (though currently only
+ * PERFORM_DELETION_CONCURRENTLY does anything).
+ *
  * We use LockRelation for relations, LockDatabaseObject for everything
- * else.  Note that dependency.c is not concerned with deleting any kind of
- * shared-across-databases object, so we have no need for LockSharedObject.
+ * else.  Shared-across-databases objects are not currently supported
+ * because no caller cares, but could be modified to use LockSharedObject.
  */
-static void
+void
 AcquireDeletionLock(const ObjectAddress *object, int flags)
 {
 	if (object->classId == RelationRelationId)
@@ -1779,8 +1807,10 @@ AcquireDeletionLock(const ObjectAddress *object, int flags)
 
 /*
  * ReleaseDeletionLock - release an object deletion lock
+ *
+ * Companion to AcquireDeletionLock.
  */
-static void
+void
 ReleaseDeletionLock(const ObjectAddress *object)
 {
 	if (object->classId == RelationRelationId)
@@ -1837,8 +1867,10 @@ recordDependencyOnExpr(const ObjectAddress *depender,
  * As above, but only one relation is expected to be referenced (with
  * varno = 1 and varlevelsup = 0).  Pass the relation OID instead of a
  * range table.  An additional frammish is that dependencies on that
- * relation (or its component columns) will be marked with 'self_behavior',
- * whereas 'behavior' is used for everything else.
+ * relation's component columns will be marked with 'self_behavior',
+ * whereas 'behavior' is used for everything else; also, if 'reverse_self'
+ * is true, those dependencies are reversed so that the columns are made
+ * to depend on the table not vice versa.
  *
  * NOTE: the caller should ensure that a whole-table dependency on the
  * specified relation is created separately, if one is needed.  In particular,
@@ -1851,7 +1883,7 @@ recordDependencyOnSingleRelExpr(const ObjectAddress *depender,
 								Node *expr, Oid relId,
 								DependencyType behavior,
 								DependencyType self_behavior,
-								bool ignore_self)
+								bool reverse_self)
 {
 	find_expr_references_context context;
 	RangeTblEntry rte;
@@ -1875,7 +1907,8 @@ recordDependencyOnSingleRelExpr(const ObjectAddress *depender,
 	eliminate_duplicate_dependencies(context.addrs);
 
 	/* Separate self-dependencies if necessary */
-	if (behavior != self_behavior && context.addrs->numrefs > 0)
+	if ((behavior != self_behavior || reverse_self) &&
+		context.addrs->numrefs > 0)
 	{
 		ObjectAddresses *self_addrs;
 		ObjectAddress *outobj;
@@ -1906,11 +1939,23 @@ recordDependencyOnSingleRelExpr(const ObjectAddress *depender,
 		}
 		context.addrs->numrefs = outrefs;
 
-		/* Record the self-dependencies */
-		if (!ignore_self)
+		/* Record the self-dependencies with the appropriate direction */
+		if (!reverse_self)
 			recordMultipleDependencies(depender,
 									   self_addrs->refs, self_addrs->numrefs,
 									   self_behavior);
+		else
+		{
+			/* Can't use recordMultipleDependencies, so do it the hard way */
+			int			selfref;
+
+			for (selfref = 0; selfref < self_addrs->numrefs; selfref++)
+			{
+				ObjectAddress *thisobj = self_addrs->refs + selfref;
+
+				recordDependencyOn(thisobj, depender, self_behavior);
+			}
+		}
 
 		free_object_addresses(self_addrs);
 	}
@@ -1925,12 +1970,6 @@ recordDependencyOnSingleRelExpr(const ObjectAddress *depender,
 
 /*
  * Recursively search an expression tree for object references.
- *
- * Note: we avoid creating references to columns of tables that participate
- * in an SQL JOIN construct, but are not actually used anywhere in the query.
- * To do so, we do not scan the joinaliasvars list of a join RTE while
- * scanning the query rangetable, but instead scan each individual entry
- * of the alias list when we find a reference to it.
  *
  * Note: in many cases we do not need to create dependencies on the datatypes
  * involved in an expression, because we'll have an indirect dependency via
@@ -1981,24 +2020,15 @@ find_expr_references_walker(Node *node,
 			add_object_address(OCLASS_CLASS, rte->relid, var->varattno,
 							   context->addrs);
 		}
-		else if (rte->rtekind == RTE_JOIN)
-		{
-			/* Scan join output column to add references to join inputs */
-			List	   *save_rtables;
 
-			/* We must make the context appropriate for join's level */
-			save_rtables = context->rtables;
-			context->rtables = list_copy_tail(context->rtables,
-											  var->varlevelsup);
-			if (var->varattno <= 0 ||
-				var->varattno > list_length(rte->joinaliasvars))
-				elog(ERROR, "invalid varattno %d", var->varattno);
-			find_expr_references_walker((Node *) list_nth(rte->joinaliasvars,
-														  var->varattno - 1),
-										context);
-			list_free(context->rtables);
-			context->rtables = save_rtables;
-		}
+		/*
+		 * Vars referencing other RTE types require no additional work.  In
+		 * particular, a join alias Var can be ignored, because it must
+		 * reference a merged USING column.  The relevant join input columns
+		 * will also be referenced in the join qual, and any type coercion
+		 * functions involved in the alias expression will be dealt with when
+		 * we scan the RTE itself.
+		 */
 		return false;
 	}
 	else if (IsA(node, Const))
@@ -2355,11 +2385,13 @@ find_expr_references_walker(Node *node,
 
 		/*
 		 * Add whole-relation refs for each plain relation mentioned in the
-		 * subquery's rtable.
+		 * subquery's rtable, and ensure we add refs for any type-coercion
+		 * functions used in join alias lists.
 		 *
 		 * Note: query_tree_walker takes care of recursing into RTE_FUNCTION
-		 * RTEs, subqueries, etc, so no need to do that here.  But keep it
-		 * from looking at join alias lists.
+		 * RTEs, subqueries, etc, so no need to do that here.  But we must
+		 * tell it not to visit join alias lists, or we'll add refs for join
+		 * input columns whether or not they are actually used in our query.
 		 *
 		 * Note: we don't need to worry about collations mentioned in
 		 * RTE_VALUES or RTE_CTE RTEs, because those must just duplicate
@@ -2376,6 +2408,31 @@ find_expr_references_walker(Node *node,
 				case RTE_RELATION:
 					add_object_address(OCLASS_CLASS, rte->relid, 0,
 									   context->addrs);
+					break;
+				case RTE_JOIN:
+
+					/*
+					 * Examine joinaliasvars entries only for merged JOIN
+					 * USING columns.  Only those entries could contain
+					 * type-coercion functions.  Also, their join input
+					 * columns must be referenced in the join quals, so this
+					 * won't accidentally add refs to otherwise-unused join
+					 * input columns.  (We want to ref the type coercion
+					 * functions even if the merged column isn't explicitly
+					 * used anywhere, to protect possible expansion of the
+					 * join RTE as a whole-row var, and because it seems like
+					 * a bad idea to allow dropping a function that's present
+					 * in our query tree, whether or not it could get called.)
+					 */
+					context->rtables = lcons(query->rtable, context->rtables);
+					for (int i = 0; i < rte->joinmergedcols; i++)
+					{
+						Node	   *aliasvar = list_nth(rte->joinaliasvars, i);
+
+						if (!IsA(aliasvar, Var))
+							find_expr_references_walker(aliasvar, context);
+					}
+					context->rtables = list_delete_first(context->rtables);
 					break;
 				default:
 					break;
@@ -2422,18 +2479,13 @@ find_expr_references_walker(Node *node,
 							   context->addrs);
 		}
 
-		/* query_tree_walker ignores ORDER BY etc, but we need those opers */
-		find_expr_references_walker((Node *) query->sortClause, context);
-		find_expr_references_walker((Node *) query->groupClause, context);
-		find_expr_references_walker((Node *) query->windowClause, context);
-		find_expr_references_walker((Node *) query->distinctClause, context);
-
 		/* Examine substructure of query */
 		context->rtables = lcons(query->rtable, context->rtables);
 		result = query_tree_walker(query,
 								   find_expr_references_walker,
 								   (void *) context,
-								   QTW_IGNORE_JOINALIASES);
+								   QTW_IGNORE_JOINALIASES |
+								   QTW_EXAMINE_SORTGROUP);
 		context->rtables = list_delete_first(context->rtables);
 		return result;
 	}
@@ -2461,6 +2513,28 @@ find_expr_references_walker(Node *node,
 							   context->addrs);
 		}
 		foreach(ct, rtfunc->funccolcollations)
+		{
+			Oid			collid = lfirst_oid(ct);
+
+			if (OidIsValid(collid) && collid != DEFAULT_COLLATION_OID)
+				add_object_address(OCLASS_COLLATION, collid, 0,
+								   context->addrs);
+		}
+	}
+	else if (IsA(node, TableFunc))
+	{
+		TableFunc  *tf = (TableFunc *) node;
+		ListCell   *ct;
+
+		/*
+		 * Add refs for the datatypes and collations used in the TableFunc.
+		 */
+		foreach(ct, tf->coltypes)
+		{
+			add_object_address(OCLASS_TYPE, lfirst_oid(ct), 0,
+							   context->addrs);
+		}
+		foreach(ct, tf->colcollations)
 		{
 			Oid			collid = lfirst_oid(ct);
 

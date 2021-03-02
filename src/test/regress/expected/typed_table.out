@@ -44,7 +44,7 @@ ERROR:  column "myname" does not exist
 CREATE TABLE persons2 OF person_type (
     id WITH OPTIONS PRIMARY KEY,
     UNIQUE (name)
-) distribute by replication;
+);
 \d persons2
               Table "public.persons2"
  Column |  Type   | Collation | Nullable | Default 

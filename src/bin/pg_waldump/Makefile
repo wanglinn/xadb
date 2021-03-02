@@ -7,7 +7,12 @@ subdir = src/bin/pg_waldump
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-BASE_OBJS = pg_waldump.o compat.o xlogreader.o rmgrdesc.o $(RMGRDESCOBJS)
+BASE_OBJS = \
+	$(RMGRDESCOBJS) \
+	compat.o \
+	pg_waldump.o \
+	rmgrdesc.o \
+	xlogreader.o
 PG_OBJS  = $(BASE_OBJS:%.o=%_pg.o) $(WIN32RES)
 ADB_OBJS = $(BASE_OBJS:%.o=%_adb.o) $(WIN32RES)
 

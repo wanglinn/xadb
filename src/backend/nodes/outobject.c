@@ -404,6 +404,7 @@ SIMPLE_OUTPUT_DECLARE(BlockNumber, "%u")
 SIMPLE_OUTPUT_DECLARE(Selectivity, "%g")
 SIMPLE_OUTPUT_DECLARE(bits32, "%08x")
 SIMPLE_OUTPUT_DECLARE(StrategyNumber, "%u");
+SIMPLE_OUTPUT_DECLARE(SubTransactionId, "%u");
 
 /* declare functions */
 #define BEGIN_NODE(type)	\

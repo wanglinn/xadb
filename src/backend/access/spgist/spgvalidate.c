@@ -3,7 +3,7 @@
  * spgvalidate.c
  *	  Opclass validator for SP-GiST.
  *
- * Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -159,6 +159,9 @@ spgvalidate(Oid opclassoid)
 												configOut.leafType, true,
 												1, 1, procform->amproclefttype);
 				break;
+			case SPGIST_OPTIONS_PROC:
+				ok = check_amoptsproc_signature(procform->amproc);
+				break;
 			default:
 				ereport(INFO,
 						(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
@@ -271,6 +274,8 @@ spgvalidate(Oid opclassoid)
 		{
 			if ((thisgroup->functionset & (((uint64) 1) << i)) != 0)
 				continue;		/* got it */
+			if (i == SPGIST_OPTIONS_PROC)
+				continue;		/* optional method */
 			ereport(INFO,
 					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
 					 errmsg("operator family \"%s\" of access method %s is missing support function %d for type %s",

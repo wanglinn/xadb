@@ -2,6 +2,7 @@
 
 #include "agtm/agtm_msg.h"
 #include "agtm/agtm_utils.h"
+#include "tcop/cmdtag.h"
 
 #define CASE_TYPE_(t)	\
 	case t:				\
@@ -62,3 +63,9 @@ const char *gtm_util_result_name(AGTM_ResultType type)
 	return "Unknown AGTM_ResultType";
 }
 
+enum CommandTag gtm_util_message_tag(AGTM_MessageType type)
+{
+	if (likely(type < AGTM_MSG_TYPE_COUNT))
+		return (CommandTag)(AGTM_START_CMD_TAG + type);
+	return CMDTAG_UNKNOWN;
+}

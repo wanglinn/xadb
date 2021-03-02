@@ -135,7 +135,7 @@ static void repairerMainLoop(dlist_head *mgrNodes)
 			break;
 		}
 		CHECK_FOR_INTERRUPTS();
-		set_ps_display("sleeping", false);
+		set_ps_display("sleeping");
 		rc = WaitLatchOrSocket(MyLatch,
 							   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
 							   PGINVALID_SOCKET,
@@ -446,7 +446,7 @@ static bool repairCoordinatorNode(MgrNodeWrapper *faultCoordinator)
 
 	PG_TRY();
 	{
-		set_ps_display(NameStr(faultCoordinator->form.nodename), false);
+		set_ps_display(NameStr(faultCoordinator->form.nodename));
 
 		checkGetMasterCoordinators(spiContext,
 								   &activeCoordinators,
@@ -547,7 +547,7 @@ static bool repairSlaveNode(MgrNodeWrapper *faultSlaveNode)
 
 	PG_TRY();
 	{
-		set_ps_display(NameStr(faultSlaveNode->form.nodename), false);
+		set_ps_display(NameStr(faultSlaveNode->form.nodename));
 
 		/* shutdown fault node */
 		shutdownNodeWithinSeconds(faultSlaveNode,
@@ -646,7 +646,7 @@ static bool checkIfSyncSlaveIsRunning(MgrNodeWrapper *masterMgrNode)
 	SPI_CONNECT_TRANSACTIONAL_START(spiRes, true);
 	spiContext = CurrentMemoryContext;
 	MemoryContextSwitchTo(oldContext);
-	selectActiveMgrSlaveNodes(masterMgrNode->oid,
+	selectActiveMgrSlaveNodes(masterMgrNode->form.oid,
 							  getMgrSlaveNodetype(masterMgrNode->form.nodetype),
 							  spiContext,
 							  &slaveMgrNodes);
@@ -912,7 +912,7 @@ static void checkMgrNodeDataInDB(MgrNodeWrapper *nodeDataInMem)
 	SPI_CONNECT_TRANSACTIONAL_START(ret, true);
 	spiContext = CurrentMemoryContext;
 	MemoryContextSwitchTo(oldContext);
-	nodeDataInDB = selectMgrNodeByOid(nodeDataInMem->oid, spiContext);
+	nodeDataInDB = selectMgrNodeByOid(nodeDataInMem->form.oid, spiContext);
 	SPI_FINISH_TRANSACTIONAL_COMMIT();
 
 	if (!nodeDataInDB)

@@ -1801,7 +1801,7 @@ Datum mgr_typenode_cmd_run_backend_result(nodenames_supplier supplier,
 										  PG_FUNCTION_ARGS)
 {
 	FuncCallContext *funcctx;
-	ListCell  **lcp;
+	ForEachState *context;
 	ListCell  *lc;
 	List *nodenamelist = NIL;
 	HeapTuple tup_result;
@@ -1847,14 +1847,15 @@ Datum mgr_typenode_cmd_run_backend_result(nodenames_supplier supplier,
 			consumer(nodenamelist, nodetype);
 
 		/* allocate memory for user context */
-		lcp = (ListCell **) palloc(sizeof(ListCell *));
-		*lcp = list_head(nodenamelist);
-		funcctx->user_fctx = (void *) lcp;
+		context = palloc(sizeof(*context));
+		context->l = nodenamelist;
+		context->i = 0;
+		funcctx->user_fctx = (void *) context;
 		/*send the command to agent, running as backend*/
 		mgr_cmd_run_backend(nodetype, cmdtype, nodenamelist, shutdown_mode, fcinfo);
 
 		/*wait the max time to check the node status*/
-		if (*lcp != NULL)
+		if (context->i < list_length(context->l))
 		{
 			initStringInfo(&strhint);
 			typestr = mgr_nodetype_str(nodetype);
@@ -1956,14 +1957,14 @@ Datum mgr_typenode_cmd_run_backend_result(nodenames_supplier supplier,
 
 	/* stuff done on every call of the function */
 	funcctx = SRF_PERCALL_SETUP();
-	lcp = (ListCell **) funcctx->user_fctx;
+	context = funcctx->user_fctx;
 
-	while (*lcp != NULL)
+	while (context->i < list_length(context->l))
 	{
-		char	   *nodename = (char *) lfirst(*lcp);
+		char	   *nodename = (char *) list_nth(context->l, context->i);
 		bresult = false;
 		namestrcpy(&nodenamedata, nodename);
-		*lcp = lnext(*lcp);
+		++(context->i);
 		rel_node = table_open(NodeRelationId, AccessShareLock);
 		aimtuple = mgr_get_tuple_node_from_name_type(rel_node, NameStr(nodenamedata));
 		if (!HeapTupleIsValid(aimtuple))

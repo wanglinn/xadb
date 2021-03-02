@@ -2,23 +2,21 @@
  * logical.h
  *	   PostgreSQL logical decoding coordination
  *
- * Copyright (c) 2012-2019, PostgreSQL Global Development Group
+ * Copyright (c) 2012-2020, PostgreSQL Global Development Group
  *
  *-------------------------------------------------------------------------
  */
 #ifndef LOGICAL_H
 #define LOGICAL_H
 
-#include "replication/slot.h"
-
 #include "access/xlog.h"
 #include "access/xlogreader.h"
 #include "replication/output_plugin.h"
+#include "replication/slot.h"
 
 struct LogicalDecodingContext;
 
-typedef void (*LogicalOutputPluginWriterWrite) (
-												struct LogicalDecodingContext *lr,
+typedef void (*LogicalOutputPluginWriterWrite) (struct LogicalDecodingContext *lr,
 												XLogRecPtr Ptr,
 												TransactionId xid,
 												bool last_write
@@ -26,8 +24,7 @@ typedef void (*LogicalOutputPluginWriterWrite) (
 
 typedef LogicalOutputPluginWriterWrite LogicalOutputPluginWriterPrepareWrite;
 
-typedef void (*LogicalOutputPluginWriterUpdateProgress) (
-														 struct LogicalDecodingContext *lr,
+typedef void (*LogicalOutputPluginWriterUpdateProgress) (struct LogicalDecodingContext *lr,
 														 XLogRecPtr Ptr,
 														 TransactionId xid
 );
@@ -98,15 +95,14 @@ extern LogicalDecodingContext *CreateInitDecodingContext(char *plugin,
 														 List *output_plugin_options,
 														 bool need_full_snapshot,
 														 XLogRecPtr restart_lsn,
-														 XLogPageReadCB read_page,
+														 XLogReaderRoutine *xl_routine,
 														 LogicalOutputPluginWriterPrepareWrite prepare_write,
 														 LogicalOutputPluginWriterWrite do_write,
 														 LogicalOutputPluginWriterUpdateProgress update_progress);
-extern LogicalDecodingContext *CreateDecodingContext(
-													 XLogRecPtr start_lsn,
+extern LogicalDecodingContext *CreateDecodingContext(XLogRecPtr start_lsn,
 													 List *output_plugin_options,
 													 bool fast_forward,
-													 XLogPageReadCB read_page,
+													 XLogReaderRoutine *xl_routine,
 													 LogicalOutputPluginWriterPrepareWrite prepare_write,
 													 LogicalOutputPluginWriterWrite do_write,
 													 LogicalOutputPluginWriterUpdateProgress update_progress);

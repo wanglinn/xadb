@@ -2,7 +2,7 @@
 #
 # Makefile for src/test/ssl
 #
-# Portions Copyright (c) 1996-2019, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 #
 # src/test/ssl/Makefile
@@ -27,9 +27,14 @@ SSLFILES := $(CERTIFICATES:%=ssl/%.key) $(CERTIFICATES:%=ssl/%.crt) \
 	ssl/both-cas-1.crt ssl/both-cas-2.crt \
 	ssl/root+server_ca.crt ssl/root+server.crl \
 	ssl/root+client_ca.crt ssl/root+client.crl \
-	ssl/client+client_ca.crt
+	ssl/client+client_ca.crt ssl/client-der.key \
+	ssl/client-encrypted-pem.key ssl/client-encrypted-der.key
 
-# This target generates all the key and certificate files.
+# This target re-generates all the key and certificate files. Usually we just
+# use the ones that are committed to the tree without rebuilding them.
+#
+# This target will fail unless preceded by sslfiles-clean.
+#
 sslfiles: $(SSLFILES)
 
 # OpenSSL requires a directory to put all generated certificates in. We don't
@@ -74,7 +79,7 @@ ssl/server-ss.crt: ssl/server-cn-only.key ssl/server-cn-only.crt server-cn-only.
 
 # Password-protected version of server-cn-only.key
 ssl/server-password.key: ssl/server-cn-only.key
-	openssl rsa -des -in $< -out $@ -passout 'pass:secret1'
+	openssl rsa -aes256 -in $< -out $@ -passout 'pass:secret1'
 
 # Client certificate, signed by the client CA:
 ssl/client.crt: ssl/client.key ssl/client_ca.crt
@@ -89,6 +94,18 @@ ssl/client-revoked.crt: ssl/client-revoked.key ssl/client_ca.crt client.config
 	openssl ca -name client_ca -batch -out ssl/temp.crt -config cas.config -infiles ssl/client-revoked.csr
 	openssl x509 -in ssl/temp.crt -out ssl/client-revoked.crt # to keep just the PEM cert
 	rm ssl/client-revoked.csr ssl/temp.crt
+
+# Convert the key to DER, to test our behaviour there too
+ssl/client-der.key: ssl/client.key
+	openssl rsa -in ssl/client.key -outform DER -out ssl/client-der.key
+
+# Convert the existing key to encrypted PEM (X.509 text) and DER (X.509 ASN.1) formats
+# to test libpq's support for the sslpassword= option.
+ssl/client-encrypted-pem.key: ssl/client.key
+	openssl rsa -in ssl/client.key -outform PEM -aes128 -passout 'pass:dUmmyP^#+' -out ssl/client-encrypted-pem.key
+
+ssl/client-encrypted-der.key: ssl/client.key
+	openssl rsa -in ssl/client.key -outform DER -aes128 -passout 'pass:dUmmyP^#+' -out ssl/client-encrypted-der.key
 
 # Root certificate files that contains both CA certificates, for testing
 # that multiple certificates can be used.
@@ -138,6 +155,7 @@ clean distclean maintainer-clean:
 	rm -rf tmp_check
 	rm -rf ssl/*.old ssl/new_certs_dir ssl/client*_tmp.key
 
+# Doesn't depend on $(SSLFILES) because we don't rebuild them by default
 check:
 	$(prove_check)
 

@@ -528,7 +528,7 @@ void FailOverDataNodeMaster(char *oldMasterName,
 							curZone);
 		checkGetSlaveNodesRunningSecondStatus(oldMaster,
 											spiContext,
-											(Oid)newMaster->mgrNode->oid,
+											(Oid)newMaster->mgrNode->form.oid,
 											&runningSlaves,
 											&failedSlaves,
 											&runningSlavesSecond,
@@ -905,7 +905,7 @@ void FailOverGtmCoordMaster(char *oldMasterName,
 
 		checkGetSlaveNodesRunningSecondStatus(oldMaster,
 											spiContext,
-											(Oid)newMaster->mgrNode->oid,
+											(Oid)newMaster->mgrNode->form.oid,
 											&runningSlaves,
 											&failedSlaves,
 											&runningSlavesSecond,
@@ -1116,13 +1116,13 @@ void switchoverDataNode(char *newMasterName, bool forceSwitch, char *curZone, in
 		oldMaster->startupAfterException = false;
 		checkGetSlaveNodesRunningStatus(oldMaster,
 										spiContext,
-										newMaster->mgrNode->oid,
+										newMaster->mgrNode->form.oid,
 										"",
 										&failedSlaves,
 										&runningSlaves);		
 		checkGetSlaveNodesRunningSecondStatus(oldMaster,
 											spiContext,
-											newMaster->mgrNode->oid,
+											newMaster->mgrNode->form.oid,
 											&runningSlaves,
 											&failedSlaves,
 											&runningSlavesSecond,
@@ -1335,13 +1335,13 @@ void switchoverGtmCoord(char *newMasterName, bool forceSwitch, char *curZone, in
 		oldMaster->startupAfterException = false;
 		checkGetSlaveNodesRunningStatus(oldMaster,
 										spiContext,
-										newMaster->mgrNode->oid,
+										newMaster->mgrNode->form.oid,
 										"",
 										&failedSlaves,
 										&runningSlaves);
 		checkGetSlaveNodesRunningSecondStatus(oldMaster,
 											spiContext,
-											newMaster->mgrNode->oid,
+											newMaster->mgrNode->form.oid,
 											&runningSlaves,
 											&failedSlaves,
 											&runningSlavesSecond,
@@ -1607,7 +1607,7 @@ void switchoverCoord(char *newMasterName, bool forceSwitch, char *curZone)
 		oldMaster->startupAfterException = false;		
 		checkGetSlaveNodesRunningStatus(oldMaster,
 										spiContext,
-										newMaster->mgrNode->oid,
+										newMaster->mgrNode->form.oid,
 										"",
 										&failedSlaves,
 										&runningSlaves);	
@@ -2393,14 +2393,14 @@ static void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
 
 	slaveNodetype = getMgrSlaveNodetype(masterNode->mgrNode->form.nodetype);
 	if (strlen(zone) > 0){		
-		selectMgrSlaveNodesByOidTypeInZone(masterNode->mgrNode->oid,
+		selectMgrSlaveNodesByOidTypeInZone(masterNode->mgrNode->form.oid,
 										slaveNodetype,
 										zone,
 										spiContext,
 										&mgrNodes);
 	}
 	else{
-		selectMgrSlaveNodesByOidType(masterNode->mgrNode->oid,
+		selectMgrSlaveNodesByOidType(masterNode->mgrNode->form.oid,
 									slaveNodetype,
 									spiContext,
 									&mgrNodes);
@@ -2411,7 +2411,7 @@ static void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
 		dlist_foreach_modify(iter, &mgrNodes)
 		{
 			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-			if (mgrNode->oid == excludeSlaveOid)
+			if (mgrNode->form.oid == excludeSlaveOid)
 			{
 				dlist_delete(iter.cur);
 				pfreeMgrNodeWrapper(mgrNode);
@@ -2426,7 +2426,7 @@ static void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
 						   failedSlaves);
 	/* add isolated slave node to failedSlaves */
 	dlist_init(&mgrNodes);
-	selectIsolatedMgrSlaveNodes(masterNode->mgrNode->oid,
+	selectIsolatedMgrSlaveNodes(masterNode->mgrNode->form.oid,
 								slaveNodetype,
 								spiContext,
 								&mgrNodes);
@@ -2435,7 +2435,7 @@ static void checkGetSlaveNodesRunningStatus(SwitcherNodeWrapper *masterNode,
 		dlist_foreach_modify(iter, &mgrNodes)
 		{
 			mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-			if (mgrNode->oid == excludeSlaveOid)
+			if (mgrNode->form.oid == excludeSlaveOid)
 			{
 				dlist_delete(iter.cur);
 				pfreeMgrNodeWrapper(mgrNode);
@@ -2483,7 +2483,7 @@ static void DeleteFromMgrNodeListByOid(dlist_head *switcherNodes, Oid excludeSla
 		dlist_foreach_modify(mutable_iter, switcherNodes)
 		{
 			switcherNode = dlist_container(SwitcherNodeWrapper, link, mutable_iter.cur);
-			if (switcherNode->mgrNode->oid == excludeSlaveOid)
+			if (switcherNode->mgrNode->form.oid == excludeSlaveOid)
 			{
 				dlist_delete(mutable_iter.cur);
 				pfreeSwitcherNodeWrapper(switcherNode);
@@ -2533,7 +2533,7 @@ static void checkGetRunningSlaveNodesInZone(SwitcherNodeWrapper *masterNode,
 	Assert(zone);
 	Assert(runningSlaves);
 
-	selectActiveMgrSlaveNodes(masterNode->mgrNode->oid, slaveNodetype, spiContext, &mgrNodes);	
+	selectActiveMgrSlaveNodes(masterNode->mgrNode->form.oid, slaveNodetype, spiContext, &mgrNodes);
 	dlist_foreach_modify(iter, &mgrNodes)
 	{
 		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
@@ -2647,7 +2647,7 @@ static bool checkIfSyncSlaveNodeIsRunning(MemoryContext spiContext,
 	MgrNodeWrapper *mgrNode;
 	bool standbySyncOk;
 
-	selectAllMgrSlaveNodes(masterNode->oid,
+	selectAllMgrSlaveNodes(masterNode->form.oid,
 						   getMgrSlaveNodetype(masterNode->form.nodetype),
 						   spiContext,
 						   &mgrNodes);
@@ -3095,7 +3095,7 @@ void checkGetSiblingMasterNodes(MemoryContext spiContext,
 	dlist_foreach_modify(iter, &mgrNodes)
 	{
 		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
-		if (mgrNode->oid == masterNode->mgrNode->oid)
+		if (mgrNode->form.oid == masterNode->mgrNode->form.oid)
 		{
 			dlist_delete(iter.cur);
 			pfreeMgrNodeWrapper(mgrNode);
@@ -3719,7 +3719,7 @@ static void refreshSlaveNodesAfterSwitch(SwitcherNodeWrapper *newMaster,
 
 		if (pg_strcasecmp(NameStr(oldMaster->mgrNode->form.nodezone), curZone) == 0)
 		{
-			node->mgrNode->form.nodemasternameoid = newMaster->mgrNode->oid;
+			node->mgrNode->form.nodemasternameoid = newMaster->mgrNode->form.oid;
 		}
 
 		if ((pg_strcasecmp(NameStr(oldMaster->mgrNode->form.nodezone), curZone) != 0) &&
@@ -3756,7 +3756,7 @@ static void refreshSlaveNodesAfterSwitch(SwitcherNodeWrapper *newMaster,
 	{
 		node = dlist_container(SwitcherNodeWrapper, link, iter.cur);
 		namestrcpy(&node->mgrNode->form.nodesync, "");
-		node->mgrNode->form.nodemasternameoid = newMaster->mgrNode->oid;
+		node->mgrNode->form.nodemasternameoid = newMaster->mgrNode->form.oid;
 		if ((pg_strcasecmp(NameStr(oldMaster->mgrNode->form.nodezone), curZone) != 0) &&
 			(pg_strcasecmp(operType, OVERTYPE_FAILOVER) == 0) &&
 			(pg_strcasecmp(NameStr(node->mgrNode->form.nodezone), curZone) != 0))
@@ -3832,7 +3832,7 @@ static void refreshOldMasterAfterSwitch(SwitcherNodeWrapper *oldMaster,
 	if (kickOutOldMaster)
 	{
 		/* Mark the data group to which the old master belongs */
-		oldMaster->mgrNode->form.nodemasternameoid = newMaster->mgrNode->oid;
+		oldMaster->mgrNode->form.nodemasternameoid = newMaster->mgrNode->form.oid;
 		oldMaster->mgrNode->form.nodetype =
 			getMgrSlaveNodetype(oldMaster->mgrNode->form.nodetype);
 		oldMaster->mgrNode->form.nodeinited = false;
@@ -3850,7 +3850,7 @@ static void refreshOldMasterAfterSwitch(SwitcherNodeWrapper *oldMaster,
 	else
 	{
 		/* Mark the data group to which the old master belongs */
-		oldMaster->mgrNode->form.nodemasternameoid = newMaster->mgrNode->oid;
+		oldMaster->mgrNode->form.nodemasternameoid = newMaster->mgrNode->form.oid;
 		oldMaster->mgrNode->form.nodetype =
 			getMgrSlaveNodetype(oldMaster->mgrNode->form.nodetype);
 		/* Update Old master follow the new master, 
@@ -3890,7 +3890,7 @@ static void refreshOldMasterAfterSwitchover(SwitcherNodeWrapper *oldMaster,
 	oldMaster->mgrNode->form.nodetype =	getMgrSlaveNodetype(oldMaster->mgrNode->form.nodetype);
 	/* nodesync field was set in other function */
 	/* Mark the data group to which the old master belongs */
-	oldMaster->mgrNode->form.nodemasternameoid = newMaster->mgrNode->oid;
+	oldMaster->mgrNode->form.nodemasternameoid = newMaster->mgrNode->form.oid;
 	/* Admit the reign of new master */
 	updateMgrNodeAfterSwitch(oldMaster->mgrNode,
 							 CURE_STATUS_SWITCHED,
@@ -4047,7 +4047,7 @@ void updateCureStatusForSwitch(MgrNodeWrapper *mgrNode,
 					 "AND curestatus = '%s' \n"
 					 "AND nodetype = '%c' \n",
 					 newCurestatus,
-					 mgrNode->oid,
+					 mgrNode->form.oid,
 					 NameStr(mgrNode->form.curestatus),
 					 mgrNode->form.nodetype);
 	oldCtx = MemoryContextSwitchTo(spiContext);
@@ -4098,7 +4098,7 @@ void updateMgrNodeAfterSwitch(MgrNodeWrapper *mgrNode,
 					 mgrNode->form.nodeincluster,
 					 mgrNode->form.allowcure,
 					 newCurestatus,
-					 mgrNode->oid,
+					 mgrNode->form.oid,
 					 NameStr(mgrNode->form.curestatus));
 	oldCtx = MemoryContextSwitchTo(spiContext);
 	spiRes = SPI_execute(sql.data, false, 0);
@@ -5164,7 +5164,7 @@ static void selectActiveMgrNodeChild(MemoryContext spiContext,
 	SwitcherNodeWrapper *switcherNode;
 
 	dlist_init(&mgrNodes);
-	selectActiveMgrSlaveNodes(mgrNode->oid,
+	selectActiveMgrSlaveNodes(mgrNode->form.oid,
 							slaveNodetype,
 							spiContext,
 							&mgrNodes);
@@ -5190,13 +5190,13 @@ static void PrintMgrNode(MemoryContext spiContext, dlist_head *mgrNodes)
 		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
 		Assert(mgrNode);
 		ereport(LOG, (errmsg("oid(%d), nodemasternameoid(%d), name(%s), host(%s), type(%c), sync(%s), port(%d), inited(%d), incluster(%d), zone(%s), allowcure(%d), curestatus(%s), path(%s).", 
-				mgrNode->oid, mgrNode->form.nodemasternameoid, NameStr(mgrNode->form.nodename), 
+				mgrNode->form.oid, mgrNode->form.nodemasternameoid, NameStr(mgrNode->form.nodename),
 				mgrNode->host->hostaddr, mgrNode->form.nodetype, NameStr(mgrNode->form.nodesync), 
 				mgrNode->form.nodeport, mgrNode->form.nodeinited, mgrNode->form.nodeincluster, NameStr(mgrNode->form.nodezone),
 				mgrNode->form.allowcure, NameStr(mgrNode->form.curestatus), mgrNode->nodepath)));
 
 		dlist_init(&resultList);
-		selectMgrSlaveNodesByOidType(mgrNode->oid,
+		selectMgrSlaveNodesByOidType(mgrNode->form.oid,
 									getMgrSlaveNodetype(mgrNode->form.nodetype),
 									spiContext,
 									&resultList);
@@ -5457,13 +5457,13 @@ static void switchoverGtmCoordForZone(MemoryContext spiContext,
 	oldMaster->startupAfterException = false;
 	checkGetSlaveNodesRunningStatus(oldMaster,
 									spiContext,
-									newMaster->mgrNode->oid,
+									newMaster->mgrNode->form.oid,
 									"",
 									failedSlaves,
 									runningSlaves);
 	checkGetSlaveNodesRunningSecondStatus(oldMaster,
 										spiContext,
-										newMaster->mgrNode->oid,
+										newMaster->mgrNode->form.oid,
 										runningSlaves,
 										failedSlaves,
 										runningSlavesSecond,
@@ -5636,7 +5636,7 @@ static void switchoverCoordForZone(MemoryContext spiContext,
 
 	checkGetSlaveNodesRunningStatus(oldMaster,
 									spiContext,
-									newMaster->mgrNode->oid,
+									newMaster->mgrNode->form.oid,
 									"",
 									failedSlaves,
 									runningSlaves);	
@@ -5757,13 +5757,13 @@ static void switchoverDataNodeForZone(MemoryContext spiContext,
 
 	checkGetSlaveNodesRunningStatus(oldMaster,
 									spiContext,
-									newMaster->mgrNode->oid,
+									newMaster->mgrNode->form.oid,
 									"",
 									failedSlaves,
 									runningSlaves);		
 	checkGetSlaveNodesRunningSecondStatus(oldMaster,
 										spiContext,
-										newMaster->mgrNode->oid,
+										newMaster->mgrNode->form.oid,
 										runningSlaves,
 										failedSlaves,
 										runningSlavesSecond,
@@ -5866,7 +5866,7 @@ static void GetSwitchSlaveByMaster(MemoryContext spiContext,
 	dlist_node *ptr;
 	MgrNodeWrapper *mgrNodeSlave = NULL;
 
-	selectActiveMgrSlaveNodesInZone(mgrNode->oid,
+	selectActiveMgrSlaveNodesInZone(mgrNode->form.oid,
 									type,
 									zone,
 									spiContext,
@@ -6507,7 +6507,7 @@ static void FailOverGtmCoordMasterForZone(MemoryContext spiContext,
 						curZone);					
 	checkGetSlaveNodesRunningSecondStatus(oldMaster,
 										spiContext,
-										(Oid)newMaster->mgrNode->oid,
+										(Oid)newMaster->mgrNode->form.oid,
 										runningSlaves,
 										failedSlaves,
 										runningSlavesSecond,
@@ -6737,7 +6737,7 @@ static void FailOverDataNodeMasterForZone(MemoryContext spiContext,
 						curZone);						
 	checkGetSlaveNodesRunningSecondStatus(oldMaster,
 										spiContext,
-										(Oid)newMaster->mgrNode->oid,
+										(Oid)newMaster->mgrNode->form.oid,
 										runningSlaves,
 										failedSlaves,
 										runningSlavesSecond,
