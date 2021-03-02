@@ -2846,7 +2846,7 @@ for example:
   '$abs_srcdir/configure'" "$LINENO" 5
 fi
 
-ADB_VERSION='6.0zjcmc'
+ADB_VERSION='6.0single'
 GIT_SHA1=`(cd $srcdir && git log -1 --pretty='format:%h' --no-color) 2>/dev/null`
 if test x"$GIT_SHA1" != x; then
   ADB_VERSION="$ADB_VERSION $GIT_SHA1"
@@ -3262,7 +3262,7 @@ if test "${enable_cluster+set}" = set; then :
   enableval=$enable_cluster;
   case $enableval in
     yes)
-      :
+      as_fn_error $? "--enable-cluster is not support in this version, please use \"--disable-cluster\"" "$LINENO" 5
       ;;
     no)
       :
@@ -3274,7 +3274,7 @@ if test "${enable_cluster+set}" = set; then :
 
 else
   enable_cluster=yes
-
+as_fn_error $? "--enable-cluster is not support in this version, please use \"--disable-cluster\"" "$LINENO" 5
 fi
 
 
