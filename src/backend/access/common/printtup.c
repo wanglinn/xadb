@@ -312,9 +312,20 @@ static bool write_ora_target(StringInfo buf, TargetEntry *te, const char *source
 		 source_cmd[pg_mbstrlen_with_len(source_cmd, te->as_location)] != '"'))
 	{
 		i = buf->len;
-		pq_writestring(buf, attname);
-		for(;i<buf->len;++i)
-			buf->data[i] = pg_toupper(buf->data[i]);
+		/* 
+		* Make the column name of sysdate query result consistent
+		* with Oracle in compatibility mode.
+		*/
+		if (strcmp(attname,"ora_sys_now") == 0)
+		{
+			pq_writestring(buf, "SYSDATE");
+		}
+		else
+		{
+			pq_writestring(buf, attname);
+			for(;i<buf->len;++i)
+				buf->data[i] = pg_toupper(buf->data[i]);
+		}
 		result = true;
 	}
 
