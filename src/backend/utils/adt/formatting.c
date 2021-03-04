@@ -1141,6 +1141,14 @@ typedef struct NUMProc
 #ifdef ADB_MULTI_GRAM
 extern int parse_grammar;
 #endif
+#ifdef ADB_GRAM_ORA
+enum ParseTimestampType
+{
+	PT_Normal,
+	PT_Oracle_Timestamp,
+	PT_Oracle_Date
+};
+#endif /* ADB_GRAM_ORA */
 
 /* ----------
  * Functions
@@ -1158,7 +1166,7 @@ static void DCH_to_char(FormatNode *node, bool is_interval,
 						TmToChar *in, char *out, Oid collid);
 static void DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 						  Oid collid, bool std, bool *have_error
-						  ADB_GRAM_ORA_COMMA_ARG(bool isora));
+						  ADB_GRAM_ORA_COMMA_ARG(enum ParseTimestampType pt));
 
 #ifdef DEBUG_TO_FROM_CHAR
 static void dump_index(const KeyWord *k, const int *index);
@@ -1174,9 +1182,9 @@ static void from_char_set_mode(TmFromChar *tmfc, const FromCharDateMode mode,
 static void from_char_set_int(int *dest, const int value, const FormatNode *node,
 							  bool *have_error);
 static int	from_char_parse_int_len(int *dest, const char **src, const int len,
-									FormatNode *node, bool *have_error);
+									FormatNode *node, bool *have_error ADB_GRAM_ORA_COMMA_ARG(enum ParseTimestampType pt));
 static int	from_char_parse_int(int *dest, const char **src, FormatNode *node,
-								bool *have_error);
+								bool *have_error ADB_GRAM_ORA_COMMA_ARG(enum ParseTimestampType pt));
 static int	seq_search_ascii(const char *name, const char *const *array, int *len);
 static int	seq_search_localized(const char *name, char **array, int *len,
 								 Oid collid);
@@ -1187,7 +1195,7 @@ static int	from_char_seq_search(int *dest, const char **src,
 static void do_to_timestamp(text *date_txt, text *fmt, Oid collid, bool std,
 							struct pg_tm *tm, fsec_t *fsec, int *fprec,
 							uint32 *flags, bool *have_error
-							ADB_GRAM_ORA_COMMA_ARG(bool isora));
+							ADB_GRAM_ORA_COMMA_ARG(enum ParseTimestampType pt));
 static char *fill_str(char *str, int c, int max);
 static FormatNode *NUM_cache(int len, NUMDesc *Num, text *pars_str, bool *shouldFree);
 static char *int_to_roman(int number);
@@ -2462,7 +2470,7 @@ on_error:
  */
 static int
 from_char_parse_int_len(int *dest, const char **src, const int len, FormatNode *node,
-						bool *have_error)
+						bool *have_error ADB_GRAM_ORA_COMMA_ARG(enum ParseTimestampType pt))
 {
 	long		result;
 	char		copy[DCH_MAX_ITEM_SIZ + 1];
@@ -2486,8 +2494,48 @@ from_char_parse_int_len(int *dest, const char **src, const int len, FormatNode *
 		char	   *endptr;
 
 		errno = 0;
-		result = strtol(init, &endptr, 10);
-		*src = endptr;
+#ifdef ADB_GRAM_ORA
+		if (pt == PT_Oracle_Date)
+		{
+			int			i;
+			bool		iclude_separator = false;
+
+			/*
+			 * For data length and format length is different, 
+			 * let the original logic to deal with.
+			 * Example: do_date('1-1-1', 'yyyy-mm-dd')
+			 */
+			for (i = 0; i < len; i++)
+			{
+				if (*(init + i) == '\0' || *(init + i) == ' ' || is_separator_char(init + i))
+				{
+					iclude_separator = true;
+					break;
+				}
+			}
+			if (!iclude_separator)
+			{
+				char   *tmp_init = (char *) palloc(sizeof(char) * (len + 1));
+				strncpy(tmp_init, init, len);
+				tmp_init[len] = '\0';
+				result = strtol(tmp_init, &endptr, 10);
+				pfree(tmp_init);
+				*src = init + len;
+			}
+			else
+			{
+				result = strtol(init, &endptr, 10);
+				*src = endptr;
+			}
+		}
+		else
+		{
+#endif	/* ADB_GRAM_ORA */
+			result = strtol(init, &endptr, 10);
+			*src = endptr;
+#ifdef ADB_GRAM_ORA
+		}
+#endif	/* ADB_GRAM_ORA */
 	}
 	else
 	{
@@ -2564,9 +2612,9 @@ on_error:
  * required length explicitly.
  */
 static int
-from_char_parse_int(int *dest, const char **src, FormatNode *node, bool *have_error)
+from_char_parse_int(int *dest, const char **src, FormatNode *node, bool *have_error ADB_GRAM_ORA_COMMA_ARG(enum ParseTimestampType pt))
 {
-	return from_char_parse_int_len(dest, src, node->key->len, node, have_error);
+	return from_char_parse_int_len(dest, src, node->key->len, node, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 }
 
 /*
@@ -3418,7 +3466,7 @@ DCH_to_char(FormatNode *node, bool is_interval, TmToChar *in, char *out, Oid col
 static void
 DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 			  Oid collid, bool std, bool *have_error
-			  ADB_GRAM_ORA_COMMA_ARG(bool isora))
+			  ADB_GRAM_ORA_COMMA_ARG(enum ParseTimestampType pt))
 {
 	FormatNode *n;
 	const char *s;
@@ -3434,6 +3482,15 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 
 	for (n = node, s = in; n->type != NODE_TYPE_END && *s != '\0'; n++)
 	{
+#ifdef ADB_GRAM_ORA
+		if (pt == PT_Oracle_Date &&
+			(n->type == NODE_TYPE_SEPARATOR || n->type == NODE_TYPE_SPACE) &&
+			!is_separator_char(s))
+		{
+			continue;
+		}
+#endif /* ADB_GRAM_ORA */
+
 		/*
 		 * Ignore spaces at the beginning of the string and before fields when
 		 * not in FX (fixed width) mode.
@@ -3526,7 +3583,7 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 #ifdef ADB_GRAM_ORA
 #define ORA_CHECK(cond, ...)										\
 	do{																\
-		if (isora && (cond))										\
+		if (pt != PT_Normal && (cond))								\
 			ereport(ERROR,											\
 					errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),	\
 					__VA_ARGS__);									\
@@ -3598,32 +3655,32 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 				break;
 			case DCH_HH:
 			case DCH_HH12:
-				from_char_parse_int_len(&out->hh, &s, 2, n, have_error);
+				from_char_parse_int_len(&out->hh, &s, 2, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				out->clock = CLOCK_12_HOUR;
 				SKIP_THth(s, n->suffix);
 				OraCheckHour12();
 				break;
 			case DCH_HH24:
-				from_char_parse_int_len(&out->hh, &s, 2, n, have_error);
+				from_char_parse_int_len(&out->hh, &s, 2, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				SKIP_THth(s, n->suffix);
 				OraCheckHour24();
 				break;
 			case DCH_MI:
-				from_char_parse_int(&out->mi, &s, n, have_error);
+				from_char_parse_int(&out->mi, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				SKIP_THth(s, n->suffix);
 				OraCheckMinute();
 				break;
 			case DCH_SS:
-				from_char_parse_int(&out->ss, &s, n, have_error);
+				from_char_parse_int(&out->ss, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				SKIP_THth(s, n->suffix);
 				OraCheckSecond();
 				break;
 			case DCH_MS:		/* millisecond */
-				len = from_char_parse_int_len(&out->ms, &s, 3, n, have_error);
+				len = from_char_parse_int_len(&out->ms, &s, 3, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 
 				/*
@@ -3645,7 +3702,7 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 			case DCH_US:		/* microsecond */
 				len = from_char_parse_int_len(&out->us, &s,
 											  n->key->id == DCH_US ? 6 :
-											  out->ff, n, have_error);
+											  out->ff, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 
 				out->us *= len == 1 ? 100000 :
@@ -3677,14 +3734,14 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 			case DCH_XFF:
 				out->ff = 6;
 			ora_dch_ff:
-				if (!isora)
+				if (pt != PT_Normal)
 					RETURN_ERROR(ereport(ERROR,
 										 errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 										 errmsg("formatting field \"%s\" is only supported for oracle grammar",
 												n->key->name)));
 				len = from_char_parse_int_len(&out->us, &s,
 											  n->key->id == DCH_US ? 6 :
-											  out->ff, n, have_error);
+											  out->ff, n, have_error, pt);
 				CHECK_ERROR;
 				switch(len)
 				{
@@ -3738,7 +3795,7 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 				break;
 #endif /* ADB_GRAM_ORA */
 			case DCH_SSSS:
-				from_char_parse_int(&out->ssss, &s, n, have_error);
+				from_char_parse_int(&out->ssss, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				SKIP_THth(s, n->suffix);
 				break;
@@ -3773,14 +3830,14 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 						out->tzsign = +1;
 				}
 
-				from_char_parse_int_len(&out->tzh, &s, 2, n, have_error);
+				from_char_parse_int_len(&out->tzh, &s, 2, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				break;
 			case DCH_TZM:
 				/* assign positive timezone sign if TZH was not seen before */
 				if (!out->tzsign)
 					out->tzsign = +1;
-				from_char_parse_int_len(&out->tzm, &s, 2, n, have_error);
+				from_char_parse_int_len(&out->tzm, &s, 2, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				break;
 			case DCH_A_D:
@@ -3809,7 +3866,7 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 			case DCH_Month:
 			case DCH_month:
 #ifdef ADB_GRAM_ORA
-				if (isora)
+				if (pt != PT_Normal)
 				{
 					bool	tmp_error = false;
 					from_char_seq_search(&value, &s, months_full,
@@ -3842,7 +3899,7 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 									 n, have_error);
 				CHECK_ERROR;
 #ifdef ADB_GRAM_ORA
-				if (isora)
+				if (pt != PT_Normal)
 				{
 					/*
 					 * try to ignore the rest characters if we
@@ -3859,7 +3916,7 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 				OraCheckMonth();
 				break;
 			case DCH_MM:
-				from_char_parse_int(&out->mm, &s, n, have_error);
+				from_char_parse_int(&out->mm, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				SKIP_THth(s, n->suffix);
 				OraCheckMonth();
@@ -3889,30 +3946,30 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 				out->d++;
 				break;
 			case DCH_DDD:
-				from_char_parse_int(&out->ddd, &s, n, have_error);
+				from_char_parse_int(&out->ddd, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				SKIP_THth(s, n->suffix);
 				OraCheckYDay();
 				break;
 			case DCH_IDDD:
-				from_char_parse_int_len(&out->ddd, &s, 3, n, have_error);
+				from_char_parse_int_len(&out->ddd, &s, 3, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				SKIP_THth(s, n->suffix);
 				OraCheckYDay();
 				break;
 			case DCH_DD:
-				from_char_parse_int(&out->dd, &s, n, have_error);
+				from_char_parse_int(&out->dd, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				SKIP_THth(s, n->suffix);
 				OraCheckMDay();
 				break;
 			case DCH_D:
-				from_char_parse_int(&out->d, &s, n, have_error);
+				from_char_parse_int(&out->d, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				SKIP_THth(s, n->suffix);
 				break;
 			case DCH_ID:
-				from_char_parse_int_len(&out->d, &s, 1, n, have_error);
+				from_char_parse_int_len(&out->d, &s, 1, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				/* Shift numbering to match Gregorian where Sunday = 1 */
 				if (++out->d > 7)
@@ -3921,7 +3978,7 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 				break;
 			case DCH_WW:
 			case DCH_IW:
-				from_char_parse_int(&out->ww, &s, n, have_error);
+				from_char_parse_int(&out->ww, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				SKIP_THth(s, n->suffix);
 				break;
@@ -3937,12 +3994,12 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 				 * We still parse the source string for an integer, but it
 				 * isn't stored anywhere in 'out'.
 				 */
-				from_char_parse_int((int *) NULL, &s, n, have_error);
+				from_char_parse_int((int *) NULL, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				SKIP_THth(s, n->suffix);
 				break;
 			case DCH_CC:
-				from_char_parse_int(&out->cc, &s, n, have_error);
+				from_char_parse_int(&out->cc, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				SKIP_THth(s, n->suffix);
 				break;
@@ -3969,7 +4026,7 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 				break;
 			case DCH_YYYY:
 			case DCH_IYYY:
-				from_char_parse_int(&out->year, &s, n, have_error);
+				from_char_parse_int(&out->year, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				out->yysz = 4;
 				OraCheckYear();
@@ -3977,7 +4034,7 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 				break;
 			case DCH_YYY:
 			case DCH_IYY:
-				len = from_char_parse_int(&out->year, &s, n, have_error);
+				len = from_char_parse_int(&out->year, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				if (len < 4)
 					out->year = adjust_partial_year_to_2020(out->year);
@@ -3987,7 +4044,7 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 				break;
 			case DCH_YY:
 			case DCH_IY:
-				len = from_char_parse_int(&out->year, &s, n, have_error);
+				len = from_char_parse_int(&out->year, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				if (len < 4)
 					out->year = adjust_partial_year_to_2020(out->year);
@@ -3997,7 +4054,7 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 				break;
 			case DCH_Y:
 			case DCH_I:
-				len = from_char_parse_int(&out->year, &s, n, have_error);
+				len = from_char_parse_int(&out->year, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				if (len < 4)
 					out->year = adjust_partial_year_to_2020(out->year);
@@ -4017,21 +4074,15 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 				OraCheckMonth();
 				break;
 			case DCH_W:
-				from_char_parse_int(&out->w, &s, n, have_error);
+				from_char_parse_int(&out->w, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				SKIP_THth(s, n->suffix);
 				break;
 			case DCH_J:
-				from_char_parse_int(&out->j, &s, n, have_error);
+				from_char_parse_int(&out->j, &s, n, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 				CHECK_ERROR;
 				SKIP_THth(s, n->suffix);
 				break;
-#ifdef ADB_GRAM_ORA
-			default:
-				if (isora == false)
-					break;
-				;
-#endif
 		}
 
 		/* Ignore all spaces after fields */
@@ -4490,7 +4541,7 @@ to_timestamp(PG_FUNCTION_ARGS)
 	int			fprec;
 
 	do_to_timestamp(date_txt, fmt, collid, false,
-					&tm, &fsec, &fprec, NULL, NULL ADB_GRAM_ORA_COMMA_ARG(false));
+					&tm, &fsec, &fprec, NULL, NULL ADB_GRAM_ORA_COMMA_ARG(PT_Normal));
 
 	/* Use the specified time zone, if any. */
 	if (tm.tm_zone)
@@ -4531,7 +4582,7 @@ to_date(PG_FUNCTION_ARGS)
 	fsec_t		fsec;
 
 	do_to_timestamp(date_txt, fmt, collid, false,
-					&tm, &fsec, NULL, NULL, NULL ADB_GRAM_ORA_COMMA_ARG(false));
+					&tm, &fsec, NULL, NULL, NULL ADB_GRAM_ORA_COMMA_ARG(PT_Normal));
 
 	/* Prevent overflow in Julian-day routines */
 	if (!IS_VALID_JULIAN(tm.tm_year, tm.tm_mon, tm.tm_mday))
@@ -4577,7 +4628,7 @@ parse_datetime(text *date_txt, text *fmt, Oid collid, bool strict,
 	uint32		flags;
 
 	do_to_timestamp(date_txt, fmt, collid, strict,
-					&tm, &fsec, &fprec, &flags, have_error ADB_GRAM_ORA_COMMA_ARG(false));
+					&tm, &fsec, &fprec, &flags, have_error ADB_GRAM_ORA_COMMA_ARG(PT_Normal));
 	CHECK_ERROR;
 
 	*typmod = fprec ? fprec : -1;	/* fractional part precision */
@@ -4756,7 +4807,7 @@ static void
 do_to_timestamp(text *date_txt, text *fmt, Oid collid, bool std,
 				struct pg_tm *tm, fsec_t *fsec, int *fprec,
 				uint32 *flags, bool *have_error
-				ADB_GRAM_ORA_COMMA_ARG(bool isora))
+				ADB_GRAM_ORA_COMMA_ARG(enum ParseTimestampType pt))
 {
 	FormatNode *format = NULL;
 	TmFromChar	tmfc;
@@ -4786,6 +4837,22 @@ do_to_timestamp(text *date_txt, text *fmt, Oid collid, bool std,
 		char	   *fmt_str;
 
 		fmt_str = text_to_cstring(fmt);
+#ifdef ADB_GRAM_ORA
+		if (pt == PT_Oracle_Date)
+		{
+			char	*lower_str = fmt_str;
+			while (*lower_str != '\0')
+			{
+				/* 
+				 * Convert format character to lowercase,
+				 * avoid parsing failure caused by nonstandard writing of format character.
+				 */
+				if (!is_separator_char(lower_str))
+					*lower_str = pg_tolower(*lower_str);
+				lower_str++;
+			}
+		}
+#endif	/* ADB_GRAM_ORA */
 
 		if (fmt_len > DCH_CACHE_SIZE)
 		{
@@ -4814,7 +4881,7 @@ do_to_timestamp(text *date_txt, text *fmt, Oid collid, bool std,
 		/* dump_index(DCH_keywords, DCH_index); */
 #endif
 
-		DCH_from_char(format, date_str, &tmfc, collid, std, have_error ADB_GRAM_ORA_COMMA_ARG(isora));
+		DCH_from_char(format, date_str, &tmfc, collid, std, have_error ADB_GRAM_ORA_COMMA_ARG(pt));
 		CHECK_ERROR;
 
 		pfree(fmt_str);
@@ -7027,7 +7094,43 @@ ora_to_timestamp(text *date_txt, text *fmt, Oid collid, bool withtz)
 	AssertArg(fmt);
 
 	do_to_timestamp(date_txt, fmt, collid, false,
-					&tm, &fsec, &fprec, NULL, NULL, true);
+					&tm, &fsec, &fprec, NULL, NULL, PT_Oracle_Timestamp);
+
+	if (withtz)
+	{
+		tz = DetermineTimeZoneOffset(&tm, session_timezone);
+		ptz = &tz;
+	}
+
+	if (tm2timestamp(&tm, fsec, ptz, &result) != 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+				 errmsg("timestamp out of range")));
+
+	PG_RETURN_TIMESTAMP(result);
+}
+
+/* ---------------------
+ * ORA_TO_DATE()
+ *
+ * Make Date from date_str which is formatted at argument 'fmt'.
+ * Here we match some checks by oracle grammar.
+ * ---------------------
+ */
+Datum
+ora_to_date(text *date_txt, text *fmt, Oid collid, bool withtz)
+{
+	Timestamp	result;
+	int			tz;
+	struct pg_tm tm;
+	fsec_t		fsec;
+	int			fprec;
+	int		   *ptz = NULL;
+
+	AssertArg(fmt);
+
+	do_to_timestamp(date_txt, fmt, collid, false,
+					&tm, &fsec, &fprec, NULL, NULL, PT_Oracle_Date);
 
 	if (withtz)
 	{

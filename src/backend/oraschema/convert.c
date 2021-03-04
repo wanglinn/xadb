@@ -206,7 +206,7 @@ text_tofloat8(PG_FUNCTION_ARGS)
 	PG_RETURN_DATUM(result);
 }
 
-#define DECLARE_TEXT_TO_TIME(type, tz, in_fun, typmod)				\
+#define DECLARE_TEXT_TO_TIME(type, tz, in_fun, typmod, fmt_fun)		\
 Datum ora_text_to_##type(PG_FUNCTION_ARGS)							\
 {																	\
 	text *txt = PG_GETARG_TEXT_P(0);								\
@@ -225,10 +225,10 @@ Datum ora_text_to_##type##_fmt(PG_FUNCTION_ARGS)					\
 	if (likely(VARSIZE_ANY_EXHDR(ptr) > 0))							\
 	{																\
 		TEXT_TO_TIME_CHECK_TEXT((text*)ptr);						\
-		PG_RETURN_DATUM(ora_to_timestamp(PG_GETARG_TEXT_P(0),		\
-										 (text*)ptr,				\
-										 PG_GET_COLLATION(),		\
-										 tz));						\
+		PG_RETURN_DATUM(fmt_fun(PG_GETARG_TEXT_P(0),				\
+								(text*)ptr,							\
+								PG_GET_COLLATION(),					\
+								tz));								\
 	}																\
 	PG_RETURN_NULL();												\
 }extern int not_exists
@@ -250,14 +250,14 @@ Datum ora_text_to_##type##_fmt(PG_FUNCTION_ARGS)					\
 		TEXT_TO_TIME_CHECK(str);											\
 		pfree(str);															\
 	}while(0)
-DECLARE_TEXT_TO_TIME(date, false, timestamp_in, 0);
+DECLARE_TEXT_TO_TIME(date, false, timestamp_in, 0, ora_to_date);
 
 #undef TEXT_TO_TIME_CHECK_TEXT
 #define TEXT_TO_TIME_CHECK_TEXT(txt) ((void)0)
 /* ora_text_to_timestamp, ora_text_to_timestamp_fmt */
-DECLARE_TEXT_TO_TIME(timestamp, false, timestamp_in, -1);
+DECLARE_TEXT_TO_TIME(timestamp, false, timestamp_in, -1, ora_to_timestamp);
 /* ora_text_to_timestamp_tz, ora_text_to_timestamp_tz_fmt */
-DECLARE_TEXT_TO_TIME(timestamp_tz, true, timestamptz_in, 0);
+DECLARE_TEXT_TO_TIME(timestamp_tz, true, timestamptz_in, 0, ora_to_timestamp);
 
 Datum
 text_tocstring(PG_FUNCTION_ARGS)

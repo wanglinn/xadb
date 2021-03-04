@@ -31,6 +31,7 @@ extern Datum parse_datetime(text *date_txt, text *fmt, Oid collid, bool strict,
 							bool *have_error);
 #ifdef ADB_GRAM_ORA
 extern Datum ora_to_timestamp(text * date_txt, text * fmt, Oid collid, bool withtz);
+extern Datum ora_to_date(text * date_txt, text * fmt, Oid collid, bool withtz);
 #endif
 
 #endif
