@@ -100,6 +100,7 @@ typedef struct SQLHistoryItem
     Oid dbid;
     TimestampTz lasttime;
     int64 ecount;
+    uint32 hash;
     slock_t mutex;
     char sql[FLEXIBLE_ARRAY_MEMBER];
 } SQLHistoryItem;
@@ -318,6 +319,7 @@ static void shmem_startup(void)
             ptr += SQL_HISTORY_ITEM_SIZE();
             item->sql[0] = '\0';
             item->lasttime = 0;
+            item->hash = hash_any(item->sql, strlen(item->sql));
             SpinLockInit(&item->mutex);
             --i;
         }
@@ -371,6 +373,7 @@ static void bind_my_sql_history(void)
             my_sql_history[i]->pid = 0;
             my_sql_history[i]->dbid = 0;
             my_sql_history[i]->ecount = 0;
+            my_sql_history[i]->hash = hash_any(my_sql_history[i]->sql, strlen(my_sql_history[i]->sql));
             SpinLockRelease(&my_sql_history[i]->mutex);
             ptr += SQL_HISTORY_ITEM_SIZE();
         }
@@ -417,6 +420,7 @@ static bool find_sql_pos(char *sql, int *idx)
     SQLHistoryItem *sql_item = NULL;
     TimestampTz min_time = 0;
     bool empty_found = false;
+    uint32 sql_hash = hash_any(sql, strlen(sql));
 
     if (strlen(sql) == 0)
     {
@@ -429,7 +433,7 @@ static bool find_sql_pos(char *sql, int *idx)
         sql_item = (SQLHistoryItem *)my_sql_history[i];
         if (strlen(sql_item->sql) > 0)
         {
-            if (0 == pg_strcasecmp(sql_item->sql, sql))
+            if(sql_item->hash == sql_hash)
             {
                 sql_found = true;
                 *idx = i;
@@ -489,6 +493,7 @@ static void insert_sql(int sql_idx, char *sql)
     sql_item->dbid = MyDatabaseId;
     StrNCpy(sql_item->sql, sql, pgstat_track_activity_query_size);
     sql_item->lasttime = GetCurrentTimestamp();
+    sql_item->hash = hash_any(sql, strlen(sql));
     sql_item->ecount = 1;
     SpinLockRelease(&sql_item->mutex);
 }
