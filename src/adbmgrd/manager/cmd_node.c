@@ -2475,6 +2475,8 @@ Datum mgr_stop_one_gtm_master(PG_FUNCTION_ARGS)
 	}
 	if (!HeapTupleIsValid(aimtuple))
 	{
+		heap_endscan(rel_scan);
+		table_close(rel_node, RowExclusiveLock);
 		ereport(ERROR, (errmsg("gtm master does not exist")));
 	}
 	/*get execute cmd result from agent*/
@@ -12540,6 +12542,7 @@ bool mgr_pqexec_refresh_pgxc_node(pgxc_node_operator cmd, char nodetype, char *d
 	newMasterTuple = mgr_get_tuple_node_from_name_type(relNode, dnname);
 	if(!HeapTupleIsValid(newMasterTuple))
 	{
+		table_close(relNode, AccessShareLock);
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_OBJECT)
 			, errmsg("cache lookup failed for the node \"%s\" in node table", dnname)));
 	}

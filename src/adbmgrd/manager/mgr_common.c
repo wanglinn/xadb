@@ -676,6 +676,8 @@ int pingNode_user_by_nodename(char *node_name, char *host_addr, char *node_port,
 	tuple = heap_getnext(rel_scan, ForwardScanDirection);
 	if (!HeapTupleIsValid(tuple))
 	{
+		heap_endscan(rel_scan);
+		table_close(rel, AccessShareLock);
 		ereport(ERROR, (errmsg("host\"%s\" does not exist in the host table", host_addr)));
 	}
 	mgr_host = (Form_mgr_host)GETSTRUCT(tuple);
@@ -701,6 +703,8 @@ int pingNode_user_by_nodename(char *node_name, char *host_addr, char *node_port,
 	tuple = heap_getnext(rel_scan, ForwardScanDirection);
 	if (!HeapTupleIsValid(tuple))
 	{
+		heap_endscan(rel_scan);
+		table_close(rel, AccessShareLock);
 		ereport(ERROR, (errmsg("port \"%s\" does not exist in the node table", node_port)));
 	}
 	nodepath = heap_getattr(tuple, Anum_mgr_node_nodepath, RelationGetDescr(rel), &isnull);
@@ -910,6 +914,8 @@ void monitor_get_one_node_user_address_port(Relation rel_node, int *agentport, c
 		tup = SearchSysCache1(HOSTHOSTOID, ObjectIdGetDatum(mgr_node->nodehost));
 		if(!(HeapTupleIsValid(tup)))
 		{
+			EndScan(rel_scan);
+			table_close(rel_node, AccessShareLock);
 			ereport(ERROR, (errmsg("host oid \"%u\" not exist", mgr_node->nodehost)
 				, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_host")
 				, errcode(ERRCODE_INTERNAL_ERROR)));
@@ -920,7 +926,7 @@ void monitor_get_one_node_user_address_port(Relation rel_node, int *agentport, c
 		ReleaseSysCache(tup);
 		break;
 	}
-	table_endscan(rel_scan);
+	EndScan(rel_scan);
 }
 
 /*
