@@ -671,10 +671,12 @@ extern void RelationDecrementReferenceCount(Relation rel);
 
 #ifdef ADB
 /* routines in pgxc/nodemgr/expansion.c */
+struct TupleTableSlot;
 extern void RelationBuildExpansionClean(Relation rel);
 extern void DestroyExpansionClean(struct ExpansionClean *clean);
 extern bool IsExpansionCleanEqual(struct ExpansionClean *a, struct ExpansionClean *b);
 extern bool ExecTestExpansionClean(struct ExpansionClean *clean, void *tup);
+extern bool ExecTestSlotExpansionClean(struct ExpansionClean *clean, struct TupleTableSlot *slot);
 extern BlockNumber GetExpansionInsertLimitBlock(struct ExpansionClean *clean);
 extern bool CanInsertIntoExpansionRel(struct ExpansionClean *clean, BlockNumber blk);
 #endif /* ADB */

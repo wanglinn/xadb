@@ -1518,11 +1518,30 @@ bool ExecTestExpansionClean(struct ExpansionClean *clean, void *tup)
 	}else
 	{
 		ExecForceStoreHeapTuple(tup, clean->slot, false);
+		clean->econtext->ecxt_scantuple = clean->slot;
 		datum = ExecEvalExprSwitchContext(clean->state, clean->econtext, &isnull);
 		Assert(!isnull);
 		ExecClearTuple(clean->slot);
 		ResetExprContext(clean->econtext);
 	}
+
+	return DatumGetBool(datum);
+}
+
+bool
+ExecTestSlotExpansionClean(struct ExpansionClean *clean, TupleTableSlot *slot)
+{
+	Datum			datum;
+	bool			isnull;
+	Assert(!TTS_EMPTY(slot));
+
+	if (ItemPointerGetBlockNumberNoCheck(&slot->tts_tid) > clean->max_block)
+		return true;
+
+	clean->econtext->ecxt_scantuple = slot;
+	datum = ExecEvalExprSwitchContext(clean->state, clean->econtext, &isnull);
+	Assert(!isnull);
+	ResetExprContext(clean->econtext);
 
 	return DatumGetBool(datum);
 }
