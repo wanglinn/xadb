@@ -39,5 +39,9 @@ extern IndexStmt *generateClonedIndexStmt(RangeVar *heapRel,
 extern int transformDistributeCluster(ParseState *pstate, Relation rel, PGXCSubCluster *cluster,
 									  char loc_type, List **values, Oid **nodeoids);
 #endif /* ADB */
+#ifdef ADB_GRAM_ORA
+extern List *ora_transformPartitionRangeBounds(ParseState *pstate, List *blist,
+							  				   Relation parent ADB_ONLY_COMMA_ARG(PartitionKey key));
+#endif /* ADB_GRAM_ORA */
 
 #endif							/* PARSE_UTILCMD_H */

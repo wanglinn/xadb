@@ -28,6 +28,10 @@
 #include "nodes/nodeFuncs.h"
 #include "nodes/pathnodes.h"
 #include "parser/parse_coerce.h"
+#ifdef ADB_GRAM_ORA
+#include "parser/parser.h"
+#include "parser/parse_utilcmd.h"
+#endif /* ADB_GRAM_ORA */
 #include "partitioning/partbounds.h"
 #include "partitioning/partdesc.h"
 #include "partitioning/partprune.h"
@@ -4873,8 +4877,15 @@ satisfies_hash_partition(PG_FUNCTION_ARGS)
 }
 
 #ifdef ADB_GRAM_ORA
-List *get_partition_bound_max_value(ParseState *pstate, Relation parent, PartitionBoundSpec *spec, List *currentchildren)
+/***
+ * Improve the default value of the missing partition
+ * according to the existing partition information.
+ */
+void get_partition_bound_value(ParseState *pstate, Relation parent, PartitionBoundSpec *spec,
+							   List *currentchildren, PartitionBoundSpec **res_spec)
 {
+	List	*max_upperdatums = NIL;
+	List	*min_upperdatums = NIL;
 	List	   *pbspec_list = NIL;
 	ListCell   *lc;
 	Oid			inhrelid;
@@ -4882,78 +4893,167 @@ List *get_partition_bound_max_value(ParseState *pstate, Relation parent, Partiti
 	Datum		datum;
 	bool		isnull;
 	int32		cmpval;		/* placate compiler */
-	int			i, j;
-	PartitionKey			key;
+	List	   *last_range_lowerdatums = NIL;
+	int		 	i, j;
+	int			partnatts;
 	PartitionBoundSpec	   *bspec,
-							*larger_spec;
-	PartitionRangeBound	   *upper,
-							*larger_bound;
+						   *larger_spec,
+						   *small_spec;
+	PartitionBoundSpec	   *result_spec = *res_spec;
+	PartitionRangeBound	   *upper, *lower,
+						   *larger_bound,
+						   *small_bound;
+	PartitionKey			key;
 
-	Assert(spec->lowerdatums == NIL);
-	foreach (lc, currentchildren)
-	{
-		cmpval = 0;
-		inhrelid = lfirst_oid(lc);
-		tuple = SearchSysCache1(RELOID, inhrelid);
-		if (!HeapTupleIsValid(tuple))
-			elog(ERROR, "cache lookup failed for relation %u", inhrelid);
-
-		datum = SysCacheGetAttr(RELOID, tuple,
-						Anum_pg_class_relpartbound,
-						&isnull);
-
-		if (isnull)
-			elog(ERROR, "null relpartbound for relation %u", inhrelid);
-
-		bspec = (PartitionBoundSpec *)
-			stringToNode(TextDatumGetCString(datum));
-		if (!IsA(bspec, PartitionBoundSpec))
-			elog(ERROR, "expected PartitionBoundSpec");
-		
-		if (bspec->strategy != PARTITION_STRATEGY_RANGE)
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
-						errmsg("invalid bound specification for a range partition"),
-						parser_errposition(pstate, exprLocation((Node *) spec))));
-
-
-
-		pbspec_list = lappend(pbspec_list, copyObjectImpl((void *) bspec));
-		ReleaseSysCache(tuple);
-	}
-	list_free(currentchildren);
-
-	Assert(pbspec_list != NIL);
-
-	lc = list_head(pbspec_list);
-	larger_spec = bspec = (PartitionBoundSpec *) lfirst(lc);
 	key = RelationGetPartitionKey(parent);
-	larger_bound = make_one_partition_rbound(key, -1, bspec->upperdatums, false);
+	partnatts = get_partition_natts(key);
 
-	for (i = 0; i < list_length(pbspec_list) - 1; i++)
+	if (pstate->p_grammar == PARSE_GRAM_ORACLE &&
+		list_length(spec->lowerdatums) == 0)
 	{
-		lc = lnext(pbspec_list, lc);
-		bspec = (PartitionBoundSpec *) lfirst(lc);
-		upper = make_one_partition_rbound(key, -1, bspec->upperdatums, false);
+		foreach (lc, currentchildren)
+		{
+			cmpval = 0;
+			inhrelid = lfirst_oid(lc);
+			tuple = SearchSysCache1(RELOID, inhrelid);
+			if (!HeapTupleIsValid(tuple))
+				elog(ERROR, "cache lookup failed for relation %u", inhrelid);
 
+			datum = SysCacheGetAttr(RELOID, tuple,
+							Anum_pg_class_relpartbound,
+							&isnull);
+
+			if (isnull)
+				elog(ERROR, "null relpartbound for relation %u", inhrelid);
+
+			bspec = (PartitionBoundSpec *)
+				stringToNode(TextDatumGetCString(datum));
+			if (!IsA(bspec, PartitionBoundSpec))
+				elog(ERROR, "expected PartitionBoundSpec");
+			
+			if (bspec->strategy != PARTITION_STRATEGY_RANGE)
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+							errmsg("invalid bound specification for a range partition"),
+							parser_errposition(pstate, exprLocation((Node *) bspec))));
+
+
+
+			pbspec_list = lappend(pbspec_list, copyObjectImpl((void *) bspec));
+			ReleaseSysCache(tuple);
+		}
+		list_free(currentchildren);
+
+		Assert(pbspec_list != NIL);
+
+		lc = list_head(pbspec_list);
+		larger_spec = small_spec = bspec = (PartitionBoundSpec *) lfirst(lc);
+		small_bound = make_one_partition_rbound(key, -1, bspec->lowerdatums, false);
+		larger_bound = make_one_partition_rbound(key, -1, bspec->upperdatums, false);
+
+		/* find the lower limit and upper limit of the existing partition. */
+		for (i = 0; i < list_length(pbspec_list) - 1; i++)
+		{
+			lc = lnext(pbspec_list, lc);
+			bspec = (PartitionBoundSpec *) lfirst(lc);
+			lower = make_one_partition_rbound(key, -1, bspec->lowerdatums, false);
+			upper = make_one_partition_rbound(key, -1, bspec->upperdatums, false);
+
+			for (j = 0; j < key->partnatts; j++)
+			{
+				cmpval = DatumGetInt32(FunctionCall2Coll(&key->partsupfunc[j],
+															key->partcollation[j],
+															small_bound->datums[j],
+															lower->datums[j]));
+				if (cmpval == 0)
+					continue;
+				else if (cmpval > 0)
+				{
+					/* find the lowest partition limit */
+					small_bound = lower;
+					small_spec = bspec;
+				}
+				break;
+			}
+
+			for (j = 0; j < key->partnatts; j++)
+			{
+				cmpval = DatumGetInt32(FunctionCall2Coll(&key->partsupfunc[j],
+															key->partcollation[j],
+															larger_bound->datums[j],
+															upper->datums[j]));
+				if (cmpval == 0)
+					continue;
+				else if (cmpval < 0)
+				{
+					/* find the maximum partition limit */
+					larger_bound = upper;
+					larger_spec = bspec;
+				}
+				break;
+			}
+		}
+
+		min_upperdatums = copyObjectImpl((void *)small_spec->upperdatums);
+		max_upperdatums = copyObjectImpl((void *)larger_spec->upperdatums);
+		list_free(pbspec_list);
+	}
+
+
+	if (list_length(spec->upperdatums) != partnatts)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+					errmsg("TO must specify exactly one value per partitioning column")));
+
+	result_spec->upperdatums =
+					ora_transformPartitionRangeBounds(pstate, spec->upperdatums,
+													  parent ADB_ONLY_COMMA_ARG(key));
+
+	if (pstate->p_grammar == PARSE_GRAM_ORACLE &&
+		spec->lowerdatums == NIL &&
+		max_upperdatums != NIL)
+	{
+		lower = make_one_partition_rbound(key, -1, min_upperdatums, false);
+		upper = make_one_partition_rbound(key, -1, result_spec->upperdatums, false);
 		for (j = 0; j < key->partnatts; j++)
 		{
 			cmpval = DatumGetInt32(FunctionCall2Coll(&key->partsupfunc[j],
 														key->partcollation[j],
-														larger_bound->datums[j],
+														lower->datums[j],
 														upper->datums[j]));
 			if (cmpval == 0)
 				continue;
-			else if (cmpval < 0)
+			else if (cmpval > 0)
 			{
-				larger_bound = upper;
-				larger_spec = bspec;
+				/**
+				 * If the upper limit of the new partition is still
+				 * less than the minimum value of the existing partition,
+				 * the lower limit of the new partition needs to be filled with 'minValue'.
+				 */
+				last_range_lowerdatums = lappend(last_range_lowerdatums,
+												makeColumnRef("minvalue", NIL, -1, NULL));
 			}
 			break;
 		}
-	}
-	list_free(pbspec_list);
 
-	return (List *)copyObjectImpl((void *)larger_spec->upperdatums);
+		/* Add the default lower limit of range partition */
+		if (last_range_lowerdatums)
+		{
+			result_spec->lowerdatums =
+						ora_transformPartitionRangeBounds(pstate, last_range_lowerdatums,
+														  parent ADB_ONLY_COMMA_ARG(key));
+		}
+		else
+			result_spec->lowerdatums = max_upperdatums;
+	}
+	else if (spec->lowerdatums != NIL &&
+				nodeTag(linitial(spec->lowerdatums)) == T_PartitionRangeDatum)
+	{
+		result_spec->lowerdatums = spec->lowerdatums;
+	}
+	else
+		result_spec->lowerdatums =
+				ora_transformPartitionRangeBounds(pstate, spec->lowerdatums,
+												  parent ADB_ONLY_COMMA_ARG(key));	
 }
 #endif	/* ADB_GRAM_ORA */

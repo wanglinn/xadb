@@ -121,9 +121,10 @@ extern int	partition_range_datum_bsearch(FmgrInfo *partsupfunc,
 extern int	partition_hash_bsearch(PartitionBoundInfo boundinfo,
 								   int modulus, int remainder);
 #ifdef ADB_GRAM_ORA
-extern List *get_partition_bound_max_value(ParseState *pstate,
-										   Relation parent,
-										   PartitionBoundSpec *spec,
-										   List *currentchildren);
+extern void get_partition_bound_value(ParseState *pstate,
+									  Relation parent,
+									  PartitionBoundSpec *spec,
+									  List *currentchildren,
+									  PartitionBoundSpec **res_spec);
 #endif	/* ADB_GRAM_ORA */
 #endif							/* PARTBOUNDS_H */

@@ -175,6 +175,10 @@ static void transformConstraintAttrs(CreateStmtContext *cxt,
 static void transformColumnType(CreateStmtContext *cxt, ColumnDef *column);
 static void setSchemaName(char *context_schema, char **stmt_schema_name);
 static void transformPartitionCmd(CreateStmtContext *cxt, PartitionCmd *cmd);
+#ifdef ADB_GRAM_ORA
+List *ora_transformPartitionRangeBounds(ParseState *pstate, List *blist,
+										Relation parent ADB_ONLY_COMMA_ARG(PartitionKey key));
+#endif	/* ADB_GRAM_ORA */
 static List *transformPartitionRangeBounds(ParseState *pstate, List *blist,
 										   Relation parent ADB_ONLY_COMMA_ARG(PartitionKey key));
 static void validateInfiniteBounds(ParseState *pstate, List *blist);
@@ -4406,7 +4410,7 @@ transformPartitionBoundForKey(ParseState *pstate, Relation parent,
 	else if (strategy == PARTITION_STRATEGY_RANGE)
 	{
 #ifdef ADB_GRAM_ORA
-		List	*max_upperdatums = NIL;
+		List	*currentchildren;
 #endif	/* ADB_GRAM_ORA */
 		if (spec->strategy != PARTITION_STRATEGY_RANGE)
 			ereport(ERROR,
@@ -4417,21 +4421,13 @@ transformPartitionBoundForKey(ParseState *pstate, Relation parent,
 		if (list_length(spec->lowerdatums) != partnatts)
 #ifdef ADB_GRAM_ORA
 		{
-			List		   *currentchildren;
-
 			currentchildren = find_inheritance_children(RelationGetRelid(parent), NoLock);
 			if (currentchildren == NIL || list_length(spec->lowerdatums) != 0)
 #endif	/* ADB_GRAM_ORA */
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
 						errmsg("FROM must specify exactly one value per partitioning column")));
-				
 #ifdef ADB_GRAM_ORA
-			/* gets the maximum partition boundary value. */
-			if (pstate->p_grammar == PARSE_GRAM_ORACLE)
-			{
-				max_upperdatums = get_partition_bound_max_value(pstate, parent, spec, currentchildren);
-			}
 		}
 #endif	/* ADB_GRAM_ORA */
 		if (list_length(spec->upperdatums) != partnatts)
@@ -4444,27 +4440,31 @@ transformPartitionBoundForKey(ParseState *pstate, Relation parent,
 		 * any necessary validation.
 		 */
 #ifdef ADB_GRAM_ORA
-		if (pstate->p_grammar == PARSE_GRAM_ORACLE &&
-			spec->lowerdatums == NIL &&
-			max_upperdatums != NIL)
-		{
-			/* Add the default lower limit of range partition */
-			result_spec->lowerdatums = max_upperdatums;
-		}
-		else
-#endif	/* ADB_GRAM_ORA */
+		/* get partition boundary value. */
+		get_partition_bound_value(pstate, parent, spec, currentchildren, &result_spec);
+#else
 		result_spec->lowerdatums =
 			transformPartitionRangeBounds(pstate, spec->lowerdatums,
 										  parent ADB_ONLY_COMMA_ARG(RelationGetPartitionKey(parent)));
 		result_spec->upperdatums =
 			transformPartitionRangeBounds(pstate, spec->upperdatums,
 										  parent ADB_ONLY_COMMA_ARG(RelationGetPartitionKey(parent)));
+#endif	/* ADB_GRAM_ORA */
 	}
 	else
 		elog(ERROR, "unexpected partition strategy: %d", (int) strategy);
 
 	return result_spec;
 }
+
+#ifdef ADB_GRAM_ORA
+List *
+ora_transformPartitionRangeBounds(ParseState *pstate, List *blist,
+							  Relation parent ADB_ONLY_COMMA_ARG(PartitionKey key))
+{
+	return transformPartitionRangeBounds(pstate, blist, parent ADB_ONLY_COMMA_ARG(key));
+}
+#endif	/* ADB_GRAM_ORA */
 
 /*
  * transformPartitionRangeBounds
