@@ -1565,11 +1565,10 @@ mgr_init_dn_slave_all(PG_FUNCTION_ARGS)
 		initStringInfo(&(setrecvrst.description));
 		setrecvrst.ret = false;
 		mgr_append_pgconf_paras_str_quotastr("primary_slot_name", NameStr(slave_node->nodename), &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF,
-									slave_nodepath,
-									&infosendmsg,
-									slave_node->nodehost,
-									&setrecvrst);
+		mgr_send_conf_parameters_recovery(slave_nodepath,
+											&infosendmsg,
+											slave_node->nodehost,
+											&setrecvrst);
 		if (!setrecvrst.ret)
 		{
 			ereport(WARNING, (errmsg("%s", setrecvrst.description.data)));
@@ -1673,6 +1672,10 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 	appendStringInfo(&infosendmsg, " -p %u", masterport);
 	appendStringInfo(&infosendmsg, " -h %s", masterhostaddress);
 	appendStringInfo(&infosendmsg, " -D %s", cndnPath);
+	if (mgr_is_recovery_guc_supported())
+		appendStringInfo(&infosendmsg, " -R -D %s", cndnPath);
+	else
+		appendStringInfo(&infosendmsg, " -D %s", cndnPath);
 	appendStringInfo(&infosendmsg, " --nodename %s", cndnnametmp);
 	/* connection agent */
 	ma = ma_connect_hostoid(hostOid);
@@ -1742,7 +1745,9 @@ void mgr_init_dn_slave_get_result(const char cmdtype, GetAgentCmdRst *getAgentCm
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
 		mgr_add_parameters_recoveryconf(nodetype, NameStr(mgr_node->nodename), masteroid, &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+		mgr_send_conf_parameters_recovery(cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+
+		mgr_refresh_standby(cndnPath, hostOid, getAgentCmdRst);
 
 		mgr_node->nodeinited = true;
 		heap_inplace_update(noderel, aimtuple);
@@ -2167,7 +2172,10 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		masterhostaddress = get_hostaddress_from_hostoid(masterhostOid);
 		appendStringInfo(&infosendmsg, " -p %u", masterport);
 		appendStringInfo(&infosendmsg, " -h %s", masterhostaddress);
-		appendStringInfo(&infosendmsg, " -D %s", cndnPath);
+		if (mgr_is_recovery_guc_supported())
+			appendStringInfo(&infosendmsg, " -R -D %s", cndnPath);
+		else
+			appendStringInfo(&infosendmsg, " -D %s", cndnPath);
 		appendStringInfo(&infosendmsg, " -U %s", user);
 		appendStringInfo(&infosendmsg, " --nodename %s", cndnname);
 		ReleaseSysCache(gtmmastertuple);
@@ -2354,11 +2362,14 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 		resetStringInfo(&infosendmsg);
 		mgr_add_parameters_hbaconf(mgr_node->oid, getMgrMasterNodetype(mgr_node->nodetype), &infosendmsg);
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+
 		/*refresh recovry.conf*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
 		mgr_add_parameters_recoveryconf(nodetype, cndnname, nodemasternameoid, &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+		mgr_send_conf_parameters_recovery(cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+
+		mgr_refresh_standby(cndnPath, hostOid, getAgentCmdRst);
 
 		/*update node system table's column to set initial is true when cmd is init*/
 		mgr_node->nodeinited = true;
@@ -2367,7 +2378,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 
 	/*update node system table's column to set initial is true when cmd is init*/
 	if ((AGT_CMD_CNDN_CNDN_INIT == cmdtype ||  AGT_CMD_GTMCOORD_INIT == cmdtype) && execRes)
-	{      
+	{
 		/*refresh postgresql.conf of this node*/
 		resetStringInfo(&(getAgentCmdRst->description));
 		resetStringInfo(&infosendmsg);
@@ -4765,17 +4776,17 @@ bool mgr_append_dn_slave_func(char *dnName, bool needCheckIncluster)
 						get_hostuser_from_hostoid(parentnodeinfo.nodehost),
 						nodename.data);
 
-		mgr_append_pgconf_paras_str_quotastr("standby_mode", "on", &infosendmsg);
+		if (!mgr_is_recovery_guc_supported())
+			mgr_append_paras_standby("standby_mode", "on", &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("primary_conninfo", primary_conninfo_value.data, &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("recovery_target_timeline", "latest", &infosendmsg);
 		/*connect to master create slot and update primary_slot_name of datanode slave's recovery.conf*/
 		dn_master_replication_slot(parentnodeinfo.nodename,appendnodeinfo.nodename,'c');
 		mgr_append_pgconf_paras_str_quotastr("primary_slot_name", appendnodeinfo.nodename, &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF,
-								appendnodeinfo.nodepath,
-								&infosendmsg,
-								appendnodeinfo.nodehost,
-								&getAgentCmdRst);
+		mgr_send_conf_parameters_recovery(appendnodeinfo.nodepath,
+										&infosendmsg,
+										appendnodeinfo.nodehost,
+										&getAgentCmdRst);
 		if (!getAgentCmdRst.ret)
 			ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
 
@@ -5201,15 +5212,14 @@ bool mgr_append_agtm_slave_func(char *gtmname, bool needCheckIncluster)
 						agtm_m_nodeinfo.nodeport,
 						appendnodeinfo.nodeusername,
 						nodename.data);
-
-		mgr_append_pgconf_paras_str_quotastr("standby_mode", "on", &infosendmsg);
+		if (!mgr_is_recovery_guc_supported())
+			mgr_append_paras_standby("standby_mode", "on", &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("primary_conninfo", primary_conninfo_value.data, &infosendmsg);
 		mgr_append_pgconf_paras_str_quotastr("recovery_target_timeline", "latest", &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF,
-								appendnodeinfo.nodepath,
-								&infosendmsg,
-								appendnodeinfo.nodehost,
-								&getAgentCmdRst);
+		mgr_send_conf_parameters_recovery(appendnodeinfo.nodepath,
+											&infosendmsg,
+											appendnodeinfo.nodehost,
+											&getAgentCmdRst);
 		if (!getAgentCmdRst.ret)
 			ereport(ERROR, (errmsg("%s", getAgentCmdRst.description.data)));
 
@@ -7190,8 +7200,6 @@ void mgr_send_conf_parameters(char filetype, char *datapath, StringInfo infosend
 	StringInfoData sendstrmsg;
 	StringInfoData buf;
 
-	if (AGT_CMD_CNDN_REFRESH_RECOVERCONF == filetype || AGT_CMD_CNDN_RENAME_RECOVERCONF == filetype)
-		return;
 	initStringInfo(&sendstrmsg);
 	appendStringInfoString(&sendstrmsg, datapath);
 	appendStringInfoCharMacro(&sendstrmsg, '\0');
@@ -7223,6 +7231,24 @@ void mgr_send_conf_parameters(char filetype, char *datapath, StringInfo infosend
 	ma_close(ma);
 }
 
+void mgr_send_conf_parameters_recovery(char *datapath, StringInfo infosendmsg, Oid hostoid, GetAgentCmdRst *getAgentCmdRst)
+{
+	if (mgr_is_recovery_guc_supported())
+		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, datapath, infosendmsg, hostoid, getAgentCmdRst);
+	else
+		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, datapath, infosendmsg, hostoid, getAgentCmdRst);
+}
+void mgr_refresh_standby(char *cndnPath, Oid hostOid, GetAgentCmdRst *getAgentCmdRst)
+{
+	StringInfoData infosendmsg;
+	if (!mgr_is_recovery_guc_supported())
+		return;
+	initStringInfo(&infosendmsg);
+	resetStringInfo(&(getAgentCmdRst->description));
+	mgr_append_pgconf_paras_str_quotastr("standby_mode", "on", &infosendmsg);
+	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_STANDBY, cndnPath, &infosendmsg, hostOid, getAgentCmdRst);
+	MgrFree(infosendmsg.data);
+}
 /*
 * add key value to infosendmsg, use '\0' to interval, both the key value the type are char*
 */
@@ -7252,6 +7278,18 @@ void mgr_append_pgconf_paras_str_int(char *key, int value, StringInfo infosendms
 */
 void mgr_append_pgconf_paras_str_quotastr(char *key, char *value, StringInfo infosendmsg)
 {
+	Assert(key != '\0' && value != '\0' && &(infosendmsg->data) != '\0');
+	appendStringInfoString(infosendmsg, key);
+	appendStringInfoCharMacro(infosendmsg, '\0');
+	appendStringInfo(infosendmsg, "'%s'", value);
+	appendStringInfoCharMacro(infosendmsg, '\0');
+}
+
+void mgr_append_paras_standby(char *key, char *value, StringInfo infosendmsg)
+{
+	if (mgr_is_recovery_guc_supported())
+		return;
+
 	Assert(key != '\0' && value != '\0' && &(infosendmsg->data) != '\0');
 	appendStringInfoString(infosendmsg, key);
 	appendStringInfoCharMacro(infosendmsg, '\0');
@@ -7352,7 +7390,8 @@ void mgr_add_parameters_recoveryconf(char nodetype, char *slavename, Oid tupleoi
 	initStringInfo(&primary_conninfo_value);
 	appendStringInfo(&primary_conninfo_value, "host=%s port=%d user=%s application_name=%s", masterhostaddress, masterport, username.data, slavename);
 	mgr_append_pgconf_paras_str_str("recovery_target_timeline", "latest", infosendparamsg);
-	mgr_append_pgconf_paras_str_str("standby_mode", "on", infosendparamsg);
+	if (!mgr_is_recovery_guc_supported())
+		mgr_append_paras_standby("standby_mode", "on", infosendparamsg);
 	mgr_append_pgconf_paras_str_quotastr("primary_conninfo", primary_conninfo_value.data, infosendparamsg);
 	pfree(primary_conninfo_value.data);
 	pfree(masterhostaddress);
@@ -8038,7 +8077,7 @@ static void mgr_after_gtm_failover_handle(char *hostaddress, int cndnport, Relat
 		/*get cndnPathtmp from tuple*/
 		ereport(LOG, (errmsg("refresh recovery.conf of gtmcoord slave \"%s\"", NameStr(mgr_nodetmp->nodename))));
 		cndnPathtmp = TextDatumGetCString(datumPath);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, cndnPathtmp, &infosendmsg, mgr_nodetmp->nodehost, getAgentCmdRst);
+		mgr_send_conf_parameters_recovery(cndnPathtmp, &infosendmsg, mgr_nodetmp->nodehost, getAgentCmdRst);
 		if(!getAgentCmdRst->ret)
 		{
 			ereport(WARNING, (errmsg("refresh recovery.conf of agtm slave \"%s\" fail", NameStr(mgr_nodetmp->nodename))));
@@ -8318,7 +8357,7 @@ static void mgr_after_datanode_failover_handle(Oid nodemasternameoid, Name cndnn
 		ereport(LOG, (errmsg("refresh recovery.conf of datanode slave \"%s\"", NameStr(mgr_node->nodename))));
 		cndnPathtmp = TextDatumGetCString(datumPath);
 		resetStringInfo(&(getAgentCmdRst->description));
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, cndnPathtmp, &infosendmsg, mgr_nodetmp->nodehost, getAgentCmdRst);
+		mgr_send_conf_parameters_recovery(cndnPathtmp, &infosendmsg, mgr_nodetmp->nodehost, getAgentCmdRst);
 		if(!getAgentCmdRst->ret)
 		{
 			ereport(WARNING, (errmsg("refresh recovery.conf of datanode slave %s fail", NameStr(mgr_nodetmp->nodename))));
@@ -8758,12 +8797,13 @@ void mgr_get_cmd_head_word(char cmdtype, char *str)
 			strcpy(str, "psql");
 			break;
 		case AGT_CMD_CNDN_REFRESH_PGSQLCONF:
-		// case AGT_CMD_CNDN_REFRESH_RECOVERCONF:
+		case AGT_CMD_CNDN_REFRESH_RECOVERCONF:
 		case AGT_CMD_CNDN_REFRESH_PGHBACONF:
+		case AGT_CMD_CNDN_REFRESH_STANDBY:
 		case AGT_CMD_CNDN_REFRESH_PGSQLCONF_RELOAD:
 		case AGT_CMD_CNDN_DELPARAM_PGSQLCONF_FORCE:
-		// case AGT_CMD_CNDN_RENAME_RECOVERCONF:
-		// 	strcpy(str, "update");
+		case AGT_CMD_CNDN_RENAME_RECOVERCONF:
+			strcpy(str, "update");
 			break;
 		case AGT_CMD_GET_FILESYSTEM:
 		case AGT_CMD_MONITOR_GETS_HOST_INFO:
@@ -9721,7 +9761,7 @@ static void mgr_modify_port_recoveryconf(Relation rel_node, HeapTuple aimtuple, 
 	pfree(masterhostaddress);
 
 	initStringInfo(&(getAgentCmdRst.description));
-	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, nodepath, &infosendparamsg, hostoid, &getAgentCmdRst);
+	mgr_send_conf_parameters_recovery(nodepath, &infosendparamsg, hostoid, &getAgentCmdRst);
 	pfree(infosendparamsg.data);
 	if (!getAgentCmdRst.ret)
 	{
@@ -9937,7 +9977,7 @@ Datum mgr_flush_host(PG_FUNCTION_ARGS)
 		resetStringInfo(&(getAgentCmdRst.description));
 		resetStringInfo(&infosendmsg);
 		mgr_add_parameters_recoveryconf(nodetype, NameStr(mgr_node->nodename), mgr_node->nodemasternameoid, &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, cndnpath, &infosendmsg, hostoid, &getAgentCmdRst);
+		mgr_send_conf_parameters_recovery(cndnpath, &infosendmsg, hostoid, &getAgentCmdRst);
 		if (!getAgentCmdRst.ret)
 		{
 			bgetwarning = true;
@@ -15578,11 +15618,10 @@ static void mgr_init_gtm_dn_slave(HeapTuple tuple,
 		initStringInfo(&(setrecvrst.description));
 		setrecvrst.ret = false;
 		mgr_append_pgconf_paras_str_quotastr("primary_slot_name", NameStr(slaveNode->nodename), &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF,
-								slaveNodePath,
-								&infosendmsg,
-								slaveNode->nodehost,
-								&setrecvrst);
+		mgr_send_conf_parameters_recovery(slaveNodePath,
+											&infosendmsg,
+											slaveNode->nodehost,
+											&setrecvrst);
 		if (!setrecvrst.ret)
 		{
 			ereport(WARNING, (errmsg("%s", setrecvrst.description.data)));
@@ -15989,3 +16028,4 @@ check_node_is_active(Form_mgr_node mgr_node)
 	PQfinish(conn);
 	return active;
 }
+

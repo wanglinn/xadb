@@ -594,17 +594,16 @@ Datum mgr_failover_manual_rewind_func(PG_FUNCTION_ARGS)
 					master_nodeinfo.nodeport,
 					master_nodeinfo.nodeusername,
 					nodenamedata.data);
-
-	mgr_append_pgconf_paras_str_quotastr("standby_mode", "on", &infosendmsg);
+	if (!mgr_is_recovery_guc_supported())
+		mgr_append_paras_standby("standby_mode", "on", &infosendmsg);
 	mgr_append_pgconf_paras_str_quotastr("primary_conninfo", primary_conninfo_value.data, &infosendmsg);
 	mgr_append_pgconf_paras_str_quotastr("recovery_target_timeline", "latest", &infosendmsg);
 	pfree(primary_conninfo_value.data);
 	resetStringInfo(&(getAgentCmdRst.description));
-	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF,
-							slave_nodeinfo.nodepath,
-							&infosendmsg,
-							slave_nodeinfo.nodehost,
-							&getAgentCmdRst);
+	mgr_send_conf_parameters_recovery(slave_nodeinfo.nodepath,
+									&infosendmsg,
+									slave_nodeinfo.nodehost,
+									&getAgentCmdRst);
 
 	if (!getAgentCmdRst.ret)
 	{
@@ -873,9 +872,10 @@ bool mgr_append_coord_slave_func(char *m_coordname, char *s_coordname, StringInf
 	appendStringInfo(&restmsg, "host=%s port=%d user=%s application_name=%s", src_nodeinfo.nodeaddr
 		, src_nodeinfo.nodeport, dest_nodeinfo.nodeusername, dest_nodeinfo.nodename);
 	mgr_append_pgconf_paras_str_str("recovery_target_timeline", "latest", &infosendmsg);
-	mgr_append_pgconf_paras_str_str("standby_mode", "on", &infosendmsg);
+	if (!mgr_is_recovery_guc_supported())
+		mgr_append_paras_standby("standby_mode", "on", &infosendmsg);
 	mgr_append_pgconf_paras_str_quotastr("primary_conninfo", restmsg.data, &infosendmsg);
-	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, dest_nodeinfo.nodepath, &infosendmsg, dest_nodeinfo.nodehost, &getAgentCmdRst);
+	mgr_send_conf_parameters_recovery(dest_nodeinfo.nodepath, &infosendmsg, dest_nodeinfo.nodehost, &getAgentCmdRst);
 	pfree_AppendNodeInfo(src_nodeinfo);
 	if (!getAgentCmdRst.ret)
 	{
@@ -2385,7 +2385,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 	resetStringInfo(&(getAgentCmdRst.description));
 	resetStringInfo(&infosendmsg);
 	mgr_add_parameters_recoveryconf(nodeType, nodeMasterNameData.data, nodeInfoS.tupleoid, &infosendmsg);
-	mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, nodeInfoM.nodepath, &infosendmsg, nodeInfoM.nodehost, &getAgentCmdRst);
+	mgr_send_conf_parameters_recovery(nodeInfoM.nodepath, &infosendmsg, nodeInfoM.nodehost, &getAgentCmdRst);
 	if (!getAgentCmdRst.ret)
 	{
 		rest = false;
@@ -2468,7 +2468,7 @@ Datum mgr_switchover_func_deprecated(PG_FUNCTION_ARGS)
 			, err_generic_string(PG_DIAG_TABLE_NAME, "mgr_node"), errmsg("column cndnpath is null")));
 		}
 		cndnPath = TextDatumGetCString(datumPath);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, cndnPath, &infosendmsg, mgr_node->nodehost, &getAgentCmdRst);
+		mgr_send_conf_parameters_recovery(cndnPath, &infosendmsg, mgr_node->nodehost, &getAgentCmdRst);
 		if (!getAgentCmdRst.ret)
 		{
 			rest = false;

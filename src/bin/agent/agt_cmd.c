@@ -64,6 +64,7 @@ static long get_pgpid(const char *file_path);
 
 static void cmd_node_init(char cmdtype, StringInfo msg, char *cmdfile, char* VERSION);
 static void cmd_node_refresh_pgsql_paras(char cmdtype, StringInfo msg);
+static void cmd_node_refresh_standby_paras(StringInfo msg);
 static void cmd_refresh_confinfo(char *key, char *value, ConfInfo *info, bool bforce);
 static void writefile(char *path, ConfInfo *info);
 static void writehbafile(char *path, HbaInfo *info);
@@ -165,6 +166,9 @@ void do_agent_command(StringInfo buf)
 	/*modify gtm|coordinator|datanode recovery.conf*/
 	case AGT_CMD_CNDN_REFRESH_RECOVERCONF:
 		cmd_node_refresh_pgsql_paras(cmd_type, buf);
+		break;
+	case AGT_CMD_CNDN_REFRESH_STANDBY:
+		cmd_node_refresh_standby_paras(buf);
 		break;
 	/*modify gtm|coordinator|datanode pg_hba.conf*/
 	case AGT_CMD_CNDN_REFRESH_PGHBACONF:
@@ -746,6 +750,58 @@ static void add_pghba_info_list(HbaInfo *infohead, HbaInfo *checkinfo)
 		infotail = infotail->next;
 	}
 	infotail->next = newinfo;
+}
+static void cmd_node_refresh_standby_paras(StringInfo msg)
+{
+	const char *rec_msg_string;
+	StringInfoData pgconffile;
+	StringInfoData output;
+	FILE *standby_file = NULL;
+	char datapath[MAXPGPATH];
+	const char *standby_on = "standby_mode = 'on'";
+
+	initStringInfo(&pgconffile);
+
+	/*get datapath*/
+	rec_msg_string = agt_getmsgstring(msg);
+	strcpy(datapath, rec_msg_string);
+	appendStringInfo(&pgconffile, "%s/standby.signal", datapath);
+	/* it the  standby.signal is not exist, create it */
+	if (access(pgconffile.data, F_OK) != 0)
+	{
+		if ((standby_file = fopen(pgconffile.data, "w")) == NULL)
+		{
+			fprintf(stderr, (": could not create file \"%s\" for writing: %s\n"),
+				pgconffile.data, strerror(errno));
+			exit(1);
+		}
+	}
+
+	if (standby_file == NULL)
+	{
+		if ((standby_file = fopen(pgconffile.data, "w")) == NULL)
+		{
+			fprintf(stderr, (": could not create file \"%s\" for writing: %s\n"),
+				pgconffile.data, strerror(errno));
+			exit(1);
+		}
+	}
+
+	fwrite(standby_on, 1, strlen(standby_on)+1, standby_file);
+	if (fclose(standby_file))
+	{
+		fprintf(stderr, (": could not write file \"%s\": %s\n"),
+			pgconffile.data, strerror(errno));
+		exit(1);
+	}
+	pfree(pgconffile.data);
+
+	initStringInfo(&output);
+	appendStringInfoString(&output, "success");
+	appendStringInfoCharMacro(&output, '\0');
+	agt_put_msg(AGT_MSG_RESULT, output.data, output.len);
+	agt_flush();
+	pfree(output.data);
 }
 static char *get_connect_type_str(HbaType connect_type)
 {

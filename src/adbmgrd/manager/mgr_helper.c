@@ -21,6 +21,9 @@
 #include "replication/syncrep.h"
 #include "utils/fmgroids.h"
 
+
+#define MGR_MINIMUM_VERSION_FOR_RECOVERY_GUC 120000
+
 static MgrHostWrapper *popHeadMgrHostPfreeOthers(dlist_head *mgrHosts);
 static MgrNodeWrapper *popHeadMgrNodePfreeOthers(dlist_head *mgrNodes);
 static void CreateReplicationSlot(char *nodename, char *slot_name);
@@ -2024,6 +2027,18 @@ bool callAgentRefreshRecoveryConf(MgrNodeWrapper *node,
 						   &cmdMessage,
 						   node->host->hostaddr,
 						   node->host->form.hostagentport);
+
+	if (mgr_is_recovery_guc_supported())
+		res = callAgentSendCmd(AGT_CMD_CNDN_REFRESH_PGSQLCONF,
+						   &cmdMessage,
+						   node->host->hostaddr,
+						   node->host->form.hostagentport);
+	else
+		res = callAgentSendCmd(AGT_CMD_CNDN_REFRESH_RECOVERCONF,
+						   &cmdMessage,
+						   node->host->hostaddr,
+						   node->host->form.hostagentport);
+
 	pfree(cmdMessage.data);
 	if (res.agentRes)
 	{
@@ -2903,26 +2918,48 @@ void setSlaveNodeRecoveryConf(MgrNodeWrapper *masterNode,
 	char *primary_conninfo_value;
 
 	items = newPGConfParameterItem("recovery_target_timeline", "latest", false);
-	items->next = newPGConfParameterItem("standby_mode", "on", false);
 
-	primary_conninfo_value = psprintf("host=%s port=%d user=%s application_name=%s",
-									  masterNode->host->hostaddr,
-									  masterNode->form.nodeport,
-									  NameStr(slaveNode->host->form.hostuser),
-									  NameStr(slaveNode->form.nodename));
-	items->next->next = newPGConfParameterItem("primary_conninfo",
-											   primary_conninfo_value, true);
-	/* if node is datanode slave , then update primary_slot_name in recovery.conf*/
-	if (slaveNode->form.nodetype == CNDN_TYPE_DATANODE_SLAVE ||
-		(slaveNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER &&
-		 strcmp(NameStr(slaveNode->form.curestatus), "switching") == 0))
+	if (mgr_is_recovery_guc_supported())
 	{
-		dn_master_replication_slot(NameStr(masterNode->form.nodename), NameStr(slaveNode->form.nodename), 'c');
-		items->next->next->next = newPGConfParameterItem("primary_slot_name",
-														 NameStr(slaveNode->form.nodename), false);
+		primary_conninfo_value = psprintf("host=%s port=%d user=%s application_name=%s",
+										masterNode->host->hostaddr,
+										masterNode->form.nodeport,
+										NameStr(slaveNode->host->form.hostuser),
+										NameStr(slaveNode->form.nodename));
+		items->next = newPGConfParameterItem("primary_conninfo",
+												primary_conninfo_value, true);
+		/* if node is datanode slave , then update primary_slot_name in recovery.conf*/ 
+		if (slaveNode->form.nodetype == CNDN_TYPE_DATANODE_SLAVE || 
+			(slaveNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER && 
+			strcmp(NameStr(slaveNode->form.curestatus),"switching") == 0))
+		{
+			dn_master_replication_slot(NameStr(masterNode->form.nodename),NameStr(slaveNode->form.nodename),'c');
+			items->next->next = newPGConfParameterItem("primary_slot_name",
+												NameStr(slaveNode->form.nodename), false);
+		}			
+		pfree(primary_conninfo_value);
 	}
-
-	pfree(primary_conninfo_value);
+	else
+	{
+		items->next = newPGConfParameterItem("standby_mode", "on", false);
+		primary_conninfo_value = psprintf("host=%s port=%d user=%s application_name=%s",
+										masterNode->host->hostaddr,
+										masterNode->form.nodeport,
+										NameStr(slaveNode->host->form.hostuser),
+										NameStr(slaveNode->form.nodename));
+		items->next->next = newPGConfParameterItem("primary_conninfo",
+												primary_conninfo_value, true);
+		/* if node is datanode slave , then update primary_slot_name in recovery.conf*/ 
+		if (slaveNode->form.nodetype == CNDN_TYPE_DATANODE_SLAVE || 
+			(slaveNode->form.nodetype == CNDN_TYPE_DATANODE_MASTER && 
+			strcmp(NameStr(slaveNode->form.curestatus), "switching") == 0))
+		{
+			dn_master_replication_slot(NameStr(masterNode->form.nodename), NameStr(slaveNode->form.nodename), 'c');
+			items->next->next->next = newPGConfParameterItem("primary_slot_name",
+												NameStr(slaveNode->form.nodename), false);
+		}			
+		pfree(primary_conninfo_value);
+	}
 
 	callAgentRefreshRecoveryConf(slaveNode, items, true);
 	pfreePGConfParameterItem(items);
@@ -4711,4 +4748,17 @@ warnning_master_has_no_sync(char 	*nodeName,
 	(void)MemoryContextSwitchTo(oldContext);
 	MemoryContextDelete(switchContext);
 	SPI_finish();
+}
+int mgr_get_server_version_num(void)
+{
+	char	   *varval;
+	varval = GetConfigOptionByName("server_version_num", NULL, false);
+	return strtoul(varval, NULL, 10);
+}
+bool mgr_is_recovery_guc_supported(void)
+{
+	if (mgr_get_server_version_num() >= MGR_MINIMUM_VERSION_FOR_RECOVERY_GUC)
+		return true;
+	else
+		return false;
 }

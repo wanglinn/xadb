@@ -346,7 +346,10 @@ extern List *get_fcinfo_namelist(const char *sepstr, int argidx, FunctionCallInf
 void check_dn_slave(char nodetype, List *nodenamelist, Relation rel_node, StringInfo infosendmsg);
 extern bool mgr_refresh_pgxc_node_tbl(char *cndnname, int32 cndnport, char *cndnaddress, bool isprimary, Oid cndnmasternameoid, GetAgentCmdRst *getAgentCmdRst);
 extern void mgr_send_conf_parameters(char filetype, char *datapath, StringInfo infosendmsg, Oid hostoid, GetAgentCmdRst *getAgentCmdRst);
+extern void mgr_send_conf_parameters_recovery(char *datapath, StringInfo infosendmsg, Oid hostoid, GetAgentCmdRst *getAgentCmdRst);
+extern void mgr_refresh_standby(char *cndnPath, Oid hostOid, GetAgentCmdRst *getAgentCmdRst);
 extern void mgr_append_pgconf_paras_str_str(char *key, char *value, StringInfo infosendmsg);
+extern void mgr_append_paras_standby(char *key, char *value, StringInfo infosendmsg);
 extern void mgr_append_pgconf_paras_str_int(char *key, int value, StringInfo infosendmsg);
 extern void mgr_append_infostr_infostr(StringInfo infostr, StringInfo sourceinfostr);
 extern void mgr_add_parameters_pgsqlconf(Oid tupleOid, char nodetype, int cndnport, StringInfo infosendparamsg);
@@ -678,4 +681,6 @@ extern void hexp_update_conf_pgxc_node_name(AppendNodeInfo *node, char* newname)
 extern void CheckZoneNodesBeforeInitAll(void);
 extern void PrintReplicationInfoOfMasterZone(MemoryContext spiContext, char *currentZone);
 extern bool get_local_ip(Name local_ip);
+extern int mgr_get_server_version_num(void);
+extern bool mgr_is_recovery_guc_supported(void);
 #endif /* MGR_CMDS_H */

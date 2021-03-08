@@ -1748,11 +1748,10 @@ bool mgr_rewind_node(char nodetype, char *nodename, StringInfo strinfo)
 		resetStringInfo(&infosendmsg);
 		resetStringInfo(&(getAgentCmdRst.description));
 		mgr_append_pgconf_paras_str_quotastr("primary_slot_name", slave_nodeinfo.nodename, &infosendmsg);
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF,
-								slave_nodeinfo.nodepath,
-								&infosendmsg,
-								slave_nodeinfo.nodehost,
-								&getAgentCmdRst);
+		mgr_send_conf_parameters_recovery(slave_nodeinfo.nodepath,
+											&infosendmsg,
+											slave_nodeinfo.nodehost,
+											&getAgentCmdRst);
 		if (!getAgentCmdRst.ret)
 		{
 			ereport(WARNING, (errmsg("%s", getAgentCmdRst.description.data)));
@@ -4107,6 +4106,7 @@ char* mgr_get_cmdname(int cmdtype)
 		{AGT_CMD_CNDN_REFRESH_PGSQLCONF,		"REFRESH CNDN PGSQLCONF"},
 		{AGT_CMD_CNDN_REFRESH_RECOVERCONF,		"REFRESH CNDN RECOVERCONF"},
 		{AGT_CMD_CNDN_REFRESH_PGHBACONF,		"REFRESH CNDN PGHBACONF"},
+		{AGT_CMD_CNDN_REFRESH_STANDBY, 			"REFRESH CNDN STANDBY"},
 		{AGT_CMD_CNDN_ADD_PGHBACONF,			"ADD CNDN PGHBACONF"},
 		{AGT_CMD_CNDN_ALTER_PGHBACONF,			"ALTER CNDN PGHBACONF"},
 		{AGT_CMD_CNDN_DELETE_PGHBACONF,			"DELETE CNDN PGHBACONF"},
