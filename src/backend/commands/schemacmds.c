@@ -35,8 +35,6 @@
 #include "utils/rel.h"
 #include "utils/syscache.h"
 #ifdef ADB
-#include "agtm/agtm.h"
-#include "catalog/pg_depend.h"
 #include "optimizer/pgxcplan.h"
 #include "pgxc/pgxc.h"
 #endif

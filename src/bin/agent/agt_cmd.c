@@ -31,8 +31,6 @@
 extern sigjmp_buf agent_reset_sigjmp_buf;
 
 #if defined(ADB) || defined(ADBMGRD)
-	#define GTM_CTL_VERSION "agtm_ctl (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
-	#define INITGTM_VERSION "initagtm (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
 	#define INITDB_VERSION "initdb (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
 	#define PG_BASEBACKUP_VERSION "pg_basebackup (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
 	#define PG_CTL_VERSION "pg_ctl (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n"
@@ -48,8 +46,6 @@ extern sigjmp_buf agent_reset_sigjmp_buf;
 	static void cmd_list_node_folder_size_msg(StringInfo msg, bool checkSoftLink);
 
 #else
-	#define GTM_CTL_VERSION "pg_ctl (PostgreSQL) " PG_VERSION "\n"
-	#define INITGTM_VERSION "initagtm (PostgreSQL) " PG_VERSION "\n"
 	#define INITDB_VERSION "initdb (PostgreSQL) " PG_VERSION "\n"
 	#define PG_BASEBACKUP_VERSION "pg_basebackup (PostgreSQL) " PG_VERSION "\n"
 	#define PG_CTL_VERSION "pg_ctl (PostgreSQL) " PG_VERSION "\n"

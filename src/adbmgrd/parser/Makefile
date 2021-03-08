@@ -54,7 +54,6 @@ mgr_gram.h: mgr_gram.c ;
 gram.c mgr_gram.c: BISONFLAGS += -d
 gram.c:$(backend_src_dir)/$(cur_dir)/gram.y
 	$(PERL) $(backend_src_dir)/$(cur_dir)/drop-adb.pl $< gram.y
-	@echo $(PERL) $(backend_src_dir)/$(cur_dir)/check_keywords.pl gram.y $(top_srcdir)/src/agtm/include/parser/kwlist.h
 ifdef BISON
 	$(BISON) $(BISONFLAGS) -o $@ gram.y
 else

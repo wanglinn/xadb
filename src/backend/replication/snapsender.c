@@ -122,7 +122,6 @@ typedef enum SnapSenderXidArrayType
 }SnapSenderXidArrayType;
 
 /* GUC variables */
-extern char *AGtmHost;
 extern bool is_need_check_dn_coon;
 
 bool adb_check_sync_nextid = true;

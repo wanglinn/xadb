@@ -91,7 +91,6 @@
 
 #ifdef ADB
 #include "access/relation.h"
-#include "agtm/agtm.h"
 #include "catalog/pg_aux_class.h"
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node.h"

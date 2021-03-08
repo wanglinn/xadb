@@ -16,27 +16,15 @@
  */
 #include "postgres.h"
 
-#include "access/heapam.h"
 #include "access/relscan.h"
 #include "access/tuptypeconvert.h"
 #include "access/xact.h"
-#include "access/xlog.h"
-#include "agtm/agtm.h"
-#include "catalog/pgxc_node.h"
 #include "commands/prepare.h"
 #include "executor/clusterReceiver.h"
-#include "executor/executor.h"
 #include "executor/execCluster.h"
 #include "intercomm/inter-comm.h"
-#include "libpq-fe.h"
 #include "libpq-int.h"
-#include "nodes/execnodes.h"
 #include "nodes/nodeFuncs.h"
-#include "optimizer/pgxcplan.h"
-#include "parser/parse_coerce.h"
-#include "pgxc/locator.h"
-#include "pgxc/pgxcnode.h"
-#include "utils/lsyscache.h"
 #include "utils/snapmgr.h"
 
 #define REMOTE_FETCH_SIZE	64
@@ -343,7 +331,6 @@ InterXactQuery(InterXactState state, RemoteQueryState *node, TupleTableSlot *des
 
 	if (need_xact_block)
 	{
-		//agtm_BeginTransaction();
 		gxid = GetCurrentTransactionId();
 	} else
 		gxid = GetCurrentTransactionIdIfAny();

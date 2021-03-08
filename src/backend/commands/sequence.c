@@ -1129,7 +1129,6 @@ setval_oid(PG_FUNCTION_ARGS)
 		schemaName = get_namespace_name(RelationGetNamespace(seqrel));
 
 		set_seqnextval_from_gtmcorrd(seqName, databaseName, schemaName, next, true);
-		//agtm_SetSeqVal(seqName, databaseName, schemaName, next);
 		relation_close(seqrel, NoLock);
 
 		pfree(databaseName);

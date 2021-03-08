@@ -288,9 +288,9 @@ static void setup_oracle_schema(FILE *cmdfd);
 #ifdef ADB
 static void setup_adb_views(FILE *cmdfd);
 #endif
-#if !(defined(INITMGR) || defined(INITAGTM))
+#ifndef INITMGR
 static void load_plpgsql(FILE *cmdfd);
-#endif /* !(defined(INITMGR) || defined(INITAGTM)) */
+#endif /* !INITMGR */
 #ifdef ADB_GRAM_ORA
 static void load_plorasql(FILE *cmdfd);
 #endif
@@ -559,9 +559,6 @@ readfile(const char *path)
 #elif defined(INITMGR)
 		if(strncmp(buffer, "--MGRONLY", 9) == 0)
 			memset(result[n], ' ', 9);
-#elif defined(INITAGTM)
-		if(strncmp(buffer, "--AGTMONLY", 10) == 0)
-			memset(result[n], ' ', 10);
 #endif
 		n++;
 	}
@@ -2103,13 +2100,13 @@ static void setup_manager_file(FILE *cmdfd)
 /*
  * load PL/pgSQL server-side language
  */
-#if !(defined(INITMGR) || defined(INITAGTM))
+#ifndef INITMGR
 static void
 load_plpgsql(FILE *cmdfd)
 {
 	PG_CMD_PUTS("CREATE EXTENSION plpgsql;\n\n");
 }
-#endif /* !(defined(INITMGR) || defined(INITAGTM)) */
+#endif /* !INITMGR */
 
 #ifdef ADB_GRAM_ORA
 static void load_plorasql(FILE *cmdfd)
@@ -2644,8 +2641,6 @@ setup_bin_paths(const char *argv0)
 	int			ret;
 #ifdef INITMGR
 #define BINTARGET "adbmgrd"
-#elif defined(INITAGTM)
-#define BINTARGET "agtm"
 #else
 #define BINTARGET "postgres"
 #endif
@@ -3192,9 +3187,9 @@ initialize_data_directory(void)
 
 	setup_schema(cmdfd);
 
-#if !(defined(INITMGR) || defined(INITAGTM))
+#ifndef INITMGR
 	load_plpgsql(cmdfd);
-#endif /* !(defined(INITMGR) || defined(INITAGTM)) */
+#endif /* !INITMGR */
 
 #ifdef ADB_GRAM_ORA
 	load_plorasql(cmdfd);
@@ -3300,14 +3295,10 @@ main(int argc, char *argv[])
 		{
 #ifdef INITMGR
 			puts("initmgr (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
-#elif defined(INITAGTM)
-			puts("initagtm (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
-#else
-	#ifdef ADB
+#elif defined(ADB)
 			puts("initdb (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
-	#else
+#else
 			puts("initdb (PostgreSQL) " PG_VERSION);
-	#endif
 #endif
 			exit(0);
 		}
@@ -3593,8 +3584,6 @@ main(int argc, char *argv[])
 	/* ... and tag on pg_ctl instead */
 #ifdef INITMGR
 	join_path_components(pg_ctl_path, pg_ctl_path, "mgr_ctl");
-#elif defined(INITAGTM)
-	join_path_components(pg_ctl_path, pg_ctl_path, "agtm_ctl");
 #else
 	join_path_components(pg_ctl_path, pg_ctl_path, "pg_ctl");
 #endif

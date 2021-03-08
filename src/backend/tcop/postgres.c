@@ -85,38 +85,23 @@
 #include "utils/timestamp.h"
 #ifdef ADB
 #include "access/rxact_mgr.h"
-#include "access/transam.h"
 #include "agtm/agtm.h"
 #include "catalog/pg_class.h"
-#include "commands/copy.h"
-#include "commands/defrem.h"
-#include "commands/trigger.h"
 #include "executor/clusterReceiver.h"
 #include "executor/execCluster.h"
-#include "executor/nodeClusterReduce.h"
 #include "intercomm/inter-node.h"
-#include "libpq/libpq-node.h"
-#include "nodes/nodes.h"
-#include "nodes/parsenodes.h"
-#include "optimizer/pgxcplan.h"
 #include "parser/parse_type.h"
 #include "pgxc/cluster_barrier.h"
-#include "pgxc/execRemote.h"
 #include "pgxc/pause.h"
 #include "pgxc/pgxc.h"
-#include "pgxc/pgxcnode.h"
 #include "pgxc/poolmgr.h"
-#include "pgxc/poolutils.h"
-#include "storage/procarray.h"
 #include "utils/dynamicreduce.h"
-#include "utils/guc.h"
 #endif /* ADB */
 #ifdef ADB_MULTI_GRAM
 #include "catalog/namespace.h"
 #endif /* ADB_MULTI_GRAM */
 #if defined(ADB) || defined(ADB_GRAM_ORA)
 #include "nodes/nodeFuncs.h"
-#include "parser/analyze.h"
 #endif
 #if defined(ADBMGRD)
 #include "mgr/mgr_agent.h"

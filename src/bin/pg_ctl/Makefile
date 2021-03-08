@@ -29,11 +29,9 @@ OBJS = \
 	pg_ctl.o
 OBJS_MGR = $(WIN32RES) \
 	mgr_ctl.o
-OBJS_ATM = $(WIN32RES) \
-	agtm_ctl.o
 
 ifeq ($(enable_cluster),yes)
-all: pg_ctl mgr_ctl agtm_ctl
+all: pg_ctl mgr_ctl
 else
 all: pg_ctl
 endif
@@ -45,21 +43,14 @@ ifeq ($(enable_cluster),yes)
 mgr_ctl: $(OBJS_MGR) | submake-libpq submake-libpgport
 	$(CC) $(CFLAGS) $(OBJS_MGR) $(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 
-agtm_ctl: $(OBJS_ATM) | submake-libpq submake-libpgport
-	$(CC) $(CFLAGS) $(OBJS_ATM) $(libpq_pgport) $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
-
 mgr_ctl.o: pg_ctl.c
 	$(CC) $(patsubst -DPGXC,, $(patsubst -DADB,, $(CFLAGS))) $(CPPFLAGS) -DMGR_CTL -c -o $@ $<
-
-agtm_ctl.o: pg_ctl.c
-	$(CC) $(patsubst -DPGXC,, $(patsubst -DADB,, $(CFLAGS))) $(CPPFLAGS) -DAGTM_CTL -c -o $@ $<
 endif
 
 install: all installdirs
 	$(INSTALL_PROGRAM) pg_ctl$(X) '$(DESTDIR)$(bindir)/pg_ctl$(X)'
 ifeq ($(enable_cluster),yes)
 	$(INSTALL_PROGRAM) mgr_ctl$(X) '$(DESTDIR)$(bindir)/mgr_ctl$(X)'
-	$(INSTALL_PROGRAM) agtm_ctl$(X) '$(DESTDIR)$(bindir)/agtm_ctl$(X)'
 endif
 
 installdirs:
@@ -68,13 +59,13 @@ installdirs:
 uninstall:
 	rm -f '$(DESTDIR)$(bindir)/pg_ctl$(X)'
 ifeq ($(enable_cluster),yes)
-	rm -f '$(DESTDIR)$(bindir)/mgr_ctl$(X)' '$(DESTDIR)$(bindir)/agtm_ctl$(X)'
+	rm -f '$(DESTDIR)$(bindir)/mgr_ctl$(X)'
 endif
 
 clean distclean maintainer-clean:
 	rm -f pg_ctl$(X) $(OBJS)
 ifeq ($(enable_cluster),yes)
-	rm -f mgr_ctl$(X) $(OBJS_MGR) agtm_ctl$(X) $(OBJS_ATM)
+	rm -f mgr_ctl$(X) $(OBJS_MGR)
 endif
 	rm -rf tmp_check
 

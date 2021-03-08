@@ -20,33 +20,11 @@
 #include "postgres.h"
 #include "miscadmin.h" /* fro CHECK_FOR_INTERRUPTS */
 
-#include "access/transam.h"
-#include "access/xact.h"
-#include "agtm/agtm.h"
-#include "catalog/pg_type.h"
-#include "catalog/pg_collation.h"
-#include "catalog/pgxc_node.h"
 #include "commands/prepare.h"
 #include "libpq-fe.h"
-#include "nodes/nodes.h"
-#include "pgxc/pause.h"
-#include "pgxc/pgxcnode.h"
-#include "pgxc/execRemote.h"
-#include "pgxc/locator.h"
-#include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
 #include "pgxc/poolmgr.h"
-#include "storage/fd.h"
-#include "storage/ipc.h"
-#include "tcop/dest.h"
 #include "utils/builtins.h"
-#include "utils/elog.h"
-#include "utils/fmgroids.h"
-#include "utils/formatting.h"
-#include "utils/lsyscache.h"
-#include "utils/memutils.h"
-#include "utils/snapmgr.h"
-#include "utils/syscache.h"
 
 
 /* Cancel Delay Duration -> set by GUC */

@@ -203,9 +203,6 @@ proc_exit_prepare(int code)
 	debug_query_string = NULL;
 
 #ifdef ADB
-	//agtm_Close();
-	//SetTopXactBeginAGTM(false);
-	//agtm_SetDefaultPort();
 	StopDynamicReduceWorker();
 #endif
 

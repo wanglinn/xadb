@@ -8,7 +8,6 @@
 #include "catalog/namespace.h"
 #include "catalog/pg_type.h"
 #include "storage/lock.h"
-#include "agtm/agtm.h"
 #include "agtm/agtm_utils.h"
 #include "commands/sequence.h"
 #include "nodes/makefuncs.h"

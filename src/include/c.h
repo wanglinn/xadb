@@ -79,7 +79,7 @@
 #include "rdma/adb_rsocket.h"
 #endif
 
-#if defined(ADBMGRD) || defined(INITMGR) || defined(INITAGTM)
+#if defined(ADBMGRD) || defined(INITMGR)
 #undef ADB_GRAM_DB2
 #undef ADB_GRAM_ORA
 #undef ADB_MULTI_GRAM

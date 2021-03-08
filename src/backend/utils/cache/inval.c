@@ -119,7 +119,6 @@
 #include "catalog/pgxc_class.h"
 #include "catalog/pgxc_node_d.h"
 #include "libpq/libpq-node.h"
-#include "replication/snapreceiver.h"
 #include "pgxc/pgxc.h"
 #include "agtm/agtm.h"
 #endif /* ADB */

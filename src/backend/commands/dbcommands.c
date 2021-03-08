@@ -66,7 +66,6 @@
 #include "utils/syscache.h"
 
 #ifdef ADB
-#include "agtm/agtm.h"
 #include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
 #endif
@@ -1137,11 +1136,6 @@ RenameDatabase(const char *oldname, const char *newname)
 		elog(ERROR, "cache lookup failed for database %u", db_id);
 	namestrcpy(&(((Form_pg_database) GETSTRUCT(newtup))->datname), newname);
 	CatalogTupleUpdate(rel, &newtup->t_self, newtup);
-
-#ifdef ADB
-	//if (IsCnMaster())
-		//agtm_RenameSeuqneceByDataBase(oldname, newname);
-#endif
 
 	InvokeObjectPostAlterHook(DatabaseRelationId, db_id, 0);
 

@@ -19,14 +19,8 @@
 #include <time.h>
 
 #include "access/rxact_mgr.h"
-#include "access/transam.h"
 #include "access/twophase.h"
-#include "access/xact.h"
-#include "agtm/agtm.h"
-#include "datatype/timestamp.h"
 #include "intercomm/inter-comm.h"
-#include "libpq-fe.h"
-#include "pgxc/execRemote.h"
 #include "pgxc/pgxc.h"
 #include "storage/ipc.h"
 #include "utils/memutils.h"
@@ -588,7 +582,6 @@ InterXactUtility(InterXactState state, Snapshot snapshot,
 		need_xact_block = state->need_xact_block;
 		if (need_xact_block)
 		{
-			//agtm_BeginTransaction();
 			gxid = GetCurrentTransactionId();
 		} else
 			gxid = GetCurrentTransactionIdIfAny();
@@ -654,7 +647,6 @@ InterXactBegin(InterXactState state, const List *node_list)
 	{
 		if (need_xact_block)
 		{
-			//agtm_BeginTransaction();
 			gxid = GetCurrentTransactionId();
 		} else
 			gxid = GetCurrentTransactionIdIfAny();
@@ -962,8 +954,6 @@ RemoteXactCommit(int nnodes, Oid *nodes)
 		return ;
 
 	InterXactCommit(NULL, nodes, nnodes, false);
-	//InterXactCommitGtm(NULL, nodes, nnodes, false);
-	//agtm_CommitTransaction(NULL, false);
 }
 
 void
@@ -973,8 +963,6 @@ RemoteXactAbort(const char *gid, int nnodes, Oid *nodes, bool normal)
 		return ;
 
 	InterXactAbort(gid, nodes, nnodes, false, normal);
-	//(NULL, nodes, nnodes, false, normal);
-	//agtm_AbortTransaction(NULL, false, !normal);
 }
 
 /*

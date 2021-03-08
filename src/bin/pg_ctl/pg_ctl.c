@@ -860,14 +860,10 @@ do_init(void)
 	if (exec_path == NULL)
 #ifdef MGR_CTL
 		exec_path = find_other_exec_or_die(argv0, "initmgr", "initmgr (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n");
-#elif defined(AGTM_CTL)
-		exec_path = find_other_exec_or_die(argv0, "initagtm", "initagtm (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n");
-#else
-	#ifdef ADB
+#elif defined(ADB)
 		exec_path = find_other_exec_or_die(argv0, "initdb", "initdb (" ADB_VERSION " based on PostgreSQL) " PG_VERSION "\n");
-	#else
+#else
 		exec_path = find_other_exec_or_die(argv0, "initdb", "initdb (PostgreSQL) " PG_VERSION "\n");
-	#endif
 #endif
 
 	if (pgdata_opt == NULL)
@@ -914,8 +910,6 @@ do_start(void)
 	if (exec_path == NULL)
 #ifdef MGR_CTL
 		exec_path = find_other_exec_or_die(argv0, "adbmgrd", PG_BACKEND_VERSIONSTR);
-#elif defined(AGTM_CTL)
-		exec_path = find_other_exec_or_die(argv0, "agtm", PG_BACKEND_VERSIONSTR);
 #else
 		exec_path = find_other_exec_or_die(argv0, "postgres", PG_BACKEND_VERSIONSTR);
 #endif
@@ -2074,8 +2068,6 @@ do_help(void)
 {
 #ifdef MGR_CTL
 	printf(_("%s is a utility to initialize, start, stop, or control a ADB-Manager server.\n\n"), progname);
-#elif defined(AGTM_CTL)
-	printf(_("%s is a utility to initialize, start, stop, or control a ADB-Transaction-Manager server.\n\n"), progname);
 #else
 	printf(_("%s is a utility to initialize, start, stop, or control a PostgreSQL server.\n\n"), progname);
 #endif
@@ -2365,14 +2357,10 @@ main(int argc, char **argv)
 		{
 #ifdef MGR_CTL
 			puts("mgr_ctl (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
-#elif AGTM_CTL
-			puts("agtm_ctl (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
-#else
-	#ifdef ADB
+#elif defined(ADB)
 			puts("pg_ctl (" ADB_VERSION " based on PostgreSQL) " PG_VERSION);
-	#else
+#else
 			puts("pg_ctl (PostgreSQL) " PG_VERSION);
-	#endif
 #endif
 			exit(0);
 		}

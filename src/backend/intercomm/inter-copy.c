@@ -18,17 +18,10 @@
 #include "miscadmin.h"
 
 #include "access/xact.h"
-#include "agtm/agtm.h"
-#include "commands/prepare.h"
-#include "executor/clusterReceiver.h"
 #include "intercomm/inter-comm.h"
 #include "libpq/libpq.h"
 #include "libpq-int.h"
-#include "libpq/libpq-node.h"
-#include "nodes/execnodes.h"
-#include "pgxc/pgxc.h"
 #include "pgxc/copyops.h"
-#include "utils/lsyscache.h"
 #include "utils/snapmgr.h"
 
 typedef struct RemoteCopyContext
@@ -91,7 +84,6 @@ StartRemoteCopy(RemoteCopyState *node)
 	state->need_xact_block = is_from;
 	cur_handle = state->cur_handle;
 
-	//agtm_BeginTransaction();
 	gxid = GetCurrentTransactionId();
 
 	PG_TRY();

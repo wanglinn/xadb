@@ -57,7 +57,6 @@
 
 #ifdef ADB
 #include "access/visibilitymap.h"
-#include "agtm/agtm.h"
 #include "catalog/catalog.h"
 #include "catalog/heap.h"
 #include "catalog/pgxc_class.h"

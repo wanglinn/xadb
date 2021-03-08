@@ -28,7 +28,6 @@
 #include "replication/snapreceiver.h"
 
 #ifdef ADB
-#include "agtm/agtm.h"
 #include "pgxc/pgxc.h"
 #include "commands/copy.h"	/* for SimpleNextCopyFromNewFE */
 #include "executor/clusterReceiver.h"	/* for CLUSTER_MSG_TRANSACTION_ID */
@@ -101,7 +100,6 @@ ObtainGlobalTransactionId(bool isSubXact)
 	 */
 	if (IsCnMaster())
 	{
-		/* gxid = agtm_GetGlobalTransactionId(isSubXact);*/
 		gxid =  SnapRcvGetGlobalTransactionId(isSubXact);
 		return gxid;
 	}
@@ -118,7 +116,6 @@ ObtainGlobalTransactionId(bool isSubXact)
 		ForceObtainXidFromAGTM == true ||
 		IsAnyAutoVacuumProcess())
 	{
-		/* gxid = agtm_GetGlobalTransactionId(isSubXact);*/
 		gxid =  SnapRcvGetGlobalTransactionId(isSubXact);
 		return gxid;
 	}

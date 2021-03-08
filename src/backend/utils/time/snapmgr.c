@@ -68,7 +68,6 @@
 #include "utils/snapmgr.h"
 #include "utils/syscache.h"
 #ifdef ADB
-#include "agtm/agtm.h"
 #include "libpq/pqformat.h"
 #include "pgxc/pgxc.h"
 #include "postmaster/autovacuum.h"

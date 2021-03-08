@@ -107,15 +107,9 @@
 #include "catalog/ora_cast.h"
 #endif /* defined(ADB_GRAM_ORA)*/
 #ifdef ADB
-#include "agtm/agtm.h"
-#include "catalog/pg_proc.h"
 #include "catalog/pg_aux_class.h"
 #include "catalog/pgxc_class.h"
-#include "catalog/pgxc_node.h"
-#include "commands/dbcommands.h"
-#include "commands/sequence.h"
 #include "intercomm/inter-comm.h"
-#include "mb/pg_wchar.h"
 #include "optimizer/pgxcship.h"
 #include "optimizer/pgxcplan.h"
 #include "optimizer/reduceinfo.h" /* for CanModuloType */

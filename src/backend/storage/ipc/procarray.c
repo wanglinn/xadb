@@ -91,19 +91,14 @@
 #ifdef ADB
 #include "agtm/agtm.h"
 #include "commands/defrem.h"
-#include "nodes/plannodes.h"
 #include "executor/execCluster.h"
 #include "intercomm/inter-node.h"
 #include "libpq/pqformat.h"
 #include "libpq/libpq-node.h"
-#include "storage/mem_toc.h"
-#include "pgxc/nodemgr.h"
 #include "pgxc/pgxc.h"
 #include "postmaster/autovacuum.h"
 #include "replication/snapsender.h"
 #include "replication/snapreceiver.h"
-#include "replication/snapcommon.h"
-#include "storage/ipc.h"
 #endif
 
 #define UINT32_ACCESS_ONCE(var)		 ((uint32)(*((volatile uint32 *)&(var))))
