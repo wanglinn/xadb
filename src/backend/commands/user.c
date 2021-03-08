@@ -37,9 +37,6 @@
 #include "utils/fmgroids.h"
 #include "utils/syscache.h"
 #include "utils/timestamp.h"
-#ifdef ADB_GRAM_ORA
-#include "parser/parser.h"
-#endif	/* ADB_GRAM_ORA */
 
 /* Potentially set by pg_upgrade_support functions */
 Oid			binary_upgrade_next_pg_authid_oid = InvalidOid;
@@ -58,9 +55,6 @@ static void DelRoleMems(const char *rolename, Oid roleid,
 						List *memberSpecs, List *memberIds,
 						bool admin_opt);
 
-#ifdef ADB_GRAM_ORA
-static void oracle_dbms_output_role(List *roles, bool is_grant);
-#endif	/* ADB_GRAM_ORA */
 
 /* Check if current user has createrole privileges */
 static bool
@@ -521,17 +515,6 @@ CreateRole(ParseState *pstate, CreateRoleStmt *stmt)
 	 * Close pg_authid, but keep lock till commit.
 	 */
 	table_close(pg_authid_rel, NoLock);
-
-#ifdef ADB_GRAM_ORA
-	{
-		RoleSpec *rs = makeRoleSpec(ROLESPEC_CSTRING, -1);
-		rs->rolename = pstrdup(stmt->role);
-
-		CommandCounterIncrement();
-		/* Create role related schema permissions. */
-		oracle_dbms_output_role(list_make1(rs), true);
-	}
-#endif	/* ADB_GRAM_ORA */
 
 	return roleid;
 }
@@ -1018,11 +1001,6 @@ DropRole(DropRoleStmt *stmt)
 		ereport(ERROR,
 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 				 errmsg("permission denied to drop role")));
-
-#ifdef ADB_GRAM_ORA
-	/* Delete role related schema permissions. */
-	oracle_dbms_output_role(stmt->roles, false);
-#endif	/* ADB_GRAM_ORA */
 
 	/*
 	 * Scan the pg_authid relation to find the Oid of the role(s) to be
@@ -1726,36 +1704,3 @@ DelRoleMems(const char *rolename, Oid roleid,
 	 */
 	table_close(pg_authmem_rel, NoLock);
 }
-
-#ifdef ADB_GRAM_ORA
-/**
- * Oracle compatibility:
- * add schema permission for new role:
- * dbms_output, dbms_lock, dbms_random.
- */
-static void
-oracle_dbms_output_role(List *roles, bool is_grant)
-{
-	GrantStmt	*grantStmt;
-	AccessPriv	*accessPriv;
-
-	accessPriv = makeNode(AccessPriv);
-	accessPriv->priv_name = "usage";
-	accessPriv->cols = NIL;
-
-	grantStmt= makeNode(GrantStmt);
-	grantStmt->is_grant = is_grant;
-	grantStmt->privileges = list_make1(accessPriv);
-	grantStmt->targtype = ACL_TARGET_OBJECT;
-	grantStmt->objtype = OBJECT_SCHEMA;
-	grantStmt->objects = list_make3(makeString("dbms_lock"),
-									makeString("dbms_random"),
-									makeString("dbms_output"));
-	grantStmt->grantees = roles;
-	grantStmt->grant_option = false;
-	
-	ExecuteGrantStmt(grantStmt);
-
-}
-
-#endif	/* ADB_GRAM_ORA */
