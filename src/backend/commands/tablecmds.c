@@ -4967,8 +4967,16 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 		case AT_AlterColumnType:	/* ALTER COLUMN TYPE */
 #ifdef ADB_GRAM_ORA
 		{
-			OraCoercionContext oldContext = 
-				OraCoercionContextSwitchTo(ORA_COERCE_SPECIAL_FUNCTION);
+			volatile bool switched = false;
+			OraCoercionContext oldContext;
+
+			if (context->pstmt->utilityStmt &&
+				IsA(context->pstmt->utilityStmt, AlterTableStmt) &&
+				((AlterTableStmt*)context->pstmt->utilityStmt)->grammar == PARSE_GRAM_ORACLE)
+			{
+				oldContext = OraCoercionContextSwitchTo(ORA_COERCE_SPECIAL_FUNCTION);
+				switched = true;
+			}
 			PG_TRY();
 			{
 #endif/* ADB_GRAM_ORA */
@@ -4983,12 +4991,11 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 								  lockmode, context);
 			pass = AT_PASS_ALTER_TYPE;
 #ifdef ADB_GRAM_ORA
-				(void) OraCoercionContextSwitchTo(oldContext);
 			}
-			PG_CATCH();
+			PG_FINALLY();
 			{
-				(void) OraCoercionContextSwitchTo(oldContext);
-				PG_RE_THROW();
+				if (switched)
+					(void) OraCoercionContextSwitchTo(oldContext);
 			}
 			PG_END_TRY();
 		}
