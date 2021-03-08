@@ -518,6 +518,7 @@ CREATE OR REPLACE FUNCTION oracle.replace(text, text)
  * add put_line function
  */
 create schema IF NOT EXISTS dbms_output;
+GRANT USAGE ON SCHEMA dbms_output TO PUBLIC;
 
 create or replace function dbms_output.put_line(putout in text)
 RETURNS void AS $$
@@ -533,6 +534,7 @@ RETURNS void AS $$
   LANGUAGE PLPGSQL;
 
 create schema IF NOT EXISTS  dbms_lock;
+GRANT USAGE ON SCHEMA dbms_lock TO PUBLIC;
 create or replace function dbms_lock.sleep(sleep_second in double precision) 
   RETURNS void  AS
     'select pg_sleep($1);'
