@@ -1473,32 +1473,35 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 	/* process the FROM clause */
 	transformFromClause(pstate, stmt->fromClause);
 #ifdef ADB_GRAM_ORA
-	/* transform WHERE */
-	qual = transformWhereClause(pstate, stmt->whereClause,
-								EXPR_KIND_WHERE, "WHERE");
-
-	qual = transformFromAndWhere(pstate, qual);
-
-	if (stmt->ora_connect_by)
+	if (pstate->p_grammar == PARSE_GRAM_ORACLE)
 	{
-		OracleConnectBy *new_ = makeNode(OracleConnectBy);
-		OracleConnectBy *old = stmt->ora_connect_by;
-		int save_next_resno = pstate->p_next_resno;
-		new_->no_cycle = old->no_cycle;
-		if (old->start_with)
+		/* transform WHERE */
+		qual = transformWhereClause(pstate, stmt->whereClause,
+									EXPR_KIND_WHERE, "WHERE");
+
+		qual = transformFromAndWhere(pstate, qual);
+
+		if (stmt->ora_connect_by)
 		{
-			new_->start_with = transformExpr(pstate, old->start_with, EXPR_KIND_START_WITH);
-			new_->start_with = coerce_to_boolean(pstate, new_->start_with, "START WITH");
+			OracleConnectBy *new_ = makeNode(OracleConnectBy);
+			OracleConnectBy *old = stmt->ora_connect_by;
+			int save_next_resno = pstate->p_next_resno;
+			new_->no_cycle = old->no_cycle;
+			if (old->start_with)
+			{
+				new_->start_with = transformExpr(pstate, old->start_with, EXPR_KIND_START_WITH);
+				new_->start_with = coerce_to_boolean(pstate, new_->start_with, "START WITH");
+			}
+			new_->connect_by = transformExpr(pstate, old->connect_by, EXPR_KIND_CONNECT_BY);
+			new_->connect_by = coerce_to_boolean(pstate, new_->connect_by, "CONNECT BY");
+			new_->sortClause = transformSortClause(pstate,
+												   old->sortClause,
+												   &new_->sort_tlist,
+												   EXPR_KIND_ORDER_SIBLINGS_BY,
+												   true);
+			qry->connect_by = new_;
+			pstate->p_next_resno = save_next_resno;
 		}
-		new_->connect_by = transformExpr(pstate, old->connect_by, EXPR_KIND_CONNECT_BY);
-		new_->connect_by = coerce_to_boolean(pstate, new_->connect_by, "CONNECT BY");
-		new_->sortClause = transformSortClause(pstate,
-											   old->sortClause,
-											   &new_->sort_tlist,
-											   EXPR_KIND_ORDER_SIBLINGS_BY,
-											   true);
-		qry->connect_by = new_;
-		pstate->p_next_resno = save_next_resno;
 	}
 #endif /* ADB_GRAM_ORA */
 	/* transform targetlist */
@@ -1508,11 +1511,13 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 	/* mark column origins */
 	markTargetListOrigins(pstate, qry->targetList);
 
-#ifndef ADB_GRAM_ORA
 	/* transform WHERE */
+#ifdef ADB_GRAM_ORA
+	if (pstate->p_grammar != PARSE_GRAM_ORACLE)
+#endif /* ADB_GRAM_ORA */
 	qual = transformWhereClause(pstate, stmt->whereClause,
 								EXPR_KIND_WHERE, "WHERE");
-#endif /* ndef ADB_GRAM_ORA */
+
 	/* initial processing of HAVING clause is much like WHERE clause */
 	qry->havingQual = transformWhereClause(pstate, stmt->havingClause,
 										   EXPR_KIND_HAVING, "HAVING");
