@@ -291,6 +291,9 @@ static void setup_adb_views(FILE *cmdfd);
 #if !(defined(INITMGR) || defined(INITAGTM))
 static void load_plpgsql(FILE *cmdfd);
 #endif /* !(defined(INITMGR) || defined(INITAGTM)) */
+#ifdef ADB_GRAM_ORA
+static void load_plorasql(FILE *cmdfd);
+#endif
 static void vacuum_db(FILE *cmdfd);
 static void make_template0(FILE *cmdfd);
 static void make_postgres(FILE *cmdfd);
@@ -2108,6 +2111,12 @@ load_plpgsql(FILE *cmdfd)
 }
 #endif /* !(defined(INITMGR) || defined(INITAGTM)) */
 
+#ifdef ADB_GRAM_ORA
+static void load_plorasql(FILE *cmdfd)
+{
+	PG_CMD_PUTS("CREATE EXTENSION plorasql;\n\n");
+}
+#endif
 
 #ifdef ADB
 /*
@@ -3188,6 +3197,7 @@ initialize_data_directory(void)
 #endif /* !(defined(INITMGR) || defined(INITAGTM)) */
 
 #ifdef ADB_GRAM_ORA
+	load_plorasql(cmdfd);
 	setup_oracle_schema(cmdfd);
 #endif
 
