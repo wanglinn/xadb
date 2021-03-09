@@ -318,6 +318,7 @@ pgxc_build_shippable_query_baserel(PlannerInfo *root, RemoteQueryPath *rqpath,
 		if (var->varno != baserel->relid)
 			elog(ERROR, "can not handle multiple relations in a single baserel");
 		var->varno = rtr->rtindex;
+		var->varnosyn = 0;
 	}
 
 	/* add RowMarkClause */
@@ -650,12 +651,13 @@ pgxc_rqplan_adjust_vars(RemoteQuery *rqplan, Node *node)
 static void
 pgxc_rqplan_build_statement(RemoteQuery *rqplan)
 {
-	StringInfo sql = makeStringInfo();
-	deparse_query(rqplan->remote_query, sql, NULL, rqplan->rq_finalise_aggs,
+	StringInfoData sql;
+	initStringInfo(&sql);
+	deparse_query(rqplan->remote_query, &sql, NULL, rqplan->rq_finalise_aggs,
 					rqplan->rq_sortgroup_colno);
 	if (rqplan->sql_statement)
 		pfree(rqplan->sql_statement);
-	rqplan->sql_statement = sql->data;
+	rqplan->sql_statement = sql.data;
 	return;
 }
 
