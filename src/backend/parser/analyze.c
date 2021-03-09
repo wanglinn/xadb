@@ -780,10 +780,7 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 
 #ifdef ADB_MULTI_GRAM
 	if(pstate->p_grammar == PARSE_GRAM_ORACLE)
-	{
-#warning review this code
-		/* addRTEtoQuery(pstate, rt_fetch(qry->resultRelation, pstate->p_rtable), false, true, true); */
-	}
+		addNSItemToQuery(pstate, pstate->p_target_nsitem, false, true, true);
 #endif /* ADB */
 
 	/* Validate stmt->cols list, or build default list if no list given */
