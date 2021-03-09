@@ -3961,8 +3961,6 @@ int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
 	memset(&agtm_m_nodeinfo, 0, sizeof(AppendNodeInfo));
 	gtmMasterName = mgr_get_agtm_name();
 	get_nodeinfo(gtmMasterName, CNDN_TYPE_GTM_COOR_MASTER, &agtm_m_is_exist, &agtm_m_is_running, &agtm_m_nodeinfo);
-	if (agtm_m_is_exist && !agtm_m_is_running)
-		ereport(ERROR, (errmsg("gtmcoord master %s is not running", gtmMasterName)));
 
 	resetStringInfo(strinfo);
 	resetStringInfo(starttime);
@@ -3979,7 +3977,7 @@ int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
 		{
 			case PQPING_OK:
 				appendStringInfoString(strinfo, "running");
-				if (agtm_m_is_exist && agtm_m_is_running)
+				if (agtm_m_is_exist)
 				{
 					agentport = get_agentPort_from_hostoid(hostOid);
 					monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentport, SQL_PG_IS_IN_RECOVERY
@@ -3997,7 +3995,7 @@ int mgr_get_monitor_node_result(char nodetype, Oid hostOid, int nodeport
 							/* do nothing */
 						}
 					}
-					
+
 					initStringInfo(&resultstrdata);
 					monitor_get_stringvalues(AGT_CMD_GET_SQL_STRINGVALUES, agentport, SQL_PG_QUERY_STARTTIME
 						, user, hostAddr, nodeport, DEFAULT_DB, &resultstrdata);

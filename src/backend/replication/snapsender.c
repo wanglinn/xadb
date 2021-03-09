@@ -2506,7 +2506,7 @@ Snapshot SnapSenderGetSnapshot(Snapshot snap, TransactionId *xminOld, Transactio
 	bool			update_xmin = false;
 	bool			is_wait_ok = false;
 
-	if (RecoveryInProgress())
+	if (RecoveryInProgress() || !adb_check_sync_nextid)
 		return snap;
 
 	/* when gtmc get snapshot, we musk make sure all dn has synced two phase xid */

@@ -1706,9 +1706,10 @@ static void mgr_execute_sqlstring(char cmdtype, char *user, int port, char *addr
 	int iloop = 0;
 	int jloop = 0;
 	const char *gram = NULL;
-
+	
 	initStringInfo(&constr);
-	appendStringInfo(&constr, "postgresql://%s@%s:%d/%s", user, address, port, dbname);
+	appendStringInfo(&constr, "host='%s' port=%u dbname='%s' user='%s' connect_timeout=10 options='-c adb_check_sync_nextid=0' ",
+					address, port, dbname, user);
 	appendStringInfoCharMacro(&constr, '\0');
 	ereport(LOG,
 		(errmsg("connect info: %s, sql: %s",constr.data, sqlstring)));
