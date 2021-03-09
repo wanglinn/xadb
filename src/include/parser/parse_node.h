@@ -199,7 +199,6 @@ struct ParseState
 								 * node's fromlist) */
 	List	   *p_namespace;	/* currently-referenceable RTEs (List of
 								 * ParseNamespaceItem) */
-	List	   *p_save_namespace;	/* saved namespace in transformFromAndWhere */
 	bool		p_lateral_active;	/* p_lateral_only items visible? */
 	List	   *p_ctenamespace; /* current namespace for common table exprs */
 	List	   *p_future_ctes;	/* common table exprs not yet in namespace */

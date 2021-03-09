@@ -61,12 +61,6 @@ extern bool enable_aux_dml;
 #endif
 
 
-static int	extractRemainingColumns(ParseNamespaceColumn *src_nscolumns,
-									ADB_SEQ_ROWID_ARGS_COMMA(const RangeTblEntry *rte)
-									List *src_colnames,
-									List **src_colnos,
-									List **res_colnames, List **res_colvars,
-									ParseNamespaceColumn *res_nscolumns);
 static Node *transformJoinUsingClause(ParseState *pstate,
 									  RangeTblEntry *leftRTE, RangeTblEntry *rightRTE,
 									  List *leftVars, List *rightVars);
@@ -272,7 +266,7 @@ setTargetTable(ParseState *pstate, RangeVar *relation,
  *
  * Returns the number of columns added.
  */
-static int
+int
 extractRemainingColumns(ParseNamespaceColumn *src_nscolumns,
 						ADB_SEQ_ROWID_ARGS_COMMA(const RangeTblEntry *rte)
 						List *src_colnames,

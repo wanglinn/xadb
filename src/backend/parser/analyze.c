@@ -3666,7 +3666,7 @@ test_raw_expression_coverage(Node *node, void *context)
 #ifdef ADB_GRAM_ORA
 typedef struct JoinExprInfo
 {
-	Node		*expr;		/* join clause */
+	Node	   *expr;		/* join clause */
 	JoinType	type;		/* */
 	Index		lrtindex;
 	Index		rrtindex;
@@ -3675,8 +3675,8 @@ typedef struct JoinExprInfo
 
 typedef struct GetOraColumnJoinContext
 {
-	ParseState *pstate;
-	JoinExprInfo *info;
+	ParseState	   *pstate;
+	JoinExprInfo   *info;
 }GetOraColumnJoinContext;
 
 typedef struct PullupRelForJoinContext
@@ -3685,7 +3685,8 @@ typedef struct PullupRelForJoinContext
 	Node *rarg;
 }PullupRelForJoinContext;
 
-static bool have_ora_column_join(Node *node, void *context)
+static bool
+have_ora_column_join(Node *node, void *context)
 {
 	if(node == NULL)
 	{
@@ -3697,7 +3698,8 @@ static bool have_ora_column_join(Node *node, void *context)
 	return expression_tree_walker(node, have_ora_column_join, context);
 }
 
-static bool get_ora_column_join_walker(Node *node, GetOraColumnJoinContext *context)
+static bool
+get_ora_column_join_walker(Node *node, GetOraColumnJoinContext *context)
 {
 	AssertArg(context && context->info && context->pstate);
 	if(node == NULL)
@@ -3716,9 +3718,10 @@ static bool get_ora_column_join_walker(Node *node, GetOraColumnJoinContext *cont
 			info->location = crj->location;
 		}else if(info->rrtindex != crj->var->varno)
 		{
-			ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
-				,errmsg("a predicate may reference only one outer-joined table")
-				,parser_errposition(context->pstate, crj->location)));
+			ereport(ERROR,
+					errcode(ERRCODE_SYNTAX_ERROR),
+					errmsg("a predicate may reference only one outer-joined table"),
+					parser_errposition(context->pstate, crj->location));
 		}
 		return false;
 	}else if(IsA(node, Var))
@@ -3726,8 +3729,8 @@ static bool get_ora_column_join_walker(Node *node, GetOraColumnJoinContext *cont
 		Var *var = (Var*)node;
 		JoinExprInfo *info = context->info;
 		Assert(var->varno != 0);
-		if(info->lrtindex == var->varno
-			|| info->rrtindex == var->varno)
+		if (info->lrtindex == var->varno ||
+			info->rrtindex == var->varno)
 		{
 			return false;
 		}
@@ -3735,23 +3738,25 @@ static bool get_ora_column_join_walker(Node *node, GetOraColumnJoinContext *cont
 		if(info->lrtindex == 0)
 		{
 			info->lrtindex = var->varno;
-		}else if(info->rrtindex == 0
-			&& info->type == JOIN_INNER)
+		}else if(info->rrtindex == 0 &&
+				 info->type == JOIN_INNER)
 		{
 			info->rrtindex = var->varno;
-		}else if(info->rrtindex != var->varno
-			&& info->lrtindex != var->varno)
+		}else if(info->rrtindex != var->varno &&
+				 info->lrtindex != var->varno)
 		{
-			ereport(ERROR, (errcode(ERRCODE_SYNTAX_ERROR)
-				,errmsg("a predicate may reference only one outer-joined table")
-				, parser_errposition(context->pstate, info->location)));
+			ereport(ERROR,
+					errcode(ERRCODE_SYNTAX_ERROR),
+					errmsg("a predicate may reference only one outer-joined table"),
+					parser_errposition(context->pstate, info->location));
 		}
 		return false;
 	}
 	return expression_tree_walker(node, get_ora_column_join_walker, context);
 }
 
-static JoinExprInfo* get_ora_column_join(Node *expr, ParseState *pstate)
+static JoinExprInfo*
+get_ora_column_join(Node *expr, ParseState *pstate)
 {
 	GetOraColumnJoinContext context;
 	JoinExprInfo *jinfo = palloc(sizeof(JoinExprInfo));
@@ -3766,7 +3771,8 @@ static JoinExprInfo* get_ora_column_join(Node *expr, ParseState *pstate)
 	return jinfo;
 }
 
-static Node* remove_column_join_expr(Node *node, void *context)
+static Node*
+remove_column_join_expr(Node *node, void *context)
 {
 	if(node == NULL)
 		return NULL;
@@ -3775,8 +3781,9 @@ static Node* remove_column_join_expr(Node *node, void *context)
 	return expression_tree_mutator(node, remove_column_join_expr, context);
 }
 
-static bool combin_pullup_context(PullupRelForJoinContext *dest
-	, PullupRelForJoinContext *src)
+static bool
+combin_pullup_context(PullupRelForJoinContext *dest,
+					  PullupRelForJoinContext *src)
 {
 	bool res = false;
 	if(src->larg != NULL)
@@ -3794,13 +3801,14 @@ static bool combin_pullup_context(PullupRelForJoinContext *dest
 	return res;
 }
 
-static bool pullup_rel_for_join(Node *node, JoinExprInfo *jinfo
-	, ParseState *pstate, PullupRelForJoinContext *context)
+static bool
+pullup_rel_for_join(Node *node, JoinExprInfo *jinfo,
+					ParseState *pstate, PullupRelForJoinContext *context)
 {
 	AssertArg(node && jinfo && jinfo->expr && pstate);
-	AssertArg(jinfo->lrtindex != 0 && jinfo->rrtindex != 0
-		&& jinfo->lrtindex != jinfo->rrtindex
-		&& (jinfo->type == JOIN_INNER || jinfo->type == JOIN_LEFT));
+	AssertArg(jinfo->lrtindex != 0 && jinfo->rrtindex != 0 &&
+			  jinfo->lrtindex != jinfo->rrtindex &&
+			  (jinfo->type == JOIN_INNER || jinfo->type == JOIN_LEFT));
 
 	if(IsA(node, FromExpr))
 	{
@@ -3834,7 +3842,7 @@ static bool pullup_rel_for_join(Node *node, JoinExprInfo *jinfo
 		if(context->larg == NULL || context->rarg == NULL)
 			return false;
 
-		/* now meke JoinExpr */
+		/* now make JoinExpr */
 		join = makeNode(JoinExpr);
 		join->jointype = jinfo->type;
 		join->larg = context->larg;
@@ -4017,44 +4025,85 @@ analyze_new_join(ParseState *pstate, Node *node,
 				 ParseNamespaceItem **top_nsitem,
 				 List **namespace)
 {
-#warning need merge again
 	Assert(pstate && node && top_nsitem);
 	if(IsA(node, JoinExpr))
 	{
 		JoinExpr *j = (JoinExpr*)node;
 		if(j->rtindex == 0)
 		{
-#if 0
 			/* new join expr */
-			ParseNamespaceItem *pni;
-			ParseNamespaceItem *l_pni;
-			ParseNamespaceItem *r_pni;
+			ParseNamespaceItem *nsitem;
+			ParseNamespaceItem *l_nsitem;
+			ParseNamespaceItem *r_nsitem;
 			ListCell		   *lc;
 			List			   *l_namespace,
-							   *r_namespace;
-			List *res_colnames,
-				 *colnames,
-				 *res_colvars,
-				 *colvars,
-				 *res_namelist,
-				 *arg_namelist;
+							   *r_namespace,
+							   *my_namespace,
+							   *l_colnames,
+							   *r_colnames,
+							   *res_colnames = NIL,
+							   *l_colnos = NIL,
+							   *r_colnos = NIL,
+							   *res_colvars = NIL;
+			ParseNamespaceColumn   *res_nscolumns;
 			int				k;
 			int				res_colindex;
 
 			Assert(j->jointype == JOIN_INNER || j->jointype == JOIN_LEFT);
-			analyze_new_join(pstate, j->larg, &l_pni, &l_namespace);
-			analyze_new_join(pstate, j->rarg, &r_pni, &r_namespace);
+			analyze_new_join(pstate, j->larg, &l_nsitem, &l_namespace);
+			analyze_new_join(pstate, j->rarg, &r_nsitem, &r_namespace);
 			Assert((checkNameSpaceConflicts(pstate, l_namespace, r_namespace), true));
 
-			res_colnames = list_concat(res_colnames, colnames);
-			res_colvars = list_concat(res_colvars, colvars);
-			res_namelist = list_concat(res_namelist, arg_namelist);
+			my_namespace = list_concat(l_namespace, r_namespace);
+			l_colnames = l_nsitem->p_rte->eref->colnames;
+			r_colnames = r_nsitem->p_rte->eref->colnames;
 
-			*top_rte = addRangeTableEntryForJoin(pstate, res_colnames, j->jointype
-						, res_colvars, j->alias, true);
-			j->rtindex = list_length(pstate->p_rtable);
-			Assert(*top_rte == rt_fetch(j->rtindex, pstate->p_rtable));
-			*rtindex = j->rtindex;
+			/* this may be larger than needed, but it's not worth being exact */
+			res_nscolumns = (ParseNamespaceColumn *)
+				palloc0((list_length(l_colnames) + list_length(r_colnames)) *
+						sizeof(ParseNamespaceColumn));
+
+			res_colindex = 
+				extractRemainingColumns(l_nsitem->p_nscolumns,
+										ADB_SEQ_ROWID_ARGS_COMMA(l_nsitem->p_rte)
+										l_colnames, &l_colnos,
+										&res_colnames, &res_colvars,
+										res_nscolumns);
+			res_colindex +=
+				extractRemainingColumns(r_nsitem->p_nscolumns,
+										ADB_SEQ_ROWID_ARGS_COMMA(r_nsitem->p_rte)
+										r_colnames, &r_colnos,
+										&res_colnames, &res_colvars,
+										res_nscolumns + res_colindex);
+
+			nsitem = addRangeTableEntryForJoin(pstate,
+											   res_colnames,
+											   res_nscolumns,
+											   j->jointype,
+											   list_length(j->usingClause),
+											   res_colvars,
+											   l_colnos,
+											   r_colnos,
+											   j->alias,
+											   true);
+
+			j->rtindex = nsitem->p_rtindex;
+
+			/*
+			 * Now that we know the join RTE's rangetable index, we can fix up the
+			 * res_nscolumns data in places where it should contain that.
+			 */
+			Assert(res_colindex == list_length(nsitem->p_rte->eref->colnames));
+			for (k = 0; k < res_colindex; k++)
+			{
+				ParseNamespaceColumn *nscol = res_nscolumns + k;
+
+				/* fill in join RTI for merged columns */
+				if (nscol->p_varno == 0)
+					nscol->p_varno = j->rtindex;
+				if (nscol->p_varnosyn == 0)
+					nscol->p_varnosyn = j->rtindex;
+			}
 
 			/* make a matching link to the JoinExpr for later use */
 			for (k = list_length(pstate->p_joinexprs) + 1; k < j->rtindex; k++)
@@ -4062,24 +4111,17 @@ analyze_new_join(ParseState *pstate, Node *node,
 			pstate->p_joinexprs = lappend(pstate->p_joinexprs, j);
 			Assert(list_length(pstate->p_joinexprs) == j->rtindex);
 
-			foreach(lc, res_namelist)
-			{
-				pni = lfirst(lc);
-				pni->p_cols_visible = false;
-			}
-			pni = palloc0(sizeof(*pni));
-			pni->p_rte = *top_rte;
-			Assert(j->alias == NULL);
-			pni->p_rel_visible = false;
-			pni->p_cols_visible = true;
-			pni->p_lateral_only = false;
-			pni->p_lateral_ok = true;
-			*namelist = lappend(res_namelist, pni);
-#else
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("merge code not finish")));
-#endif
+			/* inline setNamespaceColumnVisibility(my_namespace, false) */
+			foreach(lc, my_namespace)
+				((ParseNamespaceItem*)lfirst(lc))->p_cols_visible = false;
+
+			nsitem->p_rel_visible = true;
+			nsitem->p_cols_visible = true;
+			nsitem->p_lateral_only = false;
+			nsitem->p_lateral_ok = true;
+
+			*top_nsitem = nsitem;
+			*namespace = lappend(my_namespace, nsitem);
 		}else
 		{
 			*top_nsitem = find_namespace_item_for_rte(pstate->p_namespace, j->rtindex);
@@ -4216,7 +4258,8 @@ next_qual_list:
  *  from ((t1 left join t3 on t1.id=t3.id) left join t4 on t1.id=t4.id) left join t2 on t1.id=t2.id
  *  where other
  */
-static Node* transformFromAndWhere(ParseState *pstate, Node *quals)
+static Node*
+transformFromAndWhere(ParseState *pstate, Node *quals)
 {
 	List *qual_list,
 		 *new_namelist;
@@ -4225,8 +4268,8 @@ static Node* transformFromAndWhere(ParseState *pstate, Node *quals)
 	JoinExprInfo *jinfo;
 	PullupRelForJoinContext context;
 
-	if(pstate->p_joinlist == NIL
-		|| have_ora_column_join(quals, NULL) == false)
+	if (pstate->p_joinlist == NIL ||
+		have_ora_column_join(quals, NULL) == false)
 		return quals;
 
 	if(list_length(pstate->p_joinlist) == 1)
@@ -4244,8 +4287,8 @@ static Node* transformFromAndWhere(ParseState *pstate, Node *quals)
 		ListCell *tmp = lc;
 		jinfo = lfirst(lc);
 
-		if(jinfo->lrtindex == 0
-			|| jinfo->rrtindex == 0)
+		if (jinfo->lrtindex == 0 ||
+			jinfo->rrtindex == 0)
 		{
 			/* keep single table's clause and remove jinfo */
 			lfirst(tmp) = remove_column_join_expr(jinfo->expr, NULL);
@@ -4261,15 +4304,6 @@ static Node* transformFromAndWhere(ParseState *pstate, Node *quals)
 		}
 		qual_list = foreach_delete_current(qual_list, lc);
 		pfree(jinfo);
-	}
-
-	/* save namespace */
-	Assert(pstate->p_save_namespace == NIL);
-	foreach(lc, pstate->p_namespace)
-	{
-		ParseNamespaceItem *ni = palloc(sizeof(*ni));
-		memcpy(ni, lfirst(lc), sizeof(*ni));
-		pstate->p_save_namespace = lappend(pstate->p_save_namespace, ni);
 	}
 
 	{
