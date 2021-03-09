@@ -88,6 +88,57 @@
 /* This macro just to mark which code is ADB extension feature */
 #define ADB_EXT 1
 
+#define MACRO_ARGS(...) 		__VA_ARGS__
+
+#ifdef ADB
+#define ADB_ONLY_CODE(...)		__VA_ARGS__
+#define ADB_ELSE_CODE(a_, b_)	a_
+#else
+#define ADB_ONLY_CODE(...)
+#define ADB_ELSE_CODE(a_, b_)	b_
+#endif
+#define ADB_ONLY_ARG_COMMA(v)				ADB_ONLY_CODE(v,)
+#define ADB_ONLY_ARG2_COMMA(v1, v2)			ADB_ONLY_CODE(v1, v2, )
+#define ADB_ONLY_COMMA_ARG(v)				ADB_ONLY_CODE(,v)
+#define ADB_ONLY_COMMA_ARG2(v1, v2)			ADB_ONLY_CODE(,v1, v2)
+
+#ifdef ADB_MULTI_GRAM
+#define MULTI_GRAM_CODE(...)	__VA_ARGS__
+#define MULTI_GRAM_ELSE(a_, b_)	a_
+#else
+#define MULTI_GRAM_CODE(...)
+#define MULTI_GRAM_ELSE(a_, b_)	b_
+#endif
+#define ADB_MULTI_GRAM_ARG_COMMA(v)			MULTI_GRAM_CODE(v ,)
+#define ADB_MULTI_GRAM_ARG2_COMMA(v1, v2)	MULTI_GRAM_CODE(v1, v2,)
+#define ADB_MULTI_GRAM_COMMA_ARG(v)			MULTI_GRAM_CODE(, v)
+#define ADB_MULTI_GRAM_COMMA_ARG2(v1, v2)	MULTI_GRAM_CODE(, v1, v2)
+#define ADB_MULTI_GRAM_CODE					MULTI_GRAM_CODE
+
+#ifdef ADB_GRAM_ORA
+#define GRAM_ORA_CODE(...)		__VA_ARGS__
+#define GRAM_ORA_ELSE(a_, b_)	a_
+#else
+#define GRAM_ORA_CODE(...)
+#define GRAM_ORA_ELSE(a_, b_)	b_
+#endif
+#define ADB_GRAM_ORA_ARG_COMMA(v)			GRAM_ORA_CODE(v ,)
+#define ADB_GRAM_ORA_ARG2_COMMA(v1, v2)		GRAM_ORA_CODE(v1, v2,)
+#define ADB_GRAM_ORA_COMMA_ARG(v)			GRAM_ORA_CODE(, v)
+#define ADB_GRAM_ORA_COMMA_ARG2(v1, v2)		GRAM_ORA_CODE(, v1, v2)
+#define ADB_GRAM_ORA_CODE					GRAM_ORA_CODE
+
+#ifdef USE_SEQ_ROWID
+#ifndef ADB_GRAM_ORA
+#error ADB_GRAM_ORA must be defined
+#endif
+#define ADB_SEQ_ROWID_CODE(...)					__VA_ARGS__
+#else
+#define ADB_SEQ_ROWID_CODE(...)
+#endif
+#define ADB_SEQ_ROWID_ARGS_COMMA(...)			ADB_SEQ_ROWID_CODE(__VA_ARGS__ ,)
+#define ADB_SEQ_ROWID_COMMA_ARGS(...)			ADB_SEQ_ROWID_CODE(, __VA_ARGS__)
+
 #if defined(WITH_RDMA)
 #define ADB_RDMA_COMMA_ARG(v)		,v
 #else

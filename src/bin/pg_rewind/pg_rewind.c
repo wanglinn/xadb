@@ -52,14 +52,11 @@ const char *progname;
 int			WalSegSz;
 
 #ifdef ADB
-#define ADB_ONLY_CODE(v) v
 /* target node name */
 const char	*nodename;
 #define target_nodename	nodename
 /* source node name */
 const char	*source_nodename;
-#else
-#define ADB_ONLY_CODE(v)
 #endif
 
 /* Configuration options */

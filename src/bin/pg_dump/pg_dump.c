@@ -299,12 +299,10 @@ static char *get_synchronized_snapshot(Archive *fout);
 static void setupDumpWorker(Archive *AHX);
 static TableInfo *getRootTableInfo(TableInfo *tbinfo);
 #if defined(ADB_GRAM_ORA) && defined(USE_SEQ_ROWID)
-#define ADB_SEQ_ROWID_CODE(c)				c
 #define ORA_ROWID_COLUMN_INDEX				0
 #define IsOraRowidColumn(tbinfo,ncol) (ncol == ORA_ROWID_COLUMN_INDEX && HaveOraRowidColumn(tbinfo))
 static bool HaveOraRowidColumn(const TableInfo *tbinfo);
 #else
-#define ADB_SEQ_ROWID_CODE(c)
 #endif /* ADB_GRAM_ORA && USE_SEQ_ROWID */
 #ifdef ADB_MULTI_GRAM
 static int get_grammar_model(const char* data);

@@ -47,61 +47,6 @@
 #include "utils/elog.h"
 #include "utils/palloc.h"
 
-#if defined(ADB)
-#define ADB_ONLY_ARG_COMMA(v)		v,
-#define ADB_ONLY_ARG2_COMMA(v1, v2)	v1, v2,
-#define ADB_ONLY_COMMA_ARG(v)		,v
-#define ADB_ONLY_COMMA_ARG2(v1, v2)	,v1, v2
-#define ADB_ONLY_CODE(c) c
-#else
-#define ADB_ONLY_ARG_COMMA(v)
-#define ADB_ONLY_ARG2_COMMA(v1, v2)
-#define ADB_ONLY_COMMA_ARG(v)
-#define ADB_ONLY_COMMA_ARG2(v1, v2)
-#define ADB_ONLY_CODE(c)
-#endif /* ADB */
-
-#if defined(ADB_MULTI_GRAM)
-#define ADB_MULTI_GRAM_ARG_COMMA(v)				v ,
-#define ADB_MULTI_GRAM_ARG2_COMMA(v1, v2)		v1, v2,
-#define ADB_MULTI_GRAM_COMMA_ARG(v)				, v
-#define ADB_MULTI_GRAM_COMMA_ARG2(v1, v2)		, v1, v2
-#define ADB_MULTI_GRAM_CODE(c)					c
-#else
-#define ADB_MULTI_GRAM_ARG_COMMA(v)
-#define ADB_MULTI_GRAM_ARG2_COMMA(v1, v2)
-#define ADB_MULTI_GRAM_COMMA_ARG(v)
-#define ADB_MULTI_GRAM_COMMA_ARG2(v1, v2)
-#define ADB_MULTI_GRAM_CODE(c)
-#endif
-
-#if defined(ADB_GRAM_ORA)
-#define ADB_GRAM_ORA_ARG_COMMA(v)				v ,
-#define ADB_GRAM_ORA_ARG2_COMMA(v1, v2)			v1, v2,
-#define ADB_GRAM_ORA_COMMA_ARG(v)				, v
-#define ADB_GRAM_ORA_COMMA_ARG2(v1, v2)			, v1, v2
-#define ADB_GRAM_ORA_CODE(c)					c
-#else
-#define ADB_GRAM_ORA_ARG_COMMA(v)
-#define ADB_GRAM_ORA_ARG2_COMMA(v1, v2)
-#define ADB_GRAM_ORA_COMMA_ARG(v)
-#define ADB_GRAM_ORA_COMMA_ARG2(v1, v2)
-#define ADB_GRAM_ORA_CODE(c)
-#endif
-
-#ifdef USE_SEQ_ROWID
-#ifndef ADB_GRAM_ORA
-#error ADB_GRAM_ORA must be defined
-#endif
-#define ADB_SEQ_ROWID_ARGS_COMMA(...)			__VA_ARGS__ ,
-#define ADB_SEQ_ROWID_COMMA_ARGS(...)			, __VA_ARGS__
-#define ADB_SEQ_ROWID_CODE(c)					c
-#else
-#define ADB_SEQ_ROWID_ARGS_COMMA(...)
-#define ADB_SEQ_ROWID_COMMA_ARGS(...)
-#define ADB_SEQ_ROWID_CODE(c)
-#endif
-
 /* ----------------------------------------------------------------
  *				Section 1:	variable-length datatypes (TOAST support)
  * ----------------------------------------------------------------
