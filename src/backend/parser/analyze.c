@@ -4038,14 +4038,7 @@ analyze_new_join(ParseState *pstate, Node *node,
 			ListCell		   *lc;
 			List			   *l_namespace,
 							   *r_namespace,
-							   *my_namespace,
-							   *l_colnames,
-							   *r_colnames,
-							   *res_colnames = NIL,
-							   *l_colnos = NIL,
-							   *r_colnos = NIL,
-							   *res_colvars = NIL;
-			ParseNamespaceColumn   *res_nscolumns;
+							   *my_namespace;
 			int				k;
 			int				res_colindex;
 
@@ -4055,37 +4048,12 @@ analyze_new_join(ParseState *pstate, Node *node,
 			Assert((checkNameSpaceConflicts(pstate, l_namespace, r_namespace), true));
 
 			my_namespace = list_concat(l_namespace, r_namespace);
-			l_colnames = l_nsitem->p_rte->eref->colnames;
-			r_colnames = r_nsitem->p_rte->eref->colnames;
 
-			/* this may be larger than needed, but it's not worth being exact */
-			res_nscolumns = (ParseNamespaceColumn *)
-				palloc0((list_length(l_colnames) + list_length(r_colnames)) *
-						sizeof(ParseNamespaceColumn));
-
-			res_colindex = 
-				extractRemainingColumns(l_nsitem->p_nscolumns,
-										ADB_SEQ_ROWID_ARGS_COMMA(l_nsitem->p_rte)
-										l_colnames, &l_colnos,
-										&res_colnames, &res_colvars,
-										res_nscolumns);
-			res_colindex +=
-				extractRemainingColumns(r_nsitem->p_nscolumns,
-										ADB_SEQ_ROWID_ARGS_COMMA(r_nsitem->p_rte)
-										r_colnames, &r_colnos,
-										&res_colnames, &res_colvars,
-										res_nscolumns + res_colindex);
-
-			nsitem = addRangeTableEntryForJoin(pstate,
-											   res_colnames,
-											   res_nscolumns,
-											   j->jointype,
-											   list_length(j->usingClause),
-											   res_colvars,
-											   l_colnos,
-											   r_colnos,
-											   j->alias,
-											   true);
+			nsitem = addSimpleTableEntryForJoin(pstate,
+												j->alias,
+												l_nsitem,
+												r_nsitem,
+												j->jointype);
 
 			j->rtindex = nsitem->p_rtindex;
 
@@ -4093,10 +4061,10 @@ analyze_new_join(ParseState *pstate, Node *node,
 			 * Now that we know the join RTE's rangetable index, we can fix up the
 			 * res_nscolumns data in places where it should contain that.
 			 */
-			Assert(res_colindex == list_length(nsitem->p_rte->eref->colnames));
+			res_colindex = list_length(nsitem->p_rte->eref->colnames);
 			for (k = 0; k < res_colindex; k++)
 			{
-				ParseNamespaceColumn *nscol = res_nscolumns + k;
+				ParseNamespaceColumn *nscol = nsitem->p_nscolumns + k;
 
 				/* fill in join RTI for merged columns */
 				if (nscol->p_varno == 0)

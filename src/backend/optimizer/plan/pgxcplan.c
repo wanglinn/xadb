@@ -348,20 +348,51 @@ pgxc_build_shippable_query_baserel(PlannerInfo *root, RemoteQueryPath *rqpath,
  * of names of the form prefix_{1,...,num_cols}
  */
 static List *
-pgxc_generate_colnames(char *prefix, int num_cols)
+pgxc_generate_colnames(const char *prefix, int num_cols)
 {
 	List	*colnames = NIL;
-	StringInfo	colname = makeStringInfo();
+	StringInfoData	colname;
 	int		cnt_col;
-	for (cnt_col = 0; cnt_col < num_cols; cnt_col++)
+
+	initStringInfo(&colname);
+	for (cnt_col = 0; cnt_col < num_cols;)
 	{
-		appendStringInfo(colname, "%s_%d", prefix, cnt_col + 1);
-		colnames = lappend(colnames, makeString(pstrdup(colname->data)));
-		resetStringInfo(colname);
+		++cnt_col;
+		appendStringInfo(&colname, "%s_%d", prefix, cnt_col);
+		colnames = lappend(colnames, makeString(pstrdup(colname.data)));
+		resetStringInfo(&colname);
 	}
-	pfree(colname->data);
-	pfree(colname);
+	pfree(colname.data);
 	return colnames;
+}
+
+static ParseNamespaceItem *
+adb_build_shippable_query_join_item(ParseState *pstate, PlannerInfo *root, RemoteQueryPath *path,
+									const char *aliasname, RangeTblRef **rtr,
+									List **unshippable_quals, List **rep_tlist)
+{
+	Query	   *query;
+	List	   *colnames;
+	Alias	   *alias;
+	ParseNamespaceItem *pitem;
+
+	query = pgxc_build_shippable_query_recurse(root,
+											   path,
+											   unshippable_quals,
+											   rep_tlist);
+	colnames = pgxc_generate_colnames("a", list_length(*rep_tlist));
+	alias = makeAlias(aliasname, colnames);
+
+	/*
+	 * As of now (1st Nov. 2013) we do not expect a LATERAL query to be shipped
+	 * through this function. See notes in prologue of
+	 * create_remotequery_path().
+	 */
+	pitem = addRangeTableEntryForSubquery(pstate, query, alias, false, false);
+	*rtr = makeNode(RangeTblRef);
+	(*rtr)->rtindex = pitem->p_rtindex;
+
+	return pitem;
 }
 
 /*
@@ -375,89 +406,43 @@ static Query *
 pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 									List **unshippable_quals, List **rep_tlist)
 {
-#if 1
-#warning TODO: merge
-	ereport(ERROR,
-			errmsg("not merge finish"));
-#else
 	/* Variables for the part of the Query representing the JOIN */
 	Query			*join_query;
 	FromExpr		*from_expr;
-	List			*rtable = NIL;
 	List			*tlist;
 	JoinExpr		*join_expr;
 	List			*join_clauses;
 	List			*other_clauses;
 	List			*varlist;
-	RangeTblEntry	*join_rte;
+	ParseNamespaceItem	*join_item;
 	/* Variables for the left side of the JOIN */
-	Query			*left_query;
 	List			*left_us_quals;
 	List			*left_rep_tlist;
-	RangeTblEntry	*left_rte;
-	Alias			*left_alias;
-	List			*left_colnames;
-	char			*left_aname = "l";	/* For the time being! Do we really care
-										 * about unique alias names across the
-										 * tree
-										 */
-	RangeTblRef		*left_rtr;
-	List			*left_colvars;
+	ParseNamespaceItem *left_item;
 
 	/* Variables for the right side of the JOIN */
-	Query			*right_query;
 	List			*right_us_quals;
 	List			*right_rep_tlist;
-	RangeTblEntry	*right_rte;
-	Alias 			*right_alias;
-	List			*right_colnames;
-	char			*right_aname = "r";
-	RangeTblRef		*right_rtr;
-	List			*right_colvars;
+	ParseNamespaceItem *right_item;
 	/* Miscellaneous variables */
 	ListCell		*lcell;
+	ParseState		*pstate;
 
 	if (!rqpath->leftpath || !rqpath->rightpath)
 		elog(ERROR, "a join relation path should have both left and right paths");
 
-	/*
-	 * Build the query representing the left side of JOIN and add corresponding
-	 * RTE with proper aliases
-	 */
-	left_query = pgxc_build_shippable_query_recurse(root, rqpath->leftpath,
+	pstate = make_parsestate(NULL);
+	join_expr = makeNode(JoinExpr);
+
+	left_item = adb_build_shippable_query_join_item(pstate, root, rqpath->leftpath, "l",
+													(RangeTblRef**)&join_expr->larg,
 													&left_us_quals,
 													&left_rep_tlist);
-	left_colnames = pgxc_generate_colnames("a", list_length(left_rep_tlist));
-	left_alias = makeAlias(left_aname, left_colnames);
-	/*
-	 * As of now (1st Nov. 2013) we do not expect a LATERAL query to be shipped
-	 * through this function. See notes in prologue of
-	 * create_remotequery_path().
-	 */
-	left_rte = addRangeTableEntryForSubquery(NULL, left_query, left_alias,
-												false, false);
-	rtable = lappend(rtable, left_rte);
-	left_rtr = makeNode(RangeTblRef);
-	left_rtr->rtindex = list_length(rtable);
-	/*
-	 * Build the query representing the right side of JOIN and add corresponding
-	 * RTE with proper aliases
-	 */
-	right_query = pgxc_build_shippable_query_recurse(root, rqpath->rightpath,
-													&right_us_quals,
-													&right_rep_tlist);
-	right_colnames = pgxc_generate_colnames("a", list_length(right_rep_tlist));
-	right_alias = makeAlias(right_aname, right_colnames);
-	/*
-	 * As of now (1st Nov. 2013) we do not expect a LATERAL query to be shipped
-	 * through this function. See notes in prologue of
-	 * create_remotequery_path().
-	 */
-	right_rte = addRangeTableEntryForSubquery(NULL, right_query, right_alias,
-											  false, false);
-	rtable = lappend(rtable, right_rte);
-	right_rtr = makeNode(RangeTblRef);
-	right_rtr->rtindex = list_length(rtable);
+
+	right_item = adb_build_shippable_query_join_item(pstate, root, rqpath->rightpath, "r",
+													 (RangeTblRef**)&join_expr->rarg,
+													 &right_us_quals,
+													 &right_rep_tlist);
 
 	if (left_us_quals || right_us_quals)
 		elog(ERROR, "unexpected unshippable quals in JOIN tree");
@@ -518,7 +503,7 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 		tle = tlist_member((Expr *)var, left_rep_tlist);
 		if (tle)
 		{
-			var->varno = left_rtr->rtindex;
+			var->varno = left_item->p_rtindex;
 			var->varattno = tle->resno;
 		}
 		else
@@ -526,7 +511,7 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 			tle = tlist_member((Expr *)var, right_rep_tlist);
 			if (tle)
 			{
-				var->varno = right_rtr->rtindex;
+				var->varno = right_item->p_rtindex;
 				var->varattno = tle->resno;
 			}
 			else
@@ -539,25 +524,12 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 	list_free(varlist);
 
 	/* Build the Join expression with the above left and right queries */
-	join_expr = makeNode(JoinExpr);
 	join_expr->jointype = rqpath->jointype;
-	join_expr->larg = (Node *)left_rtr;
-	join_expr->rarg = (Node *)right_rtr;
 	join_expr->quals = (Node *)make_ands_explicit(join_clauses);
 
-	/* Build the RTE for JOIN query being created and add it to the rtable */
-	/* We need to construct joinaliasvars from the joining RTEs */
-	expandRTE(left_rte, left_rtr->rtindex, 0, -1, false, NULL, &left_colvars);
-	expandRTE(right_rte, right_rtr->rtindex, 0, -1, false, NULL, &right_colvars);
-	join_rte = addRangeTableEntryForJoin(NULL,
-										list_concat(copyObject(left_colnames),
-													copyObject(right_colnames)),
-										rqpath->jointype,
-										list_concat(left_colvars, right_colvars),
-										NULL, false);
-	rtable = lappend(rtable, join_rte);
+	join_item = addSimpleTableEntryForJoin(pstate, NULL, left_item, right_item, rqpath->jointype);
 	/* Put the index of this RTE in Join expression */
-	join_expr->rtindex = list_length(rtable);
+	join_expr->rtindex = join_item->p_rtindex;
 
 	/* Build the From clause of the JOIN query */
 	from_expr = makeNode(FromExpr);
@@ -567,12 +539,13 @@ pgxc_build_shippable_query_jointree(PlannerInfo *root, RemoteQueryPath *rqpath,
 	/* Build the query now */
 	join_query = makeNode(Query);
 	join_query->commandType = CMD_SELECT;
-	join_query->rtable = rtable;
+	join_query->rtable = pstate->p_rtable;
 	join_query->jointree = from_expr;
 	join_query->targetList = tlist;
 
+	free_parsestate(pstate);
+
 	return join_query;
-#endif
 }
 
 /*

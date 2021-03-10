@@ -106,6 +106,15 @@ extern ParseNamespaceItem *addRangeTableEntryForParamTupleStore(ParseState *psta
 																int paramid,
 																bool inFromCl);
 #endif /* ADB */
+#if defined(ADB) || defined(ADB_GRAM_ORA)
+/* in parse_clause.c */
+extern ParseNamespaceItem *addSimpleTableEntryForJoin(ParseState *pstate,
+													  Alias *alias,
+													  ParseNamespaceItem *left_nsitem,
+													  ParseNamespaceItem *right_nsitem,
+													  JoinType jointype);
+#endif /* ADB || ADB_GRAM_ORA */
+
 extern bool isLockedRefname(ParseState *pstate, const char *refname);
 extern void addNSItemToQuery(ParseState *pstate, ParseNamespaceItem *nsitem,
 							 bool addToJoinList,

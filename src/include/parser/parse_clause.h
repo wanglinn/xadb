@@ -50,11 +50,5 @@ extern List *addTargetToSortList(ParseState *pstate, TargetEntry *tle,
 								 List *sortlist, List *targetlist, SortBy *sortby);
 extern Index assignSortGroupRef(TargetEntry *tle, List *tlist);
 extern bool targetIsInSortList(TargetEntry *tle, Oid sortop, List *sortList);
-extern int	extractRemainingColumns(ParseNamespaceColumn *src_nscolumns,
-									ADB_SEQ_ROWID_ARGS_COMMA(const RangeTblEntry *rte)
-									List *src_colnames,
-									List **src_colnos,
-									List **res_colnames, List **res_colvars,
-									ParseNamespaceColumn *res_nscolumns);
 
 #endif							/* PARSE_CLAUSE_H */

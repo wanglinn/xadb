@@ -61,6 +61,12 @@ extern bool enable_aux_dml;
 #endif
 
 
+static int	extractRemainingColumns(ParseNamespaceColumn *src_nscolumns,
+									ADB_SEQ_ROWID_ARGS_COMMA(const RangeTblEntry *rte)
+									List *src_colnames,
+									List **src_colnos,
+									List **res_colnames, List **res_colvars,
+									ParseNamespaceColumn *res_nscolumns);
 static Node *transformJoinUsingClause(ParseState *pstate,
 									  RangeTblEntry *leftRTE, RangeTblEntry *rightRTE,
 									  List *leftVars, List *rightVars);
@@ -3766,3 +3772,46 @@ transformFrameOffset(ParseState *pstate, int frameOptions,
 
 	return node;
 }
+
+#if defined(ADB) || defined(ADB_GRAM_ORA)
+ParseNamespaceItem *
+addSimpleTableEntryForJoin(ParseState *pstate, Alias *alias,
+						   ParseNamespaceItem *left_nsitem, ParseNamespaceItem *right_nsitem,
+						   JoinType jointype)
+{
+	ParseNamespaceColumn *res_nscolumns;
+	int			colindex;
+	List	   *res_colnames = NIL,
+			   *l_colnos = NIL,
+			   *r_colnos = NIL,
+			   *res_colvars = NIL,
+			   *l_colnames = left_nsitem->p_rte->eref->colnames,
+			   *r_colnames = right_nsitem->p_rte->eref->colnames;
+
+	res_nscolumns = palloc0((list_length(l_colnames) + list_length(r_colnames)) *
+							sizeof(res_nscolumns[0]));
+	
+	colindex = 
+		extractRemainingColumns(left_nsitem->p_nscolumns,
+								ADB_SEQ_ROWID_ARGS_COMMA(left_nsitem->p_rte)
+								l_colnames, &l_colnos,
+								&res_colnames, &res_colvars,
+								res_nscolumns);
+	extractRemainingColumns(right_nsitem->p_nscolumns,
+							ADB_SEQ_ROWID_ARGS_COMMA(right_nsitem->p_rte)
+							r_colnames, &r_colnos,
+							&res_colnames, &res_colvars,
+							res_nscolumns);
+
+	return addRangeTableEntryForJoin(pstate,
+									 res_colnames,
+									 res_nscolumns,
+									 jointype,
+									 0,
+									 res_colvars,
+									 l_colnos,
+									 r_colnos,
+									 alias,
+									 true);
+}
+#endif /* ADB || ADB_GRAM_ORA */
