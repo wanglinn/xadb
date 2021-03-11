@@ -163,6 +163,9 @@ void do_agent_command(StringInfo buf)
 	case AGT_CMD_CNDN_REFRESH_RECOVERCONF:
 		cmd_node_refresh_pgsql_paras(cmd_type, buf);
 		break;
+	case AGT_CMD_CNDN_REFRESH_PGSQLCONFAUTO:
+		cmd_node_refresh_pgsql_paras(cmd_type, buf);
+		break;
 	case AGT_CMD_CNDN_REFRESH_STANDBY:
 		cmd_node_refresh_standby_paras(buf);
 		break;
@@ -950,6 +953,24 @@ static void cmd_node_refresh_pgsql_paras(char cmdtype, StringInfo msg)
 			bforce = true;
 		appendStringInfo(&pgconffile, "%s/postgresql.conf", datapath);
 		appendStringInfo(&pgconffilebak, "%s/postgresql.conf.bak", datapath);
+		if(access(pgconffile.data, F_OK) !=0 )
+		{
+			ereport(ERROR, (errmsg("could not find: %s", pgconffile.data)));
+		}
+		/*copy postgresql.conf to postgresql.conf.bak*/
+		err = copyFile(pgconffilebak.data, pgconffile.data);
+		if (err)
+		{
+			unlink(pgconffilebak.data);
+			ereport(ERROR, (errmsg("could not copy %s to %s : %s", pgconffile.data, pgconffilebak.data, strerror(err))));
+		}
+	}
+	if (AGT_CMD_CNDN_REFRESH_PGSQLCONFAUTO == cmdtype)
+	{
+		if (AGT_CMD_CNDN_DELPARAM_PGSQLCONF_FORCE == cmdtype)
+			bforce = true;
+		appendStringInfo(&pgconffile, "%s/postgresql.auto.conf", datapath);
+		appendStringInfo(&pgconffilebak, "%s/postgresql.auto.conf.bak", datapath);
 		if(access(pgconffile.data, F_OK) !=0 )
 		{
 			ereport(ERROR, (errmsg("could not find: %s", pgconffile.data)));

@@ -7234,7 +7234,7 @@ void mgr_send_conf_parameters(char filetype, char *datapath, StringInfo infosend
 void mgr_send_conf_parameters_recovery(char *datapath, StringInfo infosendmsg, Oid hostoid, GetAgentCmdRst *getAgentCmdRst)
 {
 	if (mgr_is_recovery_guc_supported())
-		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONF, datapath, infosendmsg, hostoid, getAgentCmdRst);
+		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGSQLCONFAUTO, datapath, infosendmsg, hostoid, getAgentCmdRst);
 	else
 		mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_RECOVERCONF, datapath, infosendmsg, hostoid, getAgentCmdRst);
 }
