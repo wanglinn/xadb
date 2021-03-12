@@ -1965,7 +1965,7 @@ Snapshot SnapRcvGetSnapshot(Snapshot snap, TransactionId last_mxid,
 	TimestampTz		end;
 	uint32_t		req_key;
 
-	if (((IsInitProcessingMode() || !IsNormalDatabase()) && pg_atomic_read_u32(&SnapRcv->state) != WALRCV_STREAMING) || !adb_check_sync_nextid)
+	if(((IsInitProcessingMode()||!IsNormalDatabase())&&pg_atomic_read_u32(&SnapRcv->state)!=WALRCV_STREAMING)||!adb_check_sync_nextid)
 		return snap;
 
 	if (snap->xip == NULL)
