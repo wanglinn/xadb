@@ -2679,14 +2679,14 @@ bool checkGtmInfoInPGresult(PGresult *pgResult,
 		paramValue = PQgetvalue(pgResult, i, 1);
 		if (strcmp(paramName, "agtm_host") == 0)
 		{
-			if (!strcmp(paramValue, agtm_host) == 0)
+			if (strcmp(paramValue, agtm_host) != 0)
 			{
 				execOk = false;
 			}
 		}
 		else if (strcmp(paramName, "agtm_port") == 0)
 		{
-			if (!strcmp(paramValue, agtm_port) == 0)
+			if (strcmp(paramValue, agtm_port) != 0)
 			{
 				execOk = false;
 			}

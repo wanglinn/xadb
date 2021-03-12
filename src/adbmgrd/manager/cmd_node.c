@@ -1994,7 +1994,7 @@ void mgr_runmode_cndn_get_result(const char cmdtype, GetAgentCmdRst *getAgentCmd
 	char *mastername;
 	char *nodetypestr;
 	char nodetype;
-	char cmdtype_s = -1;
+	int cmdtype_s = -1;
 	int32 cndnport;
 	int masterport;
 	Oid hostOid;

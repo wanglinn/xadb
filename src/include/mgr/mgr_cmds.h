@@ -434,7 +434,7 @@ extern List *nodenames_supplier_of_argidx_1(PG_FUNCTION_ARGS, char nodetype);
 extern List *nodenames_supplier_of_clean_node(PG_FUNCTION_ARGS, char nodetype);
 extern void enable_doctor_consulting(List *nodenames, char nodetype);
 extern void disable_doctor_consulting(List *nodenames, char nodetype);
-extern char mgr_change_cmdtype_unbackend(char cmdtype);
+extern int mgr_change_cmdtype_unbackend(char cmdtype);
 extern HeapTuple build_common_command_tuple_four_col(const Name name, char type, bool status, const char *description);
 extern bool mgr_check_param_reload_postgresqlconf(char nodetype, Oid hostoid, int nodeport, char *address, char *check_param, char *expect_result);
 extern char mgr_get_nodetype(Name nodename);

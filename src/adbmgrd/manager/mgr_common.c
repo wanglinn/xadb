@@ -2219,7 +2219,7 @@ void disable_doctor_consulting(List *nodenames, char nodetype)
 	updateDoctorStatusOfMgrNodes(nodenames, nodetype, false, CURE_STATUS_NORMAL);
 }
 
-char mgr_change_cmdtype_unbackend(char cmdtype)
+int mgr_change_cmdtype_unbackend(char cmdtype)
 {
 	switch(cmdtype)
 	{
@@ -3888,7 +3888,7 @@ char mgr_get_nodetype(Name nodename)
 	Form_mgr_node mgr_node;
 	char nodetype = CNDN_TYPE_NONE;
 
-	Assert(nodename && nodename->data);
+	Assert(nodename);
 	ScanKeyInit(&key[0]
 				,Anum_mgr_node_nodename
 				,BTEqualStrategyNumber
@@ -3918,7 +3918,7 @@ void mgr_get_nodezone(Name nodename, Name zone)
 	HeapTuple tuple;
 	Form_mgr_node mgr_node = NULL;
 
-	Assert(nodename && nodename->data);
+	Assert(nodename);
 	ScanKeyInit(&key[0]
 				,Anum_mgr_node_nodename
 				,BTEqualStrategyNumber
