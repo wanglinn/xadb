@@ -285,7 +285,6 @@ extractRemainingColumns(ParseNamespaceColumn *src_nscolumns,
 	int			attnum;
 	ListCell   *lc;
 
-#warning TODO hide rownum column when using USE_SEQ_ROWID
 	/*
 	 * While we could just test "list_member_int(*src_colnos, attnum)" to
 	 * detect already-merged columns in the loop below, that would be O(N^2)

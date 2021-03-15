@@ -4410,7 +4410,7 @@ transformPartitionBoundForKey(ParseState *pstate, Relation parent,
 	else if (strategy == PARTITION_STRATEGY_RANGE)
 	{
 #ifdef ADB_GRAM_ORA
-		List	*currentchildren;
+		List	*currentchildren = NIL;
 #endif	/* ADB_GRAM_ORA */
 		if (spec->strategy != PARTITION_STRATEGY_RANGE)
 			ereport(ERROR,
