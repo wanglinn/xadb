@@ -2171,7 +2171,7 @@ BuildTupleFromCStrings(AttInMetadata *attinmeta, char **values)
 Datum
 BuildFieldFromCStrings(AttInMetadata *attinmeta, char *value, int fieldnum)
 {
-	TupleDesc	tupdesc = attinmeta->tupdesc;
+	TupleDesc	tupdesc PG_USED_FOR_ASSERTS_ONLY = attinmeta->tupdesc;
 	Datum	   	dvalue;
 	int			index;
 

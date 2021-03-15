@@ -382,7 +382,7 @@ transformExprRecurse(ParseState *pstate, Node *expr)
 		case T_CaseExpr:
 #ifdef ADB_GRAM_ORA
 		{
-			OraCoercionContext oldContext;
+			OraCoercionContext oldContext = ORA_COERCE_DEFAULT;
 			if (((CaseExpr *) expr)->isdecode)
 				oldContext = OraCoercionContextSwitchTo(ORA_COERCE_SPECIAL_FUNCTION);
 			PG_TRY();

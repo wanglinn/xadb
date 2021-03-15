@@ -254,7 +254,7 @@ static bool write_ora_target(StringInfo buf, TargetEntry *te, const char *source
 	StringInfoData	name;
 	int				i;
 	bool			result = false;
-	int				wchar_len;
+	int				wchar_len = 0;
 
 	if (te->as_location <= 0 &&
 		te->expr_len > 0 &&

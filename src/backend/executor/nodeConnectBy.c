@@ -1384,7 +1384,6 @@ static void SortHashEndLevelRow(ConnectByState *cbstate)
 	SortHashConnectByState *state = cbstate->private_state;
 	ExprContext			   *econtext;
 	int64				   *cur_num;
-	HashJoinTable			hjt;
 	Datum					cur_arr;
 	int64				   *rownum_val;
 	Datum					rownum_chain;
@@ -1408,7 +1407,6 @@ static void SortHashEndLevelRow(ConnectByState *cbstate)
 
 	/* save rows */
 	inner_slot = econtext->ecxt_innertuple;
-	hjt = cbstate->hjt;
 	for (i=0;i<state->sub_sort_row_size;++i)
 	{
 		HashSortRowData *row = &state->sub_sort_rows[i];

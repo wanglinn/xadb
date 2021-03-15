@@ -4962,7 +4962,7 @@ ATPrepCmd(List **wqueue, Relation rel, AlterTableCmd *cmd,
 #ifdef ADB_GRAM_ORA
 		{
 			volatile bool switched = false;
-			OraCoercionContext oldContext;
+			OraCoercionContext oldContext = ORA_COERCE_DEFAULT;
 
 			if (context->pstmt->utilityStmt &&
 				IsA(context->pstmt->utilityStmt, AlterTableStmt) &&

@@ -41,7 +41,6 @@
 #include "receivelog.h"
 #include "replication/basebackup.h"
 #include "streamutil.h"
-#include "catalog/catalog.h"
 
 #define ERRCODE_DATA_CORRUPTED	"XX001"
 
