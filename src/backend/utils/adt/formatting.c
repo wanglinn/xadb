@@ -3576,6 +3576,15 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 			}
 			continue;
 		}
+#ifdef ADB_GRAM_ORA
+		else if (n->type == NODE_TYPE_ACTION &&
+				 pt == PT_Oracle_Timestamp &&
+				 *(s) == '.')
+		{
+			s++;
+			extra_skip++;
+		}
+#endif	/* ADB_GRAM_ORA */
 
 		from_char_set_mode(out, n->key->date_mode, have_error);
 		CHECK_ERROR;
@@ -3734,7 +3743,7 @@ DCH_from_char(FormatNode *node, const char *in, TmFromChar *out,
 			case DCH_XFF:
 				out->ff = 6;
 			ora_dch_ff:
-				if (pt != PT_Normal)
+				if (pt != PT_Normal && pt != PT_Oracle_Timestamp)
 					RETURN_ERROR(ereport(ERROR,
 										 errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 										 errmsg("formatting field \"%s\" is only supported for oracle grammar",
