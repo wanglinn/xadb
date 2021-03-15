@@ -359,7 +359,6 @@ ExecComputeStoredGenerated(EState *estate, TupleTableSlot *slot, CmdType cmdtype
 			Datum		val;
 			bool		isnull;
 
-			ADB_SEQ_ROWID_CODE(generated = true);
 			econtext = GetPerTupleExprContext(estate);
 			econtext->ecxt_scantuple = slot;
 
