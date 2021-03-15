@@ -94,7 +94,11 @@ static void MgrInitChildNodes(MemoryContext spiContext,
 								int total);								
 static int MgrGetNotActiveCount(MemoryContext spiContext, 
 								char *zone);
-static void MgrAddHbaToNodes(MemoryContext spiContext);
+static void MgrAddHbaToNodes(MemoryContext spiContext, char *zone);
+static void MgrAddMgrHba(MemoryContext spiContext);
+static void MgrAddGtmCoordHba(MemoryContext spiContext, char *zone);
+static void MgrAddHbaToActiveNodes(MemoryContext spiContext, char *addIp);
+
 
 Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 {
@@ -137,7 +141,7 @@ Datum mgr_zone_failover(PG_FUNCTION_ARGS)
 		ereportNoticeLog(errmsg("======== ZONE FAILOVER %s begin ========.", currentZone));
 		MgrFailoverCheck(spiContext, currentZone);
 
-		MgrAddHbaToNodes(spiContext);
+		MgrAddHbaToNodes(spiContext, currentZone);
 
 	 	PrintReplicationInfoOfMasterZone(spiContext, currentZone);
 		
@@ -266,7 +270,7 @@ Datum mgr_zone_switchover(PG_FUNCTION_ARGS)
 		ereportNoticeLog(errmsg("======== ZONE SWITCHOVER %s begin ========.", currentZone));
 		MgrSwitchoverCheck(spiContext, currentZone);
 
-		MgrAddHbaToNodes(spiContext);
+		MgrAddHbaToNodes(spiContext, currentZone);
 
 		ereportNoticeLog(errmsg("============ ZONE SWITCHOVER %s, step1:switchover gtmcoord slave in %s ============", currentZone, currentZone));
 		MgrZoneSwitchoverGtm(spiContext, 
@@ -1027,7 +1031,44 @@ static int MgrGetNotActiveCount(MemoryContext spiContext,
 	}
 	return count;
 }
-static void MgrAddHbaToNodes(MemoryContext spiContext)
+static void MgrAddHbaToNodes(MemoryContext spiContext, char *zone)
+{
+	MgrAddMgrHba(spiContext);
+	MgrAddGtmCoordHba(spiContext, zone);									
+}
+static void MgrAddMgrHba(MemoryContext spiContext)
+{
+	NameData local_ip;
+	if (!get_local_ip(&local_ip))
+		ereport(ERROR, (errmsg("get adb manager local ip.")));
+	MgrAddHbaToActiveNodes(spiContext, NameStr(local_ip));
+}
+static void MgrAddGtmCoordHba(MemoryContext spiContext, char *zone)
+{
+	dlist_head 			masterGtm = DLIST_STATIC_INIT(masterGtm);
+	dlist_head 			gtmSlaves = DLIST_STATIC_INIT(gtmSlaves);
+	dlist_iter 			iter;
+	MgrNodeWrapper      *mgrNode;
+	MgrNodeWrapper 	    *gtmMaster = NULL;
+	Assert(spiContext);
+	Assert(zone);
+
+	selectMgrNodeByNodetype(spiContext, CNDN_TYPE_GTM_COOR_MASTER, &masterGtm);
+	gtmMaster = selectMgrGtmCoordNode(spiContext);
+	Assert(gtmMaster);
+	selectActiveMgrSlaveNodesInZone(gtmMaster->oid,
+									CNDN_TYPE_GTM_COOR_SLAVE,
+									zone,
+									spiContext,
+									&gtmSlaves);	
+	dlist_foreach(iter, &gtmSlaves)
+	{
+		mgrNode = dlist_container(MgrNodeWrapper, link, iter.cur);
+		Assert(mgrNode);
+		MgrAddHbaToActiveNodes(spiContext, mgrNode->host->hostaddr);
+	}	
+}
+static void MgrAddHbaToActiveNodes(MemoryContext spiContext, char *addIp)
 {
 	dlist_head nodes = DLIST_STATIC_INIT(nodes);
 	dlist_iter iter;
@@ -1059,7 +1100,7 @@ static void MgrAddHbaToNodes(MemoryContext spiContext)
 			resetStringInfo(&(getAgentCmdRst.description));
 			
 			/*send adb manager ip to coordinator pg_hba.conf file*/
-			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", NameStr(local_ip), 32, "trust", &send_hba_msg);
+			mgr_add_oneline_info_pghbaconf(CONNECT_HOST, "all", "all", addIp, 32, "trust", &send_hba_msg);
 			mgr_send_conf_parameters(AGT_CMD_CNDN_REFRESH_PGHBACONF
 									,nodeinfo.nodepath
 									,&send_hba_msg
@@ -1072,5 +1113,6 @@ static void MgrAddHbaToNodes(MemoryContext spiContext)
 			mgr_reload_conf(nodeinfo.nodehost, nodeinfo.nodepath);
 		}
 	}
+
 }
 
