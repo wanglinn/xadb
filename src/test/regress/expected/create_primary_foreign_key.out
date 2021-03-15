@@ -58,14 +58,14 @@ ALTER TABLE aa ADD CONSTRAINT FK_ID FOREIGN KEY(id) REFERENCES tt(id) ON DELETE 
 insert into tt values(1,'Mike');
 insert into aa values(1,'Jack');
 select * from aa;
- id | name 
+ ID | NAME 
 ----+------
   1 | Jack
 (1 row)
 
 delete from tt where id=1;
 select * from aa;
- id | name 
+ ID | NAME 
 ----+------
 (0 rows)
 

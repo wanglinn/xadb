@@ -1,199 +1,199 @@
 set grammar to oracle;
 set datestyle='ISO,YMD';
 SELECT ROUND (TO_DATE ('2000-10-20', 'YYYY-MM-DD'),'YEAR') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2001-01-01 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-7-2', 'YYYY-MM-DD'),'SYEAR') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2001-01-01 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-7-1', 'YYYY-MM-DD'),'YYYY') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2001-01-01 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-6-30', 'YYYY-MM-DD'),'SYYYY') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2000-01-01 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-12-20', 'YYYY-MM-DD'),'YYY') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2001-01-01 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-1-20', 'YYYY-MM-DD'),'YY') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2000-01-01 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-10-20', 'YYYY-MM-DD'),'Y') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2001-01-01 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-10-20', 'YYYY-MM-DD'),'IYYY') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2001-01-01 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-10-20', 'YYYY-MM-DD'),'IY') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2001-01-01 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-10-15', 'YYYY-MM-DD'),'month') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2000-10-01 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-2-15 22:40:45', 'YYYY-MM-DD hh24:mi:ss'),'mon') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2000-02-01 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-2-16 22:40:45', 'YYYY-MM-DD hh24:mi:ss'),'rm') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2000-03-01 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-2-16 22:40:45', 'YYYY-MM-DD hh24:mi:ss'),'mm') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2000-03-01 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-10-15 22:40:45', 'YYYY-MM-DD hh24:mi:ss'),'j') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2000-10-16 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-10-15 22:40:45', 'YYYY-MM-DD hh24:mi:ss'),'dd') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2000-10-16 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-10-15 22:40:45', 'YYYY-MM-DD hh24:mi:ss'),'ddd') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2000-10-16 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2016-3-1 22:40:45', 'YYYY-MM-DD hh24:mi:ss'),'day') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2016-02-28 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2016-3-2 22:40:45', 'YYYY-MM-DD hh24:mi:ss'),'dy') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2016-03-06 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2016-3-3 22:40:45', 'YYYY-MM-DD hh24:mi:ss'),'D') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2016-03-06 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2000-2-16 22:40:45', 'YYYY-MM-DD hh24:mi:ss'),'Q') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2000-04-01 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2016-2-4', 'YYYY-MM-DD'),'ww') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2016-02-05 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2016-2-4', 'YYYY-MM-DD'),'iw') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2016-02-01 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2016-3-10', 'YYYY-MM-DD'),'w') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2016-03-08 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2016-3-2 22:29:50', 'YYYY-MM-DD hh24:mi:ss'),'hh24') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2016-03-02 22:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2016-3-2 12:29:50', 'YYYY-MM-DD hh:mi:ss'),'hh') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2016-03-02 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2016-3-2 11:39:50', 'YYYY-MM-DD hh:mi:ss'),'hh12') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2016-03-02 12:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2016-3-2 11:39:50 pm', 'YYYY-MM-DD hh:mi:ss pm'),'hh12') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2016-03-03 00:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2016-3-2 11:39:50 am', 'YYYY-MM-DD hh:mi:ss am'),'hh12') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2016-03-02 12:00:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2016-3-2 11:39:30', 'YYYY-MM-DD hh:mi:ss'),'mi') nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2016-03-02 11:40:00
 (1 row)
 
 SELECT ROUND (TO_DATE ('2016-3-2 11:39:30', 'YYYY-MM-DD hh:mi:ss'),to_char('mi')) nd FROM DUAL;
-         nd          
+         ND          
 ---------------------
  2016-03-02 11:40:00
 (1 row)
 
 SELECT ROUND (null,'mi') nd FROM DUAL;
- nd 
+ ND 
 ----
  
 (1 row)
 
 SELECT ROUND ('','mi') nd FROM DUAL;
- nd 
+ ND 
 ----
  
 (1 row)
 
 SELECT ROUND (TO_DATE ('2016-3-2 11:39:30', 'YYYY-MM-DD hh:mi:ss'),'') nd FROM DUAL;
- nd 
+ ND 
 ----
  
 (1 row)

@@ -1,49 +1,49 @@
 set grammar to oracle;
 select cosh(exp(2)) from dual;
-       cosh       
-------------------
- 809.089304945822
+      COSH(EXP(2))       
+-------------------------
+ 809.0893049458213943468
 (1 row)
 
 select cosh(-1) from dual;
-       cosh       
-------------------
- 1.54308063481524
+      COSH(-1)      
+--------------------
+ 1.5430806348152438
 (1 row)
 
 select cosh('0.9') from dual;
-       cosh       
-------------------
- 1.43308638544877
+    COSH('0.9')     
+--------------------
+ 1.4330863854487744
 (1 row)
 
 select cosh(0) from dual;
- cosh 
-------
-    1
+ COSH(0) 
+---------
+       1
 (1 row)
 
 select cosh(to_char(0.5)) from dual;
-       cosh       
-------------------
- 1.12762596520638
+ COSH(TO_CHAR(0.5))  
+---------------------
+ 1.12762596520638075
 (1 row)
 
 select cosh('0.9') from dual;
-       cosh       
-------------------
- 1.43308638544877
+    COSH('0.9')     
+--------------------
+ 1.4330863854487744
 (1 row)
 
 select cosh(null) from dual;
- cosh 
-------
-     
+ COSH(NULL) 
+------------
+           
 (1 row)
 
 select cosh('') from dual;
- cosh 
-------
-     
+ COSH('') 
+----------
+         
 (1 row)
 

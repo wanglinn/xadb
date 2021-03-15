@@ -1,52 +1,55 @@
 set grammar to oracle;
 set datestyle='ISO,YMD';
 SELECT NEW_TIME(TO_DATE('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'), 'AST', 'PST') ndt FROM DUAL;
-         ndt         
+         NDT         
 ---------------------
  2009-11-09 21:23:45
 (1 row)
 
 SELECT NEW_TIME(TO_DATE('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'), 'GMT', 'EST') ndt FROM DUAL;
-         ndt         
+         NDT         
 ---------------------
  2009-11-09 20:23:45
 (1 row)
 
 SELECT NEW_TIME(TO_DATE('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'), 'GMT', 'EST') ndt FROM DUAL;
-         ndt         
+         NDT         
 ---------------------
  2009-11-09 20:23:45
 (1 row)
 
 SELECT NEW_TIME(TO_timestamp('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'), 'HDT', 'YDT') ndt FROM DUAL;
-         ndt         
+         NDT         
 ---------------------
  2009-11-10 02:23:45
 (1 row)
 
 SELECT NEW_TIME('04-MAR-2016 01:23:45', 'HST', 'YDT') ndt FROM DUAL;
-ERROR:  invalid value "MA" for "MM"
-DETAIL:  Value must be an integer.
+         NDT         
+---------------------
+ 2016-03-04 03:23:45
+(1 row)
+
 SELECT NEW_TIME(TO_DATE('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'), to_char('MST'), to_char('PDT')) ndt FROM DUAL;
-         ndt         
+         NDT         
 ---------------------
  2009-11-10 01:23:45
 (1 row)
 
 SELECT NEW_TIME(TO_DATE('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'), '', 'EST') ndt FROM DUAL;
- ndt 
+ NDT 
 -----
  
 (1 row)
 
 SELECT NEW_TIME(TO_DATE('11-10-09 01:23:45', 'MM-DD-YY HH24:MI:SS'), null, 'EST') ndt FROM DUAL;
- ndt 
+ NDT 
 -----
  
 (1 row)
 
 SELECT NEW_TIME('', 'MST', 'EST') ndt FROM DUAL;
- ndt 
+ NDT 
 -----
  
 (1 row)

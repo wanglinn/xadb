@@ -1,97 +1,183 @@
 set grammar to oracle;
 set datestyle='ISO,YMD';
-
 --create table
 create table aa(id int, dt varchar2(30));
 insert into aa values(1,'1-1-1');
 insert into aa values(2,'9999-12-1');
 insert into aa values(3,'2015-10-18');
 select id,to_date(dt,'yyyy-mm-dd')from aa order by id;
- id |       to_date       
-----+---------------------
+ ID | TO_DATE(DT,'YYYY-MM-DD') 
+----+--------------------------
   1 | 0001-01-01 00:00:00
   2 | 9999-12-01 00:00:00
   3 | 2015-10-18 00:00:00
 (3 rows)
 
 drop table aa;
-
 --query
 select to_date('20150102','yyyymmdd') from dual;
-       to_date       
----------------------
+ TO_DATE('20150102','YYYYMMDD') 
+--------------------------------
  2015-01-02 00:00:00
 (1 row)
 
 select to_date('18000202 12:23:59','yyyymmdd hh:mi:ss') from dual;
-       to_date       
----------------------
+ TO_DATE('18000202 12:23:59','YYYYMMDD HH:MI:SS') 
+--------------------------------------------------
  1800-02-02 00:23:59
 (1 row)
 
 select to_date('20150102 12:23:59','yyyymmdd hh24:mi:ss') from dual;
-       to_date       
----------------------
+ TO_DATE('20150102 12:23:59','YYYYMMDD HH24:MI:SS') 
+----------------------------------------------------
  2015-01-02 12:23:59
 (1 row)
 
 select to_date('2015,01,02','yyyy,mm,dd') from dual;
-       to_date       
----------------------
+ TO_DATE('2015,01,02','YYYY,MM,DD') 
+------------------------------------
  2015-01-02 00:00:00
 (1 row)
 
 select to_date('01/02/2010','mm/dd/yyyy') from dual;
-       to_date       
----------------------
+ TO_DATE('01/02/2010','MM/DD/YYYY') 
+------------------------------------
  2010-01-02 00:00:00
 (1 row)
 
 SELECT TO_DATE('January 15, 1989, 11:00 A.M.','Month dd, YYYY, HH:MI A.M.') FROM DUAL;
-       to_date       
----------------------
+ TO_DATE('JANUARY 15, 1989, 11:00 A.M.','MONTH DD, YYYY, HH:MI A.M.') 
+----------------------------------------------------------------------
  1989-01-15 11:00:00
 (1 row)
 
 SELECT TO_DATE('Jan 15, 2010, 11:00 P.M.','Mon dd, YYYY, HH:MI P.M.') FROM DUAL;
-       to_date       
----------------------
+ TO_DATE('JAN 15, 2010, 11:00 P.M.','MON DD, YYYY, HH:MI P.M.') 
+----------------------------------------------------------------
  2010-01-15 23:00:00
 (1 row)
 
 SELECT TO_DATE('15, 10, 11:00 P.M.','ddd, YY, HH:MI P.M.') FROM DUAL;
-       to_date       
----------------------
+ TO_DATE('15, 10, 11:00 P.M.','DDD, YY, HH:MI P.M.') 
+-----------------------------------------------------
  2010-01-15 23:00:00
 (1 row)
 
 SELECT TO_date('January 15, 2010, 11:00 P.M.','Mon dd, YYYY, HH:MI P.M.') FROM DUAL;
-       to_date       
----------------------
+ TO_DATE('JANUARY 15, 2010, 11:00 P.M.','MON DD, YYYY, HH:MI P.M.') 
+--------------------------------------------------------------------
  2010-01-15 23:00:00
 (1 row)
 
 select to_date('2100-2-29','yyyy-mm-dd') from dual;
-ERROR:  the day must be between the first and the last day of the month
+ERROR:  date/time field value out of range: "2100-2-29"
 select to_date('2015-2-28','') from dual;
- to_date 
----------
+ TO_DATE('2015-2-28','') 
+-------------------------
  
 (1 row)
 
 select to_date('2015,01,02 14:34:23','yyyy,mm,dd hh24:mi:ss') - to_date('2014,01,01 11:24:21','yyyy,mm,dd hh24:mi:ss') from dual;
-  ?column?  
-------------
- 366.131968
+       ?COLUMN?       
+----------------------
+ 366.1319675925925926
 (1 row)
 
 select to_date('20100202 10:23:59.190','yyyymmdd hh:mi:ss') from dual;
-ERROR:  Date format picture ends before converting entire input string
-select to_date('20100202 10:23:59.890','yyyymmdd hh:mi:ss') from dual;
-ERROR:  Date format picture ends before converting entire input string
-select to_date('20100202 10:23:59.890','yyyymmdd hh:mi:ss.ff3') from dual;
-       to_date       
----------------------
+ TO_DATE('20100202 10:23:59.190','YYYYMMDD HH:MI:SS') 
+------------------------------------------------------
  2010-02-02 10:23:59
+(1 row)
+
+select to_date('20100202 10:23:59.890','yyyymmdd hh:mi:ss') from dual;
+ TO_DATE('20100202 10:23:59.890','YYYYMMDD HH:MI:SS') 
+------------------------------------------------------
+ 2010-02-02 10:23:59
+(1 row)
+
+select to_date('20100202 10:23:59.890','yyyymmdd hh:mi:ss.ff3') from dual;
+ERROR:  The date format is not recognized.
+select to_date('2020-10-1400:00:00', 'yyyy-mm-ddHH24:mi:ss') from dual;
+ TO_DATE('2020-10-1400:00:00', 'YYYY-MM-DDHH24:MI:SS') 
+-------------------------------------------------------
+ 2020-10-14 00:00:00
+(1 row)
+
+select to_date('202010 14 00:00:00', 'yyyy-mm-dd HH24:mi:ss') from dual;
+ TO_DATE('202010 14 00:00:00', 'YYYY-MM-DD HH24:MI:SS') 
+--------------------------------------------------------
+ 2020-10-14 00:00:00
+(1 row)
+
+select to_date('20201031235959', 'yyyymmddhh24miss') from dual;
+ TO_DATE('20201031235959', 'YYYYMMDDHH24MISS') 
+-----------------------------------------------
+ 2020-10-31 23:59:59
+(1 row)
+
+select to_date('20200202','yyyy-mm-dd') from dual;
+ TO_DATE('20200202','YYYY-MM-DD') 
+----------------------------------
+ 2020-02-02 00:00:00
+(1 row)
+
+select to_date('2020-02-02 23:59:59','yyyy-mm-dd HH24:Mi:ss') from dual;
+ TO_DATE('2020-02-02 23:59:59','YYYY-MM-DD HH24:MI:SS') 
+--------------------------------------------------------
+ 2020-02-02 23:59:59
+(1 row)
+
+select to_date('20201031235959', 'yyyy-mm-dd hh24:mi:ss' ) from dual;
+ TO_DATE('20201031235959', 'YYYY-MM-DD HH24:MI:SS' ) 
+-----------------------------------------------------
+ 2020-10-31 23:59:59
+(1 row)
+
+select to_date('2020:11:03','yyyy-mm-dd') from dual;
+ TO_DATE('2020:11:03','YYYY-MM-DD') 
+------------------------------------
+ 2020-11-03 00:00:00
+(1 row)
+
+select to_date('2016-03-15 09:25:59 pm','yyyy-mm-dd hh:mi:ss pm') from dual;
+ TO_DATE('2016-03-15 09:25:59 PM','YYYY-MM-DD HH:MI:SS PM') 
+------------------------------------------------------------
+ 2016-03-15 21:25:59
+(1 row)
+
+select to_date('20160315092559','yyyymmddhhmiss') from dual;
+ TO_DATE('20160315092559','YYYYMMDDHHMISS') 
+--------------------------------------------
+ 2016-03-15 09:25:59
+(1 row)
+
+select to_date('20160315092559pm','yyyymmddhhmisspm') from dual;
+ TO_DATE('20160315092559PM','YYYYMMDDHHMISSPM') 
+------------------------------------------------
+ 2016-03-15 21:25:59
+(1 row)
+
+select to_date('99-12-1','yy-mm-dd')from dual;
+ TO_DATE('99-12-1','YY-MM-DD') 
+-------------------------------
+ 1999-12-01 00:00:00
+(1 row)
+
+select to_date('20100202 10.23.59','yyyy-mm-dd hh:mi:ss') from dual;
+ TO_DATE('20100202 10.23.59','YYYY-MM-DD HH:MI:SS') 
+----------------------------------------------------
+ 2010-02-02 10:23:59
+(1 row)
+
+select to_date('20201031235959', 'yyyy-:/-mm-dd hh24:mi:ss' ) from dual;
+ TO_DATE('20201031235959', 'YYYY-:/-MM-DD HH24:MI:SS' ) 
+--------------------------------------------------------
+ 2020-10-31 23:59:59
+(1 row)
+
+SELECT to_date('January 15, 1989, 11:00 A.M.','Month dd, YYYY, HH:MI A.M.') from dual;
+ TO_DATE('JANUARY 15, 1989, 11:00 A.M.','MONTH DD, YYYY, HH:MI A.M.') 
+----------------------------------------------------------------------
+ 1989-01-15 11:00:00
 (1 row)
 

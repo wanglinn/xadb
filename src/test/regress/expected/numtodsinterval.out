@@ -1,97 +1,97 @@
 set grammar to oracle;
 set datestyle='ISO,YMD';
 select to_date('2015-2-5 10:55:55','YYYY-MM-DD hh24:mi:ss') + numtodsinterval(10,'DAY')  as ndate from dual;
-        ndate        
+        NDATE        
 ---------------------
  2015-02-15 10:55:55
 (1 row)
 
 select to_date('2015-2-25 10:55:55','YYYY-MM-DD hh24:mi:ss') + numtodsinterval(10,'DAY')  as ndate from dual;
-        ndate        
+        NDATE        
 ---------------------
  2015-03-07 10:55:55
 (1 row)
 
 select to_date('2015-2-25 10:55:55','YYYY-MM-DD hh24:mi:ss') + numtodsinterval(10,'HOUR')  as ndate from dual;
-        ndate        
+        NDATE        
 ---------------------
  2015-02-25 20:55:55
 (1 row)
 
 select to_date('2015-2-25 10:55:55','YYYY-MM-DD hh24:mi:ss') + numtodsinterval(10,'minute')  as ndate from dual;
-        ndate        
+        NDATE        
 ---------------------
  2015-02-25 11:05:55
 (1 row)
 
 select to_date('2015-2-28 23:59:59','YYYY-MM-DD hh24:mi:ss') + numtodsinterval(1,'second')  as ndate from dual;
-        ndate        
+        NDATE        
 ---------------------
  2015-03-01 00:00:00
 (1 row)
 
 select to_date('2015-2-28 23:59:59','YYYY-MM-DD hh24:mi:ss') + numtodsinterval('1','second')  as ndate from dual;
-        ndate        
+        NDATE        
 ---------------------
  2015-03-01 00:00:00
 (1 row)
 
 select to_date('2015-2-28 2:1:1','YYYY-MM-DD hh24:mi:ss') + numtodsinterval(3.567,'second')  as ndate from dual;
-        ndate        
----------------------
- 2015-02-28 02:01:04
+          NDATE          
+-------------------------
+ 2015-02-28 02:01:04.567
 (1 row)
 
 select to_date('2015-2-28 2:1:1','YYYY-MM-DD hh24:mi:ss') + numtodsinterval(3.123456789,'day')  as ndate from dual;
-        ndate        
----------------------
- 2015-03-03 04:58:47
+           NDATE           
+---------------------------
+ 2015-03-03 04:58:47.66657
 (1 row)
 
 select to_date('2015-2-28 2:1:1','YYYY-MM-DD hh24:mi:ss') + numtodsinterval(3.123456789,'hour')  as ndate from dual;
-        ndate        
----------------------
- 2015-02-28 05:08:25
+           NDATE           
+---------------------------
+ 2015-02-28 05:08:25.44444
 (1 row)
 
 select to_date('2015-2-28 2:1:1','YYYY-MM-DD hh24:mi:ss') + numtodsinterval('3.123456789','hour')  as ndate from dual;
-        ndate        
----------------------
- 2015-02-28 05:08:25
+           NDATE           
+---------------------------
+ 2015-02-28 05:08:25.44444
 (1 row)
 
 select to_timestamp('2015-2-28 2:1:1','YYYY-MM-DD hh24:mi:ss') + numtodsinterval('3.123456789','hour')  as ndate from dual;
-           ndate           
+           NDATE           
 ---------------------------
  2015-02-28 05:08:25.44444
 (1 row)
 
 select to_char(numtodsinterval('3.123456789','hour'),'hh24:mi:ss')  as ndate from dual;
-  ndate   
+  NDATE   
 ----------
  03:07:24
 (1 row)
 
 select to_char(numtodsinterval('3.1','hour') + numtodsinterval('2.1','minute'),'hh24:mi:ss') as ndate from dual;
-  ndate   
+  NDATE   
 ----------
  03:08:06
 (1 row)
 
 select numtodsinterval('3.123456789','')  as ndate from dual;
- ndate 
+ NDATE 
 -------
  
 (1 row)
 
 select numtodsinterval('3.1',null) + numtodsinterval('2.1','minute') as ndate from dual;
- ndate 
+ NDATE 
 -------
  
 (1 row)
 
 select to_char(numtodsinterval('3.1','minute') * 3,'hh24:mi:ss') as ndate from dual;
-  ndate   
+  NDATE   
 ----------
  00:09:18
 (1 row)

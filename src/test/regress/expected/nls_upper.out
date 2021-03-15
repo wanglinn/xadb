@@ -1,49 +1,49 @@
 set grammar to oracle;
 select nls_upper('ab cDe') from dual;
- nls_upper 
------------
+ NLS_UPPER('AB CDE') 
+---------------------
  AB CDE
 (1 row)
 
 select nls_upper('\?!@#$%^&*()sa') from dual;
-   nls_upper    
-----------------
+ NLS_UPPER('\?!@#$%^&*()SA') 
+-----------------------------
  \?!@#$%^&*()SA
 (1 row)
 
 select nls_upper('aa\?!@#$%^&*()aa') from dual;
-    nls_upper     
-------------------
+ NLS_UPPER('AA\?!@#$%^&*()AA') 
+-------------------------------
  AA\?!@#$%^&*()AA
 (1 row)
 
 select nls_upper('\?!@#ss$%^&*()sC') from dual;
-    nls_upper     
-------------------
+ NLS_UPPER('\?!@#SS$%^&*()SC') 
+-------------------------------
  \?!@#SS$%^&*()SC
 (1 row)
 
 select nls_upper('Test你tEst好teST') from dual;
-    nls_upper     
-------------------
+ NLS_UPPER('TEST你TEST好TEST') 
+-------------------------------
  TEST你TEST好TEST
 (1 row)
 
 select nls_upper('1234sou') from dual;
- nls_upper 
------------
+ NLS_UPPER('1234SOU') 
+----------------------
  1234SOU
 (1 row)
 
 select nls_upper(to_char('suv')) from dual;
- nls_upper 
------------
+ NLS_UPPER(TO_CHAR('SUV')) 
+---------------------------
  SUV
 (1 row)
 
 select nls_upper(to_number('NaN')) from dual;
- nls_upper 
------------
+ NLS_UPPER(TO_NUMBER('NAN')) 
+-----------------------------
  NAN
 (1 row)
 

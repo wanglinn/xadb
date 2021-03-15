@@ -20,7 +20,7 @@ select * from tab_minus_1
 minus
 select * from tab_minus_2
 order by 3;
- id | name | age 
+ ID | NAME | AGE 
 ----+------+-----
   3 | jay3 |  22
   4 | jay4 |  23
@@ -37,12 +37,14 @@ select * from tab_minus_1
 minus
 select * from tab_minus_3;   --should be failed
 ERROR:  each EXCEPT query must have the same number of columns
+LINE 3: select * from tab_minus_3;
+               ^
 -- scene 3:表结构相同，部分字段进行minus
 select id from tab_minus_1
 minus
 select id from tab_minus_2
 order by 1;   --should be sucessed
- id 
+ ID 
 ----
   4
   5
@@ -52,7 +54,7 @@ select id,age from tab_minus_1
 minus
 select id,age from tab_minus_2
 order by 2; --should be sucessed
- id | age 
+ ID | AGE 
 ----+-----
   4 |  23
   5 |  24
@@ -75,7 +77,7 @@ select id from tab_minus_1
 minus
 select id from tab_minus_3
 order by 1; --should be sucessed
- id 
+ ID 
 ----
   4
   5
@@ -85,7 +87,7 @@ select id,name from tab_minus_1
 minus
 select id,name from tab_minus_3
 order by 2;   --should be sucessed
- id | name 
+ ID | NAME 
 ----+------
   3 | jay3
   4 | jay4
@@ -104,7 +106,7 @@ where
 a.id in(select id from tab_minus_2
         minus
         select id from tab_minus_3) order by a.id desc; --should be sucessed
- id | name | age 
+ ID | NAME | AGE 
 ----+------+-----
 (0 rows)
 

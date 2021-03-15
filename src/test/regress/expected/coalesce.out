@@ -1,80 +1,84 @@
 set grammar to oracle;
 select coalesce(1) from dual;
- coalesce 
+ COALESCE 
 ----------
         1
 (1 row)
 
 select coalesce(null,1) from dual;
- coalesce 
+ COALESCE 
 ----------
         1
 (1 row)
 
 select coalesce(null,'','1') from dual;
- coalesce 
+ COALESCE 
 ----------
  1
 (1 row)
 
 select coalesce(null,3,1) from dual;
- coalesce 
+ COALESCE 
 ----------
         3
 (1 row)
 
 select coalesce(null,3.934,1) from dual;
- coalesce 
+ COALESCE 
 ----------
     3.934
 (1 row)
 
 select coalesce(null,3,1.789) from dual;
- coalesce 
+ COALESCE 
 ----------
         3
 (1 row)
 
 select coalesce(null,3,1.789,'2') from dual;
-ERROR:  COALESCE types numeric and text cannot be matched
-LINE 1: select coalesce(null,3,1.789,'2') from dual;
-                                     ^
+ COALESCE 
+----------
+        3
+(1 row)
+
 select coalesce(null,'2',1) from dual;
-ERROR:  COALESCE types text and integer cannot be matched
-LINE 1: select coalesce(null,'2',1) from dual;
-                                 ^
+ COALESCE 
+----------
+        2
+(1 row)
+
 select coalesce(null,'a','b') from dual;
- coalesce 
+ COALESCE 
 ----------
  a
 (1 row)
 
 select coalesce(null,'a',to_char(1)) from dual;
- coalesce 
+ COALESCE 
 ----------
  a
 (1 row)
 
 select coalesce(null,to_char(1),'a') from dual;
- coalesce 
+ COALESCE 
 ----------
  1
 (1 row)
 
 select coalesce(null,to_number('1'),2) from dual;
- coalesce 
+ COALESCE 
 ----------
         1
 (1 row)
 
 select coalesce(null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,1) from dual;
- coalesce 
+ COALESCE 
 ----------
         1
 (1 row)
 
 select coalesce(null,1.2345678912345,3) from dual;
-    coalesce     
+    COALESCE     
 -----------------
  1.2345678912345
 (1 row)

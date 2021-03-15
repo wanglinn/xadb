@@ -1,85 +1,85 @@
 set grammar to oracle;
 select least(1,2,3,4) from dual;
- least 
+ LEAST 
 -------
      1
 (1 row)
 
 select least(1.1,to_number(1.1),exp(2)) from dual;
- least 
+ LEAST 
 -------
    1.1
 (1 row)
 
 select least(5.2,to_number(1.1),to_char(1.1)) from dual;
- least 
+ LEAST 
 -------
    1.1
 (1 row)
 
 select least(5.2,to_number(1.1),'1') from dual;
- least 
+ LEAST 
 -------
      1
 (1 row)
 
 select least(to_char(100),to_char(12),to_char(3.1)) from dual;
- least 
+ LEAST 
 -------
  100
 (1 row)
 
 select least(to_number(3),'100','12') from dual;
- least 
+ LEAST 
 -------
      3
 (1 row)
 
 select least('100',to_number(3),12) from dual;
- least 
+ LEAST 
 -------
  100
 (1 row)
 
 select least('100','12',to_number(3)) from dual;
- least 
+ LEAST 
 -------
  100
 (1 row)
 
 select least('100','12',exp(2)) from dual;
- least 
+ LEAST 
 -------
  100
 (1 row)
 
 select least('abc','ab','abcd') from dual;
- least 
+ LEAST 
 -------
  ab
 (1 row)
 
 select least('abc','ab','1') from dual;
- least 
+ LEAST 
 -------
  1
 (1 row)
 
 --select least('你好','加油') from dual;
 select least('','a') from dual;
- least 
+ LEAST 
 -------
  
 (1 row)
 
 select least('a',null) from dual;
- least 
+ LEAST 
 -------
  
 (1 row)
 
 select least(null,'') from dual;
- least 
+ LEAST 
 -------
  
 (1 row)

@@ -25,3 +25,17 @@ select to_date('2015,01,02 14:34:23','yyyy,mm,dd hh24:mi:ss') - to_date('2014,01
 select to_date('20100202 10:23:59.190','yyyymmdd hh:mi:ss') from dual;
 select to_date('20100202 10:23:59.890','yyyymmdd hh:mi:ss') from dual;
 select to_date('20100202 10:23:59.890','yyyymmdd hh:mi:ss.ff3') from dual;
+select to_date('2020-10-1400:00:00', 'yyyy-mm-ddHH24:mi:ss') from dual;
+select to_date('202010 14 00:00:00', 'yyyy-mm-dd HH24:mi:ss') from dual;
+select to_date('20201031235959', 'yyyymmddhh24miss') from dual;
+select to_date('20200202','yyyy-mm-dd') from dual;
+select to_date('2020-02-02 23:59:59','yyyy-mm-dd HH24:Mi:ss') from dual;
+select to_date('20201031235959', 'yyyy-mm-dd hh24:mi:ss' ) from dual;
+select to_date('2020:11:03','yyyy-mm-dd') from dual;
+select to_date('2016-03-15 09:25:59 pm','yyyy-mm-dd hh:mi:ss pm') from dual;
+select to_date('20160315092559','yyyymmddhhmiss') from dual;
+select to_date('20160315092559pm','yyyymmddhhmisspm') from dual;
+select to_date('99-12-1','yy-mm-dd')from dual;
+select to_date('20100202 10.23.59','yyyy-mm-dd hh:mi:ss') from dual;
+select to_date('20201031235959', 'yyyy-:/-mm-dd hh24:mi:ss' ) from dual;
+SELECT to_date('January 15, 1989, 11:00 A.M.','Month dd, YYYY, HH:MI A.M.') from dual;

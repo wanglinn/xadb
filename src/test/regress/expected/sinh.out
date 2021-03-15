@@ -1,48 +1,48 @@
 /*ora*/ select  sinh(exp(2)) from dual;
-       sinh       
-------------------
- 809.088686966832
+      SINH(EXP(2))       
+-------------------------
+ 809.0886869668320632533
 (1 row)
 
 /*ora*/ select  sinh(-1) from dual;
-       sinh       
-------------------
- -1.1752011936438
+       SINH(-1)       
+----------------------
+ -1.17520119364380145
 (1 row)
 
 /*ora*/ select  sinh('0.9') from dual;
-       sinh       
-------------------
- 1.02651672570818
+    SINH('0.9')     
+--------------------
+ 1.0265167257081753
 (1 row)
 
 /*ora*/ select  sinh(0) from dual;
- sinh 
-------
-    0
+ SINH(0) 
+---------
+       0
 (1 row)
 
 /*ora*/ select  sinh(to_char(0.5)) from dual;
-       sinh        
--------------------
- 0.521095305493747
+ SINH(TO_CHAR(0.5))  
+---------------------
+ 0.52109530549374735
 (1 row)
 
 /*ora*/ select  sinh('0.9') from dual;
-       sinh       
-------------------
- 1.02651672570818
+    SINH('0.9')     
+--------------------
+ 1.0265167257081753
 (1 row)
 
 /*ora*/ select  sinh(null) from dual;
- sinh 
-------
-     
+ SINH(NULL) 
+------------
+           
 (1 row)
 
 /*ora*/ select  sinh('') from dual;
- sinh 
-------
-     
+ SINH('') 
+----------
+         
 (1 row)
 

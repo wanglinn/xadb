@@ -4,35 +4,35 @@ create table aa(id int, dt timestamp);
 insert into aa values(1,to_date('2000-3-31','YYYY-MM-DD'));
 insert into aa values(2,to_date('2000-2-29','YYYY-MM-DD'));
 select id, next_day(dt,'MONDAY') from aa;
- id |      next_day       
-----+---------------------
+ ID | NEXT_DAY(DT,'MONDAY') 
+----+-----------------------
   1 | 2000-04-03 00:00:00
   2 | 2000-03-06 00:00:00
 (2 rows)
 
 select id, next_day(dt,'MON') from aa;
- id |      next_day       
+ ID | NEXT_DAY(DT,'MON')  
 ----+---------------------
   1 | 2000-04-03 00:00:00
   2 | 2000-03-06 00:00:00
 (2 rows)
 
 select id, next_day(dt,'Mond') from aa;
- id |      next_day       
+ ID | NEXT_DAY(DT,'MOND') 
 ----+---------------------
   1 | 2000-04-03 00:00:00
   2 | 2000-03-06 00:00:00
 (2 rows)
 
 select id, next_day(dt,2) from aa;
- id |      next_day       
+ ID |   NEXT_DAY(DT,2)    
 ----+---------------------
   1 | 2000-04-03 00:00:00
   2 | 2000-03-06 00:00:00
 (2 rows)
 
 select id, next_day(dt,2.4) from aa;
- id |      next_day       
+ ID |  NEXT_DAY(DT,2.4)   
 ----+---------------------
   1 | 2000-04-03 00:00:00
   2 | 2000-03-06 00:00:00

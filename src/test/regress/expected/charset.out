@@ -1,61 +1,61 @@
 set grammar to oracle;
 select  nls_charset_id('utf8') from dual;
- nls_charset_id 
-----------------
-              6
+ NLS_CHARSET_ID('UTF8') 
+------------------------
+                      6
 (1 row)
 
 select  nls_charset_id('gbk') from dual;
- nls_charset_id 
-----------------
-             37
+ NLS_CHARSET_ID('GBK') 
+-----------------------
+                    37
 (1 row)
 
 select  nls_charset_id(to_char('gbk')) from dual;
- nls_charset_id 
-----------------
-             37
+ NLS_CHARSET_ID(TO_CHAR('GBK')) 
+--------------------------------
+                             37
 (1 row)
 
 select  nls_charset_id('') from dual;
- nls_charset_id 
-----------------
-               
+ NLS_CHARSET_ID('') 
+--------------------
+                   
 (1 row)
 
 select  nls_charset_id(null) from dual;
- nls_charset_id 
-----------------
-               
+ NLS_CHARSET_ID(NULL) 
+----------------------
+                     
 (1 row)
 
 select nls_charset_name(6) from dual;
- nls_charset_name 
-------------------
+ NLS_CHARSET_NAME(6) 
+---------------------
  UTF8
 (1 row)
 
 select nls_charset_name(37) from dual;
- nls_charset_name 
-------------------
+ NLS_CHARSET_NAME(37) 
+----------------------
  GBK
 (1 row)
 
 select nls_charset_name('37') from dual;
- nls_charset_name 
-------------------
+ NLS_CHARSET_NAME('37') 
+------------------------
  GBK
 (1 row)
 
 select nls_charset_name('') from dual;
- nls_charset_name 
-------------------
+ NLS_CHARSET_NAME('') 
+----------------------
  
 (1 row)
 
 select nls_charset_name(null) from dual;
- nls_charset_name 
-------------------
+ NLS_CHARSET_NAME(NULL) 
+------------------------
  
 (1 row)
 
