@@ -3780,7 +3780,7 @@ addSimpleTableEntryForJoin(ParseState *pstate, Alias *alias,
 						   JoinType jointype)
 {
 	ParseNamespaceColumn *res_nscolumns;
-	int			colindex;
+	int			colindex = 0;
 	List	   *res_colnames = NIL,
 			   *l_colnos = NIL,
 			   *r_colnos = NIL,
@@ -3790,18 +3790,19 @@ addSimpleTableEntryForJoin(ParseState *pstate, Alias *alias,
 
 	res_nscolumns = palloc0((list_length(l_colnames) + list_length(r_colnames)) *
 							sizeof(res_nscolumns[0]));
-	
-	colindex = 
+
+	colindex += 
 		extractRemainingColumns(left_nsitem->p_nscolumns,
 								ADB_SEQ_ROWID_ARGS_COMMA(left_nsitem->p_rte)
 								l_colnames, &l_colnos,
 								&res_colnames, &res_colvars,
-								res_nscolumns);
-	extractRemainingColumns(right_nsitem->p_nscolumns,
-							ADB_SEQ_ROWID_ARGS_COMMA(right_nsitem->p_rte)
-							r_colnames, &r_colnos,
-							&res_colnames, &res_colvars,
-							res_nscolumns);
+								res_nscolumns + colindex);
+	colindex += 
+		extractRemainingColumns(right_nsitem->p_nscolumns,
+								ADB_SEQ_ROWID_ARGS_COMMA(right_nsitem->p_rte)
+								r_colnames, &r_colnos,
+								&res_colnames, &res_colvars,
+								res_nscolumns + colindex);
 
 	return addRangeTableEntryForJoin(pstate,
 									 res_colnames,
