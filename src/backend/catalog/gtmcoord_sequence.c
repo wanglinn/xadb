@@ -222,7 +222,7 @@ ProcessAGtmCommand(StringInfo input_message, CommandDest dest)
 
 		default:
 			ereport(FATAL,
-					(EPROTO,
+					(errcode(ERRCODE_PROTOCOL_VIOLATION),
 					 errmsg("[ pid=%d] invalid frontend message type %d",
 					 MyProcPid, mtype)));
 			break;

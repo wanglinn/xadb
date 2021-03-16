@@ -1033,15 +1033,12 @@ re_send_:
 
 static void rxact_agent_connect(RxactAgent *agent, StringInfo msg)
 {
-	char *owner;
-	char *dbname;
 	AssertArg(agent && msg);
-
 	agent->dboid = (Oid)rxact_get_int(msg);
 	if(OidIsValid(agent->dboid))
 	{
-		dbname = rxact_get_string(msg);
-		owner = rxact_get_string(msg);
+		(void)rxact_get_string(msg);
+		(void)rxact_get_string(msg);
 		/*rxact_insert_database(agent->dboid, dbname, owner, false);*/
 	}
 	rxact_agent_simple_msg(agent, RXACT_MSG_OK);

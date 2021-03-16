@@ -19037,7 +19037,7 @@ dumpAdbmgrTable(Archive *fout)
 	char *retstr;
 	int i = 0;
 
-	pg_log_info(NULL, "saving mgr_host,mgr_node definition\n");
+	pg_log_info("saving mgr_host,mgr_node definition\n");
 
 	/* Get the mgr_host table*/
 	appendPQExpBuffer(dbQry, "LIST HOST;");

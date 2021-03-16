@@ -4354,24 +4354,13 @@ static void MgrGetSyncStandByName(MgrNodeWrapper *node,
 								 StringInfoData *infosendmsg)
 {
 	StringInfoData infosendsyncmsg;
-	NameData slaveNodeName;
 	int  syncNum = 0;
-	bool hasOtherSlave= true;
 
 	initStringInfo(&infosendsyncmsg);
 
 	syncNum = mgr_get_master_sync_string(node->form.oid, true, node->form.oid, &infosendsyncmsg);
 	if(infosendsyncmsg.len != 0)
 	{
-		int i = 0;
-		while(i<infosendsyncmsg.len && infosendsyncmsg.data[i] != ',' && i < NAMEDATALEN)
-		{
-			slaveNodeName.data[i] = infosendsyncmsg.data[i];
-			i++;
-		}
-		if (i < NAMEDATALEN)
-			slaveNodeName.data[i] = '\0';
-		hasOtherSlave = true;
 		if (syncNum == 0)
 			syncNum = 1;
 	

@@ -1110,7 +1110,6 @@ DoReduceDataForShadowRel(Relation masterRel,
 	MemoryContext	shadow_context;
 	MemoryContext	old_context;
 	TupleDesc		scan_desc;
-	TupleDesc		result_desc;
 	ShadowReduceState state;
 	bool			needReduce = true;
 
@@ -1131,7 +1130,6 @@ DoReduceDataForShadowRel(Relation masterRel,
 											   GetActiveSnapshot(),
 											   0, NULL);
 	state.redist_ScanTupleSlot = table_slot_create(masterRel, NULL);
-	result_desc = RelationGetDescr(shadowRel);
 
 	state.redist_ResultTupleSlot = table_slot_create(shadowRel, NULL);
 	state.redist_ExprContext = CreateStandaloneExprContext();

@@ -25,7 +25,6 @@ static bool cg_pqexec_recv_hook(PQNHookFunctions *pub, struct pg_conn *conn, con
 ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, int flags)
 {
 	ClusterGatherState *gatherstate;
-	TupleDesc			tupDesc;
 	const TupleTableSlotOps
 					   *outerOps;
 	bool				outerOpsFixed;
@@ -44,7 +43,6 @@ ClusterGatherState *ExecInitClusterGather(ClusterGather *node, EState *estate, i
 
 	outerPlanState(gatherstate) = ExecStartClusterPlan(outerPlan(node),
 													   estate, flags, node->rnodes);
-	tupDesc = ExecGetResultType(outerPlanState(gatherstate));
 
 	/*
 	 * Initialize result slot, we not support projection.

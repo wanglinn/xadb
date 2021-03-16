@@ -1994,7 +1994,7 @@ TruncateRelation(Relation rel, SubTransactionId mySubid)
 	{
 		Oid 		heap_relid;
 		Oid 		toast_relid;
-		MultiXactId minmulti;
+		//MultiXactId minmulti;
 
 		/*
 		 * This effectively deletes all rows in the table, and may be done
@@ -2004,7 +2004,7 @@ TruncateRelation(Relation rel, SubTransactionId mySubid)
 		 */
 		CheckTableForSerializableConflictIn(rel);
 
-		minmulti = GetOldestMultiXactId();
+		//minmulti = GetOldestMultiXactId();
 
 		/*
 		 * Need the full transaction-safe pushups.

@@ -1007,7 +1007,6 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 	bool noneed_dropnode = true;
 	bool bres = false;
 	int iloop = 0;
-	int s_agent_port;
 	int iMax = 90;
 	int nodePort;
 	int agentPort;
@@ -1079,7 +1078,6 @@ Datum mgr_append_activate_coord(PG_FUNCTION_ARGS)
 		}
 		mgr_host= (Form_mgr_host)GETSTRUCT(host_tuple);
 		Assert(mgr_host);
-		s_agent_port = mgr_host->hostagentport;
 		ReleaseSysCache(host_tuple);
 		
 		tupleM = SearchSysCache1(NODENODEOID, dest_nodeinfo.nodemasteroid);
