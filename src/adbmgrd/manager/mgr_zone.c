@@ -1056,7 +1056,7 @@ static void MgrAddGtmCoordHba(MemoryContext spiContext, char *zone)
 	selectMgrNodeByNodetype(spiContext, CNDN_TYPE_GTM_COOR_MASTER, &masterGtm);
 	gtmMaster = selectMgrGtmCoordNode(spiContext);
 	Assert(gtmMaster);
-	selectActiveMgrSlaveNodesInZone(gtmMaster->oid,
+	selectActiveMgrSlaveNodesInZone(gtmMaster->form.oid,
 									CNDN_TYPE_GTM_COOR_SLAVE,
 									zone,
 									spiContext,
