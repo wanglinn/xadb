@@ -28,6 +28,8 @@ OBJS = \
 
 ifeq ($(enable_cluster),yes)
   OBJS += snapreceiver.o snapsender.o snapcommon.o
+
+snap%.o: CFLAGS += $(PERMIT_DECLARATION_AFTER_STATEMENT)
 endif
 
 SUBDIRS = logical
