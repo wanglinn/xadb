@@ -102,6 +102,7 @@
 
 #ifdef ADB_GRAM_ORA
 #define RADIX			"."
+extern int current_grammar;
 #endif
 
 /* ----------
@@ -2013,6 +2014,14 @@ str_toupper(const char *buff, size_t nbytes, Oid collid)
 char *
 str_initcap(const char *buff, size_t nbytes, Oid collid)
 {
+#ifdef ADB_GRAM_ORA
+	return nls_str_initcap(buff, nbytes, collid, PARSE_GRAM_POSTGRES);
+}
+
+char *
+nls_str_initcap(const char *buff, size_t nbytes, Oid collid, ParseGrammar call_grammar)
+{
+#endif	/* ADB_GRAM_ORA */
 	char	   *result;
 	int			wasalnum = false;
 
@@ -2100,6 +2109,15 @@ str_initcap(const char *buff, size_t nbytes, Oid collid)
 							workspace[curr_char] = towupper(workspace[curr_char]);
 						wasalnum = iswalnum(workspace[curr_char]);
 					}
+#ifdef ADB_GRAM_ORA
+					if ((call_grammar == PARSE_GRAM_ORACLE ||
+						current_grammar == PARSE_GRAM_ORACLE) &&
+						!isalnum(workspace[curr_char]) &&
+						isalnum(workspace[curr_char + 1]))
+					{
+						wasalnum = 0;
+					}
+#endif	/* ADB_GRAM_ORA */
 				}
 
 				/*

@@ -11136,7 +11136,7 @@
 { oid => '9234', row_macros => 'ADB_GRAM_ORA',
   descr => 'Oracle: capitalize each word',
   proname => 'nls_initcap', pronamespace => 'ORANSP', prorettype => 'text',
-  proargtypes => 'text', prosrc => 'initcap' },
+  proargtypes => 'text', prosrc => 'nls_initcap' },
 { oid => '9235', row_macros => 'ADB_GRAM_ORA', descr => 'Oracle: lowercase',
   proname => 'nls_lower', pronamespace => 'ORANSP', prorettype => 'text',
   proargtypes => 'text', prosrc => 'lower' },

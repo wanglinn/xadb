@@ -18,6 +18,10 @@
 #define _FORMATTING_H_
 
 
+#ifdef ADB_GRAM_ORA
+#include "nodes/parsenodes.h"
+#endif	/* ADB_GRAM_ORA */
+
 extern char *str_tolower(const char *buff, size_t nbytes, Oid collid);
 extern char *str_toupper(const char *buff, size_t nbytes, Oid collid);
 extern char *str_initcap(const char *buff, size_t nbytes, Oid collid);
@@ -32,6 +36,7 @@ extern Datum parse_datetime(text *date_txt, text *fmt, Oid collid, bool strict,
 #ifdef ADB_GRAM_ORA
 extern Datum ora_to_timestamp(text * date_txt, text * fmt, Oid collid, bool withtz);
 extern Datum ora_to_date(text * date_txt, text * fmt, Oid collid, bool withtz);
+extern char *nls_str_initcap(const char *buff, size_t nbytes, Oid collid, ParseGrammar call_grammar);
 #endif
 
 #endif
