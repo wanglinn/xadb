@@ -3287,9 +3287,9 @@ ExecUtilityFindNodes(ObjectType object_type,
 			 * Materialized views and hence index on those are located on
 			 * coordinators
 			 */
-			else if (get_rel_relkind(object_id) == RELKIND_MATVIEW ||
+			else if ((get_rel_relkind(object_id) == RELKIND_MATVIEW ||
 						(get_rel_relkind(object_id) == RELKIND_INDEX &&
-							get_rel_relkind(IndexGetRelation(object_id, false)) == RELKIND_MATVIEW) &&
+							get_rel_relkind(IndexGetRelation(object_id, false)) == RELKIND_MATVIEW)) &&
 							!enable_view_distribute)
 				exec_type = EXEC_ON_COORDS;
 			else
