@@ -1431,16 +1431,15 @@ set_append_rel_size(PlannerInfo *root, RelOptInfo *rel,
 			/*
 			 * when ClusterReduce use more then one times, it not work(not support ReScan)
 			 */
-			ListCell *lc;
 			int i = 0;
-			foreach(lc, root->glob->subroots)
+			int length = list_length(root->glob->subroots);
+			for(;i < length;i++)
 			{
 				if (subplan_ref[i] > 1)
 				{
 					/* SubPlan's cluster plan is not created, just mark it need rewind */
 					root->glob->rewindPlanIDs = bms_add_member(root->glob->rewindPlanIDs, i+1);
 				}
-				++i;
 			}
 		}
 #endif /* ADB */
