@@ -106,6 +106,7 @@ ifeq ($(enable_grammar_db2),yes)
 endif
 
 OBJS_PG_FRONTEND = $(OBJS_FRONTEND:%.o=%_pg.o)
+%_pg.o: CFLAGS += $(PERMIT_DECLARATION_AFTER_STATEMENT)
 
 # foo.o, foo_shlib.o, and foo_srv.o are all built from foo.c
 OBJS_SHLIB = $(OBJS_FRONTEND:%.o=%_shlib.o)
@@ -198,6 +199,8 @@ libpgcommon_mgr.a: $(OBJS_MGR)
 
 %_mgr.o: %.c %.o
 	$(CC) -I$(top_builddir)/src/adbmgrd/include -I$(top_srcdir)/src/adbmgrd/include $(patsubst -DADB,, $(CFLAGS)) -DADBMGRD $(subst -DFRONTEND,, $(CPPFLAGS)) -c $< -o $@
+
+%_mgr.o: CFLAGS += $(PERMIT_DECLARATION_AFTER_STATEMENT)
 
 keywords_mgr.o: kwlist_mgr_d.h
 

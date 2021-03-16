@@ -114,6 +114,8 @@ OBJS = \
 
 ifeq ($(enable_grammar_oracle), yes)
 	OBJS += rowid.o
+
+rowid.o: CFLAGS += $(PERMIT_DECLARATION_AFTER_STATEMENT)
 endif
 
 jsonpath_scan.c: FLEXFLAGS = -CF -p -p
