@@ -1,43 +1,43 @@
 set grammar to oracle;
 SELECT DUMP('\|a*&^%$#@!g?') FROM DUAL;
-                               dump                               
+                      DUMP('\|A*&^%$#@!G?')                       
 ------------------------------------------------------------------
  Typ=25 Len=17: 68,0,0,0,92,124,97,42,38,94,37,36,35,64,33,103,63
 (1 row)
 
 --SELECT DUMP('你好') FROM DUAL;
 SELECT DUMP(22.7) FROM DUAL;
-                dump                
+             DUMP(22.7)             
 ------------------------------------
  Typ=25 Len=8: 32,0,0,0,50,50,46,55
 (1 row)
 
 SELECT DUMP(to_date('2015-11-3','yyyy-mm-dd')) FROM DUAL;
-                                                 dump                                                 
+                               DUMP(TO_DATE('2015-11-3','YYYY-MM-DD'))                                
 ------------------------------------------------------------------------------------------------------
  Typ=25 Len=28: 112,0,0,0,84,117,101,32,78,111,118,32,48,51,32,48,48,58,48,48,58,48,48,32,50,48,49,53
 (1 row)
 
 SELECT DUMP(to_char(22)) FROM DUAL;
-             dump             
+      DUMP(TO_CHAR(22))       
 ------------------------------
  Typ=25 Len=6: 24,0,0,0,50,50
 (1 row)
 
 SELECT DUMP('a',16) FROM DUAL;
-           dump            
+       DUMP('A',16)        
 ---------------------------
  Typ=25 Len=5: 14,0,0,0,61
 (1 row)
 
 SELECT DUMP('ab',8) FROM DUAL;
-              dump              
+          DUMP('AB',8)          
 --------------------------------
  Typ=25 Len=6: 30,0,0,0,141,142
 (1 row)
 
 SELECT DUMP('ab',17) FROM DUAL;
-           dump            
+       DUMP('AB',17)       
 ---------------------------
  Typ=25 Len=6: ?,?,?,?,a,b
 (1 row)
@@ -53,65 +53,65 @@ ERROR:  unknown format
 SELECT DUMP('abcdefg',-2) FROM DUAL;
 ERROR:  unknown format
 SELECT DUMP('abcdefg','8') FROM DUAL;
-                        dump                         
+                 DUMP('ABCDEFG','8')                 
 -----------------------------------------------------
  Typ=25 Len=11: 54,0,0,0,141,142,143,144,145,146,147
 (1 row)
 
 SELECT DUMP('\|a*&^%$#@!g',8,-1) FROM DUAL;
-ERROR:  function dump(text, integer, integer) does not exist
+ERROR:  function dump(unknown, integer, integer) does not exist
 LINE 1: SELECT DUMP('\|a*&^%$#@!g',8,-1) FROM DUAL;
                ^
 HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 SELECT DUMP('\|a*&^%$#@!g',8,11) FROM DUAL;
-ERROR:  function dump(text, integer, integer) does not exist
+ERROR:  function dump(unknown, integer, integer) does not exist
 LINE 1: SELECT DUMP('\|a*&^%$#@!g',8,11) FROM DUAL;
                ^
 HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 SELECT DUMP('\|a*&^%$#@!g',8,0) FROM DUAL;
-ERROR:  function dump(text, integer, integer) does not exist
+ERROR:  function dump(unknown, integer, integer) does not exist
 LINE 1: SELECT DUMP('\|a*&^%$#@!g',8,0) FROM DUAL;
                ^
 HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 SELECT DUMP('\|a*&^%$#@!g',8,'2') FROM DUAL;
-ERROR:  function dump(text, integer, text) does not exist
+ERROR:  function dump(unknown, integer, unknown) does not exist
 LINE 1: SELECT DUMP('\|a*&^%$#@!g',8,'2') FROM DUAL;
                ^
 HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 SELECT DUMP('abcdefg',16,2,4) FROM DUAL;
-ERROR:  function dump(text, integer, integer, integer) does not exist
+ERROR:  function dump(unknown, integer, integer, integer) does not exist
 LINE 1: SELECT DUMP('abcdefg',16,2,4) FROM DUAL;
                ^
 HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 SELECT DUMP('abcdefg',16,3,10) FROM DUAL;
-ERROR:  function dump(text, integer, integer, integer) does not exist
+ERROR:  function dump(unknown, integer, integer, integer) does not exist
 LINE 1: SELECT DUMP('abcdefg',16,3,10) FROM DUAL;
                ^
 HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 SELECT DUMP('abcdefg',8,0,100) FROM DUAL;
-ERROR:  function dump(text, integer, integer, integer) does not exist
+ERROR:  function dump(unknown, integer, integer, integer) does not exist
 LINE 1: SELECT DUMP('abcdefg',8,0,100) FROM DUAL;
                ^
 HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 SELECT DUMP('abcdefg',8,1,-2) FROM DUAL;
-ERROR:  function dump(text, integer, integer, integer) does not exist
+ERROR:  function dump(unknown, integer, integer, integer) does not exist
 LINE 1: SELECT DUMP('abcdefg',8,1,-2) FROM DUAL;
                ^
 HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 SELECT DUMP('a',8,0,'2') FROM DUAL;
-ERROR:  function dump(text, integer, integer, text) does not exist
+ERROR:  function dump(unknown, integer, integer, unknown) does not exist
 LINE 1: SELECT DUMP('a',8,0,'2') FROM DUAL;
                ^
 HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 SELECT DUMP('',null) FROM DUAL;
- dump 
-------
+ DUMP('',NULL) 
+---------------
  
 (1 row)
 
 SELECT DUMP(null,8) FROM DUAL;
- dump 
-------
+ DUMP(NULL,8) 
+--------------
  
 (1 row)
 

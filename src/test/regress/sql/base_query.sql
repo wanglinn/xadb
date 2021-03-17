@@ -58,8 +58,8 @@ insert into tt values(1,numtoyminterval(3,'year')+numtoyminterval(3,'month'));
 insert into tt values(2,numtoyminterval(8,'month'));
 insert into tt values(2,numtodsinterval(20,'day'));
 select * from tt order by id;
-select * from tt where itv < numtoyminterval(3,'year')
-select * from tt where itv = numtoyminterval(10,'month')
+select * from tt where itv < numtoyminterval(3,'year');
+select * from tt where itv = numtoyminterval(10,'month');
 select * from tt where itv between numtoyminterval(10,'month') and numtodsinterval(1500,'day');
 drop table tt;
 --float：不同精度和类型

@@ -130,7 +130,8 @@ FROM pg_proc AS p1, pg_proc AS p2
 WHERE p1.oid != p2.oid AND
     p1.proname = p2.proname AND
     p1.pronargs = p2.pronargs AND
-    p1.proargtypes = p2.proargtypes;
+    p1.proargtypes = p2.proargtypes AND
+    p1.pronamespace = p2.pronamespace;
 
 -- Considering only built-in procs (prolang = 12), look for multiple uses
 -- of the same internal function (ie, matching prosrc fields).  It's OK to
@@ -395,7 +396,8 @@ WHERE p2.oid = p1.prosupport AND
 SELECT p1.oid, p1.proname
 FROM pg_proc as p1 LEFT JOIN pg_description as d
      ON p1.tableoid = d.classoid and p1.oid = d.objoid and d.objsubid = 0
-WHERE d.classoid IS NULL AND p1.oid <= 9999;
+WHERE d.classoid IS NULL AND p1.oid <= 9999
+  and pronamespace not in (select oid from pg_namespace where nspname = 'oracle');
 
 -- List of built-in leakproof functions
 --

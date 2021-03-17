@@ -212,7 +212,7 @@ select to_char(null,'') from dual;
 (1 row)
 
 select to_char(to_timestamp('2016-04-12 07:53:56.6259','yyyy-mm-dd hh24:mi:ssxff4'), 'yyyymmdd hh24:mi:ssxff4') FROM dual;
- TO_CHAR(TO_TIMESTAMP('2016-04-12 07:53:56.6259','YYYY-MM-DD HH24:MI:SSXFF4'), 'YYYYMMDD HH24:MI:SSXFF4')
+ TO_CHAR(TO_TIMESTAMP('2016-04-12 07:53:56.6259','YYYY-MM-DD HH24:MI:SSXFF4'), 'YYYYMMDD HH24:MI:SSXFF4') 
 ----------------------------------------------------------------------------------------------------------
  20160412 07:53:56.6259
 (1 row)

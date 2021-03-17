@@ -2,29 +2,25 @@ set grammar to oracle;
 set datestyle='ISO,YMD';
 set timezone=8;
 select to_char(sessiontimezone,'hh24:mi:ss') from dual;
- to_char  
-----------
- 08:00:00
-(1 row)
-
+ERROR:  function to_char(cstring, unknown) does not exist
+LINE 1: select to_char(sessiontimezone,'hh24:mi:ss') from dual;
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 set timezone=0;
 select to_char(sessiontimezone,'hh24:mi:ss') from dual;
- to_char  
-----------
- 00:00:00
-(1 row)
-
+ERROR:  function to_char(cstring, unknown) does not exist
+LINE 1: select to_char(sessiontimezone,'hh24:mi:ss') from dual;
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 set timezone=-8;
 select to_char(sessiontimezone,'hh24:mi:ss') from dual;
- to_char  
-----------
- -8:00:00
-(1 row)
-
+ERROR:  function to_char(cstring, unknown) does not exist
+LINE 1: select to_char(sessiontimezone,'hh24:mi:ss') from dual;
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
 set timezone=4.5;
 select to_char(sessiontimezone,'hh24:mi:ss') from dual;
- to_char  
-----------
- 04:30:00
-(1 row)
-
+ERROR:  function to_char(cstring, unknown) does not exist
+LINE 1: select to_char(sessiontimezone,'hh24:mi:ss') from dual;
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.

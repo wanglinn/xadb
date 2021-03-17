@@ -69,7 +69,7 @@ select to_timestamp('2100-2-28','') from dual;
 (1 row)
 
 select to_char(to_timestamp('2015,01,02 14:34:23.345','yyyy,mm,dd hh24:mi:ss.ff') - to_timestamp('2014,01,01 11:24:21','yyyy,mm,dd hh24:mi:ss'),'yyyy-mm-dd hh24:mi:ss') from dual;
- TO_CHAR(TO_TIMESTAMP('2015,01,02 14:34:23.345','YYYY,MM,DD HH24:MI:SS.FF') - TO_TIMESTAMP('2014,01,01 11:24:21','YYYY,MM,DD HH24:MI:SS'),'YYYY-MM-DD HH24:MI:SS')
+ TO_CHAR(TO_TIMESTAMP('2015,01,02 14:34:23.345','YYYY,MM,DD HH24:MI:SS.FF') - TO_TIMESTAMP('2014,01,01 11:24:21','YYYY,MM,DD HH24:MI:SS'),'YYYY-MM-DD HH24:MI:SS') 
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  0000-00-366 03:10:02
 (1 row)
@@ -81,4 +81,8 @@ select to_char(to_timestamp('2015-01-02','yyyy-mm-dd') - to_timestamp('2014-01-0
 (1 row)
 
 select to_timestamp('20160229 16:06:39.2161', 'yyyymmdd hh24:mi:ssxff4') FROM dual;
-ERROR:  formatting field "xff4" is only supported for oracle grammar
+ TO_TIMESTAMP('20160229 16:06:39.2161', 'YYYYMMDD HH24:MI:SSXFF4') 
+-------------------------------------------------------------------
+ 2016-02-29 16:06:39.2161
+(1 row)
+

@@ -142,7 +142,8 @@ FROM pg_proc AS p1, pg_proc AS p2
 WHERE p1.oid != p2.oid AND
     p1.proname = p2.proname AND
     p1.pronargs = p2.pronargs AND
-    p1.proargtypes = p2.proargtypes;
+    p1.proargtypes = p2.proargtypes AND
+    p1.pronamespace = p2.pronamespace;
  oid | proname | oid | proname 
 -----+---------+-----+---------
 (0 rows)
@@ -433,11 +434,15 @@ WHERE  p1.prorettype = 'cstring'::regtype
     AND NOT EXISTS(SELECT 1 FROM pg_type WHERE typmodout = p1.oid)
     AND p1.oid != 'shell_out(void)'::regprocedure
 ORDER BY 1;
- oid  |   proname    
-------+--------------
+ oid  |       proname        
+------+----------------------
  2292 | cstring_in
  2500 | cstring_recv
-(2 rows)
+ 9232 | ora_dbtimezone
+ 9233 | ora_session_timezone
+ 9293 | text_tocstring
+ 9314 | adb_xact_status
+(6 rows)
 
 -- Check for length inconsistencies between the various argument-info arrays.
 SELECT p1.oid, p1.proname
@@ -514,7 +519,8 @@ WHERE p2.oid = p1.prosupport AND
 SELECT p1.oid, p1.proname
 FROM pg_proc as p1 LEFT JOIN pg_description as d
      ON p1.tableoid = d.classoid and p1.oid = d.objoid and d.objsubid = 0
-WHERE d.classoid IS NULL AND p1.oid <= 9999;
+WHERE d.classoid IS NULL AND p1.oid <= 9999
+  and pronamespace not in (select oid from pg_namespace where nspname = 'oracle');
  oid | proname 
 -----+---------
 (0 rows)
@@ -1125,6 +1131,7 @@ ORDER BY 1, 2;
  *<>  | *<>
  *=   | *=
  +    | +
+ -    | -
  -|-  | -|-
  <    | >
  <->  | <->
@@ -1146,7 +1153,7 @@ ORDER BY 1, 2;
  ~<=~ | ~>=~
  ~<~  | ~>~
  ~=   | ~=
-(30 rows)
+(31 rows)
 
 -- Likewise for negator pairs.
 SELECT DISTINCT o1.oprname AS op1, o2.oprname AS op2
@@ -2195,11 +2202,13 @@ ORDER BY 1, 2, 3;
                     | jsonb_ops        | jsonb_ops        | jsonb
                     | numeric_ops      | numeric_ops      | numeric
                     | range_ops        | range_ops        | anyrange
+                    | raw_ops          | raw_ops          | oracle.raw
                     | record_image_ops | record_image_ops | record
                     | record_ops       | record_ops       | record
+                    | rowid_ops        | rowid_ops        | oracle.rowid
                     | tsquery_ops      | tsquery_ops      | tsquery
                     | tsvector_ops     | tsvector_ops     | tsvector
-(14 rows)
+(16 rows)
 
 -- **************** pg_index ****************
 -- Look for illegal values in pg_index fields.

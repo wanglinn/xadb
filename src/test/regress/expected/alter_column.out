@@ -18,28 +18,18 @@ drop table tt;
 --删除多列
 create table tt(tid int,name varchar(2),tel char(10));
 alter table tt drop(name,tel);
-ERROR:  syntax error at or near "name"
-LINE 1: alter table tt drop(name,tel);
-                            ^
 drop table tt;
 --删除分片键列
 create table tt(name char(2),tid int);
 alter table tt drop column name;
-ERROR:  Distribution column cannot be dropped
 drop table tt;
 --修改列
 create table tt(tid int,name varchar(2));
 alter table tt modify name char(10);
 alter table tt modify name default('a');
-ERROR:  syntax error at or near "default"
-LINE 1: alter table tt modify name default('a');
-                                   ^
 drop table tt;
 create table tt(tid int,name varchar(2),tel char(11));
 alter table tt modify(name char(10),tel char(12));
-ERROR:  syntax error at or near "name"
-LINE 1: alter table tt modify(name char(10),tel char(12));
-                              ^
 drop table tt;
 --重命名列
 create table tt(tid int,name varchar(2));

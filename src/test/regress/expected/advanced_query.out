@@ -8,69 +8,69 @@ insert into tt(id,name,sal) values(2, 'Tom',6000.98);
 insert into tt(id,name,sal) values(4, 'Tom','6000.98');
 insert into tt(id,name,sal) values(3, 'Jhon',null);
 select * from tt order by id;
- id | name |   sal   
+ ID | NAME |   SAL   
 ----+------+---------
-  1 | mike | 5000.00
+  1 | mike |    5000
   2 | Tom  | 6000.98
   3 | Jhon |        
   4 | Tom  | 6000.98
 (4 rows)
 
 select name from tt where sal IN(5000,6000.98) order by name;
- name 
+ NAME 
 ------
- Tom
- Tom
  mike
+ Tom
+ Tom
 (3 rows)
 
 select name from tt where sal IN(6000.98,6000.98) order by name;
- name 
+ NAME 
 ------
  Tom
  Tom
 (2 rows)
 
 select name from tt where sal IN('6000.98','6000.98') order by name;
- name 
+ NAME 
 ------
  Tom
  Tom
 (2 rows)
 
 select name from tt where sal IN(5000) order by name;
- name 
+ NAME 
 ------
  mike
 (1 row)
 
 select name from tt where sal IN('') order by name;
- name 
+ NAME 
 ------
 (0 rows)
 
 select name from tt where sal IN(to_char(5000),to_char(6000.98)) order by name;
- name 
+ NAME 
 ------
- Tom
- Tom
  mike
+ Tom
+ Tom
 (3 rows)
 
 select name from tt where id IN(to_char(1),to_char(2),to_char(3)) order by name;
- name 
+ NAME 
 ------
  Jhon
- Tom
  mike
+ Tom
 (3 rows)
 
 select name from tt where id IN(to_char(1.00),to_char(2.0),to_char(03)) order by name;
- name 
+ NAME 
 ------
  Jhon
- Tom
  mike
+ Tom
 (3 rows)
 
 drop table tt;
@@ -82,42 +82,42 @@ create table aa(id int,job varchar(20));
 insert into aa(id,job) values(1,'doctor assistant');
 insert into aa(id,job) values(2,'nurse');
 select id,name from tt where id IN(select id from aa) order by id;
- id | name 
+ ID | NAME 
 ----+------
   1 | 1
   2 | 2
 (2 rows)
 
 select id,name from tt where id IN(select name from tt) order by id;
- id | name 
+ ID | NAME 
 ----+------
   1 | 1
   2 | 2
 (2 rows)
 
 select id,name from tt where name IN(select id from aa) order by id;
- id | name 
+ ID | NAME 
 ----+------
   1 | 1
   2 | 2
 (2 rows)
 
 select id,job from aa where id IN(select name from tt) order by id;
- id |       job        
+ ID |       JOB        
 ----+------------------
   1 | doctor assistant
   2 | nurse
 (2 rows)
 
 select id,job from aa where id NOT IN(select name from tt where id=3) order by id;
- id |       job        
+ ID |       JOB        
 ----+------------------
   1 | doctor assistant
   2 | nurse
 (2 rows)
 
 select id,job from aa where id IN(select name from tt where id=1) order by id;
- id |       job        
+ ID |       JOB        
 ----+------------------
   1 | doctor assistant
 (1 row)
@@ -129,26 +129,26 @@ create table tt(id number,name varchar(10));
 insert into tt(id,name) values(221292, 'Sherry');
 insert into tt(id,name) values(6789, 'Steven');
 select * from tt where id between 6789 and 221292 order by id;
-   id   |  name  
+   ID   |  NAME  
 --------+--------
    6789 | Steven
  221292 | Sherry
 (2 rows)
 
 select * from tt where id between '6789' and '221292' order by id;
-   id   |  name  
+   ID   |  NAME  
 --------+--------
    6789 | Steven
  221292 | Sherry
 (2 rows)
 
 select * from tt where id between 221293 and 6788 order by id;
- id | name 
+ ID | NAME 
 ----+------
 (0 rows)
 
 select * from tt where id between to_char(2) and to_char(5) order by id;
- id | name 
+ ID | NAME 
 ----+------
 (0 rows)
 
@@ -159,20 +159,20 @@ insert into tt values(1, to_date('20151230','yyyymmdd'),to_date('20171230','yyyy
 insert into tt values(2, to_date('20161125','yyyymmdd'),to_date('20161225','yyyymmdd'));
 insert into tt values(3, to_date('20160101','yyyymmdd'),to_date('20160801','yyyymmdd'));
 select * from tt where to_char(indt,'yyyymmdd') between '20151230' and '20160101' order by id;
- id |        indt         |        outdt        
+ ID |        INDT         |        OUTDT        
 ----+---------------------+---------------------
   1 | 2015-12-30 00:00:00 | 2017-12-30 00:00:00
   3 | 2016-01-01 00:00:00 | 2016-08-01 00:00:00
 (2 rows)
 
 select * from tt where months_between(outdt,indt) between 12 and 24 order by id;
- id |        indt         |        outdt        
+ ID |        INDT         |        OUTDT        
 ----+---------------------+---------------------
   1 | 2015-12-30 00:00:00 | 2017-12-30 00:00:00
 (1 row)
 
 select id, to_char(numtodsinterval(to_number(outdt-indt),'day'), 'dd') itv from tt where numtodsinterval(to_number(outdt-indt),'day') between numtodsinterval(1,'day') and numtodsinterval(25000,'hour') order by id;
- id | itv 
+ ID | ITV 
 ----+-----
   1 | 731
   2 | 30
@@ -185,40 +185,40 @@ create table tt(id number(6,2),name char(20), dt date);
 insert into tt values(980,'apple#America',to_date('2015-10-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
 insert into tt values(980.1,'apple#UK',to_date('2015-11-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
 select * from tt  order by id;;
-   id   |         name         |         dt          
---------+----------------------+---------------------
- 980.00 | apple#America        | 2015-10-01 10:30:59
- 980.10 | apple#UK             | 2015-11-01 10:30:59
+  ID   |         NAME         |         DT          
+-------+----------------------+---------------------
+   980 | apple#America        | 2015-10-01 10:30:59
+ 980.1 | apple#UK             | 2015-11-01 10:30:59
 (2 rows)
 
 select * from tt where id like '%.%' order by id;;
-   id   |         name         |         dt          
---------+----------------------+---------------------
- 980.00 | apple#America        | 2015-10-01 10:30:59
- 980.10 | apple#UK             | 2015-11-01 10:30:59
-(2 rows)
+  ID   |         NAME         |         DT          
+-------+----------------------+---------------------
+ 980.1 | apple#UK             | 2015-11-01 10:30:59
+(1 row)
 
 select * from tt where id like '980' order by id;;
- id | name | dt 
-----+------+----
-(0 rows)
+ ID  |         NAME         |         DT          
+-----+----------------------+---------------------
+ 980 | apple#America        | 2015-10-01 10:30:59
+(1 row)
 
 select * from tt where id like 980 order by id;
- id | name | dt 
-----+------+----
-(0 rows)
+ ID  |         NAME         |         DT          
+-----+----------------------+---------------------
+ 980 | apple#America        | 2015-10-01 10:30:59
+(1 row)
 
 select * from tt where id like 980.00 order by id;
-   id   |         name         |         dt          
---------+----------------------+---------------------
- 980.00 | apple#America        | 2015-10-01 10:30:59
+ ID  |         NAME         |         DT          
+-----+----------------------+---------------------
+ 980 | apple#America        | 2015-10-01 10:30:59
 (1 row)
 
 select * from tt where id like '980.00' order by id;
-   id   |         name         |         dt          
---------+----------------------+---------------------
- 980.00 | apple#America        | 2015-10-01 10:30:59
-(1 row)
+ ID | NAME | DT 
+----+------+----
+(0 rows)
 
 drop table tt;
 --float	
@@ -226,26 +226,26 @@ create table tt(id binary_float,name char(20), dt date);
 insert into tt values(980,'apple#America',to_date('2015-10-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
 insert into tt values(980.1,'apple#UK',to_date('2015-11-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
 select * from tt order by id;
-  id   |         name         |         dt          
+  ID   |         NAME         |         DT          
 -------+----------------------+---------------------
    980 | apple#America        | 2015-10-01 10:30:59
  980.1 | apple#UK             | 2015-11-01 10:30:59
 (2 rows)
 
 select * from tt where id like '%.%' order by id;
-  id   |         name         |         dt          
+  ID   |         NAME         |         DT          
 -------+----------------------+---------------------
  980.1 | apple#UK             | 2015-11-01 10:30:59
 (1 row)
 
 select * from tt where id like '980' order by id;
- id  |         name         |         dt          
+ ID  |         NAME         |         DT          
 -----+----------------------+---------------------
  980 | apple#America        | 2015-10-01 10:30:59
 (1 row)
 
 select * from tt where id like 980 order by id;
- id  |         name         |         dt          
+ ID  |         NAME         |         DT          
 -----+----------------------+---------------------
  980 | apple#America        | 2015-10-01 10:30:59
 (1 row)
@@ -257,81 +257,81 @@ insert into tt values(1,'apple#America',to_timestamp('2015-10-01 10:30:59','yyyy
 insert into tt values(2,'apple#UK',to_timestamp('2015-11-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
 insert into tt values(3,'apple',to_timestamp('2015-11-01 10:30:59','yyyy-mm-dd hh24:mi:ss'));
 select * from tt order by id;
-  id  |     name      |         dt          
-------+---------------+---------------------
- 1.00 | apple#America | 2015-10-01 10:30:59
- 2.00 | apple#UK      | 2015-11-01 10:30:59
- 3.00 | apple         | 2015-11-01 10:30:59
+ ID |     NAME      |         DT          
+----+---------------+---------------------
+  1 | apple#America | 2015-10-01 10:30:59
+  2 | apple#UK      | 2015-11-01 10:30:59
+  3 | apple         | 2015-11-01 10:30:59
 (3 rows)
 
 select * from tt where name like '%#%' order by id;
-  id  |     name      |         dt          
-------+---------------+---------------------
- 1.00 | apple#America | 2015-10-01 10:30:59
- 2.00 | apple#UK      | 2015-11-01 10:30:59
+ ID |     NAME      |         DT          
+----+---------------+---------------------
+  1 | apple#America | 2015-10-01 10:30:59
+  2 | apple#UK      | 2015-11-01 10:30:59
 (2 rows)
 
 select * from tt where name like '%ca' order by id;
-  id  |     name      |         dt          
-------+---------------+---------------------
- 1.00 | apple#America | 2015-10-01 10:30:59
+ ID |     NAME      |         DT          
+----+---------------+---------------------
+  1 | apple#America | 2015-10-01 10:30:59
 (1 row)
 
 select * from tt where name like 'apple%' order by id;
-  id  |     name      |         dt          
-------+---------------+---------------------
- 1.00 | apple#America | 2015-10-01 10:30:59
- 2.00 | apple#UK      | 2015-11-01 10:30:59
- 3.00 | apple         | 2015-11-01 10:30:59
+ ID |     NAME      |         DT          
+----+---------------+---------------------
+  1 | apple#America | 2015-10-01 10:30:59
+  2 | apple#UK      | 2015-11-01 10:30:59
+  3 | apple         | 2015-11-01 10:30:59
 (3 rows)
 
 select * from tt where name like '% ' order by id;
-  id  |     name      |         dt          
-------+---------------+---------------------
- 2.00 | apple#UK      | 2015-11-01 10:30:59
- 3.00 | apple         | 2015-11-01 10:30:59
+ ID |     NAME      |         DT          
+----+---------------+---------------------
+  2 | apple#UK      | 2015-11-01 10:30:59
+  3 | apple         | 2015-11-01 10:30:59
 (2 rows)
 
 select * from tt where name like 'apple' order by id;
- id | name | dt 
+ ID | NAME | DT 
 ----+------+----
 (0 rows)
 
 select * from tt where name like 'apple        ' order by id;
-  id  |     name      |         dt          
-------+---------------+---------------------
- 3.00 | apple         | 2015-11-01 10:30:59
+ ID |     NAME      |         DT          
+----+---------------+---------------------
+  3 | apple         | 2015-11-01 10:30:59
 (1 row)
 
 select * from tt where name like to_char('apple% ') order by id;
-  id  |     name      |         dt          
-------+---------------+---------------------
- 2.00 | apple#UK      | 2015-11-01 10:30:59
- 3.00 | apple         | 2015-11-01 10:30:59
+ ID |     NAME      |         DT          
+----+---------------+---------------------
+  2 | apple#UK      | 2015-11-01 10:30:59
+  3 | apple         | 2015-11-01 10:30:59
 (2 rows)
 
 select * from tt where dt like '%10:30:59%' order by id;
-  id  |     name      |         dt          
-------+---------------+---------------------
- 1.00 | apple#America | 2015-10-01 10:30:59
- 2.00 | apple#UK      | 2015-11-01 10:30:59
- 3.00 | apple         | 2015-11-01 10:30:59
+ ID |     NAME      |         DT          
+----+---------------+---------------------
+  1 | apple#America | 2015-10-01 10:30:59
+  2 | apple#UK      | 2015-11-01 10:30:59
+  3 | apple         | 2015-11-01 10:30:59
 (3 rows)
 
 select * from tt where dt like '%' order by id;
-  id  |     name      |         dt          
-------+---------------+---------------------
- 1.00 | apple#America | 2015-10-01 10:30:59
- 2.00 | apple#UK      | 2015-11-01 10:30:59
- 3.00 | apple         | 2015-11-01 10:30:59
+ ID |     NAME      |         DT          
+----+---------------+---------------------
+  1 | apple#America | 2015-10-01 10:30:59
+  2 | apple#UK      | 2015-11-01 10:30:59
+  3 | apple         | 2015-11-01 10:30:59
 (3 rows)
 
 select * from tt where dt like '%%%%%%%%' order by id;
-  id  |     name      |         dt          
-------+---------------+---------------------
- 1.00 | apple#America | 2015-10-01 10:30:59
- 2.00 | apple#UK      | 2015-11-01 10:30:59
- 3.00 | apple         | 2015-11-01 10:30:59
+ ID |     NAME      |         DT          
+----+---------------+---------------------
+  1 | apple#America | 2015-10-01 10:30:59
+  2 | apple#UK      | 2015-11-01 10:30:59
+  3 | apple         | 2015-11-01 10:30:59
 (3 rows)
 
 drop table tt;
@@ -341,7 +341,7 @@ insert into tt values(1,'apple#America',to_date('2015-10-01','yyyy-mm-dd hh24:mi
 insert into tt values(2,'apple#UK',to_date('2015-11-01','yyyy-mm-dd'));
 insert into tt values(3,'apple',to_date('2015-11-01','yyyy-mm-dd'));
 select * from tt order by id;
- id |     name      |         dt          
+ ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 00:00:00
   2 | apple#UK      | 2015-11-01 00:00:00
@@ -349,13 +349,13 @@ select * from tt order by id;
 (3 rows)
 
 select * from tt where name like '%ca' order by id;
- id |     name      |         dt          
+ ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 00:00:00
 (1 row)
 
 select * from tt where name like 'apple%' order by id;
- id |     name      |         dt          
+ ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 00:00:00
   2 | apple#UK      | 2015-11-01 00:00:00
@@ -363,18 +363,18 @@ select * from tt where name like 'apple%' order by id;
 (3 rows)
 
 select * from tt where name like '% ' order by id;
- id | name | dt 
+ ID | NAME | DT 
 ----+------+----
 (0 rows)
 
 select * from tt where name like 'apple' order by id;
- id | name  |         dt          
+ ID | NAME  |         DT          
 ----+-------+---------------------
   3 | apple | 2015-11-01 00:00:00
 (1 row)
 
 select * from tt where name like to_char('apple%') order by id;
- id |     name      |         dt          
+ ID |     NAME      |         DT          
 ----+---------------+---------------------
   1 | apple#America | 2015-10-01 00:00:00
   2 | apple#UK      | 2015-11-01 00:00:00
@@ -382,15 +382,16 @@ select * from tt where name like to_char('apple%') order by id;
 (3 rows)
 
 select * from tt where dt like '2015-10-01' order by id;
-ERROR:  operator does not exist: date ~~ text
-LINE 1: select * from tt where dt like '2015-10-01' order by id;
-                                  ^
-HINT:  No operator matches the given name and argument type(s). You might need to add explicit type casts.
+ ID | NAME | DT 
+----+------+----
+(0 rows)
+
 select * from tt where dt like to_date('2015-10-01','YYYY-MM-DD') order by id;
-ERROR:  operator does not exist: date ~~ date
-LINE 1: select * from tt where dt like to_date('2015-10-01','YYYY-MM...
-                                  ^
-HINT:  No operator matches the given name and argument type(s). You might need to add explicit type casts.
+ ID |     NAME      |         DT          
+----+---------------+---------------------
+  1 | apple#America | 2015-10-01 00:00:00
+(1 row)
+
 drop table tt;
 --IS NULL	
 create table tt(id int,name varchar(20));
@@ -399,7 +400,7 @@ insert into tt values(2,'');
 insert into tt values(3,null);
 insert into tt values(null,null);
 select * from tt where name is null order by id;
- id | name 
+ ID | NAME 
 ----+------
   2 | 
   3 | 
@@ -407,20 +408,20 @@ select * from tt where name is null order by id;
 (3 rows)
 
 select * from tt where name is not null;
- id | name 
+ ID | NAME 
 ----+------
   1 | Jack
 (1 row)
 
 select * from tt where id is not null and name is null order by id;
- id | name 
+ ID | NAME 
 ----+------
   2 | 
   3 | 
 (2 rows)
 
 select * from tt where  name=null;
- id | name 
+ ID | NAME 
 ----+------
 (0 rows)
 
@@ -434,7 +435,7 @@ insert into tt values(3,null);
 insert into tt values(null,null);
 set grammar to oracle;
 select * from tt where name is null order by id;
- id | name 
+ ID | NAME 
 ----+------
   2 | 
   3 | 
@@ -442,20 +443,20 @@ select * from tt where name is null order by id;
 (3 rows)
 
 select * from tt where name is not null;
- id | name 
+ ID | NAME 
 ----+------
   1 | Jack
 (1 row)
 
 select * from tt where id is not null and name is null order by id;
- id | name 
+ ID | NAME 
 ----+------
   2 | 
   3 | 
 (2 rows)
 
 select * from tt where  name=null;
- id | name 
+ ID | NAME 
 ----+------
 (0 rows)
 
@@ -466,13 +467,13 @@ insert into tt values(1,'Jack');
 insert into tt values(2,'Tom');
 insert into tt values(3,'Tom');
 select name from tt where id=1 and name='Jack';
- name 
+ NAME 
 ------
  Jack
 (1 row)
 
 select name from tt where id=1 and name='Jack' or 1=1 order by id;
- name 
+ NAME 
 ------
  Jack
  Tom
@@ -480,13 +481,13 @@ select name from tt where id=1 and name='Jack' or 1=1 order by id;
 (3 rows)
 
 select name from tt where id=1 and (name='Jack' or 1=1);
- name 
+ NAME 
 ------
  Jack
 (1 row)
 
 select name from tt where id=1 or id=2 or id=3 order by id;
- name 
+ NAME 
 ------
  Jack
  Tom
@@ -494,27 +495,27 @@ select name from tt where id=1 or id=2 or id=3 order by id;
 (3 rows)
 
 select * from tt where id=1 or name='Tom' and id=2 order by id;
- id | name 
+ ID | NAME 
 ----+------
   1 | Jack
   2 | Tom
 (2 rows)
 
 select * from tt where (id=1 or name='Tom') and id=2 order by id;
- id | name 
+ ID | NAME 
 ----+------
   2 | Tom
 (1 row)
 
 select * from tt where id=1 or name='Tom' and not id=2 order by id;
- id | name 
+ ID | NAME 
 ----+------
   1 | Jack
   3 | Tom
 (2 rows)
 
 select * from tt where id=1 or not (name='Jack' and id=2) order by id;
- id | name 
+ ID | NAME 
 ----+------
   1 | Jack
   2 | Tom
@@ -522,7 +523,7 @@ select * from tt where id=1 or not (name='Jack' and id=2) order by id;
 (3 rows)
 
 select * from tt where id=1 or not name='Jack' and id=2 order by id;
- id | name 
+ ID | NAME 
 ----+------
   1 | Jack
   2 | Tom
@@ -540,7 +541,7 @@ insert into tt values(4,'');
 insert into tt values(null,4);
 insert into tt values(5,null);
 select * from tt order by id, name;
- id | name 
+ ID | NAME 
 ----+------
   1 | Jack
   1 | Jack
@@ -553,7 +554,7 @@ select * from tt order by id, name;
 (8 rows)
 
 select distinct id from tt order by id;
- id 
+ ID 
 ----
   1
   2
@@ -564,7 +565,7 @@ select distinct id from tt order by id;
 (6 rows)
 
 select distinct id,name from tt order by id, name;
- id | name 
+ ID | NAME 
 ----+------
   1 | Jack
   1 | Rose
@@ -576,13 +577,13 @@ select distinct id,name from tt order by id, name;
 (7 rows)
 
 select count(distinct id) from tt;
- count 
--------
-     5
+ COUNT(DISTINCT ID) 
+--------------------
+                  5
 (1 row)
 
 select distinct name from tt order by name;
- name 
+ NAME 
 ------
  4
  Jack
@@ -592,9 +593,9 @@ select distinct name from tt order by name;
 (5 rows)
 
 select count(distinct name) from tt;
- count 
--------
-     4
+ COUNT(DISTINCT NAME) 
+----------------------
+                    4
 (1 row)
 
 drop table tt;
@@ -604,38 +605,38 @@ insert into tt values(1.00,'Jack','1');
 insert into tt values(1,to_char('Jack '),'1    ');
 insert into tt values(1.00,' Jack','    1');
 select * from tt;
-  id  | name  | addr  
-------+-------+-------
- 1.00 | Jack  | 1    
-    1 | Jack  | 1    
- 1.00 |  Jack |     1
+ ID | NAME  | ADDR  
+----+-------+-------
+  1 | Jack  | 1    
+  1 | Jack  | 1    
+  1 |  Jack |     1
 (3 rows)
 
 select distinct id from tt order by id;
-  id  
-------
- 1.00
+ ID 
+----
+  1
 (1 row)
 
 select distinct name from tt order by name;
- name  
+ NAME  
 -------
-  Jack
  Jack
+  Jack
  Jack 
 (3 rows)
 
 select distinct addr from tt order by addr;
- addr  
+ ADDR  
 -------
-     1
  1    
+     1
 (2 rows)
 
 select count(distinct id) from tt;
- count 
--------
-     1
+ COUNT(DISTINCT ID) 
+--------------------
+                  1
 (1 row)
 
 drop table tt;
@@ -648,7 +649,7 @@ insert into tt values(3,'Tom');
 insert into tt values(11,'Jack');
 insert into tt values(4,'');
 select * from tt order by id;
- id | name  
+ ID | NAME  
 ----+-------
   1 | 1Jack
   2 | 1Rose
@@ -659,7 +660,7 @@ select * from tt order by id;
 (6 rows)
 
 select * from tt order by name desc;
- id | name  
+ ID | NAME  
 ----+-------
   4 | 
   3 | Tom
@@ -670,7 +671,7 @@ select * from tt order by name desc;
 (6 rows)
 
 select * from tt order by id,name desc;
- id | name  
+ ID | NAME  
 ----+-------
   1 | 1Jack
   2 | Rose
@@ -690,18 +691,18 @@ insert into tt values(3,'Tom',2000);
 insert into tt values(4,'Tom',2000);
 insert into tt values(5,'Steven',2000.00);
 select * from tt order by id;
-  id  |  name  |   sal   
-------+--------+---------
-    1 | rose   |    1800
-    2 | rose   |  2000.5
- 3.00 | Jack   |    2000
-    3 | Tom    |    2000
-    4 | Tom    |    2000
-    5 | Steven | 2000.00
+ ID |  NAME  |  SAL   
+----+--------+--------
+  1 | rose   |   1800
+  2 | rose   | 2000.5
+  3 | Jack   |   2000
+  3 | Tom    |   2000
+  4 | Tom    |   2000
+  5 | Steven |   2000
 (6 rows)
 
 select sal from tt group by sal order by sal;
-  sal   
+  SAL   
 --------
    1800
    2000
@@ -709,61 +710,60 @@ select sal from tt group by sal order by sal;
 (3 rows)
 
 select id,count(id) from tt group by id order by id;
-  id  | count 
-------+-------
-    1 |     1
-    2 |     1
- 3.00 |     2
-    4 |     1
-    5 |     1
+ ID | COUNT(ID) 
+----+-----------
+  1 |         1
+  2 |         1
+  3 |         2
+  4 |         1
+  5 |         1
 (5 rows)
 
 select id,count(*) from tt group by id,name order by id;
-  id  | count 
-------+-------
-    1 |     1
-    2 |     1
- 3.00 |     1
-    3 |     1
-    4 |     1
-    5 |     1
+ ID | COUNT(*) 
+----+----------
+  1 |        1
+  2 |        1
+  3 |        1
+  3 |        1
+  4 |        1
+  5 |        1
 (6 rows)
 
 select name,count(*) from tt group by name having count(*)>1 order by name;
- name | count 
-------+-------
- Tom  |     2
- rose |     2
+ NAME | COUNT(*) 
+------+----------
+ rose |        2
+ Tom  |        2
 (2 rows)
 
 select name,count(*) from tt group by name having name !='Tom' order by name;
-  name  | count 
---------+-------
- Jack   |     1
- Steven |     1
- rose   |     2
+  NAME  | COUNT(*) 
+--------+----------
+ Jack   |        1
+ rose   |        2
+ Steven |        1
 (3 rows)
 
 select name,count(*) from tt group by name order by name;
-  name  | count 
---------+-------
- Jack   |     1
- Steven |     1
- Tom    |     2
- rose   |     2
+  NAME  | COUNT(*) 
+--------+----------
+ Jack   |        1
+ rose   |        2
+ Steven |        1
+ Tom    |        2
 (4 rows)
 
 select name,count(*) from tt group by name order by count(*);
-  name  | count 
---------+-------
- Steven |     1
- Jack   |     1
- rose   |     2
- Tom    |     2
+  NAME  | COUNT(*) 
+--------+----------
+ Steven |        1
+ Jack   |        1
+ Tom    |        2
+ rose   |        2
 (4 rows)
 
 drop table tt;
-
 --view下复杂查询，查出最大一行的所有字段：
 create table tt(id int,name varchar(10),sal number(7,2));
 insert into tt(id,name,sal) values(1, 'mike','5000');
@@ -771,19 +771,19 @@ insert into tt(id,name,sal) values(2, 'Tom','6000.98');
 insert into tt(id,name,sal) values(3, 'Jhon',null);
 create view vv as select max(sal) as max_sal from tt;
 select * from vv;
- max_sal 
+ MAX_SAL 
 ---------
  6000.98
 (1 row)
 
 select id,name,sal from tt,vv where tt.sal=vv.max_sal;
- id | name |   sal   
+ ID | NAME |   SAL   
 ----+------+---------
   2 | Tom  | 6000.98
 (1 row)
 
 select id,name,sal from tt,(select max(sal) as max_sal from tt) v where tt.sal=v.max_sal;
- id | name |   sal   
+ ID | NAME |   SAL   
 ----+------+---------
   2 | Tom  | 6000.98
 (1 row)
