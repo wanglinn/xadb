@@ -1294,7 +1294,15 @@ alter_table_cmds:
 
 alter_table_cmd:
 			/* ALTER TABLE <name> ADD <coldef> */
-			ADD_P '(' columnDef ')'
+			ADD_P columnDef
+				{
+					AlterTableCmd *n = makeNode(AlterTableCmd);
+					n->subtype = AT_AddColumn;
+					n->def = $2;
+					n->missing_ok = false;
+					$$ = (Node *)n;
+				}
+			| ADD_P '(' columnDef ')'
 				{
 					AlterTableCmd *n = makeNode(AlterTableCmd);
 					n->subtype = AT_AddColumn;
