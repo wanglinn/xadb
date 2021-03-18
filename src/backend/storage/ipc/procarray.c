@@ -1827,8 +1827,9 @@ retry:
 		Assert(snap->xcnt <= snap->max_xcnt);
 		globalxmin = xmin;
 	}
-#endif /* ADB */
+#else
 	globalxmin = xmin = xmax;
+#endif /* ADB */
 
 	snapshot->takenDuringRecovery = RecoveryInProgress();
 #ifdef ADB
