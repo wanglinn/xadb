@@ -1836,8 +1836,8 @@ void ClusterRecvTableStat(const char *data, int length)
 			RelationGetRelid(rel) != info.key.oid)
 		{
 			if(rel)
-				relation_close(rel, NoLock);
-			rel = relation_open(info.key.oid, NoLock);
+				relation_close(rel, RowExclusiveLock);
+			rel = relation_open(info.key.oid, RowExclusiveLock);
 		}
 
 		status = pgstat_get_status(rel);
@@ -1866,7 +1866,7 @@ void ClusterRecvTableStat(const char *data, int length)
 	}
 
 	if (rel)
-		relation_close(rel, NoLock);
+		relation_close(rel, RowExclusiveLock);
 }
 
 void SaveTableStatSnapshot(void)
