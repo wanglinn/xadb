@@ -3327,6 +3327,7 @@ CopyFrom(CopyState cstate)
 			{
 				int natts = myslot->tts_tupleDescriptor->natts;
 				Assert(natts <= slot->tts_tupleDescriptor->natts);
+				slot_getsomeattrs(slot, natts);
 				memcpy(myslot->tts_values, slot->tts_values, sizeof(slot->tts_values[0]) * natts);
 				memcpy(myslot->tts_isnull, slot->tts_isnull, sizeof(slot->tts_isnull[0]) * natts);
 				ExecStoreVirtualTuple(myslot);
