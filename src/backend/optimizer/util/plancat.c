@@ -2214,7 +2214,7 @@ bool reloid_list_has_any_triggers(List *list, CmdType event)
 
 	foreach(lc, list)
 	{
-		relation = table_open(lfirst_oid(lc), NoLock);
+		relation = table_open(lfirst_oid(lc), AccessShareLock);
 		trigDesc = relation->trigdesc;
 		switch (event)
 		{
@@ -2246,7 +2246,7 @@ bool reloid_list_has_any_triggers(List *list, CmdType event)
 				elog(ERROR, "unrecognized CmdType: %d", (int) event);
 				break;
 		}
-		table_close(relation, NoLock);
+		table_close(relation, AccessShareLock);
 		if (result)
 			break;
 	}
