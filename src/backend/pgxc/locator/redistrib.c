@@ -1535,10 +1535,14 @@ static int process_distrib_cmd(void *context, const char *data, int len)
 						, masterRelname
 						, nspName
 						, shadowRelName)));
-
+			
+			masterRel = table_open(masterRelid, AccessExclusiveLock);
+			shadowRel = table_open(shadowRelid, AccessExclusiveLock);
 			finish_heap_swap(masterRelid, shadowRelid, is_system_catalog,
 							swap_toast_by_content, false, true,
 							RecentXmin, ReadNextMultiXactId(), relpersistence);
+			table_close(masterRel, AccessExclusiveLock);
+			table_close(shadowRel, AccessExclusiveLock);
 			break;
 		case REMOTE_KEY_REWRITE_CATALOG_TABLE:
 			/* rewrite the table catalog */
