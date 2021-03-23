@@ -6054,7 +6054,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 		}
 
 		/* Determine the partition to heap_insert the tuple into */
-		if (proute)
+		if (proute && !TupIsNull(myslot))
 		{
 			resultRelInfo = ExecFindPartition(mtstate, target_resultRelInfo,
 											  proute, myslot, estate);
@@ -6097,6 +6097,7 @@ static TupleTableSlot* NextLineCallTrigger(CopyState cstate, ExprContext *econte
 		/* BEFORE ROW INSERT Triggers */
 		if (resultRelInfo->ri_TrigDesc &&
 			resultRelInfo->ri_TrigDesc->trig_insert_before_row &&
+			!TupIsNull(slot) &&
 			ExecBRInsertTriggers(estate, resultRelInfo, slot) == false)
 		{
 			slot = NULL;

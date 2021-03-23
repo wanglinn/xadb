@@ -161,13 +161,17 @@ re_get_:
 		{
 			Assert(i == node->nremote);
 			result = ExecProcNode(outerPlanState(node));
-			if (TTS_IS_MINIMALTUPLE(result))
+
+			if (likely(!TupIsNull(result)))
 			{
-				node->slots[i] = result;
-			}else
-			{
-				TTSOpsMinimalTuple.copyslot(pstate->ps_ResultTupleSlot, result);
-				node->slots[i] = pstate->ps_ResultTupleSlot;
+				if (TTS_IS_MINIMALTUPLE(result))
+				{
+					node->slots[i] = result;
+				}else
+				{
+					TTSOpsMinimalTuple.copyslot(pstate->ps_ResultTupleSlot, result);
+					node->slots[i] = pstate->ps_ResultTupleSlot;
+				}
 			}
 		}
 		if(likely(!TupIsNull(result)))

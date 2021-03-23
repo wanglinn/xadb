@@ -2234,7 +2234,6 @@ vacuum_rel(Oid relid, RangeVar *relation, VacuumParams *params)
 	else
 	{
 #ifdef ADB
-#warning TODO add other table type
 		if (onerel->rd_tableam == GetHeapamTableAmRoutine())
 			lazy_vacuum_rel_ext(onerel, params, vac_strategy, cn_conns, dn_conns);
 		else

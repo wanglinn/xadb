@@ -1656,12 +1656,14 @@ ExecCreatePartitionPruneState(PlanState *planstate,
 				 * Double-check that the list of unpruned relations has not
 				 * changed.  (Pruned partitions are not in relid_map[].)
 				 */
+#ifndef ADB		/* CN send cluster plan to dn, which partion talbe oid is not same with dn*/
 #ifdef USE_ASSERT_CHECKING
 				for (int k = 0; k < pinfo->nparts; k++)
 				{
 					Assert(partdesc->oids[k] == pinfo->relid_map[k] ||
 						   pinfo->subplan_map[k] == -1);
 				}
+#endif
 #endif
 			}
 			else

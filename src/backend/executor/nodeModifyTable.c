@@ -546,11 +546,8 @@ ExecInsert(ModifyTableState *mtstate,
 		{
 			TupleTableSlot *saveSlot = NULL;
 
-			if (resultRelInfo->ri_WithCheckOptions != NIL)
-			{
-				saveSlot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor, &TTSOpsVirtual);
-				saveSlot = ExecCopySlot(saveSlot, slot);
-			}
+			saveSlot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor, slot->tts_ops);
+			saveSlot = ExecCopySlot(saveSlot, slot);
 
 			/* get the top partition relation slot */
 			if (resultRelInfo->ri_PartitionInfo &&
@@ -1603,11 +1600,8 @@ lreplace:;
 		{
 			TupleTableSlot *saveSlot = NULL;
 
-			if (resultRelInfo->ri_WithCheckOptions != NIL)
-			{
-				saveSlot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor, slot->tts_ops);
-				saveSlot = ExecCopySlot(saveSlot, slot);
-			}
+			saveSlot = MakeSingleTupleTableSlot(slot->tts_tupleDescriptor, slot->tts_ops);
+			saveSlot = ExecCopySlot(saveSlot, slot);
 
 			slot = ExecProcNodeDMLInXC(estate, planSlot, slot);
 
@@ -2961,7 +2955,7 @@ ExecInitModifyTable(ModifyTable *node, EState *estate, int eflags)
 		mtstate->mt_plans[i] = ExecInitNode(subplan, estate, eflags);
 		mtstate->mt_scans[i] =
 			ExecInitExtraTupleSlot(mtstate->ps.state, ExecGetResultType(mtstate->mt_plans[i]),
-								   table_slot_callbacks(resultRelInfo->ri_RelationDesc));
+								   ADB_ONLY_CODE(remoteplan ? &TTSOpsMinimalTuple :)table_slot_callbacks(resultRelInfo->ri_RelationDesc));
 
 		/* Also let FDWs init themselves for foreign-table result rels */
 		if (!resultRelInfo->ri_usesFdwDirectModify &&
@@ -3298,7 +3292,7 @@ not_exists_rel_:
 
 				junkresslot =
 					ExecInitExtraTupleSlot(estate, NULL,
-										   table_slot_callbacks(resultRelInfo->ri_RelationDesc));
+										    ADB_ONLY_CODE((mtstate->mt_remoterels) ? &TTSOpsMinimalTuple :)table_slot_callbacks(resultRelInfo->ri_RelationDesc));
 				j = ExecInitJunkFilter(subplan->targetlist,
 									   junkresslot);
 

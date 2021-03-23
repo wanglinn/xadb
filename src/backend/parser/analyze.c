@@ -4724,11 +4724,11 @@ void applyModifyToAuxiliaryTable(struct PlannerInfo *root, double rows, Index re
 	generated = false;
 	foreach(lc, rel->rd_auxlist)
 	{
-		rel_aux = table_open(lfirst_oid(lc), NoLock);
+		rel_aux = table_open(lfirst_oid(lc), RowExclusiveLock);
 
 		if (RELATION_IS_OTHER_TEMP(rel_aux))
 		{
-			table_close(rel_aux, NoLock);
+			table_close(rel_aux, RowExclusiveLock);
 			continue;
 		}
 

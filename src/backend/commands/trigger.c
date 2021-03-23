@@ -2915,6 +2915,13 @@ ExecBRUpdateTriggers(EState *estate, EPQState *epqstate,
 	}
 #ifdef ADB
 	}
+
+	if (TupIsNull(oldslot))
+	{
+		if (should_free_trig)
+			heap_freetuple(trigtuple);
+		return true;
+	}
 #endif
 
 	LocTriggerData.type = T_TriggerData;
@@ -6130,6 +6137,18 @@ AfterTriggerSaveEvent(EState *estate, ResultRelInfo *relinfo,
 			/* We never use ctid2 field */
 			ItemPointerSetInvalid(&(new_event.ate_ctid2));
 		}
+	
+	if (TupIsNull(oldslot))
+	{
+		if (fdw_tuplestore)
+		{
+			if (oldslot != NULL)
+				tuplestore_puttupleslot(fdw_tuplestore, oldslot);
+			if (newslot != NULL)
+				tuplestore_puttupleslot(fdw_tuplestore, newslot);
+		}
+		return;
+	}
 #endif
 
 	for (i = 0; i < trigdesc->numtriggers; i++)
