@@ -1,5 +1,3 @@
-MODULE_big = dba_views
-
 EXTENSION = dba_views
 DATA = dba_views--1.0.sql
 PGFILEDESC = "dba_views -  Views of Oracle Compatible Cluster"
