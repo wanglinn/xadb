@@ -1949,7 +1949,7 @@ ProcessRecords(char *bufptr, TransactionId xid,
 		 * hold relation(s) lock(s) until snapshot receiver process
 		 * get transaction end message
 		 */
-		PGPROC	   *dummy_proc = TwoPhaseGetDummyProc(xid, false);
+		PGPROC	   *dummy_proc = TwoPhaseGetDummyProc(xid, true);
 		if (!IsGTMNode())
 		{
 			SnapRcvTransferLock(param_io, xid, dummy_proc);
