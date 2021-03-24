@@ -1469,7 +1469,7 @@ static int process_distrib_cmd(void *context, const char *data, int len)
 			relRelation = table_open(RelationRelationId, RowExclusiveLock);
 			shadowTuple = SearchSysCacheCopy1(RELOID, ObjectIdGetDatum(OIDNewHeap));
 			heap_freetuple(shadowTuple);
-			table_close(relRelation, RowExclusiveLock);
+			table_close(relRelation, NoLock);
 
 			break;
 		case REMOTE_KEY_REDIST_SHADOW_DATA:
@@ -1487,7 +1487,9 @@ static int process_distrib_cmd(void *context, const char *data, int len)
 			sprintf(shadowRelName, "%s%d", SHADOW_RELATION_PREFIX, masterRelid);
 			shadowRelid = get_relname_relid(shadowRelName, relnamespace);
 			redistcopy = (AuxiliaryRelCopy *)linitial(redistcopylist);
-			masterRel = table_open(masterRelid, AccessExclusiveLock);
+
+			/*In REMOTE_KEY_CREATE_SHADOW_TABLE we have hold AccessExclusiveLock lock for two tables*/
+			masterRel = table_open(masterRelid, NoLock);
 			shadowRel = table_open(shadowRelid, AccessExclusiveLock);
 
 			ereport(DEBUG1,
@@ -1508,14 +1510,14 @@ static int process_distrib_cmd(void *context, const char *data, int len)
 									preferred);
 			}PG_CATCH();
 			{
-				table_close(masterRel, AccessExclusiveLock);
-				table_close(shadowRel, AccessExclusiveLock);
+				table_close(masterRel, NoLock);
+				table_close(shadowRel, NoLock);
 
 				PG_RE_THROW();
 			}PG_END_TRY();
 
-			table_close(masterRel, AccessExclusiveLock);
-			table_close(shadowRel, AccessExclusiveLock);
+			table_close(masterRel, NoLock);
+			table_close(shadowRel, NoLock);
 			break;
 		case REMOTE_KEY_SWAP_SHADOW_SOURCE_TABLE:
 			/* swap shadow relation file with source relation file */
@@ -1536,13 +1538,11 @@ static int process_distrib_cmd(void *context, const char *data, int len)
 						, nspName
 						, shadowRelName)));
 			
-			masterRel = table_open(masterRelid, AccessExclusiveLock);
-			shadowRel = table_open(shadowRelid, AccessExclusiveLock);
+			masterRel = table_open(masterRelid, NoLock);
 			finish_heap_swap(masterRelid, shadowRelid, is_system_catalog,
 							swap_toast_by_content, false, true,
 							RecentXmin, ReadNextMultiXactId(), relpersistence);
-			table_close(masterRel, AccessExclusiveLock);
-			table_close(shadowRel, AccessExclusiveLock);
+			table_close(masterRel, NoLock);
 			break;
 		case REMOTE_KEY_REWRITE_CATALOG_TABLE:
 			/* rewrite the table catalog */
