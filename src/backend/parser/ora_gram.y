@@ -182,6 +182,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 
 %type <list>	stmtblock stmtmulti opt_column_list columnList alter_table_cmds
 				OptRoleList convert_type_list  type_list drop_col_list modify_col_list
+				AlterOptRoleList
 
 %type <list>	OptSeqOptList SeqOptList
 /* %type <list>	NumericOnly_list */
@@ -278,7 +279,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %type <node>	group_by_item rollup_clause empty_grouping_set cube_clause grouping_sets_clause
 
 %type <node>
-	AexprConst a_expr AlterTableStmt alter_column_default AlterObjectSchemaStmt
+	AexprConst a_expr AlterTableStmt alter_column_default AlterObjectSchemaStmt AlterRoleStmt
 	alter_using
 	b_expr
 	BlockCodeStmt
@@ -371,7 +372,7 @@ static A_Indirection* listToIndirection(A_Indirection *in, ListCell *lc);
 %type <subclus> OptSubCluster OptSubClusterInternal
 /* ADB_END */
 
-%token <keyword> ABSOLUTE_P ACCESS ADD_P AGGREGATE ALL ALTER ANALYZE ANALYSE AND ABORT_P
+%token <keyword> ABSOLUTE_P ACCESS ACCOUNT ADD_P AGGREGATE ALL ALTER ANALYZE ANALYSE AND ABORT_P
 	ANY AS ASC AUDIT AUTHORIZATION ACTION ALWAYS AT
 	ADMIN AUTHID
 	BACKWARD BEGIN_P BETWEEN BFILE BIGINT BINARY BINARY_FLOAT BINARY_DOUBLE
@@ -536,6 +537,7 @@ stmtmulti: stmtmulti ';' stmt
 stmt:
 	  AlterTableStmt
 	| AlterObjectSchemaStmt
+	| AlterRoleStmt
 	| BlockCodeStmt
 	| ClosePortalStmt
 	| CommentStmt
@@ -800,6 +802,44 @@ AlterOptRoleElem:
 									 parser_errposition(@1)));
 				}
 		;
+
+/*****************************************************************************
+ *
+ * Alter a postgresql DBMS user
+ *
+ *****************************************************************************/
+
+AlterRoleStmt:
+			ALTER ROLE RoleSpec opt_with AlterOptRoleList
+				{
+					AlterRoleStmt *n = makeNode(AlterRoleStmt);
+					n->role = $3;
+					n->action = +1;	/* add, if there are members */
+					n->options = $5;
+					$$ = (Node *)n;
+				}
+			| ALTER PROFILE RoleSpec LIMIT OptRoleList
+				{
+					AlterRoleStmt *n = makeNode(AlterRoleStmt);
+					n->role = $3;
+					n->action = +1;	/* add, if there are members */
+					n->options = $5;
+					$$ = (Node *)n;
+				}
+			| ALTER USER RoleSpec ACCOUNT OptRoleList
+				{
+					AlterRoleStmt *n = makeNode(AlterRoleStmt);
+					n->role = $3;
+					n->action = +1;	/* add, if there are members */
+					n->options = $5;
+					$$ = (Node *)n;
+				}
+		;
+
+AlterOptRoleList:
+			AlterOptRoleList AlterOptRoleElem		{ $$ = lappend($1, $2); }
+			| /* EMPTY */							{ $$ = NIL; }
+
 
 /*****************************************************************************
  *
@@ -8796,6 +8836,7 @@ unreserved_keyword:
 	  ANALYSE
 	| ABORT_P
 	| ABSOLUTE_P
+	| ACCOUNT
 	| ACTION
 	| ADMIN
 	| AGGREGATE
